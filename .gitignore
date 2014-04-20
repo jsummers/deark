@@ -1,0 +1,10 @@
+*.o
+/deark
+/deark.exe
+/proj/vs2008/deark.vcproj.*.user
+/proj/vs2008/*.suo
+/proj/vs2008/*.ncb
+/Debug32
+/Release32
+/Debug64
+/Release64

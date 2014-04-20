@@ -1,0 +1,108 @@
+Deark -- Information about supported formats
+
+
+=== Image format modules ===
+
+(Images will be converted to PNG, except as noted.)
+
+* Amiga Workbench Icon (module="amigaicon")
+  - Original format: Mostly supported, but the format is not portable, and
+    there is not just one correct way to render the images.
+  - NewIcons: Fully supported.
+  - GlowIcons / OS3.5: Compressed images are supported. Uncompressed images are
+    not.
+
+* BSAVE (module="bsave")
+  Support (some) PC-style BSAVE files.
+  Options
+   -opt bsave:width=<n>
+   -opt bsave:height=<n>
+   -opt bsave:fmt=char  - Character graphics, converted to HTML format
+   -opt bsave:fmt=cga2  - 640x200 2-color
+   -opt bsave:fmt=cga4  - 320x200 4-color
+   -opt bsave:fmt=cga16 - Very low (160x100) resolution
+   -opt bsave:fmt=mcga  - 320x200 256-color
+   -opt palfile=<file.pal> - Use this palette file (BSAVE format)
+   -opt bsave:fmt=wh2   - 2-color, header includes width & height
+   -opt bsave:fmt=wh4   - 4 color, header includes width & height
+   -opt bsave:fmt=wh16  - 16 color, header includes width & height, inter-row
+     interlaced
+   -opt bsave:fmt=b265  - Special
+   -opt bsave:fmt=2col  - 2-color noninterlaced (experimental)
+   -opt bsave:fmt=4col  - 4-color noninterlaced (experimental)
+
+* EPOC MBM/Sketch/AIF (module="epocimage")
+  - Supports grayscale with 2 or 4 bits/pixel
+  - Supports palette color with 4 or 8 bits/pixel
+  - Supports uncompressed and RLE8 compression
+
+* HP 100LX / HP 200LX .ICN icon format (module="hpicn")
+
+* MacPaint (module="macpaint")
+  - Extracts brush patterns (as PNG)
+  Options
+   -opt macpaint:macbinary=<0|1>
+   -opt macpaint:extractpatterns=<0|1>
+
+* MSP (Microsoft Paint graphics) (module="msp")
+  - Version 1 and 2
+
+* OS/2 Icon, Pointer, Bitmap Array formats (module="os2bmp")
+  - Converts icons & pointers to individual PNG files. Extract Bitmap Array
+    BMP images as individual BMP files.
+
+* PC Paint / Pictor (module="pcpaint")
+  - Supports PIC and CLP formats. Some files are not portable, because they use
+    a nonstandard palette that is not contained in the file.
+  - Supports most images with 8 or fewer bits/pixel.
+  Options
+   -opt pcpaint:fmt=pic
+   -opt pcpaint:fmt=clp
+
+* Psion PIC (module="psionpic")
+  - Supports 1- and 2-bit grayscale
+
+
+=== Compression and archive modules ===
+
+* zlib (module="zlib")
+  - Raw zlib files can be uncompressed.
+
+
+=== File extraction modules ===
+
+* Copy (module="copy")
+  - "Extract" the entire file. Use with -start and -size to extract part of
+    the file.
+
+* EPS (Encapsulated PostScript) (module="eps")
+  - Extract EPS, TIFF, and WMF from "EPS DOS Binary" format.
+
+* GRASP GL animation (module="graspgl")
+  - Extracts all files.
+
+* JPEG (module="jpeg")
+  - Extract ICC profiles.
+  - Extract Exif JPEG-formatted thumbnails.
+  - Extract JFXX JPEG-formatted thumbnails (rare).
+  - Extract various things from Exif data.
+  - Extract various things from "Photoshop resources"
+  - Extract Exif data (use -extractall)
+
+* PSD (PhotoShop) (module="psd")
+  - Extract data from "Photoshop resources"
+
+  * Photoshop resources
+    - Extract JPEG thumbnails. Some thumbnail images have the red and blue
+      channels swapped -- Deark warns about this but does not correct it.
+    - Extract various things from Exif data.
+    - Extract Exif data (use -extractall).
+    - Extract IPTC data (use -extractall).
+
+* TIFF and Exif (module="tiff")
+  - Extract JPEG-formatted Exif thumbnails, and some types of Old-style
+    JPEG-compressed images.
+  - Extract ICC profiles.
+  - Extract data from "Photoshop resources",
+  - Extract IPTC data (use -extractall).
+
