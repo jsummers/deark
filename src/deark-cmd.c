@@ -17,7 +17,7 @@ struct cmdctx {
 
 static void usage(void)
 {
-	fprintf(stderr, "usage error\n");
+	fprintf(stderr, "usage: deark [options] <input-file>\n");
 }
 
 static void set_option(deark *c, struct cmdctx *cc, const char *optionstring)
@@ -31,7 +31,6 @@ static void set_option(deark *c, struct cmdctx *cc, const char *optionstring)
 	eqpos = strchr(tmp, '=');
 	if(eqpos) {
 		*eqpos = '\0';
-		// printf("set option '%s'='%s'\n", tmp, eqpos+1);
 		de_set_option(c, tmp, eqpos+1);
 	}
 	else {

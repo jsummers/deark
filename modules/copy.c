@@ -6,7 +6,6 @@
 // This is a trivial modules that makes a copy of the input file.
 
 #include <deark-config.h>
-
 #include <deark-modules.h>
 
 static int de_identify_copy(deark *c)

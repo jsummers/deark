@@ -1,7 +1,8 @@
 // This file is part of Deark, by Jason Summers.
 // This software is in the public domain. See the file COPYING for details.
 
-// OS/2 Icon and OS/2 Pointer format.
+// Convert OS/2 Icon and OS/2 Pointer format.
+// Extract BMP files in a BA (Bitmap Array) container.
 
 #include <deark-config.h>
 #include <deark-modules.h>

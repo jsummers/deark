@@ -1,8 +1,0 @@
-=== How to build ===
-On a modern Unix-like system, just type:
-  make
-
-For Windows users, you can the Visual Studio 2008 project files in the "prj"
-directory, or use Cygwin.
-
-Deark has no dependencies, other than the standard C library.

@@ -84,7 +84,7 @@ Studio 2008 and later. Alternatively, you can use Cygwin.
 
 My thanks to Rich Geldreich for the "miniz" library.
 
-== Authors ==
+=== Authors ===
 
 Written by Jason Summers, 2014.
 <http://entropymine.com/deark/>

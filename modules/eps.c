@@ -2,7 +2,6 @@
 // This software is in the public domain. See the file COPYING for details.
 
 #include <deark-config.h>
-
 #include <deark-modules.h>
 
 static void de_run_eps(deark *c, const char *params)

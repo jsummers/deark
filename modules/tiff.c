@@ -47,7 +47,7 @@ static void push_ifd(deark *c, lctx *d, de_int64 ifdpos)
 		d->ifdstack_numused = 0;
 	}
 	if(d->ifdstack_numused >= d->ifdstack_capacity) {
-		de_warn(c, "too many TIFF IFDs, not supported");
+		de_warn(c, "Too many TIFF IFDs, not supported");
 		return;
 	}
 	d->ifdstack[d->ifdstack_numused].offset = ifdpos;
@@ -150,7 +150,7 @@ static void process_ifd(deark *c, lctx *d, de_int64 ifdpos)
 
 	de_dbg(c, "number of tags: %d\n", num_tags);
 	if(num_tags<1 || num_tags>200) {
-		de_warn(c, "invalid or excessive number of TIFF tags (%d)\n", num_tags);
+		de_warn(c, "Invalid or excessive number of TIFF tags (%d)\n", num_tags);
 		return;
 	}
 
