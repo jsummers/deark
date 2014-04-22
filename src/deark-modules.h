@@ -3,6 +3,7 @@
 
 #include "deark-private.h"
 
+void de_module_unsupported(deark *c, struct deark_module_info *mi);
 void de_module_jpeg(deark *c, struct deark_module_info *mi);
 void de_module_tiff(deark *c, struct deark_module_info *mi);
 void de_module_os2bmp(deark *c, struct deark_module_info *mi);

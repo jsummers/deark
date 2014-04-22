@@ -454,6 +454,10 @@
 				>
 			</File>
 			<File
+				RelativePath="..\..\modules\unsupported.c"
+				>
+			</File>
+			<File
 				RelativePath="..\..\modules\zlib.c"
 				>
 			</File>
