@@ -442,6 +442,10 @@
 				>
 			</File>
 			<File
+				RelativePath="..\..\modules\psionapp.c"
+				>
+			</File>
+			<File
 				RelativePath="..\..\modules\psionpic.c"
 				>
 			</File>

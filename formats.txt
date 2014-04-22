@@ -99,6 +99,10 @@ Deark -- Information about supported formats
     - Extract Exif data (use -extractall).
     - Extract IPTC data (use -extractall).
 
+* Psion APP/IMG
+  - Extract Psion PIC icons.
+  - Extract other contents (use -extractall).
+
 * TIFF and Exif (module="tiff")
   - Extract JPEG-formatted Exif thumbnails, and some types of Old-style
     JPEG-compressed images.

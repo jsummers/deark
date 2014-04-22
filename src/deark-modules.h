@@ -18,4 +18,5 @@ void de_module_amigaicon(deark *c, struct deark_module_info *mi);
 void de_module_macpaint(deark *c, struct deark_module_info *mi);
 void de_module_epocimage(deark *c, struct deark_module_info *mi);
 void de_module_psionpic(deark *c, struct deark_module_info *mi);
+void de_module_psionapp(deark *c, struct deark_module_info *mi);
 void de_module_hpicn(deark *c, struct deark_module_info *mi);
