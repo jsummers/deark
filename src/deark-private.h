@@ -74,7 +74,7 @@ struct deark_struct {
 	int error_count;
 	int format_declared;
 
-	const char *input_format; // Identifies the module that will decode the file.
+	const char *input_format_req; // Format requested
 
 	de_int64 slice_start_req; // Used if we're only to look at part of the file.
 	de_int64 slice_size_req;
@@ -103,6 +103,10 @@ struct deark_struct {
 void de_fatalerror(deark *c);
 
 void de_register_modules(deark *c);
+
+int de_run_module(deark *c, struct deark_module_info *mi, const char *params);
+int de_run_module_by_id(deark *c, const char *id, const char *params);
+struct deark_module_info *de_get_module_by_id(deark *c, const char *module_id);
 
 void de_strlcpy(char *dst, const char *src, size_t dstlen);
 int de_strcmp(const char *s1, const char *s2);

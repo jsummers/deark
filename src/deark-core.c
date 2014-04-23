@@ -9,14 +9,15 @@
 #include "deark-config.h"
 #include "deark-private.h"
 
-static void identify_format(deark *c)
+// Returns the best module to use, by looking at the file contents, etc.
+static struct deark_module_info *detect_module_for_file(deark *c)
 {
 	int i;
 	int result;
 	int best_result = 0;
 	struct deark_module_info *best_module = NULL;
 
-	for(i=0; c->module_info[i].id!=NULL; i++) {
+	for(i=0; i<c->num_modules; i++) {
 		if(c->module_info[i].identify_fn!=NULL) {
 			result = c->module_info[i].identify_fn(c);
 			if(result > best_result) {
@@ -27,9 +28,7 @@ static void identify_format(deark *c)
 		}
 	}
 
-	if(best_module) {
-		c->input_format = best_module->id;
-	}
+	return best_module;
 }
 
 void de_run(deark *c)
@@ -37,6 +36,7 @@ void de_run(deark *c)
 	dbuf *orig_ifile = NULL;
 	dbuf *subfile = NULL;
 	de_int64 subfile_size;
+	struct deark_module_info *module_to_use = NULL;
 
 	de_register_modules(c);
 
@@ -70,19 +70,28 @@ void de_run(deark *c)
 		c->infile = subfile;
 	}
 
-	if(!c->input_format) {
-		identify_format(c);
-		if(!c->input_format) {
-			de_err(c, "Unknown or unsupported file format\n");
-			goto done;
+	if(c->input_format_req) {
+		module_to_use = de_get_module_by_id(c, c->input_format_req);
+		if(!module_to_use) {
+			de_err(c, "Unknown module \"%s\"\n", c->input_format_req);
 		}
 	}
 
-	de_msg(c, "Module: %s\n", c->input_format);
+	if(!module_to_use) {
+		module_to_use = detect_module_for_file(c);
+	}
+
+	if(!module_to_use) {
+		de_err(c, "Unknown or unsupported file format\n");
+		goto done;
+	}
+
+	de_msg(c, "Module: %s\n", module_to_use->id);
 	de_dbg(c, "File size: %" INT64_FMT "\n", dbuf_get_length(c->infile));
 
-	if(!de_run_module_by_id(c, c->input_format, NULL))
+	if(!de_run_module(c, module_to_use, NULL)) {
 		goto done;
+	}
 
 	if(c->file_count==0 && c->error_count==0) {
 		de_msg(c, "No files found to extract!\n");

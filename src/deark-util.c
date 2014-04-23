@@ -567,27 +567,39 @@ dbuf *dbuf_create_membuf(deark *c, de_int64 initialsize)
 	return f;
 }
 
+struct deark_module_info *de_get_module_by_id(deark *c, const char *module_id)
+{
+	int i;
+
+	if(!module_id) return NULL;
+
+	for(i=0; i<c->num_modules; i++) {
+		if(!de_strcmp(c->module_info[i].id, module_id)) {
+			return &c->module_info[i];
+		}
+	}
+	return NULL;
+}
+
+int de_run_module(deark *c, struct deark_module_info *mi, const char *params)
+{
+	if(!mi) return 0;
+	if(!mi->run_fn) return 0;
+	mi->run_fn(c, params);
+	return 1;
+}
+
 int de_run_module_by_id(deark *c, const char *id, const char *params)
 {
 	struct deark_module_info *module_to_use;
-	int i;
 
-	// Find the module to use.
-	module_to_use = NULL;
-	for(i=0; c->module_info[i].id!=NULL; i++) {
-		if(!strcmp(id, c->module_info[i].id)) {
-			module_to_use = &c->module_info[i];
-			break;
-		}
-	}
-
+	module_to_use = de_get_module_by_id(c, id);
 	if(!module_to_use) {
 		de_err(c, "Unknown or unsupported format \"%s\"\n", id);
 		return 0;
 	}
 
-	module_to_use->run_fn(c, params);
-	return 1;
+	return de_run_module(c, module_to_use, params);
 }
 
 static void membuf_append(dbuf *f, const de_byte *m, de_int64 mlen)
@@ -679,7 +691,7 @@ const char *de_get_option(deark *c, const char *name)
 
 void de_set_input_format(deark *c, const char *fmtname)
 {
-	c->input_format = fmtname;
+	c->input_format_req = fmtname;
 }
 
 dbuf *dbuf_open_input_file(deark *c, const char *fn)

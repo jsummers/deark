@@ -50,7 +50,6 @@ void de_set_input_filename(deark *c, const char *fn);
 void de_set_input_file_slice_start(deark *c, de_int64 n);
 void de_set_input_file_slice_size(deark *c, de_int64 n);
 
-int de_run_module_by_id(deark *c, const char *id, const char *params);
 void de_run(deark *c);
 
 // 0=off  1=normal  2=verbose
