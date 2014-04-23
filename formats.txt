@@ -99,7 +99,7 @@ Deark -- Information about supported formats
     - Extract Exif data (use -extractall).
     - Extract IPTC data (use -extractall).
 
-* Psion APP/IMG
+* Psion APP/IMG and OPA/OPO (module="psionapp")
   - Extract Psion PIC icons.
   - Extract other contents (use -extractall).
 
