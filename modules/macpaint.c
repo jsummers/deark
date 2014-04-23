@@ -114,7 +114,7 @@ static int valid_file_at(deark *c, lctx *d, de_int64 pos1)
 
 	// Minimum bytes per row is 2.
 	// For a valid (non-truncated) file, file size must be at least
-	// pos1 + 512 + 2*MACPAINT_HEIGHT. But we want to tolerate most truncated
+	// pos1 + 512 + 2*MACPAINT_HEIGHT. But we want to tolerate truncated
 	// files as well.
 	if(c->infile->len < imgstart + 4) {
 		de_dbg(c, "file too small\n");
@@ -193,7 +193,7 @@ static void do_read_patterns(deark *c, lctx *d, de_int64 pos)
 		for(j=0; j<dispheight; j++) {
 			for(i=0; i<dispwidth; i++) {
 				// TODO: Figure out the proper "brush origin" of these patterns.
-				// Some of them may be shifted differently that MacPaint displays them.
+				// Some of them may be shifted differently than MacPaint displays them.
 				x = de_get_bits_symbol(c->infile, 1, pos+cell*8+j%8, i%8);
 
 				// 0 = white. Only need to set the white pixels, since they start out
