@@ -38,6 +38,14 @@ static void get_fmt(deark *c, struct fmtinfo_struct *fmti)
 		return;
 	}
 
+	if(!de_memcmp(b, "%!PS-Adobe-", 11) &&
+		!de_memcmp(&b[14], " EPSF-", 6) )
+	{
+		fmti->confidence = 80;
+		fmti->descr = "a plain EPS or EPSI file (not EPS binary)";
+		return;
+	}
+
 	if(b[0]=='B' && b[1]=='M') {
 		fmti->confidence = 20;
 		fmti->descr = "a BMP image file";
