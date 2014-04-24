@@ -322,7 +322,7 @@ void dbuf_read(dbuf *f, de_byte *buf, de_int64 pos, de_int64 len)
 		break;
 
 	case DBUF_TYPE_MEMBUF:
-		memcpy(buf, f->membuf_buf, (size_t)bytes_to_read);
+		memcpy(buf, &f->membuf_buf[pos], (size_t)bytes_to_read);
 		break;
 
 	default:

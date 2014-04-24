@@ -49,15 +49,31 @@ typedef struct localctx_struct {
 	de_int64 color_type;
 	de_int64 bits_per_pixel;
 	de_int64 paint_data_section_size;
+	int warned_exp;
 } lctx;
 
-static struct deark_bitmap *do_create_image(deark *c, lctx *d, dbuf *unc_pixels)
+static de_uint32 rgb565to888(de_uint32 n)
+{
+	de_byte cr, cg, cb;
+	cr = (de_byte)(n>>11);
+	cg = (de_byte)((n>>5)&0x3f);
+	cb = (de_byte)(n&0x1f);
+	cr = (de_byte)(0.5+((double)cr)*(255.0/31.0));
+	cg = (de_byte)(0.5+((double)cg)*(255.0/63.0));
+	cb = (de_byte)(0.5+((double)cb)*(255.0/31.0));
+	return DE_MAKE_RGB(cr, cg, cb);
+}
+
+static struct deark_bitmap *do_create_image(deark *c, lctx *d, dbuf *unc_pixels, int is_mask)
 {
 	struct deark_bitmap *img = NULL;
 	de_int64 i, j;
 	de_int64 src_rowspan;
 	de_byte b;
 	de_int64 i_adj;
+	de_byte cr;
+	de_uint32 n;
+	de_uint32 clr;
 
 	img = de_bitmap_create(c, d->width, d->height, d->color_type ? 3 : 1);
 
@@ -94,6 +110,16 @@ static struct deark_bitmap *do_create_image(deark *c, lctx *d, dbuf *unc_pixels)
 					de_bitmap_setpixel_gray(img, i, j, b);
 				}
 				break;
+			case 16:
+				n = (de_uint32)dbuf_getui16le(unc_pixels, j*src_rowspan + i*2);
+				if(is_mask) {
+					cr = (de_byte)(n>>8);
+					clr = DE_MAKE_RGB(cr, cr, cr);
+				}
+				else {
+					clr = rgb565to888(n);
+				}
+				de_bitmap_setpixel_rgb(img, i, j, clr);
 			}
 		}
 	}
@@ -131,9 +157,44 @@ static void do_rle8(deark *c, lctx *d, dbuf *unc_pixels,
 	}
 }
 
+static void do_rle16(deark *c, lctx *d, dbuf *unc_pixels,
+	de_int64 pos1, de_int64 len)
+{
+	de_int64 i;
+	de_byte b0;
+	de_int64 pos;
+	de_int64 count;
+	de_byte v[2];
+
+	pos = pos1;
+	while(pos<pos1+len) {
+		b0 = de_getbyte(pos);
+		pos++;
+
+		if(b0<=0x7f) {
+			// Next pixel should be repeated b0+1 times.
+			count = 1+(de_int64)b0;
+			v[0] = de_getbyte(pos++);
+			v[1] = de_getbyte(pos++);
+			de_dbg2(c, "%d compressed pixels (%d,%d)\n", (int)count, (int)v[0], (int)v[1]);
+			for(i=0; i<count; i++) {
+				dbuf_write(unc_pixels, v, 2);
+			}
+		}
+		else {
+			// 256-b0 pixels of uncompressed data.
+			count = 256-(de_int64)b0;
+			de_dbg2(c, "%d uncompressed pixels\n", (int)count);
+			dbuf_copy(c->infile, pos, count*2, unc_pixels);
+			pos += count*2;
+		}
+	}
+}
+
 // Sets d->paint_data_section_size.
 // Returns a bitmap.
-static struct deark_bitmap *do_read_paint_data_section(deark *c, lctx *d, de_int64 pos1)
+static struct deark_bitmap *do_read_paint_data_section(deark *c, lctx *d,
+	de_int64 pos1, int is_mask)
 {
 	de_int64 pixel_data_offset;
 	de_int64 pos;
@@ -173,8 +234,12 @@ static struct deark_bitmap *do_read_paint_data_section(deark *c, lctx *d, de_int
 		}
 	}
 	else {
-		if(d->bits_per_pixel!=4 && d->bits_per_pixel!=8) {
+		if(d->bits_per_pixel!=4 && d->bits_per_pixel!=8 && d->bits_per_pixel!=16) {
 			de_err(c, "Unsupported bits/pixel (%d) for color image\n", (int)d->bits_per_pixel);
+		}
+		if(d->bits_per_pixel==16 && !d->warned_exp) {
+			de_warn(c, "Support for this type of 16-bit image is experimental, and may not be correct.\n");
+			d->warned_exp = 1;
 		}
 	}
 
@@ -190,15 +255,19 @@ static struct deark_bitmap *do_read_paint_data_section(deark *c, lctx *d, de_int
 		unc_pixels = dbuf_create_membuf(c, 16384);
 		do_rle8(c, d, unc_pixels, pos, cmpr_pixels_size);
 		break;
+	case 3: // RLE16
+		unc_pixels = dbuf_create_membuf(c, 16384);
+		do_rle16(c, d, unc_pixels, pos, cmpr_pixels_size);
+		break;
 
-		// TODO: RLE12 (2), RLE16 (3), RLE24 (4)
+		// TODO: RLE12 (2), RLE24 (4)
 
 	default:
 		de_err(c, "Unsupported compression type: %d\n", (int)compression_type);
 		goto done;
 	}
 
-	img = do_create_image(c, d, unc_pixels);
+	img = do_create_image(c, d, unc_pixels, is_mask);
 
 done:
 	if(unc_pixels) dbuf_close(unc_pixels);
@@ -211,7 +280,7 @@ static void do_read_and_write_paint_data_section(deark *c, lctx *d, de_int64 pos
 {
 	struct deark_bitmap *img = NULL;
 
-	img = do_read_paint_data_section(c, d, pos1);
+	img = do_read_paint_data_section(c, d, pos1, 0);
 	de_bitmap_write_to_file(img, NULL);
 	de_bitmap_destroy(img);
 }
@@ -222,7 +291,7 @@ static void do_combine_and_write_images(deark *c, lctx *d,
 	struct deark_bitmap *img = NULL; // The combined image
 	de_int64 i, j;
 	de_uint32 clr;
-	de_uint32 a;
+	de_byte a;
 
 	if(!fg_img) goto done;
 	if(!mask_img) {
@@ -238,19 +307,18 @@ static void do_combine_and_write_images(deark *c, lctx *d,
 			clr = de_bitmap_getpixel(fg_img, i, j);
 
 			if(i<mask_img->width && j<mask_img->height) {
-				a = de_bitmap_getpixel(mask_img, i, j);
+				a = DE_COLOR_G(de_bitmap_getpixel(mask_img, i, j));
 			}
 			else {
 				// Apparently, some masks are smaller than the image, and undefined
 				// pixels should be transparent.
-				a = 0xffffffff;
+				a = 0xff;
 			}
 
-			// White is background, black is foreground. Not sure what other
-			// colors are.
-			if(a == 0xffffffff) {
-				// Make this pixel transparent.
-				clr = DE_MAKE_RGBA(255,128,255,0);
+			// White is background, black is foreground.
+			if(a!=0) {
+				// Make this pixel transparent or partly transparent.
+				clr = DE_MAKE_RGBA(255,128,255,255-a);
 			}
 			de_bitmap_setpixel_rgba(img, i, j, clr);
 		}
@@ -376,7 +444,7 @@ static void de_run_epocaif(deark *c, lctx *d)
 	while(i<num_images) {
 		de_dbg(c, "foreground image at %d\n", (int)img_pos);
 		de_bitmap_destroy(fg_img);
-		fg_img = do_read_paint_data_section(c, d, img_pos);
+		fg_img = do_read_paint_data_section(c, d, img_pos, 0);
 		if(d->paint_data_section_size<=0) break;
 		img_pos += d->paint_data_section_size;
 		i++;
@@ -384,7 +452,7 @@ static void de_run_epocaif(deark *c, lctx *d)
 		if(i<num_images) {
 			de_dbg(c, "mask image at %d\n", (int)img_pos);
 			de_bitmap_destroy(mask_img);
-			mask_img = do_read_paint_data_section(c, d, img_pos);
+			mask_img = do_read_paint_data_section(c, d, img_pos, 1);
 			if(d->paint_data_section_size<=0) break;
 			img_pos += d->paint_data_section_size;
 			i++;
@@ -448,6 +516,12 @@ static int de_identify_epocimage_internal(deark *c)
 	if(!de_memcmp(b, "\x37\x00\x00\x10\x6a\x00\x00\x10", 8)) {
 		return DE_PFMT_AIF; // EPOC AIF
 	}
+	if(!de_memcmp(b, "\x37\x00\x00\x10\x38\x3a\x00\x10", 8)) {
+		return DE_PFMT_AIF;
+	}
+	//if(!de_memcmp(b, "\x32\xb0\x1f\x10\x00\x00\x00\x00", 8)) {
+	//	return DE_PFMT_?;
+	//}
 	return 0;
 }
 
