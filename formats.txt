@@ -34,7 +34,8 @@ Deark -- Information about supported formats
 * EPOC MBM/Sketch/AIF (module="epocimage")
   - Supports grayscale with 2 or 4 bits/pixel
   - Supports palette color with 4 or 8 bits/pixel
-  - Supports uncompressed and RLE8 compression
+  - Supports 16/24 bit full color
+  - Supports uncompressed and RLE8/RLE16/RLE24 compression
 
 * HP 100LX / HP 200LX .ICN icon format (module="hpicn")
 

@@ -55,6 +55,8 @@ struct deark_bitmap {
 	int flipped;
 	de_byte *bitmap;
 	de_int64 bitmap_size; // bytes allocated for bitmap
+	int orig_colortype; // Optional; can be used by modules
+	int orig_bitdepth; // Optional; can be used by modules
 };
 
 struct deark_option {
@@ -254,6 +256,7 @@ void de_bitmap_destroy(struct deark_bitmap *b);
 
 #define DE_MAKE_RGBA(r,g,b,a)  ((((de_uint32)(a))<<24)|((r)<<16)|((g)<<8)|(b))
 #define DE_MAKE_RGB(r,g,b)     ((((de_uint32)0xff)<<24)|((r)<<16)|((g)<<8)|(b))
+#define DE_SET_ALPHA(v,a)      (((v)&0x00ffffff)|((a)<<24))
 
 // Return the index'th symbol in the bitmap row beginning at file position rowstart.
 // A symbol has bps bits. bps must be 1, 2, 4, or 8.

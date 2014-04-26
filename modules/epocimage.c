@@ -74,11 +74,21 @@ static struct deark_bitmap *do_create_image(deark *c, lctx *d, dbuf *unc_pixels,
 	de_byte cr;
 	de_uint32 n;
 	de_uint32 clr;
+	de_byte v[3];
 
 	img = de_bitmap_create(c, d->width, d->height, d->color_type ? 3 : 1);
 
-	// Rows are 4-byte aligned
-	src_rowspan = ((d->bits_per_pixel*d->width +31)/32)*4;
+	img->orig_colortype = (int)d->color_type;
+	img->orig_bitdepth = (int)d->bits_per_pixel;
+
+	if(d->bits_per_pixel==24) {
+		// 24-bit images seem to be 12-byte aligned
+		src_rowspan = ((d->bits_per_pixel*d->width +95)/96)*12;
+	}
+	else {
+		// Rows are 4-byte aligned
+		src_rowspan = ((d->bits_per_pixel*d->width +31)/32)*4;
+	}
 
 	for(j=0; j<d->height; j++) {
 		for(i=0; i<d->width; i++) {
@@ -120,6 +130,14 @@ static struct deark_bitmap *do_create_image(deark *c, lctx *d, dbuf *unc_pixels,
 					clr = rgb565to888(n);
 				}
 				de_bitmap_setpixel_rgb(img, i, j, clr);
+				break;
+			case 24:
+				v[0] = dbuf_getbyte(unc_pixels, j*src_rowspan + i*3);
+				v[1] = dbuf_getbyte(unc_pixels, j*src_rowspan + i*3+1);
+				v[2] = dbuf_getbyte(unc_pixels, j*src_rowspan + i*3+2);
+				clr = DE_MAKE_RGB(v[0], v[1], v[2]);
+				de_bitmap_setpixel_rgb(img, i, j, clr);
+				break;
 			}
 		}
 	}
@@ -157,14 +175,15 @@ static void do_rle8(deark *c, lctx *d, dbuf *unc_pixels,
 	}
 }
 
-static void do_rle16(deark *c, lctx *d, dbuf *unc_pixels,
-	de_int64 pos1, de_int64 len)
+static void do_rle16_24(deark *c, lctx *d, dbuf *unc_pixels,
+	de_int64 pos1, de_int64 len, de_int64 bytes_per_pixel)
 {
 	de_int64 i;
+	de_int64 k;
 	de_byte b0;
 	de_int64 pos;
 	de_int64 count;
-	de_byte v[2];
+	de_byte v[3];
 
 	pos = pos1;
 	while(pos<pos1+len) {
@@ -174,19 +193,18 @@ static void do_rle16(deark *c, lctx *d, dbuf *unc_pixels,
 		if(b0<=0x7f) {
 			// Next pixel should be repeated b0+1 times.
 			count = 1+(de_int64)b0;
-			v[0] = de_getbyte(pos++);
-			v[1] = de_getbyte(pos++);
-			de_dbg2(c, "%d compressed pixels (%d,%d)\n", (int)count, (int)v[0], (int)v[1]);
+			for(k=0; k<bytes_per_pixel; k++) {
+				v[k] = de_getbyte(pos++);
+			}
 			for(i=0; i<count; i++) {
-				dbuf_write(unc_pixels, v, 2);
+				dbuf_write(unc_pixels, v, bytes_per_pixel);
 			}
 		}
 		else {
 			// 256-b0 pixels of uncompressed data.
 			count = 256-(de_int64)b0;
-			de_dbg2(c, "%d uncompressed pixels\n", (int)count);
-			dbuf_copy(c->infile, pos, count*2, unc_pixels);
-			pos += count*2;
+			dbuf_copy(c->infile, pos, count*bytes_per_pixel, unc_pixels);
+			pos += count*bytes_per_pixel;
 		}
 	}
 }
@@ -231,11 +249,15 @@ static struct deark_bitmap *do_read_paint_data_section(deark *c, lctx *d,
 	if(d->color_type==0) {
 		if(d->bits_per_pixel!=2 && d->bits_per_pixel!=4 && d->bits_per_pixel!=8) {
 			de_err(c, "Unsupported bits/pixel (%d) for grayscale image\n", (int)d->bits_per_pixel);
+			goto done;
 		}
 	}
 	else {
-		if(d->bits_per_pixel!=4 && d->bits_per_pixel!=8 && d->bits_per_pixel!=16) {
+		if(d->bits_per_pixel!=4 && d->bits_per_pixel!=8 && d->bits_per_pixel!=16 &&
+			d->bits_per_pixel!=24)
+		{
 			de_err(c, "Unsupported bits/pixel (%d) for color image\n", (int)d->bits_per_pixel);
+			goto done;
 		}
 		if(d->bits_per_pixel==16 && !d->warned_exp) {
 			de_warn(c, "Support for this type of 16-bit image is experimental, and may not be correct.\n");
@@ -257,10 +279,14 @@ static struct deark_bitmap *do_read_paint_data_section(deark *c, lctx *d,
 		break;
 	case 3: // RLE16
 		unc_pixels = dbuf_create_membuf(c, 16384);
-		do_rle16(c, d, unc_pixels, pos, cmpr_pixels_size);
+		do_rle16_24(c, d, unc_pixels, pos, cmpr_pixels_size, 2);
+		break;
+	case 4: // RLE24
+		unc_pixels = dbuf_create_membuf(c, 16384);
+		do_rle16_24(c, d, unc_pixels, pos, cmpr_pixels_size, 3);
 		break;
 
-		// TODO: RLE12 (2), RLE24 (4)
+		// TODO: RLE12 (2)
 
 	default:
 		de_err(c, "Unsupported compression type: %d\n", (int)compression_type);
@@ -308,6 +334,9 @@ static void do_combine_and_write_images(deark *c, lctx *d,
 
 			if(i<mask_img->width && j<mask_img->height) {
 				a = DE_COLOR_G(de_bitmap_getpixel(mask_img, i, j));
+				if(mask_img->orig_colortype==0 && mask_img->orig_bitdepth==8) {
+					a = 255-a;
+				}
 			}
 			else {
 				// Apparently, some masks are smaller than the image, and undefined
@@ -316,9 +345,12 @@ static void do_combine_and_write_images(deark *c, lctx *d,
 			}
 
 			// White is background, black is foreground.
-			if(a!=0) {
+			if(a==0xff) {
+				clr = DE_MAKE_RGBA(255,128,255,0);
+			}
+			else if(a!=0) {
 				// Make this pixel transparent or partly transparent.
-				clr = DE_MAKE_RGBA(255,128,255,255-a);
+				clr = DE_SET_ALPHA(clr, 255-a);
 			}
 			de_bitmap_setpixel_rgba(img, i, j, clr);
 		}
