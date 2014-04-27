@@ -55,6 +55,16 @@ static void parse_cmdline(deark *c, struct cmdctx *cc, int argc, char **argv)
 			else if(!strcmp(argv[i]+1, "l")) {
 				de_set_listmode(c, 1);
 			}
+			else if(!strcmp(argv[i]+1, "noinfo")) {
+				de_set_messages(c, 0);
+			}
+			else if(!strcmp(argv[i]+1, "nowarn")) {
+				de_set_warnings(c, 0);
+			}
+			else if(!strcmp(argv[i]+1, "q")) {
+				de_set_messages(c, 0);
+				de_set_warnings(c, 0);
+			}
 			else if(!strcmp(argv[i]+1, "version")) {
 				printf("Deark version %s\n", de_get_version_string(vbuf, sizeof(vbuf)));
 				cc->error_flag = 1;

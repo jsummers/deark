@@ -86,6 +86,8 @@ struct deark_struct {
 
 	int extract_level;
 	int list_mode;
+	int show_messages;
+	int show_warnings;
 
 	void *zip_file;
 

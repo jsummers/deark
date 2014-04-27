@@ -143,6 +143,7 @@ void de_warn(deark *c, const char *fmt, ...)
 {
 	va_list ap;
 
+	if(!c->show_warnings) return;
 	fprintf(stderr,"Warning: ");
 	va_start(ap, fmt);
 	vfprintf(stderr,fmt,ap);
@@ -153,6 +154,7 @@ void de_msg(deark *c, const char *fmt, ...)
 {
 	va_list ap;
 
+	if(!c->show_messages) return;
 	va_start(ap, fmt);
 	vfprintf(stderr,fmt,ap);
 	va_end(ap);
@@ -235,6 +237,8 @@ deark *de_create(void)
 {
 	deark *c;
 	c = de_malloc(NULL,sizeof(deark));
+	c->show_messages = 1;
+	c->show_warnings = 1;
 	return c;
 }
 
@@ -504,6 +508,16 @@ void de_set_extract_level(deark *c, int x)
 void de_set_listmode(deark *c, int x)
 {
 	c->list_mode = x;
+}
+
+void de_set_messages(deark *c, int x)
+{
+	c->show_messages = x;
+}
+
+void de_set_warnings(deark *c, int x)
+{
+	c->show_warnings = x;
 }
 
 dbuf *dbuf_create_output_file(deark *c, const char *ext)

@@ -41,6 +41,12 @@ Command-line options:
      Module-specific options. See formats.txt.
   -version
      Print the version number.
+  -noinfo
+     Suppress informational messages.
+  -nowarn
+     Suppress warning messages.
+  -q
+     Suppress informational and warning messages.
   -d
      Debug mode.
   -d2
