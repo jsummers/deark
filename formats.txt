@@ -61,7 +61,13 @@ Deark -- Information about supported formats
    -opt pcpaint:fmt=clp
 
 * Psion PIC (module="psionpic")
-  - Supports 1- and 2-bit grayscale
+  A Psion PIC file contains one or more 1-bpp bitmaps, some of which can be
+  combined to make grayscale images. Deark will try to guess which images
+  should be combined, but it may not always get it right.
+  - Supports 1- and 2-bit grayscale.
+  Options
+   -opt psionpic:bw  - Do not try to detect grayscale images. Write each bitmap
+     as a separate image.
 
 
 === Compression and archive modules ===

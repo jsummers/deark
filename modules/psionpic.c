@@ -15,6 +15,7 @@ struct plane_info_struct {
 
 typedef struct localctx_struct {
 	de_int64 num_planes;
+	int bw;
 	struct plane_info_struct *plane_info; // Array of plane_info_structs
 } lctx;
 
@@ -109,6 +110,9 @@ static int could_be_2bit(lctx *d, int startpos)
 // This detection logic is just a wild guess. Copy it at your own risk.
 static int detect_format(deark *c, lctx *d)
 {
+	if(d->bw)
+		return PPIC_FMT_1_1;
+
 	if(d->num_planes>=3 &&
 		d->plane_info[0].width==24 && d->plane_info[0].height==24 &&
 		d->plane_info[1].width==48 && d->plane_info[1].height==48 &&
@@ -135,9 +139,15 @@ static void de_run_psionpic(deark *c, const char *params)
 	lctx *d = NULL;
 	de_int64 i;
 	int format;
+	const char *s;
 
 	de_dbg(c, "In psionpic module\n");
 	d = de_malloc(c, sizeof(lctx));
+
+	s = de_get_option(c, "psionpic:bw");
+	if(s) {
+		d->bw = 1;
+	}
 
 	d->num_planes = de_getui16le(6);
 	de_dbg(c, "number of planes/bitmaps: %d\n", (int)d->num_planes);
