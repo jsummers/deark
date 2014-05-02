@@ -38,6 +38,26 @@ static void get_fmt(deark *c, struct fmtinfo_struct *fmti)
 		return;
 	}
 
+	if(!de_memcmp(b, "PK\x03\x04", 4)) {
+		fmti->confidence = 90;
+		fmti->descr = "a ZIP file";
+		return;
+	}
+
+	if(!de_memcmp(b, "\x1f\x8b\x08", 3)) {
+		fmti->confidence = 80;
+		fmti->descr = "a gzip-compressed file";
+		return;
+	}
+
+	if(!de_memcmp(b, "\x42\x5a\x68", 3) &&
+		!de_memcmp(&b[4], "\x31\x41\x59\x26\x53\x59", 6) )
+	{
+		fmti->confidence = 90;
+		fmti->descr = "a bzip2-compressed file";
+		return;
+	}
+
 	if(!de_memcmp(b, "%!PS-Adobe-", 11) &&
 		!de_memcmp(&b[14], " EPSF-", 6) )
 	{
