@@ -29,6 +29,7 @@ void de_register_modules(deark *c)
 	register_a_module(c, de_module_epocimage);
 	register_a_module(c, de_module_psionpic);
 	register_a_module(c, de_module_psionapp);
+	register_a_module(c, de_module_exe);
 	register_a_module(c, de_module_hpicn);
 	register_a_module(c, de_module_macpaint);
 	register_a_module(c, de_module_graspgl);

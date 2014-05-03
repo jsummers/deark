@@ -410,6 +410,10 @@
 				>
 			</File>
 			<File
+				RelativePath="..\..\modules\exe.c"
+				>
+			</File>
+			<File
 				RelativePath="..\..\modules\graspgl.c"
 				>
 			</File>

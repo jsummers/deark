@@ -96,6 +96,10 @@ Deark -- Information about supported formats
   - Extract various things from "Photoshop resources"
   - Extract Exif data (use -extractall)
 
+* EXE/PE/NE/etc. (module="exe")
+  - Very limited support.
+  - Can extract bitmaps from some PE32 files.
+
 * PSD (PhotoShop) (module="psd")
   - Extract data from "Photoshop resources"
 
