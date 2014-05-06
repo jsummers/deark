@@ -12,6 +12,8 @@
 #define EXE_FMT_PE32   3
 #define EXE_FMT_PE32PLUS 4
 
+#define MAX_RESOURCES 10000
+
 typedef struct localctx_struct {
 	int fmt;
 	de_int64 ext_header_offset;
@@ -273,7 +275,7 @@ static void do_extract_ICON(deark *c, lctx *d, de_int64 pos, de_int64 len)
 
 	w = de_getui32le(pos+4);
 	if(w>255) w=0;
-	h = de_getui32le(pos+8);
+	h = de_getui32le(pos+8)/2;
 	if(h>255) h=0;
 
 	bitcount = de_getui16le(pos+14);
@@ -342,7 +344,7 @@ static void do_resource_data_entry(deark *c, lctx *d, de_int64 rel_pos)
 	}
 }
 
-static void do_resource_dir_table(deark *c, lctx *d, de_int64 pos, int level);
+static void do_resource_dir_table(deark *c, lctx *d, de_int64 rel_pos, int level);
 
 static void do_resource_node(deark *c, lctx *d, de_int64 rel_pos, int level)
 {
@@ -351,8 +353,8 @@ static void do_resource_node(deark *c, lctx *d, de_int64 rel_pos, int level)
 	int has_name, is_branch_node;
 
 	d->rsrc_item_count++;
-	if(d->rsrc_item_count>10000) {
-		// Loops are possible. This is an emergency brake.
+	if(d->rsrc_item_count>MAX_RESOURCES) {
+		// An emergency brake.
 		de_err(c, "Too many resources.\n");
 		return;
 	}
@@ -382,7 +384,7 @@ static void do_resource_node(deark *c, lctx *d, de_int64 rel_pos, int level)
 		level, (int)(d->cur_base_addr+rel_pos), (int)rel_pos,
 		(int)name_or_id, (int)next_offset, has_name, is_branch_node);
 
-	// If high bit is q, we need to go deeper.
+	// If high bit is 1, we need to go deeper.
 	if(is_branch_node) {
 		do_resource_dir_table(c, d, next_offset, level+1);
 	}
