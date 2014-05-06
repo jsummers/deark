@@ -6,17 +6,25 @@
 #include <deark-config.h>
 #include <deark-modules.h>
 
+#define EXE_FMT_DOS    1
+#define EXE_FMT_NE     2
+#define EXE_FMT_PE     3
+#define EXE_FMT_PEPLUS 4
+
 typedef struct localctx_struct {
+	int fmt;
 	de_int64 ext_header_offset;
 	de_int64 sections_offset;
 	de_int64 number_of_sections;
 
-	// File offset where the resource nodes start. Some addresses are relative
+	// File offset where the resources start. Some addresses are relative
 	// to this.
 	de_int64 cur_base_addr;
 
 	de_int64 cur_section_virt_addr;
 	de_int64 cur_section_data_offset;
+	de_int64 cur_rsrc_type;
+	de_int64 rsrc_item_count;
 } lctx;
 
 static void do_opt_coff_data_dirs(deark *c, lctx *d, de_int64 pos)
@@ -67,8 +75,20 @@ static void do_opt_coff_header(deark *c, lctx *d, de_int64 pos, de_int64 len)
 		coff_opt_hdr_size = 24;
 
 	if(sig==0x010b) { // = PE32
+		d->fmt = EXE_FMT_PE;
+		de_declare_fmt(c, "PE32 executable file");
 		do_opt_coff_nt_header(c, d, pos+coff_opt_hdr_size);
 		do_opt_coff_data_dirs(c, d, pos+coff_opt_hdr_size+68);
+	}
+	else if(sig==0x020b) {
+		d->fmt = EXE_FMT_PEPLUS;
+		de_declare_fmt(c, "PE32+ executable file");
+	}
+	else if(sig==0x0107) {
+		de_declare_fmt(c, "PE ROM image");
+	}
+	else {
+		de_declare_fmt(c, "Unknown PE file type");
 	}
 }
 
@@ -93,6 +113,24 @@ static void do_pe_coff_header(deark *c, lctx *d, de_int64 pos)
 	}
 }
 
+static void do_ne_ext_header(deark *c, lctx *d, de_int64 pos)
+{
+	de_int64 rsrc_tbl_offset;
+	de_byte target_os;
+	const char *desc;
+
+	rsrc_tbl_offset = de_getui16le(pos+36);
+	de_dbg(c, "offset of resource table: %d\n", (int)rsrc_tbl_offset);
+	target_os = de_getbyte(pos+54);
+	switch(target_os) {
+	case 1: desc=" (OS/2)"; break;
+	case 2: desc=" (Windows)"; break;
+	case 4: desc=" (Windows 386)"; break;
+	default: desc="";
+	}
+	de_dbg(c, "target OS: %d%s\n", (int)target_os, desc);
+}
+
 static void do_ext_header(deark *c, lctx *d)
 {
 	de_byte buf[4];
@@ -101,6 +139,11 @@ static void do_ext_header(deark *c, lctx *d)
 	if(!de_memcmp(buf, "PE\0\0", 4)) {
 		de_dbg(c, "PE header at %d\n", (int)d->ext_header_offset);
 		do_pe_coff_header(c, d, d->ext_header_offset);
+	}
+	else if(!de_memcmp(buf, "NE", 2)) {
+		de_declare_fmt(c, "NE");
+		d->fmt = EXE_FMT_NE;
+		do_ne_ext_header(c, d, d->ext_header_offset);
 	}
 }
 
@@ -114,9 +157,16 @@ static void do_fileheader(deark *c, lctx *d)
 	if(reloc_tbl_offset>=64) {
 		d->ext_header_offset = de_getui32le(60);
 		de_dbg(c, "extended header offset: %d\n", (int)d->ext_header_offset);
+
+		if(d->ext_header_offset >= c->infile->len) {
+			// TODO: Some DOS executables have reloc_tbl_offset>=64, and do not have
+			// ext_header_offset at offset 60.
+			d->ext_header_offset = 0;
+		}
 	}
 	else {
-		; // If reloc_tbl_offset < 64, it's probably MS-DOS.
+		de_declare_fmt(c, "MS-DOS EXE");
+		d->fmt = EXE_FMT_DOS;
 	}
 
 	if(d->ext_header_offset!=0) {
@@ -129,8 +179,8 @@ static void do_fileheader(deark *c, lctx *d)
 static void de_DIB_to_BMP(deark *c, dbuf *inf, de_int64 pos, de_int64 len, dbuf *outf)
 {
 	de_int64 infohdrsize;
-	de_int64 bitcount;
 	de_int64 hdrs_size;
+	de_int64 bitcount = 0;
 	de_int64 pal_entries = 0;
 	de_int64 bytes_per_pal_entry = 0;
 	de_int64 compression = 0;
@@ -144,12 +194,10 @@ static void de_DIB_to_BMP(deark *c, dbuf *inf, de_int64 pos, de_int64 len, dbuf 
 	if(infohdrsize==12) {
 		bytes_per_pal_entry = 3;
 		bitcount = dbuf_getui16le(inf, pos+10);
-		if(bitcount<=8) {
-			pal_entries = (de_int64)(1<<(unsigned int)bitcount);
-		}
 	}
 	else if(infohdrsize>=16) {
 		bytes_per_pal_entry = 4;
+		bitcount = dbuf_getui16le(inf, pos+14);
 
 		if(infohdrsize>=20) {
 			compression = dbuf_getui32le(inf, pos+16);
@@ -164,6 +212,10 @@ static void de_DIB_to_BMP(deark *c, dbuf *inf, de_int64 pos, de_int64 len, dbuf 
 	}
 	else {
 		return;
+	}
+
+	if(pal_entries==0 && bitcount>0 && bitcount<=8) {
+		pal_entries = (de_int64)(1<<(unsigned int)bitcount);
 	}
 
 	// Account for the palette.
@@ -188,11 +240,14 @@ static void do_extract_BITMAP(deark *c, lctx *d, de_int64 pos, de_int64 len)
 	dbuf_close(f);
 }
 
-static void do_resource_data_entry(deark *c, lctx *d, de_int64 rel_pos, de_int64 type_id)
+static void do_resource_data_entry(deark *c, lctx *d, de_int64 rel_pos)
 {
 	de_int64 data_size;
 	de_int64 data_virt_addr;
 	de_int64 data_real_offset;
+	de_int64 type_id;
+
+	type_id = d->cur_rsrc_type;
 
 	de_dbg(c, " resource data entry at %d(%d) rsrc_type=%d\n",
 		(int)(d->cur_base_addr+rel_pos), (int)rel_pos, (int)type_id);
@@ -217,117 +272,90 @@ static void do_resource_data_entry(deark *c, lctx *d, de_int64 rel_pos, de_int64
 	}
 }
 
-static void do_LANG_node(deark *c, lctx *d, de_int64 rel_pos, de_int64 type_id)
+static void do_resource_dir_table(deark *c, lctx *d, de_int64 pos, int level);
+
+static void do_resource_node(deark *c, lctx *d, de_int64 rel_pos, int level)
 {
-	de_int64 node_id;
-	de_int64 node_offset;
+	de_int64 name_or_id;
+	de_int64 next_offset;
 	int has_name, is_branch_node;
+
+	d->rsrc_item_count++;
+	if(d->rsrc_item_count>10000) {
+		// Loops are possible. This is an emergency brake.
+		de_err(c, "Too many resources.\n");
+		return;
+	}
 
 	has_name = 0;
 	is_branch_node = 0;
 
-	node_id = de_getui32le(d->cur_base_addr+rel_pos);
-	if(node_id & 0x80000000) {
+	name_or_id = de_getui32le(d->cur_base_addr+rel_pos);
+	if(name_or_id & 0x80000000) {
 		has_name = 1;
-		node_id -= 0x80000000;
+		name_or_id -= 0x80000000;
 	}
-	node_offset = de_getui32le(d->cur_base_addr+rel_pos+4);
-	if(node_offset & 0x80000000) {
+	next_offset = de_getui32le(d->cur_base_addr+rel_pos+4);
+	if(next_offset & 0x80000000) {
 		is_branch_node = 1;
-		node_offset -= 0x80000000;
-	}
-	de_dbg(c, " LANG node at %d(%d) id=%d offset=%d is-named=%d is-branch=%d\n",
-		(int)(d->cur_base_addr+rel_pos), (int)rel_pos,
-		(int)node_id, (int)node_offset, has_name, is_branch_node);
-
-	if(is_branch_node) {
-		return; // unexpected
+		next_offset -= 0x80000000;
 	}
 
-	do_resource_data_entry(c, d, node_offset, type_id);
-}
-
-static void do_NAME_node(deark *c, lctx *d, de_int64 rel_pos, de_int64 type_id)
-{
-	de_int64 node_id;
-	de_int64 node_offset;
-	int has_name, is_branch_node;
-
-	has_name = 0;
-	is_branch_node = 0;
-
-	node_id = de_getui32le(d->cur_base_addr+rel_pos);
-	if(node_id & 0x80000000) {
-		// TODO: Is the has-name flag valid for all node types?
-		has_name = 1;
-		node_id -= 0x80000000;
+	if(level==1) {
+		d->cur_rsrc_type = name_or_id;
 	}
-	node_offset = de_getui32le(d->cur_base_addr+rel_pos+4);
-	if(node_offset & 0x80000000) {
-		is_branch_node = 1;
-		node_offset -= 0x80000000;
-	}
-	de_dbg(c, " NAME node at %d(%d) id=%d offset=%d is-named=%d is-branch=%d\n",
-		(int)(d->cur_base_addr+rel_pos), (int)rel_pos,
-		(int)node_id, (int)node_offset, has_name, is_branch_node);
 
-	if(is_branch_node) {
-		do_LANG_node(c, d, node_offset, type_id);
-	}
-}
+	// TODO: If a resource has a name (at level 2), we should read it so we
+	// can use it for the filename.
 
-static void do_TYPE_node(deark *c, lctx *d, de_int64 rel_pos, de_int64 node_index)
-{
-	de_int64 type_id;
-	de_int64 node_offset;
-	int has_name, is_branch_node;
-
-	has_name = 0;
-	is_branch_node = 0;
-
-	type_id = de_getui32le(d->cur_base_addr+rel_pos);
-	if(type_id & 0x80000000) {
-		has_name = 1;
-		type_id -= 0x80000000;
-	}
-	node_offset = de_getui32le(d->cur_base_addr+rel_pos+4);
-	if(node_offset & 0x80000000) {
-		is_branch_node = 1;
-		node_offset -= 0x80000000;
-	}
-	de_dbg(c, "TYPE node #%d at %d(%d) id=%d offset=%d is-named=%d is-branch=%d\n",
-		(int)node_index, (int)(d->cur_base_addr+rel_pos), (int)rel_pos,
-		(int)type_id, (int)node_offset, has_name, is_branch_node);
+	de_dbg(c, "level %d node at %d(%d) id=%d next-offset=%d is-named=%d is-branch=%d\n",
+		level, (int)(d->cur_base_addr+rel_pos), (int)rel_pos,
+		(int)name_or_id, (int)next_offset, has_name, is_branch_node);
 
 	// If high bit is q, we need to go deeper.
 	if(is_branch_node) {
-		do_NAME_node(c, d, node_offset, type_id);
+		do_resource_dir_table(c, d, next_offset, level+1);
+	}
+	else {
+		do_resource_data_entry(c, d, next_offset);
 	}
 }
 
-static void do_resource_section(deark *c, lctx *d, de_int64 pos, de_int64 len)
+static void do_resource_dir_table(deark *c, lctx *d, de_int64 rel_pos, int level)
 {
 	de_int64 named_node_count;
 	de_int64 unnamed_node_count;
 	de_int64 node_count;
 	de_int64 i;
 
-	de_dbg(c, "resource node header at %d\n", (unsigned int)pos);
+	// 16-byte "Resource node header" a.k.a "Resource directory table"
 
-	// 16-byte "Resource node header"
+	if(level>3) {
+		de_warn(c, "Resource tree too deep\n");
+		return;
+	}
 
-	named_node_count = de_getui16le(pos+12);
-	unnamed_node_count = de_getui16le(pos+14);
+	de_dbg(c, "resource directory table at %d(%d), level=%d\n",
+		(unsigned int)(d->cur_base_addr+rel_pos), (unsigned int)rel_pos, level);
+
+	named_node_count = de_getui16le(d->cur_base_addr+rel_pos+12);
+	unnamed_node_count = de_getui16le(d->cur_base_addr+rel_pos+14);
 	de_dbg(c, "number of node entries: named=%d, unnamed=%d\n", (unsigned int)named_node_count,
 		(unsigned int)unnamed_node_count);
 
 	node_count = named_node_count + unnamed_node_count;
-
-	d->cur_base_addr = pos+16;
+	
 	// An array of 8-byte "Resource node entries" follows the Resource node header.
 	for(i=0; i<node_count; i++) {
-		do_TYPE_node(c, d, 8*i, i);
+		do_resource_node(c, d, rel_pos+16+8*i, level);
 	}
+}
+
+static void do_resource_section(deark *c, lctx *d, de_int64 pos, de_int64 len)
+{
+	d->cur_base_addr = pos;
+	d->rsrc_item_count = 0;
+	do_resource_dir_table(c, d, 0, 1);
 }
 
 static void do_section_header(deark *c, lctx *d, de_int64 pos)
@@ -364,7 +392,7 @@ static void do_section_header(deark *c, lctx *d, de_int64 pos)
 	}
 }
 
-static void do_section_table(deark *c, lctx *d)
+static void do_section_table_pe(deark *c, lctx *d)
 {
 	de_int64 pos;
 	de_int64 i;
@@ -385,8 +413,8 @@ static void de_run_exe(deark *c, const char *params)
 
 	do_fileheader(c, d);
 
-	if(d->sections_offset>0) {
-		do_section_table(c, d);
+	if(d->fmt==EXE_FMT_PE && d->sections_offset>0) {
+		do_section_table_pe(c, d);
 	}
 
 	de_free(c, d);
@@ -394,10 +422,10 @@ static void de_run_exe(deark *c, const char *params)
 
 static int de_identify_exe(deark *c)
 {
-	de_byte buf[8];
-	de_read(buf, 0, 8);
+	de_byte buf[2];
+	de_read(buf, 0, 2);
 
-	if(!de_memcmp(buf, "MZ", 2)) return 80;
+	if(buf[0]=='M' && buf[1]=='Z') return 80;
 	return 0;
 }
 
