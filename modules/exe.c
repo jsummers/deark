@@ -8,8 +8,8 @@
 
 #define EXE_FMT_DOS    1
 #define EXE_FMT_NE     2
-#define EXE_FMT_PE     3
-#define EXE_FMT_PEPLUS 4
+#define EXE_FMT_PE32   3
+#define EXE_FMT_PE32PLUS 4
 
 typedef struct localctx_struct {
 	int fmt;
@@ -74,15 +74,15 @@ static void do_opt_coff_header(deark *c, lctx *d, de_int64 pos, de_int64 len)
 	else
 		coff_opt_hdr_size = 24;
 
-	if(sig==0x010b) { // = PE32
-		d->fmt = EXE_FMT_PE;
-		de_declare_fmt(c, "PE32 executable file");
+	if(sig==0x010b) {
+		d->fmt = EXE_FMT_PE32;
+		de_declare_fmt(c, "PE32");
 		do_opt_coff_nt_header(c, d, pos+coff_opt_hdr_size);
 		do_opt_coff_data_dirs(c, d, pos+coff_opt_hdr_size+68);
 	}
 	else if(sig==0x020b) {
-		d->fmt = EXE_FMT_PEPLUS;
-		de_declare_fmt(c, "PE32+ executable file");
+		d->fmt = EXE_FMT_PE32PLUS;
+		de_declare_fmt(c, "PE32+");
 	}
 	else if(sig==0x0107) {
 		de_declare_fmt(c, "PE ROM image");
@@ -125,7 +125,9 @@ static void do_ne_ext_header(deark *c, lctx *d, de_int64 pos)
 	switch(target_os) {
 	case 1: desc=" (OS/2)"; break;
 	case 2: desc=" (Windows)"; break;
+	case 3: desc=" (European MS-DOS 4.x)"; break;
 	case 4: desc=" (Windows 386)"; break;
+	case 5: desc=" (Borland Operating System Services)"; break;
 	default: desc="";
 	}
 	de_dbg(c, "target OS: %d%s\n", (int)target_os, desc);
@@ -135,16 +137,27 @@ static void do_ext_header(deark *c, lctx *d)
 {
 	de_byte buf[4];
 
+	if(d->ext_header_offset == 0 || d->ext_header_offset >= c->infile->len) {
+		// Give up if ext_header_offset is obviously bad.
+		goto done;
+	}
+
 	de_read(buf, d->ext_header_offset, 4);
 	if(!de_memcmp(buf, "PE\0\0", 4)) {
 		de_dbg(c, "PE header at %d\n", (int)d->ext_header_offset);
 		do_pe_coff_header(c, d, d->ext_header_offset);
+		// If do_pe_coff_header didn't figure out the format...
+		de_declare_fmt(c, "PE");
 	}
 	else if(!de_memcmp(buf, "NE", 2)) {
 		de_declare_fmt(c, "NE");
 		d->fmt = EXE_FMT_NE;
 		do_ne_ext_header(c, d, d->ext_header_offset);
 	}
+
+done:
+	// If we still don't know the format...
+	de_declare_fmt(c, "Unknown EXE format (maybe MS-DOS)");
 }
 
 static void do_fileheader(deark *c, lctx *d)
@@ -154,22 +167,13 @@ static void do_fileheader(deark *c, lctx *d)
 	reloc_tbl_offset = de_getui16le(24);
 	de_dbg(c, "relocation table offset: %d\n", (int)reloc_tbl_offset);
 
-	if(reloc_tbl_offset>=64) {
-		d->ext_header_offset = de_getui32le(60);
-		de_dbg(c, "extended header offset: %d\n", (int)d->ext_header_offset);
-
-		if(d->ext_header_offset >= c->infile->len) {
-			// TODO: Some DOS executables have reloc_tbl_offset>=64, and do not have
-			// ext_header_offset at offset 60.
-			d->ext_header_offset = 0;
-		}
-	}
-	else {
+	if(reloc_tbl_offset>=28 && reloc_tbl_offset<64) {
 		de_declare_fmt(c, "MS-DOS EXE");
 		d->fmt = EXE_FMT_DOS;
 	}
-
-	if(d->ext_header_offset!=0) {
+	else {
+		d->ext_header_offset = de_getui32le(60);
+		de_dbg(c, "extended header offset: %d\n", (int)d->ext_header_offset);
 		do_ext_header(c, d);
 	}
 }
@@ -413,7 +417,7 @@ static void de_run_exe(deark *c, const char *params)
 
 	do_fileheader(c, d);
 
-	if(d->fmt==EXE_FMT_PE && d->sections_offset>0) {
+	if(d->fmt==EXE_FMT_PE32 && d->sections_offset>0) {
 		do_section_table_pe(c, d);
 	}
 
