@@ -43,23 +43,39 @@ static void do_opt_coff_data_dirs(deark *c, lctx *d, de_int64 pos)
 		(int)rsrc_tbl_size);
 }
 
+static const char *get_subsys_desc(de_int64 subsystem)
+{
+	switch(subsystem) {
+	case 2: return " (Windows GUI)";
+	case 3: return " (console)";
+	}
+	return "";
+}
+
 static void do_opt_coff_nt_header(deark *c, lctx *d, de_int64 pos)
 {
 	de_int64 x;
 	de_int64 subsystem;
-	const char *desc;
 
 	de_dbg(c, "COFF/PE optional header (Windows NT) at %d\n", (int)pos);
 	x = de_getui32le(pos);
 	de_dbg(c, "image base offset: 0x%08x\n", (unsigned int)x);
 
 	subsystem = de_getui16le(pos+40);
-	switch(subsystem) {
-	case 2: desc = " (Windows GUI)"; break;
-	case 3: desc = " (console)"; break;
-	default: desc = "";
-	}
-	de_dbg(c, "subsystem: %d%s\n", (int)subsystem, desc);
+	de_dbg(c, "subsystem: %d%s\n", (int)subsystem, get_subsys_desc(subsystem));
+}
+
+static void do_opt_coff_nt_header_64(deark *c, lctx *d, de_int64 pos)
+{
+	de_int64 base_offset;
+	de_int64 subsystem;
+
+	de_dbg(c, "COFF/PE32+ optional header (Windows NT) at %d\n", (int)pos);
+	base_offset = de_geti64le(pos);
+	de_dbg(c, "image base offset: 0x%016" INT64_FMTx "\n", base_offset);
+
+	subsystem = de_getui16le(pos+44);
+	de_dbg(c, "subsystem: %d%s\n", (int)subsystem, get_subsys_desc(subsystem));
 }
 
 static void do_opt_coff_header(deark *c, lctx *d, de_int64 pos, de_int64 len)
@@ -86,6 +102,8 @@ static void do_opt_coff_header(deark *c, lctx *d, de_int64 pos, de_int64 len)
 	else if(sig==0x020b) {
 		d->fmt = EXE_FMT_PE32PLUS;
 		de_declare_fmt(c, "PE32+");
+		do_opt_coff_nt_header_64(c, d, pos+coff_opt_hdr_size);
+		do_opt_coff_data_dirs(c, d, pos+coff_opt_hdr_size+88);
 	}
 	else if(sig==0x0107) {
 		de_declare_fmt(c, "PE ROM image");
@@ -485,7 +503,7 @@ static void de_run_exe(deark *c, const char *params)
 
 	do_fileheader(c, d);
 
-	if(d->fmt==EXE_FMT_PE32 && d->sections_offset>0) {
+	if((d->fmt==EXE_FMT_PE32 || d->fmt==EXE_FMT_PE32PLUS) && d->sections_offset>0) {
 		do_section_table_pe(c, d);
 	}
 
