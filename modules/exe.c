@@ -4,6 +4,7 @@
 // Microsoft EXE executable formats.
 
 #include <deark-config.h>
+#include <string.h>
 #include <deark-modules.h>
 
 #define EXE_FMT_DOS    1
@@ -244,6 +245,69 @@ static void do_extract_BITMAP(deark *c, lctx *d, de_int64 pos, de_int64 len)
 	dbuf_close(f);
 }
 
+static void do_extract_ICON(deark *c, lctx *d, de_int64 pos, de_int64 len)
+{
+	dbuf *f;
+	de_int64 infohdrsize;
+	de_int64 w, h;
+	de_int64 bitcount;
+	de_int64 ncolors;
+	de_int64 pal_entries = 0;
+	de_byte buf[8];
+
+	// I guess we have to manufacture an ICO header?
+	// There's usually a GROUP_ICON resource that seems to contain (most of) an
+	// ICO header, but I don't know exactly how it's connected to the icon image(s).
+
+	f = dbuf_create_output_file(c, "ico");
+
+	// Write the 6-byte file header.
+	memset(buf, 0, sizeof(buf));
+	buf[2]=1;
+	buf[4]=1;
+	dbuf_write(f, buf, 6);
+
+	if(len<16) return;
+	infohdrsize = de_getui32le(pos);
+	if(infohdrsize<16) return;
+
+	w = de_getui32le(pos+4);
+	if(w>255) w=0;
+	h = de_getui32le(pos+8);
+	if(h>255) h=0;
+
+	bitcount = de_getui16le(pos+14);
+	if(infohdrsize>=36) {
+		pal_entries = de_getui32le(pos+32);
+	}
+
+	ncolors = 0;
+	if(bitcount<=8) {
+		if(pal_entries==0) {
+			ncolors = (de_int64)(1<<(unsigned int)bitcount);
+		}
+		else {
+			ncolors = pal_entries;
+		}
+		if(ncolors>=256) {
+			ncolors = 0;
+		}
+	}
+
+	// Write the 16-byte index entry for the one icon.
+	memset(buf, 0, sizeof(buf));
+	buf[0] = (de_byte)w;
+	buf[1] = (de_byte)h;
+	buf[2] = (de_byte)ncolors;
+	dbuf_write(f, buf, 8);
+	dbuf_writeui32le(f, (de_uint32)len); // Icon size
+	dbuf_writeui32le(f, 6+16); // Icon file offset
+
+	// Write the image.
+	dbuf_copy(c->infile, pos, len, f);
+	dbuf_close(f);
+}
+
 static void do_resource_data_entry(deark *c, lctx *d, de_int64 rel_pos)
 {
 	de_int64 data_size;
@@ -271,8 +335,10 @@ static void do_resource_data_entry(deark *c, lctx *d, de_int64 rel_pos)
 	case 2:
 		do_extract_BITMAP(c, d, data_real_offset, data_size);
 		break;
+	case 3: // ICON
 	//case 14:  // GROUP_ICON
-	//	break;
+		do_extract_ICON(c, d, data_real_offset, data_size);
+		break;
 	}
 }
 

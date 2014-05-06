@@ -98,7 +98,7 @@ Deark -- Information about supported formats
 
 * EXE/PE/NE/etc. (module="exe")
   - Very limited capabilities.
-  - Can extract bitmaps from PE32 files.
+  - Can extract bitmaps and icons from PE32 files.
 
 * PSD (PhotoShop) (module="psd")
   - Extract data from "Photoshop resources"
