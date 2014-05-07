@@ -651,13 +651,45 @@ void dbuf_write(dbuf *f, const de_byte *m, de_int64 len)
 	fwrite(m, 1, (size_t)len, f->fp);
 }
 
-void dbuf_writeui32le(dbuf *f, de_uint32 n)
+void dbuf_writezeroes(dbuf *f, de_int64 len)
+{
+	de_byte *m;
+	// TODO: This could be more efficient.
+	m = de_malloc(f->c, len);
+	dbuf_write(f, m, len);
+	de_free(f->c, m);
+}
+
+void de_writeui16le_direct(de_byte *m, de_int64 n)
+{
+	m[0] = (de_byte)(n & 0x00ff);
+	m[1] = (de_byte)((n & 0xff00)>>8);
+}
+
+void de_writeui32le_direct(de_byte *m, de_int64 n)
+{
+	m[0] = (de_byte)(n & 0x000000ff);
+	m[1] = (de_byte)((n & 0x0000ff00)>>8);
+	m[2] = (de_byte)((n & 0x00ff0000)>>16);
+	m[3] = (de_byte)((n & 0xff000000)>>24);
+}
+
+void dbuf_writebyte(dbuf *f, de_byte n)
+{
+	dbuf_write(f, &n, 1);
+}
+
+void dbuf_writeui16le(dbuf *f, de_int64 n)
+{
+	de_byte buf[2];
+	de_writeui16le_direct(buf, n);
+	dbuf_write(f, buf, 2);
+}
+
+void dbuf_writeui32le(dbuf *f, de_int64 n)
 {
 	de_byte buf[4];
-	buf[0] = (n & 0x000000ff);
-	buf[1] = (n & 0x0000ff00)>>8;
-	buf[2] = (n & 0x00ff0000)>>16;
-	buf[3] = (n & 0xff000000)>>24;
+	de_writeui32le_direct(buf, n);
 	dbuf_write(f, buf, 4);
 }
 

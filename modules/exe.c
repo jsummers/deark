@@ -255,9 +255,9 @@ static void de_DIB_to_BMP(deark *c, dbuf *inf, de_int64 pos, de_int64 len, dbuf 
 
 	// Manufacture a BITMAPFILEHEADER.
 	dbuf_write(outf, (const de_byte*)"BM", 2);
-	dbuf_writeui32le(outf, 14+(de_uint32)len); // File size
+	dbuf_writeui32le(outf, 14+len); // File size
 	dbuf_write(outf, (const de_byte*)"\0\0\0\0", 4);
-	dbuf_writeui32le(outf, (de_uint32)hdrs_size); // "Bits offset"
+	dbuf_writeui32le(outf, hdrs_size); // "Bits offset"
 
 	dbuf_copy(inf, pos, len, outf); // Copy the rest of the file.
 }
@@ -280,7 +280,6 @@ static void do_extract_ICON(deark *c, lctx *d, de_int64 pos, de_int64 len)
 	de_int64 bitcount;
 	de_int64 ncolors;
 	de_int64 pal_entries = 0;
-	de_byte buf[8];
 
 	// I guess we have to manufacture an ICO header?
 	// There's usually a GROUP_ICON resource that seems to contain (most of) an
@@ -289,10 +288,9 @@ static void do_extract_ICON(deark *c, lctx *d, de_int64 pos, de_int64 len)
 	f = dbuf_create_output_file(c, "ico");
 
 	// Write the 6-byte file header.
-	memset(buf, 0, sizeof(buf));
-	buf[2]=1;
-	buf[4]=1;
-	dbuf_write(f, buf, 6);
+	dbuf_writeui16le(f, 0); // Reserved
+	dbuf_writeui16le(f, 1); // Resource ID
+	dbuf_writeui16le(f, 1); // Number of icons
 
 	if(len<16) return;
 	infohdrsize = de_getui32le(pos);
@@ -322,12 +320,11 @@ static void do_extract_ICON(deark *c, lctx *d, de_int64 pos, de_int64 len)
 	}
 
 	// Write the 16-byte index entry for the one icon.
-	memset(buf, 0, sizeof(buf));
-	buf[0] = (de_byte)w;
-	buf[1] = (de_byte)h;
-	buf[2] = (de_byte)ncolors;
-	dbuf_write(f, buf, 8);
-	dbuf_writeui32le(f, (de_uint32)len); // Icon size
+	dbuf_writebyte(f, (de_byte)w);
+	dbuf_writebyte(f, (de_byte)h);
+	dbuf_writebyte(f, (de_byte)ncolors);
+	dbuf_writezeroes(f, 5);
+	dbuf_writeui32le(f, len); // Icon size
 	dbuf_writeui32le(f, 6+16); // Icon file offset
 
 	// Write the image.

@@ -210,7 +210,13 @@ dbuf *dbuf_create_membuf(deark *c, de_int64 initialsize);
 void dbuf_close(dbuf *f);
 
 void dbuf_write(dbuf *f, const de_byte *m, de_int64 len);
-void dbuf_writeui32le(dbuf *f, de_uint32 n);
+void dbuf_writezeroes(dbuf *f, de_int64 len);
+
+void de_writeui16le_direct(de_byte *m, de_int64 n);
+void de_writeui32le_direct(de_byte *m, de_int64 n);
+void dbuf_writebyte(dbuf *f, de_byte n);
+void dbuf_writeui16le(dbuf *f, de_int64 n);
+void dbuf_writeui32le(dbuf *f, de_int64 n);
 
 // Write a NUL-terminated string to a file
 void dbuf_fputs(dbuf *f, const char *sz);

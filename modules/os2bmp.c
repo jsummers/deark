@@ -270,14 +270,13 @@ static void do_BM(deark *c, de_int64 pos)
 	if(!get_bitmap_info(c, srcbmp, "BM", pos))
 		goto done;
 
-
 	f = dbuf_create_output_file(c, "bmp");
 
 	// First 10 bytes of the FILEHEADER can be copied unchanged.
 	dbuf_copy(c->infile, pos, 10, f);
 
 	// The "bits offset" is probably the only thing we need to adjust.
-	dbuf_writeui32le(f, (de_uint32)srcbmp->hdrs_plus_pal_size);
+	dbuf_writeui32le(f, srcbmp->hdrs_plus_pal_size);
 
 	// Copy the infoheader & palette
 	dbuf_copy(c->infile, pos+14, srcbmp->hdrs_plus_pal_size-14, f);
