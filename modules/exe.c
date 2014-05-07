@@ -20,6 +20,9 @@ typedef struct localctx_struct {
 	de_int64 sections_offset;
 	de_int64 number_of_sections;
 
+	de_int64 ne_rsrc_tbl_offset;
+	de_int64 ne_num_rsrc_segments;
+
 	// File offset where the resources start. Some addresses are relative
 	// to this.
 	de_int64 cur_base_addr;
@@ -136,12 +139,16 @@ static void do_pe_coff_header(deark *c, lctx *d, de_int64 pos)
 
 static void do_ne_ext_header(deark *c, lctx *d, de_int64 pos)
 {
-	de_int64 rsrc_tbl_offset;
 	de_byte target_os;
 	const char *desc;
 
-	rsrc_tbl_offset = de_getui16le(pos+36);
-	de_dbg(c, "offset of resource table: %d\n", (int)rsrc_tbl_offset);
+	d->ne_rsrc_tbl_offset = de_getui16le(pos+36);
+	d->ne_rsrc_tbl_offset += pos;
+	de_dbg(c, "offset of resource table: %d\n", (int)d->ne_rsrc_tbl_offset);
+
+	d->ne_num_rsrc_segments = de_getui16le(pos+52);
+	de_dbg(c, "number of resource segments: %d\n", (int)d->ne_num_rsrc_segments);
+
 	target_os = de_getbyte(pos+54);
 	switch(target_os) {
 	case 1: desc=" (OS/2)"; break;
@@ -324,6 +331,8 @@ static void do_extract_ICON(deark *c, lctx *d, de_int64 pos, de_int64 len)
 	dbuf_writeui32le(f, 6+16); // Icon file offset
 
 	// Write the image.
+	// TODO: For NE resource, we could try to calculated the actual size of the
+	// icon data. The value in the file tends to be rounded up.
 	dbuf_copy(c->infile, pos, len, f);
 	dbuf_close(f);
 }
@@ -488,9 +497,74 @@ static void do_section_table_pe(deark *c, lctx *d)
 	de_int64 i;
 
 	pos = d->sections_offset;
-	de_dbg(c, "section table at %d\n", (unsigned int)pos);
+	de_dbg(c, "section table at %d\n", (int)pos);
 	for(i=0; i<d->number_of_sections; i++) {
 		do_section_header(c, d, pos + 40*i);
+	}
+}
+
+static void do_ne_rsrc_tbl(deark *c, lctx *d)
+{
+	de_int64 pos;
+	de_int64 npos;
+	de_int64 x;
+	de_int64 i;
+	de_int64 j;
+	de_int64 rsrc_type_id;
+	de_int64 rsrc_count;
+	de_int64 rsrc_offset;
+	de_int64 rsrc_size;
+	unsigned int align_shift;
+
+	pos = d->ne_rsrc_tbl_offset;
+
+	de_dbg(c, "resource table at %d\n", (int)pos);
+
+	align_shift = (unsigned int)de_getui16le(pos);
+	de_dbg(c, "rscAlignShift: %u\n", align_shift);
+	pos += 2;
+	if(align_shift>24) {
+		de_err(c, "Unrealistic rscAlignShift setting\n");
+		return;
+	}
+
+	i = 0;
+	while(1) {
+		x = de_getui16le(pos);
+		if(x==0) {
+			// A "type_id" of 0 marks the end of the array
+			de_dbg(c, "end of TYPEINFO array found at %d\n", (int)pos);
+			break;
+		}
+		de_dbg(c, "TYPEINFO #%d at %d\n", (int)i, (int)pos);
+
+		if(x & 0x8000) {
+			rsrc_type_id = x-0x8000;
+		}
+		else {
+			rsrc_type_id = 0; //??
+		}
+
+		rsrc_count = de_getui16le(pos+2);
+		de_dbg(c, " resource type=%d, count=%d\n", (int)rsrc_type_id, (int)rsrc_count);
+
+
+		// Read the array of NAMEINFO structures.
+		// (NAMEINFO seems like a misnomer to me. It contains data, not names.)
+		for(j=0; j<rsrc_count; j++) {
+			npos = pos+8 + j*12;
+			rsrc_offset = de_getui16le(npos);
+			if(align_shift>0) rsrc_offset <<= align_shift;
+			rsrc_size = de_getui16le(npos+2);
+			if(align_shift>0) rsrc_size <<= align_shift;
+			de_dbg(c, " offset = %d, length = %d\n", (int)rsrc_offset, (int)rsrc_size);
+			if(rsrc_type_id==3) {
+				do_extract_ICON(c, d, rsrc_offset, rsrc_size);
+			}
+		}
+
+		pos += 8 + 12*rsrc_count;
+		i++;
 	}
 }
 
@@ -505,6 +579,9 @@ static void de_run_exe(deark *c, const char *params)
 
 	if((d->fmt==EXE_FMT_PE32 || d->fmt==EXE_FMT_PE32PLUS) && d->sections_offset>0) {
 		do_section_table_pe(c, d);
+	}
+	else if(d->fmt==EXE_FMT_NE && d->ne_rsrc_tbl_offset>0) {
+		do_ne_rsrc_tbl(c, d);
 	}
 
 	de_free(c, d);
