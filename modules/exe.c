@@ -21,7 +21,6 @@ typedef struct localctx_struct {
 	de_int64 number_of_sections;
 
 	de_int64 ne_rsrc_tbl_offset;
-	de_int64 ne_num_rsrc_segments;
 
 	// File offset where the resources start. Some addresses are relative
 	// to this.
@@ -145,9 +144,6 @@ static void do_ne_ext_header(deark *c, lctx *d, de_int64 pos)
 	d->ne_rsrc_tbl_offset = de_getui16le(pos+36);
 	d->ne_rsrc_tbl_offset += pos;
 	de_dbg(c, "offset of resource table: %d\n", (int)d->ne_rsrc_tbl_offset);
-
-	d->ne_num_rsrc_segments = de_getui16le(pos+52);
-	de_dbg(c, "number of resource segments: %d\n", (int)d->ne_num_rsrc_segments);
 
 	target_os = de_getbyte(pos+54);
 	switch(target_os) {
@@ -357,6 +353,24 @@ static void do_extract_ICON(deark *c, lctx *d, de_int64 pos, de_int64 len)
 	do_extract_ico_cur(c, d, pos, len, 0, 0, 0);
 }
 
+static void do_extract_resource(deark *c, lctx *d, de_int64 type_id,
+	de_int64 pos, de_int64 len)
+{
+	if(len>DE_MAX_FILE_SIZE) return;
+
+	switch(type_id) {
+	case 1:
+		do_extract_CURSOR(c, d, pos, len);
+		break;
+	case 2:
+		do_extract_BITMAP(c, d, pos, len);
+		break;
+	case 3:
+		do_extract_ICON(c, d, pos, len);
+		break;
+	}
+}
+
 static void do_resource_data_entry(deark *c, lctx *d, de_int64 rel_pos)
 {
 	de_int64 data_size;
@@ -378,19 +392,7 @@ static void do_resource_data_entry(deark *c, lctx *d, de_int64 rel_pos)
 	de_dbg(c, " data offset in file: %d\n",
 		(int)data_real_offset);
 
-	if(data_size>DE_MAX_FILE_SIZE) return;
-
-	switch(type_id) {
-	case 1:
-		do_extract_CURSOR(c, d, data_real_offset, data_size);
-		break;
-	case 2:
-		do_extract_BITMAP(c, d, data_real_offset, data_size);
-		break;
-	case 3:
-		do_extract_ICON(c, d, data_real_offset, data_size);
-		break;
-	}
+	do_extract_resource(c, d, type_id, data_real_offset, data_size);
 }
 
 static void do_resource_dir_table(deark *c, lctx *d, de_int64 rel_pos, int level);
@@ -536,6 +538,7 @@ static void do_ne_rsrc_tbl(deark *c, lctx *d)
 	de_int64 rsrc_count;
 	de_int64 rsrc_offset;
 	de_int64 rsrc_size;
+	de_int64 tot_resources = 0;
 	unsigned int align_shift;
 
 	pos = d->ne_rsrc_tbl_offset;
@@ -570,6 +573,12 @@ static void do_ne_rsrc_tbl(deark *c, lctx *d)
 		rsrc_count = de_getui16le(pos+2);
 		de_dbg(c, " resource type=%d, count=%d\n", (int)rsrc_type_id, (int)rsrc_count);
 
+		tot_resources += rsrc_count;
+
+		if(tot_resources>MAX_RESOURCES) {
+			de_err(c, "Too many resources.\n");
+			break;
+		}
 
 		// Read the array of NAMEINFO structures.
 		// (NAMEINFO seems like a misnomer to me. It contains data, not names.)
@@ -580,9 +589,8 @@ static void do_ne_rsrc_tbl(deark *c, lctx *d)
 			rsrc_size = de_getui16le(npos+2);
 			if(align_shift>0) rsrc_size <<= align_shift;
 			de_dbg(c, " offset = %d, length = %d\n", (int)rsrc_offset, (int)rsrc_size);
-			if(rsrc_type_id==3) {
-				do_extract_ICON(c, d, rsrc_offset, rsrc_size);
-			}
+
+			do_extract_resource(c, d, rsrc_type_id, rsrc_offset, rsrc_size);
 		}
 
 		pos += 8 + 12*rsrc_count;

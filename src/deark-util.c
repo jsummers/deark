@@ -301,8 +301,15 @@ void dbuf_read(dbuf *f, de_byte *buf, de_int64 pos, de_int64 len)
 	c = f->c;
 
 	bytes_to_read = len;
-	if(pos + bytes_to_read > f->len) {
+	if(pos >= f->len) {
+		bytes_to_read = 0;
+	}
+	else if(pos + bytes_to_read > f->len) {
 		bytes_to_read = f->len - pos;
+	}
+
+	if(bytes_to_read<1) {
+		goto done_read;
 	}
 
 	switch(f->btype) {
@@ -327,6 +334,7 @@ void dbuf_read(dbuf *f, de_byte *buf, de_int64 pos, de_int64 len)
 
 	case DBUF_TYPE_MEMBUF:
 		memcpy(buf, &f->membuf_buf[pos], (size_t)bytes_to_read);
+		bytes_read = bytes_to_read;
 		break;
 
 	default:
@@ -335,9 +343,10 @@ void dbuf_read(dbuf *f, de_byte *buf, de_int64 pos, de_int64 len)
 		return;
 	}
 
+done_read:
 	// Zero out any requested bytes that were not read.
-	if(bytes_read < bytes_to_read) {
-		memset(buf+bytes_read, 0, (size_t)(bytes_read - bytes_read));
+	if(bytes_read < len) {
+		memset(buf+bytes_read, 0, (size_t)(len - bytes_read));
 	}
 }
 

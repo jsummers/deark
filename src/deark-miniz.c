@@ -154,7 +154,7 @@ void de_zip_add_file_to_archive(deark *c, dbuf *f)
 
 	zip = (mz_zip_archive*)c->zip_file;
 
-	de_dbg(c, "zip:%p name:%s data:%p len:%d\n", zip, f->name, f->membuf_buf, (int)dbuf_get_length(f));
+	de_dbg(c, "adding to zip: name:%s len:%d\n", f->name, (int)dbuf_get_length(f));
 	//mz_bool res;
 	mz_zip_writer_add_mem(zip, f->name, f->membuf_buf, (size_t)dbuf_get_length(f), MZ_BEST_COMPRESSION);
 }
