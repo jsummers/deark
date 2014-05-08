@@ -97,7 +97,7 @@ Deark -- Information about supported formats
   - Extract Exif data (use -extractall)
 
 * EXE/PE/NE/etc. (module="exe")
-  - Can extract bitmaps and icons from PE32 and PE32+ files.
+  - Can extract bitmaps, icons, and cursors from PE32 and PE32+ files.
   - Can extract icons from most NE files.
 
 * PSD (PhotoShop) (module="psd")

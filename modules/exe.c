@@ -272,7 +272,8 @@ static void do_extract_BITMAP(deark *c, lctx *d, de_int64 pos, de_int64 len)
 	dbuf_close(f);
 }
 
-static void do_extract_ICON(deark *c, lctx *d, de_int64 pos, de_int64 len)
+static void do_extract_ico_cur(deark *c, lctx *d, de_int64 pos, de_int64 len,
+	int is_cur, de_int64 hotspot_x, de_int64 hotspot_y)
 {
 	dbuf *f;
 	de_int64 infohdrsize;
@@ -281,16 +282,16 @@ static void do_extract_ICON(deark *c, lctx *d, de_int64 pos, de_int64 len)
 	de_int64 ncolors;
 	de_int64 pal_entries = 0;
 
-	// I guess we have to manufacture an ICO header?
+	// I guess we have to manufacture an ICO/CUR header?
 	// There's usually a GROUP_ICON resource that seems to contain (most of) an
 	// ICO header, but I don't know exactly how it's connected to the icon image(s).
 
-	f = dbuf_create_output_file(c, "ico");
+	f = dbuf_create_output_file(c, is_cur?"cur":"ico");
 
 	// Write the 6-byte file header.
 	dbuf_writeui16le(f, 0); // Reserved
-	dbuf_writeui16le(f, 1); // Resource ID
-	dbuf_writeui16le(f, 1); // Number of icons
+	dbuf_writeui16le(f, is_cur?2:1); // Resource ID
+	dbuf_writeui16le(f, 1); // Number of icons/cursors
 
 	if(len<16) return;
 	infohdrsize = de_getui32le(pos);
@@ -323,7 +324,14 @@ static void do_extract_ICON(deark *c, lctx *d, de_int64 pos, de_int64 len)
 	dbuf_writebyte(f, (de_byte)w);
 	dbuf_writebyte(f, (de_byte)h);
 	dbuf_writebyte(f, (de_byte)ncolors);
-	dbuf_writezeroes(f, 5);
+	if(is_cur) {
+		dbuf_writebyte(f, 0);
+		dbuf_writeui16le(f, hotspot_x);
+		dbuf_writeui16le(f, hotspot_y);
+	}
+	else {
+		dbuf_writezeroes(f, 5);
+	}
 	dbuf_writeui32le(f, len); // Icon size
 	dbuf_writeui32le(f, 6+16); // Icon file offset
 
@@ -332,6 +340,21 @@ static void do_extract_ICON(deark *c, lctx *d, de_int64 pos, de_int64 len)
 	// icon data. The value in the file tends to be rounded up.
 	dbuf_copy(c->infile, pos, len, f);
 	dbuf_close(f);
+}
+
+static void do_extract_CURSOR(deark *c, lctx *d, de_int64 pos, de_int64 len)
+{
+	de_int64 hotspot_x, hotspot_y;
+
+	if(len<4) return;
+	hotspot_x = de_getui16le(pos);
+	hotspot_y = de_getui16le(pos+2);
+	do_extract_ico_cur(c, d, pos+4, len-4, 1, hotspot_x, hotspot_y);
+}
+
+static void do_extract_ICON(deark *c, lctx *d, de_int64 pos, de_int64 len)
+{
+	do_extract_ico_cur(c, d, pos, len, 0, 0, 0);
 }
 
 static void do_resource_data_entry(deark *c, lctx *d, de_int64 rel_pos)
@@ -358,11 +381,13 @@ static void do_resource_data_entry(deark *c, lctx *d, de_int64 rel_pos)
 	if(data_size>DE_MAX_FILE_SIZE) return;
 
 	switch(type_id) {
+	case 1:
+		do_extract_CURSOR(c, d, data_real_offset, data_size);
+		break;
 	case 2:
 		do_extract_BITMAP(c, d, data_real_offset, data_size);
 		break;
-	case 3: // ICON
-	//case 14:  // GROUP_ICON
+	case 3:
 		do_extract_ICON(c, d, data_real_offset, data_size);
 		break;
 	}
