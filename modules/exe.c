@@ -205,7 +205,7 @@ static void do_fileheader(deark *c, lctx *d)
 struct dibinfo_struct {
 	de_int64 width;
 	de_int64 height;
-	de_int64 num_colors;
+	de_int64 num_colors; // For use in ICO/CUR file headers.
 	de_int64 size_of_headers; // Offset to bitmap
 	de_int64 total_size;
 };
@@ -230,13 +230,15 @@ static int de_get_dibinfo(dbuf *f, struct dibinfo_struct *bi, de_int64 pos,
 	if(len<16) return 0;
 	infohdrsize = dbuf_getui32le(f, pos);
 
+	// TODO: Handle PNG-formatted icons.
+
 	if(infohdrsize==12) {
 		bytes_per_pal_entry = 3;
 		bi->width = dbuf_getui16le(f, pos+4);
 		bi->height = dbuf_getui16le(f, pos+6);
 		bitcount = dbuf_getui16le(f, pos+10);
 	}
-	else if(infohdrsize>=16) {
+	else if(infohdrsize>=16 && infohdrsize<=124) {
 		bytes_per_pal_entry = 4;
 		bi->width = dbuf_getui32le(f, pos+4);
 		bi->height = dbuf_getui32le(f, pos+8);
@@ -259,9 +261,13 @@ static int de_get_dibinfo(dbuf *f, struct dibinfo_struct *bi, de_int64 pos,
 		if(pal_entries==0) {
 			pal_entries = (de_int64)(1<<(unsigned int)bitcount);
 		}
-		bi->num_colors = pal_entries;
+		// I think the NumColors field is supposed to be the maximum number of
+		// colors implied by the bit depth, not the number of colors in the
+		// palette.
+		bi->num_colors = (de_int64)(1<<(unsigned int)bitcount);
 	}
 	else {
+		// An arbitrary value. All that matters is that it's >=256.
 		bi->num_colors = 16777216;
 	}
 
@@ -301,6 +307,7 @@ static void de_DIB_to_BMP(deark *c, dbuf *inf, de_int64 pos, de_int64 len, dbuf 
 	struct dibinfo_struct bi;
 
 	if(!de_get_dibinfo(c->infile, &bi, pos, len, 0)) {
+		de_err(c, "Invalid bitmap\n");
 		return;
 	}
 
@@ -335,6 +342,11 @@ static void do_extract_ico_cur(deark *c, lctx *d, de_int64 pos, de_int64 len,
 	// There's usually a GROUP_ICON resource that seems to contain (most of) an
 	// ICO header, but I don't know exactly how it's connected to the icon image(s).
 
+	if(!de_get_dibinfo(c->infile, &bi, pos, len, 1)) {
+		de_err(c, "Invalid bitmap\n");
+		return;
+	}
+
 	f = dbuf_create_output_file(c, is_cur?"cur":"ico");
 
 	// Write the 6-byte file header.
@@ -342,9 +354,6 @@ static void do_extract_ico_cur(deark *c, lctx *d, de_int64 pos, de_int64 len,
 	dbuf_writeui16le(f, is_cur?2:1); // Resource ID
 	dbuf_writeui16le(f, 1); // Number of icons/cursors
 
-	if(!de_get_dibinfo(c->infile, &bi, pos, len, 1)) {
-		return;
-	}
 	w = bi.width;
 	if(w>255) w=0;
 	h = bi.height;
@@ -357,7 +366,7 @@ static void do_extract_ico_cur(deark *c, lctx *d, de_int64 pos, de_int64 len,
 		len = bi.total_size;
 	}
 
-	// Write the 16-byte index entry for the one icon.
+	// Write the 16-byte index entry for the one icon/cursor.
 	dbuf_writebyte(f, (de_byte)w);
 	dbuf_writebyte(f, (de_byte)h);
 	dbuf_writebyte(f, (de_byte)ncolors);
@@ -369,12 +378,10 @@ static void do_extract_ico_cur(deark *c, lctx *d, de_int64 pos, de_int64 len,
 	else {
 		dbuf_writezeroes(f, 5);
 	}
-	dbuf_writeui32le(f, len); // Icon size
-	dbuf_writeui32le(f, 6+16); // Icon file offset
+	dbuf_writeui32le(f, len); // Icon/cursor size
+	dbuf_writeui32le(f, 6+16); // Icon/cursor file offset
 
-	// Write the image.
-	// TODO: For NE resource, we could try to calculated the actual size of the
-	// icon data. The value in the file tends to be rounded up.
+	// Write the non-manufactured part of the file.
 	dbuf_copy(c->infile, pos, len, f);
 	dbuf_close(f);
 }
