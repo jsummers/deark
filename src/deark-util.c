@@ -83,6 +83,11 @@ int de_strcasecmp(const char *a, const char *b)
 #endif
 }
 
+void de_memset(void *dst, int x, size_t len)
+{
+	memset(dst, x, len);
+}
+
 static void de_vsnprintf(char *buf, size_t buflen, const char *fmt, va_list ap)
 {
 #ifdef DE_WINDOWS
@@ -207,7 +212,7 @@ void *de_realloc(deark *c, void *oldmem, de_int64 oldsize, de_int64 newsize)
 
 	if(oldsize<newsize) {
 		// zero out any newly-allocated bytes
-		memset(&((de_byte*)newmem)[oldsize], 0, (size_t)(newsize-oldsize));
+		de_memset(&((de_byte*)newmem)[oldsize], 0, (size_t)(newsize-oldsize));
 	}
 
 	return newmem;
@@ -346,7 +351,7 @@ void dbuf_read(dbuf *f, de_byte *buf, de_int64 pos, de_int64 len)
 done_read:
 	// Zero out any requested bytes that were not read.
 	if(bytes_read < len) {
-		memset(buf+bytes_read, 0, (size_t)(len - bytes_read));
+		de_memset(buf+bytes_read, 0, (size_t)(len - bytes_read));
 	}
 }
 

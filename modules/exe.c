@@ -4,7 +4,6 @@
 // Microsoft EXE executable formats.
 
 #include <deark-config.h>
-#include <string.h>
 #include <deark-modules.h>
 
 #define EXE_FMT_DOS    1
@@ -225,7 +224,7 @@ static int de_get_dibinfo(dbuf *f, struct dibinfo_struct *bi, de_int64 pos,
 	de_int64 foreground_size, mask_size;
 	de_int64 bytes_per_pal_entry;
 
-	memset(bi, 0, sizeof(struct dibinfo_struct));
+	de_memset(bi, 0, sizeof(struct dibinfo_struct));
 
 	if(len<16) return 0;
 	infohdrsize = dbuf_getui32le(f, pos);

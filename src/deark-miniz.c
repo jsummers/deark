@@ -51,7 +51,7 @@ int de_uncompress_zlib(dbuf *inf, de_int64 inputstart, de_int64 inputsize, dbuf 
 
 	c = inf->c;
 
-	memset(&strm,0,sizeof(strm));
+	de_memset(&strm,0,sizeof(strm));
 	ret = mz_inflateInit(&strm);
 	if(ret!=MZ_OK) {
 		de_err(c, "Inflate error\n");

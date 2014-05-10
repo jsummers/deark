@@ -117,6 +117,7 @@ int de_strcmp(const char *s1, const char *s2);
 int de_memcmp(const void *s1, const void *s2, size_t n);
 char *de_strchr(const char *s, int c);
 size_t de_strlen(const char *s);
+void de_memset(void *dst, int x, size_t len);
 
 void de_snprintf(char *buf, size_t buflen, const char *fmt, ...)
   de_gnuc_attribute ((format (printf, 3, 4)));
