@@ -359,6 +359,10 @@
 			UniqueIdentifier="{93995380-89BD-4b04-88EB-625FBE52EBFB}"
 			>
 			<File
+				RelativePath="..\..\modules\bmputil.h"
+				>
+			</File>
+			<File
 				RelativePath="..\..\src\deark-config.h"
 				>
 			</File>
@@ -391,6 +395,10 @@
 			>
 			<File
 				RelativePath="..\..\modules\amigaicon.c"
+				>
+			</File>
+			<File
+				RelativePath="..\..\modules\bmputil.c"
 				>
 			</File>
 			<File

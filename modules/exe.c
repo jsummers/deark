@@ -5,6 +5,7 @@
 
 #include <deark-config.h>
 #include <deark-modules.h>
+#include "bmputil.h"
 
 #define EXE_FMT_DOS    1
 #define EXE_FMT_NE     2
@@ -201,111 +202,13 @@ static void do_fileheader(deark *c, lctx *d)
 	}
 }
 
-struct dibinfo_struct {
-	de_int64 width;
-	de_int64 height;
-	de_int64 num_colors; // For use in ICO/CUR file headers.
-	de_int64 size_of_headers; // Offset to bitmap
-	de_int64 total_size;
-};
-
-// Gathers information about a DIB.
-// pos points to the beginning of the BITMAPINFOHEADER.
-// Caller allocates bi.
-// Returns 0 if BMP is invalid.
-static int de_get_dibinfo(dbuf *f, struct dibinfo_struct *bi, de_int64 pos,
-	de_int64 len, int has_mask)
-{
-	de_int64 infohdrsize;
-	de_int64 bitcount;
-	de_int64 compression = 0;
-	de_int64 pal_entries = 0;
-	de_int64 foreground_rowspan, mask_rowspan;
-	de_int64 foreground_size, mask_size;
-	de_int64 bytes_per_pal_entry;
-
-	de_memset(bi, 0, sizeof(struct dibinfo_struct));
-
-	if(len<16) return 0;
-	infohdrsize = dbuf_getui32le(f, pos);
-
-	// TODO: Handle PNG-formatted icons.
-
-	if(infohdrsize==12) {
-		bytes_per_pal_entry = 3;
-		bi->width = dbuf_getui16le(f, pos+4);
-		bi->height = dbuf_getui16le(f, pos+6);
-		bitcount = dbuf_getui16le(f, pos+10);
-	}
-	else if(infohdrsize>=16 && infohdrsize<=124) {
-		bytes_per_pal_entry = 4;
-		bi->width = dbuf_getui32le(f, pos+4);
-		bi->height = dbuf_getui32le(f, pos+8);
-		if(bi->height<0) bi->height = -bi->height;
-		bitcount = dbuf_getui16le(f, pos+14);
-		if(infohdrsize>=20) {
-			compression = dbuf_getui32le(f, pos+16);
-		}
-		if(infohdrsize>=36) {
-			pal_entries = dbuf_getui32le(f, pos+32);
-		}
-	}
-	else {
-		return 0;
-	}
-
-	if(has_mask) bi->height /= 2;
-
-	if(bitcount>=1 && bitcount<=8) {
-		if(pal_entries==0) {
-			pal_entries = (de_int64)(1<<(unsigned int)bitcount);
-		}
-		// I think the NumColors field is supposed to be the maximum number of
-		// colors implied by the bit depth, not the number of colors in the
-		// palette.
-		bi->num_colors = (de_int64)(1<<(unsigned int)bitcount);
-	}
-	else {
-		// An arbitrary value. All that matters is that it's >=256.
-		bi->num_colors = 16777216;
-	}
-
-	bi->size_of_headers = infohdrsize + bytes_per_pal_entry*pal_entries;
-	if(compression==3) {
-		bi->size_of_headers += 12; // BITFIELDS
-	}
-
-	if(compression==0) {
-		// Try to figure out the true size of the resource, minus any padding.
-
-		foreground_rowspan = ((bitcount*bi->width +31)/32)*4;
-		foreground_size = foreground_rowspan * bi->height;
-
-		if(has_mask) {
-			mask_rowspan = ((bi->width +31)/32)*4;
-			mask_size = mask_rowspan * bi->height;
-		}
-		else {
-			mask_size = 0;
-		}
-
-		bi->total_size = bi->size_of_headers + foreground_size + mask_size;
-	}
-	else {
-		// Don't try to figure out the true size of compressed or other unusual images.
-		bi->total_size = len;
-	}
-
-	return 1;
-}
-
 // Extract a raw DIB, and write it to a file as a BMP.
 // TODO: Move this to a common "bmp.c" file.
 static void de_DIB_to_BMP(deark *c, dbuf *inf, de_int64 pos, de_int64 len, dbuf *outf)
 {
-	struct dibinfo_struct bi;
+	struct de_bmpinfo bi;
 
-	if(!de_get_dibinfo(c->infile, &bi, pos, len, 0)) {
+	if(!de_bmputil_get_bmpinfo(c->infile, &bi, pos, len, 0)) {
 		de_err(c, "Invalid bitmap\n");
 		return;
 	}
@@ -335,14 +238,19 @@ static void do_extract_ico_cur(deark *c, lctx *d, de_int64 pos, de_int64 len,
 	dbuf *f;
 	de_int64 w, h;
 	de_int64 ncolors;
-	struct dibinfo_struct bi;
+	struct de_bmpinfo bi;
 
 	// I guess we have to manufacture an ICO/CUR header?
 	// There's usually a GROUP_ICON resource that seems to contain (most of) an
 	// ICO header, but I don't know exactly how it's connected to the icon image(s).
 
-	if(!de_get_dibinfo(c->infile, &bi, pos, len, 1)) {
+	if(!de_bmputil_get_bmpinfo(c->infile, &bi, pos, len, DE_BMPINFO_ICO_FORMAT)) {
 		de_err(c, "Invalid bitmap\n");
+		return;
+	}
+
+	if(bi.file_format==DE_BMPINFO_FMT_PNG) {
+		dbuf_create_file_from_slice(c->infile, pos, len, "png");
 		return;
 	}
 
