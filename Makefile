@@ -20,7 +20,8 @@ OFILES_ALL:=$(OBJDIR)/src/deark-cmd.o $(OFILES_LIB) $(OFILES_MODS)
 
 # Prerequisites
 $(OBJDIR)/src/deark-miniz.o: src/miniz.h
-$(OBJDIR)/modules/bmputil.o $(OBJDIR)/modules/exe.o: modules/bmputil.h
+$(OBJDIR)/modules/bmputil.o $(OBJDIR)/modules/exe.o \
+ $(OBJDIR)/modules/os2bmp.o: modules/bmputil.h
 $(OFILES_MODS) $(OBJDIR)/src/deark-modules.o: src/deark-modules.h
 $(OFILES_LIB) $(OFILES_MODS): src/deark-private.h
 $(OFILES_ALL): src/deark-config.h src/deark.h

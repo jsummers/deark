@@ -6,22 +6,14 @@
 
 #include <deark-config.h>
 #include <deark-modules.h>
+#include "bmputil.h"
 
 // This struct represents a raw source bitmap (it uses BMP format).
 // Two of them (the foreground and the mask) will be combined to make the
 // final image.
 struct srcbitmap {
-	de_int64 hdr_size;
-	de_int64 hdrs_plus_pal_size; // size of the headers and palette, in bytes
-	de_int64 bitsoffset;
-	de_int64 bitcount;
-	de_int64 width;
-	de_int64 height;
-	de_int64 rowstride;
+	struct de_bmpinfo bi;
 	de_int64 bitssize;
-	de_int64 pal_entries;
-	de_int64 pal_bytesperentry;
-	de_int64 pal_bytes;
 	de_uint32 pal[256];
 };
 
@@ -29,67 +21,23 @@ struct srcbitmap {
 // Does not read the palette.
 static int get_bitmap_info(deark *c, struct srcbitmap *srcbmp, const char *fmt, de_int64 pos)
 {
-	de_int64 hotspot_x, hotspot_y;
-	de_int64 bmihpos;
-	de_int64 compression;
 	int retval = 0;
+	unsigned int flags;
 
-	hotspot_x = de_getui16le(pos+6);
-	hotspot_y = de_getui16le(pos+8);
+	flags = DE_BMPINFO_HAS_FILEHEADER;
 	if(!de_strcmp(fmt,"CP")) {
-		de_dbg(c, "hotspot: (%d,%d)\n", (int)hotspot_x, (int)hotspot_y);
+		flags |= DE_BMPINFO_HAS_HOTSPOT;
+	}
+	if(!de_bmputil_get_bmpinfo(c, c->infile, &srcbmp->bi, pos, c->infile->len - pos, flags)) {
+		de_err(c, "Unsupported image type (header size %d)\n", (int)srcbmp->bi.infohdrsize);
 	}
 
-	srcbmp->bitsoffset = de_getui32le(pos+ 10);
-	de_dbg(c, "bits offset: %d\n", (int)srcbmp->bitsoffset);
-
-	bmihpos = pos+14;
-	srcbmp->hdr_size = de_getui16le(bmihpos);
-	de_dbg(c, "header size: %d\n", (int)srcbmp->hdr_size);
-
-	if(srcbmp->hdr_size==12) {
-		srcbmp->width = de_getui16le(bmihpos+4);
-		srcbmp->height = de_getui16le(bmihpos+6);
-		srcbmp->bitcount = de_getui16le(bmihpos+10);
-		srcbmp->pal_bytesperentry = 3;
-	}
-	else if(srcbmp->hdr_size>=16 && srcbmp->hdr_size<=64) {
-		srcbmp->width = de_getui32le(bmihpos+4);
-		srcbmp->height = de_getui32le(bmihpos+8);
-		srcbmp->bitcount = de_getui16le(bmihpos+14);
-		srcbmp->pal_bytesperentry = 4;
-	}
-	else {
-		de_err(c, "Unsupported image type (header size %d)\n", (int)srcbmp->hdr_size);
+	if(srcbmp->bi.compression_field!=0) {
+		de_err(c, "Unsupported compression type (%d)\n", (int)srcbmp->bi.compression_field);
 		goto done;
 	}
 
-	if(srcbmp->hdr_size>=20) {
-		compression = de_getui32le(bmihpos+16);
-		if(compression!=0) {
-			de_err(c, "Unsupported compression type (%d)\n", (int)compression);
-			goto done;
-		}
-	}
-
-	de_dbg(c, "image size: %dx%d\n", (int)srcbmp->width, (int)srcbmp->height);
-	de_dbg(c, "bit count: %d\n", (int)srcbmp->bitcount);
-
-	srcbmp->rowstride = ((srcbmp->bitcount*srcbmp->width + 31) / 32) * 4;
-
-	srcbmp->bitssize = srcbmp->rowstride * srcbmp->height;
-
-	if(srcbmp->bitcount<=8) {
-		srcbmp->pal_entries = (de_int64)(1 << (unsigned int)srcbmp->bitcount);
-	}
-	else {
-		srcbmp->pal_entries = 0;
-	}
-	de_dbg(c, "palette entries: %d\n", (int)srcbmp->pal_entries);
-
-	srcbmp->pal_bytes = srcbmp->pal_entries * srcbmp->pal_bytesperentry;
-
-	srcbmp->hdrs_plus_pal_size = 14 + srcbmp->hdr_size + srcbmp->pal_bytes;
+	srcbmp->bitssize = srcbmp->bi.rowspan * srcbmp->bi.height;
 
 	retval = 1;
 done:
@@ -115,11 +63,11 @@ static struct srcbitmap *do_CI_or_CP_segment(deark *c, const char *fmt, de_int64
 		goto done;
 
 	// read palette
-	if (srcbmp->pal_entries > 0) {
-		pal_start = pos+14+srcbmp->hdr_size;
+	if (srcbmp->bi.pal_entries > 0) {
+		pal_start = pos+14+srcbmp->bi.infohdrsize;
 
-		for (i=0; i<srcbmp->pal_entries; i++) {
-			p = pal_start + i*srcbmp->pal_bytesperentry;
+		for (i=0; i<srcbmp->bi.pal_entries; i++) {
+			p = pal_start + i*srcbmp->bi.bytes_per_pal_entry;
 			srcbmp->pal[i] = DE_MAKE_RGB(de_getbyte(p+2), de_getbyte(p+1), de_getbyte(p));
 		}
 	}
@@ -147,32 +95,32 @@ static void do_generate_final_image(deark *c, struct srcbitmap *srcbmp_main, str
 	de_byte xorbit, andbit;
 	int inverse_warned = 0;
 
-	img = de_bitmap_create(c, srcbmp_main->width, srcbmp_main->height, 4);
+	img = de_bitmap_create(c, srcbmp_main->bi.width, srcbmp_main->bi.height, 4);
 	img->flipped = 1;
 
 	cr=0; cg=0; cb=0; ca=255;
 
-	for(j=0; j<srcbmp_main->height; j++) {
-		for(i=0; i<srcbmp_main->width; i++) {
-			if(srcbmp_main->bitcount<=8) {
-				x = de_get_bits_symbol(c->infile, (int)srcbmp_main->bitcount,
-					srcbmp_main->bitsoffset + srcbmp_main->rowstride*j, i);
+	for(j=0; j<srcbmp_main->bi.height; j++) {
+		for(i=0; i<srcbmp_main->bi.width; i++) {
+			if(srcbmp_main->bi.bitcount<=8) {
+				x = de_get_bits_symbol(c->infile, (int)srcbmp_main->bi.bitcount,
+					srcbmp_main->bi.bitsoffset + srcbmp_main->bi.rowspan*j, i);
 				cr = DE_COLOR_R(srcbmp_main->pal[x]);
 				cg = DE_COLOR_G(srcbmp_main->pal[x]);
 				cb = DE_COLOR_B(srcbmp_main->pal[x]);
 			}
-			else if(srcbmp_main->bitcount==24) {
-				byte_offset = srcbmp_main->bitsoffset + srcbmp_main->rowstride*j + i*3;
+			else if(srcbmp_main->bi.bitcount==24) {
+				byte_offset = srcbmp_main->bi.bitsoffset + srcbmp_main->bi.rowspan*j + i*3;
 				cb = de_getbyte(byte_offset+0);
 				cg = de_getbyte(byte_offset+1);
 				cr = de_getbyte(byte_offset+2);
 			}
 			
 			// Get the mask bits
-			xorbit = de_get_bits_symbol(c->infile, (int)srcbmp_mask->bitcount,
-				srcbmp_mask->bitsoffset + srcbmp_mask->rowstride*j, i);
-			andbit = de_get_bits_symbol(c->infile, (int)srcbmp_mask->bitcount,
- 				srcbmp_mask->bitsoffset + srcbmp_mask->rowstride*(srcbmp_mask->height/2+j), i);
+			xorbit = de_get_bits_symbol(c->infile, (int)srcbmp_mask->bi.bitcount,
+				srcbmp_mask->bi.bitsoffset + srcbmp_mask->bi.rowspan*j, i);
+			andbit = de_get_bits_symbol(c->infile, (int)srcbmp_mask->bi.bitcount,
+ 				srcbmp_mask->bi.bitsoffset + srcbmp_mask->bi.rowspan*(srcbmp_mask->bi.height/2+j), i);
 
 			if(!andbit && !xorbit) {
 				ca = 255; // Normal foreground
@@ -225,14 +173,14 @@ static void do_CI_or_CP_pair(deark *c, const char *fmt, de_int64 pos)
 			goto done;
 		}
 
-		if(srcbmp->hdrs_plus_pal_size<26) {
+		if(srcbmp->bi.size_of_headers_and_pal<26) {
 			de_err(c, "Bad CI or CP image\n");
 			goto done;
 		}
-		pos += srcbmp->hdrs_plus_pal_size;
+		pos += srcbmp->bi.size_of_headers_and_pal;
 
 		// Try to guess whether this is the image or the mask...
-		if(srcbmp->bitcount==1 && (srcbmp_mask==NULL || srcbmp_main!=NULL)) {
+		if(srcbmp->bi.bitcount==1 && (srcbmp_mask==NULL || srcbmp_main!=NULL)) {
 			de_dbg(c, "bitmap interpreted as: mask\n");
 			srcbmp_mask = srcbmp;
 		}
@@ -276,13 +224,13 @@ static void do_BM(deark *c, de_int64 pos)
 	dbuf_copy(c->infile, pos, 10, f);
 
 	// The "bits offset" is probably the only thing we need to adjust.
-	dbuf_writeui32le(f, srcbmp->hdrs_plus_pal_size);
+	dbuf_writeui32le(f, srcbmp->bi.size_of_headers_and_pal);
 
 	// Copy the infoheader & palette
-	dbuf_copy(c->infile, pos+14, srcbmp->hdrs_plus_pal_size-14, f);
+	dbuf_copy(c->infile, pos+14, srcbmp->bi.size_of_headers_and_pal-14, f);
 
 	// Copy the bitmap
-	dbuf_copy(c->infile, srcbmp->bitsoffset, srcbmp->bitssize, f);
+	dbuf_copy(c->infile, srcbmp->bi.bitsoffset, srcbmp->bitssize, f);
 
 done:
 	dbuf_close(f);

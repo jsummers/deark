@@ -208,7 +208,7 @@ static void de_DIB_to_BMP(deark *c, dbuf *inf, de_int64 pos, de_int64 len, dbuf 
 {
 	struct de_bmpinfo bi;
 
-	if(!de_bmputil_get_bmpinfo(c->infile, &bi, pos, len, 0)) {
+	if(!de_bmputil_get_bmpinfo(c, c->infile, &bi, pos, len, 0)) {
 		de_err(c, "Invalid bitmap\n");
 		return;
 	}
@@ -217,7 +217,7 @@ static void de_DIB_to_BMP(deark *c, dbuf *inf, de_int64 pos, de_int64 len, dbuf 
 	dbuf_write(outf, (const de_byte*)"BM", 2);
 	dbuf_writeui32le(outf, 14+bi.total_size); // File size
 	dbuf_writezeroes(outf, 4);
-	dbuf_writeui32le(outf, 14+bi.size_of_headers); // "Bits offset"
+	dbuf_writeui32le(outf, 14+bi.size_of_headers_and_pal); // "Bits offset"
 
 	dbuf_copy(inf, pos, bi.total_size, outf); // Copy the rest of the data.
 }
@@ -244,7 +244,7 @@ static void do_extract_ico_cur(deark *c, lctx *d, de_int64 pos, de_int64 len,
 	// There's usually a GROUP_ICON resource that seems to contain (most of) an
 	// ICO header, but I don't know exactly how it's connected to the icon image(s).
 
-	if(!de_bmputil_get_bmpinfo(c->infile, &bi, pos, len, DE_BMPINFO_ICO_FORMAT)) {
+	if(!de_bmputil_get_bmpinfo(c, c->infile, &bi, pos, len, DE_BMPINFO_ICO_FORMAT)) {
 		de_err(c, "Invalid bitmap\n");
 		return;
 	}
