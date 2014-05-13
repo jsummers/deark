@@ -97,8 +97,8 @@ Deark -- Information about supported formats
   - Extract Exif data (use -extractall)
 
 * EXE/PE/NE/etc. (module="exe")
-  - Can extract bitmaps, icons, and cursors from NE and PE (Windows .exe)
-    files.
+  - Extract bitmaps, icons, and cursors from NE and PE (Windows .exe) files.
+  - Extract bitmaps from LX (Linear Executable) files.
 
 * PSD (PhotoShop) (module="psd")
   - Extract data from "Photoshop resources"

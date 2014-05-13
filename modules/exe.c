@@ -11,6 +11,8 @@
 #define EXE_FMT_NE     2
 #define EXE_FMT_PE32   3
 #define EXE_FMT_PE32PLUS 4
+#define EXE_FMT_LX     5
+#define EXE_FMT_LE     6
 
 #define MAX_RESOURCES 10000
 
@@ -21,6 +23,15 @@ typedef struct localctx_struct {
 	de_int64 number_of_sections;
 
 	de_int64 ne_rsrc_tbl_offset;
+
+	de_int64 lx_page_offset_shift;
+	de_int64 lx_object_tbl_offset;
+	de_int64 lx_object_tbl_entries;
+	de_int64 lx_object_page_tbl_offset;
+	de_int64 lx_rsrc_tbl_offset;
+	de_int64 lx_rsrc_tbl_entries;
+	de_int64 lx_data_pages_offset;
+	int warned_exp_lx;
 
 	// File offset where the resources start. Some addresses are relative
 	// to this.
@@ -157,6 +168,40 @@ static void do_ne_ext_header(deark *c, lctx *d, de_int64 pos)
 	de_dbg(c, "target OS: %d%s\n", (int)target_os, desc);
 }
 
+static void do_lx_ext_header(deark *c, lctx *d, de_int64 pos)
+{
+	de_int64 x1, x2;
+
+	de_dbg(c, "LX header at %d\n", (int)pos);
+	x1 = de_getbyte(pos+2);
+	x2 = de_getbyte(pos+2);
+	de_dbg(c, "byte order, word order: %d, %d\n", (int)x1, (int)x2);
+	if(x1!=0 || x2!=0) {
+		de_err(c, "Unsupported byte order.\n");
+		return;
+	}
+
+	d->lx_page_offset_shift = de_getui32le(pos+0x2c);
+	de_dbg(c, "page offset shift: %d\n", (int)d->lx_page_offset_shift);
+
+	x1 = de_getui32le(pos+0x40);
+	d->lx_object_tbl_offset = pos + x1;
+	d->lx_object_tbl_entries = de_getui32le(pos+0x44);
+	de_dbg(c, "object table offset=%d, entries=%d\n", (int)d->lx_object_tbl_offset, (int)d->lx_object_tbl_entries);
+
+	x1 = de_getui32le(pos+0x48);
+	d->lx_object_page_tbl_offset = pos + x1;
+	de_dbg(c, "object page table offset=%d\n", (int)d->lx_object_page_tbl_offset);
+
+	x1 = de_getui32le(pos+0x50);
+	d->lx_rsrc_tbl_offset = pos + x1;
+	d->lx_rsrc_tbl_entries = de_getui32le(pos+0x54);
+	de_dbg(c, "resource table offset=%d entries=%d\n", (int)d->lx_rsrc_tbl_offset, (int)d->lx_rsrc_tbl_entries);
+
+	d->lx_data_pages_offset = de_getui32le(pos+0x80);
+	de_dbg(c, "data pages offset=%d\n", (int)d->lx_data_pages_offset);
+}
+
 static void do_ext_header(deark *c, lctx *d)
 {
 	de_byte buf[4];
@@ -177,6 +222,17 @@ static void do_ext_header(deark *c, lctx *d)
 		de_declare_fmt(c, "NE");
 		d->fmt = EXE_FMT_NE;
 		do_ne_ext_header(c, d, d->ext_header_offset);
+	}
+	else if(!de_memcmp(buf, "LX", 2)) {
+		de_declare_fmt(c, "LX Linear Executable");
+		d->fmt = EXE_FMT_LX;
+		do_lx_ext_header(c, d, d->ext_header_offset);
+	}
+	else if(!de_memcmp(buf, "LE", 2)) {
+		de_declare_fmt(c, "LE Linear Executable");
+		d->fmt = EXE_FMT_LE;
+		// TODO: Support LE format.
+		de_err(c, "LE format not supported.\n");
 	}
 
 done:
@@ -553,6 +609,108 @@ static void do_ne_rsrc_tbl(deark *c, lctx *d)
 	}
 }
 
+static void warn_experimental_lx(deark *c, lctx *d)
+{
+	if(d->warned_exp_lx) return;
+	de_warn(c, "Support for extracting resources from LX files is experimental, and may not be correct.\n");
+	d->warned_exp_lx = 1;
+}
+
+// Extract a resource from an LX file, given the information from an Object Table
+// entry.
+static void do_lx_object(deark *c, lctx *d,
+	de_int64 obj_num, de_int64 rsrc_offset, de_int64 rsrc_size, de_int64 rsrc_type)
+{
+	de_int64 lpos;
+	de_int64 vsize;
+	de_int64 reloc_base_addr;
+	de_int64 flags;
+	de_int64 page_table_index;
+	de_int64 page_table_entries;
+	de_int64 rsrc_offset_real;
+	de_int64 pg_data_offset_raw;
+	//de_int64 data_size;
+
+	if(obj_num<1 || obj_num>d->lx_object_tbl_entries) {
+		de_err(c, "Invalid object number (%d).\n", (int)obj_num);
+		return;
+	}
+
+	// Read the Object Table
+	lpos = d->lx_object_tbl_offset + 24*(obj_num-1);
+	de_dbg(c, " LX object table entry at %d\n", (int)lpos);
+
+	vsize = de_getui32le(lpos);
+	reloc_base_addr = de_getui32le(lpos+4);
+	flags = de_getui32le(lpos+8);
+	page_table_index = de_getui32le(lpos+12);
+	page_table_entries = de_getui32le(lpos+16);
+	de_dbg(c, " object #%d: vsize=%d raddr=%d flags=0x%x pti=%d pte=%d\n", (int)obj_num,
+		(int)vsize, (int)reloc_base_addr, (unsigned int)flags, (int)page_table_index,
+		(int)page_table_entries);
+
+	if(page_table_index<1) return;
+
+	// Now read the Object Page table
+	lpos = d->lx_object_page_tbl_offset + 8*(page_table_index-1);
+	de_dbg(c, " LX page table entry at %d\n", (int)lpos);
+
+	pg_data_offset_raw = de_getui32le(lpos);
+	//data_size = de_getui16le(lpos+4);
+	
+	rsrc_offset_real = pg_data_offset_raw;
+	if(d->lx_page_offset_shift > 0 ) {
+		rsrc_offset_real <<= (unsigned int)d->lx_page_offset_shift;
+	}
+	rsrc_offset_real += d->lx_data_pages_offset;
+	rsrc_offset_real += rsrc_offset;
+	de_dbg(c, " resource offset: %d\n", (int)rsrc_offset_real);
+
+	switch(rsrc_type) {
+		// TODO: Support other types of resources.
+	case 2: // bitmap file
+		// TODO: The format seems to split resources up into pages, which might not
+		// be stored contiguously, or completely used. But we assume that resources
+		// are stored continguously in the file.
+		warn_experimental_lx(c, d);
+		// Unlike in NE and PE format, it seems that BITMAP resources in LX format
+		// include the BITMAPFILEHEADER.
+		dbuf_create_file_from_slice(c->infile, rsrc_offset_real, rsrc_size, "bmp");
+	}
+}
+
+static void do_lx_rsrc_tbl(deark *c, lctx *d)
+{
+	de_int64 i;
+	de_int64 lpos;
+	de_int64 type_id;
+	de_int64 name_id;
+	de_int64 rsrc_size;
+	de_int64 rsrc_object;
+	de_int64 rsrc_offset;
+
+	de_dbg(c, "LX resource table at %d\n", (int)d->lx_rsrc_tbl_offset);
+	if(d->lx_rsrc_tbl_entries>MAX_RESOURCES) {
+		de_err(c, "Too many resources.\n");
+		return;
+	}
+
+	for(i=0; i<d->lx_rsrc_tbl_entries; i++) {
+		lpos = d->lx_rsrc_tbl_offset + 14*i;
+
+		type_id = de_getui16le(lpos);
+		name_id = de_getui16le(lpos+2);
+		rsrc_size = de_getui32le(lpos+4);
+		rsrc_object = de_getui16le(lpos+8);
+		rsrc_offset = de_getui32le(lpos+10);
+
+		de_dbg(c, "resource #%d: type=%d name=%d size=%d obj=%d offset=%d\n", (int)i,
+			(int)type_id, (int)name_id, (int)rsrc_size, (int)rsrc_object, (int)rsrc_offset);
+
+		do_lx_object(c, d, rsrc_object, rsrc_offset, rsrc_size, type_id);
+	}
+}
+
 static void de_run_exe(deark *c, const char *params)
 {
 	lctx *d = NULL;
@@ -567,6 +725,9 @@ static void de_run_exe(deark *c, const char *params)
 	}
 	else if(d->fmt==EXE_FMT_NE && d->ne_rsrc_tbl_offset>0) {
 		do_ne_rsrc_tbl(c, d);
+	}
+	else if(d->fmt==EXE_FMT_LX && d->lx_rsrc_tbl_offset>0) {
+		do_lx_rsrc_tbl(c, d);
 	}
 
 	de_free(c, d);
