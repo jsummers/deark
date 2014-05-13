@@ -668,7 +668,11 @@ static void do_lx_object(deark *c, lctx *d,
 
 	switch(rsrc_type) {
 		// TODO: Support other types of resources.
-	case 2: // bitmap file
+	case 1: // Icon (or icon array) (?)
+		warn_experimental_lx(c, d);
+		dbuf_create_file_from_slice(c->infile, rsrc_offset_real, rsrc_size, "ico");
+		break;
+	case 2: // Bitmap
 		// TODO: The format seems to split resources up into pages, which might not
 		// be stored contiguously, or completely used. But we assume that resources
 		// are stored continguously in the file.
@@ -676,6 +680,7 @@ static void do_lx_object(deark *c, lctx *d,
 		// Unlike in NE and PE format, it seems that BITMAP resources in LX format
 		// include the BITMAPFILEHEADER.
 		dbuf_create_file_from_slice(c->infile, rsrc_offset_real, rsrc_size, "bmp");
+		break;
 	}
 }
 

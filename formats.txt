@@ -49,8 +49,8 @@ Deark -- Information about supported formats
   - Version 1 and 2
 
 * OS/2 Icon, Pointer, Bitmap Array formats (module="os2bmp")
-  - Converts icons & pointers to individual PNG files. Extract Bitmap Array
-    BMP images as individual BMP files.
+  - Converts icons & pointers to individual PNG files.
+  - Extract Bitmap Array BMP images as individual BMP files.
 
 * PC Paint / Pictor (module="pcpaint")
   - Supports PIC and CLP formats. Some files are not portable, because they use
@@ -99,6 +99,8 @@ Deark -- Information about supported formats
 * EXE/PE/NE/etc. (module="exe")
   - Extract bitmaps, icons, and cursors from NE and PE (Windows .exe) files.
   - Extract bitmaps from LX (Linear Executable) files.
+  - Extract icons from LX files. Note that these will be OS/2 icons. Reprocess
+    them with Deark to convert to PNG.
 
 * PSD (PhotoShop) (module="psd")
   - Extract data from "Photoshop resources"
