@@ -47,7 +47,7 @@ static int do_cga16(deark *c, lctx *d)
 	de_int64 i, j;
 	int retval = 0;
 	de_byte charcode, colorcode;
-	de_int64 src_rowstride;
+	de_int64 src_rowspan;
 	de_byte color0, color1;
 	int charwarning = 0;
 
@@ -60,8 +60,8 @@ static int do_cga16(deark *c, lctx *d)
 	img->bytes_per_pixel = 3;
 
 	// Every pair of bytes codes for two pixels; i.e. one byte per pixel.
-	src_rowstride = img->width;
-	max_possible_height = (d->data_size+src_rowstride-1)/src_rowstride;
+	src_rowspan = img->width;
+	max_possible_height = (d->data_size+src_rowspan-1)/src_rowspan;
 	if(img->height > max_possible_height)
 		img->height = max_possible_height;
 
@@ -72,8 +72,8 @@ static int do_cga16(deark *c, lctx *d)
 
 	for(j=0; j<img->height; j++) {
 		for(i=0; i<img->width; i+=2) {
-			charcode = de_getbyte(BSAVE_HDRSIZE + j*src_rowstride + i);
-			colorcode = de_getbyte(BSAVE_HDRSIZE + j*src_rowstride + i+1);
+			charcode = de_getbyte(BSAVE_HDRSIZE + j*src_rowspan + i);
+			colorcode = de_getbyte(BSAVE_HDRSIZE + j*src_rowspan + i+1);
 
 			if(charwarning==0 && charcode!=0xdd && charcode!=0xde) {
 				// TODO: We could also handle space characters and full-block characters,

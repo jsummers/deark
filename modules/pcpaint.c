@@ -26,8 +26,8 @@ static int decode_egavga16(deark *c, lctx *d)
 	de_int64 k;
 	de_int64 plane;
 	de_byte z[4];
-	de_int64 src_rowstride;
-	de_int64 src_planestride;
+	de_int64 src_rowspan;
+	de_int64 src_planespan;
 	int palent;
 	de_byte cr, cg, cb;
 
@@ -56,8 +56,8 @@ static int decode_egavga16(deark *c, lctx *d)
 		}
 	}
 
-	src_rowstride = (d->img->width +7)/8;
-	src_planestride = src_rowstride*d->img->height;
+	src_rowspan = (d->img->width +7)/8;
+	src_planespan = src_rowspan*d->img->height;
 
 	d->img->bytes_per_pixel = 3;
 	d->img->flipped = 1;
@@ -65,7 +65,7 @@ static int decode_egavga16(deark *c, lctx *d)
 	for(j=0; j<d->img->height; j++) {
 		for(i=0; i<d->img->width; i++) {
 			for(plane=0; plane<4; plane++) {
-				z[plane] = de_get_bits_symbol(d->unc_pixels, 1, plane*src_planestride + j*src_rowstride, i);
+				z[plane] = de_get_bits_symbol(d->unc_pixels, 1, plane*src_planespan + j*src_rowspan, i);
 			}
 			palent = z[0] + 2*z[1] + 4*z[2] + 8*z[3];
 			de_bitmap_setpixel_rgb(d->img, i, j, pal[palent]);
@@ -121,7 +121,7 @@ static int decode_bilevel(deark *c, lctx *d)
 {
 	de_int64 i, j;
 	de_byte b;
-	de_int64 src_rowstride;
+	de_int64 src_rowspan;
 	de_byte grayshade1;
 
 	de_dbg(c, "pcpaint bilevel\n");
@@ -141,10 +141,10 @@ static int decode_bilevel(deark *c, lctx *d)
 	d->img->bytes_per_pixel = 1;
 	d->img->flipped = 1;
 
-	src_rowstride = (d->img->width +7)/8;
+	src_rowspan = (d->img->width +7)/8;
 	for(j=0; j<d->img->height; j++) {
 		for(i=0; i<d->img->width; i++) {
-			b = de_get_bits_symbol(d->unc_pixels, 1, j*src_rowstride, i);
+			b = de_get_bits_symbol(d->unc_pixels, 1, j*src_rowspan, i);
 			de_bitmap_setpixel_gray(d->img, i, j, b?grayshade1:0);
 		}
 	}
@@ -158,7 +158,7 @@ static int decode_cga4(deark *c, lctx *d)
 	de_int64 i, j;
 	de_int64 k;
 	de_byte b;
-	de_int64 src_rowstride;
+	de_int64 src_rowspan;
 	de_uint32 pal[4];
 	de_byte pal_id;
 	de_byte border_col;
@@ -193,10 +193,10 @@ static int decode_cga4(deark *c, lctx *d)
 	d->img->bytes_per_pixel = 3;
 	d->img->flipped = 1;
 
-	src_rowstride = (d->img->width +3)/4;
+	src_rowspan = (d->img->width +3)/4;
 	for(j=0; j<d->img->height; j++) {
 		for(i=0; i<d->img->width; i++) {
-			b = de_get_bits_symbol(d->unc_pixels, 2, j*src_rowstride, i);
+			b = de_get_bits_symbol(d->unc_pixels, 2, j*src_rowspan, i);
 			de_bitmap_setpixel_rgb(d->img, i, j, pal[b]);
 		}
 	}

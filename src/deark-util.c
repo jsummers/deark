@@ -1036,7 +1036,7 @@ struct deark_bitmap *de_bitmap_create(deark *c, de_int64 width, de_int64 height,
 	img->width = width;
 	img->height = height;
 	img->bytes_per_pixel = bypp;
-	//img->rowstride = img->width * img->bytes_per_pixel;
+	//img->rowspan = img->width * img->bytes_per_pixel;
 	return img;
 }
 
