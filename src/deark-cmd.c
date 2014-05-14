@@ -101,6 +101,19 @@ static void parse_cmdline(deark *c, struct cmdctx *cc, int argc, char **argv)
 				de_set_output_archive_filename(c, argv[i+1]);
 				i++;
 			}
+			else if(!strcmp(argv[i]+1, "get") && i<argc-1) {
+				de_set_first_output_file(c, de_atoi(argv[i+1]));
+				de_set_max_output_files(c, 1);
+				i++;
+			}
+			else if(!strcmp(argv[i]+1, "firstfile") && i<argc-1) {
+				de_set_first_output_file(c, de_atoi(argv[i+1]));
+				i++;
+			}
+			else if(!strcmp(argv[i]+1, "maxfiles") && i<argc-1) {
+				de_set_max_output_files(c, de_atoi(argv[i+1]));
+				i++;
+			}
 			else {
 				fprintf(stderr, "Unrecognized option: %s\n", argv[i]);
 				cc->error_flag = 1;

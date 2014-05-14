@@ -61,6 +61,8 @@ void de_set_debug_level(deark *c, int x);
 void de_set_extract_level(deark *c, int x);
 
 void de_set_listmode(deark *c, int x);
+void de_set_first_output_file(deark *c, int x);
+void de_set_max_output_files(deark *c, int n);
 void de_set_messages(deark *c, int x);
 void de_set_warnings(deark *c, int x);
 

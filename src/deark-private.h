@@ -86,6 +86,8 @@ struct deark_struct {
 
 	int extract_level;
 	int list_mode;
+	int first_output_file; // first file = 0
+	int max_output_files; // -1 = no limit
 	int show_messages;
 	int show_warnings;
 

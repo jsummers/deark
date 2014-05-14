@@ -37,6 +37,12 @@ Command-line options:
      Ignore bytes before this position.
   -size <size>
      Look at only this many bytes.
+  -firstfile <n>
+     Don't extract the first <n> files found.
+  -maxfiles <n>
+     Extract at most this many files.
+  -get <n>
+     Extract only the file identifed by <n>. The first file is 0.
   -opt <module:option>=<value>
      Module-specific options. See formats.txt.
   -version

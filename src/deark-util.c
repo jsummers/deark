@@ -244,6 +244,7 @@ deark *de_create(void)
 	c = de_malloc(NULL,sizeof(deark));
 	c->show_messages = 1;
 	c->show_warnings = 1;
+	c->max_output_files = -1;
 	return c;
 }
 
@@ -524,6 +525,16 @@ void de_set_listmode(deark *c, int x)
 	c->list_mode = x;
 }
 
+void de_set_first_output_file(deark *c, int x)
+{
+	c->first_output_file = x;
+}
+
+void de_set_max_output_files(deark *c, int n)
+{
+	c->max_output_files = n;
+}
+
 void de_set_messages(deark *c, int x)
 {
 	c->show_messages = x;
@@ -540,16 +551,28 @@ dbuf *dbuf_create_output_file(deark *c, const char *ext)
 	char msgbuf[200];
 	dbuf *f;
 	const char *basefn;
+	int file_index;
 
 	f = de_malloc(c, sizeof(dbuf));
 
-	basefn = c->base_output_filename ? c->base_output_filename : "output";
-
-	de_snprintf(nbuf, sizeof(nbuf), "%s.%03d.%s", basefn, c->file_count, ext);
+	file_index = c->file_count;
 	c->file_count++;
+
+	basefn = c->base_output_filename ? c->base_output_filename : "output";
+	de_snprintf(nbuf, sizeof(nbuf), "%s.%03d.%s", basefn, file_index, ext);
 
 	f->name = de_strdup(c, nbuf);
 	f->c = c;
+
+	if(file_index < c->first_output_file) {
+		return f;
+	}
+
+	if(c->max_output_files>=0 &&
+		file_index >= c->first_output_file + c->max_output_files)
+	{
+		return f;
+	}
 
 	if(c->list_mode) {
 		de_msg(c, "%s\n", f->name);
