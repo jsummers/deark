@@ -98,9 +98,11 @@ Deark -- Information about supported formats
 
 * EXE/PE/NE/etc. (module="exe")
   - Extract bitmaps, icons, and cursors from NE and PE (Windows .exe) files.
-  - Extract bitmaps from LX (Linear Executable) files.
-  - Extract icons from LX files. Note that these will be OS/2 icons. Reprocess
-    them with Deark to convert to PNG.
+  - Extract bitmaps from LX (Linear Executable) files. Note that some of these
+    may be in "Bitmap Array" format. Reprocess them with Deark to extract the
+    actual BMP file(s).
+  - Extract icons and cursors from LX files. Note that these will use OS/2
+    format. Reprocess them with Deark to convert to PNG.
 
 * PSD (PhotoShop) (module="psd")
   - Extract data from "Photoshop resources"

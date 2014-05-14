@@ -609,6 +609,29 @@ static void do_ne_rsrc_tbl(deark *c, lctx *d)
 	}
 }
 
+// Sniff the resource data, and return a suitable filename extension.
+// Or NULL, if unidentified.
+static const char *identify_lx_rsrc(deark *c, lctx *d, de_int64 pos, de_int64 len)
+{
+	de_byte buf[2];
+	int is_ba = 0;
+
+	if(len<16) return NULL;
+	de_read(buf, pos, 2);
+	if(!de_memcmp(buf, "BA", 2)) {
+		// Bitmap Array container format. Read the real type.
+		de_read(buf, pos+14, 2);
+		is_ba = 1;
+	}
+
+	if(!de_memcmp(buf, "BM", 2)) {
+		return is_ba ? "ba.bmp" : "bmp";
+	}
+	if(!de_memcmp(buf, "CI", 2) || !de_memcmp(buf, "IC", 2)) return "os2.ico";
+	if(!de_memcmp(buf, "CP", 2) || !de_memcmp(buf, "PT", 2)) return "ptr";
+	return NULL;
+}
+
 static void warn_experimental_lx(deark *c, lctx *d)
 {
 	if(d->warned_exp_lx) return;
@@ -629,6 +652,7 @@ static void do_lx_object(deark *c, lctx *d,
 	de_int64 page_table_entries;
 	de_int64 rsrc_offset_real;
 	de_int64 pg_data_offset_raw;
+	const char *ext;
 	//de_int64 data_size;
 
 	if(obj_num<1 || obj_num>d->lx_object_tbl_entries) {
@@ -668,18 +692,17 @@ static void do_lx_object(deark *c, lctx *d,
 
 	switch(rsrc_type) {
 		// TODO: Support other types of resources.
-	case 1: // Icon (or icon array) (?)
-		warn_experimental_lx(c, d);
-		dbuf_create_file_from_slice(c->infile, rsrc_offset_real, rsrc_size, "ico");
-		break;
-	case 2: // Bitmap
+	case 1: // Icon or cursor (?)
+	case 2: // Bitmap (?)
+		ext = identify_lx_rsrc(c, d, rsrc_offset_real, rsrc_size);
+		if(!ext) break;
 		// TODO: The format seems to split resources up into pages, which might not
 		// be stored contiguously, or completely used. But we assume that resources
 		// are stored continguously in the file.
 		warn_experimental_lx(c, d);
 		// Unlike in NE and PE format, it seems that BITMAP resources in LX format
 		// include the BITMAPFILEHEADER.
-		dbuf_create_file_from_slice(c->infile, rsrc_offset_real, rsrc_size, "bmp");
+		dbuf_create_file_from_slice(c->infile, rsrc_offset_real, rsrc_size, ext);
 		break;
 	}
 }
