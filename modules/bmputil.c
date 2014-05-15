@@ -2,7 +2,7 @@
 // This software is in the public domain. See the file COPYING for details.
 
 #include <deark-config.h>
-#include <deark-modules.h>
+#include <deark-private.h>
 #include "bmputil.h"
 
 // Gathers information about a DIB.
