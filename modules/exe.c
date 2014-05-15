@@ -31,7 +31,6 @@ typedef struct localctx_struct {
 	de_int64 lx_rsrc_tbl_offset;
 	de_int64 lx_rsrc_tbl_entries;
 	de_int64 lx_data_pages_offset;
-	int warned_exp_lx;
 
 	// File offset where the resources start. Some addresses are relative
 	// to this.
@@ -416,7 +415,6 @@ static void do_resource_node(deark *c, lctx *d, de_int64 rel_pos, int level)
 
 	d->rsrc_item_count++;
 	if(d->rsrc_item_count>MAX_RESOURCES) {
-		// An emergency brake.
 		de_err(c, "Too many resources.\n");
 		return;
 	}
@@ -551,6 +549,7 @@ static void do_ne_rsrc_tbl(deark *c, lctx *d)
 	de_int64 rsrc_size;
 	de_int64 tot_resources = 0;
 	unsigned int align_shift;
+	int have_type;
 
 	pos = d->ne_rsrc_tbl_offset;
 
@@ -576,18 +575,27 @@ static void do_ne_rsrc_tbl(deark *c, lctx *d)
 
 		if(x & 0x8000) {
 			rsrc_type_id = x-0x8000;
+			have_type = 1;
 		}
 		else {
-			rsrc_type_id = 0; //??
+			// x represents a relative offset to a name in rscResourceNames.
+			// TODO: Could the name ever be a standard type (e.g. "ICON"), that
+			// we ought to support?
+			rsrc_type_id = 0;
+			have_type = 0;
+			// name_offset = d->ne_rsrc_tbl_offset + x;
 		}
 
 		rsrc_count = de_getui16le(pos+2);
-		de_dbg(c, " resource type=%d, count=%d\n", (int)rsrc_type_id, (int)rsrc_count);
+		if(have_type)
+			de_dbg(c, " resource type=%d, count=%d\n", (int)rsrc_type_id, (int)rsrc_count);
+		else
+			de_dbg(c, " resource type=?, count=%d\n", (int)rsrc_count);
 
 		tot_resources += rsrc_count;
 
 		if(tot_resources>MAX_RESOURCES) {
-			de_err(c, "Too many resources.\n");
+			de_err(c, "Too many resources, or invalid resource table.\n");
 			break;
 		}
 
@@ -601,7 +609,8 @@ static void do_ne_rsrc_tbl(deark *c, lctx *d)
 			if(align_shift>0) rsrc_size <<= align_shift;
 			de_dbg(c, " offset = %d, length = %d\n", (int)rsrc_offset, (int)rsrc_size);
 
-			do_extract_resource(c, d, rsrc_type_id, rsrc_offset, rsrc_size);
+			if(have_type)
+				do_extract_resource(c, d, rsrc_type_id, rsrc_offset, rsrc_size);
 		}
 
 		pos += 8 + 12*rsrc_count;
@@ -632,16 +641,9 @@ static const char *identify_lx_rsrc(deark *c, lctx *d, de_int64 pos, de_int64 le
 	return NULL;
 }
 
-static void warn_experimental_lx(deark *c, lctx *d)
-{
-	if(d->warned_exp_lx) return;
-	de_warn(c, "Support for extracting resources from LX files is experimental, and may not be correct.\n");
-	d->warned_exp_lx = 1;
-}
-
 // Extract a resource from an LX file, given the information from an Object Table
 // entry.
-static void do_lx_object(deark *c, lctx *d,
+static void do_lx_rsrc(deark *c, lctx *d,
 	de_int64 obj_num, de_int64 rsrc_offset, de_int64 rsrc_size, de_int64 rsrc_type)
 {
 	de_int64 lpos;
@@ -696,12 +698,11 @@ static void do_lx_object(deark *c, lctx *d,
 	case 2: // Bitmap (?)
 		ext = identify_lx_rsrc(c, d, rsrc_offset_real, rsrc_size);
 		if(!ext) break;
-		// TODO: The format seems to split resources up into pages, which might not
-		// be stored contiguously, or completely used. But we assume that resources
-		// are stored continguously in the file.
-		warn_experimental_lx(c, d);
-		// Unlike in NE and PE format, it seems that BITMAP resources in LX format
-		// include the BITMAPFILEHEADER.
+		// TODO: This assumes the resource is stored contiguously in the file, but
+		// for all I know that isn't always the case.
+
+		// Unlike in NE and PE format, it seems that image resources in LX files
+		// include the BITMAPFILEHEADER. That makes it easy.
 		dbuf_create_file_from_slice(c->infile, rsrc_offset_real, rsrc_size, ext);
 		break;
 	}
@@ -735,7 +736,7 @@ static void do_lx_rsrc_tbl(deark *c, lctx *d)
 		de_dbg(c, "resource #%d: type=%d name=%d size=%d obj=%d offset=%d\n", (int)i,
 			(int)type_id, (int)name_id, (int)rsrc_size, (int)rsrc_object, (int)rsrc_offset);
 
-		do_lx_object(c, d, rsrc_object, rsrc_offset, rsrc_size, type_id);
+		do_lx_rsrc(c, d, rsrc_object, rsrc_offset, rsrc_size, type_id);
 	}
 }
 
