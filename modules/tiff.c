@@ -6,6 +6,8 @@
 #include <deark-config.h>
 #include <deark-modules.h>
 
+#define MAX_IFDS 1000
+
 #define TAGTYPE_UINT32 4
 
 struct ifdstack_item {
@@ -19,6 +21,9 @@ typedef struct localctx_struct {
 	struct ifdstack_item *ifdstack;
 	int ifdstack_capacity;
 	int ifdstack_numused;
+
+	de_int64 *ifdlist;
+	de_int64 ifd_count;
 
 	de_int64 fpos_size; // Number of bytes in a file offset
 	const char *params;
@@ -37,21 +42,40 @@ static de_int64 pop_ifd(deark *c, lctx *d)
 
 static void push_ifd(deark *c, lctx *d, de_int64 ifdpos)
 {
-	// TODO: Don't allow IFD loops.
+	int i;
 
 	if(ifdpos==0) return;
 
+	// Append to the IFD list (of all IFDs). This is only used for loop detection.
+	if(!d->ifdlist) {
+		d->ifdlist = de_malloc(c, MAX_IFDS * sizeof(de_int64));
+	}
+	if(d->ifd_count >= MAX_IFDS) {
+		de_warn(c, "Too many TIFF IFDs\n");
+		return;
+	}
+	for(i=0; i<d->ifd_count; i++) {
+		if(ifdpos == d->ifdlist[i]) {
+			de_err(c, "IFD loop detected\n");
+			return;
+		}
+	}
+	d->ifdlist[d->ifd_count] = ifdpos;
+	d->ifd_count++;
+
+	// Add to the IFD stack (of unprocessed IFDs).
 	if(!d->ifdstack) {
 		d->ifdstack_capacity = 200;
 		d->ifdstack = de_malloc(c, d->ifdstack_capacity * sizeof(struct ifdstack_item));
 		d->ifdstack_numused = 0;
 	}
 	if(d->ifdstack_numused >= d->ifdstack_capacity) {
-		de_warn(c, "Too many TIFF IFDs, not supported");
+		de_warn(c, "Too many TIFF IFDs\n");
 		return;
 	}
 	d->ifdstack[d->ifdstack_numused].offset = ifdpos;
 	d->ifdstack_numused++;
+
 }
 
 static int size_of_tiff_type(int tt)
@@ -266,6 +290,7 @@ static void de_run_tiff(deark *c, const char *params)
 
 	if(d) {
 		de_free(c, d->ifdstack);
+		de_free(c, d->ifdlist);
 		de_free(c, d);
 	}
 }
