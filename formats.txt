@@ -59,6 +59,7 @@ Deark -- Information about supported formats
   Options
    -opt pcpaint:fmt=pic
    -opt pcpaint:fmt=clp
+   -opt palfile=<file.pic> - PIC file to read the palette from
 
 * Psion PIC (module="psionpic")
   A Psion PIC file contains one or more 1-bpp bitmaps, some of which can be

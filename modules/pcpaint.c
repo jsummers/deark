@@ -11,11 +11,17 @@ typedef struct localctx_struct {
 	de_byte plane_info;
 	de_byte palette_flag;
 	de_byte video_mode;
-	de_int64 edesc;
-	de_int64 esize;
+	de_int64 edesc_orig;
+	de_int64 edesc; // Equals either edesc_orig or edesc_palfile
+	de_int64 esize_orig;
 	de_int64 num_rle_blocks;
 	de_int64 max_unc_bytes;
 	dbuf *unc_pixels;
+
+	dbuf *palfile;
+	dbuf *read_pal_from_me; // Points to either c->infile or to palfile
+	de_int64 edesc_palfile;
+	de_int64 esize_palfile;
 } lctx;
 
 static int decode_egavga16(deark *c, lctx *d)
@@ -41,13 +47,13 @@ static int decode_egavga16(deark *c, lctx *d)
 	else if(d->edesc==3) {
 		// An EGA palette. Indexes into the standard EGA
 		// 64-color palette.
-		de_read(tmpbuf, 17, 16);
+		dbuf_read(d->read_pal_from_me, tmpbuf, 17, 16);
 		for(k=0; k<16; k++) {
 			pal[k] = de_palette_ega64(tmpbuf[k]);
 		}
 	}
 	else { // assuming edesc==5
-		de_read(tmpbuf, 17, 16*3);
+		dbuf_read(d->read_pal_from_me, tmpbuf, 17, 16*3);
 		for(k=0; k<16; k++) {
 			cr = de_palette_sample_6_to_8bit(tmpbuf[3*k+0]);
 			cg = de_palette_sample_6_to_8bit(tmpbuf[3*k+1]);
@@ -85,16 +91,20 @@ static int decode_vga256(deark *c, lctx *d)
 	de_byte b;
 	de_byte cr, cg, cb;
 
+	de_dbg(c, "256-color image\n");
+
 	// Read the palette
 	if(d->edesc==0) {
 		// No palette in file. Use standard palette.
+		de_dbg(c, "No palette in file. Using standard palette.\n");
 
 		for(i=0; i<256; i++) {
 			pal[i] = de_palette_vga256((int)i);
 		}
 	}
 	else {
-		de_read(tmpbuf, 17, 768);
+		de_dbg(c, "Reading palette.\n");
+		dbuf_read(d->read_pal_from_me, tmpbuf, 17, 768);
 		for(k=0; k<256; k++) {
 			cr = de_palette_sample_6_to_8bit(tmpbuf[3*k+0]);
 			cg = de_palette_sample_6_to_8bit(tmpbuf[3*k+1]);
@@ -170,10 +180,11 @@ static int decode_cga4(deark *c, lctx *d)
 	if(d->edesc==1) {
 		// Image includes information about which CGA 4-color palette it uses.
 
-		// FIXME: This is ugly. It assumes PIC format, which is true, but
-		// only because we set edesc to 0 for CLP format.
-		pal_id = de_getbyte(17);
-		border_col = de_getbyte(18);
+		// This assumes PIC format. That should be the case, since edesc will
+		// be zero for CLP format (unless we are reading the palette from a separate
+		// PIC file).
+		pal_id = dbuf_getbyte(d->read_pal_from_me, 17);
+		border_col = dbuf_getbyte(d->read_pal_from_me, 18);
 		de_dbg(c, "pal_id=0x%02x border=0x%02x\n", pal_id, border_col);
 
 		for(k=0; k<4; k++) {
@@ -310,6 +321,39 @@ done:
 	return retval;
 }
 
+// Figure out if we're supposed to read the palette from an alternate file.
+// If so, open it and read a few fields from it. Modify settings so that
+// we will read the palette from the alternate file.
+// The palette file is assumed to be in PIC format.
+static int do_read_alt_palette_file(deark *c, lctx *d)
+{
+	const char *palfn;
+
+	palfn = de_get_option(c, "palfile");
+	if(!palfn) return 1;
+
+	de_dbg(c, "reading palette file %s\n", palfn);
+
+	d->palfile = dbuf_open_input_file(c, palfn);
+	if(!d->palfile) {
+		return 0;
+	}
+
+	d->edesc_palfile = dbuf_getui16le(d->palfile, 13);
+	d->esize_palfile = dbuf_getui16le(d->palfile, 15);
+
+	if(d->edesc_palfile==0) {
+		de_warn(c, "Palette file does not contain palette information.\n");
+		dbuf_close(d->palfile);
+		d->palfile = NULL;
+		return 1;
+	}
+
+	d->edesc = d->edesc_palfile;
+	d->read_pal_from_me = d->palfile;
+	return 1;
+}
+
 static void de_run_pcpaint_pic(deark *c, lctx *d, const char *params)
 {
 	de_declare_fmt(c, "PCPaint PIC");
@@ -336,18 +380,21 @@ static void de_run_pcpaint_pic(deark *c, lctx *d, const char *params)
 	}
 
 	d->video_mode = de_getbyte(12);
-	d->edesc = de_getui16le(13);
-	d->esize = de_getui16le(15);
+	d->edesc_orig = de_getui16le(13);
+	d->esize_orig = de_getui16le(15);
+	d->edesc = d->edesc_orig; // default
 
 	de_dbg(c, "video_mode: 0x%02x\n",(int)d->video_mode);
-	de_dbg(c, "edesc: %d\n",(int)d->edesc);
-	de_dbg(c, "esize: %d\n",(int)d->esize);
+	de_dbg(c, "edesc: %d\n",(int)d->edesc_orig);
+	de_dbg(c, "esize: %d\n",(int)d->esize_orig);
 
 	// extra data may be at position 17 (if esize>0)
 
-	d->num_rle_blocks = de_getui16le(17+d->esize);
+	if(!do_read_alt_palette_file(c, d));
 
-	d->header_size = 17 + d->esize + 2;
+	d->num_rle_blocks = de_getui16le(17+d->esize_orig);
+
+	d->header_size = 17 + d->esize_orig + 2;
 
 	de_dbg(c, "rle blocks: %d\n", (int)d->num_rle_blocks);
 
@@ -434,8 +481,11 @@ static void de_run_pcpaint_clp(deark *c, lctx *d, const char *params)
 	// The colors probably won't be right, but we have no way to tell what palette
 	// is used by a CLP image.
 	d->video_mode = 0;
+	d->edesc_orig = 0;
 	d->edesc = 0;
-	d->esize = 0;
+	d->esize_orig = 0;
+
+	if(!do_read_alt_palette_file(c, d)) goto done;
 
 	if(is_compressed) {
 		run_marker = de_getbyte(12);
@@ -528,6 +578,10 @@ static void de_run_pcpaint(deark *c, const char *params)
 		}
 	}
 
+	// By default, read the palette from the main file. This may be overridden in
+	// do_read_palette_file().
+	d->read_pal_from_me = c->infile;
+
 	if(id==2) {
 		de_run_pcpaint_clp(c, d, params);
 	}
@@ -536,6 +590,7 @@ static void de_run_pcpaint(deark *c, const char *params)
 	}
 
 	if(d->unc_pixels) dbuf_close(d->unc_pixels);
+	if(d->palfile) dbuf_close(d->palfile);
 	de_bitmap_destroy(d->img);
 	de_free(c, d);
 }
