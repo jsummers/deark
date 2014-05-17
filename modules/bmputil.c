@@ -6,7 +6,8 @@
 #include "bmputil.h"
 
 // Gathers information about a DIB.
-// pos points to the beginning of the BITMAPINFOHEADER.
+// If DE_BMPINFO_HAS_FILEHEADER flag is set, pos points to the BITMAPFILEHEADER.
+// Otherwise, it points to the BITMAPINFOHEADER.
 // Caller allocates bi.
 // Returns 0 if BMP is invalid.
 int de_bmputil_get_bmpinfo(deark *c, dbuf *f, struct de_bmpinfo *bi, de_int64 pos,
