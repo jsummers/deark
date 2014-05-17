@@ -48,7 +48,7 @@ void de_strlcpy(char *dst, const char *src, size_t dstlen)
 	dst[n]='\0';
 }
 
-// Just a wrapper for strcmp().
+// A wrapper for strcmp().
 // Modules aren't expected to use the C library directly.
 int de_strcmp(const char *s1, const char *s2)
 {
@@ -583,9 +583,6 @@ dbuf *dbuf_create_output_file(deark *c, const char *ext)
 		de_msg(c, "Adding %s to ZIP file\n", f->name);
 		f->btype = DBUF_TYPE_MEMBUF;
 		f->write_memfile_to_zip_archive = 1;
-
-		// TODO: This is ugly, should be combined with dbuf_create_membuf's code.
-		//f->file_data = dbuf_create_membuf(c, 2048);
 		f->membuf_buf = de_malloc(c, 2048);
 		f->membuf_alloc = 2048;
 	}
@@ -871,7 +868,7 @@ de_int64 de_atoi64(const char *string)
 }
 
 #ifndef DE_WINDOWS
-// The Windows version of this function is in deark-win.c.
+// The Windows implementation of this function is in deark-win.c.
 FILE* de_fopen(deark *c, const char *fn, const char *mode,
 	char *errmsg, size_t errmsg_len)
 {
@@ -887,18 +884,10 @@ FILE* de_fopen(deark *c, const char *fn, const char *mode,
 }
 #endif
 
+#ifndef DE_WINDOWS
+// The Windows implementation of this function is in deark-win.c.
 int de_get_file_size(FILE *fp, de_int64 *pfsize)
 {
-#ifdef DE_WINDOWS
-	struct _stat stbuf;
-
-	if(_fstat(_fileno(fp),&stbuf)==0) {
-		*pfsize = stbuf.st_size;
-		return 1;
-	}
-	*pfsize = 0;
-	return 0;
-#else
 	struct stat stbuf;
 
 	if(fstat(fileno(fp),&stbuf)==0) {
@@ -907,8 +896,8 @@ int de_get_file_size(FILE *fp, de_int64 *pfsize)
 	}
 	*pfsize = 0;
 	return 0;
-#endif
 }
+#endif
 
 static void de_bitmap_alloc_pixels(struct deark_bitmap *img)
 {
@@ -997,7 +986,7 @@ void de_bitmap_setpixel_rgba(struct deark_bitmap *img, de_int64 x, de_int64 y,
 		img->bitmap[pos+1] = DE_COLOR_A(color);
 		break;
 	case 1:
-		// TODO: We could to real grayscale conversion, but for now we
+		// TODO: We could do real grayscale conversion, but for now we
 		// assume this won't happen, or that if it does the color given to
 		// us is a gray shade.
 		img->bitmap[pos]   = DE_COLOR_G(color);

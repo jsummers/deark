@@ -11,6 +11,8 @@
 
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
+#include <sys/types.h>
 
 #include "deark.h"
 
@@ -81,6 +83,18 @@ FILE* de_fopen(deark *c, const char *fn, const char *mode,
 		f=NULL;
 	}
 	return f;
+}
+
+int de_get_file_size(FILE *fp, de_int64 *pfsize)
+{
+	struct _stat stbuf;
+
+	if(_fstat(_fileno(fp),&stbuf)==0) {
+		*pfsize = stbuf.st_size;
+		return 1;
+	}
+	*pfsize = 0;
+	return 0;
 }
 
 char **de_convert_args_to_utf8(int argc, wchar_t **argvW)
