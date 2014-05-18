@@ -162,3 +162,28 @@ de_byte de_palette_sample_6_to_8bit(de_byte samp)
 	if(samp>=63) return 255;
 	return (de_byte)(0.5+((((double)samp)/63.0)*255.0));
 }
+
+// s1 is not NUL terminated, but s2 will be.
+// s2_size includes the NUL terminator.
+void de_make_printable_ascii(de_byte *s1, de_int64 s1_len,
+	char *s2, de_int64 s2_size)
+{
+	de_int64 i;
+	de_int64 s2_pos = 0;
+	char ch;
+
+	for(i=0; i<s1_len; i++) {
+		if(s1[i]>=32 && s1[i]<=126) {
+			ch = (char)s1[i];
+		}
+		else {
+			ch = '_';
+		}
+
+		if(s2_pos < s2_size-1) {
+			s2[s2_pos++] = ch;
+		}
+	}
+
+	s2[s2_pos] = '\0';
+}

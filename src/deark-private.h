@@ -298,4 +298,7 @@ de_byte de_palette_sample_6_to_8bit(de_byte samp);
 
 int de_cp437_to_unicode(deark *c, int a);
 
+void de_make_printable_ascii(de_byte *s1, de_int64 s1_len,
+	char *s2, de_int64 s2_size);
+
 ///////////////////////////////////////////

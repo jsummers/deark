@@ -22,3 +22,4 @@ void de_module_psionpic(deark *c, struct deark_module_info *mi);
 void de_module_psionapp(deark *c, struct deark_module_info *mi);
 void de_module_hpicn(deark *c, struct deark_module_info *mi);
 void de_module_exe(deark *c, struct deark_module_info *mi);
+void de_module_ani(deark *c, struct deark_module_info *mi);

@@ -398,6 +398,10 @@
 				>
 			</File>
 			<File
+				RelativePath="..\..\modules\ani.c"
+				>
+			</File>
+			<File
 				RelativePath="..\..\modules\bmputil.c"
 				>
 			</File>

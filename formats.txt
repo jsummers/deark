@@ -79,6 +79,9 @@ Deark -- Information about supported formats
 
 === File extraction modules ===
 
+* ANI (Windows Animated Cursor) (module="ani")
+  - Extract individual CUR and ICO files.
+
 * Copy (module="copy")
   - "Extract" the entire file. Use with -start and -size to extract part of
     the file.
