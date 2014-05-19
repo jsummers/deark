@@ -102,6 +102,7 @@ Deark -- Information about supported formats
 
 * EXE/PE/NE/etc. (module="exe")
   - Extract bitmaps, icons, and cursors from NE and PE (Windows .exe) files.
+  - Extract embedded manifests (use -extractall)
   - Extract bitmaps from LX (Linear Executable) files. Note that some of these
     may be in "Bitmap Array" format. Reprocess them with Deark to extract the
     actual BMP file(s).

@@ -373,10 +373,17 @@ static void do_extract_ICON(deark *c, lctx *d, de_int64 pos, de_int64 len)
 	do_extract_ico_cur(c, d, pos, len, 0, 0, 0);
 }
 
+static void do_extract_MANIFEST(deark *c, lctx *d, de_int64 pos, de_int64 len)
+{
+	if(c->extract_level>=2) {
+		dbuf_create_file_from_slice(c->infile, pos, len, "manifest");
+	}
+}
+
 static void do_ne_pe_extract_resource(deark *c, lctx *d, de_int64 type_id,
 	de_int64 pos, de_int64 len)
 {
-	if(len>DE_MAX_FILE_SIZE) return;
+	if(len<1 || len>DE_MAX_FILE_SIZE) return;
 
 	switch(type_id) {
 	case DE_RT_CURSOR:
@@ -387,6 +394,9 @@ static void do_ne_pe_extract_resource(deark *c, lctx *d, de_int64 type_id,
 		break;
 	case DE_RT_ICON:
 		do_extract_ICON(c, d, pos, len);
+		break;
+	case DE_RT_MANIFEST:
+		do_extract_MANIFEST(c, d, pos, len);
 		break;
 	}
 }
