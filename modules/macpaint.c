@@ -10,7 +10,6 @@
 
 typedef struct localctx_struct {
 	int has_macbinary_header;
-	int extract_patterns;
 	struct deark_bitmap *img;
 	de_int64 xp, yp;
 } lctx;
@@ -225,13 +224,9 @@ static void de_run_macpaint(deark *c, const char *params)
 	d = de_malloc(c, sizeof(lctx));
 
 	d->has_macbinary_header = -1;
-	d->extract_patterns = 1;
 
 	s = de_get_option(c, "macpaint:macbinary");
 	if(s) d->has_macbinary_header = de_atoi(s);
-
-	s = de_get_option(c, "macpaint:extractpatterns");
-	if(s) d->extract_patterns = de_atoi(s);
 
 	if(d->has_macbinary_header == -1) {
 		int v512;
@@ -267,7 +262,7 @@ static void de_run_macpaint(deark *c, const char *params)
 
 	do_read_bitmap(c, d, pos);
 
-	if(d->extract_patterns) {
+	if(c->extract_level>=2) {
 		do_read_patterns(c, d, pos);
 	}
 

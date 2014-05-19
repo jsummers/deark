@@ -40,10 +40,9 @@ Deark -- Information about supported formats
 * HP 100LX / HP 200LX .ICN icon format (module="hpicn")
 
 * MacPaint (module="macpaint")
-  - Extracts brush patterns (as PNG)
+  - Also extracts brush patterns (as PNG) (use -extractall)
   Options
    -opt macpaint:macbinary=<0|1>
-   -opt macpaint:extractpatterns=<0|1>
 
 * MSP (Microsoft Paint graphics) (module="msp")
   - Version 1 and 2
