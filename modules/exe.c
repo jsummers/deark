@@ -16,11 +16,18 @@
 
 #define MAX_RESOURCES 10000
 
+#define DE_RT_CURSOR        1
+#define DE_RT_BITMAP        2
+#define DE_RT_ICON          3
+#define DE_RT_GROUP_CURSOR  12
+#define DE_RT_GROUP_ICON    14
+#define DE_RT_ANICURSOR     21
+#define DE_RT_ANIICON       22
+#define DE_RT_MANIFEST      24
+
 typedef struct localctx_struct {
 	int fmt;
 	de_int64 ext_header_offset;
-	de_int64 sections_offset;
-	de_int64 number_of_sections;
 
 	de_int64 ne_rsrc_tbl_offset;
 
@@ -32,12 +39,16 @@ typedef struct localctx_struct {
 	de_int64 lx_rsrc_tbl_entries;
 	de_int64 lx_data_pages_offset;
 
+	de_int64 pe_sections_offset;
+	de_int64 pe_number_of_sections;
+
 	// File offset where the resources start. Some addresses are relative
 	// to this.
-	de_int64 cur_base_addr;
+	de_int64 pe_cur_base_addr;
 
-	de_int64 cur_section_virt_addr;
-	de_int64 cur_section_data_offset;
+	de_int64 pe_cur_section_virt_addr;
+	de_int64 pe_cur_section_data_offset;
+
 	de_int64 cur_rsrc_type;
 	de_int64 rsrc_item_count;
 } lctx;
@@ -135,14 +146,14 @@ static void do_pe_coff_header(deark *c, lctx *d, de_int64 pos)
 	arch = de_getui16le(pos+4+0);
 	de_dbg(c, "target architecture: 0x%04x\n", (int)arch);
 
-	d->number_of_sections = de_getui16le(pos+4+2);
-	de_dbg(c, "number of sections: %d\n", (int)d->number_of_sections);
+	d->pe_number_of_sections = de_getui16le(pos+4+2);
+	de_dbg(c, "number of sections: %d\n", (int)d->pe_number_of_sections);
 
 	opt_hdr_size = de_getui16le(pos+4+16);
 	de_dbg(c, "optional header size: %d\n", (int)opt_hdr_size);
 	if(opt_hdr_size>0) {
 		do_opt_coff_header(c, d, pos+4+20, opt_hdr_size);
-		d->sections_offset = pos+4+20+opt_hdr_size;
+		d->pe_sections_offset = pos+4+20+opt_hdr_size;
 	}
 }
 
@@ -258,7 +269,6 @@ static void do_fileheader(deark *c, lctx *d)
 }
 
 // Extract a raw DIB, and write it to a file as a BMP.
-// TODO: Move this to a common "bmp.c" file.
 static void de_DIB_to_BMP(deark *c, dbuf *inf, de_int64 pos, de_int64 len, dbuf *outf)
 {
 	struct de_bmpinfo bi;
@@ -363,25 +373,25 @@ static void do_extract_ICON(deark *c, lctx *d, de_int64 pos, de_int64 len)
 	do_extract_ico_cur(c, d, pos, len, 0, 0, 0);
 }
 
-static void do_extract_resource(deark *c, lctx *d, de_int64 type_id,
+static void do_ne_pe_extract_resource(deark *c, lctx *d, de_int64 type_id,
 	de_int64 pos, de_int64 len)
 {
 	if(len>DE_MAX_FILE_SIZE) return;
 
 	switch(type_id) {
-	case 1:
+	case DE_RT_CURSOR:
 		do_extract_CURSOR(c, d, pos, len);
 		break;
-	case 2:
+	case DE_RT_BITMAP:
 		do_extract_BITMAP(c, d, pos, len);
 		break;
-	case 3:
+	case DE_RT_ICON:
 		do_extract_ICON(c, d, pos, len);
 		break;
 	}
 }
 
-static void do_resource_data_entry(deark *c, lctx *d, de_int64 rel_pos)
+static void do_pe_resource_data_entry(deark *c, lctx *d, de_int64 rel_pos)
 {
 	de_int64 data_size;
 	de_int64 data_virt_addr;
@@ -391,23 +401,23 @@ static void do_resource_data_entry(deark *c, lctx *d, de_int64 rel_pos)
 	type_id = d->cur_rsrc_type;
 
 	de_dbg(c, " resource data entry at %d(%d) rsrc_type=%d\n",
-		(int)(d->cur_base_addr+rel_pos), (int)rel_pos, (int)type_id);
+		(int)(d->pe_cur_base_addr+rel_pos), (int)rel_pos, (int)type_id);
 
-	data_virt_addr = de_getui32le(d->cur_base_addr+rel_pos);
-	data_size = de_getui32le(d->cur_base_addr+rel_pos+4);
+	data_virt_addr = de_getui32le(d->pe_cur_base_addr+rel_pos);
+	data_size = de_getui32le(d->pe_cur_base_addr+rel_pos+4);
 	de_dbg(c, " resource data virt. addr=%d (0x%08x), size=%d\n",
 		(int)data_virt_addr, (unsigned int)data_virt_addr, (int)data_size);
 
-	data_real_offset = data_virt_addr - d->cur_section_virt_addr + d->cur_section_data_offset;
+	data_real_offset = data_virt_addr - d->pe_cur_section_virt_addr + d->pe_cur_section_data_offset;
 	de_dbg(c, " data offset in file: %d\n",
 		(int)data_real_offset);
 
-	do_extract_resource(c, d, type_id, data_real_offset, data_size);
+	do_ne_pe_extract_resource(c, d, type_id, data_real_offset, data_size);
 }
 
-static void do_resource_dir_table(deark *c, lctx *d, de_int64 rel_pos, int level);
+static void do_pe_resource_dir_table(deark *c, lctx *d, de_int64 rel_pos, int level);
 
-static void do_resource_node(deark *c, lctx *d, de_int64 rel_pos, int level)
+static void do_pe_resource_node(deark *c, lctx *d, de_int64 rel_pos, int level)
 {
 	de_int64 name_or_id;
 	de_int64 next_offset;
@@ -422,12 +432,12 @@ static void do_resource_node(deark *c, lctx *d, de_int64 rel_pos, int level)
 	has_name = 0;
 	is_branch_node = 0;
 
-	name_or_id = de_getui32le(d->cur_base_addr+rel_pos);
+	name_or_id = de_getui32le(d->pe_cur_base_addr+rel_pos);
 	if(name_or_id & 0x80000000) {
 		has_name = 1;
 		name_or_id -= 0x80000000;
 	}
-	next_offset = de_getui32le(d->cur_base_addr+rel_pos+4);
+	next_offset = de_getui32le(d->pe_cur_base_addr+rel_pos+4);
 	if(next_offset & 0x80000000) {
 		is_branch_node = 1;
 		next_offset -= 0x80000000;
@@ -441,19 +451,19 @@ static void do_resource_node(deark *c, lctx *d, de_int64 rel_pos, int level)
 	// can use it for the filename.
 
 	de_dbg(c, "level %d node at %d(%d) id=%d next-offset=%d is-named=%d is-branch=%d\n",
-		level, (int)(d->cur_base_addr+rel_pos), (int)rel_pos,
+		level, (int)(d->pe_cur_base_addr+rel_pos), (int)rel_pos,
 		(int)name_or_id, (int)next_offset, has_name, is_branch_node);
 
 	// If high bit is 1, we need to go deeper.
 	if(is_branch_node) {
-		do_resource_dir_table(c, d, next_offset, level+1);
+		do_pe_resource_dir_table(c, d, next_offset, level+1);
 	}
 	else {
-		do_resource_data_entry(c, d, next_offset);
+		do_pe_resource_data_entry(c, d, next_offset);
 	}
 }
 
-static void do_resource_dir_table(deark *c, lctx *d, de_int64 rel_pos, int level)
+static void do_pe_resource_dir_table(deark *c, lctx *d, de_int64 rel_pos, int level)
 {
 	de_int64 named_node_count;
 	de_int64 unnamed_node_count;
@@ -468,10 +478,10 @@ static void do_resource_dir_table(deark *c, lctx *d, de_int64 rel_pos, int level
 	}
 
 	de_dbg(c, "resource directory table at %d(%d), level=%d\n",
-		(unsigned int)(d->cur_base_addr+rel_pos), (unsigned int)rel_pos, level);
+		(unsigned int)(d->pe_cur_base_addr+rel_pos), (unsigned int)rel_pos, level);
 
-	named_node_count = de_getui16le(d->cur_base_addr+rel_pos+12);
-	unnamed_node_count = de_getui16le(d->cur_base_addr+rel_pos+14);
+	named_node_count = de_getui16le(d->pe_cur_base_addr+rel_pos+12);
+	unnamed_node_count = de_getui16le(d->pe_cur_base_addr+rel_pos+14);
 	de_dbg(c, "number of node entries: named=%d, unnamed=%d\n", (unsigned int)named_node_count,
 		(unsigned int)unnamed_node_count);
 
@@ -479,18 +489,18 @@ static void do_resource_dir_table(deark *c, lctx *d, de_int64 rel_pos, int level
 	
 	// An array of 8-byte "Resource node entries" follows the Resource node header.
 	for(i=0; i<node_count; i++) {
-		do_resource_node(c, d, rel_pos+16+8*i, level);
+		do_pe_resource_node(c, d, rel_pos+16+8*i, level);
 	}
 }
 
-static void do_resource_section(deark *c, lctx *d, de_int64 pos, de_int64 len)
+static void do_pe_resource_section(deark *c, lctx *d, de_int64 pos, de_int64 len)
 {
-	d->cur_base_addr = pos;
+	d->pe_cur_base_addr = pos;
 	d->rsrc_item_count = 0;
-	do_resource_dir_table(c, d, 0, 1);
+	do_pe_resource_dir_table(c, d, 0, 1);
 }
 
-static void do_section_header(deark *c, lctx *d, de_int64 pos)
+static void do_pe_section_header(deark *c, lctx *d, de_int64 pos)
 {
 	de_byte name_raw[8];
 	char name[9];
@@ -512,27 +522,27 @@ static void do_section_header(deark *c, lctx *d, de_int64 pos)
 		de_dbg(c, "section name: \"%s\"\n", name);
 	}
 
-	d->cur_section_virt_addr = de_getui32le(pos+12);
+	d->pe_cur_section_virt_addr = de_getui32le(pos+12);
 	section_data_size = de_getui32le(pos+16);
-	d->cur_section_data_offset = de_getui32le(pos+20);
+	d->pe_cur_section_data_offset = de_getui32le(pos+20);
 
-	de_dbg(c, "section virt. addr=%d (0x%08x)\n", (int)d->cur_section_virt_addr, (unsigned int)d->cur_section_virt_addr);
-	de_dbg(c, "section data offset=%d, size=%d\n", (int)d->cur_section_data_offset, (int)section_data_size);
+	de_dbg(c, "section virt. addr=%d (0x%08x)\n", (int)d->pe_cur_section_virt_addr, (unsigned int)d->pe_cur_section_virt_addr);
+	de_dbg(c, "section data offset=%d, size=%d\n", (int)d->pe_cur_section_data_offset, (int)section_data_size);
 
 	if(!de_memcmp(name_raw, ".rsrc\0", 5)) {
-		do_resource_section(c, d, d->cur_section_data_offset, section_data_size);
+		do_pe_resource_section(c, d, d->pe_cur_section_data_offset, section_data_size);
 	}
 }
 
-static void do_section_table_pe(deark *c, lctx *d)
+static void do_pe_section_table(deark *c, lctx *d)
 {
 	de_int64 pos;
 	de_int64 i;
 
-	pos = d->sections_offset;
+	pos = d->pe_sections_offset;
 	de_dbg(c, "section table at %d\n", (int)pos);
-	for(i=0; i<d->number_of_sections; i++) {
-		do_section_header(c, d, pos + 40*i);
+	for(i=0; i<d->pe_number_of_sections; i++) {
+		do_pe_section_header(c, d, pos + 40*i);
 	}
 }
 
@@ -610,7 +620,7 @@ static void do_ne_rsrc_tbl(deark *c, lctx *d)
 			de_dbg(c, " offset = %d, length = %d\n", (int)rsrc_offset, (int)rsrc_size);
 
 			if(have_type)
-				do_extract_resource(c, d, rsrc_type_id, rsrc_offset, rsrc_size);
+				do_ne_pe_extract_resource(c, d, rsrc_type_id, rsrc_offset, rsrc_size);
 		}
 
 		pos += 8 + 12*rsrc_count;
@@ -749,8 +759,8 @@ static void de_run_exe(deark *c, const char *params)
 
 	do_fileheader(c, d);
 
-	if((d->fmt==EXE_FMT_PE32 || d->fmt==EXE_FMT_PE32PLUS) && d->sections_offset>0) {
-		do_section_table_pe(c, d);
+	if((d->fmt==EXE_FMT_PE32 || d->fmt==EXE_FMT_PE32PLUS) && d->pe_sections_offset>0) {
+		do_pe_section_table(c, d);
 	}
 	else if(d->fmt==EXE_FMT_NE && d->ne_rsrc_tbl_offset>0) {
 		do_ne_rsrc_tbl(c, d);
