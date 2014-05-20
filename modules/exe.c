@@ -19,6 +19,8 @@
 #define DE_RT_CURSOR        1
 #define DE_RT_BITMAP        2
 #define DE_RT_ICON          3
+#define DE_RT_FONTDIR       7
+#define DE_RT_FONT          8
 #define DE_RT_GROUP_CURSOR  12
 #define DE_RT_GROUP_ICON    14
 #define DE_RT_ANICURSOR     21
@@ -373,6 +375,19 @@ static void do_extract_ICON(deark *c, lctx *d, de_int64 pos, de_int64 len)
 	do_extract_ico_cur(c, d, pos, len, 0, 0, 0);
 }
 
+static void do_extract_FONT(deark *c, lctx *d, de_int64 pos, de_int64 len)
+{
+	de_int64 fntlen;
+
+	if(len<6) return;
+	// The "file size" is stored at offset 2. Respect it if possible.
+	fntlen = de_getui32le(pos+2);
+	if(fntlen<6 || fntlen>len) {
+		fntlen = len;
+	}
+	dbuf_create_file_from_slice(c->infile, pos, fntlen, "fnt");
+}
+
 static void do_extract_MANIFEST(deark *c, lctx *d, de_int64 pos, de_int64 len)
 {
 	if(c->extract_level>=2) {
@@ -394,6 +409,9 @@ static void do_ne_pe_extract_resource(deark *c, lctx *d, de_int64 type_id,
 		break;
 	case DE_RT_ICON:
 		do_extract_ICON(c, d, pos, len);
+		break;
+	case DE_RT_FONT:
+		do_extract_FONT(c, d, pos, len);
 		break;
 	case DE_RT_MANIFEST:
 		do_extract_MANIFEST(c, d, pos, len);
