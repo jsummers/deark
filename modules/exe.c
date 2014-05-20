@@ -532,7 +532,6 @@ static void do_pe_section_header(deark *c, lctx *d, de_int64 pos)
 {
 	de_byte name_raw[8];
 	char name[9];
-	de_int64 i;
 	de_int64 section_data_size;
 
 	de_dbg(c, "section header at %d\n", (unsigned int)pos);
@@ -540,13 +539,7 @@ static void do_pe_section_header(deark *c, lctx *d, de_int64 pos)
 	de_read(name_raw, pos, 8); // Section name
 
 	if(c->debug_level>0) {
-		for(i=0; i<8; i++) {
-			if(name_raw[i]==0 || (name_raw[i]>=32 && name_raw[i]<=126))
-				name[i] = (char)name_raw[i];
-			else
-				name[i] = '_';
-		}
-		name[8] = '\0';
+		de_make_printable_ascii(name_raw, 8, name, sizeof(name), DE_FLAG_STOP_AT_NUL);
 		de_dbg(c, "section name: \"%s\"\n", name);
 	}
 

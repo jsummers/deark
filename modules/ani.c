@@ -62,7 +62,7 @@ static void process_riff_sequence(deark *c, lctx *d, de_int64 pos, de_int64 len1
 		de_read(t, pos, 4);
 
 		if(c->debug_level>0) {
-			de_make_printable_ascii(t, 4, pbuf, sizeof(pbuf));
+			de_make_printable_ascii(t, 4, pbuf, sizeof(pbuf), 0);
 			de_dbg(c, "chunk '%s' at %d\n", pbuf, (int)pos);
 		}
 
