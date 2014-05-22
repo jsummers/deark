@@ -110,8 +110,12 @@ Deark -- Information about supported formats
   - Extract Exif data (use -extractall)
 
 * JPEG 2000 (module="jpeg2000")
-  - Extract JPEG 2000 codestream from JP2 and similar formats.
+  - Extract JPEG 2000 codestream from JP2/JPX/JPM formats.
   - Extract XML data.
+  - Extract GeoTIFF data.
+  - Extract XMP data.
+  - Extract Exif data (use -extractall) (partial support)
+  - Extract various things from "Photoshop resources".
 
 * PSD (PhotoShop) (module="psd")
   - Extract data from "Photoshop resources"
