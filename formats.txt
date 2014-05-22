@@ -88,6 +88,16 @@ Deark -- Information about supported formats
 * EPS (Encapsulated PostScript) (module="eps")
   - Extract EPS, TIFF, and WMF from "EPS DOS Binary" format.
 
+* EXE/PE/NE/etc. (module="exe")
+  - Extract bitmaps, icons, and cursors from NE and PE (Windows .exe) files.
+  - Extract fonts.
+  - Extract embedded manifests (use -extractall).
+  - Extract bitmaps from LX (Linear Executable) files. Note that some of these
+    may be in "Bitmap Array" format. Reprocess them with Deark to extract the
+    actual BMP file(s).
+  - Extract icons and cursors from LX files. Note that these will use OS/2
+    format. Reprocess them with Deark to convert to PNG.
+
 * GRASP GL animation (module="graspgl")
   - Extracts all files.
 
@@ -99,15 +109,9 @@ Deark -- Information about supported formats
   - Extract various things from "Photoshop resources"
   - Extract Exif data (use -extractall)
 
-* EXE/PE/NE/etc. (module="exe")
-  - Extract bitmaps, icons, and cursors from NE and PE (Windows .exe) files.
-  - Extract fonts.
-  - Extract embedded manifests (use -extractall).
-  - Extract bitmaps from LX (Linear Executable) files. Note that some of these
-    may be in "Bitmap Array" format. Reprocess them with Deark to extract the
-    actual BMP file(s).
-  - Extract icons and cursors from LX files. Note that these will use OS/2
-    format. Reprocess them with Deark to convert to PNG.
+* JPEG 2000 (module="jpeg2000")
+  - Extract JPEG 2000 codestream from JP2 and similar formats.
+  - Extract XML data.
 
 * PSD (PhotoShop) (module="psd")
   - Extract data from "Photoshop resources"

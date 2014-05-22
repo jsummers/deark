@@ -13,7 +13,7 @@ all: $(DEARK_EXE)
 OBJDIR=obj
 OFILES_MODS:=$(addprefix $(OBJDIR)/modules/,os2bmp.o eps.o zlib.o bsave.o \
  jpeg.o tiff.o psd.o copy.o msp.o pcpaint.o graspgl.o amigaicon.o macpaint.o \
- epocimage.o psionpic.o psionapp.o hpicn.o exe.o ani.o unsupported.o)
+ epocimage.o psionpic.o psionapp.o hpicn.o exe.o ani.o jpeg2000.o unsupported.o)
 OFILES_MODUTILS:=$(addprefix $(OBJDIR)/modules/,bmputil.o)
 OFILES_LIB:=$(addprefix $(OBJDIR)/src/,deark-miniz.o deark-util.o deark-data.o \
  deark-core.o deark-modules.o)

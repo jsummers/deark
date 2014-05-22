@@ -438,6 +438,10 @@
 				>
 			</File>
 			<File
+				RelativePath="..\..\modules\jpeg2000.c"
+				>
+			</File>
+			<File
 				RelativePath="..\..\modules\macpaint.c"
 				>
 			</File>
