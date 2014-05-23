@@ -32,3 +32,7 @@ struct de_bmpinfo {
 
 int de_fmtutil_get_bmpinfo(deark *c,  dbuf *f, struct de_bmpinfo *bi, de_int64 pos,
 	de_int64 len, unsigned int flags);
+
+void de_fmtutil_handle_exif(deark *c, de_int64 pos, de_int64 len);
+
+void de_fmtutil_handle_photoshop_rsrc(deark *c, de_int64 pos, de_int64 len);

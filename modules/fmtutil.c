@@ -125,3 +125,37 @@ int de_fmtutil_get_bmpinfo(deark *c, dbuf *f, struct de_bmpinfo *bi, de_int64 po
 
 	return 1;
 }
+
+void de_fmtutil_handle_exif(deark *c, de_int64 pos, de_int64 len)
+{
+	dbuf *old_ifile;
+
+	if(c->extract_level>=2) {
+		// Writing raw Exif data isn't very useful, but do so if requested.
+		dbuf_create_file_from_slice(c->infile, pos, len, "exif.tif");
+
+		// Caller will have to reprocess the Exif file to extract anything from it.
+		return;
+	}
+
+	old_ifile = c->infile;
+
+	c->infile = dbuf_open_input_subfile(old_ifile, pos, len);
+	de_run_module_by_id(c, "tiff", "E");
+	dbuf_close(c->infile);
+
+	c->infile = old_ifile;
+}
+
+void de_fmtutil_handle_photoshop_rsrc(deark *c, de_int64 pos, de_int64 len)
+{
+	dbuf *old_ifile;
+
+	old_ifile = c->infile;
+
+	c->infile = dbuf_open_input_subfile(old_ifile, pos, len);
+	de_run_module_by_id(c, "psd", "R");
+	dbuf_close(c->infile);
+
+	c->infile = old_ifile;
+}

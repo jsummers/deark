@@ -5,6 +5,7 @@
 
 #include <deark-config.h>
 #include <deark-modules.h>
+#include "fmtutil.h"
 
 static void do_thumbnail_resource(deark *c, de_int64 resource_id,
 	de_int64 startpos, de_int64 len)
@@ -26,25 +27,6 @@ static void do_thumbnail_resource(deark *c, de_int64 resource_id,
 		de_msg(c, "Note: This Photoshop thumbnail uses nonstandard colors, and may not look right.\n");
 	}
 	dbuf_create_file_from_slice(c->infile, pos+28, len-28, "psdthumb.jpg");
-}
-
-static void do_exif(deark *c, de_int64 pos, de_int64 data_size)
-{
-	dbuf *old_ifile;
-
-	de_dbg(c, "Exif segment at %d datasize=%d\n", (int)pos, (int)data_size);
-
-	if(c->extract_level>=2) {
-		dbuf_create_file_from_slice(c->infile, pos, data_size, "exif");
-	}
-
-	old_ifile = c->infile;
-
-	c->infile = dbuf_open_input_subfile(old_ifile, pos, data_size);
-	de_run_module_by_id(c, "tiff", "E");
-	dbuf_close(c->infile);
-
-	c->infile = old_ifile;
 }
 
 static void do_image_resource_blocks(deark *c, de_int64 startpos, de_int64 len)
@@ -101,7 +83,8 @@ static void do_image_resource_blocks(deark *c, de_int64 startpos, de_int64 len)
 			do_thumbnail_resource(c, resource_id, pos, block_data_len);
 			break;
 		case 0x0422: // EXIFInfo
-			do_exif(c, pos, block_data_len);
+			de_dbg(c, "Exif segment at %d datasize=%d\n", (int)pos, (int)block_data_len);
+			de_fmtutil_handle_exif(c, pos, block_data_len);
 			break;
 		}
 

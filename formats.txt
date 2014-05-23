@@ -114,7 +114,7 @@ Deark -- Information about supported formats
   - Extract XML data.
   - Extract GeoTIFF data.
   - Extract XMP data.
-  - Extract Exif data (use -extractall) (partial support)
+  - Extract Exif data (use -extractall) (nonstandard; partial support)
   - Extract various things from "Photoshop resources".
 
 * PSD (PhotoShop) (module="psd")

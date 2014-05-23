@@ -3,42 +3,11 @@
 
 #include <deark-config.h>
 #include <deark-modules.h>
+#include "fmtutil.h"
 
 typedef struct localctx_struct {
 	int reserved;
 } lctx;
-
-static void process_photoshop_segment(deark *c, de_int64 pos, de_int64 len)
-{
-	dbuf *old_ifile;
-
-	old_ifile = c->infile;
-
-	c->infile = dbuf_open_input_subfile(old_ifile, pos, len);
-	de_run_module_by_id(c, "psd", "R");
-	dbuf_close(c->infile);
-
-	c->infile = old_ifile;
-}
-
-static void process_exif_segment(deark *c, de_int64 pos, de_int64 len)
-{
-	dbuf *old_ifile;
-
-	de_dbg(c, "Exif segment at %d datasize=%d\n", (int)pos, (int)len);
-
-	if(c->extract_level>=2) {
-		dbuf_create_file_from_slice(c->infile, pos, len, "exif");
-	}
-
-	old_ifile = c->infile;
-
-	c->infile = dbuf_open_input_subfile(old_ifile, pos, len);
-	de_run_module_by_id(c, "tiff", "E");
-	dbuf_close(c->infile);
-
-	c->infile = old_ifile;
-}
 
 static void do_box_sequence(deark *c, lctx *d, de_int64 pos1, de_int64 len, int level);
 
@@ -91,7 +60,7 @@ static int do_box(deark *c, lctx *d, de_int64 pos, de_int64 len, int level,
 	if(c->debug_level>0) {
 		de_make_printable_ascii(boxtype, 4, boxtype_printable, sizeof(boxtype_printable), 0);
 		if(is_uuid) {
-			de_dbg(c, "[%d] box '%s'(%02x%02x%02x%02x-%02x%02x-%02x%02x-%02x%02x-%02x%02x%02x%02x%02x%02x) at %d, size=%d\n",
+			de_dbg(c, "[%d] box '%s'{%02x%02x%02x%02x-%02x%02x-%02x%02x-%02x%02x-%02x%02x%02x%02x%02x%02x} at %d, size=%d\n",
 				level, boxtype_printable,
 				uuid[0], uuid[1], uuid[2], uuid[3], uuid[4], uuid[5], uuid[6], uuid[7],
 				uuid[8], uuid[9], uuid[10], uuid[11], uuid[12], uuid[13], uuid[14], uuid[15],
@@ -104,17 +73,25 @@ static int do_box(deark *c, lctx *d, de_int64 pos, de_int64 len, int level,
 	}
 
 	if(is_uuid) {
+		de_int64 upos, ulen;
+		upos = pos+header_size+16;
+		ulen = payload_size-16;
+
 		if(!de_memcmp(uuid, "\xb1\x4b\xf8\xbd\x08\x3d\x4b\x43\xa5\xae\x8c\xd7\xd5\xa6\xce\x03", 16)) {
-			dbuf_create_file_from_slice(c->infile, pos+header_size+16, payload_size-16, "geo.tif");
+			de_dbg(c, "GeoTIFF data at %d, size=%d\n", (int)upos, (int)ulen);
+			dbuf_create_file_from_slice(c->infile, upos, ulen, "geo.tif");
 		}
 		else if(!de_memcmp(uuid, "\xbe\x7a\xcf\xcb\x97\xa9\x42\xe8\x9c\x71\x99\x94\x91\xe3\xaf\xac", 16)) {
-			dbuf_create_file_from_slice(c->infile, pos+header_size+16, payload_size-16, "xmp");
+			de_dbg(c, "XMP data at %d, size=%d\n", (int)upos, (int)ulen);
+			dbuf_create_file_from_slice(c->infile, upos, ulen, "xmp");
 		}
 		else if(!de_memcmp(uuid, "\x2c\x4c\x01\x00\x85\x04\x40\xb9\xa0\x3e\x56\x21\x48\xd6\xdf\xeb", 16)) {
-			process_photoshop_segment(c, pos+header_size+16, payload_size-16);
+			de_dbg(c, "Photoshop resources at %d, size=%d\n", (int)upos, (int)ulen);
+			de_fmtutil_handle_photoshop_rsrc(c, upos, ulen);
 		}
 		else if(!de_memcmp(uuid, "\x05\x37\xcd\xab\x9d\x0c\x44\x31\xa7\x2a\xfa\x56\x1f\x2a\x11\x3e", 16)) {
-			process_exif_segment(c, pos+header_size+16, payload_size-16);
+			de_dbg(c, "Exif data at %d, size=%d\n", (int)upos, (int)ulen);
+			de_fmtutil_handle_exif(c, upos, ulen);
 		}
 	}
 	else if(!de_memcmp(boxtype, "jp2c", 4)) { // Contiguous Codestream box

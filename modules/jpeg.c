@@ -5,6 +5,7 @@
 
 #include <deark-config.h>
 #include <deark-modules.h>
+#include "fmtutil.h"
 
 typedef struct localctx_struct {
 	dbuf *iccprofile_file;
@@ -54,41 +55,6 @@ static void process_jfxx_segment(deark *c, lctx *d, de_int64 pos, de_int64 data_
 	}
 }
 
-static void process_exif_segment(deark *c, lctx *d, de_int64 pos, de_int64 data_size)
-{
-	dbuf *old_ifile;
-
-	de_dbg(c, "Exif segment at %d datasize=%d\n", (int)pos, (int)data_size);
-
-	if(c->extract_level>=2) {
-		// Writing raw Exif data isn't very useful, but do so if requested.
-		dbuf_create_file_from_slice(c->infile, pos, data_size, "exif");
-	}
-
-	old_ifile = c->infile;
-
-	c->infile = dbuf_open_input_subfile(old_ifile, pos, data_size);
-	de_run_module_by_id(c, "tiff", "E");
-	dbuf_close(c->infile);
-
-	c->infile = old_ifile;
-}
-
-static void process_photoshop_segment(deark *c, lctx *d, de_int64 pos, de_int64 data_size)
-{
-	dbuf *old_ifile;
-
-	de_dbg(c, "photoshop segment at %d datasize=%d\n", (int)pos, (int)data_size);
-
-	old_ifile = c->infile;
-
-	c->infile = dbuf_open_input_subfile(old_ifile, pos, data_size);
-	de_run_module_by_id(c, "psd", "R");
-	dbuf_close(c->infile);
-
-	c->infile = old_ifile;
-}
-
 static void process_segment(deark *c, lctx *d, de_byte seg_type, de_int64 pos, de_int64 seg_size)
 {
 	de_byte buf[64];
@@ -119,13 +85,15 @@ static void process_segment(deark *c, lctx *d, de_byte seg_type, de_int64 pos, d
 		process_jfxx_segment(c, d, pos+5, seg_size-5);
 	}
 	else if(seg_type==0xe1 && seg_size>6 && !de_memcmp(buf, "Exif\0",5)) {
-		process_exif_segment(c, d, pos+6, seg_size-6);
+		de_dbg(c, "Exif segment at %d datasize=%d\n", (int)(pos+6), (int)(seg_size-6));
+		de_fmtutil_handle_exif(c, pos+6, seg_size-6);
 	}
 	else if(seg_type==0xe2 && seg_size>12 && !de_memcmp(buf, "ICC_PROFILE\0", 12)) {
 		process_icc_profile_segment(c, d, pos+12, seg_size-12);
 	}
 	else if(seg_type==0xed && seg_size>14 && !de_memcmp(buf, "Photoshop 3.0\0", 14)) {
-		process_photoshop_segment(c, d, pos+14, seg_size-14);
+		de_dbg(c, "photoshop segment at %d datasize=%d\n", (int)(pos+14), (int)(seg_size-14));
+		de_fmtutil_handle_photoshop_rsrc(c, pos+14, seg_size-14);
 	}
 	else if(seg_type==0xe1 && seg_size>28 && !de_memcmp(buf, "http://ns.adobe.com/xap/1.0/", 28)) {
 		dbuf_create_file_from_slice(c->infile, pos+pos_of_first_nul+1, payload_size, "xmp");

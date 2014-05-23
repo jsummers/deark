@@ -25,7 +25,8 @@ Command-line options:
   -l
      Don't extract, but list the files that would be extracted.
   -extractall
-     Also extract data that's usually useless.
+     Also extract data that's usually useless. In general, this will also
+     suppress the extraction of any files contained inside such data.
   -basefn <name>
      Output filenames begin with this string. This can include a directory
      path. Default="output".

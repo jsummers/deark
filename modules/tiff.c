@@ -5,6 +5,7 @@
 
 #include <deark-config.h>
 #include <deark-modules.h>
+#include "fmtutil.h"
 
 #define MAX_IFDS 1000
 
@@ -96,21 +97,6 @@ static de_int64 getfpos(deark *c, lctx *d, de_int64 pos)
 		return de_geti64(pos);
 	}
 	return de_getui32(pos);
-}
-
-static void do_photoshop(deark *c, lctx *d, de_int64 pos, de_int64 data_size)
-{
-	dbuf *old_ifile;
-
-	de_dbg(c, "photoshop segment at %d datasize=%d\n", (int)pos, (int)data_size);
-
-	old_ifile = c->infile;
-
-	c->infile = dbuf_open_input_subfile(old_ifile, pos, data_size);
-	de_run_module_by_id(c, "psd", "R");
-	dbuf_close(c->infile);
-
-	c->infile = old_ifile;
 }
 
 static void do_oldjpeg(deark *c, lctx *d, de_int64 jpegoffset, de_int64 jpeglength)
@@ -227,7 +213,8 @@ static void process_ifd(deark *c, lctx *d, de_int64 ifdpos)
 			break;
 
 		case 34377: // Photoshop
-			do_photoshop(c, d, val_offset, total_size);
+			de_dbg(c, "photoshop segment at %d datasize=%d\n", (int)val_offset, (int)total_size);
+			de_fmtutil_handle_photoshop_rsrc(c, val_offset, total_size);
 			break;
 
 		case 34675: // ICC Profile
