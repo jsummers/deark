@@ -5,7 +5,7 @@
 
 #include <deark-config.h>
 #include <deark-modules.h>
-#include "bmputil.h"
+#include "fmtutil.h"
 
 #define EXE_FMT_DOS    1
 #define EXE_FMT_NE     2
@@ -275,7 +275,7 @@ static void de_DIB_to_BMP(deark *c, dbuf *inf, de_int64 pos, de_int64 len, dbuf 
 {
 	struct de_bmpinfo bi;
 
-	if(!de_bmputil_get_bmpinfo(c, c->infile, &bi, pos, len, 0)) {
+	if(!de_fmtutil_get_bmpinfo(c, c->infile, &bi, pos, len, 0)) {
 		de_err(c, "Invalid bitmap\n");
 		return;
 	}
@@ -311,7 +311,7 @@ static void do_extract_ico_cur(deark *c, lctx *d, de_int64 pos, de_int64 len,
 	// There's usually a GROUP_ICON resource that seems to contain (most of) an
 	// ICO header, but I don't know exactly how it's connected to the icon image(s).
 
-	if(!de_bmputil_get_bmpinfo(c, c->infile, &bi, pos, len, DE_BMPINFO_ICO_FORMAT)) {
+	if(!de_fmtutil_get_bmpinfo(c, c->infile, &bi, pos, len, DE_BMPINFO_ICO_FORMAT)) {
 		de_err(c, "Invalid bitmap\n");
 		return;
 	}

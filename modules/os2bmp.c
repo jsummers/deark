@@ -6,7 +6,7 @@
 
 #include <deark-config.h>
 #include <deark-modules.h>
-#include "bmputil.h"
+#include "fmtutil.h"
 
 // This struct represents a raw source bitmap (it uses BMP format).
 // Two of them (the foreground and the mask) will be combined to make the
@@ -28,7 +28,7 @@ static int get_bitmap_info(deark *c, struct srcbitmap *srcbmp, const char *fmt, 
 	if(!de_strcmp(fmt,"CP")) {
 		flags |= DE_BMPINFO_HAS_HOTSPOT;
 	}
-	if(!de_bmputil_get_bmpinfo(c, c->infile, &srcbmp->bi, pos, c->infile->len - pos, flags)) {
+	if(!de_fmtutil_get_bmpinfo(c, c->infile, &srcbmp->bi, pos, c->infile->len - pos, flags)) {
 		de_err(c, "Unsupported image type (header size %d)\n", (int)srcbmp->bi.infohdrsize);
 	}
 

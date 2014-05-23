@@ -30,5 +30,5 @@ struct de_bmpinfo {
 #define DE_BMPINFO_ICO_FORMAT     0x2
 #define DE_BMPINFO_HAS_HOTSPOT    0x4
 
-int de_bmputil_get_bmpinfo(deark *c,  dbuf *f, struct de_bmpinfo *bi, de_int64 pos,
+int de_fmtutil_get_bmpinfo(deark *c,  dbuf *f, struct de_bmpinfo *bi, de_int64 pos,
 	de_int64 len, unsigned int flags);

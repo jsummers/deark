@@ -1,16 +1,18 @@
 // This file is part of Deark, by Jason Summers.
 // This software is in the public domain. See the file COPYING for details.
 
+// This file is for format-specific functions that are used by multiple modules.
+
 #include <deark-config.h>
 #include <deark-private.h>
-#include "bmputil.h"
+#include "fmtutil.h"
 
 // Gathers information about a DIB.
 // If DE_BMPINFO_HAS_FILEHEADER flag is set, pos points to the BITMAPFILEHEADER.
 // Otherwise, it points to the BITMAPINFOHEADER.
 // Caller allocates bi.
 // Returns 0 if BMP is invalid.
-int de_bmputil_get_bmpinfo(deark *c, dbuf *f, struct de_bmpinfo *bi, de_int64 pos,
+int de_fmtutil_get_bmpinfo(deark *c, dbuf *f, struct de_bmpinfo *bi, de_int64 pos,
 	de_int64 len, unsigned int flags)
 {
 	de_int64 mask_rowspan;
