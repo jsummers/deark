@@ -98,6 +98,9 @@ Deark -- Information about supported formats
   - Extract icons and cursors from LX files. Note that these will use OS/2
     format. Reprocess them with Deark to convert to PNG.
 
+* FNT (Windows font) (module="fnt")
+  - Render the glyphs to a PNG image.
+
 * GRASP GL animation (module="graspgl")
   - Extracts all files.
 
