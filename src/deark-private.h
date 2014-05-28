@@ -209,7 +209,7 @@ de_int64 dbuf_geti64(dbuf *f, de_int64 pos);
 #define de_geti64le(p) dbuf_geti64le(c->infile,p)
 #define de_geti64(p) dbuf_geti64(c->infile,p)
 
-// One of 'ext' or 'fi' should be NULL.
+// At least one of 'ext' or 'fi' should be non-NULL.
 dbuf *dbuf_create_output_file(deark *c, const char *ext, de_finfo *fi);
 
 dbuf *dbuf_open_input_file(deark *c, const char *fn);
@@ -239,7 +239,7 @@ void dbuf_fprintf(dbuf *f, const char *fmt, ...);
 void dbuf_copy(dbuf *inf, de_int64 input_offset, de_int64 input_len, dbuf *outf);
 
 // Read a slice of a dbuf, and create a new file containing only that.
-// One of 'ext' or 'fi' should be NULL.
+// At least one of 'ext' or 'fi' should be non-NULL.
 int dbuf_create_file_from_slice(dbuf *inf, de_int64 pos, de_int64 data_size,
 	const char *ext, de_finfo *fi);
 

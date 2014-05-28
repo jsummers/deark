@@ -32,6 +32,9 @@ typedef struct localctx_struct {
 	de_int64 ext_header_offset;
 
 	de_int64 ne_rsrc_tbl_offset;
+	unsigned int ne_align_shift;
+	int ne_have_type;
+	de_int64 ne_rsrc_type_id;
 
 	de_int64 lx_page_offset_shift;
 	de_int64 lx_object_tbl_offset;
@@ -289,18 +292,18 @@ static void de_DIB_to_BMP(deark *c, dbuf *inf, de_int64 pos, de_int64 len, dbuf 
 	dbuf_copy(inf, pos, bi.total_size, outf); // Copy the rest of the data.
 }
 
-static void do_extract_BITMAP(deark *c, lctx *d, de_int64 pos, de_int64 len)
+static void do_extract_BITMAP(deark *c, lctx *d, de_int64 pos, de_int64 len, de_finfo *fi)
 {
 	dbuf *f;
 	if(len<12) return;
 
-	f = dbuf_create_output_file(c, "bmp", NULL);
+	f = dbuf_create_output_file(c, "bmp", fi);
 	de_DIB_to_BMP(c, c->infile, pos, len, f);
 	dbuf_close(f);
 }
 
 static void do_extract_ico_cur(deark *c, lctx *d, de_int64 pos, de_int64 len,
-	int is_cur, de_int64 hotspot_x, de_int64 hotspot_y)
+	int is_cur, de_int64 hotspot_x, de_int64 hotspot_y, de_finfo *fi)
 {
 	dbuf *f;
 	de_int64 w, h;
@@ -317,11 +320,11 @@ static void do_extract_ico_cur(deark *c, lctx *d, de_int64 pos, de_int64 len,
 	}
 
 	if(bi.file_format==DE_BMPINFO_FMT_PNG) {
-		dbuf_create_file_from_slice(c->infile, pos, len, "png", NULL);
+		dbuf_create_file_from_slice(c->infile, pos, len, "png", fi);
 		return;
 	}
 
-	f = dbuf_create_output_file(c, is_cur?"cur":"ico", NULL);
+	f = dbuf_create_output_file(c, is_cur?"cur":"ico", fi);
 
 	// Write the 6-byte file header.
 	dbuf_writeui16le(f, 0); // Reserved
@@ -360,22 +363,22 @@ static void do_extract_ico_cur(deark *c, lctx *d, de_int64 pos, de_int64 len,
 	dbuf_close(f);
 }
 
-static void do_extract_CURSOR(deark *c, lctx *d, de_int64 pos, de_int64 len)
+static void do_extract_CURSOR(deark *c, lctx *d, de_int64 pos, de_int64 len, de_finfo *fi)
 {
 	de_int64 hotspot_x, hotspot_y;
 
 	if(len<4) return;
 	hotspot_x = de_getui16le(pos);
 	hotspot_y = de_getui16le(pos+2);
-	do_extract_ico_cur(c, d, pos+4, len-4, 1, hotspot_x, hotspot_y);
+	do_extract_ico_cur(c, d, pos+4, len-4, 1, hotspot_x, hotspot_y, fi);
 }
 
-static void do_extract_ICON(deark *c, lctx *d, de_int64 pos, de_int64 len)
+static void do_extract_ICON(deark *c, lctx *d, de_int64 pos, de_int64 len, de_finfo *fi)
 {
-	do_extract_ico_cur(c, d, pos, len, 0, 0, 0);
+	do_extract_ico_cur(c, d, pos, len, 0, 0, 0, fi);
 }
 
-static void do_extract_FONT(deark *c, lctx *d, de_int64 pos, de_int64 len)
+static void do_extract_FONT(deark *c, lctx *d, de_int64 pos, de_int64 len, de_finfo *fi)
 {
 	de_int64 fntlen;
 
@@ -385,36 +388,36 @@ static void do_extract_FONT(deark *c, lctx *d, de_int64 pos, de_int64 len)
 	if(fntlen<6 || fntlen>len) {
 		fntlen = len;
 	}
-	dbuf_create_file_from_slice(c->infile, pos, fntlen, "fnt", NULL);
+	dbuf_create_file_from_slice(c->infile, pos, fntlen, "fnt", fi);
 }
 
-static void do_extract_MANIFEST(deark *c, lctx *d, de_int64 pos, de_int64 len)
+static void do_extract_MANIFEST(deark *c, lctx *d, de_int64 pos, de_int64 len, de_finfo *fi)
 {
 	if(c->extract_level>=2) {
-		dbuf_create_file_from_slice(c->infile, pos, len, "manifest", NULL);
+		dbuf_create_file_from_slice(c->infile, pos, len, "manifest", fi);
 	}
 }
 
 static void do_ne_pe_extract_resource(deark *c, lctx *d, de_int64 type_id,
-	de_int64 pos, de_int64 len)
+	de_int64 pos, de_int64 len, de_finfo *fi)
 {
 	if(len<1 || len>DE_MAX_FILE_SIZE) return;
 
 	switch(type_id) {
 	case DE_RT_CURSOR:
-		do_extract_CURSOR(c, d, pos, len);
+		do_extract_CURSOR(c, d, pos, len, fi);
 		break;
 	case DE_RT_BITMAP:
-		do_extract_BITMAP(c, d, pos, len);
+		do_extract_BITMAP(c, d, pos, len, fi);
 		break;
 	case DE_RT_ICON:
-		do_extract_ICON(c, d, pos, len);
+		do_extract_ICON(c, d, pos, len, fi);
 		break;
 	case DE_RT_FONT:
-		do_extract_FONT(c, d, pos, len);
+		do_extract_FONT(c, d, pos, len, fi);
 		break;
 	case DE_RT_MANIFEST:
-		do_extract_MANIFEST(c, d, pos, len);
+		do_extract_MANIFEST(c, d, pos, len, fi);
 		break;
 	}
 }
@@ -440,7 +443,7 @@ static void do_pe_resource_data_entry(deark *c, lctx *d, de_int64 rel_pos)
 	de_dbg(c, " data offset in file: %d\n",
 		(int)data_real_offset);
 
-	do_ne_pe_extract_resource(c, d, type_id, data_real_offset, data_size);
+	do_ne_pe_extract_resource(c, d, type_id, data_real_offset, data_size, NULL);
 }
 
 static void do_pe_resource_dir_table(deark *c, lctx *d, de_int64 rel_pos, int level);
@@ -567,6 +570,60 @@ static void do_pe_section_table(deark *c, lctx *d)
 	}
 }
 
+static void do_ne_one_nameinfo(deark *c, lctx *d, de_int64 npos)
+{
+	de_int64 rsrc_offset;
+	de_int64 rsrc_size;
+	de_int64 is_named;
+	de_int64 rnID;
+	de_int64 rnNameOffset;
+	de_int64 x;
+	de_finfo *fi = NULL;
+
+	rsrc_offset = de_getui16le(npos);
+	if(d->ne_align_shift>0) rsrc_offset <<= d->ne_align_shift;
+	rsrc_size = de_getui16le(npos+2);
+	if(d->ne_align_shift>0) rsrc_size <<= d->ne_align_shift;
+
+	de_dbg(c, " offset = %d, length = %d\n", (int)rsrc_offset, (int)rsrc_size);
+
+	rnID = 0;
+	rnNameOffset = 0;
+	x = de_getui16le(npos+6);
+	if(x&0x8000) {
+		is_named = 0;
+		rnID = x-0x8000;
+	}
+	else {
+		is_named = 1;
+		rnNameOffset = d->ne_rsrc_tbl_offset + x;
+	}
+
+	if(is_named) {
+		de_dbg(c, " id name offset: %d\n", (int)rnNameOffset);
+	}
+	else {
+		de_dbg(c, " id number: %d\n", (int)rnID);
+	}
+
+	if(!d->ne_have_type) goto done;
+
+
+	if(is_named) {
+		// Names are prefixed with a single-byte length.
+		x = (de_int64)de_getbyte(rnNameOffset);
+		if(x>0) {
+			fi = de_finfo_create(c);
+			de_finfo_set_name_from_slice(c, fi, c->infile, rnNameOffset+1, x, 0);
+		}
+	}
+
+	do_ne_pe_extract_resource(c, d, d->ne_rsrc_type_id, rsrc_offset, rsrc_size, fi);
+
+done:
+	de_finfo_destroy(c, fi);
+}
+
 static void do_ne_rsrc_tbl(deark *c, lctx *d)
 {
 	de_int64 pos;
@@ -574,23 +631,18 @@ static void do_ne_rsrc_tbl(deark *c, lctx *d)
 	de_int64 x;
 	de_int64 i;
 	de_int64 j;
-	de_int64 rsrc_type_id;
 	de_int64 rsrc_count;
-	de_int64 rsrc_offset;
-	de_int64 rsrc_size;
 	de_int64 tot_resources = 0;
-	unsigned int align_shift;
-	int have_type;
 
 	pos = d->ne_rsrc_tbl_offset;
 
 	de_dbg(c, "resource table at %d\n", (int)pos);
 
-	align_shift = (unsigned int)de_getui16le(pos);
-	de_dbg(c, "rscAlignShift: %u\n", align_shift);
+	d->ne_align_shift = (unsigned int)de_getui16le(pos);
+	de_dbg(c, "rscAlignShift: %u\n", d->ne_align_shift);
 	pos += 2;
-	if(align_shift>24) {
-		de_err(c, "Unrealistic rscAlignShift setting\n");
+	if(d->ne_align_shift>24) {
+		de_err(c, "Unreasonable rscAlignShift setting\n");
 		return;
 	}
 
@@ -605,21 +657,21 @@ static void do_ne_rsrc_tbl(deark *c, lctx *d)
 		de_dbg(c, "TYPEINFO #%d at %d\n", (int)i, (int)pos);
 
 		if(x & 0x8000) {
-			rsrc_type_id = x-0x8000;
-			have_type = 1;
+			d->ne_rsrc_type_id = x-0x8000;
+			d->ne_have_type = 1;
 		}
 		else {
 			// x represents a relative offset to a name in rscResourceNames.
 			// TODO: Could the name ever be a standard type (e.g. "ICON"), that
 			// we ought to support?
-			rsrc_type_id = 0;
-			have_type = 0;
+			d->ne_rsrc_type_id = 0;
+			d->ne_have_type = 0;
 			// name_offset = d->ne_rsrc_tbl_offset + x;
 		}
 
 		rsrc_count = de_getui16le(pos+2);
-		if(have_type)
-			de_dbg(c, " resource type=%d, count=%d\n", (int)rsrc_type_id, (int)rsrc_count);
+		if(d->ne_have_type)
+			de_dbg(c, " resource type=%d, count=%d\n", (int)d->ne_rsrc_type_id, (int)rsrc_count);
 		else
 			de_dbg(c, " resource type=?, count=%d\n", (int)rsrc_count);
 
@@ -634,14 +686,7 @@ static void do_ne_rsrc_tbl(deark *c, lctx *d)
 		// (NAMEINFO seems like a misnomer to me. It contains data, not names.)
 		for(j=0; j<rsrc_count; j++) {
 			npos = pos+8 + j*12;
-			rsrc_offset = de_getui16le(npos);
-			if(align_shift>0) rsrc_offset <<= align_shift;
-			rsrc_size = de_getui16le(npos+2);
-			if(align_shift>0) rsrc_size <<= align_shift;
-			de_dbg(c, " offset = %d, length = %d\n", (int)rsrc_offset, (int)rsrc_size);
-
-			if(have_type)
-				do_ne_pe_extract_resource(c, d, rsrc_type_id, rsrc_offset, rsrc_size);
+			do_ne_one_nameinfo(c, d, npos);
 		}
 
 		pos += 8 + 12*rsrc_count;

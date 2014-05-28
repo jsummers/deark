@@ -553,7 +553,7 @@ dbuf *dbuf_create_output_file(deark *c, const char *ext, de_finfo *fi)
 	dbuf *f;
 	const char *basefn;
 	int file_index;
-	const char *fn_suffix;
+	char fn_suffix[256];
 
 	f = de_malloc(c, sizeof(dbuf));
 
@@ -562,14 +562,17 @@ dbuf *dbuf_create_output_file(deark *c, const char *ext, de_finfo *fi)
 
 	basefn = c->base_output_filename ? c->base_output_filename : "output";
 
-	if(ext) {
-		fn_suffix = ext;
+	if(ext && fi && fi->file_name) {
+		de_snprintf(fn_suffix, sizeof(fn_suffix), "%s.%s", fi->file_name, ext);
+	}
+	else if(ext) {
+		de_strlcpy(fn_suffix, ext, sizeof(fn_suffix));
 	}
 	else if(fi && fi->file_name) {
-		fn_suffix = fi->file_name;
+		de_strlcpy(fn_suffix, fi->file_name, sizeof(fn_suffix));
 	}
 	else {
-		fn_suffix = "bin";
+		de_strlcpy(fn_suffix, "bin", sizeof(fn_suffix));
 	}
 
 	de_snprintf(nbuf, sizeof(nbuf), "%s.%03d.%s", basefn, file_index, fn_suffix);
