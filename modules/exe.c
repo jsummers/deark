@@ -294,7 +294,7 @@ static void do_extract_BITMAP(deark *c, lctx *d, de_int64 pos, de_int64 len)
 	dbuf *f;
 	if(len<12) return;
 
-	f = dbuf_create_output_file(c, "bmp");
+	f = dbuf_create_output_file(c, "bmp", NULL);
 	de_DIB_to_BMP(c, c->infile, pos, len, f);
 	dbuf_close(f);
 }
@@ -317,11 +317,11 @@ static void do_extract_ico_cur(deark *c, lctx *d, de_int64 pos, de_int64 len,
 	}
 
 	if(bi.file_format==DE_BMPINFO_FMT_PNG) {
-		dbuf_create_file_from_slice(c->infile, pos, len, "png");
+		dbuf_create_file_from_slice(c->infile, pos, len, "png", NULL);
 		return;
 	}
 
-	f = dbuf_create_output_file(c, is_cur?"cur":"ico");
+	f = dbuf_create_output_file(c, is_cur?"cur":"ico", NULL);
 
 	// Write the 6-byte file header.
 	dbuf_writeui16le(f, 0); // Reserved
@@ -385,13 +385,13 @@ static void do_extract_FONT(deark *c, lctx *d, de_int64 pos, de_int64 len)
 	if(fntlen<6 || fntlen>len) {
 		fntlen = len;
 	}
-	dbuf_create_file_from_slice(c->infile, pos, fntlen, "fnt");
+	dbuf_create_file_from_slice(c->infile, pos, fntlen, "fnt", NULL);
 }
 
 static void do_extract_MANIFEST(deark *c, lctx *d, de_int64 pos, de_int64 len)
 {
 	if(c->extract_level>=2) {
-		dbuf_create_file_from_slice(c->infile, pos, len, "manifest");
+		dbuf_create_file_from_slice(c->infile, pos, len, "manifest", NULL);
 	}
 }
 
@@ -539,7 +539,7 @@ static void do_pe_section_header(deark *c, lctx *d, de_int64 pos)
 	de_read(name_raw, pos, 8); // Section name
 
 	if(c->debug_level>0) {
-		de_make_printable_ascii(name_raw, 8, name, sizeof(name), DE_FLAG_STOP_AT_NUL);
+		de_make_printable_ascii(name_raw, 8, name, sizeof(name), DE_CONVFLAG_STOP_AT_NUL);
 		de_dbg(c, "section name: \"%s\"\n", name);
 	}
 
@@ -734,7 +734,7 @@ static void do_lx_rsrc(deark *c, lctx *d,
 
 		// Unlike in NE and PE format, it seems that image resources in LX files
 		// include the BITMAPFILEHEADER. That makes it easy.
-		dbuf_create_file_from_slice(c->infile, rsrc_offset_real, rsrc_size, ext);
+		dbuf_create_file_from_slice(c->infile, rsrc_offset_real, rsrc_size, ext, NULL);
 		break;
 	}
 }

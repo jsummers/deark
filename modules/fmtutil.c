@@ -132,7 +132,7 @@ void de_fmtutil_handle_exif(deark *c, de_int64 pos, de_int64 len)
 
 	if(c->extract_level>=2) {
 		// Writing raw Exif data isn't very useful, but do so if requested.
-		dbuf_create_file_from_slice(c->infile, pos, len, "exif.tif");
+		dbuf_create_file_from_slice(c->infile, pos, len, "exif.tif", NULL);
 
 		// Caller will have to reprocess the Exif file to extract anything from it.
 		return;

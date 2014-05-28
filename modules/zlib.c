@@ -16,7 +16,7 @@ static void de_run_zlib(deark *c, const char *params)
 
 	de_dbg(c, "In zlib module\n");
 
-	f = dbuf_create_output_file(c, "unc");
+	f = dbuf_create_output_file(c, "unc", NULL);
 	de_uncompress_zlib(c->infile, 0, c->infile->len, f);
 	dbuf_close(f);
 }

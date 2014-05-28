@@ -166,14 +166,14 @@ de_byte de_palette_sample_6_to_8bit(de_byte samp)
 // s1 is not NUL terminated, but s2 will be.
 // s2_size includes the NUL terminator.
 void de_make_printable_ascii(de_byte *s1, de_int64 s1_len,
-	char *s2, de_int64 s2_size, unsigned int flags)
+	char *s2, de_int64 s2_size, unsigned int conv_flags)
 {
 	de_int64 i;
 	de_int64 s2_pos = 0;
 	char ch;
 
 	for(i=0; i<s1_len; i++) {
-		if(s1[i]=='\0' && (flags & DE_FLAG_STOP_AT_NUL)) {
+		if(s1[i]=='\0' && (conv_flags & DE_CONVFLAG_STOP_AT_NUL)) {
 			break;
 		}
 
@@ -190,4 +190,43 @@ void de_make_printable_ascii(de_byte *s1, de_int64 s1_len,
 	}
 
 	s2[s2_pos] = '\0';
+}
+
+// Create a sanitized filename.
+// s1 is not NUL terminated, but s2 will be.
+// s2_size includes the NUL terminator.
+// TODO: This function needs a lot of work.
+void de_make_filename(deark *c, de_byte *s1, de_int64 s1_len,
+	char *s2, de_int64 s2_size, unsigned int conv_flags)
+{
+	de_int64 i;
+	de_int64 s2_pos = 0;
+	char ch;
+
+	for(i=0; i<s1_len; i++) {
+		if(s1[i]=='\0' && (conv_flags & DE_CONVFLAG_STOP_AT_NUL)) {
+			break;
+		}
+		if((s1[i]>='0' && s1[i]<='9') ||
+			(s1[i]>='A' && s1[i]<='Z') ||
+			(s1[i]>='a' && s1[i]<='z') ||
+			s1[i]=='.' || s1[i]=='_' || s1[i]=='-' || s1[i]=='+')
+		{
+			ch = (char)s1[i];
+		}
+		else {
+			ch = '_';
+		}
+
+		if(s2_pos < s2_size-1) {
+			s2[s2_pos++] = ch;
+		}
+	}
+
+	s2[s2_pos] = '\0';
+
+	// Don't allow empty filenames.
+	if(s2_size>=2 && s2[0]=='0') {
+		de_strlcpy(s2, "_", s2_size);
+	}
 }

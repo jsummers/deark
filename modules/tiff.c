@@ -116,7 +116,7 @@ static void do_oldjpeg(deark *c, lctx *d, de_int64 jpegoffset, de_int64 jpegleng
 	else {
 		extension = "jpg";
 	}
-	dbuf_create_file_from_slice(c->infile, jpegoffset, jpeglength, extension);
+	dbuf_create_file_from_slice(c->infile, jpegoffset, jpeglength, extension, NULL);
 }
 
 static void process_ifd(deark *c, lctx *d, de_int64 ifdpos)
@@ -203,12 +203,12 @@ static void process_ifd(deark *c, lctx *d, de_int64 ifdpos)
 			break;
 
 		case 700: // XMP
-			dbuf_create_file_from_slice(c->infile, val_offset, total_size, "xmp");
+			dbuf_create_file_from_slice(c->infile, val_offset, total_size, "xmp", NULL);
 			break;
 
 		case 33723: // IPTC
 			if(c->extract_level>=2 && total_size>0) {
-				dbuf_create_file_from_slice(c->infile, val_offset, total_size, "iptc");
+				dbuf_create_file_from_slice(c->infile, val_offset, total_size, "iptc", NULL);
 			}
 			break;
 
@@ -218,7 +218,7 @@ static void process_ifd(deark *c, lctx *d, de_int64 ifdpos)
 			break;
 
 		case 34675: // ICC Profile
-			dbuf_create_file_from_slice(c->infile, val_offset, total_size, "icc");
+			dbuf_create_file_from_slice(c->infile, val_offset, total_size, "icc", NULL);
 			break;
 		}
 	}

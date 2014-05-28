@@ -465,7 +465,7 @@ static int do_char(deark *c, lctx *d)
 	}
 	de_dbg(c, "pages: %d\n", (int)numpages);
 
-	d->ofile = dbuf_create_output_file(c, "html");
+	d->ofile = dbuf_create_output_file(c, "html", NULL);
 
 	dbuf_fputs(d->ofile, "<!DOCTYPE html>\n");
 	dbuf_fputs(d->ofile, "<html>\n");

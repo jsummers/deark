@@ -17,7 +17,7 @@ static void de_run_copy(deark *c, const char *params)
 {
 	de_dbg(c, "In copy module\n");
 
-	dbuf_create_file_from_slice(c->infile, 0, c->infile->len, "bin");
+	dbuf_create_file_from_slice(c->infile, 0, c->infile->len, "bin", NULL);
 }
 
 void de_module_copy(deark *c, struct deark_module_info *mi)

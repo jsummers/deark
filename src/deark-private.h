@@ -47,6 +47,14 @@ struct dbuf_struct {
 };
 typedef struct dbuf_struct dbuf;
 
+// Extended information about a file to be written.
+struct de_finfo_struct {
+	char *file_name;
+	char *file_name_printable;
+	// TODO: modification time
+};
+typedef struct de_finfo_struct de_finfo;
+
 struct deark_bitmap {
 	deark *c;
 	de_int64 width;
@@ -201,7 +209,8 @@ de_int64 dbuf_geti64(dbuf *f, de_int64 pos);
 #define de_geti64le(p) dbuf_geti64le(c->infile,p)
 #define de_geti64(p) dbuf_geti64(c->infile,p)
 
-dbuf *dbuf_create_output_file(deark *c, const char *ext);
+// One of 'ext' or 'fi' should be NULL.
+dbuf *dbuf_create_output_file(deark *c, const char *ext, de_finfo *fi);
 
 dbuf *dbuf_open_input_file(deark *c, const char *fn);
 
@@ -230,7 +239,9 @@ void dbuf_fprintf(dbuf *f, const char *fmt, ...);
 void dbuf_copy(dbuf *inf, de_int64 input_offset, de_int64 input_len, dbuf *outf);
 
 // Read a slice of a dbuf, and create a new file containing only that.
-int dbuf_create_file_from_slice(dbuf *inf, de_int64 pos, de_int64 data_size, const char *ext);
+// One of 'ext' or 'fi' should be NULL.
+int dbuf_create_file_from_slice(dbuf *inf, de_int64 pos, de_int64 data_size,
+	const char *ext, de_finfo *fi);
 
 // Remove everything from the dbuf.
 // May be valid only for memory buffers.
@@ -298,8 +309,17 @@ de_byte de_palette_sample_6_to_8bit(de_byte samp);
 
 int de_cp437_to_unicode(deark *c, int a);
 
-#define DE_FLAG_STOP_AT_NUL 0x1
+#define DE_CONVFLAG_STOP_AT_NUL 0x1
+
 void de_make_printable_ascii(de_byte *s1, de_int64 s1_len,
-	char *s2, de_int64 s2_size, unsigned int flags);
+	char *s2, de_int64 s2_size, unsigned int conv_flags);
+
+void de_make_filename(deark *c, de_byte *s1, de_int64 s1_len,
+	char *s2, de_int64 s2_size, unsigned int conv_flags);
+
+de_finfo *de_finfo_create(deark *c);
+void de_finfo_destroy(deark *c, de_finfo *fi);
+void de_finfo_set_name_from_slice(deark *c, de_finfo *fi, dbuf *f,
+	de_int64 pos, de_int64 len, unsigned int conv_flags);
 
 ///////////////////////////////////////////

@@ -218,7 +218,7 @@ static void do_BM(deark *c, de_int64 pos)
 	if(!get_bitmap_info(c, srcbmp, "BM", pos))
 		goto done;
 
-	f = dbuf_create_output_file(c, "bmp");
+	f = dbuf_create_output_file(c, "bmp", NULL);
 
 	// First 10 bytes of the FILEHEADER can be copied unchanged.
 	dbuf_copy(c->infile, pos, 10, f);

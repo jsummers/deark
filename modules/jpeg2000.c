@@ -79,11 +79,11 @@ static int do_box(deark *c, lctx *d, de_int64 pos, de_int64 len, int level,
 
 		if(!de_memcmp(uuid, "\xb1\x4b\xf8\xbd\x08\x3d\x4b\x43\xa5\xae\x8c\xd7\xd5\xa6\xce\x03", 16)) {
 			de_dbg(c, "GeoTIFF data at %d, size=%d\n", (int)upos, (int)ulen);
-			dbuf_create_file_from_slice(c->infile, upos, ulen, "geo.tif");
+			dbuf_create_file_from_slice(c->infile, upos, ulen, "geo.tif", NULL);
 		}
 		else if(!de_memcmp(uuid, "\xbe\x7a\xcf\xcb\x97\xa9\x42\xe8\x9c\x71\x99\x94\x91\xe3\xaf\xac", 16)) {
 			de_dbg(c, "XMP data at %d, size=%d\n", (int)upos, (int)ulen);
-			dbuf_create_file_from_slice(c->infile, upos, ulen, "xmp");
+			dbuf_create_file_from_slice(c->infile, upos, ulen, "xmp", NULL);
 		}
 		else if(!de_memcmp(uuid, "\x2c\x4c\x01\x00\x85\x04\x40\xb9\xa0\x3e\x56\x21\x48\xd6\xdf\xeb", 16)) {
 			de_dbg(c, "Photoshop resources at %d, size=%d\n", (int)upos, (int)ulen);
@@ -95,12 +95,12 @@ static int do_box(deark *c, lctx *d, de_int64 pos, de_int64 len, int level,
 		}
 	}
 	else if(!de_memcmp(boxtype, "jp2c", 4)) { // Contiguous Codestream box
-		dbuf_create_file_from_slice(c->infile, pos+header_size, payload_size, "j2c");
+		dbuf_create_file_from_slice(c->infile, pos+header_size, payload_size, "j2c", NULL);
 	}
 	else if(!de_memcmp(boxtype, "xml ", 4)) { // XML box
 		// TODO: Detect the specific XML format, and use it to choose a better
 		// filename.
-		dbuf_create_file_from_slice(c->infile, pos+header_size, payload_size, "xml");
+		dbuf_create_file_from_slice(c->infile, pos+header_size, payload_size, "xml", NULL);
 	}
 	else {
 		// Check if this box type is known to contain other boxes that we might

@@ -26,7 +26,7 @@ static void do_thumbnail_resource(deark *c, de_int64 resource_id,
 	if(resource_id==0x0409) {
 		de_msg(c, "Note: This Photoshop thumbnail uses nonstandard colors, and may not look right.\n");
 	}
-	dbuf_create_file_from_slice(c->infile, pos+28, len-28, "psdthumb.jpg");
+	dbuf_create_file_from_slice(c->infile, pos+28, len-28, "psdthumb.jpg", NULL);
 }
 
 static void do_image_resource_blocks(deark *c, de_int64 startpos, de_int64 len)
@@ -75,7 +75,7 @@ static void do_image_resource_blocks(deark *c, de_int64 startpos, de_int64 len)
 		switch(resource_id) {
 		case 0x0404: // IPTC
 			if(c->extract_level>=2 && block_data_len>0) {
-				dbuf_create_file_from_slice(c->infile, pos, block_data_len, "iptc");
+				dbuf_create_file_from_slice(c->infile, pos, block_data_len, "iptc", NULL);
 			}
 			break;
 		case 0x0409: // PhotoshopThumbnail 4.0

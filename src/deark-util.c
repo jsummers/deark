@@ -500,10 +500,11 @@ void  dbuf_copy(dbuf *inf, de_int64 input_offset, de_int64 input_len, dbuf *outf
 	}
 }
 
-int dbuf_create_file_from_slice(dbuf *inf, de_int64 pos, de_int64 data_size, const char *ext)
+int dbuf_create_file_from_slice(dbuf *inf, de_int64 pos, de_int64 data_size,
+	const char *ext, de_finfo *fi)
 {
 	dbuf *f;
-	f = dbuf_create_output_file(inf->c, ext);
+	f = dbuf_create_output_file(inf->c, ext, fi);
 	if(!f) return 0;
 	dbuf_copy(inf, pos, data_size, f);
 	dbuf_close(f);
@@ -545,13 +546,14 @@ void de_set_warnings(deark *c, int x)
 	c->show_warnings = x;
 }
 
-dbuf *dbuf_create_output_file(deark *c, const char *ext)
+dbuf *dbuf_create_output_file(deark *c, const char *ext, de_finfo *fi)
 {
 	char nbuf[500];
 	char msgbuf[200];
 	dbuf *f;
 	const char *basefn;
 	int file_index;
+	const char *fn_suffix;
 
 	f = de_malloc(c, sizeof(dbuf));
 
@@ -559,7 +561,18 @@ dbuf *dbuf_create_output_file(deark *c, const char *ext)
 	c->file_count++;
 
 	basefn = c->base_output_filename ? c->base_output_filename : "output";
-	de_snprintf(nbuf, sizeof(nbuf), "%s.%03d.%s", basefn, file_index, ext);
+
+	if(ext) {
+		fn_suffix = ext;
+	}
+	else if(fi && fi->file_name) {
+		fn_suffix = fi->file_name;
+	}
+	else {
+		fn_suffix = "bin";
+	}
+
+	de_snprintf(nbuf, sizeof(nbuf), "%s.%03d.%s", basefn, file_index, fn_suffix);
 
 	f->name = de_strdup(c, nbuf);
 	f->c = c;
@@ -924,7 +937,7 @@ void de_bitmap_write_to_file(struct deark_bitmap *img, const char *token)
 
 	if(!img->bitmap) de_bitmap_alloc_pixels(img);
 
-	f = dbuf_create_output_file(img->c, buf);
+	f = dbuf_create_output_file(img->c, buf, NULL);
 	de_write_png(img->c, img, f);
 	dbuf_close(f);
 }
@@ -1188,6 +1201,39 @@ int de_input_file_has_ext(deark *c, const char *ext)
 	if(!de_strcasecmp(e, ext))
 		return 1;
 	return 0;
+}
+
+
+de_finfo *de_finfo_create(deark *c)
+{
+	de_finfo *fi;
+	fi = de_malloc(c, sizeof(de_finfo));
+	return fi;
+}
+
+void de_finfo_destroy(deark *c, de_finfo *fi)
+{
+	if(!fi) return;
+	if(fi->file_name) de_free(c, fi->file_name);
+	if(fi->file_name_printable) de_free(c, fi->file_name_printable);
+	de_free(c, fi);
+}
+
+void de_finfo_set_name_from_slice(deark *c, de_finfo *fi, dbuf *f,
+	de_int64 pos, de_int64 len, unsigned int conv_flags)
+{
+	de_byte *tmpbuf = NULL;
+
+	tmpbuf = de_malloc(c, len);
+	dbuf_read(f, tmpbuf, pos, len);
+
+	fi->file_name = de_malloc(c, len+1);
+	de_make_filename(c, tmpbuf, len, fi->file_name, len+1, conv_flags);
+
+	fi->file_name_printable = de_malloc(c, len+1);
+	de_make_printable_ascii(tmpbuf, len, fi->file_name_printable, len+1, conv_flags);
+
+	de_free(c, tmpbuf);
 }
 
 void de_declare_fmt(deark *c, const char *fmtname)

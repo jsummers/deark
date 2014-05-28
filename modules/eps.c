@@ -22,15 +22,15 @@ static void de_run_eps(deark *c, const char *params)
 
 	if(eps_len>0) {
 		de_dbg(c, "Extracting EPS offs=%d len=%d\n", (int)eps_offset, (int)eps_len);
-		dbuf_create_file_from_slice(c->infile, eps_offset, eps_len, "eps");
+		dbuf_create_file_from_slice(c->infile, eps_offset, eps_len, "eps", NULL);
 	}
 	if(wmf_len>0) {
 		de_dbg(c, "Extracting WMF offs=%d len=%d\n", (int)wmf_offset, (int)wmf_len);
-		dbuf_create_file_from_slice(c->infile, wmf_offset, wmf_len, "wmf");
+		dbuf_create_file_from_slice(c->infile, wmf_offset, wmf_len, "wmf", NULL);
 	}
 	if(tiff_len>0) {
 		de_dbg(c, "Extracting TIFF offs=%d len=%d\n", (int)tiff_offset, (int)tiff_len);
-		dbuf_create_file_from_slice(c->infile, tiff_offset, tiff_len, "tif");
+		dbuf_create_file_from_slice(c->infile, tiff_offset, tiff_len, "tif", NULL);
 	}
 }
 

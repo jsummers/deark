@@ -21,7 +21,7 @@ static void process_icc_profile_segment(deark *c, lctx *d, de_int64 pos, de_int6
 	de_dbg(c, "icc profile segment at %d datasize=%d part %d of %d\n", (int)pos, (int)(data_size-2), b1, b2);
 
 	if(!d->iccprofile_file) {
-		d->iccprofile_file = dbuf_create_output_file(c, "icc");
+		d->iccprofile_file = dbuf_create_output_file(c, "icc", NULL);
 	}
 	dbuf_copy(c->infile, pos+2, data_size-2, d->iccprofile_file);
 
@@ -51,7 +51,7 @@ static void process_jfxx_segment(deark *c, lctx *d, de_int64 pos, de_int64 data_
 		// So, maybe, when we extract a thumbnail, we should insert an artificial JFIF
 		// segment into it. We currently don't do that.
 		// (However, this is not at all important.)
-		dbuf_create_file_from_slice(c->infile, pos+1, data_size-1, "jfxxthumb.jpg");
+		dbuf_create_file_from_slice(c->infile, pos+1, data_size-1, "jfxxthumb.jpg", NULL);
 	}
 }
 
@@ -96,7 +96,7 @@ static void process_segment(deark *c, lctx *d, de_byte seg_type, de_int64 pos, d
 		de_fmtutil_handle_photoshop_rsrc(c, pos+14, seg_size-14);
 	}
 	else if(seg_type==0xe1 && seg_size>28 && !de_memcmp(buf, "http://ns.adobe.com/xap/1.0/", 28)) {
-		dbuf_create_file_from_slice(c->infile, pos+pos_of_first_nul+1, payload_size, "xmp");
+		dbuf_create_file_from_slice(c->infile, pos+pos_of_first_nul+1, payload_size, "xmp", NULL);
 	}
 }
 
