@@ -78,7 +78,7 @@ done:
 	if(!okay) {
 		if(srcbmp) {
 			de_free(c, srcbmp);
-			srcbmp = NULL; 
+			srcbmp = NULL;
 		}
 	}
 
@@ -115,7 +115,7 @@ static void do_generate_final_image(deark *c, struct srcbitmap *srcbmp_main, str
 				cg = de_getbyte(byte_offset+1);
 				cr = de_getbyte(byte_offset+2);
 			}
-			
+
 			// Get the mask bits
 			xorbit = de_get_bits_symbol(c->infile, (int)srcbmp_mask->bi.bitcount,
 				srcbmp_mask->bi.bitsoffset + srcbmp_mask->bi.rowspan*j, i);
@@ -131,11 +131,11 @@ static void do_generate_final_image(deark *c, struct srcbitmap *srcbmp_main, str
 			else if(!andbit && xorbit) {
 				// Inverse of the foreground? Not expected to happen, but we'll try to support it.
 				cr = 255-cr;
-				cg = 255-cg;	
+				cg = 255-cg;
 				cb = 255-cb;
 				ca = 255;
 			}
-			else  {  // (andbit && xorbit) 
+			else  {  // (andbit && xorbit)
 				// Inverse of the background. Not supported by PNG format.
 				if(!inverse_warned) {
 					de_warn(c, "This image contains inverse background pixels, which is not fully supported.\n");

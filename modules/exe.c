@@ -517,7 +517,7 @@ static void do_pe_resource_dir_table(deark *c, lctx *d, de_int64 rel_pos, int le
 		(unsigned int)unnamed_node_count);
 
 	node_count = named_node_count + unnamed_node_count;
-	
+
 	// An array of 8-byte "Resource node entries" follows the Resource node header.
 	for(i=0; i<node_count; i++) {
 		do_pe_resource_node(c, d, rel_pos+16+8*i, level);
@@ -759,7 +759,7 @@ static void do_lx_rsrc(deark *c, lctx *d,
 
 	pg_data_offset_raw = de_getui32le(lpos);
 	//data_size = de_getui16le(lpos+4);
-	
+
 	rsrc_offset_real = pg_data_offset_raw;
 	if(d->lx_page_offset_shift > 0 ) {
 		rsrc_offset_real <<= (unsigned int)d->lx_page_offset_shift;

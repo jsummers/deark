@@ -108,6 +108,7 @@ static int do_box(deark *c, lctx *d, de_int64 pos, de_int64 len, int level,
 		for(i=0; superboxes[i]; i++) {
 			if(!de_memcmp(boxtype, superboxes[i], 4)) {
 				do_box_sequence(c, d, pos+header_size, payload_size, level+1);
+				break;
 			}
 		}
 	}

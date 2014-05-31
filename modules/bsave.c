@@ -429,7 +429,7 @@ static void do_char_1screen(deark *c, lctx *d, de_int64 pgnum,
 static int do_char(deark *c, lctx *d)
 {
 	int retval = 0;
-	
+
 	de_int64 numpages;
 	de_int64 pgnum;
 	de_int64 width, height;

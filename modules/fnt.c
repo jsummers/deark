@@ -167,7 +167,7 @@ static void do_read_header(deark *c, lctx *d)
 	de_dbg(c, "dfPixWidth: %d\n", (int)dfPixWidth);
 	dfPixHeight = de_getui16le(88);
 	de_dbg(c, "dfPixHeight: %d\n", (int)dfPixHeight);
-	
+
 	dfCharSet = de_getbyte(85);
 	de_dbg(c, "charset: 0x%02x\n", (int)dfCharSet);
 

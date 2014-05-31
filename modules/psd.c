@@ -20,7 +20,7 @@ static void do_thumbnail_resource(deark *c, de_int64 resource_id,
 	if(fmt != 1) {
 		// fmt != kJpegRGB
 		de_dbg(c, "thumbnail in unsupported format (%d) found\n", (int)fmt);
-		return; 
+		return;
 	}
 
 	if(resource_id==0x0409) {

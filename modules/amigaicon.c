@@ -501,7 +501,7 @@ static void do_glowicons(deark *c, lctx *d, de_int64 pos)
 	if(gsize < 24) return; // too small
 
 	// 46 4f 52 4d = FORM
-	// 49 43 4f 4e = ICON 
+	// 49 43 4f 4e = ICON
 	// 46 41 43 45 = FACE
 	// 49 4d 41 47 = IMAG
 

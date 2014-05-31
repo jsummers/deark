@@ -201,7 +201,7 @@ void *de_realloc(deark *c, void *oldmem, de_int64 oldsize, de_int64 newsize)
 	if(!oldmem) {
 		return de_malloc(c, newsize);
 	}
-		
+
 	newmem = realloc(oldmem, (size_t)newsize);
 	if(!newmem) {
 		de_err(c, "Memory reallocation failed (%d bytes)\n",(int)newsize);

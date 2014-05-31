@@ -593,7 +593,7 @@ static void de_run_epocimage(deark *c, const char *params)
 static int de_identify_epocimage(deark *c)
 {
 	int fmt;
-	
+
 	fmt = de_identify_epocimage_internal(c);
 	return (fmt>0) ? 100 : 0;
 }
