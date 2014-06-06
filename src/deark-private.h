@@ -307,7 +307,9 @@ void de_color_to_css(de_uint32 color, char *buf, int buflen);
 
 de_byte de_palette_sample_6_to_8bit(de_byte samp);
 
-int de_cp437_to_unicode(deark *c, int a);
+int de_cp437g_to_unicode(deark *c, int a);
+int de_cp437c_to_unicode(deark *c, int a);
+void de_uchar_to_utf8(int u1, de_byte *utf8buf, de_int64 *p_utf8len);
 
 #define DE_CONVFLAG_STOP_AT_NUL 0x1
 

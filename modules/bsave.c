@@ -413,7 +413,7 @@ static void do_char_1screen(deark *c, lctx *d, de_int64 pgnum,
 				dbuf_fprintf(d->ofile, "%c", ch);
 			}
 			else {
-				dbuf_fprintf(d->ofile, "&#%d;", de_cp437_to_unicode(c, ch));
+				dbuf_fprintf(d->ofile, "&#%d;", de_cp437g_to_unicode(c, ch));
 			}
 
 			if(i==width-1) {

@@ -482,6 +482,10 @@
 				>
 			</File>
 			<File
+				RelativePath="..\..\modules\zip.c"
+				>
+			</File>
+			<File
 				RelativePath="..\..\modules\zlib.c"
 				>
 			</File>

@@ -28,10 +28,52 @@ static const unsigned short cp437table[256] = {
 	0x2261,0x00b1,0x2265,0x2264,0x2320,0x2321,0x00f7,0x2248,0x00b0,0x2219,0x00b7,0x221a,0x207f,0x00b2,0x25a0,0x00a0
 };
 
-int de_cp437_to_unicode(deark *c, int a)
+// Code page 437, with screen code graphics characters.
+int de_cp437g_to_unicode(deark *c, int a)
 {
-	if(a>=0 && a<=255) return (int)cp437table[a];
+	if(a>=0 && a<=0xff) return (int)cp437table[a];
 	return 0xfffd;
+}
+
+// Code page 437, with control characters.
+int de_cp437c_to_unicode(deark *c, int a)
+{
+	if(a>=0 && a<=0x7f) return a;
+	if(a>=0x80 && a<=0xff) return (int)cp437table[a];
+	return 0xfffd;
+}
+
+// Encode a Unicode char in UTF-8.
+// Caller supplies utf8buf[4].
+// Sets *p_utf8len to the number of bytes used (1-4).
+void de_uchar_to_utf8(int u1, de_byte *utf8buf, de_int64 *p_utf8len)
+{
+	unsigned int u = (unsigned int)u1;
+
+	if(u>0x10ffff) u=0xfffd;
+
+	if(u<=0x7f) {
+		*p_utf8len = 1;
+		utf8buf[0] = (de_byte)u;
+	}
+	else if(u>=0x80 && u<=0x7ff) {
+		*p_utf8len = 2;
+		utf8buf[0] = 0xc0 | (u>>6);
+		utf8buf[1] = 0x80 | (u&0x3f);
+	}
+	else if(u>=0x800 && u<=0xffff) {
+		*p_utf8len = 3;
+		utf8buf[0] = 0xe0 | (u>>12);
+		utf8buf[1] = 0x80 | ((u>>6)&0x3f);
+		utf8buf[2] = 0x80 | (u&0x3f);
+	}
+	else {
+		*p_utf8len = 4;
+		utf8buf[0] = 0xf0 | (u>>18);
+		utf8buf[1] = 0x80 | ((u>>12)&0x3f);
+		utf8buf[2] = 0x80 | ((u>>6)&0x3f);
+		utf8buf[3] = 0x80 | (u&0x3f);
+	}
 }
 
 static const de_uint32 vga256pal[256] = {

@@ -141,3 +141,7 @@ Deark -- Information about supported formats
   - Extract data from "Photoshop resources",
   - Extract IPTC data (use -extractall).
 
+* ZIP (module="zip")
+  Not autodetected. Use "-m zip".
+  - Extract ZIP file comment.
+
