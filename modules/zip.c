@@ -20,37 +20,57 @@ static void write_uchar_as_utf8(dbuf *outf, int u)
 	dbuf_write(outf, utf8buf, utf8len);
 }
 
-static void copy_cp437_to_utf8(deark *c, dbuf *inf, de_int64 pos, de_int64 len, dbuf *outf)
+static void copy_cp437_to_utf8(deark *c, const de_byte *buf, de_int64 len, dbuf *outf)
 {
-	de_byte b;
 	int u;
 	de_int64 i;
 
-	// Write a BOM.
-	write_uchar_as_utf8(outf, 0xfeff);
-
 	for(i=0; i<len; i++) {
-		b = de_getbyte(pos+i);
-		u = de_cp437c_to_unicode(c, b);
+		u = de_cp437c_to_unicode(c, buf[i]);
 		write_uchar_as_utf8(outf, u);
 	}
 }
 
+static int has_nonascii_chars(const de_byte *buf, de_int64 buflen)
+{
+	de_int64 i;
+
+	for(i=0; i<buflen; i++) {
+		if(buf[i]>=128) return 1;
+	}
+	return 0;
+}
+
 static void read_comment(deark *c, lctx *d, de_int64 pos, de_int64 len)
 {
+	de_byte *comment = NULL;
 	dbuf *f = NULL;
+
 	if(len<1) return;
 
-	// TODO: Detect if the comment contains non-ASCII characters,
-	// and use a different codepath if it does not.
+	comment = de_malloc(c, len);
+	de_read(comment, pos, len);
 
 	f = dbuf_create_output_file(c, "comment.txt", NULL);
 
-	// TODO: Not all ZIP file comments use cp437.
-	// There is a way to use UTF-8, I think.
+	if(has_nonascii_chars(comment, len)) {
+		// Convert the comment to UTF-8.
 
-	copy_cp437_to_utf8(c, c->infile, pos, len, f);
+		// TODO: Not all ZIP file comments use cp437.
+		// There is a way to use UTF-8, I think.
+
+		// Write a BOM.
+		write_uchar_as_utf8(f, 0xfeff);
+
+		copy_cp437_to_utf8(c, comment, len, f);
+	}
+	else {
+		// No non-ASCII characters, so write the comment as-is.
+		dbuf_write(f, comment, len);
+	}
+
 	dbuf_close(f);
+	de_free(c, comment);
 }
 
 static int read_end_of_central_dir(deark *c, lctx *d)
@@ -81,6 +101,7 @@ static int read_end_of_central_dir(deark *c, lctx *d)
 		read_comment(c, d, pos+22, comment_length);
 	}
 
+	// TODO: Figure out exactly how to detect disk spanning.
 	if(this_disk_num!=0 || disk_num_with_central_dir_start!=0 ||
 		num_entries_this_disk!=d->central_dir_num_entries)
 	{
@@ -96,6 +117,7 @@ static int find_end_of_central_dir(deark *c, lctx *d)
 	de_int64 x;
 	de_byte *buf = NULL;
 	int retval = 0;
+	de_int64 buf_offset;
 	de_int64 buf_size;
 	de_int64 i;
 
@@ -114,11 +136,12 @@ static int find_end_of_central_dir(deark *c, lctx *d)
 	if(buf_size > 65536) buf_size = 65536;
 
 	buf = de_malloc(c, buf_size);
-	de_read(buf, c->infile->len - buf_size, buf_size);
+	buf_offset = c->infile->len - buf_size;
+	de_read(buf, buf_offset, buf_size);
 
 	for(i=buf_size-22; i>=0; i--) {
 		if(buf[i]=='P' && buf[i+1]=='K' && buf[i+2]==5 && buf[i+3]==6) {
-			d->end_of_central_dir_pos = i;
+			d->end_of_central_dir_pos = buf_offset + i;
 			retval = 1;
 			goto done;
 		}
