@@ -54,6 +54,8 @@ typedef struct localctx_struct {
 	de_int64 pe_cur_section_virt_addr;
 	de_int64 pe_cur_section_data_offset;
 
+	de_int64 pe_cur_name_offset; // 0 if no name
+
 	de_int64 cur_rsrc_type;
 	de_int64 rsrc_item_count;
 } lctx;
@@ -398,12 +400,27 @@ static void do_extract_MANIFEST(deark *c, lctx *d, de_int64 pos, de_int64 len, d
 	}
 }
 
+static int ne_pe_resource_type_is_supported(deark *c, lctx *d, de_int64 type_id)
+{
+	switch(type_id) {
+	case DE_RT_CURSOR:
+	case DE_RT_BITMAP:
+	case DE_RT_ICON:
+	case DE_RT_FONT:
+	case DE_RT_MANIFEST:
+		return 1;
+	}
+	return 0;
+}
+
 static void do_ne_pe_extract_resource(deark *c, lctx *d, de_int64 type_id,
 	de_int64 pos, de_int64 len, de_finfo *fi)
 {
 	if(len<1 || len>DE_MAX_FILE_SIZE) return;
 
 	switch(type_id) {
+		// Note that any new types added here also need to be listed in
+		// ne_pe_resource_type_is_supported().
 	case DE_RT_CURSOR:
 		do_extract_CURSOR(c, d, pos, len, fi);
 		break;
@@ -422,12 +439,51 @@ static void do_ne_pe_extract_resource(deark *c, lctx *d, de_int64 type_id,
 	}
 }
 
+// len is in code units, not bytes.
+static void copy_slice_utf16le_to_utf8(deark *c, dbuf *inf, de_int64 pos, de_int64 len, dbuf *outf)
+{
+	de_int64 i;
+	de_int64 code_unit;
+	de_byte b;
+
+	for(i=0; i<len; i++) {
+		code_unit = dbuf_getui16le(inf, pos+2*i);
+
+		// TODO: This is not UTF-8.
+		if(code_unit<128) {
+			b = (de_byte)code_unit;
+		}
+		else {
+			b = '_';
+		}
+		dbuf_write(outf, &b, 1);
+	}
+}
+
+static void de_finfo_set_name_from_pe_string(deark *c, de_finfo *fi, dbuf *f,
+	de_int64 pos)
+{
+	de_int64 nlen;
+	dbuf *name_utf8 = NULL;
+
+	nlen = de_getui16le(pos);
+	if(nlen<1) goto done;
+
+	name_utf8 = dbuf_create_membuf(c, nlen*3);
+	copy_slice_utf16le_to_utf8(c, c->infile, pos+2, nlen, name_utf8);
+	de_finfo_set_name_from_slice(c, fi, name_utf8, 0, name_utf8->len, 0);
+
+done:
+	dbuf_close(name_utf8);
+}
+
 static void do_pe_resource_data_entry(deark *c, lctx *d, de_int64 rel_pos)
 {
 	de_int64 data_size;
 	de_int64 data_virt_addr;
 	de_int64 data_real_offset;
 	de_int64 type_id;
+	de_finfo *fi = NULL;
 
 	type_id = d->cur_rsrc_type;
 
@@ -443,7 +499,14 @@ static void do_pe_resource_data_entry(deark *c, lctx *d, de_int64 rel_pos)
 	de_dbg(c, " data offset in file: %d\n",
 		(int)data_real_offset);
 
-	do_ne_pe_extract_resource(c, d, type_id, data_real_offset, data_size, NULL);
+	if(d->pe_cur_name_offset) {
+		fi = de_finfo_create(c);
+		de_finfo_set_name_from_pe_string(c, fi, c->infile, d->pe_cur_name_offset);
+	}
+
+	do_ne_pe_extract_resource(c, d, type_id, data_real_offset, data_size, fi);
+
+	de_finfo_destroy(c, fi);
 }
 
 static void do_pe_resource_dir_table(deark *c, lctx *d, de_int64 rel_pos, int level);
@@ -478,12 +541,30 @@ static void do_pe_resource_node(deark *c, lctx *d, de_int64 rel_pos, int level)
 		d->cur_rsrc_type = name_or_id;
 	}
 
-	// TODO: If a resource has a name (at level 2), we should read it so we
-	// can use it for the filename.
-
 	de_dbg(c, "level %d node at %d(%d) id=%d next-offset=%d is-named=%d is-branch=%d\n",
 		level, (int)(d->pe_cur_base_addr+rel_pos), (int)rel_pos,
 		(int)name_or_id, (int)next_offset, has_name, is_branch_node);
+
+	if(!ne_pe_resource_type_is_supported(c, d, d->cur_rsrc_type)) {
+		// We don't support this type of resource, so don't go down this path.
+		de_dbg(c, "resource type %d not supported\n", (int)d->cur_rsrc_type);
+		return;
+	}
+
+	// If a resource has a name (at level 2), keep track of it so we can
+	// use it in the filename.
+	if(level==2) {
+		if(has_name) {
+			d->pe_cur_name_offset = d->pe_cur_section_data_offset + name_or_id;
+			de_dbg(c, "resource name at %d\n", (int)d->pe_cur_name_offset);
+		}
+		else {
+			d->pe_cur_name_offset = 0;
+		}
+	}
+	else if(level<2) {
+		d->pe_cur_name_offset = 0;
+	}
 
 	// If high bit is 1, we need to go deeper.
 	if(is_branch_node) {
