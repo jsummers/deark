@@ -311,6 +311,8 @@ int de_cp437g_to_unicode(deark *c, int a);
 int de_cp437c_to_unicode(deark *c, int a);
 void de_uchar_to_utf8(int u1, de_byte *utf8buf, de_int64 *p_utf8len);
 
+int de_is_ascii(const de_byte *buf, de_int64 buflen);
+
 #define DE_CONVFLAG_STOP_AT_NUL 0x1
 
 void de_make_printable_ascii(de_byte *s1, de_int64 s1_len,

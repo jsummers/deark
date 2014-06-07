@@ -76,6 +76,17 @@ void de_uchar_to_utf8(int u1, de_byte *utf8buf, de_int64 *p_utf8len)
 	}
 }
 
+// Given a buffer, return 1 if it has no bytes 0x80 or higher.
+int de_is_ascii(const de_byte *buf, de_int64 buflen)
+{
+	de_int64 i;
+
+	for(i=0; i<buflen; i++) {
+		if(buf[i]>=128) return 0;
+	}
+	return 1;
+}
+
 static const de_uint32 vga256pal[256] = {
 	0x000000,0x0000aa,0x00aa00,0x00aaaa,0xaa0000,0xaa00aa,0xaa5500,0xaaaaaa,
 	0x555555,0x5555ff,0x55ff55,0x55ffff,0xff5555,0xff55ff,0xffff55,0xffffff,

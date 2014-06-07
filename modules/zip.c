@@ -11,6 +11,7 @@ typedef struct localctx_struct {
 	de_int64 central_dir_offset;
 } lctx;
 
+// Write a unicode code point to a file, encoded as UTF-8.
 static void write_uchar_as_utf8(dbuf *outf, int u)
 {
 	de_byte utf8buf[4];
@@ -20,7 +21,8 @@ static void write_uchar_as_utf8(dbuf *outf, int u)
 	dbuf_write(outf, utf8buf, utf8len);
 }
 
-static void copy_cp437_to_utf8(deark *c, const de_byte *buf, de_int64 len, dbuf *outf)
+// Write a buffer to a file, converting the encoding.
+static void copy_cp437c_to_utf8(deark *c, const de_byte *buf, de_int64 len, dbuf *outf)
 {
 	int u;
 	de_int64 i;
@@ -29,16 +31,6 @@ static void copy_cp437_to_utf8(deark *c, const de_byte *buf, de_int64 len, dbuf 
 		u = de_cp437c_to_unicode(c, buf[i]);
 		write_uchar_as_utf8(outf, u);
 	}
-}
-
-static int has_nonascii_chars(const de_byte *buf, de_int64 buflen)
-{
-	de_int64 i;
-
-	for(i=0; i<buflen; i++) {
-		if(buf[i]>=128) return 1;
-	}
-	return 0;
 }
 
 static void read_comment(deark *c, lctx *d, de_int64 pos, de_int64 len)
@@ -53,7 +45,11 @@ static void read_comment(deark *c, lctx *d, de_int64 pos, de_int64 len)
 
 	f = dbuf_create_output_file(c, "comment.txt", NULL);
 
-	if(has_nonascii_chars(comment, len)) {
+	if(de_is_ascii(comment, len)) {
+		// No non-ASCII characters, so write the comment as-is.
+		dbuf_write(f, comment, len);
+	}
+	else {
 		// Convert the comment to UTF-8.
 
 		// TODO: Not all ZIP file comments use cp437.
@@ -62,11 +58,7 @@ static void read_comment(deark *c, lctx *d, de_int64 pos, de_int64 len)
 		// Write a BOM.
 		write_uchar_as_utf8(f, 0xfeff);
 
-		copy_cp437_to_utf8(c, comment, len, f);
-	}
-	else {
-		// No non-ASCII characters, so write the comment as-is.
-		dbuf_write(f, comment, len);
+		copy_cp437c_to_utf8(c, comment, len, f);
 	}
 
 	dbuf_close(f);
@@ -132,8 +124,12 @@ static int find_end_of_central_dir(deark *c, lctx *d)
 	}
 
 	// Search for the signature.
+	// The end-of-central-directory record could theoretically appear anywhere
+	// in the file. We'll follow Info-Zip/UnZip's lead and search the last 66000
+	// bytes.
+#define MAX_EOCD_SEARCH 66000
 	buf_size = c->infile->len;
-	if(buf_size > 65536) buf_size = 65536;
+	if(buf_size > MAX_EOCD_SEARCH) buf_size = MAX_EOCD_SEARCH;
 
 	buf = de_malloc(c, buf_size);
 	buf_offset = c->infile->len - buf_size;
