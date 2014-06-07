@@ -33,7 +33,7 @@ static void copy_cp437c_to_utf8(deark *c, const de_byte *buf, de_int64 len, dbuf
 	}
 }
 
-static void read_comment(deark *c, lctx *d, de_int64 pos, de_int64 len)
+static void do_comment(deark *c, lctx *d, de_int64 pos, de_int64 len, const char *ext)
 {
 	de_byte *comment = NULL;
 	dbuf *f = NULL;
@@ -43,7 +43,7 @@ static void read_comment(deark *c, lctx *d, de_int64 pos, de_int64 len)
 	comment = de_malloc(c, len);
 	de_read(comment, pos, len);
 
-	f = dbuf_create_output_file(c, "comment.txt", NULL);
+	f = dbuf_create_output_file(c, ext, NULL);
 
 	if(de_is_ascii(comment, len)) {
 		// No non-ASCII characters, so write the comment as-is.
@@ -52,12 +52,11 @@ static void read_comment(deark *c, lctx *d, de_int64 pos, de_int64 len)
 	else {
 		// Convert the comment to UTF-8.
 
-		// TODO: Not all ZIP file comments use cp437.
-		// There is a way to use UTF-8, I think.
-
 		// Write a BOM.
 		write_uchar_as_utf8(f, 0xfeff);
 
+		// The comment for the whole .ZIP file apparently always uses
+		// cp437 encoding.
 		copy_cp437c_to_utf8(c, comment, len, f);
 	}
 
@@ -65,7 +64,68 @@ static void read_comment(deark *c, lctx *d, de_int64 pos, de_int64 len)
 	de_free(c, comment);
 }
 
-static int read_end_of_central_dir(deark *c, lctx *d)
+static int do_central_dir_entry(deark *c, lctx *d, de_int64 index,
+	de_int64 pos, de_int64 *p_entry_size)
+{
+	de_int64 x;
+	unsigned int bit_flags;
+	de_int64 fn_len, extra_len, comment_len;
+
+	*p_entry_size = 46;
+	de_dbg(c, "central dir entry #%d at %d\n", (int)index, (int)pos);
+
+	x = de_getui32le(pos);
+	if(x!=0x02014b50) {
+		de_err(c, "Invalid central file header at %d\n", (int)pos);
+		return 0;
+	}
+
+	bit_flags = (unsigned int)de_getui16le(pos+8);
+	de_dbg(c, " flags: 0x%04x\n", bit_flags);
+
+	fn_len = de_getui16le(pos+28);
+	extra_len = de_getui16le(pos+30);
+	comment_len = de_getui16le(pos+32);
+
+	de_dbg(c, " filename_len=%d, extra_len=%d, comment_len=%d\n", (int)fn_len,
+		(int)extra_len, (int)comment_len);
+
+	*p_entry_size += fn_len + extra_len + comment_len;
+
+	if(comment_len>0) {
+		// TODO: Comments for individual files can use UTF-8 encoding.
+		// Need to check for that and handle it.
+		do_comment(c, d, pos+46+fn_len+extra_len, comment_len, "fcomment.txt");
+	}
+	return 1;
+}
+
+static int do_central_dir(deark *c, lctx *d)
+{
+	de_int64 i;
+	de_int64 pos;
+	de_int64 entry_size;
+	int retval = 0;
+
+	pos = d->central_dir_offset;
+	for(i=0; i<d->central_dir_num_entries; i++) {
+		if(pos >= d->central_dir_offset+d->central_dir_byte_size) {
+			goto done;
+		}
+
+		if(!do_central_dir_entry(c, d, i, pos, &entry_size)) {
+			goto done;
+		}
+
+		pos += entry_size;
+	}
+	retval = 1;
+
+done:
+	return retval;
+}
+
+static int do_end_of_central_dir(deark *c, lctx *d)
 {
 	de_int64 pos;
 	de_int64 this_disk_num;
@@ -90,7 +150,7 @@ static int read_end_of_central_dir(deark *c, lctx *d)
 	comment_length = de_getui16le(pos+20);
 	if(comment_length>0) {
 		de_dbg(c, "comment length: %d\n", (int)comment_length);
-		read_comment(c, d, pos+22, comment_length);
+		do_comment(c, d, pos+22, comment_length, "comment.txt");
 	}
 
 	// TODO: Figure out exactly how to detect disk spanning.
@@ -163,7 +223,11 @@ static void de_run_zip(deark *c, const char *params)
 
 	de_dbg(c, "End of central dir record at %d\n", (int)d->end_of_central_dir_pos);
 
-	if(!read_end_of_central_dir(c, d)) {
+	if(!do_end_of_central_dir(c, d)) {
+		goto done;
+	}
+
+	if(!do_central_dir(c, d)) {
 		goto done;
 	}
 

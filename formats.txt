@@ -142,6 +142,7 @@ Deark -- Information about supported formats
   - Extract IPTC data (use -extractall).
 
 * ZIP (module="zip")
-  Not autodetected. Use "-m zip".
-  - Extract ZIP file comment.
+  Not autodetected. Must use "-m zip".
+  - Extract main ZIP file comment.
+  - Extract comments for individual files.
 
