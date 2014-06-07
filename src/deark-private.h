@@ -80,6 +80,9 @@ struct deark_struct {
 	// Modules may change this, provided they change it back when they're done.
 	dbuf *infile;
 
+	FILE *debug_FILE; // Where to write debugging output
+	FILE *message_FILE; // Where to write messages/warnings/errors
+
 	int file_count; // Counts the number of files written.
 	int error_count;
 	int format_declared;

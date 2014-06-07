@@ -106,16 +106,24 @@ void de_snprintf(char *buf, size_t buflen, const char *fmt, ...)
 	va_end(ap);
 }
 
+static void de_vdbg_internal(deark *c, const char *fmt, va_list ap)
+{
+	FILE *f;
+
+	f = c ? c->debug_FILE : stderr;
+
+	fprintf(f, "DEBUG: ");
+	vfprintf(f, fmt, ap);
+	fflush(f);
+}
+
 void de_dbg(deark *c, const char *fmt, ...)
 {
 	va_list ap;
 
 	if(c && c->debug_level<1) return;
-
-	fprintf(stderr,"DEBUG: ");
 	va_start(ap, fmt);
-	vfprintf(stderr,fmt,ap);
-	fflush(stderr);
+	de_vdbg_internal(c, fmt, ap);
 	va_end(ap);
 }
 
@@ -124,11 +132,8 @@ void de_dbg2(deark *c, const char *fmt, ...)
 	va_list ap;
 
 	if(c && c->debug_level<2) return;
-
-	fprintf(stderr,"DEBUG: ");
 	va_start(ap, fmt);
-	vfprintf(stderr,fmt,ap);
-	fflush(stderr);
+	de_vdbg_internal(c, fmt, ap);
 	va_end(ap);
 }
 
@@ -136,11 +141,19 @@ void de_dbg2(deark *c, const char *fmt, ...)
 void de_err(deark *c, const char *fmt, ...)
 {
 	va_list ap;
+	FILE *f;
 
-	if(c) c->error_count++;
-	fprintf(stderr,"Error: ");
+	if(c) {
+		c->error_count++;
+		f = c->message_FILE;
+	}
+	else {
+		f = stderr;
+	}
+
+	fprintf(f, "Error: ");
 	va_start(ap, fmt);
-	vfprintf(stderr,fmt,ap);
+	vfprintf(f, fmt, ap);
 	va_end(ap);
 }
 
@@ -149,9 +162,9 @@ void de_warn(deark *c, const char *fmt, ...)
 	va_list ap;
 
 	if(!c->show_warnings) return;
-	fprintf(stderr,"Warning: ");
+	fprintf(c->message_FILE, "Warning: ");
 	va_start(ap, fmt);
-	vfprintf(stderr,fmt,ap);
+	vfprintf(c->message_FILE, fmt, ap);
 	va_end(ap);
 }
 
@@ -161,7 +174,7 @@ void de_msg(deark *c, const char *fmt, ...)
 
 	if(!c->show_messages) return;
 	va_start(ap, fmt);
-	vfprintf(stderr,fmt,ap);
+	vfprintf(c->message_FILE, fmt, ap);
 	va_end(ap);
 }
 
@@ -242,6 +255,8 @@ deark *de_create(void)
 {
 	deark *c;
 	c = de_malloc(NULL,sizeof(deark));
+	c->debug_FILE = stdout;
+	c->message_FILE = stdout;
 	c->show_messages = 1;
 	c->show_warnings = 1;
 	c->max_output_files = -1;
