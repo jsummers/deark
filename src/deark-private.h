@@ -313,6 +313,7 @@ de_byte de_palette_sample_6_to_8bit(de_byte samp);
 int de_cp437g_to_unicode(deark *c, int a);
 int de_cp437c_to_unicode(deark *c, int a);
 void de_uchar_to_utf8(int u1, de_byte *utf8buf, de_int64 *p_utf8len);
+void dbuf_write_uchar_as_utf8(dbuf *outf, int u);
 
 int de_is_ascii(const de_byte *buf, de_int64 buflen);
 

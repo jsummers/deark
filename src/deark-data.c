@@ -76,6 +76,16 @@ void de_uchar_to_utf8(int u1, de_byte *utf8buf, de_int64 *p_utf8len)
 	}
 }
 
+// Write a unicode code point to a file, encoded as UTF-8.
+void dbuf_write_uchar_as_utf8(dbuf *outf, int u)
+{
+	de_byte utf8buf[4];
+	de_int64 utf8len;
+
+	de_uchar_to_utf8(u, utf8buf, &utf8len);
+	dbuf_write(outf, utf8buf, utf8len);
+}
+
 // Given a buffer, return 1 if it has no bytes 0x80 or higher.
 int de_is_ascii(const de_byte *buf, de_int64 buflen)
 {

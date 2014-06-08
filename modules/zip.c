@@ -11,16 +11,6 @@ typedef struct localctx_struct {
 	de_int64 central_dir_offset;
 } lctx;
 
-// Write a unicode code point to a file, encoded as UTF-8.
-static void write_uchar_as_utf8(dbuf *outf, int u)
-{
-	de_byte utf8buf[4];
-	de_int64 utf8len;
-
-	de_uchar_to_utf8(u, utf8buf, &utf8len);
-	dbuf_write(outf, utf8buf, utf8len);
-}
-
 // Write a buffer to a file, converting the encoding.
 static void copy_cp437c_to_utf8(deark *c, const de_byte *buf, de_int64 len, dbuf *outf)
 {
@@ -29,7 +19,7 @@ static void copy_cp437c_to_utf8(deark *c, const de_byte *buf, de_int64 len, dbuf
 
 	for(i=0; i<len; i++) {
 		u = de_cp437c_to_unicode(c, buf[i]);
-		write_uchar_as_utf8(outf, u);
+		dbuf_write_uchar_as_utf8(outf, u);
 	}
 }
 
@@ -53,7 +43,7 @@ static void do_comment(deark *c, lctx *d, de_int64 pos, de_int64 len, const char
 		// Convert the comment to UTF-8.
 
 		// Write a BOM.
-		write_uchar_as_utf8(f, 0xfeff);
+		dbuf_write_uchar_as_utf8(f, 0xfeff);
 
 		// The comment for the whole .ZIP file apparently always uses
 		// cp437 encoding.
