@@ -109,10 +109,26 @@ void de_snprintf(char *buf, size_t buflen, const char *fmt, ...)
 static void de_vdbg_internal(deark *c, const char *fmt, va_list ap)
 {
 	FILE *f;
+	char spaces[51];
+	int nspaces;
 
-	f = c ? c->debug_FILE : stderr;
+	if(c) {
+		f = c->debug_FILE;
+		nspaces = c->dbg_indent_amount;
+	}
+	else {
+		f = stderr;
+		nspaces = 0;
+	}
 
-	fprintf(f, "DEBUG: ");
+	if(nspaces<0) nspaces=0;
+	if(nspaces>50) nspaces=50;
+
+	if(nspaces>0)
+		de_memset(spaces, ' ', nspaces);
+	spaces[nspaces] = '\0';
+
+	fprintf(f, "DEBUG: %s", spaces);
 	vfprintf(f, fmt, ap);
 	fflush(f);
 }
@@ -135,6 +151,11 @@ void de_dbg2(deark *c, const char *fmt, ...)
 	va_start(ap, fmt);
 	de_vdbg_internal(c, fmt, ap);
 	va_end(ap);
+}
+
+void de_dbg_indent(deark *c, int n)
+{
+	c->dbg_indent_amount += n;
 }
 
 // c can be NULL

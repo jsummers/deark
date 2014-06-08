@@ -44,6 +44,7 @@ typedef struct localctx_struct {
 	de_int64 lx_rsrc_tbl_entries;
 	de_int64 lx_data_pages_offset;
 
+	de_int64 pe_opt_hdr_size;
 	de_int64 pe_sections_offset;
 	de_int64 pe_number_of_sections;
 
@@ -66,11 +67,13 @@ static void do_opt_coff_data_dirs(deark *c, lctx *d, de_int64 pos)
 	de_int64 rsrc_tbl_size;
 
 	de_dbg(c, "COFF/PE optional header (data directories) at %d\n", (int)pos);
+	de_dbg_indent(c, 1);
 	rsrc_tbl_rva = de_getui32le(pos+16);
 	// I don't know if rsrc_tbl_rva will be needed for anything. It seems redundant.
 	rsrc_tbl_size = de_getui32le(pos+20);
 	de_dbg(c, "resource table RVA=0x%08x, size=%d\n", (unsigned int)rsrc_tbl_rva,
 		(int)rsrc_tbl_size);
+	de_dbg_indent(c, -1);
 }
 
 static const char *get_subsys_desc(de_int64 subsystem)
@@ -88,11 +91,15 @@ static void do_opt_coff_nt_header(deark *c, lctx *d, de_int64 pos)
 	de_int64 subsystem;
 
 	de_dbg(c, "COFF/PE optional header (Windows NT) at %d\n", (int)pos);
+	de_dbg_indent(c, 1);
+
 	x = de_getui32le(pos);
 	de_dbg(c, "image base offset: 0x%08x\n", (unsigned int)x);
 
 	subsystem = de_getui16le(pos+40);
 	de_dbg(c, "subsystem: %d%s\n", (int)subsystem, get_subsys_desc(subsystem));
+
+	de_dbg_indent(c, -1);
 }
 
 static void do_opt_coff_nt_header_64(deark *c, lctx *d, de_int64 pos)
@@ -101,11 +108,15 @@ static void do_opt_coff_nt_header_64(deark *c, lctx *d, de_int64 pos)
 	de_int64 subsystem;
 
 	de_dbg(c, "COFF/PE32+ optional header (Windows NT) at %d\n", (int)pos);
+	de_dbg_indent(c, 1);
+
 	base_offset = de_geti64le(pos);
 	de_dbg(c, "image base offset: 0x%016" INT64_FMTx "\n", base_offset);
 
 	subsystem = de_getui16le(pos+44);
 	de_dbg(c, "subsystem: %d%s\n", (int)subsystem, get_subsys_desc(subsystem));
+
+	de_dbg_indent(c, -1);
 }
 
 static void do_opt_coff_header(deark *c, lctx *d, de_int64 pos, de_int64 len)
@@ -114,6 +125,7 @@ static void do_opt_coff_header(deark *c, lctx *d, de_int64 pos, de_int64 len)
 	de_int64 coff_opt_hdr_size;
 
 	de_dbg(c, "COFF/PE optional header at %d, size=%d\n", (int)pos, (int)len);
+	de_dbg_indent(c, 1);
 
 	sig = de_getui16le(pos);
 	de_dbg(c, "signature: 0x%04x\n", (int)sig);
@@ -141,6 +153,8 @@ static void do_opt_coff_header(deark *c, lctx *d, de_int64 pos, de_int64 len)
 	else {
 		de_declare_fmt(c, "Unknown PE file type");
 	}
+
+	de_dbg_indent(c, -1);
 }
 
 // 'pos' is the start of the 4-byte PE signature.
@@ -148,7 +162,9 @@ static void do_opt_coff_header(deark *c, lctx *d, de_int64 pos, de_int64 len)
 static void do_pe_coff_header(deark *c, lctx *d, de_int64 pos)
 {
 	de_int64 arch;
-	de_int64 opt_hdr_size;
+
+	de_dbg(c, "PE header at %d\n", (int)d->ext_header_offset);
+	de_dbg_indent(c, 1);
 
 	arch = de_getui16le(pos+4+0);
 	de_dbg(c, "target architecture: 0x%04x\n", (int)arch);
@@ -156,12 +172,14 @@ static void do_pe_coff_header(deark *c, lctx *d, de_int64 pos)
 	d->pe_number_of_sections = de_getui16le(pos+4+2);
 	de_dbg(c, "number of sections: %d\n", (int)d->pe_number_of_sections);
 
-	opt_hdr_size = de_getui16le(pos+4+16);
-	de_dbg(c, "optional header size: %d\n", (int)opt_hdr_size);
-	if(opt_hdr_size>0) {
-		do_opt_coff_header(c, d, pos+4+20, opt_hdr_size);
-		d->pe_sections_offset = pos+4+20+opt_hdr_size;
+	d->pe_opt_hdr_size = de_getui16le(pos+4+16);
+	de_dbg(c, "optional header size: %d\n", (int)d->pe_opt_hdr_size);
+	if(d->pe_opt_hdr_size>0) {
+		do_opt_coff_header(c, d, pos+4+20, d->pe_opt_hdr_size);
+		d->pe_sections_offset = pos+4+20+d->pe_opt_hdr_size;
 	}
+
+	de_dbg_indent(c, -1);
 }
 
 static void do_ne_ext_header(deark *c, lctx *d, de_int64 pos)
@@ -230,7 +248,6 @@ static void do_ext_header(deark *c, lctx *d)
 
 	de_read(buf, d->ext_header_offset, 4);
 	if(!de_memcmp(buf, "PE\0\0", 4)) {
-		de_dbg(c, "PE header at %d\n", (int)d->ext_header_offset);
 		do_pe_coff_header(c, d, d->ext_header_offset);
 		// If do_pe_coff_header didn't figure out the format...
 		de_declare_fmt(c, "PE");
@@ -494,16 +511,17 @@ static void do_pe_resource_data_entry(deark *c, lctx *d, de_int64 rel_pos)
 
 	type_id = d->cur_rsrc_type;
 
-	de_dbg(c, " resource data entry at %d(%d) rsrc_type=%d\n",
+	de_dbg(c, "resource data entry at %d(%d) rsrc_type=%d\n",
 		(int)(d->pe_cur_base_addr+rel_pos), (int)rel_pos, (int)type_id);
+	de_dbg_indent(c, 1);
 
 	data_virt_addr = de_getui32le(d->pe_cur_base_addr+rel_pos);
 	data_size = de_getui32le(d->pe_cur_base_addr+rel_pos+4);
-	de_dbg(c, " resource data virt. addr=%d (0x%08x), size=%d\n",
+	de_dbg(c, "resource data virt. addr=%d (0x%08x), size=%d\n",
 		(int)data_virt_addr, (unsigned int)data_virt_addr, (int)data_size);
 
 	data_real_offset = data_virt_addr - d->pe_cur_section_virt_addr + d->pe_cur_section_data_offset;
-	de_dbg(c, " data offset in file: %d\n",
+	de_dbg(c, "data offset in file: %d\n",
 		(int)data_real_offset);
 
 	if(d->pe_cur_name_offset) {
@@ -514,6 +532,7 @@ static void do_pe_resource_data_entry(deark *c, lctx *d, de_int64 rel_pos)
 	do_ne_pe_extract_resource(c, d, type_id, data_real_offset, data_size, fi);
 
 	de_finfo_destroy(c, fi);
+	de_dbg_indent(c, -1);
 }
 
 static void do_pe_resource_dir_table(deark *c, lctx *d, de_int64 rel_pos, int level);
@@ -523,11 +542,14 @@ static void do_pe_resource_node(deark *c, lctx *d, de_int64 rel_pos, int level)
 	de_int64 name_or_id;
 	de_int64 next_offset;
 	int has_name, is_branch_node;
+	int orig_indent;
+
+	orig_indent = c->dbg_indent_amount;
 
 	d->rsrc_item_count++;
 	if(d->rsrc_item_count>MAX_RESOURCES) {
 		de_err(c, "Too many resources.\n");
-		return;
+		goto done;
 	}
 
 	has_name = 0;
@@ -551,11 +573,12 @@ static void do_pe_resource_node(deark *c, lctx *d, de_int64 rel_pos, int level)
 	de_dbg(c, "level %d node at %d(%d) id=%d next-offset=%d is-named=%d is-branch=%d\n",
 		level, (int)(d->pe_cur_base_addr+rel_pos), (int)rel_pos,
 		(int)name_or_id, (int)next_offset, has_name, is_branch_node);
+	de_dbg_indent(c, 1);
 
 	if(!ne_pe_resource_type_is_supported(c, d, d->cur_rsrc_type)) {
 		// We don't support this type of resource, so don't go down this path.
 		de_dbg(c, "resource type %d not supported\n", (int)d->cur_rsrc_type);
-		return;
+		goto done;
 	}
 
 	// If a resource has a name (at level 2), keep track of it so we can
@@ -580,6 +603,9 @@ static void do_pe_resource_node(deark *c, lctx *d, de_int64 rel_pos, int level)
 	else {
 		do_pe_resource_data_entry(c, d, next_offset);
 	}
+
+done:
+	c->dbg_indent_amount = orig_indent;
 }
 
 static void do_pe_resource_dir_table(deark *c, lctx *d, de_int64 rel_pos, int level)
@@ -626,6 +652,7 @@ static void do_pe_section_header(deark *c, lctx *d, de_int64 pos)
 	de_int64 section_data_size;
 
 	de_dbg(c, "section header at %d\n", (unsigned int)pos);
+	de_dbg_indent(c, 1);
 
 	de_read(name_raw, pos, 8); // Section name
 
@@ -644,6 +671,8 @@ static void do_pe_section_header(deark *c, lctx *d, de_int64 pos)
 	if(!de_memcmp(name_raw, ".rsrc\0", 5)) {
 		do_pe_resource_section(c, d, d->pe_cur_section_data_offset, section_data_size);
 	}
+
+	de_dbg_indent(c, -1);
 }
 
 static void do_pe_section_table(deark *c, lctx *d)
@@ -653,9 +682,11 @@ static void do_pe_section_table(deark *c, lctx *d)
 
 	pos = d->pe_sections_offset;
 	de_dbg(c, "section table at %d\n", (int)pos);
+	de_dbg_indent(c, 1);
 	for(i=0; i<d->pe_number_of_sections; i++) {
 		do_pe_section_header(c, d, pos + 40*i);
 	}
+	de_dbg_indent(c, -1);
 }
 
 static void do_ne_one_nameinfo(deark *c, lctx *d, de_int64 npos)

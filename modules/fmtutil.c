@@ -31,11 +31,11 @@ int de_fmtutil_get_bmpinfo(deark *c, dbuf *f, struct de_bmpinfo *bi, de_int64 po
 		if(flags & DE_BMPINFO_HAS_HOTSPOT) {
 			bi->hotspot_x = dbuf_getui16le(f, pos+6);
 			bi->hotspot_y = dbuf_getui16le(f, pos+8);
-			de_dbg(c, "   hotspot: (%d,%d)\n", (int)bi->hotspot_x, (int)bi->hotspot_y);
+			de_dbg(c, "hotspot: (%d,%d)\n", (int)bi->hotspot_x, (int)bi->hotspot_y);
 		}
 
 		bi->bitsoffset = dbuf_getui32le(f, pos+10);
-		de_dbg(c, "   bits offset: %d\n", (int)bi->bitsoffset);
+		de_dbg(c, "bits offset: %d\n", (int)bi->bitsoffset);
 	}
 
 	bmih_pos = pos + fhs;
@@ -49,7 +49,7 @@ int de_fmtutil_get_bmpinfo(deark *c, dbuf *f, struct de_bmpinfo *bi, de_int64 po
 		return 1;
 	}
 
-	de_dbg(c, "   info header size: %d\n", (int)bi->infohdrsize);
+	de_dbg(c, "info header size: %d\n", (int)bi->infohdrsize);
 
 	if(bi->infohdrsize==12) {
 		bi->bytes_per_pal_entry = 3;
@@ -92,9 +92,9 @@ int de_fmtutil_get_bmpinfo(deark *c, dbuf *f, struct de_bmpinfo *bi, de_int64 po
 		bi->num_colors = 16777216;
 	}
 
-	de_dbg(c, "   image size: %dx%d\n", (int)bi->width, (int)bi->height);
-	de_dbg(c, "   bit count: %d\n", (int)bi->bitcount);
-	de_dbg(c, "   palette entries: %d\n", (int)bi->pal_entries);
+	de_dbg(c, "image size: %dx%d\n", (int)bi->width, (int)bi->height);
+	de_dbg(c, "bit count: %d\n", (int)bi->bitcount);
+	de_dbg(c, "palette entries: %d\n", (int)bi->pal_entries);
 
 	bi->pal_bytes = bi->bytes_per_pal_entry*bi->pal_entries;
 	bi->size_of_headers_and_pal = fhs + bi->infohdrsize + bi->pal_bytes;

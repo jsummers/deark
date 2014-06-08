@@ -101,6 +101,7 @@ struct deark_struct {
 	int max_output_files; // -1 = no limit
 	int show_messages;
 	int show_warnings;
+	int dbg_indent_amount;
 
 	void *zip_file;
 
@@ -156,6 +157,8 @@ FILE* de_fopen(deark *c, const char *fn, const char *mode,
 int de_get_file_size(FILE *fp, de_int64 *pfsize);
 
 void de_declare_fmt(deark *c, const char *fmtname);
+
+void de_dbg_indent(deark *c, int n);
 
 ///////////////////////////////////////////
 
