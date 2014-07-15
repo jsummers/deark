@@ -62,18 +62,29 @@ static int decode_egavga16(deark *c, lctx *d)
 		}
 	}
 
-	src_rowspan = (d->img->width +7)/8;
-	src_planespan = src_rowspan*d->img->height;
+	if(d->plane_info==0x31) {
+		src_rowspan = (d->img->width +7)/8;
+		src_planespan = src_rowspan*d->img->height;
+	}
+	else {
+		src_rowspan = (d->img->width +1)/2;
+		src_planespan = 0;
+	}
 
 	d->img->bytes_per_pixel = 3;
 	d->img->flipped = 1;
 
 	for(j=0; j<d->img->height; j++) {
 		for(i=0; i<d->img->width; i++) {
-			for(plane=0; plane<4; plane++) {
-				z[plane] = de_get_bits_symbol(d->unc_pixels, 1, plane*src_planespan + j*src_rowspan, i);
+			if(d->plane_info==0x31) {
+				for(plane=0; plane<4; plane++) {
+					z[plane] = de_get_bits_symbol(d->unc_pixels, 1, plane*src_planespan + j*src_rowspan, i);
+				}
+				palent = z[0] + 2*z[1] + 4*z[2] + 8*z[3];
 			}
-			palent = z[0] + 2*z[1] + 4*z[2] + 8*z[3];
+			else {
+				palent = de_get_bits_symbol(d->unc_pixels, 4, j*src_rowspan, i);
+			}
 			de_bitmap_setpixel_rgb(d->img, i, j, pal[palent]);
 		}
 	}
@@ -418,11 +429,16 @@ static void de_run_pcpaint_pic(deark *c, lctx *d, const char *params)
 		// Expected video mode(s): 0x41
 		decode_cga4(c, d);
 	}
+	else if(d->plane_info==0x04 && d->edesc==3) {
+		decode_egavga16(c, d);
+	}
 	else if(d->plane_info==0x08 && (d->edesc==0 || d->edesc==4)) {
 		// Expected video mode(s): 0x4c
 		decode_vga256(c, d);
 	}
-	else if(d->plane_info==0x31 && (d->edesc==0 || d->edesc==3 || d->edesc==5)) {
+	else if((d->plane_info==0x04 || d->plane_info==0x31) &&
+		(d->edesc==0 || d->edesc==3 || d->edesc==5))
+	{
 		// Expected video mode(s): 0x4d, 0x47
 		decode_egavga16(c, d);
 	}
@@ -439,7 +455,6 @@ done:
 static void de_run_pcpaint_clp(deark *c, lctx *d, const char *params)
 {
 	de_int64 file_size;
-	de_byte bit_depth;
 	de_byte run_marker;
 	int is_compressed;
 
@@ -452,7 +467,7 @@ static void de_run_pcpaint_clp(deark *c, lctx *d, const char *params)
 	file_size = de_getui16le(0);
 	d->img->width = de_getui16le(2);
 	d->img->height = de_getui16le(4);
-	bit_depth = de_getbyte(10);
+	d->plane_info = de_getbyte(10);
 
 	if(file_size != c->infile->len) {
 		if(file_size==0x1234) {
@@ -464,18 +479,18 @@ static void de_run_pcpaint_clp(deark *c, lctx *d, const char *params)
 		}
 	}
 
-	is_compressed = (bit_depth==0xff);
+	is_compressed = (d->plane_info==0xff);
 
 	if(is_compressed) {
 		d->header_size = 13;
-		bit_depth = de_getbyte(11);
+		d->plane_info = de_getbyte(11);
 	}
 	else {
 		d->header_size = 11;
 	}
 
 	de_dbg(c, "reported file size=%d, width=%d, height=%d, compressed=%d, bits/planes=0x%02x\n",
-		(int)file_size, (int)d->img->width, (int)d->img->height, (int)is_compressed, (int)bit_depth);
+		(int)file_size, (int)d->img->width, (int)d->img->height, (int)is_compressed, (int)d->plane_info);
 
 
 	// The colors probably won't be right, but we have no way to tell what palette
@@ -506,7 +521,7 @@ static void de_run_pcpaint_clp(deark *c, lctx *d, const char *params)
 
 	// Documentation says bit_depth is simply the number of bits per pixel, but I've seen
 	// files where it's 0x31, suggesting it uses "bitsinf"/"PlaneInfo" format.
-	switch(bit_depth) {
+	switch(d->plane_info) {
 	case 1:
 		decode_bilevel(c, d);
 		break;
@@ -521,7 +536,7 @@ static void de_run_pcpaint_clp(deark *c, lctx *d, const char *params)
 		decode_vga256(c, d);
 		break;
 	default:
-		de_err(c, "Unsupported bit depth (0x%02x)\n", (int)bit_depth);
+		de_err(c, "Unsupported bit depth (0x%02x)\n", (int)d->plane_info);
 		goto done;
 	}
 
