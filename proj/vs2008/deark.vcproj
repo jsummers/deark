@@ -406,10 +406,6 @@
 				>
 			</File>
 			<File
-				RelativePath="..\..\modules\copy.c"
-				>
-			</File>
-			<File
 				RelativePath="..\..\modules\epocimage.c"
 				>
 			</File>
@@ -434,10 +430,6 @@
 				>
 			</File>
 			<File
-				RelativePath="..\..\modules\hpicn.c"
-				>
-			</File>
-			<File
 				RelativePath="..\..\modules\jpeg.c"
 				>
 			</File>
@@ -447,6 +439,10 @@
 			</File>
 			<File
 				RelativePath="..\..\modules\macpaint.c"
+				>
+			</File>
+			<File
+				RelativePath="..\..\modules\misc.c"
 				>
 			</File>
 			<File

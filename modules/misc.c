@@ -1,10 +1,40 @@
 // This file is part of Deark, by Jason Summers.
 // This software is in the public domain. See the file COPYING for details.
 
-// HP 100LX / HP 200LX .ICN icon format
+// This file is for miscellaneous formats that are easy to support.
+// Combining them in one file speeds up compilation and development time.
 
 #include <deark-config.h>
 #include <deark-modules.h>
+
+// **************************************************************************
+// "copy" module
+//
+// This is a trivial module that makes a copy of the input file.
+// **************************************************************************
+
+static int de_identify_copy(deark *c)
+{
+	return 0;
+}
+
+static void de_run_copy(deark *c, const char *params)
+{
+	de_dbg(c, "In copy module\n");
+
+	dbuf_create_file_from_slice(c->infile, 0, c->infile->len, "bin", NULL);
+}
+
+void de_module_copy(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "copy";
+	mi->run_fn = de_run_copy;
+	mi->identify_fn = de_identify_copy;
+}
+
+// **************************************************************************
+// HP 100LX / HP 200LX .ICN icon format
+// **************************************************************************
 
 static void de_run_hpicn(deark *c, const char *params)
 {
