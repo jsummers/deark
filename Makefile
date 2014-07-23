@@ -11,7 +11,7 @@ endif
 all: $(DEARK_EXE)
 
 OBJDIR=obj
-OFILES_MODS:=$(addprefix $(OBJDIR)/modules/,os2bmp.o eps.o zlib.o bsave.o \
+OFILES_MODS:=$(addprefix $(OBJDIR)/modules/,os2bmp.o eps.o bsave.o \
  jpeg.o tiff.o psd.o misc.o msp.o pcpaint.o graspgl.o amigaicon.o macpaint.o \
  epocimage.o psionpic.o psionapp.o exe.o ani.o jpeg2000.o zip.o \
  fnt.o unsupported.o)

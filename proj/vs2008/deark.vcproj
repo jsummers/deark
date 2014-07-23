@@ -481,10 +481,6 @@
 				RelativePath="..\..\modules\zip.c"
 				>
 			</File>
-			<File
-				RelativePath="..\..\modules\zlib.c"
-				>
-			</File>
 		</Filter>
 	</Files>
 	<Globals>
