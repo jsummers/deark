@@ -90,6 +90,10 @@ Deark -- Information about supported formats
   - "Extract" the entire file. Use with -start and -size to extract part of
     the file.
 
+* DCX (module="dcx")
+  Multi-image PCX format.
+  - Extracts individual PCX files.
+
 * EPS (Encapsulated PostScript) (module="eps")
   - Extract EPS, TIFF, and WMF from "EPS DOS Binary" format.
 

@@ -27,3 +27,4 @@ void de_module_jpeg2000(deark *c, struct deark_module_info *mi);
 void de_module_fnt(deark *c, struct deark_module_info *mi);
 void de_module_zip(deark *c, struct deark_module_info *mi);
 void de_module_xpuzzle(deark *c, struct deark_module_info *mi);
+void de_module_dcx(deark *c, struct deark_module_info *mi);

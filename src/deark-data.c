@@ -290,6 +290,6 @@ void de_make_filename(deark *c, de_byte *s1, de_int64 s1_len,
 
 	// Don't allow empty filenames.
 	if(s2_size>=2 && s2[0]=='0') {
-		de_strlcpy(s2, "_", s2_size);
+		de_strlcpy(s2, "_", (size_t)s2_size);
 	}
 }
