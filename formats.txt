@@ -51,6 +51,8 @@ Deark -- Information about supported formats
 
 * NOL (Nokia Operator Logo) (module="nol")
 
+* NPM (Nokia Picture Message) (module="npm")
+
 * OS/2 Icon, Pointer, Bitmap Array formats (module="os2bmp")
   - Converts icons & pointers to individual PNG files.
   - Extract Bitmap Array BMP images as individual BMP files.
