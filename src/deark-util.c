@@ -1204,6 +1204,16 @@ de_int64 de_log2_rounded_up(de_int64 n)
 	return 32;
 }
 
+int de_good_image_dimensions(deark *c, de_int64 w, de_int64 h)
+{
+	if(w<0 || h<0 || w>DE_MAX_IMAGE_DIMENSION || h>DE_MAX_IMAGE_DIMENSION) {
+		de_err(c, "Bad or unsupported image dimensions (%dx%d)\n",
+			(int)w, (int)h);
+		return 0;
+	}
+	return 1;
+}
+
 const char *de_get_input_file_ext(deark *c)
 {
 	int len;

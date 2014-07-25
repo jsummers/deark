@@ -302,6 +302,8 @@ void de_convert_row_bilevel(dbuf *f, de_int64 fpos, struct deark_bitmap *img,
 // Returns a minimum of 1, maximum of 32.
 de_int64 de_log2_rounded_up(de_int64 n);
 
+int de_good_image_dimensions(deark *c, de_int64 w, de_int64 h);
+
 ///////////////////////////////////////////
 
 de_uint32 de_palette_vga256(int index);

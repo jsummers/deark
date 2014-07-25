@@ -131,20 +131,20 @@ struct xpuzzctx {
 	de_int64 palentries;
 };
 
-static int xpuzz_read_header(deark *c, struct xpuzzctx *lctx)
+static int xpuzz_read_header(deark *c, struct xpuzzctx *d)
 {
-	lctx->w = de_getui32be(0);
-	lctx->h = de_getui32be(4);
-	lctx->palentries = (de_int64)de_getbyte(8);
-	if(lctx->w<1 || lctx->w>DE_MAX_IMAGE_DIMENSION) return 0;
-	if(lctx->h<1 || lctx->h>DE_MAX_IMAGE_DIMENSION) return 0;
-	if(lctx->palentries==0) lctx->palentries = 256;
+	d->w = de_getui32be(0);
+	d->h = de_getui32be(4);
+	d->palentries = (de_int64)de_getbyte(8);
+	if(d->w<1 || d->w>DE_MAX_IMAGE_DIMENSION) return 0;
+	if(d->h<1 || d->h>DE_MAX_IMAGE_DIMENSION) return 0;
+	if(d->palentries==0) d->palentries = 256;
 	return 1;
 }
 
 static void de_run_xpuzzle(deark *c, const char *params)
 {
-	struct xpuzzctx *lctx = NULL;
+	struct xpuzzctx *d = NULL;
 	struct deark_bitmap *img = NULL;
 	de_int64 i, j;
 	de_uint32 pal[256];
@@ -152,23 +152,23 @@ static void de_run_xpuzzle(deark *c, const char *params)
 
 	de_dbg(c, "In xpuzzle module\n");
 
-	lctx = de_malloc(c, sizeof(struct xpuzzctx));
-	if(!xpuzz_read_header(c, lctx)) goto done;
+	d = de_malloc(c, sizeof(struct xpuzzctx));
+	if(!xpuzz_read_header(c, d)) goto done;
 
-	img = de_bitmap_create(c, lctx->w, lctx->h, 3);
+	img = de_bitmap_create(c, d->w, d->h, 3);
 
 	// Read the palette
 	de_memset(pal, 0, sizeof(pal));
 	p = 9;
-	for(i=0; i<lctx->palentries; i++) {
+	for(i=0; i<d->palentries; i++) {
 		pal[i] = DE_MAKE_RGB(de_getbyte(p), de_getbyte(p+1), de_getbyte(p+2));
 		p+=3;
 	}
 
 	// Read the bitmap
-	for(j=0; j<lctx->h; j++) {
-		for(i=0; i<lctx->w; i++) {
-			de_bitmap_setpixel_rgb(img, i, j, pal[de_getbyte(p+lctx->w*j+i)]);
+	for(j=0; j<d->h; j++) {
+		for(i=0; i<d->w; i++) {
+			de_bitmap_setpixel_rgb(img, i, j, pal[de_getbyte(p+d->w*j+i)]);
 		}
 	}
 
@@ -176,24 +176,24 @@ static void de_run_xpuzzle(deark *c, const char *params)
 
 done:
 	de_bitmap_destroy(img);
-	de_free(c, lctx);
+	de_free(c, d);
 }
 
 static int de_identify_xpuzzle(deark *c)
 {
-	struct xpuzzctx *lctx = NULL;
+	struct xpuzzctx *d = NULL;
 	int retval = 0;
 
-	lctx = de_malloc(c, sizeof(struct xpuzzctx));
+	d = de_malloc(c, sizeof(struct xpuzzctx));
 
-	if(!xpuzz_read_header(c, lctx)) goto done;
+	if(!xpuzz_read_header(c, d)) goto done;
 
-	if(lctx->w * lctx->h + 3*lctx->palentries + 9 == c->infile->len) {
+	if(d->w * d->h + 3*d->palentries + 9 == c->infile->len) {
 		retval = 20;
 	}
 
 done:
-	de_free(c, lctx);
+	de_free(c, d);
 	return retval;
 }
 

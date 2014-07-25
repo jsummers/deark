@@ -450,6 +450,10 @@
 				>
 			</File>
 			<File
+				RelativePath="..\..\modules\nokia.c"
+				>
+			</File>
+			<File
 				RelativePath="..\..\modules\os2bmp.c"
 				>
 			</File>

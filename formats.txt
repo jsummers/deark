@@ -47,6 +47,8 @@ Deark -- Information about supported formats
 * MSP (Microsoft Paint graphics) (module="msp")
   - Version 1 and 2
 
+* NOL (Nokia Operator Logo) (module="nol")
+
 * OS/2 Icon, Pointer, Bitmap Array formats (module="os2bmp")
   - Converts icons & pointers to individual PNG files.
   - Extract Bitmap Array BMP images as individual BMP files.
