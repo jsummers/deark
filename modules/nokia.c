@@ -112,7 +112,7 @@ void de_module_ngg(deark *c, struct deark_module_info *mi)
 // Caution: This code is not based on any official specifications.
 // **************************************************************************
 
-static void npm_read_bitmap(deark *c, lctx *d, de_int64 pos)
+static void npm_nlm_read_bitmap(deark *c, lctx *d, de_int64 pos)
 {
 	struct deark_bitmap *img = NULL;
 	de_int64 j;
@@ -154,7 +154,7 @@ static void de_run_npm(deark *c, const char *params)
 	de_dbg(c, "dimensions: %dx%d\n", (int)d->w, (int)d->h);
 
 	pos += 3;
-	npm_read_bitmap(c, d, pos);
+	npm_nlm_read_bitmap(c, d, pos);
 
 	de_free(c, d);
 }
@@ -173,4 +173,55 @@ void de_module_npm(deark *c, struct deark_module_info *mi)
 	mi->id = "npm";
 	mi->run_fn = de_run_npm;
 	mi->identify_fn = de_identify_npm;
+}
+
+// **************************************************************************
+// Nokia Logo Manager bitmap (NLM)
+//
+// Caution: This code is not based on any official specifications.
+// **************************************************************************
+
+static void de_run_nlm(deark *c, const char *params)
+{
+	lctx *d = NULL;
+	de_byte imgtype;
+	const char *s;
+
+	de_dbg(c, "In NLM module\n");
+
+	d = de_malloc(c, sizeof(lctx));
+
+	imgtype = de_getbyte(5);
+	switch(imgtype) {
+	case 0: s="Operator logo"; break;
+	case 1: s="Caller logo"; break;
+	case 2: s="Startup logo"; break;
+	case 3: s="Picture image logo"; break;
+	default: s="unknown";
+	}
+	de_dbg(c, "image type: %d (%s)\n", (int)imgtype, s);
+
+	d->w = (de_int64)de_getbyte(7);
+	d->h = (de_int64)de_getbyte(8);
+	de_dbg(c, "dimensions: %dx%d\n", (int)d->w, (int)d->h);
+
+	npm_nlm_read_bitmap(c, d, 10);
+
+	de_free(c, d);
+}
+
+static int de_identify_nlm(deark *c)
+{
+	de_byte buf[4];
+	de_read(buf, 0, 4);
+
+	if(!de_memcmp(buf, "NLM ", 4)) return 80;
+	return 0;
+}
+
+void de_module_nlm(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "nlm";
+	mi->run_fn = de_run_nlm;
+	mi->identify_fn = de_identify_nlm;
 }

@@ -31,3 +31,4 @@ void de_module_dcx(deark *c, struct deark_module_info *mi);
 void de_module_nol(deark *c, struct deark_module_info *mi);
 void de_module_ngg(deark *c, struct deark_module_info *mi);
 void de_module_npm(deark *c, struct deark_module_info *mi);
+void de_module_nlm(deark *c, struct deark_module_info *mi);

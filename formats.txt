@@ -48,14 +48,19 @@ Deark -- Information about supported formats
   - Version 1 and 2
 
 * NGG (Nokia Group Graphic) (module="ngg")
+  - Partial support
+
+* NLM (Nokia Logo Manager bitmap) (module="nlm")
+  - Partial support
 
 * NOL (Nokia Operator Logo) (module="nol")
+  - Partial support
 
 * NPM (Nokia Picture Message) (module="npm")
+  - Partial support
 
 * OS/2 Icon, Pointer, Bitmap Array formats (module="os2bmp")
   - Converts icons & pointers to individual PNG files.
-  - Extract Bitmap Array BMP images as individual BMP files.
 
 * PC Paint / Pictor (module="pcpaint")
   - Supports PIC and CLP formats. Some files are not portable, because they use
@@ -134,6 +139,9 @@ Deark -- Information about supported formats
   - Extract XMP data.
   - Extract Exif data (use -extractall) (nonstandard; partial support)
   - Extract various things from "Photoshop resources".
+
+* OS/2 Icon, Pointer, Bitmap Array formats (module="os2bmp")
+  - Extract Bitmap Array BMP images as individual BMP files.
 
 * PSD (PhotoShop) (module="psd")
   - Extract data from "Photoshop resources"
