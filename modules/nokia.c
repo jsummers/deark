@@ -6,6 +6,8 @@
 
 typedef struct localctx_struct {
 	de_int64 w, h;
+	int nesting_level;
+	int done_flag;
 } lctx;
 
 // **************************************************************************
@@ -224,4 +226,145 @@ void de_module_nlm(deark *c, struct deark_module_info *mi)
 	mi->id = "nlm";
 	mi->run_fn = de_run_nlm;
 	mi->identify_fn = de_identify_nlm;
+}
+
+// **************************************************************************
+// Nokia Startup Logo (NSL)
+//
+// Caution: This code is not based on any official specifications.
+// **************************************************************************
+
+
+static void nsl_read_bitmap(deark *c, lctx *d, de_int64 pos, de_int64 len)
+{
+	struct deark_bitmap *img = NULL;
+	de_int64 i, j;
+	de_byte x;
+
+	de_dbg(c, "found NSLD chunk. bitmap at %d, len=%d\n", (int)pos, (int)len);
+	d->done_flag = 1;
+
+	if(len!=504) {
+		de_err(c, "Unsupported NSL version (bitmap size=%d)\n", (int)len);
+		goto done;
+	}
+
+	d->w = 84;
+	d->h = 48;
+
+	img = de_bitmap_create(c, d->w, d->h, 1);
+
+	for(j=0; j<d->h; j++) {
+		for(i=0; i<d->w; i++) {
+			x = de_getbyte(pos + (j/8)*d->w + i);
+			x = x & (1<<(j%8));
+			if(x==0)
+				de_bitmap_setpixel_gray(img, i, j, 255);
+		}
+	}
+
+	de_bitmap_write_to_file(img, NULL);
+
+done:
+	de_bitmap_destroy(img);
+}
+
+static int read_nsl_chunk_sequence(deark *c, lctx *d, de_int64 pos, de_int64 len);
+
+static int read_nsl_chunk(deark *c, lctx *d, de_int64 pos1, de_int64 *plen)
+{
+	de_byte chunk_id[5];
+	de_int64 payload_len;
+	de_int64 pos;
+
+	pos = pos1;
+	de_read(chunk_id, pos, 4);
+	pos += 4;
+	payload_len = de_getui16be(pos);
+	pos += 2;
+
+	de_dbg(c, "[%d] chunk at %d, len=%d\n", d->nesting_level, (int)pos1, (int)payload_len);
+
+	if(!de_memcmp(chunk_id, "FORM", 4) && d->nesting_level==0) {
+		d->nesting_level++;
+		read_nsl_chunk_sequence(c, d, pos, payload_len);
+		d->nesting_level--;
+	}
+	else if(!de_memcmp(chunk_id, "NSLD", 4) && d->nesting_level==1) {
+		nsl_read_bitmap(c, d, pos, payload_len);
+	}
+
+	*plen = 6 + payload_len;
+	return 1;
+}
+
+static int read_nsl_chunk_sequence(deark *c, lctx *d, de_int64 pos, de_int64 len)
+{
+	de_int64 endpos;
+	de_int64 chunk_len;
+	int ret;
+	int retval = 0;
+
+	endpos = pos + len;
+
+	if(d->nesting_level>10) return 0;
+
+	while(pos < endpos) {
+		ret = read_nsl_chunk(c, d, pos, &chunk_len);
+		if(!ret) goto done;
+		if(d->done_flag) {
+			retval = 1;
+			goto done;
+		}
+		pos += chunk_len;
+	}
+	retval = 1;
+
+done:
+	return retval;
+}
+
+static void de_run_nsl(deark *c, const char *params)
+{
+	lctx *d = NULL;
+	de_int64 pos;
+
+	de_dbg(c, "In NSL module\n");
+	d = de_malloc(c, sizeof(lctx));
+
+	pos = 0;
+	read_nsl_chunk_sequence(c, d, pos, c->infile->len);
+
+	de_free(c, d);
+}
+
+static int de_identify_nsl(deark *c)
+{
+	de_byte buf[4];
+	de_int64 x;
+
+	// NSL uses a variant of IFF, which is not so easy to identify.
+	// (TODO: Write an IFF format detector.)
+
+	de_read(buf, 0, 4);
+	if(de_memcmp(buf, "FORM", 4)) return 0;
+
+	x = de_getui16be(4);
+	if(x+6 != c->infile->len) return 0;
+
+	if(!de_input_file_has_ext(c, "nsl")) {
+		return 100;
+	}
+	else {
+		return 10;
+	}
+
+	return 0;
+}
+
+void de_module_nsl(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "nsl";
+	mi->run_fn = de_run_nsl;
+	mi->identify_fn = de_identify_nsl;
 }

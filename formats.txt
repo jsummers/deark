@@ -59,6 +59,9 @@ Deark -- Information about supported formats
 * NPM (Nokia Picture Message) (module="npm")
   - Partial support
 
+* NSL (Nokia Startup Logo) (module="nsl")
+  - Partial support
+
 * OS/2 Icon, Pointer, Bitmap Array formats (module="os2bmp")
   - Converts icons & pointers to individual PNG files.
 
