@@ -14,7 +14,7 @@ OBJDIR=obj
 OFILES_MODS:=$(addprefix $(OBJDIR)/modules/,os2bmp.o eps.o bsave.o \
  jpeg.o tiff.o psd.o misc.o msp.o pcpaint.o graspgl.o amigaicon.o macpaint.o \
  epocimage.o psionpic.o psionapp.o exe.o ani.o jpeg2000.o zip.o \
- fnt.o nokia.o unsupported.o)
+ fnt.o nokia.o grob.o unsupported.o)
 OFILES_MODUTILS:=$(addprefix $(OBJDIR)/modules/,fmtutil.o)
 OFILES_LIB:=$(addprefix $(OBJDIR)/src/,deark-miniz.o deark-util.o deark-data.o \
  deark-core.o deark-modules.o)

@@ -430,6 +430,10 @@
 				>
 			</File>
 			<File
+				RelativePath="..\..\modules\grob.c"
+				>
+			</File>
+			<File
 				RelativePath="..\..\modules\jpeg.c"
 				>
 			</File>

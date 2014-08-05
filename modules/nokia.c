@@ -124,7 +124,7 @@ static void npm_nlm_read_bitmap(deark *c, lctx *d, de_int64 pos)
 	src_rowspan = (d->w+7)/8;
 
 	for(j=0; j<d->h; j++) {
-		de_convert_row_bilevel(c->infile, pos+j*src_rowspan, img, j, 1);
+		de_convert_row_bilevel(c->infile, pos+j*src_rowspan, img, j, DE_CVTR_WHITEISZERO);
 	}
 
 	de_bitmap_write_to_file(img, NULL);

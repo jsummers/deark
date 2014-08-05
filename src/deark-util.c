@@ -1174,13 +1174,14 @@ de_byte de_get_bits_symbol2(dbuf *f, int nbits, de_int64 bytepos, de_int64 bitpo
 }
 
 void de_convert_row_bilevel(dbuf *f, de_int64 fpos, struct deark_bitmap *img,
-	de_int64 rownum, int invert)
+	de_int64 rownum, unsigned int flags)
 {
 	de_int64 i;
 	de_byte x;
+	de_byte b;
 	de_byte black, white;
 
-	if(invert) {
+	if(flags & DE_CVTR_WHITEISZERO) {
 		white = 0; black = 255;
 	}
 	else {
@@ -1188,7 +1189,11 @@ void de_convert_row_bilevel(dbuf *f, de_int64 fpos, struct deark_bitmap *img,
 	}
 
 	for(i=0; i<img->width; i++) {
-		x = de_get_bits_symbol(f, 1, fpos, i);
+		b = dbuf_getbyte(f, fpos + i/8);
+		if(flags & DE_CVTR_LSBFIRST)
+			x = (b >> (i%8)) & 0x01;
+		else
+			x = (b >> (7 - i%8)) & 0x01;
 		de_bitmap_setpixel_gray(img, i, rownum, x ? white : black);
 	}
 }

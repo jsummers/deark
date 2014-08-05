@@ -97,6 +97,14 @@ static void get_fmt(deark *c, struct fmtinfo_struct *fmti)
 		return;
 	}
 
+	if(b[0]=='H' && b[1]=='P' && b[2]=='H' && b[3]=='P' &&
+		b[4]=='4' && (b[5]=='8' || b[5]=='9'))
+	{
+		fmti->confidence = 90;
+		fmti->descr = "a non-GROB HP-48/49 file";
+		return;
+	}
+
 	if(b[0]=='B' && b[1]=='M') {
 		fmti->confidence = 20;
 		fmti->descr = "a BMP image file";

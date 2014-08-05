@@ -94,7 +94,7 @@ static void de_run_hpicn(deark *c, const char *params)
 	src_rowspan = (width+7)/8;
 
 	for(j=0; j<height; j++) {
-		de_convert_row_bilevel(c->infile, 8+j*src_rowspan, img, j, 1);
+		de_convert_row_bilevel(c->infile, 8+j*src_rowspan, img, j, DE_CVTR_WHITEISZERO);
 	}
 
 	de_bitmap_write_to_file(img, NULL);

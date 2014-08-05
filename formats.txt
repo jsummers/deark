@@ -37,6 +37,9 @@ Deark -- Information about supported formats
   - Supports 16/24 bit full color
   - Supports uncompressed and RLE8/RLE16/RLE24 compression
 
+* GROB (HP calculator) (module="grob")
+  - Supports binary encoding only
+
 * HP 100LX / HP 200LX .ICN icon format (module="hpicn")
 
 * MacPaint (module="macpaint")

@@ -292,10 +292,12 @@ de_byte de_get_bits_symbol(dbuf *f, int bps, de_int64 rowstart, de_int64 index);
 
 de_byte de_get_bits_symbol2(dbuf *f, int nbits, de_int64 bytepos, de_int64 bitpos);
 
+#define DE_CVTR_WHITEISZERO 0x1
+#define DE_CVTR_LSBFIRST    0x2
 // Utility function for the common case of reading a packed bi-level row, and
 // writing to a bitmap.
 void de_convert_row_bilevel(dbuf *f, de_int64 fpos, struct deark_bitmap *img,
-	de_int64 rownum, int invert);
+	de_int64 rownum, unsigned int flags);
 
 // Calculate the number of bits required to store n symbols.
 // Intended to be used with bitmap graphics.
