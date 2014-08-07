@@ -308,6 +308,8 @@ int de_good_image_dimensions(deark *c, de_int64 w, de_int64 h);
 
 ///////////////////////////////////////////
 
+de_byte de_decode_hex_digit(de_byte x);
+
 de_uint32 de_palette_vga256(int index);
 de_uint32 de_palette_ega64(int index);
 de_uint32 de_palette_pc16(int index);

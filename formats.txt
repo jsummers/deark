@@ -38,7 +38,8 @@ Deark -- Information about supported formats
   - Supports uncompressed and RLE8/RLE16/RLE24 compression
 
 * GROB (HP calculator) (module="grob")
-  - Supports binary encoding only
+  - Supports binary and text encodings.
+  - Some text GROB files can't be autodetected, and need "-m grob".
 
 * HP 100LX / HP 200LX .ICN icon format (module="hpicn")
 
