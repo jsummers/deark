@@ -937,7 +937,7 @@ int dbuf_search(dbuf *f, const de_byte *needle, de_int64 needle_len,
 	dbuf_read(f, buf, startpos, haystack_len);
 
 	for(i=0; i<=haystack_len-needle_len; i++) {
-		if(needle[0]==buf[i] && !de_memcmp(needle, &buf[i], needle_len)) {
+		if(needle[0]==buf[i] && !de_memcmp(needle, &buf[i], (size_t)needle_len)) {
 			retval = 1;
 			*foundpos = startpos+i;
 			goto done;

@@ -1,15 +1,18 @@
 // This file is part of Deark, by Jason Summers.
 // This software is in the public domain. See the file COPYING for details.
 
+// "GROB" image format for HP48/49 calculators.
+
 #include <deark-config.h>
 #include <deark-modules.h>
 
 typedef struct localctx_struct {
 	int w, h;
+	de_int64 bytes_consumed;
 } lctx;
 
 
-static void grob_read_bitmap(deark *c, lctx *d, dbuf *inf, de_int64 pos)
+static void grob_read_binary_bitmap(deark *c, lctx *d, dbuf *inf, de_int64 pos)
 {
 	de_int64 j;
 	de_int64 src_rowspan;
@@ -43,21 +46,30 @@ static void de_run_grob_binary(deark *c, lctx *d)
 	d->w = hdr[17]<<12 | hdr[16]<<4 | hdr[15]>>4;
 	de_dbg(c, "dimensions: %dx%d\n", (int)d->w, (int)d->h);
 
-	grob_read_bitmap(c, d, c->infile, 18);
+	grob_read_binary_bitmap(c, d, c->infile, 18);
 }
 
-static void grob_text_1_image(deark *c, lctx *d, de_int64 pos)
+// On return, sets d->bytes_consumed
+static void grob_text_1_image(deark *c, lctx *d, de_int64 pos1)
 {
 	de_int64 data_start;
 	de_byte x;
 	de_byte b0, b1;
-	dbuf *bin = NULL;
+	de_int64 pos;
+	dbuf *bin_bmp = NULL; // Binary version of the bitmap
+
+	pos = pos1;
+
+	d->w = 0;
+	d->h = 0;
 
 	// We assume the GROB text format starts with
 	// "GROB" <zero or more spaces> <width> <one or more spaces>
 	// <height> <one or more spaces> <data>.
 
 	// TODO: This parser is pretty clumsy.
+
+	pos += 4; // Skip over "GROB"
 
 	while(de_getbyte(pos)==' ')
 		pos++;
@@ -85,47 +97,69 @@ static void grob_text_1_image(deark *c, lctx *d, de_int64 pos)
 	// Decode the quasi-hex-encoded data into a memory buffer, then use the
 	// same decoder as for binary format.
 
-	bin = dbuf_create_membuf(c, d->h * (d->w+7)/8);
+	bin_bmp = dbuf_create_membuf(c, d->h * (d->w+7)/8);
 
 	pos = data_start;
 	while(pos < c->infile->len) {
 		b0 = de_getbyte(pos);
 		b1 = de_getbyte(pos+1);
+		if(b0<48 || b1<48) {
+			// Apparently, we've reached the end of the bitmap data.
+			break;
+		}
+
 		pos+=2;
+
 		x = de_decode_hex_digit(b0) | (de_decode_hex_digit(b1)<<4);
-		dbuf_writebyte(bin, x);
+		dbuf_writebyte(bin_bmp, x);
 	}
 
-	grob_read_bitmap(c, d, bin, 0);
+	d->bytes_consumed = pos - pos1;
+
+	grob_read_binary_bitmap(c, d, bin_bmp, 0);
 
 done:
-	dbuf_close(bin);
+	dbuf_close(bin_bmp);
 }
 
 static void de_run_grob_text(deark *c, lctx *d)
 {
 	de_int64 pos;
+	de_int64 img_pos = 0;
 	int ret;
+	int img_count = 0;
 
 	de_declare_fmt(c, "HP GROB, text encoded");
 
-	// Some files contain "%%HP" headers and/or other stuff before the "GROB"
-	// command. We want to at least have a chance of supporting such files, so
-	// search for "GROB".
+	// Though some text GROB files begin with "GROB", we also want to support files
+	// that have "%%HP" headers, and other files that have one or more GROB data objects
+	// embedded in them.
 
-	ret = dbuf_search(c->infile, "GROB", 4, 0, c->infile->len, &pos);
-	if(!ret) {
-		de_err(c, "Unknown or unsupported GROB format\n");
-		goto done;
+	pos = 0;
+
+	while(pos < c->infile->len) {
+		// TODO: Ideally, we should be more careful about what we search for.
+		// Maybe we should make sure "GROB" is the first nonwhitespace on the line,
+		// but even that isn't enough.
+
+		ret = dbuf_search(c->infile, (const de_byte*)"GROB", 4, pos, c->infile->len-pos, &img_pos);
+		if(!ret) {
+			// No more images in this file.
+			break;
+		}
+
+		de_dbg(c, "GROB format found at %d\n", (int)img_pos);
+
+		img_count++;
+		grob_text_1_image(c, d, img_pos);
+
+		if(d->bytes_consumed<1) break;
+		pos = img_pos + d->bytes_consumed;
 	}
 
-	de_dbg(c, "GROB format found at %d\n", (int)pos);
-	pos += 4;
-
-	grob_text_1_image(c, d, pos);
-
-done:
-	return;
+	if(img_count==0) {
+		de_err(c, "Unknown or unsupported GROB format\n");
+	}
 }
 
 static void de_run_grob(deark *c, const char *params)
