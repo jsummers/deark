@@ -46,34 +46,12 @@ static void de_run_grob_binary(deark *c, lctx *d)
 	grob_read_bitmap(c, d, c->infile, 18);
 }
 
-static void de_run_grob_text(deark *c, lctx *d)
+static void grob_text_1_image(deark *c, lctx *d, de_int64 pos)
 {
 	de_int64 data_start;
-	de_int64 pos;
 	de_byte x;
 	de_byte b0, b1;
-	de_int64 i;
 	dbuf *bin = NULL;
-	de_byte buf[1024];
-
-	de_declare_fmt(c, "HP GROB, text encoded");
-
-	// Some files contain "%%HP" headers and/or other stuff before the "GROB"
-	// command. We want to at least have a chance of supporting such files, so
-	// search for "GROB".
-	// TODO: We should have a library function to do this kind of searching.
-	de_read(buf, 0, sizeof(buf));
-	for(i=0; i<=sizeof(buf)-4; i++) {
-		if(!de_memcmp(&buf[i], "GROB", 4)) {
-			pos = i+4;
-			goto found;
-		}
-	}
-	de_err(c, "Unknown or unsupported GROB format\n");
-	goto done;
-
-found:
-	de_dbg(c, "GROB format found at %d\n", (int)pos);
 
 	// We assume the GROB text format starts with
 	// "GROB" <zero or more spaces> <width> <one or more spaces>
@@ -122,6 +100,31 @@ found:
 
 done:
 	dbuf_close(bin);
+}
+
+static void de_run_grob_text(deark *c, lctx *d)
+{
+	de_int64 pos;
+	int ret;
+
+	de_declare_fmt(c, "HP GROB, text encoded");
+
+	// Some files contain "%%HP" headers and/or other stuff before the "GROB"
+	// command. We want to at least have a chance of supporting such files, so
+	// search for "GROB".
+
+	ret = dbuf_search(c->infile, "GROB", 4, 0, c->infile->len, &pos);
+	if(!ret) {
+		de_err(c, "Unknown or unsupported GROB format\n");
+		goto done;
+	}
+
+	de_dbg(c, "GROB format found at %d\n", (int)pos);
+	pos += 4;
+
+	grob_text_1_image(c, d, pos);
+
+done:
 	return;
 }
 

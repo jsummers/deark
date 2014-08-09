@@ -83,7 +83,7 @@ Future versions might have some of the following features:
  - Decompress compressed data and archive formats
  - Detokenize tokenized BASIC programs
  - Other image formats that might be supported include ILBM, Acorn Sprite,
-   Nokia Phone image formats, Windows ICO
+   Windows ICO
 
 === How to build ===
 

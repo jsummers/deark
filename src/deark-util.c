@@ -900,6 +900,55 @@ void dbuf_empty(dbuf *f)
 	}
 }
 
+// Search a section of a dbuf for a given byte sequence.
+// 'len' is the number of bytes to search in (the sequence must be completely
+// within that range, not just start there).
+// Returns 0 if not found.
+// If found, sets *foundpos to the position in the file where it was found
+// (not relative to startpos).
+int dbuf_search(dbuf *f, const de_byte *needle, de_int64 needle_len,
+	de_int64 startpos, de_int64 haystack_len, de_int64 *foundpos)
+{
+	de_byte *buf = NULL;
+	int retval = 0;
+	de_int64 i;
+
+	*foundpos = 0;
+
+	if(startpos > f->len) {
+		goto done;
+	}
+	if(haystack_len > f->len - startpos) {
+		haystack_len = f->len - startpos;
+	}
+	if(needle_len > haystack_len) {
+		goto done;
+	}
+	if(needle_len<1) {
+		retval = 1;
+		*foundpos = startpos;
+		goto done;
+	}
+
+	// TODO: Read memory in chunks (to support large files, and to be more efficient).
+	// Don't read it all at once.
+
+	buf = de_malloc(f->c, haystack_len);
+	dbuf_read(f, buf, startpos, haystack_len);
+
+	for(i=0; i<=haystack_len-needle_len; i++) {
+		if(needle[0]==buf[i] && !de_memcmp(needle, &buf[i], needle_len)) {
+			retval = 1;
+			*foundpos = startpos+i;
+			goto done;
+		}
+	}
+
+done:
+	de_free(f->c, buf);
+	return retval;
+}
+
 int de_atoi(const char *string)
 {
 	return atoi(string);

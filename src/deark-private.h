@@ -258,6 +258,9 @@ de_int64 dbuf_get_length(dbuf *f);
 // See comments for dbuf_getui32().
 void dbuf_set_endianness(dbuf *f, int is_le);
 
+int dbuf_search(dbuf *f, const de_byte *needle, de_int64 needle_len,
+	de_int64 startpos, de_int64 haystack_len, de_int64 *foundpos);
+
 ///////////////////////////////////////////
 
 void de_bitmap_write_to_file(struct deark_bitmap *img, const char *token);
