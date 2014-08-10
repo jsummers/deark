@@ -1005,6 +1005,14 @@ static void de_bitmap_alloc_pixels(struct deark_bitmap *img)
 	if(img->bitmap) {
 		de_free(img->c, img->bitmap);
 	}
+
+	if(!de_good_image_dimensions(img->c, img->width, img->height)) {
+		de_err(img->c, "Invalid or unsupported image dimensions (%dx%d)\n",
+			(int)img->width, (int)img->height);
+		img->width = 1;
+		img->height = 1;
+	}
+
 	img->bitmap_size = (img->width*img->bytes_per_pixel) * img->height;
 	img->bitmap = de_malloc(img->c, img->bitmap_size);
 }
