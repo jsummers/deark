@@ -287,6 +287,10 @@ static void do_BA_file(deark *c)
 	while(1) {
 		do_BA_segment(c, pos, &nextoffset);
 		if(nextoffset==0) break;
+		if(nextoffset<=pos) {
+			de_err(c, "Invalid BA segment offset\n");
+			break;
+		}
 		pos = nextoffset;
 	}
 }
