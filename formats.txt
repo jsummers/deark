@@ -164,6 +164,9 @@ Deark -- Information about supported formats
   - Extract Psion PIC icons.
   - Extract other contents (use -extractall).
 
+* T64 (Commodore 64 "tape" format) (module="t64")
+  - Partial support
+
 * TIFF and Exif (module="tiff")
   - Extract JPEG-formatted Exif thumbnails, and some types of Old-style
     JPEG-compressed images.

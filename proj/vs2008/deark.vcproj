@@ -478,6 +478,10 @@
 				>
 			</File>
 			<File
+				RelativePath="..\..\modules\t64.c"
+				>
+			</File>
+			<File
 				RelativePath="..\..\modules\tiff.c"
 				>
 			</File>
