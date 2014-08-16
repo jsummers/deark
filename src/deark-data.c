@@ -282,19 +282,21 @@ void de_make_printable_ascii(de_byte *s1, de_int64 s1_len,
 	s2[s2_pos] = '\0';
 }
 
-de_int32 de_char_to_valid_fn_char(deark *c, de_int32 c1)
+de_int32 de_char_to_valid_fn_char(deark *c, de_int32 ch)
 {
-	if((c1>='0' && c1<='9') ||
-		(c1>='A' && c1<='Z') ||
-		(c1>='a' && c1<='z') ||
-		c1=='.' || c1=='_' || c1=='-' || c1=='+')
+	if(ch>=32 && ch<=126 && ch!='/' && ch!='\\' && ch!=':'
+		&& ch!='*' && ch!='?' && ch!='\"' && ch!='<' &&
+		ch!='>' && ch!='|')
 	{
-		return c1;
+		// Valid ASCII character for most Windows filesystems
+		return ch;
 	}
+	// TODO: Allow additional Unicode characters (may require changes
+	// elsewhere).
 	return '_';
 }
 
-// Create a sanitized filename.
+// Create a sanitized filename (utf-8 encoded).
 // s1 is not NUL terminated, but s2 will be.
 // s2_size includes the NUL terminator.
 // TODO: This function needs a lot of work.

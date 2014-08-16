@@ -1326,7 +1326,6 @@ void de_finfo_destroy(deark *c, de_finfo *fi)
 {
 	if(!fi) return;
 	if(fi->file_name) de_free(c, fi->file_name);
-	if(fi->file_name_printable) de_free(c, fi->file_name_printable);
 	de_free(c, fi);
 }
 
@@ -1341,9 +1340,6 @@ void de_finfo_set_name_from_slice(deark *c, de_finfo *fi, dbuf *f,
 	fi->file_name = de_malloc(c, len+1);
 	de_make_filename(c, tmpbuf, len, fi->file_name, len+1, conv_flags);
 
-	fi->file_name_printable = de_malloc(c, len+1);
-	de_make_printable_ascii(tmpbuf, len, fi->file_name_printable, len+1, conv_flags);
-
 	de_free(c, tmpbuf);
 }
 
@@ -1357,8 +1353,6 @@ void de_finfo_set_name_from_ucstring(deark *c, de_finfo *fi, de_ucstring *s)
 		fi->file_name[i] = (char)(unsigned char)de_char_to_valid_fn_char(c, s->str[i]);
 	}
 	fi->file_name[s->len] = '\0';
-
-	fi->file_name_printable = de_strdup(c, fi->file_name);
 }
 
 void de_declare_fmt(deark *c, const char *fmtname)

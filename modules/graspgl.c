@@ -55,7 +55,7 @@ static int do_extract_file(deark *c, lctx *d, de_int64 fnum)
 	if(file_data_offset > dbuf_get_length(c->infile)) goto done;
 	if(file_size > DE_MAX_FILE_SIZE) goto done;
 
-	de_dbg(c, "extracting %s\n", fi->file_name_printable);
+	de_dbg(c, "extracting %s\n", fi->file_name);
 
 	dbuf_create_file_from_slice(c->infile, file_data_offset, file_size, NULL, fi);
 

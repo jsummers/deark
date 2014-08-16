@@ -57,8 +57,7 @@ typedef struct dbuf_struct dbuf;
 
 // Extended information about a file to be written.
 struct de_finfo_struct {
-	char *file_name;
-	char *file_name_printable;
+	char *file_name; // utf-8 encoded
 	// TODO: modification time
 };
 typedef struct de_finfo_struct de_finfo;
