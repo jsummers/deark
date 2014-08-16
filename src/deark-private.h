@@ -19,6 +19,14 @@ struct deark_module_info {
 };
 typedef void (*de_module_getinfo_fn)(deark *c, struct deark_module_info *mi);
 
+struct de_ucstring_struct {
+	deark *c;
+	de_int32 *str;
+	de_int64 len; // len and alloc are measured in characters, not bytes
+	de_int64 alloc;
+};
+typedef struct de_ucstring_struct de_ucstring;
+
 // dbuf is our generalized I/O object. Used for many purposes.
 struct dbuf_struct {
 #define DBUF_TYPE_IFILE   1
@@ -341,17 +349,13 @@ de_finfo *de_finfo_create(deark *c);
 void de_finfo_destroy(deark *c, de_finfo *fi);
 void de_finfo_set_name_from_slice(deark *c, de_finfo *fi, dbuf *f,
 	de_int64 pos, de_int64 len, unsigned int conv_flags);
-
-struct de_ucstring_struct {
-	deark *c;
-	de_int32 *str;
-	de_int64 len; // len and alloc are measured in characters, not bytes
-	de_int64 alloc;
-};
-typedef struct de_ucstring_struct de_ucstring;
+void de_finfo_set_name_from_ucstring(deark *c, de_finfo *fi, de_ucstring *s);
+de_int32 de_char_to_valid_fn_char(deark *c, de_int32 c1);
 
 de_ucstring *ucstring_create(deark *c);
 void ucstring_destroy(de_ucstring *s);
 void ucstring_append_char(de_ucstring *s, de_int32 ch);
+
+de_int32 de_petscii_char_to_utf32(de_byte ch);
 
 ///////////////////////////////////////////

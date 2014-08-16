@@ -1347,6 +1347,20 @@ void de_finfo_set_name_from_slice(deark *c, de_finfo *fi, dbuf *f,
 	de_free(c, tmpbuf);
 }
 
+// TODO: This needs lots of work, to support a wider range of filename characters.
+void de_finfo_set_name_from_ucstring(deark *c, de_finfo *fi, de_ucstring *s)
+{
+	de_int64 i;
+
+	fi->file_name = de_malloc(c, s->len+1);
+	for(i=0; i<s->len; i++) {
+		fi->file_name[i] = (char)(unsigned char)de_char_to_valid_fn_char(c, s->str[i]);
+	}
+	fi->file_name[s->len] = '\0';
+
+	fi->file_name_printable = de_strdup(c, fi->file_name);
+}
+
 void de_declare_fmt(deark *c, const char *fmtname)
 {
 	if(c->format_declared) return;

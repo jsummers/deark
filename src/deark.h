@@ -16,6 +16,7 @@
 #define de_int64 __int64
 #define de_int32 int
 #define de_uint32 unsigned int
+#define de_uint16 unsigned short
 #define de_byte unsigned char
 #define INT64_FMT "I64d"
 #define INT64_FMTx "I64x"
@@ -26,6 +27,7 @@
 #define de_int64 int64_t
 #define de_int32 int32_t
 #define de_uint32 uint32_t
+#define de_uint16 uint16_t
 #define de_byte unsigned char
 #define INT64_FMT PRId64
 #define INT64_FMTx PRIx64

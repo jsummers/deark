@@ -18,6 +18,13 @@ static void do_extract_file(deark *c, lctx *d, de_int64 dir_pos,
 	de_int64 offset;
 	dbuf *f = NULL;
 	de_int64 payload_size; // = file_size-2
+	de_ucstring *fname = NULL;
+	de_int64 fname_len;
+	de_int64 i;
+	de_byte b;
+	de_int32 uchar;
+	de_int64 fnpos;
+	de_finfo *fi = NULL;
 
 	load_addr = de_getui16le(dir_pos+2);
 	end_addr = de_getui16le(dir_pos+4);
@@ -25,7 +32,28 @@ static void do_extract_file(deark *c, lctx *d, de_int64 dir_pos,
 	de_dbg(c, "load_addr=%d end_addr=%d offset=%d\n", (int)load_addr,
 		(int)end_addr, (int)offset);
 
-	// TODO: File name at pos+16
+	// File name at pos+16
+
+	fnpos = dir_pos+16;
+
+	// Find the length of the (space-padded) filename.
+	fname_len = 0;
+	for(i=15; i>=0; i--) {
+		if(de_getbyte(fnpos+i)!=' ') {
+			fname_len = i+1;
+			break;
+		}
+	}
+	de_dbg2(c, "filename length=%d\n", (int)fname_len);
+	fname = ucstring_create(c);
+	for(i=0; i<fname_len; i++) {
+		b = de_getbyte(fnpos+i);
+		uchar = de_petscii_char_to_utf32(b);
+		ucstring_append_char(fname, uchar);
+	}
+
+	fi = de_finfo_create(c);
+	de_finfo_set_name_from_ucstring(c, fi, fname);
 
 	payload_size = end_addr - load_addr;
 	if(payload_size < 0) {
@@ -34,12 +62,14 @@ static void do_extract_file(deark *c, lctx *d, de_int64 dir_pos,
 		goto done;
 	}
 
-	f = dbuf_create_output_file(c, "prg", NULL);
+	f = dbuf_create_output_file(c, "prg", fi);
 	dbuf_copy(c->infile, dir_pos+2, 2, f);
 	dbuf_copy(c->infile, offset, payload_size, f);
 
 done:
 	dbuf_close(f);
+	de_finfo_destroy(c, fi);
+	ucstring_destroy(fname);
 }
 
 static void do_dir_entry(deark *c, lctx *d, de_int64 entry_num, de_int64 pos)
@@ -49,7 +79,7 @@ static void do_dir_entry(deark *c, lctx *d, de_int64 entry_num, de_int64 pos)
 
 	filetype_c64s = de_getbyte(pos);
 	if(filetype_c64s==0) {
-		de_dbg(c, "unused entry #%d at %d\n", (int)entry_num, (int)pos);
+		de_dbg2(c, "unused entry #%d at %d\n", (int)entry_num, (int)pos);
 		return;
 	}
 	de_dbg(c, "entry #%d at %d\n", (int)entry_num, (int)pos);
