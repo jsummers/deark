@@ -342,4 +342,16 @@ void de_finfo_destroy(deark *c, de_finfo *fi);
 void de_finfo_set_name_from_slice(deark *c, de_finfo *fi, dbuf *f,
 	de_int64 pos, de_int64 len, unsigned int conv_flags);
 
+struct de_ucstring_struct {
+	deark *c;
+	de_int32 *str;
+	de_int64 len; // len and alloc are measured in characters, not bytes
+	de_int64 alloc;
+};
+typedef struct de_ucstring_struct de_ucstring;
+
+de_ucstring *ucstring_create(deark *c);
+void ucstring_destroy(de_ucstring *s);
+void ucstring_append_char(de_ucstring *s, de_int32 ch);
+
 ///////////////////////////////////////////

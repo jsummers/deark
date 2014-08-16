@@ -14,6 +14,7 @@
 #ifdef DE_WINDOWS
 
 #define de_int64 __int64
+#define de_int32 int
 #define de_uint32 unsigned int
 #define de_byte unsigned char
 #define INT64_FMT "I64d"
@@ -23,6 +24,7 @@
 
 #include <inttypes.h>
 #define de_int64 int64_t
+#define de_int32 int32_t
 #define de_uint32 uint32_t
 #define de_byte unsigned char
 #define INT64_FMT PRId64

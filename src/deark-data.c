@@ -301,3 +301,46 @@ void de_make_filename(deark *c, de_byte *s1, de_int64 s1_len,
 		de_strlcpy(s2, "_", (size_t)s2_size);
 	}
 }
+
+
+// de_ucstring is a Unicode (utf-32) string object.
+
+de_ucstring *ucstring_create(deark *c)
+{
+	de_ucstring *s;
+	s = de_malloc(c, sizeof(de_ucstring));
+	s->c = c;
+	return s;
+}
+
+void ucstring_destroy(de_ucstring *s)
+{
+	deark *c;
+	if(s) {
+		c = s->c;
+		de_free(c, s->str);
+		de_free(c, s);
+	}
+}
+
+void ucstring_append_char(de_ucstring *s, de_int32 ch)
+{
+	de_int64 new_len;
+	de_int64 new_alloc;
+
+	if(s->len >= 100000000) {
+		return;
+	}
+	new_len = s->len + 1;
+	if(new_len > s->alloc) {
+		new_alloc = s->alloc * 2;
+		if(new_alloc<32) new_alloc=32;
+
+		s->str = de_realloc(s->c, s->str, s->alloc * sizeof(de_int32), new_alloc * sizeof(de_int32));
+		s->alloc = new_alloc;
+	}
+
+	s->str[s->len] = ch;
+	s->len++;
+	return;
+}
