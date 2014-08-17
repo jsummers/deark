@@ -329,10 +329,10 @@ void de_color_to_css(de_uint32 color, char *buf, int buflen);
 
 de_byte de_palette_sample_6_to_8bit(de_byte samp);
 
-int de_cp437g_to_unicode(deark *c, int a);
-int de_cp437c_to_unicode(deark *c, int a);
-void de_uchar_to_utf8(int u1, de_byte *utf8buf, de_int64 *p_utf8len);
-void dbuf_write_uchar_as_utf8(dbuf *outf, int u);
+de_int32 de_cp437g_to_unicode(deark *c, int a);
+de_int32 de_cp437c_to_unicode(deark *c, int a);
+void de_uchar_to_utf8(de_int32 u1, de_byte *utf8buf, de_int64 *p_utf8len);
+void dbuf_write_uchar_as_utf8(dbuf *outf, de_int32 u);
 
 int de_is_ascii(const de_byte *buf, de_int64 buflen);
 

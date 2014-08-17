@@ -1347,12 +1347,30 @@ void de_finfo_set_name_from_slice(deark *c, de_finfo *fi, dbuf *f,
 void de_finfo_set_name_from_ucstring(deark *c, de_finfo *fi, de_ucstring *s)
 {
 	de_int64 i;
+	de_int32 ch;
+	de_int64 fnlen;
+	de_int64 utf8len;
 
-	fi->file_name = de_malloc(c, s->len+1);
-	for(i=0; i<s->len; i++) {
-		fi->file_name[i] = (char)(unsigned char)de_char_to_valid_fn_char(c, s->str[i]);
+	if(s->len<1) {
+		// Don't allow empty filenames.
+		fi->file_name = de_malloc(c, 2);
+		de_strlcpy(fi->file_name, "_", 2);
+		return;
 	}
-	fi->file_name[s->len] = '\0';
+
+	fi->file_name = de_malloc(c, 4*s->len+1);
+	fnlen = 0;
+	for(i=0; i<s->len; i++) {
+		ch = de_char_to_valid_fn_char(c, s->str[i]);
+		if(ch<128) {
+			fi->file_name[fnlen++] = (char)(unsigned char)ch;
+		}
+		else {
+			de_uchar_to_utf8(ch, (de_byte*)&fi->file_name[fnlen], &utf8len);
+			fnlen += utf8len;
+		}
+	}
+	fi->file_name[fnlen] = '\0';
 }
 
 void de_declare_fmt(deark *c, const char *fmtname)

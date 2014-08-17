@@ -14,7 +14,7 @@ typedef struct localctx_struct {
 // Write a buffer to a file, converting the encoding.
 static void copy_cp437c_to_utf8(deark *c, const de_byte *buf, de_int64 len, dbuf *outf)
 {
-	int u;
+	de_int32 u;
 	de_int64 i;
 
 	for(i=0; i<len; i++) {

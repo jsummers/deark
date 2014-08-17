@@ -56,26 +56,26 @@ static const de_uint16 petscii1table[256] = {
 };
 
 // Code page 437, with screen code graphics characters.
-int de_cp437g_to_unicode(deark *c, int a)
+de_int32 de_cp437g_to_unicode(deark *c, int a)
 {
-	if(a>=0 && a<=0xff) return (int)cp437table[a];
+	if(a>=0 && a<=0xff) return (de_int32)cp437table[a];
 	return 0xfffd;
 }
 
 // Code page 437, with control characters.
-int de_cp437c_to_unicode(deark *c, int a)
+de_int32 de_cp437c_to_unicode(deark *c, int a)
 {
 	if(a>=0 && a<=0x7f) return a;
-	if(a>=0x80 && a<=0xff) return (int)cp437table[a];
+	if(a>=0x80 && a<=0xff) return (de_int32)cp437table[a];
 	return 0xfffd;
 }
 
 // Encode a Unicode char in UTF-8.
 // Caller supplies utf8buf[4].
 // Sets *p_utf8len to the number of bytes used (1-4).
-void de_uchar_to_utf8(int u1, de_byte *utf8buf, de_int64 *p_utf8len)
+void de_uchar_to_utf8(de_int32 u1, de_byte *utf8buf, de_int64 *p_utf8len)
 {
-	unsigned int u = (unsigned int)u1;
+	de_uint32 u = (de_uint32)u1;
 
 	if(u>0x10ffff) u=0xfffd;
 
@@ -104,7 +104,7 @@ void de_uchar_to_utf8(int u1, de_byte *utf8buf, de_int64 *p_utf8len)
 }
 
 // Write a unicode code point to a file, encoded as UTF-8.
-void dbuf_write_uchar_as_utf8(dbuf *outf, int u)
+void dbuf_write_uchar_as_utf8(dbuf *outf, de_int32 u)
 {
 	de_byte utf8buf[4];
 	de_int64 utf8len;
@@ -288,11 +288,18 @@ de_int32 de_char_to_valid_fn_char(deark *c, de_int32 ch)
 		&& ch!='*' && ch!='?' && ch!='\"' && ch!='<' &&
 		ch!='>' && ch!='|')
 	{
-		// Valid ASCII character for most Windows filesystems
+		// These are the valid ASCII characters in Windows filenames.
+		// TODO: We could behave differently on different platforms.
 		return ch;
 	}
-	// TODO: Allow additional Unicode characters (may require changes
-	// elsewhere).
+	else if(ch>=160 && ch<=0x10ffff) {
+		// For now, we don't support Unicode filenames in ZIP files.
+		if(c->output_style==DE_OUTPUTSTYLE_DIRECT) {
+			// TODO: A lot of Unicode characters probably don't belong in filenames.
+			// Maybe we need a whitelist or blacklist.
+			return ch;
+		}
+	}
 	return '_';
 }
 
@@ -311,7 +318,13 @@ void de_make_filename(deark *c, de_byte *s1, de_int64 s1_len,
 			break;
 		}
 		if(s2_pos < s2_size-1) {
-			s2[s2_pos++] = (char)(unsigned char)de_char_to_valid_fn_char(c, s1[i]);
+			if(s1[i]>=128) {
+				// For now, restrict to ASCII.
+				s2[s2_pos++] = '_';
+			}
+			else {
+				s2[s2_pos++] = (char)(unsigned char)de_char_to_valid_fn_char(c, s1[i]);
+			}
 		}
 	}
 
