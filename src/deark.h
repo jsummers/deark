@@ -58,6 +58,9 @@ void de_set_input_file_slice_size(deark *c, de_int64 n);
 
 void de_run(deark *c);
 
+void de_set_userdata(deark *c, void *x);
+void *de_get_userdata(deark *c);
+
 // 0=off  1=normal  2=verbose
 void de_set_debug_level(deark *c, int x);
 
@@ -86,9 +89,15 @@ void de_set_input_format(deark *c, const char *fmtname);
 #define DE_OUTPUTSTYLE_ZIP    1
 void de_set_output_style(deark *c, int x);
 
+void de_puts(deark *c, int msgtype, const char *s);
+void de_printf(deark *c, int msgtype, const char *fmt, ...)
+	de_gnuc_attribute ((format (printf, 3, 4)));
+
 #ifdef DE_WINDOWS
 char **de_convert_args_to_utf8(int argc, wchar_t **argvW);
 void de_free_utf8_args(int argc, char **argv);
+wchar_t *de_utf8_to_utf16_strdup(deark *c, const char *src);
+int de_stdout_is_windows_console(void);
 #endif
 
 void de_set_base_output_filename(deark *c, const char *fn);

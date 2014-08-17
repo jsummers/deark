@@ -7,22 +7,45 @@
 #include <stdlib.h>
 #include <string.h>
 
+#ifdef DE_WINDOWS
+#include <fcntl.h>
+#include <io.h> // for _setmode
+#endif
+
 #include "deark.h"
 
 struct cmdctx {
 	const char *input_filename;
 	int error_flag;
 	int usage_error_flag;
+#ifdef DE_WINDOWS
+	int have_windows_console;
+#endif
 };
 
-static void usage(void)
+static void usage(deark *c)
 {
-	fprintf(stderr, "usage: deark [options] <input-file>\n");
+	de_puts(c, DE_MSGTYPE_MESSAGE, "usage: deark [options] <input-file>\n");
 }
 
 static void our_msgfn(deark *c, int msgtype, const char *s)
 {
+#ifdef DE_WINDOWS
+	struct cmdctx *cc;
+
+	cc = de_get_userdata(c);
+	if(cc->have_windows_console) {
+		wchar_t *s_w;
+		s_w = de_utf8_to_utf16_strdup(c, s);
+		fputws(s_w, stdout);
+		de_free(c, s_w);
+	}
+	else {
+		fputs(s, stdout);
+	}
+#else
 	fputs(s, stdout);
+#endif
 }
 
 static void set_option(deark *c, struct cmdctx *cc, const char *optionstring)
@@ -71,7 +94,8 @@ static void parse_cmdline(deark *c, struct cmdctx *cc, int argc, char **argv)
 				de_set_warnings(c, 0);
 			}
 			else if(!strcmp(argv[i]+1, "version")) {
-				printf("Deark version %s\n", de_get_version_string(vbuf, sizeof(vbuf)));
+				de_printf(c, DE_MSGTYPE_MESSAGE, "Deark version %s\n",
+					de_get_version_string(vbuf, sizeof(vbuf)));
 				cc->error_flag = 1;
 				return;
 			}
@@ -120,7 +144,7 @@ static void parse_cmdline(deark *c, struct cmdctx *cc, int argc, char **argv)
 				i++;
 			}
 			else {
-				fprintf(stderr, "Unrecognized option: %s\n", argv[i]);
+				de_printf(c, DE_MSGTYPE_MESSAGE, "Unrecognized option: %s\n", argv[i]);
 				cc->error_flag = 1;
 				return;
 			}
@@ -148,13 +172,23 @@ static void main2(int argc, char **argv)
 
 	cc = de_malloc(NULL, sizeof(struct cmdctx));
 
+#ifdef DE_WINDOWS
+	cc->have_windows_console = de_stdout_is_windows_console();
+	if(cc->have_windows_console) {
+		// Call _setmode so that Unicode output to the console works correctly
+		// (provided we use Unicode functions like fputws()).
+		_setmode(_fileno(stdout), _O_U16TEXT);
+	}
+#endif
+
 	c = de_create();
+	de_set_userdata(c, (void*)cc);
 	de_set_messages_callback(c, our_msgfn);
 
 	parse_cmdline(c, cc, argc, argv);
 
 	if(cc->usage_error_flag) {
-		usage();
+		usage(c);
 		goto done;
 	}
 

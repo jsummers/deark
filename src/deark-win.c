@@ -38,7 +38,7 @@ static char *de_utf16_to_utf8_strdup(deark *c, const WCHAR *src)
 	return dst;
 }
 
-static WCHAR *de_utf8_to_utf16_strdup(deark *c, const char *src)
+wchar_t *de_utf8_to_utf16_strdup(deark *c, const char *src)
 {
 	WCHAR *dst;
 	int dstlen;
@@ -120,4 +120,15 @@ void de_free_utf8_args(int argc, char **argv)
 		de_free(NULL, argv[i]);
 	}
 	de_free(NULL, argv);
+}
+
+// A helper function that returns nonzero if stdout seems to be a Windows console.
+// 0 means that stdout is redirected.
+int de_stdout_is_windows_console(void)
+{
+	DWORD consolemode=0;
+	BOOL n;
+
+	n=GetConsoleMode(GetStdHandle(STD_OUTPUT_HANDLE), &consolemode);
+	return n ? 1 : 0;
 }

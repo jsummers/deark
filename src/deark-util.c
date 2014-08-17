@@ -106,7 +106,7 @@ void de_snprintf(char *buf, size_t buflen, const char *fmt, ...)
 	va_end(ap);
 }
 
-static void de_fputs(deark *c, int msgtype, const char *s)
+void de_puts(deark *c, int msgtype, const char *s)
 {
 	if(!c || !c->msgfn) {
 		fputs(s, stderr);
@@ -115,23 +115,20 @@ static void de_fputs(deark *c, int msgtype, const char *s)
 	c->msgfn(c, msgtype, s);
 }
 
-static void de_vfprintf(deark *c, int msgtype, const char *fmt, va_list ap)
+static void de_vprintf(deark *c, int msgtype, const char *fmt, va_list ap)
 {
 	char buf[1024];
 
 	de_vsnprintf(buf, sizeof(buf), fmt, ap);
-	de_fputs(c, msgtype, buf);
+	de_puts(c, msgtype, buf);
 }
 
-static void de_fprintf(deark *c, int msgtype, const char *fmt, ...)
-	de_gnuc_attribute ((format (printf, 3, 4)));
-
-static void de_fprintf(deark *c, int msgtype, const char *fmt, ...)
+void de_printf(deark *c, int msgtype, const char *fmt, ...)
 {
 	va_list ap;
 
 	va_start(ap, fmt);
-	de_vfprintf(c, msgtype, fmt, ap);
+	de_vprintf(c, msgtype, fmt, ap);
 	va_end(ap);
 }
 
@@ -154,8 +151,8 @@ static void de_vdbg_internal(deark *c, const char *fmt, va_list ap)
 		de_memset(spaces, ' ', nspaces);
 	spaces[nspaces] = '\0';
 
-	de_fprintf(c, DE_MSGTYPE_DEBUG, "DEBUG: %s", spaces);
-	de_vfprintf(c, DE_MSGTYPE_DEBUG, fmt, ap);
+	de_printf(c, DE_MSGTYPE_DEBUG, "DEBUG: %s", spaces);
+	de_vprintf(c, DE_MSGTYPE_DEBUG, fmt, ap);
 }
 
 void de_dbg(deark *c, const char *fmt, ...)
@@ -192,9 +189,9 @@ void de_err(deark *c, const char *fmt, ...)
 		c->error_count++;
 	}
 
-	de_fputs(c, DE_MSGTYPE_ERROR, "Error: ");
+	de_puts(c, DE_MSGTYPE_ERROR, "Error: ");
 	va_start(ap, fmt);
-	de_vfprintf(c, DE_MSGTYPE_ERROR, fmt, ap);
+	de_vprintf(c, DE_MSGTYPE_ERROR, fmt, ap);
 	va_end(ap);
 }
 
@@ -203,9 +200,9 @@ void de_warn(deark *c, const char *fmt, ...)
 	va_list ap;
 
 	if(!c->show_warnings) return;
-	de_fputs(c, DE_MSGTYPE_WARNING, "Warning: ");
+	de_puts(c, DE_MSGTYPE_WARNING, "Warning: ");
 	va_start(ap, fmt);
-	de_vfprintf(c, DE_MSGTYPE_WARNING, fmt, ap);
+	de_vprintf(c, DE_MSGTYPE_WARNING, fmt, ap);
 	va_end(ap);
 }
 
@@ -215,7 +212,7 @@ void de_msg(deark *c, const char *fmt, ...)
 
 	if(!c->show_messages) return;
 	va_start(ap, fmt);
-	de_vfprintf(c, DE_MSGTYPE_MESSAGE, fmt, ap);
+	de_vprintf(c, DE_MSGTYPE_MESSAGE, fmt, ap);
 	va_end(ap);
 }
 
@@ -309,6 +306,16 @@ void de_destroy(deark *c)
 	if(c->base_output_filename) { de_free(c, c->base_output_filename); }
 	if(c->output_archive_filename) { de_free(c, c->output_archive_filename); }
 	de_free(NULL,c);
+}
+
+void de_set_userdata(deark *c, void *x)
+{
+	c->userdata = x;
+}
+
+void *de_get_userdata(deark *c)
+{
+	return c->userdata;
 }
 
 void de_set_messages_callback(deark *c, de_msgfn_type fn)

@@ -81,6 +81,7 @@ struct deark_option {
 
 struct deark_struct {
 	int debug_level;
+	void *userdata;
 	const char *input_filename;
 
 	// The current primary input file.
