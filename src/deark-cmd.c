@@ -20,6 +20,11 @@ static void usage(void)
 	fprintf(stderr, "usage: deark [options] <input-file>\n");
 }
 
+static void our_msgfn(deark *c, int msgtype, const char *s)
+{
+	fputs(s, stdout);
+}
+
 static void set_option(deark *c, struct cmdctx *cc, const char *optionstring)
 {
 	char *tmp;
@@ -144,6 +149,7 @@ static void main2(int argc, char **argv)
 	cc = de_malloc(NULL, sizeof(struct cmdctx));
 
 	c = de_create();
+	de_set_messages_callback(c, our_msgfn);
 
 	parse_cmdline(c, cc, argc, argv);
 

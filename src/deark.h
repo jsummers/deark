@@ -73,6 +73,13 @@ void de_set_warnings(deark *c, int x);
 void de_set_option(deark *c, const char *name, const char *val);
 const char *de_get_option(deark *c, const char *name);
 
+#define DE_MSGTYPE_MESSAGE 0
+#define DE_MSGTYPE_WARNING 1
+#define DE_MSGTYPE_ERROR   2
+#define DE_MSGTYPE_DEBUG   3
+typedef void (*de_msgfn_type)(deark *c, int msgtype, const char *s);
+void de_set_messages_callback(deark *c, de_msgfn_type fn);
+
 void de_set_input_format(deark *c, const char *fmtname);
 
 #define DE_OUTPUTSTYLE_DIRECT 0
