@@ -206,6 +206,8 @@ static void de_run_zip(deark *c, const char *params)
 
 	d = de_malloc(c, sizeof(lctx));
 
+	de_declare_fmt(c, "ZIP (extract comments only)");
+
 	if(!find_end_of_central_dir(c, d)) {
 		de_err(c, "Not a ZIP file\n");
 		goto done;
@@ -227,6 +229,22 @@ done:
 
 static int de_identify_zip(deark *c)
 {
+	de_byte b[4];
+
+	// This will not detect every ZIP file, but there is no cheap way to do that.
+
+	de_read(b, 0, 4);
+	if(!de_memcmp(b, "PK\x03\x04", 4)) {
+		return 90;
+	}
+
+	if(c->infile->len >= 22) {
+		de_read(b, c->infile->len - 22, 4);
+		if(!de_memcmp(b, "PK\x05\x06", 4)) {
+			return 90;
+		}
+	}
+
 	return 0;
 }
 

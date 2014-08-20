@@ -171,11 +171,11 @@ Deark -- Information about supported formats
   - Extract JPEG-formatted Exif thumbnails, and some types of Old-style
     JPEG-compressed images.
   - Extract ICC profiles.
-  - Extract data from "Photoshop resources",
+  - Extract data from "Photoshop resources".
   - Extract IPTC data (use -extractall).
 
 * ZIP (module="zip")
-  Not autodetected. Must use "-m zip".
+  - Does not extract files, only comments.
   - Extract main ZIP file comment.
   - Extract comments for individual files.
 

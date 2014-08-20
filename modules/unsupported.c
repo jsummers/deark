@@ -63,12 +63,6 @@ static void get_fmt(deark *c, struct fmtinfo_struct *fmti)
 		return;
 	}
 
-	if(!de_memcmp(b, "PK\x03\x04", 4)) {
-		fmti->confidence = 90;
-		fmti->descr = "a ZIP file";
-		return;
-	}
-
 	if(!de_memcmp(b, "\x1f\x8b\x08", 3)) {
 		fmti->confidence = 80;
 		fmti->descr = "a gzip-compressed file";
