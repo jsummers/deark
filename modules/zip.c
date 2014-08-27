@@ -52,27 +52,32 @@ static void do_comment(deark *c, lctx *d, de_int64 pos, de_int64 len, int utf8_f
 		dbuf_write(f, comment, len);
 	}
 	else if(utf8_flag) {
-		int already_has_bom = 0;
 
 		// Comment is already UTF-8. Copy as-is, but maybe add a BOM.
 
-		// Write a BOM.
+		if(c->write_bom) {
+			int already_has_bom = 0;
 
-		// A UTF-8 comment is not expected to have a BOM, but just in case it does,
-		// make sure we don't add a second one.
-		if(len>=3) {
-			already_has_bom = detect_bom(c->infile, pos);
+			// A UTF-8 comment is not expected to have a BOM, but just in case it does,
+			// make sure we don't add a second one.
+			if(len>=3) {
+				already_has_bom = detect_bom(c->infile, pos);
+			}
+
+			if(!already_has_bom) {
+				dbuf_write_uchar_as_utf8(f, 0xfeff);
+			}
 		}
-
-		if(!already_has_bom) dbuf_write_uchar_as_utf8(f, 0xfeff);
 
 		dbuf_write(f, comment, len);
 	}
 	else {
 		// Convert the comment to UTF-8.
 
-		// Write a BOM.
-		dbuf_write_uchar_as_utf8(f, 0xfeff);
+		if(c->write_bom) {
+			// Write a BOM.
+			dbuf_write_uchar_as_utf8(f, 0xfeff);
+		}
 
 		copy_cp437c_to_utf8(c, comment, len, f);
 	}

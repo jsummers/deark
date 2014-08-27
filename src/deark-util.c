@@ -295,6 +295,7 @@ deark *de_create(void)
 	c = de_malloc(NULL,sizeof(deark));
 	c->show_messages = 1;
 	c->show_warnings = 1;
+	c->write_bom = 1;
 	c->max_output_files = -1;
 	return c;
 }
@@ -610,6 +611,11 @@ void de_set_messages(deark *c, int x)
 void de_set_warnings(deark *c, int x)
 {
 	c->show_warnings = x;
+}
+
+void de_set_write_bom(deark *c, int x)
+{
+	c->write_bom = x;
 }
 
 dbuf *dbuf_create_output_file(deark *c, const char *ext, de_finfo *fi)

@@ -107,6 +107,7 @@ struct deark_struct {
 	int show_messages;
 	int show_warnings;
 	int dbg_indent_amount;
+	int write_bom;
 
 	de_msgfn_type msgfn; // Caller's message output function
 

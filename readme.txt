@@ -44,6 +44,8 @@ Command-line options:
      Extract at most this many files.
   -get <n>
      Extract only the file identifed by <n>. The first file is 0.
+  -nobom
+     Do not write a BOM to UTF-8 output files.
   -opt <module:option>=<value>
      Module-specific options. See formats.txt.
   -version

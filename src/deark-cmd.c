@@ -89,6 +89,9 @@ static void parse_cmdline(deark *c, struct cmdctx *cc, int argc, char **argv)
 			else if(!strcmp(argv[i]+1, "nowarn")) {
 				de_set_warnings(c, 0);
 			}
+			else if(!strcmp(argv[i]+1, "nobom")) {
+				de_set_write_bom(c, 0);
+			}
 			else if(!strcmp(argv[i]+1, "q")) {
 				de_set_messages(c, 0);
 				de_set_warnings(c, 0);
