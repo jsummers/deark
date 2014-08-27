@@ -23,7 +23,19 @@ static void copy_cp437c_to_utf8(deark *c, const de_byte *buf, de_int64 len, dbuf
 	}
 }
 
-static void do_comment(deark *c, lctx *d, de_int64 pos, de_int64 len, const char *ext)
+static int detect_bom(dbuf *f, de_int64 pos)
+{
+	de_byte buf[3];
+
+	dbuf_read(f, buf, pos, 3);
+	if(buf[0]==0xef && buf[1]==0xbb && buf[2]==0xbf) {
+		return 1;
+	}
+	return 0;
+}
+
+static void do_comment(deark *c, lctx *d, de_int64 pos, de_int64 len, int utf8_flag,
+	const char *ext)
 {
 	de_byte *comment = NULL;
 	dbuf *f = NULL;
@@ -39,14 +51,29 @@ static void do_comment(deark *c, lctx *d, de_int64 pos, de_int64 len, const char
 		// No non-ASCII characters, so write the comment as-is.
 		dbuf_write(f, comment, len);
 	}
+	else if(utf8_flag) {
+		int already_has_bom = 0;
+
+		// Comment is already UTF-8. Copy as-is, but maybe add a BOM.
+
+		// Write a BOM.
+
+		// A UTF-8 comment is not expected to have a BOM, but just in case it does,
+		// make sure we don't add a second one.
+		if(len>=3) {
+			already_has_bom = detect_bom(c->infile, pos);
+		}
+
+		if(!already_has_bom) dbuf_write_uchar_as_utf8(f, 0xfeff);
+
+		dbuf_write(f, comment, len);
+	}
 	else {
 		// Convert the comment to UTF-8.
 
 		// Write a BOM.
 		dbuf_write_uchar_as_utf8(f, 0xfeff);
 
-		// The comment for the whole .ZIP file apparently always uses
-		// cp437 encoding.
 		copy_cp437c_to_utf8(c, comment, len, f);
 	}
 
@@ -60,6 +87,7 @@ static int do_central_dir_entry(deark *c, lctx *d, de_int64 index,
 	de_int64 x;
 	unsigned int bit_flags;
 	de_int64 fn_len, extra_len, comment_len;
+	int utf8_flag;
 
 	*p_entry_size = 46;
 	de_dbg(c, "central dir entry #%d at %d\n", (int)index, (int)pos);
@@ -73,6 +101,8 @@ static int do_central_dir_entry(deark *c, lctx *d, de_int64 index,
 	bit_flags = (unsigned int)de_getui16le(pos+8);
 	de_dbg(c, " flags: 0x%04x\n", bit_flags);
 
+	utf8_flag = (bit_flags & 0x800)?1:0;
+
 	fn_len = de_getui16le(pos+28);
 	extra_len = de_getui16le(pos+30);
 	comment_len = de_getui16le(pos+32);
@@ -85,7 +115,7 @@ static int do_central_dir_entry(deark *c, lctx *d, de_int64 index,
 	if(comment_len>0) {
 		// TODO: Comments for individual files can use UTF-8 encoding.
 		// Need to check for that and handle it.
-		do_comment(c, d, pos+46+fn_len+extra_len, comment_len, "fcomment.txt");
+		do_comment(c, d, pos+46+fn_len+extra_len, comment_len, utf8_flag, "fcomment.txt");
 	}
 	return 1;
 }
@@ -140,7 +170,9 @@ static int do_end_of_central_dir(deark *c, lctx *d)
 	comment_length = de_getui16le(pos+20);
 	if(comment_length>0) {
 		de_dbg(c, "comment length: %d\n", (int)comment_length);
-		do_comment(c, d, pos+22, comment_length, "comment.txt");
+		// The comment for the whole .ZIP file presumably has to use
+		// cp437 encoding. There's no flag that could indicate otherwise.
+		do_comment(c, d, pos+22, comment_length, 0, "comment.txt");
 	}
 
 	// TODO: Figure out exactly how to detect disk spanning.
