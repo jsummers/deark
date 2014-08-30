@@ -110,7 +110,7 @@ static void grob_text_1_image(deark *c, lctx *d, de_int64 pos1)
 
 		pos+=2;
 
-		x = de_decode_hex_digit(b0) | (de_decode_hex_digit(b1)<<4);
+		x = de_decode_hex_digit(b0,NULL) | (de_decode_hex_digit(b1,NULL)<<4);
 		dbuf_writebyte(bin_bmp, x);
 	}
 

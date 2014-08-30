@@ -140,6 +140,11 @@ int de_memcmp(const void *s1, const void *s2, size_t n);
 char *de_strchr(const char *s, int c);
 size_t de_strlen(const char *s);
 void de_memset(void *dst, int x, size_t len);
+#ifdef DE_WINDOWS
+#define de_sscanf sscanf_s
+#else
+#define de_sscanf sscanf
+#endif
 
 void de_snprintf(char *buf, size_t buflen, const char *fmt, ...)
   de_gnuc_attribute ((format (printf, 3, 4)));
@@ -269,6 +274,8 @@ void dbuf_set_endianness(dbuf *f, int is_le);
 int dbuf_search(dbuf *f, const de_byte *needle, de_int64 needle_len,
 	de_int64 startpos, de_int64 haystack_len, de_int64 *foundpos);
 
+int dbuf_find_line(dbuf *f, de_int64 pos1, de_int64 *pcontent_len, de_int64 *ptotal_len);
+
 ///////////////////////////////////////////
 
 void de_bitmap_write_to_file(struct deark_bitmap *img, const char *token);
@@ -319,7 +326,7 @@ int de_good_image_dimensions(deark *c, de_int64 w, de_int64 h);
 
 ///////////////////////////////////////////
 
-de_byte de_decode_hex_digit(de_byte x);
+de_byte de_decode_hex_digit(de_byte x, int *errorflag);
 
 de_uint32 de_palette_vga256(int index);
 de_uint32 de_palette_ega64(int index);

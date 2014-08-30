@@ -985,6 +985,60 @@ done:
 	return retval;
 }
 
+int dbuf_find_line(dbuf *f, de_int64 pos1, de_int64 *pcontent_len, de_int64 *ptotal_len)
+{
+	de_byte b0, b1;
+	de_int64 pos;
+	de_int64 eol_pos = 0;
+	de_int64 eol_size = 0;
+
+	*pcontent_len = 0;
+	*ptotal_len = 0;
+	if(pos1<0 || pos1>=f->len) {
+		return 0;
+	}
+
+	pos = pos1;
+
+	while(1) {
+		if(pos>=f->len) {
+			// No EOL.
+			eol_pos = pos;
+			eol_size = 0;
+			break;
+		}
+
+		b0 = dbuf_getbyte(f, pos);
+
+		if(b0==0x0d) {
+			eol_pos = pos;
+			// Look ahead at the next byte.
+			b1 = dbuf_getbyte(f, pos+1);
+			if(b1==0x0a) {
+				// CR+LF
+				eol_size = 2;
+				break;
+			}
+			// LF
+			eol_pos = pos;
+			eol_size = 1;
+			break;
+		}
+		else if(b0==0x0a) {
+			eol_pos = pos;
+			eol_size = 1;
+			break;
+		}
+
+		pos++;
+	}
+
+	*pcontent_len = eol_pos - pos1;
+	*ptotal_len = *pcontent_len + eol_size;
+
+	return (*ptotal_len > 0);
+}
+
 int de_atoi(const char *string)
 {
 	return atoi(string);

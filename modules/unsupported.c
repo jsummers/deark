@@ -77,17 +77,15 @@ static void get_fmt(deark *c, struct fmtinfo_struct *fmti)
 		return;
 	}
 
-	if(!de_memcmp(b, "\xff\x4f\xff\x51", 4)) {
+	if(!de_memcmp(b, "7z\xbc\xaf\x27\x1c", 6)) {
 		fmti->confidence = 90;
-		fmti->descr = "a JPEG 2000 codestream";
+		fmti->descr = "a 7z file";
 		return;
 	}
 
-	if(!de_memcmp(b, "%!PS-Adobe-", 11) &&
-		!de_memcmp(&b[14], " EPSF-", 6) )
-	{
-		fmti->confidence = 80;
-		fmti->descr = "a plain EPS or EPSI file (not EPS binary)";
+	if(!de_memcmp(b, "\xff\x4f\xff\x51", 4)) {
+		fmti->confidence = 90;
+		fmti->descr = "a JPEG 2000 codestream";
 		return;
 	}
 

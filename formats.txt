@@ -114,6 +114,7 @@ Deark -- Information about supported formats
 
 * EPS (Encapsulated PostScript) (module="eps")
   - Extract EPS, TIFF, and WMF from "EPS DOS Binary" format.
+  - Extract preview image from EPSI format (1-, 2-, 4-, 8-bit grayscale)
 
 * EXE/PE/NE/etc. (module="exe")
   - Extract bitmaps, icons, and cursors from NE and PE (Windows .exe) files.

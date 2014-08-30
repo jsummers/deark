@@ -9,11 +9,13 @@
 
 #include "deark-private.h"
 
-de_byte de_decode_hex_digit(de_byte x)
+de_byte de_decode_hex_digit(de_byte x, int *errorflag)
 {
+	if(errorflag) *errorflag = 0;
 	if(x>='0' && x<='9') return x-48;
 	if(x>='A' && x<='F') return x-55;
 	if(x>='a' && x<='f') return x-87;
+	if(errorflag) *errorflag = 1;
 	return 0;
 }
 
