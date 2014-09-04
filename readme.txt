@@ -84,6 +84,7 @@ Future versions might have some of the following features:
  - Extract files from floppy disk image formats
  - Decompress compressed data and archive formats
  - Detokenize tokenized BASIC programs
+ - Convert bitmap font formats to some portable font format
  - Other image formats that might be supported include ILBM, Acorn Sprite,
    Windows ICO
 

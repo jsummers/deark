@@ -15,6 +15,7 @@ Deark -- Information about supported formats
 * BSAVE (module="bsave")
   Support (some) PC-style BSAVE files.
   Options
+   -opt palfile=<file.pal> - Use this palette file (BSAVE format)
    -opt bsave:width=<n>
    -opt bsave:height=<n>
    -opt bsave:fmt=char  - Character graphics, converted to HTML format
@@ -22,7 +23,6 @@ Deark -- Information about supported formats
    -opt bsave:fmt=cga4  - 320x200 4-color
    -opt bsave:fmt=cga16 - Very low (160x100) resolution
    -opt bsave:fmt=mcga  - 320x200 256-color
-   -opt palfile=<file.pal> - Use this palette file (BSAVE format)
    -opt bsave:fmt=wh2   - 2-color, header includes width & height
    -opt bsave:fmt=wh4   - 4 color, header includes width & height
    -opt bsave:fmt=wh16  - 16 color, header includes width & height, inter-row
@@ -37,6 +37,9 @@ Deark -- Information about supported formats
   - Supports 16/24 bit full color
   - Supports uncompressed and RLE8/RLE16/RLE24 compression
 
+* EPS (Encapsulated PostScript) (module="eps")
+  - Extract preview image from EPSI format (1-, 2-, 4-, 8-bit grayscale)
+
 * GROB (HP calculator) (module="grob")
   - Supports binary and text encodings.
   - Some text GROB files can't be autodetected, and need "-m grob".
@@ -44,7 +47,7 @@ Deark -- Information about supported formats
 * HP 100LX / HP 200LX .ICN icon format (module="hpicn")
 
 * MacPaint (module="macpaint")
-  - Also extracts brush patterns (as PNG) (use -extractall)
+  - Also extracts brush patterns (use -extractall)
   Options
    -opt macpaint:macbinary=<0|1>
 
@@ -84,7 +87,7 @@ Deark -- Information about supported formats
   should be combined, but it may not always get it right.
   - Supports 1- and 2-bit grayscale.
   Options
-   -opt psionpic:bw  - Do not try to detect grayscale images. Write each bitmap
+   -opt psionpic:bw - Do not try to detect grayscale images. Write each bitmap
      as a separate image.
 
 * X11 puzzle (module="xpuzzle")
@@ -114,7 +117,6 @@ Deark -- Information about supported formats
 
 * EPS (Encapsulated PostScript) (module="eps")
   - Extract EPS, TIFF, and WMF from "EPS DOS Binary" format.
-  - Extract preview image from EPSI format (1-, 2-, 4-, 8-bit grayscale)
 
 * EXE/PE/NE/etc. (module="exe")
   - Extract bitmaps, icons, and cursors from NE and PE (Windows .exe) files.
@@ -148,8 +150,8 @@ Deark -- Information about supported formats
   - Extract Exif data (use -extractall) (nonstandard; partial support)
   - Extract various things from "Photoshop resources".
 
-* OS/2 Icon, Pointer, Bitmap Array formats (module="os2bmp")
-  - Extract Bitmap Array BMP images as individual BMP files.
+* OS/2 Bitmap Array format (module="os2bmp")
+  - BMP images are extracted (pointers/cursors are converted)
 
 * PSD (PhotoShop) (module="psd")
   - Extract data from "Photoshop resources"
