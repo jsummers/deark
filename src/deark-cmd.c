@@ -25,8 +25,16 @@ struct cmdctx {
 #endif
 };
 
-static void usage(deark *c)
+static void show_version(deark *c)
 {
+	char vbuf[80];
+	de_printf(c, DE_MSGTYPE_MESSAGE, "Deark version %s\n",
+		de_get_version_string(vbuf, sizeof(vbuf)));
+}
+
+static void show_usage(deark *c)
+{
+	show_version(c);
 	de_puts(c, DE_MSGTYPE_MESSAGE, "usage: deark [options] <input-file>\n");
 }
 
@@ -72,7 +80,6 @@ static void set_option(deark *c, struct cmdctx *cc, const char *optionstring)
 static void parse_cmdline(deark *c, struct cmdctx *cc, int argc, char **argv)
 {
 	int i;
-	char vbuf[80];
 
 	for(i=1;i<argc;i++) {
 		if(argv[i][0]=='-') {
@@ -99,8 +106,7 @@ static void parse_cmdline(deark *c, struct cmdctx *cc, int argc, char **argv)
 				de_set_warnings(c, 0);
 			}
 			else if(!strcmp(argv[i]+1, "version")) {
-				de_printf(c, DE_MSGTYPE_MESSAGE, "Deark version %s\n",
-					de_get_version_string(vbuf, sizeof(vbuf)));
+				show_version(c);
 				cc->error_flag = 1;
 				return;
 			}
@@ -193,7 +199,7 @@ static void main2(int argc, char **argv)
 	parse_cmdline(c, cc, argc, argv);
 
 	if(cc->usage_error_flag) {
-		usage(c);
+		show_usage(c);
 		goto done;
 	}
 
