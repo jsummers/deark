@@ -1,6 +1,8 @@
 // This file is part of Deark, by Jason Summers.
 // This software is in the public domain. See the file COPYING for details.
 
+// T64 (Commodore 64 "tape"-like format)
+
 #include <deark-config.h>
 #include <deark-modules.h>
 

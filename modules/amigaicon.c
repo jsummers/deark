@@ -1,6 +1,8 @@
 // This file is part of Deark, by Jason Summers.
 // This software is in the public domain. See the file COPYING for details.
 
+// Amiga Workbench icons, including "Newicons" and "Glowicons" formats
+
 #include <deark-config.h>
 #include <deark-modules.h>
 

@@ -1,6 +1,8 @@
 // This file is part of Deark, by Jason Summers.
 // This software is in the public domain. See the file COPYING for details.
 
+// When you add a module, list it in this file and deark-modules.c.
+
 #include "deark-private.h"
 
 void de_module_unsupported(deark *c, struct deark_module_info *mi);

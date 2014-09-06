@@ -1,6 +1,8 @@
 // This file is part of Deark, by Jason Summers.
 // This software is in the public domain. See the file COPYING for details.
 
+// Extract comments from ZIP files.
+
 #include <deark-config.h>
 #include <deark-modules.h>
 
@@ -118,8 +120,6 @@ static int do_central_dir_entry(deark *c, lctx *d, de_int64 index,
 	*p_entry_size += fn_len + extra_len + comment_len;
 
 	if(comment_len>0) {
-		// TODO: Comments for individual files can use UTF-8 encoding.
-		// Need to check for that and handle it.
 		do_comment(c, d, pos+46+fn_len+extra_len, comment_len, utf8_flag, "fcomment.txt");
 	}
 	return 1;

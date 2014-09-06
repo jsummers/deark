@@ -1,6 +1,9 @@
 // This file is part of Deark, by Jason Summers.
 // This software is in the public domain. See the file COPYING for details.
 
+// Functions specific to Microsoft Windows, especially those that require
+// windows.h.
+
 #include "deark-config.h"
 
 #ifndef DE_WINDOWS
