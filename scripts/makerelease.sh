@@ -42,7 +42,7 @@ mkdir $D/x64
 cp -p Release64/deark.exe $D/x64/
 
 echo "Writing deark-${VER}.tar.gz"
-tar --directory .build-tmp -cz -f deark-${VER}.tar.gz deark-$VER
+tar --directory .build-tmp -c -O deark-$VER | gzip -9 > deark-${VER}.tar.gz
 
 rm -rf .build-tmp
 
