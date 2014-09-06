@@ -18,7 +18,7 @@ D=".build-tmp/deark-$VER"
 mkdir $D
 
 mkdir $D/src
-cp -p src/*.c src/*.h $D/src/
+cp -p src/*.c src/*.h src/*.rc $D/src/
 
 mkdir $D/modules
 cp -p modules/*.c modules/*.h $D/modules/
@@ -42,7 +42,7 @@ mkdir $D/x64
 cp -p Release64/deark.exe $D/x64/
 
 echo "Writing deark-${VER}.tar.gz"
-tar --directory .build-tmp -c -O deark-$VER | gzip -9 > deark-${VER}.tar.gz
+tar --directory .build-tmp -c --owner=root --group=root -O deark-$VER | gzip -9 > deark-${VER}.tar.gz
 
 rm -rf .build-tmp
 
