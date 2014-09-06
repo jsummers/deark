@@ -13,6 +13,14 @@ typedef struct localctx_struct {
 
 static void do_box_sequence(deark *c, lctx *d, de_int64 pos1, de_int64 len, int level);
 
+// Caller supplies s.
+static void render_uuid(deark *c, const de_byte *uuid, char *s, size_t s_len)
+{
+	de_snprintf(s, s_len, "%02x%02x%02x%02x-%02x%02x-%02x%02x-%02x%02x-%02x%02x%02x%02x%02x%02x",
+		uuid[0], uuid[1], uuid[2], uuid[3], uuid[4], uuid[5], uuid[6], uuid[7],
+		uuid[8], uuid[9], uuid[10], uuid[11], uuid[12], uuid[13], uuid[14], uuid[15]);
+}
+
 static int do_box(deark *c, lctx *d, de_int64 pos, de_int64 len, int level,
 	de_int64 *pbytes_consumed)
 {
@@ -22,6 +30,7 @@ static int do_box(deark *c, lctx *d, de_int64 pos, de_int64 len, int level,
 	de_byte boxtype[4];
 	char boxtype_printable[16];
 	de_byte uuid[16];
+	char uuid_string[50];
 	int i;
 	int is_uuid = 0;
 	// TODO: Prune this list? We don't really need to know *all* superbox
@@ -62,14 +71,13 @@ static int do_box(deark *c, lctx *d, de_int64 pos, de_int64 len, int level,
 	if(c->debug_level>0) {
 		de_make_printable_ascii(boxtype, 4, boxtype_printable, sizeof(boxtype_printable), 0);
 		if(is_uuid) {
-			de_dbg(c, "[%d] box '%s'{%02x%02x%02x%02x-%02x%02x-%02x%02x-%02x%02x-%02x%02x%02x%02x%02x%02x} at %d, size=%d\n",
-				level, boxtype_printable,
-				uuid[0], uuid[1], uuid[2], uuid[3], uuid[4], uuid[5], uuid[6], uuid[7],
-				uuid[8], uuid[9], uuid[10], uuid[11], uuid[12], uuid[13], uuid[14], uuid[15],
+			render_uuid(c, uuid, uuid_string, sizeof(uuid_string));
+			de_dbg(c, "box '%s'{%s} at %d, size=%d\n",
+				boxtype_printable, uuid_string,
 				(int)pos, (int)payload_size);
 		}
 		else {
-			de_dbg(c, "[%d] box '%s' at %d, size=%d\n", level, boxtype_printable,
+			de_dbg(c, "box '%s' at %d, size=%d\n", boxtype_printable,
 				(int)pos, (int)payload_size);
 		}
 	}
@@ -109,7 +117,9 @@ static int do_box(deark *c, lctx *d, de_int64 pos, de_int64 len, int level,
 		// want to recurse into.
 		for(i=0; superboxes[i]; i++) {
 			if(!de_memcmp(boxtype, superboxes[i], 4)) {
+				de_dbg_indent(c, 1);
 				do_box_sequence(c, d, pos+header_size, payload_size, level+1);
+				de_dbg_indent(c, -1);
 				break;
 			}
 		}
