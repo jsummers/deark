@@ -939,7 +939,7 @@ void dbuf_empty(dbuf *f)
 }
 
 // Search a section of a dbuf for a given byte sequence.
-// 'len' is the number of bytes to search in (the sequence must be completely
+// 'haystack_len' is the number of bytes to search in (the sequence must be completely
 // within that range, not just start there).
 // Returns 0 if not found.
 // If found, sets *foundpos to the position in the file where it was found

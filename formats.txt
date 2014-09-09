@@ -142,6 +142,10 @@ Deark -- Information about supported formats
   - Extract various things from "Photoshop resources"
   - Extract Exif data (use -extractall)
 
+* JPEG scan (module="jpegscan")
+  - This module tries to find and extract embedded JPEG files from
+    otherwise-unsupported formats. Use "-m jpegscan".
+
 * JPEG 2000 (module="jpeg2000")
   - Extract JPEG 2000 codestream from JP2/JPX/JPM formats.
   - Extract XML data.

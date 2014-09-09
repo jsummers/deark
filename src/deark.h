@@ -9,7 +9,7 @@
 #define de_gnuc_attribute(x)
 #endif
 
-#define DE_VERSION_NUMBER 0x01000002
+#define DE_VERSION_NUMBER 0x01000003
 
 #ifdef DE_WINDOWS
 

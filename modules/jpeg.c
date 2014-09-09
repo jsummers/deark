@@ -106,20 +106,32 @@ static void de_run_jpeg(deark *c, const char *params)
 	de_int64 pos;
 	de_int64 seg_size;
 	lctx *d = NULL;
+	int found_marker;
 
 	de_dbg(c, "In jpeg module\n");
 
 	d = de_malloc(c, sizeof(lctx));
 
 	pos = 0;
+	found_marker = 0;
 	while(1) {
 		if(pos>=c->infile->len)
 			break;
 		b = de_getbyte(pos);
 		if(b==0xff) {
+			found_marker = 1;
 			pos++;
 			continue;
 		}
+
+		if(!found_marker) {
+			// Not an 0xff byte, and not preceded by an 0xff byte. Just ignore it.
+			pos++;
+			continue;
+		}
+
+		found_marker = 0; // Reset this flag.
+
 		if(b==0xd8 || b==0x01) {
 			// SOI (or TMP) marker. These have no content.
 			pos++;
@@ -147,6 +159,93 @@ static void de_run_jpeg(deark *c, const char *params)
 	de_free(c, d);
 }
 
+// Returns 0 if this doesn't seem to be JPEG format.
+static de_int64 detect_jpeg_len(dbuf *f, de_int64 pos1, de_int64 len)
+{
+	de_byte b;
+	de_int64 pos;
+	de_int64 seg_size;
+	int found_marker;
+
+	pos = pos1;
+	found_marker = 0;
+
+	// TODO: There's a lot of code duplication between this function and
+	// de_run_jpeg(), but it's not clear if it would be better to
+	// consolidate it.
+
+	while(1) {
+		if(pos>=pos1+len)
+			break;
+		b = dbuf_getbyte(f, pos);
+
+		if(b==0xff) {
+			found_marker = 1;
+			pos++;
+			continue;
+		}
+
+		if(!found_marker) {
+			// Not an 0xff byte, and not preceded by an 0xff byte. Just ignore it.
+			pos++;
+			continue;
+		}
+
+		found_marker = 0; // Reset this flag.
+
+		if(b==0xd9) { // EOI. That's what we're looking for.
+			pos++;
+			return pos-pos1;
+		}
+
+		if((b>=0xd0 && b<=0xda) || b<=0x01) {
+			// Markers and pseudo-markers that have no content.
+			pos++;
+			continue;
+		}
+
+		pos++;
+		seg_size = dbuf_getui16be(f, pos);
+		if(pos<2) break; // bogus size
+
+		pos += seg_size;
+	}
+
+	return 0;
+}
+
+static void de_run_jpegscan(deark *c, const char *params)
+{
+	de_int64 pos = 0;
+	de_int64 foundpos = 0;
+	de_int64 len = 0;
+	int ret;
+
+	de_dbg(c, "In jpegscan module\n");
+
+	while(1) {
+		if(pos >= c->infile->len) break;
+
+		ret = dbuf_search(c->infile, (const de_byte*)"\xff\xd8\xff", 3,
+			pos, c->infile->len-pos, &foundpos);
+		if(!ret) break; // No more JPEGs in file.
+
+		de_dbg(c, "Found likely JPEG file at %d\n", (int)foundpos);
+
+		pos = foundpos;
+
+		len = detect_jpeg_len(c->infile, pos, c->infile->len-pos);
+		if(len>0) {
+			de_dbg(c, "length=%d\n", (int)len);
+			dbuf_create_file_from_slice(c->infile, pos, len, "jpg", NULL);
+			pos += len;
+		}
+		else {
+			pos++;
+		}
+	}
+}
+
 static int de_identify_jpeg(deark *c)
 {
 	de_byte b[3];
@@ -157,9 +256,21 @@ static int de_identify_jpeg(deark *c)
 	return 0;
 }
 
+static int de_identify_jpegscan(deark *c)
+{
+	return 0;
+}
+
 void de_module_jpeg(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "jpeg";
 	mi->run_fn = de_run_jpeg;
 	mi->identify_fn = de_identify_jpeg;
+}
+
+void de_module_jpegscan(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "jpegscan";
+	mi->run_fn = de_run_jpegscan;
+	mi->identify_fn = de_identify_jpegscan;
 }
