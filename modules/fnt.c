@@ -25,6 +25,10 @@ typedef struct localctx_struct {
 	de_int64 img_topmargin;
 	de_int64 img_hpixelsperchar;
 	de_int64 img_vpixelsperchar;
+
+	de_int64 dfPoints;
+	de_int64 dfFace; // Offset of font face name
+	char fn_token[64];
 } lctx;
 
 static void do_render_char(deark *c, lctx *d, struct deark_bitmap *img,
@@ -90,6 +94,7 @@ static void do_make_image(deark *c, lctx *d)
 	de_int64 img_width, img_height;
 	de_byte clr;
 	struct deark_bitmap *img = NULL;
+	const char *fn_token = NULL;
 
 	if(d->nominal_char_width>128 || d->char_height>128) {
 		de_err(c, "Font size too big. Not supported.\n");
@@ -133,9 +138,31 @@ static void do_make_image(deark *c, lctx *d)
 		do_render_char(c, d, img, d->first_char + i, char_width, char_offset);
 	}
 
-	de_bitmap_write_to_file(img, NULL);
+	if(de_strlen(d->fn_token)) {
+		fn_token = d->fn_token;
+	}
+	de_bitmap_write_to_file(img, fn_token);
+
 done:
 	de_bitmap_destroy(img);
+}
+
+static void read_face_name(deark *c, lctx *d)
+{
+	char facename_for_fn[50];
+	de_byte buf[50];
+
+	if(d->dfFace<1) return;
+
+	// The facename is terminated with a NUL byte.
+	// This will be handled by de_make_filename().
+	de_read(buf, d->dfFace, sizeof(buf));
+
+	de_make_filename(c, buf, sizeof(buf), facename_for_fn,
+		sizeof(facename_for_fn), DE_CONVFLAG_STOP_AT_NUL);
+
+	de_snprintf(d->fn_token, sizeof(d->fn_token), "%s-%d", facename_for_fn,
+		(int)d->dfPoints);
 }
 
 static void do_read_header(deark *c, lctx *d)
@@ -150,6 +177,11 @@ static void do_read_header(deark *c, lctx *d)
 	d->fnt_version = de_getui16le(0);
 	de_dbg(c, "dfVersion: 0x%04x\n", (int)d->fnt_version);
 
+	if(d->fnt_version<0x0200) {
+		de_err(c, "This version of FNT is not supported\n");
+		goto done;
+	}
+
 	if(d->fnt_version==0x0300)
 		d->hdrsize = 148;
 	else
@@ -162,8 +194,11 @@ static void do_read_header(deark *c, lctx *d)
 	de_dbg(c, "Font type: %s\n", is_vector?"vector":"bitmap");
 	if(is_vector) {
 		de_err(c, "This is a vector font. Not supported.\n");
-		return;
+		goto done;
 	}
+
+	d->dfPoints = de_getui16le(68);
+	de_dbg(c, "dfPoints: %d\n", (int)d->dfPoints);
 
 	dfPixWidth = de_getui16le(86);
 	de_dbg(c, "dfPixWidth: %d\n", (int)dfPixWidth);
@@ -184,6 +219,10 @@ static void do_read_header(deark *c, lctx *d)
 	d->first_char = de_getbyte(95);
 	d->last_char = de_getbyte(96);
 	de_dbg(c, "first char: %d, last char: %d\n", (int)d->first_char, (int)d->last_char);
+
+	if(d->fnt_version >= 0x0200) {
+		d->dfFace = de_getui32le(105);
+	}
 
 	d->num_chars_indexed = (de_int64)d->last_char - d->first_char + 1;
 	d->num_chars_stored = d->num_chars_indexed + 1;
@@ -208,7 +247,12 @@ static void do_read_header(deark *c, lctx *d)
 	}
 	d->char_height = dfPixHeight;
 
+	read_face_name(c, d);
+
 	do_make_image(c, d);
+
+done:
+	;
 }
 
 static void de_run_fnt(deark *c, const char *params)
@@ -228,7 +272,7 @@ static int de_identify_fnt(deark *c)
 	// TODO: Better format detection.
 	if(de_input_file_has_ext(c, "fnt")) {
 		ver = de_getui16le(0);
-		if(ver==0x0200 || ver==0x0300)
+		if(ver==0x0100 || ver==0x0200 || ver==0x0300)
 			return 10;
 	}
 	return 0;
