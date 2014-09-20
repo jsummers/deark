@@ -43,6 +43,7 @@ void de_register_modules(deark *c)
 	register_a_module(c, de_module_npm);
 	register_a_module(c, de_module_nlm);
 	register_a_module(c, de_module_nsl);
+	register_a_module(c, de_module_atr);
 	register_a_module(c, de_module_t64);
 	register_a_module(c, de_module_graspgl);
 	register_a_module(c, de_module_zlib);
@@ -51,6 +52,7 @@ void de_register_modules(deark *c)
 	register_a_module(c, de_module_xpuzzle);
 	register_a_module(c, de_module_grob);
 	register_a_module(c, de_module_jpegscan);
+	register_a_module(c, de_module_atari_cas);
 	register_a_module(c, de_module_copy);
 	register_a_module(c, de_module_unsupported);
 }

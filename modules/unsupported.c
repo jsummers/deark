@@ -118,6 +118,13 @@ static void get_fmt(deark *c, struct fmtinfo_struct *fmti)
 			return;
 		}
 	}
+
+	// Without this, RAF would be mis-identified as Atari CAS.
+	if(!de_memcmp(b, "FUJIFILMCCD-RAW", 15)) {
+		fmti->confidence = 100;
+		fmti->descr = "a Fujifilm RAF file";
+		return;
+	}
 }
 
 static void de_run_unsupported(deark *c, const char *params)

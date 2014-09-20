@@ -406,6 +406,10 @@
 				>
 			</File>
 			<File
+				RelativePath="..\..\modules\atari.c"
+				>
+			</File>
+			<File
 				RelativePath="..\..\modules\bsave.c"
 				>
 			</File>
