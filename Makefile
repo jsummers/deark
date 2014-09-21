@@ -25,7 +25,7 @@ OFILES_ALL:=$(OBJDIR)/src/deark-cmd.o $(OFILES_LIB) $(OFILES_MODS) \
 $(OBJDIR)/modules/fmtutil.o $(OBJDIR)/modules/exe.o \
  $(OBJDIR)/modules/jpeg.o $(OBJDIR)/modules/jpeg2000.o \
  $(OBJDIR)/modules/tiff.o $(OBJDIR)/modules/psd.o \
- $(OBJDIR)/modules/os2bmp.o: modules/fmtutil.h
+ $(OBJDIR)/modules/os2bmp.o $(OBJDIR)/modules/misc.o: modules/fmtutil.h
 
 $(OBJDIR)/src/deark-miniz.o: src/miniz.h
 $(OFILES_MODS) $(OBJDIR)/src/deark-modules.o: src/deark-modules.h

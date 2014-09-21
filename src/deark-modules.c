@@ -45,6 +45,7 @@ void de_register_modules(deark *c)
 	register_a_module(c, de_module_nsl);
 	register_a_module(c, de_module_atr);
 	register_a_module(c, de_module_t64);
+	register_a_module(c, de_module_mrw);
 	register_a_module(c, de_module_graspgl);
 	register_a_module(c, de_module_zlib);
 	register_a_module(c, de_module_bsave);

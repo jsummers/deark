@@ -154,6 +154,9 @@ Deark -- Information about supported formats
   - Extract Exif data (use -extractall) (nonstandard; partial support)
   - Extract various things from "Photoshop resources".
 
+* MRW (Minolta RAW) (module="mrw")
+  - Extract Exif data (use -extractall)
+
 * OS/2 Bitmap Array format (module="os2bmp")
   - BMP images are extracted (pointers/cursors are converted)
 

@@ -6,6 +6,7 @@
 
 #include <deark-config.h>
 #include <deark-modules.h>
+#include "fmtutil.h"
 
 // **************************************************************************
 // "copy" module
@@ -258,4 +259,51 @@ void de_module_dcx(deark *c, struct deark_module_info *mi)
 	mi->id = "dcx";
 	mi->run_fn = de_run_dcx;
 	mi->identify_fn = de_identify_dcx;
+}
+
+// **************************************************************************
+// Minolta RAW (MRW)
+// **************************************************************************
+
+static void do_mrw_seg_list(deark *c, de_int64 pos1, de_int64 len)
+{
+	de_int64 pos;
+	de_byte seg_id[4];
+	de_int64 data_len;
+
+	pos = pos1;
+	while(pos < pos1+len) {
+		de_read(seg_id, pos, 4);
+		data_len = de_getui32be(pos+4);
+		pos+=8;
+		if(pos+data_len > pos1+len) break;
+		if(!de_memcmp(seg_id, "\0TTW", 4)) { // Exif
+			de_fmtutil_handle_exif(c, pos, data_len);
+		}
+		pos+=data_len;
+	}
+}
+
+static void de_run_mrw(deark *c, const char *params)
+{
+	de_int64 mrw_seg_size;
+
+	mrw_seg_size = de_getui32be(4);
+	do_mrw_seg_list(c, 8, mrw_seg_size);
+}
+
+static int de_identify_mrw(deark *c)
+{
+	de_byte b[4];
+	de_read(b, 0, 4);
+	if(!de_memcmp(b, "\x00\x4d\x52\x4d", 4))
+		return 100;
+	return 0;
+}
+
+void de_module_mrw(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "mrw";
+	mi->run_fn = de_run_mrw;
+	mi->identify_fn = de_identify_mrw;
 }
