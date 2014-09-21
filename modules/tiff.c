@@ -119,6 +119,45 @@ static void do_oldjpeg(deark *c, lctx *d, de_int64 jpegoffset, de_int64 jpegleng
 	dbuf_create_file_from_slice(c->infile, jpegoffset, jpeglength, extension, NULL);
 }
 
+static void do_leaf_metadata(deark *c, lctx *d, de_int64 pos1, de_int64 len)
+{
+	de_int64 pos;
+	de_byte buf[4];
+	de_byte segtype[40];
+	de_int64 data_len;
+
+	if(len<1) return;
+	if(pos1+len > c->infile->len) return;
+	de_dbg(c, "leaf metadata at %d size=%d\n", (int)pos1, (int)len);
+
+	// This format appears to be hierarchical, but for now we only care about
+	// the top level.
+
+	pos = pos1;
+	while(pos < pos1+len) {
+		de_read(buf, pos, 4);
+		if(de_memcmp(buf, "PKTS", 4)) {
+			break;
+		}
+		pos+=4;
+		
+		pos+=4; // Don't know what these 4 bytes are for.
+
+		de_read(segtype, pos, 40);
+		pos+=40;
+
+		// TODO: Is this always big-endian?
+		data_len = de_getui32be(pos);
+		pos+=4;
+
+		if(!de_memcmp(segtype, "JPEG_preview_data\0", 18)) {
+			de_dbg(c, "jpeg preview at %d len=%d\n", (int)pos, (int)data_len);
+			dbuf_create_file_from_slice(c->infile, pos, data_len, "leafthumb.jpg", NULL);
+		}
+		pos += data_len;
+	}
+}
+
 static void process_ifd(deark *c, lctx *d, de_int64 ifdpos)
 {
 	int num_tags;
@@ -210,6 +249,10 @@ static void process_ifd(deark *c, lctx *d, de_int64 ifdpos)
 			if(c->extract_level>=2 && total_size>0) {
 				dbuf_create_file_from_slice(c->infile, val_offset, total_size, "iptc", NULL);
 			}
+			break;
+
+		case 34310: // Leaf MOS metadata / "PKTS"
+			do_leaf_metadata(c, d, val_offset, total_size);
 			break;
 
 		case 34377: // Photoshop
