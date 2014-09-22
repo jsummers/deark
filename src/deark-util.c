@@ -723,7 +723,9 @@ int de_run_module(deark *c, struct deark_module_info *mi, const char *params)
 {
 	if(!mi) return 0;
 	if(!mi->run_fn) return 0;
+	c->module_nesting_level++;
 	mi->run_fn(c, params);
+	c->module_nesting_level--;
 	return 1;
 }
 
@@ -1467,6 +1469,9 @@ void de_finfo_set_name_from_ucstring(deark *c, de_finfo *fi, de_ucstring *s)
 
 void de_declare_fmt(deark *c, const char *fmtname)
 {
+	if(c->module_nesting_level > 1) {
+		return; // Only allowed for the top-level module
+	}
 	if(c->format_declared) return;
 	de_msg(c, "Format: %s\n", fmtname);
 	c->format_declared = 1;

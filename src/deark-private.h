@@ -81,6 +81,7 @@ struct deark_option {
 
 struct deark_struct {
 	int debug_level;
+	int module_nesting_level;
 	void *userdata;
 	const char *input_filename;
 

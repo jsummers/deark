@@ -11,6 +11,13 @@
 
 #define TAGTYPE_UINT32 4
 
+#define DE_TIFFFMT_TIFF       1
+#define DE_TIFFFMT_BIGTIFF    2
+#define DE_TIFFFMT_PANASONIC  3 // Panasonic RAW / RW2
+#define DE_TIFFFMT_ORF        4 // Olympus RAW
+#define DE_TIFFFMT_DCP        5 // DNG Camera Profile (DCP)
+#define DE_TIFFFMT_MDI        6 // Microsoft Office Document Imaging
+
 struct ifdstack_item {
 	de_int64 offset;
 };
@@ -18,6 +25,7 @@ struct ifdstack_item {
 typedef struct localctx_struct {
 	int is_le;
 	int is_bigtiff;
+	int fmt;
 
 	struct ifdstack_item *ifdstack;
 	int ifdstack_capacity;
@@ -177,6 +185,11 @@ static void process_ifd(deark *c, lctx *d, de_int64 ifdpos)
 
 	de_dbg(c, "processing TIFF IFD at %d\n", (int)ifdpos);
 
+	if(ifdpos >= c->infile->len || ifdpos<8) {
+		de_warn(c, "Invalid IFD offset (%d)\n", (int)ifdpos);
+		return;
+	}
+
 	if(d->is_bigtiff) {
 		ifdhdrsize = 8;
 		ifditemsize = 20;
@@ -297,9 +310,54 @@ static void do_tiff(deark *c, lctx *d)
 	}
 }
 
+static int de_identify_tiff_internal(deark *c, int *is_le)
+{
+	de_int64 byte_order_sig;
+	de_int64 magic;
+	int fmt = 0;
+
+	byte_order_sig = de_getui16be(0);
+	*is_le = (byte_order_sig == 0x4d4d) ? 0 : 1;
+
+	if(*is_le)
+		magic = de_getui16le(2);
+	else
+		magic = de_getui16be(2);
+
+	if(byte_order_sig==0x4550 && magic==0x002a) {
+		fmt = DE_TIFFFMT_MDI;
+	}
+	else if(byte_order_sig==0x4d4d || byte_order_sig==0x4949) {
+
+		switch(magic) {
+		case 0x002a: // Standard TIFF
+			fmt = DE_TIFFFMT_TIFF;
+			break;
+		case 0x002b:
+			fmt = DE_TIFFFMT_BIGTIFF;
+			break;
+		case 0x0055:
+			fmt = DE_TIFFFMT_PANASONIC;
+			break;
+
+		//case 0x01bc: // JPEG-XR
+		//case 0x314e: // NIFF
+
+		case 0x4352:
+			fmt = DE_TIFFFMT_DCP;
+			break;
+		case 0x4f52:
+		case 0x5352:
+			fmt = DE_TIFFFMT_ORF;
+			break;
+		}
+	}
+
+	return fmt;
+}
+
 static void de_run_tiff(deark *c, const char *params)
 {
-	de_byte b0, b1;
 	lctx *d = NULL;
 
 	de_dbg(c, "In tiff module\n");
@@ -307,14 +365,35 @@ static void de_run_tiff(deark *c, const char *params)
 
 	d->params = params;
 
-	b0 = de_getbyte(2);
-	b1 = de_getbyte(3);
+	d->fmt = de_identify_tiff_internal(c, &d->is_le);
 
-	if(b0==0x2a) { d->is_le = 1; }
-	else if(b0==0x2b) { d->is_le = 1; d->is_bigtiff = 1; }
-	else if(b1==0x2b) { d->is_bigtiff = 1; }
+	switch(d->fmt) {
+	case DE_TIFFFMT_TIFF:
+		de_declare_fmt(c, "TIFF");
+		break;
+	case DE_TIFFFMT_BIGTIFF:
+		de_declare_fmt(c, "BigTIFF");
+		d->is_bigtiff = 1;
+		break;
+	case DE_TIFFFMT_PANASONIC:
+		de_declare_fmt(c, "Panasonic RAW/RW2");
+		break;
+	case DE_TIFFFMT_ORF:
+		de_declare_fmt(c, "Olympus RAW");
+		break;
+	case DE_TIFFFMT_DCP:
+		de_declare_fmt(c, "DNG Camera Profile");
+		break;
+	case DE_TIFFFMT_MDI:
+		de_declare_fmt(c, "MDI");
+		break;
+	}
 
 	dbuf_set_endianness(c->infile, d->is_le);
+
+	if(d->fmt==0) {
+		de_warn(c, "This is not a known/supported TIFF or TIFF-like format.\n");
+	}
 
 	do_tiff(c, d);
 
@@ -327,17 +406,11 @@ static void de_run_tiff(deark *c, const char *params)
 
 static int de_identify_tiff(deark *c)
 {
-	de_byte b[8];
-	de_read(b, 0, 8);
+	int fmt;
+	int is_le;
 
-	if(!de_memcmp(b, "MM\x00\x2a", 4)) // big-endian
-		return 100;
-	if(!de_memcmp(b, "II\x2a\x00", 4)) // little-endian
-		return 100;
-	if(!de_memcmp(b, "MM\x00\x2b\x00\x08\x00\x00", 8)) // big-endian bigtiff
-		return 100;
-	if(!de_memcmp(b, "II\x2b\x00\x08\x00\x00\x00", 8)) // little-endian bigtiff
-		return 100;
+	fmt = de_identify_tiff_internal(c, &is_le);
+	if(fmt!=0) return 100;
 	return 0;
 }
 
