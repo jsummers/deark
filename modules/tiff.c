@@ -244,6 +244,13 @@ static void process_ifd(deark *c, lctx *d, de_int64 ifdpos)
 			}
 			break;
 
+		case 46:
+			if(d->fmt==DE_TIFFFMT_PANASONIC) {
+				// Some Panasonic RAW files have a JPEG file in tag 46.
+				dbuf_create_file_from_slice(c->infile, val_offset, total_size, "thumb.jpg", NULL);
+			}
+			break;
+
 		case 513: // JPEGInterchangeFormat
 			if(unit_size!=offsetsize || valcount<1) break;
 			jpegoffset = getfpos(c, d, val_offset);
