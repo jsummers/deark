@@ -41,3 +41,4 @@ void de_module_t64(deark *c, struct deark_module_info *mi);
 void de_module_atari_cas(deark *c, struct deark_module_info *mi);
 void de_module_atr(deark *c, struct deark_module_info *mi);
 void de_module_mrw(deark *c, struct deark_module_info *mi);
+void de_module_cardfile(deark *c, struct deark_module_info *mi);

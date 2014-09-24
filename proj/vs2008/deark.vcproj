@@ -414,6 +414,10 @@
 				>
 			</File>
 			<File
+				RelativePath="..\..\modules\cardfile.c"
+				>
+			</File>
+			<File
 				RelativePath="..\..\modules\epocimage.c"
 				>
 			</File>

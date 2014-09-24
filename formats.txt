@@ -31,6 +31,9 @@ Deark -- Information about supported formats
    -opt bsave:fmt=2col  - 2-color noninterlaced (experimental)
    -opt bsave:fmt=4col  - 4-color noninterlaced (experimental)
 
+* Cardfile (module="cardfile")
+  - Partial support. MGC format only.
+
 * EPOC MBM/Sketch/AIF (module="epocimage")
   - Supports grayscale with 2 or 4 bits/pixel
   - Supports palette color with 4 or 8 bits/pixel
