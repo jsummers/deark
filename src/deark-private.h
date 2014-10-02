@@ -114,6 +114,7 @@ struct deark_struct {
 	int write_bom;
 
 	de_msgfn_type msgfn; // Caller's message output function
+	de_fatalerrorfn_type fatalerrorfn;
 
 	void *zip_file;
 

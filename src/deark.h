@@ -86,6 +86,10 @@ const char *de_get_option(deark *c, const char *name);
 typedef void (*de_msgfn_type)(deark *c, int msgtype, const char *s);
 void de_set_messages_callback(deark *c, de_msgfn_type fn);
 
+typedef void (*de_fatalerrorfn_type)(deark *c);
+// The caller's fatalerror callback is not expected to return.
+void de_set_fatalerror_callback(deark *c, de_fatalerrorfn_type fn);
+
 void de_set_input_format(deark *c, const char *fmtname);
 
 #define DE_OUTPUTSTYLE_DIRECT 0

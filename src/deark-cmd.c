@@ -58,6 +58,12 @@ static void our_msgfn(deark *c, int msgtype, const char *s)
 #endif
 }
 
+static void our_fatalerrorfn(deark *c)
+{
+	de_puts(c, DE_MSGTYPE_MESSAGE, "exiting\n");
+	exit(1);
+}
+
 static void set_option(deark *c, struct cmdctx *cc, const char *optionstring)
 {
 	char *tmp;
@@ -194,6 +200,7 @@ static void main2(int argc, char **argv)
 
 	c = de_create();
 	de_set_userdata(c, (void*)cc);
+	de_set_fatalerror_callback(c, our_fatalerrorfn);
 	de_set_messages_callback(c, our_msgfn);
 
 	parse_cmdline(c, cc, argc, argv);

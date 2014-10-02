@@ -221,6 +221,9 @@ void de_msg(deark *c, const char *fmt, ...)
 // c can be NULL.
 void de_fatalerror(deark *c)
 {
+	if(c && c->fatalerrorfn) {
+		c->fatalerrorfn(c);
+	}
 	exit(1);
 }
 
@@ -324,6 +327,11 @@ void *de_get_userdata(deark *c)
 void de_set_messages_callback(deark *c, de_msgfn_type fn)
 {
 	c->msgfn = fn;
+}
+
+void de_set_fatalerror_callback(deark *c, de_fatalerrorfn_type fn)
+{
+	c->fatalerrorfn = fn;
 }
 
 void de_set_base_output_filename(deark *c, const char *fn)
