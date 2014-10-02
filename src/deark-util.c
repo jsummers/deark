@@ -395,8 +395,16 @@ void dbuf_read(dbuf *f, de_byte *buf, de_int64 pos, de_int64 len)
 			return;
 		}
 
-		fseek(f->fp, (long)(pos), SEEK_SET);
+		// For performance reasons, don't call fseek if we're already at the
+		// right position.
+		if(!f->file_pos_known || f->file_pos!=pos) {
+			fseek(f->fp, (long)(pos), SEEK_SET);
+		}
+
 		bytes_read = fread(buf, 1, (size_t)bytes_to_read, f->fp);
+
+		f->file_pos = pos + bytes_read;
+		f->file_pos_known = 1;
 		break;
 
 	case DBUF_TYPE_DBUF:

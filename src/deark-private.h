@@ -40,6 +40,9 @@ struct dbuf_struct {
 	de_int64 len;
 	int is_little_endian; // Flag that changes the behavior of some functions
 
+	int file_pos_known;
+	de_int64 file_pos;
+
 	struct dbuf_struct *parent_dbuf; // used for DBUF_TYPE_DBUF
 	de_int64 offset_into_parent_dbuf; // used for DBUF_TYPE_DBUF
 
