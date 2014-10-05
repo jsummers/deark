@@ -187,6 +187,9 @@ Deark -- Information about supported formats
   - Extract data from "Photoshop resources".
   - Extract IPTC data (use -extractall).
 
+* Winzle (module=winzle)
+  - Convert Winzle obfuscated BMP (.wzl) to BMP.
+
 * ZIP (module="zip")
   - Does not extract files, only comments.
   - Extract main ZIP file comment.

@@ -206,6 +206,52 @@ void de_module_xpuzzle(deark *c, struct deark_module_info *mi)
 }
 
 // **************************************************************************
+// Winzle! puzzle image
+// **************************************************************************
+
+static void de_run_winzle(deark *c, const char *params)
+{
+	de_byte buf[256];
+	de_int64 xorsize;
+	de_int64 i;
+	dbuf *f = NULL;
+
+	xorsize = c->infile->len >= 256 ? 256 : c->infile->len;
+	de_read(buf, 0, xorsize);
+	for(i=0; i<xorsize; i++) {
+		buf[i] ^= 0x0d;
+	}
+
+	f = dbuf_create_output_file(c, "bmp", NULL);
+	dbuf_write(f, buf, xorsize);
+	if(c->infile->len > 256) {
+		dbuf_copy(c->infile, 256, c->infile->len - 256, f);
+	}
+	dbuf_close(f);
+}
+
+static int de_identify_winzle(deark *c)
+{
+	de_byte b[18];
+	de_read(b, 0, sizeof(b));
+
+	if(b[0]==0x4f && b[1]==0x40) {
+		if(b[14]==0x25 && b[15]==0x0d && b[16]==0x0d && b[17]==0x0d) {
+			return 95;
+		}
+		return 40;
+	}
+	return 0;
+}
+
+void de_module_winzle(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "winzle";
+	mi->run_fn = de_run_winzle;
+	mi->identify_fn = de_identify_winzle;
+}
+
+// **************************************************************************
 // DCX
 // **************************************************************************
 

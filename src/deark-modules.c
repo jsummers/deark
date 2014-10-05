@@ -53,8 +53,9 @@ void de_register_modules(deark *c)
 	register_a_module(c, de_module_zip);
 	register_a_module(c, de_module_xpuzzle);
 	register_a_module(c, de_module_grob);
-	register_a_module(c, de_module_jpegscan);
 	register_a_module(c, de_module_atari_cas);
+	register_a_module(c, de_module_winzle);
+	register_a_module(c, de_module_jpegscan);
 	register_a_module(c, de_module_copy);
 	register_a_module(c, de_module_unsupported);
 }
