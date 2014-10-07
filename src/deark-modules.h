@@ -43,3 +43,4 @@ void de_module_atr(deark *c, struct deark_module_info *mi);
 void de_module_mrw(deark *c, struct deark_module_info *mi);
 void de_module_cardfile(deark *c, struct deark_module_info *mi);
 void de_module_winzle(deark *c, struct deark_module_info *mi);
+void de_module_bob(deark *c, struct deark_module_info *mi);

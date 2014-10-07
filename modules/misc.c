@@ -353,3 +353,63 @@ void de_module_mrw(deark *c, struct deark_module_info *mi)
 	mi->run_fn = de_run_mrw;
 	mi->identify_fn = de_identify_mrw;
 }
+
+// **************************************************************************
+// "Bob" bitmap image
+// Used by the Bob ray tracer.
+// **************************************************************************
+
+static void de_run_bob(deark *c, const char *params)
+{
+	struct deark_bitmap *img = NULL;
+	de_int64 w, h;
+	de_int64 i, j;
+	de_uint32 pal[256];
+	de_int64 p;
+
+	de_dbg(c, "In bob module\n");
+
+	w = de_getui16le(0);
+	h = de_getui16le(2);
+	img = de_bitmap_create(c, w, h, 3);
+
+	// Read the palette
+	de_memset(pal, 0, sizeof(pal));
+	p = 4;
+	for(i=0; i<256; i++) {
+		pal[i] = DE_MAKE_RGB(de_getbyte(p), de_getbyte(p+1), de_getbyte(p+2));
+		p+=3;
+	}
+
+	// Read the bitmap
+	for(j=0; j<h; j++) {
+		for(i=0; i<w; i++) {
+			de_bitmap_setpixel_rgb(img, i, j, pal[de_getbyte(p+w*j+i)]);
+		}
+	}
+
+	de_bitmap_write_to_file(img, NULL);
+
+	de_bitmap_destroy(img);
+}
+
+static int de_identify_bob(deark *c)
+{
+	de_int64 w, h;
+
+	if(!de_input_file_has_ext(c, "bob")) return 0;
+
+	w = de_getui16le(0);
+	h = de_getui16le(2);
+	if(c->infile->len == 4 + 768 + w*h) {
+		return 100;
+	}
+	return 0;
+}
+
+void de_module_bob(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "bob";
+	mi->run_fn = de_run_bob;
+	mi->identify_fn = de_identify_bob;
+}
