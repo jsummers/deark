@@ -371,6 +371,7 @@ static void de_run_bob(deark *c, const char *params)
 
 	w = de_getui16le(0);
 	h = de_getui16le(2);
+	if(!de_good_image_dimensions(c, w, h)) goto done;
 	img = de_bitmap_create(c, w, h, 3);
 
 	// Read the palette
@@ -390,6 +391,7 @@ static void de_run_bob(deark *c, const char *params)
 
 	de_bitmap_write_to_file(img, NULL);
 
+done:
 	de_bitmap_destroy(img);
 }
 
@@ -412,4 +414,98 @@ void de_module_bob(deark *c, struct deark_module_info *mi)
 	mi->id = "bob";
 	mi->run_fn = de_run_bob;
 	mi->identify_fn = de_identify_bob;
+}
+
+// **************************************************************************
+// Vivid .img bitmap image
+// Used by the Vivid ray tracer.
+// **************************************************************************
+
+static void de_run_vivid(deark *c, const char *params)
+{
+	struct deark_bitmap *img = NULL;
+	de_int64 w, h;
+	de_int64 i;
+	de_int64 pos;
+	de_int64 firstline;
+	de_int64 depth;
+	de_int64 xpos, ypos;
+	de_int64 runlen;
+	de_byte r, g, b;
+	de_uint32 clr;
+
+	de_dbg(c, "In vivid module\n");
+
+	w = de_getui16be(0);
+	h = de_getui16be(2);
+	firstline = de_getui16be(4);
+	depth = de_getui16be(8);
+
+	if(!de_good_image_dimensions(c, w, h)) goto done;
+	if(firstline >= h) goto done;
+	if(depth!=24) {
+		de_err(c, "Unsupported image type\n");
+		goto done;
+	}
+
+	img = de_bitmap_create(c, w, h, 3);
+
+	pos = 10;
+	xpos = 0;
+	// I don't know for sure what to do with the "first scanline" field, in the
+	// unlikely event it is not 0. The documentation doesn't say.
+	ypos = firstline;
+	while(1) {
+		if(pos+4 > c->infile->len) {
+			break; // EOF
+		}
+		runlen = (de_int64)de_getbyte(pos);
+		b = de_getbyte(pos+1);
+		g = de_getbyte(pos+2);
+		r = de_getbyte(pos+3);
+		pos+=4;
+		clr = DE_MAKE_RGB(r, g, b);
+
+		for(i=0; i<runlen; i++) {
+			de_bitmap_setpixel_rgb(img, xpos, ypos, clr);
+			xpos++; // Runs are not allowed to span rows
+		}
+
+		if(xpos >= w) {
+			xpos=0;
+			ypos++;
+		}
+	}
+
+	de_bitmap_write_to_file(img, NULL);
+done:
+	de_bitmap_destroy(img);
+}
+
+static int de_identify_vivid(deark *c)
+{
+	de_int64 w, h, firstline, lastline, depth;
+
+	if(!de_input_file_has_ext(c, "img")) return 0;
+
+	w = de_getui16be(0);
+	h = de_getui16be(2);
+	firstline = de_getui16be(4);
+	lastline = de_getui16be(6);
+	depth = de_getui16be(8);
+
+	if(depth!=24) return 0;
+	if(firstline>lastline) return 0;
+	// 'lastline' should usually be h-1, but XnView apparently sets it to h.
+	if(firstline>h-1 || lastline>h) return 0;
+	if(w>DE_MAX_IMAGE_DIMENSION || h>DE_MAX_IMAGE_DIMENSION) return 0;
+	if(w<1 || h<1) return 0;
+	return 30;
+}
+
+void de_module_vivid(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "vivid";
+	mi->run_fn = de_run_vivid;
+	mi->identify_fn = de_identify_vivid;
 }
