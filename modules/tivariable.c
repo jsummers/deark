@@ -114,22 +114,22 @@ done:
 	;
 }
 
-static void de_run_tibitmap(deark *c, const char *params)
+static void de_run_tivariable(deark *c, const char *params)
 {
 	lctx *d = NULL;
 
-	de_dbg(c, "In tibitmap module\n");
+	de_dbg(c, "In tivariable module\n");
 	d = de_malloc(c, sizeof(lctx));
 	d->fmt = identify_internal(c);
 	switch(d->fmt) {
 	case DE_FMT_TI92:
-		de_declare_fmt(c, "TI92 bitmap");
+		de_declare_fmt(c, "TI92 variable file");
 		break;
 	case DE_FMT_TI89:
-		de_declare_fmt(c, "TI89 bitmap");
+		de_declare_fmt(c, "TI89 variable file");
 		break;
 	case DE_FMT_TI92P:
-		de_declare_fmt(c, "TI92P bitmap");
+		de_declare_fmt(c, "TI92P variable file");
 		break;
 	}
 
@@ -137,15 +137,15 @@ static void de_run_tibitmap(deark *c, const char *params)
 	de_free(c, d);
 }
 
-static int de_identify_tibitmap(deark *c)
+static int de_identify_tivariable(deark *c)
 {
 	if(identify_internal(c)!=0) return 100;
 	return 0;
 }
 
-void de_module_tibitmap(deark *c, struct deark_module_info *mi)
+void de_module_tivariable(deark *c, struct deark_module_info *mi)
 {
-	mi->id = "tibitmap";
-	mi->run_fn = de_run_tibitmap;
-	mi->identify_fn = de_identify_tibitmap;
+	mi->id = "tivariable";
+	mi->run_fn = de_run_tivariable;
+	mi->identify_fn = de_identify_tivariable;
 }

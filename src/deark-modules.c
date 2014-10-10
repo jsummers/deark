@@ -43,7 +43,7 @@ void de_register_modules(deark *c)
 	register_a_module(c, de_module_npm);
 	register_a_module(c, de_module_nlm);
 	register_a_module(c, de_module_nsl);
-	register_a_module(c, de_module_tibitmap);
+	register_a_module(c, de_module_tivariable);
 	register_a_module(c, de_module_atr);
 	register_a_module(c, de_module_t64);
 	register_a_module(c, de_module_mrw);
