@@ -48,7 +48,7 @@ static int do_bitmap(deark *c, lctx *d, de_int64 pos)
 	rowspan = (d->w+7)/8;
 
 	if(pos+rowspan*d->h > c->infile->len) {
-		de_err(c, "File too small. This is probably not a TI bitmap file.\n");
+		de_err(c, "Unexpected end of file\n");
 		goto done;
 	}
 	if(!de_good_image_dimensions(c, d->w, d->h)) goto done;
@@ -57,6 +57,47 @@ static int do_bitmap(deark *c, lctx *d, de_int64 pos)
 
 	for(j=0; j<d->h; j++) {
 		de_convert_row_bilevel(c->infile, pos+j*rowspan, img, j, DE_CVTR_WHITEISZERO);
+	}
+
+	de_bitmap_write_to_file(img, NULL);
+	retval = 1;
+done:
+	de_bitmap_destroy(img);
+	return retval;
+}
+
+static int do_color_bitmap(deark *c, lctx *d, de_int64 pos)
+{
+	struct deark_bitmap *img = NULL;
+	de_int64 i;
+	de_int64 j;
+	de_int64 rowspan;
+	int retval = 0;
+	de_byte b0, b1;
+	de_uint32 clr;
+
+	de_dbg(c, "dimensions: %dx%d\n", (int)d->w, (int)d->h);
+
+	rowspan = (((d->w * 16)+31)/32)*4; // Uses 4-byte alignment, apparently
+
+	if(pos+rowspan*d->h > c->infile->len) {
+		de_err(c, "Unexpected end of file\n");
+		goto done;
+	}
+	if(!de_good_image_dimensions(c, d->w, d->h)) goto done;
+
+	img = de_bitmap_create(c, d->w, d->h, 3);
+	img->flipped = 1;
+
+	for(j=0; j<d->h; j++) {
+		for(i=0; i<d->w; i++) {
+			b0 = de_getbyte(pos + j*rowspan + i*2);
+			b1 = de_getbyte(pos + j*rowspan + i*2 + 1);
+			clr = (((de_uint32)b1)<<8) | b0;
+			clr = de_rgb565_to_888(clr);
+			de_bitmap_setpixel_rgb(img, i, j, clr);
+		}
+
 	}
 
 	de_bitmap_write_to_file(img, NULL);
@@ -76,6 +117,16 @@ static int do_ti83_picture_var(deark *c, lctx *d, de_int64 pos)
 	d->w = 95;
 	d->h = 63;
 	return do_bitmap(c, d, pos+2);
+}
+
+static int do_ti83c_picture_var(deark *c, lctx *d, de_int64 pos)
+{
+	// Try to support a type of color image (.8ca).
+	// This code may not be correct.
+	de_dbg(c, "picture at %d\n", (int)pos);
+	d->w = 133;
+	d->h = 83;
+	return do_color_bitmap(c, d, pos+3);
 }
 
 static int do_ti85_picture_var(deark *c, lctx *d, de_int64 pos)
@@ -156,6 +207,9 @@ static void do_ti83(deark *c, lctx *d)
 		if(type_id==0x07) { // guess
 			do_ti83_picture_var(c, d, pos);
 		}
+		else if(type_id==0x1a) {
+			do_ti83c_picture_var(c, d, pos);
+		}
 
 		pos += var_data_size;
 	}
@@ -216,6 +270,7 @@ static void do_ti85(deark *c, lctx *d)
 					if(!warned) {
 						de_warn(c, "This TI86 file appears to use TI85 variable name format "
 							"instead of TI86 format. Trying to continue.\n");
+						warned = 1;
 					}
 					name_field_len = name_len_reported;
 				}

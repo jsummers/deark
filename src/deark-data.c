@@ -255,6 +255,19 @@ de_byte de_palette_sample_6_to_8bit(de_byte samp)
 	return (de_byte)(0.5+((((double)samp)/63.0)*255.0));
 }
 
+de_uint32 de_rgb565_to_888(de_uint32 n)
+{
+	de_byte cr, cg, cb;
+	cr = (de_byte)(n>>11);
+	cg = (de_byte)((n>>5)&0x3f);
+	cb = (de_byte)(n&0x1f);
+	cr = (de_byte)(0.5+((double)cr)*(255.0/31.0));
+	cg = (de_byte)(0.5+((double)cg)*(255.0/63.0));
+	cb = (de_byte)(0.5+((double)cb)*(255.0/31.0));
+	return DE_MAKE_RGB(cr, cg, cb);
+}
+
+
 // s1 is not NUL terminated, but s2 will be.
 // s2_size includes the NUL terminator.
 void de_make_printable_ascii(de_byte *s1, de_int64 s1_len,

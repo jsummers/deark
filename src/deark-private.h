@@ -341,6 +341,7 @@ de_uint32 de_palette_pcpaint_cga4(int palnum, int index);
 void de_color_to_css(de_uint32 color, char *buf, int buflen);
 
 de_byte de_palette_sample_6_to_8bit(de_byte samp);
+de_uint32 de_rgb565_to_888(de_uint32 n);
 
 de_int32 de_cp437g_to_unicode(deark *c, int a);
 de_int32 de_cp437c_to_unicode(deark *c, int a);

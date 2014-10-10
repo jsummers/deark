@@ -52,18 +52,6 @@ typedef struct localctx_struct {
 	int warned_exp;
 } lctx;
 
-static de_uint32 rgb565to888(de_uint32 n)
-{
-	de_byte cr, cg, cb;
-	cr = (de_byte)(n>>11);
-	cg = (de_byte)((n>>5)&0x3f);
-	cb = (de_byte)(n&0x1f);
-	cr = (de_byte)(0.5+((double)cr)*(255.0/31.0));
-	cg = (de_byte)(0.5+((double)cg)*(255.0/63.0));
-	cb = (de_byte)(0.5+((double)cb)*(255.0/31.0));
-	return DE_MAKE_RGB(cr, cg, cb);
-}
-
 static struct deark_bitmap *do_create_image(deark *c, lctx *d, dbuf *unc_pixels, int is_mask)
 {
 	struct deark_bitmap *img = NULL;
@@ -127,7 +115,7 @@ static struct deark_bitmap *do_create_image(deark *c, lctx *d, dbuf *unc_pixels,
 					clr = DE_MAKE_RGB(cr, cr, cr);
 				}
 				else {
-					clr = rgb565to888(n);
+					clr = de_rgb565_to_888(n);
 				}
 				de_bitmap_setpixel_rgb(img, i, j, clr);
 				break;
