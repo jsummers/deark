@@ -13,6 +13,8 @@ typedef struct localctx_struct {
 #define DE_FMT_TI83F 5
 #define DE_FMT_TI82  6
 #define DE_FMT_TI73  7
+#define DE_FMT_TI85  8
+#define DE_FMT_TI86  9
 #define DE_FMT_TI_UNKNOWN 100
 	int fmt;
 } lctx;
@@ -26,6 +28,8 @@ static int identify_internal(deark *c)
 	if(!de_memcmp(buf, "**TI82**", 8)) return DE_FMT_TI82;
 	if(!de_memcmp(buf, "**TI83**", 8)) return DE_FMT_TI83;
 	if(!de_memcmp(buf, "**TI83F*", 8)) return DE_FMT_TI83F;
+	if(!de_memcmp(buf, "**TI85**", 8)) return DE_FMT_TI85;
+	if(!de_memcmp(buf, "**TI86**", 8)) return DE_FMT_TI86;
 	if(!de_memcmp(buf, "**TI89**", 8)) return DE_FMT_TI89;
 	if(!de_memcmp(buf, "**TI92**", 8)) return DE_FMT_TI92;
 	if(!de_memcmp(buf, "**TI92P*", 8)) return DE_FMT_TI92P;
@@ -70,6 +74,18 @@ static int do_ti83_picture_var(deark *c, lctx *d, de_int64 pos)
 	x = de_getui16le(pos);
 	de_dbg(c, "picture size: %d\n", (int)x);
 	d->w = 95;
+	d->h = 63;
+	return do_bitmap(c, d, pos+2);
+}
+
+static int do_ti85_picture_var(deark *c, lctx *d, de_int64 pos)
+{
+	de_int64 x;
+
+	de_dbg(c, "picture at %d\n", (int)pos);
+	x = de_getui16le(pos);
+	de_dbg(c, "picture size: %d\n", (int)x);
+	d->w = 128;
 	d->h = 63;
 	return do_bitmap(c, d, pos+2);
 }
@@ -148,6 +164,91 @@ done:
 	;
 }
 
+static void do_ti85(deark *c, lctx *d)
+{
+	de_int64 pos;
+	de_int64 data_section_size;
+	de_int64 data_section_end;
+	de_int64 var_data_size;
+	de_int64 name_len_reported;
+	de_int64 name_field_len;
+	de_byte type_id;
+	de_int64 x1, x2;
+	int warned = 0;
+
+	// 0-7: signature
+	// 8-10: 0x1a 0x0a 0x00
+	// 11-52: comment
+
+	data_section_size = de_getui16le(53);
+	de_dbg(c, "data section size: %d\n", (int)data_section_size);
+	data_section_end = 55+data_section_size;
+	if(data_section_end > c->infile->len) {
+		de_err(c, "Data section goes beyond end of file\n");
+		goto done;
+	}
+
+	// Read the variables
+	pos = 55;
+	while(pos < data_section_end) {
+		if(data_section_end - pos < 8) {
+			de_warn(c, "Invalid variable entry size. This file may not have been processed correctly.\n");
+			break;
+		}
+
+		var_data_size = de_getui16le(pos+2);
+		type_id = de_getbyte(pos+4);
+		name_len_reported = (de_int64)de_getbyte(pos+5);
+		de_dbg(c, "reported var name length: %d\n", (int)name_len_reported);
+		if(d->fmt==DE_FMT_TI86) {
+			name_field_len = 8; // Initial default
+
+			// The TI86 name field length *should* always be 8, but some files do not
+			// do it that way.
+			if(name_len_reported!=8) {
+				// There are two "variable data length" fields that should contain the
+				// same value. Although this is bad design, we can exploit it to help
+				// guess the correct length of the variable name field.
+
+				x1 = de_getui16le(pos+14);
+				x2 = de_getui16le(pos+6+name_len_reported);
+				if(x1!=var_data_size && x2==var_data_size) {
+					if(!warned) {
+						de_warn(c, "This TI86 file appears to use TI85 variable name format "
+							"instead of TI86 format. Trying to continue.\n");
+					}
+					name_field_len = name_len_reported;
+				}
+			}
+		}
+		else {
+			// TI85 format
+			name_field_len = name_len_reported;
+		}
+
+		pos += 6+name_field_len;
+
+		x1 = de_getui16le(pos);
+		if(x1!=var_data_size) {
+			de_warn(c, "Inconsistent variable-data-length fields. "
+				"This file may not be processed correctly.\n");
+		}
+		pos += 2;
+
+		de_dbg(c, "var type=0x%02x pos=%d len=%d\n", (unsigned int)type_id,
+			(int)pos, (int)var_data_size);
+
+		if(type_id==0x11) { // guess
+			do_ti85_picture_var(c, d, pos);
+		}
+
+		pos += var_data_size;
+	}
+
+done:
+	;
+}
+
 static void do_ti92(deark *c, lctx *d)
 {
 	de_int64 pos;
@@ -201,6 +302,14 @@ static void de_run_tivariable(deark *c, const char *params)
 	case DE_FMT_TI83F:
 		de_declare_fmt(c, "TI83F variable file");
 		do_ti83(c, d);
+		break;
+	case DE_FMT_TI85:
+		de_declare_fmt(c, "TI85 variable file");
+		do_ti85(c, d);
+		break;
+	case DE_FMT_TI86:
+		de_declare_fmt(c, "TI86 variable file");
+		do_ti85(c, d);
 		break;
 	case DE_FMT_TI89:
 		de_declare_fmt(c, "TI89 variable file");
