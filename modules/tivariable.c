@@ -11,6 +11,8 @@ typedef struct localctx_struct {
 #define DE_FMT_TI92P 3
 #define DE_FMT_TI83  4
 #define DE_FMT_TI83F 5
+#define DE_FMT_TI82  6
+#define DE_FMT_TI73  7
 #define DE_FMT_TI_UNKNOWN 100
 	int fmt;
 } lctx;
@@ -20,6 +22,8 @@ static int identify_internal(deark *c)
 	de_byte buf[8];
 
 	de_read(buf, 0, 8);
+	if(!de_memcmp(buf, "**TI73**", 8)) return DE_FMT_TI73;
+	if(!de_memcmp(buf, "**TI82**", 8)) return DE_FMT_TI82;
 	if(!de_memcmp(buf, "**TI83**", 8)) return DE_FMT_TI83;
 	if(!de_memcmp(buf, "**TI83F*", 8)) return DE_FMT_TI83F;
 	if(!de_memcmp(buf, "**TI89**", 8)) return DE_FMT_TI89;
@@ -182,6 +186,14 @@ static void de_run_tivariable(deark *c, const char *params)
 	d = de_malloc(c, sizeof(lctx));
 	d->fmt = identify_internal(c);
 	switch(d->fmt) {
+	case DE_FMT_TI73:
+		de_declare_fmt(c, "TI73 variable file");
+		do_ti83(c, d);
+		break;
+	case DE_FMT_TI82:
+		de_declare_fmt(c, "TI82 variable file");
+		do_ti83(c, d);
+		break;
 	case DE_FMT_TI83:
 		de_declare_fmt(c, "TI83 variable file");
 		do_ti83(c, d);
