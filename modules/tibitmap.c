@@ -16,9 +16,6 @@ static int identify_internal(deark *c)
 {
 	de_byte buf[8];
 
-	// TODO: This is not correct, as non-bitmap files also use these signatures.
-	// Need to figure out how to determine the file type.
-
 	de_read(buf, 0, 8);
 	if(!de_memcmp(buf, "**TI92**", 8)) return DE_FMT_TI92;
 	if(!de_memcmp(buf, "**TI89**", 8)) return DE_FMT_TI89;
@@ -26,21 +23,15 @@ static int identify_internal(deark *c)
 	return 0;
 }
 
-static void do_bitmap(deark *c, lctx *d)
+static int do_bitmap(deark *c, lctx *d, de_int64 pos)
 {
 	struct deark_bitmap *img = NULL;
 	de_int64 j;
-	de_int64 pos;
 	de_int64 rowspan;
+	int retval = 0;
 
-	// This decoder is based on reverse engineering, and may not be correct.
-
-	d->h = de_getui16be(88);
-	d->w = de_getui16be(90);
 	de_dbg(c, "dimensions: %dx%d\n", (int)d->w, (int)d->h);
 	rowspan = (d->w+7)/8;
-
-	pos = 92;
 
 	if(pos+rowspan*d->h > c->infile->len) {
 		de_err(c, "File too small. This is probably not a TI bitmap file.\n");
@@ -55,8 +46,72 @@ static void do_bitmap(deark *c, lctx *d)
 	}
 
 	de_bitmap_write_to_file(img, NULL);
+	retval = 1;
 done:
 	de_bitmap_destroy(img);
+	return retval;
+}
+
+static int do_ti92_picture_var(deark *c, lctx *d, de_int64 pos)
+{
+	de_int64 x;
+
+	de_dbg(c, "picture at %d\n", (int)pos);
+	pos+=4;
+
+	x = de_getui16be(pos);
+	de_dbg(c, "picture size: %d\n", (int)x);
+	d->h = de_getui16be(pos+2);
+	d->w = de_getui16be(pos+4);
+	return do_bitmap(c, d, pos+6);
+}
+
+static void do_ti92_var_table_entry(deark *c, lctx *d, de_int64 pos)
+{
+	de_int64 data_offset;
+	de_byte type_id;
+
+	de_dbg(c, "var table entry at %d\n", (int)pos);
+	data_offset = de_getui32le(pos);
+
+	type_id = de_getbyte(pos+12);
+	de_dbg(c, "var type: 0x%02x\n", (unsigned int)type_id);
+	if(type_id!=0x10) {
+		// Not a picture
+		return;
+	}
+	de_dbg(c, "data offset: %d\n", (int)data_offset);
+	do_ti92_picture_var(c, d, data_offset);
+}
+
+static void do_ti92(deark *c, lctx *d)
+{
+	de_int64 pos;
+	de_int64 numvars;
+	de_int64 x;
+	de_int64 i;
+
+	// 0-7: signature
+	// 8-9: 0x01 0x00
+	// 10-17: default folder name
+	// 18-57: comment
+
+	numvars = de_getui16le(58);
+	de_dbg(c, "number of variables/folders: %d\n", (int)numvars);
+	if(numvars>DE_MAX_IMAGES_PER_FILE) goto done;
+
+	pos = 60;
+	for(i=0; i<numvars; i++) {
+		do_ti92_var_table_entry(c, d, pos);
+		pos+=16;
+	}
+
+	// Data section
+	x = de_getui32le(pos);
+	de_dbg(c, "reported file size: %d\n", (int)x);
+
+done:
+	;
 }
 
 static void de_run_tibitmap(deark *c, const char *params)
@@ -78,7 +133,7 @@ static void de_run_tibitmap(deark *c, const char *params)
 		break;
 	}
 
-	do_bitmap(c, d);
+	do_ti92(c, d);
 	de_free(c, d);
 }
 
