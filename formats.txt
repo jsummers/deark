@@ -96,7 +96,8 @@ Deark -- Information about supported formats
      as a separate image.
 
 * TI calculator "variable" files (module="tivariable")
-  - TI89 and TI92 bitmaps
+  - TI83 pictures
+  - TI89 and TI92 pictures
 
 * Vivid ray tracer bitmap (module="vivid")
 
