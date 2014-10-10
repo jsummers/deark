@@ -6,16 +6,16 @@
 
 typedef struct localctx_struct {
 	de_int64 w, h;
-#define DE_FMT_TI92  1
-#define DE_FMT_TI89  2
-#define DE_FMT_TI92P 3
-#define DE_FMT_TI83  4
-#define DE_FMT_TI83F 5
-#define DE_FMT_TI82  6
-#define DE_FMT_TI73  7
-#define DE_FMT_TI85  8
-#define DE_FMT_TI86  9
-#define DE_FMT_TI_UNKNOWN 100
+#define DE_FMT_TI_UNKNOWN 1
+#define DE_FMT_TI73  730
+#define DE_FMT_TI82  820
+#define DE_FMT_TI83  830
+#define DE_FMT_TI83F 831
+#define DE_FMT_TI85  850
+#define DE_FMT_TI86  860
+#define DE_FMT_TI89  890
+#define DE_FMT_TI92  920
+#define DE_FMT_TI92P 921
 	int fmt;
 } lctx;
 
@@ -66,7 +66,7 @@ done:
 	return retval;
 }
 
-static int do_color_bitmap(deark *c, lctx *d, de_int64 pos)
+static int do_bitmap_8ca(deark *c, lctx *d, de_int64 pos)
 {
 	struct deark_bitmap *img = NULL;
 	de_int64 i;
@@ -107,13 +107,62 @@ done:
 	return retval;
 }
 
+static int do_bitmap_8ci(deark *c, lctx *d, de_int64 pos)
+{
+	struct deark_bitmap *img = NULL;
+	de_int64 i;
+	de_int64 j;
+	de_int64 rowspan;
+	int retval = 0;
+	de_byte b0;
+
+	de_dbg(c, "dimensions: %dx%d\n", (int)d->w, (int)d->h);
+
+	rowspan = (d->w + 1) / 2;
+
+	if(pos+rowspan*d->h > c->infile->len) {
+		de_err(c, "Unexpected end of file\n");
+		goto done;
+	}
+	if(!de_good_image_dimensions(c, d->w, d->h)) goto done;
+
+	// This a 4 bits/pixel format, but I don't even know if it's grayscale or color.
+	img = de_bitmap_create(c, d->w, d->h, 1);
+
+	for(j=0; j<d->h; j++) {
+		for(i=0; i<d->w; i++) {
+			b0 = de_getbyte(pos + j*rowspan + i/2);
+			if(i%2)
+				b0 &= 0x0f;
+			else
+				b0 >>= 4;
+
+			de_bitmap_setpixel_gray(img, i, j, b0 * 17);
+		}
+
+	}
+
+	de_bitmap_write_to_file(img, NULL);
+	retval = 1;
+done:
+	de_bitmap_destroy(img);
+	return retval;
+}
+
 static int do_ti83_picture_var(deark *c, lctx *d, de_int64 pos)
 {
-	de_int64 x;
+	de_int64 picture_size;
 
 	de_dbg(c, "picture at %d\n", (int)pos);
-	x = de_getui16le(pos);
-	de_dbg(c, "picture size: %d\n", (int)x);
+	picture_size = de_getui16le(pos);
+	de_dbg(c, "picture size: %d\n", (int)picture_size);
+
+	if(picture_size==21945) {
+		d->w = 265;
+		d->h = 165;
+		return do_bitmap_8ci(c, d, pos+2);
+	}
+
 	d->w = 95;
 	d->h = 63;
 	return do_bitmap(c, d, pos+2);
@@ -126,7 +175,7 @@ static int do_ti83c_picture_var(deark *c, lctx *d, de_int64 pos)
 	de_dbg(c, "picture at %d\n", (int)pos);
 	d->w = 133;
 	d->h = 83;
-	return do_color_bitmap(c, d, pos+3);
+	return do_bitmap_8ca(c, d, pos+3);
 }
 
 static int do_ti85_picture_var(deark *c, lctx *d, de_int64 pos)
