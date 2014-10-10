@@ -95,8 +95,8 @@ Deark -- Information about supported formats
    -opt psionpic:bw - Do not try to detect grayscale images. Write each bitmap
      as a separate image.
 
-* TI calculator bitmaps (module="tibitmap")
-  - TI89 and TI92 bitmaps (experimental)
+* TI calculator "variable" files (module="tivariable")
+  - TI89 and TI92 bitmaps
 
 * Vivid ray tracer bitmap (module="vivid")
 

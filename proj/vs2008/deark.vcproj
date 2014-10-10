@@ -494,11 +494,11 @@
 				>
 			</File>
 			<File
-				RelativePath="..\..\modules\tibitmap.c"
+				RelativePath="..\..\modules\tiff.c"
 				>
 			</File>
 			<File
-				RelativePath="..\..\modules\tiff.c"
+				RelativePath="..\..\modules\tivariable.c"
 				>
 			</File>
 			<File
