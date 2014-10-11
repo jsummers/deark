@@ -159,56 +159,77 @@ static void de_run_jpeg(deark *c, const char *params)
 	de_free(c, d);
 }
 
-// Returns 0 if this doesn't seem to be JPEG format.
-static de_int64 detect_jpeg_len(dbuf *f, de_int64 pos1, de_int64 len)
+typedef struct scanctx_struct {
+	de_int64 len;
+	int is_jpegls;
+} scanctx;
+
+static int detect_jpeg_len(deark *c, scanctx *d, de_int64 pos1, de_int64 len)
 {
-	de_byte b;
+	de_byte b0, b1;
 	de_int64 pos;
 	de_int64 seg_size;
-	int found_marker;
+	int in_scan = 0;
 
+	d->len = 0;
+	d->is_jpegls = 0;
 	pos = pos1;
-	found_marker = 0;
-
-	// TODO: There's a lot of code duplication between this function and
-	// de_run_jpeg(), but it's not clear if it would be better to
-	// consolidate it.
 
 	while(1) {
 		if(pos>=pos1+len)
 			break;
-		b = dbuf_getbyte(f, pos);
+		b0 = de_getbyte(pos);
 
-		if(b==0xff) {
-			found_marker = 1;
+		if(b0!=0xff) {
 			pos++;
 			continue;
 		}
 
-		if(!found_marker) {
-			// Not an 0xff byte, and not preceded by an 0xff byte. Just ignore it.
+		// Peek at the next byte (after this 0xff byte).
+		b1 = de_getbyte(pos+1);
+
+		if(b1==0xff) {
+			// A "fill byte", not a marker.
 			pos++;
 			continue;
 		}
-
-		found_marker = 0; // Reset this flag.
-
-		if(b==0xd9) { // EOI. That's what we're looking for.
-			pos++;
-			return pos-pos1;
+		else if(b1==0x00 || (d->is_jpegls && b1<0x80 && in_scan)) {
+			// An escape sequence, not a marker.
+			pos+=2;
+			continue;
+		}
+		else if(b1==0xd9) { // EOI. That's what we're looking for.
+			pos+=2;
+			d->len = pos-pos1;
+			return 1;
+		}
+		else if(b1==0xf7) {
+			de_dbg(c, "Looks like a JPEG-LS file.\n");
+			d->is_jpegls = 1;
 		}
 
-		if((b>=0xd0 && b<=0xda) || b<=0x01) {
-			// Markers and pseudo-markers that have no content.
-			pos++;
+		if(b1==0xda) { // SOS - Start of scan
+			in_scan = 1;
+		}
+		else if(b1>=0xd0 && b1<=0xd7) {
+			// RSTn markers don't change the in_scan state.
+			;
+		}
+		else {
+			in_scan = 0;
+		}
+
+		if((b1>=0xd0 && b1<=0xda) || b1==0x01) {
+			// Markers that have no content.
+			pos+=2;
 			continue;
 		}
 
-		pos++;
-		seg_size = dbuf_getui16be(f, pos);
-		if(pos<2) break; // bogus size
+		// Everything else should be a marker segment, with a length field.
+		seg_size = de_getui16be(pos+2);
+		if(seg_size<2) break; // bogus size
 
-		pos += seg_size;
+		pos += seg_size+2;
 	}
 
 	return 0;
@@ -218,10 +239,12 @@ static void de_run_jpegscan(deark *c, const char *params)
 {
 	de_int64 pos = 0;
 	de_int64 foundpos = 0;
-	de_int64 len = 0;
+	scanctx *d = NULL;
 	int ret;
 
 	de_dbg(c, "In jpegscan module\n");
+
+	d = de_malloc(c, sizeof(*d));
 
 	while(1) {
 		if(pos >= c->infile->len) break;
@@ -234,16 +257,19 @@ static void de_run_jpegscan(deark *c, const char *params)
 
 		pos = foundpos;
 
-		len = detect_jpeg_len(c->infile, pos, c->infile->len-pos);
-		if(len>0) {
-			de_dbg(c, "length=%d\n", (int)len);
-			dbuf_create_file_from_slice(c->infile, pos, len, "jpg", NULL);
-			pos += len;
+		if(detect_jpeg_len(c, d, pos, c->infile->len-pos)) {
+			de_dbg(c, "length=%d\n", (int)d->len);
+			dbuf_create_file_from_slice(c->infile, pos, d->len,
+				d->is_jpegls ? "jls" : "jpg", NULL);
+			pos += d->len;
 		}
 		else {
+			de_dbg(c, "Doesn't seem to be a valid JPEG.\n");
 			pos++;
 		}
 	}
+
+	de_free(c, d);
 }
 
 static int de_identify_jpeg(deark *c)

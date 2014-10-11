@@ -155,7 +155,7 @@ Deark -- Information about supported formats
   - Extract Exif data (use -extractall)
 
 * JPEG scan (module="jpegscan")
-  - This module tries to find and extract embedded JPEG files from
+  - This module tries to find and extract embedded JPEG and JPEG-LS files from
     otherwise-unsupported formats. Use "-m jpegscan".
 
 * JPEG 2000 (module="jpeg2000")
