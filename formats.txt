@@ -110,8 +110,17 @@ Deark -- Information about supported formats
 
 === Compression and archive modules ===
 
+* T64 (Commodore 64 "tape" format) (module="t64")
+  - Partial support
+
 * zlib (module="zlib")
   - Raw zlib files can be uncompressed.
+
+
+== Translation modules ==
+
+* C64 BASIC (module="basic-c64") (experimental)
+  - Detokenize C64 BASIC programs
 
 
 === File extraction modules ===
@@ -185,9 +194,6 @@ Deark -- Information about supported formats
 * Psion APP/IMG and OPA/OPO (module="psionapp")
   - Extract Psion PIC icons.
   - Extract other contents (use -extractall).
-
-* T64 (Commodore 64 "tape" format) (module="t64")
-  - Partial support
 
 * TIFF and Exif (module="tiff")
   - Extract JPEG-formatted Exif thumbnails, and some types of Old-style

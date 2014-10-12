@@ -410,6 +410,10 @@
 				>
 			</File>
 			<File
+				RelativePath="..\..\modules\basic-c64.c"
+				>
+			</File>
+			<File
 				RelativePath="..\..\modules\bsave.c"
 				>
 			</File>
