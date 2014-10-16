@@ -12,6 +12,8 @@ Deark -- Information about supported formats
   - GlowIcons / OS3.5: Compressed images are supported. Uncompressed images are
     not.
 
+* Apple volume label image (module="applevol")
+
 * Bob ray tracer bitmap (module="bob")
 
 * BSAVE (module="bsave")

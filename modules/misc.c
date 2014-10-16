@@ -509,3 +509,79 @@ void de_module_vivid(deark *c, struct deark_module_info *mi)
 	mi->run_fn = de_run_vivid;
 	mi->identify_fn = de_identify_vivid;
 }
+
+// **************************************************************************
+// Apple volume label image
+// Written by netpbm: ppmtoapplevol
+// **************************************************************************
+
+static de_byte applevol_get_gray_shade(de_byte clr)
+{
+	switch(clr) {
+		// TODO: These gray shades may not be quite right. I can't find good
+		// information about them.
+	case 0x00: return 0xff;
+	case 0xf6: return 0xee;
+	case 0xf7: return 0xdd;
+	case 0x2a: return 0xcc;
+	case 0xf8: return 0xbb;
+	case 0xf9: return 0xaa;
+	case 0x55: return 0x99;
+	case 0xfa: return 0x88;
+	case 0xfb: return 0x77;
+	case 0x80: return 0x66;
+	case 0xfc: return 0x55;
+	case 0xfd: return 0x44;
+	case 0xab: return 0x33;
+	case 0xfe: return 0x22;
+	case 0xff: return 0x11;
+	case 0xd6: return 0x00;
+	}
+	return 0xff;
+}
+
+static void de_run_applevol(deark *c, const char *params)
+{
+	struct deark_bitmap *img = NULL;
+	de_int64 w, h;
+	de_int64 i, j;
+	de_int64 p;
+	de_byte palent;
+
+	de_dbg(c, "In applevol module\n");
+	w = de_getui16be(1);
+	h = de_getui16be(3);
+	if(!de_good_image_dimensions(c, w, h)) goto done;
+	img = de_bitmap_create(c, w, h, 1);
+
+	p = 5;
+	for(j=0; j<h; j++) {
+		for(i=0; i<w; i++) {
+			palent = de_getbyte(p+w*j+i);
+			de_bitmap_setpixel_gray(img, i, j, applevol_get_gray_shade(palent));
+		}
+	}
+
+	de_bitmap_write_to_file(img, NULL);
+
+done:
+	de_bitmap_destroy(img);
+}
+
+static int de_identify_applevol(deark *c)
+{
+	de_byte buf[5];
+
+	de_read(buf, 0, sizeof(buf));
+
+	if(buf[0]==0x01 && buf[3]==0x00 && buf[4]==0x0c)
+		return 20;
+	return 0;
+}
+
+void de_module_applevol(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "applevol";
+	mi->run_fn = de_run_applevol;
+	mi->identify_fn = de_identify_applevol;
+}

@@ -58,6 +58,7 @@ void de_register_modules(deark *c)
 	register_a_module(c, de_module_atari_cas);
 	register_a_module(c, de_module_winzle);
 	register_a_module(c, de_module_bob);
+	register_a_module(c, de_module_applevol);
 	register_a_module(c, de_module_basic_c64);
 	register_a_module(c, de_module_jpegscan);
 	register_a_module(c, de_module_copy);

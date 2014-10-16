@@ -47,3 +47,4 @@ void de_module_bob(deark *c, struct deark_module_info *mi);
 void de_module_vivid(deark *c, struct deark_module_info *mi);
 void de_module_tivariable(deark *c, struct deark_module_info *mi);
 void de_module_basic_c64(deark *c, struct deark_module_info *mi);
+void de_module_applevol(deark *c, struct deark_module_info *mi);
