@@ -1,7 +1,8 @@
 // This file is part of Deark, by Jason Summers.
 // This software is in the public domain. See the file COPYING for details.
 
-// Extract various things from JPEG files
+// Extract various things from JPEG files.
+// Extract embedded JPEG files from arbitrary files.
 
 #include <deark-config.h>
 #include <deark-modules.h>

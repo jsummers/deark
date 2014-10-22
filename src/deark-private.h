@@ -84,20 +84,32 @@ struct deark_option {
 
 struct deark_struct {
 	int debug_level;
-	int module_nesting_level;
 	void *userdata;
-	const char *input_filename;
+
+	////////////////////////////////////////////////////
+	int module_nesting_level;
+
+	// Data specific to the current module.
+
+	// TODO: There really ought to be a stack of standard-module-local data
+	// objects, but that may be more trouble than it's worth.
+	// For now, we just need to use caution when changing these fields.
 
 	// The current primary input file.
 	// Modules may change this, provided they change it back when they're done.
 	dbuf *infile;
 
-	int file_count; // Counts the number of files written.
-	int error_count;
+	// A flag to remember whether we've printed the specific format of the
+	// top-level file.
 	int format_declared;
 
-	const char *input_format_req; // Format requested
+	////////////////////////////////////////////////////
 
+	int file_count; // Counts the number of files written.
+	int error_count;
+
+	const char *input_filename;
+	const char *input_format_req; // Format requested
 	de_int64 slice_start_req; // Used if we're only to look at part of the file.
 	de_int64 slice_size_req;
 	int slice_size_req_valid;

@@ -615,11 +615,24 @@ static void de_run_pcpaint(deark *c, const char *params)
 static int de_identify_pcpaint(deark *c)
 {
 	de_byte buf[12];
+	int pic_ext, clp_ext;
+	de_int64 x;
+
+	pic_ext = de_input_file_has_ext(c, "pic");
 
 	de_read(buf, 0, 12);
 	if(buf[0]==0x34 && buf[1]==0x12 && buf[11]==0xff) {
-		return 90;
+		return pic_ext ? 100 : 50;
 	}
+
+	clp_ext = de_input_file_has_ext(c, "clp");
+	if(clp_ext) {
+		x = de_getui16le_direct(&buf[0]);
+		if(x==c->infile->len) {
+			return 50;
+		}
+	}
+
 	return 0;
 }
 

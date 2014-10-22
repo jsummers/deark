@@ -95,18 +95,23 @@ static int de_identify_graspgl(deark *c)
 {
 	de_int64 dir_header_nbytes;
 	de_int64 first_offset;
+	int gl_ext;
 
 	dir_header_nbytes = de_getui16le(0);
 
 	// Header should be a nonzero multiple of 17 bytes.
 	if(dir_header_nbytes==0 || (dir_header_nbytes%17 != 0)) return 0;
 
+	gl_ext = de_input_file_has_ext(c, "hr");
+
 	// Most likely, the first embedded file immediately follows
 	// the header. If so, it's pretty good evidence this is a
 	// grasp_gl file.
 	first_offset = de_getui32le(2);
 	if(first_offset == dir_header_nbytes + 2)
-		return 90;
+		return gl_ext ? 100 : 70;
+
+	if(gl_ext) return 5;
 
 	return 0;
 }
