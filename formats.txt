@@ -53,6 +53,8 @@ Deark -- Information about supported formats
 
 * HP 100LX / HP 200LX .ICN icon format (module="hpicn")
 
+* HR (TRS-80 High Resolution graphics file) (module="hr")
+
 * MacPaint (module="macpaint")
   - Also extracts brush patterns (use -extractall)
   Options

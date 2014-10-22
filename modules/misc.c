@@ -585,3 +585,46 @@ void de_module_applevol(deark *c, struct deark_module_info *mi)
 	mi->run_fn = de_run_applevol;
 	mi->identify_fn = de_identify_applevol;
 }
+
+// **************************************************************************
+// TRS-80 "HR" ("High Resolution") image
+// **************************************************************************
+
+static void de_run_hr(deark *c, const char *params)
+{
+	struct deark_bitmap *img = NULL;
+	de_int64 width, height;
+	de_int64 src_rowspan;
+	de_int64 j;
+
+	de_dbg(c, "In hr module\n");
+
+	width = 640;
+	height = 240;
+
+	img = de_bitmap_create(c, width, height, 1);
+	src_rowspan = (width+7)/8;
+
+	for(j=0; j<height; j++) {
+		de_convert_row_bilevel(c->infile, j*src_rowspan, img, j, 0);
+	}
+
+	de_bitmap_write_to_file(img, NULL);
+	de_bitmap_destroy(img);
+}
+
+static int de_identify_hr(deark *c)
+{
+	if(de_input_file_has_ext(c, "hr")) {
+		if(c->infile->len==19200) return 70;
+		if(c->infile->len>19200 && c->infile->len<=19456) return 30;
+	}
+	return 0;
+}
+
+void de_module_hr(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "hr";
+	mi->run_fn = de_run_hr;
+	mi->identify_fn = de_identify_hr;
+}
