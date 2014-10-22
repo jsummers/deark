@@ -26,8 +26,8 @@ static const char *get_token(de_byte b)
 		"READ","LET","GOTO","RUN","IF","RESTORE","GOSUB","RETURN","REM","STOP",
 		"ON","WAIT","LOAD","SAVE","VERIFY","DEF","POKE","PRINT#","PRINT",
 		"CONT","LIST","CLR","CMD","SYS","OPEN","CLOSE","GET","NEW","TAB(","TO",
-		"FN","SPC(","THEN","NOT","STEP","+","-","*","/","^","AND","OR","<","=",
-		">","SGN","INT","ABS","USR","FRE","POS","SQR","RND","LOG","EXP","COS",
+		"FN","SPC(","THEN","NOT","STEP","+","-","*","/","^","AND","OR",">","=",
+		"<","SGN","INT","ABS","USR","FRE","POS","SQR","RND","LOG","EXP","COS",
 		"SIN","TAN","ATN","PEEK","LEN","STR$","VAL","ASC","CHR$","LEFT$",
 		"RIGHT$","MID$","GO"};
 	if(b>=0x80 && b<=0xcb) {
