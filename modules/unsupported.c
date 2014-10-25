@@ -14,31 +14,6 @@ struct fmtinfo_struct {
 	const char *descr;
 };
 
-// Windows icons and cursors don't have a distinctive signature. This
-// function tries to screen out other formats.
-static int is_windows_ico_or_cur(deark *c, int rsrc_id)
-{
-	de_int64 numicons;
-	de_int64 i;
-	de_int64 size, offset;
-
-	numicons = de_getui16le(4);
-
-	// Each icon must use at least 16 bytes for the directory, 40 for the
-	// info header, 4 for the foreground, and 4 for the mask.
-	if(numicons<1 || (6+numicons*64)>c->infile->len) return 0;
-
-	// Examine the first few icon index entries.
-	for(i=0; i<numicons && i<8; i++) {
-		size = de_getui32le(6+16*i+8);
-		offset = de_getui32le(6+16*i+12);
-		if(size<48) return 0;
-		if(offset < 6+numicons*16) return 0;
-		if(offset+size > c->infile->len) return 0;
-	}
-	return 1;
-}
-
 // fmti is allocated by the caller.
 // get_fmt initializes it. If a format is unidentified,
 // it sets ->confidence to 0.
@@ -101,22 +76,6 @@ static void get_fmt(deark *c, struct fmtinfo_struct *fmti)
 		fmti->confidence = 20;
 		fmti->descr = "a BMP image file";
 		return;
-	}
-
-	if(!de_memcmp(b, "\x00\x00\x01\x00", 4)) {
-		if(is_windows_ico_or_cur(c, 1)) {
-			fmti->confidence = 20;
-			fmti->descr = "a Windows icon";
-			return;
-		}
-	}
-
-	if(!de_memcmp(b, "\x00\x00\x02\x00", 4)) {
-		if(is_windows_ico_or_cur(c, 2)) {
-			fmti->confidence = 20;
-			fmti->descr = "a Windows cursor";
-			return;
-		}
 	}
 
 	// Without this, RAF would be mis-identified as Atari CAS.

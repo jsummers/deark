@@ -450,6 +450,10 @@
 				>
 			</File>
 			<File
+				RelativePath="..\..\modules\ico.c"
+				>
+			</File>
+			<File
 				RelativePath="..\..\modules\jpeg.c"
 				>
 			</File>

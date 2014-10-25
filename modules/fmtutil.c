@@ -15,9 +15,6 @@
 int de_fmtutil_get_bmpinfo(deark *c, dbuf *f, struct de_bmpinfo *bi, de_int64 pos,
 	de_int64 len, unsigned int flags)
 {
-	de_int64 mask_rowspan;
-	de_int64 foreground_size;
-	de_int64 mask_size;
 	de_int64 fhs; // file header size
 	de_int64 bmih_pos;
 
@@ -106,17 +103,17 @@ int de_fmtutil_get_bmpinfo(deark *c, dbuf *f, struct de_bmpinfo *bi, de_int64 po
 		// Try to figure out the true size of the resource, minus any padding.
 
 		bi->rowspan = ((bi->bitcount*bi->width +31)/32)*4;
-		foreground_size = bi->rowspan * bi->height;
+		bi->foreground_size = bi->rowspan * bi->height;
 
 		if(flags & DE_BMPINFO_ICO_FORMAT) {
-			mask_rowspan = ((bi->width +31)/32)*4;
-			mask_size = mask_rowspan * bi->height;
+			bi->mask_rowspan = ((bi->width +31)/32)*4;
+			bi->mask_size = bi->mask_rowspan * bi->height;
 		}
 		else {
-			mask_size = 0;
+			bi->mask_size = 0;
 		}
 
-		bi->total_size = bi->size_of_headers_and_pal + foreground_size + mask_size;
+		bi->total_size = bi->size_of_headers_and_pal + bi->foreground_size + bi->mask_size;
 	}
 	else {
 		// Don't try to figure out the true size of compressed or other unusual images.

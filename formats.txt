@@ -55,6 +55,10 @@ Deark -- Information about supported formats
 
 * HR (TRS-80 High Resolution graphics file) (module="hr")
 
+* ICO/CUR (Windows icon/cursor) (module="ico")
+  - Supports most but not all formats.
+  - PNG-formatted icons will be extracted as-is, not decoded.
+
 * MacPaint (module="macpaint")
   - Also extracts brush patterns (use -extractall)
   Options

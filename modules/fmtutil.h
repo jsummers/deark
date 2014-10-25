@@ -19,6 +19,10 @@ struct de_bmpinfo {
 	de_int64 num_colors; // For use in ICO/CUR file headers.
 	de_int64 rowspan;
 
+	de_int64 foreground_size;
+	de_int64 mask_rowspan;
+	de_int64 mask_size;
+
 	de_int64 pal_bytes; // Size of palette in bytes
 	de_int64 size_of_headers_and_pal; // Relative offset to bitmap (bitsoffset might be absolute)
 	de_int64 total_size;

@@ -85,8 +85,6 @@ Future versions might have some of the following features:
  - Decompress compressed data and archive formats
  - Detokenize tokenized BASIC programs
  - Convert bitmap font formats to some portable font format
- - Other image formats that might be supported include ILBM, Acorn Sprite,
-   Windows ICO
  - Any image format supported by XnView, and not by any well-maintained open
    source software, is a candidate for being supported, no matter how obscure
    it may be.
