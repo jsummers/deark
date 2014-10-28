@@ -628,3 +628,56 @@ void de_module_hr(deark *c, struct deark_module_info *mi)
 	mi->run_fn = de_run_hr;
 	mi->identify_fn = de_identify_hr;
 }
+
+// **************************************************************************
+// RIPterm icon (.ICN)
+// **************************************************************************
+
+static void de_run_ripicon(deark *c, const char *params)
+{
+	struct deark_bitmap *img = NULL;
+	de_int64 width, height;
+	de_int64 chunk_span;
+	de_int64 src_rowspan;
+	de_int64 i, j, k;
+	de_byte x;
+	de_uint32 palent;
+
+	de_dbg(c, "In ripicon module\n");
+
+	width = 1 + de_getui16le(0);
+	height = 1 + de_getui16le(2);
+	de_dbg(c, "dimensions: %dx%d\n", (int)width, (int)height);
+	if(!de_good_image_dimensions(c, width, height)) goto done;
+
+	img = de_bitmap_create(c, width, height, 3);
+	chunk_span = (width+7)/8;
+	src_rowspan = 4*chunk_span;
+
+	for(j=0; j<height; j++) {
+		for(i=0; i<width; i++) {
+			palent = 0;
+			for(k=0; k<4; k++) {
+				x = de_get_bits_symbol(c->infile, 1, 4 + j*src_rowspan + k*chunk_span, i);
+				palent = (palent<<1)|x;
+			}
+			de_bitmap_setpixel_rgb(img, i, j, de_palette_pc16(palent));
+		}
+	}
+
+	de_bitmap_write_to_file(img, NULL);
+done:
+	de_bitmap_destroy(img);
+}
+
+static int de_identify_ripicon(deark *c)
+{
+	return 0;
+}
+
+void de_module_ripicon(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "ripicon";
+	mi->run_fn = de_run_ripicon;
+	mi->identify_fn = de_identify_ripicon;
+}

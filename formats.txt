@@ -103,6 +103,9 @@ Deark -- Information about supported formats
    -opt psionpic:bw - Do not try to detect grayscale images. Write each bitmap
      as a separate image.
 
+* RIPscrip icon (.ICN) (module="ripicon") (experimental)
+  - Not autodetected. Must use "-m ripicon".
+
 * TI calculator "variable" files (module="tivariable")
   - TI73/TI82/TI83 pictures
   - TI85/TI86 pictures
