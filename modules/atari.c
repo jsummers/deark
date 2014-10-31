@@ -45,6 +45,7 @@ static int de_identify_cas(deark *c)
 	de_read(buf, 0, 16);
 
 	if(!de_memcmp(buf, "FUJI", 4)) {
+		// Note - Make sure Fujifilm RAF has higher confidence.
 		return 70;
 	}
 	return 0;

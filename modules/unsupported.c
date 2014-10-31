@@ -58,6 +58,31 @@ static void get_fmt(deark *c, struct fmtinfo_struct *fmti)
 		return;
 	}
 
+	// Note - Make sure BSAVE has lower confidence.
+	if(!de_memcmp(b, "\xfd\x37\x7a\x58\x5a\x00", 6)) {
+		fmti->confidence = 90;
+		fmti->descr = "an xz-compressed file";
+		return;
+	}
+
+	if(!de_memcmp(b, "LZIP", 4)) {
+		fmti->confidence = 50;
+		fmti->descr = "an lzip-compressed file";
+		return;
+	}
+
+	if(b[2]=='-' && b[3]=='l' && b[6]=='-' && (b[4]=='h' || b[4]=='z')) {
+		fmti->confidence = 10;
+		fmti->descr = "an LHA file";
+		return;
+	}
+
+	if(b[0]==0x1f && b[1]==0x9d) {
+		fmti->confidence = 10;
+		fmti->descr = "a 'compress' (.Z) file";
+		return;
+	}
+
 	if(!de_memcmp(b, "\xff\x4f\xff\x51", 4)) {
 		fmti->confidence = 90;
 		fmti->descr = "a JPEG 2000 codestream";
@@ -78,7 +103,7 @@ static void get_fmt(deark *c, struct fmtinfo_struct *fmti)
 		return;
 	}
 
-	// Without this, RAF would be mis-identified as Atari CAS.
+	// Note - Make sure Atari CAS has lower confidence.
 	if(!de_memcmp(b, "FUJIFILMCCD-RAW", 15)) {
 		fmti->confidence = 100;
 		fmti->descr = "a Fujifilm RAF file";

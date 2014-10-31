@@ -633,7 +633,8 @@ done:
 
 static int de_identify_bsave(deark *c)
 {
-	if(de_getbyte(0)==0xfd) return 50;
+	// Note - Make sure XZ has higher confidence.
+	if(de_getbyte(0)==0xfd) return 10;
 	return 0;
 }
 
