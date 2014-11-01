@@ -2,7 +2,7 @@
 // This software is in the public domain. See the file COPYING for details.
 
 // Convert OS/2 Icon and OS/2 Pointer format.
-// Extract BMP files in a BA (Bitmap Array) container.
+// Extract files in a BA (Bitmap Array) container.
 
 #include <deark-config.h>
 #include <deark-modules.h>
@@ -46,7 +46,7 @@ done:
 
 // Read the header and palette
 // Returns NULL on error.
-static struct srcbitmap *do_CI_or_CP_segment(deark *c, const char *fmt, de_int64 pos)
+static struct srcbitmap *do_decode_CI_or_CP_segment(deark *c, const char *fmt, de_int64 pos)
 {
 	int okay = 0;
 	struct srcbitmap *srcbmp = NULL;
@@ -158,7 +158,7 @@ static void do_generate_final_image(deark *c, struct srcbitmap *srcbmp_main, str
 	de_bitmap_destroy(img);
 }
 
-static void do_CI_or_CP_pair(deark *c, const char *fmt, de_int64 pos)
+static void do_decode_CI_or_CP_pair(deark *c, const char *fmt, de_int64 pos)
 {
 	de_int64 i;
 	struct srcbitmap *srcbmp = NULL;
@@ -168,7 +168,7 @@ static void do_CI_or_CP_pair(deark *c, const char *fmt, de_int64 pos)
 	de_dbg(c, "---- %s pair at %d ----\n", fmt, (int)pos);
 
 	for(i=0; i<2; i++) {
-		srcbmp = do_CI_or_CP_segment(c, fmt, pos);
+		srcbmp = do_decode_CI_or_CP_segment(c, fmt, pos);
 		if(!srcbmp) {
 			goto done;
 		}
@@ -202,11 +202,79 @@ done:
 	de_free(c, srcbmp_main);
 }
 
+static void do_extract_CI_or_CP_pair(deark *c, const char *fmt, de_int64 pos)
+{
+	struct de_bmpinfo *bi = NULL;
+	de_int64 i;
+	dbuf *f = NULL;
+	de_int64 hdrpos[2];
+	de_int64 hdrsize[2];
+	de_int64 oldbitsoffs[2];
+	de_int64 newbitsoffs[2];
+	de_int64 bitssize[2];
+
+	de_dbg(c, "---- %s pair at %d ----\n", fmt, (int)pos);
+
+	bi = de_malloc(c, sizeof(struct de_bmpinfo));
+
+	if(!de_strcmp(fmt, "CP")) {
+		f = dbuf_create_output_file(c, "ptr", NULL);
+	}
+	else {
+		f = dbuf_create_output_file(c, "os2.ico", NULL);
+	}
+
+	for(i=0; i<2; i++) {
+		de_dbg(c, "--- bitmap at %d ---\n", (int)pos);
+
+		if(!de_fmtutil_get_bmpinfo(c, c->infile, bi, pos, c->infile->len - pos,
+			DE_BMPINFO_HAS_FILEHEADER))
+		{
+			de_err(c, "Unsupported image type\n");
+			goto done;
+		}
+		if(bi->compression_field!=0) {
+			de_err(c, "Unsupported compression type (%d)\n", (int)bi->compression_field);
+			goto done;
+		}
+
+		de_dbg(c, "bits size: %d\n", (int)bi->foreground_size);
+
+		hdrpos[i] = pos;
+		hdrsize[i] = bi->size_of_headers_and_pal;
+		oldbitsoffs[i] = bi->bitsoffset;
+		bitssize[i] = bi->foreground_size;
+
+		pos += bi->size_of_headers_and_pal;
+	}
+
+	newbitsoffs[0] = hdrsize[0] + hdrsize[1];
+	newbitsoffs[1] = newbitsoffs[0] + bitssize[0];
+
+	// Write all the headers.
+	for(i=0; i<2; i++) {
+		// Copy the first 10 bytes of the fileheader.
+		dbuf_copy(c->infile, hdrpos[i], 10, f);
+		// Update the bits offset.
+		dbuf_writeui32le(f, newbitsoffs[i]);
+		// Copy the rest of the headers (+palette).
+		dbuf_copy(c->infile, hdrpos[i]+14, hdrsize[i]-14, f);
+	}
+	// Write all the bitmaps.
+	for(i=0; i<2; i++) {
+		dbuf_copy(c->infile, oldbitsoffs[i], bitssize[i], f);
+	}
+
+done:
+	dbuf_close(f);
+	de_free(c, bi);
+}
+
 // A BM image inside a BA container.
 // Don't convert the image to another format; just extract it as-is in
 // BMP format. Unfortunately, this requires collecting the various pieces
 // of it, and adjusting pointers.
-static void do_BM(deark *c, de_int64 pos)
+static void do_extract_BM(deark *c, de_int64 pos)
 {
 	struct srcbitmap *srcbmp = NULL;
 	dbuf *f = NULL;
@@ -258,13 +326,13 @@ static void do_BA_segment(deark *c, de_int64 pos, de_int64 *pnextoffset)
 	b0 = de_getbyte(pos+14+0);
 	b1 = de_getbyte(pos+14+1);
 	if(b0=='C' && b1=='I') {
-		do_CI_or_CP_pair(c, "CI", pos+14);
+		do_extract_CI_or_CP_pair(c, "CI", pos+14);
 	}
 	else if(b0=='C' && b1=='P') {
-		do_CI_or_CP_pair(c, "CP", pos+14);
+		do_extract_CI_or_CP_pair(c, "CP", pos+14);
 	}
 	else if(b0=='B' && b1=='M') {
-		do_BM(c, pos+14);
+		do_extract_BM(c, pos+14);
 	}
 	else {
 		de_err(c, "Not CI, CP, or BM format. Not supported.\n");
@@ -353,10 +421,10 @@ static void de_run_os2bmp(deark *c, const char *params)
 		do_BA_file(c);
 		break;
 	case DE_OS2FMT_CI:
-		do_CI_or_CP_pair(c, "CI", 0);
+		do_decode_CI_or_CP_pair(c, "CI", 0);
 		break;
 	case DE_OS2FMT_CP:
-		do_CI_or_CP_pair(c, "CP", 0);
+		do_decode_CI_or_CP_pair(c, "CP", 0);
 		break;
 	default:
 		de_err(c, "Format not supported\n");

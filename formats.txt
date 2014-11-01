@@ -82,7 +82,7 @@ Deark -- Information about supported formats
 * NSL (Nokia Startup Logo) (module="nsl")
   - Partial support
 
-* OS/2 Icon, Pointer, Bitmap Array formats (module="os2bmp")
+* OS/2 Icon and Pointer (module="os2bmp")
   - Converts icons & pointers to individual PNG files.
 
 * PC Paint / Pictor (module="pcpaint")
@@ -190,7 +190,9 @@ Deark -- Information about supported formats
   - Extract Exif data (use -extractall)
 
 * OS/2 Bitmap Array format (module="os2bmp")
-  - BMP images are extracted (pointers/cursors are converted)
+  - BMP image files are extracted.
+  - Icon and pointer image files are extracted. Reprocess them to convert to
+    PNG.
 
 * PSD (PhotoShop) (module="psd")
   - Extract data from "Photoshop resources"
