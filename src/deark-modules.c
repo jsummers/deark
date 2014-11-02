@@ -34,6 +34,7 @@ void de_register_modules(deark *c)
 	register_a_module(c, de_module_exe);
 	register_a_module(c, de_module_ani);
 	register_a_module(c, de_module_jpeg2000);
+	register_a_module(c, de_module_rpm);
 	register_a_module(c, de_module_dcx);
 	register_a_module(c, de_module_fnt);
 	register_a_module(c, de_module_hpicn);

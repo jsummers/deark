@@ -51,3 +51,4 @@ void de_module_applevol(deark *c, struct deark_module_info *mi);
 void de_module_hr(deark *c, struct deark_module_info *mi);
 void de_module_ico(deark *c, struct deark_module_info *mi);
 void de_module_ripicon(deark *c, struct deark_module_info *mi);
+void de_module_rpm(deark *c, struct deark_module_info *mi);

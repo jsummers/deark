@@ -208,6 +208,9 @@ Deark -- Information about supported formats
   - Extract Psion PIC icons.
   - Extract other contents (use -extractall).
 
+* RPM (package manager) (module="rpm)
+  - Extract compressed cpio file.
+
 * TIFF and Exif (module="tiff")
   - Extract JPEG-formatted Exif thumbnails, and some types of Old-style
     JPEG-compressed images.

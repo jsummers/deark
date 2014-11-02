@@ -681,3 +681,104 @@ void de_module_ripicon(deark *c, struct deark_module_info *mi)
 	mi->run_fn = de_run_ripicon;
 	mi->identify_fn = de_identify_ripicon;
 }
+
+
+// **************************************************************************
+// RPM
+// **************************************************************************
+
+static void de_run_rpm(deark *c, const char *params)
+{
+	de_byte ver_major, ver_minor;
+	de_int64 pos;
+	de_byte buf[8];
+	de_byte header_ver;
+	de_int64 indexcount;
+	de_int64 storesize;
+	const char *ext;
+
+	// "lead" section (96 bytes)
+	ver_major = de_getbyte(4);
+	ver_minor = de_getbyte(5);
+	de_dbg(c, "RPM format version %d.%d\n", (int)ver_major, (int)ver_minor);
+	if(ver_major < 3) {
+		de_err(c, "Unsupported RPM version (%d.%d)\n", (int)ver_major, (int)ver_minor);
+		goto done;
+	}
+	// TODO: [10-75] = Name
+
+	// "header" section
+	pos = 96;
+	de_read(buf, pos, 4);
+	if(buf[0]!=0x8e || buf[1]!=0xad || buf[2]!=0xe8) {
+		de_err(c, "Bad header signature\n");
+		goto done;
+	}
+	header_ver = buf[3];
+	if(header_ver != 1) {
+		de_err(c, "Unsupported header version\n");
+		goto done;
+	}
+	pos += 8;
+
+	indexcount = de_getui32be(pos);
+	storesize = de_getui32be(pos+4);
+	de_dbg(c, "pos=%d indexcount=%d storesize=%d\n", (int)pos, (int)indexcount, (int)storesize);
+	pos += 16;
+	pos += 16*indexcount + ((storesize + 7)/8)*8;
+	if(pos > c->infile->len) goto done;
+
+	indexcount = de_getui32be(pos);
+	storesize = de_getui32be(pos+4);
+	de_dbg(c, "pos=%d indexcount=%d storesize=%d\n", (int)pos, (int)indexcount, (int)storesize);
+
+	pos += 8 + 16*indexcount + storesize;
+	de_dbg(c, "data pos: %d\n", (int)pos);
+	if(pos > c->infile->len) goto done;
+
+	// Sniff the format of (what we assume is) the compressed cpio archive.
+	// TODO: It's possible to read the compression type without sniffing, though
+	// it's not clear whether that would be more, or less, reliable.
+	// TODO: I think it's also theoretically possible that it could use an archive
+	// format other than cpio.
+	de_read(buf, pos, 8);
+
+	if(buf[0]==0x1f && buf[1]==0x8b) {
+		ext = "cpio.gz";
+	}
+	else if(buf[0]==0x42 && buf[1]==0x5a && buf[2]==0x68) {
+		ext = "cpio.bz2";
+	}
+	else if(buf[0]==0xff && buf[1]==0x4c && buf[2]==0x5a) {
+		// TODO: Is this correct? What exactly is this format?
+		ext = "cpio.lzma";
+	}
+	else if(buf[0]==0xfd && buf[1]==0x37 && buf[2]==0x7a) {
+		ext = "cpio.xz";
+	}
+	else {
+		de_warn(c, "Unidentified compression or archive format\n");
+		ext = "cpio.bin";
+	}
+
+	dbuf_create_file_from_slice(c->infile, pos, c->infile->len - pos, ext, NULL);
+
+done:
+	;
+}
+
+static int de_identify_rpm(deark *c)
+{
+	de_byte b[4];
+	de_read(b, 0, 4);
+	if(!de_memcmp(b, "\xed\xab\xee\xdb", 4))
+		return 100;
+	return 0;
+}
+
+void de_module_rpm(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "rpm";
+	mi->run_fn = de_run_rpm;
+	mi->identify_fn = de_identify_rpm;
+}
