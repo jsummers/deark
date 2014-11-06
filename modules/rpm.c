@@ -6,8 +6,21 @@
 
 // RPM package manager
 
+#define DE_RPM_STRING_TYPE 6
+
+#define DE_RPMTAG_NAME               1000
+#define DE_RPMTAG_PAYLOADFORMAT      1124
+#define DE_RPMTAG_PAYLOADCOMPRESSOR  1125
+
+#define DE_RPM_CMPR_UNKNOWN 0
+#define DE_RPM_CMPR_GZIP    1
+#define DE_RPM_CMPR_BZIP2   2
+#define DE_RPM_CMPR_LZMA    3
+#define DE_RPM_CMPR_XZ      4
+
 typedef struct localctx_struct {
 	de_byte ver_major, ver_minor;
+	int cmpr_type;
 } lctx;
 
 static int do_lead_section(deark *c, lctx *d)
@@ -22,6 +35,21 @@ static int do_lead_section(deark *c, lctx *d)
 	return 1;
 }
 
+static void read_compression_type(deark *c, lctx *d, de_int64 pos)
+{
+	de_byte buf[16];
+
+	de_dbg(c, "compression type at %d\n", (int)pos);
+
+	de_read(buf, pos, sizeof(buf));
+
+	if(!de_memcmp(buf, "lzma\0", 5)) {
+		d->cmpr_type = DE_RPM_CMPR_LZMA;
+	}
+	// Other valid compression types are "gzip", "bzip2", and "xz".
+	// We'll autodetect most of them, but lzma is hard to detect.
+}
+
 // Note that a header *structure* is distinct from the header *section*.
 // Both the signature section and the header section use a header structure.
 static int do_header_structure(deark *c, lctx *d, int is_sig, de_int64 pos1,
@@ -32,7 +60,12 @@ static int do_header_structure(deark *c, lctx *d, int is_sig, de_int64 pos1,
 	de_int64 storesize;
 	de_byte buf[4];
 	de_byte header_ver;
+	de_int64 i;
+	de_int64 tag_id, tag_type, tag_offset, tag_count;
+	de_int64 data_store_pos;
+	const char *hdrname;
 
+	hdrname = is_sig?"sig":"hdr";
 	pos = pos1;
 
 	de_read(buf, pos, 4);
@@ -49,11 +82,36 @@ static int do_header_structure(deark *c, lctx *d, int is_sig, de_int64 pos1,
 
 	indexcount = de_getui32be(pos);
 	storesize = de_getui32be(pos+4);
-	de_dbg(c, "%s: pos=%d indexcount=%d storesize=%d\n", is_sig?"sig":"hdr",
+	de_dbg(c, "%s: pos=%d indexcount=%d storesize=%d\n", hdrname,
 		(int)pos, (int)indexcount, (int)storesize);
 	pos += 8;
 
-	pos += 16*indexcount;
+	if(indexcount>1000) return 0;
+
+	data_store_pos = pos + 16*indexcount;
+
+	de_dbg(c, "%s: tag table at %d\n", hdrname, (int)pos);
+
+	for(i=0; i<indexcount; i++) {
+		tag_id = de_getui32be(pos);
+		tag_type = de_getui32be(pos+4);
+		tag_offset = de_getui32be(pos+8);
+		tag_count = de_getui32be(pos+12);
+
+		de_dbg2(c, "tag #%d type=%d offset=%d count=%d\n", (int)tag_id,
+			(int)tag_type, (int)tag_offset, (int)tag_count);
+
+
+		if(is_sig==0 && tag_id==DE_RPMTAG_PAYLOADCOMPRESSOR && tag_type==DE_RPM_STRING_TYPE) {
+			read_compression_type(c, d, data_store_pos+tag_offset);
+		}
+		// TODO: Read DE_RPMTAG_NAME
+
+		pos += 16;
+	}
+
+	pos = data_store_pos;
+	de_dbg(c, "%s: data store at %d\n", hdrname, (int)pos);
 	pos += storesize;
 
 	*section_size = pos - pos1;
@@ -96,22 +154,21 @@ static void de_run_rpm(deark *c, const char *params)
 	// sure the second one is aligned.
 	pos = ((pos + 7)/8)*8;
 
-	if(pos > c->infile->len) goto done;
-
 	if(!do_header_section(c, d, pos, &section_size)) {
 		goto done;
 	}
 	pos += section_size;
-	if(pos > c->infile->len) goto done;
 
 	de_dbg(c, "data pos: %d\n", (int)pos);
 	if(pos > c->infile->len) goto done;
 
-	// Sniff the format of (what we assume is) the compressed cpio archive.
-	// TODO: It's possible to read the compression type without sniffing, though
-	// it's not clear whether that would be more, or less, reliable.
+	// There is usually a tag that indicates the compression format, but we
+	// primarily figure out the format by sniffing its magic number, on the
+	// theory that that's more reliable.
+
 	// TODO: I think it's also theoretically possible that it could use an archive
 	// format other than cpio.
+
 	de_read(buf, pos, 8);
 
 	if(buf[0]==0x1f && buf[1]==0x8b) {
@@ -120,15 +177,10 @@ static void de_run_rpm(deark *c, const char *params)
 	else if(buf[0]==0x42 && buf[1]==0x5a && buf[2]==0x68) {
 		ext = "cpio.bz2";
 	}
-	else if(buf[0]==0xff && buf[1]==0x4c && buf[2]==0x5a) {
-		// TODO: Is this correct? What exactly is this format?
-		ext = "cpio.lzma";
-	}
 	else if(buf[0]==0xfd && buf[1]==0x37 && buf[2]==0x7a) {
 		ext = "cpio.xz";
 	}
-	else if(buf[0]==0x5d) {
-		// TODO: Better identification
+	else if(d->cmpr_type==DE_RPM_CMPR_LZMA || buf[0]==0x5d) {
 		ext = "cpio.lzma";
 	}
 	else {
