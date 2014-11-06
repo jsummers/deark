@@ -22,19 +22,22 @@ static int do_lead_section(deark *c, lctx *d)
 	return 1;
 }
 
-static int do_signature_section(deark *c, lctx *d, de_int64 pos1, de_int64 *section_size)
+// Note that a header *structure* is distinct from the header *section*.
+// Both the signature section and the header section use a header structure.
+static int do_header_structure(deark *c, lctx *d, int is_sig, de_int64 pos1,
+	de_int64 *section_size)
 {
 	de_int64 pos;
 	de_int64 indexcount;
 	de_int64 storesize;
-	de_byte buf[8];
+	de_byte buf[4];
 	de_byte header_ver;
 
 	pos = pos1;
 
 	de_read(buf, pos, 4);
 	if(buf[0]!=0x8e || buf[1]!=0xad || buf[2]!=0xe8) {
-		de_err(c, "Bad header signature\n");
+		de_err(c, "Bad header signature at %d\n", (int)pos);
 		return 0;
 	}
 	header_ver = buf[3];
@@ -46,8 +49,9 @@ static int do_signature_section(deark *c, lctx *d, de_int64 pos1, de_int64 *sect
 
 	indexcount = de_getui32be(pos);
 	storesize = de_getui32be(pos+4);
-	de_dbg(c, "sig: pos=%d indexcount=%d storesize=%d\n", (int)pos, (int)indexcount, (int)storesize);
-	pos += 16;
+	de_dbg(c, "%s: pos=%d indexcount=%d storesize=%d\n", is_sig?"sig":"hdr",
+		(int)pos, (int)indexcount, (int)storesize);
+	pos += 8;
 
 	pos += 16*indexcount;
 	pos += storesize;
@@ -56,25 +60,14 @@ static int do_signature_section(deark *c, lctx *d, de_int64 pos1, de_int64 *sect
 	return 1;
 }
 
+static int do_signature_section(deark *c, lctx *d, de_int64 pos1, de_int64 *section_size)
+{
+	return do_header_structure(c, d, 1, pos1, section_size);
+}
+
 static int do_header_section(deark *c, lctx *d, de_int64 pos1, de_int64 *section_size)
 {
-	de_int64 indexcount;
-	de_int64 storesize;
-	de_int64 pos;
-
-	pos = pos1;
-
-	indexcount = de_getui32be(pos);
-	storesize = de_getui32be(pos+4);
-	de_dbg(c, "hdr: pos=%d indexcount=%d storesize=%d\n", (int)pos, (int)indexcount, (int)storesize);
-
-	pos += 8;
-
-	pos += 16*indexcount;
-	pos += storesize;
-
-	*section_size = pos - pos1;
-	return 1;
+	return do_header_structure(c, d, 0, pos1, section_size);
 }
 
 static void de_run_rpm(deark *c, const char *params)
@@ -97,7 +90,12 @@ static void de_run_rpm(deark *c, const char *params)
 		goto done;
 	}
 	pos += section_size;
-	pos = ((pos + 7)/8)*8; // 8-byte alignment
+
+	// Header structures are 8-byte aligned. The first one always starts at
+	// offset 96, so we don't have to worry about it. But we need to make
+	// sure the second one is aligned.
+	pos = ((pos + 7)/8)*8;
+
 	if(pos > c->infile->len) goto done;
 
 	if(!do_header_section(c, d, pos, &section_size)) {
