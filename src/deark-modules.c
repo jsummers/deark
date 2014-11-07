@@ -63,6 +63,7 @@ void de_register_modules(deark *c)
 	register_a_module(c, de_module_applevol);
 	register_a_module(c, de_module_basic_c64);
 	register_a_module(c, de_module_ico);
+	register_a_module(c, de_module_qtif);
 	register_a_module(c, de_module_ripicon);
 	register_a_module(c, de_module_jpegscan);
 	register_a_module(c, de_module_copy);

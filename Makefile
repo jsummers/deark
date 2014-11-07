@@ -15,7 +15,7 @@ OFILES_MODS:=$(addprefix $(OBJDIR)/modules/,os2bmp.o eps.o bsave.o \
  jpeg.o tiff.o psd.o misc.o msp.o pcpaint.o graspgl.o amigaicon.o macpaint.o \
  epocimage.o psionpic.o psionapp.o exe.o ani.o jpeg2000.o zip.o atari.o \
  fnt.o nokia.o grob.o t64.o cardfile.o tivariable.o basic-c64.o ico.o rpm.o \
- unsupported.o)
+ qtif.o unsupported.o)
 OFILES_MODUTILS:=$(addprefix $(OBJDIR)/modules/,fmtutil.o)
 OFILES_LIB:=$(addprefix $(OBJDIR)/src/,deark-miniz.o deark-util.o deark-data.o \
  deark-core.o deark-modules.o)

@@ -373,6 +373,11 @@ void de_set_output_style(deark *c, int x)
 	c->output_style = x;
 }
 
+int de_identify_none(deark *c)
+{
+	return 0;
+}
+
 // Read len bytes, starting at file position pos, into buf.
 // Unread bytes will be set to 0.
 void dbuf_read(dbuf *f, de_byte *buf, de_int64 pos, de_int64 len)

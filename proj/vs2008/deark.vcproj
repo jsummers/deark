@@ -498,6 +498,10 @@
 				>
 			</File>
 			<File
+				RelativePath="..\..\modules\qtif.c"
+				>
+			</File>
+			<File
 				RelativePath="..\..\modules\rpm.c"
 				>
 			</File>

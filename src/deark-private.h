@@ -190,6 +190,8 @@ void de_declare_fmt(deark *c, const char *fmtname);
 
 void de_dbg_indent(deark *c, int n);
 
+int de_identify_none(deark *c);
+
 ///////////////////////////////////////////
 
 const char *de_get_input_file_ext(deark *c);

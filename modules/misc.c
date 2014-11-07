@@ -14,11 +14,6 @@
 // This is a trivial module that makes a copy of the input file.
 // **************************************************************************
 
-static int de_identify_copy(deark *c)
-{
-	return 0;
-}
-
 static void de_run_copy(deark *c, const char *params)
 {
 	de_dbg(c, "In copy module\n");
@@ -30,7 +25,7 @@ void de_module_copy(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "copy";
 	mi->run_fn = de_run_copy;
-	mi->identify_fn = de_identify_copy;
+	mi->identify_fn = de_identify_none;
 }
 
 // **************************************************************************
@@ -670,14 +665,9 @@ done:
 	de_bitmap_destroy(img);
 }
 
-static int de_identify_ripicon(deark *c)
-{
-	return 0;
-}
-
 void de_module_ripicon(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "ripicon";
 	mi->run_fn = de_run_ripicon;
-	mi->identify_fn = de_identify_ripicon;
+	mi->identify_fn = de_identify_none;
 }
