@@ -9,6 +9,8 @@
 #define DE_RPM_STRING_TYPE 6
 
 #define DE_RPMTAG_NAME               1000
+#define DE_RPMTAG_VERSION            1001
+#define DE_RPMTAG_RELEASE            1002
 #define DE_RPMTAG_PAYLOADFORMAT      1124
 #define DE_RPMTAG_PAYLOADCOMPRESSOR  1125
 
@@ -21,6 +23,11 @@
 typedef struct localctx_struct {
 	de_byte ver_major, ver_minor;
 	int cmpr_type;
+
+	int name_known;
+	char name[64];
+	char version[32];
+	char release[32];
 } lctx;
 
 static int do_lead_section(deark *c, lctx *d)
@@ -105,7 +112,16 @@ static int do_header_structure(deark *c, lctx *d, int is_sig, de_int64 pos1,
 		if(is_sig==0 && tag_id==DE_RPMTAG_PAYLOADCOMPRESSOR && tag_type==DE_RPM_STRING_TYPE) {
 			read_compression_type(c, d, data_store_pos+tag_offset);
 		}
-		// TODO: Read DE_RPMTAG_NAME
+		else if(is_sig==0 && tag_id==DE_RPMTAG_NAME && tag_type==DE_RPM_STRING_TYPE) {
+			dbuf_read_sz(c->infile, data_store_pos+tag_offset, d->name, sizeof(d->name));
+			d->name_known = 1;
+		}
+		else if(is_sig==0 && tag_id==DE_RPMTAG_VERSION && tag_type==DE_RPM_STRING_TYPE) {
+			dbuf_read_sz(c->infile, data_store_pos+tag_offset, d->version, sizeof(d->version));
+		}
+		else if(is_sig==0 && tag_id==DE_RPMTAG_RELEASE && tag_type==DE_RPM_STRING_TYPE) {
+			dbuf_read_sz(c->infile, data_store_pos+tag_offset, d->release, sizeof(d->release));
+		}
 
 		pos += 16;
 	}
@@ -135,6 +151,8 @@ static void de_run_rpm(deark *c, const char *params)
 	de_byte buf[8];
 	const char *ext;
 	de_int64 section_size = 0;
+	de_finfo *fi = NULL;
+	char filename[128];
 
 	d = de_malloc(c, sizeof(lctx));
 
@@ -188,9 +206,17 @@ static void de_run_rpm(deark *c, const char *params)
 		ext = "cpio.bin";
 	}
 
-	dbuf_create_file_from_slice(c->infile, pos, c->infile->len - pos, ext, NULL);
+	if(d->name_known) {
+		fi = de_finfo_create(c);
+		de_snprintf(filename, sizeof(filename), "%s-%s.%s",
+			d->name, d->version, d->release);
+		de_finfo_set_name_from_sz(c, fi, filename);
+	}
+
+	dbuf_create_file_from_slice(c->infile, pos, c->infile->len - pos, ext, fi);
 
 done:
+	de_finfo_destroy(c, fi);
 	de_free(c, d);
 }
 

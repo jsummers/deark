@@ -558,7 +558,7 @@ de_int64 dbuf_geti64(dbuf *f, de_int64 pos)
 	return dbuf_geti64be(f, pos);
 }
 
-void  dbuf_copy(dbuf *inf, de_int64 input_offset, de_int64 input_len, dbuf *outf)
+void dbuf_copy(dbuf *inf, de_int64 input_offset, de_int64 input_len, dbuf *outf)
 {
 	de_byte buf[16384];
 	de_int64 input_pos;
@@ -583,6 +583,21 @@ void  dbuf_copy(dbuf *inf, de_int64 input_offset, de_int64 input_len, dbuf *outf
 		bytes_left -= bytes_to_read;
 		input_pos += bytes_to_read;
 	}
+}
+
+void dbuf_read_sz(dbuf *f, de_int64 pos, char *dst, size_t dst_size)
+{
+	de_int64 i;
+	de_int64 bytes_copied = 0;
+	de_byte b;
+
+	for(i=0; i<(de_int64)dst_size-1; i++) {
+		b = dbuf_getbyte(f, pos+i);
+		if(b==0x00) break;
+		dst[i] = (char)b;
+		bytes_copied++;
+	}
+	dst[bytes_copied] = '\0';
 }
 
 int dbuf_create_file_from_slice(dbuf *inf, de_int64 pos, de_int64 data_size,
@@ -1451,6 +1466,15 @@ void de_finfo_set_name_from_slice(deark *c, de_finfo *fi, dbuf *f,
 	de_make_filename(c, tmpbuf, len, fi->file_name, len+1, conv_flags);
 
 	de_free(c, tmpbuf);
+}
+
+void de_finfo_set_name_from_sz(deark *c, de_finfo *fi, const char *name1)
+{
+	de_int64 name1_len;
+
+	name1_len = (de_int64)de_strlen(name1);
+	fi->file_name = de_malloc(c, name1_len+10);
+	de_make_filename(c, (const de_byte*)name1, name1_len, fi->file_name, name1_len+10, 0);
 }
 
 // TODO: This needs lots of work, to support a wider range of filename characters.

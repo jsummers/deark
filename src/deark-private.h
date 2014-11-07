@@ -274,6 +274,9 @@ void dbuf_fprintf(dbuf *f, const char *fmt, ...);
 // Read a slice of one dbuf, and append it to another dbuf.
 void dbuf_copy(dbuf *inf, de_int64 input_offset, de_int64 input_len, dbuf *outf);
 
+// Read a NUL-terminated string from a dbuf.
+void dbuf_read_sz(dbuf *f, de_int64 pos, char *dst, size_t dst_size);
+
 // Read a slice of a dbuf, and create a new file containing only that.
 // At least one of 'ext' or 'fi' should be non-NULL.
 int dbuf_create_file_from_slice(dbuf *inf, de_int64 pos, de_int64 data_size,
@@ -367,13 +370,14 @@ int de_is_ascii(const de_byte *buf, de_int64 buflen);
 void de_make_printable_ascii(de_byte *s1, de_int64 s1_len,
 	char *s2, de_int64 s2_size, unsigned int conv_flags);
 
-void de_make_filename(deark *c, de_byte *s1, de_int64 s1_len,
+void de_make_filename(deark *c, const de_byte *s1, de_int64 s1_len,
 	char *s2, de_int64 s2_size, unsigned int conv_flags);
 
 de_finfo *de_finfo_create(deark *c);
 void de_finfo_destroy(deark *c, de_finfo *fi);
 void de_finfo_set_name_from_slice(deark *c, de_finfo *fi, dbuf *f,
 	de_int64 pos, de_int64 len, unsigned int conv_flags);
+void de_finfo_set_name_from_sz(deark *c, de_finfo *fi, const char *name1);
 void de_finfo_set_name_from_ucstring(deark *c, de_finfo *fi, de_ucstring *s);
 de_int32 de_char_to_valid_fn_char(deark *c, de_int32 c1);
 
