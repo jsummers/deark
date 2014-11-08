@@ -6,35 +6,62 @@
 
 typedef struct localctx_struct {
 	de_int64 w, h;
-#define DE_FMT_TI_UNKNOWN 1
-#define DE_FMT_TI73  730
-#define DE_FMT_TI82  820
-#define DE_FMT_TI83  830
-#define DE_FMT_TI83F 831
-#define DE_FMT_TI85  850
-#define DE_FMT_TI86  860
-#define DE_FMT_TI89  890
-#define DE_FMT_TI92  920
-#define DE_FMT_TI92P 921
 	int fmt;
 } lctx;
+
+typedef void (*ti_decoder_fn)(deark *c, lctx *d);
+
+static void do_ti83(deark *c, lctx *d);
+static void do_ti85(deark *c, lctx *d);
+static void do_ti92(deark *c, lctx *d);
+
+struct ti_ver_info {
+	const char *sig;
+	const char *description;
+	ti_decoder_fn decoder_fn;
+};
+// The format IDs are the indices of the items in this array.
+static const struct ti_ver_info ti_ver_info_arr[] = {
+#define DE_FMT_NOT_TI      0
+	{ NULL, NULL, NULL },
+#define DE_FMT_UNKNOWN_TI  1
+	{ NULL, NULL, NULL },
+#define DE_FMT_TI73   2
+	{ "**TI73**", "TI73 variable file",  do_ti83 },
+#define DE_FMT_TI82   3
+	{ "**TI82**", "TI82 variable file",  do_ti83 },
+#define DE_FMT_TI83   4
+	{ "**TI83**", "TI83 variable file",  do_ti83 },
+#define DE_FMT_TI83F  5
+	{ "**TI83F*", "TI83F variable file", do_ti83 },
+#define DE_FMT_TI85   6
+	{ "**TI85**", "TI85 variable file",  do_ti85 },
+#define DE_FMT_TI86   7
+	{ "**TI86**", "TI86 variable file",  do_ti85 },
+#define DE_FMT_TI89   8
+	{ "**TI89**", "TI89 variable file",  do_ti92 },
+#define DE_FMT_TI92   9
+	{ "**TI92**", "TI92 variable file",  do_ti92 },
+#define DE_FMT_TI92P  10
+	{ "**TI92P*", "TI92P variable file", do_ti92 }
+#define DE_FMT_COUNT  11
+};
 
 static int identify_internal(deark *c)
 {
 	de_byte buf[8];
+	int i;
 
 	de_read(buf, 0, 8);
-	if(!de_memcmp(buf, "**TI73**", 8)) return DE_FMT_TI73;
-	if(!de_memcmp(buf, "**TI82**", 8)) return DE_FMT_TI82;
-	if(!de_memcmp(buf, "**TI83**", 8)) return DE_FMT_TI83;
-	if(!de_memcmp(buf, "**TI83F*", 8)) return DE_FMT_TI83F;
-	if(!de_memcmp(buf, "**TI85**", 8)) return DE_FMT_TI85;
-	if(!de_memcmp(buf, "**TI86**", 8)) return DE_FMT_TI86;
-	if(!de_memcmp(buf, "**TI89**", 8)) return DE_FMT_TI89;
-	if(!de_memcmp(buf, "**TI92**", 8)) return DE_FMT_TI92;
-	if(!de_memcmp(buf, "**TI92P*", 8)) return DE_FMT_TI92P;
-	if(!de_memcmp(buf, "**TI", 4)) return DE_FMT_TI_UNKNOWN;
-	return 0;
+
+	if(de_memcmp(buf, "**TI", 4)) return DE_FMT_NOT_TI;
+
+	for(i=2; i<DE_FMT_COUNT; i++) {
+		if(!de_memcmp(buf, ti_ver_info_arr[i].sig, 8)) {
+			return i;
+		}
+	}
+	return DE_FMT_UNKNOWN_TI;
 }
 
 static int do_bitmap(deark *c, lctx *d, de_int64 pos)
@@ -381,47 +408,14 @@ static void de_run_tivariable(deark *c, const char *params)
 	de_dbg(c, "In tivariable module\n");
 	d = de_malloc(c, sizeof(lctx));
 	d->fmt = identify_internal(c);
-	switch(d->fmt) {
-	case DE_FMT_TI73:
-		de_declare_fmt(c, "TI73 variable file");
-		do_ti83(c, d);
-		break;
-	case DE_FMT_TI82:
-		de_declare_fmt(c, "TI82 variable file");
-		do_ti83(c, d);
-		break;
-	case DE_FMT_TI83:
-		de_declare_fmt(c, "TI83 variable file");
-		do_ti83(c, d);
-		break;
-	case DE_FMT_TI83F:
-		de_declare_fmt(c, "TI83F variable file");
-		do_ti83(c, d);
-		break;
-	case DE_FMT_TI85:
-		de_declare_fmt(c, "TI85 variable file");
-		do_ti85(c, d);
-		break;
-	case DE_FMT_TI86:
-		de_declare_fmt(c, "TI86 variable file");
-		do_ti85(c, d);
-		break;
-	case DE_FMT_TI89:
-		de_declare_fmt(c, "TI89 variable file");
-		do_ti92(c, d);
-		break;
-	case DE_FMT_TI92:
-		de_declare_fmt(c, "TI92 variable file");
-		do_ti92(c, d);
-		break;
-	case DE_FMT_TI92P:
-		de_declare_fmt(c, "TI92P variable file");
-		do_ti92(c, d);
-		break;
-	default:
+
+	if(!ti_ver_info_arr[d->fmt].decoder_fn) {
 		de_err(c, "Unknown or unsupported TI variable file version\n");
 		goto done;
 	}
+
+	de_declare_fmt(c, ti_ver_info_arr[d->fmt].description);
+	ti_ver_info_arr[d->fmt].decoder_fn(c, d);
 
 done:
 	de_free(c, d);
@@ -431,9 +425,9 @@ static int de_identify_tivariable(deark *c)
 {
 	int fmt;
 	fmt = identify_internal(c);
-	if(fmt==DE_FMT_TI_UNKNOWN) return 10;
-	if(fmt!=0) return 100;
-	return 0;
+	if(fmt==DE_FMT_NOT_TI) return 0;
+	if(fmt==DE_FMT_UNKNOWN_TI) return 10;
+	return 100;
 }
 
 void de_module_tivariable(deark *c, struct deark_module_info *mi)
