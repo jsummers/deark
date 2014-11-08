@@ -14,23 +14,8 @@ typedef struct localctx_struct {
 
 static void grob_read_binary_bitmap(deark *c, lctx *d, dbuf *inf, de_int64 pos)
 {
-	de_int64 j;
-	de_int64 src_rowspan;
-	struct deark_bitmap *img = NULL;
-
-	if(!de_good_image_dimensions(c, d->w, d->h))
-		return;
-
-	img = de_bitmap_create(c, d->w, d->h, 1);
-	src_rowspan = (d->w+7)/8;
-
-	for(j=0; j<d->h; j++) {
-		de_convert_row_bilevel(inf, pos+j*src_rowspan, img, j,
-			DE_CVTR_WHITEISZERO|DE_CVTR_LSBFIRST);
-	}
-
-	de_bitmap_write_to_file(img, NULL);
-	de_bitmap_destroy(img);
+	de_convert_and_write_image_bilevel(inf, pos, d->w, d->h, (d->w+7)/8,
+		DE_CVTF_WHITEISZERO|DE_CVTF_LSBFIRST);
 }
 
 static void de_run_grob_binary(deark *c, lctx *d)

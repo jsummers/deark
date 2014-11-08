@@ -39,21 +39,12 @@ static void do_read_plane_info(deark *c, lctx *d, struct plane_info_struct *pi, 
 
 static void do_bitmap_1plane(deark *c, lctx *d, de_int64 plane_num)
 {
-	struct deark_bitmap *img = NULL;
-	de_int64 j;
 	struct plane_info_struct *pi = &d->plane_info[plane_num];
 
 	de_dbg(c, "making a bilevel image from plane %d\n", (int)plane_num);
 
-	img = de_bitmap_create(c, pi->width, pi->height, 1);
-
-	for(j=0; j<pi->height; j++) {
-		de_convert_row_bilevel(c->infile, pi->image_pos + j*pi->rowspan, img, j,
-			DE_CVTR_WHITEISZERO|DE_CVTR_LSBFIRST);
-	}
-	de_bitmap_write_to_file(img, NULL);
-
-	de_bitmap_destroy(img);
+	de_convert_and_write_image_bilevel(c->infile, pi->image_pos, pi->width, pi->height,
+		pi->rowspan, DE_CVTF_WHITEISZERO|DE_CVTF_LSBFIRST);
 }
 
 static void do_bitmap_2planes(deark *c, lctx *d, de_int64 pn1, de_int64 pn2)

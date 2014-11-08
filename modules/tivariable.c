@@ -39,8 +39,6 @@ static int identify_internal(deark *c)
 
 static int do_bitmap(deark *c, lctx *d, de_int64 pos)
 {
-	struct deark_bitmap *img = NULL;
-	de_int64 j;
 	de_int64 rowspan;
 	int retval = 0;
 
@@ -51,18 +49,11 @@ static int do_bitmap(deark *c, lctx *d, de_int64 pos)
 		de_err(c, "Unexpected end of file\n");
 		goto done;
 	}
-	if(!de_good_image_dimensions(c, d->w, d->h)) goto done;
 
-	img = de_bitmap_create(c, d->w, d->h, 1);
-
-	for(j=0; j<d->h; j++) {
-		de_convert_row_bilevel(c->infile, pos+j*rowspan, img, j, DE_CVTR_WHITEISZERO);
-	}
-
-	de_bitmap_write_to_file(img, NULL);
+	de_convert_and_write_image_bilevel(c->infile, pos, d->w, d->h, rowspan,
+		DE_CVTF_WHITEISZERO);
 	retval = 1;
 done:
-	de_bitmap_destroy(img);
 	return retval;
 }
 

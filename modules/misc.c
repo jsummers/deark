@@ -76,25 +76,12 @@ void de_module_zlib(deark *c, struct deark_module_info *mi)
 
 static void de_run_hpicn(deark *c, const char *params)
 {
-	struct deark_bitmap *img = NULL;
 	de_int64 width, height;
-	de_int64 src_rowspan;
-	de_int64 j;
-
-	de_dbg(c, "In hpicn module\n");
 
 	width = de_getui16le(4);
 	height = de_getui16le(6);
-
-	img = de_bitmap_create(c, width, height, 1);
-	src_rowspan = (width+7)/8;
-
-	for(j=0; j<height; j++) {
-		de_convert_row_bilevel(c->infile, 8+j*src_rowspan, img, j, DE_CVTR_WHITEISZERO);
-	}
-
-	de_bitmap_write_to_file(img, NULL);
-	de_bitmap_destroy(img);
+	de_convert_and_write_image_bilevel(c->infile, 8, width, height, (width+7)/8,
+		DE_CVTF_WHITEISZERO);
 }
 
 static int de_identify_hpicn(deark *c)
@@ -587,25 +574,7 @@ void de_module_applevol(deark *c, struct deark_module_info *mi)
 
 static void de_run_hr(deark *c, const char *params)
 {
-	struct deark_bitmap *img = NULL;
-	de_int64 width, height;
-	de_int64 src_rowspan;
-	de_int64 j;
-
-	de_dbg(c, "In hr module\n");
-
-	width = 640;
-	height = 240;
-
-	img = de_bitmap_create(c, width, height, 1);
-	src_rowspan = (width+7)/8;
-
-	for(j=0; j<height; j++) {
-		de_convert_row_bilevel(c->infile, j*src_rowspan, img, j, 0);
-	}
-
-	de_bitmap_write_to_file(img, NULL);
-	de_bitmap_destroy(img);
+	de_convert_and_write_image_bilevel(c->infile, 0, 640, 240, 640/8, 0);
 }
 
 static int de_identify_hr(deark *c)

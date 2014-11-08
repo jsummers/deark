@@ -1368,7 +1368,7 @@ void de_convert_row_bilevel(dbuf *f, de_int64 fpos, struct deark_bitmap *img,
 	de_byte b;
 	de_byte black, white;
 
-	if(flags & DE_CVTR_WHITEISZERO) {
+	if(flags & DE_CVTF_WHITEISZERO) {
 		white = 0; black = 255;
 	}
 	else {
@@ -1377,12 +1377,31 @@ void de_convert_row_bilevel(dbuf *f, de_int64 fpos, struct deark_bitmap *img,
 
 	for(i=0; i<img->width; i++) {
 		b = dbuf_getbyte(f, fpos + i/8);
-		if(flags & DE_CVTR_LSBFIRST)
+		if(flags & DE_CVTF_LSBFIRST)
 			x = (b >> (i%8)) & 0x01;
 		else
 			x = (b >> (7 - i%8)) & 0x01;
 		de_bitmap_setpixel_gray(img, i, rownum, x ? white : black);
 	}
+}
+
+void de_convert_and_write_image_bilevel(dbuf *f, de_int64 fpos,
+	de_int64 width, de_int64 height, de_int64 rowspan, unsigned int flags)
+{
+	struct deark_bitmap *img = NULL;
+	de_int64 j;
+	deark *c = f->c;
+
+	if(!de_good_image_dimensions(c, width, height)) return;
+
+	img = de_bitmap_create(c, width, height, 1);
+
+	for(j=0; j<height; j++) {
+		de_convert_row_bilevel(f, fpos+j*rowspan, img, j, flags);
+	}
+
+	de_bitmap_write_to_file(img, NULL);
+	de_bitmap_destroy(img);
 }
 
 de_int64 de_log2_rounded_up(de_int64 n)

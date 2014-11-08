@@ -118,19 +118,8 @@ void de_module_ngg(deark *c, struct deark_module_info *mi)
 
 static void npm_nlm_read_bitmap(deark *c, lctx *d, de_int64 pos)
 {
-	struct deark_bitmap *img = NULL;
-	de_int64 j;
-	de_int64 src_rowspan;
-
-	img = de_bitmap_create(c, d->w, d->h, 1);
-	src_rowspan = (d->w+7)/8;
-
-	for(j=0; j<d->h; j++) {
-		de_convert_row_bilevel(c->infile, pos+j*src_rowspan, img, j, DE_CVTR_WHITEISZERO);
-	}
-
-	de_bitmap_write_to_file(img, NULL);
-	de_bitmap_destroy(img);
+	de_convert_and_write_image_bilevel(c->infile, pos, d->w, d->h, (d->w+7)/8,
+		DE_CVTF_WHITEISZERO);
 }
 
 static void de_run_npm(deark *c, const char *params)
