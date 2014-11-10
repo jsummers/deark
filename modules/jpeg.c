@@ -283,11 +283,6 @@ static int de_identify_jpeg(deark *c)
 	return 0;
 }
 
-static int de_identify_jpegscan(deark *c)
-{
-	return 0;
-}
-
 void de_module_jpeg(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "jpeg";
@@ -299,5 +294,5 @@ void de_module_jpegscan(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "jpegscan";
 	mi->run_fn = de_run_jpegscan;
-	mi->identify_fn = de_identify_jpegscan;
+	mi->identify_fn = de_identify_none;
 }

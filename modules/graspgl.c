@@ -102,7 +102,7 @@ static int de_identify_graspgl(deark *c)
 	// Header should be a nonzero multiple of 17 bytes.
 	if(dir_header_nbytes==0 || (dir_header_nbytes%17 != 0)) return 0;
 
-	gl_ext = de_input_file_has_ext(c, "hr");
+	gl_ext = de_input_file_has_ext(c, "gl");
 
 	// Most likely, the first embedded file immediately follows
 	// the header. If so, it's pretty good evidence this is a

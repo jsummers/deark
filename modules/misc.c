@@ -634,9 +634,26 @@ done:
 	de_bitmap_destroy(img);
 }
 
+static int de_identify_ripicon(deark *c)
+{
+	de_byte buf[4];
+	de_int64 expected_size;
+	de_int64 width, height;
+
+	if(!de_input_file_has_ext(c, "icn")) return 0;
+	de_read(buf, 0, sizeof(buf));
+	width = 1 + de_getui16le(0);
+	height = 1 + de_getui16le(2);
+	expected_size = 4 + height*(4*((width+7)/8)) + 1;
+	if(c->infile->len >= expected_size && c->infile->len <= expected_size+1) {
+		return 50;
+	}
+	return 0;
+}
+
 void de_module_ripicon(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "ripicon";
 	mi->run_fn = de_run_ripicon;
-	mi->identify_fn = de_identify_none;
+	mi->identify_fn = de_identify_ripicon;
 }
