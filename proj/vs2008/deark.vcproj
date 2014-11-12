@@ -454,6 +454,10 @@
 				>
 			</File>
 			<File
+				RelativePath="..\..\modules\ilbm.c"
+				>
+			</File>
+			<File
 				RelativePath="..\..\modules\jpeg.c"
 				>
 			</File>
