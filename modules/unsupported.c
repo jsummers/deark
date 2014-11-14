@@ -11,6 +11,7 @@
 
 struct fmtinfo_struct {
 	int confidence;
+	int special_message;
 	const char *descr;
 };
 
@@ -21,8 +22,7 @@ static void get_fmt(deark *c, struct fmtinfo_struct *fmti)
 {
 	de_byte b[32];
 
-	fmti->confidence = 0;
-	fmti->descr = NULL;
+	de_memset(fmti, 0, sizeof(struct fmtinfo_struct));
 
 	de_read(b, 0, sizeof(b));
 
@@ -97,6 +97,20 @@ static void get_fmt(deark *c, struct fmtinfo_struct *fmti)
 		return;
 	}
 
+	if(!de_memcmp(b, "RIFF", 4)) {
+		fmti->confidence = 2;
+		fmti->special_message = 1;
+		fmti->descr = "a RIFF file, but it is not one of the supported RIFF subformats.";
+		return;
+	}
+
+	if(!de_memcmp(b, "FORM", 4)) {
+		fmti->confidence = 2;
+		fmti->special_message = 1;
+		fmti->descr = "an IFF file, but it is not one of the supported IFF subformats.";
+		return;
+	}
+
 	if(b[0]=='B' && b[1]=='M') {
 		fmti->confidence = 20;
 		fmti->descr = "a BMP image file";
@@ -116,7 +130,12 @@ static void de_run_unsupported(deark *c, const char *params)
 	struct fmtinfo_struct fmti;
 	get_fmt(c, &fmti);
 	if(fmti.confidence>0 && fmti.descr) {
-		de_err(c, "This looks like %s, which is not a supported format.\n", fmti.descr);
+		if(fmti.special_message) {
+			de_err(c, "This looks like %s\n", fmti.descr);
+		}
+		else {
+			de_err(c, "This looks like %s, which is not a supported format.\n", fmti.descr);
+		}
 	}
 }
 

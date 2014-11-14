@@ -20,53 +20,65 @@ static void register_a_module(deark *c, de_module_getinfo_fn infofunc)
 
 void de_register_modules(deark *c)
 {
-	register_a_module(c, de_module_jpeg);
-	register_a_module(c, de_module_tiff);
-	register_a_module(c, de_module_eps);
-	register_a_module(c, de_module_msp);
-	register_a_module(c, de_module_pcpaint);
-	register_a_module(c, de_module_os2bmp);
-	register_a_module(c, de_module_psd);
-	register_a_module(c, de_module_amigaicon);
-	register_a_module(c, de_module_epocimage);
-	register_a_module(c, de_module_psionpic);
-	register_a_module(c, de_module_psionapp);
-	register_a_module(c, de_module_exe);
-	register_a_module(c, de_module_ani);
-	register_a_module(c, de_module_jpeg2000);
-	register_a_module(c, de_module_rpm);
-	register_a_module(c, de_module_ilbm);
-	register_a_module(c, de_module_dcx);
-	register_a_module(c, de_module_fnt);
-	register_a_module(c, de_module_hpicn);
-	register_a_module(c, de_module_macpaint);
-	register_a_module(c, de_module_nol);
-	register_a_module(c, de_module_ngg);
-	register_a_module(c, de_module_npm);
-	register_a_module(c, de_module_nlm);
-	register_a_module(c, de_module_nsl);
-	register_a_module(c, de_module_tivariable);
-	register_a_module(c, de_module_atr);
-	register_a_module(c, de_module_t64);
-	register_a_module(c, de_module_mrw);
-	register_a_module(c, de_module_cardfile);
-	register_a_module(c, de_module_graspgl);
-	register_a_module(c, de_module_zlib);
-	register_a_module(c, de_module_bsave);
-	register_a_module(c, de_module_zip);
-	register_a_module(c, de_module_xpuzzle);
-	register_a_module(c, de_module_grob);
-	register_a_module(c, de_module_vivid);
-	register_a_module(c, de_module_atari_cas);
-	register_a_module(c, de_module_winzle);
-	register_a_module(c, de_module_bob);
-	register_a_module(c, de_module_hr);
-	register_a_module(c, de_module_applevol);
-	register_a_module(c, de_module_basic_c64);
-	register_a_module(c, de_module_ico);
-	register_a_module(c, de_module_qtif);
-	register_a_module(c, de_module_ripicon);
-	register_a_module(c, de_module_jpegscan);
-	register_a_module(c, de_module_copy);
-	register_a_module(c, de_module_unsupported);
+	// The order that modules appear in this list can affect performance, and
+	// in some cases can affect what format a file will be detected as.
+	// The more common and easily-identified a format is, the earlier it should
+	// appear.
+	de_module_getinfo_fn infofunc_list[] = {
+		de_module_jpeg,
+		de_module_tiff,
+		de_module_eps,
+		de_module_msp,
+		de_module_pcpaint,
+		de_module_os2bmp,
+		de_module_psd,
+		de_module_amigaicon,
+		de_module_epocimage,
+		de_module_psionpic,
+		de_module_psionapp,
+		de_module_exe,
+		de_module_ani,
+		de_module_jpeg2000,
+		de_module_rpm,
+		de_module_ilbm,
+		de_module_dcx,
+		de_module_fnt,
+		de_module_hpicn,
+		de_module_macpaint,
+		de_module_nol,
+		de_module_ngg,
+		de_module_npm,
+		de_module_nlm,
+		de_module_nsl,
+		de_module_tivariable,
+		de_module_atr,
+		de_module_t64,
+		de_module_mrw,
+		de_module_cardfile,
+		de_module_graspgl,
+		de_module_zlib,
+		de_module_bsave,
+		de_module_zip,
+		de_module_xpuzzle,
+		de_module_grob,
+		de_module_vivid,
+		de_module_atari_cas,
+		de_module_winzle,
+		de_module_bob,
+		de_module_hr,
+		de_module_applevol,
+		de_module_basic_c64,
+		de_module_ico,
+		de_module_qtif,
+		de_module_ripicon,
+		de_module_jpegscan,
+		de_module_copy,
+		de_module_unsupported,
+		NULL
+	};
+	size_t i;
+
+	for(i=0; infofunc_list[i]!=NULL; i++) {
+		register_a_module(c, infofunc_list[i]);
+	}
 }

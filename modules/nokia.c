@@ -343,7 +343,7 @@ static int de_identify_nsl(deark *c)
 	x = de_getui16be(4);
 	if(x+6 != c->infile->len) return 0;
 
-	if(!de_input_file_has_ext(c, "nsl")) {
+	if(de_input_file_has_ext(c, "nsl")) {
 		return 100;
 	}
 	else {
