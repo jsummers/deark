@@ -27,7 +27,7 @@ Command-line options:
   -extractall
      Also extract data that's usually useless. In general, this will also
      suppress the extraction of any files contained inside such data.
-  -basefn <name>
+  -o <name>
      Output filenames begin with this string. This can include a directory
      path. Default="output".
   -zip

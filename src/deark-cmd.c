@@ -86,7 +86,7 @@ static void set_ext_option(deark *c, struct cmdctx *cc, const char *optionstring
 enum opt_id_enum {
  DE_OPT_NULL=0, DE_OPT_D, DE_OPT_D2, DE_OPT_L, DE_OPT_NOINFO, DE_OPT_NOWARN,
  DE_OPT_NOBOM, DE_OPT_Q, DE_OPT_VERSION, DE_OPT_EXTRACTALL, DE_OPT_ZIP,
- DE_OPT_EXTOPT, DE_OPT_START, DE_OPT_SIZE, DE_OPT_M, DE_OPT_BASEFN,
+ DE_OPT_EXTOPT, DE_OPT_START, DE_OPT_SIZE, DE_OPT_M, DE_OPT_O,
  DE_OPT_ARCFN, DE_OPT_GET, DE_OPT_FIRSTFILE, DE_OPT_MAXFILES
 };
 
@@ -111,7 +111,8 @@ struct opt_struct option_array[] = {
 	{ "start",        DE_OPT_START,        1 },
 	{ "size",         DE_OPT_SIZE,         1 },
 	{ "m",            DE_OPT_M,            1 },
-	{ "basefn",       DE_OPT_BASEFN,       1 },
+	{ "o",            DE_OPT_O,            1 },
+	{ "basefn",       DE_OPT_O,            1 }, // Deprecated
 	{ "arcfn",        DE_OPT_ARCFN,        1 },
 	{ "get",          DE_OPT_GET,          1 },
 	{ "firstfile",    DE_OPT_FIRSTFILE,    1 },
@@ -195,7 +196,7 @@ static void parse_cmdline(deark *c, struct cmdctx *cc, int argc, char **argv)
 			case DE_OPT_M:
 				de_set_input_format(c, argv[i+1]);
 				break;
-			case DE_OPT_BASEFN:
+			case DE_OPT_O:
 				de_set_base_output_filename(c, argv[i+1]);
 				break;
 			case DE_OPT_ARCFN:
