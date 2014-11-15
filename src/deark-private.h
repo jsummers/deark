@@ -85,7 +85,7 @@ struct deark_bitmap {
 	int orig_bitdepth; // Optional; can be used by modules
 };
 
-struct deark_option {
+struct deark_ext_option {
 	const char *name;
 	const char *val;
 };
@@ -146,9 +146,9 @@ struct deark_struct {
 	int num_modules;
 	struct deark_module_info module_info[DE_MAX_MODULES];
 
-#define DE_MAX_OPTIONS 16
-	int num_options;
-	struct deark_option option[DE_MAX_OPTIONS];
+#define DE_MAX_EXT_OPTIONS 16
+	int num_ext_options;
+	struct deark_ext_option ext_option[DE_MAX_EXT_OPTIONS];
 };
 
 void de_fatalerror(deark *c);

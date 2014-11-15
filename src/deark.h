@@ -76,8 +76,8 @@ void de_set_warnings(deark *c, int x);
 // When we write a UTF-8 text file, should we start it with a BOM?
 void de_set_write_bom(deark *c, int x);
 
-void de_set_option(deark *c, const char *name, const char *val);
-const char *de_get_option(deark *c, const char *name);
+void de_set_ext_option(deark *c, const char *name, const char *val);
+const char *de_get_ext_option(deark *c, const char *name);
 
 #define DE_MSGTYPE_MESSAGE 0
 #define DE_MSGTYPE_WARNING 1

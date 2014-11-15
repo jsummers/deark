@@ -112,7 +112,7 @@ static void de_run_psionapp(deark *c, const char *params)
 
 	d = de_malloc(c, sizeof(lctx));
 
-	s = de_get_option(c, "psionapp:convertpic");
+	s = de_get_ext_option(c, "psionapp:convertpic");
 	if(s) {
 		d->convert_images = 1;
 	}

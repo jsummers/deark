@@ -130,7 +130,7 @@ static void de_run_psionpic(deark *c, const char *params)
 	de_dbg(c, "In psionpic module\n");
 	d = de_malloc(c, sizeof(lctx));
 
-	s = de_get_option(c, "psionpic:bw");
+	s = de_get_ext_option(c, "psionpic:bw");
 	if(s) {
 		d->bw = 1;
 	}

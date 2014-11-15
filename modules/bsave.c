@@ -27,7 +27,7 @@ typedef struct localctx_struct {
 static de_int64 get_width(deark *c, lctx *d, de_int64 default_width)
 {
 	const char *s;
-	s = de_get_option(c, "bsave:width");
+	s = de_get_ext_option(c, "bsave:width");
 	if(s) return de_atoi64(s);
 	return default_width;
 }
@@ -35,7 +35,7 @@ static de_int64 get_width(deark *c, lctx *d, de_int64 default_width)
 static de_int64 get_height(deark *c, lctx *d, de_int64 default_height)
 {
 	const char *s;
-	s = de_get_option(c, "bsave:height");
+	s = de_get_ext_option(c, "bsave:height");
 	if(s) return de_atoi64(s);
 	return default_height;
 }
@@ -549,7 +549,7 @@ static void de_run_bsave(deark *c, const char *params)
 	de_dbg(c, "offset_from_base: 0x%04x\n", (int)d->offset_from_base);
 	de_dbg(c, "data_size: 0x%04x (%d)\n", (int)d->data_size, (int)d->data_size);
 
-	bsavefmt = de_get_option(c, "bsave:fmt");
+	bsavefmt = de_get_ext_option(c, "bsave:fmt");
 	if(!bsavefmt) {
 		bsavefmt="auto";
 	}
@@ -620,7 +620,7 @@ static void de_run_bsave(deark *c, const char *params)
 		de_warn(c, "BSAVE formats can't be reliably identified. You may need to use -opt bsave:fmt=...\n");
 	}
 
-	s = de_get_option(c, "palfile");
+	s = de_get_ext_option(c, "palfile");
 	if(s) {
 		if(!do_read_palette_file(c, d, s)) goto done;
 	}

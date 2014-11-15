@@ -912,25 +912,25 @@ void dbuf_fprintf(dbuf *f, const char *fmt, ...)
 	dbuf_fputs(f, buf);
 }
 
-void de_set_option(deark *c, const char *name, const char *val)
+void de_set_ext_option(deark *c, const char *name, const char *val)
 {
 	int n;
 
-	n = c->num_options;
-	if(n>=DE_MAX_OPTIONS) return;
+	n = c->num_ext_options;
+	if(n>=DE_MAX_EXT_OPTIONS) return;
 
-	c->option[n].name = name;
-	c->option[n].val = val;
-	c->num_options++;
+	c->ext_option[n].name = name;
+	c->ext_option[n].val = val;
+	c->num_ext_options++;
 }
 
-const char *de_get_option(deark *c, const char *name)
+const char *de_get_ext_option(deark *c, const char *name)
 {
 	int i;
 
-	for(i=0; i<c->num_options; i++) {
-		if(!strcmp(c->option[i].name, name)) {
-			return c->option[i].val;
+	for(i=0; i<c->num_ext_options; i++) {
+		if(!strcmp(c->ext_option[i].name, name)) {
+			return c->ext_option[i].val;
 		}
 	}
 	return NULL; // Option name not found.

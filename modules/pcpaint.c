@@ -342,7 +342,7 @@ static int do_read_alt_palette_file(deark *c, lctx *d)
 {
 	const char *palfn;
 
-	palfn = de_get_option(c, "palfile");
+	palfn = de_get_ext_option(c, "palfile");
 	if(!palfn) return 1;
 
 	de_dbg(c, "reading palette file %s\n", palfn);
@@ -559,7 +559,7 @@ static void de_run_pcpaint(deark *c, const char *params)
 
 	de_dbg(c, "In pcpaint module\n");
 
-	pcpaintfmt = de_get_option(c, "pcpaint:fmt");
+	pcpaintfmt = de_get_ext_option(c, "pcpaint:fmt");
 	if(pcpaintfmt) {
 		if(!de_strcmp(pcpaintfmt, "pic")) {
 			id = 1;

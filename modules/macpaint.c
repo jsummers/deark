@@ -227,7 +227,7 @@ static void de_run_macpaint(deark *c, const char *params)
 
 	d->has_macbinary_header = -1;
 
-	s = de_get_option(c, "macpaint:macbinary");
+	s = de_get_ext_option(c, "macpaint:macbinary");
 	if(s) d->has_macbinary_header = de_atoi(s);
 
 	if(d->has_macbinary_header == -1) {
