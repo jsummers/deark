@@ -378,6 +378,32 @@ int de_identify_none(deark *c)
 	return 0;
 }
 
+#define DE_CACHE_SIZE 262144
+
+// Fill the cache that remembers the first part of the file.
+// TODO: We should probably use memory-mapped files instead when possible,
+// but this is simple and portable, and does most of what we need.
+// (It is surprising how slow repeatedly calling fseek/fread can be.)
+static void populate_cache(dbuf *f)
+{
+	de_int64 bytes_to_read;
+	de_int64 bytes_read;
+
+	if(f->btype!=DBUF_TYPE_IFILE) return;
+
+	bytes_to_read = DE_CACHE_SIZE;
+	if(f->len < bytes_to_read) {
+		bytes_to_read = f->len;
+	}
+
+	f->cache = de_malloc(f->c, DE_CACHE_SIZE);
+	fseek(f->fp, 0, SEEK_SET);
+	bytes_read = fread(f->cache, 1, (size_t)bytes_to_read, f->fp);
+	f->cache_start_pos = 0;
+	f->cache_bytes_used = bytes_read;
+	f->file_pos_known = 0;
+}
+
 // Read len bytes, starting at file position pos, into buf.
 // Unread bytes will be set to 0.
 void dbuf_read(dbuf *f, de_byte *buf, de_int64 pos, de_int64 len)
@@ -397,6 +423,20 @@ void dbuf_read(dbuf *f, de_byte *buf, de_int64 pos, de_int64 len)
 	}
 
 	if(bytes_to_read<1) {
+		goto done_read;
+	}
+
+	if(!f->cache && f->cache_policy==DE_CACHE_POLICY_ENABLED) {
+		populate_cache(f);
+	}
+
+	// If the data we need is all cached, get it from cache.
+	if(f->cache &&
+		pos >= f->cache_start_pos &&
+		bytes_to_read <= f->cache_bytes_used - (pos - f->cache_start_pos) )
+	{
+		memcpy(buf, &f->cache[pos - f->cache_start_pos], (size_t)bytes_to_read);
+		bytes_read = bytes_to_read;
 		goto done_read;
 	}
 
@@ -456,15 +496,14 @@ de_byte dbuf_getbyte(dbuf *f, de_int64 pos)
 		}
 		break;
 	default:
-		// A simple 1-byte cache, mainly to speed up de_convert_row_bilevel().
-		if(f->cache_bytes_used>0 && pos==f->cache_pos) {
-			return f->cache[0];
+		if(f->cache2_bytes_used>0 && pos==f->cache2_start_pos) {
+			return f->cache2[0];
 		}
 
-		dbuf_read(f, &f->cache[0], pos, 1);
-		f->cache_bytes_used = 1;
-		f->cache_pos = pos;
-		return f->cache[0];
+		dbuf_read(f, &f->cache2[0], pos, 1);
+		f->cache2_bytes_used = 1;
+		f->cache2_start_pos = pos;
+		return f->cache2[0];
 	}
 	return 0x00;
 }
@@ -910,6 +949,7 @@ dbuf *dbuf_open_input_file(deark *c, const char *fn)
 	f = de_malloc(c, sizeof(dbuf));
 	f->btype = DBUF_TYPE_IFILE;
 	f->c = c;
+	f->cache_policy = DE_CACHE_POLICY_ENABLED;
 
 	f->fp = de_fopen(c, fn, "rb", msgbuf, sizeof(msgbuf));
 
@@ -966,6 +1006,7 @@ void dbuf_close(dbuf *f)
 
 	de_free(c, f->membuf_buf);
 	de_free(c, f->name);
+	de_free(c, f->cache);
 	de_free(c, f);
 }
 

@@ -52,9 +52,17 @@ struct dbuf_struct {
 	de_int64 membuf_alloc;
 	de_byte *membuf_buf;
 
-	de_int64 cache_pos;
+#define DE_CACHE_POLICY_NONE    0
+#define DE_CACHE_POLICY_ENABLED 1
+	int cache_policy;
+	de_int64 cache_start_pos;
 	de_int64 cache_bytes_used;
-	de_byte cache[1];
+	de_byte *cache;
+
+	// cache2 is a simple 1-byte cache, mainly to speed up de_convert_row_bilevel().
+	de_int64 cache2_start_pos;
+	de_int64 cache2_bytes_used;
+	de_byte cache2[1];
 };
 typedef struct dbuf_struct dbuf;
 
