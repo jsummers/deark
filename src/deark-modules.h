@@ -54,3 +54,4 @@ void de_module_ripicon(deark *c, struct deark_module_info *mi);
 void de_module_rpm(deark *c, struct deark_module_info *mi);
 void de_module_qtif(deark *c, struct deark_module_info *mi);
 void de_module_ilbm(deark *c, struct deark_module_info *mi);
+void de_module_lss16(deark *c, struct deark_module_info *mi);

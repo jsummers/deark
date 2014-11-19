@@ -59,6 +59,8 @@ Deark -- Information about supported formats
   - Supports most but not all formats.
   - PNG-formatted icons will be extracted as-is, not decoded.
 
+* LSS16 (SYSLINUX image) (module="lss16")
+
 * MacPaint (module="macpaint")
   - Also extracts brush patterns (use -extractall)
   Options

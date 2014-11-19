@@ -657,3 +657,121 @@ void de_module_ripicon(deark *c, struct deark_module_info *mi)
 	mi->run_fn = de_run_ripicon;
 	mi->identify_fn = de_identify_ripicon;
 }
+
+// **************************************************************************
+// LSS16 image (Used by SYSLINUX)
+// **************************************************************************
+
+struct lss16ctx {
+	de_int64 pos;
+	int nextnibble_valid;
+	de_byte nextnibble;
+};
+
+static de_byte lss16_get_nibble(deark *c, struct lss16ctx *d)
+{
+	de_byte n;
+	if(d->nextnibble_valid) {
+		d->nextnibble_valid = 0;
+		return d->nextnibble;
+	}
+	n = de_getbyte(d->pos);
+	d->pos++;
+	// The low nibble of each byte is interpreted first.
+	// Record the high nibble, and return the low nibble.
+	d->nextnibble = (n&0xf0)>>4;
+	d->nextnibble_valid = 1;
+	return n&0x0f;
+}
+
+static void de_run_lss16(deark *c, const char *params)
+{
+	struct lss16ctx *d = NULL;
+	struct deark_bitmap *img = NULL;
+	de_int64 width, height;
+	de_int64 i;
+	de_int64 xpos, ypos;
+	de_byte n;
+	de_byte prev;
+	de_int64 run_len;
+	de_byte cr, cg, cb;
+	de_uint32 pal[16];
+
+	d = de_malloc(c, sizeof(struct lss16ctx));
+
+	d->pos = 4;
+	width = de_getui16le(d->pos);
+	height = de_getui16le(d->pos+2);
+	de_dbg(c, "dimensions: %dx%d\n", (int)width, (int)height);
+	if(!de_good_image_dimensions(c, width, height)) goto done;
+
+	d->pos += 4;
+	for(i=0; i<16; i++) {
+		cr = de_getbyte(d->pos);
+		cg = de_getbyte(d->pos+1);
+		cb = de_getbyte(d->pos+2);
+		de_dbg2(c, "pal[%2d]: %2d,%2d,%2d\n", (int)i, (int)cr, (int)cg, (int)cb);
+		// Palette samples are from [0 to 63]. Convert to [0 to 255].
+		cr = (de_byte)(0.5+((double)cr)*(255.0/63.0));
+		cg = (de_byte)(0.5+((double)cg)*(255.0/63.0));
+		cb = (de_byte)(0.5+((double)cb)*(255.0/63.0));
+		pal[i] = DE_MAKE_RGB(cr, cg, cb);
+		d->pos+=3;
+	}
+
+	img = de_bitmap_create(c, width, height, 3);
+
+	xpos=0; ypos=0;
+	prev=0;
+	while(d->pos<c->infile->len && ypos<height) {
+		n = lss16_get_nibble(c, d);
+
+		if(n == prev) {
+			// A run of pixels
+			run_len = (de_int64)lss16_get_nibble(c, d);
+			if(run_len==0) {
+				run_len = lss16_get_nibble(c, d) | (lss16_get_nibble(c, d)<<4);
+				run_len += 16;
+			}
+			for(i=0; i<run_len; i++) {
+				de_bitmap_setpixel_rgb(img, xpos, ypos, pal[prev]);
+				xpos++;
+			}
+		}
+		else {
+			// An uncompressed pixel
+			de_bitmap_setpixel_rgb(img, xpos, ypos, pal[n]);
+			xpos++;
+			prev = n;
+		}
+
+		// End of row reached?
+		if(xpos>=width) {
+			xpos=0;
+			ypos++;
+			d->nextnibble_valid = 0;
+			prev = 0;
+		}
+	}
+
+	de_bitmap_write_to_file(img, NULL);
+done:
+	de_bitmap_destroy(img);
+	de_free(c, d);
+}
+
+static int de_identify_lss16(deark *c)
+{
+	de_byte b[4];
+	de_read(b, 0, 4);
+	if(!de_memcmp(b, "\x3d\xf3\x13\x14", 4))
+		return 100;
+	return 0;
+}
+
+void de_module_lss16(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "lss16";
+	mi->run_fn = de_run_lss16;
+	mi->identify_fn = de_identify_lss16;
+}
