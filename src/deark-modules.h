@@ -55,3 +55,6 @@ void de_module_rpm(deark *c, struct deark_module_info *mi);
 void de_module_qtif(deark *c, struct deark_module_info *mi);
 void de_module_ilbm(deark *c, struct deark_module_info *mi);
 void de_module_lss16(deark *c, struct deark_module_info *mi);
+void de_module_printshop(deark *c, struct deark_module_info *mi);
+void de_module_newprintshop(deark *c, struct deark_module_info *mi);
+void de_module_printmaster(deark *c, struct deark_module_info *mi);

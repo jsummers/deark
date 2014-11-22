@@ -194,10 +194,16 @@ Deark -- Information about supported formats
 * MRW (Minolta RAW) (module="mrw")
   - Extract Exif data (use -extractall)
 
+* New Print Shop .POG format (module="newprintshop") (experimental)
+
 * OS/2 Bitmap Array format (module="os2bmp")
   - BMP image files are extracted.
   - Icon and pointer image files are extracted. Reprocess them to convert to
     PNG.
+
+* PrintMaster .SHP format (module="printmaster") (experimental)
+
+* Print Shop .DAT format (module="printshop") (experimental)
 
 * PSD (PhotoShop) (module="psd")
   - Extract data from "Photoshop resources"
