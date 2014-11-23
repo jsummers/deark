@@ -38,6 +38,7 @@ static void do_printshop_etc_image(deark *c, lctx *d, de_int64 imgnum,
 		width = (de_int64)de_getbyte(pos+2);
 		if(width==0 || height==0) goto done;
 		rowspan = (width+7)/8; // This is just a guess.
+		imgoffset = 4;
 		imgspan = 4 + rowspan * height + 1;
 		if(pos+imgspan > c->infile->len) goto done;
 	}
@@ -115,6 +116,10 @@ static void de_run_printshop(deark *c, const char *params)
 
 static int de_identify_printshop(deark *c)
 {
+	// TODO: Check to see if the base filename begins with "gr".
+	// TODO: Check to see if the last [len mod 572] bytes of the file are either
+	// 0x00 or 0x1a.
+
 	if(de_input_file_has_ext(c, "dat")) {
 		if((c->infile->len % 572)==0) {
 			return 10;
