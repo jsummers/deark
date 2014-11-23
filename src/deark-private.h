@@ -309,6 +309,7 @@ int dbuf_find_line(dbuf *f, de_int64 pos1, de_int64 *pcontent_len, de_int64 *pto
 ///////////////////////////////////////////
 
 void de_bitmap_write_to_file(struct deark_bitmap *img, const char *token);
+void de_bitmap_write_to_file_finfo(struct deark_bitmap *img, de_finfo *fi);
 
 void de_bitmap_setpixel_gray(struct deark_bitmap *img, de_int64 x, de_int64 y, de_byte v);
 

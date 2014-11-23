@@ -18,11 +18,9 @@ static void do_card_index(deark *c, lctx *d, de_int64 cardnum, de_int64 pos)
 	de_int64 datapos;
 	de_int64 bitmap_length;
 	de_int64 w, h;
-	de_int64 j;
 	de_int64 src_rowspan;
-	de_byte name_raw[40];
-	char name[80];
 	struct deark_bitmap *img = NULL;
+	de_finfo *fi = NULL;
 
 	datapos = de_getui32le(pos+6);
 	de_dbg(c, "card #%d, data offset = %d\n", (int)cardnum, (int)datapos);
@@ -34,8 +32,8 @@ static void do_card_index(deark *c, lctx *d, de_int64 cardnum, de_int64 pos)
 		goto done;
 	}
 
-	de_read(name_raw, pos+11, 40);
-	de_make_filename(c, name_raw, 40, name, sizeof(name), DE_CONVFLAG_STOP_AT_NUL);
+	fi = de_finfo_create(c);
+	de_finfo_set_name_from_slice(c, fi, c->infile, pos+11, 40, DE_CONVFLAG_STOP_AT_NUL);
 
 	w = de_getui16le(datapos+2);
 	h = de_getui16le(datapos+4);
@@ -44,14 +42,12 @@ static void do_card_index(deark *c, lctx *d, de_int64 cardnum, de_int64 pos)
 	img = de_bitmap_create(c, w, h, 1);
 	src_rowspan = ((w+15)/16)*2;
 
-	for(j=0; j<h; j++) {
-		de_convert_row_bilevel(c->infile, datapos+10+j*src_rowspan, img, j, 0);
-	}
-
-	de_bitmap_write_to_file(img, name);
+	de_convert_and_write_image_bilevel(c->infile, datapos+10,
+		w, h, src_rowspan, 0, fi);
 
 done:
 	de_bitmap_destroy(img);
+	de_finfo_destroy(c, fi);
 }
 
 static void de_run_cardfile(deark *c, const char *params)
