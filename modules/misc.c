@@ -81,7 +81,7 @@ static void de_run_hpicn(deark *c, const char *params)
 	width = de_getui16le(4);
 	height = de_getui16le(6);
 	de_convert_and_write_image_bilevel(c->infile, 8, width, height, (width+7)/8,
-		DE_CVTF_WHITEISZERO);
+		DE_CVTF_WHITEISZERO, NULL);
 }
 
 static int de_identify_hpicn(deark *c)
@@ -574,7 +574,7 @@ void de_module_applevol(deark *c, struct deark_module_info *mi)
 
 static void de_run_hr(deark *c, const char *params)
 {
-	de_convert_and_write_image_bilevel(c->infile, 0, 640, 240, 640/8, 0);
+	de_convert_and_write_image_bilevel(c->infile, 0, 640, 240, 640/8, 0, NULL);
 }
 
 static int de_identify_hr(deark *c)

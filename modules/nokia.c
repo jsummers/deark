@@ -119,7 +119,7 @@ void de_module_ngg(deark *c, struct deark_module_info *mi)
 static void npm_nlm_read_bitmap(deark *c, lctx *d, de_int64 pos)
 {
 	de_convert_and_write_image_bilevel(c->infile, pos, d->w, d->h, (d->w+7)/8,
-		DE_CVTF_WHITEISZERO);
+		DE_CVTF_WHITEISZERO, NULL);
 }
 
 static void de_run_npm(deark *c, const char *params)

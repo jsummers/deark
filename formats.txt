@@ -195,6 +195,8 @@ Deark -- Information about supported formats
   - Extract Exif data (use -extractall)
 
 * New Print Shop .POG format (module="newprintshop") (experimental)
+  Options
+   -opt namefile=<file.pnm> - Use this "name" file
 
 * OS/2 Bitmap Array format (module="os2bmp")
   - BMP image files are extracted.
@@ -202,8 +204,12 @@ Deark -- Information about supported formats
     PNG.
 
 * PrintMaster .SHP format (module="printmaster") (experimental)
+  Options
+   -opt namefile=<file.sdr> - Use this "name" file
 
 * Print Shop .DAT format (module="printshop") (experimental)
+  Options
+   -opt namefile=<file.nam> - Use this "name" file
 
 * PSD (PhotoShop) (module="psd")
   - Extract data from "Photoshop resources"

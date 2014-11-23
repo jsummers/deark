@@ -350,7 +350,8 @@ void de_convert_row_bilevel(dbuf *f, de_int64 fpos, struct deark_bitmap *img,
 	de_int64 rownum, unsigned int flags);
 
 void de_convert_and_write_image_bilevel(dbuf *f, de_int64 fpos,
-	de_int64 w, de_int64 height, de_int64 rowspan, unsigned int flags);
+	de_int64 w, de_int64 height, de_int64 rowspan, unsigned int flags,
+	de_finfo *fi);
 
 // Calculate the number of bits required to store n symbols.
 // Intended to be used with bitmap graphics.
