@@ -275,9 +275,7 @@ static void de_run_dcx(deark *c, const char *params)
 
 static int de_identify_dcx(deark *c)
 {
-	de_byte b[4];
-	de_read(b, 0, 4);
-	if(!de_memcmp(b, "\xb1\x68\xde\x3a", 4))
+	if(!dbuf_memcmp(c->infile, 0, "\xb1\x68\xde\x3a", 4))
 		return 100;
 	return 0;
 }
@@ -322,9 +320,7 @@ static void de_run_mrw(deark *c, const char *params)
 
 static int de_identify_mrw(deark *c)
 {
-	de_byte b[4];
-	de_read(b, 0, 4);
-	if(!de_memcmp(b, "\x00\x4d\x52\x4d", 4))
+	if(!dbuf_memcmp(c->infile, 0, "\x00\x4d\x52\x4d", 4))
 		return 100;
 	return 0;
 }
@@ -762,9 +758,7 @@ done:
 
 static int de_identify_lss16(deark *c)
 {
-	de_byte b[4];
-	de_read(b, 0, 4);
-	if(!de_memcmp(b, "\x3d\xf3\x13\x14", 4))
+	if(!dbuf_memcmp(c->infile, 0, "\x3d\xf3\x13\x14", 4))
 		return 100;
 	return 0;
 }

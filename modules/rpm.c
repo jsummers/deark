@@ -222,9 +222,7 @@ done:
 
 static int de_identify_rpm(deark *c)
 {
-	de_byte b[4];
-	de_read(b, 0, 4);
-	if(!de_memcmp(b, "\xed\xab\xee\xdb", 4))
+	if(!dbuf_memcmp(c->infile, 0, "\xed\xab\xee\xdb", 4))
 		return 100;
 	return 0;
 }

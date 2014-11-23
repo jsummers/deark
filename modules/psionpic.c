@@ -175,9 +175,7 @@ static void de_run_psionpic(deark *c, const char *params)
 
 static int de_identify_psionpic(deark *c)
 {
-	de_byte b[6];
-	de_read(b, 0, 6);
-	if(!de_memcmp(b, "PIC\xdc\x30\x30", 6))
+	if(!dbuf_memcmp(c->infile, 0, "PIC\xdc\x30\x30", 6))
 		return 100;
 	return 0;
 }

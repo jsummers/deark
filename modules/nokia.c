@@ -57,10 +57,7 @@ done:
 
 static int de_identify_nol(deark *c)
 {
-	de_byte buf[3];
-	de_read(buf, 0, 3);
-
-	if(!de_memcmp(buf, "NOL", 3)) return 80;
+	if(!dbuf_memcmp(c->infile, 0, "NOL", 3)) return 80;
 	return 0;
 }
 
@@ -96,10 +93,7 @@ done:
 
 static int de_identify_ngg(deark *c)
 {
-	de_byte buf[3];
-	de_read(buf, 0, 3);
-
-	if(!de_memcmp(buf, "NGG", 3)) return 80;
+	if(!dbuf_memcmp(c->infile, 0, "NGG", 3)) return 80;
 	return 0;
 }
 
@@ -154,10 +148,7 @@ static void de_run_npm(deark *c, const char *params)
 
 static int de_identify_npm(deark *c)
 {
-	de_byte buf[3];
-	de_read(buf, 0, 3);
-
-	if(!de_memcmp(buf, "NPM", 3)) return 80;
+	if(!dbuf_memcmp(c->infile, 0, "NPM", 3)) return 80;
 	return 0;
 }
 
@@ -205,10 +196,7 @@ static void de_run_nlm(deark *c, const char *params)
 
 static int de_identify_nlm(deark *c)
 {
-	de_byte buf[4];
-	de_read(buf, 0, 4);
-
-	if(!de_memcmp(buf, "NLM ", 4)) return 80;
+	if(!dbuf_memcmp(c->infile, 0, "NLM ", 4)) return 80;
 	return 0;
 }
 
@@ -331,14 +319,12 @@ static void de_run_nsl(deark *c, const char *params)
 
 static int de_identify_nsl(deark *c)
 {
-	de_byte buf[4];
 	de_int64 x;
 
 	// NSL uses a variant of IFF, which is not so easy to identify.
 	// (TODO: Write an IFF format detector.)
 
-	de_read(buf, 0, 4);
-	if(de_memcmp(buf, "FORM", 4)) return 0;
+	if(dbuf_memcmp(c->infile, 0, "FORM", 4)) return 0;
 
 	x = de_getui16be(4);
 	if(x+6 != c->infile->len) return 0;

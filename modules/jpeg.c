@@ -275,11 +275,9 @@ static void de_run_jpegscan(deark *c, const char *params)
 
 static int de_identify_jpeg(deark *c)
 {
-	de_byte b[3];
-	de_read(b, 0, 3);
-
-	if(b[0]==0xff && b[1]==0xd8 && b[2]==0xff)
+	if(!dbuf_memcmp(c->infile, 0, "\xff\xd8\xff", 3)) {
 		return 100;
+	}
 	return 0;
 }
 

@@ -644,6 +644,18 @@ void dbuf_read_sz(dbuf *f, de_int64 pos, char *dst, size_t dst_size)
 	dst[bytes_copied] = '\0';
 }
 
+int dbuf_memcmp(dbuf *f, de_int64 pos, const void *s, size_t n)
+{
+	de_byte *buf;
+	int ret;
+
+	buf = de_malloc(f->c, n);
+	dbuf_read(f, buf, pos, n);
+	ret = memcmp(buf, s, n);
+	de_free(f->c, buf);
+	return ret;
+}
+
 int dbuf_create_file_from_slice(dbuf *inf, de_int64 pos, de_int64 data_size,
 	const char *ext, de_finfo *fi)
 {

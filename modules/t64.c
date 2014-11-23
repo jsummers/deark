@@ -132,10 +132,7 @@ static void de_run_t64(deark *c, const char *params)
 
 static int de_identify_t64(deark *c)
 {
-	de_byte buf[8];
-	de_read(buf, 0, 8);
-
-	if(!de_memcmp(buf, "C64", 3)) return 80;
+	if(!dbuf_memcmp(c->infile, 0, "C64", 3)) return 80;
 	return 0;
 }
 

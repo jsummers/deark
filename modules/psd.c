@@ -123,10 +123,7 @@ static void de_run_psd(deark *c, const char *params)
 
 static int de_identify_psd(deark *c)
 {
-	de_byte buf[6];
-	de_read(buf, 0, 6);
-
-	if(!de_memcmp(buf, "8BPS\x00\x01", 6)) return 100;
+	if(!dbuf_memcmp(c->infile, 0, "8BPS\x00\x01", 6)) return 100;
 	return 0;
 }
 

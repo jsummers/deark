@@ -635,10 +635,7 @@ done:
 
 static int de_identify_amigaicon(deark *c)
 {
-	de_byte b[4];
-	de_read(b, 0, 4);
-
-	if(b[0]==0xe3 && b[1]==0x10)
+	if(!dbuf_memcmp(c->infile, 0, "\xe3\x10", 2))
 		return 90;
 	return 0;
 }

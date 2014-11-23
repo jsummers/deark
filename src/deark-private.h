@@ -287,6 +287,9 @@ void dbuf_copy(dbuf *inf, de_int64 input_offset, de_int64 input_len, dbuf *outf)
 // Read a NUL-terminated string from a dbuf.
 void dbuf_read_sz(dbuf *f, de_int64 pos, char *dst, size_t dst_size);
 
+// Compare bytes in a dbuf to s. The dbuf bytes are thrown away after the memcmp.
+int dbuf_memcmp(dbuf *f, de_int64 pos, const void *s, size_t n);
+
 // Read a slice of a dbuf, and create a new file containing only that.
 // At least one of 'ext' or 'fi' should be non-NULL.
 int dbuf_create_file_from_slice(dbuf *inf, de_int64 pos, de_int64 data_size,
