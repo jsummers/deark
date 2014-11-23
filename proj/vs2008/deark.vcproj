@@ -490,6 +490,10 @@
 				>
 			</File>
 			<File
+				RelativePath="..\..\modules\printshop.c"
+				>
+			</File>
+			<File
 				RelativePath="..\..\modules\psd.c"
 				>
 			</File>
