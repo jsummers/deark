@@ -343,10 +343,15 @@ void de_make_filename(deark *c, const de_byte *s1, de_int64 s1_len,
 		}
 	}
 
+	// Strip trailing spaces
+	while(s2_pos>0 && s2[s2_pos-1]==' ') {
+		s2_pos--;
+	}
+
 	s2[s2_pos] = '\0';
 
 	// Don't allow empty filenames.
-	if(s2_size>=2 && s2[0]=='0') {
+	if(s2_size>=2 && s2[0]=='\0') {
 		de_strlcpy(s2, "_", (size_t)s2_size);
 	}
 }

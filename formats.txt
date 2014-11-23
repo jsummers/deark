@@ -208,6 +208,7 @@ Deark -- Information about supported formats
    -opt namefile=<file.sdr> - Use this "name" file
 
 * Print Shop .DAT format (module="printshop") (experimental)
+  - Not all files can be autodetected. You may need "-m printshop".
   Options
    -opt namefile=<file.nam> - Use this "name" file
 
