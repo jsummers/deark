@@ -171,6 +171,9 @@ Deark -- Information about supported formats
 * GRASP GL animation (module="graspgl")
   - Extracts all files.
 
+* icns (Apple Icon) (module="icns")
+  - Extract embedded JP2 and PNG files.
+
 * JPEG (module="jpeg")
   - Extract ICC profiles.
   - Extract Exif JPEG-formatted thumbnails.

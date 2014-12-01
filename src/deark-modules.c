@@ -41,6 +41,7 @@ void de_register_modules(deark *c)
 		de_module_jpeg2000,
 		de_module_rpm,
 		de_module_ilbm,
+		de_module_icns,
 		de_module_dcx,
 		de_module_fnt,
 		de_module_hpicn,
