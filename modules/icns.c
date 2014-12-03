@@ -6,6 +6,11 @@
 #include <deark-config.h>
 #include <deark-modules.h>
 
+static const de_uint32 pal16[16] = {
+	0xffffff,0xfcf305,0xff6402,0xdd0806,0xf20884,0x4600a5,0x0000d4,0x02abea,
+	0x1fb714,0x006411,0x562c05,0x90713a,0xc0c0c0,0x808080,0x404040,0x000000
+};
+
 static const de_uint32 pal256[256] = {
 	0xffffff,0xffffcc,0xffff99,0xffff66,0xffff33,0xffff00,0xffccff,0xffcccc,
 	0xffcc99,0xffcc66,0xffcc33,0xffcc00,0xff99ff,0xff99cc,0xff9999,0xff9966,
@@ -54,6 +59,7 @@ struct image_type_info {
 	int image_type; // IMGTYPE_*
 };
 static const struct image_type_info image_type_info_arr[] = {
+	{ 0x69636d23, 16,   12,   1,  IMGTYPE_IMAGE_AND_MASK }, // icm#
 	{ 0x69637323, 16,   16,   1,  IMGTYPE_IMAGE_AND_MASK }, // ics#
 	{ 0x49434e23, 32,   32,   1,  IMGTYPE_IMAGE_AND_MASK }, // ICN#
 	{ 0x69636823, 48,   48,   1,  IMGTYPE_IMAGE_AND_MASK }, // ich#
@@ -93,23 +99,30 @@ typedef struct localctx_struct {
 	de_int64 segment_len;
 	de_int64 image_pos;
 	de_int64 image_len;
+	de_int64 mask_pos; //  (0 = not found)
+	de_int64 mask_rowspan;
 	de_int64 rowspan;
 	const struct image_type_info *type_info;
 	de_uint32 code;
 	char code_printable[8];
 
 	// File offsets of mask images (0 = not present)
-	de_int64 mkpos_s8mk;
-	de_int64 mkpos_l8mk;
-	de_int64 mkpos_h8mk;
+	de_int64 mkpos_16_12_1;
+	de_int64 mkpos_16_16_1;
+	de_int64 mkpos_32_32_1;
+	de_int64 mkpos_48_48_1;
+	de_int64 mkpos_16_16_8;
+	de_int64 mkpos_32_32_8;
+	de_int64 mkpos_48_48_8;
+	de_int64 mkpos_128_128_8;
 } lctx;
 
-static void do_decode_1bit_with_mask(deark *c, lctx *d)
+static void do_decode_1bit(deark *c, lctx *d)
 {
 	// TODO: Finish implementing this.
 
 	de_convert_and_write_image_bilevel(c->infile, d->image_pos,
-		d->type_info->width, d->type_info->height * 2,
+		d->type_info->width, d->type_info->height,
 		d->rowspan, DE_CVTF_WHITEISZERO, NULL);
 }
 
@@ -117,17 +130,27 @@ static void do_decode_8bit(deark *c, lctx *d)
 {
 	struct deark_bitmap *img = NULL;
 	de_int64 i, j;
-	de_byte b;
-
-	// TODO: Transparency support.
+	de_byte a, b;
+	de_byte x;
 
 	img = de_bitmap_create(c, d->type_info->width, d->type_info->height, 4);
 
 	for(j=0; j<d->type_info->height; j++) {
 		for(i=0; i<d->type_info->width; i++) {
+			// Foreground
 			b = de_getbyte(d->image_pos + j*d->rowspan + i);
+
+			// Opacity
+			if(d->mask_pos) {
+				x = de_get_bits_symbol(c->infile, 1, d->mask_pos + d->mask_rowspan*j, i);
+				a = x ? 0xff : 0x00;
+			}
+			else {
+				a = 0xff;
+			}
+
 			de_bitmap_setpixel_rgb(img, i, j,
-				DE_SET_ALPHA(pal256[(unsigned int)b], 0xff));
+				DE_SET_ALPHA(pal256[(unsigned int)b], a));
 		}
 	}
 
@@ -156,6 +179,50 @@ static void do_extract_png_or_jp2(deark *c, lctx *d)
 	}
 }
 
+// Sets d->mask_pos and d->mask_rowspan
+static void find_mask(deark *c, lctx *d)
+{
+	const struct image_type_info *t;
+	t = d->type_info;
+
+	// As far as I can determine, icons with 8 or fewer bits/pixel always use the
+	// 1-bit mask. Note that 1-bit masks cannot appear by themselves, and always
+	// follow a 1-bit image. So if there is an 8- or 4-bit image, there must
+	// always be a 1-bit image of the same dimensions.
+
+	if(t->bpp<=8) {
+		d->mask_rowspan = (t->width + 7)/8;
+	}
+	else {
+		d->mask_rowspan = t->width;
+	}
+
+	if(t->width==16 && t->height==12 && t->bpp<=8) {
+		d->mask_pos = d->mkpos_16_12_1;
+	}
+	else if(t->width==16 && t->height==16 && t->bpp<=8) {
+		d->mask_pos = d->mkpos_16_16_1;
+	}
+	else if(t->width==32 && t->bpp<=8) {
+		d->mask_pos = d->mkpos_32_32_1;
+	}
+	else if(t->width==48 && t->bpp<=8) {
+		d->mask_pos = d->mkpos_48_48_1;
+	}
+	else if(t->width==16 && t->bpp>=24) {
+		d->mask_pos = d->mkpos_16_16_8;
+	}
+	else if(t->width==32 && t->bpp>=24) {
+		d->mask_pos = d->mkpos_32_32_8;
+	}
+	else if(t->width==48 && t->bpp>=24) {
+		d->mask_pos = d->mkpos_48_48_8;
+	}
+	else if(t->width==128 && t->bpp>=24) {
+		d->mask_pos = d->mkpos_128_128_8;
+	}
+}
+
 static void do_icon(deark *c, lctx *d)
 {
 	de_int64 expected_image_size;
@@ -170,6 +237,12 @@ static void do_icon(deark *c, lctx *d)
 
 	if(d->type_info->image_type==IMGTYPE_EMBEDDED_FILE) {
 		do_extract_png_or_jp2(c, d);
+		return;
+	}
+
+	if(d->type_info->image_type!=IMGTYPE_IMAGE &&
+		d->type_info->image_type!=IMGTYPE_IMAGE_AND_MASK)
+	{
 		return;
 	}
 
@@ -196,17 +269,15 @@ static void do_icon(deark *c, lctx *d)
 		}
 	}
 
-	if(d->type_info->image_type==IMGTYPE_IMAGE) {
-		if(d->type_info->bpp==8) {
-			do_decode_8bit(c, d);
-			return;
-		}
+	find_mask(c, d);
+
+	if(d->type_info->bpp==8) {
+		do_decode_8bit(c, d);
+		return;
 	}
-	else if(d->type_info->image_type==IMGTYPE_IMAGE_AND_MASK) {
-		if(d->type_info->bpp==1) {
-			do_decode_1bit_with_mask(c, d);
-			return;
-		}
+	else if(d->type_info->bpp==1) {
+		do_decode_1bit(c, d);
+		return;
 	}
 
 	de_warn(c, "(Image #%d) Image type '%s' is not supported\n", d->image_num, d->code_printable);
@@ -254,14 +325,29 @@ static void de_run_icns_pass(deark *c, lctx *d, int pass)
 
 		if(pass==1) {
 			switch(d->code) {
+			case 0x69636d23: // icm# 16x12x1
+				d->mkpos_16_16_1 = d->image_pos + (16*12)/8;
+				break;
+			case 0x69637323: // ics# 16x16x1
+				d->mkpos_16_16_1 = d->image_pos + 16*16/8;
+				break;
+			case 0x49434e23: // ICN# 32x32x1
+				d->mkpos_32_32_1 = d->image_pos + 32*32/8;
+				break;
+			case 0x69636823: // ich# 48x48x1
+				d->mkpos_48_48_1 = d->image_pos + 48*48/8;
+				break;
 			case 0x73386d6b: // s8mk 16x16x8
-				d->mkpos_s8mk = d->segment_pos;
+				d->mkpos_16_16_8 = d->image_pos;
 				break;
 			case 0x6c386d6b: // l8mk 32x32x8
-				d->mkpos_l8mk = d->segment_pos;
+				d->mkpos_32_32_8 = d->image_pos;
 				break;
 			case 0x68386d6b: // h8mk 48x48x8
-				d->mkpos_h8mk = d->segment_pos;
+				d->mkpos_48_48_8 = d->image_pos;
+				break;
+			case 0x74386d6b: // t8mk 128x128x8
+				d->mkpos_128_128_8 = d->image_pos;
 				break;
 			}
 		}
