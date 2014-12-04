@@ -64,16 +64,24 @@ static const struct image_type_info image_type_info_arr[] = {
 	{ 0x49434e23, 32,   32,   1,  IMGTYPE_IMAGE_AND_MASK }, // ICN#
 	{ 0x69636823, 48,   48,   1,  IMGTYPE_IMAGE_AND_MASK }, // ich#
 
+	{ 0x49434f4e, 32,   32,   1,  IMGTYPE_IMAGE }, // ICON
+	{ 0x69636d34, 16,   12,   4,  IMGTYPE_IMAGE }, // icm4
+	{ 0x69637334, 16,   16,   4,  IMGTYPE_IMAGE }, // ics4
+	{ 0x69636c34, 32,   32,   4,  IMGTYPE_IMAGE }, // icl4
+	{ 0x69636834, 48,   48,   4,  IMGTYPE_IMAGE }, // ich4
 	{ 0x69636d38, 16,   12,   8,  IMGTYPE_IMAGE }, // icm8
 	{ 0x69637338, 16,   16,   8,  IMGTYPE_IMAGE }, // ics8
 	{ 0x69636c38, 32,   32,   8,  IMGTYPE_IMAGE }, // icl8
 	{ 0x69636838, 48,   48,   8,  IMGTYPE_IMAGE }, // ich8
 	{ 0x69733332, 16,   16,   24, IMGTYPE_IMAGE }, // is32
+	{ 0x696c3332, 32,   32,   24, IMGTYPE_IMAGE }, // il32
 	{ 0x69683332, 48,   48,   24, IMGTYPE_IMAGE }, // ih32
+	{ 0x69743332, 128,  128,  24, IMGTYPE_IMAGE }, // it32
 
 	{ 0x73386d6b, 16,   16,   8,  IMGTYPE_MASK }, // s8mk
 	{ 0x6c386d6b, 32,   32,   8,  IMGTYPE_MASK }, // l8mk
 	{ 0x68386d6b, 48,   48,   8,  IMGTYPE_MASK }, // h8mk
+	{ 0x74386d6b, 128,  128,  8,  IMGTYPE_MASK }, // t8mk
 
 	{ 0x69637034, 16,   16,   0,  IMGTYPE_EMBEDDED_FILE }, // icp4
 	{ 0x69637035, 32,   32,   0,  IMGTYPE_EMBEDDED_FILE }, // icp5
@@ -117,28 +125,30 @@ typedef struct localctx_struct {
 	de_int64 mkpos_128_128_8;
 } lctx;
 
-static void do_decode_1bit(deark *c, lctx *d)
-{
-	// TODO: Finish implementing this.
-
-	de_convert_and_write_image_bilevel(c->infile, d->image_pos,
-		d->type_info->width, d->type_info->height,
-		d->rowspan, DE_CVTF_WHITEISZERO, NULL);
-}
-
-static void do_decode_8bit(deark *c, lctx *d)
+static void do_decode_1_4_8bit(deark *c, lctx *d)
 {
 	struct deark_bitmap *img = NULL;
 	de_int64 i, j;
 	de_byte a, b;
 	de_byte x;
+	de_int32 fgcol;
 
 	img = de_bitmap_create(c, d->type_info->width, d->type_info->height, 4);
 
 	for(j=0; j<d->type_info->height; j++) {
 		for(i=0; i<d->type_info->width; i++) {
 			// Foreground
-			b = de_getbyte(d->image_pos + j*d->rowspan + i);
+			b = de_get_bits_symbol(c->infile, d->type_info->bpp, d->image_pos + d->rowspan*j, i);
+
+			if(d->type_info->bpp==8) {
+				fgcol = pal256[(unsigned int)b];
+			}
+			else if(d->type_info->bpp==4) {
+				fgcol = pal16[(unsigned int)b];
+			}
+			else {
+				fgcol = b ? 0x0000000 : 0xffffff;
+			}
 
 			// Opacity
 			if(d->mask_pos) {
@@ -150,7 +160,7 @@ static void do_decode_8bit(deark *c, lctx *d)
 			}
 
 			de_bitmap_setpixel_rgb(img, i, j,
-				DE_SET_ALPHA(pal256[(unsigned int)b], a));
+				DE_SET_ALPHA(fgcol, a));
 		}
 	}
 
@@ -179,7 +189,8 @@ static void do_extract_png_or_jp2(deark *c, lctx *d)
 	}
 }
 
-// Sets d->mask_pos and d->mask_rowspan
+// Sets d->mask_pos and d->mask_rowspan.
+// Assumes image_type is IMAGE or IMAGE_AND_MASK.
 static void find_mask(deark *c, lctx *d)
 {
 	const struct image_type_info *t;
@@ -195,6 +206,11 @@ static void find_mask(deark *c, lctx *d)
 	}
 	else {
 		d->mask_rowspan = t->width;
+	}
+
+	if(t->code==0x49434f4e) { // 'ICON'
+		// I'm assuming this format doesn't have a mask.
+		return;
 	}
 
 	if(t->width==16 && t->height==12 && t->bpp<=8) {
@@ -271,12 +287,8 @@ static void do_icon(deark *c, lctx *d)
 
 	find_mask(c, d);
 
-	if(d->type_info->bpp==8) {
-		do_decode_8bit(c, d);
-		return;
-	}
-	else if(d->type_info->bpp==1) {
-		do_decode_1bit(c, d);
+	if(d->type_info->bpp==1 || d->type_info->bpp==4 || d->type_info->bpp==8) {
+		do_decode_1_4_8bit(c, d);
 		return;
 	}
 

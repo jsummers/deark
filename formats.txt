@@ -55,6 +55,10 @@ Deark -- Information about supported formats
 
 * HR (TRS-80 High Resolution graphics file) (module="hr")
 
+* icns (Apple Icon) (module="icns") (experimental)
+  - Supports 1-, 4-, and 8-bit images.
+  - 24/32-bit images not supported.
+
 * ICO/CUR (Windows icon/cursor) (module="ico")
   - Supports most but not all formats.
   - PNG-formatted icons will be extracted as-is, not decoded.
