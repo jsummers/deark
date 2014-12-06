@@ -52,6 +52,7 @@ void de_register_modules(deark *c)
 		de_module_nlm,
 		de_module_nsl,
 		de_module_tivariable,
+		de_module_awbm,
 		de_module_lss16,
 		de_module_atr,
 		de_module_t64,

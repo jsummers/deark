@@ -59,3 +59,4 @@ void de_module_printshop(deark *c, struct deark_module_info *mi);
 void de_module_newprintshop(deark *c, struct deark_module_info *mi);
 void de_module_printmaster(deark *c, struct deark_module_info *mi);
 void de_module_icns(deark *c, struct deark_module_info *mi);
+void de_module_awbm(deark *c, struct deark_module_info *mi);
