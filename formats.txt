@@ -14,6 +14,12 @@ Deark -- Information about supported formats
 
 * Apple volume label image (module="applevol")
 
+* Award BIOS logo (EPA, AWBM) (module="awbm") (experimental)
+  - Supports version 1
+  - Supports 4-bit version 2
+  Options
+   -opt awbm:rgb=1 - (v2) Assume RGB sample order instead of BGR
+
 * Bob ray tracer bitmap (module="bob")
 
 * BSAVE (module="bsave")

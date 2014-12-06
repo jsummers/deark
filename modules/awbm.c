@@ -8,11 +8,12 @@
 
 typedef struct localctx_struct {
 	de_int64 w, h;
+	int rgb_order;
 } lctx;
 
 #define EPA_CH 14 // "character" height (width must be 8)
 
-static int do_epa_image(deark *c, de_int64 pos,
+static int do_v1_image(deark *c, de_int64 pos,
 	de_int64 w_blocks, de_int64 h_blocks, int special)
 {
 	struct deark_bitmap *img = NULL;
@@ -88,14 +89,16 @@ static void do_v1(deark *c, lctx *d)
 	de_int64 w_blocks, h_blocks;
 	de_int64 after_bitmap;
 
+	de_declare_fmt(c, "Award BIOS logo v1");
+
 	w_blocks = (de_int64)de_getbyte(0);
 	h_blocks = (de_int64)de_getbyte(1);
-	if(!do_epa_image(c, 2, w_blocks, h_blocks, 0)) goto done;
+	if(!do_v1_image(c, 2, w_blocks, h_blocks, 0)) goto done;
 
 	after_bitmap = 2 + w_blocks*h_blocks + h_blocks*EPA_CH*w_blocks;
 	if(c->infile->len >= after_bitmap+70) {
 		// The file usually contains a second image: a small Award logo.
-		do_epa_image(c, after_bitmap, 3, 2, 1);
+		do_v1_image(c, after_bitmap, 3, 2, 1);
 	}
 done:
 	;
@@ -103,6 +106,71 @@ done:
 
 static void do_v2(deark *c, lctx *d)
 {
+	struct deark_bitmap *img = NULL;
+	de_int64 rowspan1;
+	de_int64 rowspan;
+	de_int64 bitmap_start;
+	de_int64 bitmap_size;
+	de_int64 palette_start;
+	de_int64 i, j;
+	de_int64 k;
+	de_uint32 pal[16];
+	de_byte cr, cg, cb;
+	de_byte b;
+	de_byte bi[4];
+	const char *s;
+
+	de_declare_fmt(c, "Award BIOS logo v2");
+
+	d->rgb_order = 0;
+	s = de_get_ext_option(c, "awbm:rgb");
+	if(s) d->rgb_order = de_atoi(s);
+
+	d->w = de_getui16le(4);
+	d->h = de_getui16le(6);
+	de_dbg(c, "dimensions: %dx%d\n", (int)d->w, (int)d->h);
+	if(!de_good_image_dimensions(c, d->w, d->h)) goto done;
+
+
+	// Assume 4 bits/pixel
+	// TODO: There seems to be an 8-bit format as well.
+
+	bitmap_start = 8;
+	rowspan1 = (d->w+7)/8; // Guess
+	rowspan = rowspan1 * 4;
+	bitmap_size = rowspan * d->h;
+
+	if(dbuf_memcmp(c->infile, bitmap_start+bitmap_size, "RGB ", 4)) {
+		de_err(c, "Can't detect image format\n");
+		goto done;
+	}
+	palette_start = bitmap_start+bitmap_size+4;
+
+	// Read the palette
+	for(i=0; i<16; i++) {
+		cr = de_palette_sample_6_to_8bit(de_getbyte(palette_start+i*3+0));
+		cg = de_palette_sample_6_to_8bit(de_getbyte(palette_start+i*3+1));
+		cb = de_palette_sample_6_to_8bit(de_getbyte(palette_start+i*3+2));
+		if(d->rgb_order)
+			pal[i] = DE_MAKE_RGB(cr, cg, cb);
+		else
+			pal[i] = DE_MAKE_RGB(cb, cg, cr);
+	}
+
+	img = de_bitmap_create(c, d->w, d->h, 3);
+	for(j=0; j<d->h; j++) {
+		for(i=0; i<d->w; i++) {
+			for(k=0; k<4; k++) {
+				bi[k] = de_get_bits_symbol(c->infile, 1, bitmap_start + j*rowspan + k*rowspan1, i);
+			}
+			b = (bi[3]<<3) | (bi[2]<<2) | (bi[1]<<1) | bi[0];
+			de_bitmap_setpixel_rgb(img, i, j, pal[(unsigned int)b]);
+		}
+	}
+
+	de_bitmap_write_to_file(img, NULL);
+done:
+	de_bitmap_destroy(img);
 }
 
 static void de_run_awbm(deark *c, const char *params)
@@ -123,11 +191,20 @@ static void de_run_awbm(deark *c, const char *params)
 
 static int de_identify_awbm(deark *c)
 {
-	de_byte buf[8];
-	de_read(buf, 0, 8);
+	de_byte buf[4];
+	de_int64 nblocks;
+	int epa_ext;
 
+	de_read(buf, 0, 4);
 	if(!de_memcmp(buf, "AWBM", 4)) return 100;
-	if(de_input_file_has_ext(c, "epa")) return 10;
+
+	nblocks = (de_int64)buf[0] * (de_int64)buf[1];
+	if(nblocks<1 || nblocks>256) return 0;
+	if(c->infile->len == 2 + nblocks*15 + 70) {
+		epa_ext = de_input_file_has_ext(c, "epa");
+		if(epa_ext) return 100;
+		return 20;
+	}
 	return 0;
 }
 
