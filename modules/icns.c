@@ -94,9 +94,11 @@ static const struct image_type_info image_type_info_arr[] = {
 	{ 0x69633132, 64,   64,   0,  IMGTYPE_EMBEDDED_FILE }, // ic12
 	{ 0x69633133, 256,  256,  0,  IMGTYPE_EMBEDDED_FILE }, // ic13
 	{ 0x69633134, 512,  512,  0,  IMGTYPE_EMBEDDED_FILE }, // ic14
+
+	{ 0x544f4320, 0,    0,    0,  0 }, // 'TOC '
+	{ 0x69636e56, 0,    0,    0,  0 }, // icnV
 	{ 0, 0, 0, 0, 0 }
 };
-
 
 typedef struct localctx_struct {
 	de_int64 file_size;
@@ -410,19 +412,24 @@ static void de_run_icns_pass(deark *c, lctx *d, int pass)
 			de_dbg(c, "image #%d, type '%s', at %d, size=%d\n", d->image_num, d->code_printable,
 				(int)d->image_pos, (int)d->image_len);
 		}
-		if(d->segment_len<8) break;
-		if(d->segment_pos+d->segment_len > d->file_size) break;
-
-		// Find this type code in the image_type_info array
-		d->type_info = NULL;
-		for(i=0; image_type_info_arr[i].code!=0; i++) {
-			if(image_type_info_arr[i].code==d->code) {
-				d->type_info = &image_type_info_arr[i];
-				break;
-			}
-		}
-		if(!d->type_info) {
+		if(d->segment_len<8 || d->segment_pos+d->segment_len > d->file_size) {
 			if(pass==2) {
+				de_err(c, "Invalid length for segment '%s' (%u)\n", d->code_printable,
+					(unsigned int)d->segment_len);
+			}
+			break;
+		}
+
+		if(pass==2) {
+			// Find this type code in the image_type_info array
+			d->type_info = NULL;
+			for(i=0; image_type_info_arr[i].code!=0; i++) {
+				if(image_type_info_arr[i].code==d->code) {
+					d->type_info = &image_type_info_arr[i];
+					break;
+				}
+			}
+			if(!d->type_info) {
 				de_warn(c, "(Image #%d) Unknown image type '%s'\n", d->image_num, d->code_printable);
 			}
 		}
