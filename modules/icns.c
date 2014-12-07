@@ -125,6 +125,8 @@ typedef struct localctx_struct {
 	de_int64 mkpos_32_32_8;
 	de_int64 mkpos_48_48_8;
 	de_int64 mkpos_128_128_8;
+
+	char filename_token[32];
 } lctx;
 
 static void do_decode_1_4_8bit(deark *c, lctx *d)
@@ -165,7 +167,7 @@ static void do_decode_1_4_8bit(deark *c, lctx *d)
 		}
 	}
 
-	de_bitmap_write_to_file(img, NULL);
+	de_bitmap_write_to_file(img, d->filename_token);
 	de_bitmap_destroy(img);
 }
 
@@ -251,7 +253,7 @@ static void do_decode_24bit(deark *c, lctx *d)
 		}
 	}
 
-	de_bitmap_write_to_file(img, NULL);
+	de_bitmap_write_to_file(img, d->filename_token);
 	de_bitmap_destroy(img);
 	if(unc_pixels) dbuf_close(unc_pixels);
 }
@@ -259,22 +261,27 @@ static void do_decode_24bit(deark *c, lctx *d)
 static void do_extract_png_or_jp2(deark *c, lctx *d)
 {
 	de_byte buf[8];
+	de_finfo *fi = NULL;
 
 	de_dbg(c, "Trying to extract file at %d\n", (int)d->image_pos);
 
 	// Detect the format
 	de_read(buf, d->image_pos, sizeof(buf));
 
-	// TODO: Include the expected dimensions (etc.) in the filename.
+	fi = de_finfo_create(c);
+	de_finfo_set_name_from_sz(c, fi, d->filename_token);
+
 	if(buf[4]=='j' && buf[5]=='P') {
-		dbuf_create_file_from_slice(c->infile, d->image_pos, d->image_len, "jp2", NULL);
+		dbuf_create_file_from_slice(c->infile, d->image_pos, d->image_len, "jp2", fi);
 	}
 	else if(buf[0]==0x89 && buf[1]==0x50) {
-		dbuf_create_file_from_slice(c->infile, d->image_pos, d->image_len, "png", NULL);
+		dbuf_create_file_from_slice(c->infile, d->image_pos, d->image_len, "png", fi);
 	}
 	else {
 		de_err(c, "(Image #%d) Unidentified file format\n", d->image_num);
 	}
+
+	de_finfo_destroy(c, fi);
 }
 
 // Sets d->mask_pos and d->mask_rowspan.
@@ -334,12 +341,16 @@ static void do_icon(deark *c, lctx *d)
 
 	if(!d->type_info) return; // Shouldn't happen.
 
+	de_strlcpy(d->filename_token, "", sizeof(d->filename_token));
+
 	if(d->type_info->image_type==IMGTYPE_MASK) {
 		de_dbg(c, "transparency mask\n");
 		return;
 	}
 
 	if(d->type_info->image_type==IMGTYPE_EMBEDDED_FILE) {
+		de_snprintf(d->filename_token, sizeof(d->filename_token), "%dx%d",
+			(int)d->type_info->width, (int)d->type_info->height);
 		do_extract_png_or_jp2(c, d);
 		return;
 	}
@@ -376,6 +387,9 @@ static void do_icon(deark *c, lctx *d)
 	}
 
 	find_mask(c, d);
+
+	de_snprintf(d->filename_token, sizeof(d->filename_token), "%dx%dx%d",
+		(int)d->type_info->width, (int)d->type_info->height, (int)d->type_info->bpp);
 
 	if(d->type_info->bpp==1 || d->type_info->bpp==4 || d->type_info->bpp==8) {
 		do_decode_1_4_8bit(c, d);
