@@ -159,13 +159,99 @@ static void do_decode_1_4_8bit(deark *c, lctx *d)
 				a = 0xff;
 			}
 
-			de_bitmap_setpixel_rgb(img, i, j,
-				DE_SET_ALPHA(fgcol, a));
+			de_bitmap_setpixel_rgb(img, i, j, DE_SET_ALPHA(fgcol, a));
 		}
 	}
 
 	de_bitmap_write_to_file(img, NULL);
 	de_bitmap_destroy(img);
+}
+
+static void do_uncompress_24(deark *c, lctx *d, dbuf *unc_pixels,
+	de_int64 skip, de_int64 maxbytes)
+{
+	de_int64 pos;
+	de_byte b;
+	de_int64 count;
+	de_int64 k;
+	de_byte n;
+
+	pos = d->image_pos;
+	if(skip) pos+=4;
+
+	while(1) {
+		if(pos >= d->image_pos + d->image_len) break;
+		if(unc_pixels->len >= maxbytes) break;
+
+		b = de_getbyte(pos);
+		pos++;
+		if(b>=128) {
+			// Compressed run
+			count = (de_int64)b - 125;
+			n = de_getbyte(pos);
+			pos++;
+			for(k=0; k<count; k++) {
+				dbuf_write(unc_pixels, &n, 1);
+			}
+		}
+		else {
+			// An uncompressed run
+			count = 1 + (de_int64)b;
+			for(k=0; k<count; k++) {
+				n = de_getbyte(pos);
+				pos++;
+				dbuf_write(unc_pixels, &n, 1);
+			}
+		}
+	}
+}
+
+static void do_decode_24bit(deark *c, lctx *d)
+{
+	dbuf *unc_pixels = NULL;
+	struct deark_bitmap *img = NULL;
+	de_int64 i, j;
+	de_byte cr, cg, cb, ca;
+	de_int64 w, h;
+	de_int64 skip;
+
+	w = d->type_info->width;
+	h = d->type_info->height;
+
+	// TODO: Try to support uncompressed 24-bit images, assuming they exist.
+
+	// Apparently, some 'it32' icons begin with four extra 0x00 bytes.
+	// Skip over the first four bytes if they are 0x00.
+	// (I don't know the reason for these bytes, but this is the same
+	// logic libicns uses.)
+	skip = 0;
+	if(d->code==0x69743332) { // 'it32' (128x128)
+		if(!dbuf_memcmp(c->infile, d->image_pos, "\0\0\0\0", 4)) {
+			skip = 4;
+		}
+	}
+
+	unc_pixels = dbuf_create_membuf(c, w*h*3);
+	do_uncompress_24(c, d, unc_pixels, skip, w*h*3);
+
+	img = de_bitmap_create(c, w, h, 4);
+
+	for(j=0; j<d->type_info->height; j++) {
+		for(i=0; i<d->type_info->width; i++) {
+			cr = dbuf_getbyte(unc_pixels, j*w + i);
+			cg = dbuf_getbyte(unc_pixels, (h+j)*w + i);
+			cb = dbuf_getbyte(unc_pixels, (2*h+j)*w + i);
+			if(d->mask_pos)
+				ca = de_getbyte(d->mask_pos + j*w + i);
+			else
+				ca = 0xff;
+			de_bitmap_setpixel_rgba(img, i, j, DE_MAKE_RGBA(cr,cg,cb,ca));
+		}
+	}
+
+	de_bitmap_write_to_file(img, NULL);
+	de_bitmap_destroy(img);
+	if(unc_pixels) dbuf_close(unc_pixels);
 }
 
 static void do_extract_png_or_jp2(deark *c, lctx *d)
@@ -264,6 +350,8 @@ static void do_icon(deark *c, lctx *d)
 
 	// At this point we know it's a regular image (or an image+mask)
 
+	// Note - This d->rowspan is arguably incorrect for 24-bit images, since
+	// rows aren't stored contiguously.
 	d->rowspan = ((d->type_info->bpp * d->type_info->width)+7)/8;
 
 	expected_image_size = d->rowspan * d->type_info->height;
@@ -289,6 +377,10 @@ static void do_icon(deark *c, lctx *d)
 
 	if(d->type_info->bpp==1 || d->type_info->bpp==4 || d->type_info->bpp==8) {
 		do_decode_1_4_8bit(c, d);
+		return;
+	}
+	else if(d->type_info->bpp==24) {
+		do_decode_24bit(c, d);
 		return;
 	}
 
