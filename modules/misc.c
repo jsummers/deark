@@ -769,3 +769,47 @@ void de_module_lss16(deark *c, struct deark_module_info *mi)
 	mi->run_fn = de_run_lss16;
 	mi->identify_fn = de_identify_lss16;
 }
+
+// **************************************************************************
+// VBM (VDC BitMap)
+// **************************************************************************
+
+static void de_run_vbm(deark *c, const char *params)
+{
+	de_int64 width, height;
+	de_byte ver;
+
+	ver = de_getbyte(3);
+	if(ver!=2) {
+		// TODO: Support VBM v3.
+		de_err(c, "Unsupported VBM version (%d)\n", (int)ver);
+		return;
+	}
+	width = de_getui16be(4);
+	height = de_getui16be(6);
+	de_convert_and_write_image_bilevel(c->infile, 8, width, height, (width+7)/8,
+		DE_CVTF_WHITEISZERO, NULL);
+}
+
+static int de_identify_vbm(deark *c)
+{
+	de_byte b[4];
+	de_read(b, 0, 4);
+	if(de_memcmp(b, "BM\xcb", 3)) return 0;
+	if(b[3]!=2 && b[3]!=3) return 0;
+
+	// Windows BMP files are highly unlikely to start with 'B' 'M' \xcb,
+	// because that would imply the file is an odd number of bytes in size,
+	// which is legal but silly. Still, if the file extension is ".bmp", we'll
+	// assume it is BMP and not VBM.
+	if(de_input_file_has_ext(c, "bmp")) return 0;
+
+	return 100;
+}
+
+void de_module_vbm(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "vbm";
+	mi->run_fn = de_run_vbm;
+	mi->identify_fn = de_identify_vbm;
+}

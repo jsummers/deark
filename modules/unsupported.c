@@ -111,6 +111,7 @@ static void get_fmt(deark *c, struct fmtinfo_struct *fmti)
 		return;
 	}
 
+	// Note - Make sure VBM has higher confidence.
 	if(b[0]=='B' && b[1]=='M') {
 		fmti->confidence = 20;
 		fmti->descr = "a BMP image file";

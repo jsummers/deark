@@ -126,6 +126,9 @@ Deark -- Information about supported formats
   - TI85/TI86 pictures
   - TI89/TI92/TI92+ pictures
 
+* VBM (VDC BitMap) (module="vbm")
+  - Version 2 only
+
 * Vivid ray tracer bitmap (module="vivid")
 
 * X11 puzzle (module="xpuzzle")

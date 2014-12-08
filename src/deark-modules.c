@@ -66,6 +66,7 @@ void de_register_modules(deark *c)
 		de_module_grob,
 		de_module_vivid,
 		de_module_atari_cas,
+		de_module_vbm,
 		de_module_winzle,
 		de_module_bob,
 		de_module_hr,
