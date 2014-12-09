@@ -48,6 +48,8 @@ static void do_image_data(deark *c, lctx *d, de_int64 img_num, de_int64 pos1, de
 	de_byte cr=0, cg=0, cb=0, ca=0;
 	int inverse_warned = 0;
 	int has_alpha_channel = 0;
+	de_int64 bitcount_color;
+	char filename_token[32];
 
 	if(pos1+len > c->infile->len) return;
 
@@ -87,6 +89,13 @@ static void do_image_data(deark *c, lctx *d, de_int64 img_num, de_int64 pos1, de
 		else
 			de_dbg(c, "no alpha channel detected, will use mask\n");
 	}
+
+	// In the filename, we use the bitcount just for the color data,
+	// ignoring any masks or alpha channel.
+	bitcount_color = bi.bitcount;
+	if(bi.bitcount==32) bitcount_color = 24;
+	de_snprintf(filename_token, sizeof(filename_token), "%dx%dx%d",
+		(int)bi.width, (int)bi.height, (int)bitcount_color);
 
 	img = de_bitmap_create(c, bi.width, bi.height, 4);
 	img->flipped = 1;
@@ -163,8 +172,8 @@ static void do_image_data(deark *c, lctx *d, de_int64 img_num, de_int64 pos1, de
 		}
 	}
 
+	de_bitmap_write_to_file(img, filename_token);
 done:
-	de_bitmap_write_to_file(img, NULL);
 	de_bitmap_destroy(img);
 }
 
