@@ -38,6 +38,7 @@ struct dbuf_struct {
 	deark *c;
 	FILE *fp;
 	de_int64 len;
+	de_int64 max_len; // 0=no maximum. May only apply to DBUF_TYPE_MEMBUF
 	int is_little_endian; // Flag that changes the behavior of some functions
 
 	int file_pos_known;
@@ -300,6 +301,10 @@ int dbuf_create_file_from_slice(dbuf *inf, de_int64 pos, de_int64 data_size,
 void dbuf_empty(dbuf *f);
 
 de_int64 dbuf_get_length(dbuf *f);
+
+// Enforce a maximum size when writing to a dbuf.
+// May be valid only for memory buffers.
+void dbuf_set_max_length(dbuf *f, de_int64 max_len);
 
 // See comments for dbuf_getui32().
 void dbuf_set_endianness(dbuf *f, int is_le);

@@ -172,7 +172,7 @@ static void do_decode_1_4_8bit(deark *c, lctx *d)
 }
 
 static void do_uncompress_24(deark *c, lctx *d, dbuf *unc_pixels,
-	de_int64 skip, de_int64 maxbytes)
+	de_int64 skip)
 {
 	de_int64 pos;
 	de_byte b;
@@ -185,7 +185,6 @@ static void do_uncompress_24(deark *c, lctx *d, dbuf *unc_pixels,
 
 	while(1) {
 		if(pos >= d->image_pos + d->image_len) break;
-		if(unc_pixels->len >= maxbytes) break;
 
 		b = de_getbyte(pos);
 		pos++;
@@ -236,7 +235,8 @@ static void do_decode_24bit(deark *c, lctx *d)
 	}
 
 	unc_pixels = dbuf_create_membuf(c, w*h*3);
-	do_uncompress_24(c, d, unc_pixels, skip, w*h*3);
+	dbuf_set_max_length(unc_pixels, w*h*3);
+	do_uncompress_24(c, d, unc_pixels, skip);
 
 	img = de_bitmap_create(c, w, h, 4);
 

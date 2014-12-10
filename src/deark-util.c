@@ -833,7 +833,13 @@ static void membuf_append(dbuf *f, const de_byte *m, de_int64 mlen)
 {
 	de_int64 new_alloc_size;
 
-	if(mlen<1) return;
+	if(f->max_len>0) {
+		if(f->len + mlen > f->max_len) {
+			mlen = f->max_len - f->len;
+		}
+	}
+
+	if(mlen<=0) return;
 
 	if(mlen > f->membuf_alloc - f->len) {
 		// Need to allocate more space
@@ -1327,6 +1333,11 @@ de_uint32 de_bitmap_getpixel(struct deark_bitmap *img, de_int64 x, de_int64 y)
 de_int64 dbuf_get_length(dbuf *f)
 {
 	return f->len;
+}
+
+void dbuf_set_max_length(dbuf *f, de_int64 max_len)
+{
+	f->max_len = max_len;
 }
 
 void dbuf_set_endianness(dbuf *f, int is_le)
