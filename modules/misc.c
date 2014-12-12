@@ -708,9 +708,9 @@ static void de_run_lss16(deark *c, const char *params)
 		cb = de_getbyte(d->pos+2);
 		de_dbg2(c, "pal[%2d]: %2d,%2d,%2d\n", (int)i, (int)cr, (int)cg, (int)cb);
 		// Palette samples are from [0 to 63]. Convert to [0 to 255].
-		cr = (de_byte)(0.5+((double)cr)*(255.0/63.0));
-		cg = (de_byte)(0.5+((double)cg)*(255.0/63.0));
-		cb = (de_byte)(0.5+((double)cb)*(255.0/63.0));
+		cr = de_palette_sample_6_to_8bit(cr);
+		cg = de_palette_sample_6_to_8bit(cg);
+		cb = de_palette_sample_6_to_8bit(cb);
 		pal[i] = DE_MAKE_RGB(cr, cg, cb);
 		d->pos+=3;
 	}
