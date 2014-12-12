@@ -62,7 +62,6 @@ static struct deark_bitmap *do_create_image(deark *c, lctx *d, dbuf *unc_pixels,
 	de_byte cr;
 	de_uint32 n;
 	de_uint32 clr;
-	de_byte v[3];
 
 	img = de_bitmap_create(c, d->width, d->height, d->color_type ? 3 : 1);
 
@@ -120,10 +119,7 @@ static struct deark_bitmap *do_create_image(deark *c, lctx *d, dbuf *unc_pixels,
 				de_bitmap_setpixel_rgb(img, i, j, clr);
 				break;
 			case 24:
-				v[0] = dbuf_getbyte(unc_pixels, j*src_rowspan + i*3);
-				v[1] = dbuf_getbyte(unc_pixels, j*src_rowspan + i*3+1);
-				v[2] = dbuf_getbyte(unc_pixels, j*src_rowspan + i*3+2);
-				clr = DE_MAKE_RGB(v[0], v[1], v[2]);
+				clr = dbuf_getRGB(unc_pixels, j*src_rowspan + i*3, 0);
 				de_bitmap_setpixel_rgb(img, i, j, clr);
 				break;
 			}

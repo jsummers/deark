@@ -121,7 +121,7 @@ static void do_decode_raw(deark *c, lctx *d)
 	struct deark_bitmap *img = NULL;
 	de_int64 i, j;
 	de_int64 rowspan;
-	de_byte cr, cg, cb;
+	de_uint32 clr;
 
 	if(d->bitdepth != 32) {
 		de_err(c, "Unsupported bit depth for raw image (%d)\n", (int)d->bitdepth);
@@ -136,10 +136,8 @@ static void do_decode_raw(deark *c, lctx *d)
 	rowspan = d->width * 4;
 	for(j=0; j<d->height; j++) {
 		for(i=0; i<d->width; i++) {
-			cr = de_getbyte(d->idat_pos + j*rowspan + i*4+1);
-			cg = de_getbyte(d->idat_pos + j*rowspan + i*4+2);
-			cb = de_getbyte(d->idat_pos + j*rowspan + i*4+3);
-			de_bitmap_setpixel_rgb(img, i, j, DE_MAKE_RGB(cr, cg, cb));
+			clr = dbuf_getRGB(c->infile, d->idat_pos + j*rowspan + i*4+1, 0);
+			de_bitmap_setpixel_rgb(img, i, j, clr);
 		}
 	}
 

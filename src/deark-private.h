@@ -256,6 +256,9 @@ de_int64 dbuf_geti64(dbuf *f, de_int64 pos);
 #define de_geti64le(p) dbuf_geti64le(c->infile,p)
 #define de_geti64(p) dbuf_geti64(c->infile,p)
 
+#define DE_GETRGBFLAG_BGR 0x1 // Assume BGR order instead of RGB
+de_uint32 dbuf_getRGB(dbuf *f, de_int64 pos, unsigned int flags);
+
 // At least one of 'ext' or 'fi' should be non-NULL.
 dbuf *dbuf_create_output_file(deark *c, const char *ext, de_finfo *fi);
 
@@ -341,7 +344,7 @@ void de_bitmap_destroy(struct deark_bitmap *b);
 
 #define DE_MAKE_RGBA(r,g,b,a)  ((((de_uint32)(a))<<24)|((r)<<16)|((g)<<8)|(b))
 #define DE_MAKE_RGB(r,g,b)     ((((de_uint32)0xff)<<24)|((r)<<16)|((g)<<8)|(b))
-#define DE_SET_ALPHA(v,a)      (((v)&0x00ffffff)|((a)<<24))
+#define DE_SET_ALPHA(v,a)      (((v)&0x00ffffff)|(((de_uint32)(a))<<24))
 
 // Return the index'th symbol in the bitmap row beginning at file position rowstart.
 // A symbol has bps bits. bps must be 1, 2, 4, or 8.

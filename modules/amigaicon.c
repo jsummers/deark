@@ -78,7 +78,6 @@ static void do_decode_newicons(deark *c, lctx *d,
 	de_int64 j;
 	de_int64 rle_len;
 	de_uint32 pal[256];
-	de_byte cr, cg, cb;
 	de_byte palent;
 
 	de_dbg(c, "decoding NewIcons[%d], size=%d\n", newicons_num,
@@ -153,19 +152,15 @@ static void do_decode_newicons(deark *c, lctx *d,
 
 	// The first ncolors*3 bytes are the palette
 	for(i=0; i<ncolors; i++) {
-		cr = dbuf_getbyte(decoded, i*3);
-		cg = dbuf_getbyte(decoded, i*3+1);
-		cb = dbuf_getbyte(decoded, i*3+2);
+		if(i>255) break;
+		pal[i] = dbuf_getRGB(decoded, i*3, 0);
 
-		de_dbg2(c, "pal[%3d] = %02x,%02x,%02x\n", (int)i, (int)cr, (int)cg, (int)cb);
-		if(i<256) {
-			// Educated guess: If the transparency flag is set, it means
-			// palette entry 0 is transparent.
-			if(i==0 && has_trns)
-				pal[i] = DE_MAKE_RGBA(cr, cg, cb, 0x00);
-			else
-				pal[i] = DE_MAKE_RGBA(cr, cg, cb, 0xff);
-		}
+		// Educated guess: If the transparency flag is set, it means
+		// palette entry 0 is transparent.
+		if(i==0 && has_trns)
+			pal[i] = DE_SET_ALPHA(pal[i], 0x00);
+
+		de_dbg2(c, "pal[%3d] = %08x\n", (int)i, (unsigned int)pal[i]);
 	}
 
 	for(j=0; j<img->height; j++) {
@@ -384,7 +379,6 @@ static void do_glowicons_IMAG(deark *c, lctx *d,
 	de_int64 pal_size_in_bytes;
 	de_int64 i, j;
 	dbuf *tmpbuf = NULL;
-	de_byte cr, cg, cb, ca;
 	de_byte b;
 
 	de_dbg(c, "--- GlowIcons image at %d ---\n", (int)pos);
@@ -458,12 +452,11 @@ static void do_glowicons_IMAG(deark *c, lctx *d,
 		}
 		for(i=0; i<256; i++) {
 			if(i<num_colors) {
-				cr = dbuf_getbyte(tmpbuf, i*3+0);
-				cg = dbuf_getbyte(tmpbuf, i*3+1);
-				cb = dbuf_getbyte(tmpbuf, i*3+2);
-				ca = (has_trns && i==(de_int64)trns_color) ? 0 : 255;
-				d->glowicons_palette[i] = DE_MAKE_RGBA(cr, cg, cb, ca);
-				de_dbg2(c, "pal[%d]: (%d,%d,%d)\n", (int)i, (int)cr, (int)cg, (int)cb);
+				d->glowicons_palette[i] = dbuf_getRGB(tmpbuf, i*3, 0);
+				if(has_trns && i==(de_int64)trns_color) {
+					d->glowicons_palette[i] = DE_SET_ALPHA(d->glowicons_palette[i], 0x00);
+				}
+				de_dbg2(c, "pal[%d]: %08x\n", (int)i, (unsigned int)d->glowicons_palette[i]);
 			}
 			else {
 				d->glowicons_palette[i] = DE_MAKE_RGBA(0, 0, 0, 255);

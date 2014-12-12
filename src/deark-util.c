@@ -602,6 +602,15 @@ de_int64 dbuf_geti64(dbuf *f, de_int64 pos)
 	return dbuf_geti64be(f, pos);
 }
 
+de_uint32 dbuf_getRGB(dbuf *f, de_int64 pos, unsigned int flags)
+{
+	de_byte buf[3];
+	dbuf_read(f, buf, pos, 3);
+	if(flags&DE_GETRGBFLAG_BGR)
+		return DE_MAKE_RGB(buf[2], buf[1], buf[0]);
+	return DE_MAKE_RGB(buf[0], buf[1], buf[2]);
+}
+
 void dbuf_copy(dbuf *inf, de_int64 input_offset, de_int64 input_len, dbuf *outf)
 {
 	de_byte buf[16384];

@@ -68,7 +68,7 @@ static struct srcbitmap *do_decode_CI_or_CP_segment(deark *c, const char *fmt, d
 
 		for (i=0; i<srcbmp->bi.pal_entries; i++) {
 			p = pal_start + i*srcbmp->bi.bytes_per_pal_entry;
-			srcbmp->pal[i] = DE_MAKE_RGB(de_getbyte(p+2), de_getbyte(p+1), de_getbyte(p));
+			srcbmp->pal[i] = dbuf_getRGB(c->infile, p, DE_GETRGBFLAG_BGR);
 		}
 	}
 

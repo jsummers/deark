@@ -108,7 +108,7 @@ static void do_image_data(deark *c, lctx *d, de_int64 img_num, de_int64 pos1, de
 
 		for (i=0; i<bi.pal_entries; i++) {
 			p = pal_start + i*bi.bytes_per_pal_entry;
-			pal[i] = DE_MAKE_RGB(de_getbyte(p+2), de_getbyte(p+1), de_getbyte(p));
+			pal[i] = dbuf_getRGB(c->infile, p, DE_GETRGBFLAG_BGR);
 		}
 	}
 

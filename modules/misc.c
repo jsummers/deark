@@ -144,7 +144,7 @@ static void de_run_xpuzzle(deark *c, const char *params)
 	de_memset(pal, 0, sizeof(pal));
 	p = 9;
 	for(i=0; i<d->palentries; i++) {
-		pal[i] = DE_MAKE_RGB(de_getbyte(p), de_getbyte(p+1), de_getbyte(p+2));
+		pal[i] = dbuf_getRGB(c->infile, p, 0);
 		p+=3;
 	}
 
@@ -356,7 +356,7 @@ static void de_run_bob(deark *c, const char *params)
 	de_memset(pal, 0, sizeof(pal));
 	p = 4;
 	for(i=0; i<256; i++) {
-		pal[i] = DE_MAKE_RGB(de_getbyte(p), de_getbyte(p+1), de_getbyte(p+2));
+		pal[i] = dbuf_getRGB(c->infile, p, 0);
 		p+=3;
 	}
 
@@ -409,7 +409,6 @@ static void de_run_vivid(deark *c, const char *params)
 	de_int64 depth;
 	de_int64 xpos, ypos;
 	de_int64 runlen;
-	de_byte r, g, b;
 	de_uint32 clr;
 
 	de_dbg(c, "In vivid module\n");
@@ -438,11 +437,8 @@ static void de_run_vivid(deark *c, const char *params)
 			break; // EOF
 		}
 		runlen = (de_int64)de_getbyte(pos);
-		b = de_getbyte(pos+1);
-		g = de_getbyte(pos+2);
-		r = de_getbyte(pos+3);
+		clr = dbuf_getRGB(c->infile, pos+1, DE_GETRGBFLAG_BGR);
 		pos+=4;
-		clr = DE_MAKE_RGB(r, g, b);
 
 		for(i=0; i<runlen; i++) {
 			de_bitmap_setpixel_rgb(img, xpos, ypos, clr);
