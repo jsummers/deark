@@ -43,6 +43,7 @@ void de_register_modules(deark *c)
 		de_module_ilbm,
 		de_module_icns,
 		de_module_dcx,
+		de_module_pgx,
 		de_module_fnt,
 		de_module_hpicn,
 		de_module_macpaint,

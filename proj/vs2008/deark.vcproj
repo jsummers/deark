@@ -498,6 +498,10 @@
 				>
 			</File>
 			<File
+				RelativePath="..\..\modules\portfolio.c"
+				>
+			</File>
+			<File
 				RelativePath="..\..\modules\printshop.c"
 				>
 			</File>

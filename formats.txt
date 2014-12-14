@@ -108,6 +108,17 @@ Deark -- Information about supported formats
    -opt pcpaint:fmt=clp
    -opt palfile=<file.pic> - PIC file to read the palette from
 
+* PGF (Portfolio graphics) (module="pfpgf")
+
+* PrintMaster .SHP format (module="printmaster") (experimental)
+  Options
+   -opt namefile=<file.sdr> - Use this "name" file
+
+* Print Shop .DAT format (module="printshop") (experimental)
+  - Not all files can be autodetected. You may need "-m printshop".
+  Options
+   -opt namefile=<file.nam> - Use this "name" file
+
 * Psion PIC (module="psionpic")
   A Psion PIC file contains one or more 1-bpp bitmaps, some of which can be
   combined to make grayscale images. Deark will try to guess which images
@@ -221,14 +232,8 @@ Deark -- Information about supported formats
   - Icon and pointer image files are extracted. Reprocess them to convert to
     PNG.
 
-* PrintMaster .SHP format (module="printmaster") (experimental)
-  Options
-   -opt namefile=<file.sdr> - Use this "name" file
-
-* Print Shop .DAT format (module="printshop") (experimental)
-  - Not all files can be autodetected. You may need "-m printshop".
-  Options
-   -opt namefile=<file.nam> - Use this "name" file
+* PGX (Portfolio graphics animation) (module="pgx")
+  - Extract embedded PGC images.
 
 * PSD (PhotoShop) (module="psd")
   - Extract data from "Photoshop resources"
