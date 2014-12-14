@@ -232,6 +232,8 @@ Deark -- Information about supported formats
   - Icon and pointer image files are extracted. Reprocess them to convert to
     PNG.
 
+* PGF (Portfolio graphics) (module="pfpgf")
+
 * PGX (Portfolio graphics animation) (module="pgx")
   - Extract embedded PGC images.
 

@@ -75,6 +75,7 @@ void de_register_modules(deark *c)
 		de_module_basic_c64,
 		de_module_ico,
 		de_module_fpart,
+		de_module_pfpgf,
 		de_module_qtif,
 		de_module_ripicon,
 		de_module_printshop,
