@@ -102,7 +102,6 @@ void de_module_hpicn(deark *c, struct deark_module_info *mi)
 	mi->identify_fn = de_identify_hpicn;
 }
 
-
 // **************************************************************************
 // X11 "puzzle" format
 // ftp://ftp.x.org/pub/unsupported/programs/puzzle/
@@ -808,4 +807,43 @@ void de_module_vbm(deark *c, struct deark_module_info *mi)
 	mi->id = "vbm";
 	mi->run_fn = de_run_vbm;
 	mi->identify_fn = de_identify_vbm;
+}
+
+// **************************************************************************
+// PFS: 1st Publisher clip art (.ART)
+// **************************************************************************
+
+static void de_run_fpart(deark *c, const char *params)
+{
+	de_int64 width, height;
+	de_int64 rowspan;
+
+	width = de_getui16le(2);
+	height = de_getui16le(6);
+	rowspan = ((width+15)/16)*2;
+	de_convert_and_write_image_bilevel(c->infile, 8, width, height, rowspan, 0, NULL);
+}
+
+static int de_identify_fpart(deark *c)
+{
+	de_int64 width, height;
+	de_int64 rowspan;
+
+	if(!de_input_file_has_ext(c, "art")) return 0;
+
+	width = de_getui16le(2);
+	height = de_getui16le(6);
+	rowspan = ((width+15)/16)*2;
+	if(8 + rowspan*height == c->infile->len) {
+		return 100;
+	}
+
+	return 0;
+}
+
+void de_module_fpart(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "fpart";
+	mi->run_fn = de_run_fpart;
+	mi->identify_fn = de_identify_fpart;
 }
