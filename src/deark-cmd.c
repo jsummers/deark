@@ -19,7 +19,7 @@
 struct cmdctx {
 	const char *input_filename;
 	int error_flag;
-	int usage_error_flag;
+	int special_command_flag;
 #ifdef DE_WINDOWS
 	int have_windows_console;
 #endif
@@ -34,7 +34,6 @@ static void show_version(deark *c)
 
 static void show_usage(deark *c)
 {
-	show_version(c);
 	de_puts(c, DE_MSGTYPE_MESSAGE, "usage: deark [options] <input-file>\n");
 }
 
@@ -223,7 +222,7 @@ static void parse_cmdline(deark *c, struct cmdctx *cc, int argc, char **argv)
 		}
 		else {
 			if(cc->input_filename) {
-				cc->usage_error_flag = 1;
+				cc->error_flag = 1;
 				return;
 			}
 			cc->input_filename = argv[i];
@@ -231,8 +230,8 @@ static void parse_cmdline(deark *c, struct cmdctx *cc, int argc, char **argv)
 		}
 	}
 
-	if(!cc->input_filename) {
-		cc->usage_error_flag = 1;
+	if(!cc->input_filename && !cc->special_command_flag) {
+		cc->error_flag = 1;
 		return;
 	}
 }
@@ -258,9 +257,15 @@ static void main2(int argc, char **argv)
 	de_set_fatalerror_callback(c, our_fatalerrorfn);
 	de_set_messages_callback(c, our_msgfn);
 
+	if(argc<2) {
+		show_version(c);
+		show_usage(c);
+		goto done;
+	}
+
 	parse_cmdline(c, cc, argc, argv);
 
-	if(cc->usage_error_flag) {
+	if(cc->error_flag) {
 		show_usage(c);
 		goto done;
 	}

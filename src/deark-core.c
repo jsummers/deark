@@ -74,6 +74,7 @@ void de_run(deark *c)
 		module_to_use = de_get_module_by_id(c, c->input_format_req);
 		if(!module_to_use) {
 			de_err(c, "Unknown module \"%s\"\n", c->input_format_req);
+			goto done;
 		}
 	}
 
