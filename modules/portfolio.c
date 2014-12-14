@@ -2,6 +2,8 @@
 // This software is in the public domain. See the file COPYING for details.
 
 // Portfolio graphics formats:
+// * PGF
+// * PGC
 // * PGX (Portfolio animation)
 
 #include <deark-config.h>
@@ -170,4 +172,60 @@ void de_module_pfpgf(deark *c, struct deark_module_info *mi)
 	mi->id = "pfpgf";
 	mi->run_fn = de_run_pfpgf;
 	mi->identify_fn = de_identify_pfpgf;
+}
+
+// **************************************************************************
+// PGC - Portfolio graphics compressed
+// **************************************************************************
+
+static void de_run_pgc(deark *c, const char *params)
+{
+	dbuf *unc_pixels = NULL;
+	de_int64 pos;
+	de_int64 k;
+	de_int64 count;
+	de_byte b, b2;
+
+	de_declare_fmt(c, "PGC (Portfolio graphics compressed)");
+	unc_pixels = dbuf_create_membuf(c, 1920);
+	dbuf_set_max_length(unc_pixels, 1920);
+
+	pos = 3;
+	while(pos<c->infile->len) {
+		b = de_getbyte(pos);
+		pos++;
+		count = (de_int64)(b & 0x7f);
+		if(b & 0x80) {
+			// compressed run
+			b2 = de_getbyte(pos);
+			pos++;
+			for(k=0; k<count; k++) {
+				dbuf_writebyte(unc_pixels, b2);
+			}
+		}
+		else {
+			// uncompressed run
+			dbuf_copy(c->infile, pos, count, unc_pixels);
+			pos += count;
+		}
+	}
+
+	de_convert_and_write_image_bilevel(unc_pixels, 0, 240, 64, 240/8,
+		DE_CVTF_WHITEISZERO, NULL);
+	dbuf_close(unc_pixels);
+}
+
+static int de_identify_pgc(deark *c)
+{
+	if(!dbuf_memcmp(c->infile, 0, "PG\x01", 3)) {
+		return 100;
+	}
+	return 0;
+}
+
+void de_module_pgc(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "pgc";
+	mi->run_fn = de_run_pgc;
+	mi->identify_fn = de_identify_pgc;
 }

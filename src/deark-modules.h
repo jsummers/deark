@@ -64,3 +64,4 @@ void de_module_vbm(deark *c, struct deark_module_info *mi);
 void de_module_fpart(deark *c, struct deark_module_info *mi);
 void de_module_pgx(deark *c, struct deark_module_info *mi);
 void de_module_pfpgf(deark *c, struct deark_module_info *mi);
+void de_module_pgc(deark *c, struct deark_module_info *mi);

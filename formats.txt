@@ -108,6 +108,8 @@ Deark -- Information about supported formats
    -opt pcpaint:fmt=clp
    -opt palfile=<file.pic> - PIC file to read the palette from
 
+* PGC (Portfolio graphics compressed) (module="pgc")
+
 * PGF (Portfolio graphics) (module="pfpgf")
 
 * PrintMaster .SHP format (module="printmaster") (experimental)
@@ -231,8 +233,6 @@ Deark -- Information about supported formats
   - BMP image files are extracted.
   - Icon and pointer image files are extracted. Reprocess them to convert to
     PNG.
-
-* PGF (Portfolio graphics) (module="pfpgf")
 
 * PGX (Portfolio graphics animation) (module="pgx")
   - Extract embedded PGC images.
