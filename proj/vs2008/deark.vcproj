@@ -418,6 +418,10 @@
 				>
 			</File>
 			<File
+				RelativePath="..\..\modules\binhex.c"
+				>
+			</File>
+			<File
 				RelativePath="..\..\modules\bsave.c"
 				>
 			</File>

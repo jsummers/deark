@@ -1,0 +1,305 @@
+// This file is part of Deark, by Jason Summers.
+// This software is in the public domain. See the file COPYING for details.
+
+#include <deark-config.h>
+#include <deark-modules.h>
+
+// BinHex (.hqx)
+
+typedef struct localctx_struct {
+	dbuf *decoded;
+	dbuf *decompressed;
+} lctx;
+
+// Returns 0-63 if successful, 255 for invalid character.
+static de_byte get_char_value(de_byte b)
+{
+	int k;
+	static const de_byte binhexchars[] =
+		"!\"#$%&'()*+,-012345689@ABCDEFGHIJKLMNPQRSTUVXYZ[`abcdefhijklmpqr";
+
+	for(k=0; k<64; k++) {
+		if(b==binhexchars[k]) return k;
+	}
+	return 255;
+}
+
+// Decode the base-64 data, and write to d->decoded.
+// Returns 0 if there was an error.
+static int do_decode_main(deark *c, lctx *d, de_int64 pos)
+{
+	de_byte b;
+	de_byte x;
+	de_byte pending_byte = 0;
+	unsigned int pending_bits_used = 0;
+
+	while(1) {
+		if(pos >= c->infile->len) return 0; // unexpected end of file
+		b = de_getbyte(pos);
+		pos++;
+		if(b==':') {
+			break;
+		}
+		else if(b=='\x0a' || b=='\x0d' || b==' ' || b=='\t') {
+			// Ignore whitespace
+			continue;
+		}
+
+		x = get_char_value(b);
+		if(x>=64) {
+			de_err(c, "Invalid BinHex data at %d\n", (int)(pos-1));
+			return 0;
+		}
+
+		// TODO: Simplify this code
+		if(pending_bits_used==0) {
+			pending_byte = x;
+			pending_bits_used = 6;
+		}
+		else if(pending_bits_used==2) {
+			pending_byte = (pending_byte<<(8-pending_bits_used))|x;
+			dbuf_writebyte(d->decoded, pending_byte);
+			pending_bits_used -= 2;
+		}
+		else if(pending_bits_used==4) {
+			pending_byte = (pending_byte<<(8-pending_bits_used))|(x>>(pending_bits_used-2));
+			dbuf_writebyte(d->decoded, pending_byte);
+			pending_byte = x&0x03;
+			pending_bits_used -= 2;
+		}
+		else if(pending_bits_used==6) {
+			pending_byte = (pending_byte<<(8-pending_bits_used))|(x>>(pending_bits_used-2));
+			dbuf_writebyte(d->decoded, pending_byte);
+			pending_byte = x&0x0f;
+			pending_bits_used -= 2;
+		}
+	}
+
+	de_dbg(c, "size after decoding: %d\n", (int)d->decoded->len);
+	return 1;
+}
+
+// Decompress d->decoded, write to d->decompressed
+static int do_decompress(deark *c, lctx *d)
+{
+	de_int64 pos;
+	de_byte b;
+	de_byte lastbyte = 0x00;
+	de_byte countcode;
+	de_int64 k;
+
+	pos = 0;
+	while(pos < d->decoded->len) {
+		b = dbuf_getbyte(d->decoded, pos);
+		pos++;
+		if(b!=0x90) {
+			dbuf_writebyte(d->decompressed, b);
+			lastbyte = b;
+			continue;
+		}
+
+		// b = 0x90, which is a special code.
+		countcode = dbuf_getbyte(d->decoded, pos);
+		pos++;
+
+		if(countcode==0x00) {
+			// Not RLE, just an escaped 0x90 byte.
+			dbuf_writebyte(d->decompressed, 0x90);
+			lastbyte = 0x90;
+			continue;
+		}
+
+		// RLE. We already emitted one byte (because the byte to repeat
+		// comes before the repeat count), so k starts at 1.
+		for(k=1; k<countcode; k++) {
+			dbuf_writebyte(d->decompressed, lastbyte);
+		}
+	}
+
+	de_dbg(c, "size after decompression: %d\n", (int)d->decompressed->len);
+	return 1;
+}
+
+static void do_extract_files(deark *c, lctx *d)
+{
+	de_int64 name_len;
+	dbuf *f;
+	de_int64 pos;
+	de_int64 dlen, rlen;
+	de_int64 hc, dc, rc; // Checksums
+
+	f = d->decompressed;
+	pos = 0;
+
+	// Read the header
+
+	name_len = (de_int64)dbuf_getbyte(f, pos);
+	pos+=1;
+	de_dbg(c, "name len: %d\n", (int)name_len);
+
+	// TODO: Use the name to generate the filename.
+	pos+=name_len;
+	pos+=1; // Skip the 0x00 byte after the name.
+
+	// The next (& last) 20 bytes of the header have predictable positions.
+
+	dlen = dbuf_getui32be(f, pos+10);
+	rlen = dbuf_getui32be(f, pos+14);
+	hc = dbuf_getui16be(f, pos+18);
+
+	de_dbg(c, "data fork len = %d\n", (int)dlen);
+	de_dbg(c, "resource fork len = %d\n", (int)rlen);
+	de_dbg(c, "header checksum = 0x%04x\n", (unsigned int)hc);
+
+	// TODO: Verify checksums
+
+	pos+=20;
+
+	// Data fork
+
+	if(pos+dlen > f->len) {
+		de_err(c, "Data fork goes beyond end of file\n");
+		goto done;
+	}
+
+	if(dlen>0)
+		dbuf_create_file_from_slice(f, pos, dlen, "data", NULL);
+	pos += dlen;
+
+	dc = dbuf_getui16be(f, pos);
+	pos += 2; 
+	de_dbg(c, "data fork checksum = 0x%04x\n", (unsigned int)dc);
+
+	// Resource fork
+
+	if(pos+rlen > f->len) {
+		de_err(c, "Resource fork goes beyond end of file\n");
+		goto done;
+	}
+
+	if(rlen>0)
+		dbuf_create_file_from_slice(f, pos, rlen, "rsrc", NULL);
+	pos += rlen;
+
+	rc = dbuf_getui16be(f, pos);
+	pos += 2; 
+	de_dbg(c, "resource fork checksum = 0x%04x\n", (unsigned int)rc);
+
+done:
+	;
+}
+
+static void do_binhex(deark *c, lctx *d, de_int64 pos)
+{
+	int ret;
+
+	de_dbg(c, "BinHex data starts at %d\n", (int)pos);
+
+	d->decoded = dbuf_create_membuf(c, 65536);
+	d->decompressed = dbuf_create_membuf(c, 65536);
+
+	ret = do_decode_main(c, d, pos);
+	if(!ret) goto done;
+
+	ret = do_decompress(c, d);
+	if(!ret) goto done;
+
+	do_extract_files(c, d);
+
+done:
+	dbuf_close(d->decompressed);
+	dbuf_close(d->decoded);
+	d->decoded = NULL;
+}
+
+static int find_start(deark *c, de_int64 *foundpos)
+{
+	de_int64 pos;
+	de_byte b;
+	int ret;
+
+	*foundpos = 0;
+
+	ret = dbuf_search(c->infile,
+		(const de_byte*)"(This file must be converted with BinHex", 40,
+		0, 8192, &pos);
+	if(!ret) return 0;
+
+	pos += 40;
+
+	// Find the next CR/LF byte
+	while(1) {
+		b = de_getbyte(pos);
+		pos++;
+		if(b=='\x0a' || b=='\x0d') {
+			break;
+		}
+	}
+
+	// Skip any number of additional CR/LF bytes
+	while(1) {
+		b = de_getbyte(pos);
+		if(b=='\x0a' || b=='\x0d') {
+			pos++;
+		}
+		else {
+			break;
+		}
+	}
+
+	// Current byte should be a colon (:)
+	b = de_getbyte(pos);
+	if(b==':') {
+		*foundpos = pos+1;
+		return 1;
+	}
+
+	return 0;
+}
+
+static void de_run_binhex(deark *c, const char *params)
+{
+	lctx *d = NULL;
+	de_int64 pos;
+	int ret;
+
+	d = de_malloc(c, sizeof(lctx));
+
+	ret = find_start(c, &pos);
+	if(!ret) {
+		de_err(c, "Not a BinHex file\n");
+		goto done;
+	}
+
+	do_binhex(c, d, pos);
+
+done:
+	de_free(c, d);
+}
+
+static int de_identify_binhex(deark *c)
+{
+	int ret;
+	de_int64 foundpos;
+
+	if(!dbuf_memcmp(c->infile, 0,
+		"(This file must be converted with BinHex", 40))
+	{
+		return 100;
+	}
+
+	if(!de_input_file_has_ext(c, "hqx")) return 0;
+
+	// File has .hqx extension. Try harder to identify it.
+	ret = find_start(c, &foundpos);
+	if(ret) return 100;
+
+	return 0;
+}
+
+void de_module_binhex(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "binhex";
+	mi->run_fn = de_run_binhex;
+	mi->identify_fn = de_identify_binhex;
+}

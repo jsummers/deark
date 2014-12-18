@@ -154,6 +154,9 @@ Deark -- Information about supported formats
 
 === Compression and archive modules ===
 
+* BinHex (.hqx) (module="binhex") (experimental)
+  - Extract data and resource forks to separate files.
+
 * T64 (Commodore 64 "tape" format) (module="t64")
   - Partial support
 
