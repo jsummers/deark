@@ -1,6 +1,7 @@
 // This file is part of Deark, by Jason Summers.
 // This software is in the public domain. See the file COPYING for details.
 
+#include <stdarg.h>
 #include "deark.h"
 
 #define DE_MAX_FILE_SIZE 100000000
@@ -171,6 +172,8 @@ void de_memset(void *dst, int x, size_t len);
 #else
 #define de_sscanf sscanf
 #endif
+
+void de_vsnprintf(char *buf, size_t buflen, const char *fmt, va_list ap);
 
 void de_snprintf(char *buf, size_t buflen, const char *fmt, ...)
   de_gnuc_attribute ((format (printf, 3, 4)));

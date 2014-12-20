@@ -325,6 +325,10 @@
 			UniqueIdentifier="{4FC737F1-C7A5-4376-A066-2A32D752A2FF}"
 			>
 			<File
+				RelativePath="..\..\src\deark-bitmap.c"
+				>
+			</File>
+			<File
 				RelativePath="..\..\src\deark-cmd.c"
 				>
 			</File>
@@ -334,6 +338,10 @@
 			</File>
 			<File
 				RelativePath="..\..\src\deark-data.c"
+				>
+			</File>
+			<File
+				RelativePath="..\..\src\deark-dbuf.c"
 				>
 			</File>
 			<File
