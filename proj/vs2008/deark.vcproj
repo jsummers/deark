@@ -502,6 +502,10 @@
 				>
 			</File>
 			<File
+				RelativePath="..\..\modules\pcx.c"
+				>
+			</File>
+			<File
 				RelativePath="..\..\modules\portfolio.c"
 				>
 			</File>
