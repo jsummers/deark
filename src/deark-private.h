@@ -164,6 +164,7 @@ struct deark_module_info *de_get_module_by_id(deark *c, const char *module_id);
 void de_strlcpy(char *dst, const char *src, size_t dstlen);
 int de_strcmp(const char *s1, const char *s2);
 int de_memcmp(const void *s1, const void *s2, size_t n);
+void *de_memcpy(void *dst, const void *src, size_t n);
 char *de_strchr(const char *s, int c);
 size_t de_strlen(const char *s);
 void de_memset(void *dst, int x, size_t len);

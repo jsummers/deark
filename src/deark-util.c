@@ -63,6 +63,11 @@ int de_memcmp(const void *s1, const void *s2, size_t n)
 	return memcmp(s1, s2, n);
 }
 
+void *de_memcpy(void *dst, const void *src, size_t n)
+{
+	return memcpy(dst, src, n);
+}
+
 // A wrapper for strchr().
 char *de_strchr(const char *s, int c)
 {

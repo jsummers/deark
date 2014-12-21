@@ -124,9 +124,12 @@ static void do_extract_files(deark *c, lctx *d)
 {
 	de_int64 name_len;
 	dbuf *f;
+	de_finfo *fi_r = NULL;
+	de_finfo *fi_d = NULL;
 	de_int64 pos;
 	de_int64 dlen, rlen;
 	de_int64 hc, dc, rc; // Checksums
+	char *filename_buf = NULL;
 
 	f = d->decompressed;
 	pos = 0;
@@ -137,7 +140,17 @@ static void do_extract_files(deark *c, lctx *d)
 	pos+=1;
 	de_dbg(c, "name len: %d\n", (int)name_len);
 
-	// TODO: Use the name to generate the filename.
+	// TODO: What encoding does the name use? Can we convert it?
+	fi_r = de_finfo_create(c);
+	fi_d = de_finfo_create(c);
+	filename_buf = de_malloc(c, 5 + name_len +1);
+	dbuf_read(f, (de_byte*)(filename_buf+5), pos, name_len);
+	filename_buf[5+name_len] = '\0';
+	de_memcpy(filename_buf, "rsrc.", 5);
+	de_finfo_set_name_from_sz(c, fi_r, filename_buf);
+	de_memcpy(filename_buf, "data.", 5);
+	de_finfo_set_name_from_sz(c, fi_d, filename_buf);
+
 	pos+=name_len;
 	pos+=1; // Skip the 0x00 byte after the name.
 
@@ -163,7 +176,7 @@ static void do_extract_files(deark *c, lctx *d)
 	}
 
 	if(dlen>0)
-		dbuf_create_file_from_slice(f, pos, dlen, "data", NULL);
+		dbuf_create_file_from_slice(f, pos, dlen, NULL, fi_d);
 	pos += dlen;
 
 	dc = dbuf_getui16be(f, pos);
@@ -178,7 +191,7 @@ static void do_extract_files(deark *c, lctx *d)
 	}
 
 	if(rlen>0)
-		dbuf_create_file_from_slice(f, pos, rlen, "rsrc", NULL);
+		dbuf_create_file_from_slice(f, pos, rlen, NULL, fi_r);
 	pos += rlen;
 
 	rc = dbuf_getui16be(f, pos);
@@ -186,7 +199,9 @@ static void do_extract_files(deark *c, lctx *d)
 	de_dbg(c, "resource fork checksum = 0x%04x\n", (unsigned int)rc);
 
 done:
-	;
+	de_finfo_destroy(c, fi_r);
+	de_finfo_destroy(c, fi_d);
+	de_free(c, filename_buf);
 }
 
 static void do_binhex(deark *c, lctx *d, de_int64 pos)
