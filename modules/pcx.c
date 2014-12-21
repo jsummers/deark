@@ -15,6 +15,7 @@ typedef struct localctx_struct {
 	de_int64 planes;
 	de_int64 rowspan_raw;
 	de_int64 rowspan;
+	de_int64 ncolors;
 	de_byte palette_info;
 	de_int64 width, height;
 	int has_vga_pal;
@@ -25,7 +26,6 @@ typedef struct localctx_struct {
 static int do_read_header(deark *c, lctx *d)
 {
 	int retval = 0;
-	de_int64 k;
 
 	d->version = de_getbyte(1);
 	d->encoding = de_getbyte(2);
@@ -35,32 +35,26 @@ static int do_read_header(deark *c, lctx *d)
 	d->margin_r = (de_int64)de_getui16le(8);
 	d->margin_b = (de_int64)de_getui16le(10);
 
-	// 16-color EGA palette. Note that this might get overwritten by the
-	// VGA palette.
-	if(d->version==2 || d->version>=4) {
-		for(k=0; k<16; k++) {
-			d->pal[k] = dbuf_getRGB(c->infile, 16 + 3*k, 0);
-		}
-	}
+	// The palette (offset 16-63) will be read later.
 
 	d->planes = (de_int64)de_getbyte(0x41);
 	d->rowspan_raw = (de_int64)de_getui16le(0x42);
 	d->palette_info = de_getbyte(0x44);
 
-	de_dbg(c, "version: %d, encoding: %d, bits: %d\n", (int)d->version,
-		(int)d->encoding, (int)d->bits);
+	de_dbg(c, "format version: %d, encoding: %d, planes: %d, bits: %d\n", (int)d->version,
+		(int)d->encoding, (int)d->planes, (int)d->bits);
+	de_dbg(c, "bytes/plane/row: %d, palette info: %d\n", (int)d->rowspan_raw,
+		(int)d->palette_info);
 	de_dbg(c, "margins: %d, %d, %d, %d\n", (int)d->margin_l, (int)d->margin_t,
 		(int)d->margin_r, (int)d->margin_b);
-	de_dbg(c, "planes: %d, bytes/line: %d, palette_info: %d\n", (int)d->planes,
-		(int)d->rowspan_raw, (int)d->palette_info);
 
 	d->width = d->margin_r - d->margin_l +1;
 	d->height = d->margin_b - d->margin_t +1;
-	de_dbg(c, "calculated dimensions: %dx%d\n", (int)d->width, (int)d->height);
+	de_dbg(c, "dimensions: %dx%d\n", (int)d->width, (int)d->height);
 	if(!de_good_image_dimensions(c, d->width, d->height)) goto done;
 
 	d->rowspan = d->rowspan_raw * d->planes;
-	de_dbg(c, "calculated bytes/row: %d\n", (int)d->rowspan);
+	de_dbg(c, "bytes/row: %d\n", (int)d->rowspan);
 
 	d->bits_per_pixel = d->bits * d->planes;
 
@@ -69,21 +63,47 @@ static int do_read_header(deark *c, lctx *d)
 		goto done;
 	}
 
-	// Enumerate the valid PCX image types.
-	if( (d->planes==1 && d->bits==1) ||
-		/* (d->planes==1 && d->bits==2) ||   TODO: CGA mode */
-		(d->planes==3 && d->bits==1) ||
-		(d->planes==4 && d->bits==1) ||
-		(d->planes==1 && d->bits==8) ||
-		(d->planes==3 && d->bits==8) )
-	{
-		;
+	// Enumerate the known PCX image types.
+	if(d->planes==1 && d->bits==1) {
+		d->ncolors = 2;
 	}
+	//else if(d->planes==2 && d->bits==1) {
+	//	d->ncolors = 4;
+	//}
+	else if(d->planes==1 && d->bits==2) {
+		d->ncolors = 4;
+	}
+	else if(d->planes==3 && d->bits==1) {
+		d->ncolors = 8;
+	}
+	else if(d->planes==4 && d->bits==1) {
+		d->ncolors = 16;
+	}
+	//else if(d->planes==1 && d->bits==4) {
+	//	d->ncolors = 16;
+	//}
+	//else if(d->planes==4 && d->bits==2) {
+	//	d->ncolors = 16; (?)
+	//}
+	else if(d->planes==1 && d->bits==8) {
+		d->ncolors = 256;
+	}
+	//else if(d->planes==4 && d->bits==4) {
+	//	d->ncolors = 4096;
+	//}
+	else if(d->planes==3 && d->bits==8) {
+		d->ncolors = 16777216;
+	}
+	//else if(d->planes==4 && d->bits==8) {
+	//	d->ncolors = 16777216;
+	//}
 	else {
 		de_err(c, "Unsupported image type (bits=%d, planes=%d)\n",
 			(int)d->bits, (int)d->planes);
 		goto done;
 	}
+
+	de_dbg(c, "number of colors: %d\n", (int)d->ncolors);
 
 	// Sanity check
 	if(d->rowspan > d->width * 3 + 100) {
@@ -96,34 +116,98 @@ done:
 	return retval;
 }
 
-static void do_read_vga_palette(deark *c, lctx *d)
+static int do_read_vga_palette(deark *c, lctx *d)
 {
 	de_int64 pos;
 	de_int64 k;
 
-	if(d->version<5) return;
-	if(d->bits_per_pixel==1) return;
-	if(d->bits_per_pixel>8) return;
+	if(d->version<5) return 0;
+	if(d->ncolors!=256) return 0;
 	pos = c->infile->len - 769;
-	if(pos<128) return;
+	if(pos<128) return 0;
 
 	if(de_getbyte(pos) != 0x0c) {
-		if(d->bits_per_pixel>4) {
-			de_warn(c, "Expected VGA palette was not found\n");
-		}
-		return;
+		return 0;
 	}
 
-	// version is 5
-	// number of colors is >2 and <256
-	// VGA palette is present
-	// EGA palette is not all black
-
-	de_dbg(c, "Reading VGA palette at %d\n", (int)pos);
+	de_dbg(c, "reading VGA palette at %d\n", (int)pos);
 	d->has_vga_pal = 1;
 	pos++;
 	for(k=0; k<256; k++) {
 		d->pal[k] = dbuf_getRGB(c->infile, pos + 3*k, 0);
+	}
+
+	return 1;
+}
+
+// This is the "default EGA palette" used by several PCX viewers.
+// I don't know its origin, but it seems to be at least approximately correct.
+// (8-color version-3 PCXs apparently use only the first 8 colors of this
+// palette.)
+static const de_uint32 ega16pal[16] = {
+	0x000000,0xbf0000,0x00bf00,0xbfbf00,0x0000bf,0xbf00bf,0x00bfbf,0xc0c0c0,
+	0x808080,0xff0000,0x00ff00,0xffff00,0x0000ff,0xff00ff,0x00ffff,0xffffff
+};
+
+static void do_palette_stuff(deark *c, lctx *d)
+{
+	de_int64 k;
+
+	if(d->version==3 && d->ncolors>2 && d->ncolors<=16) {
+		de_dbg(c, "Using default EGA palette\n");
+		for(k=0; k<16; k++) {
+			d->pal[k] = ega16pal[k];
+		}
+		return;
+	}
+
+	if(d->version>=5 && d->ncolors==256) {
+		if(do_read_vga_palette(c, d)) {
+			return;
+		}
+		de_warn(c, "Expected VGA palette was not found\n");
+	}
+
+	if(d->ncolors==4) {
+		de_byte p0, p3;
+		unsigned int bgcolor;
+		unsigned int fgpal;
+
+		de_warn(c, "4-color PCX images might not be supported correctly\n");
+		de_dbg(c, "using a CGA palette\n");
+
+		p0 = de_getbyte(16);
+		p3 = de_getbyte(19);
+		bgcolor = p0>>4;
+		fgpal = p3>>5;
+		de_dbg(c, "palette #%d, background color %d\n", (int)fgpal, (int)bgcolor);
+
+		// Set first pal entry to background color
+		d->pal[0] = de_palette_pc16(bgcolor);
+
+		// TODO: These palettes are quite possibly incorrect. I can't find good
+		// information about them.
+		switch(fgpal) {
+		case 0: case 2: // C=0 P=? I=0
+			d->pal[1]=0x00aaaa; d->pal[2]=0xaa0000; d->pal[3]=0xaaaaaa; break;
+		case 1: case 3: // C=0 P=? I=1
+			d->pal[1]=0x55ffff; d->pal[2]=0xff5555; d->pal[3]=0xffffff; break;
+		case 4: // C=1 P=0 I=0
+			d->pal[1]=0x00aa00; d->pal[2]=0xaa0000; d->pal[3]=0xaa5500; break;
+		case 5: // C=1 P=0 I=1
+			d->pal[1]=0x55ff55; d->pal[2]=0xff5555; d->pal[3]=0xffff55; break;
+		case 6: // C=1 P=1 I=0
+			d->pal[1]=0x00aaaa; d->pal[2]=0xaa00aa; d->pal[3]=0xaaaaaa; break;
+		case 7: // C=1 P=1 I=1
+			d->pal[1]=0x55ffff; d->pal[2]=0xff55ff; d->pal[3]=0xffffff; break;
+		}
+		return;
+	}
+
+	de_dbg(c, "using 16-color palette from header\n");
+
+	for(k=0; k<16; k++) {
+		d->pal[k] = dbuf_getRGB(c->infile, 16 + 3*k, 0);
 	}
 }
 
@@ -252,24 +336,6 @@ static void do_bitmap(deark *c, lctx *d)
 	else {
 		de_err(c, "Unsupported bits/pixel: %d\n", (int)d->bits_per_pixel);
 	}
-}
-
-static void do_palette_stuff(deark *c, lctx *d)
-{
-	de_int64 k;
-	de_uint32 clr;
-
-	if((d->version==0 || d->version==3) && d->bits_per_pixel>2) {
-		// Use default EGA palette
-		for(k=0; k<16; k++) {
-			clr = de_palette_pc16((int)k);
-			// Have to swap red/blue. Don't know why.
-			d->pal[k] = DE_MAKE_RGB(DE_COLOR_B(clr), DE_COLOR_G(clr), DE_COLOR_R(clr));
-		}
-	}
-	// TODO: Default CGA palette
-
-	do_read_vga_palette(c, d);
 }
 
 static void de_run_pcx(deark *c, const char *params)

@@ -108,6 +108,9 @@ Deark -- Information about supported formats
    -opt pcpaint:fmt=clp
    -opt palfile=<file.pic> - PIC file to read the palette from
 
+* PCX (module="pcx")
+  - Supports most of the common varieties of PCX.
+
 * PGC (Portfolio graphics compressed) (module="pgc")
 
 * PGF (Portfolio graphics) (module="pfpgf")
