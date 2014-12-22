@@ -21,6 +21,7 @@ typedef struct localctx_struct {
 	de_byte palette_info;
 	de_int64 width, height;
 	int has_vga_pal;
+	int has_transparency;
 	dbuf *unc_pixels;
 	de_uint32 pal[256];
 } lctx;
@@ -96,9 +97,12 @@ static int do_read_header(deark *c, lctx *d)
 	else if(d->planes==3 && d->bits==8) {
 		d->ncolors = 16777216;
 	}
-	//else if(d->planes==4 && d->bits==8) {
-	//	d->ncolors = 16777216;
-	//}
+	else if(d->planes==4 && d->bits==8) {
+		// I can't find a PCX spec that mentions 32-bit RGBA images, but
+		// ImageMagick and Wikipedia act like they're perfectly normal.
+		d->ncolors = 16777216;
+		d->has_transparency = 1;
+	}
 	else {
 		de_err(c, "Unsupported image type (bits=%d, planes=%d)\n",
 			(int)d->bits, (int)d->planes);
@@ -108,7 +112,7 @@ static int do_read_header(deark *c, lctx *d)
 	de_dbg(c, "number of colors: %d\n", (int)d->ncolors);
 
 	// Sanity check
-	if(d->rowspan > d->width * 3 + 100) {
+	if(d->rowspan > d->width * 4 + 100) {
 		de_err(c, "Bad bytes/line (%d)\n", (int)d->rowspan_raw);
 		goto done;
 	}
@@ -154,6 +158,10 @@ static const de_uint32 ega16pal[16] = {
 static void do_palette_stuff(deark *c, lctx *d)
 {
 	de_int64 k;
+
+	if(d->ncolors>256) {
+		return;
+	}
 
 	if(d->version==3 && d->ncolors>2 && d->ncolors<=16) {
 		de_dbg(c, "Using default EGA palette\n");
@@ -306,17 +314,18 @@ static void do_bitmap_24bpp(deark *c, lctx *d)
 	struct deark_bitmap *img = NULL;
 	de_int64 i, j;
 	de_int64 plane;
-	de_byte rgb[3];
+	de_byte s[4];
 
-	img = de_bitmap_create(c, d->width, d->height, 3);
+	de_memset(s, 0xff, sizeof(s));
+	img = de_bitmap_create(c, d->width, d->height, d->has_transparency?4:3);
 
 	for(j=0; j<d->height; j++) {
 		for(i=0; i<d->width; i++) {
 			//palent = 0;
-			for(plane=0; plane<3; plane++) {
-				rgb[plane] = dbuf_getbyte(d->unc_pixels, j*d->rowspan + plane*d->rowspan_raw +i);
+			for(plane=0; plane<d->planes; plane++) {
+				s[plane] = dbuf_getbyte(d->unc_pixels, j*d->rowspan + plane*d->rowspan_raw +i);
 			}
-			de_bitmap_setpixel_rgb(img, i, j, DE_MAKE_RGB(rgb[0], rgb[1], rgb[2]));
+			de_bitmap_setpixel_rgba(img, i, j, DE_MAKE_RGBA(s[0], s[1], s[2], s[3]));
 		}
 	}
 
@@ -332,7 +341,7 @@ static void do_bitmap(deark *c, lctx *d)
 	else if(d->bits_per_pixel<=8) {
 		do_bitmap_paletted(c, d);
 	}
-	else if(d->bits_per_pixel==24) {
+	else if(d->bits_per_pixel>=24) {
 		do_bitmap_24bpp(c, d);
 	}
 	else {
