@@ -6,6 +6,8 @@
 #include <deark-config.h>
 #include <deark-modules.h>
 
+#define PCX_HDRSIZE 128
+
 typedef struct localctx_struct {
 	de_byte version;
 	de_byte encoding;
@@ -58,8 +60,8 @@ static int do_read_header(deark *c, lctx *d)
 
 	d->bits_per_pixel = d->bits * d->planes;
 
-	if(d->encoding != 1) {
-		de_err(c, "Unsupported encoding: %d\n", (int)d->encoding);
+	if(d->encoding!=0 && d->encoding!=1) {
+		de_err(c, "Unsupported compression type: %d\n", (int)d->encoding);
 		goto done;
 	}
 
@@ -124,7 +126,7 @@ static int do_read_vga_palette(deark *c, lctx *d)
 	if(d->version<5) return 0;
 	if(d->ncolors!=256) return 0;
 	pos = c->infile->len - 769;
-	if(pos<128) return 0;
+	if(pos<PCX_HDRSIZE) return 0;
 
 	if(de_getbyte(pos) != 0x0c) {
 		return 0;
@@ -220,7 +222,7 @@ static int do_uncompress(deark *c, lctx *d)
 	de_int64 expected_bytes;
 	de_int64 endpos;
 
-	pos = 128;
+	pos = PCX_HDRSIZE;
 
 	expected_bytes = d->rowspan * d->height;
 	d->unc_pixels = dbuf_create_membuf(c, expected_bytes);
@@ -350,8 +352,17 @@ static void de_run_pcx(deark *c, const char *params)
 
 	do_palette_stuff(c, d);
 
-	if(!do_uncompress(c, d)) {
-		goto done;
+	if(d->encoding==0) {
+		// Uncompressed PCXs are probably not standard, but support for them is not
+		// uncommon. Imagemagick, for example, will create them if you ask it to.
+		de_dbg(c, "assuming pixels are uncompressed (encoding=0)\n");
+		d->unc_pixels = dbuf_open_input_subfile(c->infile,
+			PCX_HDRSIZE, c->infile->len-PCX_HDRSIZE);
+	}
+	else {
+		if(!do_uncompress(c, d)) {
+			goto done;
+		}
 	}
 
 	do_bitmap(c, d);
