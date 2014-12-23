@@ -251,10 +251,10 @@ static int find_start(deark *c, de_int64 *foundpos)
 		}
 	}
 
-	// Skip any number of additional CR/LF bytes
+	// Skip any number of additional whitespace
 	while(1) {
 		b = de_getbyte(pos);
-		if(b=='\x0a' || b=='\x0d') {
+		if(b=='\x0a' || b=='\x0d' || b==' ' || b=='\t') {
 			pos++;
 		}
 		else {
