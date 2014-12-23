@@ -19,6 +19,7 @@ typedef struct localctx_struct {
 	de_int64 rowspan;
 	de_int64 ncolors;
 	de_byte palette_info;
+	de_byte reserved1;
 	de_int64 width, height;
 	int has_vga_pal;
 	int has_transparency;
@@ -40,14 +41,18 @@ static int do_read_header(deark *c, lctx *d)
 
 	// The palette (offset 16-63) will be read later.
 
-	d->planes = (de_int64)de_getbyte(0x41);
-	d->rowspan_raw = (de_int64)de_getui16le(0x42);
-	d->palette_info = de_getbyte(0x44);
+	// For older versions of PCX, this field might be useful to help identify
+	// the intended video mode. Documentation is lacking, though.
+	d->reserved1 = de_getbyte(64);
+
+	d->planes = (de_int64)de_getbyte(65);
+	d->rowspan_raw = (de_int64)de_getui16le(66);
+	d->palette_info = de_getbyte(68);
 
 	de_dbg(c, "format version: %d, encoding: %d, planes: %d, bits: %d\n", (int)d->version,
 		(int)d->encoding, (int)d->planes, (int)d->bits);
-	de_dbg(c, "bytes/plane/row: %d, palette info: %d\n", (int)d->rowspan_raw,
-		(int)d->palette_info);
+	de_dbg(c, "bytes/plane/row: %d, palette info: %d, vmode: 0x%02x\n", (int)d->rowspan_raw,
+		(int)d->palette_info, (unsigned int)d->reserved1);
 	de_dbg(c, "margins: %d, %d, %d, %d\n", (int)d->margin_l, (int)d->margin_t,
 		(int)d->margin_r, (int)d->margin_b);
 
@@ -163,7 +168,16 @@ static void do_palette_stuff(deark *c, lctx *d)
 		return;
 	}
 
-	if(d->version==3 && d->ncolors>2 && d->ncolors<=16) {
+	if(d->ncolors==2) {
+		// TODO: Allegedly, some 2-color PCXs are not simply white-on-black,
+		// and at least the foreground color can be something other than white.
+		// The color information would be stored in the palette area, but
+		// different files use different ways of conveying that information,
+		// and it seems hopeless to reliably determine the correct format.
+		return;
+	}
+
+	if(d->version==3 && d->ncolors>=8 && d->ncolors<=16) {
 		de_dbg(c, "Using default EGA palette\n");
 		for(k=0; k<16; k++) {
 			d->pal[k] = ega16pal[k];
@@ -176,6 +190,11 @@ static void do_palette_stuff(deark *c, lctx *d)
 			return;
 		}
 		de_warn(c, "Expected VGA palette was not found\n");
+		// Use a grayscale palette as a last resort.
+		for(k=0; k<256; k++) {
+			d->pal[k] = DE_MAKE_GRAY((unsigned int)k);
+		}
+		return;
 	}
 
 	if(d->ncolors==4) {
