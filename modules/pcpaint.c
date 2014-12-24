@@ -17,7 +17,6 @@ typedef struct localctx_struct {
 	de_int64 edesc; // Equals either edesc_orig or edesc_palfile
 	de_int64 esize_orig;
 	de_int64 num_rle_blocks;
-	de_int64 max_unc_bytes;
 	dbuf *unc_pixels;
 
 	dbuf *palfile;
@@ -269,11 +268,6 @@ static int uncompress_block(deark *c, lctx *d,
 		pos++;
 		//de_dbg(c, "run of length %d (value 0x%02x)\n", (int)run_length, (int)x);
 		dbuf_write_run(d->unc_pixels, x, run_length);
-
-		if(d->unc_pixels->len > d->max_unc_bytes) {
-			de_err(c, "Too many uncompressed pixels\n");
-			return 0;
-		}
 	}
 
 	return 1;
@@ -296,10 +290,8 @@ static int uncompress_pixels(deark *c, lctx *d)
 		return 1;
 	}
 
-	// An emergency brake:
-	d->max_unc_bytes = d->img->width * d->img->height;
-
 	d->unc_pixels = dbuf_create_membuf(c, 16384);
+	dbuf_set_max_length(d->unc_pixels, d->img->width * d->img->height);
 
 	de_dbg(c, "pcpaint uncompress\n");
 	pos = d->header_size;
@@ -504,8 +496,7 @@ static void de_run_pcpaint_clp(deark *c, lctx *d, const char *params)
 	if(is_compressed) {
 		run_marker = de_getbyte(12);
 		d->unc_pixels = dbuf_create_membuf(c, 16384);
-
-		d->max_unc_bytes = d->img->width * d->img->height;
+		dbuf_set_max_length(d->unc_pixels, d->img->width * d->img->height);
 
 		if(!uncompress_block(c, d, d->header_size,
 			c->infile->len - d->header_size, run_marker))

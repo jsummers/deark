@@ -16,12 +16,13 @@ typedef struct localctx_struct {
 	int has_defaulttool;
 	int has_tooltypes;
 
-	// TODO: Move newicons and glowicons decoder state to separate structs?
+	// Newicons-specific data
 	de_byte pending_data;
 	int pending_data_bits_used;
 	int newicons_bits_per_pixel;
 	int newicons_line_count;
 
+	// Glowicons-specific data
 	de_int64 glowicons_width, glowicons_height;
 	de_uint32 *glowicons_palette;
 } lctx;

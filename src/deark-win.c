@@ -31,7 +31,6 @@ static char *de_utf16_to_utf8_strdup(deark *c, const WCHAR *src)
 
 	dstlen = ret;
 	dst = (char*)de_malloc(c, dstlen*sizeof(char));
-	if(!dst) return NULL;
 
 	ret = WideCharToMultiByte(CP_UTF8,0,src,-1,dst,dstlen,NULL,NULL);
 	if(ret<1) {
@@ -53,7 +52,6 @@ wchar_t *de_utf8_to_utf16_strdup(deark *c, const char *src)
 
 	dstlen = ret;
 	dst = (WCHAR*)de_malloc(c, dstlen*sizeof(WCHAR));
-	if(!dst) return NULL;
 
 	ret = MultiByteToWideChar(CP_UTF8,0,src,-1,dst,dstlen);
 	if(ret<1) {
