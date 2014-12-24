@@ -85,12 +85,12 @@ static struct deark_bitmap *do_create_image(deark *c, lctx *d, dbuf *unc_pixels,
 			switch(d->bits_per_pixel) {
 			case 2:
 				i_adj = (i-i%4) + (3-i%4);
-				b = de_get_bits_symbol(unc_pixels, (int)d->bits_per_pixel, j*src_rowspan, i_adj);
+				b = de_get_bits_symbol(unc_pixels, d->bits_per_pixel, j*src_rowspan, i_adj);
 				de_bitmap_setpixel_gray(img, i, j, b*85);
 				break;
 			case 4:
 				i_adj = (i-i%2) + (1-i%2);
-				b = de_get_bits_symbol(unc_pixels, (int)d->bits_per_pixel, j*src_rowspan, i_adj);
+				b = de_get_bits_symbol(unc_pixels, d->bits_per_pixel, j*src_rowspan, i_adj);
 				if(d->color_type)
 					de_bitmap_setpixel_rgb(img, i, j, pal16[(unsigned int)b]);
 				else
@@ -131,7 +131,6 @@ static struct deark_bitmap *do_create_image(deark *c, lctx *d, dbuf *unc_pixels,
 static void do_rle8(deark *c, lctx *d, dbuf *unc_pixels,
 	de_int64 pos1, de_int64 len)
 {
-	de_int64 i;
 	de_byte b0, b1;
 	de_int64 pos;
 	de_int64 count;
@@ -146,9 +145,7 @@ static void do_rle8(deark *c, lctx *d, dbuf *unc_pixels,
 			count = 1+(de_int64)b0;
 			b1 = de_getbyte(pos);
 			pos++;
-			for(i=0; i<count; i++) {
-				dbuf_write(unc_pixels, &b1, 1);
-			}
+			dbuf_write_run(unc_pixels, b1, count);
 		}
 		else {
 			// 256-b0 bytes of uncompressed data.

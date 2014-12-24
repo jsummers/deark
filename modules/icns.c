@@ -177,7 +177,6 @@ static void do_uncompress_24(deark *c, lctx *d, dbuf *unc_pixels,
 	de_int64 pos;
 	de_byte b;
 	de_int64 count;
-	de_int64 k;
 	de_byte n;
 
 	pos = d->image_pos;
@@ -193,18 +192,13 @@ static void do_uncompress_24(deark *c, lctx *d, dbuf *unc_pixels,
 			count = (de_int64)b - 125;
 			n = de_getbyte(pos);
 			pos++;
-			for(k=0; k<count; k++) {
-				dbuf_write(unc_pixels, &n, 1);
-			}
+			dbuf_write_run(unc_pixels, n, count);
 		}
 		else {
 			// An uncompressed run
 			count = 1 + (de_int64)b;
-			for(k=0; k<count; k++) {
-				n = de_getbyte(pos);
-				pos++;
-				dbuf_write(unc_pixels, &n, 1);
-			}
+			dbuf_copy(c->infile, pos, count, unc_pixels);
+			pos += count;
 		}
 	}
 }

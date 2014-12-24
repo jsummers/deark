@@ -120,7 +120,7 @@ static void do_image_data(deark *c, lctx *d, de_int64 img_num, de_int64 pos1, de
 
 			if(bi.bitcount<=8) {
 				p = fg_start + bi.rowspan*j;
-				x = de_get_bits_symbol(c->infile, (int)bi.bitcount, p, i);
+				x = de_get_bits_symbol(c->infile, bi.bitcount, p, i);
 				cr = DE_COLOR_R(pal[x]);
 				cg = DE_COLOR_G(pal[x]);
 				cb = DE_COLOR_B(pal[x]);

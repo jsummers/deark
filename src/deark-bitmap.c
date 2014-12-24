@@ -188,7 +188,7 @@ void de_bitmap_destroy(struct deark_bitmap *b)
 	}
 }
 
-de_byte de_get_bits_symbol(dbuf *f, int bps, de_int64 rowstart, de_int64 index)
+de_byte de_get_bits_symbol(dbuf *f, de_int64 bps, de_int64 rowstart, de_int64 index)
 {
 	de_int64 byte_offset;
 	de_byte b;

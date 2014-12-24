@@ -86,7 +86,6 @@ static int do_decompress(deark *c, lctx *d)
 	de_byte b;
 	de_byte lastbyte = 0x00;
 	de_byte countcode;
-	de_int64 k;
 
 	pos = 0;
 	while(pos < d->decoded->len) {
@@ -110,10 +109,8 @@ static int do_decompress(deark *c, lctx *d)
 		}
 
 		// RLE. We already emitted one byte (because the byte to repeat
-		// comes before the repeat count), so k starts at 1.
-		for(k=1; k<countcode; k++) {
-			dbuf_writebyte(d->decompressed, lastbyte);
-		}
+		// comes before the repeat count), so write countcode-1 bytes.
+		dbuf_write_run(d->decompressed, lastbyte, countcode-1);
 	}
 
 	de_dbg(c, "size after decompression: %d\n", (int)d->decompressed->len);

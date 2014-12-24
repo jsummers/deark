@@ -103,7 +103,7 @@ static void do_generate_final_image(deark *c, struct srcbitmap *srcbmp_main, str
 	for(j=0; j<srcbmp_main->bi.height; j++) {
 		for(i=0; i<srcbmp_main->bi.width; i++) {
 			if(srcbmp_main->bi.bitcount<=8) {
-				x = de_get_bits_symbol(c->infile, (int)srcbmp_main->bi.bitcount,
+				x = de_get_bits_symbol(c->infile, srcbmp_main->bi.bitcount,
 					srcbmp_main->bi.bitsoffset + srcbmp_main->bi.rowspan*j, i);
 				cr = DE_COLOR_R(srcbmp_main->pal[x]);
 				cg = DE_COLOR_G(srcbmp_main->pal[x]);
@@ -117,9 +117,9 @@ static void do_generate_final_image(deark *c, struct srcbitmap *srcbmp_main, str
 			}
 
 			// Get the mask bits
-			xorbit = de_get_bits_symbol(c->infile, (int)srcbmp_mask->bi.bitcount,
+			xorbit = de_get_bits_symbol(c->infile, srcbmp_mask->bi.bitcount,
 				srcbmp_mask->bi.bitsoffset + srcbmp_mask->bi.rowspan*j, i);
-			andbit = de_get_bits_symbol(c->infile, (int)srcbmp_mask->bi.bitcount,
+			andbit = de_get_bits_symbol(c->infile, srcbmp_mask->bi.bitcount,
  				srcbmp_mask->bi.bitsoffset + srcbmp_mask->bi.rowspan*(srcbmp_mask->bi.height/2+j), i);
 
 			if(!andbit && !xorbit) {

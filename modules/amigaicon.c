@@ -48,14 +48,14 @@ static void do_newicons_append_bit(deark *c, lctx *d, dbuf *f, de_byte b)
 	if(d->newicons_line_count==0) {
 		// We're still reading palette samples, which are always 8 bits.
 		if(d->pending_data_bits_used==8) {
-			dbuf_write(f, &d->pending_data, 1);
+			dbuf_writebyte(f, d->pending_data);
 			d->pending_data_bits_used=0;
 		}
 		return;
 	}
 
 	if(d->pending_data_bits_used >= d->newicons_bits_per_pixel) {
-		dbuf_write(f, &d->pending_data, 1);
+		dbuf_writebyte(f, d->pending_data);
 		d->pending_data_bits_used=0;
 	}
 }
@@ -348,7 +348,7 @@ static void glowdata_uncompress(dbuf *f, de_int64 pos, de_int64 len,
 			for(i=0; i<x; i++) {
 				b2 = de_get_bits_symbol2(f, bits_per_pixel, pos, bitpos);
 				bitpos += bits_per_pixel;
-				dbuf_write(outf, &b2, 1);
+				dbuf_writebyte(outf, b2);
 			}
 		}
 		else if(b>=129) {
@@ -357,7 +357,7 @@ static void glowdata_uncompress(dbuf *f, de_int64 pos, de_int64 len,
 			b2 = de_get_bits_symbol2(f, bits_per_pixel, pos, bitpos);
 			bitpos += bits_per_pixel;
 			for(i=0; i<x; i++) {
-				dbuf_write(outf, &b2, 1);
+				dbuf_writebyte(outf, b2);
 			}
 		}
 	}

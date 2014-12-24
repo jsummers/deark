@@ -276,7 +276,8 @@ dbuf *dbuf_create_membuf(deark *c, de_int64 initialsize);
 void dbuf_close(dbuf *f);
 
 void dbuf_write(dbuf *f, const de_byte *m, de_int64 len);
-void dbuf_writezeroes(dbuf *f, de_int64 len);
+void dbuf_write_zeroes(dbuf *f, de_int64 len);
+void dbuf_write_run(dbuf *f, de_byte n, de_int64 len);
 
 void de_writeui16le_direct(de_byte *m, de_int64 n);
 void de_writeui32le_direct(de_byte *m, de_int64 n);
@@ -353,7 +354,7 @@ void de_bitmap_destroy(struct deark_bitmap *b);
 
 // Return the index'th symbol in the bitmap row beginning at file position rowstart.
 // A symbol has bps bits. bps must be 1, 2, 4, or 8.
-de_byte de_get_bits_symbol(dbuf *f, int bps, de_int64 rowstart, de_int64 index);
+de_byte de_get_bits_symbol(dbuf *f, de_int64 bps, de_int64 rowstart, de_int64 index);
 
 de_byte de_get_bits_symbol2(dbuf *f, int nbits, de_int64 bytepos, de_int64 bitpos);
 

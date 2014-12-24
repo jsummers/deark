@@ -441,13 +441,27 @@ void dbuf_writebyte(dbuf *f, de_byte n)
 	dbuf_write(f, &n, 1);
 }
 
-void dbuf_writezeroes(dbuf *f, de_int64 len)
+void dbuf_write_run(dbuf *f, de_byte n, de_int64 len)
 {
-	de_byte *m;
-	// TODO: This could be more efficient.
-	m = de_malloc(f->c, len);
-	dbuf_write(f, m, len);
-	de_free(f->c, m);
+	de_byte buf[1024];
+	de_int64 amt_left;
+	de_int64 amt_to_write;
+
+	de_memset(buf, n, len<sizeof(buf) ? len : sizeof(buf));
+	amt_left = len;
+	while(amt_left > 0) {
+		if(amt_left<sizeof(buf))
+			amt_to_write = amt_left;
+		else
+			amt_to_write = sizeof(buf);
+		dbuf_write(f, buf, amt_to_write);
+		amt_left -= amt_to_write;
+	}
+}
+
+void dbuf_write_zeroes(dbuf *f, de_int64 len)
+{
+	dbuf_write_run(f, 0, len);
 }
 
 void de_writeui16le_direct(de_byte *m, de_int64 n)

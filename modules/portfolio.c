@@ -182,7 +182,6 @@ static void de_run_pgc(deark *c, const char *params)
 {
 	dbuf *unc_pixels = NULL;
 	de_int64 pos;
-	de_int64 k;
 	de_int64 count;
 	de_byte b, b2;
 
@@ -199,9 +198,7 @@ static void de_run_pgc(deark *c, const char *params)
 			// compressed run
 			b2 = de_getbyte(pos);
 			pos++;
-			for(k=0; k<count; k++) {
-				dbuf_writebyte(unc_pixels, b2);
-			}
+			dbuf_write_run(unc_pixels, b2, count);
 		}
 		else {
 			// uncompressed run

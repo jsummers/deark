@@ -245,7 +245,6 @@ static int do_uncompress(deark *c, lctx *d)
 	de_int64 pos;
 	de_byte b, b2;
 	de_int64 count;
-	de_int64 k;
 	de_int64 expected_bytes;
 	de_int64 endpos;
 
@@ -273,10 +272,7 @@ static int do_uncompress(deark *c, lctx *d)
 		if(b>=0xc0) {
 			count = (de_int64)(b&0x3f);
 			b2 = de_getbyte(pos++);
-
-			for(k=0; k<count; k++) {
-				dbuf_writebyte(d->unc_pixels, b2);
-			}
+			dbuf_write_run(d->unc_pixels, b2, count);
 		}
 		else {
 			dbuf_writebyte(d->unc_pixels, b);
@@ -315,7 +311,7 @@ static void do_bitmap_paletted(deark *c, lctx *d)
 		for(i=0; i<d->width; i++) {
 			palent = 0;
 			for(plane=0; plane<d->planes; plane++) {
-				b = de_get_bits_symbol(d->unc_pixels, (int)d->bits,
+				b = de_get_bits_symbol(d->unc_pixels, d->bits,
 					j*d->rowspan + plane*d->rowspan_raw, i);
 				palent |= b<<(plane*d->bits);
 			}

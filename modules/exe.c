@@ -305,7 +305,7 @@ static void de_DIB_to_BMP(deark *c, dbuf *inf, de_int64 pos, de_int64 len, dbuf 
 	// Manufacture a BITMAPFILEHEADER.
 	dbuf_write(outf, (const de_byte*)"BM", 2);
 	dbuf_writeui32le(outf, 14+bi.total_size); // File size
-	dbuf_writezeroes(outf, 4);
+	dbuf_write_zeroes(outf, 4);
 	dbuf_writeui32le(outf, 14+bi.size_of_headers_and_pal); // "Bits offset"
 
 	dbuf_copy(inf, pos, bi.total_size, outf); // Copy the rest of the data.
@@ -372,7 +372,7 @@ static void do_extract_ico_cur(deark *c, lctx *d, de_int64 pos, de_int64 len,
 		dbuf_writeui16le(f, hotspot_y);
 	}
 	else {
-		dbuf_writezeroes(f, 5);
+		dbuf_write_zeroes(f, 5);
 	}
 	dbuf_writeui32le(f, len); // Icon/cursor size
 	dbuf_writeui32le(f, 6+16); // Icon/cursor file offset

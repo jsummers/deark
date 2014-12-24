@@ -30,7 +30,6 @@ static void do_decompress_scanline(deark *c, lctx *d, de_int64 rownum,
    de_int64 rowoffset, de_int64 bytes_in_row)
 {
 	de_int64 i;
-	int k;
 	de_byte runtype;
 	int runcount;
 	de_byte value;
@@ -55,9 +54,7 @@ static void do_decompress_scanline(deark *c, lctx *d, de_int64 rownum,
 			i++;
 			// write value runcount times
 			de_dbg2(c, "compressed, %d bytes of %d\n", runcount, value);
-			for(k=0; k<runcount; k++) {
-				dbuf_write(d->rowbuf, &value, 1);
-			}
+			dbuf_write_run(d->rowbuf, value, runcount);
 		}
 		else {
 			runcount = (int)runtype;

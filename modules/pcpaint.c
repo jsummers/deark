@@ -239,7 +239,6 @@ static int uncompress_block(deark *c, lctx *d,
 	de_int64 end_of_this_block;
 	de_byte x;
 	de_int64 run_length;
-	de_int64 k;
 
 	end_of_this_block = pos + packed_data_size;
 
@@ -248,7 +247,7 @@ static int uncompress_block(deark *c, lctx *d,
 		pos++;
 		if(x!=run_marker) {
 			// An uncompressed part of the image
-			dbuf_write(d->unc_pixels, &x, 1);
+			dbuf_writebyte(d->unc_pixels, x);
 			continue;
 		}
 
@@ -269,9 +268,7 @@ static int uncompress_block(deark *c, lctx *d,
 		x = de_getbyte(pos);
 		pos++;
 		//de_dbg(c, "run of length %d (value 0x%02x)\n", (int)run_length, (int)x);
-		for(k=0; k<run_length; k++) {
-			dbuf_write(d->unc_pixels, &x, 1);
-		}
+		dbuf_write_run(d->unc_pixels, x, run_length);
 
 		if(d->unc_pixels->len > d->max_unc_bytes) {
 			de_err(c, "Too many uncompressed pixels\n");
