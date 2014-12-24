@@ -3,7 +3,7 @@ Deark -- Information about supported formats
 
 === Image format modules ===
 
-(Images will be converted to PNG, except as noted.)
+(Images that are not "extracted" will be converted to PNG.)
 
 * Amiga Workbench Icon (module="amigaicon")
   - Original format: Mostly supported, but the format is not portable, and
@@ -11,6 +11,9 @@ Deark -- Information about supported formats
   - NewIcons: Fully supported.
   - GlowIcons / OS3.5: Compressed images are supported. Uncompressed images are
     not.
+
+* ANI (Windows Animated Cursor) (module="ani")
+  - Extract individual CUR and ICO files.
 
 * Apple volume label image (module="applevol")
 
@@ -46,6 +49,10 @@ Deark -- Information about supported formats
 * Cardfile (module="cardfile")
   - Partial support. MGC format only.
 
+* DCX (module="dcx")
+  Multi-image PCX format.
+  - Extracts individual PCX files.
+
 * EPOC MBM/Sketch/AIF (module="epocimage")
   - Supports grayscale with 2 or 4 bits/pixel
   - Supports palette color with 4 or 8 bits/pixel
@@ -53,7 +60,11 @@ Deark -- Information about supported formats
   - Supports uncompressed and RLE8/RLE16/RLE24 compression
 
 * EPS (Encapsulated PostScript) (module="eps")
-  - Extract preview image from EPSI format (1-, 2-, 4-, 8-bit grayscale)
+  - Extract EPS, TIFF, and WMF from "EPS DOS Binary" format.
+  - Supports preview images in EPSI format (1-, 2-, 4-, 8-bit grayscale)
+
+* GRASP GL animation (module="graspgl")
+  - Extracts all files.
 
 * GROB (HP calculator) (module="grob")
   - Supports binary and text encodings.
@@ -66,20 +77,44 @@ Deark -- Information about supported formats
 * icns (Apple Icon) (module="icns") (experimental)
   - Supports uncompressed 1-, 4-, and 8-bit images (with 1-bit mask).
   - Supports RLE-compressed 24-bit images (with 8-bit mask).
+  - Extract embedded JP2 and PNG files.
 
 * ICO/CUR (Windows icon/cursor) (module="ico")
   - Supports most but not all formats.
   - PNG-formatted icons will be extracted as-is, not decoded.
 
+* JPEG (module="jpeg")
+  - Extract ICC profiles.
+  - Extract Exif JPEG-formatted thumbnails.
+  - Extract JFXX JPEG-formatted thumbnails (rare).
+  - Extract various things from Exif data.
+  - Extract various things from "Photoshop resources"
+  - Extract Exif data (use -extractall)
+
+* JPEG 2000 (module="jpeg2000")
+  - Extract JPEG 2000 codestream from JP2/JPX/JPM formats.
+  - Extract XML data.
+  - Extract GeoTIFF data.
+  - Extract XMP data.
+  - Extract Exif data (use -extractall) (nonstandard; partial support)
+  - Extract various things from "Photoshop resources".
+
 * LSS16 (SYSLINUX image) (module="lss16")
 
 * MacPaint (module="macpaint")
-  - Also extracts brush patterns (use -extractall)
+  - Can also decode brush patterns (use -extractall)
   Options
    -opt macpaint:macbinary=<0|1>
 
+* MRW (Minolta RAW) (module="mrw")
+  - Extract Exif data (use -extractall)
+
 * MSP (Microsoft Paint graphics) (module="msp")
   - Version 1 and 2
+
+* New Print Shop .POG format (module="newprintshop") (experimental)
+  Options
+   -opt namefile=<file.pnm> - Use this "name" file
 
 * NGG (Nokia Group Graphic) (module="ngg")
   - Partial support
@@ -96,8 +131,11 @@ Deark -- Information about supported formats
 * NSL (Nokia Startup Logo) (module="nsl")
   - Partial support
 
-* OS/2 Icon and Pointer (module="os2bmp")
+* OS/2 Icon, Pointer, Bitmap Array formats (module="os2bmp")
   - Converts icons & pointers to individual PNG files.
+  - BMP image files are extracted.
+  - Icon, pointer, and BMP image files are extracted from Bitmap Array files.
+    Reprocess icon and pointer files to convert to PNG.
 
 * PC Paint / Pictor (module="pcpaint")
   - Supports PIC and CLP formats. Some files are not portable, because they use
@@ -115,6 +153,9 @@ Deark -- Information about supported formats
 
 * PGF (Portfolio graphics) (module="pfpgf")
 
+* PGX (Portfolio graphics animation) (module="pgx")
+  - Extract embedded PGC images.
+
 * PrintMaster .SHP format (module="printmaster") (experimental)
   Options
    -opt namefile=<file.sdr> - Use this "name" file
@@ -123,6 +164,16 @@ Deark -- Information about supported formats
   - Not all files can be autodetected. You may need "-m printshop".
   Options
    -opt namefile=<file.nam> - Use this "name" file
+
+* PSD (PhotoShop) (module="psd")
+  - Extract data from "Photoshop resources"
+
+  * Photoshop resources
+    - Extract JPEG thumbnails. Some thumbnail images have the red and blue
+      channels swapped -- Deark warns about this but does not correct it.
+    - Extract various things from Exif data.
+    - Extract Exif data (use -extractall).
+    - Extract IPTC data (use -extractall).
 
 * Psion PIC (module="psionpic")
   A Psion PIC file contains one or more 1-bpp bitmaps, some of which can be
@@ -134,6 +185,8 @@ Deark -- Information about supported formats
      as a separate image.
 
 * QTIF (QuickTime image) (module="qtif")
+  - Partial support.
+  - Extract embedded JPEG file.
   - Decode some "raw" (uncompressed) images.
 
 * RIPscrip icon (.ICN) (module="ripicon") (experimental)
@@ -144,10 +197,20 @@ Deark -- Information about supported formats
   - TI85/TI86 pictures
   - TI89/TI92/TI92+ pictures
 
+* TIFF and Exif (module="tiff")
+  - Extract JPEG-formatted Exif thumbnails, and some types of Old-style
+    JPEG-compressed images.
+  - Extract ICC profiles.
+  - Extract data from "Photoshop resources".
+  - Extract IPTC data (use -extractall).
+
 * VBM (VDC BitMap) (module="vbm")
   - Version 2 only
 
 * Vivid ray tracer bitmap (module="vivid")
+
+* Winzle (module=winzle)
+  - Convert Winzle obfuscated BMP (.wzl) to BMP.
 
 * X11 puzzle (module="xpuzzle")
   Format used by X-Windows "puzzle" program.
@@ -173,21 +236,11 @@ Deark -- Information about supported formats
   - Detokenize C64 BASIC programs
 
 
-=== File extraction modules ===
-
-* ANI (Windows Animated Cursor) (module="ani")
-  - Extract individual CUR and ICO files.
+=== Other modules ===
 
 * Copy (module="copy")
   - "Extract" the entire file. Use with -start and -size to extract part of
     the file.
-
-* DCX (module="dcx")
-  Multi-image PCX format.
-  - Extracts individual PCX files.
-
-* EPS (Encapsulated PostScript) (module="eps")
-  - Extract EPS, TIFF, and WMF from "EPS DOS Binary" format.
 
 * EXE/PE/NE/etc. (module="exe")
   - Extract bitmaps, icons, and cursors from NE and PE (Windows .exe) files.
@@ -202,77 +255,16 @@ Deark -- Information about supported formats
 * FNT (Windows font) (module="fnt")
   - Render the glyphs to a PNG image.
 
-* GRASP GL animation (module="graspgl")
-  - Extracts all files.
-
-* icns (Apple Icon) (module="icns") (experimental)
-  - Extract embedded JP2 and PNG files.
-
-* JPEG (module="jpeg")
-  - Extract ICC profiles.
-  - Extract Exif JPEG-formatted thumbnails.
-  - Extract JFXX JPEG-formatted thumbnails (rare).
-  - Extract various things from Exif data.
-  - Extract various things from "Photoshop resources"
-  - Extract Exif data (use -extractall)
-
 * JPEG scan (module="jpegscan")
   - This module tries to find and extract embedded JPEG and JPEG-LS files from
     otherwise-unsupported formats. Use "-m jpegscan".
-
-* JPEG 2000 (module="jpeg2000")
-  - Extract JPEG 2000 codestream from JP2/JPX/JPM formats.
-  - Extract XML data.
-  - Extract GeoTIFF data.
-  - Extract XMP data.
-  - Extract Exif data (use -extractall) (nonstandard; partial support)
-  - Extract various things from "Photoshop resources".
-
-* MRW (Minolta RAW) (module="mrw")
-  - Extract Exif data (use -extractall)
-
-* New Print Shop .POG format (module="newprintshop") (experimental)
-  Options
-   -opt namefile=<file.pnm> - Use this "name" file
-
-* OS/2 Bitmap Array format (module="os2bmp")
-  - BMP image files are extracted.
-  - Icon and pointer image files are extracted. Reprocess them to convert to
-    PNG.
-
-* PGX (Portfolio graphics animation) (module="pgx")
-  - Extract embedded PGC images.
-
-* PSD (PhotoShop) (module="psd")
-  - Extract data from "Photoshop resources"
-
-  * Photoshop resources
-    - Extract JPEG thumbnails. Some thumbnail images have the red and blue
-      channels swapped -- Deark warns about this but does not correct it.
-    - Extract various things from Exif data.
-    - Extract Exif data (use -extractall).
-    - Extract IPTC data (use -extractall).
 
 * Psion APP/IMG and OPA/OPO (module="psionapp")
   - Extract Psion PIC icons.
   - Extract other contents (use -extractall).
 
-* QTIF (QuickTime image) (module="qtif")
-  - Partial support.
-  - Extract embedded JPEG file.
-
 * RPM (package manager) (module="rpm)
   - Extract compressed cpio file.
-
-* TIFF and Exif (module="tiff")
-  - Extract JPEG-formatted Exif thumbnails, and some types of Old-style
-    JPEG-compressed images.
-  - Extract ICC profiles.
-  - Extract data from "Photoshop resources".
-  - Extract IPTC data (use -extractall).
-
-* Winzle (module=winzle)
-  - Convert Winzle obfuscated BMP (.wzl) to BMP.
 
 * ZIP (module="zip")
   - Does not extract files, only comments.
