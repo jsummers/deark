@@ -27,6 +27,9 @@ Deark -- Information about supported formats
 
 * Bob ray tracer bitmap (module="bob")
 
+* BPG (module="bpg") (experimental)
+  - Extract Exif, XMP, ICC Profiles, thumbnails
+
 * BSAVE (module="bsave")
   Support (some) PC-style BSAVE files.
   Options

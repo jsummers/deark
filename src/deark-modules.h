@@ -67,3 +67,4 @@ void de_module_pfpgf(deark *c, struct deark_module_info *mi);
 void de_module_pgc(deark *c, struct deark_module_info *mi);
 void de_module_binhex(deark *c, struct deark_module_info *mi);
 void de_module_pcx(deark *c, struct deark_module_info *mi);
+void de_module_bpg(deark *c, struct deark_module_info *mi);

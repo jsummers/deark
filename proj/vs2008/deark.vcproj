@@ -430,6 +430,10 @@
 				>
 			</File>
 			<File
+				RelativePath="..\..\modules\bpg.c"
+				>
+			</File>
+			<File
 				RelativePath="..\..\modules\bsave.c"
 				>
 			</File>
