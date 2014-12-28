@@ -68,6 +68,7 @@ void de_register_modules(deark *c)
 		de_module_zip,
 		de_module_xpuzzle,
 		de_module_grob,
+		de_module_shg,
 		de_module_vivid,
 		de_module_atari_cas,
 		de_module_vbm,

@@ -546,6 +546,10 @@
 				>
 			</File>
 			<File
+				RelativePath="..\..\modules\shg.c"
+				>
+			</File>
+			<File
 				RelativePath="..\..\modules\t64.c"
 				>
 			</File>
