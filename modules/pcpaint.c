@@ -25,6 +25,47 @@ typedef struct localctx_struct {
 	de_int64 esize_palfile;
 } lctx;
 
+static void set_density(deark *c, lctx *d)
+{
+	switch(d->video_mode) {
+	case 'A': // 320x200
+	case 'B':
+	case 'I':
+	case 'J':
+	case 'L':
+		d->img->density_code = DE_DENSITY_UNK_UNITS;
+		d->img->xdens = 240.0;
+		d->img->ydens = 200.0;
+		break;
+	case 'H': // 720x348 (Hercules)
+	case 'N':
+		d->img->density_code = DE_DENSITY_UNK_UNITS;
+		// Various sources suggest aspect ratios of 1.46, 1.55, 1.59, ...
+		d->img->xdens = 155.0;
+		d->img->ydens = 100.0;
+		break;
+	case 'E': // 640x350
+	case 'F':
+	case 'G':
+		d->img->density_code = DE_DENSITY_UNK_UNITS;
+		d->img->xdens = 480.0;
+		d->img->ydens = 350.0;
+		break;
+	case 'K':
+	case 'R':
+		d->img->density_code = DE_DENSITY_UNK_UNITS;
+		d->img->xdens = 480.0;
+		d->img->ydens = 400.0;
+		break;
+	case 'C':
+	case 'D':
+		d->img->density_code = DE_DENSITY_UNK_UNITS;
+		d->img->xdens = 480.0;
+		d->img->ydens = 200.0;
+		break;
+	}
+}
+
 static int decode_egavga16(deark *c, lctx *d)
 {
 	de_byte tmpbuf[768];
@@ -389,6 +430,8 @@ static void de_run_pcpaint_pic(deark *c, lctx *d, const char *params)
 	de_dbg(c, "video_mode: 0x%02x\n",(int)d->video_mode);
 	de_dbg(c, "edesc: %d\n",(int)d->edesc_orig);
 	de_dbg(c, "esize: %d\n",(int)d->esize_orig);
+
+	set_density(c, d);
 
 	// extra data may be at position 17 (if esize>0)
 

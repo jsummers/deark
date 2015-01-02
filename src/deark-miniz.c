@@ -128,8 +128,16 @@ int de_write_png(deark *c, struct deark_bitmap *img, dbuf *f)
 		}
 		else if(img->density_code==2) { // dpi
 			phys_units = 1; // pixels/meter
-			xdens = (mz_uint32)(img->xdens/0.0254);
-			ydens = (mz_uint32)(img->ydens/0.0254);
+			xdens = (mz_uint32)(0.5+img->xdens/0.0254);
+			ydens = (mz_uint32)(0.5+img->ydens/0.0254);
+		}
+	}
+
+	// Detect likely-bogus density settings.
+	// Note: Density is considered to be valid if xdens>0.
+	if(xdens>0) {
+		if(xdens > ydens*5 || ydens > xdens*5) {
+			xdens=0;
 		}
 	}
 
