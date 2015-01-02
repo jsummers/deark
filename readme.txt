@@ -46,6 +46,9 @@ Command-line options:
      Extract only the file identifed by <n>. The first file is 0.
   -nobom
      Do not write a BOM to UTF-8 output files.
+  -nodens
+     Do not try to record the original aspect ratio and pixel density in output
+     image files.
   -opt <module:option>=<value>
      Module-specific options. See formats.txt.
   -version

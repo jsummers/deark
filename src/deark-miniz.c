@@ -120,7 +120,7 @@ int de_write_png(deark *c, struct deark_bitmap *img, dbuf *f)
 		return 0;
 	}
 
-	if(img->density_code>0) {
+	if(img->density_code>0 && c->write_density) {
 		if(img->density_code==1) { // unspecified units
 			phys_units = 0;
 			xdens = (mz_uint32)(img->xdens+0.5);
