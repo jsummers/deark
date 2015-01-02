@@ -43,6 +43,9 @@ static void do_image(deark *c, lctx *d)
 	de_uint32 clr;
 
 	img = de_bitmap_create(c, d->width, d->height, 3);
+	img->density_code = DE_DENSITY_DPI;
+	img->xdens = 90.0;
+	img->ydens = 45.0;
 
 	for(j=0; j<d->height; j++) {
 		for(i=0; i<d->width; i++) {

@@ -85,6 +85,14 @@ struct deark_bitmap {
 	de_int64 bitmap_size; // bytes allocated for bitmap
 	int orig_colortype; // Optional; can be used by modules
 	int orig_bitdepth; // Optional; can be used by modules
+
+#define DE_DENSITY_UNKNOWN   0
+#define DE_DENSITY_UNK_UNITS 1
+#define DE_DENSITY_DPI       2
+	int density_code;
+	// Note: If units are unknown, xdens and ydens must be integers.
+	double xdens;
+	double ydens;
 };
 
 struct deark_ext_option {
@@ -281,6 +289,7 @@ void dbuf_write_run(dbuf *f, de_byte n, de_int64 len);
 
 void de_writeui16le_direct(de_byte *m, de_int64 n);
 void de_writeui32le_direct(de_byte *m, de_int64 n);
+void de_writeui32be_direct(de_byte *m, de_int64 n);
 void dbuf_writebyte(dbuf *f, de_byte n);
 void dbuf_writeui16le(dbuf *f, de_int64 n);
 void dbuf_writeui32le(dbuf *f, de_int64 n);

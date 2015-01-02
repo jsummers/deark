@@ -477,6 +477,14 @@ void dbuf_writeui16le(dbuf *f, de_int64 n)
 	dbuf_write(f, buf, 2);
 }
 
+void de_writeui32be_direct(de_byte *m, de_int64 n)
+{
+	m[0] = (de_byte)((n & 0xff000000)>>24);
+	m[1] = (de_byte)((n & 0x00ff0000)>>16);
+	m[2] = (de_byte)((n & 0x0000ff00)>>8);
+	m[3] = (de_byte)(n & 0x000000ff);
+}
+
 void de_writeui32le_direct(de_byte *m, de_int64 n)
 {
 	m[0] = (de_byte)(n & 0x000000ff);
