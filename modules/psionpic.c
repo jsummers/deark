@@ -59,10 +59,8 @@ static void do_bitmap_2planes(deark *c, lctx *d, de_int64 pn1, de_int64 pn2)
 
 	for(j=0; j<d->plane_info[pn1].height; j++) {
 		for(i=0; i<d->plane_info[pn1].width; i++) {
-			n0 = de_getbyte(d->plane_info[pn1].image_pos + j*d->plane_info[pn1].rowspan + i/8);
-			n0 = (n0>>(i%8))&0x1;
-			n1 = de_getbyte(d->plane_info[pn2].image_pos + j*d->plane_info[pn2].rowspan + i/8);
-			n1 = (n1>>(i%8))&0x1;
+			n0 = de_get_bits_symbol_lsb(c->infile, 1, d->plane_info[pn1].image_pos + j*d->plane_info[pn1].rowspan, i);
+			n1 = de_get_bits_symbol_lsb(c->infile, 1, d->plane_info[pn2].image_pos + j*d->plane_info[pn2].rowspan, i);
 			de_bitmap_setpixel_gray(img, i, j, (3-(n0*2+n1))*85);
 		}
 	}

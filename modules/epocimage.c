@@ -4,6 +4,8 @@
 #include <deark-config.h>
 #include <deark-modules.h>
 
+// EPOC MBM, EPOC Sketch, EPOC AIF
+
 static const de_uint32 pal256[256] = {
 	0x000000,0x330000,0x660000,0x990000,0xcc0000,0xff0000,0x003300,0x333300,
 	0x663300,0x993300,0xcc3300,0xff3300,0x006600,0x336600,0x666600,0x996600,
@@ -58,7 +60,6 @@ static struct deark_bitmap *do_create_image(deark *c, lctx *d, dbuf *unc_pixels,
 	de_int64 i, j;
 	de_int64 src_rowspan;
 	de_byte b;
-	de_int64 i_adj;
 	de_byte cr;
 	de_uint32 n;
 	de_uint32 clr;
@@ -79,18 +80,13 @@ static struct deark_bitmap *do_create_image(deark *c, lctx *d, dbuf *unc_pixels,
 
 	for(j=0; j<d->height; j++) {
 		for(i=0; i<d->width; i++) {
-			// Pixels within a byte are apparently packed in "little bit endian" order:
-			// the leftmost pixel uses the least significant bits, etc.
-			// This is unusual, and de_get_bits_symbol() doesn't handle it.
 			switch(d->bits_per_pixel) {
 			case 2:
-				i_adj = (i-i%4) + (3-i%4);
-				b = de_get_bits_symbol(unc_pixels, d->bits_per_pixel, j*src_rowspan, i_adj);
+				b = de_get_bits_symbol_lsb(unc_pixels, d->bits_per_pixel, j*src_rowspan, i);
 				de_bitmap_setpixel_gray(img, i, j, b*85);
 				break;
 			case 4:
-				i_adj = (i-i%2) + (1-i%2);
-				b = de_get_bits_symbol(unc_pixels, d->bits_per_pixel, j*src_rowspan, i_adj);
+				b = de_get_bits_symbol_lsb(unc_pixels, d->bits_per_pixel, j*src_rowspan, i);
 				if(d->color_type)
 					de_bitmap_setpixel_rgb(img, i, j, pal16[(unsigned int)b]);
 				else
