@@ -6,6 +6,20 @@
 
 // Acorn Sprite / RISC OS Sprite
 
+struct old_mode_info {
+	de_uint32 mode;
+	int fgbpp;
+	int maskbpp;
+	int xdpi;
+	int ydpi;
+};
+static const struct old_mode_info old_mode_info_arr[] = {
+	{15, 8, 1, 90, 45},
+	{20, 4, 1, 90, 90},
+	{32, 8, 1, 90, 90},
+	{1000, 0, 0, 0, 0}
+};
+
 typedef struct localctx_struct {
 	de_int64 num_images;
 
@@ -19,8 +33,20 @@ typedef struct localctx_struct {
 	de_uint32 img_type;
 	de_int64 fgbpp;
 	de_int64 maskbpp;
+	de_int64 xdpi, ydpi;
 	int has_mask;
 } lctx;
+
+static const de_uint32 pal16[16] = {
+	0xffffff,0xdddddd,0xbbbbbb,0x999999,0x777777,0x555555,0x333333,0x000000,
+	0x4499ff,0xeeee00,0x00cc00,0xdd0000,0xeeeebb,0x558800,0xffbb00,0x00bbff
+};
+
+static de_uint32 getpal16(int k)
+{
+	if(k<0 || k>15) return 0;
+	return pal16[k];
+}
 
 static de_uint32 getpal256(int k)
 {
@@ -44,13 +70,23 @@ static void do_image(deark *c, lctx *d)
 
 	img = de_bitmap_create(c, d->width, d->height, 3);
 	img->density_code = DE_DENSITY_DPI;
-	img->xdens = 90.0;
-	img->ydens = 45.0;
+	img->xdens = (double)d->xdpi;
+	img->ydens = (double)d->ydpi;
 
 	for(j=0; j<d->height; j++) {
 		for(i=0; i<d->width; i++) {
-			n = de_getbyte(d->image_offset + 4*d->width_in_words*j + i);
-			clr = getpal256((int)n);
+			n = de_get_bits_symbol_lsb(c->infile, d->fgbpp, d->image_offset + 4*d->width_in_words*j, i);
+
+			if(d->fgbpp==8) {
+				clr = getpal256((int)n);
+			}
+			else if(d->fgbpp==4) {
+				clr = getpal16((int)n);
+			}
+			else {
+				clr = 0;
+			}
+
 			de_bitmap_setpixel_rgb(img, i, j, clr);
 		}
 	}
@@ -78,10 +114,12 @@ static void do_sprite(deark *c, lctx *d, de_int64 index,
 	de_dbg(c, "image offset: %d, mask_offset: %d\n", (int)d->image_offset, (int)d->mask_offset);
 	de_dbg(c, "mode: 0x%08x\n", (unsigned int)d->mode);
 	d->img_type = (d->mode&0xf8000000U)>>27;
-	de_dbg(c, "image type: %d\n", (int)d->img_type);
+	de_dbg(c, "image type: %d%s\n", (int)d->img_type, d->img_type==0?" (old format)":"");
 
 	d->fgbpp=0;
 	d->maskbpp=0;
+	d->xdpi = 0;
+	d->ydpi = 0;
 
 	if(d->has_mask) {
 		de_err(c, "Transparency not supported\n");
@@ -90,13 +128,19 @@ static void do_sprite(deark *c, lctx *d, de_int64 index,
 
 	if(d->img_type==0) {
 		// "old mode"
+		int x;
 
-		if(d->mode==15) {
-			d->fgbpp=8;
-			d->maskbpp=1;
-			d->width = d->width_in_words * 4;
+		for(x=0; old_mode_info_arr[x].mode<1000; x++) {
+			if(d->mode == old_mode_info_arr[x].mode) {
+				d->fgbpp = (de_int64)old_mode_info_arr[x].fgbpp;
+				d->maskbpp = (de_int64)old_mode_info_arr[x].maskbpp;
+				d->xdpi = (de_int64)old_mode_info_arr[x].xdpi;
+				d->ydpi = (de_int64)old_mode_info_arr[x].ydpi;
+				break;
+			}
 		}
-		else {
+
+		if(d->fgbpp==0) {
 			de_err(c, "Mode %d not supported\n", (int)d->mode);
 			goto done;
 		}
@@ -105,6 +149,13 @@ static void do_sprite(deark *c, lctx *d, de_int64 index,
 		de_err(c, "New format not supported\n");
 		goto done;
 	}
+
+	// Temp hack. TODO: Use first_bit, last_bit.
+	d->width = (d->width_in_words * 4 * 8) / d->fgbpp;
+
+	de_dbg(c, "foreground bits/pixel: %d\n", (int)d->fgbpp);
+	if(d->has_mask) de_dbg(c, "mask bits/pixel: %d\n", (int)d->maskbpp);
+	de_dbg(c, "calculated width: %d\n", (int)d->width);
 
 	do_image(c, d);
 done:

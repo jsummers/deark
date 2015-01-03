@@ -366,6 +366,8 @@ void de_bitmap_destroy(struct deark_bitmap *b);
 // A symbol has bps bits. bps must be 1, 2, 4, or 8.
 de_byte de_get_bits_symbol(dbuf *f, de_int64 bps, de_int64 rowstart, de_int64 index);
 
+de_byte de_get_bits_symbol_lsb(dbuf *f, de_int64 bps, de_int64 rowstart, de_int64 index);
+
 de_byte de_get_bits_symbol2(dbuf *f, int nbits, de_int64 bytepos, de_int64 bitpos);
 
 // Conversion flags used by some functions.

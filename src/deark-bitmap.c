@@ -217,6 +217,36 @@ de_byte de_get_bits_symbol(dbuf *f, de_int64 bps, de_int64 rowstart, de_int64 in
 	return x;
 }
 
+// Like de_get_bits_symbol, but with LSB-first bit order
+de_byte de_get_bits_symbol_lsb(dbuf *f, de_int64 bps, de_int64 rowstart, de_int64 index)
+{
+	de_int64 byte_offset;
+	de_byte b;
+	de_byte x = 0;
+
+	switch(bps) {
+	case 1:
+		byte_offset = rowstart + index/8;
+		b = dbuf_getbyte(f, byte_offset);
+		x = (b >> (index%8)) & 0x01;
+		break;
+	case 2:
+		byte_offset = rowstart + index/4;
+		b = dbuf_getbyte(f, byte_offset);
+		x = (b >> (2 * (index%4))) & 0x03;
+		break;
+	case 4:
+		byte_offset = rowstart + index/2;
+		b = dbuf_getbyte(f, byte_offset);
+		x = (b >> (4 * (index%2))) & 0x0f;
+		break;
+	case 8:
+		byte_offset = rowstart + index;
+		x = dbuf_getbyte(f, byte_offset);
+	}
+	return x;
+}
+
 // Read a symbol (up to 8 bits) that starts at an arbitrary bit position.
 // It may span (two) bytes.
 de_byte de_get_bits_symbol2(dbuf *f, int nbits, de_int64 bytepos, de_int64 bitpos)
