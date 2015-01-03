@@ -40,7 +40,6 @@ typedef struct localctx_struct {
 	de_int64 mask_offset;
 
 	de_uint32 mode;
-	de_uint32 img_type;
 	de_int64 fgbpp;
 	de_int64 xdpi, ydpi;
 	de_int64 pixels_to_ignore_at_start_of_row;
@@ -101,15 +100,20 @@ static void do_image(deark *c, lctx *d)
 
 	for(j=0; j<d->height; j++) {
 		for(i=0; i<d->width; i++) {
-			n = de_get_bits_symbol_lsb(c->infile, d->fgbpp, d->image_offset + 4*d->width_in_words*j,
-				i+d->pixels_to_ignore_at_start_of_row);
-			clr = d->palette[(int)n];
-
-			if(d->has_mask) {
-				n = de_get_bits_symbol_lsb(c->infile, d->fgbpp, d->mask_offset + 4*d->width_in_words*j,
+			if(d->fgbpp==32) {
+				clr = dbuf_getRGB(c->infile, d->image_offset + 4*d->width_in_words*j + 4*i, 0);
+			}
+			else {
+				n = de_get_bits_symbol_lsb(c->infile, d->fgbpp, d->image_offset + 4*d->width_in_words*j,
 					i+d->pixels_to_ignore_at_start_of_row);
-				if(n==0) {
-					clr = DE_SET_ALPHA(clr, 0);
+				clr = d->palette[(int)n];
+
+				if(d->has_mask) {
+					n = de_get_bits_symbol_lsb(c->infile, d->fgbpp, d->mask_offset + 4*d->width_in_words*j,
+						i+d->pixels_to_ignore_at_start_of_row);
+					if(n==0) {
+						clr = DE_SET_ALPHA(clr, 0);
+					}
 				}
 			}
 
@@ -135,6 +139,13 @@ static void do_setup_palette(deark *c, lctx *d)
 {
 	de_int64 k;
 	de_uint32 clr1, clr2;
+
+	if(d->fgbpp>8) {
+		for(k=0; k<256; k++) {
+			d->palette[k] = 0;
+		}
+		return;
+	}
 
 	for(k=0; k<256; k++) {
 		if(d->has_custom_palette) {
@@ -169,6 +180,7 @@ static void do_setup_palette(deark *c, lctx *d)
 static void do_sprite(deark *c, lctx *d, de_int64 index,
 	de_int64 pos1, de_int64 len)
 {
+	de_int64 new_img_type;
 	// TODO: Name at pos 4, len=12
 
 	d->width_in_words = de_getui32le(pos1+16) +1;
@@ -187,12 +199,13 @@ static void do_sprite(deark *c, lctx *d, de_int64 index,
 	de_dbg(c, "image offset: %d, mask_offset: %d\n", (int)d->image_offset, (int)d->mask_offset);
 
 	de_dbg(c, "mode: 0x%08x\n", (unsigned int)d->mode);
-	d->img_type = (d->mode&0xf8000000U)>>27;
-	if(d->img_type==0) {
+	// TODO: Extract the high bit separately - it's a flag for an 8-bit alpha channel.
+	new_img_type = (d->mode&0xf8000000U)>>27;
+	if(new_img_type==0) {
 		de_dbg(c, "old format mode: %d\n", (int)d->mode);
 	}
 	else {
-		de_dbg(c, "new format image type: %d\n", (int)d->img_type);
+		de_dbg(c, "new format image type: %d\n", (int)new_img_type);
 	}
 
 	d->fgbpp=0;
@@ -201,7 +214,7 @@ static void do_sprite(deark *c, lctx *d, de_int64 index,
 	d->has_custom_palette = 0;
 
 	d->custom_palette_pos = pos1 + 44;
-	if(d->image_offset >= d->custom_palette_pos+8) {
+	if(d->image_offset >= d->custom_palette_pos+8 && d->fgbpp<=8) {
 		d->has_custom_palette = 1;
 		d->custom_palette_ncolors = (d->image_offset - (pos1+44))/8;
 		if(d->custom_palette_ncolors>256) d->custom_palette_ncolors=256;
@@ -209,7 +222,7 @@ static void do_sprite(deark *c, lctx *d, de_int64 index,
 			(int)d->custom_palette_ncolors);
 	}
 
-	if(d->img_type==0) {
+	if(new_img_type==0) {
 		// "old mode"
 		int x;
 
@@ -228,8 +241,21 @@ static void do_sprite(deark *c, lctx *d, de_int64 index,
 		}
 	}
 	else {
-		de_err(c, "New format not supported\n");
-		goto done;
+		d->xdpi = (d->mode&0x1FFF00000)>>14;
+		d->ydpi = (d->mode&0x000003FFE)>>1;
+		switch(new_img_type) {
+		case 6:
+			d->fgbpp = 32;
+			break;
+		default:
+			de_err(c, "New format type %d not supported\n", (int)new_img_type);
+			goto done;
+		}
+
+		if(d->has_mask) {
+			de_err(c, "Transparency not supported for this image format\n");
+			goto done;
+		}
 	}
 
 	d->width = ((d->width_in_words-1) * 4 * 8 + (d->last_bit+1)) / d->fgbpp;
