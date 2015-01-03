@@ -9,19 +9,25 @@
 struct old_mode_info {
 	de_uint32 mode;
 	int fgbpp;
-	int maskbpp;
 	int xdpi;
 	int ydpi;
 };
 static const struct old_mode_info old_mode_info_arr[] = {
-	{12, 4, 1, 90, 45},
-	{15, 8, 1, 90, 45},
-	{19, 2, 1, 90, 90},
-	{20, 4, 1, 90, 90},
-	{21, 8, 1, 90, 90},
-	{28, 8, 1, 90, 90},
-	{32, 8, 1, 90, 90},
-	{1000, 0, 0, 0, 0}
+	{0,  1, 90, 45},
+	{1,  2, 45, 45},
+	{4,  1, 45, 45},
+	{8,  2, 90, 45},
+	{9,  4, 45, 45},
+	{12, 4, 90, 45},
+	{13, 8, 45, 45},
+	{15, 8, 90, 45},
+	{18, 1, 90, 90},
+	{19, 2, 90, 90},
+	{20, 4, 90, 90},
+	{21, 8, 90, 90},
+	{28, 8, 90, 90},
+	{32, 8, 90, 90},
+	{1000, 0, 0, 0}
 };
 
 typedef struct localctx_struct {
@@ -36,7 +42,6 @@ typedef struct localctx_struct {
 	de_uint32 mode;
 	de_uint32 img_type;
 	de_int64 fgbpp;
-	de_int64 maskbpp;
 	de_int64 xdpi, ydpi;
 	de_int64 pixels_to_ignore_at_start_of_row;
 	int has_mask;
@@ -89,7 +94,7 @@ static void do_image(deark *c, lctx *d)
 	de_uint32 clr;
 
 	// TODO: (some?) 2bpp and 1bpp images can probably be grayscale
-	img = de_bitmap_create(c, d->width, d->height, 3);
+	img = de_bitmap_create(c, d->width, d->height, d->has_mask?4:3);
 	img->density_code = DE_DENSITY_DPI;
 	img->xdens = (double)d->xdpi;
 	img->ydens = (double)d->ydpi;
@@ -99,6 +104,15 @@ static void do_image(deark *c, lctx *d)
 			n = de_get_bits_symbol_lsb(c->infile, d->fgbpp, d->image_offset + 4*d->width_in_words*j,
 				i+d->pixels_to_ignore_at_start_of_row);
 			clr = d->palette[(int)n];
+
+			if(d->has_mask) {
+				n = de_get_bits_symbol_lsb(c->infile, d->fgbpp, d->mask_offset + 4*d->width_in_words*j,
+					i+d->pixels_to_ignore_at_start_of_row);
+				if(n==0) {
+					clr = DE_SET_ALPHA(clr, 0);
+				}
+			}
+
 			de_bitmap_setpixel_rgb(img, i, j, clr);
 		}
 	}
@@ -182,15 +196,9 @@ static void do_sprite(deark *c, lctx *d, de_int64 index,
 	}
 
 	d->fgbpp=0;
-	d->maskbpp=0;
 	d->xdpi = 0;
 	d->ydpi = 0;
 	d->has_custom_palette = 0;
-
-	if(d->has_mask) {
-		de_err(c, "Transparency not supported\n");
-		goto done;
-	}
 
 	d->custom_palette_pos = pos1 + 44;
 	if(d->image_offset >= d->custom_palette_pos+8) {
@@ -208,7 +216,6 @@ static void do_sprite(deark *c, lctx *d, de_int64 index,
 		for(x=0; old_mode_info_arr[x].mode<1000; x++) {
 			if(d->mode == old_mode_info_arr[x].mode) {
 				d->fgbpp = (de_int64)old_mode_info_arr[x].fgbpp;
-				d->maskbpp = (de_int64)old_mode_info_arr[x].maskbpp;
 				d->xdpi = (de_int64)old_mode_info_arr[x].xdpi;
 				d->ydpi = (de_int64)old_mode_info_arr[x].ydpi;
 				break;
@@ -230,7 +237,6 @@ static void do_sprite(deark *c, lctx *d, de_int64 index,
 	d->width -= d->pixels_to_ignore_at_start_of_row;
 
 	de_dbg(c, "foreground bits/pixel: %d\n", (int)d->fgbpp);
-	if(d->has_mask) de_dbg(c, "mask bits/pixel: %d\n", (int)d->maskbpp);
 	de_dbg(c, "calculated width: %d\n", (int)d->width);
 
 	if(!de_good_image_dimensions(c, d->width, d->height)) goto done;
