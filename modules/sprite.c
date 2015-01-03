@@ -14,8 +14,12 @@ struct old_mode_info {
 	int ydpi;
 };
 static const struct old_mode_info old_mode_info_arr[] = {
+	{12, 4, 1, 90, 45},
 	{15, 8, 1, 90, 45},
+	{19, 2, 1, 90, 90},
 	{20, 4, 1, 90, 90},
+	{21, 8, 1, 90, 90},
+	{28, 8, 1, 90, 90},
 	{32, 8, 1, 90, 90},
 	{1000, 0, 0, 0, 0}
 };
@@ -34,8 +38,24 @@ typedef struct localctx_struct {
 	de_int64 fgbpp;
 	de_int64 maskbpp;
 	de_int64 xdpi, ydpi;
+	de_int64 pixels_to_ignore_at_start_of_row;
 	int has_mask;
+
+	int has_custom_palette;
+	de_int64 custom_palette_pos;
+	de_int64 custom_palette_ncolors;
+	de_uint32 palette[256];
 } lctx;
+
+static const de_uint32 pal4[4] = {
+	0xffffff,0xbbbbbb,0x777777,0x000000
+};
+
+static de_uint32 getpal4(int k)
+{
+	if(k<0 || k>3) return 0;
+	return pal4[k];
+}
 
 static const de_uint32 pal16[16] = {
 	0xffffff,0xdddddd,0xbbbbbb,0x999999,0x777777,0x555555,0x333333,0x000000,
@@ -68,6 +88,7 @@ static void do_image(deark *c, lctx *d)
 	de_byte n;
 	de_uint32 clr;
 
+	// TODO: (some?) 2bpp and 1bpp images can probably be grayscale
 	img = de_bitmap_create(c, d->width, d->height, 3);
 	img->density_code = DE_DENSITY_DPI;
 	img->xdens = (double)d->xdpi;
@@ -75,24 +96,60 @@ static void do_image(deark *c, lctx *d)
 
 	for(j=0; j<d->height; j++) {
 		for(i=0; i<d->width; i++) {
-			n = de_get_bits_symbol_lsb(c->infile, d->fgbpp, d->image_offset + 4*d->width_in_words*j, i);
-
-			if(d->fgbpp==8) {
-				clr = getpal256((int)n);
-			}
-			else if(d->fgbpp==4) {
-				clr = getpal16((int)n);
-			}
-			else {
-				clr = 0;
-			}
-
+			n = de_get_bits_symbol_lsb(c->infile, d->fgbpp, d->image_offset + 4*d->width_in_words*j,
+				i+d->pixels_to_ignore_at_start_of_row);
+			clr = d->palette[(int)n];
 			de_bitmap_setpixel_rgb(img, i, j, clr);
 		}
 	}
 
 	de_bitmap_write_to_file(img, NULL);
 	de_bitmap_destroy(img);
+}
+
+static de_uint32 average_color(de_uint32 c1, de_uint32 c2)
+{
+	de_byte a, r, g, b;
+	a = ((de_uint32)DE_COLOR_A(c1) + DE_COLOR_A(c2))/2;
+	r = ((de_uint32)DE_COLOR_R(c1) + DE_COLOR_R(c2))/2;
+	g = ((de_uint32)DE_COLOR_G(c1) + DE_COLOR_G(c2))/2;
+	b = ((de_uint32)DE_COLOR_B(c1) + DE_COLOR_B(c2))/2;
+	return DE_MAKE_RGBA(r,g,b,a);
+}
+
+static void do_setup_palette(deark *c, lctx *d)
+{
+	de_int64 k;
+	de_uint32 clr1, clr2;
+
+	for(k=0; k<256; k++) {
+		if(d->has_custom_palette) {
+			if(k<d->custom_palette_ncolors) {
+				// Each palette entry has two colors, which are usually but not always
+				// the same.
+				// TODO: Figure out what to do if they are different. For now, we'll
+				// average them.
+				clr1 = dbuf_getRGB(c->infile, d->custom_palette_pos + 8*k + 1, 0);
+				clr2 = dbuf_getRGB(c->infile, d->custom_palette_pos + 8*k + 4 + 1, 0);
+				if(clr1==clr2)
+					d->palette[k] = clr1;
+				else
+					d->palette[k] = average_color(clr1, clr2);
+			}
+			else {
+				d->palette[k] = getpal256((int)k);
+			}
+		}
+		else if(d->fgbpp==4 && k<16) {
+			d->palette[k] = getpal16((int)k);
+		}
+		else if(d->fgbpp==2 && k<4) {
+			d->palette[k] = getpal4((int)k);
+		}
+		else {
+			d->palette[k] = getpal256((int)k);
+		}
+	}
 }
 
 static void do_sprite(deark *c, lctx *d, de_int64 index,
@@ -105,25 +162,43 @@ static void do_sprite(deark *c, lctx *d, de_int64 index,
 	de_dbg(c, "width-in-words: %d, height: %d\n", (int)d->width_in_words, (int)d->height);
 
 	d->first_bit = de_getui32le(pos1+24);
+	if(d->first_bit>31) d->first_bit=31;
 	d->last_bit = de_getui32le(pos1+28);
+	if(d->last_bit>31) d->last_bit=31;
 	d->image_offset = de_getui32le(pos1+32) + pos1;
 	d->mask_offset = de_getui32le(pos1+36) + pos1;
 	d->has_mask = (d->mask_offset != d->image_offset);
 	d->mode = (de_uint32)de_getui32le(pos1+40);
 	de_dbg(c, "first bit: %d, last bit: %d\n", (int)d->first_bit, (int)d->last_bit);
 	de_dbg(c, "image offset: %d, mask_offset: %d\n", (int)d->image_offset, (int)d->mask_offset);
+
 	de_dbg(c, "mode: 0x%08x\n", (unsigned int)d->mode);
 	d->img_type = (d->mode&0xf8000000U)>>27;
-	de_dbg(c, "image type: %d%s\n", (int)d->img_type, d->img_type==0?" (old format)":"");
+	if(d->img_type==0) {
+		de_dbg(c, "old format mode: %d\n", (int)d->mode);
+	}
+	else {
+		de_dbg(c, "new format image type: %d\n", (int)d->img_type);
+	}
 
 	d->fgbpp=0;
 	d->maskbpp=0;
 	d->xdpi = 0;
 	d->ydpi = 0;
+	d->has_custom_palette = 0;
 
 	if(d->has_mask) {
 		de_err(c, "Transparency not supported\n");
 		goto done;
+	}
+
+	d->custom_palette_pos = pos1 + 44;
+	if(d->image_offset >= d->custom_palette_pos+8) {
+		d->has_custom_palette = 1;
+		d->custom_palette_ncolors = (d->image_offset - (pos1+44))/8;
+		if(d->custom_palette_ncolors>256) d->custom_palette_ncolors=256;
+		de_dbg(c, "custom palette at %d, %d colors\n", (int)d->custom_palette_pos,
+			(int)d->custom_palette_ncolors);
 	}
 
 	if(d->img_type==0) {
@@ -150,12 +225,17 @@ static void do_sprite(deark *c, lctx *d, de_int64 index,
 		goto done;
 	}
 
-	// Temp hack. TODO: Use first_bit, last_bit.
-	d->width = (d->width_in_words * 4 * 8) / d->fgbpp;
+	d->width = ((d->width_in_words-1) * 4 * 8 + (d->last_bit+1)) / d->fgbpp;
+	d->pixels_to_ignore_at_start_of_row = d->first_bit / d->fgbpp;
+	d->width -= d->pixels_to_ignore_at_start_of_row;
 
 	de_dbg(c, "foreground bits/pixel: %d\n", (int)d->fgbpp);
 	if(d->has_mask) de_dbg(c, "mask bits/pixel: %d\n", (int)d->maskbpp);
 	de_dbg(c, "calculated width: %d\n", (int)d->width);
+
+	if(!de_good_image_dimensions(c, d->width, d->height)) goto done;
+
+	do_setup_palette(c, d);
 
 	do_image(c, d);
 done:
