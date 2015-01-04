@@ -12,21 +12,56 @@ struct old_mode_info {
 	int xdpi;
 	int ydpi;
 };
+// Screen mode list at: http://www.riscos.com/support/users/userguide3/book3b/book3_17.html
+// TODO: Find reliable information about DPI fields.
 static const struct old_mode_info old_mode_info_arr[] = {
 	{0,  1, 90, 45},
 	{1,  2, 45, 45},
+	{2,  4,  0,  0},
 	{4,  1, 45, 45},
+	{5,  2,  0,  0},
 	{8,  2, 90, 45},
 	{9,  4, 45, 45},
+	{10, 8,  0,  0},
+	{11, 2,  0,  0},
 	{12, 4, 90, 45},
 	{13, 8, 45, 45},
+	{14, 4,  0,  0},
 	{15, 8, 90, 45},
+	{16, 4,  0,  0},
+	{17, 4,  0,  0},
 	{18, 1, 90, 90},
 	{19, 2, 90, 90},
 	{20, 4, 90, 90},
 	{21, 8, 90, 90},
+	{22, 4,  0,  0},
+	{23, 1,  0,  0},
+	{24, 8,  0,  0},
+	{25, 1,  0,  0},
+	{26, 2,  0,  0},
+	{27, 4, 90, 90},
 	{28, 8, 90, 90},
+	{29, 1,  0,  0},
+	{30, 2,  0,  0},
+	{31, 4, 90, 90},
 	{32, 8, 90, 90},
+	{33, 1,  0,  0},
+	{34, 2,  0,  0},
+	{35, 4,  0,  0},
+	{36, 8, 90, 45},
+	{37, 1,  0,  0},
+	{38, 2,  0,  0},
+	{39, 4,  0,  0},
+	{40, 8,  0,  0},
+	{41, 1,  0,  0},
+	{42, 2,  0,  0},
+	{43, 4,  0,  0},
+	{44, 1,  0,  0},
+	{45, 2,  0,  0},
+	{46, 4,  0,  0},
+	{47, 8,  0,  0},
+	{48, 4,  0,  0},
+	{49, 8,  0,  0},
 	{1000, 0, 0, 0}
 };
 
@@ -202,7 +237,7 @@ static void do_sprite(deark *c, lctx *d, de_int64 index,
 	// TODO: Extract the high bit separately - it's a flag for an 8-bit alpha channel.
 	new_img_type = (d->mode&0xf8000000U)>>27;
 	if(new_img_type==0) {
-		de_dbg(c, "old format mode: %d\n", (int)d->mode);
+		de_dbg(c, "old format screen mode: %d\n", (int)d->mode);
 	}
 	else {
 		de_dbg(c, "new format image type: %d\n", (int)new_img_type);
@@ -223,7 +258,7 @@ static void do_sprite(deark *c, lctx *d, de_int64 index,
 	}
 
 	if(new_img_type==0) {
-		// "old mode"
+		// old format
 		int x;
 
 		for(x=0; old_mode_info_arr[x].mode<1000; x++) {
@@ -236,11 +271,12 @@ static void do_sprite(deark *c, lctx *d, de_int64 index,
 		}
 
 		if(d->fgbpp==0) {
-			de_err(c, "Mode %d not supported\n", (int)d->mode);
+			de_err(c, "Screen mode %d not supported\n", (int)d->mode);
 			goto done;
 		}
 	}
 	else {
+		// new format
 		d->xdpi = (d->mode&0x1FFF00000)>>14;
 		d->ydpi = (d->mode&0x000003FFE)>>1;
 		switch(new_img_type) {
