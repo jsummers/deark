@@ -310,7 +310,7 @@ done:
 	;
 }
 
-static void de_run_sprite(deark *c, const char *params)
+static void de_run_rosprite(deark *c, const char *params)
 {
 	lctx *d = NULL;
 	de_int64 pos;
@@ -352,7 +352,7 @@ static void de_run_sprite(deark *c, const char *params)
 	de_free(c, d);
 }
 
-static int de_identify_sprite(deark *c)
+static int de_identify_rosprite(deark *c)
 {
 	de_int64 h0, h1, h2;
 	h0 = de_getui32le(0);
@@ -367,9 +367,9 @@ static int de_identify_sprite(deark *c)
 	return 80;
 }
 
-void de_module_sprite(deark *c, struct deark_module_info *mi)
+void de_module_rosprite(deark *c, struct deark_module_info *mi)
 {
-	mi->id = "sprite";
-	mi->run_fn = de_run_sprite;
-	mi->identify_fn = de_identify_sprite;
+	mi->id = "rosprite";
+	mi->run_fn = de_run_rosprite;
+	mi->identify_fn = de_identify_rosprite;
 }

@@ -195,6 +195,11 @@ Deark -- Information about supported formats
 * RIPscrip icon (.ICN) (module="ripicon") (experimental)
   - Not autodetected. Must use "-m ripicon".
 
+* RISC OS / Acorn Sprite (module="rosprite") (experimental)
+  - Autodetection may not always work. May need "-m rosprite".
+  - "Old" format is pretty well supported.
+  - Limited support for "New" format
+
 * SHG and MRB (module="shg") (experimental)
   Segmented Hypergraphics and Multi-Resolution Bitmap formats are used in the
   development of Windows .HLP files.
