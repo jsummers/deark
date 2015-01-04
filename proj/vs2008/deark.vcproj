@@ -542,15 +542,15 @@
 				>
 			</File>
 			<File
+				RelativePath="..\..\modules\rosprite.c"
+				>
+			</File>
+			<File
 				RelativePath="..\..\modules\rpm.c"
 				>
 			</File>
 			<File
 				RelativePath="..\..\modules\shg.c"
-				>
-			</File>
-			<File
-				RelativePath="..\..\modules\sprite.c"
 				>
 			</File>
 			<File
