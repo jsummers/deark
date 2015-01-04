@@ -62,6 +62,10 @@ static const struct old_mode_info old_mode_info_arr[] = {
 	{47, 8,  0,  0},
 	{48, 4,  0,  0},
 	{49, 8,  0,  0},
+
+	// I have some mode-107 files, but I don't know how standard this is.
+	{107, 16,  0,  0},
+
 	{1000, 0, 0, 0}
 };
 
@@ -127,7 +131,6 @@ static void do_image(deark *c, lctx *d)
 	de_byte n;
 	de_uint32 clr;
 
-	// TODO: (some?) 2bpp and 1bpp images can probably be grayscale
 	img = de_bitmap_create(c, d->width, d->height, d->has_mask?4:3);
 	img->density_code = DE_DENSITY_DPI;
 	img->xdens = (double)d->xdpi;
@@ -137,6 +140,10 @@ static void do_image(deark *c, lctx *d)
 		for(i=0; i<d->width; i++) {
 			if(d->fgbpp==32) {
 				clr = dbuf_getRGB(c->infile, d->image_offset + 4*d->width_in_words*j + 4*i, 0);
+			}
+			else if(d->fgbpp==16) {
+				clr = (de_uint32)de_getui16le(d->image_offset + 4*d->width_in_words*j + i*2);
+				clr = de_bgr555_to_888(clr);
 			}
 			else {
 				n = de_get_bits_symbol_lsb(c->infile, d->fgbpp, d->image_offset + 4*d->width_in_words*j,
@@ -274,12 +281,21 @@ static void do_sprite(deark *c, lctx *d, de_int64 index,
 			de_err(c, "Screen mode %d not supported\n", (int)d->mode);
 			goto done;
 		}
+
+		if(d->fgbpp>8 && d->has_mask) {
+			de_err(c, "Transparency not supported for this image format\n");
+			goto done;
+		}
 	}
 	else {
 		// new format
-		d->xdpi = (d->mode&0x1FFF00000)>>14;
-		d->ydpi = (d->mode&0x000003FFE)>>1;
+		d->xdpi = (d->mode&0x07ffc000)>>14;
+		d->ydpi = (d->mode&0x00003ffe)>>1;
+		de_dbg(c, "xdpi: %d, ydpi: %d\n", (int)d->xdpi, (int)d->ydpi);
 		switch(new_img_type) {
+		case 5:
+			d->fgbpp = 16;
+			break;
 		case 6:
 			d->fgbpp = 32;
 			break;
