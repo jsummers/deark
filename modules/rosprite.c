@@ -124,7 +124,7 @@ static de_uint32 getpal256(int k)
 	return DE_MAKE_RGB(r,g,b);
 }
 
-static void do_image(deark *c, lctx *d)
+static void do_image(deark *c, lctx *d, de_finfo *fi)
 {
 	struct deark_bitmap *img = NULL;
 	de_int64 i, j;
@@ -163,7 +163,7 @@ static void do_image(deark *c, lctx *d)
 		}
 	}
 
-	de_bitmap_write_to_file(img, NULL);
+	de_bitmap_write_to_file_finfo(img, fi);
 	de_bitmap_destroy(img);
 }
 
@@ -223,7 +223,11 @@ static void do_sprite(deark *c, lctx *d, de_int64 index,
 	de_int64 pos1, de_int64 len)
 {
 	de_int64 new_img_type;
-	// TODO: Name at pos 4, len=12
+	de_finfo *fi = NULL;
+
+	// Name at pos 4, len=12
+	fi = de_finfo_create(c);
+	de_finfo_set_name_from_slice(c, fi, c->infile, pos1+4, 12, DE_CONVFLAG_STOP_AT_NUL);
 
 	d->width_in_words = de_getui32le(pos1+16) +1;
 	d->height = de_getui32le(pos1+20) +1;
@@ -321,9 +325,9 @@ static void do_sprite(deark *c, lctx *d, de_int64 index,
 
 	do_setup_palette(c, d);
 
-	do_image(c, d);
+	do_image(c, d, fi);
 done:
-	;
+	de_finfo_destroy(c, fi);
 }
 
 static void de_run_rosprite(deark *c, const char *params)
