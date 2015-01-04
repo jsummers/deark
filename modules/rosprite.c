@@ -80,9 +80,15 @@ typedef struct localctx_struct {
 
 	de_uint32 mode;
 	de_int64 fgbpp;
+	de_int64 maskbpp;
 	de_int64 xdpi, ydpi;
 	de_int64 pixels_to_ignore_at_start_of_row;
+	de_int64 mask_rowspan;
 	int has_mask;
+#define MASK_TYPE_OLD    1 // Binary transparency, fgbpp bits/pixel
+#define MASK_TYPE_NEW_1  2 // Binary transparency, 8 bits/pixel
+#define MASK_TYPE_NEW_8  3 // Alpha transparency, 8 bits/pixel
+	int mask_type;
 
 	int has_custom_palette;
 	de_int64 custom_palette_pos;
@@ -151,10 +157,17 @@ static void do_image(deark *c, lctx *d, de_finfo *fi)
 				clr = d->palette[(int)n];
 
 				if(d->has_mask) {
-					n = de_get_bits_symbol_lsb(c->infile, d->fgbpp, d->mask_offset + 4*d->width_in_words*j,
+					n = de_get_bits_symbol_lsb(c->infile, d->maskbpp, d->mask_offset + d->mask_rowspan*j,
 						i+d->pixels_to_ignore_at_start_of_row);
-					if(n==0) {
-						clr = DE_SET_ALPHA(clr, 0);
+
+					if(d->mask_type==MASK_TYPE_OLD || d->mask_type==MASK_TYPE_NEW_1) {
+						if(n==0)
+							clr = DE_SET_ALPHA(clr, 0);
+						else
+							clr = DE_MAKE_OPAQUE(clr);
+					}
+					else if(d->mask_type==MASK_TYPE_NEW_8) {
+						clr = DE_SET_ALPHA(clr, n);
 					}
 				}
 			}
@@ -225,6 +238,17 @@ static void do_sprite(deark *c, lctx *d, de_int64 index,
 	de_int64 new_img_type;
 	de_finfo *fi = NULL;
 
+	d->fgbpp = 0;
+	d->maskbpp = 0;
+	d->width = 0;
+	d->height = 0;
+	d->xdpi = 0;
+	d->ydpi = 0;
+	d->pixels_to_ignore_at_start_of_row = 0;
+	d->mask_type = 0;
+	d->mask_rowspan = 0;
+	d->has_custom_palette = 0;
+
 	// Name at pos 4, len=12
 	fi = de_finfo_create(c);
 	de_finfo_set_name_from_slice(c, fi, c->infile, pos1+4, 12, DE_CONVFLAG_STOP_AT_NUL);
@@ -243,21 +267,13 @@ static void do_sprite(deark *c, lctx *d, de_int64 index,
 	d->mode = (de_uint32)de_getui32le(pos1+40);
 	de_dbg(c, "first bit: %d, last bit: %d\n", (int)d->first_bit, (int)d->last_bit);
 	de_dbg(c, "image offset: %d, mask_offset: %d\n", (int)d->image_offset, (int)d->mask_offset);
-
 	de_dbg(c, "mode: 0x%08x\n", (unsigned int)d->mode);
-	// TODO: Extract the high bit separately - it's a flag for an 8-bit alpha channel.
-	new_img_type = (d->mode&0xf8000000U)>>27;
-	if(new_img_type==0) {
-		de_dbg(c, "old format screen mode: %d\n", (int)d->mode);
-	}
-	else {
-		de_dbg(c, "new format image type: %d\n", (int)new_img_type);
-	}
 
-	d->fgbpp=0;
-	d->xdpi = 0;
-	d->ydpi = 0;
-	d->has_custom_palette = 0;
+	new_img_type = (d->mode&0x78000000U)>>27;
+	if(new_img_type==0)
+		de_dbg(c, "old format screen mode: %d\n", (int)d->mode);
+	else
+		de_dbg(c, "new format image type: %d\n", (int)new_img_type);
 
 	d->custom_palette_pos = pos1 + 44;
 	if(d->image_offset >= d->custom_palette_pos+8 && d->fgbpp<=8) {
@@ -290,6 +306,12 @@ static void do_sprite(deark *c, lctx *d, de_int64 index,
 			de_err(c, "Transparency not supported for this image format\n");
 			goto done;
 		}
+
+		if(d->has_mask) {
+			d->mask_type = MASK_TYPE_OLD;
+			d->mask_rowspan = 4*d->width_in_words;
+			d->maskbpp = d->fgbpp;
+		}
 	}
 	else {
 		// new format
@@ -297,20 +319,35 @@ static void do_sprite(deark *c, lctx *d, de_int64 index,
 		d->ydpi = (d->mode&0x00003ffe)>>1;
 		de_dbg(c, "xdpi: %d, ydpi: %d\n", (int)d->xdpi, (int)d->ydpi);
 		switch(new_img_type) {
+		case 1:
+			d->fgbpp = 1;
+			break;
+		case 2:
+			d->fgbpp = 2;
+			break;
+		case 3:
+			d->fgbpp = 4;
+			break;
+		case 4:
+			d->fgbpp = 8;
+			break;
 		case 5:
 			d->fgbpp = 16;
 			break;
 		case 6:
 			d->fgbpp = 32;
 			break;
+		//case 7: 32bpp CMYK (TODO)
+		//case 8: 24bpp (TODO)
 		default:
 			de_err(c, "New format type %d not supported\n", (int)new_img_type);
 			goto done;
 		}
 
 		if(d->has_mask) {
-			de_err(c, "Transparency not supported for this image format\n");
-			goto done;
+			d->mask_type = (d->mode&0x80000000U) ? MASK_TYPE_NEW_8 : MASK_TYPE_NEW_1;
+			d->maskbpp = 8;
+			de_dbg(c, "mask type: %s\n", d->mask_type==MASK_TYPE_NEW_8 ? "alpha" : "binary");
 		}
 	}
 
@@ -320,6 +357,15 @@ static void do_sprite(deark *c, lctx *d, de_int64 index,
 
 	de_dbg(c, "foreground bits/pixel: %d\n", (int)d->fgbpp);
 	de_dbg(c, "calculated width: %d\n", (int)d->width);
+
+	if(d->mask_type==MASK_TYPE_NEW_1 || d->mask_type==MASK_TYPE_NEW_8) {
+		if(d->pixels_to_ignore_at_start_of_row>0) {
+			de_warn(c, "This image has a new-style transparency mask, and a "
+				"nonzero \"first bit\" field. This combination might not be "
+				"handled correctly.");
+		}
+		d->mask_rowspan = ((d->width+31)/32)*4;
+	}
 
 	if(!de_good_image_dimensions(c, d->width, d->height)) goto done;
 

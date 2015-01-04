@@ -361,6 +361,7 @@ void de_bitmap_destroy(struct deark_bitmap *b);
 #define DE_MAKE_RGB(r,g,b)     ((((de_uint32)0xff)<<24)|((r)<<16)|((g)<<8)|(b))
 #define DE_MAKE_GRAY(k)        ((((de_uint32)0xff)<<24)|((k)<<16)|((k)<<8)|(k))
 #define DE_SET_ALPHA(v,a)      (((v)&0x00ffffff)|(((de_uint32)(a))<<24))
+#define DE_MAKE_OPAQUE(v)      (((de_uint32)(v))|0xff000000U)
 
 // Return the index'th symbol in the bitmap row beginning at file position rowstart.
 // A symbol has bps bits. bps must be 1, 2, 4, or 8.
