@@ -184,9 +184,11 @@ int de_uncompress_zlib(dbuf *inf, de_int64 inputstart, de_int64 inputsize, dbuf 
 	input_cur_pos = inputstart;
 	input_remaining = inputsize;
 
+	de_dbg(c, "inflating %d bytes\n", (int)input_remaining);
+
 	while(1) {
 
-		de_dbg(c, "input remaining: %d\n", (int)input_remaining);
+		de_dbg2(c, "input remaining: %d\n", (int)input_remaining);
 		if(input_remaining<=0) break;
 
 		// fill input buffer
@@ -194,7 +196,7 @@ int de_uncompress_zlib(dbuf *inf, de_int64 inputstart, de_int64 inputsize, dbuf 
 		if(input_bytes_this_time>input_remaining) input_bytes_this_time=input_remaining;
 
 		if(input_bytes_this_time<=0) break;
-		de_dbg(c, "processing %d input bytes\n", (int)input_bytes_this_time);
+		de_dbg2(c, "processing %d input bytes\n", (int)input_bytes_this_time);
 
 		dbuf_read(inf, inbuf, input_cur_pos, input_bytes_this_time);
 		input_remaining -= input_bytes_this_time;
@@ -202,7 +204,6 @@ int de_uncompress_zlib(dbuf *inf, de_int64 inputstart, de_int64 inputsize, dbuf 
 
 		strm.next_in = inbuf;
 		strm.avail_in = (unsigned int)input_bytes_this_time;
-
 
 		// run inflate() on input until output buffer not full
 		while(1) {
@@ -216,7 +217,7 @@ int de_uncompress_zlib(dbuf *inf, de_int64 inputstart, de_int64 inputsize, dbuf 
 			}
 
 			output_bytes_this_time = sizeof(outbuf) - strm.avail_out;
-			de_dbg(c, "got %d input output bytes\n", (int)output_bytes_this_time);
+			de_dbg2(c, "got %d output bytes\n", (int)output_bytes_this_time);
 
 			dbuf_write(outf, outbuf, output_bytes_this_time);
 
@@ -229,8 +230,12 @@ int de_uncompress_zlib(dbuf *inf, de_int64 inputstart, de_int64 inputsize, dbuf 
 			if(strm.avail_out!=0) break;
 		}
 	}
+	retval = 1;
 
 done:
+	if(retval) {
+		de_dbg(c, "inflated to %d bytes\n", (int)strm.total_out);
+	}
 	if(stream_open_flag) {
 		mz_inflateEnd(&strm);
 	}

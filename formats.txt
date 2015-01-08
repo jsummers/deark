@@ -159,6 +159,9 @@ Deark -- Information about supported formats
 * PGX (Portfolio graphics animation) (module="pgx")
   - Extract embedded PGC images.
 
+* PNG (module="png")
+  - Extract ICC profiles.
+
 * PrintMaster .SHP format (module="printmaster") (experimental)
   Options
    -opt namefile=<file.sdr> - Use this "name" file

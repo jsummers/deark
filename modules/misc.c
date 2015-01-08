@@ -847,3 +847,65 @@ void de_module_fpart(deark *c, struct deark_module_info *mi)
 	mi->run_fn = de_run_fpart;
 	mi->identify_fn = de_identify_fpart;
 }
+
+// **************************************************************************
+// PNG
+// **************************************************************************
+
+static void do_png_iccp(deark *c, de_int64 pos, de_int64 len)
+{
+	de_byte prof_name[81];
+	de_int64 prof_name_len;
+	de_byte cmpr_type;
+	dbuf *f = NULL;
+	de_finfo *fi = NULL;
+
+	de_read(prof_name, pos, 80); // One of the next 80 bytes should be a NUL.
+	prof_name[80] = '\0';
+	prof_name_len = de_strlen(prof_name);
+	if(prof_name_len > 79) return;
+	cmpr_type = de_getbyte(pos + prof_name_len + 1);
+	if(cmpr_type!=0) return;
+
+	fi = de_finfo_create(c);
+	if(c->filenames_from_file)
+		de_finfo_set_name_from_sz(c, fi, prof_name);
+	f = dbuf_create_output_file(c, "icc", fi);
+	de_uncompress_zlib(c->infile, pos + prof_name_len + 2,
+		len - (pos + prof_name_len + 2), f);
+	dbuf_close(f);
+	de_finfo_destroy(c, fi);
+}
+
+static void de_run_png(deark *c, const char *params)
+{
+	de_int64 pos;
+	de_int64 chunk_data_len;
+	de_int64 chunk_id;
+
+	pos = 8;
+	while(pos < c->infile->len) {
+		chunk_data_len = de_getui32be(pos);
+		if(pos + 8 + chunk_data_len + 4 > c->infile->len) break;
+		chunk_id = de_getui32be(pos+4);
+		if(chunk_id==0x69434350) { // iCCP
+			de_dbg(c, "iCCP chunk at %d\n", (int)pos);
+			do_png_iccp(c, pos+8, chunk_data_len);
+		}
+		pos += 8 + chunk_data_len + 4;
+	}
+}
+
+static int de_identify_png(deark *c)
+{
+	if(!dbuf_memcmp(c->infile, 0, "\x89\x50\x4e\x47\x0d\x0a\x1a\x0a", 8))
+		return 100;
+	return 0;
+}
+
+void de_module_png(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "png";
+	mi->run_fn = de_run_png;
+	mi->identify_fn = de_identify_png;
+}
