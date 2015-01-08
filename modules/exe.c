@@ -489,6 +489,8 @@ static void de_finfo_set_name_from_pe_string(deark *c, de_finfo *fi, dbuf *f,
 	de_int64 nlen;
 	dbuf *name_utf8 = NULL;
 
+	if(!c->filenames_from_file) return;
+
 	// The string length is stored in a two-byte prefix.
 	nlen = de_getui16le(pos);
 	if(nlen<1) goto done;
@@ -728,7 +730,7 @@ static void do_ne_one_nameinfo(deark *c, lctx *d, de_int64 npos)
 	if(!d->ne_have_type) goto done;
 
 
-	if(is_named) {
+	if(is_named && c->filenames_from_file) {
 		// Names are prefixed with a single-byte length.
 		x = (de_int64)de_getbyte(rnNameOffset);
 		if(x>0) {

@@ -143,6 +143,7 @@ struct deark_struct {
 	int dbg_indent_amount;
 	int write_bom;
 	int write_density;
+	int filenames_from_file;
 
 	de_msgfn_type msgfn; // Caller's message output function
 	de_fatalerrorfn_type fatalerrorfn;

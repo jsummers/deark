@@ -33,7 +33,8 @@ static void do_card_index(deark *c, lctx *d, de_int64 cardnum, de_int64 pos)
 	}
 
 	fi = de_finfo_create(c);
-	de_finfo_set_name_from_slice(c, fi, c->infile, pos+11, 40, DE_CONVFLAG_STOP_AT_NUL);
+	if(c->filenames_from_file)
+		de_finfo_set_name_from_slice(c, fi, c->infile, pos+11, 40, DE_CONVFLAG_STOP_AT_NUL);
 
 	w = de_getui16le(datapos+2);
 	h = de_getui16le(datapos+4);

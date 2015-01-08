@@ -251,7 +251,8 @@ static void do_sprite(deark *c, lctx *d, de_int64 index,
 
 	// Name at pos 4, len=12
 	fi = de_finfo_create(c);
-	de_finfo_set_name_from_slice(c, fi, c->infile, pos1+4, 12, DE_CONVFLAG_STOP_AT_NUL);
+	if(c->filenames_from_file)
+		de_finfo_set_name_from_slice(c, fi, c->infile, pos1+4, 12, DE_CONVFLAG_STOP_AT_NUL);
 
 	d->width_in_words = de_getui32le(pos1+16) +1;
 	d->height = de_getui32le(pos1+20) +1;

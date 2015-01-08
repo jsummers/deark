@@ -49,6 +49,10 @@ Command-line options:
   -nodens
      Do not try to record the original aspect ratio and pixel density in output
      image files.
+  -nonames
+     Makes Deark less likely to try to improve output filenames by using names
+     from the contents of the input file. This is mainly intended for certain
+     image formats where such names may or may not be meaningful.
   -opt <module:option>=<value>
      Module-specific options. See formats.txt.
   -version

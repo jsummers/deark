@@ -206,7 +206,7 @@ static void de_run_rpm(deark *c, const char *params)
 		ext = "cpio.bin";
 	}
 
-	if(d->name_known) {
+	if(d->name_known && c->filenames_from_file) {
 		fi = de_finfo_create(c);
 		de_snprintf(filename, sizeof(filename), "%s-%s.%s",
 			d->name, d->version, d->release);
