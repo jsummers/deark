@@ -862,14 +862,14 @@ static void do_png_iccp(deark *c, de_int64 pos, de_int64 len)
 
 	de_read(prof_name, pos, 80); // One of the next 80 bytes should be a NUL.
 	prof_name[80] = '\0';
-	prof_name_len = de_strlen(prof_name);
+	prof_name_len = de_strlen((const char*)prof_name);
 	if(prof_name_len > 79) return;
 	cmpr_type = de_getbyte(pos + prof_name_len + 1);
 	if(cmpr_type!=0) return;
 
 	fi = de_finfo_create(c);
 	if(c->filenames_from_file)
-		de_finfo_set_name_from_sz(c, fi, prof_name);
+		de_finfo_set_name_from_sz(c, fi, (const char*)prof_name, DE_ENCODING_LATIN1);
 	f = dbuf_create_output_file(c, "icc", fi);
 	de_uncompress_zlib(c->infile, pos + prof_name_len + 2,
 		len - (pos + prof_name_len + 2), f);

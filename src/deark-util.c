@@ -623,23 +623,18 @@ void de_finfo_set_name_from_slice(deark *c, de_finfo *fi, dbuf *f,
 
 	tmpbuf = de_malloc(c, len);
 	dbuf_read(f, tmpbuf, pos, len);
-
-	fi->file_name = de_malloc(c, len+1);
-	de_make_filename(c, tmpbuf, len, fi->file_name, len+1, conv_flags);
-
+	de_finfo_set_name_from_bytes(c, fi, tmpbuf, len, conv_flags, DE_ENCODING_ASCII);
 	de_free(c, tmpbuf);
 }
 
-void de_finfo_set_name_from_sz(deark *c, de_finfo *fi, const char *name1)
+void de_finfo_set_name_from_sz(deark *c, de_finfo *fi, const char *name1, int encoding)
 {
 	de_int64 name1_len;
 
 	name1_len = (de_int64)de_strlen(name1);
-	fi->file_name = de_malloc(c, name1_len+10);
-	de_make_filename(c, (const de_byte*)name1, name1_len, fi->file_name, name1_len+10, 0);
+	de_finfo_set_name_from_bytes(c, fi, (const de_byte*)name1, name1_len, 0, encoding);
 }
 
-// TODO: This needs lots of work, to support a wider range of filename characters.
 void de_finfo_set_name_from_ucstring(deark *c, de_finfo *fi, de_ucstring *s)
 {
 	de_int64 i;
@@ -647,14 +642,7 @@ void de_finfo_set_name_from_ucstring(deark *c, de_finfo *fi, de_ucstring *s)
 	de_int64 fnlen;
 	de_int64 utf8len;
 
-	if(s->len<1) {
-		// Don't allow empty filenames.
-		fi->file_name = de_malloc(c, 2);
-		de_strlcpy(fi->file_name, "_", 2);
-		return;
-	}
-
-	fi->file_name = de_malloc(c, 4*s->len+1);
+	fi->file_name = de_malloc(c, 4*s->len+10);
 	fnlen = 0;
 	for(i=0; i<s->len; i++) {
 		ch = de_char_to_valid_fn_char(c, s->str[i]);
@@ -666,7 +654,52 @@ void de_finfo_set_name_from_ucstring(deark *c, de_finfo *fi, de_ucstring *s)
 			fnlen += utf8len;
 		}
 	}
+
+	// Strip trailing spaces
+	while(fnlen>0 && fi->file_name[fnlen-1]==' ') {
+		fnlen--;
+	}
+
+	// Don't allow empty filenames.
+	if(fnlen<1) {
+		fi->file_name[fnlen++] = '_';
+		return;
+	}
+
 	fi->file_name[fnlen] = '\0';
+}
+
+// Supported encodings: ASCII, LATIN1
+void de_finfo_set_name_from_bytes(deark *c, de_finfo *fi,
+	const de_byte *name1, de_int64 name1_len,
+	unsigned int conv_flags, int encoding)
+{
+	de_int64 i;
+	de_ucstring *fname = NULL;
+	de_byte ch;
+	de_int32 uchar;
+
+	fname = ucstring_create(c);
+
+	for(i=0; i<name1_len; i++) {
+		ch = name1[i];
+		if(ch==0 && (conv_flags & DE_CONVFLAG_STOP_AT_NUL)) {
+			break;
+		}
+
+		if(encoding==DE_ENCODING_LATIN1) {
+			uchar = (de_int32)ch;
+		}
+		else { // ASCII
+			if(ch<=0x7f) uchar = (de_int32)ch;
+			else uchar = '_';
+		}
+		ucstring_append_char(fname, uchar);
+	}
+
+	de_finfo_set_name_from_ucstring(c, fi, fname);
+
+	ucstring_destroy(fname);
 }
 
 void de_declare_fmt(deark *c, const char *fmtname)

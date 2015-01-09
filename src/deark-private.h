@@ -8,6 +8,10 @@
 #define DE_MAX_IMAGE_DIMENSION 10000
 #define DE_MAX_IMAGES_PER_FILE 10000
 
+#define DE_ENCODING_ASCII   0
+#define DE_ENCODING_UTF8    1
+#define DE_ENCODING_LATIN1  2
+
 // 'params' can be used by the module in whatever way it wishes.
 typedef void (*de_module_run_fn)(deark *c, const char *params);
 
@@ -426,8 +430,11 @@ de_finfo *de_finfo_create(deark *c);
 void de_finfo_destroy(deark *c, de_finfo *fi);
 void de_finfo_set_name_from_slice(deark *c, de_finfo *fi, dbuf *f,
 	de_int64 pos, de_int64 len, unsigned int conv_flags);
-void de_finfo_set_name_from_sz(deark *c, de_finfo *fi, const char *name1);
+void de_finfo_set_name_from_sz(deark *c, de_finfo *fi, const char *name1,
+	int encoding);
 void de_finfo_set_name_from_ucstring(deark *c, de_finfo *fi, de_ucstring *s);
+void de_finfo_set_name_from_bytes(deark *c, de_finfo *fi, const de_byte *name1,
+	de_int64 name1_len, unsigned int conv_flags, int encoding);
 de_int32 de_char_to_valid_fn_char(deark *c, de_int32 c1);
 
 de_ucstring *ucstring_create(deark *c);

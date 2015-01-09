@@ -332,7 +332,7 @@ de_int32 de_char_to_valid_fn_char(deark *c, de_int32 ch)
 // Create a sanitized filename (utf-8 encoded).
 // s1 is not NUL terminated, but s2 will be.
 // s2_size includes the NUL terminator.
-// TODO: This function needs a lot of work.
+// TODO: This function is deprecated, and should be removed.
 void de_make_filename(deark *c, const de_byte *s1, de_int64 s1_len,
 	char *s2, de_int64 s2_size, unsigned int conv_flags)
 {

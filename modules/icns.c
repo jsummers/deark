@@ -263,7 +263,7 @@ static void do_extract_png_or_jp2(deark *c, lctx *d)
 	de_read(buf, d->image_pos, sizeof(buf));
 
 	fi = de_finfo_create(c);
-	de_finfo_set_name_from_sz(c, fi, d->filename_token);
+	de_finfo_set_name_from_sz(c, fi, d->filename_token, DE_ENCODING_ASCII);
 
 	if(buf[4]=='j' && buf[5]=='P') {
 		dbuf_create_file_from_slice(c->infile, d->image_pos, d->image_len, "jp2", fi);

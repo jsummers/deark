@@ -144,9 +144,9 @@ static void do_extract_files(deark *c, lctx *d)
 	dbuf_read(f, (de_byte*)(filename_buf+5), pos, name_len);
 	filename_buf[5+name_len] = '\0';
 	de_memcpy(filename_buf, "rsrc.", 5);
-	de_finfo_set_name_from_sz(c, fi_r, filename_buf);
+	de_finfo_set_name_from_sz(c, fi_r, filename_buf, DE_ENCODING_ASCII);
 	de_memcpy(filename_buf, "data.", 5);
-	de_finfo_set_name_from_sz(c, fi_d, filename_buf);
+	de_finfo_set_name_from_sz(c, fi_d, filename_buf, DE_ENCODING_ASCII);
 
 	pos+=name_len;
 	pos+=1; // Skip the 0x00 byte after the name.

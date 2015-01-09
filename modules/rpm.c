@@ -210,7 +210,7 @@ static void de_run_rpm(deark *c, const char *params)
 		fi = de_finfo_create(c);
 		de_snprintf(filename, sizeof(filename), "%s-%s.%s",
 			d->name, d->version, d->release);
-		de_finfo_set_name_from_sz(c, fi, filename);
+		de_finfo_set_name_from_sz(c, fi, filename, DE_ENCODING_ASCII);
 	}
 
 	dbuf_create_file_from_slice(c->infile, pos, c->infile->len - pos, ext, fi);
