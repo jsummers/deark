@@ -669,17 +669,15 @@ void de_finfo_set_name_from_ucstring(deark *c, de_finfo *fi, de_ucstring *s)
 	fi->file_name[fnlen] = '\0';
 }
 
-// Supported encodings: ASCII, LATIN1
-void de_finfo_set_name_from_bytes(deark *c, de_finfo *fi,
-	const de_byte *name1, de_int64 name1_len,
+// Caller allocates 'fname'.
+// If it is not empty, filename will be appended to it.
+static void de_bytes_to_filename_component_ucstring(deark *c,
+	const de_byte *name1, de_int64 name1_len, de_ucstring *fname,
 	unsigned int conv_flags, int encoding)
 {
 	de_int64 i;
-	de_ucstring *fname = NULL;
 	de_byte ch;
 	de_int32 uchar;
-
-	fname = ucstring_create(c);
 
 	for(i=0; i<name1_len; i++) {
 		ch = name1[i];
@@ -696,6 +694,19 @@ void de_finfo_set_name_from_bytes(deark *c, de_finfo *fi,
 		}
 		ucstring_append_char(fname, uchar);
 	}
+}
+
+// Supported encodings: ASCII, LATIN1
+void de_finfo_set_name_from_bytes(deark *c, de_finfo *fi,
+	const de_byte *name1, de_int64 name1_len,
+	unsigned int conv_flags, int encoding)
+{
+	de_ucstring *fname = NULL;
+
+	fname = ucstring_create(c);
+
+	de_bytes_to_filename_component_ucstring(c, name1, name1_len,
+		fname, conv_flags, encoding);
 
 	de_finfo_set_name_from_ucstring(c, fi, fname);
 

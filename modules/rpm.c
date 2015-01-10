@@ -134,16 +134,6 @@ static int do_header_structure(deark *c, lctx *d, int is_sig, de_int64 pos1,
 	return 1;
 }
 
-static int do_signature_section(deark *c, lctx *d, de_int64 pos1, de_int64 *section_size)
-{
-	return do_header_structure(c, d, 1, pos1, section_size);
-}
-
-static int do_header_section(deark *c, lctx *d, de_int64 pos1, de_int64 *section_size)
-{
-	return do_header_structure(c, d, 0, pos1, section_size);
-}
-
 static void de_run_rpm(deark *c, const char *params)
 {
 	lctx *d = NULL;
@@ -162,7 +152,7 @@ static void de_run_rpm(deark *c, const char *params)
 
 	pos = 96;
 
-	if(!do_signature_section(c, d, pos, &section_size)) {
+	if(!do_header_structure(c, d, 1, pos, &section_size)) {
 		goto done;
 	}
 	pos += section_size;
@@ -172,7 +162,7 @@ static void de_run_rpm(deark *c, const char *params)
 	// sure the second one is aligned.
 	pos = ((pos + 7)/8)*8;
 
-	if(!do_header_section(c, d, pos, &section_size)) {
+	if(!do_header_structure(c, d, 0, pos, &section_size)) {
 		goto done;
 	}
 	pos += section_size;

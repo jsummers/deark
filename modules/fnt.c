@@ -28,7 +28,8 @@ typedef struct localctx_struct {
 
 	de_int64 dfPoints;
 	de_int64 dfFace; // Offset of font face name
-	char fn_token[64];
+
+	de_finfo *fi;
 } lctx;
 
 static void do_render_char(deark *c, lctx *d, struct deark_bitmap *img,
@@ -94,7 +95,6 @@ static void do_make_image(deark *c, lctx *d)
 	de_int64 img_width, img_height;
 	de_byte clr;
 	struct deark_bitmap *img = NULL;
-	const char *fn_token = NULL;
 
 	if(d->nominal_char_width>128 || d->char_height>128) {
 		de_err(c, "Font size too big. Not supported.\n");
@@ -138,10 +138,7 @@ static void do_make_image(deark *c, lctx *d)
 		do_render_char(c, d, img, d->first_char + i, char_width, char_offset);
 	}
 
-	if(de_strlen(d->fn_token)) {
-		fn_token = d->fn_token;
-	}
-	de_bitmap_write_to_file(img, fn_token);
+	de_bitmap_write_to_file_finfo(img, d->fi);
 
 done:
 	de_bitmap_destroy(img);
@@ -149,23 +146,27 @@ done:
 
 static void read_face_name(deark *c, lctx *d)
 {
-	char facename_for_fn[50];
-	de_byte buf[50];
+	char buf[50];
+	char buf2[50];
 
 	if(d->dfFace<1) return;
 
-	// The facename is terminated with a NUL byte.
-	// This will be handled by de_make_filename().
-	de_read(buf, d->dfFace, sizeof(buf));
+	if(c->filenames_from_file) {
+		// The facename is terminated with a NUL byte.
+		// There seems to be no defined limit to its length, but Windows font face
+		// names traditionally have to be quite short.
+		dbuf_read_sz(c->infile, d->dfFace, buf, sizeof(buf));
+		de_snprintf(buf2, sizeof(buf2), "%s-%d", buf, (int)d->dfPoints);
+	}
+	else {
+		de_snprintf(buf2, sizeof(buf2), "%d", (int)d->dfPoints);
+	}
 
-	de_make_filename(c, buf, sizeof(buf), facename_for_fn,
-		sizeof(facename_for_fn), DE_CONVFLAG_STOP_AT_NUL);
-
-	de_snprintf(d->fn_token, sizeof(d->fn_token), "%s-%d", facename_for_fn,
-		(int)d->dfPoints);
+	d->fi = de_finfo_create(c);
+	de_finfo_set_name_from_sz(c, d->fi, buf2, DE_ENCODING_ASCII);
 }
 
-static void do_read_header(deark *c, lctx *d)
+static int do_read_header(deark *c, lctx *d)
 {
 	de_int64 dfType;
 	de_byte dfCharSet;
@@ -173,6 +174,7 @@ static void do_read_header(deark *c, lctx *d)
 	de_int64 dfPixHeight;
 	de_int64 dfMaxWidth;
 	int is_vector = 0;
+	int retval = 0;
 
 	d->fnt_version = de_getui16le(0);
 	de_dbg(c, "dfVersion: 0x%04x\n", (int)d->fnt_version);
@@ -247,12 +249,9 @@ static void do_read_header(deark *c, lctx *d)
 	}
 	d->char_height = dfPixHeight;
 
-	read_face_name(c, d);
-
-	do_make_image(c, d);
-
+	retval = 1;
 done:
-	;
+	return retval;
 }
 
 static void de_run_fnt(deark *c, const char *params)
@@ -261,7 +260,11 @@ static void de_run_fnt(deark *c, const char *params)
 
 	de_dbg(c, "In fnt module\n");
 	d = de_malloc(c, sizeof(lctx));
-	do_read_header(c, d);
+	if(!do_read_header(c, d)) goto done;
+	read_face_name(c, d);
+	do_make_image(c, d);
+done:
+	de_finfo_destroy(c, d->fi);
 	de_free(c, d);
 }
 

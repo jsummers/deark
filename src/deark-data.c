@@ -329,47 +329,7 @@ de_int32 de_char_to_valid_fn_char(deark *c, de_int32 ch)
 	return '_';
 }
 
-// Create a sanitized filename (utf-8 encoded).
-// s1 is not NUL terminated, but s2 will be.
-// s2_size includes the NUL terminator.
-// TODO: This function is deprecated, and should be removed.
-void de_make_filename(deark *c, const de_byte *s1, de_int64 s1_len,
-	char *s2, de_int64 s2_size, unsigned int conv_flags)
-{
-	de_int64 i;
-	de_int64 s2_pos = 0;
-
-	for(i=0; i<s1_len; i++) {
-		if(s1[i]=='\0' && (conv_flags & DE_CONVFLAG_STOP_AT_NUL)) {
-			break;
-		}
-		if(s2_pos < s2_size-1) {
-			if(s1[i]>=128) {
-				// For now, restrict to ASCII.
-				s2[s2_pos++] = '_';
-			}
-			else {
-				s2[s2_pos++] = (char)(unsigned char)de_char_to_valid_fn_char(c, s1[i]);
-			}
-		}
-	}
-
-	// Strip trailing spaces
-	while(s2_pos>0 && s2[s2_pos-1]==' ') {
-		s2_pos--;
-	}
-
-	s2[s2_pos] = '\0';
-
-	// Don't allow empty filenames.
-	if(s2_size>=2 && s2[0]=='\0') {
-		de_strlcpy(s2, "_", (size_t)s2_size);
-	}
-}
-
-
 // de_ucstring is a Unicode (utf-32) string object.
-
 de_ucstring *ucstring_create(deark *c)
 {
 	de_ucstring *s;

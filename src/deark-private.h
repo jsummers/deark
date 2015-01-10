@@ -423,9 +423,6 @@ int de_is_ascii(const de_byte *buf, de_int64 buflen);
 void de_make_printable_ascii(de_byte *s1, de_int64 s1_len,
 	char *s2, de_int64 s2_size, unsigned int conv_flags);
 
-void de_make_filename(deark *c, const de_byte *s1, de_int64 s1_len,
-	char *s2, de_int64 s2_size, unsigned int conv_flags);
-
 de_finfo *de_finfo_create(deark *c);
 void de_finfo_destroy(deark *c, de_finfo *fi);
 void de_finfo_set_name_from_slice(deark *c, de_finfo *fi, dbuf *f,
