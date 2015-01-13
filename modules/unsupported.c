@@ -26,12 +26,6 @@ static void get_fmt(deark *c, struct fmtinfo_struct *fmti)
 
 	de_read(b, 0, sizeof(b));
 
-	if(!de_memcmp(b, "\x89\x50\x4e\x47\x0d\x0a\x1a\x0a", 8)) {
-		fmti->confidence = 90;
-		fmti->descr = "a PNG image file";
-		return;
-	}
-
 	if(!de_memcmp(b, "GIF87a", 6) || !de_memcmp(b, "GIF89a", 6)) {
 		fmti->confidence = 50;
 		fmti->descr = "a GIF image file";

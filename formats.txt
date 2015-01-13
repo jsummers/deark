@@ -206,7 +206,8 @@ Deark -- Information about supported formats
 * SHG and MRB (module="shg") (experimental)
   Segmented Hypergraphics and Multi-Resolution Bitmap formats are used in the
   development of Windows .HLP files.
-  - Converts to BMP format.
+  - Converts bitmap graphics to BMP format.
+  - Extracts WMF files.
   - Does not support LZ77 compression.
 
 * TI calculator "variable" files (module="tivariable")

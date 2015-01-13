@@ -133,14 +133,15 @@ static int do_dib(deark *c, lctx *d, de_int64 pos1)
 	compressed_size = get_cul(c->infile, &pos);
 	hotspot_size = get_cul(c->infile, &pos);
 	compressed_offset = de_getui32le(pos);
+	pos+=4;
 	compressed_offset += pos1;
-	hotspot_offset = de_getui32le(pos+4);
+	hotspot_offset = de_getui32le(pos);
+	pos+=4;
 	hotspot_offset += pos1;
 	de_dbg(c, "bits offset=%d, size=%d\n", (int)compressed_offset,
 		(int)compressed_size);
 	de_dbg(c, "hotspot offset=%d, size=%d\n", (int)hotspot_offset,
 		(int)hotspot_size);
-	pos+=8;
 
 	if(bitcount!=1 && bitcount!=4 && bitcount!=8 && bitcount!=24) {
 		de_err(c, "Unsupported bit count: %d\n", (int)bitcount);
@@ -235,6 +236,61 @@ done:
 	return retval;
 }
 
+static int do_wmf(deark *c, lctx *d, de_int64 pos1)
+{
+	de_int64 pos;
+	de_int64 mapping_mode;
+	de_int64 width, height;
+	de_int64 decompressed_size;
+	de_int64 compressed_size;
+	de_int64 hotspot_size;
+	de_int64 compressed_offset;
+	de_int64 hotspot_offset;
+	dbuf *outf = NULL;
+	int retval = 0;
+
+	pos = pos1 + 2;
+
+	mapping_mode = get_cus(c->infile, &pos);
+	width = de_getui16le(pos);
+	pos+=2;
+	height = de_getui16le(pos);
+	pos+=2;
+	de_dbg(c, "mapping mode: %d, nominal dimensions: %dx%d\n",
+		(int)mapping_mode, (int)width, (int)height);
+	decompressed_size = get_cul(c->infile, &pos);
+	compressed_size = get_cul(c->infile, &pos);
+	hotspot_size = get_cul(c->infile, &pos);
+	compressed_offset = de_getui32le(pos);
+	pos+=4;
+	compressed_offset += pos1;
+	hotspot_offset = de_getui32le(pos);
+	pos+=4;
+	hotspot_offset += pos1;
+
+	de_dbg(c, "wmf offset=%d, size=%d\n", (int)compressed_offset,
+		(int)compressed_size);
+	de_dbg(c, "hotspot offset=%d, size=%d\n", (int)hotspot_offset,
+		(int)hotspot_size);
+	if(compressed_offset+compressed_size>c->infile->len) {
+		de_err(c, "WMF data goes beyond end of file\n");
+		goto done;
+	}
+
+	outf = dbuf_create_output_file(c, "wmf", 0);
+	do_uncompress_rle(c, d, outf, compressed_offset, compressed_size);
+
+	if(outf->len != decompressed_size) {
+		de_warn(c, "Expected %d bytes after decompression, got %d\n",
+			(int)decompressed_size, (int)outf->len);
+	}
+
+	retval = 1;
+done:
+	dbuf_close(outf);
+	return retval;
+}
+
 static int do_picture(deark *c, lctx *d, de_int64 pic_index)
 {
 	de_int64 pic_offset;
@@ -259,6 +315,9 @@ static int do_picture(deark *c, lctx *d, de_int64 pic_index)
 
 	if(d->picture_type==5 || d->picture_type==6) { // DDB or DIB
 		do_dib(c, d, pic_offset);
+	}
+	else if(d->picture_type==8) { // WMF
+		do_wmf(c, d, pic_offset);
 	}
 	else {
 		de_warn(c, "Unsupported picture type: %d\n", (int)d->picture_type);

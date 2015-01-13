@@ -434,6 +434,7 @@ void dbuf_write(dbuf *f, const de_byte *m, de_int64 len)
 
 	de_dbg2(f->c, "Writing %d bytes to %s\n", (int)len, f->name);
 	fwrite(m, 1, (size_t)len, f->fp);
+	f->len += len;
 }
 
 void dbuf_writebyte(dbuf *f, de_byte n)
