@@ -813,7 +813,7 @@ void de_module_vbm(deark *c, struct deark_module_info *mi)
 // PFS: 1st Publisher clip art (.ART)
 // **************************************************************************
 
-static void de_run_fpart(deark *c, const char *params)
+static void de_run_fp_art(deark *c, const char *params)
 {
 	de_int64 width, height;
 	de_int64 rowspan;
@@ -824,7 +824,7 @@ static void de_run_fpart(deark *c, const char *params)
 	de_convert_and_write_image_bilevel(c->infile, 8, width, height, rowspan, 0, NULL);
 }
 
-static int de_identify_fpart(deark *c)
+static int de_identify_fp_art(deark *c)
 {
 	de_int64 width, height;
 	de_int64 rowspan;
@@ -841,11 +841,11 @@ static int de_identify_fpart(deark *c)
 	return 0;
 }
 
-void de_module_fpart(deark *c, struct deark_module_info *mi)
+void de_module_fp_art(deark *c, struct deark_module_info *mi)
 {
-	mi->id = "fpart";
-	mi->run_fn = de_run_fpart;
-	mi->identify_fn = de_identify_fpart;
+	mi->id = "fp_art";
+	mi->run_fn = de_run_fp_art;
+	mi->identify_fn = de_identify_fp_art;
 }
 
 // **************************************************************************

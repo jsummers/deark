@@ -153,25 +153,25 @@ void de_module_pgx(deark *c, struct deark_module_info *mi)
 // Portfolio PGF
 // **************************************************************************
 
-static void de_run_pfpgf(deark *c, const char *params)
+static void de_run_pf_pgf(deark *c, const char *params)
 {
 	de_declare_fmt(c, "PGF (Portfolio graphics)");
 	de_convert_and_write_image_bilevel(c->infile, 0, 240, 64, 240/8,
 		DE_CVTF_WHITEISZERO, NULL);
 }
 
-static int de_identify_pfpgf(deark *c)
+static int de_identify_pf_pgf(deark *c)
 {
 	if(c->infile->len != 1920) return 0;
 	if(!de_input_file_has_ext(c, "pgf")) return 0;
 	return 90;
 }
 
-void de_module_pfpgf(deark *c, struct deark_module_info *mi)
+void de_module_pf_pgf(deark *c, struct deark_module_info *mi)
 {
-	mi->id = "pfpgf";
-	mi->run_fn = de_run_pfpgf;
-	mi->identify_fn = de_identify_pfpgf;
+	mi->id = "pf_pgf";
+	mi->run_fn = de_run_pf_pgf;
+	mi->identify_fn = de_identify_pf_pgf;
 }
 
 // **************************************************************************

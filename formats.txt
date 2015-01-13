@@ -17,7 +17,7 @@ Deark -- Information about supported formats
 
 * Apple volume label image (module="applevol")
 
-* ART - PFS: 1st Publisher clip art (module="fpart")
+* ART - PFS: 1st Publisher clip art (module="fp_art")
 
 * Award BIOS logo (EPA, AWBM) (module="awbm") (experimental)
   - Supports version 1
@@ -154,7 +154,7 @@ Deark -- Information about supported formats
 
 * PGC (Portfolio graphics compressed) (module="pgc")
 
-* PGF (Portfolio graphics) (module="pfpgf")
+* PGF (Portfolio graphics) (module="pf_pgf")
 
 * PGX (Portfolio graphics animation) (module="pgx")
   - Extract embedded PGC images.
