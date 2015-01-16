@@ -165,10 +165,7 @@ static void de_run_jpeg2000(deark *c, const char *params)
 
 static int de_identify_jpeg2000(deark *c)
 {
-	de_byte buf[12];
-	de_read(buf, 0, 12);
-
-	if(!de_memcmp(buf, "\x00\x00\x00\x0c\x6a\x50\x20\x20\x0d\x0a\x87\x0a", 12))
+	if(!dbuf_memcmp(c->infile, 0, "\x00\x00\x00\x0c\x6a\x50\x20\x20\x0d\x0a\x87\x0a", 12))
 		return 100;
 	return 0;
 }

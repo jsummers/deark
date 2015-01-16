@@ -402,7 +402,8 @@ static int de_identify_pcx(deark *c)
 
 	de_read(buf, 0, 8);
 	if(buf[0]==0x0a && (buf[1]==0 || buf[1]==2 || buf[1]==3
-		|| buf[1]==4 || buf[1]==5))
+		|| buf[1]==4 || buf[1]==5) &&
+		(buf[2]==0 || buf[2]==1) )
 	{
 		if(de_input_file_has_ext(c, "pcx"))
 			return 100;

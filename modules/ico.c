@@ -1,5 +1,4 @@
 // This file is part of Deark, by Jason Summers.
-
 // This software is in the public domain. See the file COPYING for details.
 
 #include <deark-config.h>
