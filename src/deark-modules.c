@@ -49,6 +49,7 @@ void de_register_modules(deark *c)
 		de_module_pgx,
 		de_module_bpg,
 		de_module_fnt,
+		de_module_ar,
 		de_module_hpicn,
 		de_module_macpaint,
 		de_module_nol,

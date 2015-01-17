@@ -414,6 +414,10 @@
 				>
 			</File>
 			<File
+				RelativePath="..\..\modules\ar.c"
+				>
+			</File>
+			<File
 				RelativePath="..\..\modules\atari.c"
 				>
 			</File>
