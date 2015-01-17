@@ -332,6 +332,9 @@ void dbuf_set_max_length(dbuf *f, de_int64 max_len);
 // See comments for dbuf_getui32().
 void dbuf_set_endianness(dbuf *f, int is_le);
 
+int dbuf_search_byte(dbuf *f, const de_byte b, de_int64 startpos,
+	de_int64 haystack_len, de_int64 *foundpos);
+
 int dbuf_search(dbuf *f, const de_byte *needle, de_int64 needle_len,
 	de_int64 startpos, de_int64 haystack_len, de_int64 *foundpos);
 

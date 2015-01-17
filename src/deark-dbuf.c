@@ -595,6 +595,25 @@ void dbuf_empty(dbuf *f)
 	}
 }
 
+// Search a section of a dbuf for a given byte.
+// 'haystack_len' is the number of bytes to search.
+// Returns 0 if not found.
+// If found, sets *foundpos to the position in the file where it was found
+// (not relative to startpos).
+int dbuf_search_byte(dbuf *f, const de_byte b, de_int64 startpos,
+	de_int64 haystack_len, de_int64 *foundpos)
+{
+	de_int64 i;
+
+	for(i=0; i<haystack_len; i++) {
+		if(b == dbuf_getbyte(f, startpos+i)) {
+			*foundpos = startpos+i;
+			return 1;
+		}
+	}
+	return 0;
+}
+
 // Search a section of a dbuf for a given byte sequence.
 // 'haystack_len' is the number of bytes to search in (the sequence must be completely
 // within that range, not just start there).
