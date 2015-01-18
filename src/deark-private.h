@@ -215,6 +215,8 @@ void de_warn(deark *c, const char *fmt, ...)
 FILE* de_fopen(deark *c, const char *fn, const char *mode,
 	char *errmsg, size_t errmsg_len);
 
+int de_fclose(FILE *fp);
+
 int de_get_file_size(FILE *fp, de_int64 *pfsize);
 
 void de_declare_fmt(deark *c, const char *fmtname);

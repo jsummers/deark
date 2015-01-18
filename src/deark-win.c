@@ -17,7 +17,35 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 
-#include "deark.h"
+#include "deark-private.h"
+
+int de_strcasecmp(const char *a, const char *b)
+{
+	return _stricmp(a, b);
+}
+
+void de_vsnprintf(char *buf, size_t buflen, const char *fmt, va_list ap)
+{
+	_vsnprintf_s(buf,buflen,_TRUNCATE,fmt,ap);
+	buf[buflen-1]='\0';
+}
+
+char *de_strdup(deark *c, const char *s)
+{
+	char *s2;
+
+	s2 = _strdup(s);
+	if(!s2) {
+		de_err(c, "Memory allocation failed\n");
+		de_fatalerror(c);
+	}
+	return s2;
+}
+
+de_int64 de_strtoll(const char *string, char **endptr, int base)
+{
+	return _strtoi64(string, endptr, base);
+}
 
 static char *de_utf16_to_utf8_strdup(deark *c, const WCHAR *src)
 {
@@ -84,6 +112,11 @@ FILE* de_fopen(deark *c, const char *fn, const char *mode,
 		f=NULL;
 	}
 	return f;
+}
+
+int de_fclose(FILE *fp)
+{
+	return fclose(fp);
 }
 
 int de_get_file_size(FILE *fp, de_int64 *pfsize)

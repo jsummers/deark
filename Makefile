@@ -19,7 +19,7 @@ OFILES_MODS:=$(addprefix $(OBJDIR)/modules/,os2bmp.o eps.o bsave.o ilbm.o \
  ar.o unsupported.o)
 OFILES_MODUTILS:=$(addprefix $(OBJDIR)/modules/,fmtutil.o)
 OFILES_LIB:=$(addprefix $(OBJDIR)/src/,deark-miniz.o deark-util.o deark-data.o \
- deark-dbuf.o deark-bitmap.o deark-core.o deark-modules.o)
+ deark-dbuf.o deark-bitmap.o deark-core.o deark-modules.o deark-unix.o)
 OFILES_ALL:=$(OBJDIR)/src/deark-cmd.o $(OFILES_LIB) $(OFILES_MODS) \
  $(OFILES_MODUTILS)
 

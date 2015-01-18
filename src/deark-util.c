@@ -9,13 +9,6 @@
 #include <string.h>
 #include <stdarg.h>
 
-#include <sys/stat.h>
-#include <sys/types.h>
-#ifndef DE_WINDOWS
-#include <unistd.h>
-#include <errno.h>
-#endif
-
 #include "deark-private.h"
 
 char *de_get_version_string(char *buf, size_t bufsize)
@@ -81,28 +74,9 @@ size_t de_strlen(const char *s)
 	return strlen(s);
 }
 
-int de_strcasecmp(const char *a, const char *b)
-{
-#ifdef DE_WINDOWS
-	return _stricmp(a, b);
-#else
-	return strcasecmp(a, b);
-#endif
-}
-
 void de_memset(void *dst, int x, size_t len)
 {
 	memset(dst, x, len);
-}
-
-void de_vsnprintf(char *buf, size_t buflen, const char *fmt, va_list ap)
-{
-#ifdef DE_WINDOWS
-	_vsnprintf_s(buf,buflen,_TRUNCATE,fmt,ap);
-#else
-	vsnprintf(buf,buflen,fmt,ap);
-#endif
-	buf[buflen-1]='\0';
 }
 
 void de_snprintf(char *buf, size_t buflen, const char *fmt, ...)
@@ -277,21 +251,6 @@ void *de_realloc(deark *c, void *oldmem, de_int64 oldsize, de_int64 newsize)
 	}
 
 	return newmem;
-}
-
-char *de_strdup(deark *c, const char *s)
-{
-	char *s2;
-#ifdef DE_WINDOWS
-	s2 = _strdup(s);
-#else
-	s2 = strdup(s);
-#endif
-	if(!s2) {
-		de_err(c, "Memory allocation failed\n");
-		de_fatalerror(c);
-	}
-	return s2;
 }
 
 void de_free(deark *c, void *m)
@@ -506,51 +465,10 @@ int de_atoi(const char *string)
 	return atoi(string);
 }
 
-de_int64 de_strtoll(const char *string, char **endptr, int base)
-{
-#ifdef DE_WINDOWS
-	return _strtoi64(string, endptr, base);
-#else
-	return strtoll(string, endptr, base);
-#endif
-}
-
 de_int64 de_atoi64(const char *string)
 {
 	return de_strtoll(string, NULL, 10);
 }
-
-#ifndef DE_WINDOWS
-// The Windows implementation of this function is in deark-win.c.
-FILE* de_fopen(deark *c, const char *fn, const char *mode,
-	char *errmsg, size_t errmsg_len)
-{
-	FILE *f;
-	int errcode;
-
-	f = fopen(fn, mode);
-	if(!f) {
-		errcode = errno;
-		de_strlcpy(errmsg, strerror(errcode), errmsg_len);
-	}
-	return f;
-}
-#endif
-
-#ifndef DE_WINDOWS
-// The Windows implementation of this function is in deark-win.c.
-int de_get_file_size(FILE *fp, de_int64 *pfsize)
-{
-	struct stat stbuf;
-
-	if(fstat(fileno(fp),&stbuf)==0) {
-		*pfsize = stbuf.st_size;
-		return 1;
-	}
-	*pfsize = 0;
-	return 0;
-}
-#endif
 
 de_int64 de_log2_rounded_up(de_int64 n)
 {

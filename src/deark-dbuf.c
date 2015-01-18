@@ -583,7 +583,7 @@ void dbuf_close(dbuf *f)
 		if(f->name) {
 			de_dbg(c, "Closing file %s\n", f->name);
 		}
-		fclose(f->fp);
+		de_fclose(f->fp);
 	}
 	f->fp = NULL;
 
