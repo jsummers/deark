@@ -584,8 +584,12 @@ void dbuf_close(dbuf *f)
 			de_dbg(c, "Closing file %s\n", f->name);
 		}
 		de_fclose(f->fp);
+		f->fp = NULL;
+
+		if(f->btype==DBUF_TYPE_OFILE && c->preserve_file_times) {
+			de_update_file_time(f);
+		}
 	}
-	f->fp = NULL;
 
 	de_free(c, f->membuf_buf);
 	de_free(c, f->name);

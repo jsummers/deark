@@ -84,7 +84,7 @@ static void set_ext_option(deark *c, struct cmdctx *cc, const char *optionstring
 
 enum opt_id_enum {
  DE_OPT_NULL=0, DE_OPT_D, DE_OPT_D2, DE_OPT_L, DE_OPT_NOINFO, DE_OPT_NOWARN,
- DE_OPT_NOBOM, DE_OPT_NODENS, DE_OPT_NONAMES,
+ DE_OPT_NOBOM, DE_OPT_NODENS, DE_OPT_NONAMES, DE_OPT_MODTIME, DE_OPT_NOMODTIME,
  DE_OPT_Q, DE_OPT_VERSION, DE_OPT_EXTRACTALL, DE_OPT_ZIP,
  DE_OPT_EXTOPT, DE_OPT_START, DE_OPT_SIZE, DE_OPT_M, DE_OPT_O,
  DE_OPT_ARCFN, DE_OPT_GET, DE_OPT_FIRSTFILE, DE_OPT_MAXFILES
@@ -105,6 +105,8 @@ struct opt_struct option_array[] = {
 	{ "nobom",        DE_OPT_NOBOM,        0 },
 	{ "nodens",       DE_OPT_NODENS,       0 },
 	{ "nonames",      DE_OPT_NONAMES,      0 },
+	{ "modtime",      DE_OPT_MODTIME,      0 },
+	{ "nomodtime",    DE_OPT_NOMODTIME,    0 },
 	{ "q",            DE_OPT_Q,            0 },
 	{ "version",      DE_OPT_VERSION,      0 },
 	{ "extractall",   DE_OPT_EXTRACTALL,   0 },
@@ -177,6 +179,12 @@ static void parse_cmdline(deark *c, struct cmdctx *cc, int argc, char **argv)
 				break;
 			case DE_OPT_NONAMES:
 				de_set_filenames_from_file(c, 0);
+				break;
+			case DE_OPT_MODTIME:
+				de_set_preserve_file_times(c, 1);
+				break;
+			case DE_OPT_NOMODTIME:
+				de_set_preserve_file_times(c, 0);
 				break;
 			case DE_OPT_Q:
 				de_set_messages(c, 0);

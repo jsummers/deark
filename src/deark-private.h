@@ -152,6 +152,7 @@ struct deark_struct {
 	int write_bom;
 	int write_density;
 	int filenames_from_file;
+	int preserve_file_times;
 
 	de_msgfn_type msgfn; // Caller's message output function
 	de_fatalerrorfn_type fatalerrorfn;
@@ -218,6 +219,8 @@ FILE* de_fopen(deark *c, const char *fn, const char *mode,
 int de_fclose(FILE *fp);
 
 int de_get_file_size(FILE *fp, de_int64 *pfsize);
+
+void de_update_file_time(dbuf *f);
 
 void de_declare_fmt(deark *c, const char *fmtname);
 

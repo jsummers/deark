@@ -82,6 +82,8 @@ void de_set_write_density(deark *c, int x);
 // should we use it?
 void de_set_filenames_from_file(deark *c, int x);
 
+void de_set_preserve_file_times(deark *c, int x);
+
 void de_set_ext_option(deark *c, const char *name, const char *val);
 const char *de_get_ext_option(deark *c, const char *name);
 

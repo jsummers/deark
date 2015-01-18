@@ -16,6 +16,7 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <sys/utime.h>
 
 #include "deark-private.h"
 
@@ -129,6 +130,26 @@ int de_get_file_size(FILE *fp, de_int64 *pfsize)
 	}
 	*pfsize = 0;
 	return 0;
+}
+
+void de_update_file_time(dbuf *f)
+{
+	WCHAR *fnW;
+	struct __utimbuf64 times;
+	deark *c;
+
+	if(f->btype!=DBUF_TYPE_OFILE) return;
+	if(!f->mod_time_valid) return;
+	if(!f->name) return;
+	c = f->c;
+
+	fnW = de_utf8_to_utf16_strdup(c, f->name);
+
+	times.modtime = f->mod_time;
+	times.actime = times.modtime;
+	_wutime64(fnW, &times);
+
+	de_free(c, fnW);
 }
 
 char **de_convert_args_to_utf8(int argc, wchar_t **argvW)

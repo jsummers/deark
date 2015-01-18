@@ -14,6 +14,7 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
+#include <utime.h>
 #include <errno.h>
 
 #include "deark-private.h"
@@ -75,4 +76,21 @@ int de_get_file_size(FILE *fp, de_int64 *pfsize)
 	}
 	*pfsize = 0;
 	return 0;
+}
+
+void de_update_file_time(dbuf *f)
+{
+	struct utimbuf times;
+
+	if(f->btype!=DBUF_TYPE_OFILE) return;
+	if(!f->mod_time_valid) return;
+	if(!f->name) return;
+
+	// I know that this code is not Y2038-compliant, if sizeof(time_t)==4.
+	// But it's not likely to be a serious problem, and I'd rather not replace
+	// it with code that's less portable.
+
+	times.modtime = f->mod_time;
+	times.actime = times.modtime;
+	utime(f->name, &times);
 }

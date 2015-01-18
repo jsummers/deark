@@ -267,6 +267,7 @@ deark *de_create(void)
 	c->write_bom = 1;
 	c->write_density = 1;
 	c->filenames_from_file = 1;
+	c->preserve_file_times = 0;
 	c->max_output_files = -1;
 	return c;
 }
@@ -392,6 +393,11 @@ void de_set_write_density(deark *c, int x)
 void de_set_filenames_from_file(deark *c, int x)
 {
 	c->filenames_from_file = x;
+}
+
+void de_set_preserve_file_times(deark *c, int x)
+{
+	c->preserve_file_times = x;
 }
 
 struct deark_module_info *de_get_module_by_id(deark *c, const char *module_id)

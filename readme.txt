@@ -53,6 +53,14 @@ Command-line options:
      Makes Deark less likely to try to improve output filenames by using names
      from the contents of the input file. This is mainly intended for certain
      image formats where such names may or may not be meaningful.
+  -modtime
+  -nomodtime
+     Do / Do not try to preserve the modification timestamp of extracted files.
+     This is only supported for a few formats. Off by default, but may be
+     enabled by default in future versions.
+     Note that if you are extracting to a system that does not store timestamps
+     in UTC (often the case on Windows), the timestamps may not be very
+     accurate.
   -opt <module:option>=<value>
      Module-specific options. See formats.txt.
   -version
