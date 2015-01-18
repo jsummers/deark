@@ -13,10 +13,13 @@ typedef struct localctx_struct {
 	de_int64 width, height;
 	de_int64 planes;
 	de_byte found_bmhd;
+	de_byte found_cmap;
 	de_byte compression;
 
 	de_int64 rowspan;
 	de_int64 x_aspect, y_aspect;
+
+	de_uint32 pal[256];
 } lctx;
 
 #define CODE_FORM  0x464f524d
@@ -63,6 +66,20 @@ static int do_bmhd(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 	retval = 1;
 done:
 	return retval;
+}
+
+static void do_cmap(deark *c, lctx *d, de_int64 pos, de_int64 len)
+{
+	de_int64 ncolors;
+	de_int64 k;
+
+	d->found_cmap = 1;
+	ncolors = len/3;
+	if(ncolors>256) ncolors=256;
+
+	for(k=0; k<ncolors; k++) {
+		d->pal[k] = dbuf_getRGB(c->infile, pos+3*k, 0);
+	}
 }
 
 static int do_uncompress_rle(deark *c, lctx *d, de_int64 pos1, de_int64 len,
@@ -120,7 +137,15 @@ static void do_deplanarize(deark *c, lctx *d, const de_byte *row_orig,
 
 	de_memset(row_deplanarized, 0, d->rowspan);
 
-	if(d->planes==24) {
+	if(d->planes==8) {
+		for(i=0; i<d->width; i++) {
+			for(bit=0; bit<8; bit++) {
+				b = getbit(row_orig, bit*d->width +i);
+				if(b) row_deplanarized[i] |= (1<<bit);
+			}
+		}
+	}
+	else if(d->planes==24) {
 		for(i=0; i<d->width; i++) {
 			for(sample=0; sample<3; sample++) {
 				for(bit=0; bit<8; bit++) {
@@ -174,12 +199,54 @@ static void do_image_24(deark *c, lctx *d, dbuf *unc_pixels)
 	de_free(c, row_deplanarized);
 }
 
+static void do_image_8(deark *c, lctx *d, dbuf *unc_pixels)
+{
+	struct deark_bitmap *img = NULL;
+	de_int64 i, j;
+	de_byte *row_orig = NULL;
+	de_byte *row_deplanarized = NULL;
+	de_byte palent;
+
+	if(!d->found_cmap) {
+		de_err(c, "Missing CMAP chunk\n");
+		goto done;
+	}
+
+	d->rowspan = d->width;
+	row_orig = de_malloc(c, d->rowspan);
+	row_deplanarized = de_malloc(c, d->rowspan);
+
+	img = de_bitmap_create(c, d->width, d->height, 3);
+	set_density(c, d, img);
+
+	for(j=0; j<d->height; j++) {
+		dbuf_read(unc_pixels, row_orig, j*d->rowspan, d->rowspan);
+		do_deplanarize(c, d, row_orig, row_deplanarized);
+
+		for(i=0; i<d->width; i++) {
+			palent = row_deplanarized[i];
+			de_bitmap_setpixel_rgb(img, i, j, d->pal[(unsigned int)palent]);
+		}
+	}
+
+	de_bitmap_write_to_file(img, NULL);
+done:
+	de_bitmap_destroy(img);
+	de_free(c, row_orig);
+	de_free(c, row_deplanarized);
+}
+
 static void do_body(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 {
 	dbuf *unc_pixels = NULL;
 
 	if(!d->found_bmhd) {
 		de_err(c, "Missing BMHD chunk\n");
+		goto done;
+	}
+
+	if(d->formtype != CODE_ILBM) {
+		de_err(c, "This image format is not supported\n");
 		goto done;
 	}
 
@@ -197,7 +264,10 @@ static void do_body(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 		goto done;
 	}
 
-	if(d->planes==24) {
+	if(d->planes==8) {
+		do_image_8(c, d, unc_pixels);
+	}
+	else if(d->planes==24) {
 		do_image_24(c, d, unc_pixels);
 	}
 	else {
@@ -243,6 +313,7 @@ static int do_chunk(deark *c, lctx *d, de_int64 pos, de_int64 bytes_avail,
 
 	switch(ct) {
 	case CODE_BODY:
+		if(d->level!=1) break;
 		do_body(c, d, chunk_data_pos, chunk_data_len);
 
 		// A lot of ILBM files have padding or garbage data at the end of the file
@@ -252,10 +323,16 @@ static int do_chunk(deark *c, lctx *d, de_int64 pos, de_int64 bytes_avail,
 		break;
 
 	case CODE_BMHD:
+		if(d->level!=1) break;
 		if(!do_bmhd(c, d, chunk_data_pos, chunk_data_len)) {
 			errflag = 1;
 			goto done;
 		}
+		break;
+
+	case CODE_CMAP:
+		if(d->level!=1) break;
+		do_cmap(c, d, chunk_data_pos, chunk_data_len);
 		break;
 
 	case CODE_FORM:

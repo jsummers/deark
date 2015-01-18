@@ -133,6 +133,11 @@ int de_write_png(deark *c, struct deark_bitmap *img, dbuf *f)
 		}
 	}
 
+	if(xdens && xdens==ydens && img->density_code==1) {
+		// Useless density information. Don't bother to write it.
+		xdens=0;
+	}
+
 	// Detect likely-bogus density settings.
 	// Note: Density is considered to be valid if xdens>0.
 	if(xdens>0) {
