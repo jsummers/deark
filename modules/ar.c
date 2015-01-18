@@ -59,6 +59,8 @@ static int do_ar_item(deark *c, lctx *d, de_int64 pos1, de_int64 *p_item_len)
 
 	mod_time = read_decimal(c, pos1+16, 12);
 	de_dbg(c, "mod time: %" INT64_FMT "\n", mod_time);
+	fi->mod_time_valid = 1;
+	fi->mod_time = mod_time;
 
 	file_offset = pos1 + 60;
 	file_size = read_decimal(c, pos1+48, 10);

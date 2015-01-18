@@ -69,13 +69,17 @@ struct dbuf_struct {
 	de_int64 cache2_start_pos;
 	de_int64 cache2_bytes_used;
 	de_byte cache2[1];
+
+	de_byte mod_time_valid;
+	de_int64 mod_time;
 };
 typedef struct dbuf_struct dbuf;
 
 // Extended information about a file to be written.
 struct de_finfo_struct {
 	char *file_name; // utf-8 encoded
-	// TODO: modification time
+	de_int64 mod_time; // Unix time_t format
+	de_byte mod_time_valid;
 };
 typedef struct de_finfo_struct de_finfo;
 

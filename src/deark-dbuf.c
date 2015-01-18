@@ -344,6 +344,11 @@ dbuf *dbuf_create_output_file(deark *c, const char *ext, de_finfo *fi)
 	f->name = de_strdup(c, nbuf);
 	f->c = c;
 
+	if(fi && fi->mod_time_valid) {
+		f->mod_time_valid = fi->mod_time_valid;
+		f->mod_time = fi->mod_time;
+	}
+
 	if(file_index < c->first_output_file) {
 		return f;
 	}
