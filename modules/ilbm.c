@@ -8,8 +8,15 @@
 
 typedef struct localctx_struct {
 	int level;
-
 	de_uint32 formtype;
+
+	de_int64 width, height;
+	de_int64 planes;
+	de_byte found_bmhd;
+	de_byte compression;
+
+	de_int64 rowspan;
+	de_int64 x_aspect, y_aspect;
 } lctx;
 
 #define CODE_FORM  0x464f524d
@@ -31,6 +38,176 @@ static void make_printable_code(de_uint32 code, char *buf, size_t buf_size)
 	de_make_printable_ascii(s1, 4, buf, buf_size, 0);
 }
 
+static int do_bmhd(deark *c, lctx *d, de_int64 pos1, de_int64 len)
+{
+	int retval = 0;
+
+	if(len<20) {
+		de_err(c, "Bad BMHD chunk\n");
+		goto done;
+	}
+
+	d->found_bmhd = 1;
+	d->width = de_getui16be(pos1);
+	d->height = de_getui16be(pos1+2);
+	d->planes = (de_int64)de_getbyte(pos1+8);
+	d->compression = de_getbyte(pos1+10);
+	d->x_aspect = (de_int64)de_getbyte(pos1+14);
+	d->y_aspect = (de_int64)de_getbyte(pos1+15);
+	de_dbg(c, "dimensions: %dx%d, planes: %d, compression: %d\n", (int)d->width,
+		(int)d->height, (int)d->planes, (int)d->compression);
+	de_dbg(c, "apect ratio: %d, %d\n", (int)d->x_aspect, (int)d->y_aspect);
+
+	if(!de_good_image_dimensions(c, d->width, d->height)) goto done;
+
+	retval = 1;
+done:
+	return retval;
+}
+
+static int do_uncompress_rle(deark *c, lctx *d, de_int64 pos1, de_int64 len,
+	dbuf *unc_pixels)
+{
+	de_int64 pos;
+	de_byte b, b2;
+	de_int64 count;
+	de_int64 endpos;
+
+	pos = pos1;
+	endpos = pos1+len;
+
+	while(1) {
+		if(pos>=endpos) {
+			break; // Reached the end of source data
+		}
+		b = de_getbyte(pos++);
+
+		if(b>128) { // A compressed run
+			count = 257 - (de_int64)b;
+			b2 = de_getbyte(pos++);
+			dbuf_write_run(unc_pixels, b2, count);
+		}
+		else if(b<128) { // An uncompressed run
+			count = 1 + (de_int64)b;
+			dbuf_copy(c->infile, pos, count, unc_pixels);
+			pos += count;
+		}
+		else { // b==128
+			break;
+		}
+	}
+
+	de_dbg(c, "decompressed %d bytes to %d bytes\n", (int)len, (int)unc_pixels->len);
+
+	return 1;
+}
+
+static de_byte getbit(const de_byte *m, de_int64 bitnum)
+{
+	de_byte b;
+	b = m[bitnum/8];
+	b = (b>>(7-bitnum%8)) & 0x1;
+	return b;
+}
+
+static void do_deplanarize(deark *c, lctx *d, const de_byte *row_orig,
+	de_byte *row_deplanarized)
+{
+	de_int64 i;
+	de_int64 sample;
+	de_int64 bit;
+	de_byte b;
+
+	de_memset(row_deplanarized, 0, d->rowspan);
+
+	if(d->planes==24) {
+		for(i=0; i<d->width; i++) {
+			for(sample=0; sample<3; sample++) {
+				for(bit=0; bit<8; bit++) {
+					b = getbit(row_orig, d->width*8*sample + bit*d->width +i);
+					if(b) row_deplanarized[i*3 + sample] |= (1<<bit);
+				}
+			}
+		}
+	}
+}
+
+static void set_density(deark *c, lctx *d, struct deark_bitmap *img)
+{
+	if(d->x_aspect<1 || d->y_aspect<1) return;
+	img->density_code = DE_DENSITY_UNK_UNITS;
+	// TODO: Is this the right interpretation of the ILBM "aspect ratio" fields?
+	img->ydens = (double)d->x_aspect;
+	img->xdens = (double)d->y_aspect;
+}
+
+static void do_image_24(deark *c, lctx *d, dbuf *unc_pixels)
+{
+	struct deark_bitmap *img = NULL;
+	de_int64 i, j;
+	de_byte *row_orig = NULL;
+	de_byte *row_deplanarized = NULL;
+	de_byte cr, cg, cb;
+
+	d->rowspan = d->width * 3; // TODO - is this okay?
+	row_orig = de_malloc(c, d->rowspan);
+	row_deplanarized = de_malloc(c, d->rowspan);
+
+	img = de_bitmap_create(c, d->width, d->height, 3);
+	set_density(c, d, img);
+
+	for(j=0; j<d->height; j++) {
+		dbuf_read(unc_pixels, row_orig, j*d->rowspan, d->rowspan);
+		do_deplanarize(c, d, row_orig, row_deplanarized);
+
+		for(i=0; i<d->width; i++) {
+			cr = row_deplanarized[i*3];
+			cg = row_deplanarized[i*3+1];
+			cb = row_deplanarized[i*3+2];
+			de_bitmap_setpixel_rgb(img, i, j, DE_MAKE_RGB(cr,cg,cb));
+		}
+	}
+
+	de_bitmap_write_to_file(img, NULL);
+	de_bitmap_destroy(img);
+	de_free(c, row_orig);
+	de_free(c, row_deplanarized);
+}
+
+static void do_body(deark *c, lctx *d, de_int64 pos1, de_int64 len)
+{
+	dbuf *unc_pixels = NULL;
+
+	if(!d->found_bmhd) {
+		de_err(c, "Missing BMHD chunk\n");
+		goto done;
+	}
+
+	if(d->compression==0) {
+		unc_pixels = dbuf_open_input_subfile(c->infile, pos1, len);
+	}
+	else if(d->compression==1) {
+		unc_pixels = dbuf_create_membuf(c, 0);
+		// TODO: Call dbuf_set_max_length()
+		if(!do_uncompress_rle(c, d, pos1, len, unc_pixels))
+			goto done;
+	}
+	else {
+		de_err(c, "Unsupported compression type: %d\n", (int)d->compression);
+		goto done;
+	}
+
+	if(d->planes==24) {
+		do_image_24(c, d, unc_pixels);
+	}
+	else {
+		de_err(c, "Support for this type of IFF/ILBM image is not implemented\n");
+	}
+
+done:
+	dbuf_close(unc_pixels);
+}
+
 static int do_chunk_sequence(deark *c, lctx *d, de_int64 pos1, de_int64 len);
 
 static int do_chunk(deark *c, lctx *d, de_int64 pos, de_int64 bytes_avail,
@@ -41,8 +218,8 @@ static int do_chunk(deark *c, lctx *d, de_int64 pos, de_int64 bytes_avail,
 	int errflag = 0;
 	int doneflag = 0;
 	int ret;
-
-	de_int64 chunk_len;
+	de_int64 chunk_data_pos;
+	de_int64 chunk_data_len;
 
 	if(bytes_avail<8) {
 		de_err(c, "Invalid chunk size (at %d, size=%d)\n", (int)pos, (int)bytes_avail);
@@ -50,24 +227,38 @@ static int do_chunk(deark *c, lctx *d, de_int64 pos, de_int64 bytes_avail,
 		goto done;
 	}
 	ct = (de_uint32)de_getui32be(pos);
-	chunk_len = de_getui32be(pos+4);
-	make_printable_code(ct, printable_code, sizeof(printable_code));
-	de_dbg(c, "Chunk '%s' at %d, size %d\n", printable_code, (int)pos, (int)chunk_len);
+	chunk_data_len = de_getui32be(pos+4);
+	chunk_data_pos = pos+8;
 
-	if(chunk_len > bytes_avail-8) {
+	make_printable_code(ct, printable_code, sizeof(printable_code));
+	de_dbg(c, "Chunk '%s' at %d, data at %d, size %d\n", printable_code, (int)pos,
+		(int)chunk_data_pos, (int)chunk_data_len);
+
+	if(chunk_data_len > bytes_avail-8) {
 		de_err(c, "Invalid chunk size ('%s' at %d, size=%d)\n",
-			printable_code, (int)pos, (int)chunk_len);
+			printable_code, (int)pos, (int)chunk_data_len);
 		errflag = 1;
 		goto done;
 	}
 
-	if(ct==CODE_BODY) {
+	switch(ct) {
+	case CODE_BODY:
+		do_body(c, d, chunk_data_pos, chunk_data_len);
+
 		// A lot of ILBM files have padding or garbage data at the end of the file
 		// (apparently included in the file size given by the FORM chunk).
 		// To avoid it, don't read past the BODY chunk.
 		doneflag = 1;
-	}
-	else if(ct==CODE_FORM) {
+		break;
+
+	case CODE_BMHD:
+		if(!do_bmhd(c, d, chunk_data_pos, chunk_data_len)) {
+			errflag = 1;
+			goto done;
+		}
+		break;
+
+	case CODE_FORM:
 		de_dbg_indent(c, 1);
 		d->level++;
 
@@ -84,9 +275,11 @@ static int do_chunk(deark *c, lctx *d, de_int64 pos, de_int64 bytes_avail,
 			errflag = 1;
 			goto done;
 		}
+		break;
 	}
 
-	*bytes_consumed = 8 + chunk_len;
+	*bytes_consumed = 8 + chunk_data_len;
+	if(chunk_data_len%2) (*bytes_consumed)++; // Padding byte
 
 done:
 	return (errflag || doneflag) ? 0 : 1;
@@ -119,13 +312,11 @@ static void de_run_ilbm(deark *c, const char *params)
 {
 	lctx *d = NULL;
 
-	de_dbg(c, "In ilbm module\n");
+	de_warn(c, "ILBM support is experimental. Most files are not supported.\n");
 
 	d = de_malloc(c, sizeof(lctx));
 	do_chunk_sequence(c, d, 0, c->infile->len);
 	de_free(c, d);
-
-	de_err(c, "IFF/ILBM support is not implemented\n");
 }
  
 static int de_identify_ilbm(deark *c)
