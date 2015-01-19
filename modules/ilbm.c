@@ -17,6 +17,7 @@ typedef struct localctx_struct {
 	de_byte compression;
 
 	de_int64 rowspan;
+	de_int64 bits_per_row_per_plane;
 	de_int64 x_aspect, y_aspect;
 
 	de_uint32 pal[256];
@@ -135,21 +136,21 @@ static void do_deplanarize(deark *c, lctx *d, const de_byte *row_orig,
 	de_int64 bit;
 	de_byte b;
 
-	de_memset(row_deplanarized, 0, d->rowspan);
-
-	if(d->planes==8) {
+	if(d->planes>=1 && d->planes<=8) {
+		de_memset(row_deplanarized, 0, d->width);
 		for(i=0; i<d->width; i++) {
-			for(bit=0; bit<8; bit++) {
-				b = getbit(row_orig, bit*d->width +i);
+			for(bit=0; bit<d->planes; bit++) {
+				b = getbit(row_orig, bit*d->bits_per_row_per_plane +i);
 				if(b) row_deplanarized[i] |= (1<<bit);
 			}
 		}
 	}
 	else if(d->planes==24) {
+		de_memset(row_deplanarized, 0, d->width*3);
 		for(i=0; i<d->width; i++) {
 			for(sample=0; sample<3; sample++) {
 				for(bit=0; bit<8; bit++) {
-					b = getbit(row_orig, d->width*8*sample + bit*d->width +i);
+					b = getbit(row_orig, (sample*8+bit)*d->bits_per_row_per_plane + i);
 					if(b) row_deplanarized[i*3 + sample] |= (1<<bit);
 				}
 			}
@@ -174,9 +175,10 @@ static void do_image_24(deark *c, lctx *d, dbuf *unc_pixels)
 	de_byte *row_deplanarized = NULL;
 	de_byte cr, cg, cb;
 
-	d->rowspan = d->width * 3; // TODO - is this okay?
+	d->bits_per_row_per_plane = ((d->width+15)/16)*16;
+	d->rowspan = (d->bits_per_row_per_plane/8) * d->planes;
 	row_orig = de_malloc(c, d->rowspan);
-	row_deplanarized = de_malloc(c, d->rowspan);
+	row_deplanarized = de_malloc(c, d->width * 3);
 
 	img = de_bitmap_create(c, d->width, d->height, 3);
 	set_density(c, d, img);
@@ -199,7 +201,7 @@ static void do_image_24(deark *c, lctx *d, dbuf *unc_pixels)
 	de_free(c, row_deplanarized);
 }
 
-static void do_image_8(deark *c, lctx *d, dbuf *unc_pixels)
+static void do_image_1to8(deark *c, lctx *d, dbuf *unc_pixels)
 {
 	struct deark_bitmap *img = NULL;
 	de_int64 i, j;
@@ -212,9 +214,11 @@ static void do_image_8(deark *c, lctx *d, dbuf *unc_pixels)
 		goto done;
 	}
 
-	d->rowspan = d->width;
+	d->bits_per_row_per_plane = ((d->width+15)/16)*16;
+	d->rowspan = (d->bits_per_row_per_plane/8) * d->planes;
+
 	row_orig = de_malloc(c, d->rowspan);
-	row_deplanarized = de_malloc(c, d->rowspan);
+	row_deplanarized = de_malloc(c, d->width);
 
 	img = de_bitmap_create(c, d->width, d->height, 3);
 	set_density(c, d, img);
@@ -264,8 +268,8 @@ static void do_body(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 		goto done;
 	}
 
-	if(d->planes==8) {
-		do_image_8(c, d, unc_pixels);
+	if(d->planes>=1 && d->planes<=8) {
+		do_image_1to8(c, d, unc_pixels);
 	}
 	else if(d->planes==24) {
 		do_image_24(c, d, unc_pixels);
@@ -389,7 +393,7 @@ static void de_run_ilbm(deark *c, const char *params)
 {
 	lctx *d = NULL;
 
-	de_warn(c, "ILBM support is experimental. Most files are not supported.\n");
+	de_warn(c, "ILBM support is experimental, and may not work correctly.\n");
 
 	d = de_malloc(c, sizeof(lctx));
 	do_chunk_sequence(c, d, 0, c->infile->len);
