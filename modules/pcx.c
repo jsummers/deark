@@ -1,7 +1,7 @@
 // This file is part of Deark, by Jason Summers.
 // This software is in the public domain. See the file COPYING for details.
 
-// PCX (PC Paintbrush)
+// PCX (PC Paintbrush) and DCX (multi-image PCX)
 
 #include <deark-config.h>
 #include <deark-modules.h>
@@ -418,4 +418,58 @@ void de_module_pcx(deark *c, struct deark_module_info *mi)
 	mi->id = "pcx";
 	mi->run_fn = de_run_pcx;
 	mi->identify_fn = de_identify_pcx;
+}
+
+// **************************************************************************
+// DCX
+// **************************************************************************
+
+static void de_run_dcx(deark *c, const char *params)
+{
+	de_uint32 *page_offset;
+	de_int64 num_pages;
+	de_int64 page;
+	de_int64 page_size;
+
+	de_dbg(c, "In dcx module\n");
+
+	page_offset = de_malloc(c, 1023 * sizeof(de_uint32));
+	num_pages = 0;
+	while(num_pages < 1023) {
+		page_offset[num_pages] = (de_uint32)de_getui32le(4 + 4*num_pages);
+		if(page_offset[num_pages]==0)
+			break;
+		num_pages++;
+	}
+
+	de_dbg(c, "number of pages: %d\n", (int)num_pages);
+
+	for(page=0; page<num_pages; page++) {
+		if(page == num_pages-1) {
+			// Last page. Asssume it goes to the end of file.
+			page_size = c->infile->len - page_offset[page];
+		}
+		else {
+			page_size = page_offset[page+1] - page_offset[page];
+		}
+		if(page_size<0) page_size=0;
+		de_dbg(c, "page %d at %d, size=%d\n", (int)page, (int)page_offset[page],
+			(int)page_size);
+
+		dbuf_create_file_from_slice(c->infile, page_offset[page], page_size, "pcx", NULL);
+	}
+}
+
+static int de_identify_dcx(deark *c)
+{
+	if(!dbuf_memcmp(c->infile, 0, "\xb1\x68\xde\x3a", 4))
+		return 100;
+	return 0;
+}
+
+void de_module_dcx(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "dcx";
+	mi->run_fn = de_run_dcx;
+	mi->identify_fn = de_identify_dcx;
 }
