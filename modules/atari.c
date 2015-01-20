@@ -8,7 +8,6 @@ typedef struct localctx_struct {
 	int reserved;
 } lctx;
 
-
 static void do_cas(deark *c)
 {
 	de_int64 pos;

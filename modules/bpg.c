@@ -1,11 +1,11 @@
 // This file is part of Deark, by Jason Summers.
 // This software is in the public domain. See the file COPYING for details.
 
+// BPG
+
 #include <deark-config.h>
 #include <deark-modules.h>
 #include "fmtutil.h"
-
-// BPG
 
 typedef struct localctx_struct {
 	de_int64 width, height;

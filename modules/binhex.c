@@ -1,10 +1,10 @@
 // This file is part of Deark, by Jason Summers.
 // This software is in the public domain. See the file COPYING for details.
 
+// BinHex (.hqx)
+
 #include <deark-config.h>
 #include <deark-modules.h>
-
-// BinHex (.hqx)
 
 typedef struct localctx_struct {
 	dbuf *decoded;

@@ -77,7 +77,7 @@ Deark -- Information about supported formats
 
 * HR (TRS-80 High Resolution graphics file) (module="hr")
 
-* icns (Apple Icon) (module="icns") (experimental)
+* icns (Apple Icon) (module="icns")
   - Supports uncompressed 1-, 4-, and 8-bit images (with 1-bit mask).
   - Supports RLE-compressed 24-bit images (with 8-bit mask).
   - Extract embedded JP2 and PNG files.
@@ -85,6 +85,8 @@ Deark -- Information about supported formats
 * ICO/CUR (Windows icon/cursor) (module="ico")
   - Supports most but not all formats.
   - PNG-formatted icons will be extracted as-is, not decoded.
+
+* ILBM and related IFF-based images (module="ilbm") (experimental/incomplete)
 
 * JPEG (module="jpeg")
   - Extract ICC profiles.
@@ -115,7 +117,7 @@ Deark -- Information about supported formats
 * MSP (Microsoft Paint graphics) (module="msp")
   - Version 1 and 2
 
-* New Print Shop .POG format (module="newprintshop") (experimental)
+* New Print Shop .POG format (module="newprintshop")
   Options
    -opt namefile=<file.pnm> - Use this "name" file
 
@@ -162,11 +164,11 @@ Deark -- Information about supported formats
 * PNG (module="png")
   - Extract ICC profiles.
 
-* PrintMaster .SHP format (module="printmaster") (experimental)
+* PrintMaster .SHP format (module="printmaster")
   Options
    -opt namefile=<file.sdr> - Use this "name" file
 
-* Print Shop .DAT format (module="printshop") (experimental)
+* Print Shop .DAT format (module="printshop")
   - Not all files can be autodetected. You may need "-m printshop".
   Options
    -opt namefile=<file.nam> - Use this "name" file
@@ -198,12 +200,12 @@ Deark -- Information about supported formats
 * RIPscrip icon (.ICN) (module="ripicon") (experimental)
   - Not autodetected. Must use "-m ripicon".
 
-* RISC OS / Acorn Sprite (module="rosprite") (experimental)
+* RISC OS / Acorn Sprite (module="rosprite")
   - Autodetection may not always work. May need "-m rosprite".
   - "Old" format is pretty well supported.
   - "New" format is mosty supported, but not well-tested.
 
-* SHG and MRB (module="shg") (experimental)
+* SHG and MRB (module="shg")
   Segmented Hypergraphics and Multi-Resolution Bitmap formats are used in the
   development of Windows .HLP files.
   - Converts bitmap graphics to BMP format.
@@ -238,7 +240,10 @@ Deark -- Information about supported formats
 
 === Compression and archive modules ===
 
-* BinHex (.hqx) (module="binhex") (experimental)
+* ar (.a archive/library format) (module="ar") (experimental/incomplete)
+  - Supports System V long filenames
+
+* BinHex (.hqx) (module="binhex")
   - Extract data and resource forks to separate files.
 
 * T64 (Commodore 64 "tape" format) (module="t64")

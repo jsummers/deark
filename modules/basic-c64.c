@@ -1,9 +1,6 @@
 // This file is part of Deark, by Jason Summers.
 // This software is in the public domain. See the file COPYING for details.
 
-#include <deark-config.h>
-#include <deark-modules.h>
-
 // Detokenize Commodore 64 BASIC programs.
 //
 // For now at least, it emits a text file having PETSCII encoding.
@@ -15,6 +12,8 @@
 // Another idea is to write it to HTML format, but that will require some
 // wizardry to do well.
 
+#include <deark-config.h>
+#include <deark-modules.h>
 
 typedef struct localctx_struct {
 	dbuf *outf;

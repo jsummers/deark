@@ -1,10 +1,10 @@
 // This file is part of Deark, by Jason Summers.
 // This software is in the public domain. See the file COPYING for details.
 
+// Acorn Sprite / RISC OS Sprite
+
 #include <deark-config.h>
 #include <deark-modules.h>
-
-// Acorn Sprite / RISC OS Sprite
 
 struct old_mode_info {
 	de_uint32 mode;

@@ -5,11 +5,12 @@
 //
 // Functions related to the dbuf object.
 
+#include "deark-config.h"
+
 #include <stdlib.h>
 #include <string.h>
 #include <stdarg.h>
 
-#include "deark-config.h"
 #include "deark-private.h"
 
 #define DE_CACHE_SIZE 262144

@@ -1,10 +1,10 @@
 // This file is part of Deark, by Jason Summers.
 // This software is in the public domain. See the file COPYING for details.
 
+// EPOC MBM, EPOC Sketch, EPOC AIF
+
 #include <deark-config.h>
 #include <deark-modules.h>
-
-// EPOC MBM, EPOC Sketch, EPOC AIF
 
 static const de_uint32 supplpal[40] = {
 	0x111111,0x222222,0x444444,0x555555,0x777777,

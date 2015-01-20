@@ -1,10 +1,10 @@
 // This file is part of Deark, by Jason Summers.
 // This software is in the public domain. See the file COPYING for details.
 
+// Decode IFF/ILBM and related image formats
+
 #include <deark-config.h>
 #include <deark-modules.h>
-
-// Decode IFF/ILBM and related image formats
 
 typedef struct localctx_struct {
 	int level;

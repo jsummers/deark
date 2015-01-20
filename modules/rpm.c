@@ -1,10 +1,10 @@
 // This file is part of Deark, by Jason Summers.
 // This software is in the public domain. See the file COPYING for details.
 
+// RPM package manager
+
 #include <deark-config.h>
 #include <deark-modules.h>
-
-// RPM package manager
 
 #define DE_RPM_STRING_TYPE 6
 

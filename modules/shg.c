@@ -27,7 +27,7 @@ static de_int64 get_cus(dbuf *f, de_int64 *pos)
 		return x1>>1;
 	}
 	// If it's odd, divide by two, and add 128 times the value of
-	// the next two bytes.
+	// the next byte.
 	x2 = (de_int64)dbuf_getbyte(f, *pos);
 	*pos += 1;
 	return (x1>>1) | (x2<<7);
