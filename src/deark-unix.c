@@ -6,7 +6,7 @@
 #include "deark-config.h"
 
 #ifdef DE_WINDOWS
-#error "This file not for Windows builds"
+#error "This file is not for Windows builds"
 #endif
 
 #include <stdlib.h>

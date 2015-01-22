@@ -192,7 +192,7 @@ static void parse_cmdline(deark *c, struct cmdctx *cc, int argc, char **argv)
 				break;
 			case DE_OPT_VERSION:
 				show_version(c);
-				cc->error_flag = 1;
+				cc->special_command_flag = 1;
 				break;
 			case DE_OPT_EXTRACTALL:
 				de_set_extract_level(c, 2);
@@ -287,7 +287,7 @@ static void main2(int argc, char **argv)
 		goto done;
 	}
 
-	if(cc->error_flag) goto done;
+	if(cc->special_command_flag) goto done;
 
 	de_run(c);
 

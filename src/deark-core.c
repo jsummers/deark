@@ -38,6 +38,11 @@ void de_run(deark *c)
 	de_int64 subfile_size;
 	struct deark_module_info *module_to_use = NULL;
 
+	if(!c->input_filename) {
+		de_err(c, "Input file not set\n");
+		de_fatalerror(c);
+	}
+
 	de_register_modules(c);
 
 	if(c->slice_size_req_valid) {

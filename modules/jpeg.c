@@ -12,7 +12,7 @@ typedef struct localctx_struct {
 	dbuf *iccprofile_file;
 } lctx;
 
-static void process_icc_profile_segment(deark *c, lctx *d, de_int64 pos, de_int64 data_size)
+static void do_icc_profile_segment(deark *c, lctx *d, de_int64 pos, de_int64 data_size)
 {
 	de_byte b1, b2;
 
@@ -35,7 +35,7 @@ static void process_icc_profile_segment(deark *c, lctx *d, de_int64 pos, de_int6
 	}
 }
 
-static void process_jfxx_segment(deark *c, lctx *d, de_int64 pos, de_int64 data_size)
+static void do_jfxx_segment(deark *c, lctx *d, de_int64 pos, de_int64 data_size)
 {
 	de_byte t;
 
@@ -56,48 +56,55 @@ static void process_jfxx_segment(deark *c, lctx *d, de_int64 pos, de_int64 data_
 	}
 }
 
-static void process_segment(deark *c, lctx *d, de_byte seg_type, de_int64 pos, de_int64 seg_size)
+// seg_size is the data size, excluding the marker and length fields.
+static void do_app_segment(deark *c, lctx *d, de_byte seg_type, de_int64 pos, de_int64 seg_size)
 {
-	de_byte buf[64];
-	int pos_of_first_nul;
-	int i;
+	char buf[64]; // This just needs to be large enough for any ID we recognize.
+	size_t id_strlen;
+	de_int64 id_size;
+	de_int64 payload_pos;
 	de_int64 payload_size;
 
-	de_dbg(c, "jpeg segment type 0x%02x at %d datasize=%d\n", seg_type, (int)pos, (int)seg_size);
+	de_dbg(c, "APP%d segment at %d, size=%d\n", (int)seg_type-0xe0, (int)pos, (int)seg_size);
+	if(seg_size<3) return;
 
 	// Read the first few bytes of the segment, so we can tell what kind of segment it is.
-	de_read(buf, pos, sizeof(buf));
+	if(seg_size+1 < sizeof(buf))
+		dbuf_read_sz(c->infile, pos, buf, seg_size+1);
+	else
+		dbuf_read_sz(c->infile, pos, buf, sizeof(buf));
 
-	// If segment identifiers were always perfectly uniform, we could just compare them
-	// exactly, but we've seen some that have extra spaces after them and whatnot...
-	// So we'll do some analysis.
+	// APP ID is the string before the first NUL byte.
+	id_strlen = de_strlen(buf);
+	id_size = id_strlen + 1;
 
-	// Find the segment identifier.
-	pos_of_first_nul = -1;
-	for(i=0; i<sizeof(buf); i++) {
-		if(buf[i]==0) { pos_of_first_nul=i; break; }
+	// Tolerate APP IDs that have trailing spaces.
+	while(id_strlen>0 && buf[id_strlen-1]==' ') {
+		buf[id_strlen-1] = '\0';
+		id_strlen--;
 	}
-	if(pos_of_first_nul<0) return;
 
 	// The payload data size is usually everything after the first NUL byte.
-	payload_size = seg_size - (pos_of_first_nul+1);
+	payload_pos = pos + id_size;
+	payload_size = seg_size - id_size;
+	if(payload_size<1) return;
 
-	if(seg_type==0xe0 && seg_size>5 && !de_memcmp(buf, "JFXX\0", 5)) {
-		process_jfxx_segment(c, d, pos+5, seg_size-5);
+	if(seg_type==0xe0 && !de_strcmp(buf, "JFXX")) {
+		do_jfxx_segment(c, d, payload_pos, payload_size);
 	}
-	else if(seg_type==0xe1 && seg_size>6 && !de_memcmp(buf, "Exif\0",5)) {
-		de_dbg(c, "Exif segment at %d datasize=%d\n", (int)(pos+6), (int)(seg_size-6));
-		de_fmtutil_handle_exif(c, pos+6, seg_size-6);
+	else if(seg_type==0xe1 && !de_strcmp(buf, "Exif")) {
+		de_dbg(c, "Exif segment at %d datasize=%d\n", (int)(payload_pos+1), (int)(payload_size-1));
+		de_fmtutil_handle_exif(c, payload_pos+1, payload_size-1);
 	}
-	else if(seg_type==0xe2 && seg_size>12 && !de_memcmp(buf, "ICC_PROFILE\0", 12)) {
-		process_icc_profile_segment(c, d, pos+12, seg_size-12);
+	else if(seg_type==0xe2 && !de_strcmp(buf, "ICC_PROFILE")) {
+		do_icc_profile_segment(c, d, payload_pos, payload_size);
 	}
-	else if(seg_type==0xed && seg_size>14 && !de_memcmp(buf, "Photoshop 3.0\0", 14)) {
-		de_dbg(c, "photoshop segment at %d datasize=%d\n", (int)(pos+14), (int)(seg_size-14));
-		de_fmtutil_handle_photoshop_rsrc(c, pos+14, seg_size-14);
+	else if(seg_type==0xed && !de_strcmp(buf, "Photoshop 3.0")) {
+		de_dbg(c, "photoshop segment at %d datasize=%d\n", (int)(payload_pos), (int)(payload_size));
+		de_fmtutil_handle_photoshop_rsrc(c, payload_pos, payload_size);
 	}
-	else if(seg_type==0xe1 && seg_size>28 && !de_memcmp(buf, "http://ns.adobe.com/xap/1.0/", 28)) {
-		dbuf_create_file_from_slice(c->infile, pos+pos_of_first_nul+1, payload_size, "xmp", NULL);
+	else if(seg_type==0xe1 && !de_strcmp(buf, "http://ns.adobe.com/xap/1.0/")) {
+		dbuf_create_file_from_slice(c->infile, payload_pos, payload_size, "xmp", NULL);
 	}
 }
 
@@ -150,7 +157,8 @@ static void de_run_jpeg(deark *c, const char *params)
 		seg_size = de_getui16be(pos);
 		if(pos<2) break; // bogus size
 
-		process_segment(c, d, b, pos+2, seg_size-2);
+		if(b>=0xe0 && b<=0xef)
+			do_app_segment(c, d, b, pos+2, seg_size-2);
 
 		pos += seg_size;
 	}
