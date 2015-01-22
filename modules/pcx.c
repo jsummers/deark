@@ -13,7 +13,7 @@ typedef struct localctx_struct {
 	de_byte encoding;
 	de_int64 bits;
 	de_int64 bits_per_pixel;
-	de_int64 margin_l, margin_t, margin_r, margin_b;
+	de_int64 margin_L, margin_T, margin_R, margin_B;
 	de_int64 planes;
 	de_int64 rowspan_raw;
 	de_int64 rowspan;
@@ -34,10 +34,10 @@ static int do_read_header(deark *c, lctx *d)
 	d->version = de_getbyte(1);
 	d->encoding = de_getbyte(2);
 	d->bits = (de_int64)de_getbyte(3); // Bits per pixel per plane
-	d->margin_l = (de_int64)de_getui16le(4);
-	d->margin_t = (de_int64)de_getui16le(6);
-	d->margin_r = (de_int64)de_getui16le(8);
-	d->margin_b = (de_int64)de_getui16le(10);
+	d->margin_L = (de_int64)de_getui16le(4);
+	d->margin_T = (de_int64)de_getui16le(6);
+	d->margin_R = (de_int64)de_getui16le(8);
+	d->margin_B = (de_int64)de_getui16le(10);
 
 	// The palette (offset 16-63) will be read later.
 
@@ -53,11 +53,11 @@ static int do_read_header(deark *c, lctx *d)
 		(int)d->encoding, (int)d->planes, (int)d->bits);
 	de_dbg(c, "bytes/plane/row: %d, palette info: %d, vmode: 0x%02x\n", (int)d->rowspan_raw,
 		(int)d->palette_info, (unsigned int)d->reserved1);
-	de_dbg(c, "margins: %d, %d, %d, %d\n", (int)d->margin_l, (int)d->margin_t,
-		(int)d->margin_r, (int)d->margin_b);
+	de_dbg(c, "margins: %d, %d, %d, %d\n", (int)d->margin_L, (int)d->margin_T,
+		(int)d->margin_R, (int)d->margin_B);
 
-	d->width = d->margin_r - d->margin_l +1;
-	d->height = d->margin_b - d->margin_t +1;
+	d->width = d->margin_R - d->margin_L +1;
+	d->height = d->margin_B - d->margin_T +1;
 	de_dbg(c, "dimensions: %dx%d\n", (int)d->width, (int)d->height);
 	if(!de_good_image_dimensions(c, d->width, d->height)) goto done;
 
@@ -256,7 +256,7 @@ static int do_uncompress(deark *c, lctx *d)
 	endpos = c->infile->len;
 	if(d->has_vga_pal) {
 		// The last 769 bytes of this file are reserved for the palette.
-		// Don't try to decoded them as pixels.
+		// Don't try to decode them as pixels.
 		endpos -= 769;
 	}
 
@@ -289,9 +289,7 @@ static int do_uncompress(deark *c, lctx *d)
 
 static void do_bitmap_1bpp(deark *c, lctx *d)
 {
-	// Apparently, bilevel PCX images do not use a palette and are always black
-	// and white.
-	// The paletted algorithm would work (if we did something about the palette)
+	// The paletted algorithm would work here (if we construct a palette),
 	// but this special case is easy and efficient.
 	de_convert_and_write_image_bilevel(d->unc_pixels, 0,
 		d->width, d->height, d->rowspan, 0, NULL);
