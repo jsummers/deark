@@ -1,6 +1,7 @@
 // This file is part of Deark, by Jason Summers.
 // This software is in the public domain. See the file COPYING for details.
 
+#include <string.h>
 #include <stdarg.h>
 #include "deark.h"
 
@@ -181,16 +182,16 @@ int de_run_module_by_id(deark *c, const char *id, const char *params);
 struct deark_module_info *de_get_module_by_id(deark *c, const char *module_id);
 
 void de_strlcpy(char *dst, const char *src, size_t dstlen);
-int de_strcmp(const char *s1, const char *s2);
-int de_memcmp(const void *s1, const void *s2, size_t n);
-void *de_memcpy(void *dst, const void *src, size_t n);
 char *de_strchr(const char *s, int c);
-size_t de_strlen(const char *s);
-void de_memset(void *dst, int x, size_t len);
+#define de_strlen   strlen
+#define de_strcmp   strcmp
+#define de_memcmp   memcmp
+#define de_memcpy   memcpy
+#define de_memset   memset
 #ifdef DE_WINDOWS
-#define de_sscanf sscanf_s
+#define de_sscanf   sscanf_s
 #else
-#define de_sscanf sscanf
+#define de_sscanf   sscanf
 #endif
 
 void de_vsnprintf(char *buf, size_t buflen, const char *fmt, va_list ap);

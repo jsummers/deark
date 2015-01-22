@@ -43,40 +43,11 @@ void de_strlcpy(char *dst, const char *src, size_t dstlen)
 	dst[n]='\0';
 }
 
-// A wrapper for strcmp().
-// Modules aren't expected to use the C library directly.
-int de_strcmp(const char *s1, const char *s2)
-{
-	return strcmp(s1, s2);
-}
-
-// A wrapper for memcmp().
-int de_memcmp(const void *s1, const void *s2, size_t n)
-{
-	return memcmp(s1, s2, n);
-}
-
-void *de_memcpy(void *dst, const void *src, size_t n)
-{
-	return memcpy(dst, src, n);
-}
-
 // A wrapper for strchr().
 char *de_strchr(const char *s, int c)
 {
 	if(!s) return NULL;
 	return strchr(s, c);
-}
-
-// A wrapper for strlen().
-size_t de_strlen(const char *s)
-{
-	return strlen(s);
-}
-
-void de_memset(void *dst, int x, size_t len)
-{
-	memset(dst, x, len);
 }
 
 void de_snprintf(char *buf, size_t buflen, const char *fmt, ...)
