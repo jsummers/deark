@@ -303,22 +303,27 @@ void de_convert_row_bilevel(dbuf *f, de_int64 fpos, struct deark_bitmap *img,
 	}
 }
 
+void de_convert_image_bilevel(dbuf *f, de_int64 fpos, de_int64 rowspan,
+	struct deark_bitmap *img, unsigned int flags)
+{
+	de_int64 j;
+
+	for(j=0; j<img->height; j++) {
+		de_convert_row_bilevel(f, fpos+j*rowspan, img, j, flags);
+	}
+}
+
 void de_convert_and_write_image_bilevel(dbuf *f, de_int64 fpos,
 	de_int64 width, de_int64 height, de_int64 rowspan, unsigned int flags,
 	de_finfo *fi)
 {
 	struct deark_bitmap *img = NULL;
-	de_int64 j;
 	deark *c = f->c;
 
 	if(!de_good_image_dimensions(c, width, height)) return;
 
 	img = de_bitmap_create(c, width, height, 1);
-
-	for(j=0; j<height; j++) {
-		de_convert_row_bilevel(f, fpos+j*rowspan, img, j, flags);
-	}
-
+	de_convert_image_bilevel(f, fpos, rowspan, img, flags);
 	de_bitmap_write_to_file_finfo(img, fi);
 	de_bitmap_destroy(img);
 }

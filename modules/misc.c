@@ -511,7 +511,15 @@ void de_module_applevol(deark *c, struct deark_module_info *mi)
 
 static void de_run_hr(deark *c, const char *params)
 {
-	de_convert_and_write_image_bilevel(c->infile, 0, 640, 240, 640/8, 0, NULL);
+	struct deark_bitmap *img = NULL;
+
+	img = de_bitmap_create(c, 640, 240, 1);
+	img->density_code = DE_DENSITY_UNK_UNITS;
+	img->xdens = 2;
+	img->ydens = 1;
+	de_convert_image_bilevel(c->infile, 0, 640/8, img, 0);
+	de_bitmap_write_to_file_finfo(img, NULL);
+	de_bitmap_destroy(img);
 }
 
 static int de_identify_hr(deark *c)
