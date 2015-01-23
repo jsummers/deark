@@ -6,6 +6,15 @@
 #include <deark-config.h>
 #include <deark-modules.h>
 
+#define CODE_BMHD  0x424d4844
+#define CODE_BODY  0x424f4459
+#define CODE_CAMG  0x43414d47
+#define CODE_CMAP  0x434d4150
+#define CODE_FORM  0x464f524d
+
+#define CODE_ILBM  0x494c424d
+#define CODE_PBM   0x50424d20
+
 typedef struct localctx_struct {
 	int level;
 	de_uint32 formtype;
@@ -15,21 +24,16 @@ typedef struct localctx_struct {
 	de_byte found_bmhd;
 	de_byte found_cmap;
 	de_byte compression;
+	de_byte has_camg;
+	de_byte is_ham; // "hold and modify"
 
 	de_int64 rowspan;
 	de_int64 bits_per_row_per_plane;
 	de_int64 x_aspect, y_aspect;
+	de_int32 camg_mode;
 
 	de_uint32 pal[256];
 } lctx;
-
-#define CODE_FORM  0x464f524d
-#define CODE_BODY  0x424f4459
-#define CODE_CMAP  0x434d4150
-#define CODE_BMHD  0x424d4844
-
-#define CODE_ILBM  0x494c424d
-#define CODE_PBM   0x50424d20 
 
 // Caller supplies buf[]
 static void make_printable_code(de_uint32 code, char *buf, size_t buf_size)
@@ -81,6 +85,20 @@ static void do_cmap(deark *c, lctx *d, de_int64 pos, de_int64 len)
 	for(k=0; k<ncolors; k++) {
 		d->pal[k] = dbuf_getRGB(c->infile, pos+3*k, 0);
 	}
+}
+
+static void do_camg(deark *c, lctx *d, de_int64 pos, de_int64 len)
+{
+	if(len<4) return;
+	d->has_camg = 1;
+
+	d->camg_mode = (de_uint32)de_getui32be(pos);
+	de_dbg(c, "CAMG mode: 0x%x\n", (unsigned int)d->camg_mode);
+
+	if(d->camg_mode & 0x0800)
+		d->is_ham = 1;
+
+	de_dbg(c, "is HAM: %d\n", (int)d->is_ham);
 }
 
 static int do_uncompress_rle(deark *c, lctx *d, de_int64 pos1, de_int64 len,
@@ -207,10 +225,19 @@ static void do_image_1to8(deark *c, lctx *d, dbuf *unc_pixels)
 	de_int64 i, j;
 	de_byte *row_orig = NULL;
 	de_byte *row_deplanarized = NULL;
-	de_byte palent;
+	de_byte val;
+	de_byte cr = 0;
+	de_byte cg = 0;
+	de_byte cb = 0;
+	de_uint32 clr;
 
 	if(!d->found_cmap) {
 		de_err(c, "Missing CMAP chunk\n");
+		goto done;
+	}
+
+	if(d->is_ham && d->planes!=6 && d->planes!=8) {
+		de_err(c, "This type of image (HAM-%d) is not supported.\n", (int)d->planes);
 		goto done;
 	}
 
@@ -224,12 +251,63 @@ static void do_image_1to8(deark *c, lctx *d, dbuf *unc_pixels)
 	set_density(c, d, img);
 
 	for(j=0; j<d->height; j++) {
+		if(d->is_ham) {
+			// At the beginning of each row, the color accumulators are
+			// initialized to palette entry 0.
+			cr = DE_COLOR_R(d->pal[0]);
+			cg = DE_COLOR_R(d->pal[0]);
+			cb = DE_COLOR_R(d->pal[0]);
+		}
+
 		dbuf_read(unc_pixels, row_orig, j*d->rowspan, d->rowspan);
 		do_deplanarize(c, d, row_orig, row_deplanarized);
 
 		for(i=0; i<d->width; i++) {
-			palent = row_deplanarized[i];
-			de_bitmap_setpixel_rgb(img, i, j, d->pal[(unsigned int)palent]);
+			val = row_deplanarized[i];
+
+			if(d->is_ham && d->planes==6) { // HAM6
+				switch((val>>4)&0x3) {
+				case 0x1: // Modify blue value
+					cb = (cb&0x0f) | ((val&0x0f)<<4);
+					break;
+				case 0x2: // Modify red value
+					cr = (cr&0x0f) | ((val&0x0f)<<4);
+					break;
+				case 0x3: // Modify green value
+					cg = (cg&0x0f) | ((val&0x0f)<<4);
+					break;
+				default: // 0: Use colormap value
+					clr = d->pal[(unsigned int)val];
+					cr = DE_COLOR_R(clr);
+					cg = DE_COLOR_G(clr);
+					cb = DE_COLOR_B(clr);
+					break;
+				}
+				de_bitmap_setpixel_rgb(img, i, j, DE_MAKE_RGB(cr,cg,cb));
+			}
+			else if(d->is_ham && d->planes==8) { // HAM8
+				switch((val>>6)&0x3) {
+				case 0x1:
+					cb = (cb&0x03) | ((val&0x3f)<<2);
+					break;
+				case 0x2:
+					cr = (cr&0x03) | ((val&0x3f)<<2);
+					break;
+				case 0x3:
+					cg = (cg&0x03) | ((val&0x3f)<<2);
+					break;
+				default:
+					clr = d->pal[(unsigned int)val];
+					cr = DE_COLOR_R(clr);
+					cg = DE_COLOR_G(clr);
+					cb = DE_COLOR_B(clr);
+					break;
+				}
+				de_bitmap_setpixel_rgb(img, i, j, DE_MAKE_RGB(cr,cg,cb));
+			}
+			else {
+				de_bitmap_setpixel_rgb(img, i, j, d->pal[(unsigned int)val]);
+			}
 		}
 	}
 
@@ -337,6 +415,11 @@ static int do_chunk(deark *c, lctx *d, de_int64 pos, de_int64 bytes_avail,
 	case CODE_CMAP:
 		if(d->level!=1) break;
 		do_cmap(c, d, chunk_data_pos, chunk_data_len);
+		break;
+
+	case CODE_CAMG:
+		if(d->level!=1) break;
+		do_camg(c, d, chunk_data_pos, chunk_data_len);
 		break;
 
 	case CODE_FORM:
