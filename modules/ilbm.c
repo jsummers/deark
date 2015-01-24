@@ -25,12 +25,18 @@ typedef struct localctx_struct {
 	de_byte found_cmap;
 	de_byte compression;
 	de_byte has_camg;
-	de_byte is_ham; // "hold and modify"
+	de_byte ham_flag; // "hold and modify"
+	de_byte halfbrite_flag;
+	de_byte is_ham6;
+	de_byte is_ham8;
 
 	de_int64 rowspan;
 	de_int64 bits_per_row_per_plane;
 	de_int64 x_aspect, y_aspect;
 	de_int32 camg_mode;
+
+	// Our palette always has 256 colors. This is how many we read from the file.
+	de_int64 pal_ncolors;
 
 	de_uint32 pal[256];
 } lctx;
@@ -75,14 +81,13 @@ done:
 
 static void do_cmap(deark *c, lctx *d, de_int64 pos, de_int64 len)
 {
-	de_int64 ncolors;
 	de_int64 k;
 
 	d->found_cmap = 1;
-	ncolors = len/3;
-	if(ncolors>256) ncolors=256;
+	d->pal_ncolors = len/3;
+	if(d->pal_ncolors>256) d->pal_ncolors=256;
 
-	for(k=0; k<ncolors; k++) {
+	for(k=0; k<d->pal_ncolors; k++) {
 		d->pal[k] = dbuf_getRGB(c->infile, pos+3*k, 0);
 	}
 }
@@ -96,9 +101,12 @@ static void do_camg(deark *c, lctx *d, de_int64 pos, de_int64 len)
 	de_dbg(c, "CAMG mode: 0x%x\n", (unsigned int)d->camg_mode);
 
 	if(d->camg_mode & 0x0800)
-		d->is_ham = 1;
+		d->ham_flag = 1;
+	if(d->camg_mode & 0x0080)
+		d->halfbrite_flag = 1;
 
-	de_dbg(c, "is HAM: %d\n", (int)d->is_ham);
+	de_dbg(c, "is HAM: %d\n", (int)d->ham_flag);
+	de_dbg(c, "is Halfbrite: %d\n", (int)d->halfbrite_flag);
 }
 
 static int do_uncompress_rle(deark *c, lctx *d, de_int64 pos1, de_int64 len,
@@ -219,6 +227,85 @@ static void do_image_24(deark *c, lctx *d, dbuf *unc_pixels)
 	de_free(c, row_deplanarized);
 }
 
+static int is_grayscale_palette(const de_uint32 *pal, de_int64 num_entries)
+{
+	de_int64 k;
+	de_byte cr;
+
+	for(k=0; k<num_entries; k++) {
+		cr = DE_COLOR_R(pal[k]);
+		if(cr != DE_COLOR_G(pal[k])) return 0;
+		if(cr != DE_COLOR_B(pal[k])) return 0;
+	}
+	return 1;
+}
+
+static void make_halfbrite_palette(deark *c, lctx *d)
+{
+	de_int64 k;
+	de_byte cr, cg, cb;
+
+	for(k=0; k<32; k++) {
+		cr = DE_COLOR_R(d->pal[k]);
+		cg = DE_COLOR_G(d->pal[k]);
+		cb = DE_COLOR_B(d->pal[k]);
+		d->pal[k+32] = DE_MAKE_RGB(cr/2, cg/2, cb/2);
+	}
+}
+
+// It's clear that some ILBM images have palette colors with only 4 bits of
+// precision (the low bits often being set to 0), while others have 8, or
+// something in between.
+// What's not clear is how to tell them apart.
+// We'll guess that
+// * HAM6 images always have 4.
+// * HAM8 images always have 6.
+// * For anything else, assume 4 if the low 4 bits are all 0.
+// * Otherwise, 8.
+// TODO: It may be safe to assume that 8-plane images always have 8, but
+// more research is needed.
+static void fixup_palette(deark *c, lctx *d)
+{
+	de_int64 k;
+	de_byte cr, cg, cb;
+
+	if(d->is_ham8) {
+		// Assume HAM8 palette entries have 6 bits of precision
+		for(k=0; k<d->pal_ncolors; k++) {
+			cr = DE_COLOR_R(d->pal[k]);
+			cg = DE_COLOR_G(d->pal[k]);
+			cb = DE_COLOR_B(d->pal[k]);
+			cr = (cr&0xfc)|(cr>>6);
+			cg = (cg&0xfc)|(cg>>6);
+			cb = (cb&0xfc)|(cb>>6);
+			d->pal[k] = DE_MAKE_RGB(cr, cg, cb);
+		}
+		return;
+	}
+
+	if(!d->is_ham6) {
+		for(k=0; k<d->pal_ncolors; k++) {
+			cr = DE_COLOR_R(d->pal[k]);
+			cg = DE_COLOR_G(d->pal[k]);
+			cb = DE_COLOR_B(d->pal[k]);
+			if((cr&0x0f) != 0) return;
+			if((cg&0x0f) != 0) return;
+			if((cb&0x0f) != 0) return;
+		}
+		de_dbg(c, "Palette seems to have 4 bits of precision. Correcting for that.\n");
+	}
+
+	for(k=0; k<d->pal_ncolors; k++) {
+		cr = DE_COLOR_R(d->pal[k]);
+		cg = DE_COLOR_G(d->pal[k]);
+		cb = DE_COLOR_B(d->pal[k]);
+		cr = 17*(cr>>4);
+		cg = 17*(cg>>4);
+		cb = 17*(cb>>4);
+		d->pal[k] = DE_MAKE_RGB(cr, cg, cb);
+	}
+}
+
 static void do_image_1to8(deark *c, lctx *d, dbuf *unc_pixels)
 {
 	struct deark_bitmap *img = NULL;
@@ -230,15 +317,29 @@ static void do_image_1to8(deark *c, lctx *d, dbuf *unc_pixels)
 	de_byte cg = 0;
 	de_byte cb = 0;
 	de_uint32 clr;
+	int dst_bytes_per_pixel;
 
 	if(!d->found_cmap) {
 		de_err(c, "Missing CMAP chunk\n");
 		goto done;
 	}
 
-	if(d->is_ham && d->planes!=6 && d->planes!=8) {
-		de_err(c, "This type of image (HAM-%d) is not supported.\n", (int)d->planes);
-		goto done;
+	if(d->ham_flag) {
+		if(d->planes==6 || d->planes==5) {
+			d->is_ham6 = 1;
+		}
+		else if(d->planes==8 || d->planes==7) {
+			d->is_ham8 = 1;
+		}
+		else {
+			de_warn(c, "Invalid bit depth (%d) for HAM image.\n", (int)d->planes);
+		}
+	}
+
+	fixup_palette(c, d);
+
+	if(d->halfbrite_flag && d->planes==6 && d->pal_ncolors==32) {
+		make_halfbrite_palette(c, d);
 	}
 
 	d->bits_per_row_per_plane = ((d->width+15)/16)*16;
@@ -247,16 +348,21 @@ static void do_image_1to8(deark *c, lctx *d, dbuf *unc_pixels)
 	row_orig = de_malloc(c, d->rowspan);
 	row_deplanarized = de_malloc(c, d->width);
 
-	img = de_bitmap_create(c, d->width, d->height, 3);
+	if(!d->is_ham6 && !d->is_ham8 && is_grayscale_palette(d->pal, 256))
+		dst_bytes_per_pixel = 1;
+	else
+		dst_bytes_per_pixel = 3;
+
+	img = de_bitmap_create(c, d->width, d->height, dst_bytes_per_pixel);
 	set_density(c, d, img);
 
 	for(j=0; j<d->height; j++) {
-		if(d->is_ham) {
+		if(d->is_ham6 || d->is_ham8) {
 			// At the beginning of each row, the color accumulators are
 			// initialized to palette entry 0.
 			cr = DE_COLOR_R(d->pal[0]);
-			cg = DE_COLOR_R(d->pal[0]);
-			cb = DE_COLOR_R(d->pal[0]);
+			cg = DE_COLOR_G(d->pal[0]);
+			cb = DE_COLOR_B(d->pal[0]);
 		}
 
 		dbuf_read(unc_pixels, row_orig, j*d->rowspan, d->rowspan);
@@ -265,16 +371,16 @@ static void do_image_1to8(deark *c, lctx *d, dbuf *unc_pixels)
 		for(i=0; i<d->width; i++) {
 			val = row_deplanarized[i];
 
-			if(d->is_ham && d->planes==6) { // HAM6
+			if(d->is_ham6) {
 				switch((val>>4)&0x3) {
 				case 0x1: // Modify blue value
-					cb = (cb&0x0f) | ((val&0x0f)<<4);
+					cb = 17*(val&0x0f);
 					break;
 				case 0x2: // Modify red value
-					cr = (cr&0x0f) | ((val&0x0f)<<4);
+					cr = 17*(val&0x0f);
 					break;
 				case 0x3: // Modify green value
-					cg = (cg&0x0f) | ((val&0x0f)<<4);
+					cg = 17*(val&0x0f);
 					break;
 				default: // 0: Use colormap value
 					clr = d->pal[(unsigned int)val];
@@ -285,16 +391,16 @@ static void do_image_1to8(deark *c, lctx *d, dbuf *unc_pixels)
 				}
 				de_bitmap_setpixel_rgb(img, i, j, DE_MAKE_RGB(cr,cg,cb));
 			}
-			else if(d->is_ham && d->planes==8) { // HAM8
+			else if(d->is_ham8) {
 				switch((val>>6)&0x3) {
 				case 0x1:
-					cb = (cb&0x03) | ((val&0x3f)<<2);
+					cb = ((val&0x3f)<<2)|((val&0x3f)>>4);
 					break;
 				case 0x2:
-					cr = (cr&0x03) | ((val&0x3f)<<2);
+					cr = ((val&0x3f)<<2)|((val&0x3f)>>4);
 					break;
 				case 0x3:
-					cg = (cg&0x03) | ((val&0x3f)<<2);
+					cg = ((val&0x3f)<<2)|((val&0x3f)>>4);
 					break;
 				default:
 					clr = d->pal[(unsigned int)val];
