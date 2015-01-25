@@ -12,6 +12,7 @@
 #define CODE_CAMG  0x43414d47
 #define CODE_CMAP  0x434d4150
 #define CODE_FORM  0x464f524d
+#define CODE_TINY  0x54494e59
 
 #define CODE_ILBM  0x494c424d
 #define CODE_PBM   0x50424d20
@@ -21,7 +22,8 @@ typedef struct localctx_struct {
 	int level;
 	de_uint32 formtype;
 
-	de_int64 width, height;
+	de_int64 bmhd_width, bmhd_height; // Dimensions of the main image
+	de_int64 width, height; // Dimensions of the current image
 	de_int64 planes;
 	de_byte found_bmhd;
 	de_byte found_cmap;
@@ -65,17 +67,15 @@ static int do_bmhd(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 	}
 
 	d->found_bmhd = 1;
-	d->width = de_getui16be(pos1);
-	d->height = de_getui16be(pos1+2);
+	d->bmhd_width = de_getui16be(pos1);
+	d->bmhd_height = de_getui16be(pos1+2);
 	d->planes = (de_int64)de_getbyte(pos1+8);
 	d->compression = de_getbyte(pos1+10);
 	d->x_aspect = (de_int64)de_getbyte(pos1+14);
 	d->y_aspect = (de_int64)de_getbyte(pos1+15);
-	de_dbg(c, "dimensions: %dx%d, planes: %d, compression: %d\n", (int)d->width,
-		(int)d->height, (int)d->planes, (int)d->compression);
+	de_dbg(c, "dimensions: %dx%d, planes: %d, compression: %d\n", (int)d->bmhd_width,
+		(int)d->bmhd_height, (int)d->planes, (int)d->compression);
 	de_dbg(c, "apect ratio: %d, %d\n", (int)d->x_aspect, (int)d->y_aspect);
-
-	if(!de_good_image_dimensions(c, d->width, d->height)) goto done;
 
 	retval = 1;
 done:
@@ -211,7 +211,7 @@ static void set_density(deark *c, lctx *d, struct deark_bitmap *img)
 	img->xdens = (double)d->y_aspect;
 }
 
-static void do_image_24(deark *c, lctx *d, dbuf *unc_pixels)
+static void do_image_24(deark *c, lctx *d, dbuf *unc_pixels, const char *token)
 {
 	struct deark_bitmap *img = NULL;
 	de_int64 i, j;
@@ -244,7 +244,7 @@ static void do_image_24(deark *c, lctx *d, dbuf *unc_pixels)
 		}
 	}
 
-	de_bitmap_write_to_file(img, NULL);
+	de_bitmap_write_to_file(img, token);
 done:
 	de_bitmap_destroy(img);
 	de_free(c, row_orig);
@@ -330,7 +330,7 @@ static void fixup_palette(deark *c, lctx *d)
 	}
 }
 
-static void do_image_1to8(deark *c, lctx *d, dbuf *unc_pixels)
+static void do_image_1to8(deark *c, lctx *d, dbuf *unc_pixels, const char *token)
 {
 	struct deark_bitmap *img = NULL;
 	de_int64 i, j;
@@ -455,14 +455,15 @@ static void do_image_1to8(deark *c, lctx *d, dbuf *unc_pixels)
 		}
 	}
 
-	de_bitmap_write_to_file(img, NULL);
+	de_bitmap_write_to_file(img, token);
 done:
 	de_bitmap_destroy(img);
 	de_free(c, row_orig);
 	de_free(c, row_deplanarized);
 }
 
-static void do_body(deark *c, lctx *d, de_int64 pos1, de_int64 len)
+// Caller must first set d->width and d->height.
+static void do_image(deark *c, lctx *d, de_int64 pos1, de_int64 len, const char *token)
 {
 	dbuf *unc_pixels = NULL;
 
@@ -480,6 +481,8 @@ static void do_body(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 		goto done;
 	}
 
+	if(!de_good_image_dimensions(c, d->width, d->height)) goto done;
+
 	if(d->compression==0) {
 		unc_pixels = dbuf_open_input_subfile(c->infile, pos1, len);
 	}
@@ -495,10 +498,10 @@ static void do_body(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 	}
 
 	if(d->planes>=1 && d->planes<=8) {
-		do_image_1to8(c, d, unc_pixels);
+		do_image_1to8(c, d, unc_pixels, token);
 	}
 	else if(d->planes==24) {
-		do_image_24(c, d, unc_pixels);
+		do_image_24(c, d, unc_pixels, token);
 	}
 	else {
 		de_err(c, "Support for this type of IFF/ILBM image is not implemented\n");
@@ -506,6 +509,16 @@ static void do_body(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 
 done:
 	dbuf_close(unc_pixels);
+}
+
+// Thumbnail chunk
+static void do_tiny(deark *c, lctx *d, de_int64 pos1, de_int64 len)
+{
+	d->width = de_getui16be(pos1);
+	if(len<=4) return;
+	d->height = de_getui16be(pos1+2);
+	de_dbg(c, "thumbnail image, dimensions: %dx%d\n", (int)d->width, (int)d->height);
+	do_image(c, d, pos1+4, len-4, "thumb");
 }
 
 static int do_chunk_sequence(deark *c, lctx *d, de_int64 pos1, de_int64 len);
@@ -545,12 +558,18 @@ static int do_chunk(deark *c, lctx *d, de_int64 pos, de_int64 bytes_avail,
 	case CODE_BODY:
 	case CODE_ABIT:
 		if(d->level!=1) break;
-		do_body(c, d, chunk_data_pos, chunk_data_len);
+		d->width = d->bmhd_width;
+		d->height = d->bmhd_height;
+		do_image(c, d, chunk_data_pos, chunk_data_len, NULL);
 
 		// A lot of ILBM files have padding or garbage data at the end of the file
 		// (apparently included in the file size given by the FORM chunk).
 		// To avoid it, don't read past the BODY chunk.
 		doneflag = 1;
+		break;
+
+	case CODE_TINY:
+		do_tiny(c, d, chunk_data_pos, chunk_data_len);
 		break;
 
 	case CODE_BMHD:
