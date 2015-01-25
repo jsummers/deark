@@ -26,14 +26,17 @@ typedef struct localctx_struct {
 	de_int64 bmhd_width, bmhd_height; // Dimensions of the main image
 	de_int64 width, height; // Dimensions of the current image
 	de_int64 planes;
+	de_int64 planes_total;
 	de_byte found_bmhd;
 	de_byte found_cmap;
 	de_byte compression;
 	de_byte has_camg;
 	de_byte ham_flag; // "hold and modify"
 	de_byte halfbrite_flag;
+	de_byte masking_code;
 	de_byte is_ham6;
 	de_byte is_ham8;
+	de_int64 transparent_color;
 
 	de_int64 rowspan;
 	de_int64 planespan;
@@ -72,12 +75,15 @@ static int do_bmhd(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 	d->bmhd_width = de_getui16be(pos1);
 	d->bmhd_height = de_getui16be(pos1+2);
 	d->planes = (de_int64)de_getbyte(pos1+8);
+	d->masking_code = de_getbyte(pos1+9);
 	d->compression = de_getbyte(pos1+10);
+	d->transparent_color = de_getui16be(pos1+12);
 	d->x_aspect = (de_int64)de_getbyte(pos1+14);
 	d->y_aspect = (de_int64)de_getbyte(pos1+15);
 	de_dbg(c, "dimensions: %dx%d, planes: %d, compression: %d\n", (int)d->bmhd_width,
 		(int)d->bmhd_height, (int)d->planes, (int)d->compression);
 	de_dbg(c, "apect ratio: %d, %d\n", (int)d->x_aspect, (int)d->y_aspect);
+	de_dbg(c, "masking: %d, color key: %d\n", (int)d->masking_code, (int)d->transparent_color);
 
 	retval = 1;
 done:
@@ -389,13 +395,23 @@ static void do_image_1to8(deark *c, lctx *d, dbuf *unc_pixels, const char *token
 		make_halfbrite_palette(c, d);
 	}
 
+	// If using color-keyed transparency, make one of the palette colors transparent.
+	if(d->masking_code==2) {
+		if(d->transparent_color<=255) {
+			d->pal[(int)d->transparent_color] &= 0x00ffffffU;
+		}
+	}
+
+	d->planes_total = d->planes;
+	if(d->masking_code==1) d->planes_total++;
+
 	d->bits_per_row_per_plane = ((d->width+15)/16)*16;
 	if(d->formtype==CODE_ACBM) {
 		d->rowspan = d->bits_per_row_per_plane/8;
 		d->planespan = d->height * d->rowspan;
 	}
 	else {
-		d->rowspan = (d->bits_per_row_per_plane/8) * d->planes;
+		d->rowspan = (d->bits_per_row_per_plane/8) * d->planes_total;
 	}
 
 	row_orig = de_malloc(c, d->rowspan);
@@ -405,6 +421,9 @@ static void do_image_1to8(deark *c, lctx *d, dbuf *unc_pixels, const char *token
 		dst_bytes_per_pixel = 1;
 	else
 		dst_bytes_per_pixel = 3;
+
+	if(d->masking_code==2)
+		dst_bytes_per_pixel++;
 
 	img = de_bitmap_create(c, d->width, d->height, dst_bytes_per_pixel);
 	set_density(c, d, img);
