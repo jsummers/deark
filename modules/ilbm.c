@@ -11,6 +11,7 @@
 #define CODE_BODY  0x424f4459
 #define CODE_CAMG  0x43414d47
 #define CODE_CMAP  0x434d4150
+#define CODE_DPI   0x44504920
 #define CODE_FORM  0x464f524d
 #define CODE_TINY  0x54494e59
 
@@ -38,6 +39,7 @@ typedef struct localctx_struct {
 	de_int64 planespan;
 	de_int64 bits_per_row_per_plane;
 	de_int64 x_aspect, y_aspect;
+	de_int64 x_dpi, y_dpi;
 	de_int32 camg_mode;
 
 	// Our palette always has 256 colors. This is how many we read from the file.
@@ -88,6 +90,7 @@ static void do_cmap(deark *c, lctx *d, de_int64 pos, de_int64 len)
 
 	d->found_cmap = 1;
 	d->pal_ncolors = len/3;
+	de_dbg(c, "number of palette colors: %d\n", (int)d->pal_ncolors);
 	if(d->pal_ncolors>256) d->pal_ncolors=256;
 
 	for(k=0; k<d->pal_ncolors; k++) {
@@ -110,6 +113,14 @@ static void do_camg(deark *c, lctx *d, de_int64 pos, de_int64 len)
 
 	de_dbg(c, "is HAM: %d\n", (int)d->ham_flag);
 	de_dbg(c, "is Halfbrite: %d\n", (int)d->halfbrite_flag);
+}
+
+static void do_dpi(deark *c, lctx *d, de_int64 pos, de_int64 len)
+{
+	if(len<4) return;
+	d->x_dpi = de_getui16be(pos);
+	d->y_dpi = de_getui16be(pos+2);
+	de_dbg(c, "dpi: %dx%d\n", (int)d->x_dpi, (int)d->y_dpi);
 }
 
 static int do_uncompress_rle(deark *c, lctx *d, de_int64 pos1, de_int64 len,
@@ -204,11 +215,23 @@ static void get_row_acbm(deark *c, lctx *d, dbuf *unc_pixels, de_int64 j, de_byt
 
 static void set_density(deark *c, lctx *d, struct deark_bitmap *img)
 {
-	if(d->x_aspect<1 || d->y_aspect<1) return;
-	img->density_code = DE_DENSITY_UNK_UNITS;
-	// TODO: Is this the right interpretation of the ILBM "aspect ratio" fields?
-	img->ydens = (double)d->x_aspect;
-	img->xdens = (double)d->y_aspect;
+	int has_aspect, has_dpi;
+
+	has_aspect = (d->x_aspect>0 && d->y_aspect>0);
+	has_dpi = (d->x_dpi>0 && d->y_dpi>0);
+
+	// TODO: Warn about inconsistent aspect ratio vs. DPI?
+
+	if(has_dpi) {
+		img->density_code = DE_DENSITY_DPI;
+		img->xdens = (double)d->x_dpi;
+		img->ydens = (double)d->y_dpi;
+	}
+	else if(has_aspect) {
+		img->density_code = DE_DENSITY_UNK_UNITS;
+		img->ydens = (double)d->x_aspect;
+		img->xdens = (double)d->y_aspect;
+	}
 }
 
 static void do_image_24(deark *c, lctx *d, dbuf *unc_pixels, const char *token)
@@ -533,6 +556,7 @@ static int do_chunk(deark *c, lctx *d, de_int64 pos, de_int64 bytes_avail,
 	int ret;
 	de_int64 chunk_data_pos;
 	de_int64 chunk_data_len;
+	int need_unindent = 0;
 
 	if(bytes_avail<8) {
 		de_err(c, "Invalid chunk size (at %d, size=%d)\n", (int)pos, (int)bytes_avail);
@@ -546,6 +570,8 @@ static int do_chunk(deark *c, lctx *d, de_int64 pos, de_int64 bytes_avail,
 	make_printable_code(ct, printable_code, sizeof(printable_code));
 	de_dbg(c, "Chunk '%s' at %d, data at %d, size %d\n", printable_code, (int)pos,
 		(int)chunk_data_pos, (int)chunk_data_len);
+	de_dbg_indent(c, 1);
+	need_unindent = 1;
 
 	if(chunk_data_len > bytes_avail-8) {
 		de_err(c, "Invalid chunk size ('%s' at %d, size=%d)\n",
@@ -557,7 +583,6 @@ static int do_chunk(deark *c, lctx *d, de_int64 pos, de_int64 bytes_avail,
 	switch(ct) {
 	case CODE_BODY:
 	case CODE_ABIT:
-		if(d->level!=1) break;
 		d->width = d->bmhd_width;
 		d->height = d->bmhd_height;
 		do_image(c, d, chunk_data_pos, chunk_data_len, NULL);
@@ -573,7 +598,6 @@ static int do_chunk(deark *c, lctx *d, de_int64 pos, de_int64 bytes_avail,
 		break;
 
 	case CODE_BMHD:
-		if(d->level!=1) break;
 		if(!do_bmhd(c, d, chunk_data_pos, chunk_data_len)) {
 			errflag = 1;
 			goto done;
@@ -581,17 +605,19 @@ static int do_chunk(deark *c, lctx *d, de_int64 pos, de_int64 bytes_avail,
 		break;
 
 	case CODE_CMAP:
-		if(d->level!=1) break;
 		do_cmap(c, d, chunk_data_pos, chunk_data_len);
 		break;
 
 	case CODE_CAMG:
-		if(d->level!=1) break;
 		do_camg(c, d, chunk_data_pos, chunk_data_len);
 		break;
 
+	case CODE_DPI:
+		do_dpi(c, d, chunk_data_pos, chunk_data_len);
+		break;
+
 	case CODE_FORM:
-		de_dbg_indent(c, 1);
+		if(d->level!=0) break;
 		d->level++;
 
 		// First 4 bytes of payload are the FORM type ID (usually "ILBM").
@@ -599,18 +625,15 @@ static int do_chunk(deark *c, lctx *d, de_int64 pos, de_int64 bytes_avail,
 		make_printable_code(d->formtype, printable_code, sizeof(printable_code));
 		de_dbg(c, "FORM type: '%s'\n", printable_code);
 
-		if(d->level==1) {
-			switch(d->formtype) {
-			case CODE_ILBM: de_declare_fmt(c, "IFF-ILBM"); break;
-			case CODE_PBM:  de_declare_fmt(c, "IFF-PBM");  break;
-			case CODE_ACBM: de_declare_fmt(c, "IFF-ACBM"); break;
-			}
+		switch(d->formtype) {
+		case CODE_ILBM: de_declare_fmt(c, "IFF-ILBM"); break;
+		case CODE_PBM:  de_declare_fmt(c, "IFF-PBM");  break;
+		case CODE_ACBM: de_declare_fmt(c, "IFF-ACBM"); break;
 		}
 
 		// The rest is a sequence of chunks.
 		ret = do_chunk_sequence(c, d, pos+12, bytes_avail-12);
 		d->level--;
-		de_dbg_indent(c, -1);
 		if(!ret) {
 			errflag = 1;
 			goto done;
@@ -622,6 +645,8 @@ static int do_chunk(deark *c, lctx *d, de_int64 pos, de_int64 bytes_avail,
 	if(chunk_data_len%2) (*bytes_consumed)++; // Padding byte
 
 done:
+	if(need_unindent)
+		de_dbg_indent(c, -1);
 	return (errflag || doneflag) ? 0 : 1;
 }
 

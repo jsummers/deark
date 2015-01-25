@@ -576,13 +576,13 @@ void dbuf_close(dbuf *f)
 	if(f->write_memfile_to_zip_archive) {
 		de_zip_add_file_to_archive(c, f);
 		if(f->name) {
-			de_dbg(c, "Closing memfile %s\n", f->name);
+			de_dbg2(c, "Closing memfile %s\n", f->name);
 		}
 	}
 
 	if(f->fp) {
 		if(f->name) {
-			de_dbg(c, "Closing file %s\n", f->name);
+			de_dbg2(c, "Closing file %s\n", f->name);
 		}
 		de_fclose(f->fp);
 		f->fp = NULL;
