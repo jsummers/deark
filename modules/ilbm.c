@@ -398,6 +398,9 @@ static void do_image_1to8(deark *c, lctx *d, dbuf *unc_pixels)
 		if(d->formtype==CODE_ACBM) {
 			get_row_acbm(c, d, unc_pixels, j, row_deplanarized);
 		}
+		else if(d->formtype==CODE_PBM) {
+			dbuf_read(unc_pixels, row_deplanarized, j*d->rowspan, d->rowspan);
+		}
 		else {
 			dbuf_read(unc_pixels, row_orig, j*d->rowspan, d->rowspan);
 			do_deplanarize(c, d, row_orig, row_deplanarized);
@@ -468,8 +471,12 @@ static void do_body(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 		goto done;
 	}
 
-	if(d->formtype!=CODE_ILBM && d->formtype!=CODE_ACBM) {
-		de_err(c, "This image type is not supported\n");
+	if(d->formtype==CODE_ILBM || d->formtype==CODE_ACBM ||
+		(d->formtype==CODE_PBM && d->planes==8))
+	{
+		;
+	}
+	else {
 		goto done;
 	}
 
