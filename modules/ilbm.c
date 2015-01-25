@@ -6,6 +6,7 @@
 #include <deark-config.h>
 #include <deark-modules.h>
 
+#define CODE_ABIT  0x41424954
 #define CODE_BMHD  0x424d4844
 #define CODE_BODY  0x424f4459
 #define CODE_CAMG  0x43414d47
@@ -14,6 +15,7 @@
 
 #define CODE_ILBM  0x494c424d
 #define CODE_PBM   0x50424d20
+#define CODE_ACBM  0x4143424d
 
 typedef struct localctx_struct {
 	int level;
@@ -31,6 +33,7 @@ typedef struct localctx_struct {
 	de_byte is_ham8;
 
 	de_int64 rowspan;
+	de_int64 planespan;
 	de_int64 bits_per_row_per_plane;
 	de_int64 x_aspect, y_aspect;
 	de_int32 camg_mode;
@@ -184,6 +187,21 @@ static void do_deplanarize(deark *c, lctx *d, const de_byte *row_orig,
 	}
 }
 
+static void get_row_acbm(deark *c, lctx *d, dbuf *unc_pixels, de_int64 j, de_byte *row)
+{
+	de_int64 i;
+	de_int64 bit;
+	de_byte b;
+
+	de_memset(row, 0, d->width);
+	for(i=0; i<d->width; i++) {
+		for(bit=0; bit<d->planes; bit++) {
+			b = de_get_bits_symbol(unc_pixels, 1, bit*d->planespan + j*d->rowspan, i);
+			if(b) row[i] |= (1<<bit);
+		}
+	}
+}
+
 static void set_density(deark *c, lctx *d, struct deark_bitmap *img)
 {
 	if(d->x_aspect<1 || d->y_aspect<1) return;
@@ -200,6 +218,11 @@ static void do_image_24(deark *c, lctx *d, dbuf *unc_pixels)
 	de_byte *row_orig = NULL;
 	de_byte *row_deplanarized = NULL;
 	de_byte cr, cg, cb;
+
+	if(d->formtype!=CODE_ILBM) {
+		de_err(c, "This image type is not supported\n");
+		goto done;
+	}
 
 	d->bits_per_row_per_plane = ((d->width+15)/16)*16;
 	d->rowspan = (d->bits_per_row_per_plane/8) * d->planes;
@@ -222,6 +245,7 @@ static void do_image_24(deark *c, lctx *d, dbuf *unc_pixels)
 	}
 
 	de_bitmap_write_to_file(img, NULL);
+done:
 	de_bitmap_destroy(img);
 	de_free(c, row_orig);
 	de_free(c, row_deplanarized);
@@ -292,7 +316,7 @@ static void fixup_palette(deark *c, lctx *d)
 			if((cg&0x0f) != 0) return;
 			if((cb&0x0f) != 0) return;
 		}
-		de_dbg(c, "Palette seems to have 4 bits of precision. Correcting for that.\n");
+		de_dbg(c, "Palette seems to have 4 bits of precision. Trying to compensate.\n");
 	}
 
 	for(k=0; k<d->pal_ncolors; k++) {
@@ -343,7 +367,13 @@ static void do_image_1to8(deark *c, lctx *d, dbuf *unc_pixels)
 	}
 
 	d->bits_per_row_per_plane = ((d->width+15)/16)*16;
-	d->rowspan = (d->bits_per_row_per_plane/8) * d->planes;
+	if(d->formtype==CODE_ACBM) {
+		d->rowspan = d->bits_per_row_per_plane/8;
+		d->planespan = d->height * d->rowspan;
+	}
+	else {
+		d->rowspan = (d->bits_per_row_per_plane/8) * d->planes;
+	}
 
 	row_orig = de_malloc(c, d->rowspan);
 	row_deplanarized = de_malloc(c, d->width);
@@ -365,8 +395,13 @@ static void do_image_1to8(deark *c, lctx *d, dbuf *unc_pixels)
 			cb = DE_COLOR_B(d->pal[0]);
 		}
 
-		dbuf_read(unc_pixels, row_orig, j*d->rowspan, d->rowspan);
-		do_deplanarize(c, d, row_orig, row_deplanarized);
+		if(d->formtype==CODE_ACBM) {
+			get_row_acbm(c, d, unc_pixels, j, row_deplanarized);
+		}
+		else {
+			dbuf_read(unc_pixels, row_orig, j*d->rowspan, d->rowspan);
+			do_deplanarize(c, d, row_orig, row_deplanarized);
+		}
 
 		for(i=0; i<d->width; i++) {
 			val = row_deplanarized[i];
@@ -433,8 +468,8 @@ static void do_body(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 		goto done;
 	}
 
-	if(d->formtype != CODE_ILBM) {
-		de_err(c, "This image format is not supported\n");
+	if(d->formtype!=CODE_ILBM && d->formtype!=CODE_ACBM) {
+		de_err(c, "This image type is not supported\n");
 		goto done;
 	}
 
@@ -501,6 +536,7 @@ static int do_chunk(deark *c, lctx *d, de_int64 pos, de_int64 bytes_avail,
 
 	switch(ct) {
 	case CODE_BODY:
+	case CODE_ABIT:
 		if(d->level!=1) break;
 		do_body(c, d, chunk_data_pos, chunk_data_len);
 
@@ -536,6 +572,14 @@ static int do_chunk(deark *c, lctx *d, de_int64 pos, de_int64 bytes_avail,
 		d->formtype = (de_uint32)de_getui32be(pos+8);
 		make_printable_code(d->formtype, printable_code, sizeof(printable_code));
 		de_dbg(c, "FORM type: '%s'\n", printable_code);
+
+		if(d->level==1) {
+			switch(d->formtype) {
+			case CODE_ILBM: de_declare_fmt(c, "IFF-ILBM"); break;
+			case CODE_PBM:  de_declare_fmt(c, "IFF-PBM");  break;
+			case CODE_ACBM: de_declare_fmt(c, "IFF-ACBM"); break;
+			}
+		}
 
 		// The rest is a sequence of chunks.
 		ret = do_chunk_sequence(c, d, pos+12, bytes_avail-12);
@@ -597,6 +641,7 @@ static int de_identify_ilbm(deark *c)
 	if(!de_memcmp(buf, "FORM", 4)) {
 		if(!de_memcmp(&buf[8], "ILBM", 4)) return 100;
 		if(!de_memcmp(&buf[8], "PBM ", 4)) return 100;
+		if(!de_memcmp(&buf[8], "ACBM", 4)) return 100;
 	}
 	return 0;
 }
