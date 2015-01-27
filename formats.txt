@@ -87,6 +87,11 @@ Deark -- Information about supported formats
   - PNG-formatted icons will be extracted as-is, not decoded.
 
 * ILBM and related IFF-based images (module="ilbm") (experimental/incomplete)
+  - Supports ILBM, ACBM, PBM
+  - Supports 1-8 bit paletted, 24-bit truecolor
+  - Supports HAM6, HAM8, Halfbrite
+  Options
+   -opt ilbm:notrans - Disable support for transparency
 
 * JPEG (module="jpeg")
   - Extract ICC profiles.

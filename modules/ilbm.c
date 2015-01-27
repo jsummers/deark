@@ -45,6 +45,8 @@ typedef struct localctx_struct {
 	de_int64 x_dpi, y_dpi;
 	de_int32 camg_mode;
 
+	int opt_notrans;
+
 	// Our palette always has 256 colors. This is how many we read from the file.
 	de_int64 pal_ncolors;
 
@@ -396,7 +398,7 @@ static void do_image_1to8(deark *c, lctx *d, dbuf *unc_pixels, const char *token
 	}
 
 	// If using color-keyed transparency, make one of the palette colors transparent.
-	if(d->masking_code==2) {
+	if(d->masking_code==2 && !d->opt_notrans) {
 		if(d->transparent_color<=255) {
 			d->pal[(int)d->transparent_color] &= 0x00ffffffU;
 		}
@@ -422,7 +424,7 @@ static void do_image_1to8(deark *c, lctx *d, dbuf *unc_pixels, const char *token
 	else
 		dst_bytes_per_pixel = 3;
 
-	if(d->masking_code==2)
+	if(d->masking_code==2 && !d->opt_notrans)
 		dst_bytes_per_pixel++;
 
 	img = de_bitmap_create(c, d->width, d->height, dst_bytes_per_pixel);
@@ -695,10 +697,15 @@ static int do_chunk_sequence(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 static void de_run_ilbm(deark *c, const char *params)
 {
 	lctx *d = NULL;
+	const char *s;
 
 	de_warn(c, "ILBM support is experimental, and may not work correctly.\n");
 
 	d = de_malloc(c, sizeof(lctx));
+
+	s = de_get_ext_option(c, "ilbm:notrans");
+	if(s) d->opt_notrans = 1;
+
 	do_chunk_sequence(c, d, 0, c->infile->len);
 	de_free(c, d);
 }
