@@ -131,7 +131,7 @@ static void do_dpi(deark *c, lctx *d, de_int64 pos, de_int64 len)
 	de_dbg(c, "dpi: %dx%d\n", (int)d->x_dpi, (int)d->y_dpi);
 }
 
-static int do_uncompress_rle(deark *c, lctx *d, de_int64 pos1, de_int64 len,
+static int do_uncompress_rle(dbuf *f, de_int64 pos1, de_int64 len,
 	dbuf *unc_pixels)
 {
 	de_int64 pos;
@@ -146,24 +146,22 @@ static int do_uncompress_rle(deark *c, lctx *d, de_int64 pos1, de_int64 len,
 		if(pos>=endpos) {
 			break; // Reached the end of source data
 		}
-		b = de_getbyte(pos++);
+		b = dbuf_getbyte(f, pos++);
 
 		if(b>128) { // A compressed run
 			count = 257 - (de_int64)b;
-			b2 = de_getbyte(pos++);
+			b2 = dbuf_getbyte(f, pos++);
 			dbuf_write_run(unc_pixels, b2, count);
 		}
 		else if(b<128) { // An uncompressed run
 			count = 1 + (de_int64)b;
-			dbuf_copy(c->infile, pos, count, unc_pixels);
+			dbuf_copy(f, pos, count, unc_pixels);
 			pos += count;
 		}
 		else { // b==128
 			break;
 		}
 	}
-
-	de_dbg(c, "decompressed %d bytes to %d bytes\n", (int)len, (int)unc_pixels->len);
 
 	return 1;
 }
@@ -533,8 +531,9 @@ static void do_image(deark *c, lctx *d, de_int64 pos1, de_int64 len, const char 
 	else if(d->compression==1) {
 		unc_pixels = dbuf_create_membuf(c, 0);
 		// TODO: Call dbuf_set_max_length()
-		if(!do_uncompress_rle(c, d, pos1, len, unc_pixels))
+		if(!do_uncompress_rle(c->infile, pos1, len, unc_pixels))
 			goto done;
+		de_dbg(c, "decompressed %d bytes to %d bytes\n", (int)len, (int)unc_pixels->len);
 	}
 	else {
 		de_err(c, "Unsupported compression type: %d\n", (int)d->compression);

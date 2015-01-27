@@ -12,37 +12,45 @@
 
 typedef struct localctx_struct {
 	int has_macbinary_header;
-	struct deark_bitmap *img;
-	de_int64 xp, yp;
 } lctx;
 
-static void do_addbyte(deark *c, lctx *d, de_byte n)
+static int de_uncompress_packbits(dbuf *f, de_int64 pos1, de_int64 len,
+	dbuf *unc_pixels)
 {
-	unsigned int k;
+	de_int64 pos;
+	de_byte b, b2;
+	de_int64 count;
+	de_int64 endpos;
 
-	if(d->yp >= MACPAINT_HEIGHT) {
-		return;
-	}
+	pos = pos1;
+	endpos = pos1+len;
 
-	if(d->xp < MACPAINT_WIDTH) {
-		for(k=0; k<8; k++) {
-			de_bitmap_setpixel_gray(d->img, d->xp, d->yp, (n&(1<<(7-k)))?0:255);
-			d->xp++;
+	while(1) {
+		if(pos>=endpos) {
+			break; // Reached the end of source data
 		}
+		b = dbuf_getbyte(f, pos++);
+
+		if(b>128) { // A compressed run
+			count = 257 - (de_int64)b;
+			b2 = dbuf_getbyte(f, pos++);
+			dbuf_write_run(unc_pixels, b2, count);
+		}
+		else if(b<128) { // An uncompressed run
+			count = 1 + (de_int64)b;
+			dbuf_copy(f, pos, count, unc_pixels);
+			pos += count;
+		}
+		// Else b==128. No-op.
 	}
-	if(d->xp >= MACPAINT_WIDTH) {
-		d->xp = 0;
-		d->yp++;
-	}
+
+	return 1;
 }
 
 static void do_read_bitmap(deark *c, lctx *d, de_int64 pos)
 {
-	de_byte b, b2;
-	de_int64 i;
-	de_int64 x;
-	de_int64 bytes_written = 0;
 	de_int64 ver_num;
+	dbuf *unc_pixels = NULL;
 
 	ver_num = de_getui32be(pos);
 	de_dbg(c, "version number: %u\n", (unsigned int)ver_num);
@@ -51,48 +59,22 @@ static void do_read_bitmap(deark *c, lctx *d, de_int64 pos)
 	}
 
 	pos += 512;
-	d->xp = 0;
-	d->yp = 0;
 
-	d->img = de_bitmap_create(c, MACPAINT_WIDTH, MACPAINT_HEIGHT, 1);
+	unc_pixels = dbuf_create_membuf(c, MACPAINT_IMAGE_BYTES);
+	dbuf_set_max_length(unc_pixels, MACPAINT_IMAGE_BYTES);
 
-	while(pos < c->infile->len) {
-		if(d->yp >= MACPAINT_HEIGHT)
-			break;
+	de_uncompress_packbits(c->infile, pos, c->infile->len - pos, unc_pixels);
 
-		b = de_getbyte(pos);
-		pos++;
-
-		if(b<=127) {
-			// 1+b bytes of literal data
-			x = 1+(de_int64)b;
-			for(i=0; i<x; i++) {
-				b2 = de_getbyte(pos);
-				pos++;
-				do_addbyte(c, d, b2);
-				bytes_written++;
-			}
-		}
-		else if(b>=129) {
-			// 257-b repeated bytes
-			x = 257 - (de_int64)b;
-			b2 = de_getbyte(pos);
-			pos++;
-			for(i=0; i<x; i++) {
-				do_addbyte(c, d, b2);
-				bytes_written++;
-			}
-		}
-		// Else b==128. No-op.
+	if(unc_pixels->len < MACPAINT_IMAGE_BYTES) {
+		de_warn(c, "Image decompressed to %d bytes, expected %d.\n",
+			(int)unc_pixels->len, (int)MACPAINT_IMAGE_BYTES);
 	}
 
-	if(bytes_written < MACPAINT_IMAGE_BYTES) {
-		de_warn(c, "Premature end of file.\n");
-	}
+	de_convert_and_write_image_bilevel(unc_pixels, 0,
+		MACPAINT_WIDTH, MACPAINT_HEIGHT, MACPAINT_WIDTH/8,
+		DE_CVTF_WHITEISZERO, NULL);
 
-	de_bitmap_write_to_file(d->img, NULL);
-	de_bitmap_destroy(d->img);
-	d->img = NULL;
+	dbuf_close(unc_pixels);
 }
 
 // A function to help determine if the file has a MacBinary header.
