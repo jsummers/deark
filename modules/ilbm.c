@@ -369,6 +369,8 @@ static void do_image_1to8(deark *c, lctx *d, dbuf *unc_pixels, const char *token
 	de_byte cr = 0;
 	de_byte cg = 0;
 	de_byte cb = 0;
+	de_byte ca = 255;
+	de_byte b;
 	de_uint32 clr;
 	int dst_bytes_per_pixel;
 
@@ -403,7 +405,13 @@ static void do_image_1to8(deark *c, lctx *d, dbuf *unc_pixels, const char *token
 	}
 
 	d->planes_total = d->planes;
-	if(d->masking_code==1) d->planes_total++;
+	if(d->masking_code==1) {
+		if(d->formtype!=CODE_ILBM) {
+			de_err(c, "This type of image is not supported.\n");
+			goto done;
+		}
+		d->planes_total++;
+	}
 
 	d->bits_per_row_per_plane = ((d->width+15)/16)*16;
 	if(d->formtype==CODE_ACBM) {
@@ -422,7 +430,7 @@ static void do_image_1to8(deark *c, lctx *d, dbuf *unc_pixels, const char *token
 	else
 		dst_bytes_per_pixel = 3;
 
-	if(d->masking_code==2 && !d->opt_notrans)
+	if((d->masking_code==1 || d->masking_code==2) && !d->opt_notrans)
 		dst_bytes_per_pixel++;
 
 	img = de_bitmap_create(c, d->width, d->height, dst_bytes_per_pixel);
@@ -469,7 +477,6 @@ static void do_image_1to8(deark *c, lctx *d, dbuf *unc_pixels, const char *token
 					cb = DE_COLOR_B(clr);
 					break;
 				}
-				de_bitmap_setpixel_rgb(img, i, j, DE_MAKE_RGB(cr,cg,cb));
 			}
 			else if(d->is_ham8) {
 				switch((val>>6)&0x3) {
@@ -489,11 +496,23 @@ static void do_image_1to8(deark *c, lctx *d, dbuf *unc_pixels, const char *token
 					cb = DE_COLOR_B(clr);
 					break;
 				}
-				de_bitmap_setpixel_rgb(img, i, j, DE_MAKE_RGB(cr,cg,cb));
 			}
 			else {
-				de_bitmap_setpixel_rgb(img, i, j, d->pal[(unsigned int)val]);
+				clr = d->pal[(unsigned int)val];
+				cr = DE_COLOR_R(clr);
+				cg = DE_COLOR_G(clr);
+				cb = DE_COLOR_B(clr);
+				ca = DE_COLOR_A(clr);
 			}
+
+			if(d->masking_code==1 && !d->opt_notrans) {
+				// The last plane is the transparency mask.
+				// (This code is for ILBM format only.)
+				b = getbit(row_orig, (d->planes_total-1)*d->bits_per_row_per_plane +i);
+				ca = b ? 0xff : 0x00;
+			}
+
+			de_bitmap_setpixel_rgb(img, i, j, DE_MAKE_RGBA(cr,cg,cb,ca));
 		}
 	}
 
