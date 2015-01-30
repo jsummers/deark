@@ -5,6 +5,7 @@
 
 #include <deark-config.h>
 #include <deark-modules.h>
+#include "fmtutil.h"
 
 #define CODE_ABIT  0x41424954
 #define CODE_BMHD  0x424d4844
@@ -129,41 +130,6 @@ static void do_dpi(deark *c, lctx *d, de_int64 pos, de_int64 len)
 	d->x_dpi = de_getui16be(pos);
 	d->y_dpi = de_getui16be(pos+2);
 	de_dbg(c, "dpi: %dx%d\n", (int)d->x_dpi, (int)d->y_dpi);
-}
-
-static int do_uncompress_rle(dbuf *f, de_int64 pos1, de_int64 len,
-	dbuf *unc_pixels)
-{
-	de_int64 pos;
-	de_byte b, b2;
-	de_int64 count;
-	de_int64 endpos;
-
-	pos = pos1;
-	endpos = pos1+len;
-
-	while(1) {
-		if(pos>=endpos) {
-			break; // Reached the end of source data
-		}
-		b = dbuf_getbyte(f, pos++);
-
-		if(b>128) { // A compressed run
-			count = 257 - (de_int64)b;
-			b2 = dbuf_getbyte(f, pos++);
-			dbuf_write_run(unc_pixels, b2, count);
-		}
-		else if(b<128) { // An uncompressed run
-			count = 1 + (de_int64)b;
-			dbuf_copy(f, pos, count, unc_pixels);
-			pos += count;
-		}
-		else { // b==128
-			break;
-		}
-	}
-
-	return 1;
 }
 
 static de_byte getbit(const de_byte *m, de_int64 bitnum)
@@ -550,7 +516,7 @@ static void do_image(deark *c, lctx *d, de_int64 pos1, de_int64 len, const char 
 	else if(d->compression==1) {
 		unc_pixels = dbuf_create_membuf(c, 0);
 		// TODO: Call dbuf_set_max_length()
-		if(!do_uncompress_rle(c->infile, pos1, len, unc_pixels))
+		if(!de_fmtutil_uncompress_packbits(c->infile, pos1, len, unc_pixels))
 			goto done;
 		de_dbg(c, "decompressed %d bytes to %d bytes\n", (int)len, (int)unc_pixels->len);
 	}

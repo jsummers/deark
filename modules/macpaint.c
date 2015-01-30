@@ -5,6 +5,7 @@
 
 #include <deark-config.h>
 #include <deark-modules.h>
+#include "fmtutil.h"
 
 #define MACPAINT_WIDTH 576
 #define MACPAINT_HEIGHT 720
@@ -13,39 +14,6 @@
 typedef struct localctx_struct {
 	int has_macbinary_header;
 } lctx;
-
-static int de_uncompress_packbits(dbuf *f, de_int64 pos1, de_int64 len,
-	dbuf *unc_pixels)
-{
-	de_int64 pos;
-	de_byte b, b2;
-	de_int64 count;
-	de_int64 endpos;
-
-	pos = pos1;
-	endpos = pos1+len;
-
-	while(1) {
-		if(pos>=endpos) {
-			break; // Reached the end of source data
-		}
-		b = dbuf_getbyte(f, pos++);
-
-		if(b>128) { // A compressed run
-			count = 257 - (de_int64)b;
-			b2 = dbuf_getbyte(f, pos++);
-			dbuf_write_run(unc_pixels, b2, count);
-		}
-		else if(b<128) { // An uncompressed run
-			count = 1 + (de_int64)b;
-			dbuf_copy(f, pos, count, unc_pixels);
-			pos += count;
-		}
-		// Else b==128. No-op.
-	}
-
-	return 1;
-}
 
 static void do_read_bitmap(deark *c, lctx *d, de_int64 pos)
 {
@@ -63,7 +31,7 @@ static void do_read_bitmap(deark *c, lctx *d, de_int64 pos)
 	unc_pixels = dbuf_create_membuf(c, MACPAINT_IMAGE_BYTES);
 	dbuf_set_max_length(unc_pixels, MACPAINT_IMAGE_BYTES);
 
-	de_uncompress_packbits(c->infile, pos, c->infile->len - pos, unc_pixels);
+	de_fmtutil_uncompress_packbits(c->infile, pos, c->infile->len - pos, unc_pixels);
 
 	if(unc_pixels->len < MACPAINT_IMAGE_BYTES) {
 		de_warn(c, "Image decompressed to %d bytes, expected %d.\n",

@@ -156,3 +156,40 @@ void de_fmtutil_handle_photoshop_rsrc(deark *c, de_int64 pos, de_int64 len)
 
 	c->infile = old_ifile;
 }
+
+// Returns 0 on failure (currently impossible).
+int de_fmtutil_uncompress_packbits(dbuf *f, de_int64 pos1, de_int64 len,
+	dbuf *unc_pixels)
+{
+	de_int64 pos;
+	de_byte b, b2;
+	de_int64 count;
+	de_int64 endpos;
+
+	pos = pos1;
+	endpos = pos1+len;
+
+	while(1) {
+		if(pos>=endpos) {
+			break; // Reached the end of source data
+		}
+		b = dbuf_getbyte(f, pos++);
+
+		if(b>128) { // A compressed run
+			count = 257 - (de_int64)b;
+			b2 = dbuf_getbyte(f, pos++);
+			dbuf_write_run(unc_pixels, b2, count);
+		}
+		else if(b<128) { // An uncompressed run
+			count = 1 + (de_int64)b;
+			dbuf_copy(f, pos, count, unc_pixels);
+			pos += count;
+		}
+		// Else b==128. No-op.
+		// TODO: Some (but not most) ILBM specs say that code 128 is used to
+		// mark the end of compressed data, so maybe there should be options to
+		// tell us what to do when code 128 is encountered.
+	}
+
+	return 1;
+}
