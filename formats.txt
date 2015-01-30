@@ -21,9 +21,10 @@ Deark -- Information about supported formats
 
 * Award BIOS logo (EPA, AWBM) (module="awbm") (experimental)
   - Supports version 1
-  - Supports 4-bit version 2
+  - Supports 4-bit and 8-bit version 2
   Options
-   -opt awbm:rgb=1 - (v2) Assume RGB sample order instead of BGR
+   -opt awbm:rgb=0 - (v2) Assume BGR sample order (default for 4-bit)
+   -opt awbm:rgb=1 - (v2) Assume RGB sample order (default for 8-bit)
 
 * Bob ray tracer bitmap (module="bob")
 

@@ -104,6 +104,14 @@ done:
 	;
 }
 
+static int detect_palette_at(deark *c, lctx *d, de_int64 pos, de_int64 ncolors)
+{
+	if(pos + 4 + 3*ncolors > c->infile->len) return 0;
+	if(!dbuf_memcmp(c->infile, pos, "RGB ", 4)) return 1;
+	return 0;
+}
+
+
 static void do_v2(deark *c, lctx *d)
 {
 	struct deark_bitmap *img = NULL;
@@ -114,40 +122,57 @@ static void do_v2(deark *c, lctx *d)
 	de_int64 palette_start;
 	de_int64 i, j;
 	de_int64 k;
-	de_uint32 pal[16];
 	de_byte cr, cg, cb;
 	de_byte b;
-	de_byte bi[4];
+	de_byte b1;
 	const char *s;
+	de_int64 ncolors = 0; // 16 or 256
+	de_uint32 pal[256];
 
-	de_declare_fmt(c, "Award BIOS logo v2");
-
-	d->rgb_order = 0;
-	s = de_get_ext_option(c, "awbm:rgb");
-	if(s) d->rgb_order = de_atoi(s);
-
+	de_memset(pal, 0, sizeof(pal));
 	d->w = de_getui16le(4);
 	d->h = de_getui16le(6);
 	de_dbg(c, "dimensions: %dx%d\n", (int)d->w, (int)d->h);
 	if(!de_good_image_dimensions(c, d->w, d->h)) goto done;
 
-
-	// Assume 4 bits/pixel
-	// TODO: There seems to be an 8-bit format as well.
-
 	bitmap_start = 8;
-	rowspan1 = (d->w+7)/8; // Guess
-	rowspan = rowspan1 * 4;
+	rowspan1 = (d->w+7)/8;
+
+	rowspan = d->w; // Start by guessing 8bpp
 	bitmap_size = rowspan * d->h;
 
-	if(dbuf_memcmp(c->infile, bitmap_start+bitmap_size, "RGB ", 4)) {
+	if(detect_palette_at(c, d, bitmap_start+bitmap_size, 256)) {
+		ncolors=256;
+		de_declare_fmt(c, "Award BIOS logo v2 8-bit");
+	}
+	else {
+		// Doesn't seem to be an 8pp image. Try 4bpp.
+		rowspan = rowspan1 * 4;
+		bitmap_size = rowspan * d->h;
+		if(detect_palette_at(c, d, bitmap_start+bitmap_size, 16)) {
+			ncolors=16;
+			de_declare_fmt(c, "Award BIOS logo v2 4-bit");
+		}
+	}
+
+	if(!ncolors) {
 		de_err(c, "Can't detect image format\n");
 		goto done;
 	}
+
+	// Default to BGR for 16-color images, RGB for 256-color.
+	if(ncolors==16)
+		d->rgb_order = 0;
+	else
+		d->rgb_order = 1;
+
+	s = de_get_ext_option(c, "awbm:rgb");
+	if(s) d->rgb_order = de_atoi(s);
+
 	palette_start = bitmap_start+bitmap_size+4;
 
 	// Read the palette
-	for(i=0; i<16; i++) {
+	for(i=0; i<ncolors; i++) {
 		cr = de_palette_sample_6_to_8bit(de_getbyte(palette_start+i*3+0));
 		cg = de_palette_sample_6_to_8bit(de_getbyte(palette_start+i*3+1));
 		cb = de_palette_sample_6_to_8bit(de_getbyte(palette_start+i*3+2));
@@ -160,10 +185,16 @@ static void do_v2(deark *c, lctx *d)
 	img = de_bitmap_create(c, d->w, d->h, 3);
 	for(j=0; j<d->h; j++) {
 		for(i=0; i<d->w; i++) {
-			for(k=0; k<4; k++) {
-				bi[k] = de_get_bits_symbol(c->infile, 1, bitmap_start + j*rowspan + k*rowspan1, i);
+			if(ncolors==16) {
+				b = 0;
+				for(k=0; k<4; k++) {
+					b1 = de_get_bits_symbol(c->infile, 1, bitmap_start + j*rowspan + k*rowspan1, i);
+					b |= b1<<k;
+				}
 			}
-			b = (bi[3]<<3) | (bi[2]<<2) | (bi[1]<<1) | bi[0];
+			else {
+				b = de_getbyte(bitmap_start + j*rowspan + i);
+			}
 			de_bitmap_setpixel_rgb(img, i, j, pal[(unsigned int)b]);
 		}
 	}
