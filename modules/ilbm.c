@@ -8,12 +8,15 @@
 #include "fmtutil.h"
 
 #define CODE_ABIT  0x41424954
+#define CODE_ANNO  0x414e4e4f
 #define CODE_BMHD  0x424d4844
 #define CODE_BODY  0x424f4459
 #define CODE_CAMG  0x43414d47
 #define CODE_CMAP  0x434d4150
+#define CODE_CRNG  0x43524e47
 #define CODE_DPI   0x44504920
 #define CODE_FORM  0x464f524d
+#define CODE_GRAB  0x47524142
 #define CODE_TINY  0x54494e59
 
 #define CODE_ILBM  0x494c424d
@@ -33,7 +36,7 @@ typedef struct localctx_struct {
 	de_byte compression;
 	de_byte has_camg;
 	de_byte ham_flag; // "hold and modify"
-	de_byte halfbrite_flag;
+	de_byte ehb_flag; // "extra halfbrite"
 	de_byte masking_code;
 	de_byte is_ham6;
 	de_byte is_ham8;
@@ -118,10 +121,11 @@ static void do_camg(deark *c, lctx *d, de_int64 pos, de_int64 len)
 	if(d->camg_mode & 0x0800)
 		d->ham_flag = 1;
 	if(d->camg_mode & 0x0080)
-		d->halfbrite_flag = 1;
+		d->ehb_flag = 1;
 
-	de_dbg(c, "is HAM: %d\n", (int)d->ham_flag);
-	de_dbg(c, "is Halfbrite: %d\n", (int)d->halfbrite_flag);
+	de_dbg_indent(c, 1);
+	de_dbg(c, "HAM: %d, EHB: %d\n", (int)d->ham_flag, (int)d->ehb_flag);
+	de_dbg_indent(c, -1);
 }
 
 static void do_dpi(deark *c, lctx *d, de_int64 pos, de_int64 len)
@@ -130,6 +134,22 @@ static void do_dpi(deark *c, lctx *d, de_int64 pos, de_int64 len)
 	d->x_dpi = de_getui16be(pos);
 	d->y_dpi = de_getui16be(pos+2);
 	de_dbg(c, "dpi: %dx%d\n", (int)d->x_dpi, (int)d->y_dpi);
+}
+
+static void do_anno(deark *c, lctx *d, de_int64 pos, de_int64 len)
+{
+	de_int64 foundpos;
+
+	if(len<1) return;
+	if(c->extract_level<2) return;
+
+	// Some ANNO chunks seem to be padded with one or more NUL bytes. Probably
+	// best not to save them.
+	if(dbuf_search_byte(c->infile, 0x00, pos, len, &foundpos)) {
+		len = foundpos - pos;
+	}
+
+	dbuf_create_file_from_slice(c->infile, pos, len, "anno.txt", NULL);
 }
 
 static de_byte getbit(const de_byte *m, de_int64 bitnum)
@@ -259,7 +279,7 @@ static int is_grayscale_palette(const de_uint32 *pal, de_int64 num_entries)
 	return 1;
 }
 
-static void make_halfbrite_palette(deark *c, lctx *d)
+static void make_ehb_palette(deark *c, lctx *d)
 {
 	de_int64 k;
 	de_byte cr, cg, cb;
@@ -311,7 +331,7 @@ static void fixup_palette(deark *c, lctx *d)
 			if((cg&0x0f) != 0) return;
 			if((cb&0x0f) != 0) return;
 		}
-		de_dbg(c, "Palette seems to have 4 bits of precision. Trying to compensate.\n");
+		de_dbg(c, "Palette seems to have 4 bits of precision. Rescaling palette.\n");
 	}
 
 	for(k=0; k<d->pal_ncolors; k++) {
@@ -359,8 +379,8 @@ static void do_image_1to8(deark *c, lctx *d, dbuf *unc_pixels, const char *token
 
 	fixup_palette(c, d);
 
-	if(d->halfbrite_flag && d->planes==6 && d->pal_ncolors==32) {
-		make_halfbrite_palette(c, d);
+	if(d->ehb_flag && d->planes==6 && d->pal_ncolors==32) {
+		make_ehb_palette(c, d);
 	}
 
 	// If using color-keyed transparency, make one of the palette colors transparent.
@@ -561,6 +581,7 @@ static int do_chunk(deark *c, lctx *d, de_int64 pos, de_int64 bytes_avail,
 	int ret;
 	de_int64 chunk_data_pos;
 	de_int64 chunk_data_len;
+	de_int64 tmp1, tmp2;
 	int need_unindent = 0;
 
 	if(bytes_avail<8) {
@@ -619,6 +640,27 @@ static int do_chunk(deark *c, lctx *d, de_int64 pos, de_int64 bytes_avail,
 
 	case CODE_DPI:
 		do_dpi(c, d, chunk_data_pos, chunk_data_len);
+		break;
+
+	case CODE_ANNO:
+		do_anno(c, d, chunk_data_pos, chunk_data_len);
+		break;
+
+	case CODE_CRNG:
+		if(chunk_data_len<8) break;
+		tmp1 = de_getui16be(chunk_data_pos+2);
+		tmp2 = de_getui16be(chunk_data_pos+4);
+		de_dbg(c, "flags: 0x%04x\n", (unsigned int)tmp2);
+		if(tmp2&0x1) {
+			de_dbg(c, "rate: %.2f fps\n", (double)(((double)tmp1)*(60.0/16384.0)));
+		}
+		break;
+
+	case CODE_GRAB:
+		if(chunk_data_len<4) break;
+		tmp1 = de_getui16be(chunk_data_pos);
+		tmp2 = de_getui16be(chunk_data_pos+2);
+		de_dbg(c, "hotspot: (%d, %d)\n", (int)tmp1, (int)tmp2);
 		break;
 
 	case CODE_FORM:
@@ -682,8 +724,6 @@ static void de_run_ilbm(deark *c, const char *params)
 {
 	lctx *d = NULL;
 	const char *s;
-
-	de_warn(c, "ILBM support is experimental, and may not work correctly.\n");
 
 	d = de_malloc(c, sizeof(lctx));
 

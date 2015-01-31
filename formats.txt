@@ -92,6 +92,8 @@ Deark -- Information about supported formats
   - Supports 1-8 bit paletted, 24-bit truecolor
   - Supports HAM6, HAM8, Halfbrite
   - Supports color-keyed and bitmask transparency
+  - Extract thumbnails from TINY chunks
+  - Extract text from ANNO chunks (use -extractall)
   Options
    -opt ilbm:notrans - Disable support for transparency
 
