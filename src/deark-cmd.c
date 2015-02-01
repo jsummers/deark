@@ -32,9 +32,35 @@ static void show_version(deark *c)
 		de_get_version_string(vbuf, sizeof(vbuf)));
 }
 
-static void show_usage(deark *c)
-{
+static void show_usage_preamble(deark *c) {
 	de_puts(c, DE_MSGTYPE_MESSAGE, "usage: deark [options] <input-file>\n");
+}
+
+static void show_usage_error(deark *c)
+{
+	show_usage_preamble(c);
+	de_puts(c, DE_MSGTYPE_MESSAGE, "\"deark -h\" for help.\n");
+}
+
+static void show_help(deark *c)
+{
+	show_version(c);
+	de_puts(c, DE_MSGTYPE_MESSAGE,
+		"A utility for extracting data from various file formats\n\n");
+	show_usage_preamble(c);
+	de_puts(c, DE_MSGTYPE_MESSAGE,
+		"\nCommonly used options:\n"
+		" -l: Instead of extracting, list the files that would be extracted.\n"
+		" -m <format>: Assume input file is this format, instead of autodetecting.\n"
+		" -o <base-filename>: Start output filenames with this string.\n"
+		" -zip: Write output files to a .zip file.\n"
+		" -extractall: Extract more data than usual.\n"
+		" -get <n>: Extract only file number <n>.\n"
+		" -d, -d2: Print additional information about the file.\n"
+		" -q, -noinfo, -nowarn: Print fewer messages than usual.\n"
+		" -help, -h: Print this message.\n"
+		" -version: Print the version number.\n"
+		);
 }
 
 static void our_msgfn(deark *c, int msgtype, const char *s)
@@ -85,7 +111,7 @@ static void set_ext_option(deark *c, struct cmdctx *cc, const char *optionstring
 enum opt_id_enum {
  DE_OPT_NULL=0, DE_OPT_D, DE_OPT_D2, DE_OPT_L, DE_OPT_NOINFO, DE_OPT_NOWARN,
  DE_OPT_NOBOM, DE_OPT_NODENS, DE_OPT_NONAMES, DE_OPT_MODTIME, DE_OPT_NOMODTIME,
- DE_OPT_Q, DE_OPT_VERSION, DE_OPT_EXTRACTALL, DE_OPT_ZIP,
+ DE_OPT_Q, DE_OPT_VERSION, DE_OPT_HELP, DE_OPT_EXTRACTALL, DE_OPT_ZIP,
  DE_OPT_EXTOPT, DE_OPT_START, DE_OPT_SIZE, DE_OPT_M, DE_OPT_O,
  DE_OPT_ARCFN, DE_OPT_GET, DE_OPT_FIRSTFILE, DE_OPT_MAXFILES
 };
@@ -109,6 +135,9 @@ struct opt_struct option_array[] = {
 	{ "nomodtime",    DE_OPT_NOMODTIME,    0 },
 	{ "q",            DE_OPT_Q,            0 },
 	{ "version",      DE_OPT_VERSION,      0 },
+	{ "h",            DE_OPT_HELP,         0 },
+	{ "help",         DE_OPT_HELP,         0 },
+	{ "?",            DE_OPT_HELP,         0 },
 	{ "extractall",   DE_OPT_EXTRACTALL,   0 },
 	{ "zip",          DE_OPT_ZIP,          0 },
 	{ "opt",          DE_OPT_EXTOPT,       1 },
@@ -194,6 +223,10 @@ static void parse_cmdline(deark *c, struct cmdctx *cc, int argc, char **argv)
 				show_version(c);
 				cc->special_command_flag = 1;
 				break;
+			case DE_OPT_HELP:
+				show_help(c);
+				cc->special_command_flag = 1;
+				break;
 			case DE_OPT_EXTRACTALL:
 				de_set_extract_level(c, 2);
 				break;
@@ -274,16 +307,15 @@ static void main2(int argc, char **argv)
 	de_set_fatalerror_callback(c, our_fatalerrorfn);
 	de_set_messages_callback(c, our_msgfn);
 
-	if(argc<2) {
-		show_version(c);
-		show_usage(c);
+	if(argc<2) { // Empty command line
+		show_help(c);
 		goto done;
 	}
 
 	parse_cmdline(c, cc, argc, argv);
 
 	if(cc->error_flag) {
-		show_usage(c);
+		show_usage_error(c);
 		goto done;
 	}
 

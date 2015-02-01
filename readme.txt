@@ -63,6 +63,8 @@ Command-line options:
      accurate.
   -opt <module:option>=<value>
      Module-specific options. See formats.txt.
+  -h, -?, -help:
+     Print the help message.
   -version
      Print the version number.
   -noinfo
