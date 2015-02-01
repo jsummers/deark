@@ -22,6 +22,9 @@ struct deark_module_info {
 	const char *id;
 	de_module_run_fn run_fn;
 	de_module_identify_fn identify_fn;
+#define DE_MODFLAG_HIDDEN       0x01
+#define DE_MODFLAG_NONWORKING   0x02
+	de_uint32 flags;
 };
 typedef void (*de_module_getinfo_fn)(deark *c, struct deark_module_info *mi);
 

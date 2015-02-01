@@ -51,16 +51,22 @@ static void show_help(deark *c)
 	de_puts(c, DE_MSGTYPE_MESSAGE,
 		"\nCommonly used options:\n"
 		" -l: Instead of extracting, list the files that would be extracted.\n"
-		" -m <format>: Assume input file is this format, instead of autodetecting.\n"
+		" -m <module>: Assume input file is this format, instead of autodetecting.\n"
 		" -o <base-filename>: Start output filenames with this string.\n"
 		" -zip: Write output files to a .zip file.\n"
 		" -extractall: Extract more data than usual.\n"
 		" -get <n>: Extract only file number <n>.\n"
 		" -d, -d2: Print additional information about the file.\n"
 		" -q, -noinfo, -nowarn: Print fewer messages than usual.\n"
+		" -modules: Print the names of all available modules.\n"
 		" -help, -h: Print this message.\n"
 		" -version: Print the version number.\n"
 		);
+}
+
+static void print_modules(deark *c)
+{
+	de_print_module_names(c);
 }
 
 static void our_msgfn(deark *c, int msgtype, const char *s)
@@ -113,7 +119,8 @@ enum opt_id_enum {
  DE_OPT_NOBOM, DE_OPT_NODENS, DE_OPT_NONAMES, DE_OPT_MODTIME, DE_OPT_NOMODTIME,
  DE_OPT_Q, DE_OPT_VERSION, DE_OPT_HELP, DE_OPT_EXTRACTALL, DE_OPT_ZIP,
  DE_OPT_EXTOPT, DE_OPT_START, DE_OPT_SIZE, DE_OPT_M, DE_OPT_O,
- DE_OPT_ARCFN, DE_OPT_GET, DE_OPT_FIRSTFILE, DE_OPT_MAXFILES
+ DE_OPT_ARCFN, DE_OPT_GET, DE_OPT_FIRSTFILE, DE_OPT_MAXFILES,
+ DE_OPT_PRINTMODULES
 };
 
 struct opt_struct {
@@ -138,6 +145,7 @@ struct opt_struct option_array[] = {
 	{ "h",            DE_OPT_HELP,         0 },
 	{ "help",         DE_OPT_HELP,         0 },
 	{ "?",            DE_OPT_HELP,         0 },
+	{ "modules",      DE_OPT_PRINTMODULES, 0 },
 	{ "extractall",   DE_OPT_EXTRACTALL,   0 },
 	{ "zip",          DE_OPT_ZIP,          0 },
 	{ "opt",          DE_OPT_EXTOPT,       1 },
@@ -221,6 +229,10 @@ static void parse_cmdline(deark *c, struct cmdctx *cc, int argc, char **argv)
 				break;
 			case DE_OPT_VERSION:
 				show_version(c);
+				cc->special_command_flag = 1;
+				break;
+			case DE_OPT_PRINTMODULES:
+				print_modules(c);
 				cc->special_command_flag = 1;
 				break;
 			case DE_OPT_HELP:

@@ -67,6 +67,8 @@ Command-line options:
      Print the help message.
   -version
      Print the version number.
+  -modules
+     Print the names of all available modules.
   -noinfo
      Suppress informational messages.
   -nowarn

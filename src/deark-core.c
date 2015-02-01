@@ -31,6 +31,22 @@ static struct deark_module_info *detect_module_for_file(deark *c)
 	return best_module;
 }
 
+void de_print_module_names(deark *c)
+{
+	int i;
+
+	de_register_modules(c);
+
+	for(i=0; i<c->num_modules; i++) {
+		if(c->module_info[i].id &&
+			!(c->module_info[i].flags&DE_MODFLAG_HIDDEN) &&
+			!(c->module_info[i].flags&DE_MODFLAG_NONWORKING) )
+		{
+			de_printf(c, DE_MSGTYPE_MESSAGE, "%s\n", c->module_info[i].id);
+		}
+	}
+}
+
 void de_run(deark *c)
 {
 	dbuf *orig_ifile = NULL;
