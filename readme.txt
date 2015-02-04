@@ -24,9 +24,11 @@ Command-line options:
      module such as "copy".
   -l
      Don't extract, but list the files that would be extracted.
-  -extractall
-     Also extract data that's usually useless. In general, this will also
-     suppress the extraction of any files contained inside such data.
+  -a
+     Also extract data that's usually useless.
+     Note that, as a rule, deark doesn't extract the same data twice. This
+     option can cause it to extract a large chunk of data, instead of drilling
+     down into it and extracting smaller chunks of data.
   -o <name>
      Output filenames begin with this string. This can include a directory
      path. Default="output".
@@ -61,6 +63,7 @@ Command-line options:
      Note that if you are extracting to a system that does not store timestamps
      in UTC (often the case on Windows), the timestamps may not be very
      accurate.
+     The -modtime option currently does not work with the -zip option.
   -opt <module:option>=<value>
      Module-specific options. See formats.txt.
   -h, -?, -help:

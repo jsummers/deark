@@ -54,7 +54,7 @@ static void show_help(deark *c)
 		" -m <module>: Assume input file is this format, instead of autodetecting.\n"
 		" -o <base-filename>: Start output filenames with this string.\n"
 		" -zip: Write output files to a .zip file.\n"
-		" -extractall: Extract more data than usual.\n"
+		" -a: Extract more data than usual.\n"
 		" -get <n>: Extract only file number <n>.\n"
 		" -d, -d2: Print additional information about the file.\n"
 		" -q, -noinfo, -nowarn: Print fewer messages than usual.\n"
@@ -146,6 +146,7 @@ struct opt_struct option_array[] = {
 	{ "help",         DE_OPT_HELP,         0 },
 	{ "?",            DE_OPT_HELP,         0 },
 	{ "modules",      DE_OPT_PRINTMODULES, 0 },
+	{ "a",            DE_OPT_EXTRACTALL,   0 },
 	{ "extractall",   DE_OPT_EXTRACTALL,   0 },
 	{ "zip",          DE_OPT_ZIP,          0 },
 	{ "opt",          DE_OPT_EXTOPT,       1 },
