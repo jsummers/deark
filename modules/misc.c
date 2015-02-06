@@ -863,3 +863,58 @@ void de_module_png(deark *c, struct deark_module_info *mi)
 	mi->run_fn = de_run_png;
 	mi->identify_fn = de_identify_png;
 }
+
+// **************************************************************************
+// YBM
+// **************************************************************************
+
+static void de_run_ybm(deark *c, const char *params)
+{
+	struct deark_bitmap *img = NULL;
+	de_int64 width, height;
+	de_int64 i, j;
+	de_int64 rowspan;
+	de_byte x;
+
+	width = de_getui16be(2);
+	height = de_getui16be(4);
+	if(!de_good_image_dimensions(c, width, height)) goto done;;
+	rowspan = ((width+15)/16)*2;
+
+	img = de_bitmap_create(c, width, height, 1);
+
+	for(j=0; j<height; j++) {
+		for(i=0; i<width; i++) {
+			// This encoding is unusual: LSB-first 16-bit integers.
+			x = de_get_bits_symbol(c->infile, 1, 6 + j*rowspan,
+				(i-i%16) + (15-i%16));
+			de_bitmap_setpixel_gray(img, i, j, x ? 0 : 255);
+		}
+	}
+	de_bitmap_write_to_file(img, NULL);
+
+done:
+	de_bitmap_destroy(img);
+}
+
+static int de_identify_ybm(deark *c)
+{
+	de_int64 width, height;
+	de_int64 rowspan;
+
+	if(dbuf_memcmp(c->infile, 0, "!!", 2))
+		return 0;
+	width = de_getui16be(2);
+	height = de_getui16be(4);
+	rowspan = ((width+15)/16)*2;
+	if(6+height*rowspan == c->infile->len)
+		return 100;
+	return 0;
+}
+
+void de_module_ybm(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "ybm";
+	mi->run_fn = de_run_ybm;
+	mi->identify_fn = de_identify_ybm;
+}
