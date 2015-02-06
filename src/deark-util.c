@@ -17,7 +17,7 @@ char *de_get_version_string(char *buf, size_t bufsize)
 		de_snprintf(buf, bufsize, "%u.%u.%u",
 			(DE_VERSION_NUMBER&0xff000000)>>24,
 			(DE_VERSION_NUMBER&0x00ff0000)>>16,
-			DE_VERSION_NUMBER&0x0000ff00>>8);
+			(DE_VERSION_NUMBER&0x0000ff00)>>8);
 	}
 	else {
 		de_snprintf(buf, bufsize, "%u.%u.%u-%u",
