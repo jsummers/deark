@@ -52,6 +52,8 @@ Deark -- Information about supported formats
 
 * Cardfile (module="cardfile")
   - Partial support. MGC format only.
+  - Extracts bitmaps.
+  - Extracts text (use -extractall).
 
 * DCX (module="dcx")
   Multi-image PCX format.
