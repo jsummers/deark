@@ -184,6 +184,8 @@ Deark -- Information about supported formats
   Options
    -opt namefile=<file.nam> - Use this "name" file
 
+* Prism Paint (module="prismpaint") (experimental, incomplete)
+
 * PSD (PhotoShop) (module="psd")
   - Extract data from "Photoshop resources"
 
