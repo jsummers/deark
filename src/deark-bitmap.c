@@ -91,6 +91,8 @@ void de_bitmap_setpixel_gray(struct deark_bitmap *img, de_int64 x, de_int64 y, d
 	}
 }
 
+// TODO: Decide if this should just be an alias of setpixel_rgb, or if it will
+// force colors to be opaque.
 void de_bitmap_setpixel_rgb(struct deark_bitmap *img, de_int64 x, de_int64 y,
 	de_uint32 color)
 {

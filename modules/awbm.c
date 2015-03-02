@@ -72,7 +72,7 @@ static int do_v1_image(deark *c, de_int64 pos,
 						b = de_get_bits_symbol(c->infile, 1,
 							bitmap_start + j*w_blocks*EPA_CH + i*EPA_CH + j2, i2);
 					}
-					de_bitmap_setpixel_rgb(img, i*8+i2, j*EPA_CH+j2, b?clr1:clr2);
+					de_bitmap_setpixel_rgba(img, i*8+i2, j*EPA_CH+j2, b?clr1:clr2);
 				}
 			}
 		}

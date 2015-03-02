@@ -172,7 +172,7 @@ static void do_image(deark *c, lctx *d, de_finfo *fi)
 				}
 			}
 
-			de_bitmap_setpixel_rgb(img, i, j, clr);
+			de_bitmap_setpixel_rgba(img, i, j, clr);
 		}
 	}
 

@@ -162,8 +162,7 @@ static void do_decode_1_4_8bit(deark *c, lctx *d)
 			else {
 				a = 0xff;
 			}
-
-			de_bitmap_setpixel_rgb(img, i, j, DE_SET_ALPHA(fgcol, a));
+			de_bitmap_setpixel_rgba(img, i, j, DE_SET_ALPHA(fgcol, a));
 		}
 	}
 
