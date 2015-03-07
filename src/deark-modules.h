@@ -74,3 +74,4 @@ void de_module_png(deark *c, struct deark_module_info *mi);
 void de_module_ar(deark *c, struct deark_module_info *mi);
 void de_module_ybm(deark *c, struct deark_module_info *mi);
 void de_module_prismpaint(deark *c, struct deark_module_info *mi);
+void de_module_ansiart(deark *c, struct deark_module_info *mi);

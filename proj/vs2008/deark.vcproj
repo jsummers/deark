@@ -414,6 +414,10 @@
 				>
 			</File>
 			<File
+				RelativePath="..\..\modules\ansiart.c"
+				>
+			</File>
+			<File
 				RelativePath="..\..\modules\ar.c"
 				>
 			</File>
