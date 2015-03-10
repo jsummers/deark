@@ -26,7 +26,7 @@ static de_byte samp1000to255(de_int64 n)
 // A color value of N does not necessarily refer to Nth color in the palette.
 // Some of them are mixed up. Aparently this is called "VDI order".
 // This table may not be completely correct.
-static unsigned int map_pal(unsigned int v)
+static unsigned int map_pal(de_int64 bpp, unsigned int v)
 {
 	switch(v) {
 		case 1: return 2;
@@ -41,7 +41,7 @@ static unsigned int map_pal(unsigned int v)
 		case 11: return 14; 
 		case 13: return 15;
 		case 14: return 13;
-		case 15: return 255;
+		case 15: return bpp==8 ? 255 : 1;
 		case 255: return 1;
 	}
 	return v;
@@ -90,7 +90,7 @@ static void do_image(deark *c, lctx *d, dbuf *unc_pixels)
 				if(b) v |= 1<<plane;
 			}
 			if(v>255) v=255;
-			de_bitmap_setpixel_rgb(img, i, j, d->pal[map_pal(v)]);
+			de_bitmap_setpixel_rgb(img, i, j, d->pal[map_pal(d->bits_per_pixel, v)]);
 		}
 	}
 
@@ -105,7 +105,6 @@ static void de_run_prismpaint(deark *c, const char *params)
 	dbuf *unc_pixels = NULL;
 
 	d = de_malloc(c, sizeof(lctx));
-
 
 	d->pal_size = de_getui16be(6);
 	d->width = de_getui16be(8);
@@ -122,7 +121,7 @@ static void de_run_prismpaint(deark *c, const char *params)
 	d->pic_data_size = de_getui32be(16);
 	de_dbg(c, "reported (uncompressed) picture data size: %d\n", (int)d->pic_data_size);
 
-	if(d->bits_per_pixel!=8) {
+	if(d->bits_per_pixel!=4 && d->bits_per_pixel!=8) {
 		de_err(c, "Unsupported bits/pixel (%d)\n", (int)d->bits_per_pixel);
 		goto done;
 	}
