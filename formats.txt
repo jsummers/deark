@@ -34,6 +34,7 @@ Deark -- Information about supported formats
 * BSAVE (module="bsave")
   Support (some) PC-style BSAVE files.
   Options
+   -file2 <file.pal> - Use this palette file (BSAVE format)
    -opt palfile=<file.pal> - Use this palette file (BSAVE format)
    -opt bsave:width=<n>
    -opt bsave:height=<n>
@@ -130,6 +131,7 @@ Deark -- Information about supported formats
 
 * New Print Shop .POG format (module="newprintshop")
   Options
+   -file2 <file.pnm> - Use this "name" file
    -opt namefile=<file.pnm> - Use this "name" file
 
 * NGG (Nokia Group Graphic) (module="ngg")
@@ -160,6 +162,7 @@ Deark -- Information about supported formats
   Options
    -opt pcpaint:fmt=pic
    -opt pcpaint:fmt=clp
+   -file2 <file.pic> - PIC file to read the palette from
    -opt palfile=<file.pic> - PIC file to read the palette from
 
 * PCX (module="pcx")
@@ -177,11 +180,13 @@ Deark -- Information about supported formats
 
 * PrintMaster .SHP format (module="printmaster")
   Options
+   -file2 <file.sdr> - Use this "name" file
    -opt namefile=<file.sdr> - Use this "name" file
 
 * Print Shop .DAT format (module="printshop")
   - Not all files can be autodetected. You may need "-m printshop".
   Options
+   -file2 <file.sdr> - Use this "name" file
    -opt namefile=<file.nam> - Use this "name" file
 
 * Prism Paint (module="prismpaint")

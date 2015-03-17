@@ -621,6 +621,7 @@ static void de_run_bsave(deark *c, const char *params)
 	}
 
 	s = de_get_ext_option(c, "palfile");
+	if(!s) s = de_get_ext_option(c, "file2");
 	if(s) {
 		if(!do_read_palette_file(c, d, s)) goto done;
 	}

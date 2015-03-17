@@ -373,6 +373,7 @@ static int do_read_alt_palette_file(deark *c, lctx *d)
 	const char *palfn;
 
 	palfn = de_get_ext_option(c, "palfile");
+	if(!palfn) palfn = de_get_ext_option(c, "file2");
 	if(!palfn) return 1;
 
 	de_dbg(c, "reading palette file %s\n", palfn);

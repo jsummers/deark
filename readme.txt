@@ -32,6 +32,10 @@ Command-line options:
   -o <name>
      Output filenames begin with this string. This can include a directory
      path. Default="output".
+  -file2 <file>
+     Some formats are composed of more than one file. In some cases, you can
+     use the -file2 option to specify the secondary file. Refer to the
+     formats.txt file for details.
   -zip
      Write output files to a .zip file.
   -arcfn <filename>

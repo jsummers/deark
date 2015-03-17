@@ -75,6 +75,8 @@ static void do_printshop_etc(deark *c, lctx *d)
 	de_int64 img_count;
 
 	namefile_fn = de_get_ext_option(c, "namefile");
+	if(!namefile_fn) namefile_fn = de_get_ext_option(c, "file2");
+
 	if(namefile_fn) {
 		d->namefile = dbuf_open_input_file(c, namefile_fn);
 	}

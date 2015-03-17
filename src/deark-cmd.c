@@ -118,7 +118,7 @@ enum opt_id_enum {
  DE_OPT_NULL=0, DE_OPT_D, DE_OPT_D2, DE_OPT_L, DE_OPT_NOINFO, DE_OPT_NOWARN,
  DE_OPT_NOBOM, DE_OPT_NODENS, DE_OPT_NONAMES, DE_OPT_MODTIME, DE_OPT_NOMODTIME,
  DE_OPT_Q, DE_OPT_VERSION, DE_OPT_HELP, DE_OPT_EXTRACTALL, DE_OPT_ZIP,
- DE_OPT_EXTOPT, DE_OPT_START, DE_OPT_SIZE, DE_OPT_M, DE_OPT_O,
+ DE_OPT_EXTOPT, DE_OPT_FILE2, DE_OPT_START, DE_OPT_SIZE, DE_OPT_M, DE_OPT_O,
  DE_OPT_ARCFN, DE_OPT_GET, DE_OPT_FIRSTFILE, DE_OPT_MAXFILES,
  DE_OPT_PRINTMODULES
 };
@@ -150,6 +150,7 @@ struct opt_struct option_array[] = {
 	{ "extractall",   DE_OPT_EXTRACTALL,   0 },
 	{ "zip",          DE_OPT_ZIP,          0 },
 	{ "opt",          DE_OPT_EXTOPT,       1 },
+	{ "file2",        DE_OPT_FILE2,        1 },
 	{ "start",        DE_OPT_START,        1 },
 	{ "size",         DE_OPT_SIZE,         1 },
 	{ "m",            DE_OPT_M,            1 },
@@ -248,6 +249,9 @@ static void parse_cmdline(deark *c, struct cmdctx *cc, int argc, char **argv)
 				break;
 			case DE_OPT_EXTOPT:
 				set_ext_option(c, cc, argv[i+1]);
+				break;
+			case DE_OPT_FILE2:
+				de_set_ext_option(c, "file2", argv[i+1]);
 				break;
 			case DE_OPT_START:
 				de_set_input_file_slice_start(c, de_atoi64(argv[i+1]));
