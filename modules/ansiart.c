@@ -15,15 +15,18 @@ struct cell_struct {
 
 typedef struct localctx_struct {
 	dbuf *ofile;
-
-	int width, height;
-	struct cell_struct *cells; // Array of height*width cells
+#define MAX_ROWS       5000
+#define CHARS_PER_ROW  80
+	de_int64 width;
+	de_int64 known_height;
+	struct cell_struct **cell_rows; // Array of row pointers
 
 	de_int64 xpos, ypos; // 0-based
 	de_int64 saved_xpos, saved_ypos;
 
 	de_byte curr_fgcol;
 	de_byte curr_bgcol;
+	de_byte bold;
 
 	de_byte param_string_buf[100];
 
@@ -39,9 +42,22 @@ static const de_uint32 ansi_palette[16] = {
 
 static struct cell_struct *get_cell_at(deark *c, lctx *d, de_int64 xpos, de_int64 ypos)
 {
+	de_int64 i;
+	struct cell_struct *cell;
+
 	if(xpos<0 || ypos<0) return NULL;
-	if(xpos>=d->width || ypos>=d->height) return NULL;
-	return &d->cells[ypos*d->width + xpos];
+	if(xpos>=CHARS_PER_ROW || ypos>=MAX_ROWS) return NULL;
+	if(!d->cell_rows[ypos]) {
+		d->cell_rows[ypos] = de_malloc(c, CHARS_PER_ROW * sizeof(struct cell_struct));
+		for(i=0; i<CHARS_PER_ROW; i++) {
+			// Initialize each new cell
+			cell = &d->cell_rows[ypos][i];
+			cell->codepoint = 0x20;
+			cell->bgcol = 0;
+			cell->fgcol = 7;
+		}
+	}
+	return &(d->cell_rows[ypos][xpos]);
 }
 
 static void do_normal_char(deark *c, lctx *d, de_byte ch)
@@ -55,14 +71,26 @@ static void do_normal_char(deark *c, lctx *d, de_byte ch)
 	else if(ch==10) { // LF
 		d->ypos++;
 	}
-	else if(ch>=32) {
+	else {
+		while(d->xpos >= d->width) {
+			d->xpos -= d->width;
+			d->ypos++;
+		}
+
 		u = de_cp437g_to_unicode(c, (int)ch);
 
 		cell = get_cell_at(c, d, d->xpos, d->ypos);
 		if(cell) {
 			cell->codepoint = u;
 			cell->fgcol = d->curr_fgcol;
+			if(d->bold) cell->fgcol += 8;
 			cell->bgcol = d->curr_bgcol;
+
+			if(d->ypos >= d->known_height) d->known_height = d->ypos+1;
+		}
+		else {
+			de_dbg(c, "[off-screen write at (%d,%d)]\n",
+				(int)d->xpos, (int)d->ypos);
 		}
 
 		d->xpos++;
@@ -139,13 +167,25 @@ static void do_code_m(deark *c, lctx *d)
 	for(i=0; i<d->num_params; i++) {
 		sgi_code = d->params[i];
 
-		if(sgi_code>=30 && sgi_code<=37) {
+		if(sgi_code==0) {
+			// Reset
+			d->bold = 0;
+			d->curr_bgcol = 0;
+			d->curr_fgcol = 7;
+		}
+		else if(sgi_code==1) {
+			d->bold = 1;
+		}
+		else if(sgi_code>=30 && sgi_code<=37) {
 			// Set foreground color
 			d->curr_fgcol = (de_byte)(sgi_code-30);
 		}
 		else if(sgi_code>=40 && sgi_code<=47) {
 			// Set background color
 			d->curr_bgcol = (de_byte)(sgi_code-40);
+		}
+		else {
+			de_dbg(c, "[unsupported SGR code %d]\n", (int)sgi_code);
 		}
 	}
 }
@@ -165,6 +205,40 @@ static void do_code_H(deark *c, lctx *d)
 
 	d->xpos = col-1;
 	d->ypos = row-1;
+}
+
+// J: Clear screen
+static void do_code_J(deark *c, lctx *d)
+{
+	de_int64 n;
+	de_int64 i, j;
+	struct cell_struct *cell;
+
+	read_one_int(c, d, d->param_string_buf, &n, 0);
+	// 0 = clear from cursor to end of screen
+	// 1 = clear from cursor to beginning of screen
+	// 2 = clear screen
+
+	for(j=0; j<d->known_height; j++) {
+		for(i=0; i<d->width; i++) {
+			if(n==0) {
+				if(j<d->ypos) continue;
+				if(j==d->ypos && i<d->xpos) continue;
+			}
+			else if(n==1) {
+				if(j>d->ypos) continue;
+				if(j==d->ypos && i>d->xpos) continue;
+			}
+			cell = get_cell_at(c, d, i, j);
+			if(!cell) continue;
+			cell->codepoint = 0x20;
+		}
+	}
+
+	if(n==2) {
+		d->xpos = 0;
+		d->ypos = 0;
+	}
 }
 
 // A: Up
@@ -219,6 +293,7 @@ static void do_control_sequence(deark *c, lctx *d, de_byte code,
 	case 'C': do_code_C(c, d); break;
 	case 'D': do_code_D(c, d); break;
 	case 'H': do_code_H(c, d); break;
+	case 'J': do_code_J(c, d); break;
 	case 'm': do_code_m(c, d); break;
 	case 's':
 		d->saved_xpos = d->xpos;
@@ -308,13 +383,13 @@ static void do_output_main(deark *c, lctx *d)
 	char bgcol_css[16];
 
 	dbuf_fputs(d->ofile, "<pre>\n");
-	for(j=0; j<d->height; j++) {
+	for(j=0; j<d->known_height; j++) {
 		for(i=0; i<d->width; i++) {
 
 			cell = get_cell_at(c, d, i, j);
 			if(!cell) continue;
 
-			if(cell->fgcol!=active_fgcol || cell->bgcol!=active_bgcol) {
+			if(span_count==0 || cell->fgcol!=active_fgcol || cell->bgcol!=active_bgcol) {
 				while(span_count>0) {
 					dbuf_fprintf(d->ofile, "</span>");
 					span_count--;
@@ -358,6 +433,7 @@ static void do_header(deark *c, lctx *d)
 	dbuf_fputs(d->ofile, "<!DOCTYPE html>\n");
 	dbuf_fputs(d->ofile, "<html>\n");
 	dbuf_fputs(d->ofile, "<head>\n");
+	dbuf_fputs(d->ofile, "<meta charset=\"UTF-8\">\n");
 	dbuf_fputs(d->ofile, "<title></title>\n");
 	dbuf_fputs(d->ofile, "</head>\n");
 	dbuf_fputs(d->ofile, "<body>\n");
@@ -373,19 +449,24 @@ static void do_footer(deark *c, lctx *d)
 static void de_run_ansiart(deark *c, const char *params)
 {
 	lctx *d = NULL;
+	de_int64 i;
 
 	d = de_malloc(c, sizeof(lctx));
 	do_header(c, d);
 
-	d->width = 80;
-	d->height = 25;
-	d->cells = de_malloc(c, sizeof(struct cell_struct)*d->height*d->width);
+	d->width = CHARS_PER_ROW;
+	d->known_height = 1;
+
+	d->cell_rows = de_malloc(c, MAX_ROWS * sizeof(struct cell_struct*));
 
 	do_main(c, d);
 	do_output_main(c, d);
 	do_footer(c, d);
 
-	de_free(c, d->cells);
+	for(i=0; i<MAX_ROWS; i++) {
+		if(d->cell_rows[i]) de_free(c, d->cell_rows[i]);
+	}
+	de_free(c, d->cell_rows);
 	de_free(c, d);
 }
 
@@ -401,5 +482,4 @@ void de_module_ansiart(deark *c, struct deark_module_info *mi)
 	mi->id = "ansiart";
 	mi->run_fn = de_run_ansiart;
 	mi->identify_fn = de_identify_ansiart;
-	mi->flags |= DE_MODFLAG_NONWORKING;
 }

@@ -3,7 +3,7 @@ Deark -- Information about supported formats
 
 === Image format modules ===
 
-(Images that are not "extracted" will be converted to PNG.)
+(Images that are not "extracted" will be converted to PNG, except as noted.)
 
 * Amiga Workbench Icon (module="amigaicon")
   - Original format: Mostly supported, but the format is not portable, and
@@ -14,6 +14,11 @@ Deark -- Information about supported formats
 
 * ANI (Windows Animated Cursor) (module="ani")
   - Extract individual CUR and ICO files.
+
+* ANSI Art (module="ansiart")
+  - Very limited features. Supports only the most common escape codes.
+  - Must use "-m ansiart", or file extension must be ".ans".
+  - Converts to HTML format.
 
 * Apple volume label image (module="applevol")
 
