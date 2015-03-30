@@ -169,7 +169,7 @@ static void do_deplanarize(deark *c, lctx *d, const de_byte *row_orig,
 	de_byte b;
 
 	if(d->planes>=1 && d->planes<=8) {
-		de_memset(row_deplanarized, 0, d->width);
+		de_memset(row_deplanarized, 0, (size_t)d->width);
 		for(i=0; i<d->width; i++) {
 			for(bit=0; bit<d->planes; bit++) {
 				b = getbit(row_orig, bit*d->bits_per_row_per_plane +i);
@@ -178,7 +178,7 @@ static void do_deplanarize(deark *c, lctx *d, const de_byte *row_orig,
 		}
 	}
 	else if(d->planes==24) {
-		de_memset(row_deplanarized, 0, d->width*3);
+		de_memset(row_deplanarized, 0, (size_t)(d->width*3));
 		for(i=0; i<d->width; i++) {
 			for(sample=0; sample<3; sample++) {
 				for(bit=0; bit<8; bit++) {
@@ -196,7 +196,7 @@ static void get_row_acbm(deark *c, lctx *d, dbuf *unc_pixels, de_int64 j, de_byt
 	de_int64 bit;
 	de_byte b;
 
-	de_memset(row, 0, d->width);
+	de_memset(row, 0, (size_t)d->width);
 	for(i=0; i<d->width; i++) {
 		for(bit=0; bit<d->planes; bit++) {
 			b = de_get_bits_symbol(unc_pixels, 1, bit*d->planespan + j*d->rowspan, i);

@@ -70,7 +70,7 @@ static void do_app_segment(deark *c, lctx *d, de_byte seg_type, de_int64 pos, de
 
 	// Read the first few bytes of the segment, so we can tell what kind of segment it is.
 	if(seg_size+1 < sizeof(buf))
-		dbuf_read_sz(c->infile, pos, buf, seg_size+1);
+		dbuf_read_sz(c->infile, pos, buf, (size_t)(seg_size+1));
 	else
 		dbuf_read_sz(c->infile, pos, buf, sizeof(buf));
 

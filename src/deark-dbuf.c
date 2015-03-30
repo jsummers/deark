@@ -454,7 +454,7 @@ void dbuf_write_run(dbuf *f, de_byte n, de_int64 len)
 	de_int64 amt_left;
 	de_int64 amt_to_write;
 
-	de_memset(buf, n, len<sizeof(buf) ? len : sizeof(buf));
+	de_memset(buf, n, len<sizeof(buf) ? (size_t)len : sizeof(buf));
 	amt_left = len;
 	while(amt_left > 0) {
 		if(amt_left<sizeof(buf))
