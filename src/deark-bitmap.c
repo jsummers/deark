@@ -8,10 +8,17 @@
 #include "deark-config.h"
 #include "deark-private.h"
 
+int de_good_image_dimensions_noerr(deark *c, de_int64 w, de_int64 h)
+{
+	if(w<0 || h<0 || w>DE_MAX_IMAGE_DIMENSION || h>DE_MAX_IMAGE_DIMENSION) {
+		return 0;
+	}
+	return 1;
+}
 
 int de_good_image_dimensions(deark *c, de_int64 w, de_int64 h)
 {
-	if(w<0 || h<0 || w>DE_MAX_IMAGE_DIMENSION || h>DE_MAX_IMAGE_DIMENSION) {
+	if(!de_good_image_dimensions_noerr(c, w, h)) {
 		de_err(c, "Bad or unsupported image dimensions (%dx%d)\n",
 			(int)w, (int)h);
 		return 0;
@@ -26,8 +33,6 @@ static void de_bitmap_alloc_pixels(struct deark_bitmap *img)
 	}
 
 	if(!de_good_image_dimensions(img->c, img->width, img->height)) {
-		de_err(img->c, "Invalid or unsupported image dimensions (%dx%d)\n",
-			(int)img->width, (int)img->height);
 		img->width = 1;
 		img->height = 1;
 	}

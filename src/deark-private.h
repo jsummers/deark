@@ -413,6 +413,10 @@ void de_convert_and_write_image_bilevel(dbuf *f, de_int64 fpos,
 // Returns a minimum of 1, maximum of 32.
 de_int64 de_log2_rounded_up(de_int64 n);
 
+// Test if the image dimensions are valid and supported.
+int de_good_image_dimensions_noerr(deark *c, de_int64 w, de_int64 h);
+
+// Test if the image dimensions are valid and supported. Report an error if not.
 int de_good_image_dimensions(deark *c, de_int64 w, de_int64 h);
 
 ///////////////////////////////////////////

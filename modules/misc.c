@@ -118,8 +118,7 @@ static int xpuzz_read_header(deark *c, struct xpuzzctx *d)
 	d->w = de_getui32be(0);
 	d->h = de_getui32be(4);
 	d->palentries = (de_int64)de_getbyte(8);
-	if(d->w<1 || d->w>DE_MAX_IMAGE_DIMENSION) return 0;
-	if(d->h<1 || d->h>DE_MAX_IMAGE_DIMENSION) return 0;
+	if(!de_good_image_dimensions_noerr(c, d->w, d->h)) return 0;
 	if(d->palentries==0) d->palentries = 256;
 	return 1;
 }
@@ -136,6 +135,7 @@ static void de_run_xpuzzle(deark *c, const char *params)
 
 	d = de_malloc(c, sizeof(struct xpuzzctx));
 	if(!xpuzz_read_header(c, d)) goto done;
+	if(!de_good_image_dimensions(c, d->w, d->h)) goto done;
 
 	img = de_bitmap_create(c, d->w, d->h, 3);
 
@@ -417,8 +417,7 @@ static int de_identify_vivid(deark *c)
 	if(firstline>lastline) return 0;
 	// 'lastline' should usually be h-1, but XnView apparently sets it to h.
 	if(firstline>h-1 || lastline>h) return 0;
-	if(w>DE_MAX_IMAGE_DIMENSION || h>DE_MAX_IMAGE_DIMENSION) return 0;
-	if(w<1 || h<1) return 0;
+	if(!de_good_image_dimensions_noerr(c, w, h)) return 0;
 	return 30;
 }
 

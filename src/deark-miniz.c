@@ -112,11 +112,7 @@ int de_write_png(deark *c, struct deark_bitmap *img, dbuf *f)
 	mz_uint32 xdens=0;
 	mz_uint32 ydens=0;
 
-	if(img->width<1 || img->height<1 || img->width>DE_MAX_IMAGE_DIMENSION ||
-		img->width>DE_MAX_IMAGE_DIMENSION)
-	{
-		de_err(c, "Invalid or unsupported image dimensions (%dx%d)\n",
-			(int)img->width, (int)img->height);
+	if(!de_good_image_dimensions(c, img->width, img->height)) {
 		return 0;
 	}
 
