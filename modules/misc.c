@@ -918,3 +918,52 @@ void de_module_ybm(deark *c, struct deark_module_info *mi)
 	mi->run_fn = de_run_ybm;
 	mi->identify_fn = de_identify_ybm;
 }
+
+// **************************************************************************
+// OLPC .565 firmware icon
+// **************************************************************************
+
+static void de_run_olpc565(deark *c, const char *params)
+{
+	struct deark_bitmap *img = NULL;
+	de_int64 width, height;
+	de_int64 i, j;
+	de_int64 rowspan;
+	de_byte b0, b1;
+	de_uint32 clr;
+
+	width = de_getui16le(4);
+	height = de_getui16le(6);
+	if(!de_good_image_dimensions(c, width, height)) goto done;
+	rowspan = width*2;
+
+	img = de_bitmap_create(c, width, height, 3);
+
+	for(j=0; j<height; j++) {
+		for(i=0; i<width; i++) {
+			b0 = de_getbyte(8 + j*rowspan + i*2);
+			b1 = de_getbyte(8 + j*rowspan + i*2 + 1);
+			clr = (((de_uint32)b1)<<8) | b0;
+			clr = de_rgb565_to_888(clr);
+			de_bitmap_setpixel_rgb(img, i, j, clr);
+		}
+	}
+	de_bitmap_write_to_file(img, NULL);
+
+done:
+	de_bitmap_destroy(img);
+}
+
+static int de_identify_olpc565(deark *c)
+{
+	if(!dbuf_memcmp(c->infile, 0, "C565", 4))
+		return 100;
+	return 0;
+}
+
+void de_module_olpc565(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "olpc565";
+	mi->run_fn = de_run_olpc565;
+	mi->identify_fn = de_identify_olpc565;
+}
