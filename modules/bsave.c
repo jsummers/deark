@@ -411,12 +411,7 @@ static void do_char_1screen(deark *c, lctx *d, de_int64 pgnum,
 				cur_bgcol = bgcol;
 			}
 
-			if(ch>=32 && ch<=126 && ch!='&' && ch!='<' && ch!='>') {
-				dbuf_fprintf(d->ofile, "%c", ch);
-			}
-			else {
-				dbuf_fprintf(d->ofile, "&#%d;", de_cp437g_to_unicode(c, ch));
-			}
+			de_write_codepoint_to_html(c, d->ofile, de_cp437g_to_unicode(c, ch));
 
 			if(i==width-1) {
 				dbuf_fputs(d->ofile, "</span>\n");
@@ -472,6 +467,7 @@ static int do_char(deark *c, lctx *d)
 	dbuf_fputs(d->ofile, "<!DOCTYPE html>\n");
 	dbuf_fputs(d->ofile, "<html>\n");
 	dbuf_fputs(d->ofile, "<head>\n");
+	dbuf_fputs(d->ofile, "<meta charset=\"UTF-8\">\n");
 	dbuf_fputs(d->ofile, "<title></title>\n");
 	dbuf_fputs(d->ofile, "</head>\n");
 	dbuf_fputs(d->ofile, "<body>\n");

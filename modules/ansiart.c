@@ -37,6 +37,8 @@ typedef struct localctx_struct {
 
 	de_byte param_string_buf[100];
 
+	de_byte support_9b_csi;
+
 #define MAX_ESC_PARAMS 16
 	int num_params;
 	de_int64 params[MAX_ESC_PARAMS];
@@ -197,7 +199,7 @@ static void do_code_m(deark *c, lctx *d)
 			d->curr_bgcol = (de_byte)(sgi_code-40);
 		}
 		else {
-			de_dbg(c, "[unsupported SGR code %d]\n", (int)sgi_code);
+			de_dbg(c, "unsupported SGR code %d\n", (int)sgi_code);
 		}
 	}
 
@@ -228,6 +230,22 @@ static void do_code_H(deark *c, lctx *d)
 
 	d->xpos = col-1;
 	d->ypos = row-1;
+}
+
+// h: Mode settings
+static void do_code_h(deark *c, lctx *d)
+{
+	int ok=0;
+
+	if(d->param_string_buf[0]=='?') {
+		if(d->param_string_buf[1]=='7') {
+			ok=1; // Set autowrap (default)
+		}
+	}
+
+	if(!ok) {
+		de_dbg(c, "unsupported 'h' escape sequence\n");
+	}
 }
 
 // J: Clear screen
@@ -316,6 +334,7 @@ static void do_control_sequence(deark *c, lctx *d, de_byte code,
 	case 'C': do_code_C(c, d); break;
 	case 'D': do_code_D(c, d); break;
 	case 'H': do_code_H(c, d); break;
+	case 'h': do_code_h(c, d); break;
 	case 'J': do_code_J(c, d); break;
 	case 'm': do_code_m(c, d); break;
 	case 's':
@@ -327,7 +346,7 @@ static void do_control_sequence(deark *c, lctx *d, de_byte code,
 		d->ypos = d->saved_ypos;
 		break;
 	default:
-		de_dbg(c, "[unsupported escape sequence %c]\n", (char)code);
+		de_dbg(c, "unsupported escape sequence %c at %d\n", (char)code, (int)param_start);
 	}
 }
 
@@ -347,12 +366,22 @@ static void do_main(deark *c, lctx *d)
 	for(pos=0; pos<c->infile->len; pos++) {
 		ch = de_getbyte(pos);
 
+		if(ch==0x1a) break; // Ctrl-Z apparently means we should stop.
+
+		if(pos==0 && ch==0x9b) {
+			// 0x9b can sometimes mean the same thing as Esc [, but it could
+			// also be a printable character. I don't know how to tell the
+			// difference, but I'll assume that if the file starts with 0x9b,
+			// it is a control character.
+			d->support_9b_csi = 1;
+		}
+
 		if(state==STATE_NORMAL) {
 			if(ch==0x1b) { // ESC
 				state=STATE_GOT_ESC;
 				continue;
 			}
-			else if(ch==0x9b) {
+			else if(ch==0x9b && d->support_9b_csi) {
 				state=STATE_READING_PARAM;
 				params_start_pos = pos+1;
 				continue;
@@ -450,12 +479,7 @@ static void do_output_main(deark *c, lctx *d)
 			if(n==0x00) n=0x20;
 			if(n<0x20) n='?';
 
-			if(n=='<' || n=='>' || n>126) {
-				dbuf_fprintf(d->ofile, "&#%d;", (int)n);
-			}
-			else {
-				dbuf_writebyte(d->ofile, (de_byte)n);
-			}
+			de_write_codepoint_to_html(c, d->ofile, n);
 		}
 		dbuf_fputs(d->ofile, "\n");
 	}
@@ -494,6 +518,11 @@ static void do_output_header(deark *c, lctx *d)
 	dbuf_fputs(d->ofile, "<title></title>\n");
 
 	dbuf_fputs(d->ofile, "<style type=\"text/css\">\n");
+
+	dbuf_fputs(d->ofile, " body { background-image: url(\"data:image/png;base64,"
+		"iVBORw0KGgoAAAANSUhEUgAAABAAAAAQAQMAAAAlPW0iAAAABlBMVEUgICAoKCidji3LAAAAMUlE"
+		"QVQI12NgaGBgPMDA/ICB/QMD/w8G+T8M9v8Y6v8z/P8PIoFsoAhQHCgLVMN4AACOoBFvDLHV4QAA"
+		"AABJRU5ErkJggg==\") }\n");
 
 	output_css_color_block(c, d, ".f", "color", 0, &d->used_fgcol[0]);
 	output_css_color_block(c, d, ".b.f", "color", 8, &d->used_fgcol[8]);

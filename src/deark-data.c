@@ -376,3 +376,13 @@ de_int32 de_petscii_char_to_utf32(de_byte ch)
 	uchar = (de_int32)petscii1table[(int)ch];
 	return uchar;
 }
+
+void de_write_codepoint_to_html(deark *c, dbuf *f, de_int32 ch)
+{
+	if(ch>=32 && ch<=126 && ch!='&' && ch!='<' && ch!='>') {
+		dbuf_writebyte(f, (de_byte)ch);
+	}
+	else {
+		dbuf_fprintf(f, "&#%d;", (int)ch);
+	}
+}

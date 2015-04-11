@@ -462,5 +462,6 @@ void ucstring_destroy(de_ucstring *s);
 void ucstring_append_char(de_ucstring *s, de_int32 ch);
 
 de_int32 de_petscii_char_to_utf32(de_byte ch);
+void de_write_codepoint_to_html(deark *c, dbuf *f, de_int32 ch);
 
 ///////////////////////////////////////////
