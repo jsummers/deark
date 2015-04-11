@@ -224,7 +224,7 @@ de_uint32 de_palette_pcpaint_cga4(int palnum, int index)
 void de_color_to_css(de_uint32 color, char *buf, int buflen)
 {
 	de_byte r, g, b;
-	const char *hexchars = "0123456789abcdef";
+	static const char *hexchars = "0123456789abcdef";
 
 	buf[0] = '#';
 	r = DE_COLOR_R(color);

@@ -11,6 +11,7 @@ struct cell_struct {
 	de_int32 codepoint;
 	de_byte fgcol;
 	de_byte bgcol;
+	de_byte bold;
 	de_byte blink;
 };
 
@@ -28,7 +29,7 @@ typedef struct localctx_struct {
 
 	de_byte curr_fgcol;
 	de_byte curr_bgcol;
-	de_byte bold;
+	de_byte curr_bold;
 	de_byte curr_blink;
 
 	de_byte param_string_buf[100];
@@ -86,7 +87,7 @@ static void do_normal_char(deark *c, lctx *d, de_byte ch)
 		if(cell) {
 			cell->codepoint = u;
 			cell->fgcol = d->curr_fgcol;
-			if(d->bold) cell->fgcol += 8;
+			cell->bold = d->curr_bold;
 			cell->bgcol = d->curr_bgcol;
 			cell->blink = d->curr_blink;
 
@@ -173,13 +174,13 @@ static void do_code_m(deark *c, lctx *d)
 
 		if(sgi_code==0) {
 			// Reset
-			d->bold = 0;
+			d->curr_bold = 0;
 			d->curr_blink = 0;
 			d->curr_bgcol = 0;
 			d->curr_fgcol = 7;
 		}
 		else if(sgi_code==1) {
-			d->bold = 1;
+			d->curr_bold = 1;
 		}
 		else if(sgi_code==5 || sgi_code==6) {
 			d->curr_blink = 1;
@@ -380,6 +381,13 @@ static void ansi_16_color_to_css(int index, char *buf, int buflen)
 	de_color_to_css(clr, buf, buflen);
 }
 
+static char get_hexchar(int n)
+{
+	static const char *hexchars = "0123456789abcdef";
+	if(n>=0 && n<16) return hexchars[n];
+	return '0';
+}
+
 static void do_output_main(deark *c, lctx *d)
 {
 	const struct cell_struct *cell;
@@ -388,9 +396,8 @@ static void do_output_main(deark *c, lctx *d)
 	int span_count = 0;
 	de_byte active_fgcol = 0;
 	de_byte active_bgcol = 0;
+	de_byte active_bold = 0;
 	de_byte active_blink = 0;
-	char fgcol_css[16];
-	char bgcol_css[16];
 
 	dbuf_fputs(d->ofile, "<pre>\n");
 	for(j=0; j<d->known_height; j++) {
@@ -400,24 +407,30 @@ static void do_output_main(deark *c, lctx *d)
 			if(!cell) continue;
 
 			if(span_count==0 || cell->fgcol!=active_fgcol || cell->bgcol!=active_bgcol ||
-				cell->blink!=active_blink)
+				cell->bold!=active_bold || cell->blink!=active_blink)
 			{
 				while(span_count>0) {
 					dbuf_fprintf(d->ofile, "</span>");
 					span_count--;
 				}
 
-				ansi_16_color_to_css(cell->fgcol, fgcol_css, sizeof(fgcol_css));
-				ansi_16_color_to_css(cell->bgcol, bgcol_css, sizeof(bgcol_css));
-				dbuf_fputs(d->ofile, "<span");
-				if(cell->blink) {
-					dbuf_fputs(d->ofile, " class=blink");
-				}
-				dbuf_fprintf(d->ofile, " style='color:%s;background-color:%s'>", fgcol_css, bgcol_css);
+				dbuf_fputs(d->ofile, "<span class=\"");
+
+				// Classes for foreground and background colors
+				dbuf_fprintf(d->ofile, "f%c", get_hexchar(cell->fgcol));
+				dbuf_fprintf(d->ofile, " b%c", get_hexchar(cell->bgcol));
+
+				// Other attributes
+				if(cell->bold) dbuf_fputs(d->ofile, " b");
+				if(cell->blink) dbuf_fputs(d->ofile, " blink");
+
+				dbuf_fputs(d->ofile, "\">");
+
 				span_count++;
 				active_fgcol = cell->fgcol;
 				active_bgcol = cell->bgcol;
-
+				active_bold = cell->bold;
+				active_blink = cell->blink;
 			}
 
 			n = cell->codepoint;
@@ -442,8 +455,21 @@ static void do_output_main(deark *c, lctx *d)
 	dbuf_fputs(d->ofile, "</pre>\n");
 }
 
+static void output_css_color_block(deark *c, lctx *d, const char *selectorprefix, const char *prop, int offset)
+{
+	char tmpbuf[16];
+	int i;
+
+	for(i=0; i<8; i++) {
+		ansi_16_color_to_css(offset+i, tmpbuf, sizeof(tmpbuf));
+		dbuf_fprintf(d->ofile, " %s%c { %s: %s }\n", selectorprefix, get_hexchar(i),
+			prop, tmpbuf);
+	}
+}
+
 static void do_output_header(deark *c, lctx *d)
 {
+
 	d->ofile = dbuf_create_output_file(c, "html", NULL);
 
 	dbuf_fputs(d->ofile, "<!DOCTYPE html>\n");
@@ -452,15 +478,20 @@ static void do_output_header(deark *c, lctx *d)
 	dbuf_fputs(d->ofile, "<meta charset=\"UTF-8\">\n");
 	dbuf_fputs(d->ofile, "<title></title>\n");
 
+	dbuf_fputs(d->ofile, "<style type=\"text/css\">\n");
+
+	output_css_color_block(c, d, ".f", "color", 0);
+	output_css_color_block(c, d, ".b.f", "color", 8);
+	output_css_color_block(c, d, ".b", "background-color", 0);
+
 	if(d->used_blink) {
-		dbuf_fputs(d->ofile, "<style type=\"text/css\">\n");
-		dbuf_fputs(d->ofile, " .blink { display: inline; color: inherit;\n"
+		dbuf_fputs(d->ofile, " .blink {\n"
 			"  animation: blink 1s steps(1) infinite;\n"
-			"  -webkit-animation: blink 1s steps(1) infinite; }\n"
-			" @keyframes blink { 50% { color: transparent; } }\n"
-			" @-webkit-keyframes blink { 50% { color: transparent; } }\n");
-		dbuf_fputs(d->ofile, "</style>\n");
+			"  -webkit-animation: blink 1s steps(1) infinite }\n"
+			" @keyframes blink { 50% { color: transparent } }\n"
+			" @-webkit-keyframes blink { 50% { color: transparent } }\n");
 	}
+	dbuf_fputs(d->ofile, "</style>\n");
 
 	dbuf_fputs(d->ofile, "</head>\n");
 	dbuf_fputs(d->ofile, "<body>\n");
