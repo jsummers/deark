@@ -155,6 +155,7 @@ struct deark_struct {
 	int dbg_indent_amount;
 	int write_bom;
 	int write_density;
+	int ascii_html;
 	int filenames_from_file;
 	int preserve_file_times;
 

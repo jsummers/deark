@@ -80,6 +80,9 @@ void de_set_write_bom(deark *c, int x);
 
 void de_set_write_density(deark *c, int x);
 
+// Use only ASCII in HTML documents.
+void de_set_ascii_html(deark *c, int x);
+
 // If a file contains a name that we can use as part of the output filename,
 // should we use it?
 void de_set_filenames_from_file(deark *c, int x);

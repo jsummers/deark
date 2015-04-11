@@ -361,6 +361,11 @@ void de_set_write_density(deark *c, int x)
 	c->write_density = x;
 }
 
+void de_set_ascii_html(deark *c, int x)
+{
+	c->ascii_html = x;
+}
+
 void de_set_filenames_from_file(deark *c, int x)
 {
 	c->filenames_from_file = x;

@@ -55,6 +55,8 @@ Command-line options:
   -nodens
      Do not try to record the original aspect ratio and pixel density in output
      image files.
+  -asciihtml
+     Write HTML documents in ASCII instead of UTF-8.
   -nonames
      Makes Deark less likely to try to improve output filenames by using names
      from the contents of the input file. This is mainly intended for certain

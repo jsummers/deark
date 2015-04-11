@@ -464,10 +464,11 @@ static int do_char(deark *c, lctx *d)
 
 	d->ofile = dbuf_create_output_file(c, "html", NULL);
 
+	if(c->write_bom && !c->ascii_html) dbuf_write_uchar_as_utf8(d->ofile, 0xfeff);
 	dbuf_fputs(d->ofile, "<!DOCTYPE html>\n");
 	dbuf_fputs(d->ofile, "<html>\n");
 	dbuf_fputs(d->ofile, "<head>\n");
-	dbuf_fputs(d->ofile, "<meta charset=\"UTF-8\">\n");
+	if(!c->ascii_html) dbuf_fputs(d->ofile, "<meta charset=\"UTF-8\">\n");
 	dbuf_fputs(d->ofile, "<title></title>\n");
 	dbuf_fputs(d->ofile, "</head>\n");
 	dbuf_fputs(d->ofile, "<body>\n");

@@ -379,8 +379,26 @@ de_int32 de_petscii_char_to_utf32(de_byte ch)
 
 void de_write_codepoint_to_html(deark *c, dbuf *f, de_int32 ch)
 {
-	if(ch>=32 && ch<=126 && ch!='&' && ch!='<' && ch!='>') {
+	int e; // How to encode this codepoint
+
+	if(ch=='&' || ch=='<' || ch=='>') {
+		e = 1; // HTML entity
+	}
+	else if(ch>=32 && ch<=126) {
+		e = 2; // raw byte
+	}
+	else if(c->ascii_html) {
+		e = 1; // HTML entity
+	}
+	else {
+		e = 3; // UTF-8
+	}
+
+	if(e==2) {
 		dbuf_writebyte(f, (de_byte)ch);
+	}
+	else if(e==3) {
+		dbuf_write_uchar_as_utf8(f, ch);
 	}
 	else {
 		dbuf_fprintf(f, "&#%d;", (int)ch);
