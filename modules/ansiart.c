@@ -26,6 +26,9 @@ typedef struct localctx_struct {
 	de_int64 xpos, ypos; // 0-based
 	de_int64 saved_xpos, saved_ypos;
 	de_byte used_blink;
+	de_byte used_fgcol[8];
+	de_byte used_fgcolbold[8];
+	de_byte used_bgcol[8];
 
 	de_byte curr_fgcol;
 	de_byte curr_bgcol;
@@ -184,7 +187,6 @@ static void do_code_m(deark *c, lctx *d)
 		}
 		else if(sgi_code==5 || sgi_code==6) {
 			d->curr_blink = 1;
-			d->used_blink = 1;
 		}
 		else if(sgi_code>=30 && sgi_code<=37) {
 			// Set foreground color
@@ -198,6 +200,17 @@ static void do_code_m(deark *c, lctx *d)
 			de_dbg(c, "[unsupported SGR code %d]\n", (int)sgi_code);
 		}
 	}
+
+	// Keep track of which colors and attibutes we used, so that we can avoid
+	// defining unused CSS classes.
+
+	if(d->curr_bold)
+		d->used_fgcolbold[d->curr_fgcol] = 1;
+	else
+		d->used_fgcol[d->curr_fgcol] = 1;
+	d->used_bgcol[d->curr_bgcol] = 1;
+	if(d->curr_blink)
+		d->used_blink = 1;
 }
 
 // H: Set cursor position
@@ -455,12 +468,14 @@ static void do_output_main(deark *c, lctx *d)
 	dbuf_fputs(d->ofile, "</pre>\n");
 }
 
-static void output_css_color_block(deark *c, lctx *d, const char *selectorprefix, const char *prop, int offset)
+static void output_css_color_block(deark *c, lctx *d, const char *selectorprefix,
+	const char *prop, int offset, const de_byte *used_flags)
 {
 	char tmpbuf[16];
 	int i;
 
 	for(i=0; i<8; i++) {
+		if(!used_flags[i]) continue;
 		ansi_16_color_to_css(offset+i, tmpbuf, sizeof(tmpbuf));
 		dbuf_fprintf(d->ofile, " %s%c { %s: %s }\n", selectorprefix, get_hexchar(i),
 			prop, tmpbuf);
@@ -480,9 +495,9 @@ static void do_output_header(deark *c, lctx *d)
 
 	dbuf_fputs(d->ofile, "<style type=\"text/css\">\n");
 
-	output_css_color_block(c, d, ".f", "color", 0);
-	output_css_color_block(c, d, ".b.f", "color", 8);
-	output_css_color_block(c, d, ".b", "background-color", 0);
+	output_css_color_block(c, d, ".f", "color", 0, &d->used_fgcol[0]);
+	output_css_color_block(c, d, ".b.f", "color", 8, &d->used_fgcol[8]);
+	output_css_color_block(c, d, ".b", "background-color", 0, &d->used_bgcol[0]);
 
 	if(d->used_blink) {
 		dbuf_fputs(d->ofile, " .blink {\n"
