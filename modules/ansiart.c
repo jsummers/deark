@@ -11,6 +11,7 @@ struct cell_struct {
 	de_int32 codepoint;
 	de_byte fgcol;
 	de_byte bgcol;
+	de_byte blink;
 };
 
 typedef struct localctx_struct {
@@ -23,10 +24,12 @@ typedef struct localctx_struct {
 
 	de_int64 xpos, ypos; // 0-based
 	de_int64 saved_xpos, saved_ypos;
+	de_byte used_blink;
 
 	de_byte curr_fgcol;
 	de_byte curr_bgcol;
 	de_byte bold;
+	de_byte curr_blink;
 
 	de_byte param_string_buf[100];
 
@@ -85,6 +88,7 @@ static void do_normal_char(deark *c, lctx *d, de_byte ch)
 			cell->fgcol = d->curr_fgcol;
 			if(d->bold) cell->fgcol += 8;
 			cell->bgcol = d->curr_bgcol;
+			cell->blink = d->curr_blink;
 
 			if(d->ypos >= d->known_height) d->known_height = d->ypos+1;
 		}
@@ -170,11 +174,16 @@ static void do_code_m(deark *c, lctx *d)
 		if(sgi_code==0) {
 			// Reset
 			d->bold = 0;
+			d->curr_blink = 0;
 			d->curr_bgcol = 0;
 			d->curr_fgcol = 7;
 		}
 		else if(sgi_code==1) {
 			d->bold = 1;
+		}
+		else if(sgi_code==5 || sgi_code==6) {
+			d->curr_blink = 1;
+			d->used_blink = 1;
 		}
 		else if(sgi_code>=30 && sgi_code<=37) {
 			// Set foreground color
@@ -379,6 +388,7 @@ static void do_output_main(deark *c, lctx *d)
 	int span_count = 0;
 	de_byte active_fgcol = 0;
 	de_byte active_bgcol = 0;
+	de_byte active_blink = 0;
 	char fgcol_css[16];
 	char bgcol_css[16];
 
@@ -389,7 +399,9 @@ static void do_output_main(deark *c, lctx *d)
 			cell = get_cell_at(c, d, i, j);
 			if(!cell) continue;
 
-			if(span_count==0 || cell->fgcol!=active_fgcol || cell->bgcol!=active_bgcol) {
+			if(span_count==0 || cell->fgcol!=active_fgcol || cell->bgcol!=active_bgcol ||
+				cell->blink!=active_blink)
+			{
 				while(span_count>0) {
 					dbuf_fprintf(d->ofile, "</span>");
 					span_count--;
@@ -397,7 +409,11 @@ static void do_output_main(deark *c, lctx *d)
 
 				ansi_16_color_to_css(cell->fgcol, fgcol_css, sizeof(fgcol_css));
 				ansi_16_color_to_css(cell->bgcol, bgcol_css, sizeof(bgcol_css));
-				dbuf_fprintf(d->ofile, "<span style='color:%s;background-color:%s'>", fgcol_css, bgcol_css);
+				dbuf_fputs(d->ofile, "<span");
+				if(cell->blink) {
+					dbuf_fputs(d->ofile, " class=blink");
+				}
+				dbuf_fprintf(d->ofile, " style='color:%s;background-color:%s'>", fgcol_css, bgcol_css);
 				span_count++;
 				active_fgcol = cell->fgcol;
 				active_bgcol = cell->bgcol;
@@ -426,7 +442,7 @@ static void do_output_main(deark *c, lctx *d)
 	dbuf_fputs(d->ofile, "</pre>\n");
 }
 
-static void do_header(deark *c, lctx *d)
+static void do_output_header(deark *c, lctx *d)
 {
 	d->ofile = dbuf_create_output_file(c, "html", NULL);
 
@@ -435,11 +451,22 @@ static void do_header(deark *c, lctx *d)
 	dbuf_fputs(d->ofile, "<head>\n");
 	dbuf_fputs(d->ofile, "<meta charset=\"UTF-8\">\n");
 	dbuf_fputs(d->ofile, "<title></title>\n");
+
+	if(d->used_blink) {
+		dbuf_fputs(d->ofile, "<style type=\"text/css\">\n");
+		dbuf_fputs(d->ofile, " .blink { display: inline; color: inherit;\n"
+			"  animation: blink 1s steps(1) infinite;\n"
+			"  -webkit-animation: blink 1s steps(1) infinite; }\n"
+			" @keyframes blink { 50% { color: transparent; } }\n"
+			" @-webkit-keyframes blink { 50% { color: transparent; } }\n");
+		dbuf_fputs(d->ofile, "</style>\n");
+	}
+
 	dbuf_fputs(d->ofile, "</head>\n");
 	dbuf_fputs(d->ofile, "<body>\n");
 }
 
-static void do_footer(deark *c, lctx *d)
+static void do_output_footer(deark *c, lctx *d)
 {
 	dbuf_fputs(d->ofile, "</body>\n</html>\n");
 	dbuf_close(d->ofile);
@@ -452,7 +479,6 @@ static void de_run_ansiart(deark *c, const char *params)
 	de_int64 i;
 
 	d = de_malloc(c, sizeof(lctx));
-	do_header(c, d);
 
 	d->width = CHARS_PER_ROW;
 	d->known_height = 1;
@@ -460,8 +486,10 @@ static void de_run_ansiart(deark *c, const char *params)
 	d->cell_rows = de_malloc(c, MAX_ROWS * sizeof(struct cell_struct*));
 
 	do_main(c, d);
+
+	do_output_header(c, d);
 	do_output_main(c, d);
-	do_footer(c, d);
+	do_output_footer(c, d);
 
 	for(i=0; i<MAX_ROWS; i++) {
 		if(d->cell_rows[i]) de_free(c, d->cell_rows[i]);
