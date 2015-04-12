@@ -9,6 +9,14 @@
 
 #include "deark-private.h"
 
+static const char *g_hexchars = "0123456789abcdef";
+
+char de_get_hexchar(int n)
+{
+	if(n>=0 && n<16) return g_hexchars[n];
+	return '0';
+}
+
 de_byte de_decode_hex_digit(de_byte x, int *errorflag)
 {
 	if(errorflag) *errorflag = 0;
@@ -224,7 +232,6 @@ de_uint32 de_palette_pcpaint_cga4(int palnum, int index)
 void de_color_to_css(de_uint32 color, char *buf, int buflen)
 {
 	de_byte r, g, b;
-	static const char *hexchars = "0123456789abcdef";
 
 	buf[0] = '#';
 	r = DE_COLOR_R(color);
@@ -233,19 +240,19 @@ void de_color_to_css(de_uint32 color, char *buf, int buflen)
 
 	if(r%17==0 && g%17==0 && b%17==0) {
 		// Can use short form.
-		buf[1] = hexchars[r/17];
-		buf[2] = hexchars[g/17];
-		buf[3] = hexchars[b/17];
+		buf[1] = g_hexchars[r/17];
+		buf[2] = g_hexchars[g/17];
+		buf[3] = g_hexchars[b/17];
 		buf[4] = '\0';
 		return;
 	}
 
-	buf[1] = hexchars[r/16];
-	buf[2] = hexchars[r%16];
-	buf[3] = hexchars[g/16];
-	buf[4] = hexchars[g%16];
-	buf[5] = hexchars[b/16];
-	buf[6] = hexchars[b%16];
+	buf[1] = g_hexchars[r/16];
+	buf[2] = g_hexchars[r%16];
+	buf[3] = g_hexchars[g/16];
+	buf[4] = g_hexchars[g%16];
+	buf[5] = g_hexchars[b/16];
+	buf[6] = g_hexchars[b%16];
 	buf[7] = '\0';
 }
 

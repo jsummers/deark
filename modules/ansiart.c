@@ -423,13 +423,6 @@ static void ansi_16_color_to_css(int index, char *buf, int buflen)
 	de_color_to_css(clr, buf, buflen);
 }
 
-static char get_hexchar(int n)
-{
-	static const char *hexchars = "0123456789abcdef";
-	if(n>=0 && n<16) return hexchars[n];
-	return '0';
-}
-
 static void do_output_main(deark *c, lctx *d)
 {
 	const struct cell_struct *cell;
@@ -459,8 +452,8 @@ static void do_output_main(deark *c, lctx *d)
 				dbuf_fputs(d->ofile, "<span class=\"");
 
 				// Classes for foreground and background colors
-				dbuf_fprintf(d->ofile, "f%c", get_hexchar(cell->fgcol));
-				dbuf_fprintf(d->ofile, " b%c", get_hexchar(cell->bgcol));
+				dbuf_fprintf(d->ofile, "f%c", de_get_hexchar(cell->fgcol));
+				dbuf_fprintf(d->ofile, " b%c", de_get_hexchar(cell->bgcol));
 
 				// Other attributes
 				if(cell->bold) dbuf_fputs(d->ofile, " b");
@@ -501,16 +494,13 @@ static void output_css_color_block(deark *c, lctx *d, const char *selectorprefix
 	for(i=0; i<8; i++) {
 		if(!used_flags[i]) continue;
 		ansi_16_color_to_css(offset+i, tmpbuf, sizeof(tmpbuf));
-		dbuf_fprintf(d->ofile, " %s%c { %s: %s }\n", selectorprefix, get_hexchar(i),
+		dbuf_fprintf(d->ofile, " %s%c { %s: %s }\n", selectorprefix, de_get_hexchar(i),
 			prop, tmpbuf);
 	}
 }
 
 static void do_output_header(deark *c, lctx *d)
 {
-
-	d->ofile = dbuf_create_output_file(c, "html", NULL);
-
 	if(c->write_bom && !c->ascii_html) dbuf_write_uchar_as_utf8(d->ofile, 0xfeff);
 	dbuf_fputs(d->ofile, "<!DOCTYPE html>\n");
 	dbuf_fputs(d->ofile, "<html>\n");
@@ -545,8 +535,6 @@ static void do_output_header(deark *c, lctx *d)
 static void do_output_footer(deark *c, lctx *d)
 {
 	dbuf_fputs(d->ofile, "</body>\n</html>\n");
-	dbuf_close(d->ofile);
-	d->ofile = NULL;
 }
 
 static void de_run_ansiart(deark *c, const char *params)
@@ -563,9 +551,14 @@ static void de_run_ansiart(deark *c, const char *params)
 
 	do_main(c, d);
 
+	d->ofile = dbuf_create_output_file(c, "html", NULL);
+
 	do_output_header(c, d);
 	do_output_main(c, d);
 	do_output_footer(c, d);
+
+	dbuf_close(d->ofile);
+	d->ofile = NULL;
 
 	for(i=0; i<MAX_ROWS; i++) {
 		if(d->cell_rows[i]) de_free(c, d->cell_rows[i]);

@@ -375,8 +375,6 @@ static void do_char_1screen(deark *c, lctx *d, de_int64 pgnum,
 	int cur_fgcol, cur_bgcol;
 	de_int64 offset;
 	de_byte b0, b1;
-	char fgcol_css[16];
-	char bgcol_css[16];
 
 	dbuf_fputs(d->ofile, "<pre>\n");
 
@@ -404,9 +402,9 @@ static void do_char_1screen(deark *c, lctx *d, de_int64 pgnum,
 					dbuf_fputs(d->ofile, "</span>");
 				}
 
-				pc_16_color_to_css(fgcol, fgcol_css, sizeof(fgcol_css));
-				pc_16_color_to_css(bgcol, bgcol_css, sizeof(bgcol_css));
-				dbuf_fprintf(d->ofile, "<span style='color:%s;background-color:%s'>", fgcol_css, bgcol_css);
+				dbuf_fprintf(d->ofile, "<span class=\"f%c b%c\">",
+					de_get_hexchar(fgcol), de_get_hexchar(bgcol));
+
 				cur_fgcol = fgcol;
 				cur_bgcol = bgcol;
 			}
@@ -421,6 +419,42 @@ static void do_char_1screen(deark *c, lctx *d, de_int64 pgnum,
 	}
 	dbuf_fputs(d->ofile, "</pre>\n");
 
+}
+
+static void output_css_color_block(deark *c, lctx *d, const char *selectorprefix,
+	const char *prop)
+{
+	char tmpbuf[16];
+	int i;
+
+	for(i=0; i<16; i++) {
+		pc_16_color_to_css(i, tmpbuf, sizeof(tmpbuf));
+		dbuf_fprintf(d->ofile, " %s%c { %s: %s }%s", selectorprefix, de_get_hexchar(i),
+			prop, tmpbuf, (i%4==3) ? "\n" : "");
+	}
+}
+
+static void do_output_html_header(deark *c, lctx *d)
+{
+	if(c->write_bom && !c->ascii_html) dbuf_write_uchar_as_utf8(d->ofile, 0xfeff);
+	dbuf_fputs(d->ofile, "<!DOCTYPE html>\n");
+	dbuf_fputs(d->ofile, "<html>\n");
+	dbuf_fputs(d->ofile, "<head>\n");
+	if(!c->ascii_html) dbuf_fputs(d->ofile, "<meta charset=\"UTF-8\">\n");
+	dbuf_fputs(d->ofile, "<title></title>\n");
+
+	dbuf_fputs(d->ofile, "<style type=\"text/css\">\n");
+	output_css_color_block(c, d, ".f", "color");
+	output_css_color_block(c, d, ".b", "background-color");
+	dbuf_fputs(d->ofile, "</style>\n");
+
+	dbuf_fputs(d->ofile, "</head>\n");
+	dbuf_fputs(d->ofile, "<body>\n");
+}
+
+static void do_output_html_footer(deark *c, lctx *d)
+{
+	dbuf_fputs(d->ofile, "</body>\n</html>\n");
 }
 
 static int do_char(deark *c, lctx *d)
@@ -464,14 +498,7 @@ static int do_char(deark *c, lctx *d)
 
 	d->ofile = dbuf_create_output_file(c, "html", NULL);
 
-	if(c->write_bom && !c->ascii_html) dbuf_write_uchar_as_utf8(d->ofile, 0xfeff);
-	dbuf_fputs(d->ofile, "<!DOCTYPE html>\n");
-	dbuf_fputs(d->ofile, "<html>\n");
-	dbuf_fputs(d->ofile, "<head>\n");
-	if(!c->ascii_html) dbuf_fputs(d->ofile, "<meta charset=\"UTF-8\">\n");
-	dbuf_fputs(d->ofile, "<title></title>\n");
-	dbuf_fputs(d->ofile, "</head>\n");
-	dbuf_fputs(d->ofile, "<body>\n");
+	do_output_html_header(c, d);
 
 	for(pgnum=0; pgnum<numpages; pgnum++) {
 		pg_offset_in_data = bytes_per_page*pgnum;
@@ -487,7 +514,7 @@ static int do_char(deark *c, lctx *d)
 		do_char_1screen(c, d, pgnum, pg_offset_in_data, width, height_for_this_page);
 	}
 
-	dbuf_fputs(d->ofile, "</body>\n</html>\n");
+	do_output_html_footer(c, d);
 	dbuf_close(d->ofile);
 	retval = 1;
 
