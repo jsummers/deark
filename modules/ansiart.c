@@ -69,7 +69,7 @@ static struct cell_struct *get_cell_at(deark *c, lctx *d, de_int64 xpos, de_int6
 	return &(d->cell_rows[ypos][xpos]);
 }
 
-static void do_normal_char(deark *c, lctx *d, de_byte ch)
+static void do_normal_char(deark *c, lctx *d, de_int64 pos, de_byte ch)
 {
 	struct cell_struct *cell;
 	de_int32 u;
@@ -79,6 +79,8 @@ static void do_normal_char(deark *c, lctx *d, de_byte ch)
 	}
 	else if(ch==10) { // LF
 		d->ypos++;
+		// Some files aren't rendered correctly unless an LF implies a CR.
+		d->xpos = 0;
 	}
 	else {
 		while(d->xpos >= d->width) {
@@ -99,8 +101,8 @@ static void do_normal_char(deark *c, lctx *d, de_byte ch)
 			if(d->ypos >= d->known_height) d->known_height = d->ypos+1;
 		}
 		else {
-			de_dbg(c, "[off-screen write at (%d,%d)]\n",
-				(int)d->xpos, (int)d->ypos);
+			de_dbg(c, "off-screen write at (%d,%d) (%d)\n",
+				(int)d->xpos, (int)d->ypos, (int)pos);
 		}
 
 		d->xpos++;
@@ -312,6 +314,10 @@ static void do_code_D(deark *c, lctx *d)
 	de_int64 n;
 	read_one_int(c, d, d->param_string_buf, &n, 1);
 	d->xpos -= n;
+	// Some files begin with a code to move the cursor left by a large amount.
+	// So I assume that (by default) this isn't supposed to wrap, and positions
+	// left of the first column aren't allowed.
+	if(d->xpos<0) d->xpos=0;
 }
 
 static void do_control_sequence(deark *c, lctx *d, de_byte code,
@@ -387,7 +393,7 @@ static void do_main(deark *c, lctx *d)
 				continue;
 			}
 			else { // a non-escape character
-				do_normal_char(c, d, ch);
+				do_normal_char(c, d, pos, ch);
 			}
 		}
 		else if(state==STATE_GOT_ESC) {
@@ -429,6 +435,8 @@ static void do_output_main(deark *c, lctx *d)
 	int i, j;
 	de_int32 n;
 	int span_count = 0;
+	int need_newline = 0;
+
 	de_byte active_fgcol = 0;
 	de_byte active_bgcol = 0;
 	de_byte active_bold = 0;
@@ -447,6 +455,11 @@ static void do_output_main(deark *c, lctx *d)
 				while(span_count>0) {
 					dbuf_fprintf(d->ofile, "</span>");
 					span_count--;
+				}
+
+				if(need_newline) {
+					dbuf_fputs(d->ofile, "\n");
+					need_newline = 0;
 				}
 
 				dbuf_fputs(d->ofile, "<span class=\"");
@@ -472,9 +485,17 @@ static void do_output_main(deark *c, lctx *d)
 			if(n==0x00) n=0x20;
 			if(n<0x20) n='?';
 
+			if(need_newline) {
+				dbuf_fputs(d->ofile, "\n");
+				need_newline = 0;
+			}
+
 			de_write_codepoint_to_html(c, d->ofile, n);
 		}
-		dbuf_fputs(d->ofile, "\n");
+
+		// Defer emitting a newline, so that we have more control over where
+		// to put it. We prefer to put it after "</span>".
+		need_newline = 1;
 	}
 
 	while(span_count>0) {
