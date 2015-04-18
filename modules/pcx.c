@@ -23,6 +23,11 @@ typedef struct localctx_struct {
 	de_int64 width, height;
 	int has_vga_pal;
 	int has_transparency;
+
+	// Identifier of the palette to use, if there is no palette in the file
+	int default_pal_num;
+	int default_pal_set;
+
 	dbuf *unc_pixels;
 	de_uint32 pal[256];
 } lctx;
@@ -151,13 +156,18 @@ static int do_read_vga_palette(deark *c, lctx *d)
 	return 1;
 }
 
-// This is the "default EGA palette" used by several PCX viewers.
-// I don't know its origin, but it seems to be at least approximately correct.
-// (8-color version-3 PCXs apparently use only the first 8 colors of this
+// 16-color palettes to use, if there is no palette in the file.
+// (8-color version-3 PCXs apparently use only the first 8 colors of the
 // palette.)
-static const de_uint32 ega16pal[16] = {
-	0x000000,0xbf0000,0x00bf00,0xbfbf00,0x0000bf,0xbf00bf,0x00bfbf,0xc0c0c0,
-	0x808080,0xff0000,0x00ff00,0xffff00,0x0000ff,0xff00ff,0x00ffff,0xffffff
+static const de_uint32 ega16pal[2][16] = {
+	// This palette seems to be correct for at least some files.
+	{0x000000,0x000080,0x008000,0x008080,0x800000,0x800080,0x808000,0x808080,
+	 0xc0c0c0,0x0000ff,0x00ff00,0x00ffff,0xff0000,0xff00ff,0xffff00,0xffffff},
+
+	// This is the "default EGA palette" used by several PCX viewers.
+	// I don't know its origin.
+	{0x000000,0xbf0000,0x00bf00,0xbfbf00,0x0000bf,0xbf00bf,0x00bfbf,0xc0c0c0,
+	 0x808080,0xff0000,0x00ff00,0xffff00,0x0000ff,0xff00ff,0x00ffff,0xffffff}
 };
 
 static void do_palette_stuff(deark *c, lctx *d)
@@ -178,9 +188,13 @@ static void do_palette_stuff(deark *c, lctx *d)
 	}
 
 	if(d->version==3 && d->ncolors>=8 && d->ncolors<=16) {
-		de_dbg(c, "Using default EGA palette\n");
+		if(!d->default_pal_set) {
+			de_msg(c, "Note: This PCX file does not contain a palette. "
+				"If it is not decoded correctly, try \"-opt pcx:pal=...\".\n");
+		}
+		de_dbg(c, "Using a default EGA palette\n");
 		for(k=0; k<16; k++) {
-			d->pal[k] = ega16pal[k];
+			d->pal[k] = ega16pal[d->default_pal_num][k];
 		}
 		return;
 	}
@@ -334,7 +348,6 @@ static void do_bitmap_24bpp(deark *c, lctx *d)
 
 	for(j=0; j<d->height; j++) {
 		for(i=0; i<d->width; i++) {
-			//palent = 0;
 			for(plane=0; plane<d->planes; plane++) {
 				s[plane] = dbuf_getbyte(d->unc_pixels, j*d->rowspan + plane*d->rowspan_raw +i);
 			}
@@ -365,8 +378,18 @@ static void do_bitmap(deark *c, lctx *d)
 static void de_run_pcx(deark *c, const char *params)
 {
 	lctx *d = NULL;
+	const char *s;
 
 	d = de_malloc(c, sizeof(lctx));
+
+	s = de_get_ext_option(c, "pcx:pal");
+	if(s) {
+		d->default_pal_num = de_atoi(s);
+		if(d->default_pal_num<0 || d->default_pal_num>1) {
+			d->default_pal_num = 0;
+		}
+		d->default_pal_set = 1;
+	}
 
 	if(!do_read_header(c, d)) {
 		goto done;
