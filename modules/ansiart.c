@@ -442,7 +442,7 @@ static void do_output_main(deark *c, lctx *d)
 	de_byte active_bold = 0;
 	de_byte active_blink = 0;
 
-	dbuf_fputs(d->ofile, "<pre>\n");
+	dbuf_fputs(d->ofile, "<pre>");
 	for(j=0; j<d->known_height; j++) {
 		for(i=0; i<d->width; i++) {
 
@@ -503,7 +503,7 @@ static void do_output_main(deark *c, lctx *d)
 		span_count--;
 	}
 
-	dbuf_fputs(d->ofile, "</pre>\n");
+	dbuf_fputs(d->ofile, "</pre>");
 }
 
 static void output_css_color_block(deark *c, lctx *d, const char *selectorprefix,
@@ -551,10 +551,12 @@ static void do_output_header(deark *c, lctx *d)
 
 	dbuf_fputs(d->ofile, "</head>\n");
 	dbuf_fputs(d->ofile, "<body>\n");
+	dbuf_fputs(d->ofile, "<table style=\"margin-left:auto;margin-right:auto\"><tr>\n<td>");
 }
 
 static void do_output_footer(deark *c, lctx *d)
 {
+	dbuf_fputs(d->ofile, "</td>\n</tr></table>\n");
 	dbuf_fputs(d->ofile, "</body>\n</html>\n");
 }
 
