@@ -191,7 +191,7 @@ static int decode_bilevel(deark *c, lctx *d)
 
 	if(!d->unc_pixels) return 0;
 
-	// PC Paint's CGA and EGA 2-color modes used gray shade 170 instead of
+	// PCPaint's CGA and EGA 2-color modes used gray shade 170 instead of
 	// white (255). Maybe they should be interpreted as white, but for
 	// historical accuracy I'll go with gray170.
 	if(d->video_mode==0x43 || d->video_mode==0x45) {
@@ -334,11 +334,11 @@ static int uncompress_pixels(deark *c, lctx *d)
 	d->unc_pixels = dbuf_create_membuf(c, 16384);
 	dbuf_set_max_length(d->unc_pixels, d->img->width * d->img->height);
 
-	de_dbg(c, "pcpaint uncompress\n");
+	de_dbg(c, "uncompressing image\n");
 	pos = d->header_size;
 
 	for(n=0; n<d->num_rle_blocks; n++) {
-		de_dbg(c, "-- block %d --\n", (int)n);
+		de_dbg2(c, "-- block %d --\n", (int)n);
 		// start_of_this_block = pos;
 		packed_block_size = de_getui16le(pos);
 		// block size includes the 5-byte header, so it can't be < 5.
@@ -348,9 +348,9 @@ static int uncompress_pixels(deark *c, lctx *d)
 		run_marker = de_getbyte(pos+4);
 		pos+=5;
 
-		de_dbg(c, "packed block size (+5)=%d\n", (int)packed_block_size);
-		de_dbg(c, "unpacked block size=%d\n", (int)unpacked_block_size);
-		de_dbg(c, "run marker=0x%02x\n", (int)run_marker);
+		de_dbg2(c, "packed block size (+5)=%d\n", (int)packed_block_size);
+		de_dbg2(c, "unpacked block size=%d\n", (int)unpacked_block_size);
+		de_dbg2(c, "run marker=0x%02x\n", (int)run_marker);
 
 		if(!uncompress_block(c, d, pos, packed_block_size-5, run_marker)) {
 			goto done;
@@ -419,7 +419,7 @@ static void de_run_pcpaint_pic(deark *c, lctx *d, const char *params)
 	}
 
 	if(d->ver!=2) {
-		de_err(c, "This version of PC Paint PIC is not supported\n");
+		de_err(c, "This version of PCPaint PIC is not supported\n");
 		goto done;
 	}
 
@@ -478,7 +478,7 @@ static void de_run_pcpaint_pic(deark *c, lctx *d, const char *params)
 		decode_egavga16(c, d);
 	}
 	else {
-		de_err(c, "This type of PC Paint PIC is not supported (evideo=0x%02x, bitsinf=0x%02x, edesc=%d)\n",
+		de_err(c, "This type of PCPaint PIC is not supported (evideo=0x%02x, bitsinf=0x%02x, edesc=%d)\n",
 			d->video_mode, d->plane_info, (int)d->edesc);
 		goto done;
 	}
