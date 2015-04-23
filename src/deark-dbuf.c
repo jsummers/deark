@@ -416,6 +416,7 @@ static void membuf_append(dbuf *f, const de_byte *m, de_int64 mlen)
 	if(mlen > f->membuf_alloc - f->len) {
 		// Need to allocate more space
 		new_alloc_size = (f->membuf_alloc + mlen)*2;
+		if(new_alloc_size<1024) new_alloc_size=1024;
 		// TODO: Guard against integer overflows.
 		de_dbg2(f->c, "increasing membuf size %d -> %d\n", (int)f->membuf_alloc, (int)new_alloc_size);
 		f->membuf_buf = de_realloc(f->c, f->membuf_buf, f->membuf_alloc, new_alloc_size);

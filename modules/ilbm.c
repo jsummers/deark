@@ -18,6 +18,7 @@
 #define CODE_FORM  0x464f524d
 #define CODE_GRAB  0x47524142
 #define CODE_TINY  0x54494e59
+#define CODE_VDAT  0x56444154
 
 #define CODE_ILBM  0x494c424d
 #define CODE_PBM   0x50424d20
@@ -50,6 +51,8 @@ typedef struct localctx_struct {
 	de_int32 camg_mode;
 
 	int opt_notrans;
+
+	dbuf *vdat_unc_pixels;
 
 	// Our palette always has 256 colors. This is how many we read from the file.
 	de_int64 pal_ncolors;
@@ -510,9 +513,10 @@ done:
 }
 
 // Caller must first set d->width and d->height.
-static void do_image(deark *c, lctx *d, de_int64 pos1, de_int64 len, const char *token)
+static void do_image(deark *c, lctx *d, de_int64 pos1, de_int64 len, const char *token, int is_vdat)
 {
 	dbuf *unc_pixels = NULL;
+	dbuf *unc_pixels_toclose = NULL;
 
 	if(!d->found_bmhd) {
 		de_err(c, "Missing BMHD chunk\n");
@@ -530,11 +534,16 @@ static void do_image(deark *c, lctx *d, de_int64 pos1, de_int64 len, const char 
 
 	if(!de_good_image_dimensions(c, d->width, d->height)) goto done;
 
-	if(d->compression==0) {
-		unc_pixels = dbuf_open_input_subfile(c->infile, pos1, len);
+	if(is_vdat) {
+		unc_pixels = d->vdat_unc_pixels;
+	}
+	else if(d->compression==0) {
+		unc_pixels_toclose = dbuf_open_input_subfile(c->infile, pos1, len);
+		unc_pixels = unc_pixels_toclose;
 	}
 	else if(d->compression==1) {
-		unc_pixels = dbuf_create_membuf(c, 0);
+		unc_pixels_toclose = dbuf_create_membuf(c, 0);
+		unc_pixels = unc_pixels_toclose;
 		// TODO: Call dbuf_set_max_length()
 		if(!de_fmtutil_uncompress_packbits(c->infile, pos1, len, unc_pixels))
 			goto done;
@@ -544,6 +553,8 @@ static void do_image(deark *c, lctx *d, de_int64 pos1, de_int64 len, const char 
 		de_err(c, "Unsupported compression type: %d\n", (int)d->compression);
 		goto done;
 	}
+
+	if(!unc_pixels) goto done;
 
 	if(d->planes>=1 && d->planes<=8) {
 		do_image_1to8(c, d, unc_pixels, token);
@@ -556,7 +567,7 @@ static void do_image(deark *c, lctx *d, de_int64 pos1, de_int64 len, const char 
 	}
 
 done:
-	dbuf_close(unc_pixels);
+	dbuf_close(unc_pixels_toclose);
 }
 
 // Thumbnail chunk
@@ -566,7 +577,99 @@ static void do_tiny(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 	if(len<=4) return;
 	d->height = de_getui16be(pos1+2);
 	de_dbg(c, "thumbnail image, dimensions: %dx%d\n", (int)d->width, (int)d->height);
-	do_image(c, d, pos1+4, len-4, "thumb");
+	do_image(c, d, pos1+4, len-4, "thumb", 0);
+}
+
+static void do_vdat(deark *c, lctx *d, de_int64 pos1, de_int64 len)
+{
+	de_int64 pos;
+	de_int64 endpos;
+	de_byte b0, b1;
+	de_int64 count;
+	de_int64 cmd_cnt;
+	de_int64 i, k;
+	de_byte cmd;
+	de_byte *cmds = NULL;
+	de_int64 prev_unc_len;
+
+	if(!d->vdat_unc_pixels) {
+		d->vdat_unc_pixels = dbuf_create_membuf(c, 0);
+	}
+
+	prev_unc_len = d->vdat_unc_pixels->len;
+
+	pos = pos1;
+	endpos = pos1+len;
+
+	cmd_cnt = de_getui16be(pos); // command count + 2
+	pos+=2;
+	cmd_cnt -= 2;
+	de_dbg(c, "number of command bytes: %d\n", (int)cmd_cnt);
+	if(cmd_cnt<1) goto done;
+
+	cmds = de_malloc(c, cmd_cnt * sizeof(de_byte));
+
+	// Read commands
+	de_read(cmds, pos, cmd_cnt);
+	pos += cmd_cnt;
+
+	// Read data
+	for(i=0; i<cmd_cnt; i++) {
+		if(pos>=endpos) {
+			de_warn(c, "Unexpected end of data in VDAT chunk. %d of %d command bytes processed\n",
+				(int)i, (int)cmd_cnt);
+			break;
+		}
+
+		cmd = cmds[i];
+
+		if(cmd==0x00) {
+			count = de_getui16be(pos);
+			pos+=2;
+			count *= 2;
+			dbuf_copy(c->infile, pos, count, d->vdat_unc_pixels);
+			pos += count;
+		}
+		else if(cmd==0x01) {
+			count = de_getui16be(pos);
+			pos+=2;
+			b0 = de_getbyte(pos++);
+			b1 = de_getbyte(pos++);
+			for(k=0; k<count; k++) {
+				dbuf_writebyte(d->vdat_unc_pixels, b0);
+				dbuf_writebyte(d->vdat_unc_pixels, b1);
+			}
+		}
+		else if(cmd>=0x80) {
+			count = 2*(128-(de_int64)(cmd&0x7f));
+			dbuf_copy(c->infile, pos, count, d->vdat_unc_pixels);
+			pos += count;
+		}
+		else { // cmd is from 0x02 to 0x7f
+			b0 = de_getbyte(pos++);
+			b1 = de_getbyte(pos++);
+			count = (de_int64)cmd;
+			for(k=0; k<count; k++) {
+				dbuf_writebyte(d->vdat_unc_pixels, b0);
+				dbuf_writebyte(d->vdat_unc_pixels, b1);
+			}
+		}
+	}
+
+	de_dbg(c, "uncompressed to %d bytes\n", (int)(d->vdat_unc_pixels->len - prev_unc_len));
+done:
+	de_free(c, cmds);
+}
+
+static void do_vdat_final(deark *c, lctx *d)
+{
+	de_err(c, "ILBM VDAT vertical compression format is not supported\n");
+#if 0
+	// TODO: Need to rearrange the image data, somehow.
+	d->width = d->bmhd_width;
+	d->height = d->bmhd_height;
+	do_image(c, d, 0, 0, NULL, 1);
+#endif
 }
 
 static int do_chunk_sequence(deark *c, lctx *d, de_int64 pos1, de_int64 len);
@@ -606,17 +709,43 @@ static int do_chunk(deark *c, lctx *d, de_int64 pos, de_int64 bytes_avail,
 		goto done;
 	}
 
+	// Most chunks are only processed at level 1.
+	if(d->level!=1 && ct!=CODE_FORM && ct!=CODE_VDAT) {
+		goto done_chunk;
+	}
+
 	switch(ct) {
 	case CODE_BODY:
 	case CODE_ABIT:
+
+		if(ct==CODE_BODY && d->compression==2 &&
+			!dbuf_memcmp(c->infile, chunk_data_pos, "VDAT", 4))
+		{
+			d->level++;
+			ret = do_chunk_sequence(c, d, pos+8, bytes_avail-8);
+			d->level--;
+			if(!ret) {
+				errflag = 1;
+				goto done;
+			}
+
+			do_vdat_final(c, d);
+			break;
+		}
+
 		d->width = d->bmhd_width;
 		d->height = d->bmhd_height;
-		do_image(c, d, chunk_data_pos, chunk_data_len, NULL);
+		do_image(c, d, chunk_data_pos, chunk_data_len, NULL, 0);
 
 		// A lot of ILBM files have padding or garbage data at the end of the file
 		// (apparently included in the file size given by the FORM chunk).
 		// To avoid it, don't read past the BODY chunk.
 		doneflag = 1;
+		break;
+
+	case CODE_VDAT:
+		if(d->level!=2) break;
+		do_vdat(c, d, chunk_data_pos, chunk_data_len);
 		break;
 
 	case CODE_TINY:
@@ -688,6 +817,7 @@ static int do_chunk(deark *c, lctx *d, de_int64 pos, de_int64 bytes_avail,
 		break;
 	}
 
+done_chunk:
 	*bytes_consumed = 8 + chunk_data_len;
 	if(chunk_data_len%2) (*bytes_consumed)++; // Padding byte
 
@@ -731,6 +861,8 @@ static void de_run_ilbm(deark *c, const char *params)
 	if(s) d->opt_notrans = 1;
 
 	do_chunk_sequence(c, d, 0, c->infile->len);
+
+	dbuf_close(d->vdat_unc_pixels);
 	de_free(c, d);
 }
  
