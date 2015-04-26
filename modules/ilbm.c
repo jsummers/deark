@@ -41,6 +41,7 @@ typedef struct localctx_struct {
 	de_byte masking_code;
 	de_byte is_ham6;
 	de_byte is_ham8;
+	de_byte is_vdat;
 	de_int64 transparent_color;
 
 	de_int64 rowspan;
@@ -204,6 +205,31 @@ static void get_row_acbm(deark *c, lctx *d, dbuf *unc_pixels, de_int64 j, de_byt
 		for(bit=0; bit<d->planes; bit++) {
 			b = de_get_bits_symbol(unc_pixels, 1, bit*d->planespan + j*d->rowspan, i);
 			if(b) row[i] |= (1<<bit);
+		}
+	}
+}
+
+static void get_row_vdat(deark *c, lctx *d, dbuf *unc_pixels, de_int64 j, de_byte *row)
+{
+	de_int64 i;
+	de_int64 set;
+	de_int64 bytes_per_column;
+	de_int64 bytes_per_set;
+	de_int64 columns_per_set;
+	de_byte b;
+
+	de_memset(row, 0, (size_t)d->width);
+
+	bytes_per_column = 2*d->height;
+	columns_per_set = ((d->width + 15)/16);
+	bytes_per_set = bytes_per_column * columns_per_set;
+
+	for(i=0; i<d->width; i++) {
+		for(set=0; set<4; set++) {
+			b = de_get_bits_symbol(unc_pixels, 1,
+				set*bytes_per_set + (i/16)*bytes_per_column + j*2,
+				i%16);
+			if(b) row[i] |= (1<<set);
 		}
 	}
 }
@@ -403,7 +429,10 @@ static void do_image_1to8(deark *c, lctx *d, dbuf *unc_pixels, const char *token
 	}
 
 	d->bits_per_row_per_plane = ((d->width+15)/16)*16;
-	if(d->formtype==CODE_ACBM) {
+	if(d->is_vdat) {
+		d->rowspan = d->bits_per_row_per_plane/8;
+	}
+	else if(d->formtype==CODE_ACBM) {
 		d->rowspan = d->bits_per_row_per_plane/8;
 		d->planespan = d->height * d->rowspan;
 	}
@@ -434,7 +463,10 @@ static void do_image_1to8(deark *c, lctx *d, dbuf *unc_pixels, const char *token
 			cb = DE_COLOR_B(d->pal[0]);
 		}
 
-		if(d->formtype==CODE_ACBM) {
+		if(d->is_vdat) {
+			get_row_vdat(c, d, unc_pixels, j, row_deplanarized);
+		}
+		else if(d->formtype==CODE_ACBM) {
 			get_row_acbm(c, d, unc_pixels, j, row_deplanarized);
 		}
 		else if(d->formtype==CODE_PBM) {
@@ -513,7 +545,7 @@ done:
 }
 
 // Caller must first set d->width and d->height.
-static void do_image(deark *c, lctx *d, de_int64 pos1, de_int64 len, const char *token, int is_vdat)
+static void do_image(deark *c, lctx *d, de_int64 pos1, de_int64 len, const char *token)
 {
 	dbuf *unc_pixels = NULL;
 	dbuf *unc_pixels_toclose = NULL;
@@ -534,7 +566,11 @@ static void do_image(deark *c, lctx *d, de_int64 pos1, de_int64 len, const char 
 
 	if(!de_good_image_dimensions(c, d->width, d->height)) goto done;
 
-	if(is_vdat) {
+	if(d->is_vdat) {
+		if(d->planes!=4) {
+			de_err(c, "VDAT compression not supported with planes=%d\n", (int)d->planes);
+			goto done;
+		}
 		unc_pixels = d->vdat_unc_pixels;
 	}
 	else if(d->compression==0) {
@@ -573,11 +609,15 @@ done:
 // Thumbnail chunk
 static void do_tiny(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 {
+	if(d->compression==2) {
+		de_warn(c, "Thumbnails not supported with VDAT compression");
+		return;
+	}
 	d->width = de_getui16be(pos1);
 	if(len<=4) return;
 	d->height = de_getui16be(pos1+2);
 	de_dbg(c, "thumbnail image, dimensions: %dx%d\n", (int)d->width, (int)d->height);
-	do_image(c, d, pos1+4, len-4, "thumb", 0);
+	do_image(c, d, pos1+4, len-4, "thumb");
 }
 
 static void do_vdat(deark *c, lctx *d, de_int64 pos1, de_int64 len)
@@ -663,13 +703,11 @@ done:
 
 static void do_vdat_final(deark *c, lctx *d)
 {
-	de_err(c, "ILBM VDAT vertical compression format is not supported\n");
-#if 0
-	// TODO: Need to rearrange the image data, somehow.
 	d->width = d->bmhd_width;
 	d->height = d->bmhd_height;
-	do_image(c, d, 0, 0, NULL, 1);
-#endif
+	d->is_vdat = 1;
+	do_image(c, d, 0, 0, NULL);
+	d->is_vdat = 0;
 }
 
 static int do_chunk_sequence(deark *c, lctx *d, de_int64 pos1, de_int64 len);
@@ -735,7 +773,7 @@ static int do_chunk(deark *c, lctx *d, de_int64 pos, de_int64 bytes_avail,
 
 		d->width = d->bmhd_width;
 		d->height = d->bmhd_height;
-		do_image(c, d, chunk_data_pos, chunk_data_len, NULL, 0);
+		do_image(c, d, chunk_data_pos, chunk_data_len, NULL);
 
 		// A lot of ILBM files have padding or garbage data at the end of the file
 		// (apparently included in the file size given by the FORM chunk).
