@@ -42,6 +42,7 @@ typedef struct localctx_struct {
 	de_byte is_ham6;
 	de_byte is_ham8;
 	de_byte is_vdat;
+	de_byte uses_color_cycling;
 	de_int64 transparent_color;
 
 	de_int64 rowspan;
@@ -52,6 +53,7 @@ typedef struct localctx_struct {
 	de_int32 camg_mode;
 
 	int opt_notrans;
+	int opt_fixpal;
 
 	dbuf *vdat_unc_pixels;
 
@@ -406,7 +408,8 @@ static void do_image_1to8(deark *c, lctx *d, dbuf *unc_pixels, const char *token
 		}
 	}
 
-	fixup_palette(c, d);
+	if(d->opt_fixpal)
+		fixup_palette(c, d);
 
 	if(d->ehb_flag && d->planes==6 && d->pal_ncolors==32) {
 		make_ehb_palette(c, d);
@@ -633,6 +636,8 @@ static void do_vdat(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 	de_int64 prev_unc_len;
 
 	if(!d->vdat_unc_pixels) {
+		// TODO: Ensure that a VDAT chunk with the wrong amount of uncompressed
+		// data doesn't case remaining VDAT chunks to get out of sync.
 		d->vdat_unc_pixels = dbuf_create_membuf(c, 0);
 	}
 
@@ -701,16 +706,40 @@ done:
 	de_free(c, cmds);
 }
 
-static void do_vdat_final(deark *c, lctx *d)
+static int do_chunk_sequence(deark *c, lctx *d, de_int64 pos1, de_int64 len);
+
+// A BODY or ABIT chunk
+static int do_body(deark *c, lctx *d, de_int64 pos, de_int64 len, de_uint32 ct)
 {
+	int ret;
+
+	if(d->uses_color_cycling) {
+		de_warn(c, "This image uses color cycling animation, which is not supported.\n");
+	}
+
+	if(ct==CODE_BODY && d->compression==2 &&
+		!dbuf_memcmp(c->infile, pos, "VDAT", 4))
+	{
+		d->level++;
+		ret = do_chunk_sequence(c, d, pos, len);
+		d->level--;
+		if(!ret) {
+			return 0;
+		}
+
+		d->width = d->bmhd_width;
+		d->height = d->bmhd_height;
+		d->is_vdat = 1;
+		do_image(c, d, 0, 0, NULL);
+		d->is_vdat = 0;
+		return 1;
+	}
+
 	d->width = d->bmhd_width;
 	d->height = d->bmhd_height;
-	d->is_vdat = 1;
-	do_image(c, d, 0, 0, NULL);
-	d->is_vdat = 0;
+	do_image(c, d, pos, len, NULL);
+	return 1;
 }
-
-static int do_chunk_sequence(deark *c, lctx *d, de_int64 pos1, de_int64 len);
 
 static int do_chunk(deark *c, lctx *d, de_int64 pos, de_int64 bytes_avail,
 	de_int64 *bytes_consumed)
@@ -756,24 +785,9 @@ static int do_chunk(deark *c, lctx *d, de_int64 pos, de_int64 bytes_avail,
 	case CODE_BODY:
 	case CODE_ABIT:
 
-		if(ct==CODE_BODY && d->compression==2 &&
-			!dbuf_memcmp(c->infile, chunk_data_pos, "VDAT", 4))
-		{
-			d->level++;
-			ret = do_chunk_sequence(c, d, pos+8, bytes_avail-8);
-			d->level--;
-			if(!ret) {
-				errflag = 1;
-				goto done;
-			}
-
-			do_vdat_final(c, d);
-			break;
+		if(!do_body(c, d, chunk_data_pos, chunk_data_len, ct)) {
+			errflag = 1;
 		}
-
-		d->width = d->bmhd_width;
-		d->height = d->bmhd_height;
-		do_image(c, d, chunk_data_pos, chunk_data_len, NULL);
 
 		// A lot of ILBM files have padding or garbage data at the end of the file
 		// (apparently included in the file size given by the FORM chunk).
@@ -819,8 +833,11 @@ static int do_chunk(deark *c, lctx *d, de_int64 pos, de_int64 bytes_avail,
 		tmp2 = de_getui16be(chunk_data_pos+4);
 		de_dbg(c, "flags: 0x%04x\n", (unsigned int)tmp2);
 		if(tmp2&0x1) {
+			d->uses_color_cycling = 1;
 			de_dbg(c, "rate: %.2f fps\n", (double)(((double)tmp1)*(60.0/16384.0)));
 		}
+		// TODO: Recognize CCRT chunks, and any other color cycling chunks that
+		// may exist.
 		break;
 
 	case CODE_GRAB:
@@ -897,6 +914,10 @@ static void de_run_ilbm(deark *c, const char *params)
 
 	s = de_get_ext_option(c, "ilbm:notrans");
 	if(s) d->opt_notrans = 1;
+
+	d->opt_fixpal = 1;
+	s = de_get_ext_option(c, "ilbm:fixpal");
+	if(s) d->opt_fixpal = de_atoi(s);
 
 	do_chunk_sequence(c, d, 0, c->infile->len);
 

@@ -104,6 +104,8 @@ Deark -- Information about supported formats
   - Extract text from ANNO chunks (use -extractall)
   Options
    -opt ilbm:notrans - Disable support for transparency
+   -opt ilbm:fixpal=<0|1> - Don't/Do try to correct palettes that seem to have
+     fewer than 8 bits of precision.
 
 * JPEG (module="jpeg")
   - Extract ICC profiles.
