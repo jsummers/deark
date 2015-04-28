@@ -85,10 +85,19 @@ static void do_image(deark *c, lctx *d, dbuf *unc_pixels)
 	for(j=0; j<d->height; j++) {
 		for(i=0; i<d->width; i++) {
 			v = 0;
+
 			for(plane=0; plane<d->bits_per_pixel; plane++) {
-				b = de_get_bits_symbol(unc_pixels, 1, j*rowspan + plane*planespan, i);
+				if(d->compression==0) {
+					// This may not be correct, but it at least works for 8-bit images
+					// whose width is a nice round number.
+					b = de_get_bits_symbol(unc_pixels, 1, j*rowspan + 2*plane + (i-i%16), i%16);
+				}
+				else {
+					b = de_get_bits_symbol(unc_pixels, 1, j*rowspan + plane*planespan, i);
+				}
 				if(b) v |= 1<<plane;
 			}
+
 			if(v>255) v=255;
 			de_bitmap_setpixel_rgb(img, i, j, d->pal[map_pal(d->bits_per_pixel, v)]);
 		}
@@ -125,7 +134,7 @@ static void de_run_prismpaint(deark *c, const char *params)
 		de_err(c, "Unsupported bits/pixel (%d)\n", (int)d->bits_per_pixel);
 		goto done;
 	}
-	if(d->compression!=1) {
+	if(d->compression!=0 && d->compression!=1) {
 		de_err(c, "Unsupported compression (%d)\n", (int)d->compression);
 		goto done;
 	}
@@ -136,12 +145,19 @@ static void de_run_prismpaint(deark *c, const char *params)
 	de_dbg(c, "pixel data starts at %d\n", (int)pixels_start);
 	if(pixels_start >= c->infile->len) goto done;
 
-	// TODO: Calculate the initial size more accurately.
-	unc_pixels = dbuf_create_membuf(c, d->width*d->height);
-	//dbuf_set_max_length(unc_pixels, ...);
+	if(d->compression==0) {
+		unc_pixels = dbuf_open_input_subfile(c->infile, pixels_start,
+			c->infile->len - pixels_start);
+	}
+	else {
+		// TODO: Calculate the initial size more accurately.
+		unc_pixels = dbuf_create_membuf(c, d->width*d->height);
+		//dbuf_set_max_length(unc_pixels, ...);
 
-	de_fmtutil_uncompress_packbits(c->infile, pixels_start, c->infile->len - pixels_start, unc_pixels);
-	de_dbg(c, "uncompressed to %d bytes\n", (int)unc_pixels->len);
+		de_fmtutil_uncompress_packbits(c->infile, pixels_start, c->infile->len - pixels_start, unc_pixels);
+		de_dbg(c, "uncompressed to %d bytes\n", (int)unc_pixels->len);
+	}
+
 	do_image(c, d, unc_pixels);
 
 done:
