@@ -25,7 +25,7 @@ static de_byte samp1000to255(de_int64 n)
 
 // A color value of N does not necessarily refer to Nth color in the palette.
 // Some of them are mixed up. Aparently this is called "VDI order".
-// This table may not be completely correct.
+// Reference: http://toshyp.atari.org/en/VDI_fundamentals.html
 static unsigned int map_pal(de_int64 bpp, unsigned int v)
 {
 	switch(v) {
@@ -38,7 +38,7 @@ static unsigned int map_pal(de_int64 bpp, unsigned int v)
 		case 8: return 9;
 		case 9: return 10;
 		case 10: return 11;
-		case 11: return 14; 
+		case 11: return 14;
 		case 13: return 15;
 		case 14: return 13;
 		case 15: return bpp==8 ? 255 : 1;

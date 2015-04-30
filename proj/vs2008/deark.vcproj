@@ -562,6 +562,10 @@
 				>
 			</File>
 			<File
+				RelativePath="..\..\modules\rsc.c"
+				>
+			</File>
+			<File
 				RelativePath="..\..\modules\shg.c"
 				>
 			</File>

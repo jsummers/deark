@@ -10,7 +10,7 @@
 
 int de_good_image_dimensions_noerr(deark *c, de_int64 w, de_int64 h)
 {
-	if(w<0 || h<0 || w>DE_MAX_IMAGE_DIMENSION || h>DE_MAX_IMAGE_DIMENSION) {
+	if(w<1 || h<1 || w>DE_MAX_IMAGE_DIMENSION || h>DE_MAX_IMAGE_DIMENSION) {
 		return 0;
 	}
 	return 1;
