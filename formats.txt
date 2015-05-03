@@ -223,6 +223,10 @@ Deark -- Information about supported formats
    -opt psionpic:bw - Do not try to detect grayscale images. Write each bitmap
      as a separate image.
 
+* RSC (GEM resource) (module="rsc") (experimental)
+  - Supports both "old" and "new" formats.
+  - Extracts icons and bitmaps.
+
 * QTIF (QuickTime image) (module="qtif")
   - Partial support.
   - Extract embedded JPEG file.
