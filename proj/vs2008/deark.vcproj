@@ -470,6 +470,10 @@
 				>
 			</File>
 			<File
+				RelativePath="..\..\modules\gemras.c"
+				>
+			</File>
+			<File
 				RelativePath="..\..\modules\graspgl.c"
 				>
 			</File>

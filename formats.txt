@@ -75,6 +75,9 @@ Deark -- Information about supported formats
   - Extract EPS, TIFF, and WMF from "EPS DOS Binary" format.
   - Supports preview images in EPSI format (1-, 2-, 4-, 8-bit grayscale)
 
+* GEM VDI Bit Image (GEM Raster) (module="gemras")
+  - Bilevel images only
+
 * GRASP GL animation (module="graspgl")
   - Extracts all files.
 
