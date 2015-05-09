@@ -10,6 +10,7 @@ typedef struct localctx_struct {
 	de_int64 w, h;
 	de_int64 patlen;
 	de_int64 rowspan;
+	de_int64 pixwidth, pixheight;
 	de_byte *pattern_buf;
 } lctx;
 
@@ -119,6 +120,7 @@ static void de_run_gemraster(deark *c, const char *params)
 	de_int64 nplanes;
 	lctx *d = NULL;
 	dbuf *unc_pixels = NULL;
+	struct deark_bitmap *img = NULL;
 
 	d = de_malloc(c, sizeof(lctx));
 	header_size_in_words = de_getui16be(2);
@@ -132,7 +134,9 @@ static void de_run_gemraster(deark *c, const char *params)
 	}
 
 	d->patlen = de_getui16be(6);
-	// TODO: aspect ratio
+	d->pixwidth = de_getui16be(8);
+	d->pixheight = de_getui16be(10);
+	de_dbg(c, "pixel size: %dx%d microns\n", (int)d->pixwidth, (int)d->pixheight);
 	d->w = de_getui16be(12);
 	d->h = de_getui16be(14);
 	de_dbg(c, "dimension: %dx%d\n", (int)d->w, (int)d->h);
@@ -144,10 +148,18 @@ static void de_run_gemraster(deark *c, const char *params)
 
 	uncompress_pixels(c, d, unc_pixels, header_size_in_bytes, c->infile->len-header_size_in_bytes);
 
-	de_convert_and_write_image_bilevel(unc_pixels, 0, d->w, d->h, d->rowspan,
-		DE_CVTF_WHITEISZERO, NULL);
+	img = de_bitmap_create(c, d->w, d->h, 1);
+
+	if(d->pixwidth>0 && d->pixheight>0) {
+		img->density_code = DE_DENSITY_DPI;
+		img->xdens = 25400.0/(double)d->pixwidth;
+		img->ydens = 25400.0/(double)d->pixheight;
+	}
+	de_convert_image_bilevel(unc_pixels, 0, d->rowspan, img, DE_CVTF_WHITEISZERO);
+	de_bitmap_write_to_file_finfo(img, NULL);
 
 done:
+	de_bitmap_destroy(img);
 	dbuf_close(unc_pixels);
 	de_free(c, d);
 }
