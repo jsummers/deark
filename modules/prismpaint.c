@@ -24,10 +24,11 @@ static de_byte samp1000to255(de_int64 n)
 }
 
 // A color value of N does not necessarily refer to Nth color in the palette.
-// Some of them are mixed up. Aparently this is called "VDI order".
+// Some of them are mixed up. Apparently this is called "VDI order".
 // Reference: http://toshyp.atari.org/en/VDI_fundamentals.html
 static unsigned int map_pal(de_int64 bpp, unsigned int v)
 {
+	if(bpp==1) return v;
 	switch(v) {
 		case 1: return 2;
 		case 2: return 3;
@@ -88,9 +89,18 @@ static void do_image(deark *c, lctx *d, dbuf *unc_pixels)
 
 			for(plane=0; plane<d->bits_per_pixel; plane++) {
 				if(d->compression==0) {
-					// This may not be correct, but it at least works for 8-bit images
-					// whose width is a nice round number.
-					b = de_get_bits_symbol(unc_pixels, 1, j*rowspan + 2*plane + (i-i%16), i%16);
+					// TODO: Simplify this.
+					if(d->bits_per_pixel==1) {
+						b = de_get_bits_symbol(unc_pixels, 1, j*rowspan, i);
+					}
+					else if(d->bits_per_pixel==4) {
+						b = de_get_bits_symbol(unc_pixels, 1,
+							j*rowspan + 2*plane + (i/2-(i/2)%16)+8*((i%32)/16), i%16);
+					}
+					else {
+						b = de_get_bits_symbol(unc_pixels, 1,
+							j*rowspan + 2*plane + (i-i%16), i%16);
+					}
 				}
 				else {
 					b = de_get_bits_symbol(unc_pixels, 1, j*rowspan + plane*planespan, i);
@@ -130,7 +140,9 @@ static void de_run_prismpaint(deark *c, const char *params)
 	d->pic_data_size = de_getui32be(16);
 	de_dbg(c, "reported (uncompressed) picture data size: %d\n", (int)d->pic_data_size);
 
-	if(d->bits_per_pixel!=4 && d->bits_per_pixel!=8) {
+	do_read_palette(c, d);
+
+	if(d->bits_per_pixel!=1 && d->bits_per_pixel!=4 && d->bits_per_pixel!=8) {
 		de_err(c, "Unsupported bits/pixel (%d)\n", (int)d->bits_per_pixel);
 		goto done;
 	}
@@ -138,8 +150,6 @@ static void de_run_prismpaint(deark *c, const char *params)
 		de_err(c, "Unsupported compression (%d)\n", (int)d->compression);
 		goto done;
 	}
-
-	do_read_palette(c, d);
 
 	pixels_start = 128 + 2*3*d->pal_size;
 	de_dbg(c, "pixel data starts at %d\n", (int)pixels_start);
