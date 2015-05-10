@@ -7,6 +7,7 @@
 // by anything in the library or modules (use deark-util.c instead).
 
 #include "deark-config.h"
+#include <stdlib.h>
 #include "deark-private.h"
 
 // Returns the best module to use, by looking at the file contents, etc.
@@ -31,13 +32,43 @@ static struct deark_module_info *detect_module_for_file(deark *c)
 	return best_module;
 }
 
+struct sort_data_struct {
+	deark *c;
+	int module_index;
+};
+
+static int module_compare_fn(const void *a, const void *b)
+{
+	struct sort_data_struct *m1, *m2;
+	deark *c;
+
+	m1 = (struct sort_data_struct *)a;
+	m2 = (struct sort_data_struct *)b;
+	c = m1->c;
+	return de_strcmp(c->module_info[m1->module_index].id,
+		c->module_info[m2->module_index].id);
+}
+
 void de_print_module_names(deark *c)
 {
-	int i;
+	int i, k;
+	struct sort_data_struct *sort_data = NULL;
 
 	de_register_modules(c);
 
-	for(i=0; i<c->num_modules; i++) {
+	// An index to the modules. Will be sorted by name.
+	sort_data = de_malloc(c, c->num_modules * sizeof(struct sort_data_struct));
+
+	for(k=0; k<c->num_modules; k++) {
+		sort_data[k].c = c;
+		sort_data[k].module_index = k;
+	}
+
+	qsort((void*)sort_data, (size_t)c->num_modules, sizeof(struct sort_data_struct),
+		module_compare_fn);
+
+	for(k=0; k<c->num_modules; k++) {
+		i = sort_data[k].module_index;
 		if(c->module_info[i].id &&
 			!(c->module_info[i].flags&DE_MODFLAG_HIDDEN) &&
 			!(c->module_info[i].flags&DE_MODFLAG_NONWORKING) )
@@ -45,6 +76,8 @@ void de_print_module_names(deark *c)
 			de_printf(c, DE_MSGTYPE_MESSAGE, "%s\n", c->module_info[i].id);
 		}
 	}
+
+	de_free(c, sort_data);
 }
 
 void de_run(deark *c)
