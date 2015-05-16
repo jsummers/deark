@@ -57,6 +57,7 @@ void de_register_modules(deark *c)
 		de_module_npm,
 		de_module_nlm,
 		de_module_nsl,
+		de_module_xbin,
 		de_module_tivariable,
 		de_module_olpc565,
 		de_module_awbm,

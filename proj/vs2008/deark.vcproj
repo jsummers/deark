@@ -590,6 +590,10 @@
 				>
 			</File>
 			<File
+				RelativePath="..\..\modules\xbin.c"
+				>
+			</File>
+			<File
 				RelativePath="..\..\modules\zip.c"
 				>
 			</File>
