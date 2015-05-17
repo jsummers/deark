@@ -9,8 +9,10 @@
 typedef struct localctx_struct {
 	de_int64 width_in_chars, height_in_chars;
 	de_int64 width_in_pixels, height_in_pixels;
+	de_int64 font_width;
 	de_int64 font_height;
 	de_byte has_palette, has_font, compression, nonblink, has_512chars;
+	de_byte used_blink;
 
 	de_int64 font_num_chars;
 	de_int64 font_data_len;
@@ -23,30 +25,34 @@ static void do_render_character(deark *c, lctx *d, struct deark_bitmap *img,
 	de_int64 xpos, de_int64 ypos, de_byte ccode, de_byte acode)
 {
 	de_int64 xpos_in_pix, ypos_in_pix;
-	de_int64 k, z;
+	de_int64 k, z, n;
 	de_byte font_byte;
 	de_uint32 fgcol, bgcol;
 	de_uint32 clr;
 
 	if(xpos<0 || ypos<0 || xpos>=d->width_in_chars || ypos>=d->height_in_chars) return;
 
-	xpos_in_pix = xpos * 8;
+	xpos_in_pix = xpos * d->font_width;
 	ypos_in_pix = ypos * d->font_height;
 
 	fgcol = d->pal[(unsigned int)(acode&0x0f)];
 	bgcol = d->pal[(unsigned int)((acode&0xf0)>>4)];
 
-	// TODO: Maybe we should (optionally) emulate 720x400 mode, in which each character
-	// has a 9th column. The 9th column is either blank, or for characters C0-DF, the
-	// 8th column is replicated.
-
 	for(k=0; k<d->font_height; k++) {
 		font_byte= d->font_data[ccode*d->font_height + k];
-		for(z=0; z<8; z++) {
-			if(font_byte&(1<<(7-z)))
-				clr=fgcol;
-			else
-				clr=bgcol;
+		for(z=0; z<d->font_width; z++) {
+			if(z<8) {
+				n = font_byte&(1<<(7-z));
+			}
+			else {
+				if(ccode>=0xb0 && ccode<=0xdf) {
+					n = font_byte&0x1; // 9th column is same as 8th column
+				}
+				else {
+					n = 0; // 9th column is blank
+				}
+			}
+			clr = n ? fgcol : bgcol;
 			de_bitmap_setpixel_rgb(img, xpos_in_pix+z, ypos_in_pix+k, clr);
 		}
 	}
@@ -60,11 +66,28 @@ static void do_xbin_main(deark *c, lctx *d, dbuf *unc_data)
 
 	img = de_bitmap_create(c, d->width_in_pixels, d->height_in_pixels, 3);
 
+	if(d->font_height==16 && d->font_width==8) {
+		// Assume the intended display is 640x400.
+		img->density_code = DE_DENSITY_UNK_UNITS;
+		img->xdens = 480.0;
+		img->ydens = 400.0;
+	}
+	else if(d->font_height==16 && d->font_width==9) {
+		// Assume the intended display is 720x400.
+		img->density_code = DE_DENSITY_UNK_UNITS;
+		img->xdens = 540.0;
+		img->ydens = 400.0;
+	}
 
 	for(j=0; j<d->height_in_chars; j++) {
 		for(i=0; i<d->width_in_chars; i++) {
 			ccode = dbuf_getbyte(unc_data, j*d->width_in_chars*2 + i*2);
 			acode = dbuf_getbyte(unc_data, j*d->width_in_chars*2 + i*2 + 1);
+
+			if(acode&0x80) {
+				d->used_blink = 1;
+			}
+
 			do_render_character(c, d, img, i, j, ccode, acode);
 		}
 	}
@@ -156,11 +179,28 @@ static void do_read_palette(deark *c, lctx *d, de_int64 pos)
 	}
 }
 
+static void do_default_palette(deark *c, lctx *d)
+{
+	int k;
+
+	de_dbg(c, "using default palette\n");
+	for(k=0; k<16; k++) {
+		d->pal[k] = de_palette_pc16(k);
+	}
+}
+
 static void do_read_font(deark *c, lctx *d, de_int64 pos)
 {
 	de_dbg(c, "font at %d, %d bytes\n", (int)pos, (int)d->font_data_len);
 	d->font_data = de_malloc(c, d->font_data_len);
 	de_read(d->font_data, pos, d->font_data_len);
+}
+
+static void do_default_font(deark *c, lctx *d)
+{
+	de_dbg(c, "using default font\n");
+	d->font_data = de_malloc(c, d->font_data_len);
+	memcpy(d->font_data, de_get_vga_font_ptr(), 4096);
 }
 
 static void de_run_xbin(deark *c, const char *params)
@@ -169,10 +209,18 @@ static void de_run_xbin(deark *c, const char *params)
 	de_int64 pos = 0;
 	de_byte flags;
 	dbuf *unc_data = NULL;
+	const char *s;
 
 	de_dbg(c, "xbin\n");
 	d = de_malloc(c, sizeof(lctx));
 
+	d->font_width = 8;
+	s = de_get_ext_option(c, "xbin:charwidth");
+	if(s) {
+		if(de_atoi(s)>=9) {
+			d->font_width = 9;
+		}
+	}
 
 	d->width_in_chars = de_getui16le(5);
 	d->height_in_chars = de_getui16le(7);
@@ -197,14 +245,10 @@ static void de_run_xbin(deark *c, const char *params)
 	de_dbg(c, " non-blink mode: %d\n", (int)d->nonblink);
 	de_dbg(c, " 512 character mode: %d\n", (int)d->has_512chars);
 
-	d->width_in_pixels = d->width_in_chars * 8;
+	d->width_in_pixels = d->width_in_chars * d->font_width;
 	d->height_in_pixels = d->height_in_chars * d->font_height;
 	de_dbg(c, "dimensions: %dx%d pixels\n", (int)d->width_in_pixels, (int)d->height_in_pixels);
 	if(!de_good_image_dimensions(c, d->width_in_pixels, d->height_in_pixels)) goto done;
-
-	if(!d->nonblink) {
-		de_warn(c, "This image may use blinking characters, which are not supported.\n");
-	}
 
 	pos = 11;
 
@@ -213,25 +257,27 @@ static void de_run_xbin(deark *c, const char *params)
 		pos += 48;
 	}
 	else {
-		de_err(c, "XBIN files without a palette are not supported.\n");
-		// TODO: default palette
-		goto done;
+		do_default_palette(c, d);
 	}
 
 	d->font_num_chars = d->has_512chars ? 512 : 256;
+	d->font_data_len = d->font_num_chars * d->font_height;
 	if(d->font_num_chars!=256) {
 		de_err(c, "%d-character mode is not supported\n", (int)d->font_num_chars);
 		goto done;
 	}
 
 	if(d->has_font) {
-		d->font_data_len = d->font_num_chars * d->font_height;
 		do_read_font(c, d, pos);
 		pos += d->font_data_len;
 	}
 	else {
-		de_err(c, "XBIN files without a font are not supported.\n");
-		goto done;
+		if(d->font_num_chars!=256 || d->font_height!=16) {
+			de_err(c, "This type of XBIN file is not supported.\n");
+			goto done;
+		}
+
+		do_default_font(c, d);
 	}
 
 	de_dbg(c, "image data at %d\n", (int)pos);
@@ -246,6 +292,10 @@ static void de_run_xbin(deark *c, const char *params)
 		unc_data = dbuf_open_input_subfile(c->infile, pos, c->infile->len-pos);
 	}
 	do_xbin_main(c, d, unc_data);
+
+	if(!d->nonblink && d->used_blink) {
+		de_warn(c, "This image uses blinking characters, which are not supported.\n");
+	}
 
 done:
 	dbuf_close(unc_data);
