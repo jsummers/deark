@@ -379,12 +379,19 @@ void de_set_preserve_file_times(deark *c, int x)
 struct deark_module_info *de_get_module_by_id(deark *c, const char *module_id)
 {
 	int i;
+	int k;
 
 	if(!module_id) return NULL;
 
 	for(i=0; i<c->num_modules; i++) {
 		if(!de_strcmp(c->module_info[i].id, module_id)) {
 			return &c->module_info[i];
+		}
+		for(k=0; k<DE_MAX_MODULE_ALIASES; k++) {
+			if(!c->module_info[i].id_alias[k]) continue;
+			if(!de_strcmp(c->module_info[i].id_alias[k], module_id)) {
+				return &c->module_info[i];
+			}
 		}
 	}
 	return NULL;
