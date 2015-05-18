@@ -340,11 +340,11 @@ void de_module_bob(deark *c, struct deark_module_info *mi)
 }
 
 // **************************************************************************
-// Vivid .img bitmap image
-// Used by the Vivid ray tracer.
+// Alias PIX bitmap image.
+// Also used by the Vivid ray tracer.
 // **************************************************************************
 
-static void de_run_vivid(deark *c, const char *params)
+static void de_run_alias_pix(deark *c, const char *params)
 {
 	struct deark_bitmap *img = NULL;
 	de_int64 w, h;
@@ -355,8 +355,6 @@ static void de_run_vivid(deark *c, const char *params)
 	de_int64 xpos, ypos;
 	de_int64 runlen;
 	de_uint32 clr;
-
-	de_dbg(c, "In vivid module\n");
 
 	w = de_getui16be(0);
 	h = de_getui16be(2);
@@ -401,11 +399,16 @@ done:
 	de_bitmap_destroy(img);
 }
 
-static int de_identify_vivid(deark *c)
+static int de_identify_alias_pix(deark *c)
 {
 	de_int64 w, h, firstline, lastline, depth;
 
-	if(!de_input_file_has_ext(c, "img")) return 0;
+	if(!de_input_file_has_ext(c, "img") &&
+		!de_input_file_has_ext(c, "als") &&
+		!de_input_file_has_ext(c, "pix"))
+	{
+		return 0;
+	}
 
 	w = de_getui16be(0);
 	h = de_getui16be(2);
@@ -421,11 +424,12 @@ static int de_identify_vivid(deark *c)
 	return 30;
 }
 
-void de_module_vivid(deark *c, struct deark_module_info *mi)
+void de_module_alias_pix(deark *c, struct deark_module_info *mi)
 {
-	mi->id = "vivid";
-	mi->run_fn = de_run_vivid;
-	mi->identify_fn = de_identify_vivid;
+	mi->id = "alias_pix";
+	mi->id_alias[0] = "vivid";
+	mi->run_fn = de_run_alias_pix;
+	mi->identify_fn = de_identify_alias_pix;
 }
 
 // **************************************************************************
