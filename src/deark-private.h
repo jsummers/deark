@@ -211,6 +211,9 @@ void de_dbg(deark *c, const char *fmt, ...)
 void de_dbg2(deark *c, const char *fmt, ...)
   de_gnuc_attribute ((format (printf, 2, 3)));
 
+void de_dbg3(deark *c, const char *fmt, ...)
+  de_gnuc_attribute ((format (printf, 2, 3)));
+
 void de_err(deark *c, const char *fmt, ...)
   de_gnuc_attribute ((format (printf, 2, 3)));
 

@@ -56,7 +56,7 @@ static void show_help(deark *c)
 		" -zip: Write output files to a .zip file.\n"
 		" -a: Extract more data than usual.\n"
 		" -get <n>: Extract only file number <n>.\n"
-		" -d, -d2: Print additional information about the file.\n"
+		" -d, -d2, -d3: Print additional information about the file.\n"
 		" -q, -noinfo, -nowarn: Print fewer messages than usual.\n"
 		" -modules: Print the names of all available modules.\n"
 		" -help, -h: Print this message.\n"
@@ -115,7 +115,8 @@ static void set_ext_option(deark *c, struct cmdctx *cc, const char *optionstring
 }
 
 enum opt_id_enum {
- DE_OPT_NULL=0, DE_OPT_D, DE_OPT_D2, DE_OPT_L, DE_OPT_NOINFO, DE_OPT_NOWARN,
+ DE_OPT_NULL=0, DE_OPT_D, DE_OPT_D2, DE_OPT_D3, DE_OPT_L,
+ DE_OPT_NOINFO, DE_OPT_NOWARN,
  DE_OPT_NOBOM, DE_OPT_NODENS, DE_OPT_ASCIIHTML, DE_OPT_NONAMES, DE_OPT_MODTIME,
  DE_OPT_NOMODTIME,
  DE_OPT_Q, DE_OPT_VERSION, DE_OPT_HELP, DE_OPT_EXTRACTALL, DE_OPT_ZIP,
@@ -133,6 +134,7 @@ struct opt_struct {
 struct opt_struct option_array[] = {
 	{ "d",            DE_OPT_D,            0 },
 	{ "d2",           DE_OPT_D2,           0 },
+	{ "d3",           DE_OPT_D3,           0 },
 	{ "l",            DE_OPT_L,            0 },
 	{ "noinfo",       DE_OPT_NOINFO,       0 },
 	{ "nowarn",       DE_OPT_NOWARN,       0 },
@@ -202,6 +204,9 @@ static void parse_cmdline(deark *c, struct cmdctx *cc, int argc, char **argv)
 				break;
 			case DE_OPT_D2:
 				de_set_debug_level(c, 2);
+				break;
+			case DE_OPT_D3:
+				de_set_debug_level(c, 3);
 				break;
 			case DE_OPT_L:
 				de_set_listmode(c, 1);

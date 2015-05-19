@@ -439,7 +439,7 @@ void dbuf_write(dbuf *f, const de_byte *m, de_int64 len)
 
 	if(!f->fp) return; // Presumably, we're in "list only" mode.
 
-	de_dbg2(f->c, "Writing %d bytes to %s\n", (int)len, f->name);
+	de_dbg3(f->c, "Writing %d bytes to %s\n", (int)len, f->name);
 	fwrite(m, 1, (size_t)len, f->fp);
 	f->len += len;
 }

@@ -127,6 +127,16 @@ void de_dbg2(deark *c, const char *fmt, ...)
 	va_end(ap);
 }
 
+void de_dbg3(deark *c, const char *fmt, ...)
+{
+	va_list ap;
+
+	if(c && c->debug_level<3) return;
+	va_start(ap, fmt);
+	de_vdbg_internal(c, fmt, ap);
+	va_end(ap);
+}
+
 void de_dbg_indent(deark *c, int n)
 {
 	c->dbg_indent_amount += n;
