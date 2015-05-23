@@ -173,7 +173,7 @@ static void de_run_eps_normal(deark *c)
 	while(dbuf_find_line(c->infile, pos, &content_len, &total_len)) {
 		de_dbg2(c, "line: pos=%d c_len=%d t_len=%d\n", (int)pos, (int)content_len, (int)total_len);
 
-		if(content_len > sizeof(linebuf)-1)
+		if(content_len > (de_int64)(sizeof(linebuf)-1))
 			content_len = sizeof(linebuf)-1;
 
 		de_read(linebuf, pos, content_len);

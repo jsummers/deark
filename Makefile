@@ -1,12 +1,13 @@
 
-CFLAGS:=-g -O2 -Wall -Wmissing-prototypes -Wformat-security -Isrc
+CFLAGS:=-g -O2 -Wall -Wextra -Wmissing-prototypes -Wformat-security -Wno-unused-parameter -Isrc
 LDFLAGS:=-Wall
 
 ifeq ($(OS),Windows_NT)
-DEARK_EXE:=deark.exe
+EXE_EXT:=.exe
 else
-DEARK_EXE:=deark
+EXE_EXT:=
 endif
+DEARK_EXE:=deark$(EXE_EXT)
 
 all: $(DEARK_EXE)
 

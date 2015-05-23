@@ -325,7 +325,7 @@ static void do_control_sequence(deark *c, lctx *d, de_byte code,
 {
 	de_dbg2(c, "[%c at %d %d]\n", (char)code, (int)param_start, (int)param_len);
 
-	if(param_len > sizeof(d->param_string_buf)-1) {
+	if(param_len > (de_int64)(sizeof(d->param_string_buf)-1)) {
 		de_warn(c, "Ignoring long escape sequence (len %d at %d)\n",
 			(int)param_len, (int)param_start);
 		return;

@@ -264,7 +264,7 @@ void dbuf_copy(dbuf *inf, de_int64 input_offset, de_int64 input_len, dbuf *outf)
 
 	while(bytes_left>0) {
 		bytes_to_read = bytes_left;
-		if(bytes_to_read>sizeof(buf)) bytes_to_read=sizeof(buf);
+		if(bytes_to_read>(de_int64)sizeof(buf)) bytes_to_read=(de_int64)sizeof(buf);
 
 		dbuf_read(inf, buf, input_pos, bytes_to_read);
 		dbuf_write(outf, buf, bytes_to_read);
@@ -455,10 +455,10 @@ void dbuf_write_run(dbuf *f, de_byte n, de_int64 len)
 	de_int64 amt_left;
 	de_int64 amt_to_write;
 
-	de_memset(buf, n, len<sizeof(buf) ? (size_t)len : sizeof(buf));
+	de_memset(buf, n, (size_t)len<sizeof(buf) ? (size_t)len : sizeof(buf));
 	amt_left = len;
 	while(amt_left > 0) {
-		if(amt_left<sizeof(buf))
+		if((size_t)amt_left<sizeof(buf))
 			amt_to_write = amt_left;
 		else
 			amt_to_write = sizeof(buf);

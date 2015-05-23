@@ -436,7 +436,7 @@ static void de_run_pcpaint_pic(deark *c, lctx *d, const char *params)
 
 	// extra data may be at position 17 (if esize>0)
 
-	if(!do_read_alt_palette_file(c, d));
+	if(!do_read_alt_palette_file(c, d)) goto done;
 
 	d->num_rle_blocks = de_getui16le(17+d->esize_orig);
 
