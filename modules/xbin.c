@@ -5,6 +5,7 @@
 
 #include <deark-config.h>
 #include <deark-modules.h>
+#include "fmtutil.h"
 
 typedef struct localctx_struct {
 	de_int64 width_in_chars, height_in_chars;
@@ -189,11 +190,48 @@ static void do_default_palette(deark *c, lctx *d)
 	}
 }
 
+static void do_extract_font(deark *c, lctx *d)
+{
+	struct de_bitmap_font *font = NULL;
+	de_int64 i;
+	de_finfo *fi = NULL;
+
+	if(d->font_data_len!=4096 || d->font_num_chars!=256) return;
+	fi = de_finfo_create(c);
+	de_finfo_set_name_from_sz(c, fi, "font", DE_ENCODING_ASCII);
+
+	font = de_malloc(c, sizeof(struct de_bitmap_font));
+	font->num_chars = d->font_num_chars;
+	font->nominal_width = (int)d->font_width;
+	font->nominal_height = (int)d->font_height;
+	font->char_array = de_malloc(c, font->num_chars * sizeof(struct de_bitmap_font_char));
+
+	for(i=0; i<font->num_chars; i++) {
+		font->char_array[i].codepoint = (de_int32)i;
+		font->char_array[i].width = (int)d->font_width;
+		font->char_array[i].height = (int)d->font_height;
+		font->char_array[i].rowspan = 1;
+		font->char_array[i].bitmap = &d->font_data[i*d->font_height];
+	}
+
+	de_fmtutil_bitmap_font_to_image(c, font, fi);
+
+	de_finfo_destroy(c, fi);
+	if(font) {
+		de_free(c, font->char_array);
+		de_free(c, font);
+	}
+}
+
 static void do_read_font(deark *c, lctx *d, de_int64 pos)
 {
 	de_dbg(c, "font at %d, %d bytes\n", (int)pos, (int)d->font_data_len);
 	d->font_data = de_malloc(c, d->font_data_len);
 	de_read(d->font_data, pos, d->font_data_len);
+
+	if(c->extract_level>=2) {
+		do_extract_font(c, d);
+	}
 }
 
 static void do_default_font(deark *c, lctx *d)

@@ -278,6 +278,7 @@ Deark -- Information about supported formats
 
 * XBIN (module="xbin")
   Renders XBIN character graphics to a bitmap.
+  - Extract embedded fonts (use -extractall).
   Options
    -opt xbin:charwidth=<8|9> - Pixel width of a character cell (default=8)
 

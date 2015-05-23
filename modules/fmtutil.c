@@ -243,8 +243,8 @@ void de_fmtutil_bitmap_font_to_image(deark *c, struct de_bitmap_font *font, de_f
 		goto done;
 	}
 
-	fctx->img_leftmargin = 0;
-	fctx->img_topmargin = 0;
+	fctx->img_leftmargin = 1;
+	fctx->img_topmargin = 1;
 	fctx->img_hpixelsperchar = font->nominal_width + 1;
 	fctx->img_vpixelsperchar = font->nominal_height + 1;
 	fctx->img_width = fctx->img_leftmargin + 16 * fctx->img_hpixelsperchar;
