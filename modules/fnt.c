@@ -5,13 +5,14 @@
 
 #include <deark-config.h>
 #include <deark-modules.h>
+#include "fmtutil.h"
 
 typedef struct localctx_struct {
 	de_int64 fnt_version;
 	de_int64 nominal_char_width;
 	de_int64 char_height;
 	de_int64 hdrsize;
-	de_int64 char_table_size;
+	//de_int64 char_table_size;
 
 	de_byte first_char;
 	de_byte last_char;
@@ -21,52 +22,11 @@ typedef struct localctx_struct {
 	de_int64 char_entry_size;
 	de_int64 detected_max_width;
 
-	de_int64 img_leftmargin;
-	de_int64 img_topmargin;
-	de_int64 img_hpixelsperchar;
-	de_int64 img_vpixelsperchar;
-
 	de_int64 dfPoints;
 	de_int64 dfFace; // Offset of font face name
 
 	de_finfo *fi;
 } lctx;
-
-static void do_render_char(deark *c, lctx *d, struct deark_bitmap *img,
-	de_int64 char_idx, de_int64 char_width, de_int64 char_offset)
-{
-	de_int64 xpos, ypos;
-	de_int64 num_tiles;
-	de_int64 tile;
-	de_int64 row;
-	de_int64 k;
-	de_int64 tile_width;
-	de_byte x;
-
-	if(char_width>d->nominal_char_width) return;
-
-	xpos = d->img_leftmargin + (char_idx%16) * d->img_hpixelsperchar;
-	ypos = d->img_topmargin + (char_idx/16) * d->img_vpixelsperchar;
-
-	num_tiles = (char_width+7)/8;
-
-	for(tile=0; tile<num_tiles; tile++) {
-
-		if(tile==num_tiles-1 && char_width%8) {
-			tile_width = char_width%8;
-		}
-		else {
-			tile_width = 8;
-		}
-
-		for(row=0; row<d->char_height; row++) {
-			for(k=0; k<tile_width; k++) {
-				x = de_get_bits_symbol(c->infile, 1, char_offset+tile*d->char_height+row, k);
-				de_bitmap_setpixel_gray(img, xpos+tile*8+k, ypos+row, x?0:255);
-			}
-		}
-	}
-}
 
 // Find the widest character.
 static void do_prescan_chars(deark *c, lctx *d)
@@ -86,47 +46,26 @@ static void do_prescan_chars(deark *c, lctx *d)
 	de_dbg(c, "detected max width: %d\n", (int)d->detected_max_width);
 }
 
+// create bitmap_font object
 static void do_make_image(deark *c, lctx *d)
 {
-	de_int64 i, j;
+	struct de_bitmap_font *font = NULL;
+	de_int64 i;
 	de_int64 pos;
-	de_int64 char_width;
-	de_int64 char_offset;
-	de_int64 img_width, img_height;
-	de_byte clr;
-	struct deark_bitmap *img = NULL;
 
-	if(d->nominal_char_width>128 || d->char_height>128) {
-		de_err(c, "Font size too big. Not supported.\n");
-		goto done;
-	}
-
-	d->img_leftmargin = 0;
-	d->img_topmargin = 0;
-	d->img_hpixelsperchar = d->nominal_char_width + 1;
-	d->img_vpixelsperchar = d->char_height + 1;
-	img_width = d->img_leftmargin + 16 * d->img_hpixelsperchar;
-	img_height = d->img_topmargin + 16 * d->img_vpixelsperchar;
-
-	img = de_bitmap_create(c, img_width, img_height, 1);
-
-	// Clear image and draw the grid.
-	for(j=0; j<img->height; j++) {
-		for(i=0; i<img->width; i++) {
-			if(i>=d->img_leftmargin-1 && j>=d->img_topmargin-1 &&
-				((i+1-d->img_leftmargin)%d->img_hpixelsperchar==0 ||
-				(j+1-d->img_topmargin)%d->img_vpixelsperchar==0))
-			{
-				clr = 128;
-			}
-			else {
-				clr = 192;
-			}
-			de_bitmap_setpixel_gray(img, i, j, clr);
-		}
-	}
+	font = de_malloc(c, sizeof(struct de_bitmap_font));
+	font->nominal_width = (int)d->nominal_char_width;
+	font->nominal_height = (int)d->char_height;
+	font->num_chars = d->num_chars_indexed;
+	font->char_array = de_malloc(c, font->num_chars * sizeof(struct de_bitmap_font_char));
 
 	for(i=0; i<d->num_chars_indexed; i++) {
+		de_int64 char_width;
+		de_int64 char_offset;
+		de_int64 num_tiles;
+		de_int64 tile;
+		de_int64 row;
+
 		pos = d->hdrsize + d->char_entry_size*i;
 		char_width = de_getui16le(pos);
 		if(d->char_entry_size==6)
@@ -135,13 +74,33 @@ static void do_make_image(deark *c, lctx *d)
 			char_offset = de_getui16le(pos+2);
 		de_dbg2(c, "char[%d] width=%d offset=%d\n", (int)(d->first_char + i), (int)char_width, (int)char_offset);
 
-		do_render_char(c, d, img, d->first_char + i, char_width, char_offset);
+		num_tiles = (char_width+7)/8;
+
+		font->char_array[i].codepoint = (de_int32)d->first_char + (de_int32)i;
+		font->char_array[i].width = (int)char_width;
+		font->char_array[i].height = (int)d->char_height;
+		font->char_array[i].rowspan = num_tiles;
+		font->char_array[i].bitmap = de_malloc(c, d->char_height * num_tiles);
+
+		for(row=0; row<d->char_height; row++) {
+			for(tile=0; tile<num_tiles; tile++) {
+				font->char_array[i].bitmap[row * font->char_array[i].rowspan + tile] =
+					de_getbyte(char_offset + tile*d->char_height + row);
+			}
+		}
 	}
 
-	de_bitmap_write_to_file_finfo(img, d->fi);
+	de_fmtutil_bitmap_font_to_image(c, font, d->fi);
 
-done:
-	de_bitmap_destroy(img);
+	if(font) {
+		if(font->char_array) {
+			for(i=0; i<font->num_chars; i++) {
+				de_free(c, font->char_array[i].bitmap);
+			}
+			de_free(c, font->char_array);
+		}
+		de_free(c, font);
+	}
 }
 
 static void read_face_name(deark *c, lctx *d)
@@ -227,6 +186,8 @@ static int do_read_header(deark *c, lctx *d)
 	}
 
 	d->num_chars_indexed = (de_int64)d->last_char - d->first_char + 1;
+	// There is an extra character at the end of the table that is an
+	// "absolute-space" character, and is guaranteed to be blank.
 	d->num_chars_stored = d->num_chars_indexed + 1;
 
 	if(d->fnt_version==0x0300) {
@@ -236,7 +197,7 @@ static int do_read_header(deark *c, lctx *d)
 		d->char_entry_size = 4;
 	}
 
-	d->char_table_size = d->char_entry_size * d->num_chars_stored;
+	//d->char_table_size = d->char_entry_size * d->num_chars_stored;
 
 	do_prescan_chars(c, d);
 

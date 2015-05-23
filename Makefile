@@ -29,7 +29,7 @@ $(OBJDIR)/modules/fmtutil.o $(OBJDIR)/modules/exe.o \
  $(OBJDIR)/modules/tiff.o $(OBJDIR)/modules/psd.o \
  $(OBJDIR)/modules/ico.o $(OBJDIR)/modules/bpg.o \
  $(OBJDIR)/modules/macpaint.o $(OBJDIR)/modules/ilbm.o \
- $(OBJDIR)/modules/prismpaint.o \
+ $(OBJDIR)/modules/prismpaint.o $(OBJDIR)/modules/fnt.o \
  $(OBJDIR)/modules/os2bmp.o $(OBJDIR)/modules/misc.o: modules/fmtutil.h
 
 $(OBJDIR)/src/deark-miniz.o: src/miniz.h

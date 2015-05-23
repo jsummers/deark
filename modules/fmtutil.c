@@ -193,3 +193,88 @@ int de_fmtutil_uncompress_packbits(dbuf *f, de_int64 pos1, de_int64 len,
 
 	return 1;
 }
+
+struct font_render_ctx {
+	de_int64 img_leftmargin;
+	de_int64 img_topmargin;
+	de_int64 img_hpixelsperchar;
+	de_int64 img_vpixelsperchar;
+	de_int64 img_width, img_height;
+};
+
+static void do_render_char(deark *c, struct font_render_ctx *fctx,
+	struct deark_bitmap *img,
+	struct de_bitmap_font *font, de_int64 char_idx)
+{
+	de_int64 xpos, ypos;
+	de_int64 i, j;
+	de_byte x;
+	struct de_bitmap_font_char *ch;
+
+	if(char_idx<0 || char_idx>=font->num_chars) return;
+	ch = &font->char_array[char_idx];
+	if(!ch) return;
+	if(ch->width > font->nominal_width) return;
+	if(ch->height > font->nominal_height) return;
+
+	xpos = fctx->img_leftmargin + (ch->codepoint%16) * fctx->img_hpixelsperchar;
+	ypos = fctx->img_topmargin + (ch->codepoint/16) * fctx->img_vpixelsperchar;
+
+	for(j=0; j<ch->height; j++) {
+		for(i=0; i<ch->width; i++) {
+			x = ch->bitmap[j*ch->rowspan + i/8];
+			x = x & (1<<(7-i%8));
+			de_bitmap_setpixel_gray(img, xpos+i, ypos+j, x?0:255);
+		}
+	}
+}
+
+void de_fmtutil_bitmap_font_to_image(deark *c, struct de_bitmap_font *font, de_finfo *fi)
+{
+	de_int64 i, j;
+	de_byte clr;
+	struct deark_bitmap *img = NULL;
+	struct font_render_ctx *fctx = NULL;
+
+	fctx = de_malloc(c, sizeof(struct font_render_ctx));
+
+	if(font->nominal_width>128 || font->nominal_height>128) {
+		de_err(c, "Font size too big. Not supported.\n");
+		goto done;
+	}
+
+	fctx->img_leftmargin = 0;
+	fctx->img_topmargin = 0;
+	fctx->img_hpixelsperchar = font->nominal_width + 1;
+	fctx->img_vpixelsperchar = font->nominal_height + 1;
+	fctx->img_width = fctx->img_leftmargin + 16 * fctx->img_hpixelsperchar;
+	fctx->img_height = fctx->img_topmargin + 16 * fctx->img_vpixelsperchar;
+
+	img = de_bitmap_create(c, fctx->img_width, fctx->img_height, 1);
+
+	// Clear image and draw the grid.
+	for(j=0; j<img->height; j++) {
+		for(i=0; i<img->width; i++) {
+			if(i>=fctx->img_leftmargin-1 && j>=fctx->img_topmargin-1 &&
+				((i+1-fctx->img_leftmargin)%fctx->img_hpixelsperchar==0 ||
+				(j+1-fctx->img_topmargin)%fctx->img_vpixelsperchar==0))
+			{
+				clr = 128;
+			}
+			else {
+				clr = 192;
+			}
+			de_bitmap_setpixel_gray(img, i, j, clr);
+		}
+	}
+
+	for(i=0; i<font->num_chars; i++) {
+		do_render_char(c, fctx, img, font, i);
+	}
+
+	de_bitmap_write_to_file_finfo(img, fi);
+
+done:
+	de_free(c, fctx);
+	de_bitmap_destroy(img);
+}
