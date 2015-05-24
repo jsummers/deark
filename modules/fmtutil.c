@@ -196,10 +196,12 @@ int de_fmtutil_uncompress_packbits(dbuf *f, de_int64 pos1, de_int64 len,
 
 void de_fmtutil_paint_character(deark *c, struct deark_bitmap *img,
 	struct de_bitmap_font *font, de_int64 char_idx,
-	de_int64 xpos, de_int64 ypos, de_int32 fgcol, de_int32 bgcol)
+	de_int64 xpos, de_int64 ypos, de_int32 fgcol, de_int32 bgcol,
+	unsigned int flags)
 {
 	de_int64 i, j;
 	de_byte x;
+	int fg;
 	de_int32 clr;
 	struct de_bitmap_font_char *ch;
 
@@ -212,20 +214,74 @@ void de_fmtutil_paint_character(deark *c, struct deark_bitmap *img,
 	for(j=0; j<ch->height; j++) {
 		for(i=0; i<ch->width; i++) {
 			x = ch->bitmap[j*ch->rowspan + i/8];
-			clr = (x & (1<<(7-i%8))) ? fgcol : bgcol;
-			de_bitmap_setpixel_rgba(img, xpos+i, ypos+j, clr);
+			fg = (x & (1<<(7-i%8))) ? 1 : 0;
+			clr = fg ? fgcol : bgcol;
+			if(fg || !(flags&DE_PAINTFLAG_TRNSBKGD))
+				de_bitmap_setpixel_rgba(img, xpos+i, ypos+j, clr);
 
 			// Manufacture a 9th column, if requested.
 			if(font->vga_9col_mode && i==7) {
 				// Depending on the codepoint, the 9th column is either
 				// the same as the 8th column, or is the background color.
 				if(ch->codepoint<0xb0 || ch->codepoint>0xdf) {
+					fg = 0;
 					clr = bgcol;
 				}
-				de_bitmap_setpixel_rgba(img, xpos+i+1, ypos+j, clr);
+				if(fg || !(flags&DE_PAINTFLAG_TRNSBKGD))
+					de_bitmap_setpixel_rgba(img, xpos+i+1, ypos+j, clr);
 			}
 		}
 	}
+}
+
+static const de_byte dfont_data[10*7] = {
+	0xf0,0x90,0x90,0x90,0x90,0x90,0xf0, // 0
+	0x10,0x10,0x10,0x10,0x10,0x10,0x10, // 1
+	0xf0,0x10,0x10,0xf0,0x80,0x80,0xf0, // 2
+	0xf0,0x10,0x10,0xf0,0x10,0x10,0xf0, // 3
+	0x90,0x90,0x90,0xf0,0x10,0x10,0x10, // 4
+	0xf0,0x80,0x80,0xf0,0x10,0x10,0xf0, // 5
+	0xf0,0x80,0x80,0xf0,0x90,0x90,0xf0, // 6
+	0xf0,0x10,0x10,0x10,0x10,0x10,0x10, // 7
+	0xf0,0x90,0x90,0xf0,0x90,0x90,0xf0, // 8
+	0xf0,0x90,0x90,0xf0,0x10,0x10,0xf0  // 9
+};
+
+static struct de_bitmap_font *make_digit_font(deark *c)
+{
+	struct de_bitmap_font *dfont = NULL;
+	de_int64 i;
+
+	dfont = de_malloc(c, sizeof(struct de_bitmap_font));
+	dfont->num_chars = 10;
+	dfont->nominal_width = 6;
+	dfont->nominal_height = 7;
+	dfont->char_array = de_malloc(c, dfont->num_chars * sizeof(struct de_bitmap_font_char));
+
+	for(i=0; i<dfont->num_chars; i++) {
+		dfont->char_array[i].codepoint = (de_int32)(48+i);
+		dfont->char_array[i].width = dfont->nominal_width;
+		dfont->char_array[i].height = dfont->nominal_height;
+		dfont->char_array[i].rowspan = 1;
+		dfont->char_array[i].bitmap = (de_byte*)&dfont_data[i * dfont->nominal_height];
+	}
+
+	return dfont;
+}
+
+// (xpos,ypos) is the lower-right corner.
+static void draw_number(deark *c, struct deark_bitmap *img,
+	struct de_bitmap_font *dfont, de_int64 n, de_int64 xpos, de_int64 ypos)
+{
+	// This is crude, but it's good enough.
+	if(n>=100)
+		de_fmtutil_paint_character(c, img, dfont, n/100, xpos-dfont->nominal_width*3, ypos-dfont->nominal_height,
+			DE_MAKE_GRAY(255), 0, DE_PAINTFLAG_TRNSBKGD);
+	if(n>=10)
+		de_fmtutil_paint_character(c, img, dfont, (n/10)%10, xpos-dfont->nominal_width*2, ypos-dfont->nominal_height,
+			DE_MAKE_GRAY(255), 0, DE_PAINTFLAG_TRNSBKGD);
+	de_fmtutil_paint_character(c, img, dfont, n%10, xpos-dfont->nominal_width, ypos-dfont->nominal_height,
+		DE_MAKE_GRAY(255), 0, DE_PAINTFLAG_TRNSBKGD);
 }
 
 void de_fmtutil_bitmap_font_to_image(deark *c, struct de_bitmap_font *font, de_finfo *fi)
@@ -235,29 +291,43 @@ void de_fmtutil_bitmap_font_to_image(deark *c, struct de_bitmap_font *font, de_f
 	struct deark_bitmap *img = NULL;
 	de_int64 xpos, ypos;
 	de_int64 img_leftmargin, img_topmargin;
+	de_int64 img_rightmargin, img_bottommargin;
 	de_int64 img_hpixelsperchar, img_vpixelsperchar;
 	de_int64 img_width, img_height;
+	de_int64 img_fieldwidth, img_fieldheight;
+	struct de_bitmap_font *dfont = NULL;
 
 	if(font->nominal_width>128 || font->nominal_height>128) {
 		de_err(c, "Font size too big. Not supported.\n");
 		goto done;
 	}
 
-	img_leftmargin = 1;
-	img_topmargin = 1;
+	dfont = make_digit_font(c);
+
+	img_leftmargin = dfont->nominal_width * 3 + 6;
+	img_topmargin = dfont->nominal_height + 6;
+	img_rightmargin = 1;
+	img_bottommargin = 1;
+
 	img_hpixelsperchar = font->nominal_width + 1;
 	img_vpixelsperchar = font->nominal_height + 1;
-	img_width = img_leftmargin + 16 * img_hpixelsperchar;
-	img_height = img_topmargin + 16 * img_vpixelsperchar;
+	img_fieldwidth = 16 * img_hpixelsperchar -1;
+	img_fieldheight = 16 * img_vpixelsperchar -1;
+	img_width = img_leftmargin + img_fieldwidth + img_rightmargin;
+	img_height = img_topmargin + img_fieldheight + img_bottommargin;
 
 	img = de_bitmap_create(c, img_width, img_height, 1);
 
 	// Clear image and draw the grid.
 	for(j=0; j<img->height; j++) {
 		for(i=0; i<img->width; i++) {
-			if(i>=img_leftmargin-1 && j>=img_topmargin-1 &&
-				((i+1-img_leftmargin)%img_hpixelsperchar==0 ||
-				(j+1-img_topmargin)%img_vpixelsperchar==0))
+			if(i<img_leftmargin || i>img_leftmargin+img_fieldwidth ||
+				j<img_topmargin || j>img_topmargin+img_fieldheight)
+			{
+				clr = 128;
+			}
+			else if((i+1-img_leftmargin)%img_hpixelsperchar==0 ||
+				(j+1-img_topmargin)%img_vpixelsperchar==0)
 			{
 				clr = 128;
 			}
@@ -268,16 +338,35 @@ void de_fmtutil_bitmap_font_to_image(deark *c, struct de_bitmap_font *font, de_f
 		}
 	}
 
+	// Draw the labels in the top margin.
+	for(i=0; i<16; i++) {
+		xpos = img_leftmargin + (i+1)*img_hpixelsperchar;
+		ypos = img_topmargin - 3;
+		draw_number(c, img, dfont, i, xpos, ypos);
+	}
+
+	// Draw the labels in the left margin.
+	for(i=0; i<16; i++) {
+		xpos = img_leftmargin - 2;
+		ypos = img_topmargin + (i+1)*img_vpixelsperchar - 2;
+		draw_number(c, img, dfont, i*16, xpos, ypos);
+	}
+
+	// Render the glyphs.
 	for(i=0; i<font->num_chars; i++) {
 		xpos = img_leftmargin + (font->char_array[i].codepoint%16) * img_hpixelsperchar;
 		ypos = img_topmargin + (font->char_array[i].codepoint/16) * img_vpixelsperchar;
 
 		de_fmtutil_paint_character(c, img, font, i, xpos, ypos,
-			DE_MAKE_GRAY(0), DE_MAKE_GRAY(255));
+			DE_MAKE_GRAY(0), DE_MAKE_GRAY(255), 0);
 	}
 
 	de_bitmap_write_to_file_finfo(img, fi);
 
 done:
+	if(dfont) {
+		de_free(c, dfont->char_array);
+		de_free(c, dfont);
+	}
 	de_bitmap_destroy(img);
 }
