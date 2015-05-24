@@ -10,14 +10,14 @@
 typedef struct localctx_struct {
 	de_int64 width_in_chars, height_in_chars;
 	de_int64 width_in_pixels, height_in_pixels;
-	de_int64 font_width;
 	de_int64 font_height;
+	de_int64 char_cell_width; // 8 or 9
 	de_byte has_palette, has_font, compression, nonblink, has_512chars;
 	de_byte used_blink;
 
-	de_int64 font_num_chars;
 	de_int64 font_data_len;
 	de_byte *font_data;
+	struct de_bitmap_font *font;
 
 	de_uint32 pal[16];
 } lctx;
@@ -33,7 +33,7 @@ static void do_render_character(deark *c, lctx *d, struct deark_bitmap *img,
 
 	if(xpos<0 || ypos<0 || xpos>=d->width_in_chars || ypos>=d->height_in_chars) return;
 
-	xpos_in_pix = xpos * d->font_width;
+	xpos_in_pix = xpos * d->char_cell_width;
 	ypos_in_pix = ypos * d->font_height;
 
 	fgcol = d->pal[(unsigned int)(acode&0x0f)];
@@ -41,7 +41,7 @@ static void do_render_character(deark *c, lctx *d, struct deark_bitmap *img,
 
 	for(k=0; k<d->font_height; k++) {
 		font_byte= d->font_data[ccode*d->font_height + k];
-		for(z=0; z<d->font_width; z++) {
+		for(z=0; z<d->char_cell_width; z++) {
 			if(z<8) {
 				n = font_byte&(1<<(7-z));
 			}
@@ -67,13 +67,13 @@ static void do_xbin_main(deark *c, lctx *d, dbuf *unc_data)
 
 	img = de_bitmap_create(c, d->width_in_pixels, d->height_in_pixels, 3);
 
-	if(d->font_height==16 && d->font_width==8) {
+	if(d->font_height==16 && d->char_cell_width==8) {
 		// Assume the intended display is 640x400.
 		img->density_code = DE_DENSITY_UNK_UNITS;
 		img->xdens = 480.0;
 		img->ydens = 400.0;
 	}
-	else if(d->font_height==16 && d->font_width==9) {
+	else if(d->font_height==16 && d->char_cell_width==9) {
 		// Assume the intended display is 720x400.
 		img->density_code = DE_DENSITY_UNK_UNITS;
 		img->xdens = 540.0;
@@ -192,53 +192,51 @@ static void do_default_palette(deark *c, lctx *d)
 
 static void do_extract_font(deark *c, lctx *d)
 {
-	struct de_bitmap_font *font = NULL;
-	de_int64 i;
 	de_finfo *fi = NULL;
 
-	if(d->font_data_len!=4096 || d->font_num_chars!=256) return;
+	if(d->font_data_len!=4096 || d->font->num_chars!=256) return;
 	fi = de_finfo_create(c);
 	de_finfo_set_name_from_sz(c, fi, "font", DE_ENCODING_ASCII);
 
-	font = de_malloc(c, sizeof(struct de_bitmap_font));
-	font->num_chars = d->font_num_chars;
-	font->nominal_width = (int)d->font_width;
-	font->nominal_height = (int)d->font_height;
-	font->char_array = de_malloc(c, font->num_chars * sizeof(struct de_bitmap_font_char));
-
-	for(i=0; i<font->num_chars; i++) {
-		font->char_array[i].codepoint = (de_int32)i;
-		font->char_array[i].width = (int)d->font_width;
-		font->char_array[i].height = (int)d->font_height;
-		font->char_array[i].rowspan = 1;
-		font->char_array[i].bitmap = &d->font_data[i*d->font_height];
-	}
-
-	de_fmtutil_bitmap_font_to_image(c, font, fi);
+	de_fmtutil_bitmap_font_to_image(c, d->font, fi);
 
 	de_finfo_destroy(c, fi);
-	if(font) {
-		de_free(c, font->char_array);
-		de_free(c, font);
-	}
 }
 
-static void do_read_font(deark *c, lctx *d, de_int64 pos)
+static void do_read_font_data(deark *c, lctx *d, de_int64 pos)
 {
 	de_dbg(c, "font at %d, %d bytes\n", (int)pos, (int)d->font_data_len);
 	d->font_data = de_malloc(c, d->font_data_len);
 	de_read(d->font_data, pos, d->font_data_len);
-
-	if(c->extract_level>=2) {
-		do_extract_font(c, d);
-	}
 }
 
-static void do_default_font(deark *c, lctx *d)
+static void do_get_default_font_data(deark *c, lctx *d)
 {
 	de_dbg(c, "using default font\n");
 	d->font_data = de_malloc(c, d->font_data_len);
 	memcpy(d->font_data, de_get_vga_font_ptr(), 4096);
+}
+
+// Create the d->font struct.
+static int do_generate_font(deark *c, lctx *d)
+{
+	de_int64 i;
+
+	if(d->font_data_len!=4096 || d->font->num_chars!=256) return 0;
+
+	//d->font->num_chars = d->font_num_chars;
+	d->font->nominal_width = 8; //(int)d->font_width;
+	d->font->nominal_height = (int)d->font_height;
+	d->font->char_array = de_malloc(c, d->font->num_chars * sizeof(struct de_bitmap_font_char));
+
+	for(i=0; i<d->font->num_chars; i++) {
+		d->font->char_array[i].codepoint = (de_int32)i;
+		d->font->char_array[i].width = d->font->nominal_width;
+		d->font->char_array[i].height = d->font->nominal_height;
+		d->font->char_array[i].rowspan = 1;
+		d->font->char_array[i].bitmap = &d->font_data[i*d->font_height];
+	}
+	return 1;
 }
 
 static void de_run_xbin(deark *c, const char *params)
@@ -251,12 +249,13 @@ static void de_run_xbin(deark *c, const char *params)
 
 	de_dbg(c, "xbin\n");
 	d = de_malloc(c, sizeof(lctx));
+	d->font = de_malloc(c, sizeof(struct de_bitmap_font));
 
-	d->font_width = 8;
+	d->char_cell_width = 8;
 	s = de_get_ext_option(c, "xbin:charwidth");
 	if(s) {
 		if(de_atoi(s)>=9) {
-			d->font_width = 9;
+			d->char_cell_width = 9;
 		}
 	}
 
@@ -283,7 +282,7 @@ static void de_run_xbin(deark *c, const char *params)
 	de_dbg(c, " non-blink mode: %d\n", (int)d->nonblink);
 	de_dbg(c, " 512 character mode: %d\n", (int)d->has_512chars);
 
-	d->width_in_pixels = d->width_in_chars * d->font_width;
+	d->width_in_pixels = d->width_in_chars * d->char_cell_width;
 	d->height_in_pixels = d->height_in_chars * d->font_height;
 	de_dbg(c, "dimensions: %dx%d pixels\n", (int)d->width_in_pixels, (int)d->height_in_pixels);
 	if(!de_good_image_dimensions(c, d->width_in_pixels, d->height_in_pixels)) goto done;
@@ -298,24 +297,30 @@ static void de_run_xbin(deark *c, const char *params)
 		do_default_palette(c, d);
 	}
 
-	d->font_num_chars = d->has_512chars ? 512 : 256;
-	d->font_data_len = d->font_num_chars * d->font_height;
-	if(d->font_num_chars!=256) {
-		de_err(c, "%d-character mode is not supported\n", (int)d->font_num_chars);
+	d->font->num_chars = d->has_512chars ? 512 : 256;
+	d->font_data_len = d->font->num_chars * d->font_height;
+	if(d->font->num_chars!=256) {
+		de_err(c, "%d-character mode is not supported\n", (int)d->font->num_chars);
 		goto done;
 	}
 
 	if(d->has_font) {
-		do_read_font(c, d, pos);
+		do_read_font_data(c, d, pos);
 		pos += d->font_data_len;
 	}
 	else {
-		if(d->font_num_chars!=256 || d->font_height!=16) {
+		if(d->font->num_chars!=256 || d->font_height!=16) {
 			de_err(c, "This type of XBIN file is not supported.\n");
 			goto done;
 		}
 
-		do_default_font(c, d);
+		do_get_default_font_data(c, d);
+	}
+
+	if(!do_generate_font(c, d)) goto done;
+
+	if(d->has_font && c->extract_level>=2) {
+		do_extract_font(c, d);
 	}
 
 	de_dbg(c, "image data at %d\n", (int)pos);
@@ -337,6 +342,10 @@ static void de_run_xbin(deark *c, const char *params)
 
 done:
 	dbuf_close(unc_data);
+	if(d->font) {
+		de_free(c, d->font->char_array);
+		de_free(c, d->font);
+	}
 	de_free(c, d->font_data);
 	de_free(c, d);
 }

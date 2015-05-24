@@ -58,4 +58,8 @@ struct de_bitmap_font {
 	struct de_bitmap_font_char *char_array;
 };
 
+void de_fmtutil_paint_character(deark *c, struct deark_bitmap *img,
+	struct de_bitmap_font *font, de_int64 char_idx,
+	de_int64 xpos, de_int64 ypos, de_int32 fgcol, de_int32 bgcol);
+
 void de_fmtutil_bitmap_font_to_image(deark *c, struct de_bitmap_font *font, de_finfo *fi);

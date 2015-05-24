@@ -12,7 +12,7 @@ typedef struct localctx_struct {
 	de_int64 nominal_char_width;
 	de_int64 char_height;
 	de_int64 hdrsize;
-	//de_int64 char_table_size;
+	de_int64 char_table_size;
 
 	de_byte first_char;
 	de_byte last_char;
@@ -197,7 +197,9 @@ static int do_read_header(deark *c, lctx *d)
 		d->char_entry_size = 4;
 	}
 
-	//d->char_table_size = d->char_entry_size * d->num_chars_stored;
+	d->char_table_size = d->char_entry_size * d->num_chars_stored;
+	de_dbg(c, "character index at %d, size %d, %d bytes/entry\n", (int)d->hdrsize,
+		(int)d->char_table_size, (int)d->char_entry_size);
 
 	do_prescan_chars(c, d);
 
