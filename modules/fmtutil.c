@@ -200,6 +200,7 @@ void de_fmtutil_paint_character(deark *c, struct deark_bitmap *img,
 {
 	de_int64 i, j;
 	de_byte x;
+	de_int32 clr;
 	struct de_bitmap_font_char *ch;
 
 	if(char_idx<0 || char_idx>=font->num_chars) return;
@@ -211,8 +212,18 @@ void de_fmtutil_paint_character(deark *c, struct deark_bitmap *img,
 	for(j=0; j<ch->height; j++) {
 		for(i=0; i<ch->width; i++) {
 			x = ch->bitmap[j*ch->rowspan + i/8];
-			x = x & (1<<(7-i%8));
-			de_bitmap_setpixel_rgba(img, xpos+i, ypos+j, x?fgcol:bgcol);
+			clr = (x & (1<<(7-i%8))) ? fgcol : bgcol;
+			de_bitmap_setpixel_rgba(img, xpos+i, ypos+j, clr);
+
+			// Manufacture a 9th column, if requested.
+			if(font->vga_9col_mode && i==7) {
+				// Depending on the codepoint, the 9th column is either
+				// the same as the 8th column, or is the background color.
+				if(ch->codepoint<0xb0 || ch->codepoint>0xdf) {
+					clr = bgcol;
+				}
+				de_bitmap_setpixel_rgba(img, xpos+i+1, ypos+j, clr);
+			}
 		}
 	}
 }

@@ -26,10 +26,7 @@ static void do_render_character(deark *c, lctx *d, struct deark_bitmap *img,
 	de_int64 xpos, de_int64 ypos, de_byte ccode, de_byte acode)
 {
 	de_int64 xpos_in_pix, ypos_in_pix;
-	de_int64 k, z, n;
-	de_byte font_byte;
 	de_uint32 fgcol, bgcol;
-	de_uint32 clr;
 
 	if(xpos<0 || ypos<0 || xpos>=d->width_in_chars || ypos>=d->height_in_chars) return;
 
@@ -39,24 +36,8 @@ static void do_render_character(deark *c, lctx *d, struct deark_bitmap *img,
 	fgcol = d->pal[(unsigned int)(acode&0x0f)];
 	bgcol = d->pal[(unsigned int)((acode&0xf0)>>4)];
 
-	for(k=0; k<d->font_height; k++) {
-		font_byte= d->font_data[ccode*d->font_height + k];
-		for(z=0; z<d->char_cell_width; z++) {
-			if(z<8) {
-				n = font_byte&(1<<(7-z));
-			}
-			else {
-				if(ccode>=0xb0 && ccode<=0xdf) {
-					n = font_byte&0x1; // 9th column is same as 8th column
-				}
-				else {
-					n = 0; // 9th column is blank
-				}
-			}
-			clr = n ? fgcol : bgcol;
-			de_bitmap_setpixel_rgb(img, xpos_in_pix+z, ypos_in_pix+k, clr);
-		}
-	}
+	de_fmtutil_paint_character(c, img, d->font, (de_int64)ccode,
+		xpos_in_pix, ypos_in_pix, fgcol, bgcol);
 }
 
 static void do_xbin_main(deark *c, lctx *d, dbuf *unc_data)
@@ -79,6 +60,9 @@ static void do_xbin_main(deark *c, lctx *d, dbuf *unc_data)
 		img->xdens = 540.0;
 		img->ydens = 400.0;
 	}
+
+	// This flag will be used by de_fmtutil_paint_character().
+	d->font->vga_9col_mode = (d->char_cell_width==9);
 
 	for(j=0; j<d->height_in_chars; j++) {
 		for(i=0; i<d->width_in_chars; i++) {
@@ -198,6 +182,7 @@ static void do_extract_font(deark *c, lctx *d)
 	fi = de_finfo_create(c);
 	de_finfo_set_name_from_sz(c, fi, "font", DE_ENCODING_ASCII);
 
+	d->font->vga_9col_mode = 0;
 	de_fmtutil_bitmap_font_to_image(c, d->font, fi);
 
 	de_finfo_destroy(c, fi);
@@ -217,15 +202,13 @@ static void do_get_default_font_data(deark *c, lctx *d)
 	memcpy(d->font_data, de_get_vga_font_ptr(), 4096);
 }
 
-// Create the d->font struct.
+// Finish populating the d->font struct.
 static int do_generate_font(deark *c, lctx *d)
 {
 	de_int64 i;
 
 	if(d->font_data_len!=4096 || d->font->num_chars!=256) return 0;
-
-	//d->font->num_chars = d->font_num_chars;
-	d->font->nominal_width = 8; //(int)d->font_width;
+	d->font->nominal_width = 8;
 	d->font->nominal_height = (int)d->font_height;
 	d->font->char_array = de_malloc(c, d->font->num_chars * sizeof(struct de_bitmap_font_char));
 
@@ -236,6 +219,7 @@ static int do_generate_font(deark *c, lctx *d)
 		d->font->char_array[i].rowspan = 1;
 		d->font->char_array[i].bitmap = &d->font_data[i*d->font_height];
 	}
+
 	return 1;
 }
 

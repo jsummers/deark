@@ -54,6 +54,7 @@ struct de_bitmap_font_char {
 
 struct de_bitmap_font {
 	int nominal_width, nominal_height;
+	int vga_9col_mode; // Flag: Render an extra column, like VGA does
 	de_int64 num_chars;
 	struct de_bitmap_font_char *char_array;
 };
