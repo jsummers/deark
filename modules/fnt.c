@@ -16,7 +16,6 @@ typedef struct localctx_struct {
 
 	de_byte first_char;
 	de_byte last_char;
-	de_int64 num_chars_indexed;
 	de_int64 num_chars_stored;
 
 	de_int64 char_entry_size;
@@ -35,7 +34,7 @@ static void do_prescan_chars(deark *c, lctx *d)
 	de_int64 pos;
 	de_int64 char_width;
 
-	for(i=0; i<d->num_chars_indexed; i++) {
+	for(i=0; i<d->num_chars_stored; i++) {
 		pos = d->hdrsize + d->char_entry_size*i;
 		char_width = de_getui16le(pos);
 
@@ -56,10 +55,10 @@ static void do_make_image(deark *c, lctx *d)
 	font = de_malloc(c, sizeof(struct de_bitmap_font));
 	font->nominal_width = (int)d->nominal_char_width;
 	font->nominal_height = (int)d->char_height;
-	font->num_chars = d->num_chars_indexed;
+	font->num_chars = d->num_chars_stored;
 	font->char_array = de_malloc(c, font->num_chars * sizeof(struct de_bitmap_font_char));
 
-	for(i=0; i<d->num_chars_indexed; i++) {
+	for(i=0; i<d->num_chars_stored; i++) {
 		de_int64 char_width;
 		de_int64 char_offset;
 		de_int64 num_tiles;
@@ -76,7 +75,10 @@ static void do_make_image(deark *c, lctx *d)
 
 		num_tiles = (char_width+7)/8;
 
-		font->char_array[i].codepoint = (de_int32)d->first_char + (de_int32)i;
+		if(i == d->num_chars_stored-1)
+			font->char_array[i].codepoint = 256; // Always put the "absolute space" char at codepoint 256
+		else
+			font->char_array[i].codepoint = (de_int32)d->first_char + (de_int32)i;
 		font->char_array[i].width = (int)char_width;
 		font->char_array[i].height = (int)d->char_height;
 		font->char_array[i].rowspan = num_tiles;
@@ -185,10 +187,9 @@ static int do_read_header(deark *c, lctx *d)
 		d->dfFace = de_getui32le(105);
 	}
 
-	d->num_chars_indexed = (de_int64)d->last_char - d->first_char + 1;
 	// There is an extra character at the end of the table that is an
 	// "absolute-space" character, and is guaranteed to be blank.
-	d->num_chars_stored = d->num_chars_indexed + 1;
+	d->num_chars_stored = (de_int64)d->last_char - d->first_char + 1 + 1;
 
 	if(d->fnt_version==0x0300) {
 		d->char_entry_size = 6;

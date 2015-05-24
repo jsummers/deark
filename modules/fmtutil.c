@@ -284,6 +284,18 @@ static void draw_number(deark *c, struct deark_bitmap *img,
 		DE_MAKE_GRAY(255), 0, DE_PAINTFLAG_TRNSBKGD);
 }
 
+static de_int32 max_codepoint_in_font(struct de_bitmap_font *font)
+{
+	de_int32 n = 0;
+
+	de_int64 i;
+	for(i=0; i<font->num_chars; i++) {
+		if(font->char_array[i].codepoint > n)
+			n = font->char_array[i].codepoint;
+	}
+	return n;
+}
+
 void de_fmtutil_bitmap_font_to_image(deark *c, struct de_bitmap_font *font, de_finfo *fi)
 {
 	de_int64 i, j;
@@ -295,6 +307,8 @@ void de_fmtutil_bitmap_font_to_image(deark *c, struct de_bitmap_font *font, de_f
 	de_int64 img_hpixelsperchar, img_vpixelsperchar;
 	de_int64 img_width, img_height;
 	de_int64 img_fieldwidth, img_fieldheight;
+	de_int64 num_table_rows;
+	de_int64 max_codepoint;
 	struct de_bitmap_font *dfont = NULL;
 
 	if(font->nominal_width>128 || font->nominal_height>128) {
@@ -309,10 +323,13 @@ void de_fmtutil_bitmap_font_to_image(deark *c, struct de_bitmap_font *font, de_f
 	img_rightmargin = 1;
 	img_bottommargin = 1;
 
+	max_codepoint = (de_int64)max_codepoint_in_font(font);
+	num_table_rows = 1 + max_codepoint/16;
+
 	img_hpixelsperchar = font->nominal_width + 1;
 	img_vpixelsperchar = font->nominal_height + 1;
 	img_fieldwidth = 16 * img_hpixelsperchar -1;
-	img_fieldheight = 16 * img_vpixelsperchar -1;
+	img_fieldheight = num_table_rows * img_vpixelsperchar -1;
 	img_width = img_leftmargin + img_fieldwidth + img_rightmargin;
 	img_height = img_topmargin + img_fieldheight + img_bottommargin;
 
@@ -346,7 +363,7 @@ void de_fmtutil_bitmap_font_to_image(deark *c, struct de_bitmap_font *font, de_f
 	}
 
 	// Draw the labels in the left margin.
-	for(i=0; i<16; i++) {
+	for(i=0; i<num_table_rows; i++) {
 		xpos = img_leftmargin - 2;
 		ypos = img_topmargin + (i+1)*img_vpixelsperchar - 2;
 		draw_number(c, img, dfont, i*16, xpos, ypos);

@@ -323,6 +323,8 @@ Deark -- Information about supported formats
     format. Reprocess them with Deark to convert to PNG.
 
 * FNT (Windows font) (module="fnt")
+  FNT files have an extra "absolute space" character, which Deark arbitrarily
+  places at code point 256.
   - Render the glyphs to a PNG image.
 
 * JPEG scan (module="jpegscan")
