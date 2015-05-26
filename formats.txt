@@ -81,6 +81,10 @@ Deark -- Information about supported formats
 * GEM VDI Bit Image (GEM Raster) (module="gemras")
   - Bilevel images only
 
+* GRASP font (module="graspfont") (experimental)
+  .set/.fnt; may be found inside GRASP .gl files.
+  - Might not support all GRASP font formats.
+
 * GRASP GL animation (module="graspgl")
   - Extracts all files.
 

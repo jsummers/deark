@@ -95,6 +95,7 @@ void de_register_modules(deark *c)
 		de_module_newprintshop,
 		de_module_printmaster,
 		de_module_rosprite,
+		de_module_graspfont,
 		de_module_ybm,
 		de_module_jpegscan,
 		de_module_copy,

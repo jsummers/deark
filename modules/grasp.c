@@ -2,9 +2,11 @@
 // This software is in the public domain. See the file COPYING for details.
 
 // GRASP GL animation format
+// GRASP font format
 
 #include <deark-config.h>
 #include <deark-modules.h>
+#include "fmtutil.h"
 
 typedef struct localctx_struct {
 	de_int64 dir_header_nbytes;
@@ -121,4 +123,94 @@ void de_module_graspgl(deark *c, struct deark_module_info *mi)
 	mi->id = "graspgl";
 	mi->run_fn = de_run_graspgl;
 	mi->identify_fn = de_identify_graspgl;
+}
+
+// **************************************************************************
+// GRASP font (.set/.fnt)
+// **************************************************************************
+
+static void de_run_graspfont(deark *c, const char *params)
+{
+	de_int64 reported_filesize;
+	de_int32 first_codepoint;
+	struct de_bitmap_font *font = NULL;
+	de_int64 bytes_per_glyph;
+	de_int64 i;
+	de_int64 font_data_size;
+	de_byte *font_data = NULL;
+	de_int64 glyph_rowspan;
+
+	font = de_malloc(c, sizeof(struct de_bitmap_font));
+
+	reported_filesize = de_getui16le(0);
+	de_dbg(c, "reported file size: %d\n", (int)reported_filesize);
+
+	font->num_chars = (de_int64)de_getbyte(2);
+	if(font->num_chars==0) font->num_chars=256;
+	first_codepoint = (de_int32)de_getbyte(3);
+	font->nominal_width = (int)de_getbyte(4);
+	font->nominal_height = (int)de_getbyte(5);
+	bytes_per_glyph = (de_int64)de_getbyte(6);
+
+	de_dbg(c, "number of glyphs: %d, first codepoint: %d\n", (int)font->num_chars, (int)first_codepoint);
+	de_dbg(c, "glyph dimensions: %dx%d, size in bytes: %d\n", font->nominal_width,
+		font->nominal_height, (int)bytes_per_glyph);
+
+	glyph_rowspan = (font->nominal_width+7)/8;
+	if(bytes_per_glyph < glyph_rowspan*font->nominal_height ||
+		font->nominal_width<1 || font->nominal_height<1)
+	{
+		de_err(c, "Bad font metrics\n");
+		goto done;
+	}
+
+	font->char_array = de_malloc(c, font->num_chars * sizeof(struct de_bitmap_font_char));
+	font_data_size = bytes_per_glyph * font->num_chars;
+	font_data = de_malloc(c, font_data_size);
+
+	de_read(font_data, 7, font_data_size);
+
+	for(i=0; i<font->num_chars; i++) {
+		font->char_array[i].width = font->nominal_width;
+		font->char_array[i].height = font->nominal_height;
+		font->char_array[i].rowspan = glyph_rowspan;
+		font->char_array[i].codepoint = first_codepoint + (de_int32)i;
+		font->char_array[i].bitmap = &font_data[i*bytes_per_glyph];
+	}
+
+	de_fmtutil_bitmap_font_to_image(c, font, NULL);
+
+done:
+	if(font) {
+		if(font->char_array) {
+			de_free(c, font->char_array);
+		}
+		de_free(c, font);
+	}
+	de_free(c, font_data);
+}
+
+static int de_identify_graspfont(deark *c)
+{
+	de_int64 reported_filesize;
+	de_int64 num_chars;
+	de_int64 bytes_per_glyph;
+
+	if(!de_input_file_has_ext(c, "set") && !de_input_file_has_ext(c, "fnt"))
+		return 0;
+	reported_filesize = de_getui16le(0);
+	if(reported_filesize != c->infile->len) return 0;
+	num_chars = (de_int64)de_getbyte(2);
+	if(num_chars==0) num_chars=256;
+	bytes_per_glyph = (de_int64)de_getbyte(6);
+	if(7+num_chars*bytes_per_glyph == reported_filesize)
+		return 100;
+	return 0;
+}
+
+void de_module_graspfont(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "graspfont";
+	mi->run_fn = de_run_graspfont;
+	mi->identify_fn = de_identify_graspfont;
 }
