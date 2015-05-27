@@ -72,6 +72,9 @@ Command-line options:
      The -modtime option currently does not work with the -zip option.
   -opt <module:option>=<value>
      Module-specific options. See formats.txt.
+     Options not specific to one format:
+      -opt font:charsperrow=<n>
+         The number of characters per row, when rendering a font to a bitmap
   -h, -?, -help:
      Print the help message.
   -version

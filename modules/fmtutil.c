@@ -314,11 +314,19 @@ void de_fmtutil_bitmap_font_to_image(deark *c, struct de_bitmap_font *font, de_f
 	de_int64 num_table_rows;
 	de_int32 min_codepoint, max_codepoint;
 	struct de_bitmap_font *dfont = NULL;
+	de_int64 chars_per_row = 16;
+	const char *s;
 
 	if(font->num_chars<1) goto done;
 	if(font->nominal_width>128 || font->nominal_height>128) {
 		de_err(c, "Font size too big. Not supported.\n");
 		goto done;
+	}
+
+	s = de_get_ext_option(c, "font:charsperrow");
+	if(s) {
+		chars_per_row = de_atoi64(s);
+		if(chars_per_row<1) chars_per_row=1;
 	}
 
 	dfont = make_digit_font(c);
@@ -329,15 +337,15 @@ void de_fmtutil_bitmap_font_to_image(deark *c, struct de_bitmap_font *font, de_f
 	img_bottommargin = 1;
 
 	get_min_max_codepoint(font, &min_codepoint, &max_codepoint);
-	first_table_row = min_codepoint/16;
-	last_table_row = max_codepoint/16;
+	first_table_row = min_codepoint/chars_per_row;
+	last_table_row = max_codepoint/chars_per_row;
 	num_table_rows = last_table_row - first_table_row + 1;
 
 	img_hpixelsperchar = font->nominal_width + 1;
 	img_vpixelsperchar = font->nominal_height + 1;
 	// TODO: Ideally, we should probably skip over any rows that have no valid
 	// characters.
-	img_fieldwidth = 16 * img_hpixelsperchar -1;
+	img_fieldwidth = chars_per_row * img_hpixelsperchar -1;
 	img_fieldheight = num_table_rows * img_vpixelsperchar -1;
 	img_width = img_leftmargin + img_fieldwidth + img_rightmargin;
 	img_height = img_topmargin + img_fieldheight + img_bottommargin;
@@ -366,7 +374,7 @@ void de_fmtutil_bitmap_font_to_image(deark *c, struct de_bitmap_font *font, de_f
 
 	// Draw the labels in the top margin.
 	// TODO: Don't draw the numbers too close together.
-	for(i=0; i<16; i++) {
+	for(i=0; i<chars_per_row; i++) {
 		xpos = img_leftmargin + (i+1)*img_hpixelsperchar;
 		ypos = img_topmargin - 3;
 		draw_number(c, img, dfont, i, xpos, ypos);
@@ -376,13 +384,13 @@ void de_fmtutil_bitmap_font_to_image(deark *c, struct de_bitmap_font *font, de_f
 	for(i=0; i<num_table_rows; i++) {
 		xpos = img_leftmargin - 2;
 		ypos = img_topmargin + (i+1)*img_vpixelsperchar - 2;
-		draw_number(c, img, dfont, (first_table_row+i)*16, xpos, ypos);
+		draw_number(c, img, dfont, (first_table_row+i)*chars_per_row, xpos, ypos);
 	}
 
 	// Render the glyphs.
 	for(i=0; i<font->num_chars; i++) {
-		xpos = img_leftmargin + (font->char_array[i].codepoint%16) * img_hpixelsperchar;
-		ypos = img_topmargin + (font->char_array[i].codepoint/16) * img_vpixelsperchar;
+		xpos = img_leftmargin + (font->char_array[i].codepoint%chars_per_row) * img_hpixelsperchar;
+		ypos = img_topmargin + (font->char_array[i].codepoint/chars_per_row) * img_vpixelsperchar;
 		ypos -= first_table_row * img_vpixelsperchar;
 
 		de_fmtutil_paint_character(c, img, font, i, xpos, ypos,
