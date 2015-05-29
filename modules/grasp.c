@@ -139,12 +139,20 @@ static void de_run_graspfont(deark *c, const char *params)
 	de_int64 font_data_size;
 	de_byte *font_data = NULL;
 	de_int64 glyph_rowspan;
+	const char *s;
+	int to_unicode = 0;
+
+	s = de_get_ext_option(c, "font:tounicode");
+	if(s) {
+		to_unicode = de_atoi(s);
+	}
 
 	font = de_malloc(c, sizeof(struct de_bitmap_font));
 
 	reported_filesize = de_getui16le(0);
 	de_dbg(c, "reported file size: %d\n", (int)reported_filesize);
 
+	font->is_unicode = to_unicode ? 1 : 0;
 	font->num_chars = (de_int64)de_getbyte(2);
 	if(font->num_chars==0) font->num_chars=256;
 	first_codepoint = (de_int32)de_getbyte(3);
@@ -174,7 +182,14 @@ static void de_run_graspfont(deark *c, const char *params)
 		font->char_array[i].width = font->nominal_width;
 		font->char_array[i].height = font->nominal_height;
 		font->char_array[i].rowspan = glyph_rowspan;
-		font->char_array[i].codepoint = first_codepoint + (de_int32)i;
+		if(to_unicode) {
+			// There's no way to tell what encoding a GRASP font uses, but we have an
+			// option to assume it's CP437.
+			font->char_array[i].codepoint = de_cp437g_to_unicode(c, first_codepoint + (de_int32)i);
+		}
+		else {
+			font->char_array[i].codepoint = first_codepoint + (de_int32)i;
+		}
 		font->char_array[i].bitmap = &font_data[i*bytes_per_glyph];
 	}
 
