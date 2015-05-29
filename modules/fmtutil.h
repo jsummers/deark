@@ -47,6 +47,7 @@ int de_fmtutil_uncompress_packbits(dbuf *f, de_int64 pos1, de_int64 len,
 
 struct de_bitmap_font_char {
 	de_int32 codepoint;
+	de_int32 codepoint_tmp; // For use by font renderer/generators.
 	int width, height;
 	de_int64 rowspan;
 	de_byte *bitmap;

@@ -14,7 +14,7 @@ typedef struct localctx_struct {
 	de_int64 hdrsize;
 	de_int64 char_table_size;
 
-	int to_unicode;
+	int to_unicode; // Did the user request Unicode output?
 	de_byte first_char;
 	de_byte last_char;
 	de_int64 num_chars_stored;
@@ -24,6 +24,9 @@ typedef struct localctx_struct {
 
 	de_int64 dfPoints;
 	de_int64 dfFace; // Offset of font face name
+	de_byte dfCharSet;
+
+	int encoding;
 
 	de_finfo *fi;
 } lctx;
@@ -54,7 +57,15 @@ static void do_make_image(deark *c, lctx *d)
 	de_int64 pos;
 
 	font = de_malloc(c, sizeof(struct de_bitmap_font));
-	font->is_unicode = d->to_unicode;
+
+	if(d->to_unicode) {
+		if(d->encoding==DE_ENCODING_UNKNOWN) {
+			de_warn(c, "CharSet 0x%02x not supported. Can't convert to Unicode.\n", (int)d->dfCharSet);
+		}
+		else {
+			font->is_unicode = 1;
+		}
+	}
 	font->nominal_width = (int)d->nominal_char_width;
 	font->nominal_height = (int)d->char_height;
 	font->num_chars = d->num_chars_stored;
@@ -63,6 +74,7 @@ static void do_make_image(deark *c, lctx *d)
 	for(i=0; i<d->num_chars_stored; i++) {
 		de_int64 char_width;
 		de_int64 char_offset;
+		de_int32 char_index;
 		de_int64 num_tiles;
 		de_int64 tile;
 		de_int64 row;
@@ -78,15 +90,24 @@ static void do_make_image(deark *c, lctx *d)
 		num_tiles = (char_width+7)/8;
 
 		if(i == d->num_chars_stored-1) {
-			if(d->to_unicode)
+			if(font->is_unicode)
 				// Put "absolute space" char at codepoint U+2002 EN SPACE (best I can do)
 				font->char_array[i].codepoint = 0x2002;
 			else
 				// Arbitrarily put the "absolute space" char at codepoint 256
 				font->char_array[i].codepoint = 256;
 		}
-		else
-			font->char_array[i].codepoint = (de_int32)d->first_char + (de_int32)i;
+		else {
+			char_index = (de_int32)d->first_char + (de_int32)i;
+
+			if(font->is_unicode) {
+				font->char_array[i].codepoint = de_char_to_unicode(c, char_index, d->encoding);
+			}
+			else {
+				font->char_array[i].codepoint = char_index;
+			}
+		}
+
 		font->char_array[i].width = (int)char_width;
 		font->char_array[i].height = (int)d->char_height;
 		font->char_array[i].rowspan = num_tiles;
@@ -138,7 +159,6 @@ static void read_face_name(deark *c, lctx *d)
 static int do_read_header(deark *c, lctx *d)
 {
 	de_int64 dfType;
-	de_byte dfCharSet;
 	de_int64 dfPixWidth;
 	de_int64 dfPixHeight;
 	de_int64 dfMaxWidth;
@@ -176,8 +196,17 @@ static int do_read_header(deark *c, lctx *d)
 	dfPixHeight = de_getui16le(88);
 	de_dbg(c, "dfPixHeight: %d\n", (int)dfPixHeight);
 
-	dfCharSet = de_getbyte(85);
-	de_dbg(c, "charset: 0x%02x\n", (int)dfCharSet);
+	d->dfCharSet = de_getbyte(85);
+	de_dbg(c, "charset: 0x%02x\n", (int)d->dfCharSet);
+	if(d->dfCharSet==0x00) { // "ANSI"
+		d->encoding = DE_ENCODING_WINDOWS1252; // Guess
+	}
+	else if(d->dfCharSet==0xff) { // "OEM"
+		d->encoding = DE_ENCODING_CP437_G; // Guess
+	}
+	else {
+		d->encoding = DE_ENCODING_UNKNOWN;
+	}
 
 	dfMaxWidth = de_getui16le(93);
 	de_dbg(c, "dfMaxWidth: %d\n", (int)dfMaxWidth);

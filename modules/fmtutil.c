@@ -306,16 +306,22 @@ static struct de_bitmap_font *make_digit_font(deark *c)
 
 // (xpos,ypos) is the lower-right corner.
 static void draw_number(deark *c, struct deark_bitmap *img,
-	struct de_bitmap_font *dfont, de_int64 n, de_int64 xpos, de_int64 ypos, int hex)
+	struct de_bitmap_font *dfont, de_int64 n, de_int64 xpos, de_int64 ypos,
+	int hex, int leading_zeroes)
 {
 	char buf[32];
 	de_int64 len;
 	de_int64 i;
 
-	if(hex)
-		de_snprintf(buf, sizeof(buf), "%X", (unsigned int)n);
-	else
+	if(hex) {
+		if(leading_zeroes)
+			de_snprintf(buf, sizeof(buf), "%04X", (unsigned int)n);
+		else
+			de_snprintf(buf, sizeof(buf), "%X", (unsigned int)n);
+	}
+	else {
 		de_snprintf(buf, sizeof(buf), "%u", (unsigned int)n);
+	}
 	len = (de_int64)de_strlen(buf);
 
 	for(i=len-1; i>=0; i--) {
@@ -333,10 +339,30 @@ static void get_min_max_codepoint(struct de_bitmap_font *font, de_int32 *mincp, 
 	*maxcp = 0;
 
 	for(i=0; i<font->num_chars; i++) {
-		if(font->char_array[i].codepoint < *mincp)
-			*mincp = font->char_array[i].codepoint;
-		if(font->char_array[i].codepoint > *maxcp)
-			*maxcp = font->char_array[i].codepoint;
+		if(font->char_array[i].codepoint_tmp < *mincp)
+			*mincp = font->char_array[i].codepoint_tmp;
+		if(font->char_array[i].codepoint_tmp > *maxcp)
+			*maxcp = font->char_array[i].codepoint_tmp;
+	}
+}
+
+// Put the actual codepont to use in the font->char_array[].codepoint_tmp field.
+static void fixup_codepoints(deark *c, struct de_bitmap_font *font)
+{
+	de_int64 i;
+	de_int32 c1;
+	de_int64 num_uncoded_chars = 0;
+
+	for(i=0; i<font->num_chars; i++) {
+		c1 = font->char_array[i].codepoint;
+		if(font->is_unicode && c1==0xfffd) {
+			// Move uncoded characters to the Private Use area.
+			font->char_array[i].codepoint_tmp = (de_int32)(0xee00 + num_uncoded_chars);
+			num_uncoded_chars++;
+		}
+		else {
+			font->char_array[i].codepoint_tmp = c1;
+		}
 	}
 }
 
@@ -382,6 +408,8 @@ void de_fmtutil_bitmap_font_to_image(deark *c, struct de_bitmap_font *font, de_f
 	img_rightmargin = 1;
 	img_bottommargin = 1;
 
+	fixup_codepoints(c, font);
+
 	get_min_max_codepoint(font, &min_codepoint, &max_codepoint);
 	num_table_rows_total = max_codepoint/chars_per_row+1;
 
@@ -389,7 +417,7 @@ void de_fmtutil_bitmap_font_to_image(deark *c, struct de_bitmap_font *font, de_f
 	row_flags = de_malloc(c, num_table_rows_total*sizeof(de_byte));
 	for(i=0; i<font->num_chars; i++) {
 		de_int64 rownum;
-		rownum = font->char_array[i].codepoint / chars_per_row;
+		rownum = font->char_array[i].codepoint_tmp / chars_per_row;
 		row_flags[rownum] = 1;
 	}
 	// Figure out how many rows are used, and where to draw them.
@@ -439,7 +467,7 @@ void de_fmtutil_bitmap_font_to_image(deark *c, struct de_bitmap_font *font, de_f
 	for(i=0; i<chars_per_row; i++) {
 		xpos = img_leftmargin + (i+1)*img_hpixelsperchar;
 		ypos = img_topmargin - 3;
-		draw_number(c, img, dfont, i, xpos, ypos, font->is_unicode?1:0);
+		draw_number(c, img, dfont, i, xpos, ypos, font->is_unicode?1:0, 0);
 	}
 
 	// Draw the labels in the left margin.
@@ -447,13 +475,14 @@ void de_fmtutil_bitmap_font_to_image(deark *c, struct de_bitmap_font *font, de_f
 		if(row_flags[i]==0) continue;
 		xpos = img_leftmargin - 2;
 		ypos = img_topmargin + (row_display_pos[i]+1)*img_vpixelsperchar - 2;
-		draw_number(c, img, dfont, i*chars_per_row, xpos, ypos, font->is_unicode?1:0);
+		draw_number(c, img, dfont, i*chars_per_row, xpos, ypos,
+			font->is_unicode?1:0, font->is_unicode?1:0);
 	}
 
 	// Render the glyphs.
 	for(i=0; i<font->num_chars; i++) {
-		xpos = img_leftmargin + (font->char_array[i].codepoint%chars_per_row) * img_hpixelsperchar;
-		ypos = img_topmargin + (row_display_pos[font->char_array[i].codepoint/chars_per_row]) * img_vpixelsperchar;
+		xpos = img_leftmargin + (font->char_array[i].codepoint_tmp%chars_per_row) * img_hpixelsperchar;
+		ypos = img_topmargin + (row_display_pos[font->char_array[i].codepoint_tmp/chars_per_row]) * img_vpixelsperchar;
 		de_fmtutil_paint_character_idx(c, img, font, i, xpos, ypos,
 			DE_MAKE_GRAY(0), DE_MAKE_GRAY(255), 0);
 	}

@@ -12,6 +12,11 @@
 #define DE_ENCODING_ASCII   0
 #define DE_ENCODING_UTF8    1
 #define DE_ENCODING_LATIN1  2
+#define DE_ENCODING_PETSCII      8
+#define DE_ENCODING_CP437_G      10
+#define DE_ENCODING_CP437_C      11
+#define DE_ENCODING_WINDOWS1252  20
+#define DE_ENCODING_UNKNOWN      99
 
 // 'params' can be used by the module in whatever way it wishes.
 typedef void (*de_module_run_fn)(deark *c, const char *params);
@@ -445,6 +450,7 @@ de_uint32 de_bgr555_to_888(de_uint32 n);
 
 de_int32 de_cp437g_to_unicode(deark *c, int a);
 de_int32 de_cp437c_to_unicode(deark *c, int a);
+de_int32 de_char_to_unicode(deark *c, de_int32 a, int encoding);
 void de_uchar_to_utf8(de_int32 u1, de_byte *utf8buf, de_int64 *p_utf8len);
 void dbuf_write_uchar_as_utf8(dbuf *outf, de_int32 u);
 
