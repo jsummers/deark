@@ -314,7 +314,7 @@ void de_fmtutil_bitmap_font_to_image(deark *c, struct de_bitmap_font *font, de_f
 	de_int64 num_table_rows;
 	de_int32 min_codepoint, max_codepoint;
 	struct de_bitmap_font *dfont = NULL;
-	de_int64 chars_per_row = 16;
+	de_int64 chars_per_row = 32;
 	const char *s;
 
 	if(font->num_chars<1) goto done;
