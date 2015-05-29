@@ -14,6 +14,7 @@ typedef struct localctx_struct {
 	de_int64 hdrsize;
 	de_int64 char_table_size;
 
+	int to_unicode;
 	de_byte first_char;
 	de_byte last_char;
 	de_int64 num_chars_stored;
@@ -53,6 +54,7 @@ static void do_make_image(deark *c, lctx *d)
 	de_int64 pos;
 
 	font = de_malloc(c, sizeof(struct de_bitmap_font));
+	font->is_unicode = d->to_unicode;
 	font->nominal_width = (int)d->nominal_char_width;
 	font->nominal_height = (int)d->char_height;
 	font->num_chars = d->num_chars_stored;
@@ -75,8 +77,14 @@ static void do_make_image(deark *c, lctx *d)
 
 		num_tiles = (char_width+7)/8;
 
-		if(i == d->num_chars_stored-1)
-			font->char_array[i].codepoint = 256; // Always put the "absolute space" char at codepoint 256
+		if(i == d->num_chars_stored-1) {
+			if(d->to_unicode)
+				// Put "absolute space" char at codepoint U+2002 EN SPACE (best I can do)
+				font->char_array[i].codepoint = 0x2002;
+			else
+				// Arbitrarily put the "absolute space" char at codepoint 256
+				font->char_array[i].codepoint = 256;
+		}
 		else
 			font->char_array[i].codepoint = (de_int32)d->first_char + (de_int32)i;
 		font->char_array[i].width = (int)char_width;
@@ -221,9 +229,16 @@ done:
 static void de_run_fnt(deark *c, const char *params)
 {
 	lctx *d = NULL;
+	const char *s;
 
 	de_dbg(c, "In fnt module\n");
 	d = de_malloc(c, sizeof(lctx));
+
+	s = de_get_ext_option(c, "font:tounicode");
+	if(s) {
+		d->to_unicode = de_atoi(s);
+	}
+
 	if(!do_read_header(c, d)) goto done;
 	read_face_name(c, d);
 	do_make_image(c, d);

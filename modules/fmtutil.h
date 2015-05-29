@@ -53,6 +53,7 @@ struct de_bitmap_font_char {
 };
 
 struct de_bitmap_font {
+	int is_unicode;
 	int nominal_width, nominal_height;
 	int vga_9col_mode; // Flag: Render an extra column, like VGA does
 	de_int64 num_chars;
@@ -60,8 +61,11 @@ struct de_bitmap_font {
 };
 
 #define DE_PAINTFLAG_TRNSBKGD 0x01
-void de_fmtutil_paint_character(deark *c, struct deark_bitmap *img,
+void de_fmtutil_paint_character_idx(deark *c, struct deark_bitmap *img,
 	struct de_bitmap_font *font, de_int64 char_idx,
+	de_int64 xpos, de_int64 ypos, de_int32 fgcol, de_int32 bgcol, unsigned int flags);
+void de_fmtutil_paint_character_cp(deark *c, struct deark_bitmap *img,
+	struct de_bitmap_font *font, de_int32 codepoint,
 	de_int64 xpos, de_int64 ypos, de_int32 fgcol, de_int32 bgcol, unsigned int flags);
 
 void de_fmtutil_bitmap_font_to_image(deark *c, struct de_bitmap_font *font, de_finfo *fi);

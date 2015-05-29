@@ -328,7 +328,7 @@ Deark -- Information about supported formats
 
 * FNT (Windows font) (module="fnt")
   FNT files have an extra "absolute space" character, which Deark arbitrarily
-  places at code point 256.
+  places at code point 256, or U+2002 (EN SPACE).
   - Render the glyphs to a PNG image.
 
 * JPEG scan (module="jpegscan")

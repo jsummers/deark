@@ -75,6 +75,8 @@ Command-line options:
      Options not specific to one format:
       -opt font:charsperrow=<n>
          The number of characters per row, when rendering a font to a bitmap
+      -opt font:tounicode=<0|1>
+         Try to convert the font to Unicode
   -h, -?, -help:
      Print the help message.
   -version

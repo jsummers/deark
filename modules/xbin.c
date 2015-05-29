@@ -36,7 +36,7 @@ static void do_render_character(deark *c, lctx *d, struct deark_bitmap *img,
 	fgcol = d->pal[(unsigned int)(acode&0x0f)];
 	bgcol = d->pal[(unsigned int)((acode&0xf0)>>4)];
 
-	de_fmtutil_paint_character(c, img, d->font, (de_int64)ccode,
+	de_fmtutil_paint_character_idx(c, img, d->font, (de_int64)ccode,
 		xpos_in_pix, ypos_in_pix, fgcol, bgcol, 0);
 }
 
