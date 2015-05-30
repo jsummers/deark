@@ -190,6 +190,8 @@ Deark -- Information about supported formats
    -opt pcx:pal=<0|1> - The predefined palette to use, if there is no palette
      in the file. Default is 0.
 
+* PFF2 font (module="pff2")
+
 * PGC (Portfolio graphics compressed) (module="pgc")
 
 * PGF (Portfolio graphics) (module="pf_pgf")

@@ -80,3 +80,4 @@ void de_module_rsc(deark *c, struct deark_module_info *mi);
 void de_module_gemraster(deark *c, struct deark_module_info *mi);
 void de_module_xbin(deark *c, struct deark_module_info *mi);
 void de_module_graspfont(deark *c, struct deark_module_info *mi);
+void de_module_pff2(deark *c, struct deark_module_info *mi);

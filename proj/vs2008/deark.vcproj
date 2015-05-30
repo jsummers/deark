@@ -566,6 +566,10 @@
 				>
 			</File>
 			<File
+				RelativePath="..\..\modules\pff2.c"
+				>
+			</File>
+			<File
 				RelativePath="..\..\modules\portfolio.c"
 				>
 			</File>
