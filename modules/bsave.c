@@ -409,7 +409,8 @@ static void do_char_1screen(deark *c, lctx *d, de_int64 pgnum,
 				cur_bgcol = bgcol;
 			}
 
-			de_write_codepoint_to_html(c, d->ofile, de_cp437g_to_unicode(c, ch));
+			de_write_codepoint_to_html(c, d->ofile,
+				de_char_to_unicode(c, (de_int32)ch, DE_ENCODING_CP437_G));
 
 			if(i==width-1) {
 				dbuf_fputs(d->ofile, "</span>\n");

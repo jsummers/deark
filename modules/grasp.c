@@ -185,7 +185,8 @@ static void de_run_graspfont(deark *c, const char *params)
 		if(to_unicode) {
 			// There's no way to tell what encoding a GRASP font uses, but we have an
 			// option to assume it's CP437.
-			font->char_array[i].codepoint = de_cp437g_to_unicode(c, first_codepoint + (de_int32)i);
+			font->char_array[i].codepoint =
+				de_char_to_unicode(c, first_codepoint + (de_int32)i, DE_ENCODING_CP437_G);
 		}
 		else {
 			font->char_array[i].codepoint = first_codepoint + (de_int32)i;

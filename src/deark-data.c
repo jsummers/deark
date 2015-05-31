@@ -72,42 +72,50 @@ static const de_uint16 petscii1table[256] = {
 };
 
 // Code page 437, with screen code graphics characters.
-de_int32 de_cp437g_to_unicode(deark *c, int a)
+static de_int32 de_cp437g_to_unicode(de_int32 a)
 {
-	if(a>=0 && a<=0xff) return (de_int32)cp437table[a];
+	if(a<=0xff) return (de_int32)cp437table[a];
 	return 0xfffd;
 }
 
 // Code page 437, with control characters.
-de_int32 de_cp437c_to_unicode(deark *c, int a)
+static de_int32 de_cp437c_to_unicode(de_int32 a)
 {
-	if(a>=0 && a<=0x7f) return a;
-	if(a>=0x80 && a<=0xff) return (de_int32)cp437table[a];
+	if(a<=0x7f) return a;
+	if(a<=0xff) return (de_int32)cp437table[a];
 	return 0xfffd;
 }
 
-static de_int32 de_windows1252_to_unicode(deark *c, de_int32 a)
+static de_int32 de_windows1252_to_unicode(de_int32 a)
 {
-	if(a>=0 && a<=0x7f) return a;
-	if(a>=0x80 && a<=0x9f) return (de_int32)windows1252table[a-0x80];
-	if(a>=0xa0 && a<=0xff) return a;
+	if(a<=0x7f) return a;
+	if(a<=0x9f) return (de_int32)windows1252table[a-0x80];
+	if(a<=0xff) return a;
+	return 0xfffd;
+}
+
+static de_int32 de_petscii_to_unicode(de_int32 a)
+{
+	if(a<=0xff) return (de_int32)petscii1table[a];
 	return 0xfffd;
 }
 
 de_int32 de_char_to_unicode(deark *c, de_int32 a, int encoding)
 {
+	if(a<0) return 0xfffd;
+
 	switch(encoding) {
 	case DE_ENCODING_CP437_G:
-		return de_cp437g_to_unicode(c, a);
+		return de_cp437g_to_unicode(a);
 	case DE_ENCODING_CP437_C:
-		return de_cp437c_to_unicode(c, a);
+		return de_cp437c_to_unicode(a);
 	case DE_ENCODING_PETSCII:
-		return de_petscii_char_to_utf32(a);
+		return de_petscii_to_unicode(a);
 	case DE_ENCODING_WINDOWS1252:
-		return de_windows1252_to_unicode(c, a);
+		return de_windows1252_to_unicode(a);
 	}
-	// DE_ENCODING_ASCII
-	// DE_ENCODING_LATIN1
+	// Don't change anything if the encoding is a Unicode subset
+	// (ASCII, LATIN1), or unknown.
 	return a;
 }
 
@@ -670,13 +678,6 @@ void ucstring_append_char(de_ucstring *s, de_int32 ch)
 	s->str[s->len] = ch;
 	s->len++;
 	return;
-}
-
-de_int32 de_petscii_char_to_utf32(de_byte ch)
-{
-	de_int32 uchar;
-	uchar = (de_int32)petscii1table[(int)ch];
-	return uchar;
 }
 
 void de_write_codepoint_to_html(deark *c, dbuf *f, de_int32 ch)

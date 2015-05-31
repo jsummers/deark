@@ -215,7 +215,8 @@ static int do_generate_font(deark *c, lctx *d)
 
 	for(i=0; i<d->font->num_chars; i++) {
 		if(d->to_unicode) {
-			d->font->char_array[i].codepoint = de_cp437g_to_unicode(c, (int)i);
+			d->font->char_array[i].codepoint =
+				de_char_to_unicode(c, (de_int32)i, DE_ENCODING_CP437_G);
 		}
 		else {
 			d->font->char_array[i].codepoint = (de_int32)i;

@@ -448,8 +448,6 @@ de_byte de_palette_sample_6_to_8bit(de_byte samp);
 de_uint32 de_rgb565_to_888(de_uint32 n);
 de_uint32 de_bgr555_to_888(de_uint32 n);
 
-de_int32 de_cp437g_to_unicode(deark *c, int a);
-de_int32 de_cp437c_to_unicode(deark *c, int a);
 de_int32 de_char_to_unicode(deark *c, de_int32 a, int encoding);
 void de_uchar_to_utf8(de_int32 u1, de_byte *utf8buf, de_int64 *p_utf8len);
 void dbuf_write_uchar_as_utf8(dbuf *outf, de_int32 u);
@@ -476,7 +474,6 @@ de_ucstring *ucstring_create(deark *c);
 void ucstring_destroy(de_ucstring *s);
 void ucstring_append_char(de_ucstring *s, de_int32 ch);
 
-de_int32 de_petscii_char_to_utf32(de_byte ch);
 void de_write_codepoint_to_html(deark *c, dbuf *f, de_int32 ch);
 
 ///////////////////////////////////////////

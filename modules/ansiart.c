@@ -88,7 +88,7 @@ static void do_normal_char(deark *c, lctx *d, de_int64 pos, de_byte ch)
 			d->ypos++;
 		}
 
-		u = de_cp437g_to_unicode(c, (int)ch);
+		u = de_char_to_unicode(c, (de_int32)ch, DE_ENCODING_CP437_G);
 
 		cell = get_cell_at(c, d, d->xpos, d->ypos);
 		if(cell) {

@@ -20,7 +20,7 @@ static void copy_cp437c_to_utf8(deark *c, const de_byte *buf, de_int64 len, dbuf
 	de_int64 i;
 
 	for(i=0; i<len; i++) {
-		u = de_cp437c_to_unicode(c, buf[i]);
+		u = de_char_to_unicode(c, (de_int32)buf[i], DE_ENCODING_CP437_C);
 		dbuf_write_uchar_as_utf8(outf, u);
 	}
 }

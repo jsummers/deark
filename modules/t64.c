@@ -50,7 +50,7 @@ static void do_extract_file(deark *c, lctx *d, de_int64 dir_pos,
 	fname = ucstring_create(c);
 	for(i=0; i<fname_len; i++) {
 		b = de_getbyte(fnpos+i);
-		uchar = de_petscii_char_to_utf32(b);
+		uchar = de_char_to_unicode(c, (de_int32)b, DE_ENCODING_PETSCII);
 		ucstring_append_char(fname, uchar);
 	}
 
