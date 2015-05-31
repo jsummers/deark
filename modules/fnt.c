@@ -240,14 +240,9 @@ static int do_read_header(deark *c, lctx *d)
 		(int)d->char_table_size, (int)d->char_entry_size);
 
 	do_prescan_chars(c, d);
+	if(d->detected_max_width<1) goto done;
+	d->nominal_char_width = d->detected_max_width;
 
-	if(d->detected_max_width < dfMaxWidth) {
-		// dfMaxWidth setting is larger than necessary.
-		d->nominal_char_width = d->detected_max_width;
-	}
-	else {
-		d->nominal_char_width = dfMaxWidth;
-	}
 	d->char_height = dfPixHeight;
 
 	retval = 1;
