@@ -81,7 +81,7 @@ static int decode_egavga16(deark *c, lctx *d)
 
 	// Read the palette
 	if(d->edesc==0) {
-		// No palette in file. Use standard palette.
+		de_dbg(c, "No palette in file. Using standard 16-color palette.\n");
 		for(k=0; k<16; k++) {
 			pal[k] = de_palette_pc16((int)k);
 		}
@@ -148,9 +148,7 @@ static int decode_vga256(deark *c, lctx *d)
 
 	// Read the palette
 	if(d->edesc==0) {
-		// No palette in file. Use standard palette.
-		de_dbg(c, "No palette in file. Using standard palette.\n");
-
+		de_dbg(c, "No palette in file. Using standard 256-color palette.\n");
 		for(i=0; i<256; i++) {
 			pal[i] = de_palette_vga256((int)i);
 		}
@@ -453,6 +451,11 @@ static void de_run_pcpaint_pic(deark *c, lctx *d, const char *params)
 	else {
 		d->unc_pixels = dbuf_open_input_subfile(c->infile, d->header_size,
 			c->infile->len-d->header_size);
+	}
+
+	if(d->video_mode>='0' && d->video_mode<='3') {
+		de_err(c, "Text mode PCPaint files are not supported\n");
+		goto done;
 	}
 
 	if(d->plane_info==0x01 && d->edesc==0) {
