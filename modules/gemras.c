@@ -118,16 +118,20 @@ static void de_run_gemraster(deark *c, const char *params)
 	de_int64 header_size_in_words;
 	de_int64 header_size_in_bytes;
 	de_int64 nplanes;
+	de_int64 ver;
 	lctx *d = NULL;
 	dbuf *unc_pixels = NULL;
 	struct deark_bitmap *img = NULL;
 
 	d = de_malloc(c, sizeof(lctx));
+	ver = de_getui16be(0);
+	de_dbg(c, "version: %d\n", (int)ver);
 	header_size_in_words = de_getui16be(2);
 	header_size_in_bytes = header_size_in_words*2;
 	de_dbg(c, "header size: %d words (%d bytes)\n", (int)header_size_in_words,
 		(int)header_size_in_bytes);
 	nplanes = de_getui16be(4);
+	de_dbg(c, "planes: %d\n", (int)nplanes);
 	if(header_size_in_words!=0x08 || nplanes!=1) {
 		de_err(c, "This version of GEM Raster is not supported.\n");
 		return;
@@ -166,15 +170,28 @@ done:
 
 static int de_identify_gemraster(deark *c)
 {
-	de_int64 x1, x2;
+	de_int64 ver, x2;
+	de_int64 nplanes;
 
-	if(!de_input_file_has_ext(c, "img")) return 0;
-	x1 = de_getui16be(0);
-	if(x1!=1) return 0;
+	if(!de_input_file_has_ext(c, "img") &&
+		!de_input_file_has_ext(c, "ximg"))
+	{
+		return 0;
+	}
+	ver = de_getui16be(0);
+	if(ver!=1 && ver!=2) return 0;
 	x2 = de_getui16be(2);
-	if(x2<0x08 || x2>0x60) return 0;
-	if(x2==0x08) return 70;
-	if(x2==0x3b) return 70; // XIMG
+	if(x2<0x0008 || x2>0x0800) return 0;
+	nplanes = de_getui16be(4);
+	if(nplanes!=1 && nplanes!=4 && nplanes!=8) return 0;
+	if(ver==1 && x2==0x08) return 70;
+	if(x2>=0x3b) {
+		if(!dbuf_memcmp(c->infile, 16, "XIMG", 4)) {
+			if(x2==0x3b) return 100;
+			return 70;
+		}
+	}
+	if(ver!=1) return 0;
 	return 10;
 }
 
