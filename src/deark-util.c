@@ -639,3 +639,20 @@ void de_declare_fmt(deark *c, const char *fmtname)
 	de_msg(c, "Format: %s\n", fmtname);
 	c->format_declared = 1;
 }
+
+// Assumes dst starts out with only '0' bits
+void de_copy_bits(const de_byte *src, de_int64 srcbitnum,
+	de_byte *dst, de_int64 dstbitnum, de_int64 bitstocopy)
+{
+	de_int64 i;
+	de_byte b;
+
+	for(i=0; i<bitstocopy; i++) {
+		b = src[(srcbitnum+i)/8];
+		b = (b>>(7-(srcbitnum+i)%8))&0x1;
+		if(b) {
+			b = b<<(7-(dstbitnum+i)%8);
+			dst[(dstbitnum+i)/8] |= b;
+		}
+	}
+}

@@ -17,7 +17,8 @@ OFILES_MODS:=$(addprefix $(OBJDIR)/modules/,os2bmp.o eps.o bsave.o ilbm.o \
  pcx.o epocimage.o psionpic.o psionapp.o exe.o ani.o jpeg2000.o zip.o atari.o \
  fnt.o nokia.o grob.o t64.o cardfile.o tivariable.o basic-c64.o ico.o rpm.o \
  rosprite.o binhex.o icns.o awbm.o printshop.o qtif.o portfolio.o bpg.o shg.o \
- ansiart.o xbin.o prismpaint.o ar.o rsc.o gemras.o pff2.o unsupported.o)
+ ansiart.o xbin.o prismpaint.o ar.o rsc.o gemras.o gemfont.o pff2.o \
+ unsupported.o)
 OFILES_MODUTILS:=$(addprefix $(OBJDIR)/modules/,fmtutil.o)
 OFILES_LIB:=$(addprefix $(OBJDIR)/src/,deark-miniz.o deark-util.o deark-data.o \
  deark-dbuf.o deark-bitmap.o deark-core.o deark-modules.o deark-unix.o)
@@ -33,6 +34,7 @@ $(OBJDIR)/modules/fmtutil.o $(OBJDIR)/modules/exe.o \
  $(OBJDIR)/modules/prismpaint.o $(OBJDIR)/modules/fnt.o \
  $(OBJDIR)/modules/xbin.o $(OBJDIR)/modules/grasp.o \
  $(OBJDIR)/modules/os2bmp.o $(OBJDIR)/modules/pff2.o \
+ $(OBJDIR)/modules/gemfont.o \
  $(OBJDIR)/modules/misc.o: modules/fmtutil.h
 
 $(OBJDIR)/src/deark-miniz.o: src/miniz.h

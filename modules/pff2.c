@@ -15,23 +15,6 @@ typedef struct localctx_struct {
 #define CODE_CHIX 0x43484958
 #define CODE_DATA 0x44415441
 
-// Assumes dst starts out with only '0' bits
-static void copy_bits(const de_byte *src, de_int64 srcbitnum,
-	de_byte *dst, de_int64 dstbitnum, de_int64 bitstocopy)
-{
-	de_int64 i;
-	de_byte b;
-
-	for(i=0; i<bitstocopy; i++) {
-		b = src[(srcbitnum+i)/8];
-		b = (b>>(7-(srcbitnum+i)%8))&0x1;
-		if(b) {
-			b = b<<(7-(dstbitnum+i)%8);
-			dst[(dstbitnum+i)/8] |= b;
-		}
-	}
-}
-
 static void do_char(deark *c, lctx *d, de_int64 char_idx, de_int32 codepoint, de_int64 pos)
 {
 	struct de_bitmap_font_char *ch;
@@ -60,7 +43,7 @@ static void do_char(deark *c, lctx *d, de_int64 char_idx, de_int32 codepoint, de
 	ch->bitmap = de_malloc(c, ch->rowspan * ch->height);
 	for(j=0; j<ch->height; j++) {
 		// The source bitmap's rows are not byte aligned (except the first row).
-		copy_bits(srcbitmap, j*ch->width, ch->bitmap, j*ch->rowspan*8, ch->width);
+		de_copy_bits(srcbitmap, j*ch->width, ch->bitmap, j*ch->rowspan*8, ch->width);
 	}
 
 	de_free(c, srcbitmap);

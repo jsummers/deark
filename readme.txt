@@ -110,6 +110,9 @@ goal is to support (mainly old) formats that are under-served by other
 open-source software. Most of the formats it currently supports are related to
 graphics, but it is not limited to graphics formats.
 
+Bitmap fonts are converted to images. Someday there might be an option to
+convert them to some portable font format, but this is difficult to do well.
+
 The Deark source code is structured like a library, but it's not intended to be
 used as such.
 

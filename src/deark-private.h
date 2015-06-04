@@ -476,4 +476,7 @@ void ucstring_append_char(de_ucstring *s, de_int32 ch);
 
 void de_write_codepoint_to_html(deark *c, dbuf *f, de_int32 ch);
 
+void de_copy_bits(const de_byte *src, de_int64 srcbitnum,
+	de_byte *dst, de_int64 dstbitnum, de_int64 bitstocopy);
+
 ///////////////////////////////////////////

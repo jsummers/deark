@@ -506,6 +506,10 @@
 				>
 			</File>
 			<File
+				RelativePath="..\..\modules\gemfont.c"
+				>
+			</File>
+			<File
 				RelativePath="..\..\modules\gemras.c"
 				>
 			</File>

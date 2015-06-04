@@ -81,10 +81,6 @@ Deark -- Information about supported formats
 * GEM VDI Bit Image (GEM Raster) (module="gemras")
   - Bilevel images only
 
-* GRASP font (module="graspfont") (experimental)
-  .set/.fnt; may be found inside GRASP .gl files.
-  - Might not support all GRASP font formats.
-
 * GRASP GL animation (module="graspgl")
   - Extracts all files.
 
@@ -190,8 +186,6 @@ Deark -- Information about supported formats
    -opt pcx:pal=<0|1> - The predefined palette to use, if there is no palette
      in the file. Default is 0.
 
-* PFF2 font (module="pff2")
-
 * PGC (Portfolio graphics compressed) (module="pgc")
 
 * PGF (Portfolio graphics) (module="pf_pgf")
@@ -291,6 +285,21 @@ Deark -- Information about supported formats
 * YBM (Bennet Yee face format) (module="ybm")
 
 
+=== Font formats ===
+
+* FNT (Windows font) (module="fnt")
+  FNT files have an extra "absolute space" character, which Deark arbitrarily
+  places at code point 256, or U+2002 (EN SPACE).
+
+* GEM bitmap font (module="gemfont") (experimental)
+
+* GRASP font (module="graspfont") (experimental)
+  .set/.fnt; may be found inside GRASP .gl files.
+  - Might not support all GRASP font formats.
+
+* PFF2 font (module="pff2")
+
+
 === Compression and archive modules ===
 
 * ar (.a archive/library format) (module="ar") (experimental/incomplete)
@@ -327,11 +336,6 @@ Deark -- Information about supported formats
     actual BMP file(s).
   - Extract icons and cursors from LX files. Note that these will use OS/2
     format. Reprocess them with Deark to convert to PNG.
-
-* FNT (Windows font) (module="fnt")
-  FNT files have an extra "absolute space" character, which Deark arbitrarily
-  places at code point 256, or U+2002 (EN SPACE).
-  - Render the glyphs to a PNG image.
 
 * JPEG scan (module="jpegscan")
   - This module tries to find and extract embedded JPEG and JPEG-LS files from
