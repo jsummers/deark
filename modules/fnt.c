@@ -140,17 +140,13 @@ static void read_face_name(deark *c, lctx *d)
 	char buf2[50];
 
 	if(d->dfFace<1) return;
+	if(!c->filenames_from_file) return;
 
-	if(c->filenames_from_file) {
-		// The facename is terminated with a NUL byte.
-		// There seems to be no defined limit to its length, but Windows font face
-		// names traditionally have to be quite short.
-		dbuf_read_sz(c->infile, d->dfFace, buf, sizeof(buf));
-		de_snprintf(buf2, sizeof(buf2), "%s-%d", buf, (int)d->dfPoints);
-	}
-	else {
-		de_snprintf(buf2, sizeof(buf2), "%d", (int)d->dfPoints);
-	}
+	// The facename is terminated with a NUL byte.
+	// There seems to be no defined limit to its length, but Windows font face
+	// names traditionally have to be quite short.
+	dbuf_read_sz(c->infile, d->dfFace, buf, sizeof(buf));
+	de_snprintf(buf2, sizeof(buf2), "%s-%d", buf, (int)d->dfPoints);
 
 	d->fi = de_finfo_create(c);
 	de_finfo_set_name_from_sz(c, d->fi, buf2, DE_ENCODING_ASCII);
