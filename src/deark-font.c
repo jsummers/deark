@@ -218,6 +218,7 @@ void de_font_bitmap_font_to_image(deark *c, struct de_bitmap_font *font, de_finf
 	de_int64 *row_display_pos = NULL;
 	int unicode_req = 0;
 	int render_as_unicode = 0;
+	de_int64 label_stride;
 
 	if(font->num_chars<1) goto done;
 	if(font->nominal_width>128 || font->nominal_height>128) {
@@ -307,8 +308,15 @@ void de_font_bitmap_font_to_image(deark *c, struct de_bitmap_font *font, de_finf
 	}
 
 	// Draw the labels in the top margin.
-	// TODO: Don't draw the numbers too close together.
+
+	// TODO: Better label spacing logic.
+	if(font->nominal_width <= 12)
+		label_stride = 2;
+	else
+		label_stride = 1;
+
 	for(i=0; i<chars_per_row; i++) {
+		if(i%label_stride != 0) continue;
 		xpos = img_leftmargin + (i+1)*img_hpixelsperchar;
 		ypos = img_topmargin - 3;
 		draw_number(c, img, dfont, i, xpos, ypos, render_as_unicode?1:0, 0);
