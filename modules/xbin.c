@@ -5,7 +5,6 @@
 
 #include <deark-config.h>
 #include <deark-modules.h>
-#include "fmtutil.h"
 
 typedef struct localctx_struct {
 	de_int64 width_in_chars, height_in_chars;
@@ -37,7 +36,7 @@ static void do_render_character(deark *c, lctx *d, struct deark_bitmap *img,
 	fgcol = d->pal[(unsigned int)(acode&0x0f)];
 	bgcol = d->pal[(unsigned int)((acode&0xf0)>>4)];
 
-	de_fmtutil_paint_character_idx(c, img, d->font, (de_int64)ccode,
+	de_font_paint_character_idx(c, img, d->font, (de_int64)ccode,
 		xpos_in_pix, ypos_in_pix, fgcol, bgcol, 0);
 }
 
@@ -62,7 +61,7 @@ static void do_xbin_main(deark *c, lctx *d, dbuf *unc_data)
 		img->ydens = 400.0;
 	}
 
-	// This flag will be used by de_fmtutil_paint_character().
+	// This flag will be used by de_font_paint_character*().
 	d->font->vga_9col_mode = (d->char_cell_width==9);
 
 	for(j=0; j<d->height_in_chars; j++) {
@@ -184,7 +183,7 @@ static void do_extract_font(deark *c, lctx *d)
 	de_finfo_set_name_from_sz(c, fi, "font", DE_ENCODING_ASCII);
 
 	d->font->vga_9col_mode = 0;
-	de_fmtutil_bitmap_font_to_image(c, d->font, fi);
+	de_font_bitmap_font_to_image(c, d->font, fi);
 
 	de_finfo_destroy(c, fi);
 }

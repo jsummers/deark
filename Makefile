@@ -21,7 +21,8 @@ OFILES_MODS:=$(addprefix $(OBJDIR)/modules/,os2bmp.o eps.o bsave.o ilbm.o \
  unsupported.o)
 OFILES_MODUTILS:=$(addprefix $(OBJDIR)/modules/,fmtutil.o)
 OFILES_LIB:=$(addprefix $(OBJDIR)/src/,deark-miniz.o deark-util.o deark-data.o \
- deark-dbuf.o deark-bitmap.o deark-core.o deark-modules.o deark-unix.o)
+ deark-dbuf.o deark-bitmap.o deark-font.o deark-core.o deark-modules.o \
+ deark-unix.o)
 OFILES_ALL:=$(OBJDIR)/src/deark-cmd.o $(OFILES_LIB) $(OFILES_MODS) \
  $(OFILES_MODUTILS)
 
@@ -31,10 +32,8 @@ $(OBJDIR)/modules/fmtutil.o $(OBJDIR)/modules/exe.o \
  $(OBJDIR)/modules/tiff.o $(OBJDIR)/modules/psd.o \
  $(OBJDIR)/modules/ico.o $(OBJDIR)/modules/bpg.o \
  $(OBJDIR)/modules/macpaint.o $(OBJDIR)/modules/ilbm.o \
- $(OBJDIR)/modules/prismpaint.o $(OBJDIR)/modules/fnt.o \
- $(OBJDIR)/modules/xbin.o $(OBJDIR)/modules/grasp.o \
- $(OBJDIR)/modules/os2bmp.o $(OBJDIR)/modules/pff2.o \
- $(OBJDIR)/modules/gemfont.o \
+ $(OBJDIR)/modules/prismpaint.o \
+ $(OBJDIR)/modules/os2bmp.o \
  $(OBJDIR)/modules/misc.o: modules/fmtutil.h
 
 $(OBJDIR)/src/deark-miniz.o: src/miniz.h

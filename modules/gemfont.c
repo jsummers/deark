@@ -5,7 +5,6 @@
 
 #include <deark-config.h>
 #include <deark-modules.h>
-#include "fmtutil.h"
 
 typedef struct localctx_struct {
 	struct de_bitmap_font *font;
@@ -146,7 +145,7 @@ static void de_run_gemfont(deark *c, const char *params)
 
 	if(!do_characters(c, d)) goto done;
 
-	de_fmtutil_bitmap_font_to_image(c, d->font, d->fi);
+	de_font_bitmap_font_to_image(c, d->font, d->fi);
 
 done:
 	if(d->font) {

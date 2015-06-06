@@ -6,7 +6,6 @@
 
 #include <deark-config.h>
 #include <deark-modules.h>
-#include "fmtutil.h"
 
 typedef struct localctx_struct {
 	de_int64 dir_header_nbytes;
@@ -194,7 +193,7 @@ static void de_run_graspfont(deark *c, const char *params)
 		font->char_array[i].bitmap = &font_data[i*bytes_per_glyph];
 	}
 
-	de_fmtutil_bitmap_font_to_image(c, font, NULL);
+	de_font_bitmap_font_to_image(c, font, NULL);
 
 done:
 	if(font) {

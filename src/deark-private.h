@@ -480,3 +480,31 @@ void de_copy_bits(const de_byte *src, de_int64 srcbitnum,
 	de_byte *dst, de_int64 dstbitnum, de_int64 bitstocopy);
 
 ///////////////////////////////////////////
+
+struct de_bitmap_font_char {
+	de_int32 codepoint;
+	de_int32 codepoint_tmp; // For use by font renderer/generators.
+	int width, height;
+	de_int64 rowspan;
+	de_byte *bitmap;
+};
+
+struct de_bitmap_font {
+	int nominal_width, nominal_height;
+	de_byte is_unicode;
+	de_byte vga_9col_mode; // Flag: Render an extra column, like VGA does
+	de_int64 num_chars;
+	struct de_bitmap_font_char *char_array;
+};
+
+#define DE_PAINTFLAG_TRNSBKGD 0x01
+void de_font_paint_character_idx(deark *c, struct deark_bitmap *img,
+	struct de_bitmap_font *font, de_int64 char_idx,
+	de_int64 xpos, de_int64 ypos, de_int32 fgcol, de_int32 bgcol, unsigned int flags);
+void de_font_paint_character_cp(deark *c, struct deark_bitmap *img,
+	struct de_bitmap_font *font, de_int32 codepoint,
+	de_int64 xpos, de_int64 ypos, de_int32 fgcol, de_int32 bgcol, unsigned int flags);
+
+void de_font_bitmap_font_to_image(deark *c, struct de_bitmap_font *font, de_finfo *fi);
+
+///////////////////////////////////////////

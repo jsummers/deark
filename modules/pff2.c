@@ -5,7 +5,6 @@
 
 #include <deark-config.h>
 #include <deark-modules.h>
-#include "fmtutil.h"
 
 typedef struct localctx_struct {
 	struct de_bitmap_font *font;
@@ -82,7 +81,7 @@ static void do_code_chix(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 		de_dbg_indent(c, -1);
 	}
 
-	de_fmtutil_bitmap_font_to_image(c, d->font, NULL);
+	de_font_bitmap_font_to_image(c, d->font, NULL);
 
 done: ;
 }

@@ -5,7 +5,6 @@
 
 #include <deark-config.h>
 #include <deark-modules.h>
-#include "fmtutil.h"
 
 typedef struct localctx_struct {
 	de_int64 fnt_version;
@@ -121,7 +120,7 @@ static void do_make_image(deark *c, lctx *d)
 		}
 	}
 
-	de_fmtutil_bitmap_font_to_image(c, font, d->fi);
+	de_font_bitmap_font_to_image(c, font, d->fi);
 
 	if(font) {
 		if(font->char_array) {

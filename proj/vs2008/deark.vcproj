@@ -345,6 +345,10 @@
 				>
 			</File>
 			<File
+				RelativePath="..\..\src\deark-font.c"
+				>
+			</File>
+			<File
 				RelativePath="..\..\src\deark-miniz.c"
 				>
 			</File>
