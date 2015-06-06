@@ -161,15 +161,19 @@ static void get_min_max_codepoint(struct de_bitmap_font *font, de_int32 *mincp, 
 }
 
 // Put the actual codepont to use in the font->char_array[].codepoint_tmp field.
-static void fixup_codepoints(deark *c, struct de_bitmap_font *font)
+static void fixup_codepoints(deark *c, struct de_bitmap_font *font, int render_as_unicode)
 {
 	de_int64 i;
 	de_int32 c1;
 	de_int64 num_uncoded_chars = 0;
 
 	for(i=0; i<font->num_chars; i++) {
-		c1 = font->char_array[i].codepoint;
-		if(font->is_unicode && c1==0xfffd) {
+		if(render_as_unicode)
+			c1 = font->char_array[i].codepoint_unicode;
+		else
+			c1 = font->char_array[i].codepoint;
+
+		if(render_as_unicode && !font->is_unicode && c1==0xfffd) {
 			// Move uncoded characters to the Private Use area.
 			font->char_array[i].codepoint_tmp = (de_int32)(0xee00 + num_uncoded_chars);
 			num_uncoded_chars++;
@@ -199,11 +203,22 @@ void de_font_bitmap_font_to_image(deark *c, struct de_bitmap_font *font, de_finf
 	const char *s;
 	de_byte *row_flags = NULL;
 	de_int64 *row_display_pos = NULL;
+	int unicode_req = 0;
+	int render_as_unicode = 0;
 
 	if(font->num_chars<1) goto done;
 	if(font->nominal_width>128 || font->nominal_height>128) {
 		de_err(c, "Font size too big. Not supported.\n");
 		goto done;
+	}
+
+	s = de_get_ext_option(c, "font:tounicode");
+	if(s) {
+		unicode_req = de_atoi(s);
+	}
+
+	if(font->is_unicode || (font->has_unicode_codepoints && unicode_req)) {
+		render_as_unicode = 1;
 	}
 
 	s = de_get_ext_option(c, "font:charsperrow");
@@ -214,7 +229,7 @@ void de_font_bitmap_font_to_image(deark *c, struct de_bitmap_font *font, de_finf
 
 	dfont = make_digit_font(c);
 
-	if(font->is_unicode)
+	if(render_as_unicode)
 		img_leftmargin = dfont->nominal_width * 4 + 6;
 	else
 		img_leftmargin = dfont->nominal_width * 3 + 6;
@@ -222,7 +237,7 @@ void de_font_bitmap_font_to_image(deark *c, struct de_bitmap_font *font, de_finf
 	img_rightmargin = 1;
 	img_bottommargin = 1;
 
-	fixup_codepoints(c, font);
+	fixup_codepoints(c, font, render_as_unicode);
 
 	get_min_max_codepoint(font, &min_codepoint, &max_codepoint);
 	num_table_rows_total = max_codepoint/chars_per_row+1;
@@ -281,7 +296,7 @@ void de_font_bitmap_font_to_image(deark *c, struct de_bitmap_font *font, de_finf
 	for(i=0; i<chars_per_row; i++) {
 		xpos = img_leftmargin + (i+1)*img_hpixelsperchar;
 		ypos = img_topmargin - 3;
-		draw_number(c, img, dfont, i, xpos, ypos, font->is_unicode?1:0, 0);
+		draw_number(c, img, dfont, i, xpos, ypos, render_as_unicode?1:0, 0);
 	}
 
 	// Draw the labels in the left margin.
@@ -290,7 +305,7 @@ void de_font_bitmap_font_to_image(deark *c, struct de_bitmap_font *font, de_finf
 		xpos = img_leftmargin - 2;
 		ypos = img_topmargin + (row_display_pos[i]+1)*img_vpixelsperchar - 2;
 		draw_number(c, img, dfont, i*chars_per_row, xpos, ypos,
-			font->is_unicode?1:0, font->is_unicode?1:0);
+			render_as_unicode?1:0, render_as_unicode?1:0);
 	}
 
 	// Render the glyphs.

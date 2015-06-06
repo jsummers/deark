@@ -13,7 +13,6 @@ typedef struct localctx_struct {
 	de_int64 hdrsize;
 	de_int64 char_table_size;
 
-	int to_unicode; // Did the user request Unicode output?
 	de_byte first_char;
 	de_byte last_char;
 	de_int64 num_chars_stored;
@@ -57,14 +56,9 @@ static void do_make_image(deark *c, lctx *d)
 
 	font = de_malloc(c, sizeof(struct de_bitmap_font));
 
-	if(d->to_unicode) {
-		if(d->encoding==DE_ENCODING_UNKNOWN) {
-			de_warn(c, "CharSet 0x%02x not supported. Can't convert to Unicode.\n", (int)d->dfCharSet);
-		}
-		else {
-			font->is_unicode = 1;
-		}
-	}
+	if(d->encoding!=DE_ENCODING_UNKNOWN)
+		font->has_unicode_codepoints = 1;
+
 	font->nominal_width = (int)d->nominal_char_width;
 	font->nominal_height = (int)d->char_height;
 	font->num_chars = d->num_chars_stored;
@@ -89,21 +83,19 @@ static void do_make_image(deark *c, lctx *d)
 		num_tiles = (char_width+7)/8;
 
 		if(i == d->num_chars_stored-1) {
-			if(font->is_unicode)
-				// Put "absolute space" char at codepoint U+2002 EN SPACE (best I can do)
-				font->char_array[i].codepoint = 0x2002;
-			else
-				// Arbitrarily put the "absolute space" char at codepoint 256
-				font->char_array[i].codepoint = 256;
+			// Arbitrarily put the "absolute space" char at codepoint 256,
+			// and U+2002 EN SPACE (best I can do).
+			font->char_array[i].codepoint = 256;
+			font->char_array[i].codepoint_unicode = 0x2002;
 		}
 		else {
 			char_index = (de_int32)d->first_char + (de_int32)i;
 
-			if(font->is_unicode) {
-				font->char_array[i].codepoint = de_char_to_unicode(c, char_index, d->encoding);
-			}
-			else {
-				font->char_array[i].codepoint = char_index;
+			font->char_array[i].codepoint = char_index;
+
+			if(font->has_unicode_codepoints) {
+				font->char_array[i].codepoint_unicode =
+					de_char_to_unicode(c, char_index, d->encoding);
 			}
 		}
 
@@ -248,15 +240,9 @@ done:
 static void de_run_fnt(deark *c, const char *params)
 {
 	lctx *d = NULL;
-	const char *s;
 
 	de_dbg(c, "In fnt module\n");
 	d = de_malloc(c, sizeof(lctx));
-
-	s = de_get_ext_option(c, "font:tounicode");
-	if(s) {
-		d->to_unicode = de_atoi(s);
-	}
 
 	if(!do_read_header(c, d)) goto done;
 	read_face_name(c, d);

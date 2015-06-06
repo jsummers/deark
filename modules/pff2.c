@@ -25,6 +25,7 @@ static void do_char(deark *c, lctx *d, de_int64 char_idx, de_int32 codepoint, de
 	ch = &d->font->char_array[char_idx];
 
 	ch->codepoint = codepoint;
+	ch->codepoint_unicode = codepoint;
 
 	ch->width = (int)de_getui16be(pos);
 	ch->height = (int)de_getui16be(pos+2);
@@ -97,6 +98,7 @@ static void de_run_pff2(deark *c, const char *params)
 	d = de_malloc(c, sizeof(lctx));
 	d->font = de_malloc(c, sizeof(struct de_bitmap_font));
 	d->font->is_unicode = 1;
+	d->font->has_unicode_codepoints = 1;
 
 	pos = 0;
 	while(1) {

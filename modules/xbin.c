@@ -9,7 +9,6 @@
 typedef struct localctx_struct {
 	de_int64 width_in_chars, height_in_chars;
 	de_int64 width_in_pixels, height_in_pixels;
-	int to_unicode;
 	de_int64 font_height;
 	de_int64 char_cell_width; // 8 or 9
 	de_byte has_palette, has_font, compression, nonblink, has_512chars;
@@ -213,13 +212,9 @@ static int do_generate_font(deark *c, lctx *d)
 	d->font->char_array = de_malloc(c, d->font->num_chars * sizeof(struct de_bitmap_font_char));
 
 	for(i=0; i<d->font->num_chars; i++) {
-		if(d->to_unicode) {
-			d->font->char_array[i].codepoint =
-				de_char_to_unicode(c, (de_int32)i, DE_ENCODING_CP437_G);
-		}
-		else {
-			d->font->char_array[i].codepoint = (de_int32)i;
-		}
+		d->font->char_array[i].codepoint = (de_int32)i;
+		d->font->char_array[i].codepoint_unicode =
+			de_char_to_unicode(c, (de_int32)i, DE_ENCODING_CP437_G);
 		d->font->char_array[i].width = d->font->nominal_width;
 		d->font->char_array[i].height = d->font->nominal_height;
 		d->font->char_array[i].rowspan = 1;
@@ -248,14 +243,9 @@ static void de_run_xbin(deark *c, const char *params)
 		}
 	}
 
-	s = de_get_ext_option(c, "font:tounicode");
-	if(s) {
-		d->to_unicode = de_atoi(s);
-	}
-
 	d->font = de_malloc(c, sizeof(struct de_bitmap_font));
 
-	d->font->is_unicode = d->to_unicode ? 1 : 0;
+	d->font->has_unicode_codepoints = 1;
 	d->width_in_chars = de_getui16le(5);
 	d->height_in_chars = de_getui16le(7);
 	d->font_height = (de_int64)de_getbyte(9);

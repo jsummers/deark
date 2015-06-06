@@ -483,6 +483,7 @@ void de_copy_bits(const de_byte *src, de_int64 srcbitnum,
 
 struct de_bitmap_font_char {
 	de_int32 codepoint;
+	de_int32 codepoint_unicode;
 	de_int32 codepoint_tmp; // For use by font renderer/generators.
 	int width, height;
 	de_int64 rowspan;
@@ -491,7 +492,10 @@ struct de_bitmap_font_char {
 
 struct de_bitmap_font {
 	int nominal_width, nominal_height;
-	de_byte is_unicode;
+
+	de_byte is_unicode; // Flag: Is the font fundamentally unicode?
+	de_byte has_unicode_codepoints;	// Flag: Are char_array[]->codepoint_unicode codes set?
+
 	de_byte vga_9col_mode; // Flag: Render an extra column, like VGA does
 	de_int64 num_chars;
 	struct de_bitmap_font_char *char_array;
