@@ -8,6 +8,14 @@
 #include "deark-config.h"
 #include "deark-private.h"
 
+static int is_valid_char(struct de_bitmap_font_char *ch)
+{
+	if(!ch) return 0;
+	if(!ch->bitmap) return 0;
+	if(ch->width<1 || ch->height<1) return 0;
+	return 1;
+}
+
 void de_font_paint_character_idx(deark *c, struct deark_bitmap *img,
 	struct de_bitmap_font *font, de_int64 char_idx,
 	de_int64 xpos, de_int64 ypos, de_int32 fgcol, de_int32 bgcol,
@@ -21,7 +29,7 @@ void de_font_paint_character_idx(deark *c, struct deark_bitmap *img,
 
 	if(char_idx<0 || char_idx>=font->num_chars) return;
 	ch = &font->char_array[char_idx];
-	if(!ch) return;
+	if(!is_valid_char(ch)) return;
 	if(ch->width > font->nominal_width) return;
 	if(ch->height > font->nominal_height) return;
 
@@ -145,14 +153,18 @@ static void draw_number(deark *c, struct deark_bitmap *img,
 	}
 }
 
-static void get_min_max_codepoint(struct de_bitmap_font *font, de_int32 *mincp, de_int32 *maxcp)
+static void get_min_max_codepoint(struct de_bitmap_font *font,
+	de_int32 *mincp, de_int32 *maxcp, de_int64 *num_valid_chars)
 {
 	de_int64 i;
 
 	*mincp = 0x10ffff;
 	*maxcp = 0;
+	*num_valid_chars = 0;
 
 	for(i=0; i<font->num_chars; i++) {
+		if(!is_valid_char(&font->char_array[i])) continue;
+		(*num_valid_chars)++;
 		if(font->char_array[i].codepoint_tmp < *mincp)
 			*mincp = font->char_array[i].codepoint_tmp;
 		if(font->char_array[i].codepoint_tmp > *maxcp)
@@ -198,6 +210,7 @@ void de_font_bitmap_font_to_image(deark *c, struct de_bitmap_font *font, de_finf
 	de_int64 num_table_rows_total;
 	de_int64 num_table_rows_rendered;
 	de_int32 min_codepoint, max_codepoint;
+	de_int64 num_valid_chars;
 	struct de_bitmap_font *dfont = NULL;
 	de_int64 chars_per_row = 32;
 	const char *s;
@@ -239,13 +252,15 @@ void de_font_bitmap_font_to_image(deark *c, struct de_bitmap_font *font, de_finf
 
 	fixup_codepoints(c, font, render_as_unicode);
 
-	get_min_max_codepoint(font, &min_codepoint, &max_codepoint);
+	get_min_max_codepoint(font, &min_codepoint, &max_codepoint, &num_valid_chars);
+	if(num_valid_chars<1) goto done;
 	num_table_rows_total = max_codepoint/chars_per_row+1;
 
 	// Flag each row that has a character that exists in this font.
 	row_flags = de_malloc(c, num_table_rows_total*sizeof(de_byte));
 	for(i=0; i<font->num_chars; i++) {
 		de_int64 rownum;
+		if(!is_valid_char(&font->char_array[i])) continue;
 		rownum = font->char_array[i].codepoint_tmp / chars_per_row;
 		row_flags[rownum] = 1;
 	}
