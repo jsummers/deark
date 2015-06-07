@@ -418,7 +418,7 @@ static void membuf_append(dbuf *f, const de_byte *m, de_int64 mlen)
 		new_alloc_size = (f->membuf_alloc + mlen)*2;
 		if(new_alloc_size<1024) new_alloc_size=1024;
 		// TODO: Guard against integer overflows.
-		de_dbg2(f->c, "increasing membuf size %d -> %d\n", (int)f->membuf_alloc, (int)new_alloc_size);
+		de_dbg3(f->c, "increasing membuf size %d -> %d\n", (int)f->membuf_alloc, (int)new_alloc_size);
 		f->membuf_buf = de_realloc(f->c, f->membuf_buf, f->membuf_alloc, new_alloc_size);
 		f->membuf_alloc = new_alloc_size;
 	}
@@ -431,7 +431,7 @@ void dbuf_write(dbuf *f, const de_byte *m, de_int64 len)
 {
 	if(f->btype==DBUF_TYPE_MEMBUF) {
 		if(f->name) {
-			de_dbg2(f->c, "Appending %d bytes to membuf %s\n", (int)len, f->name);
+			de_dbg3(f->c, "Appending %d bytes to membuf %s\n", (int)len, f->name);
 		}
 		membuf_append(f, m, len);
 		return;
@@ -577,13 +577,13 @@ void dbuf_close(dbuf *f)
 	if(f->write_memfile_to_zip_archive) {
 		de_zip_add_file_to_archive(c, f);
 		if(f->name) {
-			de_dbg2(c, "Closing memfile %s\n", f->name);
+			de_dbg3(c, "Closing memfile %s\n", f->name);
 		}
 	}
 
 	if(f->fp) {
 		if(f->name) {
-			de_dbg2(c, "Closing file %s\n", f->name);
+			de_dbg3(c, "Closing file %s\n", f->name);
 		}
 		de_fclose(f->fp);
 		f->fp = NULL;

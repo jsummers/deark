@@ -79,6 +79,8 @@ static int decode_egavga16(deark *c, lctx *d)
 	int palent;
 	de_byte cr, cg, cb;
 
+	de_dbg(c, "16-color EGA/VGA\n");
+
 	// Read the palette
 	if(d->edesc==0) {
 		de_dbg(c, "No palette in file. Using standard 16-color palette.\n");
@@ -89,18 +91,23 @@ static int decode_egavga16(deark *c, lctx *d)
 	else if(d->edesc==3) {
 		// An EGA palette. Indexes into the standard EGA
 		// 64-color palette.
+		de_dbg(c, "Palette is 16 indices into standard EGA 64-color palette.\n");
 		dbuf_read(d->read_pal_from_me, tmpbuf, 17, 16);
 		for(k=0; k<16; k++) {
 			pal[k] = de_palette_ega64(tmpbuf[k]);
+			de_dbg2(c, "pal[%2d] = %2d (%3d,%3d,%3d)\n", (int)k, (int)tmpbuf[k],
+				(int)DE_COLOR_R(pal[k]), (int)DE_COLOR_G(pal[k]), (int)DE_COLOR_B(pal[k]));
 		}
 	}
 	else { // assuming edesc==5
+		de_dbg(c, "Reading 16-color palette from file.\n");
 		dbuf_read(d->read_pal_from_me, tmpbuf, 17, 16*3);
 		for(k=0; k<16; k++) {
 			cr = de_palette_sample_6_to_8bit(tmpbuf[3*k+0]);
 			cg = de_palette_sample_6_to_8bit(tmpbuf[3*k+1]);
 			cb = de_palette_sample_6_to_8bit(tmpbuf[3*k+2]);
 			pal[k] = DE_MAKE_RGB(cr, cg, cb);
+			de_dbg2(c, "pal[%2d] = (%3d,%3d,%3d)\n", (int)k, (int)cr, (int)cg, (int)cb);
 		}
 	}
 
@@ -185,7 +192,7 @@ static int decode_bilevel(deark *c, lctx *d)
 	de_int64 src_rowspan;
 	de_byte grayshade1;
 
-	de_dbg(c, "pcpaint bilevel\n");
+	de_dbg(c, "bilevel image\n");
 
 	if(!d->unc_pixels) return 0;
 
@@ -224,7 +231,7 @@ static int decode_cga4(deark *c, lctx *d)
 	de_byte pal_id;
 	de_byte border_col;
 
-	de_dbg(c, "pcpaint cga4\n");
+	de_dbg(c, "CGA 4-color\n");
 
 	if(!d->unc_pixels) return 0;
 
@@ -336,7 +343,7 @@ static int uncompress_pixels(deark *c, lctx *d)
 	pos = d->header_size;
 
 	for(n=0; n<d->num_rle_blocks; n++) {
-		de_dbg2(c, "-- block %d --\n", (int)n);
+		de_dbg3(c, "-- block %d --\n", (int)n);
 		// start_of_this_block = pos;
 		packed_block_size = de_getui16le(pos);
 		// block size includes the 5-byte header, so it can't be < 5.
@@ -346,9 +353,9 @@ static int uncompress_pixels(deark *c, lctx *d)
 		run_marker = de_getbyte(pos+4);
 		pos+=5;
 
-		de_dbg2(c, "packed block size (+5)=%d\n", (int)packed_block_size);
-		de_dbg2(c, "unpacked block size=%d\n", (int)unpacked_block_size);
-		de_dbg2(c, "run marker=0x%02x\n", (int)run_marker);
+		de_dbg3(c, "packed block size (+5)=%d\n", (int)packed_block_size);
+		de_dbg3(c, "unpacked block size=%d\n", (int)unpacked_block_size);
+		de_dbg3(c, "run marker=0x%02x\n", (int)run_marker);
 
 		if(!uncompress_block(c, d, pos, packed_block_size-5, run_marker)) {
 			goto done;
@@ -398,6 +405,8 @@ static int do_read_alt_palette_file(deark *c, lctx *d)
 
 static void de_run_pcpaint_pic(deark *c, lctx *d, const char *params)
 {
+	int (*decoder_fn)(deark *c, lctx *d);
+
 	de_declare_fmt(c, "PCPaint PIC");
 
 	d->img = de_bitmap_create_noinit(c);
@@ -442,17 +451,6 @@ static void de_run_pcpaint_pic(deark *c, lctx *d, const char *params)
 
 	de_dbg(c, "rle blocks: %d\n", (int)d->num_rle_blocks);
 
-	if(d->num_rle_blocks>0) {
-		// Image is compressed.
-		// TODO: It would be nice if we figured out whether we support this format
-		// *before* we go to the trouble of uncompressing the pixels.
-		uncompress_pixels(c, d);
-	}
-	else {
-		d->unc_pixels = dbuf_open_input_subfile(c->infile, d->header_size,
-			c->infile->len-d->header_size);
-	}
-
 	if(d->video_mode>='0' && d->video_mode<='3') {
 		de_err(c, "Text mode PCPaint files are not supported\n");
 		goto done;
@@ -461,30 +459,42 @@ static void de_run_pcpaint_pic(deark *c, lctx *d, const char *params)
 	if(d->plane_info==0x01 && d->edesc==0) {
 		// Expected video mode(s): 0x43, 0x45, 0x4f
 		// CGA or EGA or VGA 2-color
-		decode_bilevel(c, d);
+		decoder_fn = decode_bilevel;
 	}
 	else if(d->plane_info==0x02 && (d->edesc==0 || d->edesc==1)) {
 		// Expected video mode(s): 0x41
-		decode_cga4(c, d);
+		decoder_fn = decode_cga4;
 	}
 	else if(d->plane_info==0x04 && d->edesc==3) {
-		decode_egavga16(c, d);
+		decoder_fn = decode_egavga16;
 	}
 	else if(d->plane_info==0x08 && (d->edesc==0 || d->edesc==4)) {
 		// Expected video mode(s): 0x4c
-		decode_vga256(c, d);
+		decoder_fn = decode_vga256;
 	}
 	else if((d->plane_info==0x04 || d->plane_info==0x31) &&
 		(d->edesc==0 || d->edesc==3 || d->edesc==5))
 	{
 		// Expected video mode(s): 0x4d, 0x47
-		decode_egavga16(c, d);
+		decoder_fn = decode_egavga16;
 	}
 	else {
 		de_err(c, "This type of PCPaint PIC is not supported (evideo=0x%02x, bitsinf=0x%02x, edesc=%d)\n",
 			d->video_mode, d->plane_info, (int)d->edesc);
 		goto done;
 	}
+
+	if(d->num_rle_blocks>0) {
+		// Image is compressed.
+		uncompress_pixels(c, d);
+	}
+	else {
+		// Image is uncompressed.
+		d->unc_pixels = dbuf_open_input_subfile(c->infile, d->header_size,
+			c->infile->len-d->header_size);
+	}
+
+	decoder_fn(c, d);
 
 done:
 	;
