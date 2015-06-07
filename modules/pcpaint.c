@@ -6,6 +6,12 @@
 #include <deark-config.h>
 #include <deark-modules.h>
 
+struct pal_info {
+	de_int64 edesc;
+	de_int64 esize;
+	de_byte *data;
+};
+
 typedef struct localctx_struct {
 	int ver;
 	struct deark_bitmap *img;
@@ -13,16 +19,11 @@ typedef struct localctx_struct {
 	de_byte plane_info;
 	de_byte palette_flag;
 	de_byte video_mode;
-	de_int64 edesc_orig;
-	de_int64 edesc; // Equals either edesc_orig or edesc_palfile
-	de_int64 esize_orig;
+	struct pal_info pal_info_mainfile;
+	struct pal_info pal_info_palfile;
+	struct pal_info *pal_info_to_use; // Points to _mainfile or _palfile
 	de_int64 num_rle_blocks;
 	dbuf *unc_pixels;
-
-	dbuf *palfile;
-	dbuf *read_pal_from_me; // Points to either c->infile or to palfile
-	de_int64 edesc_palfile;
-	de_int64 esize_palfile;
 } lctx;
 
 static void set_density(deark *c, lctx *d)
@@ -68,7 +69,6 @@ static void set_density(deark *c, lctx *d)
 
 static int decode_egavga16(deark *c, lctx *d)
 {
-	de_byte tmpbuf[768];
 	de_uint32 pal[16];
 	de_int64 i, j;
 	de_int64 k;
@@ -80,32 +80,33 @@ static int decode_egavga16(deark *c, lctx *d)
 	de_byte cr, cg, cb;
 
 	de_dbg(c, "16-color EGA/VGA\n");
+	de_memset(pal, 0, sizeof(pal));
 
 	// Read the palette
-	if(d->edesc==0) {
+	if(d->pal_info_to_use->edesc==0) {
 		de_dbg(c, "No palette in file. Using standard 16-color palette.\n");
 		for(k=0; k<16; k++) {
 			pal[k] = de_palette_pc16((int)k);
 		}
 	}
-	else if(d->edesc==3) {
+	else if(d->pal_info_to_use->edesc==3) {
 		// An EGA palette. Indexes into the standard EGA
 		// 64-color palette.
 		de_dbg(c, "Palette is 16 indices into standard EGA 64-color palette.\n");
-		dbuf_read(d->read_pal_from_me, tmpbuf, 17, 16);
 		for(k=0; k<16; k++) {
-			pal[k] = de_palette_ega64(tmpbuf[k]);
-			de_dbg2(c, "pal[%2d] = %2d (%3d,%3d,%3d)\n", (int)k, (int)tmpbuf[k],
+			if(k >= d->pal_info_to_use->esize) break;
+			pal[k] = de_palette_ega64(d->pal_info_to_use->data[k]);
+			de_dbg2(c, "pal[%2d] = %2d (%3d,%3d,%3d)\n", (int)k, (int)d->pal_info_to_use->data[k],
 				(int)DE_COLOR_R(pal[k]), (int)DE_COLOR_G(pal[k]), (int)DE_COLOR_B(pal[k]));
 		}
 	}
 	else { // assuming edesc==5
 		de_dbg(c, "Reading 16-color palette from file.\n");
-		dbuf_read(d->read_pal_from_me, tmpbuf, 17, 16*3);
 		for(k=0; k<16; k++) {
-			cr = de_palette_sample_6_to_8bit(tmpbuf[3*k+0]);
-			cg = de_palette_sample_6_to_8bit(tmpbuf[3*k+1]);
-			cb = de_palette_sample_6_to_8bit(tmpbuf[3*k+2]);
+			if(3*k+2 >= d->pal_info_to_use->esize) break;
+			cr = de_palette_sample_6_to_8bit(d->pal_info_to_use->data[3*k+0]);
+			cg = de_palette_sample_6_to_8bit(d->pal_info_to_use->data[3*k+1]);
+			cb = de_palette_sample_6_to_8bit(d->pal_info_to_use->data[3*k+2]);
 			pal[k] = DE_MAKE_RGB(cr, cg, cb);
 			de_dbg2(c, "pal[%2d] = (%3d,%3d,%3d)\n", (int)k, (int)cr, (int)cg, (int)cb);
 		}
@@ -144,7 +145,6 @@ static int decode_egavga16(deark *c, lctx *d)
 
 static int decode_vga256(deark *c, lctx *d)
 {
-	de_byte tmpbuf[768];
 	de_uint32 pal[256];
 	de_int64 i, j;
 	de_int64 k;
@@ -152,9 +152,10 @@ static int decode_vga256(deark *c, lctx *d)
 	de_byte cr, cg, cb;
 
 	de_dbg(c, "256-color image\n");
+	de_memset(pal, 0, sizeof(pal));
 
 	// Read the palette
-	if(d->edesc==0) {
+	if(d->pal_info_to_use->edesc==0) {
 		de_dbg(c, "No palette in file. Using standard 256-color palette.\n");
 		for(i=0; i<256; i++) {
 			pal[i] = de_palette_vga256((int)i);
@@ -162,11 +163,11 @@ static int decode_vga256(deark *c, lctx *d)
 	}
 	else {
 		de_dbg(c, "Reading palette.\n");
-		dbuf_read(d->read_pal_from_me, tmpbuf, 17, 768);
 		for(k=0; k<256; k++) {
-			cr = de_palette_sample_6_to_8bit(tmpbuf[3*k+0]);
-			cg = de_palette_sample_6_to_8bit(tmpbuf[3*k+1]);
-			cb = de_palette_sample_6_to_8bit(tmpbuf[3*k+2]);
+			if(3*k+2 >= d->pal_info_to_use->esize) break;
+			cr = de_palette_sample_6_to_8bit(d->pal_info_to_use->data[3*k+0]);
+			cg = de_palette_sample_6_to_8bit(d->pal_info_to_use->data[3*k+1]);
+			cb = de_palette_sample_6_to_8bit(d->pal_info_to_use->data[3*k+2]);
 			pal[k] = DE_MAKE_RGB(cr, cg, cb);
 		}
 	}
@@ -228,21 +229,23 @@ static int decode_cga4(deark *c, lctx *d)
 	de_byte b;
 	de_int64 src_rowspan;
 	de_uint32 pal[4];
-	de_byte pal_id;
-	de_byte border_col;
+	de_byte pal_id = 0;
+	de_byte border_col = 0;
 
 	de_dbg(c, "CGA 4-color\n");
 
 	if(!d->unc_pixels) return 0;
 
-	if(d->edesc==1) {
+	if(d->pal_info_to_use->edesc==1) {
 		// Image includes information about which CGA 4-color palette it uses.
 
 		// This assumes PIC format. That should be the case, since edesc will
 		// be zero for CLP format (unless we are reading the palette from a separate
 		// PIC file).
-		pal_id = dbuf_getbyte(d->read_pal_from_me, 17);
-		border_col = dbuf_getbyte(d->read_pal_from_me, 18);
+		if(d->pal_info_to_use->esize >= 1)
+			pal_id = d->pal_info_to_use->data[0];
+		if(d->pal_info_to_use->esize >= 2)
+			border_col = d->pal_info_to_use->data[1];
 		de_dbg(c, "pal_id=0x%02x border=0x%02x\n", pal_id, border_col);
 
 		for(k=0; k<4; k++) {
@@ -369,6 +372,15 @@ done:
 	return retval;
 }
 
+static int do_read_palette_data(deark *c, lctx *d, dbuf *f, struct pal_info *palinfo)
+{
+	palinfo->edesc = dbuf_getui16le(f, 13);
+	palinfo->esize = dbuf_getui16le(f, 15);
+	palinfo->data = de_malloc(c, palinfo->esize);
+	dbuf_read(f, palinfo->data, 17, palinfo->esize);
+	return 1;
+}
+
 // Figure out if we're supposed to read the palette from an alternate file.
 // If so, open it and read a few fields from it. Modify settings so that
 // we will read the palette from the alternate file.
@@ -376,36 +388,43 @@ done:
 static int do_read_alt_palette_file(deark *c, lctx *d)
 {
 	const char *palfn;
+	dbuf *palfile = NULL;
+	int retval = 0;
 
 	palfn = de_get_ext_option(c, "palfile");
 	if(!palfn) palfn = de_get_ext_option(c, "file2");
-	if(!palfn) return 1;
+	if(!palfn) {
+		retval = 1;
+		goto done;
+	}
 
 	de_dbg(c, "reading palette file %s\n", palfn);
 
-	d->palfile = dbuf_open_input_file(c, palfn);
-	if(!d->palfile) {
-		return 0;
+	palfile = dbuf_open_input_file(c, palfn);
+	if(!palfile) {
+		goto done;
 	}
 
-	d->edesc_palfile = dbuf_getui16le(d->palfile, 13);
-	d->esize_palfile = dbuf_getui16le(d->palfile, 15);
+	do_read_palette_data(c, d, palfile, &d->pal_info_palfile);
 
-	if(d->edesc_palfile==0) {
+	if(d->pal_info_palfile.edesc==0) {
 		de_warn(c, "Palette file does not contain palette information.\n");
-		dbuf_close(d->palfile);
-		d->palfile = NULL;
-		return 1;
+		retval = 1;
+		goto done;
 	}
 
-	d->edesc = d->edesc_palfile;
-	d->read_pal_from_me = d->palfile;
-	return 1;
+	d->pal_info_to_use = &d->pal_info_palfile;
+	retval = 1;
+
+done:
+	dbuf_close(palfile);
+	return retval;
 }
 
 static void de_run_pcpaint_pic(deark *c, lctx *d, const char *params)
 {
 	int (*decoder_fn)(deark *c, lctx *d);
+	de_int64 edesc;
 
 	de_declare_fmt(c, "PCPaint PIC");
 
@@ -431,23 +450,22 @@ static void de_run_pcpaint_pic(deark *c, lctx *d, const char *params)
 	}
 
 	d->video_mode = de_getbyte(12);
-	d->edesc_orig = de_getui16le(13);
-	d->esize_orig = de_getui16le(15);
-	d->edesc = d->edesc_orig; // default
+	do_read_palette_data(c, d, c->infile, &d->pal_info_mainfile);
 
 	de_dbg(c, "video_mode: 0x%02x\n",(int)d->video_mode);
-	de_dbg(c, "edesc: %d\n",(int)d->edesc_orig);
-	de_dbg(c, "esize: %d\n",(int)d->esize_orig);
+	de_dbg(c, "edesc: %d\n",(int)d->pal_info_mainfile.edesc);
+	de_dbg(c, "esize: %d\n",(int)d->pal_info_mainfile.esize);
 
 	set_density(c, d);
 
-	// extra data may be at position 17 (if esize>0)
+	// extra data is at position 17 (if esize>0)
 
+	d->pal_info_to_use = &d->pal_info_mainfile; // tentative
 	if(!do_read_alt_palette_file(c, d)) goto done;
 
-	d->num_rle_blocks = de_getui16le(17+d->esize_orig);
+	d->num_rle_blocks = de_getui16le(17+d->pal_info_mainfile.esize);
 
-	d->header_size = 17 + d->esize_orig + 2;
+	d->header_size = 17 + d->pal_info_mainfile.esize + 2;
 
 	de_dbg(c, "rle blocks: %d\n", (int)d->num_rle_blocks);
 
@@ -456,31 +474,33 @@ static void de_run_pcpaint_pic(deark *c, lctx *d, const char *params)
 		goto done;
 	}
 
-	if(d->plane_info==0x01 && d->edesc==0) {
+	edesc = d->pal_info_to_use->edesc; // For brevity
+
+	if(d->plane_info==0x01 && edesc==0) {
 		// Expected video mode(s): 0x43, 0x45, 0x4f
 		// CGA or EGA or VGA 2-color
 		decoder_fn = decode_bilevel;
 	}
-	else if(d->plane_info==0x02 && (d->edesc==0 || d->edesc==1)) {
+	else if(d->plane_info==0x02 && (edesc==0 || edesc==1)) {
 		// Expected video mode(s): 0x41
 		decoder_fn = decode_cga4;
 	}
-	else if(d->plane_info==0x04 && d->edesc==3) {
+	else if(d->plane_info==0x04 && edesc==3) {
 		decoder_fn = decode_egavga16;
 	}
-	else if(d->plane_info==0x08 && (d->edesc==0 || d->edesc==4)) {
+	else if(d->plane_info==0x08 && (edesc==0 || edesc==4)) {
 		// Expected video mode(s): 0x4c
 		decoder_fn = decode_vga256;
 	}
 	else if((d->plane_info==0x04 || d->plane_info==0x31) &&
-		(d->edesc==0 || d->edesc==3 || d->edesc==5))
+		(edesc==0 || edesc==3 || edesc==5))
 	{
 		// Expected video mode(s): 0x4d, 0x47
 		decoder_fn = decode_egavga16;
 	}
 	else {
 		de_err(c, "This type of PCPaint PIC is not supported (evideo=0x%02x, bitsinf=0x%02x, edesc=%d)\n",
-			d->video_mode, d->plane_info, (int)d->edesc);
+			d->video_mode, d->plane_info, (int)edesc);
 		goto done;
 	}
 
@@ -544,10 +564,10 @@ static void de_run_pcpaint_clp(deark *c, lctx *d, const char *params)
 	// The colors probably won't be right, but we have no way to tell what palette
 	// is used by a CLP image.
 	d->video_mode = 0;
-	d->edesc_orig = 0;
-	d->edesc = 0;
-	d->esize_orig = 0;
+	d->pal_info_mainfile.edesc = 0;
+	d->pal_info_mainfile.esize = 0;
 
+	d->pal_info_to_use = &d->pal_info_mainfile; // tentative
 	if(!do_read_alt_palette_file(c, d)) goto done;
 
 	if(is_compressed) {
@@ -640,10 +660,6 @@ static void de_run_pcpaint(deark *c, const char *params)
 		}
 	}
 
-	// By default, read the palette from the main file. This may be overridden in
-	// do_read_palette_file().
-	d->read_pal_from_me = c->infile;
-
 	if(id==2) {
 		de_run_pcpaint_clp(c, d, params);
 	}
@@ -652,7 +668,6 @@ static void de_run_pcpaint(deark *c, const char *params)
 	}
 
 	if(d->unc_pixels) dbuf_close(d->unc_pixels);
-	if(d->palfile) dbuf_close(d->palfile);
 	de_bitmap_destroy(d->img);
 	de_free(c, d);
 }
