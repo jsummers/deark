@@ -12,19 +12,28 @@ struct pal_info {
 	de_byte *data;
 };
 
-typedef struct localctx_struct {
+struct localctx_struct;
+typedef struct localctx_struct lctx;
+
+typedef int (*decoder_fn_type)(deark *c, lctx *d);
+
+struct localctx_struct {
+#define FMT_PIC 1
+#define FMT_CLP 2
+	int file_fmt;
 	int ver;
 	struct deark_bitmap *img;
 	de_int64 header_size;
 	de_byte plane_info;
 	de_byte palette_flag;
-	de_byte video_mode;
+	de_byte video_mode; // 0 = unknown
 	struct pal_info pal_info_mainfile;
 	struct pal_info pal_info_palfile;
 	struct pal_info *pal_info_to_use; // Points to _mainfile or _palfile
 	de_int64 num_rle_blocks;
 	dbuf *unc_pixels;
-} lctx;
+	decoder_fn_type decoder_fn;
+};
 
 static void set_density(deark *c, lctx *d)
 {
@@ -390,6 +399,7 @@ static int do_read_alt_palette_file(deark *c, lctx *d)
 	const char *palfn;
 	dbuf *palfile = NULL;
 	int retval = 0;
+	de_int64 magic;
 
 	palfn = de_get_ext_option(c, "palfile");
 	if(!palfn) palfn = de_get_ext_option(c, "file2");
@@ -402,6 +412,12 @@ static int do_read_alt_palette_file(deark *c, lctx *d)
 
 	palfile = dbuf_open_input_file(c, palfn);
 	if(!palfile) {
+		goto done;
+	}
+
+	magic = dbuf_getui16le(palfile, 0);
+	if(magic!=0x1234) {
+		de_err(c, "Palette file is not in PIC format.\n");
 		goto done;
 	}
 
@@ -421,11 +437,56 @@ done:
 	return retval;
 }
 
-static void de_run_pcpaint_pic(deark *c, lctx *d, const char *params)
+// Determine if we can decode this type of image.
+// Sets d->decoder_fn.
+// If image can't be decoded, prints an error and returns 0.
+static int do_set_up_decoder(deark *c, lctx *d)
 {
-	int (*decoder_fn)(deark *c, lctx *d);
 	de_int64 edesc;
 
+	edesc = d->pal_info_to_use->edesc; // For brevity
+
+	if(d->video_mode>='0' && d->video_mode<='3') {
+		de_err(c, "Text mode PCPaint files are not supported\n");
+		return 0;
+	}
+
+	if(d->plane_info==0x01 && edesc==0) {
+		// Expected video mode(s): 0x43, 0x45, 0x4f
+		// CGA or EGA or VGA 2-color
+		d->decoder_fn = decode_bilevel;
+	}
+	else if(d->plane_info==0x02 && (edesc==0 || edesc==1)) {
+		// Expected video mode(s): 0x41
+		d->decoder_fn = decode_cga4;
+	}
+	else if(d->plane_info==0x04 && edesc==3) {
+		d->decoder_fn = decode_egavga16;
+	}
+	else if((d->plane_info==0x04 || d->plane_info==0x31) &&
+		(edesc==0 || edesc==3 || edesc==5))
+	{
+		// Expected video mode(s): 0x4d, 0x47
+		d->decoder_fn = decode_egavga16;
+	}
+	else if(d->plane_info==0x08 && (edesc==0 || edesc==4)) {
+		// Expected video mode(s): 0x4c
+		d->decoder_fn = decode_vga256;
+	}
+
+	if(d->decoder_fn) {
+		return 1;
+	}
+
+	de_err(c, "This type of PCPaint %s is not supported (evideo=0x%02x, bitsinf=0x%02x, edesc=%d)\n",
+		(d->file_fmt==FMT_CLP) ? "CLP" : "PIC",
+		d->video_mode, d->plane_info, (int)edesc);
+
+	return 0;
+}
+
+static void de_run_pcpaint_pic(deark *c, lctx *d, const char *params)
+{
 	de_declare_fmt(c, "PCPaint PIC");
 
 	d->img = de_bitmap_create_noinit(c);
@@ -458,8 +519,6 @@ static void de_run_pcpaint_pic(deark *c, lctx *d, const char *params)
 
 	set_density(c, d);
 
-	// extra data is at position 17 (if esize>0)
-
 	d->pal_info_to_use = &d->pal_info_mainfile; // tentative
 	if(!do_read_alt_palette_file(c, d)) goto done;
 
@@ -469,40 +528,7 @@ static void de_run_pcpaint_pic(deark *c, lctx *d, const char *params)
 
 	de_dbg(c, "rle blocks: %d\n", (int)d->num_rle_blocks);
 
-	if(d->video_mode>='0' && d->video_mode<='3') {
-		de_err(c, "Text mode PCPaint files are not supported\n");
-		goto done;
-	}
-
-	edesc = d->pal_info_to_use->edesc; // For brevity
-
-	if(d->plane_info==0x01 && edesc==0) {
-		// Expected video mode(s): 0x43, 0x45, 0x4f
-		// CGA or EGA or VGA 2-color
-		decoder_fn = decode_bilevel;
-	}
-	else if(d->plane_info==0x02 && (edesc==0 || edesc==1)) {
-		// Expected video mode(s): 0x41
-		decoder_fn = decode_cga4;
-	}
-	else if(d->plane_info==0x04 && edesc==3) {
-		decoder_fn = decode_egavga16;
-	}
-	else if(d->plane_info==0x08 && (edesc==0 || edesc==4)) {
-		// Expected video mode(s): 0x4c
-		decoder_fn = decode_vga256;
-	}
-	else if((d->plane_info==0x04 || d->plane_info==0x31) &&
-		(edesc==0 || edesc==3 || edesc==5))
-	{
-		// Expected video mode(s): 0x4d, 0x47
-		decoder_fn = decode_egavga16;
-	}
-	else {
-		de_err(c, "This type of PCPaint PIC is not supported (evideo=0x%02x, bitsinf=0x%02x, edesc=%d)\n",
-			d->video_mode, d->plane_info, (int)edesc);
-		goto done;
-	}
+	if(!do_set_up_decoder(c, d)) goto done;
 
 	if(d->num_rle_blocks>0) {
 		// Image is compressed.
@@ -514,7 +540,7 @@ static void de_run_pcpaint_pic(deark *c, lctx *d, const char *params)
 			c->infile->len-d->header_size);
 	}
 
-	decoder_fn(c, d);
+	d->decoder_fn(c, d);
 
 done:
 	;
@@ -570,6 +596,8 @@ static void de_run_pcpaint_clp(deark *c, lctx *d, const char *params)
 	d->pal_info_to_use = &d->pal_info_mainfile; // tentative
 	if(!do_read_alt_palette_file(c, d)) goto done;
 
+	if(!do_set_up_decoder(c, d)) goto done;
+
 	if(is_compressed) {
 		run_marker = de_getbyte(12);
 		d->unc_pixels = dbuf_create_membuf(c, 16384);
@@ -586,26 +614,7 @@ static void de_run_pcpaint_clp(deark *c, lctx *d, const char *params)
 		d->unc_pixels = dbuf_open_input_subfile(c->infile, 11, c->infile->len-11);
 	}
 
-	// Documentation says bit_depth is simply the number of bits per pixel, but I've seen
-	// files where it's 0x31, suggesting it uses "bitsinf"/"PlaneInfo" format.
-	switch(d->plane_info) {
-	case 1:
-		decode_bilevel(c, d);
-		break;
-	case 2:
-		decode_cga4(c, d);
-		break;
-	case 4:
-	case 0x31:
-		decode_egavga16(c, d);
-		break;
-	case 8:
-		decode_vga256(c, d);
-		break;
-	default:
-		de_err(c, "Unsupported bit depth (0x%02x)\n", (int)d->plane_info);
-		goto done;
-	}
+	d->decoder_fn(c, d);
 
 done:
 	;
@@ -615,7 +624,6 @@ done:
 static void de_run_pcpaint(deark *c, const char *params)
 {
 	// 0=unknown, 1=pic, 2=clp
-	int id = 0;
 	const char *pcpaintfmt;
 	de_byte buf[16];
 	lctx *d;
@@ -627,40 +635,40 @@ static void de_run_pcpaint(deark *c, const char *params)
 	pcpaintfmt = de_get_ext_option(c, "pcpaint:fmt");
 	if(pcpaintfmt) {
 		if(!de_strcmp(pcpaintfmt, "pic")) {
-			id = 1;
+			d->file_fmt = FMT_PIC;
 		}
 		else if(!de_strcmp(pcpaintfmt, "clp")) {
-			id = 2;
+			d->file_fmt = FMT_CLP;
 		}
 		else if(!de_strcmp(pcpaintfmt, "clip")) {
-			id = 2;
+			d->file_fmt = FMT_CLP;
 		}
 	}
 
-	if(!id) {
+	if(!d->file_fmt) {
 		// File subtype not given by user. Try to detect it.
 		de_read(buf, 0, 16);
 		if(buf[0]==0x34 && buf[1]==0x12) {
 			if(c->infile->len==0x1234) {
 				// Pathological case where both formats could start with 0x1234.
 				if(buf[10]==0xff) { // definitely a compressed CLP
-					id = 2;
+					d->file_fmt = FMT_CLP;
 				}
 				else {
 					de_warn(c, "Format can't be reliably identified. Try \"-opt pcpaint:fmt=clp\" if necessary.\n");
-					id = 1;
+					d->file_fmt = FMT_PIC;
 				}
 			}
 			else {
-				id = 1;
+				d->file_fmt = FMT_PIC;
 			}
 		}
 		else {
-			id = 2;
+			d->file_fmt = FMT_CLP;
 		}
 	}
 
-	if(id==2) {
+	if(d->file_fmt==FMT_CLP) {
 		de_run_pcpaint_clp(c, d, params);
 	}
 	else {
