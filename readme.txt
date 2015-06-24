@@ -26,9 +26,10 @@ Command-line options:
      Don't extract, but list the files that would be extracted.
   -a
      Also extract data that's usually useless.
-     Note that, as a rule, deark doesn't extract the same data twice. This
-     option can cause it to extract a large chunk of data, instead of drilling
-     down into it and extracting smaller chunks of data.
+     Note that, as a general rule, deark doesn't extract the same data twice.
+     The -a option can *prevent* it from extracting certain data, because it
+     may now, for example, extract a block of Exif data, instead of drilling
+     down and extracting the thumbnail image within it.
   -o <name>
      Output filenames begin with this string. This can include a directory
      path. Default="output".
@@ -40,14 +41,14 @@ Command-line options:
      Write output files to a .zip file.
   -arcfn <filename>
      Use this name for the .zip file. Default="output.zip".
-  -start <offset>
-     Ignore bytes before this position.
-  -size <size>
-     Look at only this many bytes.
+  -start <n>
+     Ignore bytes before offset <n>.
+  -size <n>
+     Look at only <n> bytes.
   -firstfile <n>
      Don't extract the first <n> files found.
   -maxfiles <n>
-     Extract at most this many files.
+     Extract at most <n> files.
   -get <n>
      Extract only the file identifed by <n>. The first file is 0.
   -nobom
@@ -89,10 +90,8 @@ Command-line options:
      Suppress warning messages.
   -q
      Suppress informational and warning messages.
-  -d
-     Debug mode.
-  -d2
-     Verbose debug mode.
+  -d, -d2, -d3
+     Print technical and debugging information. -d2 and -d3 are more verbose.
  
 === Terms of use ===
 
@@ -116,11 +115,10 @@ convert them to some portable font format, but this is difficult to do well.
 The Deark source code is structured like a library, but it's not intended to be
 used as such.
 
-Future versions might have some of the following features:
+Future versions might have more of the following features:
  - Extract files from floppy disk image formats
  - Decompress compressed data and archive formats
  - Detokenize tokenized BASIC programs
- - Convert bitmap font formats to some portable font format
  - Any image format supported by XnView, and not by any well-maintained open
    source software, is a candidate for being supported, no matter how obscure
    it may be.
@@ -139,7 +137,7 @@ My thanks to Rich Geldreich for the "miniz" library.
 
 === Authors ===
 
-Written by Jason Summers, 2014.
+Written by Jason Summers, 2014-2015.
 <http://entropymine.com/deark/>
 <https://github.com/jsummers/deark>
 
