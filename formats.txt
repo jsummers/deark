@@ -79,7 +79,8 @@ Deark -- Information about supported formats
   - Supports preview images in EPSI format (1-, 2-, 4-, 8-bit grayscale)
 
 * GEM VDI Bit Image (GEM Raster) (module="gemras")
-  - Bilevel images only
+  - Supports original bilevel format
+  - Supports paletted XIMG format
 
 * GRASP GL animation (module="graspgl")
   - Extracts all files.
