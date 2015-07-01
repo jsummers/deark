@@ -32,7 +32,7 @@ static unsigned int map_pal(de_int64 bpp, unsigned int v)
 	switch(v) {
 		case 1: return 2;
 		case 2: return 3;
-		case 3: return 6;
+		case 3: return bpp>2 ? 6 : 1;
 		case 5: return 7;
 		case 6: return 5;
 		case 7: return 8;
@@ -93,6 +93,10 @@ static void do_image(deark *c, lctx *d, dbuf *unc_pixels)
 					if(d->bits_per_pixel==1) {
 						b = de_get_bits_symbol(unc_pixels, 1, j*rowspan, i);
 					}
+					else if(d->bits_per_pixel==2) {
+						b = de_get_bits_symbol(unc_pixels, 1,
+							j*rowspan + 2*plane + (i/16)*2, i);
+					}
 					else if(d->bits_per_pixel==4) {
 						b = de_get_bits_symbol(unc_pixels, 1,
 							j*rowspan + 2*plane + (i/2-(i/2)%16)+8*((i%32)/16), i%16);
@@ -142,7 +146,9 @@ static void de_run_prismpaint(deark *c, const char *params)
 
 	do_read_palette(c, d);
 
-	if(d->bits_per_pixel!=1 && d->bits_per_pixel!=4 && d->bits_per_pixel!=8) {
+	if(d->bits_per_pixel!=1 && d->bits_per_pixel!=2 && d->bits_per_pixel!=4
+		&& d->bits_per_pixel!=8)
+	{
 		de_err(c, "Unsupported bits/pixel (%d)\n", (int)d->bits_per_pixel);
 		goto done;
 	}
