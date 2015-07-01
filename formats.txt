@@ -209,7 +209,7 @@ Deark -- Information about supported formats
    -opt namefile=<file.nam> - Use this "name" file
 
 * Prism Paint (module="prismpaint")
-  - Supports 1-, 2-, 4- and 8-bits per pixel
+  - Supports 1-, 2-, 4-, 8-, and 16-bits per pixel
 
 * PSD (PhotoShop) (module="psd")
   - Extract data from "Photoshop resources"

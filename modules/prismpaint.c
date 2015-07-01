@@ -75,13 +75,24 @@ static void do_image(deark *c, lctx *d, dbuf *unc_pixels)
 	de_int64 plane;
 	de_int64 rowspan;
 	de_byte b;
-	unsigned int v;
+	de_uint32 v;
 	de_int64 planespan;
 
 	img = de_bitmap_create(c, d->width, d->height, 3);
 
 	planespan = 2*((d->width+15)/16);
 	rowspan = planespan*d->bits_per_pixel;
+
+	if(d->bits_per_pixel==16) {
+		for(j=0; j<d->height; j++) {
+			for(i=0; i<d->width; i++) {
+				v = (de_uint32)dbuf_getui16be(unc_pixels, j*rowspan + 2*i);
+				v = de_rgb565_to_888(v);
+				de_bitmap_setpixel_rgb(img, i, j,v);
+			}
+		}
+		goto done_ok;
+	}
 
 	for(j=0; j<d->height; j++) {
 		for(i=0; i<d->width; i++) {
@@ -101,7 +112,7 @@ static void do_image(deark *c, lctx *d, dbuf *unc_pixels)
 						b = de_get_bits_symbol(unc_pixels, 1,
 							j*rowspan + 2*plane + (i/2-(i/2)%16)+8*((i%32)/16), i%16);
 					}
-					else {
+					else { // 8
 						b = de_get_bits_symbol(unc_pixels, 1,
 							j*rowspan + 2*plane + (i-i%16), i%16);
 					}
@@ -117,6 +128,7 @@ static void do_image(deark *c, lctx *d, dbuf *unc_pixels)
 		}
 	}
 
+done_ok:
 	de_bitmap_write_to_file(img, NULL);
 	de_bitmap_destroy(img);
 }
@@ -147,7 +159,7 @@ static void de_run_prismpaint(deark *c, const char *params)
 	do_read_palette(c, d);
 
 	if(d->bits_per_pixel!=1 && d->bits_per_pixel!=2 && d->bits_per_pixel!=4
-		&& d->bits_per_pixel!=8)
+		&& d->bits_per_pixel!=8 && d->bits_per_pixel!=16)
 	{
 		de_err(c, "Unsupported bits/pixel (%d)\n", (int)d->bits_per_pixel);
 		goto done;
@@ -155,6 +167,9 @@ static void de_run_prismpaint(deark *c, const char *params)
 	if(d->compression!=0 && d->compression!=1) {
 		de_err(c, "Unsupported compression (%d)\n", (int)d->compression);
 		goto done;
+	}
+	if(d->bits_per_pixel==16 && d->compression!=0) {
+		de_warn(c, "Compressed 16-bit image support is untested, and may not work.\n");
 	}
 
 	pixels_start = 128 + 2*3*d->pal_size;
