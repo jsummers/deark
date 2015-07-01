@@ -307,11 +307,8 @@ static int de_identify_gemraster(deark *c)
 		return 0;
 	}
 	if(ver==1 && x2==0x08) return 70;
-	if(x2>=0x3b) {
-		if(!dbuf_memcmp(c->infile, 16, "XIMG", 4)) {
-			if(x2==0x3b) return 100;
-			return 70;
-		}
+	if(!dbuf_memcmp(c->infile, 16, "XIMG", 4)) {
+		return 100;
 	}
 	if(ver!=1) return 0;
 	return 10;
