@@ -6,7 +6,7 @@
 #include "deark.h"
 
 #define DE_MAX_FILE_SIZE 100000000
-#define DE_MAX_IMAGE_DIMENSION 10000
+#define DE_DEFAULT_MAX_IMAGE_DIMENSION 10000
 #define DE_MAX_IMAGES_PER_FILE 10000
 
 #define DE_ENCODING_ASCII   0
@@ -98,6 +98,7 @@ struct deark_bitmap {
 	deark *c;
 	de_int64 width;
 	de_int64 height;
+	int invalid_image_flag;
 	int bytes_per_pixel;
 	int flipped;
 	de_byte *bitmap;
@@ -157,6 +158,7 @@ struct deark_struct {
 	int list_mode;
 	int first_output_file; // first file = 0
 	int max_output_files; // -1 = no limit
+	de_int64 max_image_dimension;
 	int show_messages;
 	int show_warnings;
 	int dbg_indent_amount;

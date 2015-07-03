@@ -250,6 +250,7 @@ deark *de_create(void)
 	c->filenames_from_file = 1;
 	c->preserve_file_times = 0;
 	c->max_output_files = -1;
+	c->max_image_dimension = DE_DEFAULT_MAX_IMAGE_DIMENSION;
 	return c;
 }
 
@@ -349,6 +350,11 @@ void de_set_first_output_file(deark *c, int x)
 void de_set_max_output_files(deark *c, int n)
 {
 	c->max_output_files = n;
+}
+
+void de_set_max_image_dimension(deark *c, de_int64 n)
+{
+	c->max_image_dimension = n;
 }
 
 void de_set_messages(deark *c, int x)

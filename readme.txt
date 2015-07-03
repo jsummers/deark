@@ -49,6 +49,8 @@ Command-line options:
      Don't extract the first <n> files found.
   -maxfiles <n>
      Extract at most <n> files.
+  -maxdim <n>
+     Allow image dimensions up to <n> pixels.
   -get <n>
      Extract only the file identifed by <n>. The first file is 0.
   -nobom

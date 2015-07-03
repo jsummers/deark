@@ -112,6 +112,9 @@ int de_write_png(deark *c, struct deark_bitmap *img, dbuf *f)
 	mz_uint32 xdens=0;
 	mz_uint32 ydens=0;
 
+	if(img->invalid_image_flag) {
+		return 0;
+	}
 	if(!de_good_image_dimensions(c, img->width, img->height)) {
 		return 0;
 	}

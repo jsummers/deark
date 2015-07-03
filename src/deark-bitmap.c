@@ -10,7 +10,7 @@
 
 int de_good_image_dimensions_noerr(deark *c, de_int64 w, de_int64 h)
 {
-	if(w<1 || h<1 || w>DE_MAX_IMAGE_DIMENSION || h>DE_MAX_IMAGE_DIMENSION) {
+	if(w<1 || h<1 || w>c->max_image_dimension || h>c->max_image_dimension) {
 		return 0;
 	}
 	return 1;
@@ -33,6 +33,10 @@ static void de_bitmap_alloc_pixels(struct deark_bitmap *img)
 	}
 
 	if(!de_good_image_dimensions(img->c, img->width, img->height)) {
+		// This function is not allowed to fail. If something goes wrong, create
+		// a dummy image, and set invalid_image_flag.
+		img->invalid_image_flag = 1;
+
 		img->width = 1;
 		img->height = 1;
 	}
@@ -47,6 +51,7 @@ void de_bitmap_write_to_file(struct deark_bitmap *img, const char *token)
 	char buf[80];
 
 	if(!img) return;
+	if(img->invalid_image_flag) return;
 
 	if(token==NULL || token[0]=='\0') {
 		de_strlcpy(buf, "png", sizeof(buf));
