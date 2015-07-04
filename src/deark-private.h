@@ -432,6 +432,8 @@ int de_good_image_dimensions_noerr(deark *c, de_int64 w, de_int64 h);
 // Test if the image dimensions are valid and supported. Report an error if not.
 int de_good_image_dimensions(deark *c, de_int64 w, de_int64 h);
 
+int de_is_grayscale_palette(const de_uint32 *pal, de_int64 num_entries);
+
 ///////////////////////////////////////////
 
 char de_get_hexchar(int n);

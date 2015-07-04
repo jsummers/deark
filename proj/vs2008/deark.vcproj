@@ -462,6 +462,10 @@
 				>
 			</File>
 			<File
+				RelativePath="..\..\modules\atari-img.c"
+				>
+			</File>
+			<File
 				RelativePath="..\..\modules\atari.c"
 				>
 			</File>

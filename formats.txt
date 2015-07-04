@@ -68,6 +68,9 @@ Deark -- Information about supported formats
   Multi-image PCX format.
   - Extracts individual PCX files.
 
+* DEGAS and DEGAS Elite (module="degas") (experimental)
+  - Supports uncompressed images only (.pi?)
+
 * EPOC MBM/Sketch/AIF (module="epocimage")
   - Supports grayscale with 2 or 4 bits/pixel
   - Supports palette color with 4 or 8 bits/pixel

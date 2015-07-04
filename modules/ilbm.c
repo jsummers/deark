@@ -297,19 +297,6 @@ done:
 	de_free(c, row_deplanarized);
 }
 
-static int is_grayscale_palette(const de_uint32 *pal, de_int64 num_entries)
-{
-	de_int64 k;
-	de_byte cr;
-
-	for(k=0; k<num_entries; k++) {
-		cr = DE_COLOR_R(pal[k]);
-		if(cr != DE_COLOR_G(pal[k])) return 0;
-		if(cr != DE_COLOR_B(pal[k])) return 0;
-	}
-	return 1;
-}
-
 static void make_ehb_palette(deark *c, lctx *d)
 {
 	de_int64 k;
@@ -446,7 +433,7 @@ static void do_image_1to8(deark *c, lctx *d, dbuf *unc_pixels, const char *token
 	row_orig = de_malloc(c, d->rowspan);
 	row_deplanarized = de_malloc(c, d->width);
 
-	if(!d->is_ham6 && !d->is_ham8 && is_grayscale_palette(d->pal, 256))
+	if(!d->is_ham6 && !d->is_ham8 && de_is_grayscale_palette(d->pal, 256))
 		dst_bytes_per_pixel = 1;
 	else
 		dst_bytes_per_pixel = 3;

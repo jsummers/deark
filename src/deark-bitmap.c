@@ -26,6 +26,19 @@ int de_good_image_dimensions(deark *c, de_int64 w, de_int64 h)
 	return 1;
 }
 
+int de_is_grayscale_palette(const de_uint32 *pal, de_int64 num_entries)
+{
+	de_int64 k;
+	de_byte cr;
+
+	for(k=0; k<num_entries; k++) {
+		cr = DE_COLOR_R(pal[k]);
+		if(cr != DE_COLOR_G(pal[k])) return 0;
+		if(cr != DE_COLOR_B(pal[k])) return 0;
+	}
+	return 1;
+}
+
 static void de_bitmap_alloc_pixels(struct deark_bitmap *img)
 {
 	if(img->bitmap) {
