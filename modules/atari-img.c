@@ -121,6 +121,33 @@ static int decode_hires(deark *c, lctx *d)
 	return 1;
 }
 
+static void do_anim_fields(deark *c, lctx *d, de_int64 pos)
+{
+	de_int64 i;
+	de_int64 n;
+
+	for(i=0; i<4; i++) {
+		n = de_getui16be(pos + 2*i);
+		de_dbg2(c, "left_color_anim[%d] = %d\n", (int)i, (int)n);
+	}
+	for(i=0; i<4; i++) {
+		n = de_getui16be(pos + 8 + 2*i);
+		de_dbg2(c, "right_color_anim[%d] = %d\n", (int)i, (int)n);
+	}
+	for(i=0; i<4; i++) {
+		n = de_getui16be(pos + 16 + 2*i);
+		de_dbg2(c, "channel_direction[%d] = %d\n", (int)i, (int)n);
+	}
+	for(i=0; i<4; i++) {
+		n = de_getui16be(pos + 24 + 2*i);
+		de_dbg2(c, "channel_delay_code[%d] = %d\n", (int)i, (int)n);
+	}
+
+	// TODO: Can we determine if palette animation is actually used,
+	// and only show the warning if it is?
+	de_warn(c, "This image may use palette color animation, which is not supported.\n");
+}
+
 static void de_run_degas(deark *c, const char *params)
 {
 	lctx *d = NULL;
@@ -129,6 +156,7 @@ static void de_run_degas(deark *c, const char *params)
 	unsigned int format_code, resolution_code;
 	int is_grayscale;
 	double xdens, ydens;
+	de_int64 cmpr_bytes_consumed = 0;
 
 	d = de_malloc(c, sizeof(lctx));
 
@@ -181,20 +209,28 @@ static void de_run_degas(deark *c, const char *params)
 
 	if(d->compression_code) {
 		d->unc_pixels = dbuf_create_membuf(c, 32000);
+		dbuf_set_max_length(d->unc_pixels, 32000);
+
 		// TODO: Need to track how many compressed bytes are consumed, so we can locate the
 		// fields following the compressed data.
-		if(!de_fmtutil_uncompress_packbits(c->infile, pos, c->infile->len-pos, d->unc_pixels))
+		if(!de_fmtutil_uncompress_packbits(c->infile, pos, c->infile->len-pos, d->unc_pixels, &cmpr_bytes_consumed))
 			goto done;
+
+		de_dbg(c, "Compressed bytes found: %d\n", (int)cmpr_bytes_consumed);
+		pos += cmpr_bytes_consumed;
 	}
 	else {
-		d->unc_pixels = dbuf_open_input_subfile(c->infile, pos, 32000);
-		pos += 32000;
+		de_int64 avail_bytes = 32000;
+		if(pos+32000 > c->infile->len) {
+			avail_bytes = c->infile->len - pos;
+			de_warn(c, "Unexpected end of file (expected 32000 bytes, got %d)\n", (int)avail_bytes);
+		}
+		d->unc_pixels = dbuf_open_input_subfile(c->infile, pos, avail_bytes);
+		pos += avail_bytes;
 	}
 
 	if(pos + 32 == c->infile->len) {
-		// TODO: Can we determine if palette animation is actually used,
-		// and only show the warning if it is?
-		de_warn(c, "This image may use palette color animation, which is not supported.\n");
+		do_anim_fields(c, d, pos);
 	}
 
 	is_grayscale = de_is_grayscale_palette(d->pal, d->ncolors);

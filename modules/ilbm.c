@@ -571,7 +571,7 @@ static void do_image(deark *c, lctx *d, de_int64 pos1, de_int64 len, const char 
 		unc_pixels_toclose = dbuf_create_membuf(c, 0);
 		unc_pixels = unc_pixels_toclose;
 		// TODO: Call dbuf_set_max_length()
-		if(!de_fmtutil_uncompress_packbits(c->infile, pos1, len, unc_pixels))
+		if(!de_fmtutil_uncompress_packbits(c->infile, pos1, len, unc_pixels, NULL))
 			goto done;
 		de_dbg(c, "decompressed %d bytes to %d bytes\n", (int)len, (int)unc_pixels->len);
 	}

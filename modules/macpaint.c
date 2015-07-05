@@ -31,7 +31,7 @@ static void do_read_bitmap(deark *c, lctx *d, de_int64 pos)
 	unc_pixels = dbuf_create_membuf(c, MACPAINT_IMAGE_BYTES);
 	dbuf_set_max_length(unc_pixels, MACPAINT_IMAGE_BYTES);
 
-	de_fmtutil_uncompress_packbits(c->infile, pos, c->infile->len - pos, unc_pixels);
+	de_fmtutil_uncompress_packbits(c->infile, pos, c->infile->len - pos, unc_pixels, NULL);
 
 	if(unc_pixels->len < MACPAINT_IMAGE_BYTES) {
 		de_warn(c, "Image decompressed to %d bytes, expected %d.\n",

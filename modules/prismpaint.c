@@ -185,7 +185,7 @@ static void de_run_prismpaint(deark *c, const char *params)
 		unc_pixels = dbuf_create_membuf(c, d->width*d->height);
 		//dbuf_set_max_length(unc_pixels, ...);
 
-		de_fmtutil_uncompress_packbits(c->infile, pixels_start, c->infile->len - pixels_start, unc_pixels);
+		de_fmtutil_uncompress_packbits(c->infile, pixels_start, c->infile->len - pixels_start, unc_pixels, NULL);
 		de_dbg(c, "uncompressed to %d bytes\n", (int)unc_pixels->len);
 	}
 

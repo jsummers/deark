@@ -159,17 +159,22 @@ void de_fmtutil_handle_photoshop_rsrc(deark *c, de_int64 pos, de_int64 len)
 
 // Returns 0 on failure (currently impossible).
 int de_fmtutil_uncompress_packbits(dbuf *f, de_int64 pos1, de_int64 len,
-	dbuf *unc_pixels)
+	dbuf *unc_pixels, de_int64 *cmpr_bytes_consumed)
 {
 	de_int64 pos;
 	de_byte b, b2;
 	de_int64 count;
 	de_int64 endpos;
+	de_int64 bytes_consumed = 0;
 
 	pos = pos1;
 	endpos = pos1+len;
 
 	while(1) {
+		if(unc_pixels->max_len>0 && unc_pixels->len>=unc_pixels->max_len) {
+			break; // Decompressed the requested amount of dst data.
+		}
+
 		if(pos>=endpos) {
 			break; // Reached the end of source data
 		}
@@ -191,5 +196,6 @@ int de_fmtutil_uncompress_packbits(dbuf *f, de_int64 pos1, de_int64 len,
 		// tell us what to do when code 128 is encountered.
 	}
 
+	if(cmpr_bytes_consumed) *cmpr_bytes_consumed = pos - pos1;
 	return 1;
 }
