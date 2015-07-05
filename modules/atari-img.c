@@ -7,20 +7,21 @@
 #include <deark-modules.h>
 #include "fmtutil.h"
 
-struct localctx_struct;
-typedef struct localctx_struct lctx;
-
-typedef int (*decoder_fn_type)(deark *c, lctx *d);
-
-struct localctx_struct {
-	dbuf *unc_pixels;
-	unsigned int compression_code;
+struct atari_img_decode_data {
 	de_int64 bpp;
 	de_int64 w, h;
 	de_int64 ncolors;
-	de_uint32 pal[16];
+	dbuf *unc_pixels;
+	int was_compressed;
+	de_uint32 *pal;
 	struct deark_bitmap *img;
 };
+
+typedef struct localctx_struct {
+	unsigned int compression_code;
+	de_uint32 pal[16];
+	struct atari_img_decode_data adata;
+} lctx;
 
 static de_byte scale7to255(de_byte n)
 {
@@ -45,80 +46,93 @@ static void read_palette(deark *c, lctx *d, de_int64 pos)
 		de_dbg2(c, "pal[%2d] = 0x%04x (%d,%d,%d) -> (%3d,%3d,%3d)%s\n", (int)i, n,
 			(int)cr1, (int)cg1, (int)cb1,
 			(int)cr, (int)cg, (int)cb,
-			(i>=d->ncolors)?" [unused]":"");
+			(i>=d->adata.ncolors)?" [unused]":"");
 
 		d->pal[i] = DE_MAKE_RGB(cr, cg, cb);
 		pos+=2;
 	}
 }
 
-static int decode_lowres(deark *c, lctx *d)
+static int decode_lowres(deark *c, struct atari_img_decode_data *adata)
 {
 	de_int64 i, j, k;
 	unsigned int palent;
 	unsigned int x;
 
-	for(j=0; j<d->h; j++) {
-		for(i=0; i<d->w; i++) {
+	for(j=0; j<adata->h; j++) {
+		for(i=0; i<adata->w; i++) {
 			palent = 0;
-			for(k=0; k<d->bpp; k++) {
-				if(d->compression_code) {
-					x = (unsigned int)de_get_bits_symbol(d->unc_pixels, 1,
-						(j*d->bpp+k)*(d->w/8), i);
+			for(k=0; k<adata->bpp; k++) {
+				if(adata->was_compressed) {
+					x = (unsigned int)de_get_bits_symbol(adata->unc_pixels, 1,
+						(j*adata->bpp+k)*(adata->w/8), i);
 				}
 				else {
-					x = (unsigned int)de_get_bits_symbol(d->unc_pixels, 1,
-						j*(d->w/2) + 2*k + (i/2-(i/2)%16)+8*((i%32)/16), i%16);
+					x = (unsigned int)de_get_bits_symbol(adata->unc_pixels, 1,
+						j*(adata->w/2) + 2*k + (i/2-(i/2)%16)+8*((i%32)/16), i%16);
 				}
 				if(x) palent |= 1<<k;
 			}
-			de_bitmap_setpixel_rgb(d->img, i, j, d->pal[palent]);
+			de_bitmap_setpixel_rgb(adata->img, i, j, adata->pal[palent]);
 		}
 	}
 	return 1;
 }
 
-static int decode_medres(deark *c, lctx *d)
+static int decode_medres(deark *c, struct atari_img_decode_data *adata)
 {
 	de_int64 i, j, k;
 	unsigned int palent;
 	unsigned int x;
 
-	for(j=0; j<d->h; j++) {
-		for(i=0; i<d->w; i++) {
+	for(j=0; j<adata->h; j++) {
+		for(i=0; i<adata->w; i++) {
 			palent = 0;
-			for(k=0; k<d->bpp; k++) {
-				if(d->compression_code) {
-					x = (unsigned int)de_get_bits_symbol(d->unc_pixels, 1,
-						(j*d->bpp+k)*(d->w/8), i);
+			for(k=0; k<adata->bpp; k++) {
+				if(adata->was_compressed) {
+					x = (unsigned int)de_get_bits_symbol(adata->unc_pixels, 1,
+						(j*adata->bpp+k)*(adata->w/8), i);
 				}
 				else {
-					x = (unsigned int)de_get_bits_symbol(d->unc_pixels, 1,
-						j*(d->w/4) + 2*k + (i/16)*2, i);
+					x = (unsigned int)de_get_bits_symbol(adata->unc_pixels, 1,
+						j*(adata->w/4) + 2*k + (i/16)*2, i);
 				}
 				if(x) palent |= 1<<k;
 			}
-			de_bitmap_setpixel_rgb(d->img, i, j, d->pal[palent]);
+			de_bitmap_setpixel_rgb(adata->img, i, j, adata->pal[palent]);
 		}
 	}
 	return 1;
 }
 
-static int decode_hires(deark *c, lctx *d)
+static int decode_hires(deark *c, struct atari_img_decode_data *adata)
 {
 	de_int64 i, j;
 	unsigned int palent;
 	de_int64 rowspan;
 
-	rowspan = d->w/8;
+	rowspan = adata->w/8;
 
-	for(j=0; j<d->h; j++) {
-		for(i=0; i<d->w; i++) {
-			palent = (unsigned int)de_get_bits_symbol(d->unc_pixels, 1, j*rowspan, i);
-			de_bitmap_setpixel_rgb(d->img, i, j, d->pal[palent]);
+	for(j=0; j<adata->h; j++) {
+		for(i=0; i<adata->w; i++) {
+			palent = (unsigned int)de_get_bits_symbol(adata->unc_pixels, 1, j*rowspan, i);
+			de_bitmap_setpixel_rgb(adata->img, i, j, adata->pal[palent]);
 		}
 	}
 	return 1;
+}
+
+static int de_decode_atari_image(deark *c, struct atari_img_decode_data *adata)
+{
+	switch(adata->bpp) {
+	case 4:
+		return decode_lowres(c, adata);
+	case 2:
+		return decode_medres(c, adata);
+	case 1:
+		return decode_hires(c, adata);
+	}
+	return 0;
 }
 
 static void do_anim_fields(deark *c, lctx *d, de_int64 pos)
@@ -152,13 +166,15 @@ static void de_run_degas(deark *c, const char *params)
 {
 	lctx *d = NULL;
 	de_int64 pos;
-	decoder_fn_type decoder_fn = NULL;
+	//decoder_fn_type decoder_fn = NULL;
 	unsigned int format_code, resolution_code;
 	int is_grayscale;
 	double xdens, ydens;
 	de_int64 cmpr_bytes_consumed = 0;
 
 	d = de_malloc(c, sizeof(lctx));
+
+	d->adata.pal = d->pal;
 
 	pos = 0;
 	format_code = (unsigned int)de_getui16be(pos);
@@ -173,47 +189,45 @@ static void de_run_degas(deark *c, const char *params)
 
 	switch(resolution_code) {
 	case 0:
-		d->bpp = 4;
-		d->w = 320;
-		d->h = 200;
+		d->adata.bpp = 4;
+		d->adata.w = 320;
+		d->adata.h = 200;
 		xdens = 240.0;
 		ydens = 200.0;
-		decoder_fn = decode_lowres;
 		break;
 	case 1:
-		d->bpp = 2;
-		d->w = 640;
-		d->h = 200;
+		d->adata.bpp = 2;
+		d->adata.w = 640;
+		d->adata.h = 200;
 		xdens = 480.0;
 		ydens = 200.0;
-		decoder_fn = decode_medres;
 		break;
 	case 2:
-		d->bpp = 1;
-		d->w = 640;
-		d->h = 400;
+		d->adata.bpp = 1;
+		d->adata.w = 640;
+		d->adata.h = 400;
 		xdens = 480.0;
 		ydens = 400.0;
-		decoder_fn = decode_hires;
 		break;
 	default:
 		de_dbg(c, "Invalid or unsupported resolution (%u)\n", resolution_code);
 		goto done;
 	}
-	d->ncolors = (de_int64)(1<<d->bpp);
+	d->adata.ncolors = (de_int64)(1<<d->adata.bpp);
 
-	de_dbg(c, "dimensions: %dx%d, colors: %d\n", (int)d->w, (int)d->h, (int)d->ncolors);
+	de_dbg(c, "dimensions: %dx%d, colors: %d\n", (int)d->adata.w, (int)d->adata.h, (int)d->adata.ncolors);
 
 	read_palette(c, d, pos);
 	pos += 2*16;
 
 	if(d->compression_code) {
-		d->unc_pixels = dbuf_create_membuf(c, 32000);
-		dbuf_set_max_length(d->unc_pixels, 32000);
+		d->adata.was_compressed = 1;
+		d->adata.unc_pixels = dbuf_create_membuf(c, 32000);
+		dbuf_set_max_length(d->adata.unc_pixels, 32000);
 
 		// TODO: Need to track how many compressed bytes are consumed, so we can locate the
 		// fields following the compressed data.
-		if(!de_fmtutil_uncompress_packbits(c->infile, pos, c->infile->len-pos, d->unc_pixels, &cmpr_bytes_consumed))
+		if(!de_fmtutil_uncompress_packbits(c->infile, pos, c->infile->len-pos, d->adata.unc_pixels, &cmpr_bytes_consumed))
 			goto done;
 
 		de_dbg(c, "Compressed bytes found: %d\n", (int)cmpr_bytes_consumed);
@@ -225,7 +239,7 @@ static void de_run_degas(deark *c, const char *params)
 			avail_bytes = c->infile->len - pos;
 			de_warn(c, "Unexpected end of file (expected 32000 bytes, got %d)\n", (int)avail_bytes);
 		}
-		d->unc_pixels = dbuf_open_input_subfile(c->infile, pos, avail_bytes);
+		d->adata.unc_pixels = dbuf_open_input_subfile(c->infile, pos, avail_bytes);
 		pos += avail_bytes;
 	}
 
@@ -233,22 +247,22 @@ static void de_run_degas(deark *c, const char *params)
 		do_anim_fields(c, d, pos);
 	}
 
-	is_grayscale = de_is_grayscale_palette(d->pal, d->ncolors);
+	is_grayscale = de_is_grayscale_palette(d->pal, d->adata.ncolors);
 
 	// TODO: Create a grayscale bitmap if all colors are black or white.
-	d->img = de_bitmap_create(c, d->w, d->h, is_grayscale?1:3);
+	d->adata.img = de_bitmap_create(c, d->adata.w, d->adata.h, is_grayscale?1:3);
 
-	d->img->density_code = DE_DENSITY_UNK_UNITS;
-	d->img->xdens = xdens;
-	d->img->ydens = ydens;
+	d->adata.img->density_code = DE_DENSITY_UNK_UNITS;
+	d->adata.img->xdens = xdens;
+	d->adata.img->ydens = ydens;
 
-	decoder_fn(c, d);
+	de_decode_atari_image(c, &d->adata);
 
-	de_bitmap_write_to_file(d->img, NULL);
+	de_bitmap_write_to_file(d->adata.img, NULL);
 
 done:
-	if(d->unc_pixels) dbuf_close(d->unc_pixels);
-	de_bitmap_destroy(d->img);
+	if(d->adata.unc_pixels) dbuf_close(d->adata.unc_pixels);
+	de_bitmap_destroy(d->adata.img);
 	de_free(c, d);
 }
 
