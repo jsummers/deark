@@ -53,6 +53,9 @@ static void do_read_palette(deark *c, lctx *d)
 	de_int64 i;
 	de_int64 r1, g1, b1;
 	de_byte r, g, b;
+	de_uint32 pal1[256];
+
+	de_memset(pal1, 0, sizeof(pal1));
 
 	for(i=0; i<d->pal_size; i++) {
 		r1 = de_getui16be(128+6*i+0);
@@ -64,7 +67,11 @@ static void do_read_palette(deark *c, lctx *d)
 		de_dbg2(c, "pal#%3d (%5d,%5d,%5d) (%3d,%3d,%3d)\n", (int)i, (int)r1, (int)g1, (int)b1,
 			(int)r, (int)g, (int)b);
 		if(i>255) continue;
-		d->pal[i] = DE_MAKE_RGB(r,g,b); 
+		pal1[i] = DE_MAKE_RGB(r,g,b);
+	}
+
+	for(i=0; i<d->pal_size; i++) {
+		d->pal[i] = pal1[map_pal(d->bits_per_pixel, (unsigned int)i)];
 	}
 }
 
@@ -124,7 +131,7 @@ static void do_image(deark *c, lctx *d, dbuf *unc_pixels)
 			}
 
 			if(v>255) v=255;
-			de_bitmap_setpixel_rgb(img, i, j, d->pal[map_pal(d->bits_per_pixel, v)]);
+			de_bitmap_setpixel_rgb(img, i, j, d->pal[v]);
 		}
 	}
 
