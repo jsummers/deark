@@ -5,14 +5,22 @@
 
 #include <deark-config.h>
 #include <deark-modules.h>
+#include "fmtutil.h"
 
-typedef struct localctx_struct {
+struct localctx_struct;
+typedef struct localctx_struct lctx;
+
+typedef int (*decoder_fn_type)(deark *c, lctx *d);
+
+struct localctx_struct {
 	dbuf *unc_pixels;
+	unsigned int compression_code;
 	de_int64 bpp;
 	de_int64 w, h;
 	de_int64 ncolors;
 	de_uint32 pal[16];
-} lctx;
+	struct deark_bitmap *img;
+};
 
 static de_byte scale7to255(de_byte n)
 {
@@ -44,79 +52,83 @@ static void read_palette(deark *c, lctx *d, de_int64 pos)
 	}
 }
 
-static void do_lowres(deark *c, lctx *d, struct deark_bitmap *img)
+static int decode_lowres(deark *c, lctx *d)
 {
 	de_int64 i, j, k;
 	unsigned int palent;
 	unsigned int x;
 
-	img->density_code = DE_DENSITY_UNK_UNITS;
-	img->xdens = 240.0;
-	img->ydens = 200.0;
-
 	for(j=0; j<d->h; j++) {
 		for(i=0; i<d->w; i++) {
 			palent = 0;
-			for(k=0; k<4; k++) {
-				x = (unsigned int)de_get_bits_symbol(d->unc_pixels, 1,
-					j*(d->w/2) + 2*k + (i/2-(i/2)%16)+8*((i%32)/16), i%16);
+			for(k=0; k<d->bpp; k++) {
+				if(d->compression_code) {
+					x = (unsigned int)de_get_bits_symbol(d->unc_pixels, 1,
+						(j*d->bpp+k)*(d->w/8), i);
+				}
+				else {
+					x = (unsigned int)de_get_bits_symbol(d->unc_pixels, 1,
+						j*(d->w/2) + 2*k + (i/2-(i/2)%16)+8*((i%32)/16), i%16);
+				}
 				if(x) palent |= 1<<k;
 			}
-			de_bitmap_setpixel_rgb(img, i, j, d->pal[palent]);
+			de_bitmap_setpixel_rgb(d->img, i, j, d->pal[palent]);
 		}
 	}
+	return 1;
 }
 
-static void do_medres(deark *c, lctx *d, struct deark_bitmap *img)
+static int decode_medres(deark *c, lctx *d)
 {
 	de_int64 i, j, k;
 	unsigned int palent;
 	unsigned int x;
 
-	img->density_code = DE_DENSITY_UNK_UNITS;
-	img->xdens = 480.0;
-	img->ydens = 200.0;
-
 	for(j=0; j<d->h; j++) {
 		for(i=0; i<d->w; i++) {
 			palent = 0;
-			for(k=0; k<2; k++) {
-				x = (unsigned int)de_get_bits_symbol(d->unc_pixels, 1,
-					j*(d->w/4) + 2*k + (i/16)*2, i);
+			for(k=0; k<d->bpp; k++) {
+				if(d->compression_code) {
+					x = (unsigned int)de_get_bits_symbol(d->unc_pixels, 1,
+						(j*d->bpp+k)*(d->w/8), i);
+				}
+				else {
+					x = (unsigned int)de_get_bits_symbol(d->unc_pixels, 1,
+						j*(d->w/4) + 2*k + (i/16)*2, i);
+				}
 				if(x) palent |= 1<<k;
 			}
-			de_bitmap_setpixel_rgb(img, i, j, d->pal[palent]);
+			de_bitmap_setpixel_rgb(d->img, i, j, d->pal[palent]);
 		}
 	}
+	return 1;
 }
 
-static void do_hires(deark *c, lctx *d, struct deark_bitmap *img)
+static int decode_hires(deark *c, lctx *d)
 {
 	de_int64 i, j;
 	unsigned int palent;
 	de_int64 rowspan;
-
-	img->density_code = DE_DENSITY_UNK_UNITS;
-	img->xdens = 480.0;
-	img->ydens = 400.0;
 
 	rowspan = d->w/8;
 
 	for(j=0; j<d->h; j++) {
 		for(i=0; i<d->w; i++) {
 			palent = (unsigned int)de_get_bits_symbol(d->unc_pixels, 1, j*rowspan, i);
-			de_bitmap_setpixel_rgb(img, i, j, d->pal[palent]);
+			de_bitmap_setpixel_rgb(d->img, i, j, d->pal[palent]);
 		}
 	}
+	return 1;
 }
 
 static void de_run_degas(deark *c, const char *params)
 {
 	lctx *d = NULL;
 	de_int64 pos;
-	struct deark_bitmap *img = NULL;
-	unsigned int format_code, resolution_code, compression_code;
+	decoder_fn_type decoder_fn = NULL;
+	unsigned int format_code, resolution_code;
 	int is_grayscale;
+	double xdens, ydens;
 
 	d = de_malloc(c, sizeof(lctx));
 
@@ -124,28 +136,37 @@ static void de_run_degas(deark *c, const char *params)
 	format_code = (unsigned int)de_getui16be(pos);
 	de_dbg(c, "format code: 0x%04x\n", format_code);
 	resolution_code = format_code & 0x0003;
-	compression_code = (format_code & 0x8000)>>15;
+	d->compression_code = (format_code & 0x8000)>>15;
 	de_dbg_indent(c, 1);
 	de_dbg(c, "resolution code: %u\n", resolution_code);
-	de_dbg(c, "compression code: %u\n", compression_code);
+	de_dbg(c, "compression code: %u\n", d->compression_code);
 	de_dbg_indent(c, -1);
 	pos += 2;
 
 	switch(resolution_code) {
 	case 0:
+		d->bpp = 4;
 		d->w = 320;
 		d->h = 200;
-		d->bpp = 4;
+		xdens = 240.0;
+		ydens = 200.0;
+		decoder_fn = decode_lowres;
 		break;
 	case 1:
+		d->bpp = 2;
 		d->w = 640;
 		d->h = 200;
-		d->bpp = 2;
+		xdens = 480.0;
+		ydens = 200.0;
+		decoder_fn = decode_medres;
 		break;
 	case 2:
+		d->bpp = 1;
 		d->w = 640;
 		d->h = 400;
-		d->bpp = 1;
+		xdens = 480.0;
+		ydens = 400.0;
+		decoder_fn = decode_hires;
 		break;
 	default:
 		de_dbg(c, "Invalid or unsupported resolution (%u)\n", resolution_code);
@@ -158,9 +179,12 @@ static void de_run_degas(deark *c, const char *params)
 	read_palette(c, d, pos);
 	pos += 2*16;
 
-	if(compression_code) {
-		de_err(c, "Compression not supported\n");
-		goto done;
+	if(d->compression_code) {
+		d->unc_pixels = dbuf_create_membuf(c, 32000);
+		// TODO: Need to track how many compressed bytes are consumed, so we can locate the
+		// fields following the compressed data.
+		if(!de_fmtutil_uncompress_packbits(c->infile, pos, c->infile->len-pos, d->unc_pixels))
+			goto done;
 	}
 	else {
 		d->unc_pixels = dbuf_open_input_subfile(c->infile, pos, 32000);
@@ -176,25 +200,19 @@ static void de_run_degas(deark *c, const char *params)
 	is_grayscale = de_is_grayscale_palette(d->pal, d->ncolors);
 
 	// TODO: Create a grayscale bitmap if all colors are black or white.
-	img = de_bitmap_create(c, d->w, d->h, is_grayscale?1:3);
+	d->img = de_bitmap_create(c, d->w, d->h, is_grayscale?1:3);
 
-	switch(resolution_code) {
-	case 0:
-		do_lowres(c, d, img);
-		break;
-	case 1:
-		do_medres(c, d, img);
-		break;
-	case 2:
-		do_hires(c, d, img);
-		break;
-	}
+	d->img->density_code = DE_DENSITY_UNK_UNITS;
+	d->img->xdens = xdens;
+	d->img->ydens = ydens;
 
-	de_bitmap_write_to_file(img, NULL);
+	decoder_fn(c, d);
+
+	de_bitmap_write_to_file(d->img, NULL);
 
 done:
 	if(d->unc_pixels) dbuf_close(d->unc_pixels);
-	de_bitmap_destroy(img);
+	de_bitmap_destroy(d->img);
 	de_free(c, d);
 }
 
