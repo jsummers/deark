@@ -81,6 +81,8 @@ Deark -- Information about supported formats
   - Extract EPS, TIFF, and WMF from "EPS DOS Binary" format.
   - Supports preview images in EPSI format (1-, 2-, 4-, 8-bit grayscale)
 
+* Falcon True Color (module="ftc")
+
 * GEM VDI Bit Image (GEM Raster) (module="gemras")
   - Supports original bilevel format
   - Supports paletted XIMG format

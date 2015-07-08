@@ -1,8 +1,6 @@
 // This file is part of Deark, by Jason Summers.
 // This software is in the public domain. See the file COPYING for details.
 
-// DEGAS / DEGAS Elite images
-
 #include <deark-config.h>
 #include <deark-modules.h>
 #include "fmtutil.h"
@@ -16,6 +14,11 @@ struct atari_img_decode_data {
 	de_uint32 *pal;
 	struct deark_bitmap *img;
 };
+
+
+// **************************************************************************
+// DEGAS / DEGAS Elite images
+// **************************************************************************
 
 typedef struct localctx_struct {
 	unsigned int compression_code;
@@ -283,4 +286,47 @@ void de_module_degas(deark *c, struct deark_module_info *mi)
 	mi->id = "degas";
 	mi->run_fn = de_run_degas;
 	mi->identify_fn = de_identify_degas;
+}
+
+// **************************************************************************
+// Atari Falcon True Color .FTC
+// **************************************************************************
+
+static void de_run_ftc(deark *c, const char *params)
+{
+	struct deark_bitmap *img = NULL;
+	de_int64 width, height;
+	de_int64 i, j;
+	de_byte b0, b1;
+	de_uint32 clr;
+
+	width = 384;
+	height = 240;
+	img = de_bitmap_create(c, width, height, 3);
+
+	for(j=0; j<height; j++) {
+		for(i=0; i<width; i++) {
+			b0 = de_getbyte(j*width*2 + i*2);
+			b1 = de_getbyte(j*width*2 + i*2 + 1);
+			clr = (((de_uint32)b0)<<8) | b1;
+			clr = de_rgb565_to_888(clr);
+			de_bitmap_setpixel_rgb(img, i, j, clr);
+		}
+	}
+	de_bitmap_write_to_file(img, NULL);
+	de_bitmap_destroy(img);
+}
+
+static int de_identify_ftc(deark *c)
+{
+	if(c->infile->len != 184320) return 0;
+	if(!de_input_file_has_ext(c, "ftc")) return 0;
+	return 60;
+}
+
+void de_module_ftc(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "ftc";
+	mi->run_fn = de_run_ftc;
+	mi->identify_fn = de_identify_ftc;
 }
