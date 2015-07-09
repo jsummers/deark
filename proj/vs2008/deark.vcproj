@@ -590,10 +590,6 @@
 				>
 			</File>
 			<File
-				RelativePath="..\..\modules\prismpaint.c"
-				>
-			</File>
-			<File
 				RelativePath="..\..\modules\psd.c"
 				>
 			</File>
