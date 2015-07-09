@@ -7,14 +7,14 @@
 
 // Atari Prism Paint (.pnt)
 
-typedef struct localctx_struct {
+typedef struct prismctx_struct {
 	de_int64 pal_size;
 	de_int64 width, height;
 	de_int64 bits_per_pixel;
 	de_int64 compression;
 	de_int64 pic_data_size;
 	de_uint32 pal[256];
-} lctx;
+} prixmctx;
 
 static de_byte samp1000to255(de_int64 n)
 {
@@ -26,7 +26,7 @@ static de_byte samp1000to255(de_int64 n)
 // A color value of N does not necessarily refer to Nth color in the palette.
 // Some of them are mixed up. Apparently this is called "VDI order".
 // Reference: http://toshyp.atari.org/en/VDI_fundamentals.html
-static unsigned int map_pal(de_int64 bpp, unsigned int v)
+static unsigned int map_vdi_pal(de_int64 bpp, unsigned int v)
 {
 	if(bpp==1) return v;
 	switch(v) {
@@ -48,7 +48,7 @@ static unsigned int map_pal(de_int64 bpp, unsigned int v)
 	return v;
 }
 
-static void do_read_palette(deark *c, lctx *d)
+static void do_prism_read_palette(deark *c, prixmctx *d)
 {
 	de_int64 i;
 	de_int64 r1, g1, b1;
@@ -71,11 +71,36 @@ static void do_read_palette(deark *c, lctx *d)
 	}
 
 	for(i=0; i<d->pal_size; i++) {
-		d->pal[i] = pal1[map_pal(d->bits_per_pixel, (unsigned int)i)];
+		d->pal[i] = pal1[map_vdi_pal(d->bits_per_pixel, (unsigned int)i)];
 	}
 }
 
-static void do_image(deark *c, lctx *d, dbuf *unc_pixels)
+static void do_prism_image_16(deark *c, prixmctx *d, dbuf *unc_pixels)
+{
+	struct deark_bitmap *img = NULL;
+	de_int64 i, j;
+	de_int64 rowspan;
+	de_uint32 v;
+	de_int64 planespan;
+
+	img = de_bitmap_create(c, d->width, d->height, 3);
+
+	planespan = 2*((d->width+15)/16);
+	rowspan = planespan*d->bits_per_pixel;
+
+	for(j=0; j<d->height; j++) {
+		for(i=0; i<d->width; i++) {
+			v = (de_uint32)dbuf_getui16be(unc_pixels, j*rowspan + 2*i);
+			v = de_rgb565_to_888(v);
+			de_bitmap_setpixel_rgb(img, i, j,v);
+		}
+	}
+
+	de_bitmap_write_to_file(img, NULL);
+	de_bitmap_destroy(img);
+}
+
+static void do_prism_image(deark *c, prixmctx *d, dbuf *unc_pixels)
 {
 	struct deark_bitmap *img = NULL;
 	de_int64 i, j;
@@ -89,17 +114,6 @@ static void do_image(deark *c, lctx *d, dbuf *unc_pixels)
 
 	planespan = 2*((d->width+15)/16);
 	rowspan = planespan*d->bits_per_pixel;
-
-	if(d->bits_per_pixel==16) {
-		for(j=0; j<d->height; j++) {
-			for(i=0; i<d->width; i++) {
-				v = (de_uint32)dbuf_getui16be(unc_pixels, j*rowspan + 2*i);
-				v = de_rgb565_to_888(v);
-				de_bitmap_setpixel_rgb(img, i, j,v);
-			}
-		}
-		goto done_ok;
-	}
 
 	for(j=0; j<d->height; j++) {
 		for(i=0; i<d->width; i++) {
@@ -135,18 +149,17 @@ static void do_image(deark *c, lctx *d, dbuf *unc_pixels)
 		}
 	}
 
-done_ok:
 	de_bitmap_write_to_file(img, NULL);
 	de_bitmap_destroy(img);
 }
 
 static void de_run_prismpaint(deark *c, const char *params)
 {
-	lctx *d = NULL;
+	prixmctx *d = NULL;
 	de_int64 pixels_start;
 	dbuf *unc_pixels = NULL;
 
-	d = de_malloc(c, sizeof(lctx));
+	d = de_malloc(c, sizeof(prixmctx));
 
 	d->pal_size = de_getui16be(6);
 	d->width = de_getui16be(8);
@@ -163,7 +176,7 @@ static void de_run_prismpaint(deark *c, const char *params)
 	d->pic_data_size = de_getui32be(16);
 	de_dbg(c, "reported (uncompressed) picture data size: %d\n", (int)d->pic_data_size);
 
-	do_read_palette(c, d);
+	do_prism_read_palette(c, d);
 
 	if(d->bits_per_pixel!=1 && d->bits_per_pixel!=2 && d->bits_per_pixel!=4
 		&& d->bits_per_pixel!=8 && d->bits_per_pixel!=16)
@@ -196,7 +209,12 @@ static void de_run_prismpaint(deark *c, const char *params)
 		de_dbg(c, "uncompressed to %d bytes\n", (int)unc_pixels->len);
 	}
 
-	do_image(c, d, unc_pixels);
+	if(d->bits_per_pixel==16) {
+		do_prism_image_16(c, d, unc_pixels);
+	}
+	else {
+		do_prism_image(c, d, unc_pixels);
+	}
 
 done:
 	dbuf_close(unc_pixels);

@@ -20,18 +20,18 @@ struct atari_img_decode_data {
 // DEGAS / DEGAS Elite images
 // **************************************************************************
 
-typedef struct localctx_struct {
+typedef struct degasctx_struct {
 	unsigned int compression_code;
 	de_uint32 pal[16];
 	struct atari_img_decode_data adata;
-} lctx;
+} degasctx;
 
 static de_byte scale7to255(de_byte n)
 {
 	return (de_byte)(0.5+(255.0/7.0)*(double)n);
 }
 
-static void read_palette(deark *c, lctx *d, de_int64 pos)
+static void degas_read_palette(deark *c, degasctx *d, de_int64 pos)
 {
 	de_int64 i;
 	unsigned int n;
@@ -138,7 +138,7 @@ static int de_decode_atari_image(deark *c, struct atari_img_decode_data *adata)
 	return 0;
 }
 
-static void do_anim_fields(deark *c, lctx *d, de_int64 pos)
+static void do_anim_fields(deark *c, degasctx *d, de_int64 pos)
 {
 	de_int64 i;
 	de_int64 n;
@@ -167,7 +167,7 @@ static void do_anim_fields(deark *c, lctx *d, de_int64 pos)
 
 static void de_run_degas(deark *c, const char *params)
 {
-	lctx *d = NULL;
+	degasctx *d = NULL;
 	de_int64 pos;
 	//decoder_fn_type decoder_fn = NULL;
 	unsigned int format_code, resolution_code;
@@ -175,7 +175,7 @@ static void de_run_degas(deark *c, const char *params)
 	double xdens, ydens;
 	de_int64 cmpr_bytes_consumed = 0;
 
-	d = de_malloc(c, sizeof(lctx));
+	d = de_malloc(c, sizeof(degasctx));
 
 	d->adata.pal = d->pal;
 
@@ -220,7 +220,7 @@ static void de_run_degas(deark *c, const char *params)
 
 	de_dbg(c, "dimensions: %dx%d, colors: %d\n", (int)d->adata.w, (int)d->adata.h, (int)d->adata.ncolors);
 
-	read_palette(c, d, pos);
+	degas_read_palette(c, d, pos);
 	pos += 2*16;
 
 	if(d->compression_code) {
