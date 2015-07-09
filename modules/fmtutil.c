@@ -165,7 +165,6 @@ int de_fmtutil_uncompress_packbits(dbuf *f, de_int64 pos1, de_int64 len,
 	de_byte b, b2;
 	de_int64 count;
 	de_int64 endpos;
-	de_int64 bytes_consumed = 0;
 
 	pos = pos1;
 	endpos = pos1+len;

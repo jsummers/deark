@@ -8,7 +8,6 @@
 struct atari_img_decode_data {
 	de_int64 bpp;
 	de_int64 w, h;
-	de_int64 ncolors;
 	dbuf *unc_pixels;
 	int was_compressed;
 	de_uint32 *pal;
@@ -21,6 +20,7 @@ struct atari_img_decode_data {
 // **************************************************************************
 
 typedef struct degasctx_struct {
+	de_int64 ncolors;
 	unsigned int compression_code;
 	de_uint32 pal[16];
 	struct atari_img_decode_data adata;
@@ -49,7 +49,7 @@ static void degas_read_palette(deark *c, degasctx *d, de_int64 pos)
 		de_dbg2(c, "pal[%2d] = 0x%04x (%d,%d,%d) -> (%3d,%3d,%3d)%s\n", (int)i, n,
 			(int)cr1, (int)cg1, (int)cb1,
 			(int)cr, (int)cg, (int)cb,
-			(i>=d->adata.ncolors)?" [unused]":"");
+			(i>=d->ncolors)?" [unused]":"");
 
 		d->pal[i] = DE_MAKE_RGB(cr, cg, cb);
 		pos+=2;
@@ -169,7 +169,6 @@ static void de_run_degas(deark *c, const char *params)
 {
 	degasctx *d = NULL;
 	de_int64 pos;
-	//decoder_fn_type decoder_fn = NULL;
 	unsigned int format_code, resolution_code;
 	int is_grayscale;
 	double xdens, ydens;
@@ -216,9 +215,9 @@ static void de_run_degas(deark *c, const char *params)
 		de_dbg(c, "Invalid or unsupported resolution (%u)\n", resolution_code);
 		goto done;
 	}
-	d->adata.ncolors = (de_int64)(1<<d->adata.bpp);
+	d->ncolors = (de_int64)(1<<d->adata.bpp);
 
-	de_dbg(c, "dimensions: %dx%d, colors: %d\n", (int)d->adata.w, (int)d->adata.h, (int)d->adata.ncolors);
+	de_dbg(c, "dimensions: %dx%d, colors: %d\n", (int)d->adata.w, (int)d->adata.h, (int)d->ncolors);
 
 	degas_read_palette(c, d, pos);
 	pos += 2*16;
@@ -250,7 +249,7 @@ static void de_run_degas(deark *c, const char *params)
 		do_anim_fields(c, d, pos);
 	}
 
-	is_grayscale = de_is_grayscale_palette(d->pal, d->adata.ncolors);
+	is_grayscale = de_is_grayscale_palette(d->pal, d->ncolors);
 
 	// TODO: Create a grayscale bitmap if all colors are black or white.
 	d->adata.img = de_bitmap_create(c, d->adata.w, d->adata.h, is_grayscale?1:3);
@@ -294,11 +293,10 @@ void de_module_degas(deark *c, struct deark_module_info *mi)
 
 typedef struct prismctx_struct {
 	de_int64 pal_size;
-	de_int64 width, height;
-	de_int64 bits_per_pixel;
-	de_int64 compression;
+	de_int64 compression_code;
 	de_int64 pic_data_size;
 	de_uint32 pal[256];
+	struct atari_img_decode_data adata;
 } prixmctx;
 
 static de_byte samp1000to255(de_int64 n)
@@ -356,7 +354,7 @@ static void do_prism_read_palette(deark *c, prixmctx *d)
 	}
 
 	for(i=0; i<d->pal_size; i++) {
-		d->pal[i] = pal1[map_vdi_pal(d->bits_per_pixel, (unsigned int)i)];
+		d->pal[i] = pal1[map_vdi_pal(d->adata.bpp, (unsigned int)i)];
 	}
 }
 
@@ -368,13 +366,13 @@ static void do_prism_image_16(deark *c, prixmctx *d, dbuf *unc_pixels)
 	de_uint32 v;
 	de_int64 planespan;
 
-	img = de_bitmap_create(c, d->width, d->height, 3);
+	img = de_bitmap_create(c, d->adata.w, d->adata.h, 3);
 
-	planespan = 2*((d->width+15)/16);
-	rowspan = planespan*d->bits_per_pixel;
+	planespan = 2*((d->adata.w+15)/16);
+	rowspan = planespan*d->adata.bpp;
 
-	for(j=0; j<d->height; j++) {
-		for(i=0; i<d->width; i++) {
+	for(j=0; j<d->adata.h; j++) {
+		for(i=0; i<d->adata.w; i++) {
 			v = (de_uint32)dbuf_getui16be(unc_pixels, j*rowspan + 2*i);
 			v = de_rgb565_to_888(v);
 			de_bitmap_setpixel_rgb(img, i, j,v);
@@ -395,26 +393,26 @@ static void do_prism_image(deark *c, prixmctx *d, dbuf *unc_pixels)
 	de_uint32 v;
 	de_int64 planespan;
 
-	img = de_bitmap_create(c, d->width, d->height, 3);
+	img = de_bitmap_create(c, d->adata.w, d->adata.h, 3);
 
-	planespan = 2*((d->width+15)/16);
-	rowspan = planespan*d->bits_per_pixel;
+	planespan = 2*((d->adata.w+15)/16);
+	rowspan = planespan*d->adata.bpp;
 
-	for(j=0; j<d->height; j++) {
-		for(i=0; i<d->width; i++) {
+	for(j=0; j<d->adata.h; j++) {
+		for(i=0; i<d->adata.w; i++) {
 			v = 0;
 
-			for(plane=0; plane<d->bits_per_pixel; plane++) {
-				if(d->compression==0) {
+			for(plane=0; plane<d->adata.bpp; plane++) {
+				if(d->adata.was_compressed==0) {
 					// TODO: Simplify this.
-					if(d->bits_per_pixel==1) {
+					if(d->adata.bpp==1) {
 						b = de_get_bits_symbol(unc_pixels, 1, j*rowspan, i);
 					}
-					else if(d->bits_per_pixel==2) {
+					else if(d->adata.bpp==2) {
 						b = de_get_bits_symbol(unc_pixels, 1,
 							j*rowspan + 2*plane + (i/16)*2, i);
 					}
-					else if(d->bits_per_pixel==4) {
+					else if(d->adata.bpp==4) {
 						b = de_get_bits_symbol(unc_pixels, 1,
 							j*rowspan + 2*plane + (i/2-(i/2)%16)+8*((i%32)/16), i%16);
 					}
@@ -430,7 +428,7 @@ static void do_prism_image(deark *c, prixmctx *d, dbuf *unc_pixels)
 			}
 
 			if(v>255) v=255;
-			de_bitmap_setpixel_rgb(img, i, j, d->pal[v]);
+			de_bitmap_setpixel_rgb(img, i, j, d->adata.pal[v]);
 		}
 	}
 
@@ -446,34 +444,35 @@ static void de_run_prismpaint(deark *c, const char *params)
 
 	d = de_malloc(c, sizeof(prixmctx));
 
+	d->adata.pal = d->pal;
 	d->pal_size = de_getui16be(6);
-	d->width = de_getui16be(8);
-	d->height = de_getui16be(10);
+	d->adata.w = de_getui16be(8);
+	d->adata.h = de_getui16be(10);
 	de_dbg(c, "pal_size: %d, dimensions: %dx%d\n", (int)d->pal_size,
-		(int)d->width, (int)d->height);
-	if(!de_good_image_dimensions(c, d->width, d->height)) goto done;
+		(int)d->adata.w, (int)d->adata.h);
+	if(!de_good_image_dimensions(c, d->adata.w, d->adata.h)) goto done;
 
-	d->bits_per_pixel = de_getui16be(12);
-	d->compression = de_getui16be(14);
-	de_dbg(c, "bits/pixel: %d, compression: %d\n", (int)d->bits_per_pixel,
-		(int)d->compression);
+	d->adata.bpp = de_getui16be(12);
+	d->compression_code = de_getui16be(14);
+	de_dbg(c, "bits/pixel: %d, compression: %d\n", (int)d->adata.bpp,
+		(int)d->compression_code);
 
 	d->pic_data_size = de_getui32be(16);
 	de_dbg(c, "reported (uncompressed) picture data size: %d\n", (int)d->pic_data_size);
 
 	do_prism_read_palette(c, d);
 
-	if(d->bits_per_pixel!=1 && d->bits_per_pixel!=2 && d->bits_per_pixel!=4
-		&& d->bits_per_pixel!=8 && d->bits_per_pixel!=16)
+	if(d->adata.bpp!=1 && d->adata.bpp!=2 && d->adata.bpp!=4
+		&& d->adata.bpp!=8 && d->adata.bpp!=16)
 	{
-		de_err(c, "Unsupported bits/pixel (%d)\n", (int)d->bits_per_pixel);
+		de_err(c, "Unsupported bits/pixel (%d)\n", (int)d->adata.bpp);
 		goto done;
 	}
-	if(d->compression!=0 && d->compression!=1) {
-		de_err(c, "Unsupported compression (%d)\n", (int)d->compression);
+	if(d->compression_code!=0 && d->compression_code!=1) {
+		de_err(c, "Unsupported compression (%d)\n", (int)d->compression_code);
 		goto done;
 	}
-	if(d->bits_per_pixel==16 && d->compression!=0) {
+	if(d->adata.bpp==16 && d->compression_code!=0) {
 		de_warn(c, "Compressed 16-bit image support is untested, and may not work.\n");
 	}
 
@@ -481,20 +480,21 @@ static void de_run_prismpaint(deark *c, const char *params)
 	de_dbg(c, "pixel data starts at %d\n", (int)pixels_start);
 	if(pixels_start >= c->infile->len) goto done;
 
-	if(d->compression==0) {
+	if(d->compression_code==0) {
 		unc_pixels = dbuf_open_input_subfile(c->infile, pixels_start,
 			c->infile->len - pixels_start);
 	}
 	else {
+		d->adata.was_compressed = 1;
 		// TODO: Calculate the initial size more accurately.
-		unc_pixels = dbuf_create_membuf(c, d->width*d->height);
+		unc_pixels = dbuf_create_membuf(c, d->adata.w*d->adata.h);
 		//dbuf_set_max_length(unc_pixels, ...);
 
 		de_fmtutil_uncompress_packbits(c->infile, pixels_start, c->infile->len - pixels_start, unc_pixels, NULL);
 		de_dbg(c, "uncompressed to %d bytes\n", (int)unc_pixels->len);
 	}
 
-	if(d->bits_per_pixel==16) {
+	if(d->adata.bpp==16) {
 		do_prism_image_16(c, d, unc_pixels);
 	}
 	else {
