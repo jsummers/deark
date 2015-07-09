@@ -263,7 +263,7 @@ static void de_run_degas(deark *c, const char *params)
 	de_bitmap_write_to_file(d->adata.img, NULL);
 
 done:
-	if(d->adata.unc_pixels) dbuf_close(d->adata.unc_pixels);
+	dbuf_close(d->adata.unc_pixels);
 	de_bitmap_destroy(d->adata.img);
 	de_free(c, d);
 }
@@ -358,7 +358,7 @@ static void do_prism_read_palette(deark *c, prixmctx *d)
 	}
 }
 
-static void do_prism_image_16(deark *c, prixmctx *d, dbuf *unc_pixels)
+static void decode_atari_image_16(deark *c, struct atari_img_decode_data *adata)
 {
 	struct deark_bitmap *img = NULL;
 	de_int64 i, j;
@@ -366,14 +366,14 @@ static void do_prism_image_16(deark *c, prixmctx *d, dbuf *unc_pixels)
 	de_uint32 v;
 	de_int64 planespan;
 
-	img = de_bitmap_create(c, d->adata.w, d->adata.h, 3);
+	img = de_bitmap_create(c, adata->w, adata->h, 3);
 
-	planespan = 2*((d->adata.w+15)/16);
-	rowspan = planespan*d->adata.bpp;
+	planespan = 2*((adata->w+15)/16);
+	rowspan = planespan*adata->bpp;
 
-	for(j=0; j<d->adata.h; j++) {
-		for(i=0; i<d->adata.w; i++) {
-			v = (de_uint32)dbuf_getui16be(unc_pixels, j*rowspan + 2*i);
+	for(j=0; j<adata->h; j++) {
+		for(i=0; i<adata->w; i++) {
+			v = (de_uint32)dbuf_getui16be(adata->unc_pixels, j*rowspan + 2*i);
 			v = de_rgb565_to_888(v);
 			de_bitmap_setpixel_rgb(img, i, j,v);
 		}
@@ -440,7 +440,6 @@ static void de_run_prismpaint(deark *c, const char *params)
 {
 	prixmctx *d = NULL;
 	de_int64 pixels_start;
-	dbuf *unc_pixels = NULL;
 
 	d = de_malloc(c, sizeof(prixmctx));
 
@@ -481,28 +480,29 @@ static void de_run_prismpaint(deark *c, const char *params)
 	if(pixels_start >= c->infile->len) goto done;
 
 	if(d->compression_code==0) {
-		unc_pixels = dbuf_open_input_subfile(c->infile, pixels_start,
+		d->adata.unc_pixels = dbuf_open_input_subfile(c->infile, pixels_start,
 			c->infile->len - pixels_start);
 	}
 	else {
 		d->adata.was_compressed = 1;
 		// TODO: Calculate the initial size more accurately.
-		unc_pixels = dbuf_create_membuf(c, d->adata.w*d->adata.h);
+		d->adata.unc_pixels = dbuf_create_membuf(c, d->adata.w*d->adata.h);
 		//dbuf_set_max_length(unc_pixels, ...);
 
-		de_fmtutil_uncompress_packbits(c->infile, pixels_start, c->infile->len - pixels_start, unc_pixels, NULL);
-		de_dbg(c, "uncompressed to %d bytes\n", (int)unc_pixels->len);
+		de_fmtutil_uncompress_packbits(c->infile, pixels_start, c->infile->len - pixels_start,
+			d->adata.unc_pixels, NULL);
+		de_dbg(c, "uncompressed to %d bytes\n", (int)d->adata.unc_pixels->len);
 	}
 
 	if(d->adata.bpp==16) {
-		do_prism_image_16(c, d, unc_pixels);
+		decode_atari_image_16(c, &d->adata);
 	}
 	else {
-		do_prism_image(c, d, unc_pixels);
+		do_prism_image(c, d, d->adata.unc_pixels);
 	}
 
 done:
-	dbuf_close(unc_pixels);
+	dbuf_close(d->adata.unc_pixels);
 	de_free(c, d);
 }
 
@@ -526,27 +526,15 @@ void de_module_prismpaint(deark *c, struct deark_module_info *mi)
 
 static void de_run_ftc(deark *c, const char *params)
 {
-	struct deark_bitmap *img = NULL;
-	de_int64 width, height;
-	de_int64 i, j;
-	de_byte b0, b1;
-	de_uint32 clr;
+	struct atari_img_decode_data *adata = NULL;
 
-	width = 384;
-	height = 240;
-	img = de_bitmap_create(c, width, height, 3);
-
-	for(j=0; j<height; j++) {
-		for(i=0; i<width; i++) {
-			b0 = de_getbyte(j*width*2 + i*2);
-			b1 = de_getbyte(j*width*2 + i*2 + 1);
-			clr = (((de_uint32)b0)<<8) | b1;
-			clr = de_rgb565_to_888(clr);
-			de_bitmap_setpixel_rgb(img, i, j, clr);
-		}
-	}
-	de_bitmap_write_to_file(img, NULL);
-	de_bitmap_destroy(img);
+	adata = de_malloc(c, sizeof(struct atari_img_decode_data));
+	adata->bpp = 16;
+	adata->w = 384;
+	adata->h = 240;
+	adata->unc_pixels = c->infile;
+	decode_atari_image_16(c, adata);
+	de_free(c, adata);
 }
 
 static int de_identify_ftc(deark *c)
