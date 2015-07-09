@@ -14,112 +14,64 @@ struct atari_img_decode_data {
 	struct deark_bitmap *img;
 };
 
-
-// **************************************************************************
-// DEGAS / DEGAS Elite images
-// **************************************************************************
-
-typedef struct degasctx_struct {
-	de_int64 ncolors;
-	unsigned int compression_code;
-	de_uint32 pal[16];
-	struct atari_img_decode_data adata;
-} degasctx;
-
 static de_byte scale7to255(de_byte n)
 {
 	return (de_byte)(0.5+(255.0/7.0)*(double)n);
 }
 
-static void degas_read_palette(deark *c, degasctx *d, de_int64 pos)
+static de_byte scale1000to255(de_int64 n)
 {
-	de_int64 i;
-	unsigned int n;
-	de_byte cr, cg, cb;
-	de_byte cr1, cg1, cb1;
-
-	for(i=0; i<16; i++) {
-		n = (unsigned int)de_getui16be(pos);
-		cr1 = (de_byte)((n>>8)&7);
-		cg1 = (de_byte)((n>>4)&7);
-		cb1 = (de_byte)(n&7);
-		cr = scale7to255(cr1);
-		cg = scale7to255(cg1);
-		cb = scale7to255(cb1);
-		de_dbg2(c, "pal[%2d] = 0x%04x (%d,%d,%d) -> (%3d,%3d,%3d)%s\n", (int)i, n,
-			(int)cr1, (int)cg1, (int)cb1,
-			(int)cr, (int)cg, (int)cb,
-			(i>=d->ncolors)?" [unused]":"");
-
-		d->pal[i] = DE_MAKE_RGB(cr, cg, cb);
-		pos+=2;
-	}
+	if(n>=1000) return 255;
+	if(n<=0) return 0;
+	return (de_byte)(0.5+(((double)n)*(255.0/1000.0)));
 }
 
-static int decode_lowres(deark *c, struct atari_img_decode_data *adata)
-{
-	de_int64 i, j, k;
-	unsigned int palent;
-	unsigned int x;
-
-	for(j=0; j<adata->h; j++) {
-		for(i=0; i<adata->w; i++) {
-			palent = 0;
-			for(k=0; k<adata->bpp; k++) {
-				if(adata->was_compressed) {
-					x = (unsigned int)de_get_bits_symbol(adata->unc_pixels, 1,
-						(j*adata->bpp+k)*(adata->w/8), i);
-				}
-				else {
-					x = (unsigned int)de_get_bits_symbol(adata->unc_pixels, 1,
-						j*(adata->w/2) + 2*k + (i/2-(i/2)%16)+8*((i%32)/16), i%16);
-				}
-				if(x) palent |= 1<<k;
-			}
-			de_bitmap_setpixel_rgb(adata->img, i, j, adata->pal[palent]);
-		}
-	}
-	return 1;
-}
-
-static int decode_medres(deark *c, struct atari_img_decode_data *adata)
-{
-	de_int64 i, j, k;
-	unsigned int palent;
-	unsigned int x;
-
-	for(j=0; j<adata->h; j++) {
-		for(i=0; i<adata->w; i++) {
-			palent = 0;
-			for(k=0; k<adata->bpp; k++) {
-				if(adata->was_compressed) {
-					x = (unsigned int)de_get_bits_symbol(adata->unc_pixels, 1,
-						(j*adata->bpp+k)*(adata->w/8), i);
-				}
-				else {
-					x = (unsigned int)de_get_bits_symbol(adata->unc_pixels, 1,
-						j*(adata->w/4) + 2*k + (i/16)*2, i);
-				}
-				if(x) palent |= 1<<k;
-			}
-			de_bitmap_setpixel_rgb(adata->img, i, j, adata->pal[palent]);
-		}
-	}
-	return 1;
-}
-
-static int decode_hires(deark *c, struct atari_img_decode_data *adata)
+static int decode_atari_image_paletted(deark *c, struct atari_img_decode_data *adata)
 {
 	de_int64 i, j;
-	unsigned int palent;
+	de_int64 plane;
 	de_int64 rowspan;
+	de_byte b;
+	de_uint32 v;
+	de_int64 planespan;
 
-	rowspan = adata->w/8;
+	planespan = 2*((adata->w+15)/16);
+	rowspan = planespan*adata->bpp;
 
 	for(j=0; j<adata->h; j++) {
 		for(i=0; i<adata->w; i++) {
-			palent = (unsigned int)de_get_bits_symbol(adata->unc_pixels, 1, j*rowspan, i);
-			de_bitmap_setpixel_rgb(adata->img, i, j, adata->pal[palent]);
+			v = 0;
+
+			for(plane=0; plane<adata->bpp; plane++) {
+				if(adata->was_compressed==0) {
+					// TODO: Simplify this.
+					if(adata->bpp==1) {
+						b = de_get_bits_symbol(adata->unc_pixels, 1, j*rowspan, i);
+					}
+					else if(adata->bpp==2) {
+						b = de_get_bits_symbol(adata->unc_pixels, 1,
+							j*rowspan + 2*plane + (i/16)*2, i);
+					}
+					else if(adata->bpp==4) {
+						b = de_get_bits_symbol(adata->unc_pixels, 1,
+							j*rowspan + 2*plane + (i/2-(i/2)%16)+8*((i%32)/16), i%16);
+					}
+					else if(adata->bpp==8) {
+						b = de_get_bits_symbol(adata->unc_pixels, 1,
+							j*rowspan + 2*plane + (i-i%16), i%16);
+					}
+					else {
+						b = 0;
+					}
+				}
+				else {
+					b = de_get_bits_symbol(adata->unc_pixels, 1, j*rowspan + plane*planespan, i);
+				}
+				if(b) v |= 1<<plane;
+			}
+
+			if(v>255) v=255;
+			de_bitmap_setpixel_rgb(adata->img, i, j, adata->pal[v]);
 		}
 	}
 	return 1;
@@ -150,19 +102,51 @@ static int de_decode_atari_image(deark *c, struct atari_img_decode_data *adata)
 	switch(adata->bpp) {
 	case 16:
 		return decode_atari_image_16(c, adata);
-
-	// TODO: Use do_prism_image() instead of decode_*res().
-	case 4:
-		return decode_lowres(c, adata);
-	case 2:
-		return decode_medres(c, adata);
-	case 1:
-		return decode_hires(c, adata);
+	case 8: case 4: case 2: case 1:
+		return decode_atari_image_paletted(c, adata);
 	}
+
+	de_err(c, "Unsupported bits/pixel (%d)\n", (int)adata->bpp);
 	return 0;
 }
 
-static void do_anim_fields(deark *c, degasctx *d, de_int64 pos)
+// **************************************************************************
+// DEGAS / DEGAS Elite images
+// **************************************************************************
+
+typedef struct degasctx_struct {
+	de_int64 ncolors;
+	unsigned int compression_code;
+	de_uint32 pal[16];
+	struct atari_img_decode_data adata;
+} degasctx;
+
+static void degas_read_palette(deark *c, degasctx *d, de_int64 pos)
+{
+	de_int64 i;
+	unsigned int n;
+	de_byte cr, cg, cb;
+	de_byte cr1, cg1, cb1;
+
+	for(i=0; i<16; i++) {
+		n = (unsigned int)de_getui16be(pos);
+		cr1 = (de_byte)((n>>8)&7);
+		cg1 = (de_byte)((n>>4)&7);
+		cb1 = (de_byte)(n&7);
+		cr = scale7to255(cr1);
+		cg = scale7to255(cg1);
+		cb = scale7to255(cb1);
+		de_dbg2(c, "pal[%2d] = 0x%04x (%d,%d,%d) -> (%3d,%3d,%3d)%s\n", (int)i, n,
+			(int)cr1, (int)cg1, (int)cb1,
+			(int)cr, (int)cg, (int)cb,
+			(i>=d->ncolors)?" [unused]":"");
+
+		d->pal[i] = DE_MAKE_RGB(cr, cg, cb);
+		pos+=2;
+	}
+}
+
+static void do_degas_anim_fields(deark *c, degasctx *d, de_int64 pos)
 {
 	de_int64 i;
 	de_int64 n;
@@ -186,7 +170,7 @@ static void do_anim_fields(deark *c, degasctx *d, de_int64 pos)
 
 	// TODO: Can we determine if palette animation is actually used,
 	// and only show the warning if it is?
-	de_warn(c, "This image may use palette color animation, which is not supported.\n");
+	//de_warn(c, "This image may use palette color animation, which is not supported.\n");
 }
 
 static void de_run_degas(deark *c, const char *params)
@@ -270,7 +254,7 @@ static void de_run_degas(deark *c, const char *params)
 	}
 
 	if(pos + 32 == c->infile->len) {
-		do_anim_fields(c, d, pos);
+		do_degas_anim_fields(c, d, pos);
 	}
 
 	is_grayscale = de_is_grayscale_palette(d->pal, d->ncolors);
@@ -323,13 +307,6 @@ typedef struct prismctx_struct {
 	struct atari_img_decode_data adata;
 } prixmctx;
 
-static de_byte samp1000to255(de_int64 n)
-{
-	if(n>=1000) return 255;
-	if(n<=0) return 0;
-	return (de_byte)(0.5+(((double)n)*(255.0/1000.0)));
-}
-
 // A color value of N does not necessarily refer to Nth color in the palette.
 // Some of them are mixed up. Apparently this is called "VDI order".
 // Reference: http://toshyp.atari.org/en/VDI_fundamentals.html
@@ -368,9 +345,9 @@ static void do_prism_read_palette(deark *c, prixmctx *d)
 		r1 = de_getui16be(128+6*i+0);
 		g1 = de_getui16be(128+6*i+2);
 		b1 = de_getui16be(128+6*i+4);
-		r = samp1000to255(r1);
-		g = samp1000to255(g1);
-		b = samp1000to255(b1);
+		r = scale1000to255(r1);
+		g = scale1000to255(g1);
+		b = scale1000to255(b1);
 		de_dbg2(c, "pal#%3d (%5d,%5d,%5d) (%3d,%3d,%3d)\n", (int)i, (int)r1, (int)g1, (int)b1,
 			(int)r, (int)g, (int)b);
 		if(i>255) continue;
@@ -379,53 +356,6 @@ static void do_prism_read_palette(deark *c, prixmctx *d)
 
 	for(i=0; i<d->pal_size; i++) {
 		d->pal[i] = pal1[map_vdi_pal(d->adata.bpp, (unsigned int)i)];
-	}
-}
-
-static void do_prism_image(deark *c, struct atari_img_decode_data *adata)
-{
-	de_int64 i, j;
-	de_int64 plane;
-	de_int64 rowspan;
-	de_byte b;
-	de_uint32 v;
-	de_int64 planespan;
-
-	planespan = 2*((adata->w+15)/16);
-	rowspan = planespan*adata->bpp;
-
-	for(j=0; j<adata->h; j++) {
-		for(i=0; i<adata->w; i++) {
-			v = 0;
-
-			for(plane=0; plane<adata->bpp; plane++) {
-				if(adata->was_compressed==0) {
-					// TODO: Simplify this.
-					if(adata->bpp==1) {
-						b = de_get_bits_symbol(adata->unc_pixels, 1, j*rowspan, i);
-					}
-					else if(adata->bpp==2) {
-						b = de_get_bits_symbol(adata->unc_pixels, 1,
-							j*rowspan + 2*plane + (i/16)*2, i);
-					}
-					else if(adata->bpp==4) {
-						b = de_get_bits_symbol(adata->unc_pixels, 1,
-							j*rowspan + 2*plane + (i/2-(i/2)%16)+8*((i%32)/16), i%16);
-					}
-					else { // 8
-						b = de_get_bits_symbol(adata->unc_pixels, 1,
-							j*rowspan + 2*plane + (i-i%16), i%16);
-					}
-				}
-				else {
-					b = de_get_bits_symbol(adata->unc_pixels, 1, j*rowspan + plane*planespan, i);
-				}
-				if(b) v |= 1<<plane;
-			}
-
-			if(v>255) v=255;
-			de_bitmap_setpixel_rgb(adata->img, i, j, adata->pal[v]);
-		}
 	}
 }
 
@@ -488,12 +418,7 @@ static void de_run_prismpaint(deark *c, const char *params)
 	}
 
 	d->adata.img = de_bitmap_create(c, d->adata.w, d->adata.h, 3);
-	if(d->adata.bpp==16) {
-		de_decode_atari_image(c, &d->adata);
-	}
-	else {
-		do_prism_image(c, &d->adata);
-	}
+	de_decode_atari_image(c, &d->adata);
 	de_bitmap_write_to_file(d->adata.img, NULL);
 	de_bitmap_destroy(d->adata.img);
 	d->adata.img = NULL;
