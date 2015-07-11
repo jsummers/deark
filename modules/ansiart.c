@@ -15,10 +15,6 @@ typedef struct localctx_struct {
 
 	de_int64 xpos, ypos; // 0-based
 	de_int64 saved_xpos, saved_ypos;
-	de_byte used_blink;
-	de_byte used_fgcol[8];
-	de_byte used_fgcolbold[8];
-	de_byte used_bgcol[8];
 
 	de_byte curr_fgcol;
 	de_byte curr_bgcol;
@@ -39,24 +35,25 @@ static const de_uint32 ansi_palette[16] = {
 	0x555555,0xff5555,0x55ff55,0xffff55,0x5555ff,0xff55ff,0x55ffff,0xffffff
 };
 
-static struct de_char_cell *get_cell_at(deark *c, lctx *d, de_int64 xpos, de_int64 ypos)
+static struct de_char_cell *get_cell_at(deark *c, struct de_char_screen *screen,
+	de_int64 xpos, de_int64 ypos)
 {
 	de_int64 i;
 	struct de_char_cell *cell;
 
 	if(xpos<0 || ypos<0) return NULL;
 	if(xpos>=CHARS_PER_ROW || ypos>=MAX_ROWS) return NULL;
-	if(!d->screen->cell_rows[ypos]) {
-		d->screen->cell_rows[ypos] = de_malloc(c, CHARS_PER_ROW * sizeof(struct de_char_cell));
+	if(!screen->cell_rows[ypos]) {
+		screen->cell_rows[ypos] = de_malloc(c, CHARS_PER_ROW * sizeof(struct de_char_cell));
 		for(i=0; i<CHARS_PER_ROW; i++) {
 			// Initialize each new cell
-			cell = &d->screen->cell_rows[ypos][i];
+			cell = &screen->cell_rows[ypos][i];
 			cell->codepoint = 0x20;
 			cell->bgcol = 0;
 			cell->fgcol = 7;
 		}
 	}
-	return &(d->screen->cell_rows[ypos][xpos]);
+	return &(screen->cell_rows[ypos][xpos]);
 }
 
 static void do_normal_char(deark *c, lctx *d, de_int64 pos, de_byte ch)
@@ -80,7 +77,7 @@ static void do_normal_char(deark *c, lctx *d, de_int64 pos, de_byte ch)
 
 		u = de_char_to_unicode(c, (de_int32)ch, DE_ENCODING_CP437_G);
 
-		cell = get_cell_at(c, d, d->xpos, d->ypos);
+		cell = get_cell_at(c, d->screen, d->xpos, d->ypos);
 		if(cell) {
 			cell->codepoint = u;
 			cell->fgcol = d->curr_fgcol;
@@ -194,17 +191,6 @@ static void do_code_m(deark *c, lctx *d)
 			de_dbg(c, "unsupported SGR code %d\n", (int)sgi_code);
 		}
 	}
-
-	// Keep track of which colors and attibutes we used, so that we can avoid
-	// defining unused CSS classes.
-
-	if(d->curr_bold)
-		d->used_fgcolbold[d->curr_fgcol] = 1;
-	else
-		d->used_fgcol[d->curr_fgcol] = 1;
-	d->used_bgcol[d->curr_bgcol] = 1;
-	if(d->curr_blink)
-		d->used_blink = 1;
 }
 
 // H: Set cursor position
@@ -262,7 +248,7 @@ static void do_code_J(deark *c, lctx *d)
 				if(j>d->ypos) continue;
 				if(j==d->ypos && i>d->xpos) continue;
 			}
-			cell = get_cell_at(c, d, i, j);
+			cell = get_cell_at(c, d->screen, i, j);
 			if(!cell) continue;
 			cell->codepoint = 0x20;
 		}
@@ -419,7 +405,7 @@ static void ansi_16_color_to_css(int index, char *buf, int buflen)
 	de_color_to_css(clr, buf, buflen);
 }
 
-static void do_output_screen(deark *c, lctx *d, struct de_char_context *charctx,
+static void do_output_screen(deark *c, struct de_char_context *charctx,
 	struct de_char_screen *screen, dbuf *ofile)
 {
 	const struct de_char_cell *cell;
@@ -430,18 +416,21 @@ static void do_output_screen(deark *c, lctx *d, struct de_char_context *charctx,
 
 	de_byte active_fgcol = 0;
 	de_byte active_bgcol = 0;
-	de_byte active_bold = 0;
 	de_byte active_blink = 0;
+	de_byte cell_fgcol_actual;
 
 	dbuf_fputs(ofile, "<pre>");
 	for(j=0; j<screen->height; j++) {
 		for(i=0; i<screen->width; i++) {
 
-			cell = get_cell_at(c, d, i, j);
+			cell = get_cell_at(c, screen, i, j);
 			if(!cell) continue;
 
-			if(span_count==0 || cell->fgcol!=active_fgcol || cell->bgcol!=active_bgcol ||
-				cell->bold!=active_bold || cell->blink!=active_blink)
+			cell_fgcol_actual = cell->fgcol;
+			if(cell->bold) cell_fgcol_actual |= 0x08;
+
+			if(span_count==0 || cell_fgcol_actual!=active_fgcol || cell->bgcol!=active_bgcol ||
+				cell->blink!=active_blink)
 			{
 				while(span_count>0) {
 					dbuf_fprintf(ofile, "</span>");
@@ -456,19 +445,17 @@ static void do_output_screen(deark *c, lctx *d, struct de_char_context *charctx,
 				dbuf_fputs(ofile, "<span class=\"");
 
 				// Classes for foreground and background colors
-				dbuf_fprintf(ofile, "f%c", de_get_hexchar(cell->fgcol));
+				dbuf_fprintf(ofile, "f%c", de_get_hexchar(cell_fgcol_actual));
 				dbuf_fprintf(ofile, " b%c", de_get_hexchar(cell->bgcol));
 
 				// Other attributes
-				if(cell->bold) dbuf_fputs(ofile, " b");
 				if(cell->blink) dbuf_fputs(ofile, " blink");
 
 				dbuf_fputs(ofile, "\">");
 
 				span_count++;
-				active_fgcol = cell->fgcol;
+				active_fgcol = cell_fgcol_actual;
 				active_bgcol = cell->bgcol;
-				active_bold = cell->bold;
 				active_blink = cell->blink;
 			}
 
@@ -503,7 +490,7 @@ static void output_css_color_block(deark *c, dbuf *ofile, const char *selectorpr
 	char tmpbuf[16];
 	int i;
 
-	for(i=0; i<8; i++) {
+	for(i=0; i<16; i++) {
 		if(!used_flags[i]) continue;
 		ansi_16_color_to_css(offset+i, tmpbuf, sizeof(tmpbuf));
 		dbuf_fprintf(ofile, " %s%c { %s: %s }\n", selectorprefix, de_get_hexchar(i),
@@ -511,7 +498,7 @@ static void output_css_color_block(deark *c, dbuf *ofile, const char *selectorpr
 	}
 }
 
-static void do_output_header(deark *c, lctx *d, struct de_char_context *charctx,
+static void do_output_header(deark *c, struct de_char_context *charctx,
 	dbuf *ofile)
 {
 	if(c->write_bom && !c->ascii_html) dbuf_write_uchar_as_utf8(ofile, 0xfeff);
@@ -528,11 +515,10 @@ static void do_output_header(deark *c, lctx *d, struct de_char_context *charctx,
 		"QVQI12NgaGBgPMDA/ICB/QMD/w8G+T8M9v8Y6v8z/P8PIoFsoAhQHCgLVMN4AACOoBFvDLHV4QAA"
 		"AABJRU5ErkJggg==\") }\n");
 
-	output_css_color_block(c, ofile, ".f", "color", 0, &d->used_fgcol[0]);
-	output_css_color_block(c, ofile, ".b.f", "color", 8, &d->used_fgcolbold[0]);
-	output_css_color_block(c, ofile, ".b", "background-color", 0, &d->used_bgcol[0]);
+	output_css_color_block(c, ofile, ".f", "color", 0, &charctx->used_fgcol[0]);
+	output_css_color_block(c, ofile, ".b", "background-color", 0, &charctx->used_bgcol[0]);
 
-	if(d->used_blink) {
+	if(charctx->used_blink) {
 		dbuf_fputs(ofile, " .blink {\n"
 			"  animation: blink 1s steps(1) infinite;\n"
 			"  -webkit-animation: blink 1s steps(1) infinite }\n"
@@ -553,16 +539,23 @@ static void do_output_footer(deark *c, struct de_char_context *charctx,
 	dbuf_fputs(ofile, "</body>\n</html>\n");
 }
 
-static void de_char_output_to_file(deark *c, lctx *d, struct de_char_context *charctx)
+static void de_char_output_to_file(deark *c, struct de_char_context *charctx)
 {
 	dbuf *ofile = NULL;
 	de_int64 i;
 
+	// FIXME: This is temporary
+	charctx->used_blink = 1;
+	for(i=0; i<16; i++) {
+		charctx->used_fgcol[i] = 1;
+		charctx->used_bgcol[i] = 1;
+	}
+
 	ofile = dbuf_create_output_file(c, "html", NULL);
 
-	do_output_header(c, d, charctx, ofile);
+	do_output_header(c, charctx, ofile);
 	for(i=0; i<charctx->nscreens; i++) {
-		do_output_screen(c, d, charctx, charctx->screens[i], ofile);
+		do_output_screen(c, charctx, charctx->screens[i], ofile);
 	}
 	do_output_footer(c, charctx, ofile);
 
@@ -578,7 +571,7 @@ static void do_output_ansiart_to_file(deark *c, lctx *d)
 	charctx->nscreens = 1;
 	charctx->screens[0] = d->screen;
 
-	de_char_output_to_file(c, d, charctx);
+	de_char_output_to_file(c, charctx);
 
 	de_free(c, charctx->screens);
 	de_free(c, charctx);
