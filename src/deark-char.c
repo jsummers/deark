@@ -8,11 +8,16 @@
 #include "deark-config.h"
 #include "deark-private.h"
 
+struct charextractx {
+	de_byte used_blink;
+	de_byte used_fgcol[16];
+	de_byte used_bgcol[16];
+};
+
 static const de_uint32 ansi_palette[16] = {
 	0x000000,0xaa0000,0x00aa00,0xaa5500,0x0000aa,0xaa00aa,0x00aaaa,0xaaaaaa,
 	0x555555,0xff5555,0x55ff55,0xffff55,0x5555ff,0xff55ff,0x55ffff,0xffffff
 };
-
 
 static void ansi_16_color_to_css(int index, char *buf, int buflen)
 {
@@ -24,8 +29,31 @@ static void ansi_16_color_to_css(int index, char *buf, int buflen)
 	de_color_to_css(clr, buf, buflen);
 }
 
+static void do_prescan_screen(deark *c, struct de_char_context *charctx,
+	struct charextractx *ectx, struct de_char_screen *screen)
+{
+	const struct de_char_cell *cell;
+	int i, j;
+	de_byte cell_fgcol_actual;
+
+	for(j=0; j<screen->height; j++) {
+		for(i=0; i<screen->width; i++) {
+			if(!screen->cell_rows || !screen->cell_rows[j]) continue;
+			cell = &screen->cell_rows[j][i];
+			if(!cell) continue;
+
+			cell_fgcol_actual = cell->fgcol;
+			if(cell->bold) cell_fgcol_actual |= 0x08;
+
+			if(cell->fgcol<16) ectx->used_fgcol[(unsigned int)cell_fgcol_actual] = 1;
+			if(cell->bgcol<16) ectx->used_bgcol[(unsigned int)cell->bgcol] = 1;
+			if(cell->blink) ectx->used_blink = 1;
+		}
+	}
+}
+
 static void do_output_screen(deark *c, struct de_char_context *charctx,
-	struct de_char_screen *screen, dbuf *ofile)
+	struct charextractx *ectx, struct de_char_screen *screen, dbuf *ofile)
 {
 	const struct de_char_cell *cell;
 	int i, j;
@@ -38,6 +66,7 @@ static void do_output_screen(deark *c, struct de_char_context *charctx,
 	de_byte active_blink = 0;
 	de_byte cell_fgcol_actual;
 
+	dbuf_fputs(ofile, "<table style=\"margin-left:auto;margin-right:auto\"><tr>\n<td>");
 	dbuf_fputs(ofile, "<pre>");
 	for(j=0; j<screen->height; j++) {
 		for(i=0; i<screen->width; i++) {
@@ -101,6 +130,7 @@ static void do_output_screen(deark *c, struct de_char_context *charctx,
 	}
 
 	dbuf_fputs(ofile, "</pre>");
+	dbuf_fputs(ofile, "</td>\n</tr></table>\n");
 }
 
 static void output_css_color_block(deark *c, dbuf *ofile, const char *selectorprefix,
@@ -118,7 +148,7 @@ static void output_css_color_block(deark *c, dbuf *ofile, const char *selectorpr
 }
 
 static void do_output_header(deark *c, struct de_char_context *charctx,
-	dbuf *ofile)
+	struct charextractx *ectx, dbuf *ofile)
 {
 	if(c->write_bom && !c->ascii_html) dbuf_write_uchar_as_utf8(ofile, 0xfeff);
 	dbuf_fputs(ofile, "<!DOCTYPE html>\n");
@@ -134,10 +164,10 @@ static void do_output_header(deark *c, struct de_char_context *charctx,
 		"QVQI12NgaGBgPMDA/ICB/QMD/w8G+T8M9v8Y6v8z/P8PIoFsoAhQHCgLVMN4AACOoBFvDLHV4QAA"
 		"AABJRU5ErkJggg==\") }\n");
 
-	output_css_color_block(c, ofile, ".f", "color", 0, &charctx->used_fgcol[0]);
-	output_css_color_block(c, ofile, ".b", "background-color", 0, &charctx->used_bgcol[0]);
+	output_css_color_block(c, ofile, ".f", "color", 0, &ectx->used_fgcol[0]);
+	output_css_color_block(c, ofile, ".b", "background-color", 0, &ectx->used_bgcol[0]);
 
-	if(charctx->used_blink) {
+	if(ectx->used_blink) {
 		dbuf_fputs(ofile, " .blink {\n"
 			"  animation: blink 1s steps(1) infinite;\n"
 			"  -webkit-animation: blink 1s steps(1) infinite }\n"
@@ -148,13 +178,11 @@ static void do_output_header(deark *c, struct de_char_context *charctx,
 
 	dbuf_fputs(ofile, "</head>\n");
 	dbuf_fputs(ofile, "<body>\n");
-	dbuf_fputs(ofile, "<table style=\"margin-left:auto;margin-right:auto\"><tr>\n<td>");
 }
 
 static void do_output_footer(deark *c, struct de_char_context *charctx,
-	dbuf *ofile)
+	struct charextractx *ectx, dbuf *ofile)
 {
-	dbuf_fputs(ofile, "</td>\n</tr></table>\n");
 	dbuf_fputs(ofile, "</body>\n</html>\n");
 }
 
@@ -162,21 +190,22 @@ void de_char_output_to_file(deark *c, struct de_char_context *charctx)
 {
 	dbuf *ofile = NULL;
 	de_int64 i;
+	struct charextractx *ectx = NULL;
 
-	// FIXME: This is temporary
-	charctx->used_blink = 1;
-	for(i=0; i<16; i++) {
-		charctx->used_fgcol[i] = 1;
-		charctx->used_bgcol[i] = 1;
+	ectx = de_malloc(c, sizeof(struct charextractx));
+
+	for(i=0; i<charctx->nscreens; i++) {
+		do_prescan_screen(c, charctx, ectx, charctx->screens[i]);
 	}
 
 	ofile = dbuf_create_output_file(c, "html", NULL);
 
-	do_output_header(c, charctx, ofile);
+	do_output_header(c, charctx, ectx, ofile);
 	for(i=0; i<charctx->nscreens; i++) {
-		do_output_screen(c, charctx, charctx->screens[i], ofile);
+		do_output_screen(c, charctx, ectx, charctx->screens[i], ofile);
 	}
-	do_output_footer(c, charctx, ofile);
+	do_output_footer(c, charctx, ectx, ofile);
 
 	dbuf_close(ofile);
+	de_free(c, ectx);
 }

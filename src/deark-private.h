@@ -533,16 +533,8 @@ struct de_char_screen {
 
 struct de_char_context {
 	de_int64 nscreens;
-
-	// TODO: Maybe these should be in a private struct
-	de_byte used_blink;
-	de_byte used_fgcol[16];
-	de_byte used_bgcol[16];
-
 	struct de_char_screen **screens; // Array of [nscreens] screens
 };
-
-///////////////////////////////////////////
 
 void de_char_output_to_file(deark *c, struct de_char_context *charctx);
 
