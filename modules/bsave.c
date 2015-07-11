@@ -11,7 +11,6 @@
 typedef struct localctx_struct {
 	de_int64 base_addr, offset_from_base, data_size;
 
-	dbuf *ofile;
 	int has_pcpaint_sig;
 	de_byte pcpaint_pal_num;
 	de_byte pcpaint_border_col;
@@ -361,28 +360,22 @@ static int do_b265(deark *c, lctx *d)
 	return retval;
 }
 
-static void pc_16_color_to_css(int index, char *buf, int buflen)
-{
-	de_color_to_css(de_palette_pc16(index), buf, buflen);
-}
-
-static void do_char_1screen(deark *c, lctx *d, de_int64 pgnum,
+static void do_char_1screen(deark *c, lctx *d, struct de_char_screen *screen, de_int64 pgnum,
 	de_int64 pg_offset_in_data, de_int64 width, de_int64 height)
 {
 	de_int64 i, j;
 	unsigned int ch;
 	int fgcol, bgcol;
-	int cur_fgcol, cur_bgcol;
 	de_int64 offset;
 	de_byte b0, b1;
 
-	dbuf_fputs(d->ofile, "<pre>\n");
+	screen->width = width;
+	screen->height = height;
+	screen->cell_rows = de_malloc(c, height * sizeof(struct de_char_cell*));
 
-	cur_fgcol = -1;
-	cur_bgcol = -1;
-
-	// TODO: Maybe, to reduce filesize, we should not worry about the foreground color of space characters.
 	for(j=0; j<height; j++) {
+		screen->cell_rows[j] = de_malloc(c, width * sizeof(struct de_char_cell));
+
 		for(i=0; i<width; i++) {
 			// 96 padding bytes per page?
 			offset = BSAVE_HDRSIZE + pg_offset_in_data + j*(width*2) + i*2;
@@ -390,77 +383,24 @@ static void do_char_1screen(deark *c, lctx *d, de_int64 pgnum,
 			b0 = de_getbyte(offset);
 			b1 = de_getbyte(offset+1);
 
-			ch = b0; //c->img[offset];
+			ch = b0;
 			//"The attribute byte stores the foreground color in the low nibble and the background color and blink attribute in the high nibble."
 			//TODO: "blink" attribute?
 			fgcol = (int)(b1 & 0x0f);
 			bgcol = (int)((b1 & 0xf0) >> 4);
 
-			if(fgcol!=cur_fgcol || bgcol!=cur_bgcol) {
-				// The needed colors aren't active. Change colors.
-				if(cur_fgcol != -1) {
-					dbuf_fputs(d->ofile, "</span>");
-				}
-
-				dbuf_fprintf(d->ofile, "<span class=\"f%c b%c\">",
-					de_get_hexchar(fgcol), de_get_hexchar(bgcol));
-
-				cur_fgcol = fgcol;
-				cur_bgcol = bgcol;
-			}
-
-			de_write_codepoint_to_html(c, d->ofile,
-				de_char_to_unicode(c, (de_int32)ch, DE_ENCODING_CP437_G));
-
-			if(i==width-1) {
-				dbuf_fputs(d->ofile, "</span>\n");
-				cur_fgcol = -1;
-			}
+			screen->cell_rows[j][i].fgcol = fgcol;
+			screen->cell_rows[j][i].bgcol = bgcol;
+			screen->cell_rows[j][i].codepoint = de_char_to_unicode(c, (de_int32)ch, DE_ENCODING_CP437_G);
 		}
 	}
-	dbuf_fputs(d->ofile, "</pre>\n");
-
-}
-
-static void output_css_color_block(deark *c, lctx *d, const char *selectorprefix,
-	const char *prop)
-{
-	char tmpbuf[16];
-	int i;
-
-	for(i=0; i<16; i++) {
-		pc_16_color_to_css(i, tmpbuf, sizeof(tmpbuf));
-		dbuf_fprintf(d->ofile, " %s%c { %s: %s }%s", selectorprefix, de_get_hexchar(i),
-			prop, tmpbuf, (i%4==3) ? "\n" : "");
-	}
-}
-
-static void do_output_html_header(deark *c, lctx *d)
-{
-	if(c->write_bom && !c->ascii_html) dbuf_write_uchar_as_utf8(d->ofile, 0xfeff);
-	dbuf_fputs(d->ofile, "<!DOCTYPE html>\n");
-	dbuf_fputs(d->ofile, "<html>\n");
-	dbuf_fputs(d->ofile, "<head>\n");
-	if(!c->ascii_html) dbuf_fputs(d->ofile, "<meta charset=\"UTF-8\">\n");
-	dbuf_fputs(d->ofile, "<title></title>\n");
-
-	dbuf_fputs(d->ofile, "<style type=\"text/css\">\n");
-	output_css_color_block(c, d, ".f", "color");
-	output_css_color_block(c, d, ".b", "background-color");
-	dbuf_fputs(d->ofile, "</style>\n");
-
-	dbuf_fputs(d->ofile, "</head>\n");
-	dbuf_fputs(d->ofile, "<body>\n");
-}
-
-static void do_output_html_footer(deark *c, lctx *d)
-{
-	dbuf_fputs(d->ofile, "</body>\n</html>\n");
 }
 
 static int do_char(deark *c, lctx *d)
 {
+	struct de_char_context *charctx = NULL;
 	int retval = 0;
+	de_int64 j, k;
 
 	de_int64 numpages;
 	de_int64 pgnum;
@@ -497,11 +437,17 @@ static int do_char(deark *c, lctx *d)
 	}
 	de_dbg(c, "pages: %d\n", (int)numpages);
 
-	d->ofile = dbuf_create_output_file(c, "html", NULL);
+	charctx = de_malloc(c, sizeof(struct de_char_context));
+	charctx->nscreens = numpages;
+	charctx->screens = de_malloc(c, numpages*sizeof(struct de_char_screen*));
 
-	do_output_html_header(c, d);
+	for(k=0; k<16; k++) {
+		charctx->pal[k] = de_palette_pc16((int)k);
+	}
 
 	for(pgnum=0; pgnum<numpages; pgnum++) {
+		charctx->screens[pgnum] = de_malloc(c, sizeof(struct de_char_screen));
+
 		pg_offset_in_data = bytes_per_page*pgnum;
 		bytes_for_this_page = d->data_size - pg_offset_in_data;
 		if(bytes_for_this_page<2) break;
@@ -512,14 +458,31 @@ static int do_char(deark *c, lctx *d)
 			height_for_this_page = height;
 		}
 
-		do_char_1screen(c, d, pgnum, pg_offset_in_data, width, height_for_this_page);
+		do_char_1screen(c, d, charctx->screens[pgnum], pgnum, pg_offset_in_data, width, height_for_this_page);
 	}
 
-	do_output_html_footer(c, d);
-	dbuf_close(d->ofile);
+	de_char_output_to_file(c, charctx);
+
 	retval = 1;
 
 done:
+	if(charctx) {
+		if(charctx->screens) {
+			for(pgnum=0; pgnum<charctx->nscreens; pgnum++) {
+				if(charctx->screens[pgnum]) {
+					if(charctx->screens[pgnum]->cell_rows) {
+						for(j=0; j<charctx->screens[pgnum]->height; j++) {
+							de_free(c, charctx->screens[pgnum]->cell_rows[j]);
+						}
+						de_free(c, charctx->screens[pgnum]->cell_rows);
+					}
+					de_free(c, charctx->screens[pgnum]);
+				}
+			}
+			de_free(c, charctx->screens);
+		}
+		de_free(c, charctx);
+	}
 	return retval;
 }
 

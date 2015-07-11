@@ -14,21 +14,6 @@ struct charextractx {
 	de_byte used_bgcol[16];
 };
 
-static const de_uint32 ansi_palette[16] = {
-	0x000000,0xaa0000,0x00aa00,0xaa5500,0x0000aa,0xaa00aa,0x00aaaa,0xaaaaaa,
-	0x555555,0xff5555,0x55ff55,0xffff55,0x5555ff,0xff55ff,0x55ffff,0xffffff
-};
-
-static void ansi_16_color_to_css(int index, char *buf, int buflen)
-{
-	de_uint32 clr;
-
-	if(index>=0 && index<16) clr = ansi_palette[index];
-	else clr = 0;
-
-	de_color_to_css(clr, buf, buflen);
-}
-
 static void do_prescan_screen(deark *c, struct de_char_context *charctx,
 	struct charextractx *ectx, struct de_char_screen *screen)
 {
@@ -133,15 +118,15 @@ static void do_output_screen(deark *c, struct de_char_context *charctx,
 	dbuf_fputs(ofile, "</td>\n</tr></table>\n");
 }
 
-static void output_css_color_block(deark *c, dbuf *ofile, const char *selectorprefix,
-	const char *prop, int offset, const de_byte *used_flags)
+static void output_css_color_block(deark *c, dbuf *ofile, de_uint32 *pal,
+	const char *selectorprefix, const char *prop, const de_byte *used_flags)
 {
 	char tmpbuf[16];
 	int i;
 
 	for(i=0; i<16; i++) {
 		if(!used_flags[i]) continue;
-		ansi_16_color_to_css(offset+i, tmpbuf, sizeof(tmpbuf));
+		de_color_to_css(pal[i], tmpbuf, sizeof(tmpbuf));
 		dbuf_fprintf(ofile, " %s%c { %s: %s }\n", selectorprefix, de_get_hexchar(i),
 			prop, tmpbuf);
 	}
@@ -164,8 +149,8 @@ static void do_output_header(deark *c, struct de_char_context *charctx,
 		"QVQI12NgaGBgPMDA/ICB/QMD/w8G+T8M9v8Y6v8z/P8PIoFsoAhQHCgLVMN4AACOoBFvDLHV4QAA"
 		"AABJRU5ErkJggg==\") }\n");
 
-	output_css_color_block(c, ofile, ".f", "color", 0, &ectx->used_fgcol[0]);
-	output_css_color_block(c, ofile, ".b", "background-color", 0, &ectx->used_bgcol[0]);
+	output_css_color_block(c, ofile, charctx->pal, ".f", "color", &ectx->used_fgcol[0]);
+	output_css_color_block(c, ofile, charctx->pal, ".b", "background-color", &ectx->used_bgcol[0]);
 
 	if(ectx->used_blink) {
 		dbuf_fputs(ofile, " .blink {\n"

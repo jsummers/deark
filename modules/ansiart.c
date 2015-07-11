@@ -7,6 +7,11 @@
 #include <deark-config.h>
 #include <deark-modules.h>
 
+static const de_uint32 ansi_palette[16] = {
+	0x000000,0xaa0000,0x00aa00,0xaa5500,0x0000aa,0xaa00aa,0x00aaaa,0xaaaaaa,
+	0x555555,0xff5555,0x55ff55,0xffff55,0x5555ff,0xff55ff,0x55ffff,0xffffff
+};
+
 #define MAX_ROWS       5000
 #define CHARS_PER_ROW  80
 
@@ -393,11 +398,16 @@ static void do_main(deark *c, lctx *d)
 static void do_output_ansiart_to_file(deark *c, lctx *d)
 {
 	struct de_char_context *charctx = NULL;
+	de_int64 k;
 
 	charctx = de_malloc(c, sizeof(struct de_char_context));
 	charctx->screens = de_malloc(c, 1*sizeof(struct de_char_screen*));
 	charctx->nscreens = 1;
 	charctx->screens[0] = d->screen;
+
+	for(k=0; k<16; k++) {
+		charctx->pal[k] = ansi_palette[k];
+	}
 
 	de_char_output_to_file(c, charctx);
 

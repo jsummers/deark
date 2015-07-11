@@ -534,6 +534,7 @@ struct de_char_screen {
 struct de_char_context {
 	de_int64 nscreens;
 	struct de_char_screen **screens; // Array of [nscreens] screens
+	de_uint32 pal[16];
 };
 
 void de_char_output_to_file(deark *c, struct de_char_context *charctx);
