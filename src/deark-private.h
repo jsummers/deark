@@ -543,3 +543,7 @@ struct de_char_context {
 };
 
 ///////////////////////////////////////////
+
+void de_char_output_to_file(deark *c, struct de_char_context *charctx);
+
+///////////////////////////////////////////
