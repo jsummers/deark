@@ -7,21 +7,11 @@
 #include <deark-config.h>
 #include <deark-modules.h>
 
-struct cell_struct {
-	de_int32 codepoint;
-	de_byte fgcol;
-	de_byte bgcol;
-	de_byte bold;
-	de_byte blink;
-};
-
-typedef struct localctx_struct {
-	dbuf *ofile;
 #define MAX_ROWS       5000
 #define CHARS_PER_ROW  80
-	de_int64 width;
-	de_int64 known_height;
-	struct cell_struct **cell_rows; // Array of row pointers
+
+typedef struct localctx_struct {
+	struct de_char_screen *screen;
 
 	de_int64 xpos, ypos; // 0-based
 	de_int64 saved_xpos, saved_ypos;
@@ -49,29 +39,29 @@ static const de_uint32 ansi_palette[16] = {
 	0x555555,0xff5555,0x55ff55,0xffff55,0x5555ff,0xff55ff,0x55ffff,0xffffff
 };
 
-static struct cell_struct *get_cell_at(deark *c, lctx *d, de_int64 xpos, de_int64 ypos)
+static struct de_char_cell *get_cell_at(deark *c, lctx *d, de_int64 xpos, de_int64 ypos)
 {
 	de_int64 i;
-	struct cell_struct *cell;
+	struct de_char_cell *cell;
 
 	if(xpos<0 || ypos<0) return NULL;
 	if(xpos>=CHARS_PER_ROW || ypos>=MAX_ROWS) return NULL;
-	if(!d->cell_rows[ypos]) {
-		d->cell_rows[ypos] = de_malloc(c, CHARS_PER_ROW * sizeof(struct cell_struct));
+	if(!d->screen->cell_rows[ypos]) {
+		d->screen->cell_rows[ypos] = de_malloc(c, CHARS_PER_ROW * sizeof(struct de_char_cell));
 		for(i=0; i<CHARS_PER_ROW; i++) {
 			// Initialize each new cell
-			cell = &d->cell_rows[ypos][i];
+			cell = &d->screen->cell_rows[ypos][i];
 			cell->codepoint = 0x20;
 			cell->bgcol = 0;
 			cell->fgcol = 7;
 		}
 	}
-	return &(d->cell_rows[ypos][xpos]);
+	return &(d->screen->cell_rows[ypos][xpos]);
 }
 
 static void do_normal_char(deark *c, lctx *d, de_int64 pos, de_byte ch)
 {
-	struct cell_struct *cell;
+	struct de_char_cell *cell;
 	de_int32 u;
 
 	if(ch==13) { // CR
@@ -83,8 +73,8 @@ static void do_normal_char(deark *c, lctx *d, de_int64 pos, de_byte ch)
 		d->xpos = 0;
 	}
 	else {
-		while(d->xpos >= d->width) {
-			d->xpos -= d->width;
+		while(d->xpos >= d->screen->width) {
+			d->xpos -= d->screen->width;
 			d->ypos++;
 		}
 
@@ -98,7 +88,7 @@ static void do_normal_char(deark *c, lctx *d, de_int64 pos, de_byte ch)
 			cell->bgcol = d->curr_bgcol;
 			cell->blink = d->curr_blink;
 
-			if(d->ypos >= d->known_height) d->known_height = d->ypos+1;
+			if(d->ypos >= d->screen->height) d->screen->height = d->ypos+1;
 		}
 		else {
 			de_dbg(c, "off-screen write at (%d,%d) (%d)\n",
@@ -255,15 +245,15 @@ static void do_code_J(deark *c, lctx *d)
 {
 	de_int64 n;
 	de_int64 i, j;
-	struct cell_struct *cell;
+	struct de_char_cell *cell;
 
 	read_one_int(c, d, d->param_string_buf, &n, 0);
 	// 0 = clear from cursor to end of screen
 	// 1 = clear from cursor to beginning of screen
 	// 2 = clear screen
 
-	for(j=0; j<d->known_height; j++) {
-		for(i=0; i<d->width; i++) {
+	for(j=0; j<d->screen->height; j++) {
+		for(i=0; i<d->screen->width; i++) {
 			if(n==0) {
 				if(j<d->ypos) continue;
 				if(j==d->ypos && i<d->xpos) continue;
@@ -429,9 +419,10 @@ static void ansi_16_color_to_css(int index, char *buf, int buflen)
 	de_color_to_css(clr, buf, buflen);
 }
 
-static void do_output_main(deark *c, lctx *d)
+static void do_output_screen(deark *c, lctx *d, struct de_char_context *charctx,
+	struct de_char_screen *screen, dbuf *ofile)
 {
-	const struct cell_struct *cell;
+	const struct de_char_cell *cell;
 	int i, j;
 	de_int32 n;
 	int span_count = 0;
@@ -442,9 +433,9 @@ static void do_output_main(deark *c, lctx *d)
 	de_byte active_bold = 0;
 	de_byte active_blink = 0;
 
-	dbuf_fputs(d->ofile, "<pre>");
-	for(j=0; j<d->known_height; j++) {
-		for(i=0; i<d->width; i++) {
+	dbuf_fputs(ofile, "<pre>");
+	for(j=0; j<screen->height; j++) {
+		for(i=0; i<screen->width; i++) {
 
 			cell = get_cell_at(c, d, i, j);
 			if(!cell) continue;
@@ -453,26 +444,26 @@ static void do_output_main(deark *c, lctx *d)
 				cell->bold!=active_bold || cell->blink!=active_blink)
 			{
 				while(span_count>0) {
-					dbuf_fprintf(d->ofile, "</span>");
+					dbuf_fprintf(ofile, "</span>");
 					span_count--;
 				}
 
 				if(need_newline) {
-					dbuf_fputs(d->ofile, "\n");
+					dbuf_fputs(ofile, "\n");
 					need_newline = 0;
 				}
 
-				dbuf_fputs(d->ofile, "<span class=\"");
+				dbuf_fputs(ofile, "<span class=\"");
 
 				// Classes for foreground and background colors
-				dbuf_fprintf(d->ofile, "f%c", de_get_hexchar(cell->fgcol));
-				dbuf_fprintf(d->ofile, " b%c", de_get_hexchar(cell->bgcol));
+				dbuf_fprintf(ofile, "f%c", de_get_hexchar(cell->fgcol));
+				dbuf_fprintf(ofile, " b%c", de_get_hexchar(cell->bgcol));
 
 				// Other attributes
-				if(cell->bold) dbuf_fputs(d->ofile, " b");
-				if(cell->blink) dbuf_fputs(d->ofile, " blink");
+				if(cell->bold) dbuf_fputs(ofile, " b");
+				if(cell->blink) dbuf_fputs(ofile, " blink");
 
-				dbuf_fputs(d->ofile, "\">");
+				dbuf_fputs(ofile, "\">");
 
 				span_count++;
 				active_fgcol = cell->fgcol;
@@ -486,11 +477,11 @@ static void do_output_main(deark *c, lctx *d)
 			if(n<0x20) n='?';
 
 			if(need_newline) {
-				dbuf_fputs(d->ofile, "\n");
+				dbuf_fputs(ofile, "\n");
 				need_newline = 0;
 			}
 
-			de_write_codepoint_to_html(c, d->ofile, n);
+			de_write_codepoint_to_html(c, ofile, n);
 		}
 
 		// Defer emitting a newline, so that we have more control over where
@@ -499,14 +490,14 @@ static void do_output_main(deark *c, lctx *d)
 	}
 
 	while(span_count>0) {
-		dbuf_fprintf(d->ofile, "</span>");
+		dbuf_fprintf(ofile, "</span>");
 		span_count--;
 	}
 
-	dbuf_fputs(d->ofile, "</pre>");
+	dbuf_fputs(ofile, "</pre>");
 }
 
-static void output_css_color_block(deark *c, lctx *d, const char *selectorprefix,
+static void output_css_color_block(deark *c, dbuf *ofile, const char *selectorprefix,
 	const char *prop, int offset, const de_byte *used_flags)
 {
 	char tmpbuf[16];
@@ -515,49 +506,82 @@ static void output_css_color_block(deark *c, lctx *d, const char *selectorprefix
 	for(i=0; i<8; i++) {
 		if(!used_flags[i]) continue;
 		ansi_16_color_to_css(offset+i, tmpbuf, sizeof(tmpbuf));
-		dbuf_fprintf(d->ofile, " %s%c { %s: %s }\n", selectorprefix, de_get_hexchar(i),
+		dbuf_fprintf(ofile, " %s%c { %s: %s }\n", selectorprefix, de_get_hexchar(i),
 			prop, tmpbuf);
 	}
 }
 
-static void do_output_header(deark *c, lctx *d)
+static void do_output_header(deark *c, lctx *d, struct de_char_context *charctx,
+	dbuf *ofile)
 {
-	if(c->write_bom && !c->ascii_html) dbuf_write_uchar_as_utf8(d->ofile, 0xfeff);
-	dbuf_fputs(d->ofile, "<!DOCTYPE html>\n");
-	dbuf_fputs(d->ofile, "<html>\n");
-	dbuf_fputs(d->ofile, "<head>\n");
-	if(!c->ascii_html) dbuf_fputs(d->ofile, "<meta charset=\"UTF-8\">\n");
-	dbuf_fputs(d->ofile, "<title></title>\n");
+	if(c->write_bom && !c->ascii_html) dbuf_write_uchar_as_utf8(ofile, 0xfeff);
+	dbuf_fputs(ofile, "<!DOCTYPE html>\n");
+	dbuf_fputs(ofile, "<html>\n");
+	dbuf_fputs(ofile, "<head>\n");
+	if(!c->ascii_html) dbuf_fputs(ofile, "<meta charset=\"UTF-8\">\n");
+	dbuf_fputs(ofile, "<title></title>\n");
 
-	dbuf_fputs(d->ofile, "<style type=\"text/css\">\n");
+	dbuf_fputs(ofile, "<style type=\"text/css\">\n");
 
-	dbuf_fputs(d->ofile, " body { background-image: url(\"data:image/png;base64,"
+	dbuf_fputs(ofile, " body { background-image: url(\"data:image/png;base64,"
 		"iVBORw0KGgoAAAANSUhEUgAAABAAAAAQAQMAAAAlPW0iAAAABlBMVEUgICAoKCidji3LAAAAMUlE"
 		"QVQI12NgaGBgPMDA/ICB/QMD/w8G+T8M9v8Y6v8z/P8PIoFsoAhQHCgLVMN4AACOoBFvDLHV4QAA"
 		"AABJRU5ErkJggg==\") }\n");
 
-	output_css_color_block(c, d, ".f", "color", 0, &d->used_fgcol[0]);
-	output_css_color_block(c, d, ".b.f", "color", 8, &d->used_fgcol[8]);
-	output_css_color_block(c, d, ".b", "background-color", 0, &d->used_bgcol[0]);
+	output_css_color_block(c, ofile, ".f", "color", 0, &d->used_fgcol[0]);
+	output_css_color_block(c, ofile, ".b.f", "color", 8, &d->used_fgcolbold[0]);
+	output_css_color_block(c, ofile, ".b", "background-color", 0, &d->used_bgcol[0]);
 
 	if(d->used_blink) {
-		dbuf_fputs(d->ofile, " .blink {\n"
+		dbuf_fputs(ofile, " .blink {\n"
 			"  animation: blink 1s steps(1) infinite;\n"
 			"  -webkit-animation: blink 1s steps(1) infinite }\n"
 			" @keyframes blink { 50% { color: transparent } }\n"
 			" @-webkit-keyframes blink { 50% { color: transparent } }\n");
 	}
-	dbuf_fputs(d->ofile, "</style>\n");
+	dbuf_fputs(ofile, "</style>\n");
 
-	dbuf_fputs(d->ofile, "</head>\n");
-	dbuf_fputs(d->ofile, "<body>\n");
-	dbuf_fputs(d->ofile, "<table style=\"margin-left:auto;margin-right:auto\"><tr>\n<td>");
+	dbuf_fputs(ofile, "</head>\n");
+	dbuf_fputs(ofile, "<body>\n");
+	dbuf_fputs(ofile, "<table style=\"margin-left:auto;margin-right:auto\"><tr>\n<td>");
 }
 
-static void do_output_footer(deark *c, lctx *d)
+static void do_output_footer(deark *c, struct de_char_context *charctx,
+	dbuf *ofile)
 {
-	dbuf_fputs(d->ofile, "</td>\n</tr></table>\n");
-	dbuf_fputs(d->ofile, "</body>\n</html>\n");
+	dbuf_fputs(ofile, "</td>\n</tr></table>\n");
+	dbuf_fputs(ofile, "</body>\n</html>\n");
+}
+
+static void de_char_output_to_file(deark *c, lctx *d, struct de_char_context *charctx)
+{
+	dbuf *ofile = NULL;
+	de_int64 i;
+
+	ofile = dbuf_create_output_file(c, "html", NULL);
+
+	do_output_header(c, d, charctx, ofile);
+	for(i=0; i<charctx->nscreens; i++) {
+		do_output_screen(c, d, charctx, charctx->screens[i], ofile);
+	}
+	do_output_footer(c, charctx, ofile);
+
+	dbuf_close(ofile);
+}
+
+static void do_output_ansiart_to_file(deark *c, lctx *d)
+{
+	struct de_char_context *charctx = NULL;
+
+	charctx = de_malloc(c, sizeof(struct de_char_context));
+	charctx->screens = de_malloc(c, 1*sizeof(struct de_char_screen*));
+	charctx->nscreens = 1;
+	charctx->screens[0] = d->screen;
+
+	de_char_output_to_file(c, d, charctx);
+
+	de_free(c, charctx->screens);
+	de_free(c, charctx);
 }
 
 static void de_run_ansiart(deark *c, const char *params)
@@ -566,27 +590,23 @@ static void de_run_ansiart(deark *c, const char *params)
 	de_int64 i;
 
 	d = de_malloc(c, sizeof(lctx));
+	d->screen = de_malloc(c, sizeof(struct de_char_screen));
 
-	d->width = CHARS_PER_ROW;
-	d->known_height = 1;
+	d->screen->width = CHARS_PER_ROW;
+	// We don't know the height yet. This will be updated as we read the file.
+	d->screen->height = 1;
 
-	d->cell_rows = de_malloc(c, MAX_ROWS * sizeof(struct cell_struct*));
+	d->screen->cell_rows = de_malloc(c, MAX_ROWS * sizeof(struct de_char_cell*));
 
 	do_main(c, d);
 
-	d->ofile = dbuf_create_output_file(c, "html", NULL);
-
-	do_output_header(c, d);
-	do_output_main(c, d);
-	do_output_footer(c, d);
-
-	dbuf_close(d->ofile);
-	d->ofile = NULL;
+	do_output_ansiart_to_file(c, d);
 
 	for(i=0; i<MAX_ROWS; i++) {
-		if(d->cell_rows[i]) de_free(c, d->cell_rows[i]);
+		if(d->screen->cell_rows[i]) de_free(c, d->screen->cell_rows[i]);
 	}
-	de_free(c, d->cell_rows);
+	de_free(c, d->screen->cell_rows);
+	de_free(c, d->screen);
 	de_free(c, d);
 }
 

@@ -329,6 +329,10 @@
 				>
 			</File>
 			<File
+				RelativePath="..\..\src\deark-char.c"
+				>
+			</File>
+			<File
 				RelativePath="..\..\src\deark-cmd.c"
 				>
 			</File>

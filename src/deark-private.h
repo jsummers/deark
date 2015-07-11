@@ -516,3 +516,24 @@ void de_font_paint_character_cp(deark *c, struct deark_bitmap *img,
 void de_font_bitmap_font_to_image(deark *c, struct de_bitmap_font *font, de_finfo *fi);
 
 ///////////////////////////////////////////
+
+struct de_char_cell {
+	de_int32 codepoint;
+	de_byte fgcol;
+	de_byte bgcol;
+	de_byte bold;
+	de_byte blink;
+};
+
+struct de_char_screen {
+	de_int64 width;
+	de_int64 height;
+	struct de_char_cell **cell_rows; // Array of [height] row pointers
+};
+
+struct de_char_context {
+	de_int64 nscreens;
+	struct de_char_screen **screens; // Array of [nscreens] screens
+};
+
+///////////////////////////////////////////
