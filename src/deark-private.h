@@ -508,10 +508,10 @@ struct de_bitmap_font {
 #define DE_PAINTFLAG_TRNSBKGD 0x01
 void de_font_paint_character_idx(deark *c, struct deark_bitmap *img,
 	struct de_bitmap_font *font, de_int64 char_idx,
-	de_int64 xpos, de_int64 ypos, de_int32 fgcol, de_int32 bgcol, unsigned int flags);
+	de_int64 xpos, de_int64 ypos, de_uint32 fgcol, de_uint32 bgcol, unsigned int flags);
 void de_font_paint_character_cp(deark *c, struct deark_bitmap *img,
 	struct de_bitmap_font *font, de_int32 codepoint,
-	de_int64 xpos, de_int64 ypos, de_int32 fgcol, de_int32 bgcol, unsigned int flags);
+	de_int64 xpos, de_int64 ypos, de_uint32 fgcol, de_uint32 bgcol, unsigned int flags);
 
 void de_font_bitmap_font_to_image(deark *c, struct de_bitmap_font *font, de_finfo *fi);
 
@@ -533,6 +533,7 @@ struct de_char_screen {
 
 struct de_char_context {
 	de_int64 nscreens;
+	struct de_bitmap_font *font; // Optional
 	struct de_char_screen **screens; // Array of [nscreens] screens
 	de_uint32 pal[16];
 };

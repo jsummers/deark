@@ -18,13 +18,13 @@ static int is_valid_char(struct de_bitmap_font_char *ch)
 
 void de_font_paint_character_idx(deark *c, struct deark_bitmap *img,
 	struct de_bitmap_font *font, de_int64 char_idx,
-	de_int64 xpos, de_int64 ypos, de_int32 fgcol, de_int32 bgcol,
+	de_int64 xpos, de_int64 ypos, de_uint32 fgcol, de_uint32 bgcol,
 	unsigned int flags)
 {
 	de_int64 i, j;
 	de_byte x;
 	int fg;
-	de_int32 clr;
+	de_uint32 clr;
 	struct de_bitmap_font_char *ch;
 
 	if(char_idx<0 || char_idx>=font->num_chars) return;
@@ -63,15 +63,21 @@ static de_int64 get_char_idx_by_cp(deark *c, struct de_bitmap_font *font, de_int
 	de_int64 i;
 
 	for(i=0; i<font->num_chars; i++) {
-		if(font->char_array[i].codepoint == codepoint)
-			return i;
+		if(font->has_unicode_codepoints) {
+			if(font->char_array[i].codepoint_unicode == codepoint)
+				return i;
+		}
+		else {
+			if(font->char_array[i].codepoint == codepoint)
+				return i;
+		}
 	}
 	return -1;
 }
 
 void de_font_paint_character_cp(deark *c, struct deark_bitmap *img,
 	struct de_bitmap_font *font, de_int32 codepoint,
-	de_int64 xpos, de_int64 ypos, de_int32 fgcol, de_int32 bgcol, unsigned int flags)
+	de_int64 xpos, de_int64 ypos, de_uint32 fgcol, de_uint32 bgcol, unsigned int flags)
 {
 	de_int64 char_idx;
 

@@ -12,6 +12,8 @@ struct charextractx {
 	de_byte used_blink;
 	de_byte used_fgcol[16];
 	de_byte used_bgcol[16];
+	struct de_bitmap_font *standard_font;
+	struct de_bitmap_font *font_to_use;
 };
 
 static void do_prescan_screen(deark *c, struct de_char_context *charctx,
@@ -171,17 +173,11 @@ static void do_output_footer(deark *c, struct de_char_context *charctx,
 	dbuf_fputs(ofile, "</body>\n</html>\n");
 }
 
-void de_char_output_to_file(deark *c, struct de_char_context *charctx)
+static void de_char_output_to_html_file(deark *c, struct de_char_context *charctx,
+	struct charextractx *ectx)
 {
-	dbuf *ofile = NULL;
 	de_int64 i;
-	struct charextractx *ectx = NULL;
-
-	ectx = de_malloc(c, sizeof(struct charextractx));
-
-	for(i=0; i<charctx->nscreens; i++) {
-		do_prescan_screen(c, charctx, ectx, charctx->screens[i]);
-	}
+	dbuf *ofile = NULL;
 
 	ofile = dbuf_create_output_file(c, "html", NULL);
 
@@ -192,5 +188,153 @@ void de_char_output_to_file(deark *c, struct de_char_context *charctx)
 	do_output_footer(c, charctx, ectx, ofile);
 
 	dbuf_close(ofile);
+}
+
+static void do_render_character(deark *c, struct de_char_context *charctx,
+	struct charextractx *ectx, struct deark_bitmap *img,
+	de_int64 xpos, de_int64 ypos,
+	de_uint32 codepoint, de_byte fgcol_idx, de_byte bgcol_idx)
+{
+	de_int64 xpos_in_pix, ypos_in_pix;
+	de_uint32 fgcol, bgcol;
+
+	xpos_in_pix = xpos * ectx->font_to_use->nominal_width;
+	ypos_in_pix = ypos * ectx->font_to_use->nominal_height;
+
+	fgcol = charctx->pal[(unsigned int)fgcol_idx];
+	bgcol = charctx->pal[(unsigned int)bgcol_idx];
+
+	de_font_paint_character_cp(c, img, ectx->font_to_use, (de_int64)codepoint,
+		xpos_in_pix, ypos_in_pix, fgcol, bgcol, 0);
+}
+
+static void de_char_output_screen_to_image_file(deark *c, struct de_char_context *charctx,
+	struct charextractx *ectx, struct de_char_screen *screen)
+{
+	de_int64 width_in_pixels, height_in_pixels;
+	struct deark_bitmap *img = NULL;
+	int i, j;
+	const struct de_char_cell *cell;
+	de_byte cell_fgcol_actual;
+
+	width_in_pixels = screen->width * ectx->font_to_use->nominal_width;
+	height_in_pixels = screen->height * ectx->font_to_use->nominal_height;
+
+	img = de_bitmap_create(c, width_in_pixels, height_in_pixels, 3);
+
+	for(j=0; j<screen->height; j++) {
+		for(i=0; i<screen->width; i++) {
+			cell = &screen->cell_rows[j][i];
+			if(!cell) continue;
+
+			cell_fgcol_actual = cell->fgcol;
+			if(cell->bold) cell_fgcol_actual |= 0x08;
+
+			do_render_character(c, charctx, ectx, img, i, j,
+				cell->codepoint, cell_fgcol_actual, cell->bgcol);
+		}
+	}
+
+	de_bitmap_write_to_file(img, NULL);
+
+	de_bitmap_destroy(img);
+}
+
+// FIXME: This is duplicated in deark-char.
+static void do_create_standard_font(deark *c, struct charextractx *ectx)
+{
+	de_int64 i;
+	struct de_bitmap_font *font;
+	const de_byte *vga_font_data;
+
+	font = de_malloc(c, sizeof(struct de_bitmap_font));
+	ectx->standard_font = font;
+
+	vga_font_data = de_get_vga_font_ptr();
+
+	font->has_unicode_codepoints = 1;
+	font->num_chars = 256;
+	font->nominal_width = 8;
+	font->nominal_height = 16;
+
+	font->char_array = de_malloc(c, font->num_chars * sizeof(struct de_bitmap_font_char));
+
+	for(i=0; i<font->num_chars; i++) {
+		font->char_array[i].codepoint = (de_int32)i;
+		font->char_array[i].codepoint_unicode =
+			de_char_to_unicode(c, (de_int32)i, DE_ENCODING_CP437_G);
+		font->char_array[i].width = font->nominal_width;
+		font->char_array[i].height = font->nominal_height;
+		font->char_array[i].rowspan = 1;
+		font->char_array[i].bitmap = (de_byte*)&vga_font_data[i*16];
+	}
+}
+
+static void de_char_output_to_image_files(deark *c, struct de_char_context *charctx,
+	struct charextractx *ectx)
+{
+	de_int64 i;
+
+	if(ectx->used_blink) {
+		if(charctx->font) {
+			// We have no way to support both a custom font and blinking characters
+			// at the same time.
+			de_warn(c, "This file uses blinking characters, which are not supported.");
+		}
+		else {
+			de_warn(c, "This file uses blinking characters, which are not supported with "
+				"image output. Use \"-opt char:output=html\" for HTML output.\n");
+		}
+	}
+
+	if(charctx->font) {
+		ectx->font_to_use = charctx->font;
+	}
+	else {
+		do_create_standard_font(c, ectx);
+		ectx->font_to_use = ectx->standard_font;
+	}
+
+	for(i=0; i<charctx->nscreens; i++) {
+		de_char_output_screen_to_image_file(c, charctx, ectx, charctx->screens[i]);
+	}
+
+	if(ectx->standard_font) {
+		de_free(c, ectx->standard_font->char_array);
+		de_free(c, ectx->standard_font);
+	}
+}
+
+void de_char_output_to_file(deark *c, struct de_char_context *charctx)
+{
+	de_int64 i;
+	int outfmt = 0;
+	const char *s;
+	struct charextractx *ectx = NULL;
+
+	ectx = de_malloc(c, sizeof(struct charextractx));
+
+	s = de_get_ext_option(c, "char:output");
+	if(s) {
+		if(!de_strcmp(s, "html")) {
+			outfmt = 0;
+		}
+		else if(!de_strcmp(s, "image")) {
+			outfmt = 1;
+		}
+	}
+
+	for(i=0; i<charctx->nscreens; i++) {
+		do_prescan_screen(c, charctx, ectx, charctx->screens[i]);
+	}
+
+	switch(outfmt) {
+	case 1:
+		de_char_output_to_image_files(c, charctx, ectx);
+		break;
+	default:
+		de_char_output_to_html_file(c, charctx, ectx);
+	}
+
 	de_free(c, ectx);
 }
