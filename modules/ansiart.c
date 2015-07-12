@@ -49,6 +49,7 @@ static struct de_char_cell *get_cell_at(deark *c, struct de_char_screen *screen,
 			// Initialize each new cell
 			cell = &screen->cell_rows[ypos][i];
 			cell->codepoint = 0x20;
+			cell->codepoint_unicode = 0x20;
 			cell->bgcol = 0;
 			cell->fgcol = 7;
 		}
@@ -79,7 +80,8 @@ static void do_normal_char(deark *c, lctx *d, de_int64 pos, de_byte ch)
 
 		cell = get_cell_at(c, d->screen, d->xpos, d->ypos);
 		if(cell) {
-			cell->codepoint = u;
+			cell->codepoint = (de_int32)ch;
+			cell->codepoint_unicode = u;
 			cell->fgcol = d->curr_fgcol;
 			cell->bold = d->curr_bold;
 			cell->bgcol = d->curr_bgcol;
@@ -251,6 +253,7 @@ static void do_code_J(deark *c, lctx *d)
 			cell = get_cell_at(c, d->screen, i, j);
 			if(!cell) continue;
 			cell->codepoint = 0x20;
+			cell->codepoint_unicode = 0x20;
 		}
 	}
 

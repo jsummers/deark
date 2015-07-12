@@ -500,12 +500,12 @@ struct de_bitmap_font {
 	de_byte is_unicode; // Flag: Is the font fundamentally unicode?
 	de_byte has_unicode_codepoints;	// Flag: Are char_array[]->codepoint_unicode codes set?
 
-	de_byte vga_9col_mode; // Flag: Render an extra column, like VGA does
 	de_int64 num_chars;
 	struct de_bitmap_font_char *char_array;
 };
 
 #define DE_PAINTFLAG_TRNSBKGD 0x01
+#define DE_PAINTFLAG_VGA9COL  0x02 // Render an extra column, like VGA does
 void de_font_paint_character_idx(deark *c, struct deark_bitmap *img,
 	struct de_bitmap_font *font, de_int64 char_idx,
 	de_int64 xpos, de_int64 ypos, de_uint32 fgcol, de_uint32 bgcol, unsigned int flags);
@@ -519,6 +519,7 @@ void de_font_bitmap_font_to_image(deark *c, struct de_bitmap_font *font, de_finf
 
 struct de_char_cell {
 	de_int32 codepoint;
+	de_int32 codepoint_unicode;
 	de_byte fgcol;
 	de_byte bgcol;
 	de_byte bold;

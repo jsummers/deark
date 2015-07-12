@@ -26,6 +26,7 @@ static void do_render_character(deark *c, lctx *d, struct deark_bitmap *img,
 {
 	de_int64 xpos_in_pix, ypos_in_pix;
 	de_uint32 fgcol, bgcol;
+	unsigned int flags;
 
 	if(xpos<0 || ypos<0 || xpos>=d->width_in_chars || ypos>=d->height_in_chars) return;
 
@@ -35,8 +36,11 @@ static void do_render_character(deark *c, lctx *d, struct deark_bitmap *img,
 	fgcol = d->pal[(unsigned int)(acode&0x0f)];
 	bgcol = d->pal[(unsigned int)((acode&0xf0)>>4)];
 
+	flags = 0;
+	if(d->char_cell_width==9) flags |= DE_PAINTFLAG_VGA9COL;
+
 	de_font_paint_character_idx(c, img, d->font, (de_int64)ccode,
-		xpos_in_pix, ypos_in_pix, fgcol, bgcol, 0);
+		xpos_in_pix, ypos_in_pix, fgcol, bgcol, flags);
 }
 
 static void do_xbin_main(deark *c, lctx *d, dbuf *unc_data)
@@ -59,9 +63,6 @@ static void do_xbin_main(deark *c, lctx *d, dbuf *unc_data)
 		img->xdens = 540.0;
 		img->ydens = 400.0;
 	}
-
-	// This flag will be used by de_font_paint_character*().
-	d->font->vga_9col_mode = (d->char_cell_width==9);
 
 	for(j=0; j<d->height_in_chars; j++) {
 		for(i=0; i<d->width_in_chars; i++) {
@@ -181,7 +182,6 @@ static void do_extract_font(deark *c, lctx *d)
 	fi = de_finfo_create(c);
 	de_finfo_set_name_from_sz(c, fi, "font", DE_ENCODING_ASCII);
 
-	d->font->vga_9col_mode = 0;
 	de_font_bitmap_font_to_image(c, d->font, fi);
 
 	de_finfo_destroy(c, fi);

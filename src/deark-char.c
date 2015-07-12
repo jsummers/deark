@@ -9,11 +9,15 @@
 #include "deark-private.h"
 
 struct charextractx {
+	de_byte vga_9col_mode; // Flag: Render an extra column, like VGA does
 	de_byte used_blink;
 	de_byte used_fgcol[16];
 	de_byte used_bgcol[16];
 	struct de_bitmap_font *standard_font;
 	struct de_bitmap_font *font_to_use;
+
+	de_int64 char_width_in_pixels;
+	de_int64 char_height_in_pixels;
 };
 
 static void do_prescan_screen(deark *c, struct de_char_context *charctx,
@@ -39,7 +43,7 @@ static void do_prescan_screen(deark *c, struct de_char_context *charctx,
 	}
 }
 
-static void do_output_screen(deark *c, struct de_char_context *charctx,
+static void do_output_html_screen(deark *c, struct de_char_context *charctx,
 	struct charextractx *ectx, struct de_char_screen *screen, dbuf *ofile)
 {
 	const struct de_char_cell *cell;
@@ -94,7 +98,7 @@ static void do_output_screen(deark *c, struct de_char_context *charctx,
 				active_blink = cell->blink;
 			}
 
-			n = cell->codepoint;
+			n = cell->codepoint_unicode;
 			if(n==0x00) n=0x20;
 			if(n<0x20) n='?';
 
@@ -134,7 +138,7 @@ static void output_css_color_block(deark *c, dbuf *ofile, de_uint32 *pal,
 	}
 }
 
-static void do_output_header(deark *c, struct de_char_context *charctx,
+static void do_output_html_header(deark *c, struct de_char_context *charctx,
 	struct charextractx *ectx, dbuf *ofile)
 {
 	if(c->write_bom && !c->ascii_html) dbuf_write_uchar_as_utf8(ofile, 0xfeff);
@@ -167,7 +171,7 @@ static void do_output_header(deark *c, struct de_char_context *charctx,
 	dbuf_fputs(ofile, "<body>\n");
 }
 
-static void do_output_footer(deark *c, struct de_char_context *charctx,
+static void do_output_html_footer(deark *c, struct de_char_context *charctx,
 	struct charextractx *ectx, dbuf *ofile)
 {
 	dbuf_fputs(ofile, "</body>\n</html>\n");
@@ -181,11 +185,11 @@ static void de_char_output_to_html_file(deark *c, struct de_char_context *charct
 
 	ofile = dbuf_create_output_file(c, "html", NULL);
 
-	do_output_header(c, charctx, ectx, ofile);
+	do_output_html_header(c, charctx, ectx, ofile);
 	for(i=0; i<charctx->nscreens; i++) {
-		do_output_screen(c, charctx, ectx, charctx->screens[i], ofile);
+		do_output_html_screen(c, charctx, ectx, charctx->screens[i], ofile);
 	}
-	do_output_footer(c, charctx, ectx, ofile);
+	do_output_html_footer(c, charctx, ectx, ofile);
 
 	dbuf_close(ofile);
 }
@@ -197,33 +201,51 @@ static void do_render_character(deark *c, struct de_char_context *charctx,
 {
 	de_int64 xpos_in_pix, ypos_in_pix;
 	de_uint32 fgcol, bgcol;
+	unsigned int flags;
 
-	xpos_in_pix = xpos * ectx->font_to_use->nominal_width;
-	ypos_in_pix = ypos * ectx->font_to_use->nominal_height;
+	xpos_in_pix = xpos * ectx->char_width_in_pixels;
+	ypos_in_pix = ypos * ectx->char_height_in_pixels;
 
 	fgcol = charctx->pal[(unsigned int)fgcol_idx];
 	bgcol = charctx->pal[(unsigned int)bgcol_idx];
 
-	de_font_paint_character_cp(c, img, ectx->font_to_use, (de_int64)codepoint,
-		xpos_in_pix, ypos_in_pix, fgcol, bgcol, 0);
+	flags = 0;
+	if(ectx->vga_9col_mode) flags |= DE_PAINTFLAG_VGA9COL;
+
+	de_font_paint_character_idx(c, img, ectx->font_to_use, (de_int64)codepoint,
+		xpos_in_pix, ypos_in_pix, fgcol, bgcol, flags);
 }
 
 static void de_char_output_screen_to_image_file(deark *c, struct de_char_context *charctx,
 	struct charextractx *ectx, struct de_char_screen *screen)
 {
-	de_int64 width_in_pixels, height_in_pixels;
+	de_int64 screen_width_in_pixels, screen_height_in_pixels;
 	struct deark_bitmap *img = NULL;
 	int i, j;
 	const struct de_char_cell *cell;
 	de_byte cell_fgcol_actual;
 
-	width_in_pixels = screen->width * ectx->font_to_use->nominal_width;
-	height_in_pixels = screen->height * ectx->font_to_use->nominal_height;
+	screen_width_in_pixels = screen->width * ectx->char_width_in_pixels;
+	screen_height_in_pixels = screen->height * ectx->char_height_in_pixels;
 
-	img = de_bitmap_create(c, width_in_pixels, height_in_pixels, 3);
+	img = de_bitmap_create(c, screen_width_in_pixels, screen_height_in_pixels, 3);
+
+	if(ectx->char_height_in_pixels==16 && ectx->char_width_in_pixels==8) {
+		// Assume the intended display is 640x400.
+		img->density_code = DE_DENSITY_UNK_UNITS;
+		img->xdens = 480.0;
+		img->ydens = 400.0;
+	}
+	if(ectx->char_height_in_pixels==16 && ectx->char_width_in_pixels==9) {
+		// Assume the intended display is 720x400.
+		img->density_code = DE_DENSITY_UNK_UNITS;
+		img->xdens = 540.0;
+		img->ydens = 400.0;
+	}
 
 	for(j=0; j<screen->height; j++) {
 		for(i=0; i<screen->width; i++) {
+			if(!screen->cell_rows[j]) continue;
 			cell = &screen->cell_rows[j][i];
 			if(!cell) continue;
 
@@ -252,7 +274,6 @@ static void do_create_standard_font(deark *c, struct charextractx *ectx)
 
 	vga_font_data = de_get_vga_font_ptr();
 
-	font->has_unicode_codepoints = 1;
 	font->num_chars = 256;
 	font->nominal_width = 8;
 	font->nominal_height = 16;
@@ -261,8 +282,6 @@ static void do_create_standard_font(deark *c, struct charextractx *ectx)
 
 	for(i=0; i<font->num_chars; i++) {
 		font->char_array[i].codepoint = (de_int32)i;
-		font->char_array[i].codepoint_unicode =
-			de_char_to_unicode(c, (de_int32)i, DE_ENCODING_CP437_G);
 		font->char_array[i].width = font->nominal_width;
 		font->char_array[i].height = font->nominal_height;
 		font->char_array[i].rowspan = 1;
@@ -295,6 +314,13 @@ static void de_char_output_to_image_files(deark *c, struct de_char_context *char
 		ectx->font_to_use = ectx->standard_font;
 	}
 
+	if(ectx->vga_9col_mode)
+		ectx->char_width_in_pixels = 9;
+	else
+		ectx->char_width_in_pixels = ectx->font_to_use->nominal_width;
+
+	ectx->char_height_in_pixels = ectx->font_to_use->nominal_height;
+
 	for(i=0; i<charctx->nscreens; i++) {
 		de_char_output_screen_to_image_file(c, charctx, ectx, charctx->screens[i]);
 	}
@@ -321,6 +347,13 @@ void de_char_output_to_file(deark *c, struct de_char_context *charctx)
 		}
 		else if(!de_strcmp(s, "image")) {
 			outfmt = 1;
+		}
+	}
+
+	s = de_get_ext_option(c, "char:charwidth");
+	if(s) {
+		if(de_atoi(s)>=9) {
+			ectx->vga_9col_mode = 1;
 		}
 	}
 

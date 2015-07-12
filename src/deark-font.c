@@ -42,7 +42,7 @@ void de_font_paint_character_idx(deark *c, struct deark_bitmap *img,
 				de_bitmap_setpixel_rgba(img, xpos+i, ypos+j, clr);
 
 			// Manufacture a 9th column, if requested.
-			if(font->vga_9col_mode && i==7) {
+			if((flags&DE_PAINTFLAG_VGA9COL) && i==7) {
 				// Depending on the codepoint, the 9th column is either
 				// the same as the 8th column, or is the background color.
 				if(ch->codepoint<0xb0 || ch->codepoint>0xdf) {

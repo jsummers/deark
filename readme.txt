@@ -80,6 +80,11 @@ Command-line options:
          The number of characters per row, when rendering a font to a bitmap
       -opt font:tounicode=<0|1>
          Try to convert the font to Unicode (experimental; may not work)
+      -opt char:output=<html|image>
+         The output format for character graphics (like ANSI art).
+      -opt char:charwidth=<8|9>
+         The VGA character cell width for character graphics, when the output
+         format is "image".
   -h, -?, -help:
      Print the help message.
   -version
