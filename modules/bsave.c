@@ -365,7 +365,7 @@ static void do_char_1screen(deark *c, lctx *d, struct de_char_screen *screen, de
 {
 	de_int64 i, j;
 	unsigned int ch;
-	int fgcol, bgcol;
+	de_byte fgcol, bgcol;
 	de_int64 offset;
 	de_byte b0, b1;
 
@@ -386,8 +386,8 @@ static void do_char_1screen(deark *c, lctx *d, struct de_char_screen *screen, de
 			ch = b0;
 			//"The attribute byte stores the foreground color in the low nibble and the background color and blink attribute in the high nibble."
 			//TODO: "blink" attribute?
-			fgcol = (int)(b1 & 0x0f);
-			bgcol = (int)((b1 & 0xf0) >> 4);
+			fgcol = (b1 & 0x0f);
+			bgcol = (b1 & 0xf0) >> 4;
 
 			screen->cell_rows[j][i].fgcol = fgcol;
 			screen->cell_rows[j][i].bgcol = bgcol;
@@ -401,8 +401,7 @@ static int do_char(deark *c, lctx *d)
 {
 	struct de_char_context *charctx = NULL;
 	int retval = 0;
-	de_int64 j, k;
-
+	de_int64 k;
 	de_int64 numpages;
 	de_int64 pgnum;
 	de_int64 width, height;
@@ -467,23 +466,7 @@ static int do_char(deark *c, lctx *d)
 	retval = 1;
 
 done:
-	if(charctx) {
-		if(charctx->screens) {
-			for(pgnum=0; pgnum<charctx->nscreens; pgnum++) {
-				if(charctx->screens[pgnum]) {
-					if(charctx->screens[pgnum]->cell_rows) {
-						for(j=0; j<charctx->screens[pgnum]->height; j++) {
-							de_free(c, charctx->screens[pgnum]->cell_rows[j]);
-						}
-						de_free(c, charctx->screens[pgnum]->cell_rows);
-					}
-					de_free(c, charctx->screens[pgnum]);
-				}
-			}
-			de_free(c, charctx->screens);
-		}
-		de_free(c, charctx);
-	}
+	de_free_charctx(c, charctx);
 	return retval;
 }
 

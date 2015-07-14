@@ -20,6 +20,33 @@ struct charextractx {
 	de_int64 char_height_in_pixels;
 };
 
+// Frees a charctx struct that has been allocated in a particular way.
+// Does not free charctx->font.
+void de_free_charctx(deark *c, struct de_char_context *charctx)
+{
+	de_int64 pgnum;
+	de_int64 j;
+
+	// TODO: deduplicate this code (bsave.c)
+	if(charctx) {
+		if(charctx->screens) {
+			for(pgnum=0; pgnum<charctx->nscreens; pgnum++) {
+				if(charctx->screens[pgnum]) {
+					if(charctx->screens[pgnum]->cell_rows) {
+						for(j=0; j<charctx->screens[pgnum]->height; j++) {
+							de_free(c, charctx->screens[pgnum]->cell_rows[j]);
+						}
+						de_free(c, charctx->screens[pgnum]->cell_rows);
+					}
+					de_free(c, charctx->screens[pgnum]);
+				}
+			}
+			de_free(c, charctx->screens);
+		}
+		de_free(c, charctx);
+	}
+}
+
 static void do_prescan_screen(deark *c, struct de_char_context *charctx,
 	struct charextractx *ectx, struct de_char_screen *screen)
 {
@@ -183,6 +210,11 @@ static void de_char_output_to_html_file(deark *c, struct de_char_context *charct
 	de_int64 i;
 	dbuf *ofile = NULL;
 
+	if(charctx->font) {
+		de_warn(c, "This file uses a custom font, which is not supported with "
+			"HTML output. Use \"-opt char:output=image\" for image output.\n");
+	}
+
 	ofile = dbuf_create_output_file(c, "html", NULL);
 
 	do_output_html_header(c, charctx, ectx, ofile);
@@ -228,6 +260,8 @@ static void de_char_output_screen_to_image_file(deark *c, struct de_char_context
 	screen_width_in_pixels = screen->width * ectx->char_width_in_pixels;
 	screen_height_in_pixels = screen->height * ectx->char_height_in_pixels;
 
+	if(!de_good_image_dimensions(c, screen_width_in_pixels, screen_height_in_pixels)) goto done;
+
 	img = de_bitmap_create(c, screen_width_in_pixels, screen_height_in_pixels, 3);
 
 	if(ectx->char_height_in_pixels==16 && ectx->char_width_in_pixels==8) {
@@ -258,7 +292,7 @@ static void de_char_output_screen_to_image_file(deark *c, struct de_char_context
 	}
 
 	de_bitmap_write_to_file(img, NULL);
-
+done:
 	de_bitmap_destroy(img);
 }
 
@@ -339,6 +373,9 @@ void de_char_output_to_file(deark *c, struct de_char_context *charctx)
 	struct charextractx *ectx = NULL;
 
 	ectx = de_malloc(c, sizeof(struct charextractx));
+
+	if(charctx->prefer_image_output)
+		outfmt = 1;
 
 	s = de_get_ext_option(c, "char:output");
 	if(s) {

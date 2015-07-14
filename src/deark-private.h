@@ -533,12 +533,15 @@ struct de_char_screen {
 };
 
 struct de_char_context {
+	de_byte prefer_image_output;
 	de_int64 nscreens;
-	struct de_bitmap_font *font; // Optional
 	struct de_char_screen **screens; // Array of [nscreens] screens
 	de_uint32 pal[16];
+	struct de_bitmap_font *font; // Optional
 };
 
 void de_char_output_to_file(deark *c, struct de_char_context *charctx);
+
+void de_free_charctx(deark *c, struct de_char_context *charctx);
 
 ///////////////////////////////////////////
