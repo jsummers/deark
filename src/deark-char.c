@@ -27,7 +27,6 @@ void de_free_charctx(deark *c, struct de_char_context *charctx)
 	de_int64 pgnum;
 	de_int64 j;
 
-	// TODO: deduplicate this code (bsave.c)
 	if(charctx) {
 		if(charctx->screens) {
 			for(pgnum=0; pgnum<charctx->nscreens; pgnum++) {

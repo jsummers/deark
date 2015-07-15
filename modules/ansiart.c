@@ -398,33 +398,20 @@ static void do_main(deark *c, lctx *d)
 	}
 }
 
-static void do_output_ansiart_to_file(deark *c, lctx *d)
-{
-	struct de_char_context *charctx = NULL;
-	de_int64 k;
-
-	charctx = de_malloc(c, sizeof(struct de_char_context));
-	charctx->screens = de_malloc(c, 1*sizeof(struct de_char_screen*));
-	charctx->nscreens = 1;
-	charctx->screens[0] = d->screen;
-
-	for(k=0; k<16; k++) {
-		charctx->pal[k] = ansi_palette[k];
-	}
-
-	de_char_output_to_file(c, charctx);
-
-	de_free(c, charctx->screens);
-	de_free(c, charctx);
-}
-
 static void de_run_ansiart(deark *c, const char *params)
 {
 	lctx *d = NULL;
-	de_int64 i;
+	struct de_char_context *charctx = NULL;
+	de_int64 k;
 
 	d = de_malloc(c, sizeof(lctx));
-	d->screen = de_malloc(c, sizeof(struct de_char_screen));
+
+	charctx = de_malloc(c, sizeof(struct de_char_context));
+	charctx->nscreens = 1;
+	charctx->screens = de_malloc(c, charctx->nscreens*sizeof(struct de_char_screen*));
+	charctx->screens[0] = de_malloc(c, sizeof(struct de_char_screen));
+
+	d->screen = charctx->screens[0];
 
 	d->screen->width = CHARS_PER_ROW;
 	// We don't know the height yet. This will be updated as we read the file.
@@ -434,13 +421,13 @@ static void de_run_ansiart(deark *c, const char *params)
 
 	do_main(c, d);
 
-	do_output_ansiart_to_file(c, d);
-
-	for(i=0; i<MAX_ROWS; i++) {
-		if(d->screen->cell_rows[i]) de_free(c, d->screen->cell_rows[i]);
+	for(k=0; k<16; k++) {
+		charctx->pal[k] = ansi_palette[k];
 	}
-	de_free(c, d->screen->cell_rows);
-	de_free(c, d->screen);
+
+	de_char_output_to_file(c, charctx);
+
+	de_free_charctx(c, charctx);
 	de_free(c, d);
 }
 
