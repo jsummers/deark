@@ -73,23 +73,32 @@ static void do_output_html_screen(deark *c, struct de_char_context *charctx,
 	struct charextractx *ectx, struct de_char_screen *screen, dbuf *ofile)
 {
 	const struct de_char_cell *cell;
+	struct de_char_cell blank_cell;
 	int i, j;
 	de_int32 n;
 	int span_count = 0;
 	int need_newline = 0;
-
 	de_byte active_fgcol = 0;
 	de_byte active_bgcol = 0;
 	de_byte active_blink = 0;
 	de_byte cell_fgcol_actual;
 
+	// In case a cell is missing, we'll use this one:
+	de_memset(&blank_cell, 0, sizeof(struct de_char_cell));
+	blank_cell.codepoint = 32;
+	blank_cell.codepoint_unicode = 32;
+
 	dbuf_fputs(ofile, "<table style=\"margin-left:auto;margin-right:auto\"><tr>\n<td>");
 	dbuf_fputs(ofile, "<pre>");
 	for(j=0; j<screen->height; j++) {
 		for(i=0; i<screen->width; i++) {
-			if(!screen->cell_rows || !screen->cell_rows[j]) continue;
-			cell = &screen->cell_rows[j][i];
-			if(!cell) continue;
+			if(!screen->cell_rows || !screen->cell_rows[j]) {
+				cell = &blank_cell;
+			}
+			else {
+				cell = &screen->cell_rows[j][i];
+				if(!cell) cell = &blank_cell;
+			}
 
 			cell_fgcol_actual = cell->fgcol;
 			if(cell->bold) cell_fgcol_actual |= 0x08;
