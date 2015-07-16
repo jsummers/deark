@@ -256,7 +256,13 @@ deark *de_create(void)
 
 void de_destroy(deark *c)
 {
+	de_int64 i;
+
 	if(!c) return;
+	for(i=0; i<c->num_ext_options; i++) {
+		de_free(c, c->ext_option[i].name);
+		de_free(c, c->ext_option[i].val);
+	}
 	if(c->zip_file) { de_zip_close_file(c); }
 	if(c->base_output_filename) { de_free(c, c->base_output_filename); }
 	if(c->output_archive_filename) { de_free(c, c->output_archive_filename); }
@@ -442,9 +448,10 @@ void de_set_ext_option(deark *c, const char *name, const char *val)
 
 	n = c->num_ext_options;
 	if(n>=DE_MAX_EXT_OPTIONS) return;
+	if(!name || !val) return;
 
-	c->ext_option[n].name = name;
-	c->ext_option[n].val = val;
+	c->ext_option[n].name = de_strdup(c, name);
+	c->ext_option[n].val = de_strdup(c, val);
 	c->num_ext_options++;
 }
 

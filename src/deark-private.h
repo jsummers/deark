@@ -116,8 +116,8 @@ struct deark_bitmap {
 };
 
 struct deark_ext_option {
-	const char *name;
-	const char *val;
+	char *name;
+	char *val;
 };
 
 struct deark_struct {

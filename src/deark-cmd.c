@@ -112,6 +112,7 @@ static void set_ext_option(deark *c, struct cmdctx *cc, const char *optionstring
 		// No "=" symbol
 		de_set_ext_option(c, tmp, "");
 	}
+	de_free(c, tmp);
 }
 
 enum opt_id_enum {
