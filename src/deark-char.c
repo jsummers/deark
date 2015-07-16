@@ -247,6 +247,28 @@ static void do_render_character(deark *c, struct de_char_context *charctx,
 		xpos_in_pix, ypos_in_pix, fgcol, bgcol, flags);
 }
 
+static void set_density(deark *c, struct de_char_context *charctx,
+	struct charextractx *ectx, struct deark_bitmap *img)
+{
+	// FIXME: This is quick and dirty. Need to put more thought into how to
+	// figure out the pixel density.
+
+	if(charctx->no_density) return;
+
+	if(ectx->char_height_in_pixels==16 && ectx->char_width_in_pixels==8) {
+		// Assume the intended display is 640x400.
+		img->density_code = DE_DENSITY_UNK_UNITS;
+		img->xdens = 480.0;
+		img->ydens = 400.0;
+	}
+	else if(ectx->char_height_in_pixels==16 && ectx->char_width_in_pixels==9) {
+		// Assume the intended display is 720x400.
+		img->density_code = DE_DENSITY_UNK_UNITS;
+		img->xdens = 540.0;
+		img->ydens = 400.0;
+	}
+}
+
 static void de_char_output_screen_to_image_file(deark *c, struct de_char_context *charctx,
 	struct charextractx *ectx, struct de_char_screen *screen)
 {
@@ -263,18 +285,7 @@ static void de_char_output_screen_to_image_file(deark *c, struct de_char_context
 
 	img = de_bitmap_create(c, screen_width_in_pixels, screen_height_in_pixels, 3);
 
-	if(ectx->char_height_in_pixels==16 && ectx->char_width_in_pixels==8) {
-		// Assume the intended display is 640x400.
-		img->density_code = DE_DENSITY_UNK_UNITS;
-		img->xdens = 480.0;
-		img->ydens = 400.0;
-	}
-	if(ectx->char_height_in_pixels==16 && ectx->char_width_in_pixels==9) {
-		// Assume the intended display is 720x400.
-		img->density_code = DE_DENSITY_UNK_UNITS;
-		img->xdens = 540.0;
-		img->ydens = 400.0;
-	}
+	set_density(c, charctx, ectx, img);
 
 	for(j=0; j<screen->height; j++) {
 		for(i=0; i<screen->width; i++) {

@@ -534,6 +534,7 @@ struct de_char_screen {
 
 struct de_char_context {
 	de_byte prefer_image_output;
+	de_byte no_density;
 	de_int64 nscreens;
 	struct de_char_screen **screens; // Array of [nscreens] screens
 	de_uint32 pal[16];

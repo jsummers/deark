@@ -76,6 +76,61 @@ static void set_density(deark *c, lctx *d)
 	}
 }
 
+static int decode_text(deark *c, lctx *d)
+{
+	de_int64 width_in_chars;
+	struct de_char_context *charctx = NULL;
+	struct de_char_screen *screen;
+	de_int64 i, j, k;
+	de_byte ch, attr;
+	int retval = 0;
+
+	// TODO: This might not work for monochrome text mode (d->video_mode==0x32).
+
+	width_in_chars = d->img->width / 2;
+
+	charctx = de_malloc(c, sizeof(struct de_char_context));
+	charctx->no_density = 1;
+	charctx->nscreens = 1;
+	charctx->screens = de_malloc(c, charctx->nscreens*sizeof(struct de_char_screen*));
+	charctx->screens[0] = de_malloc(c, sizeof(struct de_char_screen));
+	screen = charctx->screens[0];
+
+	screen->width = width_in_chars;
+	screen->height = d->img->height;
+
+	de_dbg(c, "dimensions: %dx%d characters\n", (int)screen->width, (int)screen->height);
+
+	if(screen->height<1) goto done;
+
+	screen->cell_rows = de_malloc(c, screen->height * sizeof(struct de_char_cell*));
+
+	for(j=0; j<screen->height; j++) {
+		screen->cell_rows[j] = de_malloc(c, screen->width * sizeof(struct de_char_cell));
+
+		for(i=0; i<screen->width; i++) {
+			ch = dbuf_getbyte(d->unc_pixels, j*d->img->width + i*2);
+			attr = dbuf_getbyte(d->unc_pixels, j*d->img->width + i*2 + 1);
+
+			screen->cell_rows[j][i].fgcol = (attr & 0x0f);
+			screen->cell_rows[j][i].bgcol = (attr & 0xf0) >> 4;
+			screen->cell_rows[j][i].codepoint = (de_int32)ch;
+			screen->cell_rows[j][i].codepoint_unicode = de_char_to_unicode(c, (de_int32)ch, DE_ENCODING_CP437_G);
+		}
+	}
+
+	for(k=0; k<16; k++) {
+		// TODO: Is this always the right palette? Maybe we can't ignore ->edesc
+		charctx->pal[k] = de_palette_pc16((int)k);
+	}
+
+	de_char_output_to_file(c, charctx);
+
+done:
+	de_free_charctx(c, charctx);
+	return retval;
+}
+
 static int decode_egavga16(deark *c, lctx *d)
 {
 	de_uint32 pal[16];
@@ -375,6 +430,8 @@ static int uncompress_pixels(deark *c, lctx *d)
 
 		pos = end_of_this_block;
 	}
+
+	de_dbg(c, "uncompressed to %d bytes\n", (int)d->unc_pixels->len);
 	retval = 1;
 
 done:
@@ -447,11 +504,9 @@ static int do_set_up_decoder(deark *c, lctx *d)
 	edesc = d->pal_info_to_use->edesc; // For brevity
 
 	if(d->video_mode>='0' && d->video_mode<='3') {
-		de_err(c, "Text mode PCPaint files are not supported\n");
-		return 0;
+		d->decoder_fn = decode_text;
 	}
-
-	if(d->plane_info==0x01 && edesc==0) {
+	else if(d->plane_info==0x01 && edesc==0) {
 		// Expected video mode(s): 0x43, 0x45, 0x4f
 		// CGA or EGA or VGA 2-color
 		d->decoder_fn = decode_bilevel;
@@ -489,6 +544,8 @@ static void de_run_pcpaint_pic(deark *c, lctx *d, const char *params)
 {
 	de_declare_fmt(c, "PCPaint PIC");
 
+	// Note that this bitmap will not be rendered in the case of character
+	// graphics, but it's still needed to store the width and height.
 	d->img = de_bitmap_create_noinit(c);
 
 	d->img->width = de_getui16le(2);

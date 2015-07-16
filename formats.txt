@@ -181,6 +181,7 @@ Deark -- Information about supported formats
   - Supports PIC and CLP formats. Some files are not portable, because they use
     a nonstandard palette that is not contained in the file.
   - Supports most images with 8 or fewer bits/pixel.
+  - Supports character graphics (experimental).
   Options
    -opt pcpaint:fmt=pic
    -opt pcpaint:fmt=clp
