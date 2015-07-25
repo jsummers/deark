@@ -715,7 +715,8 @@ static void de_run_tinystuff(deark *c, const char *params)
 	struct atari_img_decode_data *adata = NULL;
 	tinyctx *d = NULL;
 	de_int64 pos = 0;
-	de_int64 expected_file_size;
+	de_int64 expected_min_file_size;
+	de_int64 expected_max_file_size;
 	int is_grayscale;
 
 	d = de_malloc(c, sizeof(tinyctx));
@@ -772,10 +773,14 @@ static void de_run_tinystuff(deark *c, const char *params)
 	de_dbg(c, "number of RLE data words: %d (%d bytes)\n", (int)d->num_data_words,
 		2*(int)(d->num_data_words));
 
-	expected_file_size = pos + d->num_control_bytes + 2*d->num_data_words;
-	if(c->infile->len != expected_file_size) {
-		de_warn(c, "Expected file size to be %d, but it is %d.\n", (int)c->infile->len,
-			(int)expected_file_size);
+	// It seems that files are often padded to the next multiple of 128 bytes,
+	// so don't warn about that.
+	expected_min_file_size = pos + d->num_control_bytes + 2*d->num_data_words;
+	expected_max_file_size = ((expected_min_file_size+127)/128)*128;
+	de_dbg(c, "expected file size: %d or %d\n", (int)expected_min_file_size, (int)expected_max_file_size);
+	if(c->infile->len<expected_min_file_size || c->infile->len>expected_max_file_size) {
+		de_warn(c, "Expected file size to be %d, but it is %d.\n", (int)expected_min_file_size,
+			(int)c->infile->len);
 	}
 
 	adata->unc_pixels = dbuf_create_membuf(c, 32000);
@@ -809,7 +814,8 @@ static int de_identify_tinystuff(deark *c)
 	if(de_input_file_has_ext(c, "tny") ||
 		de_input_file_has_ext(c, "tn1") ||
 		de_input_file_has_ext(c, "tn2") ||
-		de_input_file_has_ext(c, "tn3"))
+		de_input_file_has_ext(c, "tn3") ||
+		de_input_file_has_ext(c, "tn4"))
 	{
 		return 8;
 	}

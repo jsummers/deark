@@ -557,6 +557,7 @@ static void do_image(deark *c, lctx *d, de_int64 pos1, de_int64 len, const char 
 	if(!de_good_image_dimensions(c, d->width, d->height)) goto done;
 
 	if(d->is_vdat) {
+		// TODO: Consider using the tinystuff decoder for VDAT.
 		if(d->planes!=4) {
 			de_err(c, "VDAT compression not supported with planes=%d\n", (int)d->planes);
 			goto done;
