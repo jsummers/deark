@@ -172,6 +172,27 @@ static void do_degas_anim_fields(deark *c, degasctx *d, de_int64 pos)
 	//de_warn(c, "This image may use palette color animation, which is not supported.\n");
 }
 
+static void set_standard_density(deark *c, struct atari_img_decode_data *adata)
+{
+	switch(adata->bpp) {
+	case 4:
+		adata->img->density_code = DE_DENSITY_UNK_UNITS;
+		adata->img->xdens = 240.0;
+		adata->img->ydens = 200.0;
+		break;
+	case 2:
+		adata->img->density_code = DE_DENSITY_UNK_UNITS;
+		adata->img->xdens = 480.0;
+		adata->img->ydens = 200.0;
+		break;
+	case 1:
+		adata->img->density_code = DE_DENSITY_UNK_UNITS;
+		adata->img->xdens = 480.0;
+		adata->img->ydens = 400.0;
+		break;
+	}
+}
+
 static void de_run_degas(deark *c, const char *params)
 {
 	degasctx *d = NULL;
@@ -179,7 +200,6 @@ static void de_run_degas(deark *c, const char *params)
 	de_int64 pos;
 	unsigned int format_code, resolution_code;
 	int is_grayscale;
-	double xdens, ydens;
 	de_int64 cmpr_bytes_consumed = 0;
 
 	d = de_malloc(c, sizeof(degasctx));
@@ -203,22 +223,16 @@ static void de_run_degas(deark *c, const char *params)
 		adata->bpp = 4;
 		adata->w = 320;
 		adata->h = 200;
-		xdens = 240.0;
-		ydens = 200.0;
 		break;
 	case 1:
 		adata->bpp = 2;
 		adata->w = 640;
 		adata->h = 200;
-		xdens = 480.0;
-		ydens = 200.0;
 		break;
 	case 2:
 		adata->bpp = 1;
 		adata->w = 640;
 		adata->h = 400;
-		xdens = 480.0;
-		ydens = 400.0;
 		break;
 	default:
 		de_dbg(c, "Invalid or unsupported resolution (%u)\n", resolution_code);
@@ -260,12 +274,9 @@ static void de_run_degas(deark *c, const char *params)
 
 	is_grayscale = de_is_grayscale_palette(adata->pal, adata->ncolors);
 
-	// TODO: Create a grayscale bitmap if all colors are black or white.
 	adata->img = de_bitmap_create(c, adata->w, adata->h, is_grayscale?1:3);
 
-	adata->img->density_code = DE_DENSITY_UNK_UNITS;
-	adata->img->xdens = xdens;
-	adata->img->ydens = ydens;
+	set_standard_density(c, adata);
 
 	de_decode_atari_image(c, adata);
 
@@ -558,12 +569,145 @@ static int tiny_uncompress(deark *c, tinyctx *d, struct atari_img_decode_data *a
 	}
 
 	de_dbg(c, "decompressed words: %d\n", (int)dcmpr_word_count);
-	if(dcmpr_word_count != 16000) {
+	// Many files seem to decompress to 16001 words instead of 16000. I don't know why.
+	if(dcmpr_word_count<16000 || dcmpr_word_count>16008) {
 		de_warn(c, "Expected 16000 decompressed words, got %d\n", (int)dcmpr_word_count);
 	}
 
 	de_free(c, control_bytes);
 	return 1;
+}
+
+static void do_tinystuff_1bpp(deark *c, struct atari_img_decode_data *adata)
+{
+	de_int64 xpos, ypos;
+	de_int64 col;
+	de_int64 upos = 0;
+	de_int64 scanline;
+	unsigned int w;
+	de_int64 k;
+	unsigned int b;
+	de_uint32 clr;
+
+	for(col=0; col<80; col++) {
+		for(scanline=0; scanline<200; scanline++) {
+			w = (unsigned int)dbuf_getui16be(adata->unc_pixels, upos);
+			upos+=2;
+
+			for(k=0; k<16; k++) {
+				b = (w>>(15-k)) & 1;
+
+				if((col%20)<10) {
+					xpos = (4*(col%20) + col/20)*16 + k;
+					ypos = scanline*2;
+				}
+				else {
+					xpos = (4*(col%20) + col/20)*16 + k - 640;
+					ypos = scanline*2 + 1;
+				}
+
+				clr = adata->pal[b];
+				de_bitmap_setpixel_rgb(adata->img, xpos, ypos, clr);
+			}
+		}
+	}
+}
+
+static void do_tinystuff_2bpp(deark *c, struct atari_img_decode_data *adata)
+{
+	de_int64 xpos, ypos;
+	de_int64 col;
+	de_int64 upos = 0;
+	de_int64 scanline;
+	unsigned int w[2];
+	de_int64 k;
+	de_int64 z;
+	unsigned int b[2];
+	de_uint32 clr;
+
+	for(col=0; col<40; col++) {
+		for(scanline=0; scanline<200; scanline++) {
+			for(z=0; z<2; z++) {
+				w[z] = (unsigned int)dbuf_getui16be(adata->unc_pixels, upos +z*8000 +(col/20)*8000);
+			}
+			upos+=2;
+
+			for(k=0; k<16; k++) {
+				for(z=0; z<2; z++) {
+					b[z] = (w[z]>>(15-k)) & 1;
+				}
+
+				xpos = (2*(col%20) + (col/20))*16 + k;
+				ypos = scanline;
+				clr = adata->pal[b[0] + 2*b[1]];
+				de_bitmap_setpixel_rgb(adata->img, xpos, ypos, clr);
+			}
+		}
+	}
+}
+
+static void do_tinystuff_4bpp(deark *c, struct atari_img_decode_data *adata)
+{
+	de_int64 xpos, ypos;
+	de_int64 col;
+	de_int64 upos = 0;
+	de_int64 scanline;
+	unsigned int w[4];
+	de_int64 k;
+	de_int64 z;
+	unsigned int b[4];
+	de_uint32 clr;
+
+	for(col=0; col<20; col++) {
+		for(scanline=0; scanline<200; scanline++) {
+			for(z=0; z<4; z++) {
+				w[z] = (unsigned int)dbuf_getui16be(adata->unc_pixels, upos + z*8000);
+			}
+			upos+=2;
+
+			for(k=0; k<16; k++) {
+				for(z=0; z<4; z++) {
+					b[z] = (w[z]>>(15-k)) & 1;
+				}
+
+				xpos = col*16 + k;
+				ypos = scanline;
+				clr = adata->pal[b[0] + 2*b[1] + 4*b[2] + 8*b[3]];
+				de_bitmap_setpixel_rgb(adata->img, xpos, ypos, clr);
+			}
+		}
+	}
+}
+
+static void do_tinystuff_image(deark *c, struct atari_img_decode_data *adata)
+{
+	switch(adata->bpp) {
+	case 1:
+		do_tinystuff_1bpp(c, adata);
+		break;
+	case 2:
+		do_tinystuff_2bpp(c, adata);
+		break;
+	case 4:
+		do_tinystuff_4bpp(c, adata);
+		break;
+	}
+	return;
+}
+
+// Some 1bpp images apparently have the palette set to [001, 000],
+// instead of [777, 000].
+// Try to handle that.
+static void fix_tinystuff_pal(deark *c, struct atari_img_decode_data *adata)
+{
+	if(adata->bpp!=1) return;
+
+	if((adata->pal[0]&0xffffff)==0x000024 &&
+		(adata->pal[1]&0xffffff)==0)
+	{
+		de_warn(c, "All colors are very dark. Converting to black & white.\n");
+		adata->pal[0] = DE_MAKE_RGB(0xff,0xff,0xff);
+	}
 }
 
 static void de_run_tinystuff(deark *c, const char *params)
@@ -572,6 +716,7 @@ static void de_run_tinystuff(deark *c, const char *params)
 	tinyctx *d = NULL;
 	de_int64 pos = 0;
 	de_int64 expected_file_size;
+	int is_grayscale;
 
 	d = de_malloc(c, sizeof(tinyctx));
 
@@ -600,7 +745,7 @@ static void de_run_tinystuff(deark *c, const char *params)
 		adata->h = 400;
 		break;
 	default:
-		de_err(c, "Invalid resolution code (%d). This is probably not a Tiny Stuff file.\n",
+		de_err(c, "Invalid resolution code (%d). This is not a Tiny Stuff file.\n",
 			(int)d->res_code);
 		goto done;
 	}
@@ -610,10 +755,12 @@ static void de_run_tinystuff(deark *c, const char *params)
 	de_dbg(c, "dimensions: %dx%d, colors: %d\n", (int)adata->w, (int)adata->h, (int)adata->ncolors);
 
 	if(d->res_code>=3) {
+		de_warn(c, "This image uses palette color animation, which is not supported.\n");
 		pos += 4; // skip animation_info
 	}
 
 	read_atari_pal16(c, adata, pos);
+	fix_tinystuff_pal(c, adata);
 	pos += 16*2;
 
 	d->num_control_bytes = de_getui16be(pos);
@@ -637,9 +784,13 @@ static void de_run_tinystuff(deark *c, const char *params)
 		goto done;
 	}
 
-	adata->img = de_bitmap_create(c, adata->w, adata->h, 3);
+	is_grayscale = de_is_grayscale_palette(adata->pal, adata->ncolors);
 
-	de_decode_atari_image(c, adata);
+	adata->img = de_bitmap_create(c, adata->w, adata->h, is_grayscale?1:3);
+
+	set_standard_density(c, adata);
+
+	do_tinystuff_image(c, adata);
 	de_bitmap_write_to_file(adata->img, NULL);
 
 done:
@@ -670,5 +821,4 @@ void de_module_tinystuff(deark *c, struct deark_module_info *mi)
 	mi->id = "tinystuff";
 	mi->run_fn = de_run_tinystuff;
 	mi->identify_fn = de_identify_tinystuff;
-	mi->flags = DE_MODFLAG_NONWORKING;
 }

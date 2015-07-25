@@ -273,6 +273,8 @@ Deark -- Information about supported formats
   - Extract data from "Photoshop resources".
   - Extract IPTC data (use -extractall).
 
+* Tiny Stuff (.TNY, .TN1, .TN2, .TN3) (module="tinystuff")
+
 * VBM (VDC BitMap) (module="vbm")
   - Version 2 only
 
