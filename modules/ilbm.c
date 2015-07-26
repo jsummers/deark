@@ -14,9 +14,12 @@
 #define CODE_CAMG  0x43414d47
 #define CODE_CMAP  0x434d4150
 #define CODE_CRNG  0x43524e47
+#define CODE_CTBL  0x4354424c
 #define CODE_DPI   0x44504920
 #define CODE_FORM  0x464f524d
 #define CODE_GRAB  0x47524142
+#define CODE_PCHG  0x50434847
+#define CODE_SHAM  0x5348414d
 #define CODE_TINY  0x54494e59
 #define CODE_VDAT  0x56444154
 
@@ -847,6 +850,13 @@ static int do_chunk(deark *c, lctx *d, de_int64 pos, de_int64 bytes_avail,
 		tmp2 = de_getui16be(chunk_data_pos+2);
 		de_dbg(c, "hotspot: (%d, %d)\n", (int)tmp1, (int)tmp2);
 		break;
+
+	case CODE_SHAM:
+	case CODE_PCHG:
+	case CODE_CTBL:
+		de_err(c, "Multi-palette ILBM images are not supported.\n");
+		errflag = 1;
+		goto done;
 
 	case CODE_FORM:
 		if(d->level!=0) break;
