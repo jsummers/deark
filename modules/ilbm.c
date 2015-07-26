@@ -363,7 +363,7 @@ static void fixup_palette(deark *c, lctx *d)
 	}
 }
 
-static void do_image_1to8(deark *c, lctx *d, dbuf *unc_pixels, const char *token)
+static int do_image_1to8(deark *c, lctx *d, dbuf *unc_pixels, const char *token)
 {
 	struct deark_bitmap *img = NULL;
 	de_int64 i, j;
@@ -377,6 +377,7 @@ static void do_image_1to8(deark *c, lctx *d, dbuf *unc_pixels, const char *token
 	de_byte b;
 	de_uint32 clr;
 	int dst_bytes_per_pixel;
+	int retval = 0;
 
 	if(!d->found_cmap) {
 		de_err(c, "Missing CMAP chunk\n");
@@ -426,6 +427,9 @@ static void do_image_1to8(deark *c, lctx *d, dbuf *unc_pixels, const char *token
 		d->rowspan = d->bits_per_row_per_plane/8;
 		d->planespan = d->height * d->rowspan;
 	}
+	else if(d->formtype==CODE_PBM) {
+		d->rowspan = d->width;
+	}
 	else {
 		d->rowspan = (d->bits_per_row_per_plane/8) * d->planes_total;
 	}
@@ -460,6 +464,10 @@ static void do_image_1to8(deark *c, lctx *d, dbuf *unc_pixels, const char *token
 			get_row_acbm(c, d, unc_pixels, j, row_deplanarized);
 		}
 		else if(d->formtype==CODE_PBM) {
+			if(d->rowspan != d->width) {
+				de_err(c, "Internal error\n");
+				goto done;
+			}
 			dbuf_read(unc_pixels, row_deplanarized, j*d->rowspan, d->rowspan);
 		}
 		else {
@@ -528,17 +536,21 @@ static void do_image_1to8(deark *c, lctx *d, dbuf *unc_pixels, const char *token
 	}
 
 	de_bitmap_write_to_file(img, token);
+	retval = 1;
+
 done:
 	de_bitmap_destroy(img);
 	de_free(c, row_orig);
 	de_free(c, row_deplanarized);
+	return retval;
 }
 
 // Caller must first set d->width and d->height.
-static void do_image(deark *c, lctx *d, de_int64 pos1, de_int64 len, const char *token)
+static int do_image(deark *c, lctx *d, de_int64 pos1, de_int64 len, const char *token)
 {
 	dbuf *unc_pixels = NULL;
 	dbuf *unc_pixels_toclose = NULL;
+	int retval = 0;
 
 	if(!d->found_bmhd) {
 		de_err(c, "Missing BMHD chunk\n");
@@ -584,7 +596,7 @@ static void do_image(deark *c, lctx *d, de_int64 pos1, de_int64 len, const char 
 	if(!unc_pixels) goto done;
 
 	if(d->planes>=1 && d->planes<=8) {
-		do_image_1to8(c, d, unc_pixels, token);
+		if(!do_image_1to8(c, d, unc_pixels, token)) goto done;
 	}
 	else if(d->planes==24) {
 		do_image_24(c, d, unc_pixels, token);
@@ -592,9 +604,11 @@ static void do_image(deark *c, lctx *d, de_int64 pos1, de_int64 len, const char 
 	else {
 		de_err(c, "Support for this type of IFF/ILBM image is not implemented\n");
 	}
+	retval = 1;
 
 done:
 	dbuf_close(unc_pixels_toclose);
+	return retval;
 }
 
 // Thumbnail chunk
@@ -725,8 +739,7 @@ static int do_body(deark *c, lctx *d, de_int64 pos, de_int64 len, de_uint32 ct)
 
 	d->width = d->bmhd_width;
 	d->height = d->bmhd_height;
-	do_image(c, d, pos, len, NULL);
-	return 1;
+	return do_image(c, d, pos, len, NULL);
 }
 
 static int do_chunk(deark *c, lctx *d, de_int64 pos, de_int64 bytes_avail,
