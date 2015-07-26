@@ -80,6 +80,7 @@ static void make_printable_code(de_uint32 code, char *buf, size_t buf_size)
 static int do_bmhd(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 {
 	int retval = 0;
+	const char *masking_name;
 
 	if(len<20) {
 		de_err(c, "Bad BMHD chunk\n");
@@ -91,6 +92,13 @@ static int do_bmhd(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 	d->bmhd_height = de_getui16be(pos1+2);
 	d->planes = (de_int64)de_getbyte(pos1+8);
 	d->masking_code = de_getbyte(pos1+9);
+	switch(d->masking_code) {
+	case 0: masking_name = "no transparency"; break;
+	case 1: masking_name = "1-bit transparency mask"; break;
+	case 2: masking_name = "color-key transparency"; break;
+	case 3: masking_name = "lasso"; break;
+	default: masking_name = "unknown"; break;
+	}
 	d->compression = de_getbyte(pos1+10);
 	d->transparent_color = de_getui16be(pos1+12);
 	d->x_aspect = (de_int64)de_getbyte(pos1+14);
@@ -98,7 +106,10 @@ static int do_bmhd(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 	de_dbg(c, "dimensions: %dx%d, planes: %d, compression: %d\n", (int)d->bmhd_width,
 		(int)d->bmhd_height, (int)d->planes, (int)d->compression);
 	de_dbg(c, "apect ratio: %d, %d\n", (int)d->x_aspect, (int)d->y_aspect);
-	de_dbg(c, "masking: %d, color key: %d\n", (int)d->masking_code, (int)d->transparent_color);
+	de_dbg(c, "masking: %d (%s)\n", (int)d->masking_code, masking_name);
+	if(d->masking_code==2 || d->masking_code==3) {
+		de_dbg(c, " color key: %d\n", (int)d->transparent_color);
+	}
 
 	retval = 1;
 done:
