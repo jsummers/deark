@@ -149,6 +149,8 @@ Deark -- Information about supported formats
 * MSP (Microsoft Paint graphics) (module="msp")
   - Version 1 and 2
 
+* NEOchrome (.NEO) (module="neochrome")
+
 * New Print Shop .POG format (module="newprintshop")
   Options
    -file2 <file.pnm> - Use this "name" file

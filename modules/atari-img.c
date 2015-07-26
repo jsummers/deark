@@ -828,3 +828,69 @@ void de_module_tinystuff(deark *c, struct deark_module_info *mi)
 	mi->run_fn = de_run_tinystuff;
 	mi->identify_fn = de_identify_tinystuff;
 }
+
+// **************************************************************************
+// NEOchrome (.neo)
+// **************************************************************************
+
+static void de_run_neochrome(deark *c, const char *params)
+{
+	struct atari_img_decode_data *adata = NULL;
+	unsigned int resolution_code;
+	int is_grayscale;
+	de_uint32 pal[16];
+
+	adata = de_malloc(c, sizeof(struct atari_img_decode_data));
+	adata->pal = pal;
+
+	resolution_code = (unsigned int)de_getui16be(2);
+	de_dbg(c, "resolution code: %u\n", resolution_code);
+	if(resolution_code!=0) {
+		de_err(c, "Invalid or unsupported NEOchrome image (resolution=%d)\n", (int)resolution_code);
+		goto done;
+	}
+
+	// TODO: Warn about palette animation settings.
+	// TODO: (Maybe) Use the embedded filename, if it seems valid.
+
+	adata->bpp = 4;
+	adata->w = 320;
+	adata->h = 200;
+	adata->ncolors = (de_int64)(1<<adata->bpp);
+	de_dbg(c, "dimensions: %dx%d, colors: %d\n", (int)adata->w, (int)adata->h, (int)adata->ncolors);
+
+	read_atari_pal16(c, adata, 4);
+	adata->unc_pixels = dbuf_open_input_subfile(c->infile, 128, 32000);
+	is_grayscale = de_is_grayscale_palette(adata->pal, adata->ncolors);
+	adata->img = de_bitmap_create(c, adata->w, adata->h, is_grayscale?1:3);
+	set_standard_density(c, adata);
+	de_decode_atari_image(c, adata);
+	de_bitmap_write_to_file(adata->img, NULL);
+
+done:
+	if(adata) {
+		dbuf_close(adata->unc_pixels);
+		de_bitmap_destroy(adata->img);
+		de_free(c, adata);
+	}
+}
+
+static int de_identify_neochrome(deark *c)
+{
+	if(de_input_file_has_ext(c, "neo")) {
+		if(c->infile->len == 32128) {
+			return 100;
+		}
+		else if(c->infile->len > 32128) {
+			return 10;
+		}
+	}
+	return 0;
+}
+
+void de_module_neochrome(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "neochrome";
+	mi->run_fn = de_run_neochrome;
+	mi->identify_fn = de_identify_neochrome;
+}

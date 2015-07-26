@@ -85,3 +85,4 @@ void de_module_pff2(deark *c, struct deark_module_info *mi);
 void de_module_gemfont(deark *c, struct deark_module_info *mi);
 void de_module_ftc(deark *c, struct deark_module_info *mi);
 void de_module_tinystuff(deark *c, struct deark_module_info *mi);
+void de_module_neochrome(deark *c, struct deark_module_info *mi);

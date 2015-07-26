@@ -93,6 +93,7 @@ void de_register_modules(deark *c)
 		de_module_qtif,
 		de_module_degas,
 		de_module_tinystuff,
+		de_module_neochrome,
 		de_module_ripicon,
 		de_module_printshop,
 		de_module_newprintshop,
