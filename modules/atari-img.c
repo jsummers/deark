@@ -894,3 +894,80 @@ void de_module_neochrome(deark *c, struct deark_module_info *mi)
 	mi->run_fn = de_run_neochrome;
 	mi->identify_fn = de_identify_neochrome;
 }
+
+// **************************************************************************
+// NEOchrome animation (.ani)
+// **************************************************************************
+
+static void de_run_neochrome_ani(deark *c, const char *params)
+{
+	struct atari_img_decode_data *adata = NULL;
+	de_int64 width_in_bytes;
+	de_int64 nframes;
+	de_int64 bytes_per_frame;
+	de_int64 frame;
+	de_int64 k;
+	de_uint32 pal[16];
+
+	de_declare_fmt(c, "NEOchrome Animation");
+
+	de_warn(c, "NEOchrome Animation images may not be decoded correctly.\n");
+
+	adata = de_malloc(c, sizeof(struct atari_img_decode_data));
+
+	// TODO: What palette should we use?
+	for(k=0; k<16; k++) {
+		pal[k] = DE_MAKE_GRAY((unsigned int)(k*17));
+	}
+	adata->pal = pal;
+	adata->bpp = 4;
+	adata->ncolors = 16;
+
+	width_in_bytes = de_getui16be(4); // Always a multiple of 8
+	adata->w = ((width_in_bytes+7)/8)*16;
+	adata->h = de_getui16be(6);
+	de_dbg(c, "dimensions: %dx%d\n", (int)adata->w, (int)adata->h);
+	if(!de_good_image_dimensions(c, adata->w, adata->h)) goto done;
+
+	bytes_per_frame = de_getui16be(8);
+	bytes_per_frame -= 10;
+	de_dbg(c, "bytes/frame: %d\n", (int)bytes_per_frame);
+	if(bytes_per_frame<1) goto done;
+
+	nframes = de_getui16be(14);
+	de_dbg(c, "number of frames: %d\n", (int)nframes);
+	if(nframes>DE_MAX_IMAGES_PER_FILE) goto done;
+
+	for(frame=0; frame<nframes; frame++) {
+		adata->unc_pixels = dbuf_open_input_subfile(c->infile, 22 + frame*bytes_per_frame, bytes_per_frame);
+		adata->img = de_bitmap_create(c, adata->w, adata->h, 3);
+
+		de_decode_atari_image(c, adata);
+		de_bitmap_write_to_file(adata->img, NULL);
+
+		de_bitmap_destroy(adata->img);
+		adata->img = NULL;
+
+		dbuf_close(adata->unc_pixels);
+		adata->unc_pixels = NULL;
+	}
+
+done:
+	de_free(c, adata);
+}
+
+static int de_identify_neochrome_ani(deark *c)
+{
+	if(!dbuf_memcmp(c->infile, 0, "\xba\xbe\xeb\xea", 4)) {
+		return 100;
+	}
+	return 0;
+}
+
+void de_module_neochrome_ani(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "neochrome_ani";
+	mi->run_fn = de_run_neochrome_ani;
+	mi->identify_fn = de_identify_neochrome_ani;
+	mi->flags |= DE_MODFLAG_NONWORKING;
+}
