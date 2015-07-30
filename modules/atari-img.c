@@ -971,3 +971,78 @@ void de_module_neochrome_ani(deark *c, struct deark_module_info *mi)
 	mi->identify_fn = de_identify_neochrome_ani;
 	mi->flags |= DE_MODFLAG_NONWORKING;
 }
+
+// **************************************************************************
+// Atari .PI4
+// **************************************************************************
+
+static void decode_pi4_image(deark *c, struct atari_img_decode_data *adata, de_int64 pos)
+{
+	de_int64 i, j, k;
+	unsigned int v;
+	unsigned int n;
+
+	adata->img = de_bitmap_create(c, adata->w, adata->h, 3);
+
+	for(j=0; j<adata->h; j++) {
+		for(i=0; i<adata->w; i++) {
+			v = 0;
+			for(k=0; k<8; k++) {
+				n = (de_uint32)dbuf_getui16be(c->infile,  pos+j*adata->w + (i-i%16) +2*k);
+				if(n&(1<<(15-i%16))) v |= 1<<k;
+			}
+			de_bitmap_setpixel_rgb(adata->img, i, j, adata->pal[v]);
+		}
+	}
+
+	de_bitmap_write_to_file(adata->img, NULL);
+	de_bitmap_destroy(adata->img);
+	adata->img = NULL;
+}
+
+static void de_run_atari_pi4(deark *c, const char *params)
+{
+	struct atari_img_decode_data *adata = NULL;
+	de_int64 k;
+	de_byte cr, cg, cb;
+	de_uint32 pal[256];
+
+	adata = de_malloc(c, sizeof(struct atari_img_decode_data));
+	de_memset(pal, 0, sizeof(pal));
+	adata->pal = pal;
+	adata->bpp = 8;
+	adata->ncolors = 256;
+	adata->w = 320;
+	adata->h = 240;
+
+	for(k=0; k<256; k++) {
+		cr = de_getbyte(k*4+0);
+		cg = de_getbyte(k*4+1);
+		cb = de_getbyte(k*4+3);
+		pal[k] = DE_MAKE_RGB(cr, cg, cb);
+		de_dbg2(c, "pal[%3d] = (%3d,%3d,%3d)\n", (int)k, (int)cr, (int)cg, (int)cb);
+	}
+
+	decode_pi4_image(c, adata, 1024);
+
+	de_free(c, adata);
+}
+
+static int de_identify_atari_pi4(deark *c)
+{
+	if(c->infile->len==77824) {
+		if(de_input_file_has_ext(c, "pi4") ||
+			de_input_file_has_ext(c, "pi9"))
+		{
+			return 50;
+		}
+	}
+	return 0;
+}
+
+void de_module_atari_pi4(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "atari_pi4";
+	mi->run_fn = de_run_atari_pi4;
+	mi->identify_fn = de_identify_atari_pi4;
+}

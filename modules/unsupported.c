@@ -126,6 +126,14 @@ static void get_fmt(deark *c, struct fmtinfo_struct *fmti)
 		return;
 	}
 
+	if(!de_memcmp(b, "ICE!", 4) ||
+		!de_memcmp(b, "Ice!", 4))
+	{
+		fmti->confidence = 75;
+		fmti->descr = "a Pack-Ice compressed file";
+		return;
+	}
+
 	// Note - Make sure VBM has higher confidence.
 	if(b[0]=='B' && b[1]=='M') {
 		fmti->confidence = 20;

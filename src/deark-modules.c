@@ -104,6 +104,7 @@ void de_register_modules(deark *c)
 		de_module_graspfont,
 		de_module_gemfont,
 		de_module_ybm,
+		de_module_atari_pi4,
 		de_module_jpegscan,
 		de_module_copy,
 		de_module_unsupported,

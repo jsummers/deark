@@ -203,6 +203,8 @@ Deark -- Information about supported formats
 * PGX (Portfolio graphics animation) (module="pgx")
   - Extract embedded PGC images.
 
+* PI4/PI9 (Atari Falcon formats) (module="atari_pi4")
+
 * PNG (module="png")
   - Extract ICC profiles.
 
