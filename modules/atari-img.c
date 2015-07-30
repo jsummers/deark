@@ -973,10 +973,10 @@ void de_module_neochrome_ani(deark *c, struct deark_module_info *mi)
 }
 
 // **************************************************************************
-// Atari .PI4
+// Atari .PI4/.PI9
 // **************************************************************************
 
-static void decode_pi4_image(deark *c, struct atari_img_decode_data *adata, de_int64 pos)
+static void decode_pi4_pi7_image(deark *c, struct atari_img_decode_data *adata, de_int64 pos)
 {
 	de_int64 i, j, k;
 	unsigned int v;
@@ -1000,7 +1000,7 @@ static void decode_pi4_image(deark *c, struct atari_img_decode_data *adata, de_i
 	adata->img = NULL;
 }
 
-static void de_run_atari_pi4(deark *c, const char *params)
+static void de_run_atari_pi4_pi7(deark *c, de_int64 width, de_int64 height)
 {
 	struct atari_img_decode_data *adata = NULL;
 	de_int64 k;
@@ -1012,8 +1012,8 @@ static void de_run_atari_pi4(deark *c, const char *params)
 	adata->pal = pal;
 	adata->bpp = 8;
 	adata->ncolors = 256;
-	adata->w = 320;
-	adata->h = 240;
+	adata->w = width;
+	adata->h = height;
 
 	for(k=0; k<256; k++) {
 		cr = de_getbyte(k*4+0);
@@ -1023,9 +1023,14 @@ static void de_run_atari_pi4(deark *c, const char *params)
 		de_dbg2(c, "pal[%3d] = (%3d,%3d,%3d)\n", (int)k, (int)cr, (int)cg, (int)cb);
 	}
 
-	decode_pi4_image(c, adata, 1024);
+	decode_pi4_pi7_image(c, adata, 1024);
 
 	de_free(c, adata);
+}
+
+static void de_run_atari_pi4(deark *c, const char *params)
+{
+	de_run_atari_pi4_pi7(c, 320, 240);
 }
 
 static int de_identify_atari_pi4(deark *c)
@@ -1045,4 +1050,31 @@ void de_module_atari_pi4(deark *c, struct deark_module_info *mi)
 	mi->id = "atari_pi4";
 	mi->run_fn = de_run_atari_pi4;
 	mi->identify_fn = de_identify_atari_pi4;
+}
+
+// **************************************************************************
+// Atari .PI7
+// **************************************************************************
+
+static void de_run_atari_pi7(deark *c, const char *params)
+{
+	de_run_atari_pi4_pi7(c, 640, 480);
+}
+
+static int de_identify_atari_pi7(deark *c)
+{
+	if(c->infile->len==308224) {
+		if(de_input_file_has_ext(c, "pi7"))
+		{
+			return 50;
+		}
+	}
+	return 0;
+}
+
+void de_module_atari_pi7(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "atari_pi7";
+	mi->run_fn = de_run_atari_pi7;
+	mi->identify_fn = de_identify_atari_pi7;
 }

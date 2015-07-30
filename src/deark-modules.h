@@ -88,3 +88,4 @@ void de_module_tinystuff(deark *c, struct deark_module_info *mi);
 void de_module_neochrome(deark *c, struct deark_module_info *mi);
 void de_module_neochrome_ani(deark *c, struct deark_module_info *mi);
 void de_module_atari_pi4(deark *c, struct deark_module_info *mi);
+void de_module_atari_pi7(deark *c, struct deark_module_info *mi);
