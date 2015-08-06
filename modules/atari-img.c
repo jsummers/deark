@@ -976,13 +976,19 @@ void de_module_neochrome_ani(deark *c, struct deark_module_info *mi)
 // Atari .PI4/.PI9
 // **************************************************************************
 
-static void decode_pi4_pi7_image(deark *c, struct atari_img_decode_data *adata, de_int64 pos)
+static void decode_falcon_8bit_image(deark *c, struct atari_img_decode_data *adata, de_int64 pos)
 {
 	de_int64 i, j, k;
 	unsigned int v;
 	unsigned int n;
 
 	adata->img = de_bitmap_create(c, adata->w, adata->h, 3);
+
+	if(adata->w==320 && adata->h==200) {
+		adata->img->density_code = DE_DENSITY_UNK_UNITS;
+		adata->img->xdens = 240.0;
+		adata->img->ydens = 200.0;
+	}
 
 	for(j=0; j<adata->h; j++) {
 		for(i=0; i<adata->w; i++) {
@@ -1000,7 +1006,7 @@ static void decode_pi4_pi7_image(deark *c, struct atari_img_decode_data *adata, 
 	adata->img = NULL;
 }
 
-static void de_run_atari_pi4_pi7(deark *c, de_int64 width, de_int64 height)
+static void do_atari_falcon_8bit_img(deark *c, de_int64 width, de_int64 height)
 {
 	struct atari_img_decode_data *adata = NULL;
 	de_int64 k;
@@ -1014,6 +1020,7 @@ static void de_run_atari_pi4_pi7(deark *c, de_int64 width, de_int64 height)
 	adata->ncolors = 256;
 	adata->w = width;
 	adata->h = height;
+	de_dbg(c, "dimensions: %dx%d\n", (int)adata->w, (int)adata->h);
 
 	for(k=0; k<256; k++) {
 		cr = de_getbyte(k*4+0);
@@ -1023,33 +1030,77 @@ static void de_run_atari_pi4_pi7(deark *c, de_int64 width, de_int64 height)
 		de_dbg2(c, "pal[%3d] = (%3d,%3d,%3d)\n", (int)k, (int)cr, (int)cg, (int)cb);
 	}
 
-	decode_pi4_pi7_image(c, adata, 1024);
+	decode_falcon_8bit_image(c, adata, 1024);
 
 	de_free(c, adata);
 }
 
-static void de_run_atari_pi4(deark *c, const char *params)
+static void de_run_fpaint_pi4(deark *c, const char *params)
 {
-	de_run_atari_pi4_pi7(c, 320, 240);
+	do_atari_falcon_8bit_img(c, 320, 240);
 }
 
-static int de_identify_atari_pi4(deark *c)
+// Atari falcon 320x240
+static int de_identify_fpaint_pi4(deark *c)
 {
 	if(c->infile->len==77824) {
 		if(de_input_file_has_ext(c, "pi4") ||
 			de_input_file_has_ext(c, "pi9"))
 		{
-			return 50;
+			return 50; // Must be lower than fpaint_pi9
 		}
 	}
 	return 0;
 }
 
-void de_module_atari_pi4(deark *c, struct deark_module_info *mi)
+void de_module_fpaint_pi4(deark *c, struct deark_module_info *mi)
 {
-	mi->id = "atari_pi4";
-	mi->run_fn = de_run_atari_pi4;
-	mi->identify_fn = de_identify_atari_pi4;
+	mi->id = "fpaint_pi4";
+	mi->run_fn = de_run_fpaint_pi4;
+	mi->identify_fn = de_identify_fpaint_pi4;
+}
+
+static void de_run_fpaint_pi9(deark *c, const char *params)
+{
+	do_atari_falcon_8bit_img(c, 320, 200);
+}
+
+// Atari falcon 320x200
+static int de_identify_fpaint_pi9(deark *c)
+{
+	int pi4_ext, pi9_ext;
+	de_byte *buf;
+	de_int64 i;
+	int flag;
+	if(c->infile->len!=77824 && c->infile->len!=65024) return 0;
+
+	pi4_ext = de_input_file_has_ext(c, "pi4");
+	pi9_ext = de_input_file_has_ext(c, "pi9");
+	if(!pi4_ext && !pi9_ext) return 0;
+
+	if(c->infile->len==65024) return 60;
+
+	// If file size is 77824, we need to distinguish between PI4 (320x240) and
+	// PI9 (320x200) format.
+	// Best guess is that if the last 12800 bytes are all 0, we should assume PI9.
+
+	buf = de_malloc(c, 12800);
+	de_read(buf, 65024, 12800);
+	flag = 0;
+	for(i=0; i<12800; i++) {
+		if(buf[i]) { flag=1; break; }
+	}
+	de_free(c, buf);
+
+	if(flag) return 0; // Will be identified elsewhere as PI4.
+	return 60; // PI9. Must be higher than the value PI4 uses.
+}
+
+void de_module_fpaint_pi9(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "fpaint_pi9";
+	mi->run_fn = de_run_fpaint_pi9;
+	mi->identify_fn = de_identify_fpaint_pi9;
 }
 
 // **************************************************************************
@@ -1058,7 +1109,7 @@ void de_module_atari_pi4(deark *c, struct deark_module_info *mi)
 
 static void de_run_atari_pi7(deark *c, const char *params)
 {
-	de_run_atari_pi4_pi7(c, 640, 480);
+	do_atari_falcon_8bit_img(c, 640, 480);
 }
 
 static int de_identify_atari_pi7(deark *c)
