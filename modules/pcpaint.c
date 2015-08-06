@@ -106,16 +106,19 @@ static int decode_text(deark *c, lctx *d)
 	screen->cell_rows = de_malloc(c, screen->height * sizeof(struct de_char_cell*));
 
 	for(j=0; j<screen->height; j++) {
-		screen->cell_rows[j] = de_malloc(c, screen->width * sizeof(struct de_char_cell));
+		de_int64 j2;
+
+		j2 = screen->height-1-j;
+		screen->cell_rows[j2] = de_malloc(c, screen->width * sizeof(struct de_char_cell));
 
 		for(i=0; i<screen->width; i++) {
 			ch = dbuf_getbyte(d->unc_pixels, j*d->img->width + i*2);
 			attr = dbuf_getbyte(d->unc_pixels, j*d->img->width + i*2 + 1);
 
-			screen->cell_rows[j][i].fgcol = (attr & 0x0f);
-			screen->cell_rows[j][i].bgcol = (attr & 0xf0) >> 4;
-			screen->cell_rows[j][i].codepoint = (de_int32)ch;
-			screen->cell_rows[j][i].codepoint_unicode = de_char_to_unicode(c, (de_int32)ch, DE_ENCODING_CP437_G);
+			screen->cell_rows[j2][i].fgcol = (attr & 0x0f);
+			screen->cell_rows[j2][i].bgcol = (attr & 0xf0) >> 4;
+			screen->cell_rows[j2][i].codepoint = (de_int32)ch;
+			screen->cell_rows[j2][i].codepoint_unicode = de_char_to_unicode(c, (de_int32)ch, DE_ENCODING_CP437_G);
 		}
 	}
 
