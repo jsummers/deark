@@ -83,10 +83,8 @@ static int decode_atari_image_16(deark *c, struct atari_img_decode_data *adata)
 	de_int64 i, j;
 	de_int64 rowspan;
 	de_uint32 v;
-	de_int64 planespan;
 
-	planespan = 2*((adata->w+15)/16);
-	rowspan = planespan*adata->bpp;
+	rowspan = adata->w * 2;
 
 	for(j=0; j<adata->h; j++) {
 		for(i=0; i<adata->w; i++) {
@@ -493,6 +491,48 @@ void de_module_ftc(deark *c, struct deark_module_info *mi)
 	mi->id = "ftc";
 	mi->run_fn = de_run_ftc;
 	mi->identify_fn = de_identify_ftc;
+}
+
+
+// **************************************************************************
+// Atari Falcon EggPaint .TRP
+// **************************************************************************
+
+static void de_run_eggpaint(deark *c, const char *params)
+{
+	struct atari_img_decode_data *adata = NULL;
+
+	adata = de_malloc(c, sizeof(struct atari_img_decode_data));
+	adata->bpp = 16;
+	adata->w = de_getui16be(4);
+	adata->h = de_getui16be(6);
+	de_dbg(c, "dimensions: %dx%d\n", (int)adata->w, (int)adata->h);
+	adata->unc_pixels = dbuf_open_input_subfile(c->infile, 8, c->infile->len-8);;
+	adata->img = de_bitmap_create(c, adata->w, adata->h, 3);
+	de_decode_atari_image(c, adata);
+	de_bitmap_write_to_file(adata->img, NULL);
+
+	dbuf_close(adata->unc_pixels);
+	de_bitmap_destroy(adata->img);
+	de_free(c, adata);
+}
+
+static int de_identify_eggpaint(deark *c)
+{
+	if(!dbuf_memcmp(c->infile, 0, "TRUP", 4)) {
+		return 80;
+	}
+	if(!dbuf_memcmp(c->infile, 0, "tru\x3f", 4)) {
+		return 100;
+	}
+	return 0;
+}
+
+void de_module_eggpaint(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "eggpaint";
+	mi->run_fn = de_run_eggpaint;
+	mi->identify_fn = de_identify_eggpaint;
 }
 
 

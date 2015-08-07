@@ -72,6 +72,8 @@ Deark -- Information about supported formats
 * DEGAS and DEGAS Elite (module="degas") (experimental)
   - Supports uncompressed images only (.pi?)
 
+* EggPaint (*.trp) (module="eggpaint")
+
 * EPOC MBM/Sketch/AIF (module="epocimage")
   - Supports grayscale with 2 or 4 bits/pixel
   - Supports palette color with 4 or 8 bits/pixel
