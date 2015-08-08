@@ -291,13 +291,31 @@ done:
 
 static int de_identify_degas(deark *c)
 {
-	// TODO: Better identification
-	if(de_input_file_has_ext(c, "pi1")) return 10;
-	if(de_input_file_has_ext(c, "pi2")) return 10;
-	if(de_input_file_has_ext(c, "pi3")) return 10;
-	if(de_input_file_has_ext(c, "pc1")) return 10;
-	if(de_input_file_has_ext(c, "pc2")) return 10;
-	if(de_input_file_has_ext(c, "pc3")) return 10;
+	static const char *exts[6] = {"pi1", "pi2", "pi3", "pc1", "pc2", "pc3" };
+	de_int64 i;
+	int flag;
+	de_int64 sig;
+
+	flag = 0;
+	for(i=0; i<6; i++) {
+		if(de_input_file_has_ext(c, exts[i])) {
+			flag = 1;
+			break;
+		}
+	}
+	if(!flag) return 0;
+
+	sig = de_getui16be(0);
+	if(sig==0x0000 || sig==0x0001 || sig==0x0002) {
+		if(c->infile->len==32034) return 100; // DEGAS
+		if(c->infile->len==32066) return 100; // DEGAS Elite
+		if(c->infile->len==32128) return 40; // Could be padded to a multiple of 128 bytes
+		if(c->infile->len>16000) return 10;
+	}
+	else if(sig==0x8000 || sig==0x8001 || sig==0x8002) {
+		return 60;
+	}
+
 	return 0;
 }
 
