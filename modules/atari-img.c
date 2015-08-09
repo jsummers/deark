@@ -511,7 +511,6 @@ void de_module_ftc(deark *c, struct deark_module_info *mi)
 	mi->identify_fn = de_identify_ftc;
 }
 
-
 // **************************************************************************
 // Atari Falcon EggPaint .TRP
 // **************************************************************************
@@ -521,11 +520,15 @@ static void de_run_eggpaint(deark *c, const char *params)
 	struct atari_img_decode_data *adata = NULL;
 
 	adata = de_malloc(c, sizeof(struct atari_img_decode_data));
+	if(dbuf_memcmp(c->infile, 0, "TRUP", 4)) {
+		de_warn(c, "This file's format could not be clearly identified, "
+			"and it might not be decoded correctly.\n");
+	}
 	adata->bpp = 16;
 	adata->w = de_getui16be(4);
 	adata->h = de_getui16be(6);
 	de_dbg(c, "dimensions: %dx%d\n", (int)adata->w, (int)adata->h);
-	adata->unc_pixels = dbuf_open_input_subfile(c->infile, 8, c->infile->len-8);;
+	adata->unc_pixels = dbuf_open_input_subfile(c->infile, 8, c->infile->len-8);
 	adata->img = de_bitmap_create(c, adata->w, adata->h, 3);
 	de_decode_atari_image(c, adata);
 	de_bitmap_write_to_file(adata->img, NULL);
@@ -553,6 +556,43 @@ void de_module_eggpaint(deark *c, struct deark_module_info *mi)
 	mi->identify_fn = de_identify_eggpaint;
 }
 
+// **************************************************************************
+// Atari Falcon IndyPaint .TRU
+// **************************************************************************
+
+static void de_run_indypaint(deark *c, const char *params)
+{
+	struct atari_img_decode_data *adata = NULL;
+
+	adata = de_malloc(c, sizeof(struct atari_img_decode_data));
+	adata->bpp = 16;
+	adata->w = de_getui16be(4);
+	adata->h = de_getui16be(6);
+	de_dbg(c, "dimensions: %dx%d\n", (int)adata->w, (int)adata->h);
+	adata->unc_pixels = dbuf_open_input_subfile(c->infile, 256, c->infile->len-256);
+	adata->img = de_bitmap_create(c, adata->w, adata->h, 3);
+	de_decode_atari_image(c, adata);
+	de_bitmap_write_to_file(adata->img, NULL);
+
+	dbuf_close(adata->unc_pixels);
+	de_bitmap_destroy(adata->img);
+	de_free(c, adata);
+}
+
+static int de_identify_indypaint(deark *c)
+{
+	if(!dbuf_memcmp(c->infile, 0, "Indy", 4)) {
+		return 70;
+	}
+	return 0;
+}
+
+void de_module_indypaint(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "indypaint";
+	mi->run_fn = de_run_indypaint;
+	mi->identify_fn = de_identify_indypaint;
+}
 
 // **************************************************************************
 // Tiny Stuff

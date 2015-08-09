@@ -315,7 +315,6 @@ done:
 	de_bitmap_destroy(img);
 }
 
-// FIXME: This is duplicated in deark-char.
 static void do_create_standard_font(deark *c, struct charextractx *ectx)
 {
 	de_int64 i;
