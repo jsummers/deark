@@ -66,7 +66,8 @@ static void do_app_segment(deark *c, lctx *d, de_byte seg_type, de_int64 pos, de
 	de_int64 payload_size;
 
 	de_dbg(c, "APP%d segment at %d, size=%d\n", (int)seg_type-0xe0, (int)pos, (int)seg_size);
-	if(seg_size<3) return;
+	de_dbg_indent(c, 1);
+	if(seg_size<3) goto done;
 
 	// Read the first few bytes of the segment, so we can tell what kind of segment it is.
 	if(seg_size+1 < (de_int64)sizeof(buf))
@@ -87,7 +88,7 @@ static void do_app_segment(deark *c, lctx *d, de_byte seg_type, de_int64 pos, de
 	// The payload data size is usually everything after the first NUL byte.
 	payload_pos = pos + id_size;
 	payload_size = seg_size - id_size;
-	if(payload_size<1) return;
+	if(payload_size<1) goto done;
 
 	if(seg_type==0xe0 && !de_strcmp(buf, "JFXX")) {
 		do_jfxx_segment(c, d, payload_pos, payload_size);
@@ -106,6 +107,9 @@ static void do_app_segment(deark *c, lctx *d, de_byte seg_type, de_int64 pos, de
 	else if(seg_type==0xe1 && !de_strcmp(buf, "http://ns.adobe.com/xap/1.0/")) {
 		dbuf_create_file_from_slice(c->infile, payload_pos, payload_size, "xmp", NULL);
 	}
+
+done:
+	de_dbg_indent(c, -1);
 }
 
 static void de_run_jpeg(deark *c, const char *params)
