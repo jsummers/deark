@@ -4,10 +4,6 @@
 #include <deark-config.h>
 #include <deark-modules.h>
 
-#define TGA_CMPR_UNKNOWN 0
-#define TGA_CMPR_NONE    1
-#define TGA_CMPR_RLE     2
-
 typedef struct localctx_struct {
 	de_int64 id_field_len;
 	de_byte color_map_type;
@@ -18,76 +14,55 @@ typedef struct localctx_struct {
 	de_int64 num_attribute_bits;
 	de_byte top_down;
 	int has_signature;
+#define TGA_CMPR_UNKNOWN 0
+#define TGA_CMPR_NONE    1
+#define TGA_CMPR_RLE     2
 	int cmpr_type;
+#define TGA_CLRTYPE_UNKNOWN   0
+#define TGA_CLRTYPE_PALETTED  1
+#define TGA_CLRTYPE_TRUECOLOR 2
+#define TGA_CLRTYPE_GRAYSCALE 3
+	int color_type;
 	dbuf *unc_pixels;
 	de_int64 img_size_in_bytes;
 	de_int64 bytes_per_pixel;
 } lctx;
 
-static void setup_img(deark *c, lctx *d, struct deark_bitmap *img)
-{
-	img->flipped = !d->top_down;
-}
-
-static void do_decode_gray(deark *c, lctx *d)
+static void do_decode_image(deark *c, lctx *d)
 {
 	struct deark_bitmap *img = NULL;
 	de_int64 i, j;
 	de_byte b;
-	de_int64 rowspan;
-
-	if(d->pixel_depth!=8) {
-		de_err(c, "Unsupported bit depth (%d)\n", (int)d->pixel_depth);
-		goto done;
-	}
-	if(d->num_attribute_bits>0) goto done;
-
-	rowspan = d->width;
-
-	img = de_bitmap_create(c, d->width, d->height, 1);
-	setup_img(c, d, img);
-
-	for(j=0; j<d->height; j++) {
-		for(i=0; i<d->width; i++) {
-			b = dbuf_getbyte(d->unc_pixels, j*rowspan + i);
-			de_bitmap_setpixel_gray(img, i, j, b);
-		}
-	}
-
-done:
-	de_bitmap_write_to_file(img, NULL);
-	de_bitmap_destroy(img);
-}
-
-static void do_decode_rgb(deark *c, lctx *d)
-{
-	struct deark_bitmap *img = NULL;
-	de_int64 i, j;
 	de_uint32 clr;
 	de_int64 rowspan;
-	de_int64 bytes_per_pixel;
+	int output_bypp;
 
-	if(d->pixel_depth==24) {
-		bytes_per_pixel = 3;
-	}
-	else if(d->pixel_depth==32) {
-		bytes_per_pixel = 4;
-	}
-	else {
-		de_err(c, "Unsupported bit depth (%d)\n", (int)d->pixel_depth);
+	if(d->num_attribute_bits>0) goto done;
+	if(d->bytes_per_pixel<1 || d->bytes_per_pixel>8) {
+		de_err(c, "Unsupported bytes/pixel: %d\n", (int)d->bytes_per_pixel);
 		goto done;
 	}
-	if(d->num_attribute_bits>0) goto done;
 
-	rowspan = d->width*bytes_per_pixel;
+	rowspan = d->width*d->bytes_per_pixel;
 
-	img = de_bitmap_create(c, d->width, d->height, 3);
-	setup_img(c, d, img);
+	if(d->color_type==TGA_CLRTYPE_GRAYSCALE)
+		output_bypp=1;
+	else
+		output_bypp=3;
+
+	img = de_bitmap_create(c, d->width, d->height, output_bypp);
+	img->flipped = !d->top_down;
 
 	for(j=0; j<d->height; j++) {
 		for(i=0; i<d->width; i++) {
-			clr = dbuf_getRGB(d->unc_pixels, j*rowspan + i*bytes_per_pixel, DE_GETRGBFLAG_BGR);
-			de_bitmap_setpixel_rgb(img, i, j, clr);
+			if(d->color_type==TGA_CLRTYPE_TRUECOLOR) {
+				clr = dbuf_getRGB(d->unc_pixels, j*rowspan + i*d->bytes_per_pixel, DE_GETRGBFLAG_BGR);
+				de_bitmap_setpixel_rgb(img, i, j, clr);
+			}
+			else if(d->color_type==TGA_CLRTYPE_GRAYSCALE) {
+				b = dbuf_getbyte(d->unc_pixels, j*rowspan + i*d->bytes_per_pixel);
+				de_bitmap_setpixel_gray(img, i, j, b);
+			}
 		}
 	}
 
@@ -142,6 +117,7 @@ static void de_run_tga(deark *c, const char *params)
 	lctx *d = NULL;
 	de_int64 pos;
 	const char *cmpr_name = NULL;
+	const char *clrtype_name = NULL;
 
 	d = de_malloc(c, sizeof(lctx));
 
@@ -156,6 +132,25 @@ static void de_run_tga(deark *c, const char *params)
 	de_dbg(c, "image type code: %d\n", (int)d->img_type);
 
 	switch(d->img_type) {
+	case 1: case 9:
+	case 32: case 33:
+		d->color_type = TGA_CLRTYPE_PALETTED;
+		clrtype_name = "palette";
+		break;
+	case 2: case 10:
+		d->color_type = TGA_CLRTYPE_TRUECOLOR;
+		clrtype_name = "truecolor";
+		break;
+	case 3: case 11:
+		d->color_type = TGA_CLRTYPE_GRAYSCALE;
+		clrtype_name = "grayscale";
+		break;
+	default:
+		d->color_type = TGA_CLRTYPE_UNKNOWN;
+		clrtype_name = "unknown";
+	}
+
+	switch(d->img_type) {
 	case 1: case 2: case 3:
 		d->cmpr_type = TGA_CMPR_NONE;
 		cmpr_name = "none";
@@ -168,7 +163,9 @@ static void de_run_tga(deark *c, const char *params)
 		d->cmpr_type = TGA_CMPR_UNKNOWN;
 		cmpr_name = "unknown";
 	}
+
 	de_dbg_indent(c, 1);
+	de_dbg(c, "color type: %s\n", clrtype_name);
 	de_dbg(c, "compression: %s\n", cmpr_name);
 	de_dbg_indent(c, -1);
 
@@ -216,6 +213,13 @@ static void de_run_tga(deark *c, const char *params)
 	d->bytes_per_pixel = ((d->pixel_depth+7)/8);
 	d->img_size_in_bytes = d->height * d->width * d->bytes_per_pixel;
 
+	if(d->color_type!=TGA_CLRTYPE_PALETTED && d->color_type!=TGA_CLRTYPE_TRUECOLOR &&
+		d->color_type!=TGA_CLRTYPE_GRAYSCALE)
+	{
+		de_err(c, "Unsupported color type (%d, %s)\n", (int)d->color_type, clrtype_name);
+		goto done;
+	}
+
 	if(d->cmpr_type==TGA_CMPR_RLE) {
 		d->unc_pixels = dbuf_create_membuf(c, d->img_size_in_bytes);
 		dbuf_set_max_length(d->unc_pixels, d->img_size_in_bytes);
@@ -225,21 +229,11 @@ static void de_run_tga(deark *c, const char *params)
 		d->unc_pixels = dbuf_open_input_subfile(c->infile, pos, d->img_size_in_bytes);
 	}
 	else {
-		de_err(c, "Unsupported compression type (%s)\n", cmpr_name);
+		de_err(c, "Unsupported compression type (%d, %s)\n", (int)d->cmpr_type, cmpr_name);
 		goto done;
 	}
 
-	switch(d->img_type) {
-	case 2: case 10:
-		do_decode_rgb(c, d);
-		break;
-	case 3: case 11:
-		do_decode_gray(c, d);
-		break;
-	default:
-		de_err(c, "This TGA image type (%d) is not supported.\n", (int)d->img_type);
-		goto done;
-	}
+	do_decode_image(c, d);
 
 done:
 	dbuf_close(d->unc_pixels);
