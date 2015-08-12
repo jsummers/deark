@@ -16,26 +16,69 @@ typedef struct localctx_struct {
 	int has_signature;
 } lctx;
 
+static void setup_img(deark *c, lctx *d, struct deark_bitmap *img)
+{
+	img->flipped = !d->top_down;
+}
+
+static void do_decode_gray(deark *c, lctx *d, de_int64 pos)
+{
+	struct deark_bitmap *img = NULL;
+	de_int64 i, j;
+	de_byte b;
+	de_int64 rowspan;
+
+	if(d->pixel_depth!=8) {
+		de_err(c, "Unsupported bit depth (%d)\n", (int)d->pixel_depth);
+		goto done;
+	}
+	if(d->num_attribute_bits>0) goto done;
+
+	rowspan = d->width;
+
+	img = de_bitmap_create(c, d->width, d->height, 1);
+	setup_img(c, d, img);
+
+	for(j=0; j<d->height; j++) {
+		for(i=0; i<d->width; i++) {
+			b = de_getbyte(pos + j*rowspan + i);
+			de_bitmap_setpixel_gray(img, i, j, b);
+		}
+	}
+
+done:
+	de_bitmap_write_to_file(img, NULL);
+	de_bitmap_destroy(img);
+}
+
 static void do_decode_rgb(deark *c, lctx *d, de_int64 pos)
 {
 	struct deark_bitmap *img = NULL;
 	de_int64 i, j;
 	de_uint32 clr;
 	de_int64 rowspan;
+	de_int64 bytes_per_pixel;
 
-	if(d->pixel_depth!=24) {
+	if(d->pixel_depth==24) {
+		bytes_per_pixel = 3;
+	}
+	else if(d->pixel_depth==32) {
+		bytes_per_pixel = 4;
+	}
+	else {
 		de_err(c, "Unsupported bit depth (%d)\n", (int)d->pixel_depth);
 		goto done;
 	}
+	if(d->num_attribute_bits>0) goto done;
 
-	rowspan = d->width*3;
+	rowspan = d->width*bytes_per_pixel;
 
 	img = de_bitmap_create(c, d->width, d->height, 3);
-	img->flipped = !d->top_down;
+	setup_img(c, d, img);
 
 	for(j=0; j<d->height; j++) {
 		for(i=0; i<d->width; i++) {
-			clr = dbuf_getRGB(c->infile, pos + j*rowspan + i*3, DE_GETRGBFLAG_BGR);
+			clr = dbuf_getRGB(c->infile, pos + j*rowspan + i*bytes_per_pixel, DE_GETRGBFLAG_BGR);
 			de_bitmap_setpixel_rgb(img, i, j, clr);
 		}
 	}
@@ -90,11 +133,6 @@ static void de_run_tga(deark *c, const char *params)
 	de_dbg(c, "top-down flag: %d\n", (int)d->top_down);
 	de_dbg_indent(c, -1);
 
-	if(d->img_type!=2) {
-		de_err(c, "This TGA image type (%d) is not supported.\n", (int)d->img_type);
-		goto done;
-	}
-
 	if(d->num_attribute_bits!=0) {
 		de_err(c, "Transparent TGA images are not supported.\n");
 		goto done;
@@ -121,6 +159,12 @@ static void de_run_tga(deark *c, const char *params)
 	case 2:
 		do_decode_rgb(c, d, pos);
 		break;
+	case 3:
+		do_decode_gray(c, d, pos);
+		break;
+	default:
+		de_err(c, "This TGA image type (%d) is not supported.\n", (int)d->img_type);
+		goto done;
 	}
 
 done:

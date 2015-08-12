@@ -274,7 +274,7 @@ Deark -- Information about supported formats
   - Does not support LZ77 compression.
 
 * TGA (Targa) (module="tga")
-  - Very limited support. Uncompressed 24-bit only.
+  - Limited support.
 
 * TI calculator "variable" files (module="tivariable")
   - TI73/TI82/TI83 pictures
