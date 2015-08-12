@@ -13,7 +13,7 @@ all: $(DEARK_EXE)
 
 OBJDIR=obj
 OFILES_MODS:=$(addprefix $(OBJDIR)/modules/,os2bmp.o eps.o bsave.o ilbm.o \
- atari-img.o \
+ atari-img.o tga.o \
  jpeg.o tiff.o psd.o misc.o msp.o pcpaint.o grasp.o amigaicon.o macpaint.o \
  pcx.o epocimage.o psionpic.o psionapp.o exe.o ani.o jpeg2000.o zip.o atari.o \
  fnt.o nokia.o grob.o t64.o cardfile.o tivariable.o basic-c64.o ico.o rpm.o \

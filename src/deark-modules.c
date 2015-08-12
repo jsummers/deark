@@ -40,6 +40,7 @@ void de_register_modules(deark *c)
 		de_module_ani,
 		de_module_jpeg2000,
 		de_module_png,
+		de_module_tga,
 		de_module_rpm,
 		de_module_binhex,
 		de_module_ilbm,

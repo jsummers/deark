@@ -92,3 +92,4 @@ void de_module_fpaint_pi9(deark *c, struct deark_module_info *mi);
 void de_module_atari_pi7(deark *c, struct deark_module_info *mi);
 void de_module_eggpaint(deark *c, struct deark_module_info *mi);
 void de_module_indypaint(deark *c, struct deark_module_info *mi);
+void de_module_tga(deark *c, struct deark_module_info *mi);

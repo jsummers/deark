@@ -630,6 +630,10 @@
 				>
 			</File>
 			<File
+				RelativePath="..\..\modules\tga.c"
+				>
+			</File>
+			<File
 				RelativePath="..\..\modules\tiff.c"
 				>
 			</File>
