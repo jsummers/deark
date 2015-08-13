@@ -451,6 +451,7 @@ void de_color_to_css(de_uint32 color, char *buf, int buflen);
 de_byte de_palette_sample_6_to_8bit(de_byte samp);
 de_uint32 de_rgb565_to_888(de_uint32 n);
 de_uint32 de_bgr555_to_888(de_uint32 n);
+de_uint32 de_rgb555_to_888(de_uint32 n);
 
 de_int32 de_char_to_unicode(deark *c, de_int32 a, int encoding);
 void de_uchar_to_utf8(de_int32 u1, de_byte *utf8buf, de_int64 *p_utf8len);

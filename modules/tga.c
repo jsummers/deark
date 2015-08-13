@@ -15,7 +15,7 @@ typedef struct localctx_struct {
 	de_int64 pixel_depth;
 	de_byte image_descriptor;
 	de_int64 num_attribute_bits;
-	de_byte top_down;
+	de_byte top_down, right_to_left;
 	int has_signature;
 #define TGA_CMPR_UNKNOWN 0
 #define TGA_CMPR_NONE    1
@@ -31,6 +31,7 @@ typedef struct localctx_struct {
 	de_int64 bytes_per_pixel;
 	de_int64 bytes_per_pal_entry;
 	de_int64 pal_size_in_bytes;
+	de_int64 aspect_ratio_num, aspect_ratio_den;
 	de_uint32 pal[256];
 } lctx;
 
@@ -61,7 +62,12 @@ static void do_decode_image(deark *c, lctx *d)
 
 	for(j=0; j<d->height; j++) {
 		for(i=0; i<d->width; i++) {
-			if(d->color_type==TGA_CLRTYPE_TRUECOLOR) {
+			if(d->color_type==TGA_CLRTYPE_TRUECOLOR && d->pixel_depth==15) {
+				clr = (de_uint32)dbuf_getui16le(d->unc_pixels, j*rowspan + i*d->bytes_per_pixel);
+				clr = de_rgb555_to_888(clr);
+				de_bitmap_setpixel_rgb(img, i, j, clr);
+			}
+			else if(d->color_type==TGA_CLRTYPE_TRUECOLOR) {
 				clr = dbuf_getRGB(d->unc_pixels, j*rowspan + i*d->bytes_per_pixel, DE_GETRGBFLAG_BGR);
 				de_bitmap_setpixel_rgb(img, i, j, clr);
 			}
@@ -142,9 +148,45 @@ static int do_read_palette(deark *c, lctx *d, de_int64 pos)
 	return 1;
 }
 
+static void do_read_extension_area(deark *c, lctx *d, de_int64 pos)
+{
+	de_int64 ext_area_size;
+	de_byte attribute_types;
+
+	de_dbg(c, "extension area at %d\n", (int)pos);
+
+	ext_area_size = de_getui16le(pos);
+	de_dbg(c, "extension area size: %d\n", (int)ext_area_size);
+	if(ext_area_size<495) return;
+
+	d->aspect_ratio_num = de_getui16le(pos+474);
+	d->aspect_ratio_den = de_getui16le(pos+476);
+	de_dbg(c, "aspect ratio: %d/%d\n", (int)d->aspect_ratio_num, (int)d->aspect_ratio_den);
+
+	attribute_types = de_getbyte(pos+494);
+	de_dbg(c, "attribute types: %d\n", (int)attribute_types);
+}
+
+static void do_read_footer(deark *c, lctx *d)
+{
+	de_int64 footerpos;
+	de_int64 ext_offset, dev_offset;
+
+	footerpos = c->infile->len - 26;
+	de_dbg(c, "v2 footer at %d\n", (int)footerpos);
+	ext_offset = de_getui32le(footerpos);
+	de_dbg(c, "extension area offset: %d\n", (int)ext_offset);
+	dev_offset = de_getui32le(footerpos+4);
+	de_dbg(c, "developer area offset: %d\n", (int)dev_offset);
+
+	if(ext_offset!=0) {
+		do_read_extension_area(c, d, ext_offset);
+	}
+}
+
 static int has_signature(deark *c)
 {
-	if(c->infile->len<18) return 0;
+	if(c->infile->len<18+26) return 0;
 	if(!dbuf_memcmp(c->infile, c->infile->len-18, "TRUEVISION-XFILE.\0", 18)) {
 		return 1;
 	}
@@ -229,15 +271,14 @@ static void de_run_tga(deark *c, const char *params)
 	d->num_attribute_bits = (de_int64)(d->image_descriptor & 0x0f);
 	de_dbg(c, "number of attribute bits: %d\n", (int)d->num_attribute_bits);
 
-	// Note: There is conflicting information about whether bit 4 is part of the
-	// "origin code", or if it consists only of bit 5. But it doesn't really matter.
+	d->right_to_left = (d->image_descriptor>>4)&0x01;
 	d->top_down = (d->image_descriptor>>5)&0x01;
+	de_dbg(c, "right-to-left flag: %d\n", (int)d->right_to_left);
 	de_dbg(c, "top-down flag: %d\n", (int)d->top_down);
 	de_dbg_indent(c, -1);
 
-	if(d->num_attribute_bits!=0) {
-		de_err(c, "Transparent TGA images are not supported.\n");
-		goto done;
+	if(d->has_signature) {
+		do_read_footer(c, d);
 	}
 
 	if(!de_good_image_dimensions(c, d->width, d->height)) goto done;
@@ -268,7 +309,31 @@ static void de_run_tga(deark *c, const char *params)
 	if(d->color_type!=TGA_CLRTYPE_PALETTE && d->color_type!=TGA_CLRTYPE_TRUECOLOR &&
 		d->color_type!=TGA_CLRTYPE_GRAYSCALE)
 	{
-		de_err(c, "Unsupported color type (%d, %s)\n", (int)d->color_type, clrtype_name);
+		de_err(c, "Unsupported color type (%d: %s)\n", (int)d->color_type, clrtype_name);
+		goto done;
+	}
+
+	if( (d->color_type==TGA_CLRTYPE_PALETTE && d->pixel_depth==8) ||
+		(d->color_type==TGA_CLRTYPE_TRUECOLOR && d->pixel_depth==15) ||
+		(d->color_type==TGA_CLRTYPE_TRUECOLOR && d->pixel_depth==24) ||
+		(d->color_type==TGA_CLRTYPE_TRUECOLOR && d->pixel_depth==32) ||
+		(d->color_type==TGA_CLRTYPE_GRAYSCALE && d->pixel_depth==8) )
+	{
+		;
+	}
+	else {
+		de_err(c, "Unsupported TGA image type (%s, depth=%d)\n", clrtype_name,
+			(int)d->pixel_depth);
+		goto done;
+	}
+
+	if(d->right_to_left) {
+		de_err(c, "Right-to-left TGA images are not supported\n");
+		goto done;
+	}
+
+	if(d->num_attribute_bits!=0) {
+		de_err(c, "Transparent TGA images are not supported.\n");
 		goto done;
 	}
 

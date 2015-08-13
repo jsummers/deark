@@ -589,6 +589,18 @@ de_uint32 de_bgr555_to_888(de_uint32 n)
 	return DE_MAKE_RGB(cr, cg, cb);
 }
 
+de_uint32 de_rgb555_to_888(de_uint32 n)
+{
+	de_byte cr, cg, cb;
+	cr = (de_byte)((n>>10)&0x1f);
+	cg = (de_byte)((n>>5)&0x1f);
+	cb = (de_byte)(n&0x1f);
+	cr = (de_byte)(0.5+((double)cr)*(255.0/31.0));
+	cg = (de_byte)(0.5+((double)cg)*(255.0/31.0));
+	cb = (de_byte)(0.5+((double)cb)*(255.0/31.0));
+	return DE_MAKE_RGB(cr, cg, cb);
+}
+
 // s1 is not NUL terminated, but s2 will be.
 // s2_size includes the NUL terminator.
 void de_make_printable_ascii(de_byte *s1, de_int64 s1_len,
