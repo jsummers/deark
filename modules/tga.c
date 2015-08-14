@@ -15,6 +15,7 @@ typedef struct localctx_struct {
 	de_int64 pixel_depth;
 	de_byte image_descriptor;
 	de_int64 num_attribute_bits;
+	de_byte attributes_type;
 	de_byte top_down, right_to_left;
 	int has_signature;
 #define TGA_CMPR_UNKNOWN 0
@@ -44,12 +45,6 @@ static void do_decode_image(deark *c, lctx *d)
 	de_int64 rowspan;
 	int output_bypp;
 
-	if(d->num_attribute_bits>0) goto done;
-	if(d->bytes_per_pixel<1 || d->bytes_per_pixel>8) {
-		de_err(c, "Unsupported bytes/pixel: %d\n", (int)d->bytes_per_pixel);
-		goto done;
-	}
-
 	rowspan = d->width*d->bytes_per_pixel;
 
 	if(d->color_type==TGA_CLRTYPE_GRAYSCALE)
@@ -62,7 +57,7 @@ static void do_decode_image(deark *c, lctx *d)
 
 	for(j=0; j<d->height; j++) {
 		for(i=0; i<d->width; i++) {
-			if(d->color_type==TGA_CLRTYPE_TRUECOLOR && d->pixel_depth==15) {
+			if(d->color_type==TGA_CLRTYPE_TRUECOLOR && (d->pixel_depth==15 || d->pixel_depth==16)) {
 				clr = (de_uint32)dbuf_getui16le(d->unc_pixels, j*rowspan + i*d->bytes_per_pixel);
 				clr = de_rgb555_to_888(clr);
 				de_bitmap_setpixel_rgb(img, i, j, clr);
@@ -82,7 +77,6 @@ static void do_decode_image(deark *c, lctx *d)
 		}
 	}
 
-done:
 	de_bitmap_write_to_file(img, NULL);
 	de_bitmap_destroy(img);
 }
@@ -151,7 +145,6 @@ static int do_read_palette(deark *c, lctx *d, de_int64 pos)
 static void do_read_extension_area(deark *c, lctx *d, de_int64 pos)
 {
 	de_int64 ext_area_size;
-	de_byte attribute_types;
 
 	de_dbg(c, "extension area at %d\n", (int)pos);
 
@@ -159,12 +152,13 @@ static void do_read_extension_area(deark *c, lctx *d, de_int64 pos)
 	de_dbg(c, "extension area size: %d\n", (int)ext_area_size);
 	if(ext_area_size<495) return;
 
+	// TODO: Retain the aspect ratio. (Need sample files. Nobody seems to use this field.)
 	d->aspect_ratio_num = de_getui16le(pos+474);
 	d->aspect_ratio_den = de_getui16le(pos+476);
 	de_dbg(c, "aspect ratio: %d/%d\n", (int)d->aspect_ratio_num, (int)d->aspect_ratio_den);
 
-	attribute_types = de_getbyte(pos+494);
-	de_dbg(c, "attribute types: %d\n", (int)attribute_types);
+	d->attributes_type = de_getbyte(pos+494);
+	de_dbg(c, "attributes type: %d\n", (int)d->attributes_type);
 }
 
 static void do_read_footer(deark *c, lctx *d)
@@ -315,6 +309,7 @@ static void de_run_tga(deark *c, const char *params)
 
 	if( (d->color_type==TGA_CLRTYPE_PALETTE && d->pixel_depth==8) ||
 		(d->color_type==TGA_CLRTYPE_TRUECOLOR && d->pixel_depth==15) ||
+		(d->color_type==TGA_CLRTYPE_TRUECOLOR && d->pixel_depth==16) ||
 		(d->color_type==TGA_CLRTYPE_TRUECOLOR && d->pixel_depth==24) ||
 		(d->color_type==TGA_CLRTYPE_TRUECOLOR && d->pixel_depth==32) ||
 		(d->color_type==TGA_CLRTYPE_GRAYSCALE && d->pixel_depth==8) )
@@ -332,9 +327,11 @@ static void de_run_tga(deark *c, const char *params)
 		goto done;
 	}
 
-	if(d->num_attribute_bits!=0) {
-		de_err(c, "Transparent TGA images are not supported.\n");
-		goto done;
+	if(d->num_attribute_bits!=0 || d->attributes_type!=0 || d->pixel_depth==32) {
+		// I'm giving up on TGA transparency, for now.
+		// The specification is inadequate. To the extent that it is documented,
+		// actual TGA files and TGA viewers both violate the spec, in different ways.
+		de_warn(c, "This image might have transparency, which is not supported.\n");
 	}
 
 	if(d->cmpr_type==TGA_CMPR_RLE) {
