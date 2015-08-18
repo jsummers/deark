@@ -98,7 +98,7 @@ static void de_run_psd(deark *c, const char *params)
 	de_int64 x;
 	de_int64 pos;
 
-	de_dbg(c, "In psd module\n");
+	de_dbg2(c, "In psd module\n");
 
 	if(params && de_strchr(params,'R')) {
 		do_image_resource_blocks(c, 0, c->infile->len);

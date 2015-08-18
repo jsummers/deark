@@ -3,6 +3,7 @@
 
 #include <deark-config.h>
 #include <deark-modules.h>
+#include "fmtutil.h"
 
 typedef struct localctx_struct {
 	de_int64 id_field_len;
@@ -40,6 +41,7 @@ static void do_decode_image(deark *c, lctx *d)
 {
 	struct deark_bitmap *img = NULL;
 	de_int64 i, j;
+	de_int64 i_adj, j_adj;
 	de_byte b;
 	de_uint32 clr;
 	de_int64 rowspan;
@@ -53,26 +55,35 @@ static void do_decode_image(deark *c, lctx *d)
 		output_bypp=3;
 
 	img = de_bitmap_create(c, d->width, d->height, output_bypp);
-	img->flipped = !d->top_down;
 
 	for(j=0; j<d->height; j++) {
+		if(d->top_down)
+			j_adj = j;
+		else
+			j_adj = d->height-1-j;
+
 		for(i=0; i<d->width; i++) {
+			if(d->right_to_left)
+				i_adj = d->width-1-i;
+			else
+				i_adj = i;
+
 			if(d->color_type==TGA_CLRTYPE_TRUECOLOR && (d->pixel_depth==15 || d->pixel_depth==16)) {
 				clr = (de_uint32)dbuf_getui16le(d->unc_pixels, j*rowspan + i*d->bytes_per_pixel);
 				clr = de_rgb555_to_888(clr);
-				de_bitmap_setpixel_rgb(img, i, j, clr);
+				de_bitmap_setpixel_rgb(img, i_adj, j_adj, clr);
 			}
 			else if(d->color_type==TGA_CLRTYPE_TRUECOLOR) {
 				clr = dbuf_getRGB(d->unc_pixels, j*rowspan + i*d->bytes_per_pixel, DE_GETRGBFLAG_BGR);
-				de_bitmap_setpixel_rgb(img, i, j, clr);
+				de_bitmap_setpixel_rgb(img, i_adj, j_adj, clr);
 			}
 			else if(d->color_type==TGA_CLRTYPE_GRAYSCALE) {
 				b = dbuf_getbyte(d->unc_pixels, j*rowspan + i*d->bytes_per_pixel);
-				de_bitmap_setpixel_gray(img, i, j, b);
+				de_bitmap_setpixel_gray(img, i_adj, j_adj, b);
 			}
 			else if(d->color_type==TGA_CLRTYPE_PALETTE) {
 				b = dbuf_getbyte(d->unc_pixels, j*rowspan + i*d->bytes_per_pixel);
-				de_bitmap_setpixel_rgb(img, i, j, d->pal[(unsigned int)b]);
+				de_bitmap_setpixel_rgb(img, i_adj, j_adj, d->pal[(unsigned int)b]);
 			}
 		}
 	}
@@ -145,20 +156,56 @@ static int do_read_palette(deark *c, lctx *d, de_int64 pos)
 static void do_read_extension_area(deark *c, lctx *d, de_int64 pos)
 {
 	de_int64 ext_area_size;
+	de_int64 thumbnail_offset;
 
 	de_dbg(c, "extension area at %d\n", (int)pos);
 
+	de_dbg_indent(c, 1);
 	ext_area_size = de_getui16le(pos);
 	de_dbg(c, "extension area size: %d\n", (int)ext_area_size);
-	if(ext_area_size<495) return;
+	if(ext_area_size<495) goto done;
 
 	// TODO: Retain the aspect ratio. (Need sample files. Nobody seems to use this field.)
 	d->aspect_ratio_num = de_getui16le(pos+474);
 	d->aspect_ratio_den = de_getui16le(pos+476);
 	de_dbg(c, "aspect ratio: %d/%d\n", (int)d->aspect_ratio_num, (int)d->aspect_ratio_den);
 
+	thumbnail_offset = de_getui32le(pos+486);
+	de_dbg(c, "thumbnail image offset: %d\n", (int)thumbnail_offset);
+
 	d->attributes_type = de_getbyte(pos+494);
 	de_dbg(c, "attributes type: %d\n", (int)d->attributes_type);
+done:
+	de_dbg_indent(c, -1);
+}
+
+static void do_read_developer_area(deark *c, lctx *d, de_int64 pos)
+{
+	de_int64 num_tags;
+	de_int64 i;
+	de_int64 tag_id, tag_data_pos, tag_data_size;
+
+	de_dbg(c, "developer area at %d\n", (int)pos);
+
+	de_dbg_indent(c, 1);
+	num_tags = de_getui16le(pos);
+	de_dbg(c, "number of tags: %d\n", (int)num_tags);
+	for(i=0; i<num_tags; i++) {
+		if(i>=200) break;
+		tag_id = de_getui16le(pos + 2 + 10*i);
+		tag_data_pos = de_getui32le(pos + 2 + 10*i + 2);
+		tag_data_size = de_getui32le(pos + 2 + 10*i + 6);
+		de_dbg(c, "tag #%d: id=%d, pos=%d, size=%d\n", (int)i, (int)tag_id,
+			(int)tag_data_pos, (int)tag_data_size);
+
+		if(tag_id==20) {
+			// Tag 20 seems to contain Photoshop resources, though this is unconfirmed.
+			de_dbg_indent(c, 1);
+			de_fmtutil_handle_photoshop_rsrc(c, tag_data_pos, tag_data_size);
+			de_dbg_indent(c, -1);
+		}
+	}
+	de_dbg_indent(c, -1);
 }
 
 static void do_read_footer(deark *c, lctx *d)
@@ -175,6 +222,10 @@ static void do_read_footer(deark *c, lctx *d)
 
 	if(ext_offset!=0) {
 		do_read_extension_area(c, d, ext_offset);
+	}
+
+	if(dev_offset!=0) {
+		do_read_developer_area(c, d, dev_offset);
 	}
 }
 
@@ -319,11 +370,6 @@ static void de_run_tga(deark *c, const char *params)
 	else {
 		de_err(c, "Unsupported TGA image type (%s, depth=%d)\n", clrtype_name,
 			(int)d->pixel_depth);
-		goto done;
-	}
-
-	if(d->right_to_left) {
-		de_err(c, "Right-to-left TGA images are not supported\n");
 		goto done;
 	}
 
