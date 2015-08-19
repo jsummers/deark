@@ -7,6 +7,34 @@
 #include <deark-modules.h>
 #include "fmtutil.h"
 
+static const char* units_name(de_int64 u)
+{
+	switch(u) {
+	case 1: return "pixels/inch";
+	case 2: return "pixels/cm";
+	}
+	return "?";
+}
+
+static void do_resolutioninfo_resource(deark *c, de_int64 pos, de_int64 len)
+{
+	de_int64 xres_int, yres_int;
+	double xres, yres;
+	de_int64 xres_unit, yres_unit;
+
+	if(len!=16) return;
+	xres_int = de_getui32be(pos);
+	xres_unit = de_getui16be(pos+4);
+	//width_unit = de_getui16be(pos+6);
+	yres_int = de_getui32be(pos+8);
+	yres_unit = de_getui16be(pos+12);
+	//height_unit = de_getui16be(pos+14);
+	xres = ((double)xres_int)/65536.0;
+	yres = ((double)yres_int)/65536.0;
+	de_dbg(c, "xres=%.2f, units=%d (%s)\n", xres, (int)xres_unit, units_name(xres_unit));
+	de_dbg(c, "yres=%.2f, units=%d (%s)\n", yres, (int)yres_unit, units_name(yres_unit));
+}
+
 static void do_thumbnail_resource(deark *c, de_int64 resource_id,
 	de_int64 startpos, de_int64 len)
 {
@@ -69,10 +97,15 @@ static void do_image_resource_blocks(deark *c, de_int64 startpos, de_int64 len)
 		block_data_len = de_getui32be(pos);
 		pos+=4;
 
-		de_dbg(c, "Photoshop resource ID 0x%04x pos=%d data_len=%d\n", (int)resource_id,
-			(int)resource_pos, (int)block_data_len);
+		de_dbg(c, "Photoshop resource ID 0x%04x pos=%d data_pos=%d data_len=%d\n",
+			(int)resource_id, (int)resource_pos, (int)pos, (int)block_data_len);
 
 		switch(resource_id) {
+		case 0x03ed: // ResolutionInfo
+			de_dbg_indent(c, 1);
+			do_resolutioninfo_resource(c, pos, block_data_len);
+			de_dbg_indent(c, -1);
+			break;
 		case 0x0404: // IPTC
 			if(c->extract_level>=2 && block_data_len>0) {
 				dbuf_create_file_from_slice(c->infile, pos, block_data_len, "iptc", NULL);
