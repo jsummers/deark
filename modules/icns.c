@@ -475,7 +475,7 @@ static void de_run_icns_pass(deark *c, lctx *d, int pass)
 	}
 }
 
-static void de_run_icns(deark *c, const char *params)
+static void de_run_icns(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
 

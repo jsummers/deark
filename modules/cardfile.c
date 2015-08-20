@@ -99,7 +99,7 @@ done:
 	de_finfo_destroy(c, fi_text);
 }
 
-static void de_run_cardfile(deark *c, const char *params)
+static void de_run_cardfile(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
 	de_byte b;

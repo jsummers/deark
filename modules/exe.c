@@ -937,7 +937,7 @@ static void do_lx_rsrc_tbl(deark *c, lctx *d)
 	}
 }
 
-static void de_run_exe(deark *c, const char *params)
+static void de_run_exe(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
 

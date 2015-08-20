@@ -931,7 +931,7 @@ static int do_chunk_sequence(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 	return 1;
 }
 
-static void de_run_ilbm(deark *c, const char *params)
+static void de_run_ilbm(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
 	const char *s;

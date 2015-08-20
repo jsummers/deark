@@ -134,7 +134,7 @@ static int do_header_structure(deark *c, lctx *d, int is_sig, de_int64 pos1,
 	return 1;
 }
 
-static void de_run_rpm(deark *c, const char *params)
+static void de_run_rpm(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
 	de_int64 pos;

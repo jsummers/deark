@@ -269,7 +269,7 @@ static int find_start(deark *c, de_int64 *foundpos)
 	return 0;
 }
 
-static void de_run_binhex(deark *c, const char *params)
+static void de_run_binhex(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
 	de_int64 pos;

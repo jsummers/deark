@@ -104,7 +104,7 @@ static void do_img_app(deark *c, lctx *d)
 	}
 }
 
-static void de_run_psionapp(deark *c, const char *params)
+static void de_run_psionapp(deark *c, de_module_params *mparams)
 {
 	de_byte b;
 	const char *s;

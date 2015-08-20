@@ -188,7 +188,7 @@ static void de_run_eps_normal(deark *c)
 	}
 }
 
-static void de_run_eps(deark *c, const char *params)
+static void de_run_eps(deark *c, de_module_params *mparams)
 {
 	de_byte b[2];
 

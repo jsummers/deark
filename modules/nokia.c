@@ -38,7 +38,7 @@ static void nol_ngg_read_bitmap(deark *c, lctx *d, de_int64 pos)
 	de_bitmap_destroy(img);
 }
 
-static void de_run_nol(deark *c, const char *params)
+static void de_run_nol(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
 
@@ -74,7 +74,7 @@ void de_module_nol(deark *c, struct deark_module_info *mi)
 // Caution: This code is not based on any official specifications.
 // **************************************************************************
 
-static void de_run_ngg(deark *c, const char *params)
+static void de_run_ngg(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
 
@@ -116,7 +116,7 @@ static void npm_nlm_read_bitmap(deark *c, lctx *d, de_int64 pos)
 		DE_CVTF_WHITEISZERO, NULL);
 }
 
-static void de_run_npm(deark *c, const char *params)
+static void de_run_npm(deark *c, de_module_params *mparams)
 {
 	de_int64 txt_len;
 	de_int64 pos;
@@ -165,7 +165,7 @@ void de_module_npm(deark *c, struct deark_module_info *mi)
 // Caution: This code is not based on any official specifications.
 // **************************************************************************
 
-static void de_run_nlm(deark *c, const char *params)
+static void de_run_nlm(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
 	de_byte imgtype;
@@ -303,7 +303,7 @@ done:
 	return retval;
 }
 
-static void de_run_nsl(deark *c, const char *params)
+static void de_run_nsl(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
 	de_int64 pos;

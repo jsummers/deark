@@ -87,7 +87,7 @@ static void do_code_chix(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 done: ;
 }
 
-static void de_run_pff2(deark *c, const char *params)
+static void de_run_pff2(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
 	de_int64 pos;

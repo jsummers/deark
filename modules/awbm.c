@@ -204,7 +204,7 @@ done:
 	de_bitmap_destroy(img);
 }
 
-static void de_run_awbm(deark *c, const char *params)
+static void de_run_awbm(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
 

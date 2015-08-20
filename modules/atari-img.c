@@ -191,7 +191,7 @@ static void set_standard_density(deark *c, struct atari_img_decode_data *adata)
 	}
 }
 
-static void de_run_degas(deark *c, const char *params)
+static void de_run_degas(deark *c, de_module_params *mparams)
 {
 	degasctx *d = NULL;
 	struct atari_img_decode_data *adata = NULL;
@@ -389,7 +389,7 @@ static void do_prism_read_palette(deark *c, prixmctx *d, struct atari_img_decode
 	}
 }
 
-static void de_run_prismpaint(deark *c, const char *params)
+static void de_run_prismpaint(deark *c, de_module_params *mparams)
 {
 	prixmctx *d = NULL;
 	de_int64 pixels_start;
@@ -481,7 +481,7 @@ void de_module_prismpaint(deark *c, struct deark_module_info *mi)
 // Atari Falcon True Color .FTC
 // **************************************************************************
 
-static void de_run_ftc(deark *c, const char *params)
+static void de_run_ftc(deark *c, de_module_params *mparams)
 {
 	struct atari_img_decode_data *adata = NULL;
 
@@ -515,7 +515,7 @@ void de_module_ftc(deark *c, struct deark_module_info *mi)
 // Atari Falcon EggPaint .TRP
 // **************************************************************************
 
-static void de_run_eggpaint(deark *c, const char *params)
+static void de_run_eggpaint(deark *c, de_module_params *mparams)
 {
 	struct atari_img_decode_data *adata = NULL;
 
@@ -560,7 +560,7 @@ void de_module_eggpaint(deark *c, struct deark_module_info *mi)
 // Atari Falcon IndyPaint .TRU
 // **************************************************************************
 
-static void de_run_indypaint(deark *c, const char *params)
+static void de_run_indypaint(deark *c, de_module_params *mparams)
 {
 	struct atari_img_decode_data *adata = NULL;
 
@@ -808,7 +808,7 @@ static void fix_tinystuff_pal(deark *c, struct atari_img_decode_data *adata)
 	}
 }
 
-static void de_run_tinystuff(deark *c, const char *params)
+static void de_run_tinystuff(deark *c, de_module_params *mparams)
 {
 	struct atari_img_decode_data *adata = NULL;
 	tinyctx *d = NULL;
@@ -931,7 +931,7 @@ void de_module_tinystuff(deark *c, struct deark_module_info *mi)
 // NEOchrome (.neo)
 // **************************************************************************
 
-static void de_run_neochrome(deark *c, const char *params)
+static void de_run_neochrome(deark *c, de_module_params *mparams)
 {
 	struct atari_img_decode_data *adata = NULL;
 	unsigned int resolution_code;
@@ -997,7 +997,7 @@ void de_module_neochrome(deark *c, struct deark_module_info *mi)
 // NEOchrome animation (.ani)
 // **************************************************************************
 
-static void de_run_neochrome_ani(deark *c, const char *params)
+static void de_run_neochrome_ani(deark *c, de_module_params *mparams)
 {
 	struct atari_img_decode_data *adata = NULL;
 	de_int64 width_in_bytes;
@@ -1133,7 +1133,7 @@ static void do_atari_falcon_8bit_img(deark *c, de_int64 width, de_int64 height)
 	de_free(c, adata);
 }
 
-static void de_run_fpaint_pi4(deark *c, const char *params)
+static void de_run_fpaint_pi4(deark *c, de_module_params *mparams)
 {
 	do_atari_falcon_8bit_img(c, 320, 240);
 }
@@ -1158,7 +1158,7 @@ void de_module_fpaint_pi4(deark *c, struct deark_module_info *mi)
 	mi->identify_fn = de_identify_fpaint_pi4;
 }
 
-static void de_run_fpaint_pi9(deark *c, const char *params)
+static void de_run_fpaint_pi9(deark *c, de_module_params *mparams)
 {
 	do_atari_falcon_8bit_img(c, 320, 200);
 }
@@ -1205,7 +1205,7 @@ void de_module_fpaint_pi9(deark *c, struct deark_module_info *mi)
 // Atari .PI7
 // **************************************************************************
 
-static void de_run_atari_pi7(deark *c, const char *params)
+static void de_run_atari_pi7(deark *c, de_module_params *mparams)
 {
 	do_atari_falcon_8bit_img(c, 640, 480);
 }

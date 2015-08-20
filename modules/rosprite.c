@@ -377,7 +377,7 @@ done:
 	de_finfo_destroy(c, fi);
 }
 
-static void de_run_rosprite(deark *c, const char *params)
+static void de_run_rosprite(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
 	de_int64 pos;

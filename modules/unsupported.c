@@ -149,7 +149,7 @@ static void get_fmt(deark *c, struct fmtinfo_struct *fmti)
 	}
 }
 
-static void de_run_unsupported(deark *c, const char *params)
+static void de_run_unsupported(deark *c, de_module_params *mparams)
 {
 	struct fmtinfo_struct fmti;
 	get_fmt(c, &fmti);

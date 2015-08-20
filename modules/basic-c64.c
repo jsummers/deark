@@ -87,7 +87,7 @@ static void process_line(deark *c, lctx *d, de_int64 file_pos, de_int64 mem_pos,
 	dbuf_fputs(d->outf, "\n");
 }
 
-static void de_run_basic_c64(deark *c, const char *params)
+static void de_run_basic_c64(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
 	de_int64 file_pos;

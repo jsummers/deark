@@ -398,7 +398,7 @@ static void do_main(deark *c, lctx *d)
 	}
 }
 
-static void de_run_ansiart(deark *c, const char *params)
+static void de_run_ansiart(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
 	struct de_char_context *charctx = NULL;

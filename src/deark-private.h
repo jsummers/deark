@@ -18,8 +18,12 @@
 #define DE_ENCODING_WINDOWS1252  20
 #define DE_ENCODING_UNKNOWN      99
 
-// 'params' can be used by the module in whatever way it wishes.
-typedef void (*de_module_run_fn)(deark *c, const char *params);
+typedef struct de_module_params_struct {
+	const char *codes;
+} de_module_params;
+
+// 'mparams' is used for sending data to, and receiving data from, a module.
+typedef void (*de_module_run_fn)(deark *c, de_module_params *mparams);
 
 typedef int (*de_module_identify_fn)(deark *c);
 
@@ -190,8 +194,8 @@ void de_fatalerror(deark *c);
 
 void de_register_modules(deark *c);
 
-int de_run_module(deark *c, struct deark_module_info *mi, const char *params);
-int de_run_module_by_id(deark *c, const char *id, const char *params);
+int de_run_module(deark *c, struct deark_module_info *mi, de_module_params *mparams);
+int de_run_module_by_id(deark *c, const char *id, de_module_params *mparams);
 struct deark_module_info *de_get_module_by_id(deark *c, const char *module_id);
 
 void de_strlcpy(char *dst, const char *src, size_t dstlen);

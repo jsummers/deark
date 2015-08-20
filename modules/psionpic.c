@@ -118,7 +118,7 @@ static int detect_format(deark *c, lctx *d)
 	return PPIC_FMT_1_1;
 }
 
-static void de_run_psionpic(deark *c, const char *params)
+static void de_run_psionpic(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
 	de_int64 i;

@@ -106,7 +106,7 @@ static void do_printshop_etc(deark *c, lctx *d)
 	d->namefile = NULL;
 }
 
-static void de_run_printshop(deark *c, const char *params)
+static void de_run_printshop(deark *c, de_module_params *mparams)
 {
 	lctx *d;
 	d = de_malloc(c, sizeof(lctx));
@@ -141,7 +141,7 @@ void de_module_printshop(deark *c, struct deark_module_info *mi)
 // The New Print Shop .POG/.PNM format
 // **************************************************************************
 
-static void de_run_newprintshop(deark *c, const char *params)
+static void de_run_newprintshop(deark *c, de_module_params *mparams)
 {
 	lctx *d;
 	d = de_malloc(c, sizeof(lctx));
@@ -178,7 +178,7 @@ void de_module_newprintshop(deark *c, struct deark_module_info *mi)
 // PrintMaster .SHP/.SDR format
 // **************************************************************************
 
-static void de_run_printmaster(deark *c, const char *params)
+static void de_run_printmaster(deark *c, de_module_params *mparams)
 {
 	lctx *d;
 	d = de_malloc(c, sizeof(lctx));

@@ -147,7 +147,7 @@ static void de_run_grob_text(deark *c, lctx *d)
 	}
 }
 
-static void de_run_grob(deark *c, const char *params)
+static void de_run_grob(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
 	de_byte buf[4];

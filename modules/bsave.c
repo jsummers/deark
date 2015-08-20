@@ -501,7 +501,7 @@ done:
 
 typedef int (*decoder_fn_type)(deark *c, lctx *d);
 
-static void de_run_bsave(deark *c, const char *params)
+static void de_run_bsave(deark *c, de_module_params *mparams)
 {
 	const char *bsavefmt;
 	const char *s;

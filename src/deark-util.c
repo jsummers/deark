@@ -419,17 +419,17 @@ struct deark_module_info *de_get_module_by_id(deark *c, const char *module_id)
 	return NULL;
 }
 
-int de_run_module(deark *c, struct deark_module_info *mi, const char *params)
+int de_run_module(deark *c, struct deark_module_info *mi, de_module_params *mparams)
 {
 	if(!mi) return 0;
 	if(!mi->run_fn) return 0;
 	c->module_nesting_level++;
-	mi->run_fn(c, params);
+	mi->run_fn(c, mparams);
 	c->module_nesting_level--;
 	return 1;
 }
 
-int de_run_module_by_id(deark *c, const char *id, const char *params)
+int de_run_module_by_id(deark *c, const char *id, de_module_params *mparams)
 {
 	struct deark_module_info *module_to_use;
 
@@ -439,7 +439,7 @@ int de_run_module_by_id(deark *c, const char *id, const char *params)
 		return 0;
 	}
 
-	return de_run_module(c, module_to_use, params);
+	return de_run_module(c, module_to_use, mparams);
 }
 
 void de_set_ext_option(deark *c, const char *name, const char *val)

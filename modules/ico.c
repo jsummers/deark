@@ -192,7 +192,7 @@ static void do_image_dir_entry(deark *c, lctx *d, de_int64 img_num, de_int64 pos
 	de_dbg_indent(c, -1);
 }
 
-static void de_run_ico(deark *c, const char *params)
+static void de_run_ico(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
 	de_int64 x;

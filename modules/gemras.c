@@ -235,7 +235,7 @@ done:
 	return retval;
 }
 
-static void de_run_gemraster(deark *c, const char *params)
+static void de_run_gemraster(deark *c, de_module_params *mparams)
 {
 	de_int64 header_size_in_words;
 	de_int64 ver;

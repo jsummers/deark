@@ -238,7 +238,7 @@ static int has_signature(deark *c)
 	return 0;
 }
 
-static void de_run_tga(deark *c, const char *params)
+static void de_run_tga(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
 	de_int64 pos;

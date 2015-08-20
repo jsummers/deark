@@ -93,7 +93,7 @@ done:
 	return retval;
 }
 
-static void de_run_pgx(deark *c, const char *params)
+static void de_run_pgx(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
 	de_int64 pos;
@@ -153,7 +153,7 @@ void de_module_pgx(deark *c, struct deark_module_info *mi)
 // Portfolio PGF
 // **************************************************************************
 
-static void de_run_pf_pgf(deark *c, const char *params)
+static void de_run_pf_pgf(deark *c, de_module_params *mparams)
 {
 	de_declare_fmt(c, "PGF (Portfolio graphics)");
 	de_convert_and_write_image_bilevel(c->infile, 0, 240, 64, 240/8,
@@ -178,7 +178,7 @@ void de_module_pf_pgf(deark *c, struct deark_module_info *mi)
 // PGC - Portfolio graphics compressed
 // **************************************************************************
 
-static void de_run_pgc(deark *c, const char *params)
+static void de_run_pgc(deark *c, de_module_params *mparams)
 {
 	dbuf *unc_pixels = NULL;
 	de_int64 pos;

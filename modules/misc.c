@@ -14,7 +14,7 @@
 // This is a trivial module that makes a copy of the input file.
 // **************************************************************************
 
-static void de_run_copy(deark *c, const char *params)
+static void de_run_copy(deark *c, de_module_params *mparams)
 {
 	de_dbg(c, "In copy module\n");
 
@@ -35,7 +35,7 @@ void de_module_copy(deark *c, struct deark_module_info *mi)
 // It uses the deark-miniz.c utilities, which in turn use miniz.c.
 // **************************************************************************
 
-static void de_run_zlib(deark *c, const char *params)
+static void de_run_zlib(deark *c, de_module_params *mparams)
 {
 	dbuf *f = NULL;
 
@@ -74,7 +74,7 @@ void de_module_zlib(deark *c, struct deark_module_info *mi)
 // HP 100LX / HP 200LX .ICN icon format
 // **************************************************************************
 
-static void de_run_hpicn(deark *c, const char *params)
+static void de_run_hpicn(deark *c, de_module_params *mparams)
 {
 	de_int64 width, height;
 
@@ -123,7 +123,7 @@ static int xpuzz_read_header(deark *c, struct xpuzzctx *d)
 	return 1;
 }
 
-static void de_run_xpuzzle(deark *c, const char *params)
+static void de_run_xpuzzle(deark *c, de_module_params *mparams)
 {
 	struct xpuzzctx *d = NULL;
 	struct deark_bitmap *img = NULL;
@@ -190,7 +190,7 @@ void de_module_xpuzzle(deark *c, struct deark_module_info *mi)
 // Winzle! puzzle image
 // **************************************************************************
 
-static void de_run_winzle(deark *c, const char *params)
+static void de_run_winzle(deark *c, de_module_params *mparams)
 {
 	de_byte buf[256];
 	de_int64 xorsize;
@@ -255,7 +255,7 @@ static void do_mrw_seg_list(deark *c, de_int64 pos1, de_int64 len)
 	}
 }
 
-static void de_run_mrw(deark *c, const char *params)
+static void de_run_mrw(deark *c, de_module_params *mparams)
 {
 	de_int64 mrw_seg_size;
 
@@ -282,7 +282,7 @@ void de_module_mrw(deark *c, struct deark_module_info *mi)
 // Used by the Bob ray tracer.
 // **************************************************************************
 
-static void de_run_bob(deark *c, const char *params)
+static void de_run_bob(deark *c, de_module_params *mparams)
 {
 	struct deark_bitmap *img = NULL;
 	de_int64 w, h;
@@ -344,7 +344,7 @@ void de_module_bob(deark *c, struct deark_module_info *mi)
 // Also used by the Vivid ray tracer.
 // **************************************************************************
 
-static void de_run_alias_pix(deark *c, const char *params)
+static void de_run_alias_pix(deark *c, de_module_params *mparams)
 {
 	struct deark_bitmap *img = NULL;
 	de_int64 w, h;
@@ -462,7 +462,7 @@ static de_byte applevol_get_gray_shade(de_byte clr)
 	return 0xff;
 }
 
-static void de_run_applevol(deark *c, const char *params)
+static void de_run_applevol(deark *c, de_module_params *mparams)
 {
 	struct deark_bitmap *img = NULL;
 	de_int64 w, h;
@@ -512,7 +512,7 @@ void de_module_applevol(deark *c, struct deark_module_info *mi)
 // TRS-80 "HR" ("High Resolution") image
 // **************************************************************************
 
-static void de_run_hr(deark *c, const char *params)
+static void de_run_hr(deark *c, de_module_params *mparams)
 {
 	struct deark_bitmap *img = NULL;
 
@@ -545,7 +545,7 @@ void de_module_hr(deark *c, struct deark_module_info *mi)
 // RIPterm icon (.ICN)
 // **************************************************************************
 
-static void de_run_ripicon(deark *c, const char *params)
+static void de_run_ripicon(deark *c, de_module_params *mparams)
 {
 	struct deark_bitmap *img = NULL;
 	de_int64 width, height;
@@ -632,7 +632,7 @@ static de_byte lss16_get_nibble(deark *c, struct lss16ctx *d)
 	return n&0x0f;
 }
 
-static void de_run_lss16(deark *c, const char *params)
+static void de_run_lss16(deark *c, de_module_params *mparams)
 {
 	struct lss16ctx *d = NULL;
 	struct deark_bitmap *img = NULL;
@@ -726,7 +726,7 @@ void de_module_lss16(deark *c, struct deark_module_info *mi)
 // VBM (VDC BitMap)
 // **************************************************************************
 
-static void de_run_vbm(deark *c, const char *params)
+static void de_run_vbm(deark *c, de_module_params *mparams)
 {
 	de_int64 width, height;
 	de_byte ver;
@@ -770,7 +770,7 @@ void de_module_vbm(deark *c, struct deark_module_info *mi)
 // PFS: 1st Publisher clip art (.ART)
 // **************************************************************************
 
-static void de_run_fp_art(deark *c, const char *params)
+static void de_run_fp_art(deark *c, de_module_params *mparams)
 {
 	de_int64 width, height;
 	de_int64 rowspan;
@@ -834,7 +834,7 @@ static void do_png_iccp(deark *c, de_int64 pos, de_int64 len)
 	de_finfo_destroy(c, fi);
 }
 
-static void de_run_png(deark *c, const char *params)
+static void de_run_png(deark *c, de_module_params *mparams)
 {
 	de_int64 pos;
 	de_int64 chunk_data_len;
@@ -871,7 +871,7 @@ void de_module_png(deark *c, struct deark_module_info *mi)
 // YBM
 // **************************************************************************
 
-static void de_run_ybm(deark *c, const char *params)
+static void de_run_ybm(deark *c, de_module_params *mparams)
 {
 	struct deark_bitmap *img = NULL;
 	de_int64 width, height;
@@ -926,7 +926,7 @@ void de_module_ybm(deark *c, struct deark_module_info *mi)
 // OLPC .565 firmware icon
 // **************************************************************************
 
-static void de_run_olpc565(deark *c, const char *params)
+static void de_run_olpc565(deark *c, de_module_params *mparams)
 {
 	struct deark_bitmap *img = NULL;
 	de_int64 width, height;

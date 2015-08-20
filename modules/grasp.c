@@ -66,7 +66,7 @@ done:
 }
 
 
-static void de_run_graspgl(deark *c, const char *params)
+static void de_run_graspgl(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
 	de_int64 num_files;
@@ -128,7 +128,7 @@ void de_module_graspgl(deark *c, struct deark_module_info *mi)
 // GRASP font (.set/.fnt)
 // **************************************************************************
 
-static void de_run_graspfont(deark *c, const char *params)
+static void de_run_graspfont(deark *c, de_module_params *mparams)
 {
 	de_int64 reported_filesize;
 	de_int32 first_codepoint;

@@ -375,7 +375,7 @@ static void do_bitmap(deark *c, lctx *d)
 	}
 }
 
-static void de_run_pcx(deark *c, const char *params)
+static void de_run_pcx(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
 	const char *s;
@@ -445,7 +445,7 @@ void de_module_pcx(deark *c, struct deark_module_info *mi)
 // DCX
 // **************************************************************************
 
-static void de_run_dcx(deark *c, const char *params)
+static void de_run_dcx(deark *c, de_module_params *mparams)
 {
 	de_uint32 *page_offset;
 	de_int64 num_pages;

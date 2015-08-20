@@ -386,7 +386,7 @@ static int de_identify_os2bmp_internal(deark *c)
 	return 0;
 }
 
-static void de_run_os2bmp(deark *c, const char *params)
+static void de_run_os2bmp(deark *c, de_module_params *mparams)
 {
 	int fmt;
 

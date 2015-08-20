@@ -94,7 +94,7 @@ static void process_riff_sequence(deark *c, lctx *d, de_int64 pos, de_int64 len1
 	}
 }
 
-static void de_run_ani(deark *c, const char *params)
+static void de_run_ani(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
 

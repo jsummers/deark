@@ -192,7 +192,7 @@ static int do_generate_font(deark *c, lctx *d)
 	return 1;
 }
 
-static void de_run_xbin(deark *c, const char *params)
+static void de_run_xbin(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
 	struct de_char_context *charctx = NULL;

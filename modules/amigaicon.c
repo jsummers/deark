@@ -547,7 +547,7 @@ static void do_glowicons(deark *c, lctx *d, de_int64 pos)
 	}
 }
 
-static void de_run_amigaicon(deark *c, const char *params)
+static void de_run_amigaicon(deark *c, de_module_params *mparams)
 {
 	lctx *d;
 	de_int64 num_main_icons;

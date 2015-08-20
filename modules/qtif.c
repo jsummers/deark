@@ -166,7 +166,7 @@ static void do_write_image(deark *c, lctx *d)
 	}
 }
 
-static void de_run_qtif(deark *c, const char *params)
+static void de_run_qtif(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
 

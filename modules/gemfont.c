@@ -92,7 +92,7 @@ static void do_face_name(deark *c, lctx *d)
 	de_finfo_set_name_from_sz(c, d->fi, buf2, DE_ENCODING_ASCII);
 }
 
-static void de_run_gemfont(deark *c, const char *params)
+static void de_run_gemfont(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
 	de_int64 i;

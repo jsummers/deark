@@ -131,7 +131,7 @@ static void do_hevc_file(deark *c, lctx *d)
 	de_dbg(c, "hevc_header_and_data begins at %d\n", (int)pos);
 }
 
-static void de_run_bpg(deark *c, const char *params)
+static void de_run_bpg(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
 

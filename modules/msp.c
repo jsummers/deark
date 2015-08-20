@@ -105,7 +105,7 @@ static void do_ver2(deark *c, lctx *d)
 	de_bitmap_destroy(img);
 }
 
-static void de_run_msp(deark *c, const char *params)
+static void de_run_msp(deark *c, de_module_params *mparams)
 {
 	lctx *d;
 

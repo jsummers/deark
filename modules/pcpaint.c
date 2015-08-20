@@ -543,7 +543,7 @@ static int do_set_up_decoder(deark *c, lctx *d)
 	return 0;
 }
 
-static void de_run_pcpaint_pic(deark *c, lctx *d, const char *params)
+static void de_run_pcpaint_pic(deark *c, lctx *d, de_module_params *mparams)
 {
 	de_declare_fmt(c, "PCPaint PIC");
 
@@ -606,7 +606,7 @@ done:
 	;
 }
 
-static void de_run_pcpaint_clp(deark *c, lctx *d, const char *params)
+static void de_run_pcpaint_clp(deark *c, lctx *d, de_module_params *mparams)
 {
 	de_int64 file_size;
 	de_byte run_marker;
@@ -681,7 +681,7 @@ done:
 }
 
 // Dispatch to either pcpaint_pic or pcpaint_clp.
-static void de_run_pcpaint(deark *c, const char *params)
+static void de_run_pcpaint(deark *c, de_module_params *mparams)
 {
 	// 0=unknown, 1=pic, 2=clp
 	const char *pcpaintfmt;
@@ -729,10 +729,10 @@ static void de_run_pcpaint(deark *c, const char *params)
 	}
 
 	if(d->file_fmt==FMT_CLP) {
-		de_run_pcpaint_clp(c, d, params);
+		de_run_pcpaint_clp(c, d, mparams);
 	}
 	else {
-		de_run_pcpaint_pic(c, d, params);
+		de_run_pcpaint_pic(c, d, mparams);
 	}
 
 	if(d->unc_pixels) dbuf_close(d->unc_pixels);

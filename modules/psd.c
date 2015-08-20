@@ -126,14 +126,14 @@ static void do_image_resource_blocks(deark *c, de_int64 startpos, de_int64 len)
 	}
 }
 
-static void de_run_psd(deark *c, const char *params)
+static void de_run_psd(deark *c, de_module_params *mparams)
 {
 	de_int64 x;
 	de_int64 pos;
 
 	de_dbg2(c, "In psd module\n");
 
-	if(params && de_strchr(params,'R')) {
+	if(mparams && mparams->codes && de_strchr(mparams->codes, 'R')) {
 		do_image_resource_blocks(c, 0, c->infile->len);
 		return;
 	}

@@ -35,7 +35,7 @@ typedef struct localctx_struct {
 	de_int64 ifd_count;
 
 	de_int64 fpos_size; // Number of bytes in a file offset
-	const char *params;
+	de_module_params *mparams;
 } lctx;
 
 // Returns 0 if stack is empty.
@@ -118,7 +118,7 @@ static void do_oldjpeg(deark *c, lctx *d, de_int64 jpegoffset, de_int64 jpegleng
 	}
 
 	// Found an embedded JPEG image or thumbnail that we can extract.
-	if(d->params && de_strchr(d->params,'E')) {
+	if(d->mparams && d->mparams->codes && de_strchr(d->mparams->codes, 'E')) {
 		extension = "exifthumb.jpg";
 	}
 	else {
@@ -363,14 +363,14 @@ static int de_identify_tiff_internal(deark *c, int *is_le)
 	return fmt;
 }
 
-static void de_run_tiff(deark *c, const char *params)
+static void de_run_tiff(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
 
 	de_dbg(c, "In tiff module\n");
 	d = de_malloc(c, sizeof(lctx));
 
-	d->params = params;
+	d->mparams = mparams;
 
 	d->fmt = de_identify_tiff_internal(c, &d->is_le);
 

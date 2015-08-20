@@ -456,7 +456,7 @@ static void do_oldformat(deark *c, lctx *d)
 	}
 }
 
-static void de_run_rsc(deark *c, const char *params)
+static void de_run_rsc(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
 

@@ -165,7 +165,7 @@ static void do_read_patterns(deark *c, lctx *d, de_int64 pos)
 	de_bitmap_destroy(pat);
 }
 
-static void de_run_macpaint(deark *c, const char *params)
+static void de_run_macpaint(deark *c, de_module_params *mparams)
 {
 	lctx *d;
 	de_int64 pos;

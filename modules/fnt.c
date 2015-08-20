@@ -237,7 +237,7 @@ done:
 	return retval;
 }
 
-static void de_run_fnt(deark *c, const char *params)
+static void de_run_fnt(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
 

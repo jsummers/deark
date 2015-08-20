@@ -349,7 +349,7 @@ done:
 	;
 }
 
-static void de_run_shg(deark *c, const char *params)
+static void de_run_shg(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
 

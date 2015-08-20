@@ -112,7 +112,7 @@ done:
 	de_dbg_indent(c, -1);
 }
 
-static void de_run_jpeg(deark *c, const char *params)
+static void de_run_jpeg(deark *c, de_module_params *mparams)
 {
 	de_byte b;
 	de_int64 pos;
@@ -248,7 +248,7 @@ static int detect_jpeg_len(deark *c, scanctx *d, de_int64 pos1, de_int64 len)
 	return 0;
 }
 
-static void de_run_jpegscan(deark *c, const char *params)
+static void de_run_jpegscan(deark *c, de_module_params *mparams)
 {
 	de_int64 pos = 0;
 	de_int64 foundpos = 0;

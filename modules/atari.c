@@ -32,7 +32,7 @@ static void do_cas(deark *c)
 	}
 }
 
-static void de_run_cas(deark *c, const char *params)
+static void de_run_cas(deark *c, de_module_params *mparams)
 {
 	do_cas(c);
 	de_err(c, "Atari CAS format is not supported\n");
@@ -79,7 +79,7 @@ static void do_atr(deark *c, lctx *d)
 	de_dbg(c, "image_size=%d, sector_size=%d\n", (int)image_size, (int)sector_size);
 }
 
-static void de_run_atr(deark *c, const char *params)
+static void de_run_atr(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
 
