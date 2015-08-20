@@ -5,14 +5,20 @@
 #include <deark-modules.h>
 #include "fmtutil.h"
 
+typedef struct tgaimginfo {
+	de_int64 width, height;
+	de_int64 img_size_in_bytes;
+};
+
 typedef struct localctx_struct {
 	de_int64 id_field_len;
 	de_byte color_map_type;
 	de_byte img_type;
+	struct tgaimginfo main_image;
+	struct tgaimginfo thumbnail_image;
 	de_int64 cmap_start;
 	de_int64 cmap_length;
 	de_int64 cmap_depth;
-	de_int64 width, height;
 	de_int64 pixel_depth;
 	de_byte image_descriptor;
 	de_int64 num_attribute_bits;
@@ -28,16 +34,16 @@ typedef struct localctx_struct {
 #define TGA_CLRTYPE_TRUECOLOR 2
 #define TGA_CLRTYPE_GRAYSCALE 3
 	int color_type;
-	dbuf *unc_pixels;
-	de_int64 img_size_in_bytes;
 	de_int64 bytes_per_pixel;
 	de_int64 bytes_per_pal_entry;
 	de_int64 pal_size_in_bytes;
 	de_int64 aspect_ratio_num, aspect_ratio_den;
+	de_int64 thumbnail_offset;
 	de_uint32 pal[256];
 } lctx;
 
-static void do_decode_image(deark *c, lctx *d)
+static void do_decode_image(deark *c, lctx *d, struct tgaimginfo *imginfo, dbuf *unc_pixels,
+	const char *token)
 {
 	struct deark_bitmap *img = NULL;
 	de_int64 i, j;
@@ -47,52 +53,52 @@ static void do_decode_image(deark *c, lctx *d)
 	de_int64 rowspan;
 	int output_bypp;
 
-	rowspan = d->width*d->bytes_per_pixel;
+	rowspan = imginfo->width*d->bytes_per_pixel;
 
 	if(d->color_type==TGA_CLRTYPE_GRAYSCALE)
 		output_bypp=1;
 	else
 		output_bypp=3;
 
-	img = de_bitmap_create(c, d->width, d->height, output_bypp);
+	img = de_bitmap_create(c, imginfo->width, imginfo->height, output_bypp);
 
-	for(j=0; j<d->height; j++) {
+	for(j=0; j<imginfo->height; j++) {
 		if(d->top_down)
 			j_adj = j;
 		else
-			j_adj = d->height-1-j;
+			j_adj = imginfo->height-1-j;
 
-		for(i=0; i<d->width; i++) {
+		for(i=0; i<imginfo->width; i++) {
 			if(d->right_to_left)
-				i_adj = d->width-1-i;
+				i_adj = imginfo->width-1-i;
 			else
 				i_adj = i;
 
 			if(d->color_type==TGA_CLRTYPE_TRUECOLOR && (d->pixel_depth==15 || d->pixel_depth==16)) {
-				clr = (de_uint32)dbuf_getui16le(d->unc_pixels, j*rowspan + i*d->bytes_per_pixel);
+				clr = (de_uint32)dbuf_getui16le(unc_pixels, j*rowspan + i*d->bytes_per_pixel);
 				clr = de_rgb555_to_888(clr);
 				de_bitmap_setpixel_rgb(img, i_adj, j_adj, clr);
 			}
 			else if(d->color_type==TGA_CLRTYPE_TRUECOLOR) {
-				clr = dbuf_getRGB(d->unc_pixels, j*rowspan + i*d->bytes_per_pixel, DE_GETRGBFLAG_BGR);
+				clr = dbuf_getRGB(unc_pixels, j*rowspan + i*d->bytes_per_pixel, DE_GETRGBFLAG_BGR);
 				de_bitmap_setpixel_rgb(img, i_adj, j_adj, clr);
 			}
 			else if(d->color_type==TGA_CLRTYPE_GRAYSCALE) {
-				b = dbuf_getbyte(d->unc_pixels, j*rowspan + i*d->bytes_per_pixel);
+				b = dbuf_getbyte(unc_pixels, j*rowspan + i*d->bytes_per_pixel);
 				de_bitmap_setpixel_gray(img, i_adj, j_adj, b);
 			}
 			else if(d->color_type==TGA_CLRTYPE_PALETTE) {
-				b = dbuf_getbyte(d->unc_pixels, j*rowspan + i*d->bytes_per_pixel);
+				b = dbuf_getbyte(unc_pixels, j*rowspan + i*d->bytes_per_pixel);
 				de_bitmap_setpixel_rgb(img, i_adj, j_adj, d->pal[(unsigned int)b]);
 			}
 		}
 	}
 
-	de_bitmap_write_to_file(img, NULL);
+	de_bitmap_write_to_file(img, token);
 	de_bitmap_destroy(img);
 }
 
-static int do_decode_rle(deark *c, lctx *d, de_int64 pos)
+static int do_decode_rle(deark *c, lctx *d, de_int64 pos, dbuf *unc_pixels)
 {
 	de_byte b;
 	de_int64 count;
@@ -101,7 +107,7 @@ static int do_decode_rle(deark *c, lctx *d, de_int64 pos)
 
 	while(1) {
 		if(pos >= c->infile->len) break;
-		if(d->unc_pixels->len >= d->img_size_in_bytes) break;
+		if(unc_pixels->len >= d->main_image.img_size_in_bytes) break;
 
 		b = de_getbyte(pos);
 		pos++;
@@ -111,17 +117,54 @@ static int do_decode_rle(deark *c, lctx *d, de_int64 pos)
 			de_read(buf, pos, d->bytes_per_pixel);
 			pos += d->bytes_per_pixel;
 			for(k=0; k<count; k++) {
-				dbuf_write(d->unc_pixels, buf, d->bytes_per_pixel);
+				dbuf_write(unc_pixels, buf, d->bytes_per_pixel);
 			}
 		}
 		else { // uncompressed block
 			count = (de_int64)(b) + 1;
-			dbuf_copy(c->infile, pos, count * d->bytes_per_pixel, d->unc_pixels);
+			dbuf_copy(c->infile, pos, count * d->bytes_per_pixel, unc_pixels);
 			pos += count * d->bytes_per_pixel;
 		}
 	}
 
 	return 1;
+}
+
+static void do_decode_thumbnail(deark *c, lctx *d)
+{
+	dbuf *unc_pixels = NULL;
+	de_int64 hdrsize = 2;
+
+	de_dbg(c, "decoding thumbnail image at %d\n", (int)d->thumbnail_offset);
+
+	// The thumbnail image is supposed to use the same format as the main image,
+	// except without compression. (And the dimensions are obviously different.)
+	// Presumably this means the origin, palette, etc. will be the same.
+	// But based on the few TGA thumbnails we've seen, nobody reads the spec, and
+	// it's anybody's guess what format the thumbnail will use.
+
+	// TGA 2.0 spec says the dimensions are one *byte* each.
+	d->thumbnail_image.width = (de_int64)de_getbyte(d->thumbnail_offset);
+	d->thumbnail_image.height = (de_int64)de_getbyte(d->thumbnail_offset+1);
+	de_dbg(c, "thumbnail dimensions: %dx%d\n", (int)d->thumbnail_image.width, d->thumbnail_image.height);
+
+	if(d->thumbnail_image.width!=0 && d->thumbnail_image.height==0) {
+		de_warn(c, "Thumbnail image height is 0. Assuming the file incorrectly uses "
+			"16-bit thumbnail dimensions, instead of 8.\n");
+		d->thumbnail_image.width = de_getui16le(d->thumbnail_offset);
+		d->thumbnail_image.height = de_getui16le(d->thumbnail_offset+2);
+		de_dbg(c, "thumbnail dimensions: %dx%d\n", (int)d->thumbnail_image.width, d->thumbnail_image.height);
+		hdrsize = 4;
+	}
+	if(!de_good_image_dimensions(c, d->thumbnail_image.width, d->thumbnail_image.height)) goto done;
+
+	d->thumbnail_image.img_size_in_bytes = d->thumbnail_image.height * d->thumbnail_image.width * d->bytes_per_pixel;
+	unc_pixels = dbuf_open_input_subfile(c->infile, d->thumbnail_offset+hdrsize, d->thumbnail_image.img_size_in_bytes);
+
+	do_decode_image(c, d, &d->thumbnail_image, unc_pixels, "thumb");
+
+done:
+	dbuf_close(unc_pixels);
 }
 
 static int do_read_palette(deark *c, lctx *d, de_int64 pos)
@@ -156,7 +199,6 @@ static int do_read_palette(deark *c, lctx *d, de_int64 pos)
 static void do_read_extension_area(deark *c, lctx *d, de_int64 pos)
 {
 	de_int64 ext_area_size;
-	de_int64 thumbnail_offset;
 
 	de_dbg(c, "extension area at %d\n", (int)pos);
 
@@ -170,8 +212,8 @@ static void do_read_extension_area(deark *c, lctx *d, de_int64 pos)
 	d->aspect_ratio_den = de_getui16le(pos+476);
 	de_dbg(c, "aspect ratio: %d/%d\n", (int)d->aspect_ratio_num, (int)d->aspect_ratio_den);
 
-	thumbnail_offset = de_getui32le(pos+486);
-	de_dbg(c, "thumbnail image offset: %d\n", (int)thumbnail_offset);
+	d->thumbnail_offset = de_getui32le(pos+486);
+	de_dbg(c, "thumbnail image offset: %d\n", (int)d->thumbnail_offset);
 
 	d->attributes_type = de_getbyte(pos+494);
 	de_dbg(c, "attributes type: %d\n", (int)d->attributes_type);
@@ -201,6 +243,8 @@ static void do_read_developer_area(deark *c, lctx *d, de_int64 pos)
 		if(tag_id==20) {
 			// Tag 20 seems to contain Photoshop resources, though this is unconfirmed.
 			de_dbg_indent(c, 1);
+			// TODO: We could retrieve the pixel density settings from the Photoshop data,
+			// but it's not clear whether they are ever useful.
 			de_fmtutil_handle_photoshop_rsrc(c, tag_data_pos, tag_data_size);
 			de_dbg_indent(c, -1);
 		}
@@ -215,10 +259,12 @@ static void do_read_footer(deark *c, lctx *d)
 
 	footerpos = c->infile->len - 26;
 	de_dbg(c, "v2 footer at %d\n", (int)footerpos);
+	de_dbg_indent(c, 1);
 	ext_offset = de_getui32le(footerpos);
 	de_dbg(c, "extension area offset: %d\n", (int)ext_offset);
 	dev_offset = de_getui32le(footerpos+4);
 	de_dbg(c, "developer area offset: %d\n", (int)dev_offset);
+	de_dbg_indent(c, -1);
 
 	if(ext_offset!=0) {
 		do_read_extension_area(c, d, ext_offset);
@@ -244,6 +290,7 @@ static void de_run_tga(deark *c, de_module_params *mparams)
 	de_int64 pos;
 	const char *cmpr_name = NULL;
 	const char *clrtype_name = NULL;
+	dbuf *unc_pixels = NULL;
 
 	d = de_malloc(c, sizeof(lctx));
 
@@ -303,9 +350,9 @@ static void de_run_tga(deark *c, de_module_params *mparams)
 			(int)d->cmap_length, (int)d->cmap_depth);
 	}
 
-	d->width = de_getui16le(12);
-	d->height = de_getui16le(14);
-	de_dbg(c, "dimensions: %dx%d\n", (int)d->width, (int)d->height);
+	d->main_image.width = de_getui16le(12);
+	d->main_image.height = de_getui16le(14);
+	de_dbg(c, "dimensions: %dx%d\n", (int)d->main_image.width, (int)d->main_image.height);
 
 	d->pixel_depth = (de_int64)de_getbyte(16);
 	de_dbg(c, "pixel depth: %d\n", (int)d->pixel_depth);
@@ -326,7 +373,7 @@ static void de_run_tga(deark *c, de_module_params *mparams)
 		do_read_footer(c, d);
 	}
 
-	if(!de_good_image_dimensions(c, d->width, d->height)) goto done;
+	if(!de_good_image_dimensions(c, d->main_image.width, d->main_image.height)) goto done;
 
 	pos += 18;
 
@@ -349,7 +396,7 @@ static void de_run_tga(deark *c, de_module_params *mparams)
 	de_dbg(c, "bitmap at %d\n", (int)pos);
 
 	d->bytes_per_pixel = ((d->pixel_depth+7)/8);
-	d->img_size_in_bytes = d->height * d->width * d->bytes_per_pixel;
+	d->main_image.img_size_in_bytes = d->main_image.height * d->main_image.width * d->bytes_per_pixel;
 
 	if(d->color_type!=TGA_CLRTYPE_PALETTE && d->color_type!=TGA_CLRTYPE_TRUECOLOR &&
 		d->color_type!=TGA_CLRTYPE_GRAYSCALE)
@@ -381,22 +428,26 @@ static void de_run_tga(deark *c, de_module_params *mparams)
 	}
 
 	if(d->cmpr_type==TGA_CMPR_RLE) {
-		d->unc_pixels = dbuf_create_membuf(c, d->img_size_in_bytes);
-		dbuf_set_max_length(d->unc_pixels, d->img_size_in_bytes);
-		if(!do_decode_rle(c, d, pos)) goto done;
+		unc_pixels = dbuf_create_membuf(c, d->main_image.img_size_in_bytes);
+		dbuf_set_max_length(unc_pixels, d->main_image.img_size_in_bytes);
+		if(!do_decode_rle(c, d, pos, unc_pixels)) goto done;
 	}
 	else if(d->cmpr_type==TGA_CMPR_NONE) {
-		d->unc_pixels = dbuf_open_input_subfile(c->infile, pos, d->img_size_in_bytes);
+		unc_pixels = dbuf_open_input_subfile(c->infile, pos, d->main_image.img_size_in_bytes);
 	}
 	else {
 		de_err(c, "Unsupported compression type (%d, %s)\n", (int)d->cmpr_type, cmpr_name);
 		goto done;
 	}
 
-	do_decode_image(c, d);
+	do_decode_image(c, d, &d->main_image, unc_pixels, NULL);
+
+	if(d->thumbnail_offset!=0) {
+		do_decode_thumbnail(c, d);
+	}
 
 done:
-	dbuf_close(d->unc_pixels);
+	dbuf_close(unc_pixels);
 	de_free(c, d);
 }
 
