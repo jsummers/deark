@@ -5,7 +5,7 @@
 #include <deark-modules.h>
 #include "fmtutil.h"
 
-typedef struct tgaimginfo {
+struct tgaimginfo {
 	de_int64 width, height;
 	de_int64 img_size_in_bytes;
 };
@@ -25,6 +25,8 @@ typedef struct localctx_struct {
 	de_byte attributes_type;
 	de_byte top_down, right_to_left;
 	int has_signature;
+	int has_extension_area;
+	int has_alpha_channel; // Our guess as to whether the image has transparency.
 #define TGA_CMPR_UNKNOWN 0
 #define TGA_CMPR_NONE    1
 #define TGA_CMPR_RLE     2
@@ -50,6 +52,7 @@ static void do_decode_image(deark *c, lctx *d, struct tgaimginfo *imginfo, dbuf 
 	de_int64 i_adj, j_adj;
 	de_byte b;
 	de_uint32 clr;
+	de_byte a;
 	de_int64 rowspan;
 	int output_bypp;
 
@@ -59,6 +62,9 @@ static void do_decode_image(deark *c, lctx *d, struct tgaimginfo *imginfo, dbuf 
 		output_bypp=1;
 	else
 		output_bypp=3;
+
+	if(d->has_alpha_channel)
+		output_bypp++;
 
 	img = de_bitmap_create(c, imginfo->width, imginfo->height, output_bypp);
 
@@ -81,7 +87,13 @@ static void do_decode_image(deark *c, lctx *d, struct tgaimginfo *imginfo, dbuf 
 			}
 			else if(d->color_type==TGA_CLRTYPE_TRUECOLOR) {
 				clr = dbuf_getRGB(unc_pixels, j*rowspan + i*d->bytes_per_pixel, DE_GETRGBFLAG_BGR);
-				de_bitmap_setpixel_rgb(img, i_adj, j_adj, clr);
+				if(d->has_alpha_channel) {
+					a = dbuf_getbyte(unc_pixels, j*rowspan + i*d->bytes_per_pixel+3);
+					de_bitmap_setpixel_rgba(img, i_adj, j_adj, DE_SET_ALPHA(clr, a));
+				}
+				else {
+					de_bitmap_setpixel_rgb(img, i_adj, j_adj, clr);
+				}
 			}
 			else if(d->color_type==TGA_CLRTYPE_GRAYSCALE) {
 				b = dbuf_getbyte(unc_pixels, j*rowspan + i*d->bytes_per_pixel);
@@ -96,6 +108,102 @@ static void do_decode_image(deark *c, lctx *d, struct tgaimginfo *imginfo, dbuf 
 
 	de_bitmap_write_to_file(img, token);
 	de_bitmap_destroy(img);
+}
+
+// TGA transparency is kind of a mess. Multiple ways of labeling it, some of
+// which are ambiguous... Files that have inconsistent labels... Files that
+// claim to have transparency but don't, or that claim not to but do...
+static void do_prescan_image(deark *c, lctx *d, dbuf *unc_pixels)
+{
+	de_int64 num_pixels;
+	de_int64 i;
+	de_byte b[4];
+	int has_alpha_0 = 0;
+	int has_alpha_partial = 0;
+	int has_alpha_255 = 0;
+
+	if(d->pixel_depth!=32 || d->color_type!=TGA_CLRTYPE_TRUECOLOR) {
+		return;
+	}
+
+	if(d->num_attribute_bits!=0 && d->num_attribute_bits!=8) {
+		de_warn(c, "%d-bit attribute channel not supported. Transparency disabled.\n",
+			(int)d->num_attribute_bits);
+		return;
+	}
+
+	if(d->has_extension_area) {
+		if(d->attributes_type==0) {
+			// attributes_type==0 technically also means there is no transparency,
+			// but this cannot be trusted.
+			;
+		}
+		if(d->attributes_type==1 || d->attributes_type==2) {
+			// Indicates that attribute data can be ignored.
+			return;
+		}
+		else if(d->attributes_type==3 && d->num_attribute_bits==8) {
+			// Alpha channel seems to be labeled correctly.
+			// Trust it, and don't scan the image.
+			d->has_alpha_channel = 1;
+			return;
+		}
+		else if(d->attributes_type==4) {
+			// Sigh. The spec shows that Field 24 (Attributes Type) == 4 is for
+			// pre-multiplied alpha. Then the discussion section says that
+			// Field *23* ("Attributes Type") == *3* is for premultiplied alpha.
+			// I have to guess that the "23" and "3" are clerical errors, but that
+			// doesn't do me much good unless all TGA developers made the same guess.
+			de_warn(c, "Pre-multiplied alpha is not supported. Disabling transparency.\n");
+			return;
+		}
+	}
+
+	de_dbg(c, "pre-scanning image\n");
+
+	num_pixels = d->main_image.width * d->main_image.height;
+	for(i=0; i<num_pixels; i++) {
+		// TODO: This may run a lot slower than it ought to.
+		dbuf_read(unc_pixels, b, i*4, 4);
+		// BGRA order
+		if(b[3]==0x00) {
+			has_alpha_0 = 1;
+		}
+		else if(b[3]==0xff) {
+			has_alpha_255 = 1;
+		}
+		else {
+			has_alpha_partial = 1;
+			break;
+		}
+		if(has_alpha_0 && has_alpha_255) {
+			break;
+		}
+	}
+	// Note that the has_alpha_* variables may not all be accurate at this point,
+	// because we stop scanning when we have the info we need.
+
+	if(has_alpha_partial || (has_alpha_0 && has_alpha_255)) {
+		if(d->num_attribute_bits==0) {
+			de_warn(c, "Detected likely alpha channel. Enabling transparency, even though "
+				"the image is labeled as non-transparent.\n");
+		}
+		d->has_alpha_channel = 1;
+		return;
+	}
+	else if(has_alpha_0) { // All 0x00
+		if(d->num_attribute_bits!=0) {
+			de_warn(c, "Non-visible image detected. Disabling transparency.\n");
+		}
+		else {
+			de_dbg(c, "potential alpha channel ignored: all 0 bits\n");
+		}
+		return;
+	}
+	else { // All 0xff
+		de_dbg(c, "potential alpha channel is moot: all 1 bits\n");
+		return;
+	}
 }
 
 static int do_decode_rle(deark *c, lctx *d, de_int64 pos, dbuf *unc_pixels)
@@ -146,14 +254,14 @@ static void do_decode_thumbnail(deark *c, lctx *d)
 	// TGA 2.0 spec says the dimensions are one *byte* each.
 	d->thumbnail_image.width = (de_int64)de_getbyte(d->thumbnail_offset);
 	d->thumbnail_image.height = (de_int64)de_getbyte(d->thumbnail_offset+1);
-	de_dbg(c, "thumbnail dimensions: %dx%d\n", (int)d->thumbnail_image.width, d->thumbnail_image.height);
+	de_dbg(c, "thumbnail dimensions: %dx%d\n", (int)d->thumbnail_image.width, (int)d->thumbnail_image.height);
 
 	if(d->thumbnail_image.width!=0 && d->thumbnail_image.height==0) {
 		de_warn(c, "Thumbnail image height is 0. Assuming the file incorrectly uses "
 			"16-bit thumbnail dimensions, instead of 8.\n");
 		d->thumbnail_image.width = de_getui16le(d->thumbnail_offset);
 		d->thumbnail_image.height = de_getui16le(d->thumbnail_offset+2);
-		de_dbg(c, "thumbnail dimensions: %dx%d\n", (int)d->thumbnail_image.width, d->thumbnail_image.height);
+		de_dbg(c, "thumbnail dimensions: %dx%d\n", (int)d->thumbnail_image.width, (int)d->thumbnail_image.height);
 		hdrsize = 4;
 	}
 	if(!de_good_image_dimensions(c, d->thumbnail_image.width, d->thumbnail_image.height)) goto done;
@@ -207,6 +315,8 @@ static void do_read_extension_area(deark *c, lctx *d, de_int64 pos)
 	de_dbg(c, "extension area size: %d\n", (int)ext_area_size);
 	if(ext_area_size<495) goto done;
 
+	d->has_extension_area = 1;
+
 	// TODO: Retain the aspect ratio. (Need sample files. Nobody seems to use this field.)
 	d->aspect_ratio_num = de_getui16le(pos+474);
 	d->aspect_ratio_den = de_getui16le(pos+476);
@@ -217,6 +327,12 @@ static void do_read_extension_area(deark *c, lctx *d, de_int64 pos)
 
 	d->attributes_type = de_getbyte(pos+494);
 	de_dbg(c, "attributes type: %d\n", (int)d->attributes_type);
+	if(d->attributes_type==0 && d->num_attribute_bits!=0) {
+		de_warn(c, "Incompatible \"number of attribute bits\" (%d) and \"attributes type\" "
+			"(%d) fields. Transparency may not be handled correctly.\n",
+			(int)d->num_attribute_bits, (int)d->attributes_type);
+	}
+
 done:
 	de_dbg_indent(c, -1);
 }
@@ -297,7 +413,7 @@ static void de_run_tga(deark *c, de_module_params *mparams)
 	pos = 0;
 
 	d->has_signature = has_signature(c);
-	de_dbg(c, "has v2 signature: %d\n", d->has_signature);
+	de_dbg(c, "has v2 signature: %s\n", d->has_signature?"yes":"no");
 
 	d->id_field_len = (de_int64)de_getbyte(0);
 	d->color_map_type = de_getbyte(1);
@@ -420,13 +536,6 @@ static void de_run_tga(deark *c, de_module_params *mparams)
 		goto done;
 	}
 
-	if(d->num_attribute_bits!=0 || d->attributes_type!=0 || d->pixel_depth==32) {
-		// I'm giving up on TGA transparency, for now.
-		// The specification is inadequate. To the extent that it is documented,
-		// actual TGA files and TGA viewers both violate the spec, in different ways.
-		de_warn(c, "This image might have transparency, which is not supported.\n");
-	}
-
 	if(d->cmpr_type==TGA_CMPR_RLE) {
 		unc_pixels = dbuf_create_membuf(c, d->main_image.img_size_in_bytes);
 		dbuf_set_max_length(unc_pixels, d->main_image.img_size_in_bytes);
@@ -439,6 +548,16 @@ static void de_run_tga(deark *c, de_module_params *mparams)
 		de_err(c, "Unsupported compression type (%d, %s)\n", (int)d->cmpr_type, cmpr_name);
 		goto done;
 	}
+
+	// Maybe scan the image, to help detect transparency.
+	do_prescan_image(c, d, unc_pixels);
+
+	if(d->pixel_depth==32) {
+		de_dbg(c, "using alpha channel: %s\n", d->has_alpha_channel?"yes":"no");
+	}
+
+	// TODO: 16-bit images could theoretically have a transparency bit, but I don't
+	// know how to detect that.
 
 	do_decode_image(c, d, &d->main_image, unc_pixels, NULL);
 
