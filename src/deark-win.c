@@ -120,16 +120,34 @@ int de_fclose(FILE *fp)
 	return fclose(fp);
 }
 
-int de_get_file_size(FILE *fp, de_int64 *pfsize)
+int de_examine_file_by_name(deark *c, const char *fn, de_int64 *len,
+	char *errmsg, size_t errmsg_len)
 {
 	struct _stat stbuf;
+	WCHAR *fnW;
+	int retval = 0;
 
-	if(_fstat(_fileno(fp),&stbuf)==0) {
-		*pfsize = stbuf.st_size;
-		return 1;
+	fnW = de_utf8_to_utf16_strdup(c, fn);
+
+	de_memset(&stbuf, 0, sizeof(struct _stat));
+
+	if(0 != _wstat(fnW, &stbuf)) {
+		strerror_s(errmsg, (size_t)errmsg_len, errno);
+		goto done;
 	}
-	*pfsize = 0;
-	return 0;
+
+	if(!(stbuf.st_mode & _S_IFREG)) {
+		de_strlcpy(errmsg, "Not a regular file", errmsg_len);
+		return 0;
+	}
+
+	*len = (de_int64)stbuf.st_size;
+
+	retval = 1;
+
+done:
+	de_free(c, fnW);
+	return retval;
 }
 
 void de_update_file_time(dbuf *f)

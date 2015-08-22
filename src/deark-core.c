@@ -137,7 +137,10 @@ void de_run(deark *c)
 	}
 
 	if(!module_to_use) {
-		de_err(c, "Unknown or unsupported file format\n");
+		if(c->infile->len==0)
+			de_err(c, "Unknown or unsupported file format (empty file)\n");
+		else
+			de_err(c, "Unknown or unsupported file format\n");
 		goto done;
 	}
 

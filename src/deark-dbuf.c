@@ -529,6 +529,7 @@ void dbuf_fprintf(dbuf *f, const char *fmt, ...)
 dbuf *dbuf_open_input_file(deark *c, const char *fn)
 {
 	dbuf *f;
+	int ret;
 	char msgbuf[200];
 
 	f = de_malloc(c, sizeof(dbuf));
@@ -536,17 +537,18 @@ dbuf *dbuf_open_input_file(deark *c, const char *fn)
 	f->c = c;
 	f->cache_policy = DE_CACHE_POLICY_ENABLED;
 
-	f->fp = de_fopen(c, fn, "rb", msgbuf, sizeof(msgbuf));
-
-	if(!f->fp) {
+	ret = de_examine_file_by_name(c, fn, &f->len, msgbuf, sizeof(msgbuf));
+	if(!ret) {
 		de_err(c, "Can't read %s: %s\n", fn, msgbuf);
 		de_free(c, f);
 		return NULL;
 	}
 
-	// Record the file size.
-	if(!de_get_file_size(f->fp, &f->len)) {
-		de_err(c, "Can't determine file size of %s\n", fn);
+	f->fp = de_fopen(c, fn, "rb", msgbuf, sizeof(msgbuf));
+
+	if(!f->fp) {
+		de_err(c, "Can't read %s: %s\n", fn, msgbuf);
+		de_free(c, f);
 		return NULL;
 	}
 

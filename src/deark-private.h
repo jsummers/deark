@@ -239,7 +239,9 @@ FILE* de_fopen(deark *c, const char *fn, const char *mode,
 
 int de_fclose(FILE *fp);
 
-int de_get_file_size(FILE *fp, de_int64 *pfsize);
+// Test if the file seems suitable for reading, and return its size.
+int de_examine_file_by_name(deark *c, const char *fn, de_int64 *len,
+	char *errmsg, size_t errmsg_len);
 
 void de_update_file_time(dbuf *f);
 
