@@ -417,8 +417,9 @@ static void de_run_tga(deark *c, de_module_params *mparams)
 
 	d->id_field_len = (de_int64)de_getbyte(0);
 	d->color_map_type = de_getbyte(1);
+	de_dbg(c, "color map type: %d\n", (int)d->color_map_type);
 	d->img_type = de_getbyte(2);
-	de_dbg(c, "image type code: %d\n", (int)d->img_type);
+	de_dbg(c, "image type: %d\n", (int)d->img_type);
 
 	switch(d->img_type) {
 	case 1: case 9:
@@ -549,6 +550,11 @@ static void de_run_tga(deark *c, de_module_params *mparams)
 		goto done;
 	}
 
+	if(d->image_descriptor >= 0x40) {
+		de_err(c, "TGA interleaving not supported\n");
+		goto done;
+	}
+
 	// Maybe scan the image, to help detect transparency.
 	do_prescan_image(c, d, unc_pixels);
 
@@ -572,14 +578,47 @@ done:
 
 static int de_identify_tga(deark *c)
 {
-	// TODO: Better identification
-	if(de_input_file_has_ext(c, "tga")) {
-		if(has_signature(c)) {
-			return 100;
-		}
-		return 10;
+	de_byte b[18];
+	de_byte x;
+
+	if(has_signature(c)) {
+		return 100;
 	}
-	return 0;
+
+	// TGA v1 format has no signature, but there are only a few common types of
+	// it. We'll at least try to identify anything that we support.
+	de_read(b, 0, 18);
+
+	if(b[1]>1) return 0; // Color map type should be 0 or 1.
+
+	// bits/pixel:
+	if(b[16]!=8 && b[16]!=15 && b[16]!=16 && b[16]!=24 && b[16]!=32) return 0;
+
+	if(b[2]!=0 && b[2]!=1 && b[2]!=2 && b[2]!=3 &&
+		b[2]!=9 && b[2]!=10 && b[2]!=11 && b[2]!=32 && b[2]!=33)
+	{
+		return 0; // Unknown image type
+	}
+
+	if(b[12]==0 && b[13]==0) return 0; // Width can't be 0.
+	if(b[14]==0 && b[15]==0) return 0; // Height can't be 0.
+
+	// Bits per palette entry. Supposed to be 0 if there is no palette, but
+	// in practice it may be 24 instead.
+	if((b[1]==0 && b[7]==0) || b[7]==15 || b[7]==16 || b[7]==24 || b[7]==32) {
+		;
+	}
+	else {
+		return 0;
+	}
+
+	x = b[17]&0x0f; // Number of attribute bits
+	if(x!=0 && x!=1 && x!=8) return 0;
+
+	if(de_input_file_has_ext(c, "tga")) {
+		return 100;
+	}
+	return 8;
 }
 
 void de_module_tga(deark *c, struct deark_module_info *mi)
