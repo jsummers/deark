@@ -35,6 +35,7 @@ typedef struct localctx_struct {
 static int do_read_header(deark *c, lctx *d)
 {
 	int retval = 0;
+	de_int64 hres, vres;
 
 	d->version = de_getbyte(1);
 	d->encoding = de_getbyte(2);
@@ -43,6 +44,9 @@ static int do_read_header(deark *c, lctx *d)
 	d->margin_T = (de_int64)de_getui16le(6);
 	d->margin_R = (de_int64)de_getui16le(8);
 	d->margin_B = (de_int64)de_getui16le(10);
+
+	hres = (de_int64)de_getui16le(12);
+	vres = (de_int64)de_getui16le(14);
 
 	// The palette (offset 16-63) will be read later.
 
@@ -60,6 +64,14 @@ static int do_read_header(deark *c, lctx *d)
 		(int)d->palette_info, (unsigned int)d->reserved1);
 	de_dbg(c, "margins: %d, %d, %d, %d\n", (int)d->margin_L, (int)d->margin_T,
 		(int)d->margin_R, (int)d->margin_B);
+
+	// TODO: We could try to use the resolution field to set the pixel density,
+	// but it's so unreliable that it may be best to ignore it. It might contain:
+	// * The DPI
+	// * The pixel dimensions of the target screen mode
+	// * The dimensions of the image itself
+	// * A corrupted attempt at one of the above things
+	de_dbg(c, "\"resolution\": %dx%d\n", (int)hres, (int)vres);
 
 	d->width = d->margin_R - d->margin_L +1;
 	d->height = d->margin_B - d->margin_T +1;
