@@ -69,6 +69,7 @@ void de_register_modules(deark *c)
 		de_module_cardfile,
 		de_module_graspgl,
 		de_module_zlib,
+		de_module_tim,
 		de_module_bsave,
 		de_module_zip,
 		de_module_ansiart,

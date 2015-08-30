@@ -638,6 +638,10 @@
 				>
 			</File>
 			<File
+				RelativePath="..\..\modules\tim.c"
+				>
+			</File>
+			<File
 				RelativePath="..\..\modules\tivariable.c"
 				>
 			</File>
