@@ -454,6 +454,7 @@ const de_byte *de_get_vga_font_ptr(void);
 
 void de_color_to_css(de_uint32 color, char *buf, int buflen);
 
+de_byte de_sample_n_to_8bit(unsigned int samp, de_int64 n);
 de_byte de_palette_sample_6_to_8bit(de_byte samp);
 de_uint32 de_rgb565_to_888(de_uint32 n);
 de_uint32 de_bgr555_to_888(de_uint32 n);

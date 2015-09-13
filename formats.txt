@@ -124,6 +124,9 @@ Deark -- Information about supported formats
 
 * IndyPaint (*.tru) (module="indypaint")
 
+* Inset PIX (module="insetpix") (experimental)
+  - Bitmap images only. Character graphics files are not supported.
+
 * JPEG (module="jpeg")
   - Extract ICC profiles.
   - Extract Exif JPEG-formatted thumbnails.

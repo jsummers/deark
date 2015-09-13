@@ -559,6 +559,17 @@ void de_color_to_css(de_uint32 color, char *buf, int buflen)
 	buf[7] = '\0';
 }
 
+de_byte de_sample_n_to_8bit(unsigned int samp, de_int64 n)
+{
+	unsigned int maxval;
+
+	if(samp==0) return 0;
+	if(n<1 || n>16) return 0;
+	maxval = (1<<n)-1;
+	if(samp>=maxval) return 255;
+	return (de_byte)(0.5+((((double)samp)/(double)maxval)*255.0));
+}
+
 de_byte de_palette_sample_6_to_8bit(de_byte samp)
 {
 	if(samp>=63) return 255;
