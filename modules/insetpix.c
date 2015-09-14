@@ -23,9 +23,7 @@ typedef struct localctx_struct {
 
 	de_int64 rowspan;
 	de_int64 compression_bytes_per_row;
-	de_int64 planespan;
 	int is_grayscale;
-	int pal_bits_hack;
 
 	de_byte max_pal_intensity, max_pal_sample;
 
@@ -33,80 +31,16 @@ typedef struct localctx_struct {
 	de_uint32 pal[256];
 } lctx;
 
-// Warning: Some ugly hacks to try to get images to display correctly, even when they
-// appear to violate the spec.
-static int do_detect_palette_bits_hack(deark *c, lctx *d)
-{
-	int retval = 0;
-
-	if(d->is_grayscale) {
-		goto done;
-	}
-
-	if(d->num_pal_bits[0]>2) {
-		de_err(c, "Don't know how to handle images with \"intensity bits\" greater than 2.\n");
-		goto done;
-	}
-
-	if(d->max_pal_sample==0) goto done;
-
-	if(d->num_pal_bits[0]==0 && d->num_pal_bits[1]==4 && d->num_pal_bits[2]==4 &&
-		d->num_pal_bits[3]==4 && d->max_pal_sample<=3)
-	{
-		d->num_pal_bits[1]=2;
-		d->num_pal_bits[2]=2;
-		d->num_pal_bits[3]=2;
-		d->pal_bits_hack = 1;
-		retval = 1;
-		goto done;
-	}
-
-	if(d->num_pal_bits[0]==2 && d->num_pal_bits[1]==2 && d->num_pal_bits[2]==2 &&
-		d->num_pal_bits[3]==2 && d->max_pal_sample<=1)
-	{
-		d->num_pal_bits[1]=1;
-		d->num_pal_bits[2]=1;
-		d->num_pal_bits[3]=1;
-		d->pal_bits_hack = 1;
-		retval = 1;
-		goto done;
-	}
-
-	retval = 1;
-done:
-	if(retval && d->pal_bits_hack) {
-		de_warn(c, "Assuming the \"number of palette bits\" fields contain the number "
-			"of sample values, instead of the number of bits.\n");
-	}
-	return retval;
-}
-
-static void do_prescan_palette(deark *c, lctx *d, de_int64 pos)
-{
-	de_int64 i;
-	de_byte ci, cr, cg, cb;
-
-	for(i=0; i<d->pal_entries_used; i++) {
-		ci = de_getbyte(pos+4*i);
-		cr = de_getbyte(pos+4*i+1);
-		cg = de_getbyte(pos+4*i+2);
-		cb = de_getbyte(pos+4*i+3);
-		if(ci > d->max_pal_intensity) d->max_pal_intensity = ci;
-		if(cr > d->max_pal_sample) d->max_pal_sample = cr;
-		if(cg > d->max_pal_sample) d->max_pal_sample = cg;
-		if(cb > d->max_pal_sample) d->max_pal_sample = cb;
-	}
-	de_dbg(c, "prescanning palette: max intensity=%d, max sample=%d\n",
-		(int)d->max_pal_intensity, (int)d->max_pal_sample);
-}
-
 static int do_palette(deark *c, lctx *d, de_int64 pos, de_int64 len)
 {
 	de_int64 pal_entries_in_file;
 	de_int64 i;
+	de_int64 k;
 	de_byte ci1, cr1, cg1, cb1;
 	de_byte ci2, cr2, cg2, cb2;
 	int retval = 0;
+	double max_color_sample;
+	double pal_sample_scalefactor[4];
 
 	de_dbg(c, "palette at %d\n", (int)pos);
 	de_dbg_indent(c, 1);
@@ -117,11 +51,17 @@ static int do_palette(deark *c, lctx *d, de_int64 pos, de_int64 len)
 	d->pal_entries_used = d->max_sample_value+1;
 	if(d->pal_entries_used > pal_entries_in_file) d->pal_entries_used = pal_entries_in_file;
 
-	// Warning: The spec does not say what to do with the "intensity" value, and anyway,
-	// every file I've seen seems to violate the spec. This code may be very wrong.
+	// If intensity bits are used, make the initial colors darker, so that the
+	// intensity bits can lighten them.
+	if(d->num_pal_bits[0]==0) max_color_sample=255.0;
+	else max_color_sample=170.0;
 
-	do_prescan_palette(c, d, pos);
-	if(!do_detect_palette_bits_hack(c, d)) goto done;
+	for(k=1; k<4; k++) {
+		if(d->num_pal_bits[k]>=2)
+			pal_sample_scalefactor[k] = max_color_sample / (double)(d->num_pal_bits[k]-1);
+		else
+			pal_sample_scalefactor[k] = max_color_sample;
+	}
 
 	for(i=0; i<pal_entries_in_file; i++) {
 		if(i>255) break;
@@ -131,6 +71,12 @@ static int do_palette(deark *c, lctx *d, de_int64 pos, de_int64 len)
 		cb1 = de_getbyte(pos+4*i+3);
 
 		if(d->is_grayscale) {
+			// This is untested. I can't find any grayscale PIX images.
+			// The spec says you can make a bilevel image with "palette intensity
+			// bits" set to 1, which makes it clear that that field really is a
+			// number of bits, not a number of sample values.
+			// But color images evidently use the "number of bits" fields to store
+			// the number of sample values.
 			ci2 = de_sample_n_to_8bit(ci1, d->num_pal_bits[0]);
 			cr2 = ci2;
 			cg2 = ci2;
@@ -138,13 +84,16 @@ static int do_palette(deark *c, lctx *d, de_int64 pos, de_int64 len)
 			d->pal[i] = DE_MAKE_GRAY(ci2);
 		}
 		else {
-			cr2 = de_sample_n_to_8bit(cr1, d->num_pal_bits[1]);
-			cg2 = de_sample_n_to_8bit(cg1, d->num_pal_bits[2]);
-			cb2 = de_sample_n_to_8bit(cb1, d->num_pal_bits[3]);
+			cr2 = (de_byte)(0.5+ pal_sample_scalefactor[1] * (double)cr1);
+			cg2 = (de_byte)(0.5+ pal_sample_scalefactor[2] * (double)cg1);
+			cb2 = (de_byte)(0.5+ pal_sample_scalefactor[3] * (double)cb1);
 			if(ci1) {
-				cr2|=0x80;
-				cg2|=0x80;
-				cb2|=0x80;
+				// This is just a guess. The spec doesn't say what intensity bits do.
+				// This is pretty much what old PC graphics cards do when the
+				// intensity bit is set.
+				cr2 += 85;
+				cg2 += 85;
+				cb2 += 85;
 			}
 			d->pal[i] = DE_MAKE_RGB(cr2,cg2,cb2);
 		}
@@ -156,7 +105,7 @@ static int do_palette(deark *c, lctx *d, de_int64 pos, de_int64 len)
 	}
 
 	retval = 1;
-done:
+
 	de_dbg_indent(c, -1);
 	return retval;
 }
@@ -325,6 +274,7 @@ static void do_render_tile(deark *c, lctx *d, struct deark_bitmap *img,
 	de_byte b;
 	dbuf *unc_pixels = NULL;
 	de_int64 nrows_expected;
+	de_int64 planespan;
 
 	x_pos_in_tiles = tile_num % d->stp_cols;
 	y_pos_in_tiles = tile_num / d->stp_cols;
@@ -336,6 +286,7 @@ static void do_render_tile(deark *c, lctx *d, struct deark_bitmap *img,
 	// rows are not present."
 	nrows_expected = d->height - y_origin_in_pixels;
 	if(nrows_expected > d->page_rows) nrows_expected = d->page_rows;
+	planespan = nrows_expected * d->rowspan;
 
 	de_dbg(c, "tile (%d,%d), pixel position (%d,%d), size %dx%d\n",
 		(int)x_pos_in_tiles, (int)y_pos_in_tiles,
@@ -357,7 +308,7 @@ static void do_render_tile(deark *c, lctx *d, struct deark_bitmap *img,
 
 			palent = 0;
 			for(plane=0; plane<d->gfore; plane++) {
-				b = de_get_bits_symbol(unc_pixels, 1, plane*d->planespan + j*d->rowspan, i);
+				b = de_get_bits_symbol(unc_pixels, 1, plane*planespan + j*d->rowspan, i);
 				if(b) palent |= (1<<plane);
 			}
 
@@ -387,7 +338,6 @@ static void do_bitmap(deark *c, lctx *d)
 
 	d->rowspan = d->page_cols/8;
 	d->compression_bytes_per_row = (d->rowspan+7)/8; // Just a guess. Spec doesn't say.
-	d->planespan = d->rowspan * d->page_rows;
 
 	img = de_bitmap_create(c, d->width, d->height, d->is_grayscale?1:3);
 
@@ -428,7 +378,6 @@ static void de_run_insetpix(deark *c, de_module_params *mparams)
 	de_int64 pal_pos=0, pal_len=0;
 	de_int64 tileinfo_pos=0, tileinfo_len=0;
 	int indent_flag = 0;
-	de_int64 k;
 
 	d = de_malloc(c, sizeof(lctx));
 
@@ -507,13 +456,6 @@ static void de_run_insetpix(deark *c, de_module_params *mparams)
 	if(d->gfore<1 || d->gfore>8) {
 		de_err(c, "Inset PIX with %d bits/pixel are not supported\n", (int)d->gfore);
 		goto done;
-	}
-
-	for(k=0; k<4; k++) {
-		if(d->num_pal_bits[k]>8) {
-			de_err(c, "Invalid palette bits/sample setting (%d)\n", (int)d->num_pal_bits[k]);
-			goto done;
-		}
 	}
 
 	if(d->num_pal_bits[0]!=0 && d->num_pal_bits[1]==0 &&
