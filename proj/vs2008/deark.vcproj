@@ -450,6 +450,10 @@
 			Filter="c"
 			>
 			<File
+				RelativePath="..\..\modules\alphabmp.c"
+				>
+			</File>
+			<File
 				RelativePath="..\..\modules\amigaicon.c"
 				>
 			</File>

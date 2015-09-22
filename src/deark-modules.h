@@ -95,3 +95,4 @@ void de_module_indypaint(deark *c, struct deark_module_info *mi);
 void de_module_tga(deark *c, struct deark_module_info *mi);
 void de_module_tim(deark *c, struct deark_module_info *mi);
 void de_module_insetpix(deark *c, struct deark_module_info *mi);
+void de_module_alphabmp(deark *c, struct deark_module_info *mi);
