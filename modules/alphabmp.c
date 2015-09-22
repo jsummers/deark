@@ -5,6 +5,7 @@
 
 #include <deark-config.h>
 #include <deark-modules.h>
+#include "fmtutil.h"
 
 typedef struct localctx_struct {
 	de_int64 w, h;
@@ -40,15 +41,13 @@ static int do_read_palette(deark *c, lctx *d, de_int64 pos, de_int64 *pal_nbytes
 	return 1;
 }
 
-static void do_bitmap(deark *c, lctx *d, de_int64 pos)
+static void do_bitmap(deark *c, lctx *d, dbuf *unc_pixels)
 {
 	de_int64 i, j;
 	de_int64 rowspan;
 	de_uint32 clr;
 	struct deark_bitmap *img = NULL;
 	de_byte b;
-
-	de_dbg(c, "Bitmap at %d\n", (int)pos);
 
 	rowspan = (d->w * d->bpp +7)/8;
 
@@ -57,11 +56,11 @@ static void do_bitmap(deark *c, lctx *d, de_int64 pos)
 	for(j=0; j<d->h; j++) {
 		for(i=0; i<d->w; i++) {
 			if(d->bpp<=8) {
-				b = de_get_bits_symbol(c->infile, d->bpp, pos + j*rowspan, i);
+				b = de_get_bits_symbol(unc_pixels, d->bpp, j*rowspan, i);
 				clr = d->pal[(unsigned int)b];
 			}
 			else {
-				clr = dbuf_getRGB(c->infile, pos + j*rowspan + i*3, 0);
+				clr = dbuf_getRGB(unc_pixels, j*rowspan + i*3, 0);
 			}
 			de_bitmap_setpixel_rgb(img, i, j, clr);
 		}
@@ -72,12 +71,34 @@ static void do_bitmap(deark *c, lctx *d, de_int64 pos)
 	de_bitmap_destroy(img);
 }
 
+static int do_uncompress_image(deark *c, lctx *d, de_int64 pos, dbuf *unc_pixels)
+{
+	de_int64 bytes_in_this_line;
+	de_int64 j;
+	int ret;
+
+	de_dbg(c, "Decompressing bitmap\n");
+
+	// Each line is compressed independently, using PackBits.
+
+	for(j=0; j<d->h; j++) {
+		bytes_in_this_line = de_getui16le(pos);
+		pos += 2;
+		ret = de_fmtutil_uncompress_packbits(c->infile, pos, bytes_in_this_line,
+			unc_pixels, NULL);
+		if(!ret) return 0;
+		pos += bytes_in_this_line;
+	}
+	return 1;
+}
+
 static void de_run_alphabmp(deark *c, de_module_params *mparams)
 {
 	unsigned int flags;
 	lctx *d = NULL;
 	de_int64 pos;
 	de_int64 palsize;
+	dbuf *unc_pixels = NULL;
 
 	d = de_malloc(c, sizeof(lctx));
 	de_declare_fmt(c, "Alpha Microsystems BMP");
@@ -119,19 +140,25 @@ static void de_run_alphabmp(deark *c, de_module_params *mparams)
 		goto done;
 	}
 
+	de_dbg(c, "Bitmap at %d\n", (int)pos);
+
 	if(d->compression) {
-		de_err(c, "Compressed images are not supported\n");
-		goto done;
+		unc_pixels = dbuf_create_membuf(c, 32768);
+		if(!do_uncompress_image(c, d, pos, unc_pixels)) goto done;
 	}
+	else {
+		unc_pixels = dbuf_open_input_subfile(c->infile, pos, c->infile->len - pos);
+	}
+
 	if(d->bpp!=1 && d->bpp!=4 && d->bpp!=8 && d->bpp!=24) {
 		de_err(c, "%d bits/pixel is not supported\n", (int)d->bpp);
 		goto done;
 	}
 
-	do_bitmap(c, d, pos);
+	do_bitmap(c, d, unc_pixels);
 
 done:
-
+	dbuf_close(unc_pixels);
 	de_free(c, d);
 }
 
