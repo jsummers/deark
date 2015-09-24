@@ -15,6 +15,8 @@ struct atari_img_decode_data {
 	struct deark_bitmap *img;
 };
 
+static void fix_dark_pal(deark *c, struct atari_img_decode_data *adata);
+
 static de_byte scale7to255(de_byte n)
 {
 	return (de_byte)(0.5+(255.0/7.0)*(double)n);
@@ -242,6 +244,7 @@ static void de_run_degas(deark *c, de_module_params *mparams)
 
 	read_atari_pal16(c, adata, pos);
 	pos += 2*16;
+	fix_dark_pal(c, adata);
 
 	if(d->compression_code) {
 		adata->was_compressed = 1;
@@ -796,7 +799,7 @@ static void do_tinystuff_image(deark *c, struct atari_img_decode_data *adata)
 // Some 1bpp images apparently have the palette set to [001, 000],
 // instead of [777, 000].
 // Try to handle that.
-static void fix_tinystuff_pal(deark *c, struct atari_img_decode_data *adata)
+static void fix_dark_pal(deark *c, struct atari_img_decode_data *adata)
 {
 	if(adata->bpp!=1) return;
 
@@ -859,7 +862,7 @@ static void de_run_tinystuff(deark *c, de_module_params *mparams)
 	}
 
 	read_atari_pal16(c, adata, pos);
-	fix_tinystuff_pal(c, adata);
+	fix_dark_pal(c, adata);
 	pos += 16*2;
 
 	d->num_control_bytes = de_getui16be(pos);
