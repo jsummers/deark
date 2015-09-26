@@ -142,6 +142,7 @@ static void read_atari_pal16(deark *c, struct atari_img_decode_data *adata, de_i
 
 typedef struct degasctx_struct {
 	unsigned int compression_code;
+	int degas_elite_flag;
 	de_uint32 pal[16];
 } degasctx;
 
@@ -193,6 +194,63 @@ static void set_standard_density(deark *c, struct atari_img_decode_data *adata)
 	}
 }
 
+// Try to figure out if this is a DEGAS Elite file (as opposed to original DEGAS).
+static int is_degas_elite(deark *c, degasctx *d)
+{
+	de_int64 n;
+	de_int64 x;
+	de_int64 pos;
+	int all_zero = 1;
+
+	if(d->compression_code) return 1; // Only DEGAS Elite supports compression.
+	if(c->infile->len < 32066) return 0;
+
+	// Test if the animation segment seems to have valid values, to try to distinguish
+	// it from meaningless padding. (This is overkill.)
+	pos = 32034;
+	for(n=0; n<8; n++) {
+		// The first 8 fields are "color numbers".
+		// Guessing that they should be 0-15.
+		x = de_getui16be(pos+n*2);
+		if(x>0x0f) return 0;
+		if(x) all_zero = 0;
+	}
+	pos += 8*2;
+	for(n=0; n<4; n++) {
+		// The next 4 fields (channel direction) should be 0, 1, or 2.
+		x = de_getui16be(pos+n*2);
+		if(x>2) return 0;
+		if(x) all_zero = 0;
+	}
+	pos += 4*2;
+	for(n=0; n<4; n++) {
+		// The next 4 fields (delay) must be from 0 to 128.
+		x = de_getui16be(pos+n*2);
+		if(x>128) return 0;
+		if(x) all_zero = 0;
+	}
+
+	if(all_zero && c->infile->len>32068) {
+		// If every field was 0, and the file size doesn't suggest Elite,
+		// just assume it's not valid.
+		return 0;
+	}
+
+	return 1;
+}
+
+static void declare_degas_fmt(deark *c, degasctx *d, struct atari_img_decode_data *adata)
+{
+	char txtbuf[100];
+
+	de_snprintf(txtbuf, sizeof(txtbuf), "DEGAS%s %d-color %scompressed",
+		d->degas_elite_flag?" Elite":"",
+		(int)adata->ncolors,
+		d->compression_code?"":"un");
+
+	de_declare_fmt(c, txtbuf);
+}
+
 static void de_run_degas(deark *c, de_module_params *mparams)
 {
 	degasctx *d = NULL;
@@ -241,6 +299,9 @@ static void de_run_degas(deark *c, de_module_params *mparams)
 	adata->ncolors = (de_int64)(1<<adata->bpp);
 
 	de_dbg(c, "dimensions: %dx%d, colors: %d\n", (int)adata->w, (int)adata->h, (int)adata->ncolors);
+
+	d->degas_elite_flag = is_degas_elite(c, d);
+	declare_degas_fmt(c, d, adata);
 
 	read_atari_pal16(c, adata, pos);
 	pos += 2*16;
