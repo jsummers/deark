@@ -11,13 +11,12 @@ typedef struct localctx_struct {
 	int has_aldus_header;
 	de_int64 file_type;
 	de_int64 version;
-	de_int64 num_objects;
 } lctx;
 
 typedef void (*record_decoder_fn)(deark *c, lctx *d, de_int64 rectype, de_int64 recpos,
 	de_int64 recsize_bytes);
 
-static void rectype_0f43(deark *c, lctx *d, de_int64 rectype, de_int64 recpos, de_int64 recsize_bytes);
+static void handler_0f43(deark *c, lctx *d, de_int64 rectype, de_int64 recpos, de_int64 recsize_bytes);
 
 struct func_info {
 	de_uint16 rectype;
@@ -25,6 +24,7 @@ struct func_info {
 	record_decoder_fn fn;
 };
 static const struct func_info func_info_arr[] = {
+	// This list is not intended to be complete.
 	{ 0x0000, "EOF", NULL },
 	{ 0x001e, "SAVEDC", NULL },
 	{ 0x0035, "REALIZEPALETTE", NULL },
@@ -34,25 +34,41 @@ static const struct func_info func_info_arr[] = {
 	{ 0x0104, "SETROP2", NULL },
 	{ 0x0105, "SETRELABS", NULL },
 	{ 0x0106, "SETPOLYFILLMODE", NULL },
-	{ 0x01f0, "DELETEOBJECT", NULL },
+	{ 0x0107, "SETSTRETCHBLTMODE", NULL },
+	{ 0x0127, "RESTOREDC", NULL },
 	{ 0x012d, "SELECTOBJECT", NULL },
+	{ 0x012e, "SETTEXTALIGN", NULL },
+	{ 0x0142, "DIBCREATEPATTERNBRUSH", NULL },
+	{ 0x01f0, "DELETEOBJECT", NULL },
+	{ 0x0201, "SETBKCOLOR", NULL },
+	{ 0x0209, "SETTEXTCOLOR", NULL },
 	{ 0x020b, "SETWINDOWORG", NULL },
 	{ 0x020c, "SETWINDOWEXT", NULL },
+	{ 0x020d, "SETVIEWPORTORG", NULL },
+	{ 0x020e, "SETVIEWPORTEXT", NULL },
+	{ 0x0213, "LINETO", NULL },
+	{ 0x0214, "MOVETO", NULL },
 	{ 0x0234, "SELECTPALETTE", NULL },
 	{ 0x02fa, "CREATEPENINDIRECT", NULL },
+	{ 0x02fb, "CREATEFONTINDIRECT", NULL },
 	{ 0x02fc, "CREATEBRUSHINDIRECT", NULL },
 	{ 0x0324, "POLYGON", NULL },
 	{ 0x0325, "POLYLINE", NULL },
+	{ 0x0416, "INTERSECTCLIPRECT", NULL },
+	{ 0x0418, "ELLIPSE", NULL },
+	{ 0x041b, "RECTANGLE", NULL },
 	{ 0x041f, "SETPIXEL", NULL },
+	{ 0x0521, "TEXTOUT", NULL },
 	{ 0x0538, "POLYPOLYGON", NULL },
 	{ 0x061d, "PATBLT", NULL },
 	{ 0x0626, "ESCAPE", NULL },
-	{ 0x0f43, "STRETCHDIB", rectype_0f43 },
+	{ 0x0a32, "EXTTEXTOUT", NULL },
+	{ 0x0f43, "STRETCHDIB", handler_0f43 },
 	{ 0xffff, NULL, NULL }
 };
 
 // STRETCHDIB
-static void rectype_0f43(deark *c, lctx *d, de_int64 rectype, de_int64 recpos, de_int64 recsize_bytes)
+static void handler_0f43(deark *c, lctx *d, de_int64 rectype, de_int64 recpos, de_int64 recsize_bytes)
 {
 	struct de_bmpinfo bi;
 	de_int64 dib_pos;
@@ -106,6 +122,7 @@ static void do_read_aldus_header(deark *c, lctx *d)
 static int do_read_header(deark *c, lctx *d, de_int64 pos)
 {
 	de_int64 hsize_words, maxrecsize_words, filesize_words;
+	de_int64 num_objects;
 	int retval = 0;
 
 	de_dbg(c, "WMF header at %d\n", (int)pos);
@@ -128,8 +145,8 @@ static int do_read_header(deark *c, lctx *d, de_int64 pos)
 		(int)(d->version&0x00ff));
 	filesize_words = de_getui32le(pos+6);
 	de_dbg(c, "reported file size: %d bytes\n", (int)(filesize_words*2));
-	d->num_objects = de_getui16le(pos+10);
-	de_dbg(c, "number of objects: %d\n", (int)d->num_objects);
+	num_objects = de_getui16le(pos+10);
+	de_dbg(c, "number of objects: %d\n", (int)num_objects);
 	maxrecsize_words = de_getui32le(pos+12);
 	de_dbg(c, "max record size: %d bytes\n", (int)(maxrecsize_words*2));
 	retval = 1;
@@ -214,8 +231,12 @@ static void de_run_wmf(deark *c, de_module_params *mparams)
 
 	pos = 0;
 	if(!dbuf_memcmp(c->infile, 0, "\xd7\xcd\xc6\x9a", 4)) {
+		de_declare_fmt(c, "WMF (placeable)");
 		do_read_aldus_header(c, d);
 		pos = 22;
+	}
+	else {
+		de_declare_fmt(c, "WMF (non-placeable)");
 	}
 
 	if(!do_read_header(c, d, pos)) {
@@ -233,8 +254,18 @@ static int de_identify_wmf(deark *c)
 {
 	if(!dbuf_memcmp(c->infile, 0, "\xd7\xcd\xc6\x9a", 4))
 		return 100;
-	// TODO: Identify WMF without a Placeable Metafile header
+
 	// TODO: Identify EMF
+
+	if(de_input_file_has_ext(c, "wmf")) {
+		de_int64 ftype, hsize;
+		ftype = de_getui16le(0);
+		hsize = de_getui16le(2);
+		if(hsize==9 && (ftype==1 || ftype==2)) {
+			return 80;
+		}
+	}
+
 	return 0;
 }
 
