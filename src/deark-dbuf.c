@@ -167,6 +167,14 @@ de_int64 dbuf_getui16le(dbuf *f, de_int64 pos)
 	return de_getui16le_direct(m);
 }
 
+de_int64 dbuf_geti16le(dbuf *f, de_int64 pos)
+{
+	de_int64 n;
+	n = dbuf_getui16le(f, pos);
+	if(n>=32768) n -= 65536;
+	return n;
+}
+
 de_int64 dbuf_getui16(dbuf *f, de_int64 pos)
 {
 	if(f->is_little_endian) return dbuf_getui16le(f, pos);

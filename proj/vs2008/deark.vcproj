@@ -658,6 +658,10 @@
 				>
 			</File>
 			<File
+				RelativePath="..\..\modules\wmf.c"
+				>
+			</File>
+			<File
 				RelativePath="..\..\modules\xbin.c"
 				>
 			</File>
