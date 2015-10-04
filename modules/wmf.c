@@ -5,6 +5,7 @@
 
 #include <deark-config.h>
 #include <deark-modules.h>
+#include "fmtutil.h"
 
 typedef struct localctx_struct {
 	int has_aldus_header;
@@ -13,7 +14,10 @@ typedef struct localctx_struct {
 	de_int64 num_objects;
 } lctx;
 
-typedef void (*record_decoder_fn)(deark *c, lctx *d, de_int64 rectype);
+typedef void (*record_decoder_fn)(deark *c, lctx *d, de_int64 rectype, de_int64 recpos,
+	de_int64 recsize_bytes);
+
+static void rectype_0f43(deark *c, lctx *d, de_int64 rectype, de_int64 recpos, de_int64 recsize_bytes);
 
 struct func_info {
 	de_uint16 rectype;
@@ -43,9 +47,43 @@ static const struct func_info func_info_arr[] = {
 	{ 0x0538, "POLYPOLYGON", NULL },
 	{ 0x061d, "PATBLT", NULL },
 	{ 0x0626, "ESCAPE", NULL },
-	{ 0x0f43, "STRETCHDIB", NULL },
+	{ 0x0f43, "STRETCHDIB", rectype_0f43 },
 	{ 0xffff, NULL, NULL }
 };
+
+// STRETCHDIB
+static void rectype_0f43(deark *c, lctx *d, de_int64 rectype, de_int64 recpos, de_int64 recsize_bytes)
+{
+	struct de_bmpinfo bi;
+	de_int64 dib_pos;
+	de_int64 dib_len;
+	dbuf *outf = NULL;
+
+	if(recsize_bytes < 28) return;
+	dib_pos = recpos + 28;
+	dib_len = recsize_bytes - 28;
+	if(dib_len < 12) return;
+	de_dbg(c, "DIB at %d, size=%d\n", (int)dib_pos, (int)dib_len);
+
+	if(!de_fmtutil_get_bmpinfo(c, c->infile, &bi, dib_pos, dib_len, 0)) {
+		de_warn(c, "Invalid bitmap\n");
+		goto done;
+	}
+
+	outf = dbuf_create_output_file(c, "bmp", NULL);
+
+	// Write fileheader
+	dbuf_write(outf, (const de_byte*)"BM", 2);
+	dbuf_writeui32le(outf, 14 + dib_len);
+	dbuf_write_zeroes(outf, 4);
+	dbuf_writeui32le(outf, 14 + bi.size_of_headers_and_pal);
+
+	// Copy the DIB
+	dbuf_copy(c->infile, dib_pos, dib_len, outf);
+
+done:
+	dbuf_close(outf);
+}
 
 static void do_read_aldus_header(deark *c, lctx *d)
 {
@@ -128,6 +166,12 @@ static int do_wmf_record(deark *c, lctx *d, de_int64 recnum, de_int64 recpos,
 		fnci ? fnci->name : "?",
 		(int)recsize_bytes);
 
+	if(fnci && fnci->fn) {
+		de_dbg_indent(c, 1);
+		fnci->fn(c, d, rectype, recpos, recsize_bytes);
+		de_dbg_indent(c, -1);
+	}
+
 	return (rectype==0x0000)?0:1;
 }
 
@@ -199,5 +243,4 @@ void de_module_wmf(deark *c, struct deark_module_info *mi)
 	mi->id = "wmf";
 	mi->run_fn = de_run_wmf;
 	mi->identify_fn = de_identify_wmf;
-	mi->flags |= DE_MODFLAG_NONWORKING;
 }

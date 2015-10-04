@@ -297,6 +297,10 @@ Deark -- Information about supported formats
 * VBM (VDC BitMap) (module="vbm")
   - Version 2 only
 
+* Windows Metafile (module=wmf) (experimental)
+  - Very incomplete.
+  - Extract BMP images from "StretchDIB" records.
+
 * Winzle (module=winzle)
   - Convert Winzle obfuscated BMP (.wzl) to BMP.
 
