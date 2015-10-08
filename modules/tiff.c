@@ -424,6 +424,7 @@ static int de_identify_tiff(deark *c)
 void de_module_tiff(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "tiff";
+	mi->desc = "TIFF (Tagged Image File Format) (resources only)";
 	mi->run_fn = de_run_tiff;
 	mi->identify_fn = de_identify_tiff;
 }

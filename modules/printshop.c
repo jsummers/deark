@@ -133,6 +133,7 @@ static int de_identify_printshop(deark *c)
 void de_module_printshop(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "printshop";
+	mi->desc = "The Print Shop .DAT/.NAM";
 	mi->run_fn = de_run_printshop;
 	mi->identify_fn = de_identify_printshop;
 }
@@ -170,6 +171,7 @@ void de_module_newprintshop(deark *c, struct deark_module_info *mi)
 	// New Print Shop files, so it's more convenient to put them in separate
 	// modules (so the user can simply use -m to select the format).
 	mi->id = "newprintshop";
+	mi->desc = "The New Print Shop .POG/.PNM";
 	mi->run_fn = de_run_newprintshop;
 	mi->identify_fn = de_identify_newprintshop;
 }
@@ -206,6 +208,7 @@ static int de_identify_printmaster(deark *c)
 void de_module_printmaster(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "printmaster";
+	mi->desc = "PrintMaster .SHP/.SDR";
 	mi->run_fn = de_run_printmaster;
 	mi->identify_fn = de_identify_printmaster;
 }

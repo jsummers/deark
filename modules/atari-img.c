@@ -537,6 +537,7 @@ static int de_identify_prismpaint(deark *c)
 void de_module_prismpaint(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "prismpaint";
+	mi->desc = "Atari Prism Paint .PNT, a.k.a. TruePaint .TPI";
 	mi->run_fn = de_run_prismpaint;
 	mi->identify_fn = de_identify_prismpaint;
 }
@@ -987,6 +988,7 @@ static int de_identify_tinystuff(deark *c)
 void de_module_tinystuff(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "tinystuff";
+	mi->desc = "Atari Tiny Stuff, a.k.a. Tiny image format";
 	mi->run_fn = de_run_tinystuff;
 	mi->identify_fn = de_identify_tinystuff;
 }

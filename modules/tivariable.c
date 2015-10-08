@@ -433,6 +433,7 @@ static int de_identify_tivariable(deark *c)
 void de_module_tivariable(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "tivariable";
+	mi->desc = "TI calculator variable or picture file";
 	mi->run_fn = de_run_tivariable;
 	mi->identify_fn = de_identify_tivariable;
 }

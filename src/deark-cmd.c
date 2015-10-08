@@ -66,7 +66,7 @@ static void show_help(deark *c)
 
 static void print_modules(deark *c)
 {
-	de_print_module_names(c);
+	de_print_module_list(c);
 }
 
 static void our_msgfn(deark *c, int msgtype, const char *s)

@@ -24,6 +24,7 @@ static void de_run_copy(deark *c, de_module_params *mparams)
 void de_module_copy(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "copy";
+	mi->desc = "Copy the file unchanged";
 	mi->run_fn = de_run_copy;
 	mi->identify_fn = de_identify_none;
 }
@@ -66,6 +67,7 @@ static int de_identify_zlib(deark *c)
 void de_module_zlib(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "zlib";
+	mi->desc = "Raw zlib compressed data";
 	mi->run_fn = de_run_zlib;
 	mi->identify_fn = de_identify_zlib;
 }
@@ -98,6 +100,7 @@ static int de_identify_hpicn(deark *c)
 void de_module_hpicn(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "hpicn";
+	mi->desc = "HP 100LX/200LX .ICN icon";
 	mi->run_fn = de_run_hpicn;
 	mi->identify_fn = de_identify_hpicn;
 }
@@ -182,6 +185,7 @@ done:
 void de_module_xpuzzle(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "xpuzzle";
+	mi->desc = "X11 \"puzzle\" image";
 	mi->run_fn = de_run_xpuzzle;
 	mi->identify_fn = de_identify_xpuzzle;
 }
@@ -228,6 +232,7 @@ static int de_identify_winzle(deark *c)
 void de_module_winzle(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "winzle";
+	mi->desc = "Winzle! puzzle image";
 	mi->run_fn = de_run_winzle;
 	mi->identify_fn = de_identify_winzle;
 }
@@ -537,6 +542,7 @@ static int de_identify_hr(deark *c)
 void de_module_hr(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "hr";
+	mi->desc = "TRS-80 HR (High Resolution) image";
 	mi->run_fn = de_run_hr;
 	mi->identify_fn = de_identify_hr;
 }
@@ -762,6 +768,7 @@ static int de_identify_vbm(deark *c)
 void de_module_vbm(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "vbm";
+	mi->desc = "C64/128 VBM (VDC BitMap)";
 	mi->run_fn = de_run_vbm;
 	mi->identify_fn = de_identify_vbm;
 }
@@ -918,6 +925,7 @@ static int de_identify_ybm(deark *c)
 void de_module_ybm(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "ybm";
+	mi->desc = "Bennet Yee's face format, a.k.a. YBM";
 	mi->run_fn = de_run_ybm;
 	mi->identify_fn = de_identify_ybm;
 }

@@ -49,7 +49,7 @@ static int module_compare_fn(const void *a, const void *b)
 		c->module_info[m2->module_index].id);
 }
 
-void de_print_module_names(deark *c)
+void de_print_module_list(deark *c)
 {
 	int i, k;
 	struct sort_data_struct *sort_data = NULL;
@@ -73,7 +73,10 @@ void de_print_module_names(deark *c)
 			!(c->module_info[i].flags&DE_MODFLAG_HIDDEN) &&
 			!(c->module_info[i].flags&DE_MODFLAG_NONWORKING) )
 		{
-			de_printf(c, DE_MSGTYPE_MESSAGE, "%s\n", c->module_info[i].id);
+			if(c->module_info[i].desc)
+				de_printf(c, DE_MSGTYPE_MESSAGE, "%-14s %s\n", c->module_info[i].id, c->module_info[i].desc);
+			else
+				de_printf(c, DE_MSGTYPE_MESSAGE, "%s\n", c->module_info[i].id);
 		}
 	}
 

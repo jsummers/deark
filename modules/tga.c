@@ -624,6 +624,7 @@ static int de_identify_tga(deark *c)
 void de_module_tga(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "tga";
+	mi->desc = "Truevision TGA, a.k.a. TARGA";
 	mi->run_fn = de_run_tga;
 	mi->identify_fn = de_identify_tga;
 }

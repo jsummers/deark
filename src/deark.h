@@ -58,7 +58,7 @@ void de_set_input_file_slice_size(deark *c, de_int64 n);
 
 void de_run(deark *c);
 
-void de_print_module_names(deark *c);
+void de_print_module_list(deark *c);
 
 void de_set_userdata(deark *c, void *x);
 void *de_get_userdata(deark *c);

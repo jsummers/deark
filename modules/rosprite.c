@@ -437,6 +437,7 @@ static int de_identify_rosprite(deark *c)
 void de_module_rosprite(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "rosprite";
+	mi->desc = "RISC OS Sprite, a.k.a. Acorn Sprite";
 	mi->run_fn = de_run_rosprite;
 	mi->identify_fn = de_identify_rosprite;
 }

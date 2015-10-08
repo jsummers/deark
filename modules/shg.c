@@ -387,6 +387,7 @@ static int de_identify_shg(deark *c)
 void de_module_shg(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "shg";
+	mi->desc = "SHG (Segmented Hypergraphics), MRB (Multiple Resolution Bitmap)";
 	mi->run_fn = de_run_shg;
 	mi->identify_fn = de_identify_shg;
 }

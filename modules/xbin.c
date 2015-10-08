@@ -303,6 +303,7 @@ static int de_identify_xbin(deark *c)
 void de_module_xbin(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "xbin";
+	mi->desc = "XBIN character graphics";
 	mi->run_fn = de_run_xbin;
 	mi->identify_fn = de_identify_xbin;
 }

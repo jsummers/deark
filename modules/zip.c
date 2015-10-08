@@ -288,6 +288,7 @@ static int de_identify_zip(deark *c)
 void de_module_zip(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "zip";
+	mi->desc = "ZIP archive (extract comments only)";
 	mi->run_fn = de_run_zip;
 	mi->identify_fn = de_identify_zip;
 }

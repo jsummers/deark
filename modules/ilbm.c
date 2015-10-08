@@ -967,6 +967,7 @@ static int de_identify_ilbm(deark *c)
 void de_module_ilbm(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "ilbm";
+	mi->desc = "IFF-ILBM and related image formats";
 	mi->run_fn = de_run_ilbm;
 	mi->identify_fn = de_identify_ilbm;
 }

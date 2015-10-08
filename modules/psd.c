@@ -163,6 +163,7 @@ static int de_identify_psd(deark *c)
 void de_module_psd(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "psd";
+	mi->desc = "Photoshop .PSD (resources only)";
 	mi->run_fn = de_run_psd;
 	mi->identify_fn = de_identify_psd;
 }
