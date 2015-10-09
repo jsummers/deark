@@ -181,6 +181,7 @@ static int de_identify_psionpic(deark *c)
 void de_module_psionpic(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "psionpic";
+	mi->desc = "Psion PIC, a.k.a. EPOC PIC";
 	mi->run_fn = de_run_psionpic;
 	mi->identify_fn = de_identify_psionpic;
 }

@@ -239,6 +239,7 @@ static int de_identify_macpaint(deark *c)
 void de_module_macpaint(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "macpaint";
+	mi->desc = "MacPaint image";
 	mi->run_fn = de_run_macpaint;
 	mi->identify_fn = de_identify_macpaint;
 }

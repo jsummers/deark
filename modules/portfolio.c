@@ -145,6 +145,7 @@ static int de_identify_pgx(deark *c)
 void de_module_pgx(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "pgx";
+	mi->desc = "Atari Portfolio animation";
 	mi->run_fn = de_run_pgx;
 	mi->identify_fn = de_identify_pgx;
 }
@@ -170,6 +171,7 @@ static int de_identify_pf_pgf(deark *c)
 void de_module_pf_pgf(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "pf_pgf";
+	mi->desc = "Atari Portfolio Graphics - uncompressed";
 	mi->run_fn = de_run_pf_pgf;
 	mi->identify_fn = de_identify_pf_pgf;
 }
@@ -223,6 +225,7 @@ static int de_identify_pgc(deark *c)
 void de_module_pgc(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "pgc";
+	mi->desc = "Atari Portfolio Graphics - compressed";
 	mi->run_fn = de_run_pgc;
 	mi->identify_fn = de_identify_pgc;
 }

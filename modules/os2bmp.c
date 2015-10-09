@@ -451,6 +451,7 @@ static int de_identify_os2bmp(deark *c)
 void de_module_os2bmp(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "os2bmp";
+	mi->desc = "OS/2 icon (.ICO), cursor (.PTR), bitmap array";
 	mi->run_fn = de_run_os2bmp;
 	mi->identify_fn = de_identify_os2bmp;
 }

@@ -507,6 +507,7 @@ static int de_identify_icns(deark *c)
 void de_module_icns(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "icns";
+	mi->desc = "Macintosh icon";
 	mi->run_fn = de_run_icns;
 	mi->identify_fn = de_identify_icns;
 }

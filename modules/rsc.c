@@ -507,7 +507,7 @@ static int de_identify_rsc(deark *c)
 void de_module_rsc(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "rsc";
-	mi->desc = "Atari GEM resource file";
+	mi->desc = "GEM resource file";
 	mi->run_fn = de_run_rsc;
 	mi->identify_fn = de_identify_rsc;
 }

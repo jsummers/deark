@@ -449,6 +449,7 @@ static int de_identify_pcx(deark *c)
 void de_module_pcx(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "pcx";
+	mi->desc = "PCX image";
 	mi->run_fn = de_run_pcx;
 	mi->identify_fn = de_identify_pcx;
 }
@@ -503,6 +504,7 @@ static int de_identify_dcx(deark *c)
 void de_module_dcx(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "dcx";
+	mi->desc = "DCX - Multi-image PCX";
 	mi->run_fn = de_run_dcx;
 	mi->identify_fn = de_identify_dcx;
 }

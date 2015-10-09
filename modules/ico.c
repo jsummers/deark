@@ -275,6 +275,7 @@ static int de_identify_ico(deark *c)
 void de_module_ico(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "ico";
+	mi->desc = "Microsoft Windows icon";
 	mi->run_fn = de_run_ico;
 	mi->identify_fn = de_identify_ico;
 }

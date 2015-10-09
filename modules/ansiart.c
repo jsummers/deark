@@ -441,6 +441,7 @@ static int de_identify_ansiart(deark *c)
 void de_module_ansiart(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "ansiart";
+	mi->desc = "ANSI Art character graphics";
 	mi->run_fn = de_run_ansiart;
 	mi->identify_fn = de_identify_ansiart;
 }

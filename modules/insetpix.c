@@ -513,6 +513,7 @@ static int de_identify_insetpix(deark *c)
 void de_module_insetpix(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "insetpix";
+	mi->desc = "Inset .PIX image";
 	mi->run_fn = de_run_insetpix;
 	mi->identify_fn = de_identify_insetpix;
 }

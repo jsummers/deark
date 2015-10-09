@@ -637,6 +637,7 @@ static int de_identify_amigaicon(deark *c)
 void de_module_amigaicon(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "amigaicon";
+	mi->desc = "Amiga Workbench icon (.info), NewIcons, GlowIcons";
 	mi->run_fn = de_run_amigaicon;
 	mi->identify_fn = de_identify_amigaicon;
 }

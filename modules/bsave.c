@@ -614,6 +614,7 @@ static int de_identify_bsave(deark *c)
 void de_module_bsave(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "bsave";
+	mi->desc = "BSAVE/BLOAD image";
 	mi->run_fn = de_run_bsave;
 	mi->identify_fn = de_identify_bsave;
 }

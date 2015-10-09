@@ -317,6 +317,7 @@ static int de_identify_gemraster(deark *c)
 void de_module_gemraster(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "gemraster";
+	mi->desc = "GEM VDI Bit Image, a.k.a. GEM Raster";
 	mi->run_fn = de_run_gemraster;
 	mi->identify_fn = de_identify_gemraster;
 }

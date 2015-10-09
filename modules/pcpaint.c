@@ -767,6 +767,7 @@ static int de_identify_pcpaint(deark *c)
 void de_module_pcpaint(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "pcpaint";
+	mi->desc = "PCPaint PIC or CLP image";
 	mi->run_fn = de_run_pcpaint;
 	mi->identify_fn = de_identify_pcpaint;
 }

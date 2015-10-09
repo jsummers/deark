@@ -178,6 +178,7 @@ static int de_identify_alphabmp(deark *c)
 void de_module_alphabmp(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "alphabmp";
+	mi->desc = "Alpha Microsystems BMP";
 	mi->run_fn = de_run_alphabmp;
 	mi->identify_fn = de_identify_alphabmp;
 }

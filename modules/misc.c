@@ -278,6 +278,7 @@ static int de_identify_mrw(deark *c)
 void de_module_mrw(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "mrw";
+	mi->desc = "Minolta RAW (resources only)";
 	mi->run_fn = de_run_mrw;
 	mi->identify_fn = de_identify_mrw;
 }
@@ -340,6 +341,7 @@ static int de_identify_bob(deark *c)
 void de_module_bob(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "bob";
+	mi->desc = "Bob Ray Tracer bitmap image";
 	mi->run_fn = de_run_bob;
 	mi->identify_fn = de_identify_bob;
 }
@@ -433,6 +435,7 @@ void de_module_alias_pix(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "alias_pix";
 	mi->id_alias[0] = "vivid";
+	mi->desc = "Alias PIX image, Vivid .IMG";
 	mi->run_fn = de_run_alias_pix;
 	mi->identify_fn = de_identify_alias_pix;
 }
@@ -724,6 +727,7 @@ static int de_identify_lss16(deark *c)
 void de_module_lss16(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "lss16";
+	mi->desc = "SYSLINUX LSS16 image";
 	mi->run_fn = de_run_lss16;
 	mi->identify_fn = de_identify_lss16;
 }
@@ -808,6 +812,7 @@ static int de_identify_fp_art(deark *c)
 void de_module_fp_art(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "fp_art";
+	mi->desc = "PFS: 1st Publisher clip art (.ART)";
 	mi->run_fn = de_run_fp_art;
 	mi->identify_fn = de_identify_fp_art;
 }
@@ -870,6 +875,7 @@ static int de_identify_png(deark *c)
 void de_module_png(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "png";
+	mi->desc = "PNG image (resources only)";
 	mi->run_fn = de_run_png;
 	mi->identify_fn = de_identify_png;
 }

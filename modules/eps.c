@@ -227,6 +227,7 @@ static int de_identify_eps(deark *c)
 void de_module_eps(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "eps";
+	mi->desc = "Encapsulated PostScript (extract preview image)";
 	mi->run_fn = de_run_eps;
 	mi->identify_fn = de_identify_eps;
 }

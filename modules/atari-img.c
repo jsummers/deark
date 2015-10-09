@@ -386,6 +386,7 @@ static int de_identify_degas(deark *c)
 void de_module_degas(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "degas";
+	mi->desc = "Atari DEGAS or DEGAS Elite image";
 	mi->run_fn = de_run_degas;
 	mi->identify_fn = de_identify_degas;
 }
@@ -572,6 +573,7 @@ static int de_identify_ftc(deark *c)
 void de_module_ftc(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "ftc";
+	mi->desc = "Atari Falcon True Color .FTC";
 	mi->run_fn = de_run_ftc;
 	mi->identify_fn = de_identify_ftc;
 }
@@ -617,6 +619,7 @@ static int de_identify_eggpaint(deark *c)
 void de_module_eggpaint(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "eggpaint";
+	mi->desc = "Atari EggPaint .TRP";
 	mi->run_fn = de_run_eggpaint;
 	mi->identify_fn = de_identify_eggpaint;
 }
@@ -655,6 +658,7 @@ static int de_identify_indypaint(deark *c)
 void de_module_indypaint(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "indypaint";
+	mi->desc = "Atari IndyPaint .TRU";
 	mi->run_fn = de_run_indypaint;
 	mi->identify_fn = de_identify_indypaint;
 }
@@ -1055,6 +1059,7 @@ static int de_identify_neochrome(deark *c)
 void de_module_neochrome(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "neochrome";
+	mi->desc = "Atari NEOchrome image";
 	mi->run_fn = de_run_neochrome;
 	mi->identify_fn = de_identify_neochrome;
 }

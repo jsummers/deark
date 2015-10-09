@@ -220,6 +220,7 @@ static int de_identify_rpm(deark *c)
 void de_module_rpm(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "rpm";
+	mi->desc = "RPM Package Manager";
 	mi->run_fn = de_run_rpm;
 	mi->identify_fn = de_identify_rpm;
 }

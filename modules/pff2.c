@@ -154,6 +154,7 @@ static int de_identify_pff2(deark *c)
 void de_module_pff2(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "pff2";
+	mi->desc = "PFF2 font";
 	mi->run_fn = de_run_pff2;
 	mi->identify_fn = de_identify_pff2;
 }

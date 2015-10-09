@@ -173,6 +173,7 @@ static int de_identify_jpeg2000(deark *c)
 void de_module_jpeg2000(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "jpeg2000";
+	mi->desc = "JPEG 2000 formats (resources only)";
 	mi->run_fn = de_run_jpeg2000;
 	mi->identify_fn = de_identify_jpeg2000;
 }

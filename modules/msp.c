@@ -147,6 +147,7 @@ static int de_identify_msp(deark *c)
 void de_module_msp(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "msp";
+	mi->desc = "Microsoft Paint image";
 	mi->run_fn = de_run_msp;
 	mi->identify_fn = de_identify_msp;
 }
