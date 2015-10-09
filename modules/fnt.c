@@ -268,6 +268,7 @@ static int de_identify_fnt(deark *c)
 void de_module_fnt(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "fnt";
+	mi->desc = "Windows FNT font";
 	mi->run_fn = de_run_fnt;
 	mi->identify_fn = de_identify_fnt;
 }

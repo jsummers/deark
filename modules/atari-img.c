@@ -1225,6 +1225,7 @@ static int de_identify_fpaint_pi4(deark *c)
 void de_module_fpaint_pi4(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "fpaint_pi4";
+	mi->desc = "Atari Falcon PI4 image";
 	mi->run_fn = de_run_fpaint_pi4;
 	mi->identify_fn = de_identify_fpaint_pi4;
 }
@@ -1268,6 +1269,7 @@ static int de_identify_fpaint_pi9(deark *c)
 void de_module_fpaint_pi9(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "fpaint_pi9";
+	mi->desc = "Atari Falcon PI9 image";
 	mi->run_fn = de_run_fpaint_pi9;
 	mi->identify_fn = de_identify_fpaint_pi9;
 }
@@ -1295,6 +1297,7 @@ static int de_identify_atari_pi7(deark *c)
 void de_module_atari_pi7(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "atari_pi7";
+	mi->desc = "Atari PI7 image";
 	mi->run_fn = de_run_atari_pi7;
 	mi->identify_fn = de_identify_atari_pi7;
 }

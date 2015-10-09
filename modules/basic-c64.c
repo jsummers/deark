@@ -141,6 +141,7 @@ static int de_identify_basic_c64(deark *c)
 void de_module_basic_c64(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "basic_c64";
+	mi->desc = "Detokenize C64 BASIC";
 	mi->run_fn = de_run_basic_c64;
 	mi->identify_fn = de_identify_basic_c64;
 }

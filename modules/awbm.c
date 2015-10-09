@@ -242,6 +242,7 @@ static int de_identify_awbm(deark *c)
 void de_module_awbm(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "awbm";
+	mi->desc = "Award BIOS logo";
 	mi->run_fn = de_run_awbm;
 	mi->identify_fn = de_identify_awbm;
 }

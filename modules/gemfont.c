@@ -176,6 +176,7 @@ static int de_identify_gemfont(deark *c)
 void de_module_gemfont(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "gemfont";
+	mi->desc = "GEM bitmap font";
 	mi->run_fn = de_run_gemfont;
 	mi->identify_fn = de_identify_gemfont;
 }

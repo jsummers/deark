@@ -64,6 +64,7 @@ static int de_identify_nol(deark *c)
 void de_module_nol(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "nol";
+	mi->desc = "Nokia Operator Logo";
 	mi->run_fn = de_run_nol;
 	mi->identify_fn = de_identify_nol;
 }
@@ -100,6 +101,7 @@ static int de_identify_ngg(deark *c)
 void de_module_ngg(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "ngg";
+	mi->desc = "Nokia Group Graphic";
 	mi->run_fn = de_run_ngg;
 	mi->identify_fn = de_identify_ngg;
 }
@@ -155,6 +157,7 @@ static int de_identify_npm(deark *c)
 void de_module_npm(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "npm";
+	mi->desc = "Nokia Picture Message";
 	mi->run_fn = de_run_npm;
 	mi->identify_fn = de_identify_npm;
 }
@@ -203,6 +206,7 @@ static int de_identify_nlm(deark *c)
 void de_module_nlm(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "nlm";
+	mi->desc = "Nokia Logo Manager bitmap";
 	mi->run_fn = de_run_nlm;
 	mi->identify_fn = de_identify_nlm;
 }
@@ -342,6 +346,7 @@ static int de_identify_nsl(deark *c)
 void de_module_nsl(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "nsl";
+	mi->desc = "Nokia Startup Logo";
 	mi->run_fn = de_run_nsl;
 	mi->identify_fn = de_identify_nsl;
 }

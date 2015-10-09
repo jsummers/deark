@@ -193,6 +193,7 @@ static int de_identify_qtif(deark *c)
 void de_module_qtif(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "qtif";
+	mi->desc = "QTIF (QuickTime Image Format)";
 	mi->run_fn = de_run_qtif;
 	mi->identify_fn = de_identify_qtif;
 }

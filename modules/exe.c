@@ -971,6 +971,7 @@ static int de_identify_exe(deark *c)
 void de_module_exe(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "exe";
+	mi->desc = "Microsoft EXE executable (PE, NE, LX)";
 	mi->run_fn = de_run_exe;
 	mi->identify_fn = de_identify_exe;
 }

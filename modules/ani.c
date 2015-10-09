@@ -120,6 +120,7 @@ static int de_identify_ani(deark *c)
 void de_module_ani(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "ani";
+	mi->desc = "Windows animated cursor";
 	mi->run_fn = de_run_ani;
 	mi->identify_fn = de_identify_ani;
 }

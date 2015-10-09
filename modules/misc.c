@@ -512,6 +512,7 @@ static int de_identify_applevol(deark *c)
 void de_module_applevol(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "applevol";
+	mi->desc = "Apple volume label image";
 	mi->run_fn = de_run_applevol;
 	mi->identify_fn = de_identify_applevol;
 }
@@ -611,6 +612,7 @@ static int de_identify_ripicon(deark *c)
 void de_module_ripicon(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "ripicon";
+	mi->desc = "RIP/RIPscrip/RIPterm Icon";
 	mi->run_fn = de_run_ripicon;
 	mi->identify_fn = de_identify_ripicon;
 }
@@ -981,6 +983,7 @@ static int de_identify_olpc565(deark *c)
 void de_module_olpc565(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "olpc565";
+	mi->desc = "OLPC .565 firmware icon";
 	mi->run_fn = de_run_olpc565;
 	mi->identify_fn = de_identify_olpc565;
 }

@@ -170,6 +170,7 @@ static int de_identify_ar(deark *c)
 void de_module_ar(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "ar";
+	mi->desc = "ar archive";
 	mi->run_fn = de_run_ar;
 	mi->identify_fn = de_identify_ar;
 }

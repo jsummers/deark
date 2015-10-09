@@ -120,6 +120,7 @@ static int de_identify_graspgl(deark *c)
 void de_module_graspgl(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "graspgl";
+	mi->desc = "GRASP GL animation";
 	mi->run_fn = de_run_graspgl;
 	mi->identify_fn = de_identify_graspgl;
 }
@@ -218,6 +219,7 @@ static int de_identify_graspfont(deark *c)
 void de_module_graspfont(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "graspfont";
+	mi->desc = "GRASP font";
 	mi->run_fn = de_run_graspfont;
 	mi->identify_fn = de_identify_graspfont;
 }

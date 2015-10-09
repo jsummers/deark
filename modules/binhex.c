@@ -312,6 +312,7 @@ static int de_identify_binhex(deark *c)
 void de_module_binhex(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "binhex";
+	mi->desc = "Macintosh BinHex (.hqx) archive";
 	mi->run_fn = de_run_binhex;
 	mi->identify_fn = de_identify_binhex;
 }

@@ -190,6 +190,7 @@ static int de_identify_grob(deark *c)
 void de_module_grob(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "grob";
+	mi->desc = "GROB - HP48/49 calculator image";
 	mi->run_fn = de_run_grob;
 	mi->identify_fn = de_identify_grob;
 }

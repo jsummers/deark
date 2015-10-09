@@ -148,6 +148,7 @@ static int de_identify_cardfile(deark *c)
 void de_module_cardfile(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "cardfile";
+	mi->desc = "Windows Cardfile address book";
 	mi->run_fn = de_run_cardfile;
 	mi->identify_fn = de_identify_cardfile;
 }
