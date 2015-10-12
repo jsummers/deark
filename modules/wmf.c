@@ -87,6 +87,8 @@ static int wmf_handler_0f43(deark *c, lctx *d, de_int64 rectype, de_int64 recpos
 	de_int64 dib_len;
 	dbuf *outf = NULL;
 
+	// TODO: Consolidate this and extract_dib().
+
 	if(recsize_bytes < 28) return 1;
 	dib_pos = recpos + 28;
 	dib_len = recsize_bytes - 28;
@@ -257,6 +259,7 @@ static void do_run_wmf(deark *c, lctx *d)
 // **************************************************************************
 
 static int emf_handler_01(deark *c, lctx *d, de_int64 rectype, de_int64 recpos, de_int64 recsize_bytes);
+static int emf_handler_4c(deark *c, lctx *d, de_int64 rectype, de_int64 recpos, de_int64 recsize_bytes);
 
 struct emf_func_info {
 	de_uint32 rectype;
@@ -291,6 +294,12 @@ static const struct emf_func_info emf_func_info_arr[] = {
 	{ 0x2b, "RECTANGLE", NULL },
 	{ 0x36, "LINETO", NULL },
 	{ 0x46, "COMMENT", NULL },
+	{ 0x4c, "BITBLT", emf_handler_4c },
+	{ 0x4d, "STRETCHBLT", NULL },
+	{ 0x4e, "MASKBLT", NULL },
+	{ 0x4f, "PLGBLT", NULL },
+	{ 0x50, "SETDIBITSTODEVICE", NULL },
+	{ 0x51, "STRETCHDIBITS", NULL },
 	{ 0x52, "EXTCREATEFONTINDIRECTW", NULL },
 	{ 0x53, "EXTTEXTOUTA", NULL },
 	{ 0x54, "EXTTEXTOUTW", NULL },
@@ -333,6 +342,68 @@ static int emf_handler_01(deark *c, lctx *d, de_int64 rectype, de_int64 recpos, 
 	num_pal_entries = de_getui32le(pos+60);
 	de_dbg(c, "num pal entries: %d\n", (int)num_pal_entries);
 
+	return 1;
+}
+
+static void extract_dib(deark *c, lctx *d, de_int64 bmi_pos, de_int64 bmi_len,
+	de_int64 bits_pos, de_int64 bits_len)
+{
+	struct de_bmpinfo bi;
+	dbuf *outf = NULL;
+
+	if(bmi_len<12 || bmi_len>2048) goto done;
+	if(bits_len<1 || bmi_len+bits_len>DE_MAX_FILE_SIZE) goto done;
+
+	if(!de_fmtutil_get_bmpinfo(c, c->infile, &bi, bmi_pos, bmi_len, 0)) {
+		de_warn(c, "Invalid bitmap\n");
+		goto done;
+	}
+
+	outf = dbuf_create_output_file(c, "bmp", NULL);
+
+	// Write fileheader
+	dbuf_write(outf, (const de_byte*)"BM", 2);
+	dbuf_writeui32le(outf, 14 + bmi_len + bits_len);
+	dbuf_write_zeroes(outf, 4);
+	dbuf_writeui32le(outf, 14 + bi.size_of_headers_and_pal);
+
+	// Copy the BITMAPINFO (headers & palette)
+	dbuf_copy(c->infile, bmi_pos, bmi_len, outf);
+	// Copy the bitmap bits
+	dbuf_copy(c->infile, bits_pos, bits_len, outf);
+
+done:
+	dbuf_close(outf);
+}
+
+// BITBLT
+static int emf_handler_4c(deark *c, lctx *d, de_int64 rectype, de_int64 recpos, de_int64 recsize_bytes)
+{
+	de_int64 rop;
+	de_int64 bmi_offs;
+	de_int64 bmi_len;
+	de_int64 bits_offs;
+	de_int64 bits_len;
+
+	if(recsize_bytes<100) return 1;
+
+	rop = de_getui32le(recpos+40);
+	de_dbg(c, "raster operation: 0x%08x\n", (unsigned int)rop);
+
+	bmi_offs = de_getui32le(recpos+84);
+	bmi_len = de_getui32le(recpos+88);
+	de_dbg(c, "bmi offset=%d, len=%d\n", (int)bmi_offs, (int)bmi_len);
+	bits_offs = de_getui32le(recpos+92);
+	bits_len = de_getui32le(recpos+96);
+	de_dbg(c, "bits offset=%d, len=%d\n", (int)bits_offs, (int)bits_len);
+
+	if(bmi_len<12) return 1;
+	if(bmi_offs<100) return 1;
+	if(bmi_offs+bmi_len>recsize_bytes) return 1;
+	if(bits_len<1) return 1;
+	if(bits_offs<100) return 1;
+	if(bits_offs+bits_len>recsize_bytes) return 1;
+	extract_dib(c, d, recpos+bmi_offs, bmi_len, recpos+bits_offs, bits_len);
 	return 1;
 }
 
