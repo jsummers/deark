@@ -6,6 +6,10 @@
 #include <deark-config.h>
 #include <deark-modules.h>
 
+struct pict_rect {
+	de_int64 t, l, b, r;
+};
+
 typedef struct localctx_struct {
 	de_int64 w, h;
 	int is_v2; // >0 if the file is known to be in v2 format
@@ -15,7 +19,12 @@ typedef int (*item_decoder_fn)(deark *c, lctx *d, de_int64 opcode, de_int64 data
 	de_int64 *bytes_used);
 
 static int handler_11(deark *c, lctx *d, de_int64 opcode, de_int64 data_pos, de_int64 *bytes_used);
-static int handler_bitsrect(deark *c, lctx *d, de_int64 opcode, de_int64 data_pos, de_int64 *bytes_used);
+static int handler_28(deark *c, lctx *d, de_int64 opcode, de_int64 data_pos, de_int64 *bytes_used);
+static int handler_DxText(deark *c, lctx *d, de_int64 opcode, de_int64 data_pos, de_int64 *bytes_used);
+static int handler_2b(deark *c, lctx *d, de_int64 opcode, de_int64 data_pos, de_int64 *bytes_used);
+static int handler_98(deark *c, lctx *d, de_int64 opcode, de_int64 data_pos, de_int64 *bytes_used);
+static int handler_9a(deark *c, lctx *d, de_int64 opcode, de_int64 data_pos, de_int64 *bytes_used);
+static int handler_a1(deark *c, lctx *d, de_int64 opcode, de_int64 data_pos, de_int64 *bytes_used);
 
 struct opcode_info {
 	de_uint16 opcode;
@@ -31,13 +40,50 @@ static const struct opcode_info opcode_info_arr[] = {
 	// This list is not intended to be complete.
 	{ 0x0000, SZCODE_EXACT,   0,  "NOP", NULL },
 	{ 0x0001, SZCODE_REGION,  0,  "Clip", NULL },
+	{ 0x0003, SZCODE_EXACT,   2,  "TxFont", NULL },
+	{ 0x0004, SZCODE_EXACT,   1,  "TxFace", NULL },
+	{ 0x0007, SZCODE_EXACT,   4,  "PnSize", NULL },
+	{ 0x0008, SZCODE_EXACT,   2,  "PnMode", NULL },
+	{ 0x0009, SZCODE_EXACT,   8,  "PnPat", NULL },
+	{ 0x000d, SZCODE_EXACT,   2,  "TxSize", NULL },
+	{ 0x0010, SZCODE_EXACT,   8,  "TxRatio", NULL },
 	{ 0x0011, SZCODE_EXACT,   1,  "Version", handler_11 },
-	{ 0x0098, SZCODE_SPECIAL, 0,  "PackBitsRect", handler_bitsrect },
-	{ 0x009a, SZCODE_SPECIAL, 0,  "DirectBitsRect", handler_bitsrect },
+	{ 0x001a, SZCODE_EXACT,   6,  "RGBFgCol", NULL },
+	{ 0x001e, SZCODE_EXACT,   0,  "DefHilite", NULL },
+	{ 0x001f, SZCODE_EXACT,   6,  "OpColor", NULL },
+	{ 0x0020, SZCODE_EXACT,   8,  "Line", NULL },
+	{ 0x0021, SZCODE_EXACT,   4,  "LineFrom", NULL },
+	{ 0x0022, SZCODE_EXACT,   6,  "ShortLine", NULL },
+	{ 0x0023, SZCODE_EXACT,   2,  "ShortLineFrom", NULL },
+	{ 0x0028, SZCODE_SPECIAL, 0,  "LongText", handler_28 },
+	{ 0x0029, SZCODE_SPECIAL, 0,  "DHText", handler_DxText },
+	{ 0x002a, SZCODE_SPECIAL, 0,  "DVText", handler_DxText },
+	{ 0x002b, SZCODE_SPECIAL, 0,  "DHDVText", handler_2b },
+	{ 0x0031, SZCODE_EXACT,   8,  "paintRect", NULL },
+	{ 0x0050, SZCODE_EXACT,   8,  "frameOval", NULL },
+	{ 0x0098, SZCODE_SPECIAL, 0,  "PackBitsRect", handler_98 },
+	{ 0x009a, SZCODE_SPECIAL, 0,  "DirectBitsRect", handler_9a },
+	{ 0x00a0, SZCODE_EXACT,   2,  "ShortComment", NULL },
+	{ 0x00a1, SZCODE_SPECIAL, 0,  "LongComment", handler_a1 },
 	{ 0x00ff, SZCODE_EXACT,   2,  "opEndPic", NULL },
 	{ 0x0c00, SZCODE_EXACT,   24, "HeaderOp", NULL },
 	{ 0xffff, SZCODE_SPECIAL, 0,  NULL, NULL }
 };
+
+// Read a QuickDraw Rectangle. Caller supplies rect struct.
+static void pict_read_rect(deark *c, lctx *d, de_int64 pos,
+	struct pict_rect *rect, const char *dbgname)
+{
+	rect->t = dbuf_geti16be(c->infile, pos);
+	rect->l = dbuf_geti16be(c->infile, pos+2);
+	rect->b = dbuf_geti16be(c->infile, pos+4);
+	rect->r = dbuf_geti16be(c->infile, pos+6);
+
+	if(dbgname) {
+		de_dbg(c, "%s: (%d,%d)-(%d,%d)\n", dbgname, (int)rect->l, (int)rect->t,
+			(int)rect->r, (int)rect->b);
+	}
+}
 
 // Version
 static int handler_11(deark *c, lctx *d, de_int64 opcode, de_int64 data_pos, de_int64 *bytes_used)
@@ -58,20 +104,159 @@ static int handler_11(deark *c, lctx *d, de_int64 opcode, de_int64 data_pos, de_
 	return 1;
 }
 
-static int handler_bitsrect(deark *c, lctx *d, de_int64 opcode, de_int64 pos, de_int64 *bytes_used)
+// LongText
+static int handler_28(deark *c, lctx *d, de_int64 opcode, de_int64 data_pos, de_int64 *bytes_used)
 {
-	de_int64 top, left, bottom, right;
+	de_int64 len;
+	len = (de_int64)de_getbyte(data_pos+4);
+	de_dbg(c, "text size: %d\n", (int)len);
+	*bytes_used = 5+len;
+	return 1;
+}
 
-	top    = dbuf_geti16be(c->infile, pos+6);
-	left   = dbuf_geti16be(c->infile, pos+8);
-	bottom = dbuf_geti16be(c->infile, pos+10);
-	right  = dbuf_geti16be(c->infile, pos+12);
+// DVText
+static int handler_DxText(deark *c, lctx *d, de_int64 opcode, de_int64 data_pos, de_int64 *bytes_used)
+{
+	de_int64 len;
+	len = (de_int64)de_getbyte(data_pos+1);
+	de_dbg(c, "text size: %d\n", (int)len);
+	*bytes_used = 2+len;
+	return 1;
+}
 
-	de_dbg(c, "rect: (%d,%d)-(%d,%d)\n", (int)left, (int)top,
-		(int)right, (int)bottom);
+// DHDVText
+static int handler_2b(deark *c, lctx *d, de_int64 opcode, de_int64 data_pos, de_int64 *bytes_used)
+{
+	de_int64 len;
+	len = (de_int64)de_getbyte(data_pos+2);
+	de_dbg(c, "text size: %d\n", (int)len);
+	*bytes_used = 3+len;
+	return 1;
+}
+
+static int handler_98(deark *c, lctx *d, de_int64 opcode, de_int64 pos, de_int64 *bytes_used)
+{
+	struct pict_rect rect;
+	de_int64 rowspan_code;
+	de_int64 rowspan;
+	de_int64 pixmap_version;
+	//de_int64 packing_type;
+	//de_int64 pack_size;
+	de_int64 hdpi, vdpi;
+	de_int64 pixeltype, pixelsize;
+	de_int64 cmpcount, cmpsize;
+	int pixmap_flag = 0;
+
+	rowspan_code = de_getui16be(pos);
+	rowspan = rowspan_code & 0x7fff;
+	pixmap_flag = (rowspan_code & 0x8000)?1:0;
+
+	de_dbg(c, "bytes per row: %d\n", (int)rowspan);
+	de_dbg(c, "pixmap flag: %d\n", pixmap_flag);
+
+	pict_read_rect(c, d, pos+2, &rect, "rect");
+
+	pixmap_version = de_getui16be(pos+10);
+	de_dbg(c, "pixmap version: %d\n", (int)pixmap_version);
+
+	//packing_type = de_getui16be(pos+12);
+	//de_dbg(c, "packing type: %d\n", (int)packing_type);
+
+	//pack_size = de_getui32be(pos+14);
+	//de_dbg(c, "pixel data length: %d\n", (int)pack_size);
+
+	hdpi = de_getui32be(pos+16); // spec says 18
+	vdpi = de_getui32be(pos+20); // spec says 22
+	de_dbg(c, "dpi: %dx%d\n", (int)hdpi, (int)vdpi);
+
+	pixeltype = de_getui16be(pos+24);
+	pixelsize = de_getui16be(pos+26);
+	cmpcount = de_getui16be(pos+28);
+	cmpsize = de_getui16be(pos+30);
+	de_dbg(c, "pixel type=%d, bits/pixel=%d, components/pixel=%d, bits/comp=%d\n",
+		(int)pixeltype, (int)pixelsize, (int)cmpcount, (int)cmpsize);
 
 	// TODO
 	return 0;
+}
+
+static int handler_9a(deark *c, lctx *d, de_int64 opcode, de_int64 pos, de_int64 *bytes_used)
+{
+	struct pict_rect rect;
+	de_int64 rowspan_code;
+	de_int64 rowspan;
+	de_int64 pixmap_version;
+	de_int64 packing_type;
+	de_int64 pack_size;
+	//de_int64 hdpi, vdpi;
+	de_int64 pixeltype, pixelsize;
+	de_int64 cmpcount, cmpsize;
+	de_int64 plane_bytes;
+	int pixmap_flag = 0;
+	de_int64 n;
+
+	// 0-3: baseAddr (should be 000000ff)
+	n = de_getui32be(pos);
+	de_dbg(c, "baseAddr: 0x%08x\n", (unsigned int)n);
+	pos += 4;
+
+	rowspan_code = de_getui16be(pos);
+	rowspan = rowspan_code & 0x7fff;
+	pixmap_flag = (rowspan_code & 0x8000)?1:0;
+	de_dbg(c, "bytes per row: %d\n", (int)rowspan);
+	de_dbg(c, "pixmap flag: %d\n", pixmap_flag);
+	pos += 2;
+
+	pict_read_rect(c, d, pos, &rect, "rect");
+	pos += 8;
+
+	pixmap_version = de_getui16be(pos);
+	de_dbg(c, "pixmap version: %d\n", (int)pixmap_version);
+	pos += 2;
+
+	packing_type = de_getui16be(pos);
+	de_dbg(c, "packing type: %d\n", (int)packing_type);
+	pos += 2;
+
+	pack_size = de_getui32be(pos);
+	de_dbg(c, "pixel data length: %d\n", (int)pack_size);
+	pos += 4;
+
+	//hdpi = de_getui32be(pos);
+	//vdpi = de_getui32be(pos+4);
+	//de_dbg(c, "dpi: %dx%d\n", (int)hdpi, (int)vdpi);
+	pos += 8;
+
+	pixeltype = de_getui16be(pos);
+	pos += 2;
+	pixelsize = de_getui16be(pos);
+	pos += 2;
+	cmpcount = de_getui16be(pos);
+	pos += 2;
+	cmpsize = de_getui16be(pos);
+	pos += 2;
+	de_dbg(c, "pixel type=%d, bits/pixel=%d, components/pixel=%d, bits/comp=%d\n",
+		(int)pixeltype, (int)pixelsize, (int)cmpcount, (int)cmpsize);
+
+	plane_bytes = de_getui32be(pos);
+	de_dbg(c, "plane bytes: %d\n", (int)plane_bytes);
+	pos += 4;
+
+	// CTabHandle pmTable;
+	// long pmReserved
+
+	// TODO
+	return 0;
+}
+
+// LongComment
+static int handler_a1(deark *c, lctx *d, de_int64 opcode, de_int64 data_pos, de_int64 *bytes_used)
+{
+	de_int64 len;
+	len = de_getui16be(data_pos+2);
+	de_dbg(c, "comment size: %d\n", (int)len);
+	*bytes_used = 4+len;
+	return 1;
 }
 
 static const struct opcode_info *find_opcode_info(de_int64 opcode)
@@ -123,6 +308,18 @@ static int do_handle_item(deark *c, lctx *d, de_int64 opcode_pos, de_int64 opcod
 		*data_bytes_used = n;
 		ret = 1;
 	}
+	else if((opcode>=0x2c && opcode<=0x2f)) {
+		// Starts with 2-byte size, size does not include the "size" field.
+		n = de_getui16be(data_pos);
+		*data_bytes_used = 2+n;
+		ret = 1;
+	}
+	else if((opcode>=0x8100 && opcode<=0xffff)) {
+		// Starts with 4-byte size, size does not include the "size" field.
+		n = de_getui32be(data_pos);
+		*data_bytes_used = 4+n;
+		ret = 1;
+	}
 	else {
 		de_err(c, "Unsupported opcode: 0x%04x\n", (unsigned int)opcode);
 	}
@@ -170,7 +367,7 @@ static void de_run_pict(deark *c, de_module_params *mparams)
 	lctx *d = NULL;
 	de_int64 pos;
 	de_int64 picsize;
-	de_int64 top, left, bottom, right;
+	struct pict_rect framerect;
 
 	d = de_malloc(c, sizeof(lctx));
 
@@ -180,12 +377,7 @@ static void de_run_pict(deark *c, de_module_params *mparams)
 	picsize = de_getui16be(pos);
 	de_dbg(c, "picSize: %d\n", (int)picsize);
 	pos+=2;
-	top    = dbuf_geti16be(c->infile, pos);
-	left   = dbuf_geti16be(c->infile, pos+2);
-	bottom = dbuf_geti16be(c->infile, pos+4);
-	right  = dbuf_geti16be(c->infile, pos+6);
-	de_dbg(c, "picFrame: (%d,%d)-(%d,%d)\n", (int)left, (int)top,
-		(int)right, (int)bottom);
+	pict_read_rect(c, d, pos, &framerect, "picFrame");
 	pos+=8;
 
 	do_read_items(c, d, pos);
