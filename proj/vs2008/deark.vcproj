@@ -594,6 +594,10 @@
 				>
 			</File>
 			<File
+				RelativePath="..\..\modules\pict.c"
+				>
+			</File>
+			<File
 				RelativePath="..\..\modules\portfolio.c"
 				>
 			</File>
