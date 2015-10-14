@@ -11,38 +11,55 @@ typedef struct localctx_struct {
 	de_int64 idat_pos;
 	de_int64 idat_size;
 
-	de_int64 idsc_found;
+	int idsc_found;
+	de_int64 idsc_size;
+	de_int64 idat_data_size; // "Data size" reported in idsc (0=unknown)
 	de_byte cmpr_type[4];
 	char cmpr_type_printable[8];
 
 	de_int64 width, height;
 	de_int64 bitdepth;
 	de_int64 palette_id;
+	double hres, vres;
 } lctx;
 
-static void do_read_idsc(deark *c, lctx *d, de_int64 pos, de_int64 len)
+static double read_fixed(dbuf *f, de_int64 pos)
 {
-	de_int64 idsc_size;
-	if(len<8) return;
+	de_int64 n;
+	n = dbuf_geti32be(f, pos);
+	return ((double)n)/65536.0;
+}
+
+static int do_read_idsc(deark *c, lctx *d, de_int64 pos, de_int64 len)
+{
+	if(len<8) return 0;
 
 	d->idsc_found = 1;
 
-	idsc_size = de_getui32be(pos);
-	de_dbg(c, "idsc_size: %d\n", (int)idsc_size);
+	d->idsc_size = de_getui32be(pos);
+	de_dbg(c, "idsc size: %d\n", (int)d->idsc_size);
 
 	de_read(d->cmpr_type, pos+4, 4);
 	de_make_printable_ascii(d->cmpr_type, 4, d->cmpr_type_printable,
 		sizeof(d->cmpr_type_printable), 0);
 	de_dbg(c, "compression type: \"%s\"\n", d->cmpr_type_printable);
 
-	if(len<86) return;
+	if(len<86) return 0;
+	if(d->idsc_size<86) return 0;
 
 	d->width = de_getui16be(pos+32);
 	d->height = de_getui16be(pos+34);
+	d->hres = read_fixed(c->infile, pos+36);
+	d->vres = read_fixed(c->infile, pos+40);
+	de_dbg(c, "dpi: %.1fx%.1f\n", d->hres, d->vres);
+	d->idat_data_size = de_getui32be(pos+44);
+	de_dbg(c, "reported data size: %d\n", (int)d->idat_data_size);
+	if(d->idat_data_size>c->infile->len) d->idat_data_size=0;
 	d->bitdepth = de_getui16be(pos+82);
 	d->palette_id = de_getui16be(pos+84);
 	de_dbg(c, "dimensions: %dx%d, bitdepth: %d, palette: %d\n", (int)d->width,
 		(int)d->height, (int)d->bitdepth, (int)d->palette_id);
+	return 1;
 }
 
 static int do_atom(deark *c, lctx *d, de_int64 pos, de_int64 len, int level,
@@ -131,9 +148,20 @@ static void do_decode_raw(deark *c, lctx *d)
 
 	img = de_bitmap_create(c, d->width, d->height, 3);
 
+	img->density_code = DE_DENSITY_DPI;
+	img->xdens = d->hres;
+	img->ydens = d->vres;
+
 	// Warning: This code is based on reverse engineering, and may not be correct.
 	// TODO: Is the first sample for transparency?
+
+	// I don't know how to figure out the bytes per row. This logic works for the
+	// few example files I have.
 	rowspan = d->width * 4;
+	if(d->idat_data_size/d->height > rowspan) {
+		rowspan = d->idat_data_size/d->height;
+	}
+
 	for(j=0; j<d->height; j++) {
 		for(i=0; i<d->width; i++) {
 			clr = dbuf_getRGB(c->infile, d->idat_pos + j*rowspan + i*4+1, 0);
@@ -155,7 +183,9 @@ static void do_write_image(deark *c, lctx *d)
 		do_decode_raw(c, d);
 	}
 	else if(!de_memcmp(d->cmpr_type, "jpeg", 4)) {
-		dbuf_create_file_from_slice(c->infile, d->idat_pos, d->idat_size, "jpg", NULL);
+		dbuf_create_file_from_slice(c->infile, d->idat_pos,
+			(d->idat_data_size>0) ? d->idat_data_size : d->idat_size,
+			"jpg", NULL);
 	}
 	//else if(!de_memcmp(d->cmpr_type, "tiff", 4)) {
 	// The "tiff" compression type is apparently not exactly an embedded TIFF
@@ -166,6 +196,25 @@ static void do_write_image(deark *c, lctx *d)
 	}
 }
 
+static void do_qtif_file_format(deark *c, lctx *d)
+{
+	do_atom_sequence(c, d, 0, c->infile->len, 0);
+
+	if(d->idat_found) {
+		do_write_image(c, d);
+	}
+}
+
+static void do_raw_idsc_data(deark *c, lctx *d)
+{
+	if(!do_read_idsc(c, d, 0, c->infile->len)) {
+		return;
+	}
+	d->idat_pos = d->idsc_size;
+	d->idat_size = c->infile->len - d->idat_pos;
+	do_write_image(c, d);
+}
+
 static void de_run_qtif(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
@@ -173,10 +222,13 @@ static void de_run_qtif(deark *c, de_module_params *mparams)
 	de_dbg(c, "In qtif module\n");
 
 	d = de_malloc(c, sizeof(lctx));
-	do_atom_sequence(c, d, 0, c->infile->len, 0);
 
-	if(d->idat_found) {
-		do_write_image(c, d);
+	if(mparams && mparams->codes && de_strchr(mparams->codes, 'I')) {
+		// Raw data from a PICT file
+		do_raw_idsc_data(c, d);
+	}
+	else {
+		do_qtif_file_format(c, d);
 	}
 
 	de_free(c, d);

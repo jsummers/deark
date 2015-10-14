@@ -295,19 +295,30 @@ static int handler_0c00(deark *c, lctx *d, de_int64 opcode, de_int64 data_pos, d
 	return 1;
 }
 
+static void do_handle_qtif_idsc(deark *c, de_int64 pos, de_int64 len)
+{
+	dbuf *old_ifile;
+	de_module_params *mparams = NULL;
+
+	old_ifile = c->infile;
+
+	c->infile = dbuf_open_input_subfile(old_ifile, pos, len);
+	mparams = de_malloc(c, sizeof(de_module_params));
+	mparams->codes = "I";
+	de_run_module_by_id(c, "qtif", mparams);
+	de_free(c, mparams);
+	dbuf_close(c->infile);
+
+	c->infile = old_ifile;
+}
+
 // CompressedQuickTime
-// TODO: Use the qtif decoder if possible.
 static int handler_8200(deark *c, lctx *d, de_int64 opcode, de_int64 data_pos, de_int64 *bytes_used)
 {
 	de_int64 payload_pos;
 	de_int64 payload_len;
 	de_int64 endpos;
-	de_int64 img_startpos;
 	de_int64 idsc_pos;
-	de_int64 idsc_len;
-	de_int64 img_len;
-	de_byte cmpr_type[4];
-	char cmpr_type_printable[8];
 
 	payload_len = de_getui32be(data_pos);
 	payload_pos = data_pos+4;
@@ -318,36 +329,14 @@ static int handler_8200(deark *c, lctx *d, de_int64 opcode, de_int64 data_pos, d
 	// Following the size field seems to be 68 bytes of data,
 	// followed by QuickTime "idsc" data, followed by image data.
 	idsc_pos = payload_pos+68;
-	idsc_len = de_getui32be(idsc_pos); // size includes this field
-	de_dbg(c, "idsc size: %d\n", (int)idsc_len);
-	if(idsc_pos+idsc_len > endpos) goto done;
 
-	de_read(cmpr_type, idsc_pos+4, 4);
-	de_make_printable_ascii(cmpr_type, 4, cmpr_type_printable,
-		sizeof(cmpr_type_printable), 0);
-	de_dbg(c, "compression type: \"%s\"\n", cmpr_type_printable);
-	if(de_memcmp(cmpr_type, "jpeg", 4)) {
-		de_warn(c, "Unsupported compression type: \"%s\"\n", cmpr_type_printable);
-		goto done;
-	}
-
-	img_startpos = idsc_pos + idsc_len;
-	img_len = de_getui32be(idsc_pos + 44);
-	de_dbg(c, "image at %d, length: %d\n", (int)img_startpos, (int)img_len);
-	if(img_len<2) goto done;
-
-	if(img_startpos + img_len > endpos) goto done;
-	if(dbuf_memcmp(c->infile, img_startpos, "\xff\xd8", 2)) {
-		de_dbg(c, "image doesn't seem to be in jpeg format\n");
-		goto done;
-	}
-
-	dbuf_create_file_from_slice(c->infile, img_startpos, img_len, "jpg", NULL);
-
-done:
+	// The question is, should we try to extract this to QTIF or other QuickTime
+	// file format? Or should we fully decode it (as we're doing now)?
+	do_handle_qtif_idsc(c, idsc_pos, endpos-idsc_pos);
 	return 1;
 }
 
+// UnompressedQuickTime
 static int handler_8201(deark *c, lctx *d, de_int64 opcode, de_int64 data_pos, de_int64 *bytes_used)
 {
 	de_warn(c, "UncompressedQuickTime image format is not supported\n");
