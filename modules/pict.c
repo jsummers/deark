@@ -27,6 +27,7 @@ static int handler_9a(deark *c, lctx *d, de_int64 opcode, de_int64 data_pos, de_
 static int handler_a1(deark *c, lctx *d, de_int64 opcode, de_int64 data_pos, de_int64 *bytes_used);
 static int handler_0c00(deark *c, lctx *d, de_int64 opcode, de_int64 data_pos, de_int64 *bytes_used);
 static int handler_8200(deark *c, lctx *d, de_int64 opcode, de_int64 data_pos, de_int64 *bytes_used);
+static int handler_8201(deark *c, lctx *d, de_int64 opcode, de_int64 data_pos, de_int64 *bytes_used);
 
 struct opcode_info {
 	de_uint16 opcode;
@@ -70,7 +71,7 @@ static const struct opcode_info opcode_info_arr[] = {
 	{ 0x00ff, SZCODE_EXACT,   2,  "opEndPic", NULL },
 	{ 0x0c00, SZCODE_EXACT,   24, "HeaderOp", handler_0c00 },
 	{ 0x8200, SZCODE_SPECIAL, 0,  "CompressedQuickTime", handler_8200 },
-	{ 0x8201, SZCODE_SPECIAL, 0,  "UncompressedQuickTime", NULL },
+	{ 0x8201, SZCODE_SPECIAL, 0,  "UncompressedQuickTime", handler_8201 },
 	{ 0xffff, SZCODE_SPECIAL, 0,  NULL, NULL }
 };
 
@@ -298,19 +299,30 @@ static int handler_0c00(deark *c, lctx *d, de_int64 opcode, de_int64 data_pos, d
 // TODO: Use the qtif decoder if possible.
 static int handler_8200(deark *c, lctx *d, de_int64 opcode, de_int64 data_pos, de_int64 *bytes_used)
 {
+	de_int64 payload_pos;
 	de_int64 payload_len;
+	de_int64 endpos;
 	de_int64 img_startpos;
+	de_int64 idsc_pos;
+	de_int64 idsc_len;
 	de_int64 img_len;
 	de_byte cmpr_type[4];
 	char cmpr_type_printable[8];
 
 	payload_len = de_getui32be(data_pos);
-	if(data_pos+4+payload_len > c->infile->len) return 0;
+	payload_pos = data_pos+4;
+	endpos = payload_pos+payload_len;
+	if(endpos > c->infile->len) return 0;
 	*bytes_used = 4+payload_len;
 
-	// Following the size field seems to be a 154-byte header.
+	// Following the size field seems to be 68 bytes of data,
+	// followed by QuickTime "idsc" data, followed by image data.
+	idsc_pos = payload_pos+68;
+	idsc_len = de_getui32be(idsc_pos); // size includes this field
+	de_dbg(c, "idsc size: %d\n", (int)idsc_len);
+	if(idsc_pos+idsc_len > endpos) goto done;
 
-	de_read(cmpr_type, data_pos+76, 4);
+	de_read(cmpr_type, idsc_pos+4, 4);
 	de_make_printable_ascii(cmpr_type, 4, cmpr_type_printable,
 		sizeof(cmpr_type_printable), 0);
 	de_dbg(c, "compression type: \"%s\"\n", cmpr_type_printable);
@@ -319,12 +331,12 @@ static int handler_8200(deark *c, lctx *d, de_int64 opcode, de_int64 data_pos, d
 		goto done;
 	}
 
-	img_len = de_getui32be(data_pos+116);
-	de_dbg(c, "image length: %d\n", (int)img_len);
+	img_startpos = idsc_pos + idsc_len;
+	img_len = de_getui32be(idsc_pos + 44);
+	de_dbg(c, "image at %d, length: %d\n", (int)img_startpos, (int)img_len);
 	if(img_len<2) goto done;
 
-	img_startpos = data_pos + 4 + 154;
-	if(img_startpos + img_len > c->infile->len) goto done;
+	if(img_startpos + img_len > endpos) goto done;
 	if(dbuf_memcmp(c->infile, img_startpos, "\xff\xd8", 2)) {
 		de_dbg(c, "image doesn't seem to be in jpeg format\n");
 		goto done;
@@ -333,6 +345,13 @@ static int handler_8200(deark *c, lctx *d, de_int64 opcode, de_int64 data_pos, d
 	dbuf_create_file_from_slice(c->infile, img_startpos, img_len, "jpg", NULL);
 
 done:
+	return 1;
+}
+
+static int handler_8201(deark *c, lctx *d, de_int64 opcode, de_int64 data_pos, de_int64 *bytes_used)
+{
+	de_warn(c, "UncompressedQuickTime image format is not supported\n");
+	*bytes_used = 4+de_getui32be(data_pos);
 	return 1;
 }
 
