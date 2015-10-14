@@ -13,6 +13,7 @@ struct pict_rect {
 typedef struct localctx_struct {
 	int is_v2; // >0 if the file is known to be in v2 format
 	int is_extended_v2;
+	dbuf *iccprofile_file;
 } lctx;
 
 typedef int (*item_decoder_fn)(deark *c, lctx *d, de_int64 opcode, de_int64 data_pos,
@@ -264,13 +265,48 @@ static int handler_9a(deark *c, lctx *d, de_int64 opcode, de_int64 pos, de_int64
 	return 0;
 }
 
+static void do_iccprofile_item(deark *c, lctx *d, de_int64 pos, de_int64 len)
+{
+	de_int64 selector;
+	de_int64 data_len;
+
+	if(len<4) return;
+	selector = de_getui32be(pos);
+	data_len = len-4;
+	de_dbg(c, "ICC profile segment, selector=%d, data len=%d\n", (int)selector,
+		(int)data_len);
+
+	if(selector!=1) {
+		// If this is not a Continuation segment, close any current file.
+		dbuf_close(d->iccprofile_file);
+		d->iccprofile_file = NULL;
+	}
+
+	if(selector==0) { // Beginning segment
+		d->iccprofile_file = dbuf_create_output_file(c, "icc", NULL);
+	}
+
+	if(selector==0 || selector==1) {
+		// Beginning and Continuation segments normally have profile data.
+		// End segments (selector==2) are not allowed to include data.
+		dbuf_copy(c->infile, pos+4, data_len, d->iccprofile_file);
+	}
+}
+
 // LongComment
 static int handler_a1(deark *c, lctx *d, de_int64 opcode, de_int64 data_pos, de_int64 *bytes_used)
 {
+	de_int64 kind;
 	de_int64 len;
+	kind = de_getui16be(data_pos);
 	len = de_getui16be(data_pos+2);
-	de_dbg(c, "comment size: %d\n", (int)len);
+	de_dbg(c, "comment kind: %d, size: %d\n", (int)kind, (int)len);
 	*bytes_used = 4+len;
+
+	if(kind==224) {
+		do_iccprofile_item(c, d, data_pos+4, len);
+	}
+
 	return 1;
 }
 
@@ -467,6 +503,7 @@ static void de_run_pict(deark *c, de_module_params *mparams)
 
 	do_read_items(c, d, pos);
 
+	dbuf_close(d->iccprofile_file);
 	de_free(c, d);
 }
 
