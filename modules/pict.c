@@ -11,8 +11,8 @@ struct pict_rect {
 };
 
 typedef struct localctx_struct {
-	de_int64 w, h;
 	int is_v2; // >0 if the file is known to be in v2 format
+	int is_extended_v2;
 } lctx;
 
 typedef int (*item_decoder_fn)(deark *c, lctx *d, de_int64 opcode, de_int64 data_pos,
@@ -25,6 +25,8 @@ static int handler_2b(deark *c, lctx *d, de_int64 opcode, de_int64 data_pos, de_
 static int handler_98(deark *c, lctx *d, de_int64 opcode, de_int64 data_pos, de_int64 *bytes_used);
 static int handler_9a(deark *c, lctx *d, de_int64 opcode, de_int64 data_pos, de_int64 *bytes_used);
 static int handler_a1(deark *c, lctx *d, de_int64 opcode, de_int64 data_pos, de_int64 *bytes_used);
+static int handler_0c00(deark *c, lctx *d, de_int64 opcode, de_int64 data_pos, de_int64 *bytes_used);
+static int handler_8200(deark *c, lctx *d, de_int64 opcode, de_int64 data_pos, de_int64 *bytes_used);
 
 struct opcode_info {
 	de_uint16 opcode;
@@ -66,21 +68,33 @@ static const struct opcode_info opcode_info_arr[] = {
 	{ 0x00a0, SZCODE_EXACT,   2,  "ShortComment", NULL },
 	{ 0x00a1, SZCODE_SPECIAL, 0,  "LongComment", handler_a1 },
 	{ 0x00ff, SZCODE_EXACT,   2,  "opEndPic", NULL },
-	{ 0x0c00, SZCODE_EXACT,   24, "HeaderOp", NULL },
+	{ 0x0c00, SZCODE_EXACT,   24, "HeaderOp", handler_0c00 },
+	{ 0x8200, SZCODE_SPECIAL, 0,  "CompressedQuickTime", handler_8200 },
+	{ 0x8201, SZCODE_SPECIAL, 0,  "UncompressedQuickTime", NULL },
 	{ 0xffff, SZCODE_SPECIAL, 0,  NULL, NULL }
 };
 
+static double pict_read_fixed(dbuf *f, de_int64 pos)
+{
+	de_int64 n;
+
+	// I think QuickDraw's "Fixed point" numbers are signed, but I don't know
+	// how negative numbers are handled.
+	n = dbuf_geti32be(f, pos);
+	return ((double)n)/65536.0;
+}
+
 // Read a QuickDraw Rectangle. Caller supplies rect struct.
-static void pict_read_rect(deark *c, lctx *d, de_int64 pos,
+static void pict_read_rect(dbuf *f, de_int64 pos,
 	struct pict_rect *rect, const char *dbgname)
 {
-	rect->t = dbuf_geti16be(c->infile, pos);
-	rect->l = dbuf_geti16be(c->infile, pos+2);
-	rect->b = dbuf_geti16be(c->infile, pos+4);
-	rect->r = dbuf_geti16be(c->infile, pos+6);
+	rect->t = dbuf_geti16be(f, pos);
+	rect->l = dbuf_geti16be(f, pos+2);
+	rect->b = dbuf_geti16be(f, pos+4);
+	rect->r = dbuf_geti16be(f, pos+6);
 
 	if(dbgname) {
-		de_dbg(c, "%s: (%d,%d)-(%d,%d)\n", dbgname, (int)rect->l, (int)rect->t,
+		de_dbg(f->c, "%s: (%d,%d)-(%d,%d)\n", dbgname, (int)rect->l, (int)rect->t,
 			(int)rect->r, (int)rect->b);
 	}
 }
@@ -151,10 +165,10 @@ static int handler_98(deark *c, lctx *d, de_int64 opcode, de_int64 pos, de_int64
 	rowspan = rowspan_code & 0x7fff;
 	pixmap_flag = (rowspan_code & 0x8000)?1:0;
 
-	de_dbg(c, "bytes per row: %d\n", (int)rowspan);
+	de_dbg(c, "bytes/row: %d\n", (int)rowspan);
 	de_dbg(c, "pixmap flag: %d\n", pixmap_flag);
 
-	pict_read_rect(c, d, pos+2, &rect, "rect");
+	pict_read_rect(c->infile, pos+2, &rect, "rect");
 
 	pixmap_version = de_getui16be(pos+10);
 	de_dbg(c, "pixmap version: %d\n", (int)pixmap_version);
@@ -188,7 +202,7 @@ static int handler_9a(deark *c, lctx *d, de_int64 opcode, de_int64 pos, de_int64
 	de_int64 pixmap_version;
 	de_int64 packing_type;
 	de_int64 pack_size;
-	//de_int64 hdpi, vdpi;
+	double hdpi, vdpi;
 	de_int64 pixeltype, pixelsize;
 	de_int64 cmpcount, cmpsize;
 	de_int64 plane_bytes;
@@ -203,11 +217,11 @@ static int handler_9a(deark *c, lctx *d, de_int64 opcode, de_int64 pos, de_int64
 	rowspan_code = de_getui16be(pos);
 	rowspan = rowspan_code & 0x7fff;
 	pixmap_flag = (rowspan_code & 0x8000)?1:0;
-	de_dbg(c, "bytes per row: %d\n", (int)rowspan);
+	de_dbg(c, "bytes/row: %d\n", (int)rowspan);
 	de_dbg(c, "pixmap flag: %d\n", pixmap_flag);
 	pos += 2;
 
-	pict_read_rect(c, d, pos, &rect, "rect");
+	pict_read_rect(c->infile, pos, &rect, "rect");
 	pos += 8;
 
 	pixmap_version = de_getui16be(pos);
@@ -222,9 +236,9 @@ static int handler_9a(deark *c, lctx *d, de_int64 opcode, de_int64 pos, de_int64
 	de_dbg(c, "pixel data length: %d\n", (int)pack_size);
 	pos += 4;
 
-	//hdpi = de_getui32be(pos);
-	//vdpi = de_getui32be(pos+4);
-	//de_dbg(c, "dpi: %dx%d\n", (int)hdpi, (int)vdpi);
+	hdpi = pict_read_fixed(c->infile, pos);
+	vdpi = pict_read_fixed(c->infile, pos+4);
+	de_dbg(c, "dpi: %.2fx%.2f\n", hdpi, vdpi);
 	pos += 8;
 
 	pixeltype = de_getui16be(pos);
@@ -256,6 +270,69 @@ static int handler_a1(deark *c, lctx *d, de_int64 opcode, de_int64 data_pos, de_
 	len = de_getui16be(data_pos+2);
 	de_dbg(c, "comment size: %d\n", (int)len);
 	*bytes_used = 4+len;
+	return 1;
+}
+
+// HeaderOp
+static int handler_0c00(deark *c, lctx *d, de_int64 opcode, de_int64 data_pos, de_int64 *bytes_used)
+{
+	de_int64 hdrver;
+	double hres, vres;
+	struct pict_rect srcrect;
+
+	hdrver = de_getui16be(data_pos);
+	d->is_extended_v2 = (hdrver==0xfffe);
+
+	de_dbg(c, "extended v2: %s\n", d->is_extended_v2?"yes":"no");
+	if(d->is_extended_v2) {
+		hres = pict_read_fixed(c->infile, data_pos+4);
+		vres = pict_read_fixed(c->infile, data_pos+8);
+		de_dbg(c, "dpi: %.2fx%.2f\n", hres, vres);
+		pict_read_rect(c->infile, data_pos+12, &srcrect, "srcRect");
+	}
+
+	return 1;
+}
+
+// CompressedQuickTime
+// TODO: Use the qtif decoder if possible.
+static int handler_8200(deark *c, lctx *d, de_int64 opcode, de_int64 data_pos, de_int64 *bytes_used)
+{
+	de_int64 payload_len;
+	de_int64 img_startpos;
+	de_int64 img_len;
+	de_byte cmpr_type[4];
+	char cmpr_type_printable[8];
+
+	payload_len = de_getui32be(data_pos);
+	if(data_pos+4+payload_len > c->infile->len) return 0;
+	*bytes_used = 4+payload_len;
+
+	// Following the size field seems to be a 154-byte header.
+
+	de_read(cmpr_type, data_pos+76, 4);
+	de_make_printable_ascii(cmpr_type, 4, cmpr_type_printable,
+		sizeof(cmpr_type_printable), 0);
+	de_dbg(c, "compression type: \"%s\"\n", cmpr_type_printable);
+	if(de_memcmp(cmpr_type, "jpeg", 4)) {
+		de_warn(c, "Unsupported compression type: \"%s\"\n", cmpr_type_printable);
+		goto done;
+	}
+
+	img_len = de_getui32be(data_pos+116);
+	de_dbg(c, "image length: %d\n", (int)img_len);
+	if(img_len<2) goto done;
+
+	img_startpos = data_pos + 4 + 154;
+	if(img_startpos + img_len > c->infile->len) goto done;
+	if(dbuf_memcmp(c->infile, img_startpos, "\xff\xd8", 2)) {
+		de_dbg(c, "image doesn't seem to be in jpeg format\n");
+		goto done;
+	}
+
+	dbuf_create_file_from_slice(c->infile, img_startpos, img_len, "jpg", NULL);
+
+done:
 	return 1;
 }
 
@@ -303,7 +380,7 @@ static int do_handle_item(deark *c, lctx *d, de_int64 opcode_pos, de_int64 opcod
 	else if(opi && opi->size_code==SZCODE_REGION) {
 		n = de_getui16be(data_pos);
 		de_dbg_indent(c, 1);
-		de_dbg(c, "region, size=%d\n", (int)n);
+		de_dbg(c, "region size: %d\n", (int)n);
 		de_dbg_indent(c, -1);
 		*data_bytes_used = n;
 		ret = 1;
@@ -377,7 +454,7 @@ static void de_run_pict(deark *c, de_module_params *mparams)
 	picsize = de_getui16be(pos);
 	de_dbg(c, "picSize: %d\n", (int)picsize);
 	pos+=2;
-	pict_read_rect(c, d, pos, &framerect, "picFrame");
+	pict_read_rect(c->infile, pos, &framerect, "picFrame");
 	pos+=8;
 
 	do_read_items(c, d, pos);

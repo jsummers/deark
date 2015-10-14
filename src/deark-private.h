@@ -285,6 +285,7 @@ de_int64 dbuf_geti16be(dbuf *f, de_int64 pos);
 de_int64 dbuf_geti16le(dbuf *f, de_int64 pos);
 de_int64 dbuf_getui32be(dbuf *f, de_int64 pos);
 de_int64 dbuf_getui32le(dbuf *f, de_int64 pos);
+de_int64 dbuf_geti32be(dbuf *f, de_int64 pos);
 de_int64 dbuf_geti64be(dbuf *f, de_int64 pos);
 de_int64 dbuf_geti64le(dbuf *f, de_int64 pos);
 

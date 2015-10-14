@@ -215,6 +215,13 @@ de_int64 dbuf_getui32le(dbuf *f, de_int64 pos)
 	return de_getui32le_direct(m);
 }
 
+de_int64 dbuf_geti32be(dbuf *f, de_int64 pos)
+{
+	de_int64 n;
+	n = dbuf_getui32be(f, pos);
+	return (de_int64)(de_int32)(de_uint32)n;
+}
+
 de_int64 dbuf_getui32(dbuf *f, de_int64 pos)
 {
 	if(f->is_little_endian) return dbuf_getui32le(f, pos);
