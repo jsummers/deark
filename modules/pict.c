@@ -150,55 +150,9 @@ static int handler_2b(deark *c, lctx *d, de_int64 opcode, de_int64 data_pos, de_
 	return 1;
 }
 
-static int handler_98(deark *c, lctx *d, de_int64 opcode, de_int64 pos, de_int64 *bytes_used)
+static int read_pixmap(deark *c, lctx *d, de_int64 pos, int has_baseaddr)
 {
-	struct pict_rect rect;
-	de_int64 rowspan_code;
-	de_int64 rowspan;
-	de_int64 pixmap_version;
-	//de_int64 packing_type;
-	//de_int64 pack_size;
-	de_int64 hdpi, vdpi;
-	de_int64 pixeltype, pixelsize;
-	de_int64 cmpcount, cmpsize;
-	int pixmap_flag = 0;
-
-	rowspan_code = de_getui16be(pos);
-	rowspan = rowspan_code & 0x7fff;
-	pixmap_flag = (rowspan_code & 0x8000)?1:0;
-
-	de_dbg(c, "bytes/row: %d\n", (int)rowspan);
-	de_dbg(c, "pixmap flag: %d\n", pixmap_flag);
-
-	pict_read_rect(c->infile, pos+2, &rect, "rect");
-
-	pixmap_version = de_getui16be(pos+10);
-	de_dbg(c, "pixmap version: %d\n", (int)pixmap_version);
-
-	//packing_type = de_getui16be(pos+12);
-	//de_dbg(c, "packing type: %d\n", (int)packing_type);
-
-	//pack_size = de_getui32be(pos+14);
-	//de_dbg(c, "pixel data length: %d\n", (int)pack_size);
-
-	hdpi = de_getui32be(pos+16); // spec says 18
-	vdpi = de_getui32be(pos+20); // spec says 22
-	de_dbg(c, "dpi: %dx%d\n", (int)hdpi, (int)vdpi);
-
-	pixeltype = de_getui16be(pos+24);
-	pixelsize = de_getui16be(pos+26);
-	cmpcount = de_getui16be(pos+28);
-	cmpsize = de_getui16be(pos+30);
-	de_dbg(c, "pixel type=%d, bits/pixel=%d, components/pixel=%d, bits/comp=%d\n",
-		(int)pixeltype, (int)pixelsize, (int)cmpcount, (int)cmpsize);
-
-	// TODO
-	return 0;
-}
-
-static int handler_9a(deark *c, lctx *d, de_int64 opcode, de_int64 pos, de_int64 *bytes_used)
-{
-	struct pict_rect rect;
+	struct pict_rect tmprect;
 	de_int64 rowspan_code;
 	de_int64 rowspan;
 	de_int64 pixmap_version;
@@ -211,55 +165,83 @@ static int handler_9a(deark *c, lctx *d, de_int64 opcode, de_int64 pos, de_int64
 	int pixmap_flag = 0;
 	de_int64 n;
 
-	// 0-3: baseAddr (should be 000000ff)
-	n = de_getui32be(pos);
-	de_dbg(c, "baseAddr: 0x%08x\n", (unsigned int)n);
-	pos += 4;
+	de_dbg(c, "PixMap at %d\n", (int)pos);
+	de_dbg_indent(c, 1);
 
-	rowspan_code = de_getui16be(pos);
+	if(has_baseaddr) {
+		n = de_getui32be(pos);
+		de_dbg(c, "baseAddr: 0x%08x\n", (unsigned int)n);
+	}
+	else {
+		pos -= 4;
+	}
+
+	rowspan_code = de_getui16be(pos+4);
 	rowspan = rowspan_code & 0x7fff;
 	pixmap_flag = (rowspan_code & 0x8000)?1:0;
 	de_dbg(c, "bytes/row: %d\n", (int)rowspan);
 	de_dbg(c, "pixmap flag: %d\n", pixmap_flag);
-	pos += 2;
 
-	pict_read_rect(c->infile, pos, &rect, "rect");
-	pos += 8;
+	pict_read_rect(c->infile, pos+6, &tmprect, "rect");
 
-	pixmap_version = de_getui16be(pos);
+	pixmap_version = de_getui16be(pos+14);
 	de_dbg(c, "pixmap version: %d\n", (int)pixmap_version);
-	pos += 2;
 
-	packing_type = de_getui16be(pos);
+	packing_type = de_getui16be(pos+16);
 	de_dbg(c, "packing type: %d\n", (int)packing_type);
-	pos += 2;
 
-	pack_size = de_getui32be(pos);
+	pack_size = de_getui32be(pos+18);
 	de_dbg(c, "pixel data length: %d\n", (int)pack_size);
-	pos += 4;
 
-	hdpi = pict_read_fixed(c->infile, pos);
-	vdpi = pict_read_fixed(c->infile, pos+4);
+	hdpi = pict_read_fixed(c->infile, pos+22);
+	vdpi = pict_read_fixed(c->infile, pos+26);
 	de_dbg(c, "dpi: %.2fx%.2f\n", hdpi, vdpi);
-	pos += 8;
 
-	pixeltype = de_getui16be(pos);
-	pos += 2;
-	pixelsize = de_getui16be(pos);
-	pos += 2;
-	cmpcount = de_getui16be(pos);
-	pos += 2;
-	cmpsize = de_getui16be(pos);
-	pos += 2;
+	pixeltype = de_getui16be(pos+30);
+	pixelsize = de_getui16be(pos+32);
+	cmpcount = de_getui16be(pos+34);
+	cmpsize = de_getui16be(pos+36);
 	de_dbg(c, "pixel type=%d, bits/pixel=%d, components/pixel=%d, bits/comp=%d\n",
 		(int)pixeltype, (int)pixelsize, (int)cmpcount, (int)cmpsize);
 
-	plane_bytes = de_getui32be(pos);
+	plane_bytes = de_getui32be(pos+38);
 	de_dbg(c, "plane bytes: %d\n", (int)plane_bytes);
-	pos += 4;
 
-	// CTabHandle pmTable;
-	// long pmReserved
+	n = de_getui32be(pos+42);
+	de_dbg(c, "pmTable: %d\n", (int)n);
+
+	n = de_getui32be(pos+46);
+	de_dbg(c, "pmReserved: %d\n", (int)n);
+
+	de_dbg_indent(c, -1);
+	return 1;
+}
+
+static int handler_98(deark *c, lctx *d, de_int64 opcode, de_int64 pos, de_int64 *bytes_used)
+{
+	read_pixmap(c, d, pos, 0);
+	pos += 46;
+
+	// TODO
+	return 0;
+}
+
+static int handler_9a(deark *c, lctx *d, de_int64 opcode, de_int64 pos, de_int64 *bytes_used)
+{
+	struct pict_rect tmprect;
+	de_int64 n;
+
+	read_pixmap(c, d, pos, 1);
+	pos += 50;
+
+	pict_read_rect(c->infile, pos, &tmprect, "srcRect");
+	pos += 8;
+	pict_read_rect(c->infile, pos, &tmprect, "dstRect");
+	pos += 8;
+
+	n = de_getui16be(pos);
+	de_dbg(c, "transfer mode: %d\n", (int)n);
+	pos += 2;
 
 	// TODO
 	return 0;
@@ -441,7 +423,8 @@ static int do_handle_item(deark *c, lctx *d, de_int64 opcode_pos, de_int64 opcod
 		*data_bytes_used = 4+n;
 		ret = 1;
 	}
-	else {
+
+	if(!ret) {
 		de_err(c, "Unsupported opcode: 0x%04x\n", (unsigned int)opcode);
 	}
 
