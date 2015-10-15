@@ -16,7 +16,6 @@ static void handle_embedded_file(deark *c, lctx *d, de_int64 offset, de_int64 le
 	const char *ext;
 	int extract_this_file;
 	int is_pic;
-	dbuf *old_infile;
 
 	de_dbg(c, "embedded file at %d, len=%d\n", (int)offset, (int)len);
 	is_pic = 0;
@@ -45,11 +44,7 @@ static void handle_embedded_file(deark *c, lctx *d, de_int64 offset, de_int64 le
 			// PIC files embedded in APP files are really the same as PIC files on
 			// their own. They might need special handling. Until I'm sure they don't,
 			// I'll leave this option here.
-			old_infile = c->infile;
-			c->infile = dbuf_open_input_subfile(old_infile, offset, len);
-			de_run_module_by_id(c, "psionpic", NULL);
-			dbuf_close(c->infile);
-			c->infile = old_infile;
+			de_run_module_by_id_on_slice(c, "psionpic", NULL, c->infile, offset, len);
 		}
 		else {
 			// Just extract the file
@@ -142,7 +137,7 @@ static int de_identify_psionapp(deark *c)
 void de_module_psionapp(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "psionapp";
-	mi->desc = "Psion .APP/.IMG (extract images)";
+	mi->desc = "Psion .APP/.IMG and .OPA/.OPO (extract images)";
 	mi->run_fn = de_run_psionapp;
 	mi->identify_fn = de_identify_psionapp;
 }

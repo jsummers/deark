@@ -442,6 +442,18 @@ int de_run_module_by_id(deark *c, const char *id, de_module_params *mparams)
 	return de_run_module(c, module_to_use, mparams);
 }
 
+void de_run_module_by_id_on_slice(deark *c, const char *id, de_module_params *mparams,
+	dbuf *f, de_int64 pos, de_int64 len)
+{
+	dbuf *old_ifile;
+
+	old_ifile = c->infile;
+	c->infile = dbuf_open_input_subfile(f, pos, len);
+	de_run_module_by_id(c, id, mparams);
+	dbuf_close(c->infile);
+	c->infile = old_ifile;
+}
+
 void de_set_ext_option(deark *c, const char *name, const char *val)
 {
 	int n;
