@@ -260,6 +260,7 @@ static void do_run_wmf(deark *c, lctx *d)
 
 static int emf_handler_01(deark *c, lctx *d, de_int64 rectype, de_int64 recpos, de_int64 recsize_bytes);
 static int emf_handler_4c(deark *c, lctx *d, de_int64 rectype, de_int64 recpos, de_int64 recsize_bytes);
+static int emf_handler_51(deark *c, lctx *d, de_int64 rectype, de_int64 recpos, de_int64 recsize_bytes);
 
 struct emf_func_info {
 	de_uint32 rectype;
@@ -273,9 +274,12 @@ static const struct emf_func_info emf_func_info_arr[] = {
 	{ 0x0a, "SETWINDOWORGEX", NULL },
 	{ 0x0b, "SETVIEWPORTEXTEX", NULL },
 	{ 0x0c, "SETVIEWPORTORGEX", NULL },
+	{ 0x0d, "SETBRUSHORGEX", NULL },
 	{ 0x0e, "EOF", NULL },
+	{ 0x0f, "SETPIXELV", NULL },
 	{ 0x11, "SETMAPMODE", NULL },
 	{ 0x12, "SETBKMODE", NULL },
+	{ 0x13, "SETPOLYFILLMODE", NULL },
 	{ 0x14, "SETROP2", NULL },
 	{ 0x15, "SETSTRETCHBLTMODE", NULL },
 	{ 0x16, "SETTEXTALIGN", NULL },
@@ -283,28 +287,41 @@ static const struct emf_func_info emf_func_info_arr[] = {
 	{ 0x19, "SETBKCOLOR", NULL },
 	{ 0x1a, "OFFSETCLIPRGN", NULL },
 	{ 0x1b, "MOVETOEX", NULL },
+	{ 0x1e, "INTERSECTCLIPRECT", NULL },
 	{ 0x1c, "SETMETARGN", NULL },
 	{ 0x21, "SAVEDC", NULL },
 	{ 0x22, "RESTOREDC", NULL },
 	{ 0x23, "SETWORLDTRANSFORM", NULL },
+	{ 0x24, "MODIFYWORLDTRANSFORM", NULL },
 	{ 0x25, "SELECTOBJECT", NULL },
 	{ 0x26, "CREATEPEN", NULL },
 	{ 0x27, "CREATEBRUSHINDIRECT", NULL },
 	{ 0x28, "DELETEOBJECT", NULL },
+	{ 0x2a, "ELLIPSE", NULL },
 	{ 0x2b, "RECTANGLE", NULL },
+	{ 0x2d, "ARC", NULL },
+	{ 0x30, "SELECTPALETTE", NULL },
+	{ 0x31, "CREATEPALETTE", NULL },
+	{ 0x34, "REALIZEPALETTE", NULL },
 	{ 0x36, "LINETO", NULL },
+	{ 0x3a, "SETMITERLIMIT", NULL },
 	{ 0x46, "COMMENT", NULL },
+	{ 0x4b, "EXTSELECTCLIPRGN", NULL },
 	{ 0x4c, "BITBLT", emf_handler_4c },
 	{ 0x4d, "STRETCHBLT", NULL },
 	{ 0x4e, "MASKBLT", NULL },
 	{ 0x4f, "PLGBLT", NULL },
 	{ 0x50, "SETDIBITSTODEVICE", NULL },
-	{ 0x51, "STRETCHDIBITS", NULL },
+	{ 0x51, "STRETCHDIBITS", emf_handler_51 },
 	{ 0x52, "EXTCREATEFONTINDIRECTW", NULL },
 	{ 0x53, "EXTTEXTOUTA", NULL },
 	{ 0x54, "EXTTEXTOUTW", NULL },
 	{ 0x56, "POLYGON16", NULL },
 	{ 0x57, "POLYLINE16", NULL },
+	{ 0x5b, "POLYPOLYGON16", NULL },
+	{ 0x5f, "EXTCREATEPEN", NULL },
+	{ 0x62, "SETICMMODE", NULL },
+	{ 0x73, "SETLAYOUT", NULL },
 	{ 0x0, NULL, NULL }
 };
 
@@ -404,6 +421,38 @@ static int emf_handler_4c(deark *c, lctx *d, de_int64 rectype, de_int64 recpos, 
 	if(bits_offs<100) return 1;
 	if(bits_offs+bits_len>recsize_bytes) return 1;
 	extract_dib(c, d, recpos+bmi_offs, bmi_len, recpos+bits_offs, bits_len);
+	return 1;
+}
+
+// StretchDIBits
+static int emf_handler_51(deark *c, lctx *d, de_int64 rectype, de_int64 recpos, de_int64 recsize_bytes)
+{
+	de_int64 rop;
+	de_int64 bmi_offs;
+	de_int64 bmi_len;
+	de_int64 bits_offs;
+	de_int64 bits_len;
+
+	if(recsize_bytes<80) return 1;
+
+	bmi_offs = de_getui32le(recpos+48);
+	bmi_len = de_getui32le(recpos+52);
+	de_dbg(c, "bmi offset=%d, len=%d\n", (int)bmi_offs, (int)bmi_len);
+	bits_offs = de_getui32le(recpos+56);
+	bits_len = de_getui32le(recpos+60);
+	de_dbg(c, "bits offset=%d, len=%d\n", (int)bits_offs, (int)bits_len);
+
+	rop = de_getui32le(recpos+68);
+	de_dbg(c, "raster operation: 0x%08x\n", (unsigned int)rop);
+
+	if(bmi_len<12) return 1;
+	if(bmi_offs<80) return 1;
+	if(bmi_offs+bmi_len>recsize_bytes) return 1;
+	if(bits_len<1) return 1;
+	if(bits_offs<80) return 1;
+	if(bits_offs+bits_len>recsize_bytes) return 1;
+	extract_dib(c, d, recpos+bmi_offs, bmi_len, recpos+bits_offs, bits_len);
+
 	return 1;
 }
 
