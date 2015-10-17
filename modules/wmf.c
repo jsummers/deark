@@ -1,7 +1,8 @@
 // This file is part of Deark, by Jason Summers.
 // This software is in the public domain. See the file COPYING for details.
 
-// Windows Metafile formats (WMF, EMF, etc.)
+// Windows Metafile (WMF)
+// Enhanced Metafile (EMF)
 
 #include <deark-config.h>
 #include <deark-modules.h>
@@ -237,9 +238,21 @@ static void do_wmf_record_list(deark *c, lctx *d, de_int64 pos)
 	de_dbg_indent(c, -1);
 }
 
-static void do_run_wmf(deark *c, lctx *d)
+static void de_run_wmf(deark *c, de_module_params *mparams)
 {
+	lctx *d = NULL;
 	de_int64 pos = 0;
+
+	d = de_malloc(c, sizeof(lctx));
+
+	d->file_fmt = FMT_WMF;
+	if(!dbuf_memcmp(c->infile, 0, "\xd7\xcd\xc6\x9a", 4)) {
+		d->has_aldus_header = 1;
+		de_declare_fmt(c, "WMF (placeable)");
+	}
+	else {
+		de_declare_fmt(c, "WMF (non-placeable)");
+	}
 
 	if(d->has_aldus_header) {
 		do_read_aldus_header(c, d);
@@ -247,11 +260,43 @@ static void do_run_wmf(deark *c, lctx *d)
 	}
 
 	if(!do_read_wmf_header(c, d, pos)) {
-		return;
+		goto done;
 	}
 	pos += 18;
 
 	do_wmf_record_list(c, d, pos);
+
+done:
+	de_free(c, d);
+}
+
+static int de_identify_wmf(deark *c)
+{
+	de_byte buf[4];
+
+	de_read(buf, 0, 4);
+
+	if(!de_memcmp(buf, "\xd7\xcd\xc6\x9a", 4))
+		return 100;
+
+	if(de_input_file_has_ext(c, "wmf")) {
+		de_int64 ftype, hsize;
+		ftype = de_getui16le_direct(&buf[0]);
+		hsize = de_getui16le_direct(&buf[2]);
+		if(hsize==9 && (ftype==1 || ftype==2)) {
+			return 80;
+		}
+	}
+
+	return 0;
+}
+
+void de_module_wmf(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "wmf";
+	mi->desc = "Windows Metafile (extract bitmaps only)";
+	mi->run_fn = de_run_wmf;
+	mi->identify_fn = de_identify_wmf;
 }
 
 // **************************************************************************
@@ -305,6 +350,9 @@ static const struct emf_func_info emf_func_info_arr[] = {
 	{ 0x34, "REALIZEPALETTE", NULL },
 	{ 0x36, "LINETO", NULL },
 	{ 0x3a, "SETMITERLIMIT", NULL },
+	{ 0x3b, "BEGINPATH", NULL },
+	{ 0x3c, "ENDPATH", NULL },
+	{ 0x40, "STROKEPATH", NULL },
 	{ 0x46, "COMMENT", NULL },
 	{ 0x4b, "EXTSELECTCLIPRGN", NULL },
 	{ 0x4c, "BITBLT", emf_handler_4c },
@@ -496,7 +544,7 @@ static int do_emf_record(deark *c, lctx *d, de_int64 recnum, de_int64 recpos,
 
 // TODO: Although EMF files can be parsed, there is not yet the capability
 // to extract anything from them.
-static void do_run_emf(deark *c, lctx *d)
+static void do_emf_record_list(deark *c, lctx *d)
 {
 	de_int64 pos = 0;
 	de_int64 recpos;
@@ -532,70 +580,33 @@ done:
 	;
 }
 
-// **************************************************************************
-
-static void de_run_wmf_emf(deark *c, de_module_params *mparams)
+static void de_run_emf(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
 
 	d = de_malloc(c, sizeof(lctx));
 
-	if(!dbuf_memcmp(c->infile, 0, "\xd7\xcd\xc6\x9a", 4)) {
-		d->file_fmt = FMT_WMF;
-		d->has_aldus_header = 1;
-		de_declare_fmt(c, "WMF (placeable)");
-	}
-	else if(!dbuf_memcmp(c->infile, 0, "\x01\x00\x00\x00", 4) &&
-		!dbuf_memcmp(c->infile, 40, " EMF", 4))
-	{
-		d->file_fmt = FMT_EMF;
-		de_declare_fmt(c, "EMF");
-	}
-	else {
-		d->file_fmt = FMT_WMF;
-		de_declare_fmt(c, "WMF (non-placeable)");
-	}
-
-	if(d->file_fmt==FMT_EMF) {
-		do_run_emf(c, d);
-	}
-	else {
-		do_run_wmf(c, d);
-	}
+	d->file_fmt = FMT_EMF;
+	de_declare_fmt(c, "EMF");
+	do_emf_record_list(c, d);
 
 	de_free(c, d);
 }
 
-static int de_identify_wmf_emf(deark *c)
+static int de_identify_emf(deark *c)
 {
-	de_byte buf[4];
-
-	de_read(buf, 0, 4);
-
-	if(!de_memcmp(buf, "\xd7\xcd\xc6\x9a", 4))
-		return 100;
-	if(!de_memcmp(buf, "\x01\x00\x00\x00", 4) &&
+	if(!dbuf_memcmp(c->infile, 0, "\x01\x00\x00\x00", 4) &&
 		!dbuf_memcmp(c->infile, 40, " EMF", 4))
 	{
 		return 100;
 	}
-
-	if(de_input_file_has_ext(c, "wmf")) {
-		de_int64 ftype, hsize;
-		ftype = de_getui16le_direct(&buf[0]);
-		hsize = de_getui16le_direct(&buf[2]);
-		if(hsize==9 && (ftype==1 || ftype==2)) {
-			return 80;
-		}
-	}
-
 	return 0;
 }
 
-void de_module_wmf(deark *c, struct deark_module_info *mi)
+void de_module_emf(deark *c, struct deark_module_info *mi)
 {
-	mi->id = "wmf";
-	mi->desc = "Windows Metafile (extract bitmaps only)";
-	mi->run_fn = de_run_wmf_emf;
-	mi->identify_fn = de_identify_wmf_emf;
+	mi->id = "emf";
+	mi->desc = "Enhanced Windows Metafile (extract bitmaps only)";
+	mi->run_fn = de_run_emf;
+	mi->identify_fn = de_identify_emf;
 }

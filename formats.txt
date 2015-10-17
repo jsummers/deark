@@ -76,6 +76,9 @@ Deark -- Information about supported formats
 
 * EggPaint (*.trp) (module="eggpaint")
 
+* Enhanced Windows Metafile (module=emf) (experimental)
+  - Extract BMP images from some records.
+
 * EPOC MBM/Sketch/AIF (module="epocimage")
   - Supports grayscale with 2 or 4 bits/pixel
   - Supports palette color with 4 or 8 bits/pixel
@@ -298,8 +301,7 @@ Deark -- Information about supported formats
   - Version 2 only
 
 * Windows Metafile (module=wmf) (experimental)
-  - Very incomplete.
-  - Extract BMP images from "StretchDIB" records.
+  - Extract BMP images from some records.
 
 * Winzle (module=winzle)
   - Convert Winzle obfuscated BMP (.wzl) to BMP.
