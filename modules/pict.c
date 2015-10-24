@@ -5,6 +5,7 @@
 
 #include <deark-config.h>
 #include <deark-modules.h>
+#include "fmtutil.h"
 
 struct pict_rect {
 	de_int64 t, l, b, r;
@@ -157,52 +158,10 @@ struct bitmapinfo {
 	de_int64 rowbytes;
 	de_int64 width, height;
 	de_int64 packing_type;
+	de_int64 pixeltype, pixelsize;
+	de_int64 cmpcount, cmpsize;
 	double hdpi, vdpi;
 };
-
-// Returns 0 on fatal error (if we could not even parse the data).
-static int read_pixdata(deark *c, lctx *d, struct bitmapinfo *bi,
-	de_int64 pos1, de_int64 *pixdata_size)
-{
-	de_int64 pos;
-	de_int64 j;
-	de_int64 bytecount;
-	int retval = 0;
-
-	pos = pos1;
-	de_dbg(c, "PixData at %d\n", (int)pos);
-	de_dbg_indent(c, 1);
-	if(bi->height<1 || bi->height>65535) {
-		de_err(c, "Invalid bitmap bounds\n");
-		goto done;
-	}
-
-	if(bi->packing_type >= 3) {
-		for(j=0; j<bi->height; j++) {
-			if(bi->rowbytes > 250) {
-				bytecount = de_getui16be(pos);
-				pos+=2;
-			}
-			else {
-				bytecount = (de_int64)de_getbyte(pos);
-				pos+=1;
-			}
-			pos += bytecount;
-		}
-	}
-	else {
-		de_err(c, "Unsupported compression type: %d\n", (int)bi->packing_type);
-		goto done;
-	}
-
-	*pixdata_size = pos - pos1;
-	de_dbg(c, "PixData size: %d\n", (int)*pixdata_size);
-	retval = 1;
-
-done:
-	de_dbg_indent(c, -1);
-	return retval;
-}
 
 static int read_pixmap(deark *c, lctx *d, struct bitmapinfo *bi,
    de_int64 pos, int has_baseaddr)
@@ -211,8 +170,6 @@ static int read_pixmap(deark *c, lctx *d, struct bitmapinfo *bi,
 	de_int64 rowbytes_code;
 	de_int64 pixmap_version;
 	de_int64 pack_size;
-	de_int64 pixeltype, pixelsize;
-	de_int64 cmpcount, cmpsize;
 	de_int64 plane_bytes;
 	int pixmap_flag = 0;
 	de_int64 n;
@@ -251,12 +208,12 @@ static int read_pixmap(deark *c, lctx *d, struct bitmapinfo *bi,
 	bi->vdpi = pict_read_fixed(c->infile, pos+26);
 	de_dbg(c, "dpi: %.2fx%.2f\n", bi->hdpi, bi->vdpi);
 
-	pixeltype = de_getui16be(pos+30);
-	pixelsize = de_getui16be(pos+32);
-	cmpcount = de_getui16be(pos+34);
-	cmpsize = de_getui16be(pos+36);
+	bi->pixeltype = de_getui16be(pos+30);
+	bi->pixelsize = de_getui16be(pos+32);
+	bi->cmpcount = de_getui16be(pos+34);
+	bi->cmpsize = de_getui16be(pos+36);
 	de_dbg(c, "pixel type=%d, bits/pixel=%d, components/pixel=%d, bits/comp=%d\n",
-		(int)pixeltype, (int)pixelsize, (int)cmpcount, (int)cmpsize);
+		(int)bi->pixeltype, (int)bi->pixelsize, (int)bi->cmpcount, (int)bi->cmpsize);
 
 	plane_bytes = de_getui32be(pos+38);
 	de_dbg(c, "plane bytes: %d\n", (int)plane_bytes);
@@ -269,6 +226,146 @@ static int read_pixmap(deark *c, lctx *d, struct bitmapinfo *bi,
 
 	de_dbg_indent(c, -1);
 	return 1;
+}
+
+// Pre-scan the pixel data to figure out its size.
+// (We could instead scan and decode it at the same time, but error handling
+// would get really messy.)
+// Returns 0 on fatal error (if we could not even parse the data).
+static int get_pixdata_size(deark *c, lctx *d, struct bitmapinfo *bi,
+	de_int64 pos1, de_int64 *pixdata_size)
+{
+	de_int64 pos;
+	de_int64 j;
+	de_int64 bytecount;
+	int retval = 0;
+
+	pos = pos1;
+	de_dbg(c, "PixData at %d\n", (int)pos);
+	de_dbg_indent(c, 1);
+	if(bi->height<1 || bi->height>65535) {
+		de_err(c, "Invalid bitmap height (%d)\n", (int)bi->height);
+		goto done;
+	}
+
+	if(bi->packing_type >= 3) {
+		for(j=0; j<bi->height; j++) {
+			if(bi->rowbytes > 250) {
+				bytecount = de_getui16be(pos);
+				pos+=2;
+			}
+			else {
+				bytecount = (de_int64)de_getbyte(pos);
+				pos+=1;
+			}
+			pos += bytecount;
+		}
+	}
+	else {
+		de_err(c, "Unsupported packing type: %d\n", (int)bi->packing_type);
+		goto done;
+	}
+
+	*pixdata_size = pos - pos1;
+	de_dbg(c, "PixData size: %d\n", (int)*pixdata_size);
+	retval = 1;
+
+done:
+	de_dbg_indent(c, -1);
+	return retval;
+}
+
+static void set_density(struct deark_bitmap *img, struct bitmapinfo *bi)
+{
+	if(bi->hdpi>=1.0 && bi->vdpi>=1.0) {
+		img->density_code = DE_DENSITY_DPI;
+		img->xdens = bi->hdpi;
+		img->ydens = bi->vdpi;
+	}
+}
+
+static int decode_pixdata_24bit_rle(deark *c, lctx *d, struct bitmapinfo *bi, de_int64 pos)
+{
+	de_int64 i;
+	de_int64 j;
+	de_int64 rowspan;
+	dbuf *unc_pixels = NULL;
+	struct deark_bitmap *img = NULL;
+	de_int64 bytecount;
+	de_byte cr, cg, cb;
+
+	unc_pixels = dbuf_create_membuf(c, bi->width * bi->height * bi->cmpcount);
+	dbuf_set_max_length(unc_pixels, bi->width * bi->height * bi->cmpcount);
+
+	for(j=0; j<bi->height; j++) {
+		if(bi->rowbytes > 250) {
+			bytecount = de_getui16be(pos);
+			pos+=2;
+		}
+		else {
+			bytecount = (de_int64)de_getbyte(pos);
+			pos+=1;
+		}
+
+		de_fmtutil_uncompress_packbits(c->infile, pos, bytecount, unc_pixels, NULL);
+
+		pos += bytecount;
+	}
+
+	img = de_bitmap_create(c, bi->width, bi->height, 3);
+	set_density(img, bi);
+
+	rowspan = bi->width*bi->cmpcount;
+
+	for(j=0; j<bi->height; j++) {
+		for(i=0; i<bi->width; i++) {
+			cr = dbuf_getbyte(unc_pixels, j*rowspan + (bi->cmpcount-3+0)*bi->width + i);
+			cg = dbuf_getbyte(unc_pixels, j*rowspan + (bi->cmpcount-3+1)*bi->width + i);
+			cb = dbuf_getbyte(unc_pixels, j*rowspan + (bi->cmpcount-3+2)*bi->width + i);
+			de_bitmap_setpixel_rgb(img, i, j, DE_MAKE_RGB(cr,cg,cb));
+		}
+	}
+	de_bitmap_write_to_file(img, NULL);
+
+	de_bitmap_destroy(img);
+	dbuf_close(unc_pixels);
+	return 1;
+}
+
+static int decode_pixdata(deark *c, lctx *d, struct bitmapinfo *bi, de_int64 pos)
+{
+	int retval = 0;
+
+	de_dbg_indent(c, 1);
+
+	if(!de_good_image_dimensions(c, bi->width, bi->height)) goto done;
+
+	if(bi->packing_type!=4) {
+		de_err(c, "Packing type %d is not supported\n", (int)bi->packing_type);
+		goto done;
+	}
+	if(bi->pixeltype!=16) {
+		de_err(c, "Pixel type %d is not supported\n", (int)bi->pixeltype);
+		goto done;
+	}
+	if(bi->cmpcount!=3 && bi->cmpcount!=4) {
+		de_err(c, "Component count %d is not supported\n", (int)bi->cmpcount);
+		goto done;
+	}
+	if(bi->cmpsize!=8) {
+		de_err(c, "%d-bit components are not supported\n", (int)bi->cmpsize);
+		goto done;
+	}
+
+	if(bi->cmpcount==4) {
+		de_warn(c, "This image might have transparency, which is not supported.\n");
+	}
+
+	decode_pixdata_24bit_rle(c, d, bi, pos);
+
+done:
+	de_dbg_indent(c, -1);
+	return retval;
 }
 
 static int handler_98(deark *c, lctx *d, de_int64 opcode, de_int64 pos, de_int64 *bytes_used)
@@ -308,14 +405,14 @@ static int handler_9a(deark *c, lctx *d, de_int64 opcode, de_int64 pos1, de_int6
 	de_dbg(c, "transfer mode: %d\n", (int)n);
 	pos += 2;
 
-	if(!read_pixdata(c, d, &bi, pos, &pixdata_size)) {
+	if(!get_pixdata_size(c, d, &bi, pos, &pixdata_size)) {
 		goto done;
 	}
+	decode_pixdata(c, d, &bi, pos);
 	pos += pixdata_size;
 
 	*bytes_used = pos - pos1;
 
-	de_warn(c, "DirectBitsRect PICT images are not supported\n");
 	retval = 1;
 
 done:
