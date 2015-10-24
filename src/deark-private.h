@@ -16,6 +16,7 @@
 #define DE_ENCODING_CP437_G      10
 #define DE_ENCODING_CP437_C      11
 #define DE_ENCODING_WINDOWS1252  20
+#define DE_ENCODING_VT100_GRAPHICS 80
 #define DE_ENCODING_UNKNOWN      99
 
 typedef struct de_module_params_struct {

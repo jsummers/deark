@@ -71,6 +71,12 @@ static const de_uint16 petscii1table[256] = {
 	0x250c,0x2534,0x252c,0x2524,0x258e,0x258d,0xfffd,0xfffd,0xfffd,0x2583,0xfffd,0x2596,0x259d,0x2518,0x2598,0x03c0
 };
 
+// Derived from VT100 Series Technical manual, Table A-9: Special Graphics Characters (p. A-12)
+static const de_uint16 vt100graphicstable[32] = {
+	0x0000,0x25c6,0x2592,0x2409,0x240c,0x240d,0x240a,0x00b0,0x00b1,0x2424,0x240b,0x2518,0x2510,0x250c,0x2514,0x253c,
+	0x23ba,0x23bb,0x2500,0x23bc,0x23bd,0x251c,0x2524,0x2534,0x252c,0x2502,0x2264,0x2265,0x03c0,0x2260,0x00a3,0x00b7
+};
+
 // Code page 437, with screen code graphics characters.
 static de_int32 de_cp437g_to_unicode(de_int32 a)
 {
@@ -100,6 +106,12 @@ static de_int32 de_petscii_to_unicode(de_int32 a)
 	return 0xfffd;
 }
 
+static de_int32 de_vt100graphics_to_unicode(de_int32 a)
+{
+	if(a<32) return (de_int32)vt100graphicstable[a];
+	return 0xfffd;
+}
+
 de_int32 de_char_to_unicode(deark *c, de_int32 a, int encoding)
 {
 	if(a<0) return 0xfffd;
@@ -113,6 +125,8 @@ de_int32 de_char_to_unicode(deark *c, de_int32 a, int encoding)
 		return de_petscii_to_unicode(a);
 	case DE_ENCODING_WINDOWS1252:
 		return de_windows1252_to_unicode(a);
+	case DE_ENCODING_VT100_GRAPHICS:
+		return de_vt100graphics_to_unicode(a);
 	}
 	// Don't change anything if the encoding is a Unicode subset
 	// (ASCII, LATIN1), or unknown.

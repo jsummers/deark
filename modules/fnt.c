@@ -94,8 +94,19 @@ static void do_make_image(deark *c, lctx *d)
 			font->char_array[i].codepoint = char_index;
 
 			if(font->has_unicode_codepoints) {
-				font->char_array[i].codepoint_unicode =
-					de_char_to_unicode(c, char_index, d->encoding);
+				if(char_index<32 && d->dfCharSet==0) {
+					// This kind of font usually doesn't have glyphs below 32.
+					// If it does, assume that they are VT100 line drawing characters.
+					// TODO: There are likely some codepoint collisions. For example,
+					// a degree symbol is at codepoint 7 and 176. It would be nice if
+					// we displayed both glyphs somehow.
+					font->char_array[i].codepoint_unicode =
+						de_char_to_unicode(c, char_index, DE_ENCODING_VT100_GRAPHICS);
+				}
+				else {
+					font->char_array[i].codepoint_unicode =
+						de_char_to_unicode(c, char_index, d->encoding);
+				}
 			}
 		}
 
