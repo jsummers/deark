@@ -100,6 +100,7 @@ void de_register_modules(deark *c)
 		de_module_tinystuff,
 		de_module_neochrome,
 		de_module_neochrome_ani,
+		de_module_iim,
 		de_module_ripicon,
 		de_module_insetpix,
 		de_module_printshop,

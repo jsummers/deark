@@ -987,3 +987,58 @@ void de_module_olpc565(deark *c, struct deark_module_info *mi)
 	mi->run_fn = de_run_olpc565;
 	mi->identify_fn = de_identify_olpc565;
 }
+
+// **************************************************************************
+// InShape .IIM
+// **************************************************************************
+
+static void de_run_iim(deark *c, de_module_params *mparams)
+{
+	struct deark_bitmap *img = NULL;
+	de_int64 width, height;
+	de_int64 i, j;
+	de_int64 n, bpp;
+	de_int64 rowspan;
+	de_uint32 clr;
+
+	// This code is based on reverse engineering, and may be incorrect.
+
+	n = de_getui16be(8); // Unknown field
+	bpp = de_getui16be(10);
+	if(n!=4 || bpp!=24) {
+		de_dbg(c, "This type of IIM image is not supported\n");
+		goto done;
+	}
+	width = de_getui16be(12);
+	height = de_getui16be(14);
+	if(!de_good_image_dimensions(c, width, height)) goto done;
+	rowspan = width*3;
+
+	img = de_bitmap_create(c, width, height, 3);
+
+	for(j=0; j<height; j++) {
+		for(i=0; i<width; i++) {
+			clr = dbuf_getRGB(c->infile, 16+j*rowspan+i*3, 0);
+			de_bitmap_setpixel_rgb(img, i, j, clr);
+		}
+	}
+	de_bitmap_write_to_file(img, NULL);
+
+done:
+	de_bitmap_destroy(img);
+}
+
+static int de_identify_iim(deark *c)
+{
+	if(!dbuf_memcmp(c->infile, 0, "IS_IMAGE", 8))
+		return 100;
+	return 0;
+}
+
+void de_module_iim(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "iim";
+	mi->desc = "InShape IIM";
+	mi->run_fn = de_run_iim;
+	mi->identify_fn = de_identify_iim;
+}

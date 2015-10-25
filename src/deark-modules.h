@@ -99,3 +99,4 @@ void de_module_alphabmp(deark *c, struct deark_module_info *mi);
 void de_module_wmf(deark *c, struct deark_module_info *mi);
 void de_module_emf(deark *c, struct deark_module_info *mi);
 void de_module_pict(deark *c, struct deark_module_info *mi);
+void de_module_iim(deark *c, struct deark_module_info *mi);
