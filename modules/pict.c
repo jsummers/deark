@@ -293,9 +293,11 @@ static int decode_pixdata_24bit_rle(deark *c, lctx *d, struct bitmapinfo *bi, de
 	struct deark_bitmap *img = NULL;
 	de_int64 bytecount;
 	de_byte cr, cg, cb;
+	de_int64 bitmapsize;
 
-	unc_pixels = dbuf_create_membuf(c, bi->width * bi->height * bi->cmpcount);
-	dbuf_set_max_length(unc_pixels, bi->width * bi->height * bi->cmpcount);
+	bitmapsize = bi->width * bi->height * (bi->pixelsize/8);
+	unc_pixels = dbuf_create_membuf(c, bitmapsize);
+	dbuf_set_max_length(unc_pixels, bitmapsize);
 
 	for(j=0; j<bi->height; j++) {
 		if(bi->rowbytes > 250) {
@@ -315,7 +317,7 @@ static int decode_pixdata_24bit_rle(deark *c, lctx *d, struct bitmapinfo *bi, de
 	img = de_bitmap_create(c, bi->width, bi->height, 3);
 	set_density(img, bi);
 
-	rowspan = bi->width*bi->cmpcount;
+	rowspan = bi->width*(bi->pixelsize/8);
 
 	for(j=0; j<bi->height; j++) {
 		for(i=0; i<bi->width; i++) {
@@ -340,8 +342,8 @@ static int decode_pixdata(deark *c, lctx *d, struct bitmapinfo *bi, de_int64 pos
 
 	if(!de_good_image_dimensions(c, bi->width, bi->height)) goto done;
 
-	if(bi->packing_type!=4) {
-		de_err(c, "Packing type %d is not supported\n", (int)bi->packing_type);
+	if(/*bi->pixelsize!=16 && */ bi->pixelsize!=24 && bi->pixelsize!=32) {
+		de_err(c, "%d bits/pixel images are not supported\n", (int)bi->pixelsize);
 		goto done;
 	}
 	if(bi->pixeltype!=16) {
@@ -354,6 +356,20 @@ static int decode_pixdata(deark *c, lctx *d, struct bitmapinfo *bi, de_int64 pos
 	}
 	if(bi->cmpsize!=8) {
 		de_err(c, "%d-bit components are not supported\n", (int)bi->cmpsize);
+		goto done;
+	}
+	if(bi->packing_type!=3 && bi->packing_type!=4) {
+		de_err(c, "Packing type %d is not supported\n", (int)bi->packing_type);
+		goto done;
+	}
+	if(/*(bi->packing_type==3 && bi->pixelsize==16 && bi->cmpcount==3 && bi->cmpsize==5) || */
+		(bi->packing_type==4 && bi->pixelsize==24 && bi->cmpcount==3 && bi->cmpsize==8) ||
+		(bi->packing_type==4 && bi->pixelsize==32 && bi->cmpcount==4 && bi->cmpsize==8))
+	{
+		;
+	}
+	else {
+		de_err(c, "This type of image is not supported\n");
 		goto done;
 	}
 
