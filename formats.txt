@@ -221,6 +221,8 @@ Deark -- Information about supported formats
 
 * PI9 (Atari Falcon 320x200) (module="fpaint_pi9")
 
+* PICT (Macintosh image) (module="pict") (partial support)
+
 * PNG (module="png")
   - Extract ICC profiles.
 
