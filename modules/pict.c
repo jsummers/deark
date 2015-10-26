@@ -273,7 +273,7 @@ static int read_colortable(deark *c, lctx *d, struct bitmapinfo *bi, de_int64 po
 	ct_flags = (de_uint32)de_getui16be(pos+4);
 	ct_size = de_getui16be(pos+6);
 	bi->num_pal_entries = ct_size+1;
-	de_dbg(c, "color table id=%d, flags=0x%02x, colors=%d\n", (int)ct_id,
+	de_dbg(c, "color table id=0x%08x, flags=0x%04x, colors=%d\n", (unsigned int)ct_id,
 		(unsigned int)ct_flags, (int)bi->num_pal_entries);
 
 	for(k=0; k<bi->num_pal_entries; k++) {
@@ -609,12 +609,23 @@ static int handler_a1(deark *c, lctx *d, de_int64 opcode, de_int64 data_pos, de_
 {
 	de_int64 kind;
 	de_int64 len;
+
 	kind = de_getui16be(data_pos);
 	len = de_getui16be(data_pos+2);
 	de_dbg(c, "comment kind: %d, size: %d\n", (int)kind, (int)len);
 	*bytes_used = 4+len;
 
-	if(kind==224) {
+	if(kind==100 && len>=4) {
+		de_byte sig[4];
+		char sig_printable[8];
+
+		de_read(sig, data_pos+4, 4);
+		de_make_printable_ascii(sig, 4, sig_printable, sizeof(sig_printable), 0);
+		de_dbg(c, "application comment, signature=\"%s\" (%02x %02x %02x %02x)\n",
+			sig_printable, (unsigned int)sig[0], (unsigned int)sig[1],
+			(unsigned int)sig[2], (unsigned int)sig[3]);
+	}
+	else if(kind==224) {
 		do_iccprofile_item(c, d, data_pos+4, len);
 	}
 
