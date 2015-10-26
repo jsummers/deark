@@ -12,7 +12,7 @@ struct pict_rect {
 };
 
 typedef struct localctx_struct {
-	int is_v2; // >0 if the file is known to be in v2 format
+	int version; // 2 if file is known to be v2, 1 otherwise.
 	int is_extended_v2;
 	dbuf *iccprofile_file;
 } lctx;
@@ -115,7 +115,7 @@ static int handler_11(deark *c, lctx *d, de_int64 opcode, de_int64 data_pos, de_
 	de_dbg(c, "version: %d\n", (int)ver);
 
 	if(ver==2) {
-		d->is_v2 = 1;
+		d->version = 2;
 	}
 	else if(ver!=1) {
 		de_err(c, "Unsupported PICT version: %d\n", (int)ver);
@@ -162,20 +162,50 @@ struct bitmapinfo {
 	de_int64 pixeltype, pixelsize;
 	de_int64 cmpcount, cmpsize;
 	double hdpi, vdpi;
-	int has_pal;
+	int has_colortable; // Does the file contain a colortable for this bitmap?
+	int uses_pal; // Are we using the palette below?
 	de_int64 num_pal_entries;
 	de_uint32 pal[256];
 };
 
-static int read_pixmap(deark *c, lctx *d, struct bitmapinfo *bi,
-   de_int64 pos, int has_baseaddr)
+static void read_rowbytes_and_bounds(deark *c, lctx *d, struct bitmapinfo *bi,
+   de_int64 pos)
 {
 	struct pict_rect tmprect;
 	de_int64 rowbytes_code;
+	int pixmap_flag = 0;
+
+	rowbytes_code = de_getui16be(pos);
+	bi->rowbytes = rowbytes_code & 0x7fff;
+	pixmap_flag = (rowbytes_code & 0x8000)?1:0;
+	de_dbg(c, "rowBytes: %d\n", (int)bi->rowbytes);
+	de_dbg(c, "pixmap flag: %d\n", pixmap_flag);
+
+	pict_read_rect(c->infile, pos+2, &tmprect, "rect");
+	bi->width = tmprect.r - tmprect.l;
+	bi->height = tmprect.b - tmprect.t;
+}
+
+static int read_PackBitsRect_header_v1(deark *c, lctx *d, struct bitmapinfo *bi,
+   de_int64 pos)
+{
+	read_rowbytes_and_bounds(c, d, bi, pos);
+	bi->pixelsize = 1;
+	bi->cmpcount = 1;
+	bi->cmpsize = 1;
+	bi->uses_pal = 1;
+	bi->num_pal_entries = 2;
+	bi->pal[0] = DE_MAKE_GRAY(255);
+	bi->pal[1] = DE_MAKE_GRAY(0);
+	return 1;
+}
+
+static int read_pixmap(deark *c, lctx *d, struct bitmapinfo *bi,
+   de_int64 pos, int has_baseaddr)
+{
 	de_int64 pixmap_version;
 	de_int64 pack_size;
 	de_int64 plane_bytes;
-	int pixmap_flag = 0;
 	de_int64 n;
 
 	de_dbg(c, "PixMap at %d\n", (int)pos);
@@ -189,15 +219,7 @@ static int read_pixmap(deark *c, lctx *d, struct bitmapinfo *bi,
 		pos -= 4;
 	}
 
-	rowbytes_code = de_getui16be(pos+4);
-	bi->rowbytes = rowbytes_code & 0x7fff;
-	pixmap_flag = (rowbytes_code & 0x8000)?1:0;
-	de_dbg(c, "rowBytes: %d\n", (int)bi->rowbytes);
-	de_dbg(c, "pixmap flag: %d\n", pixmap_flag);
-
-	pict_read_rect(c->infile, pos+6, &tmprect, "rect");
-	bi->width = tmprect.r - tmprect.l;
-	bi->height = tmprect.b - tmprect.t;
+	read_rowbytes_and_bounds(c, d, bi, pos+4);
 
 	pixmap_version = de_getui16be(pos+14);
 	de_dbg(c, "pixmap version: %d\n", (int)pixmap_version);
@@ -404,7 +426,7 @@ static int decode_bitmap(deark *c, lctx *d, struct bitmapinfo *bi, de_int64 pos)
 	}
 
 	dst_nsamples = 3;
-	if(bi->has_pal) {
+	if(bi->uses_pal) {
 		if(de_is_grayscale_palette(bi->pal, bi->num_pal_entries)) {
 			dst_nsamples = 1;
 		}
@@ -417,7 +439,7 @@ static int decode_bitmap(deark *c, lctx *d, struct bitmapinfo *bi, de_int64 pos)
 		img->ydens = bi->vdpi;
 	}
 
-	if(bi->has_pal) {
+	if(bi->uses_pal) {
 		decode_bitmap_paletted(c, d, bi, unc_pixels, img, pos);
 	}
 	else {
@@ -443,7 +465,7 @@ static int decode_pixdata(deark *c, lctx *d, struct bitmapinfo *bi, de_int64 pos
 		de_err(c, "%d bits/pixel images are not supported\n", (int)bi->pixelsize);
 		goto done;
 	}
-	if((bi->has_pal && bi->pixeltype!=0) || (!bi->has_pal && bi->pixeltype!=16)) {
+	if((bi->uses_pal && bi->pixeltype!=0) || (!bi->uses_pal && bi->pixeltype!=16)) {
 		de_err(c, "Pixel type %d is not supported\n", (int)bi->pixeltype);
 		goto done;
 	}
@@ -459,11 +481,11 @@ static int decode_pixdata(deark *c, lctx *d, struct bitmapinfo *bi, de_int64 pos
 		de_err(c, "Packing type %d is not supported\n", (int)bi->packing_type);
 		goto done;
 	}
-	if((bi->has_pal && bi->packing_type==0 && bi->pixelsize==1 && bi->cmpcount==1 && bi->cmpsize==1) ||
-		(bi->has_pal && bi->packing_type==0 && bi->pixelsize==8 && bi->cmpcount==1 && bi->cmpsize==8) ||
-		/*(!bi->has_pal && bi->packing_type==3 && bi->pixelsize==16 && bi->cmpcount==3 && bi->cmpsize==5) || */
-		(!bi->has_pal && bi->packing_type==4 && bi->pixelsize==32 && bi->cmpcount==3 && bi->cmpsize==8) ||
-		(!bi->has_pal && bi->packing_type==4 && bi->pixelsize==32 && bi->cmpcount==4 && bi->cmpsize==8))
+	if((bi->uses_pal && bi->packing_type==0 && bi->pixelsize==1 && bi->cmpcount==1 && bi->cmpsize==1) ||
+		(bi->uses_pal && bi->packing_type==0 && bi->pixelsize==8 && bi->cmpcount==1 && bi->cmpsize==8) ||
+		/*(!bi->uses_pal && bi->packing_type==3 && bi->pixelsize==16 && bi->cmpcount==3 && bi->cmpsize==5) || */
+		(!bi->uses_pal && bi->packing_type==4 && bi->pixelsize==32 && bi->cmpcount==3 && bi->cmpsize==8) ||
+		(!bi->uses_pal && bi->packing_type==4 && bi->pixelsize==32 && bi->cmpcount==4 && bi->cmpsize==8))
 	{
 		;
 	}
@@ -496,17 +518,27 @@ static int handler_98_9a(deark *c, lctx *d, de_int64 opcode, de_int64 pos1, de_i
 	de_memset(&bi, 0, sizeof(struct bitmapinfo));
 	pos = pos1;
 
-	if(opcode==0x9a) {
+	if(opcode==0x98 && d->version==1) {
+		read_PackBitsRect_header_v1(c, d, &bi, pos);
+		pos += 10;
+	}
+	else if(opcode==0x98 && d->version==2) {
+		bi.uses_pal = 1;
+		bi.has_colortable = 1;
+		read_pixmap(c, d, &bi, pos, 0);
+		pos += 46;
+	}
+	else if(opcode==0x9a && d->version==2) {
 		read_pixmap(c, d, &bi, pos, 1);
 		pos += 50;
 	}
 	else {
-		bi.has_pal = 1;
-		read_pixmap(c, d, &bi, pos, 0);
-		pos += 46;
+		de_err(c, "This PICT bitmap (opcode 0x%02x, version %d) is not supported\n",
+			(unsigned int)opcode, (int)d->version);
+		goto done;
 	}
 
-	if(bi.has_pal) {
+	if(bi.has_colortable) {
 		if(!read_colortable(c, d, &bi, pos, &colortable_size)) goto done;
 		pos += colortable_size;
 	}
@@ -669,6 +701,7 @@ static int do_handle_item(deark *c, lctx *d, de_int64 opcode_pos, de_int64 opcod
 	const char *opcode_name;
 	const struct opcode_info *opi;
 	de_int64 n;
+	struct pict_rect tmprect;
 	int ret = 0;
 
 	*data_bytes_used = 0;
@@ -677,7 +710,7 @@ static int do_handle_item(deark *c, lctx *d, de_int64 opcode_pos, de_int64 opcod
 	if(opi && opi->name) opcode_name = opi->name;
 	else opcode_name = "?";
 
-	if(d->is_v2)
+	if(d->version==2)
 		de_dbg(c, "opcode 0x%04x (%s) at %d\n", (unsigned int)opcode, opcode_name, (int)opcode_pos);
 	else
 		de_dbg(c, "opcode 0x%02x (%s) at %d\n", (unsigned int)opcode, opcode_name, (int)opcode_pos);
@@ -696,6 +729,9 @@ static int do_handle_item(deark *c, lctx *d, de_int64 opcode_pos, de_int64 opcod
 		n = de_getui16be(data_pos);
 		de_dbg_indent(c, 1);
 		de_dbg(c, "region size: %d\n", (int)n);
+		if(n>=10) {
+			pict_read_rect(c->infile, data_pos+2, &tmprect, "rect");
+		}
 		de_dbg_indent(c, -1);
 		*data_bytes_used = n;
 		ret = 1;
@@ -727,7 +763,7 @@ static void do_read_items(deark *c, lctx *d, de_int64 pos)
 	int ret;
 
 	while(1) {
-		if(pos%2 && d->is_v2) {
+		if(pos%2 && d->version==2) {
 			pos++; // 2-byte alignment
 		}
 
@@ -735,7 +771,7 @@ static void do_read_items(deark *c, lctx *d, de_int64 pos)
 
 		opcode_pos = pos;
 
-		if(d->is_v2) {
+		if(d->version==2) {
 			opcode = de_getui16be(pos);
 			pos+=2;
 		}
@@ -762,6 +798,7 @@ static void de_run_pict(deark *c, de_module_params *mparams)
 	struct pict_rect framerect;
 
 	d = de_malloc(c, sizeof(lctx));
+	d->version = 1;
 
 	de_dbg(c, "PICT\n");
 	pos = 512;
