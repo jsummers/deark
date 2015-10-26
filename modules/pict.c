@@ -343,15 +343,13 @@ static void decode_bitmap_rgb(deark *c, lctx *d, struct bitmapinfo *bi,
 {
 	de_int64 i, j;
 	de_byte cr, cg, cb;
-	de_uint32 clr;
 
 	for(j=0; j<bi->height; j++) {
 		for(i=0; i<bi->width; i++) {
 			cr = dbuf_getbyte(unc_pixels, j*bi->rowspan + (bi->cmpcount-3+0)*bi->width + i);
 			cg = dbuf_getbyte(unc_pixels, j*bi->rowspan + (bi->cmpcount-3+1)*bi->width + i);
 			cb = dbuf_getbyte(unc_pixels, j*bi->rowspan + (bi->cmpcount-3+2)*bi->width + i);
-			clr = DE_MAKE_RGB(cr,cg,cb);
-			de_bitmap_setpixel_rgb(img, i, j, clr);
+			de_bitmap_setpixel_rgb(img, i, j, DE_MAKE_RGB(cr,cg,cb));
 		}
 	}
 }
@@ -365,7 +363,7 @@ static void decode_bitmap_paletted(deark *c, lctx *d, struct bitmapinfo *bi,
 
 	for(j=0; j<bi->height; j++) {
 		for(i=0; i<bi->width; i++) {
-			b = dbuf_getbyte(unc_pixels, j*bi->rowspan + i);
+			b = de_get_bits_symbol(unc_pixels, bi->pixelsize, j*bi->rowspan, i);
 			clr = bi->pal[(unsigned int)b];
 			de_bitmap_setpixel_rgb(img, i, j, clr);
 		}
@@ -379,6 +377,7 @@ static int decode_bitmap(deark *c, lctx *d, struct bitmapinfo *bi, de_int64 pos)
 	struct deark_bitmap *img = NULL;
 	de_int64 bytecount;
 	de_int64 bitmapsize;
+	int dst_nsamples;
 
 	bi->rowspan = bi->rowbytes;
 	if(bi->pixelsize==32 && bi->cmpcount==3 && bi->cmpsize==8) {
@@ -404,7 +403,14 @@ static int decode_bitmap(deark *c, lctx *d, struct bitmapinfo *bi, de_int64 pos)
 		pos += bytecount;
 	}
 
-	img = de_bitmap_create(c, bi->width, bi->height, 3);
+	dst_nsamples = 3;
+	if(bi->has_pal) {
+		if(de_is_grayscale_palette(bi->pal, bi->num_pal_entries)) {
+			dst_nsamples = 1;
+		}
+	}
+
+	img = de_bitmap_create(c, bi->width, bi->height, dst_nsamples);
 	if(bi->hdpi>=1.0 && bi->vdpi>=1.0) {
 		img->density_code = DE_DENSITY_DPI;
 		img->xdens = bi->hdpi;
@@ -433,7 +439,7 @@ static int decode_pixdata(deark *c, lctx *d, struct bitmapinfo *bi, de_int64 pos
 
 	if(!de_good_image_dimensions(c, bi->width, bi->height)) goto done;
 
-	if(bi->pixelsize!=8 && /*bi->pixelsize!=16 && */ bi->pixelsize!=24 && bi->pixelsize!=32) {
+	if(bi->pixelsize!=1 && bi->pixelsize!=8 && /*bi->pixelsize!=16 && */ bi->pixelsize!=24 && bi->pixelsize!=32) {
 		de_err(c, "%d bits/pixel images are not supported\n", (int)bi->pixelsize);
 		goto done;
 	}
@@ -445,7 +451,7 @@ static int decode_pixdata(deark *c, lctx *d, struct bitmapinfo *bi, de_int64 pos
 		de_err(c, "Component count %d is not supported\n", (int)bi->cmpcount);
 		goto done;
 	}
-	if(bi->cmpsize!=8) {
+	if(bi->cmpsize!=1 && bi->cmpsize!=8) {
 		de_err(c, "%d-bit components are not supported\n", (int)bi->cmpsize);
 		goto done;
 	}
