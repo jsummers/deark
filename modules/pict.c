@@ -189,6 +189,8 @@ static void read_rowbytes_and_bounds(deark *c, lctx *d, struct bitmapinfo *bi,
 static int read_PackBitsRect_header_v1(deark *c, lctx *d, struct bitmapinfo *bi,
    de_int64 pos)
 {
+	de_dbg(c, "PackBitsRect v1 header at %d\n", (int)pos);
+	de_dbg_indent(c, 1);
 	read_rowbytes_and_bounds(c, d, bi, pos);
 	bi->pixelsize = 1;
 	bi->cmpcount = 1;
@@ -197,6 +199,7 @@ static int read_PackBitsRect_header_v1(deark *c, lctx *d, struct bitmapinfo *bi,
 	bi->num_pal_entries = 2;
 	bi->pal[0] = DE_MAKE_GRAY(255);
 	bi->pal[1] = DE_MAKE_GRAY(0);
+	de_dbg_indent(c, -1);
 	return 1;
 }
 
@@ -214,40 +217,38 @@ static int read_pixmap(deark *c, lctx *d, struct bitmapinfo *bi,
 	if(has_baseaddr) {
 		n = de_getui32be(pos);
 		de_dbg(c, "baseAddr: 0x%08x\n", (unsigned int)n);
-	}
-	else {
-		pos -= 4;
+		pos += 4;
 	}
 
-	read_rowbytes_and_bounds(c, d, bi, pos+4);
+	read_rowbytes_and_bounds(c, d, bi, pos);
 
-	pixmap_version = de_getui16be(pos+14);
+	pixmap_version = de_getui16be(pos+10);
 	de_dbg(c, "pixmap version: %d\n", (int)pixmap_version);
 
-	bi->packing_type = de_getui16be(pos+16);
+	bi->packing_type = de_getui16be(pos+12);
 	de_dbg(c, "packing type: %d\n", (int)bi->packing_type);
 
-	pack_size = de_getui32be(pos+18);
+	pack_size = de_getui32be(pos+14);
 	de_dbg(c, "pixel data length: %d\n", (int)pack_size);
 
-	bi->hdpi = pict_read_fixed(c->infile, pos+22);
-	bi->vdpi = pict_read_fixed(c->infile, pos+26);
+	bi->hdpi = pict_read_fixed(c->infile, pos+18);
+	bi->vdpi = pict_read_fixed(c->infile, pos+22);
 	de_dbg(c, "dpi: %.2fx%.2f\n", bi->hdpi, bi->vdpi);
 
-	bi->pixeltype = de_getui16be(pos+30);
-	bi->pixelsize = de_getui16be(pos+32);
-	bi->cmpcount = de_getui16be(pos+34);
-	bi->cmpsize = de_getui16be(pos+36);
+	bi->pixeltype = de_getui16be(pos+26);
+	bi->pixelsize = de_getui16be(pos+28);
+	bi->cmpcount = de_getui16be(pos+30);
+	bi->cmpsize = de_getui16be(pos+32);
 	de_dbg(c, "pixel type=%d, bits/pixel=%d, components/pixel=%d, bits/comp=%d\n",
 		(int)bi->pixeltype, (int)bi->pixelsize, (int)bi->cmpcount, (int)bi->cmpsize);
 
-	plane_bytes = de_getui32be(pos+38);
+	plane_bytes = de_getui32be(pos+34);
 	de_dbg(c, "plane bytes: %d\n", (int)plane_bytes);
 
-	n = de_getui32be(pos+42);
+	n = de_getui32be(pos+38);
 	de_dbg(c, "pmTable: 0x%08x\n", (unsigned int)n);
 
-	n = de_getui32be(pos+46);
+	n = de_getui32be(pos+42);
 	de_dbg(c, "pmReserved: 0x%08x\n", (unsigned int)n);
 
 	de_dbg_indent(c, -1);
