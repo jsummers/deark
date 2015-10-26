@@ -155,12 +155,14 @@ static int handler_2b(deark *c, lctx *d, de_int64 opcode, de_int64 data_pos, de_
 }
 
 struct bitmapinfo {
-	de_int64 rowbytes;
+	de_int64 rowbytes; // The rowBytes field
+	de_int64 rowspan; // Actual number of bytes/row
 	de_int64 width, height;
 	de_int64 packing_type;
 	de_int64 pixeltype, pixelsize;
 	de_int64 cmpcount, cmpsize;
 	double hdpi, vdpi;
+	int has_pal;
 	de_int64 num_pal_entries;
 	de_uint32 pal[256];
 };
@@ -336,33 +338,54 @@ done:
 	return retval;
 }
 
-static void set_density(struct deark_bitmap *img, struct bitmapinfo *bi)
+static void decode_bitmap_rgb(deark *c, lctx *d, struct bitmapinfo *bi,
+	dbuf *unc_pixels, struct deark_bitmap *img, de_int64 pos)
 {
-	if(bi->hdpi>=1.0 && bi->vdpi>=1.0) {
-		img->density_code = DE_DENSITY_DPI;
-		img->xdens = bi->hdpi;
-		img->ydens = bi->vdpi;
+	de_int64 i, j;
+	de_byte cr, cg, cb;
+	de_uint32 clr;
+
+	for(j=0; j<bi->height; j++) {
+		for(i=0; i<bi->width; i++) {
+			cr = dbuf_getbyte(unc_pixels, j*bi->rowspan + (bi->cmpcount-3+0)*bi->width + i);
+			cg = dbuf_getbyte(unc_pixels, j*bi->rowspan + (bi->cmpcount-3+1)*bi->width + i);
+			cb = dbuf_getbyte(unc_pixels, j*bi->rowspan + (bi->cmpcount-3+2)*bi->width + i);
+			clr = DE_MAKE_RGB(cr,cg,cb);
+			de_bitmap_setpixel_rgb(img, i, j, clr);
+		}
 	}
 }
 
-static int decode_pixdata_24bit_rle(deark *c, lctx *d, struct bitmapinfo *bi, de_int64 pos)
+static void decode_bitmap_paletted(deark *c, lctx *d, struct bitmapinfo *bi,
+	dbuf *unc_pixels, struct deark_bitmap *img, de_int64 pos)
 {
-	de_int64 i;
+	de_int64 i, j;
+	de_byte b;
+	de_uint32 clr;
+
+	for(j=0; j<bi->height; j++) {
+		for(i=0; i<bi->width; i++) {
+			b = dbuf_getbyte(unc_pixels, j*bi->rowspan + i);
+			clr = bi->pal[(unsigned int)b];
+			de_bitmap_setpixel_rgb(img, i, j, clr);
+		}
+	}
+}
+
+static int decode_bitmap(deark *c, lctx *d, struct bitmapinfo *bi, de_int64 pos)
+{
 	de_int64 j;
 	dbuf *unc_pixels = NULL;
 	struct deark_bitmap *img = NULL;
 	de_int64 bytecount;
-	de_int64 rowspan;
-	de_byte cr, cg, cb;
-	de_uint32 clr;
 	de_int64 bitmapsize;
 
-	rowspan = bi->rowbytes;
+	bi->rowspan = bi->rowbytes;
 	if(bi->pixelsize==32 && bi->cmpcount==3 && bi->cmpsize==8) {
-		rowspan = (bi->rowbytes/4)*3;
+		bi->rowspan = (bi->rowbytes/4)*3;
 	}
 
-	bitmapsize = bi->height * rowspan;
+	bitmapsize = bi->height * bi->rowspan;
 	unc_pixels = dbuf_create_membuf(c, bitmapsize);
 	dbuf_set_max_length(unc_pixels, bitmapsize);
 
@@ -382,23 +405,19 @@ static int decode_pixdata_24bit_rle(deark *c, lctx *d, struct bitmapinfo *bi, de
 	}
 
 	img = de_bitmap_create(c, bi->width, bi->height, 3);
-	set_density(img, bi);
-
-	for(j=0; j<bi->height; j++) {
-		for(i=0; i<bi->width; i++) {
-			if(bi->cmpcount==1) {
-				cr = dbuf_getbyte(unc_pixels, j*rowspan + i);
-				clr = bi->pal[(unsigned int)cr];
-			}
-			else {
-				cr = dbuf_getbyte(unc_pixels, j*rowspan + (bi->cmpcount-3+0)*bi->width + i);
-				cg = dbuf_getbyte(unc_pixels, j*rowspan + (bi->cmpcount-3+1)*bi->width + i);
-				cb = dbuf_getbyte(unc_pixels, j*rowspan + (bi->cmpcount-3+2)*bi->width + i);
-				clr = DE_MAKE_RGB(cr,cg,cb);
-			}
-			de_bitmap_setpixel_rgb(img, i, j, clr);
-		}
+	if(bi->hdpi>=1.0 && bi->vdpi>=1.0) {
+		img->density_code = DE_DENSITY_DPI;
+		img->xdens = bi->hdpi;
+		img->ydens = bi->vdpi;
 	}
+
+	if(bi->has_pal) {
+		decode_bitmap_paletted(c, d, bi, unc_pixels, img, pos);
+	}
+	else {
+		decode_bitmap_rgb(c, d, bi, unc_pixels, img, pos);
+	}
+
 	de_bitmap_write_to_file(img, NULL);
 
 	de_bitmap_destroy(img);
@@ -418,7 +437,7 @@ static int decode_pixdata(deark *c, lctx *d, struct bitmapinfo *bi, de_int64 pos
 		de_err(c, "%d bits/pixel images are not supported\n", (int)bi->pixelsize);
 		goto done;
 	}
-	if(bi->pixeltype!=0 && bi->pixeltype!=16) {
+	if((bi->has_pal && bi->pixeltype!=0) || (!bi->has_pal && bi->pixeltype!=16)) {
 		de_err(c, "Pixel type %d is not supported\n", (int)bi->pixeltype);
 		goto done;
 	}
@@ -434,10 +453,11 @@ static int decode_pixdata(deark *c, lctx *d, struct bitmapinfo *bi, de_int64 pos
 		de_err(c, "Packing type %d is not supported\n", (int)bi->packing_type);
 		goto done;
 	}
-	if((bi->packing_type==0 && bi->pixeltype==0 && bi->pixelsize==8 && bi->cmpcount==1 && bi->cmpsize==8) ||
-		/*(bi->packing_type==3 && bi->pixeltype==16 && bi->pixelsize==16 && bi->cmpcount==3 && bi->cmpsize==5) || */
-		(bi->packing_type==4 && bi->pixeltype==16 && bi->pixelsize==32 && bi->cmpcount==3 && bi->cmpsize==8) ||
-		(bi->packing_type==4 && bi->pixeltype==16 && bi->pixelsize==32 && bi->cmpcount==4 && bi->cmpsize==8))
+	if((bi->has_pal && bi->packing_type==0 && bi->pixelsize==1 && bi->cmpcount==1 && bi->cmpsize==1) ||
+		(bi->has_pal && bi->packing_type==0 && bi->pixelsize==8 && bi->cmpcount==1 && bi->cmpsize==8) ||
+		/*(!bi->has_pal && bi->packing_type==3 && bi->pixelsize==16 && bi->cmpcount==3 && bi->cmpsize==5) || */
+		(!bi->has_pal && bi->packing_type==4 && bi->pixelsize==32 && bi->cmpcount==3 && bi->cmpsize==8) ||
+		(!bi->has_pal && bi->packing_type==4 && bi->pixelsize==32 && bi->cmpcount==4 && bi->cmpsize==8))
 	{
 		;
 	}
@@ -450,7 +470,7 @@ static int decode_pixdata(deark *c, lctx *d, struct bitmapinfo *bi, de_int64 pos
 		de_warn(c, "This image might have transparency, which is not supported.\n");
 	}
 
-	decode_pixdata_24bit_rle(c, d, bi, pos);
+	decode_bitmap(c, d, bi, pos);
 
 done:
 	de_dbg_indent(c, -1);
@@ -475,11 +495,12 @@ static int handler_98_9a(deark *c, lctx *d, de_int64 opcode, de_int64 pos1, de_i
 		pos += 50;
 	}
 	else {
+		bi.has_pal = 1;
 		read_pixmap(c, d, &bi, pos, 0);
 		pos += 46;
 	}
 
-	if(opcode==0x98) {
+	if(bi.has_pal) {
 		if(!read_colortable(c, d, &bi, pos, &colortable_size)) goto done;
 		pos += colortable_size;
 	}
