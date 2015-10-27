@@ -330,6 +330,7 @@ void dbuf_close(dbuf *f);
 
 void dbuf_write(dbuf *f, const de_byte *m, de_int64 len);
 void dbuf_write_zeroes(dbuf *f, de_int64 len);
+void dbuf_truncate(dbuf *f, de_int64 len);
 void dbuf_write_run(dbuf *f, de_byte n, de_int64 len);
 
 void de_writeui16le_direct(de_byte *m, de_int64 n);

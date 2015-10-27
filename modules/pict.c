@@ -263,14 +263,13 @@ static int read_colortable(deark *c, lctx *d, struct bitmapinfo *bi, de_int64 po
 	de_int64 k, z;
 	de_uint32 s[4];
 	de_byte cr, cg, cb;
-	int seen_idx_0 = 0;
 
 	*bytes_used = 0;
 	de_dbg(c, "color table at %d\n", (int)pos);
 	de_dbg_indent(c, 1);
 
 	ct_id = de_getui32be(pos);
-	ct_flags = (de_uint32)de_getui16be(pos+4);
+	ct_flags = (de_uint32)de_getui16be(pos+4); // a.k.a. transIndex
 	ct_size = de_getui16be(pos+6);
 	bi->num_pal_entries = ct_size+1;
 	de_dbg(c, "color table id=0x%08x, flags=0x%04x, colors=%d\n", (unsigned int)ct_id,
@@ -287,16 +286,16 @@ static int read_colortable(deark *c, lctx *d, struct bitmapinfo *bi, de_int64 po
 			(int)s[1], (int)s[2], (int)s[3],
 			(int)cr, (int)cg, (int)cb);
 
-		// Some files don't set the palette indices. Try to correct for that.
-		if(k!=0 && s[0]==0 && seen_idx_0) {
+		// Some files don't have the palette indices set. Most PICT decoders ignore
+		// the indices if the "device" flag of ct_flags is set, and that seems to
+		// work (though it's not clearly documented).
+		if(ct_flags & 0x8000U) {
 			s[0] = (de_uint32)k;
 		}
 
 		if(s[0]<=255) {
 			bi->pal[s[0]] = DE_MAKE_RGB(cr,cg,cb);
 		}
-
-		if(s[0]==0) seen_idx_0 = 1;
 	}
 
 	de_dbg_indent(c, -1);
@@ -361,7 +360,7 @@ done:
 	return retval;
 }
 
-static void decode_bitmap_rgb(deark *c, lctx *d, struct bitmapinfo *bi,
+static void decode_bitmap_rgb24(deark *c, lctx *d, struct bitmapinfo *bi,
 	dbuf *unc_pixels, struct deark_bitmap *img, de_int64 pos)
 {
 	de_int64 i, j;
@@ -373,6 +372,24 @@ static void decode_bitmap_rgb(deark *c, lctx *d, struct bitmapinfo *bi,
 			cg = dbuf_getbyte(unc_pixels, j*bi->rowspan + (bi->cmpcount-3+1)*bi->width + i);
 			cb = dbuf_getbyte(unc_pixels, j*bi->rowspan + (bi->cmpcount-3+2)*bi->width + i);
 			de_bitmap_setpixel_rgb(img, i, j, DE_MAKE_RGB(cr,cg,cb));
+		}
+	}
+}
+
+static void decode_bitmap_rgb16(deark *c, lctx *d, struct bitmapinfo *bi,
+	dbuf *unc_pixels, struct deark_bitmap *img, de_int64 pos)
+{
+	de_int64 i, j;
+	de_byte c0, c1; //, cg, cb;
+	de_uint32 clr;
+
+	for(j=0; j<bi->height; j++) {
+		for(i=0; i<bi->width; i++) {
+			c0 = dbuf_getbyte(unc_pixels, j*bi->rowspan + i*2);
+			c1 = dbuf_getbyte(unc_pixels, j*bi->rowspan + i*2+1);
+			clr = ((de_uint32)c0 << 8)|c1;
+			clr = de_rgb555_to_888(clr);
+			de_bitmap_setpixel_rgb(img, i, j, clr);
 		}
 	}
 }
@@ -390,6 +407,47 @@ static void decode_bitmap_paletted(deark *c, lctx *d, struct bitmapinfo *bi,
 			clr = bi->pal[(unsigned int)b];
 			de_bitmap_setpixel_rgb(img, i, j, clr);
 		}
+	}
+}
+
+// 16-bit variant of de_fmtutil_uncompress_packbits()
+static void do_uncompress_packbits16(dbuf *f, de_int64 pos1, de_int64 len,
+	dbuf *unc_pixels)
+{
+	de_int64 pos;
+	de_byte b, b1, b2;
+	de_int64 k;
+	de_int64 count;
+	de_int64 endpos;
+
+	pos = pos1;
+	endpos = pos1+len;
+
+	while(1) {
+		if(unc_pixels->max_len>0 && unc_pixels->len>=unc_pixels->max_len) {
+			break; // Decompressed the requested amount of dst data.
+		}
+
+		if(pos>=endpos) {
+			break; // Reached the end of source data
+		}
+		b = dbuf_getbyte(f, pos++);
+
+		if(b>128) { // A compressed run
+			count = 257 - (de_int64)b;
+			b1 = dbuf_getbyte(f, pos++);
+			b2 = dbuf_getbyte(f, pos++);
+			for(k=0; k<count; k++) {
+				dbuf_writebyte(unc_pixels, b1);
+				dbuf_writebyte(unc_pixels, b2);
+			}
+		}
+		else if(b<128) { // An uncompressed run
+			count = 1 + (de_int64)b;
+			dbuf_copy(f, pos, count*2, unc_pixels);
+			pos += count*2;
+		}
+		// Else b==128. No-op.
 	}
 }
 
@@ -421,7 +479,17 @@ static int decode_bitmap(deark *c, lctx *d, struct bitmapinfo *bi, de_int64 pos)
 			pos+=1;
 		}
 
-		de_fmtutil_uncompress_packbits(c->infile, pos, bytecount, unc_pixels, NULL);
+		if(bi->packing_type==3 && bi->pixelsize==16) {
+			do_uncompress_packbits16(c->infile, pos, bytecount, unc_pixels);
+		}
+		else {
+			de_fmtutil_uncompress_packbits(c->infile, pos, bytecount, unc_pixels, NULL);
+		}
+
+		// Make sure the data decompressed to the right number of bytes.
+		if(unc_pixels->len != (j+1)*bi->rowspan) {
+			dbuf_truncate(unc_pixels, (j+1)*bi->rowspan);
+		}
 
 		pos += bytecount;
 	}
@@ -444,7 +512,12 @@ static int decode_bitmap(deark *c, lctx *d, struct bitmapinfo *bi, de_int64 pos)
 		decode_bitmap_paletted(c, d, bi, unc_pixels, img, pos);
 	}
 	else {
-		decode_bitmap_rgb(c, d, bi, unc_pixels, img, pos);
+		if(bi->pixelsize==16) {
+			decode_bitmap_rgb16(c, d, bi, unc_pixels, img, pos);
+		}
+		else {
+			decode_bitmap_rgb24(c, d, bi, unc_pixels, img, pos);
+		}
 	}
 
 	de_bitmap_write_to_file(img, NULL);
@@ -462,7 +535,7 @@ static int decode_pixdata(deark *c, lctx *d, struct bitmapinfo *bi, de_int64 pos
 
 	if(!de_good_image_dimensions(c, bi->width, bi->height)) goto done;
 
-	if(bi->pixelsize!=1 && bi->pixelsize!=8 && /*bi->pixelsize!=16 && */ bi->pixelsize!=24 && bi->pixelsize!=32) {
+	if(bi->pixelsize!=1 && bi->pixelsize!=8 && bi->pixelsize!=16 && bi->pixelsize!=24 && bi->pixelsize!=32) {
 		de_err(c, "%d bits/pixel images are not supported\n", (int)bi->pixelsize);
 		goto done;
 	}
@@ -474,7 +547,7 @@ static int decode_pixdata(deark *c, lctx *d, struct bitmapinfo *bi, de_int64 pos
 		de_err(c, "Component count %d is not supported\n", (int)bi->cmpcount);
 		goto done;
 	}
-	if(bi->cmpsize!=1 && bi->cmpsize!=8) {
+	if(bi->cmpsize!=1 && bi->cmpsize!=5 && bi->cmpsize!=8) {
 		de_err(c, "%d-bit components are not supported\n", (int)bi->cmpsize);
 		goto done;
 	}
@@ -484,7 +557,7 @@ static int decode_pixdata(deark *c, lctx *d, struct bitmapinfo *bi, de_int64 pos
 	}
 	if((bi->uses_pal && bi->packing_type==0 && bi->pixelsize==1 && bi->cmpcount==1 && bi->cmpsize==1) ||
 		(bi->uses_pal && bi->packing_type==0 && bi->pixelsize==8 && bi->cmpcount==1 && bi->cmpsize==8) ||
-		/*(!bi->uses_pal && bi->packing_type==3 && bi->pixelsize==16 && bi->cmpcount==3 && bi->cmpsize==5) || */
+		(!bi->uses_pal && bi->packing_type==3 && bi->pixelsize==16 && bi->cmpcount==3 && bi->cmpsize==5) ||
 		(!bi->uses_pal && bi->packing_type==4 && bi->pixelsize==32 && bi->cmpcount==3 && bi->cmpsize==8) ||
 		(!bi->uses_pal && bi->packing_type==4 && bi->pixelsize==32 && bi->cmpcount==4 && bi->cmpsize==8))
 	{

@@ -495,6 +495,20 @@ void dbuf_write_zeroes(dbuf *f, de_int64 len)
 	dbuf_write_run(f, 0, len);
 }
 
+// Make the membuf have exactly len bytes of content.
+void dbuf_truncate(dbuf *f, de_int64 desired_len)
+{
+	if(desired_len<0) desired_len=0;
+	if(desired_len>f->len) {
+		dbuf_write_zeroes(f, desired_len - f->len);
+	}
+	else if(desired_len<f->len) {
+		if(f->btype==DBUF_TYPE_MEMBUF) {
+			f->len = desired_len;
+		}
+	}
+}
+
 void de_writeui16le_direct(de_byte *m, de_int64 n)
 {
 	m[0] = (de_byte)(n & 0x00ff);
