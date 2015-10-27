@@ -162,93 +162,85 @@ struct bitmapinfo {
 	de_int64 pixeltype, pixelsize;
 	de_int64 cmpcount, cmpsize;
 	double hdpi, vdpi;
+	int pixmap_flag;
 	int has_colortable; // Does the file contain a colortable for this bitmap?
 	int uses_pal; // Are we using the palette below?
 	de_int64 num_pal_entries;
 	de_uint32 pal[256];
 };
 
+// Sometimes-present baseAddr field (4 bytes)
+static void read_baseaddr(deark *c, lctx *d, struct bitmapinfo *bi, de_int64 pos)
+{
+	de_int64 n;
+	de_dbg(c, "baseAddr part of PixMap, at %d\n", (int)pos);
+	de_dbg_indent(c, 1);
+	n = de_getui32be(pos);
+	de_dbg(c, "baseAddr: 0x%08x\n", (unsigned int)n);
+	de_dbg_indent(c, -1);
+}
+
 static void read_rowbytes_and_bounds(deark *c, lctx *d, struct bitmapinfo *bi,
    de_int64 pos)
 {
 	struct pict_rect tmprect;
 	de_int64 rowbytes_code;
-	int pixmap_flag = 0;
 
+	de_dbg(c, "rowBytes/bounds part of bitmap/PixMap header, at %d\n", (int)pos);
+	de_dbg_indent(c, 1);
 	rowbytes_code = de_getui16be(pos);
 	bi->rowbytes = rowbytes_code & 0x7fff;
-	pixmap_flag = (rowbytes_code & 0x8000)?1:0;
+	bi->pixmap_flag = (rowbytes_code & 0x8000)?1:0;
 	de_dbg(c, "rowBytes: %d\n", (int)bi->rowbytes);
-	de_dbg(c, "pixmap flag: %d\n", pixmap_flag);
+	de_dbg(c, "pixmap flag: %d\n", bi->pixmap_flag);
 
 	pict_read_rect(c->infile, pos+2, &tmprect, "rect");
 	bi->width = tmprect.r - tmprect.l;
 	bi->height = tmprect.b - tmprect.t;
-}
 
-static int read_PackBitsRect_header_v1(deark *c, lctx *d, struct bitmapinfo *bi,
-   de_int64 pos)
-{
-	de_dbg(c, "PackBitsRect v1 header at %d\n", (int)pos);
-	de_dbg_indent(c, 1);
-	read_rowbytes_and_bounds(c, d, bi, pos);
-	bi->pixelsize = 1;
-	bi->cmpcount = 1;
-	bi->cmpsize = 1;
-	bi->uses_pal = 1;
-	bi->num_pal_entries = 2;
-	bi->pal[0] = DE_MAKE_GRAY(255);
-	bi->pal[1] = DE_MAKE_GRAY(0);
 	de_dbg_indent(c, -1);
-	return 1;
 }
 
-static int read_pixmap(deark *c, lctx *d, struct bitmapinfo *bi,
-   de_int64 pos, int has_baseaddr)
+// Pixmap fields that aren't read by read_baseaddr or read_rowbytes_and_bounds
+// (36 bytes)
+static int read_pixmap_only_fields(deark *c, lctx *d, struct bitmapinfo *bi,
+   de_int64 pos)
 {
 	de_int64 pixmap_version;
 	de_int64 pack_size;
 	de_int64 plane_bytes;
 	de_int64 n;
 
-	de_dbg(c, "PixMap at %d\n", (int)pos);
+	de_dbg(c, "additional PixMap header fields, at %d\n", (int)pos);
 	de_dbg_indent(c, 1);
 
-	if(has_baseaddr) {
-		n = de_getui32be(pos);
-		de_dbg(c, "baseAddr: 0x%08x\n", (unsigned int)n);
-		pos += 4;
-	}
-
-	read_rowbytes_and_bounds(c, d, bi, pos);
-
-	pixmap_version = de_getui16be(pos+10);
+	pixmap_version = de_getui16be(pos+0);
 	de_dbg(c, "pixmap version: %d\n", (int)pixmap_version);
 
-	bi->packing_type = de_getui16be(pos+12);
+	bi->packing_type = de_getui16be(pos+2);
 	de_dbg(c, "packing type: %d\n", (int)bi->packing_type);
 
-	pack_size = de_getui32be(pos+14);
+	pack_size = de_getui32be(pos+4);
 	de_dbg(c, "pixel data length: %d\n", (int)pack_size);
 
-	bi->hdpi = pict_read_fixed(c->infile, pos+18);
-	bi->vdpi = pict_read_fixed(c->infile, pos+22);
+	bi->hdpi = pict_read_fixed(c->infile, pos+8);
+	bi->vdpi = pict_read_fixed(c->infile, pos+12);
 	de_dbg(c, "dpi: %.2fx%.2f\n", bi->hdpi, bi->vdpi);
 
-	bi->pixeltype = de_getui16be(pos+26);
-	bi->pixelsize = de_getui16be(pos+28);
-	bi->cmpcount = de_getui16be(pos+30);
-	bi->cmpsize = de_getui16be(pos+32);
+	bi->pixeltype = de_getui16be(pos+16);
+	bi->pixelsize = de_getui16be(pos+18);
+	bi->cmpcount = de_getui16be(pos+20);
+	bi->cmpsize = de_getui16be(pos+22);
 	de_dbg(c, "pixel type=%d, bits/pixel=%d, components/pixel=%d, bits/comp=%d\n",
 		(int)bi->pixeltype, (int)bi->pixelsize, (int)bi->cmpcount, (int)bi->cmpsize);
 
-	plane_bytes = de_getui32be(pos+34);
+	plane_bytes = de_getui32be(pos+24);
 	de_dbg(c, "plane bytes: %d\n", (int)plane_bytes);
 
-	n = de_getui32be(pos+38);
+	n = de_getui32be(pos+28);
 	de_dbg(c, "pmTable: 0x%08x\n", (unsigned int)n);
 
-	n = de_getui32be(pos+42);
+	n = de_getui32be(pos+32);
 	de_dbg(c, "pmReserved: 0x%08x\n", (unsigned int)n);
 
 	de_dbg_indent(c, -1);
@@ -301,6 +293,26 @@ static int read_colortable(deark *c, lctx *d, struct bitmapinfo *bi, de_int64 po
 	de_dbg_indent(c, -1);
 	*bytes_used = 8 + 8*bi->num_pal_entries;
 	return 1;
+}
+
+// final few bitmap header fields (18 bytes)
+static void read_src_dst_mode(deark *c, lctx *d, struct bitmapinfo *bi, de_int64 pos)
+{
+	struct pict_rect tmprect;
+	de_int64 n;
+
+	de_dbg(c, "src/dst/mode part of bitmap header, at %d\n", (int)pos);
+	de_dbg_indent(c, 1);
+
+	pict_read_rect(c->infile, pos, &tmprect, "srcRect");
+	pos += 8;
+	pict_read_rect(c->infile, pos, &tmprect, "dstRect");
+	pos += 8;
+
+	n = de_getui16be(pos);
+	de_dbg(c, "transfer mode: %d\n", (int)n);
+	pos += 2;
+	de_dbg_indent(c, -1);
 }
 
 // Pre-scan the pixel data to figure out its size.
@@ -581,55 +593,60 @@ done:
 
 static int handler_98_9a(deark *c, lctx *d, de_int64 opcode, de_int64 pos1, de_int64 *bytes_used)
 {
-	struct bitmapinfo bi;
-	struct pict_rect tmprect;
-	de_int64 n;
+	struct bitmapinfo *bi = NULL;
 	de_int64 pixdata_size = 0;
 	de_int64 colortable_size = 0;
 	int retval = 0;
 	de_int64 pos;
 
-	de_memset(&bi, 0, sizeof(struct bitmapinfo));
+	bi = de_malloc(c, sizeof(struct bitmapinfo));
 	pos = pos1;
 
-	if(opcode==0x98 && d->version==1) {
-		read_PackBitsRect_header_v1(c, d, &bi, pos);
-		pos += 10;
+	if(opcode==0x9a) {
+		read_baseaddr(c, d, bi, pos);
+		pos += 4;
 	}
-	else if(opcode==0x98 && d->version==2) {
-		bi.uses_pal = 1;
-		bi.has_colortable = 1;
-		read_pixmap(c, d, &bi, pos, 0);
-		pos += 46;
+
+	read_rowbytes_and_bounds(c, d, bi, pos);
+	pos += 10;
+
+	if(bi->pixmap_flag) {
+		read_pixmap_only_fields(c, d, bi, pos);
+		pos += 36;
 	}
-	else if(opcode==0x9a && d->version==2) {
-		read_pixmap(c, d, &bi, pos, 1);
-		pos += 50;
+
+	if(opcode==0x98 && bi->pixmap_flag) {
+		// Prepare to read the palette
+		bi->uses_pal = 1;
+		bi->has_colortable = 1;
 	}
-	else {
-		de_err(c, "This PICT bitmap (opcode 0x%02x, version %d) is not supported\n",
-			(unsigned int)opcode, (int)d->version);
+	else if(opcode==0x98 && !bi->pixmap_flag) {
+		// Settings implied by the lack of a PixMap header
+		bi->pixelsize = 1;
+		bi->cmpcount = 1;
+		bi->cmpsize = 1;
+		bi->uses_pal = 1;
+		bi->num_pal_entries = 2;
+		bi->pal[0] = DE_MAKE_GRAY(255);
+		bi->pal[1] = DE_MAKE_GRAY(0);
+	}
+	else if(opcode==0x9a && !bi->pixmap_flag) {
+		de_err(c, "DirectBitsRect image without PixMap flag is not supported\n");
 		goto done;
 	}
 
-	if(bi.has_colortable) {
-		if(!read_colortable(c, d, &bi, pos, &colortable_size)) goto done;
+	if(bi->has_colortable) {
+		if(!read_colortable(c, d, bi, pos, &colortable_size)) goto done;
 		pos += colortable_size;
 	}
 
-	pict_read_rect(c->infile, pos, &tmprect, "srcRect");
-	pos += 8;
-	pict_read_rect(c->infile, pos, &tmprect, "dstRect");
-	pos += 8;
+	read_src_dst_mode(c, d, bi, pos);
+	pos += 18;
 
-	n = de_getui16be(pos);
-	de_dbg(c, "transfer mode: %d\n", (int)n);
-	pos += 2;
-
-	if(!get_pixdata_size(c, d, &bi, pos, &pixdata_size)) {
+	if(!get_pixdata_size(c, d, bi, pos, &pixdata_size)) {
 		goto done;
 	}
-	decode_pixdata(c, d, &bi, pos);
+	decode_pixdata(c, d, bi, pos);
 	pos += pixdata_size;
 
 	*bytes_used = pos - pos1;
@@ -637,6 +654,7 @@ static int handler_98_9a(deark *c, lctx *d, de_int64 opcode, de_int64 pos1, de_i
 	retval = 1;
 
 done:
+	de_free(c, bi);
 	return retval;
 }
 
