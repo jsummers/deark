@@ -322,6 +322,8 @@ Deark -- Information about supported formats
   Options
    -opt char:output=html - Use HTML output format
 
+* XGA (Atari Falcon image) (module="falcon_xga")
+
 * YBM (Bennet Yee face format) (module="ybm")
 
 

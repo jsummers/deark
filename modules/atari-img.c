@@ -557,6 +557,9 @@ static void de_run_ftc(deark *c, de_module_params *mparams)
 	adata->h = 240;
 	adata->unc_pixels = c->infile;
 	adata->img = de_bitmap_create(c, adata->w, adata->h, 3);
+	adata->img->density_code = DE_DENSITY_UNK_UNITS;
+	adata->img->xdens = 288;
+	adata->img->ydens = 240;
 	de_decode_atari_image(c, adata);
 	de_bitmap_write_to_file(adata->img, NULL);
 	de_bitmap_destroy(adata->img);
@@ -1300,4 +1303,56 @@ void de_module_atari_pi7(deark *c, struct deark_module_info *mi)
 	mi->desc = "Atari PI7 image";
 	mi->run_fn = de_run_atari_pi7;
 	mi->identify_fn = de_identify_atari_pi7;
+}
+
+// **************************************************************************
+// Atari Falcon XGA
+// **************************************************************************
+
+static void de_run_falcon_xga(deark *c, de_module_params *mparams)
+{
+	struct atari_img_decode_data *adata = NULL;
+
+	adata = de_malloc(c, sizeof(struct atari_img_decode_data));
+	if(c->infile->len==153600) {
+		adata->bpp = 16;
+		adata->w = 320;
+		adata->h = 240;
+	}
+	else {
+		adata->bpp = 16;
+		adata->w = 384;
+		adata->h = 480;
+	}
+	de_dbg(c, "dimensions: %dx%d\n", (int)adata->w, (int)adata->h);
+	adata->unc_pixels = c->infile;
+	adata->img = de_bitmap_create(c, adata->w, adata->h, 3);
+	if(adata->w==384 && adata->h == 480) {
+		adata->img->density_code = DE_DENSITY_UNK_UNITS;
+		adata->img->xdens = 384;
+		adata->img->ydens = 640;
+	}
+	de_decode_atari_image(c, adata);
+	de_bitmap_write_to_file(adata->img, NULL);
+	de_bitmap_destroy(adata->img);
+	de_free(c, adata);
+}
+
+static int de_identify_falcon_xga(deark *c)
+{
+	if(c->infile->len==153600 || c->infile->len==368640) {
+		if(de_input_file_has_ext(c, "xga"))
+		{
+			return 50;
+		}
+	}
+	return 0;
+}
+
+void de_module_falcon_xga(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "falcon_xga";
+	mi->desc = "Atari Falcon XGA image";
+	mi->run_fn = de_run_falcon_xga;
+	mi->identify_fn = de_identify_falcon_xga;
 }
