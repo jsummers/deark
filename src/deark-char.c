@@ -22,6 +22,7 @@ struct charextractx {
 
 // Frees a charctx struct that has been allocated in a particular way.
 // Does not free charctx->font.
+// Does not free the ucstring fields.
 void de_free_charctx(deark *c, struct de_char_context *charctx)
 {
 	de_int64 pgnum;
@@ -173,22 +174,60 @@ static void output_css_color_block(deark *c, dbuf *ofile, de_uint32 *pal,
 	}
 }
 
+static void write_ucstring_to_html(deark *c, de_ucstring *s, dbuf *f)
+{
+	de_int64 i;
+	int prev_space = 0;
+	de_int32 ch;
+
+	for(i=0; i<s->len; i++) {
+		ch = s->str[i];
+
+		// Don't let HTML collapse consecutive spaces
+		if(ch==0x20) {
+			if(prev_space) {
+				ch = 0xa0; // nbsp
+			}
+			prev_space = 1;
+		}
+		else {
+			prev_space = 0;
+		}
+
+		de_write_codepoint_to_html(c, f, ch);
+	}
+}
+
 static void do_output_html_header(deark *c, struct de_char_context *charctx,
 	struct charextractx *ectx, dbuf *ofile)
 {
+	int has_metadata;
+
+	has_metadata = charctx->title || charctx->artist || charctx->organization ||
+		charctx->creation_date;
 	if(c->write_bom && !c->ascii_html) dbuf_write_uchar_as_utf8(ofile, 0xfeff);
 	dbuf_fputs(ofile, "<!DOCTYPE html>\n");
 	dbuf_fputs(ofile, "<html>\n");
 	dbuf_fputs(ofile, "<head>\n");
 	if(!c->ascii_html) dbuf_fputs(ofile, "<meta charset=\"UTF-8\">\n");
-	dbuf_fputs(ofile, "<title></title>\n");
+	dbuf_fputs(ofile, "<title>");
+	if(charctx->title) {
+		write_ucstring_to_html(c, charctx->title, ofile);
+	}
+	dbuf_fputs(ofile, "</title>\n");
 
 	dbuf_fputs(ofile, "<style type=\"text/css\">\n");
 
-	dbuf_fputs(ofile, " body { background-image: url(\"data:image/png;base64,"
+	dbuf_fputs(ofile, " body { background-color: #222; background-image: url(\"data:image/png;base64,"
 		"iVBORw0KGgoAAAANSUhEUgAAABAAAAAQAQMAAAAlPW0iAAAABlBMVEUgICAoKCidji3LAAAAMUlE"
 		"QVQI12NgaGBgPMDA/ICB/QMD/w8G+T8M9v8Y6v8z/P8PIoFsoAhQHCgLVMN4AACOoBFvDLHV4QAA"
 		"AABJRU5ErkJggg==\") }\n");
+
+	if(has_metadata) {
+		// Styles for header name and value
+		dbuf_fputs(ofile, " .hn { color: #aaa }\n");
+		dbuf_fputs(ofile, " .hv { color: #fff }\n");
+	}
 
 	output_css_color_block(c, ofile, charctx->pal, ".f", "color", &ectx->used_fgcol[0]);
 	output_css_color_block(c, ofile, charctx->pal, ".b", "background-color", &ectx->used_bgcol[0]);
@@ -204,6 +243,31 @@ static void do_output_html_header(deark *c, struct de_char_context *charctx,
 
 	dbuf_fputs(ofile, "</head>\n");
 	dbuf_fputs(ofile, "<body>\n");
+
+	if(has_metadata) {
+		dbuf_fputs(ofile, "<p>");
+		if(charctx->title) {
+			dbuf_fputs(ofile, "<span class=hn>Title: </span><span class=hv>");
+			write_ucstring_to_html(c, charctx->title, ofile);
+			dbuf_fputs(ofile, "</span><br>\n");
+		}
+		if(charctx->artist) {
+			dbuf_fputs(ofile, "<span class=hn>Artist: </span><span class=hv>");
+			write_ucstring_to_html(c, charctx->artist, ofile);
+			dbuf_fputs(ofile, "</span><br>\n");
+		}
+		if(charctx->organization) {
+			dbuf_fputs(ofile, "<span class=hn>Organization: </span><span class=hv>");
+			write_ucstring_to_html(c, charctx->organization, ofile);
+			dbuf_fputs(ofile, "</span><br>\n");
+		}
+		if(charctx->creation_date) {
+			dbuf_fputs(ofile, "<span class=hn>Date: </span><span class=hv>");
+			write_ucstring_to_html(c, charctx->creation_date, ofile);
+			dbuf_fputs(ofile, "</span><br>\n");
+		}
+		dbuf_fputs(ofile, "</p>\n");
+	}
 }
 
 static void do_output_html_footer(deark *c, struct de_char_context *charctx,

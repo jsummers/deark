@@ -192,3 +192,119 @@ int de_fmtutil_uncompress_packbits(dbuf *f, de_int64 pos1, de_int64 len,
 	if(cmpr_bytes_consumed) *cmpr_bytes_consumed = pos - pos1;
 	return 1;
 }
+
+static de_int64 space_padded_length(const de_byte *buf, de_int64 len)
+{
+	de_int64 i;
+	de_int64 last_nonspace = -1;
+
+	for(i=len-1; i>=0; i--) {
+		// Spec says to use spaces for padding, and for nonexistent data.
+		// But some files use NUL bytes.
+		if(buf[i]!=0x20 && buf[i]!=0x00) {
+			last_nonspace = i;
+			break;
+		}
+	}
+	return last_nonspace+1;
+}
+
+static void bytes_to_ucstring(deark *c, const de_byte *buf, de_int64 len,
+	de_ucstring *s, int encoding, int date_fmt_flag)
+{
+	de_int32 u;
+	de_int64 i;
+
+	for(i=0; i<len; i++) {
+		if(date_fmt_flag && (i==4 || i==6)) {
+			ucstring_append_char(s, '-');
+		}
+		u = de_char_to_unicode(c, (de_int32)buf[i], encoding);
+		ucstring_append_char(s, u);
+	}
+}
+
+static int is_all_digits(const de_byte *buf, de_int64 len)
+{
+	de_int64 i;
+
+	for(i=0; i<len; i++) {
+		if(buf[i]<'0' || buf[i]>'9') return 0;
+	}
+	return 1;
+}
+
+
+// Caller allocates si.
+// This function may allocate si->title, artist, organization, creation_date.
+int de_read_SAUCE(deark *c, dbuf *f, de_int64 pos, struct de_SAUCE_info *si)
+{
+	de_int64 n;
+	de_uint32 t;
+	de_byte tmpbuf[40];
+	de_int64 tmpbuf_len;
+
+	if(!si) return 0;
+	de_memset(si, 0, sizeof(struct de_SAUCE_info));
+
+	if(dbuf_memcmp(f, pos+0, "SAUCE00", 7)) {
+		return 0;
+	}
+
+	de_dbg(c, "SAUCE metadata at %d\n", (int)pos);
+	de_dbg_indent(c, 1);
+
+	// Title
+	dbuf_read(f, tmpbuf, pos+7, 35);
+	tmpbuf_len = space_padded_length(tmpbuf, 35);
+	if(tmpbuf_len>0) {
+		si->title = ucstring_create(c);
+		bytes_to_ucstring(c, tmpbuf, tmpbuf_len, si->title, DE_ENCODING_CP437_G, 0);
+	}
+
+	// Artist / Creator
+	dbuf_read(f, tmpbuf, pos+42, 20);
+	tmpbuf_len = space_padded_length(tmpbuf, 20);
+	if(tmpbuf_len>0) {
+		si->artist = ucstring_create(c);
+		bytes_to_ucstring(c, tmpbuf, tmpbuf_len, si->artist, DE_ENCODING_CP437_G, 0);
+	}
+
+	// Organization
+	dbuf_read(f, tmpbuf, pos+62, 20);
+	tmpbuf_len = space_padded_length(tmpbuf, 20);
+	if(tmpbuf_len>0) {
+		si->organization = ucstring_create(c);
+		bytes_to_ucstring(c, tmpbuf, tmpbuf_len, si->organization, DE_ENCODING_CP437_G, 0);
+	}
+
+	// Creation date
+	dbuf_read(f, tmpbuf, pos+82, 8);
+	if(is_all_digits(tmpbuf, 8)) {
+		tmpbuf_len = 8;
+		si->creation_date = ucstring_create(c);
+		bytes_to_ucstring(c, tmpbuf, tmpbuf_len, si->creation_date, DE_ENCODING_CP437_G, 1);
+	}
+
+	n = dbuf_getui32le(f, pos+90);
+	de_dbg(c, "original file size: %d\n", (int)n);
+
+	si->data_type = dbuf_getbyte(f, pos+94);
+	de_dbg(c, "data type: %d\n", (int)si->data_type);
+	si->file_type = dbuf_getbyte(f, pos+95);
+	de_dbg(c, "file type: %d\n", (int)si->file_type);
+
+	t = 256*(de_uint32)si->data_type + si->file_type;
+
+	if(t==0x0100 || t==0x0101 || t==0x0102 || t==0x0104 || t==0x0105 || t==0x0108 || t==0x0600) {
+		si->width_in_chars = dbuf_getui16le(f, pos+96);
+		de_dbg(c, "width in chars: %d\n", (int)si->width_in_chars);
+	}
+	if(t==0x0100 || t==0x0101 || t==0x0104 || t==0x0105 || t==0x0108 || t==0x0600) {
+		si->number_of_lines = dbuf_getui16le(f, pos+98);
+		de_dbg(c, "reported number of lines: %d\n", (int)si->number_of_lines);
+	}
+
+	de_dbg_indent(c, -1);
+	return 1;
+}

@@ -555,6 +555,10 @@ struct de_char_context {
 	struct de_char_screen **screens; // Array of [nscreens] screens
 	de_uint32 pal[16];
 	struct de_bitmap_font *font; // Optional
+	de_ucstring *title;
+	de_ucstring *artist;
+	de_ucstring *organization;
+	de_ucstring *creation_date;
 };
 
 void de_char_output_to_file(deark *c, struct de_char_context *charctx);

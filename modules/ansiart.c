@@ -6,6 +6,7 @@
 
 #include <deark-config.h>
 #include <deark-modules.h>
+#include "fmtutil.h"
 
 static const de_uint32 ansi_palette[16] = {
 	0x000000,0xaa0000,0x00aa00,0xaa5500,0x0000aa,0xaa00aa,0x00aaaa,0xaaaaaa,
@@ -18,6 +19,7 @@ static const de_uint32 ansi_palette[16] = {
 typedef struct localctx_struct {
 	struct de_char_screen *screen;
 
+	de_int64 effective_file_size;
 	de_int64 xpos, ypos; // 0-based
 	de_int64 saved_xpos, saved_ypos;
 
@@ -348,10 +350,10 @@ static void do_main(deark *c, lctx *d)
 	d->xpos = 0; d->ypos = 0;
 	state = STATE_NORMAL;
 
-	for(pos=0; pos<c->infile->len; pos++) {
+	for(pos=0; pos<d->effective_file_size; pos++) {
 		ch = de_getbyte(pos);
 
-		if(ch==0x1a) break; // Ctrl-Z apparently means we should stop.
+		if(ch==0x1a) break; // Stop on Ctrl-Z. (Should we do this?)
 
 		if(pos==0 && ch==0x9b) {
 			// 0x9b can sometimes mean the same thing as Esc [, but it could
@@ -403,8 +405,22 @@ static void de_run_ansiart(deark *c, de_module_params *mparams)
 	lctx *d = NULL;
 	struct de_char_context *charctx = NULL;
 	de_int64 k;
+	struct de_SAUCE_info *si = NULL;
 
 	d = de_malloc(c, sizeof(lctx));
+
+	d->effective_file_size = c->infile->len;
+
+	// There's supposed to be an 0x1a (Ctrl-Z) byte before the SAUCE
+	// signature, but it's not always present, so we can't rely on it.
+	if(!dbuf_memcmp(c->infile, c->infile->len-128, "SAUCE0", 6)) {
+		si = de_malloc(c, sizeof(struct de_SAUCE_info));
+		if(de_read_SAUCE(c, c->infile, c->infile->len-128, si)) {
+			// TODO: Make this -129 if there is an 0x1a byte?
+			// And/or, can we rely on the SAUCE "original file size" field?
+			d->effective_file_size -= 128;
+		}
+	}
 
 	charctx = de_malloc(c, sizeof(struct de_char_context));
 	charctx->nscreens = 1;
@@ -425,9 +441,23 @@ static void de_run_ansiart(deark *c, de_module_params *mparams)
 		charctx->pal[k] = ansi_palette[k];
 	}
 
+	if(si) {
+		charctx->title = si->title;
+		charctx->artist = si->artist;
+		charctx->organization = si->organization;
+		charctx->creation_date = si->creation_date;
+	}
+
 	de_char_output_to_file(c, charctx);
 
 	de_free_charctx(c, charctx);
+	if(si) {
+		ucstring_destroy(si->title);
+		ucstring_destroy(si->artist);
+		ucstring_destroy(si->organization);
+		ucstring_destroy(si->creation_date);
+		de_free(c, si);
+	}
 	de_free(c, d);
 }
 
