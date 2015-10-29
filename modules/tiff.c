@@ -38,6 +38,24 @@ typedef struct localctx_struct {
 	de_module_params *mparams;
 } lctx;
 
+static de_int64 getui16x(dbuf *f, de_int64 pos, int is_le)
+{
+	if(is_le) return dbuf_getui16le(f, pos);
+	return dbuf_getui16be(f, pos);
+}
+
+static de_int64 getui32x(dbuf *f, de_int64 pos, int is_le)
+{
+	if(is_le) return dbuf_getui32le(f, pos);
+	return dbuf_getui32be(f, pos);
+}
+
+static de_int64 geti64x(dbuf *f, de_int64 pos, int is_le)
+{
+	if(is_le) return dbuf_geti64le(f, pos);
+	return dbuf_geti64be(f, pos);
+}
+
 // Returns 0 if stack is empty.
 static de_int64 pop_ifd(deark *c, lctx *d)
 {
@@ -102,9 +120,9 @@ static int size_of_tiff_type(int tt)
 static de_int64 getfpos(deark *c, lctx *d, de_int64 pos)
 {
 	if(d->is_bigtiff) {
-		return de_geti64(pos);
+		return geti64x(c->infile, pos, d->is_le);
 	}
-	return de_getui32(pos);
+	return getui32x(c->infile, pos, d->is_le);
 }
 
 static void do_oldjpeg(deark *c, lctx *d, de_int64 jpegoffset, de_int64 jpeglength)
@@ -204,10 +222,10 @@ static void process_ifd(deark *c, lctx *d, de_int64 ifdpos)
 	}
 
 	if(d->is_bigtiff) {
-		num_tags = (int)de_geti64(ifdpos);
+		num_tags = (int)geti64x(c->infile, ifdpos, d->is_le);
 	}
 	else {
-		num_tags = (int)de_getui16(ifdpos);
+		num_tags = (int)getui16x(c->infile, ifdpos, d->is_le);
 	}
 
 	de_dbg(c, "number of tags: %d\n", num_tags);
@@ -217,11 +235,11 @@ static void process_ifd(deark *c, lctx *d, de_int64 ifdpos)
 	}
 
 	// Record the next IFD in the main list.
-	push_ifd(c, d, de_getui32(ifdpos+ifdhdrsize+num_tags*ifditemsize));
+	push_ifd(c, d, getui32x(c->infile, ifdpos+ifdhdrsize+num_tags*ifditemsize, d->is_le));
 
 	for(i=0; i<num_tags; i++) {
-		tagnum = (int)de_getui16(ifdpos+ifdhdrsize+i*ifditemsize);
-		tagtype = (int)de_getui16(ifdpos+ifdhdrsize+i*ifditemsize+2);
+		tagnum = (int)getui16x(c->infile, ifdpos+ifdhdrsize+i*ifditemsize, d->is_le);
+		tagtype = (int)getui16x(c->infile, ifdpos+ifdhdrsize+i*ifditemsize+2, d->is_le);
 		// Not a file pos, but getfpos() does the right thing.
 		valcount = getfpos(c, d, ifdpos+ifdhdrsize+i*ifditemsize+4);
 
@@ -395,8 +413,6 @@ static void de_run_tiff(deark *c, de_module_params *mparams)
 		de_declare_fmt(c, "MDI");
 		break;
 	}
-
-	dbuf_set_endianness(c->infile, d->is_le);
 
 	if(d->fmt==0) {
 		de_warn(c, "This is not a known/supported TIFF or TIFF-like format.\n");

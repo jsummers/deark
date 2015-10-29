@@ -61,7 +61,6 @@ struct dbuf_struct {
 	FILE *fp;
 	de_int64 len;
 	de_int64 max_len; // 0=no maximum. May only apply to DBUF_TYPE_MEMBUF
-	int is_little_endian; // Flag that changes the behavior of some functions
 
 	int file_pos_known;
 	de_int64 file_pos;
@@ -292,26 +291,15 @@ de_int64 dbuf_geti32be(dbuf *f, de_int64 pos);
 de_int64 dbuf_geti64be(dbuf *f, de_int64 pos);
 de_int64 dbuf_geti64le(dbuf *f, de_int64 pos);
 
-// Endianness is selected by calling dbuf_set_endianness().
-// This is useful for formats like TIFF that can use either endianness.
-// For formats that always have the same endianness, it is recommended to use
-// the "le" and "be" functions and macros instead.
-de_int64 dbuf_getui32(dbuf *f, de_int64 pos);
-de_int64 dbuf_getui16(dbuf *f, de_int64 pos);
-de_int64 dbuf_geti64(dbuf *f, de_int64 pos);
-
 #define de_read(b,p,l) dbuf_read(c->infile,b,p,l);
 #define de_getbyte(p) dbuf_getbyte(c->infile,p)
 
 #define de_getui16be(p) dbuf_getui16be(c->infile,p)
 #define de_getui16le(p) dbuf_getui16le(c->infile,p)
-#define de_getui16(p) dbuf_getui16(c->infile,p)
 #define de_getui32be(p) dbuf_getui32be(c->infile,p)
 #define de_getui32le(p) dbuf_getui32le(c->infile,p)
-#define de_getui32(p) dbuf_getui32(c->infile,p)
 #define de_geti64be(p) dbuf_geti64be(c->infile,p)
 #define de_geti64le(p) dbuf_geti64le(c->infile,p)
-#define de_geti64(p) dbuf_geti64(c->infile,p)
 
 #define DE_GETRGBFLAG_BGR 0x1 // Assume BGR order instead of RGB
 de_uint32 dbuf_getRGB(dbuf *f, de_int64 pos, unsigned int flags);
@@ -368,9 +356,6 @@ de_int64 dbuf_get_length(dbuf *f);
 // Enforce a maximum size when writing to a dbuf.
 // May be valid only for memory buffers.
 void dbuf_set_max_length(dbuf *f, de_int64 max_len);
-
-// See comments for dbuf_getui32().
-void dbuf_set_endianness(dbuf *f, int is_le);
 
 int dbuf_search_byte(dbuf *f, const de_byte b, de_int64 startpos,
 	de_int64 haystack_len, de_int64 *foundpos);

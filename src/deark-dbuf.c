@@ -183,12 +183,6 @@ de_int64 dbuf_geti16le(dbuf *f, de_int64 pos)
 	return n;
 }
 
-de_int64 dbuf_getui16(dbuf *f, de_int64 pos)
-{
-	if(f->is_little_endian) return dbuf_getui16le(f, pos);
-	return dbuf_getui16be(f, pos);
-}
-
 de_int64 de_getui32be_direct(const de_byte *m)
 {
 	return (de_int64)(((de_uint32)m[3]) | (((de_uint32)m[2])<<8) |
@@ -222,12 +216,6 @@ de_int64 dbuf_geti32be(dbuf *f, de_int64 pos)
 	return (de_int64)(de_int32)(de_uint32)n;
 }
 
-de_int64 dbuf_getui32(dbuf *f, de_int64 pos)
-{
-	if(f->is_little_endian) return dbuf_getui32le(f, pos);
-	return dbuf_getui32be(f, pos);
-}
-
 de_int64 de_geti64be_direct(const de_byte *m)
 {
 	return ((de_int64)m[7]) | (((de_int64)m[6])<<8) | (((de_int64)m[5])<<16) | (((de_int64)m[4])<<24) |
@@ -252,12 +240,6 @@ de_int64 dbuf_geti64le(dbuf *f, de_int64 pos)
 	de_byte m[8];
 	dbuf_read(f, m, pos, 8);
 	return de_geti64le_direct(m);
-}
-
-de_int64 dbuf_geti64(dbuf *f, de_int64 pos)
-{
-	if(f->is_little_endian) return dbuf_geti64le(f, pos);
-	return dbuf_geti64be(f, pos);
 }
 
 de_uint32 dbuf_getRGB(dbuf *f, de_int64 pos, unsigned int flags)
@@ -775,9 +757,4 @@ de_int64 dbuf_get_length(dbuf *f)
 void dbuf_set_max_length(dbuf *f, de_int64 max_len)
 {
 	f->max_len = max_len;
-}
-
-void dbuf_set_endianness(dbuf *f, int is_le)
-{
-	f->is_little_endian = is_le;
 }
