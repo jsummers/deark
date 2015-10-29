@@ -28,8 +28,7 @@ static int handler_98_9a(deark *c, lctx *d, de_int64 opcode, de_int64 data_pos, 
 static int handler_a0(deark *c, lctx *d, de_int64 opcode, de_int64 data_pos, de_int64 *bytes_used);
 static int handler_a1(deark *c, lctx *d, de_int64 opcode, de_int64 data_pos, de_int64 *bytes_used);
 static int handler_0c00(deark *c, lctx *d, de_int64 opcode, de_int64 data_pos, de_int64 *bytes_used);
-static int handler_8200(deark *c, lctx *d, de_int64 opcode, de_int64 data_pos, de_int64 *bytes_used);
-static int handler_8201(deark *c, lctx *d, de_int64 opcode, de_int64 data_pos, de_int64 *bytes_used);
+static int handler_QuickTime(deark *c, lctx *d, de_int64 opcode, de_int64 data_pos, de_int64 *bytes_used);
 
 struct opcode_info {
 	de_uint16 opcode;
@@ -75,8 +74,8 @@ static const struct opcode_info opcode_info_arr[] = {
 	{ 0x00a1, SZCODE_SPECIAL, 0,  "LongComment", handler_a1 },
 	{ 0x00ff, SZCODE_EXACT,   2,  "opEndPic", NULL },
 	{ 0x0c00, SZCODE_EXACT,   24, "HeaderOp", handler_0c00 },
-	{ 0x8200, SZCODE_SPECIAL, 0,  "CompressedQuickTime", handler_8200 },
-	{ 0x8201, SZCODE_SPECIAL, 0,  "UncompressedQuickTime", handler_8201 },
+	{ 0x8200, SZCODE_SPECIAL, 0,  "CompressedQuickTime", handler_QuickTime },
+	{ 0x8201, SZCODE_SPECIAL, 0,  "UncompressedQuickTime", handler_QuickTime },
 	{ 0xffff, SZCODE_SPECIAL, 0,  NULL, NULL }
 };
 
@@ -754,8 +753,8 @@ static void do_handle_qtif_idsc(deark *c, de_int64 pos, de_int64 len)
 	de_free(c, mparams);
 }
 
-// CompressedQuickTime
-static int handler_8200(deark *c, lctx *d, de_int64 opcode, de_int64 data_pos, de_int64 *bytes_used)
+// CompressedQuickTime (0x8200) & UncompressedQuickTime (0x8201)
+static int handler_QuickTime(deark *c, lctx *d, de_int64 opcode, de_int64 data_pos, de_int64 *bytes_used)
 {
 	de_int64 payload_pos;
 	de_int64 payload_len;
@@ -768,21 +767,13 @@ static int handler_8200(deark *c, lctx *d, de_int64 opcode, de_int64 data_pos, d
 	if(endpos > c->infile->len) return 0;
 	*bytes_used = 4+payload_len;
 
-	// Following the size field seems to be 68 bytes of data,
+	// Following the size field seems to be 68 or 50 bytes of data,
 	// followed by QuickTime "idsc" data, followed by image data.
-	idsc_pos = payload_pos+68;
+	idsc_pos = payload_pos + ((opcode==0x8201) ? 50 : 68);
 
 	// The question is, should we try to extract this to QTIF or other QuickTime
 	// file format? Or should we fully decode it (as we're doing now)?
 	do_handle_qtif_idsc(c, idsc_pos, endpos-idsc_pos);
-	return 1;
-}
-
-// UnompressedQuickTime
-static int handler_8201(deark *c, lctx *d, de_int64 opcode, de_int64 data_pos, de_int64 *bytes_used)
-{
-	de_warn(c, "UncompressedQuickTime image format is not supported\n");
-	*bytes_used = 4+de_getui32be(data_pos);
 	return 1;
 }
 
