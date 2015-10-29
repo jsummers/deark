@@ -45,14 +45,15 @@ int de_fmtutil_uncompress_packbits(dbuf *f, de_int64 pos1, de_int64 len,
 	dbuf *unc_pixels, de_int64 *cmpr_bytes_consumed);
 
 struct de_SAUCE_info {
-	de_byte data_type;
-	de_byte file_type;
-	de_int64 width_in_chars; // 0 if unknown
-	de_int64 number_of_lines; // Reported value. May be incorrect.
 	de_ucstring *title;
 	de_ucstring *artist;
 	de_ucstring *organization;
 	de_ucstring *creation_date;
+	de_int64 original_file_size;
+	de_byte data_type;
+	de_byte file_type;
+	de_int64 width_in_chars; // 0 if unknown
+	de_int64 number_of_lines; // Reported value. May be incorrect.
 };
 
 int de_read_SAUCE(deark *c, dbuf *f, de_int64 pos, struct de_SAUCE_info *si);

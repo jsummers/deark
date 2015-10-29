@@ -239,7 +239,6 @@ static int is_all_digits(const de_byte *buf, de_int64 len)
 // This function may allocate si->title, artist, organization, creation_date.
 int de_read_SAUCE(deark *c, dbuf *f, de_int64 pos, struct de_SAUCE_info *si)
 {
-	de_int64 n;
 	de_uint32 t;
 	de_byte tmpbuf[40];
 	de_int64 tmpbuf_len;
@@ -286,8 +285,8 @@ int de_read_SAUCE(deark *c, dbuf *f, de_int64 pos, struct de_SAUCE_info *si)
 		bytes_to_ucstring(c, tmpbuf, tmpbuf_len, si->creation_date, DE_ENCODING_CP437_G, 1);
 	}
 
-	n = dbuf_getui32le(f, pos+90);
-	de_dbg(c, "original file size: %d\n", (int)n);
+	si->original_file_size = dbuf_getui32le(f, pos+90);
+	de_dbg(c, "original file size: %d\n", (int)si->original_file_size);
 
 	si->data_type = dbuf_getbyte(f, pos+94);
 	de_dbg(c, "data type: %d\n", (int)si->data_type);

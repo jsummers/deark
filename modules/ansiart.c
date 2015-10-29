@@ -353,8 +353,6 @@ static void do_main(deark *c, lctx *d)
 	for(pos=0; pos<d->effective_file_size; pos++) {
 		ch = de_getbyte(pos);
 
-		if(ch==0x1a) break; // Stop on Ctrl-Z. (Should we do this?)
-
 		if(pos==0 && ch==0x9b) {
 			// 0x9b can sometimes mean the same thing as Esc [, but it could
 			// also be a printable character. I don't know how to tell the
@@ -416,10 +414,23 @@ static void de_run_ansiart(deark *c, de_module_params *mparams)
 	if(!dbuf_memcmp(c->infile, c->infile->len-128, "SAUCE0", 6)) {
 		si = de_malloc(c, sizeof(struct de_SAUCE_info));
 		if(de_read_SAUCE(c, c->infile, c->infile->len-128, si)) {
-			// TODO: Make this -129 if there is an 0x1a byte?
-			// And/or, can we rely on the SAUCE "original file size" field?
-			d->effective_file_size -= 128;
+			// If the original_file_size field seems valid, use it.
+			if(si->original_file_size>0 && si->original_file_size<=c->infile->len-128) {
+				d->effective_file_size = si->original_file_size;
+			}
+			else {
+				d->effective_file_size -= 128;
+			}
 		}
+	}
+
+	// Ignore any Ctrl-Z at the end of data.
+	if(de_getbyte(d->effective_file_size-1) == 0x1a) {
+		de_dbg(c, "found Ctrl+Z byte at %d\n", (int)(d->effective_file_size-1));
+		d->effective_file_size--;
+	}
+	if(d->effective_file_size!=c->infile->len) {
+		de_dbg(c, "effective file size set to %d\n", (int)d->effective_file_size);
 	}
 
 	charctx = de_malloc(c, sizeof(struct de_char_context));
