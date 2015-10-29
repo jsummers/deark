@@ -14,7 +14,6 @@ static const de_uint32 ansi_palette[16] = {
 };
 
 #define MAX_ROWS       5000
-#define CHARS_PER_ROW  80
 
 typedef struct localctx_struct {
 	struct de_char_screen *screen;
@@ -44,10 +43,10 @@ static struct de_char_cell *get_cell_at(deark *c, struct de_char_screen *screen,
 	struct de_char_cell *cell;
 
 	if(xpos<0 || ypos<0) return NULL;
-	if(xpos>=CHARS_PER_ROW || ypos>=MAX_ROWS) return NULL;
+	if(xpos>=screen->width || ypos>=MAX_ROWS) return NULL;
 	if(!screen->cell_rows[ypos]) {
-		screen->cell_rows[ypos] = de_malloc(c, CHARS_PER_ROW * sizeof(struct de_char_cell));
-		for(i=0; i<CHARS_PER_ROW; i++) {
+		screen->cell_rows[ypos] = de_malloc(c, screen->width * sizeof(struct de_char_cell));
+		for(i=0; i<screen->width; i++) {
 			// Initialize each new cell
 			cell = &screen->cell_rows[ypos][i];
 			cell->codepoint = 0x20;
@@ -440,7 +439,14 @@ static void de_run_ansiart(deark *c, de_module_params *mparams)
 
 	d->screen = charctx->screens[0];
 
-	d->screen->width = CHARS_PER_ROW;
+	if(si && si->width_in_chars>=40 && si->width_in_chars<=320) {
+		// Use the width from SAUCE, if it's available and seems sensible.
+		d->screen->width = si->width_in_chars;
+	}
+	else {
+		// Otherwise, assume 80 characters per row.
+		d->screen->width = 80;
+	}
 	// We don't know the height yet. This will be updated as we read the file.
 	d->screen->height = 1;
 
