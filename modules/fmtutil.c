@@ -234,7 +234,17 @@ static int is_all_digits(const de_byte *buf, de_int64 len)
 	return 1;
 }
 
+int de_has_SAUCE(deark *c, dbuf *f, de_int64 pos)
+{
+	de_byte buf[7];
+	dbuf_read(f, buf, pos, 7);
+	if(de_memcmp(buf, "SAUCE", 5)) return 0;
+	if(buf[5]<'0' || buf[5]>'9') return 0;
+	if(buf[6]<'0' || buf[6]>'9') return 0;
+	return 1;
+}
 
+// SAUCE = Standard Architecture for Universal Comment Extensions
 // Caller allocates si.
 // This function may allocate si->title, artist, organization, creation_date.
 int de_read_SAUCE(deark *c, dbuf *f, de_int64 pos, struct de_SAUCE_info *si)
@@ -301,9 +311,19 @@ int de_read_SAUCE(deark *c, dbuf *f, de_int64 pos, struct de_SAUCE_info *si)
 	}
 	if(t==0x0100 || t==0x0101 || t==0x0104 || t==0x0105 || t==0x0108 || t==0x0600) {
 		si->number_of_lines = dbuf_getui16le(f, pos+98);
-		de_dbg(c, "reported number of lines: %d\n", (int)si->number_of_lines);
+		de_dbg(c, "number of lines: %d\n", (int)si->number_of_lines);
 	}
 
 	de_dbg_indent(c, -1);
 	return 1;
+}
+
+void de_free_SAUCE(deark *c, struct de_SAUCE_info *si)
+{
+	if(!si) return;
+	ucstring_destroy(si->title);
+	ucstring_destroy(si->artist);
+	ucstring_destroy(si->organization);
+	ucstring_destroy(si->creation_date);
+	de_free(c, si);
 }

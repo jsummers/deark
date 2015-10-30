@@ -5,6 +5,7 @@
 
 #include <deark-config.h>
 #include <deark-modules.h>
+#include "fmtutil.h"
 
 typedef struct localctx_struct {
 	de_int64 width_in_chars, height_in_chars;
@@ -196,15 +197,24 @@ static void de_run_xbin(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
 	struct de_char_context *charctx = NULL;
+	struct de_SAUCE_info *si = NULL;
 	de_int64 pos = 0;
 	de_byte flags;
 	dbuf *unc_data = NULL;
 
-	de_dbg(c, "xbin\n");
 	d = de_malloc(c, sizeof(lctx));
 
 	charctx = de_malloc(c, sizeof(struct de_char_context));
 	charctx->prefer_image_output = 1;
+
+	if(de_has_SAUCE(c, c->infile, c->infile->len-128)) {
+		si = de_malloc(c, sizeof(struct de_SAUCE_info));
+		de_read_SAUCE(c, c->infile, c->infile->len-128, si);
+		charctx->title = si->title;
+		charctx->artist = si->artist;
+		charctx->organization = si->organization;
+		charctx->creation_date = si->creation_date;
+	}
 
 	d->width_in_chars = de_getui16le(5);
 	d->height_in_chars = de_getui16le(7);
@@ -285,6 +295,7 @@ static void de_run_xbin(deark *c, de_module_params *mparams)
 done:
 	dbuf_close(unc_data);
 	de_free_charctx(c, charctx);
+	de_free_SAUCE(c, si);
 	if(d->font) {
 		de_free(c, d->font->char_array);
 		de_free(c, d->font);

@@ -408,9 +408,8 @@ static void de_run_ansiart(deark *c, de_module_params *mparams)
 
 	d->effective_file_size = c->infile->len;
 
-	// There's supposed to be an 0x1a (Ctrl-Z) byte before the SAUCE
-	// signature, but it's not always present, so we can't rely on it.
-	if(!dbuf_memcmp(c->infile, c->infile->len-128, "SAUCE0", 6)) {
+	// Read SAUCE metadata, if present.
+	if(de_has_SAUCE(c, c->infile, c->infile->len-128)) {
 		si = de_malloc(c, sizeof(struct de_SAUCE_info));
 		if(de_read_SAUCE(c, c->infile, c->infile->len-128, si)) {
 			// If the original_file_size field seems valid, use it.
@@ -468,13 +467,7 @@ static void de_run_ansiart(deark *c, de_module_params *mparams)
 	de_char_output_to_file(c, charctx);
 
 	de_free_charctx(c, charctx);
-	if(si) {
-		ucstring_destroy(si->title);
-		ucstring_destroy(si->artist);
-		ucstring_destroy(si->organization);
-		ucstring_destroy(si->creation_date);
-		de_free(c, si);
-	}
+	de_free_SAUCE(c, si);
 	de_free(c, d);
 }
 
