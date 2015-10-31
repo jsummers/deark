@@ -72,11 +72,6 @@ static void do_normal_char(deark *c, lctx *d, de_int64 pos, de_byte ch)
 		d->xpos = 0;
 	}
 	else {
-		while(d->xpos >= d->screen->width) {
-			d->xpos -= d->screen->width;
-			d->ypos++;
-		}
-
 		u = de_char_to_unicode(c, (de_int32)ch, DE_ENCODING_CP437_G);
 
 		cell = get_cell_at(c, d->screen, d->xpos, d->ypos);
@@ -92,10 +87,16 @@ static void do_normal_char(deark *c, lctx *d, de_int64 pos, de_byte ch)
 		}
 		else {
 			de_dbg(c, "off-screen write at (%d,%d) (%d)\n",
-				(int)d->xpos, (int)d->ypos, (int)pos);
+				(int)(d->xpos+1), (int)(d->ypos+1), (int)pos);
 		}
 
 		d->xpos++;
+
+		// Line wrap
+		while(d->xpos >= d->screen->width) {
+			d->xpos -= d->screen->width;
+			d->ypos++;
+		}
 	}
 }
 
@@ -303,7 +304,10 @@ static void do_code_D(deark *c, lctx *d)
 static void do_control_sequence(deark *c, lctx *d, de_byte code,
 	de_int64 param_start, de_int64 param_len)
 {
-	de_dbg2(c, "[%c at %d %d]\n", (char)code, (int)param_start, (int)param_len);
+	if(c->debug_level>=2) {
+		de_dbg2(c, "[(%2d,%d) %c at %d %d]\n", (int)(d->xpos+1), (int)(d->ypos+1),
+			(char)code, (int)param_start, (int)param_len);
+	}
 
 	if(param_len > (de_int64)(sizeof(d->param_string_buf)-1)) {
 		de_warn(c, "Ignoring long escape sequence (len %d at %d)\n",
