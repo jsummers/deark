@@ -426,7 +426,7 @@ static int de_identify_rosprite(deark *c)
 	h1 = de_getui32le(4);
 	h2 = de_getui32le(8);
 
-	if(h0<1 || h0>DE_MAX_IMAGES_PER_FILE) return 0;
+	if(h0<1 || h0>10000) return 0;
 	if(h1-4<12) return 0;
 	if(h1-4 >= c->infile->len) return 0;
 	if(h2-4 != c->infile->len) return 0;
