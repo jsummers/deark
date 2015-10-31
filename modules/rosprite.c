@@ -386,8 +386,6 @@ static void de_run_rosprite(deark *c, de_module_params *mparams)
 	de_int64 implied_file_size;
 	de_int64 k;
 
-	de_dbg(c, "In sprite module\n");
-
 	d = de_malloc(c, sizeof(lctx));
 
 	pos = 0;

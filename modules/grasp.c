@@ -73,7 +73,6 @@ static void de_run_graspgl(deark *c, de_module_params *mparams)
 	de_int64 pos;
 	de_int64 i;
 
-	de_dbg(c, "In graspgl module\n");
 	d = de_malloc(c, sizeof(lctx));
 
 	pos = 0;

@@ -152,8 +152,6 @@ static void de_run_grob(deark *c, de_module_params *mparams)
 	lctx *d = NULL;
 	de_byte buf[4];
 
-	de_dbg(c, "In grob module\n");
-
 	d = de_malloc(c, sizeof(lctx));
 
 	de_read(buf, 0, 4);

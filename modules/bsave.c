@@ -511,8 +511,6 @@ static void de_run_bsave(deark *c, de_module_params *mparams)
 
 	d = de_malloc(c, sizeof(lctx));
 
-	de_dbg(c, "In bsave module\n");
-
 	d->base_addr = de_getui16le(1);
 	d->offset_from_base = de_getui16le(3);
 	d->data_size = de_getui16le(5);

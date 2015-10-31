@@ -154,8 +154,6 @@ static void de_run_jpeg2000(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
 
-	de_dbg(c, "In jpeg2000 module\n");
-
 	d = de_malloc(c, sizeof(lctx));
 
 	do_box_sequence(c, d, 0, c->infile->len, 0);

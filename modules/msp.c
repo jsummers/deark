@@ -109,8 +109,6 @@ static void de_run_msp(deark *c, de_module_params *mparams)
 {
 	lctx *d;
 
-	de_dbg(c, "In msp module\n");
-
 	d = de_malloc(c, sizeof(lctx));
 
 	d->ver = de_getbyte(0) == 0x4c ? 2 : 1;

@@ -465,8 +465,6 @@ static void de_run_dcx(deark *c, de_module_params *mparams)
 	de_int64 page;
 	de_int64 page_size;
 
-	de_dbg(c, "In dcx module\n");
-
 	page_offset = de_malloc(c, 1023 * sizeof(de_uint32));
 	num_pages = 0;
 	while(num_pages < 1023) {

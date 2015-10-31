@@ -106,8 +106,6 @@ static void de_run_cardfile(deark *c, de_module_params *mparams)
 	de_int64 pos;
 	de_int64 n;
 
-	de_dbg(c, "In cardfile module\n");
-
 	d = de_malloc(c, sizeof(lctx));
 
 	pos = 0;

@@ -120,8 +120,6 @@ static void de_run_jpeg(deark *c, de_module_params *mparams)
 	lctx *d = NULL;
 	int found_marker;
 
-	de_dbg(c, "In jpeg module\n");
-
 	d = de_malloc(c, sizeof(lctx));
 
 	pos = 0;
@@ -254,8 +252,6 @@ static void de_run_jpegscan(deark *c, de_module_params *mparams)
 	de_int64 foundpos = 0;
 	scanctx *d = NULL;
 	int ret;
-
-	de_dbg(c, "In jpegscan module\n");
 
 	d = de_malloc(c, sizeof(*d));
 

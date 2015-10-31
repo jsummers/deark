@@ -96,8 +96,6 @@ static void de_run_basic_c64(deark *c, de_module_params *mparams)
 	de_int64 next_line_ptr;
 	de_int64 line_size;
 
-	de_dbg(c, "In basic_c64 module\n");
-
 	d = de_malloc(c, sizeof(lctx));
 
 	d->outf = dbuf_create_output_file(c, "c64.bas", NULL);

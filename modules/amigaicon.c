@@ -556,8 +556,6 @@ static void de_run_amigaicon(deark *c, de_module_params *mparams)
 	de_int64 x;
 	de_int64 bytesused;
 
-	de_dbg(c, "In amigaicon module\n");
-
 	d = de_malloc(c, sizeof(lctx));
 
 	d->main_width = de_getui16be(12);

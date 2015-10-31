@@ -42,8 +42,6 @@ static void de_run_nol(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
 
-	de_dbg(c, "In NOL module\n");
-
 	d = de_malloc(c, sizeof(lctx));
 
 	d->w = de_getui16le(10);
@@ -78,8 +76,6 @@ void de_module_nol(deark *c, struct deark_module_info *mi)
 static void de_run_ngg(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
-
-	de_dbg(c, "In NGG module\n");
 
 	d = de_malloc(c, sizeof(lctx));
 
@@ -123,8 +119,6 @@ static void de_run_npm(deark *c, de_module_params *mparams)
 	de_int64 txt_len;
 	de_int64 pos;
 	lctx *d = NULL;
-
-	de_dbg(c, "In NPM module\n");
 
 	d = de_malloc(c, sizeof(lctx));
 
@@ -173,8 +167,6 @@ static void de_run_nlm(deark *c, de_module_params *mparams)
 	lctx *d = NULL;
 	de_byte imgtype;
 	const char *s;
-
-	de_dbg(c, "In NLM module\n");
 
 	d = de_malloc(c, sizeof(lctx));
 
@@ -312,7 +304,6 @@ static void de_run_nsl(deark *c, de_module_params *mparams)
 	lctx *d = NULL;
 	de_int64 pos;
 
-	de_dbg(c, "In NSL module\n");
 	d = de_malloc(c, sizeof(lctx));
 
 	pos = 0;

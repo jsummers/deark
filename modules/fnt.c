@@ -252,7 +252,6 @@ static void de_run_fnt(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
 
-	de_dbg(c, "In fnt module\n");
 	d = de_malloc(c, sizeof(lctx));
 
 	if(!do_read_header(c, d)) goto done;

@@ -690,8 +690,6 @@ static void de_run_pcpaint(deark *c, de_module_params *mparams)
 
 	d = de_malloc(c, sizeof(lctx));
 
-	de_dbg(c, "In pcpaint module\n");
-
 	pcpaintfmt = de_get_ext_option(c, "pcpaint:fmt");
 	if(pcpaintfmt) {
 		if(!de_strcmp(pcpaintfmt, "pic")) {

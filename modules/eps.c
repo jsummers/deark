@@ -192,8 +192,6 @@ static void de_run_eps(deark *c, de_module_params *mparams)
 {
 	de_byte b[2];
 
-	de_dbg(c, "In eps module\n");
-
 	de_read(b, 0, (de_int64)sizeof(b));
 
 	if(b[0]==0xc5 && b[1]==0xd0) {

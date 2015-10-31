@@ -83,14 +83,11 @@ static void de_run_atr(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
 
-	de_dbg(c, "In ATR module\n");
-
 	d = de_malloc(c, sizeof(lctx));
 
 	do_atr(c, d);
 
 	de_free(c, d);
-
 }
 
 static int de_identify_atr(deark *c)

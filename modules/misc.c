@@ -16,8 +16,6 @@
 
 static void de_run_copy(deark *c, de_module_params *mparams)
 {
-	de_dbg(c, "In copy module\n");
-
 	dbuf_create_file_from_slice(c->infile, 0, c->infile->len, "bin", NULL);
 }
 
@@ -39,8 +37,6 @@ void de_module_copy(deark *c, struct deark_module_info *mi)
 static void de_run_zlib(deark *c, de_module_params *mparams)
 {
 	dbuf *f = NULL;
-
-	de_dbg(c, "In zlib module\n");
 
 	f = dbuf_create_output_file(c, "unc", NULL);
 	de_uncompress_zlib(c->infile, 0, c->infile->len, f);
@@ -133,8 +129,6 @@ static void de_run_xpuzzle(deark *c, de_module_params *mparams)
 	de_int64 i, j;
 	de_uint32 pal[256];
 	de_int64 p;
-
-	de_dbg(c, "In xpuzzle module\n");
 
 	d = de_malloc(c, sizeof(struct xpuzzctx));
 	if(!xpuzz_read_header(c, d)) goto done;
@@ -295,8 +289,6 @@ static void de_run_bob(deark *c, de_module_params *mparams)
 	de_int64 i, j;
 	de_uint32 pal[256];
 	de_int64 p;
-
-	de_dbg(c, "In bob module\n");
 
 	w = de_getui16le(0);
 	h = de_getui16le(2);
@@ -478,7 +470,6 @@ static void de_run_applevol(deark *c, de_module_params *mparams)
 	de_int64 p;
 	de_byte palent;
 
-	de_dbg(c, "In applevol module\n");
 	w = de_getui16be(1);
 	h = de_getui16be(3);
 	if(!de_good_image_dimensions(c, w, h)) goto done;
@@ -564,8 +555,6 @@ static void de_run_ripicon(deark *c, de_module_params *mparams)
 	de_int64 i, j, k;
 	de_byte x;
 	de_uint32 palent;
-
-	de_dbg(c, "In ripicon module\n");
 
 	width = 1 + de_getui16le(0);
 	height = 1 + de_getui16le(2);

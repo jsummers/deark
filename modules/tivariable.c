@@ -405,7 +405,6 @@ static void de_run_tivariable(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
 
-	de_dbg(c, "In tivariable module\n");
 	d = de_malloc(c, sizeof(lctx));
 	d->fmt = identify_internal(c);
 

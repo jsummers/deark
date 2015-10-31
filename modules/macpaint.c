@@ -171,8 +171,6 @@ static void de_run_macpaint(deark *c, de_module_params *mparams)
 	de_int64 pos;
 	const char *s;
 
-	de_dbg(c, "In macpaint module\n");
-
 	d = de_malloc(c, sizeof(lctx));
 
 	d->has_macbinary_header = -1;

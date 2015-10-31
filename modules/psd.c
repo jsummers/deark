@@ -131,7 +131,7 @@ static void de_run_psd(deark *c, de_module_params *mparams)
 	de_int64 x;
 	de_int64 pos;
 
-	de_dbg2(c, "In psd module\n");
+	if(c->module_nesting_level>1) de_dbg2(c, "in psd module\n");
 
 	if(mparams && mparams->codes && de_strchr(mparams->codes, 'R')) {
 		do_image_resource_blocks(c, 0, c->infile->len);

@@ -98,8 +98,6 @@ static void de_run_ani(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
 
-	de_dbg(c, "In ani module\n");
-
 	d = de_malloc(c, sizeof(lctx));
 
 	process_riff_sequence(c, d, 0, c->infile->len);

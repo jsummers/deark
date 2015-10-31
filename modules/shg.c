@@ -353,8 +353,6 @@ static void de_run_shg(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
 
-	de_dbg(c, "In shg module\n");
-
 	d = de_malloc(c, sizeof(lctx));
 
 	d->shg_startpos = 0;

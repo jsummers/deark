@@ -199,8 +199,6 @@ static void de_run_ico(deark *c, de_module_params *mparams)
 	de_int64 num_images;
 	de_int64 i;
 
-	de_dbg(c, "In ico module\n");
-
 	d = de_malloc(c, sizeof(lctx));
 
 	x = de_getui16le(2);

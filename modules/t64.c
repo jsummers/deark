@@ -107,8 +107,6 @@ static void de_run_t64(deark *c, de_module_params *mparams)
 	de_int64 pos;
 	de_int64 i;
 
-	de_dbg(c, "In t64 module\n");
-
 	d = de_malloc(c, sizeof(lctx));
 
 	pos = 32;

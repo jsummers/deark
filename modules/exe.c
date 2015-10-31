@@ -941,7 +941,6 @@ static void de_run_exe(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
 
-	de_dbg(c, "In EXE module\n");
 	d = de_malloc(c, sizeof(lctx));
 
 	do_fileheader(c, d);

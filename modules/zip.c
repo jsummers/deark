@@ -239,8 +239,6 @@ static void de_run_zip(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
 
-	de_dbg(c, "In zip module\n");
-
 	d = de_malloc(c, sizeof(lctx));
 
 	de_declare_fmt(c, "ZIP (extract comments only)");

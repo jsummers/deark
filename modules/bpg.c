@@ -137,7 +137,6 @@ static void de_run_bpg(deark *c, de_module_params *mparams)
 
 	d = de_malloc(c, sizeof(lctx));
 
-	de_dbg(c, "In bpg module\n");
 	do_hevc_file(c, d);
 
 	de_free(c, d);
