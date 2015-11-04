@@ -29,6 +29,10 @@
 
 struct img_info {
 	de_int64 width, height;
+	de_int64 planes_total;
+	de_int64 rowspan;
+	de_int64 planespan;
+	de_int64 bits_per_row_per_plane;
 	de_byte masking_code;
 	const char *filename_token;
 };
@@ -42,7 +46,6 @@ typedef struct localctx_struct {
 	struct img_info main_img;
 
 	de_int64 planes;
-	de_int64 planes_total;
 	de_byte found_bmhd;
 	de_byte found_cmap;
 	de_byte compression;
@@ -55,9 +58,6 @@ typedef struct localctx_struct {
 	de_byte uses_color_cycling;
 	de_int64 transparent_color;
 
-	de_int64 rowspan;
-	de_int64 planespan;
-	de_int64 bits_per_row_per_plane;
 	de_int64 x_aspect, y_aspect;
 	de_int64 x_dpi, y_dpi;
 	de_int32 camg_mode;
@@ -203,7 +203,7 @@ static void do_deplanarize(deark *c, lctx *d, struct img_info *ii,
 		de_memset(row_deplanarized, 0, (size_t)ii->width);
 		for(i=0; i<ii->width; i++) {
 			for(bit=0; bit<d->planes; bit++) {
-				b = getbit(row_orig, bit*d->bits_per_row_per_plane +i);
+				b = getbit(row_orig, bit*ii->bits_per_row_per_plane +i);
 				if(b) row_deplanarized[i] |= (1<<bit);
 			}
 		}
@@ -213,7 +213,7 @@ static void do_deplanarize(deark *c, lctx *d, struct img_info *ii,
 		for(i=0; i<ii->width; i++) {
 			for(sample=0; sample<3; sample++) {
 				for(bit=0; bit<8; bit++) {
-					b = getbit(row_orig, (sample*8+bit)*d->bits_per_row_per_plane + i);
+					b = getbit(row_orig, (sample*8+bit)*ii->bits_per_row_per_plane + i);
 					if(b) row_deplanarized[i*3 + sample] |= (1<<bit);
 				}
 			}
@@ -231,7 +231,7 @@ static void get_row_acbm(deark *c, lctx *d, struct img_info *ii,
 	de_memset(row, 0, (size_t)ii->width);
 	for(i=0; i<ii->width; i++) {
 		for(bit=0; bit<d->planes; bit++) {
-			b = de_get_bits_symbol(unc_pixels, 1, bit*d->planespan + j*d->rowspan, i);
+			b = de_get_bits_symbol(unc_pixels, 1, bit*ii->planespan + j*ii->rowspan, i);
 			if(b) row[i] |= (1<<bit);
 		}
 	}
@@ -298,16 +298,16 @@ static void do_image_24(deark *c, lctx *d, struct img_info *ii,
 		goto done;
 	}
 
-	d->bits_per_row_per_plane = ((ii->width+15)/16)*16;
-	d->rowspan = (d->bits_per_row_per_plane/8) * d->planes;
-	row_orig = de_malloc(c, d->rowspan);
+	ii->bits_per_row_per_plane = ((ii->width+15)/16)*16;
+	ii->rowspan = (ii->bits_per_row_per_plane/8) * d->planes;
+	row_orig = de_malloc(c, ii->rowspan);
 	row_deplanarized = de_malloc(c, ii->width * 3);
 
 	img = de_bitmap_create(c, ii->width, ii->height, 3);
 	set_density(c, d, img);
 
 	for(j=0; j<ii->height; j++) {
-		dbuf_read(unc_pixels, row_orig, j*d->rowspan, d->rowspan);
+		dbuf_read(unc_pixels, row_orig, j*ii->rowspan, ii->rowspan);
 		do_deplanarize(c, d, ii, row_orig, row_deplanarized);
 
 		for(i=0; i<ii->width; i++) {
@@ -439,31 +439,31 @@ static int do_image_1to8(deark *c, lctx *d, struct img_info *ii,
 		}
 	}
 
-	d->planes_total = d->planes;
+	ii->planes_total = d->planes;
 	if(ii->masking_code==1) {
 		if(d->formtype!=CODE_ILBM) {
 			de_err(c, "This type of image is not supported.\n");
 			goto done;
 		}
-		d->planes_total++;
+		ii->planes_total++;
 	}
 
-	d->bits_per_row_per_plane = ((ii->width+15)/16)*16;
+	ii->bits_per_row_per_plane = ((ii->width+15)/16)*16;
 	if(d->is_vdat) {
-		d->rowspan = d->bits_per_row_per_plane/8;
+		ii->rowspan = ii->bits_per_row_per_plane/8;
 	}
 	else if(d->formtype==CODE_ACBM) {
-		d->rowspan = d->bits_per_row_per_plane/8;
-		d->planespan = ii->height * d->rowspan;
+		ii->rowspan = ii->bits_per_row_per_plane/8;
+		ii->planespan = ii->height * ii->rowspan;
 	}
 	else if(d->formtype==CODE_PBM) {
-		d->rowspan = ii->width;
+		ii->rowspan = ii->width;
 	}
 	else {
-		d->rowspan = (d->bits_per_row_per_plane/8) * d->planes_total;
+		ii->rowspan = (ii->bits_per_row_per_plane/8) * ii->planes_total;
 	}
 
-	row_orig = de_malloc(c, d->rowspan);
+	row_orig = de_malloc(c, ii->rowspan);
 	row_deplanarized = de_malloc(c, ii->width);
 
 	if(!d->is_ham6 && !d->is_ham8 && de_is_grayscale_palette(d->pal, 256))
@@ -493,14 +493,14 @@ static int do_image_1to8(deark *c, lctx *d, struct img_info *ii,
 			get_row_acbm(c, d, ii, unc_pixels, j, row_deplanarized);
 		}
 		else if(d->formtype==CODE_PBM) {
-			if(d->rowspan != ii->width) {
+			if(ii->rowspan != ii->width) {
 				de_err(c, "Internal error\n");
 				goto done;
 			}
-			dbuf_read(unc_pixels, row_deplanarized, j*d->rowspan, d->rowspan);
+			dbuf_read(unc_pixels, row_deplanarized, j*ii->rowspan, ii->rowspan);
 		}
 		else {
-			dbuf_read(unc_pixels, row_orig, j*d->rowspan, d->rowspan);
+			dbuf_read(unc_pixels, row_orig, j*ii->rowspan, ii->rowspan);
 			do_deplanarize(c, d, ii, row_orig, row_deplanarized);
 		}
 
@@ -556,7 +556,7 @@ static int do_image_1to8(deark *c, lctx *d, struct img_info *ii,
 			if(ii->masking_code==1 && !d->opt_notrans) {
 				// The last plane is the transparency mask.
 				// (This code is for ILBM format only.)
-				b = getbit(row_orig, (d->planes_total-1)*d->bits_per_row_per_plane +i);
+				b = getbit(row_orig, (ii->planes_total-1)*ii->bits_per_row_per_plane +i);
 				ca = b ? 0xff : 0x00;
 			}
 
