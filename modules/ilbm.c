@@ -655,6 +655,11 @@ static void do_tiny(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 	if(len<=4) goto done;
 	ii->height = de_getui16be(pos1+2);
 	de_dbg(c, "thumbnail image, dimensions: %dx%d\n", (int)ii->width, (int)ii->height);
+
+	// Based on what little data I have, it seems that TINY images do not have
+	// a transparency mask, even if the main image does.
+	if(ii->masking_code==1) ii->masking_code=0;
+
 	ii->filename_token = "thumb";
 	do_image(c, d, ii, pos1+4, len-4);
 
