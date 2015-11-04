@@ -309,6 +309,10 @@ static void do_read_extension_area(deark *c, lctx *d, de_int64 pos)
 	de_int64 ext_area_size;
 
 	de_dbg(c, "extension area at %d\n", (int)pos);
+	if(pos > c->infile->len - 2) {
+		de_warn(c, "Bad extension area offset: %u\n", (unsigned int)pos);
+		return;
+	}
 
 	de_dbg_indent(c, 1);
 	ext_area_size = de_getui16le(pos);
@@ -344,6 +348,10 @@ static void do_read_developer_area(deark *c, lctx *d, de_int64 pos)
 	de_int64 tag_id, tag_data_pos, tag_data_size;
 
 	de_dbg(c, "developer area at %d\n", (int)pos);
+	if(pos > c->infile->len - 2) {
+		de_warn(c, "Bad developer area offset: %u\n", (unsigned int)pos);
+		return;
+	}
 
 	de_dbg_indent(c, 1);
 	num_tags = de_getui16le(pos);
