@@ -27,12 +27,20 @@
 #define CODE_PBM   0x50424d20
 #define CODE_ACBM  0x4143424d
 
+struct img_info {
+	de_int64 width, height;
+	de_byte masking_code;
+	const char *filename_token;
+};
+
 typedef struct localctx_struct {
 	int level;
 	de_uint32 formtype;
 
-	de_int64 bmhd_width, bmhd_height; // Dimensions of the main image
-	de_int64 width, height; // Dimensions of the current image
+	// This struct is for image attributes that might be different in
+	// thumbnail images vs. the main image.
+	struct img_info main_img;
+
 	de_int64 planes;
 	de_int64 planes_total;
 	de_byte found_bmhd;
@@ -41,7 +49,6 @@ typedef struct localctx_struct {
 	de_byte has_camg;
 	de_byte ham_flag; // "hold and modify"
 	de_byte ehb_flag; // "extra halfbrite"
-	de_byte masking_code;
 	de_byte is_ham6;
 	de_byte is_ham8;
 	de_byte is_vdat;
@@ -88,11 +95,11 @@ static int do_bmhd(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 	}
 
 	d->found_bmhd = 1;
-	d->bmhd_width = de_getui16be(pos1);
-	d->bmhd_height = de_getui16be(pos1+2);
+	d->main_img.width = de_getui16be(pos1);
+	d->main_img.height = de_getui16be(pos1+2);
 	d->planes = (de_int64)de_getbyte(pos1+8);
-	d->masking_code = de_getbyte(pos1+9);
-	switch(d->masking_code) {
+	d->main_img.masking_code = de_getbyte(pos1+9);
+	switch(d->main_img.masking_code) {
 	case 0: masking_name = "no transparency"; break;
 	case 1: masking_name = "1-bit transparency mask"; break;
 	case 2: masking_name = "color-key transparency"; break;
@@ -103,11 +110,11 @@ static int do_bmhd(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 	d->transparent_color = de_getui16be(pos1+12);
 	d->x_aspect = (de_int64)de_getbyte(pos1+14);
 	d->y_aspect = (de_int64)de_getbyte(pos1+15);
-	de_dbg(c, "dimensions: %dx%d, planes: %d, compression: %d\n", (int)d->bmhd_width,
-		(int)d->bmhd_height, (int)d->planes, (int)d->compression);
+	de_dbg(c, "dimensions: %dx%d, planes: %d, compression: %d\n", (int)d->main_img.width,
+		(int)d->main_img.height, (int)d->planes, (int)d->compression);
 	de_dbg(c, "apect ratio: %d, %d\n", (int)d->x_aspect, (int)d->y_aspect);
-	de_dbg(c, "masking: %d (%s)\n", (int)d->masking_code, masking_name);
-	if(d->masking_code==2 || d->masking_code==3) {
+	de_dbg(c, "masking: %d (%s)\n", (int)d->main_img.masking_code, masking_name);
+	if(d->main_img.masking_code==2 || d->main_img.masking_code==3) {
 		de_dbg(c, " color key: %d\n", (int)d->transparent_color);
 	}
 
@@ -184,8 +191,8 @@ static de_byte getbit(const de_byte *m, de_int64 bitnum)
 	return b;
 }
 
-static void do_deplanarize(deark *c, lctx *d, const de_byte *row_orig,
-	de_byte *row_deplanarized)
+static void do_deplanarize(deark *c, lctx *d, struct img_info *ii,
+	const de_byte *row_orig, de_byte *row_deplanarized)
 {
 	de_int64 i;
 	de_int64 sample;
@@ -193,8 +200,8 @@ static void do_deplanarize(deark *c, lctx *d, const de_byte *row_orig,
 	de_byte b;
 
 	if(d->planes>=1 && d->planes<=8) {
-		de_memset(row_deplanarized, 0, (size_t)d->width);
-		for(i=0; i<d->width; i++) {
+		de_memset(row_deplanarized, 0, (size_t)ii->width);
+		for(i=0; i<ii->width; i++) {
 			for(bit=0; bit<d->planes; bit++) {
 				b = getbit(row_orig, bit*d->bits_per_row_per_plane +i);
 				if(b) row_deplanarized[i] |= (1<<bit);
@@ -202,8 +209,8 @@ static void do_deplanarize(deark *c, lctx *d, const de_byte *row_orig,
 		}
 	}
 	else if(d->planes==24) {
-		de_memset(row_deplanarized, 0, (size_t)(d->width*3));
-		for(i=0; i<d->width; i++) {
+		de_memset(row_deplanarized, 0, (size_t)(ii->width*3));
+		for(i=0; i<ii->width; i++) {
 			for(sample=0; sample<3; sample++) {
 				for(bit=0; bit<8; bit++) {
 					b = getbit(row_orig, (sample*8+bit)*d->bits_per_row_per_plane + i);
@@ -214,14 +221,15 @@ static void do_deplanarize(deark *c, lctx *d, const de_byte *row_orig,
 	}
 }
 
-static void get_row_acbm(deark *c, lctx *d, dbuf *unc_pixels, de_int64 j, de_byte *row)
+static void get_row_acbm(deark *c, lctx *d, struct img_info *ii,
+	dbuf *unc_pixels, de_int64 j, de_byte *row)
 {
 	de_int64 i;
 	de_int64 bit;
 	de_byte b;
 
-	de_memset(row, 0, (size_t)d->width);
-	for(i=0; i<d->width; i++) {
+	de_memset(row, 0, (size_t)ii->width);
+	for(i=0; i<ii->width; i++) {
 		for(bit=0; bit<d->planes; bit++) {
 			b = de_get_bits_symbol(unc_pixels, 1, bit*d->planespan + j*d->rowspan, i);
 			if(b) row[i] |= (1<<bit);
@@ -229,7 +237,8 @@ static void get_row_acbm(deark *c, lctx *d, dbuf *unc_pixels, de_int64 j, de_byt
 	}
 }
 
-static void get_row_vdat(deark *c, lctx *d, dbuf *unc_pixels, de_int64 j, de_byte *row)
+static void get_row_vdat(deark *c, lctx *d, struct img_info *ii,
+	dbuf *unc_pixels, de_int64 j, de_byte *row)
 {
 	de_int64 i;
 	de_int64 set;
@@ -238,13 +247,13 @@ static void get_row_vdat(deark *c, lctx *d, dbuf *unc_pixels, de_int64 j, de_byt
 	de_int64 columns_per_set;
 	de_byte b;
 
-	de_memset(row, 0, (size_t)d->width);
+	de_memset(row, 0, (size_t)ii->width);
 
-	bytes_per_column = 2*d->height;
-	columns_per_set = ((d->width + 15)/16);
+	bytes_per_column = 2*ii->height;
+	columns_per_set = ((ii->width + 15)/16);
 	bytes_per_set = bytes_per_column * columns_per_set;
 
-	for(i=0; i<d->width; i++) {
+	for(i=0; i<ii->width; i++) {
 		for(set=0; set<4; set++) {
 			b = de_get_bits_symbol(unc_pixels, 1,
 				set*bytes_per_set + (i/16)*bytes_per_column + j*2,
@@ -275,7 +284,8 @@ static void set_density(deark *c, lctx *d, struct deark_bitmap *img)
 	}
 }
 
-static void do_image_24(deark *c, lctx *d, dbuf *unc_pixels, const char *token)
+static void do_image_24(deark *c, lctx *d, struct img_info *ii,
+	dbuf *unc_pixels)
 {
 	struct deark_bitmap *img = NULL;
 	de_int64 i, j;
@@ -288,19 +298,19 @@ static void do_image_24(deark *c, lctx *d, dbuf *unc_pixels, const char *token)
 		goto done;
 	}
 
-	d->bits_per_row_per_plane = ((d->width+15)/16)*16;
+	d->bits_per_row_per_plane = ((ii->width+15)/16)*16;
 	d->rowspan = (d->bits_per_row_per_plane/8) * d->planes;
 	row_orig = de_malloc(c, d->rowspan);
-	row_deplanarized = de_malloc(c, d->width * 3);
+	row_deplanarized = de_malloc(c, ii->width * 3);
 
-	img = de_bitmap_create(c, d->width, d->height, 3);
+	img = de_bitmap_create(c, ii->width, ii->height, 3);
 	set_density(c, d, img);
 
-	for(j=0; j<d->height; j++) {
+	for(j=0; j<ii->height; j++) {
 		dbuf_read(unc_pixels, row_orig, j*d->rowspan, d->rowspan);
-		do_deplanarize(c, d, row_orig, row_deplanarized);
+		do_deplanarize(c, d, ii, row_orig, row_deplanarized);
 
-		for(i=0; i<d->width; i++) {
+		for(i=0; i<ii->width; i++) {
 			cr = row_deplanarized[i*3];
 			cg = row_deplanarized[i*3+1];
 			cb = row_deplanarized[i*3+2];
@@ -308,7 +318,7 @@ static void do_image_24(deark *c, lctx *d, dbuf *unc_pixels, const char *token)
 		}
 	}
 
-	de_bitmap_write_to_file(img, token);
+	de_bitmap_write_to_file(img, ii->filename_token);
 done:
 	de_bitmap_destroy(img);
 	de_free(c, row_orig);
@@ -381,7 +391,8 @@ static void fixup_palette(deark *c, lctx *d)
 	}
 }
 
-static int do_image_1to8(deark *c, lctx *d, dbuf *unc_pixels, const char *token)
+static int do_image_1to8(deark *c, lctx *d, struct img_info *ii,
+	dbuf *unc_pixels)
 {
 	struct deark_bitmap *img = NULL;
 	de_int64 i, j;
@@ -422,14 +433,14 @@ static int do_image_1to8(deark *c, lctx *d, dbuf *unc_pixels, const char *token)
 	}
 
 	// If using color-keyed transparency, make one of the palette colors transparent.
-	if(d->masking_code==2 && !d->opt_notrans) {
+	if(ii->masking_code==2 && !d->opt_notrans) {
 		if(d->transparent_color<=255) {
 			d->pal[(int)d->transparent_color] &= 0x00ffffffU;
 		}
 	}
 
 	d->planes_total = d->planes;
-	if(d->masking_code==1) {
+	if(ii->masking_code==1) {
 		if(d->formtype!=CODE_ILBM) {
 			de_err(c, "This type of image is not supported.\n");
 			goto done;
@@ -437,36 +448,36 @@ static int do_image_1to8(deark *c, lctx *d, dbuf *unc_pixels, const char *token)
 		d->planes_total++;
 	}
 
-	d->bits_per_row_per_plane = ((d->width+15)/16)*16;
+	d->bits_per_row_per_plane = ((ii->width+15)/16)*16;
 	if(d->is_vdat) {
 		d->rowspan = d->bits_per_row_per_plane/8;
 	}
 	else if(d->formtype==CODE_ACBM) {
 		d->rowspan = d->bits_per_row_per_plane/8;
-		d->planespan = d->height * d->rowspan;
+		d->planespan = ii->height * d->rowspan;
 	}
 	else if(d->formtype==CODE_PBM) {
-		d->rowspan = d->width;
+		d->rowspan = ii->width;
 	}
 	else {
 		d->rowspan = (d->bits_per_row_per_plane/8) * d->planes_total;
 	}
 
 	row_orig = de_malloc(c, d->rowspan);
-	row_deplanarized = de_malloc(c, d->width);
+	row_deplanarized = de_malloc(c, ii->width);
 
 	if(!d->is_ham6 && !d->is_ham8 && de_is_grayscale_palette(d->pal, 256))
 		dst_bytes_per_pixel = 1;
 	else
 		dst_bytes_per_pixel = 3;
 
-	if((d->masking_code==1 || d->masking_code==2) && !d->opt_notrans)
+	if((ii->masking_code==1 || ii->masking_code==2) && !d->opt_notrans)
 		dst_bytes_per_pixel++;
 
-	img = de_bitmap_create(c, d->width, d->height, dst_bytes_per_pixel);
+	img = de_bitmap_create(c, ii->width, ii->height, dst_bytes_per_pixel);
 	set_density(c, d, img);
 
-	for(j=0; j<d->height; j++) {
+	for(j=0; j<ii->height; j++) {
 		if(d->is_ham6 || d->is_ham8) {
 			// At the beginning of each row, the color accumulators are
 			// initialized to palette entry 0.
@@ -476,13 +487,13 @@ static int do_image_1to8(deark *c, lctx *d, dbuf *unc_pixels, const char *token)
 		}
 
 		if(d->is_vdat) {
-			get_row_vdat(c, d, unc_pixels, j, row_deplanarized);
+			get_row_vdat(c, d, ii, unc_pixels, j, row_deplanarized);
 		}
 		else if(d->formtype==CODE_ACBM) {
-			get_row_acbm(c, d, unc_pixels, j, row_deplanarized);
+			get_row_acbm(c, d, ii, unc_pixels, j, row_deplanarized);
 		}
 		else if(d->formtype==CODE_PBM) {
-			if(d->rowspan != d->width) {
+			if(d->rowspan != ii->width) {
 				de_err(c, "Internal error\n");
 				goto done;
 			}
@@ -490,10 +501,10 @@ static int do_image_1to8(deark *c, lctx *d, dbuf *unc_pixels, const char *token)
 		}
 		else {
 			dbuf_read(unc_pixels, row_orig, j*d->rowspan, d->rowspan);
-			do_deplanarize(c, d, row_orig, row_deplanarized);
+			do_deplanarize(c, d, ii, row_orig, row_deplanarized);
 		}
 
-		for(i=0; i<d->width; i++) {
+		for(i=0; i<ii->width; i++) {
 			val = row_deplanarized[i];
 
 			if(d->is_ham6) {
@@ -542,7 +553,7 @@ static int do_image_1to8(deark *c, lctx *d, dbuf *unc_pixels, const char *token)
 				ca = DE_COLOR_A(clr);
 			}
 
-			if(d->masking_code==1 && !d->opt_notrans) {
+			if(ii->masking_code==1 && !d->opt_notrans) {
 				// The last plane is the transparency mask.
 				// (This code is for ILBM format only.)
 				b = getbit(row_orig, (d->planes_total-1)*d->bits_per_row_per_plane +i);
@@ -553,7 +564,7 @@ static int do_image_1to8(deark *c, lctx *d, dbuf *unc_pixels, const char *token)
 		}
 	}
 
-	de_bitmap_write_to_file(img, token);
+	de_bitmap_write_to_file(img, ii->filename_token);
 	retval = 1;
 
 done:
@@ -563,8 +574,8 @@ done:
 	return retval;
 }
 
-// Caller must first set d->width and d->height.
-static int do_image(deark *c, lctx *d, de_int64 pos1, de_int64 len, const char *token)
+static int do_image(deark *c, lctx *d, struct img_info *ii,
+	de_int64 pos1, de_int64 len)
 {
 	dbuf *unc_pixels = NULL;
 	dbuf *unc_pixels_toclose = NULL;
@@ -584,7 +595,7 @@ static int do_image(deark *c, lctx *d, de_int64 pos1, de_int64 len, const char *
 		goto done;
 	}
 
-	if(!de_good_image_dimensions(c, d->width, d->height)) goto done;
+	if(!de_good_image_dimensions(c, ii->width, ii->height)) goto done;
 
 	if(d->is_vdat) {
 		// TODO: Consider using the tinystuff decoder for VDAT.
@@ -614,10 +625,10 @@ static int do_image(deark *c, lctx *d, de_int64 pos1, de_int64 len, const char *
 	if(!unc_pixels) goto done;
 
 	if(d->planes>=1 && d->planes<=8) {
-		if(!do_image_1to8(c, d, unc_pixels, token)) goto done;
+		if(!do_image_1to8(c, d, ii, unc_pixels)) goto done;
 	}
 	else if(d->planes==24) {
-		do_image_24(c, d, unc_pixels, token);
+		do_image_24(c, d, ii, unc_pixels);
 	}
 	else {
 		de_err(c, "Support for this type of IFF/ILBM image is not implemented\n");
@@ -632,15 +643,23 @@ done:
 // Thumbnail chunk
 static void do_tiny(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 {
+	struct img_info *ii = NULL;
+
 	if(d->compression==2) {
 		de_warn(c, "Thumbnails not supported with VDAT compression");
-		return;
+		goto done;
 	}
-	d->width = de_getui16be(pos1);
-	if(len<=4) return;
-	d->height = de_getui16be(pos1+2);
-	de_dbg(c, "thumbnail image, dimensions: %dx%d\n", (int)d->width, (int)d->height);
-	do_image(c, d, pos1+4, len-4, "thumb");
+	ii = de_malloc(c, sizeof(struct img_info));
+	*ii = d->main_img; // structure copy
+	ii->width = de_getui16be(pos1);
+	if(len<=4) goto done;
+	ii->height = de_getui16be(pos1+2);
+	de_dbg(c, "thumbnail image, dimensions: %dx%d\n", (int)ii->width, (int)ii->height);
+	ii->filename_token = "thumb";
+	do_image(c, d, ii, pos1+4, len-4);
+
+done:
+	de_free(c, ii);
 }
 
 static void do_vdat(deark *c, lctx *d, de_int64 pos1, de_int64 len)
@@ -747,17 +766,13 @@ static int do_body(deark *c, lctx *d, de_int64 pos, de_int64 len, de_uint32 ct)
 			return 0;
 		}
 
-		d->width = d->bmhd_width;
-		d->height = d->bmhd_height;
 		d->is_vdat = 1;
-		do_image(c, d, 0, 0, NULL);
+		do_image(c, d, &d->main_img, 0, 0);
 		d->is_vdat = 0;
 		return 1;
 	}
 
-	d->width = d->bmhd_width;
-	d->height = d->bmhd_height;
-	return do_image(c, d, pos, len, NULL);
+	return do_image(c, d, &d->main_img, pos, len);
 }
 
 static int do_chunk(deark *c, lctx *d, de_int64 pos, de_int64 bytes_avail,
