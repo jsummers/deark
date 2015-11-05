@@ -67,9 +67,12 @@ Command-line options:
   -modtime
   -nomodtime
      Do / Do not try to preserve the modification timestamp of extracted files.
-     This is only supported for a few formats. Off by default, but may be
-     enabled by default in future versions.
-     Note that if you are extracting to a system that does not store timestamps
+     On by default, but only supported for a few formats. It's intended for
+     archive formats where files are extracted as-is, and where each file has
+     a last-modified timestamp.
+     If a timestamp does not include a time zone, it will be assumed to be in
+     UTC.
+     Note that if you are extracting to a system that does not store file times
      in UTC (often the case on Windows), the timestamps may not be very
      accurate.
   -opt <module:option>=<value>

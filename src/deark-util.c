@@ -248,7 +248,7 @@ deark *de_create(void)
 	c->write_bom = 1;
 	c->write_density = 1;
 	c->filenames_from_file = 1;
-	c->preserve_file_times = 0;
+	c->preserve_file_times = 1;
 	c->max_output_files = -1;
 	c->max_image_dimension = DE_DEFAULT_MAX_IMAGE_DIMENSION;
 	return c;
