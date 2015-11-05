@@ -72,7 +72,6 @@ Command-line options:
      Note that if you are extracting to a system that does not store timestamps
      in UTC (often the case on Windows), the timestamps may not be very
      accurate.
-     The -modtime option currently does not work with the -zip option.
   -opt <module:option>=<value>
      Module-specific options. See formats.txt.
      Options not specific to one format:

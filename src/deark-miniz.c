@@ -286,7 +286,9 @@ void de_zip_add_file_to_archive(deark *c, dbuf *f)
 
 	de_dbg(c, "adding to zip: name:%s len:%d\n", f->name, (int)dbuf_get_length(f));
 	//mz_bool res;
-	mz_zip_writer_add_mem(zip, f->name, f->membuf_buf, (size_t)dbuf_get_length(f), MZ_BEST_COMPRESSION);
+	mz_zip_writer_add_mem(zip, f->name, f->membuf_buf, (size_t)dbuf_get_length(f),
+		MZ_BEST_COMPRESSION,
+		(c->preserve_file_times && f->mod_time_valid)?f->mod_time:(de_int64)(-1));
 }
 
 void de_zip_close_file(deark *c)
