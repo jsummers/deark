@@ -940,7 +940,7 @@ static int do_chunk_sequence(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 	}
 
 	endpos = pos1+len;
-	
+
 	pos = pos1;
 	while(pos < endpos) {
 		ret = do_chunk(c, d, pos, endpos-pos, &chunk_len);
@@ -970,7 +970,7 @@ static void de_run_ilbm(deark *c, de_module_params *mparams)
 	dbuf_close(d->vdat_unc_pixels);
 	de_free(c, d);
 }
- 
+
 static int de_identify_ilbm(deark *c)
 {
 	de_byte buf[12];

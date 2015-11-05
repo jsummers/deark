@@ -41,7 +41,7 @@ static void uncompress_line(deark *c, lctx *d, dbuf *unc_line,
 		if(unc_line->len - unc_line_len_orig >= d->rowspan_per_plane) break;
 
 		b0 = de_getbyte(pos++);
-		
+
 		if(b0==0) { // Pattern run or scanline run
 			b1 = de_getbyte(pos++);
 			if(b1>0) { // pattern run

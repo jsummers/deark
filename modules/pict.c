@@ -180,7 +180,7 @@ static void read_baseaddr(deark *c, lctx *d, struct bitmapinfo *bi, de_int64 pos
 }
 
 static void read_rowbytes_and_bounds(deark *c, lctx *d, struct bitmapinfo *bi,
-   de_int64 pos)
+	de_int64 pos)
 {
 	struct pict_rect tmprect;
 	de_int64 rowbytes_code;
@@ -203,7 +203,7 @@ static void read_rowbytes_and_bounds(deark *c, lctx *d, struct bitmapinfo *bi,
 // Pixmap fields that aren't read by read_baseaddr or read_rowbytes_and_bounds
 // (36 bytes)
 static int read_pixmap_only_fields(deark *c, lctx *d, struct bitmapinfo *bi,
-   de_int64 pos)
+	de_int64 pos)
 {
 	de_int64 pixmap_version;
 	de_int64 pack_size;

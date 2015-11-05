@@ -177,7 +177,7 @@ static void do_extract_files(deark *c, lctx *d)
 	pos += dlen;
 
 	dc = dbuf_getui16be(f, pos);
-	pos += 2; 
+	pos += 2;
 	de_dbg(c, "data fork checksum = 0x%04x\n", (unsigned int)dc);
 
 	// Resource fork
@@ -192,7 +192,7 @@ static void do_extract_files(deark *c, lctx *d)
 	pos += rlen;
 
 	rc = dbuf_getui16be(f, pos);
-	pos += 2; 
+	pos += 2;
 	de_dbg(c, "resource fork checksum = 0x%04x\n", (unsigned int)rc);
 
 done:

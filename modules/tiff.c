@@ -166,7 +166,7 @@ static void do_leaf_metadata(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 			break;
 		}
 		pos+=4;
-		
+
 		pos+=4; // Don't know what these 4 bytes are for.
 
 		de_read(segtype, pos, 40);

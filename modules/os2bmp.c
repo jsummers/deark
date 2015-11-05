@@ -120,7 +120,7 @@ static void do_generate_final_image(deark *c, struct srcbitmap *srcbmp_main, str
 			xorbit = de_get_bits_symbol(c->infile, srcbmp_mask->bi.bitcount,
 				srcbmp_mask->bi.bitsoffset + srcbmp_mask->bi.rowspan*j, i);
 			andbit = de_get_bits_symbol(c->infile, srcbmp_mask->bi.bitcount,
- 				srcbmp_mask->bi.bitsoffset + srcbmp_mask->bi.rowspan*(srcbmp_mask->bi.height/2+j), i);
+				srcbmp_mask->bi.bitsoffset + srcbmp_mask->bi.rowspan*(srcbmp_mask->bi.height/2+j), i);
 
 			if(!andbit && !xorbit) {
 				ca = 255; // Normal foreground

@@ -147,7 +147,7 @@ static void parse_params(deark *c, lctx *d, de_int64 default_val)
 }
 
 static void read_one_int(deark *c, lctx *d, const de_byte *buf,
-  de_int64 *a, de_int64 a_default)
+	de_int64 *a, de_int64 a_default)
 {
 	parse_params(c, d, a_default);
 

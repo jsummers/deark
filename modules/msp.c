@@ -25,7 +25,7 @@ static void do_ver1(deark *c, lctx *d)
 }
 
 static void do_decompress_scanline(deark *c, lctx *d, struct deark_bitmap *img,
-   de_int64 rownum, de_int64 rowoffset, de_int64 bytes_in_row)
+	de_int64 rownum, de_int64 rowoffset, de_int64 bytes_in_row)
 {
 	de_int64 i;
 	de_byte runtype;
