@@ -251,6 +251,7 @@ int de_zip_create_file(deark *c)
 	mz_zip_archive *zip;
 	mz_bool b;
 	const char *arcfn;
+	const char *s;
 
 	if(c->zip_file) return 1; // Already created. Shouldn't happen.
 
@@ -268,12 +269,19 @@ int de_zip_create_file(deark *c)
 	de_msg(c, "Creating %s\n", arcfn);
 
 	c->zip_file = (void*)zip;
+
+	s = de_get_ext_option(c, "archive:repro");
+	if(s) {
+		c->reproducible_output = 1;
+	}
+
 	return 1;
 }
 
 void de_zip_add_file_to_archive(deark *c, dbuf *f)
 {
 	mz_zip_archive *zip;
+	mz_int64 modtime;
 
 	if(!c->zip_file) {
 		// ZIP file hasn't been created yet
@@ -285,10 +293,20 @@ void de_zip_add_file_to_archive(deark *c, dbuf *f)
 	zip = (mz_zip_archive*)c->zip_file;
 
 	de_dbg(c, "adding to zip: name:%s len:%d\n", f->name, (int)dbuf_get_length(f));
-	//mz_bool res;
+
+	if(c->preserve_file_times && f->mod_time_valid) {
+		modtime = f->mod_time;
+	}
+	else if(c->reproducible_output) {
+		// An arbitrary timestamp (2010-09-08 07:06:05)
+		modtime = 1283929565LL;
+	}
+	else {
+		modtime = (mz_int64)(-1);
+	}
+
 	mz_zip_writer_add_mem(zip, f->name, f->membuf_buf, (size_t)dbuf_get_length(f),
-		MZ_BEST_COMPRESSION,
-		(c->preserve_file_times && f->mod_time_valid)?f->mod_time:(de_int64)(-1));
+		MZ_BEST_COMPRESSION, modtime);
 }
 
 void de_zip_close_file(deark *c)

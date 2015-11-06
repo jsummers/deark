@@ -172,6 +172,7 @@ struct deark_struct {
 	int ascii_html;
 	int filenames_from_file;
 	int preserve_file_times;
+	int reproducible_output;
 
 	de_msgfn_type msgfn; // Caller's message output function
 	de_fatalerrorfn_type fatalerrorfn;

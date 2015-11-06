@@ -87,6 +87,12 @@ Command-line options:
       -opt char:charwidth=<8|9>
          The VGA character cell width for character graphics, when the output
          format is "image".
+      -opt archive:repro
+         Make the -zip output reproducible, by not including modification times
+         that are not contained in the source file. (That is, don't use the
+         current time, or the source file's timestamp.) The times will be set
+         to some arbitrary value if necessary. This option is intended for use
+         with testing.
   -h, -?, -help:
      Print the help message.
   -version
