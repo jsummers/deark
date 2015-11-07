@@ -96,6 +96,7 @@ struct de_finfo_struct {
 	char *file_name; // utf-8 encoded
 	de_int64 mod_time; // Unix time_t format
 	de_byte mod_time_valid;
+	de_byte original_filename_flag; // Indicates if .file_name is a real file name
 };
 typedef struct de_finfo_struct de_finfo;
 

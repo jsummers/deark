@@ -171,6 +171,7 @@ static void do_directory_entry(deark *c, lctx *d, dbuf *f, de_int64 pos)
 
 	fi = de_finfo_create(c);
 	de_finfo_set_name_from_ucstring(c, fi, fn_u);
+	fi->original_filename_flag = 1;
 
 	outf = dbuf_create_output_file(c, NULL, fi);
 

@@ -347,6 +347,19 @@ dbuf *dbuf_create_output_file(deark *c, const char *ext, de_finfo *fi)
 
 	de_snprintf(nbuf, sizeof(nbuf), "%s.%03d.%s", basefn, file_index, fn_suffix);
 
+	if(c->output_style==DE_OUTPUTSTYLE_ZIP && !c->base_output_filename &&
+		fi && fi->original_filename_flag &&
+		fi->file_name && fi->file_name[0])
+	{
+		// TODO: This is a "temporary" hack to allow us to, when both reading from
+		// and writing to an archive format, use some semblance of the correct
+		// filename (instead of "output.xxx.yyy").
+		// There are some things that we don't handle optimally, such as
+		// subdirectories.
+		// A major redesign of the file naming logic would be good.
+		de_strlcpy(nbuf, fi->file_name, sizeof(nbuf));
+	}
+
 	f->name = de_strdup(c, nbuf);
 	f->c = c;
 

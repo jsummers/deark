@@ -39,6 +39,9 @@ Command-line options:
      formats.txt file for details.
   -zip
      Write output files to a .zip file.
+     If the input format is an "archive" format (e.g. "ar" or "graspgl"), then
+     by default, the filenames in the ZIP archive might not include the usual
+     "output.NNN" prefix.
   -arcfn <filename>
      Use this name for the .zip file. Default="output.zip".
   -start <n>
