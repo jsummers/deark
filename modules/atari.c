@@ -74,34 +74,58 @@ static de_int64 space_padded_length(const de_byte *buf, de_int64 len)
 	return last_nonspace+1;
 }
 
+static int get_sector_offset_and_size(deark *c, lctx *d,
+	de_int64 sector_num, de_int64 *sector_offset, de_int64 *sector_size)
+{
+	if(sector_num<1) return 0;
+
+	*sector_size = d->sector_size;
+	*sector_offset = (sector_num-1) * d->sector_size;
+
+	if(d->sector_size==256) {
+		// The first 3 sectors are 128 bytes
+		if(sector_num<=3) {
+			*sector_size = 128;
+			*sector_offset = (sector_num-1) * 128;
+		}
+		else {
+			*sector_offset -= 3*128;
+		}
+	}
+
+	return 1;
+}
+
 static void do_extract_file_contents(deark *c, lctx *d, dbuf *inf, dbuf *outf,
 	de_int64 starting_sector, de_int64 sector_count)
 {
 	de_int64 sectors_extracted = 0;
-	de_int64 sectorpos;
+	de_int64 sector_pos;
+	de_int64 sector_size;
 	de_int64 cur_sector;
 	de_int64 next_sector;
 	de_byte mdata[3];
 	de_int64 nbytes;
-	int short_flag;
 
 	cur_sector = starting_sector;
 	while(sectors_extracted < sector_count) {
-		sectorpos = (cur_sector-1) * d->sector_size;
-		de_dbg(c, "sector %d, #%d, at %d\n", (int)sectors_extracted, (int)cur_sector, (int)sectorpos);
+		get_sector_offset_and_size(c, d, cur_sector, &sector_pos, &sector_size);
+		de_dbg(c, "sector %d, #%d, at %d\n", (int)sectors_extracted, (int)cur_sector, (int)sector_pos);
 		de_dbg_indent(c, 1);
 
-		dbuf_read(inf, mdata, sectorpos + 125, 3);
+		dbuf_read(inf, mdata, sector_pos + sector_size-3, 3);
 		next_sector = ((mdata[0]&0x3) << 8) | mdata[1];
 
-		// This flag doesn't appear to be used as advertised.
-		short_flag = (mdata[2] & 0x80)?1:0;
+		// TODO: Some documentation says the high bit of mdata[2] is a
+		// "short flag" that indicates that the other bits are valid. But I haven't
+		// found any files that use it. And it can't work with sectors > 128 bytes.
+		nbytes = (de_int64)mdata[2];
+		if(sector_size<=128)
+			nbytes = nbytes & 0x7f;
 
-		nbytes = (de_int64)(mdata[2]&0x7f);
-		de_dbg(c, "byte count: %d, S: %d, next sector: %d\n", (int)nbytes, short_flag,
-			(int)next_sector);
+		de_dbg(c, "byte count: %d, next sector: %d\n", (int)nbytes, (int)next_sector);
 
-		dbuf_copy(inf, sectorpos, nbytes, outf);
+		dbuf_copy(inf, sector_pos, nbytes, outf);
 
 		de_dbg_indent(c, -1);
 		sectors_extracted++;
@@ -134,12 +158,14 @@ static void do_directory_entry(deark *c, lctx *d, dbuf *f, de_int64 pos)
 	starting_sector = dbuf_getui16le(f, pos+3);
 	de_dbg(c, "sector start: %d, count: %d\n", (int)starting_sector, (int)sector_count);
 
-	if(sector_count > 720) {
-		de_err(c, "Bad file size\n");
+	if(starting_sector<1) goto done;
+
+	if(starting_sector > 720) {
+		de_err(c, "Bad starting sector: %d\n", (int)starting_sector);
 		goto done;
 	}
-	if(starting_sector > 720) {
-		de_err(c, "Bad starting sector\n");
+	if(sector_count > 720) {
+		de_err(c, "Bad file size: %d blocks\n", (int)sector_count);
 		goto done;
 	}
 
@@ -185,20 +211,27 @@ done:
 
 static void do_disk_image(deark *c, lctx *d, dbuf *f)
 {
-	de_int64 dirpos;
+	de_int64 sector_pos;
 	de_int64 entrypos;
+	de_int64 sector_size;
 	de_int64 sector_index;
 	de_int64 entry_index;
+	de_int64 entries_per_sector;
 	de_byte flags;
 
-	if(d->sector_size != 128) return;
+	if(d->sector_size!=128 && d->sector_size!=256) {
+		de_err(c, "Unsupported sector size: %d\n", (int)d->sector_size);
+		return;
+	}
+	entries_per_sector = d->sector_size / 16;
 
 	for(sector_index=0; sector_index<8; sector_index++) {
-		dirpos = (360 + sector_index) * d->sector_size;
-		de_dbg(c, "directory sector %d at %d\n", (int)sector_index, (int)dirpos);
+		get_sector_offset_and_size(c, d, 361+sector_index, &sector_pos, &sector_size);
+		if(sector_pos + sector_size > f->len) break;
+		de_dbg(c, "directory sector %d at %d\n", (int)sector_index, (int)sector_pos);
 		de_dbg_indent(c, 1);
-		for(entry_index=0; entry_index<8; entry_index++) {
-			entrypos = dirpos + 16*entry_index;
+		for(entry_index=0; entry_index<entries_per_sector; entry_index++) {
+			entrypos = sector_pos + 16*entry_index;
 
 			// Peek at the flags byte, just to avoid printing debugging info
 			// about nonexistent files
