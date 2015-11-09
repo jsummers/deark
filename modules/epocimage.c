@@ -200,7 +200,8 @@ static struct deark_bitmap *do_read_paint_data_section(deark *c, lctx *d,
 	struct deark_bitmap *img = NULL;
 
 	pos = pos1;
-	de_dbg(c, "paint data section at: %d\n", (int)pos1);
+	de_dbg(c, "paint data section at %d\n", (int)pos1);
+	de_dbg_indent(c, 1);
 
 	d->paint_data_section_size = de_getui32le(pos);
 	de_dbg(c, "paint data section size: %d\n", (int)d->paint_data_section_size);
@@ -245,7 +246,7 @@ static struct deark_bitmap *do_read_paint_data_section(deark *c, lctx *d,
 
 	pos += 40;
 	cmpr_pixels_size = d->paint_data_section_size-40;
-	de_dbg(c, "pixel data at: %d\n", (int)pos);
+	de_dbg(c, "pixel data at %d\n", (int)pos);
 
 	switch(compression_type) {
 	case 0: // uncompressed
@@ -275,6 +276,7 @@ static struct deark_bitmap *do_read_paint_data_section(deark *c, lctx *d,
 
 done:
 	if(unc_pixels) dbuf_close(unc_pixels);
+	de_dbg_indent(c, -1);
 	return img;
 }
 
@@ -350,6 +352,8 @@ static void do_sketch_section(deark *c, lctx *d, de_int64 pos1)
 
 	// 18-byte header
 	de_dbg(c, "sketch section at %d\n", (int)pos);
+	de_dbg_indent(c, 1);
+
 	s_s_w = de_getui16le(pos);
 	s_s_h = de_getui16le(pos+2);
 	de_dbg(c, "sketch section dimensions: %dx%d\n", (int)s_s_w, (int)s_s_h);
@@ -374,38 +378,53 @@ static void do_sketch_section(deark *c, lctx *d, de_int64 pos1)
 	x1 = de_getui32le(pos+12);
 	x2 = de_getui32le(pos+16);
 	de_dbg(c, "top, bottom cut: %d, %d\n", (int)x1, (int)x2);
+
+	de_dbg_indent(c, -1);
 }
 
 static void de_run_epocsketch(deark *c, lctx *d)
 {
 	de_int64 section_table_offset;
-	de_byte unknown_section_table_byte;
+	de_byte section_table_size_code;
 	de_int64 pos;
 	int num_sections;
 	de_int64 section_id;
 	de_int64 section_loc;
 	de_int64 i;
 
-	de_dbg(c, "EPOC Sketch format\n");
-
+	de_dbg(c, "header section at %d\n", 0);
+	de_dbg_indent(c, 1);
 	section_table_offset = de_getui32le(16);
 	de_dbg(c, "section table offset: %d\n", (int)section_table_offset);
+	de_dbg_indent(c, -1);
 
 	// Section table section
 	pos = section_table_offset;
-	unknown_section_table_byte = de_getbyte(pos);
-	de_dbg(c, "first byte of section table: %d\n", (int)unknown_section_table_byte);
+	de_dbg(c, "section table at %d\n", (int)pos);
+	de_dbg_indent(c, 1);
+
+	section_table_size_code = de_getbyte(pos);
+	// The Section Table is a single "BListL" object. A BlistL starts with a byte
+	// indicating the remaining size in 4-byte Longs. Each entry in the table is 8
+	// bytes, so divide by 2 to get the number of entries.
+	num_sections = ((int)section_table_size_code)/2;
+
+	de_dbg(c, "section table size: %d (%d entries)\n", (int)section_table_size_code,
+		(int)num_sections);
 	pos++;
 
-	num_sections = ((int)unknown_section_table_byte)/2; // guess
+
 	for(i=0; i<num_sections; i++) {
 		section_id = de_getui32le(pos+8*i);
 		section_loc = de_getui32le(pos+8*i+4);
-		de_dbg(c, "section id: 0x%08x at %d\n", (unsigned int)section_id, (int)section_loc);
+		de_dbg(c, "section #%d: id=0x%08x, pos=%d\n", (int)i, (unsigned int)section_id, (int)section_loc);
+		de_dbg_indent(c, 1);
 		if(section_id==0x1000007d) {
 			do_sketch_section(c, d, section_loc);
 		}
+		de_dbg_indent(c, -1);
 	}
+	de_dbg_indent(c, -1);
 }
 
 static void de_run_epocaif(deark *c, lctx *d)
@@ -420,13 +439,15 @@ static void de_run_epocaif(deark *c, lctx *d)
 	struct deark_bitmap *fg_img = NULL;
 	struct deark_bitmap *mask_img = NULL;
 
-	de_dbg(c, "EPOC AIF format\n");
-
+	de_dbg(c, "header at %d\n", 0);
+	de_dbg_indent(c, 1);
 	table_offset = de_getui32le(16);
 	de_dbg(c, "table offset: %d\n", (int)table_offset);
+	de_dbg_indent(c, -1);
 
 	pos = table_offset;
-
+	de_dbg(c, "table at %d\n", (int)pos);
+	de_dbg_indent(c, 1);
 	// The first byte seems to be 2 times the number of captions.
 	caption_count_code = de_getbyte(pos);
 	de_dbg(c, "caption count code(?): %d\n", (int)caption_count_code);
@@ -437,11 +458,13 @@ static void de_run_epocaif(deark *c, lctx *d)
 	pos += 3*caption_count_code;
 
 	num_images = de_getbyte(pos);
-	de_dbg(c, "image count(?): %d\n", (int)num_images);
+	de_dbg(c, "bitmap count(?): %d\n", (int)num_images);
 	pos++;
 
 	first_image_pos = de_getui32le(pos);
-	de_dbg(c, "offset of first image: %d\n", (int)first_image_pos);
+	de_dbg(c, "offset of first bitmap: %d\n", (int)first_image_pos);
+
+	de_dbg_indent(c, -1);
 
 	// Unfortunately, I don't know what the remaining data in the file is for.
 	// (I'm working without specs.) Maybe it indicates which image is a
@@ -452,23 +475,33 @@ static void de_run_epocaif(deark *c, lctx *d)
 	img_pos = first_image_pos;
 	i = 0;
 	while(i<num_images) {
-		de_dbg(c, "foreground image at %d\n", (int)img_pos);
-		de_bitmap_destroy(fg_img);
+		de_dbg(c, "image #%d\n", (int)(i/2));
+		de_dbg_indent(c, 1);
+
+		de_dbg(c, "foreground bitmap at %d\n", (int)img_pos);
+		de_dbg_indent(c, 1);
 		fg_img = do_read_paint_data_section(c, d, img_pos, 0);
 		if(d->paint_data_section_size<=0) break;
 		img_pos += d->paint_data_section_size;
 		i++;
+		de_dbg_indent(c, -1);
 
 		if(i<num_images) {
-			de_dbg(c, "mask image at %d\n", (int)img_pos);
-			de_bitmap_destroy(mask_img);
+			de_dbg(c, "mask bitmap at %d\n", (int)img_pos);
+			de_dbg_indent(c, 1);
 			mask_img = do_read_paint_data_section(c, d, img_pos, 1);
 			if(d->paint_data_section_size<=0) break;
 			img_pos += d->paint_data_section_size;
 			i++;
+			de_dbg_indent(c, -1);
 		}
 
 		do_combine_and_write_images(c, d, fg_img, mask_img);
+		de_bitmap_destroy(fg_img);
+		fg_img = NULL;
+		de_bitmap_destroy(mask_img);
+		mask_img = NULL;
+		de_dbg_indent(c, -1);
 	}
 
 	de_bitmap_destroy(fg_img);
@@ -482,23 +515,30 @@ static void de_run_epocmbm(deark *c, lctx *d)
 	de_int64 i;
 	de_int64 img_pos;
 
-	de_dbg(c, "EPOC MBM format\n");
-
+	de_dbg(c, "header section at %d\n", 0);
+	de_dbg_indent(c, 1);
 	image_table_offset = de_getui32le(16);
-	de_dbg(c, "image table offset: %d\n", (int)image_table_offset);
+	de_dbg(c, "MBM jumptable offset: %d\n", (int)image_table_offset);
+	de_dbg_indent(c, -1);
 
+	de_dbg(c, "MBM jumptable at %d\n", (int)image_table_offset);
+	de_dbg_indent(c, 1);
 	num_images = de_getui32le(image_table_offset);
 	de_dbg(c, "number of images: %d\n", (int)num_images);
 	if(num_images>DE_MAX_IMAGES_PER_FILE) {
 		de_err(c, "Too many images\n");
+		de_dbg_indent(c, -1);
 		goto done;
 	}
 
 	for(i=0; i<num_images; i++) {
 		img_pos = de_getui32le(image_table_offset + 4 + 4*i);
-		de_dbg(c, "image at %d\n", (int)img_pos);
+		de_dbg(c, "image #%d, pos=%d\n", (int)i, (int)img_pos);
+		de_dbg_indent(c, 1);
 		do_read_and_write_paint_data_section(c, d, img_pos);
+		de_dbg_indent(c, -1);
 	}
+	de_dbg_indent(c, -1);
 
 done:
 	;
