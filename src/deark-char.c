@@ -230,7 +230,7 @@ static void do_output_html_header(deark *c, struct de_char_context *charctx,
 
 	if(has_metadata) {
 		// Styles for header name and value
-		dbuf_fputs(ofile, " .hn { color: #aaa }\n");
+		dbuf_fputs(ofile, " .hn { color: #aaa; text-align:right; padding-right:0.5em }\n");
 		dbuf_fputs(ofile, " .hv { color: #fff }\n");
 	}
 
@@ -254,28 +254,28 @@ static void do_output_html_header(deark *c, struct de_char_context *charctx,
 	dbuf_fputs(ofile, "<body>\n");
 
 	if(has_metadata) {
-		dbuf_fputs(ofile, "<p>");
+		dbuf_fputs(ofile, "<table>");
 		if(charctx->title) {
-			dbuf_fputs(ofile, "<span class=hn>Title: </span><span class=hv>");
+			dbuf_fputs(ofile, "<tr><td class=hn>Title: </td><td class=hv>");
 			write_ucstring_to_html(c, charctx->title, ofile);
-			dbuf_fputs(ofile, "</span><br>\n");
+			dbuf_fputs(ofile, "</td></tr>\n");
 		}
 		if(charctx->artist) {
-			dbuf_fputs(ofile, "<span class=hn>Artist: </span><span class=hv>");
+			dbuf_fputs(ofile, "<tr><td class=hn>Artist: </td><td class=hv>");
 			write_ucstring_to_html(c, charctx->artist, ofile);
-			dbuf_fputs(ofile, "</span><br>\n");
+			dbuf_fputs(ofile, "</td></tr>\n");
 		}
 		if(charctx->organization) {
-			dbuf_fputs(ofile, "<span class=hn>Organization: </span><span class=hv>");
+			dbuf_fputs(ofile, "<tr><td class=hn>Organization: </td><td class=hv>");
 			write_ucstring_to_html(c, charctx->organization, ofile);
-			dbuf_fputs(ofile, "</span><br>\n");
+			dbuf_fputs(ofile, "</td></tr>\n");
 		}
 		if(charctx->creation_date) {
-			dbuf_fputs(ofile, "<span class=hn>Date: </span><span class=hv>");
+			dbuf_fputs(ofile, "<tr><td class=hn>Date: </td><td class=hv>");
 			write_ucstring_to_html(c, charctx->creation_date, ofile);
-			dbuf_fputs(ofile, "</span><br>\n");
+			dbuf_fputs(ofile, "</td></tr>\n");
 		}
-		dbuf_fputs(ofile, "</p>\n");
+		dbuf_fputs(ofile, "</table>\n");
 	}
 }
 
