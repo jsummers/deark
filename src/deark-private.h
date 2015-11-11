@@ -526,6 +526,7 @@ struct de_char_cell {
 	de_byte fgcol;
 	de_byte bgcol;
 	de_byte bold;
+	de_byte underline;
 	de_byte blink;
 };
 

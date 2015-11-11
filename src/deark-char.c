@@ -10,6 +10,7 @@
 
 struct charextractx {
 	de_byte vga_9col_mode; // Flag: Render an extra column, like VGA does
+	de_byte used_underline;
 	de_byte used_blink;
 	de_byte used_fgcol[16];
 	de_byte used_bgcol[16];
@@ -65,6 +66,7 @@ static void do_prescan_screen(deark *c, struct de_char_context *charctx,
 
 			if(cell->fgcol<16) ectx->used_fgcol[(unsigned int)cell_fgcol_actual] = 1;
 			if(cell->bgcol<16) ectx->used_bgcol[(unsigned int)cell->bgcol] = 1;
+			if(cell->underline) ectx->used_underline = 1;
 			if(cell->blink) ectx->used_blink = 1;
 		}
 	}
@@ -81,6 +83,7 @@ static void do_output_html_screen(deark *c, struct de_char_context *charctx,
 	int need_newline = 0;
 	de_byte active_fgcol = 0;
 	de_byte active_bgcol = 0;
+	de_byte active_underline = 0;
 	de_byte active_blink = 0;
 	de_byte cell_fgcol_actual;
 
@@ -105,7 +108,7 @@ static void do_output_html_screen(deark *c, struct de_char_context *charctx,
 			if(cell->bold) cell_fgcol_actual |= 0x08;
 
 			if(span_count==0 || cell_fgcol_actual!=active_fgcol || cell->bgcol!=active_bgcol ||
-				cell->blink!=active_blink)
+				cell->underline!=active_underline || cell->blink!=active_blink)
 			{
 				while(span_count>0) {
 					dbuf_fprintf(ofile, "</span>");
@@ -124,6 +127,7 @@ static void do_output_html_screen(deark *c, struct de_char_context *charctx,
 				dbuf_fprintf(ofile, " b%c", de_get_hexchar(cell->bgcol));
 
 				// Other attributes
+				if(cell->underline) dbuf_fputs(ofile, " u");
 				if(cell->blink) dbuf_fputs(ofile, " blink");
 
 				dbuf_fputs(ofile, "\">");
@@ -131,6 +135,7 @@ static void do_output_html_screen(deark *c, struct de_char_context *charctx,
 				span_count++;
 				active_fgcol = cell_fgcol_actual;
 				active_bgcol = cell->bgcol;
+				active_underline = cell->underline;
 				active_blink = cell->blink;
 			}
 
@@ -231,6 +236,10 @@ static void do_output_html_header(deark *c, struct de_char_context *charctx,
 
 	output_css_color_block(c, ofile, charctx->pal, ".f", "color", &ectx->used_fgcol[0]);
 	output_css_color_block(c, ofile, charctx->pal, ".b", "background-color", &ectx->used_bgcol[0]);
+
+	if(ectx->used_underline) {
+		dbuf_fputs(ofile, " .u { text-decoration: underline }\n");
+	}
 
 	if(ectx->used_blink) {
 		dbuf_fputs(ofile, " .blink {\n"
@@ -410,11 +419,17 @@ static void de_char_output_to_image_files(deark *c, struct de_char_context *char
 {
 	de_int64 i;
 
+	if(ectx->used_underline) {
+		// TODO: Support underline.
+		de_warn(c, "This file uses underlined characters, which are not supported with "
+			"image output.\n");
+	}
+
 	if(ectx->used_blink) {
 		if(charctx->font) {
 			// We have no way to support both a custom font and blinking characters
 			// at the same time.
-			de_warn(c, "This file uses blinking characters, which are not supported.");
+			de_warn(c, "This file uses blinking characters, which are not supported.\n");
 		}
 		else {
 			de_warn(c, "This file uses blinking characters, which are not supported with "

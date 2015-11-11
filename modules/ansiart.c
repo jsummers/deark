@@ -25,6 +25,7 @@ typedef struct localctx_struct {
 	de_byte curr_fgcol;
 	de_byte curr_bgcol;
 	de_byte curr_bold;
+	de_byte curr_underline;
 	de_byte curr_blink;
 
 	de_byte param_string_buf[100];
@@ -80,6 +81,7 @@ static void do_normal_char(deark *c, lctx *d, de_int64 pos, de_byte ch)
 			cell->codepoint_unicode = u;
 			cell->fgcol = d->curr_fgcol;
 			cell->bold = d->curr_bold;
+			cell->underline = d->curr_underline;
 			cell->bgcol = d->curr_bgcol;
 			cell->blink = d->curr_blink;
 
@@ -173,12 +175,16 @@ static void do_code_m(deark *c, lctx *d)
 		if(sgi_code==0) {
 			// Reset
 			d->curr_bold = 0;
+			d->curr_underline = 0;
 			d->curr_blink = 0;
 			d->curr_bgcol = 0;
 			d->curr_fgcol = 7;
 		}
 		else if(sgi_code==1) {
 			d->curr_bold = 1;
+		}
+		else if(sgi_code==4) {
+			d->curr_underline = 1;
 		}
 		else if(sgi_code==5 || sgi_code==6) {
 			d->curr_blink = 1;
