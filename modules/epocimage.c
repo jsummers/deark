@@ -53,6 +53,9 @@ typedef struct localctx_struct {
 	de_int64 bits_per_pixel;
 	de_int64 paint_data_section_size;
 	int warned_exp;
+
+	de_int64 jumptable_offset;
+	de_int64 section_table_offset;
 } lctx;
 
 static struct deark_bitmap *do_create_image(deark *c, lctx *d, dbuf *unc_pixels, int is_mask)
@@ -382,24 +385,30 @@ static void do_sketch_section(deark *c, lctx *d, de_int64 pos1)
 	de_dbg_indent(c, -1);
 }
 
-static void de_run_epocsketch(deark *c, lctx *d)
+static void do_epocsketch_section_table_entry(deark *c, lctx *d,
+	de_int64 entry_index, de_int64 pos)
 {
-	de_int64 section_table_offset;
-	de_byte section_table_size_code;
-	de_int64 pos;
-	int num_sections;
 	de_int64 section_id;
 	de_int64 section_loc;
+
+	section_id = de_getui32le(pos);
+	section_loc = de_getui32le(pos+4);
+	de_dbg(c, "section #%d: id=0x%08x, pos=%d\n", (int)entry_index,
+		(unsigned int)section_id, (int)section_loc);
+	de_dbg_indent(c, 1);
+	if(section_id==0x1000007d) {
+		do_sketch_section(c, d, section_loc);
+	}
+	de_dbg_indent(c, -1);
+}
+
+static void do_epocsketch_section_table(deark *c, lctx *d, de_int64 pos)
+{
+	de_byte section_table_size_code;
+	int num_sections;
 	de_int64 i;
 
-	de_dbg(c, "header section at %d\n", 0);
-	de_dbg_indent(c, 1);
-	section_table_offset = de_getui32le(16);
-	de_dbg(c, "section table offset: %d\n", (int)section_table_offset);
-	de_dbg_indent(c, -1);
-
 	// Section table section
-	pos = section_table_offset;
 	de_dbg(c, "section table at %d\n", (int)pos);
 	de_dbg_indent(c, 1);
 
@@ -413,18 +422,25 @@ static void de_run_epocsketch(deark *c, lctx *d)
 		(int)num_sections);
 	pos++;
 
-
 	for(i=0; i<num_sections; i++) {
-		section_id = de_getui32le(pos+8*i);
-		section_loc = de_getui32le(pos+8*i+4);
-		de_dbg(c, "section #%d: id=0x%08x, pos=%d\n", (int)i, (unsigned int)section_id, (int)section_loc);
-		de_dbg_indent(c, 1);
-		if(section_id==0x1000007d) {
-			do_sketch_section(c, d, section_loc);
-		}
-		de_dbg_indent(c, -1);
+		do_epocsketch_section_table_entry(c, d, i, pos+8*i);
 	}
 	de_dbg_indent(c, -1);
+}
+
+static void do_epocsketch_header(deark *c, lctx *d, de_int64 pos)
+{
+	de_dbg(c, "header section at %d\n", (int)pos);
+	de_dbg_indent(c, 1);
+	d->section_table_offset = de_getui32le(pos+16);
+	de_dbg(c, "section table offset: %d\n", (int)d->section_table_offset);
+	de_dbg_indent(c, -1);
+}
+
+static void de_run_epocsketch(deark *c, lctx *d)
+{
+	do_epocsketch_header(c, d, 0);
+	do_epocsketch_section_table(c, d, d->section_table_offset);
 }
 
 static void de_run_epocaif(deark *c, lctx *d)
@@ -508,40 +524,54 @@ static void de_run_epocaif(deark *c, lctx *d)
 	de_bitmap_destroy(mask_img);
 }
 
-static void de_run_epocmbm(deark *c, lctx *d)
+static void do_epocmbm_jumptable_entry(deark *c, lctx *d, de_int64 entry_index,
+	de_int64 pos)
 {
-	de_int64 image_table_offset;
-	de_int64 num_images;
-	de_int64 i;
 	de_int64 img_pos;
 
-	de_dbg(c, "header section at %d\n", 0);
+	img_pos = de_getui32le(pos);
+	de_dbg(c, "image #%d, pos=%d\n", (int)entry_index, (int)pos);
 	de_dbg_indent(c, 1);
-	image_table_offset = de_getui32le(16);
-	de_dbg(c, "MBM jumptable offset: %d\n", (int)image_table_offset);
+	do_read_and_write_paint_data_section(c, d, img_pos);
 	de_dbg_indent(c, -1);
+}
 
-	de_dbg(c, "MBM jumptable at %d\n", (int)image_table_offset);
+static void do_epocmbm_jumptable(deark *c, lctx *d, de_int64 pos)
+{
+	de_int64 num_images;
+	de_int64 i;
+
+	de_dbg(c, "MBM jumptable at %d\n", (int)pos);
 	de_dbg_indent(c, 1);
-	num_images = de_getui32le(image_table_offset);
+
+	num_images = de_getui32le(pos);
 	de_dbg(c, "number of images: %d\n", (int)num_images);
 	if(num_images>DE_MAX_IMAGES_PER_FILE) {
 		de_err(c, "Too many images\n");
-		de_dbg_indent(c, -1);
 		goto done;
 	}
 
 	for(i=0; i<num_images; i++) {
-		img_pos = de_getui32le(image_table_offset + 4 + 4*i);
-		de_dbg(c, "image #%d, pos=%d\n", (int)i, (int)img_pos);
-		de_dbg_indent(c, 1);
-		do_read_and_write_paint_data_section(c, d, img_pos);
-		de_dbg_indent(c, -1);
+		do_epocmbm_jumptable_entry(c, d, i, pos + 4 + 4*i);
 	}
-	de_dbg_indent(c, -1);
 
 done:
-	;
+	de_dbg_indent(c, -1);
+}
+
+static void do_epocmbm_header(deark *c, lctx *d, de_int64 pos)
+{
+	de_dbg(c, "header section at %d\n", (int)pos);
+	de_dbg_indent(c, 1);
+	d->jumptable_offset = de_getui32le(pos+16);
+	de_dbg(c, "MBM jumptable offset: %d\n", (int)d->jumptable_offset);
+	de_dbg_indent(c, -1);
+}
+
+static void de_run_epocmbm(deark *c, lctx *d)
+{
+	do_epocmbm_header(c, d, 0);
+	do_epocmbm_jumptable(c, d, d->jumptable_offset);
 }
 
 #define DE_PFMT_MBM     1
