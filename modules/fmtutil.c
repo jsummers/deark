@@ -220,16 +220,20 @@ static void bytes_to_ucstring(deark *c, const de_byte *buf, de_int64 len,
 			ucstring_append_char(s, '-');
 		}
 		u = de_char_to_unicode(c, (de_int32)buf[i], encoding);
+		if(date_fmt_flag && u==32) u=48; // Change space to 0 in dates.
 		ucstring_append_char(s, u);
 	}
 }
 
-static int is_all_digits(const de_byte *buf, de_int64 len)
+static int is_valid_date_string(const de_byte *buf, de_int64 len)
 {
 	de_int64 i;
 
 	for(i=0; i<len; i++) {
-		if(buf[i]<'0' || buf[i]>'9') return 0;
+		if(buf[i]>='0' && buf[i]<='9') continue;
+		// Spaces aren't allowed, but some files use them.
+		if(buf[i]==' ' && (i==4 || i==6)) continue;
+		return 0;
 	}
 	return 1;
 }
@@ -289,7 +293,7 @@ int de_read_SAUCE(deark *c, dbuf *f, de_int64 pos, struct de_SAUCE_info *si)
 
 	// Creation date
 	dbuf_read(f, tmpbuf, pos+82, 8);
-	if(is_all_digits(tmpbuf, 8)) {
+	if(is_valid_date_string(tmpbuf, 8)) {
 		tmpbuf_len = 8;
 		si->creation_date = ucstring_create(c);
 		bytes_to_ucstring(c, tmpbuf, tmpbuf_len, si->creation_date, DE_ENCODING_CP437_G, 1);

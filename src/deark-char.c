@@ -293,7 +293,7 @@ static void de_char_output_to_html_file(deark *c, struct de_char_context *charct
 
 	if(charctx->font) {
 		de_warn(c, "This file uses a custom font, which is not supported with "
-			"HTML output. Use \"-opt char:output=image\" for image output.\n");
+			"HTML output.\n");
 	}
 
 	ofile = dbuf_create_output_file(c, "html", NULL);
@@ -426,15 +426,8 @@ static void de_char_output_to_image_files(deark *c, struct de_char_context *char
 	}
 
 	if(ectx->used_blink) {
-		if(charctx->font) {
-			// We have no way to support both a custom font and blinking characters
-			// at the same time.
-			de_warn(c, "This file uses blinking characters, which are not supported.\n");
-		}
-		else {
-			de_warn(c, "This file uses blinking characters, which are not supported with "
-				"image output. Use \"-opt char:output=html\" for HTML output.\n");
-		}
+		de_warn(c, "This file uses blinking characters, which are not supported with "
+			"image output.\n");
 	}
 
 	if(charctx->font) {

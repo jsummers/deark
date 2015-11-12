@@ -14,6 +14,8 @@ static const de_uint32 ansi_palette[16] = {
 };
 
 #define MAX_ROWS       5000
+#define DEFAULT_BGCOL  0
+#define DEFAULT_FGCOL  7
 
 typedef struct localctx_struct {
 	struct de_char_screen *screen;
@@ -52,8 +54,8 @@ static struct de_char_cell *get_cell_at(deark *c, struct de_char_screen *screen,
 			cell = &screen->cell_rows[ypos][i];
 			cell->codepoint = 0x20;
 			cell->codepoint_unicode = 0x20;
-			cell->bgcol = 0;
-			cell->fgcol = 7;
+			cell->bgcol = DEFAULT_BGCOL;
+			cell->fgcol = DEFAULT_FGCOL;
 		}
 	}
 	return &(screen->cell_rows[ypos][xpos]);
@@ -145,7 +147,6 @@ static void parse_params(deark *c, lctx *d, de_int64 default_val)
 		// Advance past the parameter data and the terminating semicolon.
 		ppos += param_len + 1;
 	}
-
 }
 
 static void read_one_int(deark *c, lctx *d, const de_byte *buf,
@@ -165,40 +166,40 @@ static void read_one_int(deark *c, lctx *d, const de_byte *buf,
 static void do_code_m(deark *c, lctx *d)
 {
 	de_int64 i;
-	de_int64 sgi_code;
+	de_int64 sgr_code;
 
 	parse_params(c, d, 0);
 
 	for(i=0; i<d->num_params; i++) {
-		sgi_code = d->params[i];
+		sgr_code = d->params[i];
 
-		if(sgi_code==0) {
+		if(sgr_code==0) {
 			// Reset
 			d->curr_bold = 0;
 			d->curr_underline = 0;
 			d->curr_blink = 0;
-			d->curr_bgcol = 0;
-			d->curr_fgcol = 7;
+			d->curr_bgcol = DEFAULT_BGCOL;
+			d->curr_fgcol = DEFAULT_FGCOL;
 		}
-		else if(sgi_code==1) {
+		else if(sgr_code==1) {
 			d->curr_bold = 1;
 		}
-		else if(sgi_code==4) {
+		else if(sgr_code==4) {
 			d->curr_underline = 1;
 		}
-		else if(sgi_code==5 || sgi_code==6) {
+		else if(sgr_code==5 || sgr_code==6) {
 			d->curr_blink = 1;
 		}
-		else if(sgi_code>=30 && sgi_code<=37) {
+		else if(sgr_code>=30 && sgr_code<=37) {
 			// Set foreground color
-			d->curr_fgcol = (de_byte)(sgi_code-30);
+			d->curr_fgcol = (de_byte)(sgr_code-30);
 		}
-		else if(sgi_code>=40 && sgi_code<=47) {
+		else if(sgr_code>=40 && sgr_code<=47) {
 			// Set background color
-			d->curr_bgcol = (de_byte)(sgi_code-40);
+			d->curr_bgcol = (de_byte)(sgr_code-40);
 		}
 		else {
-			de_dbg(c, "unsupported SGR code %d\n", (int)sgi_code);
+			de_dbg(c, "unsupported SGR code %d\n", (int)sgr_code);
 		}
 	}
 }
@@ -357,6 +358,8 @@ static void do_main(deark *c, lctx *d)
 	de_byte ch;
 
 	d->xpos = 0; d->ypos = 0;
+	d->curr_bgcol = DEFAULT_BGCOL;
+	d->curr_fgcol = DEFAULT_FGCOL;
 	state = STATE_NORMAL;
 
 	for(pos=0; pos<d->effective_file_size; pos++) {
