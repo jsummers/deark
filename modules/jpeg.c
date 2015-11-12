@@ -91,7 +91,6 @@ static void do_app_segment(deark *c, lctx *d, de_byte seg_type, de_int64 pos, de
 	de_int64 payload_pos;
 	de_int64 payload_size;
 
-	de_dbg(c, "APP%d segment at %d, size=%d\n", (int)seg_type-0xe0, (int)pos, (int)seg_size);
 	de_dbg_indent(c, 1);
 	if(seg_size<3) goto done;
 
@@ -123,18 +122,22 @@ static void do_app_segment(deark *c, lctx *d, de_byte seg_type, de_int64 pos, de
 	}
 	else if(seg_type==0xe1 && !de_strcmp(app_id_normalized, "EXIF")) {
 		// Note that Exif has an additional padding byte after the APP ID NUL terminator.
-		de_dbg(c, "Exif segment at %d datasize=%d\n", (int)(payload_pos+1), (int)(payload_size-1));
+		de_dbg(c, "Exif data at %d, size=%d\n", (int)(payload_pos+1), (int)(payload_size-1));
+		de_dbg_indent(c, 1);
 		de_fmtutil_handle_exif(c, payload_pos+1, payload_size-1);
+		de_dbg_indent(c, -1);
 	}
 	else if(seg_type==0xe2 && !de_strcmp(app_id_normalized, "ICC_PROFILE")) {
 		do_icc_profile_segment(c, d, payload_pos, payload_size);
 	}
 	else if(seg_type==0xed && !de_strcmp(app_id_normalized, "PHOTOSHOP 3.0")) {
-		de_dbg(c, "photoshop segment at %d datasize=%d\n", (int)(payload_pos), (int)(payload_size));
+		de_dbg(c, "photoshop data at %d, size=%d\n", (int)(payload_pos), (int)(payload_size));
+		de_dbg_indent(c, 1);
 		de_fmtutil_handle_photoshop_rsrc(c, payload_pos, payload_size);
+		de_dbg_indent(c, -1);
 	}
 	else if(seg_type==0xe1 && !de_strcmp(app_id_normalized, "HTTP://NS.ADOBE.COM/XAP/1.0/")) {
-		de_dbg(c, "XMP segment at %d datasize=%d\n", (int)(payload_pos), (int)(payload_size));
+		de_dbg(c, "XMP data at %d, size=%d\n", (int)(payload_pos), (int)(payload_size));
 		dbuf_create_file_from_slice(c->infile, payload_pos, payload_size, "xmp", NULL);
 	}
 
@@ -142,11 +145,93 @@ done:
 	de_dbg_indent(c, -1);
 }
 
-static void do_segment(deark *c, lctx *d, de_byte seg_type,
+static void do_sof_segment(deark *c, lctx *d, de_byte seg_type,
 	de_int64 payload_pos, de_int64 payload_size)
 {
-	if(seg_type>=0xe0 && seg_type<=0xef)
+	return;
+}
+
+struct marker_info {
+	char name[12];
+#define FLAG_NO_DATA 0x01
+#define FLAG_IS_SOF  0x02
+#define FLAG_IS_APP  0x04
+	unsigned int flags;
+};
+
+// Caller allocates mi
+static int get_marker_info(deark *c, lctx *d, de_byte seg_type,
+	struct marker_info *mi)
+{
+	const char *name = NULL;
+
+	de_memset(mi, 0, sizeof(struct marker_info));
+
+	switch(seg_type) {
+	case 0x01: name = "TEM"; mi->flags |= FLAG_NO_DATA; break;
+	case 0xc4: name = "DHT"; break;
+	case 0xc8: name = "JPG"; break;
+	case 0xd8: name = "SOI"; mi->flags |= FLAG_NO_DATA; break;
+	case 0xd9: name = "EOI"; mi->flags |= FLAG_NO_DATA; break;
+	case 0xda: name = "SOS"; break;
+	case 0xdb: name = "DQT"; break;
+	case 0xdc: name = "DNL"; break;
+	case 0xdd: name = "DRI"; break;
+	case 0xde: name = "DHP"; break;
+	case 0xdf: name = "EXP"; break;
+	case 0xfe: name = "COM"; break;
+	}
+
+	if(name) {
+		de_strlcpy(mi->name, name, sizeof(mi->name));
+		goto done;
+	}
+
+	// Handle some pattern-based markers.
+	if(seg_type>=0xe0 && seg_type<=0xef) {
+		de_snprintf(mi->name, sizeof(mi->name), "APP%d", (int)(seg_type-0xe0));
+		mi->flags |= FLAG_IS_APP;
+		goto done;
+	}
+
+	if(seg_type>=0xc0 && seg_type<=0xcf) {
+		de_snprintf(mi->name, sizeof(mi->name), "SOF%d", (int)(seg_type-0xc0));
+		mi->flags |= FLAG_IS_SOF;
+		goto done;
+	}
+
+	if(seg_type>=0xd0 && seg_type<=0xd7) {
+		de_snprintf(mi->name, sizeof(mi->name), "RST%d", (int)(seg_type-0xd0));
+		mi->flags |= FLAG_NO_DATA;
+		goto done;
+	}
+
+	de_strlcpy(mi->name, "???", sizeof(mi->name));
+	return 0;
+
+done:
+	return 1;
+}
+
+static void do_segment(deark *c, lctx *d, de_byte seg_type,
+	const struct marker_info *mi,
+	de_int64 payload_pos, de_int64 payload_size)
+{
+
+	if(c->debug_level<2 && !(mi->flags & FLAG_IS_APP)) {
+		// Non-APP segments are only analyzed if we want the debug output from them.
+		return;
+	}
+
+	de_dbg(c, "segment %s (0x%02x) at %d, data_len=%d\n",
+		mi->name, (unsigned int)seg_type, (int)(payload_pos-4), (int)payload_size);
+
+	if(mi->flags & FLAG_IS_APP) {
 		do_app_segment(c, d, seg_type, payload_pos, payload_size);
+	}
+	else if(mi->flags & FLAG_IS_SOF) {
+		do_sof_segment(c, d, seg_type, payload_pos, payload_size);
+	}
 }
 
 static void de_run_jpeg(deark *c, de_module_params *mparams)
@@ -154,8 +239,10 @@ static void de_run_jpeg(deark *c, de_module_params *mparams)
 	de_byte b;
 	de_int64 pos;
 	de_int64 seg_size;
+	de_byte seg_type;
 	lctx *d = NULL;
 	int found_marker;
+	struct marker_info mi;
 
 	d = de_malloc(c, sizeof(lctx));
 
@@ -165,40 +252,54 @@ static void de_run_jpeg(deark *c, de_module_params *mparams)
 		if(pos>=c->infile->len)
 			break;
 		b = de_getbyte(pos);
+		pos++;
 		if(b==0xff) {
 			found_marker = 1;
-			pos++;
 			continue;
 		}
 
 		if(!found_marker) {
 			// Not an 0xff byte, and not preceded by an 0xff byte. Just ignore it.
-			pos++;
 			continue;
 		}
 
 		found_marker = 0; // Reset this flag.
 
-		if(b==0xd8 || b==0x01) {
-			// SOI (or TMP) marker. These have no content.
-			pos++;
-			continue;
-		}
-		if((b>=0xd0 && b<=0xda) || b==0x00) {
-			// An RSTx or EOI or SOS or escaped 0xff.
-			// If we encounter one of these, we've gone far enough.
-			// (TODO: Some files contain multiple JPEG images. To support them,
-			// we can't just quit here.)
-			break;
+		if(b==0x00) {
+			continue; // Escaped 0xff
 		}
 
-		pos++;
+		seg_type = b;
+		get_marker_info(c, d, seg_type, &mi);
+
+		if(mi.flags & FLAG_NO_DATA) {
+			de_dbg2(c, "marker %s (0x%02x) at %d\n", mi.name, (unsigned int)seg_type,
+				(int)(pos-2));
+
+			if(seg_type==0xd9) {
+				// EOI - Normally this won't happen, because we stop at SOS.
+				break;
+			}
+
+			continue;
+		}
+
+		// If we get here, we're reading a segment that has a size field.
 		seg_size = de_getui16be(pos);
 		if(pos<2) break; // bogus size
 
-		do_segment(c, d, b, pos+2, seg_size-2);
+		do_segment(c, d, seg_type, &mi, pos+2, seg_size-2);
 
 		pos += seg_size;
+
+		if(seg_type==0xda) {
+			// Stop if we read an SOS marker.
+			// TODO: Some files contain multiple JPEG images. To support them,
+			// we can't just quit here.
+			// NOTE: In order to continue from here, we need to identify JPEG-LS
+			// and handle it correctly.
+			break;
+		}
 	}
 
 	dbuf_close(d->iccprofile_file);
