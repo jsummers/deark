@@ -310,7 +310,8 @@ static void de_char_output_to_html_file(deark *c, struct de_char_context *charct
 static void do_render_character(deark *c, struct de_char_context *charctx,
 	struct charextractx *ectx, struct deark_bitmap *img,
 	de_int64 xpos, de_int64 ypos,
-	de_uint32 codepoint, de_byte fgcol_idx, de_byte bgcol_idx)
+	de_uint32 codepoint, de_byte fgcol_idx, de_byte bgcol_idx,
+	unsigned int extra_flags)
 {
 	de_int64 xpos_in_pix, ypos_in_pix;
 	de_uint32 fgcol, bgcol;
@@ -322,7 +323,7 @@ static void do_render_character(deark *c, struct de_char_context *charctx,
 	fgcol = charctx->pal[(unsigned int)fgcol_idx];
 	bgcol = charctx->pal[(unsigned int)bgcol_idx];
 
-	flags = 0;
+	flags = extra_flags;
 	if(ectx->vga_9col_mode) flags |= DE_PAINTFLAG_VGA9COL;
 
 	de_font_paint_character_idx(c, img, ectx->font_to_use, (de_int64)codepoint,
@@ -379,7 +380,12 @@ static void de_char_output_screen_to_image_file(deark *c, struct de_char_context
 			if(cell->bold) cell_fgcol_actual |= 0x08;
 
 			do_render_character(c, charctx, ectx, img, i, j,
-				cell->codepoint, cell_fgcol_actual, cell->bgcol);
+				cell->codepoint, cell_fgcol_actual, cell->bgcol, 0);
+
+			if(cell->underline) {
+				do_render_character(c, charctx, ectx, img, i, j,
+					0x5f, cell_fgcol_actual, cell->bgcol, DE_PAINTFLAG_TRNSBKGD);
+			}
 		}
 	}
 
@@ -418,12 +424,6 @@ static void de_char_output_to_image_files(deark *c, struct de_char_context *char
 	struct charextractx *ectx)
 {
 	de_int64 i;
-
-	if(ectx->used_underline) {
-		// TODO: Support underline.
-		de_warn(c, "This file uses underlined characters, which are not supported with "
-			"image output.\n");
-	}
 
 	if(ectx->used_blink) {
 		de_warn(c, "This file uses blinking characters, which are not supported with "
