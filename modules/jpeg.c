@@ -56,12 +56,38 @@ static void do_jfxx_segment(deark *c, lctx *d, de_int64 pos, de_int64 data_size)
 	}
 }
 
+// ITU-T Rec. T.86 says nothing about canonicalizing the APP ID, but in
+// practice, some apps are sloppy about capitalization, and trailing spaces.
+static void normalize_app_id(const char *app_id_orig, char *app_id_normalized,
+	size_t app_id_normalized_len)
+{
+	de_int64 id_strlen;
+	de_int64 i;
+
+	de_strlcpy(app_id_normalized, app_id_orig, app_id_normalized_len);
+	id_strlen = (de_int64)de_strlen(app_id_normalized);
+
+	// Strip trailing spaces.
+	while(id_strlen>0 && app_id_normalized[id_strlen-1]==' ') {
+		app_id_normalized[id_strlen-1] = '\0';
+		id_strlen--;
+	}
+
+	for(i=0; i<id_strlen; i++) {
+		if(app_id_normalized[i]>='a' && app_id_normalized[i]<='z') {
+			app_id_normalized[i] -= 32;
+		}
+	}
+}
+
 // seg_size is the data size, excluding the marker and length fields.
 static void do_app_segment(deark *c, lctx *d, de_byte seg_type, de_int64 pos, de_int64 seg_size)
 {
-	char buf[64]; // This just needs to be large enough for any ID we recognize.
-	size_t id_strlen;
-	de_int64 id_size;
+	char app_id_orig[64]; // This just needs to be large enough for any ID we recognize.
+	char app_id_normalized[64];
+	char app_id_printable[64];
+	de_int64 app_id_orig_strlen;
+	de_int64 app_id_orig_size;
 	de_int64 payload_pos;
 	de_int64 payload_size;
 
@@ -70,46 +96,57 @@ static void do_app_segment(deark *c, lctx *d, de_byte seg_type, de_int64 pos, de
 	if(seg_size<3) goto done;
 
 	// Read the first few bytes of the segment, so we can tell what kind of segment it is.
-	if(seg_size+1 < (de_int64)sizeof(buf))
-		dbuf_read_sz(c->infile, pos, buf, (size_t)(seg_size+1));
+	if(seg_size+1 < (de_int64)sizeof(app_id_orig))
+		dbuf_read_sz(c->infile, pos, app_id_orig, (size_t)(seg_size+1));
 	else
-		dbuf_read_sz(c->infile, pos, buf, sizeof(buf));
+		dbuf_read_sz(c->infile, pos, app_id_orig, sizeof(app_id_orig));
 
 	// APP ID is the string before the first NUL byte.
-	id_strlen = de_strlen(buf);
-	id_size = id_strlen + 1;
+	// app_id_orig_size includes the NUL byte
+	app_id_orig_strlen = (de_int64)de_strlen(app_id_orig);
+	app_id_orig_size = app_id_orig_strlen + 1;
 
-	// Tolerate APP IDs that have trailing spaces.
-	while(id_strlen>0 && buf[id_strlen-1]==' ') {
-		buf[id_strlen-1] = '\0';
-		id_strlen--;
-	}
+	de_make_printable_ascii((const de_byte*)app_id_orig, app_id_orig_strlen,
+		app_id_printable, sizeof(app_id_printable), 0);
+
+	de_dbg(c, "app id: \"%s\"\n", app_id_printable);
+
+	normalize_app_id(app_id_orig, app_id_normalized, sizeof(app_id_normalized));
 
 	// The payload data size is usually everything after the first NUL byte.
-	payload_pos = pos + id_size;
-	payload_size = seg_size - id_size;
+	payload_pos = pos + app_id_orig_size;
+	payload_size = seg_size - app_id_orig_size;
 	if(payload_size<1) goto done;
 
-	if(seg_type==0xe0 && !de_strcmp(buf, "JFXX")) {
+	if(seg_type==0xe0 && !de_strcmp(app_id_normalized, "JFXX")) {
 		do_jfxx_segment(c, d, payload_pos, payload_size);
 	}
-	else if(seg_type==0xe1 && !de_strcmp(buf, "Exif")) {
+	else if(seg_type==0xe1 && !de_strcmp(app_id_normalized, "EXIF")) {
+		// Note that Exif has an additional padding byte after the APP ID NUL terminator.
 		de_dbg(c, "Exif segment at %d datasize=%d\n", (int)(payload_pos+1), (int)(payload_size-1));
 		de_fmtutil_handle_exif(c, payload_pos+1, payload_size-1);
 	}
-	else if(seg_type==0xe2 && !de_strcmp(buf, "ICC_PROFILE")) {
+	else if(seg_type==0xe2 && !de_strcmp(app_id_normalized, "ICC_PROFILE")) {
 		do_icc_profile_segment(c, d, payload_pos, payload_size);
 	}
-	else if(seg_type==0xed && !de_strcmp(buf, "Photoshop 3.0")) {
+	else if(seg_type==0xed && !de_strcmp(app_id_normalized, "PHOTOSHOP 3.0")) {
 		de_dbg(c, "photoshop segment at %d datasize=%d\n", (int)(payload_pos), (int)(payload_size));
 		de_fmtutil_handle_photoshop_rsrc(c, payload_pos, payload_size);
 	}
-	else if(seg_type==0xe1 && !de_strcmp(buf, "http://ns.adobe.com/xap/1.0/")) {
+	else if(seg_type==0xe1 && !de_strcmp(app_id_normalized, "HTTP://NS.ADOBE.COM/XAP/1.0/")) {
+		de_dbg(c, "XMP segment at %d datasize=%d\n", (int)(payload_pos), (int)(payload_size));
 		dbuf_create_file_from_slice(c->infile, payload_pos, payload_size, "xmp", NULL);
 	}
 
 done:
 	de_dbg_indent(c, -1);
+}
+
+static void do_segment(deark *c, lctx *d, de_byte seg_type,
+	de_int64 payload_pos, de_int64 payload_size)
+{
+	if(seg_type>=0xe0 && seg_type<=0xef)
+		do_app_segment(c, d, seg_type, payload_pos, payload_size);
 }
 
 static void de_run_jpeg(deark *c, de_module_params *mparams)
@@ -159,8 +196,7 @@ static void de_run_jpeg(deark *c, de_module_params *mparams)
 		seg_size = de_getui16be(pos);
 		if(pos<2) break; // bogus size
 
-		if(b>=0xe0 && b<=0xef)
-			do_app_segment(c, d, b, pos+2, seg_size-2);
+		do_segment(c, d, b, pos+2, seg_size-2);
 
 		pos += seg_size;
 	}

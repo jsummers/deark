@@ -628,7 +628,7 @@ de_uint32 de_rgb555_to_888(de_uint32 n)
 
 // s1 is not NUL terminated, but s2 will be.
 // s2_size includes the NUL terminator.
-void de_make_printable_ascii(de_byte *s1, de_int64 s1_len,
+void de_make_printable_ascii(const de_byte *s1, de_int64 s1_len,
 	char *s2, de_int64 s2_size, unsigned int conv_flags)
 {
 	de_int64 i;

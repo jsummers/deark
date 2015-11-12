@@ -463,7 +463,7 @@ int de_is_ascii(const de_byte *buf, de_int64 buflen);
 
 #define DE_CONVFLAG_STOP_AT_NUL 0x1
 
-void de_make_printable_ascii(de_byte *src, de_int64 src_len,
+void de_make_printable_ascii(const de_byte *src, de_int64 src_len,
 	char *dst, de_int64 dst_len, unsigned int conv_flags);
 
 de_finfo *de_finfo_create(deark *c);
