@@ -35,15 +35,34 @@ static void do_icc_profile_segment(deark *c, lctx *d, de_int64 pos, de_int64 dat
 	}
 }
 
+static void do_jfif_segment(deark *c, lctx *d, de_int64 pos, de_int64 data_size)
+{
+	de_byte ver_h, ver_l;
+	de_byte units;
+	const char *units_name;
+	de_int64 xdens, ydens;
+
+	if(data_size<9) return;
+	ver_h = de_getbyte(pos);
+	ver_l = de_getbyte(pos+1);
+	de_dbg(c, "JFIF version: %d.%02d\n", (int)ver_h, (int)ver_l);
+	units = de_getbyte(pos+2);
+	xdens = de_getui16be(pos+3);
+	ydens = de_getui16be(pos+5);
+	if(units==1) units_name="dpi";
+	else if(units==2) units_name="dots/cm";
+	else units_name="(unspecified units)";
+	de_dbg(c, "density: %dx%d %s\n", (int)xdens, (int)ydens, units_name);
+}
+
 static void do_jfxx_segment(deark *c, lctx *d, de_int64 pos, de_int64 data_size)
 {
 	de_byte t;
 
-	// The first byte indicates the type of thumbnail.
-
 	de_dbg(c, "jfxx segment at %d datasize=%d\n", (int)pos, (int)data_size);
 	if(data_size<2) return;
 
+	// The first byte indicates the type of thumbnail.
 	t = de_getbyte(pos);
 
 	if(t==16) { // thumbnail coded using JPEG
@@ -54,6 +73,20 @@ static void do_jfxx_segment(deark *c, lctx *d, de_int64 pos, de_int64 data_size)
 		// (However, this is not at all important.)
 		dbuf_create_file_from_slice(c->infile, pos+1, data_size-1, "jfxxthumb.jpg", NULL);
 	}
+}
+
+static void do_adobeapp14_segment(deark *c, lctx *d, de_int64 pos, de_int64 data_size)
+{
+	de_byte transform;
+	const char *tname;
+
+	if(data_size<7) return;
+	transform = de_getbyte(pos+6);
+	if(transform==0) tname="RGB or CMYK";
+	else if(transform==1) tname="YCbCr";
+	else if(transform==2) tname="YCCK";
+	else tname="unknown";
+	de_dbg(c, "color transform: %d (%s)\n", (int)transform, tname);
 }
 
 // ITU-T Rec. T.86 says nothing about canonicalizing the APP ID, but in
@@ -117,8 +150,16 @@ static void do_app_segment(deark *c, lctx *d, de_byte seg_type, de_int64 pos, de
 	payload_size = seg_size - app_id_orig_size;
 	if(payload_size<1) goto done;
 
-	if(seg_type==0xe0 && !de_strcmp(app_id_normalized, "JFXX")) {
+	if(seg_type==0xe0 && !de_strcmp(app_id_normalized, "JFIF")) {
+		do_jfif_segment(c, d, payload_pos, payload_size);
+	}
+	else if(seg_type==0xe0 && !de_strcmp(app_id_normalized, "JFXX")) {
 		do_jfxx_segment(c, d, payload_pos, payload_size);
+	}
+	else if(seg_type==0xee && app_id_orig_strlen>=5 && !de_memcmp(app_id_normalized, "ADOBE", 5)) {
+		// libjpeg implies that the "Adobe" string is *not* NUL-terminated. That the byte
+		// that is usually 0 is actually the high byte of a version number.
+		do_adobeapp14_segment(c, d, pos+5, seg_size-5);
 	}
 	else if(seg_type==0xe1 && !de_strcmp(app_id_normalized, "EXIF")) {
 		// Note that Exif has an additional padding byte after the APP ID NUL terminator.
@@ -146,9 +187,21 @@ done:
 }
 
 static void do_sof_segment(deark *c, lctx *d, de_byte seg_type,
-	de_int64 payload_pos, de_int64 payload_size)
+	de_int64 pos, de_int64 data_size)
 {
-	return;
+	de_int64 w, h;
+	de_int64 b;
+
+	if(data_size<6) return;
+	de_dbg_indent(c, 1);
+	b = de_getbyte(pos);
+	de_dbg(c, "precision: %d\n", (int)b);
+	h = de_getui16be(pos+1);
+	w = de_getui16be(pos+3);
+	de_dbg(c, "dimensions: %dx%d\n", (int)w, (int)h);
+	b = de_getbyte(pos+5);
+	de_dbg(c, "number of components: %d\n", (int)b);
+	de_dbg_indent(c, -1);
 }
 
 struct marker_info {
