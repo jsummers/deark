@@ -166,11 +166,6 @@ static int do_read_header(deark *c, lctx *d)
 	d->fnt_version = de_getui16le(0);
 	de_dbg(c, "dfVersion: 0x%04x\n", (int)d->fnt_version);
 
-	if(d->fnt_version<0x0200) {
-		de_err(c, "This version of FNT is not supported\n");
-		goto done;
-	}
-
 	if(d->fnt_version==0x0300)
 		d->hdrsize = 148;
 	else
@@ -178,13 +173,8 @@ static int do_read_header(deark *c, lctx *d)
 
 	dfType = de_getui16le(66);
 	de_dbg(c, "dfType: 0x%04x\n", (int)dfType);
-
 	is_vector = (dfType&0x1)?1:0;
 	de_dbg(c, "Font type: %s\n", is_vector?"vector":"bitmap");
-	if(is_vector) {
-		de_err(c, "This is a vector font. Not supported.\n");
-		goto done;
-	}
 
 	d->dfPoints = de_getui16le(68);
 	de_dbg(c, "dfPoints: %d\n", (int)d->dfPoints);
@@ -217,6 +207,18 @@ static int do_read_header(deark *c, lctx *d)
 	d->first_char = de_getbyte(95);
 	d->last_char = de_getbyte(96);
 	de_dbg(c, "first char: %d, last char: %d\n", (int)d->first_char, (int)d->last_char);
+
+	if(is_vector) {
+		de_err(c, "This is a vector font. Not supported.\n");
+		goto done;
+	}
+
+	// Apparently, the first 117 bytes (through the dfBitsOffset field) are
+	// common to all versions
+	if(d->fnt_version<0x0200) {
+		de_err(c, "This version of FNT is not supported\n");
+		goto done;
+	}
 
 	if(d->fnt_version >= 0x0200) {
 		d->dfFace = de_getui32le(105);
