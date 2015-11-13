@@ -10,6 +10,7 @@
 
 typedef struct localctx_struct {
 	dbuf *iccprofile_file;
+	int is_jpegls;
 } lctx;
 
 static void do_icc_profile_segment(deark *c, lctx *d, de_int64 pos, de_int64 data_size)
@@ -114,7 +115,8 @@ static void normalize_app_id(const char *app_id_orig, char *app_id_normalized,
 }
 
 // seg_size is the data size, excluding the marker and length fields.
-static void do_app_segment(deark *c, lctx *d, de_byte seg_type, de_int64 pos, de_int64 seg_size)
+static void do_app_segment(deark *c, lctx *d, de_byte seg_type,
+	de_int64 seg_data_pos, de_int64 seg_data_size)
 {
 	char app_id_orig[64]; // This just needs to be large enough for any ID we recognize.
 	char app_id_normalized[64];
@@ -125,13 +127,13 @@ static void do_app_segment(deark *c, lctx *d, de_byte seg_type, de_int64 pos, de
 	de_int64 payload_size;
 
 	de_dbg_indent(c, 1);
-	if(seg_size<3) goto done;
+	if(seg_data_size<3) goto done;
 
 	// Read the first few bytes of the segment, so we can tell what kind of segment it is.
-	if(seg_size+1 < (de_int64)sizeof(app_id_orig))
-		dbuf_read_sz(c->infile, pos, app_id_orig, (size_t)(seg_size+1));
+	if(seg_data_size+1 < (de_int64)sizeof(app_id_orig))
+		dbuf_read_sz(c->infile, seg_data_pos, app_id_orig, (size_t)(seg_data_size+1));
 	else
-		dbuf_read_sz(c->infile, pos, app_id_orig, sizeof(app_id_orig));
+		dbuf_read_sz(c->infile, seg_data_pos, app_id_orig, sizeof(app_id_orig));
 
 	// APP ID is the string before the first NUL byte.
 	// app_id_orig_size includes the NUL byte
@@ -146,8 +148,8 @@ static void do_app_segment(deark *c, lctx *d, de_byte seg_type, de_int64 pos, de
 	normalize_app_id(app_id_orig, app_id_normalized, sizeof(app_id_normalized));
 
 	// The payload data size is usually everything after the first NUL byte.
-	payload_pos = pos + app_id_orig_size;
-	payload_size = seg_size - app_id_orig_size;
+	payload_pos = seg_data_pos + app_id_orig_size;
+	payload_size = seg_data_size - app_id_orig_size;
 	if(payload_size<1) goto done;
 
 	if(seg_type==0xe0 && !de_strcmp(app_id_normalized, "JFIF")) {
@@ -159,7 +161,7 @@ static void do_app_segment(deark *c, lctx *d, de_byte seg_type, de_int64 pos, de
 	else if(seg_type==0xee && app_id_orig_strlen>=5 && !de_memcmp(app_id_normalized, "ADOBE", 5)) {
 		// libjpeg implies that the "Adobe" string is *not* NUL-terminated. That the byte
 		// that is usually 0 is actually the high byte of a version number.
-		do_adobeapp14_segment(c, d, pos+5, seg_size-5);
+		do_adobeapp14_segment(c, d, seg_data_pos+5, seg_data_size-5);
 	}
 	else if(seg_type==0xe1 && !de_strcmp(app_id_normalized, "EXIF")) {
 		// Note that Exif has an additional padding byte after the APP ID NUL terminator.
@@ -223,7 +225,8 @@ static int get_marker_info(deark *c, lctx *d, de_byte seg_type,
 	switch(seg_type) {
 	case 0x01: name = "TEM"; mi->flags |= FLAG_NO_DATA; break;
 	case 0xc4: name = "DHT"; break;
-	case 0xc8: name = "JPG"; break;
+	case 0xc8: name = "JPG"; mi->flags |= FLAG_IS_SOF; break;
+	case 0xcc: name = "DAC"; break;
 	case 0xd8: name = "SOI"; mi->flags |= FLAG_NO_DATA; break;
 	case 0xd9: name = "EOI"; mi->flags |= FLAG_NO_DATA; break;
 	case 0xda: name = "SOS"; break;
@@ -232,6 +235,16 @@ static int get_marker_info(deark *c, lctx *d, de_byte seg_type,
 	case 0xdd: name = "DRI"; break;
 	case 0xde: name = "DHP"; break;
 	case 0xdf: name = "EXP"; break;
+	case 0xf7:
+		d->is_jpegls = 1;
+		mi->flags |= FLAG_IS_SOF;
+		name = "SOF55";
+		break;
+	case 0xf8:
+		if(d->is_jpegls) {
+			name = "LSE";
+		}
+		break;
 	case 0xfe: name = "COM"; break;
 	}
 
@@ -256,6 +269,11 @@ static int get_marker_info(deark *c, lctx *d, de_byte seg_type,
 	if(seg_type>=0xd0 && seg_type<=0xd7) {
 		de_snprintf(mi->name, sizeof(mi->name), "RST%d", (int)(seg_type-0xd0));
 		mi->flags |= FLAG_NO_DATA;
+		goto done;
+	}
+
+	if(seg_type>=0xf0 && seg_type<=0xfd) {
+		de_snprintf(mi->name, sizeof(mi->name), "JPG%d", (int)(seg_type-0xf0));
 		goto done;
 	}
 
