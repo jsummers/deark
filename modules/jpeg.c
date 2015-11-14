@@ -192,17 +192,57 @@ static void do_sof_segment(deark *c, lctx *d, de_byte seg_type,
 	de_int64 pos, de_int64 data_size)
 {
 	de_int64 w, h;
-	de_int64 b;
+	de_byte b;
+	de_int64 ncomp;
+	de_int64 i;
+	const char *attr_lossy = "DCT";
+	const char *attr_cmpr = "huffman";
+	const char *attr_progr = "non-progr.";
+	const char *attr_hier = "non-hier.";
 
 	if(data_size<6) return;
 	de_dbg_indent(c, 1);
+
+	if(seg_type>=0xc1 && seg_type<=0xcf && (seg_type%4)!=0) {
+		if((seg_type%4)==3) attr_lossy="lossless";
+		if(seg_type%16>=9) attr_cmpr="arithmetic";
+		if((seg_type%4)==2) attr_progr="progressive";
+		if((seg_type%8)>=5) attr_hier="hierarchical";
+		de_dbg(c, "image type: %s, %s, %s, %s\n",
+			attr_lossy, attr_cmpr, attr_progr, attr_hier);
+	}
+	else if(seg_type==0xc0) {
+		de_dbg(c, "image type: baseline (%s, %s, %s, %s)\n",
+			attr_lossy, attr_cmpr, attr_progr, attr_hier);
+	}
+	else if(seg_type==0xf7) {
+		de_dbg(c, "image type: JPEG-LS\n");
+	}
+
 	b = de_getbyte(pos);
 	de_dbg(c, "precision: %d\n", (int)b);
 	h = de_getui16be(pos+1);
 	w = de_getui16be(pos+3);
 	de_dbg(c, "dimensions: %dx%d\n", (int)w, (int)h);
-	b = de_getbyte(pos+5);
-	de_dbg(c, "number of components: %d\n", (int)b);
+	ncomp = (de_int64)de_getbyte(pos+5);
+	de_dbg(c, "number of components: %d\n", (int)ncomp);
+
+	// per-component data
+	if(data_size<6+3*ncomp) goto done;
+	for(i=0; i<ncomp; i++) {
+		de_byte comp_id;
+		de_int64 sf1, sf2;
+		de_byte qtid;
+		comp_id = de_getbyte(pos+6+3*i+0);
+		b = de_getbyte(pos+6+3*i+1);
+		sf1 = (de_int64)(b>>4);
+		sf2 = (de_int64)(b&0x0f);
+		qtid = de_getbyte(pos+6+3*i+2);
+		de_dbg(c, "cmp #%d: id=%d sampling=%dx%d quant_table=%d\n",
+			(int)i, (int)comp_id, (int)sf1, (int)sf2, (int)qtid);
+	}
+
+done:
 	de_dbg_indent(c, -1);
 }
 
@@ -289,8 +329,9 @@ static void do_segment(deark *c, lctx *d, de_byte seg_type,
 	de_int64 payload_pos, de_int64 payload_size)
 {
 
-	if(c->debug_level<2 && !(mi->flags & FLAG_IS_APP)) {
-		// Non-APP segments are only analyzed if we want the debug output from them.
+	if(c->debug_level<1 && !(mi->flags & FLAG_IS_APP)) {
+		// Currently, we don't extract anything from any non-APP
+		// segments, so we can skip them if we don't want debug output.
 		return;
 	}
 
@@ -302,6 +343,9 @@ static void do_segment(deark *c, lctx *d, de_byte seg_type,
 	}
 	else if(mi->flags & FLAG_IS_SOF) {
 		do_sof_segment(c, d, seg_type, payload_pos, payload_size);
+	}
+	else if(seg_type==0xda) {
+		de_dbg2(c, "(Note: Debugging output stops at the first SOS segment.)\n");
 	}
 }
 
@@ -344,7 +388,7 @@ static void de_run_jpeg(deark *c, de_module_params *mparams)
 		get_marker_info(c, d, seg_type, &mi);
 
 		if(mi.flags & FLAG_NO_DATA) {
-			de_dbg2(c, "marker %s (0x%02x) at %d\n", mi.name, (unsigned int)seg_type,
+			de_dbg(c, "marker %s (0x%02x) at %d\n", mi.name, (unsigned int)seg_type,
 				(int)(pos-2));
 
 			if(seg_type==0xd9) {
