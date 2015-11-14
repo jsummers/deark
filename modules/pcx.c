@@ -144,6 +144,14 @@ done:
 	return retval;
 }
 
+// Print debugging output for an 8-bit RGB palette entry.
+static void de_dbg_pal_entry(deark *c, de_int64 idx, de_uint32 clr)
+{
+	if(c->debug_level<2) return;
+	de_dbg2(c, "pal[%3d] = (%3d,%3d,%3d)\n", (int)idx,
+		(int)DE_COLOR_R(clr), (int)DE_COLOR_G(clr), (int)DE_COLOR_B(clr));
+}
+
 static int do_read_vga_palette(deark *c, lctx *d)
 {
 	de_int64 pos;
@@ -163,6 +171,7 @@ static int do_read_vga_palette(deark *c, lctx *d)
 	pos++;
 	for(k=0; k<256; k++) {
 		d->pal[k] = dbuf_getRGB(c->infile, pos + 3*k, 0);
+		de_dbg_pal_entry(c, k, d->pal[k]);
 	}
 
 	return 1;
@@ -201,8 +210,8 @@ static void do_palette_stuff(deark *c, lctx *d)
 
 	if(d->version==3 && d->ncolors>=8 && d->ncolors<=16) {
 		if(!d->default_pal_set) {
-			de_msg(c, "Note: This PCX file does not contain a palette. "
-				"If it is not decoded correctly, try \"-opt pcx:pal=...\".\n");
+			de_msg(c, "Note: This paletted PCX file does not contain a palette. "
+				"If it is not decoded correctly, try \"-opt pcx:pal=1\".\n");
 		}
 		de_dbg(c, "Using a default EGA palette\n");
 		for(k=0; k<16; k++) {
@@ -263,6 +272,7 @@ static void do_palette_stuff(deark *c, lctx *d)
 
 	for(k=0; k<16; k++) {
 		d->pal[k] = dbuf_getRGB(c->infile, 16 + 3*k, 0);
+		de_dbg_pal_entry(c, k, d->pal[k]);
 	}
 }
 
