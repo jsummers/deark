@@ -10,6 +10,7 @@
 
 typedef struct localctx_struct {
 	dbuf *iccprofile_file;
+	dbuf *hdr_residual_file;
 	int is_jpegls;
 } lctx;
 
@@ -34,6 +35,38 @@ static void do_icc_profile_segment(deark *c, lctx *d, de_int64 pos, de_int64 dat
 		dbuf_close(d->iccprofile_file);
 		d->iccprofile_file = NULL;
 	}
+}
+
+// Extract JPEG-HDR residual images.
+// Note: This code is based on reverse engineering, and may not be correct.
+static void do_jpeghdr_segment(deark *c, lctx *d, de_int64 pos, de_int64 data_size,
+	int is_ext)
+{
+	if(is_ext) {
+		de_dbg(c, "JPEG-HDR residual image continuation, pos=%d size=%d\n",
+			(int)pos, (int)data_size);
+	}
+	else {
+		de_dbg(c, "JPEG-HDR residual image start, pos=%d size=%d\n",
+			(int)pos, (int)data_size);
+
+		// Close any previous file
+		if(d->hdr_residual_file) {
+			dbuf_close(d->hdr_residual_file);
+			d->hdr_residual_file = NULL;
+		}
+
+		// Make sure it looks like an embedded JPEG file
+		if(dbuf_memcmp(c->infile, pos, "\xff\xd8", 2)) {
+			de_dbg(c, "unexpected HDR format\n");
+			return;
+		}
+
+		d->hdr_residual_file = dbuf_create_output_file(c, "residual.jpg", NULL);
+	}
+
+	if(!d->hdr_residual_file) return;
+	dbuf_copy(c->infile, pos, data_size, d->hdr_residual_file);
 }
 
 static void do_jfif_segment(deark *c, lctx *d, de_int64 pos, de_int64 data_size)
@@ -118,9 +151,10 @@ static void normalize_app_id(const char *app_id_orig, char *app_id_normalized,
 static void do_app_segment(deark *c, lctx *d, de_byte seg_type,
 	de_int64 seg_data_pos, de_int64 seg_data_size)
 {
-	char app_id_orig[64]; // This just needs to be large enough for any ID we recognize.
-	char app_id_normalized[64];
-	char app_id_printable[64];
+#define MAX_APP_ID_LEN 256
+	char app_id_orig[MAX_APP_ID_LEN];
+	char app_id_normalized[MAX_APP_ID_LEN];
+	char app_id_printable[MAX_APP_ID_LEN];
 	de_int64 app_id_orig_strlen;
 	de_int64 app_id_orig_size;
 	de_int64 payload_pos;
@@ -182,6 +216,12 @@ static void do_app_segment(deark *c, lctx *d, de_byte seg_type,
 	else if(seg_type==0xe1 && !de_strcmp(app_id_normalized, "HTTP://NS.ADOBE.COM/XAP/1.0/")) {
 		de_dbg(c, "XMP data at %d, size=%d\n", (int)(payload_pos), (int)(payload_size));
 		dbuf_create_file_from_slice(c->infile, payload_pos, payload_size, "xmp", NULL);
+	}
+	else if(seg_type==0xeb && app_id_orig_strlen>=10 && !de_memcmp(app_id_normalized, "HDR_RI VER", 10)) {
+		do_jpeghdr_segment(c, d, payload_pos, payload_size, 0);
+	}
+	else if(seg_type==0xeb && app_id_orig_strlen>=10 && !de_memcmp(app_id_normalized, "HDR_RI EXT", 10)) {
+		do_jpeghdr_segment(c, d, payload_pos, payload_size, 1);
 	}
 
 done:
@@ -418,6 +458,7 @@ static void de_run_jpeg(deark *c, de_module_params *mparams)
 	}
 
 	dbuf_close(d->iccprofile_file);
+	dbuf_close(d->hdr_residual_file);
 
 	de_free(c, d);
 }
