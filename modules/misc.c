@@ -141,6 +141,7 @@ static void de_run_xpuzzle(deark *c, de_module_params *mparams)
 	p = 9;
 	for(i=0; i<d->palentries; i++) {
 		pal[i] = dbuf_getRGB(c->infile, p, 0);
+		de_dbg_pal_entry(c, i, pal[i]);
 		p+=3;
 	}
 
@@ -300,6 +301,7 @@ static void de_run_bob(deark *c, de_module_params *mparams)
 	p = 4;
 	for(i=0; i<256; i++) {
 		pal[i] = dbuf_getRGB(c->infile, p, 0);
+		de_dbg_pal_entry(c, i, pal[i]);
 		p+=3;
 	}
 
@@ -642,7 +644,8 @@ static void de_run_lss16(deark *c, de_module_params *mparams)
 	de_byte n;
 	de_byte prev;
 	de_int64 run_len;
-	de_byte cr, cg, cb;
+	de_byte cr1, cg1, cb1;
+	de_byte cr2, cg2, cb2;
 	de_uint32 pal[16];
 
 	d = de_malloc(c, sizeof(struct lss16ctx));
@@ -655,15 +658,17 @@ static void de_run_lss16(deark *c, de_module_params *mparams)
 
 	d->pos += 4;
 	for(i=0; i<16; i++) {
-		cr = de_getbyte(d->pos);
-		cg = de_getbyte(d->pos+1);
-		cb = de_getbyte(d->pos+2);
-		de_dbg2(c, "pal[%2d]: %2d,%2d,%2d\n", (int)i, (int)cr, (int)cg, (int)cb);
+		cr1 = de_getbyte(d->pos);
+		cg1 = de_getbyte(d->pos+1);
+		cb1 = de_getbyte(d->pos+2);
 		// Palette samples are from [0 to 63]. Convert to [0 to 255].
-		cr = de_palette_sample_6_to_8bit(cr);
-		cg = de_palette_sample_6_to_8bit(cg);
-		cb = de_palette_sample_6_to_8bit(cb);
-		pal[i] = DE_MAKE_RGB(cr, cg, cb);
+		cr2 = de_palette_sample_6_to_8bit(cr1);
+		cg2 = de_palette_sample_6_to_8bit(cg1);
+		cb2 = de_palette_sample_6_to_8bit(cb1);
+		de_dbg2(c, "pal[%2d] = (%2d,%2d,%2d) -> (%3d,%3d,%3d)\n", (int)i,
+			(int)cr1, (int)cg1, (int)cb1,
+			(int)cr2, (int)cg2, (int)cb2);
+		pal[i] = DE_MAKE_RGB(cr2, cg2, cb2);
 		d->pos+=3;
 	}
 

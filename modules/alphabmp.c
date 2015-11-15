@@ -35,8 +35,7 @@ static int do_read_palette(deark *c, lctx *d, de_int64 pos, de_int64 *pal_nbytes
 	for(i=0; i<d->num_pal_entries && i<256; i++) {
 		clr = dbuf_getRGB(c->infile, pos + 2 + i*3, 0);
 		d->pal[i] = clr;
-		de_dbg2(c, "pal[%3d] = (%3d,%3d,%3d)\n", (int)i, (int)DE_COLOR_R(clr),
-			(int)DE_COLOR_G(clr), (int)DE_COLOR_B(clr));
+		de_dbg_pal_entry(c, i, clr);
 	}
 	return 1;
 }

@@ -144,7 +144,8 @@ static int decode_egavga16(deark *c, lctx *d)
 	de_int64 src_rowspan;
 	de_int64 src_planespan;
 	int palent;
-	de_byte cr, cg, cb;
+	de_byte cr1, cg1, cb1;
+	de_byte cr2, cg2, cb2;
 
 	de_dbg(c, "16-color EGA/VGA\n");
 	de_memset(pal, 0, sizeof(pal));
@@ -171,11 +172,16 @@ static int decode_egavga16(deark *c, lctx *d)
 		de_dbg(c, "Reading 16-color palette from file.\n");
 		for(k=0; k<16; k++) {
 			if(3*k+2 >= d->pal_info_to_use->esize) break;
-			cr = de_palette_sample_6_to_8bit(d->pal_info_to_use->data[3*k+0]);
-			cg = de_palette_sample_6_to_8bit(d->pal_info_to_use->data[3*k+1]);
-			cb = de_palette_sample_6_to_8bit(d->pal_info_to_use->data[3*k+2]);
-			pal[k] = DE_MAKE_RGB(cr, cg, cb);
-			de_dbg2(c, "pal[%2d] = (%3d,%3d,%3d)\n", (int)k, (int)cr, (int)cg, (int)cb);
+			cr1 = d->pal_info_to_use->data[3*k+0];
+			cg1 = d->pal_info_to_use->data[3*k+1];
+			cb1 = d->pal_info_to_use->data[3*k+2];
+			cr2 = de_palette_sample_6_to_8bit(cr1);
+			cg2 = de_palette_sample_6_to_8bit(cg1);
+			cb2 = de_palette_sample_6_to_8bit(cb1);
+			pal[k] = DE_MAKE_RGB(cr2, cg2, cb2);
+			de_dbg2(c, "pal[%2d] = (%2d,%2d,%2d) -> (%3d,%3d,%3d)\n", (int)k,
+				(int)cr1, (int)cg1, (int)cb1,
+				(int)cr2, (int)cg2, (int)cb2);
 		}
 	}
 
@@ -216,7 +222,8 @@ static int decode_vga256(deark *c, lctx *d)
 	de_int64 i, j;
 	de_int64 k;
 	de_byte b;
-	de_byte cr, cg, cb;
+	de_byte cr1, cg1, cb1;
+	de_byte cr2, cg2, cb2;
 
 	de_dbg(c, "256-color image\n");
 	de_memset(pal, 0, sizeof(pal));
@@ -232,10 +239,16 @@ static int decode_vga256(deark *c, lctx *d)
 		de_dbg(c, "Reading palette.\n");
 		for(k=0; k<256; k++) {
 			if(3*k+2 >= d->pal_info_to_use->esize) break;
-			cr = de_palette_sample_6_to_8bit(d->pal_info_to_use->data[3*k+0]);
-			cg = de_palette_sample_6_to_8bit(d->pal_info_to_use->data[3*k+1]);
-			cb = de_palette_sample_6_to_8bit(d->pal_info_to_use->data[3*k+2]);
-			pal[k] = DE_MAKE_RGB(cr, cg, cb);
+			cr1 = d->pal_info_to_use->data[3*k+0];
+			cg1 = d->pal_info_to_use->data[3*k+1];
+			cb1 = d->pal_info_to_use->data[3*k+2];
+			cr2 = de_palette_sample_6_to_8bit(cr1);
+			cg2 = de_palette_sample_6_to_8bit(cg1);
+			cb2 = de_palette_sample_6_to_8bit(cb1);
+			pal[k] = DE_MAKE_RGB(cr2, cg2, cb2);
+			de_dbg2(c, "pal[%3d] = (%2d,%2d,%2d) -> (%3d,%3d,%3d)\n", (int)k,
+				(int)cr1, (int)cg1, (int)cb1,
+				(int)cr2, (int)cg2, (int)cb2);
 		}
 	}
 

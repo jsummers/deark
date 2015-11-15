@@ -144,14 +144,6 @@ done:
 	return retval;
 }
 
-// Print debugging output for an 8-bit RGB palette entry.
-static void de_dbg_pal_entry(deark *c, de_int64 idx, de_uint32 clr)
-{
-	if(c->debug_level<2) return;
-	de_dbg2(c, "pal[%3d] = (%3d,%3d,%3d)\n", (int)idx,
-		(int)DE_COLOR_R(clr), (int)DE_COLOR_G(clr), (int)DE_COLOR_B(clr));
-}
-
 static int do_read_vga_palette(deark *c, lctx *d)
 {
 	de_int64 pos;

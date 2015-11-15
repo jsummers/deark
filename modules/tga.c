@@ -297,9 +297,7 @@ static int do_read_palette(deark *c, lctx *d, de_int64 pos)
 		idx = d->cmap_start + i;
 		if(idx<0 || idx>255) continue;
 		d->pal[idx] = dbuf_getRGB(c->infile, pos + i*d->bytes_per_pal_entry, DE_GETRGBFLAG_BGR);
-		de_dbg2(c, "pal[%3d] = (%3d,%3d,%3d)\n", (int)idx,
-			(int)DE_COLOR_R(d->pal[idx]), (int)DE_COLOR_G(d->pal[idx]),
-			(int)DE_COLOR_B(d->pal[idx]));
+		de_dbg_pal_entry(c, idx, d->pal[idx]);
 	}
 	return 1;
 }

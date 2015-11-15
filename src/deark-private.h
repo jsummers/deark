@@ -253,6 +253,7 @@ void de_update_file_time(dbuf *f);
 void de_declare_fmt(deark *c, const char *fmtname);
 
 void de_dbg_indent(deark *c, int n);
+void de_dbg_pal_entry(deark *c, de_int64 idx, de_uint32 clr);
 
 int de_identify_none(deark *c);
 

@@ -123,19 +123,22 @@ static void do_uncompress_data(deark *c, lctx *d, de_int64 pos1, dbuf *unc_data)
 static void do_read_palette(deark *c, lctx *d, struct de_char_context *charctx, de_int64 pos)
 {
 	de_int64 k;
-	de_byte cr, cg, cb;
+	de_byte cr1, cg1, cb1;
+	de_byte cr2, cg2, cb2;
 
 	de_dbg(c, "palette at %d\n", (int)pos);
 
 	for(k=0; k<16; k++) {
-		cr = de_getbyte(pos+k*3);
-		cg = de_getbyte(pos+k*3+1);
-		cb = de_getbyte(pos+k*3+2);
-		de_dbg2(c, "pal[%2d]: %2d,%2d,%2d\n", (int)k, (int)cr, (int)cg, (int)cb);
-		cr = de_palette_sample_6_to_8bit(cr);
-		cg = de_palette_sample_6_to_8bit(cg);
-		cb = de_palette_sample_6_to_8bit(cb);
-		charctx->pal[k] = DE_MAKE_RGB(cr, cg, cb);
+		cr1 = de_getbyte(pos+k*3);
+		cg1 = de_getbyte(pos+k*3+1);
+		cb1 = de_getbyte(pos+k*3+2);
+		cr2 = de_palette_sample_6_to_8bit(cr1);
+		cg2 = de_palette_sample_6_to_8bit(cg1);
+		cb2 = de_palette_sample_6_to_8bit(cb1);
+		charctx->pal[k] = DE_MAKE_RGB(cr2, cg2, cb2);
+		de_dbg2(c, "pal[%2d] = (%2d,%2d,%2d) -> (%3d,%3d,%3d)\n", (int)k,
+			(int)cr1, (int)cg1, (int)cb1,
+			(int)cr2, (int)cg2, (int)cb2);
 	}
 }
 

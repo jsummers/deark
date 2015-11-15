@@ -134,10 +134,7 @@ static void do_cmap(deark *c, lctx *d, de_int64 pos, de_int64 len)
 
 	for(k=0; k<d->pal_ncolors; k++) {
 		d->pal[k] = dbuf_getRGB(c->infile, pos+3*k, 0);
-		de_dbg2(c, "pal[%3d] = (%3d,%3d,%3d)\n", (int)k,
-			(int)DE_COLOR_R(d->pal[k]),
-			(int)DE_COLOR_G(d->pal[k]),
-			(int)DE_COLOR_B(d->pal[k]));
+		de_dbg_pal_entry(c, k, d->pal[k]);
 	}
 }
 

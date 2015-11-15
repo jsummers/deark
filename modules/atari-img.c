@@ -1199,7 +1199,7 @@ static void do_atari_falcon_8bit_img(deark *c, de_int64 width, de_int64 height)
 		cg = de_getbyte(k*4+1);
 		cb = de_getbyte(k*4+3);
 		pal[k] = DE_MAKE_RGB(cr, cg, cb);
-		de_dbg2(c, "pal[%3d] = (%3d,%3d,%3d)\n", (int)k, (int)cr, (int)cg, (int)cb);
+		de_dbg_pal_entry(c, k, pal[k]);
 	}
 
 	decode_falcon_8bit_image(c, adata, 1024);
