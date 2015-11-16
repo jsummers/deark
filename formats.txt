@@ -42,7 +42,7 @@ Deark -- Information about supported formats
 * BPG (module="bpg") (experimental)
   - Extract Exif, XMP, ICC Profiles, thumbnails
 
-* BSAVE (module="bsave")
+* BSAVE/BLOAD image (module="bsave")
   Support (some) PC-style BSAVE files.
   Options
    -file2 <file.pal> - Use this palette file (BSAVE format)
@@ -164,6 +164,8 @@ Deark -- Information about supported formats
   - Version 1 and 2
 
 * NEOchrome (.NEO) (module="neochrome")
+
+* NEOchrome Animation (module="neochrome_ani") (experimental)
 
 * New Print Shop .POG format (module="newprintshop")
   Options
@@ -300,6 +302,8 @@ Deark -- Information about supported formats
   - Extract data from "Photoshop resources".
   - Extract IPTC data (use -extractall).
 
+* TIM (Playstation graphics) (module="tim") (experimental/incomplete)
+
 * Tiny Stuff (.TNY, .TN1, .TN2, .TN3) (module="tinystuff")
 
 * VBM (VDC BitMap) (module="vbm")
@@ -342,16 +346,26 @@ Deark -- Information about supported formats
 * PFF2 font (module="pff2")
 
 
-=== Compression and archive modules ===
+=== Compression, archive, installer, disk image modules ===
 
 * ar (.a archive/library format) (module="ar") (experimental/incomplete)
   - Supports System V long filenames
 
+* ATR (Atari disk image) (module="atr") (experimental/incomplete)
+
 * BinHex (.hqx) (module="binhex")
   - Extract data and resource forks to separate files.
 
+* RPM (package manager) (module="rpm)
+  - Extract compressed cpio file.
+
 * T64 (Commodore 64 "tape" format) (module="t64")
   - Partial support
+
+* ZIP (module="zip")
+  - Does not extract files, only comments.
+  - Extract main ZIP file comment.
+  - Extract comments for individual files.
 
 * zlib (module="zlib")
   - Raw zlib files can be uncompressed.
@@ -369,13 +383,10 @@ Deark -- Information about supported formats
   - Not autodetected; use "-m base64".
 
 
-== Translation modules ==
+=== Other modules ===
 
 * C64 BASIC (module="basic-c64") (experimental)
   - Detokenize C64 BASIC programs
-
-
-=== Other modules ===
 
 * Copy (module="copy")
   - "Extract" the entire file. Use with -start and -size to extract part of
@@ -398,12 +409,4 @@ Deark -- Information about supported formats
 * Psion APP/IMG and OPA/OPO (module="psionapp")
   - Extract Psion PIC icons.
   - Extract other contents (use -extractall).
-
-* RPM (package manager) (module="rpm)
-  - Extract compressed cpio file.
-
-* ZIP (module="zip")
-  - Does not extract files, only comments.
-  - Extract main ZIP file comment.
-  - Extract comments for individual files.
 
