@@ -274,6 +274,7 @@ void de_destroy(deark *c)
 	if(c->zip_file) { de_zip_close_file(c); }
 	if(c->base_output_filename) { de_free(c, c->base_output_filename); }
 	if(c->output_archive_filename) { de_free(c, c->output_archive_filename); }
+	de_free(c, c->module_info);
 	de_free(NULL,c);
 }
 

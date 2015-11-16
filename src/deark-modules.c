@@ -9,12 +9,6 @@
 
 static void register_a_module(deark *c, de_module_getinfo_fn infofunc)
 {
-	if(c->num_modules>=DE_MAX_MODULES) {
-		de_err(c, "Internal: Too many modules\n");
-		de_fatalerror(c);
-		return;
-	}
-
 	infofunc(c, &c->module_info[c->num_modules++]);
 }
 
@@ -121,12 +115,18 @@ void de_register_modules(deark *c)
 		de_module_base64,
 		de_module_jpegscan,
 		de_module_copy,
-		de_module_unsupported,
-		NULL
+		de_module_unsupported
 	};
+	size_t num_modules;
 	size_t i;
 
-	for(i=0; infofunc_list[i]!=NULL; i++) {
+	num_modules = sizeof(infofunc_list) / sizeof(infofunc_list[0]);
+
+	if(!c->module_info) {
+		c->module_info = de_malloc(c, num_modules*sizeof(struct deark_module_info));
+	}
+
+	for(i=0; i<num_modules; i++) {
 		register_a_module(c, infofunc_list[i]);
 	}
 }
