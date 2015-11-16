@@ -101,3 +101,4 @@ void de_module_emf(deark *c, struct deark_module_info *mi);
 void de_module_pict(deark *c, struct deark_module_info *mi);
 void de_module_iim(deark *c, struct deark_module_info *mi);
 void de_module_falcon_xga(deark *c, struct deark_module_info *mi);
+void de_module_base64(deark *c, struct deark_module_info *mi);

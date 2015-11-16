@@ -184,7 +184,7 @@ struct deark_struct {
 	char *output_archive_filename;
 
 	// TODO: Allow any number of modules and options.
-#define DE_MAX_MODULES 96
+#define DE_MAX_MODULES 100
 	int num_modules;
 	struct deark_module_info module_info[DE_MAX_MODULES];
 

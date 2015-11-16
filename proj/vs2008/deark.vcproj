@@ -670,6 +670,10 @@
 				>
 			</File>
 			<File
+				RelativePath="..\..\modules\xfer.c"
+				>
+			</File>
+			<File
 				RelativePath="..\..\modules\zip.c"
 				>
 			</File>
