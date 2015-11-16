@@ -590,10 +590,14 @@ static void de_run_eggpaint(deark *c, de_module_params *mparams)
 	struct atari_img_decode_data *adata = NULL;
 
 	adata = de_malloc(c, sizeof(struct atari_img_decode_data));
-	if(dbuf_memcmp(c->infile, 0, "TRUP", 4)) {
-		de_warn(c, "This file's format could not be clearly identified, "
-			"and it might not be decoded correctly.\n");
+
+	if(!dbuf_memcmp(c->infile, 0, "tru?", 4)) {
+		de_declare_fmt(c, "Spooky Sprites");
 	}
+	else {
+		de_declare_fmt(c, "EggPaint");
+	}
+
 	adata->bpp = 16;
 	adata->w = de_getui16be(4);
 	adata->h = de_getui16be(6);
@@ -613,7 +617,7 @@ static int de_identify_eggpaint(deark *c)
 	if(!dbuf_memcmp(c->infile, 0, "TRUP", 4)) {
 		return 80;
 	}
-	if(!dbuf_memcmp(c->infile, 0, "tru\x3f", 4)) {
+	if(!dbuf_memcmp(c->infile, 0, "tru?", 4)) {
 		return 100;
 	}
 	return 0;
