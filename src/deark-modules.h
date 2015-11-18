@@ -103,3 +103,4 @@ void de_module_iim(deark *c, struct deark_module_info *mi);
 void de_module_falcon_xga(deark *c, struct deark_module_info *mi);
 void de_module_base16(deark *c, struct deark_module_info *mi);
 void de_module_base64(deark *c, struct deark_module_info *mi);
+void de_module_uuencode(deark *c, struct deark_module_info *mi);
