@@ -194,26 +194,32 @@ static int uuencode_read_header(deark *c, lctx *d)
 {
 	int ret;
 	de_int64 total_len;
+	de_int64 line_count;
 
-	d->hdr_line_startpos = 0;
-
-	// TODO: Search for the "begin" line.
 	// TODO: Parse and use the filename.
 
-	ret = dbuf_find_line(c->infile, d->hdr_line_startpos,
-		&d->hdr_line_len, &total_len);
-	if(!ret) return 0;
-	if(d->hdr_line_len > 1000) return 0;
-	d->data_startpos = d->hdr_line_startpos + total_len;
+	d->hdr_line_startpos = 0;
+	line_count=0;
+	while(line_count<100) {
+		ret = dbuf_find_line(c->infile, d->hdr_line_startpos,
+			&d->hdr_line_len, &total_len);
+		if(!ret) return 0;
+		if(d->hdr_line_len > 1000) return 0;
 
-	if(!dbuf_memcmp(c->infile, 0, "begin ", 6)) {
-		d->hdr_line_type = HDR_UUENCODE_OR_XXENCODE;
-		return 1;
-	}
+		d->data_startpos = d->hdr_line_startpos + total_len;
 
-	if(!dbuf_memcmp(c->infile, 0, "begin-base64 ", 13)) {
-		d->hdr_line_type = HDR_UUENCODE_BASE64;
-		return 1;
+		if(!dbuf_memcmp(c->infile, d->hdr_line_startpos, "begin ", 6)) {
+			d->hdr_line_type = HDR_UUENCODE_OR_XXENCODE;
+			return 1;
+		}
+
+		if(!dbuf_memcmp(c->infile, d->hdr_line_startpos, "begin-base64 ", 13)) {
+			d->hdr_line_type = HDR_UUENCODE_BASE64;
+			return 1;
+		}
+
+		d->hdr_line_startpos += total_len;
+		line_count++;
 	}
 
 	de_err(c, "Unrecognized file format\n");
@@ -431,7 +437,7 @@ static int de_identify_xxencode(deark *c)
 		return 0;
 	}
 
-	de_read(b, 0, sizeof(b));
+	de_read(b, 0, 10);
 
 	if(!de_memcmp(b, "begin ", 6)) {
 		if(b[9]==' ' && de_is_digit_string(&b[6], 3)) {
@@ -439,6 +445,7 @@ static int de_identify_xxencode(deark *c)
 		}
 	}
 	else if(!de_memcmp(b, "\x0a---------", 10)) {
+		// At least one xxencode utility creates files that starts this way.
 		return 80;
 	}
 
