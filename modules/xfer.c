@@ -263,7 +263,6 @@ static void do_uudecode_main(deark *c, lctx *d, dbuf *outf)
 			continue;
 		}
 		else if(b>=32 && b<=96) {
-
 			x = (b-32)%64;
 			d->cbuf[d->cbuf_count++] = x;
 			if(d->cbuf_count>=4) {
@@ -311,9 +310,18 @@ done:
 	de_free(c, d);
 }
 
-static int de_isdigit(de_byte x)
+static int de_is_digit(de_byte x)
 {
 	return (x>='0' && x<='9');
+}
+
+static int de_is_digit_string(const de_byte *s, de_int64 len)
+{
+	de_int64 i;
+	for(i=0; i<len; i++) {
+		if(!de_is_digit(s[i])) return 0;
+	}
+	return 1;
 }
 
 static int de_identify_uuencode(deark *c)
@@ -325,11 +333,10 @@ static int de_identify_uuencode(deark *c)
 	if(!de_memcmp(b, "begin-base64 ", 13)) {
 		return 100;
 	}
-	if(!de_memcmp(b, "begin nnn ", 6)) {
-		if(b[9]==' ' && de_isdigit(b[6]) && de_isdigit(b[7]) &&
-			de_isdigit(b[8]))
-		{
-			return 100;
+	if(!de_memcmp(b, "begin ", 6)) {
+		if(b[9]==' ' && de_is_digit_string(&b[6], 3)) {
+			// This needs to be lower than XXEncode.
+			return 85;
 		}
 	}
 	return 0;
@@ -338,7 +345,68 @@ static int de_identify_uuencode(deark *c)
 void de_module_uuencode(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "uuencode";
-	mi->desc = "Uuencode";
+	mi->desc = "UUEncode";
 	mi->run_fn = de_run_uuencode;
 	mi->identify_fn = de_identify_uuencode;
+}
+
+// **************************************************************************
+// XXEncoded
+// **************************************************************************
+
+static void de_run_xxencode(deark *c, de_module_params *mparams)
+{
+	lctx *d = NULL;
+	dbuf *f = NULL;
+	int ret;
+
+	d = de_malloc(c, sizeof(lctx));
+
+	// TODO: read_header needs to search for the "begin" line.
+	ret = uuencode_read_header(c, d);
+	if(!ret) goto done;
+	if(d->fmt!=1) goto done;
+
+	de_declare_fmt(c, "XXEncoded");
+	f = dbuf_create_output_file(c, "bin", NULL);
+	de_err(c, "XXDecode not implemented\n");
+	//do_base64_internal(c, d, d->header_size, f);
+
+done:
+	dbuf_close(f);
+	de_free(c, d);
+}
+
+static int de_identify_xxencode(deark *c)
+{
+	de_byte b[10];
+
+	// XXEncode is hard to distinguish from UUEncode, so we rely on the
+	// filename.
+	if(!de_input_file_has_ext(c, "xxe") &&
+		!de_input_file_has_ext(c, "xx"))
+	{
+		return 0;
+	}
+
+	de_read(b, 0, sizeof(b));
+
+	if(!de_memcmp(b, "begin ", 6)) {
+		if(b[9]==' ' && de_is_digit_string(&b[6], 3)) {
+			return 90;
+		}
+	}
+	else if(!de_memcmp(b, "\x0a---------", 10)) {
+		return 80;
+	}
+
+	return 0;
+}
+
+void de_module_xxencode(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "xxencode";
+	mi->desc = "XXEncode";
+	mi->run_fn = de_run_xxencode;
+	mi->identify_fn = de_identify_xxencode;
 }
