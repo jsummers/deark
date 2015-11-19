@@ -10,8 +10,18 @@
 typedef struct localctx_struct {
 	int cbuf_count;
 	de_byte cbuf[4];
-	de_int64 header_size;
-	int fmt;
+
+#define FMT_BASE64    1
+#define FMT_UUENCODE  2
+#define FMT_XXENCODE  3
+	int data_fmt;
+
+#define HDR_UUENCODE_OR_XXENCODE  11
+#define HDR_UUENCODE_BASE64       12
+	int hdr_line_type;
+	de_int64 hdr_line_startpos;
+	de_int64 hdr_line_len;
+	de_int64 data_startpos;
 } lctx;
 
 // **************************************************************************
@@ -183,29 +193,46 @@ void de_module_base64(deark *c, struct deark_module_info *mi)
 static int uuencode_read_header(deark *c, lctx *d)
 {
 	int ret;
-	de_int64 content_len;
+	de_int64 total_len;
 
-	ret = dbuf_find_line(c->infile, 0, &content_len, &d->header_size);
+	d->hdr_line_startpos = 0;
+
+	ret = dbuf_find_line(c->infile, d->hdr_line_startpos,
+		&d->hdr_line_len, &total_len);
 	if(!ret) return 0;
-	if(content_len > 1000) return 0;
+	if(d->hdr_line_len > 1000) return 0;
+	d->data_startpos = d->hdr_line_startpos + total_len;
 
 	if(!dbuf_memcmp(c->infile, 0, "begin ", 6)) {
-		d->fmt = 1;
+		d->hdr_line_type = HDR_UUENCODE_OR_XXENCODE;
 		return 1;
 	}
 
 	if(!dbuf_memcmp(c->infile, 0, "begin-base64 ", 13)) {
-		d->fmt = 2;
+		d->hdr_line_type = HDR_UUENCODE_BASE64;
 		return 1;
 	}
 
 	de_err(c, "Unrecognized file format\n");
+	d->hdr_line_type = 0;
 	return 0;
 }
 
-static void do_uudecode_main(deark *c, lctx *d, dbuf *outf)
+static int get_uu_byte_value(deark *c, lctx *d, de_byte b, de_byte *val)
+{
+	if(b>=32 && b<=96) {
+		*val = (b-32)%64;
+		return 1;
+	}
+	*val = 0;
+	return 0;
+}
+
+// Data is decoded from c->infile, starting at d->data_startpos.
+static void do_uudecode_internal(deark *c, lctx *d, dbuf *outf)
 {
 	de_int64 pos;
+	int ret;
 	de_byte b;
 	de_byte x;
 	int bad_warned = 0;
@@ -213,7 +240,7 @@ static void do_uudecode_main(deark *c, lctx *d, dbuf *outf)
 	de_int64 decoded_bytes_this_line;
 	de_int64 expected_decoded_bytes_this_line;
 
-	pos = d->header_size;
+	pos = d->data_startpos;
 	d->cbuf_count = 0;
 	decoded_bytes_this_line = 0;
 	expected_decoded_bytes_this_line = 0;
@@ -224,25 +251,21 @@ static void do_uudecode_main(deark *c, lctx *d, dbuf *outf)
 		b = de_getbyte(pos++);
 
 		if(start_of_line_flag && (b==10 || b==13)) {
+			// Multi-byte EOL sequence, or blank line
 			continue;
 		}
 
 		if(start_of_line_flag) {
 			start_of_line_flag = 0;
-			if(b==96) {
-				expected_decoded_bytes_this_line = 0;
-			}
-			else if(b>=32 && b<=95) {
-				expected_decoded_bytes_this_line = (de_int64)b - 32;
-			}
-			else if(b=='e') {
-				// Maybe the first character of "end"?
-				de_warn(c, "Premature end of data\n");
+
+			ret = get_uu_byte_value(c, d, b, &x);
+			if(!ret) {
+				de_err(c, "Bad uuencoded data (offset %d)\n", (int)pos);
 				goto done;
 			}
 
+			expected_decoded_bytes_this_line = x;
 			if(expected_decoded_bytes_this_line==0) {
-				// Data is terminated by a line with 0 bytes of data.
 				goto done;
 			}
 			continue;
@@ -262,8 +285,10 @@ static void do_uudecode_main(deark *c, lctx *d, dbuf *outf)
 			start_of_line_flag = 1;
 			continue;
 		}
-		else if(b>=32 && b<=96) {
-			x = (b-32)%64;
+
+		// Expecting a regular data byte
+		ret = get_uu_byte_value(c, d, b, &x);
+		if(ret) {
 			d->cbuf[d->cbuf_count++] = x;
 			if(d->cbuf_count>=4) {
 				decoded_bytes_this_line += do_base64_flush(c, d, outf,
@@ -294,15 +319,17 @@ static void de_run_uuencode(deark *c, de_module_params *mparams)
 	if(!ret) goto done;
 	// TODO: Parse and use the filename
 
-	if(d->fmt==2) {
+	if(d->hdr_line_type==HDR_UUENCODE_BASE64) {
 		de_declare_fmt(c, "Base64 with uuencode wrapper");
+		d->data_fmt = FMT_BASE64;
 		f = dbuf_create_output_file(c, "bin", NULL);
-		do_base64_internal(c, d, d->header_size, f);
+		do_base64_internal(c, d, d->data_startpos, f);
 	}
 	else {
 		de_declare_fmt(c, "Uuencoded");
+		d->data_fmt = FMT_UUENCODE;
 		f = dbuf_create_output_file(c, "bin", NULL);
-		do_uudecode_main(c, d, f);
+		do_uudecode_internal(c, d, f);
 	}
 
 done:
@@ -365,7 +392,7 @@ static void de_run_xxencode(deark *c, de_module_params *mparams)
 	// TODO: read_header needs to search for the "begin" line.
 	ret = uuencode_read_header(c, d);
 	if(!ret) goto done;
-	if(d->fmt!=1) goto done;
+	if(d->hdr_line_type!=HDR_UUENCODE_OR_XXENCODE) goto done;
 
 	de_declare_fmt(c, "XXEncoded");
 	f = dbuf_create_output_file(c, "bin", NULL);
