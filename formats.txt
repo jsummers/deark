@@ -384,6 +384,8 @@ Deark -- Information about supported formats
 
 * Uuencoded (module="uuencode")
 
+* Xxencoded (module="xxencode")
+
 === Other modules ===
 
 * C64 BASIC (module="basic-c64") (experimental)

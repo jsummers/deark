@@ -197,6 +197,9 @@ static int uuencode_read_header(deark *c, lctx *d)
 
 	d->hdr_line_startpos = 0;
 
+	// TODO: Search for the "begin" line.
+	// TODO: Parse and use the filename.
+
 	ret = dbuf_find_line(c->infile, d->hdr_line_startpos,
 		&d->hdr_line_len, &total_len);
 	if(!ret) return 0;
@@ -220,6 +223,20 @@ static int uuencode_read_header(deark *c, lctx *d)
 
 static int get_uu_byte_value(deark *c, lctx *d, de_byte b, de_byte *val)
 {
+	if(d->data_fmt==FMT_XXENCODE) {
+		if(b>='0' && b<='9') *val = b-46;
+		else if(b>='A' && b<='Z') *val = b-53;
+		else if(b>='a' && b<='z') *val = b-59;
+		else if(b=='+') *val = 0;
+		else if(b=='-') *val = 1;
+		else {
+			*val = 0;
+			return 0;
+		}
+		return 1;
+	}
+
+	// Standard UUEncoding
 	if(b>=32 && b<=96) {
 		*val = (b-32)%64;
 		return 1;
@@ -317,7 +334,6 @@ static void de_run_uuencode(deark *c, de_module_params *mparams)
 
 	ret = uuencode_read_header(c, d);
 	if(!ret) goto done;
-	// TODO: Parse and use the filename
 
 	if(d->hdr_line_type==HDR_UUENCODE_BASE64) {
 		de_declare_fmt(c, "Base64 with uuencode wrapper");
@@ -389,15 +405,14 @@ static void de_run_xxencode(deark *c, de_module_params *mparams)
 
 	d = de_malloc(c, sizeof(lctx));
 
-	// TODO: read_header needs to search for the "begin" line.
 	ret = uuencode_read_header(c, d);
 	if(!ret) goto done;
 	if(d->hdr_line_type!=HDR_UUENCODE_OR_XXENCODE) goto done;
 
 	de_declare_fmt(c, "XXEncoded");
 	f = dbuf_create_output_file(c, "bin", NULL);
-	de_err(c, "XXDecode not implemented\n");
-	//do_base64_internal(c, d, d->header_size, f);
+	d->data_fmt = FMT_XXENCODE;
+	do_uudecode_internal(c, d, f);
 
 done:
 	dbuf_close(f);
