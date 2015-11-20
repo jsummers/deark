@@ -283,6 +283,10 @@ static void do_uudecode_internal(deark *c, lctx *d, dbuf *outf)
 
 			ret = get_uu_byte_value(c, d, b, &x);
 			if(!ret) {
+				if(b=='e' && d->data_fmt==FMT_UUENCODE) {
+					// Assume this is the "end" footer line.
+					goto done;
+				}
 				de_err(c, "Bad uuencoded data (offset %d)\n", (int)pos);
 				goto done;
 			}
@@ -302,6 +306,13 @@ static void do_uudecode_internal(deark *c, lctx *d, dbuf *outf)
 			if(decoded_bytes_this_line != expected_decoded_bytes_this_line) {
 				de_warn(c, "Expected %d bytes on line, got %d\n",
 					(int)expected_decoded_bytes_this_line, (int)decoded_bytes_this_line);
+			}
+
+			if(decoded_bytes_this_line<45 &&
+				decoded_bytes_this_line==expected_decoded_bytes_this_line)
+			{
+				// Assume a short line means end of data.
+				goto done;
 			}
 
 			decoded_bytes_this_line = 0;

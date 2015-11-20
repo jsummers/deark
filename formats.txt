@@ -375,7 +375,7 @@ Deark -- Information about supported formats
 
 * Base16 (module="base16" or "hex")
   - Decode "hex encoded" data.
-  - Not autodetected; use "-m base64".
+  - Not autodetected; use "-m base16".
   - Only supports raw data, such as that produced by "xxd -p". Does not
     support full hex dumps.
 
