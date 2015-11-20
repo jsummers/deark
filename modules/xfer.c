@@ -22,6 +22,8 @@ typedef struct localctx_struct {
 	de_int64 hdr_line_startpos;
 	de_int64 hdr_line_len;
 	de_int64 data_startpos;
+
+	de_finfo *fi;
 } lctx;
 
 // **************************************************************************
@@ -190,13 +192,37 @@ void de_module_base64(deark *c, struct deark_module_info *mi)
 // Base-64 UUEncoded
 // **************************************************************************
 
+static void parse_begin_line(deark *c, lctx *d, const de_byte *buf, de_int64 buf_len)
+{
+	de_int64 beginsize;
+	if(!d->fi) return;
+
+	if(d->hdr_line_type==HDR_UUENCODE_OR_XXENCODE) {
+		beginsize = 5; // "begin" has 5 letters
+	}
+	else if(d->hdr_line_type==HDR_UUENCODE_BASE64) {
+		beginsize = 12; // "begin-base64"
+	}
+	else {
+		return;
+	}
+
+	if(buf_len<beginsize+6 || buf[beginsize]!=' ' || buf[beginsize+4]!=' ') {
+		return;
+	}
+
+	de_finfo_set_name_from_bytes(c, d->fi, &buf[beginsize+5],
+		buf_len-(beginsize+5), 0, DE_ENCODING_ASCII);
+	d->fi->original_filename_flag = 1;
+}
+
 static int uuencode_read_header(deark *c, lctx *d)
 {
 	int ret;
 	de_int64 total_len;
 	de_int64 line_count;
-
-	// TODO: Parse and use the filename.
+	de_byte linebuf[500];
+	de_int64 nbytes_in_linebuf;
 
 	d->hdr_line_startpos = 0;
 	line_count=0;
@@ -206,15 +232,22 @@ static int uuencode_read_header(deark *c, lctx *d)
 		if(!ret) return 0;
 		if(d->hdr_line_len > 1000) return 0;
 
+		nbytes_in_linebuf = (de_int64)sizeof(linebuf);
+		if(d->hdr_line_len < nbytes_in_linebuf)
+			nbytes_in_linebuf = d->hdr_line_len;
+		de_read(linebuf, d->hdr_line_startpos, nbytes_in_linebuf);
+
 		d->data_startpos = d->hdr_line_startpos + total_len;
 
-		if(!dbuf_memcmp(c->infile, d->hdr_line_startpos, "begin ", 6)) {
+		if(nbytes_in_linebuf>=9 && !de_memcmp(linebuf, "begin ", 6)) {
 			d->hdr_line_type = HDR_UUENCODE_OR_XXENCODE;
+			parse_begin_line(c, d, linebuf, nbytes_in_linebuf);
 			return 1;
 		}
 
-		if(!dbuf_memcmp(c->infile, d->hdr_line_startpos, "begin-base64 ", 13)) {
+		if(nbytes_in_linebuf>=16 && !de_memcmp(linebuf, "begin-base64 ", 13)) {
 			d->hdr_line_type = HDR_UUENCODE_BASE64;
+			parse_begin_line(c, d, linebuf, nbytes_in_linebuf);
 			return 1;
 		}
 
@@ -349,24 +382,26 @@ static void de_run_uuencode(deark *c, de_module_params *mparams)
 
 	d = de_malloc(c, sizeof(lctx));
 
+	d->fi = de_finfo_create(c);
 	ret = uuencode_read_header(c, d);
 	if(!ret) goto done;
 
 	if(d->hdr_line_type==HDR_UUENCODE_BASE64) {
 		de_declare_fmt(c, "Base64 with uuencode wrapper");
 		d->data_fmt = FMT_BASE64;
-		f = dbuf_create_output_file(c, "bin", NULL);
+		f = dbuf_create_output_file(c, NULL, d->fi);
 		do_base64_internal(c, d, d->data_startpos, f);
 	}
 	else {
 		de_declare_fmt(c, "Uuencoded");
 		d->data_fmt = FMT_UUENCODE;
-		f = dbuf_create_output_file(c, "bin", NULL);
+		f = dbuf_create_output_file(c, NULL, d->fi);
 		do_uudecode_internal(c, d, f);
 	}
 
 done:
 	dbuf_close(f);
+	de_finfo_destroy(c, d->fi);
 	de_free(c, d);
 }
 
@@ -422,17 +457,19 @@ static void de_run_xxencode(deark *c, de_module_params *mparams)
 
 	d = de_malloc(c, sizeof(lctx));
 
+	d->fi = de_finfo_create(c);
 	ret = uuencode_read_header(c, d);
 	if(!ret) goto done;
 	if(d->hdr_line_type!=HDR_UUENCODE_OR_XXENCODE) goto done;
 
 	de_declare_fmt(c, "XXEncoded");
-	f = dbuf_create_output_file(c, "bin", NULL);
+	f = dbuf_create_output_file(c, NULL, d->fi);
 	d->data_fmt = FMT_XXENCODE;
 	do_uudecode_internal(c, d, f);
 
 done:
 	dbuf_close(f);
+	de_finfo_destroy(c, d->fi);
 	de_free(c, d);
 }
 
