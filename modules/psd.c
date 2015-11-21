@@ -15,16 +15,20 @@ struct rsrc_info {
 static const struct rsrc_info rsrc_info_arr[] = {
 	{ 0x03e9, "Macintosh print manager print info" },
 	{ 0x03ed, "Resolution info" },
+	{ 0x03f2, "Background color" },
 	{ 0x03f3, "Print flags" },
 	{ 0x03f5, "Color halftoning info" },
 	{ 0x03f8, "Color transfer functions" },
+	{ 0x0400, "Layer state information" },
+	{ 0x0402, "Layers group information" },
 	{ 0x0404, "IPTC-NAA" },
 	{ 0x0406, "JPEG quality" },
 	{ 0x0408, "Grid and guides info" },
-	{ 0x0409, "Thumbnail resource - Photoshop 4.0" },
+	{ 0x0409, "Thumbnail - Photoshop 4.0" },
 	{ 0x040a, "Copyright flag" },
-	{ 0x040c, "Thumbnail resource" },
+	{ 0x040c, "Thumbnail" },
 	{ 0x040d, "Global Angle" },
+	{ 0x0411, "ICC Untagged Profile" },
 	{ 0x0414, "Document-specific IDs seed number" },
 	{ 0x0419, "Global Altitude" },
 	{ 0x041a, "Slices" },
@@ -35,9 +39,38 @@ static const struct rsrc_info rsrc_info_arr[] = {
 	{ 0x0425, "Caption digest" },
 	{ 0x0426, "Print scale" },
 	{ 0x0428, "Pixel Aspect Ratio" },
+	{ 0x042d, "Layer Selection ID(s)" },
+	{ 0x042f, "Auto Save Format" },
+	{ 0x0430, "Layer Group(s) Enabled ID" },
+	{ 0x043a, "Print Information" },
+	{ 0x043b, "Print Style" },
 	{ 0x2710, "Print flags info" },
 	{ 0, NULL }
 };
+
+static const char* rsrc_name(de_int64 n)
+{
+	const struct rsrc_info *ri = NULL;
+	de_int64 i;
+
+	for(i=0; rsrc_info_arr[i].id!=0; i++) {
+		if(rsrc_info_arr[i].id == (de_uint16)n) {
+			ri = &rsrc_info_arr[i];
+			break;
+		}
+	}
+	if(ri && ri->name)
+		return ri->name;
+
+	if(n>=0x07d0 && n<=0x0bb6) {
+		return "Path Information";
+	}
+	if(n>=0x0fa0 && n<=0x1387) {
+		return "Plug-In resources";
+	}
+
+	return "?";
+}
 
 static const char* units_name(de_int64 u)
 {
@@ -98,8 +131,6 @@ static int do_image_resource(deark *c, de_int64 pos1, de_int64 *bytes_consumed)
 	de_int64 block_data_len;
 	de_int64 pos;
 	const char *idname;
-	const struct rsrc_info *ri = NULL;
-	de_int64 i;
 
 	pos = pos1;
 	*bytes_consumed = 0;
@@ -127,16 +158,7 @@ static int do_image_resource(deark *c, de_int64 pos1, de_int64 *bytes_consumed)
 	block_data_len = de_getui32be(pos);
 	pos+=4;
 
-	for(i=0; rsrc_info_arr[i].id!=0; i++) {
-		if(rsrc_info_arr[i].id == resource_id) {
-			ri = &rsrc_info_arr[i];
-			break;
-		}
-	}
-	if(ri && ri->name)
-		idname = ri->name;
-	else
-		idname = "?";
+	idname = rsrc_name(resource_id);
 
 	de_dbg(c, "Photoshop rsrc 0x%04x (%s) pos=%d nlen=%d dpos=%d dlen=%d\n",
 		(int)resource_id, idname, (int)pos1, (int)name_len, (int)pos, (int)block_data_len);
