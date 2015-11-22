@@ -178,7 +178,14 @@ static int do_generate_font(deark *c, lctx *d)
 	de_int64 i;
 
 	if(!d->font) return 0;
-	if(d->font_data_len!=4096 || d->font->num_chars!=256) return 0;
+	if(d->font->num_chars!=256) {
+		de_err(c, "Only 256-character fonts are supported\n");
+		return 0;
+	}
+	if(d->font_data_len!=d->font->num_chars*d->font_height) {
+		de_err(c, "Incorrect font data size\n");
+		return 0;
+	}
 	d->font->nominal_width = 8;
 	d->font->nominal_height = (int)d->font_height;
 	d->font->char_array = de_malloc(c, d->font->num_chars * sizeof(struct de_bitmap_font_char));
