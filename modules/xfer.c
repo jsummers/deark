@@ -25,6 +25,7 @@ typedef struct localctx_struct {
 
 #define ASCII85_FMT_BTOA_OLD  21
 #define ASCII85_FMT_BTOA_NEW  22
+#define ASCII85_FMT_STANDARD  23
 	int ascii85_fmt;
 
 	de_int64 bytes_written;
@@ -560,7 +561,7 @@ done:
 	d->cbuf_count = 0;
 }
 
-static void do_ascii85_data_char(deark *c, lctx *d, dbuf *f, de_int64 linenum,
+static void do_ascii85_data_char_processed(deark *c, lctx *d, dbuf *f, de_int64 linenum,
 	 de_byte x)
 {
 	// Write to the output file immediately before we empty cbuf, instead of
@@ -577,11 +578,34 @@ static void do_ascii85_data_char(deark *c, lctx *d, dbuf *f, de_int64 linenum,
 	d->cbuf_count++;
 }
 
+static void do_ascii85_data_char_raw(deark *c, lctx *d, dbuf *f, de_int64 linenum,
+	 const de_byte x)
+{
+	de_int64 k;
+
+	if(x>='!' && x<='u') {
+		do_ascii85_data_char_processed(c, d, f, linenum, x-33);
+	}
+	else if(x=='z') {
+		// 'z' represents four 0x00 bytes, which encodes to five 0 values
+		// (not including the +33 bias).
+		for(k=0; k<5; k++)
+			do_ascii85_data_char_processed(c, d, f, linenum, 0);
+	}
+	else if(x=='y' && d->ascii85_fmt==ASCII85_FMT_BTOA_NEW) {
+		// This is what four spaces encodes to (not including the +33 bias).
+		do_ascii85_data_char_processed(c, d, f, linenum, 0x0a);
+		do_ascii85_data_char_processed(c, d, f, linenum, 0x1b);
+		do_ascii85_data_char_processed(c, d, f, linenum, 0x35);
+		do_ascii85_data_char_processed(c, d, f, linenum, 0x43);
+		do_ascii85_data_char_processed(c, d, f, linenum, 0x2b);
+	}
+}
+
 static void do_ascii85_data_line(deark *c, lctx *d, dbuf *f, de_int64 linenum,
 	 const de_byte *linebuf, de_int64 line_len)
 {
 	de_int64 i;
-	de_int64 k;
 	de_int64 num_data_chars;
 
 	if(line_len<1) return;
@@ -592,29 +616,13 @@ static void do_ascii85_data_line(deark *c, lctx *d, dbuf *f, de_int64 linenum,
 		num_data_chars = line_len;
 
 	for(i=0; i<num_data_chars; i++) {
-		if(linebuf[i]>='!' && linebuf[i]<='u') {
-			do_ascii85_data_char(c, d, f, linenum, linebuf[i]-33);
-		}
-		else if(linebuf[i]=='z') {
-			// 'z' represents four 0x00 bytes, which encodes to five 0 values
-			// (not including the +33 bias).
-			for(k=0; k<5; k++)
-				do_ascii85_data_char(c, d, f, linenum, 0);
-		}
-		else if(linebuf[i]=='y' && d->ascii85_fmt==ASCII85_FMT_BTOA_NEW) {
-			// This is what four spaces encodes to (not including the +33 bias).
-			do_ascii85_data_char(c, d, f, linenum, 0x0a);
-			do_ascii85_data_char(c, d, f, linenum, 0x1b);
-			do_ascii85_data_char(c, d, f, linenum, 0x35);
-			do_ascii85_data_char(c, d, f, linenum, 0x43);
-			do_ascii85_data_char(c, d, f, linenum, 0x2b);
-		}
+		do_ascii85_data_char_raw(c, d, f, linenum, linebuf[i]);
 	}
 
 	// TODO: Verify the checksum character, if present.
 }
 
-static int do_ascii85_read_end_line(deark *c, lctx *d, de_int64 linenum,
+static int do_ascii85_read_btoa_end_line(deark *c, lctx *d, de_int64 linenum,
 	const de_byte *linebuf, de_int64 line_len)
 {
 	long filesize1 = 0;
@@ -669,7 +677,7 @@ static void do_ascii85_btoa(deark *c, lctx *d, dbuf *f)
 				de_dbg(c, "btoa old format header at line %d\n", (int)linenum);
 			}
 			else if(content_len>=9 && !de_memcmp(linebuf, "xbtoa End", 9)) {
-				if(!do_ascii85_read_end_line(c, d, linenum, linebuf, content_len)) {
+				if(!do_ascii85_read_btoa_end_line(c, d, linenum, linebuf, content_len)) {
 					goto done;
 				}
 				break;
@@ -692,6 +700,42 @@ done:
 	;
 }
 
+static void do_ascii85_standard(deark *c, lctx *d, dbuf *f, de_int64 pos)
+{
+	de_byte x;
+
+	d->cbuf_count = 0;
+
+	while(1) {
+		if(pos >= c->infile->len) break;
+		x = de_getbyte(pos++);
+		if(x=='~') {
+			break;
+		}
+		do_ascii85_data_char_raw(c, d, f, 0, x);
+	}
+
+	do_ascii85_flush(c, d, f);
+}
+
+static int ascii85_detect_fmt(deark *c)
+{
+	de_byte buf[11];
+
+	de_read(buf, 0, 11);
+
+	if(!de_memcmp(buf, "xbtoa Begin", 11)) {
+		return ASCII85_FMT_BTOA_OLD;
+	}
+	else if(!dbuf_memcmp(c->infile, 0, "xbtoa5 ", 7)) {
+		return ASCII85_FMT_BTOA_NEW;
+	}
+	else if(!dbuf_memcmp(c->infile, 0, "<~", 2)) {
+		return ASCII85_FMT_STANDARD;
+	}
+	return 0;
+}
+
 static void de_run_ascii85(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
@@ -699,23 +743,43 @@ static void de_run_ascii85(deark *c, de_module_params *mparams)
 
 	d = de_malloc(c, sizeof(lctx));
 
+	d->ascii85_fmt = ascii85_detect_fmt(c);
+	if(d->ascii85_fmt==0) {
+		// TODO: Scan the file to try to detect the format.
+		de_err(c, "Unknown Ascii85 format\n");
+		goto done;
+	}
+
 	f = dbuf_create_output_file(c, "bin", NULL);
 
-	d->ascii85_fmt = ASCII85_FMT_BTOA_OLD; // Default
-	do_ascii85_btoa(c, d, f);
+	if(d->ascii85_fmt==ASCII85_FMT_BTOA_OLD ||
+		d->ascii85_fmt==ASCII85_FMT_BTOA_NEW)
+	{
+		do_ascii85_btoa(c, d, f);
+	}
+	else if(d->ascii85_fmt==ASCII85_FMT_STANDARD) {
+		do_ascii85_standard(c, d, f, 2);
+	}
 
+done:
 	dbuf_close(f);
 	de_free(c, d);
 }
 
 static int de_identify_ascii85(deark *c)
 {
+	int fmt;
 
-	if(!dbuf_memcmp(c->infile, 0, "xbtoa Begin", 11)) {
+	fmt = ascii85_detect_fmt(c);
+
+	if(fmt==ASCII85_FMT_BTOA_OLD) {
 		return 100;
 	}
-	else if(!dbuf_memcmp(c->infile, 0, "xbtoa5 ", 7)) {
+	else if(fmt==ASCII85_FMT_BTOA_NEW) {
 		return 100;
+	}
+	else if(fmt==ASCII85_FMT_STANDARD) {
+		return 10;
 	}
 
 	return 0;
