@@ -105,3 +105,4 @@ void de_module_base16(deark *c, struct deark_module_info *mi);
 void de_module_base64(deark *c, struct deark_module_info *mi);
 void de_module_uuencode(deark *c, struct deark_module_info *mi);
 void de_module_xxencode(deark *c, struct deark_module_info *mi);
+void de_module_ascii85(deark *c, struct deark_module_info *mi);

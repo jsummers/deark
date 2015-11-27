@@ -373,6 +373,9 @@ Deark -- Information about supported formats
 
 == Transfer encoding modules ==
 
+* Ascii85 (module="ascii85") (incomplete)
+  - Supports old and new btoa formats
+
 * Base16 (module="base16" or "hex")
   - Decode "hex encoded" data.
   - Not autodetected; use "-m base16".

@@ -9,7 +9,7 @@
 
 typedef struct localctx_struct {
 	int cbuf_count;
-	de_byte cbuf[4];
+	de_byte cbuf[5];
 
 #define FMT_BASE64    1
 #define FMT_UUENCODE  2
@@ -23,6 +23,13 @@ typedef struct localctx_struct {
 	de_int64 hdr_line_len;
 	de_int64 data_startpos;
 
+#define ASCII85_FMT_BTOA_OLD  21
+#define ASCII85_FMT_BTOA_NEW  22
+	int ascii85_fmt;
+
+	de_int64 bytes_written;
+	de_int64 output_filesize;
+	int output_filesize_known;
 	de_finfo *fi;
 } lctx;
 
@@ -506,4 +513,218 @@ void de_module_xxencode(deark *c, struct deark_module_info *mi)
 	mi->desc = "XXEncode";
 	mi->run_fn = de_run_xxencode;
 	mi->identify_fn = de_identify_xxencode;
+}
+
+// **************************************************************************
+// Ascii85 / btoa
+// **************************************************************************
+
+static void do_ascii85_flush(deark *c, lctx *d, dbuf *f)
+{
+	de_int64 i;
+	de_uint32 code;
+
+	if(d->cbuf_count<1) return;
+
+	code = (de_uint32)d->cbuf[0];
+	for(i=1; i<5; i++) {
+		if(i<d->cbuf_count)
+			code = code*85 + (de_uint32)d->cbuf[i];
+		else
+			code = code*85 + 84; // (This shouldn't happen with btoa format)
+	}
+
+	// TODO: Simplify this code
+	if(d->cbuf_count>=2) {
+		dbuf_writebyte(f, (de_byte)((code>>24)&0xff));
+		d->bytes_written++;
+		if(d->output_filesize_known && d->bytes_written>=d->output_filesize) goto done;
+	}
+	if(d->cbuf_count>=3) {
+		dbuf_writebyte(f, (de_byte)((code>>16)&0xff));
+		d->bytes_written++;
+		if(d->output_filesize_known && d->bytes_written>=d->output_filesize) goto done;
+	}
+	if(d->cbuf_count>=4) {
+		dbuf_writebyte(f, (de_byte)((code>>8)&0xff));
+		d->bytes_written++;
+		if(d->output_filesize_known && d->bytes_written>=d->output_filesize) goto done;
+	}
+	if(d->cbuf_count>=5) {
+		dbuf_writebyte(f, (de_byte)(code&0xff));
+		d->bytes_written++;
+		if(d->output_filesize_known && d->bytes_written>=d->output_filesize) goto done;
+	}
+
+done:
+	d->cbuf_count = 0;
+}
+
+static void do_ascii85_data_char(deark *c, lctx *d, dbuf *f, de_int64 linenum,
+	 de_byte x)
+{
+	// Write to the output file immediately before we empty cbuf, instead of
+	// immediately after we fill it.
+	// This is necessary because (in old btoa format at least) we don't yet
+	// know the file size.
+	// Until we know that, we don't know how many bytes need to be written for
+	// the very last group.
+	if(d->cbuf_count>=5) {
+		do_ascii85_flush(c, d, f);
+	}
+
+	d->cbuf[d->cbuf_count] = x;
+	d->cbuf_count++;
+}
+
+static void do_ascii85_data_line(deark *c, lctx *d, dbuf *f, de_int64 linenum,
+	 const de_byte *linebuf, de_int64 line_len)
+{
+	de_int64 i;
+	de_int64 k;
+	de_int64 num_data_chars;
+
+	if(line_len<1) return;
+
+	if(d->ascii85_fmt==ASCII85_FMT_BTOA_NEW)
+		num_data_chars = line_len-1; // The last character is a checksum
+	else
+		num_data_chars = line_len;
+
+	for(i=0; i<num_data_chars; i++) {
+		if(linebuf[i]>='!' && linebuf[i]<='u') {
+			do_ascii85_data_char(c, d, f, linenum, linebuf[i]-33);
+		}
+		else if(linebuf[i]=='z') {
+			// 'z' represents four 0x00 bytes, which encodes to five 0 values
+			// (not including the +33 bias).
+			for(k=0; k<5; k++)
+				do_ascii85_data_char(c, d, f, linenum, 0);
+		}
+		else if(linebuf[i]=='y' && d->ascii85_fmt==ASCII85_FMT_BTOA_NEW) {
+			// This is what four spaces encodes to (not including the +33 bias).
+			do_ascii85_data_char(c, d, f, linenum, 0x0a);
+			do_ascii85_data_char(c, d, f, linenum, 0x1b);
+			do_ascii85_data_char(c, d, f, linenum, 0x35);
+			do_ascii85_data_char(c, d, f, linenum, 0x43);
+			do_ascii85_data_char(c, d, f, linenum, 0x2b);
+		}
+	}
+
+	// TODO: Verify the checksum character, if present.
+}
+
+static int do_ascii85_read_end_line(deark *c, lctx *d, de_int64 linenum,
+	const de_byte *linebuf, de_int64 line_len)
+{
+	long filesize1 = 0;
+
+	de_dbg(c, "btoa footer at line %d\n", (int)linenum);
+	if(de_sscanf((const char *)linebuf, "xbtoa End N %ld ", &filesize1) != 1) {
+		de_err(c, "Bad btoa End line\n");
+		return 0;
+	}
+
+	d->output_filesize = (de_int64)filesize1;
+	d->output_filesize_known = 1;
+	de_dbg(c, "reported file size: %d\n", (int)d->output_filesize);
+	return 1;
+}
+
+static void do_ascii85_btoa(deark *c, lctx *d, dbuf *f)
+{
+	de_int64 pos;
+	de_int64 content_len;
+	de_int64 total_len;
+	de_byte linebuf[1024];
+	de_int64 linenum;
+
+	pos = 0;
+	d->cbuf_count = 0;
+	linenum = 0;
+
+	while(1) {
+		if(!dbuf_find_line(c->infile, pos, &content_len, &total_len)) {
+			de_err(c, "Bad Ascii85 format at line %d\n", (int)linenum);
+			goto done;
+		}
+		linenum++;
+
+		if(content_len > sizeof(linebuf)-1) {
+			de_err(c, "Line %d too long\n", (int)linenum);
+			goto done;
+		}
+		de_read(linebuf, pos, content_len);
+		linebuf[content_len] = '\0'; // NUL terminate, in case we run sscanf
+		pos += total_len;
+
+		if(content_len<1) continue;
+
+		if(linebuf[0]=='x') {
+			if(content_len>=7 && !de_memcmp(linebuf, "xbtoa5 ", 7)) {
+				de_dbg(c, "btoa new format header at line %d\n", (int)linenum);
+				d->ascii85_fmt = ASCII85_FMT_BTOA_NEW;
+			}
+			else if(content_len>=11 && !de_memcmp(linebuf, "xbtoa Begin", 11)) {
+				de_dbg(c, "btoa old format header at line %d\n", (int)linenum);
+			}
+			else if(content_len>=9 && !de_memcmp(linebuf, "xbtoa End", 9)) {
+				if(!do_ascii85_read_end_line(c, d, linenum, linebuf, content_len)) {
+					goto done;
+				}
+				break;
+			}
+
+			continue;
+		}
+
+		do_ascii85_data_line(c, d, f, linenum, linebuf, content_len);
+	}
+
+	do_ascii85_flush(c, d, f);
+
+	if(d->output_filesize_known && (d->bytes_written != d->output_filesize)) {
+		de_err(c, "Expected output file size=%d, actual size=%d\n", (int)d->output_filesize,
+			(int)d->bytes_written);
+	}
+
+done:
+	;
+}
+
+static void de_run_ascii85(deark *c, de_module_params *mparams)
+{
+	lctx *d = NULL;
+	dbuf *f = NULL;
+
+	d = de_malloc(c, sizeof(lctx));
+
+	f = dbuf_create_output_file(c, "bin", NULL);
+
+	d->ascii85_fmt = ASCII85_FMT_BTOA_OLD; // Default
+	do_ascii85_btoa(c, d, f);
+
+	dbuf_close(f);
+	de_free(c, d);
+}
+
+static int de_identify_ascii85(deark *c)
+{
+
+	if(!dbuf_memcmp(c->infile, 0, "xbtoa Begin", 11)) {
+		return 100;
+	}
+	else if(!dbuf_memcmp(c->infile, 0, "xbtoa5 ", 7)) {
+		return 100;
+	}
+
+	return 0;
+}
+
+void de_module_ascii85(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "ascii85";
+	mi->desc = "Ascii85";
+	mi->run_fn = de_run_ascii85;
+	mi->identify_fn = de_identify_ascii85;
 }
