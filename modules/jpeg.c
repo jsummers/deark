@@ -278,8 +278,121 @@ static void do_sof_segment(deark *c, lctx *d, de_byte seg_type,
 		sf1 = (de_int64)(b>>4);
 		sf2 = (de_int64)(b&0x0f);
 		qtid = de_getbyte(pos+6+3*i+2);
-		de_dbg(c, "cmp #%d: id=%d sampling=%dx%d quant_table=%d\n",
+		de_dbg(c, "cmp #%d: id=%d sampling=%dx%d quant_table=Q%d\n",
 			(int)i, (int)comp_id, (int)sf1, (int)sf2, (int)qtid);
+	}
+
+done:
+	de_dbg_indent(c, -1);
+}
+
+static void do_dht_segment(deark *c, lctx *d,
+	de_int64 pos1, de_int64 data_size)
+{
+	de_int64 pos;
+	de_byte b;
+	de_byte table_class;
+	de_byte table_id;
+	de_int64 num_huff_codes;
+	de_int64 k;
+
+	de_dbg_indent(c, 1);
+
+	pos = pos1;
+
+	while(1) {
+		if(pos >= pos1+data_size) goto done;
+
+		b = de_getbyte(pos);
+		table_class = b>>4;
+		table_id = b&0x0f;
+		de_dbg(c, "table: %s%d, at %d\n", table_class==0?"DC":"AC",
+			(int)table_id, (int)pos);
+
+		num_huff_codes = 0;
+		for(k=0; k<16; k++) {
+			num_huff_codes += (de_int64)de_getbyte(pos+1+k);
+		}
+
+		pos += 1 + 16 + num_huff_codes;
+	}
+
+done:
+	de_dbg_indent(c, -1);
+}
+
+static void do_dqt_segment(deark *c, lctx *d,
+	de_int64 pos1, de_int64 data_size)
+{
+	de_int64 pos;
+	de_byte b;
+	de_byte precision_code;
+	de_byte table_id;
+	de_int64 qsize;
+	const char *s;
+
+	de_dbg_indent(c, 1);
+
+	pos = pos1;
+
+	while(1) {
+		if(pos >= pos1+data_size) goto done;
+
+		b = de_getbyte(pos);
+		precision_code = b>>4;
+		table_id = b&0x0f;
+		if(precision_code==0) {
+			s="8-bit";
+			qsize = 64;
+		}
+		else if(precision_code==1) {
+			s="16-bit";
+			qsize = 128;
+		}
+		else {
+			s="?";
+			qsize = 0;
+		}
+		de_dbg(c, "table: Q%d, at %d\n", table_id, (int)pos);
+
+		de_dbg_indent(c, 1);
+		de_dbg(c, "precision: %d (%s)\n", (int)precision_code, s);
+		de_dbg_indent(c, -1);
+
+		if(qsize==0) goto done;
+
+		pos += 1 + qsize;
+	}
+
+done:
+	de_dbg_indent(c, -1);
+}
+
+static void do_sos_segment(deark *c, lctx *d,
+	de_int64 pos, de_int64 data_size)
+{
+	de_int64 ncomp;
+	de_int64 i;
+	de_byte cs;
+	de_byte b;
+	de_byte actable, dctable;
+
+	de_dbg_indent(c, 1);
+	if(data_size<1) goto done;
+
+	ncomp = (de_int64)de_getbyte(pos);
+	de_dbg(c, "number of components in scan: %d\n", (int)ncomp);
+	if(data_size < 4 + 2*ncomp) goto done;
+
+	for(i=0; i<ncomp; i++) {
+		cs = de_getbyte(pos+1+i*2);
+		de_dbg(c, "component #%d id: %d\n", (int)i, (int)cs);
+		de_dbg_indent(c, 1);
+		b = de_getbyte(pos+1+i*2+1);
+		dctable = b>>4;
+		actable = b&0x0f;
+		de_dbg(c, "tables to use: DC%d, AC%d\n", (int)dctable, (int)actable);
+		de_dbg_indent(c, -1);
 	}
 
 done:
@@ -385,7 +498,14 @@ static void do_segment(deark *c, lctx *d, de_byte seg_type,
 		do_sof_segment(c, d, seg_type, payload_pos, payload_size);
 	}
 	else if(seg_type==0xda) {
+		do_sos_segment(c, d, payload_pos, payload_size);
 		de_dbg2(c, "(Note: Debugging output stops at the first SOS segment.)\n");
+	}
+	else if(seg_type==0xc4) {
+		do_dht_segment(c, d, payload_pos, payload_size);
+	}
+	else if(seg_type==0xdb) {
+		do_dqt_segment(c, d, payload_pos, payload_size);
 	}
 }
 
