@@ -22,6 +22,15 @@ struct ifdstack_item {
 	de_int64 offset;
 };
 
+struct taginfo {
+	int tagnum;
+	int tagtype;
+	de_int64 valcount;
+	de_int64 val_offset;
+	de_int64 unit_size;
+	de_int64 total_size;
+};
+
 typedef struct localctx_struct {
 	int is_le;
 	int is_bigtiff;
@@ -34,7 +43,11 @@ typedef struct localctx_struct {
 	de_int64 *ifdlist;
 	de_int64 ifd_count;
 
-	de_int64 fpos_size; // Number of bytes in a file offset
+	de_int64 ifdhdrsize;
+	de_int64 ifditemsize;
+	de_int64 offsetoffset;
+	de_int64 offsetsize; // Number of bytes in a file offset
+
 	de_module_params *mparams;
 } lctx;
 
@@ -188,19 +201,10 @@ static void process_ifd(deark *c, lctx *d, de_int64 ifdpos)
 {
 	int num_tags;
 	int i, j;
-	int tagnum;
-	int tagtype;
-	de_int64 valcount;
-	de_int64 val_offset;
-	de_int64 unit_size;
-	de_int64 total_size;
 	de_int64 jpegoffset = 0;
 	de_int64 jpeglength = -1;
-	de_int64 ifdhdrsize;
-	de_int64 ifditemsize;
-	de_int64 offsetoffset;
-	de_int64 offsetsize;
 	de_int64 tmpoffset;
+	struct taginfo tg;
 
 	de_dbg(c, "IFD at %d\n", (int)ifdpos);
 	de_dbg_indent(c, 1);
@@ -208,19 +212,6 @@ static void process_ifd(deark *c, lctx *d, de_int64 ifdpos)
 	if(ifdpos >= c->infile->len || ifdpos<8) {
 		de_warn(c, "Invalid IFD offset (%d)\n", (int)ifdpos);
 		goto done;
-	}
-
-	if(d->is_bigtiff) {
-		ifdhdrsize = 8;
-		ifditemsize = 20;
-		offsetoffset = 12;
-		offsetsize = 8;
-	}
-	else {
-		ifdhdrsize = 2;
-		ifditemsize = 12;
-		offsetoffset = 8;
-		offsetsize = 4;
 	}
 
 	if(d->is_bigtiff) {
@@ -237,40 +228,42 @@ static void process_ifd(deark *c, lctx *d, de_int64 ifdpos)
 	}
 
 	// Record the next IFD in the main list.
-	tmpoffset = getui32x(c->infile, ifdpos+ifdhdrsize+num_tags*ifditemsize, d->is_le);
+	tmpoffset = getui32x(c->infile, ifdpos+d->ifdhdrsize+num_tags*d->ifditemsize, d->is_le);
 	if(tmpoffset!=0) {
 		de_dbg(c, "offset of next IFD: %d\n", (int)tmpoffset);
 		push_ifd(c, d, tmpoffset);
 	}
 
 	for(i=0; i<num_tags; i++) {
-		tagnum = (int)getui16x(c->infile, ifdpos+ifdhdrsize+i*ifditemsize, d->is_le);
-		tagtype = (int)getui16x(c->infile, ifdpos+ifdhdrsize+i*ifditemsize+2, d->is_le);
-		// Not a file pos, but getfpos() does the right thing.
-		valcount = getfpos(c, d, ifdpos+ifdhdrsize+i*ifditemsize+4);
+		de_memset(&tg, 0, sizeof(struct taginfo));
 
-		unit_size = size_of_tiff_type(tagtype);
-		total_size = unit_size * valcount;
-		if(total_size <= offsetsize) {
-			val_offset = ifdpos+ifdhdrsize+i*ifditemsize+offsetoffset;
+		tg.tagnum = (int)getui16x(c->infile, ifdpos+d->ifdhdrsize+i*d->ifditemsize, d->is_le);
+		tg.tagtype = (int)getui16x(c->infile, ifdpos+d->ifdhdrsize+i*d->ifditemsize+2, d->is_le);
+		// Not a file pos, but getfpos() does the right thing.
+		tg.valcount = getfpos(c, d, ifdpos+d->ifdhdrsize+i*d->ifditemsize+4);
+
+		tg.unit_size = size_of_tiff_type(tg.tagtype);
+		tg.total_size = tg.unit_size * tg.valcount;
+		if(tg.total_size <= d->offsetsize) {
+			tg.val_offset = ifdpos+d->ifdhdrsize+i*d->ifditemsize+d->offsetoffset;
 		}
 		else {
-			val_offset = getfpos(c, d, ifdpos+ifdhdrsize+i*ifditemsize+offsetoffset);
+			tg.val_offset = getfpos(c, d, ifdpos+d->ifdhdrsize+i*d->ifditemsize+d->offsetoffset);
 		}
 
 		de_dbg2(c, "tag %d type=%d count=%d size=%d offset=%" INT64_FMT "\n",
-			tagnum, tagtype, (int)valcount, (int)total_size,
-			val_offset);
+			tg.tagnum, tg.tagtype, (int)tg.valcount, (int)tg.total_size,
+			tg.val_offset);
 		de_dbg_indent(c, 1);
 
-		switch(tagnum) {
+		switch(tg.tagnum) {
 		case 330: // SubIFD
 		case 34665: // Exif IFD
 		case 34853: // GPS IFD
 		case 40965: // Interoperability IFD
-			if(unit_size!=offsetsize) break;
-			for(j=0; j<valcount;j++) {
-				tmpoffset = getfpos(c, d, val_offset+unit_size*j);
+			if(tg.unit_size!=d->offsetsize) break;
+			for(j=0; j<tg.valcount;j++) {
+				tmpoffset = getfpos(c, d, tg.val_offset+tg.unit_size*j);
 				de_dbg2(c, "offset of sub-IFD: %d\n", (int)tmpoffset);
 				push_ifd(c, d, tmpoffset);
 			}
@@ -279,41 +272,41 @@ static void process_ifd(deark *c, lctx *d, de_int64 ifdpos)
 		case 46:
 			if(d->fmt==DE_TIFFFMT_PANASONIC) {
 				// Some Panasonic RAW files have a JPEG file in tag 46.
-				dbuf_create_file_from_slice(c->infile, val_offset, total_size, "thumb.jpg", NULL);
+				dbuf_create_file_from_slice(c->infile, tg.val_offset, tg.total_size, "thumb.jpg", NULL);
 			}
 			break;
 
 		case 513: // JPEGInterchangeFormat
-			if(unit_size!=offsetsize || valcount<1) break;
-			jpegoffset = getfpos(c, d, val_offset);
+			if(tg.unit_size!=d->offsetsize || tg.valcount<1) break;
+			jpegoffset = getfpos(c, d, tg.val_offset);
 			break;
 
 		case 514: // JPEGInterchangeFormatLength
-			if(unit_size!=offsetsize || valcount<1) break;
-			jpeglength = getfpos(c, d, val_offset);
+			if(tg.unit_size!=d->offsetsize || tg.valcount<1) break;
+			jpeglength = getfpos(c, d, tg.val_offset);
 			break;
 
 		case 700: // XMP
-			dbuf_create_file_from_slice(c->infile, val_offset, total_size, "xmp", NULL);
+			dbuf_create_file_from_slice(c->infile, tg.val_offset, tg.total_size, "xmp", NULL);
 			break;
 
 		case 33723: // IPTC
-			if(c->extract_level>=2 && total_size>0) {
-				dbuf_create_file_from_slice(c->infile, val_offset, total_size, "iptc", NULL);
+			if(c->extract_level>=2 && tg.total_size>0) {
+				dbuf_create_file_from_slice(c->infile, tg.val_offset, tg.total_size, "iptc", NULL);
 			}
 			break;
 
 		case 34310: // Leaf MOS metadata / "PKTS"
-			do_leaf_metadata(c, d, val_offset, total_size);
+			do_leaf_metadata(c, d, tg.val_offset, tg.total_size);
 			break;
 
 		case 34377: // Photoshop
-			de_dbg(c, "photoshop segment at %d datasize=%d\n", (int)val_offset, (int)total_size);
-			de_fmtutil_handle_photoshop_rsrc(c, val_offset, total_size);
+			de_dbg(c, "photoshop segment at %d datasize=%d\n", (int)tg.val_offset, (int)tg.total_size);
+			de_fmtutil_handle_photoshop_rsrc(c, tg.val_offset, tg.total_size);
 			break;
 
 		case 34675: // ICC Profile
-			dbuf_create_file_from_slice(c->infile, val_offset, total_size, "icc", NULL);
+			dbuf_create_file_from_slice(c->infile, tg.val_offset, tg.total_size, "icc", NULL);
 			break;
 		}
 
@@ -339,11 +332,9 @@ static void do_tiff(deark *c, lctx *d)
 
 	// Skip over the signature
 	if(d->is_bigtiff) {
-		d->fpos_size = 8;
 		pos += 8;
 	}
 	else {
-		d->fpos_size = 4;
 		pos += 4;
 	}
 
@@ -443,6 +434,19 @@ static void de_run_tiff(deark *c, de_module_params *mparams)
 
 	if(d->fmt==0) {
 		de_warn(c, "This is not a known/supported TIFF or TIFF-like format.\n");
+	}
+
+	if(d->is_bigtiff) {
+		d->ifdhdrsize = 8;
+		d->ifditemsize = 20;
+		d->offsetoffset = 12;
+		d->offsetsize = 8;
+	}
+	else {
+		d->ifdhdrsize = 2;
+		d->ifditemsize = 12;
+		d->offsetoffset = 8;
+		d->offsetsize = 4;
 	}
 
 	do_tiff(c, d);
