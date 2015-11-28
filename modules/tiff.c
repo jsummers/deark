@@ -200,12 +200,14 @@ static void process_ifd(deark *c, lctx *d, de_int64 ifdpos)
 	de_int64 ifditemsize;
 	de_int64 offsetoffset;
 	de_int64 offsetsize;
+	de_int64 tmpoffset;
 
-	de_dbg(c, "processing TIFF IFD at %d\n", (int)ifdpos);
+	de_dbg(c, "IFD at %d\n", (int)ifdpos);
+	de_dbg_indent(c, 1);
 
 	if(ifdpos >= c->infile->len || ifdpos<8) {
 		de_warn(c, "Invalid IFD offset (%d)\n", (int)ifdpos);
-		return;
+		goto done;
 	}
 
 	if(d->is_bigtiff) {
@@ -229,13 +231,17 @@ static void process_ifd(deark *c, lctx *d, de_int64 ifdpos)
 	}
 
 	de_dbg(c, "number of tags: %d\n", num_tags);
-	if(num_tags<1 || num_tags>200) {
+	if(num_tags>200) {
 		de_warn(c, "Invalid or excessive number of TIFF tags (%d)\n", num_tags);
-		return;
+		goto done;
 	}
 
 	// Record the next IFD in the main list.
-	push_ifd(c, d, getui32x(c->infile, ifdpos+ifdhdrsize+num_tags*ifditemsize, d->is_le));
+	tmpoffset = getui32x(c->infile, ifdpos+ifdhdrsize+num_tags*ifditemsize, d->is_le);
+	if(tmpoffset!=0) {
+		de_dbg(c, "offset of next IFD: %d\n", (int)tmpoffset);
+		push_ifd(c, d, tmpoffset);
+	}
 
 	for(i=0; i<num_tags; i++) {
 		tagnum = (int)getui16x(c->infile, ifdpos+ifdhdrsize+i*ifditemsize, d->is_le);
@@ -252,13 +258,21 @@ static void process_ifd(deark *c, lctx *d, de_int64 ifdpos)
 			val_offset = getfpos(c, d, ifdpos+ifdhdrsize+i*ifditemsize+offsetoffset);
 		}
 
+		de_dbg2(c, "tag %d type=%d count=%d size=%d offset=%" INT64_FMT "\n",
+			tagnum, tagtype, (int)valcount, (int)total_size,
+			val_offset);
+		de_dbg_indent(c, 1);
+
 		switch(tagnum) {
+		case 330: // SubIFD
 		case 34665: // Exif IFD
 		case 34853: // GPS IFD
 		case 40965: // Interoperability IFD
 			if(unit_size!=offsetsize) break;
 			for(j=0; j<valcount;j++) {
-				push_ifd(c, d, getfpos(c, d, val_offset+unit_size*j));
+				tmpoffset = getfpos(c, d, val_offset+unit_size*j);
+				de_dbg2(c, "offset of sub-IFD: %d\n", (int)tmpoffset);
+				push_ifd(c, d, tmpoffset);
 			}
 			break;
 
@@ -302,11 +316,16 @@ static void process_ifd(deark *c, lctx *d, de_int64 ifdpos)
 			dbuf_create_file_from_slice(c->infile, val_offset, total_size, "icc", NULL);
 			break;
 		}
+
+		de_dbg_indent(c, -1);
 	}
 
 	if(jpegoffset>0 && jpeglength!=0) {
 		do_oldjpeg(c, d, jpegoffset, jpeglength);
 	}
+
+done:
+	de_dbg_indent(c, -1);
 }
 
 static void do_tiff(deark *c, lctx *d)
@@ -314,18 +333,26 @@ static void do_tiff(deark *c, lctx *d)
 	de_int64 pos;
 	de_int64 ifdoffs;
 
-	// Read the first IFD offset
+	pos = 0;
+	de_dbg(c, "TIFF file header at %d\n", (int)pos);
+	de_dbg_indent(c, 1);
+
+	// Skip over the signature
 	if(d->is_bigtiff) {
 		d->fpos_size = 8;
-		pos = 8;
+		pos += 8;
 	}
 	else {
 		d->fpos_size = 4;
-		pos = 4;
+		pos += 4;
 	}
+
+	// Read the first IFD offset
 	ifdoffs = getfpos(c, d, pos);
-	de_dbg(c, "first TIFF ifd at %d\n", (int)ifdoffs);
+	de_dbg(c, "offset of first IFD: %d\n", (int)ifdoffs);
 	push_ifd(c, d, ifdoffs);
+
+	de_dbg_indent(c, -1);
 
 	// Process IFDs until we run out of them.
 	while(1) {
@@ -385,7 +412,7 @@ static void de_run_tiff(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
 
-	if(c->module_nesting_level>1) de_dbg(c, "in tiff module\n");
+	if(c->module_nesting_level>1) de_dbg2(c, "in tiff module\n");
 	d = de_malloc(c, sizeof(lctx));
 
 	d->mparams = mparams;
