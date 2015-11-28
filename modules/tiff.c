@@ -273,10 +273,32 @@ static void do_display_int_tag(deark *c, lctx *d, const struct taginfo *tg, cons
 	de_dbg2(c, "%s: %d\n", name, (int)n);
 }
 
+static void do_subifd(deark *c, lctx *d, const struct taginfo *tg)
+{
+	de_int64 j;
+	de_int64 tmpoffset;
+	const char *name;
+
+	if(tg->unit_size!=d->offsetsize) return;
+
+	switch(tg->tagnum) {
+	case 34665: name = "Exif IFD"; break;
+	case 34853: name = "GPS IFD"; break;
+	case 40965: name = "Interoperability IFD"; break;
+	default: name="sub-IFD";
+	}
+
+	for(j=0; j<tg->valcount;j++) {
+		tmpoffset = getfpos(c, d, tg->val_offset+tg->unit_size*j);
+		de_dbg2(c, "offset of %s: %d\n", name, (int)tmpoffset);
+		push_ifd(c, d, tmpoffset);
+	}
+}
+
 static void process_ifd(deark *c, lctx *d, de_int64 ifdpos)
 {
 	int num_tags;
-	int i, j;
+	int i;
 	de_int64 jpegoffset = 0;
 	de_int64 jpeglength = -1;
 	de_int64 tmpoffset;
@@ -337,12 +359,7 @@ static void process_ifd(deark *c, lctx *d, de_int64 ifdpos)
 		case 34665: // Exif IFD
 		case 34853: // GPS IFD
 		case 40965: // Interoperability IFD
-			if(tg.unit_size!=d->offsetsize) break;
-			for(j=0; j<tg.valcount;j++) {
-				tmpoffset = getfpos(c, d, tg.val_offset+tg.unit_size*j);
-				de_dbg2(c, "offset of sub-IFD: %d\n", (int)tmpoffset);
-				push_ifd(c, d, tmpoffset);
-			}
+			do_subifd(c, d, &tg);
 			break;
 
 		case 46:
