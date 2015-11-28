@@ -9,7 +9,9 @@
 
 #define MAX_IFDS 1000
 
-#define TAGTYPE_UINT32 4
+#define TAGTYPE_UINT16    3
+#define TAGTYPE_UINT32    4
+#define TAGTYPE_RATIONAL  5
 
 #define DE_TIFFFMT_TIFF       1
 #define DE_TIFFFMT_BIGTIFF    2
@@ -130,6 +132,43 @@ static int size_of_tiff_type(int tt)
 	return 0;
 }
 
+static int read_rational_as_double(deark *c, lctx *d, const struct taginfo *tg, double *n)
+{
+	de_int64 num, den;
+
+	*n = 0.0;
+	if(tg->valcount<1) return 0;
+	num = getui32x(c->infile, tg->val_offset, d->is_le);
+	den = getui32x(c->infile, tg->val_offset+4, d->is_le);
+	if(den==0) return 0;
+	*n = (double)num/(double)den;
+	return 1;
+}
+
+static int read_tag_value_as_int64(deark *c, lctx *d, const struct taginfo *tg, de_int64 *n)
+{
+	*n = 0;
+	if(tg->valcount<1) return 0;
+	if(tg->tagtype==TAGTYPE_UINT16) {
+		*n = getui16x(c->infile, tg->val_offset, d->is_le);
+		return 1;
+	}
+	else if(tg->tagtype==TAGTYPE_UINT32) {
+		*n = getui32x(c->infile, tg->val_offset, d->is_le);
+		return 1;
+	}
+	return 0;
+}
+
+static int read_tag_value_as_double(deark *c, lctx *d, const struct taginfo *tg, double *n)
+{
+	*n = 0.0;
+	if(tg->tagtype==TAGTYPE_RATIONAL) {
+		return read_rational_as_double(c, d, tg, n);
+	}
+	return 0;
+}
+
 static de_int64 getfpos(deark *c, lctx *d, de_int64 pos)
 {
 	if(d->is_bigtiff) {
@@ -195,6 +234,43 @@ static void do_leaf_metadata(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 		}
 		pos += data_len;
 	}
+}
+
+static void do_resolution(deark *c, lctx *d, const struct taginfo *tg)
+{
+	const char *name;
+	double n;
+
+	if(tg->tagnum==283) name="Y";
+	else name="X";
+
+	if(!read_tag_value_as_double(c, d, tg, &n))
+		return;
+
+	de_dbg2(c, "%sResolution: %.3f\n", name, n);
+}
+
+static void do_resolutionunit(deark *c, lctx *d, const struct taginfo *tg)
+{
+	de_int64 n;
+	const char *s;
+
+	if(!read_tag_value_as_int64(c, d, tg, &n))
+		return;
+
+	if(n==1) s="unspecified";
+	else if(n==2) s="pixels/inch";
+	else if(n==3) s="pixels/cm";
+	else s="?";
+	de_dbg2(c, "ResolutionUnit: %d (%s)\n", (int)n, s);
+}
+
+static void do_display_int_tag(deark *c, lctx *d, const struct taginfo *tg, const char *name)
+{
+	de_int64 n;
+	if(!read_tag_value_as_int64(c, d, tg, &n))
+		return;
+	de_dbg2(c, "%s: %d\n", name, (int)n);
 }
 
 static void process_ifd(deark *c, lctx *d, de_int64 ifdpos)
@@ -274,6 +350,23 @@ static void process_ifd(deark *c, lctx *d, de_int64 ifdpos)
 				// Some Panasonic RAW files have a JPEG file in tag 46.
 				dbuf_create_file_from_slice(c->infile, tg.val_offset, tg.total_size, "thumb.jpg", NULL);
 			}
+			break;
+
+		case 256:
+			do_display_int_tag(c, d, &tg, "ImageWidth");
+			break;
+
+		case 257:
+			do_display_int_tag(c, d, &tg, "ImageLength");
+			break;
+
+		case 282:
+		case 283:
+			do_resolution(c, d, &tg);
+			break;
+
+		case 296:
+			do_resolutionunit(c, d, &tg);
 			break;
 
 		case 513: // JPEGInterchangeFormat
