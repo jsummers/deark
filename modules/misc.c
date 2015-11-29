@@ -1036,3 +1036,100 @@ void de_module_iim(deark *c, struct deark_module_info *mi)
 	mi->run_fn = de_run_iim;
 	mi->identify_fn = de_identify_iim;
 }
+
+// **************************************************************************
+// PM (format supported by the XV image viewer)
+// **************************************************************************
+
+static void de_run_pm_xv(deark *c, de_module_params *mparams)
+{
+	struct deark_bitmap *img = NULL;
+	int is_le;
+	de_int64 width, height;
+	de_int64 nplanes;
+	de_int64 nbands;
+	de_int64 pixelformat;
+	de_int64 commentsize;
+	de_int64 i, j;
+	de_int64 rowspan;
+	de_int64 planespan;
+	de_int64 pos;
+	de_byte cr, cg, cb;
+
+	if(!dbuf_memcmp(c->infile, 0, "WEIV", 4))
+		is_le = 1;
+	else
+		is_le = 0;
+
+	nplanes = dbuf_geti32x(c->infile, 4, is_le);
+	de_dbg(c, "planes: %d\n", (int)nplanes);
+
+	height = dbuf_geti32x(c->infile, 8, is_le);
+	width = dbuf_geti32x(c->infile, 12, is_le);
+	de_dbg(c, "dimensions: %dx%d\n", (int)width, (int)height);
+	if(!de_good_image_dimensions(c, width, height)) goto done;
+
+	nbands = dbuf_geti32x(c->infile, 16, is_le);
+	de_dbg(c, "bands: %d\n", (int)nbands);
+
+	pixelformat = dbuf_geti32x(c->infile, 20, is_le);
+	de_dbg(c, "pixel format: 0x%04x\n", (unsigned int)pixelformat);
+
+	commentsize = dbuf_geti32x(c->infile, 24, is_le);
+	de_dbg(c, "comment size: %d\n", (int)commentsize);
+
+	pos = 28;
+
+	if((pixelformat==0x8001 && nplanes==3 && nbands==1) ||
+		(pixelformat==0x8001 && nplanes==1 && nbands==1))
+	{
+		;
+	}
+	else {
+		de_err(c, "Unsupported image type (pixel format=0x%04x, "
+			"planes=%d, bands=%d)\n", (unsigned int)pixelformat,
+			(int)nplanes, (int)nbands);
+		goto done;
+	}
+
+	rowspan = width;
+	planespan = rowspan*height;
+
+	img = de_bitmap_create(c, width, height, (int)nplanes);
+
+	for(j=0; j<height; j++) {
+		for(i=0; i<width; i++) {
+			if(nplanes==3) {
+				cr = de_getbyte(pos + 0*planespan + j*rowspan + i);
+				cg = de_getbyte(pos + 1*planespan + j*rowspan + i);
+				cb = de_getbyte(pos + 2*planespan + j*rowspan + i);
+				de_bitmap_setpixel_rgb(img, i, j, DE_MAKE_RGB(cr, cg, cb));
+			}
+			else {
+				cr = de_getbyte(pos + j*rowspan + i);
+				de_bitmap_setpixel_gray(img, i, j, cr);
+			}
+		}
+	}
+	de_bitmap_write_to_file(img, NULL);
+
+done:
+	de_bitmap_destroy(img);
+}
+
+static int de_identify_pm_xv(deark *c)
+{
+	if(!dbuf_memcmp(c->infile, 0, "VIEW", 4))
+		return 15;
+	if(!dbuf_memcmp(c->infile, 0, "WEIV", 4))
+		return 15;
+	return 0;
+}
+
+void de_module_pm_xv(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "pm_xv";
+	mi->desc = "PM (XV)";
+	mi->run_fn = de_run_pm_xv;
+	mi->identify_fn = de_identify_pm_xv;
+}

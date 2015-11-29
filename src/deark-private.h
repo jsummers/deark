@@ -284,13 +284,18 @@ de_byte dbuf_getbyte(dbuf *f, de_int64 pos);
 
 de_int64 dbuf_getui16be(dbuf *f, de_int64 pos);
 de_int64 dbuf_getui16le(dbuf *f, de_int64 pos);
+de_int64 dbuf_getui16x(dbuf *f, de_int64 pos, int is_le);
 de_int64 dbuf_geti16be(dbuf *f, de_int64 pos);
 de_int64 dbuf_geti16le(dbuf *f, de_int64 pos);
 de_int64 dbuf_getui32be(dbuf *f, de_int64 pos);
 de_int64 dbuf_getui32le(dbuf *f, de_int64 pos);
+de_int64 dbuf_getui32x(dbuf *f, de_int64 pos, int is_le);
 de_int64 dbuf_geti32be(dbuf *f, de_int64 pos);
+de_int64 dbuf_geti32le(dbuf *f, de_int64 pos);
+de_int64 dbuf_geti32x(dbuf *f, de_int64 pos, int is_le);
 de_int64 dbuf_geti64be(dbuf *f, de_int64 pos);
 de_int64 dbuf_geti64le(dbuf *f, de_int64 pos);
+de_int64 dbuf_geti64x(dbuf *f, de_int64 pos, int is_le);
 
 #define de_read(b,p,l) dbuf_read(c->infile,b,p,l);
 #define de_getbyte(p) dbuf_getbyte(c->infile,p)

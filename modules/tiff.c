@@ -53,24 +53,6 @@ typedef struct localctx_struct {
 	de_module_params *mparams;
 } lctx;
 
-static de_int64 getui16x(dbuf *f, de_int64 pos, int is_le)
-{
-	if(is_le) return dbuf_getui16le(f, pos);
-	return dbuf_getui16be(f, pos);
-}
-
-static de_int64 getui32x(dbuf *f, de_int64 pos, int is_le)
-{
-	if(is_le) return dbuf_getui32le(f, pos);
-	return dbuf_getui32be(f, pos);
-}
-
-static de_int64 geti64x(dbuf *f, de_int64 pos, int is_le)
-{
-	if(is_le) return dbuf_geti64le(f, pos);
-	return dbuf_geti64be(f, pos);
-}
-
 // Returns 0 if stack is empty.
 static de_int64 pop_ifd(deark *c, lctx *d)
 {
@@ -138,8 +120,8 @@ static int read_rational_as_double(deark *c, lctx *d, const struct taginfo *tg, 
 
 	*n = 0.0;
 	if(tg->valcount<1) return 0;
-	num = getui32x(c->infile, tg->val_offset, d->is_le);
-	den = getui32x(c->infile, tg->val_offset+4, d->is_le);
+	num = dbuf_getui32x(c->infile, tg->val_offset, d->is_le);
+	den = dbuf_getui32x(c->infile, tg->val_offset+4, d->is_le);
 	if(den==0) return 0;
 	*n = (double)num/(double)den;
 	return 1;
@@ -150,11 +132,11 @@ static int read_tag_value_as_int64(deark *c, lctx *d, const struct taginfo *tg, 
 	*n = 0;
 	if(tg->valcount<1) return 0;
 	if(tg->tagtype==TAGTYPE_UINT16) {
-		*n = getui16x(c->infile, tg->val_offset, d->is_le);
+		*n = dbuf_getui16x(c->infile, tg->val_offset, d->is_le);
 		return 1;
 	}
 	else if(tg->tagtype==TAGTYPE_UINT32) {
-		*n = getui32x(c->infile, tg->val_offset, d->is_le);
+		*n = dbuf_getui32x(c->infile, tg->val_offset, d->is_le);
 		return 1;
 	}
 	return 0;
@@ -172,9 +154,9 @@ static int read_tag_value_as_double(deark *c, lctx *d, const struct taginfo *tg,
 static de_int64 getfpos(deark *c, lctx *d, de_int64 pos)
 {
 	if(d->is_bigtiff) {
-		return geti64x(c->infile, pos, d->is_le);
+		return dbuf_geti64x(c->infile, pos, d->is_le);
 	}
-	return getui32x(c->infile, pos, d->is_le);
+	return dbuf_getui32x(c->infile, pos, d->is_le);
 }
 
 static void do_oldjpeg(deark *c, lctx *d, de_int64 jpegoffset, de_int64 jpeglength)
@@ -313,10 +295,10 @@ static void process_ifd(deark *c, lctx *d, de_int64 ifdpos)
 	}
 
 	if(d->is_bigtiff) {
-		num_tags = (int)geti64x(c->infile, ifdpos, d->is_le);
+		num_tags = (int)dbuf_geti64x(c->infile, ifdpos, d->is_le);
 	}
 	else {
-		num_tags = (int)getui16x(c->infile, ifdpos, d->is_le);
+		num_tags = (int)dbuf_getui16x(c->infile, ifdpos, d->is_le);
 	}
 
 	de_dbg(c, "number of tags: %d\n", num_tags);
@@ -326,7 +308,7 @@ static void process_ifd(deark *c, lctx *d, de_int64 ifdpos)
 	}
 
 	// Record the next IFD in the main list.
-	tmpoffset = getui32x(c->infile, ifdpos+d->ifdhdrsize+num_tags*d->ifditemsize, d->is_le);
+	tmpoffset = dbuf_getui32x(c->infile, ifdpos+d->ifdhdrsize+num_tags*d->ifditemsize, d->is_le);
 	if(tmpoffset!=0) {
 		de_dbg(c, "offset of next IFD: %d\n", (int)tmpoffset);
 		push_ifd(c, d, tmpoffset);
@@ -335,8 +317,8 @@ static void process_ifd(deark *c, lctx *d, de_int64 ifdpos)
 	for(i=0; i<num_tags; i++) {
 		de_memset(&tg, 0, sizeof(struct taginfo));
 
-		tg.tagnum = (int)getui16x(c->infile, ifdpos+d->ifdhdrsize+i*d->ifditemsize, d->is_le);
-		tg.tagtype = (int)getui16x(c->infile, ifdpos+d->ifdhdrsize+i*d->ifditemsize+2, d->is_le);
+		tg.tagnum = (int)dbuf_getui16x(c->infile, ifdpos+d->ifdhdrsize+i*d->ifditemsize, d->is_le);
+		tg.tagtype = (int)dbuf_getui16x(c->infile, ifdpos+d->ifdhdrsize+i*d->ifditemsize+2, d->is_le);
 		// Not a file pos, but getfpos() does the right thing.
 		tg.valcount = getfpos(c, d, ifdpos+d->ifdhdrsize+i*d->ifditemsize+4);
 

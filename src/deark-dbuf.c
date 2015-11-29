@@ -216,6 +216,13 @@ de_int64 dbuf_geti32be(dbuf *f, de_int64 pos)
 	return (de_int64)(de_int32)(de_uint32)n;
 }
 
+de_int64 dbuf_geti32le(dbuf *f, de_int64 pos)
+{
+	de_int64 n;
+	n = dbuf_getui32le(f, pos);
+	return (de_int64)(de_int32)(de_uint32)n;
+}
+
 de_int64 de_geti64be_direct(const de_byte *m)
 {
 	return ((de_int64)m[7]) | (((de_int64)m[6])<<8) | (((de_int64)m[5])<<16) | (((de_int64)m[4])<<24) |
@@ -240,6 +247,30 @@ de_int64 dbuf_geti64le(dbuf *f, de_int64 pos)
 	de_byte m[8];
 	dbuf_read(f, m, pos, 8);
 	return de_geti64le_direct(m);
+}
+
+de_int64 dbuf_getui16x(dbuf *f, de_int64 pos, int is_le)
+{
+	if(is_le) return dbuf_getui16le(f, pos);
+	return dbuf_getui16be(f, pos);
+}
+
+de_int64 dbuf_getui32x(dbuf *f, de_int64 pos, int is_le)
+{
+	if(is_le) return dbuf_getui32le(f, pos);
+	return dbuf_getui32be(f, pos);
+}
+
+de_int64 dbuf_geti32x(dbuf *f, de_int64 pos, int is_le)
+{
+	if(is_le) return dbuf_geti32le(f, pos);
+	return dbuf_geti32be(f, pos);
+}
+
+de_int64 dbuf_geti64x(dbuf *f, de_int64 pos, int is_le)
+{
+	if(is_le) return dbuf_geti64le(f, pos);
+	return dbuf_geti64be(f, pos);
 }
 
 de_uint32 dbuf_getRGB(dbuf *f, de_int64 pos, unsigned int flags)
