@@ -549,8 +549,6 @@ static int do_emf_record(deark *c, lctx *d, de_int64 recnum, de_int64 recpos,
 	return rectype==0x0e ? 0 : 1; // 0x0e = EOF record
 }
 
-// TODO: Although EMF files can be parsed, there is not yet the capability
-// to extract anything from them.
 static void do_emf_record_list(deark *c, lctx *d)
 {
 	de_int64 pos = 0;
