@@ -280,6 +280,7 @@ de_int64 de_geti64be_direct(const de_byte *m);
 de_int64 de_geti64le_direct(const de_byte *m);
 
 void dbuf_read(dbuf *f, de_byte *buf, de_int64 pos, de_int64 len);
+de_int64 dbuf_standard_read(dbuf *f, de_byte *buf, de_int64 n, de_int64 *fpos);
 de_byte dbuf_getbyte(dbuf *f, de_int64 pos);
 
 de_int64 dbuf_getui16be(dbuf *f, de_int64 pos);

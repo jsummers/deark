@@ -360,6 +360,8 @@ Deark -- Information about supported formats
 * BinHex (.hqx) (module="binhex")
   - Extract data and resource forks to separate files.
 
+* compress (legacy Unix .Z format)
+
 * RPM (package manager) (module="rpm)
   - Extract compressed cpio file.
 

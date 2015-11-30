@@ -431,6 +431,10 @@
 				>
 			</File>
 			<File
+				RelativePath="..\..\foreign\liblzw.h"
+				>
+			</File>
+			<File
 				RelativePath="..\..\foreign\miniz.h"
 				>
 			</File>
@@ -499,6 +503,10 @@
 			</File>
 			<File
 				RelativePath="..\..\modules\cardfile.c"
+				>
+			</File>
+			<File
+				RelativePath="..\..\modules\compress.c"
 				>
 			</File>
 			<File

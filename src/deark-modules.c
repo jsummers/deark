@@ -71,6 +71,7 @@ void de_register_modules(deark *c)
 		de_module_tim,
 		de_module_bsave,
 		de_module_zip,
+		de_module_compress,
 		de_module_ansiart,
 		de_module_xpuzzle,
 		de_module_grob,

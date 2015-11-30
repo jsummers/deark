@@ -121,6 +121,22 @@ done_read:
 	}
 }
 
+// A function that works a little more like a standard read/fread function than
+// does dbuf_read. It returns the number of bytes read, won't read past end of
+// file, and helps track the file position.
+de_int64 dbuf_standard_read(dbuf *f, de_byte *buf, de_int64 n, de_int64 *fpos)
+{
+	de_int64 amt_to_read;
+
+	if(*fpos < 0 || *fpos >= f->len) return 0;
+
+	amt_to_read = n;
+	if(*fpos + amt_to_read > f->len) amt_to_read = f->len - *fpos;
+	dbuf_read(f, buf, *fpos, amt_to_read);
+	*fpos += amt_to_read;
+	return amt_to_read;
+}
+
 de_byte dbuf_getbyte(dbuf *f, de_int64 pos)
 {
 	switch(f->btype) {
