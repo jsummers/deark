@@ -6,7 +6,7 @@
 #include "deark-config.h"
 
 #define MINIZ_NO_ZLIB_COMPATIBLE_NAMES
-#include "miniz.h"
+#include "../foreign/miniz.h"
 
 #include "deark-private.h"
 

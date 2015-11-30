@@ -39,7 +39,7 @@ $(OBJDIR)/modules/fmtutil.o $(OBJDIR)/modules/exe.o \
  $(OBJDIR)/modules/ansiart.o $(OBJDIR)/modules/xbin.o \
  $(OBJDIR)/modules/misc.o: modules/fmtutil.h
 
-$(OBJDIR)/src/deark-miniz.o: src/miniz.h
+$(OBJDIR)/src/deark-miniz.o: foreign/miniz.h
 $(OFILES_MODS) $(OBJDIR)/src/deark-modules.o: src/deark-modules.h
 $(OFILES_LIB) $(OFILES_MODS) $(OFILES_MODUTILS): src/deark-private.h
 $(OFILES_ALL): src/deark-config.h src/deark.h

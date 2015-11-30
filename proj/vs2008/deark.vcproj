@@ -431,7 +431,7 @@
 				>
 			</File>
 			<File
-				RelativePath="..\..\src\miniz.h"
+				RelativePath="..\..\foreign\miniz.h"
 				>
 			</File>
 		</Filter>
