@@ -8,6 +8,13 @@
 #include "deark-config.h"
 #include "deark-private.h"
 
+struct screen_stats {
+	de_uint32 fgcol_count[16];
+	de_uint32 bgcol_count[16];
+	de_byte most_used_fgcol;
+	de_byte most_used_bgcol;
+};
+
 struct charextractx {
 	de_byte vga_9col_mode; // Flag: Render an extra column, like VGA does
 	de_byte used_underline;
@@ -19,6 +26,8 @@ struct charextractx {
 
 	de_int64 char_width_in_pixels;
 	de_int64 char_height_in_pixels;
+
+	struct screen_stats *scrstats; // pointer to array of struct screen_stats
 };
 
 // Frees a charctx struct that has been allocated in a particular way.
@@ -49,11 +58,16 @@ void de_free_charctx(deark *c, struct de_char_context *charctx)
 }
 
 static void do_prescan_screen(deark *c, struct de_char_context *charctx,
-	struct charextractx *ectx, struct de_char_screen *screen)
+	struct charextractx *ectx, de_int64 screen_idx)
 {
 	const struct de_char_cell *cell;
 	int i, j;
 	de_byte cell_fgcol_actual;
+	struct de_char_screen *screen;
+	de_uint32 highest_fgcol_count;
+	de_uint32 highest_bgcol_count;
+
+	screen = charctx->screens[screen_idx];
 
 	for(j=0; j<screen->height; j++) {
 		for(i=0; i<screen->width; i++) {
@@ -64,28 +78,124 @@ static void do_prescan_screen(deark *c, struct de_char_context *charctx,
 			cell_fgcol_actual = cell->fgcol;
 			if(cell->bold) cell_fgcol_actual |= 0x08;
 
-			if(cell->fgcol<16) ectx->used_fgcol[(unsigned int)cell_fgcol_actual] = 1;
-			if(cell->bgcol<16) ectx->used_bgcol[(unsigned int)cell->bgcol] = 1;
+			if(cell->fgcol<16) {
+				ectx->used_fgcol[(unsigned int)cell_fgcol_actual] = 1;
+				ectx->scrstats[screen_idx].fgcol_count[(unsigned int)cell_fgcol_actual]++;
+			}
+			if(cell->bgcol<16) {
+				ectx->used_bgcol[(unsigned int)cell->bgcol] = 1;
+				ectx->scrstats[screen_idx].bgcol_count[(unsigned int)cell->bgcol]++;
+			}
 			if(cell->underline) ectx->used_underline = 1;
 			if(cell->blink) ectx->used_blink = 1;
 		}
 	}
+
+	// Find the most-used foreground and background colors
+	highest_fgcol_count = ectx->scrstats[screen_idx].fgcol_count[0];
+	highest_bgcol_count = ectx->scrstats[screen_idx].bgcol_count[0];
+	ectx->scrstats->most_used_fgcol = 0;
+	ectx->scrstats->most_used_bgcol = 0;
+
+	for(i=1; i<16; i++) {
+		if(ectx->scrstats[screen_idx].fgcol_count[i] > highest_fgcol_count) {
+			highest_fgcol_count = ectx->scrstats[screen_idx].fgcol_count[i];
+			ectx->scrstats->most_used_fgcol = (de_byte)i;
+		}
+		if(ectx->scrstats[screen_idx].bgcol_count[i] > highest_bgcol_count) {
+			highest_bgcol_count = ectx->scrstats[screen_idx].bgcol_count[i];
+			ectx->scrstats->most_used_bgcol = (de_byte)i;
+		}
+	}
+}
+
+struct span_info {
+	de_byte fgcol, bgcol;
+	de_byte underline;
+	de_byte blink;
+	de_byte is_suppressed;
+};
+
+// This may modify sp->is_suppressed.
+static void span_open(deark *c, dbuf *ofile, struct span_info *sp,
+	const struct screen_stats *scrstats)
+{
+	int need_fgcol, need_bgcol;
+	int need_underline, need_blink;
+	int attrcount = 0;
+
+	need_fgcol = !scrstats || sp->fgcol!=scrstats->most_used_fgcol;
+	need_bgcol = !scrstats || sp->bgcol!=scrstats->most_used_bgcol;
+	need_underline = (sp->underline!=0);
+	need_blink = (sp->blink!=0);
+
+	if(!need_fgcol && !need_bgcol && !need_underline && !need_blink) {
+		sp->is_suppressed = 1;
+		return;
+	}
+
+	sp->is_suppressed = 0;
+
+	dbuf_fputs(ofile, "<span class=\"");
+
+	// Classes for foreground and background colors
+
+	if(need_fgcol) {
+		dbuf_fprintf(ofile, "f%c", de_get_hexchar(sp->fgcol));
+		attrcount++;
+	}
+
+	if(need_bgcol) {
+		if(attrcount) dbuf_fputs(ofile, " ");
+		dbuf_fprintf(ofile, "b%c", de_get_hexchar(sp->bgcol));
+		attrcount++;
+	}
+
+	// Other attributes
+
+	if(sp->underline) {
+		if(attrcount) dbuf_fputs(ofile, " ");
+		dbuf_fputs(ofile, "u");
+		attrcount++;
+	}
+	if(sp->blink) {
+		if(attrcount) dbuf_fputs(ofile, " ");
+		dbuf_fputs(ofile, "blink");
+		attrcount++;
+	}
+
+	dbuf_fputs(ofile, "\">");
+	return;
+}
+
+static void span_close(deark *c, dbuf *ofile, struct span_info *sp)
+{
+	if(sp->is_suppressed) return;
+	dbuf_fprintf(ofile, "</span>");
 }
 
 static void do_output_html_screen(deark *c, struct de_char_context *charctx,
-	struct charextractx *ectx, struct de_char_screen *screen, dbuf *ofile)
+	struct charextractx *ectx, de_int64 screen_idx, dbuf *ofile)
 {
 	const struct de_char_cell *cell;
 	struct de_char_cell blank_cell;
+	struct de_char_screen *screen;
 	int i, j;
 	de_int32 n;
-	int span_count = 0;
+	int in_span = 0;
 	int need_newline = 0;
 	de_byte active_fgcol = 0;
 	de_byte active_bgcol = 0;
 	de_byte active_underline = 0;
 	de_byte active_blink = 0;
 	de_byte cell_fgcol_actual;
+	struct span_info default_span;
+	struct span_info cur_span;
+
+	de_memset(&default_span, 0, sizeof(struct span_info));
+	de_memset(&cur_span, 0, sizeof(struct span_info));
+
+	screen = charctx->screens[screen_idx];
 
 	// In case a cell is missing, we'll use this one:
 	de_memset(&blank_cell, 0, sizeof(struct de_char_cell));
@@ -94,6 +204,12 @@ static void do_output_html_screen(deark *c, struct de_char_context *charctx,
 
 	dbuf_fputs(ofile, "<table style=\"margin-left:auto;margin-right:auto\"><tr>\n<td>");
 	dbuf_fputs(ofile, "<pre>");
+
+	// Containing <span> with default colors.
+	default_span.fgcol = ectx->scrstats[screen_idx].most_used_fgcol;
+	default_span.bgcol = ectx->scrstats[screen_idx].most_used_bgcol;
+	span_open(c, ofile, &default_span, NULL);
+
 	for(j=0; j<screen->height; j++) {
 		for(i=0; i<screen->width; i++) {
 			if(!screen->cell_rows || !screen->cell_rows[j]) {
@@ -107,12 +223,12 @@ static void do_output_html_screen(deark *c, struct de_char_context *charctx,
 			cell_fgcol_actual = cell->fgcol;
 			if(cell->bold) cell_fgcol_actual |= 0x08;
 
-			if(span_count==0 || cell_fgcol_actual!=active_fgcol || cell->bgcol!=active_bgcol ||
+			if(in_span==0 || cell_fgcol_actual!=active_fgcol || cell->bgcol!=active_bgcol ||
 				cell->underline!=active_underline || cell->blink!=active_blink)
 			{
-				while(span_count>0) {
-					dbuf_fprintf(ofile, "</span>");
-					span_count--;
+				while(in_span) {
+					span_close(c, ofile, &cur_span);
+					in_span=0;
 				}
 
 				if(need_newline) {
@@ -120,19 +236,13 @@ static void do_output_html_screen(deark *c, struct de_char_context *charctx,
 					need_newline = 0;
 				}
 
-				dbuf_fputs(ofile, "<span class=\"");
+				cur_span.fgcol = cell_fgcol_actual;
+				cur_span.bgcol = cell->bgcol;
+				cur_span.underline = cell->underline;
+				cur_span.blink = cell->blink;
+				span_open(c, ofile, &cur_span, &ectx->scrstats[screen_idx]);
 
-				// Classes for foreground and background colors
-				dbuf_fprintf(ofile, "f%c", de_get_hexchar(cell_fgcol_actual));
-				dbuf_fprintf(ofile, " b%c", de_get_hexchar(cell->bgcol));
-
-				// Other attributes
-				if(cell->underline) dbuf_fputs(ofile, " u");
-				if(cell->blink) dbuf_fputs(ofile, " blink");
-
-				dbuf_fputs(ofile, "\">");
-
-				span_count++;
+				in_span=1;
 				active_fgcol = cell_fgcol_actual;
 				active_bgcol = cell->bgcol;
 				active_underline = cell->underline;
@@ -156,10 +266,12 @@ static void do_output_html_screen(deark *c, struct de_char_context *charctx,
 		need_newline = 1;
 	}
 
-	while(span_count>0) {
-		dbuf_fprintf(ofile, "</span>");
-		span_count--;
+	if(in_span) {
+		span_close(c, ofile, &cur_span);
 	}
+
+	// Close containing <span>
+	span_close(c, ofile, &default_span);
 
 	dbuf_fputs(ofile, "</pre>");
 	dbuf_fputs(ofile, "</td>\n</tr></table>\n");
@@ -300,7 +412,7 @@ static void de_char_output_to_html_file(deark *c, struct de_char_context *charct
 
 	do_output_html_header(c, charctx, ectx, ofile);
 	for(i=0; i<charctx->nscreens; i++) {
-		do_output_html_screen(c, charctx, ectx, charctx->screens[i], ofile);
+		do_output_html_screen(c, charctx, ectx, i, ofile);
 	}
 	do_output_html_footer(c, charctx, ectx, ofile);
 
@@ -484,8 +596,10 @@ void de_char_output_to_file(deark *c, struct de_char_context *charctx)
 		}
 	}
 
+	ectx->scrstats = de_malloc(c, charctx->nscreens * sizeof(struct screen_stats));
+
 	for(i=0; i<charctx->nscreens; i++) {
-		do_prescan_screen(c, charctx, ectx, charctx->screens[i]);
+		do_prescan_screen(c, charctx, ectx, i);
 	}
 
 	switch(outfmt) {
@@ -496,5 +610,8 @@ void de_char_output_to_file(deark *c, struct de_char_context *charctx)
 		de_char_output_to_html_file(c, charctx, ectx);
 	}
 
+	if(ectx) {
+		de_free(c, ectx->scrstats);
+	}
 	de_free(c, ectx);
 }
