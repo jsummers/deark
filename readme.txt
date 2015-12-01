@@ -1,7 +1,7 @@
 === Deark ===
 
-Deark is a command-line utility (written in C) that can decode certain types
-of files, and either:
+Deark is a command-line utility that can decode certain types of files, and
+either:
  1) convert them to a more-modern or more-readable format, or
  2) extract embedded files from them
 
@@ -143,15 +143,18 @@ Future versions might have more of the following features:
 
 === How to build ===
 
-On a Unix-like system, typing "make" from a shell prompt will (hopefully) be
-sufficient. Deark has no dependencies, other than the standard C libraries.
+Deark is written in C. On a Unix-like system, typing "make" from a shell prompt
+will (hopefully) be sufficient. Deark has no dependencies, other than the
+standard C libraries.
 
 For Microsoft Windows, the project files in proj/vs2008 should work for Visual
 Studio 2008 and later. Alternatively, you can use Cygwin.
 
 === Acknowledgements ===
 
-My thanks to Rich Geldreich for the "miniz" library.
+Thanks to Rich Geldreich for the miniz library.
+
+Thanks to Mike Frysinger, and the authors of compress/ncompress, for liblzw.
 
 === Authors ===
 
