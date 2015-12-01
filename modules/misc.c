@@ -1051,10 +1051,11 @@ static void de_run_pm_xv(deark *c, de_module_params *mparams)
 	de_int64 pixelformat;
 	de_int64 commentsize;
 	de_int64 i, j;
+	de_int64 plane;
 	de_int64 rowspan;
 	de_int64 planespan;
 	de_int64 pos;
-	de_byte cr, cg, cb;
+	de_byte b;
 
 	if(!dbuf_memcmp(c->infile, 0, "WEIV", 4))
 		is_le = 1;
@@ -1097,17 +1098,16 @@ static void de_run_pm_xv(deark *c, de_module_params *mparams)
 
 	img = de_bitmap_create(c, width, height, (int)nplanes);
 
-	for(j=0; j<height; j++) {
-		for(i=0; i<width; i++) {
-			if(nplanes==3) {
-				cr = de_getbyte(pos + 0*planespan + j*rowspan + i);
-				cg = de_getbyte(pos + 1*planespan + j*rowspan + i);
-				cb = de_getbyte(pos + 2*planespan + j*rowspan + i);
-				de_bitmap_setpixel_rgb(img, i, j, DE_MAKE_RGB(cr, cg, cb));
-			}
-			else {
-				cr = de_getbyte(pos + j*rowspan + i);
-				de_bitmap_setpixel_gray(img, i, j, cr);
+	for(plane=0; plane<nplanes; plane++) {
+		for(j=0; j<height; j++) {
+			for(i=0; i<width; i++) {
+				b = de_getbyte(pos + plane*planespan + j*rowspan + i);
+				if(nplanes==3) {
+					de_bitmap_setsample(img, i, j, plane, b);
+				}
+				else {
+					de_bitmap_setpixel_gray(img, i, j, b);
+				}
 			}
 		}
 	}

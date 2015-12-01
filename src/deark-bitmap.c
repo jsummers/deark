@@ -89,6 +89,42 @@ void de_bitmap_write_to_file_finfo(struct deark_bitmap *img, de_finfo *fi)
 	de_bitmap_write_to_file(img, token);
 }
 
+// samplenum 0=Red, 1=Green, 2=Blue, 3=Alpha
+void de_bitmap_setsample(struct deark_bitmap *img, de_int64 x, de_int64 y,
+	de_int64 samplenum, de_byte v)
+{
+	de_int64 pos;
+
+	if(!img->bitmap) de_bitmap_alloc_pixels(img);
+	if(x<0 || y<0 || x>=img->width || y>=img->height) return;
+	if(samplenum<0 || samplenum>3) return;
+	pos = (img->width*img->bytes_per_pixel)*y + img->bytes_per_pixel*x;
+
+	switch(img->bytes_per_pixel) {
+	case 1: // gray
+		if(samplenum<3) {
+			img->bitmap[pos] = v;
+		}
+		break;
+	case 2: // gray+alpha
+		if(samplenum==3) {
+			img->bitmap[pos+1] = v;
+		}
+		else {
+			img->bitmap[pos] = v;
+		}
+		break;
+	case 3: // RGB
+		if(samplenum<3) {
+			img->bitmap[pos+samplenum] = v;
+		}
+		break;
+	case 4: // RGBA
+		img->bitmap[pos+samplenum] = v;
+		break;
+	}
+}
+
 void de_bitmap_setpixel_gray(struct deark_bitmap *img, de_int64 x, de_int64 y, de_byte v)
 {
 	de_int64 pos;

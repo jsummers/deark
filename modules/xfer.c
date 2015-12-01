@@ -658,7 +658,7 @@ static void do_ascii85_btoa(deark *c, lctx *d, dbuf *f)
 		}
 		linenum++;
 
-		if(content_len > sizeof(linebuf)-1) {
+		if(content_len > (de_int64)(sizeof(linebuf)-1)) {
 			de_err(c, "Line %d too long\n", (int)linenum);
 			goto done;
 		}
