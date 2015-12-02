@@ -195,6 +195,7 @@ static void do_output_html_screen(deark *c, struct de_char_context *charctx,
 	de_byte active_underline = 0;
 	de_byte active_blink = 0;
 	de_byte cell_fgcol_actual;
+	int is_blank_char;
 	struct span_info default_span;
 	struct span_info cur_span;
 
@@ -229,7 +230,17 @@ static void do_output_html_screen(deark *c, struct de_char_context *charctx,
 			cell_fgcol_actual = cell->fgcol;
 			if(cell->bold) cell_fgcol_actual |= 0x08;
 
-			if(in_span==0 || cell_fgcol_actual!=active_fgcol || cell->bgcol!=active_bgcol ||
+			n = cell->codepoint_unicode;
+			if(n==0x00) n=0x20;
+			if(n<0x20) n='?';
+			is_blank_char = (n==0x20 || n==0xa0);
+
+			// Optimization: If this is a blank character, ignore a foreground color
+			// mismatch, because it won't be visible anyway. (Many other similar
+			// optimizations are also possible, but that could get very complex.)
+			if(in_span==0 ||
+				(cell_fgcol_actual!=active_fgcol && !is_blank_char) ||
+				cell->bgcol!=active_bgcol ||
 				cell->underline!=active_underline || cell->blink!=active_blink)
 			{
 				if(in_span) {
@@ -254,10 +265,6 @@ static void do_output_html_screen(deark *c, struct de_char_context *charctx,
 				active_underline = cell->underline;
 				active_blink = cell->blink;
 			}
-
-			n = cell->codepoint_unicode;
-			if(n==0x00) n=0x20;
-			if(n<0x20) n='?';
 
 			if(need_newline) {
 				dbuf_fputs(ofile, "\n");
