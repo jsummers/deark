@@ -122,49 +122,55 @@ static void span_open(deark *c, dbuf *ofile, struct span_info *sp,
 {
 	int need_fgcol, need_bgcol;
 	int need_underline, need_blink;
-	int attrcount = 0;
+	int attrindex = 0;
+	int attrcount;
 
 	need_fgcol = !scrstats || sp->fgcol!=scrstats->most_used_fgcol;
 	need_bgcol = !scrstats || sp->bgcol!=scrstats->most_used_bgcol;
 	need_underline = (sp->underline!=0);
 	need_blink = (sp->blink!=0);
 
-	if(!need_fgcol && !need_bgcol && !need_underline && !need_blink) {
+	attrcount = need_fgcol + need_bgcol + need_underline + need_blink;
+	if(attrcount==0) {
 		sp->is_suppressed = 1;
 		return;
 	}
 
 	sp->is_suppressed = 0;
 
-	dbuf_fputs(ofile, "<span class=\"");
+	dbuf_fputs(ofile, "<span class=");
+	if(attrcount>1) // Don't need quotes if there's only one attribute
+		dbuf_fputs(ofile, "\"");
 
 	// Classes for foreground and background colors
 
 	if(need_fgcol) {
 		dbuf_fprintf(ofile, "f%c", de_get_hexchar(sp->fgcol));
-		attrcount++;
+		attrindex++;
 	}
 
 	if(need_bgcol) {
-		if(attrcount) dbuf_fputs(ofile, " ");
+		if(attrindex) dbuf_fputs(ofile, " ");
 		dbuf_fprintf(ofile, "b%c", de_get_hexchar(sp->bgcol));
-		attrcount++;
+		attrindex++;
 	}
 
 	// Other attributes
 
 	if(sp->underline) {
-		if(attrcount) dbuf_fputs(ofile, " ");
+		if(attrindex) dbuf_fputs(ofile, " ");
 		dbuf_fputs(ofile, "u");
-		attrcount++;
+		attrindex++;
 	}
 	if(sp->blink) {
-		if(attrcount) dbuf_fputs(ofile, " ");
+		if(attrindex) dbuf_fputs(ofile, " ");
 		dbuf_fputs(ofile, "blink");
-		attrcount++;
+		attrindex++;
 	}
 
-	dbuf_fputs(ofile, "\">");
+	if(attrcount>1)
+		dbuf_fputs(ofile, "\"");
+	dbuf_fputs(ofile, ">");
 	return;
 }
 
@@ -226,7 +232,7 @@ static void do_output_html_screen(deark *c, struct de_char_context *charctx,
 			if(in_span==0 || cell_fgcol_actual!=active_fgcol || cell->bgcol!=active_bgcol ||
 				cell->underline!=active_underline || cell->blink!=active_blink)
 			{
-				while(in_span) {
+				if(in_span) {
 					span_close(c, ofile, &cur_span);
 					in_span=0;
 				}
