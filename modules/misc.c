@@ -1133,3 +1133,83 @@ void de_module_pm_xv(deark *c, struct deark_module_info *mi)
 	mi->run_fn = de_run_pm_xv;
 	mi->identify_fn = de_identify_pm_xv;
 }
+
+// **************************************************************************
+// Calamus Raster Graphic - CRG
+// **************************************************************************
+
+// Warning: The CRG decoder is based on reverse engineering, may not be
+// correct, and is definitely incomplete.
+
+static void de_run_crg(deark *c, de_module_params *mparams)
+{
+	de_int64 width, height;
+	de_int64 rowspan;
+	de_int64 pos;
+	de_byte b1, b2;
+	de_int64 count;
+	de_int64 cmpr_img_start;
+	de_int64 num_cmpr_bytes;
+	dbuf *unc_pixels = NULL;
+
+	width = de_getui32be(20);
+	height = de_getui32be(24);
+	de_dbg(c, "dimensions: %dx%d\n", (int)width, (int)height);
+	if(!de_good_image_dimensions(c, width, height)) goto done;
+
+	b1 = de_getbyte(32);
+	if(b1!=0x01) {
+		de_err(c, "Unsupported CRG format\n");
+		goto done;
+	}
+
+	num_cmpr_bytes = de_getui32be(38);
+	de_dbg(c, "compressed data size: %d\n", (int)num_cmpr_bytes);
+	cmpr_img_start = 42;
+
+	if(cmpr_img_start + num_cmpr_bytes > c->infile->len) {
+		num_cmpr_bytes = c->infile->len - cmpr_img_start;
+	}
+
+	// Uncompress the image
+	rowspan = (width+7)/8;
+	unc_pixels = dbuf_create_membuf(c, height*rowspan);
+	dbuf_set_max_length(unc_pixels, height*rowspan);
+
+	pos = cmpr_img_start;
+	while(pos < cmpr_img_start + num_cmpr_bytes) {
+		b1 = de_getbyte(pos++);
+		if(b1<=0x7f) { // Uncompressed bytes
+			count = 1+(de_int64)b1;
+			dbuf_copy(c->infile, pos, count, unc_pixels);
+			pos += count;
+		}
+		else { // A compressed run
+			b2 = de_getbyte(pos++);
+			count = (de_int64)(b1-127);
+			dbuf_write_run(unc_pixels, b2, count);
+		}
+	}
+	de_dbg(c, "decompressed to %d bytes\n", (int)unc_pixels->len);
+
+	de_convert_and_write_image_bilevel(unc_pixels, 0, width, height, rowspan,
+		DE_CVTF_WHITEISZERO, NULL);
+
+done:
+	dbuf_close(unc_pixels);
+}
+
+static int de_identify_crg(deark *c)
+{
+	if(!dbuf_memcmp(c->infile, 0, "CALAMUSCRG", 10))
+		return 100;
+	return 0;
+}
+
+void de_module_crg(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "crg";
+	mi->desc = "Calamus Raster Graphic";
+	mi->run_fn = de_run_crg;
+	mi->identify_fn = de_identify_crg;
+}
