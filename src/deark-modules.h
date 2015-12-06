@@ -109,3 +109,4 @@ void de_module_ascii85(deark *c, struct deark_module_info *mi);
 void de_module_pm_xv(deark *c, struct deark_module_info *mi);
 void de_module_compress(deark *c, struct deark_module_info *mi);
 void de_module_crg(deark *c, struct deark_module_info *mi);
+void de_module_gemmeta(deark *c, struct deark_module_info *mi);

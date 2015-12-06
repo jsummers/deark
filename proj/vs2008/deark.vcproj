@@ -534,6 +534,10 @@
 				>
 			</File>
 			<File
+				RelativePath="..\..\modules\gemmeta.c"
+				>
+			</File>
+			<File
 				RelativePath="..\..\modules\gemras.c"
 				>
 			</File>
