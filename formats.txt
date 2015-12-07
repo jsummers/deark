@@ -143,6 +143,8 @@ Deark -- Information about supported formats
   - Extract various things from Exif data.
   - Extract various things from "Photoshop resources"
   - Extract Exif data (use -extractall)
+  - Extract comments (use -extractall). Comment bytes are extracted as-is,
+     because there is no way to determine the character encoding.
 
 * JPEG 2000 (module="jpeg2000")
   - Extract JPEG 2000 codestream from JP2/JPX/JPM formats.

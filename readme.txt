@@ -24,7 +24,7 @@ Command-line options:
      module such as "copy".
   -l
      Don't extract, but list the files that would be extracted.
-  -a
+  -a, -extractall
      Also extract data that's usually useless.
      Note that, as a general rule, deark doesn't extract the same data twice.
      The -a option can *prevent* it from extracting certain data, because it

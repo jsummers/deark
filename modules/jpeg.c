@@ -368,6 +368,13 @@ done:
 	de_dbg_indent(c, -1);
 }
 
+static void do_com_segment(deark *c, lctx *d,
+	de_int64 pos, de_int64 data_size)
+{
+	if(c->extract_level<2) return;
+	dbuf_create_file_from_slice(c->infile, pos, data_size, "comment.txt", NULL);
+}
+
 static void do_sos_segment(deark *c, lctx *d,
 	de_int64 pos, de_int64 data_size)
 {
@@ -482,9 +489,9 @@ static void do_segment(deark *c, lctx *d, de_byte seg_type,
 	de_int64 payload_pos, de_int64 payload_size)
 {
 
-	if(c->debug_level<1 && !(mi->flags & FLAG_IS_APP)) {
-		// Currently, we don't extract anything from any non-APP
-		// segments, so we can skip them if we don't want debug output.
+	if(c->debug_level<1 && !(mi->flags & FLAG_IS_APP) && seg_type!=0xfe) {
+		// Currently, we don't extract anything from segments other than
+		// APP and COM, so we can skip them if we don't want debug output.
 		return;
 	}
 
@@ -506,6 +513,9 @@ static void do_segment(deark *c, lctx *d, de_byte seg_type,
 	}
 	else if(seg_type==0xdb) {
 		do_dqt_segment(c, d, payload_pos, payload_size);
+	}
+	else if(seg_type==0xfe) {
+		do_com_segment(c, d, payload_pos, payload_size);
 	}
 }
 
