@@ -1,7 +1,8 @@
 // This file is part of Deark, by Jason Summers.
 // This software is in the public domain. See the file COPYING for details.
 
-// Extract various things from JPEG files.
+// Extract various things from JPEG & JPEG-LS files.
+// Extract comments from J2C files.
 // Extract embedded JPEG files from arbitrary files.
 
 #include <deark-config.h>
@@ -12,6 +13,7 @@ typedef struct localctx_struct {
 	dbuf *iccprofile_file;
 	dbuf *hdr_residual_file;
 	int is_jpegls;
+	int is_j2c;
 } lctx;
 
 static void do_icc_profile_segment(deark *c, lctx *d, de_int64 pos, de_int64 data_size)
@@ -375,6 +377,61 @@ static void do_com_segment(deark *c, lctx *d,
 	dbuf_create_file_from_slice(c->infile, pos, data_size, "comment.txt", NULL);
 }
 
+static void do_write_latin1_buffer_to_file(deark *c, lctx *d,
+	const de_byte *buf, de_int64 buf_len)
+{
+	dbuf *f = NULL;
+	de_int64 i;
+
+	f = dbuf_create_output_file(c, "comment.txt", NULL);
+
+	if(de_is_ascii(buf, buf_len)) {
+		dbuf_write(f, buf, buf_len);
+		goto done;
+	}
+
+	if(c->write_bom) {
+		dbuf_write_uchar_as_utf8(f, 0xfeff);
+	}
+
+	for(i=0; i<buf_len; i++) {
+		dbuf_write_uchar_as_utf8(f, (de_int32)buf[i]);
+	}
+
+done:
+	dbuf_close(f);
+}
+
+static void do_cme_segment(deark *c, lctx *d, de_int64 pos, de_int64 data_size)
+{
+	de_int64 reg_val;
+	de_byte *buf = NULL;
+	de_int64 comment_pos;
+	de_int64 comment_size;
+
+	de_dbg_indent(c, 1);
+	if(data_size<2) goto done;
+
+	reg_val = de_getui16be(pos);
+	de_dbg(c, "CME type: %d\n", (int)reg_val);
+
+	if(c->extract_level<2) goto done;
+	comment_pos = pos+2;
+	comment_size = data_size-2;
+	if(comment_size<1) goto done;
+
+	if(reg_val==1) {
+		// Latin-1 text
+		buf = de_malloc(c, comment_size);
+		de_read(buf, comment_pos, comment_size);
+		do_write_latin1_buffer_to_file(c, d, buf, comment_size);
+	}
+
+done:
+	de_free(c, buf);
+	de_dbg_indent(c, -1);
+}
+
 static void do_sos_segment(deark *c, lctx *d,
 	de_int64 pos, de_int64 data_size)
 {
@@ -422,13 +479,50 @@ static int get_marker_info(deark *c, lctx *d, de_byte seg_type,
 
 	de_memset(mi, 0, sizeof(struct marker_info));
 
+	// TODO: Figure out exactly which J2C markers have parameters.
 	switch(seg_type) {
 	case 0x01: name = "TEM"; mi->flags |= FLAG_NO_DATA; break;
+	case 0x4f:
+		if(d->is_j2c) {
+			name = "SOC"; mi->flags |= FLAG_NO_DATA; break;
+		}
+		break;
+	case 0x51: name = "SIZ"; break;
+	case 0x52: name = "COD"; break;
+	case 0x53: name = "COC"; break;
+	case 0x55: name = "TLM"; break;
+	case 0x57: name = "PLM"; break;
+	case 0x58: name = "PLT"; break;
+	case 0x5c: name = "QCD"; break;
+	case 0x5d: name = "QCC"; break;
+	case 0x5e: name = "RGN"; break;
+	case 0x5f: name = "POD"; break;
+	case 0x60: name = "PPM"; break;
+	case 0x61: name = "PPT"; break;
+	case 0x64: name = "CME"; break;
+	case 0x90: name = "SOT"; break;
+	case 0x91: name = "SOP"; break;
+	case 0x92:
+		if(d->is_j2c) {
+			name = "EPH";
+			mi->flags |= FLAG_NO_DATA;
+		}
+		break;
+	case 0x93:
+		if(d->is_j2c) {
+			name = "SOD";
+			mi->flags |= FLAG_NO_DATA;
+		}
+		break;
 	case 0xc4: name = "DHT"; break;
 	case 0xc8: name = "JPG"; mi->flags |= FLAG_IS_SOF; break;
 	case 0xcc: name = "DAC"; break;
 	case 0xd8: name = "SOI"; mi->flags |= FLAG_NO_DATA; break;
-	case 0xd9: name = "EOI"; mi->flags |= FLAG_NO_DATA; break;
+	case 0xd9:
+		if(d->is_j2c) name = "EOC";
+		else name = "EOI";
+		mi->flags |= FLAG_NO_DATA;
+		break;
 	case 0xda: name = "SOS"; break;
 	case 0xdb: name = "DQT"; break;
 	case 0xdc: name = "DNL"; break;
@@ -446,6 +540,10 @@ static int get_marker_info(deark *c, lctx *d, de_byte seg_type,
 		}
 		break;
 	case 0xfe: name = "COM"; break;
+	}
+
+	if(d->is_j2c && (seg_type>=0x30 && seg_type<=0x3f)) {
+		mi->flags |= FLAG_NO_DATA;
 	}
 
 	if(name) {
@@ -488,13 +586,6 @@ static void do_segment(deark *c, lctx *d, de_byte seg_type,
 	const struct marker_info *mi,
 	de_int64 payload_pos, de_int64 payload_size)
 {
-
-	if(c->debug_level<1 && !(mi->flags & FLAG_IS_APP) && seg_type!=0xfe) {
-		// Currently, we don't extract anything from segments other than
-		// APP and COM, so we can skip them if we don't want debug output.
-		return;
-	}
-
 	de_dbg(c, "segment %s (0x%02x) at %d, data_len=%d\n",
 		mi->name, (unsigned int)seg_type, (int)(payload_pos-4), (int)payload_size);
 
@@ -517,19 +608,19 @@ static void do_segment(deark *c, lctx *d, de_byte seg_type,
 	else if(seg_type==0xfe) {
 		do_com_segment(c, d, payload_pos, payload_size);
 	}
+	else if(seg_type==0x64 && d->is_j2c) {
+		do_cme_segment(c, d, payload_pos, payload_size);
+	}
 }
 
-static void de_run_jpeg(deark *c, de_module_params *mparams)
+static void do_jpeg_internal(deark *c, lctx *d)
 {
 	de_byte b;
 	de_int64 pos;
 	de_int64 seg_size;
 	de_byte seg_type;
-	lctx *d = NULL;
 	int found_marker;
 	struct marker_info mi;
-
-	d = de_malloc(c, sizeof(lctx));
 
 	pos = 0;
 	found_marker = 0;
@@ -566,6 +657,12 @@ static void de_run_jpeg(deark *c, de_module_params *mparams)
 				break;
 			}
 
+			if(d->is_j2c && seg_type==0x93) {
+				// SOD (JPEG 2000 marker sort of like SOS)
+				de_dbg2(c, "(Note: Debugging output stops at the first SOD segment.)\n");
+				break;
+			}
+
 			continue;
 		}
 
@@ -577,7 +674,7 @@ static void de_run_jpeg(deark *c, de_module_params *mparams)
 
 		pos += seg_size;
 
-		if(seg_type==0xda) {
+		if(seg_type==0xda || (seg_type==0x93 && d->is_j2c)) {
 			// Stop if we read an SOS marker.
 			// TODO: Some files contain multiple JPEG images. To support them,
 			// we can't just quit here.
@@ -590,6 +687,14 @@ static void de_run_jpeg(deark *c, de_module_params *mparams)
 	dbuf_close(d->iccprofile_file);
 	dbuf_close(d->hdr_residual_file);
 
+}
+
+static void de_run_jpeg(deark *c, de_module_params *mparams)
+{
+	lctx *d = NULL;
+
+	d = de_malloc(c, sizeof(lctx));
+	do_jpeg_internal(c, d);
 	de_free(c, d);
 }
 
@@ -726,4 +831,34 @@ void de_module_jpegscan(deark *c, struct deark_module_info *mi)
 	mi->desc = "Extract embedded JPEG images from arbitrary files";
 	mi->run_fn = de_run_jpegscan;
 	mi->identify_fn = de_identify_none;
+}
+
+//////////// JPEG 2000 codestream ////////////
+//
+// This is in jpeg.c, not jpeg2000.c, because (for our purposes) the format is
+// very much like JPEG.
+
+static void de_run_j2c(deark *c, de_module_params *mparams)
+{
+	lctx *d = NULL;
+
+	d = de_malloc(c, sizeof(lctx));
+	d->is_j2c = 1;
+	do_jpeg_internal(c, d);
+	de_free(c, d);
+}
+
+static int de_identify_j2c(deark *c)
+{
+	if(!dbuf_memcmp(c->infile, 0, "\xff\x4f\xff\x51", 4))
+		return 100;
+	return 0;
+}
+
+void de_module_j2c(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "j2c";
+	mi->desc = "JPEG 2000 codestream";
+	mi->run_fn = de_run_j2c;
+	mi->identify_fn = de_identify_j2c;
 }
