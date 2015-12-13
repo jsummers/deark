@@ -842,22 +842,44 @@ static void do_png_iccp(deark *c, de_int64 pos, de_int64 len)
 	de_finfo_destroy(c, fi);
 }
 
+#define PNGID_IDAT 0x49444154
+#define PNGID_iCCP 0x69434350
+
 static void de_run_png(deark *c, de_module_params *mparams)
 {
 	de_int64 pos;
 	de_int64 chunk_data_len;
 	de_int64 chunk_id;
+	de_int64 prev_chunk_id = 0;
+	int suppress_idat_dbg = 0;
+	de_byte buf[4];
+	char chunk_id_printable[8];
 
 	pos = 8;
 	while(pos < c->infile->len) {
 		chunk_data_len = de_getui32be(pos);
 		if(pos + 8 + chunk_data_len + 4 > c->infile->len) break;
-		chunk_id = de_getui32be(pos+4);
-		if(chunk_id==0x69434350) { // iCCP
-			de_dbg(c, "iCCP chunk at %d\n", (int)pos);
+		de_read(buf, pos+4, 4);
+		de_make_printable_ascii(buf, 4, chunk_id_printable, sizeof(chunk_id_printable), 0);
+		chunk_id = de_getui32be_direct(buf);
+
+		if(chunk_id==PNGID_IDAT && suppress_idat_dbg) {
+			;
+		}
+		else if(chunk_id==PNGID_IDAT && prev_chunk_id==PNGID_IDAT && c->debug_level<2) {
+			de_dbg(c, "(more IDAT chunks follow)\n");
+			suppress_idat_dbg = 1;
+		}
+		else {
+			de_dbg(c, "'%s' chunk at %d\n", chunk_id_printable, (int)pos);
+			if(chunk_id!=PNGID_IDAT) suppress_idat_dbg = 0;
+		}
+
+		if(chunk_id==PNGID_iCCP) { // iCCP
 			do_png_iccp(c, pos+8, chunk_data_len);
 		}
 		pos += 8 + chunk_data_len + 4;
+		prev_chunk_id = chunk_id;
 	}
 }
 
