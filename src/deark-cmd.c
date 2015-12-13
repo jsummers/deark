@@ -188,7 +188,11 @@ static void parse_cmdline(deark *c, struct cmdctx *cc, int argc, char **argv)
 
 	for(i=1;i<argc;i++) {
 		if(argv[i][0]=='-') {
-			opt = opt_string_to_opt_struct(argv[i]+1);
+			if(argv[i][1]=='-') // Allow a superfluous second '-'
+				opt = opt_string_to_opt_struct(argv[i]+2);
+			else
+				opt = opt_string_to_opt_struct(argv[i]+1);
+
 			if(!opt) {
 				de_printf(c, DE_MSGTYPE_MESSAGE, "Unrecognized option: %s\n", argv[i]);
 				cc->error_flag = 1;
