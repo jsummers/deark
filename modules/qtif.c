@@ -32,7 +32,11 @@ static double read_fixed(dbuf *f, de_int64 pos)
 
 static int do_read_idsc(deark *c, lctx *d, de_int64 pos, de_int64 len)
 {
-	if(len<8) return 0;
+	int retval = 0;
+
+	de_dbg_indent(c, 1);
+
+	if(len<8) goto done;
 
 	d->idsc_found = 1;
 
@@ -44,8 +48,8 @@ static int do_read_idsc(deark *c, lctx *d, de_int64 pos, de_int64 len)
 		sizeof(d->cmpr_type_printable), 0);
 	de_dbg(c, "compression type: \"%s\"\n", d->cmpr_type_printable);
 
-	if(len<86) return 0;
-	if(d->idsc_size<86) return 0;
+	if(len<86) goto done;
+	if(d->idsc_size<86) goto done;
 
 	d->width = de_getui16be(pos+32);
 	d->height = de_getui16be(pos+34);
@@ -59,7 +63,10 @@ static int do_read_idsc(deark *c, lctx *d, de_int64 pos, de_int64 len)
 	d->palette_id = de_getui16be(pos+84);
 	de_dbg(c, "dimensions: %dx%d, bitdepth: %d, palette: %d\n", (int)d->width,
 		(int)d->height, (int)d->bitdepth, (int)d->palette_id);
-	return 1;
+	retval = 1;
+done:
+	de_dbg_indent(c, -1);
+	return retval;
 }
 
 static int do_atom(deark *c, lctx *d, de_int64 pos, de_int64 len, int level,
@@ -97,6 +104,11 @@ static int do_atom(deark *c, lctx *d, de_int64 pos, de_int64 len, int level,
 		de_make_printable_ascii(atomtype, 4, atomtype_printable, sizeof(atomtype_printable), 0);
 		de_dbg(c, "atom '%s' at %d, size=%d\n", atomtype_printable,
 			(int)pos, (int)payload_size);
+	}
+
+	if(pos+header_size+payload_size > c->infile->len) {
+		de_err(c, "Unexpected end of file\n");
+		return 0;
 	}
 
 	if(!de_memcmp(atomtype, "idat", 4)) {
@@ -176,21 +188,34 @@ done:
 
 static void do_write_image(deark *c, lctx *d)
 {
+	de_int64 dsize;
+
 	if(!d->idsc_found) {
 		de_err(c, "Missing idsc atom\n");
+		return;
 	}
-	else if(!de_memcmp(d->cmpr_type, "raw ", 4)) {
+
+	dsize = (d->idat_data_size>0) ? d->idat_data_size : d->idat_size;
+	if(dsize<=0) return;
+
+	if(!de_memcmp(d->cmpr_type, "raw ", 4)) {
 		do_decode_raw(c, d);
 	}
 	else if(!de_memcmp(d->cmpr_type, "jpeg", 4)) {
-		dbuf_create_file_from_slice(c->infile, d->idat_pos,
-			(d->idat_data_size>0) ? d->idat_data_size : d->idat_size,
-			"jpg", NULL);
+		dbuf_create_file_from_slice(c->infile, d->idat_pos, dsize, "jpg", NULL);
 	}
-	//else if(!de_memcmp(d->cmpr_type, "tiff", 4)) {
-	// The "tiff" compression type is apparently not exactly an embedded TIFF
-	// file, and I don't know how to extract it.
-	//}
+	else if(!de_memcmp(d->cmpr_type, "tiff", 4)) {
+		dbuf_create_file_from_slice(c->infile, d->idat_pos, dsize, "tif", NULL);
+	}
+	else if(!de_memcmp(d->cmpr_type, "gif ", 4)) {
+		dbuf_create_file_from_slice(c->infile, d->idat_pos, dsize, "gif", NULL);
+	}
+	else if(!de_memcmp(d->cmpr_type, "png ", 4)) {
+		dbuf_create_file_from_slice(c->infile, d->idat_pos, dsize, "png", NULL);
+	}
+	else if(!de_memcmp(d->cmpr_type, "kpcd", 4)) { // Kodak Photo CD
+		dbuf_create_file_from_slice(c->infile, d->idat_pos, dsize, "pcd", NULL);
+	}
 	else {
 		de_err(c, "Unsupported compression type: \"%s\"\n", d->cmpr_type_printable);
 	}
@@ -207,6 +232,9 @@ static void do_qtif_file_format(deark *c, lctx *d)
 
 static void do_raw_idsc_data(deark *c, lctx *d)
 {
+	// do_read_idsc() expects sort of header line to have been printed, so:
+	de_dbg(c, "QuickTime 'idsc' data\n");
+
 	if(!do_read_idsc(c, d, 0, c->infile->len)) {
 		return;
 	}

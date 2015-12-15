@@ -278,7 +278,7 @@ Deark -- Information about supported formats
 
 * QTIF (QuickTime image) (module="qtif")
   - Partial support.
-  - Extract embedded JPEG file.
+  - Extract embedded JPEG, TIFF, and other image files.
   - Decode some "raw" (uncompressed) images.
 
 * RIPscrip icon (.ICN) (module="ripicon") (experimental)
