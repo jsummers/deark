@@ -18,7 +18,8 @@ struct de_boxesctx {
 	de_handle_box_fn handle_box_fn;
 
 	// Per-box info supplied to handle_box_fn:
-	de_byte boxtype[4];
+	int level;
+	de_uint32 boxtype;
 	int is_uuid;
 	de_byte uuid[16]; // Valid only if is_uuid is set.
 	de_int64 box_pos;
@@ -52,12 +53,14 @@ static int do_box(deark *c, struct de_boxesctx *bctx, de_int64 pos, de_int64 len
 	de_int64 size32, size64;
 	de_int64 header_len;
 	de_int64 payload_len;
+	de_byte boxtype_buf[4];
 	char boxtype_printable[16];
 	char uuid_string[50];
 
 	bctx->is_uuid = 0;
 	size32 = de_getui32be(pos);
-	de_read(bctx->boxtype, pos+4, 4);
+	de_read(boxtype_buf, pos+4, 4);
+	bctx->boxtype = (de_uint32)de_getui32be_direct(boxtype_buf);
 
 	if(size32>=8) {
 		header_len = 8;
@@ -78,13 +81,15 @@ static int do_box(deark *c, struct de_boxesctx *bctx, de_int64 pos, de_int64 len
 		return 0;
 	}
 
-	if(payload_len>=16 && !de_memcmp(bctx->boxtype, "uuid", 4)) {
+#define DE_BOX_uuid 0x75756964U
+
+	if(bctx->boxtype==DE_BOX_uuid && payload_len>=16) {
 		bctx->is_uuid = 1;
 		de_read(bctx->uuid, pos+header_len, 16);
 	}
 
 	if(c->debug_level>0) {
-		de_make_printable_ascii(bctx->boxtype, 4, boxtype_printable, sizeof(boxtype_printable), 0);
+		de_make_printable_ascii(boxtype_buf, 4, boxtype_printable, sizeof(boxtype_printable), 0);
 		if(bctx->is_uuid) {
 			render_uuid(c, bctx->uuid, uuid_string, sizeof(uuid_string));
 			de_dbg(c, "box '%s'{%s} at %d, size=%d\n",
@@ -97,6 +102,7 @@ static int do_box(deark *c, struct de_boxesctx *bctx, de_int64 pos, de_int64 len
 		}
 	}
 
+	bctx->level = level;
 	bctx->is_superbox = 0; // Default value. Client can change it.
 	bctx->box_pos = pos;
 	bctx->box_len = header_len + payload_len;
@@ -147,13 +153,32 @@ static void de_read_boxes_format(deark *c, struct de_boxesctx *bctx)
 	do_box_sequence(c, bctx, 0, bctx->f->len, 0);
 }
 
+
+#define BOX_jp2c 0x6a703263U
+#define BOX_xml  0x786d6c20U
+// Superboxes:
+#define BOX_jp2h 0x6a703268U // JP2
+#define BOX_res  0x72657320U
+#define BOX_uinf 0x75696e66U
+#define BOX_jpch 0x6a706368U // JPX
+#define BOX_jplh 0x6a706c68U
+#define BOX_cgrp 0x63677270U
+#define BOX_ftbl 0x6674626cU
+#define BOX_comp 0x636f6d70U
+#define BOX_asoc 0x61736f63U
+#define BOX_drep 0x64726570U
+#define BOX_page 0x70616765U // JPM
+#define BOX_lobj 0x6c6f626aU
+#define BOX_objc 0x6f626a63U
+#define BOX_sdat 0x73646174U
+
 static int my_box_handler(deark *c, struct de_boxesctx *bctx)
 {
-	static const char *superboxes[] = {
-		"jp2h", "res ", "uinf", // JP2
-		"jpch", "jplh", "cgrp", "ftbl", "comp", "asoc", "drep", // JPX
-		"page", "lobj", "objc", "sdat", // JPM
-		NULL };
+	static const de_uint32 superboxes[] = {
+		BOX_jp2h, BOX_res , BOX_uinf, BOX_jpch, BOX_jplh, BOX_cgrp,
+		BOX_ftbl, BOX_comp, BOX_asoc, BOX_drep, BOX_page, BOX_lobj,
+		BOX_objc, BOX_sdat,
+		0 };
 	int i;
 
 	if(bctx->is_uuid) {
@@ -174,10 +199,10 @@ static int my_box_handler(deark *c, struct de_boxesctx *bctx)
 			de_fmtutil_handle_exif(c, bctx->payload_pos, bctx->payload_len);
 		}
 	}
-	else if(!de_memcmp(bctx->boxtype, "jp2c", 4)) { // Contiguous Codestream box
+	else if(bctx->boxtype==BOX_jp2c) { // Contiguous Codestream box
 		dbuf_create_file_from_slice(bctx->f, bctx->payload_pos, bctx->payload_len, "j2c", NULL);
 	}
-	else if(!de_memcmp(bctx->boxtype, "xml ", 4)) { // XML box
+	else if(bctx->boxtype==BOX_xml) {
 		// TODO: Detect the specific XML format, and use it to choose a better
 		// filename.
 		dbuf_create_file_from_slice(bctx->f, bctx->payload_pos, bctx->payload_len, "xml", NULL);
@@ -186,7 +211,7 @@ static int my_box_handler(deark *c, struct de_boxesctx *bctx)
 		// Check if this box type is known to contain other boxes that we might
 		// want to recurse into.
 		for(i=0; superboxes[i]; i++) {
-			if(!de_memcmp(bctx->boxtype, superboxes[i], 4)) {
+			if(bctx->boxtype == superboxes[i]) {
 				bctx->is_superbox = 1;
 				break;
 			}
