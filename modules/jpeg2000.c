@@ -39,29 +39,16 @@ static int my_box_handler(deark *c, struct de_boxesctx *bctx)
 	int i;
 
 	if(bctx->is_uuid) {
-		if(!de_memcmp(bctx->uuid, "\xb1\x4b\xf8\xbd\x08\x3d\x4b\x43\xa5\xae\x8c\xd7\xd5\xa6\xce\x03", 16)) {
-			de_dbg(c, "GeoTIFF data at %d, size=%d\n", (int)bctx->payload_pos, (int)bctx->payload_len);
-			dbuf_create_file_from_slice(bctx->f, bctx->payload_pos, bctx->payload_len, "geo.tif", NULL);
-		}
-		else if(!de_memcmp(bctx->uuid, "\xbe\x7a\xcf\xcb\x97\xa9\x42\xe8\x9c\x71\x99\x94\x91\xe3\xaf\xac", 16)) {
-			de_dbg(c, "XMP data at %d, size=%d\n", (int)bctx->payload_pos, (int)bctx->payload_len);
-			dbuf_create_file_from_slice(bctx->f, bctx->payload_pos, bctx->payload_len, "xmp", NULL);
-		}
-		else if(!de_memcmp(bctx->uuid, "\x2c\x4c\x01\x00\x85\x04\x40\xb9\xa0\x3e\x56\x21\x48\xd6\xdf\xeb", 16)) {
-			de_dbg(c, "Photoshop resources at %d, size=%d\n", (int)bctx->payload_pos, (int)bctx->payload_len);
-			de_fmtutil_handle_photoshop_rsrc(c, bctx->payload_pos, bctx->payload_len);
-		}
-		else if(!de_memcmp(bctx->uuid, "\x05\x37\xcd\xab\x9d\x0c\x44\x31\xa7\x2a\xfa\x56\x1f\x2a\x11\x3e", 16)) {
-			de_dbg(c, "Exif data at %d, size=%d\n", (int)bctx->payload_pos, (int)bctx->payload_len);
-			de_fmtutil_handle_exif(c, bctx->payload_pos, bctx->payload_len);
-		}
+		return de_fmtutil_default_box_handler(c, bctx);
 	}
 	else if(bctx->boxtype==BOX_jp2c) { // Contiguous Codestream box
+		de_dbg(c, "JPEG 2000 codestream at %d, size=%d\n", (int)bctx->payload_pos, (int)bctx->payload_len);
 		dbuf_create_file_from_slice(bctx->f, bctx->payload_pos, bctx->payload_len, "j2c", NULL);
 	}
 	else if(bctx->boxtype==BOX_xml) {
 		// TODO: Detect the specific XML format, and use it to choose a better
 		// filename.
+		de_dbg(c, "XML data at %d, size=%d\n", (int)bctx->payload_pos, (int)bctx->payload_len);
 		dbuf_create_file_from_slice(bctx->f, bctx->payload_pos, bctx->payload_len, "xml", NULL);
 	}
 	else {
@@ -90,7 +77,7 @@ static void de_run_jpeg2000(deark *c, de_module_params *mparams)
 	bctx->f = c->infile;
 	bctx->handle_box_fn = my_box_handler;
 
-	de_read_boxes_format(c, bctx);
+	de_fmtutil_read_boxes_format(c, bctx);
 
 	de_free(c, bctx);
 	de_free(c, d);

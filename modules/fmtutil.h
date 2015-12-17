@@ -82,7 +82,9 @@ struct de_boxesctx {
 	de_int64 payload_len;
 
 	// To be filled in by handle_box_fn:
+	int handled;
 	int is_superbox;
 };
 
-void de_read_boxes_format(deark *c, struct de_boxesctx *bctx);
+int de_fmtutil_default_box_handler(deark *c, struct de_boxesctx *bctx);
+void de_fmtutil_read_boxes_format(deark *c, struct de_boxesctx *bctx);

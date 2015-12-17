@@ -332,6 +332,7 @@ void de_free_SAUCE(deark *c, struct de_SAUCE_info *si)
 	de_free(c, si);
 }
 
+// Helper functions for the "boxes" (or "atoms") format used by MP4, JPEG 2000, etc.
 
 static void do_box_sequence(deark *c, struct de_boxesctx *bctx,
 	de_int64 pos1, de_int64 len, int level);
@@ -344,15 +345,19 @@ static void render_uuid(deark *c, const de_byte *uuid, char *s, size_t s_len)
 		uuid[8], uuid[9], uuid[10], uuid[11], uuid[12], uuid[13], uuid[14], uuid[15]);
 }
 
+#define DE_BOX_uuid 0x75756964U
+
 static int do_box(deark *c, struct de_boxesctx *bctx, de_int64 pos, de_int64 len,
 	int level, de_int64 *pbytes_consumed)
 {
 	de_int64 size32, size64;
-	de_int64 header_len;
-	de_int64 payload_len;
+	de_int64 header_len; // Not including UUIDs
+	de_int64 payload_len; // Including UUIDs
+	de_int64 total_len;
 	de_byte boxtype_buf[4];
 	char boxtype_printable[16];
 	char uuid_string[50];
+	int ret;
 
 	bctx->is_uuid = 0;
 	size32 = de_getui32be(pos);
@@ -374,11 +379,11 @@ static int do_box(deark *c, struct de_boxesctx *bctx, de_int64 pos, de_int64 len
 		payload_len = size64-16;
 	}
 	else {
-		// Invalid or unsupported format.
+		de_err(c, "Invalid or unsupported box format\n");
 		return 0;
 	}
 
-#define DE_BOX_uuid 0x75756964U
+	total_len = header_len + payload_len;
 
 	if(bctx->boxtype==DE_BOX_uuid && payload_len>=16) {
 		bctx->is_uuid = 1;
@@ -391,27 +396,29 @@ static int do_box(deark *c, struct de_boxesctx *bctx, de_int64 pos, de_int64 len
 			render_uuid(c, bctx->uuid, uuid_string, sizeof(uuid_string));
 			de_dbg(c, "box '%s'{%s} at %d, size=%d\n",
 				boxtype_printable, uuid_string,
-				(int)pos, (int)payload_len);
+				(int)pos, (int)total_len);
 		}
 		else {
 			de_dbg(c, "box '%s' at %d, size=%d\n", boxtype_printable,
-				(int)pos, (int)payload_len);
+				(int)pos, (int)total_len);
 		}
 	}
 
 	bctx->level = level;
 	bctx->is_superbox = 0; // Default value. Client can change it.
 	bctx->box_pos = pos;
-	bctx->box_len = header_len + payload_len;
+	bctx->box_len = total_len;
 	bctx->payload_pos = pos+header_len;
 	bctx->payload_len = payload_len;
 	if(bctx->is_uuid) {
 		bctx->payload_pos += 16;
 		bctx->payload_len -= 16;
 	}
-	if(!bctx->handle_box_fn(c, bctx)) {
-		return 0;
-	}
+
+	de_dbg_indent(c, 1);
+	ret = bctx->handle_box_fn(c, bctx);
+	de_dbg_indent(c, -1);
+	if(!ret) return 0;
 
 	if(bctx->is_superbox) {
 		de_dbg_indent(c, 1);
@@ -419,7 +426,7 @@ static int do_box(deark *c, struct de_boxesctx *bctx, de_int64 pos, de_int64 len
 		de_dbg_indent(c, -1);
 	}
 
-	*pbytes_consumed = header_len + payload_len;
+	*pbytes_consumed = total_len;
 	return 1;
 }
 
@@ -445,7 +452,33 @@ static void do_box_sequence(deark *c, struct de_boxesctx *bctx,
 	}
 }
 
-void de_read_boxes_format(deark *c, struct de_boxesctx *bctx)
+// Handle some box types that might be common to multiple formats.
+// This function should be called as needed by the client's box handler function.
+int de_fmtutil_default_box_handler(deark *c, struct de_boxesctx *bctx)
 {
+	if(bctx->is_uuid) {
+		if(!de_memcmp(bctx->uuid, "\xb1\x4b\xf8\xbd\x08\x3d\x4b\x43\xa5\xae\x8c\xd7\xd5\xa6\xce\x03", 16)) {
+			de_dbg(c, "GeoTIFF data at %d, size=%d\n", (int)bctx->payload_pos, (int)bctx->payload_len);
+			dbuf_create_file_from_slice(bctx->f, bctx->payload_pos, bctx->payload_len, "geo.tif", NULL);
+		}
+		else if(!de_memcmp(bctx->uuid, "\xbe\x7a\xcf\xcb\x97\xa9\x42\xe8\x9c\x71\x99\x94\x91\xe3\xaf\xac", 16)) {
+			de_dbg(c, "XMP data at %d, size=%d\n", (int)bctx->payload_pos, (int)bctx->payload_len);
+			dbuf_create_file_from_slice(bctx->f, bctx->payload_pos, bctx->payload_len, "xmp", NULL);
+		}
+		else if(!de_memcmp(bctx->uuid, "\x2c\x4c\x01\x00\x85\x04\x40\xb9\xa0\x3e\x56\x21\x48\xd6\xdf\xeb", 16)) {
+			de_dbg(c, "Photoshop resources at %d, size=%d\n", (int)bctx->payload_pos, (int)bctx->payload_len);
+			de_fmtutil_handle_photoshop_rsrc(c, bctx->payload_pos, bctx->payload_len);
+		}
+		else if(!de_memcmp(bctx->uuid, "\x05\x37\xcd\xab\x9d\x0c\x44\x31\xa7\x2a\xfa\x56\x1f\x2a\x11\x3e", 16)) {
+			de_dbg(c, "Exif data at %d, size=%d\n", (int)bctx->payload_pos, (int)bctx->payload_len);
+			de_fmtutil_handle_exif(c, bctx->payload_pos, bctx->payload_len);
+		}
+	}
+	return 1;
+}
+
+void de_fmtutil_read_boxes_format(deark *c, struct de_boxesctx *bctx)
+{
+	if(!bctx->f || !bctx->handle_box_fn) return; // Internal error
 	do_box_sequence(c, bctx, 0, bctx->f->len, 0);
 }
