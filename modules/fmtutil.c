@@ -394,14 +394,21 @@ static int do_box(deark *c, struct de_boxesctx *bctx, de_int64 pos, de_int64 len
 		de_make_printable_ascii(boxtype_buf, 4, boxtype_printable, sizeof(boxtype_printable), 0);
 		if(bctx->is_uuid) {
 			render_uuid(c, bctx->uuid, uuid_string, sizeof(uuid_string));
-			de_dbg(c, "box '%s'{%s} at %d, size=%d\n",
+			de_dbg(c, "box '%s'{%s} at %d, size=%" INT64_FMT "\n",
 				boxtype_printable, uuid_string,
-				(int)pos, (int)total_len);
+				(int)pos, total_len);
 		}
 		else {
-			de_dbg(c, "box '%s' at %d, size=%d\n", boxtype_printable,
-				(int)pos, (int)total_len);
+			de_dbg(c, "box '%s' at %d, size=%" INT64_FMT "\n", boxtype_printable,
+				(int)pos, total_len);
 		}
+	}
+
+	if(pos + total_len > bctx->f->len) {
+		de_err(c, "Unexpected end of file (box at %d ends at %" INT64_FMT ", "
+			"file ends at %" INT64_FMT ")\n",
+			(int)pos, pos+total_len, bctx->f->len);
+		return 0;
 	}
 
 	bctx->level = level;

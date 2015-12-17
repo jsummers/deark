@@ -5,6 +5,7 @@
 
 #include <deark-config.h>
 #include <deark-modules.h>
+#include "fmtutil.h"
 
 typedef struct localctx_struct {
 	int idat_found;
@@ -33,8 +34,6 @@ static double read_fixed(dbuf *f, de_int64 pos)
 static int do_read_idsc(deark *c, lctx *d, de_int64 pos, de_int64 len)
 {
 	int retval = 0;
-
-	de_dbg_indent(c, 1);
 
 	if(len<8) goto done;
 
@@ -65,84 +64,7 @@ static int do_read_idsc(deark *c, lctx *d, de_int64 pos, de_int64 len)
 		(int)d->height, (int)d->bitdepth, (int)d->palette_id);
 	retval = 1;
 done:
-	de_dbg_indent(c, -1);
 	return retval;
-}
-
-static int do_atom(deark *c, lctx *d, de_int64 pos, de_int64 len, int level,
-	de_int64 *pbytes_consumed)
-{
-	de_int64 size32, size64;
-	de_int64 header_size;
-	de_int64 payload_size;
-	de_byte atomtype[4];
-	char atomtype_printable[16];
-
-	size32 = de_getui32be(pos);
-	de_read(atomtype, pos+4, 4);
-
-	if(size32>=8) {
-		header_size = 8;
-		payload_size = size32-8;
-	}
-	else if(size32==0) {
-		header_size = 8;
-		payload_size = len-8;
-	}
-	else if(size32==1) {
-		header_size = 16;
-		size64 = de_geti64be(pos+8);
-		if(size64<16) return 0;
-		payload_size = size64-16;
-	}
-	else {
-		// Invalid or unsupported format.
-		return 0;
-	}
-
-	if(c->debug_level>0) {
-		de_make_printable_ascii(atomtype, 4, atomtype_printable, sizeof(atomtype_printable), 0);
-		de_dbg(c, "atom '%s' at %d, size=%d\n", atomtype_printable,
-			(int)pos, (int)payload_size);
-	}
-
-	if(pos+header_size+payload_size > c->infile->len) {
-		de_err(c, "Unexpected end of file\n");
-		return 0;
-	}
-
-	if(!de_memcmp(atomtype, "idat", 4)) {
-		d->idat_found = 1;
-		d->idat_pos = pos+header_size;
-		d->idat_size = payload_size;
-	}
-	else if(!de_memcmp(atomtype, "idsc", 4)) {
-		do_read_idsc(c, d, pos+header_size, payload_size);
-	}
-
-	*pbytes_consumed = header_size + payload_size;
-	return 1;
-}
-
-static void do_atom_sequence(deark *c, lctx *d, de_int64 pos1, de_int64 len, int level)
-{
-	de_int64 pos;
-	de_int64 atom_len;
-	de_int64 endpos;
-	int ret;
-
-	if(level >= 32) { // An arbitrary recursion limit.
-		return;
-	}
-
-	pos = pos1;
-	endpos = pos1 + len;
-
-	while(pos < endpos) {
-		ret = do_atom(c, d, pos, endpos-pos, level, &atom_len);
-		if(!ret) break;
-		pos += atom_len;
-	}
 }
 
 static void do_decode_raw(deark *c, lctx *d)
@@ -221,23 +143,58 @@ static void do_write_image(deark *c, lctx *d)
 	}
 }
 
+#define BOX_idat 0x69646174U
+#define BOX_idsc 0x69647363U
+
+static int quicktime_box_handler(deark *c, struct de_boxesctx *bctx)
+{
+	lctx *d = (lctx*)bctx->userdata;
+
+	if(bctx->boxtype==BOX_idat) {
+		d->idat_found = 1;
+		d->idat_pos = bctx->payload_pos;
+		d->idat_size = bctx->payload_len;
+	}
+	else if(bctx->boxtype==BOX_idsc) {
+		do_read_idsc(c, d, bctx->payload_pos, bctx->payload_len);
+	}
+	else if(bctx->is_uuid) {
+		return de_fmtutil_default_box_handler(c, bctx);
+	}
+
+	return 1;
+}
+
 static void do_qtif_file_format(deark *c, lctx *d)
 {
-	do_atom_sequence(c, d, 0, c->infile->len, 0);
+	struct de_boxesctx *bctx = NULL;
+
+	bctx = de_malloc(c, sizeof(struct de_boxesctx));
+
+	bctx->userdata = (void*)d;
+	bctx->f = c->infile;
+	bctx->handle_box_fn = quicktime_box_handler;
+
+	de_fmtutil_read_boxes_format(c, bctx);
 
 	if(d->idat_found) {
 		do_write_image(c, d);
 	}
+
+	de_free(c, bctx);
 }
 
 static void do_raw_idsc_data(deark *c, lctx *d)
 {
-	// do_read_idsc() expects sort of header line to have been printed, so:
+	int ret;
+
 	de_dbg(c, "QuickTime 'idsc' data\n");
 
-	if(!do_read_idsc(c, d, 0, c->infile->len)) {
-		return;
-	}
+	de_dbg_indent(c, 1);
+	ret = do_read_idsc(c, d, 0, c->infile->len);
+	de_dbg_indent(c, -1);
+	if(!ret) return;
+
 	d->idat_pos = d->idsc_size;
 	d->idat_size = c->infile->len - d->idat_pos;
 	do_write_image(c, d);
