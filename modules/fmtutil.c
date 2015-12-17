@@ -359,9 +359,14 @@ static int do_box(deark *c, struct de_boxesctx *bctx, de_int64 pos, de_int64 len
 	char uuid_string[50];
 	int ret;
 
+	if(len<8) {
+		de_dbg(c, "(ignoring %d extra bytes at %d)\n", (int)len, (int)pos);
+		return 0;
+	}
+
 	bctx->is_uuid = 0;
-	size32 = de_getui32be(pos);
-	de_read(boxtype_buf, pos+4, 4);
+	size32 = dbuf_getui32be(bctx->f, pos);
+	dbuf_read(bctx->f, boxtype_buf, pos+4, 4);
 	bctx->boxtype = (de_uint32)de_getui32be_direct(boxtype_buf);
 
 	if(size32>=8) {
@@ -373,8 +378,12 @@ static int do_box(deark *c, struct de_boxesctx *bctx, de_int64 pos, de_int64 len
 		payload_len = len-8;
 	}
 	else if(size32==1) {
+		if(len<16) {
+			de_dbg(c, "(ignoring %d extra bytes at %d)\n", (int)len, (int)pos);
+			return 0;
+		}
 		header_len = 16;
-		size64 = de_geti64be(pos+8);
+		size64 = dbuf_geti64be(bctx->f, pos+8);
 		if(size64<16) return 0;
 		payload_len = size64-16;
 	}
@@ -387,7 +396,7 @@ static int do_box(deark *c, struct de_boxesctx *bctx, de_int64 pos, de_int64 len
 
 	if(bctx->boxtype==DE_BOX_uuid && payload_len>=16) {
 		bctx->is_uuid = 1;
-		de_read(bctx->uuid, pos+header_len, 16);
+		dbuf_read(bctx->f, bctx->uuid, pos+header_len, 16);
 	}
 
 	if(c->debug_level>0) {
@@ -404,10 +413,11 @@ static int do_box(deark *c, struct de_boxesctx *bctx, de_int64 pos, de_int64 len
 		}
 	}
 
-	if(pos + total_len > bctx->f->len) {
-		de_err(c, "Unexpected end of file (box at %d ends at %" INT64_FMT ", "
-			"file ends at %" INT64_FMT ")\n",
-			(int)pos, pos+total_len, bctx->f->len);
+	if(total_len > len) {
+		de_err(c, "Invalid oversized box, or unexpected end of file "
+			"(box at %d ends at %" INT64_FMT ", "
+			"parent ends at %" INT64_FMT ")\n",
+			(int)pos, pos+total_len, pos+len);
 		return 0;
 	}
 

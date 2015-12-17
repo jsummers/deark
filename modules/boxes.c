@@ -1,16 +1,17 @@
 // This file is part of Deark, by Jason Summers.
 // This software is in the public domain. See the file COPYING for details.
 
-// Extract various things from JPEG 2000 files
+// Extract various things from JPEG 2000, MP4, and similar files
 
 #include <deark-config.h>
 #include <deark-modules.h>
 #include "fmtutil.h"
 
 typedef struct localctx_struct {
-	int reserved;
+	de_uint32 primary_brand;
 } lctx;
 
+#define BOX_ftyp 0x66747970U
 #define BOX_jp2c 0x6a703263U
 #define BOX_xml  0x786d6c20U
 // Superboxes:
@@ -28,6 +29,44 @@ typedef struct localctx_struct {
 #define BOX_lobj 0x6c6f626aU
 #define BOX_objc 0x6f626a63U
 #define BOX_sdat 0x73646174U
+#define BOX_moov 0x6d6f6f76U // QuickTime, etc.
+#define BOX_clip 0x636c6970U
+//#define BOX_udta 0x75647461U
+#define BOX_trak 0x7472616bU
+#define BOX_matt 0x6d617474U
+#define BOX_edts 0x65647473U
+#define BOX_mdia 0x6d646961U
+#define BOX_minf 0x6d696e66U
+#define BOX_dinf 0x64696e66U
+#define BOX_stbl 0x7374626cU
+
+static void do_box_ftyp(deark *c, lctx *d, struct de_boxesctx *bctx)
+{
+	de_byte brand_buf[4];
+	char brand_printable[16];
+	de_int64 i;
+	de_int64 num_compat_brands;
+	de_uint32 brand_id;
+
+	if(bctx->payload_len<4) return;
+	dbuf_read(bctx->f, brand_buf, bctx->payload_pos, 4);
+	d->primary_brand = (de_uint32)de_getui32be_direct(brand_buf);
+	de_make_printable_ascii(brand_buf, 4, brand_printable, sizeof(brand_printable), 0);
+	de_dbg(c, "primary brand: '%s'\n", brand_printable);
+
+	if(bctx->payload_len>=12)
+		num_compat_brands = (bctx->payload_len - 8)/4;
+	else
+		num_compat_brands = 0;
+
+	for(i=0; i<num_compat_brands; i++) {
+		dbuf_read(bctx->f, brand_buf, bctx->payload_pos + 8 + i*4, 4);
+		brand_id = (de_uint32)de_getui32be_direct(brand_buf);
+		if(brand_id==0) continue; // Placeholder. Ignore.
+		de_make_printable_ascii(brand_buf, 4, brand_printable, sizeof(brand_printable), 0);
+		de_dbg(c, "compatible brand: '%s'\n", brand_printable);
+	}
+}
 
 static int my_box_handler(deark *c, struct de_boxesctx *bctx)
 {
@@ -35,11 +74,17 @@ static int my_box_handler(deark *c, struct de_boxesctx *bctx)
 		BOX_jp2h, BOX_res , BOX_uinf, BOX_jpch, BOX_jplh, BOX_cgrp,
 		BOX_ftbl, BOX_comp, BOX_asoc, BOX_drep, BOX_page, BOX_lobj,
 		BOX_objc, BOX_sdat,
+		BOX_moov, BOX_clip, BOX_trak, BOX_matt, BOX_edts,
+		BOX_mdia, BOX_minf, BOX_dinf, BOX_stbl,
 		0 };
 	int i;
+	lctx *d = (lctx*)bctx->userdata;
 
 	if(bctx->is_uuid) {
 		return de_fmtutil_default_box_handler(c, bctx);
+	}
+	else if(bctx->boxtype==BOX_ftyp) {
+		do_box_ftyp(c, d, bctx);
 	}
 	else if(bctx->boxtype==BOX_jp2c) { // Contiguous Codestream box
 		de_dbg(c, "JPEG 2000 codestream at %d, size=%d\n", (int)bctx->payload_pos, (int)bctx->payload_len);
@@ -96,4 +141,23 @@ void de_module_jpeg2000(deark *c, struct deark_module_info *mi)
 	mi->desc = "JPEG 2000 formats (resources only)";
 	mi->run_fn = de_run_jpeg2000;
 	mi->identify_fn = de_identify_jpeg2000;
+}
+
+static int de_identify_mp4(deark *c)
+{
+	de_byte buf[4];
+
+	de_read(buf, 4, 4);
+	if(!de_memcmp(buf, "ftyp", 4)) return 20;
+	if(!de_memcmp(buf, "mdat", 4)) return 15;
+	if(!de_memcmp(buf, "moov", 4)) return 15;
+	return 0;
+}
+
+void de_module_mp4(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "mp4";
+	mi->desc = "MP4, QuickTime, and similar formats (resources only)";
+	mi->run_fn = de_run_jpeg2000;
+	mi->identify_fn = de_identify_mp4;
 }
