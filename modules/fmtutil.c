@@ -331,3 +331,121 @@ void de_free_SAUCE(deark *c, struct de_SAUCE_info *si)
 	ucstring_destroy(si->creation_date);
 	de_free(c, si);
 }
+
+
+static void do_box_sequence(deark *c, struct de_boxesctx *bctx,
+	de_int64 pos1, de_int64 len, int level);
+
+// Caller supplies s.
+static void render_uuid(deark *c, const de_byte *uuid, char *s, size_t s_len)
+{
+	de_snprintf(s, s_len, "%02x%02x%02x%02x-%02x%02x-%02x%02x-%02x%02x-%02x%02x%02x%02x%02x%02x",
+		uuid[0], uuid[1], uuid[2], uuid[3], uuid[4], uuid[5], uuid[6], uuid[7],
+		uuid[8], uuid[9], uuid[10], uuid[11], uuid[12], uuid[13], uuid[14], uuid[15]);
+}
+
+static int do_box(deark *c, struct de_boxesctx *bctx, de_int64 pos, de_int64 len,
+	int level, de_int64 *pbytes_consumed)
+{
+	de_int64 size32, size64;
+	de_int64 header_len;
+	de_int64 payload_len;
+	de_byte boxtype_buf[4];
+	char boxtype_printable[16];
+	char uuid_string[50];
+
+	bctx->is_uuid = 0;
+	size32 = de_getui32be(pos);
+	de_read(boxtype_buf, pos+4, 4);
+	bctx->boxtype = (de_uint32)de_getui32be_direct(boxtype_buf);
+
+	if(size32>=8) {
+		header_len = 8;
+		payload_len = size32-8;
+	}
+	else if(size32==0) {
+		header_len = 8;
+		payload_len = len-8;
+	}
+	else if(size32==1) {
+		header_len = 16;
+		size64 = de_geti64be(pos+8);
+		if(size64<16) return 0;
+		payload_len = size64-16;
+	}
+	else {
+		// Invalid or unsupported format.
+		return 0;
+	}
+
+#define DE_BOX_uuid 0x75756964U
+
+	if(bctx->boxtype==DE_BOX_uuid && payload_len>=16) {
+		bctx->is_uuid = 1;
+		de_read(bctx->uuid, pos+header_len, 16);
+	}
+
+	if(c->debug_level>0) {
+		de_make_printable_ascii(boxtype_buf, 4, boxtype_printable, sizeof(boxtype_printable), 0);
+		if(bctx->is_uuid) {
+			render_uuid(c, bctx->uuid, uuid_string, sizeof(uuid_string));
+			de_dbg(c, "box '%s'{%s} at %d, size=%d\n",
+				boxtype_printable, uuid_string,
+				(int)pos, (int)payload_len);
+		}
+		else {
+			de_dbg(c, "box '%s' at %d, size=%d\n", boxtype_printable,
+				(int)pos, (int)payload_len);
+		}
+	}
+
+	bctx->level = level;
+	bctx->is_superbox = 0; // Default value. Client can change it.
+	bctx->box_pos = pos;
+	bctx->box_len = header_len + payload_len;
+	bctx->payload_pos = pos+header_len;
+	bctx->payload_len = payload_len;
+	if(bctx->is_uuid) {
+		bctx->payload_pos += 16;
+		bctx->payload_len -= 16;
+	}
+	if(!bctx->handle_box_fn(c, bctx)) {
+		return 0;
+	}
+
+	if(bctx->is_superbox) {
+		de_dbg_indent(c, 1);
+		do_box_sequence(c, bctx, pos+header_len, payload_len, level+1);
+		de_dbg_indent(c, -1);
+	}
+
+	*pbytes_consumed = header_len + payload_len;
+	return 1;
+}
+
+static void do_box_sequence(deark *c, struct de_boxesctx *bctx,
+	de_int64 pos1, de_int64 len, int level)
+{
+	de_int64 pos;
+	de_int64 box_len;
+	de_int64 endpos;
+	int ret;
+
+	if(level >= 32) { // An arbitrary recursion limit.
+		return;
+	}
+
+	pos = pos1;
+	endpos = pos1 + len;
+
+	while(pos < endpos) {
+		ret = do_box(c, bctx, pos, endpos-pos, level, &box_len);
+		if(!ret) break;
+		pos += box_len;
+	}
+}
+
+void de_read_boxes_format(deark *c, struct de_boxesctx *bctx)
+{
+	do_box_sequence(c, bctx, 0, bctx->f->len, 0);
+}

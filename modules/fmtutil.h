@@ -59,3 +59,30 @@ struct de_SAUCE_info {
 int de_has_SAUCE(deark *c, dbuf *f, de_int64 pos);
 int de_read_SAUCE(deark *c, dbuf *f, de_int64 pos, struct de_SAUCE_info *si);
 void de_free_SAUCE(deark *c, struct de_SAUCE_info *si);
+
+struct de_boxesctx;
+
+// Return 0 to stop reading
+typedef int (*de_handle_box_fn)(deark *c, struct de_boxesctx *bctx);
+
+struct de_boxesctx {
+	void *userdata;
+	dbuf *f; // Input file
+	de_handle_box_fn handle_box_fn;
+
+	// Per-box info supplied to handle_box_fn:
+	int level;
+	de_uint32 boxtype;
+	int is_uuid;
+	de_byte uuid[16]; // Valid only if is_uuid is set.
+	de_int64 box_pos;
+	de_int64 box_len;
+	// Note: for UUID boxes, payload does not include the UUID
+	de_int64 payload_pos;
+	de_int64 payload_len;
+
+	// To be filled in by handle_box_fn:
+	int is_superbox;
+};
+
+void de_read_boxes_format(deark *c, struct de_boxesctx *bctx);
