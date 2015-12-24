@@ -423,6 +423,7 @@ static int do_box(deark *c, struct de_boxesctx *bctx, de_int64 pos, de_int64 len
 
 	bctx->level = level;
 	bctx->is_superbox = 0; // Default value. Client can change it.
+	bctx->has_version_and_flags = 0; // Default value. Client can change it.
 	bctx->box_pos = pos;
 	bctx->box_len = total_len;
 	bctx->payload_pos = pos+header_len;
@@ -438,8 +439,18 @@ static int do_box(deark *c, struct de_boxesctx *bctx, de_int64 pos, de_int64 len
 	if(!ret) return 0;
 
 	if(bctx->is_superbox) {
+		de_int64 extra_bytes = 0;
+
 		de_dbg_indent(c, 1);
-		do_box_sequence(c, bctx, pos+header_len, payload_len, level+1);
+
+		if(bctx->has_version_and_flags) {
+			extra_bytes = 4;
+			// TODO: Print the version number and flags?
+		}
+
+		do_box_sequence(c, bctx,
+			pos+header_len + extra_bytes,
+			payload_len - extra_bytes, level+1);
 		de_dbg_indent(c, -1);
 	}
 

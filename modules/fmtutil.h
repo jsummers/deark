@@ -84,6 +84,7 @@ struct de_boxesctx {
 	// To be filled in by handle_box_fn:
 	int handled;
 	int is_superbox;
+	int has_version_and_flags;
 };
 
 int de_fmtutil_default_box_handler(deark *c, struct de_boxesctx *bctx);

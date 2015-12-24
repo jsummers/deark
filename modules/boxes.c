@@ -8,37 +8,61 @@
 #include "fmtutil.h"
 
 typedef struct localctx_struct {
-	de_uint32 primary_brand;
+	de_uint32 major_brand;
 } lctx;
 
 #define BOX_ftyp 0x66747970U
 #define BOX_jp2c 0x6a703263U
 #define BOX_xml  0x786d6c20U
+
 // Superboxes:
-#define BOX_jp2h 0x6a703268U // JP2
+//  JP2:
+#define BOX_jp2h 0x6a703268U
 #define BOX_res  0x72657320U
 #define BOX_uinf 0x75696e66U
-#define BOX_jpch 0x6a706368U // JPX
+// JPX:
+#define BOX_jpch 0x6a706368U
 #define BOX_jplh 0x6a706c68U
 #define BOX_cgrp 0x63677270U
 #define BOX_ftbl 0x6674626cU
 #define BOX_comp 0x636f6d70U
 #define BOX_asoc 0x61736f63U
 #define BOX_drep 0x64726570U
-#define BOX_page 0x70616765U // JPM
+//  JPM:
+#define BOX_page 0x70616765U
 #define BOX_lobj 0x6c6f626aU
 #define BOX_objc 0x6f626a63U
 #define BOX_sdat 0x73646174U
-#define BOX_moov 0x6d6f6f76U // QuickTime, etc.
+//  BMFF, QuickTime, MP4, ...:
+#define BOX_cinf 0x63696e66U
 #define BOX_clip 0x636c6970U
-//#define BOX_udta 0x75647461U
-#define BOX_trak 0x7472616bU
-#define BOX_matt 0x6d617474U
-#define BOX_edts 0x65647473U
-#define BOX_mdia 0x6d646961U
-#define BOX_minf 0x6d696e66U
 #define BOX_dinf 0x64696e66U
+#define BOX_edts 0x65647473U
+//#define BOX_extr 0x65787472U // Irregular format?
+#define BOX_fdsa 0x66647361U
+#define BOX_fiin 0x6669696eU
+#define BOX_hinf 0x68696e66U
+#define BOX_hnti 0x686e7469U
+#define BOX_matt 0x6d617474U
+#define BOX_mdia 0x6d646961U
+#define BOX_meco 0x6d65636fU
+#define BOX_meta 0x6d657461U
+#define BOX_minf 0x6d696e66U
+#define BOX_mfra 0x6d667261U
+#define BOX_moof 0x6d6f6f66U
+#define BOX_moov 0x6d6f6f76U
+#define BOX_mvex 0x6d766578U
+#define BOX_paen 0x7061656eU
+#define BOX_rinf 0x72696e66U
+#define BOX_schi 0x73636869U
+#define BOX_sinf 0x73696e66U
 #define BOX_stbl 0x7374626cU
+#define BOX_strd 0x73747264U
+#define BOX_strk 0x7374726bU
+#define BOX_traf 0x74726166U
+#define BOX_trak 0x7472616bU
+#define BOX_tref 0x74726566U
+#define BOX_udta 0x75647461U
 
 static void do_box_ftyp(deark *c, lctx *d, struct de_boxesctx *bctx)
 {
@@ -50,9 +74,9 @@ static void do_box_ftyp(deark *c, lctx *d, struct de_boxesctx *bctx)
 
 	if(bctx->payload_len<4) return;
 	dbuf_read(bctx->f, brand_buf, bctx->payload_pos, 4);
-	d->primary_brand = (de_uint32)de_getui32be_direct(brand_buf);
+	d->major_brand = (de_uint32)de_getui32be_direct(brand_buf);
 	de_make_printable_ascii(brand_buf, 4, brand_printable, sizeof(brand_printable), 0);
-	de_dbg(c, "primary brand: '%s'\n", brand_printable);
+	de_dbg(c, "major brand: '%s'\n", brand_printable);
 
 	if(bctx->payload_len>=12)
 		num_compat_brands = (bctx->payload_len - 8)/4;
@@ -74,8 +98,11 @@ static int my_box_handler(deark *c, struct de_boxesctx *bctx)
 		BOX_jp2h, BOX_res , BOX_uinf, BOX_jpch, BOX_jplh, BOX_cgrp,
 		BOX_ftbl, BOX_comp, BOX_asoc, BOX_drep, BOX_page, BOX_lobj,
 		BOX_objc, BOX_sdat,
-		BOX_moov, BOX_clip, BOX_trak, BOX_matt, BOX_edts,
-		BOX_mdia, BOX_minf, BOX_dinf, BOX_stbl,
+		BOX_cinf, BOX_clip, BOX_dinf, BOX_edts, BOX_fdsa, BOX_fiin,
+		BOX_hinf, BOX_hnti, BOX_matt, BOX_mdia, BOX_meco, BOX_meta,
+		BOX_minf, BOX_mfra, BOX_moof, BOX_moov, BOX_mvex, BOX_paen,
+		BOX_rinf, BOX_schi, BOX_sinf, BOX_stbl, BOX_strd, BOX_strk,
+		BOX_traf, BOX_trak, BOX_tref, BOX_udta,
 		0 };
 	int i;
 	lctx *d = (lctx*)bctx->userdata;
@@ -104,6 +131,10 @@ static int my_box_handler(deark *c, struct de_boxesctx *bctx)
 				bctx->is_superbox = 1;
 				break;
 			}
+		}
+
+		if(bctx->boxtype==BOX_meta) {
+			bctx->has_version_and_flags = 1;
 		}
 	}
 
