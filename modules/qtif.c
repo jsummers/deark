@@ -54,7 +54,7 @@ static int do_read_idsc(deark *c, lctx *d, de_int64 pos, de_int64 len)
 	d->height = de_getui16be(pos+34);
 	d->hres = read_fixed(c->infile, pos+36);
 	d->vres = read_fixed(c->infile, pos+40);
-	de_dbg(c, "dpi: %.1fx%.1f\n", d->hres, d->vres);
+	de_dbg(c, "dpi: %.2fx%.2f\n", d->hres, d->vres);
 	d->idat_data_size = de_getui32be(pos+44);
 	de_dbg(c, "reported data size: %d\n", (int)d->idat_data_size);
 	if(d->idat_data_size>c->infile->len) d->idat_data_size=0;

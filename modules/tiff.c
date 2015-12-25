@@ -1,7 +1,7 @@
 // This file is part of Deark, by Jason Summers.
 // This software is in the public domain. See the file COPYING for details.
 
-// Extract various things from TIFF image files
+// Extract various things from TIFF (and similar) image files
 
 #include <deark-config.h>
 #include <deark-modules.h>
@@ -127,16 +127,18 @@ static int read_rational_as_double(deark *c, lctx *d, const struct taginfo *tg, 
 	return 1;
 }
 
-static int read_tag_value_as_int64(deark *c, lctx *d, const struct taginfo *tg, de_int64 *n)
+static int read_tag_value_as_int64(deark *c, lctx *d, const struct taginfo *tg,
+	de_int64 value_index, de_int64 *n)
 {
 	*n = 0;
 	if(tg->valcount<1) return 0;
+	if(value_index<0 || value_index>=tg->valcount) return 0;
 	if(tg->tagtype==TAGTYPE_UINT16) {
-		*n = dbuf_getui16x(c->infile, tg->val_offset, d->is_le);
+		*n = dbuf_getui16x(c->infile, tg->val_offset + value_index*tg->unit_size, d->is_le);
 		return 1;
 	}
 	else if(tg->tagtype==TAGTYPE_UINT32) {
-		*n = dbuf_getui32x(c->infile, tg->val_offset, d->is_le);
+		*n = dbuf_getui32x(c->infile, tg->val_offset + value_index*tg->unit_size, d->is_le);
 		return 1;
 	}
 	return 0;
@@ -229,7 +231,7 @@ static void do_resolution(deark *c, lctx *d, const struct taginfo *tg)
 	if(!read_tag_value_as_double(c, d, tg, &n))
 		return;
 
-	de_dbg2(c, "%sResolution: %.3f\n", name, n);
+	de_dbg(c, "%sResolution: %.3f\n", name, n);
 }
 
 static void do_resolutionunit(deark *c, lctx *d, const struct taginfo *tg)
@@ -237,22 +239,45 @@ static void do_resolutionunit(deark *c, lctx *d, const struct taginfo *tg)
 	de_int64 n;
 	const char *s;
 
-	if(!read_tag_value_as_int64(c, d, tg, &n))
+	if(!read_tag_value_as_int64(c, d, tg, 0, &n))
 		return;
 
 	if(n==1) s="unspecified";
 	else if(n==2) s="pixels/inch";
 	else if(n==3) s="pixels/cm";
 	else s="?";
-	de_dbg2(c, "ResolutionUnit: %d (%s)\n", (int)n, s);
+	de_dbg(c, "ResolutionUnit: %d (%s)\n", (int)n, s);
 }
 
 static void do_display_int_tag(deark *c, lctx *d, const struct taginfo *tg, const char *name)
 {
 	de_int64 n;
-	if(!read_tag_value_as_int64(c, d, tg, &n))
+	if(!read_tag_value_as_int64(c, d, tg, 0, &n))
 		return;
-	de_dbg2(c, "%s: %d\n", name, (int)n);
+	de_dbg(c, "%s: %d\n", name, (int)n);
+}
+
+static void do_colormap(deark *c, lctx *d, const struct taginfo *tg)
+{
+	de_int64 num_entries;
+	de_int64 r1, g1, b1;
+	de_byte r2, g2, b2;
+	de_int64 i;
+
+	num_entries = tg->valcount / 3;
+	de_dbg(c, "ColorMap with %d entries\n", (int)num_entries);
+	if(c->debug_level<2) return;
+	for(i=0; i<num_entries; i++) {
+		read_tag_value_as_int64(c, d, tg, num_entries*0 + i, &r1);
+		read_tag_value_as_int64(c, d, tg, num_entries*1 + i, &g1);
+		read_tag_value_as_int64(c, d, tg, num_entries*2 + i, &b1);
+		r2 = (de_byte)(r1>>8);
+		g2 = (de_byte)(g1>>8);
+		b2 = (de_byte)(b1>>8);
+		de_dbg2(c, "pal[%3d] = (%5d,%5d,%5d) -> (%3d,%3d,%3d)\n", (int)i,
+			(int)r1, (int)g1, (int)b1,
+			(int)r2, (int)g2, (int)b2);
+	}
 }
 
 static void do_subifd(deark *c, lctx *d, const struct taginfo *tg)
@@ -272,7 +297,7 @@ static void do_subifd(deark *c, lctx *d, const struct taginfo *tg)
 
 	for(j=0; j<tg->valcount;j++) {
 		tmpoffset = getfpos(c, d, tg->val_offset+tg->unit_size*j);
-		de_dbg2(c, "offset of %s: %d\n", name, (int)tmpoffset);
+		de_dbg(c, "offset of %s: %d\n", name, (int)tmpoffset);
 		push_ifd(c, d, tmpoffset);
 	}
 }
@@ -331,7 +356,7 @@ static void process_ifd(deark *c, lctx *d, de_int64 ifdpos)
 			tg.val_offset = getfpos(c, d, ifdpos+d->ifdhdrsize+i*d->ifditemsize+d->offsetoffset);
 		}
 
-		de_dbg2(c, "tag %d type=%d count=%d size=%d offset=%" INT64_FMT "\n",
+		de_dbg(c, "tag %d type=%d count=%d size=%d offset=%" INT64_FMT "\n",
 			tg.tagnum, tg.tagtype, (int)tg.valcount, (int)tg.total_size,
 			tg.val_offset);
 		de_dbg_indent(c, 1);
@@ -359,6 +384,22 @@ static void process_ifd(deark *c, lctx *d, de_int64 ifdpos)
 			do_display_int_tag(c, d, &tg, "ImageLength");
 			break;
 
+		case 258:
+			do_display_int_tag(c, d, &tg, "BitsPerSample");
+			break;
+
+		case 259:
+			do_display_int_tag(c, d, &tg, "Compression");
+			break;
+
+		case 262:
+			do_display_int_tag(c, d, &tg, "PhotometricInterpretation");
+			break;
+
+		case 277:
+			do_display_int_tag(c, d, &tg, "SamplesPerPixel");
+			break;
+
 		case 282:
 		case 283:
 			do_resolution(c, d, &tg);
@@ -368,12 +409,18 @@ static void process_ifd(deark *c, lctx *d, de_int64 ifdpos)
 			do_resolutionunit(c, d, &tg);
 			break;
 
+		case 320:
+			do_colormap(c, d, &tg);
+			break;
+
 		case 513: // JPEGInterchangeFormat
+			do_display_int_tag(c, d, &tg, "JPEGInterchangeFormat");
 			if(tg.unit_size!=d->offsetsize || tg.valcount<1) break;
 			jpegoffset = getfpos(c, d, tg.val_offset);
 			break;
 
 		case 514: // JPEGInterchangeFormatLength
+			do_display_int_tag(c, d, &tg, "JPEGInterchangeFormatLength");
 			if(tg.unit_size!=d->offsetsize || tg.valcount<1) break;
 			jpeglength = getfpos(c, d, tg.val_offset);
 			break;

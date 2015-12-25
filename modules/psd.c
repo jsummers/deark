@@ -20,6 +20,7 @@ static const struct rsrc_info rsrc_info_arr[] = {
 	{ 0x03f3, "Print flags" },
 	{ 0x03f5, "Color halftoning info" },
 	{ 0x03f8, "Color transfer functions" },
+	{ 0x03fd, "EPS options" },
 	{ 0x0400, "Layer state information" },
 	{ 0x0402, "Layers group information" },
 	{ 0x0404, "IPTC-NAA" },
@@ -51,6 +52,7 @@ static const struct rsrc_info rsrc_info_arr[] = {
 	{ 0x0436, "Onion Skins" },
 	{ 0x043a, "Print Information" },
 	{ 0x043b, "Print Style" },
+	{ 0x0bb7, "Name of clipping path" },
 	{ 0x2710, "Print flags info" },
 	{ 0, NULL }
 };
@@ -186,8 +188,10 @@ static int do_image_resource(deark *c, de_int64 pos1, de_int64 *bytes_consumed)
 		do_thumbnail_resource(c, resource_id, pos, block_data_len);
 		break;
 	case 0x0422: // EXIFInfo
+		de_dbg_indent(c, 1);
 		de_dbg(c, "Exif segment at %d datasize=%d\n", (int)pos, (int)block_data_len);
 		de_fmtutil_handle_exif(c, pos, block_data_len);
+		de_dbg_indent(c, -1);
 		break;
 	}
 
