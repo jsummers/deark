@@ -100,8 +100,8 @@ static void do_extract_file_contents(deark *c, lctx *d, dbuf *inf, dbuf *outf,
 	de_int64 starting_sector, de_int64 sector_count)
 {
 	de_int64 sectors_extracted = 0;
-	de_int64 sector_pos;
-	de_int64 sector_size;
+	de_int64 sector_pos = 0;
+	de_int64 sector_size = 0;
 	de_int64 cur_sector;
 	de_int64 next_sector;
 	de_byte mdata[3];
