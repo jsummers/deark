@@ -24,13 +24,6 @@ typedef struct localctx_struct {
 	double hres, vres;
 } lctx;
 
-static double read_fixed(dbuf *f, de_int64 pos)
-{
-	de_int64 n;
-	n = dbuf_geti32be(f, pos);
-	return ((double)n)/65536.0;
-}
-
 static int do_read_idsc(deark *c, lctx *d, de_int64 pos, de_int64 len)
 {
 	int retval = 0;
@@ -52,8 +45,8 @@ static int do_read_idsc(deark *c, lctx *d, de_int64 pos, de_int64 len)
 
 	d->width = de_getui16be(pos+32);
 	d->height = de_getui16be(pos+34);
-	d->hres = read_fixed(c->infile, pos+36);
-	d->vres = read_fixed(c->infile, pos+40);
+	d->hres = dbuf_fmtutil_read_fixed_16_16(c->infile, pos+36);
+	d->vres = dbuf_fmtutil_read_fixed_16_16(c->infile, pos+40);
 	de_dbg(c, "dpi: %.2fx%.2f\n", d->hres, d->vres);
 	d->idat_data_size = de_getui32be(pos+44);
 	de_dbg(c, "reported data size: %d\n", (int)d->idat_data_size);

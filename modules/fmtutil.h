@@ -87,5 +87,6 @@ struct de_boxesctx {
 	int has_version_and_flags;
 };
 
+double dbuf_fmtutil_read_fixed_16_16(dbuf *f, de_int64 pos);
 int de_fmtutil_default_box_handler(deark *c, struct de_boxesctx *bctx);
 void de_fmtutil_read_boxes_format(deark *c, struct de_boxesctx *bctx);

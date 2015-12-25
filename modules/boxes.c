@@ -14,6 +14,7 @@ typedef struct localctx_struct {
 #define BOX_ftyp 0x66747970U
 #define BOX_jp2c 0x6a703263U
 #define BOX_xml  0x786d6c20U
+#define BOX_tkhd 0x746b6864U
 
 // Superboxes:
 //  JP2:
@@ -92,6 +93,73 @@ static void do_box_ftyp(deark *c, lctx *d, struct de_boxesctx *bctx)
 	}
 }
 
+static void do_read_version_and_flags(deark *c, lctx *d, struct de_boxesctx *bctx,
+	de_byte *version, de_uint32 *flags, int dbgflag)
+{
+	de_byte version1;
+	de_uint32 flags1;
+	de_uint32 n;
+
+	n = (de_uint32)dbuf_getui32be(bctx->f, bctx->payload_pos);
+	version1 = (de_byte)(n>>24);
+	flags1 = n&0x00ffffff;
+	if(dbgflag) {
+		de_dbg(c, "version=%d, flags=0x%06x\n", (int)version1, (unsigned int)flags1);
+	}
+	if(version) *version = version1;
+	if(flags) *flags = flags1;
+}
+
+static void do_box_tkhd(deark *c, lctx *d, struct de_boxesctx *bctx)
+{
+	de_byte version;
+	de_uint32 flags;
+	de_int64 pos;
+	double w, h;
+	de_int64 n;
+
+	if(bctx->payload_len<84) return;
+
+	pos = bctx->payload_pos;
+	do_read_version_and_flags(c, d, bctx, &version, &flags, 1);
+	pos+=4;
+
+	// creation time, mod time
+	if(version==1)
+		pos += 8 + 8;
+	else
+		pos += 4 + 4;
+
+	n = dbuf_getui32be(bctx->f, pos);
+	pos += 4;
+	de_dbg(c, "track id: %d\n", (int)n);
+
+	pos += 4; // reserved
+
+	// duration
+	if(version==1)
+		pos += 8;
+	else
+		pos += 4;
+
+	pos += 4*2; // reserved
+	pos += 2; // layer
+	pos += 2; // alternate group
+
+	n = dbuf_getui16be(bctx->f, pos);
+	pos += 2; // volume
+	de_dbg(c, "volume: %.3f\n", ((double)n)/256.0);
+
+	pos += 2; // reserved
+	pos += 4*9; // matrix
+
+	w = dbuf_fmtutil_read_fixed_16_16(bctx->f, pos);
+	pos += 4;
+	h = dbuf_fmtutil_read_fixed_16_16(bctx->f, pos);
+	pos += 4;
+	de_dbg(c, "dimensions: %.1fx%.1f\n", w, h);
+}
+
 static int my_box_handler(deark *c, struct de_boxesctx *bctx)
 {
 	static const de_uint32 superboxes[] = {
@@ -110,20 +178,24 @@ static int my_box_handler(deark *c, struct de_boxesctx *bctx)
 	if(bctx->is_uuid) {
 		return de_fmtutil_default_box_handler(c, bctx);
 	}
-	else if(bctx->boxtype==BOX_ftyp) {
+	switch(bctx->boxtype) {
+	case BOX_ftyp:
 		do_box_ftyp(c, d, bctx);
-	}
-	else if(bctx->boxtype==BOX_jp2c) { // Contiguous Codestream box
+		break;
+	case BOX_jp2c: // Contiguous Codestream box
 		de_dbg(c, "JPEG 2000 codestream at %d, size=%d\n", (int)bctx->payload_pos, (int)bctx->payload_len);
 		dbuf_create_file_from_slice(bctx->f, bctx->payload_pos, bctx->payload_len, "j2c", NULL);
-	}
-	else if(bctx->boxtype==BOX_xml) {
+		break;
+	case BOX_tkhd:
+		do_box_tkhd(c, d, bctx);
+		break;
+	case BOX_xml:
 		// TODO: Detect the specific XML format, and use it to choose a better
 		// filename.
 		de_dbg(c, "XML data at %d, size=%d\n", (int)bctx->payload_pos, (int)bctx->payload_len);
 		dbuf_create_file_from_slice(bctx->f, bctx->payload_pos, bctx->payload_len, "xml", NULL);
-	}
-	else {
+		break;
+	default:
 		// Check if this box type is known to contain other boxes that we might
 		// want to recurse into.
 		for(i=0; superboxes[i]; i++) {
@@ -134,6 +206,7 @@ static int my_box_handler(deark *c, struct de_boxesctx *bctx)
 		}
 
 		if(bctx->boxtype==BOX_meta) {
+			do_read_version_and_flags(c, d, bctx, NULL, NULL, 1);
 			bctx->has_version_and_flags = 1;
 		}
 	}
