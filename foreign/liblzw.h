@@ -77,7 +77,7 @@ typedef struct lzwFile_struct {
  */
 static lzwFile *lzw_dbufopen(dbuf *inf)
 {
-	lzwFile *ret;
+	lzwFile *ret = NULL;
 	de_int64 inf_fpos = 0;
 	unsigned char buf[3];
 
@@ -132,9 +132,11 @@ err_out:
 	return NULL;
 
 err_out_free:
-	if (ret->inbuf) free(ret->inbuf);
-	if (ret->outbuf) free(ret->outbuf);
-	free(ret);
+	if(ret) {
+		de_free(inf->c, ret->inbuf);
+		de_free(inf->c, ret->outbuf);
+		de_free(inf->c, ret);
+	}
 	return NULL;
 }
 
@@ -148,9 +150,9 @@ static int lzw_close(lzwFile *lzw)
 	if (lzw == NULL)
 		return -1;
 	ret = 0;
-	free(lzw->inbuf);
-	free(lzw->outbuf);
-	free(lzw);
+	de_free(lzw->c, lzw->inbuf);
+	de_free(lzw->c, lzw->outbuf);
+	de_free(lzw->c, lzw);
 	return ret;
 }
 
