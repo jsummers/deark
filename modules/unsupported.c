@@ -26,12 +26,6 @@ static void get_fmt(deark *c, struct fmtinfo_struct *fmti)
 
 	de_read(b, 0, sizeof(b));
 
-	if(!de_memcmp(b, "GIF87a", 6) || !de_memcmp(b, "GIF89a", 6)) {
-		fmti->confidence = 50;
-		fmti->descr = "a GIF image file";
-		return;
-	}
-
 	if(!de_memcmp(b, "\x1f\x8b\x08", 3)) {
 		fmti->confidence = 80;
 		fmti->descr = "a gzip-compressed file";

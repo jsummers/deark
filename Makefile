@@ -19,7 +19,7 @@ OFILES_MODS:=$(addprefix $(OBJDIR)/modules/,os2bmp.o eps.o bsave.o ilbm.o \
  fnt.o nokia.o grob.o t64.o cardfile.o tivariable.o basic-c64.o ico.o rpm.o \
  rosprite.o binhex.o icns.o awbm.o printshop.o qtif.o portfolio.o bpg.o shg.o \
  insetpix.o ansiart.o xbin.o tim.o ar.o rsc.o gemras.o gemfont.o pff2.o \
- compress.o wmf.o pict.o xfer.o gemmeta.o alphabmp.o unsupported.o)
+ gif.o compress.o wmf.o pict.o xfer.o gemmeta.o alphabmp.o unsupported.o)
 OFILES_MODUTILS:=$(addprefix $(OBJDIR)/modules/,fmtutil.o)
 OFILES_LIB:=$(addprefix $(OBJDIR)/src/,deark-miniz.o deark-util.o deark-data.o \
  deark-dbuf.o deark-bitmap.o deark-char.o deark-font.o deark-core.o \

@@ -21,6 +21,7 @@ void de_register_modules(deark *c)
 	de_module_getinfo_fn infofunc_list[] = {
 		de_module_jpeg,
 		de_module_tiff,
+		de_module_gif,
 		de_module_eps,
 		de_module_msp,
 		de_module_pcpaint,
