@@ -97,6 +97,11 @@ Deark -- Information about supported formats
   - Supports original bilevel format
   - Supports paletted XIMG format
 
+* GIF (module="gif")
+  - Extract individual images. (Note that for animated GIFs, these are often
+     just portions of an image).
+  - Extract comments (use -a).
+
 * GRASP GL animation (module="graspgl")
   - Extracts all files.
 

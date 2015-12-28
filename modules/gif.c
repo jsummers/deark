@@ -26,6 +26,7 @@ struct gif_image_data {
 	int interlaced;
 	int has_local_color_table;
 	de_int64 local_color_table_size;
+	de_uint16 *interlace_map;
 	de_uint32 local_ct[256];
 };
 
@@ -34,19 +35,36 @@ static void do_record_pixel(deark *c, lctx *d, struct gif_image_data *gi, unsign
 {
 	de_int64 pixnum;
 	de_int64 xi, yi;
+	de_int64 yi1;
 	de_uint32 clr;
 
 	if(coloridx>255) return;
 
 	pixnum = gi->pixels_set + offset;
 	xi = pixnum%gi->width;
-	yi = pixnum/gi->width;
+	yi1 = pixnum/gi->width;
+	if(gi->interlace_map) {
+		yi = gi->interlace_map[(de_uint16)yi1];
+	}
+	else {
+		yi = yi1;
+	}
 
 	if(gi->has_local_color_table && coloridx<gi->local_color_table_size) {
 		clr = gi->local_ct[coloridx];
 	}
 	else {
 		clr = d->global_ct[coloridx];
+	}
+
+	if(d->graphic_control_ext_data_valid && d->trns_color_idx_valid &&
+		(d->trns_color_idx == coloridx))
+	{
+		// Make this pixel transparent
+		clr = DE_SET_ALPHA(clr, 0);
+	}
+	else {
+		clr = DE_SET_ALPHA(clr, 0xff);
 	}
 
 	de_bitmap_setpixel_rgb(gi->img, xi, yi, clr);
@@ -439,12 +457,36 @@ static void do_read_image_descriptor(deark *c, lctx *d, struct gif_image_data *g
 	de_dbg_indent(c, -1);
 }
 
+static void do_create_interlace_map(deark *c, lctx *d, struct gif_image_data *gi)
+{
+	int pass;
+	de_int64 startrow, rowskip;
+	de_int64 row;
+	de_int64 rowcount = 0;
+
+	if(!gi->interlaced) return;
+	gi->interlace_map = de_malloc(c, gi->height * sizeof(de_uint16));
+
+	for(pass=1; pass<=4; pass++) {
+		if(pass==1) { startrow=0; rowskip=8; }
+		else if(pass==2) { startrow=4; rowskip=8; }
+		else if(pass==3) { startrow=2; rowskip=4; }
+		else { startrow=1; rowskip=2; }
+
+		for(row=startrow; row<gi->height; row+=rowskip) {
+			gi->interlace_map[rowcount] = (de_uint16)row;
+			rowcount++;
+		}
+	}
+}
+
 static int do_read_image(deark *c, lctx *d, de_int64 pos1, de_int64 *bytesused)
 {
 	struct gif_image_data *gi = NULL;
 	int retval = 0;
 	de_int64 pos;
 	de_int64 n;
+	int bypp;
 	int indent_count = 0;
 	unsigned int lzw_min_code_size;
 	struct lzwdeccontext *lz = NULL;
@@ -476,11 +518,19 @@ static int do_read_image(deark *c, lctx *d, de_int64 pos1, de_int64 *bytesused)
 	de_dbg(c, "lzw min code size: %u\n", lzw_min_code_size);
 
 	if(!de_good_image_dimensions(c, gi->width, gi->height)) goto done;
-	gi->img = de_bitmap_create(c, gi->width, gi->height, 4); // TODO: 3bpp or 4bpp
+	if(d->graphic_control_ext_data_valid && d->trns_color_idx_valid)
+		bypp = 4;
+	else
+		bypp = 3;
+	gi->img = de_bitmap_create(c, gi->width, gi->height, bypp);
 
 	lz = de_malloc(c, sizeof(struct lzwdeccontext));
 	lzw_init(lz, lzw_min_code_size);
 	lzw_clear(lz);
+
+	if(gi->interlaced) {
+		do_create_interlace_map(c, d, gi);
+	}
 
 	while(1) {
 		if(pos >= c->infile->len) break;
@@ -521,6 +571,7 @@ done:
 	de_free(c, lz);
 	if(gi) {
 		de_bitmap_destroy(gi->img);
+		de_free(c, gi->interlace_map);
 		de_free(c, gi);
 	}
 	de_dbg_indent(c, -indent_count);
@@ -594,5 +645,4 @@ void de_module_gif(deark *c, struct deark_module_info *mi)
 	mi->desc = "GIF image";
 	mi->run_fn = de_run_gif;
 	mi->identify_fn = de_identify_gif;
-	mi->flags |= DE_MODFLAG_HIDDEN;
 }
