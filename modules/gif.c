@@ -8,24 +8,250 @@
 
 typedef struct localctx_struct {
 	int has_global_color_table;
-	de_int64 global_color_table_size; // number of colors
+	de_int64 global_color_table_size; // Number of colors stored in the file
 	de_uint32 global_ct[256];
 
-	// This should really be a separate struct, but it's not worth it for just
-	// one field.
+	// This should really be in a separate struct (or maybe in gif_image_data),
+	// but it's not worth it for just one field.
 	int graphic_control_ext_data_valid;
 	int trns_color_idx_valid;
 	de_byte trns_color_idx;
 } lctx;
 
+// Data about a single image
 struct gif_image_data {
+	struct deark_bitmap *img;
 	de_int64 width, height;
+	de_int64 pixels_set;
 	int interlaced;
 	int has_local_color_table;
 	de_int64 local_color_table_size;
 	de_uint32 local_ct[256];
 };
 
+static void do_record_pixel(deark *c, lctx *d, struct gif_image_data *gi, unsigned int coloridx,
+	int offset)
+{
+	de_int64 pixnum;
+	de_int64 xi, yi;
+	de_uint32 clr;
+
+	if(coloridx>255) return;
+
+	pixnum = gi->pixels_set + offset;
+	xi = pixnum%gi->width;
+	yi = pixnum/gi->width;
+
+	if(gi->has_local_color_table && coloridx<gi->local_color_table_size) {
+		clr = gi->local_ct[coloridx];
+	}
+	else {
+		clr = d->global_ct[coloridx];
+	}
+
+	de_bitmap_setpixel_rgb(gi->img, xi, yi, clr);
+}
+
+////////////////////////////////////////////////////////
+//                    LZW decoder
+////////////////////////////////////////////////////////
+
+struct lzw_tableentry {
+	de_uint16 parent; // pointer to previous table entry (if not a root code)
+	de_uint16 length;
+	de_byte firstchar;
+	de_byte lastchar;
+};
+
+struct lzwdeccontext {
+	unsigned int root_codesize;
+	unsigned int current_codesize;
+	int eoi_flag;
+	unsigned int oldcode;
+	unsigned int pending_code;
+	unsigned int bits_in_pending_code;
+	unsigned int num_root_codes;
+	int ncodes_since_clear;
+
+	unsigned int clear_code;
+	unsigned int eoi_code;
+	unsigned int last_code_added;
+
+	unsigned int ct_used; // Number of items used in the code table
+	struct lzw_tableentry ct[4096]; // Code table
+};
+
+static void lzw_init(struct lzwdeccontext *lz, unsigned int root_codesize)
+{
+	unsigned int i;
+
+	de_memset(lz, 0, sizeof(struct lzwdeccontext));
+
+	lz->root_codesize = root_codesize;
+	lz->num_root_codes = 1<<lz->root_codesize;
+	lz->clear_code = lz->num_root_codes;
+	lz->eoi_code = lz->num_root_codes+1;
+	for(i=0; i<lz->num_root_codes; i++) {
+		lz->ct[i].parent = 0;
+		lz->ct[i].length = 1;
+		lz->ct[i].lastchar = (de_byte)i;
+		lz->ct[i].firstchar = (de_byte)i;
+	}
+}
+
+static void lzw_clear(struct lzwdeccontext *lz)
+{
+	lz->ct_used = lz->num_root_codes+2;
+	lz->current_codesize = lz->root_codesize+1;
+	lz->ncodes_since_clear=0;
+	lz->oldcode=0;
+}
+
+// Decode an LZW code to one or more pixels, and record it in the image.
+static void lzw_emit_code(deark *c, lctx *d, struct gif_image_data *gi, struct lzwdeccontext *lz,
+		unsigned int first_code)
+{
+	unsigned int code;
+	code = first_code;
+
+	// An LZW code may decode to more than one pixel. Note that the pixels for
+	// an LZW code are decoded in reverse order (right to left).
+
+	while(1) {
+		do_record_pixel(c, d, gi, (unsigned int)lz->ct[code].lastchar, (int)(lz->ct[code].length-1));
+		if(lz->ct[code].length<=1) break;
+		// The codes are structured as a "forest" (multiple trees).
+		// Go to the parent code, which will have a length 1 less than this one.
+		code = (unsigned int)lz->ct[code].parent;
+	}
+
+	// Track the total number of pixels decoded in this image.
+	gi->pixels_set += lz->ct[first_code].length;
+}
+
+// Add a code to the dictionary.
+// Sets d->last_code_added to the position where it was added.
+// Returns 1 if successful, 0 if table is full.
+static int lzw_add_to_dict(struct lzwdeccontext *lz, unsigned int oldcode, de_byte val)
+{
+	static const unsigned int last_code_of_size[] = {
+		// The first 3 values are unused.
+		0,0,0,7,15,31,63,127,255,511,1023,2047,4095
+	};
+	unsigned int newpos;
+
+	if(lz->ct_used>=4096) {
+		lz->last_code_added = 0;
+		return 0;
+	}
+
+	newpos = lz->ct_used;
+	lz->ct_used++;
+
+	lz->ct[newpos].parent = (de_uint16)oldcode;
+	lz->ct[newpos].length = lz->ct[oldcode].length + 1;
+	lz->ct[newpos].firstchar = lz->ct[oldcode].firstchar;
+	lz->ct[newpos].lastchar = val;
+
+	// If we've used the last code of this size, we need to increase the codesize.
+	if(newpos == last_code_of_size[lz->current_codesize]) {
+		if(lz->current_codesize<12) {
+			lz->current_codesize++;
+		}
+	}
+
+	lz->last_code_added = newpos;
+	return 1;
+}
+
+// Process a single LZW code that was read from the input stream.
+static int lzw_process_code(deark *c, lctx *d, struct gif_image_data *gi, struct lzwdeccontext *lz,
+		unsigned int code)
+{
+	if(code==lz->eoi_code) {
+		lz->eoi_flag=1;
+		return 1;
+	}
+
+	if(code==lz->clear_code) {
+		lzw_clear(lz);
+		return 1;
+	}
+
+	lz->ncodes_since_clear++;
+
+	if(lz->ncodes_since_clear==1) {
+		// Special case for the first code.
+		lzw_emit_code(c, d, gi, lz, code);
+		lz->oldcode = code;
+		return 1;
+	}
+
+	// Is code in code table?
+	if(code < lz->ct_used) {
+		// Yes, code is in table.
+		lzw_emit_code(c, d, gi, lz, code);
+
+		// Let k = the first character of the translation of the code.
+		// Add <oldcode>k to the dictionary.
+		lzw_add_to_dict(lz,lz->oldcode,lz->ct[code].firstchar);
+	}
+	else {
+		// No, code is not in table.
+		if(lz->oldcode>=lz->ct_used) {
+			de_err(c, "GIF decoding error");
+			return 0;
+		}
+
+		// Let k = the first char of the translation of oldcode.
+		// Add <oldcode>k to the dictionary.
+		if(lzw_add_to_dict(lz,lz->oldcode,lz->ct[lz->oldcode].firstchar)) {
+			// Write <oldcode>k to the output stream.
+			lzw_emit_code(c, d, gi, lz, lz->last_code_added);
+		}
+	}
+	lz->oldcode = code;
+
+	return 1;
+}
+
+// Decode as much as possible of the provided LZW-encoded data.
+// Any unfinished business is recorded, to be continued the next time
+// this function is called.
+static int lzw_process_bytes(deark *c, lctx *d, struct gif_image_data *gi, struct lzwdeccontext *lz,
+	de_byte *data, size_t data_size)
+{
+	size_t i;
+	int b;
+	int retval=0;
+
+	for(i=0;i<data_size;i++) {
+		// Look at the bits one at a time.
+		for(b=0;b<8;b++) {
+			if(lz->eoi_flag) { // Stop if we've seen an EOI (end of image) code.
+				retval=1;
+				goto done;
+			}
+
+			if(data[i]&(1<<b))
+				lz->pending_code |= 1<<lz->bits_in_pending_code;
+			lz->bits_in_pending_code++;
+
+			// When we get enough bits to form a complete LZW code, process it.
+			if(lz->bits_in_pending_code >= lz->current_codesize) {
+				if(!lzw_process_code(c, d, gi, lz, lz->pending_code)) goto done;
+				lz->pending_code=0;
+				lz->bits_in_pending_code=0;
+			}
+		}
+	}
+	retval=1;
+
+done:
+	return retval;
+}
+
+////////////////////////////////////////////////////////
 
 static int do_read_screen_descriptor(deark *c, lctx *d, de_int64 pos)
 {
@@ -219,9 +445,13 @@ static int do_read_image(deark *c, lctx *d, de_int64 pos1, de_int64 *bytesused)
 	int retval = 0;
 	de_int64 pos;
 	de_int64 n;
+	int indent_count = 0;
 	unsigned int lzw_min_code_size;
+	struct lzwdeccontext *lz = NULL;
+	de_byte buf[256];
 
 	de_dbg_indent(c, 1);
+	indent_count++;
 	pos = pos1;
 	*bytesused = 0;
 	gi = de_malloc(c, sizeof(struct gif_image_data));
@@ -232,15 +462,25 @@ static int do_read_image(deark *c, lctx *d, de_int64 pos1, de_int64 *bytesused)
 	if(gi->has_local_color_table) {
 		de_dbg(c, "local color table at %d\n", (int)pos);
 		de_dbg_indent(c, 1);
+		indent_count++;
 		do_read_color_table(c, d, pos, gi->local_color_table_size, gi->local_ct);
 		de_dbg_indent(c, -1);
+		indent_count--;
 		pos += 3*gi->local_color_table_size;
 	}
 
 	de_dbg(c, "image data at %d\n", (int)pos);
 	de_dbg_indent(c, 1);
+	indent_count++;
 	lzw_min_code_size = (unsigned int)de_getbyte(pos++);
 	de_dbg(c, "lzw min code size: %u\n", lzw_min_code_size);
+
+	if(!de_good_image_dimensions(c, gi->width, gi->height)) goto done;
+	gi->img = de_bitmap_create(c, gi->width, gi->height, 4); // TODO: 3bpp or 4bpp
+
+	lz = de_malloc(c, sizeof(struct lzwdeccontext));
+	lzw_init(lz, lzw_min_code_size);
+	lzw_clear(lz);
 
 	while(1) {
 		if(pos >= c->infile->len) break;
@@ -251,12 +491,25 @@ static int do_read_image(deark *c, lctx *d, de_int64 pos1, de_int64 *bytesused)
 			de_dbg2(c, "sub-block at %d, size=%d\n", (int)pos, (int)n);
 		pos++;
 		if(n==0) break;
+
+		de_read(buf, pos, n);
+
+		if(!lz->eoi_flag) {
+			if(!lzw_process_bytes(c, d, gi, lz, buf, n)) {
+				goto done;
+			}
+		}
+
 		pos += n;
 	}
 	de_dbg_indent(c, -1);
+	indent_count--;
 
-	de_free(c, gi);
+	de_bitmap_write_to_file(gi->img, NULL);
+
 	de_dbg_indent(c, -1);
+	indent_count--;
+
 	*bytesused = pos - pos1;
 
 	// Graphic control extensions are only valid for one image, so invalidate
@@ -264,6 +517,13 @@ static int do_read_image(deark *c, lctx *d, de_int64 pos1, de_int64 *bytesused)
 	d->graphic_control_ext_data_valid = 0;
 
 	retval = 1;
+done:
+	de_free(c, lz);
+	if(gi) {
+		de_bitmap_destroy(gi->img);
+		de_free(c, gi);
+	}
+	de_dbg_indent(c, -indent_count);
 	return retval;
 }
 
