@@ -10,6 +10,12 @@ typedef struct localctx_struct {
 	int has_global_color_table;
 	de_int64 global_color_table_size; // number of colors
 	de_uint32 global_ct[256];
+
+	// This should really be a separate struct, but it's not worth it for just
+	// one field.
+	int graphic_control_ext_data_valid;
+	int trns_color_idx_valid;
+	de_byte trns_color_idx;
 } lctx;
 
 struct gif_image_data {
@@ -80,10 +86,104 @@ static int do_read_global_color_table(deark *c, lctx *d, de_int64 pos, de_int64 
 	return 1;
 }
 
-static int do_read_extension(deark *c, lctx *d, de_int64 pos, de_int64 *bytesused)
+static void do_skip_subblocks(deark *c, lctx *d, de_int64 pos1, de_int64 *bytesused)
 {
+	de_int64 pos;
+	de_int64 n;
+
+	pos = pos1;
+	while(1) {
+		if(pos >= c->infile->len) break;
+		n = (de_int64)de_getbyte(pos);
+		pos++;
+		if(n==0) break;
+		pos += n;
+	}
+	*bytesused = pos - pos1;
+	return;
+}
+
+static void do_graphic_control_extension(deark *c, lctx *d, de_int64 pos)
+{
+	de_byte packed_fields;
+
+	d->graphic_control_ext_data_valid = 1;
+	d->trns_color_idx_valid = 0;
+
+	// 0 = block size (we assume this is 4 or more)
+	packed_fields = de_getbyte(pos+1);
+	d->trns_color_idx_valid = (packed_fields&0x01)?1:0;
+	de_dbg(c, "has transparency: %d\n", d->trns_color_idx_valid);
+
+	if(d->trns_color_idx_valid) {
+		d->trns_color_idx = de_getbyte(pos+4);
+		de_dbg(c, "transparent color index: %d\n", (int)d->trns_color_idx);
+	}
+}
+
+static void do_comment_extension(deark *c, lctx *d, de_int64 pos)
+{
+	dbuf *f = NULL;
+	de_int64 n;
+
+	if(c->extract_level<2) return;
+
+	f = dbuf_create_output_file(c, "comment.txt", NULL);
+
+	while(1) {
+		if(pos >= c->infile->len) break;
+		n = (de_int64)de_getbyte(pos);
+		pos++;
+		if(n==0) break;
+
+		// GIF comments are supposed to be 7-bit ASCII, so just copy them as-is.
+		dbuf_copy(c->infile, pos, n, f);
+		pos += n;
+	}
+
+	dbuf_close(f);
+}
+
+static int do_read_extension(deark *c, lctx *d, de_int64 pos1, de_int64 *bytesused)
+{
+	de_int64 bytesused2 = 0;
+	de_byte ext_type;
+	de_int64 pos;
+	const char *ext_name;
+
+	de_dbg_indent(c, 1);
+	pos = pos1;
 	*bytesused = 0;
-	return 0;
+	ext_type = de_getbyte(pos);
+
+	switch(ext_type) {
+	case 0x01: ext_name="plain text"; break;
+	case 0xf9: ext_name="graphic control"; break;
+	case 0xfe: ext_name="comment"; break;
+	case 0xff: ext_name="application"; break;
+	default: ext_name="?";
+	}
+
+	de_dbg(c, "extension type 0x%02x (%s) at %d\n", (unsigned int)ext_type, ext_name, (int)pos);
+	pos++;
+
+	de_dbg_indent(c, 1);
+	switch(ext_type) {
+	case 0xf9:
+		do_graphic_control_extension(c, d, pos);
+		break;
+	case 0xfe:
+		do_comment_extension(c, d, pos);
+		break;
+	}
+	de_dbg_indent(c, -1);
+
+	do_skip_subblocks(c, d, pos, &bytesused2);
+	pos += bytesused2;
+
+	*bytesused = pos - pos1;
+	de_dbg_indent(c, -1);
+	return 1;
 }
 
 // Read 9-byte image header
@@ -158,6 +258,11 @@ static int do_read_image(deark *c, lctx *d, de_int64 pos1, de_int64 *bytesused)
 	de_free(c, gi);
 	de_dbg_indent(c, -1);
 	*bytesused = pos - pos1;
+
+	// Graphic control extensions are only valid for one image, so invalidate
+	// any previous extension.
+	d->graphic_control_ext_data_valid = 0;
+
 	retval = 1;
 	return retval;
 }
@@ -168,6 +273,7 @@ static void de_run_gif(deark *c, de_module_params *mparams)
 	de_int64 pos;
 	de_int64 bytesused = 0;
 	de_byte block_type;
+	const char *blk_name;
 
 	d = de_malloc(c, sizeof(lctx));
 
@@ -180,7 +286,15 @@ static void de_run_gif(deark *c, de_module_params *mparams)
 	while(1) {
 		if(pos >= c->infile->len) break;
 		block_type = de_getbyte(pos);
-		de_dbg(c, "block type 0x%02x at %d\n", (unsigned int)block_type, (int)pos);
+
+		switch(block_type) {
+		case 0x2c: blk_name="image"; break;
+		case 0x3b: blk_name="trailer"; break;
+		case 0x21: blk_name="extension"; break;
+		default: blk_name="?"; break;
+		}
+
+		de_dbg(c, "block type 0x%02x (%s) at %d\n", (unsigned int)block_type, blk_name, (int)pos);
 		pos++;
 
 		switch(block_type) {
