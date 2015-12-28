@@ -8,6 +8,7 @@
 
 typedef struct localctx_struct {
 	int has_global_color_table;
+	de_byte aspect_ratio_code;
 	de_int64 global_color_table_size; // Number of colors stored in the file
 	de_uint32 global_ct[256];
 
@@ -276,7 +277,6 @@ static int do_read_screen_descriptor(deark *c, lctx *d, de_int64 pos)
 	de_int64 sw, sh;
 	de_int64 bgcol_index;
 	de_byte packed_fields;
-	de_byte aspect_ratio_code;
 	unsigned int global_color_table_size_code;
 
 	de_dbg(c, "screen descriptor at %d\n", (int)pos);
@@ -298,8 +298,8 @@ static int do_read_screen_descriptor(deark *c, lctx *d, de_int64 pos)
 	bgcol_index = (de_int64)de_getbyte(pos+5);
 	de_dbg(c, "background color index: %d\n", (int)bgcol_index);
 
-	aspect_ratio_code = de_getbyte(pos+6);
-	de_dbg(c, "aspect ratio code: %d\n", (int)aspect_ratio_code); // TODO
+	d->aspect_ratio_code = de_getbyte(pos+6);
+	de_dbg(c, "aspect ratio code: %d\n", (int)d->aspect_ratio_code);
 
 	de_dbg_indent(c, -1);
 	return 1;
@@ -523,6 +523,12 @@ static int do_read_image(deark *c, lctx *d, de_int64 pos1, de_int64 *bytesused)
 	else
 		bypp = 3;
 	gi->img = de_bitmap_create(c, gi->width, gi->height, bypp);
+
+	if(d->aspect_ratio_code!=0 && d->aspect_ratio_code!=49) {
+		gi->img->density_code = DE_DENSITY_UNK_UNITS;
+		gi->img->xdens = 64.0;
+		gi->img->ydens = 15.0 + (double)d->aspect_ratio_code;
+	}
 
 	lz = de_malloc(c, sizeof(struct lzwdeccontext));
 	lzw_init(lz, lzw_min_code_size);
