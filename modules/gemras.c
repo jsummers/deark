@@ -14,6 +14,7 @@ typedef struct localctx_struct {
 	de_int64 rowspan_per_plane;
 	de_int64 rowspan_total;
 	de_int64 pixwidth, pixheight;
+	de_int64 header_size_in_words;
 	de_int64 header_size_in_bytes;
 	de_byte *pattern_buf;
 	de_uint32 pal[256];
@@ -164,12 +165,13 @@ static de_byte scale_1000_to_255(de_int64 n1)
 	return (de_byte)(0.5+((255.0/1000.0)*(double)n1));
 }
 
-static void read_palette(deark *c, lctx *d)
+static void read_palette_ximg(deark *c, lctx *d)
 {
 	de_int64 pal_entries;
 	de_int64 i;
 	de_int64 cr1, cg1, cb1;
 	de_byte cr, cg, cb;
+	int range_warned = 0;
 
 	pal_entries = (de_int64)(1<<((unsigned int)d->nplanes));
 	if(pal_entries>256) pal_entries=256;
@@ -187,7 +189,44 @@ static void read_palette(deark *c, lctx *d)
 			(int)cr1, (int)cg1, (int)cb1,
 			(int)cr, (int)cg, (int)cb);
 
+		// TODO: Maybe some out-of-range colors have special meaning?
+		if(!range_warned && (cr1>1000 || cg1>1000 || cb1>1000)) {
+			de_warn(c, "Bad palette color #%d: is (%d,%d,%d), max=(1000,1000,1000).\n",
+				(int)i, (int)cr1, (int)cg1, (int)cb1);
+			range_warned=1;
+		}
+
 		d->pal[i] = DE_MAKE_RGB(cr, cg, cb);
+	}
+}
+
+static de_byte scale7to255(de_byte n)
+{
+	return (de_byte)(0.5+(255.0/7.0)*(double)n);
+}
+
+// Note: This is duplicated in atari-img.c
+static void read_atari_pal16(deark *c, lctx *d, de_int64 pos)
+{
+	de_int64 i;
+	unsigned int n;
+	de_byte cr, cg, cb;
+	de_byte cr1, cg1, cb1;
+
+	for(i=0; i<16; i++) {
+		n = (unsigned int)de_getui16be(pos);
+		cr1 = (de_byte)((n>>8)&7);
+		cg1 = (de_byte)((n>>4)&7);
+		cb1 = (de_byte)(n&7);
+		cr = scale7to255(cr1);
+		cg = scale7to255(cg1);
+		cb = scale7to255(cb1);
+		de_dbg2(c, "pal[%2d] = 0x%04x (%d,%d,%d) -> (%3d,%3d,%3d)\n", (int)i, n,
+			(int)cr1, (int)cg1, (int)cb1,
+			(int)cr, (int)cg, (int)cb);
+
+		d->pal[i] = DE_MAKE_RGB(cr, cg, cb);
+		pos+=2;
 	}
 }
 
@@ -205,7 +244,12 @@ static int do_gem_ximg(deark *c, lctx *d)
 		goto done;
 	}
 
-	read_palette(c, d);
+	if(d->header_size_in_words==25 && !d->is_ximg) {
+		read_atari_pal16(c, d, d->header_size_in_bytes-32);
+	}
+	else {
+		read_palette_ximg(c, d);
+	}
 
 	unc_pixels = dbuf_create_membuf(c, d->rowspan_total*d->h);
 
@@ -237,39 +281,49 @@ done:
 
 static void de_run_gemraster(deark *c, de_module_params *mparams)
 {
-	de_int64 header_size_in_words;
 	de_int64 ver;
+	de_int64 ext_word0 = 0;
 	lctx *d = NULL;
 
 	d = de_malloc(c, sizeof(lctx));
 	ver = de_getui16be(0);
 	de_dbg(c, "version: %d\n", (int)ver);
-	header_size_in_words = de_getui16be(2);
-	d->header_size_in_bytes = header_size_in_words*2;
-	de_dbg(c, "header size: %d words (%d bytes)\n", (int)header_size_in_words,
+	d->header_size_in_words = de_getui16be(2);
+	d->header_size_in_bytes = d->header_size_in_words*2;
+	de_dbg(c, "header size: %d words (%d bytes)\n", (int)d->header_size_in_words,
 		(int)d->header_size_in_bytes);
 	d->nplanes = de_getui16be(4);
 	de_dbg(c, "planes: %d\n", (int)d->nplanes);
 
-	if(header_size_in_words>=11) {
+	if(d->header_size_in_words>=11) {
 		d->is_ximg = !dbuf_memcmp(c->infile, 16, "XIMG", 4);
 	}
 
-	if(d->is_ximg) {
-		;
-	}
-	else if(header_size_in_words!=0x08 || d->nplanes!=1) {
-		de_err(c, "This version of GEM Raster is not supported.\n");
-		return;
-	}
-
 	d->patlen = de_getui16be(6);
+	de_dbg(c, "pattern def len: %d\n", (int)d->patlen);
 	d->pixwidth = de_getui16be(8);
 	d->pixheight = de_getui16be(10);
 	de_dbg(c, "pixel size: %dx%d microns\n", (int)d->pixwidth, (int)d->pixheight);
 	d->w = de_getui16be(12);
 	d->h = de_getui16be(14);
 	de_dbg(c, "dimensions: %dx%d\n", (int)d->w, (int)d->h);
+
+	if(d->header_size_in_words>=9) {
+		// This may help to detect the image format.
+		ext_word0 = de_getui16be(16);
+	}
+
+	if(d->is_ximg) {
+		;
+	}
+	else if(d->header_size_in_words==25 && d->patlen==2 && ext_word0==0x0080) {
+		;
+	}
+	else if(d->header_size_in_words!=0x08 || d->nplanes!=1) {
+		de_err(c, "This version of GEM Raster is not supported.\n");
+		return;
+	}
+
 	if(!de_good_image_dimensions(c, d->w, d->h)) goto done;
 
 	d->rowspan_per_plane = (d->w+7)/8;
@@ -277,10 +331,18 @@ static void de_run_gemraster(deark *c, de_module_params *mparams)
 
 	if(d->is_ximg) {
 		de_declare_fmt(c, "GEM VDI Bit Image, XIMG extension");
-		do_gem_ximg(c, d);
 	}
 	else {
 		de_declare_fmt(c, "GEM VDI Bit Image");
+	}
+
+	if(d->is_ximg) {
+		do_gem_ximg(c, d);
+	}
+	else if(d->header_size_in_words==25) {
+		do_gem_ximg(c, d);
+	}
+	else {
 		do_gem_img(c, d);
 	}
 

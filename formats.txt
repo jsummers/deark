@@ -96,6 +96,7 @@ Deark -- Information about supported formats
 * GEM VDI Bit Image (GEM Raster) (module="gemras")
   - Supports original bilevel format
   - Supports paletted XIMG format
+  - Supports some non-XIMG 16-color images
 
 * GIF (module="gif")
   - Extract individual images. (Note that for animated GIFs, these are often
