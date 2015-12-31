@@ -13,8 +13,9 @@ typedef struct localctx_struct {
 
 #define BOX_ftyp 0x66747970U
 #define BOX_jp2c 0x6a703263U
-#define BOX_xml  0x786d6c20U
+#define BOX_mvhd 0x6d766864U
 #define BOX_tkhd 0x746b6864U
+#define BOX_xml  0x786d6c20U
 
 // Superboxes:
 //  JP2:
@@ -160,6 +161,70 @@ static void do_box_tkhd(deark *c, lctx *d, struct de_boxesctx *bctx)
 	de_dbg(c, "dimensions: %.1fx%.1f\n", w, h);
 }
 
+static void do_box_mvhd(deark *c, lctx *d, struct de_boxesctx *bctx)
+{
+	de_byte version;
+	de_uint32 flags;
+	de_int64 pos;
+	de_int64 n;
+	de_int64 timescale;
+	double nd;
+
+	if(bctx->payload_len<4) return;
+
+	pos = bctx->payload_pos;
+	do_read_version_and_flags(c, d, bctx, &version, &flags, 1);
+	pos+=4;
+
+	if(version==1) {
+		if(bctx->payload_len<112) return;
+	}
+	else {
+		if(bctx->payload_len<100) return;
+	}
+
+	// creation time, mod time
+	if(version==1)
+		pos += 8 + 8;
+	else
+		pos += 4 + 4;
+
+	timescale = dbuf_getui32be(bctx->f, pos);
+	pos += 4;
+	de_dbg(c, "timescale: %d time units per second\n", (int)timescale);
+
+	// duration
+	if(version==1) {
+		n = dbuf_geti64be(bctx->f, pos);
+		pos += 8;
+	}
+	else {
+		n = dbuf_getui32be(bctx->f, pos);
+		pos += 4;
+	}
+	if(timescale>0)
+		nd = (double)n / (double)timescale;
+	else
+		nd = 0.0;
+	de_dbg(c, "duration: %d time units (%.2f seconds)\n", (int)n, nd);
+
+	nd = dbuf_fmtutil_read_fixed_16_16(bctx->f, pos);
+	pos += 4; // rate
+	de_dbg(c, "rate: %.3f\n", nd);
+
+	n = dbuf_getui16be(bctx->f, pos);
+	pos += 2; // volume
+	de_dbg(c, "volume: %.3f\n", ((double)n)/256.0);
+
+	pos += 2; // reserved
+	pos += 4*2; // reserved
+	pos += 4*9; // matrix
+	pos += 4*6; // pre_defined
+
+	n = dbuf_getui32be(bctx->f, pos);
+	de_dbg(c, "next track id: %d\n", (int)n);
+}
+
 static int my_box_handler(deark *c, struct de_boxesctx *bctx)
 {
 	static const de_uint32 superboxes[] = {
@@ -185,6 +250,9 @@ static int my_box_handler(deark *c, struct de_boxesctx *bctx)
 	case BOX_jp2c: // Contiguous Codestream box
 		de_dbg(c, "JPEG 2000 codestream at %d, size=%d\n", (int)bctx->payload_pos, (int)bctx->payload_len);
 		dbuf_create_file_from_slice(bctx->f, bctx->payload_pos, bctx->payload_len, "j2c", NULL);
+		break;
+	case BOX_mvhd:
+		do_box_mvhd(c, d, bctx);
 		break;
 	case BOX_tkhd:
 		do_box_tkhd(c, d, bctx);
