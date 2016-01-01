@@ -9,11 +9,16 @@
 
 typedef struct localctx_struct {
 	de_uint32 major_brand;
+	de_byte is_jpx;
 } lctx;
+
+#define BRAND_jpx  0x6a707820U
 
 #define BOX_ftyp 0x66747970U
 #define BOX_jp2c 0x6a703263U
+#define BOX_mdhd 0x6d646864U
 #define BOX_mvhd 0x6d766864U
+#define BOX_stsd 0x73747364U
 #define BOX_tkhd 0x746b6864U
 #define BOX_xml  0x786d6c20U
 
@@ -66,6 +71,15 @@ typedef struct localctx_struct {
 #define BOX_tref 0x74726566U
 #define BOX_udta 0x75647461U
 
+// Called for each primary or compatible brand.
+// Brand-specific setup can be done here.
+static void apply_brand(deark *c, lctx *d, de_uint32 brand_id)
+{
+	if(brand_id==BRAND_jpx) {
+		d->is_jpx = 1;
+	}
+}
+
 static void do_box_ftyp(deark *c, lctx *d, struct de_boxesctx *bctx)
 {
 	de_byte brand_buf[4];
@@ -79,6 +93,7 @@ static void do_box_ftyp(deark *c, lctx *d, struct de_boxesctx *bctx)
 	d->major_brand = (de_uint32)de_getui32be_direct(brand_buf);
 	de_make_printable_ascii(brand_buf, 4, brand_printable, sizeof(brand_printable), 0);
 	de_dbg(c, "major brand: '%s'\n", brand_printable);
+	apply_brand(c, d, d->major_brand);
 
 	if(bctx->payload_len>=12)
 		num_compat_brands = (bctx->payload_len - 8)/4;
@@ -91,6 +106,7 @@ static void do_box_ftyp(deark *c, lctx *d, struct de_boxesctx *bctx)
 		if(brand_id==0) continue; // Placeholder. Ignore.
 		de_make_printable_ascii(brand_buf, 4, brand_printable, sizeof(brand_printable), 0);
 		de_dbg(c, "compatible brand: '%s'\n", brand_printable);
+		apply_brand(c, d, brand_id);
 	}
 }
 
@@ -119,11 +135,18 @@ static void do_box_tkhd(deark *c, lctx *d, struct de_boxesctx *bctx)
 	double w, h;
 	de_int64 n;
 
-	if(bctx->payload_len<84) return;
+	if(bctx->payload_len<4) return;
 
 	pos = bctx->payload_pos;
 	do_read_version_and_flags(c, d, bctx, &version, &flags, 1);
 	pos+=4;
+
+	if(version==1) {
+		if(bctx->payload_len<96) return;
+	}
+	else {
+		if(bctx->payload_len<84) return;
+	}
 
 	// creation time, mod time
 	if(version==1)
@@ -225,11 +248,97 @@ static void do_box_mvhd(deark *c, lctx *d, struct de_boxesctx *bctx)
 	de_dbg(c, "next track id: %d\n", (int)n);
 }
 
+static void do_box_mdhd(deark *c, lctx *d, struct de_boxesctx *bctx)
+{
+	de_byte version;
+	de_uint32 flags;
+	de_int64 pos;
+	de_int64 n;
+	de_int64 timescale;
+	double nd;
+
+	// TODO: Share code with do_box_mvhd()?
+	if(bctx->payload_len<4) return;
+
+	pos = bctx->payload_pos;
+	do_read_version_and_flags(c, d, bctx, &version, &flags, 1);
+	pos+=4;
+
+	if(version==1) {
+		if(bctx->payload_len<36) return;
+	}
+	else {
+		if(bctx->payload_len<24) return;
+	}
+
+	// creation time, mod time
+	if(version==1)
+		pos += 8 + 8;
+	else
+		pos += 4 + 4;
+
+	timescale = dbuf_getui32be(bctx->f, pos);
+	pos += 4;
+	de_dbg(c, "timescale: %d time units per second\n", (int)timescale);
+
+	// duration
+	if(version==1) {
+		n = dbuf_geti64be(bctx->f, pos);
+		pos += 8;
+	}
+	else {
+		n = dbuf_getui32be(bctx->f, pos);
+		pos += 4;
+	}
+	if(timescale>0)
+		nd = (double)n / (double)timescale;
+	else
+		nd = 0.0;
+	de_dbg(c, "duration: %d time units (%.2f seconds)\n", (int)n, nd);
+}
+
+static void do_box_stsd(deark *c, lctx *d, struct de_boxesctx *bctx)
+{
+	de_byte version;
+	de_uint32 flags;
+	de_int64 pos;
+	de_int64 num_entries;
+	de_int64 entry_size;
+	de_byte data_format_buf[4];
+	char data_format_printable[16];
+
+	if(bctx->payload_len<8) return;
+
+	pos = bctx->payload_pos;
+	do_read_version_and_flags(c, d, bctx, &version, &flags, 1);
+	pos += 4;
+	if(version!=0) return;
+
+	num_entries = dbuf_getui32be(bctx->f, pos);
+	de_dbg(c, "number of sample description entries: %d\n", (int)num_entries);
+	pos += 4;
+
+	while(1) {
+		if(pos + 16 >= bctx->payload_pos + bctx->payload_len) break;
+		entry_size = dbuf_getui32be(bctx->f, pos);
+		de_dbg(c, "sample description at %d, len=%d\n", (int)pos, (int)entry_size);
+		if(entry_size<16) break;
+
+		de_dbg_indent(c, 1);
+		dbuf_read(bctx->f, data_format_buf, pos+4, 4);
+		de_make_printable_ascii(data_format_buf, 4, data_format_printable, sizeof(data_format_printable), 0);
+		de_dbg(c, "data format: '%s'\n", data_format_printable);
+		de_dbg_indent(c, -1);
+
+		pos += entry_size;
+	}
+}
+
 static int my_box_handler(deark *c, struct de_boxesctx *bctx)
 {
 	static const de_uint32 superboxes[] = {
 		BOX_jp2h, BOX_res , BOX_uinf, BOX_jpch, BOX_jplh, BOX_cgrp,
-		BOX_ftbl, BOX_comp, BOX_asoc, BOX_drep, BOX_page, BOX_lobj,
+		BOX_ftbl, BOX_comp, BOX_asoc, BOX_page, BOX_lobj,
 		BOX_objc, BOX_sdat,
 		BOX_cinf, BOX_clip, BOX_dinf, BOX_edts, BOX_fdsa, BOX_fiin,
 		BOX_hinf, BOX_hnti, BOX_matt, BOX_mdia, BOX_meco, BOX_meta,
@@ -248,11 +357,17 @@ static int my_box_handler(deark *c, struct de_boxesctx *bctx)
 		do_box_ftyp(c, d, bctx);
 		break;
 	case BOX_jp2c: // Contiguous Codestream box
-		de_dbg(c, "JPEG 2000 codestream at %d, size=%d\n", (int)bctx->payload_pos, (int)bctx->payload_len);
+		de_dbg(c, "JPEG 2000 codestream at %d, len=%d\n", (int)bctx->payload_pos, (int)bctx->payload_len);
 		dbuf_create_file_from_slice(bctx->f, bctx->payload_pos, bctx->payload_len, "j2c", NULL);
+		break;
+	case BOX_mdhd:
+		do_box_mdhd(c, d, bctx);
 		break;
 	case BOX_mvhd:
 		do_box_mvhd(c, d, bctx);
+		break;
+	case BOX_stsd:
+		do_box_stsd(c, d, bctx);
 		break;
 	case BOX_tkhd:
 		do_box_tkhd(c, d, bctx);
@@ -260,7 +375,7 @@ static int my_box_handler(deark *c, struct de_boxesctx *bctx)
 	case BOX_xml:
 		// TODO: Detect the specific XML format, and use it to choose a better
 		// filename.
-		de_dbg(c, "XML data at %d, size=%d\n", (int)bctx->payload_pos, (int)bctx->payload_len);
+		de_dbg(c, "XML data at %d, len=%d\n", (int)bctx->payload_pos, (int)bctx->payload_len);
 		dbuf_create_file_from_slice(bctx->f, bctx->payload_pos, bctx->payload_len, "xml", NULL);
 		break;
 	default:
@@ -273,10 +388,20 @@ static int my_box_handler(deark *c, struct de_boxesctx *bctx)
 			}
 		}
 
+		if(d->is_jpx) {
+			// 'drep' is a superbox in JPX format.
+			// 'drep' exists in BMFF, but is not a superbox.
+			// TODO: Need a more general way to decide if a box is a superbox.
+			if(bctx->boxtype==BOX_drep) {
+				bctx->is_superbox = 1;
+			}
+		}
+
 		if(bctx->boxtype==BOX_meta) {
 			do_read_version_and_flags(c, d, bctx, NULL, NULL, 1);
 			bctx->has_version_and_flags = 1;
 		}
+
 	}
 
 	return 1;
