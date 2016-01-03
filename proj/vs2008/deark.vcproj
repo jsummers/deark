@@ -454,6 +454,10 @@
 			Filter="c"
 			>
 			<File
+				RelativePath="..\..\modules\abk.c"
+				>
+			</File>
+			<File
 				RelativePath="..\..\modules\alphabmp.c"
 				>
 			</File>

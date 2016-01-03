@@ -113,3 +113,4 @@ void de_module_gemmeta(deark *c, struct deark_module_info *mi);
 void de_module_j2c(deark *c, struct deark_module_info *mi);
 void de_module_mp4(deark *c, struct deark_module_info *mi);
 void de_module_gif(deark *c, struct deark_module_info *mi);
+void de_module_abk(deark *c, struct deark_module_info *mi);
