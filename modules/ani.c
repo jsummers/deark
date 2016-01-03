@@ -37,12 +37,20 @@ static void extract_frame(deark *c, lctx *d, de_int64 pos, de_int64 len)
 	dbuf_create_file_from_slice(c->infile, pos, len, ext, NULL);
 }
 
+#define CHUNK_LIST 0x4c495354U
+#define CHUNK_RIFF 0x52494646U
+#define CHUNK_icon 0x69636f6eU
+
 static void process_riff_sequence(deark *c, lctx *d, de_int64 pos, de_int64 len1)
 {
-	de_byte t[4];
-	de_int64 len;
+	de_int64 chunk_pos;
+	de_int64 chunk_data_len;
 	de_int64 endpos;
-	char pbuf[16];
+	de_byte chunk_id_buf[4];
+	de_uint32 chunk_id;
+	char chunk_id_printable[16];
+	de_byte list_id_buf[4];
+	char list_id_printable[16];
 
 	endpos = pos+len1;
 	if(endpos > c->infile->len) {
@@ -60,37 +68,33 @@ static void process_riff_sequence(deark *c, lctx *d, de_int64 pos, de_int64 len1
 	}
 
 	while(pos < endpos) {
-		// Read chunk type
-		de_read(t, pos, 4);
+		chunk_pos = pos;
+		de_read(chunk_id_buf, chunk_pos, 4);
+		pos+=4;
+		chunk_id = (de_uint32)de_getui32be_direct(chunk_id_buf);
 
-		if(c->debug_level>0) {
-			de_make_printable_ascii(t, 4, pbuf, sizeof(pbuf), 0);
-			de_dbg(c, "chunk '%s' at %d\n", pbuf, (int)pos);
-		}
-
+		chunk_data_len = de_getui32le(pos);
 		pos+=4;
 
-		if(!de_memcmp(t, "ACON", 4) ||
-			!de_memcmp(t, "fram", 4))
+		de_make_printable_ascii(chunk_id_buf, 4, chunk_id_printable, sizeof(chunk_id_printable), 0);
+		de_dbg(c, "chunk '%s' at %d, dlen=%d\n", chunk_id_printable, (int)chunk_pos, (int)chunk_data_len);
+
+		de_dbg_indent(c, 1);
+		if(chunk_id==CHUNK_icon) {
+			extract_frame(c, d, pos, chunk_data_len);
+		}
+		else if(chunk_id==CHUNK_RIFF || chunk_id==CHUNK_LIST)
 		{
-			// Chunk without a length field
-			continue;
-		}
+			de_read(list_id_buf, pos, 4);
+			de_make_printable_ascii(list_id_buf, 4, list_id_printable, sizeof(list_id_printable), 0);
+			de_dbg(c, "%s type: '%s'\n", chunk_id_printable, list_id_printable);
 
-		len = de_getui32le(pos);
-		pos+=4;
-
-		if(!de_memcmp(t, "icon", 4)) {
-			extract_frame(c, d, pos, len);
+			process_riff_sequence(c, d, pos+4, chunk_data_len-4);
 		}
-		else if(!de_memcmp(t, "RIFF", 4) ||
-			!de_memcmp(t, "LIST", 4))
-		{
-			process_riff_sequence(c, d, pos, len);
-		}
+		de_dbg_indent(c, -1);
 
-		pos+=len;
-		if(len%2) pos++; // Padding byte
+		pos += chunk_data_len;
+		if(chunk_data_len%2) pos++; // Padding byte
 	}
 }
 
