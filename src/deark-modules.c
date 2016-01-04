@@ -33,6 +33,7 @@ void de_register_modules(deark *c)
 		de_module_psionapp,
 		de_module_exe,
 		de_module_ani,
+		de_module_riff,
 		de_module_jpeg2000,
 		de_module_mp4,
 		de_module_j2c,

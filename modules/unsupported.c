@@ -100,13 +100,6 @@ static void get_fmt(deark *c, struct fmtinfo_struct *fmti)
 		}
 	}
 
-	if(!de_memcmp(b, "RIFF", 4)) {
-		fmti->confidence = 2;
-		fmti->special_message = 1;
-		fmti->descr = "a RIFF file, but it is not one of the supported RIFF subformats.";
-		return;
-	}
-
 	if(!de_memcmp(b, "FORM", 4)) {
 		fmti->confidence = 2;
 		fmti->special_message = 1;

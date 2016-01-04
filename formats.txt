@@ -435,3 +435,7 @@ Deark -- Information about supported formats
   - Extract Psion PIC icons.
   - Extract other contents (use -extractall).
 
+* RIFF (module="riff")
+  Metaformat used by WAV, AVI, WebP, etc.
+  - RIFF can be parsed, but in many cases nothing can be extracted from it.
+

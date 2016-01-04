@@ -466,10 +466,6 @@
 				>
 			</File>
 			<File
-				RelativePath="..\..\modules\ani.c"
-				>
-			</File>
-			<File
 				RelativePath="..\..\modules\ansiart.c"
 				>
 			</File>
@@ -639,6 +635,10 @@
 			</File>
 			<File
 				RelativePath="..\..\modules\qtif.c"
+				>
+			</File>
+			<File
+				RelativePath="..\..\modules\riff.c"
 				>
 			</File>
 			<File

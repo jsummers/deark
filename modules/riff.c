@@ -1,6 +1,7 @@
 // This file is part of Deark, by Jason Summers.
 // This software is in the public domain. See the file COPYING for details.
 
+// Generic RIFF format
 // Windows animated cursor format
 
 #include <deark-config.h>
@@ -98,7 +99,7 @@ static void process_riff_sequence(deark *c, lctx *d, de_int64 pos, de_int64 len1
 	}
 }
 
-static void de_run_ani(deark *c, de_module_params *mparams)
+static void de_run_riff(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
 
@@ -123,6 +124,21 @@ void de_module_ani(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "ani";
 	mi->desc = "Windows animated cursor";
-	mi->run_fn = de_run_ani;
+	mi->run_fn = de_run_riff;
 	mi->identify_fn = de_identify_ani;
+}
+
+static int de_identify_riff(deark *c)
+{
+	if(!dbuf_memcmp(c->infile, 0, "RIFF", 4))
+		return 50;
+	return 0;
+}
+
+void de_module_riff(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "riff";
+	mi->desc = "RIFF metaformat";
+	mi->run_fn = de_run_riff;
+	mi->identify_fn = de_identify_riff;
 }
