@@ -17,7 +17,9 @@ Deark -- Information about supported formats
   - GlowIcons / OS3.5: Compressed images are supported. Uncompressed images are
     not.
 
-* AMOS Sprite Bank / AMOS Icon Bank (module="abk_img")
+* AMOS Sprite Bank (AmSp) / AMOS Icon Bank (AmIc) / AmBs (module="abk")
+  - Convert Sprite and Icon files to PNG.
+  - From AmBs files, extract AmSp, AmIc, and AmBk (use -a) files.
 
 * ANI (Windows Animated Cursor) (module="ani")
   - Extract individual CUR and ICO files.
