@@ -215,7 +215,7 @@ static int do_read_AmBk(deark *c, lctx *d, struct amosbank *bk)
 		(int)(bank_len-8), (int)(bank_len+12));
 	bk->bank_len = bank_len+12;
 
-	if(d->fmt==CODE_AmBs && c->extract_level>=2) {
+	if(d->fmt==CODE_AmBs) {
 		dbuf_create_file_from_slice(bk->f, 0, bk->bank_len, bk->file_ext, NULL);
 	}
 
@@ -239,9 +239,9 @@ static int do_read_bank(deark *c, lctx *d, de_int64 pos, de_int64 *bytesused)
 	de_dbg(c, "bank type '%s'\n", banktype_printable);
 
 	switch(bk->banktype) {
-	case CODE_AmIc: bk->file_ext = "ic.abk"; break;
-	case CODE_AmSp: bk->file_ext = "sp.abk"; break;
-	case CODE_AmBk: bk->file_ext = "bk.abk"; break;
+	case CODE_AmIc: bk->file_ext = "AmIc.abk"; break;
+	case CODE_AmSp: bk->file_ext = "AmSp.abk"; break;
+	case CODE_AmBk: bk->file_ext = "AmBk.abk"; break;
 	default: bk->file_ext = "abk";
 	}
 
@@ -344,7 +344,67 @@ static int de_identify_abk(deark *c)
 void de_module_abk(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "abk";
-	mi->desc = "AMOS memory bank (sprite, icon, AmBs)";
+	mi->desc = "AMOS resource (sprite, icon, AmBs)";
 	mi->run_fn = de_run_abk;
 	mi->identify_fn = de_identify_abk;
+}
+
+static void de_run_amos_source(deark *c, de_module_params *mparams)
+{
+	lctx *d = NULL;
+	de_int64 basic_len;
+	de_int64 pos;
+	de_int64 nbanks;
+
+	d = de_malloc(c, sizeof(lctx));
+
+	pos = 16;
+	basic_len = de_getui32be(pos);
+	pos += 4;
+	de_dbg(c, "BASIC code at %d, len=%d\n", (int)pos, (int)basic_len);
+	pos += basic_len;
+	if(pos >= c->infile->len) goto done;
+	if(dbuf_memcmp(c->infile, pos, "AmBs", 4)) {
+		de_err(c, "AmBs segment not found, expected at offset %d\n", (int)pos);
+		goto done;
+	}
+
+	de_dbg(c, "AmBs segment at %d\n", (int)pos);
+	nbanks = de_getui16be(pos+4);
+	de_dbg_indent(c, 1);
+	de_dbg(c, "number of banks: %d\n", (int)nbanks);
+	if(nbanks>0 || c->extract_level>=2) {
+		dbuf_create_file_from_slice(c->infile, pos, c->infile->len-pos, "AmBs.abk", NULL);
+	}
+	else {
+		de_dbg(c, "not extracting emtpy AmBs segment\n");
+	}
+	de_dbg_indent(c, -1);
+
+
+done:
+	de_free(c, d);
+}
+
+static int de_identify_amos_source(deark *c)
+{
+	de_byte b[10];
+	int ext_bonus = 0;
+
+	if(de_input_file_has_ext(c, "amos")) ext_bonus=20;
+
+	de_read(b, 0, 10);
+	if(!de_memcmp(b, "AMOS Basic", 10))
+		return 80+ext_bonus;
+	if(!de_memcmp(b, "AMOS Pro", 8))
+		return 80+ext_bonus;
+	return 0;
+}
+
+void de_module_amos_source(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "amos_source";
+	mi->desc = "AMOS source code";
+	mi->run_fn = de_run_amos_source;
+	mi->identify_fn = de_identify_amos_source;
 }

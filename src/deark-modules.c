@@ -62,6 +62,7 @@ void de_register_modules(deark *c)
 		de_module_nsl,
 		de_module_xbin,
 		de_module_abk,
+		de_module_amos_source,
 		de_module_pff2,
 		de_module_tivariable,
 		de_module_olpc565,
