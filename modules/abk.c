@@ -21,6 +21,7 @@ typedef struct localctx_struct {
 struct amosbank {
 	de_uint32 banktype;
 	de_int64 bank_len;
+	de_int64 bank_data_len;
 	dbuf *f;
 	const char *file_ext;
 
@@ -222,12 +223,41 @@ static const struct membankinfo membankinfo_arr[] = {
 	{ 0, {0,0,0,0,0,0,0,0}, NULL }
 };
 
+static void do_picture_bank(deark *c, lctx *d, struct amosbank *bk)
+{
+	de_int64 w, h;
+	de_int64 pos = 0;
+	de_int64 mode;
+	de_int64 ncolors;
+	//de_int64 nplanes;
+
+	if(bk->bank_data_len < 90+24) return;
+	de_dbg(c, "picture bank\n");
+
+	pos += 20; // Advance past AmBk header
+	// Screen header
+	w = dbuf_getui16be(bk->f, pos+4);
+	h = dbuf_getui16be(bk->f, pos+6);
+	de_dbg(c, "dimensions: %dx%d\n", (int)w, (int)h);
+
+	mode = dbuf_getui16be(bk->f, pos+20);
+	ncolors = dbuf_getui16be(bk->f, pos+22);
+	bk->nplanes = dbuf_getui16be(bk->f, pos+24);
+	bk->max_planes = bk->nplanes;
+	de_dbg(c, "mode: 0x%04x, colors: %d, planes: %d\n",
+		(unsigned int)mode, (int)ncolors, (int)bk->nplanes);
+
+	bk->pal_pos = pos + 26;
+	do_read_sprite_palette(c, d, bk);
+
+	de_err(c, "Support for AMOS Picture Bank is not implemented.\n");
+}
+
 static int do_read_AmBk(deark *c, lctx *d, struct amosbank *bk)
 {
 	de_int64 banknum;
 	de_int64 bank_len_code;
 	de_int64 bank_len_raw;
-	de_int64 bank_data_len;
 	de_byte bank_name[8];
 	int membanktype = 0;
 	char bank_name_printable[16];
@@ -242,15 +272,15 @@ static int do_read_AmBk(deark *c, lctx *d, struct amosbank *bk)
 	bank_len_code = dbuf_getui32be(bk->f, 8);
 	bank_len_raw = bank_len_code & 0x0fffffff;
 	bk->bank_len = bank_len_raw+12;
-	bank_data_len = bank_len_raw-8;
+	bk->bank_data_len = bank_len_raw-8;
 	de_dbg(c, "bank length: %d (dlen=%d, tlen=%d)\n", (int)bank_len_raw,
-		(int)bank_data_len, (int)bk->bank_len);
+		(int)bk->bank_data_len, (int)bk->bank_len);
 
 	dbuf_read(bk->f, bank_name, 12, 8);
 	de_make_printable_ascii(bank_name, 8, bank_name_printable, sizeof(bank_name_printable), 0);
 	de_dbg(c, "bank name: \"%s\"\n", bank_name_printable);
 
-	if(bank_data_len<0) return 0;
+	if(bk->bank_data_len<0) return 0;
 
 	for(i=0; membankinfo_arr[i].type!=0; i++) {
 		if(!de_memcmp(bank_name, membankinfo_arr[i].name, 8)) {
@@ -270,9 +300,15 @@ static int do_read_AmBk(deark *c, lctx *d, struct amosbank *bk)
 		return 1;
 	}
 
+	switch(membanktype) {
+	case MEMBANKTYPE_PICTURE:
+		do_picture_bank(c, d, bk);
+		return 1;
+	}
+
 	if(c->extract_level>=2) {
 		// Extracting the raw memory-bank data can be useful sometimes.
-		dbuf_create_file_from_slice(bk->f, 20, bank_data_len, "bin", NULL);
+		dbuf_create_file_from_slice(bk->f, 20, bk->bank_data_len, "bin", NULL);
 		return 1;
 	}
 
