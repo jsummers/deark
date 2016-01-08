@@ -122,17 +122,6 @@ static void get_fmt(deark *c, struct fmtinfo_struct *fmti)
 		return;
 	}
 
-	if(!de_memcmp(b, "AmBk", 4)) {
-		if(!de_memcmp(&b[12], "Music ", 6)) {
-			fmti->confidence = 50;
-			fmti->descr = "an AMOS Music Bank";
-			return;
-		}
-		fmti->confidence = 2;
-		fmti->descr = "an AMOS Memory Bank";
-		return;
-	}
-
 	// Note - Make sure Atari CAS has lower confidence.
 	if(!de_memcmp(b, "FUJIFILMCCD-RAW", 15)) {
 		fmti->confidence = 100;

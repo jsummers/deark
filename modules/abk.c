@@ -200,23 +200,80 @@ static int do_read_sprite(deark *c, lctx *d, struct amosbank *bk)
 	return 1;
 }
 
+#define MEMBANKTYPE_DATAS    1
+#define MEMBANKTYPE_MUSIC    2
+#define MEMBANKTYPE_PICTURE  3
+#define MEMBANKTYPE_ASM      4
+#define MEMBANKTYPE_AMAL     5
+#define MEMBANKTYPE_SAMPLES  6
+
+struct membankinfo {
+	int type;
+	const de_byte name[8];
+	const char *file_ext;
+};
+static const struct membankinfo membankinfo_arr[] = {
+	{ MEMBANKTYPE_DATAS,    {'D','a','t','a','s',' ',' ',' '}, "data.abk" },
+	{ MEMBANKTYPE_MUSIC,    {'M','u','s','i','c',' ',' ',' '}, "music.abk" },
+	{ MEMBANKTYPE_PICTURE,  {'P','a','c','.','P','i','c','.'}, "pic.abk" },
+	{ MEMBANKTYPE_ASM,      {'A','s','m',' ',' ',' ',' ',' '}, "asm.abk" },
+	{ MEMBANKTYPE_AMAL,     {'A','m','a','l',' ',' ',' ',' '}, "amal.abk" },
+	{ MEMBANKTYPE_SAMPLES,  {'S','a','m','p','l','e','s',' '}, "samples.abk" },
+	{ 0, {0,0,0,0,0,0,0,0}, NULL }
+};
+
 static int do_read_AmBk(deark *c, lctx *d, struct amosbank *bk)
 {
 	de_int64 banknum;
 	de_int64 bank_len_code;
-	de_int64 bank_len;
+	de_int64 bank_len_raw;
+	de_int64 bank_data_len;
+	de_byte bank_name[8];
+	int membanktype = 0;
+	char bank_name_printable[16];
+	const struct membankinfo *mbi = NULL;
+	de_int64 i;
+
+	if(bk->f->len < 20) return 0;
 
 	banknum = dbuf_getui16be(bk->f, 4);
 	de_dbg(c, "bank number (1-15): %d\n", (int)banknum);
 
 	bank_len_code = dbuf_getui32be(bk->f, 8);
-	bank_len = bank_len_code & 0x0fffffff;
-	de_dbg(c, "bank length: %d (dlen=%d, tlen=%d)\n", (int)bank_len,
-		(int)(bank_len-8), (int)(bank_len+12));
-	bk->bank_len = bank_len+12;
+	bank_len_raw = bank_len_code & 0x0fffffff;
+	bk->bank_len = bank_len_raw+12;
+	bank_data_len = bank_len_raw-8;
+	de_dbg(c, "bank length: %d (dlen=%d, tlen=%d)\n", (int)bank_len_raw,
+		(int)bank_data_len, (int)bk->bank_len);
+
+	dbuf_read(bk->f, bank_name, 12, 8);
+	de_make_printable_ascii(bank_name, 8, bank_name_printable, sizeof(bank_name_printable), 0);
+	de_dbg(c, "bank name: \"%s\"\n", bank_name_printable);
+
+	if(bank_data_len<0) return 0;
+
+	for(i=0; membankinfo_arr[i].type!=0; i++) {
+		if(!de_memcmp(bank_name, membankinfo_arr[i].name, 8)) {
+			mbi = &membankinfo_arr[i];
+			break;
+		}
+	}
+
+	if(mbi) {
+		membanktype = mbi->type;
+		bk->file_ext = mbi->file_ext;
+	}
 
 	if(d->fmt==CODE_AmBs) {
+		// If original file is in AmBs format, just extract the AmBk file.
 		dbuf_create_file_from_slice(bk->f, 0, bk->bank_len, bk->file_ext, NULL);
+		return 1;
+	}
+
+	if(c->extract_level>=2) {
+		// Extracting the raw memory-bank data can be useful sometimes.
+		dbuf_create_file_from_slice(bk->f, 20, bank_data_len, "bin", NULL);
+		return 1;
 	}
 
 	return 1;
@@ -239,8 +296,8 @@ static int do_read_bank(deark *c, lctx *d, de_int64 pos, de_int64 *bytesused)
 	de_dbg(c, "bank type '%s'\n", banktype_printable);
 
 	switch(bk->banktype) {
-	case CODE_AmIc: bk->file_ext = "AmIc.abk"; break;
-	case CODE_AmSp: bk->file_ext = "AmSp.abk"; break;
+	case CODE_AmIc: bk->file_ext = "icon.abk"; break;
+	case CODE_AmSp: bk->file_ext = "sprite.abk"; break;
 	case CODE_AmBk: bk->file_ext = "AmBk.abk"; break;
 	default: bk->file_ext = "abk";
 	}
@@ -299,11 +356,14 @@ static void de_run_abk(deark *c, de_module_params *mparams)
 
 	d->fmt = (de_uint32)de_getui32be(0);
 
-	if(d->fmt==CODE_AmIc) {
-		de_declare_fmt(c, "AMOS Icon Bank");
+	if(d->fmt==CODE_AmBk) {
+		de_declare_fmt(c, "AMOS Memory Bank");
 	}
 	else if(d->fmt==CODE_AmSp) {
 		de_declare_fmt(c, "AMOS Sprite Bank");
+	}
+	else if(d->fmt==CODE_AmIc) {
+		de_declare_fmt(c, "AMOS Icon Bank");
 	}
 	else if(d->fmt==CODE_AmBs) {
 		de_declare_fmt(c, "AMOS AmBs format");
@@ -313,7 +373,7 @@ static void de_run_abk(deark *c, de_module_params *mparams)
 		goto done;
 	}
 
-	if(d->fmt==CODE_AmSp || d->fmt==CODE_AmIc) {
+	if(d->fmt==CODE_AmBk ||d->fmt==CODE_AmSp || d->fmt==CODE_AmIc) {
 		do_read_bank(c, d, 0, &bytesused);
 	}
 	else if(d->fmt==CODE_AmBs) {
@@ -332,6 +392,8 @@ static int de_identify_abk(deark *c)
 	if(de_input_file_has_ext(c, "abk")) ext_bonus=40;
 
 	de_read(b, 0, 4);
+	if(!de_memcmp(b, "AmBk", 4))
+		return 60+ext_bonus;
 	if(!de_memcmp(b, "AmSp", 4))
 		return 60+ext_bonus;
 	if(!de_memcmp(b, "AmIc", 4))
@@ -344,7 +406,7 @@ static int de_identify_abk(deark *c)
 void de_module_abk(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "abk";
-	mi->desc = "AMOS resource (sprite, icon, AmBs)";
+	mi->desc = "AMOS resource (AmBk, sprite, icon, AmBs)";
 	mi->run_fn = de_run_abk;
 	mi->identify_fn = de_identify_abk;
 }
