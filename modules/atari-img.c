@@ -443,7 +443,7 @@ static void do_prism_read_palette(deark *c, prixmctx *d, struct atari_img_decode
 		r = scale1000to255(r1);
 		g = scale1000to255(g1);
 		b = scale1000to255(b1);
-		de_dbg2(c, "pal#%3d (%5d,%5d,%5d) (%3d,%3d,%3d)\n", (int)i, (int)r1, (int)g1, (int)b1,
+		de_dbg2(c, "pal[%3d] = (%4d,%4d,%4d) -> (%3d,%3d,%3d)\n", (int)i, (int)r1, (int)g1, (int)b1,
 			(int)r, (int)g, (int)b);
 		if(i>255) continue;
 		pal1[i] = DE_MAKE_RGB(r,g,b);

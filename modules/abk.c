@@ -317,16 +317,26 @@ static void picture_bank_uncompress(deark *c, lctx *d, struct amosbank *bk,
 		}
 	}
 
-	de_dbg(c, "compressed pic bytes: %d\n", (int)(picdatapos - bk->pic_picdata_offset));
-	de_dbg(c, "compressed rle bytes: %d\n", (int)(rledatapos - bk->pic_rledata_offset));
-	de_dbg(c, "points bytes: %d\n", (int)(pointspos - bk->pic_points_offset));
-	de_dbg(c, "uncompressed to %d bytes\n", (int)unc_pixels->len);
+	{
+		de_int64 cmpr_pic_bytes, cmpr_rle_bytes, points_bytes;
+
+		cmpr_pic_bytes = picdatapos - bk->pic_picdata_offset;
+		cmpr_rle_bytes = rledatapos - bk->pic_rledata_offset;
+		points_bytes = pointspos - bk->pic_points_offset;
+		de_dbg(c, "compressed pic bytes: %d\n", (int)cmpr_pic_bytes);
+		de_dbg(c, "compressed rle bytes: %d\n", (int)cmpr_rle_bytes);
+		de_dbg(c, "points bytes: %d\n", (int)points_bytes);
+		de_dbg(c, "uncompressed %d bytes to %d bytes\n",
+			(int)(cmpr_pic_bytes + cmpr_rle_bytes + points_bytes),
+			(int)unc_pixels->len);
+	}
+
 	de_dbg_indent(c, -1);
 }
 
 static void picture_bank_read_picture(deark *c, lctx *d, struct amosbank *bk, de_int64 pos)
 {
-	de_int64 bytes_per_plane_per_row;
+	de_int64 bytes_per_row_per_plane;
 	de_int64 height_in_lumps;
 	de_int64 lines_per_lump;
 	de_int64 width, height;
@@ -351,9 +361,9 @@ static void picture_bank_read_picture(deark *c, lctx *d, struct amosbank *bk, de
 
 	// 24-byte "Picture header"
 
-	bytes_per_plane_per_row = dbuf_getui16be(bk->f, pos+8);
-	de_dbg(c, "bytes per plane per row: %d\n", (int)bytes_per_plane_per_row);
-	width = bytes_per_plane_per_row * 8;
+	bytes_per_row_per_plane = dbuf_getui16be(bk->f, pos+8);
+	de_dbg(c, "bytes per row per plane: %d\n", (int)bytes_per_row_per_plane);
+	width = bytes_per_row_per_plane * 8;
 
 	height_in_lumps = dbuf_getui16be(bk->f, pos+10);
 	de_dbg(c, "height in lumps: %d\n", (int)height_in_lumps);
@@ -388,19 +398,19 @@ static void picture_bank_read_picture(deark *c, lctx *d, struct amosbank *bk, de
 	bk->pic_picdata_offset = pos + 24;
 	de_dbg(c, "picdata at %d\n", (int)bk->pic_picdata_offset);
 
-	bk->picdata_expected_unc_bytes = bytes_per_plane_per_row * bk->nplanes * height;
+	bk->picdata_expected_unc_bytes = bytes_per_row_per_plane * bk->nplanes * height;
 	unc_pixels = dbuf_create_membuf(c, bk->picdata_expected_unc_bytes);
 	picture_bank_uncompress(c, d, bk, unc_pixels);
 
 	img = de_bitmap_create(c, width, height, 3);
 
-	lumpspan = bytes_per_plane_per_row * lines_per_lump;
+	lumpspan = bytes_per_row_per_plane * lines_per_lump;
 	planespan = lumpspan * height_in_lumps;
 	pos_in_picdata = 0;
 	ypos=0;
 	for(lump=0; lump<height_in_lumps; lump++) {
 		xpos = 0;
-		for(strip=0; strip<bytes_per_plane_per_row; strip++) {
+		for(strip=0; strip<bytes_per_row_per_plane; strip++) {
 			for(line_in_lump=0; line_in_lump<lines_per_lump; line_in_lump++) {
 				for(k=0; k<8; k++) {
 					palent = 0;
