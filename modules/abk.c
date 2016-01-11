@@ -34,6 +34,13 @@ struct amosbank {
 	de_int64 ysize;
 	de_int64 nplanes;
 	de_int64 max_planes;
+
+	// Picture Bank settings
+	de_int64 pic_rledata_offset;
+	de_int64 pic_points_offset;
+	de_int64 pic_picdata_offset;
+	de_int64 picdata_expected_unc_bytes;
+	de_uint32 amiga_mode;
 };
 
 static void do_read_sprite_image(deark *c, lctx *d, struct amosbank *bk, de_int64 pos)
@@ -55,6 +62,7 @@ static void do_read_sprite_image(deark *c, lctx *d, struct amosbank *bk, de_int6
 	if(!de_good_image_dimensions(c, width, height)) goto done;
 	if(bk->nplanes<1 || bk->nplanes>6) {
 		de_err(c, "Unsupported number of planes: %d\n", (int)bk->nplanes);
+		goto done;
 	}
 
 	img = de_bitmap_create(c, width, height, 4);
@@ -223,34 +231,255 @@ static const struct membankinfo membankinfo_arr[] = {
 	{ 0, {0,0,0,0,0,0,0,0}, NULL }
 };
 
+// 90-byte "Screen header"
+// Has information about the intended display device. Not much of this
+// is useful, other than the palette.
+static void picture_bank_screen_header(deark *c, lctx *d, struct amosbank *bk, de_int64 pos)
+{
+	de_int64 screen_width, screen_height;
+	de_int64 ncolors;
+	de_int64 nplanes;
+
+	de_dbg(c, "screen header at %d\n", (int)pos);
+	de_dbg_indent(c, 1);
+
+	screen_width = dbuf_getui16be(bk->f, pos+4);
+	screen_height = dbuf_getui16be(bk->f, pos+6);
+	de_dbg(c, "screen dimensions: %dx%d\n", (int)screen_width, (int)screen_height);
+
+	bk->amiga_mode = (de_uint32)dbuf_getui16be(bk->f, pos+20);
+	ncolors = dbuf_getui16be(bk->f, pos+22);
+	nplanes = dbuf_getui16be(bk->f, pos+24);
+
+	de_dbg(c, "screen mode: 0x%04x, colors: %d, planes: %d\n",
+		(unsigned int)bk->amiga_mode, (int)ncolors, (int)nplanes);
+
+	bk->pal_pos = pos + 26;
+
+	// Set bk->max_planes, so that do_read_sprite_palette doesn't print
+	// "[unused]".
+	// TODO: We could look ahead at the picture header to figure out how many
+	// palette entries are used. Or we could just guess that it's the same as
+	// 'nplanes' in the screen header.
+	bk->max_planes = 5;
+	do_read_sprite_palette(c, d, bk);
+	bk->max_planes = 0;
+
+	de_dbg_indent(c, -1);
+}
+
+static void picture_bank_uncompress(deark *c, lctx *d, struct amosbank *bk,
+	dbuf *unc_pixels)
+{
+	de_int64 picdatapos; // file offset of next unread byte
+	de_int64 rledatapos;
+	de_int64 pointspos;
+	de_byte picbyte;
+	de_byte rlebyte;
+	de_byte pointsbyte;
+	int rbitnum, pbitnum;
+
+	de_dbg(c, "uncompressing picture\n");
+	de_dbg_indent(c, 1);
+
+	picdatapos = bk->pic_picdata_offset;
+	rledatapos = bk->pic_rledata_offset;
+	pointspos = bk->pic_points_offset;
+
+	picbyte = dbuf_getbyte(bk->f, picdatapos++);
+	rlebyte = dbuf_getbyte(bk->f, rledatapos++);
+	rbitnum = 7;
+	pointsbyte = dbuf_getbyte(bk->f, pointspos++);
+	pbitnum = 7;
+
+	if(pointsbyte & (1 << pbitnum--)) {
+		rlebyte = dbuf_getbyte(bk->f, rledatapos++);
+	}
+
+	while(1) {
+		if(unc_pixels->len >= bk->picdata_expected_unc_bytes) break;
+		if(rlebyte & (1 << rbitnum--)) {
+			picbyte = dbuf_getbyte(bk->f, picdatapos++);
+		}
+
+		dbuf_writebyte(unc_pixels, picbyte);
+
+		if(rbitnum < 0) {
+			if(pointsbyte & (1 << pbitnum--)) {
+				rlebyte = dbuf_getbyte(bk->f, rledatapos++);
+			}
+			rbitnum = 7;
+
+			if(pbitnum < 0) {
+				pointsbyte = dbuf_getbyte(bk->f, pointspos++);
+				pbitnum = 7;
+			}
+		}
+	}
+
+	de_dbg(c, "compressed pic bytes: %d\n", (int)(picdatapos - bk->pic_picdata_offset));
+	de_dbg(c, "compressed rle bytes: %d\n", (int)(rledatapos - bk->pic_rledata_offset));
+	de_dbg(c, "points bytes: %d\n", (int)(pointspos - bk->pic_points_offset));
+	de_dbg(c, "uncompressed to %d bytes\n", (int)unc_pixels->len);
+	de_dbg_indent(c, -1);
+}
+
+static void picture_bank_read_picture(deark *c, lctx *d, struct amosbank *bk, de_int64 pos)
+{
+	de_int64 bytes_per_plane_per_row;
+	de_int64 height_in_lumps;
+	de_int64 lines_per_lump;
+	de_int64 width, height;
+	struct deark_bitmap *img = NULL;
+	dbuf *unc_pixels = NULL;
+	de_int64 k;
+	de_int64 xpos, ypos;
+	de_int64 lump;
+	de_int64 line_in_lump;
+	de_int64 strip;
+	de_int64 plane;
+	unsigned int palent;
+	de_byte x;
+	de_int64 planespan;
+	de_int64 lumpspan;
+	de_int64 pos_in_picdata;
+	int indent_count = 0;
+
+	de_dbg(c, "picture header at %d\n", (int)pos);
+	de_dbg_indent(c, 1);
+	indent_count++;
+
+	// 24-byte "Picture header"
+
+	bytes_per_plane_per_row = dbuf_getui16be(bk->f, pos+8);
+	de_dbg(c, "bytes per plane per row: %d\n", (int)bytes_per_plane_per_row);
+	width = bytes_per_plane_per_row * 8;
+
+	height_in_lumps = dbuf_getui16be(bk->f, pos+10);
+	de_dbg(c, "height in lumps: %d\n", (int)height_in_lumps);
+	lines_per_lump = dbuf_getui16be(bk->f, pos+12);
+	de_dbg(c, "lines per lump: %d\n", (int)lines_per_lump);
+	height = height_in_lumps * lines_per_lump;
+
+	de_dbg(c, "calculated dimensions: %dx%d\n", (int)width, (int)height);
+
+	bk->nplanes = dbuf_getui16be(bk->f, pos+14);
+	de_dbg(c, "number of bitplanes: %d\n", (int)bk->nplanes);
+
+	bk->pic_rledata_offset = dbuf_getui32be(bk->f, pos+16);
+	de_dbg(c, "rledata offset: %d (file offset: %d)\n", (int)bk->pic_rledata_offset,
+		(int)(pos+bk->pic_rledata_offset));
+	bk->pic_rledata_offset += pos; // Convert to absolute offset
+
+	bk->pic_points_offset = dbuf_getui32be(bk->f, pos+20);
+	de_dbg(c, "points offset: %d (file offset: %d)\n", (int)bk->pic_points_offset,
+		(int)(pos+bk->pic_points_offset));
+	bk->pic_points_offset += pos; // Convert to absolute offset
+
+	if(!de_good_image_dimensions(c, width, height)) goto done;
+	if(bk->nplanes<1 || bk->nplanes>6) {
+		de_err(c, "Unsupported number of planes: %d\n", (int)bk->nplanes);
+		goto done;
+	}
+
+	de_dbg_indent(c, -1);
+	indent_count--;
+
+	bk->pic_picdata_offset = pos + 24;
+	de_dbg(c, "picdata at %d\n", (int)bk->pic_picdata_offset);
+
+	bk->picdata_expected_unc_bytes = bytes_per_plane_per_row * bk->nplanes * height;
+	unc_pixels = dbuf_create_membuf(c, bk->picdata_expected_unc_bytes);
+	picture_bank_uncompress(c, d, bk, unc_pixels);
+
+	img = de_bitmap_create(c, width, height, 3);
+
+	lumpspan = bytes_per_plane_per_row * lines_per_lump;
+	planespan = lumpspan * height_in_lumps;
+	pos_in_picdata = 0;
+	ypos=0;
+	for(lump=0; lump<height_in_lumps; lump++) {
+		xpos = 0;
+		for(strip=0; strip<bytes_per_plane_per_row; strip++) {
+			for(line_in_lump=0; line_in_lump<lines_per_lump; line_in_lump++) {
+				for(k=0; k<8; k++) {
+					palent = 0;
+					for(plane=0; plane<bk->nplanes; plane++) {
+						x = de_get_bits_symbol(unc_pixels, 1, pos_in_picdata + plane*planespan, k);
+						if(x) palent |= 1<<plane;
+					}
+					if(palent<=255) {
+						de_bitmap_setpixel_rgb(img, xpos, ypos, bk->pal[palent]);
+					}
+					xpos++;
+				}
+				pos_in_picdata++;
+				xpos-=8;
+				ypos++;
+			}
+			xpos+=8;
+			ypos -= lines_per_lump;
+		}
+		ypos += lines_per_lump;
+	}
+
+	de_bitmap_write_to_file(img, NULL);
+done:
+	dbuf_close(unc_pixels);
+	de_bitmap_destroy(img);
+	de_dbg_indent(c, -indent_count);
+}
+
+static void picture_bank_make_palette(deark *c, lctx *d, struct amosbank *bk)
+{
+	de_int64 k;
+	de_byte v;
+
+	de_warn(c, "No palette found. Using grayscale palette.\n");
+	for(k=0; k<32; k++) {
+		v = (de_byte)(0.5+ ((double)k)*(255.0/31.0));
+		bk->pal[k] = DE_MAKE_GRAY(v);
+		bk->pal[k+32] = DE_MAKE_GRAY(v/2);
+	}
+}
+
 static void do_picture_bank(deark *c, lctx *d, struct amosbank *bk)
 {
-	de_int64 w, h;
 	de_int64 pos = 0;
-	de_int64 mode;
-	de_int64 ncolors;
-	//de_int64 nplanes;
+	de_uint32 segtype;
+	int found_screen_header = 0;
 
-	if(bk->bank_data_len < 90+24) return;
 	de_dbg(c, "picture bank\n");
 
 	pos += 20; // Advance past AmBk header
-	// Screen header
-	w = dbuf_getui16be(bk->f, pos+4);
-	h = dbuf_getui16be(bk->f, pos+6);
-	de_dbg(c, "dimensions: %dx%d\n", (int)w, (int)h);
 
-	mode = dbuf_getui16be(bk->f, pos+20);
-	ncolors = dbuf_getui16be(bk->f, pos+22);
-	bk->nplanes = dbuf_getui16be(bk->f, pos+24);
-	bk->max_planes = bk->nplanes;
-	de_dbg(c, "mode: 0x%04x, colors: %d, planes: %d\n",
-		(unsigned int)mode, (int)ncolors, (int)bk->nplanes);
+	segtype = (de_uint32)de_getui32be(pos);
+	if(segtype==0x12031990) {
+		found_screen_header = 1;
+		picture_bank_screen_header(c, d, bk, pos);
+		pos += 90;
 
-	bk->pal_pos = pos + 26;
-	do_read_sprite_palette(c, d, bk);
+		if(bk->amiga_mode & 0x0800) {
+			de_err(c, "HAM Picture Bank images are not supported.\n");
+			goto done;
+		}
 
-	de_err(c, "Support for AMOS Picture Bank is not implemented.\n");
+		segtype = (de_uint32)de_getui32be(pos);
+	}
+
+	if(segtype!=0x06071963) {
+		de_err(c, "Missing Picture Header\n");
+		goto done;
+	}
+
+	if(!found_screen_header) {
+		picture_bank_make_palette(c, d, bk);
+	}
+
+	picture_bank_read_picture(c, d, bk, pos);
+
+done:
+	;
 }
 
 static int do_read_AmBk(deark *c, lctx *d, struct amosbank *bk)

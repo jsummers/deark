@@ -158,7 +158,7 @@ Thanks to Mike Frysinger, and the authors of compress/ncompress, for liblzw.
 
 === Authors ===
 
-Written by Jason Summers, 2014-2015.
+Written by Jason Summers, 2014-2016.
 <http://entropymine.com/deark/>
 <https://github.com/jsummers/deark>
 

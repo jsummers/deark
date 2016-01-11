@@ -818,3 +818,25 @@ void dbuf_set_max_length(dbuf *f, de_int64 max_len)
 {
 	f->max_len = max_len;
 }
+
+// Write the contents of a dbuf to a file.
+// This function intended for use in development/debugging.
+int dbuf_dump_to_file(dbuf *inf, const char *fn)
+{
+	FILE *fp;
+	char msgbuf[200];
+	dbuf *tmpdbuf = NULL;
+	deark *c = inf->c;
+
+	fp = de_fopen(c, fn, "wb", msgbuf, sizeof(msgbuf));
+	if(!fp) return 0;
+
+	tmpdbuf = dbuf_create_membuf(c, inf->len);
+	dbuf_copy(inf, 0, inf->len, tmpdbuf);
+
+	fwrite(tmpdbuf->membuf_buf, 1, (size_t)tmpdbuf->len, fp);
+	de_fclose(fp);
+
+	dbuf_close(tmpdbuf);
+	return 1;
+}
