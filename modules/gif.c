@@ -238,9 +238,9 @@ static int lzw_process_code(deark *c, lctx *d, struct gif_image_data *gi, struct
 // Any unfinished business is recorded, to be continued the next time
 // this function is called.
 static int lzw_process_bytes(deark *c, lctx *d, struct gif_image_data *gi, struct lzwdeccontext *lz,
-	de_byte *data, size_t data_size)
+	de_byte *data, de_int64 data_size)
 {
-	size_t i;
+	de_int64 i;
 	int b;
 	int retval=0;
 
