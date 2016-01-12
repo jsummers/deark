@@ -216,7 +216,8 @@ static void nsl_read_bitmap(deark *c, lctx *d, de_int64 pos, de_int64 len)
 	de_int64 i, j;
 	de_byte x;
 
-	de_dbg(c, "found NSLD chunk. bitmap at %d, len=%d\n", (int)pos, (int)len);
+	de_dbg_indent(c, 1);
+	de_dbg(c, "bitmap at %d, len=%d\n", (int)pos, (int)len);
 	d->done_flag = 1;
 
 	if(len!=504) {
@@ -241,31 +242,43 @@ static void nsl_read_bitmap(deark *c, lctx *d, de_int64 pos, de_int64 len)
 	de_bitmap_write_to_file(img, NULL);
 
 done:
+	de_dbg_indent(c, -1);
 	de_bitmap_destroy(img);
 }
 
 static int read_nsl_chunk_sequence(deark *c, lctx *d, de_int64 pos, de_int64 len);
 
+#define CODE_FORM  0x464f524dU
+#define CODE_NSLD  0x4e534c44U
+
 static int read_nsl_chunk(deark *c, lctx *d, de_int64 pos1, de_int64 *plen)
 {
-	de_byte chunk_id[5];
+	de_byte chunk_id_buf[4];
+	char chunk_id_printable[8];
+	de_uint32 chunk_id;
 	de_int64 payload_len;
 	de_int64 pos;
 
 	pos = pos1;
-	de_read(chunk_id, pos, 4);
+	de_read(chunk_id_buf, pos, 4);
+	chunk_id = (de_uint32)de_getui32be_direct(chunk_id_buf);
+	de_make_printable_ascii(chunk_id_buf, 4, chunk_id_printable, sizeof(chunk_id_printable), 0);
+
 	pos += 4;
 	payload_len = de_getui16be(pos);
 	pos += 2;
 
-	de_dbg(c, "[%d] chunk at %d, len=%d\n", d->nesting_level, (int)pos1, (int)payload_len);
+	de_dbg(c, "chunk '%s' at %d, dlen=%d, tlen=%d\n", chunk_id_printable, (int)pos1,
+		(int)payload_len, (int)(6+payload_len));
 
-	if(!de_memcmp(chunk_id, "FORM", 4) && d->nesting_level==0) {
+	if(chunk_id==CODE_FORM && d->nesting_level==0) {
 		d->nesting_level++;
+		de_dbg_indent(c, 1);
 		read_nsl_chunk_sequence(c, d, pos, payload_len);
+		de_dbg_indent(c, -1);
 		d->nesting_level--;
 	}
-	else if(!de_memcmp(chunk_id, "NSLD", 4) && d->nesting_level==1) {
+	else if(chunk_id==CODE_NSLD && d->nesting_level==1 && !d->done_flag) {
 		nsl_read_bitmap(c, d, pos, payload_len);
 	}
 
@@ -287,10 +300,6 @@ static int read_nsl_chunk_sequence(deark *c, lctx *d, de_int64 pos, de_int64 len
 	while(pos < endpos) {
 		ret = read_nsl_chunk(c, d, pos, &chunk_len);
 		if(!ret) goto done;
-		if(d->done_flag) {
-			retval = 1;
-			goto done;
-		}
 		pos += chunk_len;
 	}
 	retval = 1;
