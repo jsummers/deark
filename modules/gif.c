@@ -388,6 +388,64 @@ static void do_comment_extension(deark *c, lctx *d, de_int64 pos)
 	dbuf_close(f);
 }
 
+static void do_plaintext_extension(deark *c, lctx *d, de_int64 pos)
+{
+	dbuf *f = NULL;
+	de_int64 n;
+	de_int64 text_width_in_pixels;
+	de_int64 text_width_in_chars;
+	de_int64 char_width;
+	de_int64 char_count;
+	de_int64 k;
+	de_byte b;
+
+	if(c->extract_level<2) return;
+
+	// The first sub-block is the header
+	n = (de_int64)de_getbyte(pos);
+	pos++;
+	if(n<12) return;
+
+	text_width_in_pixels = de_getui16le(pos+4);
+	char_width = (de_int64)de_getbyte(pos+8);
+	de_dbg(c, "text-area width: %d pixels\n", (int)text_width_in_pixels);
+	de_dbg(c, "character width: %d pixels\n", (int)char_width);
+
+	if(char_width>0) {
+		text_width_in_chars = text_width_in_pixels / char_width;
+		if(text_width_in_chars<1) text_width_in_chars = 1;
+	}
+	else {
+		text_width_in_chars = 80;
+	}
+	de_dbg(c, "calculated chars/line: %d\n", (int)text_width_in_chars);
+
+	pos += n;
+
+	f = dbuf_create_output_file(c, "plaintext.txt", NULL);
+
+	char_count = 0;
+	while(1) {
+		if(pos >= c->infile->len) break;
+		n = (de_int64)de_getbyte(pos);
+		pos++;
+		if(n==0) break;
+
+		for(k=0; k<n; k++) {
+			b = dbuf_getbyte(c->infile, pos+k);
+			dbuf_writebyte(f, b);
+			char_count++;
+			// Insert newlines in appropriate places.
+			if(char_count%text_width_in_chars == 0) {
+				dbuf_writebyte(f, '\n');
+			}
+		}
+		pos += n;
+	}
+
+	dbuf_close(f);
+}
+
 static int do_read_extension(deark *c, lctx *d, de_int64 pos1, de_int64 *bytesused)
 {
 	de_int64 bytesused2 = 0;
@@ -413,6 +471,9 @@ static int do_read_extension(deark *c, lctx *d, de_int64 pos1, de_int64 *bytesus
 
 	de_dbg_indent(c, 1);
 	switch(ext_type) {
+	case 0x01:
+		do_plaintext_extension(c, d, pos);
+		break;
 	case 0xf9:
 		do_graphic_control_extension(c, d, pos);
 		break;

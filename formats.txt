@@ -104,8 +104,10 @@ Deark -- Information about supported formats
 
 * GIF (module="gif")
   - Extract individual images. (Note that for animated GIFs, these are often
-     just portions of an image).
+     just portions of an image.)
   - Extract comments (use -a).
+  - Extract text from plaintext extensions (use -a). (Text only; colors are
+     ignored.)
 
 * GRASP GL animation (module="graspgl")
   - Extracts all files.
