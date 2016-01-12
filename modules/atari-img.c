@@ -17,11 +17,6 @@ struct atari_img_decode_data {
 
 static void fix_dark_pal(deark *c, struct atari_img_decode_data *adata);
 
-static de_byte scale7to255(de_byte n)
-{
-	return (de_byte)(0.5+(255.0/7.0)*(double)n);
-}
-
 static de_byte scale1000to255(de_int64 n)
 {
 	if(n>=1000) return 255;
@@ -109,31 +104,6 @@ static int de_decode_atari_image(deark *c, struct atari_img_decode_data *adata)
 
 	de_err(c, "Unsupported bits/pixel (%d)\n", (int)adata->bpp);
 	return 0;
-}
-
-static void read_atari_pal16(deark *c, struct atari_img_decode_data *adata, de_int64 pos)
-{
-	de_int64 i;
-	unsigned int n;
-	de_byte cr, cg, cb;
-	de_byte cr1, cg1, cb1;
-
-	for(i=0; i<16; i++) {
-		n = (unsigned int)de_getui16be(pos);
-		cr1 = (de_byte)((n>>8)&7);
-		cg1 = (de_byte)((n>>4)&7);
-		cb1 = (de_byte)(n&7);
-		cr = scale7to255(cr1);
-		cg = scale7to255(cg1);
-		cb = scale7to255(cb1);
-		de_dbg2(c, "pal[%2d] = 0x%04x (%d,%d,%d) -> (%3d,%3d,%3d)%s\n", (int)i, n,
-			(int)cr1, (int)cg1, (int)cb1,
-			(int)cr, (int)cg, (int)cb,
-			(i>=adata->ncolors)?" [unused]":"");
-
-		adata->pal[i] = DE_MAKE_RGB(cr, cg, cb);
-		pos+=2;
-	}
 }
 
 // **************************************************************************
@@ -303,7 +273,7 @@ static void de_run_degas(deark *c, de_module_params *mparams)
 	d->degas_elite_flag = is_degas_elite(c, d);
 	declare_degas_fmt(c, d, adata);
 
-	read_atari_pal16(c, adata, pos);
+	de_fmtutil_read_atari_palette(c, c->infile, pos, adata->pal, 16, adata->ncolors);
 	pos += 2*16;
 	fix_dark_pal(c, adata);
 
@@ -934,7 +904,7 @@ static void de_run_tinystuff(deark *c, de_module_params *mparams)
 		pos += 4; // skip animation_info
 	}
 
-	read_atari_pal16(c, adata, pos);
+	de_fmtutil_read_atari_palette(c, c->infile, pos, adata->pal, 16, adata->ncolors);
 	fix_dark_pal(c, adata);
 	pos += 16*2;
 
@@ -1034,7 +1004,7 @@ static void de_run_neochrome(deark *c, de_module_params *mparams)
 	adata->ncolors = (de_int64)(1<<adata->bpp);
 	de_dbg(c, "dimensions: %dx%d, colors: %d\n", (int)adata->w, (int)adata->h, (int)adata->ncolors);
 
-	read_atari_pal16(c, adata, 4);
+	de_fmtutil_read_atari_palette(c, c->infile, 4, adata->pal, 16, adata->ncolors);
 	adata->unc_pixels = dbuf_open_input_subfile(c->infile, 128, 32000);
 	is_grayscale = de_is_grayscale_palette(adata->pal, adata->ncolors);
 	adata->img = de_bitmap_create(c, adata->w, adata->h, is_grayscale?1:3);

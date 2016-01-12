@@ -90,3 +90,6 @@ struct de_boxesctx {
 double dbuf_fmtutil_read_fixed_16_16(dbuf *f, de_int64 pos);
 int de_fmtutil_default_box_handler(deark *c, struct de_boxesctx *bctx);
 void de_fmtutil_read_boxes_format(deark *c, struct de_boxesctx *bctx);
+
+void de_fmtutil_read_atari_palette(deark *c, dbuf *f, de_int64 pos,
+	de_uint32 *dstpal, de_int64 ncolors_to_read, de_int64 ncolors_used);

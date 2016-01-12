@@ -517,3 +517,33 @@ void de_fmtutil_read_boxes_format(deark *c, struct de_boxesctx *bctx)
 	if(!bctx->f || !bctx->handle_box_fn) return; // Internal error
 	do_box_sequence(c, bctx, 0, bctx->f->len, 0);
 }
+
+static de_byte scale7to255(de_byte n)
+{
+	return (de_byte)(0.5+(255.0/7.0)*(double)n);
+}
+
+void de_fmtutil_read_atari_palette(deark *c, dbuf *f, de_int64 pos,
+	de_uint32 *dstpal, de_int64 ncolors_to_read, de_int64 ncolors_used)
+{
+	de_int64 i;
+	unsigned int n;
+	de_byte cr, cg, cb;
+	de_byte cr1, cg1, cb1;
+
+	for(i=0; i<ncolors_to_read; i++) {
+		n = (unsigned int)dbuf_getui16be(f, pos + 2*i);
+		cr1 = (de_byte)((n>>8)&7);
+		cg1 = (de_byte)((n>>4)&7);
+		cb1 = (de_byte)(n&7);
+		cr = scale7to255(cr1);
+		cg = scale7to255(cg1);
+		cb = scale7to255(cb1);
+		de_dbg2(c, "pal[%2d] = 0x%04x (%d,%d,%d) -> (%3d,%3d,%3d)%s\n", (int)i, n,
+			(int)cr1, (int)cg1, (int)cb1,
+			(int)cr, (int)cg, (int)cb,
+			(i>=ncolors_used)?" [unused]":"");
+
+		dstpal[i] = DE_MAKE_RGB(cr, cg, cb);
+	}
+}
