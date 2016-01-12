@@ -528,19 +528,78 @@ void de_fmtutil_read_atari_palette(deark *c, dbuf *f, de_int64 pos,
 {
 	de_int64 i;
 	unsigned int n;
+	int has_12bit_pal = 0;
 	de_byte cr, cg, cb;
 	de_byte cr1, cg1, cb1;
+	char cbuf[32];
+	const char *s;
+	int detect_pal_bits = 1;
+
+	s = de_get_ext_option(c, "atari:palbits");
+	if(s) {
+		int palbits_req = de_atoi(s);
+		if(palbits_req>0) {
+			detect_pal_bits = 0;
+			if(palbits_req>=12) {
+				has_12bit_pal = 1;
+			}
+		}
+	}
+
+	if(detect_pal_bits) {
+		// Pre-scan the palette, and try to guess whether Atari STE-style 12-bit
+		// colors are used, instead of the usual 9-bit colors.
+		// I don't know the best way to do this. Sometimes the 4th bit in each
+		// nibble is used for extra color detail, and sometimes it just seems to
+		// contain garbage. Maybe the logic should also depend on the file
+		// format, or the number of colors.
+		int bit_3_used = 0;
+		int nibble_3_used = 0;
+
+		for(i=0; i<ncolors_to_read; i++) {
+			n = (unsigned int)dbuf_getui16be(f, pos + i*2);
+			if(n&0xf000) {
+				nibble_3_used = 1;
+			}
+			if(n&0x0888) {
+				bit_3_used = 1;
+			}
+		}
+
+		if(bit_3_used && !nibble_3_used) {
+			de_dbg(c, "12-bit palette colors detected\n");
+			has_12bit_pal = 1;
+		}
+	}
 
 	for(i=0; i<ncolors_to_read; i++) {
 		n = (unsigned int)dbuf_getui16be(f, pos + 2*i);
-		cr1 = (de_byte)((n>>8)&7);
-		cg1 = (de_byte)((n>>4)&7);
-		cb1 = (de_byte)(n&7);
-		cr = scale7to255(cr1);
-		cg = scale7to255(cg1);
-		cb = scale7to255(cb1);
-		de_dbg2(c, "pal[%2d] = 0x%04x (%d,%d,%d) -> (%3d,%3d,%3d)%s\n", (int)i, n,
-			(int)cr1, (int)cg1, (int)cb1,
+
+		if(has_12bit_pal) {
+			cr1 = (de_byte)((n>>7)&14);
+			if(n&0x800) cr1++;
+			cg1 = (de_byte)((n>>3)&14);
+			if(n&0x080) cg1++;
+			cb1 = (de_byte)((n<<1)&14);
+			if(n&0x008) cb1++;
+			cr = cr1*17;
+			cg = cg1*17;
+			cb = cb1*17;
+			de_snprintf(cbuf, sizeof(cbuf), "%2d,%2d,%2d",
+				(int)cr1, (int)cg1, (int)cb1);
+		}
+		else {
+			cr1 = (de_byte)((n>>8)&7);
+			cg1 = (de_byte)((n>>4)&7);
+			cb1 = (de_byte)(n&7);
+			cr = scale7to255(cr1);
+			cg = scale7to255(cg1);
+			cb = scale7to255(cb1);
+			de_snprintf(cbuf, sizeof(cbuf), "%d,%d,%d",
+				(int)cr1, (int)cg1, (int)cb1);
+		}
+
+		de_dbg2(c, "pal[%2d] = 0x%04x (%s) -> (%3d,%3d,%3d)%s\n", (int)i, n, cbuf,
 			(int)cr, (int)cg, (int)cb,
 			(i>=ncolors_used)?" [unused]":"");
 
