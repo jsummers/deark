@@ -8,7 +8,8 @@
 #include <deark-modules.h>
 
 typedef struct localctx_struct {
-	int reserved;
+	int is_le;
+	int char_codes_are_reversed;
 } lctx;
 
 static void extract_frame(deark *c, lctx *d, de_int64 pos, de_int64 len)
@@ -40,6 +41,7 @@ static void extract_frame(deark *c, lctx *d, de_int64 pos, de_int64 len)
 
 #define CHUNK_LIST 0x4c495354U
 #define CHUNK_RIFF 0x52494646U
+#define CHUNK_RIFX 0x52494658U
 #define CHUNK_icon 0x69636f6eU
 
 static void process_riff_sequence(deark *c, lctx *d, de_int64 pos, de_int64 len1)
@@ -71,10 +73,14 @@ static void process_riff_sequence(deark *c, lctx *d, de_int64 pos, de_int64 len1
 	while(pos < endpos) {
 		chunk_pos = pos;
 		de_read(chunk_id_buf, chunk_pos, 4);
+		if(d->char_codes_are_reversed) {
+			de_byte tmpc;
+			tmpc=chunk_id_buf[0]; chunk_id_buf[0]=chunk_id_buf[3]; chunk_id_buf[3]=tmpc;
+			tmpc=chunk_id_buf[1]; chunk_id_buf[1]=chunk_id_buf[2]; chunk_id_buf[2]=tmpc;
+		}
 		pos+=4;
 		chunk_id = (de_uint32)de_getui32be_direct(chunk_id_buf);
-
-		chunk_data_len = de_getui32le(pos);
+		chunk_data_len = dbuf_getui32x(c->infile, pos, d->is_le);
 		pos+=4;
 
 		de_make_printable_ascii(chunk_id_buf, 4, chunk_id_printable, sizeof(chunk_id_printable), 0);
@@ -84,7 +90,7 @@ static void process_riff_sequence(deark *c, lctx *d, de_int64 pos, de_int64 len1
 		if(chunk_id==CHUNK_icon) {
 			extract_frame(c, d, pos, chunk_data_len);
 		}
-		else if(chunk_id==CHUNK_RIFF || chunk_id==CHUNK_LIST)
+		else if(chunk_id==CHUNK_RIFF || chunk_id==CHUNK_RIFX || chunk_id==CHUNK_LIST)
 		{
 			de_read(list_id_buf, pos, 4);
 			de_make_printable_ascii(list_id_buf, 4, list_id_printable, sizeof(list_id_printable), 0);
@@ -102,8 +108,29 @@ static void process_riff_sequence(deark *c, lctx *d, de_int64 pos, de_int64 len1
 static void de_run_riff(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
+	de_byte buf[4];
 
 	d = de_malloc(c, sizeof(lctx));
+
+	de_read(buf, 0, 4);
+
+	if(!de_memcmp(buf, "RIFF", 4)) {
+		d->is_le = 1;
+		d->char_codes_are_reversed = 0;
+	}
+	else if(!de_memcmp(buf, "RIFX", 4)) {
+		d->is_le = 0;
+		d->char_codes_are_reversed = 0;
+	}
+	else if(!de_memcmp(buf, "XFIR", 4)) {
+		d->is_le = 1;
+		d->char_codes_are_reversed = 1;
+	}
+	else {
+		de_warn(c, "This is probably not a RIFF file.\n");
+		d->is_le = 1;
+		d->char_codes_are_reversed = 0;
+	}
 
 	process_riff_sequence(c, d, 0, c->infile->len);
 
@@ -131,6 +158,10 @@ void de_module_ani(deark *c, struct deark_module_info *mi)
 static int de_identify_riff(deark *c)
 {
 	if(!dbuf_memcmp(c->infile, 0, "RIFF", 4))
+		return 50;
+	if(!dbuf_memcmp(c->infile, 0, "XFIR", 4))
+		return 50;
+	if(!dbuf_memcmp(c->infile, 0, "RIFX", 4))
 		return 50;
 	return 0;
 }
