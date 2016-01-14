@@ -23,6 +23,9 @@ cp -p src/*.c src/*.h src/*.rc $D/src/
 mkdir $D/modules
 cp -p modules/*.c modules/*.h $D/modules/
 
+mkdir $D/foreign
+cp -p foreign/* $D/foreign/
+
 mkdir $D/scripts
 cp -p scripts/*.sh $D/scripts/
 
