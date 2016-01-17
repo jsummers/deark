@@ -582,6 +582,10 @@
 				>
 			</File>
 			<File
+				RelativePath="..\..\modules\makichan.c"
+				>
+			</File>
+			<File
 				RelativePath="..\..\modules\misc.c"
 				>
 			</File>
