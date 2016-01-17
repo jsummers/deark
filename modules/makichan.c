@@ -16,10 +16,12 @@ typedef struct localctx_struct {
 	de_int64 flag_b_size;
 	de_int64 pixels_offset;
 	de_int64 pixels_size;
+	de_int64 num_colors;
 	de_int64 bits_per_pixel;
 	de_int64 rowspan;
-	de_byte flags1;
 	de_byte aspect_ratio_flag;
+	int is_max;
+	int is_mki;
 	dbuf *unc_pixels;
 	de_uint32 pal[256];
 } lctx;
@@ -28,14 +30,11 @@ static void read_palette(deark *c, lctx *d, de_int64 pos)
 {
 	de_int64 k;
 	de_byte cr, cg, cb;
-	de_int64 pal_entries;
 
 	de_dbg(c, "palette at %d\n", (int)pos);
 	de_dbg_indent(c, 1);
 
-	pal_entries = ((de_int64)1)<<d->bits_per_pixel;
-
-	for(k=0; k<pal_entries; k++) {
+	for(k=0; k<d->num_colors; k++) {
 		cg = de_getbyte(pos+3*k);
 		cr = de_getbyte(pos+3*k+1);
 		cb = de_getbyte(pos+3*k+2);
@@ -46,11 +45,32 @@ static void read_palette(deark *c, lctx *d, de_int64 pos)
 	de_dbg_indent(c, -1);
 }
 
+static int read_mki_header(deark *c, lctx *d)
+{
+	de_int64 pos;
+
+	de_dbg(c, "MKI header at %d\n", (int)d->header_pos);
+	de_dbg_indent(c, 1);
+
+	pos = d->header_pos;
+
+	d->width = de_getui16be(pos+12);
+	d->height = de_getui16be(pos+14);
+	de_dbg(c, "dimensions: %dx%d\n", (int)d->width, (int)d->height);
+	d->num_colors = 16;
+	d->bits_per_pixel = 4;
+
+	de_dbg_indent(c, -1);
+	return 1;
+}
+
 static int read_mag_header(deark *c, lctx *d)
 {
 	de_int64 xoffset, yoffset;
 	de_int64 width_raw, height_raw;
 	de_int64 pos;
+	de_byte model_code;
+	de_byte model_flags;
 	de_byte screen_mode;
 	de_byte colors_code;
 	int retval = 0;
@@ -60,8 +80,14 @@ static int read_mag_header(deark *c, lctx *d)
 
 	pos = d->header_pos;
 
-	d->flags1 = de_getbyte(pos+2);
-	de_dbg(c, "flags: 0x%02x\n", (unsigned int)d->flags1);
+	model_code = de_getbyte(pos+1);
+	model_flags = de_getbyte(pos+2);
+	de_dbg(c, "model code: 0x%02x, flags: 0x%02x\n",
+		(unsigned int)model_code, (unsigned int)model_flags);
+	if(model_code==0x03 && model_flags==0x44) { // Just a guess
+		de_warn(c, "This looks like MAX format, which is not correctly supported.\n");
+		d->is_max = 1;
+	}
 
 	screen_mode = de_getbyte(pos+3);
 	de_dbg(c, "screen mode: %d\n", (int)screen_mode);
@@ -69,13 +95,18 @@ static int read_mag_header(deark *c, lctx *d)
 	d->aspect_ratio_flag = screen_mode&0x01;
 	colors_code = screen_mode&0x82;
 	if(colors_code==0x00) {
+		d->num_colors = 16;
 		d->bits_per_pixel = 4;
 	}
 	else if(colors_code==0x80) {
+		d->num_colors = 256;
 		d->bits_per_pixel = 8;
 	}
-	// TODO: colors_code==0x01 -> 8 colors
-	de_dbg(c, "bits/pixel: %d\n", (int)d->bits_per_pixel);
+	else if(colors_code==0x02) {
+		d->num_colors = 8;
+		// TODO: Support 8 color images
+	}
+	de_dbg(c, "number of colors: %d\n", (int)d->num_colors);
 	de_dbg_indent(c, -1);
 
 	xoffset = de_getui16le(pos+4);
@@ -106,10 +137,6 @@ static int read_mag_header(deark *c, lctx *d)
 		de_err(c, "Unsupported or unknown bits/pixel\n");
 		goto done;
 	}
-
-	read_palette(c, d, pos+32);
-
-	if(!de_good_image_dimensions(c, d->width, d->height)) goto done;
 
 	retval = 1;
 done:
@@ -252,12 +279,23 @@ static void de_run_makichan(deark *c, de_module_params *mparams)
 	d = de_malloc(c, sizeof(lctx));
 
 	if(!dbuf_memcmp(c->infile, 0, "MAKI01", 6)) {
+		d->is_mki = 1;
+	}
+
+	if(d->is_mki) {
+		d->header_pos = 32;
+		if(!read_mki_header(c, d)) goto done;
+		read_palette(c, d, d->header_pos+16);
 		de_err(c, "MKI format is not supported.\n");
 		goto done;
 	}
+	else {
+		if(!find_mag_header(c, d)) goto done;
+		if(!read_mag_header(c, d)) goto done;
+		read_palette(c, d, d->header_pos+32);
+	}
 
-	if(!find_mag_header(c, d)) goto done;
-	if(!read_mag_header(c, d)) goto done;
+	if(!de_good_image_dimensions(c, d->width, d->height)) goto done;
 	if(!do_decompress(c, d)) goto done;
 	do_create_image(c, d);
 
