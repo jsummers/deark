@@ -332,6 +332,7 @@ void de_writeui16le_direct(de_byte *m, de_int64 n);
 void de_writeui32le_direct(de_byte *m, de_int64 n);
 void de_writeui32be_direct(de_byte *m, de_int64 n);
 void dbuf_writebyte(dbuf *f, de_byte n);
+void dbuf_writebyte_at(dbuf *f, de_int64 pos, de_byte n);
 void dbuf_writeui16le(dbuf *f, de_int64 n);
 void dbuf_writeui32le(dbuf *f, de_int64 n);
 

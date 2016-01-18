@@ -514,6 +514,19 @@ void dbuf_writebyte(dbuf *f, de_byte n)
 	dbuf_write(f, &n, 1);
 }
 
+void dbuf_writebyte_at(dbuf *f, de_int64 pos, de_byte n)
+{
+	if(f->btype!=DBUF_TYPE_MEMBUF) return;
+	if(pos<0) return;
+	if(f->max_len>0 && pos>=f->max_len) return;
+
+	if(pos>=f->len) {
+		dbuf_write_zeroes(f, pos + 1 - f->len);
+	}
+	if(pos>=f->len) return; // Shouldn't happen
+	f->membuf_buf[pos] = n;
+}
+
 void dbuf_write_run(dbuf *f, de_byte n, de_int64 len)
 {
 	de_byte buf[1024];

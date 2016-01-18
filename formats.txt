@@ -175,7 +175,8 @@ Deark -- Information about supported formats
 
 * MAKIchan graphics (module="makichan")
   - Supports 16- and 256-color .MAG images
-  - Does not support .MAX or .MKI
+  - Supports 16-color .MKI images
+  - Does not support .MAX
 
 * MRW (Minolta RAW) (module="mrw")
   - Extract Exif data (use -extractall)
