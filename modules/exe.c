@@ -495,7 +495,7 @@ static void de_finfo_set_name_from_pe_string(deark *c, de_finfo *fi, dbuf *f,
 	nlen = de_getui16le(pos);
 	if(nlen<1) goto done;
 
-	name_utf8 = dbuf_create_membuf(c, nlen*3);
+	name_utf8 = dbuf_create_membuf(c, nlen*3, 0);
 	copy_slice_utf16le_to_utf8(c, c->infile, pos+2, nlen, name_utf8);
 	de_finfo_set_name_from_slice(c, fi, name_utf8, 0, name_utf8->len, 0);
 

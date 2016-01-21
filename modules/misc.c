@@ -1195,8 +1195,7 @@ static void de_run_crg(deark *c, de_module_params *mparams)
 
 	// Uncompress the image
 	rowspan = (width+7)/8;
-	unc_pixels = dbuf_create_membuf(c, height*rowspan);
-	dbuf_set_max_length(unc_pixels, height*rowspan);
+	unc_pixels = dbuf_create_membuf(c, height*rowspan, 1);
 
 	pos = cmpr_img_start;
 	while(pos < cmpr_img_start + num_cmpr_bytes) {

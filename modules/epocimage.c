@@ -256,15 +256,15 @@ static struct deark_bitmap *do_read_paint_data_section(deark *c, lctx *d,
 		unc_pixels = dbuf_open_input_subfile(c->infile, pos, c->infile->len - pos);
 		break;
 	case 1: // RLE8
-		unc_pixels = dbuf_create_membuf(c, 16384);
+		unc_pixels = dbuf_create_membuf(c, 16384, 0);
 		do_rle8(c, d, unc_pixels, pos, cmpr_pixels_size);
 		break;
 	case 3: // RLE16
-		unc_pixels = dbuf_create_membuf(c, 16384);
+		unc_pixels = dbuf_create_membuf(c, 16384, 0);
 		do_rle16_24(c, d, unc_pixels, pos, cmpr_pixels_size, 2);
 		break;
 	case 4: // RLE24
-		unc_pixels = dbuf_create_membuf(c, 16384);
+		unc_pixels = dbuf_create_membuf(c, 16384, 0);
 		do_rle16_24(c, d, unc_pixels, pos, cmpr_pixels_size, 3);
 		break;
 

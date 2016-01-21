@@ -188,8 +188,7 @@ static void de_run_pgc(deark *c, de_module_params *mparams)
 	de_byte b, b2;
 
 	de_declare_fmt(c, "PGC (Portfolio graphics compressed)");
-	unc_pixels = dbuf_create_membuf(c, 1920);
-	dbuf_set_max_length(unc_pixels, 1920);
+	unc_pixels = dbuf_create_membuf(c, 1920, 1);
 
 	pos = 3;
 	while(pos<c->infile->len) {

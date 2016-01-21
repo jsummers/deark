@@ -28,8 +28,7 @@ static void do_read_bitmap(deark *c, lctx *d, de_int64 pos)
 
 	pos += 512;
 
-	unc_pixels = dbuf_create_membuf(c, MACPAINT_IMAGE_BYTES);
-	dbuf_set_max_length(unc_pixels, MACPAINT_IMAGE_BYTES);
+	unc_pixels = dbuf_create_membuf(c, MACPAINT_IMAGE_BYTES, 1);
 
 	de_fmtutil_uncompress_packbits(c->infile, pos, c->infile->len - pos, unc_pixels, NULL);
 

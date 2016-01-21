@@ -477,8 +477,7 @@ static int decode_bitmap(deark *c, lctx *d, struct bitmapinfo *bi, de_int64 pos)
 	}
 
 	bitmapsize = bi->height * bi->rowspan;
-	unc_pixels = dbuf_create_membuf(c, bitmapsize);
-	dbuf_set_max_length(unc_pixels, bitmapsize);
+	unc_pixels = dbuf_create_membuf(c, bitmapsize, 1);
 
 	for(j=0; j<bi->height; j++) {
 		if(bi->rowbytes > 250) {

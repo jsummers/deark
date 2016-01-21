@@ -219,8 +219,7 @@ static void do_decode_24bit(deark *c, lctx *d)
 		}
 	}
 
-	unc_pixels = dbuf_create_membuf(c, w*h*3);
-	dbuf_set_max_length(unc_pixels, w*h*3);
+	unc_pixels = dbuf_create_membuf(c, w*h*3, 1);
 	do_uncompress_24(c, d, unc_pixels, skip);
 
 	img = de_bitmap_create(c, w, h, 4);

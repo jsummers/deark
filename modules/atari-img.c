@@ -279,8 +279,7 @@ static void de_run_degas(deark *c, de_module_params *mparams)
 
 	if(d->compression_code) {
 		adata->was_compressed = 1;
-		adata->unc_pixels = dbuf_create_membuf(c, 32000);
-		dbuf_set_max_length(adata->unc_pixels, 32000);
+		adata->unc_pixels = dbuf_create_membuf(c, 32000, 1);
 
 		// TODO: Need to track how many compressed bytes are consumed, so we can locate the
 		// fields following the compressed data.
@@ -477,7 +476,7 @@ static void de_run_prismpaint(deark *c, de_module_params *mparams)
 	else {
 		adata->was_compressed = 1;
 		// TODO: Calculate the initial size more accurately.
-		adata->unc_pixels = dbuf_create_membuf(c, adata->w*adata->h);
+		adata->unc_pixels = dbuf_create_membuf(c, adata->w*adata->h, 0);
 		//dbuf_set_max_length(unc_pixels, ...);
 
 		de_fmtutil_uncompress_packbits(c->infile, pixels_start, c->infile->len - pixels_start,
@@ -927,8 +926,7 @@ static void de_run_tinystuff(deark *c, de_module_params *mparams)
 			(int)c->infile->len);
 	}
 
-	adata->unc_pixels = dbuf_create_membuf(c, 32000);
-	dbuf_set_max_length(adata->unc_pixels, 32000);
+	adata->unc_pixels = dbuf_create_membuf(c, 32000, 1);
 	if(!tiny_uncompress(c, d, adata, pos)) {
 		goto done;
 	}

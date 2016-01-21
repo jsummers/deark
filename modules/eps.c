@@ -94,7 +94,7 @@ static void do_decode_epsi_image(deark *c, lctx *d, de_int64 pos1)
 	pos = pos1;
 	d->hex_digit_count = 0;
 
-	tmpf = dbuf_create_membuf(c, d->w * d->h);
+	tmpf = dbuf_create_membuf(c, d->w * d->h, 0);
 
 	// Convert from hex-encoded (base16) to binary.
 	for(i=0; i<d->lines; i++) {

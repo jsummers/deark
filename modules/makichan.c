@@ -151,8 +151,7 @@ static void mki_decompress_virtual_screen(deark *c, lctx *d)
 	a_pos = d->flag_a_offset;
 	a_bitnum = -1;
 	b_pos = d->flag_b_offset;
-	d->virtual_screen = dbuf_create_membuf(c, vs_rowspan*d->height_adj);
-	dbuf_set_max_length(d->virtual_screen, vs_rowspan*d->height_adj);
+	d->virtual_screen = dbuf_create_membuf(c, vs_rowspan*d->height_adj, 1);
 
 	for(j=0; j<d->height_adj/4; j++) {
 		for(i=0; i<d->width_adj/8; i++) {
@@ -206,8 +205,7 @@ static void mki_decompress_pixels(deark *c, lctx *d)
 	vs_bitnum = -1;
 	p_pos = d->pixels_offset;
 	delta_y = d->is_mki_b ? 4 : 2;
-	d->unc_pixels = dbuf_create_membuf(c, d->rowspan*d->height_adj);
-	dbuf_set_max_length(d->unc_pixels, d->rowspan*d->height_adj);
+	d->unc_pixels = dbuf_create_membuf(c, d->rowspan*d->height_adj, 1);
 
 	for(j=0; j<d->height; j++) {
 		for(i=0; i<d->rowspan; i++) {
@@ -337,8 +335,7 @@ static int do_mag_decompress(deark *c, lctx *d)
 	// multiple of 4 bytes.
 	d->rowspan = ((d->width * d->bits_per_pixel + 31)/32)*4;
 
-	d->unc_pixels = dbuf_create_membuf(c, d->rowspan * d->height);
-	dbuf_set_max_length(d->unc_pixels, d->rowspan * d->height);
+	d->unc_pixels = dbuf_create_membuf(c, d->rowspan * d->height, 1);
 
 	a_pos = d->flag_a_offset;
 	a_bitnum = -1;

@@ -399,7 +399,7 @@ static void picture_bank_read_picture(deark *c, lctx *d, struct amosbank *bk, de
 	de_dbg(c, "picdata at %d\n", (int)bk->pic_picdata_offset);
 
 	bk->picdata_expected_unc_bytes = bytes_per_row_per_plane * bk->nplanes * height;
-	unc_pixels = dbuf_create_membuf(c, bk->picdata_expected_unc_bytes);
+	unc_pixels = dbuf_create_membuf(c, bk->picdata_expected_unc_bytes, 0);
 	picture_bank_uncompress(c, d, bk, unc_pixels);
 
 	img = de_bitmap_create(c, width, height, 3);

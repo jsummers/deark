@@ -207,8 +207,8 @@ static void do_binhex(deark *c, lctx *d, de_int64 pos)
 
 	de_dbg(c, "BinHex data starts at %d\n", (int)pos);
 
-	d->decoded = dbuf_create_membuf(c, 65536);
-	d->decompressed = dbuf_create_membuf(c, 65536);
+	d->decoded = dbuf_create_membuf(c, 65536, 0);
+	d->decompressed = dbuf_create_membuf(c, 65536, 0);
 
 	ret = do_decode_main(c, d, pos);
 	if(!ret) goto done;

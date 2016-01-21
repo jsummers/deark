@@ -142,7 +142,7 @@ static void de_run_alphabmp(deark *c, de_module_params *mparams)
 	de_dbg(c, "Bitmap at %d\n", (int)pos);
 
 	if(d->compression) {
-		unc_pixels = dbuf_create_membuf(c, 32768);
+		unc_pixels = dbuf_create_membuf(c, 32768, 0);
 		if(!do_uncompress_image(c, d, pos, unc_pixels)) goto done;
 	}
 	else {

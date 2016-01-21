@@ -184,8 +184,7 @@ static int do_dib(deark *c, lctx *d, de_int64 pos1)
 			compressed_offset, compressed_size);
 	}
 	else if(d->packing_method==1) { // RLE
-		unc_pixels = dbuf_create_membuf(c, image_size);
-		dbuf_set_max_length(unc_pixels, image_size);
+		unc_pixels = dbuf_create_membuf(c, image_size, 1);
 		do_uncompress_rle(c, d, unc_pixels, compressed_offset, compressed_size);
 
 		if(unc_pixels->len < image_size) {

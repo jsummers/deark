@@ -103,7 +103,7 @@ static void do_decode_newicons(deark *c, lctx *d,
 	de_dbg(c, "dimensions=%dx%d, transparency=%d, colors=%d\n",
 		(int)img->width, (int)img->height, has_trns, (int)ncolors);
 
-	decoded = dbuf_create_membuf(c, 2048);
+	decoded = dbuf_create_membuf(c, 2048, 0);
 
 	d->pending_data = 0;
 	d->pending_data_bits_used = 0;
@@ -305,7 +305,7 @@ static int do_read_tooltypes_table(deark *c, lctx *d,
 		de_dbg2(c, "NewIcons data [%d] size=%d pos=%d\n", newicons_num, (int)len, (int)tpos);
 
 		if(!newicons_data[newicons_num]) {
-			newicons_data[newicons_num] = dbuf_create_membuf(c, 2048);
+			newicons_data[newicons_num] = dbuf_create_membuf(c, 2048, 0);
 			// The data we copy includes the terminating NUL.
 		}
 		dbuf_copy(c->infile, tpos+4, len-4, newicons_data[newicons_num]);
@@ -438,7 +438,7 @@ static void do_glowicons_IMAG(deark *c, lctx *d,
 
 	pos+=10;
 
-	tmpbuf = dbuf_create_membuf(c, 10240);
+	tmpbuf = dbuf_create_membuf(c, 10240, 0);
 
 	if(has_palette) {
 		if(pal_cmpr_type==1) {

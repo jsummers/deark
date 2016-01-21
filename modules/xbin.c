@@ -292,9 +292,7 @@ static void de_run_xbin(deark *c, de_module_params *mparams)
 	de_dbg(c, "image data at %d\n", (int)pos);
 
 	if(d->compression) {
-		unc_data = dbuf_create_membuf(c, d->width_in_chars * d->height_in_chars * 2);
-		dbuf_set_max_length(unc_data, d->width_in_chars * d->height_in_chars * 2);
-
+		unc_data = dbuf_create_membuf(c, d->width_in_chars * d->height_in_chars * 2, 1);
 		do_uncompress_data(c, d, pos, unc_data);
 	}
 	else {

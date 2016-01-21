@@ -82,7 +82,7 @@ static void grob_text_1_image(deark *c, lctx *d, de_int64 pos1)
 	// Decode the quasi-hex-encoded data into a memory buffer, then use the
 	// same decoder as for binary format.
 
-	bin_bmp = dbuf_create_membuf(c, d->h * (d->w+7)/8);
+	bin_bmp = dbuf_create_membuf(c, d->h * (d->w+7)/8, 0);
 
 	pos = data_start;
 	while(pos < c->infile->len) {

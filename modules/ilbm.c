@@ -607,7 +607,7 @@ static int do_image(deark *c, lctx *d, struct img_info *ii,
 		unc_pixels = unc_pixels_toclose;
 	}
 	else if(d->compression==1) {
-		unc_pixels_toclose = dbuf_create_membuf(c, 0);
+		unc_pixels_toclose = dbuf_create_membuf(c, 0, 0);
 		unc_pixels = unc_pixels_toclose;
 		// TODO: Call dbuf_set_max_length()
 		if(!de_fmtutil_uncompress_packbits(c->infile, pos1, len, unc_pixels, NULL))
@@ -679,7 +679,7 @@ static void do_vdat(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 	if(!d->vdat_unc_pixels) {
 		// TODO: Ensure that a VDAT chunk with the wrong amount of uncompressed
 		// data doesn't case remaining VDAT chunks to get out of sync.
-		d->vdat_unc_pixels = dbuf_create_membuf(c, 0);
+		d->vdat_unc_pixels = dbuf_create_membuf(c, 0, 0);
 	}
 
 	prev_unc_len = d->vdat_unc_pixels->len;

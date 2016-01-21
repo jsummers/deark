@@ -60,7 +60,9 @@ struct dbuf_struct {
 	deark *c;
 	FILE *fp;
 	de_int64 len;
-	de_int64 max_len; // 0=no maximum. May only apply to DBUF_TYPE_MEMBUF
+
+	de_int64 max_len; // Valid if has_max_len is set. May only work for type MEMBUF.
+	int has_max_len;
 
 	int file_pos_known;
 	de_int64 file_pos;
@@ -318,7 +320,9 @@ dbuf *dbuf_open_input_file(deark *c, const char *fn);
 
 dbuf *dbuf_open_input_subfile(dbuf *parent, de_int64 offset, de_int64 size);
 
-dbuf *dbuf_create_membuf(deark *c, de_int64 initialsize);
+// Flag:
+//  0x1: Set the maximum size to the 'initialsize'
+dbuf *dbuf_create_membuf(deark *c, de_int64 initialsize, unsigned int flags);
 
 // If f is NULL, this is a no-op.
 void dbuf_close(dbuf *f);

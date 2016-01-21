@@ -544,8 +544,7 @@ static void de_run_tga(deark *c, de_module_params *mparams)
 	}
 
 	if(d->cmpr_type==TGA_CMPR_RLE) {
-		unc_pixels = dbuf_create_membuf(c, d->main_image.img_size_in_bytes);
-		dbuf_set_max_length(unc_pixels, d->main_image.img_size_in_bytes);
+		unc_pixels = dbuf_create_membuf(c, d->main_image.img_size_in_bytes, 1);
 		if(!do_decode_rle(c, d, pos, unc_pixels)) goto done;
 	}
 	else if(d->cmpr_type==TGA_CMPR_NONE) {

@@ -35,8 +35,7 @@ static void do_decompress_scanline(deark *c, lctx *d, struct deark_bitmap *img,
 	de_dbg2(c, "decompressing row %d\n", (int)rownum);
 
 	if(!d->rowbuf) {
-		d->rowbuf = dbuf_create_membuf(c, (d->width+7)/8);
-		dbuf_set_max_length(d->rowbuf, (d->width+7)/8);
+		d->rowbuf = dbuf_create_membuf(c, (d->width+7)/8, 1);
 	}
 
 	dbuf_empty(d->rowbuf);

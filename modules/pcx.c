@@ -279,7 +279,7 @@ static int do_uncompress(deark *c, lctx *d)
 	pos = PCX_HDRSIZE;
 
 	expected_bytes = d->rowspan * d->height;
-	d->unc_pixels = dbuf_create_membuf(c, expected_bytes);
+	d->unc_pixels = dbuf_create_membuf(c, expected_bytes, 0);
 
 	endpos = c->infile->len;
 	if(d->has_vga_pal) {

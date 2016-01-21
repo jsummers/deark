@@ -293,7 +293,7 @@ static void do_render_tile(deark *c, lctx *d, struct deark_bitmap *img,
 		(int)x_origin_in_pixels, (int)y_origin_in_pixels,
 		(int)d->page_cols, (int)nrows_expected);
 
-	unc_pixels = dbuf_create_membuf(c, 4096);
+	unc_pixels = dbuf_create_membuf(c, 4096, 0);
 
 	do_uncompress_tile(c, d, tile_num, tile_loc, tile_len, unc_pixels, nrows_expected);
 

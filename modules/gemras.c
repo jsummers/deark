@@ -100,7 +100,7 @@ static void uncompress_pixels(deark *c, lctx *d, dbuf *unc_pixels,
 	dbuf *unc_line = NULL;
 
 	d->pattern_buf = de_malloc(c, d->patlen);
-	unc_line = dbuf_create_membuf(c, d->rowspan_total);
+	unc_line = dbuf_create_membuf(c, d->rowspan_total, 0);
 
 	pos = pos1;
 
@@ -144,7 +144,7 @@ static int do_gem_img(deark *c, lctx *d)
 	dbuf *unc_pixels = NULL;
 	struct deark_bitmap *img = NULL;
 
-	unc_pixels = dbuf_create_membuf(c, d->rowspan_total*d->h);
+	unc_pixels = dbuf_create_membuf(c, d->rowspan_total*d->h, 0);
 
 	uncompress_pixels(c, d, unc_pixels, d->header_size_in_bytes, c->infile->len-d->header_size_in_bytes);
 
@@ -222,7 +222,7 @@ static int do_gem_ximg(deark *c, lctx *d)
 		read_palette_ximg(c, d);
 	}
 
-	unc_pixels = dbuf_create_membuf(c, d->rowspan_total*d->h);
+	unc_pixels = dbuf_create_membuf(c, d->rowspan_total*d->h, 0);
 
 	uncompress_pixels(c, d, unc_pixels, d->header_size_in_bytes, c->infile->len-d->header_size_in_bytes);
 

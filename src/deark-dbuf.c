@@ -452,7 +452,7 @@ dbuf *dbuf_create_output_file(deark *c, const char *ext, de_finfo *fi)
 	return f;
 }
 
-dbuf *dbuf_create_membuf(deark *c, de_int64 initialsize)
+dbuf *dbuf_create_membuf(deark *c, de_int64 initialsize, unsigned int flags)
 {
 	dbuf *f;
 	f = de_malloc(c, sizeof(dbuf));
@@ -463,6 +463,11 @@ dbuf *dbuf_create_membuf(deark *c, de_int64 initialsize)
 		f->membuf_buf = de_malloc(c, initialsize);
 		f->membuf_alloc = initialsize;
 	}
+
+	if(flags&0x01) {
+		dbuf_set_max_length(f, initialsize);
+	}
+
 	return f;
 }
 
@@ -470,7 +475,7 @@ static void membuf_append(dbuf *f, const de_byte *m, de_int64 mlen)
 {
 	de_int64 new_alloc_size;
 
-	if(f->max_len>0) {
+	if(f->has_max_len) {
 		if(f->len + mlen > f->max_len) {
 			mlen = f->max_len - f->len;
 		}
@@ -518,7 +523,7 @@ void dbuf_writebyte_at(dbuf *f, de_int64 pos, de_byte n)
 {
 	if(f->btype!=DBUF_TYPE_MEMBUF) return;
 	if(pos<0) return;
-	if(f->max_len>0 && pos>=f->max_len) return;
+	if(f->has_max_len && pos>=f->max_len) return;
 
 	if(pos>=f->len) {
 		dbuf_write_zeroes(f, pos + 1 - f->len);
@@ -829,6 +834,7 @@ de_int64 dbuf_get_length(dbuf *f)
 
 void dbuf_set_max_length(dbuf *f, de_int64 max_len)
 {
+	f->has_max_len = 1;
 	f->max_len = max_len;
 }
 
@@ -844,7 +850,7 @@ int dbuf_dump_to_file(dbuf *inf, const char *fn)
 	fp = de_fopen(c, fn, "wb", msgbuf, sizeof(msgbuf));
 	if(!fp) return 0;
 
-	tmpdbuf = dbuf_create_membuf(c, inf->len);
+	tmpdbuf = dbuf_create_membuf(c, inf->len, 1);
 	dbuf_copy(inf, 0, inf->len, tmpdbuf);
 
 	fwrite(tmpdbuf->membuf_buf, 1, (size_t)tmpdbuf->len, fp);
