@@ -31,10 +31,14 @@ typedef struct localctx_struct {
 	de_int64 pal_pos;
 	de_int64 bytes_per_pal_entry;
 	int pal_is_grayscale;
-	int uses_bitfields;
-	int has_bitfields_segment;
-	de_int64 bitfields_segment_pos;
-	de_int64 bitfields_segment_len;
+
+#define BF_NONE       0
+#define BF_DEFAULT    1
+#define BF_SEGMENT    2
+#define BF_IN_HEADER  3
+	int bitfields_type;
+	de_int64 bitfields_segment_len; // Used if bitfields_type==BF_SEGMENT
+
 	de_int64 xpelspermeter, ypelspermeter;
 
 #define CMPR_NONE       0
@@ -158,9 +162,8 @@ static int read_infoheader_40(deark *c, lctx *d, de_int64 pos)
 	}
 	de_dbg(c, "dimensions: %dx%d\n", (int)d->width, (int)d->height);
 
-	if(d->bitcount!=1 && d->bitcount!=2 && d->bitcount!=4 &&
-		d->bitcount!=8 && d->bitcount!=16 && d->bitcount!=24 &&
-		d->bitcount!=32)
+	if(d->bitcount!=0 && d->bitcount!=1 && d->bitcount!=2 && d->bitcount!=4 &&
+		d->bitcount!=8 && d->bitcount!=16 && d->bitcount!=24 && d->bitcount!=32)
 	{
 		de_err(c, "Bad bits/pixel: %d\n", (int)d->bitcount);
 		goto done;
@@ -176,6 +179,9 @@ static int read_infoheader_40(deark *c, lctx *d, de_int64 pos)
 	switch(d->compression_field) {
 	case 0: // BI_RGB
 		cmpr_ok = 1;
+		if(d->bitcount==16 || d->bitcount==32) {
+			d->bitfields_type = BF_DEFAULT;
+		}
 		break;
 	case 1: // BI_RLE8
 		if(d->bitcount==8) {
@@ -196,9 +202,11 @@ static int read_infoheader_40(deark *c, lctx *d, de_int64 pos)
 		}
 		else if(d->bitcount==16 || d->bitcount==32) {
 			cmpr_ok = 1;
-			d->uses_bitfields = 1;
-			if(d->infohdrsize<52) {
-				d->has_bitfields_segment = 1;
+			if(d->infohdrsize>=52) {
+				d->bitfields_type = BF_IN_HEADER;
+			}
+			else {
+				d->bitfields_type = BF_SEGMENT;
 				d->bitfields_segment_len = 12;
 			}
 		}
@@ -221,9 +229,11 @@ static int read_infoheader_40(deark *c, lctx *d, de_int64 pos)
 	case 6: // BI_ALPHABITFIELDS
 		if(d->bitcount==16 || d->bitcount==32) {
 			cmpr_ok = 1;
-			d->uses_bitfields = 1;
-			if(d->infohdrsize<56) {
-				d->has_bitfields_segment = 1;
+			if(d->infohdrsize>=56) {
+				d->bitfields_type = BF_IN_HEADER;
+			}
+			else {
+				d->bitfields_type = BF_SEGMENT;
 				d->bitfields_segment_len = 16;
 			}
 		}
@@ -310,7 +320,7 @@ static int read_infoheader_winv4plus(deark *c, lctx *d, de_int64 pos)
 {
 	if(d->infohdrsize<52) goto done;
 
-	if(d->uses_bitfields) {
+	if(d->bitfields_type==BF_IN_HEADER) {
 		do_read_bitfields(c, d, pos+40, d->infohdrsize>=56 ? 16 : 12);
 	}
 
@@ -345,7 +355,7 @@ static int read_infoheader(deark *c, lctx *d, de_int64 pos)
 		goto done;
 	}
 
-	if(d->uses_bitfields && !d->has_bitfields_segment && d->infohdrsize<52) {
+	if(d->bitfields_type==BF_DEFAULT) {
 		set_default_bitfields(c, d);
 	}
 
@@ -423,6 +433,53 @@ static void do_image_24bit(deark *c, lctx *d)
 	de_bitmap_destroy(img);
 }
 
+static void do_image_16_32bit(deark *c, lctx *d)
+{
+	struct deark_bitmap *img = NULL;
+	de_int64 i, j;
+	int has_transparency;
+	de_uint32 v;
+	de_int64 k;
+	de_byte sm[4];
+
+	if(d->bitfields_type==BF_SEGMENT) {
+		has_transparency = (d->bitfields_segment_len>=16 && d->bitfield[3].mask!=0);
+	}
+	else if(d->bitfields_type==BF_IN_HEADER) {
+		has_transparency = (d->bitfield[3].mask!=0);
+	}
+	else {
+		has_transparency = 0;
+	}
+
+	img = bmp_bitmap_create(c, d, has_transparency?4:3);
+	for(j=0; j<d->height; j++) {
+		for(i=0; i<d->width; i++) {
+			if(d->bitcount==16) {
+				v = (de_uint32)de_getui16le(d->bits_offset + j*d->rowspan + 2*i);
+			}
+			else {
+				v = (de_uint32)de_getui32le(d->bits_offset + j*d->rowspan + 4*i);
+			}
+
+			for(k=0; k<4; k++) {
+				if(d->bitfield[k].mask!=0) {
+					sm[k] = (de_byte)(0.5 + d->bitfield[k].scale * (double)((v&d->bitfield[k].mask) >> d->bitfield[k].shift));
+				}
+				else {
+					if(k==3)
+						sm[k] = 255; // Default alpha sample = opaque
+					else
+						sm[k] = 0; // Default other samples = 0
+				}
+			}
+			de_bitmap_setpixel_rgba(img, i, j, DE_MAKE_RGBA(sm[0], sm[1], sm[2], sm[3]));
+		}
+	}
+	de_bitmap_write_to_file(img, NULL);
+	de_bitmap_destroy(img);
+}
+
 static void do_image(deark *c, lctx *d)
 {
 	de_dbg(c, "bitmap at %d\n", (int)d->bits_offset);
@@ -440,9 +497,12 @@ static void do_image(deark *c, lctx *d)
 	else if(d->bitcount==24 && d->compression_type==CMPR_NONE) {
 		do_image_24bit(c, d);
 	}
-	// TODO: Support more image types here.
+	else if((d->bitcount==16 || d->bitcount==32) && d->compression_type==CMPR_NONE) {
+		do_image_16_32bit(c, d);
+	}
+	// TODO: Support compressed images
 	else {
-		de_err(c, "This type of image is not supported\n");
+		de_err(c, "This type of BMP image is not supported\n");
 	}
 
 done:
@@ -480,11 +540,10 @@ static void de_run_bmp(deark *c, de_module_params *mparams)
 	pos += FILEHEADER_SIZE;
 	if(!read_infoheader(c, d, pos)) goto done;
 	pos += d->infohdrsize;
-	if(d->has_bitfields_segment) {
-		d->bitfields_segment_pos = pos;
-		de_dbg(c, "bitfields segment at %d, len=%d\n", (int)d->bitfields_segment_pos, (int)d->bitfields_segment_len);
+	if(d->bitfields_type==BF_SEGMENT) {
+		de_dbg(c, "bitfields segment at %d, len=%d\n", (int)pos, (int)d->bitfields_segment_len);
 		de_dbg_indent(c, 1);
-		do_read_bitfields(c, d, d->bitfields_segment_pos, d->bitfields_segment_len);
+		do_read_bitfields(c, d, pos, d->bitfields_segment_len);
 		de_dbg_indent(c, -1);
 		pos += d->bitfields_segment_len;
 	}
