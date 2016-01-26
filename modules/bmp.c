@@ -6,10 +6,18 @@
 #include <deark-config.h>
 #include <deark-modules.h>
 
+#define FILEHEADER_SIZE 14
+
+struct bitfieldsinfo {
+	de_uint32 mask;
+	unsigned int shift;
+	double scale; // Amount to multiply the sample value by, to scale it to [0..255]
+};
+
 typedef struct localctx_struct {
 #define DE_BMPVER_OS2V1    1 // OS2v1 or Windows v2
 #define DE_BMPVER_OS2V2    2
-#define DE_BMPVER_WINDOWS  3 // Windows v3+
+#define DE_BMPVER_WINV345  3 // Windows v3+
 	int version;
 
 	de_int64 fsize; // The "file size" field in the file header
@@ -27,6 +35,7 @@ typedef struct localctx_struct {
 	int has_bitfields_segment;
 	de_int64 bitfields_segment_pos;
 	de_int64 bitfields_segment_len;
+	de_int64 xpelspermeter, ypelspermeter;
 
 #define CMPR_NONE       0
 #define CMPR_RLE        1 // RLE4 or RLE8 or RLE24, depending on bitcount
@@ -36,6 +45,7 @@ typedef struct localctx_struct {
 	int compression_type;
 
 	de_int64 rowspan;
+	struct bitfieldsinfo bitfield[4];
 	de_uint32 pal[256];
 } lctx;
 
@@ -47,7 +57,7 @@ static int detect_bmp_version(deark *c, lctx *d)
 	pos = 0;
 	d->fsize = de_getui32le(pos+2);
 
-	pos += 14;
+	pos += FILEHEADER_SIZE;
 	d->infohdrsize = de_getui32le(pos);
 
 	if(d->infohdrsize<=12) {
@@ -70,7 +80,7 @@ static int detect_bmp_version(deark *c, lctx *d)
 	}
 
 	if(d->infohdrsize>=16 && d->infohdrsize<=64) {
-		if(d->fsize==14+d->infohdrsize) {
+		if(d->fsize==FILEHEADER_SIZE+d->infohdrsize) {
 			d->version = DE_BMPVER_OS2V2;
 			return 1;
 		}
@@ -88,7 +98,7 @@ static int detect_bmp_version(deark *c, lctx *d)
 		}
 	}
 
-	d->version = DE_BMPVER_WINDOWS;
+	d->version = DE_BMPVER_WINV345;
 	return 1;
 }
 
@@ -103,7 +113,7 @@ static int read_fileheader(deark *c, lctx *d, de_int64 pos)
 	return 1;
 }
 
-static int read_os2v1infoheader(deark *c, lctx *d, de_int64 pos)
+static int read_infoheader_12(deark *c, lctx *d, de_int64 pos)
 {
 	d->width = de_getui16le(pos+4);
 	d->height = de_getui16le(pos+6);
@@ -126,9 +136,9 @@ static int read_os2v1infoheader(deark *c, lctx *d, de_int64 pos)
 	return 1;
 }
 
-// This function is for reading all styles of infoheaders that aren't
-// the 12-bit OS2v1 header.
-static int read_v3infoheader(deark *c, lctx *d, de_int64 pos)
+// This function is for reading the first 40 bytes of a Windows v3
+// (or OS/2v2) style infoheader.
+static int read_infoheader_40(deark *c, lctx *d, de_int64 pos)
 {
 	de_int64 height_raw;
 	de_int64 clr_used_raw;
@@ -156,10 +166,13 @@ static int read_v3infoheader(deark *c, lctx *d, de_int64 pos)
 		goto done;
 	}
 
+	// Fields after this point (after the first 16 bytes) should not be
+	// assumed to exist.
+
 	d->bytes_per_pal_entry = 4;
-	cmpr_ok = 0;
 	d->compression_type = CMPR_NONE;
 
+	cmpr_ok = 0;
 	switch(d->compression_field) {
 	case 0: // BI_RGB
 		cmpr_ok = 1;
@@ -223,7 +236,16 @@ static int read_v3infoheader(deark *c, lctx *d, de_int64 pos)
 
 	}
 
-	clr_used_raw = de_getui32le(pos+32);
+	if(d->infohdrsize>=32) {
+		d->xpelspermeter = dbuf_geti32le(c->infile, pos+24);
+		d->ypelspermeter = dbuf_geti32le(c->infile, pos+28);
+	}
+
+	if(d->infohdrsize>=36)
+		clr_used_raw = de_getui32le(pos+32);
+	else
+		clr_used_raw = 0;
+
 	if(d->bitcount>=1 && d->bitcount<=8 && clr_used_raw==0) {
 		d->pal_entries = ((de_int64)1)<<d->bitcount;
 	}
@@ -235,6 +257,65 @@ static int read_v3infoheader(deark *c, lctx *d, de_int64 pos)
 	retval = 1;
 done:
 	return retval;
+}
+
+// Calculate .shift and .scale
+static void update_bitfields_info(deark *c, lctx *d)
+{
+	de_int64 k;
+	de_uint32 tmpmask;
+
+	for(k=0; k<4; k++) {
+		tmpmask = d->bitfield[k].mask;
+		if(tmpmask==0) continue;
+		while((tmpmask & 0x1) == 0) {
+			d->bitfield[k].shift++;
+			tmpmask >>= 1;
+		}
+		d->bitfield[k].scale = 255.0 / (double)tmpmask;
+	}
+}
+
+static void do_read_bitfields(deark *c, lctx *d, de_int64 pos, de_int64 len)
+{
+	de_int64 k;
+
+	if(len>16) len=16;
+	for(k=0; 4*k<len; k++) {
+		d->bitfield[k].mask = (de_uint32)de_getui32le(pos+4*k);
+		de_dbg(c, "mask[%d]: 0x%08x\n", (int)k, (unsigned int)d->bitfield[k].mask);
+	}
+	update_bitfields_info(c, d);
+}
+
+static void set_default_bitfields(deark *c, lctx *d)
+{
+	if(d->bitcount==16) {
+		d->bitfield[0].mask = 0x000007c00U;
+		d->bitfield[1].mask = 0x0000003e0U;
+		d->bitfield[2].mask = 0x00000001fU;
+		update_bitfields_info(c, d);
+	}
+	else if(d->bitcount==32) {
+		d->bitfield[0].mask = 0x00ff0000U;
+		d->bitfield[1].mask = 0x0000ff00U;
+		d->bitfield[2].mask = 0x000000ffU;
+		update_bitfields_info(c, d);
+	}
+}
+
+// Read bytes after the first 40 of a Windows v4+ style infoheader.
+// pos is the file offset of the start of the infoheader.
+static int read_infoheader_winv4plus(deark *c, lctx *d, de_int64 pos)
+{
+	if(d->infohdrsize<52) goto done;
+
+	if(d->uses_bitfields) {
+		do_read_bitfields(c, d, pos+40, d->infohdrsize>=56 ? 16 : 12);
+	}
+
+done:
+	return 1;
 }
 
 static int read_infoheader(deark *c, lctx *d, de_int64 pos)
@@ -249,18 +330,24 @@ static int read_infoheader(deark *c, lctx *d, de_int64 pos)
 	de_dbg(c, "info header at %d\n", (int)pos);
 	de_dbg_indent(c, 1);
 	de_dbg(c, "info header size: %d\n", (int)d->infohdrsize);
-	if(d->version==1) {
-		if(!read_os2v1infoheader(c, d, pos)) goto done;
+	if(d->version==DE_BMPVER_OS2V1) {
+		if(!read_infoheader_12(c, d, pos)) goto done;
+	}
+	else if(d->version==DE_BMPVER_OS2V2) {
+		if(!read_infoheader_40(c, d, pos)) goto done;
 	}
 	else {
-		if(!read_v3infoheader(c, d, pos)) goto done;
+		if(!read_infoheader_40(c, d, pos)) goto done;
+		if(!read_infoheader_winv4plus(c, d, pos)) goto done;
 	}
 
 	if(!de_good_image_dimensions(c, d->width, d->height)) {
 		goto done;
 	}
 
-	d->pal_pos = 14 + d->infohdrsize + d->bitfields_segment_len;
+	if(d->uses_bitfields && !d->has_bitfields_segment && d->infohdrsize<52) {
+		set_default_bitfields(c, d);
+	}
 
 	retval = 1;
 done:
@@ -292,6 +379,11 @@ static struct deark_bitmap *bmp_bitmap_create(deark *c, lctx *d, int bypp)
 
 	img = de_bitmap_create(c, d->width, d->height, bypp);
 	img->flipped = !d->top_down;
+	if(d->xpelspermeter>0 && d->ypelspermeter>0) {
+		img->density_code = DE_DENSITY_DPI;
+		img->xdens = (double)d->xpelspermeter * 0.0254;
+		img->ydens = (double)d->ypelspermeter * 0.0254;
+	}
 	return img;
 }
 
@@ -333,6 +425,8 @@ static void do_image_24bit(deark *c, lctx *d)
 
 static void do_image(deark *c, lctx *d)
 {
+	de_dbg(c, "bitmap at %d\n", (int)d->bits_offset);
+
 	if(d->bits_offset >= c->infile->len) {
 		de_err(c, "Bad bits-offset field\n");
 		goto done;
@@ -359,6 +453,7 @@ static void de_run_bmp(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
 	char *s = NULL;
+	de_int64 pos;
 
 	d = de_malloc(c, sizeof(lctx));
 
@@ -373,15 +468,27 @@ static void de_run_bmp(deark *c, de_module_params *mparams)
 	}
 
 	switch(d->version) {
-	case 1: s="OS/2 v1 or Windows v2"; break;
-	case 2: s="OS/2 v2"; break;
-	case 3: s="Windows v3+"; break;
+	case DE_BMPVER_OS2V1: s="OS/2 v1 or Windows v2"; break;
+	case DE_BMPVER_OS2V2: s="OS/2 v2"; break;
+	case DE_BMPVER_WINV345: s="Windows v3+"; break;
 	default: s="(unknown)";
 	}
 	de_dbg(c, "BMP version detected: %s\n", s);
 
-	if(!read_fileheader(c, d, 0)) goto done;
-	if(!read_infoheader(c, d, 14)) goto done;
+	pos = 0;
+	if(!read_fileheader(c, d, pos)) goto done;
+	pos += FILEHEADER_SIZE;
+	if(!read_infoheader(c, d, pos)) goto done;
+	pos += d->infohdrsize;
+	if(d->has_bitfields_segment) {
+		d->bitfields_segment_pos = pos;
+		de_dbg(c, "bitfields segment at %d, len=%d\n", (int)d->bitfields_segment_pos, (int)d->bitfields_segment_len);
+		de_dbg_indent(c, 1);
+		do_read_bitfields(c, d, d->bitfields_segment_pos, d->bitfields_segment_len);
+		de_dbg_indent(c, -1);
+		pos += d->bitfields_segment_len;
+	}
+	d->pal_pos = pos;
 	do_read_palette(c, d);
 	do_image(c, d);
 
