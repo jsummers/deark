@@ -494,6 +494,10 @@
 				>
 			</File>
 			<File
+				RelativePath="..\..\modules\bmp.c"
+				>
+			</File>
+			<File
 				RelativePath="..\..\modules\boxes.c"
 				>
 			</File>

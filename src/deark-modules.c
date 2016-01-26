@@ -25,6 +25,7 @@ void de_register_modules(deark *c)
 		de_module_eps,
 		de_module_msp,
 		de_module_pcpaint,
+		de_module_bmp,
 		de_module_os2bmp,
 		de_module_psd,
 		de_module_amigaicon,
