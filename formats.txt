@@ -42,7 +42,6 @@ Deark -- Information about supported formats
    -opt awbm:rgb=1 - (v2) Assume RGB sample order (default for 8-bit)
 
 * BMP (Windows bitmap) (module="bmp")
-  - Supports most types of uncompressed BMP images
 
 * Bob ray tracer bitmap (module="bob")
 

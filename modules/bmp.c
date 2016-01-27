@@ -200,6 +200,9 @@ static int read_infoheader(deark *c, lctx *d, de_int64 pos)
 	if(!de_good_image_dimensions(c, d->width, d->height)) {
 		goto done;
 	}
+	if(d->top_down) {
+		de_dbg(c, "orientation: top-down\n");
+	}
 
 	// Already read, in detect_bmp_version()
 	de_dbg(c, "bits/pixel: %d\n", (int)d->bitcount);
@@ -357,7 +360,7 @@ static struct deark_bitmap *bmp_bitmap_create(deark *c, lctx *d, int bypp)
 	return img;
 }
 
-static void do_image_paletted(deark *c, lctx *d)
+static void do_image_paletted(deark *c, lctx *d, dbuf *bits, de_int64 bits_offset)
 {
 	struct deark_bitmap *img = NULL;
 	de_int64 i, j;
@@ -367,7 +370,7 @@ static void do_image_paletted(deark *c, lctx *d)
 	img = bmp_bitmap_create(c, d, d->pal_is_grayscale?1:3);
 	for(j=0; j<d->height; j++) {
 		for(i=0; i<d->width; i++) {
-			b = de_get_bits_symbol(c->infile, d->bitcount, d->bits_offset + j*d->rowspan, i);
+			b = de_get_bits_symbol(bits, d->bitcount, bits_offset + j*d->rowspan, i);
 			clr = d->pal[(unsigned int)b];
 			de_bitmap_setpixel_rgb(img, i, j, clr);
 		}
@@ -376,7 +379,7 @@ static void do_image_paletted(deark *c, lctx *d)
 	de_bitmap_destroy(img);
 }
 
-static void do_image_24bit(deark *c, lctx *d)
+static void do_image_24bit(deark *c, lctx *d, dbuf *bits, de_int64 bits_offset)
 {
 	struct deark_bitmap *img = NULL;
 	de_int64 i, j;
@@ -385,7 +388,7 @@ static void do_image_24bit(deark *c, lctx *d)
 	img = bmp_bitmap_create(c, d, 3);
 	for(j=0; j<d->height; j++) {
 		for(i=0; i<d->width; i++) {
-			clr = dbuf_getRGB(c->infile, d->bits_offset + j*d->rowspan + 3*i, DE_GETRGBFLAG_BGR);
+			clr = dbuf_getRGB(bits, bits_offset + j*d->rowspan + 3*i, DE_GETRGBFLAG_BGR);
 			de_bitmap_setpixel_rgb(img, i, j, clr);
 		}
 	}
@@ -393,7 +396,7 @@ static void do_image_24bit(deark *c, lctx *d)
 	de_bitmap_destroy(img);
 }
 
-static void do_image_16_32bit(deark *c, lctx *d)
+static void do_image_16_32bit(deark *c, lctx *d, dbuf *bits, de_int64 bits_offset)
 {
 	struct deark_bitmap *img = NULL;
 	de_int64 i, j;
@@ -416,10 +419,10 @@ static void do_image_16_32bit(deark *c, lctx *d)
 	for(j=0; j<d->height; j++) {
 		for(i=0; i<d->width; i++) {
 			if(d->bitcount==16) {
-				v = (de_uint32)de_getui16le(d->bits_offset + j*d->rowspan + 2*i);
+				v = (de_uint32)dbuf_getui16le(bits, bits_offset + j*d->rowspan + 2*i);
 			}
 			else {
-				v = (de_uint32)de_getui32le(d->bits_offset + j*d->rowspan + 4*i);
+				v = (de_uint32)dbuf_getui32le(bits, bits_offset + j*d->rowspan + 4*i);
 			}
 
 			for(k=0; k<4; k++) {
@@ -440,6 +443,101 @@ static void do_image_16_32bit(deark *c, lctx *d)
 	de_bitmap_destroy(img);
 }
 
+static void do_image_rle_4_8(deark *c, lctx *d, dbuf *bits, de_int64 bits_offset)
+{
+	de_int64 pos;
+	de_int64 xpos, ypos;
+	de_byte b1, b2;
+	de_byte b;
+	struct deark_bitmap *img = NULL;
+	de_uint32 clr1, clr2;
+	de_int64 num_bytes;
+	de_int64 num_pixels;
+	de_int64 k;
+
+	img = bmp_bitmap_create(c, d, d->pal_is_grayscale?2:4);
+
+	pos = bits_offset;
+	xpos = 0;
+	ypos = 0;
+	while(1) {
+		// Stop if we reach the end of the input file.
+		if(pos>=c->infile->len) break;
+
+		// Stop if we reach the end of the output image.
+		if(ypos>=d->height) break;
+		if(ypos==(d->height-1) && xpos>=d->width) break;
+
+		// Read the next two bytes from the input file.
+		b1 = dbuf_getbyte(bits, pos++);
+		b2 = dbuf_getbyte(bits, pos++);
+
+		if(b1==0 && b2==0) { // End of line
+			xpos = 0;
+			ypos++;
+		}
+		else if(b1==0 && b2==1) { // End of bitmap
+			break;
+		}
+		else if(b1==0 && b2==2) { // Delta
+			b = dbuf_getbyte(bits, pos++);
+			xpos += (de_int64)b;
+			b = dbuf_getbyte(bits, pos++);
+			ypos += (de_int64)b;
+		}
+		else if(b1==0) { // b2 uncompressed pixels follow
+			num_pixels = (de_int64)b2;
+			if(d->compression_type==CMPR_RLE4) {
+				de_int64 pixels_copied = 0;
+				// There are 4 bits per pixel, but padded to a multiple of 16 bits.
+				num_bytes = ((num_pixels+3)/4)*2;
+				for(k=0; k<num_bytes; k++) {
+					b = dbuf_getbyte(bits, pos++);
+					if(pixels_copied>=num_pixels) continue;
+					clr1 = d->pal[((unsigned int)b)>>4];
+					de_bitmap_setpixel_rgba(img, xpos++, ypos, clr1);
+					pixels_copied++;
+					if(pixels_copied>=num_pixels) continue;
+					clr2 = d->pal[((unsigned int)b)&0x0f];
+					de_bitmap_setpixel_rgba(img, xpos++, ypos, clr2);
+					pixels_copied++;
+				}
+			}
+			else {
+				num_bytes = num_pixels;
+				if(num_bytes%2) num_bytes++; // Pad to a multiple of 16 bits
+				for(k=0; k<num_bytes; k++) {
+					b = dbuf_getbyte(bits, pos++);
+					if(k>=num_pixels) continue;
+					clr1 = d->pal[(unsigned int)b];
+					de_bitmap_setpixel_rgba(img, xpos++, ypos, clr1);
+				}
+			}
+		}
+		else { // Compressed pixels
+			num_pixels = (de_int64)b1;
+			if(d->compression_type==CMPR_RLE4) {
+				// b1 pixels alternating between the colors in b2
+				clr1 = d->pal[((unsigned int)b2)>>4];
+				clr2 = d->pal[((unsigned int)b2)&0x0f];
+				for(k=0; k<num_pixels; k++) {
+					de_bitmap_setpixel_rgba(img, xpos++, ypos, (k%2)?clr2:clr1);
+				}
+			}
+			else {
+				// b1 pixels of color b2
+				clr1 = d->pal[(unsigned int)b2];
+				for(k=0; k<num_pixels; k++) {
+					de_bitmap_setpixel_rgba(img, xpos++, ypos, clr1);
+				}
+			}
+		}
+	}
+
+	de_bitmap_write_to_file(img, NULL);
+	de_bitmap_destroy(img);
+}
+
 static void do_image(deark *c, lctx *d)
 {
 	de_dbg(c, "bitmap at %d\n", (int)d->bits_offset);
@@ -452,15 +550,20 @@ static void do_image(deark *c, lctx *d)
 	d->rowspan = ((d->bitcount*d->width +31)/32)*4;
 
 	if(d->bitcount>=1 && d->bitcount<=8 && d->compression_type==CMPR_NONE) {
-		do_image_paletted(c, d);
+		do_image_paletted(c, d, c->infile, d->bits_offset);
 	}
 	else if(d->bitcount==24 && d->compression_type==CMPR_NONE) {
-		do_image_24bit(c, d);
+		do_image_24bit(c, d, c->infile, d->bits_offset);
 	}
 	else if((d->bitcount==16 || d->bitcount==32) && d->compression_type==CMPR_NONE) {
-		do_image_16_32bit(c, d);
+		do_image_16_32bit(c, d, c->infile, d->bits_offset);
 	}
-	// TODO: Support compressed images
+	else if(d->bitcount==8 && d->compression_type==CMPR_RLE8) {
+		do_image_rle_4_8(c, d, c->infile, d->bits_offset);
+	}
+	else if(d->bitcount==4 && d->compression_type==CMPR_RLE4) {
+		do_image_rle_4_8(c, d, c->infile, d->bits_offset);
+	}
 	else {
 		de_err(c, "This type of BMP image is not supported\n");
 	}
