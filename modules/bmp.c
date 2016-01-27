@@ -32,20 +32,22 @@ typedef struct localctx_struct {
 	de_int64 bytes_per_pal_entry;
 	int pal_is_grayscale;
 
-#define BF_NONE       0
-#define BF_DEFAULT    1
-#define BF_SEGMENT    2
-#define BF_IN_HEADER  3
+#define BF_NONE       0 // Bitfields are not applicable
+#define BF_DEFAULT    1 // Use the default bitfields for this bit depth
+#define BF_SEGMENT    2 // Use the bitfields segment in the file
+#define BF_IN_HEADER  3 // Use the bitfields fields in the infoheader
 	int bitfields_type;
 	de_int64 bitfields_segment_len; // Used if bitfields_type==BF_SEGMENT
 
 	de_int64 xpelspermeter, ypelspermeter;
 
 #define CMPR_NONE       0
-#define CMPR_RLE        1 // RLE4 or RLE8 or RLE24, depending on bitcount
-#define CMPR_JPEG       2
-#define CMPR_PNG        3
-#define CMPR_HUFFMAN1D  4
+#define CMPR_RLE4       11
+#define CMPR_RLE8       12
+#define CMPR_RLE24      13
+#define CMPR_JPEG       14
+#define CMPR_PNG        15
+#define CMPR_HUFFMAN1D  16
 	int compression_type;
 
 	de_int64 rowspan;
@@ -117,158 +119,6 @@ static int read_fileheader(deark *c, lctx *d, de_int64 pos)
 	return 1;
 }
 
-static int read_infoheader_12(deark *c, lctx *d, de_int64 pos)
-{
-	d->width = de_getui16le(pos+4);
-	d->height = de_getui16le(pos+6);
-	de_dbg(c, "dimensions: %dx%d\n", (int)d->width, (int)d->height);
-	de_dbg(c, "bits/pixel: %d\n", (int)d->bitcount);
-
-	if(d->bitcount!=1 && d->bitcount!=2 && d->bitcount!=4 &&
-		d->bitcount!=8 && d->bitcount!=24)
-	{
-		de_err(c, "Bad bits/pixel: %d\n", (int)d->bitcount);
-		return 0;
-	}
-
-	d->bytes_per_pal_entry = 3;
-	if(d->bitcount<=8) {
-		d->pal_entries = ((de_int64)1)<<d->bitcount;
-	}
-
-	d->compression_type = CMPR_NONE;
-	return 1;
-}
-
-// This function is for reading the first 40 bytes of a Windows v3
-// (or OS/2v2) style infoheader.
-static int read_infoheader_40(deark *c, lctx *d, de_int64 pos)
-{
-	de_int64 height_raw;
-	de_int64 clr_used_raw;
-	int cmpr_ok;
-	int retval = 0;
-
-	de_dbg(c, "bits/pixel: %d\n", (int)d->bitcount);
-	de_dbg(c, "compression (etc.): %d\n", (int)d->compression_field);
-	d->width = dbuf_geti32le(c->infile, pos+4);
-	height_raw = dbuf_geti32le(c->infile, pos+8);
-	if(height_raw<0) {
-		d->top_down = 1;
-		d->height = -height_raw;
-	}
-	else {
-		d->height = height_raw;
-	}
-	de_dbg(c, "dimensions: %dx%d\n", (int)d->width, (int)d->height);
-
-	if(d->bitcount!=0 && d->bitcount!=1 && d->bitcount!=2 && d->bitcount!=4 &&
-		d->bitcount!=8 && d->bitcount!=16 && d->bitcount!=24 && d->bitcount!=32)
-	{
-		de_err(c, "Bad bits/pixel: %d\n", (int)d->bitcount);
-		goto done;
-	}
-
-	// Fields after this point (after the first 16 bytes) should not be
-	// assumed to exist.
-
-	d->bytes_per_pal_entry = 4;
-	d->compression_type = CMPR_NONE;
-
-	cmpr_ok = 0;
-	switch(d->compression_field) {
-	case 0: // BI_RGB
-		cmpr_ok = 1;
-		if(d->bitcount==16 || d->bitcount==32) {
-			d->bitfields_type = BF_DEFAULT;
-		}
-		break;
-	case 1: // BI_RLE8
-		if(d->bitcount==8) {
-			d->compression_type=CMPR_RLE;
-			cmpr_ok = 1;
-		}
-		break;
-	case 2: // BI_RLE4
-		if(d->bitcount==4) {
-			d->compression_type=CMPR_RLE;
-			cmpr_ok = 1;
-		}
-		break;
-	case 3: // BI_BITFIELDS or Huffman_1D
-		if(d->version==DE_BMPVER_OS2V2) {
-			cmpr_ok = 1;
-			d->compression_type=CMPR_HUFFMAN1D;
-		}
-		else if(d->bitcount==16 || d->bitcount==32) {
-			cmpr_ok = 1;
-			if(d->infohdrsize>=52) {
-				d->bitfields_type = BF_IN_HEADER;
-			}
-			else {
-				d->bitfields_type = BF_SEGMENT;
-				d->bitfields_segment_len = 12;
-			}
-		}
-		break;
-	case 4: // BI_JPEG or RLE24
-		if(d->version==DE_BMPVER_OS2V2) {
-			if(d->bitcount==24) {
-				d->compression_type=CMPR_RLE;
-			}
-		}
-		else {
-			d->compression_type=CMPR_JPEG;
-		}
-		cmpr_ok = 1;
-		break;
-	case 5: // BI_PNG
-		d->compression_type=CMPR_PNG;
-		cmpr_ok = 1;
-		break;
-	case 6: // BI_ALPHABITFIELDS
-		if(d->bitcount==16 || d->bitcount==32) {
-			cmpr_ok = 1;
-			if(d->infohdrsize>=56) {
-				d->bitfields_type = BF_IN_HEADER;
-			}
-			else {
-				d->bitfields_type = BF_SEGMENT;
-				d->bitfields_segment_len = 16;
-			}
-		}
-		break;
-	}
-
-	if(!cmpr_ok) {
-		de_err(c, "Unsupported compression type: %d\n", (int)d->compression_field);
-		goto done;
-
-	}
-
-	if(d->infohdrsize>=32) {
-		d->xpelspermeter = dbuf_geti32le(c->infile, pos+24);
-		d->ypelspermeter = dbuf_geti32le(c->infile, pos+28);
-	}
-
-	if(d->infohdrsize>=36)
-		clr_used_raw = de_getui32le(pos+32);
-	else
-		clr_used_raw = 0;
-
-	if(d->bitcount>=1 && d->bitcount<=8 && clr_used_raw==0) {
-		d->pal_entries = ((de_int64)1)<<d->bitcount;
-	}
-	else {
-		d->pal_entries = clr_used_raw;
-	}
-	de_dbg(c, "number of palette colors: %d\n", (int)d->pal_entries);
-
-	retval = 1;
-done:
-	return retval;
-}
-
 // Calculate .shift and .scale
 static void update_bitfields_info(deark *c, lctx *d)
 {
@@ -314,45 +164,155 @@ static void set_default_bitfields(deark *c, lctx *d)
 	}
 }
 
-// Read bytes after the first 40 of a Windows v4+ style infoheader.
-// pos is the file offset of the start of the infoheader.
-static int read_infoheader_winv4plus(deark *c, lctx *d, de_int64 pos)
-{
-	if(d->infohdrsize<52) goto done;
-
-	if(d->bitfields_type==BF_IN_HEADER) {
-		do_read_bitfields(c, d, pos+40, d->infohdrsize>=56 ? 16 : 12);
-	}
-
-done:
-	return 1;
-}
-
+// Read any version of BITMAPINFOHEADER.
+//
+// Note: Some of this BMP parsing code is duplicated in the
+// de_fmtutil_get_bmpinfo() library function. The BMP module's needs are
+// not quite aligned with what that function is intended for, and it
+// would be too messy to try to add the necessary features to it.
 static int read_infoheader(deark *c, lctx *d, de_int64 pos)
 {
+	de_int64 height_raw;
+	de_int64 clr_used_raw;
+	int cmpr_ok;
 	int retval = 0;
-
-	// Note: Some of the BMP parsing code is duplicated in the
-	// de_fmtutil_get_bmpinfo() library function. The BMP module's needs are
-	// not quite aligned with what that function is intended for, and it
-	// would be too messy to try to add the necessary features to it.
 
 	de_dbg(c, "info header at %d\n", (int)pos);
 	de_dbg_indent(c, 1);
 	de_dbg(c, "info header size: %d\n", (int)d->infohdrsize);
+
 	if(d->version==DE_BMPVER_OS2V1) {
-		if(!read_infoheader_12(c, d, pos)) goto done;
-	}
-	else if(d->version==DE_BMPVER_OS2V2) {
-		if(!read_infoheader_40(c, d, pos)) goto done;
+		d->width = de_getui16le(pos+4);
+		d->height = de_getui16le(pos+6);
 	}
 	else {
-		if(!read_infoheader_40(c, d, pos)) goto done;
-		if(!read_infoheader_winv4plus(c, d, pos)) goto done;
+		d->width = dbuf_geti32le(c->infile, pos+4);
+		height_raw = dbuf_geti32le(c->infile, pos+8);
+		if(height_raw<0) {
+			d->top_down = 1;
+			d->height = -height_raw;
+		}
+		else {
+			d->height = height_raw;
+		}
 	}
-
+	de_dbg(c, "dimensions: %dx%d\n", (int)d->width, (int)d->height);
 	if(!de_good_image_dimensions(c, d->width, d->height)) {
 		goto done;
+	}
+
+	// Already read, in detect_bmp_version()
+	de_dbg(c, "bits/pixel: %d\n", (int)d->bitcount);
+
+	if(d->bitcount!=0 && d->bitcount!=1 && d->bitcount!=2 && d->bitcount!=4 &&
+		d->bitcount!=8 && d->bitcount!=16 && d->bitcount!=24 && d->bitcount!=32)
+	{
+		de_err(c, "Bad bits/pixel: %d\n", (int)d->bitcount);
+		goto done;
+	}
+
+	if(d->version==DE_BMPVER_OS2V1) {
+		d->bytes_per_pal_entry = 3;
+	}
+	else {
+		// Already read, in detect_bmp_version()
+		de_dbg(c, "compression (etc.): %d\n", (int)d->compression_field);
+		d->bytes_per_pal_entry = 4;
+	}
+
+	d->compression_type = CMPR_NONE; // Temporary default
+
+	cmpr_ok = 0;
+	switch(d->compression_field) {
+	case 0: // BI_RGB
+		cmpr_ok = 1;
+		if(d->bitcount==16 || d->bitcount==32) {
+			d->bitfields_type = BF_DEFAULT;
+		}
+		break;
+	case 1: // BI_RLE8
+		d->compression_type=CMPR_RLE8;
+		cmpr_ok = 1;
+		break;
+	case 2: // BI_RLE4
+		d->compression_type=CMPR_RLE4;
+		cmpr_ok = 1;
+		break;
+	case 3: // BI_BITFIELDS or Huffman_1D
+		if(d->version==DE_BMPVER_OS2V2) {
+			cmpr_ok = 1;
+			d->compression_type=CMPR_HUFFMAN1D;
+		}
+		else if(d->bitcount==16 || d->bitcount==32) {
+			cmpr_ok = 1;
+			if(d->infohdrsize>=52) {
+				d->bitfields_type = BF_IN_HEADER;
+			}
+			else {
+				d->bitfields_type = BF_SEGMENT;
+				d->bitfields_segment_len = 12;
+			}
+		}
+		break;
+	case 4: // BI_JPEG or RLE24
+		if(d->version==DE_BMPVER_OS2V2) {
+			if(d->bitcount==24) {
+				d->compression_type=CMPR_RLE24;
+			}
+		}
+		else {
+			d->compression_type=CMPR_JPEG;
+		}
+		cmpr_ok = 1;
+		break;
+	case 5: // BI_PNG
+		d->compression_type=CMPR_PNG;
+		cmpr_ok = 1;
+		break;
+	case 6: // BI_ALPHABITFIELDS
+		if(d->bitcount==16 || d->bitcount==32) {
+			cmpr_ok = 1;
+			if(d->infohdrsize>=56) {
+				d->bitfields_type = BF_IN_HEADER;
+			}
+			else {
+				d->bitfields_type = BF_SEGMENT;
+				d->bitfields_segment_len = 16;
+			}
+		}
+		break;
+	}
+
+	if(!cmpr_ok) {
+		de_err(c, "Unsupported compression type: %d\n", (int)d->compression_field);
+		goto done;
+
+	}
+
+	if(d->infohdrsize>=32) {
+		d->xpelspermeter = dbuf_geti32le(c->infile, pos+24);
+		d->ypelspermeter = dbuf_geti32le(c->infile, pos+28);
+		de_dbg(c, "density: %dx%d pixels/meter\n", (int)d->xpelspermeter, (int)d->ypelspermeter);
+	}
+
+	if(d->infohdrsize>=36)
+		clr_used_raw = de_getui32le(pos+32);
+	else
+		clr_used_raw = 0;
+
+	if(d->bitcount>=1 && d->bitcount<=8 && clr_used_raw==0) {
+		d->pal_entries = ((de_int64)1)<<d->bitcount;
+	}
+	else {
+		d->pal_entries = clr_used_raw;
+	}
+	de_dbg(c, "number of palette colors: %d\n", (int)d->pal_entries);
+
+	// Note that after 40 bytes, WINV345 and OS2V2 header fields are different,
+	// so we may have to pay more attention to the version.
+
+	if(d->bitfields_type==BF_IN_HEADER) {
+		do_read_bitfields(c, d, pos+40, d->infohdrsize>=56 ? 16 : 12);
 	}
 
 	if(d->bitfields_type==BF_DEFAULT) {
