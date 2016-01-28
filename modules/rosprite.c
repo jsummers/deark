@@ -93,7 +93,7 @@ typedef struct localctx_struct {
 	int has_custom_palette;
 	de_int64 custom_palette_pos;
 	de_int64 custom_palette_ncolors;
-	de_uint32 palette[256];
+	de_uint32 pal[256];
 } lctx;
 
 static const de_uint32 pal4[4] = {
@@ -136,11 +136,28 @@ static void do_image(deark *c, lctx *d, de_finfo *fi)
 	de_int64 i, j;
 	de_byte n;
 	de_uint32 clr;
+	int is_grayscale;
+	int bypp;
 
-	img = de_bitmap_create(c, d->width, d->height, d->has_mask?4:3);
+	if(d->fgbpp<=8) {
+		is_grayscale = de_is_grayscale_palette(d->pal, ((de_int64)1)<<d->fgbpp);
+	}
+	else {
+		is_grayscale = 0;
+	}
+
+	bypp = is_grayscale?1:3;
+	if(d->has_mask) bypp++;
+
+	img = de_bitmap_create(c, d->width, d->height, bypp);
 	img->density_code = DE_DENSITY_DPI;
 	img->xdens = (double)d->xdpi;
 	img->ydens = (double)d->ydpi;
+
+	de_dbg(c, "image data at %d\n", (int)d->image_offset);
+	if(d->has_mask) {
+		de_dbg(c, "transparency mask at %d\n", (int)d->mask_offset);
+	}
 
 	for(j=0; j<d->height; j++) {
 		for(i=0; i<d->width; i++) {
@@ -154,7 +171,7 @@ static void do_image(deark *c, lctx *d, de_finfo *fi)
 			else {
 				n = de_get_bits_symbol_lsb(c->infile, d->fgbpp, d->image_offset + 4*d->width_in_words*j,
 					i+d->pixels_to_ignore_at_start_of_row);
-				clr = d->palette[(int)n];
+				clr = d->pal[(int)n];
 
 				if(d->has_mask) {
 					n = de_get_bits_symbol_lsb(c->infile, d->maskbpp, d->mask_offset + d->mask_rowspan*j,
@@ -193,14 +210,20 @@ static de_uint32 average_color(de_uint32 c1, de_uint32 c2)
 static void do_setup_palette(deark *c, lctx *d)
 {
 	de_int64 k;
-	de_uint32 clr1, clr2;
+	de_uint32 clr1, clr2, clr3;
 
 	if(d->fgbpp>8) {
 		for(k=0; k<256; k++) {
-			d->palette[k] = 0;
+			d->pal[k] = 0;
 		}
 		return;
 	}
+
+	if(d->has_custom_palette) {
+		de_dbg(c, "custom palette at %d, %d entries\n", (int)d->custom_palette_pos,
+			(int)d->custom_palette_ncolors);
+	}
+	de_dbg_indent(c, 1);
 
 	for(k=0; k<256; k++) {
 		if(d->has_custom_palette) {
@@ -211,24 +234,52 @@ static void do_setup_palette(deark *c, lctx *d)
 				// average them.
 				clr1 = dbuf_getRGB(c->infile, d->custom_palette_pos + 8*k + 1, 0);
 				clr2 = dbuf_getRGB(c->infile, d->custom_palette_pos + 8*k + 4 + 1, 0);
-				if(clr1==clr2)
-					d->palette[k] = clr1;
-				else
-					d->palette[k] = average_color(clr1, clr2);
+				if(clr1==clr2) {
+					d->pal[k] = clr1;
+					de_dbg_pal_entry(c, k, clr1);
+				}
+				else {
+					clr3 = average_color(clr1, clr2);
+					d->pal[k] = clr3;
+					de_dbg2(c, "pal[%3d] = (%3d,%3d,%3d),(%3d,%3d,%3d) -> (%3d,%3d,%3d)\n",
+						(int)k,
+						(int)DE_COLOR_R(clr1), (int)DE_COLOR_G(clr1), (int)DE_COLOR_B(clr1),
+						(int)DE_COLOR_R(clr2), (int)DE_COLOR_G(clr2), (int)DE_COLOR_B(clr2),
+						(int)DE_COLOR_R(clr3), (int)DE_COLOR_G(clr3), (int)DE_COLOR_B(clr3));
+				}
 			}
 			else {
-				d->palette[k] = getpal256((int)k);
+				d->pal[k] = getpal256((int)k);
 			}
 		}
 		else if(d->fgbpp==4 && k<16) {
-			d->palette[k] = getpal16((int)k);
+			d->pal[k] = getpal16((int)k);
 		}
 		else if(d->fgbpp==2 && k<4) {
-			d->palette[k] = getpal4((int)k);
+			d->pal[k] = getpal4((int)k);
 		}
 		else {
-			d->palette[k] = getpal256((int)k);
+			d->pal[k] = getpal256((int)k);
 		}
+	}
+
+	de_dbg_indent(c, -1);
+}
+
+static void read_sprite_name(deark *c, lctx *d, de_finfo *fi, de_int64 pos)
+{
+	if(c->debug_level>=1) {
+		de_byte namebuf[12];
+		char name_printable[20];
+
+		de_read(namebuf, pos, 12);
+		de_make_printable_ascii(namebuf, 12,
+			name_printable, sizeof(name_printable), DE_CONVFLAG_STOP_AT_NUL);
+		de_dbg(c, "sprite name: \"%s\"\n", name_printable);
+	}
+
+	if(c->filenames_from_file) {
+		de_finfo_set_name_from_slice(c, fi, c->infile, pos, 12, DE_CONVFLAG_STOP_AT_NUL);
 	}
 }
 
@@ -237,6 +288,7 @@ static void do_sprite(deark *c, lctx *d, de_int64 index,
 {
 	de_int64 new_img_type;
 	de_finfo *fi = NULL;
+	int indent_count = 0;
 
 	d->fgbpp = 0;
 	d->maskbpp = 0;
@@ -249,10 +301,14 @@ static void do_sprite(deark *c, lctx *d, de_int64 index,
 	d->mask_rowspan = 0;
 	d->has_custom_palette = 0;
 
+	de_dbg(c, "image header at %d\n", (int)pos1);
+	de_dbg_indent(c, 1);
+	indent_count++;
+
 	// Name at pos 4, len=12
 	fi = de_finfo_create(c);
-	if(c->filenames_from_file)
-		de_finfo_set_name_from_slice(c, fi, c->infile, pos1+4, 12, DE_CONVFLAG_STOP_AT_NUL);
+
+	read_sprite_name(c, d, fi, pos1+4);
 
 	d->width_in_words = de_getui32le(pos1+16) +1;
 	d->height = de_getui32le(pos1+20) +1;
@@ -265,25 +321,20 @@ static void do_sprite(deark *c, lctx *d, de_int64 index,
 	d->image_offset = de_getui32le(pos1+32) + pos1;
 	d->mask_offset = de_getui32le(pos1+36) + pos1;
 	d->has_mask = (d->mask_offset != d->image_offset);
-	d->mode = (de_uint32)de_getui32le(pos1+40);
 	de_dbg(c, "first bit: %d, last bit: %d\n", (int)d->first_bit, (int)d->last_bit);
 	de_dbg(c, "image offset: %d, mask_offset: %d\n", (int)d->image_offset, (int)d->mask_offset);
+
+	d->mode = (de_uint32)de_getui32le(pos1+40);
 	de_dbg(c, "mode: 0x%08x\n", (unsigned int)d->mode);
+
+	de_dbg_indent(c, 1);
+	indent_count++;
 
 	new_img_type = (d->mode&0x78000000U)>>27;
 	if(new_img_type==0)
 		de_dbg(c, "old format screen mode: %d\n", (int)d->mode);
 	else
 		de_dbg(c, "new format image type: %d\n", (int)new_img_type);
-
-	d->custom_palette_pos = pos1 + 44;
-	if(d->image_offset >= d->custom_palette_pos+8 && d->fgbpp<=8) {
-		d->has_custom_palette = 1;
-		d->custom_palette_ncolors = (d->image_offset - (pos1+44))/8;
-		if(d->custom_palette_ncolors>256) d->custom_palette_ncolors=256;
-		de_dbg(c, "custom palette at %d, %d colors\n", (int)d->custom_palette_pos,
-			(int)d->custom_palette_ncolors);
-	}
 
 	if(new_img_type==0) {
 		// old format
@@ -352,12 +403,17 @@ static void do_sprite(deark *c, lctx *d, de_int64 index,
 		}
 	}
 
+	de_dbg(c, "foreground bits/pixel: %d\n", (int)d->fgbpp);
+
+	de_dbg_indent(c, -1);
+	indent_count--;
+
 	d->width = ((d->width_in_words-1) * 4 * 8 + (d->last_bit+1)) / d->fgbpp;
 	d->pixels_to_ignore_at_start_of_row = d->first_bit / d->fgbpp;
 	d->width -= d->pixels_to_ignore_at_start_of_row;
-
-	de_dbg(c, "foreground bits/pixel: %d\n", (int)d->fgbpp);
 	de_dbg(c, "calculated width: %d\n", (int)d->width);
+
+	if(!de_good_image_dimensions(c, d->width, d->height)) goto done;
 
 	if(d->mask_type==MASK_TYPE_NEW_1 || d->mask_type==MASK_TYPE_NEW_8) {
 		if(d->pixels_to_ignore_at_start_of_row>0) {
@@ -368,12 +424,21 @@ static void do_sprite(deark *c, lctx *d, de_int64 index,
 		d->mask_rowspan = ((d->width+31)/32)*4;
 	}
 
-	if(!de_good_image_dimensions(c, d->width, d->height)) goto done;
+	de_dbg_indent(c, -1);
+	indent_count--;
+
+	d->custom_palette_pos = pos1 + 44;
+	if(d->image_offset >= d->custom_palette_pos+8 && d->fgbpp<=8) {
+		d->has_custom_palette = 1;
+		d->custom_palette_ncolors = (d->image_offset - (pos1+44))/8;
+		if(d->custom_palette_ncolors>256) d->custom_palette_ncolors=256;
+	}
 
 	do_setup_palette(c, d);
 
 	do_image(c, d, fi);
 done:
+	de_dbg_indent(c, -indent_count);
 	de_finfo_destroy(c, fi);
 }
 
