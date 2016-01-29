@@ -228,10 +228,11 @@ static int read_infoheader(deark *c, lctx *d, de_int64 pos)
 	cmpr_ok = 0;
 	switch(d->compression_field) {
 	case 0: // BI_RGB
-		cmpr_ok = 1;
 		if(d->bitcount==16 || d->bitcount==32) {
 			d->bitfields_type = BF_DEFAULT;
 		}
+		d->compression_type = CMPR_NONE;
+		cmpr_ok = 1;
 		break;
 	case 1: // BI_RLE8
 		d->compression_type=CMPR_RLE8;
@@ -243,10 +244,13 @@ static int read_infoheader(deark *c, lctx *d, de_int64 pos)
 		break;
 	case 3: // BI_BITFIELDS or Huffman_1D
 		if(d->version==DE_BMPVER_OS2V2) {
-			cmpr_ok = 1;
-			d->compression_type=CMPR_HUFFMAN1D;
+			if(d->bitcount==1) {
+				d->compression_type=CMPR_HUFFMAN1D;
+				cmpr_ok = 1;
+			}
 		}
 		else if(d->bitcount==16 || d->bitcount==32) {
+			d->compression_type = CMPR_NONE;
 			cmpr_ok = 1;
 			if(d->infohdrsize>=52) {
 				d->bitfields_type = BF_IN_HEADER;
@@ -261,12 +265,13 @@ static int read_infoheader(deark *c, lctx *d, de_int64 pos)
 		if(d->version==DE_BMPVER_OS2V2) {
 			if(d->bitcount==24) {
 				d->compression_type=CMPR_RLE24;
+				cmpr_ok = 1;
 			}
 		}
 		else {
 			d->compression_type=CMPR_JPEG;
+			cmpr_ok = 1;
 		}
-		cmpr_ok = 1;
 		break;
 	case 5: // BI_PNG
 		d->compression_type=CMPR_PNG;
@@ -274,6 +279,7 @@ static int read_infoheader(deark *c, lctx *d, de_int64 pos)
 		break;
 	case 6: // BI_ALPHABITFIELDS
 		if(d->bitcount==16 || d->bitcount==32) {
+			d->compression_type = CMPR_NONE;
 			cmpr_ok = 1;
 			if(d->infohdrsize>=56) {
 				d->bitfields_type = BF_IN_HEADER;
@@ -289,7 +295,6 @@ static int read_infoheader(deark *c, lctx *d, de_int64 pos)
 	if(!cmpr_ok) {
 		de_err(c, "Unsupported compression type: %d\n", (int)d->compression_field);
 		goto done;
-
 	}
 
 	if(d->infohdrsize>=32) {
@@ -618,12 +623,46 @@ done:
 	de_free(c, d);
 }
 
+// Note that this function must work together with de_identify_vbm().
 static int de_identify_bmp(deark *c)
 {
-	// TODO: Most BMP files can be identified with much better reliability.
-	if(!dbuf_memcmp(c->infile, 0, "BM", 2))
-		return 45;
-	return 0;
+	de_int64 fsize;
+	de_int64 bits_offset;
+	de_int64 infohdrsize;
+	int bmp_ext;
+	de_byte buf[6];
+
+	de_read(buf, 0, sizeof(buf));
+	if(de_memcmp(buf, "BM", 2)) {
+		return 0;
+	}
+
+	bmp_ext = de_input_file_has_ext(c, "bmp");
+	fsize = de_getui32le_direct(&buf[2]);
+	bits_offset = de_getui32le(10);
+	infohdrsize = de_getui32le(14);
+
+	if(infohdrsize<12) return 0;
+	if(infohdrsize>256) return 0;
+	if(bits_offset>=c->infile->len) return 0;
+	if(bits_offset<14+infohdrsize) return 0;
+	if(fsize==c->infile->len && bmp_ext) return 100;
+	if(buf[2]==0xcb) {
+		// Possible VBM file.
+		// Windows BMP files are highly unlikely to start with 'B' 'M' \xcb,
+		// because that would imply the file is an odd number of bytes in size,
+		// which is legal but silly.
+		if(bmp_ext) return 90;
+		return 5;
+	}
+
+	if(bmp_ext) return 100;
+	if(infohdrsize==12 || infohdrsize==40 || infohdrsize==108 ||
+		infohdrsize==124)
+	{
+		return 100;
+	}
+	return 90;
 }
 
 void de_module_bmp(deark *c, struct deark_module_info *mi)

@@ -749,20 +749,15 @@ static void de_run_vbm(deark *c, de_module_params *mparams)
 		DE_CVTF_WHITEISZERO, NULL);
 }
 
+// Note that this function must work together with de_identify_bmp().
 static int de_identify_vbm(deark *c)
 {
 	de_byte b[4];
 	de_read(b, 0, 4);
 	if(de_memcmp(b, "BM\xcb", 3)) return 0;
 	if(b[3]!=2 && b[3]!=3) return 0;
-
-	// Windows BMP files are highly unlikely to start with 'B' 'M' \xcb,
-	// because that would imply the file is an odd number of bytes in size,
-	// which is legal but silly. Still, if the file extension is ".bmp", we'll
-	// assume it is BMP and not VBM.
-	if(de_input_file_has_ext(c, "bmp")) return 0;
-
-	return 100;
+	if(de_input_file_has_ext(c, "vbm")) return 100;
+	return 80;
 }
 
 void de_module_vbm(deark *c, struct deark_module_info *mi)
