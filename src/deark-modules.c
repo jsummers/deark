@@ -45,6 +45,7 @@ void de_register_modules(deark *c)
 		de_module_binhex,
 		de_module_ilbm,
 		de_module_icns,
+		de_module_farbfeld,
 		de_module_dcx,
 		de_module_pgc,
 		de_module_pgx,

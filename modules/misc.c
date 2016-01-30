@@ -1229,3 +1229,51 @@ void de_module_crg(deark *c, struct deark_module_info *mi)
 	mi->run_fn = de_run_crg;
 	mi->identify_fn = de_identify_crg;
 }
+
+// **************************************************************************
+// farbfeld
+// **************************************************************************
+
+static void de_run_farbfeld(deark *c, de_module_params *mparams)
+{
+	struct deark_bitmap *img = NULL;
+	de_int64 width, height;
+	de_int64 i, j, k;
+	de_int64 ppos;
+	de_byte s[4];
+
+	width = de_getui32be(8);
+	height = de_getui32be(12);
+	de_dbg(c, "dimensions: %dx%d\n", (int)width, (int)height);
+	if(!de_good_image_dimensions(c, width, height)) return;
+
+	img = de_bitmap_create(c, width, height, 4);
+
+	for(j=0; j<height; j++) {
+		for(i=0; i<width; i++) {
+			ppos = 16 + 8*(width*j + i);
+			for(k=0; k<4; k++) {
+				s[k] = de_getbyte(ppos+2*k);
+			}
+			de_bitmap_setpixel_rgba(img, i, j,
+				DE_MAKE_RGBA(s[0],s[1],s[2],s[3]));
+		}
+	}
+	de_bitmap_write_to_file(img, NULL);
+	de_bitmap_destroy(img);
+}
+
+static int de_identify_farbfeld(deark *c)
+{
+	if(!dbuf_memcmp(c->infile, 0, "farbfeld", 8))
+		return 100;
+	return 0;
+}
+
+void de_module_farbfeld(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "farbfeld";
+	mi->desc = "farbfeld image";
+	mi->run_fn = de_run_farbfeld;
+	mi->identify_fn = de_identify_farbfeld;
+}

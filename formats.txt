@@ -99,6 +99,8 @@ Deark -- Information about supported formats
 
 * Falcon True Color (module="ftc")
 
+* farbfeld (module="farbfeld")
+
 * GEM VDI Bit Image (GEM Raster) (module="gemras")
   - Supports original bilevel format
   - Supports paletted XIMG format
