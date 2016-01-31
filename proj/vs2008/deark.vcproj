@@ -590,6 +590,10 @@
 				>
 			</File>
 			<File
+				RelativePath="..\..\modules\mbk.c"
+				>
+			</File>
+			<File
 				RelativePath="..\..\modules\misc.c"
 				>
 			</File>
