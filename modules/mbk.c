@@ -116,6 +116,7 @@ static void read_sprite_palette(deark *c, lctx *d, de_int64 pos)
 	n = de_getui32be(pos);
 	if(n!=0x50414c54) {
 		de_warn(c, "Sprite palette not found (expected at %d)\n", (int)pos);
+		d->pal[0] = DE_STOCKCOLOR_WHITE;
 		return;
 	}
 	de_dbg(c, "sprite palette at %d\n", (int)pos);
@@ -133,7 +134,6 @@ static void do_sprite_bank(deark *c, lctx *d, de_int64 pos)
 	de_int64 nsprites_total = 0;
 	de_int64 pal_pos;
 
-	de_dbg(c, "sprite bank\n");
 	for(res=0; res<3; res++) {
 		paramoffs_raw[res] = de_getui32be(pos+4+4*res);
 		// paramoffs is relative to the first position after the ID.
@@ -155,16 +155,96 @@ static void do_sprite_bank(deark *c, lctx *d, de_int64 pos)
 	}
 }
 
+static void do_icon(deark *c, lctx *d, de_int64 idx, de_int64 pos)
+{
+	struct deark_bitmap *img = NULL;
+	de_int64 format_flag;
+	de_int64 bgcol, fgcol;
+	de_int64 i, j;
+	de_int64 w, h;
+	de_int64 rowspan;
+	de_byte mskbit, fgbit;
+	de_int64 bitsstart;
+	de_uint32 clr;
+
+	de_dbg(c, "icon #%d, at %d\n", (int)idx, (int)pos);
+	de_dbg_indent(c, 1);
+
+	format_flag = de_getui16be(pos+4);
+	de_dbg(c, "format flag: 0x%04x\n", (unsigned int)format_flag);
+	bgcol = de_getui16be(pos+6);
+	fgcol = de_getui16be(pos+8);
+	de_dbg(c, "bgcol: 0x%04x, fgcol: 0x%04x\n", (unsigned int)bgcol, (unsigned int)fgcol);
+
+	// TODO: I don't know how to figure out what colors to use.
+	if(fgcol==0 && bgcol!=0) {
+		d->pal[0] = DE_STOCKCOLOR_BLACK;
+		d->pal[1] = DE_STOCKCOLOR_WHITE;
+	}
+	else {
+		d->pal[0] = DE_STOCKCOLOR_WHITE;
+		d->pal[1] = DE_STOCKCOLOR_BLACK;
+	}
+
+	w = 16;
+	h = 16;
+	rowspan = 4;
+	img = de_bitmap_create(c, w, h, 2);
+
+	bitsstart = pos + 10;
+	for(j=0; j<h; j++) {
+		for(i=0; i<w; i++) {
+			mskbit = de_get_bits_symbol(c->infile, 1, bitsstart + j*rowspan, i);
+			fgbit = de_get_bits_symbol(c->infile, 1, bitsstart + j*rowspan + 2, i);
+			clr = d->pal[(unsigned int)fgbit];
+			if(!mskbit) {
+				clr = DE_SET_ALPHA(clr, 0);
+			}
+			de_bitmap_setpixel_rgba(img, i, j, clr);
+		}
+	}
+
+	de_bitmap_write_to_file(img, NULL);
+	de_bitmap_destroy(img);
+	de_dbg_indent(c, -1);
+}
+
+static void do_icon_bank(deark *c, lctx *d, de_int64 pos)
+{
+	de_int64 num_icons;
+	de_int64 k;
+
+	num_icons = de_getui16be(pos+4);
+	de_dbg(c, "number of icons: %d\n", (int)num_icons);
+	for(k=0; k<num_icons; k++) {
+		do_icon(c, d, k, pos+6+84*k);
+	}
+}
+
 static void do_mbk_data_bank(deark *c, lctx *d, de_int64 pos)
 {
+	const char *bn = "?";
+
 	de_dbg(c, "STOS data bank at %d\n", (int)pos);
 	de_dbg_indent(c, 1);
 	d->data_bank_id = (de_uint32)de_getui32be(pos);
-	de_dbg(c, "data bank id: 0x%08x\n", (unsigned int)d->data_bank_id);
+
+	switch(d->data_bank_id) {
+	case 0x06071963U: bn = "packed screen"; break;
+	case 0x13490157U: bn = "music bank"; break;
+	case 0x28091960U: bn = "icon bank"; break;
+	case 0x19861987U: bn = "sprite bank"; break;
+	case 0x4d414553U: bn = "Maestro!"; break;
+	}
+
+	de_dbg(c, "data bank id: 0x%08x (%s)\n", (unsigned int)d->data_bank_id, bn);
 
 	switch(d->data_bank_id) {
 	case 0x19861987U:
 		do_sprite_bank(c, d, pos);
+		break;
+	case 0x28091960U:
+		do_icon_bank(c, d, pos);
 		break;
 	}
 	de_dbg_indent(c, -1);
@@ -173,6 +253,7 @@ static void do_mbk_data_bank(deark *c, lctx *d, de_int64 pos)
 static void do_mbk(deark *c, lctx *d)
 {
 	de_int64 pos = 0;
+	const char *bt = "?";
 
 	de_dbg(c, "MBK header at %d\n", (int)pos);
 	de_dbg_indent(c, 1);
@@ -182,7 +263,17 @@ static void do_mbk(deark *c, lctx *d)
 	d->banksize = de_getui32be(14);
 	d->banktype = (de_byte)(d->banksize>>24);
 	d->banksize &= (de_int64)0x00ffffff;
-	de_dbg(c, "bank type: 0x%02x\n", (unsigned int)d->banktype);
+
+	switch(d->banktype) {
+	case 0x01: bt = "work"; break;
+	case 0x02: bt = "screen"; break;
+	case 0x81: bt = "data"; break;
+	case 0x82: bt = "datascreen"; break;
+	case 0x84: bt = "set"; break;
+	case 0x85: bt = "packed files"; break;
+	}
+
+	de_dbg(c, "bank type: 0x%02x (%s)\n", (unsigned int)d->banktype, bt);
 	de_dbg(c, "bank size: %d\n", (int)d->banksize);
 
 	de_dbg_indent(c, -1);
@@ -203,16 +294,33 @@ static void do_mbs(deark *c, lctx *d)
 static void de_run_mbk_mbs(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
+	de_uint32 id;
+	de_byte buf[10];
 
 	d = de_malloc(c, sizeof(lctx));
-	d->banknum = de_getui32be(10);
-	if(d->banknum==0) {
-		de_declare_fmt(c, "STOS MBS");
-		do_mbs(c, d);
+
+	de_read(buf, 0, sizeof(buf));
+	if(!de_memcmp(buf, "Lionpoubnk", 10)) {
+		d->banknum = de_getui32be(10);
+		if(d->banknum==0) {
+			de_declare_fmt(c, "STOS MBS");
+			do_mbs(c, d);
+		}
+		else {
+			de_declare_fmt(c, "STOS MBK");
+			do_mbk(c, d);
+		}
 	}
 	else {
-		de_declare_fmt(c, "STOS MBK");
-		do_mbk(c, d);
+		id = (de_uint32)de_getui32be_direct(buf);
+
+		if(id==0x19861987U) {
+			de_declare_fmt(c, "STOS Sprite Bank");
+			do_sprite_bank(c, d, 0);
+		}
+		else {
+			de_err(c, "Not a (supported) STOS/MBK format\n");
+		}
 	}
 
 	de_free(c, d);
@@ -220,15 +328,21 @@ static void de_run_mbk_mbs(deark *c, de_module_params *mparams)
 
 static int de_identify_mbk(deark *c)
 {
-	if(!dbuf_memcmp(c->infile, 0, "Lionpoubnk", 10))
+	de_byte buf[10];
+
+	de_read(buf, 0, sizeof(buf));
+	if(!de_memcmp(buf, "Lionpoubnk", 10))
 		return 100;
+	if(!de_memcmp(buf, "\x19\x86\x19\x87", 4)) { // Sprite bank
+		return 100;
+	}
 	return 0;
 }
 
 void de_module_mbk(deark *c, struct deark_module_info *mi)
 {
-	mi->id = "mbk";
-	mi->desc = "STOS Memory Bank";
+	mi->id = "stos";
+	mi->desc = "STOS Memory Bank (.MBK)";
 	mi->run_fn = de_run_mbk_mbs;
 	mi->identify_fn = de_identify_mbk;
 }

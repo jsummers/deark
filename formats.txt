@@ -317,8 +317,9 @@ Deark -- Information about supported formats
   - Extracts WMF files.
   - Does not support LZ77 compression.
 
-* STOS Memory Bank (module="mbk") (experimental)
+* STOS Memory Bank (module="stos") (experimental)
   - Decode "sprite bank" images
+  - Decode "icon bank" images
 
 * TGA (Targa) (module="tga")
 
