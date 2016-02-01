@@ -406,6 +406,10 @@ void de_bitmap_destroy(struct deark_bitmap *b);
 #define DE_COLOR_R(x)  (((x)>>16)&0xff)
 #define DE_COLOR_G(x)  (((x)>>8)&0xff)
 #define DE_COLOR_B(x)  ((x)&0xff)
+#define DE_COLOR_K(x)  (((x)>>16)&0xff) // Gray value. Arbitrarily use the Red channel.
+
+#define DE_STOCKCOLOR_BLACK   0xff000000U
+#define DE_STOCKCOLOR_WHITE   0xffffffffU
 
 #define DE_MAKE_RGBA(r,g,b,a)  ((((de_uint32)(a))<<24)|((r)<<16)|((g)<<8)|(b))
 #define DE_MAKE_RGB(r,g,b)     ((((de_uint32)0xff)<<24)|((r)<<16)|((g)<<8)|(b))
@@ -449,6 +453,10 @@ int de_good_image_dimensions_noerr(deark *c, de_int64 w, de_int64 h);
 int de_good_image_dimensions(deark *c, de_int64 w, de_int64 h);
 
 int de_is_grayscale_palette(const de_uint32 *pal, de_int64 num_entries);
+
+#define DE_BITMAPFLAG_WHITEISTRNS 0x1
+void de_bitmap_apply_mask(struct deark_bitmap *fg, struct deark_bitmap *mask,
+	unsigned int flags);
 
 ///////////////////////////////////////////
 

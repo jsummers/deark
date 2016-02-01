@@ -39,6 +39,7 @@ $(OBJDIR)/modules/fmtutil.o $(OBJDIR)/modules/exe.o \
  $(OBJDIR)/modules/wmf.o $(OBJDIR)/modules/pict.o \
  $(OBJDIR)/modules/ansiart.o $(OBJDIR)/modules/xbin.o \
  $(OBJDIR)/modules/qtif.o $(OBJDIR)/modules/gemras.o \
+ $(OBJDIR)/modules/mbk.o \
  $(OBJDIR)/modules/misc.o: modules/fmtutil.h
 
 $(OBJDIR)/src/deark-miniz.o: foreign/miniz.h

@@ -606,3 +606,107 @@ void de_fmtutil_read_atari_palette(deark *c, dbuf *f, de_int64 pos,
 		dstpal[i] = DE_MAKE_RGB(cr, cg, cb);
 	}
 }
+
+
+static int decode_atari_image_paletted(deark *c, struct atari_img_decode_data *adata)
+{
+	de_int64 i, j;
+	de_int64 plane;
+	de_int64 rowspan;
+	de_byte b;
+	de_uint32 v;
+	de_int64 planespan;
+
+	planespan = 2*((adata->w+15)/16);
+	rowspan = planespan*adata->bpp;
+
+	for(j=0; j<adata->h; j++) {
+		for(i=0; i<adata->w; i++) {
+			v = 0;
+
+			for(plane=0; plane<adata->bpp; plane++) {
+				if(adata->was_compressed==0) {
+					// TODO: Simplify this.
+					if(adata->bpp==1) {
+						b = de_get_bits_symbol(adata->unc_pixels, 1, j*rowspan, i);
+					}
+					else if(adata->bpp==2) {
+						b = de_get_bits_symbol(adata->unc_pixels, 1,
+							j*rowspan + 2*plane + (i/16)*2, i);
+					}
+					else if(adata->bpp==4) {
+						b = de_get_bits_symbol(adata->unc_pixels, 1,
+							j*rowspan + 2*plane + (i/2-(i/2)%16)+8*((i%32)/16), i%16);
+					}
+					else if(adata->bpp==8) {
+						b = de_get_bits_symbol(adata->unc_pixels, 1,
+							j*rowspan + 2*plane + (i-i%16), i%16);
+					}
+					else {
+						b = 0;
+					}
+				}
+				else {
+					b = de_get_bits_symbol(adata->unc_pixels, 1, j*rowspan + plane*planespan, i);
+				}
+				if(b) v |= 1<<plane;
+			}
+
+			if(v>255) v=255;
+			de_bitmap_setpixel_rgb(adata->img, i, j, adata->pal[v]);
+		}
+	}
+	return 1;
+}
+
+static int decode_atari_image_16(deark *c, struct atari_img_decode_data *adata)
+{
+	de_int64 i, j;
+	de_int64 rowspan;
+	de_uint32 v;
+
+	rowspan = adata->w * 2;
+
+	for(j=0; j<adata->h; j++) {
+		for(i=0; i<adata->w; i++) {
+			v = (de_uint32)dbuf_getui16be(adata->unc_pixels, j*rowspan + 2*i);
+			v = de_rgb565_to_888(v);
+			de_bitmap_setpixel_rgb(adata->img, i, j,v);
+		}
+	}
+	return 1;
+}
+
+int de_fmtutil_atari_decode_image(deark *c, struct atari_img_decode_data *adata)
+{
+	switch(adata->bpp) {
+	case 16:
+		return decode_atari_image_16(c, adata);
+	case 8: case 4: case 2: case 1:
+		return decode_atari_image_paletted(c, adata);
+	}
+
+	de_err(c, "Unsupported bits/pixel (%d)\n", (int)adata->bpp);
+	return 0;
+}
+
+void de_fmtutil_atari_set_standard_density(deark *c, struct atari_img_decode_data *adata)
+{
+	switch(adata->bpp) {
+	case 4:
+		adata->img->density_code = DE_DENSITY_UNK_UNITS;
+		adata->img->xdens = 240.0;
+		adata->img->ydens = 200.0;
+		break;
+	case 2:
+		adata->img->density_code = DE_DENSITY_UNK_UNITS;
+		adata->img->xdens = 480.0;
+		adata->img->ydens = 200.0;
+		break;
+	case 1:
+		adata->img->density_code = DE_DENSITY_UNK_UNITS;
+		adata->img->xdens = 480.0;
+		adata->img->ydens = 400.0;
+		break;
+	}
+}

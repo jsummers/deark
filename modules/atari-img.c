@@ -5,16 +5,6 @@
 #include <deark-modules.h>
 #include "fmtutil.h"
 
-struct atari_img_decode_data {
-	de_int64 bpp;
-	de_int64 ncolors;
-	de_int64 w, h;
-	dbuf *unc_pixels;
-	int was_compressed;
-	de_uint32 *pal;
-	struct deark_bitmap *img;
-};
-
 static void fix_dark_pal(deark *c, struct atari_img_decode_data *adata);
 
 static de_byte scale1000to255(de_int64 n)
@@ -22,88 +12,6 @@ static de_byte scale1000to255(de_int64 n)
 	if(n>=1000) return 255;
 	if(n<=0) return 0;
 	return (de_byte)(0.5+(((double)n)*(255.0/1000.0)));
-}
-
-static int decode_atari_image_paletted(deark *c, struct atari_img_decode_data *adata)
-{
-	de_int64 i, j;
-	de_int64 plane;
-	de_int64 rowspan;
-	de_byte b;
-	de_uint32 v;
-	de_int64 planespan;
-
-	planespan = 2*((adata->w+15)/16);
-	rowspan = planespan*adata->bpp;
-
-	for(j=0; j<adata->h; j++) {
-		for(i=0; i<adata->w; i++) {
-			v = 0;
-
-			for(plane=0; plane<adata->bpp; plane++) {
-				if(adata->was_compressed==0) {
-					// TODO: Simplify this.
-					if(adata->bpp==1) {
-						b = de_get_bits_symbol(adata->unc_pixels, 1, j*rowspan, i);
-					}
-					else if(adata->bpp==2) {
-						b = de_get_bits_symbol(adata->unc_pixels, 1,
-							j*rowspan + 2*plane + (i/16)*2, i);
-					}
-					else if(adata->bpp==4) {
-						b = de_get_bits_symbol(adata->unc_pixels, 1,
-							j*rowspan + 2*plane + (i/2-(i/2)%16)+8*((i%32)/16), i%16);
-					}
-					else if(adata->bpp==8) {
-						b = de_get_bits_symbol(adata->unc_pixels, 1,
-							j*rowspan + 2*plane + (i-i%16), i%16);
-					}
-					else {
-						b = 0;
-					}
-				}
-				else {
-					b = de_get_bits_symbol(adata->unc_pixels, 1, j*rowspan + plane*planespan, i);
-				}
-				if(b) v |= 1<<plane;
-			}
-
-			if(v>255) v=255;
-			de_bitmap_setpixel_rgb(adata->img, i, j, adata->pal[v]);
-		}
-	}
-	return 1;
-}
-
-static int decode_atari_image_16(deark *c, struct atari_img_decode_data *adata)
-{
-	de_int64 i, j;
-	de_int64 rowspan;
-	de_uint32 v;
-
-	rowspan = adata->w * 2;
-
-	for(j=0; j<adata->h; j++) {
-		for(i=0; i<adata->w; i++) {
-			v = (de_uint32)dbuf_getui16be(adata->unc_pixels, j*rowspan + 2*i);
-			v = de_rgb565_to_888(v);
-			de_bitmap_setpixel_rgb(adata->img, i, j,v);
-		}
-	}
-	return 1;
-}
-
-static int de_decode_atari_image(deark *c, struct atari_img_decode_data *adata)
-{
-	switch(adata->bpp) {
-	case 16:
-		return decode_atari_image_16(c, adata);
-	case 8: case 4: case 2: case 1:
-		return decode_atari_image_paletted(c, adata);
-	}
-
-	de_err(c, "Unsupported bits/pixel (%d)\n", (int)adata->bpp);
-	return 0;
 }
 
 // **************************************************************************
@@ -141,27 +49,6 @@ static void do_degas_anim_fields(deark *c, degasctx *d, de_int64 pos)
 	// TODO: Can we determine if palette animation is actually used,
 	// and only show the warning if it is?
 	//de_warn(c, "This image may use palette color animation, which is not supported.\n");
-}
-
-static void set_standard_density(deark *c, struct atari_img_decode_data *adata)
-{
-	switch(adata->bpp) {
-	case 4:
-		adata->img->density_code = DE_DENSITY_UNK_UNITS;
-		adata->img->xdens = 240.0;
-		adata->img->ydens = 200.0;
-		break;
-	case 2:
-		adata->img->density_code = DE_DENSITY_UNK_UNITS;
-		adata->img->xdens = 480.0;
-		adata->img->ydens = 200.0;
-		break;
-	case 1:
-		adata->img->density_code = DE_DENSITY_UNK_UNITS;
-		adata->img->xdens = 480.0;
-		adata->img->ydens = 400.0;
-		break;
-	}
 }
 
 // Try to figure out if this is a DEGAS Elite file (as opposed to original DEGAS).
@@ -307,9 +194,9 @@ static void de_run_degas(deark *c, de_module_params *mparams)
 
 	adata->img = de_bitmap_create(c, adata->w, adata->h, is_grayscale?1:3);
 
-	set_standard_density(c, adata);
+	de_fmtutil_atari_set_standard_density(c, adata);
 
-	de_decode_atari_image(c, adata);
+	de_fmtutil_atari_decode_image(c, adata);
 
 	de_bitmap_write_to_file(adata->img, NULL);
 
@@ -485,7 +372,7 @@ static void de_run_prismpaint(deark *c, de_module_params *mparams)
 	}
 
 	adata->img = de_bitmap_create(c, adata->w, adata->h, 3);
-	de_decode_atari_image(c, adata);
+	de_fmtutil_atari_decode_image(c, adata);
 	de_bitmap_write_to_file(adata->img, NULL);
 
 done:
@@ -529,7 +416,7 @@ static void de_run_ftc(deark *c, de_module_params *mparams)
 	adata->img->density_code = DE_DENSITY_UNK_UNITS;
 	adata->img->xdens = 288;
 	adata->img->ydens = 240;
-	de_decode_atari_image(c, adata);
+	de_fmtutil_atari_decode_image(c, adata);
 	de_bitmap_write_to_file(adata->img, NULL);
 	de_bitmap_destroy(adata->img);
 	de_free(c, adata);
@@ -573,7 +460,7 @@ static void de_run_eggpaint(deark *c, de_module_params *mparams)
 	de_dbg(c, "dimensions: %dx%d\n", (int)adata->w, (int)adata->h);
 	adata->unc_pixels = dbuf_open_input_subfile(c->infile, 8, c->infile->len-8);
 	adata->img = de_bitmap_create(c, adata->w, adata->h, 3);
-	de_decode_atari_image(c, adata);
+	de_fmtutil_atari_decode_image(c, adata);
 	de_bitmap_write_to_file(adata->img, NULL);
 
 	dbuf_close(adata->unc_pixels);
@@ -615,7 +502,7 @@ static void de_run_indypaint(deark *c, de_module_params *mparams)
 	de_dbg(c, "dimensions: %dx%d\n", (int)adata->w, (int)adata->h);
 	adata->unc_pixels = dbuf_open_input_subfile(c->infile, 256, c->infile->len-256);
 	adata->img = de_bitmap_create(c, adata->w, adata->h, 3);
-	de_decode_atari_image(c, adata);
+	de_fmtutil_atari_decode_image(c, adata);
 	de_bitmap_write_to_file(adata->img, NULL);
 
 	dbuf_close(adata->unc_pixels);
@@ -935,7 +822,7 @@ static void de_run_tinystuff(deark *c, de_module_params *mparams)
 
 	adata->img = de_bitmap_create(c, adata->w, adata->h, is_grayscale?1:3);
 
-	set_standard_density(c, adata);
+	de_fmtutil_atari_set_standard_density(c, adata);
 
 	do_tinystuff_image(c, adata);
 	de_bitmap_write_to_file(adata->img, NULL);
@@ -1006,8 +893,8 @@ static void de_run_neochrome(deark *c, de_module_params *mparams)
 	adata->unc_pixels = dbuf_open_input_subfile(c->infile, 128, 32000);
 	is_grayscale = de_is_grayscale_palette(adata->pal, adata->ncolors);
 	adata->img = de_bitmap_create(c, adata->w, adata->h, is_grayscale?1:3);
-	set_standard_density(c, adata);
-	de_decode_atari_image(c, adata);
+	de_fmtutil_atari_set_standard_density(c, adata);
+	de_fmtutil_atari_decode_image(c, adata);
 	de_bitmap_write_to_file(adata->img, NULL);
 
 done:
@@ -1086,7 +973,7 @@ static void de_run_neochrome_ani(deark *c, de_module_params *mparams)
 		adata->unc_pixels = dbuf_open_input_subfile(c->infile, 22 + frame*bytes_per_frame, bytes_per_frame);
 		adata->img = de_bitmap_create(c, adata->w, adata->h, 3);
 
-		de_decode_atari_image(c, adata);
+		de_fmtutil_atari_decode_image(c, adata);
 		de_bitmap_write_to_file(adata->img, NULL);
 
 		de_bitmap_destroy(adata->img);
@@ -1304,7 +1191,7 @@ static void de_run_falcon_xga(deark *c, de_module_params *mparams)
 		adata->img->xdens = 384;
 		adata->img->ydens = 640;
 	}
-	de_decode_atari_image(c, adata);
+	de_fmtutil_atari_decode_image(c, adata);
 	de_bitmap_write_to_file(adata->img, NULL);
 	de_bitmap_destroy(adata->img);
 	de_free(c, adata);

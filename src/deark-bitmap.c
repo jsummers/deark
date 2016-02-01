@@ -388,3 +388,21 @@ void de_convert_and_write_image_bilevel(dbuf *f, de_int64 fpos,
 	de_bitmap_write_to_file_finfo(img, fi);
 	de_bitmap_destroy(img);
 }
+
+void de_bitmap_apply_mask(struct deark_bitmap *fg, struct deark_bitmap *mask,
+	unsigned int flags)
+{
+	de_int64 i, j;
+	de_uint32 clr;
+	de_byte a;
+
+	for(j=0; j<fg->height && j<mask->height; j++) {
+		for(i=0; i<fg->width && i<mask->width; i++) {
+			clr = de_bitmap_getpixel(mask, i, j);
+			a = DE_COLOR_K(clr);
+			if(flags&DE_BITMAPFLAG_WHITEISTRNS)
+				a = 0xff-a;
+			de_bitmap_setsample(fg, i, j, 3, a);
+		}
+	}
+}
