@@ -148,7 +148,7 @@ static void do_decode_newicons(deark *c, lctx *d,
 		}
 	}
 
-	de_dbg2(c, "decoded %d bytes\n", (int)decoded->len);
+	de_dbg(c, "decompressed to %d bytes\n", (int)decoded->len);
 
 	// The first ncolors*3 bytes are the palette
 	de_dbg2(c, "NewIcons palette\n");
@@ -189,7 +189,7 @@ static int do_read_main_icon(deark *c, lctx *d,
 
 	*pbytesused = 0;
 
-	de_dbg(c, "main icon[%d] at %d\n", (int)icon_index, (int)pos);
+	de_dbg(c, "main icon #%d, at %d\n", (int)icon_index, (int)pos);
 	de_dbg_indent(c, 1);
 
 	// 20-byte header, followed by one or more bitmap "planes".
@@ -306,7 +306,7 @@ static int do_read_tooltypes_table(deark *c, lctx *d,
 			continue;
 		}
 
-		de_dbg2(c, "NewIcons data [%d] size=%d pos=%d\n", newicons_num, (int)len, (int)tpos);
+		de_dbg2(c, "NewIcons data [%d] pos=%d size=%d\n", newicons_num, (int)tpos, (int)len);
 
 		if(!newicons_data[newicons_num]) {
 			newicons_data[newicons_num] = dbuf_create_membuf(c, 2048, 0);
@@ -573,16 +573,21 @@ static void de_run_amigaicon(deark *c, de_module_params *mparams)
 	de_int64 x;
 	de_int64 bytesused;
 	de_int64 version;
+	const char *tn = "?";
 	int indent_count = 0;
 
 	d = de_malloc(c, sizeof(lctx));
 
-	de_dbg(c, "DiskObject at %d\n", 0);
+	de_dbg(c, "DiskObject at %d, len=%d\n", 0, 78);
 	de_dbg_indent(c, 1);
 	indent_count++;
 
 	version = de_getui16be(2);
 	de_dbg(c, "version: %d\n", (int)version);
+
+	de_dbg(c, "Gadget at %d, len=%d\n", 4, 44);
+	de_dbg_indent(c, 1);
+	indent_count++;
 
 	d->main_width = de_getui16be(12);
 	d->main_height = de_getui16be(14);
@@ -594,13 +599,35 @@ static void de_run_amigaicon(deark *c, de_module_params *mparams)
 	d->icon_revision = de_getui32be(44) & 0xff;
 	de_dbg(c, "icon revision: %d\n", (int)d->icon_revision);
 
-	d->icon_type = de_getbyte(48);
-	de_dbg(c, "icon type: %d\n", (int)d->icon_type);
+	de_dbg_indent(c, -1); // end of embedded "Gadget" object
+	indent_count--;
 
-	d->has_defaulttool = (de_getui32be(50)!=0);
-	d->has_tooltypes = (de_getui32be(54)!=0);
-	d->has_drawerdata = (de_getui32be(66)!=0);
-	d->has_toolwindow = (de_getui32be(70)!=0);
+	d->icon_type = de_getbyte(48);
+	switch(d->icon_type) {
+	case 1: tn="disk"; break;
+	case 2: tn="drawer"; break;
+	case 3: tn="tool"; break;
+	case 4: tn="project"; break;
+	case 6: tn="device"; break;
+	case 7: tn="kick"; break;
+	}
+	de_dbg(c, "icon type: %d (%s)\n", (int)d->icon_type, tn);
+
+	x = de_getui32be(50);
+	d->has_defaulttool = (x!=0);
+	de_dbg(c, "defaulttool: 0x%08x\n", (unsigned int)x);
+
+	x = de_getui32be(54);
+	d->has_tooltypes = (x!=0);
+	de_dbg(c, "tooltypes: 0x%08x\n", (unsigned int)x);
+
+	x = de_getui32be(66);
+	d->has_drawerdata = (x!=0);
+	de_dbg(c, "drawerdata: 0x%08x\n", (unsigned int)x);
+
+	x = de_getui32be(70);
+	d->has_toolwindow = (x!=0);
+	de_dbg(c, "toolwindow: 0x%08x\n", (unsigned int)x);
 
 	de_dbg_indent(c, -1);
 	indent_count--;
