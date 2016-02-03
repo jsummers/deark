@@ -441,6 +441,11 @@ void de_convert_and_write_image_bilevel(dbuf *f, de_int64 fpos,
 	de_int64 w, de_int64 height, de_int64 rowspan, unsigned int flags,
 	de_finfo *fi);
 
+// Utility function that will work for many of the common kinds of paletted images.
+void de_convert_image_paletted(dbuf *f, de_int64 fpos,
+	de_int64 bpp, de_int64 rowspan, const de_uint32 *pal,
+	struct deark_bitmap *img, unsigned int flags);
+
 // Calculate the number of bits required to store n symbols.
 // Intended to be used with bitmap graphics.
 // Returns a minimum of 1, maximum of 32.

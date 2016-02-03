@@ -368,18 +368,10 @@ static struct deark_bitmap *bmp_bitmap_create(deark *c, lctx *d, int bypp)
 static void do_image_paletted(deark *c, lctx *d, dbuf *bits, de_int64 bits_offset)
 {
 	struct deark_bitmap *img = NULL;
-	de_int64 i, j;
-	de_uint32 clr;
-	de_byte b;
 
 	img = bmp_bitmap_create(c, d, d->pal_is_grayscale?1:3);
-	for(j=0; j<d->height; j++) {
-		for(i=0; i<d->width; i++) {
-			b = de_get_bits_symbol(bits, d->bitcount, bits_offset + j*d->rowspan, i);
-			clr = d->pal[(unsigned int)b];
-			de_bitmap_setpixel_rgb(img, i, j, clr);
-		}
-	}
+	de_convert_image_paletted(bits, bits_offset,
+		d->bitcount, d->rowspan, d->pal, img, 0);
 	de_bitmap_write_to_file(img, NULL);
 	de_bitmap_destroy(img);
 }

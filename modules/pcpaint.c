@@ -219,9 +219,7 @@ static int decode_egavga16(deark *c, lctx *d)
 static int decode_vga256(deark *c, lctx *d)
 {
 	de_uint32 pal[256];
-	de_int64 i, j;
 	de_int64 k;
-	de_byte b;
 	de_byte cr1, cg1, cb1;
 	de_byte cr2, cg2, cb2;
 
@@ -231,8 +229,8 @@ static int decode_vga256(deark *c, lctx *d)
 	// Read the palette
 	if(d->pal_info_to_use->edesc==0) {
 		de_dbg(c, "No palette in file. Using standard 256-color palette.\n");
-		for(i=0; i<256; i++) {
-			pal[i] = de_palette_vga256((int)i);
+		for(k=0; k<256; k++) {
+			pal[k] = de_palette_vga256((int)k);
 		}
 	}
 	else {
@@ -255,12 +253,8 @@ static int decode_vga256(deark *c, lctx *d)
 	d->img->bytes_per_pixel = 3;
 	d->img->flipped = 1;
 
-	for(j=0; j<d->img->height; j++) {
-		for(i=0; i<d->img->width; i++) {
-			b = dbuf_getbyte(d->unc_pixels, j*d->img->width + i);
-			de_bitmap_setpixel_rgb(d->img, i, j, pal[b]);
-		}
-	}
+	de_convert_image_paletted(d->unc_pixels, 0,
+		8, d->img->width, pal, d->img, 0);
 
 	de_bitmap_write_to_file(d->img, NULL);
 	return 1;
@@ -268,35 +262,30 @@ static int decode_vga256(deark *c, lctx *d)
 
 static int decode_bilevel(deark *c, lctx *d)
 {
-	de_int64 i, j;
-	de_byte b;
 	de_int64 src_rowspan;
-	de_byte grayshade1;
+	de_uint32 pal[2];
 
 	de_dbg(c, "bilevel image\n");
 
 	if(!d->unc_pixels) return 0;
 
+	pal[0] = DE_MAKE_GRAY(0);
+	pal[1] = DE_MAKE_GRAY(255); // default
+
 	// PCPaint's CGA and EGA 2-color modes used gray shade 170 instead of
 	// white (255). Maybe they should be interpreted as white, but for
 	// historical accuracy I'll go with gray170.
 	if(d->video_mode==0x43 || d->video_mode==0x45) {
-		grayshade1 = 170;
-	}
-	else {
-		grayshade1 = 255;
+		pal[1] = DE_MAKE_GRAY(170);
 	}
 
 	d->img->bytes_per_pixel = 1;
 	d->img->flipped = 1;
 
 	src_rowspan = (d->img->width +7)/8;
-	for(j=0; j<d->img->height; j++) {
-		for(i=0; i<d->img->width; i++) {
-			b = de_get_bits_symbol(d->unc_pixels, 1, j*src_rowspan, i);
-			de_bitmap_setpixel_gray(d->img, i, j, b?grayshade1:0);
-		}
-	}
+
+	de_convert_image_paletted(d->unc_pixels, 0,
+		1, src_rowspan, pal, d->img, 0);
 
 	de_bitmap_write_to_file(d->img, NULL);
 	return 1;
@@ -304,9 +293,7 @@ static int decode_bilevel(deark *c, lctx *d)
 
 static int decode_cga4(deark *c, lctx *d)
 {
-	de_int64 i, j;
 	de_int64 k;
-	de_byte b;
 	de_int64 src_rowspan;
 	de_uint32 pal[4];
 	de_byte pal_id = 0;
@@ -346,12 +333,8 @@ static int decode_cga4(deark *c, lctx *d)
 	d->img->flipped = 1;
 
 	src_rowspan = (d->img->width +3)/4;
-	for(j=0; j<d->img->height; j++) {
-		for(i=0; i<d->img->width; i++) {
-			b = de_get_bits_symbol(d->unc_pixels, 2, j*src_rowspan, i);
-			de_bitmap_setpixel_rgb(d->img, i, j, pal[b]);
-		}
-	}
+	de_convert_image_paletted(d->unc_pixels, 0,
+		2, src_rowspan, pal, d->img, 0);
 
 	de_bitmap_write_to_file(d->img, NULL);
 	return 1;

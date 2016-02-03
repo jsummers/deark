@@ -126,7 +126,7 @@ static void de_run_xpuzzle(deark *c, de_module_params *mparams)
 {
 	struct xpuzzctx *d = NULL;
 	struct deark_bitmap *img = NULL;
-	de_int64 i, j;
+	de_int64 k;
 	de_uint32 pal[256];
 	de_int64 p;
 
@@ -139,18 +139,14 @@ static void de_run_xpuzzle(deark *c, de_module_params *mparams)
 	// Read the palette
 	de_memset(pal, 0, sizeof(pal));
 	p = 9;
-	for(i=0; i<d->palentries; i++) {
-		pal[i] = dbuf_getRGB(c->infile, p, 0);
-		de_dbg_pal_entry(c, i, pal[i]);
+	for(k=0; k<d->palentries; k++) {
+		pal[k] = dbuf_getRGB(c->infile, p, 0);
+		de_dbg_pal_entry(c, k, pal[k]);
 		p+=3;
 	}
 
 	// Read the bitmap
-	for(j=0; j<d->h; j++) {
-		for(i=0; i<d->w; i++) {
-			de_bitmap_setpixel_rgb(img, i, j, pal[de_getbyte(p+d->w*j+i)]);
-		}
-	}
+	de_convert_image_paletted(c->infile, p, 8, d->w, pal, img, 0);
 
 	de_bitmap_write_to_file(img, NULL);
 
@@ -287,7 +283,7 @@ static void de_run_bob(deark *c, de_module_params *mparams)
 {
 	struct deark_bitmap *img = NULL;
 	de_int64 w, h;
-	de_int64 i, j;
+	de_int64 k;
 	de_uint32 pal[256];
 	de_int64 p;
 
@@ -299,18 +295,14 @@ static void de_run_bob(deark *c, de_module_params *mparams)
 	// Read the palette
 	de_memset(pal, 0, sizeof(pal));
 	p = 4;
-	for(i=0; i<256; i++) {
-		pal[i] = dbuf_getRGB(c->infile, p, 0);
-		de_dbg_pal_entry(c, i, pal[i]);
+	for(k=0; k<256; k++) {
+		pal[k] = dbuf_getRGB(c->infile, p, 0);
+		de_dbg_pal_entry(c, k, pal[k]);
 		p+=3;
 	}
 
 	// Read the bitmap
-	for(j=0; j<h; j++) {
-		for(i=0; i<w; i++) {
-			de_bitmap_setpixel_rgb(img, i, j, pal[de_getbyte(p+w*j+i)]);
-		}
-	}
+	de_convert_image_paletted(c->infile, p, 8, w, pal, img, 0);
 
 	de_bitmap_write_to_file(img, NULL);
 

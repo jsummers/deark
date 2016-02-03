@@ -400,8 +400,6 @@ static int do_mag_decompress(deark *c, lctx *d)
 
 static void do_create_image(deark *c, lctx *d)
 {
-	de_int64 i, j;
-	unsigned int palent;
 	struct deark_bitmap *img = NULL;
 
 	img = de_bitmap_create(c, d->width, d->height, 3);
@@ -412,12 +410,8 @@ static void do_create_image(deark *c, lctx *d)
 		img->ydens = 1.0;
 	}
 
-	for(i=0; i<d->width; i++) {
-		for(j=0; j<d->height; j++) {
-			palent = (unsigned int)de_get_bits_symbol(d->unc_pixels, d->bits_per_pixel, j*d->rowspan, i);
-			de_bitmap_setpixel_rgb(img, i, j, d->pal[palent]);
-		}
-	}
+	de_convert_image_paletted(d->unc_pixels, 0,
+		d->bits_per_pixel, d->rowspan, d->pal, img, 0);
 
 	de_bitmap_write_to_file(img, NULL);
 	de_bitmap_destroy(img);

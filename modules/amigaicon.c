@@ -24,7 +24,7 @@ typedef struct localctx_struct {
 
 	// Glowicons-specific data
 	de_int64 glowicons_width, glowicons_height;
-	de_uint32 *glowicons_palette;
+	de_uint32 glowicons_palette[256];
 } lctx;
 
 static const de_uint32 rev1pal[4] = { 0x55aaff,0xffffff,0x000000,0xff8800 }; // http://krashan.ppa.pl/articles/amigaicons/
@@ -76,10 +76,8 @@ static void do_decode_newicons(deark *c, lctx *d,
 	de_int64 srcpos;
 	de_int64 bitmap_start_pos = 0;
 	de_int64 i;
-	de_int64 j;
 	de_int64 rle_len;
 	de_uint32 pal[256];
-	de_byte palent;
 
 	de_dbg(c, "decoding NewIcons[%d], size=%d\n", newicons_num,
 		(int)f->len);
@@ -161,15 +159,11 @@ static void do_decode_newicons(deark *c, lctx *d,
 		if(i==0 && has_trns)
 			pal[i] = DE_SET_ALPHA(pal[i], 0x00);
 
-		de_dbg2(c, "pal[%3d] = %08x\n", (int)i, (unsigned int)pal[i]);
+		de_dbg_pal_entry(c, i, pal[i]);
 	}
 
-	for(j=0; j<img->height; j++) {
-		for(i=0; i<img->width; i++) {
-			palent = dbuf_getbyte(decoded, bitmap_start_pos+j*img->width+i);
-			de_bitmap_setpixel_rgba(img, i, j, pal[palent]);
-		}
-	}
+	de_convert_image_paletted(decoded, bitmap_start_pos,
+		8, img->width, pal, img, 0);
 	de_bitmap_write_to_file(img, "n");
 
 	if(decoded) dbuf_close(decoded);
@@ -378,9 +372,8 @@ static void do_glowicons_IMAG(deark *c, lctx *d,
 	de_int64 bits_per_pixel;
 	de_int64 image_size_in_bytes;
 	de_int64 pal_size_in_bytes;
-	de_int64 i, j;
+	de_int64 k;
 	dbuf *tmpbuf = NULL;
-	de_byte b;
 
 	de_dbg(c, "--- GlowIcons image at %d ---\n", (int)pos);
 
@@ -448,19 +441,16 @@ static void do_glowicons_IMAG(deark *c, lctx *d,
 			dbuf_copy(c->infile, pos+image_size_in_bytes, pal_size_in_bytes, tmpbuf);
 		}
 
-		if(!d->glowicons_palette) {
-			d->glowicons_palette = de_malloc(c, 256*sizeof(de_uint32));
-		}
-		for(i=0; i<256; i++) {
-			if(i<num_colors) {
-				d->glowicons_palette[i] = dbuf_getRGB(tmpbuf, i*3, 0);
-				if(has_trns && i==(de_int64)trns_color) {
-					d->glowicons_palette[i] = DE_SET_ALPHA(d->glowicons_palette[i], 0x00);
+		for(k=0; k<256; k++) {
+			if(k<num_colors) {
+				d->glowicons_palette[k] = dbuf_getRGB(tmpbuf, k*3, 0);
+				if(has_trns && k==(de_int64)trns_color) {
+					d->glowicons_palette[k] = DE_SET_ALPHA(d->glowicons_palette[k], 0x00);
 				}
-				de_dbg2(c, "pal[%d]: %08x\n", (int)i, (unsigned int)d->glowicons_palette[i]);
+				de_dbg_pal_entry(c, k, d->glowicons_palette[k]);
 			}
 			else {
-				d->glowicons_palette[i] = DE_MAKE_RGBA(0, 0, 0, 255);
+				d->glowicons_palette[k] = DE_STOCKCOLOR_BLACK;
 			}
 		}
 	}
@@ -471,12 +461,8 @@ static void do_glowicons_IMAG(deark *c, lctx *d,
 
 	img = de_bitmap_create(c, d->glowicons_width, d->glowicons_height, has_trns?4:3);
 
-	for(j=0; j<d->glowicons_height; j++) {
-		for(i=0; i<d->glowicons_width; i++) {
-			b = dbuf_getbyte(tmpbuf, j*d->glowicons_width + i);
-			de_bitmap_setpixel_rgba(img, i, j, d->glowicons_palette[(int)b]);
-		}
-	}
+	de_convert_image_paletted(tmpbuf, 0,
+		8, d->glowicons_width, d->glowicons_palette, img, 0);
 
 	de_bitmap_write_to_file(img, "g");
 
@@ -621,7 +607,6 @@ static void de_run_amigaicon(deark *c, de_module_params *mparams)
 	do_glowicons(c, d, pos);
 
 done:
-	if(d->glowicons_palette) de_free(c, d->glowicons_palette);
 	de_free(c, d);
 }
 

@@ -389,6 +389,24 @@ void de_convert_and_write_image_bilevel(dbuf *f, de_int64 fpos,
 	de_bitmap_destroy(img);
 }
 
+void de_convert_image_paletted(dbuf *f, de_int64 fpos,
+	de_int64 bpp, de_int64 rowspan, const de_uint32 *pal,
+	struct deark_bitmap *img, unsigned int flags)
+{
+	de_int64 i, j;
+	unsigned int palent;
+
+	if(bpp!=1 && bpp!=2 && bpp!=4 && bpp!=8) return;
+	if(!de_good_image_dimensions_noerr(f->c, img->width, img->height)) return;
+
+	for(j=0; j<img->height; j++) {
+		for(i=0; i<img->width; i++) {
+			palent = (unsigned int)de_get_bits_symbol(f, bpp, fpos+j*rowspan, i);
+			de_bitmap_setpixel_rgba(img, i, j, pal[palent]);
+		}
+	}
+}
+
 void de_bitmap_apply_mask(struct deark_bitmap *fg, struct deark_bitmap *mask,
 	unsigned int flags)
 {
