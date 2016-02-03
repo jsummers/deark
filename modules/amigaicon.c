@@ -81,6 +81,7 @@ static void do_decode_newicons(deark *c, lctx *d,
 
 	de_dbg(c, "decoding NewIcons[%d], size=%d\n", newicons_num,
 		(int)f->len);
+	de_dbg_indent(c, 1);
 
 	trns_code = dbuf_getbyte(f, 0);
 	has_trns = (trns_code=='B');
@@ -150,6 +151,8 @@ static void do_decode_newicons(deark *c, lctx *d,
 	de_dbg2(c, "decoded %d bytes\n", (int)decoded->len);
 
 	// The first ncolors*3 bytes are the palette
+	de_dbg2(c, "NewIcons palette\n");
+	de_dbg_indent(c, 1);
 	for(i=0; i<ncolors; i++) {
 		if(i>255) break;
 		pal[i] = dbuf_getRGB(decoded, i*3, 0);
@@ -161,6 +164,7 @@ static void do_decode_newicons(deark *c, lctx *d,
 
 		de_dbg_pal_entry(c, i, pal[i]);
 	}
+	de_dbg_indent(c, -1);
 
 	de_convert_image_paletted(decoded, bitmap_start_pos,
 		8, img->width, pal, img, 0);
@@ -168,6 +172,7 @@ static void do_decode_newicons(deark *c, lctx *d,
 
 	if(decoded) dbuf_close(decoded);
 	if(img) de_bitmap_destroy(img);
+	de_dbg_indent(c, -1);
 }
 
 static int do_read_main_icon(deark *c, lctx *d,
@@ -184,12 +189,14 @@ static int do_read_main_icon(deark *c, lctx *d,
 
 	*pbytesused = 0;
 
-	// 20-byte header, followed by one or more bitmap "planes".
+	de_dbg(c, "main icon[%d] at %d\n", (int)icon_index, (int)pos);
+	de_dbg_indent(c, 1);
 
+	// 20-byte header, followed by one or more bitmap "planes".
 	width = de_getui16be(pos+4);
 	height = de_getui16be(pos+6);
 	depth = de_getui16be(pos+8);
-	de_dbg(c, "main icon[%d]: %dx%d, depth=%d\n", (int)icon_index, (int)width, (int)height,
+	de_dbg(c, "dimensions=%dx%d, depth=%d\n", (int)width, (int)height,
 		(int)depth);
 
 	if(depth<1 || depth>8) {
@@ -242,7 +249,8 @@ static int do_read_main_icon(deark *c, lctx *d,
 	retval = 1;
 
 done:
-	if(img) de_bitmap_destroy(img);
+	de_bitmap_destroy(img);
+	de_dbg_indent(c, -1);
 	return retval;
 }
 
@@ -264,6 +272,8 @@ static int do_read_tooltypes_table(deark *c, lctx *d,
 	newicons_data[1] = NULL;
 
 	de_dbg(c, "tool types table at %d\n", (int)pos);
+	de_dbg_indent(c, 1);
+
 	num_entries_raw = de_getui32be(pos);
 	num_entries = num_entries_raw/4 - 1;
 	de_dbg(c, "number of tool types: %d\n", (int)num_entries);
@@ -316,6 +326,7 @@ done:
 	*pbytesused = pos - orig_pos;
 	if(newicons_data[0]) dbuf_close(newicons_data[0]);
 	if(newicons_data[1]) dbuf_close(newicons_data[1]);
+	de_dbg_indent(c, -1);
 	return retval;
 }
 
@@ -372,10 +383,10 @@ static void do_glowicons_IMAG(deark *c, lctx *d,
 	de_int64 bits_per_pixel;
 	de_int64 image_size_in_bytes;
 	de_int64 pal_size_in_bytes;
+	de_int64 image_pos;
+	de_int64 pal_pos;
 	de_int64 k;
 	dbuf *tmpbuf = NULL;
-
-	de_dbg(c, "--- GlowIcons image at %d ---\n", (int)pos);
 
 	if(d->glowicons_width<1) {
 		// We must not have found a FACE chunk yet.
@@ -426,19 +437,23 @@ static void do_glowicons_IMAG(deark *c, lctx *d,
 
 	image_size_in_bytes = 1+de_getui16be(pos+6);
 	pal_size_in_bytes = 1+de_getui16be(pos+8);
-	de_dbg(c, "image compressed size in bytes: %d\n", (int)image_size_in_bytes);
-	de_dbg(c, "palette compressed size in bytes: %d\n", (int)pal_size_in_bytes);
-
 	pos+=10;
 
 	tmpbuf = dbuf_create_membuf(c, 10240, 0);
 
+	image_pos = pos;
+	pal_pos = image_pos+image_size_in_bytes;
+	de_dbg(c, "image data at %d, len=%d\n", (int)image_pos, (int)image_size_in_bytes);
+
 	if(has_palette) {
+		de_dbg(c, "palette data at %d, len=%d\n", (int)pal_pos, (int)pal_size_in_bytes);
+		de_dbg_indent(c, 1);
+
 		if(pal_cmpr_type==1) {
-			glowdata_uncompress(c->infile, pos+image_size_in_bytes, pal_size_in_bytes, tmpbuf, 8);
+			glowdata_uncompress(c->infile, pal_pos, pal_size_in_bytes, tmpbuf, 8);
 		}
 		else {
-			dbuf_copy(c->infile, pos+image_size_in_bytes, pal_size_in_bytes, tmpbuf);
+			dbuf_copy(c->infile, pal_pos, pal_size_in_bytes, tmpbuf);
 		}
 
 		for(k=0; k<256; k++) {
@@ -453,11 +468,13 @@ static void do_glowicons_IMAG(deark *c, lctx *d,
 				d->glowicons_palette[k] = DE_STOCKCOLOR_BLACK;
 			}
 		}
+
+		de_dbg_indent(c, -1);
 	}
 
 	// Uncompress the pixels
 	dbuf_empty(tmpbuf);
-	glowdata_uncompress(c->infile, pos, image_size_in_bytes, tmpbuf, (int)bits_per_pixel);
+	glowdata_uncompress(c->infile, image_pos, image_size_in_bytes, tmpbuf, (int)bits_per_pixel);
 
 	img = de_bitmap_create(c, d->glowicons_width, d->glowicons_height, has_trns?4:3);
 
@@ -477,20 +494,27 @@ static void do_glowicons(deark *c, lctx *d, de_int64 pos)
 	de_int64 startpos;
 	de_int64 endpos;
 	de_int64 len;
-	de_int64 chunk_id;
+	de_byte chunk_id_buf[4];
+	char chunk_id_printable[8];
+	de_uint32 chunk_id;
+	de_uint32 form_type;
+	int indent_count = 0;
 
 	gsize = c->infile->len - pos;
-	if(gsize < 24) return; // too small
+	if(gsize < 24) goto done; // too small
 
-	// 46 4f 52 4d = FORM
-	// 49 43 4f 4e = ICON
-	// 46 41 43 45 = FACE
-	// 49 4d 41 47 = IMAG
+// Chunk types:
+#define CODE_FORM 0x464f524dU
+#define CODE_FACE 0x46414345U
+#define CODE_IMAG 0x494d4147U
+// FORM types:
+#define CODE_ICON 0x49434f4eU
 
-	chunk_id = de_getui32be(pos);
-	if(chunk_id!=0x464f524d) {
+	chunk_id = (de_uint32)de_getui32be(pos);
+	form_type = (de_uint32)de_getui32be(pos+8);
+	if(chunk_id!=CODE_FORM || form_type!=CODE_ICON) {
 		de_warn(c, "Extra data found at end of file, but not identified as GlowIcons format.");
-		return;
+		goto done;
 	}
 
 	startpos = pos;
@@ -500,37 +524,44 @@ static void do_glowicons(deark *c, lctx *d, de_int64 pos)
 	if(len%2) endpos++;
 
 	de_dbg(c, "GlowIcons data at offset %d (%d bytes)\n", (int)startpos, (int)len);
-	de_dbg(c, "expected end of file = %d\n", (int)endpos);
-	pos+=8;
+	de_dbg_indent(c, 1);
+	indent_count++;
+
+	de_dbg(c, "expected end of file: %d\n", (int)endpos);
+	pos+=12; // Skip past the "FORM" id, length, and FORM type code
 
 	while(pos < endpos) {
-		chunk_id = de_getui32be(pos);
-		de_dbg(c, "chunk id %08x at pos %d\n", (int)chunk_id, (int)pos);
-		pos+=4;
+		de_read(chunk_id_buf, pos, 4);
+		chunk_id = (de_uint32)de_getui32be_direct(chunk_id_buf);
+		de_make_printable_ascii(chunk_id_buf, 4, chunk_id_printable, sizeof(chunk_id_printable), 0);
+		len = de_getui32be(pos+4);
 
-		if(chunk_id==0x49434f4e) { // ICON
-			// "ICON" chunk does not have a length field
-			continue;
-		}
+		de_dbg(c, "chunk '%s' at %d, dlen=%d\n", chunk_id_printable, (int)pos, (int)len);
+		pos+=8;
 
-		len = de_getui32be(pos);
-		pos+=4;
-		de_dbg(c, "chunk len = %d\n", (int)len);
+		de_dbg_indent(c, 1);
+		indent_count++;
 
 		switch(chunk_id) {
-		case 0x46414345: // FACE (parameters)
+		case CODE_FACE: // FACE (parameters)
 			d->glowicons_width = 1+(de_int64)de_getbyte(pos);
 			d->glowicons_height = 1+(de_int64)de_getbyte(pos+1);
 			de_dbg(c, "dimensions: %dx%d\n", (int)d->glowicons_width, (int)d->glowicons_height);
 			break;
-		case 0x494d4147: // IMAG (one of the images that make up this icon)
+		case CODE_IMAG: // IMAG (one of the images that make up this icon)
 			do_glowicons_IMAG(c, d, pos, len);
 			break;
 		}
 
+		de_dbg_indent(c, -1);
+		indent_count--;
+
 		pos += len;
 		if(len%2) pos++; // skip padding byte
 	}
+
+done:
+	de_dbg_indent(c, -indent_count);
 }
 
 static void de_run_amigaicon(deark *c, de_module_params *mparams)
@@ -541,8 +572,17 @@ static void de_run_amigaicon(deark *c, de_module_params *mparams)
 	de_int64 i;
 	de_int64 x;
 	de_int64 bytesused;
+	de_int64 version;
+	int indent_count = 0;
 
 	d = de_malloc(c, sizeof(lctx));
+
+	de_dbg(c, "DiskObject at %d\n", 0);
+	de_dbg_indent(c, 1);
+	indent_count++;
+
+	version = de_getui16be(2);
+	de_dbg(c, "version: %d\n", (int)version);
 
 	d->main_width = de_getui16be(12);
 	d->main_height = de_getui16be(14);
@@ -561,6 +601,9 @@ static void de_run_amigaicon(deark *c, de_module_params *mparams)
 	d->has_tooltypes = (de_getui32be(54)!=0);
 	d->has_drawerdata = (de_getui32be(66)!=0);
 	d->has_toolwindow = (de_getui32be(70)!=0);
+
+	de_dbg_indent(c, -1);
+	indent_count--;
 
 	pos = 78;
 
@@ -607,6 +650,7 @@ static void de_run_amigaicon(deark *c, de_module_params *mparams)
 	do_glowicons(c, d, pos);
 
 done:
+	de_dbg_indent(c, -indent_count);
 	de_free(c, d);
 }
 
