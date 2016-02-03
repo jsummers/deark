@@ -27,8 +27,8 @@ typedef struct localctx_struct {
 	de_uint32 glowicons_palette[256];
 } lctx;
 
-static const de_uint32 rev1pal[4] = { 0x55aaff,0xffffff,0x000000,0xff8800 }; // http://krashan.ppa.pl/articles/amigaicons/
-//static const de_uint32 rev1pal[4] = { 0x0055aa,0xffffff,0x000020,0xff8a00 }; // Netpbm
+static const de_uint32 rev1pal[4] = { 0x55aaff,0x000000,0xffffff,0xff8800 }; // http://krashan.ppa.pl/articles/amigaicons/
+//static const de_uint32 rev1pal[4] = { 0x0055aa,0x000020,0xffffff,0xff8a00 }; // Netpbm
 
 static const de_uint32 rev2pal[4] = { 0x959595,0xffffff,0x000000,0x3b67a2 }; // http://krashan.ppa.pl/articles/amigaicons/
 //static const de_uint32 rev2pal[4] = { 0xaaaaaa,0xffffff,0x000000,0x556699 }; // XnView
