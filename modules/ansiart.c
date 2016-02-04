@@ -415,6 +415,7 @@ static void de_run_ansiart(deark *c, de_module_params *mparams)
 	lctx *d = NULL;
 	struct de_char_context *charctx = NULL;
 	de_int64 k;
+	struct de_SAUCE_detection_data sdd;
 	struct de_SAUCE_info *si = NULL;
 
 	d = de_malloc(c, sizeof(lctx));
@@ -422,9 +423,12 @@ static void de_run_ansiart(deark *c, de_module_params *mparams)
 	d->effective_file_size = c->infile->len;
 
 	// Read SAUCE metadata, if present.
-	if(de_has_SAUCE(c, c->infile, c->infile->len-128)) {
+	de_memset(&sdd, 0, sizeof(struct de_SAUCE_detection_data));
+	de_detect_SAUCE(c, c->infile, &sdd);
+
+	if(sdd.has_SAUCE) {
 		si = de_malloc(c, sizeof(struct de_SAUCE_info));
-		if(de_read_SAUCE(c, c->infile, c->infile->len-128, si)) {
+		if(de_read_SAUCE(c, c->infile, si)) {
 			// If the original_file_size field seems valid, use it.
 			if(si->original_file_size>0 && si->original_file_size<=c->infile->len-128) {
 				d->effective_file_size = si->original_file_size;
@@ -486,6 +490,18 @@ static void de_run_ansiart(deark *c, de_module_params *mparams)
 
 static int de_identify_ansiart(deark *c)
 {
+	if(!c->SAUCE_detection_data.detection_attempted) {
+		de_err(c, "ansiart internal");
+		de_fatalerror(c);
+	}
+	if(c->SAUCE_detection_data.has_SAUCE) {
+		if(c->SAUCE_detection_data.data_type==1 &&
+			c->SAUCE_detection_data.file_type==1)
+		{
+			return 100;
+		}
+	}
+
 	if(de_input_file_has_ext(c, "ans"))
 		return 10;
 	return 0;

@@ -238,28 +238,33 @@ static int is_valid_date_string(const de_byte *buf, de_int64 len)
 	return 1;
 }
 
-int de_has_SAUCE(deark *c, dbuf *f, de_int64 pos)
+int de_detect_SAUCE(deark *c, dbuf *f, struct de_SAUCE_detection_data *sdd)
 {
-	de_byte buf[7];
-	dbuf_read(f, buf, pos, 7);
-	if(de_memcmp(buf, "SAUCE", 5)) return 0;
-	if(buf[5]<'0' || buf[5]>'9') return 0;
-	if(buf[6]<'0' || buf[6]>'9') return 0;
-	return 1;
+	if(!sdd->detection_attempted) {
+		sdd->detection_attempted = 1;
+		if(f->len<128) return 0;
+		if(dbuf_memcmp(f, f->len-128, "SAUCE00", 7)) return 0;
+		sdd->has_SAUCE = 1;
+		sdd->data_type = dbuf_getbyte(f, f->len-128+94);
+		sdd->file_type = dbuf_getbyte(f, f->len-128+95);
+	}
+	return (int)sdd->has_SAUCE;
 }
 
 // SAUCE = Standard Architecture for Universal Comment Extensions
 // Caller allocates si.
 // This function may allocate si->title, artist, organization, creation_date.
-int de_read_SAUCE(deark *c, dbuf *f, de_int64 pos, struct de_SAUCE_info *si)
+int de_read_SAUCE(deark *c, dbuf *f, struct de_SAUCE_info *si)
 {
 	de_uint32 t;
 	de_byte tmpbuf[40];
 	de_int64 tmpbuf_len;
+	de_int64 pos;
 
 	if(!si) return 0;
 	de_memset(si, 0, sizeof(struct de_SAUCE_info));
 
+	pos = f->len - 128;
 	if(dbuf_memcmp(f, pos+0, "SAUCE00", 7)) {
 		return 0;
 	}

@@ -123,6 +123,13 @@ struct deark_bitmap {
 	double ydens;
 };
 
+struct de_SAUCE_detection_data {
+	de_byte detection_attempted;
+	de_byte has_SAUCE;
+	de_byte data_type;
+	de_byte file_type;
+};
+
 struct deark_ext_option {
 	char *name;
 	char *val;
@@ -191,6 +198,8 @@ struct deark_struct {
 #define DE_MAX_EXT_OPTIONS 16
 	int num_ext_options;
 	struct deark_ext_option ext_option[DE_MAX_EXT_OPTIONS];
+
+	struct de_SAUCE_detection_data SAUCE_detection_data;
 };
 
 void de_fatalerror(deark *c);

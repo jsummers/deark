@@ -69,6 +69,38 @@ void de_module_zlib(deark *c, struct deark_module_info *mi)
 }
 
 // **************************************************************************
+// SAUCE
+// Special module that reads SAUCE metadata for other modules to use
+// **************************************************************************
+
+static void de_run_sauce(deark *c, de_module_params *mparams)
+{
+	if(!c->SAUCE_detection_data.has_SAUCE) return;
+	de_err(c, "This file has a SAUCE metadata record that identifies it as "
+		"DataType %d, FileType %d, but it is not a supported format.\n",
+		(int)c->SAUCE_detection_data.data_type, (int)c->SAUCE_detection_data.file_type);
+}
+
+static int de_identify_sauce(deark *c)
+{
+	if(de_detect_SAUCE(c, c->infile, &c->SAUCE_detection_data)) {
+		// This module should have a very low priority, but other modules can use
+		// the results of its detection.
+		return 2;
+	}
+	return 0;
+}
+
+void de_module_sauce(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "sauce";
+	mi->desc = "SAUCE metadata";
+	mi->run_fn = de_run_sauce;
+	mi->identify_fn = de_identify_sauce;
+	mi->flags |= DE_MODFLAG_HIDDEN;
+}
+
+// **************************************************************************
 // HP 100LX / HP 200LX .ICN icon format
 // **************************************************************************
 

@@ -56,8 +56,8 @@ struct de_SAUCE_info {
 	de_int64 number_of_lines; // Reported value. May be incorrect.
 };
 
-int de_has_SAUCE(deark *c, dbuf *f, de_int64 pos);
-int de_read_SAUCE(deark *c, dbuf *f, de_int64 pos, struct de_SAUCE_info *si);
+int de_detect_SAUCE(deark *c, dbuf *f, struct de_SAUCE_detection_data *sdd);
+int de_read_SAUCE(deark *c, dbuf *f, struct de_SAUCE_info *si);
 void de_free_SAUCE(deark *c, struct de_SAUCE_info *si);
 
 struct de_boxesctx;

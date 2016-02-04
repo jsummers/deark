@@ -207,6 +207,7 @@ static void de_run_xbin(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
 	struct de_char_context *charctx = NULL;
+	struct de_SAUCE_detection_data sdd;
 	struct de_SAUCE_info *si = NULL;
 	de_int64 pos = 0;
 	de_byte flags;
@@ -217,9 +218,12 @@ static void de_run_xbin(deark *c, de_module_params *mparams)
 	charctx = de_malloc(c, sizeof(struct de_char_context));
 	charctx->prefer_image_output = 1;
 
-	if(de_has_SAUCE(c, c->infile, c->infile->len-128)) {
+	de_memset(&sdd, 0, sizeof(struct de_SAUCE_detection_data));
+	de_detect_SAUCE(c, c->infile, &sdd);
+
+	if(sdd.has_SAUCE) {
 		si = de_malloc(c, sizeof(struct de_SAUCE_info));
-		de_read_SAUCE(c, c->infile, c->infile->len-128, si);
+		de_read_SAUCE(c, c->infile, si);
 		charctx->title = si->title;
 		charctx->artist = si->artist;
 		charctx->organization = si->organization;
