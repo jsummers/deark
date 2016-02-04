@@ -209,7 +209,7 @@ static void do_output_html_screen(deark *c, struct de_char_context *charctx,
 	blank_cell.codepoint = 32;
 	blank_cell.codepoint_unicode = 32;
 
-	dbuf_fputs(ofile, "<table style=\"margin-left:auto;margin-right:auto\"><tr>\n<td>");
+	dbuf_fputs(ofile, "<table class=mt><tr>\n<td>");
 	dbuf_fputs(ofile, "<pre>");
 
 	// Containing <span> with default colors.
@@ -304,11 +304,13 @@ static void output_css_color_block(deark *c, dbuf *ofile, de_uint32 *pal,
 	}
 }
 
-static void write_ucstring_to_html(deark *c, de_ucstring *s, dbuf *f)
+static void write_ucstring_to_html(deark *c, const de_ucstring *s, dbuf *f)
 {
 	de_int64 i;
 	int prev_space = 0;
 	de_int32 ch;
+
+	if(!s) return;
 
 	for(i=0; i<s->len; i++) {
 		ch = s->str[i];
@@ -328,6 +330,13 @@ static void write_ucstring_to_html(deark *c, de_ucstring *s, dbuf *f)
 	}
 }
 
+static void print_header_item(deark *c, dbuf *ofile, const char *name_rawhtml, const de_ucstring *value)
+{
+		dbuf_fprintf(ofile, "<td class=htc><span class=hn>%s:&nbsp; </span><span class=hv>", name_rawhtml);
+		write_ucstring_to_html(c, value, ofile);
+		dbuf_fputs(ofile, "</span></td>\n");
+}
+
 static void do_output_html_header(deark *c, struct de_char_context *charctx,
 	struct charextractx *ectx, dbuf *ofile)
 {
@@ -341,9 +350,7 @@ static void do_output_html_header(deark *c, struct de_char_context *charctx,
 	dbuf_fputs(ofile, "<head>\n");
 	if(!c->ascii_html) dbuf_fputs(ofile, "<meta charset=\"UTF-8\">\n");
 	dbuf_fputs(ofile, "<title>");
-	if(charctx->title) {
-		write_ucstring_to_html(c, charctx->title, ofile);
-	}
+	write_ucstring_to_html(c, charctx->title, ofile);
 	dbuf_fputs(ofile, "</title>\n");
 
 	dbuf_fputs(ofile, "<style type=\"text/css\">\n");
@@ -353,9 +360,14 @@ static void do_output_html_header(deark *c, struct de_char_context *charctx,
 		"QVQI12NgaGBgPMDA/ICB/QMD/w8G+T8M9v8Y6v8z/P8PIoFsoAhQHCgLVMN4AACOoBFvDLHV4QAA"
 		"AABJRU5ErkJggg==\") }\n");
 
+	// The table for the main graphics
+	dbuf_fputs(ofile, " .mt { margin-left: auto; margin-right: auto }\n");
+
 	if(has_metadata) {
 		// Styles for header name and value
-		dbuf_fputs(ofile, " .hn { color: #aaa; text-align:right; padding-right:0.5em }\n");
+		dbuf_fputs(ofile, " .htt { width: 100%; border-collapse: collapse; background-color: #034 }\n");
+		dbuf_fputs(ofile, " .htc { border: 2px solid #056; text-align: center }\n");
+		dbuf_fputs(ofile, " .hn { color: #aaa; font-style: italic }\n");
 		dbuf_fputs(ofile, " .hv { color: #fff }\n");
 	}
 
@@ -379,28 +391,12 @@ static void do_output_html_header(deark *c, struct de_char_context *charctx,
 	dbuf_fputs(ofile, "<body>\n");
 
 	if(has_metadata) {
-		dbuf_fputs(ofile, "<table>");
-		if(charctx->title) {
-			dbuf_fputs(ofile, "<tr><td class=hn>Title: </td><td class=hv>");
-			write_ucstring_to_html(c, charctx->title, ofile);
-			dbuf_fputs(ofile, "</td></tr>\n");
-		}
-		if(charctx->artist) {
-			dbuf_fputs(ofile, "<tr><td class=hn>Artist: </td><td class=hv>");
-			write_ucstring_to_html(c, charctx->artist, ofile);
-			dbuf_fputs(ofile, "</td></tr>\n");
-		}
-		if(charctx->organization) {
-			dbuf_fputs(ofile, "<tr><td class=hn>Organization: </td><td class=hv>");
-			write_ucstring_to_html(c, charctx->organization, ofile);
-			dbuf_fputs(ofile, "</td></tr>\n");
-		}
-		if(charctx->creation_date) {
-			dbuf_fputs(ofile, "<tr><td class=hn>Date: </td><td class=hv>");
-			write_ucstring_to_html(c, charctx->creation_date, ofile);
-			dbuf_fputs(ofile, "</td></tr>\n");
-		}
-		dbuf_fputs(ofile, "</table>\n");
+		dbuf_fputs(ofile, "<table class=htt><tr>\n");
+		print_header_item(c, ofile, "Title", charctx->title);
+		print_header_item(c, ofile, "Organization", charctx->organization);
+		print_header_item(c, ofile, "Artist", charctx->artist);
+		print_header_item(c, ofile, "Date", charctx->creation_date);
+		dbuf_fputs(ofile, "</tr></table>\n");
 	}
 }
 
