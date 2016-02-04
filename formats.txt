@@ -25,8 +25,10 @@ Deark -- Information about supported formats
   - Extract individual CUR and ICO files.
 
 * ANSI Art (module="ansiart")
-  - Limited features. Supports only the most common escape codes.
-  - Must use "-m ansiart", or file extension must be ".ans".
+  - Limited features. Supports only the most common escape codes, though that
+     is usually good enough.
+  - Must use "-m ansiart", or file extension must be ".ans", or file must have
+     a SAUCE record.
   Options
    -opt char:output=image - Output to a bitmap instead of HTML
 
@@ -40,6 +42,9 @@ Deark -- Information about supported formats
   Options
    -opt awbm:rgb=0 - (v2) Assume BGR sample order (default for 4-bit)
    -opt awbm:rgb=1 - (v2) Assume RGB sample order (default for 8-bit)
+
+* Binary Text (.BIN character graphics format) (module="bintext")
+  - Must use "-m bintext", unless the file has a SAUCE record.
 
 * BMP (Windows bitmap) (module="bmp")
 

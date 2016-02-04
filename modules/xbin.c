@@ -2,6 +2,7 @@
 // This software is in the public domain. See the file COPYING for details.
 
 // XBIN character graphics
+// "Binary Text" character graphics
 
 #include <deark-config.h>
 #include <deark-modules.h>
@@ -17,7 +18,7 @@ typedef struct localctx_struct {
 	struct de_bitmap_font *font;
 } lctx;
 
-static void do_xbin_main(deark *c, lctx *d, dbuf *unc_data, struct de_char_context *charctx)
+static void do_bin_main(deark *c, lctx *d, dbuf *unc_data, struct de_char_context *charctx)
 {
 	de_int64 i, j;
 	de_byte ccode, acode;
@@ -146,7 +147,6 @@ static void do_default_palette(deark *c, lctx *d, struct de_char_context *charct
 {
 	int k;
 
-	de_dbg(c, "using default palette\n");
 	for(k=0; k<16; k++) {
 		charctx->pal[k] = de_palette_pc16(k);
 	}
@@ -260,6 +260,7 @@ static void de_run_xbin(deark *c, de_module_params *mparams)
 		pos += 48;
 	}
 	else {
+		de_dbg(c, "using default palette\n");
 		do_default_palette(c, d, charctx);
 	}
 
@@ -302,7 +303,7 @@ static void de_run_xbin(deark *c, de_module_params *mparams)
 	else {
 		unc_data = dbuf_open_input_subfile(c->infile, pos, c->infile->len-pos);
 	}
-	do_xbin_main(c, d, unc_data, charctx);
+	do_bin_main(c, d, unc_data, charctx);
 
 done:
 	dbuf_close(unc_data);
@@ -329,4 +330,91 @@ void de_module_xbin(deark *c, struct deark_module_info *mi)
 	mi->desc = "XBIN character graphics";
 	mi->run_fn = de_run_xbin;
 	mi->identify_fn = de_identify_xbin;
+}
+
+////////////////////// Binary Text //////////////////////
+
+static void de_run_bintext(deark *c, de_module_params *mparams)
+{
+	lctx *d = NULL;
+	struct de_char_context *charctx = NULL;
+	struct de_SAUCE_detection_data sdd;
+	struct de_SAUCE_info *si = NULL;
+	de_int64 pos = 0;
+	dbuf *unc_data = NULL;
+	de_int64 num_payload_bytes;
+
+	d = de_malloc(c, sizeof(lctx));
+
+	charctx = de_malloc(c, sizeof(struct de_char_context));
+	charctx->prefer_image_output = 0;
+
+	de_memset(&sdd, 0, sizeof(struct de_SAUCE_detection_data));
+	de_detect_SAUCE(c, c->infile, &sdd);
+
+	if(sdd.has_SAUCE) {
+		si = de_malloc(c, sizeof(struct de_SAUCE_info));
+		de_read_SAUCE(c, c->infile, si);
+		charctx->title = si->title;
+		charctx->artist = si->artist;
+		charctx->organization = si->organization;
+		charctx->creation_date = si->creation_date;
+
+		// For BinText, the FileType field is inexplicably used for the width.
+		d->width_in_chars = 2*(de_int64)sdd.file_type;
+
+		num_payload_bytes = c->infile->len - 128; // FIXME: We can do better
+	}
+	else {
+		d->width_in_chars = 160;
+		num_payload_bytes = c->infile->len;
+	}
+
+	if(d->width_in_chars<1) d->width_in_chars=160;
+	d->height_in_chars = num_payload_bytes / (d->width_in_chars*2);
+
+	de_dbg(c, "dimensions: %dx%d characters\n", (int)d->width_in_chars, (int)d->height_in_chars);
+	d->has_palette = 0;
+	d->has_font = 0;
+	d->compression = 0;
+	d->nonblink = 1; // TODO: Does Binary Text use blinking text?
+	d->has_512chars = 0;
+
+	do_default_palette(c, d, charctx);
+
+	unc_data = dbuf_open_input_subfile(c->infile, pos, c->infile->len-pos);
+	do_bin_main(c, d, unc_data, charctx);
+
+	dbuf_close(unc_data);
+	de_free_charctx(c, charctx);
+	de_free_SAUCE(c, si);
+	if(d->font) {
+		de_free(c, d->font->char_array);
+		de_free(c, d->font);
+	}
+	de_free(c, d->font_data);
+	de_free(c, d);
+}
+
+static int de_identify_bintext(deark *c)
+{
+	if(!c->SAUCE_detection_data.detection_attempted) {
+		de_err(c, "bintext internal");
+		de_fatalerror(c);
+	}
+	if(c->SAUCE_detection_data.has_SAUCE) {
+		if(c->SAUCE_detection_data.data_type==5)
+		{
+			return 100;
+		}
+	}
+	return 0;
+}
+
+void de_module_bintext(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "bintext";
+	mi->desc = "Binary Text character graphics";
+	mi->run_fn = de_run_bintext;
+	mi->identify_fn = de_identify_bintext;
 }

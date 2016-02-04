@@ -121,3 +121,4 @@ void de_module_makichan(deark *c, struct deark_module_info *mi);
 void de_module_bmp(deark *c, struct deark_module_info *mi);
 void de_module_farbfeld(deark *c, struct deark_module_info *mi);
 void de_module_sauce(deark *c, struct deark_module_info *mi);
+void de_module_bintext(deark *c, struct deark_module_info *mi);
