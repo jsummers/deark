@@ -429,13 +429,7 @@ static void de_run_ansiart(deark *c, de_module_params *mparams)
 	if(sdd.has_SAUCE) {
 		si = de_malloc(c, sizeof(struct de_SAUCE_info));
 		if(de_read_SAUCE(c, c->infile, si)) {
-			// If the original_file_size field seems valid, use it.
-			if(si->original_file_size>0 && si->original_file_size<=c->infile->len-128) {
-				d->effective_file_size = si->original_file_size;
-			}
-			else {
-				d->effective_file_size -= 128;
-			}
+			d->effective_file_size = si->original_file_size;
 		}
 	}
 
@@ -494,11 +488,20 @@ static int de_identify_ansiart(deark *c)
 		de_err(c, "ansiart internal");
 		de_fatalerror(c);
 	}
+
+	if(!dbuf_memcmp(c->infile, 0, "\x04\x31\x2e\x34", 4)) {
+		// Looks like iCEDraw format, which may use the same SAUCE identifiers
+		// as ANSI Art, even though it is incompatible.
+		return 0;
+	}
+
 	if(c->SAUCE_detection_data.has_SAUCE) {
 		if(c->SAUCE_detection_data.data_type==1 &&
 			c->SAUCE_detection_data.file_type==1)
 		{
-			return 100;
+			// Unfortunately, iCEDraw and possibly other formats may use the
+			// same SAUCE identifiers as ANSI Art, so we can't return 100.
+			return 91;
 		}
 	}
 
@@ -510,6 +513,7 @@ static int de_identify_ansiart(deark *c)
 void de_module_ansiart(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "ansiart";
+	mi->id_alias[0] = "ansi";
 	mi->desc = "ANSI Art character graphics";
 	mi->run_fn = de_run_ansiart;
 	mi->identify_fn = de_identify_ansiart;

@@ -251,15 +251,57 @@ int de_detect_SAUCE(deark *c, dbuf *f, struct de_SAUCE_detection_data *sdd)
 	return (int)sdd->has_SAUCE;
 }
 
+static const char *get_sauce_datatype_name(de_byte dt)
+{
+	const char *n = "?";
+
+	switch(dt) {
+	case 0: n="undefined"; break;
+	case 1: n="character"; break;
+	case 2: n="bitmap graphics"; break;
+	case 3: n="vector graphics"; break;
+	case 4: n="audio"; break;
+	case 5: n="BinaryText"; break;
+	case 6: n="XBIN"; break;
+	case 7: n="archive"; break;
+	case 8: n="executable"; break;
+	}
+	return n;
+}
+
+static const char *get_sauce_filetype_name(de_byte dt, unsigned int t)
+{
+	const char *n = "?";
+
+	if(dt==5) return "=width/2";
+	switch(t) {
+	case 0x0100: n="ASCII"; break;
+	case 0x0101: n="ANSI"; break;
+	case 0x0102: n="ANSiMation"; break;
+	case 0x0103: n="RIP script"; break;
+	case 0x0104: n="PCBoard"; break;
+	case 0x0105: n="Avatar"; break;
+	case 0x0106: n="HTML"; break;
+	case 0x0108: n="TundraDraw"; break;
+	case 0x0600: n="XBIN"; break;
+	}
+	// There are many more SAUCE file types defined, but most of them
+	// have probably never been used.
+
+	return n;
+}
+
 // SAUCE = Standard Architecture for Universal Comment Extensions
 // Caller allocates si.
 // This function may allocate si->title, artist, organization, creation_date.
 int de_read_SAUCE(deark *c, dbuf *f, struct de_SAUCE_info *si)
 {
-	de_uint32 t;
+	unsigned int t;
 	de_byte tmpbuf[40];
 	de_int64 tmpbuf_len;
+	de_int64 ncomments;
 	de_int64 pos;
+	const char *name;
 
 	if(!si) return 0;
 	de_memset(si, 0, sizeof(struct de_SAUCE_info));
@@ -308,11 +350,13 @@ int de_read_SAUCE(deark *c, dbuf *f, struct de_SAUCE_info *si)
 	de_dbg(c, "original file size: %d\n", (int)si->original_file_size);
 
 	si->data_type = dbuf_getbyte(f, pos+94);
-	de_dbg(c, "data type: %d\n", (int)si->data_type);
-	si->file_type = dbuf_getbyte(f, pos+95);
-	de_dbg(c, "file type: %d\n", (int)si->file_type);
+	name = get_sauce_datatype_name(si->data_type);
+	de_dbg(c, "data type: %d (%s)\n", (int)si->data_type, name);
 
-	t = 256*(de_uint32)si->data_type + si->file_type;
+	si->file_type = dbuf_getbyte(f, pos+95);
+	t = 256*(unsigned int)si->data_type + si->file_type;
+	name = get_sauce_filetype_name(si->data_type, t);
+	de_dbg(c, "file type: %d (%s)\n", (int)si->file_type, name);
 
 	if(t==0x0100 || t==0x0101 || t==0x0102 || t==0x0104 || t==0x0105 || t==0x0108 || t==0x0600) {
 		si->width_in_chars = dbuf_getui16le(f, pos+96);
@@ -321,6 +365,16 @@ int de_read_SAUCE(deark *c, dbuf *f, struct de_SAUCE_info *si)
 	if(t==0x0100 || t==0x0101 || t==0x0104 || t==0x0105 || t==0x0108 || t==0x0600) {
 		si->number_of_lines = dbuf_getui16le(f, pos+98);
 		de_dbg(c, "number of lines: %d\n", (int)si->number_of_lines);
+	}
+
+	ncomments = (de_int64)dbuf_getbyte(f, pos+104);
+	if(ncomments!=0) {
+		de_dbg(c, "num comments: %d\n", (int)ncomments);
+	}
+
+	if(si->original_file_size==0 || si->original_file_size>f->len-128) {
+		// If this field seems bad, try to correct it.
+		si->original_file_size = f->len-128; // TODO: Take comments into account
 	}
 
 	de_dbg_indent(c, -1);

@@ -76,6 +76,15 @@ void de_module_zlib(deark *c, struct deark_module_info *mi)
 static void de_run_sauce(deark *c, de_module_params *mparams)
 {
 	if(!c->SAUCE_detection_data.has_SAUCE) return;
+
+	if(c->debug_level>0) {
+		// Read the SAUCE record, just for the debugging info.
+		struct de_SAUCE_info *si = NULL;
+		si = de_malloc(c, sizeof(struct de_SAUCE_info));
+		de_read_SAUCE(c, c->infile, si);
+		de_free_SAUCE(c, si);
+	}
+
 	de_err(c, "This file has a SAUCE metadata record that identifies it as "
 		"DataType %d, FileType %d, but it is not a supported format.\n",
 		(int)c->SAUCE_detection_data.data_type, (int)c->SAUCE_detection_data.file_type);

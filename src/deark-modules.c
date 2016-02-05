@@ -84,6 +84,7 @@ void de_register_modules(deark *c)
 		de_module_sauce,
 		de_module_ansiart,
 		de_module_bintext,
+		de_module_icedraw,
 		de_module_makichan,
 		de_module_xpuzzle,
 		de_module_grob,

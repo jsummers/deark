@@ -203,6 +203,16 @@ static int do_generate_font(deark *c, lctx *d)
 	return 1;
 }
 
+static void free_lctx(deark *c, lctx *d)
+{
+	if(d->font) {
+		de_free(c, d->font->char_array);
+		de_free(c, d->font);
+	}
+	de_free(c, d->font_data);
+	de_free(c, d);
+}
+
 static void de_run_xbin(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
@@ -309,12 +319,7 @@ done:
 	dbuf_close(unc_data);
 	de_free_charctx(c, charctx);
 	de_free_SAUCE(c, si);
-	if(d->font) {
-		de_free(c, d->font->char_array);
-		de_free(c, d->font);
-	}
-	de_free(c, d->font_data);
-	de_free(c, d);
+	free_lctx(c, d);
 }
 
 static int de_identify_xbin(deark *c)
@@ -340,9 +345,8 @@ static void de_run_bintext(deark *c, de_module_params *mparams)
 	struct de_char_context *charctx = NULL;
 	struct de_SAUCE_detection_data sdd;
 	struct de_SAUCE_info *si = NULL;
-	de_int64 pos = 0;
 	dbuf *unc_data = NULL;
-	de_int64 num_payload_bytes;
+	de_int64 effective_file_size;
 
 	d = de_malloc(c, sizeof(lctx));
 
@@ -363,17 +367,18 @@ static void de_run_bintext(deark *c, de_module_params *mparams)
 		// For BinText, the FileType field is inexplicably used for the width.
 		d->width_in_chars = 2*(de_int64)sdd.file_type;
 
-		num_payload_bytes = c->infile->len - 128; // FIXME: We can do better
+		effective_file_size = si->original_file_size;
 	}
 	else {
 		d->width_in_chars = 160;
-		num_payload_bytes = c->infile->len;
+		effective_file_size = c->infile->len;
 	}
 
 	if(d->width_in_chars<1) d->width_in_chars=160;
-	d->height_in_chars = num_payload_bytes / (d->width_in_chars*2);
+	d->height_in_chars = effective_file_size / (d->width_in_chars*2);
 
-	de_dbg(c, "dimensions: %dx%d characters\n", (int)d->width_in_chars, (int)d->height_in_chars);
+	de_dbg(c, "width: %d chars\n", (int)d->width_in_chars);
+	de_dbg(c, "calculated height: %d chars\n", (int)d->height_in_chars);
 	d->has_palette = 0;
 	d->has_font = 0;
 	d->compression = 0;
@@ -382,18 +387,13 @@ static void de_run_bintext(deark *c, de_module_params *mparams)
 
 	do_default_palette(c, d, charctx);
 
-	unc_data = dbuf_open_input_subfile(c->infile, pos, c->infile->len-pos);
+	unc_data = dbuf_open_input_subfile(c->infile, 0, effective_file_size);
 	do_bin_main(c, d, unc_data, charctx);
 
 	dbuf_close(unc_data);
 	de_free_charctx(c, charctx);
 	de_free_SAUCE(c, si);
-	if(d->font) {
-		de_free(c, d->font->char_array);
-		de_free(c, d->font);
-	}
-	de_free(c, d->font_data);
-	de_free(c, d);
+	free_lctx(c, d);
 }
 
 static int de_identify_bintext(deark *c)
@@ -417,4 +417,48 @@ void de_module_bintext(deark *c, struct deark_module_info *mi)
 	mi->desc = "Binary Text character graphics";
 	mi->run_fn = de_run_bintext;
 	mi->identify_fn = de_identify_bintext;
+}
+
+////////////////////// iCEDraw format (.idf) //////////////////////
+
+// This module is not yet implemented. This stub exists because it seemed
+// like the simplest way to accomplish multiple goals:
+//  * Avoid having iCEDraw mis-identified as ANSI Art.
+//  * Avoid a error message from the SAUCE module implying that ANSI
+//     Art is not a supported format.
+//  * Print debugging info about the SAUCE record, if present.
+//  * Print the same error message whether or not a SAUCE record is present.
+
+static void de_run_icedraw(deark *c, de_module_params *mparams)
+{
+	struct de_SAUCE_detection_data sdd;
+
+	de_memset(&sdd, 0, sizeof(struct de_SAUCE_detection_data));
+	de_detect_SAUCE(c, c->infile, &sdd);
+	if(sdd.has_SAUCE) {
+		// Read the SAUCE record if present, just for the debugging info.
+		struct de_SAUCE_info *si = NULL;
+		si = de_malloc(c, sizeof(struct de_SAUCE_info));
+		de_read_SAUCE(c, c->infile, si);
+		de_free_SAUCE(c, si);
+	}
+
+	de_err(c, "iCEDraw format is not supported\n");
+}
+
+static int de_identify_icedraw(deark *c)
+{
+	if(!dbuf_memcmp(c->infile, 0, "\x04\x31\x2e\x34", 4)) {
+		return 100;
+	}
+	return 0;
+}
+
+void de_module_icedraw(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "icedraw";
+	mi->desc = "iCEDraw character graphics format";
+	mi->run_fn = de_run_icedraw;
+	mi->identify_fn = de_identify_icedraw;
+	mi->flags |= DE_MODFLAG_NONWORKING;
 }
