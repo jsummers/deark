@@ -75,7 +75,7 @@ void de_module_zlib(deark *c, struct deark_module_info *mi)
 
 static void de_run_sauce(deark *c, de_module_params *mparams)
 {
-	if(!c->SAUCE_detection_data.has_SAUCE) return;
+	if(!c->detection_data.sauce.has_SAUCE) return;
 
 	if(c->debug_level>0) {
 		// Read the SAUCE record, just for the debugging info.
@@ -87,12 +87,12 @@ static void de_run_sauce(deark *c, de_module_params *mparams)
 
 	de_err(c, "This file has a SAUCE metadata record that identifies it as "
 		"DataType %d, FileType %d, but it is not a supported format.\n",
-		(int)c->SAUCE_detection_data.data_type, (int)c->SAUCE_detection_data.file_type);
+		(int)c->detection_data.sauce.data_type, (int)c->detection_data.sauce.file_type);
 }
 
 static int de_identify_sauce(deark *c)
 {
-	if(de_detect_SAUCE(c, c->infile, &c->SAUCE_detection_data)) {
+	if(de_detect_SAUCE(c, c->infile, &c->detection_data.sauce)) {
 		// This module should have a very low priority, but other modules can use
 		// the results of its detection.
 		return 2;

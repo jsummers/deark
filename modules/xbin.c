@@ -398,12 +398,12 @@ static void de_run_bintext(deark *c, de_module_params *mparams)
 
 static int de_identify_bintext(deark *c)
 {
-	if(!c->SAUCE_detection_data.detection_attempted) {
+	if(!c->detection_data.sauce.detection_attempted) {
 		de_err(c, "bintext internal");
 		de_fatalerror(c);
 	}
-	if(c->SAUCE_detection_data.has_SAUCE) {
-		if(c->SAUCE_detection_data.data_type==5)
+	if(c->detection_data.sauce.has_SAUCE) {
+		if(c->detection_data.sauce.data_type==5)
 		{
 			return 100;
 		}

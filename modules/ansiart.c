@@ -484,7 +484,7 @@ static void de_run_ansiart(deark *c, de_module_params *mparams)
 
 static int de_identify_ansiart(deark *c)
 {
-	if(!c->SAUCE_detection_data.detection_attempted) {
+	if(!c->detection_data.sauce.detection_attempted) {
 		de_err(c, "ansiart internal");
 		de_fatalerror(c);
 	}
@@ -495,9 +495,9 @@ static int de_identify_ansiart(deark *c)
 		return 0;
 	}
 
-	if(c->SAUCE_detection_data.has_SAUCE) {
-		if(c->SAUCE_detection_data.data_type==1 &&
-			c->SAUCE_detection_data.file_type==1)
+	if(c->detection_data.sauce.has_SAUCE) {
+		if(c->detection_data.sauce.data_type==1 &&
+			c->detection_data.sauce.file_type==1)
 		{
 			// Unfortunately, iCEDraw and possibly other formats may use the
 			// same SAUCE identifiers as ANSI Art, so we can't return 100.

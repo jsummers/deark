@@ -130,6 +130,10 @@ struct de_SAUCE_detection_data {
 	de_byte file_type;
 };
 
+struct de_detection_data_struct {
+	struct de_SAUCE_detection_data sauce;
+};
+
 struct deark_ext_option {
 	char *name;
 	char *val;
@@ -199,7 +203,9 @@ struct deark_struct {
 	int num_ext_options;
 	struct deark_ext_option ext_option[DE_MAX_EXT_OPTIONS];
 
-	struct de_SAUCE_detection_data SAUCE_detection_data;
+	// This struct is for data that can be shared by the various format
+	// identification functions. It should not be used outside of them.
+	struct de_detection_data_struct detection_data;
 };
 
 void de_fatalerror(deark *c);
