@@ -37,6 +37,10 @@ typedef struct localctx_struct {
 #define MAX_ESC_PARAMS 16
 	int num_params;
 	de_int64 params[MAX_ESC_PARAMS];
+
+	de_byte offscreen_write_warned;
+	de_byte escape_h_warned;
+	de_byte control_seq_seen[128];
 } lctx;
 
 static struct de_char_cell *get_cell_at(deark *c, struct de_char_screen *screen,
@@ -90,8 +94,11 @@ static void do_normal_char(deark *c, lctx *d, de_int64 pos, de_byte ch)
 			if(d->ypos >= d->screen->height) d->screen->height = d->ypos+1;
 		}
 		else {
-			de_dbg(c, "off-screen write at (%d,%d) (%d)\n",
-				(int)(d->xpos+1), (int)(d->ypos+1), (int)pos);
+			if(!d->offscreen_write_warned) {
+				de_warn(c, "Off-screen write (%d,%d) at %d\n",
+					(int)(d->xpos+1), (int)(d->ypos+1), (int)pos);
+				d->offscreen_write_warned = 1;
+			}
 		}
 
 		d->xpos++;
@@ -199,7 +206,7 @@ static void do_code_m(deark *c, lctx *d)
 			d->curr_bgcol = (de_byte)(sgr_code-40);
 		}
 		else {
-			de_dbg(c, "unsupported SGR code %d\n", (int)sgr_code);
+			de_warn(c, "Unsupported SGR code %d\n", (int)sgr_code);
 		}
 	}
 }
@@ -222,7 +229,7 @@ static void do_code_H(deark *c, lctx *d)
 }
 
 // h: Mode settings
-static void do_code_h(deark *c, lctx *d)
+static void do_code_h(deark *c, lctx *d, de_int64 param_start)
 {
 	int ok=0;
 
@@ -233,7 +240,10 @@ static void do_code_h(deark *c, lctx *d)
 	}
 
 	if(!ok) {
-		de_dbg(c, "unsupported 'h' escape sequence\n");
+		if(!d->escape_h_warned) {
+			de_warn(c, "Unsupported 'h' control sequence at %d\n", (int)param_start);
+			d->escape_h_warned = 1;
+		}
 	}
 }
 
@@ -311,6 +321,8 @@ static void do_code_D(deark *c, lctx *d)
 static void do_control_sequence(deark *c, lctx *d, de_byte code,
 	de_int64 param_start, de_int64 param_len)
 {
+	if(code>=128) return;
+
 	if(c->debug_level>=2) {
 		de_dbg2(c, "[(%2d,%d) %c at %d %d]\n", (int)(d->xpos+1), (int)(d->ypos+1),
 			(char)code, (int)param_start, (int)param_len);
@@ -319,7 +331,7 @@ static void do_control_sequence(deark *c, lctx *d, de_byte code,
 	if(param_len > (de_int64)(sizeof(d->param_string_buf)-1)) {
 		de_warn(c, "Ignoring long escape sequence (len %d at %d)\n",
 			(int)param_len, (int)param_start);
-		return;
+		goto done;
 	}
 
 	de_read(d->param_string_buf, param_start, param_len);
@@ -331,7 +343,7 @@ static void do_control_sequence(deark *c, lctx *d, de_byte code,
 	case 'C': do_code_C(c, d); break;
 	case 'D': do_code_D(c, d); break;
 	case 'H': do_code_H(c, d); break;
-	case 'h': do_code_h(c, d); break;
+	case 'h': do_code_h(c, d, param_start); break;
 	case 'J': do_code_J(c, d); break;
 	case 'm': do_code_m(c, d); break;
 	case 's':
@@ -343,8 +355,22 @@ static void do_control_sequence(deark *c, lctx *d, de_byte code,
 		d->ypos = d->saved_ypos;
 		break;
 	default:
-		de_dbg(c, "unsupported escape sequence %c at %d\n", (char)code, (int)param_start);
+		if(!d->control_seq_seen[(unsigned int)code]) {
+			if(code>=0x70 && code<=0x7e) {
+				// "Bit combinations 07/00 to 07/14 are available as final bytes
+				// of control sequences for private use" -- ECMA 48
+				de_warn(c, "Unsupported private-use control sequence '%c' at %d\n",
+					(char)code, (int)param_start);
+			}
+			else {
+				de_warn(c, "Unsupported control sequence '%c' at %d\n",
+					(char)code, (int)param_start);
+			}
+		}
 	}
+
+done:
+	d->control_seq_seen[(unsigned int)code] = 1;
 }
 
 static void do_main(deark *c, lctx *d)
