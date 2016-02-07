@@ -193,7 +193,7 @@ int de_fmtutil_uncompress_packbits(dbuf *f, de_int64 pos1, de_int64 len,
 	return 1;
 }
 
-static de_int64 space_padded_length(const de_byte *buf, de_int64 len)
+static de_int64 sauce_space_padded_length(const de_byte *buf, de_int64 len)
 {
 	de_int64 i;
 	de_int64 last_nonspace = -1;
@@ -209,7 +209,7 @@ static de_int64 space_padded_length(const de_byte *buf, de_int64 len)
 	return last_nonspace+1;
 }
 
-static void bytes_to_ucstring(deark *c, const de_byte *buf, de_int64 len,
+static void sauce_bytes_to_ucstring(deark *c, const de_byte *buf, de_int64 len,
 	de_ucstring *s, int encoding, int date_fmt_flag)
 {
 	de_int32 u;
@@ -225,7 +225,7 @@ static void bytes_to_ucstring(deark *c, const de_byte *buf, de_int64 len,
 	}
 }
 
-static int is_valid_date_string(const de_byte *buf, de_int64 len)
+static int sauce_is_valid_date_string(const de_byte *buf, de_int64 len)
 {
 	de_int64 i;
 
@@ -291,6 +291,58 @@ static const char *get_sauce_filetype_name(de_byte dt, unsigned int t)
 	return n;
 }
 
+// Write a buffer to a file, converting the encoding to UTF-8.
+static void write_buffer_as_utf8(deark *c, const de_byte *buf, de_int64 len,
+	dbuf *outf, int from_encoding)
+{
+	de_int32 u;
+	de_int64 i;
+
+	for(i=0; i<len; i++) {
+		u = de_char_to_unicode(c, (de_int32)buf[i], from_encoding);
+		dbuf_write_uchar_as_utf8(outf, u);
+	}
+}
+
+// This may modify si->num_comments.
+static void sauce_read_comments(deark *c, dbuf *inf, struct de_SAUCE_info *si)
+{
+	de_int64 cmnt_blk_start;
+	de_int64 k;
+	de_int64 cmnt_pos;
+	de_int64 cmnt_len;
+	de_byte buf[64];
+
+	cmnt_blk_start = inf->len - 128 - (5 + si->num_comments*64);
+
+	if(dbuf_memcmp(inf, cmnt_blk_start, "COMNT", 5)) {
+		de_dbg(c, "invalid SAUCE comment, not found at %d\n", (int)cmnt_blk_start);
+		si->num_comments = 0;
+	}
+
+	de_dbg(c, "SAUCE comment block at %d\n", (int)cmnt_blk_start);
+
+	// No reason to read the comments unless we're going to extract them.
+	if(c->extract_level<2) return;
+
+	de_dbg_indent(c, 1);
+	for(k=0; k<si->num_comments; k++) {
+		dbuf *outf = NULL;
+		cmnt_pos = cmnt_blk_start+5+k*64;
+		dbuf_read(inf, buf, cmnt_pos, 64);
+		cmnt_len = sauce_space_padded_length(buf, 64);
+		de_dbg(c, "comment at %d, len=%d\n", (int)cmnt_pos, (int)cmnt_len);
+
+		outf = dbuf_create_output_file(c, "comment.txt", NULL);
+		if(c->write_bom && !de_is_ascii(buf, cmnt_len)) {
+			dbuf_write_uchar_as_utf8(outf, 0xfeff);
+		}
+		write_buffer_as_utf8(c, buf, cmnt_len, outf, DE_ENCODING_CP437_G);
+		dbuf_close(outf);
+	}
+	de_dbg_indent(c, -1);
+}
+
 // SAUCE = Standard Architecture for Universal Comment Extensions
 // Caller allocates si.
 // This function may allocate si->title, artist, organization, creation_date.
@@ -299,7 +351,6 @@ int de_read_SAUCE(deark *c, dbuf *f, struct de_SAUCE_info *si)
 	unsigned int t;
 	de_byte tmpbuf[40];
 	de_int64 tmpbuf_len;
-	de_int64 ncomments;
 	de_int64 pos;
 	const char *name;
 
@@ -316,34 +367,34 @@ int de_read_SAUCE(deark *c, dbuf *f, struct de_SAUCE_info *si)
 
 	// Title
 	dbuf_read(f, tmpbuf, pos+7, 35);
-	tmpbuf_len = space_padded_length(tmpbuf, 35);
+	tmpbuf_len = sauce_space_padded_length(tmpbuf, 35);
 	if(tmpbuf_len>0) {
 		si->title = ucstring_create(c);
-		bytes_to_ucstring(c, tmpbuf, tmpbuf_len, si->title, DE_ENCODING_CP437_G, 0);
+		sauce_bytes_to_ucstring(c, tmpbuf, tmpbuf_len, si->title, DE_ENCODING_CP437_G, 0);
 	}
 
 	// Artist / Creator
 	dbuf_read(f, tmpbuf, pos+42, 20);
-	tmpbuf_len = space_padded_length(tmpbuf, 20);
+	tmpbuf_len = sauce_space_padded_length(tmpbuf, 20);
 	if(tmpbuf_len>0) {
 		si->artist = ucstring_create(c);
-		bytes_to_ucstring(c, tmpbuf, tmpbuf_len, si->artist, DE_ENCODING_CP437_G, 0);
+		sauce_bytes_to_ucstring(c, tmpbuf, tmpbuf_len, si->artist, DE_ENCODING_CP437_G, 0);
 	}
 
 	// Organization
 	dbuf_read(f, tmpbuf, pos+62, 20);
-	tmpbuf_len = space_padded_length(tmpbuf, 20);
+	tmpbuf_len = sauce_space_padded_length(tmpbuf, 20);
 	if(tmpbuf_len>0) {
 		si->organization = ucstring_create(c);
-		bytes_to_ucstring(c, tmpbuf, tmpbuf_len, si->organization, DE_ENCODING_CP437_G, 0);
+		sauce_bytes_to_ucstring(c, tmpbuf, tmpbuf_len, si->organization, DE_ENCODING_CP437_G, 0);
 	}
 
 	// Creation date
 	dbuf_read(f, tmpbuf, pos+82, 8);
-	if(is_valid_date_string(tmpbuf, 8)) {
+	if(sauce_is_valid_date_string(tmpbuf, 8)) {
 		tmpbuf_len = 8;
 		si->creation_date = ucstring_create(c);
-		bytes_to_ucstring(c, tmpbuf, tmpbuf_len, si->creation_date, DE_ENCODING_CP437_G, 1);
+		sauce_bytes_to_ucstring(c, tmpbuf, tmpbuf_len, si->creation_date, DE_ENCODING_CP437_G, 1);
 	}
 
 	si->original_file_size = dbuf_getui32le(f, pos+90);
@@ -367,14 +418,15 @@ int de_read_SAUCE(deark *c, dbuf *f, struct de_SAUCE_info *si)
 		de_dbg(c, "number of lines: %d\n", (int)si->number_of_lines);
 	}
 
-	ncomments = (de_int64)dbuf_getbyte(f, pos+104);
-	if(ncomments!=0) {
-		de_dbg(c, "num comments: %d\n", (int)ncomments);
+	si->num_comments = (de_int64)dbuf_getbyte(f, pos+104);
+	if(si->num_comments>0) {
+		de_dbg(c, "num comments: %d\n", (int)si->num_comments);
+		sauce_read_comments(c, f, si);
 	}
 
 	if(si->original_file_size==0 || si->original_file_size>f->len-128) {
 		// If this field seems bad, try to correct it.
-		si->original_file_size = f->len-128; // TODO: Take comments into account
+		si->original_file_size = f->len-128-(5+si->num_comments*64);
 	}
 
 	de_dbg_indent(c, -1);

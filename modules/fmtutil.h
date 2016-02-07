@@ -54,6 +54,8 @@ struct de_SAUCE_info {
 	de_byte file_type;
 	de_int64 width_in_chars; // 0 if unknown
 	de_int64 number_of_lines; // Reported value. May be incorrect.
+	de_int64 num_comments;
+	de_int64 comment_block_pos; // Valid if num_comments>0.
 };
 
 int de_detect_SAUCE(deark *c, dbuf *f, struct de_SAUCE_detection_data *sdd);

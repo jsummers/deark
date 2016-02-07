@@ -70,24 +70,21 @@ void de_module_zlib(deark *c, struct deark_module_info *mi)
 
 // **************************************************************************
 // SAUCE
-// Special module that reads SAUCE metadata for other modules to use
+// Special module that reads SAUCE metadata for other modules to use,
+// and handles files with SAUCE records if they aren't otherwise handled.
 // **************************************************************************
 
 static void de_run_sauce(deark *c, de_module_params *mparams)
 {
-	if(!c->detection_data.sauce.has_SAUCE) return;
+	struct de_SAUCE_info *si = NULL;
 
-	if(c->debug_level>0) {
-		// Read the SAUCE record, just for the debugging info.
-		struct de_SAUCE_info *si = NULL;
-		si = de_malloc(c, sizeof(struct de_SAUCE_info));
-		de_read_SAUCE(c, c->infile, si);
-		de_free_SAUCE(c, si);
+	si = de_malloc(c, sizeof(struct de_SAUCE_info));
+	if(de_read_SAUCE(c, c->infile, si)) {
+		de_err(c, "This file has a SAUCE metadata record that identifies it as "
+			"DataType %d, FileType %d, but it is not a supported format.\n",
+			(int)si->data_type, (int)si->file_type);
 	}
-
-	de_err(c, "This file has a SAUCE metadata record that identifies it as "
-		"DataType %d, FileType %d, but it is not a supported format.\n",
-		(int)c->detection_data.sauce.data_type, (int)c->detection_data.sauce.file_type);
+	de_free_SAUCE(c, si);
 }
 
 static int de_identify_sauce(deark *c)
