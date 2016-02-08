@@ -43,6 +43,21 @@ typedef struct localctx_struct {
 	de_byte control_seq_seen[128];
 } lctx;
 
+static void init_cell(deark *c, struct de_char_cell *cell)
+{
+	cell->codepoint = 0x20;
+	cell->codepoint_unicode = 0x20;
+	cell->bgcol = DEFAULT_BGCOL;
+	cell->fgcol = DEFAULT_FGCOL;
+}
+
+static void erase_cell(deark *c, struct de_char_cell *cell)
+{
+	if(!cell) return;
+	de_memset(cell, 0, sizeof(struct de_char_cell));
+	init_cell(c, cell);
+}
+
 static struct de_char_cell *get_cell_at(deark *c, struct de_char_screen *screen,
 	de_int64 xpos, de_int64 ypos)
 {
@@ -56,10 +71,7 @@ static struct de_char_cell *get_cell_at(deark *c, struct de_char_screen *screen,
 		for(i=0; i<screen->width; i++) {
 			// Initialize each new cell
 			cell = &screen->cell_rows[ypos][i];
-			cell->codepoint = 0x20;
-			cell->codepoint_unicode = 0x20;
-			cell->bgcol = DEFAULT_BGCOL;
-			cell->fgcol = DEFAULT_FGCOL;
+			init_cell(c, cell);
 		}
 	}
 	return &(screen->cell_rows[ypos][xpos]);
@@ -252,7 +264,6 @@ static void do_code_J(deark *c, lctx *d)
 {
 	de_int64 n;
 	de_int64 i, j;
-	struct de_char_cell *cell;
 
 	read_one_int(c, d, d->param_string_buf, &n, 0);
 	// 0 = clear from cursor to end of screen
@@ -269,16 +280,37 @@ static void do_code_J(deark *c, lctx *d)
 				if(j>d->ypos) continue;
 				if(j==d->ypos && i>d->xpos) continue;
 			}
-			cell = get_cell_at(c, d->screen, i, j);
-			if(!cell) continue;
-			cell->codepoint = 0x20;
-			cell->codepoint_unicode = 0x20;
+			erase_cell(c, get_cell_at(c, d->screen, i, j));
 		}
 	}
 
 	if(n==2) {
 		d->xpos = 0;
 		d->ypos = 0;
+	}
+}
+
+// K: Clear line
+static void do_code_K(deark *c, lctx *d)
+{
+	de_int64 n;
+	de_int64 i;
+
+	read_one_int(c, d, d->param_string_buf, &n, 0);
+	// 0 = clear cursor to end of line
+	// 1 = clear from start of line to cursor
+	// 2 = clear entire line
+
+	// TODO: This line clearing logic may not be exactly correct.
+
+	for(i=0; i<d->screen->width; i++) {
+		if(n==0) {
+			if(i<d->xpos) continue;
+		}
+		else if(n==1) {
+			if(i>d->xpos) continue;
+		}
+		erase_cell(c, get_cell_at(c, d->screen, i, d->ypos));
 	}
 }
 
@@ -345,6 +377,7 @@ static void do_control_sequence(deark *c, lctx *d, de_byte code,
 	case 'H': do_code_H(c, d); break;
 	case 'h': do_code_h(c, d, param_start); break;
 	case 'J': do_code_J(c, d); break;
+	case 'K': do_code_K(c, d); break;
 	case 'm': do_code_m(c, d); break;
 	case 's':
 		d->saved_xpos = d->xpos;

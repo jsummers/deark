@@ -424,7 +424,7 @@ void de_module_bintext(deark *c, struct deark_module_info *mi)
 // This module is not yet implemented. This stub exists because it seemed
 // like the simplest way to accomplish multiple goals:
 //  * Avoid having iCEDraw mis-identified as ANSI Art.
-//  * Avoid a error message from the SAUCE module implying that ANSI
+//  * Avoid an error message from the SAUCE module implying that ANSI
 //     Art is not a supported format.
 //  * Print debugging info about the SAUCE record, if present.
 //  * Print the same error message whether or not a SAUCE record is present.

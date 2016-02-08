@@ -332,9 +332,9 @@ static void write_ucstring_to_html(deark *c, const de_ucstring *s, dbuf *f)
 
 static void print_header_item(deark *c, dbuf *ofile, const char *name_rawhtml, const de_ucstring *value)
 {
-		dbuf_fprintf(ofile, "<td class=htc><span class=hn>%s:&nbsp; </span><span class=hv>", name_rawhtml);
-		write_ucstring_to_html(c, value, ofile);
-		dbuf_fputs(ofile, "</span></td>\n");
+	dbuf_fprintf(ofile, "<td class=htc><span class=hn>%s:&nbsp; </span><span class=hv>", name_rawhtml);
+	write_ucstring_to_html(c, value, ofile);
+	dbuf_fputs(ofile, "</span></td>\n");
 }
 
 static void do_output_html_header(deark *c, struct de_char_context *charctx,
