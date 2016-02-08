@@ -17,6 +17,12 @@ static const de_uint32 ansi_palette[16] = {
 #define DEFAULT_BGCOL  0
 #define DEFAULT_FGCOL  7
 
+struct parse_results_struct {
+	int num_params;
+#define MAX_ESC_PARAMS 16
+	de_int64 params[MAX_ESC_PARAMS];
+};
+
 typedef struct localctx_struct {
 	struct de_char_screen *screen;
 
@@ -30,16 +36,14 @@ typedef struct localctx_struct {
 	de_byte curr_underline;
 	de_byte curr_blink;
 
-	de_byte param_string_buf[100];
-
+#define ANSIART_MAX_WARNINGS 10
+	int num_warnings;
 	de_byte support_9b_csi;
 
-#define MAX_ESC_PARAMS 16
-	int num_params;
-	de_int64 params[MAX_ESC_PARAMS];
+	de_byte param_string_buf[100];
 
-	de_byte offscreen_write_warned;
-	de_byte escape_h_warned;
+	struct parse_results_struct parse_results;
+
 	de_byte control_seq_seen[128];
 } lctx;
 
@@ -106,10 +110,10 @@ static void do_normal_char(deark *c, lctx *d, de_int64 pos, de_byte ch)
 			if(d->ypos >= d->screen->height) d->screen->height = d->ypos+1;
 		}
 		else {
-			if(!d->offscreen_write_warned) {
+			if(d->num_warnings<ANSIART_MAX_WARNINGS) {
 				de_warn(c, "Off-screen write (%d,%d) at %d\n",
 					(int)(d->xpos+1), (int)(d->ypos+1), (int)pos);
-				d->offscreen_write_warned = 1;
+				d->num_warnings++;
 			}
 		}
 
@@ -124,7 +128,7 @@ static void do_normal_char(deark *c, lctx *d, de_int64 pos, de_byte ch)
 }
 
 // Convert d->param_string_buf to d->params and d->num_params.
-static void parse_params(deark *c, lctx *d, de_int64 default_val)
+static void parse_params(deark *c, lctx *d, de_int64 default_val, de_int64 offset)
 {
 	de_int64 buf_len;
 	de_int64 ppos;
@@ -132,13 +136,13 @@ static void parse_params(deark *c, lctx *d, de_int64 default_val)
 	char *p_ptr;
 	int last_param = 0;
 
-	d->num_params = 0;
+	d->parse_results.num_params = 0;
 
 	buf_len = de_strlen((const char*)d->param_string_buf);
 
-	ppos = 0;
+	ppos = offset;
 	while(1) {
-		if(d->num_params >= MAX_ESC_PARAMS) {
+		if(d->parse_results.num_params >= MAX_ESC_PARAMS) {
 			break;
 		}
 
@@ -152,12 +156,12 @@ static void parse_params(deark *c, lctx *d, de_int64 default_val)
 		}
 
 		if(param_len>=1) {
-			d->params[d->num_params] = de_atoi64((const char*)&d->param_string_buf[ppos]);
+			d->parse_results.params[d->parse_results.num_params] = de_atoi64((const char*)&d->param_string_buf[ppos]);
 		}
 		else {
-			d->params[d->num_params] = default_val;
+			d->parse_results.params[d->parse_results.num_params] = default_val;
 		}
-		d->num_params++;
+		d->parse_results.num_params++;
 
 		if(last_param) {
 			break;
@@ -171,10 +175,10 @@ static void parse_params(deark *c, lctx *d, de_int64 default_val)
 static void read_one_int(deark *c, lctx *d, const de_byte *buf,
 	de_int64 *a, de_int64 a_default)
 {
-	parse_params(c, d, a_default);
+	parse_params(c, d, a_default, 0);
 
-	if(d->num_params>=1) {
-		*a = d->params[0];
+	if(d->parse_results.num_params>=1) {
+		*a = d->parse_results.params[0];
 	}
 	else {
 		*a = a_default;
@@ -187,10 +191,10 @@ static void do_code_m(deark *c, lctx *d)
 	de_int64 i;
 	de_int64 sgr_code;
 
-	parse_params(c, d, 0);
+	parse_params(c, d, 0, 0);
 
-	for(i=0; i<d->num_params; i++) {
-		sgr_code = d->params[i];
+	for(i=0; i<d->parse_results.num_params; i++) {
+		sgr_code = d->parse_results.params[i];
 
 		if(sgr_code==0) {
 			// Reset
@@ -228,12 +232,12 @@ static void do_code_H(deark *c, lctx *d)
 {
 	de_int64 row, col;
 
-	parse_params(c, d, 1);
+	parse_params(c, d, 1, 0);
 
-	if(d->num_params>=1) row = d->params[0];
+	if(d->parse_results.num_params>=1) row = d->parse_results.params[0];
 	else row = 1;
 
-	if(d->num_params>=2) col = d->params[1];
+	if(d->parse_results.num_params>=2) col = d->parse_results.params[1];
 	else col = 1;
 
 	d->xpos = col-1;
@@ -244,17 +248,37 @@ static void do_code_H(deark *c, lctx *d)
 static void do_code_h(deark *c, lctx *d, de_int64 param_start)
 {
 	int ok=0;
+	int is_DEC = 0;
+	int i;
 
 	if(d->param_string_buf[0]=='?') {
-		if(d->param_string_buf[1]=='7') {
-			ok=1; // Set autowrap (default)
-		}
+		is_DEC = 1; // "DEC private parameters"
 	}
 
-	if(!ok) {
-		if(!d->escape_h_warned) {
-			de_warn(c, "Unsupported 'h' control sequence at %d\n", (int)param_start);
-			d->escape_h_warned = 1;
+	parse_params(c, d, 0, is_DEC?1:0);
+
+	for(i=0; i<d->parse_results.num_params; i++) {
+		ok = 0;
+
+		if(is_DEC) {
+			switch(d->parse_results.params[i]) {
+			case 7: // Set autowrap (default)
+				ok = 1;
+			}
+		}
+		else {
+			switch(d->parse_results.params[i]) {
+			case 7: // Set autowrap (default)
+				// Some sources say it's Esc [?7h, and some say it's
+				// Esc [7h. I'll assume both are okay.
+				ok = 1;
+			}
+		}
+
+		if(!ok && d->num_warnings<ANSIART_MAX_WARNINGS) {
+			de_warn(c, "Unsupported 'h' control sequence '%s%d' at %d\n",
+				is_DEC?"?":"", (int)d->parse_results.params[i], (int)param_start);
+			d->num_warnings++;
 		}
 	}
 }
