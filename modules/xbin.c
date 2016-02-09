@@ -368,6 +368,10 @@ static void de_run_bintext(deark *c, de_module_params *mparams)
 		d->width_in_chars = 2*(de_int64)sdd.file_type;
 
 		effective_file_size = si->original_file_size;
+
+		if(si->tflags & 0x01) {
+			d->nonblink = 1;
+		}
 	}
 	else {
 		d->width_in_chars = 160;
@@ -382,7 +386,6 @@ static void de_run_bintext(deark *c, de_module_params *mparams)
 	d->has_palette = 0;
 	d->has_font = 0;
 	d->compression = 0;
-	d->nonblink = 1; // TODO: Does Binary Text use blinking text?
 	d->has_512chars = 0;
 
 	do_default_palette(c, d, charctx);

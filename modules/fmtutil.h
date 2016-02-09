@@ -52,6 +52,7 @@ struct de_SAUCE_info {
 	de_int64 original_file_size;
 	de_byte data_type;
 	de_byte file_type;
+	de_byte tflags;
 	de_int64 width_in_chars; // 0 if unknown
 	de_int64 number_of_lines; // Reported value. May be incorrect.
 	de_int64 num_comments;

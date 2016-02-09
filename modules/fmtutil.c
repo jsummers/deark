@@ -424,6 +424,11 @@ int de_read_SAUCE(deark *c, dbuf *f, struct de_SAUCE_info *si)
 		sauce_read_comments(c, f, si);
 	}
 
+	si->tflags = dbuf_getbyte(f, pos+105);
+	if(si->tflags!=0) {
+		de_dbg(c, "tflags: 0x%02x\n", (unsigned int)si->tflags);
+	}
+
 	if(si->original_file_size==0 || si->original_file_size>f->len-128) {
 		// If this field seems bad, try to correct it.
 		si->original_file_size = f->len-128-(5+si->num_comments*64);

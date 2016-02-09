@@ -24,6 +24,8 @@ struct parse_results_struct {
 };
 
 typedef struct localctx_struct {
+	de_byte always_disable_blink;
+
 	struct de_char_screen *screen;
 
 	de_int64 effective_file_size;
@@ -37,7 +39,8 @@ typedef struct localctx_struct {
 	de_byte curr_blink;
 
 #define ANSIART_MAX_WARNINGS 10
-	int num_warnings;
+	de_int64 num_warnings;
+	de_byte disable_blink_attr;
 	de_byte support_9b_csi;
 
 	de_byte param_string_buf[100];
@@ -105,7 +108,16 @@ static void do_normal_char(deark *c, lctx *d, de_int64 pos, de_byte ch)
 			cell->bold = d->curr_bold;
 			cell->underline = d->curr_underline;
 			cell->bgcol = d->curr_bgcol;
-			cell->blink = d->curr_blink;
+
+			if(d->disable_blink_attr || d->always_disable_blink) {
+				// "blink" in this mode means intense-background, instead of blink.
+				if(d->curr_blink)
+					cell->bgcol |= 0x08;
+				cell->blink = 0;
+			}
+			else {
+				cell->blink = d->curr_blink;
+			}
 
 			if(d->ypos >= d->screen->height) d->screen->height = d->ypos+1;
 		}
@@ -264,6 +276,11 @@ static void do_code_h(deark *c, lctx *d, de_int64 param_start)
 			switch(d->parse_results.params[i]) {
 			case 7: // Set autowrap (default)
 				ok = 1;
+				break;
+			case 33:
+				d->disable_blink_attr = 1;
+				ok = 1;
+				break;
 			}
 		}
 		else {
@@ -272,11 +289,48 @@ static void do_code_h(deark *c, lctx *d, de_int64 param_start)
 				// Some sources say it's Esc [?7h, and some say it's
 				// Esc [7h. I'll assume both are okay.
 				ok = 1;
+				break;
 			}
 		}
 
 		if(!ok && d->num_warnings<ANSIART_MAX_WARNINGS) {
 			de_warn(c, "Unsupported 'h' control sequence '%s%d' at %d\n",
+				is_DEC?"?":"", (int)d->parse_results.params[i], (int)param_start);
+			d->num_warnings++;
+		}
+	}
+}
+
+// l: Turn off mode
+static void do_code_l(deark *c, lctx *d, de_int64 param_start)
+{
+	int ok=0;
+	int is_DEC = 0;
+	int i;
+
+	if(d->param_string_buf[0]=='?') {
+		is_DEC = 1; // "DEC private parameters"
+	}
+
+	parse_params(c, d, 0, is_DEC?1:0);
+
+	for(i=0; i<d->parse_results.num_params; i++) {
+		ok = 0;
+
+		if(is_DEC) {
+			switch(d->parse_results.params[i]) {
+			case 33:
+				d->disable_blink_attr = 0;
+				ok = 1;
+				break;
+			}
+		}
+		else {
+			;
+		}
+
+		if(!ok && d->num_warnings<ANSIART_MAX_WARNINGS) {
+			de_warn(c, "Unsupported 'l' control sequence '%s%d' at %d\n",
 				is_DEC?"?":"", (int)d->parse_results.params[i], (int)param_start);
 			d->num_warnings++;
 		}
@@ -402,6 +456,7 @@ static void do_control_sequence(deark *c, lctx *d, de_byte code,
 	case 'h': do_code_h(c, d, param_start); break;
 	case 'J': do_code_J(c, d); break;
 	case 'K': do_code_K(c, d); break;
+	case 'l': do_code_l(c, d, param_start); break;
 	case 'm': do_code_m(c, d); break;
 	case 's':
 		d->saved_xpos = d->xpos;
@@ -513,6 +568,10 @@ static void de_run_ansiart(deark *c, de_module_params *mparams)
 		si = de_malloc(c, sizeof(struct de_SAUCE_info));
 		if(de_read_SAUCE(c, c->infile, si)) {
 			d->effective_file_size = si->original_file_size;
+
+			if(si->tflags & 0x01) {
+				d->always_disable_blink = 1;
+			}
 		}
 	}
 
