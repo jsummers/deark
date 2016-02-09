@@ -372,6 +372,10 @@ static void de_run_bintext(deark *c, de_module_params *mparams)
 		if(si->tflags & 0x01) {
 			d->nonblink = 1;
 		}
+		if((si->tflags & 0x18)>>3 == 0x02) {
+			// Square pixels requested
+			charctx->no_density = 1;
+		}
 	}
 	else {
 		d->width_in_chars = 160;

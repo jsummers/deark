@@ -560,6 +560,8 @@ static void de_run_ansiart(deark *c, de_module_params *mparams)
 
 	d->effective_file_size = c->infile->len;
 
+	charctx = de_malloc(c, sizeof(struct de_char_context));
+
 	// Read SAUCE metadata, if present.
 	de_memset(&sdd, 0, sizeof(struct de_SAUCE_detection_data));
 	de_detect_SAUCE(c, c->infile, &sdd);
@@ -571,6 +573,10 @@ static void de_run_ansiart(deark *c, de_module_params *mparams)
 
 			if(si->tflags & 0x01) {
 				d->always_disable_blink = 1;
+			}
+			if((si->tflags & 0x18)>>3 == 0x02) {
+				// Square pixels requested
+				charctx->no_density = 1;
 			}
 		}
 	}
@@ -584,7 +590,6 @@ static void de_run_ansiart(deark *c, de_module_params *mparams)
 		de_dbg(c, "effective file size set to %d\n", (int)d->effective_file_size);
 	}
 
-	charctx = de_malloc(c, sizeof(struct de_char_context));
 	charctx->nscreens = 1;
 	charctx->screens = de_malloc(c, charctx->nscreens*sizeof(struct de_char_screen*));
 	charctx->screens[0] = de_malloc(c, sizeof(struct de_char_screen));
