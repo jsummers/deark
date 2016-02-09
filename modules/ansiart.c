@@ -578,6 +578,9 @@ static void de_run_ansiart(deark *c, de_module_params *mparams)
 				// Square pixels requested
 				charctx->no_density = 1;
 			}
+			if((si->tflags & 0x06)>>1 == 0x02) {
+				charctx->prefer_9col_mode = 1;
+			}
 		}
 	}
 

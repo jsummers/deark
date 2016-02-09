@@ -581,6 +581,7 @@ void de_char_output_to_file(deark *c, struct de_char_context *charctx)
 	de_int64 i;
 	int outfmt = 0;
 	const char *s;
+	int n;
 	struct charextractx *ectx = NULL;
 
 	ectx = de_malloc(c, sizeof(struct charextractx));
@@ -598,10 +599,18 @@ void de_char_output_to_file(deark *c, struct de_char_context *charctx)
 		}
 	}
 
+	if(charctx->prefer_9col_mode) {
+		ectx->vga_9col_mode = 1;
+	}
+
 	s = de_get_ext_option(c, "char:charwidth");
 	if(s) {
-		if(de_atoi(s)>=9) {
+		n = de_atoi(s);
+		if(n>=9) {
 			ectx->vga_9col_mode = 1;
+		}
+		else if(n>=1) {
+			ectx->vga_9col_mode = 0;
 		}
 	}
 

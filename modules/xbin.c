@@ -376,6 +376,9 @@ static void de_run_bintext(deark *c, de_module_params *mparams)
 			// Square pixels requested
 			charctx->no_density = 1;
 		}
+		if((si->tflags & 0x06)>>1 == 0x02) {
+			charctx->prefer_9col_mode = 1;
+		}
 	}
 	else {
 		d->width_in_chars = 160;
