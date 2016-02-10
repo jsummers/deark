@@ -347,6 +347,7 @@ static void de_run_bintext(deark *c, de_module_params *mparams)
 	struct de_SAUCE_info *si = NULL;
 	dbuf *unc_data = NULL;
 	de_int64 effective_file_size;
+	int valid_sauce = 0;
 
 	d = de_malloc(c, sizeof(lctx));
 
@@ -364,23 +365,28 @@ static void de_run_bintext(deark *c, de_module_params *mparams)
 		charctx->organization = si->organization;
 		charctx->creation_date = si->creation_date;
 
-		// For BinText, the FileType field is inexplicably used for the width.
-		d->width_in_chars = 2*(de_int64)sdd.file_type;
-
 		effective_file_size = si->original_file_size;
 
-		if(si->tflags & 0x01) {
-			d->nonblink = 1;
-		}
-		if((si->tflags & 0x18)>>3 == 0x02) {
-			// Square pixels requested
-			charctx->no_density = 1;
-		}
-		if((si->tflags & 0x06)>>1 == 0x02) {
-			charctx->prefer_9col_mode = 1;
+		if(si->data_type==5) {
+			valid_sauce = 1;
+
+			// For BinText, the FileType field is inexplicably used for the width.
+			d->width_in_chars = 2*(de_int64)sdd.file_type;
+
+			if(si->tflags & 0x01) {
+				d->nonblink = 1;
+			}
+			if((si->tflags & 0x18)>>3 == 0x02) {
+				// Square pixels requested
+				charctx->no_density = 1;
+			}
+			if((si->tflags & 0x06)>>1 == 0x02) {
+				charctx->prefer_9col_mode = 1;
+			}
 		}
 	}
-	else {
+
+	if(!valid_sauce) {
 		d->width_in_chars = 160;
 		effective_file_size = c->infile->len;
 	}

@@ -553,8 +553,8 @@ static void de_run_ansiart(deark *c, de_module_params *mparams)
 	lctx *d = NULL;
 	struct de_char_context *charctx = NULL;
 	de_int64 k;
-	struct de_SAUCE_detection_data sdd;
 	struct de_SAUCE_info *si = NULL;
+	int valid_sauce = 0;
 
 	d = de_malloc(c, sizeof(lctx));
 
@@ -563,24 +563,30 @@ static void de_run_ansiart(deark *c, de_module_params *mparams)
 	charctx = de_malloc(c, sizeof(struct de_char_context));
 
 	// Read SAUCE metadata, if present.
-	de_memset(&sdd, 0, sizeof(struct de_SAUCE_detection_data));
-	de_detect_SAUCE(c, c->infile, &sdd);
+	si = de_malloc(c, sizeof(struct de_SAUCE_info));
+	if(de_read_SAUCE(c, c->infile, si)) {
+		d->effective_file_size = si->original_file_size;
 
-	if(sdd.has_SAUCE) {
-		si = de_malloc(c, sizeof(struct de_SAUCE_info));
-		if(de_read_SAUCE(c, c->infile, si)) {
-			d->effective_file_size = si->original_file_size;
+		charctx->title = si->title;
+		charctx->artist = si->artist;
+		charctx->organization = si->organization;
+		charctx->creation_date = si->creation_date;
 
-			if(si->tflags & 0x01) {
-				d->always_disable_blink = 1;
-			}
-			if((si->tflags & 0x18)>>3 == 0x02) {
-				// Square pixels requested
-				charctx->no_density = 1;
-			}
-			if((si->tflags & 0x06)>>1 == 0x02) {
-				charctx->prefer_9col_mode = 1;
-			}
+		if(si->data_type==1 && (si->file_type==1 || si->file_type==2)) {
+			valid_sauce = 1;
+		}
+	}
+
+	if(valid_sauce) {
+		if(si->tflags & 0x01) {
+			d->always_disable_blink = 1;
+		}
+		if((si->tflags & 0x18)>>3 == 0x02) {
+			// Square pixels requested
+			charctx->no_density = 1;
+		}
+		if((si->tflags & 0x06)>>1 == 0x02) {
+			charctx->prefer_9col_mode = 1;
 		}
 	}
 
@@ -599,7 +605,7 @@ static void de_run_ansiart(deark *c, de_module_params *mparams)
 
 	d->screen = charctx->screens[0];
 
-	if(si && si->width_in_chars>=40 && si->width_in_chars<=320) {
+	if(valid_sauce && si->width_in_chars>=40 && si->width_in_chars<=320) {
 		// Use the width from SAUCE, if it's available and seems sensible.
 		d->screen->width = si->width_in_chars;
 	}
@@ -616,13 +622,6 @@ static void de_run_ansiart(deark *c, de_module_params *mparams)
 
 	for(k=0; k<16; k++) {
 		charctx->pal[k] = ansi_palette[k];
-	}
-
-	if(si) {
-		charctx->title = si->title;
-		charctx->artist = si->artist;
-		charctx->organization = si->organization;
-		charctx->creation_date = si->creation_date;
 	}
 
 	de_char_output_to_file(c, charctx);
