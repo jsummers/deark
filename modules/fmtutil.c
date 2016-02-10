@@ -283,10 +283,15 @@ static const char *get_sauce_filetype_name(de_byte dt, unsigned int t)
 	case 0x0105: n="Avatar"; break;
 	case 0x0106: n="HTML"; break;
 	case 0x0108: n="TundraDraw"; break;
+	case 0x0200: n="GIF"; break;
+	case 0x0206: n="BMP"; break;
+	case 0x020a: n="PNG"; break;
+	case 0x020b: n="JPEG"; break;
 	case 0x0600: n="XBIN"; break;
+	case 0x0800: n="executable"; break;
 	}
-	// There are many more SAUCE file types defined, but most of them
-	// have probably never been used.
+	// There are many more SAUCE file types defined, but it's not clear how
+	// many have actually been used.
 
 	return n;
 }

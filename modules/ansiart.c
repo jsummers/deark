@@ -234,7 +234,10 @@ static void do_code_m(deark *c, lctx *d)
 			d->curr_bgcol = (de_byte)(sgr_code-40);
 		}
 		else {
-			de_warn(c, "Unsupported SGR code %d\n", (int)sgr_code);
+			if(d->num_warnings<ANSIART_MAX_WARNINGS) {
+				de_warn(c, "Unsupported SGR code %d\n", (int)sgr_code);
+				d->num_warnings++;
+			}
 		}
 	}
 }

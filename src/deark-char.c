@@ -233,7 +233,7 @@ static void do_output_html_screen(deark *c, struct de_char_context *charctx,
 			n = cell->codepoint_unicode;
 			if(n==0x00) n=0x20;
 			if(n<0x20) n='?';
-			is_blank_char = (n==0x20 || n==0xa0);
+			is_blank_char = (n==0x20 || n==0xa0) && !cell->underline;
 
 			// Optimization: If this is a blank character, ignore a foreground color
 			// mismatch, because it won't be visible anyway. (Many other similar
@@ -332,9 +332,21 @@ static void write_ucstring_to_html(deark *c, const de_ucstring *s, dbuf *f)
 
 static void print_header_item(deark *c, dbuf *ofile, const char *name_rawhtml, const de_ucstring *value)
 {
-	dbuf_fprintf(ofile, "<td class=htc><span class=hn>%s:&nbsp; </span><span class=hv>", name_rawhtml);
-	write_ucstring_to_html(c, value, ofile);
-	dbuf_fputs(ofile, "</span></td>\n");
+	int k;
+
+	dbuf_fputs(ofile, "<td class=htc>");
+	if(value && value->len>0) {
+		dbuf_fprintf(ofile, "<span class=hn>%s:&nbsp; </span><span class=hv>", name_rawhtml);
+		write_ucstring_to_html(c, value, ofile);
+		dbuf_fputs(ofile, "</span>");
+	}
+	else {
+		// Placeholder
+		for(k=0; k<20; k++) {
+			de_write_codepoint_to_html(c, ofile, 0x00a0); // nbsp
+		}
+	}
+	dbuf_fputs(ofile, "</td>\n");
 }
 
 static void do_output_html_header(deark *c, struct de_char_context *charctx,
@@ -348,7 +360,7 @@ static void do_output_html_header(deark *c, struct de_char_context *charctx,
 	dbuf_fputs(ofile, "<!DOCTYPE html>\n");
 	dbuf_fputs(ofile, "<html>\n");
 	dbuf_fputs(ofile, "<head>\n");
-	if(!c->ascii_html) dbuf_fputs(ofile, "<meta charset=\"UTF-8\">\n");
+	dbuf_fprintf(ofile, "<meta charset=\"%s\">\n", c->ascii_html?"US-ASCII":"UTF-8");
 	dbuf_fputs(ofile, "<title>");
 	write_ucstring_to_html(c, charctx->title, ofile);
 	dbuf_fputs(ofile, "</title>\n");
