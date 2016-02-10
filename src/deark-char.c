@@ -424,7 +424,7 @@ static void de_char_output_to_html_file(deark *c, struct de_char_context *charct
 	de_int64 i;
 	dbuf *ofile = NULL;
 
-	if(charctx->font) {
+	if(charctx->font && !charctx->suppress_custom_font_warning) {
 		de_warn(c, "This file uses a custom font, which is not supported with "
 			"HTML output.\n");
 	}

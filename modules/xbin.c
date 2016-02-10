@@ -15,6 +15,7 @@ typedef struct localctx_struct {
 
 	de_int64 font_data_len;
 	de_byte *font_data;
+	int is_standard_font;
 	struct de_bitmap_font *font;
 } lctx;
 
@@ -175,7 +176,9 @@ static void do_read_font_data(deark *c, lctx *d, de_int64 pos)
 	de_read(d->font_data, pos, d->font_data_len);
 
 	crc = de_crc32(d->font_data, d->font_data_len);
-	de_dbg(c, "font crc: 0x%08x\n", (unsigned int)crc);
+	d->is_standard_font = de_font_is_standard_vga_font(c, crc);
+	de_dbg(c, "font crc: 0x%08x (%s)\n", (unsigned int)crc,
+		d->is_standard_font?"known CP437 font":"unrecognized");
 
 	if(de_get_ext_option(c, "font:dumpvgafont")) {
 		dbuf *df;
@@ -301,6 +304,10 @@ static void de_run_xbin(deark *c, de_module_params *mparams)
 		do_read_font_data(c, d, pos);
 		pos += d->font_data_len;
 
+		if(d->is_standard_font) {
+			charctx->suppress_custom_font_warning = 1;
+		}
+
 		if(!do_generate_font(c, d)) goto done;
 
 		if(c->extract_level>=2) {
@@ -312,6 +319,8 @@ static void de_run_xbin(deark *c, de_module_params *mparams)
 	else {
 		// Use default font
 
+		// FIXME: We probably shouldn't give up if font_height!=16, at
+		// least if the output format is HTML.
 		if(d->has_512chars || d->font_height!=16) {
 			de_err(c, "This type of XBIN file is not supported.\n");
 			goto done;

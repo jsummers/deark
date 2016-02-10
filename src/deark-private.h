@@ -562,6 +562,7 @@ void de_font_paint_character_cp(deark *c, struct deark_bitmap *img,
 	de_int64 xpos, de_int64 ypos, de_uint32 fgcol, de_uint32 bgcol, unsigned int flags);
 
 void de_font_bitmap_font_to_image(deark *c, struct de_bitmap_font *font, de_finfo *fi);
+int de_font_is_standard_vga_font(deark *c, de_uint32 crc);
 
 ///////////////////////////////////////////
 
@@ -585,6 +586,7 @@ struct de_char_context {
 	de_byte prefer_image_output;
 	de_byte prefer_9col_mode;
 	de_byte no_density;
+	de_byte suppress_custom_font_warning;
 	de_int64 nscreens;
 	struct de_char_screen **screens; // Array of [nscreens] screens
 	de_uint32 pal[16];

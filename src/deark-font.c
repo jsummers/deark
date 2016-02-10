@@ -356,3 +356,19 @@ done:
 	de_free(c, row_flags);
 	de_free(c, row_display_pos);
 }
+
+// Do we recognize the font as a standard VGA CP437 font?
+// This function is quick and dirty. Ideally we would:
+// * look at each character, instead or requiring the whole font to be identical
+// * recognize fonts with other character sets
+int de_font_is_standard_vga_font(deark *c, de_uint32 crc)
+{
+	switch(crc) {
+	case 0x2c3cf7d2U: // e.g.: ndh - Ada.xb
+	case 0x3c0aa3eeU: // https://commons.wikimedia.org/w/index.php?title=File:Codepage-437.png&oldid=153353189
+	case 0x71e15998U: // Used in many XBIN files.
+	case 0xb7cb6e5cU: // e.g.: T1-XBIN.XB
+		return 1;
+	}
+	return 0;
+}
