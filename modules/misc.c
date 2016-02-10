@@ -28,6 +28,35 @@ void de_module_copy(deark *c, struct deark_module_info *mi)
 }
 
 // **************************************************************************
+// CRC-32
+// Prints the CRC-32. Does not create any files.
+// (Currently intended for development/debugging use, but might be improved
+// and documented in the future.)
+// **************************************************************************
+
+static void de_run_crc32(deark *c, de_module_params *mparams)
+{
+	de_byte *buf = NULL;
+	de_uint32 crc;
+
+	// TODO: Make this work for arbitrarily large files.
+	buf = de_malloc(c, c->infile->len);
+	de_read(buf, 0, c->infile->len);
+	crc = de_crc32(buf, c->infile->len);
+	de_printf(c, DE_MSGTYPE_MESSAGE, "CRC-32: 0x%08x\n", (unsigned int)crc);
+	de_free(c, buf);
+}
+
+void de_module_crc32(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "crc32";
+	mi->desc = "Print the IEEE CRC-32 of the file";
+	mi->run_fn = de_run_crc32;
+	mi->identify_fn = de_identify_none;
+	mi->flags |= DE_MODFLAG_HIDDEN;
+}
+
+// **************************************************************************
 // zlib module
 //
 // This module is for decompressing zlib-compressed files.
@@ -1306,4 +1335,70 @@ void de_module_farbfeld(deark *c, struct deark_module_info *mi)
 	mi->desc = "farbfeld image";
 	mi->run_fn = de_run_farbfeld;
 	mi->identify_fn = de_identify_farbfeld;
+}
+
+// **************************************************************************
+// VGA font (intended for development/debugging use)
+// **************************************************************************
+
+static void de_run_vgafont(deark *c, de_module_params *mparams)
+{
+	de_byte *fontdata = NULL;
+	struct de_bitmap_font *font = NULL;
+	de_int64 i;
+
+	if(c->infile->len!=4096) {
+		de_err(c, "Bad file size\n");
+		goto done;
+	}
+
+	fontdata = de_malloc(c, 4096);
+	de_read(fontdata, 0, 4096);
+
+	if(de_get_ext_option(c, "vgafont:c")) {
+		dbuf *ff;
+		ff = dbuf_create_output_file(c, "h", NULL);
+		for(i=0; i<4096; i++) {
+			if(i%16==0) dbuf_fputs(ff, "\t");
+			dbuf_fprintf(ff, "%d", (int)fontdata[i]);
+			if(i!=4095) dbuf_fputs(ff, ",");
+			if(i%16==15) dbuf_fputs(ff, "\n");
+		}
+		dbuf_close(ff);
+		goto done;
+	}
+
+	font = de_malloc(c, sizeof(struct de_bitmap_font));
+	font->num_chars = 256;
+	font->has_unicode_codepoints = 0;
+	font->is_unicode = 0;
+	font->nominal_width = 8;
+	font->nominal_height = 16;
+	font->char_array = de_malloc(c, font->num_chars * sizeof(struct de_bitmap_font_char));
+
+	for(i=0; i<font->num_chars; i++) {
+		font->char_array[i].codepoint = (de_int32)i;
+		font->char_array[i].width = font->nominal_width;
+		font->char_array[i].height = font->nominal_height;
+		font->char_array[i].rowspan = 1;
+		font->char_array[i].bitmap = &fontdata[i*font->nominal_height];
+	}
+
+	de_font_bitmap_font_to_image(c, font, NULL);
+
+done:
+	if(font) {
+		de_free(c, font->char_array);
+		de_free(c, font);
+	}
+	de_free(c, fontdata);
+}
+
+void de_module_vgafont(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "vgafont";
+	mi->desc = "Raw 8x16 VGA font";
+	mi->run_fn = de_run_vgafont;
+	mi->identify_fn = de_identify_none;
+	mi->flags |= DE_MODFLAG_HIDDEN;
 }

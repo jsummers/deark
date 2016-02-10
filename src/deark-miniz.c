@@ -325,3 +325,8 @@ void de_zip_close_file(deark *c)
 	de_free(c, c->zip_file);
 	c->zip_file = NULL;
 }
+
+de_uint32 de_crc32(const void *buf, de_int64 buf_len)
+{
+	return (de_uint32)mz_crc32(MZ_CRC32_INIT, (const mz_uint8*)buf, (size_t)buf_len);
+}

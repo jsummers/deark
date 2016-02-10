@@ -167,9 +167,23 @@ static void do_extract_font(deark *c, lctx *d)
 
 static void do_read_font_data(deark *c, lctx *d, de_int64 pos)
 {
+	de_uint32 crc;
+
 	de_dbg(c, "font at %d, %d bytes\n", (int)pos, (int)d->font_data_len);
+	de_dbg_indent(c, 1);
 	d->font_data = de_malloc(c, d->font_data_len);
 	de_read(d->font_data, pos, d->font_data_len);
+
+	crc = de_crc32(d->font_data, d->font_data_len);
+	de_dbg(c, "font crc: 0x%08x\n", (unsigned int)crc);
+
+	if(de_get_ext_option(c, "font:dumpvgafont")) {
+		dbuf *df;
+		df = dbuf_create_output_file(c, "font.dat", NULL);
+		dbuf_write(df, d->font_data, d->font_data_len);
+		dbuf_close(df);
+	}
+	de_dbg_indent(c, -1);
 }
 
 // Finish populating the d->font struct.

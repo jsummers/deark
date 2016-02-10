@@ -135,6 +135,8 @@ void de_register_modules(deark *c)
 		de_module_base64,
 		de_module_base16,
 		de_module_jpegscan,
+		de_module_vgafont,
+		de_module_crc32,
 		de_module_copy,
 		de_module_unsupported
 	};
