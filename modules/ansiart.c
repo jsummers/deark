@@ -24,6 +24,8 @@ struct parse_results_struct {
 };
 
 typedef struct localctx_struct {
+	int disable_24bitcolor;
+
 	de_byte always_disable_blink;
 
 	struct de_char_screen *screen;
@@ -340,6 +342,35 @@ static void do_code_l(deark *c, lctx *d, de_int64 param_start)
 	}
 }
 
+static void do_code_t(deark *c, lctx *d, de_int64 param_start)
+{
+	parse_params(c, d, 0, 0);
+
+	if(d->parse_results.num_params==4 &&
+		d->parse_results.params[0]>=0 && d->parse_results.params[0]<=1 &&
+		d->parse_results.params[1]>=0 && d->parse_results.params[1]<=255 &&
+		d->parse_results.params[2]>=0 && d->parse_results.params[2]<=255 &&
+		d->parse_results.params[3]>=0 && d->parse_results.params[3]<=255)
+	{
+		// 24-bit color definition.
+		// Reference: http://picoe.ca/2014/03/07/24-bit-ansi/
+		de_uint32 clr;
+		if(d->disable_24bitcolor) return;
+		clr = (de_uint32)DE_MAKE_RGB(d->parse_results.params[1],
+			d->parse_results.params[2], d->parse_results.params[3]);
+		if(d->parse_results.params[0]==0)
+			d->curr_bgcol = clr;
+		else
+			d->curr_fgcol = clr;
+	}
+	else {
+		if(d->num_warnings<ANSIART_MAX_WARNINGS) {
+			de_warn(c, "Unsupported 't' control sequence at %d\n", (int)param_start);
+			d->num_warnings++;
+		}
+	}
+}
+
 // J: Clear screen
 static void do_code_J(deark *c, lctx *d)
 {
@@ -465,6 +496,7 @@ static void do_control_sequence(deark *c, lctx *d, de_byte code,
 		d->saved_xpos = d->xpos;
 		d->saved_ypos = d->ypos;
 		break;
+	case 't': do_code_t(c, d, param_start); break;
 	case 'u':
 		d->xpos = d->saved_xpos;
 		d->ypos = d->saved_ypos;
@@ -560,6 +592,10 @@ static void de_run_ansiart(deark *c, de_module_params *mparams)
 	int valid_sauce = 0;
 
 	d = de_malloc(c, sizeof(lctx));
+
+	if(de_get_ext_option(c, "ansiart:no24bitcolor")) {
+		d->disable_24bitcolor = 1;
+	}
 
 	d->effective_file_size = c->infile->len;
 

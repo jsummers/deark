@@ -31,6 +31,7 @@ Deark -- Information about supported formats
      file must have a SAUCE record.
   Options
    -opt char:output=image - Output to a bitmap instead of HTML
+   -opt ansiart:no24bitcolor - Disable support for 24-bit color definitions
 
 * Apple volume label image (module="applevol")
 

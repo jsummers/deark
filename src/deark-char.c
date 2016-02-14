@@ -19,6 +19,7 @@ struct charextractx {
 	de_byte vga_9col_mode; // Flag: Render an extra column, like VGA does
 	de_byte used_underline;
 	de_byte used_blink;
+	de_byte used_24bitcolor;
 	de_byte used_fgcol[16];
 	de_byte used_bgcol[16];
 	struct de_bitmap_font *standard_font;
@@ -83,9 +84,15 @@ static void do_prescan_screen(deark *c, struct de_char_context *charctx,
 				ectx->used_fgcol[cell_fgcol_actual] = 1;
 				ectx->scrstats[screen_idx].fgcol_count[cell_fgcol_actual]++;
 			}
+			else {
+				ectx->used_24bitcolor = 1;
+			}
 			if(DE_IS_PAL_COLOR(cell->bgcol)) {
 				ectx->used_bgcol[cell->bgcol] = 1;
 				ectx->scrstats[screen_idx].bgcol_count[cell->bgcol]++;
+			}
+			else {
+				ectx->used_24bitcolor = 1;
 			}
 			if(cell->underline) ectx->used_underline = 1;
 			if(cell->blink) ectx->used_blink = 1;
@@ -121,36 +128,48 @@ struct span_info {
 static void span_open(deark *c, dbuf *ofile, struct span_info *sp,
 	const struct screen_stats *scrstats)
 {
-	int need_fgcol, need_bgcol;
+	int need_fgcol_attr, need_bgcol_attr;
 	int need_underline, need_blink;
 	int attrindex = 0;
 	int attrcount;
+	int fgcol_is_24bit, bgcol_is_24bit;
+	int need_style = 0;
 
-	need_fgcol = !scrstats || sp->fgcol!=scrstats->most_used_fgcol;
-	need_bgcol = !scrstats || sp->bgcol!=scrstats->most_used_bgcol;
+	fgcol_is_24bit = !DE_IS_PAL_COLOR(sp->fgcol);
+	bgcol_is_24bit = !DE_IS_PAL_COLOR(sp->bgcol);
+
+	need_fgcol_attr = !scrstats || sp->fgcol!=scrstats->most_used_fgcol;
+	need_bgcol_attr = !scrstats || sp->bgcol!=scrstats->most_used_bgcol;
+	if(fgcol_is_24bit) { need_fgcol_attr=0; need_style=1; }
+	if(bgcol_is_24bit) { need_bgcol_attr=0; need_style=1; }
 	need_underline = (sp->underline!=0);
 	need_blink = (sp->blink!=0);
 
-	attrcount = need_fgcol + need_bgcol + need_underline + need_blink;
-	if(attrcount==0) {
+	attrcount = need_fgcol_attr + need_bgcol_attr + need_underline + need_blink;
+	if(attrcount==0 && !need_style) {
 		sp->is_suppressed = 1;
 		return;
 	}
 
 	sp->is_suppressed = 0;
 
-	dbuf_fputs(ofile, "<span class=");
+	dbuf_fputs(ofile, "<span");
+
+	if(attrcount==0)
+		goto no_class;
+
+	dbuf_fputs(ofile, " class=");
 	if(attrcount>1) // Don't need quotes if there's only one attribute
 		dbuf_fputs(ofile, "\"");
 
 	// Classes for foreground and background colors
 
-	if(need_fgcol) {
+	if(need_fgcol_attr) {
 		dbuf_fprintf(ofile, "f%c", de_get_hexchar(sp->fgcol));
 		attrindex++;
 	}
 
-	if(need_bgcol) {
+	if(need_bgcol_attr) {
 		if(attrindex) dbuf_fputs(ofile, " ");
 		dbuf_fprintf(ofile, "b%c", de_get_hexchar(sp->bgcol));
 		attrindex++;
@@ -171,6 +190,26 @@ static void span_open(deark *c, dbuf *ofile, struct span_info *sp,
 
 	if(attrcount>1)
 		dbuf_fputs(ofile, "\"");
+
+no_class:
+	if(fgcol_is_24bit || bgcol_is_24bit) {
+		char tmpbuf[16];
+
+		dbuf_fputs(ofile, " style=\"");
+		if(fgcol_is_24bit) {
+			de_color_to_css(sp->fgcol, tmpbuf, sizeof(tmpbuf));
+			dbuf_fprintf(ofile, "color:%s", tmpbuf);
+		}
+
+		if(bgcol_is_24bit) {
+			if(fgcol_is_24bit)
+				dbuf_fputs(ofile, ";");
+			de_color_to_css(sp->bgcol, tmpbuf, sizeof(tmpbuf));
+			dbuf_fprintf(ofile, "background-color:%s", tmpbuf);
+		}
+		dbuf_fputs(ofile, "\"");
+	}
+
 	dbuf_fputs(ofile, ">");
 	return;
 }
@@ -431,6 +470,11 @@ static void de_char_output_to_html_file(deark *c, struct de_char_context *charct
 			"HTML output.\n");
 	}
 
+	if(ectx->used_24bitcolor) {
+		de_msg(c, "Note: This file uses 24-bit colors, which are supported but "
+			"not optimized. The HTML file may be very large.\n");
+	}
+
 	ofile = dbuf_create_output_file(c, "html", NULL);
 
 	do_output_html_header(c, charctx, ectx, ofile);
@@ -500,7 +544,7 @@ static void de_char_output_screen_to_image_file(deark *c, struct de_char_context
 	struct deark_bitmap *img = NULL;
 	int i, j;
 	const struct de_char_cell *cell;
-	de_byte cell_fgcol_actual;
+	de_uint32 cell_fgcol_actual;
 
 	screen_width_in_pixels = screen->width * ectx->char_width_in_pixels;
 	screen_height_in_pixels = screen->height * ectx->char_height_in_pixels;
