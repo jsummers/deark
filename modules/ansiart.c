@@ -32,8 +32,8 @@ typedef struct localctx_struct {
 	de_int64 xpos, ypos; // 0-based
 	de_int64 saved_xpos, saved_ypos;
 
-	de_byte curr_fgcol;
-	de_byte curr_bgcol;
+	de_uint32 curr_fgcol;
+	de_uint32 curr_bgcol;
 	de_byte curr_bold;
 	de_byte curr_underline;
 	de_byte curr_blink;
@@ -111,7 +111,7 @@ static void do_normal_char(deark *c, lctx *d, de_int64 pos, de_byte ch)
 
 			if(d->disable_blink_attr || d->always_disable_blink) {
 				// "blink" in this mode means intense-background, instead of blink.
-				if(d->curr_blink)
+				if(d->curr_blink && DE_IS_PAL_COLOR(cell->bgcol))
 					cell->bgcol |= 0x08;
 				cell->blink = 0;
 			}
@@ -227,11 +227,11 @@ static void do_code_m(deark *c, lctx *d)
 		}
 		else if(sgr_code>=30 && sgr_code<=37) {
 			// Set foreground color
-			d->curr_fgcol = (de_byte)(sgr_code-30);
+			d->curr_fgcol = (de_uint32)(sgr_code-30);
 		}
 		else if(sgr_code>=40 && sgr_code<=47) {
 			// Set background color
-			d->curr_bgcol = (de_byte)(sgr_code-40);
+			d->curr_bgcol = (de_uint32)(sgr_code-40);
 		}
 		else {
 			if(d->num_warnings<ANSIART_MAX_WARNINGS) {

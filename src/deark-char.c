@@ -11,8 +11,8 @@
 struct screen_stats {
 	de_uint32 fgcol_count[16];
 	de_uint32 bgcol_count[16];
-	de_byte most_used_fgcol;
-	de_byte most_used_bgcol;
+	de_uint32 most_used_fgcol;
+	de_uint32 most_used_bgcol;
 };
 
 struct charextractx {
@@ -62,7 +62,7 @@ static void do_prescan_screen(deark *c, struct de_char_context *charctx,
 {
 	const struct de_char_cell *cell;
 	int i, j;
-	de_byte cell_fgcol_actual;
+	de_uint32 cell_fgcol_actual;
 	struct de_char_screen *screen;
 	de_uint32 highest_fgcol_count;
 	de_uint32 highest_bgcol_count;
@@ -76,22 +76,23 @@ static void do_prescan_screen(deark *c, struct de_char_context *charctx,
 			if(!cell) continue;
 
 			cell_fgcol_actual = cell->fgcol;
-			if(cell->bold) cell_fgcol_actual |= 0x08;
+			if(cell->bold && DE_IS_PAL_COLOR(cell_fgcol_actual))
+				cell_fgcol_actual |= 0x08;
 
-			if(cell->fgcol<16) {
-				ectx->used_fgcol[(unsigned int)cell_fgcol_actual] = 1;
-				ectx->scrstats[screen_idx].fgcol_count[(unsigned int)cell_fgcol_actual]++;
+			if(DE_IS_PAL_COLOR(cell_fgcol_actual)) {
+				ectx->used_fgcol[cell_fgcol_actual] = 1;
+				ectx->scrstats[screen_idx].fgcol_count[cell_fgcol_actual]++;
 			}
-			if(cell->bgcol<16) {
-				ectx->used_bgcol[(unsigned int)cell->bgcol] = 1;
-				ectx->scrstats[screen_idx].bgcol_count[(unsigned int)cell->bgcol]++;
+			if(DE_IS_PAL_COLOR(cell->bgcol)) {
+				ectx->used_bgcol[cell->bgcol] = 1;
+				ectx->scrstats[screen_idx].bgcol_count[cell->bgcol]++;
 			}
 			if(cell->underline) ectx->used_underline = 1;
 			if(cell->blink) ectx->used_blink = 1;
 		}
 	}
 
-	// Find the most-used foreground and background colors
+	// Find the most-used foreground and background (palette) colors
 	highest_fgcol_count = ectx->scrstats[screen_idx].fgcol_count[0];
 	highest_bgcol_count = ectx->scrstats[screen_idx].bgcol_count[0];
 	ectx->scrstats->most_used_fgcol = 0;
@@ -100,17 +101,17 @@ static void do_prescan_screen(deark *c, struct de_char_context *charctx,
 	for(i=1; i<16; i++) {
 		if(ectx->scrstats[screen_idx].fgcol_count[i] > highest_fgcol_count) {
 			highest_fgcol_count = ectx->scrstats[screen_idx].fgcol_count[i];
-			ectx->scrstats->most_used_fgcol = (de_byte)i;
+			ectx->scrstats->most_used_fgcol = (de_uint32)i;
 		}
 		if(ectx->scrstats[screen_idx].bgcol_count[i] > highest_bgcol_count) {
 			highest_bgcol_count = ectx->scrstats[screen_idx].bgcol_count[i];
-			ectx->scrstats->most_used_bgcol = (de_byte)i;
+			ectx->scrstats->most_used_bgcol = (de_uint32)i;
 		}
 	}
 }
 
 struct span_info {
-	de_byte fgcol, bgcol;
+	de_uint32 fgcol, bgcol;
 	de_byte underline;
 	de_byte blink;
 	de_byte is_suppressed;
@@ -190,11 +191,11 @@ static void do_output_html_screen(deark *c, struct de_char_context *charctx,
 	de_int32 n;
 	int in_span = 0;
 	int need_newline = 0;
-	de_byte active_fgcol = 0;
-	de_byte active_bgcol = 0;
+	de_uint32 active_fgcol = 0;
+	de_uint32 active_bgcol = 0;
 	de_byte active_underline = 0;
 	de_byte active_blink = 0;
-	de_byte cell_fgcol_actual;
+	de_uint32 cell_fgcol_actual;
 	int is_blank_char;
 	struct span_info default_span;
 	struct span_info cur_span;
@@ -228,7 +229,8 @@ static void do_output_html_screen(deark *c, struct de_char_context *charctx,
 			}
 
 			cell_fgcol_actual = cell->fgcol;
-			if(cell->bold) cell_fgcol_actual |= 0x08;
+			if(cell->bold && DE_IS_PAL_COLOR(cell_fgcol_actual))
+				cell_fgcol_actual |= 0x08;
 
 			n = cell->codepoint_unicode;
 			if(n==0x00) n=0x20;
@@ -443,24 +445,30 @@ static void de_char_output_to_html_file(deark *c, struct de_char_context *charct
 static void do_render_character(deark *c, struct de_char_context *charctx,
 	struct charextractx *ectx, struct deark_bitmap *img,
 	de_int64 xpos, de_int64 ypos,
-	de_uint32 codepoint, de_byte fgcol_idx, de_byte bgcol_idx,
+	de_uint32 codepoint, de_uint32 fgcol, de_uint32 bgcol,
 	unsigned int extra_flags)
 {
 	de_int64 xpos_in_pix, ypos_in_pix;
-	de_uint32 fgcol, bgcol;
+	de_uint32 fgcol_rgb, bgcol_rgb;
 	unsigned int flags;
 
 	xpos_in_pix = xpos * ectx->char_width_in_pixels;
 	ypos_in_pix = ypos * ectx->char_height_in_pixels;
 
-	fgcol = charctx->pal[(unsigned int)fgcol_idx];
-	bgcol = charctx->pal[(unsigned int)bgcol_idx];
+	if(DE_IS_PAL_COLOR(fgcol))
+		fgcol_rgb = charctx->pal[fgcol];
+	else
+		fgcol_rgb = fgcol;
+	if(DE_IS_PAL_COLOR(bgcol))
+		bgcol_rgb = charctx->pal[bgcol];
+	else
+		bgcol_rgb = bgcol;
 
 	flags = extra_flags;
 	if(ectx->vga_9col_mode) flags |= DE_PAINTFLAG_VGA9COL;
 
 	de_font_paint_character_idx(c, img, ectx->font_to_use, (de_int64)codepoint,
-		xpos_in_pix, ypos_in_pix, fgcol, bgcol, flags);
+		xpos_in_pix, ypos_in_pix, fgcol_rgb, bgcol_rgb, flags);
 }
 
 static void set_density(deark *c, struct de_char_context *charctx,
@@ -510,7 +518,8 @@ static void de_char_output_screen_to_image_file(deark *c, struct de_char_context
 			if(!cell) continue;
 
 			cell_fgcol_actual = cell->fgcol;
-			if(cell->bold) cell_fgcol_actual |= 0x08;
+			if(cell->bold && DE_IS_PAL_COLOR(cell_fgcol_actual))
+				cell_fgcol_actual |= 0x08;
 
 			do_render_character(c, charctx, ectx, img, i, j,
 				cell->codepoint, cell_fgcol_actual, cell->bgcol, 0);

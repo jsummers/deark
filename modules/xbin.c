@@ -49,8 +49,8 @@ static void do_bin_main(deark *c, lctx *d, dbuf *unc_data, struct de_char_contex
 			fgcol = (acode & 0x0f);
 			bgcol = (acode & 0xf0) >> 4;
 
-			screen->cell_rows[j][i].fgcol = fgcol;
-			screen->cell_rows[j][i].bgcol = bgcol;
+			screen->cell_rows[j][i].fgcol = (de_uint32)fgcol;
+			screen->cell_rows[j][i].bgcol = (de_uint32)bgcol;
 			screen->cell_rows[j][i].codepoint = (de_int32)ccode;
 			screen->cell_rows[j][i].codepoint_unicode = de_char_to_unicode(c, (de_int32)ccode, DE_ENCODING_CP437_G);
 		}

@@ -569,8 +569,12 @@ int de_font_is_standard_vga_font(deark *c, de_uint32 crc);
 struct de_char_cell {
 	de_int32 codepoint;
 	de_int32 codepoint_unicode;
-	de_byte fgcol;
-	de_byte bgcol;
+	// The color fields are interpreted as follows:
+	//  A color value <=0x0000000f is a palette index.
+	//  A color value >=0xff000000 is an RGB color, e.g. from DE_MAKE_RGB().
+#define DE_IS_PAL_COLOR(x) ((de_uint32)(x)<=0xfU)
+	de_uint32 fgcol;
+	de_uint32 bgcol;
 	de_byte bold;
 	de_byte underline;
 	de_byte blink;

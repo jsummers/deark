@@ -115,8 +115,8 @@ static int decode_text(deark *c, lctx *d)
 			ch = dbuf_getbyte(d->unc_pixels, j*d->img->width + i*2);
 			attr = dbuf_getbyte(d->unc_pixels, j*d->img->width + i*2 + 1);
 
-			screen->cell_rows[j2][i].fgcol = (attr & 0x0f);
-			screen->cell_rows[j2][i].bgcol = (attr & 0xf0) >> 4;
+			screen->cell_rows[j2][i].fgcol = (de_uint32)(attr & 0x0f);
+			screen->cell_rows[j2][i].bgcol = (de_uint32)((attr & 0xf0) >> 4);
 			screen->cell_rows[j2][i].codepoint = (de_int32)ch;
 			screen->cell_rows[j2][i].codepoint_unicode = de_char_to_unicode(c, (de_int32)ch, DE_ENCODING_CP437_G);
 		}

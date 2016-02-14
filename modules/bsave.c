@@ -389,8 +389,8 @@ static void do_char_1screen(deark *c, lctx *d, struct de_char_screen *screen, de
 			fgcol = (b1 & 0x0f);
 			bgcol = (b1 & 0xf0) >> 4;
 
-			screen->cell_rows[j][i].fgcol = fgcol;
-			screen->cell_rows[j][i].bgcol = bgcol;
+			screen->cell_rows[j][i].fgcol = (de_uint32)fgcol;
+			screen->cell_rows[j][i].bgcol = (de_uint32)bgcol;
 			screen->cell_rows[j][i].codepoint = (de_int32)ch;
 			screen->cell_rows[j][i].codepoint_unicode = de_char_to_unicode(c, (de_int32)ch, DE_ENCODING_CP437_G);
 		}
