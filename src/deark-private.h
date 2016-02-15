@@ -575,8 +575,8 @@ struct de_char_cell {
 #define DE_IS_PAL_COLOR(x) ((de_uint32)(x)<=0xfU)
 	de_uint32 fgcol;
 	de_uint32 bgcol;
-	de_byte bold;
 	de_byte underline;
+	de_byte strikethru;
 	de_byte blink;
 };
 

@@ -115,8 +115,8 @@ static void do_normal_char(deark *c, lctx *d, de_int64 pos, de_byte ch)
 			if(d->curr_bold && DE_IS_PAL_COLOR(cell->fgcol)) {
 				cell->fgcol |= 0x08;
 			}
-			cell->bold = 0;
 			cell->underline = d->curr_underline;
+			cell->strikethru = d->curr_strikethru;
 
 			if(d->disable_blink_attr || d->always_disable_blink) {
 				// "blink" in this mode means intense-background, instead of blink.
@@ -133,6 +133,10 @@ static void do_normal_char(deark *c, lctx *d, de_int64 pos, de_byte ch)
 				tmpcolor = cell->fgcol;
 				cell->fgcol = cell->bgcol;
 				cell->bgcol = tmpcolor;
+			}
+			if(d->curr_conceal) {
+				cell->fgcol = cell->bgcol;
+				cell->blink = 0;
 			}
 
 			if(d->ypos >= d->screen->height) d->screen->height = d->ypos+1;
@@ -229,6 +233,9 @@ static void do_code_m(deark *c, lctx *d)
 			d->curr_bold = 0;
 			d->curr_underline = 0;
 			d->curr_blink = 0;
+			d->curr_negative = 0;
+			d->curr_conceal = 0;
+			d->curr_strikethru = 0;
 			d->curr_bgcol = DEFAULT_BGCOL;
 			d->curr_fgcol = DEFAULT_FGCOL;
 		}
@@ -244,12 +251,12 @@ static void do_code_m(deark *c, lctx *d)
 		else if(sgr_code==7) {
 			d->curr_negative = 1;
 		}
-		//else if(sgr_code==8) {
-		//	d->curr_conceal = 1;
-		//}
-		//else if(sgr_code==9) {
-		//	d->curr_strikethru = 1;
-		//}
+		else if(sgr_code==8) {
+			d->curr_conceal = 1;
+		}
+		else if(sgr_code==9) {
+			d->curr_strikethru = 1;
+		}
 		else if(sgr_code==22) {
 			d->curr_bold = 0;
 		}
@@ -323,6 +330,9 @@ static void do_code_h(deark *c, lctx *d, de_int64 param_start)
 			case 7: // Set autowrap (default)
 				ok = 1;
 				break;
+			case 25: // Display the cursor (VT320)
+				ok = 1;
+				break;
 			case 33:
 				d->disable_blink_attr = 1;
 				ok = 1;
@@ -365,6 +375,9 @@ static void do_code_l(deark *c, lctx *d, de_int64 param_start)
 
 		if(is_DEC) {
 			switch(d->parse_results.params[i]) {
+			case 25: // Hide the cursor (VT320)
+				ok = 1;
+				break;
 			case 33:
 				d->disable_blink_attr = 0;
 				ok = 1;

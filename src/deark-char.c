@@ -18,6 +18,7 @@ struct screen_stats {
 struct charextractx {
 	de_byte vga_9col_mode; // Flag: Render an extra column, like VGA does
 	de_byte used_underline;
+	de_byte used_strikethru;
 	de_byte used_blink;
 	de_byte used_24bitcolor;
 	de_byte used_fgcol[16];
@@ -63,7 +64,6 @@ static void do_prescan_screen(deark *c, struct de_char_context *charctx,
 {
 	const struct de_char_cell *cell;
 	int i, j;
-	de_uint32 cell_fgcol_actual;
 	struct de_char_screen *screen;
 	de_uint32 highest_fgcol_count;
 	de_uint32 highest_bgcol_count;
@@ -76,13 +76,9 @@ static void do_prescan_screen(deark *c, struct de_char_context *charctx,
 			cell = &screen->cell_rows[j][i];
 			if(!cell) continue;
 
-			cell_fgcol_actual = cell->fgcol;
-			if(cell->bold && DE_IS_PAL_COLOR(cell_fgcol_actual))
-				cell_fgcol_actual |= 0x08;
-
-			if(DE_IS_PAL_COLOR(cell_fgcol_actual)) {
-				ectx->used_fgcol[cell_fgcol_actual] = 1;
-				ectx->scrstats[screen_idx].fgcol_count[cell_fgcol_actual]++;
+			if(DE_IS_PAL_COLOR(cell->fgcol)) {
+				ectx->used_fgcol[cell->fgcol] = 1;
+				ectx->scrstats[screen_idx].fgcol_count[cell->fgcol]++;
 			}
 			else {
 				ectx->used_24bitcolor = 1;
@@ -95,6 +91,7 @@ static void do_prescan_screen(deark *c, struct de_char_context *charctx,
 				ectx->used_24bitcolor = 1;
 			}
 			if(cell->underline) ectx->used_underline = 1;
+			if(cell->strikethru) ectx->used_strikethru = 1;
 			if(cell->blink) ectx->used_blink = 1;
 		}
 	}
@@ -120,6 +117,7 @@ static void do_prescan_screen(deark *c, struct de_char_context *charctx,
 struct span_info {
 	de_uint32 fgcol, bgcol;
 	de_byte underline;
+	de_byte strikethru;
 	de_byte blink;
 	de_byte is_suppressed;
 };
@@ -129,7 +127,7 @@ static void span_open(deark *c, dbuf *ofile, struct span_info *sp,
 	const struct screen_stats *scrstats)
 {
 	int need_fgcol_attr, need_bgcol_attr;
-	int need_underline, need_blink;
+	int need_underline, need_strikethru, need_blink;
 	int attrindex = 0;
 	int attrcount;
 	int fgcol_is_24bit, bgcol_is_24bit;
@@ -143,9 +141,11 @@ static void span_open(deark *c, dbuf *ofile, struct span_info *sp,
 	if(fgcol_is_24bit) { need_fgcol_attr=0; need_style=1; }
 	if(bgcol_is_24bit) { need_bgcol_attr=0; need_style=1; }
 	need_underline = (sp->underline!=0);
+	need_strikethru = (sp->strikethru!=0);
 	need_blink = (sp->blink!=0);
 
-	attrcount = need_fgcol_attr + need_bgcol_attr + need_underline + need_blink;
+	attrcount = need_fgcol_attr + need_bgcol_attr + need_underline +
+		need_strikethru + need_blink;
 	if(attrcount==0 && !need_style) {
 		sp->is_suppressed = 1;
 		return;
@@ -180,6 +180,11 @@ static void span_open(deark *c, dbuf *ofile, struct span_info *sp,
 	if(sp->underline) {
 		if(attrindex) dbuf_fputs(ofile, " ");
 		dbuf_fputs(ofile, "u");
+		attrindex++;
+	}
+	if(sp->strikethru) {
+		if(attrindex) dbuf_fputs(ofile, " ");
+		dbuf_fputs(ofile, "s");
 		attrindex++;
 	}
 	if(sp->blink) {
@@ -233,8 +238,8 @@ static void do_output_html_screen(deark *c, struct de_char_context *charctx,
 	de_uint32 active_fgcol = 0;
 	de_uint32 active_bgcol = 0;
 	de_byte active_underline = 0;
+	de_byte active_strikethru = 0;
 	de_byte active_blink = 0;
-	de_uint32 cell_fgcol_actual;
 	int is_blank_char;
 	struct span_info default_span;
 	struct span_info cur_span;
@@ -267,22 +272,21 @@ static void do_output_html_screen(deark *c, struct de_char_context *charctx,
 				if(!cell) cell = &blank_cell;
 			}
 
-			cell_fgcol_actual = cell->fgcol;
-			if(cell->bold && DE_IS_PAL_COLOR(cell_fgcol_actual))
-				cell_fgcol_actual |= 0x08;
-
 			n = cell->codepoint_unicode;
 			if(n==0x00) n=0x20;
 			if(n<0x20) n='?';
-			is_blank_char = (n==0x20 || n==0xa0) && !cell->underline;
+			is_blank_char = (n==0x20 || n==0xa0) &&
+				!cell->underline && !cell->strikethru;
 
 			// Optimization: If this is a blank character, ignore a foreground color
 			// mismatch, because it won't be visible anyway. (Many other similar
 			// optimizations are also possible, but that could get very complex.)
 			if(in_span==0 ||
-				(cell_fgcol_actual!=active_fgcol && !is_blank_char) ||
+				(cell->fgcol!=active_fgcol && !is_blank_char) ||
 				cell->bgcol!=active_bgcol ||
-				cell->underline!=active_underline || cell->blink!=active_blink)
+				cell->underline!=active_underline ||
+				cell->strikethru!=active_strikethru ||
+				cell->blink!=active_blink)
 			{
 				if(in_span) {
 					span_close(c, ofile, &cur_span);
@@ -294,16 +298,18 @@ static void do_output_html_screen(deark *c, struct de_char_context *charctx,
 					need_newline = 0;
 				}
 
-				cur_span.fgcol = cell_fgcol_actual;
+				cur_span.fgcol = cell->fgcol;
 				cur_span.bgcol = cell->bgcol;
 				cur_span.underline = cell->underline;
+				cur_span.strikethru = cell->strikethru;
 				cur_span.blink = cell->blink;
 				span_open(c, ofile, &cur_span, &ectx->scrstats[screen_idx]);
 
 				in_span=1;
-				active_fgcol = cell_fgcol_actual;
+				active_fgcol = cell->fgcol;
 				active_bgcol = cell->bgcol;
 				active_underline = cell->underline;
+				active_strikethru = cell->strikethru;
 				active_blink = cell->blink;
 			}
 
@@ -430,6 +436,9 @@ static void do_output_html_header(deark *c, struct de_char_context *charctx,
 	if(ectx->used_underline) {
 		dbuf_fputs(ofile, " .u { text-decoration: underline }\n");
 	}
+	if(ectx->used_strikethru) {
+		dbuf_fputs(ofile, " .s { text-decoration: line-through }\n");
+	}
 
 	if(ectx->used_blink) {
 		dbuf_fputs(ofile, " .blink {\n"
@@ -544,7 +553,6 @@ static void de_char_output_screen_to_image_file(deark *c, struct de_char_context
 	struct deark_bitmap *img = NULL;
 	int i, j;
 	const struct de_char_cell *cell;
-	de_uint32 cell_fgcol_actual;
 
 	screen_width_in_pixels = screen->width * ectx->char_width_in_pixels;
 	screen_height_in_pixels = screen->height * ectx->char_height_in_pixels;
@@ -561,16 +569,19 @@ static void de_char_output_screen_to_image_file(deark *c, struct de_char_context
 			cell = &screen->cell_rows[j][i];
 			if(!cell) continue;
 
-			cell_fgcol_actual = cell->fgcol;
-			if(cell->bold && DE_IS_PAL_COLOR(cell_fgcol_actual))
-				cell_fgcol_actual |= 0x08;
-
 			do_render_character(c, charctx, ectx, img, i, j,
-				cell->codepoint, cell_fgcol_actual, cell->bgcol, 0);
+				cell->codepoint, cell->fgcol, cell->bgcol, 0);
 
+			// TODO: It might be better to draw our own underline and/or
+			// strikethru marks, rather than relying on font glyphs that
+			// might be customized or otherwise sub-optimal.
 			if(cell->underline) {
 				do_render_character(c, charctx, ectx, img, i, j,
-					0x5f, cell_fgcol_actual, cell->bgcol, DE_PAINTFLAG_TRNSBKGD);
+					0x5f, cell->fgcol, cell->bgcol, DE_PAINTFLAG_TRNSBKGD);
+			}
+			if(cell->strikethru) {
+				do_render_character(c, charctx, ectx, img, i, j,
+					0x2d, cell->fgcol, cell->bgcol, DE_PAINTFLAG_TRNSBKGD);
 			}
 		}
 	}
