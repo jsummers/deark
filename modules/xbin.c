@@ -3,6 +3,7 @@
 
 // XBIN character graphics
 // "Binary Text" character graphics
+// ArtWorx ADF character graphics
 
 #include <deark-config.h>
 #include <deark-modules.h>
@@ -122,18 +123,24 @@ static void do_uncompress_data(deark *c, lctx *d, de_int64 pos1, dbuf *unc_data)
 	}
 }
 
-static void do_read_palette(deark *c, lctx *d, struct de_char_context *charctx, de_int64 pos)
+static void do_read_palette(deark *c, lctx *d,struct de_char_context *charctx,
+	de_int64 pos, int adf_style)
 {
 	de_int64 k;
 	de_byte cr1, cg1, cb1;
 	de_byte cr2, cg2, cb2;
+	de_int64 cpos;
 
 	de_dbg(c, "palette at %d\n", (int)pos);
 
 	for(k=0; k<16; k++) {
-		cr1 = de_getbyte(pos+k*3);
-		cg1 = de_getbyte(pos+k*3+1);
-		cb1 = de_getbyte(pos+k*3+2);
+		if(adf_style && k>=8)
+			cpos = pos+(48+k)*3;
+		else
+			cpos = pos+k*3;
+		cr1 = de_getbyte(cpos);
+		cg1 = de_getbyte(cpos+1);
+		cb1 = de_getbyte(cpos+2);
 		cr2 = de_palette_sample_6_to_8bit(cr1);
 		cg2 = de_palette_sample_6_to_8bit(cg1);
 		cb2 = de_palette_sample_6_to_8bit(cb1);
@@ -283,7 +290,7 @@ static void de_run_xbin(deark *c, de_module_params *mparams)
 	pos = 11;
 
 	if(d->has_palette) {
-		do_read_palette(c, d, charctx, pos);
+		do_read_palette(c, d, charctx, pos, 0);
 		pos += 48;
 	}
 	else {
@@ -371,11 +378,18 @@ static void de_run_bintext(deark *c, de_module_params *mparams)
 	dbuf *unc_data = NULL;
 	de_int64 effective_file_size;
 	int valid_sauce = 0;
+	const char *s;
+	de_int64 width_req = 0;
 
 	d = de_malloc(c, sizeof(lctx));
 
 	charctx = de_malloc(c, sizeof(struct de_char_context));
 	charctx->prefer_image_output = 0;
+
+	s=de_get_ext_option(c, "char:width");
+	if(s) {
+		width_req = de_atoi(s);
+	}
 
 	de_memset(&sdd, 0, sizeof(struct de_SAUCE_detection_data));
 	de_detect_SAUCE(c, c->infile, &sdd);
@@ -414,13 +428,15 @@ static void de_run_bintext(deark *c, de_module_params *mparams)
 		effective_file_size = c->infile->len;
 	}
 
+	if(width_req>0) d->width_in_chars = width_req;
+
 	if(d->width_in_chars<1) d->width_in_chars=160;
 	d->height_in_chars = effective_file_size / (d->width_in_chars*2);
 
 	de_dbg(c, "width: %d chars\n", (int)d->width_in_chars);
 	de_dbg(c, "calculated height: %d chars\n", (int)d->height_in_chars);
-	d->has_palette = 0;
-	d->has_font = 0;
+	d->has_palette = 1;
+	d->has_font = 1;
 	d->compression = 0;
 	d->has_512chars = 0;
 
@@ -456,6 +472,104 @@ void de_module_bintext(deark *c, struct deark_module_info *mi)
 	mi->desc = "Binary Text character graphics";
 	mi->run_fn = de_run_bintext;
 	mi->identify_fn = de_identify_bintext;
+}
+
+////////////////////// ArtWorx Data Format (ADF) //////////////////////
+
+static void de_run_artworx_adf(deark *c, de_module_params *mparams)
+{
+	lctx *d = NULL;
+	struct de_char_context *charctx = NULL;
+	dbuf *unc_data = NULL;
+	de_int64 data_start;
+	de_int64 data_len;
+
+	d = de_malloc(c, sizeof(lctx));
+
+	// TODO: ADF files can probably have SAUCE records, so we should read
+	// the SAUCE data if present. But there does not seem to be a defined
+	// SAUCE file type for ADF.
+
+	charctx = de_malloc(c, sizeof(struct de_char_context));
+	charctx->prefer_image_output = 1;
+
+	data_start = 1+192+4096;
+	data_len = c->infile->len - data_start;
+	if(data_len<0) goto done;
+
+	d->width_in_chars = 80;
+	d->height_in_chars = data_len / (d->width_in_chars*2);
+
+	de_dbg(c, "guessed width: %d chars\n", (int)d->width_in_chars);
+	de_dbg(c, "calculated height: %d chars\n", (int)d->height_in_chars);
+	if(d->height_in_chars<1) goto done;
+	d->has_palette = 0;
+	d->has_font = 0;
+	d->compression = 0;
+	d->has_512chars = 0;
+	d->nonblink = 1;
+
+	do_read_palette(c, d, charctx, 1, 1);
+
+	{
+		// TODO: This duplicates a lot of the xbin code.
+
+		d->font = de_malloc(c, sizeof(struct de_bitmap_font));
+		d->font->has_unicode_codepoints = 1;
+		d->font->num_chars = 256;
+		d->font_height = 16;
+		d->font_data_len = d->font->num_chars * d->font_height;
+
+		do_read_font_data(c, d, 1+192);
+
+		if(d->is_standard_font) {
+			charctx->suppress_custom_font_warning = 1;
+		}
+
+		if(!do_generate_font(c, d)) goto done;
+
+		if(c->extract_level>=2) {
+			do_extract_font(c, d);
+		}
+
+		charctx->font = d->font;
+	}
+
+	unc_data = dbuf_open_input_subfile(c->infile, data_start, data_len);
+	do_bin_main(c, d, unc_data, charctx);
+
+done:
+	dbuf_close(unc_data);
+	de_free_charctx(c, charctx);
+	free_lctx(c, d);
+}
+
+static int de_identify_artworx_adf(deark *c)
+{
+	de_byte ver;
+
+	// TODO: This detection algorithm will fail if there is a SAUCE record.
+
+	if(c->infile->len < 1+192+4096+160) {
+		return 0;
+	}
+	if((c->infile->len - (1+192+4096))%160 != 0) {
+		return 0;
+	}
+	if(!de_input_file_has_ext(c, "adf")) return 0;
+	ver = de_getbyte(0);
+	// I don't know what version numbers are allowed, but I'll assume the
+	// version number should be small.
+	if(ver>4) return 0;
+	return 75;
+}
+
+void de_module_artworx_adf(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "artworx_adf";
+	mi->desc = "ArtWorx Data Format (ADF)";
+	mi->run_fn = de_run_artworx_adf;
+	mi->identify_fn = de_identify_artworx_adf;
 }
 
 ////////////////////// iCEDraw format (.idf) //////////////////////

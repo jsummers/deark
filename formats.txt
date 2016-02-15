@@ -37,6 +37,8 @@ Deark -- Information about supported formats
 
 * ART - PFS: 1st Publisher clip art (module="fp_art")
 
+* ArtWorx Data Format (ADF) (module="artworx_adf")
+
 * Award BIOS logo (EPA, AWBM) (module="awbm") (experimental)
   - Supports version 1
   - Supports 4-bit and 8-bit version 2
@@ -46,6 +48,8 @@ Deark -- Information about supported formats
 
 * Binary Text (.BIN character graphics format) (module="bintext")
   - Must use "-m bintext", unless the file has a SAUCE record.
+  Options
+   -opt char:width=<n> - Number of characters per row
 
 * BMP (Windows bitmap) (module="bmp")
 

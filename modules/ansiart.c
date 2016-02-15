@@ -39,6 +39,9 @@ typedef struct localctx_struct {
 	de_byte curr_bold;
 	de_byte curr_underline;
 	de_byte curr_blink;
+	de_byte curr_negative;
+	de_byte curr_conceal;
+	de_byte curr_strikethru;
 
 #define ANSIART_MAX_WARNINGS 10
 	de_int64 num_warnings;
@@ -49,6 +52,7 @@ typedef struct localctx_struct {
 
 	struct parse_results_struct parse_results;
 
+	de_byte escape_code_seen[96];
 	de_byte control_seq_seen[128];
 } lctx;
 
@@ -107,9 +111,12 @@ static void do_normal_char(deark *c, lctx *d, de_int64 pos, de_byte ch)
 			cell->codepoint = (de_int32)ch;
 			cell->codepoint_unicode = u;
 			cell->fgcol = d->curr_fgcol;
-			cell->bold = d->curr_bold;
-			cell->underline = d->curr_underline;
 			cell->bgcol = d->curr_bgcol;
+			if(d->curr_bold && DE_IS_PAL_COLOR(cell->fgcol)) {
+				cell->fgcol |= 0x08;
+			}
+			cell->bold = 0;
+			cell->underline = d->curr_underline;
 
 			if(d->disable_blink_attr || d->always_disable_blink) {
 				// "blink" in this mode means intense-background, instead of blink.
@@ -119,6 +126,13 @@ static void do_normal_char(deark *c, lctx *d, de_int64 pos, de_byte ch)
 			}
 			else {
 				cell->blink = d->curr_blink;
+			}
+
+			if(d->curr_negative) {
+				de_uint32 tmpcolor;
+				tmpcolor = cell->fgcol;
+				cell->fgcol = cell->bgcol;
+				cell->bgcol = tmpcolor;
 			}
 
 			if(d->ypos >= d->screen->height) d->screen->height = d->ypos+1;
@@ -226,6 +240,33 @@ static void do_code_m(deark *c, lctx *d)
 		}
 		else if(sgr_code==5 || sgr_code==6) {
 			d->curr_blink = 1;
+		}
+		else if(sgr_code==7) {
+			d->curr_negative = 1;
+		}
+		//else if(sgr_code==8) {
+		//	d->curr_conceal = 1;
+		//}
+		//else if(sgr_code==9) {
+		//	d->curr_strikethru = 1;
+		//}
+		else if(sgr_code==22) {
+			d->curr_bold = 0;
+		}
+		else if(sgr_code==24) {
+			d->curr_underline = 0;
+		}
+		else if(sgr_code==25) {
+			d->curr_blink = 0;
+		}
+		else if(sgr_code==27) { // positive image
+			d->curr_negative = 0;
+		}
+		else if(sgr_code==28) {
+			d->curr_conceal = 0;
+		}
+		else if(sgr_code==29) {
+			d->curr_strikethru = 0;
 		}
 		else if(sgr_code>=30 && sgr_code<=37) {
 			// Set foreground color
@@ -473,7 +514,7 @@ static void do_control_sequence(deark *c, lctx *d, de_byte code,
 	}
 
 	if(param_len > (de_int64)(sizeof(d->param_string_buf)-1)) {
-		de_warn(c, "Ignoring long escape sequence (len %d at %d)\n",
+		de_warn(c, "Ignoring long control sequence (len %d at %d)\n",
 			(int)param_len, (int)param_start);
 		goto done;
 	}
@@ -490,6 +531,7 @@ static void do_control_sequence(deark *c, lctx *d, de_byte code,
 	case 'h': do_code_h(c, d, param_start); break;
 	case 'J': do_code_J(c, d); break;
 	case 'K': do_code_K(c, d); break;
+	case 'f': do_code_H(c, d); break; // f is the same as H
 	case 'l': do_code_l(c, d, param_start); break;
 	case 'm': do_code_m(c, d); break;
 	case 's':
@@ -517,6 +559,18 @@ static void do_control_sequence(deark *c, lctx *d, de_byte code,
 	}
 
 done:
+	d->control_seq_seen[(unsigned int)code] = 1;
+}
+
+static void do_escape_code(deark *c, lctx *d, de_byte code, de_int64 pos)
+{
+	if(code>=96) return;
+
+	if(d->control_seq_seen[(unsigned int)code]==0) {
+		de_warn(c, "Unsupported escape code '%c' at %d\n",
+			(char)code, (int)pos);
+		d->control_seq_seen[(unsigned int)code] = 1;
+	}
 	d->control_seq_seen[(unsigned int)code] = 1;
 }
 
@@ -568,6 +622,7 @@ static void do_main(deark *c, lctx *d)
 			}
 			else if(ch>=64 && ch<=95) {
 				// A 2-character escape sequence
+				do_escape_code(c, d, ch, pos);
 				state=STATE_NORMAL;
 				continue;
 			}

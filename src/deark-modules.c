@@ -130,6 +130,7 @@ void de_register_modules(deark *c)
 		de_module_atari_pi7,
 		de_module_falcon_xga,
 		de_module_alphabmp,
+		de_module_artworx_adf,
 		de_module_pm_xv,
 		de_module_xxencode,
 		de_module_base64,

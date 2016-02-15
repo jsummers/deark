@@ -125,3 +125,4 @@ void de_module_bintext(deark *c, struct deark_module_info *mi);
 void de_module_icedraw(deark *c, struct deark_module_info *mi);
 void de_module_vgafont(deark *c, struct deark_module_info *mi);
 void de_module_crc32(deark *c, struct deark_module_info *mi);
+void de_module_artworx_adf(deark *c, struct deark_module_info *mi);
