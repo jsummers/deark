@@ -42,6 +42,11 @@ typedef struct localctx_struct {
 	de_byte curr_negative;
 	de_byte curr_conceal;
 	de_byte curr_strikethru;
+#define SIZEMODE_DEFAULT     0
+#define SIZEMODE_DBLH_TOP    1
+#define SIZEMODE_DBLH_BOTTOM 2
+#define SIZEMODE_DBLW        3
+	de_byte curr_size_mode;
 
 #define CHARSET_DEFAULT 0
 #define CHARSET_US 1
@@ -125,17 +130,28 @@ static void do_normal_char(deark *c, lctx *d, de_int64 pos, de_byte ch)
 {
 	struct de_char_cell *cell;
 	de_int32 u;
+	de_int64 numcells;
+	de_int64 k;
 
 	if(ch==13) { // CR
 		d->xpos = 0;
+		return;
 	}
-	else if(ch==10) { // LF
+	if(ch==10) { // LF
 		d->ypos++;
 		// Some files aren't rendered correctly unless an LF implies a CR.
 		d->xpos = 0;
+		return;
 	}
-	else {
-		u = ansi_char_to_unicode(c, d, ch);
+
+	u = ansi_char_to_unicode(c, d, ch);
+
+	if(d->curr_size_mode==SIZEMODE_DEFAULT)
+		numcells = 1;
+	else
+		numcells = 2;
+
+	for(k=0; k<numcells; k++) {
 
 		cell = get_cell_at(c, d->screen, d->xpos, d->ypos);
 		if(cell) {
@@ -148,6 +164,20 @@ static void do_normal_char(deark *c, lctx *d, de_int64 pos, de_byte ch)
 			}
 			cell->underline = d->curr_underline;
 			cell->strikethru = d->curr_strikethru;
+
+			cell->size_flags = 0;
+			if(d->curr_size_mode==SIZEMODE_DBLH_TOP) {
+				cell->size_flags |= DE_PAINTFLAG_TOPHALF;
+			}
+			else if(d->curr_size_mode==SIZEMODE_DBLH_BOTTOM){
+				cell->size_flags |= DE_PAINTFLAG_BOTTOMHALF;
+			}
+			if(d->curr_size_mode!=SIZEMODE_DEFAULT) {
+				if(k==1)
+					cell->size_flags |= DE_PAINTFLAG_RIGHTHALF;
+				else
+					cell->size_flags |= DE_PAINTFLAG_LEFTHALF;
+			}
 
 			if(d->disable_blink_attr || d->always_disable_blink) {
 				// "blink" in this mode means intense-background, instead of blink.
@@ -181,12 +211,12 @@ static void do_normal_char(deark *c, lctx *d, de_int64 pos, de_byte ch)
 		}
 
 		d->xpos++;
+	}
 
-		// Line wrap
-		while(d->xpos >= d->screen->width) {
-			d->xpos -= d->screen->width;
-			d->ypos++;
-		}
+	// Line wrap
+	while(d->xpos >= d->screen->width) {
+		d->xpos -= d->screen->width;
+		d->ypos++;
 	}
 }
 
@@ -267,8 +297,10 @@ static void do_code_m(deark *c, lctx *d)
 			d->curr_negative = 0;
 			d->curr_conceal = 0;
 			d->curr_strikethru = 0;
+			d->curr_size_mode = SIZEMODE_DEFAULT;
 			d->curr_bgcol = DEFAULT_BGCOL;
 			d->curr_fgcol = DEFAULT_FGCOL;
+			// TODO: Do character sets get reset by this?
 		}
 		else if(sgr_code==1) {
 			d->curr_bold = 1;
@@ -630,6 +662,24 @@ static void do_2char_code(deark *c, lctx *d, de_byte ch1, de_byte ch2, de_int64 
 		if(ch2=='A') d->curr_g1_charset = CHARSET_UK;
 		else if(ch2=='B') { d->curr_g1_charset = CHARSET_US; ok=1; }
 		else if(ch2=='0') { d->curr_g1_charset = CHARSET_LINEDRAWING; ok=1; }
+	}
+	else if(ch1=='#') {
+		if(ch2=='3') {
+			d->curr_size_mode = SIZEMODE_DBLH_TOP;
+			ok=1;
+		}
+		else if(ch2=='4') {
+			d->curr_size_mode = SIZEMODE_DBLH_BOTTOM;
+			ok=1;
+		}
+		else if(ch2=='5') {
+			d->curr_size_mode = SIZEMODE_DEFAULT;
+			ok=1;
+		}
+		else if(ch2=='6') {
+			d->curr_size_mode = SIZEMODE_DBLW;
+			ok=1;
+		}
 	}
 
 	if(!ok && d->num_warnings<ANSIART_MAX_WARNINGS) {

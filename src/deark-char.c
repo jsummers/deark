@@ -273,6 +273,13 @@ static void do_output_html_screen(deark *c, struct de_char_context *charctx,
 				if(!cell) cell = &blank_cell;
 			}
 
+			if((cell->size_flags&DE_PAINTFLAG_LEFTHALF) ||
+				(cell->size_flags&DE_PAINTFLAG_BOTTOMHALF))
+			{
+				// We don't support double-size characters with HTML output.
+				cell = &blank_cell;
+			}
+
 			n = cell->codepoint_unicode;
 			if(n==0x00) n=0x20;
 			if(n<0x20) n='?';
@@ -561,6 +568,7 @@ static void de_char_output_screen_to_image_file(deark *c, struct de_char_context
 	struct deark_bitmap *img = NULL;
 	int i, j;
 	const struct de_char_cell *cell;
+	unsigned int flags;
 
 	screen_width_in_pixels = screen->width * ectx->char_width_in_pixels;
 	screen_height_in_pixels = screen->height * ectx->char_height_in_pixels;
@@ -577,21 +585,23 @@ static void de_char_output_screen_to_image_file(deark *c, struct de_char_context
 			cell = &screen->cell_rows[j][i];
 			if(!cell) continue;
 
+			flags = cell->size_flags;
+
 			do_render_character(c, charctx, ectx, img, i, j,
 				ectx->uses_custom_font ? cell->codepoint : cell->codepoint_unicode,
 				ectx->uses_custom_font ? 0 : 1,
-				cell->fgcol, cell->bgcol, 0);
+				cell->fgcol, cell->bgcol, flags);
 
 			// TODO: It might be better to draw our own underline and/or
 			// strikethru marks, rather than relying on font glyphs that
 			// might be customized or otherwise sub-optimal.
 			if(cell->underline) {
 				do_render_character(c, charctx, ectx, img, i, j,
-					0x5f, 1, cell->fgcol, cell->bgcol, DE_PAINTFLAG_TRNSBKGD);
+					0x5f, 1, cell->fgcol, cell->bgcol, flags|DE_PAINTFLAG_TRNSBKGD);
 			}
 			if(cell->strikethru) {
 				do_render_character(c, charctx, ectx, img, i, j,
-					0x2d, 1, cell->fgcol, cell->bgcol, DE_PAINTFLAG_TRNSBKGD);
+					0x2d, 1, cell->fgcol, cell->bgcol, flags|DE_PAINTFLAG_TRNSBKGD);
 			}
 		}
 	}

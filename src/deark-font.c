@@ -33,6 +33,10 @@ void de_font_paint_character_idx(deark *c, struct deark_bitmap *img,
 	if(ch->width > font->nominal_width) return;
 	if(ch->height > font->nominal_height) return;
 
+	if((flags&DE_PAINTFLAG_LEFTHALF) || (flags&DE_PAINTFLAG_BOTTOMHALF)) {
+		return;
+	}
+
 	for(j=0; j<ch->height; j++) {
 		for(i=0; i<ch->width; i++) {
 			x = ch->bitmap[j*ch->rowspan + i/8];

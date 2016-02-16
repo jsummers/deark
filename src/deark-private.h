@@ -554,6 +554,10 @@ struct de_bitmap_font {
 
 #define DE_PAINTFLAG_TRNSBKGD 0x01
 #define DE_PAINTFLAG_VGA9COL  0x02 // Render an extra column, like VGA does
+#define DE_PAINTFLAG_LEFTHALF   0x04 // Note: The "HALF" flags must fit into a byte,
+#define DE_PAINTFLAG_RIGHTHALF  0x08 // because they are stored in de_char_cell::size_flags.
+#define DE_PAINTFLAG_TOPHALF    0x10
+#define DE_PAINTFLAG_BOTTOMHALF 0x20
 void de_font_paint_character_idx(deark *c, struct deark_bitmap *img,
 	struct de_bitmap_font *font, de_int64 char_idx,
 	de_int64 xpos, de_int64 ypos, de_uint32 fgcol, de_uint32 bgcol, unsigned int flags);
@@ -578,6 +582,7 @@ struct de_char_cell {
 	de_byte underline;
 	de_byte strikethru;
 	de_byte blink;
+	de_byte size_flags;
 };
 
 struct de_char_screen {
