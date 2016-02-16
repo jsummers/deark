@@ -43,10 +43,20 @@ typedef struct localctx_struct {
 	de_byte curr_conceal;
 	de_byte curr_strikethru;
 
+#define CHARSET_DEFAULT 0
+#define CHARSET_US 1
+#define CHARSET_UK 2
+#define CHARSET_LINEDRAWING 3
+	int curr_g0_charset;
+	int curr_g1_charset;
+
+	int curr_charset_index; // 0=use g0, 1=use g1
+
 #define ANSIART_MAX_WARNINGS 10
 	de_int64 num_warnings;
 	de_byte disable_blink_attr;
 	de_byte support_9b_csi;
+	de_byte vt100_mode;
 
 	de_byte param_string_buf[100];
 
@@ -90,6 +100,27 @@ static struct de_char_cell *get_cell_at(deark *c, struct de_char_screen *screen,
 	return &(screen->cell_rows[ypos][xpos]);
 }
 
+static de_int32 ansi_char_to_unicode(deark *c, lctx *d, de_byte ch)
+{
+	de_int32 u;
+	int cs;
+
+	if(d->curr_charset_index==0)
+		cs = d->curr_g0_charset;
+	else
+		cs = d->curr_g1_charset;
+
+	if(cs==CHARSET_LINEDRAWING) {
+		if(ch>=96 && ch<=126) {
+			u = de_char_to_unicode(c, (de_int32)ch - 95, DE_ENCODING_VT100_GRAPHICS);
+			return u;
+		}
+	}
+
+	u = de_char_to_unicode(c, (de_int32)ch, DE_ENCODING_CP437_G);
+	return u;
+}
+
 static void do_normal_char(deark *c, lctx *d, de_int64 pos, de_byte ch)
 {
 	struct de_char_cell *cell;
@@ -104,7 +135,7 @@ static void do_normal_char(deark *c, lctx *d, de_int64 pos, de_byte ch)
 		d->xpos = 0;
 	}
 	else {
-		u = de_char_to_unicode(c, (de_int32)ch, DE_ENCODING_CP437_G);
+		u = ansi_char_to_unicode(c, d, ch);
 
 		cell = get_cell_at(c, d->screen, d->xpos, d->ypos);
 		if(cell) {
@@ -516,6 +547,12 @@ static void do_code_D(deark *c, lctx *d)
 	if(d->xpos<0) d->xpos=0;
 }
 
+static de_byte make_printable_char(de_byte x)
+{
+	if(x>=32 && x<=126) return x;
+	return '?';
+}
+
 static void do_control_sequence(deark *c, lctx *d, de_byte code,
 	de_int64 param_start, de_int64 param_len)
 {
@@ -575,6 +612,42 @@ done:
 	d->control_seq_seen[(unsigned int)code] = 1;
 }
 
+static void do_2char_code(deark *c, lctx *d, de_byte ch1, de_byte ch2, de_int64 pos)
+{
+	int ok = 0;
+
+	if(!d->vt100_mode) {
+		de_dbg(c, "switching to vt100 mode\n");
+		d->vt100_mode = 1;
+	}
+
+	if(ch1=='(') {
+		if(ch2=='A') d->curr_g0_charset = CHARSET_UK;
+		else if(ch2=='B') { d->curr_g0_charset = CHARSET_US; ok=1; }
+		else if(ch2=='0') { d->curr_g0_charset = CHARSET_LINEDRAWING; ok=1; }
+	}
+	else if(ch1==')') {
+		if(ch2=='A') d->curr_g1_charset = CHARSET_UK;
+		else if(ch2=='B') { d->curr_g1_charset = CHARSET_US; ok=1; }
+		else if(ch2=='0') { d->curr_g1_charset = CHARSET_LINEDRAWING; ok=1; }
+	}
+
+	if(!ok && d->num_warnings<ANSIART_MAX_WARNINGS) {
+		de_warn(c, "Unsupported escape code '%c%c' at %d\n",
+			make_printable_char(ch1),
+			make_printable_char(ch2), (int)pos);
+		d->num_warnings++;
+	}
+}
+
+static void do_ctrl_char(deark *c, lctx *d, de_byte ch)
+{
+	// ^N = shift out - selects G1 character set
+	// ^O = shift in  - selects G0 character set
+	if(ch==0x0e) d->curr_charset_index = 1;
+	else if(ch==0x0f) d->curr_charset_index = 0;
+}
+
 static void do_escape_code(deark *c, lctx *d, de_byte code, de_int64 pos)
 {
 	if(code>=96) return;
@@ -594,7 +667,9 @@ static void do_main(deark *c, lctx *d)
 #define STATE_NORMAL 0
 #define STATE_GOT_ESC 1
 #define STATE_READING_PARAM 2
+#define STATE_GOT_1_CHAR 3
 	int state;
+	de_byte first_ch = 0;
 	de_byte ch;
 
 	d->xpos = 0; d->ypos = 0;
@@ -623,6 +698,9 @@ static void do_main(deark *c, lctx *d)
 				params_start_pos = pos+1;
 				continue;
 			}
+			else if(d->vt100_mode && (ch==0x0e || ch==0x0f)) {
+				do_ctrl_char(c, d, ch);
+			}
 			else { // a non-escape character
 				do_normal_char(c, d, pos, ch);
 			}
@@ -639,6 +717,11 @@ static void do_main(deark *c, lctx *d)
 				state=STATE_NORMAL;
 				continue;
 			}
+			else if(ch=='(' || ch==')' || ch=='#') {
+				first_ch = ch;
+				state=STATE_GOT_1_CHAR;
+				continue;
+			}
 		}
 		else if(state==STATE_READING_PARAM) {
 			// Control sequences end with a byte from 64-126
@@ -647,6 +730,11 @@ static void do_main(deark *c, lctx *d)
 				state=STATE_NORMAL;
 				continue;
 			}
+		}
+		else if(state==STATE_GOT_1_CHAR) {
+			do_2char_code(c, d, first_ch, ch, pos-1);
+			state=STATE_NORMAL;
+			continue;
 		}
 	}
 }
@@ -663,6 +751,9 @@ static void de_run_ansiart(deark *c, de_module_params *mparams)
 
 	if(de_get_ext_option(c, "ansiart:no24bitcolor")) {
 		d->disable_24bitcolor = 1;
+	}
+	if(de_get_ext_option(c, "ansiart:vt100")) {
+		d->vt100_mode = 1;
 	}
 
 	d->effective_file_size = c->infile->len;
@@ -729,6 +820,10 @@ static void de_run_ansiart(deark *c, de_module_params *mparams)
 
 	for(k=0; k<16; k++) {
 		charctx->pal[k] = ansi_palette[k];
+	}
+
+	if(d->vt100_mode) {
+		charctx->no_density = 1;
 	}
 
 	de_char_output_to_file(c, charctx);

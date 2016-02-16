@@ -82,7 +82,13 @@ void de_font_paint_character_cp(deark *c, struct deark_bitmap *img,
 	de_int64 char_idx;
 
 	char_idx = get_char_idx_by_cp(c, font, codepoint);
-	if(char_idx<0) return;
+	if(char_idx<0) {
+		// TODO: Paint a better error character
+		char_idx = get_char_idx_by_cp(c, font, '?');
+	}
+	if(char_idx<0) {
+		return;
+	}
 	de_font_paint_character_idx(c, img, font, char_idx, xpos, ypos, fgcol, bgcol, flags);
 }
 

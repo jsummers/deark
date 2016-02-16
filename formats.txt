@@ -32,6 +32,7 @@ Deark -- Information about supported formats
   Options
    -opt char:output=image - Output to a bitmap instead of HTML
    -opt ansiart:no24bitcolor - Disable support for 24-bit color definitions
+   -opt ansiart:vt100 - Use VT100 mode
 
 * Apple volume label image (module="applevol")
 

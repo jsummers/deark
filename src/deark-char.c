@@ -17,6 +17,7 @@ struct screen_stats {
 
 struct charextractx {
 	de_byte vga_9col_mode; // Flag: Render an extra column, like VGA does
+	de_byte uses_custom_font;
 	de_byte used_underline;
 	de_byte used_strikethru;
 	de_byte used_blink;
@@ -498,7 +499,8 @@ static void de_char_output_to_html_file(deark *c, struct de_char_context *charct
 static void do_render_character(deark *c, struct de_char_context *charctx,
 	struct charextractx *ectx, struct deark_bitmap *img,
 	de_int64 xpos, de_int64 ypos,
-	de_uint32 codepoint, de_uint32 fgcol, de_uint32 bgcol,
+	de_int32 codepoint, int codepoint_is_unicode,
+	de_uint32 fgcol, de_uint32 bgcol,
 	unsigned int extra_flags)
 {
 	de_int64 xpos_in_pix, ypos_in_pix;
@@ -520,8 +522,14 @@ static void do_render_character(deark *c, struct de_char_context *charctx,
 	flags = extra_flags;
 	if(ectx->vga_9col_mode) flags |= DE_PAINTFLAG_VGA9COL;
 
-	de_font_paint_character_idx(c, img, ectx->font_to_use, (de_int64)codepoint,
-		xpos_in_pix, ypos_in_pix, fgcol_rgb, bgcol_rgb, flags);
+	if(codepoint_is_unicode) {
+		de_font_paint_character_cp(c, img, ectx->font_to_use, codepoint,
+			xpos_in_pix, ypos_in_pix, fgcol_rgb, bgcol_rgb, flags);
+	}
+	else {
+		de_font_paint_character_idx(c, img, ectx->font_to_use, (de_int64)codepoint,
+			xpos_in_pix, ypos_in_pix, fgcol_rgb, bgcol_rgb, flags);
+	}
 }
 
 static void set_density(deark *c, struct de_char_context *charctx,
@@ -570,18 +578,20 @@ static void de_char_output_screen_to_image_file(deark *c, struct de_char_context
 			if(!cell) continue;
 
 			do_render_character(c, charctx, ectx, img, i, j,
-				cell->codepoint, cell->fgcol, cell->bgcol, 0);
+				ectx->uses_custom_font ? cell->codepoint : cell->codepoint_unicode,
+				ectx->uses_custom_font ? 0 : 1,
+				cell->fgcol, cell->bgcol, 0);
 
 			// TODO: It might be better to draw our own underline and/or
 			// strikethru marks, rather than relying on font glyphs that
 			// might be customized or otherwise sub-optimal.
 			if(cell->underline) {
 				do_render_character(c, charctx, ectx, img, i, j,
-					0x5f, cell->fgcol, cell->bgcol, DE_PAINTFLAG_TRNSBKGD);
+					0x5f, 1, cell->fgcol, cell->bgcol, DE_PAINTFLAG_TRNSBKGD);
 			}
 			if(cell->strikethru) {
 				do_render_character(c, charctx, ectx, img, i, j,
-					0x2d, cell->fgcol, cell->bgcol, DE_PAINTFLAG_TRNSBKGD);
+					0x2d, 1, cell->fgcol, cell->bgcol, DE_PAINTFLAG_TRNSBKGD);
 			}
 		}
 	}
@@ -605,11 +615,13 @@ static void do_create_standard_font(deark *c, struct charextractx *ectx)
 	font->num_chars = 256;
 	font->nominal_width = 8;
 	font->nominal_height = 16;
+	font->has_unicode_codepoints = 1;
 
 	font->char_array = de_malloc(c, font->num_chars * sizeof(struct de_bitmap_font_char));
 
 	for(i=0; i<font->num_chars; i++) {
 		font->char_array[i].codepoint = (de_int32)i;
+		font->char_array[i].codepoint_unicode = de_char_to_unicode(c, (de_int32)i, DE_ENCODING_CP437_G);
 		font->char_array[i].width = font->nominal_width;
 		font->char_array[i].height = font->nominal_height;
 		font->char_array[i].rowspan = 1;
@@ -628,9 +640,11 @@ static void de_char_output_to_image_files(deark *c, struct de_char_context *char
 	}
 
 	if(charctx->font) {
+		ectx->uses_custom_font = 1;
 		ectx->font_to_use = charctx->font;
 	}
 	else {
+		ectx->uses_custom_font = 0;
 		do_create_standard_font(c, ectx);
 		ectx->font_to_use = ectx->standard_font;
 	}
