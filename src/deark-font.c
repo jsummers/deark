@@ -22,6 +22,7 @@ void de_font_paint_character_idx(deark *c, struct deark_bitmap *img,
 	unsigned int flags)
 {
 	de_int64 i, j;
+	de_int64 i_src, j_src;
 	de_byte x;
 	int fg;
 	de_uint32 clr;
@@ -33,19 +34,32 @@ void de_font_paint_character_idx(deark *c, struct deark_bitmap *img,
 	if(ch->width > font->nominal_width) return;
 	if(ch->height > font->nominal_height) return;
 
-	if((flags&DE_PAINTFLAG_LEFTHALF) || (flags&DE_PAINTFLAG_BOTTOMHALF)) {
-		return;
-	}
-
 	for(j=0; j<ch->height; j++) {
+		j_src = j;
+		if(flags&DE_PAINTFLAG_TOPHALF) {
+			j_src = j/2;
+		}
+		else if(flags&DE_PAINTFLAG_BOTTOMHALF) {
+			j_src = (ch->height+j)/2;
+		}
+
 		for(i=0; i<ch->width; i++) {
-			x = ch->bitmap[j*ch->rowspan + i/8];
-			fg = (x & (1<<(7-i%8))) ? 1 : 0;
+			i_src = i;
+			if(flags&DE_PAINTFLAG_LEFTHALF) {
+				i_src = i/2;
+			}
+			else if(flags&DE_PAINTFLAG_RIGHTHALF) {
+				i_src = (ch->width+i)/2;
+			}
+
+			x = ch->bitmap[j_src*ch->rowspan + i_src/8];
+			fg = (x & (1<<(7-i_src%8))) ? 1 : 0;
 			clr = fg ? fgcol : bgcol;
 			if(fg || !(flags&DE_PAINTFLAG_TRNSBKGD))
 				de_bitmap_setpixel_rgba(img, xpos+i, ypos+j, clr);
 
 			// Manufacture a 9th column, if requested.
+			// FIXME: 9 column mode interacts poorly with double-width characters.
 			if((flags&DE_PAINTFLAG_VGA9COL) && i==7) {
 				// Depending on the codepoint, the 9th column is either
 				// the same as the 8th column, or is the background color.

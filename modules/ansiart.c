@@ -214,7 +214,7 @@ static void do_normal_char(deark *c, lctx *d, de_int64 pos, de_byte ch)
 	}
 
 	// Line wrap
-	while(d->xpos >= d->screen->width) {
+	while(d->xpos >= d->screen->width && !d->vt100_mode) {
 		d->xpos -= d->screen->width;
 		d->ypos++;
 	}

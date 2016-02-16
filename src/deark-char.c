@@ -273,14 +273,17 @@ static void do_output_html_screen(deark *c, struct de_char_context *charctx,
 				if(!cell) cell = &blank_cell;
 			}
 
-			if((cell->size_flags&DE_PAINTFLAG_LEFTHALF) ||
+			n = cell->codepoint_unicode;
+
+			if((cell->size_flags&DE_PAINTFLAG_RIGHTHALF) ||
 				(cell->size_flags&DE_PAINTFLAG_BOTTOMHALF))
 			{
 				// We don't support double-size characters with HTML output.
-				cell = &blank_cell;
+				// Make the left / bottom parts of the cell blank so we don't
+				// duplicate the foreground character.
+				n = 0x20;
 			}
 
-			n = cell->codepoint_unicode;
 			if(n==0x00) n=0x20;
 			if(n<0x20) n='?';
 			is_blank_char = (n==0x20 || n==0xa0) &&
