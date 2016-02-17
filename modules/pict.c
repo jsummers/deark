@@ -35,6 +35,7 @@ struct opcode_info {
 #define SZCODE_SPECIAL 0
 #define SZCODE_EXACT   1
 #define SZCODE_REGION  2
+#define SZCODE_POLYGON 3
 	de_uint16 size_code;
 	de_uint32 size; // Data size, not including opcode. Logic depends on size_code.
 	const char *name;
@@ -68,6 +69,20 @@ static const struct opcode_info opcode_info_arr[] = {
 	{ 0x002e, SZCODE_SPECIAL, 0,  "glyphState", NULL },
 	{ 0x0031, SZCODE_EXACT,   8,  "paintRect", NULL },
 	{ 0x0050, SZCODE_EXACT,   8,  "frameOval", NULL },
+	{ 0x0051, SZCODE_EXACT,   8,  "paintOval", NULL },
+	{ 0x0052, SZCODE_EXACT,   8,  "eraseOval", NULL },
+	{ 0x0053, SZCODE_EXACT,   8,  "invertOval", NULL },
+	{ 0x0054, SZCODE_EXACT,   8,  "fillOval", NULL },
+	{ 0x0058, SZCODE_EXACT,   0,  "frameSameOval", NULL },
+	{ 0x0059, SZCODE_EXACT,   0,  "paintSameOval", NULL },
+	{ 0x005a, SZCODE_EXACT,   0,  "eraseSameOval", NULL },
+	{ 0x005b, SZCODE_EXACT,   0,  "invertSameOval", NULL },
+	{ 0x005c, SZCODE_EXACT,   0,  "fillSameOval", NULL },
+	{ 0x0070, SZCODE_POLYGON, 0,  "framePoly", NULL },
+	{ 0x0071, SZCODE_POLYGON, 0,  "paintPoly", NULL },
+	{ 0x0072, SZCODE_POLYGON, 0,  "erasePoly", NULL },
+	{ 0x0073, SZCODE_POLYGON, 0,  "invertPoly", NULL },
+	{ 0x0074, SZCODE_POLYGON, 0,  "fillPoly", NULL },
 	{ 0x0098, SZCODE_SPECIAL, 0,  "PackBitsRect", handler_98_9a },
 	{ 0x009a, SZCODE_SPECIAL, 0,  "DirectBitsRect", handler_98_9a },
 	{ 0x00a0, SZCODE_EXACT,   2,  "ShortComment", handler_a0 },
@@ -825,6 +840,14 @@ static int do_handle_item(deark *c, lctx *d, de_int64 opcode_pos, de_int64 opcod
 		if(n>=10) {
 			pict_read_rect(c->infile, data_pos+2, &tmprect, "rect");
 		}
+		de_dbg_indent(c, -1);
+		*data_bytes_used = n;
+		ret = 1;
+	}
+	else if(opi && opi->size_code==SZCODE_POLYGON) {
+		n = de_getui16be(data_pos);
+		de_dbg_indent(c, 1);
+		de_dbg(c, "polygon size: %d\n", (int)n);
 		de_dbg_indent(c, -1);
 		*data_bytes_used = n;
 		ret = 1;
