@@ -121,9 +121,32 @@ static de_int32 ansi_char_to_unicode(deark *c, lctx *d, de_byte ch)
 			return u;
 		}
 	}
+	else if(cs==CHARSET_UK) {
+		// I think this is the only difference between the US and UK charsets.
+		if(ch=='#') return 0x00a3;
+	}
 
 	u = de_char_to_unicode(c, (de_int32)ch, DE_ENCODING_CP437_G);
 	return u;
+}
+
+static void do_ctrl_char(deark *c, lctx *d, de_byte ch)
+{
+	if(ch==13) { // CR
+		d->xpos = 0;
+		return;
+	}
+	if(ch==10) { // LF
+		d->ypos++;
+		// Some files aren't rendered correctly unless an LF implies a CR.
+		d->xpos = 0;
+		return;
+	}
+
+	// ^N = shift out - selects G1 character set
+	// ^O = shift in  - selects G0 character set
+	if(ch==0x0e) d->curr_charset_index = 1;
+	else if(ch==0x0f) d->curr_charset_index = 0;
 }
 
 static void do_normal_char(deark *c, lctx *d, de_int64 pos, de_byte ch)
@@ -133,14 +156,12 @@ static void do_normal_char(deark *c, lctx *d, de_int64 pos, de_byte ch)
 	de_int64 numcells;
 	de_int64 k;
 
-	if(ch==13) { // CR
-		d->xpos = 0;
-		return;
-	}
-	if(ch==10) { // LF
-		d->ypos++;
-		// Some files aren't rendered correctly unless an LF implies a CR.
-		d->xpos = 0;
+	// TODO: A few more characters, such as tabs, should be treated as
+	// control characters.
+	if(ch==10 || ch==13 ||
+		(d->vt100_mode && ch<32))
+	{
+		do_ctrl_char(c, d, ch);
 		return;
 	}
 
@@ -390,6 +411,9 @@ static void do_code_h(deark *c, lctx *d, de_int64 param_start)
 
 		if(is_DEC) {
 			switch(d->parse_results.params[i]) {
+			case 4: // Smooth scrolling
+				ok = 1;
+				break;
 			case 7: // Set autowrap (default)
 				ok = 1;
 				break;
@@ -438,6 +462,12 @@ static void do_code_l(deark *c, lctx *d, de_int64 param_start)
 
 		if(is_DEC) {
 			switch(d->parse_results.params[i]) {
+			case 4: // Disable smooth scrolling
+				ok = 1;
+				break;
+			case 5: // Disable reverse-video screen
+				ok = 1;
+				break;
 			case 25: // Hide the cursor (VT320)
 				ok = 1;
 				break;
@@ -448,7 +478,14 @@ static void do_code_l(deark *c, lctx *d, de_int64 param_start)
 			}
 		}
 		else {
-			;
+			switch(d->parse_results.params[i]) {
+			case 4: // Disable INSERT mode
+				ok = 1;
+				break;
+			case 5: // Disable STATUS REPORT TRANSFER MODE
+				ok = 1;
+				break;
+			}
 		}
 
 		if(!ok && d->num_warnings<ANSIART_MAX_WARNINGS) {
@@ -654,16 +691,19 @@ static void do_2char_code(deark *c, lctx *d, de_byte ch1, de_byte ch2, de_int64 
 	}
 
 	if(ch1=='(') {
-		if(ch2=='A') d->curr_g0_charset = CHARSET_UK;
+		if(ch2=='A') { d->curr_g0_charset = CHARSET_UK; ok=1; }
 		else if(ch2=='B') { d->curr_g0_charset = CHARSET_US; ok=1; }
 		else if(ch2=='0') { d->curr_g0_charset = CHARSET_LINEDRAWING; ok=1; }
 	}
 	else if(ch1==')') {
-		if(ch2=='A') d->curr_g1_charset = CHARSET_UK;
+		if(ch2=='A') { d->curr_g1_charset = CHARSET_UK; ok=1; }
 		else if(ch2=='B') { d->curr_g1_charset = CHARSET_US; ok=1; }
 		else if(ch2=='0') { d->curr_g1_charset = CHARSET_LINEDRAWING; ok=1; }
 	}
 	else if(ch1=='#') {
+		// FIXME: I don't think double-size is handled correctly.
+		// The attribute is supposed to apply to the current line, instead
+		// of to individual characters.
 		if(ch2=='3') {
 			d->curr_size_mode = SIZEMODE_DBLH_TOP;
 			ok=1;
@@ -688,14 +728,6 @@ static void do_2char_code(deark *c, lctx *d, de_byte ch1, de_byte ch2, de_int64 
 			make_printable_char(ch2), (int)pos);
 		d->num_warnings++;
 	}
-}
-
-static void do_ctrl_char(deark *c, lctx *d, de_byte ch)
-{
-	// ^N = shift out - selects G1 character set
-	// ^O = shift in  - selects G0 character set
-	if(ch==0x0e) d->curr_charset_index = 1;
-	else if(ch==0x0f) d->curr_charset_index = 0;
 }
 
 static void do_escape_code(deark *c, lctx *d, de_byte code, de_int64 pos)
@@ -748,10 +780,7 @@ static void do_main(deark *c, lctx *d)
 				params_start_pos = pos+1;
 				continue;
 			}
-			else if(d->vt100_mode && (ch==0x0e || ch==0x0f)) {
-				do_ctrl_char(c, d, ch);
-			}
-			else { // a non-escape character
+			else { // A byte that's not part of an escape sequence
 				do_normal_char(c, d, pos, ch);
 			}
 		}
