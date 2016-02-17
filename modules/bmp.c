@@ -333,11 +333,56 @@ done:
 	return retval;
 }
 
+// Some OS/2v2 files exist with bad (3-bytes/color) palettes.
+// Try to detect them.
+static void do_os2v2_bad_palette(deark *c, lctx *d)
+{
+	de_int64 pal_space_avail;
+	de_int64 pal_bytes_if_3bpc;
+	de_int64 pal_bytes_if_4bpc;
+	int nonzero_rsvd;
+	int i;
+
+	if(d->version!=DE_BMPVER_OS2V2) return;
+	if(d->pal_entries<1) return;
+
+	pal_space_avail = d->bits_offset - d->pal_pos;
+	pal_bytes_if_4bpc = 4*d->pal_entries;
+	pal_bytes_if_3bpc = 3*d->pal_entries;
+
+	if(pal_space_avail>=pal_bytes_if_4bpc) return;
+	if(pal_space_avail<pal_bytes_if_3bpc || pal_space_avail>(pal_bytes_if_3bpc+1)) return;
+
+	// Look for nonzero 'reserved' bytes
+	nonzero_rsvd = 0;
+	for(i=0; i<pal_bytes_if_3bpc; i+=4) {
+		if(de_getbyte(d->pal_pos + i + 3) != 0) {
+			nonzero_rsvd = 1;
+			break;
+		}
+	}
+	if(!nonzero_rsvd) return;
+
+	de_warn(c, "Assuming palette has 3 bytes per entry, instead of 4\n");
+	d->bytes_per_pal_entry = 3;
+}
+
 static void do_read_palette(deark *c, lctx *d)
 {
 	de_int64 k;
+	de_int64 pal_size_in_bytes;
 
 	if(d->pal_entries<1) return;
+
+	pal_size_in_bytes = d->pal_entries*d->bytes_per_pal_entry;
+	if(d->pal_pos+pal_size_in_bytes > d->bits_offset) {
+		de_warn(c, "Palette at %d (size %d) overlaps bitmap at %d\n",
+			(int)d->pal_pos, (int)pal_size_in_bytes, (int)d->bits_offset);
+		if(d->version==DE_BMPVER_OS2V2) {
+			do_os2v2_bad_palette(c, d);
+		}
+	}
+
 	de_dbg(c, "color table at %d, %d entries\n", (int)d->pal_pos, (int)d->pal_entries);
 
 	de_dbg_indent(c, 1);
@@ -602,6 +647,10 @@ static void de_run_bmp(deark *c, de_module_params *mparams)
 	pos += d->infohdrsize;
 	if(d->bitfields_type==BF_SEGMENT) {
 		de_dbg(c, "bitfields segment at %d, len=%d\n", (int)pos, (int)d->bitfields_segment_len);
+		if(pos+d->bitfields_segment_len > d->bits_offset) {
+			de_warn(c, "BITFIELDS segment at %d (size %d) overlaps bitmap at %d\n",
+				(int)pos, (int)d->bitfields_segment_len, (int)d->bits_offset);
+		}
 		de_dbg_indent(c, 1);
 		do_read_bitfields(c, d, pos, d->bitfields_segment_len);
 		de_dbg_indent(c, -1);
