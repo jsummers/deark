@@ -50,7 +50,7 @@ static void process_line(deark *c, lctx *d, de_int64 file_pos, de_int64 mem_pos,
 		(int)mem_pos, (int)line_size);
 	pos += 2;
 
-	dbuf_fprintf(d->outf, "%d ", line_num);
+	dbuf_printf(d->outf, "%d ", line_num);
 
 	while(pos < file_pos+line_size) {
 		b = de_getbyte(pos);
@@ -66,10 +66,10 @@ static void process_line(deark *c, lctx *d, de_int64 file_pos, de_int64 mem_pos,
 		if(b>=0x80) {
 			token = get_token(b);
 			if(token) {
-				dbuf_fputs(d->outf, token);
+				dbuf_puts(d->outf, token);
 			}
 			else {
-				dbuf_fputs(d->outf, "***ERROR***");
+				dbuf_puts(d->outf, "***ERROR***");
 			}
 		}
 		else if(b==0x00) {
@@ -84,7 +84,7 @@ static void process_line(deark *c, lctx *d, de_int64 file_pos, de_int64 mem_pos,
 		pos++;
 	}
 
-	dbuf_fputs(d->outf, "\n");
+	dbuf_puts(d->outf, "\n");
 }
 
 static void de_run_basic_c64(deark *c, de_module_params *mparams)

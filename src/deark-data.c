@@ -741,6 +741,6 @@ void de_write_codepoint_to_html(deark *c, dbuf *f, de_int32 ch)
 		dbuf_write_uchar_as_utf8(f, ch);
 	}
 	else {
-		dbuf_fprintf(f, "&#%d;", (int)ch);
+		dbuf_printf(f, "&#%d;", (int)ch);
 	}
 }

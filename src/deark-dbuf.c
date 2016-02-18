@@ -605,13 +605,13 @@ void dbuf_writeui32le(dbuf *f, de_int64 n)
 	dbuf_write(f, buf, 4);
 }
 
-void dbuf_fputs(dbuf *f, const char *sz)
+void dbuf_puts(dbuf *f, const char *sz)
 {
 	dbuf_write(f, (const de_byte*)sz, (de_int64)strlen(sz));
 }
 
 // TODO: Remove the buffer size limitation?
-void dbuf_fprintf(dbuf *f, const char *fmt, ...)
+void dbuf_printf(dbuf *f, const char *fmt, ...)
 {
 	char buf[1024];
 	va_list ap;
@@ -620,7 +620,7 @@ void dbuf_fprintf(dbuf *f, const char *fmt, ...)
 	de_vsnprintf(buf, sizeof(buf), fmt, ap);
 	va_end(ap);
 
-	dbuf_fputs(f, buf);
+	dbuf_puts(f, buf);
 }
 
 dbuf *dbuf_open_input_file(deark *c, const char *fn)

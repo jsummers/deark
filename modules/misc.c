@@ -1359,10 +1359,10 @@ static void de_run_vgafont(deark *c, de_module_params *mparams)
 		dbuf *ff;
 		ff = dbuf_create_output_file(c, "h", NULL);
 		for(i=0; i<4096; i++) {
-			if(i%16==0) dbuf_fputs(ff, "\t");
-			dbuf_fprintf(ff, "%d", (int)fontdata[i]);
-			if(i!=4095) dbuf_fputs(ff, ",");
-			if(i%16==15) dbuf_fputs(ff, "\n");
+			if(i%16==0) dbuf_puts(ff, "\t");
+			dbuf_printf(ff, "%d", (int)fontdata[i]);
+			if(i!=4095) dbuf_puts(ff, ",");
+			if(i%16==15) dbuf_puts(ff, "\n");
 		}
 		dbuf_close(ff);
 		goto done;

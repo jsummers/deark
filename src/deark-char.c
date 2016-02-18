@@ -154,76 +154,76 @@ static void span_open(deark *c, dbuf *ofile, struct span_info *sp,
 
 	sp->is_suppressed = 0;
 
-	dbuf_fputs(ofile, "<span");
+	dbuf_puts(ofile, "<span");
 
 	if(attrcount==0)
 		goto no_class;
 
-	dbuf_fputs(ofile, " class=");
+	dbuf_puts(ofile, " class=");
 	if(attrcount>1) // Don't need quotes if there's only one attribute
-		dbuf_fputs(ofile, "\"");
+		dbuf_puts(ofile, "\"");
 
 	// Classes for foreground and background colors
 
 	if(need_fgcol_attr) {
-		dbuf_fprintf(ofile, "f%c", de_get_hexchar(sp->fgcol));
+		dbuf_printf(ofile, "f%c", de_get_hexchar(sp->fgcol));
 		attrindex++;
 	}
 
 	if(need_bgcol_attr) {
-		if(attrindex) dbuf_fputs(ofile, " ");
-		dbuf_fprintf(ofile, "b%c", de_get_hexchar(sp->bgcol));
+		if(attrindex) dbuf_puts(ofile, " ");
+		dbuf_printf(ofile, "b%c", de_get_hexchar(sp->bgcol));
 		attrindex++;
 	}
 
 	// Other attributes
 
 	if(sp->underline) {
-		if(attrindex) dbuf_fputs(ofile, " ");
-		dbuf_fputs(ofile, "u");
+		if(attrindex) dbuf_puts(ofile, " ");
+		dbuf_puts(ofile, "u");
 		attrindex++;
 	}
 	if(sp->strikethru) {
-		if(attrindex) dbuf_fputs(ofile, " ");
-		dbuf_fputs(ofile, "s");
+		if(attrindex) dbuf_puts(ofile, " ");
+		dbuf_puts(ofile, "s");
 		attrindex++;
 	}
 	if(sp->blink) {
-		if(attrindex) dbuf_fputs(ofile, " ");
-		dbuf_fputs(ofile, "blink");
+		if(attrindex) dbuf_puts(ofile, " ");
+		dbuf_puts(ofile, "blink");
 		attrindex++;
 	}
 
 	if(attrcount>1)
-		dbuf_fputs(ofile, "\"");
+		dbuf_puts(ofile, "\"");
 
 no_class:
 	if(fgcol_is_24bit || bgcol_is_24bit) {
 		char tmpbuf[16];
 
-		dbuf_fputs(ofile, " style=\"");
+		dbuf_puts(ofile, " style=\"");
 		if(fgcol_is_24bit) {
 			de_color_to_css(sp->fgcol, tmpbuf, sizeof(tmpbuf));
-			dbuf_fprintf(ofile, "color:%s", tmpbuf);
+			dbuf_printf(ofile, "color:%s", tmpbuf);
 		}
 
 		if(bgcol_is_24bit) {
 			if(fgcol_is_24bit)
-				dbuf_fputs(ofile, ";");
+				dbuf_puts(ofile, ";");
 			de_color_to_css(sp->bgcol, tmpbuf, sizeof(tmpbuf));
-			dbuf_fprintf(ofile, "background-color:%s", tmpbuf);
+			dbuf_printf(ofile, "background-color:%s", tmpbuf);
 		}
-		dbuf_fputs(ofile, "\"");
+		dbuf_puts(ofile, "\"");
 	}
 
-	dbuf_fputs(ofile, ">");
+	dbuf_puts(ofile, ">");
 	return;
 }
 
 static void span_close(deark *c, dbuf *ofile, struct span_info *sp)
 {
 	if(sp->is_suppressed) return;
-	dbuf_fprintf(ofile, "</span>");
+	dbuf_puts(ofile, "</span>");
 }
 
 static void do_output_html_screen(deark *c, struct de_char_context *charctx,
@@ -255,8 +255,8 @@ static void do_output_html_screen(deark *c, struct de_char_context *charctx,
 	blank_cell.codepoint = 32;
 	blank_cell.codepoint_unicode = 32;
 
-	dbuf_fputs(ofile, "<table class=mt><tr>\n<td>");
-	dbuf_fputs(ofile, "<pre>");
+	dbuf_puts(ofile, "<table class=mt><tr>\n<td>");
+	dbuf_puts(ofile, "<pre>");
 
 	// Containing <span> with default colors.
 	default_span.fgcol = ectx->scrstats[screen_idx].most_used_fgcol;
@@ -305,7 +305,7 @@ static void do_output_html_screen(deark *c, struct de_char_context *charctx,
 				}
 
 				if(need_newline) {
-					dbuf_fputs(ofile, "\n");
+					dbuf_puts(ofile, "\n");
 					need_newline = 0;
 				}
 
@@ -325,7 +325,7 @@ static void do_output_html_screen(deark *c, struct de_char_context *charctx,
 			}
 
 			if(need_newline) {
-				dbuf_fputs(ofile, "\n");
+				dbuf_puts(ofile, "\n");
 				need_newline = 0;
 			}
 
@@ -344,8 +344,8 @@ static void do_output_html_screen(deark *c, struct de_char_context *charctx,
 	// Close containing <span>
 	span_close(c, ofile, &default_span);
 
-	dbuf_fputs(ofile, "</pre>");
-	dbuf_fputs(ofile, "</td>\n</tr></table>\n");
+	dbuf_puts(ofile, "</pre>");
+	dbuf_puts(ofile, "</td>\n</tr></table>\n");
 }
 
 static void output_css_color_block(deark *c, dbuf *ofile, de_uint32 *pal,
@@ -357,7 +357,7 @@ static void output_css_color_block(deark *c, dbuf *ofile, de_uint32 *pal,
 	for(i=0; i<16; i++) {
 		if(!used_flags[i]) continue;
 		de_color_to_css(pal[i], tmpbuf, sizeof(tmpbuf));
-		dbuf_fprintf(ofile, " %s%c { %s: %s }\n", selectorprefix, de_get_hexchar(i),
+		dbuf_printf(ofile, " %s%c { %s: %s }\n", selectorprefix, de_get_hexchar(i),
 			prop, tmpbuf);
 	}
 }
@@ -392,11 +392,11 @@ static void print_header_item(deark *c, dbuf *ofile, const char *name_rawhtml, c
 {
 	int k;
 
-	dbuf_fputs(ofile, "<td class=htc>");
+	dbuf_puts(ofile, "<td class=htc>");
 	if(value && value->len>0) {
-		dbuf_fprintf(ofile, "<span class=hn>%s:&nbsp; </span><span class=hv>", name_rawhtml);
+		dbuf_printf(ofile, "<span class=hn>%s:&nbsp; </span><span class=hv>", name_rawhtml);
 		write_ucstring_to_html(c, value, ofile);
-		dbuf_fputs(ofile, "</span>");
+		dbuf_puts(ofile, "</span>");
 	}
 	else {
 		// Placeholder
@@ -404,7 +404,7 @@ static void print_header_item(deark *c, dbuf *ofile, const char *name_rawhtml, c
 			de_write_codepoint_to_html(c, ofile, 0x00a0); // nbsp
 		}
 	}
-	dbuf_fputs(ofile, "</td>\n");
+	dbuf_puts(ofile, "</td>\n");
 }
 
 static void do_output_html_header(deark *c, struct de_char_context *charctx,
@@ -415,68 +415,68 @@ static void do_output_html_header(deark *c, struct de_char_context *charctx,
 	has_metadata = charctx->title || charctx->artist || charctx->organization ||
 		charctx->creation_date;
 	if(c->write_bom && !c->ascii_html) dbuf_write_uchar_as_utf8(ofile, 0xfeff);
-	dbuf_fputs(ofile, "<!DOCTYPE html>\n");
-	dbuf_fputs(ofile, "<html>\n");
-	dbuf_fputs(ofile, "<head>\n");
-	dbuf_fprintf(ofile, "<meta charset=\"%s\">\n", c->ascii_html?"US-ASCII":"UTF-8");
-	dbuf_fputs(ofile, "<title>");
+	dbuf_puts(ofile, "<!DOCTYPE html>\n");
+	dbuf_puts(ofile, "<html>\n");
+	dbuf_puts(ofile, "<head>\n");
+	dbuf_printf(ofile, "<meta charset=\"%s\">\n", c->ascii_html?"US-ASCII":"UTF-8");
+	dbuf_puts(ofile, "<title>");
 	write_ucstring_to_html(c, charctx->title, ofile);
-	dbuf_fputs(ofile, "</title>\n");
+	dbuf_puts(ofile, "</title>\n");
 
-	dbuf_fputs(ofile, "<style type=\"text/css\">\n");
+	dbuf_puts(ofile, "<style type=\"text/css\">\n");
 
-	dbuf_fputs(ofile, " body { background-color: #222; background-image: url(\"data:image/png;base64,"
+	dbuf_puts(ofile, " body { background-color: #222; background-image: url(\"data:image/png;base64,"
 		"iVBORw0KGgoAAAANSUhEUgAAABAAAAAQAQMAAAAlPW0iAAAABlBMVEUgICAoKCidji3LAAAAMUlE"
 		"QVQI12NgaGBgPMDA/ICB/QMD/w8G+T8M9v8Y6v8z/P8PIoFsoAhQHCgLVMN4AACOoBFvDLHV4QAA"
 		"AABJRU5ErkJggg==\") }\n");
 
 	// The table for the main graphics
-	dbuf_fputs(ofile, " .mt { margin-left: auto; margin-right: auto }\n");
+	dbuf_puts(ofile, " .mt { margin-left: auto; margin-right: auto }\n");
 
 	if(has_metadata) {
 		// Styles for header name and value
-		dbuf_fputs(ofile, " .htt { width: 100%; border-collapse: collapse; background-color: #034 }\n");
-		dbuf_fputs(ofile, " .htc { border: 2px solid #056; text-align: center }\n");
-		dbuf_fputs(ofile, " .hn { color: #aaa; font-style: italic }\n");
-		dbuf_fputs(ofile, " .hv { color: #fff }\n");
+		dbuf_puts(ofile, " .htt { width: 100%; border-collapse: collapse; background-color: #034 }\n");
+		dbuf_puts(ofile, " .htc { border: 2px solid #056; text-align: center }\n");
+		dbuf_puts(ofile, " .hn { color: #aaa; font-style: italic }\n");
+		dbuf_puts(ofile, " .hv { color: #fff }\n");
 	}
 
 	output_css_color_block(c, ofile, charctx->pal, ".f", "color", &ectx->used_fgcol[0]);
 	output_css_color_block(c, ofile, charctx->pal, ".b", "background-color", &ectx->used_bgcol[0]);
 
 	if(ectx->used_underline) {
-		dbuf_fputs(ofile, " .u { text-decoration: underline }\n");
+		dbuf_puts(ofile, " .u { text-decoration: underline }\n");
 	}
 	if(ectx->used_strikethru) {
-		dbuf_fputs(ofile, " .s { text-decoration: line-through }\n");
+		dbuf_puts(ofile, " .s { text-decoration: line-through }\n");
 	}
 
 	if(ectx->used_blink) {
-		dbuf_fputs(ofile, " .blink {\n"
+		dbuf_puts(ofile, " .blink {\n"
 			"  animation: blink 1s steps(1) infinite;\n"
 			"  -webkit-animation: blink 1s steps(1) infinite }\n"
 			" @keyframes blink { 50% { color: transparent } }\n"
 			" @-webkit-keyframes blink { 50% { color: transparent } }\n");
 	}
-	dbuf_fputs(ofile, "</style>\n");
+	dbuf_puts(ofile, "</style>\n");
 
-	dbuf_fputs(ofile, "</head>\n");
-	dbuf_fputs(ofile, "<body>\n");
+	dbuf_puts(ofile, "</head>\n");
+	dbuf_puts(ofile, "<body>\n");
 
 	if(has_metadata) {
-		dbuf_fputs(ofile, "<table class=htt><tr>\n");
+		dbuf_puts(ofile, "<table class=htt><tr>\n");
 		print_header_item(c, ofile, "Title", charctx->title);
 		print_header_item(c, ofile, "Organization", charctx->organization);
 		print_header_item(c, ofile, "Artist", charctx->artist);
 		print_header_item(c, ofile, "Date", charctx->creation_date);
-		dbuf_fputs(ofile, "</tr></table>\n");
+		dbuf_puts(ofile, "</tr></table>\n");
 	}
 }
 
 static void do_output_html_footer(deark *c, struct de_char_context *charctx,
 	struct charextractx *ectx, dbuf *ofile)
 {
-	dbuf_fputs(ofile, "</body>\n</html>\n");
+	dbuf_puts(ofile, "</body>\n</html>\n");
 }
 
 static void de_char_output_to_html_file(deark *c, struct de_char_context *charctx,

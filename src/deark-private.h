@@ -358,9 +358,9 @@ void dbuf_writeui16le(dbuf *f, de_int64 n);
 void dbuf_writeui32le(dbuf *f, de_int64 n);
 
 // Write a NUL-terminated string to a file
-void dbuf_fputs(dbuf *f, const char *sz);
+void dbuf_puts(dbuf *f, const char *sz);
 
-void dbuf_fprintf(dbuf *f, const char *fmt, ...);
+void dbuf_printf(dbuf *f, const char *fmt, ...);
 
 // Read a slice of one dbuf, and append it to another dbuf.
 void dbuf_copy(dbuf *inf, de_int64 input_offset, de_int64 input_len, dbuf *outf);
