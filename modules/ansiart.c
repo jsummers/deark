@@ -23,12 +23,21 @@ struct parse_results_struct {
 	de_int64 params[MAX_ESC_PARAMS];
 };
 
+struct row_data_struct {
+#define SIZEMODE_DEFAULT     0
+#define SIZEMODE_DBLH_TOP    1
+#define SIZEMODE_DBLH_BOTTOM 2
+#define SIZEMODE_DBLW        3
+	de_byte size_mode;
+};
+
 typedef struct localctx_struct {
 	int disable_24bitcolor;
 
 	de_byte always_disable_blink;
 
 	struct de_char_screen *screen;
+	struct row_data_struct *row_data;
 
 	de_int64 effective_file_size;
 	de_int64 xpos, ypos; // 0-based
@@ -42,11 +51,6 @@ typedef struct localctx_struct {
 	de_byte curr_negative;
 	de_byte curr_conceal;
 	de_byte curr_strikethru;
-#define SIZEMODE_DEFAULT     0
-#define SIZEMODE_DBLH_TOP    1
-#define SIZEMODE_DBLH_BOTTOM 2
-#define SIZEMODE_DBLW        3
-	de_byte curr_size_mode;
 
 #define CHARSET_DEFAULT 0
 #define CHARSET_US 1
@@ -153,8 +157,6 @@ static void do_normal_char(deark *c, lctx *d, de_int64 pos, de_byte ch)
 {
 	struct de_char_cell *cell;
 	de_int32 u;
-	de_int64 numcells;
-	de_int64 k;
 
 	// TODO: A few more characters, such as tabs, should be treated as
 	// control characters.
@@ -167,72 +169,52 @@ static void do_normal_char(deark *c, lctx *d, de_int64 pos, de_byte ch)
 
 	u = ansi_char_to_unicode(c, d, ch);
 
-	if(d->curr_size_mode==SIZEMODE_DEFAULT)
-		numcells = 1;
-	else
-		numcells = 2;
+	cell = get_cell_at(c, d->screen, d->xpos, d->ypos);
+	if(cell) {
+		cell->codepoint = (de_int32)ch;
+		cell->codepoint_unicode = u;
+		cell->fgcol = d->curr_fgcol;
+		cell->bgcol = d->curr_bgcol;
+		if(d->curr_bold && DE_IS_PAL_COLOR(cell->fgcol)) {
+			cell->fgcol |= 0x08;
+		}
+		cell->underline = d->curr_underline;
+		cell->strikethru = d->curr_strikethru;
 
-	for(k=0; k<numcells; k++) {
+		cell->size_flags = 0;
 
-		cell = get_cell_at(c, d->screen, d->xpos, d->ypos);
-		if(cell) {
-			cell->codepoint = (de_int32)ch;
-			cell->codepoint_unicode = u;
-			cell->fgcol = d->curr_fgcol;
-			cell->bgcol = d->curr_bgcol;
-			if(d->curr_bold && DE_IS_PAL_COLOR(cell->fgcol)) {
-				cell->fgcol |= 0x08;
-			}
-			cell->underline = d->curr_underline;
-			cell->strikethru = d->curr_strikethru;
-
-			cell->size_flags = 0;
-			if(d->curr_size_mode==SIZEMODE_DBLH_TOP) {
-				cell->size_flags |= DE_PAINTFLAG_TOPHALF;
-			}
-			else if(d->curr_size_mode==SIZEMODE_DBLH_BOTTOM){
-				cell->size_flags |= DE_PAINTFLAG_BOTTOMHALF;
-			}
-			if(d->curr_size_mode!=SIZEMODE_DEFAULT) {
-				if(k==1)
-					cell->size_flags |= DE_PAINTFLAG_RIGHTHALF;
-				else
-					cell->size_flags |= DE_PAINTFLAG_LEFTHALF;
-			}
-
-			if(d->disable_blink_attr || d->always_disable_blink) {
-				// "blink" in this mode means intense-background, instead of blink.
-				if(d->curr_blink && DE_IS_PAL_COLOR(cell->bgcol))
-					cell->bgcol |= 0x08;
-				cell->blink = 0;
-			}
-			else {
-				cell->blink = d->curr_blink;
-			}
-
-			if(d->curr_negative) {
-				de_uint32 tmpcolor;
-				tmpcolor = cell->fgcol;
-				cell->fgcol = cell->bgcol;
-				cell->bgcol = tmpcolor;
-			}
-			if(d->curr_conceal) {
-				cell->fgcol = cell->bgcol;
-				cell->blink = 0;
-			}
-
-			if(d->ypos >= d->screen->height) d->screen->height = d->ypos+1;
+		if(d->disable_blink_attr || d->always_disable_blink) {
+			// "blink" in this mode means intense-background, instead of blink.
+			if(d->curr_blink && DE_IS_PAL_COLOR(cell->bgcol))
+				cell->bgcol |= 0x08;
+			cell->blink = 0;
 		}
 		else {
-			if(d->num_warnings<ANSIART_MAX_WARNINGS) {
-				de_warn(c, "Off-screen write (%d,%d) at %d\n",
-					(int)(d->xpos+1), (int)(d->ypos+1), (int)pos);
-				d->num_warnings++;
-			}
+			cell->blink = d->curr_blink;
 		}
 
-		d->xpos++;
+		if(d->curr_negative) {
+			de_uint32 tmpcolor;
+			tmpcolor = cell->fgcol;
+			cell->fgcol = cell->bgcol;
+			cell->bgcol = tmpcolor;
+		}
+		if(d->curr_conceal) {
+			cell->fgcol = cell->bgcol;
+			cell->blink = 0;
+		}
+
+		if(d->ypos >= d->screen->height) d->screen->height = d->ypos+1;
 	}
+	else {
+		if(d->num_warnings<ANSIART_MAX_WARNINGS) {
+			de_warn(c, "Off-screen write (%d,%d) at %d\n",
+				(int)(d->xpos+1), (int)(d->ypos+1), (int)pos);
+			d->num_warnings++;
+		}
+	}
+
+	d->xpos++;
 
 	// Line wrap
 	while(d->xpos >= d->screen->width && !d->vt100_mode) {
@@ -318,7 +300,6 @@ static void do_code_m(deark *c, lctx *d)
 			d->curr_negative = 0;
 			d->curr_conceal = 0;
 			d->curr_strikethru = 0;
-			d->curr_size_mode = SIZEMODE_DEFAULT;
 			d->curr_bgcol = DEFAULT_BGCOL;
 			d->curr_fgcol = DEFAULT_FGCOL;
 			// TODO: Do character sets get reset by this?
@@ -701,23 +682,28 @@ static void do_2char_code(deark *c, lctx *d, de_byte ch1, de_byte ch2, de_int64 
 		else if(ch2=='0') { d->curr_g1_charset = CHARSET_LINEDRAWING; ok=1; }
 	}
 	else if(ch1=='#') {
-		// FIXME: I don't think double-size is handled correctly.
-		// The attribute is supposed to apply to the current line, instead
-		// of to individual characters.
 		if(ch2=='3') {
-			d->curr_size_mode = SIZEMODE_DBLH_TOP;
+			if(d->ypos>=0 && d->ypos<MAX_ROWS) {
+				d->row_data[d->ypos].size_mode = SIZEMODE_DBLH_TOP;
+			}
 			ok=1;
 		}
 		else if(ch2=='4') {
-			d->curr_size_mode = SIZEMODE_DBLH_BOTTOM;
+			if(d->ypos>=0 && d->ypos<MAX_ROWS) {
+				d->row_data[d->ypos].size_mode = SIZEMODE_DBLH_BOTTOM;
+			}
 			ok=1;
 		}
 		else if(ch2=='5') {
-			d->curr_size_mode = SIZEMODE_DEFAULT;
+			if(d->ypos>=0 && d->ypos<MAX_ROWS) {
+				d->row_data[d->ypos].size_mode = SIZEMODE_DEFAULT;
+			}
 			ok=1;
 		}
 		else if(ch2=='6') {
-			d->curr_size_mode = SIZEMODE_DBLW;
+			if(d->ypos>=0 && d->ypos<MAX_ROWS) {
+				d->row_data[d->ypos].size_mode = SIZEMODE_DBLW;
+			}
 			ok=1;
 		}
 	}
@@ -818,6 +804,44 @@ static void do_main(deark *c, lctx *d)
 	}
 }
 
+// With vt100 graphics, each row can be "double width".
+// But our character cells are always single width. We support double
+// width characters by copying in a double-wide row to two character cells,
+// and setting flags to paint either the left half or the right half
+// of the character.
+// This function also copies the row's "double height" setting to each
+// cell. (The vt100 handles double-height characters the same way we do.
+// Consistency is not its strong point.)
+static void fixup_doublesize_rows(deark *c, lctx *d)
+{
+	de_int64 i, j;
+	struct de_char_cell *r;
+	de_byte size_mode;
+
+	for(j=0; j<d->screen->height && j<MAX_ROWS; j++) {
+		size_mode = d->row_data[j].size_mode;
+		if(size_mode==0) continue;
+
+		r = d->screen->cell_rows[j];
+		if(!r) return;
+
+		for(i=d->screen->width-1; i>=0; i--) {
+			if(i>0) r[i] = r[i/2]; // struct copy
+			r[i].size_flags = 0;
+			if(size_mode==SIZEMODE_DBLH_TOP) {
+				r[i].size_flags |= DE_PAINTFLAG_TOPHALF;
+			}
+			else if(size_mode==SIZEMODE_DBLH_BOTTOM){
+				r[i].size_flags |= DE_PAINTFLAG_BOTTOMHALF;
+			}
+			if(i%2)
+				r[i].size_flags |= DE_PAINTFLAG_RIGHTHALF;
+			else
+				r[i].size_flags |= DE_PAINTFLAG_LEFTHALF;
+		}
+	}
+}
+
 static void de_run_ansiart(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
@@ -894,12 +918,15 @@ static void de_run_ansiart(deark *c, de_module_params *mparams)
 	d->screen->height = 1;
 
 	d->screen->cell_rows = de_malloc(c, MAX_ROWS * sizeof(struct de_char_cell*));
-
-	do_main(c, d);
+	d->row_data = de_malloc(c, MAX_ROWS * sizeof(struct row_data_struct));
 
 	for(k=0; k<16; k++) {
 		charctx->pal[k] = ansi_palette[k];
 	}
+
+	do_main(c, d);
+
+	fixup_doublesize_rows(c, d);
 
 	if(d->vt100_mode) {
 		charctx->no_density = 1;
@@ -908,6 +935,7 @@ static void de_run_ansiart(deark *c, de_module_params *mparams)
 	de_char_output_to_file(c, charctx);
 
 	de_free_charctx(c, charctx);
+	de_free(c, d->row_data);
 	de_free_SAUCE(c, si);
 	de_free(c, d);
 }

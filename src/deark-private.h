@@ -570,6 +570,8 @@ int de_font_is_standard_vga_font(deark *c, de_uint32 crc);
 
 ///////////////////////////////////////////
 
+// Note that this struct is assumed to be copyable with a simple struct copy.
+// It should not contain pointers.
 struct de_char_cell {
 	de_int32 codepoint;
 	de_int32 codepoint_unicode;
