@@ -226,6 +226,11 @@ static void fixup_codepoints(deark *c, struct de_bitmap_font *font, int render_a
 	}
 }
 
+struct row_info_struct {
+	de_byte is_visible;
+	de_int64 display_pos; // Number of rows displayed above this one
+};
+
 void de_font_bitmap_font_to_image(deark *c, struct de_bitmap_font *font, de_finfo *fi)
 {
 	de_int64 i, j;
@@ -244,8 +249,7 @@ void de_font_bitmap_font_to_image(deark *c, struct de_bitmap_font *font, de_finf
 	struct de_bitmap_font *dfont = NULL;
 	de_int64 chars_per_row = 32;
 	const char *s;
-	de_byte *row_flags = NULL;
-	de_int64 *row_display_pos = NULL;
+	struct row_info_struct *row_info = NULL;
 	int unicode_req = 0;
 	int render_as_unicode = 0;
 	de_int64 label_stride;
@@ -288,19 +292,18 @@ void de_font_bitmap_font_to_image(deark *c, struct de_bitmap_font *font, de_finf
 	num_table_rows_total = max_codepoint/chars_per_row+1;
 
 	// Flag each row that has a character that exists in this font.
-	row_flags = de_malloc(c, num_table_rows_total*sizeof(de_byte));
+	row_info = de_malloc(c, num_table_rows_total*sizeof(struct row_info_struct));
 	for(i=0; i<font->num_chars; i++) {
 		de_int64 rownum;
 		if(!is_valid_char(&font->char_array[i])) continue;
 		rownum = font->char_array[i].codepoint_tmp / chars_per_row;
-		row_flags[rownum] = 1;
+		row_info[rownum].is_visible = 1;
 	}
 	// Figure out how many rows are used, and where to draw them.
-	row_display_pos = de_malloc(c, num_table_rows_total*sizeof(de_int64));
 	num_table_rows_rendered = 0;
 	for(i=0; i<num_table_rows_total; i++) {
-		if(row_flags[i]) {
-			row_display_pos[i] = num_table_rows_rendered;
+		if(row_info[i].is_visible) {
+			row_info[i].display_pos = num_table_rows_rendered;
 			num_table_rows_rendered++;
 		}
 	}
@@ -308,8 +311,6 @@ void de_font_bitmap_font_to_image(deark *c, struct de_bitmap_font *font, de_finf
 
 	img_hpixelsperchar = font->nominal_width + 1;
 	img_vpixelsperchar = font->nominal_height + 1;
-	// TODO: Ideally, we should probably skip over any rows that have no valid
-	// characters.
 	img_fieldwidth = chars_per_row * img_hpixelsperchar -1;
 	img_fieldheight = num_table_rows_rendered * img_vpixelsperchar -1;
 	img_width = img_leftmargin + img_fieldwidth + img_rightmargin;
@@ -354,9 +355,9 @@ void de_font_bitmap_font_to_image(deark *c, struct de_bitmap_font *font, de_finf
 
 	// Draw the labels in the left margin.
 	for(i=0; i<num_table_rows_total; i++) {
-		if(row_flags[i]==0) continue;
+		if(!row_info[i].is_visible) continue;
 		xpos = img_leftmargin - 2;
-		ypos = img_topmargin + (row_display_pos[i]+1)*img_vpixelsperchar - 2;
+		ypos = img_topmargin + (row_info[i].display_pos+1)*img_vpixelsperchar - 2;
 		draw_number(c, img, dfont, i*chars_per_row, xpos, ypos,
 			render_as_unicode?1:0, render_as_unicode?1:0);
 	}
@@ -364,7 +365,7 @@ void de_font_bitmap_font_to_image(deark *c, struct de_bitmap_font *font, de_finf
 	// Render the glyphs.
 	for(i=0; i<font->num_chars; i++) {
 		xpos = img_leftmargin + (font->char_array[i].codepoint_tmp%chars_per_row) * img_hpixelsperchar;
-		ypos = img_topmargin + (row_display_pos[font->char_array[i].codepoint_tmp/chars_per_row]) * img_vpixelsperchar;
+		ypos = img_topmargin + (row_info[font->char_array[i].codepoint_tmp/chars_per_row].display_pos) * img_vpixelsperchar;
 		de_font_paint_character_idx(c, img, font, i, xpos, ypos,
 			DE_MAKE_GRAY(0), DE_MAKE_GRAY(255), 0);
 	}
@@ -377,8 +378,7 @@ done:
 		de_free(c, dfont);
 	}
 	de_bitmap_destroy(img);
-	de_free(c, row_flags);
-	de_free(c, row_display_pos);
+	de_free(c, row_info);
 }
 
 // Do we recognize the font as a standard VGA CP437 font?
