@@ -228,20 +228,24 @@ static void fixup_codepoints(deark *c, struct de_bitmap_font *font, int render_a
 
 struct row_info_struct {
 	de_byte is_visible;
-	de_int64 display_pos; // Number of rows displayed above this one
+	de_int64 display_index; // Number of rows displayed above this one
+};
+
+struct col_info_struct {
+	de_int64 display_width;
+	de_int64 display_pos_in_pixels;
 };
 
 void de_font_bitmap_font_to_image(deark *c, struct de_bitmap_font *font, de_finfo *fi)
 {
-	de_int64 i, j;
-	de_byte clr;
+	de_int64 i, j, k;
 	struct deark_bitmap *img = NULL;
 	de_int64 xpos, ypos;
 	de_int64 img_leftmargin, img_topmargin;
 	de_int64 img_rightmargin, img_bottommargin;
-	de_int64 img_hpixelsperchar, img_vpixelsperchar;
+	de_int64 img_vpixelsperchar;
 	de_int64 img_width, img_height;
-	de_int64 img_fieldwidth, img_fieldheight;
+	de_int64 img_fieldheight;
 	de_int64 num_table_rows_total;
 	de_int64 num_table_rows_rendered;
 	de_int32 min_codepoint, max_codepoint;
@@ -250,9 +254,12 @@ void de_font_bitmap_font_to_image(deark *c, struct de_bitmap_font *font, de_finf
 	de_int64 chars_per_row = 32;
 	const char *s;
 	struct row_info_struct *row_info = NULL;
+	struct col_info_struct *col_info = NULL;
 	int unicode_req = 0;
 	int render_as_unicode = 0;
 	de_int64 label_stride;
+	de_int64 rownum, colnum;
+	de_int64 curpos;
 
 	if(font->num_chars<1) goto done;
 	if(font->nominal_width>128 || font->nominal_height>128) {
@@ -291,50 +298,74 @@ void de_font_bitmap_font_to_image(deark *c, struct de_bitmap_font *font, de_finf
 	if(num_valid_chars<1) goto done;
 	num_table_rows_total = max_codepoint/chars_per_row+1;
 
-	// Flag each row that has a character that exists in this font.
+	// Scan the characters, and record relevant information.
 	row_info = de_malloc(c, num_table_rows_total*sizeof(struct row_info_struct));
-	for(i=0; i<font->num_chars; i++) {
-		de_int64 rownum;
-		if(!is_valid_char(&font->char_array[i])) continue;
-		rownum = font->char_array[i].codepoint_tmp / chars_per_row;
-		row_info[rownum].is_visible = 1;
+	col_info = de_malloc(c, chars_per_row*sizeof(struct col_info_struct));
+	for(i=0; i<chars_per_row; i++) {
+#define MIN_CHAR_CELL_WIDTH 5
+		col_info[i].display_width = MIN_CHAR_CELL_WIDTH;
 	}
+
+	for(k=0; k<font->num_chars; k++) {
+		if(!is_valid_char(&font->char_array[k])) continue;
+		rownum = font->char_array[k].codepoint_tmp / chars_per_row;
+		colnum = font->char_array[k].codepoint_tmp % chars_per_row;
+
+		// Remember that there is at least one valid character in this character's row.
+		row_info[rownum].is_visible = 1;
+
+		// Track the maximum width of any character in this character's column.
+		if(font->char_array[k].width > col_info[colnum].display_width) {
+			col_info[colnum].display_width = font->char_array[k].width;
+		}
+	}
+
 	// Figure out how many rows are used, and where to draw them.
 	num_table_rows_rendered = 0;
 	for(i=0; i<num_table_rows_total; i++) {
 		if(row_info[i].is_visible) {
-			row_info[i].display_pos = num_table_rows_rendered;
+			row_info[i].display_index = num_table_rows_rendered;
 			num_table_rows_rendered++;
 		}
 	}
 	if(num_table_rows_rendered<1) goto done;
 
-	img_hpixelsperchar = font->nominal_width + 1;
+	// Figure out the positions of the columns.
+	curpos = img_leftmargin;
+	for(i=0; i<chars_per_row; i++) {
+		col_info[i].display_pos_in_pixels = curpos;
+		curpos += col_info[i].display_width + 1;
+	}
+
 	img_vpixelsperchar = font->nominal_height + 1;
-	img_fieldwidth = chars_per_row * img_hpixelsperchar -1;
 	img_fieldheight = num_table_rows_rendered * img_vpixelsperchar -1;
-	img_width = img_leftmargin + img_fieldwidth + img_rightmargin;
+	img_width = col_info[chars_per_row-1].display_pos_in_pixels +
+		col_info[chars_per_row-1].display_width + img_rightmargin;
 	img_height = img_topmargin + img_fieldheight + img_bottommargin;
 
 	img = de_bitmap_create(c, img_width, img_height, 1);
 
-	// Clear image and draw the grid.
+	// Clear the image
 	for(j=0; j<img->height; j++) {
 		for(i=0; i<img->width; i++) {
-			if(i<img_leftmargin || i>img_leftmargin+img_fieldwidth ||
-				j<img_topmargin || j>img_topmargin+img_fieldheight)
-			{
-				clr = 128;
+			de_bitmap_setpixel_gray(img, i, j, 128);
+		}
+	}
+
+	// Draw/clear the cell backgrounds
+	for(j=0; j<num_table_rows_total; j++) {
+		if(!row_info[j].is_visible) continue;
+		ypos = img_topmargin + (row_info[j].display_index)*img_vpixelsperchar;
+
+		for(i=0; i<chars_per_row; i++) {
+			de_int64 ii, jj;
+
+			xpos = col_info[i].display_pos_in_pixels;
+			for(jj=0; jj<img_vpixelsperchar-1; jj++) {
+				for(ii=0; ii<col_info[i].display_width; ii++) {
+					de_bitmap_setpixel_gray(img, xpos+ii, ypos+jj, 192);
+				}
 			}
-			else if((i+1-img_leftmargin)%img_hpixelsperchar==0 ||
-				(j+1-img_topmargin)%img_vpixelsperchar==0)
-			{
-				clr = 128;
-			}
-			else {
-				clr = 192;
-			}
-			de_bitmap_setpixel_gray(img, i, j, clr);
 		}
 	}
 
@@ -348,26 +379,30 @@ void de_font_bitmap_font_to_image(deark *c, struct de_bitmap_font *font, de_finf
 
 	for(i=0; i<chars_per_row; i++) {
 		if(i%label_stride != 0) continue;
-		xpos = img_leftmargin + (i+1)*img_hpixelsperchar;
+		xpos = col_info[i].display_pos_in_pixels + col_info[i].display_width + 1;
 		ypos = img_topmargin - 3;
 		draw_number(c, img, dfont, i, xpos, ypos, render_as_unicode?1:0, 0);
 	}
 
 	// Draw the labels in the left margin.
-	for(i=0; i<num_table_rows_total; i++) {
-		if(!row_info[i].is_visible) continue;
+	for(j=0; j<num_table_rows_total; j++) {
+		if(!row_info[j].is_visible) continue;
 		xpos = img_leftmargin - 2;
-		ypos = img_topmargin + (row_info[i].display_pos+1)*img_vpixelsperchar - 2;
-		draw_number(c, img, dfont, i*chars_per_row, xpos, ypos,
+		ypos = img_topmargin + (row_info[j].display_index+1)*img_vpixelsperchar - 2;
+		draw_number(c, img, dfont, j*chars_per_row, xpos, ypos,
 			render_as_unicode?1:0, render_as_unicode?1:0);
 	}
 
 	// Render the glyphs.
-	for(i=0; i<font->num_chars; i++) {
-		xpos = img_leftmargin + (font->char_array[i].codepoint_tmp%chars_per_row) * img_hpixelsperchar;
-		ypos = img_topmargin + (row_info[font->char_array[i].codepoint_tmp/chars_per_row].display_pos) * img_vpixelsperchar;
-		de_font_paint_character_idx(c, img, font, i, xpos, ypos,
-			DE_MAKE_GRAY(0), DE_MAKE_GRAY(255), 0);
+	for(k=0; k<font->num_chars; k++) {
+		rownum = font->char_array[k].codepoint_tmp / chars_per_row;
+		colnum = font->char_array[k].codepoint_tmp % chars_per_row;
+
+		xpos = col_info[colnum].display_pos_in_pixels;
+		ypos = img_topmargin + (row_info[rownum].display_index) * img_vpixelsperchar;
+
+		de_font_paint_character_idx(c, img, font, k, xpos, ypos,
+			DE_STOCKCOLOR_BLACK, DE_STOCKCOLOR_WHITE, 0);
 	}
 
 	de_bitmap_write_to_file_finfo(img, fi);
@@ -379,6 +414,7 @@ done:
 	}
 	de_bitmap_destroy(img);
 	de_free(c, row_info);
+	de_free(c, col_info);
 }
 
 // Do we recognize the font as a standard VGA CP437 font?
