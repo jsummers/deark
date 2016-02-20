@@ -228,12 +228,12 @@ static void fixup_codepoints(deark *c, struct de_bitmap_font *font, int render_a
 
 struct row_info_struct {
 	de_byte is_visible;
-	de_int64 display_index; // Number of rows displayed above this one
+	de_int64 display_pos;
 };
 
 struct col_info_struct {
 	de_int64 display_width;
-	de_int64 display_pos_in_pixels;
+	de_int64 display_pos;
 };
 
 void de_font_bitmap_font_to_image(deark *c, struct de_bitmap_font *font, de_finfo *fi)
@@ -245,9 +245,8 @@ void de_font_bitmap_font_to_image(deark *c, struct de_bitmap_font *font, de_finf
 	de_int64 img_rightmargin, img_bottommargin;
 	de_int64 img_vpixelsperchar;
 	de_int64 img_width, img_height;
-	de_int64 img_fieldheight;
 	de_int64 num_table_rows_total;
-	de_int64 num_table_rows_rendered;
+	de_int64 last_valid_row;
 	de_int32 min_codepoint, max_codepoint;
 	de_int64 num_valid_chars;
 	struct de_bitmap_font *dfont = NULL;
@@ -320,28 +319,34 @@ void de_font_bitmap_font_to_image(deark *c, struct de_bitmap_font *font, de_finf
 		}
 	}
 
+	img_vpixelsperchar = font->nominal_height + 1;
+
 	// Figure out how many rows are used, and where to draw them.
-	num_table_rows_rendered = 0;
-	for(i=0; i<num_table_rows_total; i++) {
-		if(row_info[i].is_visible) {
-			row_info[i].display_index = num_table_rows_rendered;
-			num_table_rows_rendered++;
-		}
+	last_valid_row = -1;
+	curpos = img_topmargin;
+	for(j=0; j<num_table_rows_total; j++) {
+		if(!row_info[j].is_visible) continue;
+
+		// If we skipped one or more rows, leave some extra vertical space.
+		if(j>0 && !row_info[j-1].is_visible) curpos+=3;
+
+		last_valid_row = j;
+		row_info[j].display_pos = curpos;
+		curpos += img_vpixelsperchar;
 	}
-	if(num_table_rows_rendered<1) goto done;
+	if(last_valid_row<0) goto done;
 
 	// Figure out the positions of the columns.
 	curpos = img_leftmargin;
 	for(i=0; i<chars_per_row; i++) {
-		col_info[i].display_pos_in_pixels = curpos;
+		col_info[i].display_pos = curpos;
 		curpos += col_info[i].display_width + 1;
 	}
 
-	img_vpixelsperchar = font->nominal_height + 1;
-	img_fieldheight = num_table_rows_rendered * img_vpixelsperchar -1;
-	img_width = col_info[chars_per_row-1].display_pos_in_pixels +
+	img_width = col_info[chars_per_row-1].display_pos +
 		col_info[chars_per_row-1].display_width + img_rightmargin;
-	img_height = img_topmargin + img_fieldheight + img_bottommargin;
+	img_height = row_info[last_valid_row].display_pos +
+		img_vpixelsperchar -1 + img_bottommargin;
 
 	img = de_bitmap_create(c, img_width, img_height, 1);
 
@@ -355,12 +360,12 @@ void de_font_bitmap_font_to_image(deark *c, struct de_bitmap_font *font, de_finf
 	// Draw/clear the cell backgrounds
 	for(j=0; j<num_table_rows_total; j++) {
 		if(!row_info[j].is_visible) continue;
-		ypos = img_topmargin + (row_info[j].display_index)*img_vpixelsperchar;
+		ypos = row_info[j].display_pos;
 
 		for(i=0; i<chars_per_row; i++) {
 			de_int64 ii, jj;
 
-			xpos = col_info[i].display_pos_in_pixels;
+			xpos = col_info[i].display_pos;
 			for(jj=0; jj<img_vpixelsperchar-1; jj++) {
 				for(ii=0; ii<col_info[i].display_width; ii++) {
 					de_bitmap_setpixel_gray(img, xpos+ii, ypos+jj, 192);
@@ -379,7 +384,7 @@ void de_font_bitmap_font_to_image(deark *c, struct de_bitmap_font *font, de_finf
 
 	for(i=0; i<chars_per_row; i++) {
 		if(i%label_stride != 0) continue;
-		xpos = col_info[i].display_pos_in_pixels + col_info[i].display_width + 1;
+		xpos = col_info[i].display_pos + col_info[i].display_width + 1;
 		ypos = img_topmargin - 3;
 		draw_number(c, img, dfont, i, xpos, ypos, render_as_unicode?1:0, 0);
 	}
@@ -388,7 +393,7 @@ void de_font_bitmap_font_to_image(deark *c, struct de_bitmap_font *font, de_finf
 	for(j=0; j<num_table_rows_total; j++) {
 		if(!row_info[j].is_visible) continue;
 		xpos = img_leftmargin - 2;
-		ypos = img_topmargin + (row_info[j].display_index+1)*img_vpixelsperchar - 2;
+		ypos = row_info[j].display_pos + img_vpixelsperchar - 2;
 		draw_number(c, img, dfont, j*chars_per_row, xpos, ypos,
 			render_as_unicode?1:0, render_as_unicode?1:0);
 	}
@@ -398,8 +403,8 @@ void de_font_bitmap_font_to_image(deark *c, struct de_bitmap_font *font, de_finf
 		rownum = font->char_array[k].codepoint_tmp / chars_per_row;
 		colnum = font->char_array[k].codepoint_tmp % chars_per_row;
 
-		xpos = col_info[colnum].display_pos_in_pixels;
-		ypos = img_topmargin + (row_info[rownum].display_index) * img_vpixelsperchar;
+		xpos = col_info[colnum].display_pos;
+		ypos = row_info[rownum].display_pos;
 
 		de_font_paint_character_idx(c, img, font, k, xpos, ypos,
 			DE_STOCKCOLOR_BLACK, DE_STOCKCOLOR_WHITE, 0);
