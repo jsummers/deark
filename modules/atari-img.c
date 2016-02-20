@@ -736,7 +736,7 @@ static void fix_dark_pal(deark *c, struct atari_img_decode_data *adata)
 		(adata->pal[1]&0xffffff)==0)
 	{
 		de_warn(c, "All colors are very dark. Converting to black & white.\n");
-		adata->pal[0] = DE_MAKE_RGB(0xff,0xff,0xff);
+		adata->pal[0] = DE_STOCKCOLOR_WHITE;
 	}
 }
 

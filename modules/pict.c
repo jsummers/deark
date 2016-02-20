@@ -640,8 +640,8 @@ static int handler_98_9a(deark *c, lctx *d, de_int64 opcode, de_int64 pos1, de_i
 		bi->cmpsize = 1;
 		bi->uses_pal = 1;
 		bi->num_pal_entries = 2;
-		bi->pal[0] = DE_MAKE_GRAY(255);
-		bi->pal[1] = DE_MAKE_GRAY(0);
+		bi->pal[0] = DE_STOCKCOLOR_WHITE;
+		bi->pal[1] = DE_STOCKCOLOR_BLACK;
 	}
 	else if(opcode==0x9a && !bi->pixmap_flag) {
 		de_err(c, "DirectBitsRect image without PixMap flag is not supported\n");

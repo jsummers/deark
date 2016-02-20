@@ -427,6 +427,7 @@ void de_bitmap_destroy(struct deark_bitmap *b);
 
 #define DE_STOCKCOLOR_BLACK   0xff000000U
 #define DE_STOCKCOLOR_WHITE   0xffffffffU
+#define DE_STOCKCOLOR_TRANSPARENT 0x00000000U
 
 #define DE_MAKE_RGBA(r,g,b,a)  ((((de_uint32)(a))<<24)|((r)<<16)|((g)<<8)|(b))
 #define DE_MAKE_RGB(r,g,b)     ((((de_uint32)0xff)<<24)|((r)<<16)|((g)<<8)|(b))

@@ -46,13 +46,13 @@ static int do_v1_image(deark *c, de_int64 pos,
 			if(special) {
 				if(j==0 && i==0) {
 					// No data (transparent)
-					clr1 = DE_MAKE_RGBA(0x00,0x00,0x00,0x00);
-					clr2 = DE_MAKE_RGBA(0x00,0x00,0x00,0x00);
+					clr1 = DE_STOCKCOLOR_TRANSPARENT;
+					clr2 = DE_STOCKCOLOR_TRANSPARENT;
 				}
 				else {
 					// Blue on black
 					clr1 = DE_MAKE_RGB(0x00,0x00,0xff);
-					clr2 = DE_MAKE_RGB(0x00,0x00,0x00);
+					clr2 = DE_STOCKCOLOR_BLACK;
 				}
 			}
 			else {

@@ -269,8 +269,8 @@ static int decode_bilevel(deark *c, lctx *d)
 
 	if(!d->unc_pixels) return 0;
 
-	pal[0] = DE_MAKE_GRAY(0);
-	pal[1] = DE_MAKE_GRAY(255); // default
+	pal[0] = DE_STOCKCOLOR_BLACK;
+	pal[1] = DE_STOCKCOLOR_WHITE; // default
 
 	// PCPaint's CGA and EGA 2-color modes used gray shade 170 instead of
 	// white (255). Maybe they should be interpreted as white, but for
