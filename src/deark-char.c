@@ -614,32 +614,50 @@ done:
 	de_bitmap_destroy(img);
 }
 
+#define NUM_EXTRA_FONT_CHARS 1
+static const de_byte extra_font_data[NUM_EXTRA_FONT_CHARS*16] = {
+	0,0,0,126,66,66,66,66,66,66,66,126,0,0,0,0
+};
+
 static void do_create_standard_font(deark *c, struct charextractx *ectx)
 {
 	de_int64 i;
 	struct de_bitmap_font *font;
 	const de_byte *vga_cp437_font_data;
+	struct de_bitmap_font_char *ch;
 
 	font = de_create_bitmap_font(c);
 	ectx->standard_font = font;
 
 	vga_cp437_font_data = de_get_vga_cp437_font_ptr();
 
-	font->num_chars = 256;
+	font->num_chars = 256 + NUM_EXTRA_FONT_CHARS;
 	font->nominal_width = 8;
 	font->nominal_height = 16;
 	font->has_unicode_codepoints = 1;
 
 	font->char_array = de_malloc(c, font->num_chars * sizeof(struct de_bitmap_font_char));
 
+	// Set defaults for each character
 	for(i=0; i<font->num_chars; i++) {
-		font->char_array[i].codepoint = (de_int32)i;
-		font->char_array[i].codepoint_unicode = de_char_to_unicode(c, (de_int32)i, DE_ENCODING_CP437_G);
-		font->char_array[i].width = font->nominal_width;
-		font->char_array[i].height = font->nominal_height;
-		font->char_array[i].rowspan = 1;
-		font->char_array[i].bitmap = (de_byte*)&vga_cp437_font_data[i*16];
+		ch = &font->char_array[i];
+		ch->width = font->nominal_width;
+		ch->height = font->nominal_height;
+		ch->rowspan = 1;
 	}
+
+	for(i=0; i<font->num_chars; i++) {
+		ch = &font->char_array[i];
+		ch->codepoint = (de_int32)i;
+		ch->codepoint_unicode = de_char_to_unicode(c, (de_int32)i, DE_ENCODING_CP437_G);
+		ch->bitmap = (de_byte*)&vga_cp437_font_data[i*16];
+	}
+
+	ch = &font->char_array[256];
+	ch->codepoint_unicode = 0xfffd;
+	ch->codepoint = ch->codepoint_unicode;
+	ch->bitmap = (de_byte*)&extra_font_data[0*16];
+	font->index_of_replacement_char = 256;
 }
 
 static void de_char_output_to_image_files(deark *c, struct de_char_context *charctx,

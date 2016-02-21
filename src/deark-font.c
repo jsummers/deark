@@ -20,6 +20,7 @@ struct de_bitmap_font *de_create_bitmap_font(deark *c)
 {
 	struct de_bitmap_font *font;
 	font = de_malloc(c, sizeof(struct de_bitmap_font));
+	font->index_of_replacement_char = -1;
 	return font;
 }
 
@@ -113,10 +114,14 @@ void de_font_paint_character_cp(deark *c, struct deark_bitmap *img,
 
 	char_idx = get_char_idx_by_cp(c, font, codepoint);
 	if(char_idx<0) {
-		// TODO: Paint a better error character
-		char_idx = get_char_idx_by_cp(c, font, '?');
+		if(font->index_of_replacement_char>=0) {
+			char_idx = font->index_of_replacement_char;
+		}
 	}
 	if(char_idx<0) {
+		char_idx = get_char_idx_by_cp(c, font, '?');
+	}
+	if(char_idx<0 || char_idx>=font->num_chars) {
 		return;
 	}
 	de_font_paint_character_idx(c, img, font, char_idx, xpos, ypos, fgcol, bgcol, flags);

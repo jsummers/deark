@@ -545,6 +545,7 @@ struct de_bitmap_font_char {
 
 struct de_bitmap_font {
 	int nominal_width, nominal_height;
+	int index_of_replacement_char; // -1 if none
 
 	de_byte is_unicode; // Flag: Is the font fundamentally unicode?
 	de_byte has_unicode_codepoints;	// Flag: Are char_array[]->codepoint_unicode codes set?
