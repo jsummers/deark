@@ -614,9 +614,25 @@ done:
 	de_bitmap_destroy(img);
 }
 
-#define NUM_EXTRA_FONT_CHARS 1
+#define NUM_EXTRA_FONT_CHARS 13
 static const de_byte extra_font_data[NUM_EXTRA_FONT_CHARS*16] = {
-	0,0,0,126,66,66,66,66,66,66,66,126,0,0,0,0
+	0,0,0,126,66,66,66,66,66,66,66,126,0,0,0,0, // replacement char
+	0,0,0,0,16,56,124,254,124,56,16,0,0,0,0,0,  // 25c6 diamond
+	0,0,0,126,66,66,66,66,66,66,66,126,0,0,0,0, // 2409 "HT"
+	0,0,0,126,66,66,66,66,66,66,66,126,0,0,0,0, // 240c "FF"
+	0,0,0,126,66,66,66,66,66,66,66,126,0,0,0,0, // 240d "CR"
+	0,0,0,126,66,66,66,66,66,66,66,126,0,0,0,0, // 240a "LF"
+	0,0,0,126,66,66,66,66,66,66,66,126,0,0,0,0, // 2424 "NL"
+	0,0,0,126,66,66,66,66,66,66,66,126,0,0,0,0, // 240b "VT"
+	0,255,0,0,0,0,0,0,0,0,0,0,0,0,0,0, // 23ba scan 1
+	0,0,0,0,255,0,0,0,0,0,0,0,0,0,0,0, // 23bb scan 3
+	0,0,0,0,0,0,0,0,0,0,255,0,0,0,0,0, // 23bc scan 7
+	0,0,0,0,0,0,0,0,0,0,0,0,0,255,0,0, // 23bd scan 9
+	0,0,0,2,4,126,8,16,126,32,64,0,0,0,0,0  // 2260 not equal
+};
+static const de_int32 extra_font_codepoints[NUM_EXTRA_FONT_CHARS] = {
+	0xfffd,0x25c6,0x2409,0x240c,0x240d,0x240a,0x2424,0x240b,
+	0x23ba,0x23bb,0x23bc,0x23bd,0x2260
 };
 
 static void do_create_standard_font(deark *c, struct charextractx *ectx)
@@ -653,10 +669,13 @@ static void do_create_standard_font(deark *c, struct charextractx *ectx)
 		ch->bitmap = (de_byte*)&vga_cp437_font_data[i*16];
 	}
 
-	ch = &font->char_array[256];
-	ch->codepoint_unicode = 0xfffd;
-	ch->codepoint = ch->codepoint_unicode;
-	ch->bitmap = (de_byte*)&extra_font_data[0*16];
+	// Add vt100 characters that aren't in CP437
+	for(i=0; i<NUM_EXTRA_FONT_CHARS; i++) {
+		ch = &font->char_array[256+i];
+		ch->codepoint_unicode = extra_font_codepoints[i];
+		ch->codepoint = ch->codepoint_unicode;
+		ch->bitmap = (de_byte*)&extra_font_data[i*16];
+	}
 	font->index_of_replacement_char = 256;
 }
 
