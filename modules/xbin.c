@@ -231,7 +231,7 @@ static void free_lctx(deark *c, lctx *d)
 {
 	if(d->font) {
 		de_free(c, d->font->char_array);
-		de_free(c, d->font);
+		de_destroy_bitmap_font(c, d->font);
 	}
 	de_free(c, d->font_data);
 	de_free(c, d);
@@ -299,7 +299,7 @@ static void de_run_xbin(deark *c, de_module_params *mparams)
 	}
 
 	if(d->has_font) {
-		d->font = de_malloc(c, sizeof(struct de_bitmap_font));
+		d->font = de_create_bitmap_font(c);
 		d->font->has_unicode_codepoints = 1;
 		d->font->num_chars = d->has_512chars ? 512 : 256;
 		d->font_data_len = d->font->num_chars * d->font_height;
@@ -514,7 +514,7 @@ static void de_run_artworx_adf(deark *c, de_module_params *mparams)
 	{
 		// TODO: This duplicates a lot of the xbin code.
 
-		d->font = de_malloc(c, sizeof(struct de_bitmap_font));
+		d->font = de_create_bitmap_font(c);
 		d->font->has_unicode_codepoints = 1;
 		d->font->num_chars = 256;
 		d->font_height = 16;

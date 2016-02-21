@@ -96,7 +96,7 @@ static void de_run_pff2(deark *c, de_module_params *mparams)
 	de_int64 i;
 
 	d = de_malloc(c, sizeof(lctx));
-	d->font = de_malloc(c, sizeof(struct de_bitmap_font));
+	d->font = de_create_bitmap_font(c);
 	d->font->is_unicode = 1;
 	d->font->has_unicode_codepoints = 1;
 
@@ -138,7 +138,7 @@ done:
 			}
 			de_free(c, d->font->char_array);
 		}
-		de_free(c, d->font);
+		de_destroy_bitmap_font(c, d->font);
 	}
 
 	de_free(c, d);

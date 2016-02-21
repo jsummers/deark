@@ -16,6 +16,18 @@ static int is_valid_char(struct de_bitmap_font_char *ch)
 	return 1;
 }
 
+struct de_bitmap_font *de_create_bitmap_font(deark *c)
+{
+	struct de_bitmap_font *font;
+	font = de_malloc(c, sizeof(struct de_bitmap_font));
+	return font;
+}
+
+void de_destroy_bitmap_font(deark *c, struct de_bitmap_font *font)
+{
+	de_free(c, font);
+}
+
 void de_font_paint_character_idx(deark *c, struct deark_bitmap *img,
 	struct de_bitmap_font *font, de_int64 char_idx,
 	de_int64 xpos, de_int64 ypos, de_uint32 fgcol, de_uint32 bgcol,
@@ -139,7 +151,7 @@ static struct de_bitmap_font *make_digit_font(deark *c)
 	struct de_bitmap_font *dfont = NULL;
 	de_int64 i;
 
-	dfont = de_malloc(c, sizeof(struct de_bitmap_font));
+	dfont = de_create_bitmap_font(c);
 	dfont->num_chars = 16;
 	dfont->nominal_width = 6;
 	dfont->nominal_height = 7;
@@ -415,7 +427,7 @@ void de_font_bitmap_font_to_image(deark *c, struct de_bitmap_font *font, de_finf
 done:
 	if(dfont) {
 		de_free(c, dfont->char_array);
-		de_free(c, dfont);
+		de_destroy_bitmap_font(c, dfont);
 	}
 	de_bitmap_destroy(img);
 	de_free(c, row_info);

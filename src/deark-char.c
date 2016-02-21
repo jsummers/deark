@@ -618,12 +618,12 @@ static void do_create_standard_font(deark *c, struct charextractx *ectx)
 {
 	de_int64 i;
 	struct de_bitmap_font *font;
-	const de_byte *vga_font_data;
+	const de_byte *vga_cp437_font_data;
 
-	font = de_malloc(c, sizeof(struct de_bitmap_font));
+	font = de_create_bitmap_font(c);
 	ectx->standard_font = font;
 
-	vga_font_data = de_get_vga_font_ptr();
+	vga_cp437_font_data = de_get_vga_cp437_font_ptr();
 
 	font->num_chars = 256;
 	font->nominal_width = 8;
@@ -638,7 +638,7 @@ static void do_create_standard_font(deark *c, struct charextractx *ectx)
 		font->char_array[i].width = font->nominal_width;
 		font->char_array[i].height = font->nominal_height;
 		font->char_array[i].rowspan = 1;
-		font->char_array[i].bitmap = (de_byte*)&vga_font_data[i*16];
+		font->char_array[i].bitmap = (de_byte*)&vga_cp437_font_data[i*16];
 	}
 }
 
@@ -675,7 +675,7 @@ static void de_char_output_to_image_files(deark *c, struct de_char_context *char
 
 	if(ectx->standard_font) {
 		de_free(c, ectx->standard_font->char_array);
-		de_free(c, ectx->standard_font);
+		de_destroy_bitmap_font(c, ectx->standard_font);
 	}
 }
 

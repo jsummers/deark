@@ -100,7 +100,7 @@ static void de_run_gemfont(deark *c, de_module_params *mparams)
 	de_int64 max_char_width;
 
 	d = de_malloc(c, sizeof(lctx));
-	d->font = de_malloc(c, sizeof(struct de_bitmap_font));
+	d->font = de_create_bitmap_font(c);
 
 	d->face_size = de_getui16le(2);
 	de_dbg(c, "point size: %d\n", (int)d->face_size);
@@ -155,7 +155,7 @@ done:
 			}
 			de_free(c, d->font->char_array);
 		}
-		de_free(c, d->font);
+		de_destroy_bitmap_font(c, d->font);
 	}
 	de_finfo_destroy(c, d->fi);
 	de_free(c, d);

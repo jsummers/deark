@@ -282,7 +282,7 @@ de_uint32 de_palette_pcpaint_cga4(int palnum, int index)
 	return 0;
 }
 
-static const de_byte vgafont[4096] = {
+static const de_byte vga_cp437_font_data[256*16] = {
 	0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
 	0,0,126,129,165,129,129,189,153,129,129,126,0,0,0,0,
 	0,0,126,255,219,255,255,195,231,255,255,126,0,0,0,0,
@@ -541,9 +541,9 @@ static const de_byte vgafont[4096] = {
 	0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
 };
 
-const de_byte *de_get_vga_font_ptr(void)
+const de_byte *de_get_vga_cp437_font_ptr(void)
 {
-	return vgafont;
+	return vga_cp437_font_data;
 }
 
 void de_color_to_css(de_uint32 color, char *buf, int buflen)

@@ -491,7 +491,7 @@ de_uint32 de_palette_ega64(int index);
 de_uint32 de_palette_pc16(int index);
 de_uint32 de_palette_pcpaint_cga4(int palnum, int index);
 
-const de_byte *de_get_vga_font_ptr(void);
+const de_byte *de_get_vga_cp437_font_ptr(void);
 
 void de_color_to_css(de_uint32 color, char *buf, int buflen);
 
@@ -552,6 +552,9 @@ struct de_bitmap_font {
 	de_int64 num_chars;
 	struct de_bitmap_font_char *char_array;
 };
+
+struct de_bitmap_font *de_create_bitmap_font(deark *c);
+void de_destroy_bitmap_font(deark *c, struct de_bitmap_font *font);
 
 #define DE_PAINTFLAG_TRNSBKGD 0x01
 #define DE_PAINTFLAG_VGA9COL  0x02 // Render an extra column, like VGA does

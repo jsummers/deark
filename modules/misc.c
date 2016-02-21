@@ -1368,7 +1368,7 @@ static void de_run_vgafont(deark *c, de_module_params *mparams)
 		goto done;
 	}
 
-	font = de_malloc(c, sizeof(struct de_bitmap_font));
+	font = de_create_bitmap_font(c);
 	font->num_chars = 256;
 	font->has_unicode_codepoints = 0;
 	font->is_unicode = 0;
@@ -1389,7 +1389,7 @@ static void de_run_vgafont(deark *c, de_module_params *mparams)
 done:
 	if(font) {
 		de_free(c, font->char_array);
-		de_free(c, font);
+		de_destroy_bitmap_font(c, font);
 	}
 	de_free(c, fontdata);
 }

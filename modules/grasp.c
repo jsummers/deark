@@ -140,7 +140,7 @@ static void de_run_graspfont(deark *c, de_module_params *mparams)
 	de_byte *font_data = NULL;
 	de_int64 glyph_rowspan;
 
-	font = de_malloc(c, sizeof(struct de_bitmap_font));
+	font = de_create_bitmap_font(c);
 
 	reported_filesize = de_getui16le(0);
 	de_dbg(c, "reported file size: %d\n", (int)reported_filesize);
@@ -193,7 +193,7 @@ done:
 		if(font->char_array) {
 			de_free(c, font->char_array);
 		}
-		de_free(c, font);
+		de_destroy_bitmap_font(c, font);
 	}
 	de_free(c, font_data);
 }
