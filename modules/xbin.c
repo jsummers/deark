@@ -164,7 +164,7 @@ static void do_extract_font(deark *c, lctx *d)
 {
 	de_finfo *fi = NULL;
 
-	if(d->font_data_len!=4096 || d->font->num_chars!=256) return;
+	if(!d->has_font || !d->font) return;
 	fi = de_finfo_create(c);
 	de_finfo_set_name_from_sz(c, fi, "font", DE_ENCODING_ASCII);
 
@@ -504,7 +504,7 @@ static void de_run_artworx_adf(deark *c, de_module_params *mparams)
 	de_dbg(c, "calculated height: %d chars\n", (int)d->height_in_chars);
 	if(d->height_in_chars<1) goto done;
 	d->has_palette = 0;
-	d->has_font = 0;
+	d->has_font = 1;
 	d->compression = 0;
 	d->has_512chars = 0;
 	d->nonblink = 1;
