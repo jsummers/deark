@@ -173,17 +173,24 @@ static struct de_bitmap_font *make_digit_font(deark *c)
 	return dfont;
 }
 
-// (xpos,ypos) is the lower-right corner.
+#define DNFLAG_HEX            0x1
+#define DNFLAG_LEADING_ZEROES 0x2
+#define DNFLAG_HCENTER        0x4
+
+// (xpos,ypos) is the lower-right corner
+//   (or the bottom-center, if hcenter==1).
 static void draw_number(deark *c, struct deark_bitmap *img,
-	struct de_bitmap_font *dfont, de_int64 n, de_int64 xpos, de_int64 ypos,
-	int hex, int leading_zeroes)
+	struct de_bitmap_font *dfont, de_int64 n, de_int64 xpos1, de_int64 ypos1,
+	unsigned int flags)
 {
 	char buf[32];
 	de_int64 len;
 	de_int64 i;
+	de_int64 xpos_start;
+	de_int64 xpos, ypos;
 
-	if(hex) {
-		if(leading_zeroes)
+	if(flags & DNFLAG_HEX) {
+		if(flags & DNFLAG_LEADING_ZEROES)
 			de_snprintf(buf, sizeof(buf), "%04X", (unsigned int)n);
 		else
 			de_snprintf(buf, sizeof(buf), "%X", (unsigned int)n);
@@ -193,9 +200,20 @@ static void draw_number(deark *c, struct deark_bitmap *img,
 	}
 	len = (de_int64)de_strlen(buf);
 
+	if(flags & DNFLAG_HCENTER)
+		xpos_start = xpos1-(dfont->nominal_width*len)/2;
+	else
+		xpos_start = xpos1-dfont->nominal_width*len;
+
+	// Make sure number doesn't go beyond the image
+	if(xpos_start + dfont->nominal_width*len > img->width) {
+		xpos_start = img->width - dfont->nominal_width*len;
+	}
+
 	for(i=len-1; i>=0; i--) {
-		de_font_paint_character_cp(c, img, dfont, buf[i],
-			xpos-dfont->nominal_width*(len-i), ypos-dfont->nominal_height,
+		xpos = xpos_start + dfont->nominal_width*i;
+		ypos = ypos1-dfont->nominal_height;
+		de_font_paint_character_cp(c, img, dfont, buf[i], xpos, ypos,
 			DE_MAKE_GRAY(255), 0, DE_PAINTFLAG_TRNSBKGD);
 	}
 }
@@ -262,6 +280,7 @@ void de_font_bitmap_font_to_image(deark *c, struct de_bitmap_font *font, de_finf
 	de_int64 img_rightmargin, img_bottommargin;
 	de_int64 img_vpixelsperchar;
 	de_int64 img_width, img_height;
+	de_int64 num_table_rows_to_display;
 	de_int64 num_table_rows_total;
 	de_int64 last_valid_row;
 	de_int32 min_codepoint, max_codepoint;
@@ -276,6 +295,7 @@ void de_font_bitmap_font_to_image(deark *c, struct de_bitmap_font *font, de_finf
 	de_int64 label_stride;
 	de_int64 rownum, colnum;
 	de_int64 curpos;
+	unsigned int dnflags;
 
 	if(font->num_chars<1) goto done;
 	if(font->nominal_width>128 || font->nominal_height>128) {
@@ -339,19 +359,21 @@ void de_font_bitmap_font_to_image(deark *c, struct de_bitmap_font *font, de_finf
 	img_vpixelsperchar = font->nominal_height + 1;
 
 	// Figure out how many rows are used, and where to draw them.
+	num_table_rows_to_display = 0;
 	last_valid_row = -1;
 	curpos = img_topmargin;
 	for(j=0; j<num_table_rows_total; j++) {
 		if(!row_info[j].is_visible) continue;
 
 		// If we skipped one or more rows, leave some extra vertical space.
-		if(j>0 && !row_info[j-1].is_visible) curpos+=3;
+		if(num_table_rows_to_display>0 && !row_info[j-1].is_visible) curpos+=3;
 
 		last_valid_row = j;
 		row_info[j].display_pos = curpos;
 		curpos += img_vpixelsperchar;
+		num_table_rows_to_display++;
 	}
-	if(last_valid_row<0) goto done;
+	if(num_table_rows_to_display<1) goto done;
 
 	// Figure out the positions of the columns.
 	curpos = img_leftmargin;
@@ -385,7 +407,7 @@ void de_font_bitmap_font_to_image(deark *c, struct de_bitmap_font *font, de_finf
 			xpos = col_info[i].display_pos;
 			for(jj=0; jj<img_vpixelsperchar-1; jj++) {
 				for(ii=0; ii<col_info[i].display_width; ii++) {
-					de_bitmap_setpixel_gray(img, xpos+ii, ypos+jj, 192);
+					de_bitmap_setpixel_gray(img, xpos+ii, ypos+jj, (ii/2+jj/2)%2 ? 176 : 192);
 				}
 			}
 		}
@@ -401,18 +423,25 @@ void de_font_bitmap_font_to_image(deark *c, struct de_bitmap_font *font, de_finf
 
 	for(i=0; i<chars_per_row; i++) {
 		if(i%label_stride != 0) continue;
-		xpos = col_info[i].display_pos + col_info[i].display_width;
+		xpos = col_info[i].display_pos + col_info[i].display_width/2;
 		ypos = img_topmargin - 3;
-		draw_number(c, img, dfont, i, xpos, ypos, render_as_unicode?1:0, 0);
+
+		dnflags = DNFLAG_HCENTER;
+		if(render_as_unicode) dnflags |= DNFLAG_HEX;
+
+		draw_number(c, img, dfont, i, xpos, ypos, dnflags);
 	}
 
 	// Draw the labels in the left margin.
 	for(j=0; j<num_table_rows_total; j++) {
 		if(!row_info[j].is_visible) continue;
 		xpos = img_leftmargin - 3;
-		ypos = row_info[j].display_pos + img_vpixelsperchar - 2;
-		draw_number(c, img, dfont, j*chars_per_row, xpos, ypos,
-			render_as_unicode?1:0, render_as_unicode?1:0);
+		ypos = row_info[j].display_pos + (img_vpixelsperchar + dfont->nominal_height + 1)/2;
+
+		dnflags = 0;
+		if(render_as_unicode) dnflags |= DNFLAG_HEX | DNFLAG_LEADING_ZEROES;
+
+		draw_number(c, img, dfont, j*chars_per_row, xpos, ypos, dnflags);
 	}
 
 	// Render the glyphs.
