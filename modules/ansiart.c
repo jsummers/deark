@@ -849,6 +849,8 @@ static void de_run_ansiart(deark *c, de_module_params *mparams)
 	de_int64 k;
 	struct de_SAUCE_info *si = NULL;
 	int valid_sauce = 0;
+	const char *s;
+	de_int64 width_req = 0;
 
 	d = de_malloc(c, sizeof(lctx));
 
@@ -857,6 +859,10 @@ static void de_run_ansiart(deark *c, de_module_params *mparams)
 	}
 	if(de_get_ext_option(c, "ansiart:vt100")) {
 		d->vt100_mode = 1;
+	}
+	s=de_get_ext_option(c, "char:width");
+	if(s) {
+		width_req = de_atoi(s);
 	}
 
 	d->effective_file_size = c->infile->len;
@@ -906,7 +912,11 @@ static void de_run_ansiart(deark *c, de_module_params *mparams)
 
 	d->screen = charctx->screens[0];
 
-	if(valid_sauce && si->width_in_chars>=40 && si->width_in_chars<=320) {
+	if(width_req>0) {
+		// Use the width requested by the user.
+		d->screen->width = width_req;
+	}
+	else if(valid_sauce && si->width_in_chars>=40 && si->width_in_chars<=320) {
 		// Use the width from SAUCE, if it's available and seems sensible.
 		d->screen->width = si->width_in_chars;
 	}
