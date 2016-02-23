@@ -254,14 +254,34 @@ static void fixup_codepoints(deark *c, struct font_render_ctx *fctx)
 	de_int64 i;
 	de_int32 c1;
 	de_int64 num_uncoded_chars = 0;
+	de_byte *used_codepoint_map = NULL;
+	de_byte codepoint_already_used;
+
+	if(!fctx->render_as_unicode) {
+		for(i=0; i<fctx->font->num_chars; i++) {
+			fctx->codepoint_tmp[i] = fctx->font->char_array[i].codepoint;
+		}
+		goto done;
+	}
+
+	// An array of bits to remember if we've seen a codepoint before (BMP only).
+	// A character with a duplicate codepoint will be moved to another
+	// location, so that it doesn't get painted over the previous one.
+	used_codepoint_map = de_malloc(c, 65536/8);
 
 	for(i=0; i<fctx->font->num_chars; i++) {
-		if(fctx->render_as_unicode)
-			c1 = fctx->font->char_array[i].codepoint_unicode;
-		else
-			c1 = fctx->font->char_array[i].codepoint;
+		c1 = fctx->font->char_array[i].codepoint_unicode;
 
-		if(fctx->render_as_unicode && !fctx->font->is_unicode && c1==0xfffd) {
+		codepoint_already_used = 0;
+		if(c1>=0 && c1<65536) {
+			// Check if we've seen this codepoint before.
+			codepoint_already_used = used_codepoint_map[c1/8] & (1<<(c1%8));
+
+			// Remember that we've seen this codepoint.
+			used_codepoint_map[c1/8] |= 1<<(c1%8);
+		}
+
+		if(codepoint_already_used || (!fctx->font->is_unicode && c1==0xfffd)) {
 			// Move uncoded characters to the Private Use area.
 			fctx->codepoint_tmp[i] = (de_int32)(0xee00 + num_uncoded_chars);
 			num_uncoded_chars++;
@@ -270,6 +290,9 @@ static void fixup_codepoints(deark *c, struct font_render_ctx *fctx)
 			fctx->codepoint_tmp[i] = c1;
 		}
 	}
+
+done:
+	de_free(c, used_codepoint_map);
 }
 
 struct row_info_struct {
