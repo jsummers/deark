@@ -47,10 +47,13 @@ static const de_uint32 pal16[16] = {
 	0xff00ff,0x0000ff,0x00ffff,0x800080,0x000080,0x008080,0xaaaaaa,0xffffff
 };
 
-typedef struct localctx_struct {
+struct page_ctx {
 	de_int64 width, height;
 	de_int64 color_type;
 	de_int64 bits_per_pixel;
+};
+
+typedef struct localctx_struct {
 	de_int64 paint_data_section_size;
 	int warned_exp;
 
@@ -58,7 +61,8 @@ typedef struct localctx_struct {
 	de_int64 section_table_offset;
 } lctx;
 
-static struct deark_bitmap *do_create_image(deark *c, lctx *d, dbuf *unc_pixels, int is_mask)
+static struct deark_bitmap *do_create_image(deark *c, lctx *d, struct page_ctx *pg,
+	dbuf *unc_pixels, int is_mask)
 {
 	struct deark_bitmap *img = NULL;
 	de_int64 i, j;
@@ -68,37 +72,37 @@ static struct deark_bitmap *do_create_image(deark *c, lctx *d, dbuf *unc_pixels,
 	de_uint32 n;
 	de_uint32 clr;
 
-	img = de_bitmap_create(c, d->width, d->height, d->color_type ? 3 : 1);
+	img = de_bitmap_create(c, pg->width, pg->height, pg->color_type ? 3 : 1);
 
-	img->orig_colortype = (int)d->color_type;
-	img->orig_bitdepth = (int)d->bits_per_pixel;
+	img->orig_colortype = (int)pg->color_type;
+	img->orig_bitdepth = (int)pg->bits_per_pixel;
 
-	if(d->bits_per_pixel==24) {
+	if(pg->bits_per_pixel==24) {
 		// 24-bit images seem to be 12-byte aligned
-		src_rowspan = ((d->bits_per_pixel*d->width +95)/96)*12;
+		src_rowspan = ((pg->bits_per_pixel*pg->width +95)/96)*12;
 	}
 	else {
 		// Rows are 4-byte aligned
-		src_rowspan = ((d->bits_per_pixel*d->width +31)/32)*4;
+		src_rowspan = ((pg->bits_per_pixel*pg->width +31)/32)*4;
 	}
 
-	for(j=0; j<d->height; j++) {
-		for(i=0; i<d->width; i++) {
-			switch(d->bits_per_pixel) {
+	for(j=0; j<pg->height; j++) {
+		for(i=0; i<pg->width; i++) {
+			switch(pg->bits_per_pixel) {
 			case 2:
-				b = de_get_bits_symbol_lsb(unc_pixels, d->bits_per_pixel, j*src_rowspan, i);
+				b = de_get_bits_symbol_lsb(unc_pixels, pg->bits_per_pixel, j*src_rowspan, i);
 				de_bitmap_setpixel_gray(img, i, j, b*85);
 				break;
 			case 4:
-				b = de_get_bits_symbol_lsb(unc_pixels, d->bits_per_pixel, j*src_rowspan, i);
-				if(d->color_type)
+				b = de_get_bits_symbol_lsb(unc_pixels, pg->bits_per_pixel, j*src_rowspan, i);
+				if(pg->color_type)
 					de_bitmap_setpixel_rgb(img, i, j, pal16[(unsigned int)b]);
 				else
 					de_bitmap_setpixel_gray(img, i, j, b*17);
 				break;
 			case 8:
 				b = dbuf_getbyte(unc_pixels, j*src_rowspan + i);
-				if(d->color_type) {
+				if(pg->color_type) {
 					de_bitmap_setpixel_rgb(img, i, j, getpal256((unsigned int)b));
 				}
 				else {
@@ -201,7 +205,9 @@ static struct deark_bitmap *do_read_paint_data_section(deark *c, lctx *d,
 	de_int64 compression_type;
 	de_int64 cmpr_pixels_size;
 	struct deark_bitmap *img = NULL;
+	struct page_ctx *pg = NULL;
 
+	pg = de_malloc(c, sizeof(struct page_ctx));
 	pos = pos1;
 	de_dbg(c, "paint data section at %d\n", (int)pos1);
 	de_dbg_indent(c, 1);
@@ -213,35 +219,35 @@ static struct deark_bitmap *do_read_paint_data_section(deark *c, lctx *d,
 	pixel_data_offset = de_getui32le(pos+4);
 	de_dbg(c, "pixel data offset: %d\n", (int)pixel_data_offset);
 
-	d->width = de_getui16le(pos+8);
-	d->height = de_getui16le(pos+12);
-	de_dbg(c, "picture dimensions: %dx%d\n", (int)d->width, (int)d->height);
+	pg->width = de_getui16le(pos+8);
+	pg->height = de_getui16le(pos+12);
+	de_dbg(c, "picture dimensions: %dx%d\n", (int)pg->width, (int)pg->height);
 
-	d->bits_per_pixel = de_getui32le(pos+24);
-	de_dbg(c, "bits/pixel: %d\n", (int)d->bits_per_pixel);
+	pg->bits_per_pixel = de_getui32le(pos+24);
+	de_dbg(c, "bits/pixel: %d\n", (int)pg->bits_per_pixel);
 
-	d->color_type = de_getui32le(pos+28);
+	pg->color_type = de_getui32le(pos+28);
 	// 0=grayscale  1=color
-	de_dbg(c, "color type: %d\n", (int)d->color_type);
+	de_dbg(c, "color type: %d\n", (int)pg->color_type);
 
 	compression_type = de_getui32le(pos+36);
 	// 0=uncompressed  1=8-bit RLE  2=12-bit RLE  3=16-bit RLE  4=24-bit RLE
 	de_dbg(c, "compression type: %d\n", (int)compression_type);
 
-	if(d->color_type==0) {
-		if(d->bits_per_pixel!=2 && d->bits_per_pixel!=4 && d->bits_per_pixel!=8) {
-			de_err(c, "Unsupported bits/pixel (%d) for grayscale image\n", (int)d->bits_per_pixel);
+	if(pg->color_type==0) {
+		if(pg->bits_per_pixel!=2 && pg->bits_per_pixel!=4 && pg->bits_per_pixel!=8) {
+			de_err(c, "Unsupported bits/pixel (%d) for grayscale image\n", (int)pg->bits_per_pixel);
 			goto done;
 		}
 	}
 	else {
-		if(d->bits_per_pixel!=4 && d->bits_per_pixel!=8 && d->bits_per_pixel!=16 &&
-			d->bits_per_pixel!=24)
+		if(pg->bits_per_pixel!=4 && pg->bits_per_pixel!=8 && pg->bits_per_pixel!=16 &&
+			pg->bits_per_pixel!=24)
 		{
-			de_err(c, "Unsupported bits/pixel (%d) for color image\n", (int)d->bits_per_pixel);
+			de_err(c, "Unsupported bits/pixel (%d) for color image\n", (int)pg->bits_per_pixel);
 			goto done;
 		}
-		if(d->bits_per_pixel==16 && !d->warned_exp) {
+		if(pg->bits_per_pixel==16 && !d->warned_exp) {
 			de_warn(c, "Support for this type of 16-bit image is experimental, and may not be correct.\n");
 			d->warned_exp = 1;
 		}
@@ -275,11 +281,12 @@ static struct deark_bitmap *do_read_paint_data_section(deark *c, lctx *d,
 		goto done;
 	}
 
-	img = do_create_image(c, d, unc_pixels, is_mask);
+	img = do_create_image(c, d, pg, unc_pixels, is_mask);
 
 done:
 	if(unc_pixels) dbuf_close(unc_pixels);
 	de_dbg_indent(c, -1);
+	de_free(c, pg);
 	return img;
 }
 
