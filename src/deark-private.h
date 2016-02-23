@@ -537,7 +537,6 @@ void de_copy_bits(const de_byte *src, de_int64 srcbitnum,
 struct de_bitmap_font_char {
 	de_int32 codepoint;
 	de_int32 codepoint_unicode;
-	de_int32 codepoint_tmp; // For use by font renderer/generators.
 	int width, height;
 	de_int64 rowspan;
 	de_byte *bitmap;
