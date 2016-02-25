@@ -13,8 +13,8 @@ typedef struct localctx_struct {
 	de_byte mode;
 	de_int64 headersize;
 	de_int64 num_glyphs;
+	de_int64 glyph_width, glyph_height;
 	de_int64 bytes_per_glyph;
-	de_int64 max_width, max_height;
 	de_int64 font_data_size;
 	int has_unicode_table;
 	de_int64 unicode_table_pos;
@@ -70,12 +70,54 @@ static void do_psf1_unicode_table(deark *c, lctx *d, struct de_bitmap_font *font
 	de_dbg_indent(c, -1);
 }
 
-static void do_psf2_unicode_table(deark *c, lctx *d)
+static void do_psf2_unicode_table(deark *c, lctx *d, struct de_bitmap_font *font)
 {
+	de_int64 cur_idx;
+	de_int64 pos;
+	de_int64 i;
+	int ret;
+	de_int64 foundpos;
+	de_int64 char_data_len;
+	de_byte buf[4];
+	de_int32 ch;
+	de_int64 utf8len;
+
 	de_dbg(c, "Unicode table at %d\n", (int)d->unicode_table_pos);
 	de_dbg_indent(c, 1);
+
+	// Set defaults for each char.
+	for(i=0; i<font->num_chars; i++) {
+		font->char_array[i].codepoint_unicode = 0xfffd;
+	}
+
+	pos = d->unicode_table_pos;
+	cur_idx = 0;
+	while(1) {
+		if(cur_idx >= d->num_glyphs) break;
+		if(pos >= c->infile->len) break;
+		ret = dbuf_search_byte(c->infile, 0xff, pos,
+			c->infile->len - pos, &foundpos);
+		if(!ret) break;
+		char_data_len = foundpos - pos;
+		if(char_data_len<0) char_data_len=0;
+		else if(char_data_len>4) char_data_len=4;
+		de_read(buf, pos, char_data_len);
+		ret = de_utf8_to_uchar(buf, char_data_len, &ch, &utf8len);
+		if(ret) {
+			font->char_array[cur_idx].codepoint_unicode = ch;
+			de_dbg2(c, "char[%3d] = U+%04x\n", (int)cur_idx, (unsigned int)ch);
+		}
+		else {
+			de_warn(c, "Missing codepoint for char #%d\n", (int)cur_idx);
+		}
+		pos = foundpos+1;
+		cur_idx++;
+	}
+
+	font->has_unicode_codepoints = 1;
+	font->is_unicode = 1;
+
 	de_dbg_indent(c, -1);
-	de_warn(c, "Unicode mappings not supported\n");
 }
 
 static void do_glyphs(deark *c, lctx *d)
@@ -86,16 +128,16 @@ static void do_glyphs(deark *c, lctx *d)
 	de_int64 glyph_rowspan;
 
 	font = de_create_bitmap_font(c);
-	font->nominal_width = (int)d->max_width;
-	font->nominal_height = (int)d->max_height;
+	font->nominal_width = (int)d->glyph_width;
+	font->nominal_height = (int)d->glyph_height;
 	font->num_chars = d->num_glyphs;
-	glyph_rowspan = (d->max_width+7)/8;
+	glyph_rowspan = (d->glyph_width+7)/8;
 
 	font->char_array = de_malloc(c, font->num_chars * sizeof(struct de_bitmap_font_char));
 
 	if(d->has_unicode_table) {
 		if(d->version==2)
-			do_psf2_unicode_table(c, d);
+			do_psf2_unicode_table(c, d, font);
 		else
 			do_psf1_unicode_table(c, d, font);
 	}
@@ -139,9 +181,9 @@ static void do_psf1_header(deark *c, lctx *d)
 	de_dbg_indent(c, -1);
 
 	d->bytes_per_glyph = (de_int64)de_getbyte(3);
-	d->max_height = d->bytes_per_glyph;
-	d->max_width = 8;
-	de_dbg(c, "glyph dimensions: %dx%d\n", (int)d->max_width, (int)d->max_height);
+	d->glyph_height = d->bytes_per_glyph;
+	d->glyph_width = 8;
+	de_dbg(c, "glyph dimensions: %dx%d\n", (int)d->glyph_width, (int)d->glyph_height);
 
 	de_dbg_indent(c, -1);
 }
@@ -175,9 +217,9 @@ static void do_psf2_header(deark *c, lctx *d)
 	d->bytes_per_glyph = de_getui32le(pos+20);
 	de_dbg(c, "bytes per glyph: %d\n", (int)d->bytes_per_glyph);
 
-	d->max_height = de_getui32le(pos+24);
-	d->max_width = de_getui32le(pos+28);
-	de_dbg(c, "max glyph dimensions: %dx%d\n", (int)d->max_width, (int)d->max_height);
+	d->glyph_height = de_getui32le(pos+24);
+	d->glyph_width = de_getui32le(pos+28);
+	de_dbg(c, "glyph dimensions: %dx%d\n", (int)d->glyph_width, (int)d->glyph_height);
 
 	de_dbg_indent(c, -1);
 }
@@ -218,8 +260,8 @@ static void de_run_psf(deark *c, de_module_params *mparams)
 
 	if((d->headersize+d->font_data_size > c->infile->len) ||
 		d->bytes_per_glyph<1 ||
-		d->max_width<1 || d->max_width>256 ||
-		d->max_height<1 || d->max_height>256 ||
+		d->glyph_width<1 || d->glyph_width>256 ||
+		d->glyph_height<1 || d->glyph_height>256 ||
 		d->num_glyphs<1 || d->num_glyphs>2000000)
 	{
 		de_err(c, "Invalid or unsupported PSF file\n");

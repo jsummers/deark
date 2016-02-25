@@ -176,6 +176,50 @@ void dbuf_write_uchar_as_utf8(dbuf *outf, de_int32 u)
 	dbuf_write(outf, utf8buf, utf8len);
 }
 
+// Convert a UTF-8 character to UTF-32.
+// Returns 1 if a valid character was converted, 0 otherwise.
+int de_utf8_to_uchar(const de_byte *utf8buf, de_int64 buflen,
+	de_int32 *p_uchar, de_int64 *p_utf8len)
+{
+	de_int32 u0=0;
+	de_int32 u1=0;
+	de_int32 u2=0;
+	de_int32 u3=0;
+
+	if(buflen<1) return 0;
+	u0 = (de_int32)utf8buf[0];
+	if(u0<=0x7f) { // 1-byte UTF-8 char
+		*p_utf8len = 1;
+		*p_uchar = u0;
+		return 1;
+	}
+	if(buflen<2) return 0;
+	if((utf8buf[1]&0xc0)!=0x80) return 0;
+	u1 = (de_int32)utf8buf[1];
+	if(u0<=0xdf) { // 2-byte UTF-8 char
+		*p_utf8len = 2;
+		*p_uchar = ((u0&0x1f)<<6) | (u1&0x3f);
+		return 1;
+	}
+	if(buflen<3) return 0;
+	if((utf8buf[2]&0xc0)!=0x80) return 0;
+	u2 = (de_int32)utf8buf[2];
+	if(u0<=0xef) { // 3-byte UTF-8 char
+		*p_utf8len = 3;
+		*p_uchar = ((u0&0x0f)<<12) | ((u1&0x3f)<<6) | (u2&0x3f);
+		return 1;
+	}
+	if(buflen<4) return 0;
+	if((utf8buf[3]&0xc0)!=0x80) return 0;
+	u3 = (de_int32)utf8buf[3];
+	if(u0<=0xf7) { // 4-byte UTF-8 char
+		*p_utf8len = 4;
+		*p_uchar = ((u0&0x07)<<18) | ((u1&0x3f)<<12) | ((u2&0x3f)<<6) | (u3&0x3f);
+		return 1;
+	}
+	return 0;
+}
+
 // Given a buffer, return 1 if it has no bytes 0x80 or higher.
 int de_is_ascii(const de_byte *buf, de_int64 buflen)
 {

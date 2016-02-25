@@ -504,6 +504,8 @@ de_uint32 de_rgb555_to_888(de_uint32 n);
 de_int32 de_char_to_unicode(deark *c, de_int32 a, int encoding);
 void de_uchar_to_utf8(de_int32 u1, de_byte *utf8buf, de_int64 *p_utf8len);
 void dbuf_write_uchar_as_utf8(dbuf *outf, de_int32 u);
+int de_utf8_to_uchar(const de_byte *utf8buf, de_int64 buflen,
+	de_int32 *p_uchar, de_int64 *p_utf8len);
 
 int de_is_ascii(const de_byte *buf, de_int64 buflen);
 

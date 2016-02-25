@@ -388,6 +388,8 @@ Deark -- Information about supported formats
   .set/.fnt; may be found inside GRASP .gl files.
   - Might not support all GRASP font formats.
 
+* PC Screen Font (PSF) (module="psf")
+
 * PFF2 font (module="pff2")
 
 
