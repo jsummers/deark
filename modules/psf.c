@@ -20,6 +20,64 @@ typedef struct localctx_struct {
 	de_int64 unicode_table_pos;
 } lctx;
 
+static void do_psf1_unicode_table(deark *c, lctx *d, struct de_bitmap_font *font)
+{
+	de_int64 cur_idx;
+	de_int64 pos;
+	int got_cp;
+	de_int32 n;
+	de_int64 i;
+
+	de_dbg(c, "Unicode table at %d\n", (int)d->unicode_table_pos);
+	de_dbg_indent(c, 1);
+
+	pos = d->unicode_table_pos;
+	cur_idx = 0;
+	got_cp = 0; // Have we set the codepoint for glyph[cur_idx]?
+
+	// Set defaults for each char.
+	for(i=0; i<font->num_chars; i++) {
+		font->char_array[i].codepoint_unicode = 0xfffd;
+	}
+
+	while(1) {
+		if(cur_idx >= d->num_glyphs) break;
+		if(pos+1 >= c->infile->len) break;
+		n = (de_int32)de_getui16le(pos);
+		pos+=2;
+
+		if(n==0xffff) {
+			if(!got_cp) {
+				de_warn(c, "Missing codepoint for char #%d\n", (int)cur_idx);
+			}
+			cur_idx++;
+			got_cp = 0;
+			continue;
+		}
+
+		if(!got_cp) {
+			font->char_array[cur_idx].codepoint_unicode = n;
+			de_dbg2(c, "char[%3d] = U+%04x\n", (int)cur_idx, (unsigned int)n);
+			got_cp = 1;
+		}
+		// else there are alternate codepoints (or codepoint sequences) for this
+		// glyph. We don't support that.
+	}
+
+	font->has_unicode_codepoints = 1;
+	font->is_unicode = 1;
+
+	de_dbg_indent(c, -1);
+}
+
+static void do_psf2_unicode_table(deark *c, lctx *d)
+{
+	de_dbg(c, "Unicode table at %d\n", (int)d->unicode_table_pos);
+	de_dbg_indent(c, 1);
+	de_dbg_indent(c, -1);
+	de_warn(c, "Unicode mappings not supported\n");
+}
+
 static void do_glyphs(deark *c, lctx *d)
 {
 	struct de_bitmap_font *font = NULL;
@@ -31,11 +89,16 @@ static void do_glyphs(deark *c, lctx *d)
 	font->nominal_width = (int)d->max_width;
 	font->nominal_height = (int)d->max_height;
 	font->num_chars = d->num_glyphs;
-	font->has_unicode_codepoints = 0; //d->has_unicode_table;
-	font->is_unicode = 0; // d->has_unicode_table;
 	glyph_rowspan = (d->max_width+7)/8;
 
 	font->char_array = de_malloc(c, font->num_chars * sizeof(struct de_bitmap_font_char));
+
+	if(d->has_unicode_table) {
+		if(d->version==2)
+			do_psf2_unicode_table(c, d);
+		else
+			do_psf1_unicode_table(c, d, font);
+	}
 
 	font_data = de_malloc(c, d->font_data_size);
 	de_read(font_data, d->headersize, d->font_data_size);
@@ -55,22 +118,6 @@ static void do_glyphs(deark *c, lctx *d)
 		de_destroy_bitmap_font(c, font);
 	}
 	de_free(c, font_data);
-}
-
-static void do_psf1_unicode_table(deark *c, lctx *d)
-{
-	de_dbg(c, "Unicode table at %d\n", (int)d->unicode_table_pos);
-	de_dbg_indent(c, 1);
-	de_dbg_indent(c, -1);
-	de_warn(c, "Unicode mappings not supported\n");
-}
-
-static void do_psf2_unicode_table(deark *c, lctx *d)
-{
-	de_dbg(c, "Unicode table at %d\n", (int)d->unicode_table_pos);
-	de_dbg_indent(c, 1);
-	de_dbg_indent(c, -1);
-	de_warn(c, "Unicode mappings not supported\n");
 }
 
 static void do_psf1_header(deark *c, lctx *d)
@@ -177,13 +224,6 @@ static void de_run_psf(deark *c, de_module_params *mparams)
 	{
 		de_err(c, "Invalid or unsupported PSF file\n");
 		goto done;
-	}
-
-	if(d->has_unicode_table) {
-		if(d->version==2)
-			do_psf2_unicode_table(c, d);
-		else
-			do_psf1_unicode_table(c, d);
 	}
 
 	do_glyphs(c, d);
