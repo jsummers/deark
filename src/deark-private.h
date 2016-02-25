@@ -19,6 +19,8 @@
 #define DE_ENCODING_VT100_GRAPHICS 80
 #define DE_ENCODING_UNKNOWN      99
 
+#define DE_INVALID_CODEPOINT ((de_int32)-1)
+
 typedef struct de_module_params_struct {
 	const char *codes;
 } de_module_params;
@@ -538,7 +540,11 @@ void de_copy_bits(const de_byte *src, de_int64 srcbitnum,
 
 struct de_bitmap_font_char {
 	de_int32 codepoint;
+
+	// If font->has_unicode_codepoints is set, then ->codepoint_unicode
+	// must be set to a Unicode codepoint, or to DE_INVALID_CODEPOINT.
 	de_int32 codepoint_unicode;
+
 	int width, height;
 	de_int64 rowspan;
 	de_byte *bitmap;

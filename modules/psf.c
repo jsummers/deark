@@ -37,7 +37,7 @@ static void do_psf1_unicode_table(deark *c, lctx *d, struct de_bitmap_font *font
 
 	// Set defaults for each char.
 	for(i=0; i<font->num_chars; i++) {
-		font->char_array[i].codepoint_unicode = 0xfffd;
+		font->char_array[i].codepoint_unicode = DE_INVALID_CODEPOINT;
 	}
 
 	while(1) {
@@ -87,7 +87,7 @@ static void do_psf2_unicode_table(deark *c, lctx *d, struct de_bitmap_font *font
 
 	// Set defaults for each char.
 	for(i=0; i<font->num_chars; i++) {
-		font->char_array[i].codepoint_unicode = 0xfffd;
+		font->char_array[i].codepoint_unicode = DE_INVALID_CODEPOINT;
 	}
 
 	pos = d->unicode_table_pos;

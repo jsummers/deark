@@ -281,7 +281,7 @@ static void fixup_codepoints(deark *c, struct font_render_ctx *fctx)
 			used_codepoint_map[c1/8] |= 1<<(c1%8);
 		}
 
-		if(codepoint_already_used || (!fctx->font->is_unicode && c1==0xfffd)) {
+		if(codepoint_already_used || c1==DE_INVALID_CODEPOINT) {
 			// Move uncoded characters to the Private Use area.
 			fctx->codepoint_tmp[i] = (de_int32)(0xee00 + num_uncoded_chars);
 			num_uncoded_chars++;
