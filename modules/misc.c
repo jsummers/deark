@@ -1370,14 +1370,15 @@ static void de_run_vgafont(deark *c, de_module_params *mparams)
 
 	font = de_create_bitmap_font(c);
 	font->num_chars = 256;
+	font->has_nonunicode_codepoints = 1;
 	font->has_unicode_codepoints = 0;
-	font->is_unicode = 0;
+	font->prefer_unicode = 0;
 	font->nominal_width = 8;
 	font->nominal_height = 16;
 	font->char_array = de_malloc(c, font->num_chars * sizeof(struct de_bitmap_font_char));
 
 	for(i=0; i<font->num_chars; i++) {
-		font->char_array[i].codepoint = (de_int32)i;
+		font->char_array[i].codepoint_nonunicode = (de_int32)i;
 		font->char_array[i].width = font->nominal_width;
 		font->char_array[i].height = font->nominal_height;
 		font->char_array[i].rowspan = 1;

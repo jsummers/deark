@@ -65,7 +65,7 @@ static void do_psf1_unicode_table(deark *c, lctx *d, struct de_bitmap_font *font
 	}
 
 	font->has_unicode_codepoints = 1;
-	font->is_unicode = 1;
+	font->prefer_unicode = 1;
 
 	de_dbg_indent(c, -1);
 }
@@ -115,7 +115,7 @@ static void do_psf2_unicode_table(deark *c, lctx *d, struct de_bitmap_font *font
 	}
 
 	font->has_unicode_codepoints = 1;
-	font->is_unicode = 1;
+	font->prefer_unicode = 1;
 
 	de_dbg_indent(c, -1);
 }
@@ -128,6 +128,7 @@ static void do_glyphs(deark *c, lctx *d)
 	de_int64 glyph_rowspan;
 
 	font = de_create_bitmap_font(c);
+	font->has_nonunicode_codepoints = 1;
 	font->nominal_width = (int)d->glyph_width;
 	font->nominal_height = (int)d->glyph_height;
 	font->num_chars = d->num_glyphs;
@@ -149,7 +150,7 @@ static void do_glyphs(deark *c, lctx *d)
 		font->char_array[i].width = font->nominal_width;
 		font->char_array[i].height = font->nominal_height;
 		font->char_array[i].rowspan = glyph_rowspan;
-		font->char_array[i].codepoint = (de_int32)i;
+		font->char_array[i].codepoint_nonunicode = (de_int32)i;
 		font->char_array[i].bitmap = &font_data[i*d->bytes_per_glyph];
 	}
 

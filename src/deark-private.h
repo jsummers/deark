@@ -539,7 +539,7 @@ void de_copy_bits(const de_byte *src, de_int64 srcbitnum,
 ///////////////////////////////////////////
 
 struct de_bitmap_font_char {
-	de_int32 codepoint;
+	de_int32 codepoint_nonunicode;
 
 	// If font->has_unicode_codepoints is set, then ->codepoint_unicode
 	// must be set to a Unicode codepoint, or to DE_INVALID_CODEPOINT.
@@ -552,10 +552,18 @@ struct de_bitmap_font_char {
 
 struct de_bitmap_font {
 	int nominal_width, nominal_height;
-	int index_of_replacement_char; // -1 if none
+	de_int64 index_of_replacement_char; // -1 if none
 
-	de_byte is_unicode; // Flag: Is the font fundamentally unicode?
-	de_byte has_unicode_codepoints;	// Flag: Are char_array[]->codepoint_unicode codes set?
+	// Flag: Are the char_array[]->codepoint_nonunicode codes set?
+	// (This should be ignored if has_unicode_codepoints is not set.)
+	de_byte has_nonunicode_codepoints;
+
+	// Flag: Are the char_array[]->codepoint_unicode codes set?
+	de_byte has_unicode_codepoints;
+
+	// If the font has both unicode and non-unicode codpoints, this flag tells which
+	// to prefer when displaying the font.
+	de_byte prefer_unicode;
 
 	de_int64 num_chars;
 	struct de_bitmap_font_char *char_array;

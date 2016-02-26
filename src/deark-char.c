@@ -650,6 +650,7 @@ static void do_create_standard_font(deark *c, struct charextractx *ectx)
 	font->num_chars = 256 + NUM_EXTRA_FONT_CHARS;
 	font->nominal_width = 8;
 	font->nominal_height = 16;
+	font->has_nonunicode_codepoints = 1;
 	font->has_unicode_codepoints = 1;
 
 	font->char_array = de_malloc(c, font->num_chars * sizeof(struct de_bitmap_font_char));
@@ -664,7 +665,7 @@ static void do_create_standard_font(deark *c, struct charextractx *ectx)
 
 	for(i=0; i<font->num_chars; i++) {
 		ch = &font->char_array[i];
-		ch->codepoint = (de_int32)i;
+		ch->codepoint_nonunicode = (de_int32)i;
 		ch->codepoint_unicode = de_char_to_unicode(c, (de_int32)i, DE_ENCODING_CP437_G);
 		ch->bitmap = (de_byte*)&vga_cp437_font_data[i*16];
 	}
@@ -672,8 +673,8 @@ static void do_create_standard_font(deark *c, struct charextractx *ectx)
 	// Add vt100 characters that aren't in CP437
 	for(i=0; i<NUM_EXTRA_FONT_CHARS; i++) {
 		ch = &font->char_array[256+i];
+		ch->codepoint_nonunicode = DE_INVALID_CODEPOINT;
 		ch->codepoint_unicode = extra_font_codepoints[i];
-		ch->codepoint = ch->codepoint_unicode;
 		ch->bitmap = (de_byte*)&extra_font_data[i*16];
 	}
 	font->index_of_replacement_char = 256;

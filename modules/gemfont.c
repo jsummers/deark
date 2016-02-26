@@ -44,8 +44,8 @@ static int do_characters(deark *c, lctx *d)
 		n = de_getui16le(d->char_offset_table_pos + 2*(i+1));
 		ch->width = (int)(n - char_startpos);
 		ch->height = d->font->nominal_height;
-		ch->codepoint = (de_int32)(d->first_index+i);
-		de_dbg2(c, "char[%d] #%d offset=%d width=%d\n", (int)i, (int)ch->codepoint,
+		ch->codepoint_nonunicode = (de_int32)(d->first_index+i);
+		de_dbg2(c, "char[%d] #%d offset=%d width=%d\n", (int)i, (int)ch->codepoint_nonunicode,
 			 (int)char_startpos, ch->width);
 		if(ch->width<1 || ch->width>d->max_char_cell_width) continue;
 
@@ -101,6 +101,7 @@ static void de_run_gemfont(deark *c, de_module_params *mparams)
 
 	d = de_malloc(c, sizeof(lctx));
 	d->font = de_create_bitmap_font(c);
+	d->font->has_nonunicode_codepoints = 1;
 
 	d->face_size = de_getui16le(2);
 	de_dbg(c, "point size: %d\n", (int)d->face_size);

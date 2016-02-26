@@ -76,7 +76,7 @@ void de_font_paint_character_idx(deark *c, struct deark_bitmap *img,
 			if((flags&DE_PAINTFLAG_VGA9COL) && i==7) {
 				// Depending on the codepoint, the 9th column is either
 				// the same as the 8th column, or is the background color.
-				if(ch->codepoint<0xb0 || ch->codepoint>0xdf) {
+				if(ch->codepoint_nonunicode<0xb0 || ch->codepoint_nonunicode>0xdf) {
 					fg = 0;
 					clr = bgcol;
 				}
@@ -88,10 +88,16 @@ void de_font_paint_character_idx(deark *c, struct deark_bitmap *img,
 }
 
 // Given a codepoint, returns the character index in the font.
+// 'codepoint' is expected to be a Unicode codepoint. If the font does not
+// have Unicode codepoints, the non-Unicode codepoint will be used instead.
 // Returns -1 if not found.
 static de_int64 get_char_idx_by_cp(deark *c, struct de_bitmap_font *font, de_int32 codepoint)
 {
 	de_int64 i;
+
+	// TODO: Sometimes, a font has multiple characters that map to the same
+	// codepoint. We should have a way to find the *best* such character,
+	// which might not be the first one.
 
 	for(i=0; i<font->num_chars; i++) {
 		if(font->has_unicode_codepoints) {
@@ -99,13 +105,15 @@ static de_int64 get_char_idx_by_cp(deark *c, struct de_bitmap_font *font, de_int
 				return i;
 		}
 		else {
-			if(font->char_array[i].codepoint == codepoint)
+			if(font->char_array[i].codepoint_nonunicode == codepoint)
 				return i;
 		}
 	}
 	return -1;
 }
 
+// 'codepoint' is expected to be a Unicode codepoint. If the font does not
+// have Unicode codepoints, the non-Unicode codepoint will be used instead.
 void de_font_paint_character_cp(deark *c, struct deark_bitmap *img,
 	struct de_bitmap_font *font, de_int32 codepoint,
 	de_int64 xpos, de_int64 ypos, de_uint32 fgcol, de_uint32 bgcol, unsigned int flags)
@@ -128,7 +136,7 @@ void de_font_paint_character_cp(deark *c, struct deark_bitmap *img,
 }
 
 struct dfont_char_data {
-	de_int32 codepoint;
+	de_int32 codepoint_unicode;
 	de_byte bitmap[7];
 };
 
@@ -160,10 +168,11 @@ static struct de_bitmap_font *make_digit_font(deark *c)
 	dfont->num_chars = 16;
 	dfont->nominal_width = 6;
 	dfont->nominal_height = 7;
+	dfont->has_unicode_codepoints = 1;
 	dfont->char_array = de_malloc(c, dfont->num_chars * sizeof(struct de_bitmap_font_char));
 
 	for(i=0; i<dfont->num_chars; i++) {
-		dfont->char_array[i].codepoint = dfont_data[i].codepoint;
+		dfont->char_array[i].codepoint_unicode = dfont_data[i].codepoint_unicode;
 		dfont->char_array[i].width = dfont->nominal_width;
 		dfont->char_array[i].height = dfont->nominal_height;
 		dfont->char_array[i].rowspan = 1;
@@ -259,7 +268,7 @@ static void fixup_codepoints(deark *c, struct font_render_ctx *fctx)
 
 	if(!fctx->render_as_unicode) {
 		for(i=0; i<fctx->font->num_chars; i++) {
-			fctx->codepoint_tmp[i] = fctx->font->char_array[i].codepoint;
+			fctx->codepoint_tmp[i] = fctx->font->char_array[i].codepoint_nonunicode;
 		}
 		goto done;
 	}
@@ -338,12 +347,20 @@ void de_font_bitmap_font_to_image(deark *c, struct de_bitmap_font *font1, de_fin
 		goto done;
 	}
 
+	unicode_req = -1; // = "no preference"
 	s = de_get_ext_option(c, "font:tounicode");
 	if(s) {
 		unicode_req = de_atoi(s);
 	}
 
-	if(fctx->font->is_unicode || (fctx->font->has_unicode_codepoints && unicode_req)) {
+	if(unicode_req==0 &&
+		(fctx->font->has_nonunicode_codepoints || !fctx->font->has_unicode_codepoints))
+	{
+		; // Render as nonunicode.
+	}
+	else if(fctx->font->has_unicode_codepoints &&
+		(unicode_req>0 || fctx->font->prefer_unicode || !fctx->font->has_nonunicode_codepoints))
+	{
 		fctx->render_as_unicode = 1;
 	}
 

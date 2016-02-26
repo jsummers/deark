@@ -56,8 +56,10 @@ static void do_make_image(deark *c, lctx *d)
 
 	font = de_create_bitmap_font(c);
 
+	font->has_nonunicode_codepoints = 1;
 	if(d->encoding!=DE_ENCODING_UNKNOWN)
 		font->has_unicode_codepoints = 1;
+	font->prefer_unicode = 0;
 
 	font->nominal_width = (int)d->nominal_char_width;
 	font->nominal_height = (int)d->char_height;
@@ -85,13 +87,13 @@ static void do_make_image(deark *c, lctx *d)
 		if(i == d->num_chars_stored-1) {
 			// Arbitrarily put the "absolute space" char at codepoint 256,
 			// and U+2002 EN SPACE (best I can do).
-			font->char_array[i].codepoint = 256;
+			font->char_array[i].codepoint_nonunicode = 256;
 			font->char_array[i].codepoint_unicode = 0x2002;
 		}
 		else {
 			char_index = (de_int32)d->first_char + (de_int32)i;
 
-			font->char_array[i].codepoint = char_index;
+			font->char_array[i].codepoint_nonunicode = char_index;
 
 			if(font->has_unicode_codepoints) {
 				if(char_index<32 && d->dfCharSet==0) {

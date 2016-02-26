@@ -145,6 +145,7 @@ static void de_run_graspfont(deark *c, de_module_params *mparams)
 	reported_filesize = de_getui16le(0);
 	de_dbg(c, "reported file size: %d\n", (int)reported_filesize);
 
+	font->has_nonunicode_codepoints = 1;
 	font->has_unicode_codepoints = 1;
 	font->num_chars = (de_int64)de_getbyte(2);
 	if(font->num_chars==0) font->num_chars=256;
@@ -176,7 +177,7 @@ static void de_run_graspfont(deark *c, de_module_params *mparams)
 		font->char_array[i].height = font->nominal_height;
 		font->char_array[i].rowspan = glyph_rowspan;
 
-		font->char_array[i].codepoint = first_codepoint + (de_int32)i;
+		font->char_array[i].codepoint_nonunicode = first_codepoint + (de_int32)i;
 
 		// There's no way to tell what encoding a GRASP font uses, but CP437 is
 		// a reasonable guess.

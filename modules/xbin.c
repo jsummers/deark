@@ -215,7 +215,7 @@ static int do_generate_font(deark *c, lctx *d)
 	d->font->char_array = de_malloc(c, d->font->num_chars * sizeof(struct de_bitmap_font_char));
 
 	for(i=0; i<d->font->num_chars; i++) {
-		d->font->char_array[i].codepoint = (de_int32)i;
+		d->font->char_array[i].codepoint_nonunicode = (de_int32)i;
 		d->font->char_array[i].codepoint_unicode =
 			de_char_to_unicode(c, (de_int32)i, DE_ENCODING_CP437_G);
 		d->font->char_array[i].width = d->font->nominal_width;
@@ -300,7 +300,9 @@ static void de_run_xbin(deark *c, de_module_params *mparams)
 
 	if(d->has_font) {
 		d->font = de_create_bitmap_font(c);
+		d->font->has_nonunicode_codepoints = 1;
 		d->font->has_unicode_codepoints = 1;
+		d->font->prefer_unicode = 0;
 		d->font->num_chars = d->has_512chars ? 512 : 256;
 		d->font_data_len = d->font->num_chars * d->font_height;
 		if(d->font->num_chars!=256) {
@@ -515,7 +517,9 @@ static void de_run_artworx_adf(deark *c, de_module_params *mparams)
 		// TODO: This duplicates a lot of the xbin code.
 
 		d->font = de_create_bitmap_font(c);
+		d->font->has_nonunicode_codepoints = 1;
 		d->font->has_unicode_codepoints = 1;
+		d->font->prefer_unicode = 0;
 		d->font->num_chars = 256;
 		d->font_height = 16;
 		d->font_data_len = d->font->num_chars * d->font_height;
