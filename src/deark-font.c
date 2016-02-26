@@ -291,8 +291,9 @@ static void fixup_codepoints(deark *c, struct font_render_ctx *fctx)
 		}
 
 		if(codepoint_already_used || c1==DE_INVALID_CODEPOINT) {
-			// Move uncoded characters to the Private Use area.
-			fctx->codepoint_tmp[i] = (de_int32)(0xee00 + num_uncoded_chars);
+			// Move uncoded characters to a Private Use area.
+			// (Supplementary Private Use Area-A = U+F0000 - U+FFFFD)
+			fctx->codepoint_tmp[i] = (de_int32)(0xfde00 + num_uncoded_chars);
 			num_uncoded_chars++;
 		}
 		else {
@@ -373,7 +374,7 @@ void de_font_bitmap_font_to_image(deark *c, struct de_bitmap_font *font1, de_fin
 	dfont = make_digit_font(c);
 
 	if(fctx->render_as_unicode)
-		img_leftmargin = dfont->nominal_width * 4 + 6;
+		img_leftmargin = dfont->nominal_width * 5 + 6;
 	else
 		img_leftmargin = dfont->nominal_width * 3 + 6;
 	img_topmargin = dfont->nominal_height + 6;
