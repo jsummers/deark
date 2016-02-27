@@ -108,42 +108,69 @@ static void do_psf2_unicode_table(deark *c, lctx *d, struct de_bitmap_font *font
 {
 	de_int64 cur_idx;
 	de_int64 pos;
-	de_int64 i;
 	int ret;
 	de_int64 foundpos;
 	de_int64 char_data_len;
-	de_byte buf[4];
+	de_byte char_data_buf[200];
 	de_int32 ch;
 	de_int64 utf8len;
 
 	de_dbg(c, "Unicode table at %d\n", (int)d->unicode_table_pos);
 	de_dbg_indent(c, 1);
 
-	// Set defaults for each char.
-	for(i=0; i<font->num_chars; i++) {
-		font->char_array[i].codepoint_unicode = DE_INVALID_CODEPOINT;
-	}
-
 	pos = d->unicode_table_pos;
 	cur_idx = 0;
 	while(1) {
+		de_int64 pos_in_char_data;
+		de_int64 cp_idx;
+
 		if(cur_idx >= d->num_glyphs) break;
 		if(pos >= c->infile->len) break;
+
+		// Figure out the size of the data for this glyph
 		ret = dbuf_search_byte(c->infile, 0xff, pos,
 			c->infile->len - pos, &foundpos);
 		if(!ret) break;
 		char_data_len = foundpos - pos;
 		if(char_data_len<0) char_data_len=0;
-		else if(char_data_len>4) char_data_len=4;
-		de_read(buf, pos, char_data_len);
-		ret = de_utf8_to_uchar(buf, char_data_len, &ch, &utf8len);
-		if(ret) {
-			font->char_array[cur_idx].codepoint_unicode = ch;
-			de_dbg2(c, "char[%d] = U+%04x\n", (int)cur_idx, (unsigned int)ch);
+		else if(char_data_len>(de_int64)sizeof(char_data_buf)) char_data_len=(de_int64)sizeof(char_data_buf);
+
+		// Read all the data for this glyph
+		de_read(char_data_buf, pos, char_data_len);
+
+		// Read the codepoints for this glyph
+		cp_idx = 0;
+		pos_in_char_data = 0;
+		while(1) {
+			if(pos_in_char_data >= char_data_len) break;
+
+			ret = de_utf8_to_uchar(&char_data_buf[pos_in_char_data], char_data_len-pos_in_char_data,
+				&ch, &utf8len);
+			if(!ret) {
+				// If there are any multi-codepoint aliases for this glyph, we
+				// expect de_utf8_to_uchar() to fail when it hits the 0xfe byte.
+				// So, this is not necessarily an error.
+				break;
+			}
+
+			if(cp_idx==0) {
+				// This is the primary Unicode codepoint for this glyph
+				de_dbg2(c, "char[%d] = U+%04x\n", (int)cur_idx, (unsigned int)ch);
+				font->char_array[cur_idx].codepoint_unicode = ch;
+			}
+			else {
+				do_extra_codepoint(c, d, font, cur_idx, ch);
+			}
+
+			cp_idx++;
+			pos_in_char_data += utf8len;
 		}
-		else {
+
+		if(cp_idx==0) {
 			de_warn(c, "Missing codepoint for char #%d\n", (int)cur_idx);
 		}
+
+		// Advance to the next glyph
 		pos = foundpos+1;
 		cur_idx++;
 	}
@@ -281,10 +308,15 @@ static void de_run_psf(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
 	de_byte b;
+	const char *s;
 
 	d = de_malloc(c, sizeof(lctx));
 
-	d->read_extra_codepoints = 1;
+	s = de_get_ext_option(c, "font:noaliases");
+	if(s)
+		d->read_extra_codepoints = 0;
+	else
+		d->read_extra_codepoints = 1;
 
 	b = de_getbyte(0);
 	if(b==0x36) {

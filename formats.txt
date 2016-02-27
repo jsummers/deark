@@ -389,6 +389,8 @@ Deark -- Information about supported formats
   - Might not support all GRASP font formats.
 
 * PC Screen Font (PSF) (module="psf")
+  Options
+   -opt font:noaliases - Restrict to one Unicode codepoint per glyph
 
 * PFF2 font (module="pff2")
 
