@@ -18,15 +18,41 @@ typedef struct localctx_struct {
 	de_int64 font_data_size;
 	int has_unicode_table;
 	de_int64 unicode_table_pos;
+
+#define MAX_EXTRA_CODEPOINTS 2000
+	int read_extra_codepoints;
+	de_int64 num_chars_alloc;
+	de_int64 index_of_first_extra_codepoint;
+	de_int64 num_extra_codepoints;
 } lctx;
+
+static void do_extra_codepoint(deark *c, lctx *d, struct de_bitmap_font *font,
+	de_int64 cur_idx, de_int32 n)
+{
+	de_int64 extra_idx;
+
+	if(!d->read_extra_codepoints) return;
+	if(d->num_extra_codepoints >= MAX_EXTRA_CODEPOINTS) return;
+
+	extra_idx = d->index_of_first_extra_codepoint + d->num_extra_codepoints;
+	de_dbg2(c, "char[%d] alias [%d] = U+%04x\n", (int)cur_idx, (int)extra_idx,
+		(unsigned int)n);
+	if(n == font->char_array[cur_idx].codepoint_unicode) {
+		de_dbg2(c, "ignoring superfluous alias\n");
+		return;
+	}
+	font->char_array[extra_idx].codepoint_unicode = n;
+	font->char_array[extra_idx].bitmap = font->char_array[cur_idx].bitmap;
+	d->num_extra_codepoints++;
+}
 
 static void do_psf1_unicode_table(deark *c, lctx *d, struct de_bitmap_font *font)
 {
 	de_int64 cur_idx;
 	de_int64 pos;
 	int got_cp;
+	int found_fffe;
 	de_int32 n;
-	de_int64 i;
 
 	de_dbg(c, "Unicode table at %d\n", (int)d->unicode_table_pos);
 	de_dbg_indent(c, 1);
@@ -34,11 +60,7 @@ static void do_psf1_unicode_table(deark *c, lctx *d, struct de_bitmap_font *font
 	pos = d->unicode_table_pos;
 	cur_idx = 0;
 	got_cp = 0; // Have we set the codepoint for glyph[cur_idx]?
-
-	// Set defaults for each char.
-	for(i=0; i<font->num_chars; i++) {
-		font->char_array[i].codepoint_unicode = DE_INVALID_CODEPOINT;
-	}
+	found_fffe = 0;
 
 	while(1) {
 		if(cur_idx >= d->num_glyphs) break;
@@ -52,16 +74,28 @@ static void do_psf1_unicode_table(deark *c, lctx *d, struct de_bitmap_font *font
 			}
 			cur_idx++;
 			got_cp = 0;
+			found_fffe = 0;
+			continue;
+		}
+		else if(n==0xfffe) {
+			found_fffe = 1;
+		}
+
+		if(found_fffe) {
+			// Anything after 0xfffe is a multi-codepoint character, which we
+			// don't support.
 			continue;
 		}
 
 		if(!got_cp) {
+			de_dbg2(c, "char[%d] = U+%04x\n", (int)cur_idx, (unsigned int)n);
 			font->char_array[cur_idx].codepoint_unicode = n;
-			de_dbg2(c, "char[%3d] = U+%04x\n", (int)cur_idx, (unsigned int)n);
 			got_cp = 1;
+			continue;
 		}
-		// else there are alternate codepoints (or codepoint sequences) for this
-		// glyph. We don't support that.
+
+		// This is an "extra" codepoint for the current glyph.
+		do_extra_codepoint(c, d, font, cur_idx, n);
 	}
 
 	font->has_unicode_codepoints = 1;
@@ -105,7 +139,7 @@ static void do_psf2_unicode_table(deark *c, lctx *d, struct de_bitmap_font *font
 		ret = de_utf8_to_uchar(buf, char_data_len, &ch, &utf8len);
 		if(ret) {
 			font->char_array[cur_idx].codepoint_unicode = ch;
-			de_dbg2(c, "char[%3d] = U+%04x\n", (int)cur_idx, (unsigned int)ch);
+			de_dbg2(c, "char[%d] = U+%04x\n", (int)cur_idx, (unsigned int)ch);
 		}
 		else {
 			de_warn(c, "Missing codepoint for char #%d\n", (int)cur_idx);
@@ -131,10 +165,33 @@ static void do_glyphs(deark *c, lctx *d)
 	font->has_nonunicode_codepoints = 1;
 	font->nominal_width = (int)d->glyph_width;
 	font->nominal_height = (int)d->glyph_height;
-	font->num_chars = d->num_glyphs;
+	font->num_chars = d->num_glyphs; // This may increase later
 	glyph_rowspan = (d->glyph_width+7)/8;
 
-	font->char_array = de_malloc(c, font->num_chars * sizeof(struct de_bitmap_font_char));
+	d->num_chars_alloc = d->num_glyphs;
+	if(d->read_extra_codepoints)
+		d->num_chars_alloc += MAX_EXTRA_CODEPOINTS;
+
+	d->index_of_first_extra_codepoint = d->num_glyphs;
+	d->num_extra_codepoints = 0;
+
+	font->char_array = de_malloc(c, d->num_chars_alloc * sizeof(struct de_bitmap_font_char));
+
+	font_data = de_malloc(c, d->font_data_size);
+	de_read(font_data, d->headersize, d->font_data_size);
+
+	for(i=0; i<d->num_chars_alloc; i++) {
+		font->char_array[i].width = font->nominal_width;
+		font->char_array[i].height = font->nominal_height;
+		font->char_array[i].rowspan = glyph_rowspan;
+		if(i<d->num_glyphs)
+			font->char_array[i].codepoint_nonunicode = (de_int32)i;
+		else
+			font->char_array[i].codepoint_nonunicode = DE_INVALID_CODEPOINT;
+		font->char_array[i].codepoint_unicode = DE_INVALID_CODEPOINT;
+		if(i<d->num_glyphs)
+			font->char_array[i].bitmap = &font_data[i*d->bytes_per_glyph];
+	}
 
 	if(d->has_unicode_table) {
 		if(d->version==2)
@@ -143,15 +200,10 @@ static void do_glyphs(deark *c, lctx *d)
 			do_psf1_unicode_table(c, d, font);
 	}
 
-	font_data = de_malloc(c, d->font_data_size);
-	de_read(font_data, d->headersize, d->font_data_size);
-
-	for(i=0; i<font->num_chars; i++) {
-		font->char_array[i].width = font->nominal_width;
-		font->char_array[i].height = font->nominal_height;
-		font->char_array[i].rowspan = glyph_rowspan;
-		font->char_array[i].codepoint_nonunicode = (de_int32)i;
-		font->char_array[i].bitmap = &font_data[i*d->bytes_per_glyph];
+	if(d->num_extra_codepoints>0) {
+		font->num_chars = d->index_of_first_extra_codepoint + d->num_extra_codepoints;
+		de_dbg(c, "codepoints aliases: %d\n", (int)d->num_extra_codepoints);
+		de_dbg(c, "total characters: %d\n", (int)font->num_chars);
 	}
 
 	de_font_bitmap_font_to_image(c, font, NULL);
@@ -231,6 +283,8 @@ static void de_run_psf(deark *c, de_module_params *mparams)
 	de_byte b;
 
 	d = de_malloc(c, sizeof(lctx));
+
+	d->read_extra_codepoints = 1;
 
 	b = de_getbyte(0);
 	if(b==0x36) {

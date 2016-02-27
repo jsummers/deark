@@ -291,6 +291,10 @@ static void fixup_codepoints(deark *c, struct font_render_ctx *fctx)
 		}
 
 		if(codepoint_already_used || c1==DE_INVALID_CODEPOINT) {
+			if(codepoint_already_used) {
+				de_dbg2(c, "moving duplicate codepoint U+%04x at index %d to private use area\n",
+					(unsigned int)c1, (int)i);
+			}
 			// Move uncoded characters to a Private Use area.
 			// (Supplementary Private Use Area-A = U+F0000 - U+FFFFD)
 			fctx->codepoint_tmp[i] = (de_int32)(0xfde00 + num_uncoded_chars);
