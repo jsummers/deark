@@ -246,6 +246,32 @@ done:
 	return retval;
 }
 
+// A customized copy of mz_zip_writer_init_file().
+// Customized to support Unicode filenames (on Windows), and to better
+// report errors.
+static mz_bool my_mz_zip_writer_init_file(deark *c, mz_zip_archive *pZip, const char *pFilename)
+{
+  MZ_FILE *pFile;
+  mz_uint64 size_to_reserve_at_beginning = 0;
+  char msgbuf[200];
+
+  pZip->m_pWrite = mz_zip_file_write_func;
+  pZip->m_pIO_opaque = pZip;
+  if (!mz_zip_writer_init(pZip, size_to_reserve_at_beginning))
+  {
+    de_err(c, "Failed to initialize ZIP file\n");
+    return MZ_FALSE;
+  }
+  if (NULL == (pFile = de_fopen(c, pFilename, "wb", msgbuf, sizeof(msgbuf))))
+  {
+    de_err(c, "Failed to write %s: %s\n", pFilename, msgbuf);
+    mz_zip_writer_end(pZip);
+    return MZ_FALSE;
+  }
+  pZip->m_pState->m_pFile = pFile;
+  return MZ_TRUE;
+}
+
 int de_zip_create_file(deark *c)
 {
 	mz_zip_archive *zip;
@@ -260,9 +286,8 @@ int de_zip_create_file(deark *c)
 	arcfn = c->output_archive_filename;
 	if(!arcfn) arcfn = "output.zip";
 
-	b = mz_zip_writer_init_file(zip, arcfn, 0);
+	b = my_mz_zip_writer_init_file(c, zip, arcfn);
 	if(!b) {
-		de_err(c, "Failed to initialize ZIP file\n");
 		de_free(c, zip);
 		return 0;
 	}
