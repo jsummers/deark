@@ -724,12 +724,9 @@ de_int32 de_char_to_valid_fn_char(deark *c, de_int32 ch)
 		return ch;
 	}
 	else if(ch>=160 && ch<=0x10ffff) {
-		// For now, we don't support Unicode filenames in ZIP files.
-		if(c->output_style==DE_OUTPUTSTYLE_DIRECT) {
-			// TODO: A lot of Unicode characters probably don't belong in filenames.
-			// Maybe we need a whitelist or blacklist.
-			return ch;
-		}
+		// TODO: A lot of Unicode characters probably don't belong in filenames.
+		// Maybe we need a whitelist or blacklist.
+		return ch;
 	}
 	return '_';
 }
