@@ -188,6 +188,20 @@ static void do_extra_data(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 	de_dbg_indent(c, -1);
 }
 
+static const char *get_platform_name(unsigned int ver_hi)
+{
+	static const char *pltf_names[20] = {
+		"MS-DOS, etc.", "Amiga", "OpenVMS", "Unix",
+		"VM/CMS", "Atari ST", "OS/2 HPFS", "Macintosh",
+		"Z-System", "CP/M", "NTFS", "MVS (OS/390 - Z/OS)",
+		"VSE", "Acorn Risc", "VFAT", "alternate MVS",
+		"BeOS", "Tandem", "OS/400", "OS X" };
+
+	if(ver_hi<20)
+		return pltf_names[ver_hi];
+	return "?";
+}
+
 // Read either a central directory entry (a.k.a. central directory file header),
 // or a local file header.
 static int do_file_header(deark *c, lctx *d, int is_central, de_int64 central_index,
@@ -199,6 +213,9 @@ static int do_file_header(deark *c, lctx *d, int is_central, de_int64 central_in
 	de_int64 cmpr_method;
 	unsigned int bit_flags;
 	de_int64 size1, size2;
+	de_int64 ver_made_by;
+	de_int64 ver_needed;
+	unsigned int ver_hi, ver_lo;
 	de_int64 fn_len, extra_len, comment_len;
 	int utf8_flag;
 	int retval = 0;
@@ -229,9 +246,22 @@ static int do_file_header(deark *c, lctx *d, int is_central, de_int64 central_in
 	}
 
 	if(is_central) {
-		pos += 2; // version made by
+		const char *pltf_name;
+		ver_made_by = de_getui16le(pos);
+		pos += 2;
+		ver_hi = (unsigned int)((ver_made_by%0xff00)>>8);
+		ver_lo = (unsigned int)(ver_made_by%0x00ff);
+		pltf_name = get_platform_name(ver_hi);
+		de_dbg(c, "version made by: platform=%u (%s), ZIP spec=%u.%u\n",
+			ver_hi, pltf_name,
+			(unsigned int)(ver_lo/10), (unsigned int)(ver_lo%10));
 	}
-	pos += 2; // version needed to extract
+
+	ver_needed = de_getui16le(pos);
+	pos += 2;
+	ver_lo = (unsigned int)(ver_needed%0x00ff);
+	de_dbg(c, "version needed to extract: %u.%u\n",
+		(unsigned int)(ver_lo/10), (unsigned int)(ver_lo%10));
 
 	bit_flags = (unsigned int)de_getui16le(pos);
 	pos += 2;
