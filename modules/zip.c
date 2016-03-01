@@ -88,41 +88,122 @@ static void do_comment(deark *c, lctx *d, de_int64 pos, de_int64 len, int utf8_f
 	de_free(c, comment);
 }
 
-static int do_central_dir_entry(deark *c, lctx *d, de_int64 index,
-	de_int64 pos, de_int64 *p_entry_size)
+// Read either a central directory entry (a.k.a. central directory file header),
+// or a local file header.
+static int do_file_header(deark *c, lctx *d, int is_central, de_int64 central_index,
+	de_int64 pos1, de_int64 *p_entry_size)
 {
-	de_int64 x;
+	de_int64 pos;
+	int ret;
+	de_int64 sig;
+	de_int64 cmpr_method;
 	unsigned int bit_flags;
+	de_int64 size1, size2;
 	de_int64 fn_len, extra_len, comment_len;
 	int utf8_flag;
+	int retval = 0;
+	de_int64 fixed_header_size;
+	de_int64 offset_of_local_header  = 0;
+	de_int64 disk_number_start = 0;
 
-	*p_entry_size = 46;
-	de_dbg(c, "central dir entry #%d at %d\n", (int)index, (int)pos);
+	pos = pos1;
+	if(is_central) {
+		fixed_header_size = 46;
+		de_dbg(c, "central dir entry #%d at %d\n", (int)central_index, (int)pos);
+	}
+	else {
+		fixed_header_size = 30;
+		de_dbg(c, "local file header at %d\n", (int)pos);
+	}
+	de_dbg_indent(c, 1);
 
-	x = de_getui32le(pos);
-	if(x!=0x02014b50) {
-		de_err(c, "Invalid central file header at %d\n", (int)pos);
-		return 0;
+	sig = de_getui32le(pos);
+	pos += 4;
+	if(is_central && sig!=0x02014b50) {
+		de_err(c, "Invalid central file header at %d\n", (int)pos1);
+		goto done;
+	}
+	else if(!is_central && sig!=0x04034b50) {
+		de_err(c, "Invalid local file header at %d\n", (int)pos1);
+		goto done;
 	}
 
-	bit_flags = (unsigned int)de_getui16le(pos+8);
-	de_dbg(c, " flags: 0x%04x\n", bit_flags);
+	if(is_central) {
+		pos += 2; // version made by
+	}
+	pos += 2; // version needed to extract
+
+	bit_flags = (unsigned int)de_getui16le(pos);
+	pos += 2;
+	de_dbg(c, "flags: 0x%04x\n", bit_flags);
 
 	utf8_flag = (bit_flags & 0x800)?1:0;
 
-	fn_len = de_getui16le(pos+28);
-	extra_len = de_getui16le(pos+30);
-	comment_len = de_getui16le(pos+32);
+	cmpr_method = de_getui16le(pos);
+	pos += 2;
+	de_dbg(c, "compression method: %d\n", (int)cmpr_method);
 
-	de_dbg(c, " filename_len=%d, extra_len=%d, comment_len=%d\n", (int)fn_len,
-		(int)extra_len, (int)comment_len);
+	pos += 4; // last mod time & date
+	pos += 4; // crc-32
 
-	*p_entry_size += fn_len + extra_len + comment_len;
+	size1 = de_getui32le(pos); // compressed size
+	pos += 4;
+	size2 = de_getui32le(pos); // uncompressed size
+	pos += 4;
+	de_dbg(c, "cmpr size: %" INT64_FMT ", uncmpr size: %" INT64_FMT "\n", size1, size2);
+
+	fn_len = de_getui16le(pos);
+	pos += 2;
+
+	extra_len = de_getui16le(pos);
+	pos += 2;
+
+	if(is_central) {
+		comment_len = de_getui16le(pos);
+		pos += 2;
+	}
+	else {
+		comment_len = 0;
+	}
+
+	if(is_central) {
+		disk_number_start = de_getui16le(pos);
+		pos += 2;
+		pos += 2; // internal file attributes
+		pos += 4; // external file attributes
+		offset_of_local_header = de_getui32le(pos);
+		pos += 4;
+		de_dbg(c, "offset of local header: %d, disk: %d\n", (int)offset_of_local_header,
+			(int)disk_number_start);
+	}
+
+	if(is_central) {
+		de_dbg(c, "filename_len=%d, extra_len=%d, comment_len=%d\n", (int)fn_len,
+			(int)extra_len, (int)comment_len);
+	}
+	else {
+		de_dbg(c, "filename_len=%d, extra_len=%d\n", (int)fn_len,
+			(int)extra_len);
+	}
+
+	*p_entry_size = fixed_header_size + fn_len + extra_len + comment_len;
 
 	if(comment_len>0) {
-		do_comment(c, d, pos+46+fn_len+extra_len, comment_len, utf8_flag, "fcomment.txt");
+		do_comment(c, d, pos1+fixed_header_size+fn_len+extra_len, comment_len, utf8_flag, "fcomment.txt");
 	}
-	return 1;
+
+	if(is_central && disk_number_start==0) {
+		// Read the corresponding local file header
+		de_int64 tmp_entry_size = 0;
+		ret = do_file_header(c, d, 0, central_index, offset_of_local_header, &tmp_entry_size);
+		if(!ret) goto done;
+	}
+
+	retval = 1;
+
+done:
+	de_dbg_indent(c, -1);
+	return retval;
 }
 
 static int do_central_dir(deark *c, lctx *d)
@@ -133,12 +214,15 @@ static int do_central_dir(deark *c, lctx *d)
 	int retval = 0;
 
 	pos = d->central_dir_offset;
+	de_dbg(c, "central dir at %d\n", (int)pos);
+	de_dbg_indent(c, 1);
+
 	for(i=0; i<d->central_dir_num_entries; i++) {
 		if(pos >= d->central_dir_offset+d->central_dir_byte_size) {
 			goto done;
 		}
 
-		if(!do_central_dir_entry(c, d, i, pos, &entry_size)) {
+		if(!do_file_header(c, d, 1, i, pos, &entry_size)) {
 			goto done;
 		}
 
@@ -147,6 +231,7 @@ static int do_central_dir(deark *c, lctx *d)
 	retval = 1;
 
 done:
+	de_dbg_indent(c, -1);
 	return retval;
 }
 
@@ -157,12 +242,18 @@ static int do_end_of_central_dir(deark *c, lctx *d)
 	de_int64 num_entries_this_disk;
 	de_int64 disk_num_with_central_dir_start;
 	de_int64 comment_length;
+	int retval = 0;
 
 	pos = d->end_of_central_dir_pos;
+	de_dbg(c, "end-of-central-dir record at %d\n", (int)pos);
+	de_dbg_indent(c, 1);
 
 	this_disk_num = de_getui16le(pos+4);
+	de_dbg(c, "this disk num: %d\n", (int)this_disk_num);
 	disk_num_with_central_dir_start = de_getui16le(pos+6);
+	de_dbg(c, "disk with central dir start: %d\n", (int)disk_num_with_central_dir_start);
 	num_entries_this_disk = de_getui16le(pos+8);
+
 	d->central_dir_num_entries = de_getui16le(pos+10);
 	d->central_dir_byte_size  = de_getui32le(pos+12);
 	d->central_dir_offset = de_getui32le(pos+16);
@@ -173,8 +264,8 @@ static int do_end_of_central_dir(deark *c, lctx *d)
 		(int)d->central_dir_byte_size);
 
 	comment_length = de_getui16le(pos+20);
+	de_dbg(c, "comment length: %d\n", (int)comment_length);
 	if(comment_length>0) {
-		de_dbg(c, "comment length: %d\n", (int)comment_length);
 		// The comment for the whole .ZIP file presumably has to use
 		// cp437 encoding. There's no flag that could indicate otherwise.
 		do_comment(c, d, pos+22, comment_length, 0, "comment.txt");
@@ -185,10 +276,14 @@ static int do_end_of_central_dir(deark *c, lctx *d)
 		num_entries_this_disk!=d->central_dir_num_entries)
 	{
 		de_err(c, "Disk spanning not supported\n");
-		return 0;
+		goto done;
 	}
 
-	return 1;
+	retval = 1;
+
+done:
+	de_dbg_indent(c, -1);
+	return retval;
 }
 
 static int find_end_of_central_dir(deark *c, lctx *d)
@@ -248,7 +343,7 @@ static void de_run_zip(deark *c, de_module_params *mparams)
 		goto done;
 	}
 
-	de_dbg(c, "End of central dir record at %d\n", (int)d->end_of_central_dir_pos);
+	de_dbg(c, "end-of-central-dir record signature found at %d\n", (int)d->end_of_central_dir_pos);
 
 	if(!do_end_of_central_dir(c, d)) {
 		goto done;
