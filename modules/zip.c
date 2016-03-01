@@ -88,6 +88,106 @@ static void do_comment(deark *c, lctx *d, de_int64 pos, de_int64 len, int utf8_f
 	de_free(c, comment);
 }
 
+struct extra_item_type_info_struct {
+	de_uint16 id;
+	const char *name;
+};
+static const struct extra_item_type_info_struct extra_item_type_info_arr[] = {
+	{ 0x0001, "Zip64 extended information" },
+	{ 0x0007, "AV Info" },
+	{ 0x0008, "extended language encoding data" },
+	{ 0x0009, "OS/2" },
+	{ 0x000a, "NTFS" },
+	{ 0x000c, "OpenVMS" },
+	{ 0x000d, "Unix" },
+	{ 0x000e, "file stream and fork descriptors" },
+	{ 0x000f, "Patch Descriptor" },
+	{ 0x0014, "PKCS#7 Store for X.509 Certificates" },
+	{ 0x0015, "X.509 Certificate ID and Signature for individual file" },
+	{ 0x0016, "X.509 Certificate ID for Central Directory" },
+	{ 0x0017, "Strong Encryption Header" },
+	{ 0x0018, "Record Management Controls" },
+	{ 0x0019, "PKCS#7 Encryption Recipient Certificate List" },
+	{ 0x0065, "IBM S/390 (Z390), AS/400 (I400) attributes" },
+	{ 0x0066, "IBM S/390 (Z390), AS/400 (I400) attributes - compressed" },
+	{ 0x07c8, "Macintosh" },
+	{ 0x2605, "ZipIt Macintosh" },
+	{ 0x2705, "ZipIt Macintosh 1.3.5+" },
+	{ 0x2805, "ZipIt Macintosh 1.3.5+" },
+	{ 0x334d, "Info-ZIP Macintosh" },
+	{ 0x4154, "Tandem NSK" },
+	{ 0x4341, "Acorn/SparkFS" },
+	{ 0x4453, "Windows NT security descriptor (binary ACL)" },
+	{ 0x4690, "POSZIP 4690" },
+	{ 0x4704, "VM/CMS" },
+	{ 0x470f, "MVS" },
+	{ 0x4854, "Theos, old inofficial port" },
+	{ 0x4b46, "FWKCS MD5" },
+	{ 0x4c41, "OS/2 access control list (text ACL)" },
+	{ 0x4d49, "Info-ZIP OpenVMS" },
+	{ 0x4d63, "Macintosh SmartZIP" },
+	{ 0x4f4c, "Xceed original location extra field" },
+	{ 0x5356, "AOS/VS (ACL)" },
+	{ 0x5455, "extended timestamp" },
+	{ 0x554e, "Xceed unicode extra field" },
+	{ 0x5855, "Info-ZIP Unix (etc.) (original)" },
+	{ 0x6375, "Info-ZIP Unicode Comment" },
+	{ 0x6542, "BeOS/BeBox" },
+	{ 0x6854, "Theos" },
+	{ 0x7075, "Info-ZIP Unicode Path" },
+	{ 0x7441, "AtheOS" },
+	{ 0x756e, "ASi Unix" },
+	{ 0x7855, "Info-ZIP Unix (new-1)" },
+	{ 0x7875, "Info-ZIP Unix (new-2)" },
+	{ 0xa220, "Microsoft Open Packaging Growth Hint" },
+	{ 0xfb4a, "SMS/QDOS" }, // according to Info-ZIP zip 3.0
+	{ 0xfd4a, "SMS/QDOS" }, // according to ZIP v6.3.4 APPNOTE
+	{ 0x0000, NULL }
+};
+
+static const struct extra_item_type_info_struct *get_extra_item_type_info(de_int64 id)
+{
+	de_int64 i;
+	i=0;
+	for(i=0; extra_item_type_info_arr[i].name!=NULL; i++) {
+		if(id == (de_int64)extra_item_type_info_arr[i].id) {
+			return &extra_item_type_info_arr[i];
+		}
+	}
+	return NULL;
+}
+
+static void do_extra_data(deark *c, lctx *d, de_int64 pos1, de_int64 len)
+{
+	de_int64 pos;
+	de_int64 item_id;
+	de_int64 item_len;
+	const char *item_name;
+	const struct extra_item_type_info_struct *ei;
+
+	de_dbg(c, "extra data at %d, len=%d\n", (int)pos1, (int)len);
+	de_dbg_indent(c, 1);
+
+	pos = pos1;
+	while(1) {
+		if(pos+4 >= pos1+len) break;
+		item_id = de_getui16le(pos);
+		item_len = de_getui16le(pos+2);
+
+		ei = get_extra_item_type_info(item_id);
+		item_name = "?";
+		if(ei && ei->name) item_name = ei->name;
+
+		de_dbg(c, "item id=0x%04x (%s), dlen=%d\n", (unsigned int)item_id, item_name,
+			(int)item_len);
+		if(pos+4+item_len > pos1+len) break;
+
+		pos += 4+item_len;
+	}
+
+	de_dbg_indent(c, -1);
+}
+
 // Read either a central directory entry (a.k.a. central directory file header),
 // or a local file header.
 static int do_file_header(deark *c, lctx *d, int is_central, de_int64 central_index,
@@ -141,7 +241,7 @@ static int do_file_header(deark *c, lctx *d, int is_central, de_int64 central_in
 
 	cmpr_method = de_getui16le(pos);
 	pos += 2;
-	de_dbg(c, "compression method: %d\n", (int)cmpr_method);
+	de_dbg(c, "cmpr method: %d\n", (int)cmpr_method);
 
 	pos += 4; // last mod time & date
 	pos += 4; // crc-32
@@ -187,6 +287,10 @@ static int do_file_header(deark *c, lctx *d, int is_central, de_int64 central_in
 	}
 
 	*p_entry_size = fixed_header_size + fn_len + extra_len + comment_len;
+
+	if(extra_len>0) {
+		do_extra_data(c, d, pos1+fixed_header_size+fn_len, extra_len);
+	}
 
 	if(comment_len>0) {
 		do_comment(c, d, pos1+fixed_header_size+fn_len+extra_len, comment_len, utf8_flag, "fcomment.txt");
