@@ -13,6 +13,9 @@ typedef struct localctx_struct {
 	de_int64 central_dir_offset;
 } lctx;
 
+typedef void (*extrafield_decoder_fn)(deark *c, lctx *d, de_int64 fieldtype, de_int64 pos,
+	de_int64 len, int is_central);
+
 // Write a buffer to a file, converting the encoding.
 static void copy_cp437c_to_utf8(deark *c, const de_byte *buf, de_int64 len, dbuf *outf)
 {
@@ -88,61 +91,98 @@ static void do_comment(deark *c, lctx *d, de_int64 pos, de_int64 len, int utf8_f
 	de_free(c, comment);
 }
 
+static void ef_extended_timestamp(deark *c, lctx *d, de_int64 fieldtype,
+	de_int64 pos, de_int64 len, int is_central)
+{
+	de_byte flags;
+	de_int64 endpos;
+	int has_mtime, has_atime, has_ctime;
+	de_int64 mtime, atime, ctime;
+
+	endpos = pos+len;
+	if(pos+1>endpos) return;
+	flags = de_getbyte(pos);
+	pos++;
+	has_mtime = (flags & 0x01)?1:0;
+	has_atime = (!is_central) && (flags & 0x02);
+	has_ctime = (!is_central) && (flags & 0x04);
+	if(has_mtime) {
+		if(pos+4>endpos) return;
+		mtime = dbuf_geti32le(c->infile, pos);
+		pos+=4;
+		de_dbg(c, "mtime: %d\n", (int)mtime);
+	}
+	if(has_atime) {
+		if(pos+4>endpos) return;
+		atime = dbuf_geti32le(c->infile, pos);
+		pos+=4;
+		de_dbg(c, "atime: %d\n", (int)atime);
+	}
+	if(has_ctime) {
+		if(pos+4>endpos) return;
+		ctime = dbuf_geti32le(c->infile, pos);
+		pos+=4;
+		de_dbg(c, "ctime: %d\n", (int)ctime);
+	}
+}
+
 struct extra_item_type_info_struct {
 	de_uint16 id;
 	const char *name;
+	extrafield_decoder_fn fn;
 };
 static const struct extra_item_type_info_struct extra_item_type_info_arr[] = {
-	{ 0x0001, "Zip64 extended information" },
-	{ 0x0007, "AV Info" },
-	{ 0x0008, "extended language encoding data" },
-	{ 0x0009, "OS/2" },
-	{ 0x000a, "NTFS" },
-	{ 0x000c, "OpenVMS" },
-	{ 0x000d, "Unix" },
-	{ 0x000e, "file stream and fork descriptors" },
-	{ 0x000f, "Patch Descriptor" },
-	{ 0x0014, "PKCS#7 Store for X.509 Certificates" },
-	{ 0x0015, "X.509 Certificate ID and Signature for individual file" },
-	{ 0x0016, "X.509 Certificate ID for Central Directory" },
-	{ 0x0017, "Strong Encryption Header" },
-	{ 0x0018, "Record Management Controls" },
-	{ 0x0019, "PKCS#7 Encryption Recipient Certificate List" },
-	{ 0x0065, "IBM S/390 (Z390), AS/400 (I400) attributes" },
-	{ 0x0066, "IBM S/390 (Z390), AS/400 (I400) attributes - compressed" },
-	{ 0x07c8, "Macintosh" },
-	{ 0x2605, "ZipIt Macintosh" },
-	{ 0x2705, "ZipIt Macintosh 1.3.5+" },
-	{ 0x2805, "ZipIt Macintosh 1.3.5+" },
-	{ 0x334d, "Info-ZIP Macintosh" },
-	{ 0x4154, "Tandem NSK" },
-	{ 0x4341, "Acorn/SparkFS" },
-	{ 0x4453, "Windows NT security descriptor (binary ACL)" },
-	{ 0x4690, "POSZIP 4690" },
-	{ 0x4704, "VM/CMS" },
-	{ 0x470f, "MVS" },
-	{ 0x4854, "Theos, old inofficial port" },
-	{ 0x4b46, "FWKCS MD5" },
-	{ 0x4c41, "OS/2 access control list (text ACL)" },
-	{ 0x4d49, "Info-ZIP OpenVMS" },
-	{ 0x4d63, "Macintosh SmartZIP" },
-	{ 0x4f4c, "Xceed original location extra field" },
-	{ 0x5356, "AOS/VS (ACL)" },
-	{ 0x5455, "extended timestamp" },
-	{ 0x554e, "Xceed unicode extra field" },
-	{ 0x5855, "Info-ZIP Unix (etc.) (original)" },
-	{ 0x6375, "Info-ZIP Unicode Comment" },
-	{ 0x6542, "BeOS/BeBox" },
-	{ 0x6854, "Theos" },
-	{ 0x7075, "Info-ZIP Unicode Path" },
-	{ 0x7441, "AtheOS" },
-	{ 0x756e, "ASi Unix" },
-	{ 0x7855, "Info-ZIP Unix (new-1)" },
-	{ 0x7875, "Info-ZIP Unix (new-2)" },
-	{ 0xa220, "Microsoft Open Packaging Growth Hint" },
-	{ 0xfb4a, "SMS/QDOS" }, // according to Info-ZIP zip 3.0
-	{ 0xfd4a, "SMS/QDOS" }, // according to ZIP v6.3.4 APPNOTE
-	{ 0x0000, NULL }
+	{ 0x0001 /*    */, "Zip64 extended information", NULL },
+	{ 0x0007 /*    */, "AV Info", NULL },
+	{ 0x0008 /*    */, "extended language encoding data", NULL },
+	{ 0x0009 /*    */, "OS/2", NULL },
+	{ 0x000a /*    */, "NTFS", NULL },
+	{ 0x000c /*    */, "OpenVMS", NULL },
+	{ 0x000d /*    */, "Unix", NULL },
+	{ 0x000e /*    */, "file stream and fork descriptors", NULL },
+	{ 0x000f /*    */, "Patch Descriptor", NULL },
+	{ 0x0014 /*    */, "PKCS#7 Store for X.509 Certificates", NULL },
+	{ 0x0015 /*    */, "X.509 Certificate ID and Signature for individual file", NULL },
+	{ 0x0016 /*    */, "X.509 Certificate ID for Central Directory", NULL },
+	{ 0x0017 /*    */, "Strong Encryption Header", NULL },
+	{ 0x0018 /*    */, "Record Management Controls", NULL },
+	{ 0x0019 /*    */, "PKCS#7 Encryption Recipient Certificate List", NULL },
+	{ 0x0065 /*    */, "IBM S/390 (Z390), AS/400 (I400) attributes", NULL },
+	{ 0x0066 /*    */, "IBM S/390 (Z390), AS/400 (I400) attributes - compressed", NULL },
+	{ 0x07c8 /*    */, "Macintosh", NULL },
+	{ 0x2605 /*    */, "ZipIt Macintosh", NULL },
+	{ 0x2705 /*    */, "ZipIt Macintosh 1.3.5+", NULL },
+	{ 0x2805 /*    */, "ZipIt Macintosh 1.3.5+", NULL },
+	{ 0x334d /* M3 */, "Info-ZIP Macintosh", NULL },
+	{ 0x4154 /* TA */, "Tandem NSK", NULL },
+	{ 0x4341 /* AC */, "Acorn/SparkFS", NULL },
+	{ 0x4453 /* SE */, "Windows NT security descriptor (binary ACL)", NULL },
+	{ 0x4690 /*    */, "POSZIP 4690", NULL },
+	{ 0x4704 /*    */, "VM/CMS", NULL },
+	{ 0x470f /*    */, "MVS", NULL },
+	{ 0x4854 /* TH */, "Theos, old inofficial port", NULL },
+	{ 0x4b46 /* FK */, "FWKCS MD5", NULL },
+	{ 0x4c41 /* AL */, "OS/2 access control list (text ACL)", NULL },
+	{ 0x4d49 /* IM */, "Info-ZIP OpenVMS", NULL },
+	{ 0x4d63 /* cM */, "Macintosh SmartZIP", NULL },
+	{ 0x4f4c /* LO */, "Xceed original location extra field", NULL },
+	{ 0x5350 /* PS */, "Psion?", NULL }, // observed in some Psion files
+	{ 0x5356 /* VS */, "AOS/VS (ACL)", NULL },
+	{ 0x5455 /* UT */, "extended timestamp", ef_extended_timestamp },
+	{ 0x554e /* NU */, "Xceed unicode extra field", NULL },
+	{ 0x5855 /* UX */, "Info-ZIP Unix, first version", NULL },
+	{ 0x6375 /* uc */, "Info-ZIP Unicode Comment", NULL },
+	{ 0x6542 /* Be */, "BeOS/BeBox", NULL },
+	{ 0x6854 /* Th */, "Theos", NULL },
+	{ 0x7075 /* up */, "Info-ZIP Unicode Path", NULL },
+	{ 0x7441 /* At */, "AtheOS", NULL },
+	{ 0x756e /* nu */, "ASi Unix", NULL },
+	{ 0x7855 /* Ux */, "Info-ZIP Unix, second version", NULL },
+	{ 0x7875 /* ux */, "Info-ZIP Unix, third version", NULL },
+	{ 0xa220 /*    */, "Microsoft Open Packaging Growth Hint", NULL },
+	{ 0xfb4a /*    */, "SMS/QDOS", NULL }, // according to Info-ZIP zip 3.0
+	{ 0xfd4a /*    */, "SMS/QDOS", NULL }, // according to ZIP v6.3.4 APPNOTE
+	{ 0x0000, NULL, NULL }
 };
 
 static const struct extra_item_type_info_struct *get_extra_item_type_info(de_int64 id)
@@ -157,7 +197,8 @@ static const struct extra_item_type_info_struct *get_extra_item_type_info(de_int
 	return NULL;
 }
 
-static void do_extra_data(deark *c, lctx *d, de_int64 pos1, de_int64 len)
+static void do_extra_data(deark *c, lctx *d, de_int64 pos1, de_int64 len,
+	int is_central)
 {
 	de_int64 pos;
 	de_int64 item_id;
@@ -182,6 +223,12 @@ static void do_extra_data(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 			(int)item_len);
 		if(pos+4+item_len > pos1+len) break;
 
+		if(ei->fn) {
+			de_dbg_indent(c, 1);
+			ei->fn(c, d, item_id, pos+4, item_len, is_central);
+			de_dbg_indent(c, -1);
+		}
+
 		pos += 4+item_len;
 	}
 
@@ -192,13 +239,14 @@ static const char *get_platform_name(unsigned int ver_hi)
 {
 	static const char *pltf_names[20] = {
 		"MS-DOS, etc.", "Amiga", "OpenVMS", "Unix",
-		"VM/CMS", "Atari ST", "OS/2 HPFS", "Macintosh",
-		"Z-System", "CP/M", "NTFS", "MVS (OS/390 - Z/OS)",
-		"VSE", "Acorn Risc", "VFAT", "alternate MVS",
+		"VM/CMS", "Atari ST", "HPFS", "Macintosh",
+		"Z-System", "CP/M", "NTFS or TOPS-20", "MVS or NTFS",
+		"VSE or SMS/QDOS", "Acorn RISC OS", "VFAT", "MVS",
 		"BeOS", "Tandem", "OS/400", "OS X" };
 
 	if(ver_hi<20)
 		return pltf_names[ver_hi];
+	if(ver_hi==30) return "AtheOS/Syllable";
 	return "?";
 }
 
@@ -319,7 +367,7 @@ static int do_file_header(deark *c, lctx *d, int is_central, de_int64 central_in
 	*p_entry_size = fixed_header_size + fn_len + extra_len + comment_len;
 
 	if(extra_len>0) {
-		do_extra_data(c, d, pos1+fixed_header_size+fn_len, extra_len);
+		do_extra_data(c, d, pos1+fixed_header_size+fn_len, extra_len, is_central);
 	}
 
 	if(comment_len>0) {
