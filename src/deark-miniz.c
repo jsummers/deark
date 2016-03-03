@@ -319,8 +319,8 @@ void de_zip_add_file_to_archive(deark *c, dbuf *f)
 
 	de_dbg(c, "adding to zip: name:%s len:%d\n", f->name, (int)dbuf_get_length(f));
 
-	if(c->preserve_file_times && f->mod_time_valid) {
-		modtime = f->mod_time;
+	if(c->preserve_file_times && f->mod_time.is_valid) {
+		modtime = de_timestamp_to_unix_time(&f->mod_time);
 	}
 	else if(c->reproducible_output) {
 		// An arbitrary timestamp (2010-09-08 07:06:05)

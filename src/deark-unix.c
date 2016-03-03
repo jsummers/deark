@@ -92,14 +92,14 @@ void de_update_file_time(dbuf *f)
 	struct utimbuf times;
 
 	if(f->btype!=DBUF_TYPE_OFILE) return;
-	if(!f->mod_time_valid) return;
+	if(!f->mod_time.is_valid) return;
 	if(!f->name) return;
 
 	// I know that this code is not Y2038-compliant, if sizeof(time_t)==4.
 	// But it's not likely to be a serious problem, and I'd rather not replace
 	// it with code that's less portable.
 
-	times.modtime = f->mod_time;
+	times.modtime = de_timestamp_to_unix_time(&f->mod_time);
 	times.actime = times.modtime;
 	utime(f->name, &times);
 }

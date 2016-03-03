@@ -673,6 +673,20 @@ void de_finfo_set_name_from_bytes(deark *c, de_finfo *fi,
 	ucstring_destroy(fname);
 }
 
+void de_unix_time_to_timestamp(de_int64 ut, struct de_timestamp *ts)
+{
+	de_memset(ts, 0, sizeof(struct de_timestamp));
+	ts->is_valid = 1;
+	ts->unix_time = ut;
+}
+
+de_int64 de_timestamp_to_unix_time(const struct de_timestamp *ts)
+{
+	if(ts->is_valid)
+		return ts->unix_time;
+	return 0;
+}
+
 void de_declare_fmt(deark *c, const char *fmtname)
 {
 	if(c->module_nesting_level > 1) {

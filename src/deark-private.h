@@ -51,6 +51,11 @@ struct de_ucstring_struct {
 };
 typedef struct de_ucstring_struct de_ucstring;
 
+struct de_timestamp {
+	de_byte is_valid;
+	de_int64 unix_time; // Unix time_t format
+};
+
 // dbuf is our generalized I/O object. Used for many purposes.
 struct dbuf_struct {
 #define DBUF_TYPE_IFILE   1
@@ -90,16 +95,14 @@ struct dbuf_struct {
 	de_int64 cache2_bytes_used;
 	de_byte cache2[1];
 
-	de_byte mod_time_valid;
-	de_int64 mod_time;
+	struct de_timestamp mod_time;
 };
 typedef struct dbuf_struct dbuf;
 
 // Extended information about a file to be written.
 struct de_finfo_struct {
 	char *file_name; // utf-8 encoded
-	de_int64 mod_time; // Unix time_t format
-	de_byte mod_time_valid;
+	struct de_timestamp mod_time;
 	de_byte original_filename_flag; // Indicates if .file_name is a real file name
 };
 typedef struct de_finfo_struct de_finfo;
@@ -633,3 +636,6 @@ void de_char_output_to_file(deark *c, struct de_char_context *charctx);
 void de_free_charctx(deark *c, struct de_char_context *charctx);
 
 ///////////////////////////////////////////
+
+void de_unix_time_to_timestamp(de_int64 ut, struct de_timestamp *ts);
+de_int64 de_timestamp_to_unix_time(const struct de_timestamp *ts);
