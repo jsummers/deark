@@ -16,6 +16,7 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <time.h>
 #include <sys/utime.h>
 
 #include "deark-private.h"
@@ -204,4 +205,32 @@ int de_stdout_is_windows_console(void)
 
 	n=GetConsoleMode(GetStdHandle(STD_OUTPUT_HANDLE), &consolemode);
 	return n ? 1 : 0;
+}
+
+// Note: Need to keep this function in sync with the implementation in deark-unix.c.
+void de_timestamp_to_string(const struct de_timestamp *ts,
+	char *buf, size_t buf_len, unsigned int flags)
+{
+	__time64_t tmpt;
+	struct tm tm1;
+	const char *tzlabel;
+	errno_t ret;
+
+	if(!ts->is_valid) {
+		de_strlcpy(buf, "[invalid timestamp]", buf_len);
+		return;
+	}
+
+	de_memset(&tm1, 0, sizeof(struct tm));
+	tmpt = (__time64_t)de_timestamp_to_unix_time(ts);
+	ret = _gmtime64_s(&tm1, &tmpt);
+	if(ret!=0) {
+		de_strlcpy(buf, "[error]", buf_len);
+		return;
+	}
+
+	tzlabel = (flags&0x1)?" UTC":"";
+	de_snprintf(buf, buf_len, "%04d-%02d-%02d %02d:%02d:%02d%s",
+		1900+tm1.tm_year, 1+tm1.tm_mon, tm1.tm_mday,
+		tm1.tm_hour, tm1.tm_min, tm1.tm_sec, tzlabel);
 }

@@ -14,6 +14,7 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
+#include <time.h>
 #include <utime.h>
 #include <errno.h>
 
@@ -102,4 +103,26 @@ void de_update_file_time(dbuf *f)
 	times.modtime = de_timestamp_to_unix_time(&f->mod_time);
 	times.actime = times.modtime;
 	utime(f->name, &times);
+}
+
+// Note: Need to keep this function in sync with the implementation in deark-win.c.
+void de_timestamp_to_string(const struct de_timestamp *ts,
+	char *buf, size_t buf_len, unsigned int flags)
+{
+	time_t tmpt;
+	struct tm *tm1;
+	const char *tzlabel;
+
+	if(!ts->is_valid) {
+		de_strlcpy(buf, "[invalid timestamp]", buf_len);
+		return;
+	}
+
+	tmpt = (time_t)de_timestamp_to_unix_time(ts);
+	tm1 = gmtime(&tmpt);
+
+	tzlabel = (flags&0x1)?" UTC":"";
+	de_snprintf(buf, buf_len, "%04d-%02d-%02d %02d:%02d:%02d%s",
+		1900+tm1->tm_year, 1+tm1->tm_mon, tm1->tm_mday,
+		tm1->tm_hour, tm1->tm_min, tm1->tm_sec, tzlabel);
 }

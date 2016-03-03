@@ -98,6 +98,8 @@ static void ef_extended_timestamp(deark *c, lctx *d, de_int64 fieldtype,
 	de_int64 endpos;
 	int has_mtime, has_atime, has_ctime;
 	de_int64 mtime, atime, ctime;
+	struct de_timestamp timestamp;
+	char timestamp_buf[64];
 
 	endpos = pos+len;
 	if(pos+1>endpos) return;
@@ -110,19 +112,25 @@ static void ef_extended_timestamp(deark *c, lctx *d, de_int64 fieldtype,
 		if(pos+4>endpos) return;
 		mtime = dbuf_geti32le(c->infile, pos);
 		pos+=4;
-		de_dbg(c, "mtime: %d\n", (int)mtime);
+		de_unix_time_to_timestamp(mtime, &timestamp);
+		de_timestamp_to_string(&timestamp, timestamp_buf, sizeof(timestamp_buf), 1);
+		de_dbg(c, "mtime: %d (%s)\n", (int)mtime, timestamp_buf);
 	}
 	if(has_atime) {
 		if(pos+4>endpos) return;
 		atime = dbuf_geti32le(c->infile, pos);
 		pos+=4;
-		de_dbg(c, "atime: %d\n", (int)atime);
+		de_unix_time_to_timestamp(atime, &timestamp);
+		de_timestamp_to_string(&timestamp, timestamp_buf, sizeof(timestamp_buf), 1);
+		de_dbg(c, "atime: %d (%s)\n", (int)atime, timestamp_buf);
 	}
 	if(has_ctime) {
 		if(pos+4>endpos) return;
 		ctime = dbuf_geti32le(c->infile, pos);
 		pos+=4;
-		de_dbg(c, "ctime: %d\n", (int)ctime);
+		de_unix_time_to_timestamp(ctime, &timestamp);
+		de_timestamp_to_string(&timestamp, timestamp_buf, sizeof(timestamp_buf), 1);
+		de_dbg(c, "ctime: %d (%s)\n", (int)ctime, timestamp_buf);
 	}
 }
 

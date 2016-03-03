@@ -28,6 +28,7 @@ static int do_ar_item(deark *c, lctx *d, de_int64 pos1, de_int64 *p_item_len)
 	char name_orig[17];
 	size_t name_orig_len;
 	char name_printable[32];
+	char timestamp_buf[64];
 	de_int64 mod_time;
 	de_int64 file_offset;
 	de_int64 file_size = 0;
@@ -58,8 +59,9 @@ static int do_ar_item(deark *c, lctx *d, de_int64 pos1, de_int64 *p_item_len)
 	de_dbg(c, "member raw name: \"%s\"\n", name_printable);
 
 	mod_time = read_decimal(c, pos1+16, 12);
-	de_dbg(c, "mod time: %" INT64_FMT "\n", mod_time);
 	de_unix_time_to_timestamp(mod_time, &fi->mod_time);
+	de_timestamp_to_string(&fi->mod_time, timestamp_buf, sizeof(timestamp_buf), 1);
+	de_dbg(c, "mod time: %" INT64_FMT " (%s)\n", mod_time, timestamp_buf);
 
 	file_offset = pos1 + 60;
 	file_size = read_decimal(c, pos1+48, 10);
