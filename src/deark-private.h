@@ -639,5 +639,8 @@ void de_free_charctx(deark *c, struct de_char_context *charctx);
 
 void de_unix_time_to_timestamp(de_int64 ut, struct de_timestamp *ts);
 de_int64 de_timestamp_to_unix_time(const struct de_timestamp *ts);
+void de_make_timestamp(struct de_timestamp *ts,
+	de_int64 yr, de_int64 mo, de_int64 da,
+	de_int64 hr, de_int64 mi, double se);
 void de_timestamp_to_string(const struct de_timestamp *ts,
 	char *buf, size_t buf_len, unsigned int flags);

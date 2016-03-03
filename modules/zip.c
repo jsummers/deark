@@ -39,6 +39,20 @@ static int detect_bom(dbuf *f, de_int64 pos)
 	return 0;
 }
 
+static void do_read_filename(deark *c, lctx *d, de_int64 pos, de_int64 len, int utf8_flag)
+{
+	de_byte *fn_buf;
+	char fn_printable[256];
+
+	fn_buf = de_malloc(c, len);
+	de_read(fn_buf, pos, len);
+	// TODO: Handle the filename encoding better. Need a way to safely print
+	// untrusted Unicode.
+	de_make_printable_ascii(fn_buf, len, fn_printable, sizeof(fn_printable), 0);
+	de_dbg(c, "filename: \"%s\"\n", fn_printable);
+	de_free(c, fn_buf);
+}
+
 static void do_comment(deark *c, lctx *d, de_int64 pos, de_int64 len, int utf8_flag,
 	const char *ext)
 {
@@ -173,11 +187,11 @@ static const struct extra_item_type_info_struct extra_item_type_info_arr[] = {
 	{ 0x4c41 /* AL */, "OS/2 access control list (text ACL)", NULL },
 	{ 0x4d49 /* IM */, "Info-ZIP OpenVMS", NULL },
 	{ 0x4d63 /* cM */, "Macintosh SmartZIP", NULL },
-	{ 0x4f4c /* LO */, "Xceed original location extra field", NULL },
+	{ 0x4f4c /* LO */, "Xceed original location", NULL },
 	{ 0x5350 /* PS */, "Psion?", NULL }, // observed in some Psion files
 	{ 0x5356 /* VS */, "AOS/VS (ACL)", NULL },
 	{ 0x5455 /* UT */, "extended timestamp", ef_extended_timestamp },
-	{ 0x554e /* NU */, "Xceed unicode extra field", NULL },
+	{ 0x554e /* NU */, "Xceed unicode", NULL },
 	{ 0x5855 /* UX */, "Info-ZIP Unix, first version", NULL },
 	{ 0x6375 /* uc */, "Info-ZIP Unicode Comment", NULL },
 	{ 0x6542 /* Be */, "BeOS/BeBox", NULL },
@@ -258,6 +272,21 @@ static const char *get_platform_name(unsigned int ver_hi)
 	return "?";
 }
 
+static void dos_date_time_to_timestamp(struct de_timestamp *ts,
+   de_int64 ddate, de_int64 dtime)
+{
+	de_int64 yr, mo, da, hr, mi;
+	double se;
+
+	yr = 1980+((ddate&0xfe00)>>9);
+	mo = (ddate&0x01e0)>>5;
+	da = (ddate&0x001f);
+	hr = (dtime&0xf800)>>11;
+	mi = (dtime&0x07e0)>>5;
+	se = (double)(2*(dtime&0x001f));
+	de_make_timestamp(ts, yr, mo, da, hr, mi, se);
+}
+
 // Read either a central directory entry (a.k.a. central directory file header),
 // or a local file header.
 static int do_file_header(deark *c, lctx *d, int is_central, de_int64 central_index,
@@ -278,6 +307,10 @@ static int do_file_header(deark *c, lctx *d, int is_central, de_int64 central_in
 	de_int64 fixed_header_size;
 	de_int64 offset_of_local_header  = 0;
 	de_int64 disk_number_start = 0;
+	de_int64 crc;
+	de_int64 mod_time_raw, mod_date_raw;
+	struct de_timestamp timestamp_tmp;
+	char timestamp_buf[64];
 
 	pos = pos1;
 	if(is_central) {
@@ -329,8 +362,17 @@ static int do_file_header(deark *c, lctx *d, int is_central, de_int64 central_in
 	pos += 2;
 	de_dbg(c, "cmpr method: %d\n", (int)cmpr_method);
 
-	pos += 4; // last mod time & date
-	pos += 4; // crc-32
+	mod_time_raw = de_getui16le(pos);
+	pos += 2;
+	mod_date_raw = de_getui16le(pos);
+	pos += 2;
+	dos_date_time_to_timestamp(&timestamp_tmp, mod_date_raw, mod_time_raw);
+	de_timestamp_to_string(&timestamp_tmp, timestamp_buf, sizeof(timestamp_buf), 0);
+	de_dbg(c, "mod time: %s\n", timestamp_buf);
+
+	crc = de_getui32le(pos);
+	pos += 4;
+	de_dbg(c, "crc: 0x%08x\n", (unsigned int)crc);
 
 	size1 = de_getui32le(pos); // compressed size
 	pos += 4;
@@ -373,6 +415,8 @@ static int do_file_header(deark *c, lctx *d, int is_central, de_int64 central_in
 	}
 
 	*p_entry_size = fixed_header_size + fn_len + extra_len + comment_len;
+
+	do_read_filename(c, d, pos1+fixed_header_size, fn_len, utf8_flag);
 
 	if(extra_len>0) {
 		do_extra_data(c, d, pos1+fixed_header_size+fn_len, extra_len, is_central);

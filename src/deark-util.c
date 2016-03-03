@@ -687,6 +687,44 @@ de_int64 de_timestamp_to_unix_time(const struct de_timestamp *ts)
 	return 0;
 }
 
+// [Adapted from Eric Raymond's public domain my_timegm().]
+// Convert a UTC time (as individual fields) to a de_timestamp.
+// Since de_timestamp currently uses time_t format internally,
+// this is basically a UTC version of mktime().
+// yr = full year
+// mo = month: 1=Jan, ... 12=Dec
+// da = day of month: 1=1, ... 31=31
+void de_make_timestamp(struct de_timestamp *ts,
+	de_int64 yr, de_int64 mo, de_int64 da,
+	de_int64 hr, de_int64 mi, double se)
+{
+	de_int64 result;
+	de_int64 tm_mon;
+	static const int cumulative_days[12] =
+		{ 0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334 };
+
+	de_memset(ts, 0, sizeof(struct de_timestamp));
+	tm_mon = mo-1;
+	if(tm_mon<0 || tm_mon>11) tm_mon=0;
+	result = (yr - 1970) * 365 + cumulative_days[tm_mon];
+	result += (yr - 1968) / 4;
+	result -= (yr - 1900) / 100;
+	result += (yr - 1600) / 400;
+	if ((yr%4)==0 && ((yr%100)!=0 || (yr%400)==0) && tm_mon<2) {
+		result--;
+	}
+	result += da-1;
+	result *= 24;
+	result += hr;
+	result *= 60;
+	result += mi;
+	result *= 60;
+	result += (de_int64)se;
+
+	ts->unix_time = result;
+	ts->is_valid = 1;
+}
+
 void de_declare_fmt(deark *c, const char *fmtname)
 {
 	if(c->module_nesting_level > 1) {
