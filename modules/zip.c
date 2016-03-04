@@ -105,15 +105,25 @@ static void do_comment(deark *c, lctx *d, de_int64 pos, de_int64 len, int utf8_f
 	de_free(c, comment);
 }
 
+static void read_unix_timestamp(deark *c, lctx *d, de_int64 pos, const char *name)
+{
+	de_int64 t;
+	struct de_timestamp timestamp;
+	char timestamp_buf[64];
+
+	t = dbuf_geti32le(c->infile, pos);
+	de_unix_time_to_timestamp(t, &timestamp);
+	de_timestamp_to_string(&timestamp, timestamp_buf, sizeof(timestamp_buf), 1);
+	de_dbg(c, "%s: %d (%s)\n", name, (int)t, timestamp_buf);
+}
+
+// Extra field 0x5455
 static void ef_extended_timestamp(deark *c, lctx *d, de_int64 fieldtype,
 	de_int64 pos, de_int64 len, int is_central)
 {
 	de_byte flags;
 	de_int64 endpos;
 	int has_mtime, has_atime, has_ctime;
-	de_int64 mtime, atime, ctime;
-	struct de_timestamp timestamp;
-	char timestamp_buf[64];
 
 	endpos = pos+len;
 	if(pos+1>endpos) return;
@@ -124,28 +134,94 @@ static void ef_extended_timestamp(deark *c, lctx *d, de_int64 fieldtype,
 	has_ctime = (!is_central) && (flags & 0x04);
 	if(has_mtime) {
 		if(pos+4>endpos) return;
-		mtime = dbuf_geti32le(c->infile, pos);
+		read_unix_timestamp(c, d, pos, "mtime");
 		pos+=4;
-		de_unix_time_to_timestamp(mtime, &timestamp);
-		de_timestamp_to_string(&timestamp, timestamp_buf, sizeof(timestamp_buf), 1);
-		de_dbg(c, "mtime: %d (%s)\n", (int)mtime, timestamp_buf);
 	}
 	if(has_atime) {
 		if(pos+4>endpos) return;
-		atime = dbuf_geti32le(c->infile, pos);
+		read_unix_timestamp(c, d, pos, "atime");
 		pos+=4;
-		de_unix_time_to_timestamp(atime, &timestamp);
-		de_timestamp_to_string(&timestamp, timestamp_buf, sizeof(timestamp_buf), 1);
-		de_dbg(c, "atime: %d (%s)\n", (int)atime, timestamp_buf);
 	}
 	if(has_ctime) {
 		if(pos+4>endpos) return;
-		ctime = dbuf_geti32le(c->infile, pos);
+		read_unix_timestamp(c, d, pos, "ctime");
 		pos+=4;
-		de_unix_time_to_timestamp(ctime, &timestamp);
-		de_timestamp_to_string(&timestamp, timestamp_buf, sizeof(timestamp_buf), 1);
-		de_dbg(c, "ctime: %d (%s)\n", (int)ctime, timestamp_buf);
 	}
+}
+
+// Extra field 0x5855
+static void ef_infozip1(deark *c, lctx *d, de_int64 fieldtype,
+	de_int64 pos, de_int64 len, int is_central)
+{
+	de_int64 uidnum, gidnum;
+
+	if(is_central && len<8) return;
+	if(!is_central && len<12) return;
+	read_unix_timestamp(c, d, pos, "atime");
+	read_unix_timestamp(c, d, pos+4, "mtime");
+	if(!is_central) {
+		uidnum = de_getui16le(pos+8);
+		gidnum = de_getui16le(pos+10);
+		de_dbg(c, "uid: %d, gid: %d\n", (int)uidnum, (int)gidnum);
+	}
+}
+
+// Extra field 0x7855
+static void ef_infozip2(deark *c, lctx *d, de_int64 fieldtype,
+	de_int64 pos, de_int64 len, int is_central)
+{
+	de_int64 uidnum, gidnum;
+
+	if(is_central) return;
+	if(len<4) return;
+	uidnum = de_getui16le(pos);
+	gidnum = de_getui16le(pos+2);
+	de_dbg(c, "uid: %d, gid: %d\n", (int)uidnum, (int)gidnum);
+}
+
+static de_int64 get_variable_length_uint_le(dbuf *f, de_int64 pos, de_int64 len)
+{
+	de_int64 val = 0;
+	de_int64 i;
+
+	for(i=0; i<len && i<8; i++) {
+		val |= ((de_int64)dbuf_getbyte(f, pos+i))<<(i*8);
+	}
+	return val;
+}
+
+// Extra field 0x7875
+static void ef_infozip3(deark *c, lctx *d, de_int64 fieldtype,
+	de_int64 pos, de_int64 len, int is_central)
+{
+	de_int64 uidnum, gidnum;
+	de_byte ver;
+	de_int64 endpos;
+	de_int64 sz;
+
+	endpos = pos+len;
+
+	if(pos+1>endpos) return;
+	ver = de_getbyte(pos);
+	pos++;
+	de_dbg(c, "version: %d\n", (int)ver);
+	if(ver!=1) return;
+
+	if(pos+1>endpos) return;
+	sz = (de_int64)de_getbyte(pos);
+	pos++;
+	if(pos+sz>endpos) return;
+	uidnum = get_variable_length_uint_le(c->infile, pos, sz);
+	pos += sz;
+
+	if(pos+1>endpos) return;
+	sz = (de_int64)de_getbyte(pos);
+	pos++;
+	if(pos+sz>endpos) return;
+	gidnum = get_variable_length_uint_le(c->infile, pos, sz);
+	pos += sz;
+
+	de_dbg(c, "uid: %d, gid: %d\n", (int)uidnum, (int)gidnum);
 }
 
 struct extra_item_type_info_struct {
@@ -192,15 +268,15 @@ static const struct extra_item_type_info_struct extra_item_type_info_arr[] = {
 	{ 0x5356 /* VS */, "AOS/VS (ACL)", NULL },
 	{ 0x5455 /* UT */, "extended timestamp", ef_extended_timestamp },
 	{ 0x554e /* NU */, "Xceed unicode", NULL },
-	{ 0x5855 /* UX */, "Info-ZIP Unix, first version", NULL },
+	{ 0x5855 /* UX */, "Info-ZIP Unix, first version", ef_infozip1 },
 	{ 0x6375 /* uc */, "Info-ZIP Unicode Comment", NULL },
 	{ 0x6542 /* Be */, "BeOS/BeBox", NULL },
 	{ 0x6854 /* Th */, "Theos", NULL },
 	{ 0x7075 /* up */, "Info-ZIP Unicode Path", NULL },
 	{ 0x7441 /* At */, "AtheOS", NULL },
 	{ 0x756e /* nu */, "ASi Unix", NULL },
-	{ 0x7855 /* Ux */, "Info-ZIP Unix, second version", NULL },
-	{ 0x7875 /* ux */, "Info-ZIP Unix, third version", NULL },
+	{ 0x7855 /* Ux */, "Info-ZIP Unix, second version", ef_infozip2 },
+	{ 0x7875 /* ux */, "Info-ZIP Unix, third version", ef_infozip3 },
 	{ 0xa220 /*    */, "Microsoft Open Packaging Growth Hint", NULL },
 	{ 0xfb4a /*    */, "SMS/QDOS", NULL }, // according to Info-ZIP zip 3.0
 	{ 0xfd4a /*    */, "SMS/QDOS", NULL }, // according to ZIP v6.3.4 APPNOTE
@@ -309,6 +385,7 @@ static int do_file_header(deark *c, lctx *d, int is_central, de_int64 central_in
 	de_int64 disk_number_start = 0;
 	de_int64 crc;
 	de_int64 mod_time_raw, mod_date_raw;
+	de_int64 attr_i, attr_e;
 	struct de_timestamp timestamp_tmp;
 	char timestamp_buf[64];
 
@@ -338,8 +415,8 @@ static int do_file_header(deark *c, lctx *d, int is_central, de_int64 central_in
 		const char *pltf_name;
 		ver_made_by = de_getui16le(pos);
 		pos += 2;
-		ver_hi = (unsigned int)((ver_made_by%0xff00)>>8);
-		ver_lo = (unsigned int)(ver_made_by%0x00ff);
+		ver_hi = (unsigned int)((ver_made_by&0xff00)>>8);
+		ver_lo = (unsigned int)(ver_made_by&0x00ff);
 		pltf_name = get_platform_name(ver_hi);
 		de_dbg(c, "version made by: platform=%u (%s), ZIP spec=%u.%u\n",
 			ver_hi, pltf_name,
@@ -397,8 +474,14 @@ static int do_file_header(deark *c, lctx *d, int is_central, de_int64 central_in
 	if(is_central) {
 		disk_number_start = de_getui16le(pos);
 		pos += 2;
-		pos += 2; // internal file attributes
-		pos += 4; // external file attributes
+
+		attr_i = de_getui16le(pos);
+		pos += 2;
+		attr_e = de_getui32le(pos);
+		pos += 4;
+		de_dbg(c, "file attributes: internal=0x%04x, external=0x%08x\n",
+			(unsigned int)attr_i, (unsigned int)attr_e);
+
 		offset_of_local_header = de_getui32le(pos);
 		pos += 4;
 		de_dbg(c, "offset of local header: %d, disk: %d\n", (int)offset_of_local_header,
