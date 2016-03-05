@@ -4179,6 +4179,10 @@ static mz_bool mz_zip_writer_create_central_dir_header(mz_zip_archive *pZip, mz_
   (void)pZip;
   memset(pDst, 0, MZ_ZIP_CENTRAL_DIR_HEADER_SIZE);
   MZ_WRITE_LE32(pDst + MZ_ZIP_CDH_SIG_OFS, MZ_ZIP_CENTRAL_DIR_HEADER_SIG);
+  // Hack for Deark: Set the "version made by" field.
+  // 03xx = Unix
+  // 63 decimal = ZIP spec v6.3 (first version to document the UTF-8 flag)
+  MZ_WRITE_LE16(pDst + MZ_ZIP_CDH_VERSION_MADE_BY_OFS, 0x0300 | 63);
   MZ_WRITE_LE16(pDst + MZ_ZIP_CDH_VERSION_NEEDED_OFS, method ? 20 : 0);
   MZ_WRITE_LE16(pDst + MZ_ZIP_CDH_BIT_FLAG_OFS, bit_flags);
   MZ_WRITE_LE16(pDst + MZ_ZIP_CDH_METHOD_OFS, method);
@@ -4190,6 +4194,10 @@ static mz_bool mz_zip_writer_create_central_dir_header(mz_zip_archive *pZip, mz_
   MZ_WRITE_LE16(pDst + MZ_ZIP_CDH_FILENAME_LEN_OFS, filename_size);
   MZ_WRITE_LE16(pDst + MZ_ZIP_CDH_EXTRA_LEN_OFS, extra_size);
   MZ_WRITE_LE16(pDst + MZ_ZIP_CDH_COMMENT_LEN_OFS, comment_size);
+  // Hack for Deark: Set the Unix file attributes to "-rw-r--r--".
+  // (0x81A4 = 100644 octal)
+  // Note that this will not work if the "file" is a subdirectory.
+  ext_attributes = 0x81a40000U;
   MZ_WRITE_LE32(pDst + MZ_ZIP_CDH_EXTERNAL_ATTR_OFS, ext_attributes);
   MZ_WRITE_LE32(pDst + MZ_ZIP_CDH_LOCAL_HEADER_OFS, local_header_ofs);
   return MZ_TRUE;
