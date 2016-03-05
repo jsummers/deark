@@ -117,6 +117,20 @@ static void read_unix_timestamp(deark *c, lctx *d, de_int64 pos, const char *nam
 	de_dbg(c, "%s: %d (%s)\n", name, (int)t, timestamp_buf);
 }
 
+static void read_FILETIME(deark *c, lctx *d, de_int64 pos, const char *name)
+{
+	de_int64 t_FILETIME;
+	de_int64 t;
+	struct de_timestamp timestamp;
+	char timestamp_buf[64];
+
+	t_FILETIME = de_geti64le(pos);
+	t = t_FILETIME/10000000 - ((de_int64)256)*45486225;
+	de_unix_time_to_timestamp(t, &timestamp);
+	de_timestamp_to_string(&timestamp, timestamp_buf, sizeof(timestamp_buf), 1);
+	de_dbg(c, "%s: %s\n", name, timestamp_buf);
+}
+
 // Extra field 0x5455
 static void ef_extended_timestamp(deark *c, lctx *d, de_int64 fieldtype,
 	de_int64 pos, de_int64 len, int is_central)
@@ -224,6 +238,71 @@ static void ef_infozip3(deark *c, lctx *d, de_int64 fieldtype,
 	de_dbg(c, "uid: %d, gid: %d\n", (int)uidnum, (int)gidnum);
 }
 
+// Extra field 0x000a
+static void ef_ntfs(deark *c, lctx *d, de_int64 fieldtype,
+	de_int64 pos, de_int64 len, int is_central)
+{
+	de_int64 endpos;
+	de_int64 attr_tag;
+	de_int64 attr_size;
+	const char *name;
+
+	endpos = pos+len;
+	pos += 4; // skip reserved field
+
+	while(1) {
+		if(pos+4>endpos) break;
+		attr_tag = de_getui16le(pos);
+		attr_size = de_getui16le(pos+2);
+		pos += 4;
+		if(attr_tag==0x0001) name="NTFS filetimes";
+		else name="?";
+		de_dbg(c, "tag: 0x%04x (%s), dlen: %d\n", (unsigned int)attr_tag, name,
+			(int)attr_size);
+		if(pos+attr_size>endpos) break;
+
+		de_dbg_indent(c, 1);
+		if(attr_tag==0x0001 && attr_size>=24) {
+			read_FILETIME(c, d, pos, "mtime");
+			read_FILETIME(c, d, pos+8, "atime");
+			read_FILETIME(c, d, pos+16, "ctime");
+		}
+		de_dbg_indent(c, -1);
+
+		pos += attr_size;
+	}
+}
+
+// Extra field 0x0009
+static void ef_os2(deark *c, lctx *d, de_int64 fieldtype,
+	de_int64 pos, de_int64 len, int is_central)
+{
+	de_int64 endpos;
+	de_int64 unc_size;
+	de_int64 cmpr_type;
+	de_int64 crc;
+
+	endpos = pos+len;
+	if(pos+4>endpos) return;
+	unc_size = de_getui32le(pos);
+	pos += 4;
+	de_dbg(c, "uncmpr ext attr data size: %d\n", (int)unc_size);
+	if(is_central) return;
+
+	if(pos+2>endpos) return;
+	cmpr_type = de_getui16le(pos);
+	pos += 2;
+	de_dbg(c, "ext attr cmpr method: %d\n", (int)cmpr_type);
+
+	if(pos+4>endpos) return;
+	crc = de_getui32le(pos);
+	pos += 4;
+	de_dbg(c, "ext attr crc: 0x%08x\n", (unsigned int)crc);
+
+	de_dbg(c, "cmpr ext attr data at %d, len=%d\n", (int)pos, (int)(endpos-pos));
+	// TODO: Uncompress and decode OS/2 extended attribute structure (FEA2LIST)
+}
+
 struct extra_item_type_info_struct {
 	de_uint16 id;
 	const char *name;
@@ -233,8 +312,8 @@ static const struct extra_item_type_info_struct extra_item_type_info_arr[] = {
 	{ 0x0001 /*    */, "Zip64 extended information", NULL },
 	{ 0x0007 /*    */, "AV Info", NULL },
 	{ 0x0008 /*    */, "extended language encoding data", NULL },
-	{ 0x0009 /*    */, "OS/2", NULL },
-	{ 0x000a /*    */, "NTFS", NULL },
+	{ 0x0009 /*    */, "OS/2", ef_os2 },
+	{ 0x000a /*    */, "NTFS", ef_ntfs },
 	{ 0x000c /*    */, "OpenVMS", NULL },
 	{ 0x000d /*    */, "Unix", NULL },
 	{ 0x000e /*    */, "file stream and fork descriptors", NULL },
