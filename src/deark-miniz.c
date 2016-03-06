@@ -4,12 +4,15 @@
 // Interface to miniz
 
 #include "deark-config.h"
+#include "deark-private.h"
+
+struct deark_file_attribs {
+	de_int64 modtime; // Unix time_t format
+	int modtime_valid;
+};
 
 #define MINIZ_NO_ZLIB_COMPATIBLE_NAMES
 #include "../foreign/miniz.h"
-
-#include "deark-private.h"
-
 
 // A copy of tdefl_write_image_to_png_file_in_memory_ex from miniz,
 // hacked to support pHYs chunks.
@@ -306,7 +309,9 @@ int de_zip_create_file(deark *c)
 void de_zip_add_file_to_archive(deark *c, dbuf *f)
 {
 	mz_zip_archive *zip;
-	mz_int64 modtime;
+	struct deark_file_attribs dfa;
+
+	de_memset(&dfa, 0, sizeof(struct deark_file_attribs));
 
 	if(!c->zip_file) {
 		// ZIP file hasn't been created yet
@@ -320,18 +325,27 @@ void de_zip_add_file_to_archive(deark *c, dbuf *f)
 	de_dbg(c, "adding to zip: name:%s len:%d\n", f->name, (int)dbuf_get_length(f));
 
 	if(c->preserve_file_times && f->mod_time.is_valid) {
-		modtime = de_timestamp_to_unix_time(&f->mod_time);
+		dfa.modtime = de_timestamp_to_unix_time(&f->mod_time);
+		dfa.modtime_valid = 1;
 	}
 	else if(c->reproducible_output) {
 		// An arbitrary timestamp (2010-09-08 07:06:05)
-		modtime = 1283929565LL;
+		dfa.modtime = 1283929565LL;
+		dfa.modtime_valid = 1;
 	}
 	else {
-		modtime = (mz_int64)(-1);
+		if(!c->current_time.is_valid) {
+			// Get/record the current time. (We'll use the same "current time"
+			// for all files in this archive.)
+			de_current_time_to_timestamp(&c->current_time);
+		}
+
+		dfa.modtime = de_timestamp_to_unix_time(&c->current_time);
+		dfa.modtime_valid = 1;
 	}
 
 	mz_zip_writer_add_mem(zip, f->name, f->membuf_buf, (size_t)dbuf_get_length(f),
-		MZ_BEST_COMPRESSION, modtime);
+		MZ_BEST_COMPRESSION, &dfa);
 }
 
 void de_zip_close_file(deark *c)

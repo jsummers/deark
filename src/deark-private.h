@@ -201,6 +201,8 @@ struct deark_struct {
 	char *base_output_filename;
 	char *output_archive_filename;
 
+	struct de_timestamp current_time;
+
 	int num_modules;
 	struct deark_module_info *module_info; // Pointer to an array
 
@@ -644,3 +646,4 @@ void de_make_timestamp(struct de_timestamp *ts,
 	de_int64 hr, de_int64 mi, double se);
 void de_timestamp_to_string(const struct de_timestamp *ts,
 	char *buf, size_t buf_len, unsigned int flags);
+void de_current_time_to_timestamp(struct de_timestamp *ts);

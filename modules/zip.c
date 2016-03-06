@@ -143,9 +143,16 @@ static void ef_extended_timestamp(deark *c, lctx *d, de_int64 fieldtype,
 	if(pos+1>endpos) return;
 	flags = de_getbyte(pos);
 	pos++;
-	has_mtime = (flags & 0x01)?1:0;
-	has_atime = (!is_central) && (flags & 0x02);
-	has_ctime = (!is_central) && (flags & 0x04);
+	if(is_central) {
+		has_mtime = (len>=5);
+		has_atime = 0;
+		has_ctime = 0;
+	}
+	else {
+		has_mtime = (flags & 0x01)?1:0;
+		has_atime = (flags & 0x02)?1:0;
+		has_ctime = (flags & 0x04)?1:0;
+	}
 	if(has_mtime) {
 		if(pos+4>endpos) return;
 		read_unix_timestamp(c, d, pos, "mtime");

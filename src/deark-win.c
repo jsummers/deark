@@ -234,3 +234,14 @@ void de_timestamp_to_string(const struct de_timestamp *ts,
 		1900+tm1.tm_year, 1+tm1.tm_mon, tm1.tm_mday,
 		tm1.tm_hour, tm1.tm_min, tm1.tm_sec, tzlabel);
 }
+
+// Note: Need to keep this function in sync with the implementation in deark-unix.c.
+void de_current_time_to_timestamp(struct de_timestamp *ts)
+{
+	__time64_t t;
+
+	de_memset(ts, 0, sizeof(struct de_timestamp));
+	_time64(&t);
+	ts->unix_time = (de_int64)t;
+	ts->is_valid = 1;
+}
