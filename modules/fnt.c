@@ -100,7 +100,7 @@ static void do_make_image(deark *c, lctx *d)
 					// This kind of font usually doesn't have glyphs below 32.
 					// If it does, assume that they are VT100 line drawing characters.
 					font->char_array[i].codepoint_unicode =
-						de_char_to_unicode(c, char_index, DE_ENCODING_VT100_GRAPHICS);
+						de_char_to_unicode(c, 95+char_index, DE_ENCODING_DEC_SPECIAL_GRAPHICS);
 				}
 				else {
 					font->char_array[i].codepoint_unicode =

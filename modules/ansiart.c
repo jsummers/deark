@@ -120,8 +120,8 @@ static de_int32 ansi_char_to_unicode(deark *c, lctx *d, de_byte ch)
 		cs = d->curr_g1_charset;
 
 	if(cs==CHARSET_LINEDRAWING) {
-		if(ch>=96 && ch<=126) {
-			u = de_char_to_unicode(c, (de_int32)ch - 95, DE_ENCODING_VT100_GRAPHICS);
+		if(ch>=95 && ch<=126) {
+			u = de_char_to_unicode(c, (de_int32)ch, DE_ENCODING_DEC_SPECIAL_GRAPHICS);
 			return u;
 		}
 	}
