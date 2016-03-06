@@ -9,6 +9,10 @@
 struct deark_file_attribs {
 	de_int64 modtime; // Unix time_t format
 	int modtime_valid;
+	de_uint16 extra_data_central_size;
+	de_uint16 extra_data_local_size;
+	de_byte *extra_data_central;
+	de_byte *extra_data_local;
 };
 
 #define MINIZ_NO_ZLIB_COMPATIBLE_NAMES
@@ -344,8 +348,30 @@ void de_zip_add_file_to_archive(deark *c, dbuf *f)
 		dfa.modtime_valid = 1;
 	}
 
+	// Create ZIP "extra data" "Extended Timestamp" fields, containing the
+	// UTC timestamp.
+	// Note: Although our central and local extra data fields happen to be
+	// identical, that is not usually the case for tag 0x5455.
+	dfa.extra_data_local_size = 4 + 5;
+	dfa.extra_data_central_size = 4 + 5;
+	dfa.extra_data_local = de_malloc(c, (de_int64)dfa.extra_data_local_size);
+	dfa.extra_data_central = de_malloc(c, (de_int64)dfa.extra_data_central_size);
+
+	de_writeui16le_direct(&dfa.extra_data_local[0], 0x5455);
+	de_writeui16le_direct(&dfa.extra_data_local[2], (de_int64)(dfa.extra_data_local_size-4));
+	de_writeui16le_direct(&dfa.extra_data_central[0], 0x5455);
+	de_writeui16le_direct(&dfa.extra_data_central[2], (de_int64)(dfa.extra_data_central_size-4));
+
+	dfa.extra_data_local[4] = 0x01; // has-modtime flag
+	de_writeui32le_direct(&dfa.extra_data_local[5], dfa.modtime);
+	dfa.extra_data_central[4] = dfa.extra_data_local[4];
+	de_writeui32le_direct(&dfa.extra_data_central[5], dfa.modtime);
+
 	mz_zip_writer_add_mem(zip, f->name, f->membuf_buf, (size_t)dbuf_get_length(f),
 		MZ_BEST_COMPRESSION, &dfa);
+
+	de_free(c, dfa.extra_data_local);
+	de_free(c, dfa.extra_data_central);
 }
 
 void de_zip_close_file(deark *c)

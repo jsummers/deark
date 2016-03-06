@@ -4356,6 +4356,13 @@ mz_bool mz_zip_writer_add_mem_ex(mz_zip_archive *pZip, const char *pArchive_name
   }
   cur_archive_file_ofs += archive_name_size;
 
+  // Hack for Deark: Write local extra data.
+  if(dfa && dfa->extra_data_local_size>0) {
+    pZip->m_pWrite(pZip->m_pIO_opaque, cur_archive_file_ofs, dfa->extra_data_local, dfa->extra_data_local_size);
+    cur_archive_file_ofs += dfa->extra_data_local_size;
+  }
+  // End hack for Deark
+
   if (!(level_and_flags & MZ_ZIP_FLAG_COMPRESSED_DATA))
   {
     uncomp_crc32 = (mz_uint32)mz_crc32(MZ_CRC32_INIT, (const mz_uint8*)pBuf, buf_size);
@@ -4409,13 +4416,13 @@ mz_bool mz_zip_writer_add_mem_ex(mz_zip_archive *pZip, const char *pArchive_name
   if ((comp_size > 0xFFFFFFFF) || (cur_archive_file_ofs > 0xFFFFFFFF))
     return MZ_FALSE;
 
-  if (!mz_zip_writer_create_local_dir_header(pZip, local_dir_header, (mz_uint16)archive_name_size, 0, uncomp_size, comp_size, uncomp_crc32, method, 0, dos_time, dos_date))
+  if (!mz_zip_writer_create_local_dir_header(pZip, local_dir_header, (mz_uint16)archive_name_size, dfa?dfa->extra_data_local_size:0, uncomp_size, comp_size, uncomp_crc32, method, 0, dos_time, dos_date))
     return MZ_FALSE;
 
   if (pZip->m_pWrite(pZip->m_pIO_opaque, local_dir_header_ofs, local_dir_header, sizeof(local_dir_header)) != sizeof(local_dir_header))
     return MZ_FALSE;
 
-  if (!mz_zip_writer_add_to_central_dir(pZip, pArchive_name, (mz_uint16)archive_name_size, NULL, 0, pComment, comment_size, uncomp_size, comp_size, uncomp_crc32, method, 0, dos_time, dos_date, local_dir_header_ofs, ext_attributes))
+  if (!mz_zip_writer_add_to_central_dir(pZip, pArchive_name, (mz_uint16)archive_name_size, dfa?dfa->extra_data_central:NULL, dfa?dfa->extra_data_central_size:0, pComment, comment_size, uncomp_size, comp_size, uncomp_crc32, method, 0, dos_time, dos_date, local_dir_header_ofs, ext_attributes))
     return MZ_FALSE;
 
   pZip->m_total_files++;
