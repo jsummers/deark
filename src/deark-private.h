@@ -77,6 +77,8 @@ struct dbuf_struct {
 	struct dbuf_struct *parent_dbuf; // used for DBUF_TYPE_DBUF
 	de_int64 offset_into_parent_dbuf; // used for DBUF_TYPE_DBUF
 
+	de_byte is_executable; // Make the output file executable?
+
 	int write_memfile_to_zip_archive; // used for DBUF_TYPE_OFILE, at least
 	char *name; // used for DBUF_TYPE_OFILE
 
@@ -104,6 +106,7 @@ struct de_finfo_struct {
 	char *file_name; // utf-8 encoded
 	struct de_timestamp mod_time;
 	de_byte original_filename_flag; // Indicates if .file_name is a real file name
+	de_byte is_executable;
 };
 typedef struct de_finfo_struct de_finfo;
 

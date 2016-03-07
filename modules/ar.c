@@ -30,6 +30,7 @@ static int do_ar_item(deark *c, lctx *d, de_int64 pos1, de_int64 *p_item_len)
 	char name_printable[32];
 	char timestamp_buf[64];
 	de_int64 mod_time;
+	de_int64 file_mode;
 	de_int64 file_offset;
 	de_int64 file_size = 0;
 	de_int64 name_offset;
@@ -62,6 +63,13 @@ static int do_ar_item(deark *c, lctx *d, de_int64 pos1, de_int64 *p_item_len)
 	de_unix_time_to_timestamp(mod_time, &fi->mod_time);
 	de_timestamp_to_string(&fi->mod_time, timestamp_buf, sizeof(timestamp_buf), 1);
 	de_dbg(c, "mod time: %" INT64_FMT " (%s)\n", mod_time, timestamp_buf);
+
+	// "File mode" field is not actually decimal, but it doesn't matter.
+	file_mode = read_decimal(c, pos1+40, 8);
+	de_dbg(c, "file mode: %d\n", (int)file_mode);
+	if((file_mode&0x1) || ((file_mode/10)&1) || ((file_mode/100)&1)) {
+		fi->is_executable = 1;
+	}
 
 	file_offset = pos1 + 60;
 	file_size = read_decimal(c, pos1+48, 10);

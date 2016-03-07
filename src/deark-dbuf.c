@@ -410,8 +410,9 @@ dbuf *dbuf_create_output_file(deark *c, const char *ext, de_finfo *fi)
 	f->name = de_strdup(c, nbuf);
 	f->c = c;
 
-	if(fi && fi->mod_time.is_valid) {
+	if(fi) {
 		f->mod_time = fi->mod_time; // struct copy
+		f->is_executable = fi->is_executable;
 	}
 
 	if(file_index < c->first_output_file) {
@@ -689,6 +690,9 @@ void dbuf_close(dbuf *f)
 		if(f->btype==DBUF_TYPE_OFILE && c->preserve_file_times) {
 			de_update_file_time(f);
 		}
+
+		// TODO: Maybe try to make the file executable if and only if
+		// f->is_executable is set.
 	}
 
 	de_free(c, f->membuf_buf);

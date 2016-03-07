@@ -9,6 +9,7 @@
 struct deark_file_attribs {
 	de_int64 modtime; // Unix time_t format
 	int modtime_valid;
+	de_byte is_executable;
 	de_uint16 extra_data_central_size;
 	de_uint16 extra_data_local_size;
 	de_byte *extra_data_central;
@@ -347,6 +348,8 @@ void de_zip_add_file_to_archive(deark *c, dbuf *f)
 		dfa.modtime = de_timestamp_to_unix_time(&c->current_time);
 		dfa.modtime_valid = 1;
 	}
+
+	dfa.is_executable = f->is_executable;
 
 	// Create ZIP "extra data" "Extended Timestamp" fields, containing the
 	// UTC timestamp.
