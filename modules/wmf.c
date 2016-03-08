@@ -305,7 +305,7 @@ void de_module_wmf(deark *c, struct deark_module_info *mi)
 
 static int emf_handler_01(deark *c, lctx *d, de_int64 rectype, de_int64 recpos, de_int64 recsize_bytes);
 static int emf_handler_4c(deark *c, lctx *d, de_int64 rectype, de_int64 recpos, de_int64 recsize_bytes);
-static int emf_handler_51(deark *c, lctx *d, de_int64 rectype, de_int64 recpos, de_int64 recsize_bytes);
+static int emf_handler_50_51(deark *c, lctx *d, de_int64 rectype, de_int64 recpos, de_int64 recsize_bytes);
 
 struct emf_func_info {
 	de_uint32 rectype;
@@ -361,8 +361,8 @@ static const struct emf_func_info emf_func_info_arr[] = {
 	{ 0x4d, "STRETCHBLT", NULL },
 	{ 0x4e, "MASKBLT", NULL },
 	{ 0x4f, "PLGBLT", NULL },
-	{ 0x50, "SETDIBITSTODEVICE", NULL },
-	{ 0x51, "STRETCHDIBITS", emf_handler_51 },
+	{ 0x50, "SETDIBITSTODEVICE", emf_handler_50_51 },
+	{ 0x51, "STRETCHDIBITS", emf_handler_50_51 },
 	{ 0x52, "EXTCREATEFONTINDIRECTW", NULL },
 	{ 0x53, "EXTTEXTOUTA", NULL },
 	{ 0x54, "EXTTEXTOUTW", NULL },
@@ -422,6 +422,8 @@ static void extract_dib(deark *c, lctx *d, de_int64 bmi_pos, de_int64 bmi_len,
 {
 	struct de_bmpinfo bi;
 	dbuf *outf = NULL;
+	de_int64 scanlines_present;
+	de_int64 real_height;
 
 	if(bmi_len<12 || bmi_len>2048) goto done;
 	if(bits_len<1 || bmi_len+bits_len>DE_MAX_FILE_SIZE) goto done;
@@ -429,6 +431,15 @@ static void extract_dib(deark *c, lctx *d, de_int64 bmi_pos, de_int64 bmi_len,
 	if(!de_fmtutil_get_bmpinfo(c, c->infile, &bi, bmi_pos, bmi_len, 0)) {
 		de_warn(c, "Invalid bitmap\n");
 		goto done;
+	}
+	if(bi.file_format!=DE_BMPINFO_FMT_BMP) goto done;
+
+	// Sometimes, only a portion of the image is present. In most cases, we
+	// can compensate for that.
+	real_height = bi.height;
+	scanlines_present = bits_len/bi.rowspan;
+	if(scanlines_present>0 && scanlines_present<bi.height && bi.infohdrsize>=16) {
+		real_height = scanlines_present;
 	}
 
 	outf = dbuf_create_output_file(c, "bmp", NULL);
@@ -439,8 +450,27 @@ static void extract_dib(deark *c, lctx *d, de_int64 bmi_pos, de_int64 bmi_len,
 	dbuf_write_zeroes(outf, 4);
 	dbuf_writeui32le(outf, 14 + bi.size_of_headers_and_pal);
 
-	// Copy the BITMAPINFO (headers & palette)
-	dbuf_copy(c->infile, bmi_pos, bmi_len, outf);
+	if(real_height == bi.height) {
+		// Copy the BITMAPINFO (headers & palette)
+		dbuf_copy(c->infile, bmi_pos, bmi_len, outf);
+	}
+	else {
+		de_byte *tmp_bmi;
+
+		// Make a copy of the BITMAPINFO data, for us to modify.
+		tmp_bmi = de_malloc(c, bmi_len);
+		de_read(tmp_bmi, bmi_pos, bmi_len);
+
+		de_writeui32le_direct(&tmp_bmi[8], real_height); // Correct the biHeight field
+
+		if(bmi_len>=24) {
+			// Correct (or set) the biSizeImage field
+			de_writeui32le_direct(&tmp_bmi[20], bits_len);
+		}
+		dbuf_write(outf, tmp_bmi, bmi_len);
+		de_free(c, tmp_bmi);
+	}
+
 	// Copy the bitmap bits
 	dbuf_copy(c->infile, bits_pos, bits_len, outf);
 
@@ -479,16 +509,24 @@ static int emf_handler_4c(deark *c, lctx *d, de_int64 rectype, de_int64 recpos, 
 	return 1;
 }
 
-// StretchDIBits
-static int emf_handler_51(deark *c, lctx *d, de_int64 rectype, de_int64 recpos, de_int64 recsize_bytes)
+// 0x50 = SetDIBitsToDevice
+// 0x51 = StretchDIBits
+static int emf_handler_50_51(deark *c, lctx *d, de_int64 rectype, de_int64 recpos, de_int64 recsize_bytes)
 {
 	de_int64 rop;
 	de_int64 bmi_offs;
 	de_int64 bmi_len;
 	de_int64 bits_offs;
 	de_int64 bits_len;
+	de_int64 fixed_header_len;
+	de_int64 num_scans;
 
-	if(recsize_bytes<80) return 1;
+	if(rectype==0x50)
+		fixed_header_len = 76;
+	else
+		fixed_header_len = 80;
+
+	if(recsize_bytes<fixed_header_len) return 1;
 
 	bmi_offs = de_getui32le(recpos+48);
 	bmi_len = de_getui32le(recpos+52);
@@ -497,14 +535,21 @@ static int emf_handler_51(deark *c, lctx *d, de_int64 rectype, de_int64 recpos, 
 	bits_len = de_getui32le(recpos+60);
 	de_dbg(c, "bits offset=%d, len=%d\n", (int)bits_offs, (int)bits_len);
 
-	rop = de_getui32le(recpos+68);
-	de_dbg(c, "raster operation: 0x%08x\n", (unsigned int)rop);
+	if(rectype==0x51) {
+		rop = de_getui32le(recpos+68);
+		de_dbg(c, "raster operation: 0x%08x\n", (unsigned int)rop);
+	}
+
+	if(rectype==0x50) {
+		num_scans = de_getui32le(recpos+72);
+		de_dbg(c, "number of scanlines: %d\n", (int)num_scans);
+	}
 
 	if(bmi_len<12) return 1;
-	if(bmi_offs<80) return 1;
+	if(bmi_offs<fixed_header_len) return 1;
 	if(bmi_offs+bmi_len>recsize_bytes) return 1;
 	if(bits_len<1) return 1;
-	if(bits_offs<80) return 1;
+	if(bits_offs<fixed_header_len) return 1;
 	if(bits_offs+bits_len>recsize_bytes) return 1;
 	extract_dib(c, d, recpos+bmi_offs, bmi_len, recpos+bits_offs, bits_len);
 
