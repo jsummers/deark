@@ -43,14 +43,22 @@ static void do_read_filename(deark *c, lctx *d, de_int64 pos, de_int64 len, int 
 {
 	de_byte *fn_buf;
 	char fn_printable[256];
+	de_ucstring *s = NULL;
+	int from_encoding;
 
 	fn_buf = de_malloc(c, len);
 	de_read(fn_buf, pos, len);
-	// TODO: Handle the filename encoding better. Need a way to safely print
-	// untrusted Unicode.
-	de_make_printable_ascii(fn_buf, len, fn_printable, sizeof(fn_printable), 0);
+
+	s = ucstring_create(c);
+	from_encoding = utf8_flag ? DE_ENCODING_UTF8 : DE_ENCODING_CP437_G;
+	ucstring_append_buf(s, fn_buf, len, from_encoding);
+	ucstring_make_printable(s);
+	ucstring_to_sz(s, fn_printable, sizeof(fn_printable), DE_ENCODING_UTF8);
+
 	de_dbg(c, "filename: \"%s\"\n", fn_printable);
+
 	de_free(c, fn_buf);
+	ucstring_destroy(s);
 }
 
 static void do_comment(deark *c, lctx *d, de_int64 pos, de_int64 len, int utf8_flag,

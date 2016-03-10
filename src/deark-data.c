@@ -772,6 +772,106 @@ void ucstring_append_char(de_ucstring *s, de_int32 ch)
 	return;
 }
 
+void ucstring_append_buf(de_ucstring *s, const de_byte *buf, de_int64 buflen, int encoding)
+{
+	int ret;
+	de_int64 pos = 0;
+	de_int32 ch;
+	de_int64 code_len;
+
+	while(pos<buflen) {
+		if(encoding==DE_ENCODING_UTF8) {
+			ret = de_utf8_to_uchar(&buf[pos], buflen-pos, &ch, &code_len);
+			if(!ret) {
+				ch = '_';
+				code_len = 1;
+			}
+		}
+		else {
+			ch = de_char_to_unicode(s->c, buf[pos], encoding);
+			if(ch==DE_INVALID_CODEPOINT) {
+				ch = '_';
+			}
+			code_len = 1;
+		}
+		ucstring_append_char(s, ch);
+		pos += code_len;
+	}
+}
+
+// Note: This function is similar to de_finfo_set_name_from_ucstring().
+// Maybe they should be consolidated.
+void ucstring_to_sz(de_ucstring *s, char *szbuf, size_t szbuf_len, int encoding)
+{
+	de_int64 i;
+	de_int64 szpos = 0;
+	de_byte utf8buf[4];
+	de_int64 utf8codelen;
+
+	if(szbuf_len<1) return;
+
+	for(i=0; i<s->len; i++) {
+		if(encoding==DE_ENCODING_UTF8) {
+			de_uchar_to_utf8(s->str[i], utf8buf, &utf8codelen);
+		}
+		else { // DE_ENCODING_LATIN1 or DE_ENCODING_ASCII
+			if(s->str[i]>=0 && s->str[i]<=(encoding==DE_ENCODING_LATIN1?255:127))
+				utf8buf[0] = (de_byte)s->str[i];
+			else
+				utf8buf[0] = '_';
+			utf8codelen = 1;
+		}
+		if(szpos + utf8codelen + 1 > (de_int64)szbuf_len) break;
+		de_memcpy(&szbuf[szpos], utf8buf, (size_t)utf8codelen);
+		szpos += utf8codelen;
+	}
+
+	szbuf[szpos] = '\0';
+}
+
+// Try to determine if a Unicode codepoint (presumed to be from an untrusted source)
+// is "safe" to print to a terminal.
+// It's okay if the codepoint is not supported by the terminal, or not present in
+// the user's font. What we want to ban is anything that might be treated like a
+// control character, combining character, etc.
+static int is_printable_uchar(de_int32 ch)
+{
+	struct pr_range { de_int32 n1, n2; };
+	static const struct pr_range ranges[] = {
+		{ 0x0020, 0x007e },
+		{ 0x00a0, 0x00ac },
+		{ 0x00ae, 0x02af },
+		{ 0x0370, 0x0482 },
+		{ 0x048a, 0x058f },
+		{ 0x2000, 0x200a },
+		{ 0x2010, 0x2027 },
+		{ 0x2030, 0x205f },
+		{ 0x2500, 0x2c7f },
+		{ 0xa720, 0xa7ff },
+		{ 0xab30, 0xab5a },
+		{ 0xfffd, 0xfffd }
+		// TODO: Whitelist more codepoints
+	};
+	size_t i;
+	const size_t num_ranges = sizeof(ranges)/sizeof(ranges[0]);
+
+	for(i=0; i<num_ranges; i++) {
+		if(ch>=ranges[i].n1 && ch<=ranges[i].n2) return 1;
+	}
+	return 0;
+}
+
+void ucstring_make_printable(de_ucstring *s)
+{
+	de_int64 i;
+
+	for(i=0; i<s->len; i++) {
+		if(!is_printable_uchar(s->str[i])) {
+			s->str[i] = '_';
+		}
+	}
+}
+
 void de_write_codepoint_to_html(deark *c, dbuf *f, de_int32 ch)
 {
 	int e; // How to encode this codepoint

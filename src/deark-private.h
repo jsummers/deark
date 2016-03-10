@@ -539,6 +539,14 @@ de_ucstring *ucstring_create(deark *c);
 void ucstring_destroy(de_ucstring *s);
 void ucstring_append_char(de_ucstring *s, de_int32 ch);
 
+// Convert and append an encoded array of bytes to the string.
+void ucstring_append_buf(de_ucstring *s, const de_byte *buf, de_int64 buflen, int encoding);
+
+// Supported encodings are DE_ENCODING_UTF8, DE_ENCODING_ASCII, DE_ENCODING_LATIN1.
+void ucstring_to_sz(de_ucstring *s, char *szbuf, size_t szbuf_len, int encoding);
+
+void ucstring_make_printable(de_ucstring *s);
+
 void de_write_codepoint_to_html(deark *c, dbuf *f, de_int32 ch);
 
 void de_copy_bits(const de_byte *src, de_int64 srcbitnum,
