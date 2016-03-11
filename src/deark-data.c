@@ -831,25 +831,25 @@ void ucstring_to_sz(de_ucstring *s, char *szbuf, size_t szbuf_len, int encoding)
 
 // Try to determine if a Unicode codepoint (presumed to be from an untrusted source)
 // is "safe" to print to a terminal.
-// It's okay if the codepoint is not supported by the terminal, or not present in
-// the user's font. What we want to ban is anything that might be treated like a
-// control character, combining character, etc.
+// We try to ban control characters, formatting characters, private-use characters,
+// and noncharacters.
+// It would be be good to also ban incorrectly-used "combining" and other context-
+// sensitive characters, but that's too difficult.
 static int is_printable_uchar(de_int32 ch)
 {
 	struct pr_range { de_int32 n1, n2; };
 	static const struct pr_range ranges[] = {
 		{ 0x0020, 0x007e },
-		{ 0x00a0, 0x00ac },
-		{ 0x00ae, 0x02af },
-		{ 0x0370, 0x0482 },
-		{ 0x048a, 0x058f },
-		{ 0x2000, 0x200a },
+		{ 0x00a0, 0x200d },
 		{ 0x2010, 0x2027 },
-		{ 0x2030, 0x205f },
-		{ 0x2500, 0x2c7f },
-		{ 0xa720, 0xa7ff },
-		{ 0xab30, 0xab5a },
-		{ 0xfffd, 0xfffd }
+		{ 0x202f, 0x2065 },
+		{ 0x2070, 0xd7ff },
+		{ 0xf900, 0xfdcf },
+		{ 0xfdf0, 0xfdff },
+		{ 0xfe10, 0xffef },
+		{ 0xfffd, 0xfffd },
+		{ 0x10000, 0x101ff },
+		{ 0x1f000, 0x1f9ff }
 		// TODO: Whitelist more codepoints
 	};
 	size_t i;
