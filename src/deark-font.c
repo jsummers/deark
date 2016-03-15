@@ -29,23 +29,33 @@ void de_destroy_bitmap_font(deark *c, struct de_bitmap_font *font)
 	de_free(c, font);
 }
 
+// Paint a character at the given index in the given font, to the given bitmap.
 void de_font_paint_character_idx(deark *c, struct deark_bitmap *img,
 	struct de_bitmap_font *font, de_int64 char_idx,
 	de_int64 xpos, de_int64 ypos, de_uint32 fgcol, de_uint32 bgcol,
 	unsigned int flags)
 {
 	de_int64 i, j;
-	de_int64 i_src, j_src;
+	de_int64 i_src; // -1 = No source position
+	de_int64 j_src;
 	de_byte x;
 	int fg;
 	de_uint32 clr;
 	struct de_bitmap_font_char *ch;
+	de_int64 num_x_pixels_to_paint;
+	int vga9col_flag = 0;
 
 	if(char_idx<0 || char_idx>=font->num_chars) return;
 	ch = &font->char_array[char_idx];
 	if(!is_valid_char(ch)) return;
 	if(ch->width > font->nominal_width) return;
 	if(ch->height > font->nominal_height) return;
+
+	num_x_pixels_to_paint = ch->width;
+	if((flags&DE_PAINTFLAG_VGA9COL) && ch->width==8) {
+		vga9col_flag = 1;
+		num_x_pixels_to_paint = 9;
+	}
 
 	for(j=0; j<ch->height; j++) {
 		j_src = j;
@@ -56,32 +66,36 @@ void de_font_paint_character_idx(deark *c, struct deark_bitmap *img,
 			j_src = (ch->height+j)/2;
 		}
 
-		for(i=0; i<ch->width; i++) {
+		for(i=0; i<num_x_pixels_to_paint; i++) {
 			i_src = i;
 			if(flags&DE_PAINTFLAG_LEFTHALF) {
 				i_src = i/2;
 			}
 			else if(flags&DE_PAINTFLAG_RIGHTHALF) {
-				i_src = (ch->width+i)/2;
+				i_src = (num_x_pixels_to_paint+i)/2;
 			}
 
-			x = ch->bitmap[j_src*ch->rowspan + i_src/8];
-			fg = (x & (1<<(7-i_src%8))) ? 1 : 0;
-			clr = fg ? fgcol : bgcol;
-			if(fg || !(flags&DE_PAINTFLAG_TRNSBKGD))
-				de_bitmap_setpixel_rgba(img, xpos+i, ypos+j, clr);
-
-			// Manufacture a 9th column, if requested.
-			// FIXME: 9 column mode interacts poorly with double-width characters.
-			if((flags&DE_PAINTFLAG_VGA9COL) && i==7) {
-				// Depending on the codepoint, the 9th column is either
-				// the same as the 8th column, or is the background color.
-				if(ch->codepoint_nonunicode<0xb0 || ch->codepoint_nonunicode>0xdf) {
-					fg = 0;
-					clr = bgcol;
+			if(i_src==8 && vga9col_flag) {
+				// Manufacture a column 8.
+				if(ch->codepoint_nonunicode>=0xb0 && ch->codepoint_nonunicode<=0xdf) {
+					i_src = 7; // Make this pixel a duplicate of the one in col #7.
 				}
-				if(fg || !(flags&DE_PAINTFLAG_TRNSBKGD))
-					de_bitmap_setpixel_rgba(img, xpos+i+1, ypos+j, clr);
+				else {
+					i_src = -1; // Make this pixel a background pixel.
+				}
+			}
+
+			if(i_src>=0 && i_src<ch->width) {
+				x = ch->bitmap[j_src*ch->rowspan + i_src/8];
+				fg = (x & (1<<(7-i_src%8))) ? 1 : 0;
+			}
+			else {
+				fg = 0;
+			}
+
+			if(fg || !(flags&DE_PAINTFLAG_TRNSBKGD)) {
+				clr = fg ? fgcol : bgcol;
+				de_bitmap_setpixel_rgba(img, xpos+i, ypos+j, clr);
 			}
 		}
 	}

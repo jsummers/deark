@@ -889,7 +889,11 @@ static void de_run_ansiart(deark *c, de_module_params *mparams)
 			d->always_disable_blink = 1;
 		}
 		if((si->tflags & 0x18)>>3 == 0x02) {
-			// Square pixels requested
+			// Square pixels requested.
+			// TODO: This is a little bit wrong. Knowing that the pixels are
+			// square is different from preventing a density from being written
+			// to the output file. For one thing, we should consider what to do
+			// if the user set "-opt char:charwidth=9".
 			charctx->no_density = 1;
 		}
 		if((si->tflags & 0x06)>>1 == 0x02) {
