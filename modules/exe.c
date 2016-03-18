@@ -497,7 +497,7 @@ static void de_finfo_set_name_from_pe_string(deark *c, de_finfo *fi, dbuf *f,
 
 	name_utf8 = dbuf_create_membuf(c, nlen*3, 0);
 	copy_slice_utf16le_to_utf8(c, c->infile, pos+2, nlen, name_utf8);
-	de_finfo_set_name_from_slice(c, fi, name_utf8, 0, name_utf8->len, 0);
+	de_finfo_set_name_from_slice(c, fi, name_utf8, 0, name_utf8->len, 0, DE_ENCODING_UTF8);
 
 done:
 	dbuf_close(name_utf8);
@@ -735,7 +735,7 @@ static void do_ne_one_nameinfo(deark *c, lctx *d, de_int64 npos)
 		x = (de_int64)de_getbyte(rnNameOffset);
 		if(x>0) {
 			fi = de_finfo_create(c);
-			de_finfo_set_name_from_slice(c, fi, c->infile, rnNameOffset+1, x, 0);
+			de_finfo_set_name_from_slice(c, fi, c->infile, rnNameOffset+1, x, 0, DE_ENCODING_ASCII);
 		}
 	}
 

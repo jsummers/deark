@@ -235,6 +235,7 @@ char *de_strchr(const char *s, int c);
 #define de_memcmp   memcmp
 #define de_memcpy   memcpy
 #define de_memset   memset
+#define de_memchr   memchr
 #ifdef DE_WINDOWS
 #define de_sscanf   sscanf_s
 #else
@@ -527,7 +528,7 @@ void de_make_printable_ascii(const de_byte *src, de_int64 src_len,
 de_finfo *de_finfo_create(deark *c);
 void de_finfo_destroy(deark *c, de_finfo *fi);
 void de_finfo_set_name_from_slice(deark *c, de_finfo *fi, dbuf *f,
-	de_int64 pos, de_int64 len, unsigned int conv_flags);
+	de_int64 pos, de_int64 len, unsigned int conv_flags, int encoding);
 void de_finfo_set_name_from_sz(deark *c, de_finfo *fi, const char *name1,
 	int encoding);
 void de_finfo_set_name_from_ucstring(deark *c, de_finfo *fi, de_ucstring *s);

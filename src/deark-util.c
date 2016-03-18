@@ -578,13 +578,13 @@ void de_finfo_destroy(deark *c, de_finfo *fi)
 }
 
 void de_finfo_set_name_from_slice(deark *c, de_finfo *fi, dbuf *f,
-	de_int64 pos, de_int64 len, unsigned int conv_flags)
+	de_int64 pos, de_int64 len, unsigned int conv_flags, int encoding)
 {
 	de_byte *tmpbuf = NULL;
 
 	tmpbuf = de_malloc(c, len);
 	dbuf_read(f, tmpbuf, pos, len);
-	de_finfo_set_name_from_bytes(c, fi, tmpbuf, len, conv_flags, DE_ENCODING_ASCII);
+	de_finfo_set_name_from_bytes(c, fi, tmpbuf, len, conv_flags, encoding);
 	de_free(c, tmpbuf);
 }
 
@@ -630,47 +630,25 @@ void de_finfo_set_name_from_ucstring(deark *c, de_finfo *fi, de_ucstring *s)
 	fi->file_name[fnlen] = '\0';
 }
 
-// Caller allocates 'fname'.
-// If it is not empty, filename will be appended to it.
-static void de_bytes_to_filename_component_ucstring(deark *c,
-	const de_byte *name1, de_int64 name1_len, de_ucstring *fname,
-	unsigned int conv_flags, int encoding)
-{
-	de_int64 i;
-	de_byte ch;
-	de_int32 uchar;
-
-	for(i=0; i<name1_len; i++) {
-		ch = name1[i];
-		if(ch==0 && (conv_flags & DE_CONVFLAG_STOP_AT_NUL)) {
-			break;
-		}
-
-		if(encoding==DE_ENCODING_LATIN1) {
-			uchar = (de_int32)ch;
-		}
-		else { // ASCII
-			if(ch<=0x7f) uchar = (de_int32)ch;
-			else uchar = '_';
-		}
-		ucstring_append_char(fname, uchar);
-	}
-}
-
-// Supported encodings: ASCII, LATIN1
+// Supported encodings: Whatever ucstring_append_buf() supports
 void de_finfo_set_name_from_bytes(deark *c, de_finfo *fi,
 	const de_byte *name1, de_int64 name1_len,
 	unsigned int conv_flags, int encoding)
 {
 	de_ucstring *fname = NULL;
 
+	// Adjust name1_len if necessary.
+	if(conv_flags & DE_CONVFLAG_STOP_AT_NUL) {
+		char *tmpp;
+		tmpp = de_memchr(name1, 0, (size_t)name1_len);
+		if(tmpp) {
+			name1_len = (const de_byte*)tmpp - name1;
+		}
+	}
+
 	fname = ucstring_create(c);
-
-	de_bytes_to_filename_component_ucstring(c, name1, name1_len,
-		fname, conv_flags, encoding);
-
+	ucstring_append_buf(fname, name1, name1_len, encoding);
 	de_finfo_set_name_from_ucstring(c, fi, fname);
-
 	ucstring_destroy(fname);
 }
 

@@ -280,7 +280,7 @@ static void read_sprite_name(deark *c, lctx *d, de_finfo *fi, de_int64 pos)
 	}
 
 	if(c->filenames_from_file) {
-		de_finfo_set_name_from_slice(c, fi, c->infile, pos, 12, DE_CONVFLAG_STOP_AT_NUL);
+		de_finfo_set_name_from_slice(c, fi, c->infile, pos, 12, DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_ASCII);
 	}
 }
 

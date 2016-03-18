@@ -55,7 +55,7 @@ static void do_printshop_etc_image(deark *c, lctx *d, de_int64 imgnum,
 	fi = de_finfo_create(c);
 
 	if(d->namefile) {
-		de_finfo_set_name_from_slice(c, fi, d->namefile, imgnum*16, 16, DE_CONVFLAG_STOP_AT_NUL);
+		de_finfo_set_name_from_slice(c, fi, d->namefile, imgnum*16, 16, DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_ASCII);
 	}
 
 	de_convert_and_write_image_bilevel(c->infile, pos+ imgoffset,

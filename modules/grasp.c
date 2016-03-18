@@ -47,7 +47,7 @@ static int do_extract_file(deark *c, lctx *d, de_int64 fnum)
 
 	fi = de_finfo_create(c);
 	// In a Grasp GL file, filenames are 13 bytes, NUL-padded.
-	de_finfo_set_name_from_slice(c, fi, c->infile, pos+4, 13, DE_CONVFLAG_STOP_AT_NUL);
+	de_finfo_set_name_from_slice(c, fi, c->infile, pos+4, 13, DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_ASCII);
 	fi->original_filename_flag = 1;
 
 	file_size = de_getui32le(file_info_offset);

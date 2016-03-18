@@ -117,7 +117,7 @@ static int do_ar_item(deark *c, lctx *d, de_int64 pos1, de_int64 *p_item_len)
 		}
 
 		de_finfo_set_name_from_slice(c, fi, c->infile, d->extended_name_table_pos+name_offset,
-			ext_name_len, 0);
+			ext_name_len, 0, DE_ENCODING_UTF8);
 		fi->original_filename_flag = 1;
 	}
 	else if(name_orig[0]=='/') {
@@ -133,8 +133,8 @@ static int do_ar_item(deark *c, lctx *d, de_int64 pos1, de_int64 *p_item_len)
 		}
 
 		de_finfo_set_name_from_bytes(c, fi, (de_byte*)name_orig, name_orig_len, 0,
-			DE_ENCODING_ASCII);
-		// TODO: Support UTF-8?
+			DE_ENCODING_UTF8);
+
 		fi->original_filename_flag = 1;
 	}
 
