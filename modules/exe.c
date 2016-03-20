@@ -203,21 +203,27 @@ static void do_ne_ext_header(deark *c, lctx *d, de_int64 pos)
 	de_dbg(c, "target OS: %d%s\n", (int)target_os, desc);
 }
 
-static void do_lx_ext_header(deark *c, lctx *d, de_int64 pos)
+static void do_lx_or_le_ext_header(deark *c, lctx *d, de_int64 pos)
 {
 	de_int64 x1, x2;
 
-	de_dbg(c, "LX header at %d\n", (int)pos);
-	x1 = de_getbyte(pos+2);
-	x2 = de_getbyte(pos+2);
+	de_dbg(c, "%s header at %d\n", d->fmt==EXE_FMT_LE?"LE":"LX", (int)pos);
+	x1 = (de_byte)de_getbyte(pos+2);
+	x2 = (de_byte)de_getbyte(pos+3);
 	de_dbg(c, "byte order, word order: %d, %d\n", (int)x1, (int)x2);
 	if(x1!=0 || x2!=0) {
 		de_err(c, "Unsupported byte order.\n");
 		return;
 	}
 
-	d->lx_page_offset_shift = de_getui32le(pos+0x2c);
-	de_dbg(c, "page offset shift: %d\n", (int)d->lx_page_offset_shift);
+	if(d->fmt==EXE_FMT_LE) {
+		x1 = de_getui32le(pos+0x2c);
+		de_dbg(c, "bytes on last page: %d\n", (int)x1);
+	}
+	else {
+		d->lx_page_offset_shift = de_getui32le(pos+0x2c);
+		de_dbg(c, "page offset shift: %d\n", (int)d->lx_page_offset_shift);
+	}
 
 	x1 = de_getui32le(pos+0x40);
 	d->lx_object_tbl_offset = pos + x1;
@@ -260,13 +266,12 @@ static void do_ext_header(deark *c, lctx *d)
 	else if(!de_memcmp(buf, "LX", 2)) {
 		de_declare_fmt(c, "LX Linear Executable");
 		d->fmt = EXE_FMT_LX;
-		do_lx_ext_header(c, d, d->ext_header_offset);
+		do_lx_or_le_ext_header(c, d, d->ext_header_offset);
 	}
 	else if(!de_memcmp(buf, "LE", 2)) {
 		de_declare_fmt(c, "LE Linear Executable");
 		d->fmt = EXE_FMT_LE;
-		// TODO: Support LE format.
-		de_err(c, "LE format not supported.\n");
+		do_lx_or_le_ext_header(c, d, d->ext_header_offset);
 	}
 
 done:
@@ -905,7 +910,7 @@ static void do_lx_rsrc(deark *c, lctx *d,
 	}
 }
 
-static void do_lx_rsrc_tbl(deark *c, lctx *d)
+static void do_lx_or_le_rsrc_tbl(deark *c, lctx *d)
 {
 	de_int64 i;
 	de_int64 lpos;
@@ -915,7 +920,7 @@ static void do_lx_rsrc_tbl(deark *c, lctx *d)
 	de_int64 rsrc_object;
 	de_int64 rsrc_offset;
 
-	de_dbg(c, "LX resource table at %d\n", (int)d->lx_rsrc_tbl_offset);
+	de_dbg(c, "%s resource table at %d\n", d->fmt==EXE_FMT_LE?"LE":"LX", (int)d->lx_rsrc_tbl_offset);
 	if(d->lx_rsrc_tbl_entries>MAX_RESOURCES) {
 		de_err(c, "Too many resources.\n");
 		return;
@@ -951,8 +956,8 @@ static void de_run_exe(deark *c, de_module_params *mparams)
 	else if(d->fmt==EXE_FMT_NE && d->ne_rsrc_tbl_offset>0) {
 		do_ne_rsrc_tbl(c, d);
 	}
-	else if(d->fmt==EXE_FMT_LX && d->lx_rsrc_tbl_offset>0) {
-		do_lx_rsrc_tbl(c, d);
+	else if((d->fmt==EXE_FMT_LX || d->fmt==EXE_FMT_LE) && d->lx_rsrc_tbl_offset>0) {
+		do_lx_or_le_rsrc_tbl(c, d);
 	}
 
 	de_free(c, d);
