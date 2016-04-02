@@ -394,6 +394,7 @@ Deark -- Information about supported formats
 
 * PFF2 font (module="pff2")
 
+* PK font (Packed Font) (module="pkfont") (partial support)
 
 === Compression, archive, installer, disk image modules ===
 

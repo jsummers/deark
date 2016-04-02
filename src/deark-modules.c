@@ -122,6 +122,7 @@ void de_register_modules(deark *c)
 		de_module_eggpaint,
 		de_module_indypaint,
 		de_module_ftc,
+		de_module_pkfont,
 		de_module_graspfont,
 		de_module_gemfont,
 		de_module_crg,

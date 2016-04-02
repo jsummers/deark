@@ -626,6 +626,10 @@
 				>
 			</File>
 			<File
+				RelativePath="..\..\modules\pkfont.c"
+				>
+			</File>
+			<File
 				RelativePath="..\..\modules\portfolio.c"
 				>
 			</File>
