@@ -95,7 +95,7 @@ void de_font_paint_character_idx(deark *c, struct deark_bitmap *img,
 
 			if(fg || !(flags&DE_PAINTFLAG_TRNSBKGD)) {
 				clr = fg ? fgcol : bgcol;
-				de_bitmap_setpixel_rgba(img, xpos+i, ypos+j, clr);
+				de_bitmap_setpixel_rgba(img, xpos+i, ypos+ch->v_offset+j, clr);
 			}
 		}
 	}

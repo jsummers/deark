@@ -182,6 +182,10 @@ static void do_read_raster(deark *c, lctx *d, struct page_ctx *pg)
 	ch->width = pg->w;
 	ch->height = pg->h;
 
+	// The vertical offset will be normalized later, once we know the offsets
+	// of all the characters.
+	ch->v_offset = (int)-pg->voff;
+
 	ch->rowspan = (ch->width+7)/8;
 	ch->bitmap = de_malloc(c, ch->rowspan * ch->height);
 	ch->codepoint_nonunicode = pg->cc;
@@ -387,6 +391,37 @@ static const char *get_flagbyte_name(de_byte flagbyte)
 	return "?";
 }
 
+static void scan_and_fixup_font(deark *c, lctx *d)
+{
+	struct de_bitmap_font_char *ch;
+	de_int64 i;
+	int min_v_pos = 1000000;
+	int max_v_pos = -1000000;
+
+	// Find the maximum character width, and the bounding box of the character heights.
+	for(i=0; i<d->font->num_chars; i++) {
+		ch = &d->font->char_array[i];
+
+		if(ch->width > d->font->nominal_width)
+			d->font->nominal_width = ch->width;
+
+		if(ch->v_offset < min_v_pos)
+			min_v_pos = ch->v_offset;
+
+		if(ch->v_offset + ch->height > max_v_pos)
+			max_v_pos = ch->v_offset + ch->height;
+	}
+
+	d->font->nominal_height = max_v_pos - min_v_pos;
+
+	// Another pass, to fixup the v_offsets so that the minimum one is 0.
+	for(i=0; i<d->font->num_chars; i++) {
+		ch = &d->font->char_array[i];
+
+		ch->v_offset -= min_v_pos;
+	}
+}
+
 static void de_run_pkfont(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
@@ -444,12 +479,7 @@ done_reading:
 	de_dbg(c, "number of characters: %d (%d processed)\n", (int)chars_in_file,
 		(int)d->font->num_chars);
 
-	for(i=0; i<d->font->num_chars; i++) {
-		if(d->font->char_array[i].width > d->font->nominal_width)
-			d->font->nominal_width = d->font->char_array[i].width;
-		if(d->font->char_array[i].height > d->font->nominal_height)
-			d->font->nominal_height = d->font->char_array[i].height;
-	}
+	scan_and_fixup_font(c, d);
 	de_font_bitmap_font_to_image(c, d->font, NULL);
 
 done:
