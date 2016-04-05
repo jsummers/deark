@@ -30,7 +30,8 @@ static void do_preamble(deark *c, lctx *d, de_int64 pos, de_int64 *bytesused)
 {
 	de_int64 comment_len;
 
-	de_dbg2(c, "preamble at %d\n", (int)pos);
+	de_dbg(c, "preamble at %d\n", (int)pos);
+	de_dbg_indent(c, 1);
 
 	// (identification byte (should be 89) is at pos+1)
 
@@ -38,7 +39,7 @@ static void do_preamble(deark *c, lctx *d, de_int64 pos, de_int64 *bytesused)
 	de_dbg(c, "comment length: %d\n", (int)comment_len);
 
 	*bytesused = 3+comment_len+16;
-	return;
+	de_dbg_indent(c, -1);
 }
 
 static de_int64 do_get_signed_byte(dbuf *f, de_int64 pos)
@@ -131,7 +132,7 @@ static void repeat_row_as_needed(struct de_bitmap_font_char *ch, struct page_ctx
 	for(z=0; z<repeat_count; z++) {
 		to_row = pg->curpos_y;
 		if(to_row>=pg->h) return;
-		de_memcpy(&ch->bitmap[to_row*ch->rowspan], &ch->bitmap[from_row*ch->rowspan], ch->rowspan);
+		de_memcpy(&ch->bitmap[to_row*ch->rowspan], &ch->bitmap[from_row*ch->rowspan], (size_t)ch->rowspan);
 		pg->curpos_y++;
 		pg->pixelcount += pg->w;
 	}
@@ -304,17 +305,18 @@ done:
 	de_dbg_indent(c, -1);
 }
 
-static void do_char_descr(deark *c, lctx *d, de_int64 pos, de_int64 *bytesused)
+static int do_char_descr(deark *c, lctx *d, de_int64 pos, de_int64 *bytesused)
 {
 	de_byte flagbyte;
 	de_byte lsb3;
-#define PREAMBLE_FORMAT_SHORT      1
-#define PREAMBLE_FORMAT_EXT_SHORT  2
-#define PREAMBLE_FORMAT_LONG       3
-	int preamble_format;
+#define CHAR_PREAMBLE_FORMAT_SHORT      1
+#define CHAR_PREAMBLE_FORMAT_EXT_SHORT  2
+#define CHAR_PREAMBLE_FORMAT_LONG       3
+	int char_preamble_format;
 	de_int64 pl;
 	de_int64 tfm_offs;
 	struct page_ctx *pg = NULL;
+	int retval = 0;
 
 	pg = de_malloc(c, sizeof(struct page_ctx));
 
@@ -334,21 +336,21 @@ static void do_char_descr(deark *c, lctx *d, de_int64 pos, de_int64 *bytesused)
 	pg->start_with_black = (flagbyte&0x8)?1:0;
 
 	if(lsb3==7) {
-		preamble_format = PREAMBLE_FORMAT_LONG;
+		char_preamble_format = CHAR_PREAMBLE_FORMAT_LONG;
 	}
-	else if(lsb3>3) {
-		preamble_format = PREAMBLE_FORMAT_EXT_SHORT;
+	else if(lsb3>=4) {
+		char_preamble_format = CHAR_PREAMBLE_FORMAT_EXT_SHORT;
 	}
 	else {
-		preamble_format = PREAMBLE_FORMAT_SHORT;
+		char_preamble_format = CHAR_PREAMBLE_FORMAT_SHORT;
 	}
 
-	if(preamble_format==PREAMBLE_FORMAT_SHORT) {
+	if(char_preamble_format==CHAR_PREAMBLE_FORMAT_SHORT) {
 		pl = (de_int64)de_getbyte(pos+1);
 		pl |= (flagbyte&0x03)<<8;
 		pg->cc = (de_int32)de_getbyte(pos+2);
 		tfm_offs = 3;
-		pg->tfm = do_getui24be(c->infile, pos+3);
+		pg->tfm = do_getui24be(c->infile, pos+tfm_offs);
 		pg->dm = (de_int64)de_getbyte(pos+6);
 		pg->w = (int)de_getbyte(pos+7);
 		pg->h = (int)de_getbyte(pos+8);
@@ -356,8 +358,21 @@ static void do_char_descr(deark *c, lctx *d, de_int64 pos, de_int64 *bytesused)
 		pg->voff = do_get_signed_byte(c->infile, pos+10);
 		pg->raster_pos = pos + 11;
 	}
+	else if(char_preamble_format==CHAR_PREAMBLE_FORMAT_EXT_SHORT) {
+		pl = (de_int64)de_getui16be(pos+1);
+		pl |= (flagbyte&0x03)<<16;
+		pg->cc = (de_int32)de_getbyte(pos+3);
+		tfm_offs = 4;
+		pg->tfm = do_getui24be(c->infile, pos+tfm_offs);
+		pg->dm = (de_int64)de_getui16be(pos+7);
+		pg->w = (int)de_getui16be(pos+9);
+		pg->h = (int)de_getui16be(pos+11);
+		pg->hoff = dbuf_geti16be(c->infile, pos+13);
+		pg->voff = dbuf_geti16be(c->infile, pos+15);
+		pg->raster_pos = pos + 17;
+	}
 	else {
-		de_err(c, "Unsupported preamble format\n");
+		de_err(c, "Unsupported character preamble format (%d)\n", (int)lsb3);
 		goto done;
 	}
 
@@ -369,10 +384,12 @@ static void do_char_descr(deark *c, lctx *d, de_int64 pos, de_int64 *bytesused)
 	do_read_raster(c, d, pg);
 
 	*bytesused = tfm_offs + pl;
+	retval = 1;
 
 done:
 	de_dbg_indent(c, -1);
 	de_free(c, pg);
+	return retval;
 }
 
 static const char *get_flagbyte_name(de_byte flagbyte)
@@ -468,7 +485,7 @@ static void de_run_pkfont(deark *c, de_module_params *mparams)
 		}
 		else {
 			chars_in_file++;
-			do_char_descr(c, d, pos, &bytesused);
+			if(!do_char_descr(c, d, pos, &bytesused)) goto done;
 		}
 
 		if(bytesused<1) break;
