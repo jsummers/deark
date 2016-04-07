@@ -956,28 +956,46 @@ static void de_run_ansiart(deark *c, de_module_params *mparams)
 
 static int de_identify_ansiart(deark *c)
 {
+	de_byte buf[4];
+	int has_ans_ext;
+
 	if(!c->detection_data.sauce.detection_attempted) {
 		de_err(c, "ansiart internal");
 		de_fatalerror(c);
 	}
 
-	if(!dbuf_memcmp(c->infile, 0, "\x04\x31\x2e\x34", 4)) {
+	de_read(buf, 0, 4);
+
+	if(!de_memcmp(buf, "\x04\x31\x2e\x34", 4)) {
 		// Looks like iCEDraw format, which may use the same SAUCE identifiers
 		// as ANSI Art, even though it is incompatible.
 		return 0;
 	}
+
+	has_ans_ext = de_input_file_has_ext(c, "ans");
 
 	if(c->detection_data.sauce.has_SAUCE) {
 		if(c->detection_data.sauce.data_type==1 &&
 			c->detection_data.sauce.file_type==1)
 		{
 			// Unfortunately, iCEDraw and possibly other formats may use the
-			// same SAUCE identifiers as ANSI Art, so we can't return 100.
+			// same SAUCE identifiers as ANSI Art, so we probably shouldn't always
+			// return 100.
+			if(has_ans_ext)
+				return 100;
 			return 91;
 		}
 	}
 
-	if(de_input_file_has_ext(c, "ans"))
+	// ANSI Art files usually start with an ANSI escape sequence.
+	// TODO: Another possibility is that the file could start with email headers.
+	if(buf[0]==0x1b && buf[1]==0x5b && (buf[2]=='?' ||
+		(buf[2]>='0' && buf[2]<='9')))
+	{
+		return has_ans_ext ? 100 : 50;
+	}
+
+	if(has_ans_ext)
 		return 10;
 	return 0;
 }
