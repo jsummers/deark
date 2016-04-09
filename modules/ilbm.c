@@ -404,6 +404,8 @@ static int do_image_1to8(deark *c, lctx *d, struct img_info *ii,
 	de_uint32 clr;
 	int dst_bytes_per_pixel;
 	int retval = 0;
+	de_int64 bytes_expected = 0;
+	int bytes_expected_valid = 0;
 
 	if(!d->found_cmap) {
 		de_err(c, "Missing CMAP chunk\n");
@@ -495,9 +497,13 @@ static int do_image_1to8(deark *c, lctx *d, struct img_info *ii,
 				goto done;
 			}
 			dbuf_read(unc_pixels, row_deplanarized, j*ii->rowspan, ii->rowspan);
+			bytes_expected += ii->rowspan;
+			bytes_expected_valid = 1;
 		}
 		else {
 			dbuf_read(unc_pixels, row_orig, j*ii->rowspan, ii->rowspan);
+			bytes_expected += ii->rowspan;
+			bytes_expected_valid = 1;
 			do_deplanarize(c, d, ii, row_orig, row_deplanarized);
 		}
 
@@ -559,6 +565,11 @@ static int do_image_1to8(deark *c, lctx *d, struct img_info *ii,
 
 			de_bitmap_setpixel_rgb(img, i, j, DE_MAKE_RGBA(cr,cg,cb,ca));
 		}
+	}
+
+	if(bytes_expected_valid && bytes_expected!=unc_pixels->len) {
+		de_warn(c, "Expected %d uncompressed bytes, got %d\n", (int)bytes_expected,
+			(int)unc_pixels->len);
 	}
 
 	de_bitmap_write_to_file(img, ii->filename_token);
