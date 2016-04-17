@@ -1403,3 +1403,120 @@ void de_module_vgafont(deark *c, struct deark_module_info *mi)
 	mi->identify_fn = de_identify_none;
 	mi->flags |= DE_MODFLAG_HIDDEN;
 }
+
+// **************************************************************************
+// HSI Raw image format (from Image Alchemy / Handmade Software)
+// **************************************************************************
+
+static void read_palette_rgb(dbuf *f, de_int64 fpos,
+	de_int64 num_entries, de_int64 entryspan, de_uint32 *pal,
+	unsigned int flags)
+{
+	de_int64 k;
+
+	for(k=0; k<num_entries; k++) {
+		pal[k] = dbuf_getRGB(f, fpos + k*entryspan, 0);
+		de_dbg_pal_entry(f->c, k, pal[k]);
+	}
+}
+
+static void convert_image_rgb(dbuf *f, de_int64 fpos,
+	de_int64 rowspan, de_int64 pixelspan,
+	struct deark_bitmap *img, unsigned int flags)
+{
+	de_int64 i, j;
+	de_int32 clr;
+
+	for(j=0; j<img->height; j++) {
+		for(i=0; i<img->width; i++) {
+			clr = dbuf_getRGB(f, fpos + j*rowspan + i*pixelspan, flags);
+			de_bitmap_setpixel_rgb(img, i, j, clr);
+		}
+	}
+}
+
+static void de_run_hsiraw(deark *c, de_module_params *mparams)
+{
+	de_int64 w, h;
+	de_int64 num_pal_colors;
+	de_int64 pos;
+	de_int64 ver;
+	de_int64 hdpi, vdpi;
+	de_int64 cmpr;
+	de_int64 alpha_info;
+	struct deark_bitmap *img = NULL;
+	de_uint32 pal[256];
+	int is_grayscale;
+
+	ver = de_getui16be(6);
+	de_dbg(c, "version: %d\n", (int)ver);
+	if(ver!=4) {
+		de_warn(c, "HSI Raw version %d might not be supported correctly\n", (int)ver);
+	}
+
+	w = de_getui16be(8);
+	if(w==0) {
+		 // MPlayer extension?
+		de_dbg2(c, "reading 32-bit width\n");
+		w = de_getui32be(28);
+	}
+	h = de_getui16be(10);
+	de_dbg(c, "dimensions: %dx%d\n", (int)w, (int)h);
+	num_pal_colors = de_getui16be(12);
+	de_dbg(c, "number of palette colors: %d\n", (int)num_pal_colors);
+
+	hdpi = dbuf_geti16be(c->infile, 14);
+	vdpi = dbuf_geti16be(c->infile, 16);
+	de_dbg(c, "density: %dx%d\n", (int)hdpi, (int)vdpi);
+	// [18: Gamma]
+	cmpr = de_getui16be(20);
+	de_dbg(c, "compression: %d\n", (int)cmpr);
+	alpha_info = de_getui16be(22);
+	de_dbg(c, "alpha: %d\n", (int)alpha_info);
+
+	if(num_pal_colors>256 || cmpr!=0 || alpha_info!=0) {
+		de_err(c, "This type of HSI Raw image is not supported\n");
+		goto done;
+	}
+	if(!de_good_image_dimensions(c, w, h)) goto done;
+
+	pos = 32;
+	de_memset(pal, 0, sizeof(pal));
+	if(num_pal_colors==0) { // 24-bit RGB
+		is_grayscale = 0;
+	}
+	else { // 8-bit paletted
+		read_palette_rgb(c->infile, pos, num_pal_colors, 3, pal, 0);
+		pos += 3*num_pal_colors;
+		is_grayscale = de_is_grayscale_palette(pal, num_pal_colors);
+	}
+
+	img = de_bitmap_create(c, w, h, is_grayscale?1:3);
+
+	if(num_pal_colors==0) {
+		convert_image_rgb(c->infile, pos, 3*w, 3, img, 0);
+	}
+	else {
+		de_convert_image_paletted(c->infile, pos, 8, w, pal, img, 0);
+	}
+
+	de_bitmap_write_to_file(img, NULL);
+
+done:
+	de_bitmap_destroy(img);
+}
+
+static int de_identify_hsiraw(deark *c)
+{
+	if(!dbuf_memcmp(c->infile, 0, "mhwanh", 6))
+		return 100;
+	return 0;
+}
+
+void de_module_hsiraw(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "hsiraw";
+	mi->desc = "HSI Raw";
+	mi->run_fn = de_run_hsiraw;
+	mi->identify_fn = de_identify_hsiraw;
+}

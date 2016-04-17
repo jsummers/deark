@@ -119,6 +119,7 @@ void de_register_modules(deark *c)
 		de_module_newprintshop,
 		de_module_printmaster,
 		de_module_rosprite,
+		de_module_hsiraw,
 		de_module_eggpaint,
 		de_module_indypaint,
 		de_module_ftc,

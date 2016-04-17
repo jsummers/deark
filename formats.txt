@@ -136,6 +136,8 @@ Deark -- Information about supported formats
 
 * HR (TRS-80 High Resolution graphics file) (module="hr")
 
+* HSI Raw (module="hsiraw")
+
 * icns (Apple Icon) (module="icns")
   - Supports uncompressed 1-, 4-, and 8-bit images (with 1-bit mask).
   - Supports RLE-compressed 24-bit images (with 8-bit mask).
