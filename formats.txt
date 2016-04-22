@@ -250,6 +250,8 @@ Deark -- Information about supported formats
   Options
    -opt pcx:pal=<0|1> - The predefined palette to use, if there is no palette
      in the file. Default is 0.
+   -file2 <file.p13> - Read the palette from a separate file. Each entry is 3
+     bytes (R,G,B); samples range from 0-63.
 
 * PGC (Portfolio graphics compressed) (module="pgc")
 

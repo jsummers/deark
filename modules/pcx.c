@@ -161,12 +161,63 @@ static int do_read_vga_palette(deark *c, lctx *d)
 	de_dbg(c, "reading VGA palette at %d\n", (int)pos);
 	d->has_vga_pal = 1;
 	pos++;
+	de_dbg_indent(c, 1);
 	for(k=0; k<256; k++) {
 		d->pal[k] = dbuf_getRGB(c->infile, pos + 3*k, 0);
 		de_dbg_pal_entry(c, k, d->pal[k]);
 	}
+	de_dbg_indent(c, -1);
 
 	return 1;
+}
+
+// Maybe read the palette from a separate file.
+// Returns 1 if the palette was read.
+static int do_read_alt_palette_file(deark *c, lctx *d)
+{
+	const char *palfn;
+	dbuf *palfile = NULL;
+	int retval = 0;
+	de_int64 k,z;
+	de_byte b1[3];
+	de_byte b2[3];
+	int badflag = 0;
+
+	palfn = de_get_ext_option(c, "file2");
+	if(!palfn) goto done;
+
+	palfile = dbuf_open_input_file(c, palfn);
+	if(!palfile) goto done;
+	de_dbg(c, "using palette from separate file\n");
+
+	if(palfile->len != d->ncolors*3) {
+		badflag = 1;
+	}
+
+	de_dbg_indent(c, 1);
+	for(k=0; k<d->ncolors && k*3<palfile->len; k++) {
+		dbuf_read(palfile, b1, 3*k, 3);
+		for(z=0; z<3; z++) {
+			if(b1[z]>0x3f) badflag = 1;
+			b2[z] = de_palette_sample_6_to_8bit(b1[z]);
+		}
+		d->pal[k] = DE_MAKE_RGB(b2[0],b2[1],b2[2]);
+
+		de_dbg2(c, "pal[%3d] = (%2d,%2d,%2d) -> (%3d,%3d,%3d)\n", (int)k,
+			(int)b1[0], (int)b1[1], (int)b1[2],
+			(int)b2[0], (int)b2[1], (int)b2[2]);
+	}
+	de_dbg_indent(c, -1);
+
+	if(badflag) {
+		de_warn(c, "%s doesn't look like the right kind of palette file\n", palfn);
+	}
+
+	retval = 1;
+
+done:
+	dbuf_close(palfile);
+	return retval;
 }
 
 // 16-color palettes to use, if there is no palette in the file.
@@ -188,6 +239,17 @@ static void do_palette_stuff(deark *c, lctx *d)
 	de_int64 k;
 
 	if(d->ncolors>256) {
+		return;
+	}
+
+	if(d->ncolors==256) {
+		// For 256-color images, start with a default grayscale palette.
+		for(k=0; k<256; k++) {
+			d->pal[k] = DE_MAKE_GRAY((unsigned int)k);
+		}
+	}
+
+	if(do_read_alt_palette_file(c, d)) {
 		return;
 	}
 
@@ -217,10 +279,7 @@ static void do_palette_stuff(deark *c, lctx *d)
 			return;
 		}
 		de_warn(c, "Expected VGA palette was not found\n");
-		// Use a grayscale palette as a last resort.
-		for(k=0; k<256; k++) {
-			d->pal[k] = DE_MAKE_GRAY((unsigned int)k);
-		}
+		// (Use the grayscale palette created earlier, as a last resort.)
 		return;
 	}
 
@@ -260,12 +319,18 @@ static void do_palette_stuff(deark *c, lctx *d)
 		return;
 	}
 
+	if(d->ncolors>16 && d->ncolors<=256) {
+		de_warn(c, "No suitable palette found\n");
+	}
+
 	de_dbg(c, "using 16-color palette from header\n");
 
+	de_dbg_indent(c, 1);
 	for(k=0; k<16; k++) {
 		d->pal[k] = dbuf_getRGB(c->infile, 16 + 3*k, 0);
 		de_dbg_pal_entry(c, k, d->pal[k]);
 	}
+	de_dbg_indent(c, -1);
 }
 
 static int do_uncompress(deark *c, lctx *d)
