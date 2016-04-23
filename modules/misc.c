@@ -1415,7 +1415,7 @@ static void read_palette_rgb(dbuf *f, de_int64 fpos,
 	de_int64 k;
 
 	for(k=0; k<num_entries; k++) {
-		pal[k] = dbuf_getRGB(f, fpos + k*entryspan, 0);
+		pal[k] = dbuf_getRGB(f, fpos + k*entryspan, flags);
 		de_dbg_pal_entry(f->c, k, pal[k]);
 	}
 }
@@ -1519,4 +1519,63 @@ void de_module_hsiraw(deark *c, struct deark_module_info *mi)
 	mi->desc = "HSI Raw";
 	mi->run_fn = de_run_hsiraw;
 	mi->identify_fn = de_identify_hsiraw;
+}
+
+// **************************************************************************
+// QDV (Giffer)
+// **************************************************************************
+
+static void de_run_qdv(deark *c, de_module_params *mparams)
+{
+	de_int64 w, h;
+	de_int64 num_pal_colors;
+	de_int64 pos;
+	struct deark_bitmap *img = NULL;
+	de_uint32 pal[256];
+
+	// Warning: This decoder is based on reverse engineering, and may be
+	// incorrect or incomplete.
+
+	w = de_getui16be(0);
+	h = de_getui16be(2);
+	de_dbg(c, "dimensions: %dx%d\n", (int)w, (int)h);
+	if(!de_good_image_dimensions(c, w, h)) goto done;
+
+	num_pal_colors = 1 + (de_int64)de_getbyte(4);
+	de_dbg(c, "number of palette colors: %d\n", (int)num_pal_colors);
+
+	pos = 5;
+	de_memset(pal, 0, sizeof(pal));
+	read_palette_rgb(c->infile, pos, num_pal_colors, 3, pal, 0);
+	pos += 3*num_pal_colors;
+
+	img = de_bitmap_create(c, w, h, 3);
+	de_convert_image_paletted(c->infile, pos, 8, w, pal, img, 0);
+	de_bitmap_write_to_file(img, NULL);
+
+done:
+	de_bitmap_destroy(img);
+}
+
+static int de_identify_qdv(deark *c)
+{
+	de_int64 w, h;
+	de_int64 num_pal_colors;
+
+	w = de_getui16be(0);
+	h = de_getui16be(2);
+	num_pal_colors = 1 + (de_int64)de_getbyte(4);
+	if(5+num_pal_colors*3+w*h != c->infile->len)
+		return 0;
+	if(de_input_file_has_ext(c, "qdv"))
+		return 100;
+	return 30;
+}
+
+void de_module_qdv(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "qdv";
+	mi->desc = "QDV (Giffer)";
+	mi->run_fn = de_run_qdv;
+	mi->identify_fn = de_identify_qdv;
 }

@@ -128,6 +128,7 @@ void de_register_modules(deark *c)
 		de_module_gemfont,
 		de_module_crg,
 		de_module_ybm,
+		de_module_qdv,
 		de_module_fpaint_pi4,
 		de_module_fpaint_pi9,
 		de_module_atari_pi7,

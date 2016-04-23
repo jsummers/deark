@@ -129,3 +129,4 @@ void de_module_artworx_adf(deark *c, struct deark_module_info *mi);
 void de_module_psf(deark *c, struct deark_module_info *mi);
 void de_module_pkfont(deark *c, struct deark_module_info *mi);
 void de_module_hsiraw(deark *c, struct deark_module_info *mi);
+void de_module_qdv(deark *c, struct deark_module_info *mi);

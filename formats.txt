@@ -313,6 +313,8 @@ Deark -- Information about supported formats
   - Supports both "old" and "new" formats.
   - Extracts icons and bitmaps.
 
+* QDV (Giffer) (module="qdv")
+
 * QTIF (QuickTime image) (module="qtif")
   - Partial support.
   - Extract embedded JPEG, TIFF, and other image files.
