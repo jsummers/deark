@@ -159,13 +159,6 @@ static int do_gem_img(deark *c, lctx *d)
 	return 1;
 }
 
-static de_byte scale_1000_to_255(de_int64 n1)
-{
-	if(n1<=0) return 0;
-	if(n1>=1000) return 255;
-	return (de_byte)(0.5+((255.0/1000.0)*(double)n1));
-}
-
 static void read_palette_ximg(deark *c, lctx *d)
 {
 	de_int64 pal_entries;
@@ -182,9 +175,9 @@ static void read_palette_ximg(deark *c, lctx *d)
 		cg1 = de_getui16be(22 + 6*i + 2);
 		cb1 = de_getui16be(22 + 6*i + 4);
 
-		cr = scale_1000_to_255(cr1);
-		cg = scale_1000_to_255(cg1);
-		cb = scale_1000_to_255(cb1);
+		cr = de_scale_1000_to_255(cr1);
+		cg = de_scale_1000_to_255(cg1);
+		cb = de_scale_1000_to_255(cb1);
 
 		de_dbg2(c, "pal[%3d] = (%4d,%4d,%4d) -> (%3d,%3d,%3d)\n", (int)i,
 			(int)cr1, (int)cg1, (int)cb1,

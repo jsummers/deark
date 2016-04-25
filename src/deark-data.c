@@ -631,53 +631,60 @@ void de_color_to_css(de_uint32 color, char *buf, int buflen)
 	buf[7] = '\0';
 }
 
-de_byte de_sample_n_to_8bit(unsigned int samp, de_int64 n)
+de_byte de_sample_nbit_to_8bit(de_int64 n, unsigned int x)
 {
 	unsigned int maxval;
 
-	if(samp==0) return 0;
+	if(x==0) return 0;
 	if(n<1 || n>16) return 0;
 	maxval = (1<<n)-1;
-	if(samp>=maxval) return 255;
-	return (de_byte)(0.5+((((double)samp)/(double)maxval)*255.0));
+	if(x>=maxval) return 255;
+	return (de_byte)(0.5+((((double)x)/(double)maxval)*255.0));
 }
 
-de_byte de_palette_sample_6_to_8bit(de_byte samp)
+de_byte de_scale_63_to_255(de_byte x)
 {
-	if(samp>=63) return 255;
-	return (de_byte)(0.5+((((double)samp)/63.0)*255.0));
+	if(x>=63) return 255;
+	return (de_byte)(0.5+(((double)x)*(255.0/63.0)));
 }
 
-de_uint32 de_rgb565_to_888(de_uint32 n)
+de_byte de_scale_1000_to_255(de_int64 x)
+{
+	if(x>=1000) return 255;
+	if(x<=0) return 0;
+	return (de_byte)(0.5+(((double)x)*(255.0/1000.0)));
+}
+
+de_uint32 de_rgb565_to_888(de_uint32 x)
 {
 	de_byte cr, cg, cb;
-	cr = (de_byte)(n>>11);
-	cg = (de_byte)((n>>5)&0x3f);
-	cb = (de_byte)(n&0x1f);
+	cr = (de_byte)(x>>11);
+	cg = (de_byte)((x>>5)&0x3f);
+	cb = (de_byte)(x&0x1f);
 	cr = (de_byte)(0.5+((double)cr)*(255.0/31.0));
 	cg = (de_byte)(0.5+((double)cg)*(255.0/63.0));
 	cb = (de_byte)(0.5+((double)cb)*(255.0/31.0));
 	return DE_MAKE_RGB(cr, cg, cb);
 }
 
-de_uint32 de_bgr555_to_888(de_uint32 n)
+de_uint32 de_bgr555_to_888(de_uint32 x)
 {
 	de_byte cr, cg, cb;
-	cb = (de_byte)((n>>10)&0x1f);
-	cg = (de_byte)((n>>5)&0x1f);
-	cr = (de_byte)(n&0x1f);
+	cb = (de_byte)((x>>10)&0x1f);
+	cg = (de_byte)((x>>5)&0x1f);
+	cr = (de_byte)(x&0x1f);
 	cb = (de_byte)(0.5+((double)cb)*(255.0/31.0));
 	cg = (de_byte)(0.5+((double)cg)*(255.0/31.0));
 	cr = (de_byte)(0.5+((double)cr)*(255.0/31.0));
 	return DE_MAKE_RGB(cr, cg, cb);
 }
 
-de_uint32 de_rgb555_to_888(de_uint32 n)
+de_uint32 de_rgb555_to_888(de_uint32 x)
 {
 	de_byte cr, cg, cb;
-	cr = (de_byte)((n>>10)&0x1f);
-	cg = (de_byte)((n>>5)&0x1f);
-	cb = (de_byte)(n&0x1f);
+	cr = (de_byte)((x>>10)&0x1f);
+	cg = (de_byte)((x>>5)&0x1f);
+	cb = (de_byte)(x&0x1f);
 	cr = (de_byte)(0.5+((double)cr)*(255.0/31.0));
 	cg = (de_byte)(0.5+((double)cg)*(255.0/31.0));
 	cb = (de_byte)(0.5+((double)cb)*(255.0/31.0));

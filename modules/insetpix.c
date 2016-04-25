@@ -77,7 +77,7 @@ static int do_palette(deark *c, lctx *d, de_int64 pos, de_int64 len)
 			// number of bits, not a number of sample values.
 			// But color images evidently use the "number of bits" fields to store
 			// the number of sample values.
-			ci2 = de_sample_n_to_8bit(ci1, d->num_pal_bits[0]);
+			ci2 = de_sample_nbit_to_8bit(d->num_pal_bits[0], ci1);
 			cr2 = ci2;
 			cg2 = ci2;
 			cb2 = ci2;

@@ -713,9 +713,9 @@ static void de_run_lss16(deark *c, de_module_params *mparams)
 		cg1 = de_getbyte(d->pos+1);
 		cb1 = de_getbyte(d->pos+2);
 		// Palette samples are from [0 to 63]. Convert to [0 to 255].
-		cr2 = de_palette_sample_6_to_8bit(cr1);
-		cg2 = de_palette_sample_6_to_8bit(cg1);
-		cb2 = de_palette_sample_6_to_8bit(cb1);
+		cr2 = de_scale_63_to_255(cr1);
+		cg2 = de_scale_63_to_255(cg1);
+		cb2 = de_scale_63_to_255(cb1);
 		de_dbg2(c, "pal[%2d] = (%2d,%2d,%2d) -> (%3d,%3d,%3d)\n", (int)i,
 			(int)cr1, (int)cg1, (int)cb1,
 			(int)cr2, (int)cg2, (int)cb2);

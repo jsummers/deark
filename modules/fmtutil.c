@@ -639,9 +639,14 @@ void de_fmtutil_read_boxes_format(deark *c, struct de_boxesctx *bctx)
 	do_box_sequence(c, bctx, 0, bctx->f->len, 0);
 }
 
-static de_byte scale7to255(de_byte n)
+static de_byte scale_7_to_255(de_byte x)
 {
-	return (de_byte)(0.5+(255.0/7.0)*(double)n);
+	return (de_byte)(0.5+(((double)x)*(255.0/7.0)));
+}
+
+static de_byte scale_15_to_255(de_byte x)
+{
+	return x*17;
 }
 
 void de_fmtutil_read_atari_palette(deark *c, dbuf *f, de_int64 pos,
@@ -703,9 +708,9 @@ void de_fmtutil_read_atari_palette(deark *c, dbuf *f, de_int64 pos,
 			if(n&0x080) cg1++;
 			cb1 = (de_byte)((n<<1)&14);
 			if(n&0x008) cb1++;
-			cr = cr1*17;
-			cg = cg1*17;
-			cb = cb1*17;
+			cr = scale_15_to_255(cr1);
+			cg = scale_15_to_255(cg1);
+			cb = scale_15_to_255(cb1);
 			de_snprintf(cbuf, sizeof(cbuf), "%2d,%2d,%2d",
 				(int)cr1, (int)cg1, (int)cb1);
 		}
@@ -713,9 +718,9 @@ void de_fmtutil_read_atari_palette(deark *c, dbuf *f, de_int64 pos,
 			cr1 = (de_byte)((n>>8)&7);
 			cg1 = (de_byte)((n>>4)&7);
 			cb1 = (de_byte)(n&7);
-			cr = scale7to255(cr1);
-			cg = scale7to255(cg1);
-			cb = scale7to255(cb1);
+			cr = scale_7_to_255(cr1);
+			cg = scale_7_to_255(cg1);
+			cb = scale_7_to_255(cb1);
 			de_snprintf(cbuf, sizeof(cbuf), "%d,%d,%d",
 				(int)cr1, (int)cg1, (int)cb1);
 		}

@@ -175,9 +175,9 @@ static int decode_egavga16(deark *c, lctx *d)
 			cr1 = d->pal_info_to_use->data[3*k+0];
 			cg1 = d->pal_info_to_use->data[3*k+1];
 			cb1 = d->pal_info_to_use->data[3*k+2];
-			cr2 = de_palette_sample_6_to_8bit(cr1);
-			cg2 = de_palette_sample_6_to_8bit(cg1);
-			cb2 = de_palette_sample_6_to_8bit(cb1);
+			cr2 = de_scale_63_to_255(cr1);
+			cg2 = de_scale_63_to_255(cg1);
+			cb2 = de_scale_63_to_255(cb1);
 			pal[k] = DE_MAKE_RGB(cr2, cg2, cb2);
 			de_dbg2(c, "pal[%2d] = (%2d,%2d,%2d) -> (%3d,%3d,%3d)\n", (int)k,
 				(int)cr1, (int)cg1, (int)cb1,
@@ -240,9 +240,9 @@ static int decode_vga256(deark *c, lctx *d)
 			cr1 = d->pal_info_to_use->data[3*k+0];
 			cg1 = d->pal_info_to_use->data[3*k+1];
 			cb1 = d->pal_info_to_use->data[3*k+2];
-			cr2 = de_palette_sample_6_to_8bit(cr1);
-			cg2 = de_palette_sample_6_to_8bit(cg1);
-			cb2 = de_palette_sample_6_to_8bit(cb1);
+			cr2 = de_scale_63_to_255(cr1);
+			cg2 = de_scale_63_to_255(cg1);
+			cb2 = de_scale_63_to_255(cb1);
 			pal[k] = DE_MAKE_RGB(cr2, cg2, cb2);
 			de_dbg2(c, "pal[%3d] = (%2d,%2d,%2d) -> (%3d,%3d,%3d)\n", (int)k,
 				(int)cr1, (int)cg1, (int)cb1,

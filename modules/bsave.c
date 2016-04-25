@@ -487,9 +487,9 @@ static int do_read_palette_file(deark *c, lctx *d, const char *palfn)
 
 	for(i=0; i<256; i++) {
 		dbuf_read(f, buf, BSAVE_HDRSIZE + 3*i, 3);
-		d->pal[i] = DE_MAKE_RGB(de_palette_sample_6_to_8bit(buf[0]),
-			de_palette_sample_6_to_8bit(buf[1]),
-			de_palette_sample_6_to_8bit(buf[2]));
+		d->pal[i] = DE_MAKE_RGB(de_scale_63_to_255(buf[0]),
+			de_scale_63_to_255(buf[1]),
+			de_scale_63_to_255(buf[2]));
 	}
 	d->pal_valid = 1;
 

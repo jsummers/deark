@@ -7,13 +7,6 @@
 
 static void fix_dark_pal(deark *c, struct atari_img_decode_data *adata);
 
-static de_byte scale1000to255(de_int64 n)
-{
-	if(n>=1000) return 255;
-	if(n<=0) return 0;
-	return (de_byte)(0.5+(((double)n)*(255.0/1000.0)));
-}
-
 // **************************************************************************
 // DEGAS / DEGAS Elite images
 // **************************************************************************
@@ -296,9 +289,9 @@ static void do_prism_read_palette(deark *c, prixmctx *d, struct atari_img_decode
 		r1 = de_getui16be(128+6*i+0);
 		g1 = de_getui16be(128+6*i+2);
 		b1 = de_getui16be(128+6*i+4);
-		r = scale1000to255(r1);
-		g = scale1000to255(g1);
-		b = scale1000to255(b1);
+		r = de_scale_1000_to_255(r1);
+		g = de_scale_1000_to_255(g1);
+		b = de_scale_1000_to_255(b1);
 		de_dbg2(c, "pal[%3d] = (%4d,%4d,%4d) -> (%3d,%3d,%3d)\n", (int)i, (int)r1, (int)g1, (int)b1,
 			(int)r, (int)g, (int)b);
 		if(i>255) continue;

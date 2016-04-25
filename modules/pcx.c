@@ -195,7 +195,7 @@ static int do_read_alt_palette_file(deark *c, lctx *d)
 		dbuf_read(palfile, b1, 3*k, 3);
 		for(z=0; z<3; z++) {
 			if(b1[z]>0x3f) badflag = 1;
-			b2[z] = de_palette_sample_6_to_8bit(b1[z]);
+			b2[z] = de_scale_63_to_255(b1[z]);
 		}
 		d->pal[k] = DE_MAKE_RGB(b2[0],b2[1],b2[2]);
 

@@ -173,9 +173,9 @@ static void do_v2(deark *c, lctx *d)
 
 	// Read the palette
 	for(i=0; i<ncolors; i++) {
-		cr = de_palette_sample_6_to_8bit(de_getbyte(palette_start+i*3+0));
-		cg = de_palette_sample_6_to_8bit(de_getbyte(palette_start+i*3+1));
-		cb = de_palette_sample_6_to_8bit(de_getbyte(palette_start+i*3+2));
+		cr = de_scale_63_to_255(de_getbyte(palette_start+i*3+0));
+		cg = de_scale_63_to_255(de_getbyte(palette_start+i*3+1));
+		cb = de_scale_63_to_255(de_getbyte(palette_start+i*3+2));
 		if(d->rgb_order)
 			pal[i] = DE_MAKE_RGB(cr, cg, cb);
 		else

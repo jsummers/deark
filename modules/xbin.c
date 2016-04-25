@@ -141,9 +141,9 @@ static void do_read_palette(deark *c, lctx *d,struct de_char_context *charctx,
 		cr1 = de_getbyte(cpos);
 		cg1 = de_getbyte(cpos+1);
 		cb1 = de_getbyte(cpos+2);
-		cr2 = de_palette_sample_6_to_8bit(cr1);
-		cg2 = de_palette_sample_6_to_8bit(cg1);
-		cb2 = de_palette_sample_6_to_8bit(cb1);
+		cr2 = de_scale_63_to_255(cr1);
+		cg2 = de_scale_63_to_255(cg1);
+		cb2 = de_scale_63_to_255(cb1);
 		charctx->pal[k] = DE_MAKE_RGB(cr2, cg2, cb2);
 		de_dbg2(c, "pal[%2d] = (%2d,%2d,%2d) -> (%3d,%3d,%3d)\n", (int)k,
 			(int)cr1, (int)cg1, (int)cb1,
