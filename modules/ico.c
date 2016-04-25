@@ -37,7 +37,6 @@ static int detect_alpha_channel(deark *c, struct de_bmpinfo *bi, de_int64 pos1)
 static void do_image_data(deark *c, lctx *d, de_int64 img_num, de_int64 pos1, de_int64 len)
 {
 	struct de_bmpinfo bi;
-	de_int64 pal_start;
 	de_int64 fg_start, bg_start;
 	de_int64 i, j;
 	de_uint32 pal[256];
@@ -103,12 +102,10 @@ static void do_image_data(deark *c, lctx *d, de_int64 img_num, de_int64 pos1, de
 	de_memset(pal, 0, sizeof(pal));
 	if (bi.pal_entries > 0) {
 		if(bi.pal_entries>256) goto done;
-		pal_start = pos1+bi.infohdrsize;
 
-		for (i=0; i<bi.pal_entries; i++) {
-			p = pal_start + i*bi.bytes_per_pal_entry;
-			pal[i] = dbuf_getRGB(c->infile, p, DE_GETRGBFLAG_BGR);
-		}
+		de_read_palette_rgb(c->infile,
+			pos1+bi.infohdrsize, bi.pal_entries, bi.bytes_per_pal_entry,
+			pal, 256, DE_GETRGBFLAG_BGR);
 	}
 
 	fg_start = pos1 + bi.size_of_headers_and_pal;

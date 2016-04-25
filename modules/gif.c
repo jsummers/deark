@@ -308,12 +308,7 @@ static int do_read_screen_descriptor(deark *c, lctx *d, de_int64 pos)
 static void do_read_color_table(deark *c, lctx *d, de_int64 pos, de_int64 ncolors,
 	de_uint32 *ct)
 {
-	de_int64 k;
-
-	for(k=0; k<ncolors; k++) {
-		ct[k] = dbuf_getRGB(c->infile, pos + 3*k, 0);
-		de_dbg_pal_entry(c, k, ct[k]);
-	}
+	de_read_palette_rgb(c->infile, pos, ncolors, 3, ct, 256, 0);
 }
 
 static int do_read_global_color_table(deark *c, lctx *d, de_int64 pos, de_int64 *bytesused)

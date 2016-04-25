@@ -147,7 +147,6 @@ done:
 static int do_read_vga_palette(deark *c, lctx *d)
 {
 	de_int64 pos;
-	de_int64 k;
 
 	if(d->version<5) return 0;
 	if(d->ncolors!=256) return 0;
@@ -162,10 +161,7 @@ static int do_read_vga_palette(deark *c, lctx *d)
 	d->has_vga_pal = 1;
 	pos++;
 	de_dbg_indent(c, 1);
-	for(k=0; k<256; k++) {
-		d->pal[k] = dbuf_getRGB(c->infile, pos + 3*k, 0);
-		de_dbg_pal_entry(c, k, d->pal[k]);
-	}
+	de_read_palette_rgb(c->infile, pos, 256, 3, d->pal, 256, 0);
 	de_dbg_indent(c, -1);
 
 	return 1;
@@ -326,10 +322,7 @@ static void do_palette_stuff(deark *c, lctx *d)
 	de_dbg(c, "using 16-color palette from header\n");
 
 	de_dbg_indent(c, 1);
-	for(k=0; k<16; k++) {
-		d->pal[k] = dbuf_getRGB(c->infile, 16 + 3*k, 0);
-		de_dbg_pal_entry(c, k, d->pal[k]);
-	}
+	de_read_palette_rgb(c->infile, 16, 16, 3, d->pal, 256, 0);
 	de_dbg_indent(c, -1);
 }
 

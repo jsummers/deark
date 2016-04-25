@@ -470,6 +470,11 @@ void de_convert_and_write_image_bilevel(dbuf *f, de_int64 fpos,
 	de_int64 w, de_int64 height, de_int64 rowspan, unsigned int flags,
 	de_finfo *fi);
 
+void de_read_palette_rgb(dbuf *f,
+	de_int64 fpos, de_int64 num_entries, de_int64 entryspan,
+	de_uint32 *pal, de_int64 ncolors_in_pal,
+	unsigned int flags);
+
 // Utility function that will work for many of the common kinds of paletted images.
 void de_convert_image_paletted(dbuf *f, de_int64 fpos,
 	de_int64 bpp, de_int64 rowspan, const de_uint32 *pal,

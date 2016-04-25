@@ -125,17 +125,12 @@ done:
 
 static void do_cmap(deark *c, lctx *d, de_int64 pos, de_int64 len)
 {
-	de_int64 k;
-
 	d->found_cmap = 1;
 	d->pal_ncolors = len/3;
 	de_dbg(c, "number of palette colors: %d\n", (int)d->pal_ncolors);
 	if(d->pal_ncolors>256) d->pal_ncolors=256;
 
-	for(k=0; k<d->pal_ncolors; k++) {
-		d->pal[k] = dbuf_getRGB(c->infile, pos+3*k, 0);
-		de_dbg_pal_entry(c, k, d->pal[k]);
-	}
+	de_read_palette_rgb(c->infile, pos, d->pal_ncolors, 3, d->pal, 256, 0);
 }
 
 static void do_camg(deark *c, lctx *d, de_int64 pos, de_int64 len)

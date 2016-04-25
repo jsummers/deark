@@ -19,9 +19,6 @@ typedef struct localctx_struct {
 
 static int do_read_palette(deark *c, lctx *d, de_int64 pos, de_int64 *pal_nbytes)
 {
-	de_int64 i;
-	de_uint32 clr;
-
 	de_dbg(c, "Palette at %d\n", (int)pos);
 
 	d->num_pal_entries = de_getui16le(pos) + 1;
@@ -32,11 +29,7 @@ static int do_read_palette(deark *c, lctx *d, de_int64 pos, de_int64 *pal_nbytes
 		*pal_nbytes = 2 + d->num_pal_entries * 3;
 	if(d->palette_is_hls) return 1;
 
-	for(i=0; i<d->num_pal_entries && i<256; i++) {
-		clr = dbuf_getRGB(c->infile, pos + 2 + i*3, 0);
-		d->pal[i] = clr;
-		de_dbg_pal_entry(c, i, clr);
-	}
+	de_read_palette_rgb(c->infile, pos+2, d->num_pal_entries, 3, d->pal, 256, 0);
 	return 1;
 }
 

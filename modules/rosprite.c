@@ -214,9 +214,6 @@ static void do_setup_palette(deark *c, lctx *d, struct page_ctx *pg)
 	de_uint32 clr1, clr2, clr3;
 
 	if(pg->fgbpp>8) {
-		for(k=0; k<256; k++) {
-			pg->pal[k] = 0;
-		}
 		return;
 	}
 

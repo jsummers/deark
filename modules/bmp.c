@@ -369,7 +369,6 @@ static void do_os2v2_bad_palette(deark *c, lctx *d)
 
 static void do_read_palette(deark *c, lctx *d)
 {
-	de_int64 k;
 	de_int64 pal_size_in_bytes;
 
 	if(d->pal_entries<1) return;
@@ -386,10 +385,8 @@ static void do_read_palette(deark *c, lctx *d)
 	de_dbg(c, "color table at %d, %d entries\n", (int)d->pal_pos, (int)d->pal_entries);
 
 	de_dbg_indent(c, 1);
-	for(k=0; k<d->pal_entries && k<256; k++) {
-		d->pal[k] = dbuf_getRGB(c->infile, d->pal_pos + k*d->bytes_per_pal_entry, DE_GETRGBFLAG_BGR);
-		de_dbg_pal_entry(c, k, d->pal[k]);
-	}
+	de_read_palette_rgb(c->infile, d->pal_pos, d->pal_entries, d->bytes_per_pal_entry,
+		d->pal, 256, DE_GETRGBFLAG_BGR);
 
 	d->pal_is_grayscale = de_is_grayscale_palette(d->pal, d->pal_entries);
 	de_dbg_indent(c, -1);

@@ -51,8 +51,6 @@ static struct srcbitmap *do_decode_CI_or_CP_segment(deark *c, const char *fmt, d
 	int okay = 0;
 	struct srcbitmap *srcbmp = NULL;
 	de_int64 pal_start;
-	de_int64 p;
-	de_int64 i;
 	int indent_count = 0;
 
 	de_dbg(c, "%s bitmap at %d\n", fmt, (int)pos);
@@ -71,11 +69,8 @@ static struct srcbitmap *do_decode_CI_or_CP_segment(deark *c, const char *fmt, d
 		de_dbg(c, "palette at %d\n", (int)pal_start);
 		de_dbg_indent(c, 1);
 		indent_count++;
-		for (i=0; i<srcbmp->bi.pal_entries; i++) {
-			p = pal_start + i*srcbmp->bi.bytes_per_pal_entry;
-			srcbmp->pal[i] = dbuf_getRGB(c->infile, p, DE_GETRGBFLAG_BGR);
-			de_dbg_pal_entry(c, i, srcbmp->pal[i]);
-		}
+		de_read_palette_rgb(c->infile, pal_start, srcbmp->bi.pal_entries, srcbmp->bi.bytes_per_pal_entry,
+			srcbmp->pal, 256, DE_GETRGBFLAG_BGR);
 		de_dbg_indent(c, -1);
 		indent_count--;
 	}

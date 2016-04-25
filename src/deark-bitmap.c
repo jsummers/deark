@@ -389,6 +389,22 @@ void de_convert_and_write_image_bilevel(dbuf *f, de_int64 fpos,
 	de_bitmap_destroy(img);
 }
 
+// Read a palette of 24-bit RGB colors.
+// flags = flags used by dbuf_getRGB()
+void de_read_palette_rgb(dbuf *f,
+	de_int64 fpos, de_int64 num_entries, de_int64 entryspan,
+	de_uint32 *pal, de_int64 ncolors_in_pal,
+	unsigned int flags)
+{
+	de_int64 k;
+
+	if(num_entries > ncolors_in_pal) num_entries = ncolors_in_pal;
+	for(k=0; k<num_entries; k++) {
+		pal[k] = dbuf_getRGB(f, fpos + k*entryspan, flags);
+		de_dbg_pal_entry(f->c, k, pal[k]);
+	}
+}
+
 void de_convert_image_paletted(dbuf *f, de_int64 fpos,
 	de_int64 bpp, de_int64 rowspan, const de_uint32 *pal,
 	struct deark_bitmap *img, unsigned int flags)
