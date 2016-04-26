@@ -285,6 +285,8 @@ static int decode_bilevel(deark *c, lctx *d)
 {
 	de_int64 src_rowspan;
 	de_uint32 pal[2];
+	int is_grayscale;
+	de_int64 edesc = d->pal_info_to_use->edesc;
 
 	de_dbg(c, "bilevel image\n");
 
@@ -293,14 +295,24 @@ static int decode_bilevel(deark *c, lctx *d)
 	pal[0] = DE_STOCKCOLOR_BLACK;
 	pal[1] = DE_STOCKCOLOR_WHITE; // default
 
+	if(edesc!=0 && edesc!=4 && edesc!=5) {
+		de_warn(c, "The colors in this image might not be handled correctly (edesc=%d)\n",
+			(int)edesc);
+	}
+
+	if(edesc==4 || edesc==5) {
+		make_rgb_palette(c, d, pal, 2);
+	}
+
 	// PCPaint's CGA and EGA 2-color modes used gray shade 170 instead of
 	// white (255). Maybe they should be interpreted as white, but for
 	// historical accuracy I'll go with gray170.
-	if(d->video_mode==0x43 || d->video_mode==0x45) {
+	if(edesc==0 && (d->video_mode==0x43 || d->video_mode==0x45)) {
 		pal[1] = DE_MAKE_GRAY(170);
 	}
 
-	d->img->bytes_per_pixel = 1;
+	is_grayscale = de_is_grayscale_palette(pal, 2);
+	d->img->bytes_per_pixel = is_grayscale?1:3;
 	d->img->flipped = 1;
 
 	src_rowspan = (d->img->width +7)/8;
@@ -526,9 +538,9 @@ static int do_set_up_decoder(deark *c, lctx *d)
 	if(d->video_mode>='0' && d->video_mode<='3') {
 		d->decoder_fn = decode_text;
 	}
-	else if(d->plane_info==0x01 && edesc==0) {
-		// Expected video mode(s): 0x43, 0x45, 0x4f
-		// CGA or EGA or VGA 2-color
+	else if(d->plane_info==0x01) {
+		// Expected video mode(s): 0x43, 0x45, 0x48, 0x4f, 0x50, 0x55
+		// CGA or EGA or VGA or Hercules 2-color
 		d->decoder_fn = decode_bilevel;
 	}
 	else if(d->plane_info==0x02 && (edesc==0 || edesc==1)) {
