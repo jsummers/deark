@@ -140,20 +140,47 @@ static void make_rgb_palette(deark *c, lctx *d, de_uint32 *pal, de_int64 num_ent
 	de_int64 k;
 	de_byte cr1, cg1, cb1;
 	de_byte cr2, cg2, cb2;
+	int has_8bit_samples = 0;
 
+	// Pre-scan
 	for(k=0; k<num_entries; k++) {
 		if(3*k+2 >= d->pal_info_to_use->esize) break;
 		cr1 = d->pal_info_to_use->data[3*k+0];
 		cg1 = d->pal_info_to_use->data[3*k+1];
 		cb1 = d->pal_info_to_use->data[3*k+2];
-		cr2 = de_scale_63_to_255(cr1);
-		cg2 = de_scale_63_to_255(cg1);
-		cb2 = de_scale_63_to_255(cb1);
-		pal[k] = DE_MAKE_RGB(cr2, cg2, cb2);
-		de_dbg2(c, "pal[%2d] = (%2d,%2d,%2d) -> (%3d,%3d,%3d)\n", (int)k,
-			(int)cr1, (int)cg1, (int)cb1,
-			(int)cr2, (int)cg2, (int)cb2);
+		if(cr1>63 || cg1>63 || cb1>63) {
+			de_dbg(c, "detected 8-bit palette samples\n");
+			has_8bit_samples = 1;
+			break;
+		}
 	}
+
+	// For real
+	de_dbg_indent(c, 1);
+	for(k=0; k<num_entries; k++) {
+		if(3*k+2 >= d->pal_info_to_use->esize) break;
+		cr1 = d->pal_info_to_use->data[3*k+0];
+		cg1 = d->pal_info_to_use->data[3*k+1];
+		cb1 = d->pal_info_to_use->data[3*k+2];
+
+		if(has_8bit_samples) {
+			cr2 = (cr1<<2) | (cr1>>6);
+			cg2 = (cg1<<2) | (cg1>>6);
+			cb2 = (cb1<<2) | (cb1>>6);
+			pal[k] = DE_MAKE_RGB(cr2, cg2, cb2);
+			de_dbg_pal_entry(c, k, pal[k]);
+		}
+		else {
+			cr2 = de_scale_63_to_255(cr1);
+			cg2 = de_scale_63_to_255(cg1);
+			cb2 = de_scale_63_to_255(cb1);
+			pal[k] = DE_MAKE_RGB(cr2, cg2, cb2);
+			de_dbg2(c, "pal[%3d] = (%2d,%2d,%2d) -> (%3d,%3d,%3d)\n", (int)k,
+				(int)cr1, (int)cg1, (int)cb1,
+				(int)cr2, (int)cg2, (int)cb2);
+		}
+	}
+	de_dbg_indent(c, -1);
 }
 
 static int decode_egavga16(deark *c, lctx *d)
