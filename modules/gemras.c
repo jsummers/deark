@@ -173,25 +173,58 @@ static void make_grayscale_palette(de_uint32 *pal, de_int64 num_entries, unsigne
 	}
 }
 
+// These palettes are based on Image Alchemy's interpretation of GEM raster files.
+static const de_uint32 pal3bit[8] = {
+	0xffffff,0x00ffff,0xff00ff,0xffff00,0x0000ff,0x00ff00,0xff0000,0x000000
+};
+
+static const de_uint32 pal4bit[16] = {
+	0xffffff,0x00ffff,0xff00ff,0xffff00,0x0000ff,0x00ff00,0xff0000,0xc0c0c0,
+	0x808080,0x008080,0x800080,0x808000,0x000080,0x008000,0x800000,0x000000,
+};
+
 static int do_gem_img(deark *c, lctx *d)
 {
 	dbuf *unc_pixels = NULL;
 	struct deark_bitmap *img = NULL;
+	int is_color = 0;
+	de_int64 k;
+
+	if(d->header_size_in_words==9 && (d->nplanes==3 || d->nplanes==4)) {
+		de_int64 x;
+		x = de_getui16be(8*2);
+		if(x==0) {
+			is_color = 1;
+		}
+	}
 
 	unc_pixels = dbuf_create_membuf(c, d->rowspan_total*d->h, 0);
 
 	uncompress_pixels(c, d, unc_pixels, d->header_size_in_bytes, c->infile->len-d->header_size_in_bytes);
 
-	img = de_bitmap_create(c, d->w, d->h, 1);
+	img = de_bitmap_create(c, d->w, d->h, is_color?3:1);
 	set_density(c, d, img);
 
 	if(d->nplanes==1) {
 		de_convert_image_bilevel(unc_pixels, 0, d->rowspan_per_plane, img, DE_CVTF_WHITEISZERO);
 	}
+	else if(is_color && d->nplanes==3) {
+		for(k=0; k<8; k++) {
+			d->pal[k] = pal3bit[k];
+		}
+		read_paletted_image(c, d, unc_pixels, img);
+	}
+	else if(is_color && d->nplanes==4) {
+		for(k=0; k<16; k++) {
+			d->pal[k] = pal4bit[k];
+		}
+		read_paletted_image(c, d, unc_pixels, img);
+	}
 	else {
 		make_grayscale_palette(d->pal, ((de_int64)1)<<((unsigned int)d->nplanes), 1);
 		read_paletted_image(c, d, unc_pixels, img);
 	}
+
 	de_bitmap_write_to_file_finfo(img, NULL);
 
 	de_bitmap_destroy(img);
@@ -315,6 +348,9 @@ static void de_run_gemraster(deark *c, de_module_params *mparams)
 		;
 	}
 	else if(d->header_size_in_words==8 && (d->nplanes>=2 && d->nplanes<=8)) {
+		need_format_warning = 1;
+	}
+	else if(d->header_size_in_words==9 && (d->nplanes>=1 || d->nplanes<=8)) {
 		need_format_warning = 1;
 	}
 	else {
