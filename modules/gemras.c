@@ -139,6 +139,40 @@ static void set_density(deark *c, lctx *d, struct deark_bitmap *img)
 	}
 }
 
+static void read_paletted_image(deark *c, lctx *d, dbuf *unc_pixels, struct deark_bitmap *img)
+{
+	de_int64 i, j, plane;
+	unsigned int n;
+	de_byte x;
+
+	if(d->nplanes<1 || d->nplanes>8) return;
+
+	for(j=0; j<d->h; j++) {
+		for(i=0; i<d->w; i++) {
+			n = 0;
+			for(plane=0; plane<d->nplanes; plane++) {
+				x = de_get_bits_symbol(unc_pixels, 1, j*d->rowspan_total + plane*d->rowspan_per_plane, i);
+				if(x) n |= 1<<plane;
+			}
+
+			de_bitmap_setpixel_rgb(img, i, j, d->pal[n]);
+		}
+	}
+}
+
+// flag 0x1: white-is-min
+static void make_grayscale_palette(de_uint32 *pal, de_int64 num_entries, unsigned int flags)
+{
+	de_int64 k;
+	de_byte b;
+
+	for(k=0; k<num_entries; k++) {
+		b = (de_byte)(0.5+ (double)k * (255.0 / (double)(num_entries-1)));
+		if(flags&0x1) b = 255-b;
+		pal[k] = DE_MAKE_GRAY(b);
+	}
+}
+
 static int do_gem_img(deark *c, lctx *d)
 {
 	dbuf *unc_pixels = NULL;
@@ -151,7 +185,13 @@ static int do_gem_img(deark *c, lctx *d)
 	img = de_bitmap_create(c, d->w, d->h, 1);
 	set_density(c, d, img);
 
-	de_convert_image_bilevel(unc_pixels, 0, d->rowspan_per_plane, img, DE_CVTF_WHITEISZERO);
+	if(d->nplanes==1) {
+		de_convert_image_bilevel(unc_pixels, 0, d->rowspan_per_plane, img, DE_CVTF_WHITEISZERO);
+	}
+	else {
+		make_grayscale_palette(d->pal, ((de_int64)1)<<((unsigned int)d->nplanes), 1);
+		read_paletted_image(c, d, unc_pixels, img);
+	}
 	de_bitmap_write_to_file_finfo(img, NULL);
 
 	de_bitmap_destroy(img);
@@ -199,9 +239,6 @@ static int do_gem_ximg(deark *c, lctx *d)
 	dbuf *unc_pixels = NULL;
 	struct deark_bitmap *img = NULL;
 	int retval = 0;
-	de_int64 i, j, plane;
-	unsigned int n;
-	de_byte x;
 
 	if(d->nplanes<1 || d->nplanes>8) {
 		de_err(c, "%d-plane XIMG images are not supported\n", (int)d->nplanes);
@@ -222,17 +259,7 @@ static int do_gem_ximg(deark *c, lctx *d)
 	img = de_bitmap_create(c, d->w, d->h, 3);
 	set_density(c, d, img);
 
-	for(j=0; j<d->h; j++) {
-		for(i=0; i<d->w; i++) {
-			n = 0;
-			for(plane=0; plane<d->nplanes; plane++) {
-				x = de_get_bits_symbol(unc_pixels, 1, j*d->rowspan_total + plane*d->rowspan_per_plane, i);
-				if(x) n |= 1<<plane;
-			}
-
-			de_bitmap_setpixel_rgb(img, i, j, d->pal[n]);
-		}
-	}
+	read_paletted_image(c, d, unc_pixels, img);
 	de_bitmap_write_to_file_finfo(img, NULL);
 
 	de_bitmap_destroy(img);
@@ -248,6 +275,7 @@ static void de_run_gemraster(deark *c, de_module_params *mparams)
 	de_int64 ver;
 	de_int64 ext_word0 = 0;
 	lctx *d = NULL;
+	int need_format_warning = 0;
 
 	d = de_malloc(c, sizeof(lctx));
 	ver = de_getui16be(0);
@@ -283,9 +311,20 @@ static void de_run_gemraster(deark *c, de_module_params *mparams)
 	else if(d->header_size_in_words==25 && d->patlen==2 && ext_word0==0x0080) {
 		;
 	}
-	else if(d->header_size_in_words!=0x08 || d->nplanes!=1) {
+	else if(d->header_size_in_words==8 && d->nplanes==1) {
+		;
+	}
+	else if(d->header_size_in_words==8 && (d->nplanes>=2 && d->nplanes<=8)) {
+		need_format_warning = 1;
+	}
+	else {
 		de_err(c, "This version of GEM Raster is not supported.\n");
 		return;
+	}
+
+	if(need_format_warning) {
+		de_warn(c, "This type of GEM Raster image is not very portable, and might "
+			"not be handled correctly.\n");
 	}
 
 	if(!de_good_image_dimensions(c, d->w, d->h)) goto done;
