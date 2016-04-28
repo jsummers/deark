@@ -20,8 +20,14 @@ struct cmdctx {
 	const char *input_filename;
 	int error_flag;
 	int special_command_flag;
+	int msgs_to_stderr;
+
+	// Have we set msgs_FILE and have_windows_console, and called _setmode if needed?
+	int have_initialized_output_stream;
+
+	FILE *msgs_FILE; // Where to print (error, etc.) messages
 #ifdef DE_WINDOWS
-	int have_windows_console;
+	int have_windows_console; // Is msgs_FILE a console?
 #endif
 };
 
@@ -71,21 +77,51 @@ static void print_modules(deark *c)
 
 static void our_msgfn(deark *c, int msgtype, const char *s)
 {
-#ifdef DE_WINDOWS
 	struct cmdctx *cc;
 
 	cc = de_get_userdata(c);
+
+	if(!cc->have_initialized_output_stream) {
+
+		if(cc->msgs_to_stderr) {
+			cc->msgs_FILE = stderr;
+		}
+		else {
+			cc->msgs_FILE = stdout;
+		}
+
+#ifdef DE_WINDOWS
+		// Call _setmode so that Unicode output to the console works correctly
+		// (provided we use Unicode functions like fputws()).
+		if(cc->msgs_to_stderr) {
+			cc->have_windows_console = de_stderr_is_windows_console();
+			if(cc->have_windows_console) {
+				_setmode(_fileno(stderr), _O_U16TEXT);
+			}
+		}
+		else {
+			cc->have_windows_console = de_stdout_is_windows_console();
+			if(cc->have_windows_console) {
+				_setmode(_fileno(stdout), _O_U16TEXT);
+			}
+		}
+#endif
+
+		cc->have_initialized_output_stream = 1;
+	}
+
+#ifdef DE_WINDOWS
 	if(cc->have_windows_console) {
 		wchar_t *s_w;
 		s_w = de_utf8_to_utf16_strdup(c, s);
-		fputws(s_w, stdout);
+		fputws(s_w, cc->msgs_FILE);
 		de_free(c, s_w);
 	}
 	else {
-		fputs(s, stdout);
+		fputs(s, cc->msgs_FILE);
 	}
 #else
-	fputs(s, stdout);
+	fputs(s, cc->msgs_FILE);
 #endif
 }
 
@@ -122,6 +158,7 @@ enum opt_id_enum {
  DE_OPT_NOMODTIME,
  DE_OPT_Q, DE_OPT_VERSION, DE_OPT_HELP,
  DE_OPT_MAINONLY, DE_OPT_AUXONLY, DE_OPT_EXTRACTALL, DE_OPT_ZIP,
+ DE_OPT_MSGSTOSTDERR,
  DE_OPT_EXTOPT, DE_OPT_FILE2, DE_OPT_START, DE_OPT_SIZE, DE_OPT_M, DE_OPT_O,
  DE_OPT_ARCFN, DE_OPT_GET, DE_OPT_FIRSTFILE, DE_OPT_MAXFILES, DE_OPT_MAXIMGDIM,
  DE_OPT_PRINTMODULES
@@ -157,6 +194,7 @@ struct opt_struct option_array[] = {
 	{ "a",            DE_OPT_EXTRACTALL,   0 },
 	{ "extractall",   DE_OPT_EXTRACTALL,   0 },
 	{ "zip",          DE_OPT_ZIP,          0 },
+	{ "msgstostderr", DE_OPT_MSGSTOSTDERR, 0 },
 	{ "opt",          DE_OPT_EXTOPT,       1 },
 	{ "file2",        DE_OPT_FILE2,        1 },
 	{ "start",        DE_OPT_START,        1 },
@@ -182,6 +220,16 @@ static struct opt_struct *opt_string_to_opt_struct(const char *s)
 		}
 	}
 	return NULL;
+}
+
+static void send_msgs_to_stderr(deark *c, struct cmdctx *cc)
+{
+	cc->msgs_to_stderr = 1;
+	cc->have_initialized_output_stream = 0;
+	cc->msgs_FILE = NULL;
+#ifdef DE_WINDOWS
+	cc->have_windows_console = 0;
+#endif
 }
 
 static void parse_cmdline(deark *c, struct cmdctx *cc, int argc, char **argv)
@@ -272,6 +320,9 @@ static void parse_cmdline(deark *c, struct cmdctx *cc, int argc, char **argv)
 			case DE_OPT_ZIP:
 				de_set_output_style(c, DE_OUTPUTSTYLE_ZIP);
 				break;
+			case DE_OPT_MSGSTOSTDERR:
+				send_msgs_to_stderr(c, cc);
+				break;
 			case DE_OPT_EXTOPT:
 				set_ext_option(c, cc, argv[i+1]);
 				break;
@@ -337,15 +388,6 @@ static void main2(int argc, char **argv)
 	struct cmdctx *cc = NULL;
 
 	cc = de_malloc(NULL, sizeof(struct cmdctx));
-
-#ifdef DE_WINDOWS
-	cc->have_windows_console = de_stdout_is_windows_console();
-	if(cc->have_windows_console) {
-		// Call _setmode so that Unicode output to the console works correctly
-		// (provided we use Unicode functions like fputws()).
-		_setmode(_fileno(stdout), _O_U16TEXT);
-	}
-#endif
 
 	c = de_create();
 	de_set_userdata(c, (void*)cc);

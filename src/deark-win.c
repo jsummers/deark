@@ -208,6 +208,17 @@ int de_stdout_is_windows_console(void)
 	return n ? 1 : 0;
 }
 
+// A helper function that returns nonzero if stderr seems to be a Windows console.
+// 0 means that stderr is redirected.
+int de_stderr_is_windows_console(void)
+{
+	DWORD consolemode=0;
+	BOOL n;
+
+	n=GetConsoleMode(GetStdHandle(STD_ERROR_HANDLE), &consolemode);
+	return n ? 1 : 0;
+}
+
 // Note: Need to keep this function in sync with the implementation in deark-unix.c.
 void de_timestamp_to_string(const struct de_timestamp *ts,
 	char *buf, size_t buf_len, unsigned int flags)
