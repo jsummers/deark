@@ -91,7 +91,7 @@ static void our_msgfn(deark *c, int msgtype, const char *s)
 
 static void our_fatalerrorfn(deark *c)
 {
-	de_puts(c, DE_MSGTYPE_MESSAGE, "exiting\n");
+	de_puts(c, DE_MSGTYPE_MESSAGE, "Exiting\n");
 	exit(1);
 }
 

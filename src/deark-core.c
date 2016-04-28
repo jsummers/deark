@@ -93,6 +93,7 @@ void de_run(deark *c)
 	if(!c->input_filename) {
 		de_err(c, "Input file not set\n");
 		de_fatalerror(c);
+		return;
 	}
 
 	de_register_modules(c);

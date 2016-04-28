@@ -58,6 +58,7 @@ struct de_timestamp {
 
 // dbuf is our generalized I/O object. Used for many purposes.
 struct dbuf_struct {
+#define DBUF_TYPE_NULL    0
 #define DBUF_TYPE_IFILE   1
 #define DBUF_TYPE_OFILE   2
 #define DBUF_TYPE_MEMBUF  3

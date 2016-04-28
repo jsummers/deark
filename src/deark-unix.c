@@ -39,6 +39,7 @@ char *de_strdup(deark *c, const char *s)
 	if(!s2) {
 		de_err(c, "Memory allocation failed\n");
 		de_fatalerror(c);
+		return NULL;
 	}
 	return s2;
 }

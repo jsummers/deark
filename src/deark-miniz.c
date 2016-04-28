@@ -322,6 +322,7 @@ void de_zip_add_file_to_archive(deark *c, dbuf *f)
 		// ZIP file hasn't been created yet
 		if(!de_zip_create_file(c)) {
 			de_fatalerror(c);
+			return;
 		}
 	}
 

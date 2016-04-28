@@ -78,7 +78,7 @@ void dbuf_read(dbuf *f, de_byte *buf, de_int64 pos, de_int64 len)
 	switch(f->btype) {
 	case DBUF_TYPE_IFILE:
 		if(!f->fp) {
-			de_err(c, "Internal: file not open\n");
+			de_err(c, "Internal: File not open\n");
 			de_fatalerror(c);
 			return;
 		}
@@ -416,16 +416,19 @@ dbuf *dbuf_create_output_file(deark *c, const char *ext, de_finfo *fi)
 	}
 
 	if(file_index < c->first_output_file) {
+		f->btype = DBUF_TYPE_NULL;
 		return f;
 	}
 
 	if(c->max_output_files>=0 &&
 		file_index >= c->first_output_file + c->max_output_files)
 	{
+		f->btype = DBUF_TYPE_NULL;
 		return f;
 	}
 
 	if(c->list_mode) {
+		f->btype = DBUF_TYPE_NULL;
 		de_msg(c, "%s\n", f->name);
 		return f;
 	}
@@ -433,9 +436,9 @@ dbuf *dbuf_create_output_file(deark *c, const char *ext, de_finfo *fi)
 	if(c->output_style==DE_OUTPUTSTYLE_ZIP) {
 		de_msg(c, "Adding %s to ZIP file\n", f->name);
 		f->btype = DBUF_TYPE_MEMBUF;
+		f->membuf_buf = de_malloc(c, 65536);
+		f->membuf_alloc = 65536;
 		f->write_memfile_to_zip_archive = 1;
-		f->membuf_buf = de_malloc(c, 2048);
-		f->membuf_alloc = 2048;
 	}
 	else {
 		de_msg(c, "Writing %s\n", f->name);
@@ -444,8 +447,7 @@ dbuf *dbuf_create_output_file(deark *c, const char *ext, de_finfo *fi)
 
 		if(!f->fp) {
 			de_err(c, "Failed to write %s: %s\n", f->name, msgbuf);
-			dbuf_close(f);
-			de_fatalerror(c);
+			f->btype = DBUF_TYPE_NULL;
 		}
 	}
 
@@ -499,19 +501,25 @@ static void membuf_append(dbuf *f, const de_byte *m, de_int64 mlen)
 
 void dbuf_write(dbuf *f, const de_byte *m, de_int64 len)
 {
-	if(f->btype==DBUF_TYPE_MEMBUF) {
+	if(f->btype==DBUF_TYPE_NULL) {
+		return;
+	}
+	else if(f->btype==DBUF_TYPE_OFILE) {
+		if(!f->fp) return; // TODO
+		de_dbg3(f->c, "writing %d bytes to %s\n", (int)len, f->name);
+		fwrite(m, 1, (size_t)len, f->fp);
+		f->len += len;
+		return;
+	}
+	else if(f->btype==DBUF_TYPE_MEMBUF) {
 		if(f->name) {
-			de_dbg3(f->c, "Appending %d bytes to membuf %s\n", (int)len, f->name);
+			de_dbg3(f->c, "appending %d bytes to membuf %s\n", (int)len, f->name);
 		}
 		membuf_append(f, m, len);
 		return;
 	}
 
-	if(!f->fp) return; // Presumably, we're in "list only" mode.
-
-	de_dbg3(f->c, "Writing %d bytes to %s\n", (int)len, f->name);
-	fwrite(m, 1, (size_t)len, f->fp);
-	f->len += len;
+	de_err(f->c, "Internal: Invalid output file type (%d)\n", f->btype);
 }
 
 void dbuf_writebyte(dbuf *f, de_byte n)
@@ -673,16 +681,16 @@ void dbuf_close(dbuf *f)
 	if(!f) return;
 	c = f->c;
 
-	if(f->write_memfile_to_zip_archive) {
+	if(f->btype==DBUF_TYPE_MEMBUF && f->write_memfile_to_zip_archive) {
 		de_zip_add_file_to_archive(c, f);
 		if(f->name) {
-			de_dbg3(c, "Closing memfile %s\n", f->name);
+			de_dbg3(c, "closing memfile %s\n", f->name);
 		}
 	}
 
 	if(f->fp) {
 		if(f->name) {
-			de_dbg3(c, "Closing file %s\n", f->name);
+			de_dbg3(c, "closing file %s\n", f->name);
 		}
 		de_fclose(f->fp);
 		f->fp = NULL;

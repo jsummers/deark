@@ -214,12 +214,14 @@ void *de_malloc(deark *c, de_int64 n)
 	if(n<0 || n>500000000) {
 		de_err(c, "Out of memory (%d bytes requested)\n",(int)n);
 		de_fatalerror(c);
+		return NULL;
 	}
 
 	m = calloc((size_t)n,1);
 	if(!m) {
 		de_err(c, "Memory allocation failed (%d bytes)\n",(int)n);
 		de_fatalerror(c);
+		return NULL;
 	}
 	return m;
 }
