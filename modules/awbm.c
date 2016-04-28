@@ -14,7 +14,7 @@ typedef struct localctx_struct {
 #define EPA_CH 14 // "character" height (width must be 8)
 
 static int do_v1_image(deark *c, de_int64 pos,
-	de_int64 w_blocks, de_int64 h_blocks, int special)
+	de_int64 w_blocks, de_int64 h_blocks, int special, unsigned int createflags)
 {
 	struct deark_bitmap *img = NULL;
 	de_int64 w, h;
@@ -77,7 +77,7 @@ static int do_v1_image(deark *c, de_int64 pos,
 			}
 		}
 	}
-	de_bitmap_write_to_file(img, NULL);
+	de_bitmap_write_to_file(img, NULL, createflags);
 	retval = 1;
 done:
 	de_bitmap_destroy(img);
@@ -93,12 +93,12 @@ static void do_v1(deark *c, lctx *d)
 
 	w_blocks = (de_int64)de_getbyte(0);
 	h_blocks = (de_int64)de_getbyte(1);
-	if(!do_v1_image(c, 2, w_blocks, h_blocks, 0)) goto done;
+	if(!do_v1_image(c, 2, w_blocks, h_blocks, 0, 0)) goto done;
 
 	after_bitmap = 2 + w_blocks*h_blocks + h_blocks*EPA_CH*w_blocks;
 	if(c->infile->len >= after_bitmap+70) {
 		// The file usually contains a second image: a small Award logo.
-		do_v1_image(c, after_bitmap, 3, 2, 1);
+		do_v1_image(c, after_bitmap, 3, 2, 1, DE_CREATEFLAG_IS_AUX);
 	}
 done:
 	;
@@ -199,7 +199,7 @@ static void do_v2(deark *c, lctx *d)
 		}
 	}
 
-	de_bitmap_write_to_file(img, NULL);
+	de_bitmap_write_to_file(img, NULL, 0);
 done:
 	de_bitmap_destroy(img);
 }

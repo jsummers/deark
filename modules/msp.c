@@ -21,7 +21,7 @@ static void do_ver1(deark *c, lctx *d)
 	src_rowspan = (d->width+7)/8;
 
 	de_convert_and_write_image_bilevel(c->infile, 32,
-		d->width, d->height, src_rowspan, 0, NULL);
+		d->width, d->height, src_rowspan, 0, NULL, 0);
 }
 
 static void do_decompress_scanline(deark *c, lctx *d, struct deark_bitmap *img,
@@ -95,7 +95,7 @@ static void do_ver2(deark *c, lctx *d)
 		do_decompress_scanline(c, d, img, j, rowoffset[j], rowsize[j]);
 	}
 
-	de_bitmap_write_to_file(img, NULL);
+	de_bitmap_write_to_file(img, NULL, 0);
 
 	de_free(c, rowsize);
 	de_free(c, rowoffset);

@@ -18,7 +18,7 @@ static void de_run_compress(deark *c, de_module_params *mparams)
 
 	lzw = lzw_dbufopen(c->infile);
 	if(!lzw) goto done;
-	f = dbuf_create_output_file(c, "bin", NULL);
+	f = dbuf_create_output_file(c, "bin", NULL, 0);
 
 	while(1) {
 		n = lzw_read(lzw, buf, sizeof(buf));

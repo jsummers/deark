@@ -101,7 +101,7 @@ static int wmf_handler_0f43(deark *c, lctx *d, de_int64 rectype, de_int64 recpos
 		goto done;
 	}
 
-	outf = dbuf_create_output_file(c, "bmp", NULL);
+	outf = dbuf_create_output_file(c, "bmp", NULL, 0);
 
 	// Write fileheader
 	dbuf_write(outf, (const de_byte*)"BM", 2);
@@ -442,7 +442,7 @@ static void extract_dib(deark *c, lctx *d, de_int64 bmi_pos, de_int64 bmi_len,
 		real_height = scanlines_present;
 	}
 
-	outf = dbuf_create_output_file(c, "bmp", NULL);
+	outf = dbuf_create_output_file(c, "bmp", NULL, 0);
 
 	// Write fileheader
 	dbuf_write(outf, (const de_byte*)"BM", 2);

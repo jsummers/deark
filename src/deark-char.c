@@ -495,7 +495,7 @@ static void de_char_output_to_html_file(deark *c, struct de_char_context *charct
 			"not optimized. The HTML file may be very large.\n");
 	}
 
-	ofile = dbuf_create_output_file(c, "html", NULL);
+	ofile = dbuf_create_output_file(c, "html", NULL, 0);
 
 	do_output_html_header(c, charctx, ectx, ofile);
 	for(i=0; i<charctx->nscreens; i++) {
@@ -609,7 +609,7 @@ static void de_char_output_screen_to_image_file(deark *c, struct de_char_context
 		}
 	}
 
-	de_bitmap_write_to_file(img, NULL);
+	de_bitmap_write_to_file(img, NULL, 0);
 done:
 	de_bitmap_destroy(img);
 }

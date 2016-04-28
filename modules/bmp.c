@@ -414,7 +414,7 @@ static void do_image_paletted(deark *c, lctx *d, dbuf *bits, de_int64 bits_offse
 	img = bmp_bitmap_create(c, d, d->pal_is_grayscale?1:3);
 	de_convert_image_paletted(bits, bits_offset,
 		d->bitcount, d->rowspan, d->pal, img, 0);
-	de_bitmap_write_to_file(img, NULL);
+	de_bitmap_write_to_file(img, NULL, 0);
 	de_bitmap_destroy(img);
 }
 
@@ -431,7 +431,7 @@ static void do_image_24bit(deark *c, lctx *d, dbuf *bits, de_int64 bits_offset)
 			de_bitmap_setpixel_rgb(img, i, j, clr);
 		}
 	}
-	de_bitmap_write_to_file(img, NULL);
+	de_bitmap_write_to_file(img, NULL, 0);
 	de_bitmap_destroy(img);
 }
 
@@ -478,7 +478,7 @@ static void do_image_16_32bit(deark *c, lctx *d, dbuf *bits, de_int64 bits_offse
 			de_bitmap_setpixel_rgba(img, i, j, DE_MAKE_RGBA(sm[0], sm[1], sm[2], sm[3]));
 		}
 	}
-	de_bitmap_write_to_file(img, NULL);
+	de_bitmap_write_to_file(img, NULL, 0);
 	de_bitmap_destroy(img);
 }
 
@@ -573,7 +573,7 @@ static void do_image_rle_4_8(deark *c, lctx *d, dbuf *bits, de_int64 bits_offset
 		}
 	}
 
-	de_bitmap_write_to_file(img, NULL);
+	de_bitmap_write_to_file(img, NULL, 0);
 	de_bitmap_destroy(img);
 }
 

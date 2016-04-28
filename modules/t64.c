@@ -64,7 +64,7 @@ static void do_extract_file(deark *c, lctx *d, de_int64 dir_pos,
 		goto done;
 	}
 
-	f = dbuf_create_output_file(c, "prg", fi);
+	f = dbuf_create_output_file(c, "prg", fi, 0);
 	dbuf_copy(c->infile, dir_pos+2, 2, f);
 	dbuf_copy(c->infile, offset, payload_size, f);
 

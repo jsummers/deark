@@ -98,7 +98,7 @@ static void de_run_basic_c64(deark *c, de_module_params *mparams)
 
 	d = de_malloc(c, sizeof(lctx));
 
-	d->outf = dbuf_create_output_file(c, "c64.bas", NULL);
+	d->outf = dbuf_create_output_file(c, "c64.bas", NULL, 0);
 
 	// TODO: What if the first two bytes are not 0x01 0x08?
 	mem_start = 0x0801;

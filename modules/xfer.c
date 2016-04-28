@@ -48,7 +48,7 @@ static void de_run_base16(deark *c, de_module_params *mparams)
 
 	d = de_malloc(c, sizeof(lctx));
 
-	f = dbuf_create_output_file(c, "bin", NULL);
+	f = dbuf_create_output_file(c, "bin", NULL, 0);
 
 	pos = 0;
 	d->cbuf_count = 0;
@@ -180,7 +180,7 @@ static void de_run_base64(deark *c, de_module_params *mparams)
 
 	d = de_malloc(c, sizeof(lctx));
 
-	f = dbuf_create_output_file(c, "bin", NULL);
+	f = dbuf_create_output_file(c, "bin", NULL, 0);
 	do_base64_internal(c, d, 0, f);
 
 	dbuf_close(f);
@@ -397,13 +397,13 @@ static void de_run_uuencode(deark *c, de_module_params *mparams)
 	if(d->hdr_line_type==HDR_UUENCODE_BASE64) {
 		de_declare_fmt(c, "Base64 with uuencode wrapper");
 		d->data_fmt = FMT_BASE64;
-		f = dbuf_create_output_file(c, NULL, d->fi);
+		f = dbuf_create_output_file(c, NULL, d->fi, 0);
 		do_base64_internal(c, d, d->data_startpos, f);
 	}
 	else {
 		de_declare_fmt(c, "Uuencoded");
 		d->data_fmt = FMT_UUENCODE;
-		f = dbuf_create_output_file(c, NULL, d->fi);
+		f = dbuf_create_output_file(c, NULL, d->fi, 0);
 		do_uudecode_internal(c, d, f);
 	}
 
@@ -471,7 +471,7 @@ static void de_run_xxencode(deark *c, de_module_params *mparams)
 	if(d->hdr_line_type!=HDR_UUENCODE_OR_XXENCODE) goto done;
 
 	de_declare_fmt(c, "XXEncoded");
-	f = dbuf_create_output_file(c, NULL, d->fi);
+	f = dbuf_create_output_file(c, NULL, d->fi, 0);
 	d->data_fmt = FMT_XXENCODE;
 	do_uudecode_internal(c, d, f);
 
@@ -750,7 +750,7 @@ static void de_run_ascii85(deark *c, de_module_params *mparams)
 		goto done;
 	}
 
-	f = dbuf_create_output_file(c, "bin", NULL);
+	f = dbuf_create_output_file(c, "bin", NULL, 0);
 
 	if(d->ascii85_fmt==ASCII85_FMT_BTOA_OLD ||
 		d->ascii85_fmt==ASCII85_FMT_BTOA_NEW)

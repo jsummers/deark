@@ -173,7 +173,7 @@ static void do_extract_files(deark *c, lctx *d)
 	}
 
 	if(dlen>0)
-		dbuf_create_file_from_slice(f, pos, dlen, NULL, fi_d);
+		dbuf_create_file_from_slice(f, pos, dlen, NULL, fi_d, 0);
 	pos += dlen;
 
 	dc = dbuf_getui16be(f, pos);
@@ -188,7 +188,7 @@ static void do_extract_files(deark *c, lctx *d)
 	}
 
 	if(rlen>0)
-		dbuf_create_file_from_slice(f, pos, rlen, NULL, fi_r);
+		dbuf_create_file_from_slice(f, pos, rlen, NULL, fi_r, 0);
 	pos += rlen;
 
 	rc = dbuf_getui16be(f, pos);

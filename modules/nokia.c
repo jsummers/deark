@@ -34,7 +34,7 @@ static void nol_ngg_read_bitmap(deark *c, lctx *d, de_int64 pos)
 		}
 	}
 
-	de_bitmap_write_to_file(img, NULL);
+	de_bitmap_write_to_file(img, NULL, 0);
 	de_bitmap_destroy(img);
 }
 
@@ -111,7 +111,7 @@ void de_module_ngg(deark *c, struct deark_module_info *mi)
 static void npm_nlm_read_bitmap(deark *c, lctx *d, de_int64 pos)
 {
 	de_convert_and_write_image_bilevel(c->infile, pos, d->w, d->h, (d->w+7)/8,
-		DE_CVTF_WHITEISZERO, NULL);
+		DE_CVTF_WHITEISZERO, NULL, 0);
 }
 
 static void de_run_npm(deark *c, de_module_params *mparams)
@@ -239,7 +239,7 @@ static void nsl_read_bitmap(deark *c, lctx *d, de_int64 pos, de_int64 len)
 		}
 	}
 
-	de_bitmap_write_to_file(img, NULL);
+	de_bitmap_write_to_file(img, NULL, 0);
 
 done:
 	de_dbg_indent(c, -1);

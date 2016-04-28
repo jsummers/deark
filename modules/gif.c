@@ -367,7 +367,7 @@ static void do_comment_extension(deark *c, lctx *d, de_int64 pos)
 
 	if(c->extract_level<2) return;
 
-	f = dbuf_create_output_file(c, "comment.txt", NULL);
+	f = dbuf_create_output_file(c, "comment.txt", NULL, DE_CREATEFLAG_IS_AUX);
 
 	while(1) {
 		if(pos >= c->infile->len) break;
@@ -417,7 +417,7 @@ static void do_plaintext_extension(deark *c, lctx *d, de_int64 pos)
 
 	pos += n;
 
-	f = dbuf_create_output_file(c, "plaintext.txt", NULL);
+	f = dbuf_create_output_file(c, "plaintext.txt", NULL, DE_CREATEFLAG_IS_AUX);
 
 	char_count = 0;
 	while(1) {
@@ -617,7 +617,7 @@ static int do_read_image(deark *c, lctx *d, de_int64 pos1, de_int64 *bytesused)
 	de_dbg_indent(c, -1);
 	indent_count--;
 
-	de_bitmap_write_to_file(gi->img, NULL);
+	de_bitmap_write_to_file(gi->img, NULL, 0);
 
 	de_dbg_indent(c, -1);
 	indent_count--;

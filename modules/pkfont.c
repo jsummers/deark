@@ -497,7 +497,7 @@ done_reading:
 		(int)d->font->num_chars);
 
 	scan_and_fixup_font(c, d);
-	de_font_bitmap_font_to_image(c, d->font, NULL);
+	de_font_bitmap_font_to_image(c, d->font, NULL, 0);
 
 done:
 	if(d->font) {

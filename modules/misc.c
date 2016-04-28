@@ -16,7 +16,7 @@
 
 static void de_run_copy(deark *c, de_module_params *mparams)
 {
-	dbuf_create_file_from_slice(c->infile, 0, c->infile->len, "bin", NULL);
+	dbuf_create_file_from_slice(c->infile, 0, c->infile->len, "bin", NULL, 0);
 }
 
 void de_module_copy(deark *c, struct deark_module_info *mi)
@@ -67,7 +67,7 @@ static void de_run_zlib(deark *c, de_module_params *mparams)
 {
 	dbuf *f = NULL;
 
-	f = dbuf_create_output_file(c, "unc", NULL);
+	f = dbuf_create_output_file(c, "unc", NULL, 0);
 	de_uncompress_zlib(c->infile, 0, c->infile->len, f);
 	dbuf_close(f);
 }
@@ -146,7 +146,7 @@ static void de_run_hpicn(deark *c, de_module_params *mparams)
 	width = de_getui16le(4);
 	height = de_getui16le(6);
 	de_convert_and_write_image_bilevel(c->infile, 8, width, height, (width+7)/8,
-		DE_CVTF_WHITEISZERO, NULL);
+		DE_CVTF_WHITEISZERO, NULL, 0);
 }
 
 static int de_identify_hpicn(deark *c)
@@ -211,7 +211,7 @@ static void de_run_xpuzzle(deark *c, de_module_params *mparams)
 	// Read the bitmap
 	de_convert_image_paletted(c->infile, p, 8, d->w, pal, img, 0);
 
-	de_bitmap_write_to_file(img, NULL);
+	de_bitmap_write_to_file(img, NULL, 0);
 
 done:
 	de_bitmap_destroy(img);
@@ -261,7 +261,7 @@ static void de_run_winzle(deark *c, de_module_params *mparams)
 		buf[i] ^= 0x0d;
 	}
 
-	f = dbuf_create_output_file(c, "bmp", NULL);
+	f = dbuf_create_output_file(c, "bmp", NULL, 0);
 	dbuf_write(f, buf, xorsize);
 	if(c->infile->len > 256) {
 		dbuf_copy(c->infile, 256, c->infile->len - 256, f);
@@ -363,7 +363,7 @@ static void de_run_bob(deark *c, de_module_params *mparams)
 	// Read the bitmap
 	de_convert_image_paletted(c->infile, p, 8, w, pal, img, 0);
 
-	de_bitmap_write_to_file(img, NULL);
+	de_bitmap_write_to_file(img, NULL, 0);
 
 done:
 	de_bitmap_destroy(img);
@@ -446,7 +446,7 @@ static void de_run_alias_pix(deark *c, de_module_params *mparams)
 		}
 	}
 
-	de_bitmap_write_to_file(img, NULL);
+	de_bitmap_write_to_file(img, NULL, 0);
 done:
 	de_bitmap_destroy(img);
 }
@@ -536,7 +536,7 @@ static void de_run_applevol(deark *c, de_module_params *mparams)
 		}
 	}
 
-	de_bitmap_write_to_file(img, NULL);
+	de_bitmap_write_to_file(img, NULL, 0);
 
 done:
 	de_bitmap_destroy(img);
@@ -574,7 +574,7 @@ static void de_run_hr(deark *c, de_module_params *mparams)
 	img->xdens = 2;
 	img->ydens = 1;
 	de_convert_image_bilevel(c->infile, 0, 640/8, img, 0);
-	de_bitmap_write_to_file_finfo(img, NULL);
+	de_bitmap_write_to_file_finfo(img, NULL, 0);
 	de_bitmap_destroy(img);
 }
 
@@ -629,7 +629,7 @@ static void de_run_ripicon(deark *c, de_module_params *mparams)
 		}
 	}
 
-	de_bitmap_write_to_file(img, NULL);
+	de_bitmap_write_to_file(img, NULL, 0);
 done:
 	de_bitmap_destroy(img);
 }
@@ -758,7 +758,7 @@ static void de_run_lss16(deark *c, de_module_params *mparams)
 		}
 	}
 
-	de_bitmap_write_to_file(img, NULL);
+	de_bitmap_write_to_file(img, NULL, 0);
 done:
 	de_bitmap_destroy(img);
 	de_free(c, d);
@@ -797,7 +797,7 @@ static void de_run_vbm(deark *c, de_module_params *mparams)
 	width = de_getui16be(4);
 	height = de_getui16be(6);
 	de_convert_and_write_image_bilevel(c->infile, 8, width, height, (width+7)/8,
-		DE_CVTF_WHITEISZERO, NULL);
+		DE_CVTF_WHITEISZERO, NULL, 0);
 }
 
 // Note that this function must work together with de_identify_bmp().
@@ -831,7 +831,7 @@ static void de_run_fp_art(deark *c, de_module_params *mparams)
 	width = de_getui16le(2);
 	height = de_getui16le(6);
 	rowspan = ((width+15)/16)*2;
-	de_convert_and_write_image_bilevel(c->infile, 8, width, height, rowspan, 0, NULL);
+	de_convert_and_write_image_bilevel(c->infile, 8, width, height, rowspan, 0, NULL, 0);
 }
 
 static int de_identify_fp_art(deark *c)
@@ -881,7 +881,7 @@ static void do_png_iccp(deark *c, de_int64 pos, de_int64 len)
 	fi = de_finfo_create(c);
 	if(c->filenames_from_file)
 		de_finfo_set_name_from_sz(c, fi, (const char*)prof_name, DE_ENCODING_LATIN1);
-	f = dbuf_create_output_file(c, "icc", fi);
+	f = dbuf_create_output_file(c, "icc", fi, DE_CREATEFLAG_IS_AUX);
 	de_uncompress_zlib(c->infile, pos + prof_name_len + 2,
 		len - (pos + prof_name_len + 2), f);
 	dbuf_close(f);
@@ -971,7 +971,7 @@ static void de_run_ybm(deark *c, de_module_params *mparams)
 			de_bitmap_setpixel_gray(img, i, j, x ? 0 : 255);
 		}
 	}
-	de_bitmap_write_to_file(img, NULL);
+	de_bitmap_write_to_file(img, NULL, 0);
 
 done:
 	de_bitmap_destroy(img);
@@ -1029,7 +1029,7 @@ static void de_run_olpc565(deark *c, de_module_params *mparams)
 			de_bitmap_setpixel_rgb(img, i, j, clr);
 		}
 	}
-	de_bitmap_write_to_file(img, NULL);
+	de_bitmap_write_to_file(img, NULL, 0);
 
 done:
 	de_bitmap_destroy(img);
@@ -1084,7 +1084,7 @@ static void de_run_iim(deark *c, de_module_params *mparams)
 			de_bitmap_setpixel_rgb(img, i, j, clr);
 		}
 	}
-	de_bitmap_write_to_file(img, NULL);
+	de_bitmap_write_to_file(img, NULL, 0);
 
 done:
 	de_bitmap_destroy(img);
@@ -1179,7 +1179,7 @@ static void de_run_pm_xv(deark *c, de_module_params *mparams)
 			}
 		}
 	}
-	de_bitmap_write_to_file(img, NULL);
+	de_bitmap_write_to_file(img, NULL, 0);
 
 done:
 	de_bitmap_destroy(img);
@@ -1260,7 +1260,7 @@ static void de_run_crg(deark *c, de_module_params *mparams)
 	de_dbg(c, "decompressed to %d bytes\n", (int)unc_pixels->len);
 
 	de_convert_and_write_image_bilevel(unc_pixels, 0, width, height, rowspan,
-		DE_CVTF_WHITEISZERO, NULL);
+		DE_CVTF_WHITEISZERO, NULL, 0);
 
 done:
 	dbuf_close(unc_pixels);
@@ -1310,7 +1310,7 @@ static void de_run_farbfeld(deark *c, de_module_params *mparams)
 				DE_MAKE_RGBA(s[0],s[1],s[2],s[3]));
 		}
 	}
-	de_bitmap_write_to_file(img, NULL);
+	de_bitmap_write_to_file(img, NULL, 0);
 	de_bitmap_destroy(img);
 }
 
@@ -1349,7 +1349,7 @@ static void de_run_vgafont(deark *c, de_module_params *mparams)
 
 	if(de_get_ext_option(c, "vgafont:c")) {
 		dbuf *ff;
-		ff = dbuf_create_output_file(c, "h", NULL);
+		ff = dbuf_create_output_file(c, "h", NULL, 0);
 		for(i=0; i<4096; i++) {
 			if(i%16==0) dbuf_puts(ff, "\t");
 			dbuf_printf(ff, "%d", (int)fontdata[i]);
@@ -1377,7 +1377,7 @@ static void de_run_vgafont(deark *c, de_module_params *mparams)
 		font->char_array[i].bitmap = &fontdata[i*font->nominal_height];
 	}
 
-	de_font_bitmap_font_to_image(c, font, NULL);
+	de_font_bitmap_font_to_image(c, font, NULL, 0);
 
 done:
 	if(font) {
@@ -1480,7 +1480,7 @@ static void de_run_hsiraw(deark *c, de_module_params *mparams)
 		de_convert_image_paletted(c->infile, pos, 8, w, pal, img, 0);
 	}
 
-	de_bitmap_write_to_file(img, NULL);
+	de_bitmap_write_to_file(img, NULL, 0);
 
 done:
 	de_bitmap_destroy(img);
@@ -1531,7 +1531,7 @@ static void de_run_qdv(deark *c, de_module_params *mparams)
 
 	img = de_bitmap_create(c, w, h, 3);
 	de_convert_image_paletted(c->infile, pos, 8, w, pal, img, 0);
-	de_bitmap_write_to_file(img, NULL);
+	de_bitmap_write_to_file(img, NULL, 0);
 
 done:
 	de_bitmap_destroy(img);

@@ -158,7 +158,7 @@ static void do_generate_final_image(deark *c, struct srcbitmap *srcbmp_main, str
 		}
 	}
 
-	de_bitmap_write_to_file(img, NULL);
+	de_bitmap_write_to_file(img, NULL, 0);
 
 	de_bitmap_destroy(img);
 }
@@ -236,10 +236,10 @@ static void do_extract_CI_or_CP_pair(deark *c, const char *fmt, de_int64 pos)
 	bi = de_malloc(c, sizeof(struct de_bmpinfo));
 
 	if(!de_strcmp(fmt, "CP")) {
-		f = dbuf_create_output_file(c, "ptr", NULL);
+		f = dbuf_create_output_file(c, "ptr", NULL, 0);
 	}
 	else {
-		f = dbuf_create_output_file(c, "os2.ico", NULL);
+		f = dbuf_create_output_file(c, "os2.ico", NULL, 0);
 	}
 
 	for(i=0; i<2; i++) {
@@ -311,7 +311,7 @@ static void do_extract_BM(deark *c, de_int64 pos)
 	if(!get_bitmap_info(c, srcbmp, "BM", pos))
 		goto done;
 
-	f = dbuf_create_output_file(c, "bmp", NULL);
+	f = dbuf_create_output_file(c, "bmp", NULL, 0);
 
 	// First 10 bytes of the FILEHEADER can be copied unchanged.
 	dbuf_copy(c->infile, pos, 10, f);

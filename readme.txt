@@ -13,6 +13,7 @@ without notice.
 === Usage ===
 
 deark [options] <input-file>
+deark <-h|-version|-modules>
 
 Command-line options:
   -m <module>
@@ -24,6 +25,10 @@ Command-line options:
      module such as "copy".
   -l
      Don't extract, but list the files that would be extracted.
+  -main
+     Extract only "primary" files (e.g. not thumbnail images).
+  -aux
+     Extract only "auxiliary" files, such as thumbnail images.
   -a, -extractall
      Also extract data that's usually useless.
      Note that, as a general rule, deark doesn't extract the same data twice.

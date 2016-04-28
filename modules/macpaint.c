@@ -39,7 +39,7 @@ static void do_read_bitmap(deark *c, lctx *d, de_int64 pos)
 
 	de_convert_and_write_image_bilevel(unc_pixels, 0,
 		MACPAINT_WIDTH, MACPAINT_HEIGHT, MACPAINT_WIDTH/8,
-		DE_CVTF_WHITEISZERO, NULL);
+		DE_CVTF_WHITEISZERO, NULL, 0);
 
 	dbuf_close(unc_pixels);
 }
@@ -159,7 +159,7 @@ static void do_read_patterns(deark *c, lctx *d, de_int64 pos)
 	}
 
 	if(nonblank) {
-		de_bitmap_write_to_file(pat, "pat");
+		de_bitmap_write_to_file(pat, "pat", DE_CREATEFLAG_IS_AUX);
 	}
 	de_bitmap_destroy(pat);
 }

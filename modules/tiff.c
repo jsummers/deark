@@ -164,6 +164,7 @@ static de_int64 getfpos(deark *c, lctx *d, de_int64 pos)
 static void do_oldjpeg(deark *c, lctx *d, de_int64 jpegoffset, de_int64 jpeglength)
 {
 	const char *extension;
+	unsigned int createflags;
 
 	if(jpeglength<0) {
 		// Missing JPEGInterchangeFormatLength tag. Assume it goes to the end
@@ -174,11 +175,13 @@ static void do_oldjpeg(deark *c, lctx *d, de_int64 jpegoffset, de_int64 jpegleng
 	// Found an embedded JPEG image or thumbnail that we can extract.
 	if(d->mparams && d->mparams->codes && de_strchr(d->mparams->codes, 'E')) {
 		extension = "exifthumb.jpg";
+		createflags = DE_CREATEFLAG_IS_AUX;
 	}
 	else {
 		extension = "jpg";
+		createflags = DE_CREATEFLAG_UNKNOWN;
 	}
-	dbuf_create_file_from_slice(c->infile, jpegoffset, jpeglength, extension, NULL);
+	dbuf_create_file_from_slice(c->infile, jpegoffset, jpeglength, extension, NULL, createflags);
 }
 
 static void do_leaf_metadata(deark *c, lctx *d, de_int64 pos1, de_int64 len)
@@ -214,7 +217,7 @@ static void do_leaf_metadata(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 
 		if(!de_memcmp(segtype, "JPEG_preview_data\0", 18)) {
 			de_dbg(c, "jpeg preview at %d len=%d\n", (int)pos, (int)data_len);
-			dbuf_create_file_from_slice(c->infile, pos, data_len, "leafthumb.jpg", NULL);
+			dbuf_create_file_from_slice(c->infile, pos, data_len, "leafthumb.jpg", NULL, DE_CREATEFLAG_IS_AUX);
 		}
 		pos += data_len;
 	}
@@ -372,7 +375,7 @@ static void process_ifd(deark *c, lctx *d, de_int64 ifdpos)
 		case 46:
 			if(d->fmt==DE_TIFFFMT_PANASONIC) {
 				// Some Panasonic RAW files have a JPEG file in tag 46.
-				dbuf_create_file_from_slice(c->infile, tg.val_offset, tg.total_size, "thumb.jpg", NULL);
+				dbuf_create_file_from_slice(c->infile, tg.val_offset, tg.total_size, "thumb.jpg", NULL, DE_CREATEFLAG_IS_AUX);
 			}
 			break;
 
@@ -426,12 +429,12 @@ static void process_ifd(deark *c, lctx *d, de_int64 ifdpos)
 			break;
 
 		case 700: // XMP
-			dbuf_create_file_from_slice(c->infile, tg.val_offset, tg.total_size, "xmp", NULL);
+			dbuf_create_file_from_slice(c->infile, tg.val_offset, tg.total_size, "xmp", NULL, DE_CREATEFLAG_IS_AUX);
 			break;
 
 		case 33723: // IPTC
 			if(c->extract_level>=2 && tg.total_size>0) {
-				dbuf_create_file_from_slice(c->infile, tg.val_offset, tg.total_size, "iptc", NULL);
+				dbuf_create_file_from_slice(c->infile, tg.val_offset, tg.total_size, "iptc", NULL, DE_CREATEFLAG_IS_AUX);
 			}
 			break;
 
@@ -445,7 +448,7 @@ static void process_ifd(deark *c, lctx *d, de_int64 ifdpos)
 			break;
 
 		case 34675: // ICC Profile
-			dbuf_create_file_from_slice(c->infile, tg.val_offset, tg.total_size, "icc", NULL);
+			dbuf_create_file_from_slice(c->infile, tg.val_offset, tg.total_size, "icc", NULL, DE_CREATEFLAG_IS_AUX);
 			break;
 		}
 

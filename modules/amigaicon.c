@@ -168,7 +168,7 @@ static void do_decode_newicons(deark *c, lctx *d,
 
 	de_convert_image_paletted(decoded, bitmap_start_pos,
 		8, img->width, pal, img, 0);
-	de_bitmap_write_to_file(img, "n");
+	de_bitmap_write_to_file(img, "n", DE_CREATEFLAG_UNKNOWN);
 
 	if(decoded) dbuf_close(decoded);
 	if(img) de_bitmap_destroy(img);
@@ -244,7 +244,7 @@ static int do_read_main_icon(deark *c, lctx *d,
 		}
 	}
 
-	de_bitmap_write_to_file(img, NULL);
+	de_bitmap_write_to_file(img, NULL, DE_CREATEFLAG_UNKNOWN);
 
 	retval = 1;
 
@@ -481,7 +481,7 @@ static void do_glowicons_IMAG(deark *c, lctx *d,
 	de_convert_image_paletted(tmpbuf, 0,
 		8, d->glowicons_width, d->glowicons_palette, img, 0);
 
-	de_bitmap_write_to_file(img, "g");
+	de_bitmap_write_to_file(img, "g", 0);
 
 done:
 	if(tmpbuf) dbuf_close(tmpbuf);

@@ -225,7 +225,7 @@ static int do_gem_img(deark *c, lctx *d)
 		read_paletted_image(c, d, unc_pixels, img);
 	}
 
-	de_bitmap_write_to_file_finfo(img, NULL);
+	de_bitmap_write_to_file_finfo(img, NULL, 0);
 
 	de_bitmap_destroy(img);
 	dbuf_close(unc_pixels);
@@ -293,7 +293,7 @@ static int do_gem_ximg(deark *c, lctx *d)
 	set_density(c, d, img);
 
 	read_paletted_image(c, d, unc_pixels, img);
-	de_bitmap_write_to_file_finfo(img, NULL);
+	de_bitmap_write_to_file_finfo(img, NULL, 0);
 
 	de_bitmap_destroy(img);
 	dbuf_close(unc_pixels);

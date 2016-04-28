@@ -58,7 +58,7 @@ static void do_image_data(deark *c, lctx *d, de_int64 img_num, de_int64 pos1, de
 
 	if(bi.file_format == DE_BMPINFO_FMT_PNG) {
 		de_dbg(c, "PNG format\n");
-		dbuf_create_file_from_slice(c->infile, pos1, len, "png", NULL);
+		dbuf_create_file_from_slice(c->infile, pos1, len, "png", NULL, 0);
 		return;
 	}
 
@@ -168,7 +168,7 @@ static void do_image_data(deark *c, lctx *d, de_int64 img_num, de_int64 pos1, de
 		}
 	}
 
-	de_bitmap_write_to_file(img, filename_token);
+	de_bitmap_write_to_file(img, filename_token, 0);
 done:
 	de_bitmap_destroy(img);
 }

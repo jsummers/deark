@@ -44,7 +44,7 @@ static void do_bitmap_1plane(deark *c, lctx *d, de_int64 plane_num)
 	de_dbg(c, "making a bilevel image from plane %d\n", (int)plane_num);
 
 	de_convert_and_write_image_bilevel(c->infile, pi->image_pos, pi->width, pi->height,
-		pi->rowspan, DE_CVTF_WHITEISZERO|DE_CVTF_LSBFIRST, NULL);
+		pi->rowspan, DE_CVTF_WHITEISZERO|DE_CVTF_LSBFIRST, NULL, 0);
 }
 
 static void do_bitmap_2planes(deark *c, lctx *d, de_int64 pn1, de_int64 pn2)
@@ -64,7 +64,7 @@ static void do_bitmap_2planes(deark *c, lctx *d, de_int64 pn1, de_int64 pn2)
 			de_bitmap_setpixel_gray(img, i, j, (3-(n0*2+n1))*85);
 		}
 	}
-	de_bitmap_write_to_file(img, NULL);
+	de_bitmap_write_to_file(img, NULL, 0);
 
 	de_bitmap_destroy(img);
 }

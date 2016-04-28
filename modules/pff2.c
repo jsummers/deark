@@ -81,7 +81,7 @@ static void do_code_chix(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 		de_dbg_indent(c, -1);
 	}
 
-	de_font_bitmap_font_to_image(c, d->font, NULL);
+	de_font_bitmap_font_to_image(c, d->font, NULL, 0);
 
 done: ;
 }

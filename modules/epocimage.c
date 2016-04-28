@@ -297,7 +297,7 @@ static void do_read_and_write_paint_data_section(deark *c, lctx *d, de_int64 pos
 	struct deark_bitmap *img = NULL;
 
 	img = do_read_paint_data_section(c, d, pos1, 0);
-	de_bitmap_write_to_file(img, NULL);
+	de_bitmap_write_to_file(img, NULL, 0);
 	de_bitmap_destroy(img);
 }
 
@@ -311,7 +311,7 @@ static void do_combine_and_write_images(deark *c, lctx *d,
 
 	if(!fg_img) goto done;
 	if(!mask_img) {
-		de_bitmap_write_to_file(fg_img, NULL);
+		de_bitmap_write_to_file(fg_img, NULL, 0);
 		goto done;
 	}
 
@@ -345,7 +345,7 @@ static void do_combine_and_write_images(deark *c, lctx *d,
 			de_bitmap_setpixel_rgba(img, i, j, clr);
 		}
 	}
-	de_bitmap_write_to_file(img, NULL);
+	de_bitmap_write_to_file(img, NULL, 0);
 
 done:
 	de_bitmap_destroy(img);

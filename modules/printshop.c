@@ -59,7 +59,7 @@ static void do_printshop_etc_image(deark *c, lctx *d, de_int64 imgnum,
 	}
 
 	de_convert_and_write_image_bilevel(c->infile, pos+ imgoffset,
-		width, height, rowspan, DE_CVTF_WHITEISZERO, fi);
+		width, height, rowspan, DE_CVTF_WHITEISZERO, fi, 0);
 
 	*bytes_consumed = imgspan;
 done:

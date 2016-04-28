@@ -66,6 +66,11 @@ void *de_get_userdata(deark *c);
 // 0=off  1=normal  2=verbose
 void de_set_debug_level(deark *c, int x);
 
+#define DE_EXTRACTPOLICY_DEFAULT  0
+#define DE_EXTRACTPOLICY_MAINONLY 1
+#define DE_EXTRACTPOLICY_AUXONLY  2
+void de_set_extract_policy(deark *c, int x);
+
 // 1=normal. 2=extract everything we can, no matter how useless
 void de_set_extract_level(deark *c, int x);
 

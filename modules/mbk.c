@@ -76,7 +76,7 @@ static void do_sprite_param_block(deark *c, lctx *d, de_int64 res,
 	de_fmtutil_atari_decode_image(c, adata_fg);
 	de_bitmap_apply_mask(adata_fg->img, adata_mask->img, 0);
 	de_fmtutil_atari_set_standard_density(c, adata_fg);
-	de_bitmap_write_to_file(adata_fg->img, NULL);
+	de_bitmap_write_to_file(adata_fg->img, NULL, 0);
 
 done:
 	if(adata_fg) {
@@ -204,7 +204,7 @@ static void do_icon(deark *c, lctx *d, de_int64 idx, de_int64 pos)
 		}
 	}
 
-	de_bitmap_write_to_file(img, NULL);
+	de_bitmap_write_to_file(img, NULL, 0);
 	de_bitmap_destroy(img);
 	de_dbg_indent(c, -1);
 }

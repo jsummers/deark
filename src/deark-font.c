@@ -333,7 +333,8 @@ struct col_info_struct {
 	de_int64 display_pos;
 };
 
-void de_font_bitmap_font_to_image(deark *c, struct de_bitmap_font *font1, de_finfo *fi)
+void de_font_bitmap_font_to_image(deark *c, struct de_bitmap_font *font1, de_finfo *fi,
+	unsigned int createflags)
 {
 	struct font_render_ctx *fctx = NULL;
 	de_int64 i, j, k;
@@ -529,7 +530,7 @@ void de_font_bitmap_font_to_image(deark *c, struct de_bitmap_font *font1, de_fin
 			DE_STOCKCOLOR_BLACK, DE_STOCKCOLOR_WHITE, 0);
 	}
 
-	de_bitmap_write_to_file_finfo(img, fi);
+	de_bitmap_write_to_file_finfo(img, fi, createflags);
 
 done:
 	if(dfont) {

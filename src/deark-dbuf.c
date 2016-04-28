@@ -353,17 +353,18 @@ int dbuf_memcmp(dbuf *f, de_int64 pos, const void *s, size_t n)
 }
 
 int dbuf_create_file_from_slice(dbuf *inf, de_int64 pos, de_int64 data_size,
-	const char *ext, de_finfo *fi)
+	const char *ext, de_finfo *fi, unsigned int createflags)
 {
 	dbuf *f;
-	f = dbuf_create_output_file(inf->c, ext, fi);
+	f = dbuf_create_output_file(inf->c, ext, fi, createflags);
 	if(!f) return 0;
 	dbuf_copy(inf, pos, data_size, f);
 	dbuf_close(f);
 	return 1;
 }
 
-dbuf *dbuf_create_output_file(deark *c, const char *ext, de_finfo *fi)
+dbuf *dbuf_create_output_file(deark *c, const char *ext, de_finfo *fi,
+	unsigned int createflags)
 {
 	char nbuf[500];
 	char msgbuf[200];
@@ -373,6 +374,21 @@ dbuf *dbuf_create_output_file(deark *c, const char *ext, de_finfo *fi)
 	char fn_suffix[256];
 
 	f = de_malloc(c, sizeof(dbuf));
+
+	if(c->extract_policy==DE_EXTRACTPOLICY_MAINONLY) {
+		if(createflags&DE_CREATEFLAG_IS_AUX) {
+			de_dbg(c, "skipping 'auxiliary' file\n");
+			f->btype = DBUF_TYPE_NULL;
+			return f;
+		}
+	}
+	else if(c->extract_policy==DE_EXTRACTPOLICY_AUXONLY) {
+		if(!(createflags&DE_CREATEFLAG_IS_AUX)) {
+			de_dbg(c, "skipping 'main' file\n");
+			f->btype = DBUF_TYPE_NULL;
+			return f;
+		}
+	}
 
 	file_index = c->file_count;
 	c->file_count++;
@@ -505,7 +521,7 @@ void dbuf_write(dbuf *f, const de_byte *m, de_int64 len)
 		return;
 	}
 	else if(f->btype==DBUF_TYPE_OFILE) {
-		if(!f->fp) return; // TODO
+		if(!f->fp) return;
 		de_dbg3(f->c, "writing %d bytes to %s\n", (int)len, f->name);
 		fwrite(m, 1, (size_t)len, f->fp);
 		f->len += len;

@@ -168,7 +168,7 @@ static void do_extract_font(deark *c, lctx *d)
 	fi = de_finfo_create(c);
 	de_finfo_set_name_from_sz(c, fi, "font", DE_ENCODING_ASCII);
 
-	de_font_bitmap_font_to_image(c, d->font, fi);
+	de_font_bitmap_font_to_image(c, d->font, fi, DE_CREATEFLAG_IS_AUX);
 
 	de_finfo_destroy(c, fi);
 }
@@ -189,7 +189,7 @@ static void do_read_font_data(deark *c, lctx *d, de_int64 pos)
 
 	if(de_get_ext_option(c, "font:dumpvgafont")) {
 		dbuf *df;
-		df = dbuf_create_output_file(c, "font.dat", NULL);
+		df = dbuf_create_output_file(c, "font.dat", NULL, DE_CREATEFLAG_IS_AUX);
 		dbuf_write(df, d->font_data, d->font_data_len);
 		dbuf_close(df);
 	}

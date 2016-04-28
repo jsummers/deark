@@ -378,7 +378,7 @@ static void do_bitmap_1bpp(deark *c, lctx *d)
 	// The paletted algorithm would work here (if we construct a palette),
 	// but this special case is easy and efficient.
 	de_convert_and_write_image_bilevel(d->unc_pixels, 0,
-		d->width, d->height, d->rowspan, 0, NULL);
+		d->width, d->height, d->rowspan, 0, NULL, 0);
 }
 
 static void do_bitmap_paletted(deark *c, lctx *d)
@@ -404,7 +404,7 @@ static void do_bitmap_paletted(deark *c, lctx *d)
 		}
 	}
 
-	de_bitmap_write_to_file(img, NULL);
+	de_bitmap_write_to_file(img, NULL, 0);
 	de_bitmap_destroy(img);
 }
 
@@ -427,7 +427,7 @@ static void do_bitmap_24bpp(deark *c, lctx *d)
 		}
 	}
 
-	de_bitmap_write_to_file(img, NULL);
+	de_bitmap_write_to_file(img, NULL, 0);
 	de_bitmap_destroy(img);
 }
 
@@ -548,7 +548,7 @@ static void de_run_dcx(deark *c, de_module_params *mparams)
 		de_dbg(c, "page %d at %d, size=%d\n", (int)page, (int)page_offset[page],
 			(int)page_size);
 
-		dbuf_create_file_from_slice(c->infile, page_offset[page], page_size, "pcx", NULL);
+		dbuf_create_file_from_slice(c->infile, page_offset[page], page_size, "pcx", NULL, 0);
 	}
 }
 

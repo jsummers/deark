@@ -120,7 +120,8 @@ enum opt_id_enum {
  DE_OPT_NOINFO, DE_OPT_NOWARN,
  DE_OPT_NOBOM, DE_OPT_NODENS, DE_OPT_ASCIIHTML, DE_OPT_NONAMES, DE_OPT_MODTIME,
  DE_OPT_NOMODTIME,
- DE_OPT_Q, DE_OPT_VERSION, DE_OPT_HELP, DE_OPT_EXTRACTALL, DE_OPT_ZIP,
+ DE_OPT_Q, DE_OPT_VERSION, DE_OPT_HELP,
+ DE_OPT_MAINONLY, DE_OPT_AUXONLY, DE_OPT_EXTRACTALL, DE_OPT_ZIP,
  DE_OPT_EXTOPT, DE_OPT_FILE2, DE_OPT_START, DE_OPT_SIZE, DE_OPT_M, DE_OPT_O,
  DE_OPT_ARCFN, DE_OPT_GET, DE_OPT_FIRSTFILE, DE_OPT_MAXFILES, DE_OPT_MAXIMGDIM,
  DE_OPT_PRINTMODULES
@@ -151,6 +152,8 @@ struct opt_struct option_array[] = {
 	{ "help",         DE_OPT_HELP,         0 },
 	{ "?",            DE_OPT_HELP,         0 },
 	{ "modules",      DE_OPT_PRINTMODULES, 0 },
+	{ "main",         DE_OPT_MAINONLY,     0 },
+	{ "aux",          DE_OPT_AUXONLY,      0 },
 	{ "a",            DE_OPT_EXTRACTALL,   0 },
 	{ "extractall",   DE_OPT_EXTRACTALL,   0 },
 	{ "zip",          DE_OPT_ZIP,          0 },
@@ -256,6 +259,12 @@ static void parse_cmdline(deark *c, struct cmdctx *cc, int argc, char **argv)
 			case DE_OPT_HELP:
 				show_help(c);
 				cc->special_command_flag = 1;
+				break;
+			case DE_OPT_MAINONLY:
+				de_set_extract_policy(c, DE_EXTRACTPOLICY_MAINONLY);
+				break;
+			case DE_OPT_AUXONLY:
+				de_set_extract_policy(c, DE_EXTRACTPOLICY_AUXONLY);
 				break;
 			case DE_OPT_EXTRACTALL:
 				de_set_extract_level(c, 2);

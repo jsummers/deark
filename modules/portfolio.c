@@ -17,7 +17,7 @@ static void do_pgc_in_pgx(deark *c, lctx *d, de_int64 pos, de_int64 len)
 {
 	dbuf *f = NULL;
 
-	f = dbuf_create_output_file(c, "pgc", NULL);
+	f = dbuf_create_output_file(c, "pgc", NULL, 0);
 
 	// Embedded PGC files don't include the 3-byte PGC header, so we have to add that.
 	dbuf_write(f, (const unsigned char*)"PG\x01", 3);
@@ -158,7 +158,7 @@ static void de_run_pf_pgf(deark *c, de_module_params *mparams)
 {
 	de_declare_fmt(c, "PGF (Portfolio graphics)");
 	de_convert_and_write_image_bilevel(c->infile, 0, 240, 64, 240/8,
-		DE_CVTF_WHITEISZERO, NULL);
+		DE_CVTF_WHITEISZERO, NULL, 0);
 }
 
 static int de_identify_pf_pgf(deark *c)
@@ -209,7 +209,7 @@ static void de_run_pgc(deark *c, de_module_params *mparams)
 	}
 
 	de_convert_and_write_image_bilevel(unc_pixels, 0, 240, 64, 240/8,
-		DE_CVTF_WHITEISZERO, NULL);
+		DE_CVTF_WHITEISZERO, NULL, 0);
 	dbuf_close(unc_pixels);
 }
 

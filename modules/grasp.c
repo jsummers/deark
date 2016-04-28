@@ -59,7 +59,7 @@ static int do_extract_file(deark *c, lctx *d, de_int64 fnum)
 
 	de_dbg(c, "extracting %s\n", fi->file_name);
 
-	dbuf_create_file_from_slice(c->infile, file_data_offset, file_size, NULL, fi);
+	dbuf_create_file_from_slice(c->infile, file_data_offset, file_size, NULL, fi, 0);
 
 done:
 	de_finfo_destroy(c, fi);
@@ -187,7 +187,7 @@ static void de_run_graspfont(deark *c, de_module_params *mparams)
 		font->char_array[i].bitmap = &font_data[i*bytes_per_glyph];
 	}
 
-	de_font_bitmap_font_to_image(c, font, NULL);
+	de_font_bitmap_font_to_image(c, font, NULL, 0);
 
 done:
 	if(font) {

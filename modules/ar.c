@@ -138,7 +138,7 @@ static int do_ar_item(deark *c, lctx *d, de_int64 pos1, de_int64 *p_item_len)
 		fi->original_filename_flag = 1;
 	}
 
-	dbuf_create_file_from_slice(c->infile, file_offset, file_size, NULL, fi);
+	dbuf_create_file_from_slice(c->infile, file_offset, file_size, NULL, fi, 0);
 
 	retval = 1;
 done:

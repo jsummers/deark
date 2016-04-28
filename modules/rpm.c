@@ -203,7 +203,7 @@ static void de_run_rpm(deark *c, de_module_params *mparams)
 		de_finfo_set_name_from_sz(c, fi, filename, DE_ENCODING_ASCII);
 	}
 
-	dbuf_create_file_from_slice(c->infile, pos, c->infile->len - pos, ext, fi);
+	dbuf_create_file_from_slice(c->infile, pos, c->infile->len - pos, ext, fi, 0);
 
 done:
 	de_finfo_destroy(c, fi);

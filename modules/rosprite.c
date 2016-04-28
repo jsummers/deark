@@ -194,7 +194,7 @@ static void do_image(deark *c, lctx *d, struct page_ctx *pg, de_finfo *fi)
 		}
 	}
 
-	de_bitmap_write_to_file_finfo(img, fi);
+	de_bitmap_write_to_file_finfo(img, fi, 0);
 	de_bitmap_destroy(img);
 }
 

@@ -233,7 +233,7 @@ static void do_glyphs(deark *c, lctx *d)
 		de_dbg(c, "total characters: %d\n", (int)font->num_chars);
 	}
 
-	de_font_bitmap_font_to_image(c, font, NULL);
+	de_font_bitmap_font_to_image(c, font, NULL, 0);
 
 	if(font) {
 		de_free(c, font->char_array);

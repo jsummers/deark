@@ -201,7 +201,7 @@ static int do_dib(deark *c, lctx *d, de_int64 pos1)
 		goto done;
 	}
 
-	outf = dbuf_create_output_file(c, "bmp", NULL);
+	outf = dbuf_create_output_file(c, "bmp", NULL, 0);
 
 	// Write fileheader
 	dbuf_write(outf, (const de_byte*)"BM", 2);
@@ -276,7 +276,7 @@ static int do_wmf(deark *c, lctx *d, de_int64 pos1)
 		goto done;
 	}
 
-	outf = dbuf_create_output_file(c, "wmf", 0);
+	outf = dbuf_create_output_file(c, "wmf", 0, 0);
 	do_uncompress_rle(c, d, outf, compressed_offset, compressed_size);
 
 	if(outf->len != decompressed_size) {

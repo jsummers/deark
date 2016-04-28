@@ -172,7 +172,7 @@ static void do_anno(deark *c, lctx *d, de_int64 pos, de_int64 len)
 		len = foundpos - pos;
 	}
 
-	dbuf_create_file_from_slice(c->infile, pos, len, "anno.txt", NULL);
+	dbuf_create_file_from_slice(c->infile, pos, len, "anno.txt", NULL, DE_CREATEFLAG_IS_AUX);
 }
 
 static de_byte getbit(const de_byte *m, de_int64 bitnum)
@@ -277,7 +277,7 @@ static void set_density(deark *c, lctx *d, struct deark_bitmap *img)
 }
 
 static void do_image_24(deark *c, lctx *d, struct img_info *ii,
-	dbuf *unc_pixels)
+	dbuf *unc_pixels, unsigned int createflags)
 {
 	struct deark_bitmap *img = NULL;
 	de_int64 i, j;
@@ -310,7 +310,7 @@ static void do_image_24(deark *c, lctx *d, struct img_info *ii,
 		}
 	}
 
-	de_bitmap_write_to_file(img, ii->filename_token);
+	de_bitmap_write_to_file(img, ii->filename_token, createflags);
 done:
 	de_bitmap_destroy(img);
 	de_free(c, row_orig);
@@ -384,7 +384,7 @@ static void fixup_palette(deark *c, lctx *d)
 }
 
 static int do_image_1to8(deark *c, lctx *d, struct img_info *ii,
-	dbuf *unc_pixels)
+	dbuf *unc_pixels, unsigned int createflags)
 {
 	struct deark_bitmap *img = NULL;
 	de_int64 i, j;
@@ -567,7 +567,7 @@ static int do_image_1to8(deark *c, lctx *d, struct img_info *ii,
 			(int)unc_pixels->len);
 	}
 
-	de_bitmap_write_to_file(img, ii->filename_token);
+	de_bitmap_write_to_file(img, ii->filename_token, createflags);
 	retval = 1;
 
 done:
@@ -578,7 +578,7 @@ done:
 }
 
 static int do_image(deark *c, lctx *d, struct img_info *ii,
-	de_int64 pos1, de_int64 len)
+	de_int64 pos1, de_int64 len, unsigned int createflags)
 {
 	dbuf *unc_pixels = NULL;
 	dbuf *unc_pixels_toclose = NULL;
@@ -628,10 +628,10 @@ static int do_image(deark *c, lctx *d, struct img_info *ii,
 	if(!unc_pixels) goto done;
 
 	if(d->planes>=1 && d->planes<=8) {
-		if(!do_image_1to8(c, d, ii, unc_pixels)) goto done;
+		if(!do_image_1to8(c, d, ii, unc_pixels, createflags)) goto done;
 	}
 	else if(d->planes==24) {
-		do_image_24(c, d, ii, unc_pixels);
+		do_image_24(c, d, ii, unc_pixels, createflags);
 	}
 	else {
 		de_err(c, "Support for this type of IFF/ILBM image is not implemented\n");
@@ -664,7 +664,7 @@ static void do_tiny(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 	if(ii->masking_code==1) ii->masking_code=0;
 
 	ii->filename_token = "thumb";
-	do_image(c, d, ii, pos1+4, len-4);
+	do_image(c, d, ii, pos1+4, len-4, DE_CREATEFLAG_IS_AUX);
 
 done:
 	de_free(c, ii);
@@ -775,12 +775,12 @@ static int do_body(deark *c, lctx *d, de_int64 pos, de_int64 len, de_uint32 ct)
 		}
 
 		d->is_vdat = 1;
-		do_image(c, d, &d->main_img, 0, 0);
+		do_image(c, d, &d->main_img, 0, 0, 0);
 		d->is_vdat = 0;
 		return 1;
 	}
 
-	return do_image(c, d, &d->main_img, pos, len);
+	return do_image(c, d, &d->main_img, pos, len, 0);
 }
 
 static int do_chunk(deark *c, lctx *d, de_int64 pos, de_int64 bytes_avail,

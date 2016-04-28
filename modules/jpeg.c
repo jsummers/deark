@@ -26,7 +26,7 @@ static void do_icc_profile_segment(deark *c, lctx *d, de_int64 pos, de_int64 dat
 	de_dbg(c, "icc profile segment at %d datasize=%d part %d of %d\n", (int)pos, (int)(data_size-2), b1, b2);
 
 	if(!d->iccprofile_file) {
-		d->iccprofile_file = dbuf_create_output_file(c, "icc", NULL);
+		d->iccprofile_file = dbuf_create_output_file(c, "icc", NULL, DE_CREATEFLAG_IS_AUX);
 	}
 	dbuf_copy(c->infile, pos+2, data_size-2, d->iccprofile_file);
 
@@ -64,7 +64,7 @@ static void do_jpeghdr_segment(deark *c, lctx *d, de_int64 pos, de_int64 data_si
 			return;
 		}
 
-		d->hdr_residual_file = dbuf_create_output_file(c, "residual.jpg", NULL);
+		d->hdr_residual_file = dbuf_create_output_file(c, "residual.jpg", NULL, DE_CREATEFLAG_IS_AUX);
 	}
 
 	if(!d->hdr_residual_file) return;
@@ -107,7 +107,7 @@ static void do_jfxx_segment(deark *c, lctx *d, de_int64 pos, de_int64 data_size)
 		// So, maybe, when we extract a thumbnail, we should insert an artificial JFIF
 		// segment into it. We currently don't do that.
 		// (However, this is not at all important.)
-		dbuf_create_file_from_slice(c->infile, pos+1, data_size-1, "jfxxthumb.jpg", NULL);
+		dbuf_create_file_from_slice(c->infile, pos+1, data_size-1, "jfxxthumb.jpg", NULL, DE_CREATEFLAG_IS_AUX);
 	}
 }
 
@@ -217,7 +217,7 @@ static void do_app_segment(deark *c, lctx *d, de_byte seg_type,
 	}
 	else if(seg_type==0xe1 && !de_strcmp(app_id_normalized, "HTTP://NS.ADOBE.COM/XAP/1.0/")) {
 		de_dbg(c, "XMP data at %d, size=%d\n", (int)(payload_pos), (int)(payload_size));
-		dbuf_create_file_from_slice(c->infile, payload_pos, payload_size, "xmp", NULL);
+		dbuf_create_file_from_slice(c->infile, payload_pos, payload_size, "xmp", NULL, DE_CREATEFLAG_IS_AUX);
 	}
 	else if(seg_type==0xeb && app_id_orig_strlen>=10 && !de_memcmp(app_id_normalized, "HDR_RI VER", 10)) {
 		do_jpeghdr_segment(c, d, payload_pos, payload_size, 0);
@@ -374,7 +374,7 @@ static void do_com_segment(deark *c, lctx *d,
 	de_int64 pos, de_int64 data_size)
 {
 	if(c->extract_level<2) return;
-	dbuf_create_file_from_slice(c->infile, pos, data_size, "comment.txt", NULL);
+	dbuf_create_file_from_slice(c->infile, pos, data_size, "comment.txt", NULL, DE_CREATEFLAG_IS_AUX);
 }
 
 static void do_write_latin1_buffer_to_file(deark *c, lctx *d,
@@ -383,7 +383,7 @@ static void do_write_latin1_buffer_to_file(deark *c, lctx *d,
 	dbuf *f = NULL;
 	de_int64 i;
 
-	f = dbuf_create_output_file(c, "comment.txt", NULL);
+	f = dbuf_create_output_file(c, "comment.txt", NULL, DE_CREATEFLAG_IS_AUX);
 
 	if(de_is_ascii(buf, buf_len)) {
 		dbuf_write(f, buf, buf_len);
@@ -797,7 +797,7 @@ static void de_run_jpegscan(deark *c, de_module_params *mparams)
 		if(detect_jpeg_len(c, d, pos, c->infile->len-pos)) {
 			de_dbg(c, "length=%d\n", (int)d->len);
 			dbuf_create_file_from_slice(c->infile, pos, d->len,
-				d->is_jpegls ? "jls" : "jpg", NULL);
+				d->is_jpegls ? "jls" : "jpg", NULL, 0);
 			pos += d->len;
 		}
 		else {

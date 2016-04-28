@@ -247,7 +247,7 @@ static int decode_egavga16(deark *c, lctx *d)
 		}
 	}
 
-	de_bitmap_write_to_file(d->img, NULL);
+	de_bitmap_write_to_file(d->img, NULL, 0);
 	return 1;
 }
 
@@ -277,7 +277,7 @@ static int decode_vga256(deark *c, lctx *d)
 	de_convert_image_paletted(d->unc_pixels, 0,
 		8, d->img->width, pal, d->img, 0);
 
-	de_bitmap_write_to_file(d->img, NULL);
+	de_bitmap_write_to_file(d->img, NULL, 0);
 	return 1;
 }
 
@@ -320,7 +320,7 @@ static int decode_bilevel(deark *c, lctx *d)
 	de_convert_image_paletted(d->unc_pixels, 0,
 		1, src_rowspan, pal, d->img, 0);
 
-	de_bitmap_write_to_file(d->img, NULL);
+	de_bitmap_write_to_file(d->img, NULL, 0);
 	return 1;
 }
 
@@ -369,7 +369,7 @@ static int decode_cga4(deark *c, lctx *d)
 	de_convert_image_paletted(d->unc_pixels, 0,
 		2, src_rowspan, pal, d->img, 0);
 
-	de_bitmap_write_to_file(d->img, NULL);
+	de_bitmap_write_to_file(d->img, NULL, 0);
 	return 1;
 }
 

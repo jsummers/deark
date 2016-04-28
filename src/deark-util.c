@@ -359,6 +359,11 @@ void de_set_debug_level(deark *c, int x)
 	c->debug_level = x;
 }
 
+void de_set_extract_policy(deark *c, int x)
+{
+	c->extract_policy = x;
+}
+
 void de_set_extract_level(deark *c, int x)
 {
 	c->extract_level = x;

@@ -58,7 +58,8 @@ static void de_bitmap_alloc_pixels(struct deark_bitmap *img)
 	img->bitmap = de_malloc(img->c, img->bitmap_size);
 }
 
-void de_bitmap_write_to_file(struct deark_bitmap *img, const char *token)
+void de_bitmap_write_to_file(struct deark_bitmap *img, const char *token,
+	unsigned int createflags)
 {
 	dbuf *f;
 	char buf[80];
@@ -75,18 +76,19 @@ void de_bitmap_write_to_file(struct deark_bitmap *img, const char *token)
 
 	if(!img->bitmap) de_bitmap_alloc_pixels(img);
 
-	f = dbuf_create_output_file(img->c, buf, NULL);
+	f = dbuf_create_output_file(img->c, buf, NULL, createflags);
 	de_write_png(img->c, img, f);
 	dbuf_close(f);
 }
 
-void de_bitmap_write_to_file_finfo(struct deark_bitmap *img, de_finfo *fi)
+void de_bitmap_write_to_file_finfo(struct deark_bitmap *img, de_finfo *fi,
+	unsigned int createflags)
 {
 	const char *token = NULL;
 	if(fi && fi->file_name) {
 		token = fi->file_name;
 	}
-	de_bitmap_write_to_file(img, token);
+	de_bitmap_write_to_file(img, token, createflags);
 }
 
 // samplenum 0=Red, 1=Green, 2=Blue, 3=Alpha
@@ -375,8 +377,8 @@ void de_convert_image_bilevel(dbuf *f, de_int64 fpos, de_int64 rowspan,
 }
 
 void de_convert_and_write_image_bilevel(dbuf *f, de_int64 fpos,
-	de_int64 width, de_int64 height, de_int64 rowspan, unsigned int flags,
-	de_finfo *fi)
+	de_int64 width, de_int64 height, de_int64 rowspan, unsigned int cvtflags,
+	de_finfo *fi, unsigned int createflags)
 {
 	struct deark_bitmap *img = NULL;
 	deark *c = f->c;
@@ -384,8 +386,8 @@ void de_convert_and_write_image_bilevel(dbuf *f, de_int64 fpos,
 	if(!de_good_image_dimensions(c, width, height)) return;
 
 	img = de_bitmap_create(c, width, height, 1);
-	de_convert_image_bilevel(f, fpos, rowspan, img, flags);
-	de_bitmap_write_to_file_finfo(img, fi);
+	de_convert_image_bilevel(f, fpos, rowspan, img, cvtflags);
+	de_bitmap_write_to_file_finfo(img, fi, createflags);
 	de_bitmap_destroy(img);
 }
 

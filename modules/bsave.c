@@ -101,7 +101,7 @@ static int do_cga16(deark *c, lctx *d)
 
 done:
 	if(retval) {
-		de_bitmap_write_to_file(img, NULL);
+		de_bitmap_write_to_file(img, NULL, 0);
 	}
 	de_bitmap_destroy(img);
 	return retval;
@@ -179,7 +179,7 @@ static int do_4color(deark *c, lctx *d)
 		}
 	}
 
-	de_bitmap_write_to_file(img, NULL);
+	de_bitmap_write_to_file(img, NULL, 0);
 	de_bitmap_destroy(img);
 	return 1;
 }
@@ -235,7 +235,7 @@ static int do_2color(deark *c, lctx *d)
 		}
 	}
 
-	de_bitmap_write_to_file(img, NULL);
+	de_bitmap_write_to_file(img, NULL, 0);
 	de_bitmap_destroy(img);
 	return 1;
 }
@@ -271,7 +271,7 @@ static int do_256color(deark *c, lctx *d)
 		}
 	}
 
-	de_bitmap_write_to_file(img, NULL);
+	de_bitmap_write_to_file(img, NULL, 0);
 	de_bitmap_destroy(img);
 	return 1;
 }
@@ -314,7 +314,7 @@ static int do_wh16(deark *c, lctx *d)
 		}
 	}
 
-	de_bitmap_write_to_file(img, NULL);
+	de_bitmap_write_to_file(img, NULL, 0);
 
 	de_bitmap_destroy(img);
 	return 1;
@@ -352,7 +352,7 @@ static int do_b265(deark *c, lctx *d)
 		}
 	}
 
-	de_bitmap_write_to_file(img, NULL);
+	de_bitmap_write_to_file(img, NULL, 0);
 
 	retval = 1;
 

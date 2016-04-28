@@ -61,7 +61,7 @@ static void do_bilevel_icon(deark *c, lctx *d, struct iconinfo *ii, de_int64 fg_
 		}
 	}
 
-	de_bitmap_write_to_file(img, token);
+	de_bitmap_write_to_file(img, token, 0);
 	de_bitmap_destroy(img);
 }
 
@@ -178,7 +178,7 @@ static void do_color_icon(deark *c, lctx *d, struct iconinfo *ii, de_int64 fg_po
 		}
 	}
 
-	de_bitmap_write_to_file(img, token);
+	de_bitmap_write_to_file(img, token, 0);
 	de_bitmap_destroy(img);
 }
 
@@ -424,7 +424,7 @@ static int do_bitblk(deark *c, lctx *d, de_int64 pos)
 	// TODO: Can we do anything with the foreground color?
 
 	de_convert_and_write_image_bilevel(c->infile, bits_pos, width, height, width_in_bytes,
-		DE_CVTF_WHITEISZERO, NULL);
+		DE_CVTF_WHITEISZERO, NULL, 0);
 
 	de_dbg_indent(c, -1);
 	return 1;

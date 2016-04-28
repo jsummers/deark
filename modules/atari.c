@@ -199,7 +199,7 @@ static void do_directory_entry(deark *c, lctx *d, dbuf *f, de_int64 pos)
 	de_finfo_set_name_from_ucstring(c, fi, fn_u);
 	fi->original_filename_flag = 1;
 
-	outf = dbuf_create_output_file(c, NULL, fi);
+	outf = dbuf_create_output_file(c, NULL, fi, 0);
 
 	do_extract_file_contents(c, d, f, outf, starting_sector, sector_count);
 

@@ -158,7 +158,7 @@ static void do_decode_1_4_8bit(deark *c, lctx *d)
 		}
 	}
 
-	de_bitmap_write_to_file(img, d->filename_token);
+	de_bitmap_write_to_file(img, d->filename_token, 0);
 	de_bitmap_destroy(img);
 }
 
@@ -237,7 +237,7 @@ static void do_decode_24bit(deark *c, lctx *d)
 		}
 	}
 
-	de_bitmap_write_to_file(img, d->filename_token);
+	de_bitmap_write_to_file(img, d->filename_token, 0);
 	de_bitmap_destroy(img);
 	if(unc_pixels) dbuf_close(unc_pixels);
 }
@@ -256,10 +256,10 @@ static void do_extract_png_or_jp2(deark *c, lctx *d)
 	de_finfo_set_name_from_sz(c, fi, d->filename_token, DE_ENCODING_ASCII);
 
 	if(buf[4]=='j' && buf[5]=='P') {
-		dbuf_create_file_from_slice(c->infile, d->image_pos, d->image_len, "jp2", fi);
+		dbuf_create_file_from_slice(c->infile, d->image_pos, d->image_len, "jp2", fi, 0);
 	}
 	else if(buf[0]==0x89 && buf[1]==0x50) {
-		dbuf_create_file_from_slice(c->infile, d->image_pos, d->image_len, "png", fi);
+		dbuf_create_file_from_slice(c->infile, d->image_pos, d->image_len, "png", fi, 0);
 	}
 	else {
 		de_err(c, "(Image #%d) Unidentified file format\n", d->image_num);

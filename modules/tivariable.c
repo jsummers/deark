@@ -78,7 +78,7 @@ static int do_bitmap(deark *c, lctx *d, de_int64 pos)
 	}
 
 	de_convert_and_write_image_bilevel(c->infile, pos, d->w, d->h, rowspan,
-		DE_CVTF_WHITEISZERO, NULL);
+		DE_CVTF_WHITEISZERO, NULL, 0);
 	retval = 1;
 done:
 	return retval;
@@ -118,7 +118,7 @@ static int do_bitmap_8ca(deark *c, lctx *d, de_int64 pos)
 
 	}
 
-	de_bitmap_write_to_file(img, NULL);
+	de_bitmap_write_to_file(img, NULL, 0);
 	retval = 1;
 done:
 	de_bitmap_destroy(img);
@@ -160,7 +160,7 @@ static int do_bitmap_8ci(deark *c, lctx *d, de_int64 pos)
 
 	}
 
-	de_bitmap_write_to_file(img, NULL);
+	de_bitmap_write_to_file(img, NULL, 0);
 	retval = 1;
 done:
 	de_bitmap_destroy(img);

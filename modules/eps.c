@@ -34,15 +34,15 @@ static void de_run_eps_binary(deark *c)
 
 	if(eps_len>0) {
 		de_dbg(c, "Extracting EPS offs=%d len=%d\n", (int)eps_offset, (int)eps_len);
-		dbuf_create_file_from_slice(c->infile, eps_offset, eps_len, "eps", NULL);
+		dbuf_create_file_from_slice(c->infile, eps_offset, eps_len, "eps", NULL, 0);
 	}
 	if(wmf_len>0) {
 		de_dbg(c, "Extracting WMF offs=%d len=%d\n", (int)wmf_offset, (int)wmf_len);
-		dbuf_create_file_from_slice(c->infile, wmf_offset, wmf_len, "preview.wmf", NULL);
+		dbuf_create_file_from_slice(c->infile, wmf_offset, wmf_len, "preview.wmf", NULL, DE_CREATEFLAG_IS_AUX);
 	}
 	if(tiff_len>0) {
 		de_dbg(c, "Extracting TIFF offs=%d len=%d\n", (int)tiff_offset, (int)tiff_len);
-		dbuf_create_file_from_slice(c->infile, tiff_offset, tiff_len, "preview.tif", NULL);
+		dbuf_create_file_from_slice(c->infile, tiff_offset, tiff_len, "preview.tif", NULL, DE_CREATEFLAG_IS_AUX);
 	}
 }
 
@@ -116,7 +116,7 @@ static void do_decode_epsi_image(deark *c, lctx *d, de_int64 pos1)
 		convert_row_gray(tmpf, j*src_rowspan, img, j, (int)d->depth);
 	}
 
-	de_bitmap_write_to_file(img, "preview");
+	de_bitmap_write_to_file(img, "preview", DE_CREATEFLAG_IS_AUX);
 	de_bitmap_destroy(img);
 	dbuf_close(tmpf);
 }

@@ -129,7 +129,7 @@ void de_fmtutil_handle_exif(deark *c, de_int64 pos, de_int64 len)
 
 	if(c->extract_level>=2) {
 		// Writing raw Exif data isn't very useful, but do so if requested.
-		dbuf_create_file_from_slice(c->infile, pos, len, "exif.tif", NULL);
+		dbuf_create_file_from_slice(c->infile, pos, len, "exif.tif", NULL, DE_CREATEFLAG_IS_AUX);
 
 		// Caller will have to reprocess the Exif file to extract anything from it.
 		return;
@@ -338,7 +338,7 @@ static void sauce_read_comments(deark *c, dbuf *inf, struct de_SAUCE_info *si)
 		cmnt_len = sauce_space_padded_length(buf, 64);
 		de_dbg(c, "comment at %d, len=%d\n", (int)cmnt_pos, (int)cmnt_len);
 
-		outf = dbuf_create_output_file(c, "comment.txt", NULL);
+		outf = dbuf_create_output_file(c, "comment.txt", NULL, DE_CREATEFLAG_IS_AUX);
 		if(c->write_bom && !de_is_ascii(buf, cmnt_len)) {
 			dbuf_write_uchar_as_utf8(outf, 0xfeff);
 		}
@@ -615,11 +615,11 @@ int de_fmtutil_default_box_handler(deark *c, struct de_boxesctx *bctx)
 	if(bctx->is_uuid) {
 		if(!de_memcmp(bctx->uuid, "\xb1\x4b\xf8\xbd\x08\x3d\x4b\x43\xa5\xae\x8c\xd7\xd5\xa6\xce\x03", 16)) {
 			de_dbg(c, "GeoTIFF data at %d, len=%d\n", (int)bctx->payload_pos, (int)bctx->payload_len);
-			dbuf_create_file_from_slice(bctx->f, bctx->payload_pos, bctx->payload_len, "geo.tif", NULL);
+			dbuf_create_file_from_slice(bctx->f, bctx->payload_pos, bctx->payload_len, "geo.tif", NULL, DE_CREATEFLAG_IS_AUX);
 		}
 		else if(!de_memcmp(bctx->uuid, "\xbe\x7a\xcf\xcb\x97\xa9\x42\xe8\x9c\x71\x99\x94\x91\xe3\xaf\xac", 16)) {
 			de_dbg(c, "XMP data at %d, len=%d\n", (int)bctx->payload_pos, (int)bctx->payload_len);
-			dbuf_create_file_from_slice(bctx->f, bctx->payload_pos, bctx->payload_len, "xmp", NULL);
+			dbuf_create_file_from_slice(bctx->f, bctx->payload_pos, bctx->payload_len, "xmp", NULL, DE_CREATEFLAG_IS_AUX);
 		}
 		else if(!de_memcmp(bctx->uuid, "\x2c\x4c\x01\x00\x85\x04\x40\xb9\xa0\x3e\x56\x21\x48\xd6\xdf\xeb", 16)) {
 			de_dbg(c, "Photoshop resources at %d, len=%d\n", (int)bctx->payload_pos, (int)bctx->payload_len);

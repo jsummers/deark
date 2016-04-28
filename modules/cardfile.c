@@ -19,7 +19,7 @@ static void do_text_data(deark *c, lctx *d, de_finfo *fi, de_int64 text_pos, de_
 	if(text_len<1) return;
 	if(text_pos + text_len > c->infile->len) return;
 
-	dbuf_create_file_from_slice(c->infile, text_pos, text_len, "txt", fi);
+	dbuf_create_file_from_slice(c->infile, text_pos, text_len, "txt", fi, 0);
 }
 
 static void do_card_index(deark *c, lctx *d, de_int64 cardnum, de_int64 pos)
@@ -91,7 +91,7 @@ static void do_card_index(deark *c, lctx *d, de_int64 cardnum, de_int64 pos)
 	src_rowspan = ((w+15)/16)*2;
 
 	de_convert_and_write_image_bilevel(c->infile, datapos+10,
-		w, h, src_rowspan, 0, fi_bitmap);
+		w, h, src_rowspan, 0, fi_bitmap, 0);
 
 done:
 	de_bitmap_destroy(img);

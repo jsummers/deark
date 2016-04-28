@@ -321,7 +321,7 @@ static void do_extract_BITMAP(deark *c, lctx *d, de_int64 pos, de_int64 len, de_
 	dbuf *f;
 	if(len<12) return;
 
-	f = dbuf_create_output_file(c, "bmp", fi);
+	f = dbuf_create_output_file(c, "bmp", fi, 0);
 	de_DIB_to_BMP(c, c->infile, pos, len, f);
 	dbuf_close(f);
 }
@@ -344,11 +344,11 @@ static void do_extract_ico_cur(deark *c, lctx *d, de_int64 pos, de_int64 len,
 	}
 
 	if(bi.file_format==DE_BMPINFO_FMT_PNG) {
-		dbuf_create_file_from_slice(c->infile, pos, len, "png", fi);
+		dbuf_create_file_from_slice(c->infile, pos, len, "png", fi, 0);
 		return;
 	}
 
-	f = dbuf_create_output_file(c, is_cur?"cur":"ico", fi);
+	f = dbuf_create_output_file(c, is_cur?"cur":"ico", fi, 0);
 
 	// Write the 6-byte file header.
 	dbuf_writeui16le(f, 0); // Reserved
@@ -412,13 +412,13 @@ static void do_extract_FONT(deark *c, lctx *d, de_int64 pos, de_int64 len, de_fi
 	if(fntlen<6 || fntlen>len) {
 		fntlen = len;
 	}
-	dbuf_create_file_from_slice(c->infile, pos, fntlen, "fnt", fi);
+	dbuf_create_file_from_slice(c->infile, pos, fntlen, "fnt", fi, 0);
 }
 
 static void do_extract_MANIFEST(deark *c, lctx *d, de_int64 pos, de_int64 len, de_finfo *fi)
 {
 	if(c->extract_level>=2) {
-		dbuf_create_file_from_slice(c->infile, pos, len, "manifest", fi);
+		dbuf_create_file_from_slice(c->infile, pos, len, "manifest", fi, DE_CREATEFLAG_IS_AUX);
 	}
 }
 
@@ -905,7 +905,7 @@ static void do_lx_rsrc(deark *c, lctx *d,
 
 		// Unlike in NE and PE format, it seems that image resources in LX files
 		// include the BITMAPFILEHEADER. That makes it easy.
-		dbuf_create_file_from_slice(c->infile, rsrc_offset_real, rsrc_size, ext, NULL);
+		dbuf_create_file_from_slice(c->infile, rsrc_offset_real, rsrc_size, ext, NULL, 0);
 		break;
 	}
 }

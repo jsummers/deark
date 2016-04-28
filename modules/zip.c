@@ -72,7 +72,7 @@ static void do_comment(deark *c, lctx *d, de_int64 pos, de_int64 len, int utf8_f
 	comment = de_malloc(c, len);
 	de_read(comment, pos, len);
 
-	f = dbuf_create_output_file(c, ext, NULL);
+	f = dbuf_create_output_file(c, ext, NULL, DE_CREATEFLAG_IS_AUX);
 
 	if(de_is_ascii(comment, len)) {
 		// No non-ASCII characters, so write the comment as-is.

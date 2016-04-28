@@ -48,7 +48,7 @@ static void handle_embedded_file(deark *c, lctx *d, de_int64 offset, de_int64 le
 		}
 		else {
 			// Just extract the file
-			dbuf_create_file_from_slice(c->infile, offset, len, ext, NULL);
+			dbuf_create_file_from_slice(c->infile, offset, len, ext, NULL, DE_CREATEFLAG_UNKNOWN);
 		}
 	}
 	else {

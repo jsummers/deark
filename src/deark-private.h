@@ -182,6 +182,7 @@ struct deark_struct {
 
 	int output_style; // DE_OUTPUTSTYLE_*
 
+	int extract_policy; // DE_EXTRACTPOLICY_*
 	int extract_level;
 	int list_mode;
 	int first_output_file; // first file = 0
@@ -343,7 +344,9 @@ de_int64 dbuf_geti64x(dbuf *f, de_int64 pos, int is_le);
 de_uint32 dbuf_getRGB(dbuf *f, de_int64 pos, unsigned int flags);
 
 // At least one of 'ext' or 'fi' should be non-NULL.
-dbuf *dbuf_create_output_file(deark *c, const char *ext, de_finfo *fi);
+#define DE_CREATEFLAG_IS_AUX   0x1
+#define DE_CREATEFLAG_UNKNOWN  0   // temporary (TODO)
+dbuf *dbuf_create_output_file(deark *c, const char *ext, de_finfo *fi, unsigned int createflags);
 
 dbuf *dbuf_open_input_file(deark *c, const char *fn);
 
@@ -386,7 +389,7 @@ int dbuf_memcmp(dbuf *f, de_int64 pos, const void *s, size_t n);
 // Read a slice of a dbuf, and create a new file containing only that.
 // At least one of 'ext' or 'fi' should be non-NULL.
 int dbuf_create_file_from_slice(dbuf *inf, de_int64 pos, de_int64 data_size,
-	const char *ext, de_finfo *fi);
+	const char *ext, de_finfo *fi, unsigned int createflags);
 
 int dbuf_dump_to_file(dbuf *inf, const char *fn);
 
@@ -410,8 +413,8 @@ int dbuf_find_line(dbuf *f, de_int64 pos1, de_int64 *pcontent_len, de_int64 *pto
 
 ///////////////////////////////////////////
 
-void de_bitmap_write_to_file(struct deark_bitmap *img, const char *token);
-void de_bitmap_write_to_file_finfo(struct deark_bitmap *img, de_finfo *fi);
+void de_bitmap_write_to_file(struct deark_bitmap *img, const char *token, unsigned int createflags);
+void de_bitmap_write_to_file_finfo(struct deark_bitmap *img, de_finfo *fi, unsigned int createflags);
 
 void de_bitmap_setsample(struct deark_bitmap *img, de_int64 x, de_int64 y,
 	de_int64 samplenum, de_byte v);
@@ -468,8 +471,8 @@ void de_convert_image_bilevel(dbuf *f, de_int64 fpos, de_int64 rowspan,
 	struct deark_bitmap *img, unsigned int flags);
 
 void de_convert_and_write_image_bilevel(dbuf *f, de_int64 fpos,
-	de_int64 w, de_int64 height, de_int64 rowspan, unsigned int flags,
-	de_finfo *fi);
+	de_int64 w, de_int64 height, de_int64 rowspan, unsigned int cvtflags,
+	de_finfo *fi, unsigned int createflags);
 
 void de_read_palette_rgb(dbuf *f,
 	de_int64 fpos, de_int64 num_entries, de_int64 entryspan,
@@ -610,7 +613,7 @@ void de_font_paint_character_cp(deark *c, struct deark_bitmap *img,
 	struct de_bitmap_font *font, de_int32 codepoint,
 	de_int64 xpos, de_int64 ypos, de_uint32 fgcol, de_uint32 bgcol, unsigned int flags);
 
-void de_font_bitmap_font_to_image(deark *c, struct de_bitmap_font *font, de_finfo *fi);
+void de_font_bitmap_font_to_image(deark *c, struct de_bitmap_font *font, de_finfo *fi, unsigned int createflags);
 int de_font_is_standard_vga_font(deark *c, de_uint32 crc);
 
 ///////////////////////////////////////////

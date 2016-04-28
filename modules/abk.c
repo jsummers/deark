@@ -84,7 +84,7 @@ static void do_read_sprite_image(deark *c, lctx *d, struct amosbank *bk, de_int6
 		}
 	}
 
-	de_bitmap_write_to_file(img, NULL);
+	de_bitmap_write_to_file(img, NULL, 0);
 
 done:
 	de_bitmap_destroy(img);
@@ -198,7 +198,7 @@ static int do_read_sprite(deark *c, lctx *d, struct amosbank *bk)
 	do_read_sprite_objects(c, d, bk, 6, 1);
 
 	if(d->fmt==CODE_AmBs) {
-		dbuf_create_file_from_slice(bk->f, 0, bk->bank_len, bk->file_ext, NULL);
+		dbuf_create_file_from_slice(bk->f, 0, bk->bank_len, bk->file_ext, NULL, 0);
 	}
 	else {
 		do_read_sprite_palette(c, d, bk);
@@ -433,7 +433,7 @@ static void picture_bank_read_picture(deark *c, lctx *d, struct amosbank *bk, de
 		ypos += lines_per_lump;
 	}
 
-	de_bitmap_write_to_file(img, NULL);
+	de_bitmap_write_to_file(img, NULL, 0);
 done:
 	dbuf_close(unc_pixels);
 	de_bitmap_destroy(img);
@@ -535,7 +535,7 @@ static int do_read_AmBk(deark *c, lctx *d, struct amosbank *bk)
 
 	if(d->fmt==CODE_AmBs) {
 		// If original file is in AmBs format, just extract the AmBk file.
-		dbuf_create_file_from_slice(bk->f, 0, bk->bank_len, bk->file_ext, NULL);
+		dbuf_create_file_from_slice(bk->f, 0, bk->bank_len, bk->file_ext, NULL, 0);
 		return 1;
 	}
 
@@ -547,7 +547,7 @@ static int do_read_AmBk(deark *c, lctx *d, struct amosbank *bk)
 
 	if(c->extract_level>=2) {
 		// Extracting the raw memory-bank data can be useful sometimes.
-		dbuf_create_file_from_slice(bk->f, 20, bk->bank_data_len, "bin", NULL);
+		dbuf_create_file_from_slice(bk->f, 20, bk->bank_data_len, "bin", NULL, 0);
 		return 1;
 	}
 
@@ -711,7 +711,7 @@ static void de_run_amos_source(deark *c, de_module_params *mparams)
 	de_dbg_indent(c, 1);
 	de_dbg(c, "number of banks: %d\n", (int)nbanks);
 	if(nbanks>0 || c->extract_level>=2) {
-		dbuf_create_file_from_slice(c->infile, pos, c->infile->len-pos, "AmBs.abk", NULL);
+		dbuf_create_file_from_slice(c->infile, pos, c->infile->len-pos, "AmBs.abk", NULL, 0);
 	}
 	else {
 		de_dbg(c, "not extracting emtpy AmBs segment\n");

@@ -96,7 +96,7 @@ static void do_decode_raw(deark *c, lctx *d)
 		}
 	}
 
-	de_bitmap_write_to_file(img, NULL);
+	de_bitmap_write_to_file(img, NULL, 0);
 done:
 	de_bitmap_destroy(img);
 }
@@ -117,19 +117,19 @@ static void do_write_image(deark *c, lctx *d)
 		do_decode_raw(c, d);
 	}
 	else if(!de_memcmp(d->cmpr_type, "jpeg", 4)) {
-		dbuf_create_file_from_slice(c->infile, d->idat_pos, dsize, "jpg", NULL);
+		dbuf_create_file_from_slice(c->infile, d->idat_pos, dsize, "jpg", NULL, 0);
 	}
 	else if(!de_memcmp(d->cmpr_type, "tiff", 4)) {
-		dbuf_create_file_from_slice(c->infile, d->idat_pos, dsize, "tif", NULL);
+		dbuf_create_file_from_slice(c->infile, d->idat_pos, dsize, "tif", NULL, 0);
 	}
 	else if(!de_memcmp(d->cmpr_type, "gif ", 4)) {
-		dbuf_create_file_from_slice(c->infile, d->idat_pos, dsize, "gif", NULL);
+		dbuf_create_file_from_slice(c->infile, d->idat_pos, dsize, "gif", NULL, 0);
 	}
 	else if(!de_memcmp(d->cmpr_type, "png ", 4)) {
-		dbuf_create_file_from_slice(c->infile, d->idat_pos, dsize, "png", NULL);
+		dbuf_create_file_from_slice(c->infile, d->idat_pos, dsize, "png", NULL, 0);
 	}
 	else if(!de_memcmp(d->cmpr_type, "kpcd", 4)) { // Kodak Photo CD
-		dbuf_create_file_from_slice(c->infile, d->idat_pos, dsize, "pcd", NULL);
+		dbuf_create_file_from_slice(c->infile, d->idat_pos, dsize, "pcd", NULL, 0);
 	}
 	else {
 		de_err(c, "Unsupported compression type: \"%s\"\n", d->cmpr_type_printable);

@@ -58,7 +58,7 @@ static void do_bitmap(deark *c, lctx *d, dbuf *unc_pixels)
 		}
 	}
 
-	de_bitmap_write_to_file(img, NULL);
+	de_bitmap_write_to_file(img, NULL, 0);
 
 	de_bitmap_destroy(img);
 }

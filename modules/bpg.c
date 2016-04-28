@@ -67,13 +67,13 @@ static void do_extensions(deark *c, lctx *d, de_int64 pos)
 			de_fmtutil_handle_exif(c, pos, payload_len);
 			break;
 		case 2: // ICC profile
-			dbuf_create_file_from_slice(c->infile, pos, payload_len, "icc", NULL);
+			dbuf_create_file_from_slice(c->infile, pos, payload_len, "icc", NULL, DE_CREATEFLAG_IS_AUX);
 			break;
 		case 3: // XMP
-			dbuf_create_file_from_slice(c->infile, pos, payload_len, "xmp", NULL);
+			dbuf_create_file_from_slice(c->infile, pos, payload_len, "xmp", NULL, DE_CREATEFLAG_IS_AUX);
 			break;
 		case 4: // Thumbnail
-			dbuf_create_file_from_slice(c->infile, pos, payload_len, "thumb.bpg", NULL);
+			dbuf_create_file_from_slice(c->infile, pos, payload_len, "thumb.bpg", NULL, DE_CREATEFLAG_IS_AUX);
 			break;
 		default:
 			de_dbg(c, "unrecognized extension type: %d\n", (int)tag);

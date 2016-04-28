@@ -545,7 +545,7 @@ static int decode_bitmap(deark *c, lctx *d, struct bitmapinfo *bi, de_int64 pos)
 		}
 	}
 
-	de_bitmap_write_to_file(img, NULL);
+	de_bitmap_write_to_file(img, NULL, 0);
 
 	de_bitmap_destroy(img);
 	dbuf_close(unc_pixels);
@@ -689,7 +689,7 @@ static void do_iccprofile_item(deark *c, lctx *d, de_int64 pos, de_int64 len)
 	}
 
 	if(selector==0) { // Beginning segment
-		d->iccprofile_file = dbuf_create_output_file(c, "icc", NULL);
+		d->iccprofile_file = dbuf_create_output_file(c, "icc", NULL, DE_CREATEFLAG_IS_AUX);
 	}
 
 	if(selector==0 || selector==1) {

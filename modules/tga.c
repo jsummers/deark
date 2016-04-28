@@ -45,7 +45,7 @@ typedef struct localctx_struct {
 } lctx;
 
 static void do_decode_image(deark *c, lctx *d, struct tgaimginfo *imginfo, dbuf *unc_pixels,
-	const char *token)
+	const char *token, unsigned int createflags)
 {
 	struct deark_bitmap *img = NULL;
 	de_int64 i, j;
@@ -106,7 +106,7 @@ static void do_decode_image(deark *c, lctx *d, struct tgaimginfo *imginfo, dbuf 
 		}
 	}
 
-	de_bitmap_write_to_file(img, token);
+	de_bitmap_write_to_file(img, token, createflags);
 	de_bitmap_destroy(img);
 }
 
@@ -269,7 +269,7 @@ static void do_decode_thumbnail(deark *c, lctx *d)
 	d->thumbnail_image.img_size_in_bytes = d->thumbnail_image.height * d->thumbnail_image.width * d->bytes_per_pixel;
 	unc_pixels = dbuf_open_input_subfile(c->infile, d->thumbnail_offset+hdrsize, d->thumbnail_image.img_size_in_bytes);
 
-	do_decode_image(c, d, &d->thumbnail_image, unc_pixels, "thumb");
+	do_decode_image(c, d, &d->thumbnail_image, unc_pixels, "thumb", DE_CREATEFLAG_IS_AUX);
 
 done:
 	dbuf_close(unc_pixels);
@@ -570,7 +570,7 @@ static void de_run_tga(deark *c, de_module_params *mparams)
 	// TODO: 16-bit images could theoretically have a transparency bit, but I don't
 	// know how to detect that.
 
-	do_decode_image(c, d, &d->main_image, unc_pixels, NULL);
+	do_decode_image(c, d, &d->main_image, unc_pixels, NULL, 0);
 
 	if(d->thumbnail_offset!=0) {
 		do_decode_thumbnail(c, d);

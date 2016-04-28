@@ -358,7 +358,7 @@ static int my_box_handler(deark *c, struct de_boxesctx *bctx)
 		break;
 	case BOX_jp2c: // Contiguous Codestream box
 		de_dbg(c, "JPEG 2000 codestream at %d, len=%d\n", (int)bctx->payload_pos, (int)bctx->payload_len);
-		dbuf_create_file_from_slice(bctx->f, bctx->payload_pos, bctx->payload_len, "j2c", NULL);
+		dbuf_create_file_from_slice(bctx->f, bctx->payload_pos, bctx->payload_len, "j2c", NULL, 0);
 		break;
 	case BOX_mdhd:
 		do_box_mdhd(c, d, bctx);
@@ -376,7 +376,7 @@ static int my_box_handler(deark *c, struct de_boxesctx *bctx)
 		// TODO: Detect the specific XML format, and use it to choose a better
 		// filename.
 		de_dbg(c, "XML data at %d, len=%d\n", (int)bctx->payload_pos, (int)bctx->payload_len);
-		dbuf_create_file_from_slice(bctx->f, bctx->payload_pos, bctx->payload_len, "xml", NULL);
+		dbuf_create_file_from_slice(bctx->f, bctx->payload_pos, bctx->payload_len, "xml", NULL, DE_CREATEFLAG_IS_AUX);
 		break;
 	default:
 		// Check if this box type is known to contain other boxes that we might

@@ -359,7 +359,7 @@ static void do_bitmap(deark *c, lctx *d)
 		do_render_tile(c, d, img, tile_num, tile_loc, tile_len);
 	}
 
-	de_bitmap_write_to_file(img, NULL);
+	de_bitmap_write_to_file(img, NULL, 0);
 
 done:
 	de_bitmap_destroy(img);
