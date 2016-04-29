@@ -9,7 +9,6 @@
 typedef struct localctx_struct {
 	de_int64 icon_revision;
 	de_byte icon_type;
-
 	int has_drawerdata;
 	int has_toolwindow;
 	int has_defaulttool;
@@ -27,6 +26,8 @@ typedef struct localctx_struct {
 	int newicons_line_count;
 
 	// Glowicons-specific data
+	int has_glowicons;
+	de_int64 glowicons_pos;
 	de_int64 glowicons_width, glowicons_height;
 	de_uint32 glowicons_palette[256];
 } lctx;
@@ -172,7 +173,8 @@ static void do_decode_newicons(deark *c, lctx *d,
 
 	de_convert_image_paletted(decoded, bitmap_start_pos,
 		8, img->width, pal, img, 0);
-	de_bitmap_write_to_file(img, "n", DE_CREATEFLAG_UNKNOWN);
+	de_bitmap_write_to_file(img, c->filenames_from_file?"n":NULL,
+		d->has_glowicons?DE_CREATEFLAG_IS_AUX:0);
 
 	if(decoded) dbuf_close(decoded);
 	if(img) de_bitmap_destroy(img);
@@ -259,7 +261,7 @@ static int do_read_main_icon(deark *c, lctx *d,
 		}
 	}
 
-	de_bitmap_write_to_file(img, NULL, DE_CREATEFLAG_UNKNOWN);
+	de_bitmap_write_to_file(img, NULL, (d->has_newicons||d->has_glowicons)?DE_CREATEFLAG_IS_AUX:0);
 
 	retval = 1;
 
@@ -489,41 +491,51 @@ static void do_glowicons_IMAG(deark *c, lctx *d,
 	de_convert_image_paletted(tmpbuf, 0,
 		8, d->glowicons_width, d->glowicons_palette, img, 0);
 
-	de_bitmap_write_to_file(img, "g", 0);
+	de_bitmap_write_to_file(img, c->filenames_from_file?"g":NULL, 0);
 
 done:
 	if(tmpbuf) dbuf_close(tmpbuf);
 	if(img) de_bitmap_destroy(img);
 }
 
-static void do_glowicons(deark *c, lctx *d, de_int64 pos)
-{
-	de_int64 gsize;
-	de_int64 startpos;
-	de_int64 endpos;
-	de_int64 len;
-	de_byte chunk_id_buf[4];
-	char chunk_id_printable[8];
-	de_uint32 chunk_id;
-	de_uint32 form_type;
-	int indent_count = 0;
-
-	gsize = c->infile->len - pos;
-	if(gsize < 24) goto done; // too small
-
-// Chunk types:
+// GlowIcons chunk types:
 #define CODE_FORM 0x464f524dU
 #define CODE_FACE 0x46414345U
 #define CODE_IMAG 0x494d4147U
 // FORM types:
 #define CODE_ICON 0x49434f4eU
 
-	chunk_id = (de_uint32)de_getui32be(pos);
-	form_type = (de_uint32)de_getui32be(pos+8);
-	if(chunk_id!=CODE_FORM || form_type!=CODE_ICON) {
-		de_warn(c, "Extra data found at end of file, but not identified as GlowIcons format.");
-		goto done;
+static int do_detect_glowicons(deark *c, lctx *d, de_int64 pos)
+{
+	de_int64 gsize;
+	de_uint32 chunk_id;
+	de_uint32 form_type;
+
+	gsize = c->infile->len - pos;
+	if(gsize<=0) return 0;
+
+	if(gsize>=24) {
+		chunk_id = (de_uint32)de_getui32be(pos);
+		form_type = (de_uint32)de_getui32be(pos+8);
+		if(chunk_id==CODE_FORM && form_type==CODE_ICON) {
+			de_dbg(c, "GlowIcons data found at %d\n", (int)pos);
+			return 1;
+		}
 	}
+
+	de_warn(c, "Extra data found at end of file, but not identified as GlowIcons format.");
+	return 0;
+}
+
+static void do_glowicons(deark *c, lctx *d, de_int64 pos)
+{
+	de_int64 startpos;
+	de_int64 endpos;
+	de_int64 len;
+	de_byte chunk_id_buf[4];
+	char chunk_id_printable[8];
+	de_uint32 chunk_id;
+	int indent_count = 0;
 
 	startpos = pos;
 
@@ -568,7 +580,6 @@ static void do_glowicons(deark *c, lctx *d, de_int64 pos)
 		if(len%2) pos++; // skip padding byte
 	}
 
-done:
 	de_dbg_indent(c, -indent_count);
 }
 
@@ -681,7 +692,10 @@ static void do_scan_file(deark *c, lctx *d)
 		pos += 6;
 	}
 
-	do_glowicons(c, d, pos);
+	if(do_detect_glowicons(c, d, pos)) {
+		d->has_glowicons = 1;
+		d->glowicons_pos = pos;
+	}
 
 done:
 	de_dbg_indent(c, -indent_count);
@@ -698,6 +712,11 @@ static void de_run_amigaicon(deark *c, de_module_params *mparams)
 
 	de_dbg(c, "finished scanning file, now extracting icons\n");
 
+	// Original format icons
+	for(i=0; i<d->num_main_icons; i++) {
+		do_read_main_icon(c, d, d->main_icon_pos[i], i);
+	}
+
 	// NewIcons
 	for(i=0; i<2; i++) {
 		if(d->newicons_data[i]) {
@@ -705,9 +724,9 @@ static void de_run_amigaicon(deark *c, de_module_params *mparams)
 		}
 	}
 
-	// Original format icons
-	for(i=0; i<d->num_main_icons; i++) {
-		do_read_main_icon(c, d, d->main_icon_pos[i], i);
+	// GlowIcons
+	if(d->has_glowicons) {
+		do_glowicons(c, d, d->glowicons_pos);
 	}
 
 	if(d->newicons_data[0]) dbuf_close(d->newicons_data[0]);
