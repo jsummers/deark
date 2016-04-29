@@ -63,6 +63,7 @@ struct dbuf_struct {
 #define DBUF_TYPE_OFILE   2
 #define DBUF_TYPE_MEMBUF  3
 #define DBUF_TYPE_DBUF    4 // nested dbuf
+#define DBUF_TYPE_STDOUT  5
 	int btype;
 
 	deark *c;

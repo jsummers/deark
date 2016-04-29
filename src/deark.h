@@ -113,6 +113,7 @@ void de_set_input_format(deark *c, const char *fmtname);
 
 #define DE_OUTPUTSTYLE_DIRECT 0
 #define DE_OUTPUTSTYLE_ZIP    1
+#define DE_OUTPUTSTYLE_STDOUT 2
 void de_set_output_style(deark *c, int x);
 
 void de_puts(deark *c, int msgtype, const char *s);

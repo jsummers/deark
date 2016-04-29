@@ -456,6 +456,11 @@ dbuf *dbuf_create_output_file(deark *c, const char *ext, de_finfo *fi,
 		f->membuf_alloc = 65536;
 		f->write_memfile_to_zip_archive = 1;
 	}
+	else if(c->output_style==DE_OUTPUTSTYLE_STDOUT) {
+		de_msg(c, "Writing %s to stdout\n", f->name);
+		f->btype = DBUF_TYPE_STDOUT;
+		f->fp = stdout;
+	}
 	else {
 		de_msg(c, "Writing %s\n", f->name);
 		f->btype = DBUF_TYPE_OFILE;
@@ -520,7 +525,7 @@ void dbuf_write(dbuf *f, const de_byte *m, de_int64 len)
 	if(f->btype==DBUF_TYPE_NULL) {
 		return;
 	}
-	else if(f->btype==DBUF_TYPE_OFILE) {
+	else if(f->btype==DBUF_TYPE_OFILE || f->btype==DBUF_TYPE_STDOUT) {
 		if(!f->fp) return;
 		de_dbg3(f->c, "writing %d bytes to %s\n", (int)len, f->name);
 		fwrite(m, 1, (size_t)len, f->fp);
@@ -704,7 +709,7 @@ void dbuf_close(dbuf *f)
 		}
 	}
 
-	if(f->fp) {
+	if(f->btype==DBUF_TYPE_IFILE || f->btype==DBUF_TYPE_OFILE) {
 		if(f->name) {
 			de_dbg3(c, "closing file %s\n", f->name);
 		}
@@ -717,6 +722,12 @@ void dbuf_close(dbuf *f)
 
 		// TODO: Maybe try to make the file executable if and only if
 		// f->is_executable is set.
+	}
+	else if(f->btype==DBUF_TYPE_STDOUT) {
+		if(f->name) {
+			de_dbg3(c, "finished writing %s to stdout\n", f->name);
+		}
+		f->fp = NULL;
 	}
 
 	de_free(c, f->membuf_buf);

@@ -29,6 +29,9 @@ struct cmdctx {
 #ifdef DE_WINDOWS
 	int have_windows_console; // Is msgs_FILE a console?
 #endif
+
+	int to_stdout;
+	int to_zip;
 };
 
 static void show_version(deark *c)
@@ -158,7 +161,7 @@ enum opt_id_enum {
  DE_OPT_NOMODTIME,
  DE_OPT_Q, DE_OPT_VERSION, DE_OPT_HELP,
  DE_OPT_MAINONLY, DE_OPT_AUXONLY, DE_OPT_EXTRACTALL, DE_OPT_ZIP,
- DE_OPT_MSGSTOSTDERR,
+ DE_OPT_TOSTDOUT, DE_OPT_MSGSTOSTDERR,
  DE_OPT_EXTOPT, DE_OPT_FILE2, DE_OPT_START, DE_OPT_SIZE, DE_OPT_M, DE_OPT_O,
  DE_OPT_ARCFN, DE_OPT_GET, DE_OPT_FIRSTFILE, DE_OPT_MAXFILES, DE_OPT_MAXIMGDIM,
  DE_OPT_PRINTMODULES
@@ -194,6 +197,7 @@ struct opt_struct option_array[] = {
 	{ "a",            DE_OPT_EXTRACTALL,   0 },
 	{ "extractall",   DE_OPT_EXTRACTALL,   0 },
 	{ "zip",          DE_OPT_ZIP,          0 },
+	{ "tostdout",     DE_OPT_TOSTDOUT,     0 },
 	{ "msgstostderr", DE_OPT_MSGSTOSTDERR, 0 },
 	{ "opt",          DE_OPT_EXTOPT,       1 },
 	{ "file2",        DE_OPT_FILE2,        1 },
@@ -319,6 +323,13 @@ static void parse_cmdline(deark *c, struct cmdctx *cc, int argc, char **argv)
 				break;
 			case DE_OPT_ZIP:
 				de_set_output_style(c, DE_OUTPUTSTYLE_ZIP);
+				cc->to_zip = 1;
+				break;
+			case DE_OPT_TOSTDOUT:
+				de_set_output_style(c, DE_OUTPUTSTYLE_STDOUT);
+				send_msgs_to_stderr(c, cc);
+				de_set_max_output_files(c, 1);
+				cc->to_stdout = 1;
 				break;
 			case DE_OPT_MSGSTOSTDERR:
 				send_msgs_to_stderr(c, cc);
@@ -380,6 +391,12 @@ static void parse_cmdline(deark *c, struct cmdctx *cc, int argc, char **argv)
 		cc->error_flag = 1;
 		return;
 	}
+
+	if(cc->to_zip && cc->to_stdout) {
+		de_puts(c, DE_MSGTYPE_MESSAGE, "-tostdout and -zip are incompatible\n");
+		cc->error_flag = 1;
+		return;
+	}
 }
 
 static void main2(int argc, char **argv)
@@ -407,6 +424,12 @@ static void main2(int argc, char **argv)
 	}
 
 	if(cc->special_command_flag) goto done;
+
+#ifdef DE_WINDOWS
+	if(cc->to_stdout) {
+		_setmode(_fileno(stdout), _O_BINARY);
+	}
+#endif
 
 	de_run(c);
 

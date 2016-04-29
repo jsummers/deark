@@ -49,6 +49,12 @@ Command-line options:
      "output.NNN" prefix.
   -arcfn <filename>
      Use this name for the .zip file. Default="output.zip".
+  -tostdout
+     Write the output file(s) to the standard output stream (stdout).
+     This feature is experimental, and might not work in all situations.
+     It is recommended to put -tostdout first on the command line. The
+     -msgstostderr and "-maxfiles 1" options are enabled automatically.
+     Using -main is suggested. Incompatible with -zip.
   -start <n>
      Ignore bytes before offset <n>.
   -size <n>
