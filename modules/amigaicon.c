@@ -19,6 +19,8 @@ typedef struct localctx_struct {
 	de_int64 main_icon_pos[2];
 
 	// Newicons-specific data
+	int has_newicons;
+	dbuf *newicons_data[2];
 	de_byte pending_data;
 	int pending_data_bits_used;
 	int newicons_bits_per_pixel;
@@ -272,7 +274,6 @@ static int do_read_tooltypes_table(deark *c, lctx *d,
 {
 	de_int64 num_entries_raw;
 	de_int64 num_entries;
-	dbuf *newicons_data[2];
 	int retval = 0;
 	de_int64 i;
 	de_int64 len;
@@ -281,8 +282,6 @@ static int do_read_tooltypes_table(deark *c, lctx *d,
 	de_int64 pos, tpos;
 
 	pos = orig_pos;
-	newicons_data[0] = NULL;
-	newicons_data[1] = NULL;
 
 	de_dbg(c, "tool types table at %d\n", (int)pos);
 	de_dbg_indent(c, 1);
@@ -319,26 +318,22 @@ static int do_read_tooltypes_table(deark *c, lctx *d,
 			continue;
 		}
 
-		de_dbg2(c, "NewIcons data [%d] pos=%d size=%d\n", newicons_num, (int)tpos, (int)len);
+		d->has_newicons = 1;
 
-		if(!newicons_data[newicons_num]) {
-			newicons_data[newicons_num] = dbuf_create_membuf(c, 2048, 0);
+		// Write NewIcons data to membufs, for later decoding.
+
+		if(!d->newicons_data[newicons_num]) {
+			de_dbg(c, "NewIcons data [%d] starting at pos=%d\n", newicons_num, (int)tpos);
+			d->newicons_data[newicons_num] = dbuf_create_membuf(c, 2048, 0);
 			// The data we copy includes the terminating NUL.
 		}
-		dbuf_copy(c->infile, tpos+4, len-4, newicons_data[newicons_num]);
-	}
-
-	for(newicons_num=0; newicons_num<2; newicons_num++) {
-		if(newicons_data[newicons_num]) {
-			do_decode_newicons(c, d, newicons_data[newicons_num], newicons_num);
-		}
+		de_dbg2(c, "NewIcons data [%d] pos=%d size=%d\n", newicons_num, (int)tpos, (int)len);
+		dbuf_copy(c->infile, tpos+4, len-4, d->newicons_data[newicons_num]);
 	}
 
 	retval = 1;
 done:
 	*pbytesused = pos - orig_pos;
-	if(newicons_data[0]) dbuf_close(newicons_data[0]);
-	if(newicons_data[1]) dbuf_close(newicons_data[1]);
 	de_dbg_indent(c, -1);
 	return retval;
 }
@@ -698,12 +693,25 @@ static void de_run_amigaicon(deark *c, de_module_params *mparams)
 	de_int64 i;
 
 	d = de_malloc(c, sizeof(lctx));
+
 	do_scan_file(c, d);
 
+	de_dbg(c, "finished scanning file, now extracting icons\n");
+
+	// NewIcons
+	for(i=0; i<2; i++) {
+		if(d->newicons_data[i]) {
+			do_decode_newicons(c, d, d->newicons_data[i], (int)i);
+		}
+	}
+
+	// Original format icons
 	for(i=0; i<d->num_main_icons; i++) {
 		do_read_main_icon(c, d, d->main_icon_pos[i], i);
 	}
 
+	if(d->newicons_data[0]) dbuf_close(d->newicons_data[0]);
+	if(d->newicons_data[1]) dbuf_close(d->newicons_data[1]);
 	de_free(c, d);
 }
 
