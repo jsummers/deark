@@ -7,14 +7,16 @@
 #include <deark-modules.h>
 
 typedef struct localctx_struct {
-	de_int64 main_width;
-	de_int64 main_height;
 	de_int64 icon_revision;
 	de_byte icon_type;
+
 	int has_drawerdata;
 	int has_toolwindow;
 	int has_defaulttool;
 	int has_tooltypes;
+
+	de_int64 num_main_icons;
+	de_int64 main_icon_pos[2];
 
 	// Newicons-specific data
 	de_byte pending_data;
@@ -175,8 +177,24 @@ static void do_decode_newicons(deark *c, lctx *d,
 	de_dbg_indent(c, -1);
 }
 
+// Read enough of a main icon's header to determine how many bytes it uses.
+static void get_main_icon_size(deark *c, lctx *d, de_int64 pos, de_int64 *pbytesused)
+{
+	de_int64 width, height;
+	de_int64 depth;
+	de_int64 src_rowspan, src_planespan;
+
+	width = de_getui16be(pos+4);
+	height = de_getui16be(pos+6);
+	depth = de_getui16be(pos+8);
+	src_rowspan = ((width+15)/16)*2;
+	src_planespan = src_rowspan * height;
+
+	*pbytesused = 20 + src_planespan * depth;
+}
+
 static int do_read_main_icon(deark *c, lctx *d,
-	de_int64 pos, de_int64 icon_index, de_int64 *pbytesused)
+	de_int64 pos, de_int64 icon_index)
 {
 	de_int64 width, height;
 	de_int64 depth;
@@ -186,8 +204,6 @@ static int do_read_main_icon(deark *c, lctx *d,
 	struct deark_bitmap *img = NULL;
 	de_byte b, b1;
 	de_uint32 pal[256];
-
-	*pbytesused = 0;
 
 	de_dbg(c, "main icon #%d, at %d\n", (int)icon_index, (int)pos);
 	de_dbg_indent(c, 1);
@@ -206,9 +222,6 @@ static int do_read_main_icon(deark *c, lctx *d,
 
 	src_rowspan = ((width+15)/16)*2;
 	src_planespan = src_rowspan * height;
-
-	// Set this so we remember where to look for the next icon.
-	*pbytesused = 20 + src_planespan * depth;
 
 	img = de_bitmap_create(c, width, height, 3);
 
@@ -564,10 +577,10 @@ done:
 	de_dbg_indent(c, -indent_count);
 }
 
-static void de_run_amigaicon(deark *c, de_module_params *mparams)
+static void do_scan_file(deark *c, lctx *d)
 {
-	lctx *d;
-	de_int64 num_main_icons;
+	de_int64 main_width;
+	de_int64 main_height;
 	de_int64 pos;
 	de_int64 i;
 	de_int64 x;
@@ -575,8 +588,6 @@ static void de_run_amigaicon(deark *c, de_module_params *mparams)
 	de_int64 version;
 	const char *tn = "?";
 	int indent_count = 0;
-
-	d = de_malloc(c, sizeof(lctx));
 
 	de_dbg(c, "DiskObject at %d, len=%d\n", 0, 78);
 	de_dbg_indent(c, 1);
@@ -589,12 +600,12 @@ static void de_run_amigaicon(deark *c, de_module_params *mparams)
 	de_dbg_indent(c, 1);
 	indent_count++;
 
-	d->main_width = de_getui16be(12);
-	d->main_height = de_getui16be(14);
-	de_dbg(c, "main canvas size: %dx%d\n", (int)d->main_width, (int)d->main_height);
+	main_width = de_getui16be(12);
+	main_height = de_getui16be(14);
+	de_dbg(c, "main canvas size: %dx%d\n", (int)main_width, (int)main_height);
 
-	num_main_icons = (de_getui32be(26)==0) ? 1 : 2; // "SelectRender" field
-	de_dbg(c, "number of (original) icons: %d\n", (int)num_main_icons);
+	d->num_main_icons = (de_getui32be(26)==0) ? 1 : 2; // "SelectRender" field
+	de_dbg(c, "number of (original) icons: %d\n", (int)d->num_main_icons);
 
 	d->icon_revision = de_getui32be(44) & 0xff;
 	de_dbg(c, "icon revision: %d\n", (int)d->icon_revision);
@@ -640,10 +651,11 @@ static void de_run_amigaicon(deark *c, de_module_params *mparams)
 		pos+=56;
 	}
 
-	// Read the main (original-style) icons
-	for(i=0; i<num_main_icons; i++) {
-		if(!do_read_main_icon(c, d, pos, i, &bytesused))
-			goto done;
+	// Record the location of the main (original-style) icons
+	for(i=0; i<d->num_main_icons; i++) {
+		d->main_icon_pos[i] = pos;
+		get_main_icon_size(c, d, pos, &bytesused);
+		de_dbg(c, "main icon #%d data at %d, size=%d\n", (int)i, (int)d->main_icon_pos[i], (int)bytesused);
 		pos += bytesused;
 	}
 
@@ -678,6 +690,20 @@ static void de_run_amigaicon(deark *c, de_module_params *mparams)
 
 done:
 	de_dbg_indent(c, -indent_count);
+}
+
+static void de_run_amigaicon(deark *c, de_module_params *mparams)
+{
+	lctx *d;
+	de_int64 i;
+
+	d = de_malloc(c, sizeof(lctx));
+	do_scan_file(c, d);
+
+	for(i=0; i<d->num_main_icons; i++) {
+		do_read_main_icon(c, d, d->main_icon_pos[i], i);
+	}
+
 	de_free(c, d);
 }
 
