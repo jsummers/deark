@@ -179,7 +179,8 @@ static void do_oldjpeg(deark *c, lctx *d, de_int64 jpegoffset, de_int64 jpegleng
 	}
 	else {
 		extension = "jpg";
-		createflags = DE_CREATEFLAG_UNKNOWN;
+		// TODO: Should createflags be set to DE_CREATEFLAG_IS_AUX in some cases?
+		createflags = 0;
 	}
 	dbuf_create_file_from_slice(c->infile, jpegoffset, jpeglength, extension, NULL, createflags);
 }

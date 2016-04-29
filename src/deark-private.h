@@ -346,7 +346,6 @@ de_uint32 dbuf_getRGB(dbuf *f, de_int64 pos, unsigned int flags);
 
 // At least one of 'ext' or 'fi' should be non-NULL.
 #define DE_CREATEFLAG_IS_AUX   0x1
-#define DE_CREATEFLAG_UNKNOWN  0   // temporary (TODO)
 dbuf *dbuf_create_output_file(deark *c, const char *ext, de_finfo *fi, unsigned int createflags);
 
 dbuf *dbuf_open_input_file(deark *c, const char *fn);
