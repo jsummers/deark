@@ -5,7 +5,9 @@
 // Windows animated cursor format
 
 #include <deark-config.h>
-#include <deark-modules.h>
+#include <deark-private.h>
+DE_DECLARE_MODULE(de_module_riff);
+DE_DECLARE_MODULE(de_module_ani);
 
 #define CODE_ACON  0x41434f4eU
 #define CHUNK_LIST 0x4c495354U

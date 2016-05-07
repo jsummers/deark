@@ -4,7 +4,8 @@
 // GIF image
 
 #include <deark-config.h>
-#include <deark-modules.h>
+#include <deark-private.h>
+DE_DECLARE_MODULE(de_module_gif);
 
 typedef struct localctx_struct {
 	int has_global_color_table;

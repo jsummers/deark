@@ -4,7 +4,8 @@
 // Extract graphics and text from Windows Cardfile .crd format
 
 #include <deark-config.h>
-#include <deark-modules.h>
+#include <deark-private.h>
+DE_DECLARE_MODULE(de_module_cardfile);
 
 typedef struct localctx_struct {
 #define DE_CRDFMT_MGC 1

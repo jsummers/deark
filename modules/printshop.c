@@ -4,7 +4,10 @@
 // Old Print Shop and PrintMaster formats
 
 #include <deark-config.h>
-#include <deark-modules.h>
+#include <deark-private.h>
+DE_DECLARE_MODULE(de_module_printshop);
+DE_DECLARE_MODULE(de_module_newprintshop);
+DE_DECLARE_MODULE(de_module_printmaster);
 
 // **************************************************************************
 // The Print Shop .DAT/.NAM format

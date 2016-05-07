@@ -7,7 +7,8 @@
 // do support.
 
 #include <deark-config.h>
-#include <deark-modules.h>
+#include <deark-private.h>
+DE_DECLARE_MODULE(de_module_unsupported);
 
 struct fmtinfo_struct {
 	int confidence;

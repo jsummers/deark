@@ -4,8 +4,9 @@
 // Extract various things from TIFF (and similar) image files
 
 #include <deark-config.h>
-#include <deark-modules.h>
+#include <deark-private.h>
 #include "fmtutil.h"
+DE_DECLARE_MODULE(de_module_tiff);
 
 #define MAX_IFDS 1000
 

@@ -1,6 +1,11 @@
 // This file is part of Deark, by Jason Summers.
 // This software is in the public domain. See the file COPYING for details.
 
+#ifdef DEARK_PRIVATE_H_INC
+#error "deark-private.h included multiple times"
+#endif
+#define DEARK_PRIVATE_H_INC
+
 #include <string.h>
 #include <stdarg.h>
 #include "deark.h"
@@ -24,6 +29,8 @@
 typedef struct de_module_params_struct {
 	const char *codes;
 } de_module_params;
+
+#define DE_DECLARE_MODULE(x) void x(deark *c, struct deark_module_info *mi)
 
 // 'mparams' is used for sending data to, and receiving data from, a module.
 typedef void (*de_module_run_fn)(deark *c, de_module_params *mparams);

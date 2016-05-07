@@ -7,7 +7,10 @@
 // * PGX (Portfolio animation)
 
 #include <deark-config.h>
-#include <deark-modules.h>
+#include <deark-private.h>
+DE_DECLARE_MODULE(de_module_pgx);
+DE_DECLARE_MODULE(de_module_pf_pgf);
+DE_DECLARE_MODULE(de_module_pgc);
 
 typedef struct localctx_struct {
 	de_byte version;

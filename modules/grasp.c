@@ -5,7 +5,9 @@
 // GRASP font format
 
 #include <deark-config.h>
-#include <deark-modules.h>
+#include <deark-private.h>
+DE_DECLARE_MODULE(de_module_graspgl);
+DE_DECLARE_MODULE(de_module_graspfont);
 
 typedef struct localctx_struct {
 	de_int64 dir_header_nbytes;

@@ -4,7 +4,8 @@
 // Microsoft Paint
 
 #include <deark-config.h>
-#include <deark-modules.h>
+#include <deark-private.h>
+DE_DECLARE_MODULE(de_module_msp);
 
 typedef struct localctx_struct {
 	int ver; // 1 or 2

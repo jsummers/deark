@@ -1,133 +1,140 @@
 // This file is part of Deark, by Jason Summers.
 // This software is in the public domain. See the file COPYING for details.
 
-// When you add a module, list it in this file and deark-modules.c.
+// When you add a module, list it in this file.
 
-#include "deark-private.h"
+// This file is #included twice by deark-modules.c, with different definitions
+// of the DE_MODULE* macros.
+// This technique is ugly, but it makes it simpler to add a module.
 
-void de_module_unsupported(deark *c, struct deark_module_info *mi);
-void de_module_jpeg(deark *c, struct deark_module_info *mi);
-void de_module_jpegscan(deark *c, struct deark_module_info *mi);
-void de_module_tiff(deark *c, struct deark_module_info *mi);
-void de_module_os2bmp(deark *c, struct deark_module_info *mi);
-void de_module_eps(deark *c, struct deark_module_info *mi);
-void de_module_zlib(deark *c, struct deark_module_info *mi);
-void de_module_bsave(deark *c, struct deark_module_info *mi);
-void de_module_psd(deark *c, struct deark_module_info *mi);
-void de_module_copy(deark *c, struct deark_module_info *mi);
-void de_module_msp(deark *c, struct deark_module_info *mi);
-void de_module_pcpaint(deark *c, struct deark_module_info *mi);
-void de_module_graspgl(deark *c, struct deark_module_info *mi);
-void de_module_amigaicon(deark *c, struct deark_module_info *mi);
-void de_module_macpaint(deark *c, struct deark_module_info *mi);
-void de_module_epocimage(deark *c, struct deark_module_info *mi);
-void de_module_psionpic(deark *c, struct deark_module_info *mi);
-void de_module_psionapp(deark *c, struct deark_module_info *mi);
-void de_module_hpicn(deark *c, struct deark_module_info *mi);
-void de_module_exe(deark *c, struct deark_module_info *mi);
-void de_module_ani(deark *c, struct deark_module_info *mi);
-void de_module_riff(deark *c, struct deark_module_info *mi);
-void de_module_jpeg2000(deark *c, struct deark_module_info *mi);
-void de_module_fnt(deark *c, struct deark_module_info *mi);
-void de_module_zip(deark *c, struct deark_module_info *mi);
-void de_module_xpuzzle(deark *c, struct deark_module_info *mi);
-void de_module_dcx(deark *c, struct deark_module_info *mi);
-void de_module_nol(deark *c, struct deark_module_info *mi);
-void de_module_ngg(deark *c, struct deark_module_info *mi);
-void de_module_npm(deark *c, struct deark_module_info *mi);
-void de_module_nlm(deark *c, struct deark_module_info *mi);
-void de_module_nsl(deark *c, struct deark_module_info *mi);
-void de_module_grob(deark *c, struct deark_module_info *mi);
-void de_module_d64(deark *c, struct deark_module_info *mi);
-void de_module_t64(deark *c, struct deark_module_info *mi);
-void de_module_atari_cas(deark *c, struct deark_module_info *mi);
-void de_module_atr(deark *c, struct deark_module_info *mi);
-void de_module_mrw(deark *c, struct deark_module_info *mi);
-void de_module_cardfile(deark *c, struct deark_module_info *mi);
-void de_module_winzle(deark *c, struct deark_module_info *mi);
-void de_module_bob(deark *c, struct deark_module_info *mi);
-void de_module_alias_pix(deark *c, struct deark_module_info *mi);
-void de_module_tivariable(deark *c, struct deark_module_info *mi);
-void de_module_basic_c64(deark *c, struct deark_module_info *mi);
-void de_module_applevol(deark *c, struct deark_module_info *mi);
-void de_module_hr(deark *c, struct deark_module_info *mi);
-void de_module_ico(deark *c, struct deark_module_info *mi);
-void de_module_ripicon(deark *c, struct deark_module_info *mi);
-void de_module_rpm(deark *c, struct deark_module_info *mi);
-void de_module_qtif(deark *c, struct deark_module_info *mi);
-void de_module_ilbm(deark *c, struct deark_module_info *mi);
-void de_module_lss16(deark *c, struct deark_module_info *mi);
-void de_module_printshop(deark *c, struct deark_module_info *mi);
-void de_module_newprintshop(deark *c, struct deark_module_info *mi);
-void de_module_printmaster(deark *c, struct deark_module_info *mi);
-void de_module_icns(deark *c, struct deark_module_info *mi);
-void de_module_awbm(deark *c, struct deark_module_info *mi);
-void de_module_vbm(deark *c, struct deark_module_info *mi);
-void de_module_fp_art(deark *c, struct deark_module_info *mi);
-void de_module_pgx(deark *c, struct deark_module_info *mi);
-void de_module_pf_pgf(deark *c, struct deark_module_info *mi);
-void de_module_pgc(deark *c, struct deark_module_info *mi);
-void de_module_binhex(deark *c, struct deark_module_info *mi);
-void de_module_pcx(deark *c, struct deark_module_info *mi);
-void de_module_bpg(deark *c, struct deark_module_info *mi);
-void de_module_shg(deark *c, struct deark_module_info *mi);
-void de_module_rosprite(deark *c, struct deark_module_info *mi);
-void de_module_png(deark *c, struct deark_module_info *mi);
-void de_module_ar(deark *c, struct deark_module_info *mi);
-void de_module_ybm(deark *c, struct deark_module_info *mi);
-void de_module_prismpaint(deark *c, struct deark_module_info *mi);
-void de_module_degas(deark *c, struct deark_module_info *mi);
-void de_module_ansiart(deark *c, struct deark_module_info *mi);
-void de_module_olpc565(deark *c, struct deark_module_info *mi);
-void de_module_rsc(deark *c, struct deark_module_info *mi);
-void de_module_gemraster(deark *c, struct deark_module_info *mi);
-void de_module_xbin(deark *c, struct deark_module_info *mi);
-void de_module_graspfont(deark *c, struct deark_module_info *mi);
-void de_module_pff2(deark *c, struct deark_module_info *mi);
-void de_module_gemfont(deark *c, struct deark_module_info *mi);
-void de_module_ftc(deark *c, struct deark_module_info *mi);
-void de_module_tinystuff(deark *c, struct deark_module_info *mi);
-void de_module_neochrome(deark *c, struct deark_module_info *mi);
-void de_module_neochrome_ani(deark *c, struct deark_module_info *mi);
-void de_module_fpaint_pi4(deark *c, struct deark_module_info *mi);
-void de_module_fpaint_pi9(deark *c, struct deark_module_info *mi);
-void de_module_atari_pi7(deark *c, struct deark_module_info *mi);
-void de_module_eggpaint(deark *c, struct deark_module_info *mi);
-void de_module_indypaint(deark *c, struct deark_module_info *mi);
-void de_module_tga(deark *c, struct deark_module_info *mi);
-void de_module_tim(deark *c, struct deark_module_info *mi);
-void de_module_insetpix(deark *c, struct deark_module_info *mi);
-void de_module_alphabmp(deark *c, struct deark_module_info *mi);
-void de_module_wmf(deark *c, struct deark_module_info *mi);
-void de_module_emf(deark *c, struct deark_module_info *mi);
-void de_module_pict(deark *c, struct deark_module_info *mi);
-void de_module_iim(deark *c, struct deark_module_info *mi);
-void de_module_falcon_xga(deark *c, struct deark_module_info *mi);
-void de_module_base16(deark *c, struct deark_module_info *mi);
-void de_module_base64(deark *c, struct deark_module_info *mi);
-void de_module_uuencode(deark *c, struct deark_module_info *mi);
-void de_module_xxencode(deark *c, struct deark_module_info *mi);
-void de_module_ascii85(deark *c, struct deark_module_info *mi);
-void de_module_pm_xv(deark *c, struct deark_module_info *mi);
-void de_module_compress(deark *c, struct deark_module_info *mi);
-void de_module_crg(deark *c, struct deark_module_info *mi);
-void de_module_gemmeta(deark *c, struct deark_module_info *mi);
-void de_module_j2c(deark *c, struct deark_module_info *mi);
-void de_module_mp4(deark *c, struct deark_module_info *mi);
-void de_module_gif(deark *c, struct deark_module_info *mi);
-void de_module_abk(deark *c, struct deark_module_info *mi);
-void de_module_mbk(deark *c, struct deark_module_info *mi);
-void de_module_amos_source(deark *c, struct deark_module_info *mi);
-void de_module_makichan(deark *c, struct deark_module_info *mi);
-void de_module_bmp(deark *c, struct deark_module_info *mi);
-void de_module_farbfeld(deark *c, struct deark_module_info *mi);
-void de_module_sauce(deark *c, struct deark_module_info *mi);
-void de_module_bintext(deark *c, struct deark_module_info *mi);
-void de_module_icedraw(deark *c, struct deark_module_info *mi);
-void de_module_vgafont(deark *c, struct deark_module_info *mi);
-void de_module_crc32(deark *c, struct deark_module_info *mi);
-void de_module_artworx_adf(deark *c, struct deark_module_info *mi);
-void de_module_psf(deark *c, struct deark_module_info *mi);
-void de_module_pkfont(deark *c, struct deark_module_info *mi);
-void de_module_hsiraw(deark *c, struct deark_module_info *mi);
-void de_module_qdv(deark *c, struct deark_module_info *mi);
+// The order that modules appear in this list can affect performance, and
+// in some cases can affect what format a file will be detected as.
+// The more common and easily-identified a format is, the earlier it should
+// appear.
+
+DE_MODULE(de_module_jpeg)
+DE_MODULE(de_module_tiff)
+DE_MODULE(de_module_gif)
+DE_MODULE(de_module_eps)
+DE_MODULE(de_module_msp)
+DE_MODULE(de_module_pcpaint)
+DE_MODULE(de_module_bmp)
+DE_MODULE(de_module_os2bmp)
+DE_MODULE(de_module_psd)
+DE_MODULE(de_module_amigaicon)
+DE_MODULE(de_module_epocimage)
+DE_MODULE(de_module_psionpic)
+DE_MODULE(de_module_psionapp)
+DE_MODULE(de_module_exe)
+DE_MODULE(de_module_ani)
+DE_MODULE(de_module_riff)
+DE_MODULE(de_module_jpeg2000)
+DE_MODULE(de_module_mp4)
+DE_MODULE(de_module_j2c)
+DE_MODULE(de_module_png)
+DE_MODULE(de_module_wmf)
+DE_MODULE(de_module_emf)
+DE_MODULE(de_module_rpm)
+DE_MODULE(de_module_binhex)
+DE_MODULE(de_module_ilbm)
+DE_MODULE(de_module_icns)
+DE_MODULE(de_module_farbfeld)
+DE_MODULE(de_module_dcx)
+DE_MODULE(de_module_pgc)
+DE_MODULE(de_module_pgx)
+DE_MODULE(de_module_bpg)
+DE_MODULE(de_module_fnt)
+DE_MODULE(de_module_ar)
+DE_MODULE(de_module_uuencode)
+DE_MODULE(de_module_ascii85)
+DE_MODULE(de_module_hpicn)
+DE_MODULE(de_module_macpaint)
+DE_MODULE(de_module_pict)
+DE_MODULE(de_module_psf)
+DE_MODULE(de_module_nol)
+DE_MODULE(de_module_ngg)
+DE_MODULE(de_module_npm)
+DE_MODULE(de_module_nlm)
+DE_MODULE(de_module_nsl)
+DE_MODULE(de_module_xbin)
+DE_MODULE(de_module_abk)
+DE_MODULE(de_module_amos_source)
+DE_MODULE(de_module_mbk)
+DE_MODULE(de_module_pff2)
+DE_MODULE(de_module_tivariable)
+DE_MODULE(de_module_olpc565)
+DE_MODULE(de_module_awbm)
+DE_MODULE(de_module_lss16)
+DE_MODULE(de_module_atr)
+DE_MODULE(de_module_t64)
+DE_MODULE(de_module_mrw)
+DE_MODULE(de_module_cardfile)
+DE_MODULE(de_module_graspgl)
+DE_MODULE(de_module_zlib)
+DE_MODULE(de_module_tim)
+DE_MODULE(de_module_bsave)
+DE_MODULE(de_module_zip)
+DE_MODULE(de_module_compress)
+DE_MODULE(de_module_sauce)
+DE_MODULE(de_module_ansiart)
+DE_MODULE(de_module_bintext)
+DE_MODULE(de_module_icedraw)
+DE_MODULE(de_module_makichan)
+DE_MODULE(de_module_xpuzzle)
+DE_MODULE(de_module_grob)
+DE_MODULE(de_module_shg)
+DE_MODULE(de_module_alias_pix)
+DE_MODULE(de_module_prismpaint)
+DE_MODULE(de_module_atari_cas)
+DE_MODULE(de_module_vbm)
+DE_MODULE(de_module_winzle)
+DE_MODULE(de_module_bob)
+DE_MODULE(de_module_hr)
+DE_MODULE(de_module_applevol)
+DE_MODULE(de_module_basic_c64)
+DE_MODULE(de_module_ico)
+DE_MODULE(de_module_pcx)
+DE_MODULE(de_module_rsc)
+DE_MODULE(de_module_gemraster)
+DE_MODULE(de_module_gemmeta)
+DE_MODULE(de_module_tga)
+DE_MODULE(de_module_fp_art)
+DE_MODULE(de_module_pf_pgf)
+DE_MODULE(de_module_qtif)
+DE_MODULE(de_module_degas)
+DE_MODULE(de_module_tinystuff)
+DE_MODULE(de_module_neochrome)
+DE_MODULE(de_module_neochrome_ani)
+DE_MODULE(de_module_iim)
+DE_MODULE(de_module_ripicon)
+DE_MODULE(de_module_insetpix)
+DE_MODULE(de_module_printshop)
+DE_MODULE(de_module_newprintshop)
+DE_MODULE(de_module_printmaster)
+DE_MODULE(de_module_rosprite)
+DE_MODULE(de_module_hsiraw)
+DE_MODULE(de_module_eggpaint)
+DE_MODULE(de_module_indypaint)
+DE_MODULE(de_module_ftc)
+DE_MODULE(de_module_pkfont)
+DE_MODULE(de_module_graspfont)
+DE_MODULE(de_module_gemfont)
+DE_MODULE(de_module_crg)
+DE_MODULE(de_module_ybm)
+DE_MODULE(de_module_qdv)
+DE_MODULE(de_module_fpaint_pi4)
+DE_MODULE(de_module_fpaint_pi9)
+DE_MODULE(de_module_atari_pi7)
+DE_MODULE(de_module_falcon_xga)
+DE_MODULE(de_module_alphabmp)
+DE_MODULE(de_module_artworx_adf)
+DE_MODULE(de_module_pm_xv)
+DE_MODULE(de_module_xxencode)
+DE_MODULE(de_module_d64)
+DE_MODULE(de_module_base64)
+DE_MODULE(de_module_base16)
+DE_MODULE(de_module_jpegscan)
+DE_MODULE(de_module_vgafont)
+DE_MODULE(de_module_crc32)
+DE_MODULE(de_module_copy)
+DE_MODULE_LAST(de_module_unsupported)

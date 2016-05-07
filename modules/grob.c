@@ -4,7 +4,8 @@
 // "GROB" image format for HP48/49 calculators.
 
 #include <deark-config.h>
-#include <deark-modules.h>
+#include <deark-private.h>
+DE_DECLARE_MODULE(de_module_grob);
 
 typedef struct localctx_struct {
 	int w, h;

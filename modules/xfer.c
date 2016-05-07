@@ -5,7 +5,12 @@
 // Base64, etc.
 
 #include <deark-config.h>
-#include <deark-modules.h>
+#include <deark-private.h>
+DE_DECLARE_MODULE(de_module_base16);
+DE_DECLARE_MODULE(de_module_base64);
+DE_DECLARE_MODULE(de_module_uuencode);
+DE_DECLARE_MODULE(de_module_xxencode);
+DE_DECLARE_MODULE(de_module_ascii85);
 
 typedef struct localctx_struct {
 	int cbuf_count;

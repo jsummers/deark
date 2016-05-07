@@ -4,7 +4,8 @@
 // D64 (Commodore 64 disk image)
 
 #include <deark-config.h>
-#include <deark-modules.h>
+#include <deark-private.h>
+DE_DECLARE_MODULE(de_module_d64);
 
 #define FTYPE_DEL 0x0
 #define FTYPE_SEQ 0x1

@@ -4,7 +4,8 @@
 // GEM VDI Metafile (.gem)
 
 #include <deark-config.h>
-#include <deark-modules.h>
+#include <deark-private.h>
+DE_DECLARE_MODULE(de_module_gemmeta);
 
 typedef struct localctx_struct {
 	int reserved;

@@ -4,7 +4,8 @@
 // Windows BMP image
 
 #include <deark-config.h>
-#include <deark-modules.h>
+#include <deark-private.h>
+DE_DECLARE_MODULE(de_module_bmp);
 
 #define FILEHEADER_SIZE 14
 

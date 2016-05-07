@@ -4,7 +4,8 @@
 // Extract comments from ZIP files.
 
 #include <deark-config.h>
-#include <deark-modules.h>
+#include <deark-private.h>
+DE_DECLARE_MODULE(de_module_zip);
 
 typedef struct localctx_struct {
 	de_int64 end_of_central_dir_pos;

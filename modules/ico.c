@@ -4,8 +4,9 @@
 // Windows ICO and CUR formats
 
 #include <deark-config.h>
-#include <deark-modules.h>
+#include <deark-private.h>
 #include "fmtutil.h"
+DE_DECLARE_MODULE(de_module_ico);
 
 typedef struct localctx_struct {
 	int is_cur;

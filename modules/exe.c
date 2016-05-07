@@ -4,8 +4,9 @@
 // Microsoft EXE executable formats.
 
 #include <deark-config.h>
-#include <deark-modules.h>
+#include <deark-private.h>
 #include "fmtutil.h"
+DE_DECLARE_MODULE(de_module_exe);
 
 #define EXE_FMT_DOS    1
 #define EXE_FMT_NE     2

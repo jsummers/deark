@@ -1,6 +1,11 @@
 // This file is part of Deark, by Jason Summers.
 // This software is in the public domain. See the file COPYING for details.
 
+#ifdef DEARK_H_INC
+#error "deark.h included multiple times"
+#endif
+#define DEARK_H_INC
+
 #include <stdio.h>
 
 #ifdef __GNUC__

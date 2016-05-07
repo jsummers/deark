@@ -2,8 +2,9 @@
 // This software is in the public domain. See the file COPYING for details.
 
 #include <deark-config.h>
-#include <deark-modules.h>
+#include <deark-private.h>
 #include "fmtutil.h"
+DE_DECLARE_MODULE(de_module_tga);
 
 struct tgaimginfo {
 	de_int64 width, height;

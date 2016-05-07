@@ -5,8 +5,9 @@
 // Extract files in a BA (Bitmap Array) container.
 
 #include <deark-config.h>
-#include <deark-modules.h>
+#include <deark-private.h>
 #include "fmtutil.h"
+DE_DECLARE_MODULE(de_module_os2bmp);
 
 // This struct represents a raw source bitmap (it uses BMP format).
 // Two of them (the foreground and the mask) will be combined to make the

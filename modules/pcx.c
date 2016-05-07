@@ -4,7 +4,9 @@
 // PCX (PC Paintbrush) and DCX (multi-image PCX)
 
 #include <deark-config.h>
-#include <deark-modules.h>
+#include <deark-private.h>
+DE_DECLARE_MODULE(de_module_pcx);
+DE_DECLARE_MODULE(de_module_dcx);
 
 #define PCX_HDRSIZE 128
 

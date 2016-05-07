@@ -4,7 +4,8 @@
 // T64 (Commodore 64 "tape"-like format)
 
 #include <deark-config.h>
-#include <deark-modules.h>
+#include <deark-private.h>
+DE_DECLARE_MODULE(de_module_t64);
 
 typedef struct localctx_struct {
 	de_int64 version;

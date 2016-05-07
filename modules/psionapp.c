@@ -4,7 +4,8 @@
 // Psion APP/IMG
 
 #include <deark-config.h>
-#include <deark-modules.h>
+#include <deark-private.h>
+DE_DECLARE_MODULE(de_module_psionapp);
 
 typedef struct localctx_struct {
 	int convert_images; // 0=extract PIC, 1=convert PIC

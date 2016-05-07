@@ -4,8 +4,9 @@
 // MacPaint image format
 
 #include <deark-config.h>
-#include <deark-modules.h>
+#include <deark-private.h>
 #include "fmtutil.h"
+DE_DECLARE_MODULE(de_module_macpaint);
 
 #define MACPAINT_WIDTH 576
 #define MACPAINT_HEIGHT 720

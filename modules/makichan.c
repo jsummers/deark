@@ -6,7 +6,8 @@
 //  TODO: .MAX
 
 #include <deark-config.h>
-#include <deark-modules.h>
+#include <deark-private.h>
+DE_DECLARE_MODULE(de_module_makichan);
 
 typedef struct localctx_struct {
 	de_int64 width, height;

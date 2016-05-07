@@ -4,8 +4,9 @@
 // This module supports the "image resources" section of PSD files.
 
 #include <deark-config.h>
-#include <deark-modules.h>
+#include <deark-private.h>
 #include "fmtutil.h"
+DE_DECLARE_MODULE(de_module_psd);
 
 struct rsrc_info {
 	de_uint16 id;

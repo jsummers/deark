@@ -4,7 +4,8 @@
 // Award BIOS logo formats
 
 #include <deark-config.h>
-#include <deark-modules.h>
+#include <deark-private.h>
+DE_DECLARE_MODULE(de_module_awbm);
 
 typedef struct localctx_struct {
 	de_int64 w, h;

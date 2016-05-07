@@ -2,7 +2,9 @@
 // This software is in the public domain. See the file COPYING for details.
 
 #include <deark-config.h>
-#include <deark-modules.h>
+#include <deark-private.h>
+DE_DECLARE_MODULE(de_module_atari_cas);
+DE_DECLARE_MODULE(de_module_atr);
 
 typedef struct localctx_struct {
 	de_int64 sector_size;

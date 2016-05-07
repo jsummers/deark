@@ -4,7 +4,8 @@
 // PFF2 font (.pf2)
 
 #include <deark-config.h>
-#include <deark-modules.h>
+#include <deark-private.h>
+DE_DECLARE_MODULE(de_module_pff2);
 
 typedef struct localctx_struct {
 	struct de_bitmap_font *font;

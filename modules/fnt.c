@@ -4,7 +4,8 @@
 // Windows FNT font format
 
 #include <deark-config.h>
-#include <deark-modules.h>
+#include <deark-private.h>
+DE_DECLARE_MODULE(de_module_fnt);
 
 typedef struct localctx_struct {
 	de_int64 fnt_version;

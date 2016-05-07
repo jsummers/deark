@@ -4,7 +4,8 @@
 // EPOC MBM, EPOC Sketch, EPOC AIF
 
 #include <deark-config.h>
-#include <deark-modules.h>
+#include <deark-private.h>
+DE_DECLARE_MODULE(de_module_epocimage);
 
 static const de_uint32 supplpal[40] = {
 	0x111111,0x222222,0x444444,0x555555,0x777777,

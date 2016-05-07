@@ -5,8 +5,34 @@
 // Combining them in one file speeds up compilation and development time.
 
 #include <deark-config.h>
-#include <deark-modules.h>
+#include <deark-private.h>
 #include "fmtutil.h"
+DE_DECLARE_MODULE(de_module_copy);
+DE_DECLARE_MODULE(de_module_crc32);
+DE_DECLARE_MODULE(de_module_zlib);
+DE_DECLARE_MODULE(de_module_sauce);
+DE_DECLARE_MODULE(de_module_hpicn);
+DE_DECLARE_MODULE(de_module_xpuzzle);
+DE_DECLARE_MODULE(de_module_winzle);
+DE_DECLARE_MODULE(de_module_mrw);
+DE_DECLARE_MODULE(de_module_bob);
+DE_DECLARE_MODULE(de_module_alias_pix);
+DE_DECLARE_MODULE(de_module_applevol);
+DE_DECLARE_MODULE(de_module_hr);
+DE_DECLARE_MODULE(de_module_ripicon);
+DE_DECLARE_MODULE(de_module_lss16);
+DE_DECLARE_MODULE(de_module_vbm);
+DE_DECLARE_MODULE(de_module_fp_art);
+DE_DECLARE_MODULE(de_module_png);
+DE_DECLARE_MODULE(de_module_ybm);
+DE_DECLARE_MODULE(de_module_olpc565);
+DE_DECLARE_MODULE(de_module_iim);
+DE_DECLARE_MODULE(de_module_pm_xv);
+DE_DECLARE_MODULE(de_module_crg);
+DE_DECLARE_MODULE(de_module_farbfeld);
+DE_DECLARE_MODULE(de_module_vgafont);
+DE_DECLARE_MODULE(de_module_hsiraw);
+DE_DECLARE_MODULE(de_module_qdv);
 
 // **************************************************************************
 // "copy" module

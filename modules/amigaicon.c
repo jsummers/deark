@@ -4,7 +4,8 @@
 // Amiga Workbench icons, including "Newicons" and "Glowicons" formats
 
 #include <deark-config.h>
-#include <deark-modules.h>
+#include <deark-private.h>
+DE_DECLARE_MODULE(de_module_amigaicon);
 
 typedef struct localctx_struct {
 	de_int64 icon_revision;

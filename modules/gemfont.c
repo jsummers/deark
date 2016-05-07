@@ -4,7 +4,8 @@
 // GEM bitmap font
 
 #include <deark-config.h>
-#include <deark-modules.h>
+#include <deark-private.h>
+DE_DECLARE_MODULE(de_module_gemfont);
 
 typedef struct localctx_struct {
 	struct de_bitmap_font *font;

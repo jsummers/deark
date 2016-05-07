@@ -2,8 +2,20 @@
 // This software is in the public domain. See the file COPYING for details.
 
 #include <deark-config.h>
-#include <deark-modules.h>
+#include <deark-private.h>
 #include "fmtutil.h"
+DE_DECLARE_MODULE(de_module_degas);
+DE_DECLARE_MODULE(de_module_prismpaint);
+DE_DECLARE_MODULE(de_module_ftc);
+DE_DECLARE_MODULE(de_module_eggpaint);
+DE_DECLARE_MODULE(de_module_indypaint);
+DE_DECLARE_MODULE(de_module_tinystuff);
+DE_DECLARE_MODULE(de_module_neochrome);
+DE_DECLARE_MODULE(de_module_neochrome_ani);
+DE_DECLARE_MODULE(de_module_fpaint_pi4);
+DE_DECLARE_MODULE(de_module_fpaint_pi9);
+DE_DECLARE_MODULE(de_module_atari_pi7);
+DE_DECLARE_MODULE(de_module_falcon_xga);
 
 static void fix_dark_pal(deark *c, struct atari_img_decode_data *adata);
 

@@ -4,8 +4,9 @@
 // Decode IFF/ILBM and related image formats
 
 #include <deark-config.h>
-#include <deark-modules.h>
+#include <deark-private.h>
 #include "fmtutil.h"
+DE_DECLARE_MODULE(de_module_ilbm);
 
 #define CODE_ABIT  0x41424954
 #define CODE_ANNO  0x414e4e4f

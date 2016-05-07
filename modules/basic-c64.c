@@ -13,7 +13,8 @@
 // wizardry to do well.
 
 #include <deark-config.h>
-#include <deark-modules.h>
+#include <deark-private.h>
+DE_DECLARE_MODULE(de_module_basic_c64);
 
 typedef struct localctx_struct {
 	dbuf *outf;

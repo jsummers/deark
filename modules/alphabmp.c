@@ -4,8 +4,9 @@
 // Alpha Microsystems BMP
 
 #include <deark-config.h>
-#include <deark-modules.h>
+#include <deark-private.h>
 #include "fmtutil.h"
+DE_DECLARE_MODULE(de_module_alphabmp);
 
 typedef struct localctx_struct {
 	de_int64 w, h;

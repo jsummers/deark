@@ -4,7 +4,8 @@
 // PK font ("packed font")
 
 #include <deark-config.h>
-#include <deark-modules.h>
+#include <deark-private.h>
+DE_DECLARE_MODULE(de_module_pkfont);
 
 struct page_ctx {
 	de_int32 cc;

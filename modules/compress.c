@@ -5,9 +5,10 @@
 
 #include <deark-config.h>
 #include <stdlib.h>
-#include <deark-modules.h>
+#include <deark-private.h>
 
 #include "../foreign/liblzw.h"
+DE_DECLARE_MODULE(de_module_compress);
 
 static void de_run_compress(deark *c, de_module_params *mparams)
 {

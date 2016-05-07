@@ -6,8 +6,12 @@
 // ArtWorx ADF character graphics
 
 #include <deark-config.h>
-#include <deark-modules.h>
+#include <deark-private.h>
 #include "fmtutil.h"
+DE_DECLARE_MODULE(de_module_xbin);
+DE_DECLARE_MODULE(de_module_bintext);
+DE_DECLARE_MODULE(de_module_artworx_adf);
+DE_DECLARE_MODULE(de_module_icedraw);
 
 typedef struct localctx_struct {
 	de_int64 width_in_chars, height_in_chars;

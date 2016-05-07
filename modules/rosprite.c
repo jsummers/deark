@@ -4,7 +4,8 @@
 // Acorn Sprite / RISC OS Sprite
 
 #include <deark-config.h>
-#include <deark-modules.h>
+#include <deark-private.h>
+DE_DECLARE_MODULE(de_module_rosprite);
 
 struct old_mode_info {
 	de_uint32 mode;

@@ -4,7 +4,9 @@
 // AMOS sprite/icon bank
 
 #include <deark-config.h>
-#include <deark-modules.h>
+#include <deark-private.h>
+DE_DECLARE_MODULE(de_module_abk);
+DE_DECLARE_MODULE(de_module_amos_source);
 
 #define CODE_AmBk 0x416d426bU
 #define CODE_AmBs 0x416d4273U

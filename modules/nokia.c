@@ -4,7 +4,12 @@
 // Various Nokia phone image formats
 
 #include <deark-config.h>
-#include <deark-modules.h>
+#include <deark-private.h>
+DE_DECLARE_MODULE(de_module_nol);
+DE_DECLARE_MODULE(de_module_ngg);
+DE_DECLARE_MODULE(de_module_npm);
+DE_DECLARE_MODULE(de_module_nlm);
+DE_DECLARE_MODULE(de_module_nsl);
 
 typedef struct localctx_struct {
 	de_int64 w, h;

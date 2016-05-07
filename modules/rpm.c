@@ -4,7 +4,8 @@
 // RPM package manager
 
 #include <deark-config.h>
-#include <deark-modules.h>
+#include <deark-private.h>
+DE_DECLARE_MODULE(de_module_rpm);
 
 #define DE_RPM_STRING_TYPE 6
 

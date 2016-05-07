@@ -6,8 +6,11 @@
 // Extract embedded JPEG files from arbitrary files.
 
 #include <deark-config.h>
-#include <deark-modules.h>
+#include <deark-private.h>
 #include "fmtutil.h"
+DE_DECLARE_MODULE(de_module_jpeg);
+DE_DECLARE_MODULE(de_module_j2c);
+DE_DECLARE_MODULE(de_module_jpegscan);
 
 typedef struct localctx_struct {
 	dbuf *iccprofile_file;

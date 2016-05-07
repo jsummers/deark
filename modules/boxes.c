@@ -4,8 +4,10 @@
 // Extract various things from JPEG 2000, MP4, and similar files
 
 #include <deark-config.h>
-#include <deark-modules.h>
+#include <deark-private.h>
 #include "fmtutil.h"
+DE_DECLARE_MODULE(de_module_jpeg2000);
+DE_DECLARE_MODULE(de_module_mp4);
 
 typedef struct localctx_struct {
 	de_uint32 major_brand;

@@ -4,7 +4,8 @@
 // PCPaint PIC and CLP format
 
 #include <deark-config.h>
-#include <deark-modules.h>
+#include <deark-private.h>
+DE_DECLARE_MODULE(de_module_pcpaint);
 
 struct pal_info {
 	de_int64 edesc;

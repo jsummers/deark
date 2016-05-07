@@ -4,7 +4,8 @@
 // icns - Apple Icon Image format
 
 #include <deark-config.h>
-#include <deark-modules.h>
+#include <deark-private.h>
+DE_DECLARE_MODULE(de_module_icns);
 
 static const de_uint32 pal16[16] = {
 	0xffffff,0xfcf305,0xff6402,0xdd0806,0xf20884,0x4600a5,0x0000d4,0x02abea,

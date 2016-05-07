@@ -4,7 +4,8 @@
 // BinHex (.hqx)
 
 #include <deark-config.h>
-#include <deark-modules.h>
+#include <deark-private.h>
+DE_DECLARE_MODULE(de_module_binhex);
 
 typedef struct localctx_struct {
 	dbuf *decoded;
