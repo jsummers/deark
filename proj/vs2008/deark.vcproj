@@ -518,6 +518,10 @@
 				>
 			</File>
 			<File
+				RelativePath="..\..\modules\d64.c"
+				>
+			</File>
+			<File
 				RelativePath="..\..\modules\epocimage.c"
 				>
 			</File>

@@ -137,6 +137,7 @@ void de_register_modules(deark *c)
 		de_module_artworx_adf,
 		de_module_pm_xv,
 		de_module_xxencode,
+		de_module_d64,
 		de_module_base64,
 		de_module_base16,
 		de_module_jpegscan,
