@@ -149,6 +149,7 @@ struct de_SAUCE_detection_data {
 
 struct de_detection_data_struct {
 	struct de_SAUCE_detection_data sauce;
+	int has_utf8_bom;
 };
 
 struct deark_ext_option {

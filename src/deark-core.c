@@ -18,6 +18,11 @@ static struct deark_module_info *detect_module_for_file(deark *c)
 	int best_result = 0;
 	struct deark_module_info *best_module = NULL;
 
+	// Check for a UTF-8 BOM just once. Any module can use this flag.
+	if(!dbuf_memcmp(c->infile, 0, "\xef\xbb\xbf", 3)) {
+		c->detection_data.has_utf8_bom = 1;
+	}
+
 	for(i=0; i<c->num_modules; i++) {
 		if(c->module_info[i].identify_fn!=NULL) {
 			result = c->module_info[i].identify_fn(c);

@@ -39,6 +39,13 @@ typedef struct localctx_struct {
 	de_finfo *fi;
 } lctx;
 
+static de_int64 bom_length(deark *c)
+{
+	if(!dbuf_memcmp(c->infile, 0, "\xef\xbb\xbf", 3))
+		return 3;
+	return 0;
+}
+
 // **************************************************************************
 // Base16 / Hex encoding
 // **************************************************************************
@@ -237,7 +244,7 @@ static int uuencode_read_header(deark *c, lctx *d)
 	de_byte linebuf[500];
 	de_int64 nbytes_in_linebuf;
 
-	d->hdr_line_startpos = 0;
+	d->hdr_line_startpos = bom_length(c);
 	line_count=0;
 	while(line_count<100) {
 		ret = dbuf_find_line(c->infile, d->hdr_line_startpos,
@@ -435,8 +442,10 @@ static int de_is_digit_string(const de_byte *s, de_int64 len)
 static int de_identify_uuencode(deark *c)
 {
 	de_byte b[17];
+	de_int64 pos;
 
-	de_read(b, 0, sizeof(b));
+	pos = c->detection_data.has_utf8_bom?3:0;
+	de_read(b, pos, sizeof(b));
 
 	if(!de_memcmp(b, "begin-base64 ", 13)) {
 		return 100;
@@ -489,6 +498,7 @@ done:
 static int de_identify_xxencode(deark *c)
 {
 	de_byte b[10];
+	de_int64 pos;
 
 	// XXEncode is hard to distinguish from UUEncode, so we rely on the
 	// filename.
@@ -498,7 +508,8 @@ static int de_identify_xxencode(deark *c)
 		return 0;
 	}
 
-	de_read(b, 0, 10);
+	pos = c->detection_data.has_utf8_bom?3:0;
+	de_read(b, pos, 10);
 
 	if(!de_memcmp(b, "begin ", 6)) {
 		if(b[9]==' ' && de_is_digit_string(&b[6], 3)) {
