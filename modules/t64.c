@@ -54,9 +54,11 @@ static void do_extract_file(deark *c, lctx *d, de_int64 dir_pos,
 		uchar = de_char_to_unicode(c, (de_int32)b, DE_ENCODING_PETSCII);
 		ucstring_append_char(fname, uchar);
 	}
+	ucstring_append_buf(fname, (const de_byte*)".prg", 4, DE_ENCODING_ASCII);
 
 	fi = de_finfo_create(c);
 	de_finfo_set_name_from_ucstring(c, fi, fname);
+	fi->original_filename_flag = 1;
 
 	payload_size = end_addr - load_addr;
 	if(payload_size < 0) {
@@ -65,7 +67,7 @@ static void do_extract_file(deark *c, lctx *d, de_int64 dir_pos,
 		goto done;
 	}
 
-	f = dbuf_create_output_file(c, "prg", fi, 0);
+	f = dbuf_create_output_file(c, NULL, fi, 0);
 	dbuf_copy(c->infile, dir_pos+2, 2, f);
 	dbuf_copy(c->infile, offset, payload_size, f);
 

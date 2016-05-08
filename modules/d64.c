@@ -79,10 +79,6 @@ static void do_extract_file(deark *c, lctx *d, de_int64 dir_entry_pos,
 		uchar = de_char_to_unicode(c, (de_int32)b, DE_ENCODING_PETSCII);
 		ucstring_append_char(fname, uchar);
 	}
-	///////
-
-	fi = de_finfo_create(c);
-	de_finfo_set_name_from_ucstring(c, fi, fname);
 
 	switch(file_type) {
 	case FTYPE_SEQ: ext="seq"; break;
@@ -90,8 +86,15 @@ static void do_extract_file(deark *c, lctx *d, de_int64 dir_entry_pos,
 	case FTYPE_USR: ext="usr"; break;
 	default: ext="bin"; break;
 	}
+	ucstring_append_buf(fname, (const de_byte*)".", 1, DE_ENCODING_ASCII);
+	ucstring_append_buf(fname, (const de_byte*)ext, de_strlen(ext), DE_ENCODING_ASCII);
+	///////
 
-	f = dbuf_create_output_file(c, ext, fi, 0);
+	fi = de_finfo_create(c);
+	de_finfo_set_name_from_ucstring(c, fi, fname);
+	fi->original_filename_flag = 1;
+
+	f = dbuf_create_output_file(c, NULL, fi, 0);
 
 	curtrack = ftrack;
 	cursector = fsector;
