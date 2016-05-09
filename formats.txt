@@ -417,6 +417,8 @@ Deark -- Information about supported formats
 
 * compress (legacy Unix .Z format)
 
+* D64 (Commodore 64 disk format) (module="d64") (experimental)
+
 * RPM (package manager) (module="rpm)
   - Extract compressed cpio file.
 
@@ -463,6 +465,9 @@ Deark -- Information about supported formats
   - "Extract" the entire file. Use with -start and -size to extract part of
     the file.
 
+* CRC-32 (module="crc32")
+  - Print the IEEE CRC-32 of the file.
+
 * EXE/PE/NE/etc. (module="exe")
   - Extract bitmaps, icons, and cursors from NE and PE (Windows .exe) files.
   - Extract fonts.
@@ -476,6 +481,9 @@ Deark -- Information about supported formats
 * JPEG scan (module="jpegscan")
   - This module tries to find and extract embedded JPEG and JPEG-LS files from
     otherwise-unsupported formats. Use "-m jpegscan".
+
+* NULL (module="null")
+  - Do nothing.
 
 * Psion APP/IMG and OPA/OPO (module="psionapp")
   - Extract Psion PIC icons.

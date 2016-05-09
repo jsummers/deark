@@ -44,6 +44,7 @@ struct deark_module_info {
 	de_module_identify_fn identify_fn;
 #define DE_MODFLAG_HIDDEN       0x01
 #define DE_MODFLAG_NONWORKING   0x02
+#define DE_MODFLAG_NOEXTRACT    0x04
 	de_uint32 flags;
 #define DE_MAX_MODULE_ALIASES 2
 	const char *id_alias[DE_MAX_MODULE_ALIASES];

@@ -140,7 +140,7 @@ static int de_identify_t64(deark *c)
 void de_module_t64(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "t64";
-	mi->desc = "C64 T64 tape format";
+	mi->desc = "T64 (C64 tape format)";
 	mi->run_fn = de_run_t64;
 	mi->identify_fn = de_identify_t64;
 }

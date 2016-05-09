@@ -8,6 +8,7 @@
 #include <deark-private.h>
 #include "fmtutil.h"
 DE_DECLARE_MODULE(de_module_copy);
+DE_DECLARE_MODULE(de_module_null);
 DE_DECLARE_MODULE(de_module_crc32);
 DE_DECLARE_MODULE(de_module_zlib);
 DE_DECLARE_MODULE(de_module_sauce);
@@ -54,6 +55,26 @@ void de_module_copy(deark *c, struct deark_module_info *mi)
 }
 
 // **************************************************************************
+// "null" module
+//
+// This is a trivial module that does nothing.
+// **************************************************************************
+
+static void de_run_null(deark *c, de_module_params *mparams)
+{
+	;
+}
+
+void de_module_null(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "null";
+	mi->desc = "Do nothing";
+	mi->run_fn = de_run_null;
+	mi->identify_fn = de_identify_none;
+	mi->flags |= DE_MODFLAG_HIDDEN | DE_MODFLAG_NOEXTRACT;
+}
+
+// **************************************************************************
 // CRC-32
 // Prints the CRC-32. Does not create any files.
 // (Currently intended for development/debugging use, but might be improved
@@ -76,10 +97,10 @@ static void de_run_crc32(deark *c, de_module_params *mparams)
 void de_module_crc32(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "crc32";
-	mi->desc = "Print the IEEE CRC-32 of the file";
+	mi->desc = "Calculate the IEEE CRC-32";
 	mi->run_fn = de_run_crc32;
 	mi->identify_fn = de_identify_none;
-	mi->flags |= DE_MODFLAG_HIDDEN;
+	mi->flags |= DE_MODFLAG_NOEXTRACT;
 }
 
 // **************************************************************************

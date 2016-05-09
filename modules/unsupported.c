@@ -66,12 +66,6 @@ static void get_fmt(deark *c, struct fmtinfo_struct *fmti)
 		return;
 	}
 
-	if(b[0]==0x1f && b[1]==0x9d) {
-		fmti->confidence = 10;
-		fmti->descr = "a 'compress' (.Z) file";
-		return;
-	}
-
 	if(b[0]=='H' && b[1]=='P' && b[2]=='H' && b[3]=='P' &&
 		b[4]=='4' && (b[5]=='8' || b[5]=='9'))
 	{
