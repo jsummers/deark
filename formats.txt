@@ -202,6 +202,9 @@ Deark -- Information about supported formats
 * MSP (Microsoft Paint graphics) (module="msp")
   - Version 1 and 2
 
+* MS Word for DOS Screen Capture (module="mswordscr") (experimental)
+  Supports the same options as the pcx module.
+
 * NEOchrome (.NEO) (module="neochrome")
 
 * NEOchrome Animation (module="neochrome_ani") (experimental)

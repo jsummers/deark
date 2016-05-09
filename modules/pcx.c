@@ -6,6 +6,7 @@
 #include <deark-config.h>
 #include <deark-private.h>
 DE_DECLARE_MODULE(de_module_pcx);
+DE_DECLARE_MODULE(de_module_mswordscr);
 DE_DECLARE_MODULE(de_module_dcx);
 
 #define PCX_HDRSIZE 128
@@ -23,6 +24,7 @@ typedef struct localctx_struct {
 	de_byte palette_info;
 	de_byte reserved1;
 	de_int64 width, height;
+	int is_mswordscr;
 	int has_vga_pal;
 	int has_transparency;
 
@@ -449,12 +451,9 @@ static void do_bitmap(deark *c, lctx *d)
 	}
 }
 
-static void de_run_pcx(deark *c, de_module_params *mparams)
+static void de_run_pcx_internal(deark *c, lctx *d, de_module_params *mparams)
 {
-	lctx *d = NULL;
 	const char *s;
-
-	d = de_malloc(c, sizeof(lctx));
 
 	s = de_get_ext_option(c, "pcx:pal");
 	if(s) {
@@ -488,6 +487,14 @@ static void de_run_pcx(deark *c, de_module_params *mparams)
 
 done:
 	dbuf_close(d->unc_pixels);
+}
+
+static void de_run_pcx(deark *c, de_module_params *mparams)
+{
+	lctx *d = NULL;
+
+	d = de_malloc(c, sizeof(lctx));
+	de_run_pcx_internal(c, d, mparams);
 	de_free(c, d);
 }
 
@@ -514,6 +521,45 @@ void de_module_pcx(deark *c, struct deark_module_info *mi)
 	mi->desc = "PCX image";
 	mi->run_fn = de_run_pcx;
 	mi->identify_fn = de_identify_pcx;
+}
+
+// **************************************************************************
+// MS Word for DOS Screen Capture
+// **************************************************************************
+
+static void de_run_mswordscr(deark *c, de_module_params *mparams)
+{
+	lctx *d = NULL;
+
+	d = de_malloc(c, sizeof(lctx));
+	d->is_mswordscr = 1;
+	de_run_pcx_internal(c, d, mparams);
+	de_free(c, d);
+}
+
+static int de_identify_mswordscr(deark *c)
+{
+	de_byte buf[8];
+
+	de_read(buf, 0, 8);
+	if(buf[0]==0xcd && (buf[1]==0 || buf[1]==2 || buf[1]==3
+		|| buf[1]==4 || buf[1]==5) &&
+		buf[2]==1 )
+	{
+		if(de_input_file_has_ext(c, "scr") || de_input_file_has_ext(c, "mwg"))
+			return 100;
+
+		return 10;
+	}
+	return 0;
+}
+
+void de_module_mswordscr(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "mswordscr";
+	mi->desc = "MS Word for DOS Screen Capture";
+	mi->run_fn = de_run_mswordscr;
+	mi->identify_fn = de_identify_mswordscr;
 }
 
 // **************************************************************************
