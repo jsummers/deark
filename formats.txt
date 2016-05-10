@@ -233,7 +233,6 @@ Deark -- Information about supported formats
 
 * OS/2 Icon, Pointer, Bitmap Array formats (module="os2bmp")
   - Converts icons & pointers to individual PNG files.
-  - BMP image files are extracted.
   - Icon, pointer, and BMP image files are extracted from Bitmap Array files.
     Reprocess icon and pointer files to convert to PNG.
 

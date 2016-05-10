@@ -47,7 +47,7 @@ done:
 
 // Read the header and palette
 // Returns NULL on error.
-static struct srcbitmap *do_decode_CI_or_CP_segment(deark *c, const char *fmt, de_int64 pos)
+static struct srcbitmap *do_decode_raw_bitmap_segment(deark *c, const char *fmt, de_int64 pos)
 {
 	int okay = 0;
 	struct srcbitmap *srcbmp = NULL;
@@ -91,9 +91,11 @@ done:
 	return srcbmp;
 }
 
+// srcbmp_main can be NULL.
 static void do_generate_final_image(deark *c, struct srcbitmap *srcbmp_main, struct srcbitmap *srcbmp_mask)
 {
 	struct deark_bitmap *img;
+	de_int64 w, h;
 	de_int64 i, j;
 	de_int64 byte_offset;
 	de_byte x;
@@ -101,14 +103,28 @@ static void do_generate_final_image(deark *c, struct srcbitmap *srcbmp_main, str
 	de_byte xorbit, andbit;
 	int inverse_warned = 0;
 
-	img = de_bitmap_create(c, srcbmp_main->bi.width, srcbmp_main->bi.height, 4);
+	if(srcbmp_main) {
+		w = srcbmp_main->bi.width;
+		h = srcbmp_main->bi.height;
+	}
+	else {
+		w = srcbmp_mask->bi.width;
+		h = srcbmp_mask->bi.height/2;
+	}
+	img = de_bitmap_create(c, w, h, 4);
 	img->flipped = 1;
 
 	cr=0; cg=0; cb=0; ca=255;
 
-	for(j=0; j<srcbmp_main->bi.height; j++) {
-		for(i=0; i<srcbmp_main->bi.width; i++) {
-			if(srcbmp_main->bi.bitcount<=8) {
+	for(j=0; j<img->height; j++) {
+		for(i=0; i<img->width; i++) {
+			if(!srcbmp_main) {
+				// IC or PT (bi-level) format.
+				// These images do have a palette, but it's unclear whether we're
+				// supposed to do anything with it.
+				cr = cg = cb = 0;
+			}
+			else if(srcbmp_main->bi.bitcount<=8) {
 				x = de_get_bits_symbol(c->infile, srcbmp_main->bi.bitcount,
 					srcbmp_main->bi.bitsoffset + srcbmp_main->bi.rowspan*j, i);
 				cr = DE_COLOR_R(srcbmp_main->pal[x]);
@@ -177,7 +193,7 @@ static void do_decode_CI_or_CP_pair(deark *c, const char *fmt, de_int64 pos)
 	indent_count++;
 
 	for(i=0; i<2; i++) {
-		srcbmp = do_decode_CI_or_CP_segment(c, fmt, pos);
+		srcbmp = do_decode_raw_bitmap_segment(c, fmt, pos);
 		if(!srcbmp) {
 			goto done;
 		}
@@ -216,6 +232,31 @@ done:
 	de_dbg_indent(c, -indent_count);
 	de_free(c, srcbmp_mask);
 	de_free(c, srcbmp_main);
+}
+
+static void do_decode_IC_OR_PT(deark *c, const char *fmt, de_int64 pos)
+{
+	struct srcbitmap *srcbmp_mask = NULL;
+	int indent_count = 0;
+
+	de_dbg(c, "%s at %d\n", fmt, (int)pos);
+	de_dbg_indent(c, 1);
+	indent_count++;
+
+	srcbmp_mask = do_decode_raw_bitmap_segment(c, fmt, pos);
+	if(!srcbmp_mask) {
+		goto done;
+	}
+	if(srcbmp_mask->bi.size_of_headers_and_pal<26) {
+		de_err(c, "Bad IC or PT image\n");
+		goto done;
+	}
+
+	do_generate_final_image(c, NULL, srcbmp_mask);
+
+done:
+	de_dbg_indent(c, -indent_count);
+	de_free(c, srcbmp_mask);
 }
 
 static void do_extract_CI_or_CP_pair(deark *c, const char *fmt, de_int64 pos)
@@ -366,6 +407,7 @@ static void do_BA_segment(deark *c, de_int64 pos, de_int64 *pnextoffset)
 		do_extract_BM(c, pos+14);
 	}
 	else {
+		// TODO: Support IC/PT-in-BA format, assuming that's allowed.
 		de_err(c, "Not CI, CP, or BM format. Not supported.\n");
 		goto done;
 	}
@@ -400,6 +442,8 @@ static void do_BA_file(deark *c)
 #define DE_OS2FMT_BA    4
 #define DE_OS2FMT_CI    5
 #define DE_OS2FMT_CP    6
+#define DE_OS2FMT_IC    7
+#define DE_OS2FMT_PT    8
 
 static int de_identify_os2bmp_internal(deark *c)
 {
@@ -414,6 +458,8 @@ static int de_identify_os2bmp_internal(deark *c)
 	}
 	if(b[0]=='C' && b[1]=='I') return DE_OS2FMT_CI;
 	if(b[0]=='C' && b[1]=='P') return DE_OS2FMT_CP;
+	if(b[0]=='I' && b[1]=='C') return DE_OS2FMT_IC;
+	if(b[0]=='P' && b[1]=='T') return DE_OS2FMT_PT;
 	return 0;
 }
 
@@ -442,6 +488,12 @@ static void de_run_os2bmp(deark *c, de_module_params *mparams)
 	case DE_OS2FMT_CP:
 		de_declare_fmt(c, "OS/2 Color Pointer");
 		break;
+	case DE_OS2FMT_IC:
+		de_declare_fmt(c, "OS/2 Icon");
+		break;
+	case DE_OS2FMT_PT:
+		de_declare_fmt(c, "OS/2 Pointer");
+		break;
 	}
 
 	switch(fmt) {
@@ -457,6 +509,13 @@ static void de_run_os2bmp(deark *c, de_module_params *mparams)
 	case DE_OS2FMT_CP:
 		do_decode_CI_or_CP_pair(c, "CP", 0);
 		break;
+	case DE_OS2FMT_IC:
+		do_decode_IC_OR_PT(c, "IC", 0);
+		break;
+	case DE_OS2FMT_PT:
+		// TODO: PT support is untested.
+		do_decode_IC_OR_PT(c, "PT", 0);
+		break;
 	default:
 		de_err(c, "Format not supported\n");
 	}
@@ -465,6 +524,8 @@ static void de_run_os2bmp(deark *c, de_module_params *mparams)
 static int de_identify_os2bmp(deark *c)
 {
 	int fmt;
+
+	// TODO: We could do a better job of identifying these formats.
 	fmt = de_identify_os2bmp_internal(c);
 	switch(fmt) {
 	case DE_OS2FMT_BA_CI:
@@ -475,6 +536,9 @@ static int de_identify_os2bmp(deark *c)
 	case DE_OS2FMT_CI:
 	case DE_OS2FMT_CP:
 		return 80;
+	case DE_OS2FMT_IC:
+	case DE_OS2FMT_PT:
+		return 10;
 	}
 	return 0;
 }
