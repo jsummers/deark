@@ -9,6 +9,17 @@
 #include "fmtutil.h"
 DE_DECLARE_MODULE(de_module_os2bmp);
 
+#define DE_OS2FMT_BA    1
+#define DE_OS2FMT_BA_BM 3
+#define DE_OS2FMT_IC    4
+#define DE_OS2FMT_BA_IC 5
+#define DE_OS2FMT_PT    6
+#define DE_OS2FMT_BA_PT 7
+#define DE_OS2FMT_CI    8
+#define DE_OS2FMT_BA_CI 9
+#define DE_OS2FMT_CP    10
+#define DE_OS2FMT_BA_CP 11
+
 // This struct represents a raw source bitmap (it uses BMP format).
 // Two of them (the foreground and the mask) will be combined to make the
 // final image.
@@ -234,28 +245,22 @@ done:
 	de_free(c, srcbmp_main);
 }
 
-static void do_decode_IC_OR_PT(deark *c, const char *fmt, de_int64 pos)
+static void do_decode_IC_or_PT(deark *c, const char *fmt, de_int64 pos)
 {
 	struct srcbitmap *srcbmp_mask = NULL;
-	int indent_count = 0;
-
-	de_dbg(c, "%s at %d\n", fmt, (int)pos);
-	de_dbg_indent(c, 1);
-	indent_count++;
 
 	srcbmp_mask = do_decode_raw_bitmap_segment(c, fmt, pos);
 	if(!srcbmp_mask) {
 		goto done;
 	}
 	if(srcbmp_mask->bi.size_of_headers_and_pal<26) {
-		de_err(c, "Bad IC or PT image\n");
+		de_err(c, "Bad %s image\n", fmt);
 		goto done;
 	}
 
 	do_generate_final_image(c, NULL, srcbmp_mask);
 
 done:
-	de_dbg_indent(c, -indent_count);
 	de_free(c, srcbmp_mask);
 }
 
@@ -336,24 +341,24 @@ done:
 	de_free(c, bi);
 }
 
-// A BM image inside a BA container.
+// A BM/IC/PT image inside a BA container.
 // Don't convert the image to another format; just extract it as-is in
-// BMP format. Unfortunately, this requires collecting the various pieces
+// BMP/ICO/PTR format. Unfortunately, this requires collecting the various pieces
 // of it, and adjusting pointers.
-static void do_extract_BM(deark *c, de_int64 pos)
+static void do_extract_one_image(deark *c, de_int64 pos, const char *fmt, const char *ext)
 {
 	struct srcbitmap *srcbmp = NULL;
 	dbuf *f = NULL;
 
-	de_dbg(c, "BM image at %d\n", (int)pos);
+	de_dbg(c, "%s image at %d\n", fmt, (int)pos);
 	de_dbg_indent(c, 1);
 
 	srcbmp = de_malloc(c, sizeof(struct srcbitmap));
 
-	if(!get_bitmap_info(c, srcbmp, "BM", pos))
+	if(!get_bitmap_info(c, srcbmp, fmt, pos))
 		goto done;
 
-	f = dbuf_create_output_file(c, "bmp", NULL, 0);
+	f = dbuf_create_output_file(c, ext, NULL, 0);
 
 	// First 10 bytes of the FILEHEADER can be copied unchanged.
 	dbuf_copy(c->infile, pos, 10, f);
@@ -404,11 +409,16 @@ static void do_BA_segment(deark *c, de_int64 pos, de_int64 *pnextoffset)
 		do_extract_CI_or_CP_pair(c, "CP", pos+14);
 	}
 	else if(b0=='B' && b1=='M') {
-		do_extract_BM(c, pos+14);
+		do_extract_one_image(c, pos+14, "BM", "bmp");
+	}
+	else if(b0=='I' && b1=='C') {
+		do_extract_one_image(c, pos+14, "IC", "os2.ico");
+	}
+	else if(b0=='P' && b1=='T') {
+		do_extract_one_image(c, pos+14, "PT", "ptr");
 	}
 	else {
-		// TODO: Support IC/PT-in-BA format, assuming that's allowed.
-		de_err(c, "Not CI, CP, or BM format. Not supported.\n");
+		de_err(c, "Not BM/IC/PT/CI/CP format. Not supported.\n");
 		goto done;
 	}
 
@@ -436,72 +446,68 @@ static void do_BA_file(deark *c)
 	}
 }
 
-#define DE_OS2FMT_BA_CI 1
-#define DE_OS2FMT_BA_CP 2
-#define DE_OS2FMT_BA_BM 3
-#define DE_OS2FMT_BA    4
-#define DE_OS2FMT_CI    5
-#define DE_OS2FMT_CP    6
-#define DE_OS2FMT_IC    7
-#define DE_OS2FMT_PT    8
-
 static int de_identify_os2bmp_internal(deark *c)
 {
 	de_byte b[16];
 	de_read(b, 0, 16);
 
 	if(b[0]=='B' && b[1]=='A') {
+		// A Bitmap Array file can contain a mixture of different image types,
+		// but for the purposes of identifying the file type, we only look at
+		// the first one. This is not ideal, but it really doesn't matter.
+		if(b[14]=='I' && b[15]=='C') return DE_OS2FMT_BA_IC;
+		if(b[14]=='P' && b[15]=='T') return DE_OS2FMT_BA_PT;
 		if(b[14]=='C' && b[15]=='I') return DE_OS2FMT_BA_CI;
 		if(b[14]=='C' && b[15]=='P') return DE_OS2FMT_BA_CP;
 		if(b[14]=='B' && b[15]=='M') return DE_OS2FMT_BA_BM;
 		return DE_OS2FMT_BA;
 	}
-	if(b[0]=='C' && b[1]=='I') return DE_OS2FMT_CI;
-	if(b[0]=='C' && b[1]=='P') return DE_OS2FMT_CP;
 	if(b[0]=='I' && b[1]=='C') return DE_OS2FMT_IC;
 	if(b[0]=='P' && b[1]=='T') return DE_OS2FMT_PT;
+	if(b[0]=='C' && b[1]=='I') return DE_OS2FMT_CI;
+	if(b[0]=='C' && b[1]=='P') return DE_OS2FMT_CP;
 	return 0;
+}
+
+static const char* get_fmt_name(int fmt)
+{
+	switch(fmt) {
+	case DE_OS2FMT_IC: return "OS/2 Icon";
+	case DE_OS2FMT_PT: return "OS/2 Pointer";
+	case DE_OS2FMT_CI: return "OS/2 Color Icon";
+	case DE_OS2FMT_CP: return "OS/2 Color Pointer";
+	case DE_OS2FMT_BA: return "OS/2 Bitmap Array";
+	case DE_OS2FMT_BA_IC:
+	case DE_OS2FMT_BA_CI:
+		return "OS/2 Bitmap Array of Icons";
+	case DE_OS2FMT_BA_PT:
+	case DE_OS2FMT_BA_CP:
+		return "OS/2 Bitmap Array of Pointers";
+	case DE_OS2FMT_BA_BM:
+		return "OS/2 Bitmap Array of Bitmaps";
+	}
+	return NULL;
 }
 
 static void de_run_os2bmp(deark *c, de_module_params *mparams)
 {
 	int fmt;
+	const char *name;
 
 	fmt = de_identify_os2bmp_internal(c);
 
-	switch(fmt) {
-	case DE_OS2FMT_BA_CI:
-		de_declare_fmt(c, "OS/2 Bitmap Array of Color Icons");
-		break;
-	case DE_OS2FMT_BA_CP:
-		de_declare_fmt(c, "OS/2 Bitmap Array of Color Pointers");
-		break;
-	case DE_OS2FMT_BA_BM:
-		de_declare_fmt(c, "OS/2 Bitmap Array of Bitmaps");
-		break;
-	case DE_OS2FMT_BA:
-		de_declare_fmt(c, "OS/2 Bitmap Array");
-		break;
-	case DE_OS2FMT_CI:
-		de_declare_fmt(c, "OS/2 Color Icon");
-		break;
-	case DE_OS2FMT_CP:
-		de_declare_fmt(c, "OS/2 Color Pointer");
-		break;
-	case DE_OS2FMT_IC:
-		de_declare_fmt(c, "OS/2 Icon");
-		break;
-	case DE_OS2FMT_PT:
-		de_declare_fmt(c, "OS/2 Pointer");
-		break;
+	name = get_fmt_name(fmt);
+	if(name) {
+		de_declare_fmt(c, name);
 	}
 
 	switch(fmt) {
-	case DE_OS2FMT_BA_CI:
-	case DE_OS2FMT_BA_CP:
-	case DE_OS2FMT_BA_BM:
-	case DE_OS2FMT_BA:
-		do_BA_file(c);
+	case DE_OS2FMT_IC:
+		do_decode_IC_or_PT(c, "IC", 0);
+		break;
+	case DE_OS2FMT_PT:
+		// TODO: PT support is untested.
+		do_decode_IC_or_PT(c, "PT", 0);
 		break;
 	case DE_OS2FMT_CI:
 		do_decode_CI_or_CP_pair(c, "CI", 0);
@@ -509,12 +515,13 @@ static void de_run_os2bmp(deark *c, de_module_params *mparams)
 	case DE_OS2FMT_CP:
 		do_decode_CI_or_CP_pair(c, "CP", 0);
 		break;
-	case DE_OS2FMT_IC:
-		do_decode_IC_OR_PT(c, "IC", 0);
-		break;
-	case DE_OS2FMT_PT:
-		// TODO: PT support is untested.
-		do_decode_IC_OR_PT(c, "PT", 0);
+	case DE_OS2FMT_BA:
+	case DE_OS2FMT_BA_IC:
+	case DE_OS2FMT_BA_PT:
+	case DE_OS2FMT_BA_CI:
+	case DE_OS2FMT_BA_CP:
+	case DE_OS2FMT_BA_BM:
+		do_BA_file(c);
 		break;
 	default:
 		de_err(c, "Format not supported\n");
@@ -528,6 +535,8 @@ static int de_identify_os2bmp(deark *c)
 	// TODO: We could do a better job of identifying these formats.
 	fmt = de_identify_os2bmp_internal(c);
 	switch(fmt) {
+	case DE_OS2FMT_BA_IC:
+	case DE_OS2FMT_BA_PT:
 	case DE_OS2FMT_BA_CI:
 	case DE_OS2FMT_BA_CP:
 	case DE_OS2FMT_BA_BM:
