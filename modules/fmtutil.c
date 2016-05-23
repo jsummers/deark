@@ -91,7 +91,11 @@ int de_fmtutil_get_bmpinfo(deark *c, dbuf *f, struct de_bmpinfo *bi, de_int64 po
 
 	de_dbg(c, "image size: %dx%d\n", (int)bi->width, (int)bi->height);
 	de_dbg(c, "bit count: %d\n", (int)bi->bitcount);
-	de_dbg(c, "palette entries: %d\n", (int)bi->pal_entries);
+	de_dbg(c, "palette entries: %u\n", (unsigned int)bi->pal_entries);
+	if(bi->pal_entries>256 && bi->bitcount>8) {
+		de_warn(c, "Ignoring bad palette size (%u entries)\n", (unsigned int)bi->pal_entries);
+		bi->pal_entries = 0;
+	}
 
 	bi->pal_bytes = bi->bytes_per_pal_entry*bi->pal_entries;
 	bi->size_of_headers_and_pal = fhs + bi->infohdrsize + bi->pal_bytes;
@@ -104,10 +108,12 @@ int de_fmtutil_get_bmpinfo(deark *c, dbuf *f, struct de_bmpinfo *bi, de_int64 po
 
 		bi->rowspan = ((bi->bitcount*bi->width +31)/32)*4;
 		bi->foreground_size = bi->rowspan * bi->height;
+		de_dbg(c, "foreground size: %d\n", (int)bi->foreground_size);
 
 		if(flags & DE_BMPINFO_ICO_FORMAT) {
 			bi->mask_rowspan = ((bi->width +31)/32)*4;
 			bi->mask_size = bi->mask_rowspan * bi->height;
+			de_dbg(c, "mask size: %d\n", (int)bi->mask_size);
 		}
 		else {
 			bi->mask_size = 0;

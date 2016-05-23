@@ -112,6 +112,8 @@ static void do_image_data(deark *c, lctx *d, de_int64 img_num, de_int64 pos1, de
 	fg_start = pos1 + bi.size_of_headers_and_pal;
 	bg_start = pos1 + bi.size_of_headers_and_pal + bi.foreground_size;
 
+	de_dbg(c, "foreground at %d, mask at %d\n", (int)fg_start, (int)bg_start);
+
 	for(j=0; j<img->height; j++) {
 		for(i=0; i<img->width; i++) {
 
