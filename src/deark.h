@@ -57,6 +57,10 @@ de_int64 de_strtoll(const char *string, char **endptr, int base);
 de_int64 de_atoi64(const char *string);
 int de_strcasecmp(const char *a, const char *b);
 
+#define DE_INPUTSTYLE_FILE    0
+#define DE_INPUTSTYLE_STDIN   1
+void de_set_input_style(deark *c, int x);
+
 void de_set_input_filename(deark *c, const char *fn);
 void de_set_input_file_slice_start(deark *c, de_int64 n);
 void de_set_input_file_slice_size(deark *c, de_int64 n);

@@ -94,8 +94,16 @@ void de_run(deark *c)
 	dbuf *subfile = NULL;
 	de_int64 subfile_size;
 	struct deark_module_info *module_to_use = NULL;
+	const char *friendly_infn;
 
-	if(!c->input_filename) {
+	if(c->input_style==DE_INPUTSTYLE_STDIN) {
+		friendly_infn = "[stdin]";
+	}
+	else {
+		friendly_infn = c->input_filename;
+	}
+
+	if(!friendly_infn) {
 		de_err(c, "Input file not set\n");
 		de_fatalerror(c);
 		return;
@@ -103,19 +111,32 @@ void de_run(deark *c)
 
 	de_register_modules(c);
 
+	if(c->input_format_req) {
+		module_to_use = de_get_module_by_id(c, c->input_format_req);
+		if(!module_to_use) {
+			de_err(c, "Unknown module \"%s\"\n", c->input_format_req);
+			goto done;
+		}
+	}
+
 	if(c->slice_size_req_valid) {
-		de_dbg(c, "Input file: %s[%d,%d]\n", c->input_filename,
+		de_dbg(c, "Input file: %s[%d,%d]\n", friendly_infn,
 			(int)c->slice_start_req, (int)c->slice_size_req);
 	}
 	else if(c->slice_start_req) {
-		de_dbg(c, "Input file: %s[%d]\n", c->input_filename,
+		de_dbg(c, "Input file: %s[%d]\n", friendly_infn,
 			(int)c->slice_start_req);
 	}
 	else {
-		de_dbg(c, "Input file: %s\n", c->input_filename);
+		de_dbg(c, "Input file: %s\n", friendly_infn);
 	}
 
-	orig_ifile = dbuf_open_input_file(c, c->input_filename);
+	if(c->input_style==DE_INPUTSTYLE_STDIN) {
+		orig_ifile = dbuf_open_input_stdin(c, c->input_filename);
+	}
+	else {
+		orig_ifile = dbuf_open_input_file(c, c->input_filename);
+	}
 	if(!orig_ifile) {
 		goto done;
 	}
@@ -131,14 +152,6 @@ void de_run(deark *c)
 			subfile_size = dbuf_get_length(c->infile) - c->slice_start_req;
 		subfile = dbuf_open_input_subfile(c->infile, c->slice_start_req, subfile_size);
 		c->infile = subfile;
-	}
-
-	if(c->input_format_req) {
-		module_to_use = de_get_module_by_id(c, c->input_format_req);
-		if(!module_to_use) {
-			de_err(c, "Unknown module \"%s\"\n", c->input_format_req);
-			goto done;
-		}
 	}
 
 	if(!module_to_use) {

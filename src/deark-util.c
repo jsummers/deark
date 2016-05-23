@@ -328,6 +328,11 @@ void de_set_output_archive_filename(deark *c, const char *fn)
 	}
 }
 
+void de_set_input_style(deark *c, int x)
+{
+	c->input_style = x;
+}
+
 void de_set_input_filename(deark *c, const char *fn)
 {
 	c->input_filename = fn;

@@ -32,6 +32,7 @@ struct cmdctx {
 
 	int to_stdout;
 	int to_zip;
+	int from_stdin;
 };
 
 static void show_version(deark *c)
@@ -161,7 +162,7 @@ enum opt_id_enum {
  DE_OPT_NOMODTIME,
  DE_OPT_Q, DE_OPT_VERSION, DE_OPT_HELP,
  DE_OPT_MAINONLY, DE_OPT_AUXONLY, DE_OPT_EXTRACTALL, DE_OPT_ZIP,
- DE_OPT_TOSTDOUT, DE_OPT_MSGSTOSTDERR,
+ DE_OPT_TOSTDOUT, DE_OPT_MSGSTOSTDERR, DE_OPT_FROMSTDIN,
  DE_OPT_EXTOPT, DE_OPT_FILE2, DE_OPT_START, DE_OPT_SIZE, DE_OPT_M, DE_OPT_O,
  DE_OPT_ARCFN, DE_OPT_GET, DE_OPT_FIRSTFILE, DE_OPT_MAXFILES, DE_OPT_MAXIMGDIM,
  DE_OPT_PRINTMODULES
@@ -199,6 +200,7 @@ struct opt_struct option_array[] = {
 	{ "zip",          DE_OPT_ZIP,          0 },
 	{ "tostdout",     DE_OPT_TOSTDOUT,     0 },
 	{ "msgstostderr", DE_OPT_MSGSTOSTDERR, 0 },
+	{ "fromstdin",    DE_OPT_FROMSTDIN,    0 },
 	{ "opt",          DE_OPT_EXTOPT,       1 },
 	{ "file2",        DE_OPT_FILE2,        1 },
 	{ "start",        DE_OPT_START,        1 },
@@ -334,6 +336,10 @@ static void parse_cmdline(deark *c, struct cmdctx *cc, int argc, char **argv)
 			case DE_OPT_MSGSTOSTDERR:
 				send_msgs_to_stderr(c, cc);
 				break;
+			case DE_OPT_FROMSTDIN:
+				de_set_input_style(c, DE_INPUTSTYLE_STDIN);
+				cc->from_stdin = 1;
+				break;
 			case DE_OPT_EXTOPT:
 				set_ext_option(c, cc, argv[i+1]);
 				break;
@@ -387,7 +393,7 @@ static void parse_cmdline(deark *c, struct cmdctx *cc, int argc, char **argv)
 		}
 	}
 
-	if(!cc->input_filename && !cc->special_command_flag) {
+	if(!cc->input_filename && !cc->special_command_flag && !cc->from_stdin) {
 		cc->error_flag = 1;
 		return;
 	}
@@ -428,6 +434,9 @@ static void main2(int argc, char **argv)
 #ifdef DE_WINDOWS
 	if(cc->to_stdout) {
 		_setmode(_fileno(stdout), _O_BINARY);
+	}
+	if(cc->from_stdin) {
+		_setmode(_fileno(stdin), _O_BINARY);
 	}
 #endif
 

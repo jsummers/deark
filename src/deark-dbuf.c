@@ -39,6 +39,42 @@ static void populate_cache(dbuf *f)
 	f->file_pos_known = 0;
 }
 
+// Read all data from stdin into memory.
+static void populate_cache_stdin(dbuf *f)
+{
+	de_int64 cache_bytes_alloc = 0;
+
+	if(f->btype!=DBUF_TYPE_STDIN) return;
+
+	f->cache_bytes_used = 0;
+
+	while(1) {
+		de_int64 bytes_to_read, bytes_read;
+
+		if(f->cache_bytes_used >= cache_bytes_alloc) {
+			de_int64 old_cache_size, new_cache_size;
+
+			// Cache is full. Increase its size.
+			old_cache_size = cache_bytes_alloc;
+			new_cache_size = old_cache_size*2;
+			if(new_cache_size<DE_CACHE_SIZE) new_cache_size = DE_CACHE_SIZE;
+			f->cache = de_realloc(f->c, f->cache, old_cache_size, new_cache_size);
+			cache_bytes_alloc = new_cache_size;
+		}
+
+		// Try to read as many bytes as it would take to fill the cache.
+		bytes_to_read = cache_bytes_alloc - f->cache_bytes_used;
+		if(bytes_to_read<1) break; // Shouldn't happen
+
+		bytes_read = fread(&f->cache[f->cache_bytes_used], 1, (size_t)bytes_to_read, stdin);
+		if(bytes_read<1 || bytes_read>bytes_to_read) break;
+		f->cache_bytes_used += bytes_read;
+		if(feof(stdin) || ferror(stdin)) break;
+	}
+
+	f->len = f->cache_bytes_used;
+}
+
 // Read len bytes, starting at file position pos, into buf.
 // Unread bytes will be set to 0.
 void dbuf_read(dbuf *f, de_byte *buf, de_int64 pos, de_int64 len)
@@ -457,7 +493,7 @@ dbuf *dbuf_create_output_file(deark *c, const char *ext, de_finfo *fi,
 		f->write_memfile_to_zip_archive = 1;
 	}
 	else if(c->output_style==DE_OUTPUTSTYLE_STDOUT) {
-		de_msg(c, "Writing %s to stdout\n", f->name);
+		de_msg(c, "Writing %s to [stdout]\n", f->name);
 		f->btype = DBUF_TYPE_STDOUT;
 		f->fp = stdout;
 	}
@@ -677,6 +713,23 @@ dbuf *dbuf_open_input_file(deark *c, const char *fn)
 		de_free(c, f);
 		return NULL;
 	}
+
+	return f;
+}
+
+// fn can be (and usually is) NULL.
+dbuf *dbuf_open_input_stdin(deark *c, const char *fn)
+{
+	dbuf *f;
+
+	f = de_malloc(c, sizeof(dbuf));
+	f->btype = DBUF_TYPE_STDIN;
+	f->c = c;
+
+	// Set to NONE, to make sure we don't try to auto-populate the cache later.
+	f->cache_policy = DE_CACHE_POLICY_NONE;
+
+	populate_cache_stdin(f);
 
 	return f;
 }

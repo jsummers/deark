@@ -72,6 +72,7 @@ struct dbuf_struct {
 #define DBUF_TYPE_MEMBUF  3
 #define DBUF_TYPE_DBUF    4 // nested dbuf
 #define DBUF_TYPE_STDOUT  5
+#define DBUF_TYPE_STDIN   6
 	int btype;
 
 	deark *c;
@@ -191,6 +192,7 @@ struct deark_struct {
 	int slice_size_req_valid;
 
 	int output_style; // DE_OUTPUTSTYLE_*
+	int input_style; // DE_INPUTSTYLE_*
 
 	int extract_policy; // DE_EXTRACTPOLICY_*
 	int extract_level;
@@ -358,6 +360,7 @@ de_uint32 dbuf_getRGB(dbuf *f, de_int64 pos, unsigned int flags);
 dbuf *dbuf_create_output_file(deark *c, const char *ext, de_finfo *fi, unsigned int createflags);
 
 dbuf *dbuf_open_input_file(deark *c, const char *fn);
+dbuf *dbuf_open_input_stdin(deark *c, const char *fn);
 
 dbuf *dbuf_open_input_subfile(dbuf *parent, de_int64 offset, de_int64 size);
 

@@ -51,10 +51,17 @@ Command-line options:
      Use this name for the .zip file. Default="output.zip".
   -tostdout
      Write the output file(s) to the standard output stream (stdout).
-     This feature is experimental, and might not work in all situations.
+     This option is experimental, and might not work in all situations.
      It is recommended to put -tostdout first on the command line. The
      -msgstostderr and "-maxfiles 1" options are enabled automatically.
      Using -main is suggested. Incompatible with -zip.
+  -fromstdin
+     Read the input file from the standard input stream (stdin).
+     If you use -fromstdin, supplying an input filename is optional. If it is
+     supplied, the file will not be read (and need not exist), but the name
+     might be used to help guess the file format.
+     This option might not be very efficient, and might not work with extremely
+     large files.
   -start <n>
      Ignore bytes before offset <n>.
   -size <n>
