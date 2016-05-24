@@ -166,6 +166,8 @@ Deark -- Information about supported formats
 
 * InShape IIM (module="iim")
 
+* Jovian Logic VI bitmap (module="jovianvi") (experimental)
+
 * JPEG (module="jpeg")
   - Extract ICC profiles.
   - Extract Exif JPEG-formatted thumbnails.

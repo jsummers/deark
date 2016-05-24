@@ -582,6 +582,10 @@
 				>
 			</File>
 			<File
+				RelativePath="..\..\modules\jovianvi.c"
+				>
+			</File>
+			<File
 				RelativePath="..\..\modules\jpeg.c"
 				>
 			</File>

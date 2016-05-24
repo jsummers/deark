@@ -1,0 +1,230 @@
+// This file is part of Deark, by Jason Summers.
+// This software is in the public domain. See the file COPYING for details.
+
+// Jovian Logic VI (.vi)
+
+#include <deark-config.h>
+#include <deark-private.h>
+DE_DECLARE_MODULE(de_module_jovianvi);
+
+typedef struct localctx_struct {
+	de_byte imgtype;
+	de_byte pal_code;
+	de_int64 w, h;
+	de_int64 bitdepth;
+	de_int64 rowspan;
+	de_int64 palpos;
+	de_int64 bitspos;
+	de_int64 num_pal_colors;
+	de_uint32 pal[256];
+} lctx;
+
+static void do_read_palette(deark *c, lctx *d)
+{
+	de_int64 k, z;
+	de_byte b1[3];
+	de_byte b2[3];
+
+	de_dbg(c, "palette at %d\n", (int)d->palpos);
+	de_dbg_indent(c, 1);
+
+	if(d->pal_code!=0) {
+		// 8-bit palette samples
+		de_read_palette_rgb(c->infile, d->palpos, d->num_pal_colors, 3,
+			d->pal, 256, 0);
+		goto done;
+	}
+
+	// 6-bit palette samples
+	for(k=0; k<d->num_pal_colors; k++) {
+		de_read(b1, d->palpos + 3*k, 3);
+		for(z=0; z<3; z++) {
+			b2[z] = de_scale_63_to_255(b1[z]);
+		}
+
+		d->pal[k] = DE_MAKE_RGB(b2[0],b2[1],b2[2]);
+
+		de_dbg2(c, "pal[%3d] = (%2d,%2d,%2d) -> (%3d,%3d,%3d)\n", (int)k,
+			(int)b1[0], (int)b1[1], (int)b1[2],
+			(int)b2[0], (int)b2[1], (int)b2[2]);
+	}
+
+done:
+	de_dbg_indent(c, -1);
+}
+
+static void do_convert_grayscale(deark *c, lctx *d, struct deark_bitmap *img)
+{
+	int i, j;
+	de_byte v;
+
+	if(d->bitdepth==1) {
+		de_convert_image_bilevel(c->infile, d->bitspos, d->rowspan, img, 0);
+		goto done;
+	}
+
+	for(j=0; j<d->h; j++) {
+		for(i=0; i<d->w; i++) {
+			v = de_get_bits_symbol(c->infile, d->bitdepth, d->bitspos + j*d->rowspan, i);
+			if(d->bitdepth==4) v *= 17;
+			de_bitmap_setpixel_gray(img, i, j, v);
+		}
+	}
+
+done:
+	;
+}
+
+static void do_convert_rgb(deark *c, lctx *d, struct deark_bitmap *img)
+{
+	int i, j;
+	de_uint32 clr;
+	de_byte b0, b1;
+
+	for(j=0; j<d->h; j++) {
+		for(i=0; i<d->w; i++) {
+			if(d->bitdepth==16) {
+				b0 = de_getbyte(d->bitspos + j*d->rowspan + i*2);
+				b1 = de_getbyte(d->bitspos + j*d->rowspan + i*2 + 1);
+				clr = (((de_uint32)b1)<<8) | b0;
+				clr = de_rgb565_to_888(clr);
+			}
+			else {
+				clr = dbuf_getRGB(c->infile, d->bitspos+j*d->rowspan+i*3, 0);
+			}
+			de_bitmap_setpixel_rgb(img, i, j, clr);
+		}
+	}
+}
+
+static void de_run_jovianvi(deark *c, de_module_params *mparams)
+{
+	lctx *d = NULL;
+	struct deark_bitmap *img = NULL;
+	int has_palette = 0;
+	int is_grayscale = 0;
+	const char *imgtypename;
+
+	// Warning: This decoder is based on reverse engineering, and may be
+	// incorrect or incomplete.
+
+	d = de_malloc(c, sizeof(lctx));
+
+	d->imgtype = de_getbyte(2);
+	de_dbg(c, "image type: 0x%02x\n", (unsigned int)d->imgtype);
+
+	switch(d->imgtype) {
+	case 0x10:
+		d->bitdepth = 16;
+		break;
+	case 0x11:
+		d->bitdepth = 24;
+		break;
+	case 0x20:
+		d->bitdepth = 4;
+		is_grayscale = 1;
+		break;
+	case 0x21:
+		d->bitdepth = 6;
+		is_grayscale = 1;
+		break;
+	case 0x22:
+		d->bitdepth = 8;
+		is_grayscale = 1;
+		break;
+	case 0x23:
+		d->bitdepth = 1;
+		is_grayscale = 1;
+		break;
+	case 0x30:
+		d->bitdepth = 8;
+		has_palette = 1;
+		break;
+	case 0x31:
+		d->bitdepth = 4;
+		has_palette = 1;
+		break;
+	default:
+		de_err(c, "Unknown VI image type: 0x%02x\n", (unsigned int)d->imgtype);
+		goto done;
+	}
+	de_dbg_indent(c, 1);
+	if(is_grayscale) imgtypename="grayscale";
+	else if(has_palette) imgtypename="palette color";
+	else imgtypename="RGB";
+	de_dbg(c, "%d bits/pixel, %s\n", (int)d->bitdepth, imgtypename);
+	de_dbg_indent(c, -1);
+	if(is_grayscale && (d->bitdepth!=1 && d->bitdepth!=4 && d->bitdepth!=8)) {
+		// TODO: Support 6-bit grayscale
+		de_err(c, "This type of VI image is not supported\n");
+		goto done;
+	}
+
+	d->w = de_getui16le(3);
+	d->h = de_getui16le(5);
+	de_dbg(c, "dimensions: %dx%d\n", (int)d->w, (int)d->h);
+	if(!de_good_image_dimensions(c, d->w, d->h)) goto done;
+
+
+	if(has_palette) {
+		d->pal_code = de_getbyte(9);
+		de_dbg(c, "palette code: 0x%02x\n", (unsigned int)d->pal_code);
+
+		// Weirdly, it seems you're supposed to add together these two
+		// bytes to get the number of palette colors.
+		d->num_pal_colors = (de_int64)de_getbyte(10) + de_getbyte(11);
+		if(d->num_pal_colors==0 || d->num_pal_colors>256)
+			d->num_pal_colors = 256;
+		de_dbg(c, "number of palette colors: %d\n", (int)d->num_pal_colors);
+	}
+
+	d->palpos = de_getui16le(12);
+	d->bitspos = de_getui16le(14);
+
+	// Read palette, if applicable
+	if(has_palette) {
+		do_read_palette(c, d);
+	}
+
+	// Convert the image
+	de_dbg(c, "bitmap at %d\n", (int)d->bitspos);
+	d->rowspan = (d->w*d->bitdepth + 7)/8;
+	img = de_bitmap_create(c, d->w, d->h, is_grayscale?1:3);
+	if(has_palette) {
+		de_convert_image_paletted(c->infile, d->bitspos, d->bitdepth, d->rowspan, d->pal, img, 0);
+	}
+	else if(is_grayscale) {
+		do_convert_grayscale(c, d, img);
+	}
+	else {
+		do_convert_rgb(c, d, img);
+	}
+	de_bitmap_write_to_file(img, NULL, 0);
+
+done:
+	de_bitmap_destroy(img);
+	de_free(c, d);
+}
+
+static int de_identify_jovianvi(deark *c)
+{
+	de_byte t;
+
+	if(dbuf_memcmp(c->infile, 0, "VI", 2)) return 0;
+	t = de_getbyte(2);
+	if((t>=0x10 && t<=0x11) ||
+		(t>=0x20 && t<=0x23) ||
+		(t>=0x30 && t<=0x31))
+	{
+		return 100;
+	}
+	return 0;
+}
+
+void de_module_jovianvi(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "jovianvi";
+	mi->desc = "Jovian Logic VI";
+	mi->run_fn = de_run_jovianvi;
+	mi->identify_fn = de_identify_jovianvi;
+}
