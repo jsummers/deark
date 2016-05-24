@@ -244,7 +244,8 @@ static void do_decode_thumbnail(deark *c, lctx *d)
 	dbuf *unc_pixels = NULL;
 	de_int64 hdrsize = 2;
 
-	de_dbg(c, "decoding thumbnail image at %d\n", (int)d->thumbnail_offset);
+	de_dbg(c, "thumbnail image at %d\n", (int)d->thumbnail_offset);
+	de_dbg_indent(c, 1);
 
 	// The thumbnail image is supposed to use the same format as the main image,
 	// except without compression. (And the dimensions are obviously different.)
@@ -262,7 +263,7 @@ static void do_decode_thumbnail(deark *c, lctx *d)
 			"16-bit thumbnail dimensions, instead of 8.\n");
 		d->thumbnail_image.width = de_getui16le(d->thumbnail_offset);
 		d->thumbnail_image.height = de_getui16le(d->thumbnail_offset+2);
-		de_dbg(c, "thumbnail dimensions: %dx%d\n", (int)d->thumbnail_image.width, (int)d->thumbnail_image.height);
+		de_dbg(c, "revised thumbnail dimensions: %dx%d\n", (int)d->thumbnail_image.width, (int)d->thumbnail_image.height);
 		hdrsize = 4;
 	}
 	if(!de_good_image_dimensions(c, d->thumbnail_image.width, d->thumbnail_image.height)) goto done;
@@ -274,6 +275,7 @@ static void do_decode_thumbnail(deark *c, lctx *d)
 
 done:
 	dbuf_close(unc_pixels);
+	de_dbg_indent(c, -1);
 }
 
 static int do_read_palette(deark *c, lctx *d, de_int64 pos)
@@ -414,6 +416,7 @@ static void de_run_tga(deark *c, de_module_params *mparams)
 	const char *cmpr_name = NULL;
 	const char *clrtype_name = NULL;
 	dbuf *unc_pixels = NULL;
+	int indent_count = 0;
 
 	d = de_malloc(c, sizeof(lctx));
 
@@ -421,6 +424,10 @@ static void de_run_tga(deark *c, de_module_params *mparams)
 
 	d->has_signature = has_signature(c);
 	de_dbg(c, "has v2 signature: %s\n", d->has_signature?"yes":"no");
+
+	de_dbg(c, "header at %d\n", 0);
+	de_dbg_indent(c, 1);
+	indent_count++;
 
 	d->id_field_len = (de_int64)de_getbyte(0);
 	d->color_map_type = de_getbyte(1);
@@ -462,9 +469,11 @@ static void de_run_tga(deark *c, de_module_params *mparams)
 	}
 
 	de_dbg_indent(c, 1);
+	indent_count++;
 	de_dbg(c, "color type: %s\n", clrtype_name);
 	de_dbg(c, "compression: %s\n", cmpr_name);
 	de_dbg_indent(c, -1);
+	indent_count--;
 
 	if(d->color_map_type != 0) {
 		d->cmap_start = de_getui16le(3);
@@ -484,6 +493,7 @@ static void de_run_tga(deark *c, de_module_params *mparams)
 	de_dbg(c, "descriptor: 0x%02x\n", (unsigned int)d->image_descriptor);
 
 	de_dbg_indent(c, 1);
+	indent_count++;
 	d->num_attribute_bits = (de_int64)(d->image_descriptor & 0x0f);
 	de_dbg(c, "number of attribute bits: %d\n", (int)d->num_attribute_bits);
 
@@ -492,6 +502,10 @@ static void de_run_tga(deark *c, de_module_params *mparams)
 	de_dbg(c, "right-to-left flag: %d\n", (int)d->right_to_left);
 	de_dbg(c, "top-down flag: %d\n", (int)d->top_down);
 	de_dbg_indent(c, -1);
+	indent_count--;
+
+	de_dbg_indent(c, -1);
+	indent_count--;
 
 	if(d->has_signature) {
 		do_read_footer(c, d);
@@ -512,12 +526,18 @@ static void de_run_tga(deark *c, de_module_params *mparams)
 		de_dbg(c, "color map at %d (%d colors, %d bytes)\n", (int)pos,
 			(int)d->cmap_length, (int)d->pal_size_in_bytes);
 
+		de_dbg_indent(c, 1);
+		indent_count++;
 		if(!do_read_palette(c, d, pos)) goto done;
+		de_dbg_indent(c, -1);
+		indent_count--;
 
 		pos += d->pal_size_in_bytes;
 	}
 
 	de_dbg(c, "bitmap at %d\n", (int)pos);
+	de_dbg_indent(c, 1);
+	indent_count++;
 
 	d->bytes_per_pixel = ((d->pixel_depth+7)/8);
 	d->main_image.img_size_in_bytes = d->main_image.height * d->main_image.width * d->bytes_per_pixel;
@@ -573,12 +593,16 @@ static void de_run_tga(deark *c, de_module_params *mparams)
 
 	do_decode_image(c, d, &d->main_image, unc_pixels, NULL, 0);
 
+	de_dbg_indent(c, -1);
+	indent_count--;
+
 	if(d->thumbnail_offset!=0) {
 		do_decode_thumbnail(c, d);
 	}
 
 done:
 	dbuf_close(unc_pixels);
+	de_dbg_indent(c, -indent_count);
 	de_free(c, d);
 }
 

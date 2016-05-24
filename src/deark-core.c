@@ -167,7 +167,7 @@ void de_run(deark *c)
 	}
 
 	de_msg(c, "Module: %s\n", module_to_use->id);
-	de_dbg(c, "File size: %" INT64_FMT "\n", dbuf_get_length(c->infile));
+	de_dbg2(c, "file size: %" INT64_FMT "\n", c->infile->len);
 
 	if(!de_run_module(c, module_to_use, NULL)) {
 		goto done;

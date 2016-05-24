@@ -40,6 +40,10 @@ static int do_read_header(deark *c, lctx *d)
 {
 	int retval = 0;
 	de_int64 hres, vres;
+	const char *imgtypename = "";
+
+	de_dbg(c, "header at %d\n", 0);
+	de_dbg_indent(c, 1);
 
 	d->version = de_getbyte(1);
 	d->encoding = de_getbyte(2);
@@ -83,7 +87,7 @@ static int do_read_header(deark *c, lctx *d)
 	if(!de_good_image_dimensions(c, d->width, d->height)) goto done;
 
 	d->rowspan = d->rowspan_raw * d->planes;
-	de_dbg(c, "bytes/row: %d\n", (int)d->rowspan);
+	de_dbg(c, "calculated bytes/row: %d\n", (int)d->rowspan);
 
 	d->bits_per_pixel = d->bits * d->planes;
 
@@ -94,18 +98,22 @@ static int do_read_header(deark *c, lctx *d)
 
 	// Enumerate the known PCX image types.
 	if(d->planes==1 && d->bits==1) {
+		imgtypename = "2-color";
 		d->ncolors = 2;
 	}
 	//else if(d->planes==2 && d->bits==1) {
 	//	d->ncolors = 4;
 	//}
 	else if(d->planes==1 && d->bits==2) {
+		imgtypename = "4-color";
 		d->ncolors = 4;
 	}
 	else if(d->planes==3 && d->bits==1) {
+		imgtypename = "8-color";
 		d->ncolors = 8;
 	}
 	else if(d->planes==4 && d->bits==1) {
+		imgtypename = "16-color";
 		d->ncolors = 16;
 	}
 	//else if(d->planes==1 && d->bits==4) {
@@ -115,17 +123,20 @@ static int do_read_header(deark *c, lctx *d)
 	//	d->ncolors = 16; (?)
 	//}
 	else if(d->planes==1 && d->bits==8) {
+		imgtypename = "256-color";
 		d->ncolors = 256;
 	}
 	//else if(d->planes==4 && d->bits==4) {
 	//	d->ncolors = 4096;
 	//}
 	else if(d->planes==3 && d->bits==8) {
+		imgtypename = "truecolor";
 		d->ncolors = 16777216;
 	}
 	else if(d->planes==4 && d->bits==8) {
 		// I can't find a PCX spec that mentions 32-bit RGBA images, but
 		// ImageMagick and Wikipedia act like they're perfectly normal.
+		imgtypename = "truecolor+alpha";
 		d->ncolors = 16777216;
 		d->has_transparency = 1;
 	}
@@ -135,7 +146,7 @@ static int do_read_header(deark *c, lctx *d)
 		goto done;
 	}
 
-	de_dbg(c, "number of colors: %d\n", (int)d->ncolors);
+	de_dbg(c, "image type: %s\n", imgtypename);
 
 	// Sanity check
 	if(d->rowspan > d->width * 4 + 100) {
@@ -145,6 +156,7 @@ static int do_read_header(deark *c, lctx *d)
 
 	retval = 1;
 done:
+	de_dbg_indent(c, -1);
 	return retval;
 }
 
@@ -161,7 +173,7 @@ static int do_read_vga_palette(deark *c, lctx *d)
 		return 0;
 	}
 
-	de_dbg(c, "reading VGA palette at %d\n", (int)pos);
+	de_dbg(c, "VGA palette at %d\n", (int)pos);
 	d->has_vga_pal = 1;
 	pos++;
 	de_dbg_indent(c, 1);
