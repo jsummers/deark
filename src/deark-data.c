@@ -747,6 +747,22 @@ de_ucstring *ucstring_create(deark *c)
 	return s;
 }
 
+de_ucstring *ucstring_clone(de_ucstring *src)
+{
+	de_ucstring *dst;
+	de_int64 i;
+
+	if(!src) return NULL;
+	dst = ucstring_create(src->c);
+
+	// FIXME: This is inefficient.
+	for(i=0; i<src->len; i++) {
+		ucstring_append_char(dst, src->str[i]);
+	}
+
+	return dst;
+}
+
 void ucstring_destroy(de_ucstring *s)
 {
 	deark *c;
@@ -804,6 +820,16 @@ void ucstring_append_buf(de_ucstring *s, const de_byte *buf, de_int64 buflen, in
 		ucstring_append_char(s, ch);
 		pos += code_len;
 	}
+}
+
+void ucstring_append_slice(de_ucstring *s, dbuf *f, de_int64 pos, de_int64 len, int encoding)
+{
+	de_byte *buf;
+
+	buf = de_malloc(s->c, len);
+	dbuf_read(f, buf, pos, len);
+	ucstring_append_buf(s, buf, len, encoding);
+	de_free(s->c, buf);
 }
 
 // Note: This function is similar to de_finfo_set_name_from_ucstring().

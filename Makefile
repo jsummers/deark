@@ -20,7 +20,7 @@ OFILES_MODS:=$(addprefix $(OBJDIR)/modules/,os2bmp.o eps.o bsave.o ilbm.o \
  tivariable.o basic-c64.o ico.o rpm.o \
  rosprite.o binhex.o icns.o awbm.o printshop.o qtif.o portfolio.o bpg.o shg.o \
  insetpix.o ansiart.o xbin.o tim.o ar.o rsc.o gemras.o gemfont.o pff2.o \
- psf.o pkfont.o \
+ jbf.o psf.o pkfont.o \
  gif.o compress.o wmf.o pict.o xfer.o gemmeta.o alphabmp.o abk.o mbk.o \
  makichan.o bmp.o unsupported.o)
 OFILES_MODUTILS:=$(addprefix $(OBJDIR)/modules/,fmtutil.o)
@@ -41,7 +41,7 @@ $(OBJDIR)/modules/fmtutil.o $(OBJDIR)/modules/exe.o \
  $(OBJDIR)/modules/wmf.o $(OBJDIR)/modules/pict.o \
  $(OBJDIR)/modules/ansiart.o $(OBJDIR)/modules/xbin.o \
  $(OBJDIR)/modules/qtif.o $(OBJDIR)/modules/gemras.o \
- $(OBJDIR)/modules/mbk.o \
+ $(OBJDIR)/modules/mbk.o $(OBJDIR)/modules/jbf.o \
  $(OBJDIR)/modules/misc.o: modules/fmtutil.h
 
 $(OBJDIR)/src/deark-miniz.o: foreign/miniz.h

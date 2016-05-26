@@ -238,6 +238,12 @@ Deark -- Information about supported formats
   - Icon, pointer, and BMP image files are extracted from Bitmap Array files.
     Reprocess icon and pointer files to convert to PNG.
 
+* PaintShop Pro Browser Cache (module="jbf") (experimental)
+  - Format v1.x: BMP files are reconstructed and extracted.
+  - Format v2.x: JPEG files are extracted.
+  - Thumbnail filenames are constructed by appending ".bmp" or ".jpg" to the
+    original file's name.
+
 * PCPaint / Pictor (module="pcpaint")
   - Supports PIC and CLP formats. Some files are not portable, because they use
     a nonstandard palette that is not contained in the file.

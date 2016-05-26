@@ -559,11 +559,15 @@ void de_finfo_set_name_from_bytes(deark *c, de_finfo *fi, const de_byte *name1,
 de_int32 de_char_to_valid_fn_char(deark *c, de_int32 c1);
 
 de_ucstring *ucstring_create(deark *c);
+de_ucstring *ucstring_clone(de_ucstring *src);
 void ucstring_destroy(de_ucstring *s);
 void ucstring_append_char(de_ucstring *s, de_int32 ch);
 
 // Convert and append an encoded array of bytes to the string.
 void ucstring_append_buf(de_ucstring *s, const de_byte *buf, de_int64 buflen, int encoding);
+
+// Convert and append encoded bytes from a dbuf to the string.
+void ucstring_append_slice(de_ucstring *s, dbuf *f, de_int64 pos, de_int64 len, int encoding);
 
 // Supported encodings are DE_ENCODING_UTF8, DE_ENCODING_ASCII, DE_ENCODING_LATIN1.
 void ucstring_to_sz(de_ucstring *s, char *szbuf, size_t szbuf_len, int encoding);
