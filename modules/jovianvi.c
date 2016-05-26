@@ -15,6 +15,7 @@ typedef struct localctx_struct {
 	de_int64 rowspan;
 	de_int64 palpos;
 	de_int64 bitspos;
+	de_int64 pal_first_entry_idx;
 	de_int64 num_pal_colors;
 	de_uint32 pal[256];
 } lctx;
@@ -22,34 +23,39 @@ typedef struct localctx_struct {
 static void do_read_palette(deark *c, lctx *d)
 {
 	de_int64 k, z;
+	de_int64 idx;
 	de_byte b1[3];
 	de_byte b2[3];
 
 	de_dbg(c, "palette at %d\n", (int)d->palpos);
 	de_dbg_indent(c, 1);
 
-	if(d->pal_code!=0) {
-		// 8-bit palette samples
-		de_read_palette_rgb(c->infile, d->palpos, d->num_pal_colors, 3,
-			d->pal, 256, 0);
-		goto done;
-	}
-
-	// 6-bit palette samples
 	for(k=0; k<d->num_pal_colors; k++) {
+		idx = d->pal_first_entry_idx + k;
+		if(idx > 255) break;
+
 		de_read(b1, d->palpos + 3*k, 3);
 		for(z=0; z<3; z++) {
-			b2[z] = de_scale_63_to_255(b1[z]);
+			if(d->pal_code==0) {
+				b2[z] = de_scale_63_to_255(b1[z]); // 6-bit palette samples
+			}
+			else {
+				b2[z] = b1[z]; // 8-bit palette samples
+			}
 		}
 
-		d->pal[k] = DE_MAKE_RGB(b2[0],b2[1],b2[2]);
+		d->pal[idx] = DE_MAKE_RGB(b2[0],b2[1],b2[2]);
 
-		de_dbg2(c, "pal[%3d] = (%2d,%2d,%2d) -> (%3d,%3d,%3d)\n", (int)k,
-			(int)b1[0], (int)b1[1], (int)b1[2],
-			(int)b2[0], (int)b2[1], (int)b2[2]);
+		if(d->pal_code==0) {
+			de_dbg2(c, "pal[%3d] = (%2d,%2d,%2d) -> (%3d,%3d,%3d)\n", (int)idx,
+				(int)b1[0], (int)b1[1], (int)b1[2],
+				(int)b2[0], (int)b2[1], (int)b2[2]);
+		}
+		else {
+			de_dbg_pal_entry(c, k, d->pal[idx]);
+		}
 	}
 
-done:
 	de_dbg_indent(c, -1);
 }
 
@@ -170,11 +176,11 @@ static void de_run_jovianvi(deark *c, de_module_params *mparams)
 		d->pal_code = de_getbyte(9);
 		de_dbg(c, "palette code: 0x%02x\n", (unsigned int)d->pal_code);
 
-		// Weirdly, it seems you're supposed to add together these two
-		// bytes to get the number of palette colors.
-		d->num_pal_colors = (de_int64)de_getbyte(10) + de_getbyte(11);
-		if(d->num_pal_colors==0 || d->num_pal_colors>256)
+		d->pal_first_entry_idx = (de_int64)de_getbyte(10);
+		d->num_pal_colors =  (de_int64)de_getbyte(11);
+		if(d->num_pal_colors==0)
 			d->num_pal_colors = 256;
+		de_dbg(c, "index of first palette color: %d\n", (int)d->pal_first_entry_idx);
 		de_dbg(c, "number of palette colors: %d\n", (int)d->num_pal_colors);
 	}
 
