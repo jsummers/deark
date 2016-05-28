@@ -211,22 +211,13 @@ done:
 	return retval;
 }
 
-// Convert a Windows FILETIME to a Deark timestamp.
-// TODO: Too much duplication between this and zip.c.
-static void FILETIME_to_timestamp(de_int64 ft, struct de_timestamp *ts)
-{
-	de_int64 t;
-	t = ft/10000000 - ((de_int64)256)*45486225;
-	de_unix_time_to_timestamp(t, ts);
-}
-
 static void read_FILETIME(deark *c, lctx *d, struct page_ctx *pg, de_int64 pos)
 {
 	de_int64 ft;
 	char timestamp_buf[64];
 
 	ft = de_geti64le(pos);
-	FILETIME_to_timestamp(ft, &pg->fi->mod_time);
+	de_FILETIME_to_timestamp(ft, &pg->fi->mod_time);
 	de_timestamp_to_string(&pg->fi->mod_time, timestamp_buf, sizeof(timestamp_buf), 1);
 	de_dbg(c, "mod time: %s\n", timestamp_buf);
 }

@@ -671,6 +671,14 @@ void de_unix_time_to_timestamp(de_int64 ut, struct de_timestamp *ts)
 	ts->unix_time = ut;
 }
 
+// Convert a Windows FILETIME to a Deark timestamp.
+void de_FILETIME_to_timestamp(de_int64 ft, struct de_timestamp *ts)
+{
+	de_int64 t;
+	t = ft/10000000 - ((de_int64)256)*45486225;
+	de_unix_time_to_timestamp(t, ts);
+}
+
 de_int64 de_timestamp_to_unix_time(const struct de_timestamp *ts)
 {
 	if(ts->is_valid)

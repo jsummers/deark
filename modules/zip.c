@@ -129,13 +129,11 @@ static void read_unix_timestamp(deark *c, lctx *d, de_int64 pos, const char *nam
 static void read_FILETIME(deark *c, lctx *d, de_int64 pos, const char *name)
 {
 	de_int64 t_FILETIME;
-	de_int64 t;
 	struct de_timestamp timestamp;
 	char timestamp_buf[64];
 
 	t_FILETIME = de_geti64le(pos);
-	t = t_FILETIME/10000000 - ((de_int64)256)*45486225;
-	de_unix_time_to_timestamp(t, &timestamp);
+	de_FILETIME_to_timestamp(t_FILETIME, &timestamp);
 	de_timestamp_to_string(&timestamp, timestamp_buf, sizeof(timestamp_buf), 1);
 	de_dbg(c, "%s: %s\n", name, timestamp_buf);
 }
