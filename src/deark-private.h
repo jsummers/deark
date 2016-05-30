@@ -355,6 +355,11 @@ de_int64 dbuf_geti64x(dbuf *f, de_int64 pos, int is_le);
 #define DE_GETRGBFLAG_BGR 0x1 // Assume BGR order instead of RGB
 de_uint32 dbuf_getRGB(dbuf *f, de_int64 pos, unsigned int flags);
 
+// Convert and append encoded bytes from a dbuf to a ucstring.
+// (see also ucstring_append_*)
+void dbuf_read_to_ucstring(dbuf *f, de_int64 pos, de_int64 len,
+	de_ucstring *s, unsigned int conv_flags, int encoding);
+
 // At least one of 'ext' or 'fi' should be non-NULL.
 #define DE_CREATEFLAG_IS_AUX   0x1
 dbuf *dbuf_create_output_file(deark *c, const char *ext, de_finfo *fi, unsigned int createflags);
@@ -561,16 +566,17 @@ de_int32 de_char_to_valid_fn_char(deark *c, de_int32 c1);
 de_ucstring *ucstring_create(deark *c);
 de_ucstring *ucstring_clone(de_ucstring *src);
 void ucstring_destroy(de_ucstring *s);
+void ucstring_truncate(de_ucstring *s, de_int64 newlen);
 void ucstring_append_char(de_ucstring *s, de_int32 ch);
+void ucstring_append_ucstring(de_ucstring *s1, const de_ucstring *s2);
 
 // Convert and append an encoded array of bytes to the string.
 void ucstring_append_buf(de_ucstring *s, const de_byte *buf, de_int64 buflen, int encoding);
 
-// Convert and append encoded bytes from a dbuf to the string.
-void ucstring_append_slice(de_ucstring *s, dbuf *f, de_int64 pos, de_int64 len, int encoding);
-
 // Supported encodings are DE_ENCODING_UTF8, DE_ENCODING_ASCII, DE_ENCODING_LATIN1.
 void ucstring_to_sz(de_ucstring *s, char *szbuf, size_t szbuf_len, int encoding);
+
+void ucstring_to_printable_sz(de_ucstring *s, char *szbuf, size_t szbuf_len);
 
 void ucstring_make_printable(de_ucstring *s);
 

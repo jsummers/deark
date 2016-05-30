@@ -747,19 +747,35 @@ de_ucstring *ucstring_create(deark *c)
 	return s;
 }
 
+// Reduce the string's length to newlen, by deleting the characters after
+// that point.
+// 'newlen' is expected to be no larger than the string's current length.
+void ucstring_truncate(de_ucstring *s, de_int64 newlen)
+{
+	if(!s && newlen==0) return;
+	if(newlen<0) newlen=0;
+	if(newlen<s->len) s->len = newlen;
+}
+
+// Append s2 to s1
+void ucstring_append_ucstring(de_ucstring *s1, const de_ucstring *s2)
+{
+	de_int64 i;
+
+	if(!s2) return;
+	// TODO: This could be done more efficiently.
+	for(i=0; i<s2->len; i++) {
+		ucstring_append_char(s1, s2->str[i]);
+	}
+}
+
 de_ucstring *ucstring_clone(de_ucstring *src)
 {
 	de_ucstring *dst;
-	de_int64 i;
 
 	if(!src) return NULL;
 	dst = ucstring_create(src->c);
-
-	// FIXME: This is inefficient.
-	for(i=0; i<src->len; i++) {
-		ucstring_append_char(dst, src->str[i]);
-	}
-
+	ucstring_append_ucstring(dst, src);
 	return dst;
 }
 
@@ -792,7 +808,6 @@ void ucstring_append_char(de_ucstring *s, de_int32 ch)
 
 	s->str[s->len] = ch;
 	s->len++;
-	return;
 }
 
 void ucstring_append_buf(de_ucstring *s, const de_byte *buf, de_int64 buflen, int encoding)
@@ -820,16 +835,6 @@ void ucstring_append_buf(de_ucstring *s, const de_byte *buf, de_int64 buflen, in
 		ucstring_append_char(s, ch);
 		pos += code_len;
 	}
-}
-
-void ucstring_append_slice(de_ucstring *s, dbuf *f, de_int64 pos, de_int64 len, int encoding)
-{
-	de_byte *buf;
-
-	buf = de_malloc(s->c, len);
-	dbuf_read(f, buf, pos, len);
-	ucstring_append_buf(s, buf, len, encoding);
-	de_free(s->c, buf);
 }
 
 // Note: This function is similar to de_finfo_set_name_from_ucstring().
@@ -860,6 +865,16 @@ void ucstring_to_sz(de_ucstring *s, char *szbuf, size_t szbuf_len, int encoding)
 	}
 
 	szbuf[szpos] = '\0';
+}
+
+void ucstring_to_printable_sz(de_ucstring *s, char *szbuf, size_t szbuf_len)
+{
+	de_ucstring *s2 = NULL;
+
+	s2 = ucstring_clone(s);
+	ucstring_make_printable(s2);
+	ucstring_to_sz(s2, szbuf, szbuf_len, DE_ENCODING_UTF8);
+	ucstring_destroy(s2);
 }
 
 // Try to determine if a Unicode codepoint (presumed to be from an untrusted source)

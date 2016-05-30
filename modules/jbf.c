@@ -147,10 +147,10 @@ static int read_filename(deark *c, lctx *d, struct page_ctx *pg, de_int64 pos1, 
 {
 	int retval = 0;
 	de_int64 pos = pos1;
-	de_ucstring *fname_to_print = NULL;
+	de_ucstring *fname_orig = NULL;
 	char fn_printable[260];
 
-	pg->fname = ucstring_create(c);
+	fname_orig = ucstring_create(c);
 
 	if(d->ver_combined>=0x010001) { // v1.1+
 		de_int64 fnlen;
@@ -164,28 +164,21 @@ static int read_filename(deark *c, lctx *d, struct page_ctx *pg, de_int64 pos1, 
 
 		// I don't think there's any way to know the encoding of the filename.
 		// WINDOWS1252 is just a guess.
-		ucstring_append_slice(pg->fname, c->infile, pos, fnlen, DE_ENCODING_WINDOWS1252);
+		dbuf_read_to_ucstring(c->infile, pos, fnlen, fname_orig, 0, DE_ENCODING_WINDOWS1252);
 		pos += fnlen;
 	}
 	else { // v1.0
 		// File always has 13 bytes reserved for the filename.
 		// The name is up to 12 bytes long, terminated by 0x00.
-		de_int64 foundpos = 0;
-		de_int64 fnlen;
-
-		if(dbuf_search_byte(c->infile, 0x00, pos, 13, &foundpos)) {
-			fnlen = foundpos - pos;
-		}
-		else {
-			fnlen = 12;
-		}
-		ucstring_append_slice(pg->fname, c->infile, pos, fnlen, DE_ENCODING_WINDOWS1252);
+		dbuf_read_to_ucstring(c->infile, pos, 12, fname_orig, DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_WINDOWS1252);
 		pos += 13;
 	}
 
-	fname_to_print = ucstring_clone(pg->fname);
+	ucstring_to_printable_sz(fname_orig, fn_printable, sizeof(fn_printable));
+	de_dbg(c, "original filename: \"%s\"\n", fn_printable);
 
 	if(c->filenames_from_file) {
+		pg->fname = ucstring_clone(fname_orig);
 		if(d->ver_major>=2)
 			ucstring_append_buf(pg->fname, (const de_byte*)".jpg", 4, DE_ENCODING_ASCII);
 		else
@@ -200,13 +193,9 @@ static int read_filename(deark *c, lctx *d, struct page_ctx *pg, de_int64 pos1, 
 			pg->thumbnail_ext = "bmp";
 	}
 
-	ucstring_make_printable(fname_to_print);
-	ucstring_to_sz(fname_to_print, fn_printable, sizeof(fn_printable), DE_ENCODING_UTF8);
-	de_dbg(c, "original filename: \"%s\"\n", fn_printable);
-
 	retval = 1;
 done:
-	ucstring_destroy(fname_to_print);
+	ucstring_destroy(fname_orig);
 	*bytes_consumed = pos - pos1;
 	return retval;
 }

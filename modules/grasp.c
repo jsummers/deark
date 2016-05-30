@@ -21,6 +21,9 @@ static int do_extract_file(deark *c, lctx *d, de_int64 fnum)
 	de_int64 file_data_offset;
 	de_int64 file_size;
 	de_finfo *fi = NULL;
+	de_ucstring *fname = NULL;
+	char fn_printable[32];
+	int indent_count = 0;
 	int retval = 1;
 
 	pos = 2+17*fnum;
@@ -36,6 +39,8 @@ static int do_extract_file(deark *c, lctx *d, de_int64 fnum)
 	}
 
 	de_dbg(c, "file #%d offset: %d\n", (int)fnum, (int)file_info_offset);
+	de_dbg_indent(c, 1);
+	indent_count++;
 
 	if(file_info_offset < d->dir_header_nbytes) {
 		de_warn(c, "Bad file offset (%d)\n", (int)file_info_offset);
@@ -48,9 +53,15 @@ static int do_extract_file(deark *c, lctx *d, de_int64 fnum)
 	}
 
 	fi = de_finfo_create(c);
+
+	fname = ucstring_create(c);
+
 	// In a Grasp GL file, filenames are 13 bytes, NUL-padded.
-	de_finfo_set_name_from_slice(c, fi, c->infile, pos+4, 13, DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_ASCII);
+	dbuf_read_to_ucstring(c->infile, pos+4, 13, fname, DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_ASCII);
+	de_finfo_set_name_from_ucstring(c, fi, fname);
 	fi->original_filename_flag = 1;
+	ucstring_to_printable_sz(fname, fn_printable, sizeof(fn_printable));
+	de_dbg(c, "file name: %s\n", fn_printable);
 
 	file_size = de_getui32le(file_info_offset);
 	de_dbg(c, "file size: %d\n", (int)file_size);
@@ -59,12 +70,12 @@ static int do_extract_file(deark *c, lctx *d, de_int64 fnum)
 	if(file_data_offset > dbuf_get_length(c->infile)) goto done;
 	if(file_size > DE_MAX_FILE_SIZE) goto done;
 
-	de_dbg(c, "extracting %s\n", fi->file_name);
-
 	dbuf_create_file_from_slice(c->infile, file_data_offset, file_size, NULL, fi, 0);
 
 done:
 	de_finfo_destroy(c, fi);
+	ucstring_destroy(fname);
+	de_dbg_indent(c, -indent_count);
 	return retval;
 }
 

@@ -376,6 +376,27 @@ void dbuf_read_sz(dbuf *f, de_int64 pos, char *dst, size_t dst_size)
 	dst[bytes_copied] = '\0';
 }
 
+// Read (up to) len bytes from f, translate them to characters, and append
+// them to s.
+void dbuf_read_to_ucstring(dbuf *f, de_int64 pos, de_int64 len,
+	de_ucstring *s, unsigned int conv_flags, int encoding)
+{
+	de_byte *buf = NULL;
+	deark *c = f->c;
+
+	if(conv_flags & DE_CONVFLAG_STOP_AT_NUL) {
+		de_int64 foundpos = 0;
+		if(dbuf_search_byte(f, 0x00, pos, len, &foundpos)) {
+			len = foundpos - pos;
+		}
+	}
+
+	buf = de_malloc(c, len);
+	dbuf_read(f, buf, pos, len);
+	ucstring_append_buf(s, buf, len, encoding);
+	de_free(c, buf);
+}
+
 int dbuf_memcmp(dbuf *f, de_int64 pos, const void *s, size_t n)
 {
 	de_byte *buf;
