@@ -592,12 +592,12 @@ void de_finfo_destroy(deark *c, de_finfo *fi)
 void de_finfo_set_name_from_slice(deark *c, de_finfo *fi, dbuf *f,
 	de_int64 pos, de_int64 len, unsigned int conv_flags, int encoding)
 {
-	de_byte *tmpbuf = NULL;
+	de_ucstring *s = NULL;
 
-	tmpbuf = de_malloc(c, len);
-	dbuf_read(f, tmpbuf, pos, len);
-	de_finfo_set_name_from_bytes(c, fi, tmpbuf, len, conv_flags, encoding);
-	de_free(c, tmpbuf);
+	s = ucstring_create(c);
+	dbuf_read_to_ucstring(f, pos, len, s, conv_flags, encoding);
+	de_finfo_set_name_from_ucstring(c, fi, s);
+	ucstring_destroy(s);
 }
 
 void de_finfo_set_name_from_sz(deark *c, de_finfo *fi, const char *name1, int encoding)
@@ -642,24 +642,15 @@ void de_finfo_set_name_from_ucstring(deark *c, de_finfo *fi, de_ucstring *s)
 	fi->file_name[fnlen] = '\0';
 }
 
-// Supported encodings: Whatever ucstring_append_buf() supports
+// Supported encodings: Whatever ucstring_append_bytes() supports
 void de_finfo_set_name_from_bytes(deark *c, de_finfo *fi,
 	const de_byte *name1, de_int64 name1_len,
 	unsigned int conv_flags, int encoding)
 {
 	de_ucstring *fname = NULL;
 
-	// Adjust name1_len if necessary.
-	if(conv_flags & DE_CONVFLAG_STOP_AT_NUL) {
-		char *tmpp;
-		tmpp = de_memchr(name1, 0, (size_t)name1_len);
-		if(tmpp) {
-			name1_len = (const de_byte*)tmpp - name1;
-		}
-	}
-
 	fname = ucstring_create(c);
-	ucstring_append_bytes(fname, name1, name1_len, 0, encoding);
+	ucstring_append_bytes(fname, name1, name1_len, conv_flags, encoding);
 	de_finfo_set_name_from_ucstring(c, fi, fname);
 	ucstring_destroy(fname);
 }

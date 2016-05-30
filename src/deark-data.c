@@ -827,9 +827,13 @@ void ucstring_append_bytes(de_ucstring *s, const de_byte *buf, de_int64 buflen,
 	de_int32 ch;
 	de_int64 code_len;
 
-	if(conv_flags!=0) {
-		// TODO: Implement STOP_AT_NUL.
-		return;
+	// Adjust buflen if necessary.
+	if(conv_flags & DE_CONVFLAG_STOP_AT_NUL) {
+		char *tmpp;
+		tmpp = de_memchr(buf, 0, (size_t)buflen);
+		if(tmpp) {
+			buflen = (const de_byte*)tmpp - buf;
+		}
 	}
 
 	while(pos<buflen) {
