@@ -42,24 +42,18 @@ static int detect_bom(dbuf *f, de_int64 pos)
 
 static void do_read_filename(deark *c, lctx *d, de_int64 pos, de_int64 len, int utf8_flag)
 {
-	de_byte *fn_buf;
+	de_ucstring *fname = NULL;
 	char fn_printable[256];
-	de_ucstring *s = NULL;
 	int from_encoding;
 
-	fn_buf = de_malloc(c, len);
-	de_read(fn_buf, pos, len);
-
-	s = ucstring_create(c);
+	fname = ucstring_create(c);
 	from_encoding = utf8_flag ? DE_ENCODING_UTF8 : DE_ENCODING_CP437_G;
-	ucstring_append_buf(s, fn_buf, len, from_encoding);
-	ucstring_make_printable(s);
-	ucstring_to_sz(s, fn_printable, sizeof(fn_printable), DE_ENCODING_UTF8);
+	dbuf_read_to_ucstring(c->infile, pos, len, fname, 0, from_encoding);
 
+	ucstring_to_printable_sz(fname, fn_printable, sizeof(fn_printable));
 	de_dbg(c, "filename: \"%s\"\n", fn_printable);
 
-	de_free(c, fn_buf);
-	ucstring_destroy(s);
+	ucstring_destroy(fname);
 }
 
 static void do_comment(deark *c, lctx *d, de_int64 pos, de_int64 len, int utf8_flag,

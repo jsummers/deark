@@ -28,6 +28,7 @@ static void do_extract_file(deark *c, lctx *d, de_int64 dir_pos,
 	de_int32 uchar;
 	de_int64 fnpos;
 	de_finfo *fi = NULL;
+	char fn_printable[32];
 
 	load_addr = de_getui16le(dir_pos+2);
 	end_addr = de_getui16le(dir_pos+4);
@@ -47,14 +48,18 @@ static void do_extract_file(deark *c, lctx *d, de_int64 dir_pos,
 			break;
 		}
 	}
-	de_dbg2(c, "filename length=%d\n", (int)fname_len);
+	de_dbg2(c, "filename length: %d\n", (int)fname_len);
 	fname = ucstring_create(c);
 	for(i=0; i<fname_len; i++) {
 		b = de_getbyte(fnpos+i);
 		uchar = de_char_to_unicode(c, (de_int32)b, DE_ENCODING_PETSCII);
 		ucstring_append_char(fname, uchar);
 	}
-	ucstring_append_buf(fname, (const de_byte*)".prg", 4, DE_ENCODING_ASCII);
+
+	ucstring_to_printable_sz(fname, fn_printable, sizeof(fn_printable));
+	de_dbg(c, "filename: \"%s\"\n", fn_printable);
+
+	ucstring_append_sz(fname, ".prg", DE_ENCODING_ASCII);
 
 	fi = de_finfo_create(c);
 	de_finfo_set_name_from_ucstring(c, fi, fname);

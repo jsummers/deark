@@ -573,6 +573,8 @@ void ucstring_append_ucstring(de_ucstring *s1, const de_ucstring *s2);
 // Convert and append an encoded array of bytes to the string.
 void ucstring_append_buf(de_ucstring *s, const de_byte *buf, de_int64 buflen, int encoding);
 
+void ucstring_append_sz(de_ucstring *s, const char *sz, int encoding);
+
 // Supported encodings are DE_ENCODING_UTF8, DE_ENCODING_ASCII, DE_ENCODING_LATIN1.
 void ucstring_to_sz(de_ucstring *s, char *szbuf, size_t szbuf_len, int encoding);
 

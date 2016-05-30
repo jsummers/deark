@@ -837,6 +837,13 @@ void ucstring_append_buf(de_ucstring *s, const de_byte *buf, de_int64 buflen, in
 	}
 }
 
+void ucstring_append_sz(de_ucstring *s, const char *sz, int encoding)
+{
+	de_int64 len;
+	len = (de_int64)de_strlen(sz);
+	ucstring_append_buf(s, (const de_byte*)sz, len, encoding);
+}
+
 // Note: This function is similar to de_finfo_set_name_from_ucstring().
 // Maybe they should be consolidated.
 void ucstring_to_sz(de_ucstring *s, char *szbuf, size_t szbuf_len, int encoding)
