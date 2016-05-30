@@ -950,6 +950,11 @@ void dbuf_set_max_length(dbuf *f, de_int64 max_len)
 	f->max_len = max_len;
 }
 
+int dbuf_has_utf8_bom(dbuf *f, de_int64 pos)
+{
+	return !dbuf_memcmp(f, pos, "\xef\xbb\xbf", 3);
+}
+
 // Write the contents of a dbuf to a file.
 // This function intended for use in development/debugging.
 int dbuf_dump_to_file(dbuf *inf, const char *fn)

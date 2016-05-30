@@ -29,17 +29,6 @@ static void copy_cp437c_to_utf8(deark *c, const de_byte *buf, de_int64 len, dbuf
 	}
 }
 
-static int detect_bom(dbuf *f, de_int64 pos)
-{
-	de_byte buf[3];
-
-	dbuf_read(f, buf, pos, 3);
-	if(buf[0]==0xef && buf[1]==0xbb && buf[2]==0xbf) {
-		return 1;
-	}
-	return 0;
-}
-
 static void do_read_filename(deark *c, lctx *d, de_int64 pos, de_int64 len, int utf8_flag)
 {
 	de_ucstring *fname = NULL;
@@ -83,7 +72,7 @@ static void do_comment(deark *c, lctx *d, de_int64 pos, de_int64 len, int utf8_f
 			// A UTF-8 comment is not expected to have a BOM, but just in case it does,
 			// make sure we don't add a second one.
 			if(len>=3) {
-				already_has_bom = detect_bom(c->infile, pos);
+				already_has_bom = dbuf_has_utf8_bom(c->infile, pos);
 			}
 
 			if(!already_has_bom) {

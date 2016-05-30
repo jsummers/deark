@@ -408,6 +408,8 @@ int dbuf_memcmp(dbuf *f, de_int64 pos, const void *s, size_t n);
 int dbuf_create_file_from_slice(dbuf *inf, de_int64 pos, de_int64 data_size,
 	const char *ext, de_finfo *fi, unsigned int createflags);
 
+int dbuf_has_utf8_bom(dbuf *f, de_int64 pos);
+
 int dbuf_dump_to_file(dbuf *inf, const char *fn);
 
 // Remove everything from the dbuf.
