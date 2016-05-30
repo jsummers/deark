@@ -725,7 +725,7 @@ static int handler_a1(deark *c, lctx *d, de_int64 opcode, de_int64 data_pos, de_
 		char sig_printable[8];
 
 		de_read(sig, data_pos+4, 4);
-		de_make_printable_ascii(sig, 4, sig_printable, sizeof(sig_printable), 0);
+		de_bytes_to_printable_sz(sig, 4, sig_printable, sizeof(sig_printable), 0, DE_ENCODING_ASCII);
 		de_dbg(c, "application comment, signature=\"%s\" (%02x %02x %02x %02x)\n",
 			sig_printable, (unsigned int)sig[0], (unsigned int)sig[1],
 			(unsigned int)sig[2], (unsigned int)sig[3]);

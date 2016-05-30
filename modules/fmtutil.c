@@ -534,7 +534,7 @@ static int do_box(deark *c, struct de_boxesctx *bctx, de_int64 pos, de_int64 len
 	}
 
 	if(c->debug_level>0) {
-		de_make_printable_ascii(boxtype_buf, 4, boxtype_printable, sizeof(boxtype_printable), 0);
+		de_bytes_to_printable_sz(boxtype_buf, 4, boxtype_printable, sizeof(boxtype_printable), 0, DE_ENCODING_ASCII);
 		if(bctx->is_uuid) {
 			render_uuid(c, bctx->uuid, uuid_string, sizeof(uuid_string));
 			de_dbg(c, "box '%s'{%s} at %d, len=%" INT64_FMT "\n",

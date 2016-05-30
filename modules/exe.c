@@ -665,7 +665,7 @@ static void do_pe_section_header(deark *c, lctx *d, de_int64 pos)
 	de_read(name_raw, pos, 8); // Section name
 
 	if(c->debug_level>0) {
-		de_make_printable_ascii(name_raw, 8, name, sizeof(name), DE_CONVFLAG_STOP_AT_NUL);
+		de_bytes_to_printable_sz(name_raw, 8, name, sizeof(name), DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_ASCII);
 		de_dbg(c, "section name: \"%s\"\n", name);
 	}
 

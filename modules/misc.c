@@ -953,7 +953,7 @@ static void de_run_png(deark *c, de_module_params *mparams)
 		chunk_data_len = de_getui32be(pos);
 		if(pos + 8 + chunk_data_len + 4 > c->infile->len) break;
 		de_read(buf, pos+4, 4);
-		de_make_printable_ascii(buf, 4, chunk_id_printable, sizeof(chunk_id_printable), 0);
+		de_bytes_to_printable_sz(buf, 4, chunk_id_printable, sizeof(chunk_id_printable), 0, DE_ENCODING_ASCII);
 		chunk_id = de_getui32be_direct(buf);
 
 		if(chunk_id==PNGID_IDAT && suppress_idat_dbg) {

@@ -12,6 +12,8 @@
 
 static const char *g_hexchars = "0123456789abcdef";
 
+static int is_printable_uchar(de_int32 ch);
+
 char de_get_hexchar(int n)
 {
 	if(n>=0 && n<16) return g_hexchars[n];
@@ -693,12 +695,18 @@ de_uint32 de_rgb555_to_888(de_uint32 x)
 
 // s1 is not NUL terminated, but s2 will be.
 // s2_size includes the NUL terminator.
-void de_make_printable_ascii(const de_byte *s1, de_int64 s1_len,
-	char *s2, de_int64 s2_size, unsigned int conv_flags)
+void de_bytes_to_printable_sz(const de_byte *s1, de_int64 s1_len,
+	char *s2, de_int64 s2_size, unsigned int conv_flags, int src_encoding)
 {
 	de_int64 i;
 	de_int64 s2_pos = 0;
 	char ch;
+
+	if(src_encoding!=DE_ENCODING_ASCII) {
+		// TODO: Implement other encodings
+		s2[0] = '\0';
+		return;
+	}
 
 	for(i=0; i<s1_len; i++) {
 		if(s1[i]=='\0' && (conv_flags & DE_CONVFLAG_STOP_AT_NUL)) {
@@ -733,6 +741,7 @@ de_int32 de_char_to_valid_fn_char(deark *c, de_int32 ch)
 	else if(ch>=160 && ch<=0x10ffff) {
 		// TODO: A lot of Unicode characters probably don't belong in filenames.
 		// Maybe we need a whitelist or blacklist.
+		// (is_printable_uchar() exists, but isn't quite right.)
 		return ch;
 	}
 	return '_';
@@ -810,12 +819,18 @@ void ucstring_append_char(de_ucstring *s, de_int32 ch)
 	s->len++;
 }
 
-void ucstring_append_buf(de_ucstring *s, const de_byte *buf, de_int64 buflen, int encoding)
+void ucstring_append_bytes(de_ucstring *s, const de_byte *buf, de_int64 buflen,
+	unsigned int conv_flags, int encoding)
 {
 	int ret;
 	de_int64 pos = 0;
 	de_int32 ch;
 	de_int64 code_len;
+
+	if(conv_flags!=0) {
+		// TODO: Implement STOP_AT_NUL.
+		return;
+	}
 
 	while(pos<buflen) {
 		if(encoding==DE_ENCODING_UTF8) {
@@ -841,7 +856,7 @@ void ucstring_append_sz(de_ucstring *s, const char *sz, int encoding)
 {
 	de_int64 len;
 	len = (de_int64)de_strlen(sz);
-	ucstring_append_buf(s, (const de_byte*)sz, len, encoding);
+	ucstring_append_bytes(s, (const de_byte*)sz, len, 0, encoding);
 }
 
 // Note: This function is similar to de_finfo_set_name_from_ucstring().

@@ -267,7 +267,7 @@ static int read_nsl_chunk(deark *c, lctx *d, de_int64 pos1, de_int64 *plen)
 	pos = pos1;
 	de_read(chunk_id_buf, pos, 4);
 	chunk_id = (de_uint32)de_getui32be_direct(chunk_id_buf);
-	de_make_printable_ascii(chunk_id_buf, 4, chunk_id_printable, sizeof(chunk_id_printable), 0);
+	de_bytes_to_printable_sz(chunk_id_buf, 4, chunk_id_printable, sizeof(chunk_id_printable), 0, DE_ENCODING_ASCII);
 
 	pos += 4;
 	payload_len = de_getui16be(pos);

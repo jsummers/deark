@@ -92,7 +92,7 @@ static void process_riff_sequence(deark *c, lctx *d, de_int64 pos, de_int64 len1
 		pos+=4;
 		chunk_data_pos = pos;
 
-		de_make_printable_ascii(chunk_id_buf, 4, chunk_id_printable, sizeof(chunk_id_printable), 0);
+		de_bytes_to_printable_sz(chunk_id_buf, 4, chunk_id_printable, sizeof(chunk_id_printable), 0, DE_ENCODING_ASCII);
 		de_dbg(c, "chunk '%s' at %d, dlen=%d\n", chunk_id_printable, (int)chunk_pos, (int)chunk_data_len);
 
 		if(chunk_data_pos + chunk_data_len > endpos) {
@@ -126,7 +126,7 @@ static void process_riff_sequence(deark *c, lctx *d, de_int64 pos, de_int64 len1
 			if(d->level==0) {
 				d->riff_type = list_id; // Remember the file type for later
 			}
-			de_make_printable_ascii(list_id_buf, 4, list_id_printable, sizeof(list_id_printable), 0);
+			de_bytes_to_printable_sz(list_id_buf, 4, list_id_printable, sizeof(list_id_printable), 0, DE_ENCODING_ASCII);
 			de_dbg(c, "%s type: '%s'\n", chunk_id_printable, list_id_printable);
 
 			d->level++;

@@ -659,7 +659,7 @@ void de_finfo_set_name_from_bytes(deark *c, de_finfo *fi,
 	}
 
 	fname = ucstring_create(c);
-	ucstring_append_buf(fname, name1, name1_len, encoding);
+	ucstring_append_bytes(fname, name1, name1_len, 0, encoding);
 	de_finfo_set_name_from_ucstring(c, fi, fname);
 	ucstring_destroy(fname);
 }

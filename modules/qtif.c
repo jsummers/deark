@@ -37,8 +37,8 @@ static int do_read_idsc(deark *c, lctx *d, de_int64 pos, de_int64 len)
 	de_dbg(c, "idsc size: %d\n", (int)d->idsc_size);
 
 	de_read(d->cmpr_type, pos+4, 4);
-	de_make_printable_ascii(d->cmpr_type, 4, d->cmpr_type_printable,
-		sizeof(d->cmpr_type_printable), 0);
+	de_bytes_to_printable_sz(d->cmpr_type, 4, d->cmpr_type_printable,
+		sizeof(d->cmpr_type_printable), 0, DE_ENCODING_ASCII);
 	de_dbg(c, "compression type: \"%s\"\n", d->cmpr_type_printable);
 
 	if(len<86) goto done;

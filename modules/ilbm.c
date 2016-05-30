@@ -82,7 +82,7 @@ static void make_printable_code(de_uint32 code, char *buf, size_t buf_size)
 	s1[1] = (de_byte)((code & 0x00ff0000U)>>16);
 	s1[2] = (de_byte)((code & 0x0000ff00U)>>8);
 	s1[3] = (de_byte)(code & 0x000000ffU);
-	de_make_printable_ascii(s1, 4, buf, buf_size, 0);
+	de_bytes_to_printable_sz(s1, 4, buf, buf_size, 0, DE_ENCODING_ASCII);
 }
 
 static int do_bmhd(deark *c, lctx *d, de_int64 pos1, de_int64 len)

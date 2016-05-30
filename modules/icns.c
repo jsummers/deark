@@ -403,7 +403,7 @@ static void de_run_icns_pass(deark *c, lctx *d, int pass)
 
 		de_read(code_bytes, d->segment_pos, 4);
 		d->code = (de_uint32)de_getui32be_direct(code_bytes);
-		de_make_printable_ascii(code_bytes, 4, d->code_printable, sizeof(d->code_printable), 0);
+		de_bytes_to_printable_sz(code_bytes, 4, d->code_printable, sizeof(d->code_printable), 0, DE_ENCODING_ASCII);
 
 		d->segment_len = de_getui32be(d->segment_pos+4);
 

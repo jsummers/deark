@@ -179,8 +179,8 @@ static void do_app_segment(deark *c, lctx *d, de_byte seg_type,
 	app_id_orig_strlen = (de_int64)de_strlen(app_id_orig);
 	app_id_orig_size = app_id_orig_strlen + 1;
 
-	de_make_printable_ascii((const de_byte*)app_id_orig, app_id_orig_strlen,
-		app_id_printable, sizeof(app_id_printable), 0);
+	de_bytes_to_printable_sz((const de_byte*)app_id_orig, app_id_orig_strlen,
+		app_id_printable, sizeof(app_id_printable), 0, DE_ENCODING_ASCII);
 
 	de_dbg(c, "app id: \"%s\"\n", app_id_printable);
 

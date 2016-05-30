@@ -518,7 +518,7 @@ static int do_read_AmBk(deark *c, lctx *d, struct amosbank *bk)
 		(int)bk->bank_data_len, (int)bk->bank_len);
 
 	dbuf_read(bk->f, bank_name, 12, 8);
-	de_make_printable_ascii(bank_name, 8, bank_name_printable, sizeof(bank_name_printable), 0);
+	de_bytes_to_printable_sz(bank_name, 8, bank_name_printable, sizeof(bank_name_printable), 0, DE_ENCODING_ASCII);
 	de_dbg(c, "bank name: \"%s\"\n", bank_name_printable);
 
 	if(bk->bank_data_len<0) return 0;
@@ -569,7 +569,7 @@ static int do_read_bank(deark *c, lctx *d, de_int64 pos, de_int64 *bytesused)
 
 	dbuf_read(bk->f, banktype_buf, 0, 4);
 	bk->banktype = (de_uint32)de_getui32be_direct(banktype_buf);
-	de_make_printable_ascii(banktype_buf, 4, banktype_printable, sizeof(banktype_printable), 0);
+	de_bytes_to_printable_sz(banktype_buf, 4, banktype_printable, sizeof(banktype_printable), 0, DE_ENCODING_ASCII);
 	de_dbg(c, "bank type '%s'\n", banktype_printable);
 
 	switch(bk->banktype) {

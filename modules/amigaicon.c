@@ -554,7 +554,7 @@ static void do_glowicons(deark *c, lctx *d, de_int64 pos)
 	while(pos < endpos) {
 		de_read(chunk_id_buf, pos, 4);
 		chunk_id = (de_uint32)de_getui32be_direct(chunk_id_buf);
-		de_make_printable_ascii(chunk_id_buf, 4, chunk_id_printable, sizeof(chunk_id_printable), 0);
+		de_bytes_to_printable_sz(chunk_id_buf, 4, chunk_id_printable, sizeof(chunk_id_printable), 0, DE_ENCODING_ASCII);
 		len = de_getui32be(pos+4);
 
 		de_dbg(c, "chunk '%s' at %d, dlen=%d\n", chunk_id_printable, (int)pos, (int)len);

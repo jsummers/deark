@@ -549,8 +549,11 @@ int de_is_ascii(const de_byte *buf, de_int64 buflen);
 
 #define DE_CONVFLAG_STOP_AT_NUL 0x1
 
-void de_make_printable_ascii(const de_byte *src, de_int64 src_len,
-	char *dst, de_int64 dst_len, unsigned int conv_flags);
+// Convert encoded bytes to a NUL-terminated string that can be
+// printed to the terminal.
+// Consider using dbuf_read_to_ucstring+ucstring_to_printable_sz instead.
+void de_bytes_to_printable_sz(const de_byte *src, de_int64 src_len,
+	char *dst, de_int64 dst_len, unsigned int conv_flags, int src_encoding);
 
 de_finfo *de_finfo_create(deark *c);
 void de_finfo_destroy(deark *c, de_finfo *fi);
@@ -571,7 +574,7 @@ void ucstring_append_char(de_ucstring *s, de_int32 ch);
 void ucstring_append_ucstring(de_ucstring *s1, const de_ucstring *s2);
 
 // Convert and append an encoded array of bytes to the string.
-void ucstring_append_buf(de_ucstring *s, const de_byte *buf, de_int64 buflen, int encoding);
+void ucstring_append_bytes(de_ucstring *s, const de_byte *buf, de_int64 buflen, unsigned int conv_flags, int encoding);
 
 void ucstring_append_sz(de_ucstring *s, const char *sz, int encoding);
 

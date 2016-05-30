@@ -393,7 +393,7 @@ void dbuf_read_to_ucstring(dbuf *f, de_int64 pos, de_int64 len,
 
 	buf = de_malloc(c, len);
 	dbuf_read(f, buf, pos, len);
-	ucstring_append_buf(s, buf, len, encoding);
+	ucstring_append_bytes(s, buf, len, 0, encoding);
 	de_free(c, buf);
 }
 

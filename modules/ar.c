@@ -56,8 +56,8 @@ static int do_ar_item(deark *c, lctx *d, de_int64 pos1, de_int64 *p_item_len)
 	}
 	name_orig_len = de_strlen(name_orig);
 
-	de_make_printable_ascii((const de_byte*)name_orig, 16,
-		name_printable, sizeof(name_printable), DE_CONVFLAG_STOP_AT_NUL);
+	de_bytes_to_printable_sz((const de_byte*)name_orig, 16,
+		name_printable, sizeof(name_printable), DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_ASCII);
 	de_dbg(c, "member raw name: \"%s\"\n", name_printable);
 
 	mod_time = read_decimal(c, pos1+16, 12);

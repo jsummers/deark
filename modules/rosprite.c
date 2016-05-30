@@ -272,8 +272,8 @@ static void read_sprite_name(deark *c, lctx *d, de_finfo *fi, de_int64 pos)
 		char name_printable[20];
 
 		de_read(namebuf, pos, 12);
-		de_make_printable_ascii(namebuf, 12,
-			name_printable, sizeof(name_printable), DE_CONVFLAG_STOP_AT_NUL);
+		de_bytes_to_printable_sz(namebuf, 12,
+			name_printable, sizeof(name_printable), DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_ASCII);
 		de_dbg(c, "sprite name: \"%s\"\n", name_printable);
 	}
 

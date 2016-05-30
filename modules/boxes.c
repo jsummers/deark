@@ -93,7 +93,7 @@ static void do_box_ftyp(deark *c, lctx *d, struct de_boxesctx *bctx)
 	if(bctx->payload_len<4) return;
 	dbuf_read(bctx->f, brand_buf, bctx->payload_pos, 4);
 	d->major_brand = (de_uint32)de_getui32be_direct(brand_buf);
-	de_make_printable_ascii(brand_buf, 4, brand_printable, sizeof(brand_printable), 0);
+	de_bytes_to_printable_sz(brand_buf, 4, brand_printable, sizeof(brand_printable), 0, DE_ENCODING_ASCII);
 	de_dbg(c, "major brand: '%s'\n", brand_printable);
 	apply_brand(c, d, d->major_brand);
 
@@ -106,7 +106,7 @@ static void do_box_ftyp(deark *c, lctx *d, struct de_boxesctx *bctx)
 		dbuf_read(bctx->f, brand_buf, bctx->payload_pos + 8 + i*4, 4);
 		brand_id = (de_uint32)de_getui32be_direct(brand_buf);
 		if(brand_id==0) continue; // Placeholder. Ignore.
-		de_make_printable_ascii(brand_buf, 4, brand_printable, sizeof(brand_printable), 0);
+		de_bytes_to_printable_sz(brand_buf, 4, brand_printable, sizeof(brand_printable), 0, DE_ENCODING_ASCII);
 		de_dbg(c, "compatible brand: '%s'\n", brand_printable);
 		apply_brand(c, d, brand_id);
 	}
@@ -328,7 +328,7 @@ static void do_box_stsd(deark *c, lctx *d, struct de_boxesctx *bctx)
 
 		de_dbg_indent(c, 1);
 		dbuf_read(bctx->f, data_format_buf, pos+4, 4);
-		de_make_printable_ascii(data_format_buf, 4, data_format_printable, sizeof(data_format_printable), 0);
+		de_bytes_to_printable_sz(data_format_buf, 4, data_format_printable, sizeof(data_format_printable), 0, DE_ENCODING_ASCII);
 		de_dbg(c, "data format: '%s'\n", data_format_printable);
 		de_dbg_indent(c, -1);
 
