@@ -48,13 +48,13 @@ static int do_read_header(deark *c, lctx *d)
 	d->version = de_getbyte(1);
 	d->encoding = de_getbyte(2);
 	d->bits = (de_int64)de_getbyte(3); // Bits per pixel per plane
-	d->margin_L = (de_int64)de_getui16le(4);
-	d->margin_T = (de_int64)de_getui16le(6);
-	d->margin_R = (de_int64)de_getui16le(8);
-	d->margin_B = (de_int64)de_getui16le(10);
+	d->margin_L = de_getui16le(4);
+	d->margin_T = de_getui16le(6);
+	d->margin_R = de_getui16le(8);
+	d->margin_B = de_getui16le(10);
 
-	hres = (de_int64)de_getui16le(12);
-	vres = (de_int64)de_getui16le(14);
+	hres = de_getui16le(12);
+	vres = de_getui16le(14);
 
 	// The palette (offset 16-63) will be read later.
 
@@ -63,7 +63,7 @@ static int do_read_header(deark *c, lctx *d)
 	d->reserved1 = de_getbyte(64);
 
 	d->planes = (de_int64)de_getbyte(65);
-	d->rowspan_raw = (de_int64)de_getui16le(66);
+	d->rowspan_raw = de_getui16le(66);
 	d->palette_info = de_getbyte(68);
 
 	de_dbg(c, "format version: %d, encoding: %d, planes: %d, bits: %d\n", (int)d->version,

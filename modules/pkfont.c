@@ -360,12 +360,12 @@ static int do_char_descr(deark *c, lctx *d, de_int64 pos, de_int64 *bytesused)
 		pg->raster_pos = pos + 11;
 	}
 	else if(char_preamble_format==CHAR_PREAMBLE_FORMAT_EXT_SHORT) {
-		pl = (de_int64)de_getui16be(pos+1);
+		pl = de_getui16be(pos+1);
 		pl |= (flagbyte&0x03)<<16;
 		pg->cc = (de_int32)de_getbyte(pos+3);
 		tfm_offs = 4;
 		pg->tfm = do_getui24be(c->infile, pos+tfm_offs);
-		pg->dm = (de_int64)de_getui16be(pos+7);
+		pg->dm = de_getui16be(pos+7);
 		pg->w = (int)de_getui16be(pos+9);
 		pg->h = (int)de_getui16be(pos+11);
 		pg->hoff = dbuf_geti16be(c->infile, pos+13);
