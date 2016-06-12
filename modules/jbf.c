@@ -136,8 +136,10 @@ static const char *get_type_name(unsigned int filetype_code)
 	case 0x01: nm="BMP"; break;
 	case 0x0a: nm="GIF"; break;
 	case 0x11: nm="JPEG"; break;
+	case 0x18: nm="PCX"; break;
 	case 0x1c: nm="PNG"; break;
 	case 0x1f: nm="PSP"; break;
+	case 0x23: nm="TGA"; break;
 	case 0x24: nm="TIFF"; break;
 	}
 	return nm;
@@ -179,10 +181,11 @@ static int read_filename(deark *c, lctx *d, struct page_ctx *pg, de_int64 pos1, 
 
 	if(c->filenames_from_file) {
 		pg->fname = ucstring_clone(fname_orig);
+		ucstring_append_sz(pg->fname, ".thumb.", DE_ENCODING_ASCII);
 		if(d->ver_major>=2)
-			ucstring_append_sz(pg->fname, ".jpg", DE_ENCODING_ASCII);
+			ucstring_append_sz(pg->fname, "jpg", DE_ENCODING_ASCII);
 		else
-			ucstring_append_sz(pg->fname, ".bmp", DE_ENCODING_ASCII);
+			ucstring_append_sz(pg->fname, "bmp", DE_ENCODING_ASCII);
 		de_finfo_set_name_from_ucstring(c, pg->fi, pg->fname);
 		pg->fi->original_filename_flag = 1;
 	}
