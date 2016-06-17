@@ -717,9 +717,38 @@ static void do_2char_code(deark *c, lctx *d, de_byte ch1, de_byte ch2, de_int64 
 	}
 }
 
-static void do_escape_code(deark *c, lctx *d, de_byte code, de_int64 pos)
+static void do_escape_code(deark *c, lctx *d, de_byte code, de_int64 pos,
+	de_int64 *extra_bytes_to_skip)
 {
 	if(code>=96) return;
+
+	if(code=='P') { // DCS
+		de_int64 pos2;
+		de_byte b0, b1;
+
+		// A DCS sequence ends with 1b 5c, or maybe 9c.
+
+		// pos is currently the position of the 'P'.
+		pos2 = pos+1;
+		while(pos2 < d->effective_file_size) {
+			b0 = de_getbyte(pos2);
+			b1 = de_getbyte(pos2+1);
+			if(b0==0x9c) {
+				*extra_bytes_to_skip = pos2 - pos;
+				return;
+			}
+			if(b0==0x1b && b1==0x5c) {
+				*extra_bytes_to_skip = pos2+1 - pos;
+				return;
+			}
+			pos2++;
+		}
+		// End of DCS sequence not found.
+		return;
+	}
+
+	if(code=='\\') return; // Disable Manual Input (we ignore this)
+	if(code=='b') return; // Enable Manual Input (we ignore this)
 
 	if(d->control_seq_seen[(unsigned int)code]==0) {
 		de_warn(c, "Unsupported escape code '%c' at %d\n",
@@ -731,7 +760,7 @@ static void do_escape_code(deark *c, lctx *d, de_byte code, de_int64 pos)
 
 static void do_main(deark *c, lctx *d)
 {
-	de_int64 pos;
+	de_int64 pos, nextpos;
 	de_int64 params_start_pos = 0;
 #define STATE_NORMAL 0
 #define STATE_GOT_ESC 1
@@ -746,8 +775,11 @@ static void do_main(deark *c, lctx *d)
 	d->curr_fgcol = DEFAULT_FGCOL;
 	state = STATE_NORMAL;
 
-	for(pos=0; pos<d->effective_file_size; pos++) {
+	nextpos = 0;
+	while(nextpos<d->effective_file_size) {
+		pos = nextpos;
 		ch = de_getbyte(pos);
+		nextpos = pos+1;
 
 		if(pos==0 && ch==0x9b) {
 			// 0x9b can sometimes mean the same thing as Esc [, but it could
@@ -779,7 +811,10 @@ static void do_main(deark *c, lctx *d)
 			}
 			else if(ch>=64 && ch<=95) {
 				// A 2-character escape sequence
-				do_escape_code(c, d, ch, pos);
+				de_int64 extra_bytes_to_skip;
+				extra_bytes_to_skip = 0;
+				do_escape_code(c, d, ch, pos, &extra_bytes_to_skip);
+				nextpos += extra_bytes_to_skip;
 				state=STATE_NORMAL;
 				continue;
 			}
