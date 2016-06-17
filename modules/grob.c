@@ -8,10 +8,9 @@
 DE_DECLARE_MODULE(de_module_grob);
 
 typedef struct localctx_struct {
-	int w, h;
+	de_int64 w, h;
 	de_int64 bytes_consumed;
 } lctx;
-
 
 static void grob_read_binary_bitmap(deark *c, lctx *d, dbuf *inf, de_int64 pos)
 {
@@ -22,12 +21,23 @@ static void grob_read_binary_bitmap(deark *c, lctx *d, dbuf *inf, de_int64 pos)
 static void de_run_grob_binary(deark *c, lctx *d)
 {
 	de_byte hdr[18];
+	de_int64 obj_id;
+	de_int64 length;
 
 	de_declare_fmt(c, "HP GROB, binary encoded");
 
 	de_read(hdr, 0, 18);
 
-	// Height and Width are 20-bit integers, 2.5 bytes each.
+	// Next 4 fields are packed 20-bit integers, 2.5 bytes each.
+
+	obj_id = (hdr[10]&0x0f)<<16 | hdr[9]<<8 | hdr[8];
+	length = hdr[12]<<12 | hdr[11]<<4 | hdr[10]>>4;
+	de_dbg(c, "object id: 0x%05x\n", (unsigned int)obj_id);
+	if(obj_id != 0x02b1e) {
+		de_warn(c, "Unexpected object identifier (0x%05x, expected 0x02b1e)\n", (unsigned int)obj_id);
+	}
+	de_dbg(c, "object length in nibbles: %d\n", (int)length);
+
 	d->h = (hdr[15]&0x0f)<<16 | hdr[14]<<8 | hdr[13];
 	d->w = hdr[17]<<12 | hdr[16]<<4 | hdr[15]>>4;
 	de_dbg(c, "dimensions: %dx%d\n", (int)d->w, (int)d->h);
