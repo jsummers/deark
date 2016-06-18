@@ -635,6 +635,7 @@ static void do_control_sequence(deark *c, lctx *d, de_byte code,
 	case 'f': do_code_H(c, d); break; // f is the same as H
 	case 'l': do_code_l(c, d, param_start); break;
 	case 'm': do_code_m(c, d); break;
+	case 'q': break; // Programmable LED command. Ignore.
 	case 's':
 		d->saved_xpos = d->xpos;
 		d->saved_ypos = d->ypos;
@@ -646,7 +647,16 @@ static void do_control_sequence(deark *c, lctx *d, de_byte code,
 		break;
 	default:
 		if(!d->control_seq_seen[(unsigned int)code]) {
-			if(code>=0x70 && code<=0x7e) {
+			const char *name = NULL;
+			switch(code) {
+			case 'r': name = "Define scrolling region"; break;
+			}
+
+			if(name) {
+				de_warn(c, "Unsupported control sequence '%c' (%s) at %d\n",
+					(char)code, name, (int)param_start);
+			}
+			else if(code>=0x70 && code<=0x7e) {
 				// "Bit combinations 07/00 to 07/14 are available as final bytes
 				// of control sequences for private use" -- ECMA 48
 				de_warn(c, "Unsupported private-use control sequence '%c' at %d\n",
