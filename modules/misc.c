@@ -1385,23 +1385,30 @@ static void de_run_vgafont(deark *c, de_module_params *mparams)
 	de_byte *fontdata = NULL;
 	struct de_bitmap_font *font = NULL;
 	de_int64 i;
+	de_int64 height;
 
-	if(c->infile->len!=4096) {
+	if(c->infile->len==16*256) {
+		height = 16;
+	}
+	else if(c->infile->len==14*256) {
+		height = 14;
+	}
+	else {
 		de_err(c, "Bad file size\n");
 		goto done;
 	}
 
-	fontdata = de_malloc(c, 4096);
-	de_read(fontdata, 0, 4096);
+	fontdata = de_malloc(c, height*256);
+	de_read(fontdata, 0, height*256);
 
 	if(de_get_ext_option(c, "vgafont:c")) {
 		dbuf *ff;
 		ff = dbuf_create_output_file(c, "h", NULL, 0);
-		for(i=0; i<4096; i++) {
-			if(i%16==0) dbuf_puts(ff, "\t");
+		for(i=0; i<(height*256); i++) {
+			if(i%height==0) dbuf_puts(ff, "\t");
 			dbuf_printf(ff, "%d", (int)fontdata[i]);
-			if(i!=4095) dbuf_puts(ff, ",");
-			if(i%16==15) dbuf_puts(ff, "\n");
+			if(i!=(height*256-1)) dbuf_puts(ff, ",");
+			if(i%height==(height-1)) dbuf_puts(ff, "\n");
 		}
 		dbuf_close(ff);
 		goto done;
@@ -1413,7 +1420,7 @@ static void de_run_vgafont(deark *c, de_module_params *mparams)
 	font->has_unicode_codepoints = 0;
 	font->prefer_unicode = 0;
 	font->nominal_width = 8;
-	font->nominal_height = 16;
+	font->nominal_height = (int)height;
 	font->char_array = de_malloc(c, font->num_chars * sizeof(struct de_bitmap_font_char));
 
 	for(i=0; i<font->num_chars; i++) {

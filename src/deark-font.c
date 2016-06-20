@@ -556,6 +556,7 @@ int de_font_is_standard_vga_font(deark *c, de_uint32 crc)
 	case 0x2c3cf7d2U: // e.g.: ndh - Ada.xb
 	case 0x3c0aa3eeU: // https://commons.wikimedia.org/w/index.php?title=File:Codepage-437.png&oldid=153353189
 	case 0x71e15998U: // Used in many XBIN files.
+	case 0xb6133c6eU: // blocktronics_baud_dudes/k1-strax.xb (8x14)
 	case 0xb7cb6e5cU: // e.g.: T1-XBIN.XB
 		return 1;
 	}
