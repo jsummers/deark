@@ -104,7 +104,7 @@ static int read_mki_header(deark *c, lctx *d)
 		de_warn(c, "Width is not a multiple of 64. This image may not be handled correctly.\n");
 	}
 	d->width_adj = de_int_round_up(d->width, 64);
-	if(d->width%64 != 0) {
+	if(d->height%4 != 0) {
 		de_warn(c, "Height is not a multiple of 4. This image may not be handled correctly.\n");
 	}
 	d->height_adj = de_int_round_up(d->height, 4);
