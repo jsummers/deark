@@ -437,6 +437,10 @@ static void de_run_bintext(deark *c, de_module_params *mparams)
 	if(width_req>0) d->width_in_chars = width_req;
 
 	if(d->width_in_chars<1) d->width_in_chars=160;
+	if(effective_file_size%(d->width_in_chars*2)) {
+		de_warn(c, "File does not contain a whole number of rows. The width may "
+			"be wrong. Try \"-opt char:width=...\"\n");
+	}
 	d->height_in_chars = effective_file_size / (d->width_in_chars*2);
 
 	de_dbg(c, "width: %d chars\n", (int)d->width_in_chars);
