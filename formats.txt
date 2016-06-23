@@ -473,6 +473,12 @@ Deark -- Information about supported formats
   - "Extract" the entire file. Use with -start and -size to extract part of
     the file.
 
+* CP437 (module="cp437")
+  Convert DOS Code Page 437 text to UTF-8.
+  - Not autodetected. Use "-m cp437".
+  - Note that code points below 0x20 are ambiguous. Deark tries to guess which
+    ones are control characters.
+
 * CRC-32 (module="crc32")
   - Print the IEEE CRC-32 of the file.
 

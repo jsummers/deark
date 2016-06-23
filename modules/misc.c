@@ -9,6 +9,7 @@
 #include "fmtutil.h"
 DE_DECLARE_MODULE(de_module_copy);
 DE_DECLARE_MODULE(de_module_null);
+DE_DECLARE_MODULE(de_module_cp437);
 DE_DECLARE_MODULE(de_module_crc32);
 DE_DECLARE_MODULE(de_module_zlib);
 DE_DECLARE_MODULE(de_module_sauce);
@@ -75,10 +76,57 @@ void de_module_null(deark *c, struct deark_module_info *mi)
 }
 
 // **************************************************************************
+// CP437
+// Convert CP437 text files to UTF-8.
+// Code points 0-31 are treated as C0 control characters.
+// **************************************************************************
+
+static void de_run_cp437(deark *c, de_module_params *mparams)
+{
+	de_int32 u;
+	de_int64 i;
+	de_byte ch;
+	dbuf *outf = NULL;
+
+	outf = dbuf_create_output_file(c, "txt", NULL, 0);
+
+	if(c->write_bom) {
+		dbuf_write_uchar_as_utf8(outf, 0xfeff);
+	}
+
+	for(i=0; i<c->infile->len; i++) {
+		ch = de_getbyte(i);
+		if(ch==0x09 || ch==0x0a || ch==0x0c || ch==0x0d) {
+			// Leave HT, NL, FF, CR as-is.
+			u = (de_int32)ch;
+		}
+		else if(ch==0x1a) {
+			// Lots of CP437 files end with a Ctrl+Z character, but modern files
+			// don't use any in-band character to signify end-of-file.
+			// I don't just want to delete the character, though, so I guess I'll
+			// change it to U+2404 SYMBOL FOR END OF TRANSMISSION.
+			u = 0x2404;
+		}
+		else {
+			u = de_char_to_unicode(c, (de_int32)ch, DE_ENCODING_CP437_G);
+		}
+		dbuf_write_uchar_as_utf8(outf, u);
+	}
+
+	dbuf_close(outf);
+}
+
+void de_module_cp437(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "cp437";
+	mi->desc = "Code Page 437 text";
+	mi->run_fn = de_run_cp437;
+	mi->identify_fn = de_identify_none;
+}
+
+// **************************************************************************
 // CRC-32
 // Prints the CRC-32. Does not create any files.
-// (Currently intended for development/debugging use, but might be improved
-// and documented in the future.)
 // **************************************************************************
 
 static void de_run_crc32(deark *c, de_module_params *mparams)
