@@ -368,6 +368,8 @@ Deark -- Information about supported formats
 * VBM (VDC BitMap) (module="vbm")
   - Version 2 only
 
+* VITec image format (module="vitec) (experimental/incomplete)
+
 * Windows Metafile (module=wmf) (experimental)
   - Extract BMP images from some records.
 

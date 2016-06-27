@@ -35,6 +35,7 @@ DE_DECLARE_MODULE(de_module_farbfeld);
 DE_DECLARE_MODULE(de_module_vgafont);
 DE_DECLARE_MODULE(de_module_hsiraw);
 DE_DECLARE_MODULE(de_module_qdv);
+DE_DECLARE_MODULE(de_module_vitec);
 
 // **************************************************************************
 // "copy" module
@@ -1660,4 +1661,99 @@ void de_module_qdv(deark *c, struct deark_module_info *mi)
 	mi->desc = "QDV (Giffer)";
 	mi->run_fn = de_run_qdv;
 	mi->identify_fn = de_identify_qdv;
+}
+
+// **************************************************************************
+// VITec image format
+// **************************************************************************
+
+static void de_run_vitec(deark *c, de_module_params *mparams)
+{
+	de_int64 w, h;
+	de_int64 i, j, plane;
+	struct deark_bitmap *img = NULL;
+	de_int64 samplesperpixel;
+	de_int64 rowspan, planespan;
+	de_int64 pos;
+	de_byte b;
+	de_int64 h1size, h2size;
+	int indent_count = 0;
+
+	// This code is based on reverse engineering, and may be incorrect.
+
+	de_warn(c, "VITec image support is experimental, and may not work correctly.\n");
+
+	pos = 4;
+	h1size = de_getui32be(pos);
+	de_dbg(c, "header 1 at %d, len=%d\n", (int)pos, (int)h1size);
+	// Don't know what's in this part of the header. Just ignore it.
+	pos += h1size;
+	if(pos>=c->infile->len) goto done;
+
+	h2size = de_getui32be(pos);
+	de_dbg(c, "header 2 at %d, len=%d\n", (int)pos, (int)h2size);
+	de_dbg_indent(c, 1);
+	indent_count++;
+
+	// pos+4: Bits size?
+	// pos+24: Unknown field, usually 7
+
+	w = de_getui32be(pos+36);
+	h = de_getui32be(pos+40);
+	de_dbg(c, "dimensions: %dx%d\n", (int)w, (int)h);
+	if(!de_good_image_dimensions(c, w, h)) goto done;
+
+	// pos+52: Unknown field, 1 in grayscale images
+
+	samplesperpixel = de_getui32be(pos+56);
+	de_dbg(c, "samples/pixel: %d\n", (int)samplesperpixel);
+	if(samplesperpixel!=1 && samplesperpixel!=3) {
+		de_err(c, "Unsupported samples/pixel: %d\n", (int)samplesperpixel);
+		goto done;
+	}
+
+	pos += h2size;
+	if(pos>=c->infile->len) goto done;
+	de_dbg_indent(c, -1);
+	indent_count--;
+
+	de_dbg(c, "bitmap at %d\n", (int)pos);
+	img = de_bitmap_create(c, w, h, (int)samplesperpixel);
+	rowspan = ((w+7)/8)*8;
+	planespan = rowspan*h;
+
+	for(plane=0; plane<samplesperpixel; plane++) {
+		for(j=0; j<h; j++) {
+			for(i=0; i<w; i++) {
+				b = de_getbyte(pos + plane*planespan + j*rowspan + i);
+				if(samplesperpixel==3) {
+					de_bitmap_setsample(img, i, j, plane, b);
+				}
+				else {
+					de_bitmap_setpixel_gray(img, i, j, b);
+				}
+			}
+		}
+	}
+
+	de_bitmap_write_to_file(img, NULL, 0);
+
+done:
+	de_bitmap_destroy(img);
+	de_dbg_indent(c, -indent_count);
+}
+
+static int de_identify_vitec(deark *c)
+{
+	if(!dbuf_memcmp(c->infile, 0, "\x00\x5b\x07\x20", 4))
+		return 100;
+	return 0;
+}
+
+void de_module_vitec(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "vitec";
+	mi->desc = "VITec image format";
+	mi->run_fn = de_run_vitec;
+	mi->identify_fn = de_identify_vitec;
 }
