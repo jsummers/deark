@@ -12,6 +12,7 @@ typedef struct localctx_struct {
 	de_byte pal_code;
 	de_int64 w, h;
 	de_int64 bitdepth;
+	de_int64 bits_alloc;
 	de_int64 rowspan;
 	de_int64 palpos;
 	de_int64 bitspos;
@@ -71,8 +72,12 @@ static void do_convert_grayscale(deark *c, lctx *d, struct deark_bitmap *img)
 
 	for(j=0; j<d->h; j++) {
 		for(i=0; i<d->w; i++) {
-			v = de_get_bits_symbol(c->infile, d->bitdepth, d->bitspos + j*d->rowspan, i);
+			v = de_get_bits_symbol(c->infile, d->bits_alloc, d->bitspos + j*d->rowspan, i);
 			if(d->bitdepth==4) v *= 17;
+			else if(d->bitdepth==6) {
+				if(v<=63) v = de_scale_63_to_255(v);
+				else v=0;
+			}
 			de_bitmap_setpixel_gray(img, i, j, v);
 		}
 	}
@@ -154,14 +159,20 @@ static void de_run_jovianvi(deark *c, de_module_params *mparams)
 		de_err(c, "Unknown VI image type: 0x%02x\n", (unsigned int)d->imgtype);
 		goto done;
 	}
+
+	if(d->bitdepth==6)
+		d->bits_alloc = 8;
+	else
+		d->bits_alloc = d->bitdepth;
+
 	de_dbg_indent(c, 1);
+
 	if(is_grayscale) imgtypename="grayscale";
 	else if(has_palette) imgtypename="palette color";
 	else imgtypename="RGB";
 	de_dbg(c, "%d bits/pixel, %s\n", (int)d->bitdepth, imgtypename);
 	de_dbg_indent(c, -1);
-	if(is_grayscale && (d->bitdepth!=1 && d->bitdepth!=4 && d->bitdepth!=8)) {
-		// TODO: Support 6-bit grayscale
+	if(is_grayscale && (d->bitdepth!=1 && d->bitdepth!=4 && d->bitdepth!=6 && d->bitdepth!=8)) {
 		de_err(c, "This type of VI image is not supported\n");
 		goto done;
 	}
@@ -194,7 +205,7 @@ static void de_run_jovianvi(deark *c, de_module_params *mparams)
 
 	// Convert the image
 	de_dbg(c, "bitmap at %d\n", (int)d->bitspos);
-	d->rowspan = (d->w*d->bitdepth + 7)/8;
+	d->rowspan = (d->w*d->bits_alloc + 7)/8;
 	img = de_bitmap_create(c, d->w, d->h, is_grayscale?1:3);
 	if(has_palette) {
 		de_convert_image_paletted(c->infile, d->bitspos, d->bitdepth, d->rowspan, d->pal, img, 0);
