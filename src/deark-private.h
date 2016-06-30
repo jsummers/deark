@@ -12,7 +12,6 @@
 
 #define DE_MAX_FILE_SIZE 100000000
 #define DE_DEFAULT_MAX_IMAGE_DIMENSION 10000
-#define DE_MAX_IMAGES_PER_FILE 10000
 
 #define DE_ENCODING_ASCII   0
 #define DE_ENCODING_UTF8    1
@@ -513,6 +512,9 @@ int de_good_image_dimensions_noerr(deark *c, de_int64 w, de_int64 h);
 
 // Test if the image dimensions are valid and supported. Report an error if not.
 int de_good_image_dimensions(deark *c, de_int64 w, de_int64 h);
+
+// Test if the number of images is sane. Report an error if not.
+int de_good_image_count(deark *c, de_int64 n);
 
 int de_is_grayscale_palette(const de_uint32 *pal, de_int64 num_entries);
 

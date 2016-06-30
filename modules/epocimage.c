@@ -554,7 +554,7 @@ static void do_epocmbm_jumptable(deark *c, lctx *d, de_int64 pos)
 
 	num_images = de_getui32le(pos);
 	de_dbg(c, "number of images: %d\n", (int)num_images);
-	if(num_images>DE_MAX_IMAGES_PER_FILE) {
+	if(!de_good_image_count(c, num_images)) {
 		de_err(c, "Too many images\n");
 		goto done;
 	}

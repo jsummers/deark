@@ -217,7 +217,7 @@ static void de_run_ico(deark *c, de_module_params *mparams)
 
 	num_images = de_getui16le(4);
 	de_dbg(c, "images in file: %d\n", (int)num_images);
-	if(num_images>DE_MAX_IMAGES_PER_FILE) {
+	if(!de_good_image_count(c, num_images)) {
 		goto done;
 	}
 

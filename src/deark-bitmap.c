@@ -26,6 +26,28 @@ int de_good_image_dimensions(deark *c, de_int64 w, de_int64 h)
 	return 1;
 }
 
+#define DE_MAX_IMAGES_PER_FILE 10000
+
+// This is meant as a sanity check for fields that indicate how many images
+// are in a file.
+// TODO: It is not used very consistently, and should probably be re-thought
+// or removed.
+int de_good_image_count(deark *c, de_int64 n)
+{
+	de_int64 maximages;
+
+	maximages = DE_MAX_IMAGES_PER_FILE;
+	if(c->max_output_files>DE_MAX_IMAGES_PER_FILE) {
+		maximages = c->max_output_files;
+	}
+
+	if(n<0 || n>maximages) {
+		de_err(c, "Bad or unsupported number of images (%d)\n", (int)n);
+		return 0;
+	}
+	return 1;
+}
+
 int de_is_grayscale_palette(const de_uint32 *pal, de_int64 num_entries)
 {
 	de_int64 k;

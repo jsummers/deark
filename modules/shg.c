@@ -335,7 +335,7 @@ static void do_shg(deark *c, lctx *d)
 
 	d->num_pictures = de_getui16le(d->shg_startpos+2);
 	de_dbg(c, "number of pictures in file: %d\n", (int)d->num_pictures);
-	if(d->num_pictures>DE_MAX_IMAGES_PER_FILE) {
+	if(!de_good_image_count(c, d->num_pictures)) {
 		goto done;
 	}
 

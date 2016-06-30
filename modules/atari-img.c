@@ -972,7 +972,7 @@ static void de_run_neochrome_ani(deark *c, de_module_params *mparams)
 
 	nframes = de_getui16be(14);
 	de_dbg(c, "number of frames: %d\n", (int)nframes);
-	if(nframes>DE_MAX_IMAGES_PER_FILE) goto done;
+	if(!de_good_image_count(c, nframes)) goto done;
 
 	for(frame=0; frame<nframes; frame++) {
 		adata->unc_pixels = dbuf_open_input_subfile(c->infile, 22 + frame*bytes_per_frame, bytes_per_frame);

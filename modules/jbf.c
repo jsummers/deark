@@ -86,7 +86,7 @@ static int do_read_header(deark *c, lctx *d, de_int64 pos)
 	d->image_count = de_getui32le(pos);
 	de_dbg(c, "image count: %d\n", (int)d->image_count);
 	pos+=4;
-	if(d->image_count > DE_MAX_IMAGES_PER_FILE) goto done;
+	if(!de_good_image_count(c, d->image_count)) goto done;
 
 	retval = 1;
 done:

@@ -386,7 +386,7 @@ static void do_ti92(deark *c, lctx *d)
 
 	numvars = de_getui16le(58);
 	de_dbg(c, "number of variables/folders: %d\n", (int)numvars);
-	if(numvars>DE_MAX_IMAGES_PER_FILE) goto done;
+	if(!de_good_image_count(c, numvars)) goto done;
 
 	pos = 60;
 	for(i=0; i<numvars; i++) {

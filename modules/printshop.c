@@ -98,7 +98,6 @@ static void do_printshop_etc(deark *c, lctx *d)
 	img_count = 0;
 	while(1) {
 		if(pos >= c->infile->len) break;
-		if(img_count >= DE_MAX_IMAGES_PER_FILE) break;
 		do_printshop_etc_image(c, d, img_count, pos, &bytes_consumed);
 		if(bytes_consumed<1) break;
 		pos += bytes_consumed;
