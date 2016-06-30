@@ -24,6 +24,9 @@ Deark -- Information about supported formats
 * ANI (Windows Animated Cursor) (module="ani")
   - Extract individual CUR and ICO files.
 
+* Animatic Film (module="animatic")
+  - Extract the individual frames.
+
 * ANSI Art (module="ansiart")
   - Limited features. Supports only the most common escape codes, though that
      is usually good enough.

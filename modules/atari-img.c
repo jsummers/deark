@@ -16,6 +16,7 @@ DE_DECLARE_MODULE(de_module_fpaint_pi4);
 DE_DECLARE_MODULE(de_module_fpaint_pi9);
 DE_DECLARE_MODULE(de_module_atari_pi7);
 DE_DECLARE_MODULE(de_module_falcon_xga);
+DE_DECLARE_MODULE(de_module_animatic);
 
 static void fix_dark_pal(deark *c, struct atari_img_decode_data *adata);
 
@@ -1006,6 +1007,80 @@ void de_module_neochrome_ani(deark *c, struct deark_module_info *mi)
 	mi->run_fn = de_run_neochrome_ani;
 	mi->identify_fn = de_identify_neochrome_ani;
 	mi->flags |= DE_MODFLAG_NONWORKING;
+}
+
+// **************************************************************************
+// Animatic Film (.flm)
+// **************************************************************************
+
+static void de_run_animatic(deark *c, de_module_params *mparams)
+{
+	struct atari_img_decode_data *adata = NULL;
+	de_int64 nframes;
+	de_int64 frame;
+	de_int64 planespan, rowspan, framespan;
+	de_int64 frame_bitmap_pos;
+	de_uint32 pal[16];
+
+	de_declare_fmt(c, "Animatic Film");
+
+	adata = de_malloc(c, sizeof(struct atari_img_decode_data));
+
+	nframes = de_getui16be(0);
+	de_dbg(c, "number of frames: %d\n", (int)nframes);
+	if(!de_good_image_count(c, nframes)) goto done;
+
+	adata->bpp = 4;
+	adata->ncolors = 16;
+	adata->pal = pal;
+	de_dbg_indent(c, 1);
+	de_fmtutil_read_atari_palette(c, c->infile, 2, adata->pal, 16, adata->ncolors);
+	de_dbg_indent(c, -1);
+
+	adata->w = de_getui16be(40);
+	adata->h = de_getui16be(42);
+	de_dbg(c, "dimensions: %dx%d\n", (int)adata->w, (int)adata->h);
+	if(!de_good_image_dimensions(c, adata->w, adata->h)) goto done;
+
+	planespan = 2*((adata->w+15)/16);
+	rowspan = planespan*adata->bpp;
+	framespan = rowspan*adata->h;
+
+	for(frame=0; frame<nframes; frame++) {
+		frame_bitmap_pos = 64 + frame*framespan;
+		de_dbg(c, "frame %d bitmap at %d\n", (int)frame, (int)frame_bitmap_pos);
+
+		adata->unc_pixels = dbuf_open_input_subfile(c->infile, frame_bitmap_pos, framespan);
+		adata->img = de_bitmap_create(c, adata->w, adata->h, 3);
+
+		de_fmtutil_atari_decode_image(c, adata);
+		de_bitmap_write_to_file(adata->img, NULL, 0);
+
+		de_bitmap_destroy(adata->img);
+		adata->img = NULL;
+
+		dbuf_close(adata->unc_pixels);
+		adata->unc_pixels = NULL;
+	}
+
+done:
+	de_free(c, adata);
+}
+
+static int de_identify_animatic(deark *c)
+{
+	if(!dbuf_memcmp(c->infile, 48, "\x27\x18\x28\x18", 4)) {
+		return 100;
+	}
+	return 0;
+}
+
+void de_module_animatic(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "animatic";
+	mi->desc = "Animatic Film";
+	mi->run_fn = de_run_animatic;
+	mi->identify_fn = de_identify_animatic;
 }
 
 // **************************************************************************
