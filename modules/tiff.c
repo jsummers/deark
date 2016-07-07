@@ -10,9 +10,22 @@ DE_DECLARE_MODULE(de_module_tiff);
 
 #define MAX_IFDS 1000
 
+#define TAGTYPE_BYTE      1
+#define TAGTYPE_ASCII     2
 #define TAGTYPE_UINT16    3
 #define TAGTYPE_UINT32    4
 #define TAGTYPE_RATIONAL  5
+#define TAGTYPE_SBYTE     6
+#define TAGTYPE_UNDEF     7
+#define TAGTYPE_SINT16    8
+#define TAGTYPE_SINT32    9
+#define TAGTYPE_SRATIONAL 10
+#define TAGTYPE_FLOAT     11
+#define TAGTYPE_DOUBLE    12
+#define TAGTYPE_IFD32     13
+#define TAGTYPE_UINT64    16
+#define TAGTYPE_SINT64    17
+#define TAGTYPE_IFD64     18
 
 #define DE_TIFFFMT_TIFF       1
 #define DE_TIFFFMT_BIGTIFF    2
@@ -21,20 +34,88 @@ DE_DECLARE_MODULE(de_module_tiff);
 #define DE_TIFFFMT_DCP        5 // DNG Camera Profile (DCP)
 #define DE_TIFFFMT_MDI        6 // Microsoft Office Document Imaging
 
+struct localctx_struct;
+typedef struct localctx_struct lctx;
+struct taginfo;
+struct tagtypeinfo;
+
 struct ifdstack_item {
 	de_int64 offset;
 };
 
+typedef void (*handler_fn_type)(deark *c, lctx *d, const struct taginfo *tg,
+	const struct tagtypeinfo *tti);
+
+typedef int (*val_decoder_fn_type)(deark *c, lctx *d, const struct taginfo *tg,
+	const struct tagtypeinfo *tti);
+
+static void handler_resolutionunit(deark *c, lctx *d, const struct taginfo *tg, const struct tagtypeinfo *tti);
+static void handler_colormap(deark *c, lctx *d, const struct taginfo *tg, const struct tagtypeinfo *tti);
+static void handler_subifd(deark *c, lctx *d, const struct taginfo *tg, const struct tagtypeinfo *tti);
+
+struct tagtypeinfo {
+	int tagnum;
+	unsigned int flags;
+	const char *tagname;
+	handler_fn_type hfn;
+	val_decoder_fn_type vdfn;
+};
+static const struct tagtypeinfo tagtypeinfo_arr[] = {
+	{ 254, 0x00, "NewSubfileType", NULL, NULL },
+	{ 256, 0x00, "ImageWidth", NULL, NULL },
+	{ 257, 0x00, "ImageLength", NULL, NULL },
+	{ 258, 0x00, "BitsPerSample", NULL, NULL },
+	{ 259, 0x00, "Compression", NULL, NULL },
+	{ 262, 0x00, "PhotometricInterpretation", NULL, NULL },
+	{ 266, 0x00, "FillOrder", NULL, NULL },
+	{ 269, 0x00, "DocumentName", NULL, NULL },
+	{ 270, 0x00, "ImageDescription", NULL, NULL },
+	{ 271, 0x00, "Make", NULL, NULL },
+	{ 272, 0x00, "Model", NULL, NULL },
+	{ 273, 0x00, "StripOffsets", NULL, NULL },
+	{ 274, 0x00, "Orientation", NULL, NULL },
+	{ 277, 0x00, "SamplesPerPixel", NULL, NULL },
+	{ 278, 0x00, "RowsPerStrip", NULL, NULL },
+	{ 279, 0x00, "StripByteCounts", NULL, NULL },
+	{ 282, 0x00, "XResolution", NULL, NULL },
+	{ 283, 0x00, "YResolution", NULL, NULL },
+	{ 284, 0x00, "PlanarConfiguration", NULL, NULL },
+	{ 296, 0x00, "ResolutionUnit", handler_resolutionunit, NULL },
+	{ 297, 0x00, "PageNumber", NULL, NULL },
+	{ 305, 0x00, "Software", NULL, NULL },
+	{ 306, 0x00, "DateTime", NULL, NULL },
+	{ 320, 0x00, "ColorMap", handler_colormap, NULL },
+	{ 330, 0x00, "SubIFD", NULL, NULL },
+#define TAG_JPEGINTERCHANGEFORMAT 513
+	{ TAG_JPEGINTERCHANGEFORMAT, 0x00, "JPEGInterchangeFormat", NULL, NULL },
+#define TAG_JPEGINTERCHANGEFORMATLENGTH 514
+	{ TAG_JPEGINTERCHANGEFORMATLENGTH, 0x00, "JPEGInterchangeFormatLength", NULL, NULL },
+#define TAG_XMP               700
+	{ TAG_XMP, 0x00, "XMP", NULL, NULL },
+#define TAG_IPTC              33723
+	{ TAG_IPTC, 0x00, "IPTC", NULL, NULL },
+#define TAG_PHOTOSHOPRESOURCES 34377
+	{ TAG_PHOTOSHOPRESOURCES, 0x00, "PhotoshopImageResources", NULL, NULL },
+	{ 34665, 0x00, "Exif IFD", handler_subifd, NULL },
+#define TAG_ICCPROFILE        34675
+	{ TAG_ICCPROFILE, 0x00, "ICC Profile", NULL, NULL },
+	{ 34853, 0x00, "GPS IFD", handler_subifd, NULL },
+	{ 40965, 0x00, "Interoperability IFD", handler_subifd, NULL },
+	{ 0, 0, NULL, NULL, NULL }
+};
+
+// Data associated with an actual tag in an IFD in the file
 struct taginfo {
 	int tagnum;
 	int tagtype;
+	int tag_known;
 	de_int64 valcount;
 	de_int64 val_offset;
 	de_int64 unit_size;
 	de_int64 total_size;
 };
 
-typedef struct localctx_struct {
+struct localctx_struct {
 	int is_le;
 	int is_bigtiff;
 	int fmt;
@@ -52,7 +133,7 @@ typedef struct localctx_struct {
 	de_int64 offsetsize; // Number of bytes in a file offset
 
 	de_module_params *mparams;
-} lctx;
+};
 
 // Returns 0 if stack is empty.
 static de_int64 pop_ifd(deark *c, lctx *d)
@@ -106,11 +187,21 @@ static void push_ifd(deark *c, lctx *d, de_int64 ifdpos)
 static int size_of_tiff_type(int tt)
 {
 	switch(tt) {
-	case 1: case 2:	case 6:	case 7: return 1;
-	case 3: case 8: return 2;
-	case 4: case 9:	case 11: case 13: return 4;
-	case 5: case 10: case 12: case 15: case 16:
-	case 17: case 18: return 8;
+	case TAGTYPE_BYTE: case TAGTYPE_SBYTE:
+	case TAGTYPE_ASCII:
+	case TAGTYPE_UNDEF:
+		return 1;
+	case TAGTYPE_UINT16: case TAGTYPE_SINT16:
+		return 2;
+	case TAGTYPE_UINT32: case TAGTYPE_SINT32:
+	case TAGTYPE_FLOAT:
+	case TAGTYPE_IFD32:
+		return 4;
+	case TAGTYPE_RATIONAL: case TAGTYPE_SRATIONAL:
+	case TAGTYPE_DOUBLE:
+	case TAGTYPE_UINT64: case TAGTYPE_SINT64:
+	case TAGTYPE_IFD64:
+		return 8;
 	}
 	return 0;
 }
@@ -138,7 +229,7 @@ static int read_tag_value_as_int64(deark *c, lctx *d, const struct taginfo *tg,
 		*n = dbuf_getui16x(c->infile, tg->val_offset + value_index*tg->unit_size, d->is_le);
 		return 1;
 	}
-	else if(tg->tagtype==TAGTYPE_UINT32) {
+	else if(tg->tagtype==TAGTYPE_UINT32 || tg->tagtype==TAGTYPE_IFD32) {
 		*n = dbuf_getui32x(c->infile, tg->val_offset + value_index*tg->unit_size, d->is_le);
 		return 1;
 	}
@@ -225,21 +316,24 @@ static void do_leaf_metadata(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 	}
 }
 
-static void do_resolution(deark *c, lctx *d, const struct taginfo *tg)
+static void do_display_rational_tag(deark *c, lctx *d, const struct taginfo *tg,
+	const struct tagtypeinfo *tti)
 {
-	const char *name;
 	double n;
-
-	if(tg->tagnum==283) name="Y";
-	else name="X";
 
 	if(!read_tag_value_as_double(c, d, tg, &n))
 		return;
 
-	de_dbg(c, "%sResolution: %.3f\n", name, n);
+	if(tg->tag_known) {
+		de_dbg(c, "%s: %.3f\n", tti->tagname, n);
+	}
+	else {
+		de_dbg(c, "tag_%d value: %.3f\n", tg->tagnum, n);
+	}
 }
 
-static void do_resolutionunit(deark *c, lctx *d, const struct taginfo *tg)
+static void handler_resolutionunit(deark *c, lctx *d, const struct taginfo *tg,
+	const struct tagtypeinfo *tti)
 {
 	de_int64 n;
 	const char *s;
@@ -251,18 +345,26 @@ static void do_resolutionunit(deark *c, lctx *d, const struct taginfo *tg)
 	else if(n==2) s="pixels/inch";
 	else if(n==3) s="pixels/cm";
 	else s="?";
-	de_dbg(c, "ResolutionUnit: %d (%s)\n", (int)n, s);
+	de_dbg(c, "%s: %d (%s)\n", tti->tagname, (int)n, s);
 }
 
-static void do_display_int_tag(deark *c, lctx *d, const struct taginfo *tg, const char *name)
+static void do_display_int_tag(deark *c, lctx *d, const struct taginfo *tg,
+	const struct tagtypeinfo *tti)
 {
 	de_int64 n;
+
+	if(tg->valcount>1) return;
 	if(!read_tag_value_as_int64(c, d, tg, 0, &n))
 		return;
-	de_dbg(c, "%s: %d\n", name, (int)n);
+	if(tg->tag_known) {
+		de_dbg(c, "%s: %d\n", tti->tagname, (int)n);
+	}
+	else {
+		de_dbg(c, "tag_%d value: %d\n", tg->tagnum, (int)n);
+	}
 }
 
-static void do_colormap(deark *c, lctx *d, const struct taginfo *tg)
+static void handler_colormap(deark *c, lctx *d, const struct taginfo *tg, const struct tagtypeinfo *tti)
 {
 	de_int64 num_entries;
 	de_int64 r1, g1, b1;
@@ -285,26 +387,30 @@ static void do_colormap(deark *c, lctx *d, const struct taginfo *tg)
 	}
 }
 
-static void do_subifd(deark *c, lctx *d, const struct taginfo *tg)
+static void handler_subifd(deark *c, lctx *d, const struct taginfo *tg, const struct tagtypeinfo *tti)
 {
 	de_int64 j;
 	de_int64 tmpoffset;
-	const char *name;
 
 	if(tg->unit_size!=d->offsetsize) return;
 
-	switch(tg->tagnum) {
-	case 34665: name = "Exif IFD"; break;
-	case 34853: name = "GPS IFD"; break;
-	case 40965: name = "Interoperability IFD"; break;
-	default: name="sub-IFD";
-	}
-
 	for(j=0; j<tg->valcount;j++) {
 		tmpoffset = getfpos(c, d, tg->val_offset+tg->unit_size*j);
-		de_dbg(c, "offset of %s: %d\n", name, (int)tmpoffset);
+		de_dbg(c, "offset of %s: %d\n", tti->tagname, (int)tmpoffset);
 		push_ifd(c, d, tmpoffset);
 	}
+}
+
+static const struct tagtypeinfo *find_tagtypeinfo(int tagnum)
+{
+	de_int64 i;
+
+	for(i=0; tagtypeinfo_arr[i].tagnum!=0; i++) {
+		if(tagtypeinfo_arr[i].tagnum==tagnum) {
+			return &tagtypeinfo_arr[i];
+		}
+	}
+	return NULL;
 }
 
 static void process_ifd(deark *c, lctx *d, de_int64 ifdpos)
@@ -315,6 +421,7 @@ static void process_ifd(deark *c, lctx *d, de_int64 ifdpos)
 	de_int64 jpeglength = -1;
 	de_int64 tmpoffset;
 	struct taginfo tg;
+	static const struct tagtypeinfo default_tti = { 0, 0x00, "?", NULL, NULL };
 
 	de_dbg(c, "IFD at %d\n", (int)ifdpos);
 	de_dbg_indent(c, 1);
@@ -345,6 +452,8 @@ static void process_ifd(deark *c, lctx *d, de_int64 ifdpos)
 	}
 
 	for(i=0; i<num_tags; i++) {
+		const struct tagtypeinfo *tti;
+
 		de_memset(&tg, 0, sizeof(struct taginfo));
 
 		tg.tagnum = (int)dbuf_getui16x(c->infile, ifdpos+d->ifdhdrsize+i*d->ifditemsize, d->is_le);
@@ -361,18 +470,21 @@ static void process_ifd(deark *c, lctx *d, de_int64 ifdpos)
 			tg.val_offset = getfpos(c, d, ifdpos+d->ifdhdrsize+i*d->ifditemsize+d->offsetoffset);
 		}
 
-		de_dbg(c, "tag %d type=%d count=%d size=%d offset=%" INT64_FMT "\n",
-			tg.tagnum, tg.tagtype, (int)tg.valcount, (int)tg.total_size,
+		tti = find_tagtypeinfo(tg.tagnum);
+		if(tti) {
+			tg.tag_known = 1;
+		}
+		else {
+			tti = &default_tti; // Make sure tti is not NULL.
+		}
+
+		de_dbg(c, "tag %d (%s) type=%d count=%d size=%d offset=%" INT64_FMT "\n",
+			tg.tagnum, tti->tagname,
+			tg.tagtype, (int)tg.valcount, (int)tg.total_size,
 			tg.val_offset);
 		de_dbg_indent(c, 1);
 
 		switch(tg.tagnum) {
-		case 330: // SubIFD
-		case 34665: // Exif IFD
-		case 34853: // GPS IFD
-		case 40965: // Interoperability IFD
-			do_subifd(c, d, &tg);
-			break;
 
 		case 46:
 			if(d->fmt==DE_TIFFFMT_PANASONIC) {
@@ -381,60 +493,23 @@ static void process_ifd(deark *c, lctx *d, de_int64 ifdpos)
 			}
 			break;
 
-		case 256:
-			do_display_int_tag(c, d, &tg, "ImageWidth");
-			break;
-
-		case 257:
-			do_display_int_tag(c, d, &tg, "ImageLength");
-			break;
-
-		case 258:
-			do_display_int_tag(c, d, &tg, "BitsPerSample");
-			break;
-
-		case 259:
-			do_display_int_tag(c, d, &tg, "Compression");
-			break;
-
-		case 262:
-			do_display_int_tag(c, d, &tg, "PhotometricInterpretation");
-			break;
-
-		case 277:
-			do_display_int_tag(c, d, &tg, "SamplesPerPixel");
-			break;
-
-		case 282:
-		case 283:
-			do_resolution(c, d, &tg);
-			break;
-
-		case 296:
-			do_resolutionunit(c, d, &tg);
-			break;
-
-		case 320:
-			do_colormap(c, d, &tg);
-			break;
-
-		case 513: // JPEGInterchangeFormat
-			do_display_int_tag(c, d, &tg, "JPEGInterchangeFormat");
+		case TAG_JPEGINTERCHANGEFORMAT:
+			do_display_int_tag(c, d, &tg, tti);
 			if(tg.unit_size!=d->offsetsize || tg.valcount<1) break;
 			jpegoffset = getfpos(c, d, tg.val_offset);
 			break;
 
-		case 514: // JPEGInterchangeFormatLength
-			do_display_int_tag(c, d, &tg, "JPEGInterchangeFormatLength");
+		case TAG_JPEGINTERCHANGEFORMATLENGTH:
+			do_display_int_tag(c, d, &tg, tti);
 			if(tg.unit_size!=d->offsetsize || tg.valcount<1) break;
 			jpeglength = getfpos(c, d, tg.val_offset);
 			break;
 
-		case 700: // XMP
+		case TAG_XMP:
 			dbuf_create_file_from_slice(c->infile, tg.val_offset, tg.total_size, "xmp", NULL, DE_CREATEFLAG_IS_AUX);
 			break;
 
-		case 33723: // IPTC
+		case TAG_IPTC:
 			if(c->extract_level>=2 && tg.total_size>0) {
 				dbuf_create_file_from_slice(c->infile, tg.val_offset, tg.total_size, "iptc", NULL, DE_CREATEFLAG_IS_AUX);
 			}
@@ -444,14 +519,27 @@ static void process_ifd(deark *c, lctx *d, de_int64 ifdpos)
 			do_leaf_metadata(c, d, tg.val_offset, tg.total_size);
 			break;
 
-		case 34377: // Photoshop
+		case TAG_PHOTOSHOPRESOURCES:
 			de_dbg(c, "photoshop segment at %d datasize=%d\n", (int)tg.val_offset, (int)tg.total_size);
 			de_fmtutil_handle_photoshop_rsrc(c, tg.val_offset, tg.total_size);
 			break;
 
-		case 34675: // ICC Profile
+		case TAG_ICCPROFILE: // ICC Profile
 			dbuf_create_file_from_slice(c->infile, tg.val_offset, tg.total_size, "icc", NULL, DE_CREATEFLAG_IS_AUX);
 			break;
+
+		default:
+			if(tti->hfn) {
+				tti->hfn(c, d, &tg, tti);
+			}
+			else if(tg.tagtype==TAGTYPE_UINT16 || tg.tagtype==TAGTYPE_UINT32 ||
+				tg.tagtype==TAGTYPE_IFD32)
+			{
+				do_display_int_tag(c, d, &tg, tti);
+			}
+			else if(tg.tagtype==TAGTYPE_RATIONAL) {
+				do_display_rational_tag(c, d, &tg, tti);
+			}
 		}
 
 		de_dbg_indent(c, -1);
