@@ -46,12 +46,18 @@ struct ifdstack_item {
 typedef void (*handler_fn_type)(deark *c, lctx *d, const struct taginfo *tg,
 	const struct tagtypeinfo *tti);
 
-typedef int (*val_decoder_fn_type)(deark *c, lctx *d, const struct taginfo *tg,
-	const struct tagtypeinfo *tti);
-
-static void handler_resolutionunit(deark *c, lctx *d, const struct taginfo *tg, const struct tagtypeinfo *tti);
 static void handler_colormap(deark *c, lctx *d, const struct taginfo *tg, const struct tagtypeinfo *tti);
 static void handler_subifd(deark *c, lctx *d, const struct taginfo *tg, const struct tagtypeinfo *tti);
+
+typedef int (*val_decoder_fn_type)(deark *c, lctx *d, const struct taginfo *tg,
+	de_int64 n, char *buf, size_t buf_len);
+
+static int valdec_compression(deark *c, lctx *d, const struct taginfo *tg,
+	de_int64 n, char *buf, size_t buf_len);
+static int valdec_photometric(deark *c, lctx *d, const struct taginfo *tg,
+	de_int64 n, char *buf, size_t buf_len);
+static int valdec_resolutionunit(deark *c, lctx *d, const struct taginfo *tg,
+	de_int64 n, char *buf, size_t buf_len);
 
 struct tagtypeinfo {
 	int tagnum;
@@ -68,8 +74,8 @@ static const struct tagtypeinfo tagtypeinfo_arr[] = {
 	{ 256, 0x00, "ImageWidth", NULL, NULL },
 	{ 257, 0x00, "ImageLength", NULL, NULL },
 	{ 258, 0x00, "BitsPerSample", NULL, NULL },
-	{ 259, 0x00, "Compression", NULL, NULL },
-	{ 262, 0x00, "PhotometricInterpretation", NULL, NULL },
+	{ 259, 0x00, "Compression", NULL, valdec_compression },
+	{ 262, 0x00, "PhotometricInterpretation", NULL, valdec_photometric },
 	{ 266, 0x00, "FillOrder", NULL, NULL },
 	{ 269, 0x00, "DocumentName", NULL, NULL },
 	{ 270, 0x00, "ImageDescription", NULL, NULL },
@@ -83,7 +89,7 @@ static const struct tagtypeinfo tagtypeinfo_arr[] = {
 	{ 282, 0x00, "XResolution", NULL, NULL },
 	{ 283, 0x00, "YResolution", NULL, NULL },
 	{ 284, 0x00, "PlanarConfiguration", NULL, NULL },
-	{ 296, 0x00, "ResolutionUnit", handler_resolutionunit, NULL },
+	{ 296, 0x00, "ResolutionUnit", NULL, valdec_resolutionunit },
 	{ 297, 0x00, "PageNumber", NULL, NULL },
 	{ 305, 0x00, "Software", NULL, NULL },
 	{ 306, 0x00, "DateTime", NULL, NULL },
@@ -338,20 +344,49 @@ static void do_leaf_metadata(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 	}
 }
 
-static void handler_resolutionunit(deark *c, lctx *d, const struct taginfo *tg,
-	const struct tagtypeinfo *tti)
+static int valdec_compression(deark *c, lctx *d, const struct taginfo *tg,
+	de_int64 n, char *buf, size_t buf_len)
 {
-	de_int64 n;
-	const char *s;
+	const char *s = NULL;
+	if(n==1) s="uncompressed";
+	else if(n==2) s="CCITTRLE";
+	else if(n==3) s="Fax3";
+	else if(n==4) s="Fax4";
+	else if(n==5) s="LZW";
+	else if(n==6) s="OldJPEG";
+	else if(n==7) s="NewJPEG";
+	else if(n==8 || n==32946) s="DEFLATE";
+	else if(n==32773) s="PackBits";
+	if(!s) return 0;
+	de_strlcpy(buf, s, buf_len);
+	return 1;
+}
 
-	if(!read_tag_value_as_int64(c, d, tg, 0, &n))
-		return;
+static int valdec_photometric(deark *c, lctx *d, const struct taginfo *tg,
+	de_int64 n, char *buf, size_t buf_len)
+{
+	const char *s = NULL;
+	if(n==0) s="grayscale/white-is-0";
+	else if(n==1) s="grayscale/black-is-0";
+	else if(n==2) s="RGB";
+	else if(n==3) s="palette";
+	else if(n==5) s="CMYK";
+	else if(n==6) s="YCbCr";
+	if(!s) return 0;
+	de_strlcpy(buf, s, buf_len);
+	return 1;
+}
 
+static int valdec_resolutionunit(deark *c, lctx *d, const struct taginfo *tg,
+	de_int64 n, char *buf, size_t buf_len)
+{
+	const char *s = NULL;
 	if(n==1) s="unspecified";
 	else if(n==2) s="pixels/inch";
 	else if(n==3) s="pixels/cm";
-	else s="?";
-	de_dbg(c, "%s: %d (%s)\n", tti->tagname, (int)n, s);
+	if(!s) return 0;
+	de_strlcpy(buf, s, buf_len);
+	return 1;
 }
 
 static void handler_colormap(deark *c, lctx *d, const struct taginfo *tg, const struct tagtypeinfo *tti)
@@ -399,6 +434,7 @@ static void do_dbg_print_numeric_values(deark *c, lctx *d, const struct taginfo 
 	de_int64 i;
 	de_int64 v_int64;
 	double v_double;
+	char valbuf[80];
 
 	dbuf_puts(dbglinedbuf, " {");
 
@@ -411,6 +447,14 @@ static void do_dbg_print_numeric_values(deark *c, lctx *d, const struct taginfo 
 		case TAGTYPE_UINT32: case TAGTYPE_IFD32:
 			if(read_tag_value_as_int64(c, d, tg, i, &v_int64)) {
 				dbuf_printf(dbglinedbuf, "%" INT64_FMT, v_int64);
+
+				if(tti->vdfn) {
+					valbuf[0]='\0';
+					if(tti->vdfn(c, d, tg, v_int64, valbuf, sizeof(valbuf))) {
+						dbuf_printf(dbglinedbuf, "(=%s)", valbuf);
+					}
+				}
+
 				val_printed = 1;
 			}
 			break;
