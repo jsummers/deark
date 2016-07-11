@@ -396,6 +396,10 @@ void dbuf_printf(dbuf *f, const char *fmt, ...);
 // Read a slice of one dbuf, and append it to another dbuf.
 void dbuf_copy(dbuf *inf, de_int64 input_offset, de_int64 input_len, dbuf *outf);
 
+// Copy the entire contents of the dbuf (which are not expected to be
+// NUL-terminated) to a NUL-terminated string.
+void dbuf_copy_all_to_sz(dbuf *f, char *dst, size_t dst_size);
+
 // Read a NUL-terminated string from a dbuf.
 void dbuf_read_sz(dbuf *f, de_int64 pos, char *dst, size_t dst_size);
 

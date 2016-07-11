@@ -361,6 +361,18 @@ void dbuf_copy(dbuf *inf, de_int64 input_offset, de_int64 input_len, dbuf *outf)
 	}
 }
 
+void dbuf_copy_all_to_sz(dbuf *f, char *dst, size_t dst_size)
+{
+	de_int64 amt_to_read;
+
+	if(dst_size<1) return;
+	amt_to_read = f->len;
+	if(amt_to_read > (de_int64)(dst_size-1))
+		amt_to_read = (de_int64)(dst_size-1);
+	dbuf_read(f, (de_byte*)dst, 0, amt_to_read);
+	dst[amt_to_read] = '\0';
+}
+
 void dbuf_read_sz(dbuf *f, de_int64 pos, char *dst, size_t dst_size)
 {
 	de_int64 i;

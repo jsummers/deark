@@ -55,7 +55,10 @@ static void handler_subifd(deark *c, lctx *d, const struct taginfo *tg, const st
 
 struct tagtypeinfo {
 	int tagnum;
+
+	// 0x08=suppress auto display of values
 	unsigned int flags;
+
 	const char *tagname;
 	handler_fn_type hfn;
 	val_decoder_fn_type vdfn;
@@ -84,7 +87,7 @@ static const struct tagtypeinfo tagtypeinfo_arr[] = {
 	{ 297, 0x00, "PageNumber", NULL, NULL },
 	{ 305, 0x00, "Software", NULL, NULL },
 	{ 306, 0x00, "DateTime", NULL, NULL },
-	{ 320, 0x00, "ColorMap", handler_colormap, NULL },
+	{ 320, 0x08, "ColorMap", handler_colormap, NULL },
 	{ 330, 0x00, "SubIFD", NULL, NULL },
 #define TAG_JPEGINTERCHANGEFORMAT 513
 	{ TAG_JPEGINTERCHANGEFORMAT, 0x00, "JPEGInterchangeFormat", NULL, NULL },
@@ -316,22 +319,6 @@ static void do_leaf_metadata(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 	}
 }
 
-static void do_display_rational_tag(deark *c, lctx *d, const struct taginfo *tg,
-	const struct tagtypeinfo *tti)
-{
-	double n;
-
-	if(!read_tag_value_as_double(c, d, tg, &n))
-		return;
-
-	if(tg->tag_known) {
-		de_dbg(c, "%s: %.3f\n", tti->tagname, n);
-	}
-	else {
-		de_dbg(c, "tag_%d value: %.3f\n", tg->tagnum, n);
-	}
-}
-
 static void handler_resolutionunit(deark *c, lctx *d, const struct taginfo *tg,
 	const struct tagtypeinfo *tti)
 {
@@ -401,6 +388,53 @@ static void handler_subifd(deark *c, lctx *d, const struct taginfo *tg, const st
 	}
 }
 
+static void do_dbg_print_values(deark *c, lctx *d, const struct taginfo *tg, const struct tagtypeinfo *tti,
+	dbuf *dbglinedbuf)
+{
+	de_int64 i;
+	de_int64 v_int64;
+	double v_double;
+
+	if(c->debug_level<1) return;
+	if(tti->flags&0x08) return; // Auto-display of values is suppressed for this tag.
+	if(tg->valcount<1) return;
+	dbuf_puts(dbglinedbuf, " {");
+
+#define DE_TIFF_MAX_VALUES_TO_PRINT 100
+
+	for(i=0; i<tg->valcount && i<DE_TIFF_MAX_VALUES_TO_PRINT; i++) {
+		int val_printed = 0;
+
+		switch(tg->tagtype) {
+		case TAGTYPE_UINT16: case TAGTYPE_UINT32: case TAGTYPE_IFD32:
+			if(read_tag_value_as_int64(c, d, tg, i, &v_int64)) {
+				dbuf_printf(dbglinedbuf, "%" INT64_FMT, v_int64);
+				val_printed = 1;
+			}
+			break;
+		case TAGTYPE_RATIONAL:
+			if(i>0) break; // FIXME: Fix read_tag_value_as_double()
+			if(read_tag_value_as_double(c, d, tg, &v_double)) {
+				dbuf_printf(dbglinedbuf, "%.4f", v_double);
+				val_printed = 1;
+			}
+			break;
+		}
+
+		if(!val_printed) {
+			dbuf_puts(dbglinedbuf, "?");
+		}
+
+		if(i<tg->valcount-1) {
+			dbuf_puts(dbglinedbuf, ",");
+		}
+	}
+	if(tg->valcount>DE_TIFF_MAX_VALUES_TO_PRINT) {
+		dbuf_puts(dbglinedbuf, "...");
+	}
+	dbuf_puts(dbglinedbuf, "}");
+}
+
 static const struct tagtypeinfo *find_tagtypeinfo(int tagnum)
 {
 	de_int64 i;
@@ -420,6 +454,8 @@ static void process_ifd(deark *c, lctx *d, de_int64 ifdpos)
 	de_int64 jpegoffset = 0;
 	de_int64 jpeglength = -1;
 	de_int64 tmpoffset;
+	dbuf *dbglinedbuf = NULL;
+	char tmpbuf[512];
 	struct taginfo tg;
 	static const struct tagtypeinfo default_tti = { 0, 0x00, "?", NULL, NULL };
 
@@ -451,6 +487,8 @@ static void process_ifd(deark *c, lctx *d, de_int64 ifdpos)
 		push_ifd(c, d, tmpoffset);
 	}
 
+	dbglinedbuf = dbuf_create_membuf(c, 256, 1);
+
 	for(i=0; i<num_tags; i++) {
 		const struct tagtypeinfo *tti;
 
@@ -478,12 +516,17 @@ static void process_ifd(deark *c, lctx *d, de_int64 ifdpos)
 			tti = &default_tti; // Make sure tti is not NULL.
 		}
 
-		de_dbg(c, "tag %d (%s) type=%d count=%d size=%d offset=%" INT64_FMT "\n",
+		dbuf_empty(dbglinedbuf);
+		dbuf_printf(dbglinedbuf, "tag %d (%s) ty=%d #=%d offs=%" INT64_FMT,
 			tg.tagnum, tti->tagname,
-			tg.tagtype, (int)tg.valcount, (int)tg.total_size,
+			tg.tagtype, (int)tg.valcount,
 			tg.val_offset);
-		de_dbg_indent(c, 1);
 
+		do_dbg_print_values(c, d, &tg, tti, dbglinedbuf);
+
+		dbuf_copy_all_to_sz(dbglinedbuf, tmpbuf, sizeof(tmpbuf));
+		de_dbg(c, "%s\n", tmpbuf);
+		de_dbg_indent(c, 1);
 		switch(tg.tagnum) {
 
 		case 46:
@@ -532,14 +575,6 @@ static void process_ifd(deark *c, lctx *d, de_int64 ifdpos)
 			if(tti->hfn) {
 				tti->hfn(c, d, &tg, tti);
 			}
-			else if(tg.tagtype==TAGTYPE_UINT16 || tg.tagtype==TAGTYPE_UINT32 ||
-				tg.tagtype==TAGTYPE_IFD32)
-			{
-				do_display_int_tag(c, d, &tg, tti);
-			}
-			else if(tg.tagtype==TAGTYPE_RATIONAL) {
-				do_display_rational_tag(c, d, &tg, tti);
-			}
 		}
 
 		de_dbg_indent(c, -1);
@@ -551,6 +586,7 @@ static void process_ifd(deark *c, lctx *d, de_int64 ifdpos)
 
 done:
 	de_dbg_indent(c, -1);
+	dbuf_close(dbglinedbuf);
 }
 
 static void do_tiff(deark *c, lctx *d)
