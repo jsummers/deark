@@ -35,6 +35,12 @@ DE_DECLARE_MODULE(de_module_tiff);
 #define DE_TIFFFMT_DCP        5 // DNG Camera Profile (DCP)
 #define DE_TIFFFMT_MDI        6 // Microsoft Office Document Imaging
 
+#define IFDTYPE_NORMAL       0
+#define IFDTYPE_SUBIFD       1
+#define IFDTYPE_EXIF         2
+#define IFDTYPE_EXIFINTEROP  3
+#define IFDTYPE_GPS          4
+
 struct localctx_struct;
 typedef struct localctx_struct lctx;
 struct taginfo;
@@ -42,6 +48,7 @@ struct tagtypeinfo;
 
 struct ifdstack_item {
 	de_int64 offset;
+	int ifdtype;
 };
 
 typedef void (*handler_fn_type)(deark *c, lctx *d, const struct taginfo *tg,
@@ -85,6 +92,7 @@ struct tagtypeinfo {
 
 	// 0x08=suppress auto display of values
 	// 0x10=this is an Exif tag
+	// 0x20=an Exif Interoperability-IFD tag
 	unsigned int flags;
 
 	const char *tagname;
@@ -92,6 +100,8 @@ struct tagtypeinfo {
 	val_decoder_fn_type vdfn;
 };
 static const struct tagtypeinfo tagtypeinfo_arr[] = {
+	{ 1, 0x20, "InteroperabilityIndex", NULL, NULL },
+	{ 2, 0x20, "InteroperabilityVersion", NULL, NULL },
 	{ 254, 0x00, "NewSubfileType", NULL, valdec_newsubfiletype },
 	{ 255, 0x00, "OldSubfileType", NULL, valdec_oldsubfiletype },
 	{ 256, 0x00, "ImageWidth", NULL, NULL },
@@ -163,7 +173,7 @@ static const struct tagtypeinfo tagtypeinfo_arr[] = {
 	{ TAG_PHOTOSHOPRESOURCES, 0x08, "PhotoshopImageResources", NULL, NULL },
 	{ 34665, 0x08, "Exif IFD", handler_subifd, NULL },
 #define TAG_ICCPROFILE        34675
-	{ TAG_ICCPROFILE, 0x00, "ICC Profile", NULL, NULL },
+	{ TAG_ICCPROFILE, 0x08, "ICC Profile", NULL, NULL },
 	{ 34850, 0x10, "ExposureProgram", NULL, NULL },
 	{ 34852, 0x10, "SpectralSensitivity", NULL, NULL },
 	{ 34853, 0x08, "GPS IFD", handler_subifd, NULL },
@@ -268,17 +278,18 @@ struct localctx_struct {
 };
 
 // Returns 0 if stack is empty.
-static de_int64 pop_ifd(deark *c, lctx *d)
+static de_int64 pop_ifd(deark *c, lctx *d, int *ifdtype)
 {
 	de_int64 ifdpos;
 	if(!d->ifdstack) return 0;
 	if(d->ifdstack_numused<1) return 0;
 	ifdpos = d->ifdstack[d->ifdstack_numused-1].offset;
+	*ifdtype = d->ifdstack[d->ifdstack_numused-1].ifdtype;
 	d->ifdstack_numused--;
 	return ifdpos;
 }
 
-static void push_ifd(deark *c, lctx *d, de_int64 ifdpos)
+static void push_ifd(deark *c, lctx *d, de_int64 ifdpos, int ifdtype)
 {
 	int i;
 
@@ -312,8 +323,8 @@ static void push_ifd(deark *c, lctx *d, de_int64 ifdpos)
 		return;
 	}
 	d->ifdstack[d->ifdstack_numused].offset = ifdpos;
+	d->ifdstack[d->ifdstack_numused].ifdtype = ifdtype;
 	d->ifdstack_numused++;
-
 }
 
 static int size_of_tiff_type(int tt)
@@ -678,13 +689,19 @@ static void handler_subifd(deark *c, lctx *d, const struct taginfo *tg, const st
 {
 	de_int64 j;
 	de_int64 tmpoffset;
+	int ifdtype = IFDTYPE_NORMAL;
 
 	if(tg->unit_size!=d->offsetsize) return;
+
+	if(tg->tagnum==330) ifdtype = IFDTYPE_SUBIFD;
+	else if(tg->tagnum==34665) ifdtype = IFDTYPE_EXIF;
+	else if(tg->tagnum==34853) ifdtype = IFDTYPE_GPS;
+	else if(tg->tagnum==40965) ifdtype = IFDTYPE_EXIFINTEROP;
 
 	for(j=0; j<tg->valcount;j++) {
 		tmpoffset = getfpos(c, d, tg->val_offset+tg->unit_size*j);
 		de_dbg(c, "offset of %s: %d\n", tti->tagname, (int)tmpoffset);
-		push_ifd(c, d, tmpoffset);
+		push_ifd(c, d, tmpoffset, ifdtype);
 	}
 }
 
@@ -789,11 +806,18 @@ static void do_dbg_print_values(deark *c, lctx *d, const struct taginfo *tg, con
 	}
 }
 
-static const struct tagtypeinfo *find_tagtypeinfo(int tagnum)
+static const struct tagtypeinfo *find_tagtypeinfo(int tagnum, int ifdtype)
 {
 	de_int64 i;
 
 	for(i=0; tagtypeinfo_arr[i].tagnum!=0; i++) {
+		if(tagtypeinfo_arr[i].flags&0x20) {
+			// Skip Exif interoperability tags, unless this is an Interoperability IFD
+			if(ifdtype!=IFDTYPE_EXIFINTEROP) {
+				continue;
+			}
+		}
+
 		if(tagtypeinfo_arr[i].tagnum==tagnum) {
 			return &tagtypeinfo_arr[i];
 		}
@@ -801,7 +825,7 @@ static const struct tagtypeinfo *find_tagtypeinfo(int tagnum)
 	return NULL;
 }
 
-static void process_ifd(deark *c, lctx *d, de_int64 ifdpos)
+static void process_ifd(deark *c, lctx *d, de_int64 ifdpos, int ifdtype)
 {
 	int num_tags;
 	int i;
@@ -811,9 +835,18 @@ static void process_ifd(deark *c, lctx *d, de_int64 ifdpos)
 	dbuf *dbglinedbuf = NULL;
 	char tmpbuf[512];
 	struct taginfo tg;
+	const char *name;
 	static const struct tagtypeinfo default_tti = { 0, 0x00, "?", NULL, NULL };
 
-	de_dbg(c, "IFD at %d\n", (int)ifdpos);
+	switch(ifdtype) {
+	case IFDTYPE_SUBIFD: name=" (SubIFD)"; break;
+	case IFDTYPE_EXIF: name=" (Exif IFD)"; break;
+	case IFDTYPE_EXIFINTEROP: name=" (Exif Interoperability IFD)"; break;
+	case IFDTYPE_GPS: name=" (GPS IFD)"; break;
+	default: name="";
+	}
+
+	de_dbg(c, "IFD at %d%s\n", (int)ifdpos, name);
 	de_dbg_indent(c, 1);
 
 	if(ifdpos >= c->infile->len || ifdpos<8) {
@@ -838,7 +871,7 @@ static void process_ifd(deark *c, lctx *d, de_int64 ifdpos)
 	tmpoffset = dbuf_getui32x(c->infile, ifdpos+d->ifdhdrsize+num_tags*d->ifditemsize, d->is_le);
 	if(tmpoffset!=0) {
 		de_dbg(c, "offset of next IFD: %d\n", (int)tmpoffset);
-		push_ifd(c, d, tmpoffset);
+		push_ifd(c, d, tmpoffset, IFDTYPE_NORMAL);
 	}
 
 	dbglinedbuf = dbuf_create_membuf(c, 1024, 0);
@@ -862,7 +895,7 @@ static void process_ifd(deark *c, lctx *d, de_int64 ifdpos)
 			tg.val_offset = getfpos(c, d, ifdpos+d->ifdhdrsize+i*d->ifditemsize+d->offsetoffset);
 		}
 
-		tti = find_tagtypeinfo(tg.tagnum);
+		tti = find_tagtypeinfo(tg.tagnum, ifdtype);
 		if(tti) {
 			tg.tag_known = 1;
 		}
@@ -961,15 +994,16 @@ static void do_tiff(deark *c, lctx *d)
 	// Read the first IFD offset
 	ifdoffs = getfpos(c, d, pos);
 	de_dbg(c, "offset of first IFD: %d\n", (int)ifdoffs);
-	push_ifd(c, d, ifdoffs);
+	push_ifd(c, d, ifdoffs, IFDTYPE_NORMAL);
 
 	de_dbg_indent(c, -1);
 
 	// Process IFDs until we run out of them.
 	while(1) {
-		ifdoffs = pop_ifd(c, d);
+		int ifdtype = IFDTYPE_NORMAL;
+		ifdoffs = pop_ifd(c, d, &ifdtype);
 		if(ifdoffs==0) break;
-		process_ifd(c, d, ifdoffs);
+		process_ifd(c, d, ifdoffs, ifdtype);
 	}
 }
 
