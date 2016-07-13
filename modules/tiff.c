@@ -11,22 +11,22 @@ DE_DECLARE_MODULE(de_module_tiff);
 #define ITEMS_IN_ARRAY(x) (sizeof(x)/sizeof(x[0]))
 #define MAX_IFDS 1000
 
-#define TAGTYPE_BYTE      1
-#define TAGTYPE_ASCII     2
-#define TAGTYPE_UINT16    3
-#define TAGTYPE_UINT32    4
-#define TAGTYPE_RATIONAL  5
-#define TAGTYPE_SBYTE     6
-#define TAGTYPE_UNDEF     7
-#define TAGTYPE_SINT16    8
-#define TAGTYPE_SINT32    9
-#define TAGTYPE_SRATIONAL 10
-#define TAGTYPE_FLOAT     11
-#define TAGTYPE_DOUBLE    12
-#define TAGTYPE_IFD32     13
-#define TAGTYPE_UINT64    16
-#define TAGTYPE_SINT64    17
-#define TAGTYPE_IFD64     18
+#define DATATYPE_BYTE      1
+#define DATATYPE_ASCII     2
+#define DATATYPE_UINT16    3
+#define DATATYPE_UINT32    4
+#define DATATYPE_RATIONAL  5
+#define DATATYPE_SBYTE     6
+#define DATATYPE_UNDEF     7
+#define DATATYPE_SINT16    8
+#define DATATYPE_SINT32    9
+#define DATATYPE_SRATIONAL 10
+#define DATATYPE_FLOAT     11
+#define DATATYPE_DOUBLE    12
+#define DATATYPE_IFD32     13
+#define DATATYPE_UINT64    16
+#define DATATYPE_SINT64    17
+#define DATATYPE_IFD64     18
 
 #define DE_TIFFFMT_TIFF       1
 #define DE_TIFFFMT_BIGTIFF    2
@@ -44,7 +44,7 @@ DE_DECLARE_MODULE(de_module_tiff);
 struct localctx_struct;
 typedef struct localctx_struct lctx;
 struct taginfo;
-struct tagtypeinfo;
+struct tagnuminfo;
 
 struct ifdstack_item {
 	de_int64 offset;
@@ -52,10 +52,10 @@ struct ifdstack_item {
 };
 
 typedef void (*handler_fn_type)(deark *c, lctx *d, const struct taginfo *tg,
-	const struct tagtypeinfo *tti);
+	const struct tagnuminfo *tni);
 
-static void handler_colormap(deark *c, lctx *d, const struct taginfo *tg, const struct tagtypeinfo *tti);
-static void handler_subifd(deark *c, lctx *d, const struct taginfo *tg, const struct tagtypeinfo *tti);
+static void handler_colormap(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni);
+static void handler_subifd(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni);
 
 typedef int (*val_decoder_fn_type)(deark *c, lctx *d, const struct taginfo *tg,
 	de_int64 idx, de_int64 n, char *buf, size_t buf_len);
@@ -87,7 +87,7 @@ static int valdec_sampleformat(deark *c, lctx *d, const struct taginfo *tg,
 static int valdec_ycbcrpositioning(deark *c, lctx *d, const struct taginfo *tg,
 	de_int64 idx, de_int64 n, char *buf, size_t buf_len);
 
-struct tagtypeinfo {
+struct tagnuminfo {
 	int tagnum;
 
 	// 0x08=suppress auto display of values
@@ -99,7 +99,7 @@ struct tagtypeinfo {
 	handler_fn_type hfn;
 	val_decoder_fn_type vdfn;
 };
-static const struct tagtypeinfo tagtypeinfo_arr[] = {
+static const struct tagnuminfo tagnuminfo_arr[] = {
 	{ 1, 0x20, "InteroperabilityIndex", NULL, NULL },
 	{ 2, 0x20, "InteroperabilityVersion", NULL, NULL },
 	{ 254, 0x00, "NewSubfileType", NULL, valdec_newsubfiletype },
@@ -249,7 +249,7 @@ static const struct tagtypeinfo tagtypeinfo_arr[] = {
 // Data associated with an actual tag in an IFD in the file
 struct taginfo {
 	int tagnum;
-	int tagtype;
+	int datatype;
 	int tag_known;
 	de_int64 valcount;
 	de_int64 val_offset;
@@ -327,23 +327,23 @@ static void push_ifd(deark *c, lctx *d, de_int64 ifdpos, int ifdtype)
 	d->ifdstack_numused++;
 }
 
-static int size_of_tiff_type(int tt)
+static int size_of_data_type(int tt)
 {
 	switch(tt) {
-	case TAGTYPE_BYTE: case TAGTYPE_SBYTE:
-	case TAGTYPE_ASCII:
-	case TAGTYPE_UNDEF:
+	case DATATYPE_BYTE: case DATATYPE_SBYTE:
+	case DATATYPE_ASCII:
+	case DATATYPE_UNDEF:
 		return 1;
-	case TAGTYPE_UINT16: case TAGTYPE_SINT16:
+	case DATATYPE_UINT16: case DATATYPE_SINT16:
 		return 2;
-	case TAGTYPE_UINT32: case TAGTYPE_SINT32:
-	case TAGTYPE_FLOAT:
-	case TAGTYPE_IFD32:
+	case DATATYPE_UINT32: case DATATYPE_SINT32:
+	case DATATYPE_FLOAT:
+	case DATATYPE_IFD32:
 		return 4;
-	case TAGTYPE_RATIONAL: case TAGTYPE_SRATIONAL:
-	case TAGTYPE_DOUBLE:
-	case TAGTYPE_UINT64: case TAGTYPE_SINT64:
-	case TAGTYPE_IFD64:
+	case DATATYPE_RATIONAL: case DATATYPE_SRATIONAL:
+	case DATATYPE_DOUBLE:
+	case DATATYPE_UINT64: case DATATYPE_SINT64:
+	case DATATYPE_IFD64:
 		return 8;
 	}
 	return 0;
@@ -382,13 +382,13 @@ static int read_tag_value_as_double(deark *c, lctx *d, const struct taginfo *tg,
 	if(value_index<0 || value_index>=tg->valcount) return 0;
 	offs = tg->val_offset + value_index*tg->unit_size;
 
-	switch(tg->tagtype) {
-	case TAGTYPE_RATIONAL:
+	switch(tg->datatype) {
+	case DATATYPE_RATIONAL:
 		return read_rational_as_double(c, d, offs, n);
-	case TAGTYPE_SRATIONAL:
+	case DATATYPE_SRATIONAL:
 		return read_srational_as_double(c, d, offs, n);
-	case TAGTYPE_FLOAT:
-	case TAGTYPE_DOUBLE:
+	case DATATYPE_FLOAT:
+	case DATATYPE_DOUBLE:
 		// TODO
 		return 0;
 
@@ -407,43 +407,43 @@ static int read_tag_value_as_int64(deark *c, lctx *d, const struct taginfo *tg,
 	if(value_index<0 || value_index>=tg->valcount) return 0;
 	offs = tg->val_offset + value_index*tg->unit_size;
 
-	switch(tg->tagtype) {
-	case TAGTYPE_UINT16:
+	switch(tg->datatype) {
+	case DATATYPE_UINT16:
 		*n = dbuf_getui16x(c->infile, offs, d->is_le);
 		return 1;
-	case TAGTYPE_UINT32:
-	case TAGTYPE_IFD32:
+	case DATATYPE_UINT32:
+	case DATATYPE_IFD32:
 		*n = dbuf_getui32x(c->infile, offs, d->is_le);
 		return 1;
-	case TAGTYPE_BYTE:
-	case TAGTYPE_UNDEF:
-	case TAGTYPE_ASCII:
+	case DATATYPE_BYTE:
+	case DATATYPE_UNDEF:
+	case DATATYPE_ASCII:
 		*n = (de_int64)de_getbyte(offs);
 		return 1;
-	case TAGTYPE_UINT64:
-	case TAGTYPE_IFD64:
+	case DATATYPE_UINT64:
+	case DATATYPE_IFD64:
 		// TODO: Somehow support unsigned 64-bit ints that don't fit into
 		// a de_int64?
 		*n = dbuf_geti64x(c->infile, offs, d->is_le);
 		if(*n < 0) return 0;
 		return 1;
-	case TAGTYPE_SINT16:
+	case DATATYPE_SINT16:
 		*n = dbuf_geti16x(c->infile, offs, d->is_le);
 		return 1;
-	case TAGTYPE_SINT32:
+	case DATATYPE_SINT32:
 		*n = dbuf_geti32x(c->infile, offs, d->is_le);
 		return 1;
-	case TAGTYPE_SINT64:
+	case DATATYPE_SINT64:
 		*n = dbuf_geti64x(c->infile, offs, d->is_le);
 		return 1;
-	case TAGTYPE_SBYTE:
+	case DATATYPE_SBYTE:
 		*n = (de_int64)de_getbyte(offs);
 		if(*n > 127) *n -= 256;
 		return 1;
-	case TAGTYPE_RATIONAL:
-	case TAGTYPE_SRATIONAL:
-	case TAGTYPE_FLOAT:
-	case TAGTYPE_DOUBLE:
+	case DATATYPE_RATIONAL:
+	case DATATYPE_SRATIONAL:
+	case DATATYPE_FLOAT:
+	case DATATYPE_DOUBLE:
 		if(read_tag_value_as_double(c, d, tg, value_index, &v_dbl)) {
 			*n = (de_int64)v_dbl;
 			return 1;
@@ -702,7 +702,7 @@ static int valdec_ycbcrpositioning(deark *c, lctx *d, const struct taginfo *tg,
 	return 1;
 }
 
-static void handler_colormap(deark *c, lctx *d, const struct taginfo *tg, const struct tagtypeinfo *tti)
+static void handler_colormap(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni)
 {
 	de_int64 num_entries;
 	de_int64 r1, g1, b1;
@@ -725,7 +725,7 @@ static void handler_colormap(deark *c, lctx *d, const struct taginfo *tg, const 
 	}
 }
 
-static void handler_subifd(deark *c, lctx *d, const struct taginfo *tg, const struct tagtypeinfo *tti)
+static void handler_subifd(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni)
 {
 	de_int64 j;
 	de_int64 tmpoffset;
@@ -738,14 +738,14 @@ static void handler_subifd(deark *c, lctx *d, const struct taginfo *tg, const st
 
 	for(j=0; j<tg->valcount;j++) {
 		read_tag_value_as_int64(c, d, tg, j, &tmpoffset);
-		de_dbg(c, "offset of %s: %d\n", tti->tagname, (int)tmpoffset);
+		de_dbg(c, "offset of %s: %d\n", tni->tagname, (int)tmpoffset);
 		push_ifd(c, d, tmpoffset, ifdtype);
 	}
 }
 
 #define DE_TIFF_MAX_VALUES_TO_PRINT 100
 
-static void do_dbg_print_numeric_values(deark *c, lctx *d, const struct taginfo *tg, const struct tagtypeinfo *tti,
+static void do_dbg_print_numeric_values(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni,
 	dbuf *dbglinedbuf)
 {
 	de_int64 i;
@@ -758,17 +758,18 @@ static void do_dbg_print_numeric_values(deark *c, lctx *d, const struct taginfo 
 	for(i=0; i<tg->valcount && i<DE_TIFF_MAX_VALUES_TO_PRINT; i++) {
 		int val_printed = 0;
 
-		switch(tg->tagtype) {
-		case TAGTYPE_BYTE: case TAGTYPE_UNDEF:
-		case TAGTYPE_UINT16:
-		case TAGTYPE_UINT32: case TAGTYPE_IFD32:
-		case TAGTYPE_UINT64: case TAGTYPE_IFD64:
+		switch(tg->datatype) {
+		case DATATYPE_BYTE: case DATATYPE_SBYTE:
+		case DATATYPE_UNDEF: case DATATYPE_ASCII:
+		case DATATYPE_UINT16: case DATATYPE_SINT16:
+		case DATATYPE_UINT32: case DATATYPE_SINT32: case DATATYPE_IFD32:
+		case DATATYPE_UINT64: case DATATYPE_SINT64: case DATATYPE_IFD64:
 			if(read_tag_value_as_int64(c, d, tg, i, &v_int64)) {
 				dbuf_printf(dbglinedbuf, "%" INT64_FMT, v_int64);
 
-				if(tti->vdfn) {
+				if(tni->vdfn) {
 					valbuf[0]='\0';
-					if(tti->vdfn(c, d, tg, i, v_int64, valbuf, sizeof(valbuf))) {
+					if(tni->vdfn(c, d, tg, i, v_int64, valbuf, sizeof(valbuf))) {
 						dbuf_printf(dbglinedbuf, "(=%s)", valbuf);
 					}
 				}
@@ -776,7 +777,7 @@ static void do_dbg_print_numeric_values(deark *c, lctx *d, const struct taginfo 
 				val_printed = 1;
 			}
 			break;
-		case TAGTYPE_RATIONAL: case TAGTYPE_SRATIONAL:
+		case DATATYPE_RATIONAL: case DATATYPE_SRATIONAL:
 			if(read_tag_value_as_double(c, d, tg, i, &v_double)) {
 				dbuf_printf(dbglinedbuf, "%.4f", v_double);
 				val_printed = 1;
@@ -798,7 +799,7 @@ static void do_dbg_print_numeric_values(deark *c, lctx *d, const struct taginfo 
 	dbuf_puts(dbglinedbuf, "}");
 }
 
-static void do_dbg_print_text_values(deark *c, lctx *d, const struct taginfo *tg, const struct tagtypeinfo *tti,
+static void do_dbg_print_text_values(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni,
 	dbuf *dbglinedbuf)
 {
 	de_ucstring *str = NULL;
@@ -829,35 +830,35 @@ static void do_dbg_print_text_values(deark *c, lctx *d, const struct taginfo *tg
 	}
 }
 
-static void do_dbg_print_values(deark *c, lctx *d, const struct taginfo *tg, const struct tagtypeinfo *tti,
+static void do_dbg_print_values(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni,
 	dbuf *dbglinedbuf)
 {
 	if(c->debug_level<1) return;
-	if(tti->flags&0x08) return; // Auto-display of values is suppressed for this tag.
+	if(tni->flags&0x08) return; // Auto-display of values is suppressed for this tag.
 	if(tg->valcount<1) return;
 
-	if(tg->tagtype==TAGTYPE_ASCII) {
-		do_dbg_print_text_values(c, d, tg, tti, dbglinedbuf);
+	if(tg->datatype==DATATYPE_ASCII) {
+		do_dbg_print_text_values(c, d, tg, tni, dbglinedbuf);
 	}
 	else {
-		do_dbg_print_numeric_values(c, d, tg, tti, dbglinedbuf);
+		do_dbg_print_numeric_values(c, d, tg, tni, dbglinedbuf);
 	}
 }
 
-static const struct tagtypeinfo *find_tagtypeinfo(int tagnum, int ifdtype)
+static const struct tagnuminfo *find_tagnuminfo(int tagnum, int ifdtype)
 {
 	de_int64 i;
 
-	for(i=0; tagtypeinfo_arr[i].tagnum!=0; i++) {
-		if(tagtypeinfo_arr[i].flags&0x20) {
+	for(i=0; tagnuminfo_arr[i].tagnum!=0; i++) {
+		if(tagnuminfo_arr[i].flags&0x20) {
 			// Skip Exif interoperability tags, unless this is an Interoperability IFD
 			if(ifdtype!=IFDTYPE_EXIFINTEROP) {
 				continue;
 			}
 		}
 
-		if(tagtypeinfo_arr[i].tagnum==tagnum) {
-			return &tagtypeinfo_arr[i];
+		if(tagnuminfo_arr[i].tagnum==tagnum) {
+			return &tagnuminfo_arr[i];
 		}
 	}
 	return NULL;
@@ -874,7 +875,7 @@ static void process_ifd(deark *c, lctx *d, de_int64 ifdpos, int ifdtype)
 	char tmpbuf[512];
 	struct taginfo tg;
 	const char *name;
-	static const struct tagtypeinfo default_tti = { 0, 0x00, "?", NULL, NULL };
+	static const struct tagnuminfo default_tni = { 0, 0x00, "?", NULL, NULL };
 
 	switch(ifdtype) {
 	case IFDTYPE_SUBIFD: name=" (SubIFD)"; break;
@@ -915,16 +916,16 @@ static void process_ifd(deark *c, lctx *d, de_int64 ifdpos, int ifdtype)
 	dbglinedbuf = dbuf_create_membuf(c, 1024, 0);
 
 	for(i=0; i<num_tags; i++) {
-		const struct tagtypeinfo *tti;
+		const struct tagnuminfo *tni;
 
 		de_memset(&tg, 0, sizeof(struct taginfo));
 
 		tg.tagnum = (int)dbuf_getui16x(c->infile, ifdpos+d->ifdhdrsize+i*d->ifditemsize, d->is_le);
-		tg.tagtype = (int)dbuf_getui16x(c->infile, ifdpos+d->ifdhdrsize+i*d->ifditemsize+2, d->is_le);
+		tg.datatype = (int)dbuf_getui16x(c->infile, ifdpos+d->ifdhdrsize+i*d->ifditemsize+2, d->is_le);
 		// Not a file pos, but getfpos() does the right thing.
 		tg.valcount = getfpos(c, d, ifdpos+d->ifdhdrsize+i*d->ifditemsize+4);
 
-		tg.unit_size = size_of_tiff_type(tg.tagtype);
+		tg.unit_size = size_of_data_type(tg.datatype);
 		tg.total_size = tg.unit_size * tg.valcount;
 		if(tg.total_size <= d->offsetsize) {
 			tg.val_offset = ifdpos+d->ifdhdrsize+i*d->ifditemsize+d->offsetoffset;
@@ -933,21 +934,21 @@ static void process_ifd(deark *c, lctx *d, de_int64 ifdpos, int ifdtype)
 			tg.val_offset = getfpos(c, d, ifdpos+d->ifdhdrsize+i*d->ifditemsize+d->offsetoffset);
 		}
 
-		tti = find_tagtypeinfo(tg.tagnum, ifdtype);
-		if(tti) {
+		tni = find_tagnuminfo(tg.tagnum, ifdtype);
+		if(tni) {
 			tg.tag_known = 1;
 		}
 		else {
-			tti = &default_tti; // Make sure tti is not NULL.
+			tni = &default_tni; // Make sure tni is not NULL.
 		}
 
 		dbuf_empty(dbglinedbuf);
 		dbuf_printf(dbglinedbuf, "tag %d (%s) ty=%d #=%d offs=%" INT64_FMT,
-			tg.tagnum, tti->tagname,
-			tg.tagtype, (int)tg.valcount,
+			tg.tagnum, tni->tagname,
+			tg.datatype, (int)tg.valcount,
 			tg.val_offset);
 
-		do_dbg_print_values(c, d, &tg, tti, dbglinedbuf);
+		do_dbg_print_values(c, d, &tg, tni, dbglinedbuf);
 
 		dbuf_copy_all_to_sz(dbglinedbuf, tmpbuf, sizeof(tmpbuf));
 		de_dbg(c, "%s\n", tmpbuf);
@@ -995,8 +996,8 @@ static void process_ifd(deark *c, lctx *d, de_int64 ifdpos, int ifdtype)
 			break;
 
 		default:
-			if(tti->hfn) {
-				tti->hfn(c, d, &tg, tti);
+			if(tni->hfn) {
+				tni->hfn(c, d, &tg, tni);
 			}
 		}
 
