@@ -60,32 +60,25 @@ static void handler_subifd(deark *c, lctx *d, const struct taginfo *tg, const st
 typedef int (*val_decoder_fn_type)(deark *c, lctx *d, const struct taginfo *tg,
 	de_int64 idx, de_int64 n, char *buf, size_t buf_len);
 
-static int valdec_newsubfiletype(deark *c, lctx *d, const struct taginfo *tg,
-	de_int64 idx, de_int64 n, char *buf, size_t buf_len);
-static int valdec_oldsubfiletype(deark *c, lctx *d, const struct taginfo *tg,
-	de_int64 idx, de_int64 n, char *buf, size_t buf_len);
-static int valdec_compression(deark *c, lctx *d, const struct taginfo *tg,
-	de_int64 idx, de_int64 n, char *buf, size_t buf_len);
-static int valdec_photometric(deark *c, lctx *d, const struct taginfo *tg,
-	de_int64 idx, de_int64 n, char *buf, size_t buf_len);
-static int valdec_fillorder(deark *c, lctx *d, const struct taginfo *tg,
-	de_int64 idx, de_int64 n, char *buf, size_t buf_len);
-static int valdec_orientation(deark *c, lctx *d, const struct taginfo *tg,
-	de_int64 idx, de_int64 n, char *buf, size_t buf_len);
-static int valdec_planarconfiguration(deark *c, lctx *d, const struct taginfo *tg,
-	de_int64 idx, de_int64 n, char *buf, size_t buf_len);
-static int valdec_resolutionunit(deark *c, lctx *d, const struct taginfo *tg,
-	de_int64 idx, de_int64 n, char *buf, size_t buf_len);
-static int valdec_pagenumber(deark *c, lctx *d, const struct taginfo *tg,
-	de_int64 idx, de_int64 n, char *buf, size_t buf_len);
-static int valdec_predictor(deark *c, lctx *d, const struct taginfo *tg,
-	de_int64 idx, de_int64 n, char *buf, size_t buf_len);
-static int valdec_extrasamples(deark *c, lctx *d, const struct taginfo *tg,
-	de_int64 idx, de_int64 n, char *buf, size_t buf_len);
-static int valdec_sampleformat(deark *c, lctx *d, const struct taginfo *tg,
-	de_int64 idx, de_int64 n, char *buf, size_t buf_len);
-static int valdec_ycbcrpositioning(deark *c, lctx *d, const struct taginfo *tg,
-	de_int64 idx, de_int64 n, char *buf, size_t buf_len);
+// Forward declaration of value decoder functions
+#define DECLARE_VALDEC(x) static int x(deark *c, lctx *d, const struct taginfo *tg, \
+	de_int64 idx, de_int64 n, char *buf, size_t buf_len)
+DECLARE_VALDEC(valdec_newsubfiletype);
+DECLARE_VALDEC(valdec_oldsubfiletype);
+DECLARE_VALDEC(valdec_compression);
+DECLARE_VALDEC(valdec_photometric);
+DECLARE_VALDEC(valdec_threshholding);
+DECLARE_VALDEC(valdec_fillorder);
+DECLARE_VALDEC(valdec_orientation);
+DECLARE_VALDEC(valdec_planarconfiguration);
+DECLARE_VALDEC(valdec_t4options);
+DECLARE_VALDEC(valdec_t6options);
+DECLARE_VALDEC(valdec_resolutionunit);
+DECLARE_VALDEC(valdec_pagenumber);
+DECLARE_VALDEC(valdec_predictor);
+DECLARE_VALDEC(valdec_extrasamples);
+DECLARE_VALDEC(valdec_sampleformat);
+DECLARE_VALDEC(valdec_ycbcrpositioning);
 
 struct tagnuminfo {
 	int tagnum;
@@ -109,7 +102,7 @@ static const struct tagnuminfo tagnuminfo_arr[] = {
 	{ 258, 0x00, "BitsPerSample", NULL, NULL },
 	{ 259, 0x00, "Compression", NULL, valdec_compression },
 	{ 262, 0x00, "PhotometricInterpretation", NULL, valdec_photometric },
-	{ 263, 0x00, "Threshholding", NULL, NULL },
+	{ 263, 0x00, "Threshholding", NULL, valdec_threshholding },
 	{ 264, 0x00, "CellWidth", NULL, NULL },
 	{ 265, 0x00, "CellLength", NULL, NULL },
 	{ 266, 0x00, "FillOrder", NULL, valdec_fillorder },
@@ -134,8 +127,8 @@ static const struct tagnuminfo tagnuminfo_arr[] = {
 	{ 289, 0x00, "FreeByteCounts", NULL, NULL },
 	{ 290, 0x00, "GrayResponseUnit", NULL, NULL },
 	{ 291, 0x00, "GrayResponseCurve", NULL, NULL },
-	{ 292, 0x00, "T4Options", NULL, NULL },
-	{ 293, 0x00, "T6Options", NULL, NULL },
+	{ 292, 0x00, "T4Options", NULL, valdec_t4options },
+	{ 293, 0x00, "T6Options", NULL, valdec_t6options },
 	{ 296, 0x00, "ResolutionUnit", NULL, valdec_resolutionunit },
 	{ 297, 0x00, "PageNumber", NULL, valdec_pagenumber },
 	{ 301, 0x00, "TransferFunction", NULL, NULL },
@@ -152,6 +145,9 @@ static const struct tagnuminfo tagnuminfo_arr[] = {
 	{ 323, 0x00, "TileLength", NULL, NULL },
 	{ 324, 0x00, "TileOffsets", NULL, NULL },
 	{ 325, 0x00, "TileByteCounts", NULL, NULL },
+	{ 326, 0x00, "BadFaxLines", NULL, NULL },
+	{ 327, 0x00, "CleanFaxData", NULL, NULL },
+	{ 328, 0x00, "ConsecutiveBadFaxLines", NULL, NULL },
 	{ 330, 0x08, "SubIFD", NULL, NULL },
 	{ 332, 0x00, "InkSet", NULL, NULL },
 	{ 333, 0x00, "InkNames", NULL, NULL },
@@ -201,6 +197,9 @@ static const struct tagnuminfo tagnuminfo_arr[] = {
 	{ 34867, 0x10, "ISOSpeed", NULL, NULL },
 	{ 34868, 0x10, "ISOSpeedLatitudeyyy", NULL, NULL },
 	{ 34869, 0x10, "ISOSpeedLatitudezzz", NULL, NULL },
+	{ 34908, 0x00, "FaxRecvParams", NULL, NULL },
+	{ 34909, 0x00, "FaxSubAddress", NULL, NULL },
+	{ 34910, 0x00, "FaxSubAddress", NULL, NULL },
 	{ 36864, 0x10, "ExifVersion", NULL, NULL },
 	{ 36867, 0x10, "DateTimeOriginal", NULL, NULL },
 	{ 36868, 0x10, "DateTimeDigitized", NULL, NULL },
@@ -560,6 +559,14 @@ static int lookup_str_and_copy_to_buf(const struct int_and_str *items, size_t nu
 	return 0;
 }
 
+// For a dbuf being used as a string, append a NUL-terminated string.
+// If the dbuf is not empty, append a comma first.
+static void append_list_item(dbuf *s, const char *str)
+{
+	if(s->len) dbuf_writebyte(s, ',');
+	dbuf_puts(s, str);
+}
+
 static int valdec_newsubfiletype(deark *c, lctx *d, const struct taginfo *tg,
 	de_int64 idx, de_int64 n, char *buf, size_t buf_len)
 {
@@ -569,15 +576,16 @@ static int valdec_newsubfiletype(deark *c, lctx *d, const struct taginfo *tg,
 	s = dbuf_create_membuf(c, (de_int64)buf_len, 0);
 
 	if(n&0x1) {
-		dbuf_puts(s, "reduced-res");
+		append_list_item(s, "reduced-res");
 	}
 	if(n&0x2) {
-		if(s->len) dbuf_writebyte(s, ',');
-		dbuf_puts(s, "one-page-of-many");
+		append_list_item(s, "one-page-of-many");
 	}
 	if(n&0x4) {
-		if(s->len) dbuf_writebyte(s, ',');
-		dbuf_puts(s, "mask");
+		append_list_item(s, "mask");
+	}
+	if((n & ~0x7)!=0) {
+		append_list_item(s, "?");
 	}
 
 	dbuf_copy_all_to_sz(s, buf, buf_len);
@@ -612,7 +620,20 @@ static int valdec_photometric(deark *c, lctx *d, const struct taginfo *tg,
 {
 	static const struct int_and_str name_map[] = {
 		{0, "grayscale/white-is-0"}, {1, "grayscale/black-is-0"},
-		{2, "RGB"}, {3, "palette"}, {5, "CMYK"}, {6, "YCbCr"}
+		{2, "RGB"}, {3, "palette"}, {5, "CMYK"}, {6, "YCbCr"},
+		{8, "CIELab"}, {9, "ICCLab"}, {10, "ITULab"},
+		{32803, "CFA"}, {32844, "CIELog2L"}, {32845, "CIELog2Luv"},
+		{34892, "LinearRaw"}
+	};
+	lookup_str_and_copy_to_buf(name_map, ITEMS_IN_ARRAY(name_map), n, buf, buf_len);
+	return 1;
+}
+
+static int valdec_threshholding(deark *c, lctx *d, const struct taginfo *tg,
+	de_int64 idx, de_int64 n, char *buf, size_t buf_len)
+{
+	static const struct int_and_str name_map[] = {
+		{1, "not dithered"}, {2, "ordered dither"}, {3, "error diffusion"}
 	};
 	lookup_str_and_copy_to_buf(name_map, ITEMS_IN_ARRAY(name_map), n, buf, buf_len);
 	return 1;
@@ -646,6 +667,52 @@ static int valdec_planarconfiguration(deark *c, lctx *d, const struct taginfo *t
 		{1, "contiguous"}, {2, "separated"}
 	};
 	lookup_str_and_copy_to_buf(name_map, ITEMS_IN_ARRAY(name_map), n, buf, buf_len);
+	return 1;
+}
+
+static int valdec_t4options(deark *c, lctx *d, const struct taginfo *tg,
+	de_int64 idx, de_int64 n, char *buf, size_t buf_len)
+{
+	dbuf *s = NULL;
+
+	if(n<1) return 0;
+	s = dbuf_create_membuf(c, (de_int64)buf_len, 0);
+
+	if(n&0x1) {
+		append_list_item(s, "2-d encoding");
+	}
+	if(n&0x2) {
+		append_list_item(s, "uncompressed mode allowed");
+	}
+	if(n&0x4) {
+		append_list_item(s, "has fill bits");
+	}
+	if((n & ~0x7)!=0) {
+		append_list_item(s, "?");
+	}
+
+	dbuf_copy_all_to_sz(s, buf, buf_len);
+	dbuf_close(s);
+	return 1;
+}
+
+static int valdec_t6options(deark *c, lctx *d, const struct taginfo *tg,
+	de_int64 idx, de_int64 n, char *buf, size_t buf_len)
+{
+	dbuf *s = NULL;
+
+	if(n<1) return 0;
+	s = dbuf_create_membuf(c, (de_int64)buf_len, 0);
+
+	if(n&0x2) {
+		append_list_item(s, "uncompressed mode allowed");
+	}
+	if((n & ~0x2)!=0) {
+		append_list_item(s, "?");
+	}
+
+	dbuf_copy_all_to_sz(s, buf, buf_len);
+	dbuf_close(s);
 	return 1;
 }
 
@@ -888,9 +955,9 @@ static void process_ifd(deark *c, lctx *d, de_int64 ifdpos, int ifdtype)
 	de_int64 jpeglength = -1;
 	de_int64 tmpoffset;
 	dbuf *dbglinedbuf = NULL;
-	char tmpbuf[512];
 	struct taginfo tg;
 	const char *name;
+	char tmpbuf[1024];
 	static const struct tagnuminfo default_tni = { 0, 0x00, "?", NULL, NULL };
 
 	switch(ifdtype) {
@@ -1037,6 +1104,8 @@ static void do_tiff(deark *c, lctx *d)
 	pos = 0;
 	de_dbg(c, "TIFF file header at %d\n", (int)pos);
 	de_dbg_indent(c, 1);
+
+	de_dbg(c, "byte order: %s-endian\n", d->is_le?"little":"big");
 
 	// Skip over the signature
 	if(d->is_bigtiff) {
