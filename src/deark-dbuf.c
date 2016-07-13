@@ -307,6 +307,12 @@ de_int64 dbuf_getui16x(dbuf *f, de_int64 pos, int is_le)
 	return dbuf_getui16be(f, pos);
 }
 
+de_int64 dbuf_geti16x(dbuf *f, de_int64 pos, int is_le)
+{
+	if(is_le) return dbuf_geti16le(f, pos);
+	return dbuf_geti16be(f, pos);
+}
+
 de_int64 dbuf_getui32x(dbuf *f, de_int64 pos, int is_le)
 {
 	if(is_le) return dbuf_getui32le(f, pos);

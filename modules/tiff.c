@@ -373,42 +373,82 @@ static int read_srational_as_double(deark *c, lctx *d, de_int64 pos, double *n)
 	return 1;
 }
 
-static int read_tag_value_as_int64(deark *c, lctx *d, const struct taginfo *tg,
-	de_int64 value_index, de_int64 *n)
+static int read_tag_value_as_double(deark *c, lctx *d, const struct taginfo *tg,
+	de_int64 value_index, double *n)
 {
-	*n = 0;
+	de_int64 offs;
+
+	*n = 0.0;
 	if(value_index<0 || value_index>=tg->valcount) return 0;
-	if(tg->tagtype==TAGTYPE_UINT16) {
-		*n = dbuf_getui16x(c->infile, tg->val_offset + value_index*tg->unit_size, d->is_le);
-		return 1;
-	}
-	else if(tg->tagtype==TAGTYPE_UINT32 || tg->tagtype==TAGTYPE_IFD32) {
-		*n = dbuf_getui32x(c->infile, tg->val_offset + value_index*tg->unit_size, d->is_le);
-		return 1;
-	}
-	else if(tg->tagtype==TAGTYPE_BYTE || tg->tagtype==TAGTYPE_UNDEF || tg->tagtype==TAGTYPE_ASCII) {
-		*n = (de_int64)de_getbyte(tg->val_offset + value_index*tg->unit_size);
-		return 1;
-	}
-	else if(tg->tagtype==TAGTYPE_UINT64 || tg->tagtype==TAGTYPE_IFD64) {
-		// TODO: What should we do about unsigned 64-bit ints that don't fit into
-		// a de_int64?
-		*n = dbuf_geti64x(c->infile, tg->val_offset + value_index*tg->unit_size, d->is_le);
-		return 1;
+	offs = tg->val_offset + value_index*tg->unit_size;
+
+	switch(tg->tagtype) {
+	case TAGTYPE_RATIONAL:
+		return read_rational_as_double(c, d, offs, n);
+	case TAGTYPE_SRATIONAL:
+		return read_srational_as_double(c, d, offs, n);
+	case TAGTYPE_FLOAT:
+	case TAGTYPE_DOUBLE:
+		// TODO
+		return 0;
+
+		// There should be no need to support other data types (like UINT32).
 	}
 	return 0;
 }
 
-static int read_tag_value_as_double(deark *c, lctx *d, const struct taginfo *tg,
-	de_int64 value_index, double *n)
+static int read_tag_value_as_int64(deark *c, lctx *d, const struct taginfo *tg,
+	de_int64 value_index, de_int64 *n)
 {
-	*n = 0.0;
+	double v_dbl;
+	de_int64 offs;
+
+	*n = 0;
 	if(value_index<0 || value_index>=tg->valcount) return 0;
-	if(tg->tagtype==TAGTYPE_RATIONAL) {
-		return read_rational_as_double(c, d, tg->val_offset+8*value_index, n);
-	}
-	else if(tg->tagtype==TAGTYPE_SRATIONAL) {
-		return read_srational_as_double(c, d, tg->val_offset+8*value_index, n);
+	offs = tg->val_offset + value_index*tg->unit_size;
+
+	switch(tg->tagtype) {
+	case TAGTYPE_UINT16:
+		*n = dbuf_getui16x(c->infile, offs, d->is_le);
+		return 1;
+	case TAGTYPE_UINT32:
+	case TAGTYPE_IFD32:
+		*n = dbuf_getui32x(c->infile, offs, d->is_le);
+		return 1;
+	case TAGTYPE_BYTE:
+	case TAGTYPE_UNDEF:
+	case TAGTYPE_ASCII:
+		*n = (de_int64)de_getbyte(offs);
+		return 1;
+	case TAGTYPE_UINT64:
+	case TAGTYPE_IFD64:
+		// TODO: Somehow support unsigned 64-bit ints that don't fit into
+		// a de_int64?
+		*n = dbuf_geti64x(c->infile, offs, d->is_le);
+		if(*n < 0) return 0;
+		return 1;
+	case TAGTYPE_SINT16:
+		*n = dbuf_geti16x(c->infile, offs, d->is_le);
+		return 1;
+	case TAGTYPE_SINT32:
+		*n = dbuf_geti32x(c->infile, offs, d->is_le);
+		return 1;
+	case TAGTYPE_SINT64:
+		*n = dbuf_geti64x(c->infile, offs, d->is_le);
+		return 1;
+	case TAGTYPE_SBYTE:
+		*n = (de_int64)de_getbyte(offs);
+		if(*n > 127) *n -= 256;
+		return 1;
+	case TAGTYPE_RATIONAL:
+	case TAGTYPE_SRATIONAL:
+	case TAGTYPE_FLOAT:
+	case TAGTYPE_DOUBLE:
+		if(read_tag_value_as_double(c, d, tg, value_index, &v_dbl)) {
+			*n = (de_int64)v_dbl;
+			return 1;
+		}
+		return 0;
 	}
 	return 0;
 }
@@ -691,15 +731,13 @@ static void handler_subifd(deark *c, lctx *d, const struct taginfo *tg, const st
 	de_int64 tmpoffset;
 	int ifdtype = IFDTYPE_NORMAL;
 
-	if(tg->unit_size!=d->offsetsize) return;
-
 	if(tg->tagnum==330) ifdtype = IFDTYPE_SUBIFD;
 	else if(tg->tagnum==34665) ifdtype = IFDTYPE_EXIF;
 	else if(tg->tagnum==34853) ifdtype = IFDTYPE_GPS;
 	else if(tg->tagnum==40965) ifdtype = IFDTYPE_EXIFINTEROP;
 
 	for(j=0; j<tg->valcount;j++) {
-		tmpoffset = getfpos(c, d, tg->val_offset+tg->unit_size*j);
+		read_tag_value_as_int64(c, d, tg, j, &tmpoffset);
 		de_dbg(c, "offset of %s: %d\n", tti->tagname, (int)tmpoffset);
 		push_ifd(c, d, tmpoffset, ifdtype);
 	}
@@ -924,13 +962,13 @@ static void process_ifd(deark *c, lctx *d, de_int64 ifdpos, int ifdtype)
 			break;
 
 		case TAG_JPEGINTERCHANGEFORMAT:
-			if(tg.unit_size!=d->offsetsize || tg.valcount<1) break;
-			jpegoffset = getfpos(c, d, tg.val_offset);
+			if(tg.valcount<1) break;
+			read_tag_value_as_int64(c, d, &tg, 0, &jpegoffset);
 			break;
 
 		case TAG_JPEGINTERCHANGEFORMATLENGTH:
-			if(tg.unit_size!=d->offsetsize || tg.valcount<1) break;
-			jpeglength = getfpos(c, d, tg.val_offset);
+			if(tg.valcount<1) break;
+			read_tag_value_as_int64(c, d, &tg, 0, &jpeglength);
 			break;
 
 		case TAG_XMP:

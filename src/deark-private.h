@@ -331,6 +331,7 @@ de_int64 dbuf_getui16le(dbuf *f, de_int64 pos);
 de_int64 dbuf_getui16x(dbuf *f, de_int64 pos, int is_le);
 de_int64 dbuf_geti16be(dbuf *f, de_int64 pos);
 de_int64 dbuf_geti16le(dbuf *f, de_int64 pos);
+de_int64 dbuf_geti16x(dbuf *f, de_int64 pos, int is_le);
 de_int64 dbuf_getui32be(dbuf *f, de_int64 pos);
 de_int64 dbuf_getui32le(dbuf *f, de_int64 pos);
 de_int64 dbuf_getui32x(dbuf *f, de_int64 pos, int is_le);
