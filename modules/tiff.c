@@ -98,7 +98,7 @@ DECLARE_VALDEC(valdec_componentsconfiguration);
 DECLARE_VALDEC(valdec_meteringmode);
 DECLARE_VALDEC(valdec_lightsource);
 DECLARE_VALDEC(valdec_flash);
-DECLARE_VALDEC(valdec_colorspace);
+DECLARE_VALDEC(valdec_exifcolorspace);
 DECLARE_VALDEC(valdec_filesource);
 DECLARE_VALDEC(valdec_scenetype);
 DECLARE_VALDEC(valdec_sensingmethod);
@@ -111,6 +111,8 @@ DECLARE_VALDEC(valdec_contrast);
 DECLARE_VALDEC(valdec_saturation);
 DECLARE_VALDEC(valdec_sharpness);
 DECLARE_VALDEC(valdec_subjectdistancerange);
+DECLARE_VALDEC(valdec_profileembedpolicy);
+DECLARE_VALDEC(valdec_dngcolorspace);
 
 struct tagnuminfo {
 	int tagnum;
@@ -119,6 +121,7 @@ struct tagnuminfo {
 	// 0x10=this is an Exif tag
 	// 0x20=an Exif Interoperability-IFD tag
 	// 0x40=a GPS attribute tag
+	// 0x80=a DNG tag
 	unsigned int flags;
 
 	const char *tagname;
@@ -257,7 +260,7 @@ static const struct tagnuminfo tagnuminfo_arr[] = {
 	{ 37522, 0x10, "SubsecTimeDigitized", NULL, NULL },
 	{ 37724, 0x00, "Photoshop ImageSourceData", NULL, NULL },
 	{ 40960, 0x10, "FlashPixVersion", NULL, NULL },
-	{ 40961, 0x10, "ColorSpace", NULL, valdec_colorspace },
+	{ 40961, 0x10, "ColorSpace", NULL, valdec_exifcolorspace },
 	{ 40962, 0x10, "PixelXDimension", NULL, NULL },
 	{ 40963, 0x10, "PixelYDimension", NULL, NULL },
 	{ 40964, 0x10, "RelatedSoundFile", NULL, NULL },
@@ -293,6 +296,98 @@ static const struct tagnuminfo tagnuminfo_arr[] = {
 	{ 42036, 0x10, "LensModel", NULL, NULL },
 	{ 42037, 0x10, "LensSerialNumber", NULL, NULL },
 	{ 42240, 0x10, "Gamma", NULL, NULL },
+
+	{ 50706, 0x80, "DNGVersion", NULL, NULL},
+	{ 50707, 0x80, "DNGBackwardVersion", NULL, NULL},
+	{ 50708, 0x80, "UniqueCameraModel", NULL, NULL},
+	{ 50709, 0x80, "LocalizedCameraModel", NULL, NULL},
+	{ 50710, 0x80, "CFAPlaneColor", NULL, NULL},
+	{ 50711, 0x80, "CFALayout", NULL, NULL},
+	{ 50712, 0x80, "LinearizationTable", NULL, NULL},
+	{ 50713, 0x80, "BlackLevelRepeatDim", NULL, NULL},
+	{ 50714, 0x80, "BlackLevel", NULL, NULL},
+	{ 50715, 0x80, "BlackLevelDeltaH", NULL, NULL},
+	{ 50716, 0x80, "BlackLevelDeltaV", NULL, NULL},
+	{ 50717, 0x80, "WhiteLevel", NULL, NULL},
+	{ 50718, 0x80, "DefaultScale", NULL, NULL},
+	{ 50719, 0x80, "DefaultCropOrigin", NULL, NULL},
+	{ 50720, 0x80, "DefaultCropSize", NULL, NULL},
+	{ 50721, 0x80, "ColorMatrix1", NULL, NULL},
+	{ 50722, 0x80, "ColorMatrix2", NULL, NULL},
+	{ 50723, 0x80, "CameraCalibration1", NULL, NULL},
+	{ 50724, 0x80, "CameraCalibration2", NULL, NULL},
+	{ 50725, 0x80, "ReductionMatrix1", NULL, NULL},
+	{ 50726, 0x80, "ReductionMatrix2", NULL, NULL},
+	{ 50727, 0x80, "AnalogBalance", NULL, NULL},
+	{ 50728, 0x80, "AsShotNeutral", NULL, NULL},
+	{ 50729, 0x80, "AsShotWhiteXY", NULL, NULL},
+	{ 50730, 0x80, "BaselineExposure", NULL, NULL},
+	{ 50731, 0x80, "BaselineNoise", NULL, NULL},
+	{ 50732, 0x80, "BaselineSharpness", NULL, NULL},
+	{ 50733, 0x80, "BayerGreenSplit", NULL, NULL},
+	{ 50734, 0x80, "LinearResponseLimit", NULL, NULL},
+	{ 50735, 0x80, "CameraSerialNumber", NULL, NULL},
+	{ 50736, 0x80, "LensInfo", NULL, NULL},
+	{ 50737, 0x80, "ChromaBlurRadius", NULL, NULL},
+	{ 50738, 0x80, "AntiAliasStrength", NULL, NULL},
+	{ 50739, 0x80, "ShadowScale", NULL, NULL},
+	{ 50740, 0x80, "DNGPrivateData", NULL, NULL},
+	{ 50741, 0x80, "MakerNoteSafety", NULL, NULL},
+	{ 50778, 0x80, "CalibrationIlluminant1", NULL, NULL},
+	{ 50779, 0x80, "CalibrationIlluminant2", NULL, NULL},
+	{ 50780, 0x80, "BestQualityScale", NULL, NULL},
+	{ 50781, 0x80, "RawDataUniqueID", NULL, NULL},
+	{ 50827, 0x80, "OriginalRawFileName", NULL, NULL},
+	{ 50828, 0x80, "OriginalRawFileData", NULL, NULL},
+	{ 50829, 0x80, "ActiveArea", NULL, NULL},
+	{ 50830, 0x80, "MaskedAreas", NULL, NULL},
+	{ 50831, 0x80, "AsShotICCProfile", NULL, NULL},
+	{ 50832, 0x80, "AsShotPreProfileMatrix", NULL, NULL},
+	{ 50833, 0x80, "CurrentICCProfile", NULL, NULL},
+	{ 50834, 0x80, "CurrentPreProfileMatrix", NULL, NULL},
+	{ 50879, 0x80, "ColorimetricReference", NULL, NULL},
+	{ 50931, 0x80, "CameraCalibrationSignature", NULL, NULL},
+	{ 50932, 0x80, "ProfileCalibrationSignature", NULL, NULL},
+	{ 50933, 0x80, "ExtraCameraProfiles", NULL, NULL},
+	{ 50934, 0x80, "AsShotProfileName", NULL, NULL},
+	{ 50935, 0x80, "NoiseReductionApplied", NULL, NULL},
+	{ 50936, 0x80, "ProfileName", NULL, NULL},
+	{ 50937, 0x80, "ProfileHueSatMapDims", NULL, NULL},
+	{ 50938, 0x80, "ProfileHueSatMapData1", NULL, NULL},
+	{ 50939, 0x80, "ProfileHueSatMapData2", NULL, NULL},
+	{ 50940, 0x80, "ProfileToneCurve", NULL, NULL},
+	{ 50941, 0x80, "ProfileEmbedPolicy", NULL, valdec_profileembedpolicy},
+	{ 50942, 0x80, "ProfileCopyright", NULL, NULL},
+	{ 50964, 0x80, "ForwardMatrix1", NULL, NULL},
+	{ 50965, 0x80, "ForwardMatrix2", NULL, NULL},
+	{ 50966, 0x80, "PreviewApplicationName", NULL, NULL},
+	{ 50967, 0x80, "PreviewApplicationVersion", NULL, NULL},
+	{ 50968, 0x80, "PreviewSettingsName", NULL, NULL},
+	{ 50969, 0x80, "PreviewSettingsDigest", NULL, NULL},
+	{ 50970, 0x80, "PreviewColorSpace", NULL, valdec_dngcolorspace},
+	{ 50971, 0x80, "PreviewDateTime", NULL, NULL},
+	{ 50972, 0x80, "RawImageDigest", NULL, NULL},
+	{ 50973, 0x80, "OriginalRawFileDigest", NULL, NULL},
+	{ 50974, 0x80, "SubTileBlockSize", NULL, NULL},
+	{ 50975, 0x80, "RowInterleaveFactor", NULL, NULL},
+	{ 50981, 0x80, "ProfileLookTableDims", NULL, NULL},
+	{ 50982, 0x80, "ProfileLookTableData", NULL, NULL},
+	{ 51008, 0x80, "OpcodeList1", NULL, NULL},
+	{ 51009, 0x80, "OpcodeList2", NULL, NULL},
+	{ 51022, 0x80, "OpcodeList3", NULL, NULL},
+	{ 51041, 0x80, "NoiseProfile", NULL, NULL},
+	{ 51089, 0x80, "OriginalDefaultFinalSize", NULL, NULL},
+	{ 51090, 0x80, "OriginalBestQualityFinalSize", NULL, NULL},
+	{ 51091, 0x80, "OriginalDefaultCropSize", NULL, NULL},
+	{ 51107, 0x80, "ProfileHueSatMapEncoding", NULL, NULL},
+	{ 51108, 0x80, "ProfileLookTableEncoding", NULL, NULL},
+	{ 51109, 0x80, "BaselineExposureOffset", NULL, NULL},
+	{ 51110, 0x80, "DefaultBlackRender", NULL, NULL},
+	{ 51111, 0x80, "NewRawImageDigest", NULL, NULL},
+	{ 51112, 0x80, "RawToPreviewGain", NULL, NULL},
+	{ 51113, 0x80, "CacheBlob", NULL, NULL},
+	{ 51114, 0x80, "CacheVersion", NULL, NULL},
+	{ 51125, 0x80, "DefaultUserCrop", NULL, NULL},
 
 	{ 1, 0x20, "InteroperabilityIndex", NULL, NULL },
 	{ 2, 0x20, "InteroperabilityVersion", NULL, NULL },
@@ -681,7 +776,7 @@ static int valdec_compression(deark *c, const struct valdec_params *vp, struct v
 		{32773, "PackBits"}, {32809, "ThunderScan"},
 		{32908, "PIXARFILM"}, {32909, "PIXARLOG"}, {32946, "DEFLATE"},
 		{34661, "JBIG"}, {34676, "SGILOG"}, {34677, "SGILOG24"},
-		{34712, "JPEG2000"}, {34715, "JBIG2"}
+		{34712, "JPEG2000"}, {34715, "JBIG2"}, {34892, "Lossy JPEG(DNG)"}
 	};
 	lookup_str_and_copy_to_buf(name_map, ITEMS_IN_ARRAY(name_map), vp->n, vr->buf, vr->buf_len);
 	return 1;
@@ -931,7 +1026,7 @@ static int valdec_flash(deark *c, const struct valdec_params *vp, struct valdec_
 	return 1;
 }
 
-static int valdec_colorspace(deark *c, const struct valdec_params *vp, struct valdec_result *vr)
+static int valdec_exifcolorspace(deark *c, const struct valdec_params *vp, struct valdec_result *vr)
 {
 	static const struct int_and_str name_map[] = {
 		{1, "sRGB"}, {0xffff, "Uncalibrated"}
@@ -1047,6 +1142,25 @@ static int valdec_subjectdistancerange(deark *c, const struct valdec_params *vp,
 {
 	static const struct int_and_str name_map[] = {
 		{0, "unknown"}, {1, "macro"}, {2, "close"}, {3, "distant"}
+	};
+	lookup_str_and_copy_to_buf(name_map, ITEMS_IN_ARRAY(name_map), vp->n, vr->buf, vr->buf_len);
+	return 1;
+}
+
+static int valdec_profileembedpolicy(deark *c, const struct valdec_params *vp, struct valdec_result *vr)
+{
+	static const struct int_and_str name_map[] = {
+		{0, "allow copying"}, {1, "embed if used"}, {2, "embed never"}, {3, "no restrictions"}
+	};
+	lookup_str_and_copy_to_buf(name_map, ITEMS_IN_ARRAY(name_map), vp->n, vr->buf, vr->buf_len);
+	return 1;
+}
+
+static int valdec_dngcolorspace(deark *c, const struct valdec_params *vp, struct valdec_result *vr)
+{
+	static const struct int_and_str name_map[] = {
+		{0, "unknown"}, {1, "gray gamma 2.2"}, {2, "sRGB"}, {3, "Adobe RGB"},
+		{4, "ProPhoto RGB"}
 	};
 	lookup_str_and_copy_to_buf(name_map, ITEMS_IN_ARRAY(name_map), vp->n, vr->buf, vr->buf_len);
 	return 1;
