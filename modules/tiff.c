@@ -78,7 +78,11 @@ DECLARE_VALDEC(valdec_pagenumber);
 DECLARE_VALDEC(valdec_predictor);
 DECLARE_VALDEC(valdec_extrasamples);
 DECLARE_VALDEC(valdec_sampleformat);
+DECLARE_VALDEC(valdec_jpegproc);
 DECLARE_VALDEC(valdec_ycbcrpositioning);
+DECLARE_VALDEC(valdec_meteringmode);
+DECLARE_VALDEC(valdec_lightsource);
+DECLARE_VALDEC(valdec_colorspace);
 
 struct tagnuminfo {
 	int tagnum;
@@ -148,7 +152,7 @@ static const struct tagnuminfo tagnuminfo_arr[] = {
 	{ 326, 0x00, "BadFaxLines", NULL, NULL },
 	{ 327, 0x00, "CleanFaxData", NULL, NULL },
 	{ 328, 0x00, "ConsecutiveBadFaxLines", NULL, NULL },
-	{ 330, 0x08, "SubIFD", NULL, NULL },
+	{ 330, 0x08, "SubIFD", handler_subifd, NULL },
 	{ 332, 0x00, "InkSet", NULL, NULL },
 	{ 333, 0x00, "InkNames", NULL, NULL },
 	{ 334, 0x00, "NumberOfInks", NULL, NULL },
@@ -159,7 +163,8 @@ static const struct tagnuminfo tagnuminfo_arr[] = {
 	{ 340, 0x00, "SMinSampleValue", NULL, NULL },
 	{ 341, 0x00, "SMaxSampleValue", NULL, NULL },
 	{ 342, 0x00, "TransferRange", NULL, NULL },
-	{ 512, 0x00, "JPEGProc", NULL, NULL },
+	{ 347, 0x00, "JPEGTables", NULL, NULL },
+	{ 512, 0x00, "JPEGProc", NULL, valdec_jpegproc },
 #define TAG_JPEGINTERCHANGEFORMAT 513
 	{ TAG_JPEGINTERCHANGEFORMAT, 0x00, "JPEGInterchangeFormat", NULL, NULL },
 #define TAG_JPEGINTERCHANGEFORMATLENGTH 514
@@ -174,6 +179,11 @@ static const struct tagnuminfo tagnuminfo_arr[] = {
 	{ 530, 0x00, "YCbCrSubSampling", NULL, NULL },
 	{ 531, 0x00, "YCbCrPositioning", NULL, valdec_ycbcrpositioning },
 	{ 532, 0x00, "ReferenceBlackWhite", NULL, NULL },
+	{ 32932, 0x00, "Annotation Data", NULL, NULL },
+	{ 32995, 0x00, "Matteing(SGI)", NULL, NULL },
+	{ 32996, 0x00, "DataType(SGI)", NULL, NULL },
+	{ 32997, 0x00, "ImageDepth(SGI)", NULL, NULL },
+	{ 32998, 0x00, "TileDepth(SGI)", NULL, NULL },
 #define TAG_XMP               700
 	{ TAG_XMP, 0x08, "XMP", NULL, NULL },
 	{ 33432, 0x00, "Copyright", NULL, NULL },
@@ -211,18 +221,20 @@ static const struct tagnuminfo tagnuminfo_arr[] = {
 	{ 37380, 0x10, "ExposureBiasValue", NULL, NULL },
 	{ 37381, 0x10, "MaxApertureValue", NULL, NULL },
 	{ 37382, 0x10, "SubjectDistance", NULL, NULL },
-	{ 37383, 0x10, "MeteringMode", NULL, NULL },
-	{ 37384, 0x10, "LightSource", NULL, NULL },
+	{ 37383, 0x10, "MeteringMode", NULL, valdec_meteringmode },
+	{ 37384, 0x10, "LightSource", NULL, valdec_lightsource },
 	{ 37385, 0x10, "Flash", NULL, NULL },
 	{ 37386, 0x10, "FocalLength", NULL, NULL },
 	{ 37396, 0x10, "SubjectArea", NULL, NULL },
+	{ 37439, 0x00, "SToNits(SGI)", NULL, NULL },
 	{ 37500, 0x10, "MakerNote", NULL, NULL },
 	{ 37510, 0x10, "UserComment", NULL, NULL },
 	{ 37520, 0x10, "SubSec", NULL, NULL },
 	{ 37521, 0x10, "SubSecTimeOriginal", NULL, NULL },
 	{ 37522, 0x10, "SubsecTimeDigitized", NULL, NULL },
+	{ 37724, 0x00, "Photoshop ImageSourceData", NULL, NULL },
 	{ 40960, 0x10, "FlashPixVersion", NULL, NULL },
-	{ 40961, 0x10, "ColorSpace", NULL, NULL },
+	{ 40961, 0x10, "ColorSpace", NULL, valdec_colorspace },
 	{ 40962, 0x10, "PixelXDimension", NULL, NULL },
 	{ 40963, 0x10, "PixelYDimension", NULL, NULL },
 	{ 40964, 0x10, "RelatedSoundFile", NULL, NULL },
@@ -609,7 +621,12 @@ static int valdec_compression(deark *c, lctx *d, const struct taginfo *tg,
 	static const struct int_and_str name_map[] = {
 		{1, "uncompressed"}, {2, "CCITTRLE"}, {3, "Fax3"}, {4, "Fax4"},
 		{5, "LZW"}, {6, "OldJPEG"}, {7, "NewJPEG"}, {8, "DEFLATE"},
-		{32773, "PackBits"}, {32946, "DEFLATE"}
+		{9, "JBIG"}, {10, "JBIG"},
+		{32766, "NeXT 2-bit RLE"}, {32771, "CCITTRLEW"},
+		{32773, "PackBits"}, {32809, "ThunderScan"},
+		{32908, "PIXARFILM"}, {32909, "PIXARLOG"}, {32946, "DEFLATE"},
+		{34661, "JBIG"}, {34676, "SGILOG"}, {34677, "SGILOG24"},
+		{34712, "JPEG2000"}, {34715, "JBIG2"}
 	};
 	lookup_str_and_copy_to_buf(name_map, ITEMS_IN_ARRAY(name_map), n, buf, buf_len);
 	return 1;
@@ -775,11 +792,59 @@ static int valdec_sampleformat(deark *c, lctx *d, const struct taginfo *tg,
 	return 1;
 }
 
+static int valdec_jpegproc(deark *c, lctx *d, const struct taginfo *tg,
+	de_int64 idx, de_int64 n, char *buf, size_t buf_len)
+{
+	static const struct int_and_str name_map[] = {
+		{1, "baseline"}, {14, "lossless+huffman"}
+	};
+	lookup_str_and_copy_to_buf(name_map, ITEMS_IN_ARRAY(name_map), n, buf, buf_len);
+	return 1;
+}
+
 static int valdec_ycbcrpositioning(deark *c, lctx *d, const struct taginfo *tg,
 	de_int64 idx, de_int64 n, char *buf, size_t buf_len)
 {
 	static const struct int_and_str name_map[] = {
 		{1, "centered"}, {2, "cosited"}
+	};
+	lookup_str_and_copy_to_buf(name_map, ITEMS_IN_ARRAY(name_map), n, buf, buf_len);
+	return 1;
+}
+
+static int valdec_meteringmode(deark *c, lctx *d, const struct taginfo *tg,
+	de_int64 idx, de_int64 n, char *buf, size_t buf_len)
+{
+	static const struct int_and_str name_map[] = {
+		{0, "unknown"}, {1, "Average"}, {2, "CenterWeightedAverage"},
+		{3, "Spot"}, {4, "MultiSpot"}, {9, "Fine weather"}, {10, "Cloudy weather"},
+		{11, "Shade"}, {12, "D 5700-7100K"}, {13, "N 4600-5500K"},
+		{14, "W 3800-4500K"}, {15, "WW 3250-3800K"}, {16, "L 2600-3260K"},
+		{17, "Standard light A"}, {18, "Standard light B"}, {19, "Standard light C"},
+		{20, "D55"}, {21, "D65"}, {22, "D75"}, {23, "D50"}, {24, "ISO studio tungsten"},
+		{25, "other"}
+	};
+	lookup_str_and_copy_to_buf(name_map, ITEMS_IN_ARRAY(name_map), n, buf, buf_len);
+	return 1;
+}
+
+static int valdec_lightsource(deark *c, lctx *d, const struct taginfo *tg,
+	de_int64 idx, de_int64 n, char *buf, size_t buf_len)
+{
+	static const struct int_and_str name_map[] = {
+		{0, "unknown"}, {1, "Daylight"}, {2, "Fluorescent"},
+		{3, "Tungsten"}, {4, "Flash"}, {5, "Pattern"}, {6, "Partial"},
+		{255, "other"}
+	};
+	lookup_str_and_copy_to_buf(name_map, ITEMS_IN_ARRAY(name_map), n, buf, buf_len);
+	return 1;
+}
+
+static int valdec_colorspace(deark *c, lctx *d, const struct taginfo *tg,
+	de_int64 idx, de_int64 n, char *buf, size_t buf_len)
+{
+	static const struct int_and_str name_map[] = {
+		{1, "sRGB"}, {0xffff, "Uncalibrated"}
 	};
 	lookup_str_and_copy_to_buf(name_map, ITEMS_IN_ARRAY(name_map), n, buf, buf_len);
 	return 1;
