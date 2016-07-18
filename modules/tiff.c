@@ -57,12 +57,21 @@ typedef void (*handler_fn_type)(deark *c, lctx *d, const struct taginfo *tg,
 static void handler_colormap(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni);
 static void handler_subifd(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni);
 
-typedef int (*val_decoder_fn_type)(deark *c, lctx *d, const struct taginfo *tg,
-	de_int64 idx, de_int64 n, char *buf, size_t buf_len);
+struct valdec_params {
+	lctx *d;
+	const struct taginfo *tg;
+	de_int64 idx;
+	de_int64 n;
+};
+struct valdec_result {
+	size_t buf_len;
+	char buf[80];
+};
+
+typedef int (*val_decoder_fn_type)(deark *c, const struct valdec_params *vp, struct valdec_result *vr);
 
 // Forward declaration of value decoder functions
-#define DECLARE_VALDEC(x) static int x(deark *c, lctx *d, const struct taginfo *tg, \
-	de_int64 idx, de_int64 n, char *buf, size_t buf_len)
+#define DECLARE_VALDEC(x) static int x(deark *c, const struct valdec_params *vp, struct valdec_result *vr)
 DECLARE_VALDEC(valdec_newsubfiletype);
 DECLARE_VALDEC(valdec_oldsubfiletype);
 DECLARE_VALDEC(valdec_compression);
@@ -579,44 +588,41 @@ static void append_list_item(dbuf *s, const char *str)
 	dbuf_puts(s, str);
 }
 
-static int valdec_newsubfiletype(deark *c, lctx *d, const struct taginfo *tg,
-	de_int64 idx, de_int64 n, char *buf, size_t buf_len)
+static int valdec_newsubfiletype(deark *c, const struct valdec_params *vp, struct valdec_result *vr)
 {
 	dbuf *s = NULL;
 
-	if(n<1) return 0;
-	s = dbuf_create_membuf(c, (de_int64)buf_len, 0);
+	if(vp->n<1) return 0;
+	s = dbuf_create_membuf(c, (de_int64)vr->buf_len, 0);
 
-	if(n&0x1) {
+	if(vp->n&0x1) {
 		append_list_item(s, "reduced-res");
 	}
-	if(n&0x2) {
+	if(vp->n&0x2) {
 		append_list_item(s, "one-page-of-many");
 	}
-	if(n&0x4) {
+	if(vp->n&0x4) {
 		append_list_item(s, "mask");
 	}
-	if((n & ~0x7)!=0) {
+	if((vp->n & ~0x7)!=0) {
 		append_list_item(s, "?");
 	}
 
-	dbuf_copy_all_to_sz(s, buf, buf_len);
+	dbuf_copy_all_to_sz(s, vr->buf, vr->buf_len);
 	dbuf_close(s);
 	return 1;
 }
 
-static int valdec_oldsubfiletype(deark *c, lctx *d, const struct taginfo *tg,
-	de_int64 idx, de_int64 n, char *buf, size_t buf_len)
+static int valdec_oldsubfiletype(deark *c, const struct valdec_params *vp, struct valdec_result *vr)
 {
 	static const struct int_and_str name_map[] = {
 		{1, "full-res"}, {2, "reduced-res"}, {3, "one-page-of-many"}
 	};
-	lookup_str_and_copy_to_buf(name_map, ITEMS_IN_ARRAY(name_map), n, buf, buf_len);
+	lookup_str_and_copy_to_buf(name_map, ITEMS_IN_ARRAY(name_map), vp->n, vr->buf, vr->buf_len);
 	return 1;
 }
 
-static int valdec_compression(deark *c, lctx *d, const struct taginfo *tg,
-	de_int64 idx, de_int64 n, char *buf, size_t buf_len)
+static int valdec_compression(deark *c, const struct valdec_params *vp, struct valdec_result *vr)
 {
 	static const struct int_and_str name_map[] = {
 		{1, "uncompressed"}, {2, "CCITTRLE"}, {3, "Fax3"}, {4, "Fax4"},
@@ -628,12 +634,11 @@ static int valdec_compression(deark *c, lctx *d, const struct taginfo *tg,
 		{34661, "JBIG"}, {34676, "SGILOG"}, {34677, "SGILOG24"},
 		{34712, "JPEG2000"}, {34715, "JBIG2"}
 	};
-	lookup_str_and_copy_to_buf(name_map, ITEMS_IN_ARRAY(name_map), n, buf, buf_len);
+	lookup_str_and_copy_to_buf(name_map, ITEMS_IN_ARRAY(name_map), vp->n, vr->buf, vr->buf_len);
 	return 1;
 }
 
-static int valdec_photometric(deark *c, lctx *d, const struct taginfo *tg,
-	de_int64 idx, de_int64 n, char *buf, size_t buf_len)
+static int valdec_photometric(deark *c, const struct valdec_params *vp, struct valdec_result *vr)
 {
 	static const struct int_and_str name_map[] = {
 		{0, "grayscale/white-is-0"}, {1, "grayscale/black-is-0"},
@@ -642,178 +647,164 @@ static int valdec_photometric(deark *c, lctx *d, const struct taginfo *tg,
 		{32803, "CFA"}, {32844, "CIELog2L"}, {32845, "CIELog2Luv"},
 		{34892, "LinearRaw"}
 	};
-	lookup_str_and_copy_to_buf(name_map, ITEMS_IN_ARRAY(name_map), n, buf, buf_len);
+	lookup_str_and_copy_to_buf(name_map, ITEMS_IN_ARRAY(name_map), vp->n, vr->buf, vr->buf_len);
 	return 1;
 }
 
-static int valdec_threshholding(deark *c, lctx *d, const struct taginfo *tg,
-	de_int64 idx, de_int64 n, char *buf, size_t buf_len)
+static int valdec_threshholding(deark *c, const struct valdec_params *vp, struct valdec_result *vr)
 {
 	static const struct int_and_str name_map[] = {
 		{1, "not dithered"}, {2, "ordered dither"}, {3, "error diffusion"}
 	};
-	lookup_str_and_copy_to_buf(name_map, ITEMS_IN_ARRAY(name_map), n, buf, buf_len);
+	lookup_str_and_copy_to_buf(name_map, ITEMS_IN_ARRAY(name_map), vp->n, vr->buf, vr->buf_len);
 	return 1;
 }
 
-static int valdec_fillorder(deark *c, lctx *d, const struct taginfo *tg,
-	de_int64 idx, de_int64 n, char *buf, size_t buf_len)
+static int valdec_fillorder(deark *c, const struct valdec_params *vp, struct valdec_result *vr)
 {
 	static const struct int_and_str name_map[] = {
 		{1, "MSB-first"}, {2, "LSB-first"}
 	};
-	lookup_str_and_copy_to_buf(name_map, ITEMS_IN_ARRAY(name_map), n, buf, buf_len);
+	lookup_str_and_copy_to_buf(name_map, ITEMS_IN_ARRAY(name_map), vp->n, vr->buf, vr->buf_len);
 	return 1;
 }
 
-static int valdec_orientation(deark *c, lctx *d, const struct taginfo *tg,
-	de_int64 idx, de_int64 n, char *buf, size_t buf_len)
+static int valdec_orientation(deark *c, const struct valdec_params *vp, struct valdec_result *vr)
 {
 	static const struct int_and_str name_map[] = {
 		{1, "top-left"}, {2, "top-right"}, {3, "bottom-right"}, {4, "bottom-left"},
 		{5, "left-top"}, {6, "right-top"}, {7, "right-bottom"}, {8, "left-bottom"}
 	};
-	lookup_str_and_copy_to_buf(name_map, ITEMS_IN_ARRAY(name_map), n, buf, buf_len);
+	lookup_str_and_copy_to_buf(name_map, ITEMS_IN_ARRAY(name_map), vp->n, vr->buf, vr->buf_len);
 	return 1;
 }
 
-static int valdec_planarconfiguration(deark *c, lctx *d, const struct taginfo *tg,
-	de_int64 idx, de_int64 n, char *buf, size_t buf_len)
+static int valdec_planarconfiguration(deark *c, const struct valdec_params *vp, struct valdec_result *vr)
 {
 	static const struct int_and_str name_map[] = {
 		{1, "contiguous"}, {2, "separated"}
 	};
-	lookup_str_and_copy_to_buf(name_map, ITEMS_IN_ARRAY(name_map), n, buf, buf_len);
+	lookup_str_and_copy_to_buf(name_map, ITEMS_IN_ARRAY(name_map), vp->n, vr->buf, vr->buf_len);
 	return 1;
 }
 
-static int valdec_t4options(deark *c, lctx *d, const struct taginfo *tg,
-	de_int64 idx, de_int64 n, char *buf, size_t buf_len)
+static int valdec_t4options(deark *c, const struct valdec_params *vp, struct valdec_result *vr)
 {
 	dbuf *s = NULL;
 
-	if(n<1) return 0;
-	s = dbuf_create_membuf(c, (de_int64)buf_len, 0);
+	if(vp->n<1) return 0;
+	s = dbuf_create_membuf(c, (de_int64)vr->buf_len, 0);
 
-	if(n&0x1) {
+	if(vp->n&0x1) {
 		append_list_item(s, "2-d encoding");
 	}
-	if(n&0x2) {
+	if(vp->n&0x2) {
 		append_list_item(s, "uncompressed mode allowed");
 	}
-	if(n&0x4) {
+	if(vp->n&0x4) {
 		append_list_item(s, "has fill bits");
 	}
-	if((n & ~0x7)!=0) {
+	if((vp->n & ~0x7)!=0) {
 		append_list_item(s, "?");
 	}
 
-	dbuf_copy_all_to_sz(s, buf, buf_len);
+	dbuf_copy_all_to_sz(s, vr->buf, vr->buf_len);
 	dbuf_close(s);
 	return 1;
 }
 
-static int valdec_t6options(deark *c, lctx *d, const struct taginfo *tg,
-	de_int64 idx, de_int64 n, char *buf, size_t buf_len)
+static int valdec_t6options(deark *c, const struct valdec_params *vp, struct valdec_result *vr)
 {
 	dbuf *s = NULL;
 
-	if(n<1) return 0;
-	s = dbuf_create_membuf(c, (de_int64)buf_len, 0);
+	if(vp->n<1) return 0;
+	s = dbuf_create_membuf(c, (de_int64)vr->buf_len, 0);
 
-	if(n&0x2) {
+	if(vp->n&0x2) {
 		append_list_item(s, "uncompressed mode allowed");
 	}
-	if((n & ~0x2)!=0) {
+	if((vp->n & ~0x2)!=0) {
 		append_list_item(s, "?");
 	}
 
-	dbuf_copy_all_to_sz(s, buf, buf_len);
+	dbuf_copy_all_to_sz(s, vr->buf, vr->buf_len);
 	dbuf_close(s);
 	return 1;
 }
 
-static int valdec_resolutionunit(deark *c, lctx *d, const struct taginfo *tg,
-	de_int64 idx, de_int64 n, char *buf, size_t buf_len)
+static int valdec_resolutionunit(deark *c, const struct valdec_params *vp, struct valdec_result *vr)
 {
 	static const struct int_and_str name_map[] = {
 		{1, "unspecified"}, {2, "pixels/inch"}, {3, "pixels/cm"}
 	};
-	lookup_str_and_copy_to_buf(name_map, ITEMS_IN_ARRAY(name_map), n, buf, buf_len);
+	lookup_str_and_copy_to_buf(name_map, ITEMS_IN_ARRAY(name_map), vp->n, vr->buf, vr->buf_len);
 	return 1;
 }
 
-static int valdec_pagenumber(deark *c, lctx *d, const struct taginfo *tg,
-	de_int64 idx, de_int64 n, char *buf, size_t buf_len)
+static int valdec_pagenumber(deark *c, const struct valdec_params *vp, struct valdec_result *vr)
 {
-	if(idx==0) {
-		de_snprintf(buf, buf_len, "page %d", (int)(n+1));
+	if(vp->idx==0) {
+		de_snprintf(vr->buf, vr->buf_len, "page %d", (int)(vp->n+1));
 		return 1;
 	}
-	if(idx==1) {
-		if(n==0) {
-			de_strlcpy(buf, "of an unknown number", buf_len);
+	if(vp->idx==1) {
+		if(vp->n==0) {
+			de_strlcpy(vr->buf, "of an unknown number", vr->buf_len);
 		}
 		else {
-			de_snprintf(buf, buf_len, "of %d", (int)(n));
+			de_snprintf(vr->buf, vr->buf_len, "of %d", (int)vp->n);
 		}
 		return 1;
 	}
 	return 0;
 }
 
-static int valdec_predictor(deark *c, lctx *d, const struct taginfo *tg,
-	de_int64 idx, de_int64 n, char *buf, size_t buf_len)
+static int valdec_predictor(deark *c, const struct valdec_params *vp, struct valdec_result *vr)
 {
 	static const struct int_and_str name_map[] = {
 		{1, "none"}, {2, "horizontal differencing"}
 	};
-	lookup_str_and_copy_to_buf(name_map, ITEMS_IN_ARRAY(name_map), n, buf, buf_len);
+	lookup_str_and_copy_to_buf(name_map, ITEMS_IN_ARRAY(name_map), vp->n, vr->buf, vr->buf_len);
 	return 1;
 }
 
-static int valdec_extrasamples(deark *c, lctx *d, const struct taginfo *tg,
-	de_int64 idx, de_int64 n, char *buf, size_t buf_len)
+static int valdec_extrasamples(deark *c, const struct valdec_params *vp, struct valdec_result *vr)
 {
 	static const struct int_and_str name_map[] = {
 		{0, "unspecified"}, {1, "assoc-alpha"}, {2, "unassoc-alpha"}
 	};
-	lookup_str_and_copy_to_buf(name_map, ITEMS_IN_ARRAY(name_map), n, buf, buf_len);
+	lookup_str_and_copy_to_buf(name_map, ITEMS_IN_ARRAY(name_map), vp->n, vr->buf, vr->buf_len);
 	return 1;
 }
 
-static int valdec_sampleformat(deark *c, lctx *d, const struct taginfo *tg,
-	de_int64 idx, de_int64 n, char *buf, size_t buf_len)
+static int valdec_sampleformat(deark *c, const struct valdec_params *vp, struct valdec_result *vr)
 {
 	static const struct int_and_str name_map[] = {
 		{1, "uint"}, {2, "signed int"}, {3, "float"}, {4, "undefined"}
 	};
-	lookup_str_and_copy_to_buf(name_map, ITEMS_IN_ARRAY(name_map), n, buf, buf_len);
+	lookup_str_and_copy_to_buf(name_map, ITEMS_IN_ARRAY(name_map), vp->n, vr->buf, vr->buf_len);
 	return 1;
 }
 
-static int valdec_jpegproc(deark *c, lctx *d, const struct taginfo *tg,
-	de_int64 idx, de_int64 n, char *buf, size_t buf_len)
+static int valdec_jpegproc(deark *c, const struct valdec_params *vp, struct valdec_result *vr)
 {
 	static const struct int_and_str name_map[] = {
 		{1, "baseline"}, {14, "lossless+huffman"}
 	};
-	lookup_str_and_copy_to_buf(name_map, ITEMS_IN_ARRAY(name_map), n, buf, buf_len);
+	lookup_str_and_copy_to_buf(name_map, ITEMS_IN_ARRAY(name_map), vp->n, vr->buf, vr->buf_len);
 	return 1;
 }
 
-static int valdec_ycbcrpositioning(deark *c, lctx *d, const struct taginfo *tg,
-	de_int64 idx, de_int64 n, char *buf, size_t buf_len)
+static int valdec_ycbcrpositioning(deark *c, const struct valdec_params *vp, struct valdec_result *vr)
 {
 	static const struct int_and_str name_map[] = {
 		{1, "centered"}, {2, "cosited"}
 	};
-	lookup_str_and_copy_to_buf(name_map, ITEMS_IN_ARRAY(name_map), n, buf, buf_len);
+	lookup_str_and_copy_to_buf(name_map, ITEMS_IN_ARRAY(name_map), vp->n, vr->buf, vr->buf_len);
 	return 1;
 }
 
-static int valdec_meteringmode(deark *c, lctx *d, const struct taginfo *tg,
-	de_int64 idx, de_int64 n, char *buf, size_t buf_len)
+static int valdec_meteringmode(deark *c, const struct valdec_params *vp, struct valdec_result *vr)
 {
 	static const struct int_and_str name_map[] = {
 		{0, "unknown"}, {1, "Average"}, {2, "CenterWeightedAverage"},
@@ -824,29 +815,27 @@ static int valdec_meteringmode(deark *c, lctx *d, const struct taginfo *tg,
 		{20, "D55"}, {21, "D65"}, {22, "D75"}, {23, "D50"}, {24, "ISO studio tungsten"},
 		{25, "other"}
 	};
-	lookup_str_and_copy_to_buf(name_map, ITEMS_IN_ARRAY(name_map), n, buf, buf_len);
+	lookup_str_and_copy_to_buf(name_map, ITEMS_IN_ARRAY(name_map), vp->n, vr->buf, vr->buf_len);
 	return 1;
 }
 
-static int valdec_lightsource(deark *c, lctx *d, const struct taginfo *tg,
-	de_int64 idx, de_int64 n, char *buf, size_t buf_len)
+static int valdec_lightsource(deark *c, const struct valdec_params *vp, struct valdec_result *vr)
 {
 	static const struct int_and_str name_map[] = {
 		{0, "unknown"}, {1, "Daylight"}, {2, "Fluorescent"},
 		{3, "Tungsten"}, {4, "Flash"}, {5, "Pattern"}, {6, "Partial"},
 		{255, "other"}
 	};
-	lookup_str_and_copy_to_buf(name_map, ITEMS_IN_ARRAY(name_map), n, buf, buf_len);
+	lookup_str_and_copy_to_buf(name_map, ITEMS_IN_ARRAY(name_map), vp->n, vr->buf, vr->buf_len);
 	return 1;
 }
 
-static int valdec_colorspace(deark *c, lctx *d, const struct taginfo *tg,
-	de_int64 idx, de_int64 n, char *buf, size_t buf_len)
+static int valdec_colorspace(deark *c, const struct valdec_params *vp, struct valdec_result *vr)
 {
 	static const struct int_and_str name_map[] = {
 		{1, "sRGB"}, {0xffff, "Uncalibrated"}
 	};
-	lookup_str_and_copy_to_buf(name_map, ITEMS_IN_ARRAY(name_map), n, buf, buf_len);
+	lookup_str_and_copy_to_buf(name_map, ITEMS_IN_ARRAY(name_map), vp->n, vr->buf, vr->buf_len);
 	return 1;
 }
 
@@ -897,13 +886,19 @@ static void do_dbg_print_numeric_values(deark *c, lctx *d, const struct taginfo 
 	dbuf *dbglinedbuf)
 {
 	de_int64 i;
-	de_int64 v_int64;
-	double v_double;
-	char valbuf[80];
+	struct valdec_params vp;
+	struct valdec_result vr;
 
 	dbuf_puts(dbglinedbuf, " {");
 
+	// Populate the fields of vp/vr that don't change.
+	vp.d = d;
+	vp.tg = tg;
+	vr.buf_len = sizeof(vr.buf);
+
 	for(i=0; i<tg->valcount && i<DE_TIFF_MAX_VALUES_TO_PRINT; i++) {
+		de_int64 v_int64;
+		double v_double;
 		int val_printed = 0;
 
 		switch(tg->datatype) {
@@ -916,9 +911,13 @@ static void do_dbg_print_numeric_values(deark *c, lctx *d, const struct taginfo 
 				dbuf_printf(dbglinedbuf, "%" INT64_FMT, v_int64);
 
 				if(tni->vdfn) {
-					valbuf[0]='\0';
-					if(tni->vdfn(c, d, tg, i, v_int64, valbuf, sizeof(valbuf))) {
-						dbuf_printf(dbglinedbuf, "(=%s)", valbuf);
+					// Set the remaining fields of vp/vr.
+					vp.idx = i;
+					vp.n = v_int64;
+					vr.buf[0] = '\0';
+
+					if(tni->vdfn(c, &vp, &vr)) {
+						dbuf_printf(dbglinedbuf, "(=%s)", vr.buf);
 					}
 				}
 
