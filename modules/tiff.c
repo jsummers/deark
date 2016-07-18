@@ -101,10 +101,12 @@ DECLARE_VALDEC(valdec_flash);
 DECLARE_VALDEC(valdec_colorspace);
 DECLARE_VALDEC(valdec_filesource);
 DECLARE_VALDEC(valdec_scenetype);
+DECLARE_VALDEC(valdec_sensingmethod);
 DECLARE_VALDEC(valdec_customrendered);
 DECLARE_VALDEC(valdec_exposuremode);
 DECLARE_VALDEC(valdec_whitebalance);
 DECLARE_VALDEC(valdec_scenecapturetype);
+DECLARE_VALDEC(valdec_gaincontrol);
 DECLARE_VALDEC(valdec_contrast);
 DECLARE_VALDEC(valdec_saturation);
 DECLARE_VALDEC(valdec_sharpness);
@@ -116,6 +118,7 @@ struct tagnuminfo {
 	// 0x08=suppress auto display of values
 	// 0x10=this is an Exif tag
 	// 0x20=an Exif Interoperability-IFD tag
+	// 0x40=a GPS attribute tag
 	unsigned int flags;
 
 	const char *tagname;
@@ -123,8 +126,6 @@ struct tagnuminfo {
 	val_decoder_fn_type vdfn;
 };
 static const struct tagnuminfo tagnuminfo_arr[] = {
-	{ 1, 0x20, "InteroperabilityIndex", NULL, NULL },
-	{ 2, 0x20, "InteroperabilityVersion", NULL, NULL },
 	{ 254, 0x00, "NewSubfileType", NULL, valdec_newsubfiletype },
 	{ 255, 0x00, "OldSubfileType", NULL, valdec_oldsubfiletype },
 	{ 256, 0x00, "ImageWidth", NULL, NULL },
@@ -268,7 +269,7 @@ static const struct tagnuminfo tagnuminfo_arr[] = {
 	{ 41488, 0x10, "FocalPlaneResolutionUnit", NULL, valdec_resolutionunit },
 	{ 41492, 0x10, "SubjectLocation", NULL, NULL },
 	{ 41493, 0x10, "ExposureIndex", NULL, NULL },
-	{ 41495, 0x10, "SensingMethod", NULL, NULL },
+	{ 41495, 0x10, "SensingMethod", NULL, valdec_sensingmethod },
 	{ 41728, 0x10, "FileSource", NULL, valdec_filesource },
 	{ 41729, 0x10, "SceneType", NULL, valdec_scenetype },
 	{ 41730, 0x10, "CFAPattern", NULL, NULL },
@@ -278,7 +279,7 @@ static const struct tagnuminfo tagnuminfo_arr[] = {
 	{ 41988, 0x10, "DigitalZoomRatio", NULL, NULL },
 	{ 41989, 0x10, "FocalLengthIn35mmFilm", NULL, NULL },
 	{ 41990, 0x10, "SceneCaptureType", NULL, valdec_scenecapturetype },
-	{ 41991, 0x10, "GainControl", NULL, NULL },
+	{ 41991, 0x10, "GainControl", NULL, valdec_gaincontrol },
 	{ 41992, 0x10, "Contrast", NULL, valdec_contrast },
 	{ 41993, 0x10, "Saturation", NULL, valdec_saturation },
 	{ 41994, 0x10, "Sharpness", NULL, valdec_sharpness },
@@ -292,7 +293,42 @@ static const struct tagnuminfo tagnuminfo_arr[] = {
 	{ 42036, 0x10, "LensModel", NULL, NULL },
 	{ 42037, 0x10, "LensSerialNumber", NULL, NULL },
 	{ 42240, 0x10, "Gamma", NULL, NULL },
-	{ 0, 0, NULL, NULL, NULL }
+
+	{ 1, 0x20, "InteroperabilityIndex", NULL, NULL },
+	{ 2, 0x20, "InteroperabilityVersion", NULL, NULL },
+
+	{ 0, 0x40, "GPSVersionID", NULL, NULL },
+	{ 1, 0x40, "GPSLatitudeRef", NULL, NULL },
+	{ 2, 0x40, "GPSGpsLatitude", NULL, NULL },
+	{ 3, 0x40, "GPSLongitudeRef", NULL, NULL },
+	{ 4, 0x40, "GPSLongitude", NULL, NULL },
+	{ 5, 0x40, "GPSAltitudeRef", NULL, NULL },
+	{ 6, 0x40, "GPSAltitude", NULL, NULL },
+	{ 7, 0x40, "GPSTimeStamp", NULL, NULL },
+	{ 8, 0x40, "GPSSatellites", NULL, NULL },
+	{ 9, 0x40, "GPSStatus", NULL, NULL },
+	{ 10, 0x40, "GPSMeasureMode", NULL, NULL },
+	{ 11, 0x40, "GPSDOP", NULL, NULL },
+	{ 12, 0x40, "GPSSpeedRef", NULL, NULL },
+	{ 13, 0x40, "GPSSpeed", NULL, NULL },
+	{ 14, 0x40, "GPSTrackRef", NULL, NULL },
+	{ 15, 0x40, "GPSTrack", NULL, NULL },
+	{ 16, 0x40, "GPSImgDirectionRef", NULL, NULL },
+	{ 17, 0x40, "GPSImgDirection", NULL, NULL },
+	{ 18, 0x40, "GPSMapDatum", NULL, NULL },
+	{ 19, 0x40, "GPSLatitudeRef", NULL, NULL },
+	{ 20, 0x40, "GPSLatitude", NULL, NULL },
+	{ 21, 0x40, "GPSDestLongitudeRef", NULL, NULL },
+	{ 22, 0x40, "GPSDestLongitude", NULL, NULL },
+	{ 23, 0x40, "GPSDestBearingRef", NULL, NULL },
+	{ 24, 0x40, "GPSDestBearing", NULL, NULL },
+	{ 25, 0x40, "GPSDestDistanceRef", NULL, NULL },
+	{ 26, 0x40, "GPSDestDistance", NULL, NULL },
+	{ 27, 0x40, "GPSProcessingMethod", NULL, NULL },
+	{ 28, 0x40, "GPSAreaInformation", NULL, NULL },
+	{ 29, 0x40, "GPSDateStamp", NULL, NULL },
+	{ 30, 0x40, "GPSDifferential", NULL, NULL },
+	{ 31, 0x40, "GPSHPositioningError", NULL, NULL }
 };
 
 // Data associated with an actual tag in an IFD in the file
@@ -841,12 +877,8 @@ static int valdec_meteringmode(deark *c, const struct valdec_params *vp, struct 
 {
 	static const struct int_and_str name_map[] = {
 		{0, "unknown"}, {1, "Average"}, {2, "CenterWeightedAverage"},
-		{3, "Spot"}, {4, "MultiSpot"}, {9, "Fine weather"}, {10, "Cloudy weather"},
-		{11, "Shade"}, {12, "D 5700-7100K"}, {13, "N 4600-5500K"},
-		{14, "W 3800-4500K"}, {15, "WW 3250-3800K"}, {16, "L 2600-3260K"},
-		{17, "Standard light A"}, {18, "Standard light B"}, {19, "Standard light C"},
-		{20, "D55"}, {21, "D65"}, {22, "D75"}, {23, "D50"}, {24, "ISO studio tungsten"},
-		{25, "other"}
+		{3, "Spot"}, {4, "MultiSpot"}, {5, "Pattern"}, {6, "Partial"},
+		{255, "other"}
 	};
 	lookup_str_and_copy_to_buf(name_map, ITEMS_IN_ARRAY(name_map), vp->n, vr->buf, vr->buf_len);
 	return 1;
@@ -856,7 +888,11 @@ static int valdec_lightsource(deark *c, const struct valdec_params *vp, struct v
 {
 	static const struct int_and_str name_map[] = {
 		{0, "unknown"}, {1, "Daylight"}, {2, "Fluorescent"},
-		{3, "Tungsten"}, {4, "Flash"}, {5, "Pattern"}, {6, "Partial"},
+		{3, "Tungsten"}, {4, "Flash"}, {9, "Fine weather"}, {10, "Cloudy weather"},
+		{11, "Shade"}, {12, "D 5700-7100K"}, {13, "N 4600-5500K"},
+		{14, "W 3800-4500K"}, {15, "WW 3250-3800K"}, {16, "L 2600-3260K"},
+		{17, "Standard light A"}, {18, "Standard light B"}, {19, "Standard light C"},
+		{20, "D55"}, {21, "D65"}, {22, "D75"}, {23, "D50"}, {24, "ISO studio tungsten"},
 		{255, "other"}
 	};
 	lookup_str_and_copy_to_buf(name_map, ITEMS_IN_ARRAY(name_map), vp->n, vr->buf, vr->buf_len);
@@ -923,6 +959,17 @@ static int valdec_scenetype(deark *c, const struct valdec_params *vp, struct val
 	return 1;
 }
 
+static int valdec_sensingmethod(deark *c, const struct valdec_params *vp, struct valdec_result *vr)
+{
+	static const struct int_and_str name_map[] = {
+		{1, "not defined"}, {2, "1-chip color area"}, {3, "2-chip color area"},
+		{4, "3-chip color area"}, {5, "color sequential area"}, {7, "trilinear"},
+		{8, "color sequential linear"}
+	};
+	lookup_str_and_copy_to_buf(name_map, ITEMS_IN_ARRAY(name_map), vp->n, vr->buf, vr->buf_len);
+	return 1;
+}
+
 static int valdec_customrendered(deark *c, const struct valdec_params *vp, struct valdec_result *vr)
 {
 	static const struct int_and_str name_map[] = {
@@ -954,6 +1001,16 @@ static int valdec_scenecapturetype(deark *c, const struct valdec_params *vp, str
 {
 	static const struct int_and_str name_map[] = {
 		{0, "standard"}, {1, "landscape"}, {2, "portrait"}, {3, "night scene"}
+	};
+	lookup_str_and_copy_to_buf(name_map, ITEMS_IN_ARRAY(name_map), vp->n, vr->buf, vr->buf_len);
+	return 1;
+}
+
+static int valdec_gaincontrol(deark *c, const struct valdec_params *vp, struct valdec_result *vr)
+{
+	static const struct int_and_str name_map[] = {
+		{0, "none"}, {1, "low gain up"}, {2, "high gain up"},
+		{3, "low gain down"}, {4, "high gain down"}
 	};
 	lookup_str_and_copy_to_buf(name_map, ITEMS_IN_ARRAY(name_map), vp->n, vr->buf, vr->buf_len);
 	return 1;
@@ -1175,10 +1232,16 @@ static const struct tagnuminfo *find_tagnuminfo(int tagnum, int ifdtype)
 {
 	de_int64 i;
 
-	for(i=0; tagnuminfo_arr[i].tagnum!=0; i++) {
+	for(i=0; i<ITEMS_IN_ARRAY(tagnuminfo_arr); i++) {
 		if(tagnuminfo_arr[i].flags&0x20) {
 			// Skip Exif interoperability tags, unless this is an Interoperability IFD
 			if(ifdtype!=IFDTYPE_EXIFINTEROP) {
+				continue;
+			}
+		}
+		if(tagnuminfo_arr[i].flags&0x40) {
+			// Skip GPS tags, unless this is a GPS IFD
+			if(ifdtype!=IFDTYPE_GPS) {
 				continue;
 			}
 		}
