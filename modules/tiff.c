@@ -65,7 +65,7 @@ struct valdec_params {
 };
 struct valdec_result {
 	size_t buf_len;
-	char buf[80];
+	char buf[200];
 };
 
 typedef int (*val_decoder_fn_type)(deark *c, const struct valdec_params *vp, struct valdec_result *vr);
@@ -89,9 +89,22 @@ DECLARE_VALDEC(valdec_extrasamples);
 DECLARE_VALDEC(valdec_sampleformat);
 DECLARE_VALDEC(valdec_jpegproc);
 DECLARE_VALDEC(valdec_ycbcrpositioning);
+DECLARE_VALDEC(valdec_exposureprogram);
+DECLARE_VALDEC(valdec_componentsconfiguration);
 DECLARE_VALDEC(valdec_meteringmode);
 DECLARE_VALDEC(valdec_lightsource);
+DECLARE_VALDEC(valdec_flash);
 DECLARE_VALDEC(valdec_colorspace);
+DECLARE_VALDEC(valdec_filesource);
+DECLARE_VALDEC(valdec_scenetype);
+DECLARE_VALDEC(valdec_customrendered);
+DECLARE_VALDEC(valdec_exposuremode);
+DECLARE_VALDEC(valdec_whitebalance);
+DECLARE_VALDEC(valdec_scenecapturetype);
+DECLARE_VALDEC(valdec_contrast);
+DECLARE_VALDEC(valdec_saturation);
+DECLARE_VALDEC(valdec_sharpness);
+DECLARE_VALDEC(valdec_subjectdistancerange);
 
 struct tagnuminfo {
 	int tagnum;
@@ -205,7 +218,7 @@ static const struct tagnuminfo tagnuminfo_arr[] = {
 	{ 34665, 0x08, "Exif IFD", handler_subifd, NULL },
 #define TAG_ICCPROFILE        34675
 	{ TAG_ICCPROFILE, 0x08, "ICC Profile", NULL, NULL },
-	{ 34850, 0x10, "ExposureProgram", NULL, NULL },
+	{ 34850, 0x10, "ExposureProgram", NULL, valdec_exposureprogram },
 	{ 34852, 0x10, "SpectralSensitivity", NULL, NULL },
 	{ 34853, 0x08, "GPS IFD", handler_subifd, NULL },
 	{ 34855, 0x10, "ISOSpeedRatings", NULL, NULL },
@@ -222,7 +235,7 @@ static const struct tagnuminfo tagnuminfo_arr[] = {
 	{ 36864, 0x10, "ExifVersion", NULL, NULL },
 	{ 36867, 0x10, "DateTimeOriginal", NULL, NULL },
 	{ 36868, 0x10, "DateTimeDigitized", NULL, NULL },
-	{ 37121, 0x10, "ComponentsConfiguration", NULL, NULL },
+	{ 37121, 0x10, "ComponentsConfiguration", NULL, valdec_componentsconfiguration },
 	{ 37122, 0x10, "CompressedBitsPerPixel", NULL, NULL },
 	{ 37377, 0x10, "ShutterSpeedValue", NULL, NULL },
 	{ 37378, 0x10, "ApertureValue", NULL, NULL },
@@ -232,7 +245,7 @@ static const struct tagnuminfo tagnuminfo_arr[] = {
 	{ 37382, 0x10, "SubjectDistance", NULL, NULL },
 	{ 37383, 0x10, "MeteringMode", NULL, valdec_meteringmode },
 	{ 37384, 0x10, "LightSource", NULL, valdec_lightsource },
-	{ 37385, 0x10, "Flash", NULL, NULL },
+	{ 37385, 0x10, "Flash", NULL, valdec_flash },
 	{ 37386, 0x10, "FocalLength", NULL, NULL },
 	{ 37396, 0x10, "SubjectArea", NULL, NULL },
 	{ 37439, 0x00, "SToNits(SGI)", NULL, NULL },
@@ -256,21 +269,21 @@ static const struct tagnuminfo tagnuminfo_arr[] = {
 	{ 41492, 0x10, "SubjectLocation", NULL, NULL },
 	{ 41493, 0x10, "ExposureIndex", NULL, NULL },
 	{ 41495, 0x10, "SensingMethod", NULL, NULL },
-	{ 41728, 0x10, "FileSource", NULL, NULL },
-	{ 41729, 0x10, "SceneType", NULL, NULL },
+	{ 41728, 0x10, "FileSource", NULL, valdec_filesource },
+	{ 41729, 0x10, "SceneType", NULL, valdec_scenetype },
 	{ 41730, 0x10, "CFAPattern", NULL, NULL },
-	{ 41985, 0x10, "CustomRendered", NULL, NULL },
-	{ 41986, 0x10, "ExposureMode", NULL, NULL },
-	{ 41987, 0x10, "WhiteBalance", NULL, NULL },
+	{ 41985, 0x10, "CustomRendered", NULL, valdec_customrendered },
+	{ 41986, 0x10, "ExposureMode", NULL, valdec_exposuremode },
+	{ 41987, 0x10, "WhiteBalance", NULL, valdec_whitebalance },
 	{ 41988, 0x10, "DigitalZoomRatio", NULL, NULL },
 	{ 41989, 0x10, "FocalLengthIn35mmFilm", NULL, NULL },
-	{ 41990, 0x10, "SceneCaptureType", NULL, NULL },
+	{ 41990, 0x10, "SceneCaptureType", NULL, valdec_scenecapturetype },
 	{ 41991, 0x10, "GainControl", NULL, NULL },
-	{ 41992, 0x10, "Contrast", NULL, NULL },
-	{ 41993, 0x10, "Saturation", NULL, NULL },
-	{ 41994, 0x10, "Sharpness", NULL, NULL },
+	{ 41992, 0x10, "Contrast", NULL, valdec_contrast },
+	{ 41993, 0x10, "Saturation", NULL, valdec_saturation },
+	{ 41994, 0x10, "Sharpness", NULL, valdec_sharpness },
 	{ 41995, 0x10, "DeviceSettingDescription", NULL, NULL },
-	{ 41996, 0x10, "SubjectDistanceRange", NULL, NULL },
+	{ 41996, 0x10, "SubjectDistanceRange", NULL, valdec_subjectdistancerange },
 	{ 42016, 0x10, "ImageUniqueID", NULL, NULL },
 	{ 42032, 0x10, "CameraOwnerName", NULL, NULL },
 	{ 42033, 0x10, "BodySerialNumber", NULL, NULL },
@@ -804,6 +817,26 @@ static int valdec_ycbcrpositioning(deark *c, const struct valdec_params *vp, str
 	return 1;
 }
 
+static int valdec_exposureprogram(deark *c, const struct valdec_params *vp, struct valdec_result *vr)
+{
+	static const struct int_and_str name_map[] = {
+		{0, "not defined"}, {1, "manual"}, {2, "normal program"}, {3, "aperture priority"},
+		{4, "shutter priority"}, {5, "creative program"}, {6, "action program"},
+		{7, "portrait mode"}, {8, "landscape mode"}
+	};
+	lookup_str_and_copy_to_buf(name_map, ITEMS_IN_ARRAY(name_map), vp->n, vr->buf, vr->buf_len);
+	return 1;
+}
+
+static int valdec_componentsconfiguration(deark *c, const struct valdec_params *vp, struct valdec_result *vr)
+{
+	static const struct int_and_str name_map[] = {
+		{0, "does not exist"}, {1, "Y"}, {2, "Cb"}, {3, "Cr"}, {4, "R"}, {5, "G"}, {6, "B"}
+	};
+	lookup_str_and_copy_to_buf(name_map, ITEMS_IN_ARRAY(name_map), vp->n, vr->buf, vr->buf_len);
+	return 1;
+}
+
 static int valdec_meteringmode(deark *c, const struct valdec_params *vp, struct valdec_result *vr)
 {
 	static const struct int_and_str name_map[] = {
@@ -830,10 +863,133 @@ static int valdec_lightsource(deark *c, const struct valdec_params *vp, struct v
 	return 1;
 }
 
+static int valdec_flash(deark *c, const struct valdec_params *vp, struct valdec_result *vr)
+{
+	dbuf *s = NULL;
+	de_int64 v;
+
+	s = dbuf_create_membuf(c, (de_int64)vr->buf_len, 0);
+
+	append_list_item(s, (vp->n&0x01)?"flash fired":"flash did not fire");
+
+	v = (vp->n&0x06)>>1;
+	if(v==0) append_list_item(s, "no strobe return detection function");
+	else if(v==2) append_list_item(s, "strobe return light not detected");
+	else if(v==3) append_list_item(s, "strobe return light detected");
+
+	v = (vp->n&0x18)>>3;
+	if(v==1) append_list_item(s, "compulsory flash firing");
+	else if(v==2) append_list_item(s, "compulsory flash suppression");
+	else if(v==3) append_list_item(s, "auto mode");
+
+	append_list_item(s, (vp->n&0x20)?"no flash function":"flash function present");
+
+	if(vp->n&0x40) append_list_item(s, "red eye reduction supported");
+
+	if((vp->n & ~0x7f)!=0) {
+		append_list_item(s, "?");
+	}
+
+	dbuf_copy_all_to_sz(s, vr->buf, vr->buf_len);
+	dbuf_close(s);
+	return 1;
+}
+
 static int valdec_colorspace(deark *c, const struct valdec_params *vp, struct valdec_result *vr)
 {
 	static const struct int_and_str name_map[] = {
 		{1, "sRGB"}, {0xffff, "Uncalibrated"}
+	};
+	lookup_str_and_copy_to_buf(name_map, ITEMS_IN_ARRAY(name_map), vp->n, vr->buf, vr->buf_len);
+	return 1;
+}
+
+static int valdec_filesource(deark *c, const struct valdec_params *vp, struct valdec_result *vr)
+{
+	static const struct int_and_str name_map[] = {
+		{0, "others"}, {1, "scanner of transparent type"},
+		{2, "scanner of reflex type"}, {3, "DSC"}
+	};
+	lookup_str_and_copy_to_buf(name_map, ITEMS_IN_ARRAY(name_map), vp->n, vr->buf, vr->buf_len);
+	return 1;
+}
+
+static int valdec_scenetype(deark *c, const struct valdec_params *vp, struct valdec_result *vr)
+{
+	static const struct int_and_str name_map[] = {
+		{1, "directly photographed"}
+	};
+	lookup_str_and_copy_to_buf(name_map, ITEMS_IN_ARRAY(name_map), vp->n, vr->buf, vr->buf_len);
+	return 1;
+}
+
+static int valdec_customrendered(deark *c, const struct valdec_params *vp, struct valdec_result *vr)
+{
+	static const struct int_and_str name_map[] = {
+		{0, "normal"}, {1, "custom"}
+	};
+	lookup_str_and_copy_to_buf(name_map, ITEMS_IN_ARRAY(name_map), vp->n, vr->buf, vr->buf_len);
+	return 1;
+}
+
+static int valdec_exposuremode(deark *c, const struct valdec_params *vp, struct valdec_result *vr)
+{
+	static const struct int_and_str name_map[] = {
+		{0, "auto"}, {1, "manual"}, {2, "auto bracket"}
+	};
+	lookup_str_and_copy_to_buf(name_map, ITEMS_IN_ARRAY(name_map), vp->n, vr->buf, vr->buf_len);
+	return 1;
+}
+
+static int valdec_whitebalance(deark *c, const struct valdec_params *vp, struct valdec_result *vr)
+{
+	static const struct int_and_str name_map[] = {
+		{0, "auto"}, {1, "manual"}
+	};
+	lookup_str_and_copy_to_buf(name_map, ITEMS_IN_ARRAY(name_map), vp->n, vr->buf, vr->buf_len);
+	return 1;
+}
+
+static int valdec_scenecapturetype(deark *c, const struct valdec_params *vp, struct valdec_result *vr)
+{
+	static const struct int_and_str name_map[] = {
+		{0, "standard"}, {1, "landscape"}, {2, "portrait"}, {3, "night scene"}
+	};
+	lookup_str_and_copy_to_buf(name_map, ITEMS_IN_ARRAY(name_map), vp->n, vr->buf, vr->buf_len);
+	return 1;
+}
+
+static int valdec_contrast(deark *c, const struct valdec_params *vp, struct valdec_result *vr)
+{
+	static const struct int_and_str name_map[] = {
+		{0, "normal"}, {1, "soft"}, {2, "hard"}
+	};
+	lookup_str_and_copy_to_buf(name_map, ITEMS_IN_ARRAY(name_map), vp->n, vr->buf, vr->buf_len);
+	return 1;
+}
+
+static int valdec_saturation(deark *c, const struct valdec_params *vp, struct valdec_result *vr)
+{
+	static const struct int_and_str name_map[] = {
+		{0, "normal"}, {1, "low"}, {2, "high"}
+	};
+	lookup_str_and_copy_to_buf(name_map, ITEMS_IN_ARRAY(name_map), vp->n, vr->buf, vr->buf_len);
+	return 1;
+}
+
+static int valdec_sharpness(deark *c, const struct valdec_params *vp, struct valdec_result *vr)
+{
+	static const struct int_and_str name_map[] = {
+		{0, "normal"}, {1, "soft"}, {2, "hard"}
+	};
+	lookup_str_and_copy_to_buf(name_map, ITEMS_IN_ARRAY(name_map), vp->n, vr->buf, vr->buf_len);
+	return 1;
+}
+
+static int valdec_subjectdistancerange(deark *c, const struct valdec_params *vp, struct valdec_result *vr)
+{
+	static const struct int_and_str name_map[] = {
+		{0, "unknown"}, {1, "macro"}, {2, "close"}, {3, "distant"}
 	};
 	lookup_str_and_copy_to_buf(name_map, ITEMS_IN_ARRAY(name_map), vp->n, vr->buf, vr->buf_len);
 	return 1;
