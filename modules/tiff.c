@@ -56,6 +56,10 @@ typedef void (*handler_fn_type)(deark *c, lctx *d, const struct taginfo *tg,
 
 static void handler_colormap(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni);
 static void handler_subifd(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni);
+static void handler_xmp(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni);
+static void handler_iptc(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni);
+static void handler_photoshoprsrc(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni);
+static void handler_iccprofile(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni);
 
 struct valdec_params {
 	lctx *d;
@@ -201,27 +205,23 @@ static const struct tagnuminfo tagnuminfo_arr[] = {
 	{ 530, 0x00, "YCbCrSubSampling", NULL, NULL },
 	{ 531, 0x00, "YCbCrPositioning", NULL, valdec_ycbcrpositioning },
 	{ 532, 0x00, "ReferenceBlackWhite", NULL, NULL },
+	{ 700, 0x08, "XMP", handler_xmp, NULL },
 	{ 32932, 0x00, "Annotation Data", NULL, NULL },
 	{ 32995, 0x00, "Matteing(SGI)", NULL, NULL },
 	{ 32996, 0x00, "DataType(SGI)", NULL, NULL },
 	{ 32997, 0x00, "ImageDepth(SGI)", NULL, NULL },
 	{ 32998, 0x00, "TileDepth(SGI)", NULL, NULL },
-#define TAG_XMP               700
-	{ TAG_XMP, 0x08, "XMP", NULL, NULL },
 	{ 33432, 0x00, "Copyright", NULL, NULL },
 	{ 33434, 0x10, "ExposureTime", NULL, NULL },
 	{ 33437, 0x10, "FNumber", NULL, NULL },
-#define TAG_IPTC              33723
-	{ TAG_IPTC, 0x08, "IPTC", NULL, NULL },
-#define TAG_PHOTOSHOPRESOURCES 34377
-	{ TAG_PHOTOSHOPRESOURCES, 0x08, "PhotoshopImageResources", NULL, NULL },
+	{ 33723, 0x08, "IPTC", handler_iptc, NULL },
+	{ 34377, 0x08, "PhotoshopImageResources", handler_photoshoprsrc, NULL },
 	{ 34665, 0x08, "Exif IFD", handler_subifd, NULL },
-#define TAG_ICCPROFILE        34675
-	{ TAG_ICCPROFILE, 0x08, "ICC Profile", NULL, NULL },
+	{ 34675, 0x08, "ICC Profile", handler_iccprofile, NULL },
 	{ 34850, 0x10, "ExposureProgram", NULL, valdec_exposureprogram },
 	{ 34852, 0x10, "SpectralSensitivity", NULL, NULL },
 	{ 34853, 0x08, "GPS IFD", handler_subifd, NULL },
-	{ 34855, 0x10, "ISOSpeedRatings", NULL, NULL },
+	{ 34855, 0x10, "PhotographicSensitivity/ISOSpeedRatings", NULL, NULL },
 	{ 34856, 0x10, "OECF", NULL, NULL },
 	{ 34864, 0x10, "SensitivityType", NULL, NULL },
 	{ 34865, 0x10, "StandardOutputSensitivity", NULL, NULL },
@@ -1036,6 +1036,29 @@ static void handler_subifd(deark *c, lctx *d, const struct taginfo *tg, const st
 	}
 }
 
+static void handler_xmp(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni)
+{
+	dbuf_create_file_from_slice(c->infile, tg->val_offset, tg->total_size, "xmp", NULL, DE_CREATEFLAG_IS_AUX);
+}
+
+static void handler_iptc(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni)
+{
+	if(c->extract_level>=2 && tg->total_size>0) {
+		dbuf_create_file_from_slice(c->infile, tg->val_offset, tg->total_size, "iptc", NULL, DE_CREATEFLAG_IS_AUX);
+	}
+}
+
+static void handler_photoshoprsrc(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni)
+{
+	de_dbg(c, "photoshop segment at %d datasize=%d\n", (int)tg->val_offset, (int)tg->total_size);
+	de_fmtutil_handle_photoshop_rsrc(c, tg->val_offset, tg->total_size);
+}
+
+static void handler_iccprofile(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni)
+{
+	dbuf_create_file_from_slice(c->infile, tg->val_offset, tg->total_size, "icc", NULL, DE_CREATEFLAG_IS_AUX);
+}
+
 #define DE_TIFF_MAX_VALUES_TO_PRINT 100
 
 static void do_dbg_print_numeric_values(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni,
@@ -1256,8 +1279,8 @@ static void process_ifd(deark *c, lctx *d, de_int64 ifdpos, int ifdtype)
 		dbuf_copy_all_to_sz(dbglinedbuf, tmpbuf, sizeof(tmpbuf));
 		de_dbg(c, "%s\n", tmpbuf);
 		de_dbg_indent(c, 1);
-		switch(tg.tagnum) {
 
+		switch(tg.tagnum) {
 		case 46:
 			if(d->fmt==DE_TIFFFMT_PANASONIC) {
 				// Some Panasonic RAW files have a JPEG file in tag 46.
@@ -1275,27 +1298,8 @@ static void process_ifd(deark *c, lctx *d, de_int64 ifdpos, int ifdtype)
 			read_tag_value_as_int64(c, d, &tg, 0, &jpeglength);
 			break;
 
-		case TAG_XMP:
-			dbuf_create_file_from_slice(c->infile, tg.val_offset, tg.total_size, "xmp", NULL, DE_CREATEFLAG_IS_AUX);
-			break;
-
-		case TAG_IPTC:
-			if(c->extract_level>=2 && tg.total_size>0) {
-				dbuf_create_file_from_slice(c->infile, tg.val_offset, tg.total_size, "iptc", NULL, DE_CREATEFLAG_IS_AUX);
-			}
-			break;
-
 		case 34310: // Leaf MOS metadata / "PKTS"
 			do_leaf_metadata(c, d, tg.val_offset, tg.total_size);
-			break;
-
-		case TAG_PHOTOSHOPRESOURCES:
-			de_dbg(c, "photoshop segment at %d datasize=%d\n", (int)tg.val_offset, (int)tg.total_size);
-			de_fmtutil_handle_photoshop_rsrc(c, tg.val_offset, tg.total_size);
-			break;
-
-		case TAG_ICCPROFILE: // ICC Profile
-			dbuf_create_file_from_slice(c->infile, tg.val_offset, tg.total_size, "icc", NULL, DE_CREATEFLAG_IS_AUX);
 			break;
 
 		default:
