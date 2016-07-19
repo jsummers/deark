@@ -21,8 +21,8 @@ DE_DECLARE_MODULE(de_module_tiff);
 #define DATATYPE_SINT16    8
 #define DATATYPE_SINT32    9
 #define DATATYPE_SRATIONAL 10
-#define DATATYPE_FLOAT     11
-#define DATATYPE_DOUBLE    12
+#define DATATYPE_FLOAT32   11
+#define DATATYPE_FLOAT64   12
 #define DATATYPE_IFD32     13
 #define DATATYPE_UINT64    16
 #define DATATYPE_SINT64    17
@@ -460,6 +460,8 @@ struct localctx_struct {
 	int is_le;
 	int is_bigtiff;
 	int fmt;
+	int host_is_le;
+	int can_decode_fltpt;
 
 	struct ifdstack_item *ifdstack;
 	int ifdstack_capacity;
@@ -536,16 +538,58 @@ static int size_of_data_type(int tt)
 	case DATATYPE_UINT16: case DATATYPE_SINT16:
 		return 2;
 	case DATATYPE_UINT32: case DATATYPE_SINT32:
-	case DATATYPE_FLOAT:
+	case DATATYPE_FLOAT32:
 	case DATATYPE_IFD32:
 		return 4;
 	case DATATYPE_RATIONAL: case DATATYPE_SRATIONAL:
-	case DATATYPE_DOUBLE:
+	case DATATYPE_FLOAT64:
 	case DATATYPE_UINT64: case DATATYPE_SINT64:
 	case DATATYPE_IFD64:
 		return 8;
 	}
 	return 0;
+}
+
+static double getfloat32x(deark *c, lctx *d, dbuf *f, de_int64 pos)
+{
+	char buf[4];
+	float val = 0.0;
+
+	if(!d->can_decode_fltpt) return 0.0;
+	dbuf_read(f, (de_byte*)buf, pos, 4);
+
+	if(d->is_le != d->host_is_le) {
+		int i;
+		char tmpc;
+		// Reverse order of bytes
+		for(i=0; i<2; i++) {
+			tmpc = buf[i]; buf[i] = buf[3-i]; buf[3-i] = tmpc;
+		}
+	}
+
+	de_memcpy(&val, buf, 4);
+	return (double)val;
+}
+
+static double getfloat64x(deark *c, lctx *d, dbuf *f, de_int64 pos)
+{
+	char buf[8];
+	double val = 0.0;
+
+	if(!d->can_decode_fltpt) return 0.0;
+	dbuf_read(f, (de_byte*)buf, pos, 8);
+
+	if(d->is_le != d->host_is_le) {
+		int i;
+		char tmpc;
+		// Reverse order of bytes
+		for(i=0; i<4; i++) {
+			tmpc = buf[i]; buf[i] = buf[7-i]; buf[7-i] = tmpc;
+		}
+	}
+
+	de_memcpy(&val, buf, 8);
+	return val;
 }
 
 static int read_rational_as_double(deark *c, lctx *d, de_int64 pos, double *n)
@@ -586,10 +630,14 @@ static int read_tag_value_as_double(deark *c, lctx *d, const struct taginfo *tg,
 		return read_rational_as_double(c, d, offs, n);
 	case DATATYPE_SRATIONAL:
 		return read_srational_as_double(c, d, offs, n);
-	case DATATYPE_FLOAT:
-	case DATATYPE_DOUBLE:
-		// TODO
-		return 0;
+	case DATATYPE_FLOAT32:
+		if(!d->can_decode_fltpt) return 0;
+		*n = getfloat32x(c, d, c->infile, offs);
+		return 1;
+	case DATATYPE_FLOAT64:
+		if(!d->can_decode_fltpt) return 0;
+		*n = getfloat64x(c, d, c->infile, offs);
+		return 1;
 
 		// There should be no need to support other data types (like UINT32).
 	}
@@ -641,8 +689,8 @@ static int read_tag_value_as_int64(deark *c, lctx *d, const struct taginfo *tg,
 		return 1;
 	case DATATYPE_RATIONAL:
 	case DATATYPE_SRATIONAL:
-	case DATATYPE_FLOAT:
-	case DATATYPE_DOUBLE:
+	case DATATYPE_FLOAT32:
+	case DATATYPE_FLOAT64:
 		if(read_tag_value_as_double(c, d, tg, value_index, &v_dbl)) {
 			*n = (de_int64)v_dbl;
 			return 1;
@@ -1294,6 +1342,7 @@ static void do_dbg_print_numeric_values(deark *c, lctx *d, const struct taginfo 
 			}
 			break;
 		case DATATYPE_RATIONAL: case DATATYPE_SRATIONAL:
+		case DATATYPE_FLOAT32: case DATATYPE_FLOAT64:
 			if(read_tag_value_as_double(c, d, tg, i, &v_double)) {
 				dbuf_printf(dbglinedbuf, "%.4f", v_double);
 				val_printed = 1;
@@ -1597,6 +1646,18 @@ static int de_identify_tiff_internal(deark *c, int *is_le)
 	return fmt;
 }
 
+static void init_fltpt_decoder(deark *c, lctx *d)
+{
+	unsigned int x = 1;
+	char b = 0;
+
+	if(sizeof(float)!=4 || sizeof(double)!=8) return;
+	d->can_decode_fltpt = 1;
+
+	memcpy(&b, &x, 1);
+	if(b!=0) d->host_is_le = 1;
+}
+
 static void de_run_tiff(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
@@ -1646,6 +1707,8 @@ static void de_run_tiff(deark *c, de_module_params *mparams)
 		d->offsetoffset = 8;
 		d->offsetsize = 4;
 	}
+
+	init_fltpt_decoder(c, d);
 
 	do_tiff(c, d);
 
