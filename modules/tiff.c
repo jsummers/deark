@@ -34,6 +34,7 @@ DE_DECLARE_MODULE(de_module_tiff);
 #define DE_TIFFFMT_ORF        4 // Olympus RAW
 #define DE_TIFFFMT_DCP        5 // DNG Camera Profile (DCP)
 #define DE_TIFFFMT_MDI        6 // Microsoft Office Document Imaging
+#define DE_TIFFFMT_JPEGXR     7 // JPEG XR
 
 #define IFDTYPE_NORMAL       0
 #define IFDTYPE_SUBIFD       1
@@ -124,6 +125,7 @@ struct tagnuminfo {
 	// 0x40=a GPS attribute tag
 	// 0x80=a DNG tag
 	// 0x0100=TIFF/EP
+	// 0x0400=tags valid in JPEG XR files (from the spec, and jxrlib)
 	unsigned int flags;
 
 	const char *tagname;
@@ -142,10 +144,10 @@ static const struct tagnuminfo tagnuminfo_arr[] = {
 	{ 264, 0x00, "CellWidth", NULL, NULL },
 	{ 265, 0x00, "CellLength", NULL, NULL },
 	{ 266, 0x00, "FillOrder", NULL, valdec_fillorder },
-	{ 269, 0x00, "DocumentName", NULL, NULL },
-	{ 270, 0x00, "ImageDescription", NULL, NULL },
-	{ 271, 0x00, "Make", NULL, NULL },
-	{ 272, 0x00, "Model", NULL, NULL },
+	{ 269, 0x0400, "DocumentName", NULL, NULL },
+	{ 270, 0x0400, "ImageDescription", NULL, NULL },
+	{ 271, 0x0400, "Make", NULL, NULL },
+	{ 272, 0x0400, "Model", NULL, NULL },
 	{ 273, 0x00, "StripOffsets", NULL, NULL },
 	{ 274, 0x00, "Orientation", NULL, valdec_orientation },
 	{ 277, 0x00, "SamplesPerPixel", NULL, NULL },
@@ -156,7 +158,7 @@ static const struct tagnuminfo tagnuminfo_arr[] = {
 	{ 282, 0x00, "XResolution", NULL, NULL },
 	{ 283, 0x00, "YResolution", NULL, NULL },
 	{ 284, 0x00, "PlanarConfiguration", NULL, valdec_planarconfiguration },
-	{ 285, 0x00, "PageName", NULL, NULL },
+	{ 285, 0x0400, "PageName", NULL, NULL },
 	{ 286, 0x00, "XPosition", NULL, NULL },
 	{ 287, 0x00, "YPosition", NULL, NULL },
 	{ 288, 0x00, "FreeOffsets", NULL, NULL },
@@ -166,12 +168,12 @@ static const struct tagnuminfo tagnuminfo_arr[] = {
 	{ 292, 0x00, "T4Options", NULL, valdec_t4options },
 	{ 293, 0x00, "T6Options", NULL, valdec_t6options },
 	{ 296, 0x00, "ResolutionUnit", NULL, valdec_resolutionunit },
-	{ 297, 0x00, "PageNumber", NULL, valdec_pagenumber },
+	{ 297, 0x0400, "PageNumber", NULL, valdec_pagenumber },
 	{ 301, 0x00, "TransferFunction", NULL, NULL },
-	{ 305, 0x00, "Software", NULL, NULL },
-	{ 306, 0x00, "DateTime", NULL, NULL },
-	{ 315, 0x00, "Artist", NULL, NULL },
-	{ 316, 0x00, "HostComputer", NULL, NULL },
+	{ 305, 0x0400, "Software", NULL, NULL },
+	{ 306, 0x0400, "DateTime", NULL, NULL },
+	{ 315, 0x0400, "Artist", NULL, NULL },
+	{ 316, 0x0400, "HostComputer", NULL, NULL },
 	{ 317, 0x00, "Predictor", NULL, valdec_predictor },
 	{ 318, 0x00, "WhitePoint", NULL, NULL },
 	{ 319, 0x00, "PrimaryChromaticities", NULL, NULL },
@@ -211,7 +213,9 @@ static const struct tagnuminfo tagnuminfo_arr[] = {
 	{ 530, 0x00, "YCbCrSubSampling", NULL, NULL },
 	{ 531, 0x00, "YCbCrPositioning", NULL, valdec_ycbcrpositioning },
 	{ 532, 0x00, "ReferenceBlackWhite", NULL, NULL },
-	{ 700, 0x08, "XMP", handler_xmp, NULL },
+	{ 700, 0x0408, "XMP", handler_xmp, NULL },
+	{ 18246, 0x0400, "RatingStars", NULL, NULL },
+	{ 18249, 0x0400, "RatingValue", NULL, NULL },
 	{ 32932, 0x00, "Annotation Data", NULL, NULL },
 	{ 32995, 0x00, "Matteing(SGI)", NULL, NULL },
 	{ 32996, 0x00, "DataType(SGI)", NULL, NULL },
@@ -220,16 +224,16 @@ static const struct tagnuminfo tagnuminfo_arr[] = {
 	{ 33421, 0x0100, "CFARepeatPatternDim", NULL, NULL },
 	{ 33422, 0x0100, "CFAPattern", NULL, NULL },
 	{ 33423, 0x0100, "BatteryLevel", NULL, NULL },
-	{ 33432, 0x00, "Copyright", NULL, NULL },
+	{ 33432, 0x0400, "Copyright", NULL, NULL },
 	{ 33434, 0x10, "ExposureTime", NULL, NULL },
 	{ 33437, 0x10, "FNumber", NULL, NULL },
-	{ 33723, 0x08, "IPTC", handler_iptc, NULL },
-	{ 34377, 0x08, "PhotoshopImageResources", handler_photoshoprsrc, NULL },
-	{ 34665, 0x08, "Exif IFD", handler_subifd, NULL },
-	{ 34675, 0x08, "ICC Profile", handler_iccprofile, NULL },
+	{ 33723, 0x0408, "IPTC", handler_iptc, NULL },
+	{ 34377, 0x0408, "PhotoshopImageResources", handler_photoshoprsrc, NULL },
+	{ 34665, 0x0408, "Exif IFD", handler_subifd, NULL },
+	{ 34675, 0x0408, "ICC Profile", handler_iccprofile, NULL },
 	{ 34850, 0x10, "ExposureProgram", NULL, valdec_exposureprogram },
 	{ 34852, 0x10, "SpectralSensitivity", NULL, NULL },
-	{ 34853, 0x08, "GPS IFD", handler_subifd, NULL },
+	{ 34853, 0x0408, "GPS IFD", handler_subifd, NULL },
 	{ 34855, 0x10, "PhotographicSensitivity/ISOSpeedRatings", NULL, NULL },
 	{ 34856, 0x10, "OECF", NULL, NULL },
 	{ 34857, 0x0100, "Interlace", NULL, NULL },
@@ -279,12 +283,13 @@ static const struct tagnuminfo tagnuminfo_arr[] = {
 	{ 37521, 0x10, "SubSecTimeOriginal", NULL, NULL },
 	{ 37522, 0x10, "SubsecTimeDigitized", NULL, NULL },
 	{ 37724, 0x00, "Photoshop ImageSourceData", NULL, NULL },
+	{ 40091, 0x0400, "Caption", NULL, NULL },
 	{ 40960, 0x10, "FlashPixVersion", NULL, NULL },
-	{ 40961, 0x10, "ColorSpace", NULL, valdec_exifcolorspace },
+	{ 40961, 0x0410, "ColorSpace", NULL, valdec_exifcolorspace },
 	{ 40962, 0x10, "PixelXDimension", NULL, NULL },
 	{ 40963, 0x10, "PixelYDimension", NULL, NULL },
 	{ 40964, 0x10, "RelatedSoundFile", NULL, NULL },
-	{ 40965, 0x18, "Interoperability IFD", handler_subifd, NULL },
+	{ 40965, 0x0418, "Interoperability IFD", handler_subifd, NULL },
 	{ 41483, 0x10, "FlashEnergy", NULL, NULL },
 	{ 41484, 0x10, "SpatialFrequencyResponse", NULL, NULL },
 	{ 41486, 0x10, "FocalPlaneXResolution", NULL, NULL },
@@ -316,7 +321,21 @@ static const struct tagnuminfo tagnuminfo_arr[] = {
 	{ 42036, 0x10, "LensModel", NULL, NULL },
 	{ 42037, 0x10, "LensSerialNumber", NULL, NULL },
 	{ 42240, 0x10, "Gamma", NULL, NULL },
-
+	{ 48129, 0x0401, "PIXEL_FORMAT", NULL, NULL },
+	{ 48130, 0x0401, "SPATIAL_XFRM_PRIMARY", NULL, NULL },
+	{ 48132, 0x0401, "IMAGE_TYPE", NULL, NULL },
+	{ 48133, 0x0401, "PTM_COLOR_INFO", NULL, NULL },
+	{ 48134, 0x0401, "PROFILE_LEVEL_CONTAINER", NULL, NULL },
+	{ 48256, 0x0401, "IMAGE_WIDTH", NULL, NULL },
+	{ 48257, 0x0401, "IMAGE_HEIGHT", NULL, NULL },
+	{ 48258, 0x0401, "WIDTH_RESOLUTION", NULL, NULL },
+	{ 48259, 0x0401, "HEIGHT_RESOLUTION", NULL, NULL },
+	{ 48320, 0x0401, "IMAGE_OFFSET", NULL, NULL },
+	{ 48321, 0x0401, "IMAGE_BYTE_COUNT", NULL, NULL },
+	{ 48322, 0x0401, "ALPHA_OFFSET", NULL, NULL },
+	{ 48323, 0x0401, "ALPHA_BYTE_COUNT", NULL, NULL },
+	{ 48324, 0x0401, "IMAGE_BAND_PRESENCE", NULL, NULL },
+	{ 48325, 0x0401, "ALPHA_BAND_PRESENCE", NULL, NULL },
 	{ 50706, 0x80, "DNGVersion", NULL, NULL},
 	{ 50707, 0x80, "DNGBackwardVersion", NULL, NULL},
 	{ 50708, 0x80, "UniqueCameraModel", NULL, NULL},
@@ -408,6 +427,7 @@ static const struct tagnuminfo tagnuminfo_arr[] = {
 	{ 51113, 0x80, "CacheBlob", NULL, NULL},
 	{ 51114, 0x80, "CacheVersion", NULL, NULL},
 	{ 51125, 0x80, "DefaultUserCrop", NULL, NULL},
+	{ 59932, 0x0400, "PADDING_DATA", NULL, NULL },
 
 	{ 1, 0x0021, "InteroperabilityIndex", NULL, NULL },
 	{ 2, 0x0021, "InteroperabilityVersion", NULL, NULL },
@@ -467,6 +487,7 @@ struct localctx_struct {
 	struct ifdstack_item *ifdstack;
 	int ifdstack_capacity;
 	int ifdstack_numused;
+	int current_textfield_encoding;
 
 	de_int64 *ifdlist;
 	de_int64 ifd_count;
@@ -1520,7 +1541,7 @@ static void do_dbg_print_text_values(deark *c, lctx *d, const struct taginfo *tg
 			break;
 		}
 
-		ucstring_append_bytes(str, &inputbuf[bytes_consumed], len, 0, DE_ENCODING_ASCII);
+		ucstring_append_bytes(str, &inputbuf[bytes_consumed], len, 0, d->current_textfield_encoding);
 
 		bytes_consumed += len+1;
 
@@ -1554,7 +1575,7 @@ static void do_dbg_print_values(deark *c, lctx *d, const struct taginfo *tg, con
 	}
 }
 
-static const struct tagnuminfo *find_tagnuminfo(int tagnum, int ifdtype)
+static const struct tagnuminfo *find_tagnuminfo(int tagnum, int filefmt, int ifdtype)
 {
 	de_int64 i;
 
@@ -1575,10 +1596,18 @@ static const struct tagnuminfo *find_tagnuminfo(int tagnum, int ifdtype)
 				continue;
 			}
 		}
-		else {
-			// Not a special IFD type or file type.
-			// Allow all non-special tags.
-			if(tagnuminfo_arr[i].flags&0x01) {
+		else if(tagnuminfo_arr[i].flags&0x01) {
+			// A special tag not allowed above
+			if(filefmt==DE_TIFFFMT_JPEGXR && tagnuminfo_arr[i].flags&0x0400) {
+				// Allow all JPEG XR tags in normal JPEG XR IFDs.
+				// Maybe we should disallow TIFF tags that are not known to be
+				// allowed in JPEG XR files, but I suspect a lot of random TIFF
+				// tags are occasionally used in JPEG XR, and I'm not aware of
+				// any conflicts.
+				;
+			}
+			else {
+				// Ignore this tag -- it's in the wrong "namespace".
 				continue;
 			}
 		}
@@ -1601,12 +1630,29 @@ static void process_ifd(deark *c, lctx *d, de_int64 ifdpos, int ifdtype)
 	char tmpbuf[1024];
 	static const struct tagnuminfo default_tni = { 0, 0x00, "?", NULL, NULL };
 
+	if(ifdtype==DE_TIFFFMT_JPEGXR)
+		d->current_textfield_encoding = DE_ENCODING_UTF8; // Might be overridden below
+	else
+		d->current_textfield_encoding = DE_ENCODING_ASCII;
+
 	switch(ifdtype) {
-	case IFDTYPE_SUBIFD: name=" (SubIFD)"; break;
-	case IFDTYPE_EXIF: name=" (Exif IFD)"; break;
-	case IFDTYPE_EXIFINTEROP: name=" (Exif Interoperability IFD)"; break;
-	case IFDTYPE_GPS: name=" (GPS IFD)"; break;
-	default: name="";
+	case IFDTYPE_SUBIFD:
+		name=" (SubIFD)";
+		break;
+	case IFDTYPE_EXIF:
+		name=" (Exif IFD)";
+		d->current_textfield_encoding = DE_ENCODING_ASCII;
+		break;
+	case IFDTYPE_EXIFINTEROP:
+		name=" (Exif Interoperability IFD)";
+		d->current_textfield_encoding = DE_ENCODING_ASCII;
+		break;
+	case IFDTYPE_GPS:
+		name=" (GPS IFD)";
+		d->current_textfield_encoding = DE_ENCODING_ASCII;
+		break;
+	default:
+		name="";
 	}
 
 	de_dbg(c, "IFD at %d%s\n", (int)ifdpos, name);
@@ -1658,7 +1704,7 @@ static void process_ifd(deark *c, lctx *d, de_int64 ifdpos, int ifdtype)
 			tg.val_offset = getfpos(c, d, ifdpos+d->ifdhdrsize+i*d->ifditemsize+d->offsetoffset);
 		}
 
-		tni = find_tagnuminfo(tg.tagnum, ifdtype);
+		tni = find_tagnuminfo(tg.tagnum, d->fmt, ifdtype);
 		if(tni) {
 			tg.tag_known = 1;
 		}
@@ -1783,7 +1829,10 @@ static int de_identify_tiff_internal(deark *c, int *is_le)
 			fmt = DE_TIFFFMT_PANASONIC;
 			break;
 
-		//case 0x01bc: // JPEG-XR
+		case 0x01bc: // JPEG-XR
+			fmt = DE_TIFFFMT_JPEGXR;
+			break;
+
 		//case 0x314e: // NIFF
 
 		case 0x4352:
@@ -1842,6 +1891,9 @@ static void de_run_tiff(deark *c, de_module_params *mparams)
 	case DE_TIFFFMT_MDI:
 		de_declare_fmt(c, "MDI");
 		break;
+	case DE_TIFFFMT_JPEGXR:
+		de_declare_fmt(c, "JPEG XR");
+		break;
 	}
 
 	if(d->fmt==0) {
@@ -1861,6 +1913,7 @@ static void de_run_tiff(deark *c, de_module_params *mparams)
 		d->offsetsize = 4;
 	}
 
+	d->current_textfield_encoding = DE_ENCODING_ASCII;
 	init_fltpt_decoder(c, d);
 
 	do_tiff(c, d);

@@ -189,6 +189,9 @@ Deark -- Information about supported formats
   - Extract Exif data (use -extractall) (nonstandard; partial support)
   - Extract various things from "Photoshop resources".
 
+* JPEG XR (HD Photo)
+  - Minimal support; uses the "tiff" module.
+
 * LSS16 (SYSLINUX image) (module="lss16")
 
 * MacPaint (module="macpaint")
