@@ -610,12 +610,14 @@ static int read_srational_as_double(deark *c, lctx *d, de_int64 pos, double *n)
 
 	*n = 0.0;
 	num = dbuf_geti32x(c->infile, pos, d->is_le);
-	den = dbuf_getui32x(c->infile, pos+4, d->is_le);
+	den = dbuf_geti32x(c->infile, pos+4, d->is_le);
 	if(den==0) return 0;
 	*n = (double)num/(double)den;
 	return 1;
 }
 
+// FIXME: This function seems superfluous.
+// It should somehow be consolidated with read_numeric_value().
 static int read_tag_value_as_double(deark *c, lctx *d, const struct taginfo *tg,
 	de_int64 value_index, double *n)
 {
@@ -698,6 +700,113 @@ static int read_tag_value_as_int64(deark *c, lctx *d, const struct taginfo *tg,
 		return 0;
 	}
 	return 0;
+}
+
+static void format_double(dbuf *f, double val)
+{
+	// TODO: Formatting should be more intelligent
+	dbuf_printf(f, "%.4f", val);
+}
+
+struct numeric_value {
+	int isvalid;
+	de_int64 val_int64;
+	double val_double;
+};
+
+// Do-it-all function for reading numeric values.
+// If dbglinebuf!=NULL, print a string representation of the value to it.
+static void read_numeric_value(deark *c, lctx *d, const struct taginfo *tg,
+	de_int64 value_index, struct numeric_value *nv, dbuf *dbglinedbuf)
+{
+	int ret;
+	de_int64 offs;
+
+	nv->isvalid = 0;
+	nv->val_int64 = 0;
+	nv->val_double = 0.0;
+
+	// FIXME: This is recalculated in read_tag_value_as_int64.
+	offs = tg->val_offset + value_index*tg->unit_size;
+
+	switch(tg->datatype) {
+	case DATATYPE_BYTE:
+	case DATATYPE_SBYTE:
+	case DATATYPE_UNDEF:
+	case DATATYPE_ASCII:
+	case DATATYPE_UINT16:
+	case DATATYPE_SINT16:
+	case DATATYPE_UINT32:
+	case DATATYPE_SINT32:
+	case DATATYPE_IFD32:
+	case DATATYPE_UINT64:
+	case DATATYPE_SINT64:
+	case DATATYPE_IFD64:
+		ret = read_tag_value_as_int64(c, d, tg, value_index, &nv->val_int64);
+		nv->val_double = (double)nv->val_int64;
+		nv->isvalid = ret;
+		if(dbglinedbuf) {
+			if(nv->isvalid)
+				dbuf_printf(dbglinedbuf, "%" INT64_FMT, nv->val_int64);
+			else
+				dbuf_puts(dbglinedbuf, "?");
+		}
+		break;
+
+	case DATATYPE_RATIONAL:
+	case DATATYPE_SRATIONAL:
+		{
+			de_int64 num, den;
+
+			if(tg->datatype==DATATYPE_SRATIONAL) {
+				num = dbuf_geti32x(c->infile, offs, d->is_le);
+				den = dbuf_geti32x(c->infile, offs+4, d->is_le);
+			}
+			else {
+				num = dbuf_getui32x(c->infile, offs, d->is_le);
+				den = dbuf_getui32x(c->infile, offs+4, d->is_le);
+			}
+
+			if(den==0) {
+				nv->isvalid = 0;
+				nv->val_double = 0.0;
+				nv->val_int64 = 0;
+				if(dbglinedbuf) {
+					dbuf_printf(dbglinedbuf, "%" INT64_FMT "/%" INT64_FMT, num, den);
+				}
+
+			}
+			else {
+				nv->isvalid = 1;
+				nv->val_double = (double)num/(double)den;
+				nv->val_int64 = (de_int64)nv->val_double;
+				if(dbglinedbuf) {
+					format_double(dbglinedbuf, nv->val_double);
+				}
+			}
+		}
+		break;
+
+	case DATATYPE_FLOAT32:
+	case DATATYPE_FLOAT64:
+		if(tg->datatype==DATATYPE_FLOAT64) {
+			nv->val_double = getfloat64x(c, d, c->infile, offs);
+		}
+		else {
+			nv->val_double = getfloat32x(c, d, c->infile, offs);
+		}
+		nv->val_int64 = (de_int64)nv->val_double;
+		nv->isvalid = 1;
+		if(dbglinedbuf) {
+			format_double(dbglinedbuf, nv->val_double);
+		}
+		break;
+
+	default:
+		if(dbglinedbuf) {
+			dbuf_puts(dbglinedbuf, "?");
+		}
+	}
 }
 
 static de_int64 getfpos(deark *c, lctx *d, de_int64 pos)
@@ -1305,6 +1414,20 @@ static void do_dbg_print_numeric_values(deark *c, lctx *d, const struct taginfo 
 	de_int64 i;
 	struct valdec_params vp;
 	struct valdec_result vr;
+	struct numeric_value nv;
+
+	switch(tg->datatype) {
+	case DATATYPE_BYTE: case DATATYPE_SBYTE:
+	case DATATYPE_UNDEF: case DATATYPE_ASCII:
+	case DATATYPE_UINT16: case DATATYPE_SINT16:
+	case DATATYPE_UINT32: case DATATYPE_SINT32: case DATATYPE_IFD32:
+	case DATATYPE_UINT64: case DATATYPE_SINT64: case DATATYPE_IFD64:
+	case DATATYPE_RATIONAL: case DATATYPE_SRATIONAL:
+	case DATATYPE_FLOAT32: case DATATYPE_FLOAT64:
+		break;
+	default:
+		return; // Not a supported numeric datatype
+	}
 
 	dbuf_puts(dbglinedbuf, " {");
 
@@ -1314,44 +1437,18 @@ static void do_dbg_print_numeric_values(deark *c, lctx *d, const struct taginfo 
 	vr.buf_len = sizeof(vr.buf);
 
 	for(i=0; i<tg->valcount && i<DE_TIFF_MAX_VALUES_TO_PRINT; i++) {
-		de_int64 v_int64;
-		double v_double;
-		int val_printed = 0;
+		read_numeric_value(c, d, tg, i, &nv, dbglinedbuf);
 
-		switch(tg->datatype) {
-		case DATATYPE_BYTE: case DATATYPE_SBYTE:
-		case DATATYPE_UNDEF: case DATATYPE_ASCII:
-		case DATATYPE_UINT16: case DATATYPE_SINT16:
-		case DATATYPE_UINT32: case DATATYPE_SINT32: case DATATYPE_IFD32:
-		case DATATYPE_UINT64: case DATATYPE_SINT64: case DATATYPE_IFD64:
-			if(read_tag_value_as_int64(c, d, tg, i, &v_int64)) {
-				dbuf_printf(dbglinedbuf, "%" INT64_FMT, v_int64);
+		// If possible, decode the value and print its name.
+		if(nv.isvalid && tni->vdfn) {
+			// Set the remaining fields of vp/vr.
+			vp.idx = i;
+			vp.n = nv.val_int64;
+			vr.buf[0] = '\0';
 
-				if(tni->vdfn) {
-					// Set the remaining fields of vp/vr.
-					vp.idx = i;
-					vp.n = v_int64;
-					vr.buf[0] = '\0';
-
-					if(tni->vdfn(c, &vp, &vr)) {
-						dbuf_printf(dbglinedbuf, "(=%s)", vr.buf);
-					}
-				}
-
-				val_printed = 1;
+			if(tni->vdfn(c, &vp, &vr)) {
+				dbuf_printf(dbglinedbuf, "(=%s)", vr.buf);
 			}
-			break;
-		case DATATYPE_RATIONAL: case DATATYPE_SRATIONAL:
-		case DATATYPE_FLOAT32: case DATATYPE_FLOAT64:
-			if(read_tag_value_as_double(c, d, tg, i, &v_double)) {
-				dbuf_printf(dbglinedbuf, "%.4f", v_double);
-				val_printed = 1;
-			}
-			break;
-		}
-
-		if(!val_printed) {
-			dbuf_puts(dbglinedbuf, "?");
 		}
 
 		if(i<tg->valcount-1) {
