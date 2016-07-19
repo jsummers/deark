@@ -122,6 +122,7 @@ struct tagnuminfo {
 	// 0x20=an Exif Interoperability-IFD tag
 	// 0x40=a GPS attribute tag
 	// 0x80=a DNG tag
+	// 0x0100=TIFF/EP
 	unsigned int flags;
 
 	const char *tagname;
@@ -215,6 +216,9 @@ static const struct tagnuminfo tagnuminfo_arr[] = {
 	{ 32996, 0x00, "DataType(SGI)", NULL, NULL },
 	{ 32997, 0x00, "ImageDepth(SGI)", NULL, NULL },
 	{ 32998, 0x00, "TileDepth(SGI)", NULL, NULL },
+	{ 33421, 0x0100, "CFARepeatPatternDim", NULL, NULL },
+	{ 33422, 0x0100, "CFAPattern", NULL, NULL },
+	{ 33423, 0x0100, "BatteryLevel", NULL, NULL },
 	{ 33432, 0x00, "Copyright", NULL, NULL },
 	{ 33434, 0x10, "ExposureTime", NULL, NULL },
 	{ 33437, 0x10, "FNumber", NULL, NULL },
@@ -227,6 +231,9 @@ static const struct tagnuminfo tagnuminfo_arr[] = {
 	{ 34853, 0x08, "GPS IFD", handler_subifd, NULL },
 	{ 34855, 0x10, "PhotographicSensitivity/ISOSpeedRatings", NULL, NULL },
 	{ 34856, 0x10, "OECF", NULL, NULL },
+	{ 34857, 0x0100, "Interlace", NULL, NULL },
+	{ 34858, 0x0100, "TimeZoneOffset", NULL, NULL },
+	{ 34859, 0x0100, "SelfTimerMode", NULL, NULL },
 	{ 34864, 0x10, "SensitivityType", NULL, NULL },
 	{ 34865, 0x10, "StandardOutputSensitivity", NULL, NULL },
 	{ 34866, 0x10, "RecommendedExposureIndex", NULL, NULL },
@@ -251,7 +258,19 @@ static const struct tagnuminfo tagnuminfo_arr[] = {
 	{ 37384, 0x10, "LightSource", NULL, valdec_lightsource },
 	{ 37385, 0x10, "Flash", NULL, valdec_flash },
 	{ 37386, 0x10, "FocalLength", NULL, NULL },
+	{ 37387, 0x0100, "FlashEnergy", NULL, NULL },
+	{ 37388, 0x0100, "SpatialFrequencyResponse", NULL, NULL },
+	{ 37389, 0x0100, "Noise", NULL, NULL },
+	{ 37390, 0x0100, "FocalPlaneXResolution", NULL, NULL },
+	{ 37391, 0x0100, "FocalPlaneYResolution", NULL, NULL },
+	{ 37392, 0x0100, "FocalPlaneResolutionUnit", NULL, NULL },
+	{ 37393, 0x0100, "ImageNumber", NULL, NULL },
+	{ 37394, 0x0100, "SecurityClassification", NULL, NULL },
+	{ 37395, 0x0100, "ImageHistory", NULL, NULL },
 	{ 37396, 0x10, "SubjectArea", NULL, NULL },
+	{ 37397, 0x0100, "ExposureIndex", NULL, NULL },
+	{ 37398, 0x0100, "TIFF/EPStandardID", NULL, NULL },
+	{ 37399, 0x0100, "SensingMethod", NULL, NULL },
 	{ 37439, 0x00, "SToNits(SGI)", NULL, NULL },
 	{ 37500, 0x10, "MakerNote", NULL, NULL },
 	{ 37510, 0x10, "UserComment", NULL, NULL },
