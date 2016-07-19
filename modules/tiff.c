@@ -1406,6 +1406,7 @@ static void handler_iccprofile(deark *c, lctx *d, const struct taginfo *tg, cons
 	dbuf_create_file_from_slice(c->infile, tg->val_offset, tg->total_size, "icc", NULL, DE_CREATEFLAG_IS_AUX);
 }
 
+// TODO: We should probably have a larger limit for ASCII fields.
 #define DE_TIFF_MAX_VALUES_TO_PRINT 100
 
 static void do_dbg_print_numeric_values(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni,
@@ -1465,31 +1466,76 @@ static void do_dbg_print_text_values(deark *c, lctx *d, const struct taginfo *tg
 	dbuf *dbglinedbuf)
 {
 	de_ucstring *str = NULL;
+	de_int64 adjusted_total_size;
+	int is_truncated = 0;
 	de_int64 bytes_to_read;
-	char buf[DE_TIFF_MAX_VALUES_TO_PRINT+1];
+	de_int64 bytes_consumed = 0;
+	int str_count = 0;
+	de_byte inputbuf[DE_TIFF_MAX_VALUES_TO_PRINT+1];
+	char outputbuf[DE_TIFF_MAX_VALUES_TO_PRINT+100];
 
-	dbuf_puts(dbglinedbuf, " \"");
+	// An ASCII field is a sequence of NUL-terminated strings.
+	// The spec does not say what to do if an ASCII field does not end in a NUL.
+	// Our rule is that if the field does not end in a NUL byte (including the case
+	// where it is 0 length), then treat it as if it has a NUL byte appended to it.
+	// That way, the number of (logical) NUL bytes equals the number of strings in the
+	// field.
+
+	bytes_to_read = tg->total_size;
+
+	if(bytes_to_read > DE_TIFF_MAX_VALUES_TO_PRINT) {
+		bytes_to_read = DE_TIFF_MAX_VALUES_TO_PRINT;
+		// FIXME: Suboptimal things might happen if we truncate exactly one byte
+		is_truncated = 1;
+	}
+	de_read(inputbuf, tg->val_offset, bytes_to_read);
+
+	adjusted_total_size = bytes_to_read;
+
+	if(bytes_to_read==0 || (inputbuf[bytes_to_read-1]!='\0')) {
+		// If the data we read didn't end with a NUL, append one.
+		inputbuf[bytes_to_read] = '\0';
+		adjusted_total_size++;
+	}
+
+	dbuf_puts(dbglinedbuf, " {");
 
 	str = ucstring_create(c);
 
-	bytes_to_read = tg->total_size;
-	if(bytes_to_read > DE_TIFF_MAX_VALUES_TO_PRINT)
-		bytes_to_read = DE_TIFF_MAX_VALUES_TO_PRINT;
+	while(bytes_consumed < adjusted_total_size) {
+		de_int64 len;
+		const de_byte *tmpp;
 
-	// TODO: Some TIFF variants use UTF-8 instead of ASCII.
-	dbuf_read_to_ucstring(c->infile, tg->val_offset, bytes_to_read, str,
-		DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_ASCII);
+		ucstring_truncate(str, 0);
 
-	ucstring_to_printable_sz(str, buf, sizeof(buf));
-	dbuf_puts(dbglinedbuf, buf);
+		// Find the NUL byte.
+		tmpp = (const de_byte*)de_memchr(&inputbuf[bytes_consumed], 0, (size_t)(adjusted_total_size-bytes_consumed));
+		if(tmpp) {
+			len = (tmpp - &inputbuf[bytes_consumed]);
+		}
+		else {
+			// This should never happen, since we added our own trailing NUL if
+			// there wasn't one.
+			break;
+		}
 
-	ucstring_destroy(str);
+		ucstring_append_bytes(str, &inputbuf[bytes_consumed], len, 0, DE_ENCODING_ASCII);
 
-	dbuf_puts(dbglinedbuf, "\"");
+		bytes_consumed += len+1;
 
-	if(tg->valcount>DE_TIFF_MAX_VALUES_TO_PRINT) {
+		if(str_count>0) dbuf_puts(dbglinedbuf, ",");
+		dbuf_puts(dbglinedbuf, "\"");
+		ucstring_to_printable_sz(str, outputbuf, sizeof(outputbuf));
+		dbuf_puts(dbglinedbuf, outputbuf);
+		dbuf_puts(dbglinedbuf, "\"");
+		str_count++;
+	}
+
+	if(is_truncated) {
 		dbuf_puts(dbglinedbuf, "...");
 	}
+	dbuf_puts(dbglinedbuf, "}");
+	ucstring_destroy(str);
 }
 
 static void do_dbg_print_values(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni,
