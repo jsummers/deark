@@ -117,6 +117,7 @@ DECLARE_VALDEC(valdec_dngcolorspace);
 struct tagnuminfo {
 	int tagnum;
 
+	// 0x0001=NOT valid in normal TIFF files/IFDs
 	// 0x08=suppress auto display of values
 	// 0x10=this is an Exif tag
 	// 0x20=an Exif Interoperability-IFD tag
@@ -408,41 +409,41 @@ static const struct tagnuminfo tagnuminfo_arr[] = {
 	{ 51114, 0x80, "CacheVersion", NULL, NULL},
 	{ 51125, 0x80, "DefaultUserCrop", NULL, NULL},
 
-	{ 1, 0x20, "InteroperabilityIndex", NULL, NULL },
-	{ 2, 0x20, "InteroperabilityVersion", NULL, NULL },
+	{ 1, 0x0021, "InteroperabilityIndex", NULL, NULL },
+	{ 2, 0x0021, "InteroperabilityVersion", NULL, NULL },
 
-	{ 0, 0x40, "GPSVersionID", NULL, NULL },
-	{ 1, 0x40, "GPSLatitudeRef", NULL, NULL },
-	{ 2, 0x40, "GPSGpsLatitude", NULL, NULL },
-	{ 3, 0x40, "GPSLongitudeRef", NULL, NULL },
-	{ 4, 0x40, "GPSLongitude", NULL, NULL },
-	{ 5, 0x40, "GPSAltitudeRef", NULL, NULL },
-	{ 6, 0x40, "GPSAltitude", NULL, NULL },
-	{ 7, 0x40, "GPSTimeStamp", NULL, NULL },
-	{ 8, 0x40, "GPSSatellites", NULL, NULL },
-	{ 9, 0x40, "GPSStatus", NULL, NULL },
-	{ 10, 0x40, "GPSMeasureMode", NULL, NULL },
-	{ 11, 0x40, "GPSDOP", NULL, NULL },
-	{ 12, 0x40, "GPSSpeedRef", NULL, NULL },
-	{ 13, 0x40, "GPSSpeed", NULL, NULL },
-	{ 14, 0x40, "GPSTrackRef", NULL, NULL },
-	{ 15, 0x40, "GPSTrack", NULL, NULL },
-	{ 16, 0x40, "GPSImgDirectionRef", NULL, NULL },
-	{ 17, 0x40, "GPSImgDirection", NULL, NULL },
-	{ 18, 0x40, "GPSMapDatum", NULL, NULL },
-	{ 19, 0x40, "GPSLatitudeRef", NULL, NULL },
-	{ 20, 0x40, "GPSLatitude", NULL, NULL },
-	{ 21, 0x40, "GPSDestLongitudeRef", NULL, NULL },
-	{ 22, 0x40, "GPSDestLongitude", NULL, NULL },
-	{ 23, 0x40, "GPSDestBearingRef", NULL, NULL },
-	{ 24, 0x40, "GPSDestBearing", NULL, NULL },
-	{ 25, 0x40, "GPSDestDistanceRef", NULL, NULL },
-	{ 26, 0x40, "GPSDestDistance", NULL, NULL },
-	{ 27, 0x40, "GPSProcessingMethod", NULL, NULL },
-	{ 28, 0x40, "GPSAreaInformation", NULL, NULL },
-	{ 29, 0x40, "GPSDateStamp", NULL, NULL },
-	{ 30, 0x40, "GPSDifferential", NULL, NULL },
-	{ 31, 0x40, "GPSHPositioningError", NULL, NULL }
+	{ 0, 0x0041, "GPSVersionID", NULL, NULL },
+	{ 1, 0x0041, "GPSLatitudeRef", NULL, NULL },
+	{ 2, 0x0041, "GPSGpsLatitude", NULL, NULL },
+	{ 3, 0x0041, "GPSLongitudeRef", NULL, NULL },
+	{ 4, 0x0041, "GPSLongitude", NULL, NULL },
+	{ 5, 0x0041, "GPSAltitudeRef", NULL, NULL },
+	{ 6, 0x0041, "GPSAltitude", NULL, NULL },
+	{ 7, 0x0041, "GPSTimeStamp", NULL, NULL },
+	{ 8, 0x0041, "GPSSatellites", NULL, NULL },
+	{ 9, 0x0041, "GPSStatus", NULL, NULL },
+	{ 10, 0x0041, "GPSMeasureMode", NULL, NULL },
+	{ 11, 0x0041, "GPSDOP", NULL, NULL },
+	{ 12, 0x0041, "GPSSpeedRef", NULL, NULL },
+	{ 13, 0x0041, "GPSSpeed", NULL, NULL },
+	{ 14, 0x0041, "GPSTrackRef", NULL, NULL },
+	{ 15, 0x0041, "GPSTrack", NULL, NULL },
+	{ 16, 0x0041, "GPSImgDirectionRef", NULL, NULL },
+	{ 17, 0x0041, "GPSImgDirection", NULL, NULL },
+	{ 18, 0x0041, "GPSMapDatum", NULL, NULL },
+	{ 19, 0x0041, "GPSLatitudeRef", NULL, NULL },
+	{ 20, 0x0041, "GPSLatitude", NULL, NULL },
+	{ 21, 0x0041, "GPSDestLongitudeRef", NULL, NULL },
+	{ 22, 0x0041, "GPSDestLongitude", NULL, NULL },
+	{ 23, 0x0041, "GPSDestBearingRef", NULL, NULL },
+	{ 24, 0x0041, "GPSDestBearing", NULL, NULL },
+	{ 25, 0x0041, "GPSDestDistanceRef", NULL, NULL },
+	{ 26, 0x0041, "GPSDestDistance", NULL, NULL },
+	{ 27, 0x0041, "GPSProcessingMethod", NULL, NULL },
+	{ 28, 0x0041, "GPSAreaInformation", NULL, NULL },
+	{ 29, 0x0041, "GPSDateStamp", NULL, NULL },
+	{ 30, 0x0041, "GPSDifferential", NULL, NULL },
+	{ 31, 0x0041, "GPSHPositioningError", NULL, NULL }
 };
 
 // Data associated with an actual tag in an IFD in the file
@@ -1558,22 +1559,31 @@ static const struct tagnuminfo *find_tagnuminfo(int tagnum, int ifdtype)
 	de_int64 i;
 
 	for(i=0; i<ITEMS_IN_ARRAY(tagnuminfo_arr); i++) {
-		if(tagnuminfo_arr[i].flags&0x20) {
-			// Skip Exif interoperability tags, unless this is an Interoperability IFD
-			if(ifdtype!=IFDTYPE_EXIFINTEROP) {
+		if(tagnuminfo_arr[i].tagnum!=tagnum) {
+			continue;
+		}
+
+		if(ifdtype==IFDTYPE_EXIFINTEROP) {
+			// For interoperability IFDs, allow only special tags
+			if(!(tagnuminfo_arr[i].flags&0x20)) {
 				continue;
 			}
 		}
-		if(tagnuminfo_arr[i].flags&0x40) {
-			// Skip GPS tags, unless this is a GPS IFD
-			if(ifdtype!=IFDTYPE_GPS) {
+		else if(ifdtype==IFDTYPE_GPS) {
+			// For GPS IFDs, allow only special tags
+			if(!(tagnuminfo_arr[i].flags&0x40)) {
+				continue;
+			}
+		}
+		else {
+			// Not a special IFD type or file type.
+			// Allow all non-special tags.
+			if(tagnuminfo_arr[i].flags&0x01) {
 				continue;
 			}
 		}
 
-		if(tagnuminfo_arr[i].tagnum==tagnum) {
-			return &tagnuminfo_arr[i];
-		}
+		return &tagnuminfo_arr[i];
 	}
 	return NULL;
 }
