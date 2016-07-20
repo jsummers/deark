@@ -126,6 +126,7 @@ struct tagnuminfo {
 	// 0x40=a GPS attribute tag
 	// 0x80=a DNG tag
 	// 0x0100=TIFF/EP
+	// 0x0200=TIFF/IT
 	// 0x0400=tags valid in JPEG XR files (from the spec, and jxrlib)
 	unsigned int flags;
 
@@ -236,6 +237,23 @@ static const struct tagnuminfo tagnuminfo_arr[] = {
 	{ 33434, 0x10, "ExposureTime", NULL, NULL },
 	{ 33437, 0x10, "FNumber", NULL, NULL },
 	{ 33723, 0x0408, "IPTC", handler_iptc, NULL },
+	{ 34016, 0x0200, "Site", NULL, NULL },
+	{ 34017, 0x0200, "ColorSequence", NULL, NULL },
+	{ 34018, 0x0200, "IT8Header", NULL, NULL },
+	{ 34019, 0x0200, "RasterPadding", NULL, NULL },
+	{ 34020, 0x0200, "BitsPerRunLength", NULL, NULL },
+	{ 34021, 0x0200, "BitsPerExtendedRunLength", NULL, NULL },
+	{ 34022, 0x0200, "ColorTable", NULL, NULL },
+	{ 34023, 0x0200, "ImageColorIndicator", NULL, NULL },
+	{ 34024, 0x0200, "BackgroundColorIndicator", NULL, NULL },
+	{ 34025, 0x0200, "ImageColorValue", NULL, NULL },
+	{ 34026, 0x0200, "BackgroundColorValue", NULL, NULL },
+	{ 34027, 0x0200, "PixelIntensityRange", NULL, NULL },
+	{ 34028, 0x0200, "TransparencyIndicator", NULL, NULL },
+	{ 34029, 0x0200, "ColorCharacterization", NULL, NULL },
+	{ 34030, 0x0200, "HCUsage", NULL, NULL },
+	{ 34031, 0x0200, "TrapIndicator", NULL, NULL },
+	{ 34032, 0x0200, "CMYKEquivalent", NULL, NULL },
 	{ 34377, 0x0408, "PhotoshopImageResources", handler_photoshoprsrc, NULL },
 	{ 34665, 0x0408, "Exif IFD", handler_subifd, NULL },
 	{ 34675, 0x0408, "ICC Profile", handler_iccprofile, NULL },
@@ -980,6 +998,8 @@ static int valdec_compression(deark *c, const struct valdec_params *vp, struct v
 		{9, "JBIG"}, {10, "JBIG"},
 		{32766, "NeXT 2-bit RLE"}, {32771, "CCITTRLEW"},
 		{32773, "PackBits"}, {32809, "ThunderScan"},
+		{32895, "IT8CTPAD"}, {32896, "IT8LW"}, {32897, "IT8MP/HC"},
+		{32898, "IT8BL"},
 		{32908, "PIXARFILM"}, {32909, "PIXARLOG"}, {32946, "DEFLATE"},
 		{34661, "JBIG"}, {34676, "SGILOG"}, {34677, "SGILOG24"},
 		{34712, "JPEG2000"}, {34715, "JBIG2"}, {34892, "Lossy JPEG(DNG)"}
