@@ -41,6 +41,7 @@ DE_DECLARE_MODULE(de_module_tiff);
 #define IFDTYPE_EXIF         2
 #define IFDTYPE_EXIFINTEROP  3
 #define IFDTYPE_GPS          4
+#define IFDTYPE_GLOBALPARAMS 5 // TIFF-FX
 
 struct localctx_struct;
 typedef struct localctx_struct lctx;
@@ -198,6 +199,13 @@ static const struct tagnuminfo tagnuminfo_arr[] = {
 	{ 341, 0x00, "SMaxSampleValue", NULL, NULL },
 	{ 342, 0x00, "TransferRange", NULL, NULL },
 	{ 347, 0x00, "JPEGTables", NULL, NULL },
+	{ 400, 0x0008, "GlobalParametersIFD", handler_subifd, NULL },
+	{ 401, 0x0000, "ProfileType", NULL, NULL },
+	{ 402, 0x0000, "FaxProfile", NULL, NULL },
+	{ 403, 0x0000, "CodingMethods", NULL, NULL },
+	{ 404, 0x0000, "VersionYear", NULL, NULL },
+	{ 405, 0x0000, "ModeNumber", NULL, NULL },
+	{ 433, 0x0000, "Decode", NULL, NULL },
 	{ 512, 0x00, "JPEGProc", NULL, valdec_jpegproc },
 #define TAG_JPEGINTERCHANGEFORMAT 513
 	{ TAG_JPEGINTERCHANGEFORMAT, 0x00, "JPEGInterchangeFormat", NULL, NULL },
@@ -1394,6 +1402,7 @@ static void handler_subifd(deark *c, lctx *d, const struct taginfo *tg, const st
 	int ifdtype = IFDTYPE_NORMAL;
 
 	if(tg->tagnum==330) ifdtype = IFDTYPE_SUBIFD;
+	else if(tg->tagnum==400) ifdtype = IFDTYPE_GLOBALPARAMS;
 	else if(tg->tagnum==34665) ifdtype = IFDTYPE_EXIF;
 	else if(tg->tagnum==34853) ifdtype = IFDTYPE_GPS;
 	else if(tg->tagnum==40965) ifdtype = IFDTYPE_EXIFINTEROP;
@@ -1638,6 +1647,9 @@ static void process_ifd(deark *c, lctx *d, de_int64 ifdpos, int ifdtype)
 	switch(ifdtype) {
 	case IFDTYPE_SUBIFD:
 		name=" (SubIFD)";
+		break;
+	case IFDTYPE_GLOBALPARAMS:
+		name=" (Global Parameters IFD)";
 		break;
 	case IFDTYPE_EXIF:
 		name=" (Exif IFD)";
