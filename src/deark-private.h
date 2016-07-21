@@ -20,6 +20,8 @@
 #define DE_ENCODING_CP437_G      10
 #define DE_ENCODING_CP437_C      11
 #define DE_ENCODING_WINDOWS1252  20
+#define DE_ENCODING_UTF16LE      30
+#define DE_ENCODING_UTF16BE      31
 #define DE_ENCODING_DEC_SPECIAL_GRAPHICS 80
 #define DE_ENCODING_UNKNOWN      99
 
@@ -553,6 +555,8 @@ void de_uchar_to_utf8(de_int32 u1, de_byte *utf8buf, de_int64 *p_utf8len);
 void dbuf_write_uchar_as_utf8(dbuf *outf, de_int32 u);
 int de_utf8_to_uchar(const de_byte *utf8buf, de_int64 buflen,
 	de_int32 *p_uchar, de_int64 *p_utf8len);
+int de_utf16le_to_uchar(const de_byte *utf16buf, de_int64 buflen,
+	de_int32 *p_uchar, de_int64 *p_utf16len);
 
 int de_is_ascii(const de_byte *buf, de_int64 buflen);
 

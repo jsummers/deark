@@ -462,51 +462,24 @@ static void do_ne_pe_extract_resource(deark *c, lctx *d, de_int64 type_id,
 	}
 }
 
-// len is in 16-bit code units, not bytes.
-static void copy_slice_utf16le_to_utf8(deark *c, dbuf *inf, de_int64 pos, de_int64 len, dbuf *outf)
-{
-	de_int64 i;
-	de_int64 code_unit;
-	int u;
-	int pending_char = 0;
-
-	for(i=0; i<len; i++) {
-		code_unit = dbuf_getui16le(inf, pos+2*i);
-
-		if(code_unit>=0xd800 && code_unit<=0xdbff) {
-			// lead surrogate
-			pending_char = (int)code_unit-0xd800;
-		}
-		else if(code_unit>=0xdc00 && code_unit<0xdfff) {
-			// trail surrogate
-			u = 0x10000 + ((pending_char<<10) | ((int)code_unit-0xdc00));
-			dbuf_write_uchar_as_utf8(outf, u);
-			pending_char = 0;
-		}
-		else {
-			dbuf_write_uchar_as_utf8(outf, (int)code_unit);
-		}
-	}
-}
-
 static void de_finfo_set_name_from_pe_string(deark *c, de_finfo *fi, dbuf *f,
 	de_int64 pos)
 {
-	de_int64 nlen;
-	dbuf *name_utf8 = NULL;
+	de_int64 nlen; // in UTF-16 code units (2 bytes each)
+	de_ucstring *fname = NULL;
 
-	if(!c->filenames_from_file) return;
+	if(!c->filenames_from_file) goto done;
 
 	// The string length is stored in a two-byte prefix.
 	nlen = de_getui16le(pos);
 	if(nlen<1) goto done;
 
-	name_utf8 = dbuf_create_membuf(c, nlen*3, 0);
-	copy_slice_utf16le_to_utf8(c, c->infile, pos+2, nlen, name_utf8);
-	de_finfo_set_name_from_slice(c, fi, name_utf8, 0, name_utf8->len, 0, DE_ENCODING_UTF8);
+	fname = ucstring_create(c);
+	dbuf_read_to_ucstring(c->infile, pos+2, nlen*2, fname, 0, DE_ENCODING_UTF16LE);
+	de_finfo_set_name_from_ucstring(c, fi, fname);
 
 done:
-	dbuf_close(name_utf8);
+	ucstring_destroy(fname);
 }
 
 static void do_pe_resource_data_entry(deark *c, lctx *d, de_int64 rel_pos)

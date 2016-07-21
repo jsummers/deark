@@ -238,6 +238,39 @@ int de_utf8_to_uchar(const de_byte *utf8buf, de_int64 buflen,
 	return 0;
 }
 
+// Convert a UTF-16LE character to UTF-32.
+// Similar to de_utf8_to_uchar().
+// Returns 1 if a valid character was converted, 0 otherwise.
+int de_utf16le_to_uchar(const de_byte *utf16buf, de_int64 buflen,
+	de_int32 *p_uchar, de_int64 *p_utf16len)
+{
+	de_int32 u0, u1;
+
+	// Read the first code unit
+	if(buflen<2) return 0;
+	u0 = (de_int32)de_getui16le_direct(&utf16buf[0]);
+
+	if(u0>=0xd800 && u0<=0xdbff) { // It's a lead surrogate
+		// Read the trail surrogate
+		if(buflen<4) return 0;
+		u1 = (de_int32)de_getui16le_direct(&utf16buf[2]);
+		if(u1>=0xdc00 && u1<=0xdfff) { // valid trail surrogate
+			*p_uchar = 0x10000 + (((u0-0xd800)<<10) | (u1-0xdc00));
+			*p_utf16len = 4;
+			return 1;
+		}
+		return 0; // invalid trail surrogate
+	}
+	else if(u0>=0xdc00 && u0<=0xdfff) {
+		// First code unit is not allowed to be a trail surrogate
+		return 0;
+	}
+	// Not a surrogate
+	*p_uchar = u0;
+	*p_utf16len = 2;
+	return 1;
+}
+
 // Given a buffer, return 1 if it has no bytes 0x80 or higher.
 int de_is_ascii(const de_byte *buf, de_int64 buflen)
 {
@@ -844,6 +877,13 @@ void ucstring_append_bytes(de_ucstring *s, const de_byte *buf, de_int64 buflen,
 			if(!ret) {
 				ch = '_';
 				code_len = 1;
+			}
+		}
+		else if(encoding==DE_ENCODING_UTF16LE) {
+			ret = de_utf16le_to_uchar(&buf[pos], buflen-pos, &ch, &code_len);
+			if(!ret) {
+				ch = '_';
+				code_len = 2;
 			}
 		}
 		else {
