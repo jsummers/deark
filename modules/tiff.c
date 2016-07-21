@@ -95,6 +95,7 @@ DECLARE_VALDEC(valdec_t6options);
 DECLARE_VALDEC(valdec_resolutionunit);
 DECLARE_VALDEC(valdec_pagenumber);
 DECLARE_VALDEC(valdec_predictor);
+DECLARE_VALDEC(valdec_inkset);
 DECLARE_VALDEC(valdec_extrasamples);
 DECLARE_VALDEC(valdec_sampleformat);
 DECLARE_VALDEC(valdec_jpegproc);
@@ -175,6 +176,7 @@ static const struct tagnuminfo tagnuminfo_arr[] = {
 	{ 293, 0x00, "T6Options", NULL, valdec_t6options },
 	{ 296, 0x00, "ResolutionUnit", NULL, valdec_resolutionunit },
 	{ 297, 0x0400, "PageNumber", NULL, valdec_pagenumber },
+	{ 300, 0x0000, "ColorResponseUnit", NULL, NULL },
 	{ 301, 0x00, "TransferFunction", NULL, NULL },
 	{ 305, 0x0400, "Software", NULL, NULL },
 	{ 306, 0x0400, "DateTime", NULL, NULL },
@@ -193,7 +195,7 @@ static const struct tagnuminfo tagnuminfo_arr[] = {
 	{ 327, 0x00, "CleanFaxData", NULL, NULL },
 	{ 328, 0x00, "ConsecutiveBadFaxLines", NULL, NULL },
 	{ 330, 0x08, "SubIFD", handler_subifd, NULL },
-	{ 332, 0x00, "InkSet", NULL, NULL },
+	{ 332, 0x0000, "InkSet", NULL, valdec_inkset },
 	{ 333, 0x00, "InkNames", NULL, NULL },
 	{ 334, 0x00, "NumberOfInks", NULL, NULL },
 	{ 336, 0x00, "DotRange", NULL, NULL },
@@ -235,15 +237,22 @@ static const struct tagnuminfo tagnuminfo_arr[] = {
 	{ 532, 0x00, "ReferenceBlackWhite", NULL, NULL },
 	{ 559, 0x0000, "StripRowCounts", NULL, NULL },
 	{ 700, 0x0408, "XMP", handler_xmp, NULL },
+	//{ 999, 0x0000, "USPTOMiscellaneous", NULL, NULL },
 	{ 18246, 0x0400, "RatingStars", NULL, NULL },
+	{ 18247, 0x0000, "XP_DIP_XML", NULL, NULL },
+	{ 18248, 0x0000, "StitchInfo", NULL, NULL },
 	{ 18249, 0x0400, "RatingValue", NULL, NULL },
+	//{ 28672, 0x0000, "SonyRawFileType", NULL, NULL },
+	//{ 28725, 0x0000, "ChromaticAberrationCorrParams", NULL, NULL },
+	//{ 28727, 0x0000, "DistortionCorrParams", NULL, NULL },
 	{ 32781, 0x0000, "ImageID", NULL, NULL },
-	{ 32932, 0x00, "Annotation Data", NULL, NULL },
-	{ 32934, 0x0000, "WANG PageControl", NULL, NULL },
-	{ 32953, 0x0000, "RefPts", NULL, NULL },
-	{ 32954, 0x0000, "RegionTackPoint", NULL, NULL },
-	{ 32955, 0x0000, "RegionWarpCorners", NULL, NULL },
-	{ 32956, 0x0000, "RegionAffine", NULL, NULL },
+	{ 32932, 0x0000, "Wang Annotation", NULL, NULL },
+	{ 32934, 0x0000, "Wang PageControl", NULL, NULL },
+	// TODO: Exiftool and libtiff disagree about the next 4 (Island Graphics) tags.
+	//{ 32952 or 32953, 0x0000, "ImageReferencePoints", NULL, NULL },
+	//{ 32953 or 32954, 0x0000, "RegionXformTackPoint", NULL, NULL },
+	//{ 32954 or 32955, 0x0000, "RegionWarpCorners", NULL, NULL },
+	//{ 32955 or 32956, 0x0000, "RegionAffine", NULL, NULL },
 	{ 32995, 0x00, "Matteing(SGI)", NULL, NULL },
 	{ 32996, 0x00, "DataType(SGI)", NULL, NULL },
 	{ 32997, 0x00, "ImageDepth(SGI)", NULL, NULL },
@@ -255,9 +264,11 @@ static const struct tagnuminfo tagnuminfo_arr[] = {
 	{ 33304, 0x0000, "Pixar FOVCOT", NULL, NULL },
 	{ 33305, 0x0000, "Pixar MatrixWorldToScreen", NULL, NULL },
 	{ 33306, 0x0000, "Pixar MatrixWorldToCamera", NULL, NULL },
+	{ 33405, 0x0000, "Model2", NULL, NULL },
 	{ 33421, 0x0100, "CFARepeatPatternDim", NULL, NULL },
 	{ 33422, 0x0100, "CFAPattern", NULL, NULL },
 	{ 33423, 0x0100, "BatteryLevel", NULL, NULL },
+	//{ 33424, 0x0000, "KodakIFD", NULL, NULL },
 	{ 33432, 0x0400, "Copyright", NULL, NULL },
 	{ 33434, 0x10, "ExposureTime", NULL, NULL },
 	{ 33437, 0x10, "FNumber", NULL, NULL },
@@ -270,8 +281,11 @@ static const struct tagnuminfo tagnuminfo_arr[] = {
 	{ 33451, 0x0000, "MD PrepTime", NULL, NULL },
 	{ 33452, 0x0000, "MD FileUnits", NULL, NULL },
 	{ 33550, 0x0000, "ModelPixelScaleTag", NULL, NULL },
+	{ 33589, 0x0000, "AdventScale", NULL, NULL },
+	{ 33590, 0x0000, "AdventRevision", NULL, NULL },
+	// 33628-33631: UICTags
 	{ 33723, 0x0408, "IPTC", handler_iptc, NULL },
-	{ 33918, 0x0000, "INGR Packet Data Tag", NULL, NULL },
+	{ 33918, 0x0000, "INGR Packet Data", NULL, NULL },
 	{ 33919, 0x0000, "INGR Flag Registers", NULL, NULL },
 	{ 33920, 0x0000, "IrasB Transformation Matrix", NULL, NULL },
 	{ 33922, 0x0000, "ModelTiepointTag", NULL, NULL },
@@ -292,11 +306,21 @@ static const struct tagnuminfo tagnuminfo_arr[] = {
 	{ 34030, 0x0200, "HCUsage", NULL, NULL },
 	{ 34031, 0x0200, "TrapIndicator", NULL, NULL },
 	{ 34032, 0x0200, "CMYKEquivalent", NULL, NULL },
-	{ 34232, 0x0000, "FrameCount", NULL, NULL },
+	{ 34118, 0x0000, "SEMInfo", NULL, NULL },
+	{ 34152, 0x0000, "AFCP_IPTC", NULL, NULL },
+	// Contradictory info about 34232
+	{ 34232, 0x0000, "FrameCount or PixelMagicJBIGOptions", NULL, NULL },
+	{ 34263, 0x0000, "JPLCartoIFD", NULL, NULL },
 	{ 34264, 0x0000, "ModelTransformationTag", NULL, NULL },
+	//{ 34306, 0x0000, "WB_GRGBLevels", NULL, NULL },
+	//{ 34310, 0x0000, "LeafData", NULL, NULL },
 	{ 34377, 0x0408, "PhotoshopImageResources", handler_photoshoprsrc, NULL },
 	{ 34665, 0x0408, "Exif IFD", handler_subifd, NULL },
 	{ 34675, 0x0408, "ICC Profile", handler_iccprofile, NULL },
+	//{ 34687, 0x0000, "TIFF_FXExtensions", NULL, NULL },
+	//{ 34688, 0x0000, "MultiProfiles", NULL, NULL, NULL },
+	//{ 34689, 0x0000, "SharedData", NULL, NULL, NULL },
+	//{ 34690, 0x0000, "T88Options", NULL, NULL, NULL },
 	{ 34732, 0x0000, "ImageLayer", NULL, NULL },
 	{ 34735, 0x0000, "GeoKeyDirectoryTag", NULL, NULL },
 	{ 34736, 0x0000, "GeoDoubleParamsTag", NULL, NULL },
@@ -318,9 +342,10 @@ static const struct tagnuminfo tagnuminfo_arr[] = {
 	{ 34869, 0x10, "ISOSpeedLatitudezzz", NULL, NULL },
 	{ 34908, 0x00, "FaxRecvParams", NULL, NULL },
 	{ 34909, 0x00, "FaxSubAddress", NULL, NULL },
-	{ 34910, 0x00, "FaxSubAddress", NULL, NULL },
+	{ 34910, 0x0000, "FaxRecvTime", NULL, NULL },
 	{ 34911, 0x0000, "FaxDCS", NULL, NULL },
 	{ 34929, 0x0000, "FEDEX_EDR", NULL, NULL },
+	//{ 34954, 0x0000, "LeafSubIFD", NULL, NULL },
 	{ 36864, 0x10, "ExifVersion", NULL, NULL },
 	{ 36867, 0x10, "DateTimeOriginal", NULL, NULL },
 	{ 36868, 0x10, "DateTimeDigitized", NULL, NULL },
@@ -517,9 +542,13 @@ static const struct tagnuminfo tagnuminfo_arr[] = {
 	{ 51114, 0x80, "CacheVersion", NULL, NULL},
 	{ 51125, 0x80, "DefaultUserCrop", NULL, NULL},
 	{ 59932, 0x0400, "PADDING_DATA", NULL, NULL },
+	{ 59933, 0x0010, "OffsetSchema", NULL, NULL },
 
 	{ 1, 0x0021, "InteroperabilityIndex", NULL, NULL },
 	{ 2, 0x0021, "InteroperabilityVersion", NULL, NULL },
+	{ 4096, 0x0020, "RelatedImageFileFormat", NULL, NULL },
+	{ 4097, 0x0020, "RelatedImageWidth", NULL, NULL },
+	{ 4098, 0x0020, "RelatedImageLength", NULL, NULL },
 
 	{ 0, 0x0041, "GPSVersionID", NULL, NULL },
 	{ 1, 0x0041, "GPSLatitudeRef", NULL, NULL },
@@ -1198,6 +1227,15 @@ static int valdec_predictor(deark *c, const struct valdec_params *vp, struct val
 {
 	static const struct int_and_str name_map[] = {
 		{1, "none"}, {2, "horizontal differencing"}
+	};
+	lookup_str_and_copy_to_buf(name_map, ITEMS_IN_ARRAY(name_map), vp->n, vr->buf, vr->buf_len);
+	return 1;
+}
+
+static int valdec_inkset(deark *c, const struct valdec_params *vp, struct valdec_result *vr)
+{
+	static const struct int_and_str name_map[] = {
+		{1, "CMYK"}, {2, "not CMYK"}
 	};
 	lookup_str_and_copy_to_buf(name_map, ITEMS_IN_ARRAY(name_map), vp->n, vr->buf, vr->buf_len);
 	return 1;
