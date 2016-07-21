@@ -133,6 +133,10 @@ de_int32 de_char_to_unicode(deark *c, de_int32 a, int encoding)
 	if(a<0) return DE_INVALID_CODEPOINT;
 
 	switch(encoding) {
+	case DE_ENCODING_ASCII:
+		return (a<128)?a:DE_INVALID_CODEPOINT;
+	case DE_ENCODING_LATIN1:
+		return (a<256)?a:DE_INVALID_CODEPOINT;
 	case DE_ENCODING_CP437_G:
 		return de_cp437g_to_unicode(a);
 	case DE_ENCODING_CP437_C:
@@ -144,8 +148,6 @@ de_int32 de_char_to_unicode(deark *c, de_int32 a, int encoding)
 	case DE_ENCODING_DEC_SPECIAL_GRAPHICS:
 		return de_decspecialgraphics_to_unicode(a);
 	}
-	// Don't change anything if the encoding is a Unicode subset
-	// (ASCII, LATIN1), or unknown.
 	return a;
 }
 
