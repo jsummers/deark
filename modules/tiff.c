@@ -11,6 +11,9 @@ DE_DECLARE_MODULE(de_module_tiff);
 #define ITEMS_IN_ARRAY(x) (sizeof(x)/sizeof(x[0]))
 #define MAX_IFDS 1000
 
+#define DE_TIFF_MAX_VALUES_TO_PRINT 100
+#define DE_TIFF_MAX_CHARS_TO_PRINT  500
+
 #define DATATYPE_BYTE      1
 #define DATATYPE_ASCII     2
 #define DATATYPE_UINT16    3
@@ -62,6 +65,7 @@ static void handler_xmp(deark *c, lctx *d, const struct taginfo *tg, const struc
 static void handler_iptc(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni);
 static void handler_photoshoprsrc(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni);
 static void handler_iccprofile(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni);
+static void handler_utf16(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni);
 
 struct valdec_params {
 	lctx *d;
@@ -355,11 +359,11 @@ static const struct tagnuminfo tagnuminfo_arr[] = {
 	{ 37680, 0x0000, "OLE Property Set Storage", NULL, NULL },
 	{ 37681, 0x0000, "OCR Text Position Info", NULL, NULL },
 	{ 37724, 0x00, "Photoshop ImageSourceData", NULL, NULL },
-	{ 40091, 0x0400, "XPTitle/Caption", NULL, NULL },
-	{ 40092, 0x0000, "XPComment", NULL, NULL },
-	{ 40093, 0x0000, "XPAuthor", NULL, NULL },
-	{ 40094, 0x0000, "XPKeywords", NULL, NULL },
-	{ 40095, 0x0000, "XPSubject", NULL, NULL },
+	{ 40091, 0x0408, "XPTitle/Caption", handler_utf16, NULL },
+	{ 40092, 0x0008, "XPComment", handler_utf16, NULL },
+	{ 40093, 0x0008, "XPAuthor", handler_utf16, NULL },
+	{ 40094, 0x0008, "XPKeywords", handler_utf16, NULL },
+	{ 40095, 0x0008, "XPSubject", handler_utf16, NULL },
 	{ 40960, 0x10, "FlashPixVersion", NULL, NULL },
 	{ 40961, 0x0410, "ColorSpace", NULL, valdec_exifcolorspace },
 	{ 40962, 0x10, "PixelXDimension", NULL, NULL },
@@ -1518,8 +1522,43 @@ static void handler_iccprofile(deark *c, lctx *d, const struct taginfo *tg, cons
 	dbuf_create_file_from_slice(c->infile, tg->val_offset, tg->total_size, "icc", NULL, DE_CREATEFLAG_IS_AUX);
 }
 
-// TODO: We should probably have a larger limit for ASCII fields.
-#define DE_TIFF_MAX_VALUES_TO_PRINT 100
+// This is for certain Microsoft tags that are apparently in UTF-16 format.
+// They use the BYTE data type (instead of the logical SHORT), and are always
+// little-endian, even in big-endian files.
+// They end with two 0 bytes. I don't know whether multiple strings can be stored
+// in one field (as in TIFF ASCII tags), but Microsoft appears to use semicolons
+// to separate multiple items, instead of U+0000 codes.
+static void handler_utf16(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni)
+{
+	de_int64 adjusted_len;
+	de_ucstring *s = NULL;
+	char buf[DE_TIFF_MAX_CHARS_TO_PRINT+100];
+
+	if(tg->datatype!=DATATYPE_BYTE && tg->datatype!=DATATYPE_UNDEF) goto done;
+	if(tg->total_size % 2) goto done; // Something's wrong if the byte count is odd.
+
+	// Ignore the expected U+0000 at the end of the string.
+	adjusted_len = tg->total_size;
+	if(tg->total_size>=2 &&
+		de_getbyte(tg->val_offset+tg->total_size-2)==0 &&
+		de_getbyte(tg->val_offset+tg->total_size-1)==0)
+	{
+		adjusted_len -= 2;
+	}
+
+	if(adjusted_len > DE_TIFF_MAX_CHARS_TO_PRINT*2) {
+		adjusted_len = DE_TIFF_MAX_CHARS_TO_PRINT*2;
+	}
+
+	s = ucstring_create(c);
+	dbuf_read_to_ucstring(c->infile, tg->val_offset, adjusted_len, s, 0, DE_ENCODING_UTF16LE);
+	ucstring_to_printable_sz(s, buf, sizeof(buf));
+	de_dbg(c, "UTF-16 string: \"%s\"\n", buf);
+
+done:
+	ucstring_destroy(s);
+	return;
+}
 
 static void do_dbg_print_numeric_values(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni,
 	dbuf *dbglinedbuf)
@@ -1583,8 +1622,8 @@ static void do_dbg_print_text_values(deark *c, lctx *d, const struct taginfo *tg
 	de_int64 bytes_to_read;
 	de_int64 bytes_consumed = 0;
 	int str_count = 0;
-	de_byte inputbuf[DE_TIFF_MAX_VALUES_TO_PRINT+1];
-	char outputbuf[DE_TIFF_MAX_VALUES_TO_PRINT+100];
+	de_byte inputbuf[DE_TIFF_MAX_CHARS_TO_PRINT+1];
+	char outputbuf[DE_TIFF_MAX_CHARS_TO_PRINT+100];
 
 	// An ASCII field is a sequence of NUL-terminated strings.
 	// The spec does not say what to do if an ASCII field does not end in a NUL.
@@ -1595,8 +1634,8 @@ static void do_dbg_print_text_values(deark *c, lctx *d, const struct taginfo *tg
 
 	bytes_to_read = tg->total_size;
 
-	if(bytes_to_read > DE_TIFF_MAX_VALUES_TO_PRINT) {
-		bytes_to_read = DE_TIFF_MAX_VALUES_TO_PRINT;
+	if(bytes_to_read > DE_TIFF_MAX_CHARS_TO_PRINT) {
+		bytes_to_read = DE_TIFF_MAX_CHARS_TO_PRINT;
 		// FIXME: Suboptimal things might happen if we truncate exactly one byte
 		is_truncated = 1;
 	}
@@ -1719,6 +1758,11 @@ static void process_ifd(deark *c, lctx *d, de_int64 ifdpos, int ifdtype)
 	const char *name;
 	char tmpbuf[1024];
 	static const struct tagnuminfo default_tni = { 0, 0x00, "?", NULL, NULL };
+
+	// NOTE: Some TIFF apps (e.g. Windows Photo Viewer) have been observed to encode
+	// ASCII fields (e.g. ImageDescription) in UTF-8, in violation of the TIFF spec.
+	// It might be better to give up trying to obey the various specifications, and
+	// just try to autodetect the encoding, based on whether it is valid UTF-8, etc.
 
 	if(ifdtype==DE_TIFFFMT_JPEGXR)
 		d->current_textfield_encoding = DE_ENCODING_UTF8; // Might be overridden below
