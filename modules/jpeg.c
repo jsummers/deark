@@ -290,6 +290,16 @@ static void do_sof_segment(deark *c, lctx *d, de_byte seg_type,
 done:
 	de_dbg_indent(c, -1);
 }
+static void do_dri_segment(deark *c, lctx *d,
+	de_int64 pos, de_int64 data_size)
+{
+	de_int64 ri;
+	if(data_size!=2) return;
+	de_dbg_indent(c, 1);
+	ri = de_getui16be(pos);
+	de_dbg(c, "restart interval: %d\n", (int)ri);
+	de_dbg_indent(c, -1);
+}
 
 static void do_dht_segment(deark *c, lctx *d,
 	de_int64 pos1, de_int64 data_size)
@@ -373,36 +383,58 @@ done:
 	de_dbg_indent(c, -1);
 }
 
+#define DE_MAX_DBG_CHARS 500
+
+static void handle_comment(deark *c, lctx *d, de_int64 pos, de_int64 comment_size,
+   int encoding)
+{
+	de_ucstring *s = NULL;
+	de_int64 bytes_to_read = comment_size;
+	int write_to_file;
+
+	// If c->extract_level>=2, write the comment to a file;
+	// otherwise if we have debugging output, write (at least part of) it
+	// to the debug output;
+	// otherwise do nothing.
+
+	if(c->extract_level<2 && c->debug_level<1) return;
+	if(comment_size<1) return;
+
+	if(c->extract_level>=2) {
+		write_to_file = 1;
+	}
+	else {
+		write_to_file = 0;
+		if(bytes_to_read>DE_MAX_DBG_CHARS)
+			bytes_to_read = DE_MAX_DBG_CHARS;
+	}
+
+	s = ucstring_create(c);
+	dbuf_read_to_ucstring(c->infile, pos, comment_size, s, 0, encoding);
+
+	if(write_to_file) {
+		dbuf *outf = NULL;
+		outf = dbuf_create_output_file(c, "comment.txt", NULL, DE_CREATEFLAG_IS_AUX);
+		ucstring_write_as_utf8(c, s, outf, 1);
+		dbuf_close(outf);
+	}
+	else {
+		char buf[DE_MAX_DBG_CHARS+100];
+		ucstring_to_printable_sz(s, buf, sizeof(buf));
+		de_dbg(c, "comment: \"%s\"\n", buf);
+	}
+
+	ucstring_destroy(s);
+}
+
 static void do_com_segment(deark *c, lctx *d,
 	de_int64 pos, de_int64 data_size)
 {
-	if(c->extract_level<2) return;
-	dbuf_create_file_from_slice(c->infile, pos, data_size, "comment.txt", NULL, DE_CREATEFLAG_IS_AUX);
-}
-
-static void do_write_latin1_buffer_to_file(deark *c, lctx *d,
-	const de_byte *buf, de_int64 buf_len)
-{
-	dbuf *f = NULL;
-	de_int64 i;
-
-	f = dbuf_create_output_file(c, "comment.txt", NULL, DE_CREATEFLAG_IS_AUX);
-
-	if(de_is_ascii(buf, buf_len)) {
-		dbuf_write(f, buf, buf_len);
-		goto done;
-	}
-
-	if(c->write_bom) {
-		dbuf_write_uchar_as_utf8(f, 0xfeff);
-	}
-
-	for(i=0; i<buf_len; i++) {
-		dbuf_write_uchar_as_utf8(f, (de_int32)buf[i]);
-	}
-
-done:
-	dbuf_close(f);
+	de_dbg_indent(c, 1);
+	// Note that a JPEG COM-segment comment is an arbitrary sequence of bytes, so
+	// there's no way to know what text encoding it uses, or even whether it is text.
+	handle_comment(c, d, pos, data_size, DE_ENCODING_ASCII);
+	de_dbg_indent(c, -1);
 }
 
 static void do_cme_segment(deark *c, lctx *d, de_int64 pos, de_int64 data_size)
@@ -411,23 +443,24 @@ static void do_cme_segment(deark *c, lctx *d, de_int64 pos, de_int64 data_size)
 	de_byte *buf = NULL;
 	de_int64 comment_pos;
 	de_int64 comment_size;
+	const char *name;
 
 	de_dbg_indent(c, 1);
 	if(data_size<2) goto done;
 
 	reg_val = de_getui16be(pos);
-	de_dbg(c, "CME type: %d\n", (int)reg_val);
+	switch(reg_val) {
+	case 0: name="binary"; break;
+	case 1: name="text"; break;
+	default: name="?";
+	}
+	de_dbg(c, "comment/extension type: %d (%s)\n", (int)reg_val, name);
 
-	if(c->extract_level<2) goto done;
 	comment_pos = pos+2;
 	comment_size = data_size-2;
-	if(comment_size<1) goto done;
 
 	if(reg_val==1) {
-		// Latin-1 text
-		buf = de_malloc(c, comment_size);
-		de_read(buf, comment_pos, comment_size);
-		do_write_latin1_buffer_to_file(c, d, buf, comment_size);
+		handle_comment(c, d, comment_pos, comment_size, DE_ENCODING_LATIN1);
 	}
 
 done:
@@ -601,6 +634,9 @@ static void do_segment(deark *c, lctx *d, de_byte seg_type,
 	else if(seg_type==0xda) {
 		do_sos_segment(c, d, payload_pos, payload_size);
 		de_dbg2(c, "(Note: Debugging output stops at the first SOS segment.)\n");
+	}
+	else if(seg_type==0xdd) {
+		do_dri_segment(c, d, payload_pos, payload_size);
 	}
 	else if(seg_type==0xc4) {
 		do_dht_segment(c, d, payload_pos, payload_size);

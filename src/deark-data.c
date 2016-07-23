@@ -905,6 +905,37 @@ void ucstring_append_sz(de_ucstring *s, const char *sz, int encoding)
 	ucstring_append_bytes(s, (const de_byte*)sz, len, 0, encoding);
 }
 
+static int ucstring_is_ascii(const de_ucstring *s)
+{
+	de_int64 i;
+	for(i=0; i<s->len; i++) {
+		if(s->str[i]<0 || s->str[i]>=0x80)
+			return 0;
+	}
+	return 1;
+}
+
+// If add_bom_if_needed is set, we'll prepend a BOM if the global c->write_bom
+// option is enabled, 's' has any non-ASCII characters, and 's' doesn't already
+// start with a BOM.
+void ucstring_write_as_utf8(deark *c, de_ucstring *s, dbuf *outf, int add_bom_if_needed)
+{
+	de_int64 i;
+
+	if(add_bom_if_needed &&
+		c->write_bom &&
+		(s->len>0 && s->str[0]!=0xfeff) &&
+		!ucstring_is_ascii(s))
+	{
+		// Write a BOM
+		dbuf_write_uchar_as_utf8(outf, 0xfeff);
+	}
+
+	for(i=0; i<s->len; i++) {
+		dbuf_write_uchar_as_utf8(outf, s->str[i]);
+	}
+}
+
 // Note: This function is similar to de_finfo_set_name_from_ucstring().
 // Maybe they should be consolidated.
 void ucstring_to_sz(de_ucstring *s, char *szbuf, size_t szbuf_len, int encoding)

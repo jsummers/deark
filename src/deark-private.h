@@ -594,6 +594,8 @@ void ucstring_append_bytes(de_ucstring *s, const de_byte *buf, de_int64 buflen, 
 
 void ucstring_append_sz(de_ucstring *s, const char *sz, int encoding);
 
+void ucstring_write_as_utf8(deark *c, de_ucstring *s, dbuf *outf, int add_bom_if_needed);
+
 // Supported encodings are DE_ENCODING_UTF8, DE_ENCODING_ASCII, DE_ENCODING_LATIN1.
 void ucstring_to_sz(de_ucstring *s, char *szbuf, size_t szbuf_len, int encoding);
 
