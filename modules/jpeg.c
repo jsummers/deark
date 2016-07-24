@@ -17,6 +17,7 @@ typedef struct localctx_struct {
 	dbuf *hdr_residual_file;
 	int is_jpegls;
 	int is_j2c;
+	int image_count;
 } lctx;
 
 static void do_icc_profile_segment(deark *c, lctx *d, de_int64 pos, de_int64 data_size)
@@ -633,7 +634,6 @@ static void do_segment(deark *c, lctx *d, de_byte seg_type,
 	}
 	else if(seg_type==0xda) {
 		do_sos_segment(c, d, payload_pos, payload_size);
-		de_dbg2(c, "(Note: Debugging output stops at the first SOS segment.)\n");
 	}
 	else if(seg_type==0xdd) {
 		do_dri_segment(c, d, payload_pos, payload_size);
@@ -652,6 +652,62 @@ static void do_segment(deark *c, lctx *d, de_byte seg_type,
 	}
 }
 
+// TODO: This is very similar to detect_jpeg_len().
+// Maybe they should be consolidated.
+static int do_read_scan_data(deark *c, lctx *d, de_int64 pos1, de_int64 *bytes_consumed)
+{
+	de_int64 pos = pos1;
+	de_byte b0, b1;
+	struct marker_info mi;
+
+	*bytes_consumed = c->infile->len - pos1; // default
+	de_dbg(c, "scan data at %d\n", (int)pos1);
+
+	de_dbg_indent(c, 1);
+
+	while(1) {
+		if(pos >= c->infile->len) goto done;
+		b0 = de_getbyte(pos++);
+		if(b0==0xff) {
+			b1 = de_getbyte(pos++);
+			if(b1==0x00) {
+				; // an escaped 0xff
+			}
+			else if(d->is_jpegls && b1<0x80) {
+				// In JPEG-LS, 0xff bytes are not escaped if they're followed by a
+				// a byte less than 0x80.
+				;
+			}
+			else if(d->is_j2c && b1<0x90) {
+				// In J2c, 0xff bytes are not escaped if they're followed by a
+				// a byte less than 0x90.
+				;
+			}
+			else if(b1>=0xd0 && b1<=0xd7) { // an RSTn marker
+				if(c->debug_level>=2) {
+					get_marker_info(c, d, b1, &mi);
+					de_dbg2(c, "marker %s (0x%02x) at %d\n", mi.name, (unsigned int)b1, (int)(pos-2));
+				}
+			}
+			else if(b1==0xff) { // a "fill byte" (are they allowed here?)
+				pos--;
+			}
+			else {
+				// A marker that is not part of the scan.
+				// Subtract the bytes consumed by it, and stop.
+				pos -= 2;
+				*bytes_consumed = pos - pos1;
+				de_dbg(c, "end of scan data found at %d (len=%d)\n", (int)pos, (int)*bytes_consumed);
+				break;
+			}
+		}
+	}
+
+done:
+	de_dbg_indent(c, -1);
+	return 1;
+}
+
 static void do_jpeg_internal(deark *c, lctx *d)
 {
 	de_byte b;
@@ -660,6 +716,7 @@ static void do_jpeg_internal(deark *c, lctx *d)
 	de_byte seg_type;
 	int found_marker;
 	struct marker_info mi;
+	de_int64 scan_byte_count;
 
 	pos = 0;
 	found_marker = 0;
@@ -691,15 +748,17 @@ static void do_jpeg_internal(deark *c, lctx *d)
 			de_dbg(c, "marker %s (0x%02x) at %d\n", mi.name, (unsigned int)seg_type,
 				(int)(pos-2));
 
-			if(seg_type==0xd9) {
-				// EOI - Normally this won't happen, because we stop at SOS.
-				break;
+			if(seg_type==0xd8 && !d->is_j2c) {
+				// Count the number of SOI segments
+				d->image_count++;
 			}
 
 			if(d->is_j2c && seg_type==0x93) {
 				// SOD (JPEG 2000 marker sort of like SOS)
-				de_dbg2(c, "(Note: Debugging output stops at the first SOD segment.)\n");
-				break;
+				if(!do_read_scan_data(c, d, pos, &scan_byte_count)) {
+					break;
+				}
+				pos += scan_byte_count;
 			}
 
 			continue;
@@ -713,19 +772,24 @@ static void do_jpeg_internal(deark *c, lctx *d)
 
 		pos += seg_size;
 
-		if(seg_type==0xda || (seg_type==0x93 && d->is_j2c)) {
-			// Stop if we read an SOS marker.
-			// TODO: Some files contain multiple JPEG images. To support them,
-			// we can't just quit here.
-			// NOTE: In order to continue from here, we need to identify JPEG-LS
-			// and handle it correctly.
-			break;
+		if(seg_type==0xda && !d->is_j2c) {
+			// If we read an SOS segment, now read the untagged image data that
+			// should follow it.
+			if(!do_read_scan_data(c, d, pos, &scan_byte_count)) {
+				break;
+			}
+			pos += scan_byte_count;
 		}
 	}
 
 	dbuf_close(d->iccprofile_file);
 	dbuf_close(d->hdr_residual_file);
 
+	if(d->image_count>1) {
+		// For Multi-Picture Format (.mpo) and similar.
+		de_msg(c, "Note: This file seems to contain %d JPEG files. "
+			"Use \"-m jpegscan\" to extract them.\n", d->image_count);
+	}
 }
 
 static void de_run_jpeg(deark *c, de_module_params *mparams)
