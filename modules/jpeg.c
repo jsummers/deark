@@ -353,6 +353,33 @@ done:
 	de_dbg_indent(c, -1);
 }
 
+// DAC = Define arithmetic coding conditioning
+static void do_dac_segment(deark *c, lctx *d,
+	de_int64 pos1, de_int64 data_size)
+{
+	de_int64 ntables;
+	de_int64 i;
+	de_byte b;
+	de_byte cs;
+	de_byte table_class;
+	de_byte table_id;
+
+	de_dbg_indent(c, 1);
+	ntables = data_size/2;
+	for(i=0; i<ntables; i++) {
+		b = de_getbyte(pos1+i*2);
+		table_class = b>>4;
+		table_id = b&0x0f;
+		de_dbg(c, "table: %s%u\n", table_class==0?"DC":"AC",
+			(unsigned int)table_id);
+		cs = de_getbyte(pos1+i*2+1);
+		de_dbg_indent(c, 1);
+		de_dbg(c, "conditioning value: %d\n", (int)cs);
+		de_dbg_indent(c, -1);
+	}
+	de_dbg_indent(c, -1);
+}
+
 static void do_dqt_segment(deark *c, lctx *d,
 	de_int64 pos1, de_int64 data_size)
 {
@@ -492,6 +519,7 @@ static void do_sos_segment(deark *c, lctx *d,
 	de_int64 i;
 	de_byte cs;
 	de_byte b;
+	de_byte ss, se, ax;
 	de_byte actable, dctable;
 
 	de_dbg_indent(c, 1);
@@ -511,6 +539,13 @@ static void do_sos_segment(deark *c, lctx *d,
 		de_dbg(c, "tables to use: DC%d, AC%d\n", (int)dctable, (int)actable);
 		de_dbg_indent(c, -1);
 	}
+
+	ss = de_getbyte(pos+1+ncomp*2);
+	se = de_getbyte(pos+1+ncomp*2+1);
+	ax = de_getbyte(pos+1+ncomp*2+2);
+	de_dbg(c, "spectral selection start/end: %d, %d\n", (int)ss, (int)se);
+	de_dbg(c, "successive approx. bit pos high/low: %u, %u\n",
+		(unsigned int)(ax>>4), (unsigned int)(ax&0x0f));
 
 done:
 	de_dbg_indent(c, -1);
@@ -656,6 +691,9 @@ static void do_segment(deark *c, lctx *d, de_byte seg_type,
 	}
 	else if(seg_type==0xc4) {
 		do_dht_segment(c, d, payload_pos, payload_size);
+	}
+	else if(seg_type==0xcc) {
+		do_dac_segment(c, d, payload_pos, payload_size);
 	}
 	else if(seg_type==0xdb) {
 		do_dqt_segment(c, d, payload_pos, payload_size);
