@@ -38,6 +38,7 @@ DE_DECLARE_MODULE(de_module_tiff);
 #define DE_TIFFFMT_DCP        5 // DNG Camera Profile (DCP)
 #define DE_TIFFFMT_MDI        6 // Microsoft Office Document Imaging
 #define DE_TIFFFMT_JPEGXR     7 // JPEG XR
+#define DE_TIFFFMT_MPEXT      8 // "MP Extension" data from MPF format
 
 #define IFDTYPE_NORMAL       0
 #define IFDTYPE_SUBIFD       1
@@ -133,6 +134,7 @@ struct tagnuminfo {
 	// 0x0100=TIFF/EP
 	// 0x0200=TIFF/IT
 	// 0x0400=tags valid in JPEG XR files (from the spec, and jxrlib)
+	// 0x0800=tags for Multi-Picture Format (.MPO) extensions
 	unsigned int flags;
 
 	const char *tagname;
@@ -428,6 +430,25 @@ static const struct tagnuminfo tagnuminfo_arr[] = {
 	{ 42112, 0x0000, "GDAL_METADATA", NULL, NULL },
 	{ 42113, 0x0000, "GDAL_NODATA", NULL, NULL },
 	{ 42240, 0x10, "Gamma", NULL, NULL },
+	{ 45056, 0x0801, "MPFVersion", NULL, NULL },
+	{ 45057, 0x0801, "NumberOfImages", NULL, NULL },
+	{ 45058, 0x0801, "MPEntry", NULL, NULL },
+	{ 45059, 0x0801, "ImageUIDList", NULL, NULL },
+	{ 45060, 0x0801, "TotalFrames", NULL, NULL },
+	{ 45313, 0x0801, "MPIndividualNum", NULL, NULL },
+	{ 45569, 0x0801, "PanOrientation", NULL, NULL },
+	{ 45570, 0x0801, "PanOverlap_H", NULL, NULL },
+	{ 45571, 0x0801, "PanOverlap_V", NULL, NULL },
+	{ 45572, 0x0801, "BaseViewpointNum", NULL, NULL },
+	{ 45573, 0x0801, "ConvergenceAngle", NULL, NULL },
+	{ 45574, 0x0801, "BaselineLength", NULL, NULL },
+	{ 45575, 0x0801, "VerticalDivergence", NULL, NULL },
+	{ 45576, 0x0801, "AxisDistance_X", NULL, NULL },
+	{ 45577, 0x0801, "AxisDistance_Y", NULL, NULL },
+	{ 45578, 0x0801, "AxisDistance_Z", NULL, NULL },
+	{ 45579, 0x0801, "YawAngle", NULL, NULL },
+	{ 45580, 0x0801, "PitchAngle", NULL, NULL },
+	{ 45581, 0x0801, "RollAngle", NULL, NULL },
 	{ 48129, 0x0401, "PIXEL_FORMAT", NULL, NULL },
 	{ 48130, 0x0401, "SPATIAL_XFRM_PRIMARY", NULL, NULL },
 	{ 48131, 0x0401, "Uncompressed", NULL, NULL },
@@ -1744,7 +1765,7 @@ static void do_dbg_print_values(deark *c, lctx *d, const struct taginfo *tg, con
 
 static const struct tagnuminfo *find_tagnuminfo(int tagnum, int filefmt, int ifdtype)
 {
-	de_int64 i;
+	size_t i;
 
 	for(i=0; i<ITEMS_IN_ARRAY(tagnuminfo_arr); i++) {
 		if(tagnuminfo_arr[i].tagnum!=tagnum) {
@@ -1771,6 +1792,9 @@ static const struct tagnuminfo *find_tagnuminfo(int tagnum, int filefmt, int ifd
 				// allowed in JPEG XR files, but I suspect a lot of random TIFF
 				// tags are occasionally used in JPEG XR, and I'm not aware of
 				// any conflicts.
+				;
+			}
+			else if(filefmt==DE_TIFFFMT_MPEXT && tagnuminfo_arr[i].flags&0x0800) {
 				;
 			}
 			else {
@@ -2045,6 +2069,12 @@ static void de_run_tiff(deark *c, de_module_params *mparams)
 	d->mparams = mparams;
 
 	d->fmt = de_identify_tiff_internal(c, &d->is_le);
+
+	if(d->mparams && d->mparams->codes && de_strchr(d->mparams->codes, 'M') &&
+		d->fmt==DE_TIFFFMT_TIFF)
+	{
+		d->fmt = DE_TIFFFMT_MPEXT;
+	}
 
 	switch(d->fmt) {
 	case DE_TIFFFMT_TIFF:

@@ -129,6 +129,19 @@ static void do_adobeapp14_segment(deark *c, lctx *d, de_int64 pos, de_int64 data
 	de_dbg(c, "color transform: %d (%s)\n", (int)transform, tname);
 }
 
+static void do_mpf_segment(deark *c, lctx *d, de_int64 pos, de_int64 data_size)
+{
+	de_module_params *mparams = NULL;
+
+	de_dbg(c, "MPF data at %d, size=%d\n", (int)pos, (int)data_size);
+	de_dbg_indent(c, 1);
+	mparams = de_malloc(c, sizeof(de_module_params));
+	mparams->codes = "M";
+	de_run_module_by_id_on_slice(c, "tiff", mparams, c->infile, pos, data_size);
+	de_free(c, mparams);
+	de_dbg_indent(c, -1);
+}
+
 // ITU-T Rec. T.86 says nothing about canonicalizing the APP ID, but in
 // practice, some apps are sloppy about capitalization, and trailing spaces.
 static void normalize_app_id(const char *app_id_orig, char *app_id_normalized,
@@ -228,6 +241,9 @@ static void do_app_segment(deark *c, lctx *d, de_byte seg_type,
 	}
 	else if(seg_type==0xeb && app_id_orig_strlen>=10 && !de_memcmp(app_id_normalized, "HDR_RI EXT", 10)) {
 		do_jpeghdr_segment(c, d, payload_pos, payload_size, 1);
+	}
+	else if(seg_type==0xe2 && !de_strcmp(app_id_normalized, "MPF")) {
+		do_mpf_segment(c, d, payload_pos, payload_size);
 	}
 
 done:
