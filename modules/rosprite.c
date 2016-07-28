@@ -267,19 +267,23 @@ static void do_setup_palette(deark *c, lctx *d, struct page_ctx *pg)
 
 static void read_sprite_name(deark *c, lctx *d, de_finfo *fi, de_int64 pos)
 {
-	if(c->debug_level>=1) {
-		de_byte namebuf[12];
-		char name_printable[20];
+	de_ucstring *s = NULL;
+	if(c->debug_level<1 && !c->filenames_from_file) return;
 
-		de_read(namebuf, pos, 12);
-		de_bytes_to_printable_sz(namebuf, 12,
-			name_printable, sizeof(name_printable), DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_ASCII);
+	s = ucstring_create(c);
+	dbuf_read_to_ucstring(c->infile, pos, 12, s, DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_ASCII);
+
+	if(c->debug_level>=1) {
+		char name_printable[20];
+		ucstring_to_printable_sz(s, name_printable, sizeof(name_printable));
 		de_dbg(c, "sprite name: \"%s\"\n", name_printable);
 	}
 
 	if(c->filenames_from_file) {
-		de_finfo_set_name_from_slice(c, fi, c->infile, pos, 12, DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_ASCII);
+		de_finfo_set_name_from_ucstring(c, fi, s);
 	}
+
+	ucstring_destroy(s);
 }
 
 static void do_sprite(deark *c, lctx *d, de_int64 index,

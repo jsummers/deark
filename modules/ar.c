@@ -28,7 +28,10 @@ static int do_ar_item(deark *c, lctx *d, de_int64 pos1, de_int64 *p_item_len)
 {
 	char name_orig[17];
 	size_t name_orig_len;
-	char name_printable[32];
+	de_ucstring *rawname_ucstring = NULL;
+	char rawname_printable[32];
+	de_ucstring *filename_ucstring = NULL;
+	char filename_printable[256];
 	char timestamp_buf[64];
 	de_int64 mod_time;
 	de_int64 file_mode;
@@ -56,9 +59,11 @@ static int do_ar_item(deark *c, lctx *d, de_int64 pos1, de_int64 *p_item_len)
 	}
 	name_orig_len = de_strlen(name_orig);
 
-	de_bytes_to_printable_sz((const de_byte*)name_orig, 16,
-		name_printable, sizeof(name_printable), DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_ASCII);
-	de_dbg(c, "member raw name: \"%s\"\n", name_printable);
+	rawname_ucstring = ucstring_create(c);
+	ucstring_append_bytes(rawname_ucstring, (const de_byte*)name_orig, name_orig_len, 0, DE_ENCODING_UTF8);
+
+	ucstring_to_printable_sz(rawname_ucstring, rawname_printable, sizeof(rawname_printable));
+	de_dbg(c, "member raw name: \"%s\"\n", rawname_printable);
 
 	mod_time = read_decimal(c, pos1+16, 12);
 	de_unix_time_to_timestamp(mod_time, &fi->mod_time);
@@ -95,7 +100,6 @@ static int do_ar_item(deark *c, lctx *d, de_int64 pos1, de_int64 *p_item_len)
 		goto done;
 	}
 	else if(name_orig[0]=='/' && name_orig[1]>='0' && name_orig[1]<='9') {
-		de_dbg(c, "extended filename\n");
 		if(d->extended_name_table_pos==0) {
 			de_err(c, "Missing extended name table\n");
 			goto done;
@@ -117,12 +121,18 @@ static int do_ar_item(deark *c, lctx *d, de_int64 pos1, de_int64 *p_item_len)
 			ext_name_len--;
 		}
 
-		de_finfo_set_name_from_slice(c, fi, c->infile, d->extended_name_table_pos+name_offset,
-			ext_name_len, 0, DE_ENCODING_UTF8);
+		filename_ucstring = ucstring_create(c);
+		dbuf_read_to_ucstring(c->infile, d->extended_name_table_pos+name_offset,
+			ext_name_len, filename_ucstring, 0, DE_ENCODING_UTF8);
+
+		ucstring_to_printable_sz(filename_ucstring, filename_printable, sizeof(filename_printable));
+		de_dbg(c, "extended filename: \"%s\"\n", filename_printable);
+
+		de_finfo_set_name_from_ucstring(c, fi, filename_ucstring);
 		fi->original_filename_flag = 1;
 	}
 	else if(name_orig[0]=='/') {
-		de_warn(c, "Unsupported extension: \"%s\"\n", name_printable);
+		de_warn(c, "Unsupported extension: \"%s\"\n", rawname_printable);
 		retval = 1;
 		goto done;
 	}
@@ -147,6 +157,8 @@ done:
 	if(*p_item_len % 2) (*p_item_len)++; // padding byte
 	de_dbg_indent(c, -1);
 	de_finfo_destroy(c, fi);
+	ucstring_destroy(rawname_ucstring);
+	ucstring_destroy(filename_ucstring);
 	return retval;
 }
 
