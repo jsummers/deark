@@ -74,17 +74,6 @@ typedef struct localctx_struct {
 	de_uint32 pal[256];
 } lctx;
 
-// Caller supplies buf[]
-static void make_printable_code(de_uint32 code, char *buf, size_t buf_size)
-{
-	de_byte s1[4];
-	s1[0] = (de_byte)((code & 0xff000000U)>>24);
-	s1[1] = (de_byte)((code & 0x00ff0000U)>>16);
-	s1[2] = (de_byte)((code & 0x0000ff00U)>>8);
-	s1[3] = (de_byte)(code & 0x000000ffU);
-	de_bytes_to_printable_sz(s1, 4, buf, buf_size, 0, DE_ENCODING_ASCII);
-}
-
 static int do_bmhd(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 {
 	int retval = 0;
@@ -787,8 +776,6 @@ static int do_body(deark *c, lctx *d, de_int64 pos, de_int64 len, de_uint32 ct)
 static int do_chunk(deark *c, lctx *d, de_int64 pos, de_int64 bytes_avail,
 	de_int64 *bytes_consumed)
 {
-	de_uint32 ct;
-	char printable_code[8];
 	int errflag = 0;
 	int doneflag = 0;
 	int ret;
@@ -796,39 +783,41 @@ static int do_chunk(deark *c, lctx *d, de_int64 pos, de_int64 bytes_avail,
 	de_int64 chunk_data_len;
 	de_int64 tmp1, tmp2;
 	int need_unindent = 0;
+	struct de_fourcc chunk4cc;
+	struct de_fourcc formtype4cc;
 
 	if(bytes_avail<8) {
 		de_err(c, "Invalid chunk size (at %d, size=%d)\n", (int)pos, (int)bytes_avail);
 		errflag = 1;
 		goto done;
 	}
-	ct = (de_uint32)de_getui32be(pos);
+
+	dbuf_read_fourcc(c->infile, pos, &chunk4cc, 0);
 	chunk_data_len = de_getui32be(pos+4);
 	chunk_data_pos = pos+8;
 
-	make_printable_code(ct, printable_code, sizeof(printable_code));
-	de_dbg(c, "Chunk '%s' at %d, data at %d, size %d\n", printable_code, (int)pos,
+	de_dbg(c, "Chunk '%s' at %d, data at %d, size %d\n", chunk4cc.id_printable, (int)pos,
 		(int)chunk_data_pos, (int)chunk_data_len);
 	de_dbg_indent(c, 1);
 	need_unindent = 1;
 
 	if(chunk_data_len > bytes_avail-8) {
 		de_err(c, "Invalid chunk size ('%s' at %d, size=%d)\n",
-			printable_code, (int)pos, (int)chunk_data_len);
+			chunk4cc.id_printable, (int)pos, (int)chunk_data_len);
 		errflag = 1;
 		goto done;
 	}
 
 	// Most chunks are only processed at level 1.
-	if(d->level!=1 && ct!=CODE_FORM && ct!=CODE_VDAT) {
+	if(d->level!=1 && chunk4cc.id!=CODE_FORM && chunk4cc.id!=CODE_VDAT) {
 		goto done_chunk;
 	}
 
-	switch(ct) {
+	switch(chunk4cc.id) {
 	case CODE_BODY:
 	case CODE_ABIT:
 
-		if(!do_body(c, d, chunk_data_pos, chunk_data_len, ct)) {
+		if(!do_body(c, d, chunk_data_pos, chunk_data_len, chunk4cc.id)) {
 			errflag = 1;
 		}
 
@@ -902,9 +891,9 @@ static int do_chunk(deark *c, lctx *d, de_int64 pos, de_int64 bytes_avail,
 		d->level++;
 
 		// First 4 bytes of payload are the FORM type ID (usually "ILBM").
-		d->formtype = (de_uint32)de_getui32be(pos+8);
-		make_printable_code(d->formtype, printable_code, sizeof(printable_code));
-		de_dbg(c, "FORM type: '%s'\n", printable_code);
+		dbuf_read_fourcc(c->infile, pos+8, &formtype4cc, 0);
+		d->formtype = formtype4cc.id;
+		de_dbg(c, "FORM type: '%s'\n", formtype4cc.id_printable);
 
 		switch(d->formtype) {
 		case CODE_ILBM: de_declare_fmt(c, "IFF-ILBM"); break;

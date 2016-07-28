@@ -436,6 +436,13 @@ int dbuf_search(dbuf *f, const de_byte *needle, de_int64 needle_len,
 
 int dbuf_find_line(dbuf *f, de_int64 pos1, de_int64 *pcontent_len, de_int64 *ptotal_len);
 
+struct de_fourcc {
+  de_byte bytes[4];
+  de_uint32 id;
+  char id_printable[8];
+};
+void dbuf_read_fourcc(dbuf *f, de_int64 pos, struct de_fourcc *fcc, int is_reversed);
+
 ///////////////////////////////////////////
 
 void de_bitmap_write_to_file(struct deark_bitmap *img, const char *token, unsigned int createflags);

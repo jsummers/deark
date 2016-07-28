@@ -994,3 +994,22 @@ int dbuf_dump_to_file(dbuf *inf, const char *fn)
 	dbuf_close(tmpdbuf);
 	return 1;
 }
+
+static void reverse_fourcc(de_byte *buf)
+{
+	de_byte tmpc;
+	tmpc=buf[0]; buf[0]=buf[3]; buf[3]=tmpc;
+	tmpc=buf[1]; buf[1]=buf[2]; buf[2]=tmpc;
+}
+
+void dbuf_read_fourcc(dbuf *f, de_int64 pos, struct de_fourcc *fcc, int is_reversed)
+{
+	dbuf_read(f, fcc->bytes, pos, 4);
+	if(is_reversed) {
+		reverse_fourcc(fcc->bytes);
+	}
+	fcc->id = (de_uint32)de_getui32be_direct(fcc->bytes);
+	de_bytes_to_printable_sz(fcc->bytes, 4,
+		fcc->id_printable, sizeof(fcc->id_printable),
+		0, DE_ENCODING_ASCII);
+}

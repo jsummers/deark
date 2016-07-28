@@ -49,33 +49,14 @@ static void extract_ani_frame(deark *c, lctx *d, de_int64 pos, de_int64 len)
 	dbuf_create_file_from_slice(c->infile, pos, len, ext, NULL, 0);
 }
 
-static void reverse_fourcc(de_byte *buf)
-{
-	de_byte tmpc;
-	tmpc=buf[0]; buf[0]=buf[3]; buf[3]=tmpc;
-	tmpc=buf[1]; buf[1]=buf[2]; buf[2]=tmpc;
-}
-
-static void read_riff_fourcc(deark *c, lctx *d, de_int64 pos, de_byte *buf)
-{
-	de_read(buf, pos, 4);
-	if(d->char_codes_are_reversed) {
-		reverse_fourcc(buf);
-	}
-}
-
 static void process_riff_sequence(deark *c, lctx *d, de_int64 pos, de_int64 len1)
 {
 	de_int64 chunk_pos;
 	de_int64 chunk_data_pos;
 	de_int64 chunk_data_len;
 	de_int64 endpos;
-	de_byte chunk_id_buf[4];
-	de_uint32 chunk_id;
-	char chunk_id_printable[16];
-	de_byte list_id_buf[4];
-	de_uint32 list_id;
-	char list_id_printable[16];
+	struct de_fourcc chunk4cc;
+	struct de_fourcc listid4cc;
 
 	if(d->level >= 16) { // An arbitrary recursion limit
 		return;
@@ -85,29 +66,27 @@ static void process_riff_sequence(deark *c, lctx *d, de_int64 pos, de_int64 len1
 
 	while(pos < endpos) {
 		chunk_pos = pos;
-		read_riff_fourcc(c, d, pos, chunk_id_buf);
+		dbuf_read_fourcc(c->infile, pos, &chunk4cc, d->char_codes_are_reversed);
 		pos+=4;
-		chunk_id = (de_uint32)de_getui32be_direct(chunk_id_buf);
 		chunk_data_len = dbuf_getui32x(c->infile, pos, d->is_le);
 		pos+=4;
 		chunk_data_pos = pos;
 
-		de_bytes_to_printable_sz(chunk_id_buf, 4, chunk_id_printable, sizeof(chunk_id_printable), 0, DE_ENCODING_ASCII);
-		de_dbg(c, "chunk '%s' at %d, dlen=%d\n", chunk_id_printable, (int)chunk_pos, (int)chunk_data_len);
+		de_dbg(c, "chunk '%s' at %d, dlen=%d\n", chunk4cc.id_printable, (int)chunk_pos, (int)chunk_data_len);
 
 		if(chunk_data_pos + chunk_data_len > endpos) {
-			if(chunk_id==CHUNK_RIFF && chunk_pos==0 && chunk_data_len==endpos) {
+			if(chunk4cc.id==CHUNK_RIFF && chunk_pos==0 && chunk_data_len==endpos) {
 				// This apparent error, in which the RIFF chunk's length field gives the
 				// length of the entire file, is too common (particularly in .ani files)
 				// to warn about.
 				;
 			}
 			else if(chunk_data_pos+chunk_data_len > c->infile->len) {
-				de_warn(c, "Chunk '%s' at offset %d goes beyond end of file.\n", chunk_id_printable,
+				de_warn(c, "Chunk '%s' at offset %d goes beyond end of file.\n", chunk4cc.id_printable,
 					(int)chunk_pos);
 			}
 			else {
-				de_warn(c, "Chunk '%s' at offset %d exceeds its bounds.\n", chunk_id_printable,
+				de_warn(c, "Chunk '%s' at offset %d exceeds its bounds.\n", chunk4cc.id_printable,
 					(int)chunk_pos);
 			}
 
@@ -116,18 +95,16 @@ static void process_riff_sequence(deark *c, lctx *d, de_int64 pos, de_int64 len1
 		}
 
 		de_dbg_indent(c, 1);
-		if(d->riff_type==CODE_ACON && chunk_id==CHUNK_icon) {
+		if(d->riff_type==CODE_ACON && chunk4cc.id==CHUNK_icon) {
 			extract_ani_frame(c, d, pos, chunk_data_len);
 		}
-		else if(chunk_id==CHUNK_RIFF || chunk_id==CHUNK_RIFX || chunk_id==CHUNK_LIST)
+		else if(chunk4cc.id==CHUNK_RIFF || chunk4cc.id==CHUNK_RIFX || chunk4cc.id==CHUNK_LIST)
 		{
-			read_riff_fourcc(c, d, pos, list_id_buf);
-			list_id = (de_uint32)de_getui32be_direct(list_id_buf);
+			dbuf_read_fourcc(c->infile, pos, &listid4cc, d->char_codes_are_reversed);
 			if(d->level==0) {
-				d->riff_type = list_id; // Remember the file type for later
+				d->riff_type = listid4cc.id; // Remember the file type for later
 			}
-			de_bytes_to_printable_sz(list_id_buf, 4, list_id_printable, sizeof(list_id_printable), 0, DE_ENCODING_ASCII);
-			de_dbg(c, "%s type: '%s'\n", chunk_id_printable, list_id_printable);
+			de_dbg(c, "%s type: '%s'\n", chunk4cc.id_printable, listid4cc.id_printable);
 
 			d->level++;
 			process_riff_sequence(c, d, pos+4, chunk_data_len-4);

@@ -488,8 +488,7 @@ static int do_box(deark *c, struct de_boxesctx *bctx, de_int64 pos, de_int64 len
 	de_int64 header_len; // Not including UUIDs
 	de_int64 payload_len; // Including UUIDs
 	de_int64 total_len;
-	de_byte boxtype_buf[4];
-	char boxtype_printable[16];
+	struct de_fourcc box4cc;
 	char uuid_string[50];
 	int ret;
 
@@ -500,8 +499,8 @@ static int do_box(deark *c, struct de_boxesctx *bctx, de_int64 pos, de_int64 len
 
 	bctx->is_uuid = 0;
 	size32 = dbuf_getui32be(bctx->f, pos);
-	dbuf_read(bctx->f, boxtype_buf, pos+4, 4);
-	bctx->boxtype = (de_uint32)de_getui32be_direct(boxtype_buf);
+	dbuf_read_fourcc(bctx->f, pos+4, &box4cc, 0);
+	bctx->boxtype = box4cc.id;
 
 	if(size32>=8) {
 		header_len = 8;
@@ -534,15 +533,14 @@ static int do_box(deark *c, struct de_boxesctx *bctx, de_int64 pos, de_int64 len
 	}
 
 	if(c->debug_level>0) {
-		de_bytes_to_printable_sz(boxtype_buf, 4, boxtype_printable, sizeof(boxtype_printable), 0, DE_ENCODING_ASCII);
 		if(bctx->is_uuid) {
 			render_uuid(c, bctx->uuid, uuid_string, sizeof(uuid_string));
 			de_dbg(c, "box '%s'{%s} at %d, len=%" INT64_FMT "\n",
-				boxtype_printable, uuid_string,
+				box4cc.id_printable, uuid_string,
 				(int)pos, total_len);
 		}
 		else {
-			de_dbg(c, "box '%s' at %d, len=%" INT64_FMT ", dlen=%d\n", boxtype_printable,
+			de_dbg(c, "box '%s' at %d, len=%" INT64_FMT ", dlen=%d\n", box4cc.id_printable,
 				(int)pos, total_len, (int)payload_len);
 		}
 	}

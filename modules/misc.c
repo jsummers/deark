@@ -991,37 +991,33 @@ static void de_run_png(deark *c, de_module_params *mparams)
 {
 	de_int64 pos;
 	de_int64 chunk_data_len;
-	de_int64 chunk_id;
-	de_int64 prev_chunk_id = 0;
+	de_int32 prev_chunk_id = 0;
 	int suppress_idat_dbg = 0;
-	de_byte buf[4];
-	char chunk_id_printable[8];
+	struct de_fourcc chunk4cc;
 
 	pos = 8;
 	while(pos < c->infile->len) {
 		chunk_data_len = de_getui32be(pos);
 		if(pos + 8 + chunk_data_len + 4 > c->infile->len) break;
-		de_read(buf, pos+4, 4);
-		de_bytes_to_printable_sz(buf, 4, chunk_id_printable, sizeof(chunk_id_printable), 0, DE_ENCODING_ASCII);
-		chunk_id = de_getui32be_direct(buf);
+		dbuf_read_fourcc(c->infile, pos+4, &chunk4cc, 0);
 
-		if(chunk_id==PNGID_IDAT && suppress_idat_dbg) {
+		if(chunk4cc.id==PNGID_IDAT && suppress_idat_dbg) {
 			;
 		}
-		else if(chunk_id==PNGID_IDAT && prev_chunk_id==PNGID_IDAT && c->debug_level<2) {
+		else if(chunk4cc.id==PNGID_IDAT && prev_chunk_id==PNGID_IDAT && c->debug_level<2) {
 			de_dbg(c, "(more IDAT chunks follow)\n");
 			suppress_idat_dbg = 1;
 		}
 		else {
-			de_dbg(c, "'%s' chunk at %d\n", chunk_id_printable, (int)pos);
-			if(chunk_id!=PNGID_IDAT) suppress_idat_dbg = 0;
+			de_dbg(c, "'%s' chunk at %d\n", chunk4cc.id_printable, (int)pos);
+			if(chunk4cc.id!=PNGID_IDAT) suppress_idat_dbg = 0;
 		}
 
-		if(chunk_id==PNGID_iCCP) { // iCCP
+		if(chunk4cc.id==PNGID_iCCP) { // iCCP
 			do_png_iccp(c, pos+8, chunk_data_len);
 		}
 		pos += 8 + chunk_data_len + 4;
-		prev_chunk_id = chunk_id;
+		prev_chunk_id = chunk4cc.id;
 	}
 }
 
