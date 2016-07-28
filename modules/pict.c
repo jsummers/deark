@@ -721,14 +721,12 @@ static int handler_a1(deark *c, lctx *d, de_int64 opcode, de_int64 data_pos, de_
 	*bytes_used = 4+len;
 
 	if(kind==100 && len>=4) {
-		de_byte sig[4];
-		char sig_printable[8];
+		struct de_fourcc sig4cc;
 
-		de_read(sig, data_pos+4, 4);
-		de_bytes_to_printable_sz(sig, 4, sig_printable, sizeof(sig_printable), 0, DE_ENCODING_ASCII);
+		dbuf_read_fourcc(c->infile, data_pos+4, &sig4cc, 0);
 		de_dbg(c, "application comment, signature=\"%s\" (%02x %02x %02x %02x)\n",
-			sig_printable, (unsigned int)sig[0], (unsigned int)sig[1],
-			(unsigned int)sig[2], (unsigned int)sig[3]);
+			sig4cc.id_printable, (unsigned int)sig4cc.bytes[0], (unsigned int)sig4cc.bytes[1],
+			(unsigned int)sig4cc.bytes[2], (unsigned int)sig4cc.bytes[3]);
 	}
 	else if(kind==224) {
 		do_iccprofile_item(c, d, data_pos+4, len);

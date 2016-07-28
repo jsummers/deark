@@ -16,8 +16,7 @@ typedef struct localctx_struct {
 	int idsc_found;
 	de_int64 idsc_size;
 	de_int64 idat_data_size; // "Data size" reported in idsc (0=unknown)
-	de_byte cmpr_type[4];
-	char cmpr_type_printable[8];
+	struct de_fourcc cmpr4cc;
 
 	de_int64 width, height;
 	de_int64 bitdepth;
@@ -36,10 +35,8 @@ static int do_read_idsc(deark *c, lctx *d, de_int64 pos, de_int64 len)
 	d->idsc_size = de_getui32be(pos);
 	de_dbg(c, "idsc size: %d\n", (int)d->idsc_size);
 
-	de_read(d->cmpr_type, pos+4, 4);
-	de_bytes_to_printable_sz(d->cmpr_type, 4, d->cmpr_type_printable,
-		sizeof(d->cmpr_type_printable), 0, DE_ENCODING_ASCII);
-	de_dbg(c, "compression type: \"%s\"\n", d->cmpr_type_printable);
+	dbuf_read_fourcc(c->infile, pos+4, &d->cmpr4cc, 0);
+	de_dbg(c, "compression type: \"%s\"\n", d->cmpr4cc.id_printable);
 
 	if(len<86) goto done;
 	if(d->idsc_size<86) goto done;
@@ -114,26 +111,26 @@ static void do_write_image(deark *c, lctx *d)
 	dsize = (d->idat_data_size>0) ? d->idat_data_size : d->idat_size;
 	if(dsize<=0) return;
 
-	if(!de_memcmp(d->cmpr_type, "raw ", 4)) {
+	if(!de_memcmp(d->cmpr4cc.bytes, "raw ", 4)) {
 		do_decode_raw(c, d);
 	}
-	else if(!de_memcmp(d->cmpr_type, "jpeg", 4)) {
+	else if(!de_memcmp(d->cmpr4cc.bytes, "jpeg", 4)) {
 		dbuf_create_file_from_slice(c->infile, d->idat_pos, dsize, "jpg", NULL, 0);
 	}
-	else if(!de_memcmp(d->cmpr_type, "tiff", 4)) {
+	else if(!de_memcmp(d->cmpr4cc.bytes, "tiff", 4)) {
 		dbuf_create_file_from_slice(c->infile, d->idat_pos, dsize, "tif", NULL, 0);
 	}
-	else if(!de_memcmp(d->cmpr_type, "gif ", 4)) {
+	else if(!de_memcmp(d->cmpr4cc.bytes, "gif ", 4)) {
 		dbuf_create_file_from_slice(c->infile, d->idat_pos, dsize, "gif", NULL, 0);
 	}
-	else if(!de_memcmp(d->cmpr_type, "png ", 4)) {
+	else if(!de_memcmp(d->cmpr4cc.bytes, "png ", 4)) {
 		dbuf_create_file_from_slice(c->infile, d->idat_pos, dsize, "png", NULL, 0);
 	}
-	else if(!de_memcmp(d->cmpr_type, "kpcd", 4)) { // Kodak Photo CD
+	else if(!de_memcmp(d->cmpr4cc.bytes, "kpcd", 4)) { // Kodak Photo CD
 		dbuf_create_file_from_slice(c->infile, d->idat_pos, dsize, "pcd", NULL, 0);
 	}
 	else {
-		de_err(c, "Unsupported compression type: \"%s\"\n", d->cmpr_type_printable);
+		de_err(c, "Unsupported compression type: \"%s\"\n", d->cmpr4cc.id_printable);
 	}
 }
 

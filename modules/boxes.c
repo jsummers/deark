@@ -84,17 +84,14 @@ static void apply_brand(deark *c, lctx *d, de_uint32 brand_id)
 
 static void do_box_ftyp(deark *c, lctx *d, struct de_boxesctx *bctx)
 {
-	de_byte brand_buf[4];
-	char brand_printable[16];
 	de_int64 i;
 	de_int64 num_compat_brands;
-	de_uint32 brand_id;
+	struct de_fourcc brand4cc;
 
 	if(bctx->payload_len<4) return;
-	dbuf_read(bctx->f, brand_buf, bctx->payload_pos, 4);
-	d->major_brand = (de_uint32)de_getui32be_direct(brand_buf);
-	de_bytes_to_printable_sz(brand_buf, 4, brand_printable, sizeof(brand_printable), 0, DE_ENCODING_ASCII);
-	de_dbg(c, "major brand: '%s'\n", brand_printable);
+	dbuf_read_fourcc(bctx->f, bctx->payload_pos, &brand4cc, 0);
+	d->major_brand = brand4cc.id;
+	de_dbg(c, "major brand: '%s'\n", brand4cc.id_printable);
 	apply_brand(c, d, d->major_brand);
 
 	if(bctx->payload_len>=12)
@@ -103,12 +100,10 @@ static void do_box_ftyp(deark *c, lctx *d, struct de_boxesctx *bctx)
 		num_compat_brands = 0;
 
 	for(i=0; i<num_compat_brands; i++) {
-		dbuf_read(bctx->f, brand_buf, bctx->payload_pos + 8 + i*4, 4);
-		brand_id = (de_uint32)de_getui32be_direct(brand_buf);
-		if(brand_id==0) continue; // Placeholder. Ignore.
-		de_bytes_to_printable_sz(brand_buf, 4, brand_printable, sizeof(brand_printable), 0, DE_ENCODING_ASCII);
-		de_dbg(c, "compatible brand: '%s'\n", brand_printable);
-		apply_brand(c, d, brand_id);
+		dbuf_read_fourcc(bctx->f, bctx->payload_pos + 8 + i*4, &brand4cc, 0);
+		if(brand4cc.id==0) continue; // Placeholder. Ignore.
+		de_dbg(c, "compatible brand: '%s'\n", brand4cc.id_printable);
+		apply_brand(c, d, brand4cc.id);
 	}
 }
 
@@ -306,8 +301,7 @@ static void do_box_stsd(deark *c, lctx *d, struct de_boxesctx *bctx)
 	de_int64 pos;
 	de_int64 num_entries;
 	de_int64 entry_size;
-	de_byte data_format_buf[4];
-	char data_format_printable[16];
+	struct de_fourcc fmt4cc;
 
 	if(bctx->payload_len<8) return;
 
@@ -327,9 +321,8 @@ static void do_box_stsd(deark *c, lctx *d, struct de_boxesctx *bctx)
 		if(entry_size<16) break;
 
 		de_dbg_indent(c, 1);
-		dbuf_read(bctx->f, data_format_buf, pos+4, 4);
-		de_bytes_to_printable_sz(data_format_buf, 4, data_format_printable, sizeof(data_format_printable), 0, DE_ENCODING_ASCII);
-		de_dbg(c, "data format: '%s'\n", data_format_printable);
+		dbuf_read_fourcc(bctx->f, pos+4, &fmt4cc, 0);
+		de_dbg(c, "data format: '%s'\n", fmt4cc.id_printable);
 		de_dbg_indent(c, -1);
 
 		pos += entry_size;

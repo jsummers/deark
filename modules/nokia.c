@@ -258,32 +258,28 @@ static int read_nsl_chunk_sequence(deark *c, lctx *d, de_int64 pos, de_int64 len
 
 static int read_nsl_chunk(deark *c, lctx *d, de_int64 pos1, de_int64 *plen)
 {
-	de_byte chunk_id_buf[4];
-	char chunk_id_printable[8];
-	de_uint32 chunk_id;
 	de_int64 payload_len;
 	de_int64 pos;
+	struct de_fourcc chunk4cc;
 
 	pos = pos1;
-	de_read(chunk_id_buf, pos, 4);
-	chunk_id = (de_uint32)de_getui32be_direct(chunk_id_buf);
-	de_bytes_to_printable_sz(chunk_id_buf, 4, chunk_id_printable, sizeof(chunk_id_printable), 0, DE_ENCODING_ASCII);
+	dbuf_read_fourcc(c->infile, pos, &chunk4cc, 0);
 
 	pos += 4;
 	payload_len = de_getui16be(pos);
 	pos += 2;
 
-	de_dbg(c, "chunk '%s' at %d, dlen=%d, tlen=%d\n", chunk_id_printable, (int)pos1,
+	de_dbg(c, "chunk '%s' at %d, dlen=%d, tlen=%d\n", chunk4cc.id_printable, (int)pos1,
 		(int)payload_len, (int)(6+payload_len));
 
-	if(chunk_id==CODE_FORM && d->nesting_level==0) {
+	if(chunk4cc.id==CODE_FORM && d->nesting_level==0) {
 		d->nesting_level++;
 		de_dbg_indent(c, 1);
 		read_nsl_chunk_sequence(c, d, pos, payload_len);
 		de_dbg_indent(c, -1);
 		d->nesting_level--;
 	}
-	else if(chunk_id==CODE_NSLD && d->nesting_level==1 && !d->done_flag) {
+	else if(chunk4cc.id==CODE_NSLD && d->nesting_level==1 && !d->done_flag) {
 		nsl_read_bitmap(c, d, pos, payload_len);
 	}
 

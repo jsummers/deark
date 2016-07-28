@@ -21,7 +21,7 @@ typedef struct localctx_struct {
 // Data related to a "bank". Most files consist of one bank, but some have
 // multiple banks.
 struct amosbank {
-	de_uint32 banktype;
+	struct de_fourcc banktype4cc;
 	de_int64 bank_len;
 	de_int64 bank_data_len;
 	dbuf *f;
@@ -559,38 +559,34 @@ static int do_read_AmBk(deark *c, lctx *d, struct amosbank *bk)
 static int do_read_bank(deark *c, lctx *d, de_int64 pos, de_int64 *bytesused)
 {
 	struct amosbank *bk = NULL;
-	de_byte banktype_buf[4];
-	char banktype_printable[8];
 	int ret;
 	int retval = 0;
 
 	bk = de_malloc(c, sizeof(struct amosbank));
 	bk->f = dbuf_open_input_subfile(c->infile, pos, c->infile->len - pos);
 
-	dbuf_read(bk->f, banktype_buf, 0, 4);
-	bk->banktype = (de_uint32)de_getui32be_direct(banktype_buf);
-	de_bytes_to_printable_sz(banktype_buf, 4, banktype_printable, sizeof(banktype_printable), 0, DE_ENCODING_ASCII);
-	de_dbg(c, "bank type '%s'\n", banktype_printable);
+	dbuf_read_fourcc(bk->f, 0, &bk->banktype4cc, 0);
+	de_dbg(c, "bank type '%s'\n", bk->banktype4cc.id_printable);
 
-	switch(bk->banktype) {
+	switch(bk->banktype4cc.id) {
 	case CODE_AmIc: bk->file_ext = "icon.abk"; break;
 	case CODE_AmSp: bk->file_ext = "sprite.abk"; break;
 	case CODE_AmBk: bk->file_ext = "AmBk.abk"; break;
 	default: bk->file_ext = "abk";
 	}
 
-	if(bk->banktype==CODE_AmIc || bk->banktype==CODE_AmSp) {
+	if(bk->banktype4cc.id==CODE_AmIc || bk->banktype4cc.id==CODE_AmSp) {
 		ret = do_read_sprite(c, d, bk);
 		retval = ret;
 		*bytesused = bk->bank_len;
 	}
-	else if(bk->banktype==CODE_AmBk) {
+	else if(bk->banktype4cc.id==CODE_AmBk) {
 		ret = do_read_AmBk(c, d, bk);
 		retval = ret;
 		*bytesused = bk->bank_len;
 	}
 	else {
-		de_err(c, "Unsupported bank type: '%s'\n", banktype_printable);
+		de_err(c, "Unsupported bank type: '%s'\n", bk->banktype4cc.id_printable);
 	}
 
 	if(bk) {

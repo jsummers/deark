@@ -533,9 +533,6 @@ static void do_glowicons(deark *c, lctx *d, de_int64 pos)
 	de_int64 startpos;
 	de_int64 endpos;
 	de_int64 len;
-	de_byte chunk_id_buf[4];
-	char chunk_id_printable[8];
-	de_uint32 chunk_id;
 	int indent_count = 0;
 
 	startpos = pos;
@@ -552,18 +549,18 @@ static void do_glowicons(deark *c, lctx *d, de_int64 pos)
 	pos+=12; // Skip past the "FORM" id, length, and FORM type code
 
 	while(pos < endpos) {
-		de_read(chunk_id_buf, pos, 4);
-		chunk_id = (de_uint32)de_getui32be_direct(chunk_id_buf);
-		de_bytes_to_printable_sz(chunk_id_buf, 4, chunk_id_printable, sizeof(chunk_id_printable), 0, DE_ENCODING_ASCII);
+		struct de_fourcc chunk4cc;
+
+		dbuf_read_fourcc(c->infile, pos, &chunk4cc, 0);
 		len = de_getui32be(pos+4);
 
-		de_dbg(c, "chunk '%s' at %d, dlen=%d\n", chunk_id_printable, (int)pos, (int)len);
+		de_dbg(c, "chunk '%s' at %d, dlen=%d\n", chunk4cc.id_printable, (int)pos, (int)len);
 		pos+=8;
 
 		de_dbg_indent(c, 1);
 		indent_count++;
 
-		switch(chunk_id) {
+		switch(chunk4cc.id) {
 		case CODE_FACE: // FACE (parameters)
 			d->glowicons_width = 1+(de_int64)de_getbyte(pos);
 			d->glowicons_height = 1+(de_int64)de_getbyte(pos+1);
