@@ -1,7 +1,7 @@
 // This file is part of Deark, by Jason Summers.
 // This software is in the public domain. See the file COPYING for details.
 
-// [Description]
+// ICC Profile format
 
 #include <deark-config.h>
 #include <deark-private.h>
@@ -89,6 +89,44 @@ static void do_read_header(deark *c, lctx *d, de_int64 pos)
 	de_dbg_indent(c, -1);
 }
 
+static void do_tag(deark *c, lctx *d, de_int64 tagindex, de_int64 pos_in_tagtable)
+{
+	struct de_fourcc tag4cc;
+	de_int64 tagdataoffset;
+	de_int64 tagdatalen;
+
+	dbuf_read_fourcc(c->infile, pos_in_tagtable, &tag4cc, 0);
+	tagdataoffset = de_getui32be(pos_in_tagtable+4);
+	tagdatalen = de_getui32be(pos_in_tagtable+8);
+	de_dbg(c, "tag #%d \"%s\" offset=%d dlen=%d\n", (int)tagindex, tag4cc.id_printable,
+		(int)tagdataoffset, (int)tagdatalen);
+
+}
+
+static void do_read_tags(deark *c, lctx *d, de_int64 pos1)
+{
+	de_int64 tagindex;
+	de_int64 num_tags;
+
+	de_dbg(c, "tag table at %d\n", (int)pos1);
+	de_dbg_indent(c, 1);
+
+	num_tags = de_getui32be(pos1);
+	de_dbg(c, "number of tags: %d\n", (int)num_tags);
+	if(num_tags>500) {
+		de_err(c, "Invalid or excessive number of tags: %d\n", (int)num_tags);
+		goto done;
+	}
+	de_dbg(c, "expected offset of data segment: %d\n", (int)(pos1+4+12*num_tags));
+
+	for(tagindex=0; tagindex<num_tags; tagindex++) {
+		do_tag(c, d, tagindex, pos1+4+12*tagindex);
+	}
+
+done:
+	de_dbg_indent(c, -1);
+}
+
 static void de_run_iccprofile(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
@@ -100,6 +138,7 @@ static void de_run_iccprofile(deark *c, de_module_params *mparams)
 	pos = 0;
 	do_read_header(c, d, pos);
 	pos += 128;
+	do_read_tags(c, d, pos);
 
 	de_free(c, d);
 }
