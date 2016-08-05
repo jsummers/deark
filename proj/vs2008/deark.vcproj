@@ -570,6 +570,10 @@
 				>
 			</File>
 			<File
+				RelativePath="..\..\modules\iccprofile.c"
+				>
+			</File>
+			<File
 				RelativePath="..\..\modules\icns.c"
 				>
 			</File>
