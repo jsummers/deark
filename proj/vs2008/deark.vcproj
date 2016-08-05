@@ -646,6 +646,10 @@
 				>
 			</File>
 			<File
+				RelativePath="..\..\modules\png.c"
+				>
+			</File>
+			<File
 				RelativePath="..\..\modules\portfolio.c"
 				>
 			</File>
