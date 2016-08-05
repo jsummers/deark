@@ -183,6 +183,10 @@ int de_uncompress_zlib(dbuf *inf, de_int64 inputstart, de_int64 inputsize, dbuf 
 	int stream_open_flag = 0;
 
 	c = inf->c;
+	if(inputsize<0) {
+		de_err(c, "Internal error\n");
+		goto done;
+	}
 
 	de_memset(&strm,0,sizeof(strm));
 	ret = mz_inflateInit(&strm);

@@ -37,7 +37,7 @@ static void do_png_iccp(deark *c, de_int64 pos, de_int64 len)
 		de_finfo_set_name_from_sz(c, fi, (const char*)prof_name, DE_ENCODING_LATIN1);
 	f = dbuf_create_output_file(c, "icc", fi, DE_CREATEFLAG_IS_AUX);
 	de_uncompress_zlib(c->infile, pos + prof_name_len + 2,
-		len - (pos + prof_name_len + 2), f);
+		len - (prof_name_len + 2), f);
 	dbuf_close(f);
 	de_finfo_destroy(c, fi);
 }
@@ -84,7 +84,8 @@ static void de_run_png(deark *c, de_module_params *mparams)
 			suppress_idat_dbg = 1;
 		}
 		else {
-			de_dbg(c, "'%s' chunk at %d\n", chunk4cc.id_printable, (int)pos);
+			de_dbg(c, "'%s' chunk at %d dpos=%d dlen=%d\n", chunk4cc.id_printable, (int)pos,
+				(int)(pos+8), (int)chunk_data_len);
 			if(chunk4cc.id!=PNGID_IDAT) suppress_idat_dbg = 0;
 		}
 
