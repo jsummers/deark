@@ -9,6 +9,9 @@ DE_DECLARE_MODULE(de_module_bmp);
 
 #define FILEHEADER_SIZE 14
 
+#define CODE_LINK 0x4c494e4bU
+#define CODE_MBED 0x4d424544U
+
 struct bitfieldsinfo {
 	de_uint32 mask;
 	unsigned int shift;
@@ -50,6 +53,11 @@ typedef struct localctx_struct {
 #define CMPR_PNG        15
 #define CMPR_HUFFMAN1D  16
 	int compression_type;
+
+	struct de_fourcc cstype4cc;
+	de_int64 profile_offset_raw;
+	de_int64 profile_offset;
+	de_int64 profile_size;
 
 	de_int64 rowspan;
 	struct bitfieldsinfo bitfield[4];
@@ -318,7 +326,7 @@ static int read_infoheader(deark *c, lctx *d, de_int64 pos)
 	de_dbg(c, "number of palette colors: %d\n", (int)d->pal_entries);
 
 	// Note that after 40 bytes, WINV345 and OS2V2 header fields are different,
-	// so we may have to pay more attention to the version.
+	// so we have to pay more attention to the version.
 
 	if(d->bitfields_type==BF_IN_HEADER) {
 		do_read_bitfields(c, d, pos+40, d->infohdrsize>=56 ? 16 : 12);
@@ -328,10 +336,67 @@ static int read_infoheader(deark *c, lctx *d, de_int64 pos)
 		set_default_bitfields(c, d);
 	}
 
+	if(d->version==DE_BMPVER_WINV345 && d->infohdrsize>=108) {
+		dbuf_read_fourcc(c->infile, pos+56, &d->cstype4cc, 1);
+		de_dbg(c, "CSType: 0x%08x ('%s')\n", (unsigned int)d->cstype4cc.id,
+			d->cstype4cc.id_printable);
+	}
+
+	if(d->version==DE_BMPVER_WINV345 && d->infohdrsize>=124 &&
+		(d->cstype4cc.id==CODE_MBED || d->cstype4cc.id==CODE_LINK))
+	{
+		d->profile_offset_raw = de_getui32le(pos+112);
+		de_dbg(c, "profile offset: %d+%d\n", FILEHEADER_SIZE,
+			(int)d->profile_offset_raw);
+		d->profile_size = de_getui32le(pos+116);
+		de_dbg(c, "profile size: %d\n", (int)d->profile_size);
+	}
+
 	retval = 1;
 done:
 	de_dbg_indent(c, -1);
 	return retval;
+}
+
+static void do_read_linked_profile(deark *c, lctx *d)
+{
+	de_ucstring *fname = NULL;
+	char buf[300];
+
+	de_dbg(c, "linked profile filename at %d\n", (int)d->profile_offset);
+	fname = ucstring_create(c);
+	dbuf_read_to_ucstring(c->infile, d->profile_offset, d->profile_size, fname,
+		DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_WINDOWS1252);
+	ucstring_to_printable_sz(fname, buf, sizeof(buf));
+	de_dbg_indent(c, 1);
+	de_dbg(c, "profile filename: \"%s\"\n", buf);
+	de_dbg_indent(c, -1);
+	ucstring_destroy(fname);
+}
+
+static void do_read_embedded_profile(deark *c, lctx *d)
+{
+	de_dbg(c, "embedded profile at %d, size=%d\n", (int)d->profile_offset,
+		(int)d->profile_size);
+	de_dbg_indent(c, 1);
+	dbuf_create_file_from_slice(c->infile, d->profile_offset, d->profile_size, "icc",
+		NULL, DE_CREATEFLAG_IS_AUX);
+	de_dbg_indent(c, -1);
+}
+
+static void do_read_profile(deark *c, lctx *d)
+{
+	if(d->version!=DE_BMPVER_WINV345) return;
+	if(d->infohdrsize<124) return;
+	if(d->profile_offset_raw==0 || d->profile_size==0) return;
+	d->profile_offset = FILEHEADER_SIZE + d->profile_offset_raw;
+	if(d->profile_offset+d->profile_size > c->infile->len) return;
+	if(d->cstype4cc.id==CODE_LINK) {
+		do_read_linked_profile(c, d);
+	}
+	else if(d->cstype4cc.id==CODE_MBED) {
+		do_read_embedded_profile(c, d);
+	}
 }
 
 // Some OS/2v2 files exist with bad (3-bytes/color) palettes.
@@ -657,6 +722,7 @@ static void de_run_bmp(deark *c, de_module_params *mparams)
 	d->pal_pos = pos;
 	do_read_palette(c, d);
 	do_image(c, d);
+	do_read_profile(c, d);
 
 done:
 	de_free(c, d);
