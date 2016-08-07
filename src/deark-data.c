@@ -1,6 +1,6 @@
-// This file is part of Deark, by Jason Summers.
-// This software is in the public domain. See the file COPYING for details.
-// The tables of data contained in this file are not necessarily public domain.
+// This file is part of Deark.
+// Copyright (C) 2016 Jason Summers
+// See the file COPYING for terms of use.
 
 // deark-data.c
 //

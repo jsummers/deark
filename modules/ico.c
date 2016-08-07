@@ -1,5 +1,6 @@
-// This file is part of Deark, by Jason Summers.
-// This software is in the public domain. See the file COPYING for details.
+// This file is part of Deark.
+// Copyright (C) 2016 Jason Summers
+// See the file COPYING for terms of use.
 
 // Windows ICO and CUR formats
 
