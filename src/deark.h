@@ -14,7 +14,8 @@
 #define de_gnuc_attribute(x)
 #endif
 
-#define DE_VERSION_NUMBER 0x01030101
+#define DE_VERSION_NUMBER 0x01040000
+#define DE_VERSION_SUFFIX "-prerelease"
 
 #ifdef DE_WINDOWS
 

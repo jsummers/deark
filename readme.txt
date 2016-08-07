@@ -138,10 +138,24 @@ Command-line options:
  
 === Terms of use ===
 
-Public domain. See the file COPYING.
+Starting with version 1.4.x, Deark is distributed under an MIT-style license.
+See the "COPYING" file for the license text.
 
-Note that future versions of this software might include code that is not
-public domain.
+The main Deark license does not necessarily apply to the code in the "foreign"
+subdirectory. Each file there may have its own licensing terms.
+
+Out of necessity, Deark contains knowledge about how to decode various file
+formats. This knowledge includes data structures, algorithms, tables, color
+palettes, etc. The author(s) of Deark make no intellectual property claims to
+this essential knowledge, but they cannot guarantee that no one else will
+attempt to do so.
+
+Deark contains at least one bitmapped font, which has been reported to be in
+the public domain.
+
+Prior to version 1.4.x, Deark was released as public domain software. This
+means that much of this code may be in the public domain, assuming that is
+legally permissible in your jurisdiction.
 
 === Mission statement ===
 
@@ -184,6 +198,7 @@ Thanks to Mike Frysinger, and the authors of compress/ncompress, for liblzw.
 === Authors ===
 
 Written by Jason Summers, 2014-2016.
+Copyright (C) 2016 Jason Summers
 <http://entropymine.com/deark/>
 <https://github.com/jsummers/deark>
 
