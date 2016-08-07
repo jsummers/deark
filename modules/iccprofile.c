@@ -28,7 +28,7 @@ struct datatypeinfo {
 static const struct datatypeinfo datatypeinfo_arr[] = {
 	{ 0x58595A20U, "XYZ", NULL }, // XYZ
 	{ 0x6368726DU, "chromaticity", NULL }, // chrm
-	{ 0x636c7274U, "colorantTable", NULL }, // clrt
+	{ 0x636C7274U, "colorantTable", NULL }, // clrt
 	{ 0x63757276U, "curve", NULL }, // curv
 	{ 0x64617461U, "data", NULL }, // data
 	{ 0x64657363U, "textDescription", NULL }, // desc
@@ -42,6 +42,36 @@ static const struct datatypeinfo datatypeinfo_arr[] = {
 	{ 0x75693038U, "uInt8Array", NULL }, // ui08
 	{ 0x75693332U, "uInt32Array", NULL }, // ui32
 	{ 0x76696577U, "viewingConditions", NULL } // view
+};
+
+struct taginfo {
+	de_uint32 id;
+	const char *name;
+	void *reserved;
+};
+static const struct taginfo taginfo_arr[] = {
+	{ 0x41324230U, "AToB0", NULL }, // A2B0
+	{ 0x41324231U, "AToB1", NULL }, // A2B1
+	{ 0x41324232U, "AToB2", NULL }, // A2B2
+	{ 0x62545243U, "blueTRC", NULL }, // bTRC
+	{ 0x6258595AU, "blueColorant", NULL }, // bXYZ
+	{ 0x626B7074U, "mediaBlackPoint", NULL }, // bkpt
+	{ 0x63686164U, "chromaticAdaptation", NULL }, // chad
+	{ 0x636C7274U, "colorantTable", NULL }, // clrt
+	{ 0x63707274U, "copyright", NULL }, // cprt
+	{ 0x64657363U, "profileDescription", NULL }, // desc
+	{ 0x646D6464U, "deviceModelDesc", NULL }, // dmdd
+	{ 0x646D6E64U, "deviceMfgDesc", NULL }, // dmnd
+	{ 0x67545243U, "greenTRC", NULL }, // gTRC
+	{ 0x6758595AU, "greenColorant", NULL }, // gXYZ
+	{ 0x6C756D69U, "luminance", NULL }, // lumi
+	{ 0x6D656173U, "measurement", NULL }, // meas
+	{ 0x72545243U, "redTRC", NULL }, // rTRC
+	{ 0x7258595AU, "redColorant", NULL }, // rXYZ
+	{ 0x74617267U, "charTarget", NULL }, // targ
+	{ 0x74656368U, "technology", NULL }, // tech
+	{ 0x76756564U, "viewingCondDesc", NULL }, // vued
+	{ 0x77747074U, "mediaWhitePoint", NULL } // wtpt
 };
 
 static void fourcc_or_printable_or_none(const struct de_fourcc *tmp4cc,
@@ -149,18 +179,30 @@ static const struct datatypeinfo *lookup_datatypeinfo(de_uint32 id)
 	return NULL;
 }
 
+static const struct taginfo *lookup_taginfo(de_uint32 id)
+{
+	de_int64 k;
+	for(k=0; k<ITEMS_IN_ARRAY(taginfo_arr); k++) {
+		if(taginfo_arr[k].id == id) {
+			return &taginfo_arr[k];
+		}
+	}
+	return NULL;
+}
+
 static void do_tag_data(deark *c, lctx *d, const struct de_fourcc *tag4cc,
+	const struct taginfo *ti,
 	de_int64 tagdataoffset, de_int64 tagdatalen)
 {
 	struct de_fourcc tagtype4cc;
 	const struct datatypeinfo *dti;
-	const char *tname;
+	const char *dtname;
 
 	dbuf_read_fourcc(c->infile, tagdataoffset, &tagtype4cc, 0);
 	dti = lookup_datatypeinfo(tagtype4cc.id);
-	if(dti && dti->name) tname=dti->name;
-	else tname="?";
-	de_dbg(c, "data type: '%s' (%s)\n", tagtype4cc.id_printable, tname);
+	if(dti && dti->name) dtname=dti->name;
+	else dtname="?";
+	de_dbg(c, "data type: '%s' (%s)\n", tagtype4cc.id_printable, dtname);
 
 	if(!dti) return;
 
@@ -172,17 +214,25 @@ static void do_tag_data(deark *c, lctx *d, const struct de_fourcc *tag4cc,
 static void do_tag(deark *c, lctx *d, de_int64 tagindex, de_int64 pos_in_tagtable)
 {
 	struct de_fourcc tag4cc;
+	const struct taginfo *ti;
+	const char *tname;
 	de_int64 tagdataoffset;
 	de_int64 tagdatalen;
 
 	dbuf_read_fourcc(c->infile, pos_in_tagtable, &tag4cc, 0);
 	tagdataoffset = de_getui32be(pos_in_tagtable+4);
 	tagdatalen = de_getui32be(pos_in_tagtable+8);
-	de_dbg(c, "tag #%d '%s' offset=%d dlen=%d\n", (int)tagindex, tag4cc.id_printable,
+	ti = lookup_taginfo(tag4cc.id);
+	if(ti && ti->name)
+		tname = ti->name;
+	else
+		tname = "?";
+	de_dbg(c, "tag #%d '%s' (%s) offset=%d dlen=%d\n", (int)tagindex,
+		tag4cc.id_printable, tname,
 		(int)tagdataoffset, (int)tagdatalen);
 
 	de_dbg_indent(c, 1);
-	do_tag_data(c, d, &tag4cc, tagdataoffset, tagdatalen);
+	do_tag_data(c, d, &tag4cc, ti, tagdataoffset, tagdatalen);
 	de_dbg_indent(c, -1);
 }
 
