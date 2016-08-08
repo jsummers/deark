@@ -361,6 +361,10 @@
 				>
 			</File>
 			<File
+				RelativePath="..\..\src\deark-ucstring.c"
+				>
+			</File>
+			<File
 				RelativePath="..\..\src\deark-unix.c"
 				>
 				<FileConfiguration
