@@ -58,6 +58,7 @@ struct de_ucstring_struct {
 	de_int32 *str;
 	de_int64 len; // len and alloc are measured in characters, not bytes
 	de_int64 alloc;
+	char *tmp_string;
 };
 typedef struct de_ucstring_struct de_ucstring;
 
@@ -611,6 +612,10 @@ void ucstring_to_sz(de_ucstring *s, char *szbuf, size_t szbuf_len, int encoding)
 void ucstring_to_printable_sz(de_ucstring *s, char *szbuf, size_t szbuf_len);
 
 void ucstring_make_printable(de_ucstring *s);
+
+// Returns a pointer to a NUL-terminated string, that is valid until the
+// next ucstring_* function is called on that string.
+const char *ucstring_get_printable_sz(de_ucstring *s);
 
 void de_write_codepoint_to_html(deark *c, dbuf *f, de_int32 ch);
 

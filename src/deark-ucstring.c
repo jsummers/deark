@@ -22,9 +22,16 @@ de_ucstring *ucstring_create(deark *c)
 // 'newlen' is expected to be no larger than the string's current length.
 void ucstring_truncate(de_ucstring *s, de_int64 newlen)
 {
-	if(!s && newlen==0) return;
+	if(!s) return;
 	if(newlen<0) newlen=0;
 	if(newlen<s->len) s->len = newlen;
+
+	if(s->tmp_string) {
+		// There's no requirement to free tmp_string here, but it's no
+		// longer needed, and maybe it's nice to have a way to do it.
+		de_free(s->c, s->tmp_string);
+		s->tmp_string = NULL;
+	}
 }
 
 // Delete the first U+0000 byte, and everything after it.
@@ -68,6 +75,7 @@ void ucstring_destroy(de_ucstring *s)
 	if(s) {
 		c = s->c;
 		de_free(c, s->str);
+		de_free(c, s->tmp_string);
 		de_free(c, s);
 	}
 }
@@ -264,4 +272,20 @@ void ucstring_make_printable(de_ucstring *s)
 			s->str[i] = '_';
 		}
 	}
+}
+
+const char *ucstring_get_printable_sz(de_ucstring *s)
+{
+	de_int64 allocsize;
+
+	if(!s) return NULL;
+
+	if(s->tmp_string)
+		de_free(s->c, s->tmp_string);
+
+	allocsize = s->len * 4 + 1;
+	s->tmp_string = de_malloc(s->c, allocsize);
+
+	ucstring_to_printable_sz(s, s->tmp_string, (size_t)allocsize);
+	return s->tmp_string;
 }

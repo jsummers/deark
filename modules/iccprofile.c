@@ -104,16 +104,17 @@ static void fourcc_or_printable_or_none(const struct de_fourcc *tmp4cc,
 static void typedec_text(deark *c, lctx *d, de_int64 pos, de_int64 len)
 {
 	de_ucstring *s = NULL;
-	char buf[300];
+	de_int64 bytes_to_read;
 	de_int64 textlen = len-8;
 
 	if(textlen<0) goto done;
 
 	s = ucstring_create(c);
-	dbuf_read_to_ucstring(c->infile, pos+8, textlen, s, 0, DE_ENCODING_ASCII);
+	bytes_to_read = textlen;
+	if(bytes_to_read>300) bytes_to_read=300;
+	dbuf_read_to_ucstring(c->infile, pos+8, bytes_to_read, s, 0, DE_ENCODING_ASCII);
 	ucstring_truncate_at_NUL(s);
-	ucstring_to_printable_sz(s, buf, sizeof(buf));
-	de_dbg(c, "text: \"%s\"\n", buf);
+	de_dbg(c, "text: \"%s\"\n", ucstring_get_printable_sz(s));
 
 done:
 	ucstring_destroy(s);
@@ -123,7 +124,6 @@ done:
 static void typedec_desc(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 {
 	de_ucstring *s = NULL;
-	char buf[300];
 	de_int64 invdesclen, uloclen;
 	de_int64 langcode;
 	de_int64 lstrstartpos;
@@ -143,8 +143,7 @@ static void typedec_desc(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 	if(bytes_to_read>300) bytes_to_read=300;
 	dbuf_read_to_ucstring(c->infile, pos, bytes_to_read, s, 0, DE_ENCODING_ASCII);
 	ucstring_truncate_at_NUL(s);
-	ucstring_to_printable_sz(s, buf, sizeof(buf));
-	de_dbg(c, "invariant desc.: \"%s\"\n", buf);
+	de_dbg(c, "invariant desc.: \"%s\"\n", ucstring_get_printable_sz(s));
 	pos += invdesclen;
 	if(pos >= pos1+len) goto done;
 
@@ -185,8 +184,7 @@ static void typedec_desc(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 	dbuf_read_to_ucstring(c->infile, lstrstartpos, bytes_to_read, s, 0, encoding);
 	ucstring_truncate_at_NUL(s);
 	if(s->len>0) {
-		ucstring_to_printable_sz(s, buf, sizeof(buf));
-		de_dbg(c, "localizable desc.: \"%s\"\n", buf);
+		de_dbg(c, "localizable desc.: \"%s\"\n", ucstring_get_printable_sz(s));
 	}
 	pos += uloclen*2;
 	if(pos >= pos1+len) goto done;
@@ -205,16 +203,16 @@ static void do_mluc_record(deark *c, lctx *d, de_int64 tagstartpos,
 	de_int64 string_len;
 	de_int64 string_offset;
 	de_int64 bytes_to_read;
-	de_byte buf1[300];
-	char buf2[300];
 
-	dbuf_read(c->infile, buf1, pos, 2);
-	de_bytes_to_printable_sz(buf1, 2, buf2, sizeof(buf2), 0, DE_ENCODING_ASCII);
-	de_dbg(c, "language code: '%s'\n", buf2);
+	s = ucstring_create(c);
 
-	dbuf_read(c->infile, buf1, pos+2, 2);
-	de_bytes_to_printable_sz(buf1, 2, buf2, sizeof(buf2), 0, DE_ENCODING_ASCII);
-	de_dbg(c, "country code: '%s'\n", buf2);
+	dbuf_read_to_ucstring(c->infile, pos, 2, s, 0, DE_ENCODING_ASCII);
+	de_dbg(c, "language code: '%s'\n", ucstring_get_printable_sz(s));
+	ucstring_truncate(s, 0);
+
+	dbuf_read_to_ucstring(c->infile, pos+2, 2, s, 0, DE_ENCODING_ASCII);
+	de_dbg(c, "country code: '%s'\n", ucstring_get_printable_sz(s));
+	ucstring_truncate(s, 0);
 
 	string_len = de_getui32be(pos+4);
 	string_offset = de_getui32be(pos+8);
@@ -225,12 +223,10 @@ static void do_mluc_record(deark *c, lctx *d, de_int64 tagstartpos,
 	if(bytes_to_read>300) bytes_to_read=300;
 	if(bytes_to_read%2) bytes_to_read--; // UTF-16 should have an even number of bytes
 
-	s = ucstring_create(c);
 	dbuf_read_to_ucstring(c->infile, tagstartpos+string_offset, bytes_to_read,
 		s, 0, DE_ENCODING_UTF16BE);
 	ucstring_truncate_at_NUL(s);
-	ucstring_to_printable_sz(s, buf2, sizeof(buf2));
-	de_dbg(c, "string: \"%s\"\n", buf2);
+	de_dbg(c, "string: \"%s\"\n", ucstring_get_printable_sz(s));
 
 	ucstring_destroy(s);
 }
