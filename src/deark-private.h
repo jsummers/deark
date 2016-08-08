@@ -363,6 +363,8 @@ de_uint32 dbuf_getRGB(dbuf *f, de_int64 pos, unsigned int flags);
 // (see also ucstring_append_*)
 void dbuf_read_to_ucstring(dbuf *f, de_int64 pos, de_int64 len,
 	de_ucstring *s, unsigned int conv_flags, int encoding);
+void dbuf_read_to_ucstring_with_max(dbuf *f, de_int64 pos, de_int64 len, de_int64 max_len,
+	de_ucstring *s, unsigned int conv_flags, int encoding);
 
 // At least one of 'ext' or 'fi' should be non-NULL.
 #define DE_CREATEFLAG_IS_AUX   0x1

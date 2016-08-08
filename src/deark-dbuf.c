@@ -416,6 +416,13 @@ void dbuf_read_to_ucstring(dbuf *f, de_int64 pos, de_int64 len,
 	de_free(c, buf);
 }
 
+void dbuf_read_to_ucstring_with_max(dbuf *f, de_int64 pos, de_int64 len, de_int64 max_len,
+	de_ucstring *s, unsigned int conv_flags, int encoding)
+{
+	if(len>max_len) len=max_len;
+	dbuf_read_to_ucstring(f, pos, len, s, conv_flags, encoding);
+}
+
 int dbuf_memcmp(dbuf *f, de_int64 pos, const void *s, size_t n)
 {
 	de_byte *buf;
