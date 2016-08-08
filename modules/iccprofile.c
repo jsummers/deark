@@ -81,6 +81,7 @@ static const struct taginfo taginfo_arr[] = {
 	{ 0x67616D74U, "gamut", NULL }, // gamt
 	{ 0x67545243U, "greenTRC", NULL }, // gTRC
 	{ 0x6758595AU, "greenColorant", NULL }, // gXYZ
+	{ 0x6B545243U, "grayTRC", NULL }, // kTRC
 	{ 0x6C756D69U, "luminance", NULL }, // lumi
 	{ 0x6D656173U, "measurement", NULL }, // meas
 	{ 0x72545243U, "redTRC", NULL }, // rTRC
@@ -124,7 +125,10 @@ static void typedec_desc(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 	de_ucstring *s = NULL;
 	char buf[300];
 	de_int64 invdesclen, uloclen;
+	de_int64 langcode;
+	de_int64 lstrstartpos;
 	de_int64 bytes_to_read;
+	int encoding;
 	de_int64 pos = pos1;
 
 	if(len<12) goto done;
@@ -146,17 +150,43 @@ static void typedec_desc(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 
 	// Unicode localizable description
 	ucstring_truncate(s, 0);
-	pos += 4; // skip Unicode language code
-	uloclen = de_getui32be(pos); // "including a Unicode NULL"
+
+	langcode = de_getui32be(pos);
+	// The spec does not seem to say how to interpret this field.
+	de_dbg(c, "language code: %d\n", (int)langcode);
 	pos += 4;
 
+	uloclen = de_getui32be(pos);
+	pos += 4;
+
+	lstrstartpos = pos;
 	bytes_to_read = uloclen*2;
+
+	encoding = DE_ENCODING_UTF16BE;
+	if(uloclen>=1) {
+		de_int32 firstchar;
+		// Check for a BOM. The spec doesn't say much about the format of
+		// Unicode text in 'desc' tags. It does say that "All profile data must
+		// be encoded as big-endian", so maybe that means UTF-16LE is not
+		// allowed. In practice, some strings begin with a BOM.
+		firstchar = (de_int32)de_getui16be(lstrstartpos);
+		if(firstchar==0xfeff) { // UTF-16BE BOM
+			lstrstartpos += 2;
+			bytes_to_read -= 2;
+		}
+		else if(firstchar==0xffef) { // UTF-16LE BOM
+			lstrstartpos += 2;
+			bytes_to_read -= 2;
+			encoding = DE_ENCODING_UTF16LE;
+		}
+	}
+
 	if(bytes_to_read>300) bytes_to_read=300;
-	dbuf_read_to_ucstring(c->infile, pos, bytes_to_read, s, 0, DE_ENCODING_UTF16BE);
+	dbuf_read_to_ucstring(c->infile, lstrstartpos, bytes_to_read, s, 0, encoding);
 	ucstring_truncate_at_NUL(s);
 	if(s->len>0) {
 		ucstring_to_printable_sz(s, buf, sizeof(buf));
-		de_dbg(c, "Unicode localizable desc.: \"%s\"\n", buf);
+		de_dbg(c, "localizable desc.: \"%s\"\n", buf);
 	}
 	pos += uloclen*2;
 	if(pos >= pos1+len) goto done;
@@ -247,6 +277,7 @@ static void do_read_header(deark *c, lctx *d, de_int64 pos)
 	de_int64 x;
 	struct de_fourcc tmp4cc;
 	char tmpbuf[16];
+	const char *name;
 
 	de_dbg(c, "header at %d\n", (int)pos);
 	de_dbg_indent(c, 1);
@@ -255,7 +286,7 @@ static void do_read_header(deark *c, lctx *d, de_int64 pos)
 	de_dbg(c, "profile size: %d\n", (int)x);
 
 	dbuf_read_fourcc(c->infile, pos+4, &tmp4cc, 0);
-	de_dbg(c, "preferred CMM type: '%s'\n", tmp4cc.id_printable);
+	de_dbg(c, "preferred CMM type: 0x%08x='%s'\n", (unsigned int)tmp4cc.id, tmp4cc.id_printable);
 
 	profile_ver_raw = (de_uint32)de_getui32be(pos+8);
 	d->profile_ver_major = 10*((profile_ver_raw&0xf0000000U)>>28) +
@@ -287,17 +318,23 @@ static void do_read_header(deark *c, lctx *d, de_int64 pos)
 
 	dbuf_read_fourcc(c->infile, pos+48, &tmp4cc, 0);
 	fourcc_or_printable_or_none(&tmp4cc, tmpbuf, sizeof(tmpbuf));
-	de_dbg(c, "device manufacturer: %s\n", tmpbuf);
+	de_dbg(c, "device manufacturer: 0x%08x=%s\n", (unsigned int)tmp4cc.id, tmpbuf);
 
 	dbuf_read_fourcc(c->infile, pos+52, &tmp4cc, 0);
 	fourcc_or_printable_or_none(&tmp4cc, tmpbuf, sizeof(tmpbuf));
-	de_dbg(c, "device model: %s\n", tmpbuf);
+	de_dbg(c, "device model: 0x%08x=%s\n", (unsigned int)tmp4cc.id, tmpbuf);
 
 	// TODO: pos=56-63 Device attributes
 
 	x = de_getui32be(pos+64);
-	de_dbg(c, "rendering intent: %d\n", (int)x);
-	// TODO: name the rendering intent field
+	switch(x) {
+	case 0: name="perceptual"; break;
+	case 1: name="relative colorimetric"; break;
+	case 2: name="saturation"; break;
+	case 3: name="absolute colorimetric"; break;
+	default: name="?"; break;
+	}
+	de_dbg(c, "rendering intent: %d (%s)\n", (int)x, name);
 
 	// TODO: pos=68-79 PCS illuminant
 
