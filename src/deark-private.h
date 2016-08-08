@@ -563,8 +563,8 @@ void de_uchar_to_utf8(de_int32 u1, de_byte *utf8buf, de_int64 *p_utf8len);
 void dbuf_write_uchar_as_utf8(dbuf *outf, de_int32 u);
 int de_utf8_to_uchar(const de_byte *utf8buf, de_int64 buflen,
 	de_int32 *p_uchar, de_int64 *p_utf8len);
-int de_utf16le_to_uchar(const de_byte *utf16buf, de_int64 buflen,
-	de_int32 *p_uchar, de_int64 *p_utf16len);
+int de_utf16x_to_uchar(const de_byte *utf16buf, de_int64 buflen,
+	de_int32 *p_uchar, de_int64 *p_utf16len, int is_le);
 
 int de_is_ascii(const de_byte *buf, de_int64 buflen);
 
@@ -594,6 +594,7 @@ de_ucstring *ucstring_create(deark *c);
 de_ucstring *ucstring_clone(de_ucstring *src);
 void ucstring_destroy(de_ucstring *s);
 void ucstring_truncate(de_ucstring *s, de_int64 newlen);
+void ucstring_truncate_at_NUL(de_ucstring *s);
 void ucstring_append_char(de_ucstring *s, de_int32 ch);
 void ucstring_append_ucstring(de_ucstring *s1, const de_ucstring *s2);
 

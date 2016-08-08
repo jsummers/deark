@@ -19,6 +19,7 @@ typedef struct localctx_struct {
 typedef void (*datatype_decoder_fn_type)(deark *c, lctx *d, de_int64 pos, de_int64 len);
 
 static void typedec_text(deark *c, lctx *d, de_int64 pos, de_int64 len);
+static void typedec_desc(deark *c, lctx *d, de_int64 pos, de_int64 len);
 
 struct datatypeinfo {
 	de_uint32 id;
@@ -31,7 +32,9 @@ static const struct datatypeinfo datatypeinfo_arr[] = {
 	{ 0x636C7274U, "colorantTable", NULL }, // clrt
 	{ 0x63757276U, "curve", NULL }, // curv
 	{ 0x64617461U, "data", NULL }, // data
-	{ 0x64657363U, "textDescription", NULL }, // desc
+	{ 0x64657363U, "textDescription", typedec_desc }, // desc
+	{ 0x6D414220U, "lutAToB", NULL }, // mAB
+	{ 0x6D424120U, "lutBToA", NULL }, // mBA
 	{ 0x6D656173U, "measurement", NULL }, // meas
 	{ 0x6D667431U, "lut8", NULL }, // mft1
 	{ 0x6D667432U, "lut16", NULL }, // mft2
@@ -53,6 +56,9 @@ static const struct taginfo taginfo_arr[] = {
 	{ 0x41324230U, "AToB0", NULL }, // A2B0
 	{ 0x41324231U, "AToB1", NULL }, // A2B1
 	{ 0x41324232U, "AToB2", NULL }, // A2B2
+	{ 0x42324130U, "BToA0", NULL }, // B2A0
+	{ 0x42324131U, "BToA1", NULL }, // B2A1
+	{ 0x42324132U, "BToA2", NULL }, // B2A2
 	{ 0x62545243U, "blueTRC", NULL }, // bTRC
 	{ 0x6258595AU, "blueColorant", NULL }, // bXYZ
 	{ 0x626B7074U, "mediaBlackPoint", NULL }, // bkpt
@@ -62,14 +68,17 @@ static const struct taginfo taginfo_arr[] = {
 	{ 0x64657363U, "profileDescription", NULL }, // desc
 	{ 0x646D6464U, "deviceModelDesc", NULL }, // dmdd
 	{ 0x646D6E64U, "deviceMfgDesc", NULL }, // dmnd
+	{ 0x67616D74U, "gamut", NULL }, // gamt
 	{ 0x67545243U, "greenTRC", NULL }, // gTRC
 	{ 0x6758595AU, "greenColorant", NULL }, // gXYZ
 	{ 0x6C756D69U, "luminance", NULL }, // lumi
 	{ 0x6D656173U, "measurement", NULL }, // meas
 	{ 0x72545243U, "redTRC", NULL }, // rTRC
 	{ 0x7258595AU, "redColorant", NULL }, // rXYZ
+	{ 0x72696730U, "perceptualRenderingIntentGamut", NULL }, // rig0
 	{ 0x74617267U, "charTarget", NULL }, // targ
 	{ 0x74656368U, "technology", NULL }, // tech
+	{ 0x76696577U, "viewingConditions", NULL }, // view
 	{ 0x76756564U, "viewingCondDesc", NULL }, // vued
 	{ 0x77747074U, "mediaWhitePoint", NULL } // wtpt
 };
@@ -87,12 +96,61 @@ static void typedec_text(deark *c, lctx *d, de_int64 pos, de_int64 len)
 	char buf[300];
 	de_int64 textlen = len-8;
 
-	if(len<0) goto done;
+	if(textlen<0) goto done;
 
 	s = ucstring_create(c);
 	dbuf_read_to_ucstring(c->infile, pos+8, textlen, s, 0, DE_ENCODING_ASCII);
+	ucstring_truncate_at_NUL(s);
 	ucstring_to_printable_sz(s, buf, sizeof(buf));
 	de_dbg(c, "text: \"%s\"\n", buf);
+
+done:
+	ucstring_destroy(s);
+	return;
+}
+
+static void typedec_desc(deark *c, lctx *d, de_int64 pos1, de_int64 len)
+{
+	de_ucstring *s = NULL;
+	char buf[300];
+	de_int64 invdesclen, uloclen;
+	de_int64 bytes_to_read;
+	de_int64 pos = pos1;
+
+	if(len<12) goto done;
+
+	pos += 8;
+
+	// ASCII invariant description
+	invdesclen = de_getui32be(pos); // invariant desc. len, including NUL byte
+	pos += 4;
+	s = ucstring_create(c);
+	bytes_to_read = invdesclen;
+	if(bytes_to_read>300) bytes_to_read=300;
+	dbuf_read_to_ucstring(c->infile, pos, bytes_to_read, s, 0, DE_ENCODING_ASCII);
+	ucstring_truncate_at_NUL(s);
+	ucstring_to_printable_sz(s, buf, sizeof(buf));
+	de_dbg(c, "invariant desc.: \"%s\"\n", buf);
+	pos += invdesclen;
+	if(pos >= pos1+len) goto done;
+
+	// Unicode localizable description
+	ucstring_truncate(s, 0);
+	pos += 4; // skip Unicode language code
+	uloclen = de_getui32be(pos); // "including a Unicode NULL"
+	pos += 4;
+
+	bytes_to_read = uloclen*2;
+	if(bytes_to_read>300) bytes_to_read=300;
+	dbuf_read_to_ucstring(c->infile, pos, bytes_to_read, s, 0, DE_ENCODING_UTF16BE);
+	ucstring_truncate_at_NUL(s);
+	ucstring_to_printable_sz(s, buf, sizeof(buf));
+	de_dbg(c, "Unicode localizable desc.: \"%s\"\n", buf);
+	pos += uloclen*2;
+	if(pos >= pos1+len) goto done;
+
+	// Macintosh localizable description
+	// (not implemented)
 
 done:
 	ucstring_destroy(s);
@@ -250,7 +308,7 @@ static void do_read_tags(deark *c, lctx *d, de_int64 pos1)
 		de_err(c, "Invalid or excessive number of tags: %d\n", (int)num_tags);
 		goto done;
 	}
-	de_dbg(c, "expected offset of data segment: %d\n", (int)(pos1+4+12*num_tags));
+	de_dbg(c, "expected start of data segment: %d\n", (int)(pos1+4+12*num_tags));
 
 	for(tagindex=0; tagindex<num_tags; tagindex++) {
 		do_tag(c, d, tagindex, pos1+4+12*tagindex);

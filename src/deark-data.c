@@ -238,22 +238,29 @@ int de_utf8_to_uchar(const de_byte *utf8buf, de_int64 buflen,
 	return 0;
 }
 
-// Convert a UTF-16LE character to UTF-32.
+static de_int64 getui16x_direct(const de_byte *m, int is_le)
+{
+	if(is_le)
+		return de_getui16le_direct(m);
+	return de_getui16be_direct(m);
+}
+
+// Convert a UTF-16LE or UTF-16BE character to UTF-32.
 // Similar to de_utf8_to_uchar().
 // Returns 1 if a valid character was converted, 0 otherwise.
-int de_utf16le_to_uchar(const de_byte *utf16buf, de_int64 buflen,
-	de_int32 *p_uchar, de_int64 *p_utf16len)
+int de_utf16x_to_uchar(const de_byte *utf16buf, de_int64 buflen,
+	de_int32 *p_uchar, de_int64 *p_utf16len, int is_le)
 {
 	de_int32 u0, u1;
 
 	// Read the first code unit
 	if(buflen<2) return 0;
-	u0 = (de_int32)de_getui16le_direct(&utf16buf[0]);
+	u0 = (de_int32)getui16x_direct(&utf16buf[0], is_le);
 
 	if(u0>=0xd800 && u0<=0xdbff) { // It's a lead surrogate
 		// Read the trail surrogate
 		if(buflen<4) return 0;
-		u1 = (de_int32)de_getui16le_direct(&utf16buf[2]);
+		u1 = (de_int32)getui16x_direct(&utf16buf[2], is_le);
 		if(u1>=0xdc00 && u1<=0xdfff) { // valid trail surrogate
 			*p_uchar = 0x10000 + (((u0-0xd800)<<10) | (u1-0xdc00));
 			*p_utf16len = 4;
@@ -801,6 +808,19 @@ void ucstring_truncate(de_ucstring *s, de_int64 newlen)
 	if(newlen<s->len) s->len = newlen;
 }
 
+// Delete the first U+0000 byte, and everything after it.
+void ucstring_truncate_at_NUL(de_ucstring *s)
+{
+	de_int64 i;
+
+	for(i=0; i<s->len; i++) {
+		if(s->str[i]==0x0000) {
+			ucstring_truncate(s, i);
+			return;
+		}
+	}
+}
+
 // Append s2 to s1
 void ucstring_append_ucstring(de_ucstring *s1, const de_ucstring *s2)
 {
@@ -880,7 +900,14 @@ void ucstring_append_bytes(de_ucstring *s, const de_byte *buf, de_int64 buflen,
 			}
 		}
 		else if(encoding==DE_ENCODING_UTF16LE) {
-			ret = de_utf16le_to_uchar(&buf[pos], buflen-pos, &ch, &code_len);
+			ret = de_utf16x_to_uchar(&buf[pos], buflen-pos, &ch, &code_len, 1);
+			if(!ret) {
+				ch = '_';
+				code_len = 2;
+			}
+		}
+		else if(encoding==DE_ENCODING_UTF16BE) {
+			ret = de_utf16x_to_uchar(&buf[pos], buflen-pos, &ch, &code_len, 0);
 			if(!ret) {
 				ch = '_';
 				code_len = 2;
