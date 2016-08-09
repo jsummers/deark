@@ -26,6 +26,7 @@ typedef struct localctx_struct {
 
 typedef void (*datatype_decoder_fn_type)(deark *c, lctx *d, de_int64 pos, de_int64 len);
 
+static void typedec_XYZ(deark *c, lctx *d, de_int64 pos, de_int64 len);
 static void typedec_text(deark *c, lctx *d, de_int64 pos, de_int64 len);
 static void typedec_desc(deark *c, lctx *d, de_int64 pos, de_int64 len);
 static void typedec_mluc(deark *c, lctx *d, de_int64 pos, de_int64 len);
@@ -36,7 +37,7 @@ struct datatypeinfo {
 	datatype_decoder_fn_type dtdfn;
 };
 static const struct datatypeinfo datatypeinfo_arr[] = {
-	{ 0x58595A20U, "XYZ", NULL }, // XYZ
+	{ 0x58595A20U, "XYZ", typedec_XYZ }, // XYZ
 	{ 0x6368726DU, "chromaticity", NULL }, // chrm
 	{ 0x636C7274U, "colorantTable", NULL }, // clrt
 	{ 0x63757276U, "curve", NULL }, // curv
@@ -53,6 +54,7 @@ static const struct datatypeinfo datatypeinfo_arr[] = {
 	{ 0x74657874U, "text", typedec_text }, // text
 	{ 0x75693038U, "uInt8Array", NULL }, // ui08
 	{ 0x75693332U, "uInt32Array", NULL }, // ui32
+	{ 0x76636774U, "Video Card Gamma Type", NULL }, // vcgt (Apple)
 	{ 0x76696577U, "viewingConditions", NULL } // view
 };
 
@@ -89,6 +91,7 @@ static const struct taginfo taginfo_arr[] = {
 	{ 0x72696730U, "perceptualRenderingIntentGamut", NULL }, // rig0
 	{ 0x74617267U, "charTarget", NULL }, // targ
 	{ 0x74656368U, "technology", NULL }, // tech
+	{ 0x76636774U, "Video Card Gamma Type", NULL }, // vcgt (Apple)
 	{ 0x76696577U, "viewingConditions", NULL }, // view
 	{ 0x76756564U, "viewingCondDesc", NULL }, // vued
 	{ 0x77747074U, "mediaWhitePoint", NULL } // wtpt
@@ -113,6 +116,32 @@ static const char *format_4cc(const struct de_fourcc *tmp4cc,
 		de_strlcpy(buf, str, buflen);
 
 	return buf;
+}
+
+static double read_s15Fixed16Number(dbuf *f, de_int64 pos)
+{
+	de_int64 n, frac;
+
+	n = dbuf_geti16be(f, pos);
+	frac = dbuf_getui16be(f, pos+2);
+	return (double)n + ((double)frac)/65536.0;
+}
+
+static void typedec_XYZ(deark *c, lctx *d, de_int64 pos, de_int64 len)
+{
+	de_int64 xyz_count;
+	de_int64 k;
+	double v[3];
+
+	if(len<8) return;
+	xyz_count = (len-8)/12;
+	for(k=0; k<xyz_count; k++) {
+		v[0] = read_s15Fixed16Number(c->infile, pos+8+12*k);
+		v[1] = read_s15Fixed16Number(c->infile, pos+8+12*k+4);
+		v[2] = read_s15Fixed16Number(c->infile, pos+8+12*k+8);
+		de_dbg(c, "XYZ[%d]: %.5f, %.5f, %.5f\n", (int)k,
+			v[0], v[1], v[2]);
+	}
 }
 
 static void typedec_text(deark *c, lctx *d, de_int64 pos, de_int64 len)
@@ -162,12 +191,15 @@ static void typedec_desc(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 	ucstring_truncate(s, 0);
 
 	langcode = de_getui32be(pos);
-	// The spec does not seem to say how to interpret this field.
-	de_dbg(c, "language code: %d\n", (int)langcode);
 	pos += 4;
 
 	uloclen = de_getui32be(pos);
 	pos += 4;
+
+	if(uloclen>0) {
+		// TODO: How to interpret the language code?
+		de_dbg(c, "language code: %d\n", (int)langcode);
+	}
 
 	lstrstartpos = pos;
 	bytes_to_read = uloclen*2;
@@ -301,25 +333,25 @@ static void do_read_header(deark *c, lctx *d, de_int64 pos)
 
 	dbuf_read_fourcc(c->infile, pos+12, &tmp4cc, 0);
 	de_dbg(c, "profile/device class: %s\n",
-		format_4cc(&tmp4cc, tmpbuf, sizeof(tmpbuf), 0x0));
+		format_4cc(&tmp4cc, tmpbuf, sizeof(tmpbuf), 0x1));
 
 	dbuf_read_fourcc(c->infile, pos+16, &tmp4cc, 0);
 	de_dbg(c, "colour space: %s\n",
-		format_4cc(&tmp4cc, tmpbuf, sizeof(tmpbuf), 0x0));
+		format_4cc(&tmp4cc, tmpbuf, sizeof(tmpbuf), 0x1));
 
 	dbuf_read_fourcc(c->infile, pos+20, &tmp4cc, 0);
 	de_dbg(c, "PCS: %s\n",
-		format_4cc(&tmp4cc, tmpbuf, sizeof(tmpbuf), 0x0));
+		format_4cc(&tmp4cc, tmpbuf, sizeof(tmpbuf), 0x1));
 
 	// TODO: pos=24-35 Date & time
 
 	dbuf_read_fourcc(c->infile, pos+36, &tmp4cc, 0);
 	de_dbg(c, "file signature: %s\n",
-		format_4cc(&tmp4cc, tmpbuf, sizeof(tmpbuf), 0x0));
+		format_4cc(&tmp4cc, tmpbuf, sizeof(tmpbuf), 0x1));
 
 	dbuf_read_fourcc(c->infile, pos+40, &tmp4cc, 0);
 	de_dbg(c, "primary platform: %s\n",
-		format_4cc(&tmp4cc, tmpbuf, sizeof(tmpbuf), 0x2));
+		format_4cc(&tmp4cc, tmpbuf, sizeof(tmpbuf), 0x3));
 
 	// TODO: pos=44-47 Profile flags
 
@@ -347,7 +379,7 @@ static void do_read_header(deark *c, lctx *d, de_int64 pos)
 
 	dbuf_read_fourcc(c->infile, pos+80, &tmp4cc, 0);
 	de_dbg(c, "profile creator: %s\n",
-		format_4cc(&tmp4cc, tmpbuf, sizeof(tmpbuf), 0x2));
+		format_4cc(&tmp4cc, tmpbuf, sizeof(tmpbuf), 0x3));
 
 	// TODO: pos=84-99 Profile ID
 
@@ -405,13 +437,17 @@ static void do_tag_data(deark *c, lctx *d, de_int64 tagindex,
 	de_int64 idx_of_dup;
 	char tmpbuf[80];
 
-	if(tagdataoffset>=c->infile->len) return;
-	if(tagdatalen<4) return;
-
+	if(tagdatalen<1) return;
+	if(tagdataoffset+tagdatalen > c->infile->len) {
+		de_err(c, "Tag #%d data goes beyond end of file\n", (int)tagindex);
+		return;
+	}
 	if(is_duplicate_data(c, d, tagindex, tagdataoffset, tagdatalen, &idx_of_dup)) {
 		de_dbg(c, "[data is a duplicate of tag #%d]\n", (int)idx_of_dup);
 		return;
 	}
+
+	if(tagdatalen<4) return;
 
 	dbuf_read_fourcc(c->infile, tagdataoffset, &tagtype4cc, 0);
 	dti = lookup_datatypeinfo(tagtype4cc.id);
@@ -444,7 +480,7 @@ static void do_tag(deark *c, lctx *d, de_int64 tagindex, de_int64 pos_in_tagtabl
 		tname = ti->name;
 	else
 		tname = "?";
-	de_dbg(c, "tag #%d %s (%s) offset=%d dlen=%d\n", (int)tagindex,
+	de_dbg(c, "tag #%d %s (%s) offs=%d dlen=%d\n", (int)tagindex,
 		format_4cc(&tag4cc, tmpbuf, sizeof(tmpbuf), 0x0), tname,
 		(int)tagdataoffset, (int)tagdatalen);
 
