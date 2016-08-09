@@ -94,11 +94,25 @@ static const struct taginfo taginfo_arr[] = {
 	{ 0x77747074U, "mediaWhitePoint", NULL } // wtpt
 };
 
-static void fourcc_or_printable_or_none(const struct de_fourcc *tmp4cc,
-	char *buf, size_t buflen)
+// flag 0x1: Include the hex value
+// flag 0x2: Interpret 0 as (none)
+// Returns a copy of the buf pointer.
+static const char *format_4cc(const struct de_fourcc *tmp4cc,
+	char *buf, size_t buflen, unsigned int flags)
 {
-	if(tmp4cc->id==0) de_strlcpy(buf, "(none)", buflen);
-	else de_snprintf(buf, buflen, "'%s'", tmp4cc->id_printable);
+	char str[16];
+
+	if((tmp4cc->id==0) && (flags&0x2))
+		de_strlcpy(str, "(none)", sizeof(str));
+	else
+		de_snprintf(str, sizeof(str), "'%s'", tmp4cc->id_printable);
+
+	if(flags&0x1)
+		de_snprintf(buf, buflen, "0x%08x=%s", (unsigned int)tmp4cc->id, str);
+	else
+		de_strlcpy(buf, str, buflen);
+
+	return buf;
 }
 
 static void typedec_text(deark *c, lctx *d, de_int64 pos, de_int64 len)
@@ -264,7 +278,7 @@ static void do_read_header(deark *c, lctx *d, de_int64 pos)
 	de_uint32 profile_ver_raw;
 	de_int64 x;
 	struct de_fourcc tmp4cc;
-	char tmpbuf[16];
+	char tmpbuf[80];
 	const char *name;
 
 	de_dbg(c, "header at %d\n", (int)pos);
@@ -274,7 +288,8 @@ static void do_read_header(deark *c, lctx *d, de_int64 pos)
 	de_dbg(c, "profile size: %d\n", (int)x);
 
 	dbuf_read_fourcc(c->infile, pos+4, &tmp4cc, 0);
-	de_dbg(c, "preferred CMM type: 0x%08x='%s'\n", (unsigned int)tmp4cc.id, tmp4cc.id_printable);
+	de_dbg(c, "preferred CMM type: %s\n",
+		format_4cc(&tmp4cc, tmpbuf, sizeof(tmpbuf), 0x1));
 
 	profile_ver_raw = (de_uint32)de_getui32be(pos+8);
 	d->profile_ver_major = 10*((profile_ver_raw&0xf0000000U)>>28) +
@@ -285,32 +300,36 @@ static void do_read_header(deark *c, lctx *d, de_int64 pos)
 		d->profile_ver_minor, d->profile_ver_bugfix);
 
 	dbuf_read_fourcc(c->infile, pos+12, &tmp4cc, 0);
-	de_dbg(c, "profile/device class: '%s'\n", tmp4cc.id_printable);
+	de_dbg(c, "profile/device class: %s\n",
+		format_4cc(&tmp4cc, tmpbuf, sizeof(tmpbuf), 0x0));
 
 	dbuf_read_fourcc(c->infile, pos+16, &tmp4cc, 0);
-	de_dbg(c, "colour space: '%s'\n", tmp4cc.id_printable);
+	de_dbg(c, "colour space: %s\n",
+		format_4cc(&tmp4cc, tmpbuf, sizeof(tmpbuf), 0x0));
 
 	dbuf_read_fourcc(c->infile, pos+20, &tmp4cc, 0);
-	de_dbg(c, "PCS: '%s'\n", tmp4cc.id_printable);
+	de_dbg(c, "PCS: %s\n",
+		format_4cc(&tmp4cc, tmpbuf, sizeof(tmpbuf), 0x0));
 
 	// TODO: pos=24-35 Date & time
 
 	dbuf_read_fourcc(c->infile, pos+36, &tmp4cc, 0);
-	de_dbg(c, "file signature: '%s'\n", tmp4cc.id_printable);
+	de_dbg(c, "file signature: %s\n",
+		format_4cc(&tmp4cc, tmpbuf, sizeof(tmpbuf), 0x0));
 
 	dbuf_read_fourcc(c->infile, pos+40, &tmp4cc, 0);
-	fourcc_or_printable_or_none(&tmp4cc, tmpbuf, sizeof(tmpbuf));
-	de_dbg(c, "primary platform: %s\n", tmpbuf);
+	de_dbg(c, "primary platform: %s\n",
+		format_4cc(&tmp4cc, tmpbuf, sizeof(tmpbuf), 0x2));
 
 	// TODO: pos=44-47 Profile flags
 
 	dbuf_read_fourcc(c->infile, pos+48, &tmp4cc, 0);
-	fourcc_or_printable_or_none(&tmp4cc, tmpbuf, sizeof(tmpbuf));
-	de_dbg(c, "device manufacturer: 0x%08x=%s\n", (unsigned int)tmp4cc.id, tmpbuf);
+	de_dbg(c, "device manufacturer: %s\n",
+		format_4cc(&tmp4cc, tmpbuf, sizeof(tmpbuf), 0x3));
 
 	dbuf_read_fourcc(c->infile, pos+52, &tmp4cc, 0);
-	fourcc_or_printable_or_none(&tmp4cc, tmpbuf, sizeof(tmpbuf));
-	de_dbg(c, "device model: 0x%08x=%s\n", (unsigned int)tmp4cc.id, tmpbuf);
+	de_dbg(c, "device model: %s\n",
+		format_4cc(&tmp4cc, tmpbuf, sizeof(tmpbuf), 0x3));
 
 	// TODO: pos=56-63 Device attributes
 
@@ -327,8 +346,8 @@ static void do_read_header(deark *c, lctx *d, de_int64 pos)
 	// TODO: pos=68-79 PCS illuminant
 
 	dbuf_read_fourcc(c->infile, pos+80, &tmp4cc, 0);
-	fourcc_or_printable_or_none(&tmp4cc, tmpbuf, sizeof(tmpbuf));
-	de_dbg(c, "profile creator: %s\n", tmpbuf);
+	de_dbg(c, "profile creator: %s\n",
+		format_4cc(&tmp4cc, tmpbuf, sizeof(tmpbuf), 0x2));
 
 	// TODO: pos=84-99 Profile ID
 
@@ -384,6 +403,7 @@ static void do_tag_data(deark *c, lctx *d, de_int64 tagindex,
 	const struct datatypeinfo *dti;
 	const char *dtname;
 	de_int64 idx_of_dup;
+	char tmpbuf[80];
 
 	if(tagdataoffset>=c->infile->len) return;
 	if(tagdatalen<4) return;
@@ -397,7 +417,8 @@ static void do_tag_data(deark *c, lctx *d, de_int64 tagindex,
 	dti = lookup_datatypeinfo(tagtype4cc.id);
 	if(dti && dti->name) dtname=dti->name;
 	else dtname="?";
-	de_dbg(c, "data type: '%s' (%s)\n", tagtype4cc.id_printable, dtname);
+	de_dbg(c, "data type: %s (%s)\n",
+		format_4cc(&tagtype4cc, tmpbuf, sizeof(tmpbuf), 0x0), dtname);
 
 	if(!dti) return;
 
@@ -413,6 +434,7 @@ static void do_tag(deark *c, lctx *d, de_int64 tagindex, de_int64 pos_in_tagtabl
 	const char *tname;
 	de_int64 tagdataoffset;
 	de_int64 tagdatalen;
+	char tmpbuf[80];
 
 	dbuf_read_fourcc(c->infile, pos_in_tagtable, &tag4cc, 0);
 	tagdataoffset = de_getui32be(pos_in_tagtable+4);
@@ -422,8 +444,8 @@ static void do_tag(deark *c, lctx *d, de_int64 tagindex, de_int64 pos_in_tagtabl
 		tname = ti->name;
 	else
 		tname = "?";
-	de_dbg(c, "tag #%d '%s' (%s) offset=%d dlen=%d\n", (int)tagindex,
-		tag4cc.id_printable, tname,
+	de_dbg(c, "tag #%d %s (%s) offset=%d dlen=%d\n", (int)tagindex,
+		format_4cc(&tag4cc, tmpbuf, sizeof(tmpbuf), 0x0), tname,
 		(int)tagdataoffset, (int)tagdatalen);
 
 	de_dbg_indent(c, 1);
