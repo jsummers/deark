@@ -52,7 +52,6 @@ static void do_extract_file(deark *c, lctx *d, de_int64 dir_entry_pos,
 	de_int64 fname_len;
 	de_int64 i;
 	de_byte z;
-	char fn_printable[32];
 
 	de_dbg(c, "extracting file: t=%d,s=%d,sectors=%d\n", (int)ftrack, (int)fsector,
 		(int)nsectors);
@@ -73,16 +72,8 @@ static void do_extract_file(deark *c, lctx *d, de_int64 dir_entry_pos,
 	}
 	de_dbg2(c, "filename length: %d\n", (int)fname_len);
 	fname = ucstring_create(c);
-	for(i=0; i<fname_len; i++) {
-		de_byte b;
-		de_int32 uchar;
-
-		b = de_getbyte(dir_entry_pos+5+i);
-		uchar = de_char_to_unicode(c, (de_int32)b, DE_ENCODING_PETSCII);
-		ucstring_append_char(fname, uchar);
-	}
-	ucstring_to_printable_sz(fname, fn_printable, sizeof(fn_printable));
-	de_dbg(c, "filename: \"%s\"\n", fn_printable);
+	dbuf_read_to_ucstring(c->infile, dir_entry_pos+5, fname_len, fname, 0, DE_ENCODING_PETSCII);
+	de_dbg(c, "filename: \"%s\"\n", ucstring_get_printable_sz(fname));
 
 	switch(file_type) {
 	case FTYPE_SEQ: ext="seq"; break;

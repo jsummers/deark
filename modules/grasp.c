@@ -23,7 +23,6 @@ static int do_extract_file(deark *c, lctx *d, de_int64 fnum)
 	de_int64 file_size;
 	de_finfo *fi = NULL;
 	de_ucstring *fname = NULL;
-	char fn_printable[32];
 	int indent_count = 0;
 	int retval = 1;
 
@@ -61,8 +60,7 @@ static int do_extract_file(deark *c, lctx *d, de_int64 fnum)
 	dbuf_read_to_ucstring(c->infile, pos+4, 13, fname, DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_ASCII);
 	de_finfo_set_name_from_ucstring(c, fi, fname);
 	fi->original_filename_flag = 1;
-	ucstring_to_printable_sz(fname, fn_printable, sizeof(fn_printable));
-	de_dbg(c, "file name: %s\n", fn_printable);
+	de_dbg(c, "file name: %s\n", ucstring_get_printable_sz(fname));
 
 	file_size = de_getui32le(file_info_offset);
 	de_dbg(c, "file size: %d\n", (int)file_size);

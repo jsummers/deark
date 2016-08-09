@@ -33,16 +33,12 @@ static void copy_cp437c_to_utf8(deark *c, const de_byte *buf, de_int64 len, dbuf
 static void do_read_filename(deark *c, lctx *d, de_int64 pos, de_int64 len, int utf8_flag)
 {
 	de_ucstring *fname = NULL;
-	char fn_printable[256];
 	int from_encoding;
 
 	fname = ucstring_create(c);
 	from_encoding = utf8_flag ? DE_ENCODING_UTF8 : DE_ENCODING_CP437_G;
-	dbuf_read_to_ucstring(c->infile, pos, len, fname, 0, from_encoding);
-
-	ucstring_to_printable_sz(fname, fn_printable, sizeof(fn_printable));
-	de_dbg(c, "filename: \"%s\"\n", fn_printable);
-
+	dbuf_read_to_ucstring_n(c->infile, pos, len, 256, fname, 0, from_encoding);
+	de_dbg(c, "filename: \"%s\"\n", ucstring_get_printable_sz(fname));
 	ucstring_destroy(fname);
 }
 

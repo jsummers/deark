@@ -30,9 +30,7 @@ static int do_ar_item(deark *c, lctx *d, de_int64 pos1, de_int64 *p_item_len)
 	char name_orig[17];
 	size_t name_orig_len;
 	de_ucstring *rawname_ucstring = NULL;
-	char rawname_printable[32];
 	de_ucstring *filename_ucstring = NULL;
-	char filename_printable[256];
 	char timestamp_buf[64];
 	de_int64 mod_time;
 	de_int64 file_mode;
@@ -63,8 +61,7 @@ static int do_ar_item(deark *c, lctx *d, de_int64 pos1, de_int64 *p_item_len)
 	rawname_ucstring = ucstring_create(c);
 	ucstring_append_bytes(rawname_ucstring, (const de_byte*)name_orig, name_orig_len, 0, DE_ENCODING_UTF8);
 
-	ucstring_to_printable_sz(rawname_ucstring, rawname_printable, sizeof(rawname_printable));
-	de_dbg(c, "member raw name: \"%s\"\n", rawname_printable);
+	de_dbg(c, "member raw name: \"%s\"\n", ucstring_get_printable_sz(rawname_ucstring));
 
 	mod_time = read_decimal(c, pos1+16, 12);
 	de_unix_time_to_timestamp(mod_time, &fi->mod_time);
@@ -126,14 +123,13 @@ static int do_ar_item(deark *c, lctx *d, de_int64 pos1, de_int64 *p_item_len)
 		dbuf_read_to_ucstring(c->infile, d->extended_name_table_pos+name_offset,
 			ext_name_len, filename_ucstring, 0, DE_ENCODING_UTF8);
 
-		ucstring_to_printable_sz(filename_ucstring, filename_printable, sizeof(filename_printable));
-		de_dbg(c, "extended filename: \"%s\"\n", filename_printable);
+		de_dbg(c, "extended filename: \"%s\"\n", ucstring_get_printable_sz(filename_ucstring));
 
 		de_finfo_set_name_from_ucstring(c, fi, filename_ucstring);
 		fi->original_filename_flag = 1;
 	}
 	else if(name_orig[0]=='/') {
-		de_warn(c, "Unsupported extension: \"%s\"\n", rawname_printable);
+		de_warn(c, "Unsupported extension: \"%s\"\n", ucstring_get_printable_sz(rawname_ucstring));
 		retval = 1;
 		goto done;
 	}

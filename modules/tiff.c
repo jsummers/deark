@@ -1591,7 +1591,6 @@ static void handler_utf16(deark *c, lctx *d, const struct taginfo *tg, const str
 {
 	de_int64 adjusted_len;
 	de_ucstring *s = NULL;
-	char buf[DE_TIFF_MAX_CHARS_TO_PRINT+100];
 
 	if(tg->datatype!=DATATYPE_BYTE && tg->datatype!=DATATYPE_UNDEF) goto done;
 	if(tg->total_size % 2) goto done; // Something's wrong if the byte count is odd.
@@ -1611,8 +1610,7 @@ static void handler_utf16(deark *c, lctx *d, const struct taginfo *tg, const str
 
 	s = ucstring_create(c);
 	dbuf_read_to_ucstring(c->infile, tg->val_offset, adjusted_len, s, 0, DE_ENCODING_UTF16LE);
-	ucstring_to_printable_sz(s, buf, sizeof(buf));
-	de_dbg(c, "UTF-16 string: \"%s\"\n", buf);
+	de_dbg(c, "UTF-16 string: \"%s\"\n", ucstring_get_printable_sz(s));
 
 done:
 	ucstring_destroy(s);
@@ -1682,7 +1680,6 @@ static void do_dbg_print_text_values(deark *c, lctx *d, const struct taginfo *tg
 	de_int64 bytes_consumed = 0;
 	int str_count = 0;
 	de_byte inputbuf[DE_TIFF_MAX_CHARS_TO_PRINT+1];
-	char outputbuf[DE_TIFF_MAX_CHARS_TO_PRINT+100];
 
 	// An ASCII field is a sequence of NUL-terminated strings.
 	// The spec does not say what to do if an ASCII field does not end in a NUL.
@@ -1734,10 +1731,7 @@ static void do_dbg_print_text_values(deark *c, lctx *d, const struct taginfo *tg
 		bytes_consumed += len+1;
 
 		if(str_count>0) dbuf_puts(dbglinedbuf, ",");
-		dbuf_puts(dbglinedbuf, "\"");
-		ucstring_to_printable_sz(str, outputbuf, sizeof(outputbuf));
-		dbuf_puts(dbglinedbuf, outputbuf);
-		dbuf_puts(dbglinedbuf, "\"");
+		dbuf_printf(dbglinedbuf, "\"%s\"", ucstring_get_printable_sz(str));
 		str_count++;
 	}
 

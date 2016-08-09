@@ -362,15 +362,14 @@ done:
 static void do_read_linked_profile(deark *c, lctx *d)
 {
 	de_ucstring *fname = NULL;
-	char buf[300];
 
 	de_dbg(c, "linked profile filename at %d\n", (int)d->profile_offset);
 	fname = ucstring_create(c);
-	dbuf_read_to_ucstring(c->infile, d->profile_offset, d->profile_size, fname,
+	dbuf_read_to_ucstring_n(c->infile, d->profile_offset,
+		d->profile_size, 300, fname,
 		DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_WINDOWS1252);
-	ucstring_to_printable_sz(fname, buf, sizeof(buf));
 	de_dbg_indent(c, 1);
-	de_dbg(c, "profile filename: \"%s\"\n", buf);
+	de_dbg(c, "profile filename: \"%s\"\n", ucstring_get_printable_sz(fname));
 	de_dbg_indent(c, -1);
 	ucstring_destroy(fname);
 }

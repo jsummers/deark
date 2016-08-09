@@ -220,14 +220,26 @@ void ucstring_to_sz(de_ucstring *s, char *szbuf, size_t szbuf_len, int encoding)
 	szbuf[szpos] = '\0';
 }
 
-void ucstring_to_printable_sz(de_ucstring *s, char *szbuf, size_t szbuf_len)
+// If has_max!=0, uses no more than max_chars Unicode characters from s to create the
+// printable string.
+static void ucstring_to_printable_sz_internal(de_ucstring *s, char *szbuf, size_t szbuf_len,
+	int has_max, de_int64 max_chars)
 {
 	de_ucstring *s2 = NULL;
 
 	s2 = ucstring_clone(s);
+	if(has_max) {
+		// TODO: Maybe this should add an ellipsis, or something.
+		ucstring_truncate(s2, max_chars);
+	}
 	ucstring_make_printable(s2);
 	ucstring_to_sz(s2, szbuf, szbuf_len, DE_ENCODING_UTF8);
 	ucstring_destroy(s2);
+}
+
+void ucstring_to_printable_sz(de_ucstring *s, char *szbuf, size_t szbuf_len)
+{
+	ucstring_to_printable_sz_internal(s, szbuf, szbuf_len, 0, 0);
 }
 
 // Try to determine if a Unicode codepoint (presumed to be from an untrusted source)
@@ -274,18 +286,34 @@ void ucstring_make_printable(de_ucstring *s)
 	}
 }
 
-const char *ucstring_get_printable_sz(de_ucstring *s)
+static const char *ucstring_get_printable_sz_internal(de_ucstring *s,
+	int has_max, de_int64 max_chars)
 {
 	de_int64 allocsize;
 
-	if(!s) return NULL;
+	if(!s) return "(null)";
 
 	if(s->tmp_string)
 		de_free(s->c, s->tmp_string);
 
-	allocsize = s->len * 4 + 1;
+	if(has_max)
+		allocsize = max_chars * 4 + 1;
+	else
+		allocsize = s->len * 4 + 1;
+
 	s->tmp_string = de_malloc(s->c, allocsize);
 
-	ucstring_to_printable_sz(s, s->tmp_string, (size_t)allocsize);
+	ucstring_to_printable_sz_internal(s, s->tmp_string, (size_t)allocsize, has_max, max_chars);
+
 	return s->tmp_string;
+}
+
+const char *ucstring_get_printable_sz(de_ucstring *s)
+{
+	return ucstring_get_printable_sz_internal(s, 0, 0);
+}
+
+const char *ucstring_get_printable_sz_n(de_ucstring *s, de_int64 max_chars)
+{
+	return ucstring_get_printable_sz_internal(s, 1, max_chars);
 }

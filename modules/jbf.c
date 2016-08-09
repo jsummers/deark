@@ -119,7 +119,6 @@ static int read_filename(deark *c, lctx *d, struct page_ctx *pg, de_int64 pos1, 
 	int retval = 0;
 	de_int64 pos = pos1;
 	de_ucstring *fname_orig = NULL;
-	char fn_printable[260];
 
 	fname_orig = ucstring_create(c);
 
@@ -145,8 +144,7 @@ static int read_filename(deark *c, lctx *d, struct page_ctx *pg, de_int64 pos1, 
 		pos += 13;
 	}
 
-	ucstring_to_printable_sz(fname_orig, fn_printable, sizeof(fn_printable));
-	de_dbg(c, "original filename: \"%s\"\n", fn_printable);
+	de_dbg(c, "original filename: \"%s\"\n", ucstring_get_printable_sz(fname_orig));
 
 	if(c->filenames_from_file) {
 		pg->fname = ucstring_clone(fname_orig);

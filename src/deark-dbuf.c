@@ -416,7 +416,7 @@ void dbuf_read_to_ucstring(dbuf *f, de_int64 pos, de_int64 len,
 	de_free(c, buf);
 }
 
-void dbuf_read_to_ucstring_with_max(dbuf *f, de_int64 pos, de_int64 len, de_int64 max_len,
+void dbuf_read_to_ucstring_n(dbuf *f, de_int64 pos, de_int64 len, de_int64 max_len,
 	de_ucstring *s, unsigned int conv_flags, int encoding)
 {
 	if(len>max_len) len=max_len;

@@ -434,7 +434,6 @@ static void handle_comment(deark *c, lctx *d, de_int64 pos, de_int64 comment_siz
    int encoding)
 {
 	de_ucstring *s = NULL;
-	de_int64 bytes_to_read = comment_size;
 	int write_to_file;
 
 	// If c->extract_level>=2, write the comment to a file;
@@ -445,13 +444,19 @@ static void handle_comment(deark *c, lctx *d, de_int64 pos, de_int64 comment_siz
 	if(c->extract_level<2 && c->debug_level<1) return;
 	if(comment_size<1) return;
 
-	if(c->extract_level>=2) {
-		write_to_file = 1;
+	write_to_file = (c->extract_level>=2);
+
+	if(write_to_file && encoding==DE_ENCODING_UNKNOWN) {
+		// If we don't know the encoding, dump the raw bytes to a file.
+		dbuf_create_file_from_slice(c->infile, pos, comment_size, "comment.txt",
+			NULL, DE_CREATEFLAG_IS_AUX);
+		goto done;
 	}
-	else {
-		write_to_file = 0;
-		if(bytes_to_read>DE_MAX_DBG_CHARS)
-			bytes_to_read = DE_MAX_DBG_CHARS;
+
+	if(encoding==DE_ENCODING_UNKNOWN) {
+		// In this case, we're printing the comment in the debug info.
+		// If we don't know the encoding, pretend it's ASCII.
+		encoding=DE_ENCODING_ASCII;
 	}
 
 	s = ucstring_create(c);
@@ -464,11 +469,10 @@ static void handle_comment(deark *c, lctx *d, de_int64 pos, de_int64 comment_siz
 		dbuf_close(outf);
 	}
 	else {
-		char buf[DE_MAX_DBG_CHARS+100];
-		ucstring_to_printable_sz(s, buf, sizeof(buf));
-		de_dbg(c, "comment: \"%s\"\n", buf);
+		de_dbg(c, "comment: \"%s\"\n", ucstring_get_printable_sz_n(s, DE_MAX_DBG_CHARS));
 	}
 
+done:
 	ucstring_destroy(s);
 }
 
@@ -478,7 +482,7 @@ static void do_com_segment(deark *c, lctx *d,
 	de_dbg_indent(c, 1);
 	// Note that a JPEG COM-segment comment is an arbitrary sequence of bytes, so
 	// there's no way to know what text encoding it uses, or even whether it is text.
-	handle_comment(c, d, pos, data_size, DE_ENCODING_ASCII);
+	handle_comment(c, d, pos, data_size, DE_ENCODING_UNKNOWN);
 	de_dbg_indent(c, -1);
 }
 

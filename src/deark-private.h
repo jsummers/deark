@@ -363,7 +363,8 @@ de_uint32 dbuf_getRGB(dbuf *f, de_int64 pos, unsigned int flags);
 // (see also ucstring_append_*)
 void dbuf_read_to_ucstring(dbuf *f, de_int64 pos, de_int64 len,
 	de_ucstring *s, unsigned int conv_flags, int encoding);
-void dbuf_read_to_ucstring_with_max(dbuf *f, de_int64 pos, de_int64 len, de_int64 max_len,
+// The _n version has an extra max_len field, for convenience.
+void dbuf_read_to_ucstring_n(dbuf *f, de_int64 pos, de_int64 len, de_int64 max_len,
 	de_ucstring *s, unsigned int conv_flags, int encoding);
 
 // At least one of 'ext' or 'fi' should be non-NULL.
@@ -575,7 +576,8 @@ int de_is_ascii(const de_byte *buf, de_int64 buflen);
 
 // Convert encoded bytes to a NUL-terminated string that can be
 // printed to the terminal.
-// Consider using dbuf_read_to_ucstring+ucstring_to_printable_sz instead.
+// Consider using {dbuf_read_to_ucstring or ucstring_append_bytes} followed by
+// {ucstring_get_printable_sz or ucstring_to_printable_sz} instead.
 void de_bytes_to_printable_sz(const de_byte *src, de_int64 src_len,
 	char *dst, de_int64 dst_len, unsigned int conv_flags, int src_encoding);
 
@@ -618,6 +620,8 @@ void ucstring_make_printable(de_ucstring *s);
 // Returns a pointer to a NUL-terminated string, that is valid until the
 // next ucstring_* function is called on that string.
 const char *ucstring_get_printable_sz(de_ucstring *s);
+// The _n version limits the number of Unicode chars (not bytes) in the result.
+const char *ucstring_get_printable_sz_n(de_ucstring *s, de_int64 max_chars);
 
 void de_write_codepoint_to_html(deark *c, dbuf *f, de_int32 ch);
 
