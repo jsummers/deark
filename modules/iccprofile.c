@@ -38,8 +38,12 @@ struct datatypeinfo {
 };
 static const struct datatypeinfo datatypeinfo_arr[] = {
 	{ 0x58595A20U, "XYZ", typedec_XYZ }, // XYZ
+	{ 0x62666420U, "ucrbg", NULL }, // bfd
 	{ 0x6368726DU, "chromaticity", NULL }, // chrm
 	{ 0x636C7274U, "colorantTable", NULL }, // clrt
+	{ 0x63726469U, "crdInfo", NULL }, // crdi
+	{ 0x64657673U, "deviceSettings", NULL }, // devs
+	{ 0x6474696DU, "dateTime", NULL }, // dtim
 	{ 0x63757276U, "curve", NULL }, // curv
 	{ 0x64617461U, "data", NULL }, // data
 	{ 0x64657363U, "textDescription", typedec_desc }, // desc
@@ -49,11 +53,19 @@ static const struct datatypeinfo datatypeinfo_arr[] = {
 	{ 0x6D667431U, "lut8", NULL }, // mft1
 	{ 0x6D667432U, "lut16", NULL }, // mft2
 	{ 0x6D6C7563U, "multiLocalizedUnicode", typedec_mluc }, // mluc
+	{ 0x6E636C32U, "namedColor2", NULL }, // ncl2
+	{ 0x6E636F6CU, "namedColor", NULL }, // ncol
+	{ 0x70736571U, "profileSequenceDesc", NULL }, // pseq
+	{ 0x72637332U, "responseCurveSet16", NULL }, // rcs2
 	{ 0x73663332U, "s15Fixed16Array", NULL }, // sf32
+	{ 0x7363726EU, "screening", NULL }, // scrn
 	{ 0x73696720U, "signature", NULL }, // sig
 	{ 0x74657874U, "text", typedec_text }, // text
+	{ 0x75663332U, "u16Fixed16Array", NULL }, // uf32
 	{ 0x75693038U, "uInt8Array", NULL }, // ui08
+	{ 0x75693136U, "uInt16Array", NULL }, // ui16
 	{ 0x75693332U, "uInt32Array", NULL }, // ui32
+	{ 0x75693634U, "uInt64Array", NULL }, // ui64
 	{ 0x76636774U, "Video Card Gamma Type", NULL }, // vcgt (Apple)
 	{ 0x76696577U, "viewingConditions", NULL } // view
 };
@@ -72,12 +84,16 @@ static const struct taginfo taginfo_arr[] = {
 	{ 0x42324132U, "BToA2", NULL }, // B2A2
 	{ 0x62545243U, "blueTRC", NULL }, // bTRC
 	{ 0x6258595AU, "blueColorant", NULL }, // bXYZ
+	{ 0x62666420U, "ucrbg", NULL }, // bfd
 	{ 0x626B7074U, "mediaBlackPoint", NULL }, // bkpt
+	{ 0x63616C74U, "calibrationDateTime", NULL }, // calt
 	{ 0x63686164U, "chromaticAdaptation", NULL }, // chad
 	{ 0x6368726DU, "chromaticity", NULL }, // chrm
 	{ 0x636C7274U, "colorantTable", NULL }, // clrt
 	{ 0x63707274U, "copyright", NULL }, // cprt
+	{ 0x63726469U, "crdInfo", NULL }, // crdi
 	{ 0x64657363U, "profileDescription", NULL }, // desc
+	{ 0x64657673U, "deviceSettings", NULL }, // devs
 	{ 0x646D6464U, "deviceModelDesc", NULL }, // dmdd
 	{ 0x646D6E64U, "deviceMfgDesc", NULL }, // dmnd
 	{ 0x67616D74U, "gamut", NULL }, // gamt
@@ -86,9 +102,24 @@ static const struct taginfo taginfo_arr[] = {
 	{ 0x6B545243U, "grayTRC", NULL }, // kTRC
 	{ 0x6C756D69U, "luminance", NULL }, // lumi
 	{ 0x6D656173U, "measurement", NULL }, // meas
+	{ 0x6E636C32U, "namedColor2", NULL }, // ncl2
+	{ 0x6E636F6CU, "namedColor", NULL }, // ncol
+	{ 0x70726530U, "preview0", NULL }, // pre0
+	{ 0x70726531U, "preview1", NULL }, // pre1
+	{ 0x70726532U, "preview2", NULL }, // pre2
+	{ 0x70733269U, "ps2RenderingIntent", NULL }, // ps2i
+	{ 0x70733273U, "ps2CSA", NULL }, // ps2s
+	{ 0x70736430U, "ps2CRD0", NULL }, // psd0
+	{ 0x70736431U, "ps2CRD1", NULL }, // psd1
+	{ 0x70736432U, "ps2CRD2", NULL }, // psd2
+	{ 0x70736433U, "ps2CRD3", NULL }, // psd3
+	{ 0x70736571U, "profileSequenceDesc", NULL }, // pseq
 	{ 0x72545243U, "redTRC", NULL }, // rTRC
 	{ 0x7258595AU, "redColorant", NULL }, // rXYZ
+	{ 0x72657370U, "outputResponse", NULL }, // resp
 	{ 0x72696730U, "perceptualRenderingIntentGamut", NULL }, // rig0
+	{ 0x73637264U, "screeningDesc", NULL }, // scrd
+	{ 0x7363726EU, "screening", NULL }, // scrn
 	{ 0x74617267U, "charTarget", NULL }, // targ
 	{ 0x74656368U, "technology", NULL }, // tech
 	{ 0x76636774U, "Video Card Gamma Type", NULL }, // vcgt (Apple)
