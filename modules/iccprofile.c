@@ -40,6 +40,7 @@ static const struct datatypeinfo datatypeinfo_arr[] = {
 	{ 0x58595A20U, "XYZ", typedec_XYZ }, // XYZ
 	{ 0x62666420U, "ucrbg", NULL }, // bfd
 	{ 0x6368726DU, "chromaticity", NULL }, // chrm
+	{ 0x636c726fU, "colorantOrder", NULL }, // clro
 	{ 0x636C7274U, "colorantTable", NULL }, // clrt
 	{ 0x63726469U, "crdInfo", NULL }, // crdi
 	{ 0x64657673U, "deviceSettings", NULL }, // devs
@@ -53,9 +54,12 @@ static const struct datatypeinfo datatypeinfo_arr[] = {
 	{ 0x6D667431U, "lut8", NULL }, // mft1
 	{ 0x6D667432U, "lut16", NULL }, // mft2
 	{ 0x6D6C7563U, "multiLocalizedUnicode", typedec_mluc }, // mluc
+	{ 0x6D706574U, "multiProcessElements", NULL }, // mpet
 	{ 0x6E636C32U, "namedColor2", NULL }, // ncl2
 	{ 0x6E636F6CU, "namedColor", NULL }, // ncol
+	{ 0x70617261U, "parametricCurve", NULL }, // para
 	{ 0x70736571U, "profileSequenceDesc", NULL }, // pseq
+	{ 0x70736964U, "profileSequenceIdentifier", NULL }, // psid
 	{ 0x72637332U, "responseCurveSet16", NULL }, // rcs2
 	{ 0x73663332U, "s15Fixed16Array", NULL }, // sf32
 	{ 0x7363726EU, "screening", NULL }, // scrn
@@ -82,13 +86,24 @@ static const struct taginfo taginfo_arr[] = {
 	{ 0x42324130U, "BToA0", NULL }, // B2A0
 	{ 0x42324131U, "BToA1", NULL }, // B2A1
 	{ 0x42324132U, "BToA2", NULL }, // B2A2
+	{ 0x42324430U, "BToD0", NULL }, // B2D0
+	{ 0x42324431U, "BToD1", NULL }, // B2D1
+	{ 0x42324432U, "BToD2", NULL }, // B2D2
+	{ 0x42324433U, "BToD3", NULL }, // B2D3
+	{ 0x44324230U, "DToB0", NULL }, // D2B0
+	{ 0x44324231U, "DToB1", NULL }, // D2B1
+	{ 0x44324232U, "DToB2", NULL }, // D2B2
+	{ 0x44324233U, "DToB3", NULL }, // D2B3
 	{ 0x62545243U, "blueTRC", NULL }, // bTRC
-	{ 0x6258595AU, "blueColorant", NULL }, // bXYZ
+	{ 0x6258595AU, "blueColorant/blueMatrixColumn", NULL }, // bXYZ
 	{ 0x62666420U, "ucrbg", NULL }, // bfd
 	{ 0x626B7074U, "mediaBlackPoint", NULL }, // bkpt
 	{ 0x63616C74U, "calibrationDateTime", NULL }, // calt
 	{ 0x63686164U, "chromaticAdaptation", NULL }, // chad
 	{ 0x6368726DU, "chromaticity", NULL }, // chrm
+	{ 0x63696973U, "colorimetricIntentImageState", NULL }, // ciis
+	{ 0x636C6F74U, "colorantTableOut", NULL }, // clot
+	{ 0x636C726FU, "colorantOrder", NULL }, // clro
 	{ 0x636C7274U, "colorantTable", NULL }, // clrt
 	{ 0x63707274U, "copyright", NULL }, // cprt
 	{ 0x63726469U, "crdInfo", NULL }, // crdi
@@ -98,7 +113,7 @@ static const struct taginfo taginfo_arr[] = {
 	{ 0x646D6E64U, "deviceMfgDesc", NULL }, // dmnd
 	{ 0x67616D74U, "gamut", NULL }, // gamt
 	{ 0x67545243U, "greenTRC", NULL }, // gTRC
-	{ 0x6758595AU, "greenColorant", NULL }, // gXYZ
+	{ 0x6758595AU, "greenColorant/greenMatrixColumn", NULL }, // gXYZ
 	{ 0x6B545243U, "grayTRC", NULL }, // kTRC
 	{ 0x6C756D69U, "luminance", NULL }, // lumi
 	{ 0x6D656173U, "measurement", NULL }, // meas
@@ -114,10 +129,12 @@ static const struct taginfo taginfo_arr[] = {
 	{ 0x70736432U, "ps2CRD2", NULL }, // psd2
 	{ 0x70736433U, "ps2CRD3", NULL }, // psd3
 	{ 0x70736571U, "profileSequenceDesc", NULL }, // pseq
+	{ 0x70736964U, "profileSequenceIdentifier", NULL }, // psid
 	{ 0x72545243U, "redTRC", NULL }, // rTRC
-	{ 0x7258595AU, "redColorant", NULL }, // rXYZ
+	{ 0x7258595AU, "redColorant/redMatrixColumn", NULL }, // rXYZ
 	{ 0x72657370U, "outputResponse", NULL }, // resp
 	{ 0x72696730U, "perceptualRenderingIntentGamut", NULL }, // rig0
+	{ 0x72696732U, "saturationRenderingIntentGamut", NULL }, // rig2
 	{ 0x73637264U, "screeningDesc", NULL }, // scrd
 	{ 0x7363726EU, "screening", NULL }, // scrn
 	{ 0x74617267U, "charTarget", NULL }, // targ
