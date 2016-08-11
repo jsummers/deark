@@ -31,54 +31,109 @@ static void hrsrc_iptc(deark *c, lctx *d, const struct rsrc_info *ri,
 	de_int64 pos, de_int64 len);
 static void hrsrc_exif(deark *c, lctx *d, const struct rsrc_info *ri,
 	de_int64 pos, de_int64 len);
+static void hrsrc_xmp(deark *c, lctx *d, const struct rsrc_info *ri,
+	de_int64 pos, de_int64 len);
+static void hrsrc_iccprofile(deark *c, lctx *d, const struct rsrc_info *ri,
+	de_int64 pos, de_int64 len);
 static void hrsrc_thumbnail(deark *c, lctx *d, const struct rsrc_info *ri,
 	de_int64 pos, de_int64 len);
 
 static const struct rsrc_info rsrc_info_arr[] = {
+	{ 0x03e8, 0, "channels/rows/columns/depth/mode", NULL },
 	{ 0x03e9, 0, "Macintosh print manager print info", NULL },
+	{ 0x03ea, 0, "Macintosh page format information", NULL },
+	{ 0x03eb, 0, "Indexed color table", NULL },
 	{ 0x03ed, 0, "Resolution info", hrsrc_resolutioninfo },
 	{ 0x03ee, 0, "Names of the alpha channels", NULL },
+	{ 0x03ef, 0, "Display information", NULL },
+	{ 0x03f0, 0, "Caption", NULL },
+	{ 0x03f1, 0, "Border information", NULL },
 	{ 0x03f2, 0, "Background color", NULL },
 	{ 0x03f3, 0, "Print flags", NULL },
+	{ 0x03f4, 0, "Grayscale and multichannel halftoning information", NULL },
 	{ 0x03f5, 0, "Color halftoning info", NULL },
+	{ 0x03f6, 0, "Duotone halftoning information", NULL },
+	{ 0x03f7, 0, "Grayscale and multichannel transfer function", NULL },
 	{ 0x03f8, 0, "Color transfer functions", NULL },
+	{ 0x03f9, 0, "Duotone transfer functions", NULL },
+	{ 0x03fa, 0, "Duotone image information", NULL },
+	{ 0x03fb, 0, "Effective black and white values", NULL },
+	//{ 0x03fc, 0, "(Obsolete)", NULL },
 	{ 0x03fd, 0, "EPS options", NULL },
+	{ 0x03fe, 0, "Quick Mask information", NULL },
+	//{ 0x03ff, 0, "(Obsolete)", NULL },
 	{ 0x0400, 0, "Layer state information", NULL },
+	{ 0x0401, 0, "Working path", NULL },
 	{ 0x0402, 0, "Layers group information", NULL },
+	//{ 0x0403, 0, "(Obsolete)", NULL },
 	{ 0x0404, 0, "IPTC-NAA", hrsrc_iptc },
+	{ 0x0405, 0, "Image mode for raw format files", NULL },
 	{ 0x0406, 0, "JPEG quality", NULL },
 	{ 0x0408, 0, "Grid and guides info", NULL },
 	{ 0x0409, 0, "Thumbnail - Photoshop 4.0", hrsrc_thumbnail },
 	{ 0x040a, 0, "Copyright flag", NULL },
+	{ 0x040b, 0, "URL", NULL },
 	{ 0x040c, 0, "Thumbnail", hrsrc_thumbnail },
 	{ 0x040d, 0, "Global Angle", NULL },
+	{ 0x040e, 0, "Color samplers resource (Photoshop 5.0)", NULL },
+	{ 0x040f, 0, "ICC Profile", hrsrc_iccprofile },
+	{ 0x0410, 0, "Watermark", NULL },
 	{ 0x0411, 0, "ICC Untagged Profile", NULL },
+	{ 0x0412, 0, "Effects visible", NULL },
+	{ 0x0413, 0, "Spot Halftone", NULL },
 	{ 0x0414, 0, "Document-specific IDs seed number", NULL },
 	{ 0x0415, 0, "Unicode Alpha Names", NULL },
+	{ 0x0416, 0, "Indexed Color Table Count", NULL },
+	{ 0x0417, 0, "Transparency Index", NULL },
 	{ 0x0419, 0, "Global Altitude", NULL },
 	{ 0x041a, 0, "Slices", NULL },
+	{ 0x041b, 0, "Workflow URL", NULL },
+	{ 0x041c, 0, "Jump To XPEP", NULL },
 	{ 0x041d, 0, "Alpha Identifiers", NULL },
 	{ 0x041e, 0, "URL List", NULL },
 	{ 0x0421, 0, "Version Info", NULL },
 	{ 0x0422, 0, "EXIF data 1", hrsrc_exif },
 	{ 0x0423, 0, "EXIF data 3", NULL },
+	{ 0x0424, 0, "XMP metadata", hrsrc_xmp },
 	{ 0x0425, 0, "Caption digest", NULL },
 	{ 0x0426, 0, "Print scale", NULL },
 	{ 0x0428, 0, "Pixel Aspect Ratio", NULL },
+	{ 0x0429, 0, "Layer Comps", NULL },
+	{ 0x042a, 0, "Alternate Duotone Colors", NULL },
+	{ 0x042b, 0, "Alternate Spot Colors", NULL },
 	{ 0x042d, 0, "Layer Selection ID(s)", NULL },
+	{ 0x042e, 0, "HDR Toning information", NULL },
 	{ 0x042f, 0, "Auto Save Format", NULL },
 	{ 0x0430, 0, "Layer Group(s) Enabled ID", NULL },
+	{ 0x0431, 0, "Color samplers resource", NULL },
+	{ 0x0432, 0, "Measurement Scale", NULL },
 	{ 0x0433, 0, "Timeline Information", NULL },
 	{ 0x0434, 0, "Sheet Disclosure", NULL },
 	{ 0x0435, 0, "DisplayInfo", NULL },
 	{ 0x0436, 0, "Onion Skins", NULL },
+	{ 0x0438, 0, "Count Information", NULL },
 	{ 0x043a, 0, "Print Information", NULL },
 	{ 0x043b, 0, "Print Style", NULL },
+	{ 0x043c, 0, "Macintosh NSPrintInfo", NULL },
+	{ 0x043d, 0, "Windows DEVMODE", NULL },
+	{ 0x043e, 0, "Auto Save File Path", NULL },
+	{ 0x043f, 0, "Auto Save Format", NULL },
+	{ 0x0440, 0, "Path Selection State", NULL },
+	// 0x07d0 to 0x0bb6: See lookup_rsrc() below
 	{ 0x0bb7, 0, "Name of clipping path", NULL },
+	{ 0x0bb8, 0, "Origin Path Info", NULL },
+	// 0x0fa0 to 0x1387: See lookup_rsrc() below
+	{ 0x1b58, 0, "Image Ready variables", NULL },
+	{ 0x1b59, 0, "Image Ready data sets", NULL },
+	{ 0x1b5a, 0, "Image Ready default selected state", NULL },
+	{ 0x1b5b, 0, "Image Ready 7 rollover expanded state", NULL },
+	{ 0x1b5c, 0, "Image Ready rollover expanded state", NULL },
+	{ 0x1b5d, 0, "Image Ready save layer settings", NULL },
+	{ 0x1b5e, 0, "Image Ready version", NULL },
+	{ 0x1f40, 0, "Lightroom workflow", NULL },
 	{ 0x2710, 0, "Print flags info", NULL }
 };
 
-//static const char* rsrc_name(de_int64 n)
 // Caller supplies ri_dst. This function will set its fields.
 static int lookup_rsrc(de_uint16 n, struct rsrc_info *ri_dst)
 {
@@ -106,7 +161,7 @@ static int lookup_rsrc(de_uint16 n, struct rsrc_info *ri_dst)
 	}
 	else if(n>=0x0fa0 && n<=0x1387) {
 		found = 1;
-		ri_dst->idname = "Plug-In resources";
+		ri_dst->idname = "Plug-In resource";
 	}
 
 	return found;
@@ -156,6 +211,18 @@ static void hrsrc_iptc(deark *c, lctx *d, const struct rsrc_info *ri,
 	}
 }
 
+static void hrsrc_xmp(deark *c, lctx *d, const struct rsrc_info *ri,
+	de_int64 pos, de_int64 len)
+{
+	dbuf_create_file_from_slice(c->infile, pos, len, "xmp", NULL, DE_CREATEFLAG_IS_AUX);
+}
+
+static void hrsrc_iccprofile(deark *c, lctx *d, const struct rsrc_info *ri,
+	de_int64 pos, de_int64 len)
+{
+	dbuf_create_file_from_slice(c->infile, pos, len, "icc", NULL, DE_CREATEFLAG_IS_AUX);
+}
+
 static void hrsrc_thumbnail(deark *c, lctx *d, const struct rsrc_info *ri,
 	de_int64 pos1, de_int64 len)
 {
@@ -178,15 +245,18 @@ static void hrsrc_thumbnail(deark *c, lctx *d, const struct rsrc_info *ri,
 	dbuf_create_file_from_slice(c->infile, pos+28, len-28, "psdthumb.jpg", NULL, DE_CREATEFLAG_IS_AUX);
 }
 
-static int do_image_resource(deark *c, de_int64 pos1, de_int64 *bytes_consumed)
+static int do_image_resource(deark *c, lctx *d, de_int64 pos1, de_int64 *bytes_consumed)
 {
 	de_byte buf[4];
 	de_int64 resource_id;
-	de_int64 name_len;
+	de_int64 blkname_len;
 	de_int64 bytes_used_by_name_field;
 	de_int64 block_data_len;
 	de_int64 pos;
 	struct rsrc_info ri;
+	de_ucstring *blkname = NULL;
+	const char *blkname_printable;
+	int retval = 0;
 
 	pos = pos1;
 	*bytes_consumed = 0;
@@ -195,18 +265,27 @@ static int do_image_resource(deark *c, de_int64 pos1, de_int64 *bytes_consumed)
 	de_read(buf, pos, 4);
 	if(buf[0]!='8' || buf[1]!='B' || buf[2]!='I' || buf[3]!='M') {
 		de_warn(c, "Bad Photoshop resource block signature at %d\n", (int)pos);
-		return 0;
+		goto done;
 	}
 	pos+=4;
 
 	resource_id = de_getui16be(pos);
 	pos+=2;
 
-	// Read resource name. We don't care about this, but we have to read it
-	// because it has a variable size, and determines where the next field
-	// will be.
-	name_len = (de_int64)de_getbyte(pos);
-	bytes_used_by_name_field = 1 + name_len;
+	// Read resource block name. It starts with a byte that gives its length.
+	blkname_len = (de_int64)de_getbyte(pos);
+
+	if(blkname_len>0) {
+		blkname = ucstring_create(c);
+		// I don't know what encoding block names use. The PSD spec doesn't say.
+		dbuf_read_to_ucstring(c->infile, pos+1, blkname_len, blkname, 0, DE_ENCODING_ASCII);
+		blkname_printable = ucstring_get_printable_sz(blkname);
+	}
+	else {
+		blkname_printable = "";
+	}
+
+	bytes_used_by_name_field = 1 + blkname_len;
 	if(bytes_used_by_name_field&1) bytes_used_by_name_field++; // padding byte
 
 	pos+=bytes_used_by_name_field;
@@ -216,12 +295,13 @@ static int do_image_resource(deark *c, de_int64 pos1, de_int64 *bytes_consumed)
 
 	lookup_rsrc((de_uint16)resource_id, &ri);
 
-	de_dbg(c, "Photoshop rsrc 0x%04x (%s) pos=%d nlen=%d dpos=%d dlen=%d\n",
-		(int)resource_id, ri.idname, (int)pos1, (int)name_len, (int)pos, (int)block_data_len);
+	de_dbg(c, "Photoshop rsrc 0x%04x (%s) pos=%d blkname=\"%s\" dpos=%d dlen=%d\n",
+		(int)resource_id, ri.idname, (int)pos1, blkname_printable,
+		(int)pos, (int)block_data_len);
 
 	if(ri.hfn) {
 		de_dbg_indent(c, 1);
-		ri.hfn(c, NULL, &ri, pos, block_data_len);
+		ri.hfn(c, d, &ri, pos, block_data_len);
 		de_dbg_indent(c, -1);
 	}
 
@@ -229,10 +309,15 @@ static int do_image_resource(deark *c, de_int64 pos1, de_int64 *bytes_consumed)
 	if(block_data_len&1) pos++; // padding byte
 
 	*bytes_consumed = pos - pos1;
-	return 1;
+
+	retval = 1;
+
+done:
+	if(blkname) ucstring_destroy(blkname);
+	return retval;
 }
 
-static void do_image_resource_blocks(deark *c, de_int64 pos1, de_int64 len)
+static void do_image_resource_blocks(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 {
 	de_int64 pos;
 	de_int64 bytes_consumed;
@@ -240,37 +325,48 @@ static void do_image_resource_blocks(deark *c, de_int64 pos1, de_int64 len)
 	pos = pos1;
 	while(1) {
 		if(pos>=pos1+len) break;
-		if(!do_image_resource(c, pos, &bytes_consumed)) break;
+		if(!do_image_resource(c, d, pos, &bytes_consumed)) break;
 		pos += bytes_consumed;
 	}
 }
 
 static void de_run_psd(deark *c, de_module_params *mparams)
 {
+	lctx *d = NULL;
 	de_int64 x;
 	de_int64 pos;
 
 	if(c->module_nesting_level>1) de_dbg2(c, "in psd module\n");
+	d = de_malloc(c, sizeof(lctx));
 
 	if(mparams && mparams->codes && de_strchr(mparams->codes, 'R')) {
-		do_image_resource_blocks(c, 0, c->infile->len);
-		return;
+		do_image_resource_blocks(c, d, 0, c->infile->len);
+		goto done;
 	}
 
 	// Header is 26 bytes. We don't care about it.
+	de_dbg(c, "header at %d\n", 0);
+
 	// Color Mode data starts at offset 26.
 	pos = 26;
 	x = de_getui32be(pos); // Length of Color Mode data
-	de_dbg(c, "Color Mode size: %d\n", (int)x);
-	pos += 4 + x;
+	de_dbg(c, "color mode segment size at %d: %d\n", (int)pos, (int)x);
+	pos += 4;
+	pos += x;
 
 	x = de_getui32be(pos); // Length of Image Resources
-	de_dbg(c, "Image Resources size: %d\n", (int)x);
+	de_dbg(c, "image resources segment size at %d: %d\n", (int)pos, (int)x);
 	pos += 4;
 
 	if(x>0) {
-		do_image_resource_blocks(c, pos, x);
+		de_dbg(c, "image resources blocks at %d\n", (int)pos);
+		de_dbg_indent(c, 1);
+		do_image_resource_blocks(c, d, pos, x);
+		de_dbg_indent(c, -1);
 	}
+
+done:
+	de_free(c, d);
 }
 
 static int de_identify_psd(deark *c)
