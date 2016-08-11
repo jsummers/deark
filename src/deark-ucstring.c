@@ -267,7 +267,7 @@ static int is_printable_uchar(de_int32 ch)
 		// TODO: Whitelist more codepoints
 	};
 	size_t i;
-	const size_t num_ranges = sizeof(ranges)/sizeof(ranges[0]);
+	const size_t num_ranges = DE_ITEMS_IN_ARRAY(ranges);
 
 	for(i=0; i<num_ranges; i++) {
 		if(ch>=ranges[i].n1 && ch<=ranges[i].n2) return 1;

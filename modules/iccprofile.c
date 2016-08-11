@@ -22,8 +22,6 @@ typedef struct localctx_struct {
 	struct tag_seen_type *tags_seen;
 } lctx;
 
-#define ITEMS_IN_ARRAY(x) (sizeof(x)/sizeof(x[0]))
-
 typedef void (*datatype_decoder_fn_type)(deark *c, lctx *d, de_int64 pos, de_int64 len);
 
 static void typedec_XYZ(deark *c, lctx *d, de_int64 pos, de_int64 len);
@@ -437,7 +435,7 @@ static void do_read_header(deark *c, lctx *d, de_int64 pos)
 static const struct datatypeinfo *lookup_datatypeinfo(de_uint32 id)
 {
 	de_int64 k;
-	for(k=0; k<ITEMS_IN_ARRAY(datatypeinfo_arr); k++) {
+	for(k=0; k<DE_ITEMS_IN_ARRAY(datatypeinfo_arr); k++) {
 		if(datatypeinfo_arr[k].id == id) {
 			return &datatypeinfo_arr[k];
 		}
@@ -448,7 +446,7 @@ static const struct datatypeinfo *lookup_datatypeinfo(de_uint32 id)
 static const struct taginfo *lookup_taginfo(de_uint32 id)
 {
 	de_int64 k;
-	for(k=0; k<ITEMS_IN_ARRAY(taginfo_arr); k++) {
+	for(k=0; k<DE_ITEMS_IN_ARRAY(taginfo_arr); k++) {
 		if(taginfo_arr[k].id == id) {
 			return &taginfo_arr[k];
 		}

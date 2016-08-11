@@ -9,7 +9,7 @@
 #include "fmtutil.h"
 DE_DECLARE_MODULE(de_module_tiff);
 
-#define ITEMS_IN_ARRAY(x) (sizeof(x)/sizeof(x[0]))
+#define ITEMS_IN_ARRAY DE_ITEMS_IN_ARRAY
 #define MAX_IFDS 1000
 
 #define DE_TIFF_MAX_VALUES_TO_PRINT 100
@@ -1761,7 +1761,7 @@ static const struct tagnuminfo *find_tagnuminfo(int tagnum, int filefmt, int ifd
 {
 	size_t i;
 
-	for(i=0; i<ITEMS_IN_ARRAY(tagnuminfo_arr); i++) {
+	for(i=0; i<DE_ITEMS_IN_ARRAY(tagnuminfo_arr); i++) {
 		if(tagnuminfo_arr[i].tagnum!=tagnum) {
 			continue;
 		}

@@ -28,6 +28,8 @@
 
 #define DE_INVALID_CODEPOINT ((de_int32)-1)
 
+#define DE_ITEMS_IN_ARRAY(x) (sizeof(x)/sizeof(x[0]))
+
 typedef struct de_module_params_struct {
 	const char *codes;
 } de_module_params;

@@ -28,7 +28,7 @@ void de_register_modules(deark *c)
 	size_t num_modules;
 	size_t i;
 
-	num_modules = sizeof(infofunc_list) / sizeof(infofunc_list[0]);
+	num_modules = DE_ITEMS_IN_ARRAY(infofunc_list);
 
 	if(!c->module_info) {
 		c->module_info = de_malloc(c, num_modules*sizeof(struct deark_module_info));

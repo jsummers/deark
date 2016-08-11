@@ -9,78 +9,107 @@
 #include "fmtutil.h"
 DE_DECLARE_MODULE(de_module_psd);
 
+typedef struct localctx_struct {
+	int reserved;
+} lctx;
+
+struct rsrc_info;
+
+typedef void (*rsrc_handler_fn)(deark *c, lctx *d, const struct rsrc_info *ri,
+	de_int64 pos, de_int64 len);
+
 struct rsrc_info {
 	de_uint16 id;
-	const char *name;
+	de_uint32 flags;
+	const char *idname;
+	rsrc_handler_fn hfn;
 };
+
+static void hrsrc_resolutioninfo(deark *c, lctx *d, const struct rsrc_info *ri,
+	de_int64 pos, de_int64 len);
+static void hrsrc_iptc(deark *c, lctx *d, const struct rsrc_info *ri,
+	de_int64 pos, de_int64 len);
+static void hrsrc_exif(deark *c, lctx *d, const struct rsrc_info *ri,
+	de_int64 pos, de_int64 len);
+static void hrsrc_thumbnail(deark *c, lctx *d, const struct rsrc_info *ri,
+	de_int64 pos, de_int64 len);
 
 static const struct rsrc_info rsrc_info_arr[] = {
-	{ 0x03e9, "Macintosh print manager print info" },
-	{ 0x03ed, "Resolution info" },
-	{ 0x03ee, "Names of the alpha channels" },
-	{ 0x03f2, "Background color" },
-	{ 0x03f3, "Print flags" },
-	{ 0x03f5, "Color halftoning info" },
-	{ 0x03f8, "Color transfer functions" },
-	{ 0x03fd, "EPS options" },
-	{ 0x0400, "Layer state information" },
-	{ 0x0402, "Layers group information" },
-	{ 0x0404, "IPTC-NAA" },
-	{ 0x0406, "JPEG quality" },
-	{ 0x0408, "Grid and guides info" },
-	{ 0x0409, "Thumbnail - Photoshop 4.0" },
-	{ 0x040a, "Copyright flag" },
-	{ 0x040c, "Thumbnail" },
-	{ 0x040d, "Global Angle" },
-	{ 0x0411, "ICC Untagged Profile" },
-	{ 0x0414, "Document-specific IDs seed number" },
-	{ 0x0415, "Unicode Alpha Names" },
-	{ 0x0419, "Global Altitude" },
-	{ 0x041a, "Slices" },
-	{ 0x041d, "Alpha Identifiers" },
-	{ 0x041e, "URL List" },
-	{ 0x0421, "Version Info" },
-	{ 0x0422, "EXIF data 1" },
-	{ 0x0423, "EXIF data 3" },
-	{ 0x0425, "Caption digest" },
-	{ 0x0426, "Print scale" },
-	{ 0x0428, "Pixel Aspect Ratio" },
-	{ 0x042d, "Layer Selection ID(s)" },
-	{ 0x042f, "Auto Save Format" },
-	{ 0x0430, "Layer Group(s) Enabled ID" },
-	{ 0x0433, "Timeline Information" },
-	{ 0x0434, "Sheet Disclosure" },
-	{ 0x0435, "DisplayInfo" },
-	{ 0x0436, "Onion Skins" },
-	{ 0x043a, "Print Information" },
-	{ 0x043b, "Print Style" },
-	{ 0x0bb7, "Name of clipping path" },
-	{ 0x2710, "Print flags info" },
-	{ 0, NULL }
+	{ 0x03e9, 0, "Macintosh print manager print info", NULL },
+	{ 0x03ed, 0, "Resolution info", hrsrc_resolutioninfo },
+	{ 0x03ee, 0, "Names of the alpha channels", NULL },
+	{ 0x03f2, 0, "Background color", NULL },
+	{ 0x03f3, 0, "Print flags", NULL },
+	{ 0x03f5, 0, "Color halftoning info", NULL },
+	{ 0x03f8, 0, "Color transfer functions", NULL },
+	{ 0x03fd, 0, "EPS options", NULL },
+	{ 0x0400, 0, "Layer state information", NULL },
+	{ 0x0402, 0, "Layers group information", NULL },
+	{ 0x0404, 0, "IPTC-NAA", hrsrc_iptc },
+	{ 0x0406, 0, "JPEG quality", NULL },
+	{ 0x0408, 0, "Grid and guides info", NULL },
+	{ 0x0409, 0, "Thumbnail - Photoshop 4.0", hrsrc_thumbnail },
+	{ 0x040a, 0, "Copyright flag", NULL },
+	{ 0x040c, 0, "Thumbnail", hrsrc_thumbnail },
+	{ 0x040d, 0, "Global Angle", NULL },
+	{ 0x0411, 0, "ICC Untagged Profile", NULL },
+	{ 0x0414, 0, "Document-specific IDs seed number", NULL },
+	{ 0x0415, 0, "Unicode Alpha Names", NULL },
+	{ 0x0419, 0, "Global Altitude", NULL },
+	{ 0x041a, 0, "Slices", NULL },
+	{ 0x041d, 0, "Alpha Identifiers", NULL },
+	{ 0x041e, 0, "URL List", NULL },
+	{ 0x0421, 0, "Version Info", NULL },
+	{ 0x0422, 0, "EXIF data 1", hrsrc_exif },
+	{ 0x0423, 0, "EXIF data 3", NULL },
+	{ 0x0425, 0, "Caption digest", NULL },
+	{ 0x0426, 0, "Print scale", NULL },
+	{ 0x0428, 0, "Pixel Aspect Ratio", NULL },
+	{ 0x042d, 0, "Layer Selection ID(s)", NULL },
+	{ 0x042f, 0, "Auto Save Format", NULL },
+	{ 0x0430, 0, "Layer Group(s) Enabled ID", NULL },
+	{ 0x0433, 0, "Timeline Information", NULL },
+	{ 0x0434, 0, "Sheet Disclosure", NULL },
+	{ 0x0435, 0, "DisplayInfo", NULL },
+	{ 0x0436, 0, "Onion Skins", NULL },
+	{ 0x043a, 0, "Print Information", NULL },
+	{ 0x043b, 0, "Print Style", NULL },
+	{ 0x0bb7, 0, "Name of clipping path", NULL },
+	{ 0x2710, 0, "Print flags info", NULL }
 };
 
-static const char* rsrc_name(de_int64 n)
+//static const char* rsrc_name(de_int64 n)
+// Caller supplies ri_dst. This function will set its fields.
+static int lookup_rsrc(de_uint16 n, struct rsrc_info *ri_dst)
 {
-	const struct rsrc_info *ri = NULL;
 	de_int64 i;
+	int found = 0;
 
-	for(i=0; rsrc_info_arr[i].id!=0; i++) {
-		if(rsrc_info_arr[i].id == (de_uint16)n) {
-			ri = &rsrc_info_arr[i];
-			break;
+	de_memset(ri_dst, 0, sizeof(struct rsrc_info));
+
+	for(i=0; i<DE_ITEMS_IN_ARRAY(rsrc_info_arr); i++) {
+		if(rsrc_info_arr[i].id == n) {
+			*ri_dst = rsrc_info_arr[i]; // struct copy
+			if(!ri_dst->idname) ri_dst->idname = "?";
+			return 1;
 		}
 	}
-	if(ri && ri->name)
-		return ri->name;
+
+	ri_dst->id = n;
+	ri_dst->idname = "?";
+
+	// Handle pattern-based resources that don't fit nicely in our table.
 
 	if(n>=0x07d0 && n<=0x0bb6) {
-		return "Path Information";
+		found = 1;
+		ri_dst->idname = "Path Information";
 	}
-	if(n>=0x0fa0 && n<=0x1387) {
-		return "Plug-In resources";
+	else if(n>=0x0fa0 && n<=0x1387) {
+		found = 1;
+		ri_dst->idname = "Plug-In resources";
 	}
 
-	return "?";
+	return found;
 }
 
 static const char* units_name(de_int64 u)
@@ -92,7 +121,8 @@ static const char* units_name(de_int64 u)
 	return "?";
 }
 
-static void do_resolutioninfo_resource(deark *c, de_int64 pos, de_int64 len)
+static void hrsrc_resolutioninfo(deark *c, lctx *d, const struct rsrc_info *ri,
+	de_int64 pos, de_int64 len)
 {
 	de_int64 xres_int, yres_int;
 	double xres, yres;
@@ -111,14 +141,29 @@ static void do_resolutioninfo_resource(deark *c, de_int64 pos, de_int64 len)
 	de_dbg(c, "yres=%.2f, units=%d (%s)\n", yres, (int)yres_unit, units_name(yres_unit));
 }
 
-static void do_thumbnail_resource(deark *c, de_int64 resource_id,
-	de_int64 startpos, de_int64 len)
+static void hrsrc_exif(deark *c, lctx *d, const struct rsrc_info *ri,
+	de_int64 pos, de_int64 len)
+{
+	//de_dbg(c, "Exif segment at %d datasize=%d\n", (int)pos, (int)len);
+	de_fmtutil_handle_exif(c, pos, len);
+}
+
+static void hrsrc_iptc(deark *c, lctx *d, const struct rsrc_info *ri,
+	de_int64 pos, de_int64 len)
+{
+	if(c->extract_level>=2 && len>0) {
+		dbuf_create_file_from_slice(c->infile, pos, len, "iptc", NULL, DE_CREATEFLAG_IS_AUX);
+	}
+}
+
+static void hrsrc_thumbnail(deark *c, lctx *d, const struct rsrc_info *ri,
+	de_int64 pos1, de_int64 len)
 {
 	de_int64 pos;
 	de_int64 fmt;
 
 	if(len<=28) return;
-	pos = startpos;
+	pos = pos1;
 
 	fmt = de_getui32be(pos);
 	if(fmt != 1) {
@@ -127,7 +172,7 @@ static void do_thumbnail_resource(deark *c, de_int64 resource_id,
 		return;
 	}
 
-	if(resource_id==0x0409) {
+	if(ri->id==0x0409) {
 		de_msg(c, "Note: This Photoshop thumbnail uses nonstandard colors, and may not look right.\n");
 	}
 	dbuf_create_file_from_slice(c->infile, pos+28, len-28, "psdthumb.jpg", NULL, DE_CREATEFLAG_IS_AUX);
@@ -141,7 +186,7 @@ static int do_image_resource(deark *c, de_int64 pos1, de_int64 *bytes_consumed)
 	de_int64 bytes_used_by_name_field;
 	de_int64 block_data_len;
 	de_int64 pos;
-	const char *idname;
+	struct rsrc_info ri;
 
 	pos = pos1;
 	*bytes_consumed = 0;
@@ -169,32 +214,15 @@ static int do_image_resource(deark *c, de_int64 pos1, de_int64 *bytes_consumed)
 	block_data_len = de_getui32be(pos);
 	pos+=4;
 
-	idname = rsrc_name(resource_id);
+	lookup_rsrc((de_uint16)resource_id, &ri);
 
 	de_dbg(c, "Photoshop rsrc 0x%04x (%s) pos=%d nlen=%d dpos=%d dlen=%d\n",
-		(int)resource_id, idname, (int)pos1, (int)name_len, (int)pos, (int)block_data_len);
+		(int)resource_id, ri.idname, (int)pos1, (int)name_len, (int)pos, (int)block_data_len);
 
-	switch(resource_id) {
-	case 0x03ed: // ResolutionInfo
+	if(ri.hfn) {
 		de_dbg_indent(c, 1);
-		do_resolutioninfo_resource(c, pos, block_data_len);
+		ri.hfn(c, NULL, &ri, pos, block_data_len);
 		de_dbg_indent(c, -1);
-		break;
-	case 0x0404: // IPTC
-		if(c->extract_level>=2 && block_data_len>0) {
-			dbuf_create_file_from_slice(c->infile, pos, block_data_len, "iptc", NULL, DE_CREATEFLAG_IS_AUX);
-		}
-		break;
-	case 0x0409: // PhotoshopThumbnail 4.0
-	case 0x040c: // PhotoshopThumbnail
-		do_thumbnail_resource(c, resource_id, pos, block_data_len);
-		break;
-	case 0x0422: // EXIFInfo
-		de_dbg_indent(c, 1);
-		de_dbg(c, "Exif segment at %d datasize=%d\n", (int)pos, (int)block_data_len);
-		de_fmtutil_handle_exif(c, pos, block_data_len);
-		de_dbg_indent(c, -1);
-		break;
 	}
 
 	pos+=block_data_len;
