@@ -206,9 +206,7 @@ static void hrsrc_exif(deark *c, lctx *d, const struct rsrc_info *ri,
 static void hrsrc_iptc(deark *c, lctx *d, const struct rsrc_info *ri,
 	de_int64 pos, de_int64 len)
 {
-	if(c->extract_level>=2 && len>0) {
-		dbuf_create_file_from_slice(c->infile, pos, len, "iptc", NULL, DE_CREATEFLAG_IS_AUX);
-	}
+	de_fmtutil_handle_iptc(c, pos, len);
 }
 
 static void hrsrc_xmp(deark *c, lctx *d, const struct rsrc_info *ri,

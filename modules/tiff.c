@@ -1565,9 +1565,7 @@ static void handler_xmp(deark *c, lctx *d, const struct taginfo *tg, const struc
 
 static void handler_iptc(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni)
 {
-	if(c->extract_level>=2 && tg->total_size>0) {
-		dbuf_create_file_from_slice(c->infile, tg->val_offset, tg->total_size, "iptc", NULL, DE_CREATEFLAG_IS_AUX);
-	}
+	de_fmtutil_handle_iptc(c, tg->val_offset, tg->total_size);
 }
 
 static void handler_photoshoprsrc(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni)

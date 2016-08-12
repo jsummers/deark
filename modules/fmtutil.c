@@ -148,6 +148,20 @@ void de_fmtutil_handle_exif(deark *c, de_int64 pos, de_int64 len)
 	de_free(c, mparams);
 }
 
+// Either extract the IPTC data to a file, or drill down into it,
+// depending on the value of c->extract_level.
+void de_fmtutil_handle_iptc(deark *c, de_int64 pos, de_int64 len)
+{
+	if(len<1) return;
+
+	if(c->extract_level>=2) {
+		dbuf_create_file_from_slice(c->infile, pos, len, "iptc", NULL, DE_CREATEFLAG_IS_AUX);
+		return;
+	}
+
+	de_run_module_by_id_on_slice(c, "iptc", NULL, c->infile, pos, len);
+}
+
 void de_fmtutil_handle_photoshop_rsrc(deark *c, de_int64 pos, de_int64 len)
 {
 	de_module_params *mparams = NULL;

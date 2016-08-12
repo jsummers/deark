@@ -594,6 +594,10 @@
 				>
 			</File>
 			<File
+				RelativePath="..\..\modules\iptc.c"
+				>
+			</File>
+			<File
 				RelativePath="..\..\modules\jbf.c"
 				>
 			</File>
