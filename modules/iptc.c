@@ -8,7 +8,9 @@
 DE_DECLARE_MODULE(de_module_iptc);
 
 typedef struct localctx_struct {
-	int reserved;
+	// The coded character set defined in 1:90.
+	// This applied to records 2-6, and sometimes 8.
+	int charset;
 } lctx;
 
 struct ds_info;
@@ -28,6 +30,9 @@ struct ds_info {
 	ds_handler_fn hfn;
 };
 
+static void handle_1_90(deark *c, lctx *d, const struct ds_info *dsi,
+	de_int64 pos, de_int64 len);
+
 static const struct ds_info ds_info_arr[] = {
 	{ 1, 0,   0,      "Model Version", NULL },
 	{ 1, 5,   0x0001, "Destination", NULL },
@@ -39,7 +44,7 @@ static const struct ds_info ds_info_arr[] = {
 	{ 1, 60,  0x0001, "Envelope Priority", NULL },
 	{ 1, 70,  0x0001, "Date Sent", NULL },
 	{ 1, 80,  0x0001, "Time Sent", NULL },
-	{ 1, 90,  0,      "Coded Character Set", NULL },
+	{ 1, 90,  0,      "Coded Character Set", handle_1_90 },
 	{ 1, 100, 0x0001, "UNO", NULL },
 	{ 1, 120, 0,      "ARM Identifier", NULL },
 	{ 1, 122, 0,      "ARM Version", NULL },
@@ -110,6 +115,27 @@ static const struct ds_info ds_info_arr[] = {
 	{ 9, 10,  0,      "Confirmed ObjectData Size", NULL }
 };
 
+static void handle_1_90(deark *c, lctx *d, const struct ds_info *dsi,
+	de_int64 pos, de_int64 len)
+{
+	const char *csname;
+
+	d->charset = DE_ENCODING_UNKNOWN;
+
+	// TODO: Fully interpret this field.
+
+	if(len>=3 && !dbuf_memcmp(c->infile, pos, "\x1b\x25\x47", 3)) {
+		d->charset = DE_ENCODING_UTF8;
+	}
+
+	if(d->charset==DE_ENCODING_UTF8)
+		csname="utf-8";
+	else
+		csname="unknown";
+
+	de_dbg(c, "charset: %s\n", csname);
+}
+
 // Caller supplies dsi. This function will set its fields.
 static int lookup_ds_info(de_byte recnum, de_byte dsnum, struct ds_info *dsi)
 {
@@ -134,25 +160,53 @@ static int lookup_ds_info(de_byte recnum, de_byte dsnum, struct ds_info *dsi)
 static int read_dflen(deark *c, dbuf *f, de_int64 pos,
 	de_int64 *dflen, de_int64 *bytes_consumed)
 {
-	*dflen = dbuf_getui16be(f, pos);
-	*bytes_consumed = 2;
-	if(*dflen > 32767) {
-		// TODO: Support larger lengths
-		de_err(c, "Bad or unsupported IPTC data field length\n");
-		return 0;
+	de_int64 x;
+
+	x = dbuf_getui16be(f, pos);
+	if(x<32768) { // "Standard DataSet" format
+		*dflen = x;
+		*bytes_consumed = 2;
 	}
+	else { // "Extended DataSet" format
+		de_int64 length_of_length;
+		de_int64 i;
+
+		length_of_length = x - 32768;
+		*dflen = 0;
+		*bytes_consumed = 2 + length_of_length;
+
+		for(i=0; i<length_of_length; i++) {
+			*dflen = ((*dflen)<<8) | dbuf_getbyte(f, pos+2+i);
+
+			// IPTC seems to support fields up to (2^262136)-1 bytes.
+			// We arbitrarily limit it (2^48)-1.
+			if((*dflen)>=0x1000000000000LL) {
+				de_err(c, "Bad or unsupported IPTC data field length\n");
+				return 0;
+			}
+		}
+	}
+
 	return 1;
 }
 
 static void do_print_text_value(deark *c, lctx *d, const struct ds_info *dsi,
 	de_int64 pos, de_int64 len)
 {
+	int encoding;
 	de_ucstring *s = NULL;
 
 	s = ucstring_create(c);
 
-	// TODO: Support other encodings when appropriate.
-	dbuf_read_to_ucstring(c->infile, pos, len, s, 0, DE_ENCODING_ASCII);
+	encoding = DE_ENCODING_UNKNOWN;
+	if(dsi->recnum>=2 && dsi->recnum<=6) {
+		encoding = d->charset;
+	}
+	if(encoding==DE_ENCODING_UNKNOWN) {
+		encoding = DE_ENCODING_ASCII;
+	}
+
+	dbuf_read_to_ucstring(c->infile, pos, len, s, 0, encoding);
 
 	de_dbg(c, "%s: \"%s\"\n", dsi->dsname, ucstring_get_printable_sz(s));
 
@@ -194,13 +248,16 @@ static int do_dataset(deark *c, lctx *d, de_int64 ds_idx, de_int64 pos1,
 	if(!read_dflen(c, c->infile, pos, &dflen, &dflen_bytes_consumed)) goto done;
 	pos += dflen_bytes_consumed;
 
-	de_dbg(c, "IPTC dataset %d:%02d (%s) dlen=%" INT64_FMT "\n",
-		(int)recnum, (int)dsnum, dsi.dsname, dflen);
+	de_dbg(c, "IPTC dataset %d:%02d (%s) dpos=%" INT64_FMT " dlen=%" INT64_FMT "\n",
+		(int)recnum, (int)dsnum, dsi.dsname, pos, dflen);
 
 	// Decode the value
 	de_dbg_indent(c, 1);
 
-	if(dsi.flags&0x1) {
+	if(dsi.hfn) {
+		dsi.hfn(c, d, &dsi, pos, dflen);
+	}
+	else if(dsi.flags&0x1) {
 		do_print_text_value(c, d, &dsi, pos, dflen);
 	}
 	pos += dflen;
@@ -222,6 +279,7 @@ static void de_run_iptc(deark *c, de_module_params *mparams)
 	de_int64 ds_count;
 
 	d = de_malloc(c, sizeof(lctx));
+	d->charset = DE_ENCODING_UNKNOWN;
 
 	pos = 0;
 	ds_count = 0;
