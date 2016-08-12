@@ -500,6 +500,12 @@ Deark -- Information about supported formats
   - Extract icons and cursors from LX files. Note that these will use OS/2
     format. Reprocess them with Deark to convert to PNG.
 
+* ICC profile (module="iccprofile")
+  - Debug info only.
+
+* IPTC metadata (module="iptc")
+  - Debug info only.
+
 * JPEG scan (module="jpegscan")
   - This module tries to find and extract embedded JPEG and JPEG-LS files from
     otherwise-unsupported formats. Use "-m jpegscan".

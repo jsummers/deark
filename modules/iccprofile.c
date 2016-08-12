@@ -594,5 +594,4 @@ void de_module_iccprofile(deark *c, struct deark_module_info *mi)
 	mi->desc = "ICC profile";
 	mi->run_fn = de_run_iccprofile;
 	mi->identify_fn = de_identify_iccprofile;
-	mi->flags |= DE_MODFLAG_HIDDEN;
 }
