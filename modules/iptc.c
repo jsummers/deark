@@ -30,7 +30,13 @@ struct ds_info {
 	ds_handler_fn hfn;
 };
 
+static void handle_text(deark *c, lctx *d, const struct ds_info *dsi,
+	de_int64 pos, de_int64 len);
 static void handle_1_90(deark *c, lctx *d, const struct ds_info *dsi,
+	de_int64 pos, de_int64 len);
+static void handle_2_120(deark *c, lctx *d, const struct ds_info *dsi,
+	de_int64 pos, de_int64 len);
+static void handle_2_125(deark *c, lctx *d, const struct ds_info *dsi,
 	de_int64 pos, de_int64 len);
 
 static const struct ds_info ds_info_arr[] = {
@@ -91,9 +97,9 @@ static const struct ds_info ds_info_arr[] = {
 	{ 2, 115, 0x0001, "Source", NULL },
 	{ 2, 116, 0x0001, "Copyright Notice", NULL },
 	{ 2, 118, 0x0001, "Contact", NULL },
-	{ 2, 120, 0x0001, "Caption/Abstract", NULL },
+	{ 2, 120, 0x0001, "Caption/Abstract", handle_2_120 },
 	{ 2, 122, 0x0001, "Writer/Editor", NULL },
-	{ 2, 125, 0,      "Rasterized Caption", NULL },
+	{ 2, 125, 0,      "Rasterized Caption", handle_2_125 },
 	{ 2, 130, 0x0001, "Image Type", NULL },
 	{ 2, 131, 0x0001, "Image Orientation", NULL },
 	{ 2, 135, 0x0001, "Language Identifier", NULL },
@@ -115,6 +121,14 @@ static const struct ds_info ds_info_arr[] = {
 	{ 9, 10,  0,      "Confirmed ObjectData Size", NULL }
 };
 
+static int get_ds_encoding(deark *c, lctx *d, de_byte recnum)
+{
+	if(recnum>=2 && recnum<=6) {
+		return d->charset;
+	}
+	return DE_ENCODING_UNKNOWN;
+}
+
 static void handle_1_90(deark *c, lctx *d, const struct ds_info *dsi,
 	de_int64 pos, de_int64 len)
 {
@@ -134,6 +148,79 @@ static void handle_1_90(deark *c, lctx *d, const struct ds_info *dsi,
 		csname="unknown";
 
 	de_dbg(c, "charset: %s\n", csname);
+}
+
+// Caption/abstract
+static void handle_2_120(deark *c, lctx *d, const struct ds_info *dsi,
+	de_int64 pos, de_int64 len)
+{
+	de_ucstring *s = NULL;
+	dbuf *outf = NULL;
+	int encoding;
+	const char *fntoken;
+
+	if(c->extract_level<2) {
+		handle_text(c, d, dsi, pos, len);
+		goto done;
+	}
+
+	// FIXME: There is currently no way to extract IPTC captions to files,
+	// except when reading a raw IPTC file. If IPTC is embedded in some other
+	// file (as it usually is), then the -a option will extract the entire
+	// IPTC data, and we will never get here.
+
+	fntoken = "caption.txt";
+
+	encoding = get_ds_encoding(c, d, dsi->recnum);
+	if(encoding==DE_ENCODING_UNKNOWN) {
+		// If the encoding is unknown, copy the raw bytes.
+		dbuf_create_file_from_slice(c->infile, pos, len, fntoken,
+			NULL, DE_CREATEFLAG_IS_AUX);
+		goto done;
+	}
+
+	// If the encoding is known, convert to UTF-8.
+	s = ucstring_create(c);
+	dbuf_read_to_ucstring(c->infile, pos, len, s, 0, encoding);
+	outf = dbuf_create_output_file(c, fntoken, NULL, DE_CREATEFLAG_IS_AUX);
+	ucstring_write_as_utf8(c, s, outf, 1);
+
+done:
+	if(outf) dbuf_close(outf);
+	if(s) ucstring_destroy(s);
+}
+
+// Rasterized caption
+static void handle_2_125(deark *c, lctx *d, const struct ds_info *dsi,
+	de_int64 pos, de_int64 len)
+{
+	dbuf *unc_pixels = NULL;
+	struct deark_bitmap *img = NULL;
+	de_int64 i, j;
+	de_byte b;
+	de_int64 rowspan;
+	de_int64 width, height;
+
+	// I can't find any examples of this field, so this may not be correct.
+	// The format seems to be well-documented, though the pixels are in an
+	// unusual order.
+
+	unc_pixels = dbuf_open_input_subfile(c->infile, pos, len);
+	width = 460;
+	height = 128;
+	img = de_bitmap_create(c, width, height, 1);
+	rowspan = height/8;
+
+	for(j=0; j<width; j++) {
+		for(i=0; i<height; i++) {
+			b = de_get_bits_symbol(unc_pixels, 1, rowspan*j, i);
+			de_bitmap_setpixel_gray(img, j, (height-1-i), b?0:255);
+		}
+	}
+
+	de_bitmap_write_to_file(img, "caption", DE_CREATEFLAG_IS_AUX);
+	de_bitmap_destroy(img);
+	dbuf_close(unc_pixels);
 }
 
 // Caller supplies dsi. This function will set its fields.
@@ -190,26 +277,18 @@ static int read_dflen(deark *c, dbuf *f, de_int64 pos,
 	return 1;
 }
 
-static void do_print_text_value(deark *c, lctx *d, const struct ds_info *dsi,
+static void handle_text(deark *c, lctx *d, const struct ds_info *dsi,
 	de_int64 pos, de_int64 len)
 {
 	int encoding;
 	de_ucstring *s = NULL;
 
 	s = ucstring_create(c);
-
-	encoding = DE_ENCODING_UNKNOWN;
-	if(dsi->recnum>=2 && dsi->recnum<=6) {
-		encoding = d->charset;
-	}
-	if(encoding==DE_ENCODING_UNKNOWN) {
+	encoding = get_ds_encoding(c, d, dsi->recnum);
+	if(encoding==DE_ENCODING_UNKNOWN)
 		encoding = DE_ENCODING_ASCII;
-	}
-
 	dbuf_read_to_ucstring(c->infile, pos, len, s, 0, encoding);
-
 	de_dbg(c, "%s: \"%s\"\n", dsi->dsname, ucstring_get_printable_sz(s));
-
 	ucstring_destroy(s);
 }
 
@@ -258,7 +337,7 @@ static int do_dataset(deark *c, lctx *d, de_int64 ds_idx, de_int64 pos1,
 		dsi.hfn(c, d, &dsi, pos, dflen);
 	}
 	else if(dsi.flags&0x1) {
-		do_print_text_value(c, d, &dsi, pos, dflen);
+		handle_text(c, d, &dsi, pos, dflen);
 	}
 	pos += dflen;
 
