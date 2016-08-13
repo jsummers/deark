@@ -32,6 +32,8 @@ struct ds_info {
 
 static void handle_text(deark *c, lctx *d, const struct ds_info *dsi,
 	de_int64 pos, de_int64 len);
+static void handle_uint16(deark *c, lctx *d, const struct ds_info *dsi,
+	de_int64 pos, de_int64 len);
 static void handle_1_90(deark *c, lctx *d, const struct ds_info *dsi,
 	de_int64 pos, de_int64 len);
 static void handle_2_120(deark *c, lctx *d, const struct ds_info *dsi,
@@ -40,10 +42,10 @@ static void handle_2_125(deark *c, lctx *d, const struct ds_info *dsi,
 	de_int64 pos, de_int64 len);
 
 static const struct ds_info ds_info_arr[] = {
-	{ 1, 0,   0,      "Model Version", NULL },
+	{ 1, 0,   0,      "Model Version", handle_uint16 },
 	{ 1, 5,   0x0001, "Destination", NULL },
-	{ 1, 20,  0,      "File Format", NULL },
-	{ 1, 22,  0,      "File Format Version", NULL },
+	{ 1, 20,  0,      "File Format", handle_uint16 },
+	{ 1, 22,  0,      "File Format Version", handle_uint16 },
 	{ 1, 30,  0x0001, "Service Identifier", NULL },
 	{ 1, 40,  0x0001, "Envelope Number", NULL },
 	{ 1, 50,  0x0001, "Product I.D.", NULL },
@@ -52,9 +54,9 @@ static const struct ds_info ds_info_arr[] = {
 	{ 1, 80,  0x0001, "Time Sent", NULL },
 	{ 1, 90,  0,      "Coded Character Set", handle_1_90 },
 	{ 1, 100, 0x0001, "UNO", NULL },
-	{ 1, 120, 0,      "ARM Identifier", NULL },
-	{ 1, 122, 0,      "ARM Version", NULL },
-	{ 2, 0,   0,      "Record Version", NULL },
+	{ 1, 120, 0,      "ARM Identifier", handle_uint16 },
+	{ 1, 122, 0,      "ARM Version", handle_uint16 },
+	{ 2, 0,   0,      "Record Version", handle_uint16 },
 	{ 2, 3,   0x0001, "Object Type Reference", NULL },
 	{ 2, 4,   0x0001, "Object Atribute Reference", NULL },
 	{ 2, 5,   0x0001, "Object Name", NULL },
@@ -108,8 +110,8 @@ static const struct ds_info ds_info_arr[] = {
 	{ 2, 152, 0x0001, "Audio Sampling Resolution", NULL },
 	{ 2, 153, 0x0001, "Audio Duration", NULL },
 	{ 2, 154, 0x0001, "Audio Outcue", NULL },
-	{ 2, 200, 0,      "ObjectData Preview File Format", NULL },
-	{ 2, 201, 0,      "ObjectData Preview File Format Version", NULL },
+	{ 2, 200, 0,      "ObjectData Preview File Format", handle_uint16 },
+	{ 2, 201, 0,      "ObjectData Preview File Format Version", handle_uint16 },
 	{ 2, 202, 0,      "ObjectData Preview Data", NULL },
 	// TODO: record 3
 	// TODO: record 6
@@ -288,8 +290,17 @@ static void handle_text(deark *c, lctx *d, const struct ds_info *dsi,
 	if(encoding==DE_ENCODING_UNKNOWN)
 		encoding = DE_ENCODING_ASCII;
 	dbuf_read_to_ucstring(c->infile, pos, len, s, 0, encoding);
-	de_dbg(c, "%s: \"%s\"\n", dsi->dsname, ucstring_get_printable_sz(s));
+	de_dbg(c, "%s: \"%s\"\n", dsi->dsname, ucstring_get_printable_sz_n(s, 300));
 	ucstring_destroy(s);
+}
+
+static void handle_uint16(deark *c, lctx *d, const struct ds_info *dsi,
+	de_int64 pos, de_int64 len)
+{
+	de_int64 x;
+	if(len!=2) return;
+	x = de_getui16be(pos);
+	de_dbg(c, "%s: %d\n", dsi->dsname, (int)x);
 }
 
 static int do_dataset(deark *c, lctx *d, de_int64 ds_idx, de_int64 pos1,
@@ -302,6 +313,7 @@ static int do_dataset(deark *c, lctx *d, de_int64 ds_idx, de_int64 pos1,
 	de_int64 dflen;
 	de_int64 dflen_bytes_consumed;
 	struct ds_info dsi;
+	int ds_known;
 
 	*bytes_consumed = 0;
 
@@ -322,7 +334,7 @@ static int do_dataset(deark *c, lctx *d, de_int64 ds_idx, de_int64 pos1,
 	recnum = de_getbyte(pos++);
 	dsnum = de_getbyte(pos++);
 
-	lookup_ds_info(recnum, dsnum, &dsi);
+	ds_known = lookup_ds_info(recnum, dsnum, &dsi);
 
 	if(!read_dflen(c, c->infile, pos, &dflen, &dflen_bytes_consumed)) goto done;
 	pos += dflen_bytes_consumed;
@@ -337,6 +349,10 @@ static int do_dataset(deark *c, lctx *d, de_int64 ds_idx, de_int64 pos1,
 		dsi.hfn(c, d, &dsi, pos, dflen);
 	}
 	else if(dsi.flags&0x1) {
+		handle_text(c, d, &dsi, pos, dflen);
+	}
+	else if(dsi.recnum==2 && !ds_known) {
+		// Unknown record-2 datasets often contain readable text.
 		handle_text(c, d, &dsi, pos, dflen);
 	}
 	pos += dflen;
