@@ -328,11 +328,158 @@ static void do_image_resource_blocks(deark *c, lctx *d, de_int64 pos1, de_int64 
 	}
 }
 
+static int do_tagged_block(deark *c, lctx *d, de_int64 pos, de_int64 bytes_avail,
+	de_int64 *bytes_consumed)
+{
+	de_int64 blklen;
+	struct de_fourcc blk4cc;
+	de_int64 sig;
+
+	*bytes_consumed = 0;
+	if(bytes_avail<12) return 0;
+
+	sig = de_getui32be(pos);
+	if(sig==0x38243634) {
+		de_warn(c, "8B64 tagged block type not supported\n");
+		return 0;
+	}
+	if(sig!=0x3842494d) { // 8BIM
+		de_warn(c, "Expected tagged block signature not found at %d\n", (int)pos);
+		return 0;
+	}
+
+	dbuf_read_fourcc(c->infile, pos+4, &blk4cc, 0);
+	blklen = de_getui32be(pos+8);
+	de_dbg(c, "tagged block '%s' at %d, len=%d\n", blk4cc.id_printable, (int)pos, (int)blklen);
+	*bytes_consumed = 12 + blklen;
+	return 1;
+}
+
+static void do_tagged_blocks(deark *c, lctx *d, de_int64 pos1, de_int64 len)
+{
+	de_int64 bytes_consumed;
+	de_int64 pos = pos1;
+
+	while(1) {
+		if(pos+12 > pos1+len) break;
+		if(!do_tagged_block(c, d, pos, pos1+len-pos, &bytes_consumed)) break;
+		pos += bytes_consumed;
+	}
+}
+
+static int do_layer_info_section(deark *c, lctx *d, de_int64 pos1,
+	de_int64 bytes_avail, de_int64 *bytes_consumed)
+{
+	int retval = 0;
+	de_int64 pos;
+	de_int64 layer_info_len;
+	de_int64 layer_count_raw, layer_count;
+	int indent_count = 0;
+
+	*bytes_consumed = 0;
+	pos = pos1;
+	if(bytes_avail<4) goto done;
+
+	de_dbg(c, "layer info section at %d\n", (int)pos1);
+	de_dbg_indent(c, 1);
+	indent_count++;
+
+	layer_info_len = de_getui32be(pos);
+	de_dbg(c, "length of layer info section: %d\n", (int)layer_info_len);
+	pos += 4;
+
+	layer_count_raw = dbuf_geti16be(c->infile, pos);
+	de_dbg(c, "layer count: %d\n", (int)layer_count_raw);
+	layer_count = layer_count_raw;
+	if(layer_count<0) layer_count = -layer_count;
+
+	// TODO: ...
+
+	*bytes_consumed = 4 + layer_info_len;
+	retval = 1;
+done:
+	de_dbg_indent(c, -indent_count);
+	return retval;
+}
+
+static int do_layer_and_mask_section(deark *c, lctx *d, de_int64 pos1, de_int64 *bytes_consumed)
+{
+	de_int64 pos;
+	de_int64 layer_and_mask_len;
+	de_int64 gl_layer_mask_info_len;
+	de_int64 bytes_consumed2;
+	int retval = 0;
+	de_int64 endpos;
+
+	// The "layer and mask section" contains up to 3 sub-sections:
+	// * layer info
+	// * global layer mask info
+	// * tagged blocks
+
+	pos = pos1;
+	*bytes_consumed = 0;
+
+	de_dbg(c, "layer & mask info section at %d\n", (int)pos);
+	de_dbg_indent(c, 1);
+
+	layer_and_mask_len = de_getui32be(pos);
+	de_dbg(c, "layer & mask info section total data size: %d\n", (int)layer_and_mask_len);
+	pos += 4;
+	*bytes_consumed = 4 + layer_and_mask_len;
+	endpos = pos1 + 4 + layer_and_mask_len;
+
+	if(!do_layer_info_section(c, d, pos, endpos-pos, &bytes_consumed2)) goto done;
+	pos += bytes_consumed2;
+
+	if(pos+4 > endpos) goto done;
+	de_dbg(c, "global layer mask info at %d\n", (int)pos);
+	de_dbg_indent(c, 1);
+	gl_layer_mask_info_len = de_getui32be(pos);
+	de_dbg(c, "length global layer mask info section: %d\n", (int)gl_layer_mask_info_len);
+	de_dbg_indent(c, -1);
+	pos += 4 + gl_layer_mask_info_len;
+
+	if(pos+4 > endpos) goto done;
+	de_dbg(c, "tagged blocks at %d\n", (int)pos);
+	de_dbg_indent(c, 1);
+	de_dbg(c, "expected length of tagged blocks section: %d\n", (int)(endpos-pos));
+	do_tagged_blocks(c, d, pos, endpos-pos);
+	de_dbg_indent(c, -1);
+
+	retval = 1;
+done:
+	de_dbg_indent(c, -1);
+	return retval;
+}
+
+static void do_header(deark *c, lctx *d, de_int64 pos)
+{
+	de_int64 psdver;
+	de_int64 w, h;
+
+	de_dbg(c, "header at %d\n", (int)pos);
+	de_dbg_indent(c, 1);
+	psdver = de_getui16be(pos+4);
+	de_dbg(c, "PSD version: %d\n", (int)psdver);
+	if(psdver!=1) {
+		de_err(c, "Unsupported PSD version: %d\n", (int)psdver);
+		goto done;
+	}
+
+	h = de_getui32be(pos+14);
+	w = de_getui32be(pos+18);
+	de_dbg(c, "dimensions: %dx%d\n", (int)w, (int)h);
+
+done:
+	de_dbg_indent(c, -1);
+}
+
 static void de_run_psd(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
 	de_int64 x;
 	de_int64 pos;
+	de_int64 bytes_consumed;
 
 	if(c->module_nesting_level>1) de_dbg2(c, "in psd module\n");
 	d = de_malloc(c, sizeof(lctx));
@@ -342,26 +489,36 @@ static void de_run_psd(deark *c, de_module_params *mparams)
 		goto done;
 	}
 
-	// Header is 26 bytes. We don't care about it.
-	de_dbg(c, "header at %d\n", 0);
+	pos = 0;
+	do_header(c, d, pos);
+	pos += 26;
 
-	// Color Mode data starts at offset 26.
-	pos = 26;
-	x = de_getui32be(pos); // Length of Color Mode data
-	de_dbg(c, "color mode segment size at %d: %d\n", (int)pos, (int)x);
+	de_dbg(c, "color mode data section at %d\n", (int)pos);
+	de_dbg_indent(c, 1);
+	x = de_getui32be(pos);
 	pos += 4;
+	de_dbg(c, "color data at %d, len=%d\n", (int)pos, (int)x);
 	pos += x;
+	de_dbg_indent(c, -1);
 
+	de_dbg(c, "image resources section at %d\n", (int)pos);
+	de_dbg_indent(c, 1);
 	x = de_getui32be(pos); // Length of Image Resources
-	de_dbg(c, "image resources segment size at %d: %d\n", (int)pos, (int)x);
 	pos += 4;
+	// The PSD spec is ambiguous, but in practice the "length" field's value
+	// does not include the size of the "length" field itself.
+	de_dbg(c, "image resources data at %d, len=%d\n", (int)pos, (int)x);
 
 	if(x>0) {
-		de_dbg(c, "image resources blocks at %d\n", (int)pos);
 		de_dbg_indent(c, 1);
 		do_image_resource_blocks(c, d, pos, x);
 		de_dbg_indent(c, -1);
 	}
+	pos += x;
+	de_dbg_indent(c, -1);
+
+	if(!do_layer_and_mask_section(c, d, pos, &bytes_consumed)) goto done;
+	pos += bytes_consumed;
 
 done:
 	de_free(c, d);
