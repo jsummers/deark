@@ -20,7 +20,10 @@ typedef void (*rsrc_handler_fn)(deark *c, lctx *d, const struct rsrc_info *ri,
 
 struct rsrc_info {
 	de_uint16 id;
+
+	// 0x4 = Item consists of a version number, followed by a "Descriptor structure".
 	de_uint32 flags;
+
 	const char *idname;
 	rsrc_handler_fn hfn;
 };
@@ -34,6 +37,8 @@ static void hrsrc_exif(deark *c, lctx *d, const struct rsrc_info *ri,
 static void hrsrc_xmp(deark *c, lctx *d, const struct rsrc_info *ri,
 	de_int64 pos, de_int64 len);
 static void hrsrc_iccprofile(deark *c, lctx *d, const struct rsrc_info *ri,
+	de_int64 pos, de_int64 len);
+static void hrsrc_slices(deark *c, lctx *d, const struct rsrc_info *ri,
 	de_int64 pos, de_int64 len);
 static void hrsrc_thumbnail(deark *c, lctx *d, const struct rsrc_info *ri,
 	de_int64 pos, de_int64 len);
@@ -86,7 +91,7 @@ static const struct rsrc_info rsrc_info_arr[] = {
 	{ 0x0416, 0, "Indexed Color Table Count", NULL },
 	{ 0x0417, 0, "Transparency Index", NULL },
 	{ 0x0419, 0, "Global Altitude", NULL },
-	{ 0x041a, 0, "Slices", NULL },
+	{ 0x041a, 0, "Slices", hrsrc_slices },
 	{ 0x041b, 0, "Workflow URL", NULL },
 	{ 0x041c, 0, "Jump To XPEP", NULL },
 	{ 0x041d, 0, "Alpha Identifiers", NULL },
@@ -98,7 +103,7 @@ static const struct rsrc_info rsrc_info_arr[] = {
 	{ 0x0425, 0, "Caption digest", NULL },
 	{ 0x0426, 0, "Print scale", NULL },
 	{ 0x0428, 0, "Pixel Aspect Ratio", NULL },
-	{ 0x0429, 0, "Layer Comps", NULL },
+	{ 0x0429, 0x0004, "Layer Comps", NULL },
 	{ 0x042a, 0, "Alternate Duotone Colors", NULL },
 	{ 0x042b, 0, "Alternate Spot Colors", NULL },
 	{ 0x042d, 0, "Layer Selection ID(s)", NULL },
@@ -106,22 +111,22 @@ static const struct rsrc_info rsrc_info_arr[] = {
 	{ 0x042f, 0, "Auto Save Format", NULL },
 	{ 0x0430, 0, "Layer Group(s) Enabled ID", NULL },
 	{ 0x0431, 0, "Color samplers resource", NULL },
-	{ 0x0432, 0, "Measurement Scale", NULL },
-	{ 0x0433, 0, "Timeline Information", NULL },
-	{ 0x0434, 0, "Sheet Disclosure", NULL },
+	{ 0x0432, 0x0004, "Measurement Scale", NULL },
+	{ 0x0433, 0x0004, "Timeline Information", NULL },
+	{ 0x0434, 0x0004, "Sheet Disclosure", NULL },
 	{ 0x0435, 0, "DisplayInfo", NULL },
-	{ 0x0436, 0, "Onion Skins", NULL },
-	{ 0x0438, 0, "Count Information", NULL },
-	{ 0x043a, 0, "Print Information", NULL },
-	{ 0x043b, 0, "Print Style", NULL },
+	{ 0x0436, 0x0004, "Onion Skins", NULL },
+	{ 0x0438, 0x0004, "Count Information", NULL },
+	{ 0x043a, 0x0004, "Print Information", NULL },
+	{ 0x043b, 0x0004, "Print Style", NULL },
 	{ 0x043c, 0, "Macintosh NSPrintInfo", NULL },
 	{ 0x043d, 0, "Windows DEVMODE", NULL },
 	{ 0x043e, 0, "Auto Save File Path", NULL },
 	{ 0x043f, 0, "Auto Save Format", NULL },
-	{ 0x0440, 0, "Path Selection State", NULL },
+	{ 0x0440, 0x0004, "Path Selection State", NULL },
 	// 0x07d0 to 0x0bb6: See lookup_rsrc() below
 	{ 0x0bb7, 0, "Name of clipping path", NULL },
-	{ 0x0bb8, 0, "Origin Path Info", NULL },
+	{ 0x0bb8, 0x0004, "Origin Path Info", NULL },
 	// 0x0fa0 to 0x1387: See lookup_rsrc() below
 	{ 0x1b58, 0, "Image Ready variables", NULL },
 	{ 0x1b59, 0, "Image Ready data sets", NULL },
@@ -221,6 +226,146 @@ static void hrsrc_iccprofile(deark *c, lctx *d, const struct rsrc_info *ri,
 	dbuf_create_file_from_slice(c->infile, pos, len, "icc", NULL, DE_CREATEFLAG_IS_AUX);
 }
 
+// Read a Photoshop-style "Unicode string" structure, and append it to s.
+static void read_unicode_string(dbuf *f, de_ucstring *s, de_int64 pos,
+	de_int64 bytes_avail, de_int64 *bytes_consumed)
+{
+	de_int64 num_code_units;
+
+	if(bytes_avail<0) {
+		*bytes_consumed = 0;
+		return;
+	}
+	if(bytes_avail<4) {
+		*bytes_consumed = bytes_avail;
+		return;
+	}
+
+	num_code_units = dbuf_getui32be(f, pos);
+	if(4+num_code_units*2 > bytes_avail) { // error
+		*bytes_consumed = bytes_avail;
+		return;
+	}
+
+	dbuf_read_to_ucstring_n(f, pos+4, num_code_units*2, 300*2, s, 0, DE_ENCODING_UTF16BE);
+
+	// Photoshop "Unicode strings" don't usually seem to end with a U+0000 character.
+	// However, some of them seem to consist just of a single U+0000.
+	// I suspect that's because there are places where they can't have a length of
+	// zero, because the first four bytes being zero is used as sentinel value for
+	// something else.
+	ucstring_truncate_at_NUL(s);
+
+	*bytes_consumed = 4+num_code_units*2;
+}
+
+static int read_descriptor_with_version(deark *c, lctx *d, de_int64 pos1,
+	de_int64 bytes_avail, de_int64 *bytes_consumed)
+{
+	de_ucstring *name_from_classid = NULL;
+	de_ucstring *classid = NULL;
+	de_int64 pos;
+	de_int64 endpos;
+	de_int64 dv;
+	de_int64 field_len;
+	de_int64 class_id_len;
+
+	*bytes_consumed = 0;
+	pos = pos1;
+	endpos = pos1+bytes_avail;
+
+	dv = de_getui32be(pos);
+	pos += 4;
+	if(dv!=16) {
+		de_warn(c, "Unsupported descriptor version: %d\n", (int)dv);
+		goto done;
+	}
+
+	name_from_classid = ucstring_create(c);
+	read_unicode_string(c->infile, name_from_classid, pos, endpos-pos, &field_len);
+	if(name_from_classid->len > 0) {
+		de_dbg(c, "name from classID: \"%s\"\n", ucstring_get_printable_sz_n(name_from_classid, 300));
+	}
+	pos += field_len;
+
+	classid = ucstring_create(c);
+	class_id_len = de_getui32be(pos);
+	pos += 4;
+	if(class_id_len==0) {
+		// Note: dbuf_read_fourcc() might be more appropriate, but I'm using
+		// dbuf_read_to_ucstring() for consistency.
+		dbuf_read_to_ucstring(c->infile, pos, 4, classid, 0, DE_ENCODING_ASCII);
+		pos += 4;
+	}
+	else {
+		dbuf_read_to_ucstring_n(c->infile, pos, class_id_len, 300, classid, 0, DE_ENCODING_ASCII);
+		pos += class_id_len;
+	}
+	de_dbg(c, "classID: \"%s\"\n", ucstring_get_printable_sz(classid));
+
+done:
+	ucstring_destroy(classid);
+	ucstring_destroy(name_from_classid);
+	return 0;
+}
+
+static void hrsrc_descriptor_with_version(deark *c, lctx *d, const struct rsrc_info *ri,
+	de_int64 pos, de_int64 len)
+{
+	de_int64 bytes_consumed;
+
+	read_descriptor_with_version(c, d, pos, len, &bytes_consumed);
+}
+
+static void do_slices_v6(deark *c, lctx *d, de_int64 pos1, de_int64 len)
+{
+	de_int64 bytes_consumed_name;
+	de_ucstring *name_of_group_of_slices = NULL;
+
+	name_of_group_of_slices = ucstring_create(c);
+
+	read_unicode_string(c->infile, name_of_group_of_slices, pos1+20, len-20, &bytes_consumed_name);
+	de_dbg(c, "name of group of slices: \"%s\"\n",
+		ucstring_get_printable_sz_n(name_of_group_of_slices, 300));
+
+	ucstring_destroy(name_of_group_of_slices);
+}
+
+static void do_slices_v7_8(deark *c, lctx *d, de_int64 pos1, de_int64 len)
+{
+	de_int64 pos;
+	de_int64 endpos;
+	de_int64 bytes_consumed_dv;
+
+	pos = pos1;
+	endpos = pos1+len;
+	pos += 4; // Skip version number (7 or 8), already read.
+
+	if(!read_descriptor_with_version(c, d, pos, endpos-pos, &bytes_consumed_dv)) {
+		goto done;
+	}
+
+done:
+	;
+}
+
+static void hrsrc_slices(deark *c, lctx *d, const struct rsrc_info *ri,
+	de_int64 pos, de_int64 len)
+{
+	de_int64 sver;
+
+	if(len<4) return;
+	sver = de_getui32be(pos);
+	de_dbg(c, "slices resource format version: %d\n", (int)sver);
+
+	if(sver==6) {
+		do_slices_v6(c, d, pos, len);
+	}
+	else if(sver==7 || sver==8) {
+		do_slices_v7_8(c, d, pos, len);
+	}
+}
+
 static void hrsrc_thumbnail(deark *c, lctx *d, const struct rsrc_info *ri,
 	de_int64 pos1, de_int64 len)
 {
@@ -297,11 +442,14 @@ static int do_image_resource(deark *c, lctx *d, de_int64 pos1, de_int64 *bytes_c
 		(int)resource_id, ri.idname, (int)pos1, blkname_printable,
 		(int)pos, (int)block_data_len);
 
+	de_dbg_indent(c, 1);
 	if(ri.hfn) {
-		de_dbg_indent(c, 1);
 		ri.hfn(c, d, &ri, pos, block_data_len);
-		de_dbg_indent(c, -1);
 	}
+	else if(ri.flags&0x0004) {
+		hrsrc_descriptor_with_version(c, d, &ri, pos, block_data_len);
+	}
+	de_dbg_indent(c, -1);
 
 	pos+=block_data_len;
 	if(block_data_len&1) pos++; // padding byte
