@@ -9,6 +9,9 @@
 #include "fmtutil.h"
 DE_DECLARE_MODULE(de_module_psd);
 
+#define CODE_8B64 0x38243634U
+#define CODE_8BIM 0x3842494dU
+
 typedef struct localctx_struct {
 	int reserved;
 } lctx;
@@ -533,11 +536,11 @@ static int do_tagged_block(deark *c, lctx *d, de_int64 pos, de_int64 bytes_avail
 	if(bytes_avail<12) return 0;
 
 	sig = de_getui32be(pos);
-	if(sig==0x38243634) {
+	if(sig==CODE_8B64) {
 		de_warn(c, "8B64 tagged block type not supported\n");
 		return 0;
 	}
-	if(sig!=0x3842494d) { // 8BIM
+	if(sig!=CODE_8BIM) {
 		de_warn(c, "Expected tagged block signature not found at %d\n", (int)pos);
 		return 0;
 	}
@@ -566,16 +569,79 @@ static void do_tagged_blocks(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 	}
 }
 
+static int do_layer_record(deark *c, lctx *d, de_int64 pos1,
+	de_int64 bytes_avail, de_int64 *bytes_consumed)
+{
+	de_int64 pos;
+	de_int64 endpos;
+	de_int64 nchannels;
+	de_int64 extra_data_len;
+	struct de_fourcc tmp4cc;
+
+	int retval = 0;
+
+	endpos = pos1+bytes_avail;
+	pos = pos1;
+
+	pos += 16; // rectangle
+
+	nchannels = de_getui16be(pos);
+	de_dbg(c, "number of channels: %d\n", (int)nchannels);
+	pos += 2;
+
+	pos += 6*nchannels;
+
+	dbuf_read_fourcc(c->infile, pos, &tmp4cc, 0);
+	if(tmp4cc.id != CODE_8BIM) {
+		de_warn(c, "Expected blend mode signature not found at %d\n", (int)pos);
+		goto done;
+	}
+	pos += 4;
+
+	dbuf_read_fourcc(c->infile, pos, &tmp4cc, 0);
+	de_dbg(c, "blend mode: '%s'\n", tmp4cc.id_printable);
+	pos += 4; // blend mode key
+
+	pos += 1; // opacity
+	pos += 1; // clipping
+	pos += 1; // flags
+	pos += 1; // filler
+
+	extra_data_len = de_getui32be(pos);
+	pos+=4;
+
+	// TODO: layer mask data
+	// TODO: layer blending ranges
+	// TODO: layer name
+	pos += extra_data_len;
+
+	if(pos>endpos) {
+		de_warn(c, "Malformed layer record at %d\n", (int)pos1);
+		*bytes_consumed = 0;
+		goto done;
+	}
+	*bytes_consumed = pos - pos1;
+
+	retval = 1;
+done:
+	return retval;
+}
+
 static int do_layer_info_section(deark *c, lctx *d, de_int64 pos1,
 	de_int64 bytes_avail, de_int64 *bytes_consumed)
 {
 	int retval = 0;
 	de_int64 pos;
+	de_int64 endpos;
 	de_int64 layer_info_len;
 	de_int64 layer_count_raw, layer_count;
+	de_int64 bytes_consumed_layer;
 	int indent_count = 0;
+	int merged_result_flag;
+	de_int64 layer_idx;
 
 	*bytes_consumed = 0;
+	endpos = pos1+bytes_avail;
 	pos = pos1;
 	if(bytes_avail<4) goto done;
 
@@ -588,11 +654,27 @@ static int do_layer_info_section(deark *c, lctx *d, de_int64 pos1,
 	pos += 4;
 
 	layer_count_raw = dbuf_geti16be(c->infile, pos);
-	de_dbg(c, "layer count: %d\n", (int)layer_count_raw);
-	layer_count = layer_count_raw;
-	if(layer_count<0) layer_count = -layer_count;
+	pos += 2;
+	if(layer_count_raw<0) {
+		merged_result_flag = 1;
+		layer_count = -layer_count_raw;
+	}
+	else {
+		merged_result_flag = 0;
+		layer_count = layer_count_raw;
+	}
+	de_dbg(c, "layer count: %d\n", (int)layer_count);
+	de_dbg(c, "merged result flag: %d\n", (int)merged_result_flag);
 
-	// TODO: ...
+	for(layer_idx=0; layer_idx<layer_count; layer_idx++) {
+		de_dbg(c, "layer record[%d] at %d\n", (int)layer_idx, (int)pos);
+		de_dbg_indent(c, 1);
+		if(!do_layer_record(c, d, pos, endpos-pos, &bytes_consumed_layer)) goto done;
+		pos += bytes_consumed_layer;
+		de_dbg_indent(c, -1);
+	}
+
+	de_dbg(c, "channel image data record(s) at %d\n", (int)pos);
 
 	*bytes_consumed = 4 + layer_info_len;
 	retval = 1;
