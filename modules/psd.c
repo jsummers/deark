@@ -28,20 +28,17 @@ struct rsrc_info {
 	rsrc_handler_fn hfn;
 };
 
-static void hrsrc_resolutioninfo(deark *c, lctx *d, const struct rsrc_info *ri,
-	de_int64 pos, de_int64 len);
-static void hrsrc_iptc(deark *c, lctx *d, const struct rsrc_info *ri,
-	de_int64 pos, de_int64 len);
-static void hrsrc_exif(deark *c, lctx *d, const struct rsrc_info *ri,
-	de_int64 pos, de_int64 len);
-static void hrsrc_xmp(deark *c, lctx *d, const struct rsrc_info *ri,
-	de_int64 pos, de_int64 len);
-static void hrsrc_iccprofile(deark *c, lctx *d, const struct rsrc_info *ri,
-	de_int64 pos, de_int64 len);
-static void hrsrc_slices(deark *c, lctx *d, const struct rsrc_info *ri,
-	de_int64 pos, de_int64 len);
-static void hrsrc_thumbnail(deark *c, lctx *d, const struct rsrc_info *ri,
-	de_int64 pos, de_int64 len);
+#define DECLARE_HRSRC(x) static void x(deark *c, lctx *d, const struct rsrc_info *ri, de_int64 pos, de_int64 len)
+
+DECLARE_HRSRC(hrsrc_resolutioninfo);
+DECLARE_HRSRC(hrsrc_iptc);
+DECLARE_HRSRC(hrsrc_exif);
+DECLARE_HRSRC(hrsrc_xmp);
+DECLARE_HRSRC(hrsrc_iccprofile);
+DECLARE_HRSRC(hrsrc_slices);
+DECLARE_HRSRC(hrsrc_thumbnail);
+DECLARE_HRSRC(hrsrc_unicodestring);
+DECLARE_HRSRC(hrsrc_versioninfo);
 
 static const struct rsrc_info rsrc_info_arr[] = {
 	{ 0x03e8, 0, "channels/rows/columns/depth/mode", NULL },
@@ -87,16 +84,16 @@ static const struct rsrc_info rsrc_info_arr[] = {
 	{ 0x0412, 0, "Effects visible", NULL },
 	{ 0x0413, 0, "Spot Halftone", NULL },
 	{ 0x0414, 0, "Document-specific IDs seed number", NULL },
-	{ 0x0415, 0, "Unicode Alpha Names", NULL },
+	{ 0x0415, 0, "Unicode Alpha Names", hrsrc_unicodestring },
 	{ 0x0416, 0, "Indexed Color Table Count", NULL },
 	{ 0x0417, 0, "Transparency Index", NULL },
 	{ 0x0419, 0, "Global Altitude", NULL },
 	{ 0x041a, 0, "Slices", hrsrc_slices },
-	{ 0x041b, 0, "Workflow URL", NULL },
+	{ 0x041b, 0, "Workflow URL", hrsrc_unicodestring },
 	{ 0x041c, 0, "Jump To XPEP", NULL },
 	{ 0x041d, 0, "Alpha Identifiers", NULL },
 	{ 0x041e, 0, "URL List", NULL },
-	{ 0x0421, 0, "Version Info", NULL },
+	{ 0x0421, 0, "Version Info", hrsrc_versioninfo },
 	{ 0x0422, 0, "EXIF data 1", hrsrc_exif },
 	{ 0x0423, 0, "EXIF data 3", NULL },
 	{ 0x0424, 0, "XMP metadata", hrsrc_xmp },
@@ -121,8 +118,8 @@ static const struct rsrc_info rsrc_info_arr[] = {
 	{ 0x043b, 0x0004, "Print Style", NULL },
 	{ 0x043c, 0, "Macintosh NSPrintInfo", NULL },
 	{ 0x043d, 0, "Windows DEVMODE", NULL },
-	{ 0x043e, 0, "Auto Save File Path", NULL },
-	{ 0x043f, 0, "Auto Save Format", NULL },
+	{ 0x043e, 0, "Auto Save File Path", hrsrc_unicodestring },
+	{ 0x043f, 0, "Auto Save Format", hrsrc_unicodestring },
 	{ 0x0440, 0x0004, "Path Selection State", NULL },
 	// 0x07d0 to 0x0bb6: See lookup_rsrc() below
 	{ 0x0bb7, 0, "Name of clipping path", NULL },
@@ -388,6 +385,54 @@ static void hrsrc_thumbnail(deark *c, lctx *d, const struct rsrc_info *ri,
 	dbuf_create_file_from_slice(c->infile, pos+28, len-28, "psdthumb.jpg", NULL, DE_CREATEFLAG_IS_AUX);
 }
 
+// Handler for any resource that consists of a single "Unicode string".
+static void hrsrc_unicodestring(deark *c, lctx *d, const struct rsrc_info *ri,
+	de_int64 pos, de_int64 len)
+{
+	de_ucstring *s = NULL;
+	de_int64 bytes_consumed;
+
+	s = ucstring_create(c);
+	read_unicode_string(c->infile, s, pos, len, &bytes_consumed);
+	de_dbg(c, "%s: \"%s\"\n", ri->idname, ucstring_get_printable_sz(s));
+	ucstring_destroy(s);
+}
+
+static void hrsrc_versioninfo(deark *c, lctx *d, const struct rsrc_info *ri,
+	de_int64 pos1, de_int64 len)
+{
+	de_int64 ver, file_ver;
+	de_byte b;
+	de_ucstring *s = NULL;
+	de_int64 bytes_consumed;
+	de_int64 pos, endpos;
+
+	endpos = pos1 + len;
+	pos = pos1;
+
+	ver = de_getui32be(pos);
+	de_dbg(c, "version: %d\n", (int)ver);
+	pos += 4;
+
+	b = de_getbyte(pos++);
+	de_dbg(c, "hasRealMergedData: %d\n", (int)b);
+
+	s = ucstring_create(c);
+	read_unicode_string(c->infile, s, pos, endpos-pos, &bytes_consumed);
+	de_dbg(c, "writer name: \"%s\"\n", ucstring_get_printable_sz(s));
+	pos += bytes_consumed;
+
+	ucstring_truncate(s, 0);
+	read_unicode_string(c->infile, s, pos, endpos-pos, &bytes_consumed);
+	de_dbg(c, "reader name: \"%s\"\n", ucstring_get_printable_sz(s));
+	pos += bytes_consumed;
+
+	file_ver = de_getui32be(pos);
+	de_dbg(c, "file version: %d\n", (int)file_ver);
+
+	ucstring_destroy(s);
+}
+
 static int do_image_resource(deark *c, lctx *d, de_int64 pos1, de_int64 *bytes_consumed)
 {
 	de_byte buf[4];
@@ -480,6 +525,7 @@ static int do_tagged_block(deark *c, lctx *d, de_int64 pos, de_int64 bytes_avail
 	de_int64 *bytes_consumed)
 {
 	de_int64 blklen;
+	de_int64 padded_blklen;
 	struct de_fourcc blk4cc;
 	de_int64 sig;
 
@@ -498,8 +544,13 @@ static int do_tagged_block(deark *c, lctx *d, de_int64 pos, de_int64 bytes_avail
 
 	dbuf_read_fourcc(c->infile, pos+4, &blk4cc, 0);
 	blklen = de_getui32be(pos+8);
-	de_dbg(c, "tagged block '%s' at %d, len=%d\n", blk4cc.id_printable, (int)pos, (int)blklen);
-	*bytes_consumed = 12 + blklen;
+	de_dbg(c, "tagged block '%s' at %d, dlen=%d\n", blk4cc.id_printable, (int)pos, (int)blklen);
+
+	// Apparently, the data is padded to the next multiple of 4 bytes.
+	// (This is not what the PSD spec says.)
+	padded_blklen = ((blklen+3)/4)*4;
+
+	*bytes_consumed = 12 + padded_blklen;
 	return 1;
 }
 
@@ -583,7 +634,7 @@ static int do_layer_and_mask_section(deark *c, lctx *d, de_int64 pos1, de_int64 
 	de_dbg(c, "global layer mask info at %d\n", (int)pos);
 	de_dbg_indent(c, 1);
 	gl_layer_mask_info_len = de_getui32be(pos);
-	de_dbg(c, "length global layer mask info section: %d\n", (int)gl_layer_mask_info_len);
+	de_dbg(c, "length of global layer mask info section: %d\n", (int)gl_layer_mask_info_len);
 	de_dbg_indent(c, -1);
 	pos += 4 + gl_layer_mask_info_len;
 
