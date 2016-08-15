@@ -10,6 +10,9 @@ DE_DECLARE_MODULE(de_module_png);
 
 #define PNGID_IDAT 0x49444154
 #define PNGID_iCCP 0x69434350
+#define PNGID_iTXt 0x69545874
+#define PNGID_tEXt 0x74455874
+#define PNGID_zTXt 0x7a545874
 
 typedef struct localctx_struct {
 #define DE_PNGFMT_PNG 1
@@ -17,6 +20,123 @@ typedef struct localctx_struct {
 #define DE_PNGFMT_MNG 3
 	int fmt;
 } lctx;
+
+// 'bytes_consumed' does not include the NUL separator/terminator.
+static int do_text_field(deark *c, lctx *d,
+	const char *name,
+	dbuf *srcdbuf, de_int64 pos, de_int64 bytes_avail,
+	int is_nul_terminated, int is_compressed, int encoding,
+	de_int64 *bytes_consumed)
+{
+	de_int64 foundpos;
+	de_int64 item_len;
+	dbuf *tmpdbuf = NULL;
+	de_ucstring *text = NULL;
+	int retval = 0;
+
+	*bytes_consumed = 0;
+
+	if(bytes_avail<0) return 0;
+
+	text = ucstring_create(c);
+	if(is_compressed) {
+		// Decompress to a membuf
+		tmpdbuf = dbuf_create_membuf(c, 0, 0);
+		if(!de_uncompress_zlib(srcdbuf, pos, bytes_avail, tmpdbuf)) {
+			goto done;
+		}
+		// Read from the membuf to the 'text' ucstring.
+		dbuf_read_to_ucstring_n(tmpdbuf, 0, tmpdbuf->len, 300, text, 0, encoding);
+	}
+	else {
+		if(is_nul_terminated) {
+			if(!dbuf_search_byte(srcdbuf, 0x00, pos, pos+bytes_avail, &foundpos)) {
+				goto done;
+			}
+			item_len = foundpos - pos;
+		}
+		else {
+			item_len = bytes_avail;
+		}
+		dbuf_read_to_ucstring_n(srcdbuf, pos, item_len, 300, text, 0, encoding);
+		*bytes_consumed = item_len;
+	}
+
+	de_dbg(c, "%s: \"%s\"\n", name, ucstring_get_printable_sz(text));
+	retval = 1;
+
+done:
+	ucstring_destroy(text);
+	dbuf_close(tmpdbuf);
+	return retval;
+}
+
+static void do_png_text(deark *c, lctx *d, de_uint32 chunk_id, de_int64 pos1, de_int64 len)
+{
+	de_int64 pos;
+	de_int64 endpos;
+	de_int64 field_bytes_consumed;
+	int is_compressed = 0;
+	int encoding;
+	de_byte cmpr_method;
+	int ret;
+
+	de_dbg_indent(c, 1);
+	endpos = pos1+len;
+	pos = pos1;
+
+	// Keyword
+	ret = do_text_field(c, d, "keyword", c->infile, pos, endpos-pos,
+		1, 0, DE_ENCODING_LATIN1, &field_bytes_consumed);
+	if(!ret) goto done;
+	pos += field_bytes_consumed;
+	pos += 1;
+
+	// Compression flag
+	if(chunk_id==PNGID_iTXt) {
+		is_compressed = (int)de_getbyte(pos++);
+		de_dbg(c, "compression flag: %d\n", (int)is_compressed);
+	}
+	else if(chunk_id==PNGID_zTXt) {
+		is_compressed = 1;
+	}
+
+	// Compression method
+	if(chunk_id==PNGID_zTXt || chunk_id==PNGID_iTXt) {
+		cmpr_method = de_getbyte(pos++);
+		if(is_compressed && cmpr_method!=0) {
+			de_warn(c, "Unsupported text compression type: %d\n", (int)cmpr_method);
+			goto done;
+		}
+	}
+
+	if(chunk_id==PNGID_iTXt) {
+		// Language tag
+		ret = do_text_field(c, d, "language", c->infile, pos, endpos-pos,
+			1, 0, DE_ENCODING_ASCII, &field_bytes_consumed);
+		if(!ret) goto done;
+		pos += field_bytes_consumed;
+		pos += 1;
+
+		// Translated keyword
+		ret = do_text_field(c, d, "translated keyword", c->infile, pos, endpos-pos,
+			1, 0, DE_ENCODING_UTF8, &field_bytes_consumed);
+		if(!ret) goto done;
+		pos += field_bytes_consumed;
+		pos += 1;
+	}
+
+	if(chunk_id==PNGID_iTXt)
+		encoding = DE_ENCODING_UTF8;
+	else
+		encoding = DE_ENCODING_LATIN1;
+
+	do_text_field(c, d, "text", c->infile, pos, endpos-pos,
+		0, is_compressed, encoding, &field_bytes_consumed);
+
+done:
+	de_dbg_indent(c, -1);
+}
 
 static void do_png_iccp(deark *c, de_int64 pos, de_int64 len)
 {
@@ -85,13 +205,20 @@ static void de_run_png(deark *c, de_module_params *mparams)
 			suppress_idat_dbg = 1;
 		}
 		else {
-			de_dbg(c, "'%s' chunk at %d dpos=%d dlen=%d\n", chunk4cc.id_printable, (int)pos,
+			de_dbg(c, "chunk '%s' at %d dpos=%d dlen=%d\n", chunk4cc.id_printable, (int)pos,
 				(int)(pos+8), (int)chunk_data_len);
 			if(chunk4cc.id!=PNGID_IDAT) suppress_idat_dbg = 0;
 		}
 
-		if(chunk4cc.id==PNGID_iCCP) {
+		switch(chunk4cc.id) {
+		case PNGID_iCCP:
 			do_png_iccp(c, pos+8, chunk_data_len);
+			break;
+		case PNGID_tEXt:
+		case PNGID_zTXt:
+		case PNGID_iTXt:
+			do_png_text(c, d, chunk4cc.id, pos+8, chunk_data_len);
+			break;
 		}
 		pos += 8 + chunk_data_len + 4;
 		prev_chunk_id = chunk4cc.id;
