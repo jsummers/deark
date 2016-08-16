@@ -755,14 +755,14 @@ done:
 	return retval;
 }
 
-static int do_layer_and_mask_section(deark *c, lctx *d, de_int64 pos1, de_int64 *bytes_consumed)
+static int do_layer_and_mask_info_section(deark *c, lctx *d, de_int64 pos1, de_int64 *bytes_consumed)
 {
 	de_int64 pos;
-	de_int64 layer_and_mask_len;
+	de_int64 layer_and_mask_info_section_len; // The "Length" field. Whole section is 4 bytes longer.
+	de_int64 layer_and_mask_info_section_endpos;
 	de_int64 gl_layer_mask_info_len;
 	de_int64 bytes_consumed2;
 	int retval = 0;
-	de_int64 endpos;
 
 	// The "layer and mask section" contains up to 3 sub-sections:
 	// * layer info
@@ -775,31 +775,50 @@ static int do_layer_and_mask_section(deark *c, lctx *d, de_int64 pos1, de_int64 
 	de_dbg(c, "layer & mask info section at %d\n", (int)pos);
 	de_dbg_indent(c, 1);
 
-	layer_and_mask_len = de_getui32be(pos);
-	de_dbg(c, "layer & mask info section total data size: %d\n", (int)layer_and_mask_len);
+	layer_and_mask_info_section_len = de_getui32be(pos);
+	de_dbg(c, "layer & mask info section total data size: %d\n", (int)layer_and_mask_info_section_len);
 	pos += 4;
-	*bytes_consumed = 4 + layer_and_mask_len;
-	endpos = pos1 + 4 + layer_and_mask_len;
+	if(pos + layer_and_mask_info_section_len > c->infile->len) {
+		de_err(c, "Unexpected end of PSD file\n");
+		goto done;
+	}
+	layer_and_mask_info_section_endpos = pos + layer_and_mask_info_section_len;
 
-	if(!do_layer_info_section(c, d, pos, endpos-pos, &bytes_consumed2)) goto done;
+	// Now that we know the size of this element, we can treat this function as "successful".
+	*bytes_consumed = 4 + layer_and_mask_info_section_len;
+	retval = 1;
+
+	if(!do_layer_info_section(c, d, pos, layer_and_mask_info_section_endpos-pos, &bytes_consumed2)) goto done;
+	if(pos + bytes_consumed2 > layer_and_mask_info_section_endpos) {
+		de_warn(c, "Oversized Layer Info section\n");
+		goto done;
+	}
 	pos += bytes_consumed2;
+	if(pos>=layer_and_mask_info_section_endpos) {
+		goto done;
+	}
 
-	if(pos+4 > endpos) goto done;
 	de_dbg(c, "global layer mask info at %d\n", (int)pos);
 	de_dbg_indent(c, 1);
 	gl_layer_mask_info_len = de_getui32be(pos);
+	pos += 4;
 	de_dbg(c, "length of global layer mask info section: %d\n", (int)gl_layer_mask_info_len);
 	de_dbg_indent(c, -1);
-	pos += 4 + gl_layer_mask_info_len;
+	if(pos+gl_layer_mask_info_len > layer_and_mask_info_section_endpos) {
+		de_warn(c, "Oversized Global Layer Mask Info section\n");
+		goto done;
+	}
+	pos += gl_layer_mask_info_len;
+	if(pos>=layer_and_mask_info_section_endpos) {
+		goto done;
+	}
 
-	if(pos+4 > endpos) goto done;
 	de_dbg(c, "tagged blocks at %d\n", (int)pos);
 	de_dbg_indent(c, 1);
-	de_dbg(c, "expected length of tagged blocks section: %d\n", (int)(endpos-pos));
-	do_tagged_blocks(c, d, pos, endpos-pos);
+	de_dbg(c, "expected length of tagged blocks section: %d\n", (int)(layer_and_mask_info_section_endpos-pos));
+	do_tagged_blocks(c, d, pos, layer_and_mask_info_section_endpos-pos);
 	de_dbg_indent(c, -1);
 
-	retval = 1;
 done:
 	de_dbg_indent(c, -1);
 	return retval;
@@ -827,12 +846,31 @@ done:
 	de_dbg_indent(c, -1);
 }
 
+static void do_external_tagged_blocks(deark *c, lctx *d)
+{
+	de_uint32 code;
+
+	if(c->infile->len<4) return;
+
+	// Evidently, it is possible for this to use little-endian byte order. Weird.
+
+	// Peek at the first 4 bytes
+	code = (de_uint32)de_getui32le(0);
+	if(code==CODE_8BIM || code==CODE_8B64) {
+		de_warn(c, "ImageSourceData with little-endian byte order is not supported\n");
+		return;
+	}
+
+	do_tagged_blocks(c, d, 0, c->infile->len);
+}
+
 static void de_run_psd(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
 	de_int64 x;
 	de_int64 pos;
 	de_int64 bytes_consumed;
+	de_int64 imgdata_len;
 
 	if(c->module_nesting_level>1) de_dbg2(c, "in psd module\n");
 	d = de_malloc(c, sizeof(lctx));
@@ -843,7 +881,7 @@ static void de_run_psd(deark *c, de_module_params *mparams)
 			goto done;
 		}
 		if(de_strchr(mparams->codes, 'T')) { // Tagged blocks
-			do_tagged_blocks(c, d, 0, c->infile->len);
+			do_external_tagged_blocks(c, d);
 			goto done;
 		}
 	}
@@ -876,8 +914,13 @@ static void de_run_psd(deark *c, de_module_params *mparams)
 	pos += x;
 	de_dbg_indent(c, -1);
 
-	if(!do_layer_and_mask_section(c, d, pos, &bytes_consumed)) goto done;
+	if(!do_layer_and_mask_info_section(c, d, pos, &bytes_consumed)) goto done;
 	pos += bytes_consumed;
+
+	imgdata_len = c->infile->len - pos;
+	if(imgdata_len>0) {
+		de_dbg(c, "image data at %d, expected size=%d\n", (int)pos, (int)imgdata_len);
+	}
 
 done:
 	de_free(c, d);
