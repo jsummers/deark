@@ -66,6 +66,7 @@ static void handler_subifd(deark *c, lctx *d, const struct taginfo *tg, const st
 static void handler_xmp(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni);
 static void handler_iptc(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni);
 static void handler_photoshoprsrc(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni);
+static void handler_37724(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni);
 static void handler_iccprofile(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni);
 static void handler_utf16(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni);
 
@@ -385,7 +386,7 @@ static const struct tagnuminfo tagnuminfo_arr[] = {
 	{ 37679, 0x0000, "OCR Text", NULL, NULL },
 	{ 37680, 0x0000, "OLE Property Set Storage", NULL, NULL },
 	{ 37681, 0x0000, "OCR Text Position Info", NULL, NULL },
-	{ 37724, 0x00, "Photoshop ImageSourceData", NULL, NULL },
+	{ 37724, 0x0008, "Photoshop ImageSourceData", handler_37724, NULL },
 	{ 40091, 0x0408, "XPTitle/Caption", handler_utf16, NULL },
 	{ 40092, 0x0008, "XPComment", handler_utf16, NULL },
 	{ 40093, 0x0008, "XPAuthor", handler_utf16, NULL },
@@ -1570,8 +1571,40 @@ static void handler_iptc(deark *c, lctx *d, const struct taginfo *tg, const stru
 
 static void handler_photoshoprsrc(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni)
 {
-	de_dbg(c, "photoshop segment at %d datasize=%d\n", (int)tg->val_offset, (int)tg->total_size);
+	de_dbg(c, "Photoshop resources at %d, len=%d\n",
+		(int)tg->val_offset, (int)tg->total_size);
+	de_dbg_indent(c, 1);
 	de_fmtutil_handle_photoshop_rsrc(c, tg->val_offset, tg->total_size);
+	de_dbg_indent(c, -1);
+}
+
+// Photoshop "ImageSourceData"
+static void handler_37724(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni)
+{
+	de_module_params *mparams = NULL;
+	static const de_int64 siglen = 36;
+	de_int64 dpos, dlen;
+
+	if(tg->total_size<siglen ||
+		dbuf_memcmp(c->infile, tg->val_offset, "Adobe Photoshop Document Data Block\0", (size_t)siglen))
+	{
+		de_warn(c, "Malformed ImageSourceData tag at %d\n", (int)tg->val_offset);
+		goto done;
+	}
+
+	de_dbg(c, "ImageSourceData signature at %d\n", (int)tg->val_offset);
+
+	dpos = tg->val_offset + siglen;
+	dlen = tg->total_size - siglen;
+	de_dbg(c, "ImageSourceData blocks at %d, len=%d\n", (int)dpos, (int)dlen);
+
+	mparams = de_malloc(c, sizeof(de_module_params));
+	mparams->codes = "T";
+	de_dbg_indent(c, 1);
+	de_run_module_by_id_on_slice(c, "psd", mparams, c->infile, dpos, dlen);
+	de_dbg_indent(c, -1);
+done:
+	de_free(c, mparams);
 }
 
 static void handler_iccprofile(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni)

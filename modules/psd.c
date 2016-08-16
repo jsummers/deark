@@ -765,9 +765,15 @@ static void de_run_psd(deark *c, de_module_params *mparams)
 	if(c->module_nesting_level>1) de_dbg2(c, "in psd module\n");
 	d = de_malloc(c, sizeof(lctx));
 
-	if(mparams && mparams->codes && de_strchr(mparams->codes, 'R')) {
-		do_image_resource_blocks(c, d, 0, c->infile->len);
-		goto done;
+	if(mparams && mparams->codes) {
+		if(de_strchr(mparams->codes, 'R')) { // Image resources
+			do_image_resource_blocks(c, d, 0, c->infile->len);
+			goto done;
+		}
+		if(de_strchr(mparams->codes, 'T')) { // Tagged blocks
+			do_tagged_blocks(c, d, 0, c->infile->len);
+			goto done;
+		}
 	}
 
 	pos = 0;
