@@ -11,6 +11,7 @@ DE_DECLARE_MODULE(de_module_psd);
 
 #define CODE_8B64 0x38243634U
 #define CODE_8BIM 0x3842494dU
+#define CODE_Layr 0x4c617972U
 
 typedef struct localctx_struct {
 	int reserved;
@@ -546,53 +547,6 @@ static void do_image_resource_blocks(deark *c, lctx *d, de_int64 pos1, de_int64 
 	}
 }
 
-static int do_tagged_block(deark *c, lctx *d, de_int64 pos, de_int64 bytes_avail,
-	de_int64 *bytes_consumed)
-{
-	de_int64 blklen;
-	de_int64 padded_blklen;
-	struct de_fourcc blk4cc;
-	de_int64 sig;
-
-	*bytes_consumed = 0;
-	if(bytes_avail<12) return 0;
-
-	sig = de_getui32be(pos);
-	if(sig==CODE_8B64) {
-		de_warn(c, "8B64 tagged block type not supported\n");
-		return 0;
-	}
-	if(sig!=CODE_8BIM) {
-		de_warn(c, "Expected tagged block signature not found at %d\n", (int)pos);
-		return 0;
-	}
-
-	dbuf_read_fourcc(c->infile, pos+4, &blk4cc, 0);
-	blklen = de_getui32be(pos+8);
-	de_dbg(c, "tagged block '%s' at %d, dlen=%d\n", blk4cc.id_printable, (int)pos, (int)blklen);
-
-	// Apparently, the data is padded to the next multiple of 4 bytes.
-	// (This is not what the PSD spec says.)
-	padded_blklen = pad_to_4(blklen);
-
-	*bytes_consumed = 12 + padded_blklen;
-	return 1;
-}
-
-// A "Series of tagged blocks" - part of the "Layer and Mask Information" section.
-// Or, the payload data from a TIFF "ImageSourceData" tag.
-static void do_tagged_blocks(deark *c, lctx *d, de_int64 pos1, de_int64 len)
-{
-	de_int64 bytes_consumed;
-	de_int64 pos = pos1;
-
-	while(1) {
-		if(pos+12 > pos1+len) break;
-		if(!do_tagged_block(c, d, pos, pos1+len-pos, &bytes_consumed)) break;
-		pos += bytes_consumed;
-	}
-}
-
 // Layer mask / adjustment layer data
 static void do_layer_mask_data(deark *c, lctx *d, de_int64 pos,
 	de_int64 bytes_avail, de_int64 *bytes_consumed)
@@ -700,7 +654,7 @@ done:
 }
 
 static int do_layer_info_section(deark *c, lctx *d, de_int64 pos1,
-	de_int64 bytes_avail, de_int64 *bytes_consumed)
+	de_int64 bytes_avail, int has_len_field, de_int64 *bytes_consumed)
 {
 	int retval = 0;
 	de_int64 pos;
@@ -721,9 +675,14 @@ static int do_layer_info_section(deark *c, lctx *d, de_int64 pos1,
 	de_dbg_indent(c, 1);
 	indent_count++;
 
-	layer_info_len = de_getui32be(pos);
-	de_dbg(c, "length of layer info section: %d\n", (int)layer_info_len);
-	pos += 4;
+	if(has_len_field) {
+		layer_info_len = de_getui32be(pos);
+		de_dbg(c, "length of layer info section: %d\n", (int)layer_info_len);
+		pos += 4;
+	}
+	else {
+		layer_info_len = bytes_avail;
+	}
 
 	layer_count_raw = dbuf_geti16be(c->infile, pos);
 	pos += 2;
@@ -753,6 +712,67 @@ static int do_layer_info_section(deark *c, lctx *d, de_int64 pos1,
 done:
 	de_dbg_indent(c, -indent_count);
 	return retval;
+}
+
+static void do_Layr_block(deark *c, lctx *d, de_int64 pos, de_int64 len, const struct de_fourcc *blk4cc)
+{
+	de_int64 bytes_consumed;
+	// "Layer info" section, but starting with the "Layer count" field
+	do_layer_info_section(c, d, pos, len, 0, &bytes_consumed);
+}
+
+static int do_tagged_block(deark *c, lctx *d, de_int64 pos, de_int64 bytes_avail,
+	de_int64 *bytes_consumed)
+{
+	de_int64 blklen;
+	de_int64 padded_blklen;
+	struct de_fourcc blk4cc;
+	de_int64 sig;
+
+	*bytes_consumed = 0;
+	if(bytes_avail<12) return 0;
+
+	sig = de_getui32be(pos);
+	if(sig==CODE_8B64) {
+		de_warn(c, "8B64 tagged block type not supported\n");
+		return 0;
+	}
+	if(sig!=CODE_8BIM) {
+		de_warn(c, "Expected tagged block signature not found at %d\n", (int)pos);
+		return 0;
+	}
+
+	dbuf_read_fourcc(c->infile, pos+4, &blk4cc, 0);
+	blklen = de_getui32be(pos+8);
+	de_dbg(c, "tagged block '%s' at %d, dpos=%d, dlen=%d\n", blk4cc.id_printable,
+		(int)pos, (int)(12+pos), (int)blklen);
+
+	switch(blk4cc.id) {
+	case CODE_Layr:
+		do_Layr_block(c, d, pos+12, blklen, &blk4cc);
+		break;
+	}
+
+	// Apparently, the data is padded to the next multiple of 4 bytes.
+	// (This is not what the PSD spec says.)
+	padded_blklen = pad_to_4(blklen);
+
+	*bytes_consumed = 12 + padded_blklen;
+	return 1;
+}
+
+// A "Series of tagged blocks" - part of the "Layer and Mask Information" section.
+// Or, the payload data from a TIFF "ImageSourceData" tag.
+static void do_tagged_blocks(deark *c, lctx *d, de_int64 pos1, de_int64 len)
+{
+	de_int64 bytes_consumed;
+	de_int64 pos = pos1;
+
+	while(1) {
+		if(pos+12 > pos1+len) break;
+		if(!do_tagged_block(c, d, pos, pos1+len-pos, &bytes_consumed)) break;
+		pos += bytes_consumed;
+	}
 }
 
 static int do_layer_and_mask_info_section(deark *c, lctx *d, de_int64 pos1, de_int64 *bytes_consumed)
@@ -788,7 +808,11 @@ static int do_layer_and_mask_info_section(deark *c, lctx *d, de_int64 pos1, de_i
 	*bytes_consumed = 4 + layer_and_mask_info_section_len;
 	retval = 1;
 
-	if(!do_layer_info_section(c, d, pos, layer_and_mask_info_section_endpos-pos, &bytes_consumed2)) goto done;
+	if(!do_layer_info_section(c, d, pos, layer_and_mask_info_section_endpos-pos, 1,
+		&bytes_consumed2))
+	{
+		goto done;
+	}
 	if(pos + bytes_consumed2 > layer_and_mask_info_section_endpos) {
 		de_warn(c, "Oversized Layer Info section\n");
 		goto done;
