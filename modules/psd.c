@@ -14,7 +14,8 @@ DE_DECLARE_MODULE(de_module_psd);
 #define CODE_Layr 0x4c617972U
 
 typedef struct localctx_struct {
-	int reserved;
+	int is_le;
+	int tagged_blocks_only;
 } lctx;
 
 struct rsrc_info;
@@ -552,7 +553,7 @@ static void do_layer_mask_data(deark *c, lctx *d, de_int64 pos,
 	de_int64 bytes_avail, de_int64 *bytes_consumed)
 {
 	de_int64 dlen;
-	dlen = de_getui32be(pos);
+	dlen = dbuf_getui32x(c->infile, pos, d->is_le);
 	de_dbg(c, "layer mask data size: %d\n", (int)dlen);
 	*bytes_consumed = 4 + dlen;
 }
@@ -561,7 +562,7 @@ static void do_layer_blending_ranges(deark *c, lctx *d, de_int64 pos,
 	de_int64 bytes_avail, de_int64 *bytes_consumed)
 {
 	de_int64 dlen;
-	dlen = de_getui32be(pos);
+	dlen = dbuf_getui32x(c->infile, pos, d->is_le);
 	de_dbg(c, "layer blending ranges data size: %d\n", (int)dlen);
 	*bytes_consumed = 4 + dlen;
 }
@@ -597,20 +598,20 @@ static int do_layer_record(deark *c, lctx *d, de_int64 pos1,
 
 	pos += 16; // rectangle
 
-	nchannels = de_getui16be(pos);
+	nchannels = dbuf_getui16x(c->infile, pos, d->is_le);
 	de_dbg(c, "number of channels: %d\n", (int)nchannels);
 	pos += 2;
 
 	pos += 6*nchannels;
 
-	dbuf_read_fourcc(c->infile, pos, &tmp4cc, 0);
+	dbuf_read_fourcc(c->infile, pos, &tmp4cc, d->is_le);
 	if(tmp4cc.id != CODE_8BIM) {
 		de_warn(c, "Expected blend mode signature not found at %d\n", (int)pos);
 		goto done;
 	}
 	pos += 4;
 
-	dbuf_read_fourcc(c->infile, pos, &tmp4cc, 0);
+	dbuf_read_fourcc(c->infile, pos, &tmp4cc, d->is_le);
 	de_dbg(c, "blend mode: '%s'\n", tmp4cc.id_printable);
 	pos += 4; // blend mode key
 
@@ -619,7 +620,7 @@ static int do_layer_record(deark *c, lctx *d, de_int64 pos1,
 	pos += 1; // flags
 	pos += 1; // filler
 
-	extra_data_len = de_getui32be(pos);
+	extra_data_len = dbuf_getui32x(c->infile, pos, d->is_le);
 	pos+=4;
 	extra_data_endpos = pos + extra_data_len;
 
@@ -676,7 +677,7 @@ static int do_layer_info_section(deark *c, lctx *d, de_int64 pos1,
 	indent_count++;
 
 	if(has_len_field) {
-		layer_info_len = de_getui32be(pos);
+		layer_info_len = dbuf_getui32x(c->infile, pos, d->is_le);
 		de_dbg(c, "length of layer info section: %d\n", (int)layer_info_len);
 		pos += 4;
 	}
@@ -684,7 +685,7 @@ static int do_layer_info_section(deark *c, lctx *d, de_int64 pos1,
 		layer_info_len = bytes_avail;
 	}
 
-	layer_count_raw = dbuf_geti16be(c->infile, pos);
+	layer_count_raw = dbuf_geti16x(c->infile, pos, d->is_le);
 	pos += 2;
 	if(layer_count_raw<0) {
 		merged_result_flag = 1;
@@ -732,7 +733,7 @@ static int do_tagged_block(deark *c, lctx *d, de_int64 pos, de_int64 bytes_avail
 	*bytes_consumed = 0;
 	if(bytes_avail<12) return 0;
 
-	sig = de_getui32be(pos);
+	sig = dbuf_getui32x(c->infile, pos, d->is_le);
 	if(sig==CODE_8B64) {
 		de_warn(c, "8B64 tagged block type not supported\n");
 		return 0;
@@ -742,8 +743,8 @@ static int do_tagged_block(deark *c, lctx *d, de_int64 pos, de_int64 bytes_avail
 		return 0;
 	}
 
-	dbuf_read_fourcc(c->infile, pos+4, &blk4cc, 0);
-	blklen = de_getui32be(pos+8);
+	dbuf_read_fourcc(c->infile, pos+4, &blk4cc, d->is_le);
+	blklen = dbuf_getui32x(c->infile, pos+8, d->is_le);
 	de_dbg(c, "tagged block '%s' at %d, dpos=%d, dlen=%d\n", blk4cc.id_printable,
 		(int)pos, (int)(12+pos), (int)blklen);
 
@@ -767,6 +768,12 @@ static void do_tagged_blocks(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 {
 	de_int64 bytes_consumed;
 	de_int64 pos = pos1;
+
+	if(d->tagged_blocks_only) {
+		// If we're reading *only* this data structure (e.g. from a TIFF file), the
+		// byte order may be of interest.
+		de_dbg(c, "byte order: %s-endian\n", d->is_le?"little":"big");
+	}
 
 	while(1) {
 		if(pos+12 > pos1+len) break;
@@ -874,6 +881,7 @@ static void do_external_tagged_blocks(deark *c, lctx *d)
 {
 	de_uint32 code;
 
+	d->tagged_blocks_only = 1;
 	if(c->infile->len<4) return;
 
 	// Evidently, it is possible for this to use little-endian byte order. Weird.
@@ -881,8 +889,7 @@ static void do_external_tagged_blocks(deark *c, lctx *d)
 	// Peek at the first 4 bytes
 	code = (de_uint32)de_getui32le(0);
 	if(code==CODE_8BIM || code==CODE_8B64) {
-		de_warn(c, "ImageSourceData with little-endian byte order is not supported\n");
-		return;
+		d->is_le = 1;
 	}
 
 	do_tagged_blocks(c, d, 0, c->infile->len);
