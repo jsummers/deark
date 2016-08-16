@@ -91,9 +91,11 @@ static void de_vdbg_internal(deark *c, const char *fmt, va_list ap)
 {
 	char spaces[51];
 	int nspaces;
+	const char *dprefix = "DEBUG: ";
 
 	if(c) {
 		nspaces = c->dbg_indent_amount;
+		if(c->dprefix) dprefix = c->dprefix;
 	}
 	else {
 		nspaces = 0;
@@ -106,7 +108,7 @@ static void de_vdbg_internal(deark *c, const char *fmt, va_list ap)
 		de_memset(spaces, ' ', nspaces);
 	spaces[nspaces] = '\0';
 
-	de_printf(c, DE_MSGTYPE_DEBUG, "DEBUG: %s", spaces);
+	de_printf(c, DE_MSGTYPE_DEBUG, "%s%s", dprefix, spaces);
 	de_vprintf(c, DE_MSGTYPE_DEBUG, fmt, ap);
 }
 
@@ -365,6 +367,11 @@ int de_identify_none(deark *c)
 void de_set_debug_level(deark *c, int x)
 {
 	c->debug_level = x;
+}
+
+void de_set_dprefix(deark *c, const char *s)
+{
+	c->dprefix = s;
 }
 
 void de_set_extract_policy(deark *c, int x)

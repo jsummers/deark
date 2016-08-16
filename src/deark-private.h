@@ -217,6 +217,7 @@ struct deark_struct {
 
 	de_msgfn_type msgfn; // Caller's message output function
 	de_fatalerrorfn_type fatalerrorfn;
+	const char *dprefix;
 
 	void *zip_file;
 

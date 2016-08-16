@@ -131,6 +131,8 @@ Command-line options:
      Suppress informational and warning messages.
   -d, -d2, -d3
      Print technical and debugging information. -d2 and -d3 are more verbose.
+  -dprefix <msg>
+     Start each line printed by -d with this prefix. Default is "DEBUG: ".
   -msgstostderr
      Print all messages to stderr, instead of stdout. This option should be
      be placed first on the command line, as it might not affect messages

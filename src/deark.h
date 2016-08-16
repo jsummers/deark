@@ -76,6 +76,7 @@ void *de_get_userdata(deark *c);
 
 // 0=off  1=normal  2=verbose
 void de_set_debug_level(deark *c, int x);
+void de_set_dprefix(deark *c, const char *s);
 
 #define DE_EXTRACTPOLICY_DEFAULT  0
 #define DE_EXTRACTPOLICY_MAINONLY 1
