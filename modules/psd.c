@@ -139,6 +139,16 @@ static const struct rsrc_info rsrc_info_arr[] = {
 	{ 0x2710, 0, "Print flags info", NULL }
 };
 
+static de_int64 pad_to_2(de_int64 n)
+{
+	return (n&0x1) ? n+1 : n;
+}
+
+static de_int64 pad_to_4(de_int64 n)
+{
+	return ((n+3)/4)*4;
+}
+
 // Caller supplies ri_dst. This function will set its fields.
 static int lookup_rsrc(de_uint16 n, struct rsrc_info *ri_dst)
 {
@@ -436,6 +446,21 @@ static void hrsrc_versioninfo(deark *c, lctx *d, const struct rsrc_info *ri,
 	ucstring_destroy(s);
 }
 
+static void read_pascal_string_to_ucstring(dbuf *f, de_int64 pos, de_int64 bytes_avail,
+	de_ucstring *s, de_int64 *bytes_consumed)
+{
+	de_int64 dlen;
+
+	dlen = (de_int64)dbuf_getbyte(f, pos);
+	if(dlen > bytes_avail-1) { // error
+		*bytes_consumed = bytes_avail;
+		return;
+	}
+
+	dbuf_read_to_ucstring(f, pos+1, dlen, s, 0, DE_ENCODING_ASCII);
+	*bytes_consumed = 1 + dlen;
+}
+
 static int do_image_resource(deark *c, lctx *d, de_int64 pos1, de_int64 *bytes_consumed)
 {
 	de_byte buf[4];
@@ -465,20 +490,17 @@ static int do_image_resource(deark *c, lctx *d, de_int64 pos1, de_int64 *bytes_c
 
 	// Read resource block name. It starts with a byte that gives its length.
 	blkname_len = (de_int64)de_getbyte(pos);
-
-	if(blkname_len>0) {
-		blkname = ucstring_create(c);
-		// I don't know what encoding block names use. The PSD spec doesn't say.
-		dbuf_read_to_ucstring(c->infile, pos+1, blkname_len, blkname, 0, DE_ENCODING_ASCII);
-		blkname_printable = ucstring_get_printable_sz(blkname);
+	if(blkname_len==0) {
+		// A fast path. Resource blocks rarely have names.
+		blkname_printable = "";
+		bytes_used_by_name_field = 1;
 	}
 	else {
-		blkname_printable = "";
+		blkname = ucstring_create(c);
+		read_pascal_string_to_ucstring(c->infile, pos, 256, blkname, &bytes_used_by_name_field);
+		blkname_printable = ucstring_get_printable_sz(blkname);
 	}
-
-	bytes_used_by_name_field = 1 + blkname_len;
-	if(bytes_used_by_name_field&1) bytes_used_by_name_field++; // padding byte
-
+	bytes_used_by_name_field = pad_to_2(bytes_used_by_name_field);
 	pos+=bytes_used_by_name_field;
 
 	block_data_len = de_getui32be(pos);
@@ -551,12 +573,14 @@ static int do_tagged_block(deark *c, lctx *d, de_int64 pos, de_int64 bytes_avail
 
 	// Apparently, the data is padded to the next multiple of 4 bytes.
 	// (This is not what the PSD spec says.)
-	padded_blklen = ((blklen+3)/4)*4;
+	padded_blklen = pad_to_4(blklen);
 
 	*bytes_consumed = 12 + padded_blklen;
 	return 1;
 }
 
+// A "Series of tagged blocks" - part of the "Layer and Mask Information" section.
+// Or, the payload data from a TIFF "ImageSourceData" tag.
 static void do_tagged_blocks(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 {
 	de_int64 bytes_consumed;
@@ -569,6 +593,38 @@ static void do_tagged_blocks(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 	}
 }
 
+// Layer mask / adjustment layer data
+static void do_layer_mask_data(deark *c, lctx *d, de_int64 pos,
+	de_int64 bytes_avail, de_int64 *bytes_consumed)
+{
+	de_int64 dlen;
+	dlen = de_getui32be(pos);
+	de_dbg(c, "layer mask data size: %d\n", (int)dlen);
+	*bytes_consumed = 4 + dlen;
+}
+
+static void do_layer_blending_ranges(deark *c, lctx *d, de_int64 pos,
+	de_int64 bytes_avail, de_int64 *bytes_consumed)
+{
+	de_int64 dlen;
+	dlen = de_getui32be(pos);
+	de_dbg(c, "layer blending ranges data size: %d\n", (int)dlen);
+	*bytes_consumed = 4 + dlen;
+}
+
+static void do_layer_name(deark *c, lctx *d, de_int64 pos,
+	de_int64 bytes_avail, de_int64 *bytes_consumed)
+{
+	de_ucstring *s = NULL;
+
+	// "Pascal string, padded to a multiple of 4 bytes"
+	s = ucstring_create(c);
+	read_pascal_string_to_ucstring(c->infile, pos, bytes_avail, s, bytes_consumed);
+	de_dbg(c, "layer name: \"%s\"\n", ucstring_get_printable_sz(s));
+	*bytes_consumed = pad_to_4(*bytes_consumed);
+	ucstring_destroy(s);
+}
+
 static int do_layer_record(deark *c, lctx *d, de_int64 pos1,
 	de_int64 bytes_avail, de_int64 *bytes_consumed)
 {
@@ -576,7 +632,9 @@ static int do_layer_record(deark *c, lctx *d, de_int64 pos1,
 	de_int64 endpos;
 	de_int64 nchannels;
 	de_int64 extra_data_len;
+	de_int64 extra_data_endpos;
 	struct de_fourcc tmp4cc;
+	de_int64 bytes_consumed2;
 
 	int retval = 0;
 
@@ -609,11 +667,25 @@ static int do_layer_record(deark *c, lctx *d, de_int64 pos1,
 
 	extra_data_len = de_getui32be(pos);
 	pos+=4;
+	extra_data_endpos = pos + extra_data_len;
 
-	// TODO: layer mask data
-	// TODO: layer blending ranges
-	// TODO: layer name
-	pos += extra_data_len;
+	do_layer_mask_data(c, d, pos, extra_data_endpos-pos, &bytes_consumed2);
+	pos += bytes_consumed2;
+
+	do_layer_blending_ranges(c, d, pos, extra_data_endpos-pos, &bytes_consumed2);
+	pos += bytes_consumed2;
+
+	do_layer_name(c, d, pos, extra_data_endpos-pos, &bytes_consumed2);
+	pos += bytes_consumed2;
+
+	if(pos < extra_data_endpos) {
+		// TODO: The rest of the layer record data seems to be undocumented,
+		// or unclearly documented.
+		de_dbg(c, "[%d more bytes of layer record data at %d]\n",
+			(int)(extra_data_endpos-pos), (int)pos);
+	}
+
+	pos = extra_data_endpos;
 
 	if(pos>endpos) {
 		de_warn(c, "Malformed layer record at %d\n", (int)pos1);
