@@ -36,12 +36,16 @@ struct rsrc_info {
 #define DECLARE_HRSRC(x) static void x(deark *c, lctx *d, const struct rsrc_info *ri, de_int64 pos, de_int64 len)
 
 DECLARE_HRSRC(hrsrc_resolutioninfo);
+DECLARE_HRSRC(hrsrc_namesofalphachannels);
 DECLARE_HRSRC(hrsrc_iptc);
 DECLARE_HRSRC(hrsrc_exif);
 DECLARE_HRSRC(hrsrc_xmp);
 DECLARE_HRSRC(hrsrc_iccprofile);
 DECLARE_HRSRC(hrsrc_slices);
 DECLARE_HRSRC(hrsrc_thumbnail);
+DECLARE_HRSRC(hrsrc_byte);
+DECLARE_HRSRC(hrsrc_uint16);
+DECLARE_HRSRC(hrsrc_uint32);
 DECLARE_HRSRC(hrsrc_unicodestring);
 DECLARE_HRSRC(hrsrc_versioninfo);
 
@@ -51,7 +55,7 @@ static const struct rsrc_info rsrc_info_arr[] = {
 	{ 0x03ea, 0, "Macintosh page format information", NULL },
 	{ 0x03eb, 0, "Indexed color table", NULL },
 	{ 0x03ed, 0, "Resolution info", hrsrc_resolutioninfo },
-	{ 0x03ee, 0, "Names of the alpha channels", NULL },
+	{ 0x03ee, 0, "Names of the alpha channels", hrsrc_namesofalphachannels },
 	{ 0x03ef, 0, "Display information", NULL },
 	{ 0x03f0, 0, "Caption", NULL },
 	{ 0x03f1, 0, "Border information", NULL },
@@ -69,7 +73,7 @@ static const struct rsrc_info rsrc_info_arr[] = {
 	{ 0x03fd, 0, "EPS options", NULL },
 	{ 0x03fe, 0, "Quick Mask information", NULL },
 	//{ 0x03ff, 0, "(Obsolete)", NULL },
-	{ 0x0400, 0, "Layer state information", NULL },
+	{ 0x0400, 0, "Layer state information", hrsrc_uint16 },
 	{ 0x0401, 0, "Working path", NULL },
 	{ 0x0402, 0, "Layers group information", NULL },
 	//{ 0x0403, 0, "(Obsolete)", NULL },
@@ -78,21 +82,21 @@ static const struct rsrc_info rsrc_info_arr[] = {
 	{ 0x0406, 0, "JPEG quality", NULL },
 	{ 0x0408, 0, "Grid and guides info", NULL },
 	{ 0x0409, 0, "Thumbnail - Photoshop 4.0", hrsrc_thumbnail },
-	{ 0x040a, 0, "Copyright flag", NULL },
+	{ 0x040a, 0, "Copyright flag", hrsrc_byte },
 	{ 0x040b, 0, "URL", NULL },
 	{ 0x040c, 0, "Thumbnail", hrsrc_thumbnail },
-	{ 0x040d, 0, "Global Angle", NULL },
+	{ 0x040d, 0, "Global Angle", hrsrc_uint32 },
 	{ 0x040e, 0, "Color samplers resource (Photoshop 5.0)", NULL },
 	{ 0x040f, 0, "ICC Profile", hrsrc_iccprofile },
-	{ 0x0410, 0, "Watermark", NULL },
-	{ 0x0411, 0, "ICC Untagged Profile", NULL },
-	{ 0x0412, 0, "Effects visible", NULL },
+	{ 0x0410, 0, "Watermark", hrsrc_byte },
+	{ 0x0411, 0, "ICC Untagged Profile", hrsrc_byte },
+	{ 0x0412, 0, "Effects visible", hrsrc_byte },
 	{ 0x0413, 0, "Spot Halftone", NULL },
-	{ 0x0414, 0, "Document-specific IDs seed number", NULL },
+	{ 0x0414, 0, "Document-specific IDs seed number", hrsrc_uint32 },
 	{ 0x0415, 0, "Unicode Alpha Names", hrsrc_unicodestring },
 	{ 0x0416, 0, "Indexed Color Table Count", NULL },
 	{ 0x0417, 0, "Transparency Index", NULL },
-	{ 0x0419, 0, "Global Altitude", NULL },
+	{ 0x0419, 0, "Global Altitude", hrsrc_uint32 },
 	{ 0x041a, 0, "Slices", hrsrc_slices },
 	{ 0x041b, 0, "Workflow URL", hrsrc_unicodestring },
 	{ 0x041c, 0, "Jump To XPEP", NULL },
@@ -112,7 +116,7 @@ static const struct rsrc_info rsrc_info_arr[] = {
 	{ 0x042e, 0, "HDR Toning information", NULL },
 	{ 0x042f, 0, "Auto Save Format", NULL },
 	{ 0x0430, 0, "Layer Group(s) Enabled ID", NULL },
-	{ 0x0431, 0, "Color samplers resource", NULL },
+	{ 0x0431, 0, "Color samplers resource (Photoshop CS3)", NULL },
 	{ 0x0432, 0x0004, "Measurement Scale", NULL },
 	{ 0x0433, 0x0004, "Timeline Information", NULL },
 	{ 0x0434, 0x0004, "Sheet Disclosure", NULL },
@@ -149,6 +153,43 @@ static de_int64 pad_to_2(de_int64 n)
 static de_int64 pad_to_4(de_int64 n)
 {
 	return ((n+3)/4)*4;
+}
+
+// For rectangles in top-left-bottom-right order
+static void do_dbg_rectangle_tlbr(deark *c, lctx *d, de_int64 pos, const char *name)
+{
+	de_int64 n[4];
+	de_int64 k;
+	for(k=0; k<4; k++) {
+		n[k] = dbuf_getui32x(c->infile, pos+4*k, d->is_le);
+	}
+	de_dbg(c, "%s: (%d,%d)-(%d,%d)\n", name, (int)n[1], (int)n[0], (int)n[3], (int)n[2]);
+}
+
+// For rectangles in left-top-right-bottom order
+static void do_dbg_rectangle_ltrb(deark *c, lctx *d, de_int64 pos, const char *name)
+{
+	de_int64 n[4];
+	de_int64 k;
+	for(k=0; k<4; k++) {
+		n[k] = dbuf_getui32x(c->infile, pos+4*k, d->is_le);
+	}
+	de_dbg(c, "%s: (%d,%d)-(%d,%d)\n", name, (int)n[0], (int)n[1], (int)n[2], (int)n[3]);
+}
+
+static void read_pascal_string_to_ucstring(dbuf *f, de_int64 pos, de_int64 bytes_avail,
+	de_ucstring *s, de_int64 *bytes_consumed)
+{
+	de_int64 dlen;
+
+	dlen = (de_int64)dbuf_getbyte(f, pos);
+	if(dlen > bytes_avail-1) { // error
+		*bytes_consumed = bytes_avail;
+		return;
+	}
+
+	dbuf_read_to_ucstring(f, pos+1, dlen, s, 0, DE_ENCODING_ASCII);
+	*bytes_consumed = 1 + dlen;
 }
 
 // Caller supplies ri_dst. This function will set its fields.
@@ -211,6 +252,27 @@ static void hrsrc_resolutioninfo(deark *c, lctx *d, const struct rsrc_info *ri,
 	yres = ((double)yres_int)/65536.0;
 	de_dbg(c, "xres=%.2f, units=%d (%s)\n", xres, (int)xres_unit, units_name(xres_unit));
 	de_dbg(c, "yres=%.2f, units=%d (%s)\n", yres, (int)yres_unit, units_name(yres_unit));
+}
+
+static void hrsrc_namesofalphachannels(deark *c, lctx *d, const struct rsrc_info *ri,
+	de_int64 pos1, de_int64 len)
+{
+	de_int64 pos, endpos;
+	de_int64 bytes_consumed;
+	de_ucstring *s = NULL;
+
+	// This is a "series of Pascal strings", whatever that is.
+
+	pos = pos1;
+	endpos = pos1+len;
+	s = ucstring_create(c);
+	while(pos<(endpos-1)) {
+		ucstring_truncate(s, 0);
+		read_pascal_string_to_ucstring(c->infile, pos, endpos-pos, s, &bytes_consumed);
+		de_dbg(c, "name: \"%s\"\n", ucstring_get_printable_sz_n(s, 300));
+		pos += bytes_consumed;
+	}
+	ucstring_destroy(s);
 }
 
 static void hrsrc_exif(deark *c, lctx *d, const struct rsrc_info *ri,
@@ -281,8 +343,9 @@ static int read_descriptor_with_version(deark *c, lctx *d, de_int64 pos1,
 	de_int64 dv;
 	de_int64 field_len;
 	de_int64 class_id_len;
+	de_int64 num_items;
 
-	*bytes_consumed = 0;
+	*bytes_consumed = bytes_avail;
 	pos = pos1;
 	endpos = pos1+bytes_avail;
 
@@ -315,9 +378,17 @@ static int read_descriptor_with_version(deark *c, lctx *d, de_int64 pos1,
 	}
 	de_dbg(c, "classID: \"%s\"\n", ucstring_get_printable_sz(classid));
 
+	num_items = dbuf_getui32x(c->infile, pos, d->is_le);
+	de_dbg(c, "number of items: %d\n", (int)num_items);
+
+	// TODO: Descriptor items
+
 done:
 	ucstring_destroy(classid);
 	ucstring_destroy(name_from_classid);
+
+	// Currently, we are not able to compute the length of the Descriptor object.
+	// The "bytes_consumed" value we return is never correct.
 	return 0;
 }
 
@@ -329,17 +400,122 @@ static void hrsrc_descriptor_with_version(deark *c, lctx *d, const struct rsrc_i
 	read_descriptor_with_version(c, d, pos, len, &bytes_consumed);
 }
 
+static int do_slices_resource_block(deark *c, lctx *d, de_int64 slice_idx, de_int64 pos1,
+	de_int64 bytes_avail, de_int64 *bytes_consumed)
+{
+	de_int64 pos;
+	de_int64 endpos;
+	de_int64 bytes_consumed2;
+	de_ucstring *s = NULL;
+	int ret;
+	int retval = 0;
+
+	pos = pos1;
+	endpos = pos1 + bytes_avail;
+	*bytes_consumed = bytes_avail; // default
+
+	s = ucstring_create(c);
+
+	pos += 4; // ID
+	pos += 4; // Group ID
+	pos += 4; // Origin
+
+	// PSD spec says the Associated Layer ID is "Only present if Origin = 1",
+	// but that seems to be incorrect, and the field is always present.
+	pos += 4; // Associated Layer ID
+
+	read_unicode_string(c->infile, s, pos, endpos-pos, &bytes_consumed2); // Name
+	pos += bytes_consumed2;
+	ucstring_truncate(s, 0);
+
+	pos += 4; // Type
+
+	do_dbg_rectangle_ltrb(c, d, pos, "position");
+	pos += 16;
+
+	read_unicode_string(c->infile, s, pos, endpos-pos, &bytes_consumed2); // URL
+	pos += bytes_consumed2;
+	ucstring_truncate(s, 0);
+
+	read_unicode_string(c->infile, s, pos, endpos-pos, &bytes_consumed2); // Target
+	pos += bytes_consumed2;
+	ucstring_truncate(s, 0);
+
+	read_unicode_string(c->infile, s, pos, endpos-pos, &bytes_consumed2); // Message
+	pos += bytes_consumed2;
+	ucstring_truncate(s, 0);
+
+	read_unicode_string(c->infile, s, pos, endpos-pos, &bytes_consumed2); // Alt Tag
+	pos += bytes_consumed2;
+	ucstring_truncate(s, 0);
+
+	pos += 1; // Flag: Cell text is HTML
+
+	read_unicode_string(c->infile, s, pos, endpos-pos, &bytes_consumed2); // Cell text
+	pos += bytes_consumed2;
+	ucstring_truncate(s, 0);
+
+	pos += 4; // Horizontal alignment
+	pos += 4; // Horizontal alignment
+	pos += 4; // Alpha color, Red, Green, Blue
+
+	if(pos>=endpos) goto done;
+
+	de_dbg(c, "descriptor at %d\n", (int)pos);
+	de_dbg_indent(c, 1);
+	ret = read_descriptor_with_version(c, d, pos, endpos-pos, &bytes_consumed2);
+	de_dbg_indent(c, -1);
+	if(!ret) goto done;
+	pos += bytes_consumed2;
+
+	*bytes_consumed = endpos-pos;
+	retval = 1;
+
+done:
+	ucstring_destroy(s);
+	return retval;
+}
+
 static void do_slices_v6(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 {
-	de_int64 bytes_consumed_name;
+	de_int64 bytes_consumed2;
+	de_int64 pos;
+	de_int64 endpos;
+	de_int64 num_slices;
+	de_int64 i;
 	de_ucstring *name_of_group_of_slices = NULL;
 
-	name_of_group_of_slices = ucstring_create(c);
+	pos = pos1;
+	endpos = pos1+len;
+	pos += 4; // version (already read)
+	do_dbg_rectangle_tlbr(c, d, pos, "bounding rectangle");
+	pos += 16; // bounding rectangle
+	if(pos > endpos) goto done;
 
-	read_unicode_string(c->infile, name_of_group_of_slices, pos1+20, len-20, &bytes_consumed_name);
+	name_of_group_of_slices = ucstring_create(c);
+	read_unicode_string(c->infile, name_of_group_of_slices, pos1+20, len-20, &bytes_consumed2);
 	de_dbg(c, "name of group of slices: \"%s\"\n",
 		ucstring_get_printable_sz_n(name_of_group_of_slices, 300));
+	pos += bytes_consumed2;
+	if(pos > endpos) goto done;
 
+	num_slices = de_getui32be(pos);
+	de_dbg(c, "number of slices: %d\n", (int)num_slices);
+
+	for(i=0; i<num_slices; i++) {
+		if(i>0) {
+			de_dbg(c, "[only the first slice is decoded]\n");
+			break;
+		}
+		if(pos >= endpos) break;
+		de_dbg(c, "slice[%d] at %d\n", (int)i, (int)pos);
+		de_dbg_indent(c, 1);
+		do_slices_resource_block(c, d, i, pos, endpos-pos, &bytes_consumed2);
+		de_dbg_indent(c, -1);
+		pos += bytes_consumed2;
+	}
+
+done:
 	ucstring_destroy(name_of_group_of_slices);
 }
 
@@ -400,6 +576,34 @@ static void hrsrc_thumbnail(deark *c, lctx *d, const struct rsrc_info *ri,
 	dbuf_create_file_from_slice(c->infile, pos+28, len-28, "psdthumb.jpg", NULL, DE_CREATEFLAG_IS_AUX);
 }
 
+// Handler for any resource that consists of a 1-byte numeric value
+static void hrsrc_byte(deark *c, lctx *d, const struct rsrc_info *ri,
+	de_int64 pos, de_int64 len)
+{
+	de_byte b;
+	if(len!=1) return;
+	b = de_getbyte(pos);
+	de_dbg(c, "%s: %d\n", ri->idname, (int)b);
+}
+
+static void hrsrc_uint16(deark *c, lctx *d, const struct rsrc_info *ri,
+	de_int64 pos, de_int64 len)
+{
+	de_int64 n;
+	if(len!=2) return;
+	n = dbuf_getui16x(c->infile, pos, d->is_le);
+	de_dbg(c, "%s: %d\n", ri->idname, (int)n);
+}
+
+static void hrsrc_uint32(deark *c, lctx *d, const struct rsrc_info *ri,
+	de_int64 pos, de_int64 len)
+{
+	de_int64 n;
+	if(len!=4) return;
+	n = dbuf_getui32x(c->infile, pos, d->is_le);
+	de_dbg(c, "%s: %d\n", ri->idname, (int)n);
+}
+
 // Handler for any resource that consists of a single "Unicode string".
 static void hrsrc_unicodestring(deark *c, lctx *d, const struct rsrc_info *ri,
 	de_int64 pos, de_int64 len)
@@ -446,21 +650,6 @@ static void hrsrc_versioninfo(deark *c, lctx *d, const struct rsrc_info *ri,
 	de_dbg(c, "file version: %d\n", (int)file_ver);
 
 	ucstring_destroy(s);
-}
-
-static void read_pascal_string_to_ucstring(dbuf *f, de_int64 pos, de_int64 bytes_avail,
-	de_ucstring *s, de_int64 *bytes_consumed)
-{
-	de_int64 dlen;
-
-	dlen = (de_int64)dbuf_getbyte(f, pos);
-	if(dlen > bytes_avail-1) { // error
-		*bytes_consumed = bytes_avail;
-		return;
-	}
-
-	dbuf_read_to_ucstring(f, pos+1, dlen, s, 0, DE_ENCODING_ASCII);
-	*bytes_consumed = 1 + dlen;
 }
 
 static int do_image_resource(deark *c, lctx *d, de_int64 pos1, de_int64 *bytes_consumed)
