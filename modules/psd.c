@@ -11,11 +11,17 @@ DE_DECLARE_MODULE(de_module_psd);
 
 #define CODE_8B64 0x38243634U
 #define CODE_8BIM 0x3842494dU
+#define CODE_GdFl 0x4764466cU
 #define CODE_Layr 0x4c617972U
+#define CODE_Lr16 0x4c723136U
+#define CODE_PtFl 0x5074466cU
+#define CODE_SoCo 0x536f436fU
+#define CODE_luni 0x6c756e69U
 
 typedef struct localctx_struct {
 	int is_le;
 	int tagged_blocks_only;
+	int nesting_level;
 } lctx;
 
 struct rsrc_info;
@@ -301,7 +307,7 @@ static void hrsrc_iccprofile(deark *c, lctx *d, const struct rsrc_info *ri,
 }
 
 // Read a Photoshop-style "Unicode string" structure, and append it to s.
-static void read_unicode_string(dbuf *f, de_ucstring *s, de_int64 pos,
+static void read_unicode_string(deark *c, lctx *d, dbuf *f, de_ucstring *s, de_int64 pos,
 	de_int64 bytes_avail, de_int64 *bytes_consumed)
 {
 	de_int64 num_code_units;
@@ -315,20 +321,23 @@ static void read_unicode_string(dbuf *f, de_ucstring *s, de_int64 pos,
 		return;
 	}
 
-	num_code_units = dbuf_getui32be(f, pos);
+	num_code_units = dbuf_getui32x(f, pos, d->is_le);
 	if(4+num_code_units*2 > bytes_avail) { // error
 		*bytes_consumed = bytes_avail;
 		return;
 	}
 
-	dbuf_read_to_ucstring_n(f, pos+4, num_code_units*2, 300*2, s, 0, DE_ENCODING_UTF16BE);
+	dbuf_read_to_ucstring_n(f, pos+4, num_code_units*2, 300*2, s, 0,
+		d->is_le ? DE_ENCODING_UTF16LE : DE_ENCODING_UTF16BE);
 
 	// Photoshop "Unicode strings" don't usually seem to end with a U+0000 character.
 	// However, some of them seem to consist just of a single U+0000.
 	// I suspect that's because there are places where they can't have a length of
 	// zero, because the first four bytes being zero is used as sentinel value for
 	// something else.
-	ucstring_truncate_at_NUL(s);
+	if(s->len==1) {
+		ucstring_truncate_at_NUL(s);
+	}
 
 	*bytes_consumed = 4+num_code_units*2;
 }
@@ -349,7 +358,7 @@ static int read_descriptor_with_version(deark *c, lctx *d, de_int64 pos1,
 	pos = pos1;
 	endpos = pos1+bytes_avail;
 
-	dv = de_getui32be(pos);
+	dv = dbuf_getui32x(c->infile, pos, d->is_le);
 	pos += 4;
 	if(dv!=16) {
 		de_warn(c, "Unsupported descriptor version: %d\n", (int)dv);
@@ -357,14 +366,14 @@ static int read_descriptor_with_version(deark *c, lctx *d, de_int64 pos1,
 	}
 
 	name_from_classid = ucstring_create(c);
-	read_unicode_string(c->infile, name_from_classid, pos, endpos-pos, &field_len);
+	read_unicode_string(c, d, c->infile, name_from_classid, pos, endpos-pos, &field_len);
 	if(name_from_classid->len > 0) {
 		de_dbg(c, "name from classID: \"%s\"\n", ucstring_get_printable_sz_n(name_from_classid, 300));
 	}
 	pos += field_len;
 
 	classid = ucstring_create(c);
-	class_id_len = de_getui32be(pos);
+	class_id_len = dbuf_getui32x(c->infile, pos, d->is_le);
 	pos += 4;
 	if(class_id_len==0) {
 		// Note: dbuf_read_fourcc() might be more appropriate, but I'm using
@@ -424,7 +433,7 @@ static int do_slices_resource_block(deark *c, lctx *d, de_int64 slice_idx, de_in
 	// but that seems to be incorrect, and the field is always present.
 	pos += 4; // Associated Layer ID
 
-	read_unicode_string(c->infile, s, pos, endpos-pos, &bytes_consumed2); // Name
+	read_unicode_string(c, d, c->infile, s, pos, endpos-pos, &bytes_consumed2); // Name
 	pos += bytes_consumed2;
 	ucstring_truncate(s, 0);
 
@@ -433,25 +442,25 @@ static int do_slices_resource_block(deark *c, lctx *d, de_int64 slice_idx, de_in
 	do_dbg_rectangle_ltrb(c, d, pos, "position");
 	pos += 16;
 
-	read_unicode_string(c->infile, s, pos, endpos-pos, &bytes_consumed2); // URL
+	read_unicode_string(c, d, c->infile, s, pos, endpos-pos, &bytes_consumed2); // URL
 	pos += bytes_consumed2;
 	ucstring_truncate(s, 0);
 
-	read_unicode_string(c->infile, s, pos, endpos-pos, &bytes_consumed2); // Target
+	read_unicode_string(c, d, c->infile, s, pos, endpos-pos, &bytes_consumed2); // Target
 	pos += bytes_consumed2;
 	ucstring_truncate(s, 0);
 
-	read_unicode_string(c->infile, s, pos, endpos-pos, &bytes_consumed2); // Message
+	read_unicode_string(c, d, c->infile, s, pos, endpos-pos, &bytes_consumed2); // Message
 	pos += bytes_consumed2;
 	ucstring_truncate(s, 0);
 
-	read_unicode_string(c->infile, s, pos, endpos-pos, &bytes_consumed2); // Alt Tag
+	read_unicode_string(c, d, c->infile, s, pos, endpos-pos, &bytes_consumed2); // Alt Tag
 	pos += bytes_consumed2;
 	ucstring_truncate(s, 0);
 
 	pos += 1; // Flag: Cell text is HTML
 
-	read_unicode_string(c->infile, s, pos, endpos-pos, &bytes_consumed2); // Cell text
+	read_unicode_string(c, d, c->infile, s, pos, endpos-pos, &bytes_consumed2); // Cell text
 	pos += bytes_consumed2;
 	ucstring_truncate(s, 0);
 
@@ -493,7 +502,7 @@ static void do_slices_v6(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 	if(pos > endpos) goto done;
 
 	name_of_group_of_slices = ucstring_create(c);
-	read_unicode_string(c->infile, name_of_group_of_slices, pos1+20, len-20, &bytes_consumed2);
+	read_unicode_string(c, d, c->infile, name_of_group_of_slices, pos1+20, len-20, &bytes_consumed2);
 	de_dbg(c, "name of group of slices: \"%s\"\n",
 		ucstring_get_printable_sz_n(name_of_group_of_slices, 300));
 	pos += bytes_consumed2;
@@ -612,7 +621,7 @@ static void hrsrc_unicodestring(deark *c, lctx *d, const struct rsrc_info *ri,
 	de_int64 bytes_consumed;
 
 	s = ucstring_create(c);
-	read_unicode_string(c->infile, s, pos, len, &bytes_consumed);
+	read_unicode_string(c, d, c->infile, s, pos, len, &bytes_consumed);
 	de_dbg(c, "%s: \"%s\"\n", ri->idname, ucstring_get_printable_sz(s));
 	ucstring_destroy(s);
 }
@@ -637,12 +646,12 @@ static void hrsrc_versioninfo(deark *c, lctx *d, const struct rsrc_info *ri,
 	de_dbg(c, "hasRealMergedData: %d\n", (int)b);
 
 	s = ucstring_create(c);
-	read_unicode_string(c->infile, s, pos, endpos-pos, &bytes_consumed);
+	read_unicode_string(c, d, c->infile, s, pos, endpos-pos, &bytes_consumed);
 	de_dbg(c, "writer name: \"%s\"\n", ucstring_get_printable_sz(s));
 	pos += bytes_consumed;
 
 	ucstring_truncate(s, 0);
-	read_unicode_string(c->infile, s, pos, endpos-pos, &bytes_consumed);
+	read_unicode_string(c, d, c->infile, s, pos, endpos-pos, &bytes_consumed);
 	de_dbg(c, "reader name: \"%s\"\n", ucstring_get_printable_sz(s));
 	pos += bytes_consumed;
 
@@ -769,6 +778,8 @@ static void do_layer_name(deark *c, lctx *d, de_int64 pos,
 	ucstring_destroy(s);
 }
 
+static void do_tagged_blocks(deark *c, lctx *d, de_int64 pos1, de_int64 len);
+
 static int do_layer_record(deark *c, lctx *d, de_int64 pos1,
 	de_int64 bytes_avail, de_int64 *bytes_consumed)
 {
@@ -823,10 +834,13 @@ static int do_layer_record(deark *c, lctx *d, de_int64 pos1,
 	pos += bytes_consumed2;
 
 	if(pos < extra_data_endpos) {
-		// TODO: The rest of the layer record data seems to be undocumented,
+		// The rest of the layer record data seems to be undocumented,
 		// or unclearly documented.
-		de_dbg(c, "[%d more bytes of layer record data at %d]\n",
-			(int)(extra_data_endpos-pos), (int)pos);
+		de_dbg(c, "layer record tagged blocks at %d, len=%d\n",
+			(int)pos, (int)(extra_data_endpos-pos));
+		de_dbg_indent(c, 1);
+		do_tagged_blocks(c, d, pos, extra_data_endpos-pos);
+		de_dbg_indent(c, -1);
 	}
 
 	pos = extra_data_endpos;
@@ -911,10 +925,33 @@ static void do_Layr_block(deark *c, lctx *d, de_int64 pos, de_int64 len, const s
 	do_layer_info_section(c, d, pos, len, 0, &bytes_consumed);
 }
 
+static void do_unicodestring_block(deark *c, lctx *d, de_int64 pos, de_int64 len, const struct de_fourcc *blk4cc,
+	const char *name)
+{
+	de_ucstring *s = NULL;
+	de_int64 bytes_consumed;
+
+	s = ucstring_create(c);
+	read_unicode_string(c, d, c->infile, s, pos, len, &bytes_consumed);
+	de_dbg(c, "%s: \"%s\"\n", name, ucstring_get_printable_sz(s));
+	ucstring_destroy(s);
+}
+
+static void do_descriptor_block(deark *c, lctx *d, de_int64 pos, de_int64 len,
+	const struct de_fourcc *blk4cc, const char *name)
+{
+	de_int64 bytes_consumed;
+	de_dbg(c, "descriptor for %s\n", name);
+	de_dbg_indent(c, 1);
+	read_descriptor_with_version(c, d, pos, len, &bytes_consumed);
+	de_dbg_indent(c, -1);
+}
+
 static int do_tagged_block(deark *c, lctx *d, de_int64 pos, de_int64 bytes_avail,
 	de_int64 *bytes_consumed)
 {
 	de_int64 blklen;
+	de_int64 dpos;
 	de_int64 padded_blklen;
 	struct de_fourcc blk4cc;
 	de_int64 sig;
@@ -934,14 +971,30 @@ static int do_tagged_block(deark *c, lctx *d, de_int64 pos, de_int64 bytes_avail
 
 	dbuf_read_fourcc(c->infile, pos+4, &blk4cc, d->is_le);
 	blklen = dbuf_getui32x(c->infile, pos+8, d->is_le);
+	dpos = pos+12;
 	de_dbg(c, "tagged block '%s' at %d, dpos=%d, dlen=%d\n", blk4cc.id_printable,
-		(int)pos, (int)(12+pos), (int)blklen);
+		(int)pos, (int)dpos, (int)blklen);
 
+	de_dbg_indent(c, 1);
 	switch(blk4cc.id) {
 	case CODE_Layr:
-		do_Layr_block(c, d, pos+12, blklen, &blk4cc);
+	case CODE_Lr16:
+		do_Layr_block(c, d, dpos, blklen, &blk4cc);
+		break;
+	case CODE_luni:
+		do_unicodestring_block(c, d, dpos, blklen, &blk4cc, "Unicode layer name");
+		break;
+	case CODE_GdFl:
+		do_descriptor_block(c, d, dpos, blklen, &blk4cc, "Gradient fill setting");
+		break;
+	case CODE_PtFl:
+		do_descriptor_block(c, d, dpos, blklen, &blk4cc, "Pattern fill setting");
+		break;
+	case CODE_SoCo:
+		do_descriptor_block(c, d, dpos, blklen, &blk4cc, "Solid color sheet setting");
 		break;
 	}
+	de_dbg_indent(c, -1);
 
 	// Apparently, the data is padded to the next multiple of 4 bytes.
 	// (This is not what the PSD spec says.)
@@ -953,12 +1006,16 @@ static int do_tagged_block(deark *c, lctx *d, de_int64 pos, de_int64 bytes_avail
 
 // A "Series of tagged blocks" - part of the "Layer and Mask Information" section.
 // Or, the payload data from a TIFF "ImageSourceData" tag.
+// Or, at the end of a "layer record".
 static void do_tagged_blocks(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 {
 	de_int64 bytes_consumed;
 	de_int64 pos = pos1;
 
-	if(d->tagged_blocks_only) {
+	d->nesting_level++;
+	if(d->nesting_level>10) goto done; // Defend against excessive recursion.
+
+	if(d->tagged_blocks_only && d->nesting_level==1) {
 		// If we're reading *only* this data structure (e.g. from a TIFF file), the
 		// byte order may be of interest.
 		de_dbg(c, "byte order: %s-endian\n", d->is_le?"little":"big");
@@ -969,6 +1026,9 @@ static void do_tagged_blocks(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 		if(!do_tagged_block(c, d, pos, pos1+len-pos, &bytes_consumed)) break;
 		pos += bytes_consumed;
 	}
+
+done:
+	d->nesting_level--;
 }
 
 static int do_layer_and_mask_info_section(deark *c, lctx *d, de_int64 pos1, de_int64 *bytes_consumed)
