@@ -12,6 +12,7 @@ DE_DECLARE_MODULE(de_module_psd);
 #define CODE_8B64 0x38243634U
 #define CODE_8BIM 0x3842494dU
 #define CODE_GdFl 0x4764466cU
+#define CODE_GlbO 0x476c624fU
 #define CODE_Layr 0x4c617972U
 #define CODE_Lr16 0x4c723136U
 #define CODE_Objc 0x4f626a63U
@@ -19,7 +20,9 @@ DE_DECLARE_MODULE(de_module_psd);
 #define CODE_SoCo 0x536f436fU
 #define CODE_TEXT 0x54455854U
 #define CODE_UntF 0x556e7446U
+#define CODE_VlLs 0x566c4c73U
 #define CODE_bool 0x626f6f6cU
+#define CODE_comp 0x636f6d70U
 #define CODE_doub 0x646f7562U
 #define CODE_enum 0x656e756dU
 #define CODE_long 0x6c6f6e67U
@@ -28,6 +31,7 @@ DE_DECLARE_MODULE(de_module_psd);
 typedef struct localctx_struct {
 	int is_le;
 	int tagged_blocks_only;
+#define MAX_NESTING_LEVEL 20
 	int nesting_level;
 } lctx;
 
@@ -443,6 +447,52 @@ static void do_item_type_enum(deark *c, lctx *d, de_int64 pos1, de_int64 bytes_a
 	*bytes_consumed = pos-pos1;
 }
 
+static int do_descriptor_item_ostype_and_data(deark *c, lctx *d, de_int64 pos1, de_int64 bytes_avail,
+	de_int64 *bytes_consumed);
+
+// "List"
+static int do_item_type_VlLs(deark *c, lctx *d, de_int64 pos1, de_int64 bytes_avail,
+	de_int64 *bytes_consumed)
+{
+	de_int64 num_items;
+	de_int64 bytes_consumed2;
+	de_int64 i;
+	de_int64 pos, endpos;
+	int ret;
+	int retval = 0;
+
+	pos = pos1;
+	endpos = pos1 + bytes_avail;
+
+	num_items = dbuf_getui32x(c->infile, pos, d->is_le);
+	de_dbg(c, "number of items in list: %d\n", (int)num_items);
+	if(num_items>500) {
+		de_warn(c, "Excessively large VlLs item (%d)\n", (int)num_items);
+		goto done;
+	}
+	pos += 4;
+
+	if(d->nesting_level>MAX_NESTING_LEVEL) goto done;
+
+	for(i=0; i<num_items; i++) {
+		bytes_consumed2 = 0;
+		de_dbg(c, "list item[%d] at %d\n", (int)i, (int)pos);
+		de_dbg_indent(c, 1);
+		d->nesting_level++;
+		ret = do_descriptor_item_ostype_and_data(c, d, pos, endpos-pos,
+			&bytes_consumed2);
+		d->nesting_level--;
+		de_dbg_indent(c, -1);
+		if(!ret) goto done;
+		pos += bytes_consumed2;
+	}
+
+	*bytes_consumed = pos-pos1;
+	retval = 1;
+done:
+	return retval;
+}
+
 static int read_descriptor_without_version(deark *c, lctx *d, de_int64 pos1,
 	de_int64 bytes_avail, de_int64 *bytes_consumed);
 
@@ -455,7 +505,7 @@ static int do_item_type_Objc(deark *c, lctx *d, de_int64 pos1, de_int64 bytes_av
 
 	*bytes_consumed = bytes_avail;
 	d->nesting_level++;
-	if(d->nesting_level>10) goto done;
+	if(d->nesting_level>MAX_NESTING_LEVEL) goto done;
 
 	// This descriptor contains a descriptor. We have to go deeper.
 	retval = read_descriptor_without_version(c, d, pos1, bytes_avail, bytes_consumed);
@@ -465,11 +515,78 @@ done:
 	return retval;
 }
 
+static int do_descriptor_item_ostype_and_data(deark *c, lctx *d,
+	de_int64 pos1, de_int64 bytes_avail, de_int64 *bytes_consumed)
+{
+	de_int64 bytes_consumed2 = 0;
+	de_int64 pos, endpos;
+	int ret;
+	int retval = 0;
+	struct de_fourcc type4cc;
+
+	*bytes_consumed = bytes_avail;
+	pos = pos1;
+	endpos = pos1 + bytes_avail;
+
+	dbuf_read_fourcc(c->infile, pos, &type4cc, d->is_le);
+	de_dbg(c, "item OSType: '%s'\n", type4cc.id_printable);
+	pos += 4;
+
+	switch(type4cc.id) {
+	case CODE_bool:
+		do_item_type_bool(c, d, pos, endpos-pos, &bytes_consumed2);
+		pos += bytes_consumed2;
+		break;
+	case CODE_long:
+		do_item_type_long(c, d, pos, endpos-pos, &bytes_consumed2);
+		pos += bytes_consumed2;
+		break;
+	case CODE_doub:
+		// TODO
+		pos += 8;
+		break;
+	case CODE_comp:
+		// TODO
+		pos += 8;
+		break;
+	case CODE_UntF:
+		// TODO
+		pos += 12;
+		break;
+	case CODE_TEXT:
+		do_item_type_TEXT(c, d, pos, endpos-pos, &bytes_consumed2);
+		pos += bytes_consumed2;
+		break;
+	case CODE_enum:
+		do_item_type_enum(c, d, pos, endpos-pos, &bytes_consumed2);
+		pos += bytes_consumed2;
+		break;
+	case CODE_VlLs:
+		ret = do_item_type_VlLs(c, d, pos, endpos-pos, &bytes_consumed2);
+		pos += bytes_consumed2;
+		if(!ret) goto done;
+		break;
+	case CODE_Objc:
+	case CODE_GlbO:
+		ret = do_item_type_Objc(c, d, pos, endpos-pos, &bytes_consumed2);
+		pos += bytes_consumed2;
+		if(!ret) goto done;
+		break;
+		// TODO: 'obj ', 'type', 'GlbC', 'alis', 'tdta'
+	default:
+		goto done;
+	}
+
+	*bytes_consumed = pos - pos1;
+	retval = 1;
+done:
+	return retval;
+}
+
 static int do_descriptor_item(deark *c, lctx *d, de_int64 pos1,
 	de_int64 bytes_avail, de_int64 *bytes_consumed)
 {
 	struct string_or_fourcc key;
-	struct de_fourcc type4cc;
 	de_int64 pos = pos1;
 	de_int64 bytes_consumed2;
 	de_int64 endpos;
@@ -490,43 +607,10 @@ static int do_descriptor_item(deark *c, lctx *d, de_int64 pos1,
 	ucstring_destroy(key.s);
 	key.s = NULL;
 
-	dbuf_read_fourcc(c->infile, pos, &type4cc, d->is_le);
-	de_dbg(c, "type: '%s'\n", type4cc.id_printable);
-	pos += 4;
+	ret = do_descriptor_item_ostype_and_data(c, d, pos, endpos-pos, &bytes_consumed2);
+	if(!ret) return 0;
 
-	switch(type4cc.id) {
-	case CODE_bool:
-		do_item_type_bool(c, d, pos, endpos-pos, &bytes_consumed2);
-		pos += bytes_consumed2;
-		break;
-	case CODE_long:
-		do_item_type_long(c, d, pos, endpos-pos, &bytes_consumed2);
-		pos += bytes_consumed2;
-		break;
-	case CODE_doub:
-		// TODO
-		pos += 8;
-		break;
-	case CODE_UntF:
-		// TODO
-		pos += 12;
-		break;
-	case CODE_TEXT:
-		do_item_type_TEXT(c, d, pos, endpos-pos, &bytes_consumed2);
-		pos += bytes_consumed2;
-		break;
-	case CODE_enum:
-		do_item_type_enum(c, d, pos, endpos-pos, &bytes_consumed2);
-		pos += bytes_consumed2;
-		break;
-	case CODE_Objc:
-		ret = do_item_type_Objc(c, d, pos, endpos-pos, &bytes_consumed2);
-		pos += bytes_consumed2;
-		if(!ret) return 0;
-		break;
-	default:
-		return 0;
-	}
+	pos += bytes_consumed2;
 
 	*bytes_consumed = pos - pos1;
 	return 1;
@@ -563,7 +647,7 @@ static int read_descriptor_without_version(deark *c, lctx *d, de_int64 pos1,
 	classid.s = NULL;
 
 	num_items = dbuf_getui32x(c->infile, pos, d->is_le);
-	de_dbg(c, "number of items: %d\n", (int)num_items);
+	de_dbg(c, "number of items in descriptor: %d\n", (int)num_items);
 	pos += 4;
 
 	// Descriptor items
@@ -574,8 +658,8 @@ static int read_descriptor_without_version(deark *c, lctx *d, de_int64 pos1,
 		de_dbg(c, "item[%d] at %d\n", (int)i, (int)pos);
 		de_dbg_indent(c, 1);
 		ret = do_descriptor_item(c, d, pos, endpos, &bytes_consumed2);
-		if(!ret && i<num_items-1) {
-			de_dbg(c, "[Don't know how to fully decode this item, so no later items can be processed.]\n");
+		if(!ret) {
+			de_dbg(c, "[Failed to fully decode descriptor item.]\n");
 		}
 		de_dbg_indent(c, -1);
 		if(!ret) goto done;
@@ -1223,7 +1307,7 @@ static void do_tagged_blocks(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 	de_int64 pos = pos1;
 
 	d->nesting_level++;
-	if(d->nesting_level>10) goto done; // Defend against excessive recursion.
+	if(d->nesting_level>MAX_NESTING_LEVEL) goto done; // Defend against excessive recursion.
 
 	if(d->tagged_blocks_only && d->nesting_level==1) {
 		// If we're reading *only* this data structure (e.g. from a TIFF file), the
