@@ -276,6 +276,8 @@ deark *de_create(void)
 	c->max_output_files = -1;
 	c->max_image_dimension = DE_DEFAULT_MAX_IMAGE_DIMENSION;
 	c->current_time.is_valid = 0;
+	c->can_decode_fltpt = -1; // = unknown
+	c->host_is_le = -1; // = unknown
 	return c;
 }
 

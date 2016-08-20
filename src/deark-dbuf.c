@@ -332,6 +332,90 @@ de_int64 dbuf_geti64x(dbuf *f, de_int64 pos, int is_le)
 	return dbuf_geti64be(f, pos);
 }
 
+static void init_fltpt_decoder(deark *c)
+{
+	unsigned int x = 1;
+	char b = 0;
+
+	c->can_decode_fltpt = 0;
+	if(sizeof(float)!=4 || sizeof(double)!=8) return;
+	c->can_decode_fltpt = 1;
+
+	de_memcpy(&b, &x, 1);
+	if(b==0)
+		c->host_is_le = 0;
+	else
+		c->host_is_le = 1;
+}
+
+double de_getfloat32x_direct(deark *c, const de_byte *m, int is_le)
+{
+	char buf[4];
+	float val = 0.0;
+
+	if(c->can_decode_fltpt<0) {
+		init_fltpt_decoder(c);
+	}
+	if(!c->can_decode_fltpt) return 0.0;
+
+	// FIXME: This assumes that the native floating point format is
+	// IEEE 754, but that does not have to be the case.
+
+	de_memcpy(buf, m, 4);
+
+	if(is_le != c->host_is_le) {
+		int i;
+		char tmpc;
+		// Reverse order of bytes
+		for(i=0; i<2; i++) {
+			tmpc = buf[i]; buf[i] = buf[3-i]; buf[3-i] = tmpc;
+		}
+	}
+
+	de_memcpy(&val, buf, 4);
+	return (double)val;
+}
+
+double dbuf_getfloat32x(dbuf *f, de_int64 pos, int is_le)
+{
+	de_byte buf[4];
+	dbuf_read(f, buf, pos, 4);
+	return de_getfloat32x_direct(f->c, buf, is_le);
+}
+
+double de_getfloat64x_direct(deark *c, const de_byte *m, int is_le)
+{
+	char buf[8];
+	double val = 0.0;
+
+	if(c->can_decode_fltpt<0) {
+		init_fltpt_decoder(c);
+	}
+	if(!c->can_decode_fltpt) return 0.0;
+
+	de_memcpy(buf, m, 8);
+
+	if(is_le != c->host_is_le) {
+		int i;
+		char tmpc;
+		// Reverse order of bytes
+		for(i=0; i<4; i++) {
+			tmpc = buf[i]; buf[i] = buf[7-i]; buf[7-i] = tmpc;
+		}
+	}
+
+	de_memcpy(&val, buf, 8);
+	return (double)val;
+}
+
+double dbuf_getfloat64x(dbuf *f, de_int64 pos, int is_le)
+{
+	de_byte buf[8];
+	dbuf_read(f, buf, pos, 8);
+	return de_getfloat64x_direct(f->c, buf, is_le);
+}
+
+
 de_uint32 dbuf_getRGB(dbuf *f, de_int64 pos, unsigned int flags)
 {
 	de_byte buf[3];

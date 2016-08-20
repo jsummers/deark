@@ -214,6 +214,8 @@ struct deark_struct {
 	int filenames_from_file;
 	int preserve_file_times;
 	int reproducible_output;
+	int can_decode_fltpt;
+	int host_is_le;
 
 	de_msgfn_type msgfn; // Caller's message output function
 	de_fatalerrorfn_type fatalerrorfn;
@@ -358,6 +360,12 @@ de_int64 dbuf_geti64x(dbuf *f, de_int64 pos, int is_le);
 #define de_getui32le(p) dbuf_getui32le(c->infile,p)
 #define de_geti64be(p) dbuf_geti64be(c->infile,p)
 #define de_geti64le(p) dbuf_geti64le(c->infile,p)
+
+// Read IEEE 754 floating point
+double de_getfloat32x_direct(deark *c, const de_byte *m, int is_le);
+double dbuf_getfloat32x(dbuf *f, de_int64 pos, int is_le);
+double de_getfloat64x_direct(deark *c, const de_byte *m, int is_le);
+double dbuf_getfloat64x(dbuf *f, de_int64 pos, int is_le);
 
 #define DE_GETRGBFLAG_BGR 0x1 // Assume BGR order instead of RGB
 de_uint32 dbuf_getRGB(dbuf *f, de_int64 pos, unsigned int flags);
