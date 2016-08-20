@@ -414,6 +414,32 @@ static void do_item_type_long(deark *c, lctx *d, de_int64 pos1, de_int64 bytes_a
 	*bytes_consumed = 4;
 }
 
+// "Double"
+static void do_item_type_doub(deark *c, lctx *d, de_int64 pos1, de_int64 bytes_avail,
+	de_int64 *bytes_consumed)
+{
+	double v;
+	v = dbuf_getfloat64x(c->infile, pos1, d->is_le);
+	de_dbg(c, "value: %f\n", v);
+	*bytes_consumed = 8;
+}
+
+// "Unit float"
+static void do_item_type_UntF(deark *c, lctx *d, de_int64 pos1, de_int64 bytes_avail,
+	de_int64 *bytes_consumed)
+{
+	double v;
+	struct de_fourcc unit4cc;
+
+	dbuf_read_fourcc(c->infile, pos1, &unit4cc, d->is_le);
+	de_dbg(c, "units code: '%s'\n", unit4cc.id_printable);
+
+	v = dbuf_getfloat64x(c->infile, pos1+4, d->is_le);
+	de_dbg(c, "value: %f\n", v);
+
+	*bytes_consumed = 12;
+}
+
 // The PSD spec calls this type "String" (or "String structure").
 static void do_item_type_TEXT(deark *c, lctx *d, de_int64 pos1, de_int64 bytes_avail,
 	de_int64 *bytes_consumed)
@@ -542,16 +568,16 @@ static int do_descriptor_item_ostype_and_data(deark *c, lctx *d,
 		pos += bytes_consumed2;
 		break;
 	case CODE_doub:
-		// TODO
-		pos += 8;
+		do_item_type_doub(c, d, pos, endpos-pos, &bytes_consumed2);
+		pos += bytes_consumed2;
 		break;
 	case CODE_comp:
 		// TODO
 		pos += 8;
 		break;
 	case CODE_UntF:
-		// TODO
-		pos += 12;
+		do_item_type_UntF(c, d, pos, endpos-pos, &bytes_consumed2);
+		pos += bytes_consumed2;
 		break;
 	case CODE_TEXT:
 		do_item_type_TEXT(c, d, pos, endpos-pos, &bytes_consumed2);
