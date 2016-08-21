@@ -22,11 +22,18 @@ DE_DECLARE_MODULE(de_module_psd);
 #define CODE_UntF 0x556e7446U
 #define CODE_VlLs 0x566c4c73U
 #define CODE_bool 0x626f6f6cU
+#define CODE_clbl 0x636c626cU
 #define CODE_comp 0x636f6d70U
 #define CODE_doub 0x646f7562U
 #define CODE_enum 0x656e756dU
+#define CODE_fxrp 0x66787270U
+#define CODE_infx 0x696e6678U
+#define CODE_knko 0x6b6e6b6fU
+#define CODE_lfx2 0x6c667832U
 #define CODE_long 0x6c6f6e67U
 #define CODE_luni 0x6c756e69U
+#define CODE_lyid 0x6c796964U
+#define CODE_shmd 0x73686d64U
 
 typedef struct localctx_struct {
 	int is_le;
@@ -797,7 +804,7 @@ static int do_slices_resource_block(deark *c, lctx *d, de_int64 slice_idx, de_in
 	if(!ret) goto done;
 	pos += bytes_consumed2;
 
-	*bytes_consumed = endpos-pos;
+	*bytes_consumed = pos-pos1;
 	retval = 1;
 
 done:
@@ -832,10 +839,6 @@ static void do_slices_v6(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 	de_dbg(c, "number of slices: %d\n", (int)num_slices);
 
 	for(i=0; i<num_slices; i++) {
-		if(i>0) {
-			de_dbg(c, "[only the first slice is decoded]\n");
-			break;
-		}
 		if(pos >= endpos) break;
 		de_dbg(c, "slice[%d] at %d\n", (int)i, (int)pos);
 		de_dbg_indent(c, 1);
@@ -1238,11 +1241,39 @@ done:
 	return retval;
 }
 
+static void do_uint32_block(deark *c, lctx *d, de_int64 pos, de_int64 len,
+	const struct de_fourcc *blk4cc, const char *name)
+{
+	de_int64 value;
+	if(len!=4) return;
+	value = dbuf_getui32x(c->infile, pos, d->is_le);
+	de_dbg(c, "%s: %d\n", name, (int)value);
+}
+
+static void do_boolean_block(deark *c, lctx *d, de_int64 pos, de_int64 len,
+	const struct de_fourcc *blk4cc, const char *name)
+{
+	de_byte value;
+	if(len<1 || len>4) return;
+	value = de_getbyte(pos);
+	de_dbg(c, "%s: %d\n", name, (int)value);
+}
+
 static void do_Layr_block(deark *c, lctx *d, de_int64 pos, de_int64 len, const struct de_fourcc *blk4cc)
 {
 	de_int64 bytes_consumed;
 	// "Layer info" section, but starting with the "Layer count" field
 	do_layer_info_section(c, d, pos, len, 0, &bytes_consumed);
+}
+
+static void do_fxrp_block(deark *c, lctx *d, de_int64 pos, de_int64 len)
+{
+	double v[2];
+
+	if(len!=16) return;
+	v[0] = dbuf_getfloat64x(c->infile, pos, d->is_le);
+	v[1] = dbuf_getfloat64x(c->infile, pos+8, d->is_le);
+	de_dbg(c, "reference point: %f, %f\n", v[0], v[1]);
 }
 
 static void do_unicodestring_block(deark *c, lctx *d, de_int64 pos, de_int64 len, const struct de_fourcc *blk4cc,
@@ -1265,6 +1296,57 @@ static void do_descriptor_block(deark *c, lctx *d, de_int64 pos, de_int64 len,
 	de_dbg_indent(c, 1);
 	read_descriptor_with_version(c, d, pos, len, &bytes_consumed);
 	de_dbg_indent(c, -1);
+}
+
+static void do_lfx2_block(deark *c, lctx *d, de_int64 pos, de_int64 len, const struct de_fourcc *blk4cc)
+{
+	de_int64 oe_ver;
+
+	if(len<8) return;
+	oe_ver = dbuf_getui32x(c->infile, pos, d->is_le);
+	de_dbg(c, "object effects version: %d\n", (int)oe_ver);
+	if(oe_ver!=0) return;
+
+	do_descriptor_block(c, d, pos+4, len-4, blk4cc, "object-based effects layer info");
+}
+
+static void do_shmd_block(deark *c, lctx *d, de_int64 pos1, de_int64 len)
+{
+	de_int64 count;
+	de_int64 i;
+	de_int64 pos, endpos;
+
+	pos = pos1;
+	endpos = pos1+len;
+	if(len<4) return;
+
+	count = dbuf_getui32x(c->infile, pos, d->is_le);
+	de_dbg(c, "number of metadata items: %d\n", (int)count);
+	pos += 4;
+
+	for(i=0; i<count; i++) {
+		de_int64 itempos, dpos, dlen;
+		struct de_fourcc key4cc;
+
+		if(pos >= endpos) break;
+		itempos = pos;
+
+		pos += 4; // signature ("8BIM", presumably)
+
+		dbuf_read_fourcc(c->infile, pos, &key4cc, d->is_le);
+		pos += 4;
+
+		pos += 1; // flag
+		pos += 3; // padding
+
+		dlen = dbuf_getui32x(c->infile, pos, d->is_le);
+		pos += 4;
+
+		dpos = pos;
+		de_dbg(c, "metadata item[%d] '%s' at %d, dpos=%d, dlen=%d\n",
+			(int)i, key4cc.id_printable, (int)itempos, (int)dpos, (int)dlen);
+		pos += dlen;
+	}
 }
 
 static int do_tagged_block(deark *c, lctx *d, de_int64 pos, de_int64 bytes_avail,
@@ -1297,6 +1379,18 @@ static int do_tagged_block(deark *c, lctx *d, de_int64 pos, de_int64 bytes_avail
 
 	de_dbg_indent(c, 1);
 	switch(blk4cc.id) {
+	case CODE_clbl:
+		do_boolean_block(c, d, dpos, blklen, &blk4cc, "blend clipped elements");
+		break;
+	case CODE_infx:
+		do_boolean_block(c, d, dpos, blklen, &blk4cc, "blend interior elements");
+		break;
+	case CODE_knko:
+		do_boolean_block(c, d, dpos, blklen, &blk4cc, "knockout");
+		break;
+	case CODE_lyid:
+		do_uint32_block(c, d, dpos, blklen, &blk4cc, "layer ID");
+		break;
 	case CODE_Layr:
 	case CODE_Lr16:
 		do_Layr_block(c, d, dpos, blklen, &blk4cc);
@@ -1312,6 +1406,15 @@ static int do_tagged_block(deark *c, lctx *d, de_int64 pos, de_int64 bytes_avail
 		break;
 	case CODE_SoCo:
 		do_descriptor_block(c, d, dpos, blklen, &blk4cc, "Solid color sheet setting");
+		break;
+	case CODE_fxrp:
+		do_fxrp_block(c, d, dpos, blklen);
+		break;
+	case CODE_lfx2:
+		do_lfx2_block(c, d, dpos, blklen, &blk4cc);
+		break;
+	case CODE_shmd:
+		do_shmd_block(c, d, dpos, blklen);
 		break;
 	}
 	de_dbg_indent(c, -1);
