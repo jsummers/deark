@@ -515,7 +515,7 @@ const char *de_get_ext_option(deark *c, const char *name)
 	int i;
 
 	for(i=0; i<c->num_ext_options; i++) {
-		if(!strcmp(c->ext_option[i].name, name)) {
+		if(!de_strcmp(c->ext_option[i].name, name)) {
 			return c->ext_option[i].val;
 		}
 	}

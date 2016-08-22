@@ -19,6 +19,7 @@ DE_DECLARE_MODULE(de_module_psd);
 #define CODE_PtFl 0x5074466cU
 #define CODE_SoCo 0x536f436fU
 #define CODE_TEXT 0x54455854U
+#define CODE_TySh 0x54795368U
 #define CODE_UntF 0x556e7446U
 #define CODE_VlLs 0x566c4c73U
 #define CODE_bool 0x626f6f6cU
@@ -34,6 +35,7 @@ DE_DECLARE_MODULE(de_module_psd);
 #define CODE_luni 0x6c756e69U
 #define CODE_lyid 0x6c796964U
 #define CODE_shmd 0x73686d64U
+#define CODE_tdta 0x74647461U
 
 typedef struct localctx_struct {
 	int is_le;
@@ -228,7 +230,7 @@ static int lookup_rsrc(de_uint16 n, struct rsrc_info *ri_dst)
 
 	de_memset(ri_dst, 0, sizeof(struct rsrc_info));
 
-	for(i=0; i<DE_ITEMS_IN_ARRAY(rsrc_info_arr); i++) {
+	for(i=0; i<(de_int64)DE_ITEMS_IN_ARRAY(rsrc_info_arr); i++) {
 		if(rsrc_info_arr[i].id == n) {
 			*ri_dst = rsrc_info_arr[i]; // struct copy
 			if(!ri_dst->idname) ri_dst->idname = "?";
@@ -472,6 +474,23 @@ static void do_item_type_TEXT(deark *c, lctx *d, de_int64 pos1, de_int64 bytes_a
 	ucstring_destroy(s);
 }
 
+// "tdta" / "Raw Data"
+static int do_item_type_tdta(deark *c, lctx *d, de_int64 pos1, de_int64 bytes_avail,
+	de_int64 *bytes_consumed)
+{
+	de_int64 dlen;
+
+	// The public PSD spec does not reveal how to calculate the length of a 'tdata'
+	// item. Evidence suggests it starts with a 4-byte length field.
+	dlen = dbuf_getui32x(c->infile, pos1, d->is_le);
+	de_dbg(c, "raw data at %d, dlen=%d\n", (int)(pos1+4), (int)dlen);
+	*bytes_consumed = 4 + dlen;
+	if(*bytes_consumed > bytes_avail) {
+		return 0;
+	}
+	return 1;
+}
+
 // The PSD spec calls this type "Enumerated", and also "Enumerated descriptor"
 // (but not "Enumerated reference"!)
 static void do_item_type_enum(deark *c, lctx *d, de_int64 pos1, de_int64 bytes_avail,
@@ -615,6 +634,11 @@ static int do_descriptor_item_ostype_and_data(deark *c, lctx *d,
 	case CODE_Objc:
 	case CODE_GlbO:
 		ret = do_item_type_Objc(c, d, pos, endpos-pos, &bytes_consumed2);
+		pos += bytes_consumed2;
+		if(!ret) goto done;
+		break;
+	case CODE_tdta:
+		ret = do_item_type_tdta(c, d, pos, endpos-pos, &bytes_consumed2);
 		pos += bytes_consumed2;
 		if(!ret) goto done;
 		break;
@@ -1317,6 +1341,40 @@ static void do_lfx2_block(deark *c, lctx *d, de_int64 pos, de_int64 len, const s
 	do_descriptor_block(c, d, pos+4, len-4, blk4cc, "object-based effects layer info");
 }
 
+static void do_TySh_block(deark *c, lctx *d, de_int64 pos1, de_int64 len, const struct de_fourcc *blk4cc)
+{
+	de_int64 pos, endpos;
+	de_int64 ver;
+	de_int64 bytes_consumed2;
+
+	endpos = pos1+len;
+	pos = pos1;
+
+	ver = dbuf_getui16x(c->infile, pos, d->is_le);
+	if(ver!=1) goto done;
+	pos += 2;
+
+	pos += 6*8; // transform
+	pos += 2; // text version
+
+	if(!read_descriptor(c, d, pos, endpos-pos, 1, " (for type tool object setting - text)", &bytes_consumed2)) {
+		goto done;
+	}
+	pos += bytes_consumed2;
+
+	pos += 2; // warp version
+	if(!read_descriptor(c, d, pos, endpos-pos, 1, " (for type tool object setting - warp)", &bytes_consumed2)) {
+		goto done;
+	}
+	pos += bytes_consumed2;
+
+	// TODO: "left, top, right, bottom" (field purpose and data type are undocumented)
+	pos += 4*8;
+
+done:
+	;
+}
+
 static void do_shmd_block(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 {
 	de_int64 count;
@@ -1419,6 +1477,9 @@ static int do_tagged_block(deark *c, lctx *d, de_int64 pos, de_int64 bytes_avail
 		break;
 	case CODE_lfx2:
 		do_lfx2_block(c, d, dpos, blklen, &blk4cc);
+		break;
+	case CODE_TySh:
+		do_TySh_block(c, d, dpos, blklen, &blk4cc);
 		break;
 	case CODE_shmd:
 		do_shmd_block(c, d, dpos, blklen);
