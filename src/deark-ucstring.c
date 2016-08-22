@@ -34,7 +34,7 @@ void ucstring_truncate(de_ucstring *s, de_int64 newlen)
 	}
 }
 
-// Delete the first U+0000 byte, and everything after it.
+// Delete the first U+0000 character, and everything after it.
 void ucstring_truncate_at_NUL(de_ucstring *s)
 {
 	de_int64 i;
@@ -44,6 +44,15 @@ void ucstring_truncate_at_NUL(de_ucstring *s)
 			ucstring_truncate(s, i);
 			return;
 		}
+	}
+}
+
+// If the string ends with U+0000, delete that character.
+// If not, do nothing.
+void ucstring_strip_trailing_NUL(de_ucstring *s)
+{
+	if(s->len>=1 && s->str[s->len-1]==0x0000) {
+		ucstring_truncate(s, s->len-1);
 	}
 }
 

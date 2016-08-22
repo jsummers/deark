@@ -350,54 +350,63 @@ static void read_unicode_string(deark *c, lctx *d, dbuf *f, de_ucstring *s, de_i
 	dbuf_read_to_ucstring_n(f, pos+4, num_code_units*2, 300*2, s, 0,
 		d->is_le ? DE_ENCODING_UTF16LE : DE_ENCODING_UTF16BE);
 
-	// The extent to which Photoshop "Unicode strings" end with a U+0000 character
-	// is not clear to me. Most of them don't, but some do, especially if they are
-	// otherwise empty.
-	// For now, just work around the case where the string consists entirely of a
-	// U+0000 character.
-	if(s->len==1) {
-		ucstring_truncate_at_NUL(s);
-	}
+	// For no apparent reason, a fair number of these strings have been observed
+	// to end with an extraneous U+0000 character.
+	ucstring_strip_trailing_NUL(s);
 
 	*bytes_consumed = 4+num_code_units*2;
 }
 
-struct string_or_fourcc {
+// The PSD spec calls this data structure a
+// "4 bytes (length), followed either by string or (if length is zero) 4-byte ID",
+// but that's too unwieldy for me, so I'll call it a "flexible_id".
+struct flexible_id {
 	int is_fourcc;
 	struct de_fourcc fourcc;
+	// NOTE: It might be good to keep the raw bytes of a "string" around,
+	// in case we need to do a byte-for-byte comparison to it. For now, though,
+	// we don't need that.
 	de_ucstring *s;
 	de_int64 bytes_consumed;
 };
-// One of PSD's many annoying data types.
-// Caller allocates s_or_4, and must free s_or_4->s
-static void read_string_or_fourcc(deark *c, lctx *d, de_int64 pos,
-	struct string_or_fourcc *s_or_4)
+
+static void flexible_id_free_contents(struct flexible_id *flid)
 {
-	de_int64 length;
-
-	de_memset(s_or_4, 0, sizeof(struct string_or_fourcc));
-
-	length = dbuf_getui32x(c->infile, pos, d->is_le);
-	if(length==0) {
-		s_or_4->is_fourcc = 1;
-		dbuf_read_fourcc(c->infile, pos+4, &s_or_4->fourcc, d->is_le);
-		s_or_4->bytes_consumed = 4 + 4;
-	}
-	else {
-		s_or_4->s = ucstring_create(c);
-		dbuf_read_to_ucstring_n(c->infile, pos+4, length, 300, s_or_4->s, 0, DE_ENCODING_ASCII);
-		s_or_4->bytes_consumed = 4 + length;
+	if(flid->s) {
+		ucstring_destroy(flid->s);
+		flid->s = NULL;
 	}
 }
 
-static void dbg_print_string_or_fourcc(deark *c, lctx *d,
-	const struct string_or_fourcc *s_or_4, const char *name)
+// Caller allocates flid, and must free flid->s
+static void read_flexible_id(deark *c, lctx *d, de_int64 pos,
+	struct flexible_id *flid)
 {
-	if(s_or_4->is_fourcc) {
-		de_dbg(c, "%s: fourcc('%s')\n", name, s_or_4->fourcc.id_printable);
+	de_int64 length;
+
+	de_memset(flid, 0, sizeof(struct flexible_id));
+
+	length = dbuf_getui32x(c->infile, pos, d->is_le);
+	if(length==0) {
+		flid->is_fourcc = 1;
+		dbuf_read_fourcc(c->infile, pos+4, &flid->fourcc, d->is_le);
+		flid->bytes_consumed = 4 + 4;
 	}
 	else {
-		de_dbg(c, "%s: string(\"%s\")\n", name, ucstring_get_printable_sz(s_or_4->s));
+		flid->s = ucstring_create(c);
+		dbuf_read_to_ucstring_n(c->infile, pos+4, length, 300, flid->s, 0, DE_ENCODING_ASCII);
+		flid->bytes_consumed = 4 + length;
+	}
+}
+
+static void dbg_print_flexible_id(deark *c, lctx *d,
+	const struct flexible_id *flid, const char *name)
+{
+	if(flid->is_fourcc) {
+		de_dbg(c, "%s: fourcc('%s')\n", name, flid->fourcc.id_printable);
+	}
+	else {
+		de_dbg(c, "%s: string(\"%s\")\n", name, ucstring_get_printable_sz(flid->s));
 	}
 }
 // The PSD spec calls this type "Boolean" (or "Boolean structure").
@@ -465,17 +474,17 @@ static void do_item_type_enum(deark *c, lctx *d, de_int64 pos1, de_int64 bytes_a
 	de_int64 *bytes_consumed)
 {
 	de_int64 pos = pos1;
-	struct string_or_fourcc s_or_4;
+	struct flexible_id flid;
 
-	read_string_or_fourcc(c, d, pos, &s_or_4); // "type"
-	dbg_print_string_or_fourcc(c, d, &s_or_4, "enum type");
-	pos += s_or_4.bytes_consumed;
-	ucstring_destroy(s_or_4.s);
+	read_flexible_id(c, d, pos, &flid); // "type"
+	dbg_print_flexible_id(c, d, &flid, "enum type");
+	pos += flid.bytes_consumed;
+	flexible_id_free_contents(&flid);
 
-	read_string_or_fourcc(c, d, pos, &s_or_4); // "enum"
-	dbg_print_string_or_fourcc(c, d, &s_or_4, "enum value");
-	pos += s_or_4.bytes_consumed;
-	ucstring_destroy(s_or_4.s);
+	read_flexible_id(c, d, pos, &flid); // "enum"
+	dbg_print_flexible_id(c, d, &flid, "enum value");
+	pos += flid.bytes_consumed;
+	flexible_id_free_contents(&flid);
 
 	*bytes_consumed = pos-pos1;
 }
@@ -526,8 +535,8 @@ done:
 	return retval;
 }
 
-static int read_descriptor_without_version(deark *c, lctx *d, de_int64 pos1,
-	de_int64 bytes_avail, de_int64 *bytes_consumed);
+static int read_descriptor(deark *c, lctx *d, de_int64 pos1,
+	de_int64 bytes_avail, int has_version, de_int64 *bytes_consumed);
 
 // The PSD spec calls this type "Descriptor" (or "Descriptor structure")
 // (not "Enumerated descriptor").
@@ -541,7 +550,7 @@ static int do_item_type_Objc(deark *c, lctx *d, de_int64 pos1, de_int64 bytes_av
 	if(d->nesting_level>MAX_NESTING_LEVEL) goto done;
 
 	// This descriptor contains a descriptor. We have to go deeper.
-	retval = read_descriptor_without_version(c, d, pos1, bytes_avail, bytes_consumed);
+	retval = read_descriptor(c, d, pos1, bytes_avail, 0, bytes_consumed);
 
 done:
 	d->nesting_level--;
@@ -619,7 +628,7 @@ done:
 static int do_descriptor_item(deark *c, lctx *d, de_int64 pos1,
 	de_int64 bytes_avail, de_int64 *bytes_consumed)
 {
-	struct string_or_fourcc key;
+	struct flexible_id key;
 	de_int64 pos = pos1;
 	de_int64 bytes_consumed2;
 	de_int64 endpos;
@@ -628,7 +637,7 @@ static int do_descriptor_item(deark *c, lctx *d, de_int64 pos1,
 	*bytes_consumed = 0;
 	endpos = pos1+bytes_avail;
 
-	read_string_or_fourcc(c, d, pos1, &key);
+	read_flexible_id(c, d, pos1, &key);
 	if(key.is_fourcc) {
 		de_dbg(c, "key: fourcc('%s')\n", key.fourcc.id_printable);
 	}
@@ -637,8 +646,7 @@ static int do_descriptor_item(deark *c, lctx *d, de_int64 pos1,
 	}
 
 	pos += key.bytes_consumed;
-	ucstring_destroy(key.s);
-	key.s = NULL;
+	flexible_id_free_contents(&key);
 
 	ret = do_descriptor_item_ostype_and_data(c, d, pos, endpos-pos, &bytes_consumed2);
 	if(!ret) return 0;
@@ -649,11 +657,13 @@ static int do_descriptor_item(deark *c, lctx *d, de_int64 pos1,
 	return 1;
 }
 
-static int read_descriptor_without_version(deark *c, lctx *d, de_int64 pos1,
-	de_int64 bytes_avail, de_int64 *bytes_consumed)
+// Read a "Descriptor" structure.
+// If has_version==1, the data begins with a 4-byte Descriptor Version field.
+static int read_descriptor(deark *c, lctx *d, de_int64 pos1,
+	de_int64 bytes_avail, int has_version, de_int64 *bytes_consumed)
 {
 	de_ucstring *name_from_classid = NULL;
-	struct string_or_fourcc classid;
+	struct flexible_id classid;
 	de_int64 pos;
 	de_int64 endpos;
 	de_int64 field_len;
@@ -666,6 +676,17 @@ static int read_descriptor_without_version(deark *c, lctx *d, de_int64 pos1,
 	pos = pos1;
 	endpos = pos1+bytes_avail;
 
+	if(has_version) {
+		de_int64 dv;
+
+		dv = dbuf_getui32x(c->infile, pos1, d->is_le);
+		if(dv!=16) {
+			de_warn(c, "Unsupported descriptor version: %d\n", (int)dv);
+			goto done;
+		}
+		pos += 4;
+	}
+
 	name_from_classid = ucstring_create(c);
 	read_unicode_string(c, d, c->infile, name_from_classid, pos, endpos-pos, &field_len);
 	if(name_from_classid->len > 0) {
@@ -673,11 +694,10 @@ static int read_descriptor_without_version(deark *c, lctx *d, de_int64 pos1,
 	}
 	pos += field_len;
 
-	read_string_or_fourcc(c, d, pos, &classid);
-	dbg_print_string_or_fourcc(c, d, &classid, "classID");
+	read_flexible_id(c, d, pos, &classid);
+	dbg_print_flexible_id(c, d, &classid, "classID");
 	pos += classid.bytes_consumed;
-	ucstring_destroy(classid.s);
-	classid.s = NULL;
+	flexible_id_free_contents(&classid);
 
 	num_items = dbuf_getui32x(c->infile, pos, d->is_le);
 	de_dbg(c, "number of items in descriptor: %d\n", (int)num_items);
@@ -707,33 +727,12 @@ done:
 	return retval;
 }
 
-static int read_descriptor_with_version(deark *c, lctx *d, de_int64 pos1,
-	de_int64 bytes_avail, de_int64 *bytes_consumed)
-{
-	de_int64 dv;
-	int ret;
-	de_int64 bytes_consumed2;
-
-	*bytes_consumed = bytes_avail;
-
-	dv = dbuf_getui32x(c->infile, pos1, d->is_le);
-	if(dv!=16) {
-		de_warn(c, "Unsupported descriptor version: %d\n", (int)dv);
-		return 0;
-	}
-
-	ret = read_descriptor_without_version(c, d, pos1+4, bytes_avail-4, &bytes_consumed2);
-	if(!ret) return 0;
-	*bytes_consumed = 4 + bytes_consumed2;
-	return 1;
-}
-
 static void hrsrc_descriptor_with_version(deark *c, lctx *d, const struct rsrc_info *ri,
 	de_int64 pos, de_int64 len)
 {
 	de_int64 bytes_consumed;
 
-	read_descriptor_with_version(c, d, pos, len, &bytes_consumed);
+	read_descriptor(c, d, pos, len, 1, &bytes_consumed);
 }
 
 static int do_slices_resource_block(deark *c, lctx *d, de_int64 slice_idx, de_int64 pos1,
@@ -799,7 +798,7 @@ static int do_slices_resource_block(deark *c, lctx *d, de_int64 slice_idx, de_in
 
 	de_dbg(c, "descriptor at %d\n", (int)pos);
 	de_dbg_indent(c, 1);
-	ret = read_descriptor_with_version(c, d, pos, endpos-pos, &bytes_consumed2);
+	ret = read_descriptor(c, d, pos, endpos-pos, 1, &bytes_consumed2);
 	de_dbg_indent(c, -1);
 	if(!ret) goto done;
 	pos += bytes_consumed2;
@@ -861,7 +860,7 @@ static void do_slices_v7_8(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 	endpos = pos1+len;
 	pos += 4; // Skip version number (7 or 8), already read.
 
-	if(!read_descriptor_with_version(c, d, pos, endpos-pos, &bytes_consumed_dv)) {
+	if(!read_descriptor(c, d, pos, endpos-pos, 1, &bytes_consumed_dv)) {
 		goto done;
 	}
 
@@ -1294,7 +1293,7 @@ static void do_descriptor_block(deark *c, lctx *d, de_int64 pos, de_int64 len,
 	de_int64 bytes_consumed;
 	de_dbg(c, "descriptor for %s\n", name);
 	de_dbg_indent(c, 1);
-	read_descriptor_with_version(c, d, pos, len, &bytes_consumed);
+	read_descriptor(c, d, pos, len, 1, &bytes_consumed);
 	de_dbg_indent(c, -1);
 }
 
