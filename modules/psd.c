@@ -536,7 +536,7 @@ done:
 }
 
 static int read_descriptor(deark *c, lctx *d, de_int64 pos1,
-	de_int64 bytes_avail, int has_version, de_int64 *bytes_consumed);
+	de_int64 bytes_avail, int has_version, const char *dscrname, de_int64 *bytes_consumed);
 
 // The PSD spec calls this type "Descriptor" (or "Descriptor structure")
 // (not "Enumerated descriptor").
@@ -550,7 +550,7 @@ static int do_item_type_Objc(deark *c, lctx *d, de_int64 pos1, de_int64 bytes_av
 	if(d->nesting_level>MAX_NESTING_LEVEL) goto done;
 
 	// This descriptor contains a descriptor. We have to go deeper.
-	retval = read_descriptor(c, d, pos1, bytes_avail, 0, bytes_consumed);
+	retval = read_descriptor(c, d, pos1, bytes_avail, 0, "", bytes_consumed);
 
 done:
 	d->nesting_level--;
@@ -615,6 +615,7 @@ static int do_descriptor_item_ostype_and_data(deark *c, lctx *d,
 		if(!ret) goto done;
 		break;
 		// TODO: 'obj ', 'type', 'GlbC', 'alis', 'tdta'
+		// TODO: 'Pth ', 'ObAr', 'UnFl' (undocumented types)
 	default:
 		goto done;
 	}
@@ -659,8 +660,9 @@ static int do_descriptor_item(deark *c, lctx *d, de_int64 pos1,
 
 // Read a "Descriptor" structure.
 // If has_version==1, the data begins with a 4-byte Descriptor Version field.
+// dscrname is extra debug text that will appear after the word "descriptor".
 static int read_descriptor(deark *c, lctx *d, de_int64 pos1,
-	de_int64 bytes_avail, int has_version, de_int64 *bytes_consumed)
+	de_int64 bytes_avail, int has_version, const char *dscrname, de_int64 *bytes_consumed)
 {
 	de_ucstring *name_from_classid = NULL;
 	struct flexible_id classid;
@@ -671,21 +673,26 @@ static int read_descriptor(deark *c, lctx *d, de_int64 pos1,
 	de_int64 i;
 	int ret;
 	int retval = 0;
+	de_int64 dv = 16;
+	int indent_count = 0;
 
 	*bytes_consumed = bytes_avail;
 	pos = pos1;
 	endpos = pos1+bytes_avail;
 
 	if(has_version) {
-		de_int64 dv;
-
 		dv = dbuf_getui32x(c->infile, pos1, d->is_le);
-		if(dv!=16) {
-			de_warn(c, "Unsupported descriptor version: %d\n", (int)dv);
-			goto done;
-		}
 		pos += 4;
 	}
+
+	de_dbg(c, "descriptor%s at %d\n", dscrname, (int)pos);
+	if(dv!=16) {
+		de_warn(c, "Unsupported descriptor version: %d\n", (int)dv);
+		goto done;
+	}
+
+	de_dbg_indent(c, 1);
+	indent_count++;
 
 	name_from_classid = ucstring_create(c);
 	read_unicode_string(c, d, c->infile, name_from_classid, pos, endpos-pos, &field_len);
@@ -723,6 +730,7 @@ static int read_descriptor(deark *c, lctx *d, de_int64 pos1,
 	retval = 1;
 
 done:
+	de_dbg_indent(c, -indent_count);
 	ucstring_destroy(name_from_classid);
 	return retval;
 }
@@ -731,8 +739,7 @@ static void hrsrc_descriptor_with_version(deark *c, lctx *d, const struct rsrc_i
 	de_int64 pos, de_int64 len)
 {
 	de_int64 bytes_consumed;
-
-	read_descriptor(c, d, pos, len, 1, &bytes_consumed);
+	read_descriptor(c, d, pos, len, 1, "", &bytes_consumed);
 }
 
 static int do_slices_resource_block(deark *c, lctx *d, de_int64 slice_idx, de_int64 pos1,
@@ -796,10 +803,7 @@ static int do_slices_resource_block(deark *c, lctx *d, de_int64 slice_idx, de_in
 
 	if(pos>=endpos) goto done;
 
-	de_dbg(c, "descriptor at %d\n", (int)pos);
-	de_dbg_indent(c, 1);
-	ret = read_descriptor(c, d, pos, endpos-pos, 1, &bytes_consumed2);
-	de_dbg_indent(c, -1);
+	ret = read_descriptor(c, d, pos, endpos-pos, 1, "", &bytes_consumed2);
 	if(!ret) goto done;
 	pos += bytes_consumed2;
 
@@ -860,7 +864,7 @@ static void do_slices_v7_8(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 	endpos = pos1+len;
 	pos += 4; // Skip version number (7 or 8), already read.
 
-	if(!read_descriptor(c, d, pos, endpos-pos, 1, &bytes_consumed_dv)) {
+	if(!read_descriptor(c, d, pos, endpos-pos, 1, "", &bytes_consumed_dv)) {
 		goto done;
 	}
 
@@ -1291,10 +1295,10 @@ static void do_descriptor_block(deark *c, lctx *d, de_int64 pos, de_int64 len,
 	const struct de_fourcc *blk4cc, const char *name)
 {
 	de_int64 bytes_consumed;
-	de_dbg(c, "descriptor for %s\n", name);
-	de_dbg_indent(c, 1);
-	read_descriptor(c, d, pos, len, 1, &bytes_consumed);
-	de_dbg_indent(c, -1);
+	char dscrname[100];
+
+	de_snprintf(dscrname, sizeof(dscrname), " (for %s)", name);
+	read_descriptor(c, d, pos, len, 1, dscrname, &bytes_consumed);
 }
 
 static void do_lfx2_block(deark *c, lctx *d, de_int64 pos, de_int64 len, const struct de_fourcc *blk4cc)
@@ -1526,10 +1530,27 @@ done:
 	return retval;
 }
 
+static const char *get_colormode_name(de_int64 n)
+{
+	const char *name = "?";
+	switch(n) {
+	case 0: name="bitmap"; break;
+	case 1: name="grayscale"; break;
+	case 2: name="indexed"; break;
+	case 3: name="RGB"; break;
+	case 4: name="CMYK"; break;
+	case 7: name="multichannel"; break;
+	case 8: name="duotone"; break;
+	case 9: name="Lab"; break;
+	}
+	return name;
+}
+
 static void do_header(deark *c, lctx *d, de_int64 pos)
 {
 	de_int64 psdver;
 	de_int64 w, h;
+	de_int64 x;
 
 	de_dbg(c, "header at %d\n", (int)pos);
 	de_dbg_indent(c, 1);
@@ -1540,9 +1561,18 @@ static void do_header(deark *c, lctx *d, de_int64 pos)
 		goto done;
 	}
 
+	x = de_getui16be(pos+12);
+	de_dbg(c, "number of channels: %d\n", (int)x);
+
 	h = de_getui32be(pos+14);
 	w = de_getui32be(pos+18);
 	de_dbg(c, "dimensions: %dx%d\n", (int)w, (int)h);
+
+	x = de_getui16be(pos+22);
+	de_dbg(c, "bits/channel: %d\n", (int)x);
+
+	x = de_getui16be(pos+24);
+	de_dbg(c, "color mode: %d (%s)\n", (int)x, get_colormode_name(x));
 
 done:
 	de_dbg_indent(c, -1);
