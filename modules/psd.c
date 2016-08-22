@@ -212,7 +212,11 @@ static void read_pascal_string_to_ucstring(dbuf *f, de_int64 pos, de_int64 bytes
 		return;
 	}
 
-	dbuf_read_to_ucstring(f, pos+1, dlen, s, 0, DE_ENCODING_ASCII);
+	// The PSD spec does not say what encoding these strings use.
+	// Some sources say they use MacRoman, and *some* PSD files do use MacRoman.
+	// But other PSD files use other encodings, and I don't know how to know what
+	// encoding they use.
+	dbuf_read_to_ucstring(f, pos+1, dlen, s, 0, DE_ENCODING_MACROMAN);
 	*bytes_consumed = 1 + dlen;
 }
 
