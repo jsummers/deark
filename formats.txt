@@ -88,7 +88,7 @@ Deark -- Information about supported formats
 * Cardfile (module="cardfile")
   - Partial support. MGC format only.
   - Extracts bitmaps.
-  - Extracts text (use -extractall).
+  - Extracts text (use -a).
 
 * DCX (module="dcx")
   Multi-image PCX format.
@@ -156,7 +156,7 @@ Deark -- Information about supported formats
   - Supports HAM6, HAM8, Halfbrite
   - Supports color-keyed and bitmask transparency
   - Extract thumbnails from TINY chunks
-  - Extract text from ANNO chunks (use -extractall)
+  - Extract text from ANNO chunks (use -a)
   Options
    -opt ilbm:notrans - Disable support for transparency
    -opt ilbm:fixpal=<0|1> - Don't/Do try to correct palettes that seem to have
@@ -177,16 +177,16 @@ Deark -- Information about supported formats
   - Extract JFXX JPEG-formatted thumbnails (rare).
   - Extract various things from Exif data.
   - Extract various things from "Photoshop resources"
-  - Extract Exif data (use -extractall)
-  - Extract comments (use -extractall). Comment bytes are extracted as-is,
-     because there is no way to determine the character encoding.
+  - Extract Exif data (use -a)
+  - Extract comments (use -a). Comment bytes are extracted as-is, because there
+     is no way to determine the character encoding.
 
 * JPEG 2000 (module="jpeg2000")
   - Extract JPEG 2000 codestream from JP2/JPX/JPM formats.
   - Extract XML data.
   - Extract GeoTIFF data.
   - Extract XMP data.
-  - Extract Exif data (use -extractall) (nonstandard; partial support)
+  - Extract Exif data (use -a) (nonstandard; partial support)
   - Extract various things from "Photoshop resources".
 
 * JPEG XR (HD Photo)
@@ -195,7 +195,7 @@ Deark -- Information about supported formats
 * LSS16 (SYSLINUX image) (module="lss16")
 
 * MacPaint (module="macpaint")
-  - Can also decode brush patterns (use -extractall)
+  - Can also decode brush patterns (use -a)
   Options
    -opt macpaint:macbinary=<0|1>
 
@@ -205,7 +205,7 @@ Deark -- Information about supported formats
   - Does not support .MAX
 
 * MRW (Minolta RAW) (module="mrw")
-  - Extract Exif data (use -extractall)
+  - Extract Exif data (use -a)
 
 * MSP (Microsoft Paint graphics) (module="msp")
   - Version 1 and 2
@@ -305,14 +305,15 @@ Deark -- Information about supported formats
   - Supports 1-, 2-, 4-, 8-, and 16-bits per pixel
 
 * PSD (PhotoShop) (module="psd")
+  - Extract "text engine data" (use -a)
   - Extract data from "Photoshop resources"
 
   * Photoshop resources
     - Extract JPEG thumbnails. Some thumbnail images have the red and blue
       channels swapped -- Deark warns about this but does not correct it.
     - Extract various things from Exif data.
-    - Extract Exif data (use -extractall).
-    - Extract IPTC data (use -extractall).
+    - Extract Exif data (use -a).
+    - Extract IPTC data (use -a).
 
 * Psion PIC (module="psionpic")
   A Psion PIC file contains one or more 1-bpp bitmaps, some of which can be
@@ -365,7 +366,7 @@ Deark -- Information about supported formats
     JPEG-compressed images.
   - Extract ICC profiles.
   - Extract data from "Photoshop resources".
-  - Extract IPTC data (use -extractall).
+  - Extract IPTC data (use -a).
 
 * TIM (Playstation graphics) (module="tim") (experimental/incomplete)
 
@@ -389,7 +390,7 @@ Deark -- Information about supported formats
 
 * XBIN (module="xbin")
   Renders XBIN character graphics to a bitmap (default) or HTML.
-  - Extract embedded fonts (use -extractall).
+  - Extract embedded fonts (use -a).
   Options
    -opt char:output=html - Use HTML output format
 
@@ -493,7 +494,7 @@ Deark -- Information about supported formats
 * EXE/PE/NE/etc. (module="exe")
   - Extract bitmaps, icons, and cursors from NE and PE (Windows .exe) files.
   - Extract fonts.
-  - Extract embedded manifests (use -extractall).
+  - Extract embedded manifests (use -a).
   - Extract bitmaps from LX (Linear Executable) files. Note that some of these
     may be in "Bitmap Array" format. Reprocess them with Deark to extract the
     actual BMP file(s).
@@ -516,7 +517,7 @@ Deark -- Information about supported formats
 
 * Psion APP/IMG and OPA/OPO (module="psionapp")
   - Extract Psion PIC icons.
-  - Extract other contents (use -extractall).
+  - Extract other contents (use -a).
 
 * RIFF (module="riff")
   Metaformat used by WAV, AVI, WebP, etc.

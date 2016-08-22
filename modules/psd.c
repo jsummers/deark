@@ -19,6 +19,7 @@ DE_DECLARE_MODULE(de_module_psd);
 #define CODE_PtFl 0x5074466cU
 #define CODE_SoCo 0x536f436fU
 #define CODE_TEXT 0x54455854U
+#define CODE_Txt2 0x54787432U
 #define CODE_TySh 0x54795368U
 #define CODE_UntF 0x556e7446U
 #define CODE_VlLs 0x566c4c73U
@@ -369,18 +370,20 @@ static void read_unicode_string(deark *c, lctx *d, dbuf *f, de_ucstring *s, de_i
 struct flexible_id {
 	int is_fourcc;
 	struct de_fourcc fourcc;
-	// NOTE: It might be good to keep the raw bytes of a "string" around,
-	// in case we need to do a byte-for-byte comparison to it. For now, though,
-	// we don't need that.
-	de_ucstring *s;
+	char *sz; // Present if !is_fourcc. Raw bytes (+NUL), used for matching.
+	de_ucstring *s; // Present if !is_fourcc. Text form of sz.
 	de_int64 bytes_consumed;
 };
 
-static void flexible_id_free_contents(struct flexible_id *flid)
+static void flexible_id_free_contents(deark *c, struct flexible_id *flid)
 {
 	if(flid->s) {
 		ucstring_destroy(flid->s);
 		flid->s = NULL;
+	}
+	if(flid->sz) {
+		de_free(c, flid->sz);
+		flid->sz = NULL;
 	}
 }
 
@@ -399,8 +402,19 @@ static void read_flexible_id(deark *c, lctx *d, de_int64 pos,
 		flid->bytes_consumed = 4 + 4;
 	}
 	else {
+		de_int64 adjusted_length;
+
+		// I don't know what the maximum length of an identifier is.
+		// I'll pretend it's 100 bytes.
+		adjusted_length = length;
+		if(adjusted_length>100) adjusted_length=100;
+		flid->sz = de_malloc(c, adjusted_length+1);
+		dbuf_read(c->infile, (unsigned char*)flid->sz, pos+4, adjusted_length);
+		flid->sz[adjusted_length] = '\0';
+
 		flid->s = ucstring_create(c);
-		dbuf_read_to_ucstring_n(c->infile, pos+4, length, 300, flid->s, 0, DE_ENCODING_ASCII);
+		ucstring_append_bytes(flid->s, (unsigned char*)flid->sz, adjusted_length, 0, DE_ENCODING_ASCII);
+
 		flid->bytes_consumed = 4 + length;
 	}
 }
@@ -462,6 +476,14 @@ static void do_item_type_UntF(deark *c, lctx *d, de_int64 pos1, de_int64 bytes_a
 	*bytes_consumed = 12;
 }
 
+static void do_text_engine_data(deark *c, lctx *d, de_int64 pos, de_int64 len)
+{
+	if(len<1) return;
+	de_dbg(c, "text engine data at %d, len=%d\n", (int)pos, (int)len);
+	if(c->extract_level<2) return;
+	dbuf_create_file_from_slice(c->infile, pos, len, "enginedata.bin", NULL, DE_CREATEFLAG_IS_AUX);
+}
+
 // The PSD spec calls this type "String" (or "String structure").
 static void do_item_type_TEXT(deark *c, lctx *d, de_int64 pos1, de_int64 bytes_avail,
 	de_int64 *bytes_consumed)
@@ -475,8 +497,9 @@ static void do_item_type_TEXT(deark *c, lctx *d, de_int64 pos1, de_int64 bytes_a
 }
 
 // "tdta" / "Raw Data"
-static int do_item_type_tdta(deark *c, lctx *d, de_int64 pos1, de_int64 bytes_avail,
-	de_int64 *bytes_consumed)
+static int do_item_type_tdta(deark *c, lctx *d,
+	const struct flexible_id *key_flid,
+	de_int64 pos1, de_int64 bytes_avail, de_int64 *bytes_consumed)
 {
 	de_int64 dlen;
 
@@ -487,6 +510,12 @@ static int do_item_type_tdta(deark *c, lctx *d, de_int64 pos1, de_int64 bytes_av
 	*bytes_consumed = 4 + dlen;
 	if(*bytes_consumed > bytes_avail) {
 		return 0;
+	}
+
+	if(key_flid->sz) {
+		if(!de_strcmp(key_flid->sz, "EngineData")) {
+			do_text_engine_data(c, d, pos1+4, dlen);
+		}
 	}
 	return 1;
 }
@@ -502,22 +531,24 @@ static void do_item_type_enum(deark *c, lctx *d, de_int64 pos1, de_int64 bytes_a
 	read_flexible_id(c, d, pos, &flid); // "type"
 	dbg_print_flexible_id(c, d, &flid, "enum type");
 	pos += flid.bytes_consumed;
-	flexible_id_free_contents(&flid);
+	flexible_id_free_contents(c, &flid);
 
 	read_flexible_id(c, d, pos, &flid); // "enum"
 	dbg_print_flexible_id(c, d, &flid, "enum value");
 	pos += flid.bytes_consumed;
-	flexible_id_free_contents(&flid);
+	flexible_id_free_contents(c, &flid);
 
 	*bytes_consumed = pos-pos1;
 }
 
-static int do_descriptor_item_ostype_and_data(deark *c, lctx *d, de_int64 pos1, de_int64 bytes_avail,
-	de_int64 *bytes_consumed);
+static int do_descriptor_item_ostype_and_data(deark *c, lctx *d,
+	const struct flexible_id *key_flid,
+	de_int64 pos1, de_int64 bytes_avail, de_int64 *bytes_consumed);
 
 // "List"
-static int do_item_type_VlLs(deark *c, lctx *d, de_int64 pos1, de_int64 bytes_avail,
-	de_int64 *bytes_consumed)
+static int do_item_type_VlLs(deark *c, lctx *d,
+	const struct flexible_id *key_flid,
+	de_int64 pos1, de_int64 bytes_avail, de_int64 *bytes_consumed)
 {
 	de_int64 num_items;
 	de_int64 bytes_consumed2;
@@ -544,7 +575,7 @@ static int do_item_type_VlLs(deark *c, lctx *d, de_int64 pos1, de_int64 bytes_av
 		de_dbg(c, "list item[%d] at %d\n", (int)i, (int)pos);
 		de_dbg_indent(c, 1);
 		d->nesting_level++;
-		ret = do_descriptor_item_ostype_and_data(c, d, pos, endpos-pos,
+		ret = do_descriptor_item_ostype_and_data(c, d, key_flid, pos, endpos-pos,
 			&bytes_consumed2);
 		d->nesting_level--;
 		de_dbg_indent(c, -1);
@@ -580,7 +611,9 @@ done:
 	return retval;
 }
 
+// key_flid is relevant "key" identifier.
 static int do_descriptor_item_ostype_and_data(deark *c, lctx *d,
+	const struct flexible_id *key_flid,
 	de_int64 pos1, de_int64 bytes_avail, de_int64 *bytes_consumed)
 {
 	de_int64 bytes_consumed2 = 0;
@@ -627,7 +660,7 @@ static int do_descriptor_item_ostype_and_data(deark *c, lctx *d,
 		pos += bytes_consumed2;
 		break;
 	case CODE_VlLs:
-		ret = do_item_type_VlLs(c, d, pos, endpos-pos, &bytes_consumed2);
+		ret = do_item_type_VlLs(c, d, key_flid, pos, endpos-pos, &bytes_consumed2);
 		pos += bytes_consumed2;
 		if(!ret) goto done;
 		break;
@@ -638,7 +671,7 @@ static int do_descriptor_item_ostype_and_data(deark *c, lctx *d,
 		if(!ret) goto done;
 		break;
 	case CODE_tdta:
-		ret = do_item_type_tdta(c, d, pos, endpos-pos, &bytes_consumed2);
+		ret = do_item_type_tdta(c, d, key_flid, pos, endpos-pos, &bytes_consumed2);
 		pos += bytes_consumed2;
 		if(!ret) goto done;
 		break;
@@ -675,9 +708,9 @@ static int do_descriptor_item(deark *c, lctx *d, de_int64 pos1,
 	}
 
 	pos += key.bytes_consumed;
-	flexible_id_free_contents(&key);
 
-	ret = do_descriptor_item_ostype_and_data(c, d, pos, endpos-pos, &bytes_consumed2);
+	ret = do_descriptor_item_ostype_and_data(c, d, &key, pos, endpos-pos, &bytes_consumed2);
+	flexible_id_free_contents(c, &key);
 	if(!ret) return 0;
 
 	pos += bytes_consumed2;
@@ -732,7 +765,7 @@ static int read_descriptor(deark *c, lctx *d, de_int64 pos1,
 	read_flexible_id(c, d, pos, &classid);
 	dbg_print_flexible_id(c, d, &classid, "classID");
 	pos += classid.bytes_consumed;
-	flexible_id_free_contents(&classid);
+	flexible_id_free_contents(c, &classid);
 
 	num_items = dbuf_getui32x(c->infile, pos, d->is_le);
 	de_dbg(c, "number of items in descriptor: %d\n", (int)num_items);
@@ -1477,6 +1510,9 @@ static int do_tagged_block(deark *c, lctx *d, de_int64 pos, de_int64 bytes_avail
 		break;
 	case CODE_lfx2:
 		do_lfx2_block(c, d, dpos, blklen, &blk4cc);
+		break;
+	case CODE_Txt2:
+		do_text_engine_data(c, d, dpos, blklen);
 		break;
 	case CODE_TySh:
 		do_TySh_block(c, d, dpos, blklen, &blk4cc);
