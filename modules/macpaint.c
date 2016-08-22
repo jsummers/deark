@@ -121,6 +121,30 @@ static int valid_file_at(deark *c, lctx *d, de_int64 pos1)
 	return 1;
 }
 
+static de_uint32 x_dbuf_crc32(dbuf *f, de_int64 pos, de_int64 len)
+{
+	de_uint32 crc;
+	de_byte *buf;
+
+	buf = de_malloc(f->c, len);
+	dbuf_read(f, buf, pos, len);
+	crc = de_crc32(buf, len);
+	de_free(f->c, buf);
+	return crc;
+}
+
+static const char *get_pattern_set_info(de_uint32 patcrc, int *is_blank)
+{
+	*is_blank = 0;
+	switch(patcrc) {
+	case 0x284a7a15: return "variant 1";
+	case 0x33d2d8d6: return "standard";
+	case 0x47514647: *is_blank = 1; return "blank";
+	case 0xb5348fd2: *is_blank = 1; return "blank variant 1";
+	}
+	return "unrecognized";
+}
+
 // Some MacPaint files contain a collection of brush patterns.
 // Essentially, MacPaint saves workspace settings inside image files.
 // (But these patterns are the only setting.)
@@ -132,10 +156,21 @@ static void do_read_patterns(deark *c, lctx *d, de_int64 pos)
 	const de_int64 dispwidth = 19;
 	const de_int64 dispheight = 17;
 	de_int64 xpos, ypos;
-	int nonblank = 0;
+	int is_blank;
 	struct deark_bitmap *pat = NULL;
+	de_uint32 patcrc;
+	const char *patsetname;
 
 	pos += 4;
+
+	patcrc = x_dbuf_crc32(c->infile, pos, 38*8);
+	patsetname = get_pattern_set_info(patcrc, &is_blank);
+	de_dbg(c, "patterns crc: 0x%08x (%s)\n", (unsigned int)patcrc, patsetname);
+	if(is_blank) {
+		de_dbg(c, "patterns are blank: not extracting\n");
+		goto done;
+	}
+
 	pat = de_bitmap_create(c, (dispwidth+1)*19+1, (dispheight+1)*2+1, 1);
 
 	for(cell=0; cell<38; cell++) {
@@ -153,16 +188,13 @@ static void do_read_patterns(deark *c, lctx *d, de_int64 pos)
 				if(x==0) {
 					de_bitmap_setpixel_gray(pat, xpos+i, ypos+j, 255);
 				}
-				else {
-					nonblank = 1;
-				}
 			}
 		}
 	}
 
-	if(nonblank) {
-		de_bitmap_write_to_file(pat, "pat", DE_CREATEFLAG_IS_AUX);
-	}
+	de_bitmap_write_to_file(pat, "pat", DE_CREATEFLAG_IS_AUX);
+
+done:
 	de_bitmap_destroy(pat);
 }
 
@@ -232,6 +264,8 @@ static int de_identify_macpaint(deark *c)
 	if(!de_memcmp(buf, "PNTG", 4)) return 70;
 
 	if(de_input_file_has_ext(c, "mac")) return 10;
+	if(de_input_file_has_ext(c, "macp")) return 15;
+	if(de_input_file_has_ext(c, "pntg")) return 15;
 	return 0;
 }
 
