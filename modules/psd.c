@@ -15,6 +15,7 @@ DE_DECLARE_MODULE(de_module_psd);
 #define CODE_GlbO 0x476c624fU
 #define CODE_Layr 0x4c617972U
 #define CODE_Lr16 0x4c723136U
+#define CODE_MeSa 0x4d655361U
 #define CODE_Objc 0x4f626a63U
 #define CODE_PtFl 0x5074466cU
 #define CODE_SoCo 0x536f436fU
@@ -74,6 +75,7 @@ DECLARE_HRSRC(hrsrc_byte);
 DECLARE_HRSRC(hrsrc_uint16);
 DECLARE_HRSRC(hrsrc_uint32);
 DECLARE_HRSRC(hrsrc_unicodestring);
+DECLARE_HRSRC(hrsrc_urllist);
 DECLARE_HRSRC(hrsrc_versioninfo);
 
 static const struct rsrc_info rsrc_info_arr[] = {
@@ -128,7 +130,7 @@ static const struct rsrc_info rsrc_info_arr[] = {
 	{ 0x041b, 0, "Workflow URL", hrsrc_unicodestring },
 	{ 0x041c, 0, "Jump To XPEP", NULL },
 	{ 0x041d, 0, "Alpha Identifiers", NULL },
-	{ 0x041e, 0, "URL List", NULL },
+	{ 0x041e, 0, "URL List", hrsrc_urllist },
 	{ 0x0421, 0, "Version Info", hrsrc_versioninfo },
 	{ 0x0422, 0, "EXIF data 1", hrsrc_exif },
 	{ 0x0423, 0, "EXIF data 3", NULL },
@@ -810,7 +812,7 @@ static int do_slices_resource_block(deark *c, lctx *d, de_int64 slice_idx, de_in
 	de_int64 endpos;
 	de_int64 bytes_consumed2;
 	de_ucstring *s = NULL;
-	int ret;
+	de_int64 id, group_id, origin, slice_type;
 	int retval = 0;
 
 	pos = pos1;
@@ -819,19 +821,35 @@ static int do_slices_resource_block(deark *c, lctx *d, de_int64 slice_idx, de_in
 
 	s = ucstring_create(c);
 
-	pos += 4; // ID
-	pos += 4; // Group ID
-	pos += 4; // Origin
+	id = dbuf_getui32x(c->infile, pos, d->is_le);
+	de_dbg(c, "id: %d\n", (int)id);
+	pos += 4;
 
-	// PSD spec says the Associated Layer ID is "Only present if Origin = 1",
-	// but that seems to be incorrect, and the field is always present.
-	pos += 4; // Associated Layer ID
+	group_id = dbuf_getui32x(c->infile, pos, d->is_le);
+	de_dbg(c, "group id: %d\n", (int)group_id);
+	pos += 4;
+
+	origin = dbuf_getui32x(c->infile, pos, d->is_le);
+	de_dbg(c, "origin: %d\n", (int)origin);
+	pos += 4;
+
+	if(origin==1) {
+		de_int64 layer_id;
+		layer_id = dbuf_getui32x(c->infile, pos, d->is_le);
+		de_dbg(c, "associated layer id: %d\n", (int)layer_id);
+		pos += 4;
+	}
 
 	read_unicode_string(c, d, c->infile, s, pos, endpos-pos, &bytes_consumed2); // Name
+	if(s->len>0) {
+		de_dbg(c, "name: \"%s\"\n", ucstring_get_printable_sz(s));
+	}
 	pos += bytes_consumed2;
 	ucstring_truncate(s, 0);
 
-	pos += 4; // Type
+	slice_type = dbuf_getui32x(c->infile, pos, d->is_le);
+	de_dbg(c, "type: %d\n", (int)slice_type);
+	pos += 4;
 
 	do_dbg_rectangle_ltrb(c, d, pos, "position");
 	pos += 16;
@@ -862,12 +880,7 @@ static int do_slices_resource_block(deark *c, lctx *d, de_int64 slice_idx, de_in
 	pos += 4; // Horizontal alignment
 	pos += 4; // Alpha color, Red, Green, Blue
 
-	if(pos>=endpos) goto done;
-
-	ret = read_descriptor(c, d, pos, endpos-pos, 1, "", &bytes_consumed2);
-	if(!ret) goto done;
-	pos += bytes_consumed2;
-
+	if(pos>endpos) goto done;
 	*bytes_consumed = pos-pos1;
 	retval = 1;
 
@@ -884,6 +897,7 @@ static void do_slices_v6(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 	de_int64 num_slices;
 	de_int64 i;
 	de_ucstring *name_of_group_of_slices = NULL;
+	int ret;
 
 	pos = pos1;
 	endpos = pos1+len;
@@ -901,6 +915,7 @@ static void do_slices_v6(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 
 	num_slices = de_getui32be(pos);
 	de_dbg(c, "number of slices: %d\n", (int)num_slices);
+	pos += 4;
 
 	for(i=0; i<num_slices; i++) {
 		if(pos >= endpos) break;
@@ -910,6 +925,19 @@ static void do_slices_v6(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 		de_dbg_indent(c, -1);
 		pos += bytes_consumed2;
 	}
+
+	// The PSD spec seems to show that a Descriptor can (optionally) appear after
+	// every slice resource block.
+	// But if that were true, there would seem to be no way to tell whether a slice
+	// is followed by a descriptor, or immediately by the next slice.
+	// Fortunately, evidence suggests that a Descriptor can only appear after the
+	// last slice in the array.
+
+	if(pos>=endpos) goto done;
+
+	ret = read_descriptor(c, d, pos, endpos-pos, 1, " (for slices)", &bytes_consumed2);
+	if(!ret) goto done;
+	pos += bytes_consumed2;
 
 done:
 	ucstring_destroy(name_of_group_of_slices);
@@ -1013,6 +1041,42 @@ static void hrsrc_unicodestring(deark *c, lctx *d, const struct rsrc_info *ri,
 	ucstring_destroy(s);
 }
 
+static void hrsrc_urllist(deark *c, lctx *d, const struct rsrc_info *ri,
+	de_int64 pos1, de_int64 len)
+{
+	de_ucstring *s = NULL;
+	de_int64 count;
+	de_int64 bytes_consumed;
+	de_int64 i;
+	de_int64 pos = pos1;
+
+	count = dbuf_getui32x(c->infile, pos, d->is_le);
+	de_dbg(c, "URL count: %d\n", (int)count);
+	pos += 4;
+
+	s = ucstring_create(c);
+
+	for(i=0; i<count; i++) {
+		struct de_fourcc url4cc;
+		de_int64 id;
+
+		// undocumented field, seems to be a fourcc
+		dbuf_read_fourcc(c->infile, pos, &url4cc, d->is_le);
+		pos += 4;
+
+		id = dbuf_getui32x(c->infile, pos, d->is_le);
+		pos += 4;
+
+		read_unicode_string(c, d, c->infile, s, pos, len, &bytes_consumed);
+		de_dbg(c, "URL[%d]: '%s', id=%d, value=\"%s\"\n", (int)i,
+			url4cc.id_printable, (int)id, ucstring_get_printable_sz(s));
+		pos += bytes_consumed;
+		ucstring_truncate(s, 0);
+	}
+
+	ucstring_destroy(s);
+}
+
 static void hrsrc_versioninfo(deark *c, lctx *d, const struct rsrc_info *ri,
 	de_int64 pos1, de_int64 len)
 {
@@ -1050,7 +1114,6 @@ static void hrsrc_versioninfo(deark *c, lctx *d, const struct rsrc_info *ri,
 
 static int do_image_resource(deark *c, lctx *d, de_int64 pos1, de_int64 *bytes_consumed)
 {
-	de_byte buf[4];
 	de_int64 resource_id;
 	de_int64 blkname_len;
 	de_int64 bytes_used_by_name_field;
@@ -1059,15 +1122,24 @@ static int do_image_resource(deark *c, lctx *d, de_int64 pos1, de_int64 *bytes_c
 	struct rsrc_info ri;
 	de_ucstring *blkname = NULL;
 	const char *blkname_printable;
+	struct de_fourcc sig4cc;
+	const char *signame = "Photoshop";
 	int retval = 0;
 
 	pos = pos1;
 	*bytes_consumed = 0;
 
 	// Check the "8BIM" signature
-	de_read(buf, pos, 4);
-	if(buf[0]!='8' || buf[1]!='B' || buf[2]!='I' || buf[3]!='M') {
-		de_warn(c, "Bad Photoshop resource block signature at %d\n", (int)pos);
+	dbuf_read_fourcc(c->infile, pos, &sig4cc, 0);
+	if(sig4cc.id==CODE_8BIM) {
+		;
+	}
+	else if(sig4cc.id==CODE_MeSa) { // Image Ready resource?
+		signame = "MeSa";
+	}
+	else {
+		de_warn(c, "Bad Photoshop resource block signature '%s' at %d\n",
+			sig4cc.id_printable, (int)pos);
 		goto done;
 	}
 	pos+=4;
@@ -1095,7 +1167,8 @@ static int do_image_resource(deark *c, lctx *d, de_int64 pos1, de_int64 *bytes_c
 
 	lookup_rsrc((de_uint16)resource_id, &ri);
 
-	de_dbg(c, "Photoshop rsrc 0x%04x (%s) pos=%d blkname=\"%s\" dpos=%d dlen=%d\n",
+	de_dbg(c, "%s rsrc 0x%04x (%s) pos=%d blkname=\"%s\" dpos=%d dlen=%d\n",
+		signame,
 		(int)resource_id, ri.idname, (int)pos1, blkname_printable,
 		(int)pos, (int)block_data_len);
 
