@@ -65,6 +65,7 @@ struct rsrc_info {
 
 DECLARE_HRSRC(hrsrc_resolutioninfo);
 DECLARE_HRSRC(hrsrc_namesofalphachannels);
+DECLARE_HRSRC(hrsrc_printflags);
 DECLARE_HRSRC(hrsrc_iptc);
 DECLARE_HRSRC(hrsrc_exif);
 DECLARE_HRSRC(hrsrc_xmp);
@@ -77,6 +78,9 @@ DECLARE_HRSRC(hrsrc_uint32);
 DECLARE_HRSRC(hrsrc_unicodestring);
 DECLARE_HRSRC(hrsrc_urllist);
 DECLARE_HRSRC(hrsrc_versioninfo);
+DECLARE_HRSRC(hrsrc_printscale);
+DECLARE_HRSRC(hrsrc_pixelaspectratio);
+DECLARE_HRSRC(hrsrc_printflagsinfo);
 
 static const struct rsrc_info rsrc_info_arr[] = {
 	{ 0x03e8, 0, "channels/rows/columns/depth/mode", NULL },
@@ -89,7 +93,7 @@ static const struct rsrc_info rsrc_info_arr[] = {
 	{ 0x03f0, 0, "Caption", NULL },
 	{ 0x03f1, 0, "Border information", NULL },
 	{ 0x03f2, 0, "Background color", NULL },
-	{ 0x03f3, 0, "Print flags", NULL },
+	{ 0x03f3, 0, "Print flags", hrsrc_printflags },
 	{ 0x03f4, 0, "Grayscale and multichannel halftoning information", NULL },
 	{ 0x03f5, 0, "Color halftoning info", NULL },
 	{ 0x03f6, 0, "Duotone halftoning information", NULL },
@@ -136,8 +140,8 @@ static const struct rsrc_info rsrc_info_arr[] = {
 	{ 0x0423, 0, "EXIF data 3", NULL },
 	{ 0x0424, 0, "XMP metadata", hrsrc_xmp },
 	{ 0x0425, 0, "Caption digest", NULL },
-	{ 0x0426, 0, "Print scale", NULL },
-	{ 0x0428, 0, "Pixel Aspect Ratio", NULL },
+	{ 0x0426, 0, "Print scale", hrsrc_printscale },
+	{ 0x0428, 0, "Pixel Aspect Ratio", hrsrc_pixelaspectratio },
 	{ 0x0429, 0x0004, "Layer Comps", NULL },
 	{ 0x042a, 0, "Alternate Duotone Colors", NULL },
 	{ 0x042b, 0, "Alternate Spot Colors", NULL },
@@ -171,7 +175,7 @@ static const struct rsrc_info rsrc_info_arr[] = {
 	{ 0x1b5d, 0, "Image Ready save layer settings", NULL },
 	{ 0x1b5e, 0, "Image Ready version", NULL },
 	{ 0x1f40, 0, "Lightroom workflow", NULL },
-	{ 0x2710, 0, "Print flags info", NULL }
+	{ 0x2710, 0, "Print flags info", hrsrc_printflagsinfo }
 };
 
 static de_int64 pad_to_2(de_int64 n)
@@ -308,6 +312,37 @@ static void hrsrc_namesofalphachannels(deark *c, lctx *d, const struct rsrc_info
 		pos += bytes_consumed;
 	}
 	ucstring_destroy(s);
+}
+
+static void hrsrc_printflags(deark *c, lctx *d, const struct rsrc_info *ri,
+	de_int64 pos1, de_int64 len)
+{
+	de_byte fl[9];
+	int i;
+	if(len!=9) return;
+	for(i=0; i<9; i++) {
+		fl[i] = de_getbyte(pos1+i);
+	}
+	de_dbg(c, "%s: labels=%d, crop marks=%d, color bars=%d, registration marks=%d, "
+		"negative=%d, flip=%d, interpolate=%d, caption=%d, print flags=%d\n",
+		ri->idname, (int)fl[0], (int)fl[1], (int)fl[2], (int)fl[3],
+		(int)fl[4], (int)fl[5], (int)fl[6], (int)fl[7], (int)fl[8]);
+}
+
+static void hrsrc_printflagsinfo(deark *c, lctx *d, const struct rsrc_info *ri,
+	de_int64 pos1, de_int64 len)
+{
+	de_int64 version, bleed_width_value, bleed_width_scale;
+	de_byte crop_marks;
+
+	if(len!=10) return;
+	version = dbuf_getui16x(c->infile, pos1, d->is_le);
+	crop_marks = de_getbyte(pos1+2);
+	bleed_width_value = dbuf_getui32x(c->infile, pos1+4, d->is_le);
+	bleed_width_scale = dbuf_getui16x(c->infile, pos1+8, d->is_le);
+	de_dbg(c, "%s: version=%d, crop marks=%d, bleed width value=%d, bleed width scale=%d\n",
+		ri->idname, (int)version, (int)crop_marks,
+		(int)bleed_width_value, (int)bleed_width_scale);
 }
 
 static void hrsrc_exif(deark *c, lctx *d, const struct rsrc_info *ri,
@@ -1110,6 +1145,33 @@ static void hrsrc_versioninfo(deark *c, lctx *d, const struct rsrc_info *ri,
 	de_dbg(c, "file version: %d\n", (int)file_ver);
 
 	ucstring_destroy(s);
+}
+
+static void hrsrc_printscale(deark *c, lctx *d, const struct rsrc_info *ri,
+	de_int64 pos1, de_int64 len)
+{
+	de_int64 style;
+	double xloc, yloc, scale;
+	if(len!=14) return;
+	style = dbuf_getui16x(c->infile, pos1, d->is_le);
+	de_dbg(c, "style: %d\n", (int)style);
+	xloc = dbuf_getfloat32x(c->infile, pos1+2, d->is_le);
+	yloc = dbuf_getfloat32x(c->infile, pos1+6, d->is_le);
+	de_dbg(c, "location: (%f,%f)\n", xloc, yloc);
+	scale = dbuf_getfloat32x(c->infile, pos1+10, d->is_le);
+	de_dbg(c, "scale: %f\n", scale);
+}
+
+static void hrsrc_pixelaspectratio(deark *c, lctx *d, const struct rsrc_info *ri,
+	de_int64 pos1, de_int64 len)
+{
+	de_int64 version;
+	double ratio;
+	if(len!=12) return;
+	version = dbuf_getui32x(c->infile, pos1, d->is_le);
+	de_dbg(c, "version: %d\n", (int)version);
+	ratio = dbuf_getfloat64x(c->infile, pos1+4, d->is_le);
+	de_dbg(c, "x/y: %f\n", ratio);
 }
 
 static int do_image_resource(deark *c, lctx *d, de_int64 pos1, de_int64 *bytes_consumed)
