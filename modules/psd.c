@@ -33,7 +33,9 @@ DE_DECLARE_MODULE(de_module_psd);
 #define CODE_infx 0x696e6678U
 #define CODE_knko 0x6b6e6b6fU
 #define CODE_lfx2 0x6c667832U
+#define CODE_lnsr 0x6c6e7372U
 #define CODE_long 0x6c6f6e67U
+#define CODE_lspf 0x6c737066U
 #define CODE_luni 0x6c756e69U
 #define CODE_lyid 0x6c796964U
 #define CODE_shmd 0x73686d64U
@@ -80,7 +82,9 @@ DECLARE_HRSRC(hrsrc_urllist);
 DECLARE_HRSRC(hrsrc_versioninfo);
 DECLARE_HRSRC(hrsrc_printscale);
 DECLARE_HRSRC(hrsrc_pixelaspectratio);
+DECLARE_HRSRC(hrsrc_layerselectionids);
 DECLARE_HRSRC(hrsrc_printflagsinfo);
+DECLARE_HRSRC(hrsrc_pluginresource);
 
 static const struct rsrc_info rsrc_info_arr[] = {
 	{ 0x03e8, 0, "channels/rows/columns/depth/mode", NULL },
@@ -145,7 +149,7 @@ static const struct rsrc_info rsrc_info_arr[] = {
 	{ 0x0429, 0x0004, "Layer Comps", NULL },
 	{ 0x042a, 0, "Alternate Duotone Colors", NULL },
 	{ 0x042b, 0, "Alternate Spot Colors", NULL },
-	{ 0x042d, 0, "Layer Selection ID(s)", NULL },
+	{ 0x042d, 0, "Layer Selection ID(s)", hrsrc_layerselectionids },
 	{ 0x042e, 0, "HDR Toning information", NULL },
 	{ 0x042f, 0, "Auto Save Format", NULL },
 	{ 0x0430, 0, "Layer Group(s) Enabled ID", NULL },
@@ -257,6 +261,7 @@ static int lookup_rsrc(de_uint16 n, struct rsrc_info *ri_dst)
 	else if(n>=0x0fa0 && n<=0x1387) {
 		found = 1;
 		ri_dst->idname = "Plug-In resource";
+		ri_dst->hfn = hrsrc_pluginresource;
 	}
 
 	return found;
@@ -368,6 +373,16 @@ static void hrsrc_iccprofile(deark *c, lctx *d, const struct rsrc_info *ri,
 	de_int64 pos, de_int64 len)
 {
 	dbuf_create_file_from_slice(c->infile, pos, len, "icc", NULL, DE_CREATEFLAG_IS_AUX);
+}
+
+static void hrsrc_pluginresource(deark *c, lctx *d, const struct rsrc_info *ri,
+	de_int64 pos, de_int64 len)
+{
+	struct de_fourcc fourcc;
+	// Plug-in resources seem to start with a fourcc.
+	if(len<4) return;
+	dbuf_read_fourcc(c->infile, pos, &fourcc, d->is_le);
+	de_dbg(c, "id: '%s'\n", fourcc.id_printable);
 }
 
 // Read a Photoshop-style "Unicode string" structure, and append it to s.
@@ -518,7 +533,7 @@ static void do_text_engine_data(deark *c, lctx *d, de_int64 pos, de_int64 len)
 	if(len<1) return;
 	de_dbg(c, "text engine data at %d, len=%d\n", (int)pos, (int)len);
 	if(c->extract_level<2) return;
-	dbuf_create_file_from_slice(c->infile, pos, len, "enginedata.bin", NULL, DE_CREATEFLAG_IS_AUX);
+	dbuf_create_file_from_slice(c->infile, pos, len, "enginedata", NULL, DE_CREATEFLAG_IS_AUX);
 }
 
 // The PSD spec calls this type "String" (or "String structure").
@@ -1174,6 +1189,23 @@ static void hrsrc_pixelaspectratio(deark *c, lctx *d, const struct rsrc_info *ri
 	de_dbg(c, "x/y: %f\n", ratio);
 }
 
+static void hrsrc_layerselectionids(deark *c, lctx *d, const struct rsrc_info *ri,
+	de_int64 pos1, de_int64 len)
+{
+	de_int64 count;
+	int i;
+
+	if(len<2) return;
+	count = dbuf_getui16x(c->infile, pos1, d->is_le);
+	de_dbg(c, "count: %d\n", (int)count);
+	if(len<2+4*count) return;
+	for(i=0; i<count; i++) {
+		de_int64 lyid;
+		lyid = dbuf_getui32x(c->infile, pos1+2+4*i, d->is_le);
+		de_dbg(c, "layer id[%d]: %u\n", (int)i, (unsigned int)lyid);
+	}
+}
+
 static int do_image_resource(deark *c, lctx *d, de_int64 pos1, de_int64 *bytes_consumed)
 {
 	de_int64 resource_id;
@@ -1458,6 +1490,15 @@ static void do_boolean_block(deark *c, lctx *d, de_int64 pos, de_int64 len,
 	de_dbg(c, "%s: %d\n", name, (int)value);
 }
 
+static void do_fourcc_block(deark *c, lctx *d, de_int64 pos, de_int64 len,
+	const struct de_fourcc *blk4cc, const char *name)
+{
+	struct de_fourcc fourcc;
+	if(len!=4) return;
+	dbuf_read_fourcc(c->infile, pos, &fourcc, d->is_le);
+	de_dbg(c, "%s: '%s'\n", name, fourcc.id_printable);
+}
+
 static void do_Layr_block(deark *c, lctx *d, de_int64 pos, de_int64 len, const struct de_fourcc *blk4cc)
 {
 	de_int64 bytes_consumed;
@@ -1473,6 +1514,15 @@ static void do_fxrp_block(deark *c, lctx *d, de_int64 pos, de_int64 len)
 	v[0] = dbuf_getfloat64x(c->infile, pos, d->is_le);
 	v[1] = dbuf_getfloat64x(c->infile, pos+8, d->is_le);
 	de_dbg(c, "reference point: %f, %f\n", v[0], v[1]);
+}
+
+static void do_lspf_block(deark *c, lctx *d, de_int64 pos, de_int64 len)
+{
+	unsigned int x;
+	if(len!=4) return;
+	x = (unsigned int)dbuf_getui32x(c->infile, pos, d->is_le);
+	de_dbg(c, "protection flags: transparency=%u, composite=%u, position=%u\n",
+		(x&0x1), (x&0x2)>>1, (x&0x4)>>2);
 }
 
 static void do_unicodestring_block(deark *c, lctx *d, de_int64 pos, de_int64 len, const struct de_fourcc *blk4cc,
@@ -1624,6 +1674,9 @@ static int do_tagged_block(deark *c, lctx *d, de_int64 pos, de_int64 bytes_avail
 	case CODE_lyid:
 		do_uint32_block(c, d, dpos, blklen, &blk4cc, "layer ID");
 		break;
+	case CODE_lnsr:
+		do_fourcc_block(c, d, dpos, blklen, &blk4cc, "layer name ID");
+		break;
 	case CODE_Layr:
 	case CODE_Lr16:
 		do_Layr_block(c, d, dpos, blklen, &blk4cc);
@@ -1642,6 +1695,9 @@ static int do_tagged_block(deark *c, lctx *d, de_int64 pos, de_int64 bytes_avail
 		break;
 	case CODE_fxrp:
 		do_fxrp_block(c, d, dpos, blklen);
+		break;
+	case CODE_lspf:
+		do_lspf_block(c, d, dpos, blklen);
 		break;
 	case CODE_lfx2:
 		do_lfx2_block(c, d, dpos, blklen, &blk4cc);

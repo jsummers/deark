@@ -173,11 +173,9 @@ Deark -- Information about supported formats
 
 * JPEG (module="jpeg")
   - Extract ICC profiles.
-  - Extract Exif JPEG-formatted thumbnails.
   - Extract JFXX JPEG-formatted thumbnails (rare).
-  - Extract various things from Exif data.
-  - Extract various things from "Photoshop resources"
-  - Extract Exif data (use -a)
+  - Process Exif data (or extract it: use -a)
+  - Process Photoshop-related data.
   - Extract comments (use -a). Comment bytes are extracted as-is, because there
      is no way to determine the character encoding.
 
@@ -187,7 +185,7 @@ Deark -- Information about supported formats
   - Extract GeoTIFF data.
   - Extract XMP data.
   - Extract Exif data (use -a) (nonstandard; partial support)
-  - Extract various things from "Photoshop resources".
+  - Process Photoshop-related data.
 
 * JPEG XR (HD Photo)
   - Minimal support; uses the "tiff" module.
@@ -205,7 +203,7 @@ Deark -- Information about supported formats
   - Does not support .MAX
 
 * MRW (Minolta RAW) (module="mrw")
-  - Extract Exif data (use -a)
+  - Process Exif data (or extract it: use -a)
 
 * MSP (Microsoft Paint graphics) (module="msp")
   - Version 1 and 2
@@ -304,16 +302,14 @@ Deark -- Information about supported formats
 * Prism Paint (module="prismpaint")
   - Supports 1-, 2-, 4-, 8-, and 16-bits per pixel
 
-* PSD (PhotoShop) (module="psd")
+* PSD (Photoshop) (module="psd")
+  - Extract JPEG thumbnails. Some thumbnail images have the red and blue
+    channels swapped -- Deark warns about this, but does not correct it.
+  - Extract XMP data.
+  - Extract ICC profiles.
+  - Process Exif data (or extract it: use -a)
+  - Extract IPTC data (use -a).
   - Extract "text engine data" (use -a)
-  - Extract data from "Photoshop resources"
-
-  * Photoshop resources
-    - Extract JPEG thumbnails. Some thumbnail images have the red and blue
-      channels swapped -- Deark warns about this but does not correct it.
-    - Extract various things from Exif data.
-    - Extract Exif data (use -a).
-    - Extract IPTC data (use -a).
 
 * Psion PIC (module="psionpic")
   A Psion PIC file contains one or more 1-bpp bitmaps, some of which can be
@@ -365,7 +361,7 @@ Deark -- Information about supported formats
   - Extract JPEG-formatted Exif thumbnails, and some types of Old-style
     JPEG-compressed images.
   - Extract ICC profiles.
-  - Extract data from "Photoshop resources".
+  - Process Photoshop-related data.
   - Extract IPTC data (use -a).
 
 * TIM (Playstation graphics) (module="tim") (experimental/incomplete)
