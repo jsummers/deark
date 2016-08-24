@@ -165,9 +165,14 @@ static void do_read_patterns(deark *c, lctx *d, de_int64 pos)
 
 	patcrc = x_dbuf_crc32(c->infile, pos, 38*8);
 	patsetname = get_pattern_set_info(patcrc, &is_blank);
-	de_dbg(c, "patterns crc: 0x%08x (%s)\n", (unsigned int)patcrc, patsetname);
+	de_dbg(c, "brush patterns crc: 0x%08x (%s)\n", (unsigned int)patcrc, patsetname);
+
+	if(c->extract_level<2) {
+		goto done;
+	}
+
 	if(is_blank) {
-		de_dbg(c, "patterns are blank: not extracting\n");
+		de_dbg(c, "brush patterns are blank: not extracting\n");
 		goto done;
 	}
 
@@ -245,9 +250,7 @@ static void de_run_macpaint(deark *c, de_module_params *mparams)
 
 	do_read_bitmap(c, d, pos);
 
-	if(c->extract_level>=2) {
-		do_read_patterns(c, d, pos);
-	}
+	do_read_patterns(c, d, pos);
 
 	de_free(c, d);
 }
