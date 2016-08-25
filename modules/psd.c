@@ -9,15 +9,25 @@
 #include "fmtutil.h"
 DE_DECLARE_MODULE(de_module_psd);
 
-#define CODE_8B64 0x38243634U
+#define CODE_8B64 0x38423634U
 #define CODE_8BIM 0x3842494dU
+#define CODE_Alph 0x416c7068U
+#define CODE_FEid 0x46456964U
+#define CODE_FMsk 0x464d736bU
+#define CODE_FXid 0x46586964U
 #define CODE_GdFl 0x4764466cU
 #define CODE_GlbO 0x476c624fU
+#define CODE_LMsk 0x4c4d736bU
 #define CODE_Layr 0x4c617972U
 #define CODE_Lr16 0x4c723136U
+#define CODE_Lr32 0x4c723332U
 #define CODE_MeSa 0x4d655361U
+#define CODE_Mt16 0x4d743136U
+#define CODE_Mt32 0x4d743332U
+#define CODE_Mtrn 0x4d74726eU
 #define CODE_Objc 0x4f626a63U
 #define CODE_PtFl 0x5074466cU
+#define CODE_PxSD 0x50785344U
 #define CODE_SoCo 0x536f436fU
 #define CODE_TEXT 0x54455854U
 #define CODE_Txt2 0x54787432U
@@ -33,6 +43,7 @@ DE_DECLARE_MODULE(de_module_psd);
 #define CODE_infx 0x696e6678U
 #define CODE_knko 0x6b6e6b6fU
 #define CODE_lfx2 0x6c667832U
+#define CODE_lnk2 0x6c6e6b32U
 #define CODE_lnsr 0x6c6e7372U
 #define CODE_long 0x6c6f6e67U
 #define CODE_lspf 0x6c737066U
@@ -42,10 +53,13 @@ DE_DECLARE_MODULE(de_module_psd);
 #define CODE_tdta 0x74647461U
 
 typedef struct localctx_struct {
+	int version; // 1=PSD, 2=PSB
 	int is_le;
 	int tagged_blocks_only;
 #define MAX_NESTING_LEVEL 20
 	int nesting_level;
+	de_int64 intsize_2or4;
+	de_int64 intsize_4or8;
 } lctx;
 
 struct rsrc_info;
@@ -190,6 +204,16 @@ static de_int64 pad_to_2(de_int64 n)
 static de_int64 pad_to_4(de_int64 n)
 {
 	return ((n+3)/4)*4;
+}
+
+// Read a 32-bit (if d->intsize_4or8==4) or 64-bit int from c->infile.
+// This function is used to help support PSB format.
+static de_int64 psd_getui32or64(deark *c, lctx *d, de_int64 pos)
+{
+	if(d->intsize_4or8>4) {
+		return dbuf_geti64x(c->infile, pos, d->is_le);
+	}
+	return dbuf_getui32x(c->infile, pos, d->is_le);
 }
 
 // For rectangles in top-left-bottom-right order
@@ -1356,7 +1380,7 @@ static int do_layer_record(deark *c, lctx *d, de_int64 pos1,
 	de_dbg(c, "number of channels: %d\n", (int)nchannels);
 	pos += 2;
 
-	pos += 6*nchannels;
+	pos += (2+d->intsize_4or8)*nchannels;
 
 	dbuf_read_fourcc(c->infile, pos, &tmp4cc, d->is_le);
 	if(tmp4cc.id != CODE_8BIM) {
@@ -1434,12 +1458,14 @@ static int do_layer_info_section(deark *c, lctx *d, de_int64 pos1,
 	indent_count++;
 
 	if(has_len_field) {
-		layer_info_len = dbuf_getui32x(c->infile, pos, d->is_le);
+		layer_info_len = psd_getui32or64(c, d, pos);
 		de_dbg(c, "length of layer info section: %d\n", (int)layer_info_len);
-		pos += 4;
+		pos += d->intsize_4or8;
+		*bytes_consumed = d->intsize_4or8 + layer_info_len;
 	}
 	else {
 		layer_info_len = bytes_avail;
+		*bytes_consumed = layer_info_len;
 	}
 
 	layer_count_raw = dbuf_geti16x(c->infile, pos, d->is_le);
@@ -1465,7 +1491,6 @@ static int do_layer_info_section(deark *c, lctx *d, de_int64 pos1,
 
 	de_dbg(c, "channel image data record(s) at %d\n", (int)pos);
 
-	*bytes_consumed = 4 + layer_info_len;
 	retval = 1;
 done:
 	de_dbg_indent(c, -indent_count);
@@ -1636,6 +1661,7 @@ static int do_tagged_block(deark *c, lctx *d, de_int64 pos, de_int64 bytes_avail
 	de_int64 *bytes_consumed)
 {
 	de_int64 blklen;
+	de_int64 blklen_len = 4; // Length of the block length field
 	de_int64 dpos;
 	de_int64 padded_blklen;
 	struct de_fourcc blk4cc;
@@ -1645,18 +1671,32 @@ static int do_tagged_block(deark *c, lctx *d, de_int64 pos, de_int64 bytes_avail
 	if(bytes_avail<12) return 0;
 
 	sig = dbuf_getui32x(c->infile, pos, d->is_le);
-	if(sig==CODE_8B64) {
-		de_warn(c, "8B64 tagged block type not supported\n");
-		return 0;
-	}
-	if(sig!=CODE_8BIM) {
+	if(sig!=CODE_8BIM && sig!=CODE_8B64) {
 		de_warn(c, "Expected tagged block signature not found at %d\n", (int)pos);
 		return 0;
 	}
 
 	dbuf_read_fourcc(c->infile, pos+4, &blk4cc, d->is_le);
-	blklen = dbuf_getui32x(c->infile, pos+8, d->is_le);
-	dpos = pos+12;
+
+	// Some blocks types have an 8-byte length in PSD format
+	if(d->intsize_4or8==8) {
+		switch(blk4cc.id) {
+		case CODE_LMsk: case CODE_Lr16: case CODE_Lr32:	case CODE_Layr:
+		case CODE_Mt16: case CODE_Mt32: case CODE_Mtrn: case CODE_Alph:
+		case CODE_FMsk: case CODE_lnk2: case CODE_FEid: case CODE_FXid:
+		case CODE_PxSD:
+			blklen_len = 8;
+		}
+	}
+
+	if(blklen_len==8) {
+		blklen = dbuf_geti64x(c->infile, pos+8, d->is_le);
+	}
+	else {
+		blklen = dbuf_getui32x(c->infile, pos+8, d->is_le);
+	}
+	dpos = pos + 8 + blklen_len;
+
 	de_dbg(c, "tagged block '%s' at %d, dpos=%d, dlen=%d\n", blk4cc.id_printable,
 		(int)pos, (int)dpos, (int)blklen);
 
@@ -1718,7 +1758,7 @@ static int do_tagged_block(deark *c, lctx *d, de_int64 pos, de_int64 bytes_avail
 	// (This is not what the PSD spec says.)
 	padded_blklen = pad_to_4(blklen);
 
-	*bytes_consumed = 12 + padded_blklen;
+	*bytes_consumed = 8 + blklen_len + padded_blklen;
 	return 1;
 }
 
@@ -1769,9 +1809,9 @@ static int do_layer_and_mask_info_section(deark *c, lctx *d, de_int64 pos1, de_i
 	de_dbg(c, "layer & mask info section at %d\n", (int)pos);
 	de_dbg_indent(c, 1);
 
-	layer_and_mask_info_section_len = de_getui32be(pos);
+	layer_and_mask_info_section_len = psd_getui32or64(c, d, pos);
 	de_dbg(c, "layer & mask info section total data size: %d\n", (int)layer_and_mask_info_section_len);
-	pos += 4;
+	pos += d->intsize_4or8;
 	if(pos + layer_and_mask_info_section_len > c->infile->len) {
 		de_err(c, "Unexpected end of PSD file\n");
 		goto done;
@@ -1779,7 +1819,7 @@ static int do_layer_and_mask_info_section(deark *c, lctx *d, de_int64 pos1, de_i
 	layer_and_mask_info_section_endpos = pos + layer_and_mask_info_section_len;
 
 	// Now that we know the size of this element, we can treat this function as "successful".
-	*bytes_consumed = 4 + layer_and_mask_info_section_len;
+	*bytes_consumed = d->intsize_4or8 + layer_and_mask_info_section_len;
 	retval = 1;
 
 	if(!do_layer_info_section(c, d, pos, layer_and_mask_info_section_endpos-pos, 1,
@@ -1838,18 +1878,39 @@ static const char *get_colormode_name(de_int64 n)
 	return name;
 }
 
-static void do_header(deark *c, lctx *d, de_int64 pos)
+// Call this after setting d->version.
+static void init_version_specific_info(deark *c, lctx *d)
 {
-	de_int64 psdver;
+	if(d->version==2) { // PSB format
+		d->intsize_2or4 = 4;
+		d->intsize_4or8 = 8;
+	}
+	else { // Regular PSD format
+		d->intsize_2or4 = 2;
+		d->intsize_4or8 = 4;
+	}
+}
+
+static int do_header(deark *c, lctx *d, de_int64 pos)
+{
 	de_int64 w, h;
 	de_int64 x;
+	int retval = 0;
 
 	de_dbg(c, "header at %d\n", (int)pos);
 	de_dbg_indent(c, 1);
-	psdver = de_getui16be(pos+4);
-	de_dbg(c, "PSD version: %d\n", (int)psdver);
-	if(psdver!=1) {
-		de_err(c, "Unsupported PSD version: %d\n", (int)psdver);
+	d->version = (int)de_getui16be(pos+4);
+	de_dbg(c, "PSD version: %d\n", d->version);
+	init_version_specific_info(c, d);
+
+	if(d->version==1) {
+		de_declare_fmt(c, "PSD");
+	}
+	else if(d->version==2) {
+		de_declare_fmt(c, "PSB");
+	}
+	else {
+		de_err(c, "Unsupported PSD version: %d\n", (int)d->version);
 		goto done;
 	}
 
@@ -1866,8 +1927,11 @@ static void do_header(deark *c, lctx *d, de_int64 pos)
 	x = de_getui16be(pos+24);
 	de_dbg(c, "color mode: %d (%s)\n", (int)x, get_colormode_name(x));
 
+	retval = 1;
+
 done:
 	de_dbg_indent(c, -1);
+	return retval;
 }
 
 static void do_external_tagged_blocks(deark *c, lctx *d)
@@ -1901,17 +1965,27 @@ static void de_run_psd(deark *c, de_module_params *mparams)
 
 	if(mparams && mparams->codes) {
 		if(de_strchr(mparams->codes, 'R')) { // Image resources
+			d->version = 1;
+			init_version_specific_info(c, d);
 			do_image_resource_blocks(c, d, 0, c->infile->len);
 			goto done;
 		}
 		if(de_strchr(mparams->codes, 'T')) { // Tagged blocks
+			d->version = 1;
+			init_version_specific_info(c, d);
+			do_external_tagged_blocks(c, d);
+			goto done;
+		}
+		if(de_strchr(mparams->codes, 'B')) { // Tagged blocks, PSB-format
+			d->version = 2;
+			init_version_specific_info(c, d);
 			do_external_tagged_blocks(c, d);
 			goto done;
 		}
 	}
 
 	pos = 0;
-	do_header(c, d, pos);
+	if(!do_header(c, d, pos)) goto done;
 	pos += 26;
 
 	de_dbg(c, "color mode data section at %d\n", (int)pos);
@@ -1952,14 +2026,14 @@ done:
 
 static int de_identify_psd(deark *c)
 {
-	if(!dbuf_memcmp(c->infile, 0, "8BPS\x00\x01", 6)) return 100;
+	if(!dbuf_memcmp(c->infile, 0, "8BPS", 4)) return 100;
 	return 0;
 }
 
 void de_module_psd(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "psd";
-	mi->desc = "Photoshop .PSD (resources only)";
+	mi->desc = "Photoshop PSD";
 	mi->run_fn = de_run_psd;
 	mi->identify_fn = de_identify_psd;
 }

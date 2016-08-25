@@ -302,7 +302,7 @@ Deark -- Information about supported formats
 * Prism Paint (module="prismpaint")
   - Supports 1-, 2-, 4-, 8-, and 16-bits per pixel
 
-* PSD (Photoshop) (module="psd")
+* PSD / PSB (Photoshop) (module="psd")
   - Extract JPEG thumbnails. Some thumbnail images have the red and blue
     channels swapped -- Deark warns about this, but does not correct it.
   - Extract XMP data.

@@ -1542,22 +1542,31 @@ static void handler_37724(deark *c, lctx *d, const struct taginfo *tg, const str
 	de_module_params *mparams = NULL;
 	static const de_int64 siglen = 36;
 	de_int64 dpos, dlen;
+	int psdver = 0;
 
-	if(tg->total_size<siglen ||
-		dbuf_memcmp(c->infile, tg->val_offset, "Adobe Photoshop Document Data Block\0", (size_t)siglen))
-	{
-		de_warn(c, "Malformed ImageSourceData tag at %d\n", (int)tg->val_offset);
+	if(tg->total_size<siglen) {
+		;
+	}
+	else if(!dbuf_memcmp(c->infile, tg->val_offset, "Adobe Photoshop Document Data Block\0", (size_t)siglen)) {
+		psdver = 1;
+	}
+	else if(!dbuf_memcmp(c->infile, tg->val_offset, "Adobe Photoshop Document Data V0002\0", (size_t)siglen)) {
+		psdver = 2;
+	}
+
+	if(psdver==0) {
+		de_warn(c, "Bad or unsupported ImageSourceData tag at %d\n", (int)tg->val_offset);
 		goto done;
 	}
 
-	de_dbg(c, "ImageSourceData signature at %d\n", (int)tg->val_offset);
+	de_dbg(c, "ImageSourceData signature at %d, PSD version=%d\n", (int)tg->val_offset, psdver);
 
 	dpos = tg->val_offset + siglen;
 	dlen = tg->total_size - siglen;
 	de_dbg(c, "ImageSourceData blocks at %d, len=%d\n", (int)dpos, (int)dlen);
 
 	mparams = de_malloc(c, sizeof(de_module_params));
-	mparams->codes = "T";
+	mparams->codes = (psdver==2)? "B" : "T";
 	de_dbg_indent(c, 1);
 	de_run_module_by_id_on_slice(c, "psd", mparams, c->infile, dpos, dlen);
 	de_dbg_indent(c, -1);
