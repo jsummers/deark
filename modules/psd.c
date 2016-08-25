@@ -21,6 +21,7 @@ DE_DECLARE_MODULE(de_module_psd);
 #define CODE_Layr 0x4c617972U
 #define CODE_Lr16 0x4c723136U
 #define CODE_Lr32 0x4c723332U
+#define CODE_lrFX 0x6c724658U
 #define CODE_MeSa 0x4d655361U
 #define CODE_Mt16 0x4d743136U
 #define CODE_Mt32 0x4d743332U
@@ -1531,6 +1532,52 @@ static void do_Layr_block(deark *c, lctx *d, de_int64 pos, de_int64 len, const s
 	do_layer_info_section(c, d, pos, len, 0, &bytes_consumed);
 }
 
+static void do_lrFX_block(deark *c, lctx *d, de_int64 pos1, de_int64 len, const struct de_fourcc *blk4cc)
+{
+	de_int64 ver;
+	de_int64 count;
+	de_int64 i;
+	de_uint32 sig;
+	de_int64 pos = pos1;
+	struct de_fourcc sig4cc;
+
+	ver = dbuf_getui16x(c->infile, pos, d->is_le);
+	if(ver!=0) goto done;
+	pos += 2;
+
+	count = dbuf_getui16x(c->infile, pos, d->is_le);
+	de_dbg(c, "effects count: %d\n", (int)count);
+	pos += 2;
+
+	for(i=0; i<count; i++) {
+		de_int64 epos;
+		de_int64 dlen;
+
+		if(pos>=pos1+len) goto done;
+		epos = pos;
+
+		sig = (de_uint32)dbuf_getui32x(c->infile, pos, d->is_le);
+		if(sig!=CODE_8BIM) {
+			de_warn(c, "Bad 'effects' block signature at %d\n", (int)pos);
+			goto done;
+		}
+		pos += 4;
+
+		dbuf_read_fourcc(c->infile, pos, &sig4cc, d->is_le);
+		pos += 4;
+
+		dlen = dbuf_getui32x(c->infile, pos, d->is_le);
+		pos += 4;
+
+		de_dbg(c, "effects[%d] '%s' at %d, dpos=%d, dlen=%d\n", (int)i, sig4cc.id_printable,
+			(int)epos, (int)pos, (int)dlen);
+		pos += dlen;
+	}
+
+done:
+	;
+}
+
 static void do_fxrp_block(deark *c, lctx *d, de_int64 pos, de_int64 len)
 {
 	double v[2];
@@ -1720,6 +1767,9 @@ static int do_tagged_block(deark *c, lctx *d, de_int64 pos, de_int64 bytes_avail
 	case CODE_Layr:
 	case CODE_Lr16:
 		do_Layr_block(c, d, dpos, blklen, &blk4cc);
+		break;
+	case CODE_lrFX:
+		do_lrFX_block(c, d, dpos, blklen, &blk4cc);
 		break;
 	case CODE_luni:
 		do_unicodestring_block(c, d, dpos, blklen, &blk4cc, "Unicode layer name");
