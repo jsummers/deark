@@ -285,7 +285,8 @@ Deark -- Information about supported formats
   This is an obscure format supported by XV and XnView.
   - Supports 24-bit truecolor, and 8-bit grayscale
 
-* PNG (module="png")
+* PNG / MNG / JNG (module="png")
+  - Extract XMP data.
   - Extract ICC profiles.
 
 * PrintMaster .SHP format (module="printmaster")

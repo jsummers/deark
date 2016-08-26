@@ -21,52 +21,95 @@ typedef struct localctx_struct {
 	int fmt;
 } lctx;
 
+struct text_chunk_ctx {
+	int is_xmp;
+};
+
+#define FIELD_KEYWORD  1
+#define FIELD_LANG     2
+#define FIELD_XKEYWORD 3
+#define FIELD_MAIN     4
+
+// Read and process the keyword, language, translated keyword, or main text
+// field of a tEXt/zTXt/iTXt chunk.
 // 'bytes_consumed' does not include the NUL separator/terminator.
 static int do_text_field(deark *c, lctx *d,
-	const char *name,
+	struct text_chunk_ctx *tcc,
+	int which_field,
 	dbuf *srcdbuf, de_int64 pos, de_int64 bytes_avail,
 	int is_nul_terminated, int is_compressed, int encoding,
 	de_int64 *bytes_consumed)
 {
-	de_int64 foundpos;
-	de_int64 item_len;
 	dbuf *tmpdbuf = NULL;
-	de_ucstring *text = NULL;
+	de_ucstring *value_s = NULL;
+	dbuf *value_dbuf = NULL; // Uncompressed value. A pointer to either src_dbuf, or tmpdbuf.
+	de_int64 value_pos, value_len; // Position in value_dbuf.
+	const char *name;
 	int retval = 0;
 
 	*bytes_consumed = 0;
 
 	if(bytes_avail<0) return 0;
 
-	text = ucstring_create(c);
 	if(is_compressed) {
 		// Decompress to a membuf
 		tmpdbuf = dbuf_create_membuf(c, 0, 0);
 		if(!de_uncompress_zlib(srcdbuf, pos, bytes_avail, tmpdbuf)) {
 			goto done;
 		}
-		// Read from the membuf to the 'text' ucstring.
-		dbuf_read_to_ucstring_n(tmpdbuf, 0, tmpdbuf->len, 300, text, 0, encoding);
+		value_dbuf = tmpdbuf;
+		value_pos = 0;
+		value_len = tmpdbuf->len;
 	}
 	else {
+		de_int64 foundpos;
+
 		if(is_nul_terminated) {
 			if(!dbuf_search_byte(srcdbuf, 0x00, pos, pos+bytes_avail, &foundpos)) {
 				goto done;
 			}
-			item_len = foundpos - pos;
+			value_len = foundpos - pos;
 		}
 		else {
-			item_len = bytes_avail;
+			value_len = bytes_avail;
 		}
-		dbuf_read_to_ucstring_n(srcdbuf, pos, item_len, 300, text, 0, encoding);
-		*bytes_consumed = item_len;
+
+		value_dbuf = srcdbuf;
+		value_pos = pos;
+		*bytes_consumed = value_len;
 	}
 
-	de_dbg(c, "%s: \"%s\"\n", name, ucstring_get_printable_sz(text));
+	if(which_field==FIELD_KEYWORD) {
+		// This is a bit of a hack. If there are any other special keywords we need
+		// to look for, we should do something better.
+		if(value_len==17 && !dbuf_memcmp(value_dbuf, value_pos, "XML:com.adobe.xmp", 17)) {
+			tcc->is_xmp = 1;
+		}
+	}
+
+	if(which_field==FIELD_MAIN && tcc->is_xmp) {
+		dbuf_create_file_from_slice(value_dbuf, value_pos, value_len, "xmp",
+			NULL, DE_CREATEFLAG_IS_AUX);
+		retval = 1;
+		goto done;
+	}
+
+	// Read the value into a ucstring, for easy printing.
+	value_s = ucstring_create(c);
+	dbuf_read_to_ucstring_n(value_dbuf, value_pos, value_len, 300, value_s, 0, encoding);
+
+	switch(which_field) {
+	case FIELD_KEYWORD: name="keyword"; break;
+	case FIELD_LANG: name="language"; break;
+	case FIELD_XKEYWORD: name="translated keyword"; break;
+	default: name="text";
+	}
+
+	de_dbg(c, "%s: \"%s\"\n", name, ucstring_get_printable_sz(value_s));
 	retval = 1;
 
 done:
-	ucstring_destroy(text);
+	ucstring_destroy(value_s);
 	dbuf_close(tmpdbuf);
 	return retval;
 }
@@ -78,15 +121,17 @@ static void do_png_text(deark *c, lctx *d, de_uint32 chunk_id, de_int64 pos1, de
 	de_int64 field_bytes_consumed;
 	int is_compressed = 0;
 	int encoding;
-	de_byte cmpr_method;
 	int ret;
+	struct text_chunk_ctx tcc;
+
+	de_memset(&tcc, 0, sizeof(struct text_chunk_ctx));
 
 	de_dbg_indent(c, 1);
 	endpos = pos1+len;
 	pos = pos1;
 
 	// Keyword
-	ret = do_text_field(c, d, "keyword", c->infile, pos, endpos-pos,
+	ret = do_text_field(c, d, &tcc, FIELD_KEYWORD, c->infile, pos, endpos-pos,
 		1, 0, DE_ENCODING_LATIN1, &field_bytes_consumed);
 	if(!ret) goto done;
 	pos += field_bytes_consumed;
@@ -103,6 +148,7 @@ static void do_png_text(deark *c, lctx *d, de_uint32 chunk_id, de_int64 pos1, de
 
 	// Compression method
 	if(chunk_id==PNGID_zTXt || chunk_id==PNGID_iTXt) {
+		de_byte cmpr_method;
 		cmpr_method = de_getbyte(pos++);
 		if(is_compressed && cmpr_method!=0) {
 			de_warn(c, "Unsupported text compression type: %d\n", (int)cmpr_method);
@@ -112,14 +158,14 @@ static void do_png_text(deark *c, lctx *d, de_uint32 chunk_id, de_int64 pos1, de
 
 	if(chunk_id==PNGID_iTXt) {
 		// Language tag
-		ret = do_text_field(c, d, "language", c->infile, pos, endpos-pos,
+		ret = do_text_field(c, d, &tcc, FIELD_LANG, c->infile, pos, endpos-pos,
 			1, 0, DE_ENCODING_ASCII, &field_bytes_consumed);
 		if(!ret) goto done;
 		pos += field_bytes_consumed;
 		pos += 1;
 
 		// Translated keyword
-		ret = do_text_field(c, d, "translated keyword", c->infile, pos, endpos-pos,
+		ret = do_text_field(c, d, &tcc, FIELD_XKEYWORD, c->infile, pos, endpos-pos,
 			1, 0, DE_ENCODING_UTF8, &field_bytes_consumed);
 		if(!ret) goto done;
 		pos += field_bytes_consumed;
@@ -131,7 +177,7 @@ static void do_png_text(deark *c, lctx *d, de_uint32 chunk_id, de_int64 pos1, de
 	else
 		encoding = DE_ENCODING_LATIN1;
 
-	do_text_field(c, d, "text", c->infile, pos, endpos-pos,
+	do_text_field(c, d, &tcc, FIELD_MAIN, c->infile, pos, endpos-pos,
 		0, is_compressed, encoding, &field_bytes_consumed);
 
 done:
