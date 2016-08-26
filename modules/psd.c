@@ -44,7 +44,10 @@ DE_DECLARE_MODULE(de_module_psd);
 #define CODE_infx 0x696e6678U
 #define CODE_knko 0x6b6e6b6fU
 #define CODE_lfx2 0x6c667832U
+#define CODE_liFD 0x6c694644U
 #define CODE_lnk2 0x6c6e6b32U
+#define CODE_lnk3 0x6c6e6b33U
+#define CODE_lnkD 0x6c6e6b44U
 #define CODE_lnsr 0x6c6e7372U
 #define CODE_long 0x6c6f6e67U
 #define CODE_lspf 0x6c737066U
@@ -1532,6 +1535,143 @@ static void do_Layr_block(deark *c, lctx *d, de_int64 pos, de_int64 len, const s
 	do_layer_info_section(c, d, pos, len, 0, &bytes_consumed);
 }
 
+static void extract_linked_layer_blob(deark *c, lctx *d, de_int64 pos, de_int64 len)
+{
+	const char *ext = "layer.bin";
+	de_byte buf[8];
+
+	if(len<1) return;
+
+	// Sniff the file type.
+	// (The "File Type" FourCC is not reliable.)
+	de_read(buf, pos, sizeof(buf));
+	if(!de_memcmp(buf, "8BPS\x00\x01", 6)) {
+		ext = "layer.psd";
+	}
+	else if(!de_memcmp(buf, "8BPS\x00\x02", 6)) {
+		ext = "layer.psb";
+	}
+	else if(!de_memcmp(buf, "\x89\x50\x4e\x47", 4)) {
+		ext = "layer.png";
+	}
+	else if(!de_memcmp(buf, "\xff\xd8\xff", 3)) {
+		ext = "layer.jpg";
+	}
+	else if(!de_memcmp(buf, "%PDF", 4)) {
+		ext = "layer.pdf";
+	}
+
+	// TODO: Maybe we should try to use the "original filename" field, somehow,
+	// to construct our filename.
+	dbuf_create_file_from_slice(c->infile, pos, len, ext,
+		NULL, DE_CREATEFLAG_IS_AUX);
+}
+
+static int do_one_linked_layer(deark *c, lctx *d, de_int64 pos1, de_int64 bytes_avail, const struct de_fourcc *blk4cc,
+	de_int64 *bytes_consumed)
+{
+	int retval = 0;
+	de_int64 dlen, dlen2;
+	de_int64 pos, endpos;
+	de_int64 ver;
+	de_byte file_open_descr_flag;
+	struct de_fourcc type4cc;
+	struct de_fourcc tmp4cc;
+	de_int64 bytes_consumed2;
+	de_ucstring *s = NULL;
+
+	pos = pos1;
+	endpos = pos1+bytes_avail;
+	*bytes_consumed = bytes_avail;
+
+	dlen = dbuf_geti64x(c->infile, pos, d->is_le);
+	de_dbg(c, "length: %"INT64_FMT"\n", dlen);
+	pos += 8;
+	if(dlen<8 || pos+dlen>pos1+bytes_avail) {
+		de_warn(c, "Bad linked layer size %"INT64_FMT" at %"INT64_FMT"\n", dlen, pos);
+		goto done;
+	}
+	// Seems to be padded to a multiple of 4 bytes. (The spec says nothing
+	// about this.)
+	*bytes_consumed = 8 + pad_to_4(dlen);
+	retval = 1;
+
+	dbuf_read_fourcc(c->infile, pos, &type4cc, d->is_le);
+	de_dbg(c, "type: '%s'\n", type4cc.id_printable);
+	pos += 4;
+
+	ver = dbuf_getui32x(c->infile, pos, d->is_le);
+	de_dbg(c, "version: %d\n", (int)ver);
+	pos += 4;
+
+	s = ucstring_create(c);
+	read_pascal_string_to_ucstring(c->infile, pos, endpos-pos, s, &bytes_consumed2);
+	de_dbg(c, "unique id: \"%s\"\n", ucstring_get_printable_sz(s));
+	pos += bytes_consumed2;
+
+	ucstring_truncate(s, 0);
+	read_unicode_string(c, d, c->infile, s, pos, endpos-pos, &bytes_consumed2);
+
+	de_dbg(c, "original file name: \"%s\"\n", ucstring_get_printable_sz(s));
+	pos += bytes_consumed2;
+
+	dbuf_read_fourcc(c->infile, pos, &tmp4cc, d->is_le);
+	de_dbg(c, "file type: '%s'\n", tmp4cc.id_printable);
+	pos += 4;
+
+	dbuf_read_fourcc(c->infile, pos, &tmp4cc, d->is_le);
+	de_dbg(c, "file creator: '%s'\n", tmp4cc.id_printable);
+	pos += 4;
+
+	dlen2 = dbuf_geti64x(c->infile, pos, d->is_le);
+	de_dbg(c, "length2: %"INT64_FMT"\n", dlen2);
+	if(dlen2<0) goto done;
+	pos += 8;
+
+	file_open_descr_flag = de_getbyte(pos++);
+	de_dbg(c, "has file open descriptor: %d\n", (int)file_open_descr_flag);
+
+	if(file_open_descr_flag) {
+		if(!read_descriptor(c, d, pos, endpos-pos, 1, " (of open parameters)", &bytes_consumed2)) {
+			goto done;
+		}
+		pos += bytes_consumed2;
+	}
+
+	if(type4cc.id!=CODE_liFD) {
+		// TODO: liFA and liFE need special handling.
+		de_dbg(c, "[this linked layer type is not supported]\n");
+		goto done;
+	}
+
+	de_dbg(c, "raw file bytes at %"INT64_FMT", len=%"INT64_FMT"\n", pos, dlen2);
+	extract_linked_layer_blob(c, d, pos, dlen2);
+
+	// TODO: There may be more fields after this, depending on the version.
+
+done:
+	ucstring_destroy(s);
+	return retval;
+}
+
+static void do_lnk2_block(deark *c, lctx *d, de_int64 pos1, de_int64 len, const struct de_fourcc *blk4cc)
+{
+	de_int64 pos, endpos;
+	de_int64 bytes_consumed2;
+	int ret;
+
+	pos = pos1;
+	endpos = pos+len;
+	while(pos<endpos) {
+		de_dbg(c, "linked layer data at %"INT64_FMT"\n", pos);
+		de_dbg_indent(c, 1);
+		ret = do_one_linked_layer(c, d, pos, endpos-pos, blk4cc, &bytes_consumed2);
+		de_dbg_indent(c, -1);
+		if(!ret) break;
+		pos += bytes_consumed2;
+	}
+}
+
 static void do_lrFX_block(deark *c, lctx *d, de_int64 pos1, de_int64 len, const struct de_fourcc *blk4cc)
 {
 	de_int64 ver;
@@ -1767,6 +1907,11 @@ static int do_tagged_block(deark *c, lctx *d, de_int64 pos, de_int64 bytes_avail
 	case CODE_Layr:
 	case CODE_Lr16:
 		do_Layr_block(c, d, dpos, blklen, &blk4cc);
+		break;
+	case CODE_lnkD:
+	case CODE_lnk2:
+	case CODE_lnk3:
+		do_lnk2_block(c, d, dpos, blklen, &blk4cc);
 		break;
 	case CODE_lrFX:
 		do_lrFX_block(c, d, dpos, blklen, &blk4cc);

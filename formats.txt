@@ -307,6 +307,7 @@ Deark -- Information about supported formats
     channels swapped -- Deark warns about this, but does not correct it.
   - Extract XMP data.
   - Extract ICC profiles.
+  - Extract linked layer image data (e.g. in PNG/JPG/PSD/etc. format).
   - Process Exif data (or extract it: use -a)
   - Extract IPTC data (use -a).
   - Extract "text engine data" (use -a)
