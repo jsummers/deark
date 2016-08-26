@@ -825,7 +825,7 @@ static int read_tag_value_as_int64(deark *c, lctx *d, const struct taginfo *tg,
 static void format_double(dbuf *f, double val)
 {
 	// TODO: Formatting should be more intelligent
-	dbuf_printf(f, "%.4f", val);
+	dbuf_printf(f, "%f", val);
 }
 
 struct numeric_value {
@@ -1587,27 +1587,15 @@ static void handler_iccprofile(deark *c, lctx *d, const struct taginfo *tg, cons
 // to separate multiple items, instead of U+0000 codes.
 static void handler_utf16(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni)
 {
-	de_int64 adjusted_len;
 	de_ucstring *s = NULL;
 
 	if(tg->datatype!=DATATYPE_BYTE && tg->datatype!=DATATYPE_UNDEF) goto done;
 	if(tg->total_size % 2) goto done; // Something's wrong if the byte count is odd.
 
-	// Ignore the expected U+0000 at the end of the string.
-	adjusted_len = tg->total_size;
-	if(tg->total_size>=2 &&
-		de_getbyte(tg->val_offset+tg->total_size-2)==0 &&
-		de_getbyte(tg->val_offset+tg->total_size-1)==0)
-	{
-		adjusted_len -= 2;
-	}
-
-	if(adjusted_len > DE_TIFF_MAX_CHARS_TO_PRINT*2) {
-		adjusted_len = DE_TIFF_MAX_CHARS_TO_PRINT*2;
-	}
-
 	s = ucstring_create(c);
-	dbuf_read_to_ucstring(c->infile, tg->val_offset, adjusted_len, s, 0, DE_ENCODING_UTF16LE);
+	dbuf_read_to_ucstring_n(c->infile, tg->val_offset, tg->total_size,
+		DE_TIFF_MAX_CHARS_TO_PRINT*2, s, 0, DE_ENCODING_UTF16LE);
+	ucstring_strip_trailing_NUL(s);
 	de_dbg(c, "UTF-16 string: \"%s\"\n", ucstring_get_printable_sz(s));
 
 done:
