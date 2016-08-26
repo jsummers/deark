@@ -17,6 +17,11 @@ de_ucstring *ucstring_create(deark *c)
 	return s;
 }
 
+void ucstring_empty(de_ucstring *s)
+{
+	ucstring_truncate(s, 0);
+}
+
 // Reduce the string's length to newlen, by deleting the characters after
 // that point.
 // 'newlen' is expected to be no larger than the string's current length.
@@ -66,6 +71,25 @@ void ucstring_append_ucstring(de_ucstring *s1, const de_ucstring *s2)
 	for(i=0; i<s2->len; i++) {
 		ucstring_append_char(s1, s2->str[i]);
 	}
+}
+
+static void ucstring_vprintf(de_ucstring *s, int encoding, const char *fmt, va_list ap)
+{
+	char buf[1024];
+	de_vsnprintf(buf, sizeof(buf), fmt, ap);
+	ucstring_append_sz(s, buf, encoding);
+}
+
+// Appends a formatted C-style string.
+// (Unfortunately, there is no format specifier for a ucstring.)
+// There is a limit to how many characters will be appended.
+void ucstring_printf(de_ucstring *s, int encoding, const char *fmt, ...)
+{
+	va_list ap;
+
+	va_start(ap, fmt);
+	ucstring_vprintf(s, encoding, fmt, ap);
+	va_end(ap);
 }
 
 de_ucstring *ucstring_clone(de_ucstring *src)

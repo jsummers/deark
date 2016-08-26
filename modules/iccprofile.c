@@ -234,7 +234,7 @@ static void typedec_desc(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 	if(pos >= pos1+len) goto done;
 
 	// Unicode localizable description
-	ucstring_truncate(s, 0);
+	ucstring_empty(s);
 
 	langcode = de_getui32be(pos);
 	pos += 4;
@@ -296,11 +296,11 @@ static void do_mluc_record(deark *c, lctx *d, de_int64 tagstartpos,
 
 	dbuf_read_to_ucstring(c->infile, pos, 2, s, 0, DE_ENCODING_ASCII);
 	de_dbg(c, "language code: '%s'\n", ucstring_get_printable_sz(s));
-	ucstring_truncate(s, 0);
+	ucstring_empty(s);
 
 	dbuf_read_to_ucstring(c->infile, pos+2, 2, s, 0, DE_ENCODING_ASCII);
 	de_dbg(c, "country code: '%s'\n", ucstring_get_printable_sz(s));
-	ucstring_truncate(s, 0);
+	ucstring_empty(s);
 
 	string_len = de_getui32be(pos+4);
 	string_offset = de_getui32be(pos+8);

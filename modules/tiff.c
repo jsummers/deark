@@ -822,10 +822,10 @@ static int read_tag_value_as_int64(deark *c, lctx *d, const struct taginfo *tg,
 	return 0;
 }
 
-static void format_double(dbuf *f, double val)
+static void format_double(de_ucstring *s, double val)
 {
 	// TODO: Formatting should be more intelligent
-	dbuf_printf(f, "%f", val);
+	ucstring_printf(s, DE_ENCODING_ASCII, "%f", val);
 }
 
 struct numeric_value {
@@ -837,7 +837,7 @@ struct numeric_value {
 // Do-it-all function for reading numeric values.
 // If dbglinebuf!=NULL, print a string representation of the value to it.
 static void read_numeric_value(deark *c, lctx *d, const struct taginfo *tg,
-	de_int64 value_index, struct numeric_value *nv, dbuf *dbglinedbuf)
+	de_int64 value_index, struct numeric_value *nv, de_ucstring *dbgline)
 {
 	int ret;
 	de_int64 offs;
@@ -865,11 +865,11 @@ static void read_numeric_value(deark *c, lctx *d, const struct taginfo *tg,
 		ret = read_tag_value_as_int64(c, d, tg, value_index, &nv->val_int64);
 		nv->val_double = (double)nv->val_int64;
 		nv->isvalid = ret;
-		if(dbglinedbuf) {
+		if(dbgline) {
 			if(nv->isvalid)
-				dbuf_printf(dbglinedbuf, "%" INT64_FMT, nv->val_int64);
+				ucstring_printf(dbgline, DE_ENCODING_UTF8, "%" INT64_FMT, nv->val_int64);
 			else
-				dbuf_puts(dbglinedbuf, "?");
+				ucstring_append_sz(dbgline, "?", DE_ENCODING_UTF8);
 		}
 		break;
 
@@ -891,8 +891,8 @@ static void read_numeric_value(deark *c, lctx *d, const struct taginfo *tg,
 				nv->isvalid = 0;
 				nv->val_double = 0.0;
 				nv->val_int64 = 0;
-				if(dbglinedbuf) {
-					dbuf_printf(dbglinedbuf, "%" INT64_FMT "/%" INT64_FMT, num, den);
+				if(dbgline) {
+					ucstring_printf(dbgline, DE_ENCODING_UTF8, "%" INT64_FMT "/%" INT64_FMT, num, den);
 				}
 
 			}
@@ -900,8 +900,8 @@ static void read_numeric_value(deark *c, lctx *d, const struct taginfo *tg,
 				nv->isvalid = 1;
 				nv->val_double = (double)num/(double)den;
 				nv->val_int64 = (de_int64)nv->val_double;
-				if(dbglinedbuf) {
-					format_double(dbglinedbuf, nv->val_double);
+				if(dbgline) {
+					format_double(dbgline, nv->val_double);
 				}
 			}
 		}
@@ -917,14 +917,14 @@ static void read_numeric_value(deark *c, lctx *d, const struct taginfo *tg,
 		}
 		nv->val_int64 = (de_int64)nv->val_double;
 		nv->isvalid = 1;
-		if(dbglinedbuf) {
-			format_double(dbglinedbuf, nv->val_double);
+		if(dbgline) {
+			format_double(dbgline, nv->val_double);
 		}
 		break;
 
 	default:
-		if(dbglinedbuf) {
-			dbuf_puts(dbglinedbuf, "?");
+		if(dbgline) {
+			ucstring_append_sz(dbgline, "?", DE_ENCODING_UTF8);
 		}
 	}
 }
@@ -1604,7 +1604,7 @@ done:
 }
 
 static void do_dbg_print_numeric_values(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni,
-	dbuf *dbglinedbuf)
+	de_ucstring *dbgline)
 {
 	de_int64 i;
 	struct valdec_params vp;
@@ -1624,7 +1624,7 @@ static void do_dbg_print_numeric_values(deark *c, lctx *d, const struct taginfo 
 		return; // Not a supported numeric datatype
 	}
 
-	dbuf_puts(dbglinedbuf, " {");
+	ucstring_append_sz(dbgline, " {", DE_ENCODING_UTF8);
 
 	// Populate the fields of vp/vr that don't change.
 	vp.d = d;
@@ -1632,7 +1632,7 @@ static void do_dbg_print_numeric_values(deark *c, lctx *d, const struct taginfo 
 	vr.buf_len = sizeof(vr.buf);
 
 	for(i=0; i<tg->valcount && i<DE_TIFF_MAX_VALUES_TO_PRINT; i++) {
-		read_numeric_value(c, d, tg, i, &nv, dbglinedbuf);
+		read_numeric_value(c, d, tg, i, &nv, dbgline);
 
 		// If possible, decode the value and print its name.
 		if(nv.isvalid && tni->vdfn) {
@@ -1642,22 +1642,22 @@ static void do_dbg_print_numeric_values(deark *c, lctx *d, const struct taginfo 
 			vr.buf[0] = '\0';
 
 			if(tni->vdfn(c, &vp, &vr)) {
-				dbuf_printf(dbglinedbuf, "(=%s)", vr.buf);
+				ucstring_printf(dbgline, DE_ENCODING_UTF8, "(=%s)", vr.buf);
 			}
 		}
 
 		if(i<tg->valcount-1) {
-			dbuf_puts(dbglinedbuf, ",");
+			ucstring_append_sz(dbgline, ",", DE_ENCODING_UTF8);
 		}
 	}
 	if(tg->valcount>DE_TIFF_MAX_VALUES_TO_PRINT) {
-		dbuf_puts(dbglinedbuf, "...");
+		ucstring_append_sz(dbgline, "...", DE_ENCODING_UTF8);
 	}
-	dbuf_puts(dbglinedbuf, "}");
+	ucstring_append_sz(dbgline, "}", DE_ENCODING_UTF8);
 }
 
 static void do_dbg_print_text_values(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni,
-	dbuf *dbglinedbuf)
+	de_ucstring *dbgline)
 {
 	de_ucstring *str = NULL;
 	de_int64 adjusted_total_size;
@@ -1691,7 +1691,7 @@ static void do_dbg_print_text_values(deark *c, lctx *d, const struct taginfo *tg
 		adjusted_total_size++;
 	}
 
-	dbuf_puts(dbglinedbuf, " {");
+	ucstring_append_sz(dbgline, " {", DE_ENCODING_UTF8);
 
 	str = ucstring_create(c);
 
@@ -1699,7 +1699,7 @@ static void do_dbg_print_text_values(deark *c, lctx *d, const struct taginfo *tg
 		de_int64 len;
 		const de_byte *tmpp;
 
-		ucstring_truncate(str, 0);
+		ucstring_empty(str);
 
 		// Find the NUL byte.
 		tmpp = (const de_byte*)de_memchr(&inputbuf[bytes_consumed], 0, (size_t)(adjusted_total_size-bytes_consumed));
@@ -1716,30 +1716,32 @@ static void do_dbg_print_text_values(deark *c, lctx *d, const struct taginfo *tg
 
 		bytes_consumed += len+1;
 
-		if(str_count>0) dbuf_puts(dbglinedbuf, ",");
-		dbuf_printf(dbglinedbuf, "\"%s\"", ucstring_get_printable_sz(str));
+		if(str_count>0) ucstring_append_sz(dbgline, ",", DE_ENCODING_UTF8);
+		ucstring_append_sz(dbgline, "\"", DE_ENCODING_UTF8);
+		ucstring_append_ucstring(dbgline, str);
+		ucstring_append_sz(dbgline, "\"", DE_ENCODING_UTF8);
 		str_count++;
 	}
 
 	if(is_truncated) {
-		dbuf_puts(dbglinedbuf, "...");
+		ucstring_append_sz(dbgline, "...", DE_ENCODING_UTF8);
 	}
-	dbuf_puts(dbglinedbuf, "}");
+	ucstring_append_sz(dbgline, "}", DE_ENCODING_UTF8);
 	ucstring_destroy(str);
 }
 
 static void do_dbg_print_values(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni,
-	dbuf *dbglinedbuf)
+	de_ucstring *dbgline)
 {
 	if(c->debug_level<1) return;
 	if(tni->flags&0x08) return; // Auto-display of values is suppressed for this tag.
 	if(tg->valcount<1) return;
 
 	if(tg->datatype==DATATYPE_ASCII) {
-		do_dbg_print_text_values(c, d, tg, tni, dbglinedbuf);
+		do_dbg_print_text_values(c, d, tg, tni, dbgline);
 	}
 	else {
-		do_dbg_print_numeric_values(c, d, tg, tni, dbglinedbuf);
+		do_dbg_print_numeric_values(c, d, tg, tni, dbgline);
 	}
 }
 
@@ -1795,10 +1797,9 @@ static void process_ifd(deark *c, lctx *d, de_int64 ifdpos, int ifdtype)
 	de_int64 jpegoffset = 0;
 	de_int64 jpeglength = -1;
 	de_int64 tmpoffset;
-	dbuf *dbglinedbuf = NULL;
+	de_ucstring *dbgline = NULL;
 	struct taginfo tg;
 	const char *name;
-	char tmpbuf[1024];
 	static const struct tagnuminfo default_tni = { 0, 0x00, "?", NULL, NULL };
 
 	// NOTE: Some TIFF apps (e.g. Windows Photo Viewer) have been observed to encode
@@ -1862,7 +1863,7 @@ static void process_ifd(deark *c, lctx *d, de_int64 ifdpos, int ifdtype)
 		push_ifd(c, d, tmpoffset, IFDTYPE_NORMAL);
 	}
 
-	dbglinedbuf = dbuf_create_membuf(c, 1024, 0);
+	dbgline = ucstring_create(c);
 
 	for(i=0; i<num_tags; i++) {
 		const struct tagnuminfo *tni;
@@ -1891,16 +1892,16 @@ static void process_ifd(deark *c, lctx *d, de_int64 ifdpos, int ifdtype)
 			tni = &default_tni; // Make sure tni is not NULL.
 		}
 
-		dbuf_empty(dbglinedbuf);
-		dbuf_printf(dbglinedbuf, "tag %d (%s) ty=%d #=%d offs=%" INT64_FMT,
+		ucstring_empty(dbgline);
+		ucstring_printf(dbgline, DE_ENCODING_UTF8,
+			"tag %d (%s) ty=%d #=%d offs=%" INT64_FMT,
 			tg.tagnum, tni->tagname,
 			tg.datatype, (int)tg.valcount,
 			tg.val_offset);
 
-		do_dbg_print_values(c, d, &tg, tni, dbglinedbuf);
+		do_dbg_print_values(c, d, &tg, tni, dbgline);
 
-		dbuf_copy_all_to_sz(dbglinedbuf, tmpbuf, sizeof(tmpbuf));
-		de_dbg(c, "%s\n", tmpbuf);
+		de_dbg(c, "%s\n", ucstring_get_printable_sz_n(dbgline, 1024));
 		de_dbg_indent(c, 1);
 
 		switch(tg.tagnum) {
@@ -1940,7 +1941,7 @@ static void process_ifd(deark *c, lctx *d, de_int64 ifdpos, int ifdtype)
 
 done:
 	de_dbg_indent(c, -1);
-	dbuf_close(dbglinedbuf);
+	ucstring_destroy(dbgline);
 }
 
 static void do_tiff(deark *c, lctx *d)

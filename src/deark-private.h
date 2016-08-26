@@ -411,7 +411,8 @@ void dbuf_writeui32le(dbuf *f, de_int64 n);
 // Write a NUL-terminated string to a file
 void dbuf_puts(dbuf *f, const char *sz);
 
-void dbuf_printf(dbuf *f, const char *fmt, ...);
+void dbuf_printf(dbuf *f, const char *fmt, ...)
+  de_gnuc_attribute ((format (printf, 2, 3)));
 
 // Read a slice of one dbuf, and append it to another dbuf.
 void dbuf_copy(dbuf *inf, de_int64 input_offset, de_int64 input_len, dbuf *outf);
@@ -610,11 +611,14 @@ de_int32 de_char_to_valid_fn_char(deark *c, de_int32 c1);
 de_ucstring *ucstring_create(deark *c);
 de_ucstring *ucstring_clone(de_ucstring *src);
 void ucstring_destroy(de_ucstring *s);
+void ucstring_empty(de_ucstring *s);
 void ucstring_truncate(de_ucstring *s, de_int64 newlen);
 void ucstring_truncate_at_NUL(de_ucstring *s);
 void ucstring_strip_trailing_NUL(de_ucstring *s);
 void ucstring_append_char(de_ucstring *s, de_int32 ch);
 void ucstring_append_ucstring(de_ucstring *s1, const de_ucstring *s2);
+void ucstring_printf(de_ucstring *s, int encoding, const char *fmt, ...)
+  de_gnuc_attribute ((format (printf, 3, 4)));
 
 // Convert and append an encoded array of bytes to the string.
 void ucstring_append_bytes(de_ucstring *s, const de_byte *buf, de_int64 buflen, unsigned int conv_flags, int encoding);

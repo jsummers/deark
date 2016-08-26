@@ -338,7 +338,7 @@ static void hrsrc_namesofalphachannels(deark *c, lctx *d, const struct rsrc_info
 	endpos = pos1+len;
 	s = ucstring_create(c);
 	while(pos<(endpos-1)) {
-		ucstring_truncate(s, 0);
+		ucstring_empty(s);
 		read_pascal_string_to_ucstring(c->infile, pos, endpos-pos, s, &bytes_consumed);
 		de_dbg(c, "name[%d]: \"%s\"\n", (int)idx, ucstring_get_printable_sz_n(s, 300));
 		idx++;
@@ -923,7 +923,7 @@ static int do_slices_resource_block(deark *c, lctx *d, de_int64 slice_idx, de_in
 		de_dbg(c, "name: \"%s\"\n", ucstring_get_printable_sz(s));
 	}
 	pos += bytes_consumed2;
-	ucstring_truncate(s, 0);
+	ucstring_empty(s);
 
 	slice_type = dbuf_getui32x(c->infile, pos, d->is_le);
 	de_dbg(c, "type: %d\n", (int)slice_type);
@@ -934,25 +934,25 @@ static int do_slices_resource_block(deark *c, lctx *d, de_int64 slice_idx, de_in
 
 	read_unicode_string(c, d, c->infile, s, pos, endpos-pos, &bytes_consumed2); // URL
 	pos += bytes_consumed2;
-	ucstring_truncate(s, 0);
+	ucstring_empty(s);
 
 	read_unicode_string(c, d, c->infile, s, pos, endpos-pos, &bytes_consumed2); // Target
 	pos += bytes_consumed2;
-	ucstring_truncate(s, 0);
+	ucstring_empty(s);
 
 	read_unicode_string(c, d, c->infile, s, pos, endpos-pos, &bytes_consumed2); // Message
 	pos += bytes_consumed2;
-	ucstring_truncate(s, 0);
+	ucstring_empty(s);
 
 	read_unicode_string(c, d, c->infile, s, pos, endpos-pos, &bytes_consumed2); // Alt Tag
 	pos += bytes_consumed2;
-	ucstring_truncate(s, 0);
+	ucstring_empty(s);
 
 	pos += 1; // Flag: Cell text is HTML
 
 	read_unicode_string(c, d, c->infile, s, pos, endpos-pos, &bytes_consumed2); // Cell text
 	pos += bytes_consumed2;
-	ucstring_truncate(s, 0);
+	ucstring_empty(s);
 
 	pos += 4; // Horizontal alignment
 	pos += 4; // Horizontal alignment
@@ -1149,7 +1149,7 @@ static void hrsrc_urllist(deark *c, lctx *d, const struct rsrc_info *ri,
 		de_dbg(c, "URL[%d]: '%s', id=%d, value=\"%s\"\n", (int)i,
 			url4cc.id_printable, (int)id, ucstring_get_printable_sz(s));
 		pos += bytes_consumed;
-		ucstring_truncate(s, 0);
+		ucstring_empty(s);
 	}
 
 	ucstring_destroy(s);
@@ -1179,7 +1179,7 @@ static void hrsrc_versioninfo(deark *c, lctx *d, const struct rsrc_info *ri,
 	de_dbg(c, "writer name: \"%s\"\n", ucstring_get_printable_sz(s));
 	pos += bytes_consumed;
 
-	ucstring_truncate(s, 0);
+	ucstring_empty(s);
 	read_unicode_string(c, d, c->infile, s, pos, endpos-pos, &bytes_consumed);
 	de_dbg(c, "reader name: \"%s\"\n", ucstring_get_printable_sz(s));
 	pos += bytes_consumed;
@@ -1609,7 +1609,7 @@ static int do_one_linked_layer(deark *c, lctx *d, de_int64 pos1, de_int64 bytes_
 	de_dbg(c, "unique id: \"%s\"\n", ucstring_get_printable_sz(s));
 	pos += bytes_consumed2;
 
-	ucstring_truncate(s, 0);
+	ucstring_empty(s);
 	read_unicode_string(c, d, c->infile, s, pos, endpos-pos, &bytes_consumed2);
 
 	de_dbg(c, "original file name: \"%s\"\n", ucstring_get_printable_sz(s));
