@@ -12,6 +12,7 @@ DE_DECLARE_MODULE(de_module_psd);
 #define CODE_8B64 0x38423634U
 #define CODE_8BIM 0x3842494dU
 #define CODE_Alph 0x416c7068U
+#define CODE_Enmr 0x456e6d72U
 #define CODE_FEid 0x46456964U
 #define CODE_FMsk 0x464d736bU
 #define CODE_FXid 0x46586964U
@@ -53,6 +54,7 @@ DE_DECLARE_MODULE(de_module_psd);
 #define CODE_lspf 0x6c737066U
 #define CODE_luni 0x6c756e69U
 #define CODE_lyid 0x6c796964U
+#define CODE_obj  0x6f626a20U
 #define CODE_shmd 0x73686d64U
 #define CODE_tdta 0x74647461U
 
@@ -697,6 +699,89 @@ done:
 	return retval;
 }
 
+static int do_enumerated_reference(deark *c, lctx *d, de_int64 pos1, de_int64 bytes_avail,
+	de_int64 *bytes_consumed)
+{
+	de_ucstring *tmps;
+	de_int64 pos = pos1;
+	de_int64 bytes_consumed2;
+	struct flexible_id flid;
+
+	tmps = ucstring_create(c);
+	read_unicode_string(c, d, tmps, pos, bytes_avail, &bytes_consumed2);
+	de_dbg(c, "name from classID: \"%s\"\n", ucstring_get_printable_sz_n(tmps, 300));
+	pos += bytes_consumed2;
+
+	read_flexible_id(c, d, pos, &flid);
+	dbg_print_flexible_id(c, d, &flid, "classID");
+	pos += flid.bytes_consumed;
+	flexible_id_free_contents(c, &flid);
+
+	read_flexible_id(c, d, pos, &flid);
+	dbg_print_flexible_id(c, d, &flid, "typeID");
+	pos += flid.bytes_consumed;
+	flexible_id_free_contents(c, &flid);
+
+	read_flexible_id(c, d, pos, &flid);
+	dbg_print_flexible_id(c, d, &flid, "enum");
+	pos += flid.bytes_consumed;
+	flexible_id_free_contents(c, &flid);
+
+	*bytes_consumed = pos-pos1;
+	return 1;
+}
+
+// "Reference structure"
+static int do_item_type_obj(deark *c, lctx *d, de_int64 pos1, de_int64 bytes_avail,
+	de_int64 *bytes_consumed)
+{
+	de_int64 num_items;
+	de_int64 i;
+	de_int64 pos, endpos;
+	de_int64 bytes_consumed2;
+	int retval = 0;
+	int indent_count = 0;
+
+	pos = pos1;
+	endpos = pos1+bytes_avail;
+
+	num_items = psd_getui32(pos1);
+	de_dbg(c, "number of items in reference: %d\n", (int)num_items);
+	pos += 4;
+
+	for(i=0; i<num_items; i++) {
+		struct de_fourcc type4cc;
+
+		if(pos>=endpos) goto done;
+		dbuf_read_fourcc(c->infile, pos, &type4cc, d->is_le);
+		de_dbg(c, "reference item[%d] '%s' at %d\n", (int)i, type4cc.id_printable, (int)pos);
+		pos += 4;
+
+		de_dbg_indent(c, 1);
+		indent_count++;
+
+		switch(type4cc.id) {
+		case CODE_Enmr:
+			if(!do_enumerated_reference(c, d, pos, endpos-pos, &bytes_consumed2))
+				goto done;
+			pos += bytes_consumed2;
+			break;
+		default:
+			// TODO: 'prop', 'Clss', 'rele', 'Idnt', 'indx', 'name'
+			goto done;
+		}
+
+		de_dbg_indent(c, -1);
+		indent_count--;
+	}
+
+	*bytes_consumed = pos-pos1;
+	retval = 1;
+done:
+	de_dbg_indent(c, -indent_count);
+	return retval;
+}
+
 // key_flid is relevant "key" identifier.
 static int do_descriptor_item_ostype_and_data(deark *c, lctx *d,
 	const struct flexible_id *key_flid,
@@ -756,12 +841,17 @@ static int do_descriptor_item_ostype_and_data(deark *c, lctx *d,
 		pos += bytes_consumed2;
 		if(!ret) goto done;
 		break;
+	case CODE_obj:
+		ret = do_item_type_obj(c, d, pos, endpos-pos, &bytes_consumed2);
+		pos += bytes_consumed2;
+		if(!ret) goto done;
+		break;
 	case CODE_tdta:
 		ret = do_item_type_tdta(c, d, key_flid, pos, endpos-pos, &bytes_consumed2);
 		pos += bytes_consumed2;
 		if(!ret) goto done;
 		break;
-		// TODO: 'obj ', 'type', 'GlbC', 'alis', 'tdta'
+		// TODO: 'type', 'GlbC', 'alis'
 		// TODO: 'Pth ', 'ObAr', 'UnFl' (undocumented types)
 	default:
 		goto done;
@@ -987,7 +1077,7 @@ static void do_slices_v6(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 	endpos = pos1+len;
 	pos += 4; // version (already read)
 	do_dbg_rectangle_tlbr(c, d, pos, "bounding rectangle");
-	pos += 16; // bounding rectangle
+	pos += 16;
 	if(pos > endpos) goto done;
 
 	name_of_group_of_slices = ucstring_create(c);
@@ -1378,19 +1468,31 @@ static int do_layer_record(deark *c, lctx *d, de_int64 pos1,
 	de_int64 extra_data_endpos;
 	struct de_fourcc tmp4cc;
 	de_int64 bytes_consumed2;
+	de_int64 x;
+	de_byte b;
+	int i;
 
 	int retval = 0;
 
 	endpos = pos1+bytes_avail;
 	pos = pos1;
 
-	pos += 16; // rectangle
+	do_dbg_rectangle_tlbr(c, d, pos, "bounding rectangle");
+	pos += 16;
 
 	nchannels = psd_getui16(pos);
 	de_dbg(c, "number of channels: %d\n", (int)nchannels);
 	pos += 2;
 
-	pos += (2+d->intsize_4or8)*nchannels;
+	for(i=0; i<nchannels; i++) {
+		x = psd_geti16(pos);
+		de_dbg(c, "channel[%d] id: %d\n", (int)i, (int)x);
+		pos+=2;
+
+		x = psd_getui32or64(c, d, pos);
+		de_dbg(c, "channel[%d] data length: %"INT64_FMT"\n", (int)i, x);
+		pos += d->intsize_4or8;
+	}
 
 	dbuf_read_fourcc(c->infile, pos, &tmp4cc, d->is_le);
 	if(tmp4cc.id != CODE_8BIM) {
@@ -1401,11 +1503,17 @@ static int do_layer_record(deark *c, lctx *d, de_int64 pos1,
 
 	dbuf_read_fourcc(c->infile, pos, &tmp4cc, d->is_le);
 	de_dbg(c, "blend mode: '%s'\n", tmp4cc.id_printable);
-	pos += 4; // blend mode key
+	pos += 4;
 
-	pos += 1; // opacity
-	pos += 1; // clipping
-	pos += 1; // flags
+	b = de_getbyte(pos++);
+	de_dbg(c, "opacity: %d\n", (int)b);
+
+	b = de_getbyte(pos++);
+	de_dbg(c, "clipping: %d\n", (int)b);
+
+	b = de_getbyte(pos++);
+	de_dbg(c, "flags: 0x%02x\n", (unsigned int)b);
+
 	pos += 1; // filler
 
 	extra_data_len = psd_getui32(pos);
