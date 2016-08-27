@@ -127,7 +127,7 @@ static de_uint32 getpal256(unsigned int k)
 	else if(k<=229) {
 		// next 214 entries
 		x = k-15;
-		r = (x/36)*0x33;
+		r = (de_byte)((x/36)*0x33);
 		g = ((x%36)/6)*0x33;
 		b = (x%6)*0x33;
 		return DE_MAKE_RGB(r,g,b);

@@ -338,11 +338,7 @@ static int de_identify_nsl(deark *c)
 	if(de_input_file_has_ext(c, "nsl")) {
 		return 100;
 	}
-	else {
-		return 10;
-	}
-
-	return 0;
+	return 10;
 }
 
 void de_module_nsl(deark *c, struct deark_module_info *mi)

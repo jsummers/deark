@@ -52,7 +52,7 @@ static void process_line(deark *c, lctx *d, de_int64 file_pos, de_int64 mem_pos,
 		(int)mem_pos, (int)line_size);
 	pos += 2;
 
-	dbuf_printf(d->outf, "%d ", line_num);
+	dbuf_printf(d->outf, "%d ", (int)line_num);
 
 	while(pos < file_pos+line_size) {
 		b = de_getbyte(pos);

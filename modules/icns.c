@@ -111,7 +111,7 @@ static de_uint32 getpal256(int k)
 	if(k<0 || k>255) return 0;
 	if(k<=214) {
 		// The first 215 palette entries follow a simple pattern.
-		r = (5-k/36)*0x33;
+		r = (de_byte)((5-k/36)*0x33);
 		g = (5-(k%36)/6)*0x33;
 		b = (5-k%6)*0x33;
 		return DE_MAKE_RGB(r,g,b);

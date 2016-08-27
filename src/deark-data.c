@@ -188,18 +188,18 @@ void de_uchar_to_utf8(de_int32 u1, de_byte *utf8buf, de_int64 *p_utf8len)
 	}
 	else if(u>=0x80 && u<=0x7ff) {
 		*p_utf8len = 2;
-		utf8buf[0] = 0xc0 | (u>>6);
+		utf8buf[0] = 0xc0 | (de_byte)(u>>6);
 		utf8buf[1] = 0x80 | (u&0x3f);
 	}
 	else if(u>=0x800 && u<=0xffff) {
 		*p_utf8len = 3;
-		utf8buf[0] = 0xe0 | (u>>12);
+		utf8buf[0] = 0xe0 | (de_byte)(u>>12);
 		utf8buf[1] = 0x80 | ((u>>6)&0x3f);
 		utf8buf[2] = 0x80 | (u&0x3f);
 	}
 	else {
 		*p_utf8len = 4;
-		utf8buf[0] = 0xf0 | (u>>18);
+		utf8buf[0] = 0xf0 | (de_byte)(u>>18);
 		utf8buf[1] = 0x80 | ((u>>12)&0x3f);
 		utf8buf[2] = 0x80 | ((u>>6)&0x3f);
 		utf8buf[3] = 0x80 | (u&0x3f);

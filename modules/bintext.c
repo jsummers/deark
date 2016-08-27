@@ -383,7 +383,7 @@ static void de_run_bintext(deark *c, de_module_params *mparams)
 	struct de_SAUCE_detection_data sdd;
 	struct de_SAUCE_info *si = NULL;
 	dbuf *unc_data = NULL;
-	de_int64 effective_file_size;
+	de_int64 effective_file_size = 0;
 	int valid_sauce = 0;
 	const char *s;
 	de_int64 width_req = 0;

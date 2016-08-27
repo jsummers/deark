@@ -21,7 +21,7 @@ static de_byte get_char_value(de_byte b)
 		"!\"#$%&'()*+,-012345689@ABCDEFGHIJKLMNPQRSTUVXYZ[`abcdefhijklmpqr";
 
 	for(k=0; k<64; k++) {
-		if(b==binhexchars[k]) return k;
+		if(b==binhexchars[k]) return (de_byte)k;
 	}
 	return 255;
 }

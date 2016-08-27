@@ -37,7 +37,7 @@ static de_uint32 getpal256(int k)
 	x = k<108 ? k : k-40;
 	r = (x%6)*0x33;
 	g = ((x%36)/6)*0x33;
-	b = (x/36)*0x33;
+	b = (de_byte)((x/36)*0x33);
 
 	return DE_MAKE_RGB(r,g,b);
 }
