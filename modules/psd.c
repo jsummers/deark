@@ -1576,7 +1576,6 @@ static int do_layer_info_section(deark *c, lctx *d, de_int64 pos1,
 	struct channel_data *cd = NULL;
 
 	*bytes_consumed = 0;
-	endpos = pos1+bytes_avail;
 	pos = pos1;
 	if(bytes_avail<4) goto done;
 
@@ -1593,6 +1592,13 @@ static int do_layer_info_section(deark *c, lctx *d, de_int64 pos1,
 	else {
 		layer_info_len = bytes_avail;
 		*bytes_consumed = layer_info_len;
+	}
+	retval = 1;
+	endpos = pos1 + *bytes_consumed;
+
+	if(pos>=endpos) {
+		// If the length field is 0, it's legal for this section to end here.
+		goto done;
 	}
 
 	layer_count_raw = psd_geti16(pos);
@@ -1627,7 +1633,6 @@ static int do_layer_info_section(deark *c, lctx *d, de_int64 pos1,
 	de_dbg(c, "channel image data records at %d, count=%d, total len=%"INT64_FMT"\n",
 		(int)pos, (int)cd->num_channels, cd->total_len);
 
-	retval = 1;
 done:
 	de_dbg_indent(c, -indent_count);
 	de_free(c, cd);
@@ -2138,7 +2143,7 @@ static int do_layer_and_mask_info_section(deark *c, lctx *d, de_int64 pos1, de_i
 	de_dbg_indent(c, 1);
 
 	layer_and_mask_info_section_len = psd_getui32or64(c, d, pos);
-	de_dbg(c, "layer & mask info section total data size: %d\n", (int)layer_and_mask_info_section_len);
+	de_dbg(c, "layer & mask info section total data len: %d\n", (int)layer_and_mask_info_section_len);
 	pos += d->intsize_4or8;
 	if(pos + layer_and_mask_info_section_len > c->infile->len) {
 		de_err(c, "Unexpected end of PSD file\n");
@@ -2345,7 +2350,7 @@ static void de_run_psd(deark *c, de_module_params *mparams)
 
 	imgdata_len = c->infile->len - pos;
 	if(imgdata_len>0) {
-		de_dbg(c, "image data at %d, expected size=%d\n", (int)pos, (int)imgdata_len);
+		de_dbg(c, "image data at %d, expected len=%d\n", (int)pos, (int)imgdata_len);
 	}
 
 done:
