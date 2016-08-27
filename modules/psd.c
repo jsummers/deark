@@ -98,6 +98,7 @@ DECLARE_HRSRC(hrsrc_byte);
 DECLARE_HRSRC(hrsrc_uint16);
 DECLARE_HRSRC(hrsrc_uint32);
 DECLARE_HRSRC(hrsrc_unicodestring);
+DECLARE_HRSRC(hrsrc_plaintext);
 DECLARE_HRSRC(hrsrc_urllist);
 DECLARE_HRSRC(hrsrc_versioninfo);
 DECLARE_HRSRC(hrsrc_printscale);
@@ -140,7 +141,7 @@ static const struct rsrc_info rsrc_info_arr[] = {
 	{ 0x0408, 0, "Grid and guides info", NULL },
 	{ 0x0409, 0, "Thumbnail - Photoshop 4.0", hrsrc_thumbnail },
 	{ 0x040a, 0, "Copyright flag", hrsrc_byte },
-	{ 0x040b, 0, "URL", NULL },
+	{ 0x040b, 0, "URL", hrsrc_plaintext },
 	{ 0x040c, 0, "Thumbnail", hrsrc_thumbnail },
 	{ 0x040d, 0, "Global Angle", hrsrc_uint32 },
 	{ 0x040e, 0, "Color samplers resource (Photoshop 5.0)", NULL },
@@ -234,7 +235,7 @@ static void do_dbg_rectangle_tlbr(deark *c, lctx *d, de_int64 pos, const char *n
 	de_int64 n[4];
 	de_int64 k;
 	for(k=0; k<4; k++) {
-		n[k] = psd_getui32(pos+4*k);
+		n[k] = psd_geti32(pos+4*k);
 	}
 	de_dbg(c, "%s: (%d,%d)-(%d,%d)\n", name, (int)n[1], (int)n[0], (int)n[3], (int)n[2]);
 }
@@ -245,7 +246,7 @@ static void do_dbg_rectangle_ltrb(deark *c, lctx *d, de_int64 pos, const char *n
 	de_int64 n[4];
 	de_int64 k;
 	for(k=0; k<4; k++) {
-		n[k] = psd_getui32(pos+4*k);
+		n[k] = psd_geti32(pos+4*k);
 	}
 	de_dbg(c, "%s: (%d,%d)-(%d,%d)\n", name, (int)n[0], (int)n[1], (int)n[2], (int)n[3]);
 }
@@ -1211,6 +1212,18 @@ static void hrsrc_unicodestring(deark *c, lctx *d, const struct rsrc_info *ri,
 
 	s = ucstring_create(c);
 	read_unicode_string(c, d, s, pos, len, &bytes_consumed);
+	de_dbg(c, "%s: \"%s\"\n", ri->idname, ucstring_get_printable_sz(s));
+	ucstring_destroy(s);
+}
+
+// Raw byte-oriented text
+static void hrsrc_plaintext(deark *c, lctx *d, const struct rsrc_info *ri,
+	de_int64 pos, de_int64 len)
+{
+	de_ucstring *s = NULL;
+
+	s = ucstring_create(c);
+	dbuf_read_to_ucstring_n(c->infile, pos, len, 300, s, 0, DE_ENCODING_MACROMAN);
 	de_dbg(c, "%s: \"%s\"\n", ri->idname, ucstring_get_printable_sz(s));
 	ucstring_destroy(s);
 }
