@@ -1458,8 +1458,14 @@ static void do_layer_name(deark *c, lctx *d, de_int64 pos,
 
 static void do_tagged_blocks(deark *c, lctx *d, de_int64 pos1, de_int64 len);
 
+struct channel_data {
+	de_int64 num_channels;
+	de_int64 total_len;
+};
+
 static int do_layer_record(deark *c, lctx *d, de_int64 pos1,
-	de_int64 bytes_avail, de_int64 *bytes_consumed)
+	de_int64 bytes_avail, de_int64 *bytes_consumed,
+	struct channel_data *cd)
 {
 	de_int64 pos;
 	de_int64 endpos;
@@ -1491,6 +1497,8 @@ static int do_layer_record(deark *c, lctx *d, de_int64 pos1,
 
 		x = psd_getui32or64(c, d, pos);
 		de_dbg(c, "channel[%d] data length: %"INT64_FMT"\n", (int)i, x);
+		cd->num_channels++;
+		cd->total_len += x;
 		pos += d->intsize_4or8;
 	}
 
@@ -1565,6 +1573,7 @@ static int do_layer_info_section(deark *c, lctx *d, de_int64 pos1,
 	int indent_count = 0;
 	int merged_result_flag;
 	de_int64 layer_idx;
+	struct channel_data *cd = NULL;
 
 	*bytes_consumed = 0;
 	endpos = pos1+bytes_avail;
@@ -1599,19 +1608,29 @@ static int do_layer_info_section(deark *c, lctx *d, de_int64 pos1,
 	de_dbg(c, "layer count: %d\n", (int)layer_count);
 	de_dbg(c, "merged result flag: %d\n", (int)merged_result_flag);
 
+	// Due to the recursive possibilities of PSD format, it would probably
+	// be a bad idea to store this channel information in the 'd' struct.
+	// Instead, we'll use a local variable.
+	cd = de_malloc(c, sizeof(struct channel_data));
+	cd->num_channels = 0;
+	cd->total_len = 0;
+
 	for(layer_idx=0; layer_idx<layer_count; layer_idx++) {
 		de_dbg(c, "layer record[%d] at %d\n", (int)layer_idx, (int)pos);
 		de_dbg_indent(c, 1);
-		if(!do_layer_record(c, d, pos, endpos-pos, &bytes_consumed_layer)) goto done;
+		if(!do_layer_record(c, d, pos, endpos-pos, &bytes_consumed_layer, cd))
+			goto done;
 		pos += bytes_consumed_layer;
 		de_dbg_indent(c, -1);
 	}
 
-	de_dbg(c, "channel image data record(s) at %d\n", (int)pos);
+	de_dbg(c, "channel image data records at %d, count=%d, total len=%"INT64_FMT"\n",
+		(int)pos, (int)cd->num_channels, cd->total_len);
 
 	retval = 1;
 done:
 	de_dbg_indent(c, -indent_count);
+	de_free(c, cd);
 	return retval;
 }
 
