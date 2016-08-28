@@ -30,6 +30,9 @@ DE_DECLARE_MODULE(de_module_psd);
 #define CODE_Mtrn 0x4d74726eU
 #define CODE_ObAr 0x4f624172U
 #define CODE_Objc 0x4f626a63U
+#define CODE_Pat2 0x50617432U
+#define CODE_Pat3 0x50617433U
+#define CODE_Patt 0x50617474U
 #define CODE_PtFl 0x5074466cU
 #define CODE_PxSD 0x50785344U
 #define CODE_PxSc 0x50785363U
@@ -69,6 +72,7 @@ DE_DECLARE_MODULE(de_module_psd);
 #define CODE_pths 0x70746873U
 #define CODE_shmd 0x73686d64U
 #define CODE_tdta 0x74647461U
+#define CODE_tySh 0x74795368U
 #define CODE_vibA 0x76696241U
 #define CODE_vogk 0x766f676bU
 #define CODE_vscg 0x76736367U
@@ -1930,6 +1934,70 @@ static void do_lnk2_block(deark *c, lctx *d, de_int64 pos1, de_int64 len, const 
 	}
 }
 
+static void do_Patt_block(deark *c, lctx *d, de_int64 pos1, de_int64 len, const struct de_fourcc *blk4cc)
+{
+	de_int64 ver;
+	de_int64 pos = pos1;
+	de_int64 endpos;
+	de_int64 pattern_idx;
+	int indent_count = 0;
+	de_ucstring *tmps = NULL;
+	de_int64 bytes_consumed2;
+
+	endpos = pos1+len;
+
+	tmps = ucstring_create(c);
+
+	pattern_idx = 0;
+	while(1) {
+		de_int64 pat_data_pos;
+		de_int64 pat_data_len;
+
+		if(pos+16 > endpos) break;
+
+		de_dbg(c, "pattern[%d] at %d\n", (int)pattern_idx, (int)pos);
+		de_dbg_indent(c, 1);
+		indent_count++;
+
+		pat_data_len = psd_getui32(pos);
+		de_dbg(c, "length: %d\n", (int)pat_data_len);
+		pos += 4;
+
+		pat_data_pos = pos;
+
+		ver = psd_getui32(pos);
+		de_dbg(c, "version: %d\n", (int)ver);
+		if(ver!=1) goto done;
+		pos += 4;
+
+		pos += 4; // image mode
+		pos += 2+2; // point
+
+		ucstring_empty(tmps);
+		read_unicode_string(c, d, tmps, pos, endpos-pos, &bytes_consumed2);
+		de_dbg(c, "name: \"%s\"\n", ucstring_get_printable_sz_n(tmps, 300));
+		pos += bytes_consumed2;
+
+		ucstring_empty(tmps);
+		read_pascal_string_to_ucstring(c, d, pos, endpos-pos, tmps, &bytes_consumed2);
+		de_dbg(c, "id: \"%s\"\n", ucstring_get_printable_sz_n(tmps, 300));
+		pos += bytes_consumed2;
+
+		// TODO: There are more fields here.
+
+		// TODO: I haven't found any files with multiple patterns, so this has not
+		// been tested.
+		pos = pat_data_pos + pat_data_len;
+		de_dbg_indent(c, -1);
+		indent_count--;
+		pattern_idx++;
+	}
+
+done:
+	ucstring_destroy(tmps);
+	de_dbg_indent(c, -indent_count);
+}
+
 static void do_lrFX_block(deark *c, lctx *d, de_int64 pos1, de_int64 len, const struct de_fourcc *blk4cc)
 {
 	de_int64 ver;
@@ -2049,20 +2117,28 @@ static void do_lfx2_block(deark *c, lctx *d, de_int64 pos, de_int64 len, const s
 	do_descriptor_block(c, d, pos+4, len-4, blk4cc, "object-based effects layer info");
 }
 
+// Handles 'TySh' and 'tySh'
 static void do_TySh_block(deark *c, lctx *d, de_int64 pos1, de_int64 len, const struct de_fourcc *blk4cc)
 {
 	de_int64 pos, endpos;
-	de_int64 ver;
+	de_int64 ver, textver;
 	de_int64 bytes_consumed2;
 
 	endpos = pos1+len;
 	pos = pos1;
 
 	ver = psd_getui16(pos);
+	de_dbg(c, "version: %d\n", (int)ver);
 	if(ver!=1) goto done;
 	pos += 2;
 
 	pos += 6*8; // transform
+
+	textver = psd_getui16(pos);
+	de_dbg(c, "text version: %d\n", (int)textver);
+	// For 'tySh', textver should be 6 -- TODO
+	// For 'TySh', textver should be 50
+	if(textver!=50) goto done;
 	pos += 2; // text version
 
 	if(!read_descriptor(c, d, pos, endpos-pos, 1, " (for type tool object setting - text)", &bytes_consumed2)) {
@@ -2208,6 +2284,11 @@ static int do_tagged_block(deark *c, lctx *d, de_int64 pos, de_int64 bytes_avail
 	case CODE_lnk3:
 		do_lnk2_block(c, d, dpos, blklen, &blk4cc);
 		break;
+	case CODE_Patt:
+	case CODE_Pat2:
+	case CODE_Pat3:
+		do_Patt_block(c, d, dpos, blklen, &blk4cc);
+		break;
 	case CODE_lrFX:
 		do_lrFX_block(c, d, dpos, blklen, &blk4cc);
 		break;
@@ -2268,6 +2349,7 @@ static int do_tagged_block(deark *c, lctx *d, de_int64 pos, de_int64 bytes_avail
 		do_text_engine_data(c, d, dpos, blklen);
 		break;
 	case CODE_TySh:
+	case CODE_tySh:
 		do_TySh_block(c, d, dpos, blklen, &blk4cc);
 		break;
 	case CODE_SoLd:
