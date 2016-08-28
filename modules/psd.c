@@ -27,13 +27,16 @@ DE_DECLARE_MODULE(de_module_psd);
 #define CODE_Mt16 0x4d743136U
 #define CODE_Mt32 0x4d743332U
 #define CODE_Mtrn 0x4d74726eU
+#define CODE_ObAr 0x4f624172U
 #define CODE_Objc 0x4f626a63U
 #define CODE_PtFl 0x5074466cU
 #define CODE_PxSD 0x50785344U
 #define CODE_SoCo 0x536f436fU
+#define CODE_SoLd 0x536f4c64U
 #define CODE_TEXT 0x54455854U
 #define CODE_Txt2 0x54787432U
 #define CODE_TySh 0x54795368U
+#define CODE_UnFl 0x556e466cU
 #define CODE_UntF 0x556e7446U
 #define CODE_VlLs 0x566c4c73U
 #define CODE_bool 0x626f6f6cU
@@ -54,6 +57,7 @@ DE_DECLARE_MODULE(de_module_psd);
 #define CODE_lspf 0x6c737066U
 #define CODE_luni 0x6c756e69U
 #define CODE_lyid 0x6c796964U
+#define CODE_name 0x6e616d65U
 #define CODE_obj  0x6f626a20U
 #define CODE_shmd 0x73686d64U
 #define CODE_tdta 0x74647461U
@@ -565,6 +569,27 @@ static void do_item_type_UntF(deark *c, lctx *d, de_int64 pos1, de_int64 bytes_a
 	*bytes_consumed = 12;
 }
 
+// Undocumented UnFl descriptor item type
+static void do_item_type_UnFl(deark *c, lctx *d, de_int64 pos1, de_int64 bytes_avail,
+	de_int64 *bytes_consumed)
+{
+	de_int64 count;
+	struct de_fourcc unit4cc;
+	de_int64 pos = pos1;
+
+	dbuf_read_fourcc(c->infile, pos, &unit4cc, d->is_le);
+	de_dbg(c, "units code: '%s'\n", unit4cc.id_printable);
+	pos += 4;
+
+	count = psd_getui32(pos);
+	de_dbg(c, "count: %d\n", (int)count);
+	pos += 4;
+
+	pos += count*8; // TODO: [what we assume is a] float array
+
+	*bytes_consumed = pos-pos1;
+}
+
 static void do_text_engine_data(deark *c, lctx *d, de_int64 pos, de_int64 len)
 {
 	if(len<1) return;
@@ -681,10 +706,8 @@ done:
 static int read_descriptor(deark *c, lctx *d, de_int64 pos1,
 	de_int64 bytes_avail, int has_version, const char *dscrname, de_int64 *bytes_consumed);
 
-// The PSD spec calls this type "Descriptor" (or "Descriptor structure")
-// (not "Enumerated descriptor").
-static int do_item_type_Objc(deark *c, lctx *d, de_int64 pos1, de_int64 bytes_avail,
-	de_int64 *bytes_consumed)
+static int do_item_type_descriptor(deark *c, lctx *d, de_int64 pos1, de_int64 bytes_avail,
+	int has_version, de_int64 *bytes_consumed)
 {
 	int retval = 0;
 
@@ -693,12 +716,38 @@ static int do_item_type_Objc(deark *c, lctx *d, de_int64 pos1, de_int64 bytes_av
 	if(d->nesting_level>MAX_NESTING_LEVEL) goto done;
 
 	// This descriptor contains a descriptor. We have to go deeper.
-	retval = read_descriptor(c, d, pos1, bytes_avail, 0, "", bytes_consumed);
+	retval = read_descriptor(c, d, pos1, bytes_avail, has_version, "", bytes_consumed);
 
 done:
 	d->nesting_level--;
 	return retval;
 }
+
+#if 0
+static int do_item_type_ObAr(deark *c, lctx *d, de_int64 pos1, de_int64 bytes_avail,
+	de_int64 *bytes_consumed)
+{
+	de_int64 bytes_consumed2;
+	int retval = 0;
+	de_int64 pos, endpos;
+	int ret;
+
+	de_dbg(c, "tmp\n"); // FIXME
+	pos = pos1;
+	endpos = pos1+bytes_avail;
+
+	ret = read_descriptor(c, d, pos, endpos-pos, 1, " (undocumented ObAr #1)", &bytes_consumed2);
+	if(!ret) goto done;
+	pos += bytes_consumed2;
+
+	de_dbg(c, "pos=%d\n", (int)pos); // FIXME
+	*bytes_consumed = pos-pos1;
+	retval = 1;
+	//*bytes_consumed = 31;
+done:
+	return retval;
+}
+#endif
 
 static int do_enumerated_reference(deark *c, lctx *d, de_int64 pos1, de_int64 bytes_avail,
 	de_int64 *bytes_consumed)
@@ -727,6 +776,36 @@ static int do_enumerated_reference(deark *c, lctx *d, de_int64 pos1, de_int64 by
 	dbg_print_flexible_id(c, d, &flid, "enum");
 	pos += flid.bytes_consumed;
 	flexible_id_free_contents(c, &flid);
+
+	*bytes_consumed = pos-pos1;
+	return 1;
+}
+
+static int do_name_reference(deark *c, lctx *d, de_int64 pos1, de_int64 bytes_avail,
+	de_int64 *bytes_consumed)
+{
+	de_ucstring *tmps;
+	de_int64 pos = pos1;
+	de_int64 bytes_consumed2;
+	struct flexible_id flid;
+
+	// I can't find any credible documentation of the 'name' reference format.
+	// This code is based on reverse engineering, and may not be correct.
+
+	tmps = ucstring_create(c);
+	read_unicode_string(c, d, tmps, pos, bytes_avail, &bytes_consumed2);
+	de_dbg(c, "name from classID: \"%s\"\n", ucstring_get_printable_sz_n(tmps, 300));
+	pos += bytes_consumed2;
+	ucstring_empty(tmps);
+
+	read_flexible_id(c, d, pos, &flid);
+	dbg_print_flexible_id(c, d, &flid, "undocumented id");
+	pos += flid.bytes_consumed;
+	flexible_id_free_contents(c, &flid);
+
+	read_unicode_string(c, d, tmps, pos, bytes_avail, &bytes_consumed2);
+	de_dbg(c, "undocumented unicode string: \"%s\"\n", ucstring_get_printable_sz_n(tmps, 300));
+	pos += bytes_consumed2;
 
 	*bytes_consumed = pos-pos1;
 	return 1;
@@ -764,6 +843,11 @@ static int do_item_type_obj(deark *c, lctx *d, de_int64 pos1, de_int64 bytes_ava
 		switch(type4cc.id) {
 		case CODE_Enmr:
 			if(!do_enumerated_reference(c, d, pos, endpos-pos, &bytes_consumed2))
+				goto done;
+			pos += bytes_consumed2;
+			break;
+		case CODE_name:
+			if(!do_name_reference(c, d, pos, endpos-pos, &bytes_consumed2))
 				goto done;
 			pos += bytes_consumed2;
 			break;
@@ -823,6 +907,10 @@ static int do_descriptor_item_ostype_and_data(deark *c, lctx *d,
 		do_item_type_UntF(c, d, pos, endpos-pos, &bytes_consumed2);
 		pos += bytes_consumed2;
 		break;
+	case CODE_UnFl:
+		do_item_type_UnFl(c, d, pos, endpos-pos, &bytes_consumed2);
+		pos += bytes_consumed2;
+		break;
 	case CODE_TEXT:
 		do_item_type_TEXT(c, d, pos, endpos-pos, &bytes_consumed2);
 		pos += bytes_consumed2;
@@ -838,7 +926,13 @@ static int do_descriptor_item_ostype_and_data(deark *c, lctx *d,
 		break;
 	case CODE_Objc:
 	case CODE_GlbO:
-		ret = do_item_type_Objc(c, d, pos, endpos-pos, &bytes_consumed2);
+		ret = do_item_type_descriptor(c, d, pos, endpos-pos, 0, &bytes_consumed2);
+		pos += bytes_consumed2;
+		if(!ret) goto done;
+		break;
+	case CODE_ObAr:
+		// Undocumented type. Appears to contain a versioned descriptor.
+		ret = do_item_type_descriptor(c, d, pos, endpos-pos, 1, &bytes_consumed2);
 		pos += bytes_consumed2;
 		if(!ret) goto done;
 		break;
@@ -853,7 +947,7 @@ static int do_descriptor_item_ostype_and_data(deark *c, lctx *d,
 		if(!ret) goto done;
 		break;
 		// TODO: 'type', 'GlbC', 'alis'
-		// TODO: 'Pth ', 'ObAr', 'UnFl' (undocumented types)
+		// TODO: 'Pth ' (undocumented type)
 	default:
 		goto done;
 	}
@@ -1956,6 +2050,23 @@ done:
 	;
 }
 
+static void do_SoLd_block(deark *c, lctx *d, de_int64 pos1, de_int64 len)
+{
+	struct de_fourcc id4cc;
+	de_int64 pos = pos1;
+	de_int64 ver;
+	de_int64 bytes_consumed2;
+
+	dbuf_read_fourcc(c->infile, pos, &id4cc, d->is_le);
+	de_dbg(c, "identifier: '%s'\n", id4cc.id_printable);
+	pos += 4;
+	ver = psd_getui32(pos);
+	de_dbg(c, "version: %d\n", (int)ver);
+	pos += 4;
+
+	read_descriptor(c, d, pos, (pos1+len)-pos, 1, " (of placed layer information)", &bytes_consumed2);
+}
+
 static void do_shmd_block(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 {
 	de_int64 count;
@@ -2093,6 +2204,9 @@ static int do_tagged_block(deark *c, lctx *d, de_int64 pos, de_int64 bytes_avail
 		break;
 	case CODE_TySh:
 		do_TySh_block(c, d, dpos, blklen, &blk4cc);
+		break;
+	case CODE_SoLd:
+		do_SoLd_block(c, d, dpos, blklen);
 		break;
 	case CODE_shmd:
 		do_shmd_block(c, d, dpos, blklen);
