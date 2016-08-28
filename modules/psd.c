@@ -12,6 +12,7 @@ DE_DECLARE_MODULE(de_module_psd);
 #define CODE_8B64 0x38423634U
 #define CODE_8BIM 0x3842494dU
 #define CODE_Alph 0x416c7068U
+#define CODE_CgEd 0x43674564U
 #define CODE_Enmr 0x456e6d72U
 #define CODE_FEid 0x46456964U
 #define CODE_FMsk 0x464d736bU
@@ -31,6 +32,7 @@ DE_DECLARE_MODULE(de_module_psd);
 #define CODE_Objc 0x4f626a63U
 #define CODE_PtFl 0x5074466cU
 #define CODE_PxSD 0x50785344U
+#define CODE_PxSc 0x50785363U
 #define CODE_SoCo 0x536f436fU
 #define CODE_SoLd 0x536f4c64U
 #define CODE_TEXT 0x54455854U
@@ -39,6 +41,11 @@ DE_DECLARE_MODULE(de_module_psd);
 #define CODE_UnFl 0x556e466cU
 #define CODE_UntF 0x556e7446U
 #define CODE_VlLs 0x566c4c73U
+#define CODE_abdd 0x61626464U
+#define CODE_anFX 0x616e4658U
+#define CODE_artb 0x61727462U
+#define CODE_artd 0x61727464U
+#define CODE_blwh 0x626c7768U
 #define CODE_bool 0x626f6f6cU
 #define CODE_clbl 0x636c626cU
 #define CODE_comp 0x636f6d70U
@@ -59,8 +66,14 @@ DE_DECLARE_MODULE(de_module_psd);
 #define CODE_lyid 0x6c796964U
 #define CODE_name 0x6e616d65U
 #define CODE_obj  0x6f626a20U
+#define CODE_pths 0x70746873U
 #define CODE_shmd 0x73686d64U
 #define CODE_tdta 0x74647461U
+#define CODE_vibA 0x76696241U
+#define CODE_vogk 0x766f676bU
+#define CODE_vscg 0x76736367U
+#define CODE_vstk 0x7673746bU
+
 
 typedef struct localctx_struct {
 	int version; // 1=PSD, 2=PSB
@@ -1982,6 +1995,26 @@ static void do_lspf_block(deark *c, lctx *d, de_int64 pos, de_int64 len)
 		(x&0x1), (x&0x2)>>1, (x&0x4)>>2);
 }
 
+static void do_vscg_block(deark *c, lctx *d, de_int64 pos, de_int64 len)
+{
+	struct de_fourcc key4cc;
+	de_int64 bytes_consumed2;
+
+	dbuf_read_fourcc(c->infile, pos, &key4cc, d->is_le);
+	de_dbg(c, "key: '%s'\n", key4cc.id_printable);
+	read_descriptor(c, d, pos+4, len-4, 1, " (for Vector Stroke Content Data)", &bytes_consumed2);
+}
+
+static void do_vogk_block(deark *c, lctx *d, de_int64 pos, de_int64 len)
+{
+	de_int64 ver;
+	de_int64 bytes_consumed2;
+
+	ver = psd_getui32(pos);
+	if(ver!=1) return;
+	read_descriptor(c, d, pos+4, len-4, 1, " (for Vector Origination Data)", &bytes_consumed2);
+}
+
 static void do_unicodestring_block(deark *c, lctx *d, de_int64 pos, de_int64 len, const struct de_fourcc *blk4cc,
 	const char *name)
 {
@@ -2189,6 +2222,38 @@ static int do_tagged_block(deark *c, lctx *d, de_int64 pos, de_int64 bytes_avail
 		break;
 	case CODE_SoCo:
 		do_descriptor_block(c, d, dpos, blklen, &blk4cc, "Solid color sheet setting");
+		break;
+	case CODE_vstk:
+		do_descriptor_block(c, d, dpos, blklen, &blk4cc, "Vector Stroke Data");
+		break;
+	case CODE_blwh:
+		do_descriptor_block(c, d, dpos, blklen, &blk4cc, "Black and White");
+		break;
+	case CODE_CgEd:
+		do_descriptor_block(c, d, dpos, blklen, &blk4cc, "Content Generator Extra Data");
+		break;
+	case CODE_vibA:
+		do_descriptor_block(c, d, dpos, blklen, &blk4cc, "Vibrance");
+		break;
+	case CODE_pths:
+		do_descriptor_block(c, d, dpos, blklen, &blk4cc, "Unicode Path Name");
+		break;
+	case CODE_anFX:
+		do_descriptor_block(c, d, dpos, blklen, &blk4cc, "Animation Effects");
+		break;
+	case CODE_PxSc:
+		do_descriptor_block(c, d, dpos, blklen, &blk4cc, "Pixel Source Data");
+		break;
+	case CODE_artb:
+	case CODE_artd:
+	case CODE_abdd:
+		do_descriptor_block(c, d, dpos, blklen, &blk4cc, "Artboard Data");
+		break;
+	case CODE_vscg:
+		do_vscg_block(c, d, dpos, blklen);
+		break;
+	case CODE_vogk:
+		do_vogk_block(c, d, dpos, blklen);
 		break;
 	case CODE_fxrp:
 		do_fxrp_block(c, d, dpos, blklen);
@@ -2412,6 +2477,25 @@ static void do_external_tagged_blocks(deark *c, lctx *d)
 	do_tagged_blocks(c, d, 0, c->infile->len);
 }
 
+static void do_image_data(deark *c, lctx *d, de_int64 pos, de_int64 len)
+{
+	de_int64 cmpr;
+	const char *name = "?";
+
+	if(len<2) return;
+	de_dbg(c, "image data at %d, expected len=%d\n", (int)pos, (int)len);
+	de_dbg_indent(c, 1);
+	cmpr = psd_getui16(pos);
+	switch(cmpr) {
+	case 0: name="uncompressed"; break;
+	case 1: name="PackBits"; break;
+	case 2: name="ZIP without prediction"; break;
+	case 3: name="ZIP with prediction"; break;
+	}
+	de_dbg(c, "compression method: %d (%s)\n", (int)cmpr, name);
+	de_dbg_indent(c, -1);
+}
+
 static void de_run_psd(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
@@ -2476,9 +2560,7 @@ static void de_run_psd(deark *c, de_module_params *mparams)
 	pos += bytes_consumed;
 
 	imgdata_len = c->infile->len - pos;
-	if(imgdata_len>0) {
-		de_dbg(c, "image data at %d, expected len=%d\n", (int)pos, (int)imgdata_len);
-	}
+	do_image_data(c, d, pos, imgdata_len);
 
 done:
 	de_free(c, d);
