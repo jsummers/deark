@@ -78,6 +78,34 @@ DE_DECLARE_MODULE(de_module_psd);
 #define CODE_vscg 0x76736367U
 #define CODE_vstk 0x7673746bU
 
+// (I can't think of a good name for this struct, and the corresponding variables.
+// It's used so much that the name needs to be short, distinct, and easy to type.)
+// PSD format involves so many nested data elements with implicit lengths that
+// it's worth developing a way to handle this with a maximum of convenience.
+// This struct helps to do that.
+// A function that processes an element has an instance of it (named zz) that it
+// got from its parent (caller). It often creates new zz structs to pass to its
+// children.
+// The struct is used for both input and output.
+// A function updates the 'pos' field as it consumes the data, but 'startpos' and
+// 'endpos' never change.
+//
+// Some functions assume that the zz passed to them was created just for them, and
+// thus .pos should be equal to .startpos, and .endpos should be exactly the size of
+// that data element, if known. The code is more robust if a function can't directly
+// modify its parent's zz, and this lets the child use the .startpos field.
+// However, for convenience, some functions are designed such that they can use
+// their parent's zz.
+//
+// Note that the struct has no way to indicate an error. It is expected that the
+// functions' return values will be used, when error handling is necessary.
+typedef struct zz_struct {
+	// Represents a segment of the input file, and a position within that segment.
+	// All fields are byte offsets from the beginning of c->infile.
+	de_int64 pos; // The "current position". Also used to calculate the number of bytes consumed.
+	de_int64 startpos; // Offset of the first byte in the segment.
+	de_int64 endpos; // Offset of first byte *after* the segment.
+} zztype;
 
 typedef struct localctx_struct {
 	int version; // 1=PSD, 2=PSB
@@ -91,8 +119,7 @@ typedef struct localctx_struct {
 
 struct rsrc_info;
 
-typedef void (*rsrc_handler_fn)(deark *c, lctx *d, const struct rsrc_info *ri,
-	de_int64 pos, de_int64 len);
+typedef void (*rsrc_handler_fn)(deark *c, lctx *d, zztype *zz, const struct rsrc_info *ri);
 
 struct rsrc_info {
 	de_uint16 id;
@@ -104,7 +131,7 @@ struct rsrc_info {
 	rsrc_handler_fn hfn;
 };
 
-#define DECLARE_HRSRC(x) static void x(deark *c, lctx *d, const struct rsrc_info *ri, de_int64 pos, de_int64 len)
+#define DECLARE_HRSRC(x) static void x(deark *c, lctx *d, zztype *zz, const struct rsrc_info *ri)
 
 DECLARE_HRSRC(hrsrc_resolutioninfo);
 DECLARE_HRSRC(hrsrc_namesofalphachannels);
@@ -250,6 +277,54 @@ static de_int64 psd_getui32or64(deark *c, lctx *d, de_int64 pos)
 	return psd_getui32(pos);
 }
 
+// Initialize a zz, from known start and end positions.
+static void zz_init_absolute(zztype *zz, de_int64 startpos, de_int64 endpos)
+{
+	zz->startpos = startpos;
+	zz->pos = startpos;
+	zz->endpos = endpos;
+}
+
+// Initialize zz such that its startpos is parentzz's *current* pos,
+// and its endpos is the same as parentzz's.
+static void zz_init(zztype *zz, const zztype *parentzz)
+{
+	zz_init_absolute(zz, parentzz->pos, parentzz->endpos);
+}
+
+// Initialize zz such that its startpos is parentzz's *current* pos.
+static void zz_init_with_len(zztype *zz, const zztype *parentzz, de_int64 len)
+{
+	de_int64 startpos, endpos;
+
+	startpos = parentzz->pos;
+	endpos = startpos + len;
+
+	// bounds checking
+	if(endpos < startpos) endpos = startpos;
+	else if(endpos > parentzz->endpos) endpos = parentzz->endpos;
+
+	zz_init_absolute(zz, startpos, endpos);
+}
+
+// Number of bytes consumed so far.
+// I.e. number of bytes from startpos to the current position.
+static de_int64 zz_used(zztype *zz)
+{
+	if(zz->endpos <= zz->startpos) return 0;
+	if(zz->pos <= zz->endpos) return zz->pos - zz->startpos;
+	return zz->endpos - zz->startpos;
+}
+
+// Number of bytes remaining / still available.
+// I.e. number of bytes from the current position to endpos.
+static de_int64 zz_avail(zztype *zz)
+{
+	if(zz->pos >= zz->endpos) return 0;
+	if(zz->pos >= zz->startpos) return zz->endpos - zz->pos;
+	return zz->endpos - zz->startpos;
+}
+
 // For rectangles in top-left-bottom-right order
 static void do_dbg_rectangle_tlbr(deark *c, lctx *d, de_int64 pos, const char *name)
 {
@@ -272,14 +347,18 @@ static void do_dbg_rectangle_ltrb(deark *c, lctx *d, de_int64 pos, const char *n
 	de_dbg(c, "%s: (%d,%d)-(%d,%d)\n", name, (int)n[0], (int)n[1], (int)n[2], (int)n[3]);
 }
 
-static void read_pascal_string_to_ucstring(deark *c, lctx *d, de_int64 pos, de_int64 bytes_avail,
-	de_ucstring *s, de_int64 *bytes_consumed)
+// (Okay to use a shared zz.)
+static void read_pascal_string_to_ucstring(deark *c, lctx *d, de_ucstring *s, zztype *zz)
 {
 	de_int64 dlen;
 
-	dlen = (de_int64)de_getbyte(pos);
-	if(dlen > bytes_avail-1) { // error
-		*bytes_consumed = bytes_avail;
+	if(zz_avail(zz)<1) return;
+
+	// First byte is the string length
+	dlen = (de_int64)de_getbyte(zz->pos++);
+
+	if(zz->pos + dlen > zz->endpos) { // error
+		zz->pos = zz->endpos;
 		return;
 	}
 
@@ -287,8 +366,8 @@ static void read_pascal_string_to_ucstring(deark *c, lctx *d, de_int64 pos, de_i
 	// Some sources say they use MacRoman, and *some* PSD files do use MacRoman.
 	// But other PSD files use other encodings, and I don't know how to know what
 	// encoding they use.
-	dbuf_read_to_ucstring(c->infile, pos+1, dlen, s, 0, DE_ENCODING_MACROMAN);
-	*bytes_consumed = 1 + dlen;
+	dbuf_read_to_ucstring(c->infile, zz->pos, dlen, s, 0, DE_ENCODING_MACROMAN);
+	zz->pos += dlen;
 }
 
 // Caller supplies ri_dst. This function will set its fields.
@@ -334,19 +413,18 @@ static const char* units_name(de_int64 u)
 	return "?";
 }
 
-static void hrsrc_resolutioninfo(deark *c, lctx *d, const struct rsrc_info *ri,
-	de_int64 pos, de_int64 len)
+static void hrsrc_resolutioninfo(deark *c, lctx *d, zztype *zz, const struct rsrc_info *ri)
 {
 	de_int64 xres_int, yres_int;
 	double xres, yres;
 	de_int64 xres_unit, yres_unit;
 
-	if(len!=16) return;
-	xres_int = psd_getui32(pos);
-	xres_unit = psd_getui16(pos+4);
+	if(zz_avail(zz)!=16) return;
+	xres_int = psd_getui32(zz->pos);
+	xres_unit = psd_getui16(zz->pos+4);
 	//width_unit = psd_getui16(pos+6);
-	yres_int = psd_getui32(pos+8);
-	yres_unit = psd_getui16(pos+12);
+	yres_int = psd_getui32(zz->pos+8);
+	yres_unit = psd_getui16(zz->pos+12);
 	//height_unit = psd_getui16(pos+14);
 	xres = ((double)xres_int)/65536.0;
 	yres = ((double)yres_int)/65536.0;
@@ -354,37 +432,30 @@ static void hrsrc_resolutioninfo(deark *c, lctx *d, const struct rsrc_info *ri,
 	de_dbg(c, "yres=%.2f, units=%d (%s)\n", yres, (int)yres_unit, units_name(yres_unit));
 }
 
-static void hrsrc_namesofalphachannels(deark *c, lctx *d, const struct rsrc_info *ri,
-	de_int64 pos1, de_int64 len)
+static void hrsrc_namesofalphachannels(deark *c, lctx *d, zztype *zz, const struct rsrc_info *ri)
 {
-	de_int64 pos, endpos;
-	de_int64 bytes_consumed;
 	de_ucstring *s = NULL;
 	de_int64 idx = 0;
 
 	// This is a "series of Pascal strings", whatever that is.
 
-	pos = pos1;
-	endpos = pos1+len;
 	s = ucstring_create(c);
-	while(pos<(endpos-1)) {
+	while(zz->pos < (zz->endpos-1)) {
 		ucstring_empty(s);
-		read_pascal_string_to_ucstring(c, d, pos, endpos-pos, s, &bytes_consumed);
+		read_pascal_string_to_ucstring(c, d, s, zz);
 		de_dbg(c, "name[%d]: \"%s\"\n", (int)idx, ucstring_get_printable_sz_n(s, 300));
 		idx++;
-		pos += bytes_consumed;
 	}
 	ucstring_destroy(s);
 }
 
-static void hrsrc_printflags(deark *c, lctx *d, const struct rsrc_info *ri,
-	de_int64 pos1, de_int64 len)
+static void hrsrc_printflags(deark *c, lctx *d, zztype *zz, const struct rsrc_info *ri)
 {
 	de_byte fl[9];
 	int i;
-	if(len!=9) return;
+	if(zz_avail(zz)!=9) return;
 	for(i=0; i<9; i++) {
-		fl[i] = de_getbyte(pos1+i);
+		fl[i] = de_getbyte(zz->startpos+i);
 	}
 	de_dbg(c, "%s: labels=%d, crop marks=%d, color bars=%d, registration marks=%d, "
 		"negative=%d, flip=%d, interpolate=%d, caption=%d, print flags=%d\n",
@@ -392,86 +463,76 @@ static void hrsrc_printflags(deark *c, lctx *d, const struct rsrc_info *ri,
 		(int)fl[4], (int)fl[5], (int)fl[6], (int)fl[7], (int)fl[8]);
 }
 
-static void hrsrc_printflagsinfo(deark *c, lctx *d, const struct rsrc_info *ri,
-	de_int64 pos1, de_int64 len)
+static void hrsrc_printflagsinfo(deark *c, lctx *d, zztype *zz, const struct rsrc_info *ri)
 {
 	de_int64 version, bleed_width_value, bleed_width_scale;
 	de_byte crop_marks;
 
-	if(len!=10) return;
-	version = psd_getui16(pos1);
-	crop_marks = de_getbyte(pos1+2);
-	bleed_width_value = psd_getui32(pos1+4);
-	bleed_width_scale = psd_getui16(pos1+8);
+	if(zz_avail(zz)!=10) return;
+	version = psd_getui16(zz->startpos);
+	crop_marks = de_getbyte(zz->startpos+2);
+	bleed_width_value = psd_getui32(zz->startpos+4);
+	bleed_width_scale = psd_getui16(zz->startpos+8);
 	de_dbg(c, "%s: version=%d, crop marks=%d, bleed width value=%d, bleed width scale=%d\n",
 		ri->idname, (int)version, (int)crop_marks,
 		(int)bleed_width_value, (int)bleed_width_scale);
 }
 
-static void hrsrc_exif(deark *c, lctx *d, const struct rsrc_info *ri,
-	de_int64 pos, de_int64 len)
+static void hrsrc_exif(deark *c, lctx *d, zztype *zz, const struct rsrc_info *ri)
 {
-	//de_dbg(c, "Exif segment at %d datasize=%d\n", (int)pos, (int)len);
-	de_fmtutil_handle_exif(c, pos, len);
+	de_fmtutil_handle_exif(c, zz->pos, zz_avail(zz));
 }
 
-static void hrsrc_iptc(deark *c, lctx *d, const struct rsrc_info *ri,
-	de_int64 pos, de_int64 len)
+static void hrsrc_iptc(deark *c, lctx *d, zztype *zz, const struct rsrc_info *ri)
 {
-	de_fmtutil_handle_iptc(c, pos, len);
+	de_fmtutil_handle_iptc(c, zz->pos, zz_avail(zz));
 }
 
-static void hrsrc_xmp(deark *c, lctx *d, const struct rsrc_info *ri,
-	de_int64 pos, de_int64 len)
+static void hrsrc_xmp(deark *c, lctx *d, zztype *zz, const struct rsrc_info *ri)
 {
-	dbuf_create_file_from_slice(c->infile, pos, len, "xmp", NULL, DE_CREATEFLAG_IS_AUX);
+	dbuf_create_file_from_slice(c->infile, zz->pos, zz_avail(zz), "xmp", NULL, DE_CREATEFLAG_IS_AUX);
 }
 
-static void hrsrc_iccprofile(deark *c, lctx *d, const struct rsrc_info *ri,
-	de_int64 pos, de_int64 len)
+static void hrsrc_iccprofile(deark *c, lctx *d, zztype *zz, const struct rsrc_info *ri)
 {
-	dbuf_create_file_from_slice(c->infile, pos, len, "icc", NULL, DE_CREATEFLAG_IS_AUX);
+	dbuf_create_file_from_slice(c->infile, zz->pos, zz_avail(zz), "icc", NULL, DE_CREATEFLAG_IS_AUX);
 }
 
-static void hrsrc_pluginresource(deark *c, lctx *d, const struct rsrc_info *ri,
-	de_int64 pos, de_int64 len)
+static void hrsrc_pluginresource(deark *c, lctx *d, zztype *zz, const struct rsrc_info *ri)
 {
 	struct de_fourcc fourcc;
 	// Plug-in resources seem to start with a fourcc.
-	if(len<4) return;
-	dbuf_read_fourcc(c->infile, pos, &fourcc, d->is_le);
+	if(zz_avail(zz)<4) return;
+	dbuf_read_fourcc(c->infile, zz->pos, &fourcc, d->is_le);
 	de_dbg(c, "id: '%s'\n", fourcc.id_printable);
 }
 
 // Read a Photoshop-style "Unicode string" structure, and append it to s.
-static void read_unicode_string(deark *c, lctx *d, de_ucstring *s, de_int64 pos,
-	de_int64 bytes_avail, de_int64 *bytes_consumed)
+// (Okay to use a shared zz.)
+static void read_unicode_string(deark *c, lctx *d, de_ucstring *s, zztype *zz)
 {
 	de_int64 num_code_units;
 
-	if(bytes_avail<0) {
-		*bytes_consumed = 0;
-		return;
-	}
-	if(bytes_avail<4) {
-		*bytes_consumed = bytes_avail;
+	if(zz_avail(zz)<4) { // error
+		zz->pos = zz->endpos;
 		return;
 	}
 
-	num_code_units = psd_getui32(pos);
-	if(4+num_code_units*2 > bytes_avail) { // error
-		*bytes_consumed = bytes_avail;
+	num_code_units = psd_getui32(zz->pos);
+	zz->pos += 4;
+
+	if(zz->pos + num_code_units*2 > zz->endpos) { // error
+		zz->pos = zz->endpos;
 		return;
 	}
 
-	dbuf_read_to_ucstring_n(c->infile, pos+4, num_code_units*2, 300*2, s, 0,
+	dbuf_read_to_ucstring_n(c->infile, zz->pos, num_code_units*2, 300*2, s, 0,
 		d->is_le ? DE_ENCODING_UTF16LE : DE_ENCODING_UTF16BE);
+	zz->pos += num_code_units*2;
 
 	// For no apparent reason, a fair number of these strings have been observed
 	// to end with an extraneous U+0000 character.
 	ucstring_strip_trailing_NUL(s);
-
-	*bytes_consumed = 4+num_code_units*2;
 }
 
 // The PSD spec calls this data structure a
@@ -540,71 +601,63 @@ static void dbg_print_flexible_id(deark *c, lctx *d,
 	}
 }
 // The PSD spec calls this type "Boolean" (or "Boolean structure").
-static void do_item_type_bool(deark *c, lctx *d, de_int64 pos1, de_int64 bytes_avail,
-	de_int64 *bytes_consumed)
+static void do_item_type_bool(deark *c, lctx *d, zztype *zz)
 {
 	de_byte b;
-	b = de_getbyte(pos1);
+	b = de_getbyte(zz->pos);
 	de_dbg(c, "value: %d\n", (int)b);
-	*bytes_consumed = 1;
+	zz->pos++;
 }
 
 // The PSD spec calls this type "Integer".
-static void do_item_type_long(deark *c, lctx *d, de_int64 pos1, de_int64 bytes_avail,
-	de_int64 *bytes_consumed)
+static void do_item_type_long(deark *c, lctx *d, zztype *zz)
 {
 	de_int64 n;
 	// No idea if this is signed or unsigned.
-	n = psd_geti32(pos1);
+	n = psd_geti32(zz->pos);
 	de_dbg(c, "value: %d\n", (int)n);
-	*bytes_consumed = 4;
+	zz->pos += 4;
 }
 
 // "Double"
-static void do_item_type_doub(deark *c, lctx *d, de_int64 pos1, de_int64 bytes_avail,
-	de_int64 *bytes_consumed)
+static void do_item_type_doub(deark *c, lctx *d, zztype *zz)
 {
 	double v;
-	v = dbuf_getfloat64x(c->infile, pos1, d->is_le);
+	v = dbuf_getfloat64x(c->infile, zz->pos, d->is_le);
 	de_dbg(c, "value: %f\n", v);
-	*bytes_consumed = 8;
+	zz->pos += 8;
 }
 
 // "Unit float"
-static void do_item_type_UntF(deark *c, lctx *d, de_int64 pos1, de_int64 bytes_avail,
-	de_int64 *bytes_consumed)
+static void do_item_type_UntF(deark *c, lctx *d, zztype *zz)
 {
 	double v;
 	struct de_fourcc unit4cc;
 
-	dbuf_read_fourcc(c->infile, pos1, &unit4cc, d->is_le);
+	dbuf_read_fourcc(c->infile, zz->pos, &unit4cc, d->is_le);
 	de_dbg(c, "units code: '%s'\n", unit4cc.id_printable);
+	zz->pos += 4;
 
-	v = dbuf_getfloat64x(c->infile, pos1+4, d->is_le);
+	v = dbuf_getfloat64x(c->infile, zz->pos, d->is_le);
 	de_dbg(c, "value: %f\n", v);
-
-	*bytes_consumed = 12;
+	zz->pos += 8;
 }
 
 // Undocumented UnFl descriptor item type
-static void do_item_type_UnFl(deark *c, lctx *d, de_int64 pos1, de_int64 bytes_avail,
-	de_int64 *bytes_consumed)
+static void do_item_type_UnFl(deark *c, lctx *d, zztype *zz)
 {
 	de_int64 count;
 	struct de_fourcc unit4cc;
-	de_int64 pos = pos1;
 
-	dbuf_read_fourcc(c->infile, pos, &unit4cc, d->is_le);
+	dbuf_read_fourcc(c->infile, zz->pos, &unit4cc, d->is_le);
 	de_dbg(c, "units code: '%s'\n", unit4cc.id_printable);
-	pos += 4;
+	zz->pos += 4;
 
-	count = psd_getui32(pos);
+	count = psd_getui32(zz->pos);
 	de_dbg(c, "count: %d\n", (int)count);
-	pos += 4;
+	zz->pos += 4;
 
-	pos += count*8; // TODO: [what we assume is a] float array
-
-	*bytes_consumed = pos-pos1;
+	zz->pos += count*8; // TODO: [what we assume is a] float array
 }
 
 static void do_text_engine_data(deark *c, lctx *d, de_int64 pos, de_int64 len)
@@ -616,257 +669,204 @@ static void do_text_engine_data(deark *c, lctx *d, de_int64 pos, de_int64 len)
 }
 
 // The PSD spec calls this type "String" (or "String structure").
-static void do_item_type_TEXT(deark *c, lctx *d, de_int64 pos1, de_int64 bytes_avail,
-	de_int64 *bytes_consumed)
+static void do_item_type_TEXT(deark *c, lctx *d, zztype *zz)
 {
 	de_ucstring *s = NULL;
 
 	s = ucstring_create(c);
-	read_unicode_string(c, d, s, pos1, bytes_avail, bytes_consumed);
+	read_unicode_string(c, d, s, zz);
 	de_dbg(c, "value: \"%s\"\n", ucstring_get_printable_sz_n(s, 300));
 	ucstring_destroy(s);
 }
 
 // "tdta" / "Raw Data"
 static int do_item_type_tdta(deark *c, lctx *d,
-	const struct flexible_id *key_flid,
-	de_int64 pos1, de_int64 bytes_avail, de_int64 *bytes_consumed)
+	const struct flexible_id *key_flid, zztype *zz)
 {
 	de_int64 dlen;
 
 	// The public PSD spec does not reveal how to calculate the length of a 'tdata'
 	// item. Evidence suggests it starts with a 4-byte length field.
-	dlen = psd_getui32(pos1);
-	de_dbg(c, "raw data at %d, dlen=%d\n", (int)(pos1+4), (int)dlen);
-	*bytes_consumed = 4 + dlen;
-	if(*bytes_consumed > bytes_avail) {
+	dlen = psd_getui32(zz->pos);
+	zz->pos += 4;
+	de_dbg(c, "raw data at %d, dlen=%d\n", (int)zz->pos, (int)dlen);
+	if(zz->pos+dlen > zz->endpos) {
 		return 0;
 	}
 
 	if(key_flid->sz) {
 		if(!de_strcmp(key_flid->sz, "EngineData")) {
-			do_text_engine_data(c, d, pos1+4, dlen);
+			do_text_engine_data(c, d, zz->pos, dlen);
 		}
 	}
+
+	zz->pos += dlen;
 	return 1;
 }
 
 // The PSD spec calls this type "Enumerated", and also "Enumerated descriptor"
 // (but not "Enumerated reference"!)
-static void do_item_type_enum(deark *c, lctx *d, de_int64 pos1, de_int64 bytes_avail,
-	de_int64 *bytes_consumed)
+static void do_item_type_enum(deark *c, lctx *d, zztype *zz)
 {
-	de_int64 pos = pos1;
 	struct flexible_id flid;
 
-	read_flexible_id(c, d, pos, &flid); // "type"
+	read_flexible_id(c, d, zz->pos, &flid); // "type"
 	dbg_print_flexible_id(c, d, &flid, "enum type");
-	pos += flid.bytes_consumed;
+	zz->pos += flid.bytes_consumed;
 	flexible_id_free_contents(c, &flid);
 
-	read_flexible_id(c, d, pos, &flid); // "enum"
+	read_flexible_id(c, d, zz->pos, &flid); // "enum"
 	dbg_print_flexible_id(c, d, &flid, "enum value");
-	pos += flid.bytes_consumed;
+	zz->pos += flid.bytes_consumed;
 	flexible_id_free_contents(c, &flid);
-
-	*bytes_consumed = pos-pos1;
 }
 
 static int do_descriptor_item_ostype_and_data(deark *c, lctx *d,
-	const struct flexible_id *key_flid,
-	de_int64 pos1, de_int64 bytes_avail, de_int64 *bytes_consumed);
+	const struct flexible_id *key_flid, zztype *zz);
 
 // "List"
 static int do_item_type_VlLs(deark *c, lctx *d,
-	const struct flexible_id *key_flid,
-	de_int64 pos1, de_int64 bytes_avail, de_int64 *bytes_consumed)
+	const struct flexible_id *key_flid, zztype *zz)
 {
 	de_int64 num_items;
-	de_int64 bytes_consumed2;
 	de_int64 i;
-	de_int64 pos, endpos;
 	int ret;
 	int retval = 0;
+	zztype czz;
 
-	pos = pos1;
-	endpos = pos1 + bytes_avail;
-
-	num_items = psd_getui32(pos);
+	num_items = psd_getui32(zz->pos);
 	de_dbg(c, "number of items in list: %d\n", (int)num_items);
 	if(num_items>500) {
 		de_warn(c, "Excessively large VlLs item (%d)\n", (int)num_items);
 		goto done;
 	}
-	pos += 4;
+	zz->pos += 4;
 
 	if(d->nesting_level>MAX_NESTING_LEVEL) goto done;
 
 	for(i=0; i<num_items; i++) {
-		bytes_consumed2 = 0;
-		de_dbg(c, "list item[%d] at %d\n", (int)i, (int)pos);
+		de_dbg(c, "list item[%d] at %d\n", (int)i, (int)zz->pos);
 		de_dbg_indent(c, 1);
 		d->nesting_level++;
-		ret = do_descriptor_item_ostype_and_data(c, d, key_flid, pos, endpos-pos,
-			&bytes_consumed2);
+		zz_init(&czz, zz);
+		ret = do_descriptor_item_ostype_and_data(c, d, key_flid, &czz);
 		d->nesting_level--;
 		de_dbg_indent(c, -1);
 		if(!ret) goto done;
-		pos += bytes_consumed2;
+		zz->pos += zz_used(&czz);
 	}
 
-	*bytes_consumed = pos-pos1;
 	retval = 1;
 done:
 	return retval;
 }
 
-static int read_descriptor(deark *c, lctx *d, de_int64 pos1,
-	de_int64 bytes_avail, int has_version, const char *dscrname, de_int64 *bytes_consumed);
+static int read_descriptor(deark *c, lctx *d, zztype *zz, int has_version, const char *dscrname);
 
-static int do_item_type_descriptor(deark *c, lctx *d, de_int64 pos1, de_int64 bytes_avail,
-	int has_version, de_int64 *bytes_consumed)
+static int do_item_type_descriptor(deark *c, lctx *d, zztype *zz, int has_version)
 {
 	int retval = 0;
 
-	*bytes_consumed = bytes_avail;
 	d->nesting_level++;
 	if(d->nesting_level>MAX_NESTING_LEVEL) goto done;
 
 	// This descriptor contains a descriptor. We have to go deeper.
-	retval = read_descriptor(c, d, pos1, bytes_avail, has_version, "", bytes_consumed);
+	retval = read_descriptor(c, d, zz, has_version, "");
 
 done:
 	d->nesting_level--;
 	return retval;
 }
 
-#if 0
-static int do_item_type_ObAr(deark *c, lctx *d, de_int64 pos1, de_int64 bytes_avail,
-	de_int64 *bytes_consumed)
+static int do_enumerated_reference(deark *c, lctx *d, zztype *zz)
 {
-	de_int64 bytes_consumed2;
-	int retval = 0;
-	de_int64 pos, endpos;
-	int ret;
-
-	de_dbg(c, "tmp\n"); // FIXME
-	pos = pos1;
-	endpos = pos1+bytes_avail;
-
-	ret = read_descriptor(c, d, pos, endpos-pos, 1, " (undocumented ObAr #1)", &bytes_consumed2);
-	if(!ret) goto done;
-	pos += bytes_consumed2;
-
-	de_dbg(c, "pos=%d\n", (int)pos); // FIXME
-	*bytes_consumed = pos-pos1;
-	retval = 1;
-	//*bytes_consumed = 31;
-done:
-	return retval;
-}
-#endif
-
-static int do_enumerated_reference(deark *c, lctx *d, de_int64 pos1, de_int64 bytes_avail,
-	de_int64 *bytes_consumed)
-{
-	de_ucstring *tmps;
-	de_int64 pos = pos1;
-	de_int64 bytes_consumed2;
+	de_ucstring *tmps = NULL;
 	struct flexible_id flid;
 
 	tmps = ucstring_create(c);
-	read_unicode_string(c, d, tmps, pos, bytes_avail, &bytes_consumed2);
+	read_unicode_string(c, d, tmps, zz);
 	de_dbg(c, "name from classID: \"%s\"\n", ucstring_get_printable_sz_n(tmps, 300));
-	pos += bytes_consumed2;
 
-	read_flexible_id(c, d, pos, &flid);
+	read_flexible_id(c, d, zz->pos, &flid);
 	dbg_print_flexible_id(c, d, &flid, "classID");
-	pos += flid.bytes_consumed;
+	zz->pos += flid.bytes_consumed;
 	flexible_id_free_contents(c, &flid);
 
-	read_flexible_id(c, d, pos, &flid);
+	read_flexible_id(c, d, zz->pos, &flid);
 	dbg_print_flexible_id(c, d, &flid, "typeID");
-	pos += flid.bytes_consumed;
+	zz->pos += flid.bytes_consumed;
 	flexible_id_free_contents(c, &flid);
 
-	read_flexible_id(c, d, pos, &flid);
+	read_flexible_id(c, d, zz->pos, &flid);
 	dbg_print_flexible_id(c, d, &flid, "enum");
-	pos += flid.bytes_consumed;
+	zz->pos += flid.bytes_consumed;
 	flexible_id_free_contents(c, &flid);
 
-	*bytes_consumed = pos-pos1;
 	return 1;
 }
 
-static int do_name_reference(deark *c, lctx *d, de_int64 pos1, de_int64 bytes_avail,
-	de_int64 *bytes_consumed)
+static int do_name_reference(deark *c, lctx *d, zztype *zz)
 {
-	de_ucstring *tmps;
-	de_int64 pos = pos1;
-	de_int64 bytes_consumed2;
+	de_ucstring *tmps = NULL;
 	struct flexible_id flid;
 
 	// I can't find any credible documentation of the 'name' reference format.
 	// This code is based on reverse engineering, and may not be correct.
 
 	tmps = ucstring_create(c);
-	read_unicode_string(c, d, tmps, pos, bytes_avail, &bytes_consumed2);
+
+	read_unicode_string(c, d, tmps, zz);
 	de_dbg(c, "name from classID: \"%s\"\n", ucstring_get_printable_sz_n(tmps, 300));
-	pos += bytes_consumed2;
 	ucstring_empty(tmps);
 
-	read_flexible_id(c, d, pos, &flid);
+	read_flexible_id(c, d, zz->pos, &flid);
 	dbg_print_flexible_id(c, d, &flid, "undocumented id");
-	pos += flid.bytes_consumed;
+	zz->pos += flid.bytes_consumed;
 	flexible_id_free_contents(c, &flid);
 
-	read_unicode_string(c, d, tmps, pos, bytes_avail, &bytes_consumed2);
+	read_unicode_string(c, d, tmps, zz);
 	de_dbg(c, "undocumented unicode string: \"%s\"\n", ucstring_get_printable_sz_n(tmps, 300));
-	pos += bytes_consumed2;
 
-	*bytes_consumed = pos-pos1;
 	return 1;
 }
 
 // "Reference structure"
-static int do_item_type_obj(deark *c, lctx *d, de_int64 pos1, de_int64 bytes_avail,
-	de_int64 *bytes_consumed)
+static int do_item_type_obj(deark *c, lctx *d, zztype *zz)
 {
 	de_int64 num_items;
 	de_int64 i;
-	de_int64 pos, endpos;
-	de_int64 bytes_consumed2;
 	int retval = 0;
-	int indent_count = 0;
+	int saved_indent_level;
+	zztype czz;
 
-	pos = pos1;
-	endpos = pos1+bytes_avail;
+	de_dbg_indent_save(c, &saved_indent_level);
 
-	num_items = psd_getui32(pos1);
+	num_items = psd_getui32(zz->pos);
 	de_dbg(c, "number of items in reference: %d\n", (int)num_items);
-	pos += 4;
+	zz->pos += 4;
 
 	for(i=0; i<num_items; i++) {
 		struct de_fourcc type4cc;
 
-		if(pos>=endpos) goto done;
-		dbuf_read_fourcc(c->infile, pos, &type4cc, d->is_le);
-		de_dbg(c, "reference item[%d] '%s' at %d\n", (int)i, type4cc.id_printable, (int)pos);
-		pos += 4;
+		if(zz->pos >= zz->endpos) goto done;
+		dbuf_read_fourcc(c->infile, zz->pos, &type4cc, d->is_le);
+		de_dbg(c, "reference item[%d] '%s' at %d\n", (int)i, type4cc.id_printable, (int)zz->pos);
+		zz->pos += 4;
 
 		de_dbg_indent(c, 1);
-		indent_count++;
 
 		switch(type4cc.id) {
 		case CODE_Enmr:
-			if(!do_enumerated_reference(c, d, pos, endpos-pos, &bytes_consumed2))
+			zz_init(&czz, zz);
+			if(!do_enumerated_reference(c, d, &czz))
 				goto done;
-			pos += bytes_consumed2;
+			zz->pos += zz_used(&czz);
 			break;
 		case CODE_name:
-			if(!do_name_reference(c, d, pos, endpos-pos, &bytes_consumed2))
+			zz_init(&czz, zz);
+			if(!do_name_reference(c, d, &czz))
 				goto done;
-			pos += bytes_consumed2;
+			zz->pos += zz_used(&czz);
 			break;
 		default:
 			// TODO: 'prop', 'Clss', 'rele', 'Idnt', 'indx', 'name'
@@ -874,93 +874,87 @@ static int do_item_type_obj(deark *c, lctx *d, de_int64 pos1, de_int64 bytes_ava
 		}
 
 		de_dbg_indent(c, -1);
-		indent_count--;
 	}
 
-	*bytes_consumed = pos-pos1;
 	retval = 1;
 done:
-	de_dbg_indent(c, -indent_count);
+	de_dbg_indent_restore(c, saved_indent_level);
 	return retval;
 }
 
 // key_flid is relevant "key" identifier.
 static int do_descriptor_item_ostype_and_data(deark *c, lctx *d,
-	const struct flexible_id *key_flid,
-	de_int64 pos1, de_int64 bytes_avail, de_int64 *bytes_consumed)
+	const struct flexible_id *key_flid, zztype *zz)
 {
-	de_int64 bytes_consumed2 = 0;
-	de_int64 pos, endpos;
 	int ret;
 	int retval = 0;
 	struct de_fourcc type4cc;
+	zztype czz;
 
-	*bytes_consumed = bytes_avail;
-	pos = pos1;
-	endpos = pos1 + bytes_avail;
-
-	dbuf_read_fourcc(c->infile, pos, &type4cc, d->is_le);
+	dbuf_read_fourcc(c->infile, zz->pos, &type4cc, d->is_le);
 	de_dbg(c, "item OSType: '%s'\n", type4cc.id_printable);
-	pos += 4;
+	zz->pos += 4;
+
+	zz_init(&czz, zz);
 
 	switch(type4cc.id) {
 	case CODE_bool:
-		do_item_type_bool(c, d, pos, endpos-pos, &bytes_consumed2);
-		pos += bytes_consumed2;
+		do_item_type_bool(c, d, &czz);
+		zz->pos += zz_used(&czz);
 		break;
 	case CODE_long:
-		do_item_type_long(c, d, pos, endpos-pos, &bytes_consumed2);
-		pos += bytes_consumed2;
+		do_item_type_long(c, d, &czz);
+		zz->pos += zz_used(&czz);
 		break;
 	case CODE_doub:
-		do_item_type_doub(c, d, pos, endpos-pos, &bytes_consumed2);
-		pos += bytes_consumed2;
+		do_item_type_doub(c, d, &czz);
+		zz->pos += zz_used(&czz);
 		break;
 	case CODE_comp:
 		// TODO
-		pos += 8;
+		zz->pos += 8;
 		break;
 	case CODE_UntF:
-		do_item_type_UntF(c, d, pos, endpos-pos, &bytes_consumed2);
-		pos += bytes_consumed2;
+		do_item_type_UntF(c, d, &czz);
+		zz->pos += zz_used(&czz);
 		break;
 	case CODE_UnFl:
-		do_item_type_UnFl(c, d, pos, endpos-pos, &bytes_consumed2);
-		pos += bytes_consumed2;
+		do_item_type_UnFl(c, d, &czz);
+		zz->pos += zz_used(&czz);
 		break;
 	case CODE_TEXT:
-		do_item_type_TEXT(c, d, pos, endpos-pos, &bytes_consumed2);
-		pos += bytes_consumed2;
+		do_item_type_TEXT(c, d, &czz);
+		zz->pos += zz_used(&czz);
 		break;
 	case CODE_enum:
-		do_item_type_enum(c, d, pos, endpos-pos, &bytes_consumed2);
-		pos += bytes_consumed2;
+		do_item_type_enum(c, d, &czz);
+		zz->pos += zz_used(&czz);
 		break;
 	case CODE_VlLs:
-		ret = do_item_type_VlLs(c, d, key_flid, pos, endpos-pos, &bytes_consumed2);
-		pos += bytes_consumed2;
+		ret = do_item_type_VlLs(c, d, key_flid, &czz);
+		zz->pos += zz_used(&czz);
 		if(!ret) goto done;
 		break;
 	case CODE_Objc:
 	case CODE_GlbO:
-		ret = do_item_type_descriptor(c, d, pos, endpos-pos, 0, &bytes_consumed2);
-		pos += bytes_consumed2;
+		ret = do_item_type_descriptor(c, d, &czz, 0);
+		zz->pos += zz_used(&czz);
 		if(!ret) goto done;
 		break;
 	case CODE_ObAr:
 		// Undocumented type. Appears to contain a versioned descriptor.
-		ret = do_item_type_descriptor(c, d, pos, endpos-pos, 1, &bytes_consumed2);
-		pos += bytes_consumed2;
+		ret = do_item_type_descriptor(c, d, zz, 1);
+		zz->pos += zz_used(&czz);
 		if(!ret) goto done;
 		break;
 	case CODE_obj:
-		ret = do_item_type_obj(c, d, pos, endpos-pos, &bytes_consumed2);
-		pos += bytes_consumed2;
+		ret = do_item_type_obj(c, d, &czz);
+		zz->pos += zz_used(&czz);
 		if(!ret) goto done;
 		break;
 	case CODE_tdta:
-		ret = do_item_type_tdta(c, d, key_flid, pos, endpos-pos, &bytes_consumed2);
-		pos += bytes_consumed2;
+		ret = do_item_type_tdta(c, d, key_flid, &czz);
+		zz->pos += zz_used(&czz);
 		if(!ret) goto done;
 		break;
 		// TODO: 'type', 'GlbC', 'alis'
@@ -969,205 +963,176 @@ static int do_descriptor_item_ostype_and_data(deark *c, lctx *d,
 		goto done;
 	}
 
-	*bytes_consumed = pos - pos1;
 	retval = 1;
 done:
 	return retval;
 }
 
-static int do_descriptor_item(deark *c, lctx *d, de_int64 pos1,
-	de_int64 bytes_avail, de_int64 *bytes_consumed)
+static int do_descriptor_item(deark *c, lctx *d, zztype *zz)
 {
 	struct flexible_id key;
-	de_int64 pos = pos1;
-	de_int64 bytes_consumed2;
-	de_int64 endpos;
+	zztype czz;
 	int ret;
 
-	*bytes_consumed = 0;
-	endpos = pos1+bytes_avail;
-
-	read_flexible_id(c, d, pos1, &key);
+	read_flexible_id(c, d, zz->pos, &key);
 	if(key.is_fourcc) {
 		de_dbg(c, "key: fourcc('%s')\n", key.fourcc.id_printable);
 	}
 	else {
 		de_dbg(c, "key: string(\"%s\")\n", ucstring_get_printable_sz(key.s));
 	}
+	zz->pos += key.bytes_consumed;
 
-	pos += key.bytes_consumed;
-
-	ret = do_descriptor_item_ostype_and_data(c, d, &key, pos, endpos-pos, &bytes_consumed2);
+	zz_init(&czz, zz);
+	ret = do_descriptor_item_ostype_and_data(c, d, &key, &czz);
 	flexible_id_free_contents(c, &key);
 	if(!ret) return 0;
+	zz->pos += zz_used(&czz);
 
-	pos += bytes_consumed2;
-
-	*bytes_consumed = pos - pos1;
 	return 1;
 }
 
 // Read a "Descriptor" structure.
 // If has_version==1, the data begins with a 4-byte Descriptor Version field.
 // dscrname is extra debug text that will appear after the word "descriptor".
-static int read_descriptor(deark *c, lctx *d, de_int64 pos1,
-	de_int64 bytes_avail, int has_version, const char *dscrname, de_int64 *bytes_consumed)
+// (Okay to use a shared zz, but use caution.)
+static int read_descriptor(deark *c, lctx *d, zztype *zz, int has_version, const char *dscrname)
 {
 	de_ucstring *name_from_classid = NULL;
 	struct flexible_id classid;
-	de_int64 pos;
-	de_int64 endpos;
-	de_int64 field_len;
 	de_int64 num_items;
 	de_int64 i;
 	int ret;
 	int retval = 0;
 	de_int64 dv = 16;
-	int indent_count = 0;
+	zztype czz;
+	int saved_indent_level;
 
-	*bytes_consumed = bytes_avail;
-	pos = pos1;
-	endpos = pos1+bytes_avail;
+	de_dbg_indent_save(c, &saved_indent_level);
 
 	if(has_version) {
-		dv = psd_getui32(pos1);
-		pos += 4;
+		dv = psd_getui32(zz->pos);
+		zz->pos += 4;
 	}
 
-	de_dbg(c, "descriptor%s at %d\n", dscrname, (int)pos);
+	de_dbg(c, "descriptor%s at %d\n", dscrname, (int)zz->pos);
 	if(dv!=16) {
 		de_warn(c, "Unsupported descriptor version: %d\n", (int)dv);
 		goto done;
 	}
 
 	de_dbg_indent(c, 1);
-	indent_count++;
 
 	name_from_classid = ucstring_create(c);
-	read_unicode_string(c, d, name_from_classid, pos, endpos-pos, &field_len);
+	read_unicode_string(c, d, name_from_classid, zz);
 	if(name_from_classid->len > 0) {
 		de_dbg(c, "name from classID: \"%s\"\n", ucstring_get_printable_sz_n(name_from_classid, 300));
 	}
-	pos += field_len;
 
-	read_flexible_id(c, d, pos, &classid);
+	read_flexible_id(c, d, zz->pos, &classid);
 	dbg_print_flexible_id(c, d, &classid, "classID");
-	pos += classid.bytes_consumed;
+	zz->pos += classid.bytes_consumed;
 	flexible_id_free_contents(c, &classid);
 
-	num_items = psd_getui32(pos);
+	num_items = psd_getui32(zz->pos);
 	de_dbg(c, "number of items in descriptor: %d\n", (int)num_items);
-	pos += 4;
+	zz->pos += 4;
 
 	// Descriptor items
 	for(i=0; i<num_items; i++) {
-		de_int64 bytes_consumed2;
+		//de_int64 bytes_consumed2;
 
-		if(pos>=endpos) goto done;
-		de_dbg(c, "item[%d] at %d\n", (int)i, (int)pos);
+		if(zz->pos >= zz->endpos) {
+			de_dbg(c, "[Expected %d descriptor items, only found %d.]\n", (int)num_items, (int)i);
+			goto done;
+		}
+		de_dbg(c, "item[%d] at %d\n", (int)i, (int)zz->pos);
 		de_dbg_indent(c, 1);
-		ret = do_descriptor_item(c, d, pos, endpos, &bytes_consumed2);
+		zz_init(&czz, zz);
+		ret = do_descriptor_item(c, d, &czz);
 		if(!ret) {
 			de_dbg(c, "[Failed to fully decode descriptor item.]\n");
 		}
 		de_dbg_indent(c, -1);
 		if(!ret) goto done;
-		pos += bytes_consumed2;
+		zz->pos += zz_used(&czz);
 	}
 
-	*bytes_consumed = pos-pos1;
 	retval = 1;
 
 done:
-	de_dbg_indent(c, -indent_count);
+	de_dbg_indent_restore(c, saved_indent_level);
 	ucstring_destroy(name_from_classid);
 	return retval;
 }
 
-static void hrsrc_descriptor_with_version(deark *c, lctx *d, const struct rsrc_info *ri,
-	de_int64 pos, de_int64 len)
+static void hrsrc_descriptor_with_version(deark *c, lctx *d, zztype *zz, const struct rsrc_info *ri)
 {
-	de_int64 bytes_consumed;
-	read_descriptor(c, d, pos, len, 1, "", &bytes_consumed);
+	read_descriptor(c, d, zz, 1, "");
 }
 
-static int do_slices_resource_block(deark *c, lctx *d, de_int64 slice_idx, de_int64 pos1,
-	de_int64 bytes_avail, de_int64 *bytes_consumed)
+static int do_slices_resource_block(deark *c, lctx *d, de_int64 slice_idx, zztype *zz)
 {
-	de_int64 pos;
-	de_int64 endpos;
-	de_int64 bytes_consumed2;
 	de_ucstring *s = NULL;
 	de_int64 id, group_id, origin, slice_type;
 	int retval = 0;
 
-	pos = pos1;
-	endpos = pos1 + bytes_avail;
-	*bytes_consumed = bytes_avail; // default
-
 	s = ucstring_create(c);
 
-	id = psd_getui32(pos);
+	id = psd_getui32(zz->pos);
 	de_dbg(c, "id: %d\n", (int)id);
-	pos += 4;
+	zz->pos += 4;
 
-	group_id = psd_getui32(pos);
+	group_id = psd_getui32(zz->pos);
 	de_dbg(c, "group id: %d\n", (int)group_id);
-	pos += 4;
+	zz->pos += 4;
 
-	origin = psd_getui32(pos);
+	origin = psd_getui32(zz->pos);
 	de_dbg(c, "origin: %d\n", (int)origin);
-	pos += 4;
+	zz->pos += 4;
 
 	if(origin==1) {
 		de_int64 layer_id;
-		layer_id = psd_getui32(pos);
+		layer_id = psd_getui32(zz->pos);
 		de_dbg(c, "associated layer id: %d\n", (int)layer_id);
-		pos += 4;
+		zz->pos += 4;
 	}
 
-	read_unicode_string(c, d, s, pos, endpos-pos, &bytes_consumed2); // Name
+	read_unicode_string(c, d, s, zz); // Name
 	if(s->len>0) {
 		de_dbg(c, "name: \"%s\"\n", ucstring_get_printable_sz(s));
 	}
-	pos += bytes_consumed2;
 	ucstring_empty(s);
 
-	slice_type = psd_getui32(pos);
+	slice_type = psd_getui32(zz->pos);
 	de_dbg(c, "type: %d\n", (int)slice_type);
-	pos += 4;
+	zz->pos += 4;
 
-	do_dbg_rectangle_ltrb(c, d, pos, "position");
-	pos += 16;
+	do_dbg_rectangle_ltrb(c, d, zz->pos, "position");
+	zz->pos += 16;
 
-	read_unicode_string(c, d, s, pos, endpos-pos, &bytes_consumed2); // URL
-	pos += bytes_consumed2;
+	read_unicode_string(c, d, s, zz); // URL
 	ucstring_empty(s);
 
-	read_unicode_string(c, d, s, pos, endpos-pos, &bytes_consumed2); // Target
-	pos += bytes_consumed2;
+	read_unicode_string(c, d, s, zz); // Target
 	ucstring_empty(s);
 
-	read_unicode_string(c, d, s, pos, endpos-pos, &bytes_consumed2); // Message
-	pos += bytes_consumed2;
+	read_unicode_string(c, d, s, zz); // Message
 	ucstring_empty(s);
 
-	read_unicode_string(c, d, s, pos, endpos-pos, &bytes_consumed2); // Alt Tag
-	pos += bytes_consumed2;
+	read_unicode_string(c, d, s, zz); // Alt Tag
 	ucstring_empty(s);
 
-	pos += 1; // Flag: Cell text is HTML
+	zz->pos += 1; // Flag: Cell text is HTML
 
-	read_unicode_string(c, d, s, pos, endpos-pos, &bytes_consumed2); // Cell text
-	pos += bytes_consumed2;
+	read_unicode_string(c, d, s, zz); // Cell text
 	ucstring_empty(s);
 
-	pos += 4; // Horizontal alignment
-	pos += 4; // Horizontal alignment
-	pos += 4; // Alpha color, Red, Green, Blue
+	zz->pos += 4; // Horizontal alignment
+	zz->pos += 4; // Horizontal alignment
+	zz->pos += 4; // Alpha color, Red, Green, Blue
 
-	if(pos>endpos) goto done;
-	*bytes_consumed = pos-pos1;
+	if(zz->pos > zz->endpos) goto done;
 	retval = 1;
 
 done:
@@ -1175,41 +1140,40 @@ done:
 	return retval;
 }
 
-static void do_slices_v6(deark *c, lctx *d, de_int64 pos1, de_int64 len)
+static void do_slices_v6(deark *c, lctx *d, zztype *zz)
 {
-	de_int64 bytes_consumed2;
-	de_int64 pos;
-	de_int64 endpos;
 	de_int64 num_slices;
 	de_int64 i;
 	de_ucstring *name_of_group_of_slices = NULL;
+	zztype czz;
 	int ret;
 
-	pos = pos1;
-	endpos = pos1+len;
-	pos += 4; // version (already read)
-	do_dbg_rectangle_tlbr(c, d, pos, "bounding rectangle");
-	pos += 16;
-	if(pos > endpos) goto done;
+	zz->pos += 4; // version (already read)
+	do_dbg_rectangle_tlbr(c, d, zz->pos, "bounding rectangle");
+	zz->pos += 16;
+	if(zz->pos >= zz->endpos) goto done;
 
 	name_of_group_of_slices = ucstring_create(c);
-	read_unicode_string(c, d, name_of_group_of_slices, pos1+20, len-20, &bytes_consumed2);
+	read_unicode_string(c, d, name_of_group_of_slices, zz);
 	de_dbg(c, "name of group of slices: \"%s\"\n",
 		ucstring_get_printable_sz_n(name_of_group_of_slices, 300));
-	pos += bytes_consumed2;
-	if(pos > endpos) goto done;
+	if(zz->pos >= zz->endpos) goto done;
 
-	num_slices = psd_getui32(pos);
+	num_slices = psd_getui32(zz->pos);
 	de_dbg(c, "number of slices: %d\n", (int)num_slices);
-	pos += 4;
+	zz->pos += 4;
 
 	for(i=0; i<num_slices; i++) {
-		if(pos >= endpos) break;
-		de_dbg(c, "slice[%d] at %d\n", (int)i, (int)pos);
+		if(zz->pos >= zz->endpos) {
+			de_dbg(c, "[Expected %d slices, only found %d]\n", (int)num_slices, (int)i);
+			goto done;
+		}
+		de_dbg(c, "slice[%d] at %d\n", (int)i, (int)zz->pos);
 		de_dbg_indent(c, 1);
-		do_slices_resource_block(c, d, i, pos, endpos-pos, &bytes_consumed2);
+		zz_init(&czz, zz);
+		do_slices_resource_block(c, d, i, &czz);
 		de_dbg_indent(c, -1);
-		pos += bytes_consumed2;
+		zz->pos += zz_used(&czz);
 	}
 
 	// The PSD spec seems to show that a Descriptor can (optionally) appear after
@@ -1219,138 +1183,116 @@ static void do_slices_v6(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 	// Fortunately, evidence suggests that a Descriptor can only appear after the
 	// last slice in the array.
 
-	if(pos>=endpos) goto done;
+	if(zz->pos >= zz->endpos) goto done;
 
-	ret = read_descriptor(c, d, pos, endpos-pos, 1, " (for slices)", &bytes_consumed2);
+	ret = read_descriptor(c, d, zz, 1, " (for slices)");
 	if(!ret) goto done;
-	pos += bytes_consumed2;
 
 done:
 	ucstring_destroy(name_of_group_of_slices);
 }
 
-static void do_slices_v7_8(deark *c, lctx *d, de_int64 pos1, de_int64 len)
+static void do_slices_v7_8(deark *c, lctx *d, zztype *zz)
 {
-	de_int64 pos;
-	de_int64 endpos;
-	de_int64 bytes_consumed_dv;
-
-	pos = pos1;
-	endpos = pos1+len;
-	pos += 4; // Skip version number (7 or 8), already read.
-
-	if(!read_descriptor(c, d, pos, endpos-pos, 1, "", &bytes_consumed_dv)) {
-		goto done;
-	}
-
-done:
-	;
+	zz->pos += 4; // Skip version number (7 or 8), already read.
+	read_descriptor(c, d, zz, 1, "");
 }
 
-static void hrsrc_slices(deark *c, lctx *d, const struct rsrc_info *ri,
-	de_int64 pos, de_int64 len)
+static void hrsrc_slices(deark *c, lctx *d, zztype *zz, const struct rsrc_info *ri)
 {
 	de_int64 sver;
 
-	if(len<4) return;
-	sver = psd_getui32(pos);
+	if(zz_avail(zz)<4) return;
+	sver = psd_getui32(zz->pos);
 	de_dbg(c, "slices resource format version: %d\n", (int)sver);
 
 	if(sver==6) {
-		do_slices_v6(c, d, pos, len);
+		do_slices_v6(c, d, zz);
 	}
 	else if(sver==7 || sver==8) {
-		do_slices_v7_8(c, d, pos, len);
+		do_slices_v7_8(c, d, zz);
 	}
 }
 
-static void hrsrc_thumbnail(deark *c, lctx *d, const struct rsrc_info *ri,
-	de_int64 pos1, de_int64 len)
+static void hrsrc_thumbnail(deark *c, lctx *d, zztype *zz, const struct rsrc_info *ri)
 {
-	de_int64 pos;
 	de_int64 fmt;
 
-	if(len<=28) return;
-	pos = pos1;
+	if(zz_avail(zz)<=28) return;
 
-	fmt = psd_getui32(pos);
+	fmt = psd_getui32(zz->pos);
 	if(fmt != 1) {
 		// fmt != kJpegRGB
 		de_dbg(c, "thumbnail in unsupported format (%d) found\n", (int)fmt);
 		return;
 	}
 
+	zz->pos += 28;
+
 	if(ri->id==0x0409) {
 		de_msg(c, "Note: This Photoshop thumbnail uses nonstandard colors, and may not look right.\n");
 	}
-	dbuf_create_file_from_slice(c->infile, pos+28, len-28, "psdthumb.jpg", NULL, DE_CREATEFLAG_IS_AUX);
+	dbuf_create_file_from_slice(c->infile, zz->pos, zz_avail(zz),
+		"psdthumb.jpg", NULL, DE_CREATEFLAG_IS_AUX);
 }
 
 // Handler for any resource that consists of a 1-byte numeric value
-static void hrsrc_byte(deark *c, lctx *d, const struct rsrc_info *ri,
-	de_int64 pos, de_int64 len)
+static void hrsrc_byte(deark *c, lctx *d, zztype *zz, const struct rsrc_info *ri)
 {
 	de_byte b;
-	if(len!=1) return;
-	b = de_getbyte(pos);
+	if(zz_avail(zz)!=1) return;
+	b = de_getbyte(zz->pos);
 	de_dbg(c, "%s: %d\n", ri->idname, (int)b);
 }
 
-static void hrsrc_uint16(deark *c, lctx *d, const struct rsrc_info *ri,
-	de_int64 pos, de_int64 len)
+static void hrsrc_uint16(deark *c, lctx *d, zztype *zz, const struct rsrc_info *ri)
 {
 	de_int64 n;
-	if(len!=2) return;
-	n = psd_getui16(pos);
+	if(zz_avail(zz)!=2) return;
+	n = psd_getui16(zz->pos);
 	de_dbg(c, "%s: %d\n", ri->idname, (int)n);
 }
 
-static void hrsrc_uint32(deark *c, lctx *d, const struct rsrc_info *ri,
-	de_int64 pos, de_int64 len)
+static void hrsrc_uint32(deark *c, lctx *d, zztype *zz, const struct rsrc_info *ri)
 {
 	de_int64 n;
-	if(len!=4) return;
-	n = psd_getui32(pos);
+	if(zz_avail(zz)!=4) return;
+	n = psd_getui32(zz->pos);
 	de_dbg(c, "%s: %d\n", ri->idname, (int)n);
 }
 
 // Handler for any resource that consists of a single "Unicode string".
-static void hrsrc_unicodestring(deark *c, lctx *d, const struct rsrc_info *ri,
-	de_int64 pos, de_int64 len)
+static void hrsrc_unicodestring(deark *c, lctx *d, zztype *zz, const struct rsrc_info *ri)
 {
 	de_ucstring *s = NULL;
-	de_int64 bytes_consumed;
 
 	s = ucstring_create(c);
-	read_unicode_string(c, d, s, pos, len, &bytes_consumed);
+	read_unicode_string(c, d, s, zz);
 	de_dbg(c, "%s: \"%s\"\n", ri->idname, ucstring_get_printable_sz(s));
 	ucstring_destroy(s);
 }
 
 // Raw byte-oriented text
-static void hrsrc_plaintext(deark *c, lctx *d, const struct rsrc_info *ri,
-	de_int64 pos, de_int64 len)
+static void hrsrc_plaintext(deark *c, lctx *d, zztype *zz, const struct rsrc_info *ri)
 {
 	de_ucstring *s = NULL;
 
 	s = ucstring_create(c);
-	dbuf_read_to_ucstring_n(c->infile, pos, len, 300, s, 0, DE_ENCODING_MACROMAN);
+	dbuf_read_to_ucstring_n(c->infile, zz->pos, zz_avail(zz), 300,
+		s, 0, DE_ENCODING_MACROMAN);
 	de_dbg(c, "%s: \"%s\"\n", ri->idname, ucstring_get_printable_sz(s));
 	ucstring_destroy(s);
 }
 
-static void hrsrc_urllist(deark *c, lctx *d, const struct rsrc_info *ri,
-	de_int64 pos1, de_int64 len)
+static void hrsrc_urllist(deark *c, lctx *d, zztype *zz, const struct rsrc_info *ri)
 {
 	de_ucstring *s = NULL;
 	de_int64 count;
-	de_int64 bytes_consumed;
 	de_int64 i;
-	de_int64 pos = pos1;
 
-	count = psd_getui32(pos);
+	count = psd_getui32(zz->pos);
 	de_dbg(c, "URL count: %d\n", (int)count);
-	pos += 4;
+	zz->pos += 4;
 
 	s = ucstring_create(c);
 
@@ -1359,120 +1301,105 @@ static void hrsrc_urllist(deark *c, lctx *d, const struct rsrc_info *ri,
 		de_int64 id;
 
 		// undocumented field, seems to be a fourcc
-		dbuf_read_fourcc(c->infile, pos, &url4cc, d->is_le);
-		pos += 4;
+		dbuf_read_fourcc(c->infile, zz->pos, &url4cc, d->is_le);
+		zz->pos += 4;
 
-		id = psd_getui32(pos);
-		pos += 4;
+		id = psd_getui32(zz->pos);
+		zz->pos += 4;
 
-		read_unicode_string(c, d, s, pos, len, &bytes_consumed);
+		read_unicode_string(c, d, s, zz);
 		de_dbg(c, "URL[%d]: '%s', id=%d, value=\"%s\"\n", (int)i,
 			url4cc.id_printable, (int)id, ucstring_get_printable_sz(s));
-		pos += bytes_consumed;
 		ucstring_empty(s);
 	}
 
 	ucstring_destroy(s);
 }
 
-static void hrsrc_versioninfo(deark *c, lctx *d, const struct rsrc_info *ri,
-	de_int64 pos1, de_int64 len)
+static void hrsrc_versioninfo(deark *c, lctx *d, zztype *zz, const struct rsrc_info *ri)
 {
 	de_int64 ver, file_ver;
 	de_byte b;
 	de_ucstring *s = NULL;
-	de_int64 bytes_consumed;
-	de_int64 pos, endpos;
 
-	endpos = pos1 + len;
-	pos = pos1;
-
-	ver = psd_getui32(pos);
+	ver = psd_getui32(zz->pos);
 	de_dbg(c, "version: %d\n", (int)ver);
-	pos += 4;
+	zz->pos += 4;
 
-	b = de_getbyte(pos++);
+	b = de_getbyte(zz->pos++);
 	de_dbg(c, "hasRealMergedData: %d\n", (int)b);
 
 	s = ucstring_create(c);
-	read_unicode_string(c, d, s, pos, endpos-pos, &bytes_consumed);
+	read_unicode_string(c, d, s, zz);
 	de_dbg(c, "writer name: \"%s\"\n", ucstring_get_printable_sz(s));
-	pos += bytes_consumed;
 
 	ucstring_empty(s);
-	read_unicode_string(c, d, s, pos, endpos-pos, &bytes_consumed);
+	read_unicode_string(c, d, s, zz);
 	de_dbg(c, "reader name: \"%s\"\n", ucstring_get_printable_sz(s));
-	pos += bytes_consumed;
 
-	file_ver = psd_getui32(pos);
+	file_ver = psd_getui32(zz->pos);
 	de_dbg(c, "file version: %d\n", (int)file_ver);
+	zz->pos += 4;
 
 	ucstring_destroy(s);
 }
 
-static void hrsrc_printscale(deark *c, lctx *d, const struct rsrc_info *ri,
-	de_int64 pos1, de_int64 len)
+static void hrsrc_printscale(deark *c, lctx *d, zztype *zz, const struct rsrc_info *ri)
 {
 	de_int64 style;
 	double xloc, yloc, scale;
-	if(len!=14) return;
-	style = psd_getui16(pos1);
+	if(zz_avail(zz)!=14) return;
+	style = psd_getui16(zz->startpos);
 	de_dbg(c, "style: %d\n", (int)style);
-	xloc = dbuf_getfloat32x(c->infile, pos1+2, d->is_le);
-	yloc = dbuf_getfloat32x(c->infile, pos1+6, d->is_le);
+	xloc = dbuf_getfloat32x(c->infile, zz->startpos+2, d->is_le);
+	yloc = dbuf_getfloat32x(c->infile, zz->startpos+6, d->is_le);
 	de_dbg(c, "location: (%f,%f)\n", xloc, yloc);
-	scale = dbuf_getfloat32x(c->infile, pos1+10, d->is_le);
+	scale = dbuf_getfloat32x(c->infile, zz->startpos+10, d->is_le);
 	de_dbg(c, "scale: %f\n", scale);
 }
 
-static void hrsrc_pixelaspectratio(deark *c, lctx *d, const struct rsrc_info *ri,
-	de_int64 pos1, de_int64 len)
+static void hrsrc_pixelaspectratio(deark *c, lctx *d, zztype *zz, const struct rsrc_info *ri)
 {
 	de_int64 version;
 	double ratio;
-	if(len!=12) return;
-	version = psd_getui32(pos1);
+	if(zz_avail(zz)!=12) return;
+	version = psd_getui32(zz->startpos);
 	de_dbg(c, "version: %d\n", (int)version);
-	ratio = dbuf_getfloat64x(c->infile, pos1+4, d->is_le);
+	ratio = dbuf_getfloat64x(c->infile, zz->startpos+4, d->is_le);
 	de_dbg(c, "x/y: %f\n", ratio);
 }
 
-static void hrsrc_layerselectionids(deark *c, lctx *d, const struct rsrc_info *ri,
-	de_int64 pos1, de_int64 len)
+static void hrsrc_layerselectionids(deark *c, lctx *d, zztype *zz, const struct rsrc_info *ri)
 {
 	de_int64 count;
 	int i;
 
-	if(len<2) return;
-	count = psd_getui16(pos1);
+	if(zz_avail(zz)<2) return;
+	count = psd_getui16(zz->pos);
 	de_dbg(c, "count: %d\n", (int)count);
-	if(len<2+4*count) return;
+	zz->pos += 2;
+	if(zz_avail(zz)<4*count) return;
 	for(i=0; i<count; i++) {
 		de_int64 lyid;
-		lyid = psd_getui32(pos1+2+4*i);
+		lyid = psd_getui32(zz->pos);
 		de_dbg(c, "layer id[%d]: %u\n", (int)i, (unsigned int)lyid);
+		zz->pos += 4;
 	}
 }
 
-static int do_image_resource(deark *c, lctx *d, de_int64 pos1, de_int64 *bytes_consumed)
+static int do_image_resource(deark *c, lctx *d, zztype *zz)
 {
 	de_int64 resource_id;
-	de_int64 blkname_len;
-	de_int64 bytes_used_by_name_field;
 	de_int64 block_data_len;
-	de_int64 pos;
 	struct rsrc_info ri;
 	de_ucstring *blkname = NULL;
-	const char *blkname_printable;
 	struct de_fourcc sig4cc;
 	const char *signame = "Photoshop";
+	zztype czz;
 	int retval = 0;
 
-	pos = pos1;
-	*bytes_consumed = 0;
-
 	// Check the "8BIM" signature
-	dbuf_read_fourcc(c->infile, pos, &sig4cc, 0);
+	dbuf_read_fourcc(c->infile, zz->pos, &sig4cc, 0);
 	if(sig4cc.id==CODE_8BIM) {
 		;
 	}
@@ -1481,52 +1408,41 @@ static int do_image_resource(deark *c, lctx *d, de_int64 pos1, de_int64 *bytes_c
 	}
 	else {
 		de_warn(c, "Bad Photoshop resource block signature '%s' at %d\n",
-			sig4cc.id_printable, (int)pos);
+			sig4cc.id_printable, (int)zz->pos);
 		goto done;
 	}
-	pos+=4;
+	zz->pos += 4;
 
-	resource_id = psd_getui16(pos);
-	pos+=2;
+	resource_id = psd_getui16(zz->pos);
+	zz->pos += 2;
 
-	// Read resource block name. It starts with a byte that gives its length.
-	blkname_len = (de_int64)de_getbyte(pos);
-	if(blkname_len==0) {
-		// A fast path. Resource blocks rarely have names.
-		blkname_printable = "";
-		bytes_used_by_name_field = 1;
-	}
-	else {
-		blkname = ucstring_create(c);
-		read_pascal_string_to_ucstring(c, d, pos, 256, blkname, &bytes_used_by_name_field);
-		blkname_printable = ucstring_get_printable_sz(blkname);
-	}
-	bytes_used_by_name_field = pad_to_2(bytes_used_by_name_field);
-	pos+=bytes_used_by_name_field;
+	// Read resource block name. A "Pascal string" padded to an even number of bytes.
+	blkname = ucstring_create(c);
+	zz_init(&czz, zz);
+	read_pascal_string_to_ucstring(c, d, blkname, &czz);
+	zz->pos += pad_to_2(zz_used(&czz));
 
-	block_data_len = psd_getui32(pos);
-	pos+=4;
+	block_data_len = psd_getui32(zz->pos);
+	zz->pos += 4;
 
 	lookup_rsrc((de_uint16)resource_id, &ri);
 
 	de_dbg(c, "%s rsrc 0x%04x (%s) pos=%d blkname=\"%s\" dpos=%d dlen=%d\n",
-		signame,
-		(int)resource_id, ri.idname, (int)pos1, blkname_printable,
-		(int)pos, (int)block_data_len);
+		signame, (int)resource_id, ri.idname, (int)zz->startpos,
+		ucstring_get_printable_sz(blkname), (int)zz->pos, (int)block_data_len);
 
 	de_dbg_indent(c, 1);
 	if(ri.hfn) {
-		ri.hfn(c, d, &ri, pos, block_data_len);
+		zz_init_with_len(&czz, zz, block_data_len);
+		ri.hfn(c, d, &czz, &ri);
 	}
 	else if(ri.flags&0x0004) {
-		hrsrc_descriptor_with_version(c, d, &ri, pos, block_data_len);
+		zz_init_with_len(&czz, zz, block_data_len);
+		hrsrc_descriptor_with_version(c, d, &czz, &ri);
 	}
 	de_dbg_indent(c, -1);
 
-	pos+=block_data_len;
-	if(block_data_len&1) pos++; // padding byte
-
-	*bytes_consumed = pos - pos1;
+	zz->pos += pad_to_2(block_data_len);
 
 	retval = 1;
 
@@ -1535,198 +1451,185 @@ done:
 	return retval;
 }
 
-static void do_image_resource_blocks(deark *c, lctx *d, de_int64 pos1, de_int64 len)
+static void do_image_resource_blocks(deark *c, lctx *d, zztype *zz)
 {
-	de_int64 pos;
-	de_int64 bytes_consumed;
+	zztype czz;
 
-	pos = pos1;
 	while(1) {
-		if(pos>=pos1+len) break;
-		if(!do_image_resource(c, d, pos, &bytes_consumed)) break;
-		pos += bytes_consumed;
+		if(zz->pos>=zz->endpos) break;
+		zz_init(&czz, zz);
+		if(!do_image_resource(c, d, &czz)) break;
+		zz->pos += zz_used(&czz);
 	}
 }
 
 // Layer mask / adjustment layer data
-static void do_layer_mask_data(deark *c, lctx *d, de_int64 pos,
-	de_int64 bytes_avail, de_int64 *bytes_consumed)
+static void do_layer_mask_data(deark *c, lctx *d, zztype *zz)
 {
 	de_int64 dlen;
-	dlen = psd_getui32(pos);
+	dlen = psd_getui32(zz->pos);
 	de_dbg(c, "layer mask data size: %d\n", (int)dlen);
-	*bytes_consumed = 4 + dlen;
+	zz->pos += 4;
+	zz->pos += dlen;
 }
 
-static void do_layer_blending_ranges(deark *c, lctx *d, de_int64 pos,
-	de_int64 bytes_avail, de_int64 *bytes_consumed)
+static void do_layer_blending_ranges(deark *c, lctx *d, zztype *zz)
 {
 	de_int64 dlen;
-	dlen = psd_getui32(pos);
+	dlen = psd_getui32(zz->pos);
 	de_dbg(c, "layer blending ranges data size: %d\n", (int)dlen);
-	*bytes_consumed = 4 + dlen;
+	zz->pos += 4;
+	zz->pos += dlen;
 }
 
-static void do_layer_name(deark *c, lctx *d, de_int64 pos,
-	de_int64 bytes_avail, de_int64 *bytes_consumed)
+static void do_layer_name(deark *c, lctx *d, zztype *zz)
 {
 	de_ucstring *s = NULL;
 
 	// "Pascal string, padded to a multiple of 4 bytes"
 	s = ucstring_create(c);
-	read_pascal_string_to_ucstring(c, d, pos, bytes_avail, s, bytes_consumed);
+	read_pascal_string_to_ucstring(c, d, s, zz);
 	de_dbg(c, "layer name: \"%s\"\n", ucstring_get_printable_sz(s));
-	*bytes_consumed = pad_to_4(*bytes_consumed);
+	zz->pos = zz->startpos + pad_to_4(zz_used(zz));
 	ucstring_destroy(s);
 }
 
-static void do_tagged_blocks(deark *c, lctx *d, de_int64 pos1, de_int64 len);
+static void do_tagged_blocks(deark *c, lctx *d, zztype *zz);
 
 struct channel_data {
 	de_int64 num_channels;
 	de_int64 total_len;
 };
 
-static int do_layer_record(deark *c, lctx *d, de_int64 pos1,
-	de_int64 bytes_avail, de_int64 *bytes_consumed,
-	struct channel_data *cd)
+static int do_layer_record(deark *c, lctx *d, zztype *zz, struct channel_data *cd)
 {
-	de_int64 pos;
-	de_int64 endpos;
 	de_int64 nchannels;
 	de_int64 extra_data_len;
-	de_int64 extra_data_endpos;
 	struct de_fourcc tmp4cc;
-	de_int64 bytes_consumed2;
 	de_int64 x;
 	de_byte b;
 	int i;
-
+	zztype czz;
+	zztype extradatazz;
 	int retval = 0;
 
-	endpos = pos1+bytes_avail;
-	pos = pos1;
+	do_dbg_rectangle_tlbr(c, d, zz->pos, "bounding rectangle");
+	zz->pos += 16;
 
-	do_dbg_rectangle_tlbr(c, d, pos, "bounding rectangle");
-	pos += 16;
-
-	nchannels = psd_getui16(pos);
+	nchannels = psd_getui16(zz->pos);
 	de_dbg(c, "number of channels: %d\n", (int)nchannels);
-	pos += 2;
+	zz->pos += 2;
 
 	for(i=0; i<nchannels; i++) {
-		x = psd_geti16(pos);
+		x = psd_geti16(zz->pos);
 		de_dbg(c, "channel[%d] id: %d\n", (int)i, (int)x);
-		pos+=2;
+		zz->pos+=2;
 
-		x = psd_getui32or64(c, d, pos);
+		x = psd_getui32or64(c, d, zz->pos);
 		de_dbg(c, "channel[%d] data length: %"INT64_FMT"\n", (int)i, x);
 		cd->num_channels++;
 		cd->total_len += x;
-		pos += d->intsize_4or8;
+		zz->pos += d->intsize_4or8;
 	}
 
-	dbuf_read_fourcc(c->infile, pos, &tmp4cc, d->is_le);
+	dbuf_read_fourcc(c->infile, zz->pos, &tmp4cc, d->is_le);
 	if(tmp4cc.id != CODE_8BIM) {
-		de_warn(c, "Expected blend mode signature not found at %d\n", (int)pos);
+		de_warn(c, "Expected blend mode signature not found at %d\n", (int)zz->pos);
 		goto done;
 	}
-	pos += 4;
+	zz->pos += 4;
 
-	dbuf_read_fourcc(c->infile, pos, &tmp4cc, d->is_le);
+	dbuf_read_fourcc(c->infile, zz->pos, &tmp4cc, d->is_le);
 	de_dbg(c, "blend mode: '%s'\n", tmp4cc.id_printable);
-	pos += 4;
+	zz->pos += 4;
 
-	b = de_getbyte(pos++);
+	b = de_getbyte(zz->pos++);
 	de_dbg(c, "opacity: %d\n", (int)b);
 
-	b = de_getbyte(pos++);
+	b = de_getbyte(zz->pos++);
 	de_dbg(c, "clipping: %d\n", (int)b);
 
-	b = de_getbyte(pos++);
+	b = de_getbyte(zz->pos++);
 	de_dbg(c, "flags: 0x%02x\n", (unsigned int)b);
 
-	pos += 1; // filler
+	zz->pos += 1; // filler
 
-	extra_data_len = psd_getui32(pos);
-	pos+=4;
-	extra_data_endpos = pos + extra_data_len;
+	extra_data_len = psd_getui32(zz->pos);
+	zz->pos += 4;
 
-	do_layer_mask_data(c, d, pos, extra_data_endpos-pos, &bytes_consumed2);
-	pos += bytes_consumed2;
+	if(zz->pos + extra_data_len > zz->endpos) {
+		de_warn(c, "Malformed layer record at %d\n", (int)zz->startpos);
+		goto done;
+	}
 
-	do_layer_blending_ranges(c, d, pos, extra_data_endpos-pos, &bytes_consumed2);
-	pos += bytes_consumed2;
+	zz_init_with_len(&extradatazz, zz, extra_data_len);
+	zz->pos = extradatazz.endpos;
 
-	do_layer_name(c, d, pos, extra_data_endpos-pos, &bytes_consumed2);
-	pos += bytes_consumed2;
+	zz_init(&czz, &extradatazz);
+	do_layer_mask_data(c, d, &czz);
+	extradatazz.pos += zz_used(&czz);
 
-	if(pos < extra_data_endpos) {
+	zz_init(&czz, &extradatazz);
+	do_layer_blending_ranges(c, d, &czz);
+	extradatazz.pos += zz_used(&czz);
+
+	zz_init(&czz, &extradatazz);
+	do_layer_name(c, d, &czz);
+	extradatazz.pos += zz_used(&czz);
+
+	if(extradatazz.pos < extradatazz.endpos) {
 		// The rest of the layer record data seems to be undocumented,
 		// or unclearly documented.
 		de_dbg(c, "layer record tagged blocks at %d, len=%d\n",
-			(int)pos, (int)(extra_data_endpos-pos));
+			(int)extradatazz.pos, (int)(extradatazz.endpos-extradatazz.pos));
 		de_dbg_indent(c, 1);
-		do_tagged_blocks(c, d, pos, extra_data_endpos-pos);
+		zz_init(&czz, &extradatazz);
+		do_tagged_blocks(c, d, &czz);
 		de_dbg_indent(c, -1);
 	}
-
-	pos = extra_data_endpos;
-
-	if(pos>endpos) {
-		de_warn(c, "Malformed layer record at %d\n", (int)pos1);
-		*bytes_consumed = 0;
-		goto done;
-	}
-	*bytes_consumed = pos - pos1;
 
 	retval = 1;
 done:
 	return retval;
 }
 
-static int do_layer_info_section(deark *c, lctx *d, de_int64 pos1,
-	de_int64 bytes_avail, int has_len_field, de_int64 *bytes_consumed)
+static int do_layer_info_section(deark *c, lctx *d, zztype *zz, int has_len_field)
 {
 	int retval = 0;
-	de_int64 pos;
-	de_int64 endpos;
 	de_int64 layer_info_len;
 	de_int64 layer_count_raw, layer_count;
-	de_int64 bytes_consumed_layer;
-	int indent_count = 0;
+	int saved_indent_level;
 	int merged_result_flag;
 	de_int64 layer_idx;
+	zztype datazz;
+	zztype czz;
 	struct channel_data *cd = NULL;
 
-	*bytes_consumed = 0;
-	pos = pos1;
-	if(bytes_avail<4) goto done;
+	de_dbg_indent_save(c, &saved_indent_level);
+	if(zz_avail(zz)<4) goto done;
 
-	de_dbg(c, "layer info section at %d\n", (int)pos1);
+	de_dbg(c, "layer info section at %d\n", (int)zz->pos);
 	de_dbg_indent(c, 1);
-	indent_count++;
 
 	if(has_len_field) {
-		layer_info_len = psd_getui32or64(c, d, pos);
+		layer_info_len = psd_getui32or64(c, d, zz->pos);
 		de_dbg(c, "length of layer info section: %d\n", (int)layer_info_len);
-		pos += d->intsize_4or8;
-		*bytes_consumed = d->intsize_4or8 + layer_info_len;
+		zz->pos += d->intsize_4or8;
 	}
 	else {
-		layer_info_len = bytes_avail;
-		*bytes_consumed = layer_info_len;
+		layer_info_len = zz_avail(zz);
 	}
+	zz_init_with_len(&datazz, zz, layer_info_len);
+	zz->pos += layer_info_len;
 	retval = 1;
-	endpos = pos1 + *bytes_consumed;
 
-	if(pos>=endpos) {
+	if(datazz.pos>=datazz.endpos) {
 		// If the length field is 0, it's legal for this section to end here.
 		goto done;
 	}
 
-	layer_count_raw = psd_geti16(pos);
-	pos += 2;
+	layer_count_raw = psd_geti16(datazz.pos);
+	datazz.pos += 2;
 	if(layer_count_raw<0) {
 		merged_result_flag = 1;
 		layer_count = -layer_count_raw;
@@ -1746,55 +1649,63 @@ static int do_layer_info_section(deark *c, lctx *d, de_int64 pos1,
 	cd->total_len = 0;
 
 	for(layer_idx=0; layer_idx<layer_count; layer_idx++) {
-		de_dbg(c, "layer record[%d] at %d\n", (int)layer_idx, (int)pos);
+		de_dbg(c, "layer record[%d] at %d\n", (int)layer_idx, (int)datazz.pos);
 		de_dbg_indent(c, 1);
-		if(!do_layer_record(c, d, pos, endpos-pos, &bytes_consumed_layer, cd))
+		zz_init(&czz, &datazz);
+		if(!do_layer_record(c, d, &czz, cd))
 			goto done;
-		pos += bytes_consumed_layer;
+		datazz.pos += zz_used(&czz);
 		de_dbg_indent(c, -1);
 	}
 
 	de_dbg(c, "channel image data records at %d, count=%d, total len=%"INT64_FMT"\n",
-		(int)pos, (int)cd->num_channels, cd->total_len);
+		(int)datazz.pos, (int)cd->num_channels, cd->total_len);
 
 done:
-	de_dbg_indent(c, -indent_count);
+	de_dbg_indent_restore(c, saved_indent_level);
 	de_free(c, cd);
 	return retval;
 }
 
-static void do_uint32_block(deark *c, lctx *d, de_int64 pos, de_int64 len,
+static void do_uint32_block(deark *c, lctx *d, zztype *zz,
 	const struct de_fourcc *blk4cc, const char *name)
 {
 	de_int64 value;
-	if(len!=4) return;
-	value = psd_getui32(pos);
+
+	if(zz_avail(zz)!=4) return;
+	value = psd_getui32(zz->pos);
 	de_dbg(c, "%s: %d\n", name, (int)value);
+	zz->pos += 4;
 }
 
-static void do_boolean_block(deark *c, lctx *d, de_int64 pos, de_int64 len,
+static void do_boolean_block(deark *c, lctx *d, zztype *zz,
 	const struct de_fourcc *blk4cc, const char *name)
 {
 	de_byte value;
+	de_int64 len;
+
+	len = zz_avail(zz);
 	if(len<1 || len>4) return;
-	value = de_getbyte(pos);
+	value = de_getbyte(zz->pos);
 	de_dbg(c, "%s: %d\n", name, (int)value);
+	zz->pos++;
 }
 
-static void do_fourcc_block(deark *c, lctx *d, de_int64 pos, de_int64 len,
+static void do_fourcc_block(deark *c, lctx *d, zztype *zz,
 	const struct de_fourcc *blk4cc, const char *name)
 {
 	struct de_fourcc fourcc;
-	if(len!=4) return;
-	dbuf_read_fourcc(c->infile, pos, &fourcc, d->is_le);
+
+	if(zz_avail(zz)!=4) return;
+	dbuf_read_fourcc(c->infile, zz->pos, &fourcc, d->is_le);
 	de_dbg(c, "%s: '%s'\n", name, fourcc.id_printable);
+	zz->pos += 4;
 }
 
-static void do_Layr_block(deark *c, lctx *d, de_int64 pos, de_int64 len, const struct de_fourcc *blk4cc)
+static void do_Layr_block(deark *c, lctx *d, zztype *zz, const struct de_fourcc *blk4cc)
 {
-	de_int64 bytes_consumed;
 	// "Layer info" section, but starting with the "Layer count" field
-	do_layer_info_section(c, d, pos, len, 0, &bytes_consumed);
+	do_layer_info_section(c, d, zz, 0);
 }
 
 static void extract_linked_layer_blob(deark *c, lctx *d, de_int64 pos, de_int64 len)
@@ -1829,75 +1740,68 @@ static void extract_linked_layer_blob(deark *c, lctx *d, de_int64 pos, de_int64 
 		NULL, DE_CREATEFLAG_IS_AUX);
 }
 
-static int do_one_linked_layer(deark *c, lctx *d, de_int64 pos1, de_int64 bytes_avail, const struct de_fourcc *blk4cc,
-	de_int64 *bytes_consumed)
+static int do_one_linked_layer(deark *c, lctx *d, zztype *zz, const struct de_fourcc *blk4cc)
 {
 	int retval = 0;
-	de_int64 dlen, dlen2;
-	de_int64 pos, endpos;
+	de_int64 dlen, dlen2=0;
 	de_int64 ver;
 	de_byte file_open_descr_flag;
 	struct de_fourcc type4cc;
 	struct de_fourcc tmp4cc;
-	de_int64 bytes_consumed2;
 	de_ucstring *s = NULL;
+	zztype datazz;
 
-	pos = pos1;
-	endpos = pos1+bytes_avail;
-	*bytes_consumed = bytes_avail;
-
-	dlen = psd_geti64(pos);
+	dlen = psd_geti64(zz->pos);
 	de_dbg(c, "length: %"INT64_FMT"\n", dlen);
-	pos += 8;
-	if(dlen<8 || pos+dlen>pos1+bytes_avail) {
-		de_warn(c, "Bad linked layer size %"INT64_FMT" at %"INT64_FMT"\n", dlen, pos);
+	zz->pos += 8;
+	if(dlen<8 || zz->pos+dlen>zz->endpos) {
+		de_warn(c, "Bad linked layer size %"INT64_FMT" at %"INT64_FMT"\n", dlen, zz->startpos);
 		goto done;
 	}
+
+	zz_init_with_len(&datazz, zz, dlen);
+
 	// Seems to be padded to a multiple of 4 bytes. (The spec says nothing
 	// about this.)
-	*bytes_consumed = 8 + pad_to_4(dlen);
+	zz->pos += pad_to_4(dlen);
 	retval = 1;
 
-	dbuf_read_fourcc(c->infile, pos, &type4cc, d->is_le);
+	dbuf_read_fourcc(c->infile, datazz.pos, &type4cc, d->is_le);
 	de_dbg(c, "type: '%s'\n", type4cc.id_printable);
-	pos += 4;
+	datazz.pos += 4;
 
-	ver = psd_getui32(pos);
+	ver = psd_getui32(datazz.pos);
 	de_dbg(c, "version: %d\n", (int)ver);
-	pos += 4;
+	datazz.pos += 4;
 
 	s = ucstring_create(c);
-	read_pascal_string_to_ucstring(c, d, pos, endpos-pos, s, &bytes_consumed2);
+	read_pascal_string_to_ucstring(c, d, s, &datazz);
 	de_dbg(c, "unique id: \"%s\"\n", ucstring_get_printable_sz(s));
-	pos += bytes_consumed2;
 
 	ucstring_empty(s);
-	read_unicode_string(c, d, s, pos, endpos-pos, &bytes_consumed2);
-
+	read_unicode_string(c, d, s, &datazz);
 	de_dbg(c, "original file name: \"%s\"\n", ucstring_get_printable_sz(s));
-	pos += bytes_consumed2;
 
-	dbuf_read_fourcc(c->infile, pos, &tmp4cc, d->is_le);
+	dbuf_read_fourcc(c->infile, datazz.pos, &tmp4cc, d->is_le);
 	de_dbg(c, "file type: '%s'\n", tmp4cc.id_printable);
-	pos += 4;
+	datazz.pos += 4;
 
-	dbuf_read_fourcc(c->infile, pos, &tmp4cc, d->is_le);
+	dbuf_read_fourcc(c->infile, datazz.pos, &tmp4cc, d->is_le);
 	de_dbg(c, "file creator: '%s'\n", tmp4cc.id_printable);
-	pos += 4;
+	datazz.pos += 4;
 
-	dlen2 = psd_geti64(pos);
+	dlen2 = psd_geti64(datazz.pos);
 	de_dbg(c, "length2: %"INT64_FMT"\n", dlen2);
 	if(dlen2<0) goto done;
-	pos += 8;
+	datazz.pos += 8;
 
-	file_open_descr_flag = de_getbyte(pos++);
+	file_open_descr_flag = de_getbyte(datazz.pos++);
 	de_dbg(c, "has file open descriptor: %d\n", (int)file_open_descr_flag);
 
 	if(file_open_descr_flag) {
-		if(!read_descriptor(c, d, pos, endpos-pos, 1, " (of open parameters)", &bytes_consumed2)) {
+		if(!read_descriptor(c, d, &datazz, 1, " (of open parameters)")) {
 			goto done;
 		}
-		pos += bytes_consumed2;
 	}
 
 	if(type4cc.id!=CODE_liFD) {
@@ -1906,8 +1810,8 @@ static int do_one_linked_layer(deark *c, lctx *d, de_int64 pos1, de_int64 bytes_
 		goto done;
 	}
 
-	de_dbg(c, "raw file bytes at %"INT64_FMT", len=%"INT64_FMT"\n", pos, dlen2);
-	extract_linked_layer_blob(c, d, pos, dlen2);
+	de_dbg(c, "raw file bytes at %"INT64_FMT", len=%"INT64_FMT"\n", datazz.pos, dlen2);
+	extract_linked_layer_blob(c, d, datazz.pos, dlen2);
 
 	// TODO: There may be more fields after this, depending on the version.
 
@@ -1916,325 +1820,305 @@ done:
 	return retval;
 }
 
-static void do_lnk2_block(deark *c, lctx *d, de_int64 pos1, de_int64 len, const struct de_fourcc *blk4cc)
+static void do_lnk2_block(deark *c, lctx *d, zztype *zz, const struct de_fourcc *blk4cc)
 {
-	de_int64 pos, endpos;
-	de_int64 bytes_consumed2;
 	int ret;
+	zztype czz;
 
-	pos = pos1;
-	endpos = pos+len;
-	while(pos<endpos) {
-		de_dbg(c, "linked layer data at %"INT64_FMT"\n", pos);
+	while(zz->pos<zz->endpos) {
+		de_dbg(c, "linked layer data at %"INT64_FMT"\n", zz->pos);
 		de_dbg_indent(c, 1);
-		ret = do_one_linked_layer(c, d, pos, endpos-pos, blk4cc, &bytes_consumed2);
+		zz_init(&czz, zz);
+		ret = do_one_linked_layer(c, d, &czz, blk4cc);
 		de_dbg_indent(c, -1);
 		if(!ret) break;
-		pos += bytes_consumed2;
+		zz->pos += zz_used(&czz);
 	}
 }
 
-static void do_Patt_block(deark *c, lctx *d, de_int64 pos1, de_int64 len, const struct de_fourcc *blk4cc)
+static void do_Patt_block(deark *c, lctx *d, zztype *zz, const struct de_fourcc *blk4cc)
 {
 	de_int64 ver;
-	de_int64 pos = pos1;
-	de_int64 endpos;
 	de_int64 pattern_idx;
-	int indent_count = 0;
+	int saved_indent_level;
 	de_ucstring *tmps = NULL;
-	de_int64 bytes_consumed2;
 
-	endpos = pos1+len;
-
+	de_dbg_indent_save(c, &saved_indent_level);
 	tmps = ucstring_create(c);
 
 	pattern_idx = 0;
 	while(1) {
-		de_int64 pat_data_pos;
-		de_int64 pat_data_len;
+		de_int64 pat_data_len2;
+		zztype datazz; // zz for the pattern data (minus the length field)
 
-		if(pos+16 > endpos) break;
+		if(zz->pos+16 > zz->endpos) break;
 
-		de_dbg(c, "pattern[%d] at %d\n", (int)pattern_idx, (int)pos);
+		de_dbg(c, "pattern[%d] at %d\n", (int)pattern_idx, (int)zz->pos);
 		de_dbg_indent(c, 1);
-		indent_count++;
 
-		pat_data_len = psd_getui32(pos);
-		de_dbg(c, "length: %d\n", (int)pat_data_len);
-		pos += 4;
+		pat_data_len2 = psd_getui32(zz->pos);
+		de_dbg(c, "length: %d\n", (int)pat_data_len2);
+		zz->pos += 4;
 
-		pat_data_pos = pos;
+		zz_init_with_len(&datazz, zz, pat_data_len2);
 
-		ver = psd_getui32(pos);
+		ver = psd_getui32(datazz.pos);
 		de_dbg(c, "version: %d\n", (int)ver);
 		if(ver!=1) goto done;
-		pos += 4;
+		datazz.pos += 4;
 
-		pos += 4; // image mode
-		pos += 2+2; // point
+		datazz.pos += 4; // image mode
+		datazz.pos += 2+2; // point
 
 		ucstring_empty(tmps);
-		read_unicode_string(c, d, tmps, pos, endpos-pos, &bytes_consumed2);
+		read_unicode_string(c, d, tmps, &datazz);
 		de_dbg(c, "name: \"%s\"\n", ucstring_get_printable_sz_n(tmps, 300));
-		pos += bytes_consumed2;
 
 		ucstring_empty(tmps);
-		read_pascal_string_to_ucstring(c, d, pos, endpos-pos, tmps, &bytes_consumed2);
+		read_pascal_string_to_ucstring(c, d, tmps, &datazz);
 		de_dbg(c, "id: \"%s\"\n", ucstring_get_printable_sz_n(tmps, 300));
-		pos += bytes_consumed2;
 
 		// TODO: There are more fields here.
 
 		// TODO: I haven't found any files with multiple patterns, so this has not
 		// been tested.
-		pos = pat_data_pos + pat_data_len;
+		zz->pos += pat_data_len2;
 		de_dbg_indent(c, -1);
-		indent_count--;
 		pattern_idx++;
 	}
 
 done:
 	ucstring_destroy(tmps);
-	de_dbg_indent(c, -indent_count);
+	de_dbg_indent_restore(c, saved_indent_level);
 }
 
-static void do_lrFX_block(deark *c, lctx *d, de_int64 pos1, de_int64 len, const struct de_fourcc *blk4cc)
+static void do_lrFX_block(deark *c, lctx *d, zztype *zz, const struct de_fourcc *blk4cc)
 {
 	de_int64 ver;
 	de_int64 count;
 	de_int64 i;
 	de_uint32 sig;
-	de_int64 pos = pos1;
 	struct de_fourcc sig4cc;
 
-	ver = psd_getui16(pos);
+	ver = psd_getui16(zz->pos);
 	if(ver!=0) goto done;
-	pos += 2;
+	zz->pos += 2;
 
-	count = psd_getui16(pos);
+	count = psd_getui16(zz->pos);
 	de_dbg(c, "effects count: %d\n", (int)count);
-	pos += 2;
+	zz->pos += 2;
 
 	for(i=0; i<count; i++) {
 		de_int64 epos;
 		de_int64 dlen;
 
-		if(pos>=pos1+len) goto done;
-		epos = pos;
+		if(zz->pos>=zz->endpos) goto done;
+		epos = zz->pos;
 
-		sig = (de_uint32)psd_getui32(pos);
+		sig = (de_uint32)psd_getui32(zz->pos);
 		if(sig!=CODE_8BIM) {
-			de_warn(c, "Bad 'effects' block signature at %d\n", (int)pos);
+			de_warn(c, "Bad 'effects' block signature at %d\n", (int)zz->pos);
 			goto done;
 		}
-		pos += 4;
+		zz->pos += 4;
 
-		dbuf_read_fourcc(c->infile, pos, &sig4cc, d->is_le);
-		pos += 4;
+		dbuf_read_fourcc(c->infile, zz->pos, &sig4cc, d->is_le);
+		zz->pos += 4;
 
-		dlen = psd_getui32(pos);
-		pos += 4;
+		dlen = psd_getui32(zz->pos);
+		zz->pos += 4;
 
 		de_dbg(c, "effects[%d] '%s' at %d, dpos=%d, dlen=%d\n", (int)i, sig4cc.id_printable,
-			(int)epos, (int)pos, (int)dlen);
-		pos += dlen;
+			(int)epos, (int)zz->pos, (int)dlen);
+		zz->pos += dlen;
 	}
 
 done:
 	;
 }
 
-static void do_fxrp_block(deark *c, lctx *d, de_int64 pos, de_int64 len)
+static void do_fxrp_block(deark *c, lctx *d, zztype *zz)
 {
 	double v[2];
 
-	if(len!=16) return;
-	v[0] = dbuf_getfloat64x(c->infile, pos, d->is_le);
-	v[1] = dbuf_getfloat64x(c->infile, pos+8, d->is_le);
+	if(zz_avail(zz)!=16) return;
+	v[0] = dbuf_getfloat64x(c->infile, zz->pos, d->is_le);
+	zz->pos += 8;
+	v[1] = dbuf_getfloat64x(c->infile, zz->pos, d->is_le);
+	zz->pos += 8;
 	de_dbg(c, "reference point: %f, %f\n", v[0], v[1]);
 }
 
-static void do_lspf_block(deark *c, lctx *d, de_int64 pos, de_int64 len)
+static void do_lspf_block(deark *c, lctx *d, zztype *zz)
 {
 	unsigned int x;
-	if(len!=4) return;
-	x = (unsigned int)psd_getui32(pos);
+	if(zz_avail(zz)!=4) return;
+	x = (unsigned int)psd_getui32(zz->pos);
 	de_dbg(c, "protection flags: transparency=%u, composite=%u, position=%u\n",
 		(x&0x1), (x&0x2)>>1, (x&0x4)>>2);
+	zz->pos += 4;
 }
 
-static void do_vscg_block(deark *c, lctx *d, de_int64 pos, de_int64 len)
+static void do_vscg_block(deark *c, lctx *d, zztype *zz)
 {
 	struct de_fourcc key4cc;
-	de_int64 bytes_consumed2;
 
-	dbuf_read_fourcc(c->infile, pos, &key4cc, d->is_le);
+	dbuf_read_fourcc(c->infile, zz->pos, &key4cc, d->is_le);
 	de_dbg(c, "key: '%s'\n", key4cc.id_printable);
-	read_descriptor(c, d, pos+4, len-4, 1, " (for Vector Stroke Content Data)", &bytes_consumed2);
+	zz->pos += 4;
+	read_descriptor(c, d, zz, 1, " (for Vector Stroke Content Data)");
 }
 
-static void do_vogk_block(deark *c, lctx *d, de_int64 pos, de_int64 len)
+static void do_vogk_block(deark *c, lctx *d, zztype *zz)
 {
 	de_int64 ver;
-	de_int64 bytes_consumed2;
 
-	ver = psd_getui32(pos);
+	ver = psd_getui32(zz->pos);
 	if(ver!=1) return;
-	read_descriptor(c, d, pos+4, len-4, 1, " (for Vector Origination Data)", &bytes_consumed2);
+	zz->pos += 4;
+	read_descriptor(c, d, zz, 1, " (for Vector Origination Data)");
 }
 
-static void do_unicodestring_block(deark *c, lctx *d, de_int64 pos, de_int64 len, const struct de_fourcc *blk4cc,
+static void do_unicodestring_block(deark *c, lctx *d, zztype *zz, const struct de_fourcc *blk4cc,
 	const char *name)
 {
 	de_ucstring *s = NULL;
-	de_int64 bytes_consumed;
 
 	s = ucstring_create(c);
-	read_unicode_string(c, d, s, pos, len, &bytes_consumed);
+	read_unicode_string(c, d, s, zz);
 	de_dbg(c, "%s: \"%s\"\n", name, ucstring_get_printable_sz(s));
 	ucstring_destroy(s);
 }
 
-static void do_descriptor_block(deark *c, lctx *d, de_int64 pos, de_int64 len,
+static void do_descriptor_block(deark *c, lctx *d, zztype *zz,
 	const struct de_fourcc *blk4cc, const char *name)
 {
-	de_int64 bytes_consumed;
 	char dscrname[100];
 
 	de_snprintf(dscrname, sizeof(dscrname), " (for %s)", name);
-	read_descriptor(c, d, pos, len, 1, dscrname, &bytes_consumed);
+	read_descriptor(c, d, zz, 1, dscrname);
 }
 
-static void do_lfx2_block(deark *c, lctx *d, de_int64 pos, de_int64 len, const struct de_fourcc *blk4cc)
+static void do_lfx2_block(deark *c, lctx *d, zztype *zz, const struct de_fourcc *blk4cc)
 {
 	de_int64 oe_ver;
+	zztype czz;
 
-	if(len<8) return;
-	oe_ver = psd_getui32(pos);
+	if(zz_avail(zz)<8) return;
+	oe_ver = psd_getui32(zz->pos);
 	de_dbg(c, "object effects version: %d\n", (int)oe_ver);
+	zz->pos += 4;
 	if(oe_ver!=0) return;
 
-	do_descriptor_block(c, d, pos+4, len-4, blk4cc, "object-based effects layer info");
+	zz_init(&czz, zz);
+	do_descriptor_block(c, d, &czz, blk4cc, "object-based effects layer info");
 }
 
 // Handles 'TySh' and 'tySh'
-static void do_TySh_block(deark *c, lctx *d, de_int64 pos1, de_int64 len, const struct de_fourcc *blk4cc)
+static void do_TySh_block(deark *c, lctx *d, zztype *zz, const struct de_fourcc *blk4cc)
 {
-	de_int64 pos, endpos;
 	de_int64 ver, textver;
-	de_int64 bytes_consumed2;
 
-	endpos = pos1+len;
-	pos = pos1;
-
-	ver = psd_getui16(pos);
+	ver = psd_getui16(zz->pos);
 	de_dbg(c, "version: %d\n", (int)ver);
+	zz->pos += 2;
 	if(ver!=1) goto done;
-	pos += 2;
 
-	pos += 6*8; // transform
+	zz->pos += 6*8; // transform
 
-	textver = psd_getui16(pos);
+	textver = psd_getui16(zz->pos);
 	de_dbg(c, "text version: %d\n", (int)textver);
+	zz->pos += 2; // text version
 	// For 'tySh', textver should be 6 -- TODO
 	// For 'TySh', textver should be 50
 	if(textver!=50) goto done;
-	pos += 2; // text version
 
-	if(!read_descriptor(c, d, pos, endpos-pos, 1, " (for type tool object setting - text)", &bytes_consumed2)) {
+	if(!read_descriptor(c, d, zz, 1, " (for type tool object setting - text)")) {
 		goto done;
 	}
-	pos += bytes_consumed2;
 
-	pos += 2; // warp version
-	if(!read_descriptor(c, d, pos, endpos-pos, 1, " (for type tool object setting - warp)", &bytes_consumed2)) {
+	zz->pos += 2; // warp version
+	if(!read_descriptor(c, d, zz, 1, " (for type tool object setting - warp)")) {
 		goto done;
 	}
-	pos += bytes_consumed2;
 
 	// TODO: "left, top, right, bottom" (field purpose and data type are undocumented)
-	pos += 4*8;
+	zz->pos += 4*8;
 
 done:
 	;
 }
 
-static void do_SoLd_block(deark *c, lctx *d, de_int64 pos1, de_int64 len)
+static void do_SoLd_block(deark *c, lctx *d, zztype *zz)
 {
 	struct de_fourcc id4cc;
-	de_int64 pos = pos1;
 	de_int64 ver;
-	de_int64 bytes_consumed2;
 
-	dbuf_read_fourcc(c->infile, pos, &id4cc, d->is_le);
+	dbuf_read_fourcc(c->infile, zz->pos, &id4cc, d->is_le);
 	de_dbg(c, "identifier: '%s'\n", id4cc.id_printable);
-	pos += 4;
-	ver = psd_getui32(pos);
+	zz->pos += 4;
+	ver = psd_getui32(zz->pos);
 	de_dbg(c, "version: %d\n", (int)ver);
-	pos += 4;
+	zz->pos += 4;
 
-	read_descriptor(c, d, pos, (pos1+len)-pos, 1, " (of placed layer information)", &bytes_consumed2);
+	read_descriptor(c, d, zz, 1, " (of placed layer information)");
 }
 
-static void do_shmd_block(deark *c, lctx *d, de_int64 pos1, de_int64 len)
+static void do_shmd_block(deark *c, lctx *d, zztype *zz)
 {
 	de_int64 count;
 	de_int64 i;
-	de_int64 pos, endpos;
 
-	pos = pos1;
-	endpos = pos1+len;
-	if(len<4) return;
+	if(zz_avail(zz)<4) return;
 
-	count = psd_getui32(pos);
+	count = psd_getui32(zz->pos);
 	de_dbg(c, "number of metadata items: %d\n", (int)count);
-	pos += 4;
+	zz->pos += 4;
 
 	for(i=0; i<count; i++) {
 		de_int64 itempos, dpos, dlen;
 		struct de_fourcc key4cc;
 
-		if(pos >= endpos) break;
-		itempos = pos;
+		if(zz->pos >= zz->endpos) break;
+		itempos = zz->pos;
 
-		pos += 4; // signature ("8BIM", presumably)
+		zz->pos += 4; // signature ("8BIM", presumably)
 
-		dbuf_read_fourcc(c->infile, pos, &key4cc, d->is_le);
-		pos += 4;
+		dbuf_read_fourcc(c->infile, zz->pos, &key4cc, d->is_le);
+		zz->pos += 4;
 
-		pos += 1; // flag
-		pos += 3; // padding
+		zz->pos += 1; // flag
+		zz->pos += 3; // padding
 
-		dlen = psd_getui32(pos);
-		pos += 4;
+		dlen = psd_getui32(zz->pos);
+		zz->pos += 4;
 
-		dpos = pos;
+		dpos = zz->pos;
 		de_dbg(c, "metadata item[%d] '%s' at %d, dpos=%d, dlen=%d\n",
 			(int)i, key4cc.id_printable, (int)itempos, (int)dpos, (int)dlen);
-		pos += dlen;
+		zz->pos += dlen;
 	}
 }
 
-static int do_tagged_block(deark *c, lctx *d, de_int64 pos, de_int64 bytes_avail,
-	de_int64 *bytes_consumed)
+static int do_tagged_block(deark *c, lctx *d, zztype *zz)
 {
 	de_int64 blklen;
 	de_int64 blklen_len = 4; // Length of the block length field
-	de_int64 dpos;
-	de_int64 padded_blklen;
 	struct de_fourcc blk4cc;
 	de_int64 sig;
+	zztype czz;
 
-	*bytes_consumed = 0;
-	if(bytes_avail<12) return 0;
+	if(zz_avail(zz)<12) return 0;
 
-	sig = psd_getui32(pos);
+	sig = psd_getui32(zz->pos);
 	if(sig!=CODE_8BIM && sig!=CODE_8B64) {
-		de_warn(c, "Expected tagged block signature not found at %d\n", (int)pos);
+		de_warn(c, "Expected tagged block signature not found at %d\n", (int)zz->pos);
 		return 0;
 	}
+	zz->pos += 4;
 
-	dbuf_read_fourcc(c->infile, pos+4, &blk4cc, d->is_le);
+	dbuf_read_fourcc(c->infile, zz->pos, &blk4cc, d->is_le);
+	zz->pos += 4;
 
 	// Some blocks types have an 8-byte length in PSD format
 	if(d->intsize_4or8==8) {
@@ -2248,134 +2132,134 @@ static int do_tagged_block(deark *c, lctx *d, de_int64 pos, de_int64 bytes_avail
 	}
 
 	if(blklen_len==8) {
-		blklen = psd_geti64(pos+8);
+		blklen = psd_geti64(zz->pos);
+		zz->pos += 8;
 	}
 	else {
-		blklen = psd_getui32(pos+8);
+		blklen = psd_getui32(zz->pos);
+		zz->pos += 4;
 	}
-	dpos = pos + 8 + blklen_len;
+
+	zz_init_with_len(&czz, zz, blklen);
 
 	de_dbg(c, "tagged block '%s' at %d, dpos=%d, dlen=%d\n", blk4cc.id_printable,
-		(int)pos, (int)dpos, (int)blklen);
+		(int)zz->startpos, (int)czz.startpos, (int)blklen);
 
 	de_dbg_indent(c, 1);
 	switch(blk4cc.id) {
 	case CODE_clbl:
-		do_boolean_block(c, d, dpos, blklen, &blk4cc, "blend clipped elements");
+		do_boolean_block(c, d, &czz, &blk4cc, "blend clipped elements");
 		break;
 	case CODE_infx:
-		do_boolean_block(c, d, dpos, blklen, &blk4cc, "blend interior elements");
+		do_boolean_block(c, d, &czz, &blk4cc, "blend interior elements");
 		break;
 	case CODE_knko:
-		do_boolean_block(c, d, dpos, blklen, &blk4cc, "knockout");
+		do_boolean_block(c, d, &czz, &blk4cc, "knockout");
 		break;
 	case CODE_lyid:
-		do_uint32_block(c, d, dpos, blklen, &blk4cc, "layer ID");
+		do_uint32_block(c, d, &czz, &blk4cc, "layer ID");
 		break;
 	case CODE_lnsr:
-		do_fourcc_block(c, d, dpos, blklen, &blk4cc, "layer name ID");
+		do_fourcc_block(c, d, &czz, &blk4cc, "layer name ID");
 		break;
 	case CODE_Layr:
 	case CODE_Lr16:
-		do_Layr_block(c, d, dpos, blklen, &blk4cc);
+		do_Layr_block(c, d, &czz, &blk4cc);
 		break;
 	case CODE_lnkD:
 	case CODE_lnk2:
 	case CODE_lnk3:
-		do_lnk2_block(c, d, dpos, blklen, &blk4cc);
+		do_lnk2_block(c, d, &czz, &blk4cc);
 		break;
 	case CODE_Patt:
 	case CODE_Pat2:
 	case CODE_Pat3:
-		do_Patt_block(c, d, dpos, blklen, &blk4cc);
+		do_Patt_block(c, d, &czz, &blk4cc);
 		break;
 	case CODE_lrFX:
-		do_lrFX_block(c, d, dpos, blklen, &blk4cc);
+		do_lrFX_block(c, d, &czz, &blk4cc);
 		break;
 	case CODE_luni:
-		do_unicodestring_block(c, d, dpos, blklen, &blk4cc, "Unicode layer name");
+		do_unicodestring_block(c, d, &czz, &blk4cc, "Unicode layer name");
 		break;
 	case CODE_GdFl:
-		do_descriptor_block(c, d, dpos, blklen, &blk4cc, "Gradient fill setting");
+		do_descriptor_block(c, d, &czz, &blk4cc, "Gradient fill setting");
 		break;
 	case CODE_PtFl:
-		do_descriptor_block(c, d, dpos, blklen, &blk4cc, "Pattern fill setting");
+		do_descriptor_block(c, d, &czz, &blk4cc, "Pattern fill setting");
 		break;
 	case CODE_SoCo:
-		do_descriptor_block(c, d, dpos, blklen, &blk4cc, "Solid color sheet setting");
+		do_descriptor_block(c, d, &czz, &blk4cc, "Solid color sheet setting");
 		break;
 	case CODE_vstk:
-		do_descriptor_block(c, d, dpos, blklen, &blk4cc, "Vector Stroke Data");
+		do_descriptor_block(c, d, &czz, &blk4cc, "Vector Stroke Data");
 		break;
 	case CODE_blwh:
-		do_descriptor_block(c, d, dpos, blklen, &blk4cc, "Black and White");
+		do_descriptor_block(c, d, &czz, &blk4cc, "Black and White");
 		break;
 	case CODE_CgEd:
-		do_descriptor_block(c, d, dpos, blklen, &blk4cc, "Content Generator Extra Data");
+		do_descriptor_block(c, d, &czz, &blk4cc, "Content Generator Extra Data");
 		break;
 	case CODE_vibA:
-		do_descriptor_block(c, d, dpos, blklen, &blk4cc, "Vibrance");
+		do_descriptor_block(c, d, &czz, &blk4cc, "Vibrance");
 		break;
 	case CODE_pths:
-		do_descriptor_block(c, d, dpos, blklen, &blk4cc, "Unicode Path Name");
+		do_descriptor_block(c, d, &czz, &blk4cc, "Unicode Path Name");
 		break;
 	case CODE_anFX:
-		do_descriptor_block(c, d, dpos, blklen, &blk4cc, "Animation Effects");
+		do_descriptor_block(c, d, &czz, &blk4cc, "Animation Effects");
 		break;
 	case CODE_PxSc:
-		do_descriptor_block(c, d, dpos, blklen, &blk4cc, "Pixel Source Data");
+		do_descriptor_block(c, d, &czz, &blk4cc, "Pixel Source Data");
 		break;
 	case CODE_artb:
 	case CODE_artd:
 	case CODE_abdd:
-		do_descriptor_block(c, d, dpos, blklen, &blk4cc, "Artboard Data");
+		do_descriptor_block(c, d, &czz, &blk4cc, "Artboard Data");
 		break;
 	case CODE_vscg:
-		do_vscg_block(c, d, dpos, blklen);
+		do_vscg_block(c, d, &czz);
 		break;
 	case CODE_vogk:
-		do_vogk_block(c, d, dpos, blklen);
+		do_vogk_block(c, d, &czz);
 		break;
 	case CODE_fxrp:
-		do_fxrp_block(c, d, dpos, blklen);
+		do_fxrp_block(c, d, &czz);
 		break;
 	case CODE_lspf:
-		do_lspf_block(c, d, dpos, blklen);
+		do_lspf_block(c, d, &czz);
 		break;
 	case CODE_lfx2:
-		do_lfx2_block(c, d, dpos, blklen, &blk4cc);
+		do_lfx2_block(c, d, &czz, &blk4cc);
 		break;
 	case CODE_Txt2:
-		do_text_engine_data(c, d, dpos, blklen);
+		do_text_engine_data(c, d, czz.startpos, blklen);
 		break;
 	case CODE_TySh:
 	case CODE_tySh:
-		do_TySh_block(c, d, dpos, blklen, &blk4cc);
+		do_TySh_block(c, d, &czz, &blk4cc);
 		break;
 	case CODE_SoLd:
-		do_SoLd_block(c, d, dpos, blklen);
+		do_SoLd_block(c, d, &czz);
 		break;
 	case CODE_shmd:
-		do_shmd_block(c, d, dpos, blklen);
+		do_shmd_block(c, d, &czz);
 		break;
 	}
 	de_dbg_indent(c, -1);
 
 	// Apparently, the data is padded to the next multiple of 4 bytes.
 	// (This is not what the PSD spec says.)
-	padded_blklen = pad_to_4(blklen);
-
-	*bytes_consumed = 8 + blklen_len + padded_blklen;
+	zz->pos += pad_to_4(blklen);
 	return 1;
 }
 
 // A "Series of tagged blocks" - part of the "Layer and Mask Information" section.
 // Or, the payload data from a TIFF "ImageSourceData" tag.
 // Or, at the end of a "layer record".
-static void do_tagged_blocks(deark *c, lctx *d, de_int64 pos1, de_int64 len)
+static void do_tagged_blocks(deark *c, lctx *d, zztype *zz)
 {
-	de_int64 bytes_consumed;
-	de_int64 pos = pos1;
+	zztype czz;
 
 	d->nesting_level++;
 	if(d->nesting_level>MAX_NESTING_LEVEL) goto done; // Defend against excessive recursion.
@@ -2387,85 +2271,99 @@ static void do_tagged_blocks(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 	}
 
 	while(1) {
-		if(pos+12 > pos1+len) break;
-		if(!do_tagged_block(c, d, pos, pos1+len-pos, &bytes_consumed)) break;
-		pos += bytes_consumed;
+		if(zz->pos+12 > zz->endpos) break;
+		zz_init(&czz, zz);
+		if(!do_tagged_block(c, d, &czz)) break;
+		zz->pos += zz_used(&czz);
 	}
 
 done:
 	d->nesting_level--;
 }
 
-static int do_layer_and_mask_info_section(deark *c, lctx *d, de_int64 pos1, de_int64 *bytes_consumed)
+static int do_layer_and_mask_info_section(deark *c, lctx *d, zztype *zz)
 {
-	de_int64 pos;
 	de_int64 layer_and_mask_info_section_len; // The "Length" field. Whole section is 4 bytes longer.
-	de_int64 layer_and_mask_info_section_endpos;
 	de_int64 gl_layer_mask_info_len;
-	de_int64 bytes_consumed2;
+	zztype lmidataczz;
+	zztype czz;
+	int saved_indent_level;
 	int retval = 0;
 
+	de_dbg_indent_save(c, &saved_indent_level);
+
 	// The "layer and mask section" contains up to 3 sub-sections:
-	// * layer info
-	// * global layer mask info
-	// * tagged blocks
+	// 1. layer info
+	// 2. global layer mask info
+	// 3. tagged blocks
 
-	pos = pos1;
-	*bytes_consumed = 0;
-
-	de_dbg(c, "layer & mask info section at %d\n", (int)pos);
+	de_dbg(c, "layer & mask info section at %d\n", (int)zz->pos);
 	de_dbg_indent(c, 1);
 
-	layer_and_mask_info_section_len = psd_getui32or64(c, d, pos);
+	layer_and_mask_info_section_len = psd_getui32or64(c, d, zz->pos);
 	de_dbg(c, "layer & mask info section total data len: %d\n", (int)layer_and_mask_info_section_len);
-	pos += d->intsize_4or8;
-	if(pos + layer_and_mask_info_section_len > c->infile->len) {
+	zz->pos += d->intsize_4or8;
+	if(zz->pos + layer_and_mask_info_section_len > zz->endpos) {
 		de_err(c, "Unexpected end of PSD file\n");
 		goto done;
 	}
-	layer_and_mask_info_section_endpos = pos + layer_and_mask_info_section_len;
+	zz_init_with_len(&lmidataczz, zz, layer_and_mask_info_section_len);
 
+	// We won't use zz again (we'll use lmidataczz instead), so we can go ahead and
+	// advance its ->pos field.
+	zz->pos += layer_and_mask_info_section_len;
 	// Now that we know the size of this element, we can treat this function as "successful".
-	*bytes_consumed = d->intsize_4or8 + layer_and_mask_info_section_len;
 	retval = 1;
 
-	if(!do_layer_info_section(c, d, pos, layer_and_mask_info_section_endpos-pos, 1,
-		&bytes_consumed2))
-	{
+	///// 1. layer info /////
+
+	zz_init(&czz, &lmidataczz);
+	if(!do_layer_info_section(c, d, &lmidataczz, 1)) {
 		goto done;
 	}
-	if(pos + bytes_consumed2 > layer_and_mask_info_section_endpos) {
+	if(czz.endpos > lmidataczz.endpos) {
 		de_warn(c, "Oversized Layer Info section\n");
 		goto done;
 	}
-	pos += bytes_consumed2;
-	if(pos>=layer_and_mask_info_section_endpos) {
+	lmidataczz.pos += zz_used(&czz);
+
+	/////
+
+	if(lmidataczz.pos >= lmidataczz.endpos) {
 		goto done;
 	}
 
-	de_dbg(c, "global layer mask info at %d\n", (int)pos);
+	///// 2. global layer mask info /////
+
+	de_dbg(c, "global layer mask info at %d\n", (int)lmidataczz.pos);
 	de_dbg_indent(c, 1);
-	gl_layer_mask_info_len = psd_getui32(pos);
-	pos += 4;
+	gl_layer_mask_info_len = psd_getui32(lmidataczz.pos);
+	lmidataczz.pos += 4;
 	de_dbg(c, "length of global layer mask info section: %d\n", (int)gl_layer_mask_info_len);
 	de_dbg_indent(c, -1);
-	if(pos+gl_layer_mask_info_len > layer_and_mask_info_section_endpos) {
+	if(lmidataczz.pos+gl_layer_mask_info_len > lmidataczz.endpos) {
 		de_warn(c, "Oversized Global Layer Mask Info section\n");
 		goto done;
 	}
-	pos += gl_layer_mask_info_len;
-	if(pos>=layer_and_mask_info_section_endpos) {
+	lmidataczz.pos += gl_layer_mask_info_len;
+
+	/////
+
+	if(lmidataczz.pos >= lmidataczz.endpos) {
 		goto done;
 	}
 
-	de_dbg(c, "tagged blocks at %d\n", (int)pos);
+	///// 3. tagged blocks /////
+
+	de_dbg(c, "tagged blocks at %d\n", (int)lmidataczz.pos);
 	de_dbg_indent(c, 1);
-	de_dbg(c, "expected length of tagged blocks section: %d\n", (int)(layer_and_mask_info_section_endpos-pos));
-	do_tagged_blocks(c, d, pos, layer_and_mask_info_section_endpos-pos);
+	de_dbg(c, "expected length of tagged blocks section: %d\n", (int)(lmidataczz.endpos-lmidataczz.pos));
+	zz_init(&czz, &lmidataczz);
+	do_tagged_blocks(c, d, &czz);
 	de_dbg_indent(c, -1);
 
 done:
-	de_dbg_indent(c, -1);
+	de_dbg_indent_restore(c, saved_indent_level);
 	return retval;
 }
 
@@ -2541,12 +2439,12 @@ done:
 	return retval;
 }
 
-static void do_external_tagged_blocks(deark *c, lctx *d)
+static void do_external_tagged_blocks(deark *c, lctx *d, zztype *zz)
 {
 	de_uint32 code;
 
 	d->tagged_blocks_only = 1;
-	if(c->infile->len<4) return;
+	if(zz_avail(zz)<4) return;
 
 	// Evidently, it is possible for this to use little-endian byte order. Weird.
 
@@ -2556,18 +2454,20 @@ static void do_external_tagged_blocks(deark *c, lctx *d)
 		d->is_le = 1;
 	}
 
-	do_tagged_blocks(c, d, 0, c->infile->len);
+	do_tagged_blocks(c, d, zz);
 }
 
-static void do_image_data(deark *c, lctx *d, de_int64 pos, de_int64 len)
+static void do_image_data(deark *c, lctx *d, zztype *zz)
 {
 	de_int64 cmpr;
+	de_int64 len;
 	const char *name = "?";
 
+	len = zz_avail(zz);
 	if(len<2) return;
-	de_dbg(c, "image data at %d, expected len=%d\n", (int)pos, (int)len);
+	de_dbg(c, "image data at %d, expected len=%d\n", (int)zz->pos, (int)len);
 	de_dbg_indent(c, 1);
-	cmpr = psd_getui16(pos);
+	cmpr = psd_getui16(zz->pos);
 	switch(cmpr) {
 	case 0: name="uncompressed"; break;
 	case 1: name="PackBits"; break;
@@ -2582,69 +2482,72 @@ static void de_run_psd(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
 	de_int64 x;
-	de_int64 pos;
-	de_int64 bytes_consumed;
-	de_int64 imgdata_len;
+	zztype *zz = NULL;
+	zztype czz;
 
 	if(c->module_nesting_level>1) de_dbg2(c, "in psd module\n");
 	d = de_malloc(c, sizeof(lctx));
+	zz = de_malloc(c, sizeof(zztype));
+	zz_init_absolute(zz, 0, c->infile->len);
 
 	if(mparams && mparams->codes) {
 		if(de_strchr(mparams->codes, 'R')) { // Image resources
 			d->version = 1;
 			init_version_specific_info(c, d);
-			do_image_resource_blocks(c, d, 0, c->infile->len);
+			do_image_resource_blocks(c, d, zz);
 			goto done;
 		}
 		if(de_strchr(mparams->codes, 'T')) { // Tagged blocks
 			d->version = 1;
 			init_version_specific_info(c, d);
-			do_external_tagged_blocks(c, d);
+			do_external_tagged_blocks(c, d, zz);
 			goto done;
 		}
 		if(de_strchr(mparams->codes, 'B')) { // Tagged blocks, PSB-format
 			d->version = 2;
 			init_version_specific_info(c, d);
-			do_external_tagged_blocks(c, d);
+			do_external_tagged_blocks(c, d, zz);
 			goto done;
 		}
 	}
 
-	pos = 0;
-	if(!do_header(c, d, pos)) goto done;
-	pos += 26;
+	if(!do_header(c, d, zz->pos)) goto done;
+	zz->pos += 26;
 
-	de_dbg(c, "color mode data section at %d\n", (int)pos);
+	de_dbg(c, "color mode data section at %d\n", (int)zz->pos);
 	de_dbg_indent(c, 1);
-	x = psd_getui32(pos);
-	pos += 4;
-	de_dbg(c, "color data at %d, len=%d\n", (int)pos, (int)x);
-	pos += x;
+	x = psd_getui32(zz->pos);
+	zz->pos += 4;
+	de_dbg(c, "color data at %d, len=%d\n", (int)zz->pos, (int)x);
+	zz->pos += x;
 	de_dbg_indent(c, -1);
 
-	de_dbg(c, "image resources section at %d\n", (int)pos);
+	de_dbg(c, "image resources section at %d\n", (int)zz->pos);
 	de_dbg_indent(c, 1);
-	x = psd_getui32(pos); // Length of Image Resources
-	pos += 4;
+	x = psd_getui32(zz->pos); // Length of Image Resources
+	zz->pos += 4;
 	// The PSD spec is ambiguous, but in practice the "length" field's value
 	// does not include the size of the "length" field itself.
-	de_dbg(c, "image resources data at %d, len=%d\n", (int)pos, (int)x);
+	de_dbg(c, "image resources data at %d, len=%d\n", (int)zz->pos, (int)x);
 
 	if(x>0) {
 		de_dbg_indent(c, 1);
-		do_image_resource_blocks(c, d, pos, x);
+		zz_init_with_len(&czz, zz, x);
+		do_image_resource_blocks(c, d, &czz);
 		de_dbg_indent(c, -1);
 	}
-	pos += x;
+	zz->pos += x;
 	de_dbg_indent(c, -1);
 
-	if(!do_layer_and_mask_info_section(c, d, pos, &bytes_consumed)) goto done;
-	pos += bytes_consumed;
+	zz_init(&czz, zz);
+	if(!do_layer_and_mask_info_section(c, d, &czz)) goto done;
+	zz->pos += zz_used(&czz);
 
-	imgdata_len = c->infile->len - pos;
-	do_image_data(c, d, pos, imgdata_len);
+	zz_init(&czz, zz);
+	do_image_data(c, d, &czz);
 
 done:
+	de_free(c, zz);
 	de_free(c, d);
 }
 

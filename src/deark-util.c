@@ -147,6 +147,16 @@ void de_dbg_indent(deark *c, int n)
 	c->dbg_indent_amount += n;
 }
 
+void de_dbg_indent_save(deark *c, int *saved_indent_level)
+{
+	*saved_indent_level = c->dbg_indent_amount;
+}
+
+void de_dbg_indent_restore(deark *c, int saved_indent_level)
+{
+	c->dbg_indent_amount = saved_indent_level;
+}
+
 // Print debugging output for an 8-bit RGB palette entry.
 void de_dbg_pal_entry(deark *c, de_int64 idx, de_uint32 clr)
 {
