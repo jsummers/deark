@@ -267,16 +267,6 @@ static de_int64 pad_to_4(de_int64 n)
 #define psd_geti32(p) dbuf_geti32x(c->infile,p,d->is_le)
 #define psd_geti64(p) dbuf_geti64x(c->infile,p,d->is_le)
 
-// Read a 32-bit (if d->intsize_4or8==4) or 64-bit int from c->infile.
-// This function is used to help support PSB format.
-static de_int64 psd_getui32or64(deark *c, lctx *d, de_int64 pos)
-{
-	if(d->intsize_4or8>4) {
-		return psd_geti64(pos);
-	}
-	return psd_getui32(pos);
-}
-
 // Initialize a zz, from known start and end positions.
 static void zz_init_absolute(zztype *zz, de_int64 startpos, de_int64 endpos)
 {
@@ -323,6 +313,61 @@ static de_int64 zz_avail(zztype *zz)
 	if(zz->pos >= zz->endpos) return 0;
 	if(zz->pos >= zz->startpos) return zz->endpos - zz->pos;
 	return zz->endpos - zz->startpos;
+}
+
+// Functions that modify a shared "current file position" variable are
+// discouraged in Deark, but PSD format practically forces us to use them
+// in many cases.
+// May as well go all the way, and even do it for simple get_int functions.
+
+static de_int64 psd_dbuf_getui16_zz(dbuf *f, zztype *zz, int is_le)
+{
+	de_int64 val = dbuf_getui16x(f, zz->pos, is_le);
+	zz->pos += 2;
+	return val;
+}
+
+static de_int64 psd_dbuf_geti16_zz(dbuf *f, zztype *zz, int is_le)
+{
+	de_int64 val = dbuf_geti16x(f, zz->pos, is_le);
+	zz->pos += 2;
+	return val;
+}
+
+static de_int64 psd_dbuf_getui32_zz(dbuf *f, zztype *zz, int is_le)
+{
+	de_int64 val = dbuf_getui32x(f, zz->pos, is_le);
+	zz->pos += 4;
+	return val;
+}
+
+static de_int64 psd_dbuf_geti32_zz(dbuf *f, zztype *zz, int is_le)
+{
+	de_int64 val = dbuf_geti32x(f, zz->pos, is_le);
+	zz->pos += 4;
+	return val;
+}
+
+static de_int64 psd_dbuf_geti64_zz(dbuf *f, zztype *zz, int is_le)
+{
+	de_int64 val = dbuf_geti64x(f, zz->pos, is_le);
+	zz->pos += 8;
+	return val;
+}
+
+#define psd_getui16zz(z) psd_dbuf_getui16_zz(c->infile,z,d->is_le)
+#define psd_geti16zz(z) psd_dbuf_geti16_zz(c->infile,z,d->is_le)
+#define psd_getui32zz(z) psd_dbuf_getui32_zz(c->infile,z,d->is_le)
+#define psd_geti32zz(z) psd_dbuf_geti32_zz(c->infile,z,d->is_le)
+#define psd_geti64zz(z) psd_dbuf_geti64_zz(c->infile,z,d->is_le)
+
+// Read a 32-bit (if d->intsize_4or8==4) or 64-bit int from c->infile.
+// This function is used to help support PSB format.
+static de_int64 psd_getui32or64zz(deark *c, lctx *d, zztype *zz)
+{
+	if(d->intsize_4or8>4)
+		return psd_geti64zz(zz);
+	return psd_getui32zz(zz);
 }
 
 // For rectangles in top-left-bottom-right order
@@ -518,9 +563,7 @@ static void read_unicode_string(deark *c, lctx *d, de_ucstring *s, zztype *zz)
 		return;
 	}
 
-	num_code_units = psd_getui32(zz->pos);
-	zz->pos += 4;
-
+	num_code_units = psd_getui32zz(zz);
 	if(zz->pos + num_code_units*2 > zz->endpos) { // error
 		zz->pos = zz->endpos;
 		return;
@@ -614,9 +657,8 @@ static void do_item_type_long(deark *c, lctx *d, zztype *zz)
 {
 	de_int64 n;
 	// No idea if this is signed or unsigned.
-	n = psd_geti32(zz->pos);
+	n = psd_geti32zz(zz);
 	de_dbg(c, "value: %d\n", (int)n);
-	zz->pos += 4;
 }
 
 // "Double"
@@ -653,9 +695,8 @@ static void do_item_type_UnFl(deark *c, lctx *d, zztype *zz)
 	de_dbg(c, "units code: '%s'\n", unit4cc.id_printable);
 	zz->pos += 4;
 
-	count = psd_getui32(zz->pos);
+	count = psd_getui32zz(zz);
 	de_dbg(c, "count: %d\n", (int)count);
-	zz->pos += 4;
 
 	zz->pos += count*8; // TODO: [what we assume is a] float array
 }
@@ -687,8 +728,7 @@ static int do_item_type_tdta(deark *c, lctx *d,
 
 	// The public PSD spec does not reveal how to calculate the length of a 'tdata'
 	// item. Evidence suggests it starts with a 4-byte length field.
-	dlen = psd_getui32(zz->pos);
-	zz->pos += 4;
+	dlen = psd_getui32zz(zz);
 	de_dbg(c, "raw data at %d, dlen=%d\n", (int)zz->pos, (int)dlen);
 	if(zz->pos+dlen > zz->endpos) {
 		return 0;
@@ -734,13 +774,12 @@ static int do_item_type_VlLs(deark *c, lctx *d,
 	int retval = 0;
 	zztype czz;
 
-	num_items = psd_getui32(zz->pos);
+	num_items = psd_getui32zz(zz);
 	de_dbg(c, "number of items in list: %d\n", (int)num_items);
 	if(num_items>500) {
 		de_warn(c, "Excessively large VlLs item (%d)\n", (int)num_items);
 		goto done;
 	}
-	zz->pos += 4;
 
 	if(d->nesting_level>MAX_NESTING_LEVEL) goto done;
 
@@ -841,9 +880,8 @@ static int do_item_type_obj(deark *c, lctx *d, zztype *zz)
 
 	de_dbg_indent_save(c, &saved_indent_level);
 
-	num_items = psd_getui32(zz->pos);
+	num_items = psd_getui32zz(zz);
 	de_dbg(c, "number of items in reference: %d\n", (int)num_items);
-	zz->pos += 4;
 
 	for(i=0; i<num_items; i++) {
 		struct de_fourcc type4cc;
@@ -1011,8 +1049,7 @@ static int read_descriptor(deark *c, lctx *d, zztype *zz, int has_version, const
 	de_dbg_indent_save(c, &saved_indent_level);
 
 	if(has_version) {
-		dv = psd_getui32(zz->pos);
-		zz->pos += 4;
+		dv = psd_getui32zz(zz);
 	}
 
 	de_dbg(c, "descriptor%s at %d\n", dscrname, (int)zz->pos);
@@ -1034,9 +1071,8 @@ static int read_descriptor(deark *c, lctx *d, zztype *zz, int has_version, const
 	zz->pos += classid.bytes_consumed;
 	flexible_id_free_contents(c, &classid);
 
-	num_items = psd_getui32(zz->pos);
+	num_items = psd_getui32zz(zz);
 	de_dbg(c, "number of items in descriptor: %d\n", (int)num_items);
-	zz->pos += 4;
 
 	// Descriptor items
 	for(i=0; i<num_items; i++) {
@@ -1079,23 +1115,19 @@ static int do_slices_resource_block(deark *c, lctx *d, de_int64 slice_idx, zztyp
 
 	s = ucstring_create(c);
 
-	id = psd_getui32(zz->pos);
+	id = psd_getui32zz(zz);
 	de_dbg(c, "id: %d\n", (int)id);
-	zz->pos += 4;
 
-	group_id = psd_getui32(zz->pos);
+	group_id = psd_getui32zz(zz);
 	de_dbg(c, "group id: %d\n", (int)group_id);
-	zz->pos += 4;
 
-	origin = psd_getui32(zz->pos);
+	origin = psd_getui32zz(zz);
 	de_dbg(c, "origin: %d\n", (int)origin);
-	zz->pos += 4;
 
 	if(origin==1) {
 		de_int64 layer_id;
-		layer_id = psd_getui32(zz->pos);
+		layer_id = psd_getui32zz(zz);
 		de_dbg(c, "associated layer id: %d\n", (int)layer_id);
-		zz->pos += 4;
 	}
 
 	read_unicode_string(c, d, s, zz); // Name
@@ -1104,9 +1136,8 @@ static int do_slices_resource_block(deark *c, lctx *d, de_int64 slice_idx, zztyp
 	}
 	ucstring_empty(s);
 
-	slice_type = psd_getui32(zz->pos);
+	slice_type = psd_getui32zz(zz);
 	de_dbg(c, "type: %d\n", (int)slice_type);
-	zz->pos += 4;
 
 	do_dbg_rectangle_ltrb(c, d, zz->pos, "position");
 	zz->pos += 16;
@@ -1159,9 +1190,8 @@ static void do_slices_v6(deark *c, lctx *d, zztype *zz)
 		ucstring_get_printable_sz_n(name_of_group_of_slices, 300));
 	if(zz->pos >= zz->endpos) goto done;
 
-	num_slices = psd_getui32(zz->pos);
+	num_slices = psd_getui32zz(zz);
 	de_dbg(c, "number of slices: %d\n", (int)num_slices);
-	zz->pos += 4;
 
 	for(i=0; i<num_slices; i++) {
 		if(zz->pos >= zz->endpos) {
@@ -1249,7 +1279,7 @@ static void hrsrc_uint16(deark *c, lctx *d, zztype *zz, const struct rsrc_info *
 {
 	de_int64 n;
 	if(zz_avail(zz)!=2) return;
-	n = psd_getui16(zz->pos);
+	n = psd_getui16zz(zz);
 	de_dbg(c, "%s: %d\n", ri->idname, (int)n);
 }
 
@@ -1257,7 +1287,7 @@ static void hrsrc_uint32(deark *c, lctx *d, zztype *zz, const struct rsrc_info *
 {
 	de_int64 n;
 	if(zz_avail(zz)!=4) return;
-	n = psd_getui32(zz->pos);
+	n = psd_getui32zz(zz);
 	de_dbg(c, "%s: %d\n", ri->idname, (int)n);
 }
 
@@ -1290,9 +1320,8 @@ static void hrsrc_urllist(deark *c, lctx *d, zztype *zz, const struct rsrc_info 
 	de_int64 count;
 	de_int64 i;
 
-	count = psd_getui32(zz->pos);
+	count = psd_getui32zz(zz);
 	de_dbg(c, "URL count: %d\n", (int)count);
-	zz->pos += 4;
 
 	s = ucstring_create(c);
 
@@ -1304,8 +1333,7 @@ static void hrsrc_urllist(deark *c, lctx *d, zztype *zz, const struct rsrc_info 
 		dbuf_read_fourcc(c->infile, zz->pos, &url4cc, d->is_le);
 		zz->pos += 4;
 
-		id = psd_getui32(zz->pos);
-		zz->pos += 4;
+		id = psd_getui32zz(zz);
 
 		read_unicode_string(c, d, s, zz);
 		de_dbg(c, "URL[%d]: '%s', id=%d, value=\"%s\"\n", (int)i,
@@ -1322,9 +1350,8 @@ static void hrsrc_versioninfo(deark *c, lctx *d, zztype *zz, const struct rsrc_i
 	de_byte b;
 	de_ucstring *s = NULL;
 
-	ver = psd_getui32(zz->pos);
+	ver = psd_getui32zz(zz);
 	de_dbg(c, "version: %d\n", (int)ver);
-	zz->pos += 4;
 
 	b = de_getbyte(zz->pos++);
 	de_dbg(c, "hasRealMergedData: %d\n", (int)b);
@@ -1337,9 +1364,8 @@ static void hrsrc_versioninfo(deark *c, lctx *d, zztype *zz, const struct rsrc_i
 	read_unicode_string(c, d, s, zz);
 	de_dbg(c, "reader name: \"%s\"\n", ucstring_get_printable_sz(s));
 
-	file_ver = psd_getui32(zz->pos);
+	file_ver = psd_getui32zz(zz);
 	de_dbg(c, "file version: %d\n", (int)file_ver);
-	zz->pos += 4;
 
 	ucstring_destroy(s);
 }
@@ -1375,15 +1401,13 @@ static void hrsrc_layerselectionids(deark *c, lctx *d, zztype *zz, const struct 
 	int i;
 
 	if(zz_avail(zz)<2) return;
-	count = psd_getui16(zz->pos);
+	count = psd_getui16zz(zz);
 	de_dbg(c, "count: %d\n", (int)count);
-	zz->pos += 2;
 	if(zz_avail(zz)<4*count) return;
 	for(i=0; i<count; i++) {
 		de_int64 lyid;
-		lyid = psd_getui32(zz->pos);
+		lyid = psd_getui32zz(zz);
 		de_dbg(c, "layer id[%d]: %u\n", (int)i, (unsigned int)lyid);
-		zz->pos += 4;
 	}
 }
 
@@ -1413,8 +1437,7 @@ static int do_image_resource(deark *c, lctx *d, zztype *zz)
 	}
 	zz->pos += 4;
 
-	resource_id = psd_getui16(zz->pos);
-	zz->pos += 2;
+	resource_id = psd_getui16zz(zz);
 
 	// Read resource block name. A "Pascal string" padded to an even number of bytes.
 	blkname = ucstring_create(c);
@@ -1422,8 +1445,7 @@ static int do_image_resource(deark *c, lctx *d, zztype *zz)
 	read_pascal_string_to_ucstring(c, d, blkname, &czz);
 	zz->pos += pad_to_2(zz_used(&czz));
 
-	block_data_len = psd_getui32(zz->pos);
-	zz->pos += 4;
+	block_data_len = psd_getui32zz(zz);
 
 	lookup_rsrc((de_uint16)resource_id, &ri);
 
@@ -1467,18 +1489,16 @@ static void do_image_resource_blocks(deark *c, lctx *d, zztype *zz)
 static void do_layer_mask_data(deark *c, lctx *d, zztype *zz)
 {
 	de_int64 dlen;
-	dlen = psd_getui32(zz->pos);
+	dlen = psd_getui32zz(zz);
 	de_dbg(c, "layer mask data size: %d\n", (int)dlen);
-	zz->pos += 4;
 	zz->pos += dlen;
 }
 
 static void do_layer_blending_ranges(deark *c, lctx *d, zztype *zz)
 {
 	de_int64 dlen;
-	dlen = psd_getui32(zz->pos);
+	dlen = psd_getui32zz(zz);
 	de_dbg(c, "layer blending ranges data size: %d\n", (int)dlen);
-	zz->pos += 4;
 	zz->pos += dlen;
 }
 
@@ -1516,20 +1536,17 @@ static int do_layer_record(deark *c, lctx *d, zztype *zz, struct channel_data *c
 	do_dbg_rectangle_tlbr(c, d, zz->pos, "bounding rectangle");
 	zz->pos += 16;
 
-	nchannels = psd_getui16(zz->pos);
+	nchannels = psd_getui16zz(zz);
 	de_dbg(c, "number of channels: %d\n", (int)nchannels);
-	zz->pos += 2;
 
 	for(i=0; i<nchannels; i++) {
-		x = psd_geti16(zz->pos);
+		x = psd_geti16zz(zz);
 		de_dbg(c, "channel[%d] id: %d\n", (int)i, (int)x);
-		zz->pos+=2;
 
-		x = psd_getui32or64(c, d, zz->pos);
+		x = psd_getui32or64zz(c, d, zz);
 		de_dbg(c, "channel[%d] data length: %"INT64_FMT"\n", (int)i, x);
 		cd->num_channels++;
 		cd->total_len += x;
-		zz->pos += d->intsize_4or8;
 	}
 
 	dbuf_read_fourcc(c->infile, zz->pos, &tmp4cc, d->is_le);
@@ -1554,8 +1571,7 @@ static int do_layer_record(deark *c, lctx *d, zztype *zz, struct channel_data *c
 
 	zz->pos += 1; // filler
 
-	extra_data_len = psd_getui32(zz->pos);
-	zz->pos += 4;
+	extra_data_len = psd_getui32zz(zz);
 
 	if(zz->pos + extra_data_len > zz->endpos) {
 		de_warn(c, "Malformed layer record at %d\n", (int)zz->startpos);
@@ -1612,9 +1628,8 @@ static int do_layer_info_section(deark *c, lctx *d, zztype *zz, int has_len_fiel
 	de_dbg_indent(c, 1);
 
 	if(has_len_field) {
-		layer_info_len = psd_getui32or64(c, d, zz->pos);
+		layer_info_len = psd_getui32or64zz(c, d, zz);
 		de_dbg(c, "length of layer info section: %d\n", (int)layer_info_len);
-		zz->pos += d->intsize_4or8;
 	}
 	else {
 		layer_info_len = zz_avail(zz);
@@ -1628,8 +1643,7 @@ static int do_layer_info_section(deark *c, lctx *d, zztype *zz, int has_len_fiel
 		goto done;
 	}
 
-	layer_count_raw = psd_geti16(datazz.pos);
-	datazz.pos += 2;
+	layer_count_raw = psd_geti16zz(&datazz);
 	if(layer_count_raw<0) {
 		merged_result_flag = 1;
 		layer_count = -layer_count_raw;
@@ -1673,9 +1687,8 @@ static void do_uint32_block(deark *c, lctx *d, zztype *zz,
 	de_int64 value;
 
 	if(zz_avail(zz)!=4) return;
-	value = psd_getui32(zz->pos);
+	value = psd_getui32zz(zz);
 	de_dbg(c, "%s: %d\n", name, (int)value);
-	zz->pos += 4;
 }
 
 static void do_boolean_block(deark *c, lctx *d, zztype *zz,
@@ -1751,9 +1764,8 @@ static int do_one_linked_layer(deark *c, lctx *d, zztype *zz, const struct de_fo
 	de_ucstring *s = NULL;
 	zztype datazz;
 
-	dlen = psd_geti64(zz->pos);
+	dlen = psd_geti64zz(zz);
 	de_dbg(c, "length: %"INT64_FMT"\n", dlen);
-	zz->pos += 8;
 	if(dlen<8 || zz->pos+dlen>zz->endpos) {
 		de_warn(c, "Bad linked layer size %"INT64_FMT" at %"INT64_FMT"\n", dlen, zz->startpos);
 		goto done;
@@ -1770,9 +1782,8 @@ static int do_one_linked_layer(deark *c, lctx *d, zztype *zz, const struct de_fo
 	de_dbg(c, "type: '%s'\n", type4cc.id_printable);
 	datazz.pos += 4;
 
-	ver = psd_getui32(datazz.pos);
+	ver = psd_getui32zz(&datazz);
 	de_dbg(c, "version: %d\n", (int)ver);
-	datazz.pos += 4;
 
 	s = ucstring_create(c);
 	read_pascal_string_to_ucstring(c, d, s, &datazz);
@@ -1790,10 +1801,9 @@ static int do_one_linked_layer(deark *c, lctx *d, zztype *zz, const struct de_fo
 	de_dbg(c, "file creator: '%s'\n", tmp4cc.id_printable);
 	datazz.pos += 4;
 
-	dlen2 = psd_geti64(datazz.pos);
+	dlen2 = psd_geti64zz(&datazz);
 	de_dbg(c, "length2: %"INT64_FMT"\n", dlen2);
 	if(dlen2<0) goto done;
-	datazz.pos += 8;
 
 	file_open_descr_flag = de_getbyte(datazz.pos++);
 	de_dbg(c, "has file open descriptor: %d\n", (int)file_open_descr_flag);
@@ -1856,16 +1866,14 @@ static void do_Patt_block(deark *c, lctx *d, zztype *zz, const struct de_fourcc 
 		de_dbg(c, "pattern[%d] at %d\n", (int)pattern_idx, (int)zz->pos);
 		de_dbg_indent(c, 1);
 
-		pat_data_len2 = psd_getui32(zz->pos);
+		pat_data_len2 = psd_getui32zz(zz);
 		de_dbg(c, "length: %d\n", (int)pat_data_len2);
-		zz->pos += 4;
 
 		zz_init_with_len(&datazz, zz, pat_data_len2);
 
-		ver = psd_getui32(datazz.pos);
+		ver = psd_getui32zz(&datazz);
 		de_dbg(c, "version: %d\n", (int)ver);
 		if(ver!=1) goto done;
-		datazz.pos += 4;
 
 		datazz.pos += 4; // image mode
 		datazz.pos += 2+2; // point
@@ -1900,13 +1908,11 @@ static void do_lrFX_block(deark *c, lctx *d, zztype *zz, const struct de_fourcc 
 	de_uint32 sig;
 	struct de_fourcc sig4cc;
 
-	ver = psd_getui16(zz->pos);
+	ver = psd_getui16zz(zz);
 	if(ver!=0) goto done;
-	zz->pos += 2;
 
-	count = psd_getui16(zz->pos);
+	count = psd_getui16zz(zz);
 	de_dbg(c, "effects count: %d\n", (int)count);
-	zz->pos += 2;
 
 	for(i=0; i<count; i++) {
 		de_int64 epos;
@@ -1915,18 +1921,16 @@ static void do_lrFX_block(deark *c, lctx *d, zztype *zz, const struct de_fourcc 
 		if(zz->pos>=zz->endpos) goto done;
 		epos = zz->pos;
 
-		sig = (de_uint32)psd_getui32(zz->pos);
+		sig = (de_uint32)psd_getui32zz(zz);
 		if(sig!=CODE_8BIM) {
 			de_warn(c, "Bad 'effects' block signature at %d\n", (int)zz->pos);
 			goto done;
 		}
-		zz->pos += 4;
 
 		dbuf_read_fourcc(c->infile, zz->pos, &sig4cc, d->is_le);
 		zz->pos += 4;
 
-		dlen = psd_getui32(zz->pos);
-		zz->pos += 4;
+		dlen = psd_getui32zz(zz);
 
 		de_dbg(c, "effects[%d] '%s' at %d, dpos=%d, dlen=%d\n", (int)i, sig4cc.id_printable,
 			(int)epos, (int)zz->pos, (int)dlen);
@@ -1953,10 +1957,9 @@ static void do_lspf_block(deark *c, lctx *d, zztype *zz)
 {
 	unsigned int x;
 	if(zz_avail(zz)!=4) return;
-	x = (unsigned int)psd_getui32(zz->pos);
+	x = (unsigned int)psd_getui32zz(zz);
 	de_dbg(c, "protection flags: transparency=%u, composite=%u, position=%u\n",
 		(x&0x1), (x&0x2)>>1, (x&0x4)>>2);
-	zz->pos += 4;
 }
 
 static void do_vscg_block(deark *c, lctx *d, zztype *zz)
@@ -1973,9 +1976,8 @@ static void do_vogk_block(deark *c, lctx *d, zztype *zz)
 {
 	de_int64 ver;
 
-	ver = psd_getui32(zz->pos);
+	ver = psd_getui32zz(zz);
 	if(ver!=1) return;
-	zz->pos += 4;
 	read_descriptor(c, d, zz, 1, " (for Vector Origination Data)");
 }
 
@@ -2005,9 +2007,8 @@ static void do_lfx2_block(deark *c, lctx *d, zztype *zz, const struct de_fourcc 
 	zztype czz;
 
 	if(zz_avail(zz)<8) return;
-	oe_ver = psd_getui32(zz->pos);
+	oe_ver = psd_getui32zz(zz);
 	de_dbg(c, "object effects version: %d\n", (int)oe_ver);
-	zz->pos += 4;
 	if(oe_ver!=0) return;
 
 	zz_init(&czz, zz);
@@ -2019,16 +2020,14 @@ static void do_TySh_block(deark *c, lctx *d, zztype *zz, const struct de_fourcc 
 {
 	de_int64 ver, textver;
 
-	ver = psd_getui16(zz->pos);
+	ver = psd_getui16zz(zz);
 	de_dbg(c, "version: %d\n", (int)ver);
-	zz->pos += 2;
 	if(ver!=1) goto done;
 
 	zz->pos += 6*8; // transform
 
-	textver = psd_getui16(zz->pos);
+	textver = psd_getui16zz(zz);
 	de_dbg(c, "text version: %d\n", (int)textver);
-	zz->pos += 2; // text version
 	// For 'tySh', textver should be 6 -- TODO
 	// For 'TySh', textver should be 50
 	if(textver!=50) goto done;
@@ -2057,9 +2056,8 @@ static void do_SoLd_block(deark *c, lctx *d, zztype *zz)
 	dbuf_read_fourcc(c->infile, zz->pos, &id4cc, d->is_le);
 	de_dbg(c, "identifier: '%s'\n", id4cc.id_printable);
 	zz->pos += 4;
-	ver = psd_getui32(zz->pos);
+	ver = psd_getui32zz(zz);
 	de_dbg(c, "version: %d\n", (int)ver);
-	zz->pos += 4;
 
 	read_descriptor(c, d, zz, 1, " (of placed layer information)");
 }
@@ -2071,9 +2069,8 @@ static void do_shmd_block(deark *c, lctx *d, zztype *zz)
 
 	if(zz_avail(zz)<4) return;
 
-	count = psd_getui32(zz->pos);
+	count = psd_getui32zz(zz);
 	de_dbg(c, "number of metadata items: %d\n", (int)count);
-	zz->pos += 4;
 
 	for(i=0; i<count; i++) {
 		de_int64 itempos, dpos, dlen;
@@ -2090,8 +2087,7 @@ static void do_shmd_block(deark *c, lctx *d, zztype *zz)
 		zz->pos += 1; // flag
 		zz->pos += 3; // padding
 
-		dlen = psd_getui32(zz->pos);
-		zz->pos += 4;
+		dlen = psd_getui32zz(zz);
 
 		dpos = zz->pos;
 		de_dbg(c, "metadata item[%d] '%s' at %d, dpos=%d, dlen=%d\n",
@@ -2105,17 +2101,16 @@ static int do_tagged_block(deark *c, lctx *d, zztype *zz)
 	de_int64 blklen;
 	de_int64 blklen_len = 4; // Length of the block length field
 	struct de_fourcc blk4cc;
-	de_int64 sig;
+	de_uint32 sig;
 	zztype czz;
 
 	if(zz_avail(zz)<12) return 0;
 
-	sig = psd_getui32(zz->pos);
+	sig = (de_uint32)psd_getui32zz(zz);
 	if(sig!=CODE_8BIM && sig!=CODE_8B64) {
 		de_warn(c, "Expected tagged block signature not found at %d\n", (int)zz->pos);
 		return 0;
 	}
-	zz->pos += 4;
 
 	dbuf_read_fourcc(c->infile, zz->pos, &blk4cc, d->is_le);
 	zz->pos += 4;
@@ -2132,12 +2127,10 @@ static int do_tagged_block(deark *c, lctx *d, zztype *zz)
 	}
 
 	if(blklen_len==8) {
-		blklen = psd_geti64(zz->pos);
-		zz->pos += 8;
+		blklen = psd_geti64zz(zz);
 	}
 	else {
-		blklen = psd_getui32(zz->pos);
-		zz->pos += 4;
+		blklen = psd_getui32zz(zz);
 	}
 
 	zz_init_with_len(&czz, zz, blklen);
@@ -2300,9 +2293,8 @@ static int do_layer_and_mask_info_section(deark *c, lctx *d, zztype *zz)
 	de_dbg(c, "layer & mask info section at %d\n", (int)zz->pos);
 	de_dbg_indent(c, 1);
 
-	layer_and_mask_info_section_len = psd_getui32or64(c, d, zz->pos);
+	layer_and_mask_info_section_len = psd_getui32or64zz(c, d, zz);
 	de_dbg(c, "layer & mask info section total data len: %d\n", (int)layer_and_mask_info_section_len);
-	zz->pos += d->intsize_4or8;
 	if(zz->pos + layer_and_mask_info_section_len > zz->endpos) {
 		de_err(c, "Unexpected end of PSD file\n");
 		goto done;
@@ -2337,8 +2329,7 @@ static int do_layer_and_mask_info_section(deark *c, lctx *d, zztype *zz)
 
 	de_dbg(c, "global layer mask info at %d\n", (int)lmidataczz.pos);
 	de_dbg_indent(c, 1);
-	gl_layer_mask_info_len = psd_getui32(lmidataczz.pos);
-	lmidataczz.pos += 4;
+	gl_layer_mask_info_len = psd_getui32zz(&lmidataczz);
 	de_dbg(c, "length of global layer mask info section: %d\n", (int)gl_layer_mask_info_len);
 	de_dbg_indent(c, -1);
 	if(lmidataczz.pos+gl_layer_mask_info_len > lmidataczz.endpos) {
@@ -2467,7 +2458,7 @@ static void do_image_data(deark *c, lctx *d, zztype *zz)
 	if(len<2) return;
 	de_dbg(c, "image data at %d, expected len=%d\n", (int)zz->pos, (int)len);
 	de_dbg_indent(c, 1);
-	cmpr = psd_getui16(zz->pos);
+	cmpr = psd_getui16zz(zz);
 	switch(cmpr) {
 	case 0: name="uncompressed"; break;
 	case 1: name="PackBits"; break;
@@ -2516,16 +2507,14 @@ static void de_run_psd(deark *c, de_module_params *mparams)
 
 	de_dbg(c, "color mode data section at %d\n", (int)zz->pos);
 	de_dbg_indent(c, 1);
-	x = psd_getui32(zz->pos);
-	zz->pos += 4;
+	x = psd_getui32zz(zz);
 	de_dbg(c, "color data at %d, len=%d\n", (int)zz->pos, (int)x);
 	zz->pos += x;
 	de_dbg_indent(c, -1);
 
 	de_dbg(c, "image resources section at %d\n", (int)zz->pos);
 	de_dbg_indent(c, 1);
-	x = psd_getui32(zz->pos); // Length of Image Resources
-	zz->pos += 4;
+	x = psd_getui32zz(zz); // Length of Image Resources
 	// The PSD spec is ambiguous, but in practice the "length" field's value
 	// does not include the size of the "length" field itself.
 	de_dbg(c, "image resources data at %d, len=%d\n", (int)zz->pos, (int)x);
