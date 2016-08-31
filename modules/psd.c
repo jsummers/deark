@@ -370,24 +370,31 @@ static de_int64 psd_getui32or64zz(deark *c, lctx *d, zztype *zz)
 	return psd_getui32zz(zz);
 }
 
+// The PSD module's version of dbuf_read_fourcc()
+static void psd_read_fourcc_zz(deark *c, lctx *d, zztype *zz, struct de_fourcc *fourcc)
+{
+	dbuf_read_fourcc(c->infile, zz->pos, fourcc, d->is_le);
+	zz->pos += 4;
+}
+
 // For rectangles in top-left-bottom-right order
-static void do_dbg_rectangle_tlbr(deark *c, lctx *d, de_int64 pos, const char *name)
+static void read_rectangle_tlbr(deark *c, lctx *d, zztype *zz, const char *name)
 {
 	de_int64 n[4];
 	de_int64 k;
 	for(k=0; k<4; k++) {
-		n[k] = psd_geti32(pos+4*k);
+		n[k] = psd_geti32zz(zz);
 	}
 	de_dbg(c, "%s: (%d,%d)-(%d,%d)\n", name, (int)n[1], (int)n[0], (int)n[3], (int)n[2]);
 }
 
 // For rectangles in left-top-right-bottom order
-static void do_dbg_rectangle_ltrb(deark *c, lctx *d, de_int64 pos, const char *name)
+static void read_rectangle_ltrb(deark *c, lctx *d, zztype *zz, const char *name)
 {
 	de_int64 n[4];
 	de_int64 k;
 	for(k=0; k<4; k++) {
-		n[k] = psd_geti32(pos+4*k);
+		n[k] = psd_geti32zz(zz);
 	}
 	de_dbg(c, "%s: (%d,%d)-(%d,%d)\n", name, (int)n[0], (int)n[1], (int)n[2], (int)n[3]);
 }
@@ -548,7 +555,7 @@ static void hrsrc_pluginresource(deark *c, lctx *d, zztype *zz, const struct rsr
 	struct de_fourcc fourcc;
 	// Plug-in resources seem to start with a fourcc.
 	if(zz_avail(zz)<4) return;
-	dbuf_read_fourcc(c->infile, zz->pos, &fourcc, d->is_le);
+	psd_read_fourcc_zz(c, d, zz, &fourcc);
 	de_dbg(c, "id: '%s'\n", fourcc.id_printable);
 }
 
@@ -633,6 +640,12 @@ static void read_flexible_id(deark *c, lctx *d, de_int64 pos,
 	}
 }
 
+static void read_flexible_id_zz(deark *c, lctx *d, zztype *zz, struct flexible_id *flid)
+{
+	read_flexible_id(c, d, zz->pos, flid);
+	zz->pos += flid->bytes_consumed;
+}
+
 static void dbg_print_flexible_id(deark *c, lctx *d,
 	const struct flexible_id *flid, const char *name)
 {
@@ -676,9 +689,8 @@ static void do_item_type_UntF(deark *c, lctx *d, zztype *zz)
 	double v;
 	struct de_fourcc unit4cc;
 
-	dbuf_read_fourcc(c->infile, zz->pos, &unit4cc, d->is_le);
+	psd_read_fourcc_zz(c, d, zz, &unit4cc);
 	de_dbg(c, "units code: '%s'\n", unit4cc.id_printable);
-	zz->pos += 4;
 
 	v = dbuf_getfloat64x(c->infile, zz->pos, d->is_le);
 	de_dbg(c, "value: %f\n", v);
@@ -691,9 +703,8 @@ static void do_item_type_UnFl(deark *c, lctx *d, zztype *zz)
 	de_int64 count;
 	struct de_fourcc unit4cc;
 
-	dbuf_read_fourcc(c->infile, zz->pos, &unit4cc, d->is_le);
+	psd_read_fourcc_zz(c, d, zz, &unit4cc);
 	de_dbg(c, "units code: '%s'\n", unit4cc.id_printable);
-	zz->pos += 4;
 
 	count = psd_getui32zz(zz);
 	de_dbg(c, "count: %d\n", (int)count);
@@ -750,14 +761,12 @@ static void do_item_type_enum(deark *c, lctx *d, zztype *zz)
 {
 	struct flexible_id flid;
 
-	read_flexible_id(c, d, zz->pos, &flid); // "type"
+	read_flexible_id_zz(c, d, zz, &flid); // "type"
 	dbg_print_flexible_id(c, d, &flid, "enum type");
-	zz->pos += flid.bytes_consumed;
 	flexible_id_free_contents(c, &flid);
 
-	read_flexible_id(c, d, zz->pos, &flid); // "enum"
+	read_flexible_id_zz(c, d, zz, &flid); // "enum"
 	dbg_print_flexible_id(c, d, &flid, "enum value");
-	zz->pos += flid.bytes_consumed;
 	flexible_id_free_contents(c, &flid);
 }
 
@@ -826,19 +835,16 @@ static int do_enumerated_reference(deark *c, lctx *d, zztype *zz)
 	read_unicode_string(c, d, tmps, zz);
 	de_dbg(c, "name from classID: \"%s\"\n", ucstring_get_printable_sz_n(tmps, 300));
 
-	read_flexible_id(c, d, zz->pos, &flid);
+	read_flexible_id_zz(c, d, zz, &flid);
 	dbg_print_flexible_id(c, d, &flid, "classID");
-	zz->pos += flid.bytes_consumed;
 	flexible_id_free_contents(c, &flid);
 
-	read_flexible_id(c, d, zz->pos, &flid);
+	read_flexible_id_zz(c, d, zz, &flid);
 	dbg_print_flexible_id(c, d, &flid, "typeID");
-	zz->pos += flid.bytes_consumed;
 	flexible_id_free_contents(c, &flid);
 
-	read_flexible_id(c, d, zz->pos, &flid);
+	read_flexible_id_zz(c, d, zz, &flid);
 	dbg_print_flexible_id(c, d, &flid, "enum");
-	zz->pos += flid.bytes_consumed;
 	flexible_id_free_contents(c, &flid);
 
 	return 1;
@@ -858,9 +864,8 @@ static int do_name_reference(deark *c, lctx *d, zztype *zz)
 	de_dbg(c, "name from classID: \"%s\"\n", ucstring_get_printable_sz_n(tmps, 300));
 	ucstring_empty(tmps);
 
-	read_flexible_id(c, d, zz->pos, &flid);
+	read_flexible_id_zz(c, d, zz, &flid);
 	dbg_print_flexible_id(c, d, &flid, "undocumented id");
-	zz->pos += flid.bytes_consumed;
 	flexible_id_free_contents(c, &flid);
 
 	read_unicode_string(c, d, tmps, zz);
@@ -885,11 +890,12 @@ static int do_item_type_obj(deark *c, lctx *d, zztype *zz)
 
 	for(i=0; i<num_items; i++) {
 		struct de_fourcc type4cc;
+		de_int64 itempos;
 
-		if(zz->pos >= zz->endpos) goto done;
-		dbuf_read_fourcc(c->infile, zz->pos, &type4cc, d->is_le);
-		de_dbg(c, "reference item[%d] '%s' at %d\n", (int)i, type4cc.id_printable, (int)zz->pos);
-		zz->pos += 4;
+		itempos = zz->pos;
+		if(itempos >= zz->endpos) goto done;
+		psd_read_fourcc_zz(c, d, zz, &type4cc);
+		de_dbg(c, "reference item[%d] '%s' at %d\n", (int)i, type4cc.id_printable, (int)itempos);
 
 		de_dbg_indent(c, 1);
 
@@ -929,9 +935,8 @@ static int do_descriptor_item_ostype_and_data(deark *c, lctx *d,
 	struct de_fourcc type4cc;
 	zztype czz;
 
-	dbuf_read_fourcc(c->infile, zz->pos, &type4cc, d->is_le);
+	psd_read_fourcc_zz(c, d, zz, &type4cc);
 	de_dbg(c, "item OSType: '%s'\n", type4cc.id_printable);
-	zz->pos += 4;
 
 	zz_init(&czz, zz);
 
@@ -1012,14 +1017,13 @@ static int do_descriptor_item(deark *c, lctx *d, zztype *zz)
 	zztype czz;
 	int ret;
 
-	read_flexible_id(c, d, zz->pos, &key);
+	read_flexible_id_zz(c, d, zz, &key);
 	if(key.is_fourcc) {
 		de_dbg(c, "key: fourcc('%s')\n", key.fourcc.id_printable);
 	}
 	else {
 		de_dbg(c, "key: string(\"%s\")\n", ucstring_get_printable_sz(key.s));
 	}
-	zz->pos += key.bytes_consumed;
 
 	zz_init(&czz, zz);
 	ret = do_descriptor_item_ostype_and_data(c, d, &key, &czz);
@@ -1066,9 +1070,8 @@ static int read_descriptor(deark *c, lctx *d, zztype *zz, int has_version, const
 		de_dbg(c, "name from classID: \"%s\"\n", ucstring_get_printable_sz_n(name_from_classid, 300));
 	}
 
-	read_flexible_id(c, d, zz->pos, &classid);
+	read_flexible_id_zz(c, d, zz, &classid);
 	dbg_print_flexible_id(c, d, &classid, "classID");
-	zz->pos += classid.bytes_consumed;
 	flexible_id_free_contents(c, &classid);
 
 	num_items = psd_getui32zz(zz);
@@ -1139,8 +1142,7 @@ static int do_slices_resource_block(deark *c, lctx *d, de_int64 slice_idx, zztyp
 	slice_type = psd_getui32zz(zz);
 	de_dbg(c, "type: %d\n", (int)slice_type);
 
-	do_dbg_rectangle_ltrb(c, d, zz->pos, "position");
-	zz->pos += 16;
+	read_rectangle_ltrb(c, d, zz, "position");
 
 	read_unicode_string(c, d, s, zz); // URL
 	ucstring_empty(s);
@@ -1180,8 +1182,7 @@ static void do_slices_v6(deark *c, lctx *d, zztype *zz)
 	int ret;
 
 	zz->pos += 4; // version (already read)
-	do_dbg_rectangle_tlbr(c, d, zz->pos, "bounding rectangle");
-	zz->pos += 16;
+	read_rectangle_tlbr(c, d, zz, "bounding rectangle");
 	if(zz->pos >= zz->endpos) goto done;
 
 	name_of_group_of_slices = ucstring_create(c);
@@ -1330,8 +1331,7 @@ static void hrsrc_urllist(deark *c, lctx *d, zztype *zz, const struct rsrc_info 
 		de_int64 id;
 
 		// undocumented field, seems to be a fourcc
-		dbuf_read_fourcc(c->infile, zz->pos, &url4cc, d->is_le);
-		zz->pos += 4;
+		psd_read_fourcc_zz(c, d, zz, &url4cc);
 
 		id = psd_getui32zz(zz);
 
@@ -1423,7 +1423,7 @@ static int do_image_resource(deark *c, lctx *d, zztype *zz)
 	int retval = 0;
 
 	// Check the "8BIM" signature
-	dbuf_read_fourcc(c->infile, zz->pos, &sig4cc, 0);
+	psd_read_fourcc_zz(c, d, zz, &sig4cc);
 	if(sig4cc.id==CODE_8BIM) {
 		;
 	}
@@ -1432,10 +1432,9 @@ static int do_image_resource(deark *c, lctx *d, zztype *zz)
 	}
 	else {
 		de_warn(c, "Bad Photoshop resource block signature '%s' at %d\n",
-			sig4cc.id_printable, (int)zz->pos);
+			sig4cc.id_printable, (int)zz->startpos);
 		goto done;
 	}
-	zz->pos += 4;
 
 	resource_id = psd_getui16zz(zz);
 
@@ -1533,8 +1532,7 @@ static int do_layer_record(deark *c, lctx *d, zztype *zz, struct channel_data *c
 	zztype extradatazz;
 	int retval = 0;
 
-	do_dbg_rectangle_tlbr(c, d, zz->pos, "bounding rectangle");
-	zz->pos += 16;
+	read_rectangle_tlbr(c, d, zz, "bounding rectangle");
 
 	nchannels = psd_getui16zz(zz);
 	de_dbg(c, "number of channels: %d\n", (int)nchannels);
@@ -1549,16 +1547,14 @@ static int do_layer_record(deark *c, lctx *d, zztype *zz, struct channel_data *c
 		cd->total_len += x;
 	}
 
-	dbuf_read_fourcc(c->infile, zz->pos, &tmp4cc, d->is_le);
+	psd_read_fourcc_zz(c, d, zz, &tmp4cc);
 	if(tmp4cc.id != CODE_8BIM) {
-		de_warn(c, "Expected blend mode signature not found at %d\n", (int)zz->pos);
+		de_warn(c, "Expected blend mode signature not found at %d\n", (int)(zz->pos-4));
 		goto done;
 	}
-	zz->pos += 4;
 
-	dbuf_read_fourcc(c->infile, zz->pos, &tmp4cc, d->is_le);
+	psd_read_fourcc_zz(c, d, zz, &tmp4cc);
 	de_dbg(c, "blend mode: '%s'\n", tmp4cc.id_printable);
-	zz->pos += 4;
 
 	b = de_getbyte(zz->pos++);
 	de_dbg(c, "opacity: %d\n", (int)b);
@@ -1710,9 +1706,8 @@ static void do_fourcc_block(deark *c, lctx *d, zztype *zz,
 	struct de_fourcc fourcc;
 
 	if(zz_avail(zz)!=4) return;
-	dbuf_read_fourcc(c->infile, zz->pos, &fourcc, d->is_le);
+	psd_read_fourcc_zz(c, d, zz, &fourcc);
 	de_dbg(c, "%s: '%s'\n", name, fourcc.id_printable);
-	zz->pos += 4;
 }
 
 static void do_Layr_block(deark *c, lctx *d, zztype *zz, const struct de_fourcc *blk4cc)
@@ -1778,9 +1773,8 @@ static int do_one_linked_layer(deark *c, lctx *d, zztype *zz, const struct de_fo
 	zz->pos += pad_to_4(dlen);
 	retval = 1;
 
-	dbuf_read_fourcc(c->infile, datazz.pos, &type4cc, d->is_le);
+	psd_read_fourcc_zz(c, d, &datazz, &type4cc);
 	de_dbg(c, "type: '%s'\n", type4cc.id_printable);
-	datazz.pos += 4;
 
 	ver = psd_getui32zz(&datazz);
 	de_dbg(c, "version: %d\n", (int)ver);
@@ -1793,13 +1787,11 @@ static int do_one_linked_layer(deark *c, lctx *d, zztype *zz, const struct de_fo
 	read_unicode_string(c, d, s, &datazz);
 	de_dbg(c, "original file name: \"%s\"\n", ucstring_get_printable_sz(s));
 
-	dbuf_read_fourcc(c->infile, datazz.pos, &tmp4cc, d->is_le);
+	psd_read_fourcc_zz(c, d, &datazz, &tmp4cc);
 	de_dbg(c, "file type: '%s'\n", tmp4cc.id_printable);
-	datazz.pos += 4;
 
-	dbuf_read_fourcc(c->infile, datazz.pos, &tmp4cc, d->is_le);
+	psd_read_fourcc_zz(c, d, &datazz, &tmp4cc);
 	de_dbg(c, "file creator: '%s'\n", tmp4cc.id_printable);
-	datazz.pos += 4;
 
 	dlen2 = psd_geti64zz(&datazz);
 	de_dbg(c, "length2: %"INT64_FMT"\n", dlen2);
@@ -1927,8 +1919,7 @@ static void do_lrFX_block(deark *c, lctx *d, zztype *zz, const struct de_fourcc 
 			goto done;
 		}
 
-		dbuf_read_fourcc(c->infile, zz->pos, &sig4cc, d->is_le);
-		zz->pos += 4;
+		psd_read_fourcc_zz(c, d, zz, &sig4cc);
 
 		dlen = psd_getui32zz(zz);
 
@@ -1966,9 +1957,8 @@ static void do_vscg_block(deark *c, lctx *d, zztype *zz)
 {
 	struct de_fourcc key4cc;
 
-	dbuf_read_fourcc(c->infile, zz->pos, &key4cc, d->is_le);
+	psd_read_fourcc_zz(c, d, zz, &key4cc);
 	de_dbg(c, "key: '%s'\n", key4cc.id_printable);
-	zz->pos += 4;
 	read_descriptor(c, d, zz, 1, " (for Vector Stroke Content Data)");
 }
 
@@ -2053,9 +2043,8 @@ static void do_SoLd_block(deark *c, lctx *d, zztype *zz)
 	struct de_fourcc id4cc;
 	de_int64 ver;
 
-	dbuf_read_fourcc(c->infile, zz->pos, &id4cc, d->is_le);
+	psd_read_fourcc_zz(c, d, zz, &id4cc);
 	de_dbg(c, "identifier: '%s'\n", id4cc.id_printable);
-	zz->pos += 4;
 	ver = psd_getui32zz(zz);
 	de_dbg(c, "version: %d\n", (int)ver);
 
@@ -2081,8 +2070,7 @@ static void do_shmd_block(deark *c, lctx *d, zztype *zz)
 
 		zz->pos += 4; // signature ("8BIM", presumably)
 
-		dbuf_read_fourcc(c->infile, zz->pos, &key4cc, d->is_le);
-		zz->pos += 4;
+		psd_read_fourcc_zz(c, d, zz, &key4cc);
 
 		zz->pos += 1; // flag
 		zz->pos += 3; // padding
@@ -2112,8 +2100,7 @@ static int do_tagged_block(deark *c, lctx *d, zztype *zz)
 		return 0;
 	}
 
-	dbuf_read_fourcc(c->infile, zz->pos, &blk4cc, d->is_le);
-	zz->pos += 4;
+	psd_read_fourcc_zz(c, d, zz, &blk4cc);
 
 	// Some blocks types have an 8-byte length in PSD format
 	if(d->intsize_4or8==8) {
