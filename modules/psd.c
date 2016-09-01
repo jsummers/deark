@@ -12,6 +12,7 @@ DE_DECLARE_MODULE(de_module_psd);
 #define CODE_8B64 0x38423634U
 #define CODE_8BIM 0x3842494dU
 #define CODE_Alph 0x416c7068U
+#define CODE_AnDs 0x416e4473U
 #define CODE_CgEd 0x43674564U
 #define CODE_Enmr 0x456e6d72U
 #define CODE_FEid 0x46456964U
@@ -19,6 +20,7 @@ DE_DECLARE_MODULE(de_module_psd);
 #define CODE_FXid 0x46586964U
 #define CODE_GdFl 0x4764466cU
 #define CODE_GlbO 0x476c624fU
+#define CODE_IRFR 0x49524652U
 #define CODE_LMsk 0x4c4d736bU
 #define CODE_Layr 0x4c617972U
 #define CODE_Lr16 0x4c723136U
@@ -52,6 +54,7 @@ DE_DECLARE_MODULE(de_module_psd);
 #define CODE_bool 0x626f6f6cU
 #define CODE_clbl 0x636c626cU
 #define CODE_comp 0x636f6d70U
+#define CODE_cust 0x63757374U
 #define CODE_doub 0x646f7562U
 #define CODE_enum 0x656e756dU
 #define CODE_fxrp 0x66787270U
@@ -64,9 +67,13 @@ DE_DECLARE_MODULE(de_module_psd);
 #define CODE_lnkD 0x6c6e6b44U
 #define CODE_lnsr 0x6c6e7372U
 #define CODE_long 0x6c6f6e67U
+#define CODE_lsct 0x6c736374U
 #define CODE_lspf 0x6c737066U
 #define CODE_luni 0x6c756e69U
 #define CODE_lyid 0x6c796964U
+#define CODE_mani 0x6d616e69U
+#define CODE_mset 0x6d736574U
+#define CODE_mlst 0x6d6c7374U
 #define CODE_name 0x6e616d65U
 #define CODE_obj  0x6f626a20U
 #define CODE_pths 0x70746873U
@@ -110,6 +117,17 @@ typedef struct zz_struct {
 	de_int64 startpos; // Offset of the first byte in the segment.
 	de_int64 endpos; // Offset of first byte *after* the segment.
 } zztype;
+
+// The PSD spec calls this data structure a
+// "4 bytes (length), followed either by string or (if length is zero) 4-byte ID",
+// but that's too unwieldy for me, so I'll call it a "flexible_id".
+struct flexible_id {
+	int is_fourcc;
+	struct de_fourcc fourcc;
+	char *sz; // Present if !is_fourcc. Raw bytes (+NUL), used for matching.
+	de_ucstring *s; // Present if !is_fourcc. Text form of sz.
+	de_int64 bytes_consumed;
+};
 
 typedef struct localctx_struct {
 	int version; // 1=PSD, 2=PSB
@@ -262,6 +280,13 @@ static const struct rsrc_info rsrc_info_arr[] = {
 	{ 0x1f40, 0, "Lightroom workflow", NULL },
 	{ 0x2710, 0, "Print flags info", hrsrc_printflagsinfo }
 };
+
+// Forward declarations
+static int read_descriptor(deark *c, lctx *d, zztype *zz, int has_version, const char *dscrname);
+static void do_tagged_blocks(deark *c, lctx *d, zztype *zz, int tbnamespace);
+static int do_descriptor_item_ostype_and_data(deark *c, lctx *d,
+	const struct flexible_id *key_flid, zztype *zz);
+
 
 static de_int64 pad_to_2(de_int64 n)
 {
@@ -562,13 +587,62 @@ static void hrsrc_iccprofile(deark *c, lctx *d, zztype *zz, const struct rsrc_in
 	dbuf_create_file_from_slice(c->infile, zz->pos, zz_avail(zz), "icc", NULL, DE_CREATEFLAG_IS_AUX);
 }
 
+static void do_pluginrsrc_mani(deark *c, lctx *d, zztype *zz)
+{
+	struct de_fourcc fourcc;
+	de_int64 len;
+	zztype czz;
+
+	// This function is based on reverse engineering, and may not be correct.
+
+	if(zz_avail(zz)<4) goto done;
+	psd_read_fourcc_zz(c, d, zz, &fourcc);
+	de_dbg(c, "id: '%s'\n", fourcc.id_printable);
+
+	if(fourcc.id==CODE_IRFR) { // Most likely related to Image Ready
+		if(zz_avail(zz)<4) goto done;
+		len = psd_getui32zz(zz);
+		de_dbg(c, "length: %d\n", (int)len);
+		if(zz_avail(zz)<12) goto done;
+		zz_init_with_len(&czz, zz, len);
+		// This data seems to have the same structure as a "series of tagged
+		// blocks", but with different "keys". I don't know whether the keys are
+		// in a different namespace, or what.
+		do_tagged_blocks(c, d, zz, 1);
+	}
+
+done:
+	;
+}
+
+// Any plugin resource containing just a descriptor (after the ID code)
+static void do_pluginrsrc_descriptor(deark *c, lctx *d, zztype *zz)
+{
+	zztype czz;
+	zz_init(&czz, zz);
+	read_descriptor(c, d, &czz, 1, "");
+}
+
 static void hrsrc_pluginresource(deark *c, lctx *d, zztype *zz, const struct rsrc_info *ri)
 {
 	struct de_fourcc fourcc;
+	zztype czz;
+
 	// Plug-in resources seem to start with a fourcc.
 	if(zz_avail(zz)<4) return;
 	psd_read_fourcc_zz(c, d, zz, &fourcc);
 	de_dbg(c, "id: '%s'\n", fourcc.id_printable);
+	de_dbg_indent(c, 1);
+	zz_init(&czz, zz);
+	switch(fourcc.id) {
+	case CODE_mani:
+		do_pluginrsrc_mani(c, d, &czz);
+		break;
+	case CODE_mset:
+		do_pluginrsrc_descriptor(c, d, &czz);
+		break;
+	}
+	de_dbg_indent(c, -1);
 }
 
 // Read a Photoshop-style "Unicode string" structure, and append it to s.
@@ -596,17 +670,6 @@ static void read_unicode_string(deark *c, lctx *d, de_ucstring *s, zztype *zz)
 	// to end with an extraneous U+0000 character.
 	ucstring_strip_trailing_NUL(s);
 }
-
-// The PSD spec calls this data structure a
-// "4 bytes (length), followed either by string or (if length is zero) 4-byte ID",
-// but that's too unwieldy for me, so I'll call it a "flexible_id".
-struct flexible_id {
-	int is_fourcc;
-	struct de_fourcc fourcc;
-	char *sz; // Present if !is_fourcc. Raw bytes (+NUL), used for matching.
-	de_ucstring *s; // Present if !is_fourcc. Text form of sz.
-	de_int64 bytes_consumed;
-};
 
 static void flexible_id_free_contents(deark *c, struct flexible_id *flid)
 {
@@ -782,9 +845,6 @@ static void do_item_type_enum(deark *c, lctx *d, zztype *zz)
 	flexible_id_free_contents(c, &flid);
 }
 
-static int do_descriptor_item_ostype_and_data(deark *c, lctx *d,
-	const struct flexible_id *key_flid, zztype *zz);
-
 // "List"
 static int do_item_type_VlLs(deark *c, lctx *d,
 	const struct flexible_id *key_flid, zztype *zz)
@@ -820,8 +880,6 @@ static int do_item_type_VlLs(deark *c, lctx *d,
 done:
 	return retval;
 }
-
-static int read_descriptor(deark *c, lctx *d, zztype *zz, int has_version, const char *dscrname);
 
 static int do_item_type_descriptor(deark *c, lctx *d, zztype *zz, int has_version)
 {
@@ -1525,8 +1583,6 @@ static void do_layer_name(deark *c, lctx *d, zztype *zz)
 	ucstring_destroy(s);
 }
 
-static void do_tagged_blocks(deark *c, lctx *d, zztype *zz);
-
 struct channel_data {
 	de_int64 num_channels;
 	de_int64 total_len;
@@ -1537,7 +1593,7 @@ static int do_layer_record(deark *c, lctx *d, zztype *zz, struct channel_data *c
 	de_int64 nchannels;
 	de_int64 extra_data_len;
 	struct de_fourcc tmp4cc;
-	de_int64 x;
+	de_int64 ch_id, ch_dlen;
 	de_byte b;
 	int i;
 	zztype czz;
@@ -1550,13 +1606,11 @@ static int do_layer_record(deark *c, lctx *d, zztype *zz, struct channel_data *c
 	de_dbg(c, "number of channels: %d\n", (int)nchannels);
 
 	for(i=0; i<nchannels; i++) {
-		x = psd_geti16zz(zz);
-		de_dbg(c, "channel[%d] id: %d\n", (int)i, (int)x);
-
-		x = psd_getui32or64zz(c, d, zz);
-		de_dbg(c, "channel[%d] data length: %"INT64_FMT"\n", (int)i, x);
+		ch_id = psd_geti16zz(zz);
+		ch_dlen = psd_getui32or64zz(c, d, zz);
+		de_dbg(c, "channel[%d] id=%d, data len=%"INT64_FMT"\n", (int)i, (int)ch_id, ch_dlen);
 		cd->num_channels++;
-		cd->total_len += x;
+		cd->total_len += ch_dlen;
 	}
 
 	psd_read_fourcc_zz(c, d, zz, &tmp4cc);
@@ -1608,7 +1662,7 @@ static int do_layer_record(deark *c, lctx *d, zztype *zz, struct channel_data *c
 			(int)extradatazz.pos, (int)(extradatazz.endpos-extradatazz.pos));
 		de_dbg_indent(c, 1);
 		zz_init(&czz, &extradatazz);
-		do_tagged_blocks(c, d, &czz);
+		do_tagged_blocks(c, d, &czz, 0);
 		de_dbg_indent(c, -1);
 	}
 
@@ -1956,6 +2010,26 @@ static void do_fxrp_block(deark *c, lctx *d, zztype *zz)
 	de_dbg(c, "reference point: %f, %f\n", v[0], v[1]);
 }
 
+static void do_lsct_block(deark *c, lctx *d, zztype *zz)
+{
+	de_int64 x;
+	struct de_fourcc tmp4cc;
+
+	if(zz_avail(zz)<4) return;
+	x = psd_getui32zz(zz);
+	de_dbg(c, "section divider setting type: %d\n", (int)x);
+
+	zz->pos += 4; // skip '8BIM' signature
+
+	if(zz_avail(zz)<4) return;
+	psd_read_fourcc_zz(c, d, zz, &tmp4cc);
+	de_dbg(c, "blend mode key: '%s'\n", tmp4cc.id_printable);
+
+	if(zz_avail(zz)<4) return;
+	x = psd_getui32zz(zz);
+	de_dbg(c, "sub type: %d\n", (int)x);
+}
+
 static void do_lspf_block(deark *c, lctx *d, zztype *zz)
 {
 	unsigned int x;
@@ -1999,7 +2073,11 @@ static void do_descriptor_block(deark *c, lctx *d, zztype *zz,
 {
 	char dscrname[100];
 
-	de_snprintf(dscrname, sizeof(dscrname), " (for %s)", name);
+	if(name[0])
+		de_snprintf(dscrname, sizeof(dscrname), " (for %s)", name);
+	else
+		de_strlcpy(dscrname, "", sizeof(dscrname));
+
 	read_descriptor(c, d, zz, 1, dscrname);
 }
 
@@ -2067,6 +2145,7 @@ static void do_shmd_block(deark *c, lctx *d, zztype *zz)
 {
 	de_int64 count;
 	de_int64 i;
+	zztype czz;
 
 	if(zz_avail(zz)<4) return;
 
@@ -2092,11 +2171,24 @@ static void do_shmd_block(deark *c, lctx *d, zztype *zz)
 		dpos = zz->pos;
 		de_dbg(c, "metadata item[%d] '%s' at %d, dpos=%d, dlen=%d\n",
 			(int)i, key4cc.id_printable, (int)itempos, (int)dpos, (int)dlen);
+
+		de_dbg_indent(c, 1);
+
+		switch(key4cc.id) {
+		case CODE_cust: // Undocumented, but seems to be a versioned Descriptor
+		case CODE_mlst: // Undocumented, but seems to be a versioned Descriptor
+			zz_init_with_len(&czz, zz, dlen);
+			read_descriptor(c, d, &czz, 1, "");
+			break;
+		}
+
+		de_dbg_indent(c, -1);
+
 		zz->pos += dlen;
 	}
 }
 
-static int do_tagged_block(deark *c, lctx *d, zztype *zz)
+static int do_tagged_block(deark *c, lctx *d, zztype *zz, int tbnamespace)
 {
 	de_int64 blklen;
 	de_int64 blklen_len = 4; // Length of the block length field
@@ -2218,6 +2310,9 @@ static int do_tagged_block(deark *c, lctx *d, zztype *zz)
 	case CODE_fxrp:
 		do_fxrp_block(c, d, &czz);
 		break;
+	case CODE_lsct:
+		do_lsct_block(c, d, &czz);
+		break;
 	case CODE_lspf:
 		do_lspf_block(c, d, &czz);
 		break;
@@ -2237,6 +2332,11 @@ static int do_tagged_block(deark *c, lctx *d, zztype *zz)
 	case CODE_shmd:
 		do_shmd_block(c, d, &czz);
 		break;
+	case CODE_AnDs: // Observed in Plug-in Resources/'mani'/'IRFR'
+		if(tbnamespace==1) {
+			do_descriptor_block(c, d, &czz, &blk4cc, "");
+		}
+		break;
 	}
 	de_dbg_indent(c, -1);
 
@@ -2249,7 +2349,7 @@ static int do_tagged_block(deark *c, lctx *d, zztype *zz)
 // A "Series of tagged blocks" - part of the "Layer and Mask Information" section.
 // Or, the payload data from a TIFF "ImageSourceData" tag.
 // Or, at the end of a "layer record".
-static void do_tagged_blocks(deark *c, lctx *d, zztype *zz)
+static void do_tagged_blocks(deark *c, lctx *d, zztype *zz, int tbnamespace)
 {
 	zztype czz;
 
@@ -2265,7 +2365,7 @@ static void do_tagged_blocks(deark *c, lctx *d, zztype *zz)
 	while(1) {
 		if(zz->pos+12 > zz->endpos) break;
 		zz_init(&czz, zz);
-		if(!do_tagged_block(c, d, &czz)) break;
+		if(!do_tagged_block(c, d, &czz, tbnamespace)) break;
 		zz->pos += zz_used(&czz);
 	}
 
@@ -2349,7 +2449,7 @@ static int do_layer_and_mask_info_section(deark *c, lctx *d, zztype *zz)
 	de_dbg_indent(c, 1);
 	de_dbg(c, "expected length of tagged blocks section: %d\n", (int)(lmidataczz.endpos-lmidataczz.pos));
 	zz_init(&czz, &lmidataczz);
-	do_tagged_blocks(c, d, &czz);
+	do_tagged_blocks(c, d, &czz, 0);
 	de_dbg_indent(c, -1);
 
 done:
@@ -2442,7 +2542,7 @@ static void do_external_tagged_blocks(deark *c, lctx *d, zztype *zz)
 		d->is_le = 1;
 	}
 
-	do_tagged_blocks(c, d, zz);
+	do_tagged_blocks(c, d, zz, 0);
 }
 
 static void do_color_mode_data(deark *c, lctx *d, zztype *zz)
