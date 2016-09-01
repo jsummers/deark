@@ -304,12 +304,12 @@ Deark -- Information about supported formats
   - Supports 1-, 2-, 4-, 8-, and 16-bits per pixel
 
 * PSD / PSB (Photoshop) (module="psd")
-  - Basic support for RGB and paletted 8-bit images
+  - Basic support for RGB/grayscale/paletted 8/16-bit images
   - Extract JPEG thumbnails. Some thumbnail images have the red and blue
     channels swapped -- Deark warns about this, but does not correct it.
   - Extract XMP data.
   - Extract ICC profiles.
-  - Extract linked layer image data (e.g. in PNG/JPG/PSD/etc. format).
+  - Extract linked layer image data (could be PNG/JPG/PSD/etc. format).
   - Process Exif data (or extract it: use -a)
   - Extract IPTC data (use -a).
   - Extract "text engine data" (use -a)

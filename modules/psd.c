@@ -78,6 +78,10 @@ DE_DECLARE_MODULE(de_module_psd);
 #define CODE_vscg 0x76736367U
 #define CODE_vstk 0x7673746bU
 
+#define PSD_CM_GRAY     1
+#define PSD_CM_PALETTE  2
+#define PSD_CM_RGB      3
+
 // (I can't think of a good name for this struct, and the corresponding variables.
 // It's used so much that the name needs to be short, distinct, and easy to type.)
 // PSD format involves so many nested data elements with implicit lengths that
@@ -2358,9 +2362,9 @@ static const char *get_colormode_name(de_int64 n)
 	const char *name = "?";
 	switch(n) {
 	case 0: name="bitmap"; break;
-	case 1: name="grayscale"; break;
-	case 2: name="indexed"; break;
-	case 3: name="RGB"; break;
+	case PSD_CM_GRAY: name="grayscale"; break;
+	case PSD_CM_PALETTE: name="indexed"; break;
+	case PSD_CM_RGB: name="RGB"; break;
 	case 4: name="CMYK"; break;
 	case 7: name="multichannel"; break;
 	case 8: name="duotone"; break;
@@ -2470,20 +2474,23 @@ static void do_bitmap(deark *c, lctx *d, dbuf *f, de_int64 pos, de_int64 len)
 	struct deark_bitmap *img = NULL;
 	de_int64 i, j, plane;
 	de_int64 nplanes = 0; // Number of planes to read. May be less than d->num_channels.
-	de_int64 planespan, rowspan;
+	de_int64 planespan, rowspan, samplespan;
 	de_byte b;
 
 	if(!de_good_image_dimensions(c, d->width, d->height)) goto done;
 
-	if(d->bits_per_channel!=8) {
+	if(d->bits_per_channel!=8 && d->bits_per_channel!=16) {
 		de_err(c, "Unsupported bits/channel: %d\n", (int)d->bits_per_channel);
 		goto done;
 	}
 
-	if(d->color_mode==2 && d->num_channels==1) {
+	if(d->color_mode==PSD_CM_GRAY && d->num_channels>=1) {
 		nplanes = 1;
 	}
-	else if(d->color_mode==3 && d->num_channels>=3) {
+	else if(d->color_mode==PSD_CM_PALETTE && d->num_channels>=1 && d->bits_per_channel==8) {
+		nplanes = 1;
+	}
+	else if(d->color_mode==PSD_CM_RGB && d->num_channels>=3) {
 		nplanes = 3;
 	}
 	else {
@@ -2493,22 +2500,24 @@ static void do_bitmap(deark *c, lctx *d, dbuf *f, de_int64 pos, de_int64 len)
 		goto done;
 	}
 
-	img = de_bitmap_create(c, d->width, d->height, 3);
+	img = de_bitmap_create(c, d->width, d->height, d->color_mode==1 ? 1 : 3);
 
-	rowspan = d->width;
+	samplespan = d->bits_per_channel/8;
+	rowspan = d->width * samplespan;
 	planespan = d->height * rowspan;
 
 	for(plane=0; plane<nplanes; plane++) {
 		for(j=0; j<d->height; j++) {
 			for(i=0; i<d->width; i++) {
-				b = dbuf_getbyte(f, pos + plane*planespan + j*rowspan + i);
-				if(nplanes==1) {
-					// Paletted
-					de_bitmap_setpixel_rgb(img, i, j, d->pal[(unsigned int)b]);
-				}
-				else {
-					// RGB
+				b = dbuf_getbyte(f, pos + plane*planespan + j*rowspan + i*samplespan);
+				if(d->color_mode==PSD_CM_RGB) {
 					de_bitmap_setsample(img, i, j, plane, b);
+				}
+				else if(d->color_mode==PSD_CM_GRAY) {
+					de_bitmap_setpixel_gray(img, i, j, b);
+				}
+				else if(d->color_mode==PSD_CM_PALETTE) {
+					de_bitmap_setpixel_rgb(img, i, j, d->pal[(unsigned int)b]);
 				}
 			}
 		}
