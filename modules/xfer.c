@@ -216,7 +216,9 @@ void de_module_base64(deark *c, struct deark_module_info *mi)
 static void parse_begin_line(deark *c, lctx *d, const de_byte *buf, de_int64 buf_len)
 {
 	de_int64 beginsize;
-	if(!d->fi) return;
+	de_ucstring *fn = NULL;
+
+	if(!d->fi) goto done;
 
 	if(d->hdr_line_type==HDR_UUENCODE_OR_XXENCODE) {
 		beginsize = 5; // "begin" has 5 letters
@@ -225,16 +227,20 @@ static void parse_begin_line(deark *c, lctx *d, const de_byte *buf, de_int64 buf
 		beginsize = 12; // "begin-base64"
 	}
 	else {
-		return;
+		goto done;
 	}
 
 	if(buf_len<beginsize+6 || buf[beginsize]!=' ' || buf[beginsize+4]!=' ') {
-		return;
+		goto done;
 	}
 
-	de_finfo_set_name_from_bytes(c, d->fi, &buf[beginsize+5],
-		buf_len-(beginsize+5), 0, DE_ENCODING_ASCII);
+	fn = ucstring_create(c);
+	ucstring_append_bytes(fn, &buf[beginsize+5], buf_len-(beginsize+5), 0, DE_ENCODING_ASCII);
+	de_dbg(c, "filename: \"%s\"\n", ucstring_get_printable_sz_n(fn, 300));
 	d->fi->original_filename_flag = 1;
+
+done:
+	ucstring_destroy(fn);
 }
 
 static int uuencode_read_header(deark *c, lctx *d)

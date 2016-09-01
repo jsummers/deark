@@ -611,17 +611,6 @@ void de_finfo_destroy(deark *c, de_finfo *fi)
 	de_free(c, fi);
 }
 
-void de_finfo_set_name_from_slice(deark *c, de_finfo *fi, dbuf *f,
-	de_int64 pos, de_int64 len, unsigned int conv_flags, int encoding)
-{
-	de_ucstring *s = NULL;
-
-	s = ucstring_create(c);
-	dbuf_read_to_ucstring(f, pos, len, s, conv_flags, encoding);
-	de_finfo_set_name_from_ucstring(c, fi, s);
-	ucstring_destroy(s);
-}
-
 void de_finfo_set_name_from_sz(deark *c, de_finfo *fi, const char *name1, int encoding)
 {
 	de_int64 name1_len;

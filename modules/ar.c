@@ -134,15 +134,21 @@ static int do_ar_item(deark *c, lctx *d, de_int64 pos1, de_int64 *p_item_len)
 		goto done;
 	}
 	else {
+		de_int64 adjusted_len;
+
+		filename_ucstring = ucstring_create(c);
+
+		adjusted_len = name_orig_len;
 		if(name_orig[name_orig_len-1]=='/') {
 			// Filenames are often terminated with a '/', to allow for
-			// trailing spaces.
-			name_orig_len--;
+			// trailing spaces. Strip off the '/'.
+			adjusted_len--;
 		}
+		ucstring_append_bytes(filename_ucstring, (de_byte*)name_orig, adjusted_len,
+			0, DE_ENCODING_UTF8);
 
-		de_finfo_set_name_from_bytes(c, fi, (de_byte*)name_orig, name_orig_len, 0,
-			DE_ENCODING_UTF8);
-
+		de_dbg(c, "filename: \"%s\"\n", ucstring_get_printable_sz(filename_ucstring));
+		de_finfo_set_name_from_ucstring(c, fi, filename_ucstring);
 		fi->original_filename_flag = 1;
 	}
 

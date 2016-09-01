@@ -710,12 +710,19 @@ static void do_ne_one_nameinfo(deark *c, lctx *d, de_int64 npos)
 	if(!d->ne_have_type) goto done;
 
 
-	if(is_named && c->filenames_from_file) {
+	if(is_named) {
 		// Names are prefixed with a single-byte length.
 		x = (de_int64)de_getbyte(rnNameOffset);
 		if(x>0) {
+			de_ucstring *rname = NULL;
+
 			fi = de_finfo_create(c);
-			de_finfo_set_name_from_slice(c, fi, c->infile, rnNameOffset+1, x, 0, DE_ENCODING_ASCII);
+			rname = ucstring_create(c);
+			dbuf_read_to_ucstring(c->infile, rnNameOffset+1, x, rname, 0, DE_ENCODING_ASCII);
+			de_dbg(c, " resource name: \"%s\"\n", ucstring_get_printable_sz(rname));
+			if(c->filenames_from_file)
+				de_finfo_set_name_from_ucstring(c, fi, rname);
+			ucstring_destroy(rname);
 		}
 	}
 

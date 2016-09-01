@@ -35,11 +35,17 @@ static void do_card_index(deark *c, lctx *d, de_int64 cardnum, de_int64 pos)
 	struct deark_bitmap *img = NULL;
 	de_finfo *fi_bitmap = NULL;
 	de_finfo *fi_text = NULL;
+	const char *cardtype;
+	de_ucstring *name = NULL;
+	int saved_indent_level;
+
+	de_dbg_indent_save(c, &saved_indent_level);
 
 	datapos = de_getui32le(pos+6);
-	de_dbg(c, "card #%d, data offset = %d\n", (int)cardnum, (int)datapos);
+	de_dbg(c, "card #%d at %d, dpos=%d\n", (int)cardnum, (int)pos, (int)datapos);
+	de_dbg_indent(c, 1);
 
-	if(datapos>=c->infile->len) return;
+	if(datapos>=c->infile->len) goto done;
 	bitmap_len = de_getui16le(datapos);
 	de_dbg(c, "bitmap length: %d\n", (int)bitmap_len);
 
@@ -54,25 +60,33 @@ static void do_card_index(deark *c, lctx *d, de_int64 cardnum, de_int64 pos)
 	de_dbg(c, "text length: %d\n", (int)text_len);
 
 	if(bitmap_len==0 && text_len==0) {
-		de_dbg(c, "empty card\n");
-		goto done;
+		cardtype = "empty";
 	}
-	if(bitmap_len==0) {
-		de_dbg(c, "text-only card\n");
+	else if(bitmap_len==0) {
+		cardtype = "text-only";
 	}
 	else if(text_len==0) {
-		de_dbg(c, "graphics-only card\n");
+		cardtype = "graphics-only";
 	}
 	else {
-		de_dbg(c, "graphics+text card\n");
+		cardtype = "graphics+text";
 	}
+	de_dbg(c, "card type: %s\n", cardtype);
+
+	if(bitmap_len==0 && text_len==0) {
+		goto done;
+	}
+
+	name = ucstring_create(c);
+	dbuf_read_to_ucstring(c->infile, pos+11, 40, name, DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_ASCII);
+	de_dbg(c, "name: \"%s\"\n", ucstring_get_printable_sz(name));
 
 	// Text
 
 	if(text_len!=0 && c->extract_level>=2) {
 		fi_text = de_finfo_create(c);
 		if(c->filenames_from_file)
-			de_finfo_set_name_from_slice(c, fi_text, c->infile, pos+11, 40, DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_ASCII);
+			de_finfo_set_name_from_ucstring(c, fi_text, name);
 
 		do_text_data(c, d, fi_text, text_pos, text_len);
 	}
@@ -83,7 +97,7 @@ static void do_card_index(deark *c, lctx *d, de_int64 cardnum, de_int64 pos)
 
 	fi_bitmap = de_finfo_create(c);
 	if(c->filenames_from_file)
-		de_finfo_set_name_from_slice(c, fi_bitmap, c->infile, pos+11, 40, DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_ASCII);
+		de_finfo_set_name_from_ucstring(c, fi_bitmap, name);
 
 	w = de_getui16le(datapos+2);
 	h = de_getui16le(datapos+4);
@@ -96,9 +110,11 @@ static void do_card_index(deark *c, lctx *d, de_int64 cardnum, de_int64 pos)
 		w, h, src_rowspan, 0, fi_bitmap, 0);
 
 done:
+	ucstring_destroy(name);
 	de_bitmap_destroy(img);
 	de_finfo_destroy(c, fi_bitmap);
 	de_finfo_destroy(c, fi_text);
+	de_dbg_indent_restore(c, saved_indent_level);
 }
 
 static void de_run_cardfile(deark *c, de_module_params *mparams)
@@ -123,7 +139,7 @@ static void de_run_cardfile(deark *c, de_module_params *mparams)
 	pos+=3;
 
 	d->numcards = de_getui16le(pos);
-	de_dbg(c, "Number of cards: %d\n", (int)d->numcards);
+	de_dbg(c, "number of cards: %d\n", (int)d->numcards);
 	pos+=2;
 
 	for(n=0; n<d->numcards; n++) {

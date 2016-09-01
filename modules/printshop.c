@@ -55,15 +55,23 @@ static void do_printshop_etc_image(deark *c, lctx *d, de_int64 imgnum,
 	}
 
 	de_dbg(c, "image[%d] at %d, %dx%d\n", (int)imgnum, (int)pos, (int)width, (int)height);
+	de_dbg_indent(c, 1);
 
 	fi = de_finfo_create(c);
 
 	if(d->namefile) {
-		de_finfo_set_name_from_slice(c, fi, d->namefile, imgnum*16, 16, DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_ASCII);
+		de_ucstring *name = NULL;
+		name = ucstring_create(c);
+		dbuf_read_to_ucstring(d->namefile, imgnum*16, 16, name, DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_ASCII);
+		de_dbg(c, "name: \"%s\"\n", ucstring_get_printable_sz(name));
+		de_finfo_set_name_from_ucstring(c, fi, name);
+		ucstring_destroy(name);
 	}
 
 	de_convert_and_write_image_bilevel(c->infile, pos+ imgoffset,
 		width, height, rowspan, DE_CVTF_WHITEISZERO, fi, 0);
+
+	de_dbg_indent(c, -1);
 
 	*bytes_consumed = imgspan;
 done:
