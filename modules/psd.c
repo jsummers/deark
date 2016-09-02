@@ -25,7 +25,6 @@ DE_DECLARE_MODULE(de_module_psd);
 #define CODE_Layr 0x4c617972U
 #define CODE_Lr16 0x4c723136U
 #define CODE_Lr32 0x4c723332U
-#define CODE_lrFX 0x6c724658U
 #define CODE_MeSa 0x4d655361U
 #define CODE_Mt16 0x4d743136U
 #define CODE_Mt32 0x4d743332U
@@ -67,13 +66,15 @@ DE_DECLARE_MODULE(de_module_psd);
 #define CODE_lnkD 0x6c6e6b44U
 #define CODE_lnsr 0x6c6e7372U
 #define CODE_long 0x6c6f6e67U
+#define CODE_lrFX 0x6c724658U
 #define CODE_lsct 0x6c736374U
 #define CODE_lspf 0x6c737066U
 #define CODE_luni 0x6c756e69U
 #define CODE_lyid 0x6c796964U
 #define CODE_mani 0x6d616e69U
-#define CODE_mset 0x6d736574U
 #define CODE_mlst 0x6d6c7374U
+#define CODE_mopt 0x6d6f7074U
+#define CODE_mset 0x6d736574U
 #define CODE_name 0x6e616d65U
 #define CODE_obj  0x6f626a20U
 #define CODE_pths 0x70746873U
@@ -615,6 +616,52 @@ done:
 	;
 }
 
+static void do_pluginrsrc_mopt(deark *c, lctx *d, zztype *zz)
+{
+	de_int64 x;
+	de_int64 num_items;
+	de_int64 i;
+	int saved_indent_level;
+	zztype czz;
+
+	// This function is based on reverse engineering, and may not be correct.
+
+	de_dbg_indent_save(c, &saved_indent_level);
+
+	x = psd_getui32zz(zz);
+	de_dbg(c, "unknown int: %d\n", (int)x);
+	num_items = psd_getui32zz(zz);
+	de_dbg(c, "number of mopt items: %d\n", (int)num_items);
+
+	for(i=0; i<num_items; i++) {
+		de_int64 dlen;
+		de_int64 something_len;
+
+		something_len = 1138;
+		if(zz_avail(zz)<something_len) break;
+		de_dbg(c, "mopt item[%d] at %d\n", (int)i, (int)zz->pos);
+		de_dbg_indent(c, 1);
+
+		de_dbg(c, "[%d bytes of data at %d]\n", (int)something_len, (int)zz->pos);
+		zz->pos += something_len;
+
+		if(zz_avail(zz)<4) break;
+
+		dlen = psd_getui32zz(zz);
+		de_dbg(c, "descriptor length: %d\n", (int)dlen);
+
+		if(dlen>0 && zz_avail(zz)>0) {
+			zz_init_with_len(&czz, zz, dlen);
+			read_descriptor(c, d, &czz, 1, "");
+			zz->pos += dlen;
+		}
+
+		de_dbg_indent(c, -1);
+	}
+
+	de_dbg_indent_restore(c, saved_indent_level);
+}
+
 // Any plugin resource containing just a descriptor (after the ID code)
 static void do_pluginrsrc_descriptor(deark *c, lctx *d, zztype *zz)
 {
@@ -636,6 +683,9 @@ static void hrsrc_pluginresource(deark *c, lctx *d, zztype *zz, const struct rsr
 	switch(fourcc.id) {
 	case CODE_mani:
 		do_pluginrsrc_mani(c, d, &czz);
+		break;
+	case CODE_mopt:
+		do_pluginrsrc_mopt(c, d, &czz);
 		break;
 	case CODE_mset:
 		do_pluginrsrc_descriptor(c, d, &czz);
