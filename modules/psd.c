@@ -285,7 +285,7 @@ static const struct rsrc_info rsrc_info_arr[] = {
 static int read_descriptor(deark *c, lctx *d, zztype *zz, int has_version, const char *dscrname);
 static void do_tagged_blocks(deark *c, lctx *d, zztype *zz, int tbnamespace);
 static int do_descriptor_item_ostype_and_data(deark *c, lctx *d,
-	const struct flexible_id *key_flid, zztype *zz);
+	const struct flexible_id *key_flid, zztype *zz, de_int64 itempos);
 
 
 static de_int64 pad_to_2(de_int64 n)
@@ -632,7 +632,6 @@ static void hrsrc_pluginresource(deark *c, lctx *d, zztype *zz, const struct rsr
 	if(zz_avail(zz)<4) return;
 	psd_read_fourcc_zz(c, d, zz, &fourcc);
 	de_dbg(c, "id: '%s'\n", fourcc.id_printable);
-	de_dbg_indent(c, 1);
 	zz_init(&czz, zz);
 	switch(fourcc.id) {
 	case CODE_mani:
@@ -642,7 +641,6 @@ static void hrsrc_pluginresource(deark *c, lctx *d, zztype *zz, const struct rsr
 		do_pluginrsrc_descriptor(c, d, &czz);
 		break;
 	}
-	de_dbg_indent(c, -1);
 }
 
 // Read a Photoshop-style "Unicode string" structure, and append it to s.
@@ -847,7 +845,7 @@ static void do_item_type_enum(deark *c, lctx *d, zztype *zz)
 
 // "List"
 static int do_item_type_VlLs(deark *c, lctx *d,
-	const struct flexible_id *key_flid, zztype *zz)
+	const struct flexible_id *key_flid, zztype *zz, de_int64 outer_itempos)
 {
 	de_int64 num_items;
 	de_int64 i;
@@ -865,11 +863,14 @@ static int do_item_type_VlLs(deark *c, lctx *d,
 	if(d->nesting_level>MAX_NESTING_LEVEL) goto done;
 
 	for(i=0; i<num_items; i++) {
-		de_dbg(c, "list item[%d] at %d\n", (int)i, (int)zz->pos);
+		de_int64 inner_itempos;
+		inner_itempos = zz->pos;
+		de_dbg(c, "item[%d] at %d (for list@%d)\n", (int)i,
+			(int)inner_itempos, (int)outer_itempos);
 		de_dbg_indent(c, 1);
 		d->nesting_level++;
 		zz_init(&czz, zz);
-		ret = do_descriptor_item_ostype_and_data(c, d, key_flid, &czz);
+		ret = do_descriptor_item_ostype_and_data(c, d, key_flid, &czz, inner_itempos);
 		d->nesting_level--;
 		de_dbg_indent(c, -1);
 		if(!ret) goto done;
@@ -998,7 +999,7 @@ done:
 
 // key_flid is relevant "key" identifier.
 static int do_descriptor_item_ostype_and_data(deark *c, lctx *d,
-	const struct flexible_id *key_flid, zztype *zz)
+	const struct flexible_id *key_flid, zztype *zz, de_int64 itempos)
 {
 	int ret;
 	int retval = 0;
@@ -1044,7 +1045,7 @@ static int do_descriptor_item_ostype_and_data(deark *c, lctx *d,
 		zz->pos += zz_used(&czz);
 		break;
 	case CODE_VlLs:
-		ret = do_item_type_VlLs(c, d, key_flid, &czz);
+		ret = do_item_type_VlLs(c, d, key_flid, &czz, itempos);
 		zz->pos += zz_used(&czz);
 		if(!ret) goto done;
 		break;
@@ -1085,7 +1086,10 @@ static int do_descriptor_item(deark *c, lctx *d, zztype *zz)
 {
 	struct flexible_id key;
 	zztype czz;
+	de_int64 itempos;
 	int ret;
+
+	itempos = zz->pos;
 
 	read_flexible_id_zz(c, d, zz, &key);
 	if(key.is_fourcc) {
@@ -1096,7 +1100,7 @@ static int do_descriptor_item(deark *c, lctx *d, zztype *zz)
 	}
 
 	zz_init(&czz, zz);
-	ret = do_descriptor_item_ostype_and_data(c, d, &key, &czz);
+	ret = do_descriptor_item_ostype_and_data(c, d, &key, &czz, itempos);
 	flexible_id_free_contents(c, &key);
 	if(!ret) return 0;
 	zz->pos += zz_used(&czz);
@@ -1112,6 +1116,8 @@ static int read_descriptor(deark *c, lctx *d, zztype *zz, int has_version, const
 {
 	de_ucstring *name_from_classid = NULL;
 	struct flexible_id classid;
+	de_int64 ver_pos = 0;
+	de_int64 dscr_pos;
 	de_int64 num_items;
 	de_int64 i;
 	int ret;
@@ -1123,10 +1129,19 @@ static int read_descriptor(deark *c, lctx *d, zztype *zz, int has_version, const
 	de_dbg_indent_save(c, &saved_indent_level);
 
 	if(has_version) {
+		ver_pos = zz->pos;
 		dv = psd_getui32zz(zz);
 	}
 
-	de_dbg(c, "descriptor%s at %d\n", dscrname, (int)zz->pos);
+	dscr_pos = zz->pos;
+
+	if(has_version) {
+		de_dbg(c, "descriptor%s at %d (version# at %d)\n", dscrname, (int)dscr_pos, (int)ver_pos);
+	}
+	else {
+		de_dbg(c, "descriptor%s at %d\n", dscrname, (int)dscr_pos);
+	}
+
 	if(dv!=16) {
 		de_warn(c, "Unsupported descriptor version: %d\n", (int)dv);
 		goto done;
@@ -1149,13 +1164,11 @@ static int read_descriptor(deark *c, lctx *d, zztype *zz, int has_version, const
 
 	// Descriptor items
 	for(i=0; i<num_items; i++) {
-		//de_int64 bytes_consumed2;
-
 		if(zz->pos >= zz->endpos) {
 			de_dbg(c, "[Expected %d descriptor items, only found %d.]\n", (int)num_items, (int)i);
 			goto done;
 		}
-		de_dbg(c, "item[%d] at %d\n", (int)i, (int)zz->pos);
+		de_dbg(c, "item[%d] at %d (for descriptor@%d)\n", (int)i, (int)zz->pos, (int)dscr_pos);
 		de_dbg_indent(c, 1);
 		zz_init(&czz, zz);
 		ret = do_descriptor_item(c, d, &czz);
