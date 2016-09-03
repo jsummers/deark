@@ -2204,6 +2204,94 @@ static void do_SoLd_block(deark *c, lctx *d, zztype *zz)
 	read_descriptor(c, d, zz, 1, " (of placed layer information)");
 }
 
+static void do_FXid_block(deark *c, lctx *d, zztype *zz, const struct de_fourcc *blk4cc)
+{
+	de_int64 ver1, ver2;
+	de_int64 dlen1, dlen2, dlen3;
+	de_int64 main_endpos;
+	de_ucstring *s = NULL;
+	de_int64 idx;
+	de_int64 x;
+	de_int64 ch;
+	de_int64 max_channels;
+	int saved_indent_level;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+
+	ver1 = psd_getui32zz(zz);
+	de_dbg(c, "version: %d\n", (int)ver1);
+	if(ver1<1 || ver1>3) goto done;
+
+	dlen1 = psd_geti64zz(zz);
+	de_dbg(c, "length: %"INT64_FMT"\n", dlen1);
+	main_endpos = zz->pos + dlen1;
+
+	s = ucstring_create(c);
+
+	idx = 0;
+	/* while(zz->pos < main_endpos) */ {
+		de_dbg(c, "filter effect[%d] at %d\n", (int)idx, (int)zz->pos);
+		de_dbg_indent(c, 1);
+
+		ucstring_empty(s);
+		read_pascal_string_to_ucstring(c, d, s, zz);
+		de_dbg(c, "identifier: \"%s\"\n", ucstring_get_printable_sz(s));
+
+		ver2 = psd_getui32zz(zz);
+		de_dbg(c, "version: %d\n", (int)ver2);
+		if(ver2 != 1) goto done;
+
+		dlen2 = psd_geti64zz(zz);
+		de_dbg(c, "length: %"INT64_FMT"\n", dlen2);
+
+		read_rectangle_tlbr(c, d, zz, "rectangle");
+
+		x = psd_getui32zz(zz);
+		de_dbg(c, "depth: %d\n", (int)x);
+
+		max_channels = psd_getui32zz(zz);
+		de_dbg(c, "max channels: %d\n", (int)max_channels);
+
+		for(ch=0; ch<d->num_channels+2; ch++) {
+			if(zz->pos >= main_endpos) goto done;
+			if(zz->pos >= zz->endpos) goto done;
+
+			de_dbg(c, "channel data[%d] at %d\n", (int)ch, (int)zz->pos);
+			de_dbg_indent(c, 1);
+
+			x = psd_getui32zz(zz);
+			de_dbg(c, "array-is-written: %d\n", (int)x);
+
+			dlen3 = psd_geti64zz(zz);
+			de_dbg(c, "length: %"INT64_FMT"\n", dlen3);
+
+			//x = psd_getui16zz(zz);
+			//de_dbg(c, "compression mode: %d\n", (int)x);
+
+			if(dlen3<0) goto done;
+			if(dlen3>0)
+				de_dbg(c, "[%d bytes of data]\n", (int)dlen3);
+			zz->pos += dlen3;
+
+			de_dbg_indent(c, -1);
+		}
+
+		de_dbg_indent(c, -1);
+		idx++;
+	}
+
+	if(zz->pos < zz->endpos) {
+		// TODO: I'm having trouble figuring out FEid/FXid blocks.
+		// The documentation is confusing.
+		de_dbg(c, "[%s block not fully decoded]\n", blk4cc->id_printable);
+	}
+	zz->pos = main_endpos;
+
+done:
+	ucstring_destroy(s);
+	de_dbg_indent_restore(c, saved_indent_level);
+}
+
 static void do_shmd_block(deark *c, lctx *d, zztype *zz)
 {
 	de_int64 count;
@@ -2391,6 +2479,10 @@ static int do_tagged_block(deark *c, lctx *d, zztype *zz, int tbnamespace)
 		break;
 	case CODE_SoLd:
 		do_SoLd_block(c, d, &czz);
+		break;
+	case CODE_FEid:
+	case CODE_FXid:
+		do_FXid_block(c, d, &czz, &blk4cc);
 		break;
 	case CODE_shmd:
 		do_shmd_block(c, d, &czz);
