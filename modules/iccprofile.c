@@ -434,7 +434,7 @@ static void do_read_header(deark *c, lctx *d, de_int64 pos)
 
 static const struct datatypeinfo *lookup_datatypeinfo(de_uint32 id)
 {
-	de_int64 k;
+	size_t k;
 	for(k=0; k<DE_ITEMS_IN_ARRAY(datatypeinfo_arr); k++) {
 		if(datatypeinfo_arr[k].id == id) {
 			return &datatypeinfo_arr[k];
@@ -445,7 +445,7 @@ static const struct datatypeinfo *lookup_datatypeinfo(de_uint32 id)
 
 static const struct taginfo *lookup_taginfo(de_uint32 id)
 {
-	de_int64 k;
+	size_t k;
 	for(k=0; k<DE_ITEMS_IN_ARRAY(taginfo_arr); k++) {
 		if(taginfo_arr[k].id == id) {
 			return &taginfo_arr[k];

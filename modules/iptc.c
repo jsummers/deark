@@ -228,7 +228,7 @@ static void handle_2_125(deark *c, lctx *d, const struct ds_info *dsi,
 // Caller supplies dsi. This function will set its fields.
 static int lookup_ds_info(de_byte recnum, de_byte dsnum, struct ds_info *dsi)
 {
-	de_int64 i;
+	size_t i;
 
 	de_memset(dsi, 0, sizeof(struct ds_info));
 

@@ -358,6 +358,13 @@ static de_int64 zz_avail(zztype *zz)
 // in many cases.
 // May as well go all the way, and even do it for simple get_int functions.
 
+static de_byte psd_dbuf_getbyte_zz(dbuf *f, zztype *zz)
+{
+	de_byte val = dbuf_getbyte(f, zz->pos);
+	zz->pos++;
+	return val;
+}
+
 static de_int64 psd_dbuf_getui16_zz(dbuf *f, zztype *zz, int is_le)
 {
 	de_int64 val = dbuf_getui16x(f, zz->pos, is_le);
@@ -393,6 +400,7 @@ static de_int64 psd_dbuf_geti64_zz(dbuf *f, zztype *zz, int is_le)
 	return val;
 }
 
+#define psd_getbytezz(z) psd_dbuf_getbyte_zz(c->infile,z)
 #define psd_getui16zz(z) psd_dbuf_getui16_zz(c->infile,z,d->is_le)
 #define psd_geti16zz(z) psd_dbuf_geti16_zz(c->infile,z,d->is_le)
 #define psd_getui32zz(z) psd_dbuf_getui32_zz(c->infile,z,d->is_le)
@@ -445,7 +453,7 @@ static void read_pascal_string_to_ucstring(deark *c, lctx *d, de_ucstring *s, zz
 	if(zz_avail(zz)<1) return;
 
 	// First byte is the string length
-	dlen = (de_int64)de_getbyte(zz->pos++);
+	dlen = (de_int64)psd_getbytezz(zz);
 
 	if(zz->pos + dlen > zz->endpos) { // error
 		zz->pos = zz->endpos;
@@ -542,11 +550,8 @@ static void hrsrc_namesofalphachannels(deark *c, lctx *d, zztype *zz, const stru
 static void hrsrc_printflags(deark *c, lctx *d, zztype *zz, const struct rsrc_info *ri)
 {
 	de_byte fl[9];
-	int i;
 	if(zz_avail(zz)!=9) return;
-	for(i=0; i<9; i++) {
-		fl[i] = de_getbyte(zz->startpos+i);
-	}
+	de_read(fl, zz->pos, 9);
 	de_dbg(c, "%s: labels=%d, crop marks=%d, color bars=%d, registration marks=%d, "
 		"negative=%d, flip=%d, interpolate=%d, caption=%d, print flags=%d\n",
 		ri->idname, (int)fl[0], (int)fl[1], (int)fl[2], (int)fl[3],
@@ -559,10 +564,11 @@ static void hrsrc_printflagsinfo(deark *c, lctx *d, zztype *zz, const struct rsr
 	de_byte crop_marks;
 
 	if(zz_avail(zz)!=10) return;
-	version = psd_getui16(zz->startpos);
-	crop_marks = de_getbyte(zz->startpos+2);
-	bleed_width_value = psd_getui32(zz->startpos+4);
-	bleed_width_scale = psd_getui16(zz->startpos+8);
+	version = psd_getui16zz(zz);
+	crop_marks = psd_getbytezz(zz);
+	zz->pos++;
+	bleed_width_value = psd_getui32zz(zz);
+	bleed_width_scale = psd_getui16zz(zz);
 	de_dbg(c, "%s: version=%d, crop marks=%d, bleed width value=%d, bleed width scale=%d\n",
 		ri->idname, (int)version, (int)crop_marks,
 		(int)bleed_width_value, (int)bleed_width_scale);
@@ -783,9 +789,8 @@ static void dbg_print_flexible_id(deark *c, lctx *d,
 static void do_item_type_bool(deark *c, lctx *d, zztype *zz)
 {
 	de_byte b;
-	b = de_getbyte(zz->pos);
+	b = psd_getbytezz(zz);
 	de_dbg(c, "value: %d\n", (int)b);
-	zz->pos++;
 }
 
 // The PSD spec calls this type "Integer".
@@ -1405,7 +1410,7 @@ static void hrsrc_byte(deark *c, lctx *d, zztype *zz, const struct rsrc_info *ri
 {
 	de_byte b;
 	if(zz_avail(zz)!=1) return;
-	b = de_getbyte(zz->pos);
+	b = psd_getbytezz(zz);
 	de_dbg(c, "%s: %d\n", ri->idname, (int)b);
 }
 
@@ -1486,7 +1491,7 @@ static void hrsrc_versioninfo(deark *c, lctx *d, zztype *zz, const struct rsrc_i
 	ver = psd_getui32zz(zz);
 	de_dbg(c, "version: %d\n", (int)ver);
 
-	b = de_getbyte(zz->pos++);
+	b = psd_getbytezz(zz);
 	de_dbg(c, "hasRealMergedData: %d\n", (int)b);
 
 	s = ucstring_create(c);
@@ -1508,12 +1513,15 @@ static void hrsrc_printscale(deark *c, lctx *d, zztype *zz, const struct rsrc_in
 	de_int64 style;
 	double xloc, yloc, scale;
 	if(zz_avail(zz)!=14) return;
-	style = psd_getui16(zz->startpos);
+	style = psd_getui16zz(zz);
 	de_dbg(c, "style: %d\n", (int)style);
-	xloc = dbuf_getfloat32x(c->infile, zz->startpos+2, d->is_le);
-	yloc = dbuf_getfloat32x(c->infile, zz->startpos+6, d->is_le);
+	xloc = dbuf_getfloat32x(c->infile, zz->pos, d->is_le);
+	zz->pos += 4;
+	yloc = dbuf_getfloat32x(c->infile, zz->pos, d->is_le);
+	zz->pos += 4;
 	de_dbg(c, "location: (%f,%f)\n", xloc, yloc);
-	scale = dbuf_getfloat32x(c->infile, zz->startpos+10, d->is_le);
+	scale = dbuf_getfloat32x(c->infile, zz->pos, d->is_le);
+	zz->pos += 4;
 	de_dbg(c, "scale: %f\n", scale);
 }
 
@@ -1522,9 +1530,10 @@ static void hrsrc_pixelaspectratio(deark *c, lctx *d, zztype *zz, const struct r
 	de_int64 version;
 	double ratio;
 	if(zz_avail(zz)!=12) return;
-	version = psd_getui32(zz->startpos);
+	version = psd_getui32zz(zz);
 	de_dbg(c, "version: %d\n", (int)version);
-	ratio = dbuf_getfloat64x(c->infile, zz->startpos+4, d->is_le);
+	ratio = dbuf_getfloat64x(c->infile, zz->pos, d->is_le);
+	zz->pos += 8;
 	de_dbg(c, "x/y: %f\n", ratio);
 }
 
@@ -1685,13 +1694,13 @@ static int do_layer_record(deark *c, lctx *d, zztype *zz, struct channel_data *c
 	psd_read_fourcc_zz(c, d, zz, &tmp4cc);
 	de_dbg(c, "blend mode: '%s'\n", tmp4cc.id_printable);
 
-	b = de_getbyte(zz->pos++);
+	b = psd_getbytezz(zz);
 	de_dbg(c, "opacity: %d\n", (int)b);
 
-	b = de_getbyte(zz->pos++);
+	b = psd_getbytezz(zz);
 	de_dbg(c, "clipping: %d\n", (int)b);
 
-	b = de_getbyte(zz->pos++);
+	b = psd_getbytezz(zz);
 	de_dbg(c, "flags: 0x%02x\n", (unsigned int)b);
 
 	zz->pos += 1; // filler
@@ -1824,9 +1833,8 @@ static void do_boolean_block(deark *c, lctx *d, zztype *zz,
 
 	len = zz_avail(zz);
 	if(len<1 || len>4) return;
-	value = de_getbyte(zz->pos);
+	value = psd_getbytezz(zz);
 	de_dbg(c, "%s: %d\n", name, (int)value);
-	zz->pos++;
 }
 
 static void do_fourcc_block(deark *c, lctx *d, zztype *zz,
@@ -1926,7 +1934,7 @@ static int do_one_linked_layer(deark *c, lctx *d, zztype *zz, const struct de_fo
 	de_dbg(c, "length2: %"INT64_FMT"\n", dlen2);
 	if(dlen2<0) goto done;
 
-	file_open_descr_flag = de_getbyte(datazz.pos++);
+	file_open_descr_flag = psd_getbytezz(&datazz);
 	de_dbg(c, "has file open descriptor: %d\n", (int)file_open_descr_flag);
 
 	if(file_open_descr_flag) {
