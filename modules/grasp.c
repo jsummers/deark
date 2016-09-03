@@ -23,9 +23,10 @@ static int do_extract_file(deark *c, lctx *d, de_int64 fnum)
 	de_int64 file_size;
 	de_finfo *fi = NULL;
 	de_ucstring *fname = NULL;
-	int indent_count = 0;
+	int saved_indent_level;
 	int retval = 1;
 
+	de_dbg_indent_save(c, &saved_indent_level);
 	pos = 2+17*fnum;
 	file_info_offset = de_getui32le(pos);
 
@@ -40,7 +41,6 @@ static int do_extract_file(deark *c, lctx *d, de_int64 fnum)
 
 	de_dbg(c, "file #%d offset: %d\n", (int)fnum, (int)file_info_offset);
 	de_dbg_indent(c, 1);
-	indent_count++;
 
 	if(file_info_offset < d->dir_header_nbytes) {
 		de_warn(c, "Bad file offset (%d)\n", (int)file_info_offset);
@@ -74,7 +74,7 @@ static int do_extract_file(deark *c, lctx *d, de_int64 fnum)
 done:
 	de_finfo_destroy(c, fi);
 	ucstring_destroy(fname);
-	de_dbg_indent(c, -indent_count);
+	de_dbg_indent_restore(c, saved_indent_level);
 	return retval;
 }
 

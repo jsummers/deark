@@ -64,11 +64,11 @@ static struct srcbitmap *do_decode_raw_bitmap_segment(deark *c, const char *fmt,
 	int okay = 0;
 	struct srcbitmap *srcbmp = NULL;
 	de_int64 pal_start;
-	int indent_count = 0;
+	int saved_indent_level;
 
+	de_dbg_indent_save(c, &saved_indent_level);
 	de_dbg(c, "%s bitmap at %d\n", fmt, (int)pos);
 	de_dbg_indent(c, 1);
-	indent_count++;
 
 	srcbmp = de_malloc(c, sizeof(struct srcbitmap));
 
@@ -81,17 +81,15 @@ static struct srcbitmap *do_decode_raw_bitmap_segment(deark *c, const char *fmt,
 		pal_start = pos+14+srcbmp->bi.infohdrsize;
 		de_dbg(c, "palette at %d\n", (int)pal_start);
 		de_dbg_indent(c, 1);
-		indent_count++;
 		de_read_palette_rgb(c->infile, pal_start, srcbmp->bi.pal_entries, srcbmp->bi.bytes_per_pal_entry,
 			srcbmp->pal, 256, DE_GETRGBFLAG_BGR);
 		de_dbg_indent(c, -1);
-		indent_count--;
 	}
 
 	okay = 1;
 
 done:
-	de_dbg_indent(c, -indent_count);
+	de_dbg_indent_restore(c, saved_indent_level);
 
 	if(!okay) {
 		if(srcbmp) {
@@ -198,11 +196,11 @@ static void do_decode_CI_or_CP_pair(deark *c, const char *fmt, de_int64 pos)
 	struct srcbitmap *srcbmp = NULL;
 	struct srcbitmap *srcbmp_mask = NULL;
 	struct srcbitmap *srcbmp_main = NULL;
-	int indent_count = 0;
+	int saved_indent_level;
 
+	de_dbg_indent_save(c, &saved_indent_level);
 	de_dbg(c, "%s pair at %d\n", fmt, (int)pos);
 	de_dbg_indent(c, 1);
-	indent_count++;
 
 	for(i=0; i<2; i++) {
 		srcbmp = do_decode_raw_bitmap_segment(c, fmt, pos);
@@ -217,7 +215,6 @@ static void do_decode_CI_or_CP_pair(deark *c, const char *fmt, de_int64 pos)
 		pos += srcbmp->bi.size_of_headers_and_pal;
 
 		de_dbg_indent(c, 1);
-		indent_count++;
 
 		// Try to guess whether this is the image or the mask...
 		if(srcbmp->bi.bitcount==1 && (srcbmp_mask==NULL || srcbmp_main!=NULL)) {
@@ -230,7 +227,6 @@ static void do_decode_CI_or_CP_pair(deark *c, const char *fmt, de_int64 pos)
 		}
 
 		de_dbg_indent(c, -1);
-		indent_count--;
 	}
 
 	if(srcbmp_mask==NULL || srcbmp_main==NULL) {
@@ -241,7 +237,7 @@ static void do_decode_CI_or_CP_pair(deark *c, const char *fmt, de_int64 pos)
 	do_generate_final_image(c, srcbmp_main, srcbmp_mask);
 
 done:
-	de_dbg_indent(c, -indent_count);
+	de_dbg_indent_restore(c, saved_indent_level);
 	de_free(c, srcbmp_mask);
 	de_free(c, srcbmp_main);
 }
@@ -275,11 +271,11 @@ static void do_extract_CI_or_CP_pair(deark *c, const char *fmt, de_int64 pos)
 	de_int64 oldbitsoffs[2];
 	de_int64 newbitsoffs[2];
 	de_int64 bitssize[2];
-	int indent_count = 0;
+	int saved_indent_level;
 
+	de_dbg_indent_save(c, &saved_indent_level);
 	de_dbg(c, "%s pair at %d\n", fmt, (int)pos);
 	de_dbg_indent(c, 1);
-	indent_count++;
 
 	bi = de_malloc(c, sizeof(struct de_bmpinfo));
 
@@ -293,7 +289,6 @@ static void do_extract_CI_or_CP_pair(deark *c, const char *fmt, de_int64 pos)
 	for(i=0; i<2; i++) {
 		de_dbg(c, "bitmap at %d\n", (int)pos);
 		de_dbg_indent(c, 1);
-		indent_count++;
 
 		if(!de_fmtutil_get_bmpinfo(c, c->infile, bi, pos, c->infile->len - pos,
 			DE_BMPINFO_HAS_FILEHEADER))
@@ -316,7 +311,6 @@ static void do_extract_CI_or_CP_pair(deark *c, const char *fmt, de_int64 pos)
 		pos += bi->size_of_headers_and_pal;
 
 		de_dbg_indent(c, -1);
-		indent_count--;
 	}
 
 	newbitsoffs[0] = hdrsize[0] + hdrsize[1];
@@ -337,7 +331,7 @@ static void do_extract_CI_or_CP_pair(deark *c, const char *fmt, de_int64 pos)
 	}
 
 done:
-	de_dbg_indent(c, -indent_count);
+	de_dbg_indent_restore(c, saved_indent_level);
 	dbuf_close(f);
 	de_free(c, bi);
 }
@@ -382,11 +376,11 @@ done:
 static void do_BA_segment(deark *c, de_int64 pos, de_int64 *pnextoffset)
 {
 	de_byte b0, b1;
-	int indent_count = 0;
+	int saved_indent_level;
 
+	de_dbg_indent_save(c, &saved_indent_level);
 	de_dbg(c,"BA segment at %d\n", (int)pos);
 	de_dbg_indent(c, 1);
-	indent_count++;
 
 	*pnextoffset = 0;
 
@@ -424,7 +418,7 @@ static void do_BA_segment(deark *c, de_int64 pos, de_int64 *pnextoffset)
 	}
 
 done:
-	de_dbg_indent(c, -indent_count);
+	de_dbg_indent_restore(c, saved_indent_level);
 }
 
 static void do_BA_file(deark *c)

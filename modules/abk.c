@@ -356,11 +356,11 @@ static void picture_bank_read_picture(deark *c, lctx *d, struct amosbank *bk, de
 	de_int64 planespan;
 	de_int64 lumpspan;
 	de_int64 pos_in_picdata;
-	int indent_count = 0;
+	int saved_indent_level;
 
+	de_dbg_indent_save(c, &saved_indent_level);
 	de_dbg(c, "picture header at %d\n", (int)pos);
 	de_dbg_indent(c, 1);
-	indent_count++;
 
 	// 24-byte "Picture header"
 
@@ -396,7 +396,6 @@ static void picture_bank_read_picture(deark *c, lctx *d, struct amosbank *bk, de
 	}
 
 	de_dbg_indent(c, -1);
-	indent_count--;
 
 	bk->pic_picdata_offset = pos + 24;
 	de_dbg(c, "picdata at %d\n", (int)bk->pic_picdata_offset);
@@ -440,7 +439,7 @@ static void picture_bank_read_picture(deark *c, lctx *d, struct amosbank *bk, de
 done:
 	dbuf_close(unc_pixels);
 	de_bitmap_destroy(img);
-	de_dbg_indent(c, -indent_count);
+	de_dbg_indent_restore(c, saved_indent_level);
 }
 
 static void picture_bank_make_palette(deark *c, lctx *d, struct amosbank *bk)

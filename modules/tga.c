@@ -417,8 +417,9 @@ static void de_run_tga(deark *c, de_module_params *mparams)
 	const char *cmpr_name = NULL;
 	const char *clrtype_name = NULL;
 	dbuf *unc_pixels = NULL;
-	int indent_count = 0;
+	int saved_indent_level;
 
+	de_dbg_indent_save(c, &saved_indent_level);
 	d = de_malloc(c, sizeof(lctx));
 
 	pos = 0;
@@ -428,7 +429,6 @@ static void de_run_tga(deark *c, de_module_params *mparams)
 
 	de_dbg(c, "header at %d\n", 0);
 	de_dbg_indent(c, 1);
-	indent_count++;
 
 	d->id_field_len = (de_int64)de_getbyte(0);
 	d->color_map_type = de_getbyte(1);
@@ -470,11 +470,9 @@ static void de_run_tga(deark *c, de_module_params *mparams)
 	}
 
 	de_dbg_indent(c, 1);
-	indent_count++;
 	de_dbg(c, "color type: %s\n", clrtype_name);
 	de_dbg(c, "compression: %s\n", cmpr_name);
 	de_dbg_indent(c, -1);
-	indent_count--;
 
 	if(d->color_map_type != 0) {
 		d->cmap_start = de_getui16le(3);
@@ -494,7 +492,6 @@ static void de_run_tga(deark *c, de_module_params *mparams)
 	de_dbg(c, "descriptor: 0x%02x\n", (unsigned int)d->image_descriptor);
 
 	de_dbg_indent(c, 1);
-	indent_count++;
 	d->num_attribute_bits = (de_int64)(d->image_descriptor & 0x0f);
 	de_dbg(c, "number of attribute bits: %d\n", (int)d->num_attribute_bits);
 
@@ -503,10 +500,8 @@ static void de_run_tga(deark *c, de_module_params *mparams)
 	de_dbg(c, "right-to-left flag: %d\n", (int)d->right_to_left);
 	de_dbg(c, "top-down flag: %d\n", (int)d->top_down);
 	de_dbg_indent(c, -1);
-	indent_count--;
 
 	de_dbg_indent(c, -1);
-	indent_count--;
 
 	if(d->has_signature) {
 		do_read_footer(c, d);
@@ -528,17 +523,14 @@ static void de_run_tga(deark *c, de_module_params *mparams)
 			(int)d->cmap_length, (int)d->pal_size_in_bytes);
 
 		de_dbg_indent(c, 1);
-		indent_count++;
 		if(!do_read_palette(c, d, pos)) goto done;
 		de_dbg_indent(c, -1);
-		indent_count--;
 
 		pos += d->pal_size_in_bytes;
 	}
 
 	de_dbg(c, "bitmap at %d\n", (int)pos);
 	de_dbg_indent(c, 1);
-	indent_count++;
 
 	d->bytes_per_pixel = ((d->pixel_depth+7)/8);
 	d->main_image.img_size_in_bytes = d->main_image.height * d->main_image.width * d->bytes_per_pixel;
@@ -595,7 +587,6 @@ static void de_run_tga(deark *c, de_module_params *mparams)
 	do_decode_image(c, d, &d->main_image, unc_pixels, NULL, 0);
 
 	de_dbg_indent(c, -1);
-	indent_count--;
 
 	if(d->thumbnail_offset!=0) {
 		do_decode_thumbnail(c, d);
@@ -603,7 +594,7 @@ static void de_run_tga(deark *c, de_module_params *mparams)
 
 done:
 	dbuf_close(unc_pixels);
-	de_dbg_indent(c, -indent_count);
+	de_dbg_indent_restore(c, saved_indent_level);
 	de_free(c, d);
 }
 

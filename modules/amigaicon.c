@@ -534,8 +534,9 @@ static void do_glowicons(deark *c, lctx *d, de_int64 pos)
 	de_int64 startpos;
 	de_int64 endpos;
 	de_int64 len;
-	int indent_count = 0;
+	int saved_indent_level;
 
+	de_dbg_indent_save(c, &saved_indent_level);
 	startpos = pos;
 
 	len = de_getui32be(pos+4);
@@ -544,7 +545,6 @@ static void do_glowicons(deark *c, lctx *d, de_int64 pos)
 
 	de_dbg(c, "GlowIcons data at offset %d (%d bytes)\n", (int)startpos, (int)len);
 	de_dbg_indent(c, 1);
-	indent_count++;
 
 	de_dbg(c, "expected end of file: %d\n", (int)endpos);
 	pos+=12; // Skip past the "FORM" id, length, and FORM type code
@@ -559,7 +559,6 @@ static void do_glowicons(deark *c, lctx *d, de_int64 pos)
 		pos+=8;
 
 		de_dbg_indent(c, 1);
-		indent_count++;
 
 		switch(chunk4cc.id) {
 		case CODE_FACE: // FACE (parameters)
@@ -573,13 +572,12 @@ static void do_glowicons(deark *c, lctx *d, de_int64 pos)
 		}
 
 		de_dbg_indent(c, -1);
-		indent_count--;
 
 		pos += len;
 		if(len%2) pos++; // skip padding byte
 	}
 
-	de_dbg_indent(c, -indent_count);
+	de_dbg_indent_restore(c, saved_indent_level);
 }
 
 static void do_scan_file(deark *c, lctx *d)
@@ -592,18 +590,17 @@ static void do_scan_file(deark *c, lctx *d)
 	de_int64 bytesused;
 	de_int64 version;
 	const char *tn = "?";
-	int indent_count = 0;
+	int saved_indent_level;
 
+	de_dbg_indent_save(c, &saved_indent_level);
 	de_dbg(c, "DiskObject at %d, len=%d\n", 0, 78);
 	de_dbg_indent(c, 1);
-	indent_count++;
 
 	version = de_getui16be(2);
 	de_dbg(c, "version: %d\n", (int)version);
 
 	de_dbg(c, "Gadget at %d, len=%d\n", 4, 44);
 	de_dbg_indent(c, 1);
-	indent_count++;
 
 	main_width = de_getui16be(12);
 	main_height = de_getui16be(14);
@@ -616,7 +613,6 @@ static void do_scan_file(deark *c, lctx *d)
 	de_dbg(c, "icon revision: %d\n", (int)d->icon_revision);
 
 	de_dbg_indent(c, -1); // end of embedded "Gadget" object
-	indent_count--;
 
 	d->icon_type = de_getbyte(48);
 	switch(d->icon_type) {
@@ -646,7 +642,6 @@ static void do_scan_file(deark *c, lctx *d)
 	de_dbg(c, "toolwindow: 0x%08x\n", (unsigned int)x);
 
 	de_dbg_indent(c, -1);
-	indent_count--;
 
 	pos = 78;
 
@@ -697,7 +692,7 @@ static void do_scan_file(deark *c, lctx *d)
 	}
 
 done:
-	de_dbg_indent(c, -indent_count);
+	de_dbg_indent_restore(c, saved_indent_level);
 }
 
 static void de_run_amigaicon(deark *c, de_module_params *mparams)

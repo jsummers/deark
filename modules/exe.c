@@ -680,13 +680,16 @@ static void do_ne_one_nameinfo(deark *c, lctx *d, de_int64 npos)
 	de_int64 rnNameOffset;
 	de_int64 x;
 	de_finfo *fi = NULL;
+	int saved_indent_level;
 
+	de_dbg_indent_save(c, &saved_indent_level);
 	rsrc_offset = de_getui16le(npos);
 	if(d->ne_align_shift>0) rsrc_offset <<= d->ne_align_shift;
 	rsrc_size = de_getui16le(npos+2);
 	if(d->ne_align_shift>0) rsrc_size <<= d->ne_align_shift;
 
-	de_dbg(c, " offset = %d, length = %d\n", (int)rsrc_offset, (int)rsrc_size);
+	de_dbg(c, "NAMEINFO at %d, dpos=%d, dlen=%d\n", (int)npos, (int)rsrc_offset, (int)rsrc_size);
+	de_dbg_indent(c, 1);
 
 	rnID = 0;
 	rnNameOffset = 0;
@@ -701,10 +704,10 @@ static void do_ne_one_nameinfo(deark *c, lctx *d, de_int64 npos)
 	}
 
 	if(is_named) {
-		de_dbg(c, " id name offset: %d\n", (int)rnNameOffset);
+		de_dbg(c, "id name offset: %d\n", (int)rnNameOffset);
 	}
 	else {
-		de_dbg(c, " id number: %d\n", (int)rnID);
+		de_dbg(c, "id number: %d\n", (int)rnID);
 	}
 
 	if(!d->ne_have_type) goto done;
@@ -719,16 +722,22 @@ static void do_ne_one_nameinfo(deark *c, lctx *d, de_int64 npos)
 			fi = de_finfo_create(c);
 			rname = ucstring_create(c);
 			dbuf_read_to_ucstring(c->infile, rnNameOffset+1, x, rname, 0, DE_ENCODING_ASCII);
-			de_dbg(c, " resource name: \"%s\"\n", ucstring_get_printable_sz(rname));
+			de_dbg(c, "resource name: \"%s\"\n", ucstring_get_printable_sz(rname));
 			if(c->filenames_from_file)
 				de_finfo_set_name_from_ucstring(c, fi, rname);
 			ucstring_destroy(rname);
 		}
 	}
 
-	do_ne_pe_extract_resource(c, d, d->ne_rsrc_type_id, rsrc_offset, rsrc_size, fi);
+	if(rsrc_size>0) {
+		de_dbg(c, "resource at %d, type_id=%d\n", (int)rsrc_offset, (int)d->ne_rsrc_type_id);
+		de_dbg_indent(c, 1);
+		do_ne_pe_extract_resource(c, d, d->ne_rsrc_type_id, rsrc_offset, rsrc_size, fi);
+		de_dbg_indent(c, -1);
+	}
 
 done:
+	de_dbg_indent_restore(c, saved_indent_level);
 	de_finfo_destroy(c, fi);
 }
 
@@ -741,7 +750,9 @@ static void do_ne_rsrc_tbl(deark *c, lctx *d)
 	de_int64 j;
 	de_int64 rsrc_count;
 	de_int64 tot_resources = 0;
+	int saved_indent_level;
 
+	de_dbg_indent_save(c, &saved_indent_level);
 	pos = d->ne_rsrc_tbl_offset;
 
 	de_dbg(c, "resource table at %d\n", (int)pos);
@@ -751,7 +762,7 @@ static void do_ne_rsrc_tbl(deark *c, lctx *d)
 	pos += 2;
 	if(d->ne_align_shift>24) {
 		de_err(c, "Unreasonable rscAlignShift setting\n");
-		return;
+		goto done;
 	}
 
 	i = 0;
@@ -760,9 +771,10 @@ static void do_ne_rsrc_tbl(deark *c, lctx *d)
 		if(x==0) {
 			// A "type_id" of 0 marks the end of the array
 			de_dbg(c, "end of TYPEINFO array found at %d\n", (int)pos);
-			break;
+			goto done;
 		}
 		de_dbg(c, "TYPEINFO #%d at %d\n", (int)i, (int)pos);
+		de_dbg_indent(c, 1);
 
 		if(x & 0x8000) {
 			d->ne_rsrc_type_id = x-0x8000;
@@ -779,15 +791,15 @@ static void do_ne_rsrc_tbl(deark *c, lctx *d)
 
 		rsrc_count = de_getui16le(pos+2);
 		if(d->ne_have_type)
-			de_dbg(c, " resource type=%d, count=%d\n", (int)d->ne_rsrc_type_id, (int)rsrc_count);
+			de_dbg(c, "resource type=%d, count=%d\n", (int)d->ne_rsrc_type_id, (int)rsrc_count);
 		else
-			de_dbg(c, " resource type=?, count=%d\n", (int)rsrc_count);
+			de_dbg(c, "resource type=?, count=%d\n", (int)rsrc_count);
 
 		tot_resources += rsrc_count;
 
 		if(tot_resources>MAX_RESOURCES) {
 			de_err(c, "Too many resources, or invalid resource table.\n");
-			break;
+			goto done;
 		}
 
 		// Read the array of NAMEINFO structures.
@@ -797,9 +809,13 @@ static void do_ne_rsrc_tbl(deark *c, lctx *d)
 			do_ne_one_nameinfo(c, d, npos);
 		}
 
+		de_dbg_indent(c, -1);
 		pos += 8 + 12*rsrc_count;
 		i++;
 	}
+
+done:
+	de_dbg_indent_restore(c, saved_indent_level);
 }
 
 // Sniff the resource data, and return a suitable filename extension.
@@ -848,14 +864,14 @@ static void do_lx_rsrc(deark *c, lctx *d,
 
 	// Read the Object Table
 	lpos = d->lx_object_tbl_offset + 24*(obj_num-1);
-	de_dbg(c, " LX object table entry at %d\n", (int)lpos);
+	de_dbg(c, "LX object table entry at %d\n", (int)lpos);
 
 	vsize = de_getui32le(lpos);
 	reloc_base_addr = de_getui32le(lpos+4);
 	flags = de_getui32le(lpos+8);
 	page_table_index = de_getui32le(lpos+12);
 	page_table_entries = de_getui32le(lpos+16);
-	de_dbg(c, " object #%d: vsize=%d raddr=%d flags=0x%x pti=%d pte=%d\n", (int)obj_num,
+	de_dbg(c, "object #%d: vsize=%d raddr=%d flags=0x%x pti=%d pte=%d\n", (int)obj_num,
 		(int)vsize, (int)reloc_base_addr, (unsigned int)flags, (int)page_table_index,
 		(int)page_table_entries);
 
@@ -863,7 +879,7 @@ static void do_lx_rsrc(deark *c, lctx *d,
 
 	// Now read the Object Page table
 	lpos = d->lx_object_page_tbl_offset + 8*(page_table_index-1);
-	de_dbg(c, " LX page table entry at %d\n", (int)lpos);
+	de_dbg(c, "LX page table entry at %d\n", (int)lpos);
 
 	pg_data_offset_raw = de_getui32le(lpos);
 	//data_size = de_getui16le(lpos+4);
@@ -874,7 +890,7 @@ static void do_lx_rsrc(deark *c, lctx *d,
 	}
 	rsrc_offset_real += d->lx_data_pages_offset;
 	rsrc_offset_real += rsrc_offset;
-	de_dbg(c, " resource offset: %d\n", (int)rsrc_offset_real);
+	de_dbg(c, "resource offset: %d\n", (int)rsrc_offset_real);
 
 	switch(rsrc_type) {
 		// TODO: Support other types of resources.
@@ -920,7 +936,9 @@ static void do_lx_or_le_rsrc_tbl(deark *c, lctx *d)
 		de_dbg(c, "resource #%d: type=%d name=%d size=%d obj=%d offset=%d\n", (int)i,
 			(int)type_id, (int)name_id, (int)rsrc_size, (int)rsrc_object, (int)rsrc_offset);
 
+		de_dbg_indent(c, 1);
 		do_lx_rsrc(c, d, rsrc_object, rsrc_offset, rsrc_size, type_id);
+		de_dbg_indent(c, -1);
 	}
 }
 

@@ -545,13 +545,13 @@ static int do_read_image(deark *c, lctx *d, de_int64 pos1, de_int64 *bytesused)
 	de_int64 pos;
 	de_int64 n;
 	int bypp;
-	int indent_count = 0;
+	int saved_indent_level;
 	unsigned int lzw_min_code_size;
 	struct lzwdeccontext *lz = NULL;
 	de_byte buf[256];
 
+	de_dbg_indent_save(c, &saved_indent_level);
 	de_dbg_indent(c, 1);
-	indent_count++;
 	pos = pos1;
 	*bytesused = 0;
 	gi = de_malloc(c, sizeof(struct gif_image_data));
@@ -562,16 +562,13 @@ static int do_read_image(deark *c, lctx *d, de_int64 pos1, de_int64 *bytesused)
 	if(gi->has_local_color_table) {
 		de_dbg(c, "local color table at %d\n", (int)pos);
 		de_dbg_indent(c, 1);
-		indent_count++;
 		do_read_color_table(c, d, pos, gi->local_color_table_size, gi->local_ct);
 		de_dbg_indent(c, -1);
-		indent_count--;
 		pos += 3*gi->local_color_table_size;
 	}
 
 	de_dbg(c, "image data at %d\n", (int)pos);
 	de_dbg_indent(c, 1);
-	indent_count++;
 	lzw_min_code_size = (unsigned int)de_getbyte(pos++);
 	de_dbg(c, "lzw min code size: %u\n", lzw_min_code_size);
 
@@ -617,12 +614,10 @@ static int do_read_image(deark *c, lctx *d, de_int64 pos1, de_int64 *bytesused)
 		pos += n;
 	}
 	de_dbg_indent(c, -1);
-	indent_count--;
 
 	de_bitmap_write_to_file(gi->img, NULL, 0);
 
 	de_dbg_indent(c, -1);
-	indent_count--;
 
 	*bytesused = pos - pos1;
 
@@ -638,7 +633,7 @@ done:
 		de_free(c, gi->interlace_map);
 		de_free(c, gi);
 	}
-	de_dbg_indent(c, -indent_count);
+	de_dbg_indent_restore(c, saved_indent_level);
 	return retval;
 }
 

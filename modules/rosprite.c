@@ -287,14 +287,14 @@ static void do_sprite(deark *c, lctx *d, de_int64 index,
 {
 	de_int64 new_img_type;
 	de_finfo *fi = NULL;
-	int indent_count = 0;
+	int saved_indent_level;
 	struct page_ctx *pg = NULL;
 
+	de_dbg_indent_save(c, &saved_indent_level);
 	pg = de_malloc(c, sizeof(struct page_ctx));
 
 	de_dbg(c, "image header at %d\n", (int)pos1);
 	de_dbg_indent(c, 1);
-	indent_count++;
 
 	// Name at pos 4, len=12
 	fi = de_finfo_create(c);
@@ -319,7 +319,6 @@ static void do_sprite(deark *c, lctx *d, de_int64 index,
 	de_dbg(c, "mode: 0x%08x\n", (unsigned int)pg->mode);
 
 	de_dbg_indent(c, 1);
-	indent_count++;
 
 	new_img_type = (pg->mode&0x78000000U)>>27;
 	if(new_img_type==0)
@@ -397,7 +396,6 @@ static void do_sprite(deark *c, lctx *d, de_int64 index,
 	de_dbg(c, "foreground bits/pixel: %d\n", (int)pg->fgbpp);
 
 	de_dbg_indent(c, -1);
-	indent_count--;
 
 	pg->width = ((pg->width_in_words-1) * 4 * 8 + (pg->last_bit+1)) / pg->fgbpp;
 	pg->pixels_to_ignore_at_start_of_row = pg->first_bit / pg->fgbpp;
@@ -416,7 +414,6 @@ static void do_sprite(deark *c, lctx *d, de_int64 index,
 	}
 
 	de_dbg_indent(c, -1);
-	indent_count--;
 
 	pg->custom_palette_pos = pos1 + 44;
 	if(pg->image_offset >= pg->custom_palette_pos+8 && pg->fgbpp<=8) {
@@ -429,7 +426,7 @@ static void do_sprite(deark *c, lctx *d, de_int64 index,
 
 	do_image(c, d, pg, fi);
 done:
-	de_dbg_indent(c, -indent_count);
+	de_dbg_indent_restore(c, saved_indent_level);
 	de_finfo_destroy(c, fi);
 	de_free(c, pg);
 }

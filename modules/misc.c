@@ -1592,10 +1592,11 @@ static void de_run_vitec(deark *c, de_module_params *mparams)
 	de_int64 pos;
 	de_byte b;
 	de_int64 h1size, h2size;
-	int indent_count = 0;
+	int saved_indent_level;
 
 	// This code is based on reverse engineering, and may be incorrect.
 
+	de_dbg_indent_save(c, &saved_indent_level);
 	de_warn(c, "VITec image support is experimental, and may not work correctly.\n");
 
 	pos = 4;
@@ -1608,7 +1609,6 @@ static void de_run_vitec(deark *c, de_module_params *mparams)
 	h2size = de_getui32be(pos);
 	de_dbg(c, "header 2 at %d, len=%d\n", (int)pos, (int)h2size);
 	de_dbg_indent(c, 1);
-	indent_count++;
 
 	// pos+4: Bits size?
 	// pos+24: Unknown field, usually 7
@@ -1630,7 +1630,6 @@ static void de_run_vitec(deark *c, de_module_params *mparams)
 	pos += h2size;
 	if(pos>=c->infile->len) goto done;
 	de_dbg_indent(c, -1);
-	indent_count--;
 
 	de_dbg(c, "bitmap at %d\n", (int)pos);
 	img = de_bitmap_create(c, w, h, (int)samplesperpixel);
@@ -1655,7 +1654,7 @@ static void de_run_vitec(deark *c, de_module_params *mparams)
 
 done:
 	de_bitmap_destroy(img);
-	de_dbg_indent(c, -indent_count);
+	de_dbg_indent_restore(c, saved_indent_level);
 }
 
 static int de_identify_vitec(deark *c)
