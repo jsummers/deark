@@ -514,6 +514,10 @@ Deark -- Information about supported formats
 * NULL (module="null")
   - Do nothing.
 
+* Photoshop Action format (.atn) (module="ps_action")
+  - Files can be parsed, but there is usually nothing that can be extracted
+    from them.
+
 * Psion APP/IMG and OPA/OPO (module="psionapp")
   - Extract Psion PIC icons.
   - Extract other contents (use -a).

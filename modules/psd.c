@@ -2,23 +2,29 @@
 // Copyright (C) 2016 Jason Summers
 // See the file COPYING for terms of use.
 
-// This module supports the "image resources" section of PSD files.
+// * Photoshop PSD and PSB format
+//  * PSD "image resources"
+//  * PSD "series of tagged blocks"
+// * Photoshop Action file format (.atn)
 
 #include <deark-config.h>
 #include <deark-private.h>
 #include "fmtutil.h"
 DE_DECLARE_MODULE(de_module_psd);
+DE_DECLARE_MODULE(de_module_ps_action);
 
 #define CODE_8B64 0x38423634U
 #define CODE_8BIM 0x3842494dU
 #define CODE_Alph 0x416c7068U
 #define CODE_AnDs 0x416e4473U
 #define CODE_CgEd 0x43674564U
+#define CODE_Clss 0x436c7373U
 #define CODE_Enmr 0x456e6d72U
 #define CODE_FEid 0x46456964U
 #define CODE_FMsk 0x464d736bU
 #define CODE_FXid 0x46586964U
 #define CODE_GdFl 0x4764466cU
+#define CODE_GlbC 0x476c6243U
 #define CODE_GlbO 0x476c624fU
 #define CODE_IRFR 0x49524652U
 #define CODE_LMsk 0x4c4d736bU
@@ -46,6 +52,7 @@ DE_DECLARE_MODULE(de_module_psd);
 #define CODE_UntF 0x556e7446U
 #define CODE_VlLs 0x566c4c73U
 #define CODE_abdd 0x61626464U
+#define CODE_alis 0x616c6973U
 #define CODE_anFX 0x616e4658U
 #define CODE_artb 0x61727462U
 #define CODE_artd 0x61727464U
@@ -57,6 +64,7 @@ DE_DECLARE_MODULE(de_module_psd);
 #define CODE_doub 0x646f7562U
 #define CODE_enum 0x656e756dU
 #define CODE_fxrp 0x66787270U
+#define CODE_indx 0x696e6478U
 #define CODE_infx 0x696e6678U
 #define CODE_knko 0x6b6e6b6fU
 #define CODE_lfx2 0x6c667832U
@@ -77,10 +85,13 @@ DE_DECLARE_MODULE(de_module_psd);
 #define CODE_mset 0x6d736574U
 #define CODE_name 0x6e616d65U
 #define CODE_obj  0x6f626a20U
+#define CODE_prop 0x70726f70U
 #define CODE_pths 0x70746873U
+#define CODE_rele 0x72656c65U
 #define CODE_shmd 0x73686d64U
 #define CODE_tdta 0x74647461U
 #define CODE_tySh 0x74795368U
+#define CODE_type 0x74797065U
 #define CODE_vibA 0x76696241U
 #define CODE_vogk 0x766f676bU
 #define CODE_vscg 0x76736367U
@@ -468,6 +479,28 @@ static void read_pascal_string_to_ucstring(deark *c, lctx *d, de_ucstring *s, zz
 	zz->pos += dlen;
 }
 
+// Like a Pascal string, but with a 4-byte prefix
+// (Okay to use a shared zz.)
+static void read_prefixed_string_to_ucstring(deark *c, lctx *d, de_ucstring *s, zztype *zz)
+{
+	de_int64 dlen;
+
+	if(zz_avail(zz)<4) {
+		zz->pos = zz->endpos;
+		return;
+	}
+
+	dlen = psd_getui32zz(zz);
+
+	if(zz->pos + dlen > zz->endpos) { // error
+		zz->pos = zz->endpos;
+		return;
+	}
+
+	dbuf_read_to_ucstring(c->infile, zz->pos, dlen, s, 0, DE_ENCODING_MACROMAN);
+	zz->pos += dlen;
+}
+
 // Caller supplies ri_dst. This function will set its fields.
 static int lookup_rsrc(de_uint16 n, struct rsrc_info *ri_dst)
 {
@@ -825,6 +858,33 @@ static void do_item_type_UntF(deark *c, lctx *d, zztype *zz)
 	zz->pos += 8;
 }
 
+static int do_item_type_class(deark *c, lctx *d, zztype *zz)
+{
+	de_ucstring *tmps = NULL;
+	struct flexible_id flid;
+
+	tmps = ucstring_create(c);
+	read_unicode_string(c, d, tmps, zz);
+	de_dbg(c, "name from classID: \"%s\"\n", ucstring_get_printable_sz_n(tmps, 300));
+
+	read_flexible_id_zz(c, d, zz, &flid);
+	dbg_print_flexible_id(c, d, &flid, "classID");
+	flexible_id_free_contents(c, &flid);
+
+	ucstring_destroy(tmps);
+	return 1;
+}
+
+static int do_item_type_alis(deark *c, lctx *d, zztype *zz)
+{
+	de_int64 x;
+
+	x = psd_getui32zz(zz);
+	de_dbg(c, "alias length: %d\n", (int)x);
+	zz->pos += x;
+	return 1;
+}
+
 // Undocumented UnFl descriptor item type
 static void do_item_type_UnFl(deark *c, lctx *d, zztype *zz)
 {
@@ -952,7 +1012,7 @@ done:
 	return retval;
 }
 
-static int do_enumerated_reference(deark *c, lctx *d, zztype *zz)
+static int do_Enmr_reference(deark *c, lctx *d, zztype *zz)
 {
 	de_ucstring *tmps = NULL;
 	struct flexible_id flid;
@@ -973,7 +1033,34 @@ static int do_enumerated_reference(deark *c, lctx *d, zztype *zz)
 	dbg_print_flexible_id(c, d, &flid, "enum");
 	flexible_id_free_contents(c, &flid);
 
+	ucstring_destroy(tmps);
 	return 1;
+}
+
+static int do_prop_reference(deark *c, lctx *d, zztype *zz)
+{
+	de_ucstring *tmps = NULL;
+	struct flexible_id flid;
+
+	tmps = ucstring_create(c);
+	read_unicode_string(c, d, tmps, zz);
+	de_dbg(c, "name from classID: \"%s\"\n", ucstring_get_printable_sz_n(tmps, 300));
+
+	read_flexible_id_zz(c, d, zz, &flid);
+	dbg_print_flexible_id(c, d, &flid, "classID");
+	flexible_id_free_contents(c, &flid);
+
+	read_flexible_id_zz(c, d, zz, &flid);
+	dbg_print_flexible_id(c, d, &flid, "keyID");
+	flexible_id_free_contents(c, &flid);
+
+	ucstring_destroy(tmps);
+	return 1;
+}
+
+static int do_Clss_reference(deark *c, lctx *d, zztype *zz)
+{
+	return do_item_type_class(c, d, zz);
 }
 
 static int do_name_reference(deark *c, lctx *d, zztype *zz)
@@ -997,6 +1084,56 @@ static int do_name_reference(deark *c, lctx *d, zztype *zz)
 	read_unicode_string(c, d, tmps, zz);
 	de_dbg(c, "undocumented unicode string: \"%s\"\n", ucstring_get_printable_sz_n(tmps, 300));
 
+	ucstring_destroy(tmps);
+	return 1;
+}
+
+static int do_rele_reference(deark *c, lctx *d, zztype *zz)
+{
+	de_ucstring *tmps = NULL;
+	struct flexible_id flid;
+	de_int64 offs;
+
+	tmps = ucstring_create(c);
+
+	read_unicode_string(c, d, tmps, zz);
+	de_dbg(c, "name from classID: \"%s\"\n", ucstring_get_printable_sz_n(tmps, 300));
+	ucstring_empty(tmps);
+
+	read_flexible_id_zz(c, d, zz, &flid);
+	dbg_print_flexible_id(c, d, &flid, "classID");
+	flexible_id_free_contents(c, &flid);
+
+	offs = psd_geti32zz(zz);
+	de_dbg(c, "offset: %d\n", (int)offs);
+
+	ucstring_destroy(tmps);
+	return 1;
+}
+
+static int do_indx_reference(deark *c, lctx *d, zztype *zz)
+{
+	de_ucstring *tmps = NULL;
+	struct flexible_id flid;
+	de_int64 x;
+
+	// I can't find any official documentation of the 'indx' reference format.
+	// This code may not be correct.
+
+	tmps = ucstring_create(c);
+
+	read_unicode_string(c, d, tmps, zz);
+	de_dbg(c, "name from classID: \"%s\"\n", ucstring_get_printable_sz_n(tmps, 300));
+	ucstring_empty(tmps);
+
+	read_flexible_id_zz(c, d, zz, &flid);
+	dbg_print_flexible_id(c, d, &flid, "undocumented id");
+	flexible_id_free_contents(c, &flid);
+
+	x = psd_geti32zz(zz);
+	de_dbg(c, "undocumented int: %d\n", (int)x);
+
+	ucstring_destroy(tmps);
 	return 1;
 }
 
@@ -1025,21 +1162,34 @@ static int do_item_type_obj(deark *c, lctx *d, zztype *zz)
 
 		de_dbg_indent(c, 1);
 
+		zz_init(&czz, zz);
 		switch(type4cc.id) {
 		case CODE_Enmr:
-			zz_init(&czz, zz);
-			if(!do_enumerated_reference(c, d, &czz))
-				goto done;
+			if(!do_Enmr_reference(c, d, &czz)) goto done;
+			zz->pos += zz_used(&czz);
+			break;
+		case CODE_prop:
+			if(!do_prop_reference(c, d, &czz)) goto done;
 			zz->pos += zz_used(&czz);
 			break;
 		case CODE_name:
-			zz_init(&czz, zz);
-			if(!do_name_reference(c, d, &czz))
-				goto done;
+			if(!do_name_reference(c, d, &czz)) goto done;
+			zz->pos += zz_used(&czz);
+			break;
+		case CODE_Clss:
+			if(!do_Clss_reference(c, d, &czz)) goto done;
+			zz->pos += zz_used(&czz);
+			break;
+		case CODE_rele:
+			if(!do_rele_reference(c, d, &czz)) goto done;
+			zz->pos += zz_used(&czz);
+			break;
+		case CODE_indx:
+			if(!do_indx_reference(c, d, &czz)) goto done;
 			zz->pos += zz_used(&czz);
 			break;
 		default:
-			// TODO: 'prop', 'Clss', 'rele', 'Idnt', 'indx', 'name'
+			// TODO: 'Idnt'
 			goto done;
 		}
 
@@ -1126,7 +1276,17 @@ static int do_descriptor_item_ostype_and_data(deark *c, lctx *d,
 		zz->pos += zz_used(&czz);
 		if(!ret) goto done;
 		break;
-		// TODO: 'type', 'GlbC', 'alis'
+	case CODE_type:
+	case CODE_GlbC:
+		ret = do_item_type_class(c, d, &czz);
+		zz->pos += zz_used(&czz);
+		if(!ret) goto done;
+		break;
+	case CODE_alis:
+		ret = do_item_type_alis(c, d, &czz);
+		zz->pos += zz_used(&czz);
+		if(!ret) goto done;
+		break;
 		// TODO: 'Pth ' (undocumented type)
 	default:
 		goto done;
@@ -2620,6 +2780,151 @@ done:
 	return retval;
 }
 
+static int do_action_item(deark *c, lctx *d, zztype *zz)
+{
+	struct de_fourcc id4cc;
+	de_ucstring *s = NULL;
+	de_int64 dscr_flag;
+	int retval = 0;
+
+	zz->pos += 1; // action-is-expanded
+	zz->pos += 1; // action-is-enabled
+	zz->pos += 1; // dialogs-should-be-displayed
+	zz->pos += 1; // options for displaying dialogs
+
+	s = ucstring_create(c);
+
+	psd_read_fourcc_zz(c, d, zz, &id4cc);
+	de_dbg(c, "identifier type: '%s'\n", id4cc.id_printable);
+	if(id4cc.id==CODE_TEXT) {
+		read_prefixed_string_to_ucstring(c, d, s, zz);
+		de_dbg(c, "id: \"%s\"\n", ucstring_get_printable_sz_n(s, 300));
+	}
+	else if(id4cc.id==CODE_long) {
+		de_int64 id_long;
+		id_long = psd_getui32zz(zz);
+		de_dbg(c, "itemID: %d\n", (int)id_long);
+	}
+	else {
+		de_err(c, "Unsupported identifier type: '%s'\n", id4cc.id_printable);
+		goto done;
+	}
+
+	ucstring_empty(s);
+	read_prefixed_string_to_ucstring(c, d, s, zz);
+	de_dbg(c, "dictionary name: \"%s\"\n", ucstring_get_printable_sz_n(s, 300));
+
+	dscr_flag = psd_geti32zz(zz);
+	de_dbg(c, "descriptor flag: %d\n", (int)dscr_flag);
+
+	if(dscr_flag == -1) {
+		if(!read_descriptor(c, d, zz, 0, "")) goto done;
+	}
+	else if(dscr_flag==0) {
+		;
+	}
+	else {
+		de_err(c, "Unsupported descriptor flag: %d\n", (int)dscr_flag);
+		goto done;
+	}
+
+	retval = 1;
+
+done:
+	ucstring_destroy(s);
+	return retval;
+}
+
+static int do_one_action(deark *c, lctx *d, zztype *zz)
+{
+	de_int64 action_pos;
+	de_int64 idx;
+	de_int64 num_items;
+	de_int64 item_idx;
+	de_ucstring *s = NULL;
+	zztype czz;
+	int saved_indent_level;
+	int retval = 0;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+	action_pos = zz->pos;
+	idx = psd_getui16zz(zz);
+	de_dbg(c, "index: %d\n", (int)idx);
+
+	zz->pos += 1; // shift key flag
+	zz->pos += 1; // command key flag
+	zz->pos += 2; // color index info
+
+	s = ucstring_create(c);
+	read_unicode_string(c, d, s, zz);
+	de_dbg(c, "action name: \"%s\"\n", ucstring_get_printable_sz_n(s, 300));
+
+	zz->pos += 1; // action-is-expanded
+
+	num_items = psd_getui32zz(zz);
+	de_dbg(c, "number of items: %d\n", (int)num_items);
+
+	for(item_idx=0; item_idx<num_items; item_idx++) {
+		if(zz_avail(zz)<1) goto done;
+		zz_init(&czz, zz);
+		de_dbg(c, "item[%d] at %d (for action @%d)\n", (int)item_idx, (int)zz->pos, (int)action_pos);
+		de_dbg_indent(c, 1);
+		if(!do_action_item(c, d, &czz)) goto done;
+		zz->pos += zz_used(&czz);
+		de_dbg_indent(c, -1);
+	}
+
+	retval = 1;
+
+done:
+	de_dbg_indent_restore(c, saved_indent_level);
+	ucstring_destroy(s);
+	return retval;
+}
+
+static void do_action_set(deark *c, lctx *d, zztype *zz)
+{
+	de_int64 ver;
+	de_int64 num_actions;
+	de_int64 action_idx;
+	de_ucstring *s = NULL;
+	zztype czz;
+	int saved_indent_level;
+	de_byte b;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+	ver = psd_getui32zz(zz);
+	de_dbg(c, "version: %d\n", (int)ver);
+	if(ver!=16) {
+		de_err(c, "Unsupported Action format version: %d\n", (int)ver);
+		goto done;
+	}
+
+	s = ucstring_create(c);
+	read_unicode_string(c, d, s, zz);
+	de_dbg(c, "action set name: \"%s\"\n", ucstring_get_printable_sz_n(s, 300));
+
+	b = psd_getbytezz(zz);
+	de_dbg(c, "set-is-expanded: %d\n", (int)b);
+
+	num_actions = psd_getui32zz(zz);
+	de_dbg(c, "number of actions: %d\n", (int)num_actions);
+
+	for(action_idx=0; action_idx<num_actions; action_idx++) {
+		if(zz_avail(zz)<1) goto done;
+		zz_init(&czz, zz);
+		de_dbg(c, "action[%d] at %d\n", (int)action_idx, (int)zz->pos);
+		de_dbg_indent(c, 1);
+		if(!do_one_action(c, d, &czz)) goto done;
+		zz->pos += zz_used(&czz);
+		de_dbg_indent(c, -1);
+	}
+
+done:
+	de_dbg_indent_restore(c, saved_indent_level);
+	ucstring_destroy(s);
+}
+
 static const char *get_colormode_name(de_int64 n)
 {
 	const char *name = "?";
@@ -2925,6 +3230,26 @@ done:
 	de_free(c, d);
 }
 
+static void de_run_ps_action(deark *c, de_module_params *mparams)
+{
+	lctx *d = NULL;
+	zztype *zz = NULL;
+
+	de_declare_fmt(c, "Photoshop Action");
+
+	d = de_malloc(c, sizeof(lctx));
+	d->version = 1;
+	init_version_specific_info(c, d);
+
+	zz = de_malloc(c, sizeof(zztype));
+	zz_init_absolute(zz, 0, c->infile->len);
+
+	do_action_set(c, d, zz);
+
+	de_free(c, zz);
+	de_free(c, d);
+}
+
 static int de_identify_psd(deark *c)
 {
 	if(!dbuf_memcmp(c->infile, 0, "8BPS", 4)) return 100;
@@ -2937,4 +3262,20 @@ void de_module_psd(deark *c, struct deark_module_info *mi)
 	mi->desc = "Photoshop PSD";
 	mi->run_fn = de_run_psd;
 	mi->identify_fn = de_identify_psd;
+}
+
+static int de_identify_ps_action(deark *c)
+{
+	if(!dbuf_memcmp(c->infile, 0, "\x00\x00\x00\x10\x00\x00", 6)) {
+		if(de_input_file_has_ext(c, "atn")) return 100;
+	}
+	return 0;
+}
+
+void de_module_ps_action(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "ps_action";
+	mi->desc = "Photoshop Action";
+	mi->run_fn = de_run_ps_action;
+	mi->identify_fn = de_identify_ps_action;
 }
