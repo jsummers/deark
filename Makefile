@@ -31,18 +31,10 @@ OFILES_ALL:=$(OBJDIR)/src/deark-cmd.o $(OFILES_LIB) $(OFILES_MODS) \
  $(OFILES_MODUTILS)
 
 # Prerequisites
-$(OBJDIR)/modules/fmtutil.o $(OBJDIR)/modules/exe.o \
- $(OBJDIR)/modules/jpeg.o $(OBJDIR)/modules/boxes.o \
- $(OBJDIR)/modules/tiff.o $(OBJDIR)/modules/psd.o \
- $(OBJDIR)/modules/ico.o $(OBJDIR)/modules/bpg.o \
- $(OBJDIR)/modules/macpaint.o $(OBJDIR)/modules/ilbm.o \
- $(OBJDIR)/modules/atari-img.o $(OBJDIR)/modules/tga.o \
- $(OBJDIR)/modules/os2bmp.o $(OBJDIR)/modules/alphabmp.o \
- $(OBJDIR)/modules/wmf.o $(OBJDIR)/modules/pict.o \
- $(OBJDIR)/modules/ansiart.o $(OBJDIR)/modules/xbin.o \
- $(OBJDIR)/modules/qtif.o $(OBJDIR)/modules/gemras.o \
- $(OBJDIR)/modules/mbk.o $(OBJDIR)/modules/jbf.o \
- $(OBJDIR)/modules/misc.o: modules/fmtutil.h
+$(addprefix $(OBJDIR)/modules/,alphabmp.o ansiart.o atari-img.o \
+ bintext.o boxes.o bpg.o exe.o fmtutil.o gemras.o ico.o ilbm.o \
+ jbf.o jpeg.o macpaint.o mbk.o misc.o os2bmp.o pict.o psd.o \
+ qtif.o tga.o tiff.o wmf.o): modules/fmtutil.h
 
 $(OBJDIR)/src/deark-miniz.o: foreign/miniz.h
 $(OBJDIR)/modules/compress.o: foreign/liblzw.h
