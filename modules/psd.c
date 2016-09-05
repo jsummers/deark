@@ -3096,26 +3096,32 @@ done:
 	de_bitmap_destroy(img);
 }
 
-static void do_bitmap_packbits(deark *c, lctx *d, de_int64 pos, de_int64 len)
+static void do_bitmap_packbits(deark *c, lctx *d, zztype *zz)
 {
 	dbuf *unc_pixels = NULL;
 	de_int64 cmpr_data_size = 0;
 	de_int64 k;
 
 	// Data begins with a table of row byte counts.
+	de_dbg(c, "row sizes table at %"INT64_FMT", len=%d\n", zz->pos,
+		(int)(d->num_channels * d->height * d->intsize_2or4));
+
 	for(k=0; k < d->num_channels * d->height; k++) {
 		if(d->intsize_2or4==4) {
-			cmpr_data_size += psd_getui32(pos);
+			cmpr_data_size += psd_getui32zz(zz);
 		}
 		else {
-			cmpr_data_size += psd_getui16(pos);
+			cmpr_data_size += psd_getui16zz(zz);
 		}
-		pos += d->intsize_2or4;
 	}
 
+	de_dbg(c, "compressed data at %"INT64_FMT", len=%"INT64_FMT"\n", zz->pos, cmpr_data_size);
 	unc_pixels = dbuf_create_membuf(c, 1024, 0);
-	de_fmtutil_uncompress_packbits(c->infile, pos, cmpr_data_size, unc_pixels, NULL);
-	de_dbg(c, "decompressed %d bytes to %d\n", (int)cmpr_data_size, (int)unc_pixels->len);
+	de_fmtutil_uncompress_packbits(c->infile, zz->pos, cmpr_data_size, unc_pixels, NULL);
+	zz->pos += cmpr_data_size;
+	de_dbg_indent(c, 1);
+	de_dbg(c, "decompressed %"INT64_FMT" bytes to %"INT64_FMT"\n", cmpr_data_size, unc_pixels->len);
+	de_dbg_indent(c, -1);
 	do_bitmap(c, d, unc_pixels, 0, unc_pixels->len);
 	dbuf_close(unc_pixels);
 }
@@ -3125,6 +3131,7 @@ static void do_image_data(deark *c, lctx *d, zztype *zz)
 	de_int64 cmpr;
 	de_int64 len;
 	de_int64 image_data_size;
+	zztype czz;
 	const char *name = "?";
 
 	len = zz_avail(zz);
@@ -3148,7 +3155,9 @@ static void do_image_data(deark *c, lctx *d, zztype *zz)
 		do_bitmap(c, d, c->infile, zz->pos, image_data_size);
 	}
 	else if(cmpr==1) { // PackBits
-		do_bitmap_packbits(c, d, zz->pos, image_data_size);
+		zz_init(&czz, zz);
+		do_bitmap_packbits(c, d, &czz);
+		zz->pos += zz_used(&czz);
 	}
 	else {
 		de_err(c, "Compression method not supported: %d\n", (int)cmpr);
