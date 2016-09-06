@@ -6,12 +6,14 @@
 //  * PSD "image resources"
 //  * PSD "series of tagged blocks"
 // * Photoshop Action file format (.atn)
+// * Photoshop Gradient file format (.grd)
 
 #include <deark-config.h>
 #include <deark-private.h>
 #include "fmtutil.h"
 DE_DECLARE_MODULE(de_module_psd);
 DE_DECLARE_MODULE(de_module_ps_action);
+DE_DECLARE_MODULE(de_module_ps_gradient);
 
 #define CODE_8B64 0x38423634U
 #define CODE_8BIM 0x3842494dU
@@ -3259,6 +3261,36 @@ static void de_run_ps_action(deark *c, de_module_params *mparams)
 	de_free(c, d);
 }
 
+static void de_run_ps_gradient(deark *c, de_module_params *mparams)
+{
+	lctx *d = NULL;
+	zztype *zz = NULL;
+	de_int64 grd_ver;
+
+	de_declare_fmt(c, "Photoshop Gradient");
+
+	d = de_malloc(c, sizeof(lctx));
+	d->version = 1;
+	init_version_specific_info(c, d);
+
+	zz = de_malloc(c, sizeof(zztype));
+	zz_init_absolute(zz, 0, c->infile->len);
+
+	zz->pos += 4; // 8BGR signature
+	grd_ver = psd_getui16zz(zz);
+	de_dbg(c, "file version: %d\n", (int)grd_ver);
+
+	if(grd_ver==5) {
+		read_descriptor(c, d, zz, 1, "");
+	}
+	else {
+		de_err(c, "Unsupported Photoshop Gradient file version: %d\n", (int)grd_ver);
+	}
+
+	de_free(c, zz);
+	de_free(c, d);
+}
+
 static int de_identify_psd(deark *c)
 {
 	if(!dbuf_memcmp(c->infile, 0, "8BPS", 4)) return 100;
@@ -3287,4 +3319,21 @@ void de_module_ps_action(deark *c, struct deark_module_info *mi)
 	mi->desc = "Photoshop Action";
 	mi->run_fn = de_run_ps_action;
 	mi->identify_fn = de_identify_ps_action;
+}
+
+static int de_identify_ps_gradient(deark *c)
+{
+	if(!dbuf_memcmp(c->infile, 0, "8BGR", 4)) {
+		if(de_input_file_has_ext(c, "grd")) return 100;
+		return 90;
+	}
+	return 0;
+}
+
+void de_module_ps_gradient(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "ps_gradient";
+	mi->desc = "Photoshop Gradient";
+	mi->run_fn = de_run_ps_gradient;
+	mi->identify_fn = de_identify_ps_gradient;
 }

@@ -518,6 +518,11 @@ Deark -- Information about supported formats
   - Files can be parsed, but there is usually nothing that can be extracted
     from them.
 
+* Photoshop Gradient format (.grd) (module="ps_gradient")
+  - Supports file version 5 only (Photoshop 6+)
+  - Files can be parsed, but there is usually nothing that can be extracted
+    from them.
+
 * Psion APP/IMG and OPA/OPO (module="psionapp")
   - Extract Psion PIC icons.
   - Extract other contents (use -a).
