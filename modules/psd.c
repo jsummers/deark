@@ -191,6 +191,7 @@ DECLARE_HRSRC(hrsrc_byte);
 DECLARE_HRSRC(hrsrc_uint16);
 DECLARE_HRSRC(hrsrc_uint32);
 DECLARE_HRSRC(hrsrc_unicodestring);
+DECLARE_HRSRC(hrsrc_pascalstring);
 DECLARE_HRSRC(hrsrc_plaintext);
 DECLARE_HRSRC(hrsrc_urllist);
 DECLARE_HRSRC(hrsrc_versioninfo);
@@ -282,7 +283,7 @@ static const struct rsrc_info rsrc_info_arr[] = {
 	{ 0x043f, 0, "Auto Save Format", hrsrc_unicodestring },
 	{ 0x0440, 0x0004, "Path Selection State", NULL },
 	// 0x07d0 to 0x0bb6: See lookup_rsrc() below
-	{ 0x0bb7, 0, "Name of clipping path", NULL },
+	{ 0x0bb7, 0, "Name of clipping path", hrsrc_pascalstring },
 	{ 0x0bb8, 0x0004, "Origin Path Info", NULL },
 	// 0x0fa0 to 0x1387: See lookup_rsrc() below
 	{ 0x1b58, 0, "Image Ready variables", NULL },
@@ -1600,6 +1601,17 @@ static void hrsrc_unicodestring(deark *c, lctx *d, zztype *zz, const struct rsrc
 
 	s = ucstring_create(c);
 	read_unicode_string(c, d, s, zz);
+	de_dbg(c, "%s: \"%s\"\n", ri->idname, ucstring_get_printable_sz_n(s, 300));
+	ucstring_destroy(s);
+}
+
+// Handler for any resource that consists of a single "Pascal string".
+static void hrsrc_pascalstring(deark *c, lctx *d, zztype *zz, const struct rsrc_info *ri)
+{
+	de_ucstring *s = NULL;
+
+	s = ucstring_create(c);
+	read_pascal_string_to_ucstring(c, d, s, zz);
 	de_dbg(c, "%s: \"%s\"\n", ri->idname, ucstring_get_printable_sz(s));
 	ucstring_destroy(s);
 }
