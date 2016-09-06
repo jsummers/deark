@@ -523,6 +523,10 @@ Deark -- Information about supported formats
   - Files can be parsed, but there is usually nothing that can be extracted
     from them.
 
+* Photoshop Styles format (.asl) (module="ps_styles")
+  - Files can be parsed, but there is usually nothing that can be extracted
+    from them.
+
 * Psion APP/IMG and OPA/OPO (module="psionapp")
   - Extract Psion PIC icons.
   - Extract other contents (use -a).

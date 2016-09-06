@@ -14,6 +14,7 @@
 DE_DECLARE_MODULE(de_module_psd);
 DE_DECLARE_MODULE(de_module_ps_action);
 DE_DECLARE_MODULE(de_module_ps_gradient);
+DE_DECLARE_MODULE(de_module_ps_styles);
 
 #define CODE_8B64 0x38423634U
 #define CODE_8BIM 0x3842494dU
@@ -3291,6 +3292,150 @@ static void de_run_ps_gradient(deark *c, de_module_params *mparams)
 	de_free(c, d);
 }
 
+// .asl format, "Pattern" object
+static void do_asl_pattern(deark *c, lctx *d, zztype *zz)
+{
+	de_int64 pat_len;
+	de_int64 pat_ver, pat_color_mode;
+	de_int64 saved_pos;
+	de_int64 w, h;
+	de_ucstring *s = NULL;
+
+	pat_len = psd_getui32zz(zz);
+	de_dbg(c, "pattern data length: %d\n", (int)pat_len);
+	saved_pos = zz->pos;
+
+	pat_ver = psd_getui32zz(zz);
+	de_dbg(c, "version: %d\n", (int)pat_ver);
+
+	pat_color_mode = psd_getui32zz(zz);
+	de_dbg(c, "color mode: %d (%s)\n", (int)pat_color_mode, get_colormode_name(pat_color_mode));
+
+	h = psd_getui16zz(zz);
+	w = psd_getui16zz(zz);
+	de_dbg(c, "dimensions: %dx%d\n", (int)w, (int)h);
+
+	s = ucstring_create(c);
+	read_unicode_string(c, d, s, zz);
+	de_dbg(c, "name: \"%s\"\n", ucstring_get_printable_sz_n(s, 300));
+
+	ucstring_empty(s);
+	read_pascal_string_to_ucstring(c, d, s, zz);
+	de_dbg(c, "id: \"%s\"\n", ucstring_get_printable_sz(s));
+
+	// TODO: Decode the image, if possible.
+	de_dbg(c, "[%"INT64_FMT" bytes of image data at %d]\n", (saved_pos + pat_len - zz->pos),
+		(int)zz->pos);
+
+	zz->pos = saved_pos + pat_len;
+	ucstring_destroy(s);
+}
+
+// .asl format, "Patterns" object
+static void do_asl_patterns(deark *c, lctx *d, zztype *zz)
+{
+	de_int64 pat_ver;
+	de_int64 patseq_len;
+	de_int64 pat_idx;
+	zztype czz_patseq;
+	zztype czz_pat;
+
+	de_dbg(c, "patterns at %d\n", (int)zz->pos);
+	de_dbg_indent(c, 1);
+	pat_ver = psd_getui16zz(zz);
+	de_dbg(c, "patterns version: %d\n", (int)pat_ver);
+	patseq_len = psd_getui32zz(zz);
+	de_dbg(c, "patterns total length: %d\n", (int)patseq_len);
+
+	// Sequence of patterns
+	zz_init_with_len(&czz_patseq, zz, patseq_len);
+	pat_idx = 0;
+	while(1) {
+		if(zz_avail(&czz_patseq) < 4) break;
+
+		de_dbg(c, "pattern[%d] at %d\n", (int)pat_idx, (int)czz_patseq.pos);
+		de_dbg_indent(c, 1);
+
+		zz_init(&czz_pat, &czz_patseq);
+		do_asl_pattern(c, d, &czz_pat);
+		czz_patseq.pos += zz_used(&czz_pat);
+		de_dbg_indent(c, -1);
+		pat_idx++;
+	}
+	zz->pos += patseq_len;
+
+	de_dbg_indent(c, -1);
+}
+
+// .asl format, "Styles" object
+static void do_asl_patterns_and_styles(deark *c, lctx *d, zztype *zz)
+{
+	zztype czz;
+	de_int64 num_styles;
+	de_int64 style_idx;
+	de_int64 style_len;
+
+	zz->pos += 4; // 8BSL signature
+
+	zz_init(&czz, zz);
+	do_asl_patterns(c, d, &czz);
+	zz->pos += zz_used(&czz);
+
+	de_dbg(c, "styles at %d\n", (int)zz->pos);
+	de_dbg_indent(c, 1);
+
+	num_styles = psd_getui32zz(zz);
+	de_dbg(c, "number of styles: %d\n", (int)num_styles);
+
+	for(style_idx=0; style_idx<=num_styles; style_idx++) {
+		if(zz_avail(zz)<4) break;
+
+		de_dbg(c, "style[%d] at %d\n", (int)style_idx, (int)zz->pos);
+		de_dbg_indent(c, 1);
+
+		style_len = psd_getui32zz(zz);
+		de_dbg(c, "style length: %d\n", (int)style_len);
+
+		zz_init_with_len(&czz, zz, style_len);
+		read_descriptor(c, d, &czz, 1, " (for style identification)");
+		read_descriptor(c, d, &czz, 1, " (for style information)");
+
+		zz->pos += style_len;
+		de_dbg_indent(c, -1);
+	}
+
+	de_dbg_indent(c, -1);
+}
+
+static void de_run_ps_styles(deark *c, de_module_params *mparams)
+{
+	lctx *d = NULL;
+	zztype *zz = NULL;
+	de_int64 asl_ver;
+
+	de_declare_fmt(c, "Photoshop Styles");
+
+	d = de_malloc(c, sizeof(lctx));
+	d->version = 1;
+	init_version_specific_info(c, d);
+
+	zz = de_malloc(c, sizeof(zztype));
+	zz_init_absolute(zz, 0, c->infile->len);
+
+	asl_ver = psd_getui16zz(zz);
+	de_dbg(c, "file version: %d\n", (int)asl_ver);
+	if(asl_ver!=2) {
+		de_err(c, "Unsupported Photoshop Styles file version: %d\n", (int)asl_ver);
+		goto done;
+	}
+
+	do_asl_patterns_and_styles(c, d, zz);
+
+done:
+	de_free(c, zz);
+	de_free(c, d);
+}
+
 static int de_identify_psd(deark *c)
 {
 	if(!dbuf_memcmp(c->infile, 0, "8BPS", 4)) return 100;
@@ -3336,4 +3481,21 @@ void de_module_ps_gradient(deark *c, struct deark_module_info *mi)
 	mi->desc = "Photoshop Gradient";
 	mi->run_fn = de_run_ps_gradient;
 	mi->identify_fn = de_identify_ps_gradient;
+}
+
+static int de_identify_ps_styles(deark *c)
+{
+	if(!dbuf_memcmp(c->infile, 2, "8BSL", 4)) {
+		if(de_input_file_has_ext(c, "asl")) return 100;
+		return 90;
+	}
+	return 0;
+}
+
+void de_module_ps_styles(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "ps_styles";
+	mi->desc = "Photoshop Styles";
+	mi->run_fn = de_run_ps_styles;
+	mi->identify_fn = de_identify_ps_styles;
 }
