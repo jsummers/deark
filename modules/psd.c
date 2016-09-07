@@ -148,7 +148,7 @@ typedef struct localctx_struct {
 	int version; // 1=PSD, 2=PSB
 	int is_le;
 	int tagged_blocks_only;
-#define MAX_NESTING_LEVEL 20
+#define MAX_NESTING_LEVEL 50
 	int nesting_level;
 	de_int64 intsize_2or4;
 	de_int64 intsize_4or8;
@@ -198,6 +198,7 @@ DECLARE_HRSRC(hrsrc_versioninfo);
 DECLARE_HRSRC(hrsrc_printscale);
 DECLARE_HRSRC(hrsrc_pixelaspectratio);
 DECLARE_HRSRC(hrsrc_layerselectionids);
+DECLARE_HRSRC(hrsrc_pathinfo);
 DECLARE_HRSRC(hrsrc_printflagsinfo);
 DECLARE_HRSRC(hrsrc_pluginresource);
 
@@ -340,12 +341,10 @@ static void zz_init_with_len(zztype *zz, const zztype *parentzz, de_int64 len)
 {
 	de_int64 startpos, endpos;
 
+	if(len<0) len=0;
 	startpos = parentzz->pos;
 	endpos = startpos + len;
-
-	// bounds checking
-	if(endpos < startpos) endpos = startpos;
-	else if(endpos > parentzz->endpos) endpos = parentzz->endpos;
+	if(endpos > parentzz->endpos) endpos = parentzz->endpos;
 
 	zz_init_absolute(zz, startpos, endpos);
 }
@@ -529,6 +528,7 @@ static int lookup_rsrc(de_uint16 n, struct rsrc_info *ri_dst)
 	if(n>=0x07d0 && n<=0x0bb6) {
 		found = 1;
 		ri_dst->idname = "Path Information";
+		ri_dst->hfn = hrsrc_pathinfo;
 	}
 	else if(n>=0x0fa0 && n<=0x1387) {
 		found = 1;
@@ -593,6 +593,54 @@ static void hrsrc_printflags(deark *c, lctx *d, zztype *zz, const struct rsrc_in
 		"negative=%d, flip=%d, interpolate=%d, caption=%d, print flags=%d\n",
 		ri->idname, (int)fl[0], (int)fl[1], (int)fl[2], (int)fl[3],
 		(int)fl[4], (int)fl[5], (int)fl[6], (int)fl[7], (int)fl[8]);
+}
+
+static void hrsrc_pathinfo(deark *c, lctx *d, zztype *zz, const struct rsrc_info *ri)
+{
+	de_int64 num_records;
+	de_int64 i;
+
+	num_records = zz_avail(zz) / 26;
+	de_dbg(c, "calculated number of records: %d\n", (int)num_records);
+	for(i=0; i<num_records; i++) {
+		zztype czz;
+		de_int64 t;
+		de_int64 x;
+		const char *name;
+
+		de_dbg(c, "path data record[%d] at %d\n", (int)i, (int)zz->pos);
+		zz_init_with_len(&czz, zz, 26);
+		de_dbg_indent(c, 1);
+
+		t = psd_getui16zz(&czz);
+		switch(t) {
+		case 0: name="Closed subpath length"; break;
+		case 1: name="Closed subpath Bezier knot, linked"; break;
+		case 2: name="Closed subpath Bezier knot, unlinked"; break;
+		case 3: name="Open subpath length"; break;
+		case 4: name="Open subpath Bezier knot, linked"; break;
+		case 5: name="Open subpath Bezier knot, unlinked"; break;
+		case 6: name="Path fill rule"; break;
+		case 7: name="Clipboard"; break;
+		case 8: name="Initial fill rule"; break;
+		default: name="?"; break;
+		}
+		de_dbg(c, "path record type: %d (%s)\n", (int)t, name);
+
+		switch(t) {
+		case 0: case 3:
+			x = psd_getui16zz(&czz);
+			de_dbg(c, "number of Bezier knot records: %d\n", (int)x);
+			break;
+		case 8:
+			x = psd_getui16zz(&czz);
+			de_dbg(c, "value: %d\n", (int)x);
+			break;
+		}
+
+		zz->pos += 26;
+		de_dbg_indent(c, -1);
+	}
 }
 
 static void hrsrc_printflagsinfo(deark *c, lctx *d, zztype *zz, const struct rsrc_info *ri)
