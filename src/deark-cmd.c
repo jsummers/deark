@@ -34,6 +34,8 @@ struct cmdctx {
 	int to_stdout;
 	int to_zip;
 	int from_stdin;
+	int to_ascii;
+	char msgbuf[1000];
 };
 
 static void show_version(deark *c)
@@ -80,9 +82,10 @@ static void print_modules(deark *c)
 	de_print_module_list(c);
 }
 
-static void our_msgfn(deark *c, int msgtype, const char *s)
+static void our_msgfn(deark *c, int msgtype, const char *s1)
 {
 	struct cmdctx *cc;
+	const char *s;
 
 	cc = de_get_userdata(c);
 
@@ -113,6 +116,19 @@ static void our_msgfn(deark *c, int msgtype, const char *s)
 #endif
 
 		cc->have_initialized_output_stream = 1;
+	}
+
+	if(cc->to_ascii) {
+		// Note - It doesn't seem quite right to have this functionality be separate
+		// from the library's *to_printable* functions, but they don't quite have
+		// the same purposes, and it would be tricky to combine them.
+		// This is really just a quick and dirty way to deal with systems that don't
+		// support Unicode, or don't support the Unicode characters we use.
+		de_utf8_to_ascii(s1, cc->msgbuf, sizeof(cc->msgbuf), 0);
+		s = cc->msgbuf;
+	}
+	else {
+		s = s1;
 	}
 
 #ifdef DE_WINDOWS
@@ -156,6 +172,16 @@ static void set_ext_option(deark *c, struct cmdctx *cc, const char *optionstring
 	de_free(c, tmp);
 }
 
+static void set_encoding_option(deark *c, struct cmdctx *cc, const char *s)
+{
+	if(!strcmp(s, "ascii")) {
+		cc->to_ascii = 1;
+	}
+	else {
+		cc->to_ascii = 0;
+	}
+}
+
 enum opt_id_enum {
  DE_OPT_NULL=0, DE_OPT_D, DE_OPT_D2, DE_OPT_D3, DE_OPT_L,
  DE_OPT_NOINFO, DE_OPT_NOWARN,
@@ -163,7 +189,7 @@ enum opt_id_enum {
  DE_OPT_NOMODTIME,
  DE_OPT_Q, DE_OPT_VERSION, DE_OPT_HELP,
  DE_OPT_MAINONLY, DE_OPT_AUXONLY, DE_OPT_EXTRACTALL, DE_OPT_ZIP,
- DE_OPT_TOSTDOUT, DE_OPT_MSGSTOSTDERR, DE_OPT_FROMSTDIN,
+ DE_OPT_TOSTDOUT, DE_OPT_MSGSTOSTDERR, DE_OPT_FROMSTDIN, DE_OPT_ENCODING,
  DE_OPT_EXTOPT, DE_OPT_FILE2, DE_OPT_START, DE_OPT_SIZE, DE_OPT_M, DE_OPT_O,
  DE_OPT_ARCFN, DE_OPT_GET, DE_OPT_FIRSTFILE, DE_OPT_MAXFILES, DE_OPT_MAXIMGDIM,
  DE_OPT_PRINTMODULES, DE_OPT_DPREFIX
@@ -202,6 +228,7 @@ struct opt_struct option_array[] = {
 	{ "tostdout",     DE_OPT_TOSTDOUT,     0 },
 	{ "msgstostderr", DE_OPT_MSGSTOSTDERR, 0 },
 	{ "fromstdin",    DE_OPT_FROMSTDIN,    0 },
+	{ "encoding",     DE_OPT_ENCODING,     1 },
 	{ "opt",          DE_OPT_EXTOPT,       1 },
 	{ "file2",        DE_OPT_FILE2,        1 },
 	{ "start",        DE_OPT_START,        1 },
@@ -341,6 +368,9 @@ static void parse_cmdline(deark *c, struct cmdctx *cc, int argc, char **argv)
 			case DE_OPT_FROMSTDIN:
 				de_set_input_style(c, DE_INPUTSTYLE_STDIN);
 				cc->from_stdin = 1;
+				break;
+			case DE_OPT_ENCODING:
+				set_encoding_option(c, cc, argv[i+1]);
 				break;
 			case DE_OPT_EXTOPT:
 				set_ext_option(c, cc, argv[i+1]);

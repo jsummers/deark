@@ -132,6 +132,8 @@ void de_puts(deark *c, int msgtype, const char *s);
 void de_printf(deark *c, int msgtype, const char *fmt, ...)
 	de_gnuc_attribute ((format (printf, 3, 4)));
 
+void de_utf8_to_ascii(const char *src, char *dst, size_t dstlen, unsigned int flags);
+
 #ifdef DE_WINDOWS
 char **de_convert_args_to_utf8(int argc, wchar_t **argvW);
 void de_free_utf8_args(int argc, char **argv);

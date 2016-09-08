@@ -218,6 +218,8 @@ void dbuf_write_uchar_as_utf8(dbuf *outf, de_int32 u)
 
 // Convert a UTF-8 character to UTF-32.
 // Returns 1 if a valid character was converted, 0 otherwise.
+// buflen = the max number of bytes to read (but regardless of buflen, this
+// will not read past a byte whose value is < 0x80).
 int de_utf8_to_uchar(const de_byte *utf8buf, de_int64 buflen,
 	de_int32 *p_uchar, de_int64 *p_utf8len)
 {
@@ -258,6 +260,52 @@ int de_utf8_to_uchar(const de_byte *utf8buf, de_int64 buflen,
 		return 1;
 	}
 	return 0;
+}
+
+// Copy a string, converting from UTF-8 to ASCII.
+// Non-ASCII characters will be replaced, one way or another.
+void de_utf8_to_ascii(const char *src, char *dst, size_t dstlen, unsigned int flags)
+{
+	size_t srcpos = 0;
+	size_t dstpos = 0;
+	unsigned char ch;
+	de_int32 uchar;
+	de_int64 code_len;
+	int ret;
+	char sc; // substitution character
+
+	while(1) {
+		if(dstpos >= dstlen-1) {
+			dst[dstlen-1] = '\0';
+			break;
+		}
+
+		ch = (unsigned char)src[srcpos];
+		if(ch<0x80) {
+			dst[dstpos++] = src[srcpos++];
+			if(ch=='\0')
+				break;
+		}
+		else { // Start of a multi-byte UTF8 char
+
+			ret = de_utf8_to_uchar((const de_byte*)&src[srcpos], 4, &uchar, &code_len);
+			if(ret) {
+				srcpos += code_len;
+				switch(uchar) {
+				case 0x00d7: sc='x'; break; // Multiplication sign
+				case 0x2018: case 0x2019: sc='\''; break; // single quotes
+				case 0x201c: case 0x201d: sc='"'; break; // double quotes
+				case 0x2502: sc='|'; break; // Box drawings light vertical
+				default: sc = '_';
+				}
+			}
+			else {
+				srcpos += 1;
+				sc = '?';
+			}
+			dst[dstpos++] = sc;
+		}
+	}
 }
 
 static de_int64 getui16x_direct(const de_byte *m, int is_le)
