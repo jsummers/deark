@@ -15,6 +15,7 @@ DE_DECLARE_MODULE(de_module_psd);
 DE_DECLARE_MODULE(de_module_ps_action);
 DE_DECLARE_MODULE(de_module_ps_gradient);
 DE_DECLARE_MODULE(de_module_ps_styles);
+DE_DECLARE_MODULE(de_module_ps_brush);
 
 #define CODE_8B64 0x38423634U
 #define CODE_8BIM 0x3842494dU
@@ -64,6 +65,7 @@ DE_DECLARE_MODULE(de_module_ps_styles);
 #define CODE_clbl 0x636c626cU
 #define CODE_comp 0x636f6d70U
 #define CODE_cust 0x63757374U
+#define CODE_desc 0x64657363U
 #define CODE_doub 0x646f7562U
 #define CODE_enum 0x656e756dU
 #define CODE_fxrp 0x66787270U
@@ -88,9 +90,11 @@ DE_DECLARE_MODULE(de_module_ps_styles);
 #define CODE_mset 0x6d736574U
 #define CODE_name 0x6e616d65U
 #define CODE_obj  0x6f626a20U
+#define CODE_patt 0x70617474U
 #define CODE_prop 0x70726f70U
 #define CODE_pths 0x70746873U
 #define CODE_rele 0x72656c65U
+#define CODE_samp 0x73616d70U
 #define CODE_shmd 0x73686d64U
 #define CODE_tdta 0x74647461U
 #define CODE_tySh 0x74795368U
@@ -1022,7 +1026,7 @@ static int do_item_type_VlLs(deark *c, lctx *d,
 
 	num_items = psd_getui32zz(zz);
 	de_dbg(c, "number of items in list: %d\n", (int)num_items);
-	if(num_items>500) {
+	if(num_items>5000) {
 		de_warn(c, "Excessively large VlLs item (%d)\n", (int)num_items);
 		goto done;
 	}
@@ -2225,7 +2229,7 @@ static void do_Patt_block(deark *c, lctx *d, zztype *zz, const struct de_fourcc 
 
 		ver = psd_getui32zz(&datazz);
 		de_dbg(c, "version: %d\n", (int)ver);
-		if(ver!=1) goto done;
+		if(ver!=1) goto done; // FIXME: Skip to the next pattern, instead of giving up.
 
 		datazz.pos += 4; // image mode
 		datazz.pos += 2+2; // point
@@ -2240,14 +2244,58 @@ static void do_Patt_block(deark *c, lctx *d, zztype *zz, const struct de_fourcc 
 
 		// TODO: There are more fields here.
 
-		// TODO: I haven't found any files with multiple patterns, so this has not
-		// been tested.
-		zz->pos += pat_data_len2;
+		// I haven't found any PSD files with multiple patterns, so this has not
+		// been tested for PSD.
+		// I have found 'patt' (instead of 'Patt') blocks in ABR files, and they
+		// have a format that is similar or identical. This padding is needed in
+		// them.
+		zz->pos += pad_to_4(pat_data_len2);
 		de_dbg_indent(c, -1);
 		pattern_idx++;
 	}
 
 done:
+	ucstring_destroy(tmps);
+	de_dbg_indent_restore(c, saved_indent_level);
+}
+
+static void do_samp_block(deark *c, lctx *d, zztype *zz, const struct de_fourcc *blk4cc)
+{
+	de_int64 item_idx;
+	int saved_indent_level;
+	de_ucstring *tmps = NULL;
+
+	// Note: This code is based on guesswork, and may be incorrect.
+
+	de_dbg_indent_save(c, &saved_indent_level);
+	tmps = ucstring_create(c);
+
+	item_idx = 0;
+	while(1) {
+		de_int64 item_data_len2;
+		zztype datazz; // zz for the item data (minus the length field)
+
+		if(zz->pos+16 > zz->endpos) break;
+
+		de_dbg(c, "item[%d] at %d\n", (int)item_idx, (int)zz->pos);
+		de_dbg_indent(c, 1);
+
+		item_data_len2 = psd_getui32zz(zz);
+		de_dbg(c, "length: %d\n", (int)item_data_len2);
+
+		zz_init_with_len(&datazz, zz, item_data_len2);
+
+		ucstring_empty(tmps);
+		read_pascal_string_to_ucstring(c, d, tmps, &datazz);
+		de_dbg(c, "id: \"%s\"\n", ucstring_get_printable_sz_n(tmps, 300));
+
+		// TODO: More data here
+
+		zz->pos += pad_to_4(item_data_len2);
+		de_dbg_indent(c, -1);
+		item_idx++;
+	}
+
 	ucstring_destroy(tmps);
 	de_dbg_indent_restore(c, saved_indent_level);
 }
@@ -2721,6 +2769,21 @@ static int do_tagged_block(deark *c, lctx *d, zztype *zz, int tbnamespace)
 	case CODE_AnDs: // Observed in Plug-in Resources/'mani'/'IRFR'
 		if(tbnamespace==1) {
 			do_descriptor_block(c, d, &czz, &blk4cc, "");
+		}
+		break;
+	case CODE_desc:
+		if(tbnamespace==2) { // Observed in ABR (brush) files
+			do_descriptor_block(c, d, &czz, &blk4cc, "");
+		}
+		break;
+	case CODE_patt:
+		if(tbnamespace==2) {
+			do_Patt_block(c, d, &czz, &blk4cc);
+		}
+		break;
+	case CODE_samp:
+		if(tbnamespace==2) {
+			do_samp_block(c, d, &czz, &blk4cc);
 		}
 		break;
 	}
@@ -3496,6 +3559,56 @@ done:
 	de_free(c, d);
 }
 
+static void do_abr_v6(deark *c, lctx *d, zztype *zz)
+{
+	de_uint32 sig;
+	zztype czz;
+
+	// TODO: What is the field at offset 2?
+	zz->pos += 4;
+	sig = (de_uint32)psd_getui32(zz->pos);
+	if(sig!=CODE_8BIM) {
+		de_err(c, "Bad signature or unsupported Brush format\n");
+		goto done;
+	}
+
+	zz_init(&czz, zz);
+	do_tagged_blocks(c, d, &czz, 2);
+
+done:
+	;
+}
+
+static void de_run_ps_brush(deark *c, de_module_params *mparams)
+{
+	lctx *d = NULL;
+	zztype *zz = NULL;
+	de_int64 abr_ver;
+
+	de_declare_fmt(c, "Photoshop Brush");
+
+	d = de_malloc(c, sizeof(lctx));
+	d->version = 1;
+	init_version_specific_info(c, d);
+
+	zz = de_malloc(c, sizeof(zztype));
+	zz_init_absolute(zz, 0, c->infile->len);
+
+	abr_ver = psd_getui16(0);
+	de_dbg(c, "file version: %d\n", (int)abr_ver);
+	if(abr_ver!=6) {
+		de_err(c, "Unsupported Photoshop Brush file version: %d\n", (int)abr_ver);
+		goto done;
+	}
+
+	do_abr_v6(c, d, zz);
+
+
+done:
+	de_free(c, zz);
+	de_free(c, d);
+}
+
 static int de_identify_psd(deark *c)
 {
 	if(!dbuf_memcmp(c->infile, 0, "8BPS", 4)) return 100;
@@ -3558,4 +3671,23 @@ void de_module_ps_styles(deark *c, struct deark_module_info *mi)
 	mi->desc = "Photoshop Styles";
 	mi->run_fn = de_run_ps_styles;
 	mi->identify_fn = de_identify_ps_styles;
+}
+
+static int de_identify_ps_brush(deark *c)
+{
+	de_int64 ver;
+
+	ver = de_getui16be(0);
+	if(ver==6) {
+		if(de_input_file_has_ext(c, "abr")) return 80;
+	}
+	return 0;
+}
+
+void de_module_ps_brush(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "ps_brush";
+	mi->desc = "Photoshop Brush";
+	mi->run_fn = de_run_ps_brush;
+	mi->identify_fn = de_identify_ps_brush;
 }
