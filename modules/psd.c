@@ -434,6 +434,22 @@ static de_int64 psd_getui32or64zz(deark *c, lctx *d, zztype *zz)
 	return psd_getui32zz(zz);
 }
 
+static const char *get_colormode_name(de_int64 n)
+{
+	const char *name = "?";
+	switch(n) {
+	case 0: name="bitmap"; break;
+	case PSD_CM_GRAY: name="grayscale"; break;
+	case PSD_CM_PALETTE: name="indexed"; break;
+	case PSD_CM_RGB: name="RGB"; break;
+	case 4: name="CMYK"; break;
+	case 7: name="multichannel"; break;
+	case 8: name="duotone"; break;
+	case 9: name="Lab"; break;
+	}
+	return name;
+}
+
 // The PSD module's version of dbuf_read_fourcc()
 static void psd_read_fourcc_zz(deark *c, lctx *d, zztype *zz, struct de_fourcc *fourcc)
 {
@@ -2202,61 +2218,84 @@ static void do_lnk2_block(deark *c, lctx *d, zztype *zz, const struct de_fourcc 
 	}
 }
 
-static void do_Patt_block(deark *c, lctx *d, zztype *zz, const struct de_fourcc *blk4cc)
+// Decode a single "pattern" object, starting with the "length" field for this
+// pattern.
+static int do_pattern(deark *c, lctx *d, zztype *zz, de_int64 pattern_idx)
 {
+	de_int64 pat_dlen;
 	de_int64 ver;
-	de_int64 pattern_idx;
-	int saved_indent_level;
-	de_ucstring *tmps = NULL;
+	de_int64 pat_color_mode;
+	de_int64 w, h;
+	de_int64 idata_len;
+	de_ucstring *s = NULL;
+	zztype datazz; // zz for the pattern data (minus the length field)
+	int retval = 0;
 
-	de_dbg_indent_save(c, &saved_indent_level);
-	tmps = ucstring_create(c);
+	if(zz_avail(zz)<16) goto done;
+
+	de_dbg(c, "pattern[%d] at %d\n", (int)pattern_idx, (int)zz->pos);
+	de_dbg_indent(c, 1);
+
+	pat_dlen = psd_getui32zz(zz);
+	de_dbg(c, "length: %d\n", (int)pat_dlen);
+
+	zz_init_with_len(&datazz, zz, pat_dlen);
+
+	zz->pos += pad_to_4(pat_dlen);
+	retval = 1;
+
+	ver = psd_getui32zz(&datazz);
+	de_dbg(c, "version: %d\n", (int)ver);
+	if(ver!=1) goto done;
+
+	pat_color_mode = psd_getui32zz(&datazz);
+	de_dbg(c, "color mode: %d (%s)\n", (int)pat_color_mode, get_colormode_name(pat_color_mode));
+
+	h = psd_getui16zz(&datazz);
+	w = psd_getui16zz(&datazz);
+	de_dbg(c, "dimensions: %dx%d\n", (int)w, (int)h);
+
+	s = ucstring_create(c);
+	read_unicode_string(c, d, s, &datazz);
+	de_dbg(c, "name: \"%s\"\n", ucstring_get_printable_sz_n(s, 300));
+
+	ucstring_empty(s);
+	read_pascal_string_to_ucstring(c, d, s, &datazz);
+	de_dbg(c, "id: \"%s\"\n", ucstring_get_printable_sz_n(s, 300));
+
+	idata_len = zz_avail(&datazz);
+	de_dbg(c, "[%"INT64_FMT" bytes of image data at %d]\n", idata_len,
+		(int)datazz.pos);
+	// TODO: Decode the image, if possible.
+
+	de_dbg_indent(c, -1);
+
+	retval = 1;
+done:
+	ucstring_destroy(s);
+	return retval;
+}
+
+static void do_pattern_sequence(deark *c, lctx *d, zztype *zz)
+{
+	de_int64 pattern_idx;
+	zztype czz;
 
 	pattern_idx = 0;
 	while(1) {
-		de_int64 pat_data_len2;
-		zztype datazz; // zz for the pattern data (minus the length field)
-
-		if(zz->pos+16 > zz->endpos) break;
-
-		de_dbg(c, "pattern[%d] at %d\n", (int)pattern_idx, (int)zz->pos);
-		de_dbg_indent(c, 1);
-
-		pat_data_len2 = psd_getui32zz(zz);
-		de_dbg(c, "length: %d\n", (int)pat_data_len2);
-
-		zz_init_with_len(&datazz, zz, pat_data_len2);
-
-		ver = psd_getui32zz(&datazz);
-		de_dbg(c, "version: %d\n", (int)ver);
-		if(ver!=1) goto done; // FIXME: Skip to the next pattern, instead of giving up.
-
-		datazz.pos += 4; // image mode
-		datazz.pos += 2+2; // point
-
-		ucstring_empty(tmps);
-		read_unicode_string(c, d, tmps, &datazz);
-		de_dbg(c, "name: \"%s\"\n", ucstring_get_printable_sz_n(tmps, 300));
-
-		ucstring_empty(tmps);
-		read_pascal_string_to_ucstring(c, d, tmps, &datazz);
-		de_dbg(c, "id: \"%s\"\n", ucstring_get_printable_sz_n(tmps, 300));
-
-		// TODO: There are more fields here.
-
-		// I haven't found any PSD files with multiple patterns, so this has not
-		// been tested for PSD.
-		// I have found 'patt' (instead of 'Patt') blocks in ABR files, and they
-		// have a format that is similar or identical. This padding is needed in
-		// them.
-		zz->pos += pad_to_4(pat_data_len2);
-		de_dbg_indent(c, -1);
+		if(zz_avail(zz)<16) break;
+		zz_init(&czz, zz);
+		if(!do_pattern(c, d, &czz, pattern_idx)) {
+			break;
+		}
+		zz->pos += zz_used(&czz);
 		pattern_idx++;
 	}
+}
 
-done:
-	ucstring_destroy(tmps);
-	de_dbg_indent_restore(c, saved_indent_level);
+static void do_Patt_block(deark *c, lctx *d, zztype *zz, const struct de_fourcc *xblk4cc)
+{
+	do_pattern_sequence(c, d, zz);
 }
 
 static void do_samp_block(deark *c, lctx *d, zztype *zz, const struct de_fourcc *blk4cc)
@@ -3051,22 +3090,6 @@ done:
 	ucstring_destroy(s);
 }
 
-static const char *get_colormode_name(de_int64 n)
-{
-	const char *name = "?";
-	switch(n) {
-	case 0: name="bitmap"; break;
-	case PSD_CM_GRAY: name="grayscale"; break;
-	case PSD_CM_PALETTE: name="indexed"; break;
-	case PSD_CM_RGB: name="RGB"; break;
-	case 4: name="CMYK"; break;
-	case 7: name="multichannel"; break;
-	case 8: name="duotone"; break;
-	case 9: name="Lab"; break;
-	}
-	return name;
-}
-
 // Call this after setting d->version.
 static void init_version_specific_info(deark *c, lctx *d)
 {
@@ -3415,53 +3438,12 @@ static void de_run_ps_gradient(deark *c, de_module_params *mparams)
 	de_free(c, d);
 }
 
-// .asl format, "Pattern" object
-static void do_asl_pattern(deark *c, lctx *d, zztype *zz)
-{
-	de_int64 pat_len;
-	de_int64 pat_ver, pat_color_mode;
-	de_int64 saved_pos;
-	de_int64 w, h;
-	de_ucstring *s = NULL;
-
-	pat_len = psd_getui32zz(zz);
-	de_dbg(c, "pattern data length: %d\n", (int)pat_len);
-	saved_pos = zz->pos;
-
-	pat_ver = psd_getui32zz(zz);
-	de_dbg(c, "version: %d\n", (int)pat_ver);
-
-	pat_color_mode = psd_getui32zz(zz);
-	de_dbg(c, "color mode: %d (%s)\n", (int)pat_color_mode, get_colormode_name(pat_color_mode));
-
-	h = psd_getui16zz(zz);
-	w = psd_getui16zz(zz);
-	de_dbg(c, "dimensions: %dx%d\n", (int)w, (int)h);
-
-	s = ucstring_create(c);
-	read_unicode_string(c, d, s, zz);
-	de_dbg(c, "name: \"%s\"\n", ucstring_get_printable_sz_n(s, 300));
-
-	ucstring_empty(s);
-	read_pascal_string_to_ucstring(c, d, s, zz);
-	de_dbg(c, "id: \"%s\"\n", ucstring_get_printable_sz(s));
-
-	// TODO: Decode the image, if possible.
-	de_dbg(c, "[%"INT64_FMT" bytes of image data at %d]\n", (saved_pos + pat_len - zz->pos),
-		(int)zz->pos);
-
-	zz->pos = saved_pos + pat_len;
-	ucstring_destroy(s);
-}
-
 // .asl format, "Patterns" object
 static void do_asl_patterns(deark *c, lctx *d, zztype *zz)
 {
 	de_int64 pat_ver;
 	de_int64 patseq_len;
-	de_int64 pat_idx;
 	zztype czz_patseq;
-	zztype czz_pat;
 
 	de_dbg(c, "patterns at %d\n", (int)zz->pos);
 	de_dbg_indent(c, 1);
@@ -3472,19 +3454,9 @@ static void do_asl_patterns(deark *c, lctx *d, zztype *zz)
 
 	// Sequence of patterns
 	zz_init_with_len(&czz_patseq, zz, patseq_len);
-	pat_idx = 0;
-	while(1) {
-		if(zz_avail(&czz_patseq) < 4) break;
 
-		de_dbg(c, "pattern[%d] at %d\n", (int)pat_idx, (int)czz_patseq.pos);
-		de_dbg_indent(c, 1);
+	do_pattern_sequence(c, d, &czz_patseq);
 
-		zz_init(&czz_pat, &czz_patseq);
-		do_asl_pattern(c, d, &czz_pat);
-		czz_patseq.pos += zz_used(&czz_pat);
-		de_dbg_indent(c, -1);
-		pat_idx++;
-	}
 	zz->pos += patseq_len;
 
 	de_dbg_indent(c, -1);
@@ -3559,6 +3531,36 @@ done:
 	de_free(c, d);
 }
 
+static void do_abr_v1(deark *c, lctx *d, zztype *zz)
+{
+	de_int64 num_brushes;
+	de_int64 i;
+
+	zz->pos += 2;
+	num_brushes = psd_getui16zz(zz);
+	de_dbg(c, "number of brushes: %d\n", (int)num_brushes);
+
+	for(i=0; i<num_brushes; i++) {
+		de_int64 brushtype;
+		de_int64 bdeflen;
+
+		if(zz->pos >= zz->endpos) break;
+
+		de_dbg(c, "brush definition[%d] at %d\n", (int)i, (int)zz->pos);
+		de_dbg_indent(c, 1);
+
+		brushtype = psd_getui16zz(zz);
+		de_dbg(c, "brush type: %d\n", (int)brushtype);
+		bdeflen = psd_getui32zz(zz);
+		de_dbg(c, "brush definition data dpos=%d, dlen=%d\n", (int)zz->pos, (int)bdeflen);
+
+		zz->pos += bdeflen;
+
+		de_dbg_indent(c, -1);
+	}
+
+}
+
 static void do_abr_v6(deark *c, lctx *d, zztype *zz)
 {
 	de_uint32 sig;
@@ -3584,8 +3586,7 @@ static void de_run_ps_brush(deark *c, de_module_params *mparams)
 	lctx *d = NULL;
 	zztype *zz = NULL;
 	de_int64 abr_ver;
-
-	de_declare_fmt(c, "Photoshop Brush");
+	int has_8bim_sig;
 
 	d = de_malloc(c, sizeof(lctx));
 	d->version = 1;
@@ -3596,13 +3597,21 @@ static void de_run_ps_brush(deark *c, de_module_params *mparams)
 
 	abr_ver = psd_getui16(0);
 	de_dbg(c, "file version: %d\n", (int)abr_ver);
-	if(abr_ver!=6) {
-		de_err(c, "Unsupported Photoshop Brush file version: %d\n", (int)abr_ver);
+
+	has_8bim_sig = (psd_getui32(4) == CODE_8BIM);
+
+	if(has_8bim_sig && abr_ver>=3) {
+		de_declare_fmt(c, "Photoshop Brush (new format)");
+		do_abr_v6(c, d, zz);
+	}
+	else if(abr_ver<=5) {
+		de_declare_fmt(c, "Photoshop Brush (old format)");
+		do_abr_v1(c, d, zz);
+	}
+	else {
+		de_err(c, "Unsupported Photoshop Brush format (version=%d)\n", (int)abr_ver);
 		goto done;
 	}
-
-	do_abr_v6(c, d, zz);
-
 
 done:
 	de_free(c, zz);
@@ -3678,7 +3687,7 @@ static int de_identify_ps_brush(deark *c)
 	de_int64 ver;
 
 	ver = de_getui16be(0);
-	if(ver==6) {
+	if(ver==1 || ver==2 || ver==6 || ver==7) {
 		if(de_input_file_has_ext(c, "abr")) return 80;
 	}
 	return 0;

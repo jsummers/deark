@@ -528,7 +528,6 @@ Deark -- Information about supported formats
     from them.
 
 * Photoshop Brush format (.abr) (module="ps_brush") (experimental)
-  - v6 format only
   - Files can be (partially) parsed, but there is usually nothing that can be
     extracted from them.
 
