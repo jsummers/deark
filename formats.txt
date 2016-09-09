@@ -518,6 +518,14 @@ Deark -- Information about supported formats
   - Files can be parsed, but there is usually nothing that can be extracted
     from them.
 
+* Photoshop Brush format (.abr) (module="ps_brush") (experimental)
+  - Files can be (partially) parsed, but there is usually nothing that can be
+    extracted from them.
+
+* Photoshop Custom Shapes format (.csh) (module="ps_csh")
+  - Files can be parsed, but there is usually nothing that can be extracted
+    from them.
+
 * Photoshop Gradient format (.grd) (module="ps_gradient")
   - Supports file version 5 only (Photoshop 6+)
   - Files can be parsed, but there is usually nothing that can be extracted
@@ -526,10 +534,6 @@ Deark -- Information about supported formats
 * Photoshop Styles format (.asl) (module="ps_styles")
   - Files can be parsed, but there is usually nothing that can be extracted
     from them.
-
-* Photoshop Brush format (.abr) (module="ps_brush") (experimental)
-  - Files can be (partially) parsed, but there is usually nothing that can be
-    extracted from them.
 
 * Psion APP/IMG and OPA/OPO (module="psionapp")
   - Extract Psion PIC icons.

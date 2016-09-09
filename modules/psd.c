@@ -7,6 +7,9 @@
 //  * PSD "series of tagged blocks"
 // * Photoshop Action file format (.atn)
 // * Photoshop Gradient file format (.grd)
+// * Photoshop Styles (.asl)
+// * Photoshop Brush (.abr)
+// * Photoshop Custom Shape (.csh)
 
 #include <deark-config.h>
 #include <deark-private.h>
@@ -16,6 +19,7 @@ DE_DECLARE_MODULE(de_module_ps_action);
 DE_DECLARE_MODULE(de_module_ps_gradient);
 DE_DECLARE_MODULE(de_module_ps_styles);
 DE_DECLARE_MODULE(de_module_ps_brush);
+DE_DECLARE_MODULE(de_module_ps_csh);
 
 #define CODE_8B64 0x38423634U
 #define CODE_8BIM 0x3842494dU
@@ -615,7 +619,7 @@ static void hrsrc_printflags(deark *c, lctx *d, zztype *zz, const struct rsrc_in
 		(int)fl[4], (int)fl[5], (int)fl[6], (int)fl[7], (int)fl[8]);
 }
 
-static void hrsrc_pathinfo(deark *c, lctx *d, zztype *zz, const struct rsrc_info *ri)
+static void do_pathinfo(deark *c, lctx *d, zztype *zz)
 {
 	de_int64 num_records;
 	de_int64 i;
@@ -661,6 +665,11 @@ static void hrsrc_pathinfo(deark *c, lctx *d, zztype *zz, const struct rsrc_info
 		zz->pos += 26;
 		de_dbg_indent(c, -1);
 	}
+}
+
+static void hrsrc_pathinfo(deark *c, lctx *d, zztype *zz, const struct rsrc_info *ri)
+{
+	do_pathinfo(c, d, zz);
 }
 
 static void hrsrc_printflagsinfo(deark *c, lctx *d, zztype *zz, const struct rsrc_info *ri)
@@ -3618,6 +3627,89 @@ done:
 	de_free(c, d);
 }
 
+static void do_custom_shape(deark *c, lctx *d, zztype *zz)
+{
+	de_ucstring *s = NULL;
+	de_int64 dlen;
+	de_int64 saved_pos;
+	zztype datazz;
+	zztype pathinfozz;
+
+	s = ucstring_create(c);
+	saved_pos = zz->pos;
+	read_unicode_string(c, d, s, zz);
+	de_dbg(c, "name: \"%s\"\n", ucstring_get_printable_sz_n(s, 300));
+	// This Unicode String is padded to a multiple of 4 bytes, unlike pretty much
+	// every other Unicode String in every Photoshop format.
+	zz->pos = saved_pos + pad_to_4(zz->pos - saved_pos);
+
+	zz->pos += 4; // Unknown field
+
+	dlen = psd_getui32zz(zz);
+	de_dbg(c, "shape data length: %d\n", (int)dlen);
+
+	zz_init_with_len(&datazz, zz, dlen);
+	// We expect this length to be a multiple of 4. I don't know what to do if
+	// it's not.
+	zz->pos += dlen;
+
+	ucstring_empty(s);
+	read_pascal_string_to_ucstring(c, d, s, &datazz);
+	de_dbg(c, "id: \"%s\"\n", ucstring_get_printable_sz(s));
+
+	read_rectangle_tlbr(c, d, &datazz, "bounds");
+
+	de_dbg(c, "path records at %d\n", (int)datazz.pos);
+	zz_init(&pathinfozz, &datazz);
+	de_dbg_indent(c, 1);
+	do_pathinfo(c, d, &pathinfozz);
+	de_dbg_indent(c, -1);
+
+	ucstring_destroy(s);
+}
+
+static void de_run_ps_csh(deark *c, de_module_params *mparams)
+{
+	lctx *d = NULL;
+	zztype *zz = NULL;
+	de_int64 csh_ver;
+	de_int64 num_shapes;
+	de_int64 i;
+	zztype czz;
+
+	d = de_malloc(c, sizeof(lctx));
+	d->version = 1;
+	init_version_specific_info(c, d);
+
+	zz = de_malloc(c, sizeof(zztype));
+	zz_init_absolute(zz, 0, c->infile->len);
+
+	zz->pos += 4; // Skip over 'cush' signature
+
+	csh_ver = psd_getui32zz(zz);
+	de_dbg(c, "file version: %d\n", (int)csh_ver);
+
+	if(csh_ver!=2) {
+		de_warn(c, "CSH v%d format might not be supported correctly\n", (int)csh_ver);
+	}
+
+	num_shapes = psd_getui32zz(zz);
+	de_dbg(c, "number of shapes: %d\n", (int)num_shapes);
+
+	for(i=0; i<num_shapes; i++) {
+		if(zz_avail(zz)<28) break;
+		de_dbg(c, "shape[%d] at %d\n", (int)i, (int)zz->pos);
+		zz_init(&czz, zz);
+		de_dbg_indent(c, 1);
+		do_custom_shape(c, d, &czz);
+		de_dbg_indent(c, -1);
+		zz->pos += zz_used(&czz);
+	}
+
+	de_free(c, zz);
+	de_free(c, d);
+}
+
 static int de_identify_psd(deark *c)
 {
 	if(!dbuf_memcmp(c->infile, 0, "8BPS", 4)) return 100;
@@ -3699,4 +3791,21 @@ void de_module_ps_brush(deark *c, struct deark_module_info *mi)
 	mi->desc = "Photoshop Brush";
 	mi->run_fn = de_run_ps_brush;
 	mi->identify_fn = de_identify_ps_brush;
+}
+
+static int de_identify_ps_csh(deark *c)
+{
+	if(!dbuf_memcmp(c->infile, 0, "cush", 4)) {
+		if(de_input_file_has_ext(c, "csh")) return 100;
+		return 80;
+	}
+	return 0;
+}
+
+void de_module_ps_csh(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "ps_csh";
+	mi->desc = "Photoshop Custom Shape";
+	mi->run_fn = de_run_ps_csh;
+	mi->identify_fn = de_identify_ps_csh;
 }
