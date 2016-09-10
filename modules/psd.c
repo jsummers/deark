@@ -2231,6 +2231,85 @@ static void do_lnk2_block(deark *c, lctx *d, zztype *zz, const struct de_fourcc 
 	}
 }
 
+static void do_vm_array(deark *c, lctx *d, zztype *zz)
+{
+	de_int64 n;
+	de_int64 dlen, idata_len;
+	de_int64 saved_pos;
+
+	zz->pos += 4; // Skip array-is-written flag (already processed)
+
+	dlen = psd_getui32zz(zz);
+	de_dbg(c, "length: %d\n", (int)dlen);
+	if(dlen==0) goto done;
+
+	saved_pos = zz->pos;
+
+	n = psd_getui32zz(zz);
+	de_dbg(c, "depth: %d\n", (int)n);
+
+	read_rectangle_tlbr(c, d, zz, "rectangle");
+
+	n = psd_getui16zz(zz);
+	de_dbg(c, "depth: %d\n", (int)n);
+
+	n = (de_int64)psd_getbytezz(zz);
+	de_dbg(c, "compression mode: %d\n", (int)n);
+
+	idata_len = saved_pos + dlen - zz->pos;
+	de_dbg(c, "[%d bytes of data at %d]\n", (int)idata_len, (int)zz->pos);
+
+	zz->pos = saved_pos + dlen;
+done:
+	;
+}
+
+static void do_vm_array_list(deark *c, lctx *d, zztype *zz)
+{
+	de_int64 ver;
+	de_int64 dlen;
+	de_int64 num_channels;
+	zztype czz;
+	de_int64 i;
+
+	de_dbg(c, "virtual memory array list at %d, len=%"INT64_FMT"\n", (int)zz->pos,
+		zz_avail(zz));
+	de_dbg_indent(c, 1);
+
+	ver = psd_getui32zz(zz);
+	de_dbg(c, "version: %d\n", (int)ver);
+
+	dlen = psd_getui32zz(zz);
+	de_dbg(c, "length: %d\n", (int)dlen);
+
+	read_rectangle_tlbr(c, d, zz, "rectangle");
+
+	num_channels = psd_getui32zz(zz);
+	de_dbg(c, "number of channels: %d\n", (int)num_channels);
+
+	for(i=0; i<num_channels+2; i++) {
+		de_int64 is_written;
+
+		// Look ahead at the array-is-written flag.
+		is_written = psd_getui32(zz->pos);
+
+		de_dbg(c, "virtual memory array[%d] at %d%s\n", (int)i, (int)zz->pos,
+			is_written?"":" (empty)");
+		if(is_written) {
+			zz_init(&czz, zz);
+			de_dbg_indent(c, 1);
+			do_vm_array(c, d, &czz);
+			de_dbg_indent(c, -1);
+			zz->pos += zz_used(&czz);
+		}
+		else {
+			zz->pos += 4;
+		}
+	}
+
+	de_dbg_indent(c, -1);
+}
+
 // Decode a single "pattern" object, starting with the "length" field for this
 // pattern.
 static int do_pattern(deark *c, lctx *d, zztype *zz, de_int64 pattern_idx)
@@ -2239,9 +2318,9 @@ static int do_pattern(deark *c, lctx *d, zztype *zz, de_int64 pattern_idx)
 	de_int64 ver;
 	de_int64 pat_color_mode;
 	de_int64 w, h;
-	de_int64 idata_len;
 	de_ucstring *s = NULL;
 	zztype datazz; // zz for the pattern data (minus the length field)
+	zztype vmalzz; // for virtual memory array list
 	int retval = 0;
 
 	if(zz_avail(zz)<16) goto done;
@@ -2276,10 +2355,13 @@ static int do_pattern(deark *c, lctx *d, zztype *zz, de_int64 pattern_idx)
 	read_pascal_string_to_ucstring(c, d, s, &datazz);
 	de_dbg(c, "id: \"%s\"\n", ucstring_get_printable_sz_n(s, 300));
 
-	idata_len = zz_avail(&datazz);
-	de_dbg(c, "[%"INT64_FMT" bytes of image data at %d]\n", idata_len,
-		(int)datazz.pos);
-	// TODO: Decode the image, if possible.
+	if(pat_color_mode==PSD_CM_PALETTE) {
+		de_dbg(c, "palette at %d\n", (int)datazz.pos);
+		datazz.pos += 3*256;
+	}
+
+	zz_init(&vmalzz, &datazz);
+	do_vm_array_list(c, d, &vmalzz);
 
 	de_dbg_indent(c, -1);
 
