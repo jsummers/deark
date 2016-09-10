@@ -2617,92 +2617,155 @@ static void do_SoLd_block(deark *c, lctx *d, zztype *zz)
 	read_descriptor(c, d, zz, 1, " (of placed layer information)");
 }
 
-static void do_FXid_block(deark *c, lctx *d, zztype *zz, const struct de_fourcc *blk4cc)
+static void do_filter_effect_channel(deark *c, lctx *d, zztype *zz)
 {
-	de_int64 ver1, ver2;
-	de_int64 dlen1, dlen2, dlen3;
-	de_int64 main_endpos;
+	de_int64 dlen;
+	de_int64 saved_pos;
+	de_int64 cmpr_mode;
+
+	zz->pos += 4; // Skip array-is-written flag (already processed)
+
+	dlen = psd_geti64zz(zz);
+	de_dbg(c, "length: %"INT64_FMT"\n", dlen);
+	saved_pos = zz->pos;
+	if(dlen<=0) goto done;
+
+	cmpr_mode = psd_getui16zz(zz);
+	de_dbg(c, "compression mode: %d\n", (int)cmpr_mode);
+
+	de_dbg(c, "[%d bytes at %d]\n", (int)(saved_pos + dlen - zz->pos), (int)zz->pos);
+	zz->pos = saved_pos + dlen;
+done:
+	;
+}
+
+static void do_filter_effect(deark *c, lctx *d, zztype *zz)
+{
+	de_int64 ver2;
+	de_int64 dlen2;
 	de_ucstring *s = NULL;
-	de_int64 idx;
 	de_int64 x;
 	de_int64 ch;
 	de_int64 max_channels;
+	de_byte b;
+	zztype czz;
 	int saved_indent_level;
+	de_int64 filter_effects_savedpos;
 
 	de_dbg_indent_save(c, &saved_indent_level);
+
+	s = ucstring_create(c);
+
+	ucstring_empty(s);
+	read_pascal_string_to_ucstring(c, d, s, zz);
+	de_dbg(c, "identifier: \"%s\"\n", ucstring_get_printable_sz(s));
+
+	// Note the clear similarites to the "virtual memory array lists" used in
+	// Pattern data. But it is not the same. Maybe some of the code should be
+	// consolidated.
+
+	ver2 = psd_getui32zz(zz);
+	de_dbg(c, "version: %d\n", (int)ver2);
+	if(ver2 != 1) goto done;
+
+	dlen2 = psd_geti64zz(zz);
+	de_dbg(c, "length: %"INT64_FMT"\n", dlen2);
+	filter_effects_savedpos = zz->pos;
+
+	read_rectangle_tlbr(c, d, zz, "rectangle");
+
+	x = psd_getui32zz(zz);
+	de_dbg(c, "depth: %d\n", (int)x);
+
+	max_channels = psd_getui32zz(zz);
+	de_dbg(c, "max channels: %d\n", (int)max_channels);
+
+	for(ch=0; ch<max_channels+2; ch++) {
+		de_int64 is_written;
+
+		if(zz->pos >= zz->endpos) goto done;
+
+		// Look ahead at the array-is-written flag.
+		is_written = psd_getui32(zz->pos);
+
+		de_dbg(c, "channel[%d] at %d%s\n", (int)ch, (int)zz->pos,
+			is_written?"":" (empty)");
+
+		if(is_written) {
+			zz_init(&czz, zz);
+			de_dbg_indent(c, 1);
+			do_filter_effect_channel(c, d, &czz);
+			de_dbg_indent(c, -1);
+			zz->pos += zz_used(&czz);
+		}
+		else {
+			zz->pos += 4;
+		}
+	}
+
+	if(zz->pos < (filter_effects_savedpos + dlen2)) {
+		de_dbg(c, "[%d unknown bytes at %d]\n", (int)(filter_effects_savedpos + dlen2 - zz->pos),
+			(int)zz->pos);
+	}
+
+	zz->pos = filter_effects_savedpos + dlen2;
+
+	b = psd_getbytezz(zz);
+	de_dbg(c, "next-items-present: %d\n", (int)b);
+
+	if(b) {
+		x = psd_getui16zz(zz);
+		de_dbg(c, "compression mode: %d\n", (int)x);
+	}
+
+	de_dbg(c, "[%d bytes at %d]\n", (int)zz_avail(zz), (int)zz->pos);
+	zz->pos = zz->endpos;
+
+done:
+	ucstring_destroy(s);
+	de_dbg_indent_restore(c, saved_indent_level);
+}
+
+static void do_FXid_block(deark *c, lctx *d, zztype *zz, const struct de_fourcc *blk4cc)
+{
+	de_int64 ver1;
+	de_int64 dlen1;
+	de_int64 idx;
+	de_int64 main_endpos;
+	zztype czz;
 
 	ver1 = psd_getui32zz(zz);
 	de_dbg(c, "version: %d\n", (int)ver1);
 	if(ver1<1 || ver1>3) goto done;
 
+	// TODO: I suspect that this next "length" field is actually part of each
+	// individual filter effect, contrary to what the documentation says.
+	// That way, there can be multiple "filter effects" in the same block.
+	// Sample files needed.
+
 	dlen1 = psd_geti64zz(zz);
 	de_dbg(c, "length: %"INT64_FMT"\n", dlen1);
 	main_endpos = zz->pos + dlen1;
 
-	s = ucstring_create(c);
-
 	idx = 0;
-	/* while(zz->pos < main_endpos) */ {
+
+	{
 		de_dbg(c, "filter effect[%d] at %d\n", (int)idx, (int)zz->pos);
+		zz_init_with_len(&czz, zz, main_endpos-zz->pos);
 		de_dbg_indent(c, 1);
-
-		ucstring_empty(s);
-		read_pascal_string_to_ucstring(c, d, s, zz);
-		de_dbg(c, "identifier: \"%s\"\n", ucstring_get_printable_sz(s));
-
-		ver2 = psd_getui32zz(zz);
-		de_dbg(c, "version: %d\n", (int)ver2);
-		if(ver2 != 1) goto done;
-
-		dlen2 = psd_geti64zz(zz);
-		de_dbg(c, "length: %"INT64_FMT"\n", dlen2);
-
-		read_rectangle_tlbr(c, d, zz, "rectangle");
-
-		x = psd_getui32zz(zz);
-		de_dbg(c, "depth: %d\n", (int)x);
-
-		max_channels = psd_getui32zz(zz);
-		de_dbg(c, "max channels: %d\n", (int)max_channels);
-
-		for(ch=0; ch<d->main_iinfo->num_channels+2; ch++) {
-			if(zz->pos >= main_endpos) goto done;
-			if(zz->pos >= zz->endpos) goto done;
-
-			de_dbg(c, "channel data[%d] at %d\n", (int)ch, (int)zz->pos);
-			de_dbg_indent(c, 1);
-
-			x = psd_getui32zz(zz);
-			de_dbg(c, "array-is-written: %d\n", (int)x);
-
-			dlen3 = psd_geti64zz(zz);
-			de_dbg(c, "length: %"INT64_FMT"\n", dlen3);
-
-			//x = psd_getui16zz(zz);
-			//de_dbg(c, "compression mode: %d\n", (int)x);
-
-			if(dlen3<0) goto done;
-			if(dlen3>0)
-				de_dbg(c, "[%d bytes of data]\n", (int)dlen3);
-			zz->pos += dlen3;
-
-			de_dbg_indent(c, -1);
-		}
-
+		do_filter_effect(c, d, &czz);
 		de_dbg_indent(c, -1);
+		zz->pos += zz_used(&czz);
 		idx++;
 	}
 
-	if(zz->pos < zz->endpos) {
-		// TODO: I'm having trouble figuring out FEid/FXid blocks.
-		// The documentation is confusing.
-		de_dbg(c, "[%s block not fully decoded]\n", blk4cc->id_printable);
+	if(zz->pos < main_endpos) {
+		de_dbg(c, "[%d bytes of data at %d]\n", (int)(main_endpos-zz->pos), (int)zz->pos);
 	}
-	zz->pos = main_endpos;
 
+	zz->pos = main_endpos;
 done:
-	ucstring_destroy(s);
-	de_dbg_indent_restore(c, saved_indent_level);
+	;
 }
 
 static void do_shmd_block(deark *c, lctx *d, zztype *zz)
