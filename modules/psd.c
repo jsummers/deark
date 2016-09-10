@@ -152,6 +152,16 @@ struct flexible_id {
 	de_int64 bytes_consumed;
 };
 
+struct image_info {
+	de_int64 width, height;
+	de_int64 color_mode;
+	de_int64 num_channels;
+	de_int64 bits_per_channel;
+
+	de_int64 pal_entries;
+	de_uint32 pal[256];
+};
+
 typedef struct localctx_struct {
 	int version; // 1=PSD, 2=PSB
 	int is_le;
@@ -161,13 +171,7 @@ typedef struct localctx_struct {
 	de_int64 intsize_2or4;
 	de_int64 intsize_4or8;
 
-	de_int64 width, height;
-	de_int64 color_mode;
-	de_int64 num_channels;
-	de_int64 bits_per_channel;
-
-	de_int64 pal_entries;
-	de_uint32 pal[256];
+	struct image_info *main_iinfo;
 } lctx;
 
 struct rsrc_info;
@@ -2579,7 +2583,7 @@ static void do_FXid_block(deark *c, lctx *d, zztype *zz, const struct de_fourcc 
 		max_channels = psd_getui32zz(zz);
 		de_dbg(c, "max channels: %d\n", (int)max_channels);
 
-		for(ch=0; ch<d->num_channels+2; ch++) {
+		for(ch=0; ch<d->main_iinfo->num_channels+2; ch++) {
 			if(zz->pos >= main_endpos) goto done;
 			if(zz->pos >= zz->endpos) goto done;
 
@@ -3112,7 +3116,7 @@ static void init_version_specific_info(deark *c, lctx *d)
 	}
 }
 
-static int do_header(deark *c, lctx *d, de_int64 pos)
+static int do_psd_header(deark *c, lctx *d, de_int64 pos)
 {
 	int retval = 0;
 
@@ -3133,18 +3137,19 @@ static int do_header(deark *c, lctx *d, de_int64 pos)
 		goto done;
 	}
 
-	d->num_channels = psd_getui16(pos+12);
-	de_dbg(c, "number of channels: %d\n", (int)d->num_channels);
+	d->main_iinfo->num_channels = psd_getui16(pos+12);
+	de_dbg(c, "number of channels: %d\n", (int)d->main_iinfo->num_channels);
 
-	d->height = psd_getui32(pos+14);
-	d->width = psd_getui32(pos+18);
-	de_dbg(c, "dimensions: %dx%d\n", (int)d->width, (int)d->height);
+	d->main_iinfo->height = psd_getui32(pos+14);
+	d->main_iinfo->width = psd_getui32(pos+18);
+	de_dbg(c, "dimensions: %dx%d\n", (int)d->main_iinfo->width, (int)d->main_iinfo->height);
 
-	d->bits_per_channel = psd_getui16(pos+22);
-	de_dbg(c, "bits/channel: %d\n", (int)d->bits_per_channel);
+	d->main_iinfo->bits_per_channel = psd_getui16(pos+22);
+	de_dbg(c, "bits/channel: %d\n", (int)d->main_iinfo->bits_per_channel);
 
-	d->color_mode = psd_getui16(pos+24);
-	de_dbg(c, "color mode: %d (%s)\n", (int)d->color_mode, get_colormode_name(d->color_mode));
+	d->main_iinfo->color_mode = psd_getui16(pos+24);
+	de_dbg(c, "color mode: %d (%s)\n", (int)d->main_iinfo->color_mode,
+		get_colormode_name(d->main_iinfo->color_mode));
 
 	retval = 1;
 
@@ -3171,31 +3176,33 @@ static void do_external_tagged_blocks(deark *c, lctx *d, zztype *zz)
 	do_tagged_blocks(c, d, zz, 0);
 }
 
-static void do_color_mode_data(deark *c, lctx *d, zztype *zz)
+static void do_psd_color_mode_data(deark *c, lctx *d, zztype *zz)
 {
 	de_int64 len;
 	de_int64 k;
 	de_byte r, g, b;
+	struct image_info *iinfo = d->main_iinfo;
 
 	len = zz_avail(zz);
 	de_dbg(c, "color data at %d, len=%d\n", (int)zz->pos, (int)len);
-	d->pal_entries = len/3;
-	if(d->pal_entries<1) return;
-	if(d->pal_entries>256) d->pal_entries=256;
+	iinfo->pal_entries = len/3;
+	if(iinfo->pal_entries<1) return;
+	if(iinfo->pal_entries>256) iinfo->pal_entries=256;
 
 	de_dbg_indent(c, 1);
-	for(k=0; k<d->pal_entries; k++) {
+	for(k=0; k<iinfo->pal_entries; k++) {
 		r = de_getbyte(zz->pos + k);
-		g = de_getbyte(zz->pos + d->pal_entries + k);
-		b = de_getbyte(zz->pos + 2*d->pal_entries + k);
-		d->pal[k] = DE_MAKE_RGB(r, g, b);
-		de_dbg_pal_entry(c, k, d->pal[k]);
+		g = de_getbyte(zz->pos + iinfo->pal_entries + k);
+		b = de_getbyte(zz->pos + 2*iinfo->pal_entries + k);
+		iinfo->pal[k] = DE_MAKE_RGB(r, g, b);
+		de_dbg_pal_entry(c, k, iinfo->pal[k]);
 	}
 	de_dbg_indent(c, -1);
 }
 
 // Extract the primary image
-static void do_bitmap(deark *c, lctx *d, dbuf *f, de_int64 pos, de_int64 len)
+static void do_bitmap(deark *c, lctx *d, const struct image_info *iinfo, dbuf *f,
+	de_int64 pos, de_int64 len)
 {
 	struct deark_bitmap *img = NULL;
 	de_int64 i, j, plane;
@@ -3203,47 +3210,47 @@ static void do_bitmap(deark *c, lctx *d, dbuf *f, de_int64 pos, de_int64 len)
 	de_int64 planespan, rowspan, samplespan;
 	de_byte b;
 
-	if(!de_good_image_dimensions(c, d->width, d->height)) goto done;
+	if(!de_good_image_dimensions(c, iinfo->width, iinfo->height)) goto done;
 
-	if(d->bits_per_channel!=8 && d->bits_per_channel!=16) {
-		de_err(c, "Unsupported bits/channel: %d\n", (int)d->bits_per_channel);
+	if(iinfo->bits_per_channel!=8 && iinfo->bits_per_channel!=16) {
+		de_err(c, "Unsupported bits/channel: %d\n", (int)iinfo->bits_per_channel);
 		goto done;
 	}
 
-	if(d->color_mode==PSD_CM_GRAY && d->num_channels>=1) {
+	if(iinfo->color_mode==PSD_CM_GRAY && iinfo->num_channels>=1) {
 		nplanes = 1;
 	}
-	else if(d->color_mode==PSD_CM_PALETTE && d->num_channels>=1 && d->bits_per_channel==8) {
+	else if(iinfo->color_mode==PSD_CM_PALETTE && iinfo->num_channels>=1 && iinfo->bits_per_channel==8) {
 		nplanes = 1;
 	}
-	else if(d->color_mode==PSD_CM_RGB && d->num_channels>=3) {
+	else if(iinfo->color_mode==PSD_CM_RGB && iinfo->num_channels>=3) {
 		nplanes = 3;
 	}
 	else {
 		de_err(c, "This type of image is not supported (color=%d, "
 			"num channels=%d, bits/channel=%d)\n",
-			(int)d->color_mode, (int)d->num_channels, (int)d->bits_per_channel);
+			(int)iinfo->color_mode, (int)iinfo->num_channels, (int)iinfo->bits_per_channel);
 		goto done;
 	}
 
-	img = de_bitmap_create(c, d->width, d->height, d->color_mode==1 ? 1 : 3);
+	img = de_bitmap_create(c, iinfo->width, iinfo->height, iinfo->color_mode==1 ? 1 : 3);
 
-	samplespan = d->bits_per_channel/8;
-	rowspan = d->width * samplespan;
-	planespan = d->height * rowspan;
+	samplespan = iinfo->bits_per_channel/8;
+	rowspan = iinfo->width * samplespan;
+	planespan = iinfo->height * rowspan;
 
 	for(plane=0; plane<nplanes; plane++) {
-		for(j=0; j<d->height; j++) {
-			for(i=0; i<d->width; i++) {
+		for(j=0; j<iinfo->height; j++) {
+			for(i=0; i<iinfo->width; i++) {
 				b = dbuf_getbyte(f, pos + plane*planespan + j*rowspan + i*samplespan);
-				if(d->color_mode==PSD_CM_RGB) {
+				if(iinfo->color_mode==PSD_CM_RGB) {
 					de_bitmap_setsample(img, i, j, plane, b);
 				}
-				else if(d->color_mode==PSD_CM_GRAY) {
+				else if(iinfo->color_mode==PSD_CM_GRAY) {
 					de_bitmap_setpixel_gray(img, i, j, b);
 				}
-				else if(d->color_mode==PSD_CM_PALETTE) {
-					de_bitmap_setpixel_rgb(img, i, j, d->pal[(unsigned int)b]);
+				else if(iinfo->color_mode==PSD_CM_PALETTE) {
+					de_bitmap_setpixel_rgb(img, i, j, iinfo->pal[(unsigned int)b]);
 				}
 			}
 		}
@@ -3254,7 +3261,7 @@ done:
 	de_bitmap_destroy(img);
 }
 
-static void do_bitmap_packbits(deark *c, lctx *d, zztype *zz)
+static void do_bitmap_packbits(deark *c, lctx *d, zztype *zz, const struct image_info *iinfo)
 {
 	dbuf *unc_pixels = NULL;
 	de_int64 cmpr_data_size = 0;
@@ -3262,9 +3269,9 @@ static void do_bitmap_packbits(deark *c, lctx *d, zztype *zz)
 
 	// Data begins with a table of row byte counts.
 	de_dbg(c, "row sizes table at %"INT64_FMT", len=%d\n", zz->pos,
-		(int)(d->num_channels * d->height * d->intsize_2or4));
+		(int)(iinfo->num_channels * iinfo->height * d->intsize_2or4));
 
-	for(k=0; k < d->num_channels * d->height; k++) {
+	for(k=0; k < iinfo->num_channels * iinfo->height; k++) {
 		if(d->intsize_2or4==4) {
 			cmpr_data_size += psd_getui32zz(zz);
 		}
@@ -3280,7 +3287,7 @@ static void do_bitmap_packbits(deark *c, lctx *d, zztype *zz)
 	de_dbg_indent(c, 1);
 	de_dbg(c, "decompressed %"INT64_FMT" bytes to %"INT64_FMT"\n", cmpr_data_size, unc_pixels->len);
 	de_dbg_indent(c, -1);
-	do_bitmap(c, d, unc_pixels, 0, unc_pixels->len);
+	do_bitmap(c, d, iinfo, unc_pixels, 0, unc_pixels->len);
 	dbuf_close(unc_pixels);
 }
 
@@ -3310,11 +3317,11 @@ static void do_image_data(deark *c, lctx *d, zztype *zz)
 	if(c->extract_policy == DE_EXTRACTPOLICY_AUXONLY) goto done;
 
 	if(cmpr==0) { // Uncompressed
-		do_bitmap(c, d, c->infile, zz->pos, image_data_size);
+		do_bitmap(c, d, d->main_iinfo, c->infile, zz->pos, image_data_size);
 	}
 	else if(cmpr==1) { // PackBits
 		zz_init(&czz, zz);
-		do_bitmap_packbits(c, d, &czz);
+		do_bitmap_packbits(c, d, &czz, d->main_iinfo);
 		zz->pos += zz_used(&czz);
 	}
 	else {
@@ -3358,14 +3365,16 @@ static void de_run_psd(deark *c, de_module_params *mparams)
 		}
 	}
 
-	if(!do_header(c, d, zz->pos)) goto done;
+	d->main_iinfo = de_malloc(c, sizeof(struct image_info));
+
+	if(!do_psd_header(c, d, zz->pos)) goto done;
 	zz->pos += 26;
 
 	de_dbg(c, "color mode data section at %d\n", (int)zz->pos);
 	de_dbg_indent(c, 1);
 	x = psd_getui32zz(zz);
 	zz_init_with_len(&czz, zz, x);
-	do_color_mode_data(c, d, &czz);
+	do_psd_color_mode_data(c, d, &czz);
 	zz->pos += x;
 	de_dbg_indent(c, -1);
 
@@ -3394,7 +3403,10 @@ static void de_run_psd(deark *c, de_module_params *mparams)
 
 done:
 	de_free(c, zz);
-	de_free(c, d);
+	if(d) {
+		de_free(c, d->main_iinfo);
+		de_free(c, d);
+	}
 }
 
 static void de_run_ps_action(deark *c, de_module_params *mparams)
