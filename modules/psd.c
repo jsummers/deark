@@ -104,8 +104,10 @@ DE_DECLARE_MODULE(de_module_ps_csh);
 #define CODE_tySh 0x74795368U
 #define CODE_type 0x74797065U
 #define CODE_vibA 0x76696241U
+#define CODE_vmsk 0x766d736bU
 #define CODE_vogk 0x766f676bU
 #define CODE_vscg 0x76736367U
+#define CODE_vsms 0x76736d73U
 #define CODE_vstk 0x7673746bU
 
 #define PSD_CM_GRAY     1
@@ -239,7 +241,7 @@ static const struct rsrc_info rsrc_info_arr[] = {
 	{ 0x03fe, 0, "Quick Mask information", NULL },
 	//{ 0x03ff, 0, "(Obsolete)", NULL },
 	{ 0x0400, 0, "Layer state information", hrsrc_uint16 },
-	{ 0x0401, 0, "Working path", NULL },
+	{ 0x0401, 0, "Working path", hrsrc_pathinfo },
 	{ 0x0402, 0, "Layers group information", NULL },
 	//{ 0x0403, 0, "(Obsolete)", NULL },
 	{ 0x0404, 0, "IPTC-NAA", hrsrc_iptc },
@@ -2515,6 +2517,24 @@ static void do_lspf_block(deark *c, lctx *d, zztype *zz)
 		(x&0x1), (x&0x2)>>1, (x&0x4)>>2);
 }
 
+static void do_vmsk_block(deark *c, lctx *d, zztype *zz)
+{
+	de_int64 ver;
+	de_int64 flags;
+	zztype czz;
+
+	ver = psd_getui32zz(zz);
+	if(ver!=3) return;
+	flags = psd_getui32zz(zz);
+	de_dbg(c, "flags: 0x%08x\n", (unsigned int)flags);
+
+	de_dbg(c, "path components at %d\n", (int)zz->pos);
+	de_dbg_indent(c, 1);
+	zz_init(&czz, zz);
+	do_pathinfo(c, d, &czz);
+	de_dbg_indent(c, -1);
+}
+
 static void do_vscg_block(deark *c, lctx *d, zztype *zz)
 {
 	struct de_fourcc key4cc;
@@ -2927,6 +2947,10 @@ static int do_tagged_block(deark *c, lctx *d, zztype *zz, int tbnamespace)
 	case CODE_artd:
 	case CODE_abdd:
 		do_descriptor_block(c, d, &czz, &blk4cc, "Artboard Data");
+		break;
+	case CODE_vmsk:
+	case CODE_vsms:
+		do_vmsk_block(c, d, &czz);
 		break;
 	case CODE_vscg:
 		do_vscg_block(c, d, &czz);
