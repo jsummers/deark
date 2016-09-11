@@ -290,7 +290,7 @@ void de_utf8_to_ascii(const char *src, char *dst, size_t dstlen, unsigned int fl
 
 			ret = de_utf8_to_uchar((const de_byte*)&src[srcpos], 4, &uchar, &code_len);
 			if(ret) {
-				srcpos += code_len;
+				srcpos += (size_t)code_len;
 				switch(uchar) {
 				case 0x00d7: sc='x'; break; // Multiplication sign
 				case 0x2018: case 0x2019: sc='\''; break; // single quotes

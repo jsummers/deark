@@ -20,6 +20,7 @@
 struct cmdctx {
 	const char *input_filename;
 	int error_flag;
+	int show_usage_message;
 	int special_command_flag;
 	int msgs_to_stderr;
 
@@ -177,8 +178,12 @@ static void set_encoding_option(deark *c, struct cmdctx *cc, const char *s)
 	if(!strcmp(s, "ascii")) {
 		cc->to_ascii = 1;
 	}
-	else {
+	else if(!strcmp(s, "utf8") || !strcmp(s, "unicode")) {
 		cc->to_ascii = 0;
+	}
+	else {
+		de_puts(c, DE_MSGTYPE_MESSAGE, "Error: Unknown encoding\n");
+		cc->error_flag = 1;
 	}
 }
 
@@ -228,7 +233,7 @@ struct opt_struct option_array[] = {
 	{ "tostdout",     DE_OPT_TOSTDOUT,     0 },
 	{ "msgstostderr", DE_OPT_MSGSTOSTDERR, 0 },
 	{ "fromstdin",    DE_OPT_FROMSTDIN,    0 },
-	{ "encoding",     DE_OPT_ENCODING,     1 },
+	{ "enc",          DE_OPT_ENCODING,     1 },
 	{ "opt",          DE_OPT_EXTOPT,       1 },
 	{ "file2",        DE_OPT_FILE2,        1 },
 	{ "start",        DE_OPT_START,        1 },
@@ -282,11 +287,13 @@ static void parse_cmdline(deark *c, struct cmdctx *cc, int argc, char **argv)
 			if(!opt) {
 				de_printf(c, DE_MSGTYPE_MESSAGE, "Unrecognized option: %s\n", argv[i]);
 				cc->error_flag = 1;
+				cc->show_usage_message = 1;
 				return;
 			}
 			if(i>=argc-opt->extra_args) {
 				de_printf(c, DE_MSGTYPE_MESSAGE, "Option %s needs an argument\n", argv[i]);
 				cc->error_flag = 1;
+				cc->show_usage_message = 1;
 				return;
 			}
 
@@ -371,6 +378,7 @@ static void parse_cmdline(deark *c, struct cmdctx *cc, int argc, char **argv)
 				break;
 			case DE_OPT_ENCODING:
 				set_encoding_option(c, cc, argv[i+1]);
+				if(cc->error_flag) return;
 				break;
 			case DE_OPT_EXTOPT:
 				set_ext_option(c, cc, argv[i+1]);
@@ -413,6 +421,7 @@ static void parse_cmdline(deark *c, struct cmdctx *cc, int argc, char **argv)
 			default:
 				de_printf(c, DE_MSGTYPE_MESSAGE, "Unrecognized option: %s\n", argv[i]);
 				cc->error_flag = 1;
+				cc->show_usage_message = 1;
 				return;
 			}
 
@@ -421,6 +430,7 @@ static void parse_cmdline(deark *c, struct cmdctx *cc, int argc, char **argv)
 		else {
 			if(cc->input_filename) {
 				cc->error_flag = 1;
+				cc->show_usage_message = 1;
 				return;
 			}
 			cc->input_filename = argv[i];
@@ -430,11 +440,12 @@ static void parse_cmdline(deark *c, struct cmdctx *cc, int argc, char **argv)
 
 	if(!cc->input_filename && !cc->special_command_flag && !cc->from_stdin) {
 		cc->error_flag = 1;
+		cc->show_usage_message = 1;
 		return;
 	}
 
 	if(cc->to_zip && cc->to_stdout) {
-		de_puts(c, DE_MSGTYPE_MESSAGE, "-tostdout and -zip are incompatible\n");
+		de_puts(c, DE_MSGTYPE_MESSAGE, "Error: -tostdout and -zip are incompatible\n");
 		cc->error_flag = 1;
 		return;
 	}
@@ -460,7 +471,9 @@ static void main2(int argc, char **argv)
 	parse_cmdline(c, cc, argc, argv);
 
 	if(cc->error_flag) {
-		show_usage_error(c);
+		if(cc->show_usage_message) {
+			show_usage_error(c);
+		}
 		goto done;
 	}
 

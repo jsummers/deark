@@ -133,6 +133,11 @@ Command-line options:
      Print technical and debugging information. -d2 and -d3 are more verbose.
   -dprefix <msg>
      Start each line printed by -d with this prefix. Default is "DEBUG: ".
+  -enc ascii
+     Print all messages using ASCII character only. The default is to use
+     Unicode (UTF-8 encoding, when the encoding is relevant).
+     This only affects messages printed to the terminal. It does not affect the
+     extracted data files.
   -msgstostderr
      Print all messages to stderr, instead of stdout. This option should be
      be placed first on the command line, as it might not affect messages

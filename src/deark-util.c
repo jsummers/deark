@@ -89,26 +89,41 @@ void de_printf(deark *c, int msgtype, const char *fmt, ...)
 
 static void de_vdbg_internal(deark *c, const char *fmt, va_list ap)
 {
-	char spaces[51];
+	char bars_and_spaces[128];
+	size_t bpos;
 	int nspaces;
+	int nbars;
 	const char *dprefix = "DEBUG: ";
 
 	if(c) {
-		nspaces = c->dbg_indent_amount;
 		if(c->dprefix) dprefix = c->dprefix;
+
+		nbars = c->module_nesting_level - 1;
+		if(nbars>10) nbars=10;
+
+		nspaces = c->dbg_indent_amount;
+		if(nspaces>50) nspaces=50;
 	}
 	else {
+		nbars = 0;
 		nspaces = 0;
 	}
 
-	if(nspaces<0) nspaces=0;
-	if(nspaces>50) nspaces=50;
+	bpos = 0;
+	while(nbars>0) {
+		// One or more vertical lines, to indicate module nesting
+		bars_and_spaces[bpos++] = '\xe2'; // U+2502 Box drawings light vertical
+		bars_and_spaces[bpos++] = '\x94';
+		bars_and_spaces[bpos++] = '\x82';
+		nbars--;
+	}
+	while(nspaces>0) {
+		bars_and_spaces[bpos++] = ' ';
+		nspaces--;
+	}
+	bars_and_spaces[bpos] = '\0';
 
-	if(nspaces>0)
-		de_memset(spaces, ' ', nspaces);
-	spaces[nspaces] = '\0';
-
-	de_printf(c, DE_MSGTYPE_DEBUG, "%s%s", dprefix, spaces);
+	de_printf(c, DE_MSGTYPE_DEBUG, "%s%s", dprefix, bars_and_spaces);
 	de_vprintf(c, DE_MSGTYPE_DEBUG, fmt, ap);
 }
 
