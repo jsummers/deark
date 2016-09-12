@@ -871,6 +871,8 @@ static int detect_jpeg_len(deark *c, scanctx *d, de_int64 pos1, de_int64 len)
 	de_int64 pos;
 	de_int64 seg_size;
 	int in_scan = 0;
+	int found_sof = 0;
+	int found_scan = 0;
 
 	d->len = 0;
 	d->is_jpegls = 0;
@@ -900,16 +902,23 @@ static int detect_jpeg_len(deark *c, scanctx *d, de_int64 pos1, de_int64 len)
 			continue;
 		}
 		else if(b1==0xd9) { // EOI. That's what we're looking for.
+			if(!found_sof || !found_scan) return 0;
 			pos+=2;
 			d->len = pos-pos1;
 			return 1;
 		}
 		else if(b1==0xf7) {
 			de_dbg(c, "Looks like a JPEG-LS file.\n");
+			found_sof = 1;
 			d->is_jpegls = 1;
+		}
+		else if(b1>=0xc0 && b1<=0xcf && b1!=0xc4 && b1!=0xc8 && b1!=0xcc) {
+			found_sof = 1;
 		}
 
 		if(b1==0xda) { // SOS - Start of scan
+			if(!found_sof) return 0;
+			found_scan = 1;
 			in_scan = 1;
 		}
 		else if(b1>=0xd0 && b1<=0xd7) {
@@ -952,7 +961,7 @@ static void de_run_jpegscan(deark *c, de_module_params *mparams)
 			pos, c->infile->len-pos, &foundpos);
 		if(!ret) break; // No more JPEGs in file.
 
-		de_dbg(c, "Found likely JPEG file at %d\n", (int)foundpos);
+		de_dbg(c, "Found possible JPEG file at %d\n", (int)foundpos);
 
 		pos = foundpos;
 
