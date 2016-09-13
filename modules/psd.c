@@ -10,6 +10,7 @@
 // * Photoshop Styles (.asl)
 // * Photoshop Brush (.abr)
 // * Photoshop Custom Shape (.csh)
+// * Photoshop Pattern file (.pat)
 
 #include <deark-config.h>
 #include <deark-private.h>
@@ -20,6 +21,7 @@ DE_DECLARE_MODULE(de_module_ps_gradient);
 DE_DECLARE_MODULE(de_module_ps_styles);
 DE_DECLARE_MODULE(de_module_ps_brush);
 DE_DECLARE_MODULE(de_module_ps_csh);
+DE_DECLARE_MODULE(de_module_ps_pattern);
 
 #define CODE_8B64 0x38423634U
 #define CODE_8BIM 0x3842494dU
@@ -2314,17 +2316,56 @@ static void do_vm_array_list(deark *c, lctx *d, zztype *zz)
 	de_dbg_indent(c, -1);
 }
 
+// The main part of a "pattern" object, starting with the version and
+// color_mode[l] fields.
+static int do_pattern_internal(deark *c, lctx *d, zztype *zz)
+{
+	de_int64 pat_color_mode;
+	de_int64 ver;
+	de_int64 w, h;
+	de_ucstring *s = NULL;
+	zztype vmalzz; // for virtual memory array list
+	int retval = 0;
+
+	ver = psd_getui32zz(zz);
+	de_dbg(c, "version: %d\n", (int)ver);
+	if(ver!=1) goto done;
+
+	pat_color_mode = psd_getui32zz(zz);
+	de_dbg(c, "color mode: %d (%s)\n", (int)pat_color_mode, get_colormode_name(pat_color_mode));
+
+	h = psd_getui16zz(zz);
+	w = psd_getui16zz(zz);
+	de_dbg(c, "dimensions: %dx%d\n", (int)w, (int)h);
+
+	s = ucstring_create(c);
+	read_unicode_string(c, d, s, zz);
+	de_dbg(c, "name: \"%s\"\n", ucstring_get_printable_sz_n(s, 300));
+
+	ucstring_empty(s);
+	read_pascal_string_to_ucstring(c, d, s, zz);
+	de_dbg(c, "id: \"%s\"\n", ucstring_get_printable_sz_n(s, 300));
+
+	if(pat_color_mode==PSD_CM_PALETTE) {
+		de_dbg(c, "palette at %d\n", (int)zz->pos);
+		zz->pos += 3*256;
+	}
+
+	zz_init(&vmalzz, zz);
+	do_vm_array_list(c, d, &vmalzz);
+	zz->pos += zz_used(&vmalzz);
+	retval = 1;
+done:
+	ucstring_destroy(s);
+	return retval;
+}
+
 // Decode a single "pattern" object, starting with the "length" field for this
 // pattern.
 static int do_pattern(deark *c, lctx *d, zztype *zz, de_int64 pattern_idx)
 {
 	de_int64 pat_dlen;
-	de_int64 ver;
-	de_int64 pat_color_mode;
-	de_int64 w, h;
-	de_ucstring *s = NULL;
 	zztype datazz; // zz for the pattern data (minus the length field)
-	zztype vmalzz; // for virtual memory array list
 	int retval = 0;
 
 	if(zz_avail(zz)<16) goto done;
@@ -2337,41 +2378,15 @@ static int do_pattern(deark *c, lctx *d, zztype *zz, de_int64 pattern_idx)
 
 	zz_init_with_len(&datazz, zz, pat_dlen);
 
+	do_pattern_internal(c, d, &datazz);
+
 	zz->pos += pad_to_4(pat_dlen);
 	retval = 1;
-
-	ver = psd_getui32zz(&datazz);
-	de_dbg(c, "version: %d\n", (int)ver);
-	if(ver!=1) goto done;
-
-	pat_color_mode = psd_getui32zz(&datazz);
-	de_dbg(c, "color mode: %d (%s)\n", (int)pat_color_mode, get_colormode_name(pat_color_mode));
-
-	h = psd_getui16zz(&datazz);
-	w = psd_getui16zz(&datazz);
-	de_dbg(c, "dimensions: %dx%d\n", (int)w, (int)h);
-
-	s = ucstring_create(c);
-	read_unicode_string(c, d, s, &datazz);
-	de_dbg(c, "name: \"%s\"\n", ucstring_get_printable_sz_n(s, 300));
-
-	ucstring_empty(s);
-	read_pascal_string_to_ucstring(c, d, s, &datazz);
-	de_dbg(c, "id: \"%s\"\n", ucstring_get_printable_sz_n(s, 300));
-
-	if(pat_color_mode==PSD_CM_PALETTE) {
-		de_dbg(c, "palette at %d\n", (int)datazz.pos);
-		datazz.pos += 3*256;
-	}
-
-	zz_init(&vmalzz, &datazz);
-	do_vm_array_list(c, d, &vmalzz);
 
 	de_dbg_indent(c, -1);
 
 	retval = 1;
 done:
-	ucstring_destroy(s);
 	return retval;
 }
 
@@ -3947,6 +3962,48 @@ static void de_run_ps_csh(deark *c, de_module_params *mparams)
 	de_free(c, d);
 }
 
+static void de_run_ps_pattern(deark *c, de_module_params *mparams)
+{
+	lctx *d = NULL;
+	zztype *zz = NULL;
+	de_int64 pat_ver;
+	de_int64 num_patterns;
+	de_int64 i;
+	zztype czz;
+
+	d = de_malloc(c, sizeof(lctx));
+	d->version = 1;
+	init_version_specific_info(c, d);
+
+	zz = de_malloc(c, sizeof(zztype));
+	zz_init_absolute(zz, 0, c->infile->len);
+
+	zz->pos += 4; // Skip over '8BPT' signature
+
+	pat_ver = psd_getui16zz(zz);
+	de_dbg(c, "file version: %d\n", (int)pat_ver);
+
+	if(pat_ver!=1) {
+		de_warn(c, "PAT v%d format might not be supported correctly\n", (int)pat_ver);
+	}
+
+	num_patterns = psd_getui32zz(zz);
+	de_dbg(c, "number of patterns: %d\n", (int)num_patterns);
+
+	for(i=0; i<num_patterns; i++) {
+		if(zz_avail(zz)<4) break;
+		de_dbg(c, "pattern[%d] at %d\n", (int)i, (int)zz->pos);
+		zz_init(&czz, zz);
+		de_dbg_indent(c, 1);
+		if(!do_pattern_internal(c, d, &czz)) break;
+		de_dbg_indent(c, -1);
+		zz->pos += zz_used(&czz);
+	}
+
+	de_free(c, zz);
+	de_free(c, d);
+}
+
 static int de_identify_psd(deark *c)
 {
 	if(!dbuf_memcmp(c->infile, 0, "8BPS", 4)) return 100;
@@ -4045,4 +4102,21 @@ void de_module_ps_csh(deark *c, struct deark_module_info *mi)
 	mi->desc = "Photoshop Custom Shape";
 	mi->run_fn = de_run_ps_csh;
 	mi->identify_fn = de_identify_ps_csh;
+}
+
+static int de_identify_ps_pattern(deark *c)
+{
+	if(!dbuf_memcmp(c->infile, 0, "8BPT", 4)) {
+		if(de_input_file_has_ext(c, "pat")) return 100;
+		return 90;
+	}
+	return 0;
+}
+
+void de_module_ps_pattern(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "ps_pattern";
+	mi->desc = "Photoshop Pattern";
+	mi->run_fn = de_run_ps_pattern;
+	mi->identify_fn = de_identify_ps_pattern;
 }
