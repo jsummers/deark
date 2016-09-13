@@ -173,6 +173,8 @@ typedef struct localctx_struct {
 	de_int64 intsize_2or4;
 	de_int64 intsize_4or8;
 
+	int abr_major_ver, abr_minor_ver;
+
 	struct image_info *main_iinfo;
 } lctx;
 
@@ -2395,11 +2397,58 @@ static void do_Patt_block(deark *c, lctx *d, zztype *zz, const struct de_fourcc 
 	do_pattern_sequence(c, d, zz);
 }
 
-static void do_samp_block(deark *c, lctx *d, zztype *zz, const struct de_fourcc *blk4cc)
+// Process a v6.1 'samp' block, starting right after the ID.
+static void do_samp_block_v61stuff(deark *c, lctx *d, zztype *zz)
+{
+	de_int64 n;
+	de_int64 idata_len;
+
+	// This code is based on guesswork, and may not be correct.
+
+	zz->pos += 8; // 8 unknown bytes
+
+	// Note the similarity to vm_array.
+
+	n = psd_getui16zz(zz);
+	de_dbg(c, "depth: %d\n", (int)n);
+
+	read_rectangle_tlbr(c, d, zz, "rectangle");
+
+	n = psd_getui16zz(zz);
+	de_dbg(c, "depth: %d\n", (int)n);
+
+	n = (de_int64)psd_getbytezz(zz);
+	de_dbg(c, "compression mode: %d\n", (int)n);
+
+	idata_len = zz_avail(zz);
+	de_dbg(c, "[%d bytes of data at %d]\n", (int)idata_len, (int)zz->pos);
+
+}
+
+// Process a v6.2 'samp' block, starting right after the ID.
+static void do_samp_block_v62stuff(deark *c, lctx *d, zztype *zz)
+{
+	de_int64 x;
+	zztype czz;
+
+	// This code is based on guesswork, and may not be correct.
+
+	// I don't know what the first 4 bytes are for. Observed to be 00 01 00 00.
+	x = psd_getui32zz(zz);
+	if(x != 0x00010000) {
+		return;
+	}
+
+	zz_init(&czz, zz);
+	do_vm_array_list(c, d, &czz);
+}
+
+static void do_samp_block(deark *c, lctx *d, zztype *zz)
 {
 	de_int64 item_idx;
 	int saved_indent_level;
 	de_ucstring *tmps = NULL;
+	zztype czz;
 
 	// Note: This code is based on guesswork, and may be incorrect.
 
@@ -2425,9 +2474,17 @@ static void do_samp_block(deark *c, lctx *d, zztype *zz, const struct de_fourcc 
 		read_pascal_string_to_ucstring(c, d, tmps, &datazz);
 		de_dbg(c, "id: \"%s\"\n", ucstring_get_printable_sz_n(tmps, 300));
 
-		// TODO: More data here
+		if(d->abr_major_ver==6 && d->abr_minor_ver<=1) {
+			zz_init(&czz, &datazz);
+			do_samp_block_v61stuff(c, d, &czz);
+		}
+		else if(d->abr_major_ver>6 || (d->abr_major_ver==6 && d->abr_minor_ver>=2)) {
+			zz_init(&czz, &datazz);
+			do_samp_block_v62stuff(c, d, &czz);
+		}
 
 		zz->pos += pad_to_4(item_data_len2);
+
 		de_dbg_indent(c, -1);
 		item_idx++;
 	}
@@ -3004,7 +3061,7 @@ static int do_tagged_block(deark *c, lctx *d, zztype *zz, int tbnamespace)
 		break;
 	case CODE_samp:
 		if(tbnamespace==2) {
-			do_samp_block(c, d, &czz, &blk4cc);
+			do_samp_block(c, d, &czz);
 		}
 		break;
 	}
@@ -3756,8 +3813,7 @@ static void do_abr_v6(deark *c, lctx *d, zztype *zz)
 	de_uint32 sig;
 	zztype czz;
 
-	// TODO: What is the field at offset 2?
-	zz->pos += 4;
+	zz->pos += 4; // Version numbers(?), already read
 	sig = (de_uint32)psd_getui32(zz->pos);
 	if(sig!=CODE_8BIM) {
 		de_err(c, "Bad signature or unsupported Brush format\n");
@@ -3775,7 +3831,6 @@ static void de_run_ps_brush(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
 	zztype *zz = NULL;
-	de_int64 abr_ver;
 	int has_8bim_sig;
 
 	d = de_malloc(c, sizeof(lctx));
@@ -3785,21 +3840,22 @@ static void de_run_ps_brush(deark *c, de_module_params *mparams)
 	zz = de_malloc(c, sizeof(zztype));
 	zz_init_absolute(zz, 0, c->infile->len);
 
-	abr_ver = psd_getui16(0);
-	de_dbg(c, "file version: %d\n", (int)abr_ver);
+	d->abr_major_ver = (int)psd_getui16(0);
+	de_dbg(c, "file version: %d\n", (int)d->abr_major_ver);
 
 	has_8bim_sig = (psd_getui32(4) == CODE_8BIM);
 
-	if(has_8bim_sig && abr_ver>=3) {
+	if(has_8bim_sig && d->abr_major_ver>=3) {
+		d->abr_minor_ver = (int)psd_getui16(2);
 		de_declare_fmt(c, "Photoshop Brush (new format)");
 		do_abr_v6(c, d, zz);
 	}
-	else if(abr_ver<=5) {
+	else if(d->abr_major_ver<=5) {
 		de_declare_fmt(c, "Photoshop Brush (old format)");
 		do_abr_v1(c, d, zz);
 	}
 	else {
-		de_err(c, "Unsupported Photoshop Brush format (version=%d)\n", (int)abr_ver);
+		de_err(c, "Unsupported Photoshop Brush format (version=%d)\n", (int)d->abr_major_ver);
 		goto done;
 	}
 
