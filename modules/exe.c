@@ -63,6 +63,11 @@ typedef struct localctx_struct {
 	de_int64 rsrc_item_count;
 } lctx;
 
+static void append_list_item(de_ucstring *s, const char *str)
+{
+	ucstring_printf(s, DE_ENCODING_UTF8, "%s%s", (s->len>0)?" | ":"", str);
+}
+
 static void do_opt_coff_data_dirs(deark *c, lctx *d, de_int64 pos)
 {
 	de_int64 rsrc_tbl_rva;
@@ -159,35 +164,134 @@ static void do_opt_coff_header(deark *c, lctx *d, de_int64 pos, de_int64 len)
 	de_dbg_indent(c, -1);
 }
 
+static void do_pe_characteristics(deark *c, lctx *d, unsigned int v)
+{
+	de_ucstring *s = NULL;
+	s = ucstring_create(c);
+
+	if(v&0x0001) append_list_item(s, "relocs_stripped");
+	if(v&0x0002) append_list_item(s, "valid_executable");
+	if(v&0x0004) append_list_item(s, "COFF_line_numbers_stripped");
+	if(v&0x0008) append_list_item(s, "COFF_local_stripped");
+	if(v&0x0020) append_list_item(s, "large_address_aware");
+	if(v&0x0100) append_list_item(s, "32-bit");
+	if(v&0x0200) append_list_item(s, "stripped");
+	if(v&0x2000) append_list_item(s, "DLL");
+	// TODO: There are more flags than this.
+	de_dbg(c, "characteristics: 0x%04x (%s)\n", v, ucstring_get_printable_sz(s));
+	ucstring_destroy(s);
+}
+
+static const char *get_machine_type_name(de_int64 n)
+{
+	const char *s = "?";
+	switch(n) {
+		// TODO: This list is incomplete.
+	case 0x0000: s = "neutral"; break;
+	case 0x014c: s = "386+"; break;
+	case 0x0200: s = "Itanium"; break;
+	case 0x8664: s = "x64"; break;
+	}
+	return s;
+}
+
 // 'pos' is the start of the 4-byte PE signature.
 // Following it is a 20-byte COFF header.
 static void do_pe_coff_header(deark *c, lctx *d, de_int64 pos)
 {
-	de_int64 arch;
+	unsigned int arch;
+	de_int64 n;
 
 	de_dbg(c, "PE header at %d\n", (int)d->ext_header_offset);
 	de_dbg_indent(c, 1);
 
-	arch = de_getui16le(pos+4+0);
-	de_dbg(c, "target architecture: 0x%04x\n", (int)arch);
+	// a.k.a. "Machine". TODO: Decode this.
+	arch = (unsigned int)de_getui16le(pos+4+0);
+	de_dbg(c, "target architecture: 0x%04x (%s)\n", arch,
+		get_machine_type_name(arch));
 
 	d->pe_number_of_sections = de_getui16le(pos+4+2);
 	de_dbg(c, "number of sections: %d\n", (int)d->pe_number_of_sections);
 
 	d->pe_opt_hdr_size = de_getui16le(pos+4+16);
 	de_dbg(c, "optional header size: %d\n", (int)d->pe_opt_hdr_size);
+
+	n = de_getui16le(pos+4+18);
+	do_pe_characteristics(c, d, (unsigned int)n);
+
 	if(d->pe_opt_hdr_size>0) {
 		do_opt_coff_header(c, d, pos+4+20, d->pe_opt_hdr_size);
 		d->pe_sections_offset = pos+4+20+d->pe_opt_hdr_size;
 	}
 
+
 	de_dbg_indent(c, -1);
+}
+
+static void do_ne_program_flags(deark *c, lctx *d, de_byte flags)
+{
+	de_ucstring *s = NULL;
+	s = ucstring_create(c);
+
+	switch(flags&0x03) {
+	case 1: append_list_item(s, "dgroup_type=single_shared"); break;
+	case 2: append_list_item(s, "dgroup_type=multiple"); break;
+	case 3: append_list_item(s, "dgroup_type=null"); break;
+	}
+
+	if(flags&0x4) append_list_item(s, "global init");
+	if(flags&0x8) append_list_item(s, "protected mode");
+	if(flags&0x10) append_list_item(s, "8086");
+	if(flags&0x20) append_list_item(s, "80286");
+	if(flags&0x40) append_list_item(s, "80386");
+	if(flags&0x80) append_list_item(s, "80x87");
+
+	de_dbg(c, "program flags: 0x%02x (%s)\n", (unsigned int)flags,
+		ucstring_get_printable_sz(s));
+
+	ucstring_destroy(s);
+}
+
+static void do_ne_app_flags(deark *c, lctx *d, de_byte flags)
+{
+	de_ucstring *s = NULL;
+	s = ucstring_create(c);
+
+	switch(flags&0x07) {
+	case 0x1: append_list_item(s, "type=non-windowed"); break;
+	case 0x2: append_list_item(s, "type=windowed-compatible"); break;
+	case 0x3: append_list_item(s, "type=windowed"); break;
+	}
+
+	if(flags&0x08) append_list_item(s, "OS/2");
+	if(flags&0x80) append_list_item(s, "DLL");
+
+	de_dbg(c, "application flags: 0x%02x (%s)\n", (unsigned int)flags,
+		ucstring_get_printable_sz(s));
+
+	ucstring_destroy(s);
 }
 
 static void do_ne_ext_header(deark *c, lctx *d, de_int64 pos)
 {
 	de_byte target_os;
 	const char *desc;
+	de_byte b1, b2;
+
+	de_dbg(c, "NE extended header at %d\n", (int)pos);
+	de_dbg_indent(c, 1);
+
+	b1 = de_getbyte(pos+2);
+	b2 = de_getbyte(pos+3);
+	de_dbg(c, "linker version: %d.%d\n", (int)b1,(int)b2);
+
+	// 4-5: Offset of entry table
+	// 6-7: length of entry table
+	// 8-11: file load CRC
+
+	do_ne_program_flags(c, d, de_getbyte(pos+12));
+
+	do_ne_app_flags(c, d, de_getbyte(pos+13));
 
 	d->ne_rsrc_tbl_offset = de_getui16le(pos+36);
 	d->ne_rsrc_tbl_offset += pos;
@@ -195,14 +299,16 @@ static void do_ne_ext_header(deark *c, lctx *d, de_int64 pos)
 
 	target_os = de_getbyte(pos+54);
 	switch(target_os) {
-	case 1: desc=" (OS/2)"; break;
-	case 2: desc=" (Windows)"; break;
-	case 3: desc=" (European MS-DOS 4.x)"; break;
-	case 4: desc=" (Windows 386)"; break;
-	case 5: desc=" (Borland Operating System Services)"; break;
-	default: desc="";
+	case 1: desc="OS/2"; break;
+	case 2: desc="Windows"; break;
+	case 3: desc="European MS-DOS 4.x"; break;
+	case 4: desc="Windows 386"; break;
+	case 5: desc="Borland Operating System Services"; break;
+	default: desc="?";
 	}
-	de_dbg(c, "target OS: %d%s\n", (int)target_os, desc);
+	de_dbg(c, "target OS: %d (%s)\n", (int)target_os, desc);
+
+	de_dbg_indent(c, -1);
 }
 
 static void do_lx_or_le_ext_header(deark *c, lctx *d, de_int64 pos)
@@ -756,6 +862,7 @@ static void do_ne_rsrc_tbl(deark *c, lctx *d)
 	pos = d->ne_rsrc_tbl_offset;
 
 	de_dbg(c, "resource table at %d\n", (int)pos);
+	de_dbg_indent(c, 1);
 
 	d->ne_align_shift = (unsigned int)de_getui16le(pos);
 	de_dbg(c, "rscAlignShift: %u\n", d->ne_align_shift);
@@ -813,6 +920,8 @@ static void do_ne_rsrc_tbl(deark *c, lctx *d)
 		pos += 8 + 12*rsrc_count;
 		i++;
 	}
+
+	de_dbg_indent(c, -1);
 
 done:
 	de_dbg_indent_restore(c, saved_indent_level);
