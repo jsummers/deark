@@ -464,6 +464,22 @@ static const char *get_colormode_name(de_int64 n)
 	return name;
 }
 
+static void dbg_print_compression_method(deark *c, lctx *d, de_int64 cmpr)
+{
+	const char *name = "?";
+
+	switch(cmpr) {
+	case 0: name="uncompressed"; break;
+		// (At one point the PSD spec says that "1 is zip", but I think that's a
+		// clerical error. My best guess is that all the compression fields use
+		// the same compression codes.)
+	case 1: name="PackBits"; break;
+	case 2: name="ZIP without prediction"; break;
+	case 3: name="ZIP with prediction"; break;
+	}
+	de_dbg(c, "compression method: %d (%s)\n", (int)cmpr, name);
+}
+
 // The PSD module's version of dbuf_read_fourcc()
 static void psd_read_fourcc_zz(deark *c, lctx *d, zztype *zz, struct de_fourcc *fourcc)
 {
@@ -1398,12 +1414,7 @@ static int do_descriptor_item(deark *c, lctx *d, zztype *zz)
 	itempos = zz->pos;
 
 	read_flexible_id_zz(c, d, zz, &key);
-	if(key.is_fourcc) {
-		de_dbg(c, "key: fourcc('%s')\n", key.fourcc.id_printable);
-	}
-	else {
-		de_dbg(c, "key: string(\"%s\")\n", ucstring_get_printable_sz(key.s));
-	}
+	dbg_print_flexible_id(c, d, &key, "key");
 
 	zz_init(&czz, zz);
 	ret = do_descriptor_item_ostype_and_data(c, d, &key, &czz, itempos);
@@ -2260,7 +2271,7 @@ static void do_vm_array(deark *c, lctx *d, zztype *zz)
 	de_dbg(c, "depth: %d\n", (int)n);
 
 	n = (de_int64)psd_getbytezz(zz);
-	de_dbg(c, "compression mode: %d\n", (int)n);
+	dbg_print_compression_method(c, d, n);
 
 	idata_len = saved_pos + dlen - zz->pos;
 	de_dbg(c, "[%d bytes of data at %d]\n", (int)idata_len, (int)zz->pos);
@@ -2433,7 +2444,7 @@ static void do_samp_block_v61stuff(deark *c, lctx *d, zztype *zz)
 	de_dbg(c, "depth: %d\n", (int)n);
 
 	n = (de_int64)psd_getbytezz(zz);
-	de_dbg(c, "compression mode: %d\n", (int)n);
+	dbg_print_compression_method(c, d, n);
 
 	idata_len = zz_avail(zz);
 	de_dbg(c, "[%d bytes of data at %d]\n", (int)idata_len, (int)zz->pos);
@@ -2723,7 +2734,7 @@ static void do_filter_effect_channel(deark *c, lctx *d, zztype *zz)
 	if(dlen<=0) goto done;
 
 	cmpr_mode = psd_getui16zz(zz);
-	de_dbg(c, "compression mode: %d\n", (int)cmpr_mode);
+	dbg_print_compression_method(c, d, cmpr_mode);
 
 	de_dbg(c, "[%d bytes at %d]\n", (int)(saved_pos + dlen - zz->pos), (int)zz->pos);
 	zz->pos = saved_pos + dlen;
@@ -2807,7 +2818,7 @@ static void do_filter_effect(deark *c, lctx *d, zztype *zz)
 
 	if(b) {
 		x = psd_getui16zz(zz);
-		de_dbg(c, "compression mode: %d\n", (int)x);
+		dbg_print_compression_method(c, d, x);
 	}
 
 	de_dbg(c, "[%d bytes at %d]\n", (int)zz_avail(zz), (int)zz->pos);
@@ -3538,20 +3549,13 @@ static void do_image_data(deark *c, lctx *d, zztype *zz)
 	de_int64 len;
 	de_int64 image_data_size;
 	zztype czz;
-	const char *name = "?";
 
 	len = zz_avail(zz);
 	if(len<2) return;
 	de_dbg(c, "image data section at %d, expected len=%d\n", (int)zz->pos, (int)len);
 	de_dbg_indent(c, 1);
 	cmpr = psd_getui16zz(zz);
-	switch(cmpr) {
-	case 0: name="uncompressed"; break;
-	case 1: name="PackBits"; break;
-	case 2: name="ZIP without prediction"; break;
-	case 3: name="ZIP with prediction"; break;
-	}
-	de_dbg(c, "compression method: %d (%s)\n", (int)cmpr, name);
+	dbg_print_compression_method(c, d, cmpr);
 
 	image_data_size = zz_avail(zz);
 
@@ -4020,10 +4024,18 @@ void de_module_psd(deark *c, struct deark_module_info *mi)
 
 static int de_identify_ps_action(deark *c)
 {
+	int ver=0;
+
 	if(!dbuf_memcmp(c->infile, 0, "\x00\x00\x00\x10\x00\x00", 6)) {
-		if(de_input_file_has_ext(c, "atn")) return 100;
+		ver = 16;
 	}
-	return 0;
+	else if(!dbuf_memcmp(c->infile, 0, "\x00\x00\x00\x0c", 4)) {
+		ver = 12;
+	}
+	if(ver==0) return 0;
+	if(!de_input_file_has_ext(c, "atn")) return 0;
+	if(ver==16) return 100;
+	return 5; // A version we don't support
 }
 
 void de_module_ps_action(deark *c, struct deark_module_info *mi)
