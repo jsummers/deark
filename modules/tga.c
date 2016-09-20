@@ -14,6 +14,9 @@ struct tgaimginfo {
 
 typedef struct localctx_struct {
 	de_int64 id_field_len;
+#define FMT_TGA 0
+#define FMT_VST 1
+	int file_format;
 	de_byte color_map_type;
 	de_byte img_type;
 	struct tgaimginfo main_image;
@@ -38,6 +41,8 @@ typedef struct localctx_struct {
 #define TGA_CLRTYPE_TRUECOLOR 2
 #define TGA_CLRTYPE_GRAYSCALE 3
 	int color_type;
+	const char *cmpr_name;
+	const char *clrtype_name;
 	de_int64 bytes_per_pixel;
 	de_int64 bytes_per_pal_entry;
 	de_int64 pal_size_in_bytes;
@@ -401,31 +406,9 @@ static void do_read_footer(deark *c, lctx *d)
 	}
 }
 
-static int has_signature(deark *c)
+static int do_read_tga_headers(deark *c, lctx *d, de_int64 pos)
 {
-	if(c->infile->len<18+26) return 0;
-	if(!dbuf_memcmp(c->infile, c->infile->len-18, "TRUEVISION-XFILE.\0", 18)) {
-		return 1;
-	}
-	return 0;
-}
-
-static void de_run_tga(deark *c, de_module_params *mparams)
-{
-	lctx *d = NULL;
-	de_int64 pos;
-	const char *cmpr_name = NULL;
-	const char *clrtype_name = NULL;
-	dbuf *unc_pixels = NULL;
-	int saved_indent_level;
-
-	de_dbg_indent_save(c, &saved_indent_level);
-	d = de_malloc(c, sizeof(lctx));
-
-	pos = 0;
-
-	d->has_signature = has_signature(c);
-	de_dbg(c, "has v2 signature: %s\n", d->has_signature?"yes":"no");
+	int retval = 0;
 
 	de_dbg(c, "header at %d\n", 0);
 	de_dbg_indent(c, 1);
@@ -440,38 +423,38 @@ static void de_run_tga(deark *c, de_module_params *mparams)
 	case 1: case 9:
 	case 32: case 33:
 		d->color_type = TGA_CLRTYPE_PALETTE;
-		clrtype_name = "palette";
+		d->clrtype_name = "palette";
 		break;
 	case 2: case 10:
 		d->color_type = TGA_CLRTYPE_TRUECOLOR;
-		clrtype_name = "truecolor";
+		d->clrtype_name = "truecolor";
 		break;
 	case 3: case 11:
 		d->color_type = TGA_CLRTYPE_GRAYSCALE;
-		clrtype_name = "grayscale";
+		d->clrtype_name = "grayscale";
 		break;
 	default:
 		d->color_type = TGA_CLRTYPE_UNKNOWN;
-		clrtype_name = "unknown";
+		d->clrtype_name = "unknown";
 	}
 
 	switch(d->img_type) {
 	case 1: case 2: case 3:
 		d->cmpr_type = TGA_CMPR_NONE;
-		cmpr_name = "none";
+		d->cmpr_name = "none";
 		break;
 	case 9: case 10: case 11:
 		d->cmpr_type = TGA_CMPR_RLE;
-		cmpr_name = "RLE";
+		d->cmpr_name = "RLE";
 		break;
 	default:
 		d->cmpr_type = TGA_CMPR_UNKNOWN;
-		cmpr_name = "unknown";
+		d->cmpr_name = "unknown";
 	}
 
 	de_dbg_indent(c, 1);
-	de_dbg(c, "color type: %s\n", clrtype_name);
-	de_dbg(c, "compression: %s\n", cmpr_name);
+	de_dbg(c, "color type: %s\n", d->clrtype_name);
+	de_dbg(c, "compression: %s\n", d->cmpr_name);
 	de_dbg_indent(c, -1);
 
 	if(d->color_map_type != 0) {
@@ -509,6 +492,43 @@ static void de_run_tga(deark *c, de_module_params *mparams)
 
 	if(!de_good_image_dimensions(c, d->main_image.width, d->main_image.height)) goto done;
 
+	retval = 1;
+done:
+	return retval;
+}
+
+static int has_signature(deark *c)
+{
+	if(c->infile->len<18+26) return 0;
+	if(!dbuf_memcmp(c->infile, c->infile->len-18, "TRUEVISION-XFILE.\0", 18)) {
+		return 1;
+	}
+	return 0;
+}
+
+// Sets d->file_format and d->has_signature
+static void detect_file_format(deark *c, lctx *d)
+{
+	d->file_format = FMT_TGA;
+	d->has_signature = has_signature(c);
+	de_dbg(c, "has v2 signature: %s\n", d->has_signature?"yes":"no");
+}
+
+static void de_run_tga(deark *c, de_module_params *mparams)
+{
+	lctx *d = NULL;
+	de_int64 pos;
+	dbuf *unc_pixels = NULL;
+	int saved_indent_level;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+	d = de_malloc(c, sizeof(lctx));
+
+	detect_file_format(c, d);
+
+	pos = 0;
+
+	if(!do_read_tga_headers(c, d, pos)) goto done;
 	pos += 18;
 
 	if(d->id_field_len>0) {
@@ -538,7 +558,7 @@ static void de_run_tga(deark *c, de_module_params *mparams)
 	if(d->color_type!=TGA_CLRTYPE_PALETTE && d->color_type!=TGA_CLRTYPE_TRUECOLOR &&
 		d->color_type!=TGA_CLRTYPE_GRAYSCALE)
 	{
-		de_err(c, "Unsupported color type (%d: %s)\n", (int)d->color_type, clrtype_name);
+		de_err(c, "Unsupported color type (%d: %s)\n", (int)d->color_type, d->clrtype_name);
 		goto done;
 	}
 
@@ -552,7 +572,7 @@ static void de_run_tga(deark *c, de_module_params *mparams)
 		;
 	}
 	else {
-		de_err(c, "Unsupported TGA image type (%s, depth=%d)\n", clrtype_name,
+		de_err(c, "Unsupported TGA image type (%s, depth=%d)\n", d->clrtype_name,
 			(int)d->pixel_depth);
 		goto done;
 	}
@@ -565,7 +585,7 @@ static void de_run_tga(deark *c, de_module_params *mparams)
 		unc_pixels = dbuf_open_input_subfile(c->infile, pos, d->main_image.img_size_in_bytes);
 	}
 	else {
-		de_err(c, "Unsupported compression type (%d, %s)\n", (int)d->cmpr_type, cmpr_name);
+		de_err(c, "Unsupported compression type (%d, %s)\n", (int)d->cmpr_type, d->cmpr_name);
 		goto done;
 	}
 
@@ -639,6 +659,9 @@ static int de_identify_tga(deark *c)
 
 	if(de_input_file_has_ext(c, "tga")) {
 		return 100;
+	}
+	if(de_input_file_has_ext(c, "vst")) {
+		return 40;
 	}
 	return 8;
 }
