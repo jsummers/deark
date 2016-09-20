@@ -62,6 +62,7 @@ static void do_decode_image(deark *c, lctx *d, struct tgaimginfo *imginfo, dbuf 
 	de_byte a;
 	de_int64 rowspan;
 	int output_bypp;
+	unsigned int getrgbflags;
 
 	rowspan = imginfo->width*d->bytes_per_pixel;
 
@@ -72,6 +73,11 @@ static void do_decode_image(deark *c, lctx *d, struct tgaimginfo *imginfo, dbuf 
 
 	if(d->has_alpha_channel)
 		output_bypp++;
+
+	if(d->file_format==FMT_VST)
+		getrgbflags = 0;
+	else
+		getrgbflags = DE_GETRGBFLAG_BGR;
 
 	img = de_bitmap_create(c, imginfo->width, imginfo->height, output_bypp);
 
@@ -93,7 +99,7 @@ static void do_decode_image(deark *c, lctx *d, struct tgaimginfo *imginfo, dbuf 
 				de_bitmap_setpixel_rgb(img, i_adj, j_adj, clr);
 			}
 			else if(d->color_type==TGA_CLRTYPE_TRUECOLOR) {
-				clr = dbuf_getRGB(unc_pixels, j*rowspan + i*d->bytes_per_pixel, DE_GETRGBFLAG_BGR);
+				clr = dbuf_getRGB(unc_pixels, j*rowspan + i*d->bytes_per_pixel, getrgbflags);
 				if(d->has_alpha_channel) {
 					a = dbuf_getbyte(unc_pixels, j*rowspan + i*d->bytes_per_pixel+3);
 					de_bitmap_setpixel_rgba(img, i_adj, j_adj, DE_SET_ALPHA(clr, a));
@@ -288,6 +294,7 @@ static int do_read_palette(deark *c, lctx *d, de_int64 pos)
 {
 	de_int64 i;
 	de_int64 idx;
+	unsigned int getrgbflags;
 
 	if(d->color_type != TGA_CLRTYPE_PALETTE) {
 		return 1; // don't care about the palette
@@ -302,10 +309,15 @@ static int do_read_palette(deark *c, lctx *d, de_int64 pos)
 		return 0;
 	}
 
+	if(d->file_format==FMT_VST)
+		getrgbflags = 0;
+	else
+		getrgbflags = DE_GETRGBFLAG_BGR;
+
 	for(i=0; i<d->cmap_length; i++) {
 		idx = d->cmap_start + i;
 		if(idx<0 || idx>255) continue;
-		d->pal[idx] = dbuf_getRGB(c->infile, pos + i*d->bytes_per_pal_entry, DE_GETRGBFLAG_BGR);
+		d->pal[idx] = dbuf_getRGB(c->infile, pos + i*d->bytes_per_pal_entry, getrgbflags);
 		de_dbg_pal_entry(c, idx, d->pal[idx]);
 	}
 	return 1;
@@ -406,7 +418,25 @@ static void do_read_footer(deark *c, lctx *d)
 	}
 }
 
-static int do_read_tga_headers(deark *c, lctx *d, de_int64 pos)
+static void do_read_image_descriptor(deark *c, lctx *d)
+{
+	d->image_descriptor = de_getbyte(17);
+	de_dbg(c, "descriptor: 0x%02x\n", (unsigned int)d->image_descriptor);
+
+	de_dbg_indent(c, 1);
+	d->num_attribute_bits = (de_int64)(d->image_descriptor & 0x0f);
+	de_dbg(c, "number of %s bits: %d\n",
+		d->file_format==FMT_VST?"alpha channel":"attribute",
+		(int)d->num_attribute_bits);
+
+	d->right_to_left = (d->image_descriptor>>4)&0x01;
+	d->top_down = (d->image_descriptor>>5)&0x01;
+	de_dbg(c, "right-to-left flag: %d\n", (int)d->right_to_left);
+	de_dbg(c, "top-down flag: %d\n", (int)d->top_down);
+	de_dbg_indent(c, -1);
+}
+
+static int do_read_tga_headers(deark *c, lctx *d)
 {
 	int retval = 0;
 
@@ -453,8 +483,8 @@ static int do_read_tga_headers(deark *c, lctx *d, de_int64 pos)
 	}
 
 	de_dbg_indent(c, 1);
-	de_dbg(c, "color type: %s\n", d->clrtype_name);
-	de_dbg(c, "compression: %s\n", d->cmpr_name);
+	de_dbg(c, "color type: %d (%s)\n", (int)d->color_type, d->clrtype_name);
+	de_dbg(c, "compression: %d (%s)\n", (int)d->cmpr_type, d->cmpr_name);
 	de_dbg_indent(c, -1);
 
 	if(d->color_map_type != 0) {
@@ -471,24 +501,66 @@ static int do_read_tga_headers(deark *c, lctx *d, de_int64 pos)
 
 	d->pixel_depth = (de_int64)de_getbyte(16);
 	de_dbg(c, "pixel depth: %d\n", (int)d->pixel_depth);
-	d->image_descriptor = de_getbyte(17);
-	de_dbg(c, "descriptor: 0x%02x\n", (unsigned int)d->image_descriptor);
 
-	de_dbg_indent(c, 1);
-	d->num_attribute_bits = (de_int64)(d->image_descriptor & 0x0f);
-	de_dbg(c, "number of attribute bits: %d\n", (int)d->num_attribute_bits);
-
-	d->right_to_left = (d->image_descriptor>>4)&0x01;
-	d->top_down = (d->image_descriptor>>5)&0x01;
-	de_dbg(c, "right-to-left flag: %d\n", (int)d->right_to_left);
-	de_dbg(c, "top-down flag: %d\n", (int)d->top_down);
-	de_dbg_indent(c, -1);
+	do_read_image_descriptor(c, d);
 
 	de_dbg_indent(c, -1);
 
 	if(d->has_signature) {
 		do_read_footer(c, d);
 	}
+
+	if(!de_good_image_dimensions(c, d->main_image.width, d->main_image.height)) goto done;
+
+	retval = 1;
+done:
+	return retval;
+}
+
+// This .vst (TrueVista) decoder is based on guesswork, on the limited information
+// in the TGA spec, and on the behavior of XnView. It may not be correct.
+static int do_read_vst_headers(deark *c, lctx *d)
+{
+	int retval = 0;
+
+	de_dbg(c, "header at %d\n", 0);
+	de_dbg_indent(c, 1);
+
+	d->id_field_len = (de_int64)de_getbyte(0);
+
+	if(d->id_field_len==0) {
+		// ??? XnView seems to do something like this.
+		d->id_field_len=18;
+	}
+
+	d->cmpr_type = TGA_CMPR_NONE;
+	d->cmpr_name = "none";
+
+	d->main_image.width = de_getui16le(12);
+	d->main_image.height = de_getui16le(14);
+	de_dbg(c, "dimensions: %dx%d\n", (int)d->main_image.width, (int)d->main_image.height);
+
+	d->pixel_depth = (de_int64)de_getbyte(16);
+	de_dbg(c, "pixel depth: %d\n", (int)d->pixel_depth);
+	if(d->pixel_depth==8) {
+		d->color_map_type = 1;
+		d->color_type = TGA_CLRTYPE_PALETTE;
+		d->clrtype_name = "palette";
+	}
+	else {
+		d->color_type = TGA_CLRTYPE_TRUECOLOR;
+		d->clrtype_name = "truecolor";
+	}
+
+	if(d->color_type==TGA_CLRTYPE_PALETTE) {
+		d->cmap_start = 0;
+		d->cmap_length = 256;
+		d->cmap_depth = 24;
+	}
+
+	do_read_image_descriptor(c, d);
+
+	de_dbg_indent(c, -1);
 
 	if(!de_good_image_dimensions(c, d->main_image.width, d->main_image.height)) goto done;
 
@@ -509,9 +581,26 @@ static int has_signature(deark *c)
 // Sets d->file_format and d->has_signature
 static void detect_file_format(deark *c, lctx *d)
 {
-	d->file_format = FMT_TGA;
+	int has_igch;
+	de_byte img_type;
+
 	d->has_signature = has_signature(c);
 	de_dbg(c, "has v2 signature: %s\n", d->has_signature?"yes":"no");
+	if(d->has_signature) {
+		d->file_format = FMT_TGA;
+		return;
+	}
+
+	img_type = de_getbyte(2);
+	if(img_type==0) {
+		has_igch = !dbuf_memcmp(c->infile, 20, "IGCH", 4);
+		if(has_igch) {
+			d->file_format = FMT_VST;
+			return;
+		}
+	}
+
+	d->file_format = FMT_TGA;
 }
 
 static void de_run_tga(deark *c, de_module_params *mparams)
@@ -526,9 +615,21 @@ static void de_run_tga(deark *c, de_module_params *mparams)
 
 	detect_file_format(c, d);
 
+	if(d->file_format==FMT_VST) {
+		de_declare_fmt(c, "TrueVista");
+	}
+	else {
+		de_declare_fmt(c, "TGA");
+	}
+
 	pos = 0;
 
-	if(!do_read_tga_headers(c, d, pos)) goto done;
+	if(d->file_format==FMT_VST) {
+		if(!do_read_vst_headers(c, d)) goto done;
+	}
+	else {
+		if(!do_read_tga_headers(c, d)) goto done;
+	}
 	pos += 18;
 
 	if(d->id_field_len>0) {
