@@ -43,7 +43,7 @@ typedef struct localctx_struct {
 	int color_type;
 	const char *cmpr_name;
 	const char *clrtype_name;
-	de_int64 bytes_per_pixel;
+	de_int64 bytes_per_pixel; // May be meaningless if pixel_depth is not a multiple of 8
 	de_int64 bytes_per_pal_entry;
 	de_int64 pal_size_in_bytes;
 	de_int64 aspect_ratio_num, aspect_ratio_den;
@@ -51,8 +51,17 @@ typedef struct localctx_struct {
 	de_uint32 pal[256];
 } lctx;
 
-static void do_decode_image(deark *c, lctx *d, struct tgaimginfo *imginfo, dbuf *unc_pixels,
-	const char *token, unsigned int createflags)
+static void do_decode_image_1bpp(deark *c, lctx *d, struct tgaimginfo *imginfo, dbuf *unc_pixels,
+	de_finfo *fi, unsigned int createflags)
+{
+	de_warn(c, "1-bit TGA images are not portable, and may not be decoded correctly\n");
+
+	de_convert_and_write_image_bilevel(unc_pixels, 0, imginfo->width, imginfo->height,
+		(imginfo->width+7)/8, 0, fi, createflags);
+}
+
+static void do_decode_image_default(deark *c, lctx *d, struct tgaimginfo *imginfo, dbuf *unc_pixels,
+	de_finfo *fi, unsigned int createflags)
 {
 	struct deark_bitmap *img = NULL;
 	de_int64 i, j;
@@ -119,8 +128,29 @@ static void do_decode_image(deark *c, lctx *d, struct tgaimginfo *imginfo, dbuf 
 		}
 	}
 
-	de_bitmap_write_to_file(img, token, createflags);
+	de_bitmap_write_to_file_finfo(img, fi, createflags);
 	de_bitmap_destroy(img);
+}
+
+static void do_decode_image(deark *c, lctx *d, struct tgaimginfo *imginfo, dbuf *unc_pixels,
+	const char *token, unsigned int createflags)
+{
+	de_finfo *fi = NULL;
+
+	fi = de_finfo_create(c);
+
+	if(token) {
+		fi->file_name = de_strdup(c, token);
+	}
+
+	if(d->pixel_depth==1) {
+		do_decode_image_1bpp(c, d, imginfo, unc_pixels, fi, createflags);
+	}
+	else {
+		do_decode_image_default(c, d, imginfo, unc_pixels, fi, createflags);
+	}
+
+	de_finfo_destroy(c, fi);
 }
 
 // TGA transparency is kind of a mess. Multiple ways of labeling it, some of
@@ -609,6 +639,7 @@ static void de_run_tga(deark *c, de_module_params *mparams)
 	de_int64 pos;
 	dbuf *unc_pixels = NULL;
 	int saved_indent_level;
+	de_int64 rowspan_tmp;
 
 	de_dbg_indent_save(c, &saved_indent_level);
 	d = de_malloc(c, sizeof(lctx));
@@ -654,7 +685,13 @@ static void de_run_tga(deark *c, de_module_params *mparams)
 	de_dbg_indent(c, 1);
 
 	d->bytes_per_pixel = ((d->pixel_depth+7)/8);
-	d->main_image.img_size_in_bytes = d->main_image.height * d->main_image.width * d->bytes_per_pixel;
+	if(d->pixel_depth==1) {
+		rowspan_tmp = (d->main_image.width+7)/8;
+	}
+	else {
+		rowspan_tmp = d->main_image.width * d->bytes_per_pixel;
+	}
+	d->main_image.img_size_in_bytes = d->main_image.height * rowspan_tmp;
 
 	if(d->color_type!=TGA_CLRTYPE_PALETTE && d->color_type!=TGA_CLRTYPE_TRUECOLOR &&
 		d->color_type!=TGA_CLRTYPE_GRAYSCALE)
@@ -668,6 +705,7 @@ static void de_run_tga(deark *c, de_module_params *mparams)
 		(d->color_type==TGA_CLRTYPE_TRUECOLOR && d->pixel_depth==16) ||
 		(d->color_type==TGA_CLRTYPE_TRUECOLOR && d->pixel_depth==24) ||
 		(d->color_type==TGA_CLRTYPE_TRUECOLOR && d->pixel_depth==32) ||
+		(d->color_type==TGA_CLRTYPE_GRAYSCALE && d->pixel_depth==1) ||
 		(d->color_type==TGA_CLRTYPE_GRAYSCALE && d->pixel_depth==8) )
 	{
 		;
@@ -679,6 +717,11 @@ static void de_run_tga(deark *c, de_module_params *mparams)
 	}
 
 	if(d->cmpr_type==TGA_CMPR_RLE) {
+		if(d->pixel_depth%8) {
+			de_err(c, "RLE compression not supported when depth (%d) is not a multiple of 8\n",
+				(int)d->pixel_depth);
+			goto done;
+		}
 		unc_pixels = dbuf_create_membuf(c, d->main_image.img_size_in_bytes, 1);
 		if(!do_decode_rle(c, d, pos, unc_pixels)) goto done;
 	}
@@ -735,7 +778,7 @@ static int de_identify_tga(deark *c)
 	if(b[1]>1) return 0; // Color map type should be 0 or 1.
 
 	// bits/pixel:
-	if(b[16]!=8 && b[16]!=15 && b[16]!=16 && b[16]!=24 && b[16]!=32) return 0;
+	if(b[16]!=1 && b[16]!=8 && b[16]!=15 && b[16]!=16 && b[16]!=24 && b[16]!=32) return 0;
 
 	if(b[2]!=0 && b[2]!=1 && b[2]!=2 && b[2]!=3 &&
 		b[2]!=9 && b[2]!=10 && b[2]!=11 && b[2]!=32 && b[2]!=33)
