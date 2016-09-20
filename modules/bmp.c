@@ -6,7 +6,9 @@
 
 #include <deark-config.h>
 #include <deark-private.h>
+#include "fmtutil.h"
 DE_DECLARE_MODULE(de_module_bmp);
+DE_DECLARE_MODULE(de_module_dib);
 
 #define FILEHEADER_SIZE 14
 
@@ -776,4 +778,54 @@ void de_module_bmp(deark *c, struct deark_module_info *mi)
 	mi->desc = "BMP (Windows or OS/2 bitmap)";
 	mi->run_fn = de_run_bmp;
 	mi->identify_fn = de_identify_bmp;
+}
+
+static void de_run_dib(deark *c, de_module_params *mparams)
+{
+	struct de_bmpinfo bi;
+	dbuf *outf = NULL;
+
+	if(!de_fmtutil_get_bmpinfo(c, c->infile, &bi, 0, c->infile->len, 0)) {
+		de_err(c, "Invalid DIB, or not a DIB file\n");
+		goto done;
+	}
+
+	outf = dbuf_create_output_file(c, "bmp", NULL, 0);
+
+	// TODO: This code is pretty much duplicated in several other modules.
+	// Maybe it should be consolidated.
+	de_dbg(c, "writing a BMP FILEHEADER\n");
+	dbuf_write(outf, (const de_byte*)"BM", 2);
+	dbuf_writeui32le(outf, 14+c->infile->len); // File size
+	dbuf_write_zeroes(outf, 4);
+	dbuf_writeui32le(outf, 14+bi.size_of_headers_and_pal); // "Bits offset"
+
+	de_dbg(c, "copying DIB file\n");
+	dbuf_copy(c->infile, 0, c->infile->len, outf);
+
+done:
+	dbuf_close(outf);
+}
+
+static int de_identify_dib(deark *c)
+{
+	de_int64 n;
+
+	n = de_getui32le(0); // biSize
+	if(n!=40) return 0;
+	n = de_getui16le(12); // biPlanes
+	if(n!=1) return 0;
+	n = de_getui16le(14); // biBitCount
+	if(n==1 || n==4 || n==8 || n==16 || n==24 || n==32) return 15;
+	return 0;
+}
+
+// BMP file without a file header.
+// This module constructs a BMP file header.
+void de_module_dib(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "dib";
+	mi->desc = "DIB (raw Windows bitmap)";
+	mi->run_fn = de_run_dib;
+	mi->identify_fn = de_identify_dib;
 }

@@ -90,6 +90,9 @@ Deark -- Information about supported formats
   - Extracts bitmaps.
   - Extracts text (use -a).
 
+* DIB (module="dib")
+  - Adds a BMP file header to a raw Windows DIB file.
+
 * DCX (module="dcx")
   Multi-image PCX format.
   - Extracts individual PCX files.

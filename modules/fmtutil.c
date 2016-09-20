@@ -90,7 +90,7 @@ int de_fmtutil_get_bmpinfo(deark *c, dbuf *f, struct de_bmpinfo *bi, de_int64 po
 		bi->num_colors = 16777216;
 	}
 
-	de_dbg(c, "image size: %dx%d\n", (int)bi->width, (int)bi->height);
+	de_dbg(c, "dimensions: %dx%d\n", (int)bi->width, (int)bi->height);
 	de_dbg(c, "bit count: %d\n", (int)bi->bitcount);
 	de_dbg(c, "palette entries: %u\n", (unsigned int)bi->pal_entries);
 	if(bi->pal_entries>256 && bi->bitcount>8) {
