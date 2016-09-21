@@ -310,6 +310,8 @@ int de_identify_none(deark *c);
 
 ///////////////////////////////////////////
 
+const char *de_get_sz_ext(const char *sz);
+int de_sz_has_ext(const char *sz, const char *ext);
 const char *de_get_input_file_ext(deark *c);
 int de_input_file_has_ext(deark *c, const char *ext);
 

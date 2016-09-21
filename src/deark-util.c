@@ -573,32 +573,49 @@ de_int64 de_log2_rounded_up(de_int64 n)
 	return 32;
 }
 
-const char *de_get_input_file_ext(deark *c)
+const char *de_get_sz_ext(const char *sz)
 {
 	int len;
 	int pos;
 
-	if(!c->input_filename) return "";
+	if(!sz) return "";
 
-	// If we skipped over the first part of the file, assume we're reading
-	// an embedded format that's not indicated by the file extension.
-	if(c->slice_start_req) return "";
-
-	len = (int)strlen(c->input_filename);
+	len = (int)strlen(sz);
 	if(len<2) return "";
 
 	// Find the position of the last ".", that's after the last "/"
 	pos = len-2;
 
 	while(pos>=0) {
-		if(c->input_filename[pos]=='.') {
-			return &c->input_filename[pos+1];
+		if(sz[pos]=='.') {
+			return &sz[pos+1];
 		}
-		if(c->input_filename[pos]=='/' || c->input_filename[pos]=='\\')
+		if(sz[pos]=='/' || sz[pos]=='\\')
 			break;
 		pos--;
 	}
 	return "";
+}
+
+const char *de_get_input_file_ext(deark *c)
+{
+	if(!c->input_filename) return "";
+
+	// If we skipped over the first part of the file, assume we're reading
+	// an embedded format that's not indicated by the file extension.
+	if(c->slice_start_req) return "";
+
+	return de_get_sz_ext(c->input_filename);
+}
+
+int de_sz_has_ext(const char *sz, const char *ext)
+{
+	const char *e;
+
+	e = de_get_sz_ext(sz);
+	if(!de_strcasecmp(e, ext))
+		return 1;
+	return 0;
 }
 
 int de_input_file_has_ext(deark *c, const char *ext)
