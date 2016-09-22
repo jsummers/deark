@@ -11,6 +11,9 @@
 DE_DECLARE_MODULE(de_module_wmf);
 DE_DECLARE_MODULE(de_module_emf);
 
+#define CODE_EMFPLUS 0x454d462bU
+#define CODE_GDIC 0x47444943U
+
 typedef struct localctx_struct {
 #define FMT_WMF 1
 #define FMT_EMF 2
@@ -307,6 +310,7 @@ void de_module_wmf(deark *c, struct deark_module_info *mi)
 // **************************************************************************
 
 static int emf_handler_01(deark *c, lctx *d, de_int64 rectype, de_int64 recpos, de_int64 recsize_bytes);
+static int emf_handler_46(deark *c, lctx *d, de_int64 rectype, de_int64 recpos, de_int64 recsize_bytes);
 static int emf_handler_4c(deark *c, lctx *d, de_int64 rectype, de_int64 recpos, de_int64 recsize_bytes);
 static int emf_handler_50_51(deark *c, lctx *d, de_int64 rectype, de_int64 recpos, de_int64 recsize_bytes);
 
@@ -358,7 +362,7 @@ static const struct emf_func_info emf_func_info_arr[] = {
 	{ 0x3e, "FILLPATH", NULL },
 	{ 0x3f, "STROKEANDFILLPATH", NULL },
 	{ 0x40, "STROKEPATH", NULL },
-	{ 0x46, "COMMENT", NULL },
+	{ 0x46, "COMMENT", emf_handler_46 },
 	{ 0x4b, "EXTSELECTCLIPRGN", NULL },
 	{ 0x4c, "BITBLT", emf_handler_4c },
 	{ 0x4d, "STRETCHBLT", NULL },
@@ -381,6 +385,29 @@ static const struct emf_func_info emf_func_info_arr[] = {
 	{ 0x62, "SETICMMODE", NULL },
 	{ 0x73, "SETLAYOUT", NULL },
 	{ 0x0, NULL, NULL }
+};
+
+struct emfplus_rec_info {
+	de_uint32 rectype;
+	const char *name;
+	void *reserved1;
+};
+static const struct emfplus_rec_info emfplus_red_info_arr[] = {
+	{ 0x4001, "Header", emf_handler_01 },
+	{ 0x4002, "EndOfFile", NULL },
+	{ 0x4003, "Comment", NULL },
+	{ 0x4004, "GetDC", NULL },
+	{ 0x4008, "Object", NULL },
+	{ 0x4009, "Clear", NULL },
+	{ 0x401a, "DrawImage", NULL },
+	{ 0x401b, "DrawImagePoints", NULL },
+	{ 0x401e, "SetAntiAliasMode", NULL },
+	{ 0x4021, "SetInterpolationMode", NULL },
+	{ 0x4022, "SetPixelOffsetMode", NULL },
+	{ 0x4024, "SetCompositingQuality", NULL },
+	{ 0x402a, "SetWorldTransform", NULL },
+	{ 0x4030, "SetPageTransform", NULL },
+	{ 0x4038, "SerializableObject", NULL }
 };
 
 // Header record
@@ -417,6 +444,265 @@ static int emf_handler_01(deark *c, lctx *d, de_int64 rectype, de_int64 recpos, 
 	num_pal_entries = de_getui32le(pos+60);
 	de_dbg(c, "num pal entries: %d\n", (int)num_pal_entries);
 
+	return 1;
+}
+
+static void do_identify_and_extract_compressed_bitmap(deark *c, lctx *d,
+	de_int64 pos, de_int64 len)
+{
+	const char *ext = NULL;
+	de_byte buf[4];
+	de_int64 nbytes_to_extract;
+	de_int64 foundpos;
+
+	if(len<=0) return;
+	if(pos+len > c->infile->len) return;
+	nbytes_to_extract = len; // default
+
+	// Having dived six layers of abstraction deep into EMF+ format,
+	// we finally come to an actual embedded image.
+	// And we *still* don't know what format it's in! We apparently have to
+	// sniff the data and make a guess.
+
+	de_dbg(c, "bitmap at %d, padded_len=%d\n", (int)pos, (int)len);
+
+	de_read(buf, pos, 4);
+	if(buf[0]==0x89 && buf[1]==0x50) {
+		ext = "png";
+		// The 'len' field includes 0 to 3 padding bytes, which we want to
+		// remove. All PNG files end with ae 42 60 82.
+		if(dbuf_search_byte(c->infile, '\x82', pos+len-4, 4, &foundpos)) {
+			nbytes_to_extract = foundpos + 1 - pos;
+		}
+	}
+	else if(buf[0]==0xff && buf[1]==0xd8) {
+		// TODO: Try to detect the true end of file.
+		ext = "jpg";
+	}
+	else if(buf[0]=='G' && buf[1]=='I') {
+		// TODO: Try to detect the true end of file.
+		ext = "gif";
+	}
+	else if((buf[0]=='I' && buf[1]=='I') || (buf[0]=='M' && buf[1]=='M')) {
+		ext = "tif";
+	}
+	else {
+		de_warn(c, "Unidentified bitmap format at %d\n", (int)pos);
+		return;
+	}
+
+	if(nbytes_to_extract<=0) return;
+	dbuf_create_file_from_slice(c->infile, pos, nbytes_to_extract, ext, NULL, 0);
+}
+
+// EmfPlusImage
+static void do_emfplus_object_image(deark *c, lctx *d, de_int64 pos1, de_int64 len)
+{
+	de_int64 ver;
+	de_int64 datatype;
+	de_int64 w, h;
+	de_int64 ty;
+	de_int64 pos = pos1;
+	de_int64 endpos;
+	const char *name;
+
+	endpos = pos1 + len;
+	ver = de_getui32le(pos);
+	datatype = de_getui32le(pos+4);
+	name = "?";
+
+	switch(datatype) { // ImageDataType
+	case 0: name="Unknown"; break;
+	case 1: name="Bitmap"; break;
+	case 2: name="Metafile"; break;
+	default: name="?"; break;
+	}
+
+	de_dbg(c, "Image osver=0x%08x, type=%d (%s)\n", (unsigned int)ver,
+		(int)datatype, name);
+
+	if(datatype!=1) goto done;
+
+	pos = pos1+8;
+	w = de_getui32le(pos);
+	h = de_getui32le(pos+4);
+	de_dbg(c, "dimensions: %dx%d\n", (int)w, (int)h);
+
+	// 8 stride
+	// 12 pixelformat
+	ty = de_getui32le(pos+16); // BitmapDataType
+	switch(ty) {
+	case 0: name="Pixel"; break;
+	case 1: name="Compressed"; break;
+	default: name="?"; break;
+	}
+	de_dbg(c, "type: %d (%s)\n", (int)ty, name);
+
+	// Raw bitmap data at pos+20
+	if(ty==1) {
+		do_identify_and_extract_compressed_bitmap(c, d, pos+20, endpos - (pos+20));
+	}
+
+done:
+	;
+}
+
+// 0x4008 EmfPlusObject
+// pos is the beginning of the 'ObjectData' field
+// len is the DataSize field.
+static void do_emfplus_object(deark *c, lctx *d, de_int64 pos, de_int64 len,
+	de_uint32 flags)
+{
+	de_uint32 object_id;
+	de_uint32 object_type;
+	const char *name;
+	static const char *names[10] = { "Invalid", "Brush", "Pen", "Path",
+		"Region", "Image", "Font", "StringFormat", "ImageAttributes",
+		"CustomLineCap" };
+
+	object_type = (flags&0x7f00)>>8;
+	object_id = (flags&0x00ff);
+
+	if(object_type<=9)
+		name = names[object_type];
+	else
+		name = "?";
+
+	de_dbg(c, "EmfPlusObject type=%d (%s), id=%d\n", (int)object_type, name,
+		(int)object_id);
+
+	de_dbg_indent(c, 1);
+	if(object_type==5) {
+		do_emfplus_object_image(c, d, pos, len);
+	}
+	de_dbg_indent(c, -1);
+}
+
+static void do_one_emfplus_record(deark *c, lctx *d, de_int64 pos, de_int64 len,
+	de_int64 *bytes_consumed, int *continuation_flag)
+{
+	de_uint32 rectype;
+	de_uint32 flags;
+	de_int64 size, datasize;
+	de_int64 payload_pos;
+	const struct emfplus_rec_info *epinfo = NULL;
+	de_int64 i;
+	int is_continued = 0;
+
+	if(len<12) {
+		*bytes_consumed = len;
+		*continuation_flag = 0;
+		return;
+	}
+
+	rectype = (de_uint32)de_getui16le(pos);
+	flags = (de_uint32)de_getui16le(pos+2);
+	size = de_getui32le(pos+4);
+
+	is_continued = (rectype==0x4008) && (flags&0x8000);
+
+	// The documentation suggests that the datasize field is in a different
+	// place if the continuation flag is set. It also suggests the opposite
+	// (or maybe just that it's safe to behave as if it were in the same place).
+	// It doesn't really matter, since we don't support 'continued' records.
+	//
+	// I don't know why the datasize field is padded to the next multiple of 4.
+	// It seems clearly unnecessary, and counterproductive.
+	// There is already the 'size' field above, which is padded, so the
+	// only reason for the datasize field to exist at all would be if it
+	// told us the *non-padded* size. Yet it doesn't. So now I have to write
+	// code to try to detect where an embedded PNG or whatever file ends.
+	// (The existence of 'continued' records makes this issue more complicated,
+	// but they are already a special case, so that's no excuse.)
+	datasize = de_getui32le(pos+8);
+	payload_pos = pos+12;
+
+	// Find the name, etc. of this record type
+	for(i=0; i<(de_int64)DE_ITEMS_IN_ARRAY(emfplus_red_info_arr); i++) {
+		if(emfplus_red_info_arr[i].rectype == rectype) {
+			epinfo = &emfplus_red_info_arr[i];
+			break;
+		}
+	}
+
+	de_dbg(c, "rectype 0x%04x (%s) at %d, flags=0x%04x, dpos=%d, dlen=%d\n",
+		(unsigned int)rectype, epinfo ? epinfo->name : "?",
+		(int)pos,
+		(unsigned int)flags,
+		(int)payload_pos, (int)datasize);
+
+	// If this record or the previous record had the continuation flag set,
+	// give up.
+	if(is_continued || *continuation_flag) {
+		goto done;
+	}
+
+	de_dbg_indent(c, 1);
+	if(rectype==0x4008) {
+		do_emfplus_object(c, d, payload_pos, datasize, flags);
+	}
+	de_dbg_indent(c, -1);
+
+done:
+	if(size<12) size=12;
+	*bytes_consumed = size;
+	*continuation_flag = is_continued;
+}
+
+// Series of EMF+ records (from a single EMF comment)
+static void do_comment_emfplus(deark *c, lctx *d, de_int64 pos1, de_int64 len)
+{
+	de_int64 pos = pos1;
+	de_int64 bytes_consumed;
+	int continuation_flag = 0;
+
+	de_dbg(c, "EMF+ data at %d, len=%d\n", (int)pos1, (int)len);
+	de_dbg_indent(c, 1);
+
+	while(1) {
+		if(pos >= pos1+len) break;
+		do_one_emfplus_record(c, d, pos, pos1+len-pos, &bytes_consumed, &continuation_flag);
+		pos += bytes_consumed;
+	}
+	// EMFPlusRecords (one or more EMF+ records)
+	de_dbg_indent(c, -1);
+}
+
+// Comment record
+static int emf_handler_46(deark *c, lctx *d, de_int64 rectype, de_int64 recpos, de_int64 recsize_bytes)
+{
+	struct de_fourcc id4cc;
+	const char *name;
+	de_int64 datasize;
+
+	//de_dbg(c, "comment at %d len=%d\n", (int)recpos, (int)recsize_bytes);
+	if(recsize_bytes<16) goto done;
+
+	// Datasize is measured from the beginning of the next field (CommentIdentifier).
+	datasize = de_getui32le(recpos+8);
+
+	dbuf_read_fourcc(c->infile, recpos+12, &id4cc, 0);
+
+	switch(id4cc.id) {
+	case 0: name="EMR_COMMENT_EMFSPOOL"; break;
+	case CODE_EMFPLUS: name="EMR_COMMENT_EMFPLUS"; break;
+	case CODE_GDIC: name="EMR_COMMENT_PUBLIC"; break;
+	default: name="?";
+	}
+
+	de_dbg(c, "type: 0x%08x '%s' (%s) datasize=%d\n", (unsigned int)id4cc.id, id4cc.id_printable, name,
+		(int)datasize);
+
+	if(datasize<=4 || 12+datasize > recsize_bytes) goto done; // Bad datasize
+
+	if(id4cc.id==CODE_EMFPLUS) {
+		do_comment_emfplus(c, d, recpos+16, datasize-4);
+	}
+	else if(id4cc.id==CODE_GDIC) {
+		// TODO
+	}
+
+done:
 	return 1;
 }
 
