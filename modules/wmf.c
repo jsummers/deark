@@ -495,35 +495,17 @@ static void do_identify_and_extract_compressed_bitmap(deark *c, lctx *d,
 	dbuf_create_file_from_slice(c->infile, pos, nbytes_to_extract, ext, NULL, 0);
 }
 
-// EmfPlusImage
-static void do_emfplus_object_image(deark *c, lctx *d, de_int64 pos1, de_int64 len)
+// EmfPlusBitmap
+static void do_emfplus_object_image_bitmap(deark *c, lctx *d, de_int64 pos, de_int64 len)
 {
-	de_int64 ver;
-	de_int64 datatype;
 	de_int64 w, h;
 	de_int64 ty;
-	de_int64 pos = pos1;
 	de_int64 endpos;
 	const char *name;
 
-	endpos = pos1 + len;
-	ver = de_getui32le(pos);
-	datatype = de_getui32le(pos+4);
-	name = "?";
+	if(len<=0) return;
+	endpos = pos + len;
 
-	switch(datatype) { // ImageDataType
-	case 0: name="Unknown"; break;
-	case 1: name="Bitmap"; break;
-	case 2: name="Metafile"; break;
-	default: name="?"; break;
-	}
-
-	de_dbg(c, "Image osver=0x%08x, type=%d (%s)\n", (unsigned int)ver,
-		(int)datatype, name);
-
-	if(datatype!=1) goto done;
-
-	pos = pos1+8;
 	w = de_getui32le(pos);
 	h = de_getui32le(pos+4);
 	de_dbg(c, "dimensions: %dx%d\n", (int)w, (int)h);
@@ -538,13 +520,72 @@ static void do_emfplus_object_image(deark *c, lctx *d, de_int64 pos1, de_int64 l
 	}
 	de_dbg(c, "type: %d (%s)\n", (int)ty, name);
 
-	// Raw bitmap data at pos+20
 	if(ty==1) {
 		do_identify_and_extract_compressed_bitmap(c, d, pos+20, endpos - (pos+20));
 	}
+}
 
-done:
-	;
+// EmfPlusMetafile
+static void do_emfplus_object_image_metafile(deark *c, lctx *d, de_int64 pos, de_int64 len)
+{
+	de_int64 ty;
+	de_int64 dlen;
+	const char *name;
+	const char *ext = NULL;
+
+	if(len<8) return;
+
+	ty = de_getui32le(pos);
+	switch(ty) {
+	case 1: name="Wmf"; break;
+	case 2: name="WmfPlaceable"; break;
+	case 3: name="Emf"; break;
+	case 4: name="EmfPlusOnly"; break;
+	case 5: name="EmfPlusDual"; break;
+	default: name = "?";
+	}
+	de_dbg(c, "type: %d (%s)\n", (int)ty, name);
+
+	dlen = de_getui32le(pos+4);
+	de_dbg(c, "metafile data size: %d\n", (int)dlen);
+
+	if(dlen<1 || dlen>len-8) return;
+
+	if(ty==1 || ty==2) ext="wmf";
+	else if(ty==3 || ty==4 || ty==5) ext="emf";
+	else return;
+
+	dbuf_create_file_from_slice(c->infile, pos+8, dlen, ext, NULL, 0);
+}
+
+// EmfPlusImage
+static void do_emfplus_object_image(deark *c, lctx *d, de_int64 pos1, de_int64 len)
+{
+	de_int64 ver;
+	de_int64 datatype;
+	de_int64 pos = pos1;
+	const char *name;
+
+	ver = de_getui32le(pos);
+	datatype = de_getui32le(pos+4);
+	name = "?";
+
+	switch(datatype) { // ImageDataType
+	case 0: name="Unknown"; break;
+	case 1: name="Bitmap"; break; // EmfPlusBitmap
+	case 2: name="Metafile"; break; // EmfPlusMetafile
+	default: name="?"; break;
+	}
+
+	de_dbg(c, "Image osver=0x%08x, type=%d (%s)\n", (unsigned int)ver,
+		(int)datatype, name);
+
+	if(datatype==1) {
+		do_emfplus_object_image_bitmap(c, d, pos1+8, len-8);
+	}
+	else if(datatype==2) {
+		do_emfplus_object_image_metafile(c, d, pos1+8, len-8);
+	}
 }
 
 // 0x4008 EmfPlusObject
@@ -668,6 +709,24 @@ static void do_comment_emfplus(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 	de_dbg_indent(c, -1);
 }
 
+// Series of EMF+ records (from a single EMF comment)
+static void do_comment_public(deark *c, lctx *d, de_int64 pos1, de_int64 len)
+{
+	de_uint32 ty;
+	const char *name;
+	ty = (de_uint32)de_getui32le(pos1);
+	switch(ty) {
+	case 0x80000001U: name = "WINDOWS_METAFILE"; break;
+	case 0x00000002U: name = "BEGINGROUP"; break;
+	case 0x00000003U: name = "ENDGROUP"; break;
+	case 0x40000004U: name = "MULTIFORMATS"; break;
+	case 0x00000040U: name = "UNICODE_STRING"; break;
+	case 0x00000080U: name = "UNICODE_END"; break;
+	default: name = "?";
+	}
+	de_dbg(c, "public comment record type: 0x%08x (%s)\n", (unsigned int)ty, name);
+}
+
 // Comment record
 static int emf_handler_46(deark *c, lctx *d, de_int64 rectype, de_int64 recpos, de_int64 recsize_bytes)
 {
@@ -699,7 +758,7 @@ static int emf_handler_46(deark *c, lctx *d, de_int64 rectype, de_int64 recpos, 
 		do_comment_emfplus(c, d, recpos+16, datasize-4);
 	}
 	else if(id4cc.id==CODE_GDIC) {
-		// TODO
+		do_comment_public(c, d, recpos+16, datasize-4);
 	}
 
 done:
