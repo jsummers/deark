@@ -770,7 +770,6 @@ static void extract_dib(deark *c, lctx *d, de_int64 bmi_pos, de_int64 bmi_len,
 {
 	struct de_bmpinfo bi;
 	dbuf *outf = NULL;
-	de_int64 scanlines_present;
 	de_int64 real_height;
 
 	if(bmi_len<12 || bmi_len>2048) goto done;
@@ -780,14 +779,18 @@ static void extract_dib(deark *c, lctx *d, de_int64 bmi_pos, de_int64 bmi_len,
 		de_warn(c, "Invalid bitmap\n");
 		goto done;
 	}
-	if(bi.file_format!=DE_BMPINFO_FMT_BMP) goto done;
+
+	real_height = bi.height;
 
 	// Sometimes, only a portion of the image is present. In most cases, we
 	// can compensate for that.
-	real_height = bi.height;
-	scanlines_present = bits_len/bi.rowspan;
-	if(scanlines_present>0 && scanlines_present<bi.height && bi.infohdrsize>=16) {
-		real_height = scanlines_present;
+	if(bi.bitcount>0 && bi.rowspan>0) {
+		de_int64 nscanlines_present;
+
+		nscanlines_present = bits_len/bi.rowspan;
+		if(nscanlines_present>0 && nscanlines_present<bi.height && bi.infohdrsize>=16) {
+			real_height = nscanlines_present;
+		}
 	}
 
 	outf = dbuf_create_output_file(c, "bmp", NULL, 0);

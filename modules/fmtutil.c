@@ -58,7 +58,7 @@ int de_fmtutil_get_bmpinfo(deark *c, dbuf *f, struct de_bmpinfo *bi, de_int64 po
 	else if(bi->infohdrsize>=16 && bi->infohdrsize<=124) {
 		bi->bytes_per_pal_entry = 4;
 		bi->width = dbuf_getui32le(f, bmih_pos+4);
-		bi->height = dbuf_getui32le(f, bmih_pos+8);
+		bi->height = dbuf_geti32le(f, bmih_pos+8);
 		if(bi->height<0) {
 			bi->is_topdown = 1;
 			bi->height = -bi->height;
@@ -92,6 +92,7 @@ int de_fmtutil_get_bmpinfo(deark *c, dbuf *f, struct de_bmpinfo *bi, de_int64 po
 
 	de_dbg(c, "dimensions: %dx%d\n", (int)bi->width, (int)bi->height);
 	de_dbg(c, "bit count: %d\n", (int)bi->bitcount);
+	de_dbg(c, "compression: %d\n", (int)bi->compression_field);
 	de_dbg(c, "palette entries: %u\n", (unsigned int)bi->pal_entries);
 	if(bi->pal_entries>256 && bi->bitcount>8) {
 		de_warn(c, "Ignoring bad palette size (%u entries)\n", (unsigned int)bi->pal_entries);
@@ -102,6 +103,10 @@ int de_fmtutil_get_bmpinfo(deark *c, dbuf *f, struct de_bmpinfo *bi, de_int64 po
 	bi->size_of_headers_and_pal = fhs + bi->infohdrsize + bi->pal_bytes;
 	if(bi->compression_field==3) {
 		bi->size_of_headers_and_pal += 12; // BITFIELDS
+	}
+
+	if(!de_good_image_dimensions(c, bi->width, bi->height)) {
+		return 0;
 	}
 
 	if(bi->compression_field==0) {

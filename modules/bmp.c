@@ -32,6 +32,7 @@ typedef struct localctx_struct {
 	de_int64 infohdrsize;
 	de_int64 bitcount;
 	de_uint32 compression_field;
+	de_int64 size_image; // biSizeImage
 	de_int64 width, height;
 	int top_down;
 	de_int64 pal_entries; // Actual number stored in file. 0 means no palette.
@@ -307,6 +308,11 @@ static int read_infoheader(deark *c, lctx *d, de_int64 pos)
 	if(!cmpr_ok) {
 		de_err(c, "Unsupported compression type: %d\n", (int)d->compression_field);
 		goto done;
+	}
+
+	if(d->infohdrsize>=24) {
+		d->size_image = de_getui32le(pos+20);
+		de_dbg(c, "biSizeImage: %d\n", (int)d->size_image);
 	}
 
 	if(d->infohdrsize>=32) {
@@ -645,6 +651,20 @@ static void do_image_rle_4_8(deark *c, lctx *d, dbuf *bits, de_int64 bits_offset
 	de_bitmap_destroy(img);
 }
 
+static void extract_embedded_image(deark *c, lctx *d, const char *ext)
+{
+	de_int64 nbytes;
+
+	nbytes = d->size_image;
+
+	if(nbytes<1 || nbytes>(c->infile->len - d->bits_offset)) {
+		nbytes = c->infile->len - d->bits_offset;
+	}
+	if(nbytes<1) return;
+
+	dbuf_create_file_from_slice(c->infile, d->bits_offset, nbytes, ext, NULL, 0);
+}
+
 static void do_image(deark *c, lctx *d)
 {
 	de_dbg(c, "bitmap at %d\n", (int)d->bits_offset);
@@ -670,6 +690,12 @@ static void do_image(deark *c, lctx *d)
 	}
 	else if(d->bitcount==4 && d->compression_type==CMPR_RLE4) {
 		do_image_rle_4_8(c, d, c->infile, d->bits_offset);
+	}
+	else if(d->compression_type==CMPR_JPEG) {
+		extract_embedded_image(c, d, "jpg");
+	}
+	else if(d->compression_type==CMPR_PNG) {
+		extract_embedded_image(c, d, "png");
 	}
 	else {
 		de_err(c, "This type of BMP image is not supported\n");
