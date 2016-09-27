@@ -343,7 +343,7 @@ Deark -- Information about supported formats
 * RISC OS / Acorn Sprite (module="rosprite")
   - Autodetection may not always work. May need "-m rosprite".
   - "Old" format is pretty well supported.
-  - "New" format is mosty supported, but not well-tested.
+  - "New" format is mostly supported, but not well-tested.
 
 * SHG and MRB (module="shg")
   Segmented Hypergraphics and Multi-Resolution Bitmap formats are used in the

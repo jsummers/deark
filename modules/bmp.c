@@ -708,7 +708,6 @@ done:
 static void de_run_bmp(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
-	char *s = NULL;
 	de_int64 pos;
 
 	d = de_malloc(c, sizeof(lctx));
@@ -724,12 +723,10 @@ static void de_run_bmp(deark *c, de_module_params *mparams)
 	}
 
 	switch(d->version) {
-	case DE_BMPVER_OS2V1: s="OS/2 v1 or Windows v2"; break;
-	case DE_BMPVER_OS2V2: s="OS/2 v2"; break;
-	case DE_BMPVER_WINV345: s="Windows v3+"; break;
-	default: s="(unknown)";
+	case DE_BMPVER_OS2V1: de_declare_fmt(c, "BMP, OS/2 v1 or Windows v2"); break;
+	case DE_BMPVER_OS2V2: de_declare_fmt(c, "BMP, OS/2 v2"); break;
+	case DE_BMPVER_WINV345: de_declare_fmt(c, "BMP, Windows v3+"); break;
 	}
-	de_dbg(c, "BMP version detected: %s\n", s);
 
 	pos = 0;
 	if(!read_fileheader(c, d, pos)) goto done;

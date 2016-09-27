@@ -704,6 +704,16 @@ static void de_run_amigaicon(deark *c, de_module_params *mparams)
 
 	do_scan_file(c, d);
 
+	if(d->has_glowicons) {
+		de_declare_fmt(c, "Amiga Workbench Icon, GlowIcons");
+	}
+	else if(d->has_newicons) {
+		de_declare_fmt(c, "Amiga Workbench Icon, NewIcons");
+	}
+	else {
+		de_declare_fmt(c, "Amiga Workbench Icon");
+	}
+
 	de_dbg(c, "finished scanning file, now extracting icons\n");
 
 	// Original format icons

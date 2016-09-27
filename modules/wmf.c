@@ -22,6 +22,7 @@ typedef struct localctx_struct {
 	de_int64 wmf_file_type;
 	de_int64 wmf_windows_version;
 
+	int is_emfplus;
 	int emf_found_header;
 	de_int64 emf_version;
 	de_int64 emf_num_records;
@@ -1048,6 +1049,19 @@ done:
 	;
 }
 
+// Look ahead to figure out if this seem to be an EMF+ file.
+// Sets d->is_emfplus.
+static void detect_emfplus(deark *c, lctx *d)
+{
+	de_int64 nextpos;
+	nextpos = de_getui32le(4);
+	if(de_getui32le(nextpos)==0x46 &&
+		de_getui32be(nextpos+12)==CODE_EMFPLUS)
+	{
+		d->is_emfplus = 1;
+	}
+}
+
 static void de_run_emf(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
@@ -1055,7 +1069,13 @@ static void de_run_emf(deark *c, de_module_params *mparams)
 	d = de_malloc(c, sizeof(lctx));
 
 	d->file_fmt = FMT_EMF;
-	de_declare_fmt(c, "EMF");
+	detect_emfplus(c, d);
+
+	if(d->is_emfplus)
+		de_declare_fmt(c, "EMF+");
+	else
+		de_declare_fmt(c, "EMF");
+
 	do_emf_record_list(c, d);
 
 	de_free(c, d);
