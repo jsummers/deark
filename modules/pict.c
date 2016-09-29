@@ -9,6 +9,10 @@
 #include "fmtutil.h"
 DE_DECLARE_MODULE(de_module_pict);
 
+struct pict_point {
+	de_int64 y, x;
+};
+
 struct pict_rect {
 	de_int64 t, l, b, r;
 };
@@ -25,7 +29,9 @@ typedef int (*item_decoder_fn)(deark *c, lctx *d, de_int64 opcode, de_int64 data
 static int handler_11(deark *c, lctx *d, de_int64 opcode, de_int64 data_pos, de_int64 *bytes_used);
 static int handler_28(deark *c, lctx *d, de_int64 opcode, de_int64 data_pos, de_int64 *bytes_used);
 static int handler_DxText(deark *c, lctx *d, de_int64 opcode, de_int64 data_pos, de_int64 *bytes_used);
+static int handler_Rectangle(deark *c, lctx *d, de_int64 opcode, de_int64 data_pos, de_int64 *bytes_used);
 static int handler_2b(deark *c, lctx *d, de_int64 opcode, de_int64 data_pos, de_int64 *bytes_used);
+static int handler_2c(deark *c, lctx *d, de_int64 opcode, de_int64 data_pos, de_int64 *bytes_used);
 static int handler_98_9a(deark *c, lctx *d, de_int64 opcode, de_int64 data_pos, de_int64 *bytes_used);
 static int handler_a0(deark *c, lctx *d, de_int64 opcode, de_int64 data_pos, de_int64 *bytes_used);
 static int handler_a1(deark *c, lctx *d, de_int64 opcode, de_int64 data_pos, de_int64 *bytes_used);
@@ -66,15 +72,19 @@ static const struct opcode_info opcode_info_arr[] = {
 	{ 0x0029, SZCODE_SPECIAL, 0,  "DHText", handler_DxText },
 	{ 0x002a, SZCODE_SPECIAL, 0,  "DVText", handler_DxText },
 	{ 0x002b, SZCODE_SPECIAL, 0,  "DHDVText", handler_2b },
-	{ 0x002c, SZCODE_SPECIAL, 0,  "fontName", NULL },
+	{ 0x002c, SZCODE_SPECIAL, 0,  "fontName", handler_2c },
 	{ 0x002d, SZCODE_SPECIAL, 0,  "lineJustify", NULL },
 	{ 0x002e, SZCODE_SPECIAL, 0,  "glyphState", NULL },
-	{ 0x0031, SZCODE_EXACT,   8,  "paintRect", NULL },
-	{ 0x0050, SZCODE_EXACT,   8,  "frameOval", NULL },
-	{ 0x0051, SZCODE_EXACT,   8,  "paintOval", NULL },
-	{ 0x0052, SZCODE_EXACT,   8,  "eraseOval", NULL },
-	{ 0x0053, SZCODE_EXACT,   8,  "invertOval", NULL },
-	{ 0x0054, SZCODE_EXACT,   8,  "fillOval", NULL },
+	{ 0x0030, SZCODE_EXACT,   8,  "frameRect", handler_Rectangle },
+	{ 0x0031, SZCODE_EXACT,   8,  "paintRect", handler_Rectangle },
+	{ 0x0032, SZCODE_EXACT,   8,  "eraseRect", handler_Rectangle },
+	{ 0x0033, SZCODE_EXACT,   8,  "invertRect", handler_Rectangle },
+	{ 0x0034, SZCODE_EXACT,   8,  "fillRect", handler_Rectangle },
+	{ 0x0050, SZCODE_EXACT,   8,  "frameOval", handler_Rectangle },
+	{ 0x0051, SZCODE_EXACT,   8,  "paintOval", handler_Rectangle },
+	{ 0x0052, SZCODE_EXACT,   8,  "eraseOval", handler_Rectangle },
+	{ 0x0053, SZCODE_EXACT,   8,  "invertOval", handler_Rectangle },
+	{ 0x0054, SZCODE_EXACT,   8,  "fillOval", handler_Rectangle },
 	{ 0x0058, SZCODE_EXACT,   0,  "frameSameOval", NULL },
 	{ 0x0059, SZCODE_EXACT,   0,  "paintSameOval", NULL },
 	{ 0x005a, SZCODE_EXACT,   0,  "eraseSameOval", NULL },
@@ -104,6 +114,18 @@ static double pict_read_fixed(dbuf *f, de_int64 pos)
 	// how negative numbers are handled.
 	n = dbuf_geti32be(f, pos);
 	return ((double)n)/65536.0;
+}
+
+// Read a QuickDraw Point. Caller supplies point struct.
+static void pict_read_point(dbuf *f, de_int64 pos,
+	struct pict_point *point, const char *dbgname)
+{
+	point->y = dbuf_geti16be(f, pos);
+	point->x = dbuf_geti16be(f, pos+2);
+
+	if(dbgname) {
+		de_dbg(f->c, "%s: (%d,%d)\n", dbgname, (int)point->x, (int)point->y);
+	}
 }
 
 // Read a QuickDraw Rectangle. Caller supplies rect struct.
@@ -143,30 +165,88 @@ static int handler_11(deark *c, lctx *d, de_int64 opcode, de_int64 data_pos, de_
 // LongText
 static int handler_28(deark *c, lctx *d, de_int64 opcode, de_int64 data_pos, de_int64 *bytes_used)
 {
-	de_int64 len;
-	len = (de_int64)de_getbyte(data_pos+4);
-	de_dbg(c, "text size: %d\n", (int)len);
-	*bytes_used = 5+len;
+	de_int64 tlen;
+	de_ucstring *s = NULL;
+	struct pict_point pt;
+
+	pict_read_point(c->infile, data_pos, &pt, "txLoc");
+	tlen = (de_int64)de_getbyte(data_pos+4);
+	s = ucstring_create(c);
+	dbuf_read_to_ucstring(c->infile, data_pos+5, tlen, s, 0, DE_ENCODING_MACROMAN);
+	de_dbg(c, "text: \"%s\"\n", ucstring_get_printable_sz(s));
+	*bytes_used = 5+tlen;
+	ucstring_destroy(s);
 	return 1;
 }
 
 // DVText
 static int handler_DxText(deark *c, lctx *d, de_int64 opcode, de_int64 data_pos, de_int64 *bytes_used)
 {
-	de_int64 len;
-	len = (de_int64)de_getbyte(data_pos+1);
-	de_dbg(c, "text size: %d\n", (int)len);
-	*bytes_used = 2+len;
+	de_int64 tlen;
+	de_int64 dx;
+	de_ucstring *s = NULL;
+
+	dx = (de_int64)de_getbyte(data_pos);
+	de_dbg(c, "%s: %d\n", opcode==0x2a?"dv":"dh", (int)dx);
+
+	tlen = (de_int64)de_getbyte(data_pos+1);
+	*bytes_used = 2+tlen;
+
+	s = ucstring_create(c);
+	dbuf_read_to_ucstring(c->infile, data_pos+2, tlen, s, 0, DE_ENCODING_MACROMAN);
+	de_dbg(c, "text: \"%s\"\n", ucstring_get_printable_sz(s));
+
+	ucstring_destroy(s);
 	return 1;
 }
 
 // DHDVText
 static int handler_2b(deark *c, lctx *d, de_int64 opcode, de_int64 data_pos, de_int64 *bytes_used)
 {
-	de_int64 len;
-	len = (de_int64)de_getbyte(data_pos+2);
-	de_dbg(c, "text size: %d\n", (int)len);
-	*bytes_used = 3+len;
+	de_int64 tlen;
+	de_int64 dh, dv;
+	de_ucstring *s = NULL;
+
+	dh = (de_int64)de_getbyte(data_pos);
+	dv = (de_int64)de_getbyte(data_pos+1);
+	de_dbg(c, "dh,dv: (%d,%d)\n", (int)dh, (int)dv);
+
+	tlen = (de_int64)de_getbyte(data_pos+2);
+	de_dbg(c, "text size: %d\n", (int)tlen);
+	*bytes_used = 3+tlen;
+
+	s = ucstring_create(c);
+	dbuf_read_to_ucstring(c->infile, data_pos+3, tlen, s, 0, DE_ENCODING_MACROMAN);
+	de_dbg(c, "text: \"%s\"\n", ucstring_get_printable_sz(s));
+
+	return 1;
+}
+
+// fontName
+static int handler_2c(deark *c, lctx *d, de_int64 opcode, de_int64 data_pos, de_int64 *bytes_used)
+{
+	de_int64 n;
+	de_int64 tlen;
+	de_int64 id;
+	de_ucstring *s = NULL;
+
+	n = de_getui16be(data_pos);
+	*bytes_used = 2+n;
+	id = de_getui16be(data_pos+2);
+	de_dbg(c, "old font id: %d\n", (int)id);
+	tlen = (de_int64)de_getbyte(data_pos+4);
+	s = ucstring_create(c);
+	dbuf_read_to_ucstring(c->infile, data_pos+5, tlen, s, 0, DE_ENCODING_MACROMAN);
+	de_dbg(c, "font name: \"%s\"\n", ucstring_get_printable_sz(s));
+	ucstring_destroy(s);
+	return 1;
+}
+
+static int handler_Rectangle(deark *c, lctx *d, de_int64 opcode, de_int64 data_pos, de_int64 *bytes_used)
+{
+	struct pict_rect rect;
+
+	pict_read_rect(c->infile, data_pos, &rect, "rect");
 	return 1;
 }
 
@@ -725,9 +805,8 @@ static int handler_a1(deark *c, lctx *d, de_int64 opcode, de_int64 data_pos, de_
 		struct de_fourcc sig4cc;
 
 		dbuf_read_fourcc(c->infile, data_pos+4, &sig4cc, 0);
-		de_dbg(c, "application comment, signature=\"%s\" (%02x %02x %02x %02x)\n",
-			sig4cc.id_printable, (unsigned int)sig4cc.bytes[0], (unsigned int)sig4cc.bytes[1],
-			(unsigned int)sig4cc.bytes[2], (unsigned int)sig4cc.bytes[3]);
+		de_dbg(c, "application comment, signature=0x%08x '%s'\n",
+			(unsigned int)sig4cc.id, sig4cc.id_printable);
 	}
 	else if(kind==224) {
 		do_iccprofile_item(c, d, data_pos+4, len);
@@ -906,6 +985,16 @@ done:
 	;
 }
 
+static void do_report_version(deark *c, lctx *d)
+{
+	if(!dbuf_memcmp(c->infile, 522, "\x00\x11\x02\xff\x0c\x00", 6)) {
+		de_declare_fmt(c, "PICT v2");
+	}
+	else if(!dbuf_memcmp(c->infile, 522, "\x11\x01", 2)) {
+		de_declare_fmt(c, "PICT v1");
+	}
+}
+
 static void de_run_pict(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
@@ -914,9 +1003,11 @@ static void de_run_pict(deark *c, de_module_params *mparams)
 	struct pict_rect framerect;
 
 	d = de_malloc(c, sizeof(lctx));
+
+	do_report_version(c, d);
+
 	d->version = 1;
 
-	de_dbg(c, "PICT\n");
 	pos = 512;
 
 	picsize = de_getui16be(pos);
