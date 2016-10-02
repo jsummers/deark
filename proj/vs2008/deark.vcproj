@@ -522,6 +522,10 @@
 				>
 			</File>
 			<File
+				RelativePath="..\..\modules\cfb.c"
+				>
+			</File>
+			<File
 				RelativePath="..\..\modules\compress.c"
 				>
 			</File>
