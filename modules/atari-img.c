@@ -11,6 +11,7 @@ DE_DECLARE_MODULE(de_module_ftc);
 DE_DECLARE_MODULE(de_module_eggpaint);
 DE_DECLARE_MODULE(de_module_indypaint);
 DE_DECLARE_MODULE(de_module_tinystuff);
+DE_DECLARE_MODULE(de_module_doodle);
 DE_DECLARE_MODULE(de_module_neochrome);
 DE_DECLARE_MODULE(de_module_neochrome_ani);
 DE_DECLARE_MODULE(de_module_fpaint_pi4);
@@ -864,6 +865,54 @@ void de_module_tinystuff(deark *c, struct deark_module_info *mi)
 	mi->desc = "Atari Tiny Stuff, a.k.a. Tiny image format";
 	mi->run_fn = de_run_tinystuff;
 	mi->identify_fn = de_identify_tinystuff;
+}
+
+// **************************************************************************
+// Doodle (.doo)
+// **************************************************************************
+
+static void de_run_doodle(deark *c, de_module_params *mparams)
+{
+	struct atari_img_decode_data *adata = NULL;
+	de_uint32 pal[2];
+
+	adata = de_malloc(c, sizeof(struct atari_img_decode_data));
+	adata->pal = pal;
+	adata->bpp = 1;
+
+	adata->w = 640;
+	adata->h = 400;
+	adata->ncolors = 2;
+	adata->pal[0] = DE_STOCKCOLOR_WHITE;
+	adata->pal[1] = DE_STOCKCOLOR_BLACK;
+
+	adata->unc_pixels = c->infile;
+	adata->img = de_bitmap_create(c, adata->w, adata->h, 1);
+	de_fmtutil_atari_set_standard_density(c, adata);
+	de_fmtutil_atari_decode_image(c, adata);
+	de_bitmap_write_to_file(adata->img, NULL, 0);
+
+	if(adata) {
+		de_bitmap_destroy(adata->img);
+		de_free(c, adata);
+	}
+}
+
+static int de_identify_doodle(deark *c)
+{
+	if(c->infile->len!=32000) return 0;
+	if(de_input_file_has_ext(c, "doo")) {
+		return 10;
+	}
+	return 0;
+}
+
+void de_module_doodle(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "doodle";
+	mi->desc = "Atari Doodle";
+	mi->run_fn = de_run_doodle;
+	mi->identify_fn = de_identify_doodle;
 }
 
 // **************************************************************************
