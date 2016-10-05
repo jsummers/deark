@@ -11,9 +11,17 @@ DE_DECLARE_MODULE(de_module_riff);
 DE_DECLARE_MODULE(de_module_ani);
 
 #define CODE_ACON  0x41434f4eU
+#define CODE_INFO  0x494e464fU
+#define CODE_PAL   0x50414c20U
+#define CODE_RMID  0x524d4944U
+#define CODE_WAVE  0x57415645U
+
 #define CHUNK_LIST 0x4c495354U
 #define CHUNK_RIFF 0x52494646U
 #define CHUNK_RIFX 0x52494658U
+#define CHUNK_data 0x64617461U
+#define CHUNK_fact 0x66616374U
+#define CHUNK_fmt  0x666d7420U
 #define CHUNK_icon 0x69636f6eU
 
 typedef struct localctx_struct {
@@ -22,6 +30,27 @@ typedef struct localctx_struct {
 	int is_le;
 	int char_codes_are_reversed;
 } lctx;
+
+static void do_extract_raw(deark *c, lctx *d, de_int64 pos, de_int64 len, const char *ext)
+{
+	dbuf_create_file_from_slice(c->infile, pos, len, ext, NULL, 0);
+}
+
+static void do_INFO_item(deark *c, lctx *d, de_int64 pos, de_int64 len, de_uint32 chunk_id)
+{
+	de_ucstring *s = NULL;
+
+	s = ucstring_create(c);
+
+	// TODO: Decode the chunk_id (e.g. ICRD = Creation date).
+
+	// TODO: Support the CSET chunk
+	dbuf_read_to_ucstring_n(c->infile, pos, len, 300, s,
+		DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_LATIN1);
+	de_dbg(c, "value: \"%s\"\n", ucstring_get_printable_sz(s));
+
+	ucstring_destroy(s);
+}
 
 static void extract_ani_frame(deark *c, lctx *d, de_int64 pos, de_int64 len)
 {
@@ -50,7 +79,77 @@ static void extract_ani_frame(deark *c, lctx *d, de_int64 pos, de_int64 len)
 	dbuf_create_file_from_slice(c->infile, pos, len, ext, NULL, 0);
 }
 
-static void process_riff_sequence(deark *c, lctx *d, de_int64 pos, de_int64 len1)
+static void do_wav_fmt(deark *c, lctx *d, de_int64 pos, de_int64 len)
+{
+	de_int64 n;
+
+	if(!d->is_le) return;
+	if(len<14) return;
+
+	n = de_getui16le(pos);
+	de_dbg(c, "FormatTag: 0x%04x\n", (unsigned int)n);
+	pos += 2;
+
+	n = de_getui16le(pos);
+	de_dbg(c, "Channels: %d\n", (int)n);
+	pos += 2;
+
+	n = de_getui32le(pos);
+	de_dbg(c, "SamplesPerSec: %d\n", (int)n);
+	pos += 4;
+
+	n = de_getui32le(pos);
+	de_dbg(c, "AvgBytesPerSec: %d\n", (int)n);
+	pos += 4;
+
+	n = de_getui16le(pos);
+	de_dbg(c, "BlockAlign: %d\n", (int)n);
+	pos += 2;
+}
+
+static void do_wav_fact(deark *c, lctx *d, de_int64 pos, de_int64 len)
+{
+	de_int64 n;
+
+	if(!d->is_le) return;
+	if(len<4) return;
+	n = de_getui32le(pos);
+	de_dbg(c, "number of samples: %u\n", (unsigned int)n);
+}
+
+static void do_palette(deark *c, lctx *d, de_int64 pos, de_int64 len)
+{
+	de_int64 ver;
+	de_int64 n;
+	de_int64 i;
+	de_byte r,g,b,flags;
+
+	if(!d->is_le) return;
+	ver = de_getui16le(pos);
+	de_dbg(c, "version: 0x%04x\n", (unsigned int)ver);
+	pos += 2;
+	n = de_getui16le(pos);
+	de_dbg(c, "number of entries: %d\n", (int)n);
+	pos += 2;
+	if(n>(len-4)/4) n=(len-4)/4;
+	if(n>1024) n=1024;
+	if(n<1) return;
+
+	de_dbg(c, "palette entries at %d\n", (int)pos);
+	de_dbg_indent(c, 1);
+	for(i=0; i<n; i++) {
+		r = de_getbyte(pos);
+		g = de_getbyte(pos+1);
+		b = de_getbyte(pos+2);
+		flags = de_getbyte(pos+3);
+		pos += 4;
+		de_dbg(c, "pal[%d] = (%3d,%3d,%3d) flags=0x%02x\n", (int)i,
+			(int)r, (int)g, (int)b, (unsigned int)flags);
+	}
+	de_dbg_indent(c, -1);
+}
+
+static void process_riff_sequence(deark *c, lctx *d, de_int64 pos, de_int64 len1, de_uint32 list_type)
 {
 	de_int64 chunk_pos;
 	de_int64 chunk_data_pos;
@@ -65,7 +164,7 @@ static void process_riff_sequence(deark *c, lctx *d, de_int64 pos, de_int64 len1
 
 	endpos = pos+len1;
 
-	while(pos < endpos) {
+	while((endpos-pos) >= 8) {
 		chunk_pos = pos;
 		dbuf_read_fourcc(c->infile, pos, &chunk4cc, d->char_codes_are_reversed);
 		pos+=4;
@@ -73,7 +172,8 @@ static void process_riff_sequence(deark *c, lctx *d, de_int64 pos, de_int64 len1
 		pos+=4;
 		chunk_data_pos = pos;
 
-		de_dbg(c, "chunk '%s' at %d, dlen=%d\n", chunk4cc.id_printable, (int)chunk_pos, (int)chunk_data_len);
+		de_dbg(c, "chunk '%s' at %d, dpos=%d, dlen=%d\n", chunk4cc.id_printable, (int)chunk_pos,
+			(int)chunk_data_pos, (int)chunk_data_len);
 
 		if(chunk_data_pos + chunk_data_len > endpos) {
 			if(chunk4cc.id==CHUNK_RIFF && chunk_pos==0 && chunk_data_len==endpos) {
@@ -96,11 +196,16 @@ static void process_riff_sequence(deark *c, lctx *d, de_int64 pos, de_int64 len1
 		}
 
 		de_dbg_indent(c, 1);
-		if(d->riff_type==CODE_ACON && chunk4cc.id==CHUNK_icon) {
-			extract_ani_frame(c, d, pos, chunk_data_len);
+
+		if(list_type==CODE_INFO) {
+			do_INFO_item(c, d, pos, chunk_data_len, chunk4cc.id);
+			goto chunk_handled;
 		}
-		else if(chunk4cc.id==CHUNK_RIFF || chunk4cc.id==CHUNK_RIFX || chunk4cc.id==CHUNK_LIST)
-		{
+
+		switch(chunk4cc.id) {
+		case CHUNK_RIFF:
+		case CHUNK_RIFX:
+		case CHUNK_LIST:
 			dbuf_read_fourcc(c->infile, pos, &listid4cc, d->char_codes_are_reversed);
 			if(d->level==0) {
 				d->riff_type = listid4cc.id; // Remember the file type for later
@@ -108,9 +213,39 @@ static void process_riff_sequence(deark *c, lctx *d, de_int64 pos, de_int64 len1
 			de_dbg(c, "%s type: '%s'\n", chunk4cc.id_printable, listid4cc.id_printable);
 
 			d->level++;
-			process_riff_sequence(c, d, pos+4, chunk_data_len-4);
+			process_riff_sequence(c, d, pos+4, chunk_data_len-4, listid4cc.id);
 			d->level--;
+			break;
+
+		case CHUNK_icon:
+			if(d->riff_type==CODE_ACON) {
+				extract_ani_frame(c, d, pos, chunk_data_len);
+			}
+			break;
+
+		case CHUNK_data:
+			if(list_type==CODE_RMID) {
+				do_extract_raw(c, d, pos, chunk_data_len, "mid");
+			}
+			else if(list_type==CODE_PAL) {
+				do_palette(c, d, pos, chunk_data_len);
+			}
+			break;
+
+		case CHUNK_fmt:
+			if(d->riff_type==CODE_WAVE) {
+				do_wav_fmt(c, d, pos, chunk_data_len);
+			}
+			break;
+
+		case CHUNK_fact:
+			if(d->riff_type==CODE_WAVE) {
+				do_wav_fact(c, d, pos, chunk_data_len);
+			}
+			break;
 		}
+
+chunk_handled:
 		de_dbg_indent(c, -1);
 
 		pos += chunk_data_len;
@@ -145,7 +280,7 @@ static void de_run_riff(deark *c, de_module_params *mparams)
 		d->char_codes_are_reversed = 0;
 	}
 
-	process_riff_sequence(c, d, 0, c->infile->len);
+	process_riff_sequence(c, d, 0, c->infile->len, 0);
 
 	de_free(c, d);
 }
