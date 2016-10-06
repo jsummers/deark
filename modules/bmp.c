@@ -806,6 +806,7 @@ void de_module_bmp(deark *c, struct deark_module_info *mi)
 static void de_run_dib(deark *c, de_module_params *mparams)
 {
 	struct de_bmpinfo bi;
+	unsigned int createflags = 0;
 	dbuf *outf = NULL;
 
 	if(!de_fmtutil_get_bmpinfo(c, c->infile, &bi, 0, c->infile->len, 0)) {
@@ -813,7 +814,11 @@ static void de_run_dib(deark *c, de_module_params *mparams)
 		goto done;
 	}
 
-	outf = dbuf_create_output_file(c, "bmp", NULL, 0);
+	if(mparams && mparams->codes && de_strchr(mparams->codes, 'X')) {
+		createflags |= DE_CREATEFLAG_IS_AUX;
+	}
+
+	outf = dbuf_create_output_file(c, "bmp", NULL, createflags);
 
 	// TODO: This code is pretty much duplicated in several other modules.
 	// Maybe it should be consolidated.

@@ -7,6 +7,7 @@
 
 #include <deark-config.h>
 #include <deark-private.h>
+#include "fmtutil.h"
 DE_DECLARE_MODULE(de_module_riff);
 DE_DECLARE_MODULE(de_module_ani);
 
@@ -16,6 +17,7 @@ DE_DECLARE_MODULE(de_module_ani);
 #define CODE_RMID  0x524d4944U
 #define CODE_WAVE  0x57415645U
 
+#define CHUNK_DISP 0x44495350U
 #define CHUNK_LIST 0x4c495354U
 #define CHUNK_RIFF 0x52494646U
 #define CHUNK_RIFX 0x52494658U
@@ -31,9 +33,10 @@ typedef struct localctx_struct {
 	int char_codes_are_reversed;
 } lctx;
 
-static void do_extract_raw(deark *c, lctx *d, de_int64 pos, de_int64 len, const char *ext)
+static void do_extract_raw(deark *c, lctx *d, de_int64 pos, de_int64 len, const char *ext,
+	unsigned int createflags)
 {
-	dbuf_create_file_from_slice(c->infile, pos, len, ext, NULL, 0);
+	dbuf_create_file_from_slice(c->infile, pos, len, ext, NULL, createflags);
 }
 
 static void do_INFO_item(deark *c, lctx *d, de_int64 pos, de_int64 len, de_uint32 chunk_id)
@@ -149,6 +152,79 @@ static void do_palette(deark *c, lctx *d, de_int64 pos, de_int64 len)
 	de_dbg_indent(c, -1);
 }
 
+static void do_DISP_DIB(deark *c, lctx *d, de_int64 pos, de_int64 len)
+{
+	de_module_params *mparams = NULL;
+
+	if(len<12) return;
+	mparams = de_malloc(c, sizeof(de_module_params));
+
+	// Tell the dib module to mark the output file as "auxiliary".
+	mparams->codes = "X";
+
+	de_run_module_by_id_on_slice(c, "dib", mparams, c->infile, pos, len);
+	de_free(c, mparams);
+}
+
+static void do_DISP_TEXT(deark *c, lctx *d, de_int64 pos, de_int64 len1)
+{
+	de_int64 foundpos;
+	de_int64 len = len1;
+
+	// Stop at NUL
+	if(dbuf_search_byte(c->infile, 0x00, pos, len1, &foundpos)) {
+		len = foundpos - pos;
+	}
+	if(len<1) return;
+
+	do_extract_raw(c, d, pos, len, "disp.txt", DE_CREATEFLAG_IS_AUX);
+}
+
+static const char *get_cb_data_type_name(de_int64 ty)
+{
+	const char *name = "?";
+
+	switch(ty) {
+	case 1: name="CF_TEXT"; break;
+	case 2: name="CF_BITMAP"; break;
+	case 3: name="CF_METAFILEPICT"; break;
+	case 6: name="CF_TIFF"; break;
+	case 7: name="CF_OEMTEXT"; break;
+	case 8: name="CF_DIB"; break;
+	case 11: name="CF_RIFF"; break;
+	case 12: name="CF_WAVE"; break;
+	case 13: name="CF_UNICODETEXT"; break;
+	case 14: name="CF_ENHMETAFILE"; break;
+	case 17: name="CF_DIBV5"; break;
+	}
+	return name;
+}
+
+static void do_DISP(deark *c, lctx *d, de_int64 pos, de_int64 len)
+{
+	de_int64 ty;
+	de_int64 dpos, dlen;
+
+	if(!d->is_le) return;
+	if(len<4) return;
+	ty = de_getui32le(pos);
+	de_dbg(c, "data type: %u (%s)\n", (unsigned int)ty,
+		get_cb_data_type_name(ty));
+
+	dpos = pos+4;
+	dlen = len-4;
+	switch(ty) {
+	case 1:
+	case 7:
+		do_DISP_TEXT(c, d, dpos, dlen);
+		break;
+	case 8:
+	case 17:
+		do_DISP_DIB(c, d, dpos, dlen);
+		break;
+	}
+}
+
 static void process_riff_sequence(deark *c, lctx *d, de_int64 pos, de_int64 len1, de_uint32 list_type)
 {
 	de_int64 chunk_pos;
@@ -217,6 +293,10 @@ static void process_riff_sequence(deark *c, lctx *d, de_int64 pos, de_int64 len1
 			d->level--;
 			break;
 
+		case CHUNK_DISP:
+			do_DISP(c, d, pos, chunk_data_len);
+			break;
+
 		case CHUNK_icon:
 			if(d->riff_type==CODE_ACON) {
 				extract_ani_frame(c, d, pos, chunk_data_len);
@@ -225,7 +305,7 @@ static void process_riff_sequence(deark *c, lctx *d, de_int64 pos, de_int64 len1
 
 		case CHUNK_data:
 			if(list_type==CODE_RMID) {
-				do_extract_raw(c, d, pos, chunk_data_len, "mid");
+				do_extract_raw(c, d, pos, chunk_data_len, "mid", 0);
 			}
 			else if(list_type==CODE_PAL) {
 				do_palette(c, d, pos, chunk_data_len);
