@@ -69,7 +69,7 @@ static int do_text_field(deark *c, lctx *d,
 		de_int64 foundpos;
 
 		if(is_nul_terminated) {
-			if(!dbuf_search_byte(srcdbuf, 0x00, pos, pos+bytes_avail, &foundpos)) {
+			if(!dbuf_search_byte(srcdbuf, 0x00, pos, bytes_avail, &foundpos)) {
 				goto done;
 			}
 			value_len = foundpos - pos;
