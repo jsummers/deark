@@ -16,6 +16,7 @@ DE_DECLARE_MODULE(de_module_ani);
 #define CODE_PAL   0x50414c20U
 #define CODE_RMID  0x524d4944U
 #define CODE_WAVE  0x57415645U
+#define CODE_cmpr  0x636d7072U
 
 #define CHUNK_DISP 0x44495350U
 #define CHUNK_LIST 0x4c495354U
@@ -31,6 +32,7 @@ typedef struct localctx_struct {
 	int level;
 	int is_le;
 	int char_codes_are_reversed;
+	int is_cdr;
 } lctx;
 
 static void do_extract_raw(deark *c, lctx *d, de_int64 pos, de_int64 len, const char *ext,
@@ -238,6 +240,12 @@ static void process_riff_sequence(deark *c, lctx *d, de_int64 pos, de_int64 len1
 		return;
 	}
 
+	if(d->is_cdr && list_type==CODE_cmpr) {
+		// 'cmpr' LISTs in CorelDraw files are not correctly formed.
+		de_dbg(c, "[not decoding CDR cmpr list]\n");
+		return;
+	}
+
 	endpos = pos+len1;
 
 	while((endpos-pos) >= 8) {
@@ -285,6 +293,11 @@ static void process_riff_sequence(deark *c, lctx *d, de_int64 pos, de_int64 len1
 			dbuf_read_fourcc(c->infile, pos, &listid4cc, d->char_codes_are_reversed);
 			if(d->level==0) {
 				d->riff_type = listid4cc.id; // Remember the file type for later
+
+				// Special check for CorelDraw formats.
+				if(!de_memcmp(listid4cc.bytes, (const void*)"CDR", 3)) {
+					d->is_cdr = 1;
+				}
 			}
 			de_dbg(c, "%s type: '%s'\n", chunk4cc.id_printable, listid4cc.id_printable);
 
