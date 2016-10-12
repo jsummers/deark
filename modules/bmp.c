@@ -820,13 +820,8 @@ static void de_run_dib(deark *c, de_module_params *mparams)
 
 	outf = dbuf_create_output_file(c, "bmp", NULL, createflags);
 
-	// TODO: This code is pretty much duplicated in several other modules.
-	// Maybe it should be consolidated.
 	de_dbg(c, "writing a BMP FILEHEADER\n");
-	dbuf_write(outf, (const de_byte*)"BM", 2);
-	dbuf_writeui32le(outf, 14+c->infile->len); // File size
-	dbuf_write_zeroes(outf, 4);
-	dbuf_writeui32le(outf, 14+bi.size_of_headers_and_pal); // "Bits offset"
+	de_fmtutil_generate_bmpfileheader(c, outf, &bi, 14+c->infile->len);
 
 	de_dbg(c, "copying DIB file\n");
 	dbuf_copy(c->infile, 0, c->infile->len, outf);

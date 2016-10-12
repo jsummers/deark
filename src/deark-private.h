@@ -249,6 +249,8 @@ int de_run_module(deark *c, struct deark_module_info *mi, de_module_params *mpar
 int de_run_module_by_id(deark *c, const char *id, de_module_params *mparams);
 void de_run_module_by_id_on_slice(deark *c, const char *id, de_module_params *mparams,
 	dbuf *f, de_int64 pos, de_int64 len);
+void de_run_module_by_id_on_slice2(deark *c, const char *id, const char *codes,
+	dbuf *f, de_int64 pos, de_int64 len);
 struct deark_module_info *de_get_module_by_id(deark *c, const char *module_id);
 
 void de_strlcpy(char *dst, const char *src, size_t dstlen);

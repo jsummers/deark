@@ -132,14 +132,9 @@ static void do_adobeapp14_segment(deark *c, lctx *d, de_int64 pos, de_int64 data
 
 static void do_mpf_segment(deark *c, lctx *d, de_int64 pos, de_int64 data_size)
 {
-	de_module_params *mparams = NULL;
-
 	de_dbg(c, "MPF data at %d, size=%d\n", (int)pos, (int)data_size);
 	de_dbg_indent(c, 1);
-	mparams = de_malloc(c, sizeof(de_module_params));
-	mparams->codes = "M";
-	de_run_module_by_id_on_slice(c, "tiff", mparams, c->infile, pos, data_size);
-	de_free(c, mparams);
+	de_run_module_by_id_on_slice2(c, "tiff", "M", c->infile, pos, data_size);
 	de_dbg_indent(c, -1);
 }
 

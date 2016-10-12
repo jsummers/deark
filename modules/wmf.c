@@ -105,12 +105,8 @@ static const struct wmf_func_info wmf_func_info_arr[] = {
 // STRETCHDIB
 static int wmf_handler_0f43(deark *c, lctx *d, de_int64 rectype, de_int64 recpos, de_int64 recsize_bytes)
 {
-	struct de_bmpinfo bi;
 	de_int64 dib_pos;
 	de_int64 dib_len;
-	dbuf *outf = NULL;
-
-	// TODO: Consolidate this and extract_dib().
 
 	if(recsize_bytes < 28) return 1;
 	dib_pos = recpos + 28;
@@ -118,24 +114,9 @@ static int wmf_handler_0f43(deark *c, lctx *d, de_int64 rectype, de_int64 recpos
 	if(dib_len < 12) return 1;
 	de_dbg(c, "DIB at %d, size=%d\n", (int)dib_pos, (int)dib_len);
 
-	if(!de_fmtutil_get_bmpinfo(c, c->infile, &bi, dib_pos, dib_len, 0)) {
-		de_warn(c, "Invalid bitmap\n");
-		goto done;
-	}
-
-	outf = dbuf_create_output_file(c, "bmp", NULL, 0);
-
-	// Write fileheader
-	dbuf_write(outf, (const de_byte*)"BM", 2);
-	dbuf_writeui32le(outf, 14 + dib_len);
-	dbuf_write_zeroes(outf, 4);
-	dbuf_writeui32le(outf, 14 + bi.size_of_headers_and_pal);
-
-	// Copy the DIB
-	dbuf_copy(c->infile, dib_pos, dib_len, outf);
-
-done:
-	dbuf_close(outf);
+	de_dbg_indent(c, 1);
+	de_run_module_by_id_on_slice(c, "dib", NULL, c->infile, dib_pos, dib_len);
+	de_dbg_indent(c, -1);
 	return 1;
 }
 
@@ -863,11 +844,7 @@ static void extract_dib(deark *c, lctx *d, de_int64 bmi_pos, de_int64 bmi_len,
 
 	outf = dbuf_create_output_file(c, "bmp", NULL, 0);
 
-	// Write fileheader
-	dbuf_write(outf, (const de_byte*)"BM", 2);
-	dbuf_writeui32le(outf, 14 + bmi_len + bits_len);
-	dbuf_write_zeroes(outf, 4);
-	dbuf_writeui32le(outf, 14 + bi.size_of_headers_and_pal);
+	de_fmtutil_generate_bmpfileheader(c, outf, &bi, 14 + bmi_len + bits_len);
 
 	if(real_height == bi.height) {
 		// Copy the BITMAPINFO (headers & palette)

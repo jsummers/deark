@@ -522,6 +522,19 @@ void de_run_module_by_id_on_slice(deark *c, const char *id, de_module_params *mp
 	c->infile = old_ifile;
 }
 
+// Same as de_run_module_by_id_on_slice(), but takes just ->codes
+// as a parameter, instead of a full de_module_params struct.
+void de_run_module_by_id_on_slice2(deark *c, const char *id, const char *codes,
+	dbuf *f, de_int64 pos, de_int64 len)
+{
+	de_module_params *mparams = NULL;
+
+	mparams = de_malloc(c, sizeof(de_module_params));
+	mparams->codes = codes;
+	de_run_module_by_id_on_slice(c, id, mparams, f, pos, len);
+	de_free(c, mparams);
+}
+
 void de_set_ext_option(deark *c, const char *name, const char *val)
 {
 	int n;

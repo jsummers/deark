@@ -1539,7 +1539,7 @@ static void handler_photoshoprsrc(deark *c, lctx *d, const struct taginfo *tg, c
 // Photoshop "ImageSourceData"
 static void handler_37724(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni)
 {
-	de_module_params *mparams = NULL;
+	const char *codes;
 	static const de_int64 siglen = 36;
 	de_int64 dpos, dlen;
 	int psdver = 0;
@@ -1565,13 +1565,12 @@ static void handler_37724(deark *c, lctx *d, const struct taginfo *tg, const str
 	dlen = tg->total_size - siglen;
 	de_dbg(c, "ImageSourceData blocks at %d, len=%d\n", (int)dpos, (int)dlen);
 
-	mparams = de_malloc(c, sizeof(de_module_params));
-	mparams->codes = (psdver==2)? "B" : "T";
+	codes = (psdver==2)? "B" : "T";
 	de_dbg_indent(c, 1);
-	de_run_module_by_id_on_slice(c, "psd", mparams, c->infile, dpos, dlen);
+	de_run_module_by_id_on_slice2(c, "psd", codes, c->infile, dpos, dlen);
 	de_dbg_indent(c, -1);
 done:
-	de_free(c, mparams);
+	;
 }
 
 static void handler_iccprofile(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni)

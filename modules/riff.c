@@ -156,16 +156,9 @@ static void do_palette(deark *c, lctx *d, de_int64 pos, de_int64 len)
 
 static void do_DISP_DIB(deark *c, lctx *d, de_int64 pos, de_int64 len)
 {
-	de_module_params *mparams = NULL;
-
 	if(len<12) return;
-	mparams = de_malloc(c, sizeof(de_module_params));
-
-	// Tell the dib module to mark the output file as "auxiliary".
-	mparams->codes = "X";
-
-	de_run_module_by_id_on_slice(c, "dib", mparams, c->infile, pos, len);
-	de_free(c, mparams);
+	// "X" = Tell the dib module to mark the output file as "auxiliary".
+	de_run_module_by_id_on_slice2(c, "dib", "X", c->infile, pos, len);
 }
 
 static void do_DISP_TEXT(deark *c, lctx *d, de_int64 pos, de_int64 len1)

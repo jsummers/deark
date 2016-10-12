@@ -217,10 +217,7 @@ static int read_bitmap_v1(deark *c, lctx *d, struct page_ctx *pg, de_int64 pos1,
 
 	outf = dbuf_create_output_file(c, pg->thumbnail_ext, pg->fi, 0);
 	// Manufacture a BMP fileheader
-	dbuf_write(outf, (const de_byte*)"BM", 2);
-	dbuf_writeui32le(outf, 14 + bi.total_size);
-	dbuf_write_zeroes(outf, 4);
-	dbuf_writeui32le(outf, 14 + bi.size_of_headers_and_pal);
+	de_fmtutil_generate_bmpfileheader(c, outf, &bi, 0);
 
 	// Copy the BITMAPINFOHEADER
 	dbuf_copy(c->infile, pos, bi.infohdrsize, outf);

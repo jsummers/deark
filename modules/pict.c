@@ -838,12 +838,7 @@ static int handler_0c00(deark *c, lctx *d, de_int64 opcode, de_int64 data_pos, d
 
 static void do_handle_qtif_idsc(deark *c, de_int64 pos, de_int64 len)
 {
-	de_module_params *mparams = NULL;
-
-	mparams = de_malloc(c, sizeof(de_module_params));
-	mparams->codes = "I";
-	de_run_module_by_id_on_slice(c, "qtif", mparams, c->infile, pos, len);
-	de_free(c, mparams);
+	de_run_module_by_id_on_slice2(c, "qtif", "I", c->infile, pos, len);
 }
 
 // CompressedQuickTime (0x8200) & UncompressedQuickTime (0x8201)

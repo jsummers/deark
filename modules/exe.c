@@ -406,32 +406,12 @@ static void do_fileheader(deark *c, lctx *d)
 }
 
 // Extract a raw DIB, and write it to a file as a BMP.
-static void de_DIB_to_BMP(deark *c, dbuf *inf, de_int64 pos, de_int64 len, dbuf *outf)
-{
-	struct de_bmpinfo bi;
-
-	if(!de_fmtutil_get_bmpinfo(c, c->infile, &bi, pos, len, 0)) {
-		de_err(c, "Invalid bitmap\n");
-		return;
-	}
-
-	// Manufacture a BITMAPFILEHEADER.
-	dbuf_write(outf, (const de_byte*)"BM", 2);
-	dbuf_writeui32le(outf, 14+bi.total_size); // File size
-	dbuf_write_zeroes(outf, 4);
-	dbuf_writeui32le(outf, 14+bi.size_of_headers_and_pal); // "Bits offset"
-
-	dbuf_copy(inf, pos, bi.total_size, outf); // Copy the rest of the data.
-}
-
 static void do_extract_BITMAP(deark *c, lctx *d, de_int64 pos, de_int64 len, de_finfo *fi)
 {
-	dbuf *f;
 	if(len<12) return;
-
-	f = dbuf_create_output_file(c, "bmp", fi, 0);
-	de_DIB_to_BMP(c, c->infile, pos, len, f);
-	dbuf_close(f);
+	de_dbg_indent(c, 1);
+	de_run_module_by_id_on_slice2(c, "dib", "X", c->infile, pos, len);
+	de_dbg_indent(c, -1);
 }
 
 static void do_extract_ico_cur(deark *c, lctx *d, de_int64 pos, de_int64 len,

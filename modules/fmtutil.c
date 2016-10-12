@@ -135,10 +135,25 @@ int de_fmtutil_get_bmpinfo(deark *c, dbuf *f, struct de_bmpinfo *bi, de_int64 po
 	return 1;
 }
 
+void de_fmtutil_generate_bmpfileheader(deark *c, dbuf *outf, const struct de_bmpinfo *bi,
+	de_int64 file_size_override)
+{
+	de_int64 file_size_to_write;
+
+	dbuf_write(outf, (const de_byte*)"BM", 2);
+
+	if(file_size_override)
+		file_size_to_write = file_size_override;
+	else
+		file_size_to_write = 14 + bi->total_size;
+	dbuf_writeui32le(outf, file_size_to_write);
+
+	dbuf_write_zeroes(outf, 4);
+	dbuf_writeui32le(outf, 14 + bi->size_of_headers_and_pal);
+}
+
 void de_fmtutil_handle_exif(deark *c, de_int64 pos, de_int64 len)
 {
-	de_module_params *mparams = NULL;
-
 	if(c->extract_level>=2) {
 		// Writing raw Exif data isn't very useful, but do so if requested.
 		dbuf_create_file_from_slice(c->infile, pos, len, "exif.tif", NULL, DE_CREATEFLAG_IS_AUX);
@@ -147,10 +162,7 @@ void de_fmtutil_handle_exif(deark *c, de_int64 pos, de_int64 len)
 		return;
 	}
 
-	mparams = de_malloc(c, sizeof(de_module_params));
-	mparams->codes = "E";
-	de_run_module_by_id_on_slice(c, "tiff", mparams, c->infile, pos, len);
-	de_free(c, mparams);
+	de_run_module_by_id_on_slice2(c, "tiff", "E", c->infile, pos, len);
 }
 
 // Either extract the IPTC data to a file, or drill down into it,
@@ -169,12 +181,7 @@ void de_fmtutil_handle_iptc(deark *c, de_int64 pos, de_int64 len)
 
 void de_fmtutil_handle_photoshop_rsrc(deark *c, de_int64 pos, de_int64 len)
 {
-	de_module_params *mparams = NULL;
-
-	mparams = de_malloc(c, sizeof(de_module_params));
-	mparams->codes = "R";
-	de_run_module_by_id_on_slice(c, "psd", mparams, c->infile, pos, len);
-	de_free(c, mparams);
+	de_run_module_by_id_on_slice2(c, "psd", "R", c->infile, pos, len);
 }
 
 // Returns 0 on failure (currently impossible).

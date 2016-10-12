@@ -38,6 +38,9 @@ struct de_bmpinfo {
 int de_fmtutil_get_bmpinfo(deark *c,  dbuf *f, struct de_bmpinfo *bi, de_int64 pos,
 	de_int64 len, unsigned int flags);
 
+void de_fmtutil_generate_bmpfileheader(deark *c, dbuf *outf, const struct de_bmpinfo *bi,
+	de_int64 file_size_override);
+
 void de_fmtutil_handle_exif(deark *c, de_int64 pos, de_int64 len);
 
 void de_fmtutil_handle_iptc(deark *c, de_int64 pos, de_int64 len);
