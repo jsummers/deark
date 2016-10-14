@@ -249,12 +249,13 @@ static void do_prescan_image(deark *c, lctx *d, dbuf *unc_pixels)
 	}
 }
 
-static int do_decode_rle(deark *c, lctx *d, de_int64 pos, dbuf *unc_pixels)
+static int do_decode_rle(deark *c, lctx *d, de_int64 pos1, dbuf *unc_pixels)
 {
 	de_byte b;
 	de_int64 count;
 	de_int64 k;
 	de_byte buf[8];
+	de_int64 pos = pos1;
 
 	while(1) {
 		if(pos >= c->infile->len) break;
@@ -278,6 +279,7 @@ static int do_decode_rle(deark *c, lctx *d, de_int64 pos, dbuf *unc_pixels)
 		}
 	}
 
+	de_dbg(c, "decompressed %d bytes to %d bytes\n", (int)(pos-pos1), (int)unc_pixels->len);
 	return 1;
 }
 
@@ -717,8 +719,8 @@ static void de_run_tga(deark *c, de_module_params *mparams)
 	}
 
 	if(d->cmpr_type==TGA_CMPR_RLE) {
-		if(d->pixel_depth%8) {
-			de_err(c, "RLE compression not supported when depth (%d) is not a multiple of 8\n",
+		if(d->pixel_depth<8) {
+			de_err(c, "RLE compression not supported when depth (%d) is less than 8\n",
 				(int)d->pixel_depth);
 			goto done;
 		}
