@@ -47,6 +47,7 @@ DE_DECLARE_MODULE(de_module_ps_pattern);
 #define CODE_Mtrn 0x4d74726eU
 #define CODE_ObAr 0x4f624172U
 #define CODE_Objc 0x4f626a63U
+#define CODE_PHUT 0x50485554U
 #define CODE_Pat2 0x50617432U
 #define CODE_Pat3 0x50617433U
 #define CODE_Patt 0x50617474U
@@ -555,12 +556,18 @@ static void read_prefixed_string_to_ucstring(deark *c, lctx *d, de_ucstring *s, 
 }
 
 // Caller supplies ri_dst. This function will set its fields.
-static int lookup_rsrc(de_uint16 n, struct rsrc_info *ri_dst)
+static int lookup_rsrc(de_uint32 sig_id, de_uint16 n, struct rsrc_info *ri_dst)
 {
 	de_int64 i;
 	int found = 0;
 
 	de_memset(ri_dst, 0, sizeof(struct rsrc_info));
+
+	if(sig_id==CODE_PHUT) { // PhotoDeluxe resources seem to use incompatible formats.
+		ri_dst->id = n;
+		ri_dst->idname = "?";
+		return 0;
+	}
 
 	for(i=0; i<(de_int64)DE_ITEMS_IN_ARRAY(rsrc_info_arr); i++) {
 		if(rsrc_info_arr[i].id == n) {
@@ -1845,6 +1852,9 @@ static int do_image_resource(deark *c, lctx *d, zztype *zz)
 	else if(sig4cc.id==CODE_MeSa) { // Image Ready resource?
 		signame = "MeSa";
 	}
+	else if(sig4cc.id==CODE_PHUT) { // PhotoDeluxe resource?
+		signame = "PHUT";
+	}
 	else {
 		de_warn(c, "Bad Photoshop resource block signature '%s' at %d\n",
 			sig4cc.id_printable, (int)zz->startpos);
@@ -1861,7 +1871,7 @@ static int do_image_resource(deark *c, lctx *d, zztype *zz)
 
 	block_data_len = psd_getui32zz(zz);
 
-	lookup_rsrc((de_uint16)resource_id, &ri);
+	lookup_rsrc(sig4cc.id, (de_uint16)resource_id, &ri);
 
 	de_dbg(c, "%s rsrc 0x%04x (%s) pos=%d blkname=\"%s\" dpos=%d dlen=%d\n",
 		signame, (int)resource_id, ri.idname, (int)zz->startpos,
