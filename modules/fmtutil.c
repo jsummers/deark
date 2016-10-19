@@ -498,12 +498,23 @@ double dbuf_fmtutil_read_fixed_16_16(dbuf *f, de_int64 pos)
 static void do_box_sequence(deark *c, struct de_boxesctx *bctx,
 	de_int64 pos1, de_int64 len, int level);
 
+// Make a printable version of a UUID (or a big-endian GUID).
 // Caller supplies s.
-static void render_uuid(deark *c, const de_byte *uuid, char *s, size_t s_len)
+void de_fmtutil_render_uuid(deark *c, const de_byte *uuid, char *s, size_t s_len)
 {
 	de_snprintf(s, s_len, "%02x%02x%02x%02x-%02x%02x-%02x%02x-%02x%02x-%02x%02x%02x%02x%02x%02x",
 		uuid[0], uuid[1], uuid[2], uuid[3], uuid[4], uuid[5], uuid[6], uuid[7],
 		uuid[8], uuid[9], uuid[10], uuid[11], uuid[12], uuid[13], uuid[14], uuid[15]);
+}
+
+// Swap some bytes to convert a (little-endian) GUID to a UUID, in-place
+void de_fmtutil_guid_to_uuid(de_byte *id)
+{
+	de_byte tmp[16];
+	de_memcpy(tmp, id, 16);
+	id[0] = tmp[3]; id[1] = tmp[2]; id[2] = tmp[1]; id[3] = tmp[0];
+	id[4] = tmp[5]; id[5] = tmp[4];
+	id[6] = tmp[7]; id[7] = tmp[6];
 }
 
 #define DE_BOX_uuid 0x75756964U
@@ -561,7 +572,7 @@ static int do_box(deark *c, struct de_boxesctx *bctx, de_int64 pos, de_int64 len
 
 	if(c->debug_level>0) {
 		if(bctx->is_uuid) {
-			render_uuid(c, bctx->uuid, uuid_string, sizeof(uuid_string));
+			de_fmtutil_render_uuid(c, bctx->uuid, uuid_string, sizeof(uuid_string));
 			de_dbg(c, "box '%s'{%s} at %d, len=%" INT64_FMT "\n",
 				box4cc.id_printable, uuid_string,
 				(int)pos, total_len);

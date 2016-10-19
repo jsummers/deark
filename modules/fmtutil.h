@@ -99,6 +99,8 @@ struct de_boxesctx {
 double dbuf_fmtutil_read_fixed_16_16(dbuf *f, de_int64 pos);
 int de_fmtutil_default_box_handler(deark *c, struct de_boxesctx *bctx);
 void de_fmtutil_read_boxes_format(deark *c, struct de_boxesctx *bctx);
+void de_fmtutil_render_uuid(deark *c, const de_byte *uuid, char *s, size_t s_len);
+void de_fmtutil_guid_to_uuid(de_byte *id);
 
 struct atari_img_decode_data {
 	de_int64 bpp;
