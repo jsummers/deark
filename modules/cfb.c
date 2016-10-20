@@ -396,20 +396,22 @@ static void read_minifat(deark *c, lctx *d)
 }
 
 // Write a stream to a file.
-static void extract_stream(deark *c, lctx *d, de_int64 first_sec_id, de_int64 stream_size)
+static void extract_stream(deark *c, lctx *d, de_int64 first_sec_id, de_int64 stream_size,
+	de_finfo *fi)
 {
 	dbuf *outf = NULL;
 
-	outf = dbuf_create_output_file(c, "bin", NULL, 0);
+	outf = dbuf_create_output_file(c, NULL, fi, 0);
 	copy_stream_to_dbuf(c, d, first_sec_id, stream_size, outf);
 	dbuf_close(outf);
 }
 
-static void extract_mini_stream(deark *c, lctx *d, de_int64 first_minisec_id, de_int64 stream_size)
+static void extract_mini_stream(deark *c, lctx *d, de_int64 first_minisec_id,
+	de_int64 stream_size, de_finfo *fi)
 {
 	dbuf *outf = NULL;
 
-	outf = dbuf_create_output_file(c, "bin", NULL, 0);
+	outf = dbuf_create_output_file(c, NULL, fi, 0);
 	copy_mini_stream_to_dbuf(c, d, first_minisec_id, stream_size, outf);
 	dbuf_close(outf);
 }
@@ -471,26 +473,27 @@ static void do_dir_entry(deark *c, lctx *d, de_int64 dir_entry_idx, de_int64 dir
 {
 	de_int64 name_len_raw;
 	de_int64 name_len_bytes;
-	de_ucstring *s = NULL;
+	de_ucstring *fname = NULL;
 	de_byte entry_type;
 	de_int64 stream_sec_id;
 	de_int64 stream_size;
 	int is_mini_stream;
 	int need_to_read_stream_info = 0;
-	const char *name;
+	const char *tname;
+	de_finfo *fi = NULL;
 	de_byte clsid[16];
 	char clsid_string[50];
 	char buf[80];
 
 	entry_type = dbuf_getbyte(d->dir, dir_entry_offs+66);
 	switch(entry_type) {
-	case OBJTYPE_EMPTY: name="empty"; break;
-	case OBJTYPE_STORAGE: name="storage object"; break;
-	case OBJTYPE_STREAM: name="stream"; break;
-	case OBJTYPE_ROOT_STORAGE: name="root storage object"; break;
-	default: name="?";
+	case OBJTYPE_EMPTY: tname="empty"; break;
+	case OBJTYPE_STORAGE: tname="storage object"; break;
+	case OBJTYPE_STREAM: tname="stream"; break;
+	case OBJTYPE_ROOT_STORAGE: tname="root storage object"; break;
+	default: tname="?";
 	}
-	de_dbg(c, "type: 0x%02x (%s)\n", (unsigned int)entry_type, name);
+	de_dbg(c, "type: 0x%02x (%s)\n", (unsigned int)entry_type, tname);
 	if(entry_type==0x00) goto done;
 
 	name_len_raw = dbuf_getui16le(d->dir, dir_entry_offs+64);
@@ -498,10 +501,10 @@ static void do_dir_entry(deark *c, lctx *d, de_int64 dir_entry_idx, de_int64 dir
 	name_len_bytes = name_len_raw-2; // Ignore the trailing U+0000
 	if(name_len_bytes<0) name_len_bytes = 0;
 
-	s = ucstring_create(c);
-	dbuf_read_to_ucstring(d->dir, dir_entry_offs, name_len_bytes, s,
+	fname = ucstring_create(c);
+	dbuf_read_to_ucstring(d->dir, dir_entry_offs, name_len_bytes, fname,
 		0, DE_ENCODING_UTF16LE);
-	de_dbg(c, "name: \"%s\"\n", ucstring_get_printable_sz(s));
+	de_dbg(c, "name: \"%s\"\n", ucstring_get_printable_sz(fname));
 
 	if(entry_type==OBJTYPE_STORAGE || entry_type==OBJTYPE_ROOT_STORAGE) {
 		dbuf_read(d->dir, clsid, dir_entry_offs+80, 16);
@@ -516,6 +519,11 @@ static void do_dir_entry(deark *c, lctx *d, de_int64 dir_entry_idx, de_int64 dir
 		need_to_read_stream_info = (pass==2);
 
 	if(need_to_read_stream_info) {
+		fi = de_finfo_create(c);
+
+		de_finfo_set_name_from_ucstring(c, fi, fname);
+		fi->original_filename_flag = 1;
+
 		// TODO: dir_entry_offs+108 modification time
 
 		stream_sec_id = dbuf_geti32le(d->dir, dir_entry_offs+116);
@@ -534,7 +542,7 @@ static void do_dir_entry(deark *c, lctx *d, de_int64 dir_entry_idx, de_int64 dir
 			de_dbg(c, "MiniSecID: %d\n", (int)stream_sec_id);
 
 			if(entry_type==OBJTYPE_STREAM) {
-				extract_mini_stream(c, d, stream_sec_id, stream_size);
+				extract_mini_stream(c, d, stream_sec_id, stream_size, fi);
 			}
 		}
 		else {
@@ -542,7 +550,7 @@ static void do_dir_entry(deark *c, lctx *d, de_int64 dir_entry_idx, de_int64 dir
 			de_dbg(c, "SecID: %d (%s)\n", (int)stream_sec_id, buf);
 
 			if(entry_type==OBJTYPE_STREAM) {
-				extract_stream(c, d, stream_sec_id, stream_size);
+				extract_stream(c, d, stream_sec_id, stream_size, fi);
 			}
 
 			if(pass==1 && entry_type==OBJTYPE_ROOT_STORAGE) {
@@ -552,7 +560,8 @@ static void do_dir_entry(deark *c, lctx *d, de_int64 dir_entry_idx, de_int64 dir
 	}
 
 done:
-	ucstring_destroy(s);
+	de_finfo_destroy(c, fi);
+	ucstring_destroy(fname);
 }
 
 // Pass 1: Detect the file format, and read the mini sector stream.
@@ -612,10 +621,8 @@ done:
 
 static int de_identify_cfb(deark *c)
 {
-#if 0
 	if(!dbuf_memcmp(c->infile, 0, "\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1", 8))
 		return 100;
-#endif
 	return 0;
 }
 
@@ -625,5 +632,4 @@ void de_module_cfb(deark *c, struct deark_module_info *mi)
 	mi->desc = "Microsoft Compound File Binary File";
 	mi->run_fn = de_run_cfb;
 	mi->identify_fn = de_identify_cfb;
-	mi->flags |= DE_MODFLAG_NONWORKING;
 }
