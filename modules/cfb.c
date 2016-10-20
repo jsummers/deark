@@ -43,7 +43,11 @@ typedef struct localctx_struct {
 	// All the bytes of a SAT sector are used for payload data.
 	dbuf *sat;
 
+	dbuf *ssat; // short sector allocation table
+
 	dbuf *dir;
+
+	dbuf *short_sector_stream;
 } lctx;
 
 static de_int64 sec_id_to_offset(deark *c, lctx *d, de_int64 sec_id)
@@ -60,6 +64,16 @@ static de_int64 get_next_sec_id(deark *c, lctx *d, de_int64 cur_sec_id)
 	if(!d->sat) return -2;
 	next_sec_id = dbuf_geti32le(d->sat, cur_sec_id*4);
 	return next_sec_id;
+}
+
+static de_int64 get_next_ssec_id(deark *c, lctx *d, de_int64 cur_ssec_id)
+{
+	de_int64 next_ssec_id;
+
+	if(cur_ssec_id < 0) return -2;
+	if(!d->ssat) return -2;
+	next_ssec_id = dbuf_geti32le(d->ssat, cur_ssec_id*4);
+	return next_ssec_id;
 }
 
 static void describe_sec_id(deark *c, lctx *d, de_int64 sec_id,
@@ -85,6 +99,58 @@ static void describe_sec_id(deark *c, lctx *d, de_int64 sec_id,
 	}
 	else {
 		de_strlcpy(buf, "?", buf_len);
+	}
+}
+
+// Copy a stream (with a known byte size) to a dbuf.
+static void copy_stream_to_dbuf(deark *c, lctx *d,
+	de_int64 first_sec_id, de_int64 stream_size,
+	dbuf *outf)
+{
+	de_int64 bytes_left;
+	de_int64 sec_id;
+	de_int64 sec_offs;
+	de_int64 bytes_to_copy;
+
+	if(stream_size<0 || stream_size>c->infile->len) return;
+
+	bytes_left = stream_size;
+	sec_id = first_sec_id;
+	while(bytes_left > 0) {
+		if(sec_id<0) break;
+		sec_offs = sec_id_to_offset(c, d, sec_id);
+
+		bytes_to_copy = d->sec_size;
+		if(bytes_to_copy > bytes_left) bytes_to_copy = bytes_left;
+		dbuf_copy(c->infile, sec_offs, bytes_to_copy, outf);
+		bytes_left -= bytes_to_copy;
+		sec_id = get_next_sec_id(c, d, sec_id);
+	}
+}
+
+static void copy_short_stream_to_dbuf(deark *c, lctx *d,
+	de_int64 first_ssec_id, de_int64 stream_size,
+	dbuf *outf)
+{
+	de_int64 bytes_left;
+	de_int64 bytes_to_copy;
+	de_int64 ssec_id;
+	de_int64 ssec_offs;
+
+	if(!d->short_sector_stream) return;
+	if(stream_size<0 || stream_size>d->short_sector_stream->len) return;
+
+	bytes_left = stream_size;
+	ssec_id = first_ssec_id;
+	while(bytes_left > 0) {
+		if(ssec_id<0) break;
+		ssec_offs = ssec_id * d->short_sector_size;
+
+		bytes_to_copy = d->short_sector_size;
+		if(bytes_to_copy > bytes_left) bytes_to_copy = bytes_left;
+		dbuf_copy(d->short_sector_stream, ssec_offs, bytes_to_copy, outf);
+		bytes_left -= bytes_to_copy;
+		ssec_id = get_next_ssec_id(c, d, ssec_id);
 	}
 }
 
@@ -266,32 +332,132 @@ static void read_sat(deark *c, lctx *d)
 	dump_sat(c, d);
 }
 
+static void dump_ssat(deark *c, lctx *d)
+{
+	de_int64 i;
+	de_int64 sec_id;
+	de_int64 num_ssat_entries;
+
+	if(c->debug_level<2) return;
+	if(!d->ssat) return;
+
+	num_ssat_entries = d->ssat->len / 4;
+	de_dbg2(c, "dumping SSAT contents (%d entries)\n", (int)num_ssat_entries);
+
+	de_dbg_indent(c, 1);
+	for(i=0; i<num_ssat_entries; i++) {
+		sec_id = dbuf_geti32le(d->ssat, i*4);
+		//describe_sec_id(c, d, sec_id, buf, sizeof(buf));
+		de_dbg2(c, "SSAT[%d]: next_SSecID=%d\n", (int)i, (int)sec_id);
+	}
+	de_dbg_indent(c, -1);
+}
+
+// Read the contents of the SSAT sectors into d->ssat
+static void read_ssat(deark *c, lctx *d)
+{
+	de_int64 i;
+	de_int64 sec_id;
+	de_int64 sec_offset;
+	char buf[80];
+
+	if(d->num_mini_fat_sectors > 1000000) {
+		// TODO: Decide what limits to enforce.
+		d->num_mini_fat_sectors = 1000000;
+	}
+
+	d->ssat = dbuf_create_membuf(c, d->num_mini_fat_sectors * d->sec_size, 1);
+
+	// TODO: Use copy_stream_to_dbuf
+	de_dbg(c, "reading SSAT contents (%d sectors)\n", (int)d->num_mini_fat_sectors);
+	de_dbg_indent(c, 1);
+
+	sec_id = d->first_mini_fat_sector_loc;
+
+	for(i=0; i<d->num_mini_fat_sectors; i++) {
+		if(sec_id<0) break;
+
+		sec_offset = sec_id_to_offset(c, d, sec_id);
+		describe_sec_id(c, d, sec_id, buf, sizeof(buf));
+		de_dbg(c, "reading SSAT sector #%d, SecID=%d (%s)\n",
+			(int)i, (int)sec_id, buf);
+		dbuf_copy(c->infile, sec_offset, d->sec_size, d->ssat);
+
+		sec_id = get_next_sec_id(c, d, sec_id);
+	}
+	de_dbg_indent(c, -1);
+
+	dump_ssat(c, d);
+}
+
+// Write a stream to a file.
 static void extract_stream(deark *c, lctx *d, de_int64 first_sec_id, de_int64 stream_size)
 {
 	dbuf *outf = NULL;
-	de_int64 bytes_left;
-	de_int64 sec_id;
-	de_int64 sec_offs;
-	de_int64 bytes_to_copy;
-
-	if(stream_size<0 || stream_size>c->infile->len) return;
 
 	outf = dbuf_create_output_file(c, "bin", NULL, 0);
-	bytes_left = stream_size;
+	copy_stream_to_dbuf(c, d, first_sec_id, stream_size, outf);
+	dbuf_close(outf);
+}
 
-	sec_id = first_sec_id;
-	while(bytes_left > 0) {
-		if(sec_id<0) break;
-		sec_offs = sec_id_to_offset(c, d, sec_id);
+static void extract_short_stream(deark *c, lctx *d, de_int64 first_ssec_id, de_int64 stream_size)
+{
+	dbuf *outf = NULL;
 
-		bytes_to_copy = d->sec_size;
-		if(bytes_to_copy > bytes_left) bytes_to_copy = bytes_left;
-		dbuf_copy(c->infile, sec_offs, bytes_to_copy, outf);
-		bytes_left -= bytes_to_copy;
-		sec_id = get_next_sec_id(c, d, sec_id);
+	outf = dbuf_create_output_file(c, "bin", NULL, 0);
+	copy_short_stream_to_dbuf(c, d, first_ssec_id, stream_size, outf);
+	dbuf_close(outf);
+}
+
+static void read_short_sector_stream(deark *c, lctx *d, de_int64 first_sec_id, de_int64 stream_size)
+{
+	if(d->short_sector_stream) return; // Already done
+
+	de_dbg(c, "reading short sector stream (%d bytes)\n", (int)stream_size);
+	d->short_sector_stream = dbuf_create_membuf(c, 0, 0);
+	copy_stream_to_dbuf(c, d, first_sec_id, stream_size, d->short_sector_stream);
+}
+
+// Reads the directory stream into d->dir, and sets d->num_dir_entries.
+static void read_directory_stream(deark *c, lctx *d)
+{
+	de_int64 dir_sec_id;
+	de_int64 dir_sector_offs;
+	de_int64 num_entries_per_sector;
+	de_int64 dir_sector_count = 0;
+
+	de_dbg(c, "reading directory stream\n");
+	de_dbg_indent(c, 1);
+
+	d->dir = dbuf_create_membuf(c, 0, 0);
+
+	dir_sec_id = d->first_dir_sector_loc;
+
+	num_entries_per_sector = d->sec_size / 128;
+	d->num_dir_entries = 0;
+
+	// TODO: Use copy_stream_to_dbuf
+	while(1) {
+		if(dir_sec_id<0) break;
+
+		dir_sector_offs = sec_id_to_offset(c, d, dir_sec_id);
+
+		de_dbg(c, "directory sector #%d SecID=%d (offs=%d), entries %d-%d\n",
+			(int)dir_sector_count,
+			(int)dir_sec_id, (int)dir_sector_offs,
+			(int)d->num_dir_entries, (int)(d->num_dir_entries + num_entries_per_sector - 1));
+
+		dbuf_copy(c->infile, dir_sector_offs, d->sec_size, d->dir);
+
+		d->num_dir_entries += num_entries_per_sector;
+
+		dir_sec_id = get_next_sec_id(c, d, dir_sec_id);
+		dir_sector_count++;
 	}
 
-	dbuf_close(outf);
+	de_dbg(c, "number of directory entries: %d\n", (int)d->num_dir_entries);
+
+	de_dbg_indent(c, -1);
 }
 
 // Read and process a directory entry from the d->dir stream
@@ -305,6 +471,7 @@ static void do_dir_entry(deark *c, lctx *d, de_int64 dir_entry_idx, de_int64 dir
 	de_int64 stream_sec_id;
 	de_int64 stream_size;
 	int is_short_stream;
+	int need_to_read_stream_info = 0;
 	const char *name;
 	de_byte clsid[16];
 	char clsid_string[50];
@@ -339,6 +506,13 @@ static void do_dir_entry(deark *c, lctx *d, de_int64 dir_entry_idx, de_int64 dir
 	}
 
 	if(pass==2) {
+		need_to_read_stream_info = 1;
+	}
+	else if(pass==1 && entry_type==OBJTYPE_ROOT_STORAGE) {
+		need_to_read_stream_info = 1;
+	}
+
+	if(need_to_read_stream_info) {
 		// TODO: dir_entry_offs+108 modification time
 
 		stream_sec_id = dbuf_geti32le(d->dir, dir_entry_offs+116);
@@ -355,6 +529,10 @@ static void do_dir_entry(deark *c, lctx *d, de_int64 dir_entry_idx, de_int64 dir
 
 		if(is_short_stream) {
 			de_dbg(c, "short stream sector: %d\n", (int)stream_sec_id);
+
+			if(entry_type==OBJTYPE_STREAM) {
+				extract_short_stream(c, d, stream_sec_id, stream_size);
+			}
 		}
 		else {
 			describe_sec_id(c, d, stream_sec_id, buf, sizeof(buf));
@@ -363,6 +541,10 @@ static void do_dir_entry(deark *c, lctx *d, de_int64 dir_entry_idx, de_int64 dir
 			if(entry_type==OBJTYPE_STREAM) {
 				extract_stream(c, d, stream_sec_id, stream_size);
 			}
+
+			if(pass==1 && entry_type==OBJTYPE_ROOT_STORAGE) {
+				read_short_sector_stream(c, d, stream_sec_id, stream_size);
+			}
 		}
 	}
 
@@ -370,47 +552,8 @@ done:
 	ucstring_destroy(s);
 }
 
-// Reads the directory stream into d->dir, and sets d->num_dir_entries.
-static void read_directory_stream(deark *c, lctx *d)
-{
-	de_int64 dir_sec_id;
-	de_int64 dir_sector_offs;
-	de_int64 num_entries_per_sector;
-	de_int64 dir_sector_count = 0;
-
-	de_dbg(c, "reading directory stream\n");
-	de_dbg_indent(c, 1);
-
-	d->dir = dbuf_create_membuf(c, 0, 0);
-
-	dir_sec_id = d->first_dir_sector_loc;
-
-	num_entries_per_sector = d->sec_size / 128;
-	d->num_dir_entries = 0;
-
-	while(1) {
-		if(dir_sec_id<0) break;
-
-		dir_sector_offs = sec_id_to_offset(c, d, dir_sec_id);
-
-		de_dbg(c, "directory sector #%d SecID=%d (offs=%d), entries %d-%d\n",
-			(int)dir_sector_count,
-			(int)dir_sec_id, (int)dir_sector_offs,
-			(int)d->num_dir_entries, (int)(d->num_dir_entries + num_entries_per_sector - 1));
-
-		dbuf_copy(c->infile, dir_sector_offs, d->sec_size, d->dir);
-
-		d->num_dir_entries += num_entries_per_sector;
-
-		dir_sec_id = get_next_sec_id(c, d, dir_sec_id);
-		dir_sector_count++;
-	}
-
-	de_dbg(c, "number of directory entries: %d\n", (int)d->num_dir_entries);
-
-	de_dbg_indent(c, -1);
-}
-
+// Pass 1: Detect the file format, and read the short sector stream.
+// Pass 2: Extract files.
 static void do_directory(deark *c, lctx *d, int pass)
 {
 	de_int64 dir_entry_offs; // Offset in d->dir
@@ -445,19 +588,21 @@ static void de_run_cfb(deark *c, de_module_params *mparams)
 
 	read_sat(c, d);
 
+	read_ssat(c, d);
+
 	read_directory_stream(c, d);
 
-	// Pass 1, to detect the file format
 	do_directory(c, d, 1);
 
-	// Pass 2, to extract files
 	do_directory(c, d, 2);
 
 done:
 	if(d) {
 		dbuf_close(d->msat);
 		dbuf_close(d->sat);
+		dbuf_close(d->ssat);
 		dbuf_close(d->dir);
+		dbuf_close(d->short_sector_stream);
 		de_free(c, d);
 	}
 }
