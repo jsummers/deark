@@ -14,7 +14,20 @@ DE_DECLARE_MODULE(de_module_cfb);
 #define OBJTYPE_STREAM       0x02
 #define OBJTYPE_ROOT_STORAGE 0x05
 
+struct dir_entry_info {
+	de_int64 stream_size;
+	int is_mini_stream;
+	de_int64 normal_sec_id; // First SecID, valid if is_mini_stream==0
+	de_int64 minisec_id; // First MiniSecID, valid if is_mini_stream==1
+	de_ucstring *fname;
+	de_finfo *fi;
+	char fname_utf8[80];
+};
+
 typedef struct localctx_struct {
+#define SUBFMT_DEFAULT    0
+#define SUBFMT_THUMBSDB   2
+	int subformat;
 	de_int64 minor_ver, major_ver;
 	de_int64 sec_size;
 	//de_int64 num_dir_sectors;
@@ -103,53 +116,74 @@ static void describe_sec_id(deark *c, lctx *d, de_int64 sec_id,
 }
 
 // Copy a stream (with a known byte size) to a dbuf.
-static void copy_stream_to_dbuf(deark *c, lctx *d,
-	de_int64 first_sec_id, de_int64 stream_size,
+static void copy_stream_to_dbuf(deark *c, lctx *d, de_int64 first_sec_id,
+	de_int64 stream_startpos, de_int64 stream_size,
 	dbuf *outf)
 {
-	de_int64 bytes_left;
 	de_int64 sec_id;
-	de_int64 sec_offs;
-	de_int64 bytes_to_copy;
+	de_int64 bytes_left_to_copy;
+	de_int64 bytes_left_to_skip;
 
 	if(stream_size<0 || stream_size>c->infile->len) return;
 
-	bytes_left = stream_size;
+	bytes_left_to_copy = stream_size;
+	bytes_left_to_skip = stream_startpos;
 	sec_id = first_sec_id;
-	while(bytes_left > 0) {
+	while(bytes_left_to_copy > 0) {
+		de_int64 sec_offs;
+		de_int64 bytes_to_copy;
+		de_int64 bytes_to_skip;
+
 		if(sec_id<0) break;
 		sec_offs = sec_id_to_offset(c, d, sec_id);
 
-		bytes_to_copy = d->sec_size;
-		if(bytes_to_copy > bytes_left) bytes_to_copy = bytes_left;
-		dbuf_copy(c->infile, sec_offs, bytes_to_copy, outf);
-		bytes_left -= bytes_to_copy;
+		bytes_to_skip = bytes_left_to_skip;
+		if(bytes_to_skip > d->sec_size) bytes_to_skip = d->sec_size;
+
+		bytes_to_copy = d->sec_size - bytes_to_skip;
+		if(bytes_to_copy > bytes_left_to_copy) bytes_to_copy = bytes_left_to_copy;
+
+		dbuf_copy(c->infile, sec_offs + bytes_to_skip, bytes_to_copy, outf);
+
+		bytes_left_to_copy -= bytes_to_copy;
+		bytes_left_to_skip -= bytes_to_skip;
 		sec_id = get_next_sec_id(c, d, sec_id);
 	}
 }
 
-static void copy_mini_stream_to_dbuf(deark *c, lctx *d,
-	de_int64 first_minisec_id, de_int64 stream_size,
+// Same as copy_stream_to_dbuf(), but for mini streams.
+static void copy_mini_stream_to_dbuf(deark *c, lctx *d, de_int64 first_minisec_id,
+	de_int64 stream_startpos, de_int64 stream_size,
 	dbuf *outf)
 {
-	de_int64 bytes_left;
-	de_int64 bytes_to_copy;
 	de_int64 minisec_id;
-	de_int64 minisec_offs;
+	de_int64 bytes_left_to_copy;
+	de_int64 bytes_left_to_skip;
 
 	if(!d->mini_sector_stream) return;
 	if(stream_size<0 || stream_size>d->mini_sector_stream->len) return;
 
-	bytes_left = stream_size;
+	bytes_left_to_copy = stream_size;
+	bytes_left_to_skip = stream_startpos;
 	minisec_id = first_minisec_id;
-	while(bytes_left > 0) {
+	while(bytes_left_to_copy > 0) {
+		de_int64 minisec_offs;
+		de_int64 bytes_to_copy;
+		de_int64 bytes_to_skip;
+
 		if(minisec_id<0) break;
 		minisec_offs = minisec_id * d->mini_sector_size;
 
-		bytes_to_copy = d->mini_sector_size;
-		if(bytes_to_copy > bytes_left) bytes_to_copy = bytes_left;
-		dbuf_copy(d->mini_sector_stream, minisec_offs, bytes_to_copy, outf);
-		bytes_left -= bytes_to_copy;
+		bytes_to_skip = bytes_left_to_skip;
+		if(bytes_to_skip > d->mini_sector_size) bytes_to_skip = d->mini_sector_size;
+
+		bytes_to_copy = d->mini_sector_size - bytes_to_skip;
+		if(bytes_to_copy > bytes_left_to_copy) bytes_to_copy = bytes_left_to_copy;
+
+		dbuf_copy(d->mini_sector_stream, minisec_offs + bytes_to_skip, bytes_to_copy, outf);
+
+		bytes_left_to_copy -= bytes_to_copy;
+		bytes_left_to_skip -= bytes_to_skip;
 		minisec_id = get_next_minisec_id(c, d, minisec_id);
 	}
 }
@@ -395,24 +429,67 @@ static void read_minifat(deark *c, lctx *d)
 	dump_minifat(c, d);
 }
 
-// Write a stream to a file.
-static void extract_stream(deark *c, lctx *d, de_int64 first_sec_id, de_int64 stream_size,
-	de_finfo *fi)
+static void extract_stream_to_file(deark *c, lctx *d, struct dir_entry_info *dei)
 {
+	de_int64 startpos;
+	de_int64 final_streamsize;
 	dbuf *outf = NULL;
+	dbuf *tmpdbuf = NULL;
+	const char *token = NULL;
 
-	outf = dbuf_create_output_file(c, NULL, fi, 0);
-	copy_stream_to_dbuf(c, d, first_sec_id, stream_size, outf);
-	dbuf_close(outf);
-}
+	startpos = 0;
+	final_streamsize = dei->stream_size;
 
-static void extract_mini_stream(deark *c, lctx *d, de_int64 first_minisec_id,
-	de_int64 stream_size, de_finfo *fi)
-{
-	dbuf *outf = NULL;
+	if(d->subformat==SUBFMT_THUMBSDB) {
+		de_int64 hdrsize;
+		// Special handling of Thumbs.db files.
+		// A Thumbs.db stream typically has a header, followed by an embedded JPEG
+		// file.
 
-	outf = dbuf_create_output_file(c, NULL, fi, 0);
-	copy_mini_stream_to_dbuf(c, d, first_minisec_id, stream_size, outf);
+		if(!de_strcmp(dei->fname_utf8, "Catalog")) {
+			goto done;
+		}
+
+		tmpdbuf = dbuf_create_membuf(c, 32, 0);
+
+		if(dei->is_mini_stream) {
+			copy_mini_stream_to_dbuf(c, d, dei->minisec_id, 0, 32, tmpdbuf);
+		}
+		else {
+			copy_stream_to_dbuf(c, d, dei->normal_sec_id, 0, 32, tmpdbuf);
+		}
+
+		// This might be a 4-byte int, but since I'm not sure, I'll only test
+		// the first 2 bytes.
+		hdrsize = dbuf_getui16le(tmpdbuf, 0);
+		// 0x0c = "Original format" Thumbs.db
+		// 0x18 = "Windows 7 format"
+		if((hdrsize==0x0c || hdrsize==0x18) && dei->stream_size>hdrsize) {
+			de_byte b;
+			startpos = hdrsize;
+			final_streamsize -= hdrsize;
+			b = dbuf_getbyte(tmpdbuf, hdrsize);
+			if(b==0xff) token = "jpg";
+			else if(b==0x89) token = "png";
+			else token = "bin";
+		}
+		else {
+			de_warn(c, "Unidentified Thumbs.db stream \"%s\"\n",
+				ucstring_get_printable_sz(dei->fname));
+			goto done;
+		}
+	}
+
+	outf = dbuf_create_output_file(c, token, dei->fi, 0);
+	if(dei->is_mini_stream) {
+		copy_mini_stream_to_dbuf(c, d, dei->minisec_id, startpos, final_streamsize, outf);
+	}
+	else {
+		copy_stream_to_dbuf(c, d, dei->normal_sec_id, startpos, final_streamsize, outf);
+	}
+
+done:
+	dbuf_close(tmpdbuf);
 	dbuf_close(outf);
 }
 
@@ -422,7 +499,7 @@ static void read_mini_sector_stream(deark *c, lctx *d, de_int64 first_sec_id, de
 
 	de_dbg(c, "reading mini sector stream (%d bytes)\n", (int)stream_size);
 	d->mini_sector_stream = dbuf_create_membuf(c, 0, 0);
-	copy_stream_to_dbuf(c, d, first_sec_id, stream_size, d->mini_sector_stream);
+	copy_stream_to_dbuf(c, d, first_sec_id, 0, stream_size, d->mini_sector_stream);
 }
 
 // Reads the directory stream into d->dir, and sets d->num_dir_entries.
@@ -473,17 +550,16 @@ static void do_dir_entry(deark *c, lctx *d, de_int64 dir_entry_idx, de_int64 dir
 {
 	de_int64 name_len_raw;
 	de_int64 name_len_bytes;
-	de_ucstring *fname = NULL;
 	de_byte entry_type;
-	de_int64 stream_sec_id;
-	de_int64 stream_size;
-	int is_mini_stream;
+	de_int64 raw_sec_id;
+	struct dir_entry_info *dei = NULL;
 	int need_to_read_stream_info = 0;
 	const char *tname;
-	de_finfo *fi = NULL;
 	de_byte clsid[16];
 	char clsid_string[50];
 	char buf[80];
+
+	dei = de_malloc(c, sizeof(struct dir_entry_info));
 
 	entry_type = dbuf_getbyte(d->dir, dir_entry_offs+66);
 	switch(entry_type) {
@@ -501,10 +577,13 @@ static void do_dir_entry(deark *c, lctx *d, de_int64 dir_entry_idx, de_int64 dir
 	name_len_bytes = name_len_raw-2; // Ignore the trailing U+0000
 	if(name_len_bytes<0) name_len_bytes = 0;
 
-	fname = ucstring_create(c);
-	dbuf_read_to_ucstring(d->dir, dir_entry_offs, name_len_bytes, fname,
+	dei->fname = ucstring_create(c);
+	dbuf_read_to_ucstring(d->dir, dir_entry_offs, name_len_bytes, dei->fname,
 		0, DE_ENCODING_UTF16LE);
-	de_dbg(c, "name: \"%s\"\n", ucstring_get_printable_sz(fname));
+	de_dbg(c, "name: \"%s\"\n", ucstring_get_printable_sz(dei->fname));
+
+	// A C-style version of the stream name, to make it easier to analyze.
+	ucstring_to_sz(dei->fname, dei->fname_utf8, sizeof(dei->fname_utf8), DE_ENCODING_UTF8);
 
 	if(entry_type==OBJTYPE_STORAGE || entry_type==OBJTYPE_ROOT_STORAGE) {
 		dbuf_read(d->dir, clsid, dir_entry_offs+80, 16);
@@ -513,55 +592,58 @@ static void do_dir_entry(deark *c, lctx *d, de_int64 dir_entry_idx, de_int64 dir
 		de_dbg(c, "clsid: {%s}\n", clsid_string);
 	}
 
+	// TODO: Read Thumbs.db Catalog files (pass 1)
+
 	if(entry_type==OBJTYPE_ROOT_STORAGE)
 		need_to_read_stream_info = (pass==1);
 	else
 		need_to_read_stream_info = (pass==2);
 
 	if(need_to_read_stream_info) {
-		fi = de_finfo_create(c);
+		dei->fi = de_finfo_create(c);
 
-		de_finfo_set_name_from_ucstring(c, fi, fname);
-		fi->original_filename_flag = 1;
+		de_finfo_set_name_from_ucstring(c, dei->fi, dei->fname);
+		dei->fi->original_filename_flag = 1;
 
 		// TODO: dir_entry_offs+108 modification time
 
-		stream_sec_id = dbuf_geti32le(d->dir, dir_entry_offs+116);
+		raw_sec_id = dbuf_geti32le(d->dir, dir_entry_offs+116);
 
 		if(d->major_ver<=3) {
-			stream_size = dbuf_getui32le(d->dir, dir_entry_offs+120);
+			dei->stream_size = dbuf_getui32le(d->dir, dir_entry_offs+120);
 		}
 		else {
-			stream_size = dbuf_geti64le(d->dir, dir_entry_offs+120);
+			dei->stream_size = dbuf_geti64le(d->dir, dir_entry_offs+120);
 		}
 
-		de_dbg(c, "stream size: %"INT64_FMT"\n", stream_size);
-		is_mini_stream = (entry_type==OBJTYPE_STREAM) && (stream_size < d->std_stream_min_size);
+		de_dbg(c, "stream size: %"INT64_FMT"\n", dei->stream_size);
+		dei->is_mini_stream = (entry_type==OBJTYPE_STREAM) && (dei->stream_size < d->std_stream_min_size);
 
-		if(is_mini_stream) {
-			de_dbg(c, "MiniSecID: %d\n", (int)stream_sec_id);
-
-			if(entry_type==OBJTYPE_STREAM) {
-				extract_mini_stream(c, d, stream_sec_id, stream_size, fi);
-			}
+		if(dei->is_mini_stream) {
+			dei->minisec_id = raw_sec_id;
+			de_dbg(c, "MiniSecID: %d\n", (int)dei->minisec_id);
 		}
 		else {
-			describe_sec_id(c, d, stream_sec_id, buf, sizeof(buf));
-			de_dbg(c, "SecID: %d (%s)\n", (int)stream_sec_id, buf);
+			dei->normal_sec_id = raw_sec_id;
+			describe_sec_id(c, d, dei->normal_sec_id, buf, sizeof(buf));
+			de_dbg(c, "SecID: %d (%s)\n", (int)dei->normal_sec_id, buf);
+		}
 
-			if(entry_type==OBJTYPE_STREAM) {
-				extract_stream(c, d, stream_sec_id, stream_size, fi);
-			}
+		if(pass==2 && entry_type==OBJTYPE_STREAM) {
+			extract_stream_to_file(c, d, dei);
+		}
 
-			if(pass==1 && entry_type==OBJTYPE_ROOT_STORAGE) {
-				read_mini_sector_stream(c, d, stream_sec_id, stream_size);
-			}
+		if(pass==1 && entry_type==OBJTYPE_ROOT_STORAGE) {
+			read_mini_sector_stream(c, d, dei->normal_sec_id, dei->stream_size);
 		}
 	}
 
 done:
-	de_finfo_destroy(c, fi);
-	ucstring_destroy(fname);
+	if(dei) {
+		ucstring_destroy(dei->fname);
+		de_finfo_destroy(c, dei->fi);
+		de_free(c, dei);
+	}
 }
 
 // Pass 1: Detect the file format, and read the mini sector stream.
@@ -583,14 +665,24 @@ static void do_directory(deark *c, lctx *d, int pass)
 		de_dbg_indent(c, -1);
 	}
 
+	// TODO: Autodetect Thumbs.db files (during and after pass 1)
+
 	de_dbg_indent(c, -1);
 }
 
 static void de_run_cfb(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
+	const char *cfbfmt_opt;
 
 	d = de_malloc(c, sizeof(lctx));
+
+	cfbfmt_opt = de_get_ext_option(c, "cfb:fmt");
+	if(cfbfmt_opt) {
+		if(!de_strcmp(cfbfmt_opt, "thumbsdb")) {
+			d->subformat = SUBFMT_THUMBSDB;
+		}
+	}
 
 	if(!do_header(c, d)) {
 		goto done;

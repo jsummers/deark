@@ -444,6 +444,8 @@ Deark -- Information about supported formats
 * Microsoft Compound File Binary (module="cfb") (experimental)
   - Extract the embedded data streams, though many of them may not be in a
     standard file format.
+  Options
+   -opt cfb:fmt=thumbsdb - Treat file as a Thumbs.db file.
 
 * RPM (package manager) (module="rpm)
   - Extract compressed cpio file.
