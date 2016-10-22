@@ -14,7 +14,7 @@ DE_DECLARE_MODULE(de_module_cfb);
 #define OBJTYPE_STREAM       0x02
 #define OBJTYPE_ROOT_STORAGE 0x05
 
-const char thumbsdb_catalog_fn[] = "Catalog";
+const char *thumbsdb_catalog_streamname = "Catalog";
 
 struct dir_entry_info {
 	de_int64 stream_size;
@@ -22,14 +22,14 @@ struct dir_entry_info {
 	de_int64 normal_sec_id; // First SecID, valid if is_mini_stream==0
 	de_int64 minisec_id; // First MiniSecID, valid if is_mini_stream==1
 	de_ucstring *fname;
-	de_finfo *fi;
 	char fname_utf8[80];
+	struct de_timestamp mod_time;
 };
 
 struct catalog_entry {
 	de_uint32 id;
 	de_ucstring *fname;
-	// TODO: filetime
+	struct de_timestamp mod_time;
 };
 
 typedef struct localctx_struct {
@@ -407,7 +407,6 @@ static void dump_minifat(deark *c, lctx *d)
 	de_dbg_indent(c, 1);
 	for(i=0; i<num_minifat_entries; i++) {
 		sec_id = dbuf_geti32le(d->minifat, i*4);
-		//describe_sec_id(c, d, sec_id, buf, sizeof(buf));
 		de_dbg2(c, "MiniFAT[%d]: next_MiniSecID=%d\n", (int)i, (int)sec_id);
 	}
 	de_dbg_indent(c, -1);
@@ -499,27 +498,46 @@ static void extract_stream_to_file(deark *c, lctx *d, struct dir_entry_info *dei
 	de_int64 final_streamsize;
 	dbuf *outf = NULL;
 	dbuf *tmpdbuf = NULL;
-	const char *token = NULL;
+	de_finfo *fi = NULL;
+	de_ucstring *tmpfn = NULL;
 
 	startpos = 0;
 	final_streamsize = dei->stream_size;
 
+	// By default, use the "stream name" as the filename.
+	tmpfn = ucstring_clone(dei->fname);
+
+	fi = de_finfo_create(c);
+
+	// By default, use the mod time from the directory entry.
+	if(dei->mod_time.is_valid) {
+		fi->mod_time = dei->mod_time; // struct copy
+	}
+
 	if(d->subformat==SUBFMT_THUMBSDB) {
 		de_int64 hdrsize;
 		de_int64 catalog_idx;
+		const char *ext;
 
 		// Special handling of Thumbs.db files.
 		// A Thumbs.db stream typically has a header, followed by an embedded JPEG
 		// (or something) file.
 
-		if(!de_strcmp(dei->fname_utf8, thumbsdb_catalog_fn)) {
+		if(!de_strcmp(dei->fname_utf8, thumbsdb_catalog_streamname)) {
 			goto done;
 		}
 
 		catalog_idx = lookup_catalog_entry(c, d, dei);
 
-		tmpdbuf = dbuf_create_membuf(c, 32, 0);
+		if(catalog_idx>=0) {
+			if(d->thumbsdb_catalog[catalog_idx].mod_time.is_valid) {
+				fi->mod_time = d->thumbsdb_catalog[catalog_idx].mod_time; // struct copy
+			}
+		}
 
+		// Read the first part of the stream. 32 bytes should be enough to get
+		// the header, and enough of the payload to choose a file extension.
+		tmpdbuf = dbuf_create_membuf(c, 32, 0);
 		copy_any_stream_to_dbuf(c, d, dei, 0, 32, tmpdbuf);
 
 		// This might be a 4-byte int, but since I'm not sure, I'll only test
@@ -533,16 +551,21 @@ static void extract_stream_to_file(deark *c, lctx *d, struct dir_entry_info *dei
 			startpos = hdrsize;
 			final_streamsize -= hdrsize;
 
-			if(catalog_idx>=0) {
+			if(catalog_idx>=0 && c->filenames_from_file) {
 				de_dbg(c, "name from catalog: \"%s\"\n",
 					ucstring_get_printable_sz(d->thumbsdb_catalog[catalog_idx].fname));
-				de_finfo_set_name_from_ucstring(c, dei->fi, d->thumbsdb_catalog[catalog_idx].fname);
+
+				// Replace the default name with the name from the catalog.
+				ucstring_empty(tmpfn);
+				ucstring_append_ucstring(tmpfn, d->thumbsdb_catalog[catalog_idx].fname);
 			}
 
 			b = dbuf_getbyte(tmpdbuf, hdrsize);
-			if(b==0xff) token = "jpg";
-			else if(b==0x89) token = "png";
-			else token = "bin";
+			if(b==0xff) ext = "jpg";
+			else if(b==0x89) ext = "png";
+			else ext = "bin";
+
+			ucstring_printf(tmpfn, DE_ENCODING_ASCII, ".thumb.%s", ext);
 		}
 		else {
 			de_warn(c, "Unidentified Thumbs.db stream \"%s\"\n",
@@ -550,12 +573,17 @@ static void extract_stream_to_file(deark *c, lctx *d, struct dir_entry_info *dei
 		}
 	}
 
-	outf = dbuf_create_output_file(c, token, dei->fi, 0);
+	de_finfo_set_name_from_ucstring(c, fi, tmpfn);
+	fi->original_filename_flag = 1;
+
+	outf = dbuf_create_output_file(c, NULL, fi, 0);
 	copy_any_stream_to_dbuf(c, d, dei, startpos, final_streamsize, outf);
 
 done:
 	dbuf_close(tmpdbuf);
 	dbuf_close(outf);
+	ucstring_destroy(tmpfn);
+	de_finfo_destroy(c, fi);
 }
 
 static int read_thumbsdb_catalog(deark *c, lctx *d, struct dir_entry_info *dei)
@@ -593,6 +621,9 @@ static int read_thumbsdb_catalog(deark *c, lctx *d, struct dir_entry_info *dei)
 	pos = item_len;
 
 	for(i=0; i<d->thumbsdb_catalog_num_entries; i++) {
+		de_int64 mod_time_as_FILETIME;
+		char timestamp_buf[64];
+
 		if(pos >= catf->len) goto done;
 		item_len = dbuf_getui32le(catf, pos);
 		de_dbg(c, "catalog entry #%d, len=%d\n", (int)i, (int)item_len);
@@ -603,7 +634,10 @@ static int read_thumbsdb_catalog(deark *c, lctx *d, struct dir_entry_info *dei)
 		d->thumbsdb_catalog[i].id = (de_uint32)dbuf_getui32le(catf, pos+4);
 		de_dbg(c, "id: %u\n", (unsigned int)d->thumbsdb_catalog[i].id);
 
-		// TODO: FILETIME(?) at pos+8
+		mod_time_as_FILETIME = dbuf_geti64le(catf, pos+8);
+		de_FILETIME_to_timestamp(mod_time_as_FILETIME, &d->thumbsdb_catalog[i].mod_time);
+		de_timestamp_to_string(&d->thumbsdb_catalog[i].mod_time, timestamp_buf, sizeof(timestamp_buf), 1);
+		de_dbg(c, "timestamp: %s\n", timestamp_buf);
 
 		d->thumbsdb_catalog[i].fname = ucstring_create(c);
 
@@ -689,6 +723,8 @@ static void do_dir_entry(deark *c, lctx *d, de_int64 dir_entry_idx, de_int64 dir
 	int need_to_read_stream_info = 0;
 	int is_thumbsdb_catalog = 0;
 	const char *tname;
+	de_int64 mod_time_as_FILETIME;
+	char timestamp_buf[64];
 	de_byte clsid[16];
 	char clsid_string[50];
 	char buf[80];
@@ -737,7 +773,7 @@ static void do_dir_entry(deark *c, lctx *d, de_int64 dir_entry_idx, de_int64 dir
 		need_to_read_stream_info = (pass==1);
 
 	if(d->subformat==SUBFMT_THUMBSDB &&
-		!de_strcmp(dei->fname_utf8, thumbsdb_catalog_fn))
+		!de_strcmp(dei->fname_utf8, thumbsdb_catalog_streamname))
 	{
 		is_thumbsdb_catalog = 1;
 		need_to_read_stream_info = (pass==1);
@@ -745,12 +781,12 @@ static void do_dir_entry(deark *c, lctx *d, de_int64 dir_entry_idx, de_int64 dir
 
 	if(!need_to_read_stream_info) goto done;
 
-	dei->fi = de_finfo_create(c);
-
-	de_finfo_set_name_from_ucstring(c, dei->fi, dei->fname);
-	dei->fi->original_filename_flag = 1;
-
-	// TODO: dir_entry_offs+108 modification time
+	mod_time_as_FILETIME = dbuf_geti64le(d->dir, dir_entry_offs+108);
+	if(mod_time_as_FILETIME!=0) {
+		de_FILETIME_to_timestamp(mod_time_as_FILETIME, &dei->mod_time);
+		de_timestamp_to_string(&dei->mod_time, timestamp_buf, sizeof(timestamp_buf), 1);
+		de_dbg(c, "mod time: %s\n", timestamp_buf);
+	}
 
 	raw_sec_id = dbuf_geti32le(d->dir, dir_entry_offs+116);
 
@@ -787,7 +823,6 @@ static void do_dir_entry(deark *c, lctx *d, de_int64 dir_entry_idx, de_int64 dir
 done:
 	if(dei) {
 		ucstring_destroy(dei->fname);
-		de_finfo_destroy(c, dei->fi);
 		de_free(c, dei);
 	}
 }

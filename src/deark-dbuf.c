@@ -530,6 +530,8 @@ int dbuf_create_file_from_slice(dbuf *inf, de_int64 pos, de_int64 data_size,
 	return 1;
 }
 
+// FIXME: If both ext and fi are set, there may be an inconsistency as to the
+// final filename when using the -zip option.
 dbuf *dbuf_create_output_file(deark *c, const char *ext, de_finfo *fi,
 	unsigned int createflags)
 {
