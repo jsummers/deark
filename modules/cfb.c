@@ -14,6 +14,8 @@ DE_DECLARE_MODULE(de_module_cfb);
 #define OBJTYPE_STREAM       0x02
 #define OBJTYPE_ROOT_STORAGE 0x05
 
+const char thumbsdb_catalog_fn[] = "Catalog";
+
 struct dir_entry_info {
 	de_int64 stream_size;
 	int is_mini_stream;
@@ -22,6 +24,12 @@ struct dir_entry_info {
 	de_ucstring *fname;
 	de_finfo *fi;
 	char fname_utf8[80];
+};
+
+struct catalog_entry {
+	de_uint32 id;
+	de_ucstring *fname;
+	// TODO: filetime
 };
 
 typedef struct localctx_struct {
@@ -57,10 +65,11 @@ typedef struct localctx_struct {
 	dbuf *fat;
 
 	dbuf *minifat; // mini sector allocation table
-
 	dbuf *dir;
-
 	dbuf *mini_sector_stream;
+
+	de_int64 thumbsdb_catalog_num_entries;
+	struct catalog_entry *thumbsdb_catalog;
 } lctx;
 
 static de_int64 sec_id_to_offset(deark *c, lctx *d, de_int64 sec_id)
@@ -116,7 +125,7 @@ static void describe_sec_id(deark *c, lctx *d, de_int64 sec_id,
 }
 
 // Copy a stream (with a known byte size) to a dbuf.
-static void copy_stream_to_dbuf(deark *c, lctx *d, de_int64 first_sec_id,
+static void copy_normal_stream_to_dbuf(deark *c, lctx *d, de_int64 first_sec_id,
 	de_int64 stream_startpos, de_int64 stream_size,
 	dbuf *outf)
 {
@@ -151,7 +160,7 @@ static void copy_stream_to_dbuf(deark *c, lctx *d, de_int64 first_sec_id,
 	}
 }
 
-// Same as copy_stream_to_dbuf(), but for mini streams.
+// Same as copy_normal_stream_to_dbuf(), but for mini streams.
 static void copy_mini_stream_to_dbuf(deark *c, lctx *d, de_int64 first_minisec_id,
 	de_int64 stream_startpos, de_int64 stream_size,
 	dbuf *outf)
@@ -185,6 +194,18 @@ static void copy_mini_stream_to_dbuf(deark *c, lctx *d, de_int64 first_minisec_i
 		bytes_left_to_copy -= bytes_to_copy;
 		bytes_left_to_skip -= bytes_to_skip;
 		minisec_id = get_next_minisec_id(c, d, minisec_id);
+	}
+}
+
+static void copy_any_stream_to_dbuf(deark *c, lctx *d, struct dir_entry_info *dei,
+	de_int64 stream_startpos, de_int64 stream_size,
+	dbuf *outf)
+{
+	if(dei->is_mini_stream) {
+		copy_mini_stream_to_dbuf(c, d, dei->minisec_id, stream_startpos, stream_size, outf);
+	}
+	else {
+		copy_normal_stream_to_dbuf(c, d, dei->normal_sec_id, stream_startpos, stream_size, outf);
 	}
 }
 
@@ -407,7 +428,7 @@ static void read_minifat(deark *c, lctx *d)
 
 	d->minifat = dbuf_create_membuf(c, d->num_minifat_sectors * d->sec_size, 1);
 
-	// TODO: Use copy_stream_to_dbuf
+	// TODO: Use copy_normal_stream_to_dbuf
 	de_dbg(c, "reading MiniFAT contents (%d sectors)\n", (int)d->num_minifat_sectors);
 	de_dbg_indent(c, 1);
 
@@ -446,18 +467,13 @@ static void extract_stream_to_file(deark *c, lctx *d, struct dir_entry_info *dei
 		// A Thumbs.db stream typically has a header, followed by an embedded JPEG
 		// file.
 
-		if(!de_strcmp(dei->fname_utf8, "Catalog")) {
+		if(!de_strcmp(dei->fname_utf8, thumbsdb_catalog_fn)) {
 			goto done;
 		}
 
 		tmpdbuf = dbuf_create_membuf(c, 32, 0);
 
-		if(dei->is_mini_stream) {
-			copy_mini_stream_to_dbuf(c, d, dei->minisec_id, 0, 32, tmpdbuf);
-		}
-		else {
-			copy_stream_to_dbuf(c, d, dei->normal_sec_id, 0, 32, tmpdbuf);
-		}
+		copy_any_stream_to_dbuf(c, d, dei, 0, 32, tmpdbuf);
 
 		// This might be a 4-byte int, but since I'm not sure, I'll only test
 		// the first 2 bytes.
@@ -481,16 +497,79 @@ static void extract_stream_to_file(deark *c, lctx *d, struct dir_entry_info *dei
 	}
 
 	outf = dbuf_create_output_file(c, token, dei->fi, 0);
-	if(dei->is_mini_stream) {
-		copy_mini_stream_to_dbuf(c, d, dei->minisec_id, startpos, final_streamsize, outf);
-	}
-	else {
-		copy_stream_to_dbuf(c, d, dei->normal_sec_id, startpos, final_streamsize, outf);
-	}
+	copy_any_stream_to_dbuf(c, d, dei, startpos, final_streamsize, outf);
 
 done:
 	dbuf_close(tmpdbuf);
 	dbuf_close(outf);
+}
+
+static int read_thumbsdb_catalog(deark *c, lctx *d, struct dir_entry_info *dei)
+{
+	de_int64 item_len;
+	de_int64 n;
+	de_int64 i;
+	de_int64 pos;
+	int retval = 0;
+	dbuf *catf = NULL;
+
+	if(d->thumbsdb_catalog) return 0; // Already read a catalog
+
+	de_dbg(c, "reading thumbsdb catalog\n");
+	de_dbg_indent(c, 1);
+
+	catf = dbuf_create_membuf(c, dei->stream_size, 0);
+	copy_any_stream_to_dbuf(c, d, dei, 0, dei->stream_size, catf);
+
+	item_len = dbuf_getui16le(catf, 0);
+	de_dbg(c, "header size: %d\n", (int)item_len); // (?)
+	if(item_len!=16) goto done;
+
+	n = dbuf_getui16le(catf, 2);
+	de_dbg(c, "version: %d\n", (int)n); // (?)
+	if(n!=7) goto done;
+
+	d->thumbsdb_catalog_num_entries = dbuf_getui16le(catf, 4); // This might really be a 4 byte int.
+	de_dbg(c, "num entries: %d\n", (int)d->thumbsdb_catalog_num_entries);
+	if(d->thumbsdb_catalog_num_entries>2048)
+		d->thumbsdb_catalog_num_entries = 2048;
+
+	d->thumbsdb_catalog = de_malloc(c, d->thumbsdb_catalog_num_entries * sizeof(struct catalog_entry));
+
+	pos = item_len;
+
+	for(i=0; i<d->thumbsdb_catalog_num_entries; i++) {
+		if(pos >= catf->len) goto done;
+		item_len = dbuf_getui32le(catf, pos);
+		de_dbg(c, "catalog entry #%d, len=%d\n", (int)i, (int)item_len);
+		if(item_len<20) goto done;
+
+		de_dbg_indent(c, 1);
+
+		d->thumbsdb_catalog[i].id = (de_uint32)dbuf_getui32le(catf, pos+4);
+		de_dbg(c, "id: %u\n", (unsigned int)d->thumbsdb_catalog[i].id);
+
+		// TODO: FILETIME(?) at pos+8
+
+		d->thumbsdb_catalog[i].fname = ucstring_create(c);
+
+		dbuf_read_to_ucstring(catf, pos+16, item_len-20, d->thumbsdb_catalog[i].fname,
+			0, DE_ENCODING_UTF16LE);
+		de_dbg(c, "name: \"%s\"\n", ucstring_get_printable_sz(d->thumbsdb_catalog[i].fname));
+
+		de_dbg_indent(c, -1);
+
+		pos += item_len;
+	}
+
+	retval = 1;
+done:
+	de_dbg_indent(c, -1);
+	dbuf_close(catf);
+	if(!retval) {
+		d->thumbsdb_catalog_num_entries = 0; // Make sure we don't use a bad catalog.
+	}
+	return retval;
 }
 
 static void read_mini_sector_stream(deark *c, lctx *d, de_int64 first_sec_id, de_int64 stream_size)
@@ -499,7 +578,7 @@ static void read_mini_sector_stream(deark *c, lctx *d, de_int64 first_sec_id, de
 
 	de_dbg(c, "reading mini sector stream (%d bytes)\n", (int)stream_size);
 	d->mini_sector_stream = dbuf_create_membuf(c, 0, 0);
-	copy_stream_to_dbuf(c, d, first_sec_id, 0, stream_size, d->mini_sector_stream);
+	copy_normal_stream_to_dbuf(c, d, first_sec_id, 0, stream_size, d->mini_sector_stream);
 }
 
 // Reads the directory stream into d->dir, and sets d->num_dir_entries.
@@ -520,7 +599,7 @@ static void read_directory_stream(deark *c, lctx *d)
 	num_entries_per_sector = d->sec_size / 128;
 	d->num_dir_entries = 0;
 
-	// TODO: Use copy_stream_to_dbuf
+	// TODO: Use copy_normal_stream_to_dbuf
 	while(1) {
 		if(dir_sec_id<0) break;
 
@@ -554,6 +633,7 @@ static void do_dir_entry(deark *c, lctx *d, de_int64 dir_entry_idx, de_int64 dir
 	de_int64 raw_sec_id;
 	struct dir_entry_info *dei = NULL;
 	int need_to_read_stream_info = 0;
+	int is_thumbsdb_catalog = 0;
 	const char *tname;
 	de_byte clsid[16];
 	char clsid_string[50];
@@ -572,6 +652,8 @@ static void do_dir_entry(deark *c, lctx *d, de_int64 dir_entry_idx, de_int64 dir
 	de_dbg(c, "type: 0x%02x (%s)\n", (unsigned int)entry_type, tname);
 	if(entry_type==0x00) goto done;
 
+	if(pass==2 && entry_type==OBJTYPE_ROOT_STORAGE) goto done;
+
 	name_len_raw = dbuf_getui16le(d->dir, dir_entry_offs+64);
 	de_dbg2(c, "name len: %d bytes\n", (int)name_len_raw);
 	name_len_bytes = name_len_raw-2; // Ignore the trailing U+0000
@@ -589,53 +671,63 @@ static void do_dir_entry(deark *c, lctx *d, de_int64 dir_entry_idx, de_int64 dir
 		dbuf_read(d->dir, clsid, dir_entry_offs+80, 16);
 		de_fmtutil_guid_to_uuid(clsid);
 		de_fmtutil_render_uuid(c, clsid, clsid_string, sizeof(clsid_string));
-		de_dbg(c, "clsid: {%s}\n", clsid_string);
+		de_dbg(c, "%sclsid: {%s}\n", (entry_type==OBJTYPE_ROOT_STORAGE)?"root ":"",
+			clsid_string);
 	}
 
-	// TODO: Read Thumbs.db Catalog files (pass 1)
+	// Try to avoid doing too much of the same thing twice (once per pass).
+	// The default is to read sector numbers, etc., only on pass 2.
+	need_to_read_stream_info = (pass==2);
 
 	if(entry_type==OBJTYPE_ROOT_STORAGE)
 		need_to_read_stream_info = (pass==1);
-	else
-		need_to_read_stream_info = (pass==2);
 
-	if(need_to_read_stream_info) {
-		dei->fi = de_finfo_create(c);
+	if(d->subformat==SUBFMT_THUMBSDB &&
+		!de_strcmp(dei->fname_utf8, thumbsdb_catalog_fn))
+	{
+		is_thumbsdb_catalog = 1;
+		need_to_read_stream_info = (pass==1);
+	}
 
-		de_finfo_set_name_from_ucstring(c, dei->fi, dei->fname);
-		dei->fi->original_filename_flag = 1;
+	if(!need_to_read_stream_info) goto done;
 
-		// TODO: dir_entry_offs+108 modification time
+	dei->fi = de_finfo_create(c);
 
-		raw_sec_id = dbuf_geti32le(d->dir, dir_entry_offs+116);
+	de_finfo_set_name_from_ucstring(c, dei->fi, dei->fname);
+	dei->fi->original_filename_flag = 1;
 
-		if(d->major_ver<=3) {
-			dei->stream_size = dbuf_getui32le(d->dir, dir_entry_offs+120);
-		}
-		else {
-			dei->stream_size = dbuf_geti64le(d->dir, dir_entry_offs+120);
-		}
+	// TODO: dir_entry_offs+108 modification time
 
-		de_dbg(c, "stream size: %"INT64_FMT"\n", dei->stream_size);
-		dei->is_mini_stream = (entry_type==OBJTYPE_STREAM) && (dei->stream_size < d->std_stream_min_size);
+	raw_sec_id = dbuf_geti32le(d->dir, dir_entry_offs+116);
 
-		if(dei->is_mini_stream) {
-			dei->minisec_id = raw_sec_id;
-			de_dbg(c, "MiniSecID: %d\n", (int)dei->minisec_id);
-		}
-		else {
-			dei->normal_sec_id = raw_sec_id;
-			describe_sec_id(c, d, dei->normal_sec_id, buf, sizeof(buf));
-			de_dbg(c, "SecID: %d (%s)\n", (int)dei->normal_sec_id, buf);
-		}
+	if(d->major_ver<=3) {
+		dei->stream_size = dbuf_getui32le(d->dir, dir_entry_offs+120);
+	}
+	else {
+		dei->stream_size = dbuf_geti64le(d->dir, dir_entry_offs+120);
+	}
 
-		if(pass==2 && entry_type==OBJTYPE_STREAM) {
-			extract_stream_to_file(c, d, dei);
-		}
+	de_dbg(c, "stream size: %"INT64_FMT"\n", dei->stream_size);
+	dei->is_mini_stream = (entry_type==OBJTYPE_STREAM) && (dei->stream_size < d->std_stream_min_size);
 
-		if(pass==1 && entry_type==OBJTYPE_ROOT_STORAGE) {
-			read_mini_sector_stream(c, d, dei->normal_sec_id, dei->stream_size);
-		}
+	if(dei->is_mini_stream) {
+		dei->minisec_id = raw_sec_id;
+		de_dbg(c, "MiniSecID: %d\n", (int)dei->minisec_id);
+	}
+	else {
+		dei->normal_sec_id = raw_sec_id;
+		describe_sec_id(c, d, dei->normal_sec_id, buf, sizeof(buf));
+		de_dbg(c, "SecID: %d (%s)\n", (int)dei->normal_sec_id, buf);
+	}
+
+	if(pass==2 && entry_type==OBJTYPE_STREAM) {
+		extract_stream_to_file(c, d, dei);
+	}
+	else if(pass==1 && is_thumbsdb_catalog) {
+		read_thumbsdb_catalog(c, d, dei);
+	}
+	else if(pass==1 && entry_type==OBJTYPE_ROOT_STORAGE) {
+		read_mini_sector_stream(c, d, dei->normal_sec_id, dei->stream_size);
 	}
 
 done:
@@ -707,6 +799,14 @@ done:
 		dbuf_close(d->minifat);
 		dbuf_close(d->dir);
 		dbuf_close(d->mini_sector_stream);
+		if(d->thumbsdb_catalog) {
+			de_int64 k;
+			for(k=0; k<d->thumbsdb_catalog_num_entries; k++) {
+				ucstring_destroy(d->thumbsdb_catalog[k].fname);
+			}
+			de_free(c, d->thumbsdb_catalog);
+			d->thumbsdb_catalog = NULL;
+		}
 		de_free(c, d);
 	}
 }
