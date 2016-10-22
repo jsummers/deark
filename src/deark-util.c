@@ -671,6 +671,11 @@ void de_finfo_set_name_from_ucstring(deark *c, de_finfo *fi, de_ucstring *s)
 	de_int64 fnlen;
 	de_int64 utf8len;
 
+	if(!s) return;
+	if(fi->file_name) {
+		de_free(c, fi->file_name);
+		fi->file_name = NULL;
+	}
 	fi->file_name = de_malloc(c, 4*s->len+10);
 	fnlen = 0;
 	for(i=0; i<s->len; i++) {

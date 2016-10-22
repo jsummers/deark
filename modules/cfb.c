@@ -450,6 +450,49 @@ static void read_minifat(deark *c, lctx *d)
 	dump_minifat(c, d);
 }
 
+// Returns -1 if not a valid name
+static de_int64 stream_name_to_catalog_id(deark *c, lctx *d, struct dir_entry_info *dei)
+{
+	char buf[16];
+	size_t nlen;
+	size_t i;
+
+	nlen = de_strlen(dei->fname_utf8);
+	if(nlen>sizeof(buf)-1) return -1;
+
+	for(i=0; i<nlen; i++) {
+		// Name should contain only digits
+		if(dei->fname_utf8[i]<0x30 || dei->fname_utf8[i]>0x39) return -1;
+
+		// The stream name is the *reversed* string form of the ID number.
+		// (I assume this is to try to keep the directory tree structure balanced.)
+		buf[nlen-1-i] = dei->fname_utf8[i];
+	}
+	buf[nlen] = '\0';
+
+	return de_atoi64(buf);
+}
+
+// Returns an index into d->thumbsdb_catalog.
+// Returns -1 if not found.
+static de_int64 lookup_catalog_entry(deark *c, lctx *d, struct dir_entry_info *dei)
+{
+	de_int64 i;
+	de_int64 id;
+
+	if(d->thumbsdb_catalog_num_entries<1 || !d->thumbsdb_catalog) return -1;
+	if(!dei->fname) return -1;
+
+	id = stream_name_to_catalog_id(c, d, dei);
+	if(id<0) return -1;
+
+	for(i=0; i<d->thumbsdb_catalog_num_entries; i++) {
+		if(d->thumbsdb_catalog[i].id == id)
+			return i;
+	}
+	return -1;
+}
+
 static void extract_stream_to_file(deark *c, lctx *d, struct dir_entry_info *dei)
 {
 	de_int64 startpos;
@@ -463,13 +506,17 @@ static void extract_stream_to_file(deark *c, lctx *d, struct dir_entry_info *dei
 
 	if(d->subformat==SUBFMT_THUMBSDB) {
 		de_int64 hdrsize;
+		de_int64 catalog_idx;
+
 		// Special handling of Thumbs.db files.
 		// A Thumbs.db stream typically has a header, followed by an embedded JPEG
-		// file.
+		// (or something) file.
 
 		if(!de_strcmp(dei->fname_utf8, thumbsdb_catalog_fn)) {
 			goto done;
 		}
+
+		catalog_idx = lookup_catalog_entry(c, d, dei);
 
 		tmpdbuf = dbuf_create_membuf(c, 32, 0);
 
@@ -482,8 +529,16 @@ static void extract_stream_to_file(deark *c, lctx *d, struct dir_entry_info *dei
 		// 0x18 = "Windows 7 format"
 		if((hdrsize==0x0c || hdrsize==0x18) && dei->stream_size>hdrsize) {
 			de_byte b;
+
 			startpos = hdrsize;
 			final_streamsize -= hdrsize;
+
+			if(catalog_idx>=0) {
+				de_dbg(c, "name from catalog: \"%s\"\n",
+					ucstring_get_printable_sz(d->thumbsdb_catalog[catalog_idx].fname));
+				de_finfo_set_name_from_ucstring(c, dei->fi, d->thumbsdb_catalog[catalog_idx].fname);
+			}
+
 			b = dbuf_getbyte(tmpdbuf, hdrsize);
 			if(b==0xff) token = "jpg";
 			else if(b==0x89) token = "png";
@@ -492,7 +547,6 @@ static void extract_stream_to_file(deark *c, lctx *d, struct dir_entry_info *dei
 		else {
 			de_warn(c, "Unidentified Thumbs.db stream \"%s\"\n",
 				ucstring_get_printable_sz(dei->fname));
-			goto done;
 		}
 	}
 
