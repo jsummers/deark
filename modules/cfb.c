@@ -438,8 +438,9 @@ static void read_minifat(deark *c, lctx *d)
 
 		sec_offset = sec_id_to_offset(c, d, sec_id);
 		describe_sec_id(c, d, sec_id, buf, sizeof(buf));
-		de_dbg(c, "reading MiniFAT sector #%d, SecID=%d (%s)\n",
-			(int)i, (int)sec_id, buf);
+		de_dbg(c, "reading MiniFAT sector #%d, SecID=%d (%s), MiniSecIDs %d-%d\n",
+			(int)i, (int)sec_id, buf,
+			(int)(i*(d->sec_size/4)), (int)((i+1)*(d->sec_size/4)-1));
 		dbuf_copy(c->infile, sec_offset, d->sec_size, d->minifat);
 
 		sec_id = get_next_sec_id(c, d, sec_id);
@@ -496,11 +497,15 @@ static void extract_stream_to_file(deark *c, lctx *d, struct dir_entry_info *dei
 {
 	de_int64 startpos;
 	de_int64 final_streamsize;
+	de_int64 ver;
+	de_int64 reported_size;
+	int saved_indent_level;
 	dbuf *outf = NULL;
 	dbuf *tmpdbuf = NULL;
 	de_finfo *fi = NULL;
 	de_ucstring *tmpfn = NULL;
 
+	de_dbg_indent_save(c, &saved_indent_level);
 	startpos = 0;
 	final_streamsize = dei->stream_size;
 
@@ -520,6 +525,10 @@ static void extract_stream_to_file(deark *c, lctx *d, struct dir_entry_info *dei
 		const char *ext;
 
 		// Special handling of Thumbs.db files.
+
+		de_dbg(c, "reading Thumbs.db stream\n");
+		de_dbg_indent(c, 1);
+
 		// A Thumbs.db stream typically has a header, followed by an embedded JPEG
 		// (or something) file.
 
@@ -540,16 +549,24 @@ static void extract_stream_to_file(deark *c, lctx *d, struct dir_entry_info *dei
 		tmpdbuf = dbuf_create_membuf(c, 32, 0);
 		copy_any_stream_to_dbuf(c, d, dei, 0, 32, tmpdbuf);
 
-		// This might be a 4-byte int, but since I'm not sure, I'll only test
-		// the first 2 bytes.
-		hdrsize = dbuf_getui16le(tmpdbuf, 0);
+		hdrsize = dbuf_getui32le(tmpdbuf, 0);
+		de_dbg(c, "header size: %d\n", (int)hdrsize);
+
+		ver = dbuf_getui32le(tmpdbuf, 4);
+		de_dbg(c, "version: %d\n", (int)ver);
+
 		// 0x0c = "Original format" Thumbs.db
 		// 0x18 = "Windows 7 format"
+
 		if((hdrsize==0x0c || hdrsize==0x18) && dei->stream_size>hdrsize) {
 			de_byte b;
 
+			reported_size = dbuf_getui32le(tmpdbuf, 8);
+			de_dbg(c, "reported size: %d\n", (int)reported_size);
+
 			startpos = hdrsize;
 			final_streamsize -= hdrsize;
+			de_dbg(c, "calculated size: %d\n", (int)final_streamsize);
 
 			if(catalog_idx>=0 && c->filenames_from_file) {
 				de_dbg(c, "name from catalog: \"%s\"\n",
@@ -571,6 +588,8 @@ static void extract_stream_to_file(deark *c, lctx *d, struct dir_entry_info *dei
 			de_warn(c, "Unidentified Thumbs.db stream \"%s\"\n",
 				ucstring_get_printable_sz(dei->fname));
 		}
+
+		de_dbg_indent(c, -1);
 	}
 
 	de_finfo_set_name_from_ucstring(c, fi, tmpfn);
@@ -580,10 +599,25 @@ static void extract_stream_to_file(deark *c, lctx *d, struct dir_entry_info *dei
 	copy_any_stream_to_dbuf(c, d, dei, startpos, final_streamsize, outf);
 
 done:
+	de_dbg_indent_restore(c, saved_indent_level);
 	dbuf_close(tmpdbuf);
 	dbuf_close(outf);
 	ucstring_destroy(tmpfn);
 	de_finfo_destroy(c, fi);
+}
+
+static void read_timestamp(deark *c, lctx *d, dbuf *f, de_int64 pos,
+	struct de_timestamp *ts, const char *field_name)
+{
+	de_int64 ts_as_FILETIME;
+	char timestamp_buf[64];
+
+	ts_as_FILETIME = dbuf_geti64le(f, pos);
+	if(ts_as_FILETIME!=0) {
+		de_FILETIME_to_timestamp(ts_as_FILETIME, ts);
+		de_timestamp_to_string(ts, timestamp_buf, sizeof(timestamp_buf), 1);
+		de_dbg(c, "%s: %s\n", field_name, timestamp_buf);
+	}
 }
 
 static int read_thumbsdb_catalog(deark *c, lctx *d, struct dir_entry_info *dei)
@@ -608,8 +642,11 @@ static int read_thumbsdb_catalog(deark *c, lctx *d, struct dir_entry_info *dei)
 	if(item_len!=16) goto done;
 
 	n = dbuf_getui16le(catf, 2);
-	de_dbg(c, "version: %d\n", (int)n); // (?)
-	if(n!=7) goto done;
+	de_dbg(c, "catalog version: %d\n", (int)n); // (?)
+	if(n!=5 && n!=6 && n!=7) {
+		de_warn(c, "Unsupported Catalog version: %d\n", (int)n);
+		goto done;
+	}
 
 	d->thumbsdb_catalog_num_entries = dbuf_getui16le(catf, 4); // This might really be a 4 byte int.
 	de_dbg(c, "num entries: %d\n", (int)d->thumbsdb_catalog_num_entries);
@@ -621,9 +658,6 @@ static int read_thumbsdb_catalog(deark *c, lctx *d, struct dir_entry_info *dei)
 	pos = item_len;
 
 	for(i=0; i<d->thumbsdb_catalog_num_entries; i++) {
-		de_int64 mod_time_as_FILETIME;
-		char timestamp_buf[64];
-
 		if(pos >= catf->len) goto done;
 		item_len = dbuf_getui32le(catf, pos);
 		de_dbg(c, "catalog entry #%d, len=%d\n", (int)i, (int)item_len);
@@ -634,10 +668,7 @@ static int read_thumbsdb_catalog(deark *c, lctx *d, struct dir_entry_info *dei)
 		d->thumbsdb_catalog[i].id = (de_uint32)dbuf_getui32le(catf, pos+4);
 		de_dbg(c, "id: %u\n", (unsigned int)d->thumbsdb_catalog[i].id);
 
-		mod_time_as_FILETIME = dbuf_geti64le(catf, pos+8);
-		de_FILETIME_to_timestamp(mod_time_as_FILETIME, &d->thumbsdb_catalog[i].mod_time);
-		de_timestamp_to_string(&d->thumbsdb_catalog[i].mod_time, timestamp_buf, sizeof(timestamp_buf), 1);
-		de_dbg(c, "timestamp: %s\n", timestamp_buf);
+		read_timestamp(c, d, catf, pos+8, &d->thumbsdb_catalog[i].mod_time, "timestamp");
 
 		d->thumbsdb_catalog[i].fname = ucstring_create(c);
 
@@ -723,8 +754,6 @@ static void do_dir_entry(deark *c, lctx *d, de_int64 dir_entry_idx, de_int64 dir
 	int need_to_read_stream_info = 0;
 	int is_thumbsdb_catalog = 0;
 	const char *tname;
-	de_int64 mod_time_as_FILETIME;
-	char timestamp_buf[64];
 	de_byte clsid[16];
 	char clsid_string[50];
 	char buf[80];
@@ -781,12 +810,7 @@ static void do_dir_entry(deark *c, lctx *d, de_int64 dir_entry_idx, de_int64 dir
 
 	if(!need_to_read_stream_info) goto done;
 
-	mod_time_as_FILETIME = dbuf_geti64le(d->dir, dir_entry_offs+108);
-	if(mod_time_as_FILETIME!=0) {
-		de_FILETIME_to_timestamp(mod_time_as_FILETIME, &dei->mod_time);
-		de_timestamp_to_string(&dei->mod_time, timestamp_buf, sizeof(timestamp_buf), 1);
-		de_dbg(c, "mod time: %s\n", timestamp_buf);
-	}
+	read_timestamp(c, d, d->dir, dir_entry_offs+108, &dei->mod_time, "mod time");
 
 	raw_sec_id = dbuf_geti32le(d->dir, dir_entry_offs+116);
 
