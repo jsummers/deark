@@ -17,12 +17,14 @@ DE_DECLARE_MODULE(de_module_cfb);
 const char *thumbsdb_catalog_streamname = "Catalog";
 
 struct dir_entry_info {
-	de_int64 stream_size;
+	de_byte entry_type;
 	int is_mini_stream;
+	de_int64 stream_size;
 	de_int64 normal_sec_id; // First SecID, valid if is_mini_stream==0
 	de_int64 minisec_id; // First MiniSecID, valid if is_mini_stream==1
 	de_ucstring *fname;
 	char fname_utf8[80];
+	de_byte clsid[16];
 	struct de_timestamp mod_time;
 };
 
@@ -33,9 +35,11 @@ struct catalog_entry {
 };
 
 typedef struct localctx_struct {
-#define SUBFMT_DEFAULT    0
+#define SUBFMT_AUTO       0
+#define SUBFMT_RAW        1
 #define SUBFMT_THUMBSDB   2
-	int subformat;
+	int subformat_req;
+	int subformat_final;
 	de_int64 minor_ver, major_ver;
 	de_int64 sec_size;
 	//de_int64 num_dir_sectors;
@@ -70,6 +74,11 @@ typedef struct localctx_struct {
 
 	de_int64 thumbsdb_catalog_num_entries;
 	struct catalog_entry *thumbsdb_catalog;
+
+	int could_be_thumbsdb;
+	int thumbsdb_old_names_found;
+	int thumbsdb_new_names_found;
+	int thumbsdb_catalog_found;
 } lctx;
 
 static de_int64 sec_id_to_offset(deark *c, lctx *d, de_int64 sec_id)
@@ -462,7 +471,7 @@ static de_int64 stream_name_to_catalog_id(deark *c, lctx *d, struct dir_entry_in
 
 	for(i=0; i<nlen; i++) {
 		// Name should contain only digits
-		if(dei->fname_utf8[i]<0x30 || dei->fname_utf8[i]>0x39) return -1;
+		if(dei->fname_utf8[i]<'0' || dei->fname_utf8[i]>'9') return -1;
 
 		// The stream name is the *reversed* string form of the ID number.
 		// (I assume this is to try to keep the directory tree structure balanced.)
@@ -519,7 +528,7 @@ static void extract_stream_to_file(deark *c, lctx *d, struct dir_entry_info *dei
 		fi->mod_time = dei->mod_time; // struct copy
 	}
 
-	if(d->subformat==SUBFMT_THUMBSDB) {
+	if(d->subformat_final==SUBFMT_THUMBSDB) {
 		de_int64 hdrsize;
 		de_int64 catalog_idx;
 		const char *ext;
@@ -742,36 +751,169 @@ static void read_directory_stream(deark *c, lctx *d)
 	de_dbg_indent(c, -1);
 }
 
+static void do_init_format_detection(deark *c, lctx *d)
+{
+	if(d->subformat_req!=SUBFMT_AUTO) return;
+	d->could_be_thumbsdb = 1;
+}
+
+static void do_finalize_format_detection(deark *c, lctx *d)
+{
+	d->subformat_final = SUBFMT_RAW; // default
+
+	if(d->subformat_req!=SUBFMT_AUTO) {
+		d->subformat_final = d->subformat_req;
+		goto done;
+	}
+
+	if(!d->could_be_thumbsdb) goto done;
+
+	if(d->thumbsdb_old_names_found>0 && !d->thumbsdb_catalog_found)
+	{
+		d->could_be_thumbsdb = 0;
+	}
+	else if(d->thumbsdb_old_names_found + d->thumbsdb_new_names_found +
+		d->thumbsdb_catalog_found < 1)
+	{
+		d->could_be_thumbsdb = 0;
+	}
+
+	if(d->could_be_thumbsdb) {
+		d->subformat_final = SUBFMT_THUMBSDB;
+	}
+
+done:
+	switch(d->subformat_final) {
+	case SUBFMT_THUMBSDB:
+		de_declare_fmt(c, "Thumbs.db");
+		break;
+	}
+}
+
+static int is_thumbsdb_orig_name(deark *c, lctx *d, const char *name, size_t nlen)
+{
+	size_t i;
+
+	if(nlen<1 || nlen>6) return 0;
+	for(i=0; i<nlen; i++) {
+		if(name[i]<'0' || name[i]>'9') return 0;
+	}
+	return 1;
+}
+
+static int is_thumbsdb_new_name(deark *c, lctx *d, const char *name, size_t nlen)
+{
+	size_t i;
+	int count1 = 0;
+	int found_underscore = 0;
+	int count2 = 0;
+
+	if(nlen<4 || nlen>22) return 0;
+	for(i=0; i<nlen; i++) {
+		if(!found_underscore && name[i]=='_') {
+			found_underscore = 1;
+		}
+		else if(!found_underscore) {
+			// pre-underscore (pixel dimension)
+			if(name[i]>='0' && name[i]<='9')
+				count1++;
+			else
+				return 0;
+		}
+		else {
+			// post-underscore (hash?)
+			if((name[i]>='0' && name[i]<='9') ||
+				(name[i]>='a' && name[i]<='f'))
+			{
+				count2++;
+			}
+			else
+			{
+				return 0;
+			}
+		}
+	}
+	if(!found_underscore) return 0;
+	if(count1<1 || count1>5) return 0;
+	if(count2<1 || count2>16) return 0;
+	return 1;
+}
+
+static void do_per_dir_entry_format_detection(deark *c, lctx *d, struct dir_entry_info *dei)
+{
+	size_t nlen;
+
+	if(d->subformat_req!=SUBFMT_AUTO) return;
+	if(!d->could_be_thumbsdb) return;
+
+	if(dei->entry_type==OBJTYPE_ROOT_STORAGE) {
+		if(de_memcmp(dei->clsid, "\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0", 16)) {
+			d->could_be_thumbsdb = 0;
+			return;
+		}
+	}
+
+	if(dei->entry_type==OBJTYPE_STORAGE) {
+		// Thumbs.db files aren't expected to have any Storage objects.
+		d->could_be_thumbsdb = 0;
+		return;
+	}
+	if(dei->entry_type!=OBJTYPE_STREAM) {
+		return;
+	}
+
+	nlen = de_strlen(dei->fname_utf8);
+	if(nlen<1 || nlen>21) {
+		d->could_be_thumbsdb = 0;
+		return;
+	}
+
+	if(!de_strcmp(dei->fname_utf8, thumbsdb_catalog_streamname)) {
+		d->thumbsdb_catalog_found++;
+		return;
+	}
+
+	if(is_thumbsdb_orig_name(c, d, dei->fname_utf8, nlen)) {
+		d->thumbsdb_old_names_found++;
+		return;
+	}
+
+	if(is_thumbsdb_new_name(c, d, dei->fname_utf8, nlen)) {
+		d->thumbsdb_new_names_found++;
+		return;
+	}
+}
+
 // Read and process a directory entry from the d->dir stream
 static void do_dir_entry(deark *c, lctx *d, de_int64 dir_entry_idx, de_int64 dir_entry_offs,
 	int pass)
 {
 	de_int64 name_len_raw;
 	de_int64 name_len_bytes;
-	de_byte entry_type;
 	de_int64 raw_sec_id;
 	struct dir_entry_info *dei = NULL;
-	int need_to_read_stream_info = 0;
+	//int need_to_read_stream_info = 0;
 	int is_thumbsdb_catalog = 0;
 	const char *tname;
-	de_byte clsid[16];
+	de_int64 node_color;
 	char clsid_string[50];
 	char buf[80];
 
 	dei = de_malloc(c, sizeof(struct dir_entry_info));
 
-	entry_type = dbuf_getbyte(d->dir, dir_entry_offs+66);
-	switch(entry_type) {
+	dei->entry_type = dbuf_getbyte(d->dir, dir_entry_offs+66);
+	switch(dei->entry_type) {
 	case OBJTYPE_EMPTY: tname="empty"; break;
 	case OBJTYPE_STORAGE: tname="storage object"; break;
 	case OBJTYPE_STREAM: tname="stream"; break;
 	case OBJTYPE_ROOT_STORAGE: tname="root storage object"; break;
 	default: tname="?";
 	}
-	de_dbg(c, "type: 0x%02x (%s)\n", (unsigned int)entry_type, tname);
-	if(entry_type==0x00) goto done;
+	de_dbg(c, "type: 0x%02x (%s)\n", (unsigned int)dei->entry_type, tname);
 
-	if(pass==2 && entry_type==OBJTYPE_ROOT_STORAGE) goto done;
+	if(dei->entry_type==OBJTYPE_EMPTY) goto done;
+
+	if(pass==2 && dei->entry_type==OBJTYPE_ROOT_STORAGE) goto done;
 
 	name_len_raw = dbuf_getui16le(d->dir, dir_entry_offs+64);
 	de_dbg2(c, "name len: %d bytes\n", (int)name_len_raw);
@@ -786,29 +928,29 @@ static void do_dir_entry(deark *c, lctx *d, de_int64 dir_entry_idx, de_int64 dir
 	// A C-style version of the stream name, to make it easier to analyze.
 	ucstring_to_sz(dei->fname, dei->fname_utf8, sizeof(dei->fname_utf8), DE_ENCODING_UTF8);
 
-	if(entry_type==OBJTYPE_STORAGE || entry_type==OBJTYPE_ROOT_STORAGE) {
-		dbuf_read(d->dir, clsid, dir_entry_offs+80, 16);
-		de_fmtutil_guid_to_uuid(clsid);
-		de_fmtutil_render_uuid(c, clsid, clsid_string, sizeof(clsid_string));
-		de_dbg(c, "%sclsid: {%s}\n", (entry_type==OBJTYPE_ROOT_STORAGE)?"root ":"",
+	node_color = dbuf_getbyte(d->dir, dir_entry_offs+67);
+	de_dbg(c, "node color: %u\n", (unsigned int)node_color);
+
+	if(dei->entry_type==OBJTYPE_STORAGE || dei->entry_type==OBJTYPE_STREAM) {
+		de_int64 sibling1_id, sibling2_id;
+		sibling1_id = dbuf_geti32le(d->dir, dir_entry_offs+68);
+		sibling2_id = dbuf_geti32le(d->dir, dir_entry_offs+72);
+		de_dbg(c, "sibling StreamIDs: %d, %d\n", (int)sibling1_id, (int)sibling2_id);
+	}
+
+	if(dei->entry_type==OBJTYPE_STORAGE || dei->entry_type==OBJTYPE_ROOT_STORAGE) {
+		de_int64 child_id;
+		child_id = dbuf_geti32le(d->dir, dir_entry_offs+76);
+		de_dbg(c, "child StreamID: %d\n", (int)child_id);
+	}
+
+	if(dei->entry_type==OBJTYPE_STORAGE || dei->entry_type==OBJTYPE_ROOT_STORAGE) {
+		dbuf_read(d->dir, dei->clsid, dir_entry_offs+80, 16);
+		de_fmtutil_guid_to_uuid(dei->clsid);
+		de_fmtutil_render_uuid(c, dei->clsid, clsid_string, sizeof(clsid_string));
+		de_dbg(c, "%sclsid: {%s}\n", (dei->entry_type==OBJTYPE_ROOT_STORAGE)?"root ":"",
 			clsid_string);
 	}
-
-	// Try to avoid doing too much of the same thing twice (once per pass).
-	// The default is to read sector numbers, etc., only on pass 2.
-	need_to_read_stream_info = (pass==2);
-
-	if(entry_type==OBJTYPE_ROOT_STORAGE)
-		need_to_read_stream_info = (pass==1);
-
-	if(d->subformat==SUBFMT_THUMBSDB &&
-		!de_strcmp(dei->fname_utf8, thumbsdb_catalog_streamname))
-	{
-		is_thumbsdb_catalog = 1;
-		need_to_read_stream_info = (pass==1);
-	}
-
-	if(!need_to_read_stream_info) goto done;
 
 	read_timestamp(c, d, d->dir, dir_entry_offs+108, &dei->mod_time, "mod time");
 
@@ -822,25 +964,35 @@ static void do_dir_entry(deark *c, lctx *d, de_int64 dir_entry_idx, de_int64 dir
 	}
 
 	de_dbg(c, "stream size: %"INT64_FMT"\n", dei->stream_size);
-	dei->is_mini_stream = (entry_type==OBJTYPE_STREAM) && (dei->stream_size < d->std_stream_min_size);
+	dei->is_mini_stream = (dei->entry_type==OBJTYPE_STREAM) && (dei->stream_size < d->std_stream_min_size);
 
 	if(dei->is_mini_stream) {
 		dei->minisec_id = raw_sec_id;
-		de_dbg(c, "MiniSecID: %d\n", (int)dei->minisec_id);
+		de_dbg(c, "first MiniSecID: %d\n", (int)dei->minisec_id);
 	}
 	else {
 		dei->normal_sec_id = raw_sec_id;
 		describe_sec_id(c, d, dei->normal_sec_id, buf, sizeof(buf));
-		de_dbg(c, "SecID: %d (%s)\n", (int)dei->normal_sec_id, buf);
+		de_dbg(c, "first SecID: %d (%s)\n", (int)dei->normal_sec_id, buf);
 	}
 
-	if(pass==2 && entry_type==OBJTYPE_STREAM) {
+	if(pass==1) {
+		do_per_dir_entry_format_detection(c, d, dei);
+	}
+
+	if((d->subformat_req==SUBFMT_THUMBSDB || d->subformat_req==SUBFMT_AUTO) &&
+		!de_strcmp(dei->fname_utf8, thumbsdb_catalog_streamname))
+	{
+		is_thumbsdb_catalog = 1;
+	}
+
+	if(pass==2 && dei->entry_type==OBJTYPE_STREAM) {
 		extract_stream_to_file(c, d, dei);
 	}
 	else if(pass==1 && is_thumbsdb_catalog) {
 		read_thumbsdb_catalog(c, d, dei);
 	}
-	else if(pass==1 && entry_type==OBJTYPE_ROOT_STORAGE) {
+	else if(pass==1 && dei->entry_type==OBJTYPE_ROOT_STORAGE) {
 		read_mini_sector_stream(c, d, dei->normal_sec_id, dei->stream_size);
 	}
 
@@ -863,14 +1015,12 @@ static void do_directory(deark *c, lctx *d, int pass)
 
 	for(i=0; i<d->num_dir_entries; i++) {
 		dir_entry_offs = 128*i;
-		de_dbg(c, "directory entry #%d\n", (int)i);
+		de_dbg(c, "directory entry, StreamID=%d\n", (int)i);
 
 		de_dbg_indent(c, 1);
 		do_dir_entry(c, d, i, dir_entry_offs, pass);
 		de_dbg_indent(c, -1);
 	}
-
-	// TODO: Autodetect Thumbs.db files (during and after pass 1)
 
 	de_dbg_indent(c, -1);
 }
@@ -884,10 +1034,18 @@ static void de_run_cfb(deark *c, de_module_params *mparams)
 
 	cfbfmt_opt = de_get_ext_option(c, "cfb:fmt");
 	if(cfbfmt_opt) {
-		if(!de_strcmp(cfbfmt_opt, "thumbsdb")) {
-			d->subformat = SUBFMT_THUMBSDB;
+		if(!de_strcmp(cfbfmt_opt, "auto")) {
+			d->subformat_req = SUBFMT_AUTO;
+		}
+		else if(!de_strcmp(cfbfmt_opt, "thumbsdb")) {
+			d->subformat_req = SUBFMT_THUMBSDB;
+		}
+		else { // "raw"
+			d->subformat_req = SUBFMT_RAW;
 		}
 	}
+
+	do_init_format_detection(c, d);
 
 	if(!do_header(c, d)) {
 		goto done;
@@ -902,6 +1060,8 @@ static void de_run_cfb(deark *c, de_module_params *mparams)
 	read_directory_stream(c, d);
 
 	do_directory(c, d, 1);
+
+	do_finalize_format_detection(c, d);
 
 	do_directory(c, d, 2);
 
