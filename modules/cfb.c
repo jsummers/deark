@@ -142,7 +142,7 @@ static void copy_normal_stream_to_dbuf(deark *c, lctx *d, de_int64 first_sec_id,
 	de_int64 bytes_left_to_copy;
 	de_int64 bytes_left_to_skip;
 
-	if(stream_size<0 || stream_size>c->infile->len) return;
+	if(stream_size<=0 || stream_size>c->infile->len) return;
 
 	bytes_left_to_copy = stream_size;
 	bytes_left_to_skip = stream_startpos;
@@ -179,7 +179,11 @@ static void copy_mini_stream_to_dbuf(deark *c, lctx *d, de_int64 first_minisec_i
 	de_int64 bytes_left_to_skip;
 
 	if(!d->mini_sector_stream) return;
-	if(stream_size<0 || stream_size>d->mini_sector_stream->len) return;
+	if(stream_size<=0 || stream_size>c->infile->len ||
+		stream_size>d->mini_sector_stream->len)
+	{
+		return;
+	}
 
 	bytes_left_to_copy = stream_size;
 	bytes_left_to_skip = stream_startpos;
@@ -555,8 +559,8 @@ static void extract_stream_to_file(deark *c, lctx *d, struct dir_entry_info *dei
 
 		// Read the first part of the stream. 32 bytes should be enough to get
 		// the header, and enough of the payload to choose a file extension.
-		tmpdbuf = dbuf_create_membuf(c, 32, 0);
-		copy_any_stream_to_dbuf(c, d, dei, 0, 32, tmpdbuf);
+		tmpdbuf = dbuf_create_membuf(c, 64, 0);
+		copy_any_stream_to_dbuf(c, d, dei, 0, 64, tmpdbuf);
 
 		hdrsize = dbuf_getui32le(tmpdbuf, 0);
 		de_dbg(c, "header size: %d\n", (int)hdrsize);
@@ -568,7 +572,8 @@ static void extract_stream_to_file(deark *c, lctx *d, struct dir_entry_info *dei
 		// 0x18 = "Windows 7 format"
 
 		if((hdrsize==0x0c || hdrsize==0x18) && dei->stream_size>hdrsize) {
-			de_byte b;
+			de_byte sig1[4];
+			de_byte sig2[4];
 
 			reported_size = dbuf_getui32le(tmpdbuf, 8);
 			de_dbg(c, "reported size: %d\n", (int)reported_size);
@@ -586,9 +591,23 @@ static void extract_stream_to_file(deark *c, lctx *d, struct dir_entry_info *dei
 				ucstring_append_ucstring(tmpfn, d->thumbsdb_catalog[catalog_idx].fname);
 			}
 
-			b = dbuf_getbyte(tmpdbuf, hdrsize);
-			if(b==0xff) ext = "jpg";
-			else if(b==0x89) ext = "png";
+			dbuf_read(tmpdbuf, sig1, hdrsize, 4);
+			dbuf_read(tmpdbuf, sig2, hdrsize+16, 4);
+
+			if(sig1[0]==0xff && sig1[1]==0xd8) ext = "jpg";
+			else if(sig1[0]==0x89 && sig1[1]==0x50) ext = "png";
+			else if(sig1[0]==0x01 && sig1[1]==0x00 &&
+				sig2[0]==0xff && sig2[1]==0xd8)
+			{
+				// Looks like a nonstandard Microsoft RGBA JPEG.
+				// These seem to have an additional 16-byte header, before the
+				// JPEG data starts. I'm not sure if I should keep it, but it
+				// doesn't look like it contains any vital information, so
+				// I'll strip if off.
+				ext = "msrgbajpg";
+				startpos += 16;
+				final_streamsize -= 16;
+			}
 			else ext = "bin";
 
 			ucstring_printf(tmpfn, DE_ENCODING_ASCII, ".thumb.%s", ext);
