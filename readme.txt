@@ -25,6 +25,8 @@ Command-line options:
      module such as "copy".
   -l
      Don't extract, but list the files that would be extracted.
+     This option is not necessarily very efficient. Deark will still go through
+     all the motions of extracting the files, but will not actually write them.
   -main
      Extract only "primary" files (e.g. not thumbnail images).
   -aux
@@ -32,9 +34,10 @@ Command-line options:
   -a, -extractall
      Also extract data that's usually useless.
      Note that, as a general rule, deark doesn't extract the same data twice.
-     The -a option can *prevent* it from extracting certain data, because it
-     may now, for example, extract a block of Exif data, instead of drilling
-     down and extracting the thumbnail image within it.
+     In rare cases, the -a option can actually *prevent* it from extracting
+     certain data, because it may now, for example, extract a block of Exif
+     data, instead of drilling down and extracting the thumbnail image within
+     it.
   -o <name>
      Output filenames begin with this string. This can include a directory
      path. Default="output".
@@ -43,7 +46,7 @@ Command-line options:
      use the -file2 option to specify the secondary file. Refer to the
      formats.txt file for details.
   -zip
-     Write output files to a .zip file.
+     Write output files to a .zip file, instead of to individual files.
      If the input format is an "archive" format (e.g. "ar" or "graspgl"), then
      by default, the filenames in the ZIP archive might not include the usual
      "output.NNN" prefix.
@@ -63,9 +66,9 @@ Command-line options:
      This option might not be very efficient, and might not work with extremely
      large files.
   -start <n>
-     Ignore bytes before offset <n>.
+     Pretend that the input file starts at byte offset <n>.
   -size <n>
-     Look at only <n> bytes.
+     Pretend that the input file contains only (up to) <n> bytes.
   -firstfile <n>
      Don't extract the first <n> files found.
   -maxfiles <n>
@@ -74,17 +77,19 @@ Command-line options:
      Allow image dimensions up to <n> pixels.
   -get <n>
      Extract only the file identifed by <n>. The first file is 0.
+     Equivalent to "-firstfile <n> -maxfiles 1".
   -nobom
      Do not write a BOM to UTF-8 output files.
   -nodens
      Do not try to record the original aspect ratio and pixel density in output
      image files.
   -asciihtml
-     Write HTML documents in ASCII instead of UTF-8.
+     When generating an HTML document, use only ASCII, instead of UTF-8.
   -nonames
      Makes Deark less likely to try to improve output filenames by using names
-     from the contents of the input file. This is mainly intended for certain
-     image formats where such names may or may not be meaningful.
+     from the contents of the input file. This is mainly intended to make the
+     output filename predictable, in the case of a format for which only a
+     single file is usually extracted.
   -modtime
   -nomodtime
      Do / Do not try to preserve the modification timestamp of extracted files.
@@ -102,9 +107,9 @@ Command-line options:
       -opt font:charsperrow=<n>
          The number of characters per row, when rendering a font to a bitmap
       -opt font:tounicode=<0|1>
-         Try to convert the font to Unicode (experimental; may not work)
+         [Don't] Try to translate a font's codepoints to Unicode codepoints.
       -opt char:output=<html|image>
-         The output format for character graphics (like ANSI art).
+         The output format for character graphics (such as ANSI Art).
       -opt char:charwidth=<8|9>
          The VGA character cell width for character graphics, when the output
          format is "image".
@@ -140,7 +145,7 @@ Command-line options:
      extracted data files.
   -msgstostderr
      Print all messages to stderr, instead of stdout. This option should be
-     be placed first on the command line, as it might not affect messages
+     placed first on the command line, as it might not affect messages
      related to options that appear before it.
  
 === Terms of use ===
@@ -151,7 +156,7 @@ See the "COPYING" file for the license text.
 The main Deark license does not necessarily apply to the code in the "foreign"
 subdirectory. Each file there may have its own licensing terms.
 
-Out of necessity, Deark contains knowledge about how to decode various file
+By necessity, Deark contains knowledge about how to decode various file
 formats. This knowledge includes data structures, algorithms, tables, color
 palettes, etc. The author(s) of Deark make no intellectual property claims to
 this essential knowledge, but they cannot guarantee that no one else will
@@ -173,19 +178,16 @@ goal is to support (mainly old) formats that are under-served by other
 open-source software. Most of the formats it currently supports are related to
 graphics, but it is not limited to graphics formats.
 
-Bitmap fonts are converted to images. Someday there might be an option to
-convert them to some portable font format, but this is difficult to do well.
+One guideline is that any image format supported by XnView, and not by any
+well-maintained open source software, is a candidate for being supported, no
+matter how obscure it may be.
+
+Bitmap fonts are converted to images. Someday, there might be an option to
+convert them to some portable font format, but that is difficult to do well.
 
 The Deark source code is structured like a library, but it's not intended to be
-used as such.
-
-Future versions might have more of the following features:
- - Extract files from floppy disk image formats
- - Decompress compressed data and archive formats
- - Detokenize tokenized BASIC programs
- - Any image format supported by XnView, and not by any well-maintained open
-   source software, is a candidate for being supported, no matter how obscure
-   it may be.
+used as such. The error handling methods, and error messages, are not really
+suitable for use in a library.
 
 === How to build ===
 
@@ -201,6 +203,8 @@ Studio 2008 and later. Alternatively, you can use Cygwin.
 Thanks to Rich Geldreich for the miniz library.
 
 Thanks to Mike Frysinger, and the authors of compress/ncompress, for liblzw.
+
+Thanks to countless others who have documented the supported file formats.
 
 === Authors ===
 
