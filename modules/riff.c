@@ -16,12 +16,16 @@ DE_DECLARE_MODULE(de_module_ani);
 #define CODE_PAL   0x50414c20U
 #define CODE_RMID  0x524d4944U
 #define CODE_WAVE  0x57415645U
+#define CODE_WEBP  0x57454250U
 #define CODE_cmpr  0x636d7072U
 
 #define CHUNK_DISP 0x44495350U
+#define CHUNK_EXIF 0x45584946U
+#define CHUNK_ICCP 0x49434350U
 #define CHUNK_LIST 0x4c495354U
 #define CHUNK_RIFF 0x52494646U
 #define CHUNK_RIFX 0x52494658U
+#define CHUNK_XMP  0x584d5020U
 #define CHUNK_data 0x64617461U
 #define CHUNK_fact 0x66616374U
 #define CHUNK_fmt  0x666d7420U
@@ -175,6 +179,21 @@ static void do_DISP_TEXT(deark *c, lctx *d, de_int64 pos, de_int64 len1)
 	do_extract_raw(c, d, pos, len, "disp.txt", DE_CREATEFLAG_IS_AUX);
 }
 
+static void do_ICCP(deark *c, lctx *d, de_int64 pos, de_int64 len)
+{
+	dbuf_create_file_from_slice(c->infile, pos, len, "icc", NULL, DE_CREATEFLAG_IS_AUX);
+}
+
+static void do_EXIF(deark *c, lctx *d, de_int64 pos, de_int64 len)
+{
+	de_fmtutil_handle_exif(c, pos, len);
+}
+
+static void do_XMP(deark *c, lctx *d, de_int64 pos, de_int64 len)
+{
+	dbuf_create_file_from_slice(c->infile, pos, len, "xmp", NULL, DE_CREATEFLAG_IS_AUX);
+}
+
 static const char *get_cb_data_type_name(de_int64 ty)
 {
 	const char *name = "?";
@@ -301,6 +320,24 @@ static void process_riff_sequence(deark *c, lctx *d, de_int64 pos, de_int64 len1
 
 		case CHUNK_DISP:
 			do_DISP(c, d, pos, chunk_data_len);
+			break;
+
+		case CHUNK_ICCP:
+			if(d->riff_type==CODE_WEBP) {
+				do_ICCP(c, d, pos, chunk_data_len);
+			}
+			break;
+
+		case CHUNK_EXIF:
+			if(d->riff_type==CODE_WEBP) {
+				do_EXIF(c, d, pos, chunk_data_len);
+			}
+			break;
+
+		case CHUNK_XMP:
+			if(d->riff_type==CODE_WEBP) {
+				do_XMP(c, d, pos, chunk_data_len);
+			}
 			break;
 
 		case CHUNK_icon:
