@@ -22,7 +22,7 @@ OFILES_MODS:=$(addprefix $(OBJDIR)/modules/,os2bmp.o eps.o bsave.o ilbm.o \
  insetpix.o ansiart.o bintext.o tim.o ar.o rsc.o gemras.o gemfont.o pff2.o \
  jbf.o psf.o pkfont.o png.o cfb.o \
  gif.o compress.o wmf.o pict.o xfer.o gemmeta.o alphabmp.o abk.o mbk.o \
- makichan.o bmp.o iccprofile.o iptc.o unsupported.o)
+ makichan.o bmp.o iccprofile.o iptc.o gzip.o unsupported.o)
 OFILES_MODUTILS:=$(addprefix $(OBJDIR)/modules/,fmtutil.o)
 OFILES_LIB:=$(addprefix $(OBJDIR)/src/,deark-miniz.o deark-util.o deark-data.o \
  deark-dbuf.o deark-bitmap.o deark-char.o deark-font.o deark-ucstring.o \

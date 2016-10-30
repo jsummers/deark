@@ -578,6 +578,10 @@
 				>
 			</File>
 			<File
+				RelativePath="..\..\modules\gzip.c"
+				>
+			</File>
+			<File
 				RelativePath="..\..\modules\iccprofile.c"
 				>
 			</File>

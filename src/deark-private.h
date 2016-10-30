@@ -320,6 +320,8 @@ int de_input_file_has_ext(deark *c, const char *ext);
 ///////////////////////////////////////////
 
 int de_uncompress_zlib(dbuf *inf, de_int64 inputstart, de_int64 inputsize, dbuf *outf);
+int de_uncompress_deflate(dbuf *inf, de_int64 inputstart, de_int64 inputsize, dbuf *outf,
+	de_int64 *bytes_consumed);
 
 int de_zip_create_file(deark *c);
 void de_zip_add_file_to_archive(deark *c, dbuf *f);

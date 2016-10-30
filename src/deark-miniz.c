@@ -169,7 +169,8 @@ int de_write_png(deark *c, struct deark_bitmap *img, dbuf *f)
 	return 1;
 }
 
-int de_uncompress_zlib(dbuf *inf, de_int64 inputstart, de_int64 inputsize, dbuf *outf)
+static int de_deflate_internal(dbuf *inf, de_int64 inputstart, de_int64 inputsize, dbuf *outf,
+	int is_zlib, de_int64 *bytes_consumed)
 {
 	mz_stream strm;
 	int ret;
@@ -183,6 +184,7 @@ int de_uncompress_zlib(dbuf *inf, de_int64 inputstart, de_int64 inputsize, dbuf 
 	deark *c;
 	int stream_open_flag = 0;
 
+	*bytes_consumed = 0;
 	c = inf->c;
 	if(inputsize<0) {
 		de_err(c, "Internal error\n");
@@ -190,7 +192,12 @@ int de_uncompress_zlib(dbuf *inf, de_int64 inputstart, de_int64 inputsize, dbuf 
 	}
 
 	de_memset(&strm,0,sizeof(strm));
-	ret = mz_inflateInit(&strm);
+	if(is_zlib) {
+		ret = mz_inflateInit(&strm);
+	}
+	else {
+		ret = mz_inflateInit2(&strm, -MZ_DEFAULT_WINDOW_BITS);
+	}
 	if(ret!=MZ_OK) {
 		de_err(c, "Inflate error\n");
 		goto done;
@@ -201,7 +208,7 @@ int de_uncompress_zlib(dbuf *inf, de_int64 inputstart, de_int64 inputsize, dbuf 
 	input_cur_pos = inputstart;
 	input_remaining = inputsize;
 
-	de_dbg2(c, "inflating %d bytes\n", (int)input_remaining);
+	de_dbg2(c, "inflating up to %d bytes\n", (int)input_remaining);
 
 	while(1) {
 
@@ -251,12 +258,26 @@ int de_uncompress_zlib(dbuf *inf, de_int64 inputstart, de_int64 inputsize, dbuf 
 
 done:
 	if(retval) {
-		de_dbg2(c, "inflated to %d bytes\n", (int)strm.total_out);
+		*bytes_consumed = (de_int64)strm.total_in;
+		de_dbg2(c, "inflated %u to %u bytes\n", (unsigned int)strm.total_in,
+			(unsigned int)strm.total_out);
 	}
 	if(stream_open_flag) {
 		mz_inflateEnd(&strm);
 	}
 	return retval;
+}
+
+int de_uncompress_zlib(dbuf *inf, de_int64 inputstart, de_int64 inputsize, dbuf *outf)
+{
+	de_int64 bytes_consumed;
+	return de_deflate_internal(inf, inputstart, inputsize, outf, 1, &bytes_consumed);
+}
+
+int de_uncompress_deflate(dbuf *inf, de_int64 inputstart, de_int64 inputsize, dbuf *outf,
+	de_int64 *bytes_consumed)
+{
+	return de_deflate_internal(inf, inputstart, inputsize, outf, 0, bytes_consumed);
 }
 
 // A customized copy of mz_zip_writer_init_file().
