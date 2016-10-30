@@ -138,6 +138,49 @@ static void do_mpf_segment(deark *c, lctx *d, de_int64 pos, de_int64 data_size)
 	de_dbg_indent(c, -1);
 }
 
+static void do_xmp_extension_segment(deark *c, lctx *d, de_int64 pos1, de_int64 data_size)
+{
+	de_int64 full_extxmp_len;
+	de_int64 segment_offset;
+	de_byte digest_raw[32];
+	de_ucstring *digest_str = NULL;
+	de_int64 pos = pos1;
+	de_int64 dlen;
+
+	de_dbg(c, "extended XMP segment, dpos=%d, dlen=%d\n", (int)pos1, (int)(data_size));
+	de_dbg_indent(c, 1);
+
+	de_read(digest_raw, pos, 32);
+	pos += 32;
+	digest_str = ucstring_create(c);
+	ucstring_append_bytes(digest_str, digest_raw, 32, 0, DE_ENCODING_ASCII);
+	de_dbg(c, "digest: \"%s\"\n", ucstring_get_printable_sz(digest_str));
+
+	full_extxmp_len = de_getui32be(pos);
+	pos += 4;
+	de_dbg(c, "full ext. XMP length: %d\n", (int)full_extxmp_len);
+
+	segment_offset = de_getui32be(pos);
+	pos += 4;
+	de_dbg(c, "offset of this segment: %d\n", (int)segment_offset);
+
+	dlen = data_size - (pos-pos1);
+	de_dbg(c, "[%d bytes of ext. XMP data at %d]\n", (int)dlen, (int)pos);
+
+	if(dlen<1) goto done;
+	if(c->extract_level<2) goto done;
+
+	// TODO: Concatenate the extended XMP segments' data together into one file.
+	// TODO: Ignore any extraneous segments that aren't associated with the main
+	//  XMP segment. This is a problem, because it requires parsing XMP, which we
+	//  don't do.
+	dbuf_create_file_from_slice(c->infile, pos, dlen, "extxmp", NULL, DE_CREATEFLAG_IS_AUX);
+
+done:
+	de_dbg_indent(c, -1);
+	ucstring_destroy(digest_str);
+}
+
 // ITU-T Rec. T.86 says nothing about canonicalizing the APP ID, but in
 // practice, some apps are sloppy about capitalization, and trailing spaces.
 static void normalize_app_id(const char *app_id_orig, char *app_id_normalized,
@@ -231,6 +274,9 @@ static void do_app_segment(deark *c, lctx *d, de_byte seg_type,
 	else if(seg_type==0xe1 && !de_strcmp(app_id_normalized, "HTTP://NS.ADOBE.COM/XAP/1.0/")) {
 		de_dbg(c, "XMP data at %d, size=%d\n", (int)(payload_pos), (int)(payload_size));
 		dbuf_create_file_from_slice(c->infile, payload_pos, payload_size, "xmp", NULL, DE_CREATEFLAG_IS_AUX);
+	}
+	else if(seg_type==0xe1 && !de_strcmp(app_id_normalized, "HTTP://NS.ADOBE.COM/XMP/EXTENSION/")) {
+		do_xmp_extension_segment(c, d, payload_pos, payload_size);
 	}
 	else if(seg_type==0xeb && app_id_orig_strlen>=10 && !de_memcmp(app_id_normalized, "HDR_RI VER", 10)) {
 		do_jpeghdr_segment(c, d, payload_pos, payload_size, 0);
