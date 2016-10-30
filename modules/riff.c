@@ -26,6 +26,7 @@ DE_DECLARE_MODULE(de_module_ani);
 #define CHUNK_RIFF 0x52494646U
 #define CHUNK_RIFX 0x52494658U
 #define CHUNK_XMP  0x584d5020U
+#define CHUNK__PMX 0x5f504d58U
 #define CHUNK_data 0x64617461U
 #define CHUNK_fact 0x66616374U
 #define CHUNK_fmt  0x666d7420U
@@ -174,6 +175,7 @@ static void do_DISP_TEXT(deark *c, lctx *d, de_int64 pos, de_int64 len1)
 	if(dbuf_search_byte(c->infile, 0x00, pos, len1, &foundpos)) {
 		len = foundpos - pos;
 	}
+	de_dbg(c, "text length: %d\n", (int)len);
 	if(len<1) return;
 
 	do_extract_raw(c, d, pos, len, "disp.txt", DE_CREATEFLAG_IS_AUX);
@@ -322,22 +324,17 @@ static void process_riff_sequence(deark *c, lctx *d, de_int64 pos, de_int64 len1
 			do_DISP(c, d, pos, chunk_data_len);
 			break;
 
-		case CHUNK_ICCP:
-			if(d->riff_type==CODE_WEBP) {
-				do_ICCP(c, d, pos, chunk_data_len);
-			}
+		case CHUNK_ICCP: // Used by WebP
+			do_ICCP(c, d, pos, chunk_data_len);
 			break;
 
-		case CHUNK_EXIF:
-			if(d->riff_type==CODE_WEBP) {
-				do_EXIF(c, d, pos, chunk_data_len);
-			}
+		case CHUNK_EXIF: // Used by WebP
+			do_EXIF(c, d, pos, chunk_data_len);
 			break;
 
-		case CHUNK_XMP:
-			if(d->riff_type==CODE_WEBP) {
-				do_XMP(c, d, pos, chunk_data_len);
-			}
+		case CHUNK_XMP: // Used by WebP
+		case CHUNK__PMX: // Used by WAVE, AVI
+			do_XMP(c, d, pos, chunk_data_len);
 			break;
 
 		case CHUNK_icon:
