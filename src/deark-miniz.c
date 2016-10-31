@@ -175,12 +175,18 @@ static int de_deflate_internal(dbuf *inf, de_int64 inputstart, de_int64 inputsiz
 	mz_stream strm;
 	int ret;
 	int retval = 0;
-	de_byte inbuf[2048];
-	de_byte outbuf[4096];
+#define DE_DFL_INBUF_SIZE   32768
+#define DE_DFL_OUTBUF_SIZE  (DE_DFL_INBUF_SIZE*4)
+	de_byte *inbuf = NULL;
+	de_byte *outbuf = NULL;
+	de_int64 inbuf_num_valid_bytes; // Number of valid bytes in inbuf, starting with [0].
+	de_int64 inbuf_num_consumed_bytes; // Of inbuf_num_valid_bytes, the number that have been consumed.
+	de_int64 inbuf_num_consumed_bytes_this_time;
+
+	unsigned int orig_avail_in;
 	de_int64 input_cur_pos;
-	de_int64 input_remaining;
-	de_int64 input_bytes_this_time;
 	de_int64 output_bytes_this_time;
+	de_int64 nbytes_to_read;
 	deark *c;
 	int stream_open_flag = 0;
 
@@ -190,6 +196,9 @@ static int de_deflate_internal(dbuf *inf, de_int64 inputstart, de_int64 inputsiz
 		de_err(c, "Internal error\n");
 		goto done;
 	}
+
+	inbuf = de_malloc(c, DE_DFL_INBUF_SIZE);
+	outbuf = de_malloc(c, DE_DFL_OUTBUF_SIZE);
 
 	de_memset(&strm,0,sizeof(strm));
 	if(is_zlib) {
@@ -206,54 +215,75 @@ static int de_deflate_internal(dbuf *inf, de_int64 inputstart, de_int64 inputsiz
 	stream_open_flag = 1;
 
 	input_cur_pos = inputstart;
-	input_remaining = inputsize;
 
-	de_dbg2(c, "inflating up to %d bytes\n", (int)input_remaining);
+	inbuf_num_valid_bytes = 0;
+	inbuf_num_consumed_bytes = 0;
+
+	de_dbg2(c, "inflating up to %d bytes\n", (int)inputsize);
 
 	while(1) {
+		de_dbg3(c, "input remaining: %d\n", (int)(inputstart+inputsize-input_cur_pos));
 
-		de_dbg3(c, "input remaining: %d\n", (int)input_remaining);
-		if(input_remaining<=0) break;
+		// If we have read all the available bytes from the file,
+		// and all bytes in inbuf are consumed, then stop.
+		if((inbuf_num_consumed_bytes>=inbuf_num_valid_bytes) && (input_cur_pos-inputstart)>=inputsize) break;
 
-		// fill input buffer
-		input_bytes_this_time = sizeof(inbuf);
-		if(input_bytes_this_time>input_remaining) input_bytes_this_time=input_remaining;
 
-		if(input_bytes_this_time<=0) break;
-		de_dbg3(c, "processing %d input bytes\n", (int)input_bytes_this_time);
+		if(inbuf_num_consumed_bytes>0) {
+			if(inbuf_num_valid_bytes>inbuf_num_consumed_bytes) {
+				// Move unconsumed bytes to the beginning of the input buffer
+				de_memmove(inbuf, &inbuf[inbuf_num_consumed_bytes], (size_t)(inbuf_num_valid_bytes-inbuf_num_consumed_bytes));
+				inbuf_num_valid_bytes -= inbuf_num_consumed_bytes;
+				inbuf_num_consumed_bytes = 0;
+			}
+			else {
+				inbuf_num_valid_bytes = 0;
+				inbuf_num_consumed_bytes = 0;
+			}
+		}
 
-		dbuf_read(inf, inbuf, input_cur_pos, input_bytes_this_time);
-		input_remaining -= input_bytes_this_time;
-		input_cur_pos += input_bytes_this_time;
+		nbytes_to_read = inputstart+inputsize-input_cur_pos;
+		if(nbytes_to_read>DE_DFL_INBUF_SIZE-inbuf_num_valid_bytes) {
+			nbytes_to_read = DE_DFL_INBUF_SIZE-inbuf_num_valid_bytes;
+		}
+
+		// top off input buffer
+		dbuf_read(inf, &inbuf[inbuf_num_valid_bytes], input_cur_pos, nbytes_to_read);
+		input_cur_pos += nbytes_to_read;
+		inbuf_num_valid_bytes += nbytes_to_read;
 
 		strm.next_in = inbuf;
-		strm.avail_in = (unsigned int)input_bytes_this_time;
+		strm.avail_in = (unsigned int)inbuf_num_valid_bytes;
+		orig_avail_in = strm.avail_in;
 
-		// run inflate() on input until output buffer not full
-		while(1) {
-			strm.avail_out = sizeof(outbuf);
-			strm.next_out = outbuf;
+		strm.next_out = outbuf;
+		strm.avail_out = DE_DFL_OUTBUF_SIZE;
 
-			ret = mz_inflate(&strm, MZ_NO_FLUSH);
-			if(ret!=MZ_STREAM_END && ret!=MZ_OK) {
-				de_err(c, "Inflate error\n");
-				goto done;
-			}
-
-			output_bytes_this_time = sizeof(outbuf) - strm.avail_out;
-			de_dbg3(c, "got %d output bytes\n", (int)output_bytes_this_time);
-
-			dbuf_write(outf, outbuf, output_bytes_this_time);
-
-			if(ret==MZ_STREAM_END) {
-				de_dbg2(c, "inflate finished normally\n");
-				retval = 1;
-				goto done;
-			}
-
-			if(strm.avail_out!=0) break;
+		ret = mz_inflate(&strm, MZ_SYNC_FLUSH);
+		if(ret!=MZ_STREAM_END && ret!=MZ_OK) {
+			de_err(c, "Inflate error (%d)\n", (int)ret);
+			goto done;
 		}
+
+		output_bytes_this_time = DE_DFL_OUTBUF_SIZE - strm.avail_out;
+		de_dbg3(c, "got %d output bytes\n", (int)output_bytes_this_time);
+
+		dbuf_write(outf, outbuf, output_bytes_this_time);
+
+		if(ret==MZ_STREAM_END) {
+			de_dbg2(c, "inflate finished normally\n");
+			retval = 1;
+			goto done;
+		}
+
+		inbuf_num_consumed_bytes_this_time = (de_int64)(orig_avail_in - strm.avail_in);
+		if(inbuf_num_consumed_bytes_this_time<1 && output_bytes_this_time<1) {
+			de_err(c, "Inflate error\n");
+			goto done;
+		}
+		inbuf_num_consumed_bytes += inbuf_num_consumed_bytes_this_time;
 	}
+
 	retval = 1;
 
 done:
@@ -265,6 +295,8 @@ done:
 	if(stream_open_flag) {
 		mz_inflateEnd(&strm);
 	}
+	de_free(c, inbuf);
+	de_free(c, outbuf);
 	return retval;
 }
 

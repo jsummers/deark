@@ -259,6 +259,7 @@ char *de_strchr(const char *s, int c);
 #define de_strcmp   strcmp
 #define de_memcmp   memcmp
 #define de_memcpy   memcpy
+#define de_memmove  memmove
 #define de_memset   memset
 #define de_memchr   memchr
 #ifdef DE_WINDOWS
