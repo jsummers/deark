@@ -405,6 +405,7 @@ dbuf *dbuf_create_membuf(deark *c, de_int64 initialsize, unsigned int flags);
 void dbuf_close(dbuf *f);
 
 void dbuf_write(dbuf *f, const de_byte *m, de_int64 len);
+void dbuf_write_at(dbuf *f, de_int64 pos, const de_byte *m, de_int64 len);
 void dbuf_write_zeroes(dbuf *f, de_int64 len);
 void dbuf_truncate(dbuf *f, de_int64 len);
 void dbuf_write_run(dbuf *f, de_byte n, de_int64 len);
@@ -425,6 +426,7 @@ void dbuf_printf(dbuf *f, const char *fmt, ...)
 
 // Read a slice of one dbuf, and append it to another dbuf.
 void dbuf_copy(dbuf *inf, de_int64 input_offset, de_int64 input_len, dbuf *outf);
+void dbuf_copy_at(dbuf *inf, de_int64 input_offset, de_int64 input_len, dbuf *outf, de_int64 outpos);
 
 // Copy the entire contents of the dbuf (which are not expected to be
 // NUL-terminated) to a NUL-terminated string.

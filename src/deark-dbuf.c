@@ -452,6 +452,18 @@ void dbuf_copy(dbuf *inf, de_int64 input_offset, de_int64 input_len, dbuf *outf)
 	}
 }
 
+void dbuf_copy_at(dbuf *inf, de_int64 input_offset, de_int64 input_len,
+	dbuf *outf, de_int64 output_offset)
+{
+	de_byte b;
+	de_int64 i;
+	// TODO: Make this more efficient
+	for(i=0; i<input_len; i++) {
+		b = dbuf_getbyte(inf, input_offset+i);
+		dbuf_writebyte_at(outf, output_offset+i, b);
+	}
+}
+
 void dbuf_copy_all_to_sz(dbuf *f, char *dst, size_t dst_size)
 {
 	de_int64 amt_to_read;
@@ -728,6 +740,17 @@ void dbuf_writebyte_at(dbuf *f, de_int64 pos, de_byte n)
 	}
 	if(pos>=f->len) return; // Shouldn't happen
 	f->membuf_buf[pos] = n;
+}
+
+void dbuf_write_at(dbuf *f, de_int64 pos, const de_byte *m, de_int64 len)
+{
+	de_int64 i;
+
+	if(f->btype!=DBUF_TYPE_MEMBUF) return;
+	// TODO: Make this more efficient
+	for(i=0; i<len; i++) {
+		dbuf_writebyte_at(f, pos+i, m[i]);
+	}
 }
 
 void dbuf_write_run(dbuf *f, de_byte n, de_int64 len)

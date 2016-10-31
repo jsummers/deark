@@ -19,6 +19,13 @@ typedef struct localctx_struct {
 	int is_jpegls;
 	int is_j2c;
 	int image_count;
+
+	int extxmp_found;
+	int extxmp_warned_flag; // Have we warned about multiple extxmp digests?
+	int extxmp_error_flag;
+	dbuf *extxmp_membuf;
+	de_byte extxmp_digest[32];
+	de_int64 extxmp_total_len;
 } lctx;
 
 static void do_icc_profile_segment(deark *c, lctx *d, de_int64 pos, de_int64 data_size)
@@ -140,25 +147,59 @@ static void do_mpf_segment(deark *c, lctx *d, de_int64 pos, de_int64 data_size)
 
 static void do_xmp_extension_segment(deark *c, lctx *d, de_int64 pos1, de_int64 data_size)
 {
-	de_int64 full_extxmp_len;
+	de_int64 thisseg_full_extxmp_len;
 	de_int64 segment_offset;
-	de_byte digest_raw[32];
+	de_byte thisseg_digest_raw[32];
 	de_ucstring *digest_str = NULL;
 	de_int64 pos = pos1;
 	de_int64 dlen;
+	int is_first_segment = 0;
 
 	de_dbg(c, "extended XMP segment, dpos=%d, dlen=%d\n", (int)pos1, (int)(data_size));
 	de_dbg_indent(c, 1);
+	if(d->extxmp_error_flag) goto done;
 
-	de_read(digest_raw, pos, 32);
+	de_read(thisseg_digest_raw, pos, 32);
 	pos += 32;
 	digest_str = ucstring_create(c);
-	ucstring_append_bytes(digest_str, digest_raw, 32, 0, DE_ENCODING_ASCII);
+	ucstring_append_bytes(digest_str, thisseg_digest_raw, 32, 0, DE_ENCODING_ASCII);
 	de_dbg(c, "digest: \"%s\"\n", ucstring_get_printable_sz(digest_str));
 
-	full_extxmp_len = de_getui32be(pos);
+	if(d->extxmp_found && de_memcmp(thisseg_digest_raw, d->extxmp_digest, 32)) {
+		// We only care about the extended XMP segments whose digest matches that
+		// indicated in the main XMP segment. Unfortunately, we don't know what that
+		// is, because we don't parse XMP. We'll just hope that the first extended
+		// XMP segment has the correct digest.
+		if(!d->extxmp_warned_flag) {
+			de_warn(c, "Multiple extended XMP blocks found. All but the first will be ignored.\n");
+			d->extxmp_warned_flag = 1;
+		}
+		goto done;
+	}
+
+	if(!d->extxmp_found) {
+		is_first_segment = 1;
+		d->extxmp_found = 1;
+		de_memcpy(d->extxmp_digest, thisseg_digest_raw, 32);
+	}
+
+	thisseg_full_extxmp_len = de_getui32be(pos);
 	pos += 4;
-	de_dbg(c, "full ext. XMP length: %d\n", (int)full_extxmp_len);
+	if(is_first_segment) {
+		d->extxmp_total_len = thisseg_full_extxmp_len;
+	}
+	de_dbg(c, "full ext. XMP length: %d\n", (int)thisseg_full_extxmp_len);
+	if(thisseg_full_extxmp_len != d->extxmp_total_len) {
+		de_warn(c, "Inconsistent extended XMP block lengths\n");
+		d->extxmp_error_flag = 1;
+		goto done;
+	}
+
+	if(d->extxmp_total_len > 10000000) {
+		de_warn(c, "Extended XMP block too large\n");
+		d->extxmp_error_flag = 1;
+		goto done;
+	}
 
 	segment_offset = de_getui32be(pos);
 	pos += 4;
@@ -167,14 +208,16 @@ static void do_xmp_extension_segment(deark *c, lctx *d, de_int64 pos1, de_int64 
 	dlen = data_size - (pos-pos1);
 	de_dbg(c, "[%d bytes of ext. XMP data at %d]\n", (int)dlen, (int)pos);
 
-	if(dlen<1) goto done;
-	if(c->extract_level<2) goto done;
+	if(segment_offset + dlen > d->extxmp_total_len) {
+		de_warn(c, "Extended XMP segment too long\n");
+		d->extxmp_error_flag = 1;
+		goto done;
+	}
 
-	// TODO: Concatenate the extended XMP segments' data together into one file.
-	// TODO: Ignore any extraneous segments that aren't associated with the main
-	//  XMP segment. This is a problem, because it requires parsing XMP, which we
-	//  don't do.
-	dbuf_create_file_from_slice(c->infile, pos, dlen, "extxmp", NULL, DE_CREATEFLAG_IS_AUX);
+	if(!d->extxmp_membuf) {
+		d->extxmp_membuf = dbuf_create_membuf(c, d->extxmp_total_len, 0x1);
+	}
+	dbuf_copy_at(c->infile, pos, dlen, d->extxmp_membuf, segment_offset);
 
 done:
 	de_dbg_indent(c, -1);
@@ -884,6 +927,15 @@ static void do_jpeg_internal(deark *c, lctx *d)
 
 	dbuf_close(d->iccprofile_file);
 	dbuf_close(d->hdr_residual_file);
+
+	if(d->extxmp_membuf && !d->extxmp_error_flag) {
+		dbuf *tmpdbuf = NULL;
+		tmpdbuf = dbuf_create_output_file(c, "xmp", NULL, DE_CREATEFLAG_IS_AUX);
+		dbuf_copy(d->extxmp_membuf, 0, d->extxmp_total_len, tmpdbuf);
+		dbuf_close(tmpdbuf);
+		//d->extxmp_membuf
+	}
+	dbuf_close(d->extxmp_membuf);
 
 	if(d->image_count>1) {
 		// For Multi-Picture Format (.mpo) and similar.
