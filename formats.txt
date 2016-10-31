@@ -446,6 +446,8 @@ Deark -- Information about supported formats
 
 * D64 (Commodore 64 disk format) (module="d64") (experimental)
 
+* Gzip (module="gzip") (experimental)
+
 * Microsoft Compound File Binary (module="cfb") (experimental)
   - Extract the embedded data streams, though many of them may not be in a
     standard file format.

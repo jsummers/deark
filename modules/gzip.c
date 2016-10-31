@@ -27,15 +27,17 @@ static int do_gzip_read_member(deark *c, lctx *d, de_int64 pos1, de_int64 *membe
 	de_int64 foundpos;
 	de_int64 string_len;
 	de_int64 cmpr_data_len;
-#if 0
 	de_int64 isize;
+	de_int64 mod_time_unix;
+	struct de_timestamp mod_time_ts;
 	de_uint32 crc32_field;
-#endif
 	de_ucstring *member_name = NULL;
 	de_finfo *fi = NULL;
 	int saved_indent_level;
 	int ret;
 	int retval = 0;
+
+	mod_time_ts.is_valid = 0;
 
 	de_dbg_indent_save(c, &saved_indent_level);
 
@@ -59,12 +61,19 @@ static int do_gzip_read_member(deark *c, lctx *d, de_int64 pos1, de_int64 *membe
 
 	d->flags = de_getbyte(pos+3);
 	de_dbg(c, "flags: 0x%02x\n", (unsigned int)d->flags);
+	pos += 4;
 
-	// TODO: MTIME
-	// TODO: XFL
-	// TODO: OS
+	mod_time_unix = de_getui32le(pos);
+	de_unix_time_to_timestamp(mod_time_unix, &mod_time_ts);
+	if(mod_time_ts.is_valid) {
+		char timestamp_buf[64];
+		de_timestamp_to_string(&mod_time_ts, timestamp_buf, sizeof(timestamp_buf), 1);
+		de_dbg(c, "mod time: %" INT64_FMT " (%s)\n", mod_time_unix, timestamp_buf);
+	}
+	pos += 4;
 
-	pos += 10;
+	pos += 1; // TODO: XFL
+	pos += 1; // TODO: OS
 
 	if(d->flags & GZIPFLAG_FEXTRA) {
 		n = de_getui16le(pos);
@@ -106,15 +115,18 @@ static int do_gzip_read_member(deark *c, lctx *d, de_int64 pos1, de_int64 *membe
 	de_dbg(c, "compressed blocks at %d\n", (int)pos);
 
 	if(!d->output_file) {
+		fi = de_finfo_create(c);
+
 		if(member_name && c->filenames_from_file) {
-			fi = de_finfo_create(c);
 			de_finfo_set_name_from_ucstring(c, fi, member_name);
 			fi->original_filename_flag = 1;
-			d->output_file = dbuf_create_output_file(c, NULL, fi, 0);
 		}
-		else {
-			d->output_file = dbuf_create_output_file(c, "bin", NULL, 0);
+
+		if(mod_time_ts.is_valid) {
+			fi->mod_time = mod_time_ts;
 		}
+
+		d->output_file = dbuf_create_output_file(c, member_name?NULL:"bin", fi, 0);
 	}
 
 	ret = de_uncompress_deflate(c->infile, pos, c->infile->len - pos, d->output_file, &cmpr_data_len);
@@ -122,8 +134,6 @@ static int do_gzip_read_member(deark *c, lctx *d, de_int64 pos1, de_int64 *membe
 	if(!ret) goto done;
 	pos += cmpr_data_len;
 
-	de_warn(c, "gzip is not fully supported. Files with multiple \"members\" will be truncated.\n");
-#if 0
 	crc32_field = (de_uint32)de_getui32le(pos);
 	de_dbg(c, "crc32: 0x%08x\n", (unsigned int)crc32_field);
 	pos += 4;
@@ -131,7 +141,6 @@ static int do_gzip_read_member(deark *c, lctx *d, de_int64 pos1, de_int64 *membe
 	isize = de_getui32le(pos);
 	de_dbg(c, "uncompressed size (mod 2^32): %u\n", (unsigned int)isize);
 	pos += 4;
-#endif
 
 	retval = 1;
 
@@ -163,7 +172,6 @@ static void de_run_gzip(deark *c, de_module_params *mparams)
 		if(member_size<=0) break;
 
 		pos += member_size;
-		break; // FIXME
 	}
 	dbuf_close(d->output_file);
 
@@ -185,7 +193,7 @@ static int de_identify_gzip(deark *c)
 void de_module_gzip(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "gzip";
+	mi->desc = "gzip compressed file";
 	mi->run_fn = de_run_gzip;
 	mi->identify_fn = de_identify_gzip;
-	mi->flags |= DE_MODFLAG_NONWORKING;
 }
