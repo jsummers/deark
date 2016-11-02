@@ -760,6 +760,44 @@ static void get_prop_name(deark *c, lctx *d, struct prop_info_struct *pinfo)
 	}
 }
 
+static void do_prop_clipboard(deark *c, lctx *d, struct summaryinfo_struct *si,
+	struct prop_info_struct *pinfo)
+{
+	de_uint32 cbtype;
+	de_int64 cbsize_reported;
+	de_int64 cbsize_payload;
+	de_int64 cbdatapos;
+
+	cbsize_reported = dbuf_getui32le(si->f, si->tbloffset+pinfo->data_offs+4);
+	de_dbg(c, "clipboard data size: %d\n", (int)cbsize_reported);
+
+	cbtype = (de_uint32)dbuf_getui32le(si->f, si->tbloffset+pinfo->data_offs+12);
+	de_dbg(c, "clipboard data type: 0x%08x\n", (unsigned int)cbtype);
+
+	cbdatapos = si->tbloffset+pinfo->data_offs+16;
+	cbsize_payload = cbsize_reported-8;
+	if(cbdatapos + cbsize_payload > si->f->len) goto done;
+
+	if(cbtype==3) { // CF_METAFILEPICT
+		dbuf_create_file_from_slice(si->f, cbdatapos+8, cbsize_payload-8,
+			"wmf", NULL, DE_CREATEFLAG_IS_AUX);
+	}
+	else if(cbtype==8) { // CF_DIB
+		de_run_module_by_id_on_slice2(c, "dib", "X", si->f,
+			cbdatapos, cbsize_payload);
+	}
+	else if(cbtype==0x54434950U) { // "PICT"
+		dbuf *outf = NULL;
+		outf = dbuf_create_output_file(c, "pict", NULL, DE_CREATEFLAG_IS_AUX);
+		dbuf_write_zeroes(outf, 512);
+		dbuf_copy(si->f, cbdatapos, cbsize_payload, outf);
+		dbuf_close(outf);
+	}
+
+done:
+	;
+}
+
 // Read the value for one property.
 static void do_prop_data(deark *c, lctx *d, struct summaryinfo_struct *si,
 	struct prop_info_struct *pinfo)
@@ -793,6 +831,9 @@ static void do_prop_data(deark *c, lctx *d, struct summaryinfo_struct *si,
 		dbuf_read_to_ucstring_n(si->f, si->tbloffset+pinfo->data_offs+8, n, 300, s,
 			DE_CONVFLAG_STOP_AT_NUL, si->encoding);
 		de_dbg(c, "%s: \"%s\"\n", pinfo->name, ucstring_get_printable_sz(s));
+		break;
+	case 0x47: // clipboard
+		do_prop_clipboard(c, d, si, pinfo);
 		break;
 	default:
 		de_dbg(c, "[data type 0x%04x not supported]\n", (unsigned int)pinfo->data_type);
@@ -1240,6 +1281,9 @@ static void do_dir_entry(deark *c, lctx *d, de_int64 dir_entry_idx, de_int64 dir
 
 	if(pass==2 && dei->entry_type==OBJTYPE_STREAM) {
 		extract_stream_to_file(c, d, dei);
+
+		// It's against our ground rules to both extract a file, and also analyze it,
+		// but there's no good alternative in this case.
 
 		if(!de_strcmp(dei->fname_utf8, summaryinformation_streamname)) {
 			do_SummaryInformation(c, d, dei, d->dir_entry_extra_info[dir_entry_idx].is_in_root_dir);
