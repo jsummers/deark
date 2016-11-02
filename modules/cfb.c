@@ -15,7 +15,8 @@ DE_DECLARE_MODULE(de_module_cfb);
 #define OBJTYPE_STREAM       0x02
 #define OBJTYPE_ROOT_STORAGE 0x05
 
-const char *thumbsdb_catalog_streamname = "Catalog";
+static const char *thumbsdb_catalog_streamname = "Catalog";
+static const char *summaryinformation_streamname = "\x05" "SummaryInformation";
 
 struct dir_entry_info {
 	de_byte entry_type;
@@ -728,6 +729,141 @@ done:
 	return retval;
 }
 
+struct summaryinfo_struct {
+	dbuf *f; // The full data stream
+	de_int64 tbloffset;
+	int encoding;
+};
+
+struct prop_info_struct {
+	de_int64 type;
+	const char *name;
+	de_int64 data_offs;
+	de_int64 data_type;
+};
+
+// Sets pinfo->name based on pinfo->type.
+static void get_prop_name(deark *c, lctx *d, struct prop_info_struct *pinfo)
+{
+	static const char *names[20] = {
+		"", "Code page", "Title", "Subject",
+		"Author", "Keywords", "Comments", "Template",
+		"Last saved by", "Revision number", "Editing time", "Last printed",
+		"Create time", "Saved time", "Number of pages", "Number of words",
+		"Number of chars", "Thumbnail", "App name", "Security" };
+
+	if(pinfo->type>=1 && pinfo->type<=19) {
+		pinfo->name = names[pinfo->type];
+	}
+	else {
+		pinfo->name = "?";
+	}
+}
+
+// Read the value for one property.
+static void do_prop_data(deark *c, lctx *d, struct summaryinfo_struct *si,
+	struct prop_info_struct *pinfo)
+{
+	de_int64 n;
+	de_ucstring *s = NULL;
+
+	pinfo->data_type = dbuf_getui32le(si->f, si->tbloffset+pinfo->data_offs);
+
+	switch(pinfo->data_type) {
+	case 0x02: // int16
+		n = dbuf_geti16le(si->f, si->tbloffset+pinfo->data_offs+4);
+		de_dbg(c, "%s: %d\n", pinfo->name, (int)n);
+
+		if(pinfo->type==0x01) { // code page
+			switch(n) {
+			case 1252: si->encoding = DE_ENCODING_WINDOWS1252; break;
+			case 10000: si->encoding = DE_ENCODING_MACROMAN; break;
+			case 65001: si->encoding = DE_ENCODING_UTF8; break;
+			}
+		}
+
+		break;
+	case 0x03: // int32
+		n = dbuf_geti32le(si->f, si->tbloffset+pinfo->data_offs+4);
+		de_dbg(c, "%s: %d\n", pinfo->name, (int)n);
+		break;
+	case 0x1e: // string with length prefix
+		s = ucstring_create(c);
+		n = dbuf_geti32le(si->f, si->tbloffset+pinfo->data_offs+4);
+		dbuf_read_to_ucstring_n(si->f, si->tbloffset+pinfo->data_offs+8, n, 300, s,
+			DE_CONVFLAG_STOP_AT_NUL, si->encoding);
+		de_dbg(c, "%s: \"%s\"\n", pinfo->name, ucstring_get_printable_sz(s));
+		break;
+	default:
+		de_dbg(c, "[data type 0x%04x not supported]\n", (unsigned int)pinfo->data_type);
+	}
+
+	ucstring_destroy(s);
+}
+
+static void do_SummaryInformation(deark *c, lctx *d, struct dir_entry_info *dei, int is_root)
+{
+	struct summaryinfo_struct si;
+	de_int64 n;
+	de_int64 nproperties;
+	int saved_indent_level;
+	struct prop_info_struct pinfo;
+	int i;
+
+	de_memset(&si, 0, sizeof(struct summaryinfo_struct));
+	si.encoding = DE_ENCODING_WINDOWS1252;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+	de_dbg(c, "SummaryInformation (%s)\n", is_root?"root":"non-root");
+	de_dbg_indent(c, 1);
+	if(dei->stream_size>1000000) goto done;
+
+	si.f = dbuf_create_membuf(c, dei->stream_size, 1);
+	copy_any_stream_to_dbuf(c, d, dei, 0, dei->stream_size, si.f);
+
+	// expecting 48 (or more?) bytes of header info.
+	n = dbuf_getui16le(si.f, 0);
+	de_dbg(c, "byte order code: 0x%04x\n", (unsigned int)n);
+	if(n != 0xfffe) goto done;
+	n = dbuf_getui16le(si.f, 4);
+	de_dbg(c, "OS ver: 0x%04x\n", (unsigned int)n);
+	n = dbuf_getui16le(si.f, 6);
+	de_dbg(c, "OS: 0x%04x\n", (unsigned int)n);
+
+	si.tbloffset = dbuf_getui32le(si.f, 44);
+	de_dbg(c, "table offset: %d\n", (int)si.tbloffset);
+
+	// I think this is the length of the data section
+	n = dbuf_getui32le(si.f, si.tbloffset);
+	de_dbg(c, "property data length: %d\n", (int)n);
+
+	nproperties = dbuf_getui32le(si.f, si.tbloffset+4);
+	de_dbg(c, "number of properties: %d\n", (int)nproperties);
+	if(nproperties>200) goto done;
+
+	// TODO: Maybe we have to pre-scan for the code page, before we can
+	// read the other properties.
+
+	for(i=0; i<nproperties; i++) {
+		de_memset(&pinfo, 0, sizeof(struct prop_info_struct));
+
+		pinfo.type = dbuf_getui32le(si.f, si.tbloffset+8 + 8*i);
+		pinfo.data_offs = dbuf_getui32le(si.f, si.tbloffset+8 + 8*i + 4);
+		get_prop_name(c, d, &pinfo);
+
+		de_dbg(c, "prop[%d]: type=0x%04x (%s), data_offs=%d\n", (int)i,
+			(unsigned int)pinfo.type, pinfo.name,
+			(int)pinfo.data_offs);
+		de_dbg_indent(c, 1);
+		do_prop_data(c, d, &si, &pinfo);
+		de_dbg_indent(c, -1);
+	}
+
+done:
+	de_dbg_indent_restore(c, saved_indent_level);
+	dbuf_close(si.f);
+}
+
 static void read_mini_sector_stream(deark *c, lctx *d, de_int64 first_sec_id, de_int64 stream_size)
 {
 	if(d->mini_sector_stream) return; // Already done
@@ -1104,6 +1240,10 @@ static void do_dir_entry(deark *c, lctx *d, de_int64 dir_entry_idx, de_int64 dir
 
 	if(pass==2 && dei->entry_type==OBJTYPE_STREAM) {
 		extract_stream_to_file(c, d, dei);
+
+		if(!de_strcmp(dei->fname_utf8, summaryinformation_streamname)) {
+			do_SummaryInformation(c, d, dei, d->dir_entry_extra_info[dir_entry_idx].is_in_root_dir);
+		}
 	}
 	else if(pass==1 && is_thumbsdb_catalog) {
 		read_thumbsdb_catalog(c, d, dei);
