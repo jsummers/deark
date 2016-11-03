@@ -36,7 +36,7 @@ typedef int (*record_decoder_fn)(deark *c, lctx *d, de_int64 rectype, de_int64 r
 // WMF
 // **************************************************************************
 
-static int wmf_handler_0f43(deark *c, lctx *d, de_int64 rectype, de_int64 recpos, de_int64 recsize_bytes);
+static int wmf_handler_0b41_0f43(deark *c, lctx *d, de_int64 rectype, de_int64 recpos, de_int64 recsize_bytes);
 
 struct wmf_func_info {
 	de_uint16 rectype;
@@ -96,21 +96,27 @@ static const struct wmf_func_info wmf_func_info_arr[] = {
 	{ 0x0922, "BITBLT", NULL },
 	{ 0x0940, "DIBBITBLT", NULL },
 	{ 0x0a32, "EXTTEXTOUT", NULL },
-	{ 0x0b41, "DIBSTRETCHBLT", NULL },
+	{ 0x0b41, "DIBSTRETCHBLT", wmf_handler_0b41_0f43 },
 	{ 0x0b23, "STRETCHBLT", NULL },
-	{ 0x0f43, "STRETCHDIB", wmf_handler_0f43 },
+	{ 0x0f43, "STRETCHDIB", wmf_handler_0b41_0f43 },
 	{ 0xffff, NULL, NULL }
 };
 
-// STRETCHDIB
-static int wmf_handler_0f43(deark *c, lctx *d, de_int64 rectype, de_int64 recpos, de_int64 recsize_bytes)
+// DIBSTRETCHBLT, STRETCHDIB
+static int wmf_handler_0b41_0f43(deark *c, lctx *d, de_int64 rectype, de_int64 recpos, de_int64 recsize_bytes)
 {
 	de_int64 dib_pos;
 	de_int64 dib_len;
+	int hdrsize;// = 26;
 
-	if(recsize_bytes < 28) return 1;
-	dib_pos = recpos + 28;
-	dib_len = recsize_bytes - 28;
+	if(rectype==0x0b41) // DIBSTRETCHBLT
+		hdrsize = 26;
+	else
+		hdrsize = 28;
+
+	if(recsize_bytes < hdrsize) return 1;
+	dib_pos = recpos + hdrsize;
+	dib_len = recsize_bytes - hdrsize;
 	if(dib_len < 12) return 1;
 	de_dbg(c, "DIB at %d, size=%d\n", (int)dib_pos, (int)dib_len);
 
