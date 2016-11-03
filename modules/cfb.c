@@ -813,10 +813,18 @@ static void do_prop_data(deark *c, lctx *d, struct summaryinfo_struct *si,
 		de_dbg(c, "%s: %d\n", pinfo->name, (int)n);
 
 		if(pinfo->type==0x01) { // code page
+			// I've seen some files in which the Code Page property appears
+			// *after* some string properties. I don't know how to interpret
+			// that, but for now, I'm not going to apply it retroactively.
+
+			// AFAICT this is a *signed* 16-bit int, which means the maximum
+			// value is 32767, even though code pages can go up to 65535.
+			// Apparently, code pages over 32767 are stored as negative numbers.
 			switch(n) {
 			case 1252: si->encoding = DE_ENCODING_WINDOWS1252; break;
 			case 10000: si->encoding = DE_ENCODING_MACROMAN; break;
-			case 65001: si->encoding = DE_ENCODING_UTF8; break;
+			case -535: si->encoding = DE_ENCODING_UTF8; break;
+			default: si->encoding = DE_ENCODING_ASCII;
 			}
 		}
 
@@ -852,7 +860,7 @@ static void do_SummaryInformation(deark *c, lctx *d, struct dir_entry_info *dei,
 	int i;
 
 	de_memset(&si, 0, sizeof(struct summaryinfo_struct));
-	si.encoding = DE_ENCODING_WINDOWS1252;
+	si.encoding = DE_ENCODING_ASCII;
 
 	de_dbg_indent_save(c, &saved_indent_level);
 	de_dbg(c, "SummaryInformation (%s)\n", is_root?"root":"non-root");
@@ -881,9 +889,6 @@ static void do_SummaryInformation(deark *c, lctx *d, struct dir_entry_info *dei,
 	nproperties = dbuf_getui32le(si.f, si.tbloffset+4);
 	de_dbg(c, "number of properties: %d\n", (int)nproperties);
 	if(nproperties>200) goto done;
-
-	// TODO: Maybe we have to pre-scan for the code page, before we can
-	// read the other properties.
 
 	for(i=0; i<nproperties; i++) {
 		de_memset(&pinfo, 0, sizeof(struct prop_info_struct));
@@ -935,6 +940,7 @@ static void read_directory_stream(deark *c, lctx *d)
 	// TODO: Use copy_normal_stream_to_dbuf
 	while(1) {
 		if(dir_sec_id<0) break;
+		if(d->dir->len > c->infile->len) break;
 
 		dir_sector_offs = sec_id_to_offset(c, d, dir_sec_id);
 
