@@ -650,6 +650,7 @@ static void read_timestamp(deark *c, lctx *d, dbuf *f, de_int64 pos,
 	de_int64 ts_as_FILETIME;
 	char timestamp_buf[64];
 
+	de_memset(ts, 0, sizeof(struct de_timestamp));
 	ts_as_FILETIME = dbuf_geti64le(f, pos);
 	if(ts_as_FILETIME!=0) {
 		de_FILETIME_to_timestamp(ts_as_FILETIME, ts);
@@ -745,6 +746,7 @@ struct prop_info_struct {
 // Sets pinfo->name based on pinfo->type.
 static void get_prop_name(deark *c, lctx *d, struct prop_info_struct *pinfo)
 {
+#define PINFO_EDITING_TIME 10
 	static const char *names[20] = {
 		"", "Code page", "Title", "Subject",
 		"Author", "Keywords", "Comments", "Template",
@@ -798,6 +800,21 @@ done:
 	;
 }
 
+static int do_prop_FILETIME(deark *c, lctx *d, struct summaryinfo_struct *si,
+	struct prop_info_struct *pinfo)
+{
+	struct de_timestamp ts;
+
+	if(pinfo->type==PINFO_EDITING_TIME) {
+		// The "Editing time" property typically has a data type of FILETIME,
+		// but it is not actually a FILETIME (I assume it's an *amount* of time).
+		return 0;
+	}
+
+	read_timestamp(c, d, si->f, si->tbloffset+pinfo->data_offs+4, &ts, pinfo->name);
+	return 1;
+}
+
 // Read the value for one property.
 static void do_prop_data(deark *c, lctx *d, struct summaryinfo_struct *si,
 	struct prop_info_struct *pinfo)
@@ -840,7 +857,10 @@ static void do_prop_data(deark *c, lctx *d, struct summaryinfo_struct *si,
 			DE_CONVFLAG_STOP_AT_NUL, si->encoding);
 		de_dbg(c, "%s: \"%s\"\n", pinfo->name, ucstring_get_printable_sz(s));
 		break;
-	case 0x47: // clipboard
+	case 0x40:
+		do_prop_FILETIME(c, d, si, pinfo);
+		break;
+	case 0x47:
 		do_prop_clipboard(c, d, si, pinfo);
 		break;
 	default:
