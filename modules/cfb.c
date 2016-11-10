@@ -91,6 +91,22 @@ typedef struct localctx_struct {
 	int thumbsdb_catalog_found;
 } lctx;
 
+struct clsid_id_struct {
+	const de_byte clsid[16];
+	const char *name;
+};
+static const struct clsid_id_struct known_clsids[16] = {
+	{{0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0}, "n/a"}, // This must be first.
+	{{0x00,0x02,0x08,0x10,0x00,0x00,0x00,0x00,0xc0,0x00,0x00,0x00,0x00,0x00,0x00,0x46}, "Excel?" },
+	{{0x00,0x02,0x08,0x20,0x00,0x00,0x00,0x00,0xc0,0x00,0x00,0x00,0x00,0x00,0x00,0x46}, "Excel?" },
+	{{0x00,0x02,0x09,0x06,0x00,0x00,0x00,0x00,0xc0,0x00,0x00,0x00,0x00,0x00,0x00,0x46}, "MS Word?"},
+	{{0x00,0x0c,0x10,0x84,0x00,0x00,0x00,0x00,0xc0,0x00,0x00,0x00,0x00,0x00,0x00,0x46}, "MSI?"},
+	{{0x1c,0xdd,0x8c,0x7b,0x81,0xc0,0x45,0xa0,0x9f,0xed,0x04,0x14,0x31,0x44,0xcc,0x1e}, "3ds Max?"},
+	{{0x56,0x61,0x67,0x00,0xc1,0x54,0x11,0xce,0x85,0x53,0x00,0xaa,0x00,0xa1,0xf9,0x5b}, "FlashPix?"},
+	{{0x64,0x81,0x8d,0x10,0x4f,0x9b,0x11,0xcf,0x86,0xea,0x00,0xaa,0x00,0xb9,0x29,0xe8}, "PowerPoint?"}
+};
+#define EMPTY_CLSID (known_clsids[0].clsid)
+
 static de_int64 sec_id_to_offset(deark *c, lctx *d, de_int64 sec_id)
 {
 	if(sec_id<0) return 0;
@@ -1155,7 +1171,7 @@ static void do_per_dir_entry_format_detection(deark *c, lctx *d, struct dir_entr
 	if(!d->could_be_thumbsdb) return;
 
 	if(dei->entry_type==OBJTYPE_ROOT_STORAGE) {
-		if(de_memcmp(dei->clsid, "\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0", 16)) {
+		if(de_memcmp(dei->clsid, EMPTY_CLSID, 16)) {
 			d->could_be_thumbsdb = 0;
 			return;
 		}
@@ -1190,6 +1206,23 @@ static void do_per_dir_entry_format_detection(deark *c, lctx *d, struct dir_entr
 		d->thumbsdb_new_names_found++;
 		return;
 	}
+}
+
+// Caller supplies and initializes buf
+static void identify_clsid(deark *c, lctx *d, const de_byte *clsid, char *buf, size_t buflen)
+{
+	const char *name = NULL;
+	size_t k;
+
+	for(k=0; k<DE_ITEMS_IN_ARRAY(known_clsids); k++) {
+		if(!de_memcmp(clsid, known_clsids[k].clsid, 16)) {
+			name = known_clsids[k].name;
+			break;
+		}
+	}
+	if(!name) return; // Not found
+
+	de_snprintf(buf, buflen, " (%s)", name);
 }
 
 // Read and process a directory entry from the d->dir stream
@@ -1266,9 +1299,15 @@ static void do_dir_entry(deark *c, lctx *d, de_int64 dir_entry_idx, de_int64 dir
 	if(dei->entry_type==OBJTYPE_STORAGE || dei->entry_type==OBJTYPE_ROOT_STORAGE) {
 		dbuf_read(d->dir, dei->clsid, dir_entry_offs+80, 16);
 		de_fmtutil_guid_to_uuid(dei->clsid);
+
+		buf[0] = '\0';
+		if(dei->entry_type==OBJTYPE_ROOT_STORAGE) {
+			identify_clsid(c, d, dei->clsid, buf, sizeof(buf));
+		}
+
 		de_fmtutil_render_uuid(c, dei->clsid, clsid_string, sizeof(clsid_string));
-		de_dbg(c, "%sclsid: {%s}\n", (dei->entry_type==OBJTYPE_ROOT_STORAGE)?"root ":"",
-			clsid_string);
+		de_dbg(c, "%sclsid: {%s}%s\n", (dei->entry_type==OBJTYPE_ROOT_STORAGE)?"root ":"",
+			clsid_string, buf);
 	}
 
 	read_timestamp(c, d, d->dir, dir_entry_offs+108, &dei->mod_time, "mod time");
