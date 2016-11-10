@@ -14,21 +14,19 @@
 
 char *de_get_version_string(char *buf, size_t bufsize)
 {
-	if((DE_VERSION_NUMBER&0xff) == 0) {
-		de_snprintf(buf, bufsize, "%u.%u.%u%s",
-			(DE_VERSION_NUMBER&0xff000000)>>24,
-			(DE_VERSION_NUMBER&0x00ff0000)>>16,
-			(DE_VERSION_NUMBER&0x0000ff00)>>8,
-			DE_VERSION_SUFFIX);
-	}
-	else {
-		de_snprintf(buf, bufsize, "%u.%u.%u-%u%s",
-			(DE_VERSION_NUMBER&0xff000000)>>24,
-			(DE_VERSION_NUMBER&0x00ff0000)>>16,
-			(DE_VERSION_NUMBER&0x0000ff00)>>8,
-			DE_VERSION_NUMBER&0x000000ff,
-			DE_VERSION_SUFFIX);
-	}
+	char extver[32];
+
+	if((DE_VERSION_NUMBER&0x000000ffU) == 0)
+		de_strlcpy(extver, "", sizeof(extver));
+	else
+		de_snprintf(extver, sizeof(extver), "-%u", DE_VERSION_NUMBER&0x000000ff);
+
+	de_snprintf(buf, bufsize, "%u.%u.%u%s%s",
+		(DE_VERSION_NUMBER&0xff000000U)>>24,
+		(DE_VERSION_NUMBER&0x00ff0000U)>>16,
+		(DE_VERSION_NUMBER&0x0000ff00U)>>8,
+		extver, DE_VERSION_SUFFIX);
+
 	return buf;
 }
 
