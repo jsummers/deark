@@ -530,6 +530,10 @@
 				>
 			</File>
 			<File
+				RelativePath="..\..\modules\cpio.c"
+				>
+			</File>
+			<File
 				RelativePath="..\..\modules\d64.c"
 				>
 			</File>
