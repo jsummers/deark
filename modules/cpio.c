@@ -86,17 +86,76 @@ static int identify_cpio_internal(deark *c, de_int64 pos, int *subfmt)
 // - md->filesize
 // - md->filesize_padded
 // (among other things)
+
+static int read_header_ascii_portable(deark *c, lctx *d, struct member_data *md)
+{
+	de_int64 pos;
+	int ret;
+	de_int64 n;
+	de_int64 modtime_unix;
+	int retval = 0;
+	char timestamp_buf[64];
+
+	pos = md->startpos;
+
+	pos += 6; // c_magic
+	pos += 6; // c_dev
+
+	ret = read_ascii_number(c, d, pos, 6, 8, &n);
+	if(!ret) goto done;
+	de_dbg(c, "c_ino: %d\n", (int)n);
+	pos += 6;
+
+	ret = read_ascii_number(c, d, pos, 6, 8, &md->mode);
+	if(!ret) goto done;
+	de_dbg(c, "c_mode: octal(%06o)\n", (unsigned int)md->mode);
+	pos += 6;
+
+	pos += 6; // c_uid
+	pos += 6; // c_gid
+	pos += 6; // c_nlink
+	pos += 6; // c_rdev
+
+	ret = read_ascii_number(c, d, pos, 11, 8, &modtime_unix);
+	if(!ret) goto done;
+	de_unix_time_to_timestamp(modtime_unix, &md->fi->mod_time);
+	de_timestamp_to_string(&md->fi->mod_time, timestamp_buf, sizeof(timestamp_buf), 1);
+	de_dbg(c, "c_mtime: %d (%s)\n", (int)modtime_unix, timestamp_buf);
+	pos += 11;
+
+	ret = read_ascii_number(c, d, pos, 6, 8, &md->namesize);
+	if(!ret) goto done;
+	de_dbg(c, "c_namesize: %d\n", (int)md->namesize);
+	pos += 6;
+
+	ret = read_ascii_number(c, d, pos, 11, 8, &md->filesize);
+	if(!ret) goto done;
+	de_dbg(c, "c_filesize: %d\n", (int)md->filesize);
+	pos += 11;
+
+	md->fixed_header_size = pos - md->startpos;
+	md->namesize_padded = md->namesize;
+	md->filesize_padded = md->filesize;
+
+	retval = 1;
+
+done:
+	return retval;
+}
+
 static int read_header_ascii_new(deark *c, lctx *d, struct member_data *md)
 {
 	de_int64 pos;
 	int ret;
 	de_int64 n;
+	de_int64 modtime_unix;
 	de_int64 header_and_namesize_padded;
 	int retval = 0;
+	char timestamp_buf[64];
 
 	pos = md->startpos;
 
-	pos += 6;
+	pos += 6; // c_magic
 
 	ret = read_ascii_number(c, d, pos, 8, 16, &n);
 	if(!ret) goto done;
@@ -111,7 +170,14 @@ static int read_header_ascii_new(deark *c, lctx *d, struct member_data *md)
 	pos += 8; // c_uid
 	pos += 8; // c_gid
 	pos += 8; // c_nlink
-	pos += 8; // c_mtime
+
+	ret = read_ascii_number(c, d, pos, 8, 16, &modtime_unix);
+	if(!ret) goto done;
+
+	de_unix_time_to_timestamp(modtime_unix, &md->fi->mod_time);
+	de_timestamp_to_string(&md->fi->mod_time, timestamp_buf, sizeof(timestamp_buf), 1);
+	de_dbg(c, "c_mtime: %d (%s)\n", (int)modtime_unix, timestamp_buf);
+	pos += 8;
 
 	ret = read_ascii_number(c, d, pos, 8, 16, &md->filesize);
 	if(!ret) goto done;
@@ -194,15 +260,16 @@ static int read_member(deark *c, lctx *d, de_int64 pos1,
 		goto done;
 	}
 
-	if(md->subfmt==SUBFMT_ASCII_NEW) {
-		;
+	if(md->subfmt==SUBFMT_ASCII_PORTABLE) {
+		read_header_ascii_portable(c, d, md);
+	}
+	else if(md->subfmt==SUBFMT_ASCII_NEW || md->subfmt==SUBFMT_ASCII_NEWCRC) {
+		read_header_ascii_new(c, d, md);
 	}
 	else {
 		de_err(c, "Unsupported cpio format at %d\n", (int)md->startpos);
 		goto done;
 	}
-
-	read_header_ascii_new(c, d, md);
 
 	de_dbg_indent(c, -1);
 	de_dbg(c, "member name at %d\n", (int)pos);
@@ -223,7 +290,7 @@ static int read_member(deark *c, lctx *d, de_int64 pos1,
 
 		if(md->mode==0 && md->namesize==11 && md->filesize==0) {
 			if(!ucstring_strcmp(md->filename, "TRAILER!!!", DE_ENCODING_ASCII)) {
-				de_dbg(c, "[trailer]\n");
+				de_dbg(c, "[Trailer. Not extracting.]\n");
 				msgflag = 1;
 				d->trailer_found = 1;
 			}
