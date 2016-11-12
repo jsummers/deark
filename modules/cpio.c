@@ -16,6 +16,7 @@ DE_DECLARE_MODULE(de_module_cpio);
 
 struct member_data {
 	int subfmt;
+	int is_le;
 	de_int64 startpos;
 	de_int64 fixed_header_size; // Not including the filename
 	de_int64 namesize;
@@ -31,6 +32,11 @@ typedef struct localctx_struct {
 	int first_subfmt;
 	int trailer_found;
 } lctx;
+
+static de_int64 pad_to_2(de_int64 n)
+{
+	return (n&0x1) ? n+1 : n;
+}
 
 static de_int64 pad_to_4(de_int64 n)
 {
@@ -73,8 +79,14 @@ static int identify_cpio_internal(deark *c, de_int64 pos, int *subfmt)
 		*subfmt = SUBFMT_ASCII_NEWCRC;
 		return 100;
 	}
-
-	// TODO: Other variant formats
+	if(b[0]==0xc7 && b[1]==0x71) {
+		*subfmt = SUBFMT_BINARY_LE;
+		return 70;
+	}
+	if(b[0]==0x71 && b[1]==0xc7) {
+		*subfmt = SUBFMT_BINARY_BE;
+		return 70;
+	}
 
 	return 0;
 }
@@ -173,7 +185,6 @@ static int read_header_ascii_new(deark *c, lctx *d, struct member_data *md)
 
 	ret = read_ascii_number(c, d, pos, 8, 16, &modtime_unix);
 	if(!ret) goto done;
-
 	de_unix_time_to_timestamp(modtime_unix, &md->fi->mod_time);
 	de_timestamp_to_string(&md->fi->mod_time, timestamp_buf, sizeof(timestamp_buf), 1);
 	de_dbg(c, "c_mtime: %d (%s)\n", (int)modtime_unix, timestamp_buf);
@@ -206,6 +217,60 @@ static int read_header_ascii_new(deark *c, lctx *d, struct member_data *md)
 	retval = 1;
 
 done:
+	return retval;
+}
+
+static int read_header_binary(deark *c, lctx *d, struct member_data *md)
+{
+	de_int64 pos;
+	de_int64 n;
+	de_int64 modtime_msw, modtime_lsw;
+	de_int64 modtime_unix;
+	de_int64 filesize_msw, filesize_lsw;
+	int retval = 0;
+	char timestamp_buf[64];
+
+	pos = md->startpos;
+
+	pos += 2; // c_magic
+	pos += 2; // c_dev
+
+	n = dbuf_getui16x(c->infile, pos, md->is_le);
+	de_dbg(c, "c_ino: %d\n", (int)n);
+	pos += 2;
+
+	md->mode = dbuf_getui16x(c->infile, pos, md->is_le);
+	de_dbg(c, "c_mode: octal(%06o)\n", (unsigned int)md->mode);
+	pos += 2;
+
+	pos += 2; // c_uid
+	pos += 2; // c_gid
+	pos += 2; // c_nlink
+	pos += 2; // c_rdev
+
+	modtime_msw = dbuf_getui16x(c->infile, pos, md->is_le);
+	modtime_lsw = dbuf_getui16x(c->infile, pos+2, md->is_le);
+	modtime_unix = (modtime_msw<<16) | modtime_lsw;
+	de_unix_time_to_timestamp(modtime_unix, &md->fi->mod_time);
+	de_timestamp_to_string(&md->fi->mod_time, timestamp_buf, sizeof(timestamp_buf), 1);
+	de_dbg(c, "c_mtime: %d (%s)\n", (int)modtime_unix, timestamp_buf);
+	pos += 4;
+
+	md->namesize = dbuf_getui16x(c->infile, pos, md->is_le);
+	de_dbg(c, "c_namesize: %d\n", (int)md->namesize);
+	pos += 2;
+
+	filesize_msw = dbuf_getui16x(c->infile, pos, md->is_le);
+	filesize_lsw = dbuf_getui16x(c->infile, pos+2, md->is_le);
+	md->filesize = (filesize_msw<<16) | filesize_lsw;
+	de_dbg(c, "c_filesize: %d\n", (int)md->filesize);
+	pos += 4;
+
+	md->fixed_header_size = pos - md->startpos;
+	md->namesize_padded = pad_to_2(md->namesize);
+	md->filesize_padded = pad_to_2(md->filesize);
+
+	retval = 1;
 	return retval;
 }
 
@@ -265,6 +330,13 @@ static int read_member(deark *c, lctx *d, de_int64 pos1,
 	}
 	else if(md->subfmt==SUBFMT_ASCII_NEW || md->subfmt==SUBFMT_ASCII_NEWCRC) {
 		read_header_ascii_new(c, d, md);
+	}
+	else if(md->subfmt==SUBFMT_BINARY_LE) {
+		md->is_le = 1;
+		read_header_binary(c, d, md);
+	}
+	else if(md->subfmt==SUBFMT_BINARY_BE) {
+		read_header_binary(c, d, md);
 	}
 	else {
 		de_err(c, "Unsupported cpio format at %d\n", (int)md->startpos);
@@ -337,6 +409,24 @@ static void de_run_cpio(deark *c, de_module_params *mparams)
 		goto done;
 	}
 
+	switch(d->first_subfmt) {
+	case SUBFMT_BINARY_LE:
+		de_declare_fmt(c, "cpio Binary little-endian");
+		break;
+	case SUBFMT_BINARY_BE:
+		de_declare_fmt(c, "cpio Binary big-endian");
+		break;
+	case SUBFMT_ASCII_PORTABLE:
+		de_declare_fmt(c, "cpio ASCII Portable");
+		break;
+	case SUBFMT_ASCII_NEW:
+		de_declare_fmt(c, "cpio ASCII New");
+		break;
+	case SUBFMT_ASCII_NEWCRC:
+		de_declare_fmt(c, "cpio ASCII New-CRC");
+		break;
+	}
+
 	while(1) {
 		if(d->trailer_found) break;
 		if(pos >= c->infile->len) break;
@@ -353,9 +443,8 @@ done:
 
 static int de_identify_cpio(deark *c)
 {
-	//int subfmt;
-	//return identify_cpio_internal(c, 0, &subfmt);
-	return 0;
+	int subfmt;
+	return identify_cpio_internal(c, 0, &subfmt);
 }
 
 void de_module_cpio(deark *c, struct deark_module_info *mi)
@@ -364,5 +453,4 @@ void de_module_cpio(deark *c, struct deark_module_info *mi)
 	mi->desc = "cpio archive";
 	mi->run_fn = de_run_cpio;
 	mi->identify_fn = de_identify_cpio;
-	mi->flags |= DE_MODFLAG_NONWORKING;
 }

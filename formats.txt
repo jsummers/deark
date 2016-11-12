@@ -442,7 +442,9 @@ Deark -- Information about supported formats
 * BinHex (.hqx) (module="binhex")
   - Extract data and resource forks to separate files.
 
-* compress (legacy Unix .Z format)
+* compress (legacy Unix .Z format) (module="compress")
+
+* cpio (module="cpio")
 
 * D64 (Commodore 64 disk format) (module="d64") (experimental)
 
@@ -470,7 +472,7 @@ Deark -- Information about supported formats
   - Extract comments for individual files.
 
 * zlib (module="zlib")
-  - Raw zlib files can be uncompressed.
+  - Raw zlib files are uncompressed.
 
 
 == Transfer encoding modules ==
