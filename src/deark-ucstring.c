@@ -275,6 +275,23 @@ void ucstring_to_printable_sz(de_ucstring *s, char *szbuf, size_t szbuf_len)
 	ucstring_to_printable_sz_internal(s, szbuf, szbuf_len, 0, 0);
 }
 
+int ucstring_strcmp(de_ucstring *s, const char *s2, int encoding)
+{
+	size_t s2len;
+	char *tmpbuf;
+	int ret;
+
+	if(!s && !s2) return 0;
+	if(!s || !s2) return 1;
+
+	s2len = de_strlen(s2);
+	tmpbuf = de_malloc(s->c, s2len+1);
+	ucstring_to_sz(s, tmpbuf, s2len+1, encoding);
+	ret = de_strcmp(tmpbuf, tmpbuf);
+	de_free(s->c, tmpbuf);
+	return ret;
+}
+
 // Try to determine if a Unicode codepoint (presumed to be from an untrusted source)
 // is "safe" to print to a terminal.
 // We try to ban control characters, formatting characters, private-use characters,

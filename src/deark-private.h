@@ -648,6 +648,8 @@ const char *ucstring_get_printable_sz(de_ucstring *s);
 // The _n version limits the number of Unicode chars (not bytes) in the result.
 const char *ucstring_get_printable_sz_n(de_ucstring *s, de_int64 max_chars);
 
+int ucstring_strcmp(de_ucstring *s, const char *s2, int encoding);
+
 void de_write_codepoint_to_html(deark *c, dbuf *f, de_int32 ch);
 
 void de_copy_bits(const de_byte *src, de_int64 srcbitnum,

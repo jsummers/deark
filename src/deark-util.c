@@ -695,7 +695,6 @@ void de_finfo_set_name_from_ucstring(deark *c, de_finfo *fi, de_ucstring *s)
 	// Don't allow empty filenames.
 	if(fnlen<1) {
 		fi->file_name[fnlen++] = '_';
-		return;
 	}
 
 	fi->file_name[fnlen] = '\0';

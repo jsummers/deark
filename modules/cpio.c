@@ -23,10 +23,13 @@ struct member_data {
 	de_int64 filesize;
 	de_int64 filesize_padded;
 	de_int64 mode;
+	de_ucstring *filename;
+	de_finfo *fi;
 };
 
 typedef struct localctx_struct {
 	int first_subfmt;
+	int trailer_found;
 } lctx;
 
 static de_int64 pad_to_4(de_int64 n)
@@ -140,23 +143,28 @@ done:
 	return retval;
 }
 
+// Allocates md->namesize.
 static void read_member_name(deark *c, lctx *d, struct member_data *md)
 {
-	de_ucstring *s = NULL;
-
 	// Filenames end with a NUL byte, which is included in the namesize field.
 	if(md->namesize<1) goto done;
 
-	s = ucstring_create(c);
+	md->filename = ucstring_create(c);
 
-	// No telling what encoding to use.
+	// The encoding is presumably whatever encoding the filenames used on the
+	// system on which the archive was created, and there's no way to tell
+	// what that was.
+	// This should maybe be a command line option.
 	dbuf_read_to_ucstring_n(c->infile, md->startpos + md->fixed_header_size,
-		md->namesize-1, 300, s, 0, DE_ENCODING_UTF8);
+		md->namesize-1, 300, md->filename, 0, DE_ENCODING_UTF8);
 
-	de_dbg(c, "name: \"%s\"\n", ucstring_get_printable_sz(s));
+	de_dbg(c, "name: \"%s\"\n", ucstring_get_printable_sz(md->filename));
+
+	de_finfo_set_name_from_ucstring(c, md->fi, md->filename);
+	md->fi->original_filename_flag = 1;
 
 done:
-	ucstring_destroy(s);
+	;
 }
 
 static int read_member(deark *c, lctx *d, de_int64 pos1,
@@ -177,6 +185,7 @@ static int read_member(deark *c, lctx *d, de_int64 pos1,
 
 	md = de_malloc(c, sizeof(struct member_data));
 	md->startpos = pos1;
+	md->fi = de_finfo_create(c);
 
 	pos = md->startpos;
 	identify_cpio_internal(c, md->startpos, &md->subfmt);
@@ -210,10 +219,22 @@ static int read_member(deark *c, lctx *d, de_int64 pos1,
 	}
 
 	if((md->mode & 0170000) != 0100000) {
-		de_dbg(c, "[Not a regular file. Skipping.]\n");
+		int msgflag = 0;
+
+		if(md->mode==0 && md->namesize==11 && md->filesize==0) {
+			if(!ucstring_strcmp(md->filename, "TRAILER!!!", DE_ENCODING_ASCII)) {
+				de_dbg(c, "[trailer]\n");
+				msgflag = 1;
+				d->trailer_found = 1;
+			}
+		}
+
+		if(!msgflag) {
+			de_dbg(c, "[Not a regular file. Skipping.]\n");
+		}
 	}
 	else {
-		dbuf_create_file_from_slice(c->infile, pos, md->filesize, "bin", NULL, 0);
+		dbuf_create_file_from_slice(c->infile, pos, md->filesize, NULL, md->fi, 0);
 	}
 
 	de_dbg_indent(c, -1);
@@ -225,7 +246,11 @@ done:
 	if(retval && md) {
 		*bytes_consumed_member = md->fixed_header_size + md->namesize_padded + md->filesize_padded;
 	}
-	de_free(c, md);
+	if(md) {
+		ucstring_destroy(md->filename);
+		de_finfo_destroy(c, md->fi);
+		de_free(c, md);
+	}
 	de_dbg_indent_restore(c, saved_indent_level);
 	return retval;
 }
@@ -246,6 +271,7 @@ static void de_run_cpio(deark *c, de_module_params *mparams)
 	}
 
 	while(1) {
+		if(d->trailer_found) break;
 		if(pos >= c->infile->len) break;
 		bytes_consumed = 0;
 		ret = read_member(c, d, pos, &bytes_consumed);
