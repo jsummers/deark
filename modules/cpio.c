@@ -360,7 +360,7 @@ static int read_member(deark *c, lctx *d, de_int64 pos1,
 	if((md->mode & 0170000) != 0100000) {
 		int msgflag = 0;
 
-		if(md->mode==0 && md->namesize==11 && md->filesize==0) {
+		if(md->mode==0 && md->namesize==11) {
 			if(!ucstring_strcmp(md->filename, "TRAILER!!!", DE_ENCODING_ASCII)) {
 				de_dbg(c, "[Trailer. Not extracting.]\n");
 				msgflag = 1;
