@@ -42,11 +42,14 @@ typedef void (*de_module_run_fn)(deark *c, de_module_params *mparams);
 
 typedef int (*de_module_identify_fn)(deark *c);
 
+typedef void (*de_module_help_fn)(deark *c);
+
 struct deark_module_info {
 	const char *id;
 	const char *desc;
 	de_module_run_fn run_fn;
 	de_module_identify_fn identify_fn;
+	de_module_help_fn help_fn;
 #define DE_MODFLAG_HIDDEN       0x01
 #define DE_MODFLAG_NONWORKING   0x02
 #define DE_MODFLAG_NOEXTRACT    0x04
@@ -217,6 +220,7 @@ struct deark_struct {
 	int reproducible_output;
 	int can_decode_fltpt;
 	int host_is_le;
+	int modhelp_req;
 
 	de_msgfn_type msgfn; // Caller's message output function
 	de_fatalerrorfn_type fatalerrorfn;

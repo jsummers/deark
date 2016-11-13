@@ -124,6 +124,8 @@ Command-line options:
          palette color. The default is to autodetect.
   -h, -?, -help:
      Print the help message.
+     Use with -m to get help for a specific module. Only a few modules support
+     this.
   -version
      Print the version number.
   -modules

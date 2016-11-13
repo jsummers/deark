@@ -584,12 +584,14 @@ static void de_run_bsave(deark *c, de_module_params *mparams)
 	}
 
 	if(!decoder_fn) {
-		de_err(c, "Unidentified BSAVE format, try -opt bsave:fmt=...\n");
+		de_err(c, "Unidentified BSAVE format, try \"-opt bsave:fmt=...\". "
+			"Use \"-m bsave -h\" for a list.\n");
 		goto done;
 	}
 
 	if(!de_strcmp(bsavefmt,"auto")) {
-		de_warn(c, "BSAVE formats can't be reliably identified. You may need to use -opt bsave:fmt=...\n");
+		de_warn(c, "BSAVE formats can't be reliably identified. You may need to "
+			"use \"-opt bsave:fmt=...\". Use \"-m bsave -h\" for a list.\n");
 	}
 
 	s = de_get_ext_option(c, "palfile");
@@ -611,10 +613,27 @@ static int de_identify_bsave(deark *c)
 	return 0;
 }
 
+static void de_help_bsave(deark *c)
+{
+	de_msg(c, "-opt bsave:fmt=...\n");
+	de_msg(c, " char  : Character graphics\n");
+	de_msg(c, " cga2  : 2-color, 640x200\n");
+	de_msg(c, " cga4  : 4-color, 320x200\n");
+	de_msg(c, " cga16 : 16-color, 160x100 pseudographics\n");
+	de_msg(c, " mcga  : 256-color, 320x200\n");
+	de_msg(c, " wh2   : 2-color, 11-byte header\n");
+	de_msg(c, " wh4   : 4-color, 11-byte header\n");
+	de_msg(c, " wh16  : 16-color, 11-byte header, inter-row interlaced\n");
+	de_msg(c, " b256  : Special\n");
+	de_msg(c, " 2col  : 2-color noninterlaced\n");
+	de_msg(c, " 4col  : 4-color noninterlaced\n");
+}
+
 void de_module_bsave(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "bsave";
 	mi->desc = "BSAVE/BLOAD image";
 	mi->run_fn = de_run_bsave;
 	mi->identify_fn = de_identify_bsave;
+	mi->help_fn = de_help_bsave;
 }

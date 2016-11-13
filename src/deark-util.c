@@ -414,6 +414,11 @@ void de_set_listmode(deark *c, int x)
 	c->list_mode = x;
 }
 
+void de_set_want_modhelp(deark *c, int x)
+{
+	c->modhelp_req = x;
+}
+
 void de_set_first_output_file(deark *c, int x)
 {
 	c->first_output_file = x;

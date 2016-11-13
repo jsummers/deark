@@ -87,6 +87,7 @@ void de_set_extract_policy(deark *c, int x);
 void de_set_extract_level(deark *c, int x);
 
 void de_set_listmode(deark *c, int x);
+void de_set_want_modhelp(deark *c, int x);
 void de_set_first_output_file(deark *c, int x);
 void de_set_max_output_files(deark *c, int n);
 void de_set_max_image_dimension(deark *c, de_int64 n);

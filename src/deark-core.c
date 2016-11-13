@@ -89,6 +89,29 @@ void de_print_module_list(deark *c)
 	de_free(c, sort_data);
 }
 
+static void do_modhelp(deark *c)
+{
+	struct deark_module_info *module_to_use = NULL;
+
+	de_register_modules(c);
+	module_to_use = de_get_module_by_id(c, c->input_format_req);
+	if(!module_to_use) {
+		de_err(c, "Unknown module \"%s\"\n", c->input_format_req);
+		goto done;
+	}
+
+	if(!module_to_use->help_fn) {
+		de_msg(c, "No help available for module \"%s\"\n", c->input_format_req);
+		goto done;
+	}
+
+	de_msg(c, "Help for module \"%s\":\n", c->input_format_req);
+	module_to_use->help_fn(c);
+
+done:
+	;
+}
+
 void de_run(deark *c)
 {
 	dbuf *orig_ifile = NULL;
@@ -96,6 +119,11 @@ void de_run(deark *c)
 	de_int64 subfile_size;
 	struct deark_module_info *module_to_use = NULL;
 	const char *friendly_infn;
+
+	if(c->modhelp_req && c->input_format_req) {
+		do_modhelp(c);
+		goto done;
+	}
 
 	if(c->input_style==DE_INPUTSTYLE_STDIN) {
 		friendly_infn = "[stdin]";

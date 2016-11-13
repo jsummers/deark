@@ -69,6 +69,7 @@ static void show_help(deark *c)
 		" -o <base-filename>: Start output filenames with this string.\n"
 		" -zip: Write output files to a .zip file.\n"
 		" -a: Extract more data than usual.\n"
+		" -main: Extract less data than usual.\n"
 		" -get <n>: Extract only file number <n>.\n"
 		" -d, -d2, -d3: Print additional information about the file.\n"
 		" -q, -noinfo, -nowarn: Print fewer messages than usual.\n"
@@ -275,6 +276,8 @@ static void send_msgs_to_stderr(deark *c, struct cmdctx *cc)
 static void parse_cmdline(deark *c, struct cmdctx *cc, int argc, char **argv)
 {
 	int i;
+	int help_flag = 0;
+	int module_flag = 0;
 	const struct opt_struct *opt;
 
 	for(i=1;i<argc;i++) {
@@ -347,8 +350,7 @@ static void parse_cmdline(deark *c, struct cmdctx *cc, int argc, char **argv)
 				cc->special_command_flag = 1;
 				break;
 			case DE_OPT_HELP:
-				show_help(c);
-				cc->special_command_flag = 1;
+				help_flag = 1;
 				break;
 			case DE_OPT_MAINONLY:
 				de_set_extract_policy(c, DE_EXTRACTPOLICY_MAINONLY);
@@ -393,6 +395,7 @@ static void parse_cmdline(deark *c, struct cmdctx *cc, int argc, char **argv)
 				de_set_input_file_slice_size(c, de_atoi64(argv[i+1]));
 				break;
 			case DE_OPT_M:
+				module_flag = 1;
 				de_set_input_format(c, argv[i+1]);
 				break;
 			case DE_OPT_O:
@@ -436,6 +439,17 @@ static void parse_cmdline(deark *c, struct cmdctx *cc, int argc, char **argv)
 			cc->input_filename = argv[i];
 			de_set_input_filename(c, cc->input_filename);
 		}
+	}
+
+	if(help_flag) {
+		if(module_flag) {
+			de_set_want_modhelp(c, 1);
+		}
+		else {
+			cc->special_command_flag = 1;
+			show_help(c);
+		}
+		return;
 	}
 
 	if(!cc->input_filename && !cc->special_command_flag && !cc->from_stdin) {
