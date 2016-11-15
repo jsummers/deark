@@ -18,6 +18,19 @@ typedef struct lctx_struct {
 	dbuf *output_file;
 } lctx;
 
+static const char *get_os_name(de_byte n)
+{
+	const char *names[14] = { "FAT", "Amiga", "VMS", "Unix",
+		"VM/CMS", "Atari", "HPFS", "Mac", "Z-System", "CP/M",
+		"TOPS-20", "NTFS", "QDOS", "RISCOS" };
+	const char *name = "?";
+
+	if((unsigned int)n<=13) {
+		name = names[(unsigned int)n];
+	}
+	return name;
+}
+
 static int do_gzip_read_member(deark *c, lctx *d, de_int64 pos1, de_int64 *member_size)
 {
 	de_byte b0, b1;
@@ -72,11 +85,18 @@ static int do_gzip_read_member(deark *c, lctx *d, de_int64 pos1, de_int64 *membe
 	}
 	pos += 4;
 
-	pos += 1; // TODO: XFL
-	pos += 1; // TODO: OS
+	b0 = de_getbyte(pos++);
+	de_dbg(c, "extra flags: 0x%02x\n", (unsigned int)b0);
+
+	b0 = de_getbyte(pos++);
+	de_dbg(c, "OS or filesystem: %d (%s)\n", (int)b0, get_os_name(b0));
 
 	if(d->flags & GZIPFLAG_FEXTRA) {
-		n = de_getui16le(pos);
+		n = de_getui16le(pos); // XLEN
+		// TODO: It might be interesting to dissect these extra fields, but it's
+		// hard to find even a single file that uses them.
+		de_dbg(c, "[extra fields at %d, dpos=%d, dlen=%d]\n",
+			(int)pos, (int)(pos+2), (int)n);
 		pos += 2;
 		pos += n;
 	}
@@ -137,6 +157,7 @@ static int do_gzip_read_member(deark *c, lctx *d, de_int64 pos1, de_int64 *membe
 	crc32_field = (de_uint32)de_getui32le(pos);
 	de_dbg(c, "crc32: 0x%08x\n", (unsigned int)crc32_field);
 	pos += 4;
+	// TODO: Validate CRCs
 
 	isize = de_getui32le(pos);
 	de_dbg(c, "uncompressed size (mod 2^32): %u\n", (unsigned int)isize);
