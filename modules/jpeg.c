@@ -13,6 +13,11 @@ DE_DECLARE_MODULE(de_module_jpeg);
 DE_DECLARE_MODULE(de_module_j2c);
 DE_DECLARE_MODULE(de_module_jpegscan);
 
+// TODO: Use this struct for image-specific data.
+struct page_ctx {
+	int reserved;
+};
+
 typedef struct localctx_struct {
 	dbuf *iccprofile_file;
 	dbuf *hdr_residual_file;
@@ -27,6 +32,83 @@ typedef struct localctx_struct {
 	de_byte extxmp_digest[32];
 	de_int64 extxmp_total_len;
 } lctx;
+
+struct marker_info;
+
+typedef void (*handler_fn_type)(deark *c, lctx *d, struct page_ctx *pg,
+	const struct marker_info *mi, de_int64 pos, de_int64 data_size);
+
+#define DECLARE_HANDLER(x) static void x(deark *c, lctx *d, struct page_ctx *pg, \
+	const struct marker_info *mi, de_int64 pos, de_int64 data_size)
+
+DECLARE_HANDLER(handler_dri);
+DECLARE_HANDLER(handler_dht);
+DECLARE_HANDLER(handler_dqt);
+DECLARE_HANDLER(handler_dac);
+DECLARE_HANDLER(handler_sos);
+DECLARE_HANDLER(handler_com);
+DECLARE_HANDLER(handler_cme);
+DECLARE_HANDLER(handler_app);
+DECLARE_HANDLER(handler_sof);
+
+#define FLAG_JPEG_COMPAT   0x0001
+#define FLAG_JPEGLS_COMPAT 0x0002
+#define FLAG_J2C_COMPAT    0x0004
+#define FLAG_NO_DATA       0x0100
+#define FLAG_IS_SOF        0x0200
+
+struct marker_info {
+	de_byte seg_type;
+	unsigned int flags;
+	char shortname[12];
+	handler_fn_type hfn;
+};
+
+// Static info about markers/segments.
+struct marker_info1 {
+	de_byte seg_type;
+	unsigned int flags;
+	const char *shortname;
+	const char *longname;
+	handler_fn_type hfn;
+};
+// TODO: Figure out exactly which J2C markers have parameters.
+static const struct marker_info1 marker_info1_arr[] = {
+	{0x01, 0x0101, "TEM", NULL, NULL},
+	{0x4f, 0x0104, "SOC", "Start of codestream", NULL},
+	{0x51, 0x0004, "SIZ", "Image and tile size", NULL},
+	{0x52, 0x0004, "COD", "Coding style default", NULL},
+	{0x53, 0x0004, "COC", "Coding style component", NULL},
+	{0x55, 0x0004, "TLM", "Tile-part lengths, main header", NULL},
+	{0x57, 0x0004, "PLM", "Packet length, main header", NULL},
+	{0x58, 0x0004, "PLT", "Packet length, tile-part header", NULL},
+	{0x5c, 0x0004, "QCD", "Quantization default", NULL},
+	{0x5d, 0x0004, "QCC", "Quantization component", NULL},
+	{0x5e, 0x0004, "RGN", "Region-of-interest", NULL},
+	{0x5f, 0x0004, "POD", "Progression order default", NULL},
+	{0x60, 0x0004, "PPM", "Packed packet headers, main header", NULL},
+	{0x61, 0x0004, "PPT", "Packed packet headers, tile-part header", NULL},
+	{0x64, 0x0004, "CME", "Comment and extension", handler_cme},
+	{0x90, 0x0004, "SOT", "Start of tile-part", NULL},
+	{0x91, 0x0004, "SOP", "Start of packet", NULL},
+	{0x92, 0x0104, "EPH", "End of packet header", NULL},
+	{0x93, 0x0104, "SOD", "Start of data", NULL},
+	{0xc4, 0x0001, "DHT", "Define Huffman table", handler_dht},
+	{0xc8, 0x0201, "JPG", NULL, handler_sof},
+	{0xcc, 0x0001, "DAC", "Define arithmetic coding conditioning", handler_dac},
+	{0xd8, 0x0103, "SOI", "Start of image", NULL},
+	{0xd9, 0x0103, "EOI", "End of image", NULL},
+	{0xd9, 0x0104, "EOC", "End of codestream", NULL},
+	{0xda, 0x0003, "SOS", "Start of scan", handler_sos},
+	{0xdb, 0x0001, "DQT", "Define quantization table", handler_dqt},
+	{0xdc, 0x0001, "DNL", "Define number of lines", NULL},
+	{0xdd, 0x0003, "DRI", "Define restart interval", handler_dri},
+	{0xde, 0x0001, "DHP", "Define hierarchical progression", NULL},
+	{0xdf, 0x0001, "EXP", "Expand reference component", NULL},
+	{0xf7, 0x0202, "SOF55", "JPEG-LS start of frame", handler_sof},
+	{0xf8, 0x0002, "LSE", "JPEG-LS preset parameters", NULL},
+	{0xfe, 0x0003, "COM", "Comment", handler_com}
+};
 
 static void do_icc_profile_segment(deark *c, lctx *d, de_int64 pos, de_int64 data_size)
 {
@@ -249,8 +331,8 @@ static void normalize_app_id(const char *app_id_orig, char *app_id_normalized,
 }
 
 // seg_size is the data size, excluding the marker and length fields.
-static void do_app_segment(deark *c, lctx *d, de_byte seg_type,
-	de_int64 seg_data_pos, de_int64 seg_data_size)
+static void handler_app(deark *c, lctx *d, struct page_ctx *pg,
+	const struct marker_info *mi, de_int64 seg_data_pos, de_int64 seg_data_size)
 {
 #define MAX_APP_ID_LEN 256
 	char app_id_orig[MAX_APP_ID_LEN];
@@ -260,6 +342,7 @@ static void do_app_segment(deark *c, lctx *d, de_byte seg_type,
 	de_int64 app_id_orig_size;
 	de_int64 payload_pos;
 	de_int64 payload_size;
+	de_byte seg_type = mi->seg_type;
 
 	de_dbg_indent(c, 1);
 	if(seg_data_size<3) goto done;
@@ -335,8 +418,8 @@ done:
 	de_dbg_indent(c, -1);
 }
 
-static void do_sof_segment(deark *c, lctx *d, de_byte seg_type,
-	de_int64 pos, de_int64 data_size)
+static void handler_sof(deark *c, lctx *d, struct page_ctx *pg,
+	const struct marker_info *mi, de_int64 pos, de_int64 data_size)
 {
 	de_int64 w, h;
 	de_byte b;
@@ -346,6 +429,7 @@ static void do_sof_segment(deark *c, lctx *d, de_byte seg_type,
 	const char *attr_cmpr = "huffman";
 	const char *attr_progr = "non-progr.";
 	const char *attr_hier = "non-hier.";
+	de_byte seg_type = mi->seg_type;
 
 	if(data_size<6) return;
 	de_dbg_indent(c, 1);
@@ -392,8 +476,8 @@ static void do_sof_segment(deark *c, lctx *d, de_byte seg_type,
 done:
 	de_dbg_indent(c, -1);
 }
-static void do_dri_segment(deark *c, lctx *d,
-	de_int64 pos, de_int64 data_size)
+static void handler_dri(deark *c, lctx *d, struct page_ctx *pg,
+	const struct marker_info *mi, de_int64 pos, de_int64 data_size)
 {
 	de_int64 ri;
 	if(data_size!=2) return;
@@ -403,8 +487,8 @@ static void do_dri_segment(deark *c, lctx *d,
 	de_dbg_indent(c, -1);
 }
 
-static void do_dht_segment(deark *c, lctx *d,
-	de_int64 pos1, de_int64 data_size)
+static void handler_dht(deark *c, lctx *d, struct page_ctx *pg,
+	const struct marker_info *mi, de_int64 pos1, de_int64 data_size)
 {
 	de_int64 pos;
 	de_byte b;
@@ -439,8 +523,8 @@ done:
 }
 
 // DAC = Define arithmetic coding conditioning
-static void do_dac_segment(deark *c, lctx *d,
-	de_int64 pos1, de_int64 data_size)
+static void handler_dac(deark *c, lctx *d, struct page_ctx *pg,
+	const struct marker_info *mi, de_int64 pos1, de_int64 data_size)
 {
 	de_int64 ntables;
 	de_int64 i;
@@ -465,8 +549,8 @@ static void do_dac_segment(deark *c, lctx *d,
 	de_dbg_indent(c, -1);
 }
 
-static void do_dqt_segment(deark *c, lctx *d,
-	de_int64 pos1, de_int64 data_size)
+static void handler_dqt(deark *c, lctx *d, struct page_ctx *pg,
+	const struct marker_info *mi, de_int64 pos1, de_int64 data_size)
 {
 	de_int64 pos;
 	de_byte b;
@@ -560,8 +644,8 @@ done:
 	ucstring_destroy(s);
 }
 
-static void do_com_segment(deark *c, lctx *d,
-	de_int64 pos, de_int64 data_size)
+static void handler_com(deark *c, lctx *d, struct page_ctx *pg,
+	const struct marker_info *mi, de_int64 pos, de_int64 data_size)
 {
 	de_dbg_indent(c, 1);
 	// Note that a JPEG COM-segment comment is an arbitrary sequence of bytes, so
@@ -570,7 +654,8 @@ static void do_com_segment(deark *c, lctx *d,
 	de_dbg_indent(c, -1);
 }
 
-static void do_cme_segment(deark *c, lctx *d, de_int64 pos, de_int64 data_size)
+static void handler_cme(deark *c, lctx *d, struct page_ctx *pg,
+	const struct marker_info *mi, de_int64 pos, de_int64 data_size)
 {
 	de_int64 reg_val;
 	de_byte *buf = NULL;
@@ -601,8 +686,8 @@ done:
 	de_dbg_indent(c, -1);
 }
 
-static void do_sos_segment(deark *c, lctx *d,
-	de_int64 pos, de_int64 data_size)
+static void handler_sos(deark *c, lctx *d, struct page_ctx *pg,
+	const struct marker_info *mi, de_int64 pos, de_int64 data_size)
 {
 	de_int64 ncomp;
 	de_int64 i;
@@ -640,158 +725,81 @@ done:
 	de_dbg_indent(c, -1);
 }
 
-struct marker_info {
-	char name[12];
-#define FLAG_NO_DATA 0x01
-#define FLAG_IS_SOF  0x02
-#define FLAG_IS_APP  0x04
-	unsigned int flags;
-};
-
 // Caller allocates mi
 static int get_marker_info(deark *c, lctx *d, de_byte seg_type,
 	struct marker_info *mi)
 {
-	const char *name = NULL;
+	de_int64 k;
 
 	de_memset(mi, 0, sizeof(struct marker_info));
+	mi->seg_type = seg_type;
 
-	// TODO: Figure out exactly which J2C markers have parameters.
-	switch(seg_type) {
-	case 0x01: name = "TEM"; mi->flags |= FLAG_NO_DATA; break;
-	case 0x4f:
-		if(d->is_j2c) {
-			name = "SOC"; mi->flags |= FLAG_NO_DATA; break;
-		}
-		break;
-	case 0x51: name = "SIZ"; break;
-	case 0x52: name = "COD"; break;
-	case 0x53: name = "COC"; break;
-	case 0x55: name = "TLM"; break;
-	case 0x57: name = "PLM"; break;
-	case 0x58: name = "PLT"; break;
-	case 0x5c: name = "QCD"; break;
-	case 0x5d: name = "QCC"; break;
-	case 0x5e: name = "RGN"; break;
-	case 0x5f: name = "POD"; break;
-	case 0x60: name = "PPM"; break;
-	case 0x61: name = "PPT"; break;
-	case 0x64: name = "CME"; break;
-	case 0x90: name = "SOT"; break;
-	case 0x91: name = "SOP"; break;
-	case 0x92:
-		if(d->is_j2c) {
-			name = "EPH";
-			mi->flags |= FLAG_NO_DATA;
-		}
-		break;
-	case 0x93:
-		if(d->is_j2c) {
-			name = "SOD";
-			mi->flags |= FLAG_NO_DATA;
-		}
-		break;
-	case 0xc4: name = "DHT"; break;
-	case 0xc8: name = "JPG"; mi->flags |= FLAG_IS_SOF; break;
-	case 0xcc: name = "DAC"; break;
-	case 0xd8: name = "SOI"; mi->flags |= FLAG_NO_DATA; break;
-	case 0xd9:
-		if(d->is_j2c) name = "EOC";
-		else name = "EOI";
-		mi->flags |= FLAG_NO_DATA;
-		break;
-	case 0xda: name = "SOS"; break;
-	case 0xdb: name = "DQT"; break;
-	case 0xdc: name = "DNL"; break;
-	case 0xdd: name = "DRI"; break;
-	case 0xde: name = "DHP"; break;
-	case 0xdf: name = "EXP"; break;
-	case 0xf7:
+	if(seg_type==0xf7) {
+		// TODO: Maybe only do this if we haven't seen another SOF segment
 		d->is_jpegls = 1;
-		mi->flags |= FLAG_IS_SOF;
-		name = "SOF55";
-		break;
-	case 0xf8:
-		if(d->is_jpegls) {
-			name = "LSE";
+	}
+
+	// First, try to find the segment type in the static marker info.
+	for(k=0; k<(de_int64)DE_ITEMS_IN_ARRAY(marker_info1_arr); k++) {
+		const struct marker_info1 *mi1 = &marker_info1_arr[k];
+
+		if(!d->is_jpegls && !d->is_j2c && !(mi1->flags&FLAG_JPEG_COMPAT)) continue;
+		if(d->is_jpegls && !(mi1->flags&FLAG_JPEGLS_COMPAT)) continue;
+		if(d->is_j2c && !(mi1->flags&FLAG_J2C_COMPAT)) continue;
+
+		if(mi1->seg_type == seg_type) {
+			mi->flags = mi1->flags;
+			mi->hfn = mi1->hfn;
+			de_strlcpy(mi->shortname, mi1->shortname, sizeof(mi->shortname));
+			goto done;
 		}
-		break;
-	case 0xfe: name = "COM"; break;
 	}
 
 	if(d->is_j2c && (seg_type>=0x30 && seg_type<=0x3f)) {
 		mi->flags |= FLAG_NO_DATA;
 	}
 
-	if(name) {
-		de_strlcpy(mi->name, name, sizeof(mi->name));
-		goto done;
-	}
-
 	// Handle some pattern-based markers.
 	if(seg_type>=0xe0 && seg_type<=0xef) {
-		de_snprintf(mi->name, sizeof(mi->name), "APP%d", (int)(seg_type-0xe0));
-		mi->flags |= FLAG_IS_APP;
+		de_snprintf(mi->shortname, sizeof(mi->shortname), "APP%d", (int)(seg_type-0xe0));
+		mi->hfn = handler_app;
 		goto done;
 	}
 
 	if(seg_type>=0xc0 && seg_type<=0xcf) {
-		de_snprintf(mi->name, sizeof(mi->name), "SOF%d", (int)(seg_type-0xc0));
+		de_snprintf(mi->shortname, sizeof(mi->shortname), "SOF%d", (int)(seg_type-0xc0));
 		mi->flags |= FLAG_IS_SOF;
+		mi->hfn = handler_sof;
 		goto done;
 	}
 
 	if(seg_type>=0xd0 && seg_type<=0xd7) {
-		de_snprintf(mi->name, sizeof(mi->name), "RST%d", (int)(seg_type-0xd0));
+		de_snprintf(mi->shortname, sizeof(mi->shortname), "RST%d", (int)(seg_type-0xd0));
 		mi->flags |= FLAG_NO_DATA;
 		goto done;
 	}
 
 	if(seg_type>=0xf0 && seg_type<=0xfd) {
-		de_snprintf(mi->name, sizeof(mi->name), "JPG%d", (int)(seg_type-0xf0));
+		de_snprintf(mi->shortname, sizeof(mi->shortname), "JPG%d", (int)(seg_type-0xf0));
 		goto done;
 	}
 
-	de_strlcpy(mi->name, "???", sizeof(mi->name));
+	de_strlcpy(mi->shortname, "???", sizeof(mi->shortname));
 	return 0;
 
 done:
 	return 1;
 }
 
-static void do_segment(deark *c, lctx *d, de_byte seg_type,
-	const struct marker_info *mi,
+static void do_segment(deark *c, lctx *d, const struct marker_info *mi,
 	de_int64 payload_pos, de_int64 payload_size)
 {
 	de_dbg(c, "segment %s (0x%02x) at %d, data_len=%d\n",
-		mi->name, (unsigned int)seg_type, (int)(payload_pos-4), (int)payload_size);
+		mi->shortname, (unsigned int)mi->seg_type, (int)(payload_pos-4), (int)payload_size);
 
-	if(mi->flags & FLAG_IS_APP) {
-		do_app_segment(c, d, seg_type, payload_pos, payload_size);
-	}
-	else if(mi->flags & FLAG_IS_SOF) {
-		do_sof_segment(c, d, seg_type, payload_pos, payload_size);
-	}
-	else if(seg_type==0xda) {
-		do_sos_segment(c, d, payload_pos, payload_size);
-	}
-	else if(seg_type==0xdd) {
-		do_dri_segment(c, d, payload_pos, payload_size);
-	}
-	else if(seg_type==0xc4) {
-		do_dht_segment(c, d, payload_pos, payload_size);
-	}
-	else if(seg_type==0xcc) {
-		do_dac_segment(c, d, payload_pos, payload_size);
-	}
-	else if(seg_type==0xdb) {
-		do_dqt_segment(c, d, payload_pos, payload_size);
-	}
-	else if(seg_type==0xfe) {
-		do_com_segment(c, d, payload_pos, payload_size);
-	}
-	else if(seg_type==0x64 && d->is_j2c) {
-		do_cme_segment(c, d, payload_pos, payload_size);
+	if(mi->hfn) {
+		// If a handler function is available, use it.
+		mi->hfn(c, d, NULL, mi, payload_pos, payload_size);
 	}
 }
 
@@ -829,7 +837,7 @@ static int do_read_scan_data(deark *c, lctx *d, de_int64 pos1, de_int64 *bytes_c
 			else if(b1>=0xd0 && b1<=0xd7) { // an RSTn marker
 				if(c->debug_level>=2) {
 					get_marker_info(c, d, b1, &mi);
-					de_dbg2(c, "marker %s (0x%02x) at %d\n", mi.name, (unsigned int)b1, (int)(pos-2));
+					de_dbg2(c, "marker %s (0x%02x) at %d\n", mi.shortname, (unsigned int)b1, (int)(pos-2));
 				}
 			}
 			else if(b1==0xff) { // a "fill byte" (are they allowed here?)
@@ -888,7 +896,7 @@ static void do_jpeg_internal(deark *c, lctx *d)
 		get_marker_info(c, d, seg_type, &mi);
 
 		if(mi.flags & FLAG_NO_DATA) {
-			de_dbg(c, "marker %s (0x%02x) at %d\n", mi.name, (unsigned int)seg_type,
+			de_dbg(c, "marker %s (0x%02x) at %d\n", mi.shortname, (unsigned int)seg_type,
 				(int)(pos-2));
 
 			if(seg_type==0xd8 && !d->is_j2c) {
@@ -911,7 +919,7 @@ static void do_jpeg_internal(deark *c, lctx *d)
 		seg_size = de_getui16be(pos);
 		if(pos<2) break; // bogus size
 
-		do_segment(c, d, seg_type, &mi, pos+2, seg_size-2);
+		do_segment(c, d, &mi, pos+2, seg_size-2);
 
 		pos += seg_size;
 
