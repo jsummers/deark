@@ -61,6 +61,7 @@ struct marker_info {
 	de_byte seg_type;
 	unsigned int flags;
 	char shortname[12];
+	char longname[80];
 	handler_fn_type hfn;
 };
 
@@ -751,6 +752,10 @@ static int get_marker_info(deark *c, lctx *d, de_byte seg_type,
 			mi->flags = mi1->flags;
 			mi->hfn = mi1->hfn;
 			de_strlcpy(mi->shortname, mi1->shortname, sizeof(mi->shortname));
+			if(mi1->longname) {
+				de_snprintf(mi->longname, sizeof(mi->longname), "%s: %s",
+					mi1->shortname, mi1->longname);
+			}
 			goto done;
 		}
 	}
@@ -768,6 +773,7 @@ static int get_marker_info(deark *c, lctx *d, de_byte seg_type,
 
 	if(seg_type>=0xc0 && seg_type<=0xcf) {
 		de_snprintf(mi->shortname, sizeof(mi->shortname), "SOF%d", (int)(seg_type-0xc0));
+		de_snprintf(mi->longname, sizeof(mi->longname), "%s: Start of frame", mi->shortname);
 		mi->flags |= FLAG_IS_SOF;
 		mi->hfn = handler_sof;
 		goto done;
@@ -775,6 +781,8 @@ static int get_marker_info(deark *c, lctx *d, de_byte seg_type,
 
 	if(seg_type>=0xd0 && seg_type<=0xd7) {
 		de_snprintf(mi->shortname, sizeof(mi->shortname), "RST%d", (int)(seg_type-0xd0));
+		de_snprintf(mi->longname, sizeof(mi->longname), "%s: Restart with mod 8 count %d",
+			mi->shortname, (int)(seg_type-0xd0));
 		mi->flags |= FLAG_NO_DATA;
 		goto done;
 	}
@@ -785,17 +793,23 @@ static int get_marker_info(deark *c, lctx *d, de_byte seg_type,
 	}
 
 	de_strlcpy(mi->shortname, "???", sizeof(mi->shortname));
+	de_strlcpy(mi->longname, "???", sizeof(mi->longname));
 	return 0;
 
 done:
+	if(!mi->longname[0]) {
+		// If no longname was set, use the shortname
+		de_strlcpy(mi->longname, mi->shortname, sizeof(mi->longname));
+	}
 	return 1;
 }
 
 static void do_segment(deark *c, lctx *d, const struct marker_info *mi,
 	de_int64 payload_pos, de_int64 payload_size)
 {
-	de_dbg(c, "segment %s (0x%02x) at %d, data_len=%d\n",
-		mi->shortname, (unsigned int)mi->seg_type, (int)(payload_pos-4), (int)payload_size);
+	de_dbg(c, "segment 0x%02x (%s) at %d, dpos=%d, dlen=%d\n",
+		(unsigned int)mi->seg_type, mi->longname, (int)(payload_pos-4),
+		(int)payload_pos, (int)payload_size);
 
 	if(mi->hfn) {
 		// If a handler function is available, use it.
@@ -837,7 +851,8 @@ static int do_read_scan_data(deark *c, lctx *d, de_int64 pos1, de_int64 *bytes_c
 			else if(b1>=0xd0 && b1<=0xd7) { // an RSTn marker
 				if(c->debug_level>=2) {
 					get_marker_info(c, d, b1, &mi);
-					de_dbg2(c, "marker %s (0x%02x) at %d\n", mi.shortname, (unsigned int)b1, (int)(pos-2));
+					de_dbg2(c, "marker 0x%02x (%s) at %d\n", (unsigned int)b1,
+						mi.longname, (int)(pos-2));
 				}
 			}
 			else if(b1==0xff) { // a "fill byte" (are they allowed here?)
@@ -896,8 +911,8 @@ static void do_jpeg_internal(deark *c, lctx *d)
 		get_marker_info(c, d, seg_type, &mi);
 
 		if(mi.flags & FLAG_NO_DATA) {
-			de_dbg(c, "marker %s (0x%02x) at %d\n", mi.shortname, (unsigned int)seg_type,
-				(int)(pos-2));
+			de_dbg(c, "marker 0x%02x (%s) at %d\n", (unsigned int)seg_type,
+				mi.longname, (int)(pos-2));
 
 			if(seg_type==0xd8 && !d->is_j2c) {
 				// Count the number of SOI segments
