@@ -13,17 +13,12 @@ DE_DECLARE_MODULE(de_module_jpeg);
 DE_DECLARE_MODULE(de_module_j2c);
 DE_DECLARE_MODULE(de_module_jpegscan);
 
-// TODO: Use this struct for image-specific data.
 struct page_ctx {
-	int reserved;
-};
-
-typedef struct localctx_struct {
-	dbuf *iccprofile_file;
-	dbuf *hdr_residual_file;
 	int is_jpegls;
 	int is_j2c;
-	int image_count;
+
+	dbuf *iccprofile_file;
+	dbuf *hdr_residual_file;
 
 	int extxmp_found;
 	int extxmp_warned_flag; // Have we warned about multiple extxmp digests?
@@ -31,6 +26,11 @@ typedef struct localctx_struct {
 	dbuf *extxmp_membuf;
 	de_byte extxmp_digest[32];
 	de_int64 extxmp_total_len;
+};
+
+typedef struct localctx_struct {
+	int is_j2c;
+	int image_count;
 } lctx;
 
 struct marker_info;
@@ -111,7 +111,7 @@ static const struct marker_info1 marker_info1_arr[] = {
 	{0xfe, 0x0003, "COM", "Comment", handler_com}
 };
 
-static void do_icc_profile_segment(deark *c, lctx *d, de_int64 pos, de_int64 data_size)
+static void do_icc_profile_segment(deark *c, lctx *d, struct page_ctx *pg, de_int64 pos, de_int64 data_size)
 {
 	de_byte b1, b2;
 
@@ -120,24 +120,24 @@ static void do_icc_profile_segment(deark *c, lctx *d, de_int64 pos, de_int64 dat
 	b2 = de_getbyte(pos+1);
 	de_dbg(c, "icc profile segment at %d datasize=%d part %d of %d\n", (int)pos, (int)(data_size-2), b1, b2);
 
-	if(!d->iccprofile_file) {
-		d->iccprofile_file = dbuf_create_output_file(c, "icc", NULL, DE_CREATEFLAG_IS_AUX);
+	if(!pg->iccprofile_file) {
+		pg->iccprofile_file = dbuf_create_output_file(c, "icc", NULL, DE_CREATEFLAG_IS_AUX);
 	}
-	dbuf_copy(c->infile, pos+2, data_size-2, d->iccprofile_file);
+	dbuf_copy(c->infile, pos+2, data_size-2, pg->iccprofile_file);
 
 	if(b1==b2) {
 		// If this is the final piece of the ICC profile, close the file.
 		// That way, if for some reason there's another profile in the file, we'll put
 		// it in a separate file.
-		dbuf_close(d->iccprofile_file);
-		d->iccprofile_file = NULL;
+		dbuf_close(pg->iccprofile_file);
+		pg->iccprofile_file = NULL;
 	}
 }
 
 // Extract JPEG-HDR residual images.
 // Note: This code is based on reverse engineering, and may not be correct.
-static void do_jpeghdr_segment(deark *c, lctx *d, de_int64 pos, de_int64 data_size,
-	int is_ext)
+static void do_jpeghdr_segment(deark *c, lctx *d, struct page_ctx *pg, de_int64 pos,
+	de_int64 data_size, int is_ext)
 {
 	if(is_ext) {
 		de_dbg(c, "JPEG-HDR residual image continuation, pos=%d size=%d\n",
@@ -148,9 +148,9 @@ static void do_jpeghdr_segment(deark *c, lctx *d, de_int64 pos, de_int64 data_si
 			(int)pos, (int)data_size);
 
 		// Close any previous file
-		if(d->hdr_residual_file) {
-			dbuf_close(d->hdr_residual_file);
-			d->hdr_residual_file = NULL;
+		if(pg->hdr_residual_file) {
+			dbuf_close(pg->hdr_residual_file);
+			pg->hdr_residual_file = NULL;
 		}
 
 		// Make sure it looks like an embedded JPEG file
@@ -159,11 +159,11 @@ static void do_jpeghdr_segment(deark *c, lctx *d, de_int64 pos, de_int64 data_si
 			return;
 		}
 
-		d->hdr_residual_file = dbuf_create_output_file(c, "residual.jpg", NULL, DE_CREATEFLAG_IS_AUX);
+		pg->hdr_residual_file = dbuf_create_output_file(c, "residual.jpg", NULL, DE_CREATEFLAG_IS_AUX);
 	}
 
-	if(!d->hdr_residual_file) return;
-	dbuf_copy(c->infile, pos, data_size, d->hdr_residual_file);
+	if(!pg->hdr_residual_file) return;
+	dbuf_copy(c->infile, pos, data_size, pg->hdr_residual_file);
 }
 
 static void do_jfif_segment(deark *c, lctx *d, de_int64 pos, de_int64 data_size)
@@ -228,7 +228,8 @@ static void do_mpf_segment(deark *c, lctx *d, de_int64 pos, de_int64 data_size)
 	de_dbg_indent(c, -1);
 }
 
-static void do_xmp_extension_segment(deark *c, lctx *d, de_int64 pos1, de_int64 data_size)
+static void do_xmp_extension_segment(deark *c, lctx *d, struct page_ctx *pg,
+	de_int64 pos1, de_int64 data_size)
 {
 	de_int64 thisseg_full_extxmp_len;
 	de_int64 segment_offset;
@@ -240,7 +241,7 @@ static void do_xmp_extension_segment(deark *c, lctx *d, de_int64 pos1, de_int64 
 
 	de_dbg(c, "extended XMP segment, dpos=%d, dlen=%d\n", (int)pos1, (int)(data_size));
 	de_dbg_indent(c, 1);
-	if(d->extxmp_error_flag) goto done;
+	if(pg->extxmp_error_flag) goto done;
 
 	de_read(thisseg_digest_raw, pos, 32);
 	pos += 32;
@@ -248,39 +249,39 @@ static void do_xmp_extension_segment(deark *c, lctx *d, de_int64 pos1, de_int64 
 	ucstring_append_bytes(digest_str, thisseg_digest_raw, 32, 0, DE_ENCODING_ASCII);
 	de_dbg(c, "digest: \"%s\"\n", ucstring_get_printable_sz(digest_str));
 
-	if(d->extxmp_found && de_memcmp(thisseg_digest_raw, d->extxmp_digest, 32)) {
+	if(pg->extxmp_found && de_memcmp(thisseg_digest_raw, pg->extxmp_digest, 32)) {
 		// We only care about the extended XMP segments whose digest matches that
 		// indicated in the main XMP segment. Unfortunately, we don't know what that
 		// is, because we don't parse XMP. We'll just hope that the first extended
 		// XMP segment has the correct digest.
-		if(!d->extxmp_warned_flag) {
+		if(!pg->extxmp_warned_flag) {
 			de_warn(c, "Multiple extended XMP blocks found. All but the first will be ignored.\n");
-			d->extxmp_warned_flag = 1;
+			pg->extxmp_warned_flag = 1;
 		}
 		goto done;
 	}
 
-	if(!d->extxmp_found) {
+	if(!pg->extxmp_found) {
 		is_first_segment = 1;
-		d->extxmp_found = 1;
-		de_memcpy(d->extxmp_digest, thisseg_digest_raw, 32);
+		pg->extxmp_found = 1;
+		de_memcpy(pg->extxmp_digest, thisseg_digest_raw, 32);
 	}
 
 	thisseg_full_extxmp_len = de_getui32be(pos);
 	pos += 4;
 	if(is_first_segment) {
-		d->extxmp_total_len = thisseg_full_extxmp_len;
+		pg->extxmp_total_len = thisseg_full_extxmp_len;
 	}
 	de_dbg(c, "full ext. XMP length: %d\n", (int)thisseg_full_extxmp_len);
-	if(thisseg_full_extxmp_len != d->extxmp_total_len) {
+	if(thisseg_full_extxmp_len != pg->extxmp_total_len) {
 		de_warn(c, "Inconsistent extended XMP block lengths\n");
-		d->extxmp_error_flag = 1;
+		pg->extxmp_error_flag = 1;
 		goto done;
 	}
 
-	if(d->extxmp_total_len > 10000000) {
+	if(pg->extxmp_total_len > 10000000) {
 		de_warn(c, "Extended XMP block too large\n");
-		d->extxmp_error_flag = 1;
+		pg->extxmp_error_flag = 1;
 		goto done;
 	}
 
@@ -291,16 +292,16 @@ static void do_xmp_extension_segment(deark *c, lctx *d, de_int64 pos1, de_int64 
 	dlen = data_size - (pos-pos1);
 	de_dbg(c, "[%d bytes of ext. XMP data at %d]\n", (int)dlen, (int)pos);
 
-	if(segment_offset + dlen > d->extxmp_total_len) {
+	if(segment_offset + dlen > pg->extxmp_total_len) {
 		de_warn(c, "Extended XMP segment too long\n");
-		d->extxmp_error_flag = 1;
+		pg->extxmp_error_flag = 1;
 		goto done;
 	}
 
-	if(!d->extxmp_membuf) {
-		d->extxmp_membuf = dbuf_create_membuf(c, d->extxmp_total_len, 0x1);
+	if(!pg->extxmp_membuf) {
+		pg->extxmp_membuf = dbuf_create_membuf(c, pg->extxmp_total_len, 0x1);
 	}
-	dbuf_copy_at(c->infile, pos, dlen, d->extxmp_membuf, segment_offset);
+	dbuf_copy_at(c->infile, pos, dlen, pg->extxmp_membuf, segment_offset);
 
 done:
 	de_dbg_indent(c, -1);
@@ -390,7 +391,7 @@ static void handler_app(deark *c, lctx *d, struct page_ctx *pg,
 		de_dbg_indent(c, -1);
 	}
 	else if(seg_type==0xe2 && !de_strcmp(app_id_normalized, "ICC_PROFILE")) {
-		do_icc_profile_segment(c, d, payload_pos, payload_size);
+		do_icc_profile_segment(c, d, pg, payload_pos, payload_size);
 	}
 	else if(seg_type==0xed && !de_strcmp(app_id_normalized, "PHOTOSHOP 3.0")) {
 		de_dbg(c, "photoshop data at %d, size=%d\n", (int)(payload_pos), (int)(payload_size));
@@ -403,13 +404,13 @@ static void handler_app(deark *c, lctx *d, struct page_ctx *pg,
 		dbuf_create_file_from_slice(c->infile, payload_pos, payload_size, "xmp", NULL, DE_CREATEFLAG_IS_AUX);
 	}
 	else if(seg_type==0xe1 && !de_strcmp(app_id_normalized, "HTTP://NS.ADOBE.COM/XMP/EXTENSION/")) {
-		do_xmp_extension_segment(c, d, payload_pos, payload_size);
+		do_xmp_extension_segment(c, d, pg, payload_pos, payload_size);
 	}
 	else if(seg_type==0xeb && app_id_orig_strlen>=10 && !de_memcmp(app_id_normalized, "HDR_RI VER", 10)) {
-		do_jpeghdr_segment(c, d, payload_pos, payload_size, 0);
+		do_jpeghdr_segment(c, d, pg, payload_pos, payload_size, 0);
 	}
 	else if(seg_type==0xeb && app_id_orig_strlen>=10 && !de_memcmp(app_id_normalized, "HDR_RI EXT", 10)) {
-		do_jpeghdr_segment(c, d, payload_pos, payload_size, 1);
+		do_jpeghdr_segment(c, d, pg, payload_pos, payload_size, 1);
 	}
 	else if(seg_type==0xe2 && !de_strcmp(app_id_normalized, "MPF")) {
 		do_mpf_segment(c, d, payload_pos, payload_size);
@@ -727,7 +728,7 @@ done:
 }
 
 // Caller allocates mi
-static int get_marker_info(deark *c, lctx *d, de_byte seg_type,
+static int get_marker_info(deark *c, lctx *d, struct page_ctx *pg, de_byte seg_type,
 	struct marker_info *mi)
 {
 	de_int64 k;
@@ -737,16 +738,16 @@ static int get_marker_info(deark *c, lctx *d, de_byte seg_type,
 
 	if(seg_type==0xf7) {
 		// TODO: Maybe only do this if we haven't seen another SOF segment
-		d->is_jpegls = 1;
+		pg->is_jpegls = 1;
 	}
 
 	// First, try to find the segment type in the static marker info.
 	for(k=0; k<(de_int64)DE_ITEMS_IN_ARRAY(marker_info1_arr); k++) {
 		const struct marker_info1 *mi1 = &marker_info1_arr[k];
 
-		if(!d->is_jpegls && !d->is_j2c && !(mi1->flags&FLAG_JPEG_COMPAT)) continue;
-		if(d->is_jpegls && !(mi1->flags&FLAG_JPEGLS_COMPAT)) continue;
-		if(d->is_j2c && !(mi1->flags&FLAG_J2C_COMPAT)) continue;
+		if(!pg->is_jpegls && !pg->is_j2c && !(mi1->flags&FLAG_JPEG_COMPAT)) continue;
+		if(pg->is_jpegls && !(mi1->flags&FLAG_JPEGLS_COMPAT)) continue;
+		if(pg->is_j2c && !(mi1->flags&FLAG_J2C_COMPAT)) continue;
 
 		if(mi1->seg_type == seg_type) {
 			mi->flags = mi1->flags;
@@ -760,7 +761,7 @@ static int get_marker_info(deark *c, lctx *d, de_byte seg_type,
 		}
 	}
 
-	if(d->is_j2c && (seg_type>=0x30 && seg_type<=0x3f)) {
+	if(pg->is_j2c && (seg_type>=0x30 && seg_type<=0x3f)) {
 		mi->flags |= FLAG_NO_DATA;
 	}
 
@@ -804,7 +805,7 @@ done:
 	return 1;
 }
 
-static void do_segment(deark *c, lctx *d, const struct marker_info *mi,
+static void do_segment(deark *c, lctx *d, struct page_ctx *pg, const struct marker_info *mi,
 	de_int64 payload_pos, de_int64 payload_size)
 {
 	de_dbg(c, "segment 0x%02x (%s) at %d, dpos=%d, dlen=%d\n",
@@ -813,13 +814,14 @@ static void do_segment(deark *c, lctx *d, const struct marker_info *mi,
 
 	if(mi->hfn) {
 		// If a handler function is available, use it.
-		mi->hfn(c, d, NULL, mi, payload_pos, payload_size);
+		mi->hfn(c, d, pg, mi, payload_pos, payload_size);
 	}
 }
 
 // TODO: This is very similar to detect_jpeg_len().
 // Maybe they should be consolidated.
-static int do_read_scan_data(deark *c, lctx *d, de_int64 pos1, de_int64 *bytes_consumed)
+static int do_read_scan_data(deark *c, lctx *d, struct page_ctx *pg,
+	de_int64 pos1, de_int64 *bytes_consumed)
 {
 	de_int64 pos = pos1;
 	de_byte b0, b1;
@@ -838,19 +840,19 @@ static int do_read_scan_data(deark *c, lctx *d, de_int64 pos1, de_int64 *bytes_c
 			if(b1==0x00) {
 				; // an escaped 0xff
 			}
-			else if(d->is_jpegls && b1<0x80) {
+			else if(pg->is_jpegls && b1<0x80) {
 				// In JPEG-LS, 0xff bytes are not escaped if they're followed by a
 				// a byte less than 0x80.
 				;
 			}
-			else if(d->is_j2c && b1<0x90) {
+			else if(pg->is_j2c && b1<0x90) {
 				// In J2c, 0xff bytes are not escaped if they're followed by a
 				// a byte less than 0x90.
 				;
 			}
 			else if(b1>=0xd0 && b1<=0xd7) { // an RSTn marker
 				if(c->debug_level>=2) {
-					get_marker_info(c, d, b1, &mi);
+					get_marker_info(c, d, pg, b1, &mi);
 					de_dbg2(c, "marker 0x%02x (%s) at %d\n", (unsigned int)b1,
 						mi.longname, (int)(pos-2));
 				}
@@ -874,7 +876,9 @@ done:
 	return 1;
 }
 
-static void do_jpeg_internal(deark *c, lctx *d)
+// Process a single JPEG image (through the EOI marker).
+// Returns nonzero if we should continue, and look for more images after the EOI.
+static int do_jpeg_page(deark *c, lctx *d, de_int64 pos1, de_int64 *bytes_consumed)
 {
 	de_byte b;
 	de_int64 pos;
@@ -883,8 +887,13 @@ static void do_jpeg_internal(deark *c, lctx *d)
 	int found_marker;
 	struct marker_info mi;
 	de_int64 scan_byte_count;
+	int retval = 0;
+	struct page_ctx *pg = NULL;
 
-	pos = 0;
+	pg = de_malloc(c, sizeof(struct page_ctx));
+	pg->is_j2c = d->is_j2c; // Inherit J2C file format
+
+	pos = pos1;
 	found_marker = 0;
 	while(1) {
 		if(pos>=c->infile->len)
@@ -908,20 +917,25 @@ static void do_jpeg_internal(deark *c, lctx *d)
 		}
 
 		seg_type = b;
-		get_marker_info(c, d, seg_type, &mi);
+		get_marker_info(c, d, pg, seg_type, &mi);
 
 		if(mi.flags & FLAG_NO_DATA) {
 			de_dbg(c, "marker 0x%02x (%s) at %d\n", (unsigned int)seg_type,
 				mi.longname, (int)(pos-2));
 
-			if(seg_type==0xd8 && !d->is_j2c) {
+			if(seg_type==0xd9) { // EOI / EOC
+				retval = 1;
+				goto done;
+			}
+
+			if(seg_type==0xd8 && !pg->is_j2c) {
 				// Count the number of SOI segments
 				d->image_count++;
 			}
 
-			if(d->is_j2c && seg_type==0x93) {
+			if(pg->is_j2c && seg_type==0x93) {
 				// SOD (JPEG 2000 marker sort of like SOS)
-				if(!do_read_scan_data(c, d, pos, &scan_byte_count)) {
+				if(!do_read_scan_data(c, d, pg, pos, &scan_byte_count)) {
 					break;
 				}
 				pos += scan_byte_count;
@@ -934,31 +948,55 @@ static void do_jpeg_internal(deark *c, lctx *d)
 		seg_size = de_getui16be(pos);
 		if(pos<2) break; // bogus size
 
-		do_segment(c, d, &mi, pos+2, seg_size-2);
+		do_segment(c, d, pg, &mi, pos+2, seg_size-2);
 
 		pos += seg_size;
 
-		if(seg_type==0xda && !d->is_j2c) {
+		if(seg_type==0xda && !pg->is_j2c) {
 			// If we read an SOS segment, now read the untagged image data that
 			// should follow it.
-			if(!do_read_scan_data(c, d, pos, &scan_byte_count)) {
+			if(!do_read_scan_data(c, d, pg, pos, &scan_byte_count)) {
 				break;
 			}
 			pos += scan_byte_count;
 		}
 	}
 
-	dbuf_close(d->iccprofile_file);
-	dbuf_close(d->hdr_residual_file);
+done:
+	if(pg) {
+		dbuf_close(pg->iccprofile_file);
+		dbuf_close(pg->hdr_residual_file);
 
-	if(d->extxmp_membuf && !d->extxmp_error_flag) {
-		dbuf *tmpdbuf = NULL;
-		tmpdbuf = dbuf_create_output_file(c, "xmp", NULL, DE_CREATEFLAG_IS_AUX);
-		dbuf_copy(d->extxmp_membuf, 0, d->extxmp_total_len, tmpdbuf);
-		dbuf_close(tmpdbuf);
-		//d->extxmp_membuf
+		if(pg->extxmp_membuf && !pg->extxmp_error_flag) {
+			dbuf *tmpdbuf = NULL;
+			tmpdbuf = dbuf_create_output_file(c, "xmp", NULL, DE_CREATEFLAG_IS_AUX);
+			dbuf_copy(pg->extxmp_membuf, 0, pg->extxmp_total_len, tmpdbuf);
+			dbuf_close(tmpdbuf);
+		}
+		dbuf_close(pg->extxmp_membuf);
+
+		de_free(c, pg);
 	}
-	dbuf_close(d->extxmp_membuf);
+
+	*bytes_consumed = pos - pos1;
+	return retval;
+}
+
+static void do_jpeg_internal(deark *c, lctx *d)
+{
+	de_int64 pos;
+	de_int64 bytes_consumed;
+	int ret;
+
+	pos = 0;
+
+	while(1) {
+		if(pos >= c->infile->len) break;
+		bytes_consumed = 0;
+		ret = do_jpeg_page(c, d, pos, &bytes_consumed);
+		if(!ret) break;
+		pos += bytes_consumed;
+	}
 
 	if(d->image_count>1) {
 		// For Multi-Picture Format (.mpo) and similar.
