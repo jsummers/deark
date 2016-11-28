@@ -169,7 +169,7 @@ int de_write_png(deark *c, struct deark_bitmap *img, dbuf *f)
 	return 1;
 }
 
-static int de_deflate_internal(dbuf *inf, de_int64 inputstart, de_int64 inputsize, dbuf *outf,
+static int de_inflate_internal(dbuf *inf, de_int64 inputstart, de_int64 inputsize, dbuf *outf,
 	int is_zlib, de_int64 *bytes_consumed)
 {
 	mz_stream strm;
@@ -227,7 +227,6 @@ static int de_deflate_internal(dbuf *inf, de_int64 inputstart, de_int64 inputsiz
 		// If we have read all the available bytes from the file,
 		// and all bytes in inbuf are consumed, then stop.
 		if((inbuf_num_consumed_bytes>=inbuf_num_valid_bytes) && (input_cur_pos-inputstart)>=inputsize) break;
-
 
 		if(inbuf_num_consumed_bytes>0) {
 			if(inbuf_num_valid_bytes>inbuf_num_consumed_bytes) {
@@ -303,13 +302,13 @@ done:
 int de_uncompress_zlib(dbuf *inf, de_int64 inputstart, de_int64 inputsize, dbuf *outf)
 {
 	de_int64 bytes_consumed;
-	return de_deflate_internal(inf, inputstart, inputsize, outf, 1, &bytes_consumed);
+	return de_inflate_internal(inf, inputstart, inputsize, outf, 1, &bytes_consumed);
 }
 
 int de_uncompress_deflate(dbuf *inf, de_int64 inputstart, de_int64 inputsize, dbuf *outf,
 	de_int64 *bytes_consumed)
 {
-	return de_deflate_internal(inf, inputstart, inputsize, outf, 0, bytes_consumed);
+	return de_inflate_internal(inf, inputstart, inputsize, outf, 0, bytes_consumed);
 }
 
 // A customized copy of mz_zip_writer_init_file().

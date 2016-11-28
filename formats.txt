@@ -97,8 +97,7 @@ Deark -- Information about supported formats
   Multi-image PCX format.
   - Extracts individual PCX files.
 
-* DEGAS and DEGAS Elite (module="degas") (experimental)
-  - Supports uncompressed images only (.pi?)
+* DEGAS and DEGAS Elite (module="degas")
 
 * Doodle (Atari) (module="doodle")
   - Supports high resolution (640x400) only
@@ -177,7 +176,7 @@ Deark -- Information about supported formats
 
 * Jovian Logic VI bitmap (module="jovianvi") (experimental)
 
-* JPEG (module="jpeg")
+* JPEG and JPEG-LS (module="jpeg")
   - Extract ICC profiles.
   - Extract JFXX JPEG-formatted thumbnails (rare).
   - Process Exif data (or extract it: use -a)
@@ -193,8 +192,11 @@ Deark -- Information about supported formats
   - Extract Exif data (use -a) (nonstandard; partial support)
   - Process Photoshop-related data.
 
-* JPEG XR (HD Photo)
-  - Minimal support; uses the "tiff" module.
+* JPEG 2000 codestream (module="j2c")
+  - Extract comments (use -a).
+
+* JPEG XR (HD Photo) (part of module "tiff")
+  - Minimal support.
 
 * LSS16 (SYSLINUX image) (module="lss16")
 
@@ -248,7 +250,7 @@ Deark -- Information about supported formats
   - Icon, pointer, and BMP image files are extracted from Bitmap Array files.
     Reprocess icon and pointer files to convert to PNG.
 
-* PaintShop Pro Browser Cache (module="jbf") (experimental)
+* PaintShop Pro Browser Cache (module="jbf")
   - Format v1.x: BMP files are reconstructed and extracted.
   - Format v2.x: JPEG files are extracted.
 
@@ -287,7 +289,7 @@ Deark -- Information about supported formats
 * PICT (Macintosh image) (module="pict")
   - Extract bitmap images.
 
-* PM (module="pm_xv") (experimental, incomplete)
+* PM (module="pm_xv") (experimental/incomplete)
   This is an obscure format supported by XV and XnView.
   - Supports 24-bit truecolor, and 8-bit grayscale
 
@@ -361,7 +363,7 @@ Deark -- Information about supported formats
 
 * TGA (Targa) (module="tga")
 
-* Thumbs.db (Windows thumbnail) (part of module "cfb)
+* Thumbs.db (Windows thumbnail) (part of module "cfb")
   - Extract thumbnail files (embedded JPEG or PNG files)
   - Some thumbnails use a nonstandard RGBA format. These are not converted to
     a portable format.
@@ -448,9 +450,9 @@ Deark -- Information about supported formats
 
 * D64 (Commodore 64 disk format) (module="d64") (experimental)
 
-* Gzip (module="gzip") (experimental)
+* Gzip (module="gzip")
 
-* Microsoft Compound File Binary (module="cfb") (experimental)
+* Microsoft Compound File Binary (module="cfb")
   - Extract the embedded data streams, though many of them may not be in a
     standard file format.
   - Files in subdirectories will be extracted, but the subdirectory names will
@@ -543,9 +545,9 @@ Deark -- Information about supported formats
   - Files can be parsed, but there is usually nothing that can be extracted
     from them.
 
-* Photoshop Brush format (.abr) (module="ps_brush") (experimental)
-  - Files can be (partially) parsed, but there is usually nothing that can be
-    extracted from them.
+* Photoshop Brush format (.abr) (module="ps_brush")
+  - Files can be parsed, but there is usually nothing that can be extracted
+    from them.
 
 * Photoshop Custom Shapes format (.csh) (module="ps_csh")
   - Files can be parsed, but there is usually nothing that can be extracted

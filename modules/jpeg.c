@@ -17,6 +17,7 @@ struct page_ctx {
 	int is_jpegls;
 	int is_j2c;
 
+	int found_sof;
 	dbuf *iccprofile_file;
 	dbuf *hdr_residual_file;
 
@@ -73,7 +74,6 @@ struct marker_info1 {
 	const char *longname;
 	handler_fn_type hfn;
 };
-// TODO: Figure out exactly which J2C markers have parameters.
 static const struct marker_info1 marker_info1_arr[] = {
 	{0x01, 0x0101, "TEM", NULL, NULL},
 	{0x4f, 0x0104, "SOC", "Start of codestream", NULL},
@@ -736,11 +736,6 @@ static int get_marker_info(deark *c, lctx *d, struct page_ctx *pg, de_byte seg_t
 	de_memset(mi, 0, sizeof(struct marker_info));
 	mi->seg_type = seg_type;
 
-	if(seg_type==0xf7) {
-		// TODO: Maybe only do this if we haven't seen another SOF segment
-		pg->is_jpegls = 1;
-	}
-
 	// First, try to find the segment type in the static marker info.
 	for(k=0; k<(de_int64)DE_ITEMS_IN_ARRAY(marker_info1_arr); k++) {
 		const struct marker_info1 *mi1 = &marker_info1_arr[k];
@@ -761,11 +756,14 @@ static int get_marker_info(deark *c, lctx *d, struct page_ctx *pg, de_byte seg_t
 		}
 	}
 
+	// Handle some pattern-based markers.
+
+	// fcd15444-1: "The marker range 0xFF30 - 0xFF3F is reserved [...] for markers
+	// without marker parameters."
 	if(pg->is_j2c && (seg_type>=0x30 && seg_type<=0x3f)) {
 		mi->flags |= FLAG_NO_DATA;
 	}
 
-	// Handle some pattern-based markers.
 	if(seg_type>=0xe0 && seg_type<=0xef) {
 		de_snprintf(mi->shortname, sizeof(mi->shortname), "APP%d", (int)(seg_type-0xe0));
 		mi->hfn = handler_app;
@@ -781,9 +779,10 @@ static int get_marker_info(deark *c, lctx *d, struct page_ctx *pg, de_byte seg_t
 	}
 
 	if(seg_type>=0xd0 && seg_type<=0xd7) {
-		de_snprintf(mi->shortname, sizeof(mi->shortname), "RST%d", (int)(seg_type-0xd0));
+		int rstn = (int)(seg_type-0xd0);
+		de_snprintf(mi->shortname, sizeof(mi->shortname), "RST%d", rstn);
 		de_snprintf(mi->longname, sizeof(mi->longname), "%s: Restart with mod 8 count %d",
-			mi->shortname, (int)(seg_type-0xd0));
+			mi->shortname, rstn);
 		mi->flags |= FLAG_NO_DATA;
 		goto done;
 	}
@@ -917,7 +916,16 @@ static int do_jpeg_page(deark *c, lctx *d, de_int64 pos1, de_int64 *bytes_consum
 		}
 
 		seg_type = b;
+
+		if(seg_type==0xf7 && !pg->found_sof) {
+			pg->is_jpegls = 1;
+		}
+
 		get_marker_info(c, d, pg, seg_type, &mi);
+
+		if(mi.flags & FLAG_IS_SOF) {
+			pg->found_sof = 1;
+		}
 
 		if(mi.flags & FLAG_NO_DATA) {
 			de_dbg(c, "marker 0x%02x (%s) at %d\n", (unsigned int)seg_type,
