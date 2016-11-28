@@ -443,6 +443,12 @@ static int do_image_1to8(deark *c, lctx *d, struct img_info *ii,
 	}
 	else if(d->formtype==CODE_PBM) {
 		ii->rowspan = ii->width;
+		// I don't know what row padding logic PBM files use.
+		// I've seen some that are padded to a 2-byte boundary, while the
+		// thumbnail in the same file has no row padding.
+		if((ii->rowspan%2) && (unc_pixels->len >= ((ii->rowspan+1)*ii->height))) {
+			ii->rowspan++;
+		}
 	}
 	else {
 		ii->rowspan = (ii->bits_per_row_per_plane/8) * ii->planes_total;
@@ -478,11 +484,11 @@ static int do_image_1to8(deark *c, lctx *d, struct img_info *ii,
 			get_row_acbm(c, d, ii, unc_pixels, j, row_deplanarized);
 		}
 		else if(d->formtype==CODE_PBM) {
-			if(ii->rowspan != ii->width) {
+			if(ii->rowspan < ii->width) {
 				de_err(c, "Internal error\n");
 				goto done;
 			}
-			dbuf_read(unc_pixels, row_deplanarized, j*ii->rowspan, ii->rowspan);
+			dbuf_read(unc_pixels, row_deplanarized, j*ii->rowspan, ii->width);
 			bytes_expected += ii->rowspan;
 			bytes_expected_valid = 1;
 		}
