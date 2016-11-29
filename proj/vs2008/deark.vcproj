@@ -726,6 +726,10 @@
 				>
 			</File>
 			<File
+				RelativePath="..\..\modules\tar.c"
+				>
+			</File>
+			<File
 				RelativePath="..\..\modules\tga.c"
 				>
 			</File>
