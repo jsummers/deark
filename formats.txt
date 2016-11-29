@@ -455,8 +455,6 @@ Deark -- Information about supported formats
 * Microsoft Compound File Binary (module="cfb")
   - Extract the embedded data streams, though many of them may not be in a
     standard file format.
-  - Files in subdirectories will be extracted, but the subdirectory names will
-    be ignored.
   Options
    -opt cfb:fmt=raw - Do not try to detect the document type.
    -opt cfb:fmt=auto - Autodetect the document type (default).
