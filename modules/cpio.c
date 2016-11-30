@@ -332,6 +332,10 @@ static int read_member(deark *c, lctx *d, de_int64 pos1,
 		goto done;
 	}
 
+	if((md->mode & 0111) != 0) {
+		md->fi->is_executable = 1;
+	}
+
 	if((md->mode & 0170000) != 0100000) {
 		int msgflag = 0;
 

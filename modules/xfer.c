@@ -213,10 +213,14 @@ void de_module_base64(deark *c, struct deark_module_info *mi)
 // Base-64 UUEncoded
 // **************************************************************************
 
+// Caller passes buf (not NUL terminated) to us.
 static void parse_begin_line(deark *c, lctx *d, const de_byte *buf, de_int64 buf_len)
 {
 	de_int64 beginsize;
 	de_ucstring *fn = NULL;
+	de_int64 mode;
+	size_t nbytes_to_copy;
+	char tmpbuf[32];
 
 	if(!d->fi) goto done;
 
@@ -234,9 +238,20 @@ static void parse_begin_line(deark *c, lctx *d, const de_byte *buf, de_int64 buf
 		goto done;
 	}
 
+	// Make a NUL-terminated copy of the file permissions mode.
+	nbytes_to_copy = (size_t)(buf_len - (beginsize+1));
+	if(nbytes_to_copy>sizeof(tmpbuf)) nbytes_to_copy = sizeof(tmpbuf);
+	de_strlcpy(tmpbuf, (const char*)&buf[beginsize+1], nbytes_to_copy);
+	mode = de_strtoll(tmpbuf, NULL, 8);
+	de_dbg(c, "mode: %03o\n", (unsigned int)mode);
+	if((mode & 0111)!=0) {
+		d->fi->is_executable = 1;
+	}
+
 	fn = ucstring_create(c);
 	ucstring_append_bytes(fn, &buf[beginsize+5], buf_len-(beginsize+5), 0, DE_ENCODING_ASCII);
 	de_dbg(c, "filename: \"%s\"\n", ucstring_get_printable_sz_n(fn, 300));
+	de_finfo_set_name_from_ucstring(c, d->fi, fn);
 	d->fi->original_filename_flag = 1;
 
 done:
