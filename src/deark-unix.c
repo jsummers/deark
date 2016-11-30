@@ -90,6 +90,35 @@ int de_examine_file_by_name(deark *c, const char *fn, de_int64 *len,
 	return 1;
 }
 
+// If f->is_executable is set, try to make the file executable.
+// TODO: Should we unset the executable bits if f->is_executable is NOT set?
+void de_update_file_perms(dbuf *f)
+{
+	struct stat stbuf;
+	mode_t oldmode, newmode;
+
+	if(f->btype!=DBUF_TYPE_OFILE) return;
+	if(!f->name) return;
+	if(!f->is_executable) return;
+
+	de_memset(&stbuf, 0, sizeof(struct stat));
+	if(0 != stat(f->name, &stbuf)) {
+		return;
+	}
+
+	oldmode = stbuf.st_mode;
+	newmode = oldmode;
+	// Set an Executable bit if its corresponding Read bit is set.
+	if(oldmode & S_IRUSR) newmode |= S_IXUSR;
+	if(oldmode & S_IRGRP) newmode |= S_IXGRP;
+	if(oldmode & S_IROTH) newmode |= S_IXOTH;
+	if(newmode != oldmode) {
+		de_dbg2(f->c, "changing file mode from %03o to %03o\n",
+			(unsigned int)oldmode, (unsigned int)newmode);
+		chmod(f->name, newmode);
+	}
+}
+
 void de_update_file_time(dbuf *f)
 {
 	struct utimbuf times;

@@ -304,6 +304,7 @@ int de_fclose(FILE *fp);
 int de_examine_file_by_name(deark *c, const char *fn, de_int64 *len,
 	char *errmsg, size_t errmsg_len);
 
+void de_update_file_perms(dbuf *f);
 void de_update_file_time(dbuf *f);
 
 void de_declare_fmt(deark *c, const char *fmtname);

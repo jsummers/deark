@@ -153,6 +153,11 @@ done:
 	return retval;
 }
 
+void de_update_file_perms(dbuf *f)
+{
+	// Not implemented on Windows.
+}
+
 void de_update_file_time(dbuf *f)
 {
 	WCHAR *fnW;

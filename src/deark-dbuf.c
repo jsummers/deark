@@ -939,12 +939,13 @@ void dbuf_close(dbuf *f)
 		de_fclose(f->fp);
 		f->fp = NULL;
 
+		if(f->btype==DBUF_TYPE_OFILE) {
+			de_update_file_perms(f);
+		}
+
 		if(f->btype==DBUF_TYPE_OFILE && c->preserve_file_times) {
 			de_update_file_time(f);
 		}
-
-		// TODO: Maybe try to make the file executable if and only if
-		// f->is_executable is set.
 	}
 	else if(f->btype==DBUF_TYPE_STDOUT) {
 		if(f->name) {
