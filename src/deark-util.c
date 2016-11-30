@@ -578,6 +578,24 @@ de_int64 de_atoi64(const char *string)
 	return de_strtoll(string, NULL, 10);
 }
 
+de_int64 de_pad_to_2(de_int64 x)
+{
+	return (x&0x1) ? x+1 : x;
+}
+
+de_int64 de_pad_to_4(de_int64 x)
+{
+	return ((x+3)/4)*4;
+}
+
+de_int64 de_pad_to_n(de_int64 x, de_int64 n)
+{
+	de_int64 r = x%n;
+	if(r==0)
+		return x;
+	return x - r + n;
+}
+
 de_int64 de_log2_rounded_up(de_int64 n)
 {
 	de_int64 i;

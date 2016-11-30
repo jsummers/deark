@@ -20,29 +20,6 @@ typedef struct localctx_struct {
 	int reserved;
 } lctx;
 
-static de_int64 pad_to_512(de_int64 n)
-{
-	if(n%512) {
-		return n - (n%512) + 512;
-	}
-	return n;
-}
-
-static int read_ascii_number(deark *c, lctx *d, de_int64 pos,
-	de_int64 fieldsize, int base, de_int64 *value)
-{
-	char buf[32];
-
-	*value = 0;
-	if(fieldsize>(de_int64)(sizeof(buf)-1)) return 0;
-
-	de_read((de_byte*)buf, pos, fieldsize);
-	buf[fieldsize] = '\0';
-
-	*value = de_strtoll(buf, NULL, base);
-	return 1;
-}
-
 static int read_member(deark *c, lctx *d, de_int64 pos1, de_int64 *bytes_consumed_member)
 {
 	struct member_data *md = NULL;
@@ -91,7 +68,7 @@ static int read_member(deark *c, lctx *d, de_int64 pos1, de_int64 *bytes_consume
 		is_dir = 1;
 	}
 
-	ret = read_ascii_number(c, d, pos, 7, 8, &md->mode);
+	ret = dbuf_read_ascii_number(c->infile, pos, 7, 8, &md->mode);
 	if(!ret) goto done;
 	pos += 8;
 	de_dbg(c, "mode: octal(%06o)\n", (unsigned int)md->mode);
@@ -102,15 +79,15 @@ static int read_member(deark *c, lctx *d, de_int64 pos1, de_int64 *bytes_consume
 	pos += 8; // uid
 	pos += 8; // gid
 
-	ret = read_ascii_number(c, d, pos, 11, 8, &md->filesize);
+	ret = dbuf_read_ascii_number(c->infile, pos, 11, 8, &md->filesize);
 	if(!ret) goto done;
 	pos += 12;
 	de_dbg(c, "size: %"INT64_FMT"\n", md->filesize);
 	if(is_dir) md->filesize = 0;
 
-	md->filesize_padded = pad_to_512(md->filesize);
+	md->filesize_padded = de_pad_to_n(md->filesize, 512);
 
-	ret = read_ascii_number(c, d, pos, 11, 8, &modtime_unix);
+	ret = dbuf_read_ascii_number(c->infile, pos, 11, 8, &modtime_unix);
 	if(!ret) goto done;
 	de_unix_time_to_timestamp(modtime_unix, &md->fi->mod_time);
 	de_timestamp_to_string(&md->fi->mod_time, timestamp_buf, sizeof(timestamp_buf), 1);

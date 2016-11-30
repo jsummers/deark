@@ -33,31 +33,6 @@ typedef struct localctx_struct {
 	int trailer_found;
 } lctx;
 
-static de_int64 pad_to_2(de_int64 n)
-{
-	return (n&0x1) ? n+1 : n;
-}
-
-static de_int64 pad_to_4(de_int64 n)
-{
-	return ((n+3)/4)*4;
-}
-
-static int read_ascii_number(deark *c, lctx *d, de_int64 pos,
-	de_int64 fieldsize, int base, de_int64 *value)
-{
-	char buf[17];
-
-	*value = 0;
-	if(fieldsize>(de_int64)(sizeof(buf)-1)) return 0;
-
-	de_read((de_byte*)buf, pos, fieldsize);
-	buf[fieldsize] = '\0';
-
-	*value = de_strtoll(buf, NULL, base);
-	return 1;
-}
-
 // Returns a value suitable for format identification.
 // If format is unidentified, subfmt=0
 static int identify_cpio_internal(deark *c, de_int64 pos, int *subfmt)
@@ -113,12 +88,12 @@ static int read_header_ascii_portable(deark *c, lctx *d, struct member_data *md)
 	pos += 6; // c_magic
 	pos += 6; // c_dev
 
-	ret = read_ascii_number(c, d, pos, 6, 8, &n);
+	ret = dbuf_read_ascii_number(c->infile, pos, 6, 8, &n);
 	if(!ret) goto done;
 	de_dbg(c, "c_ino: %d\n", (int)n);
 	pos += 6;
 
-	ret = read_ascii_number(c, d, pos, 6, 8, &md->mode);
+	ret = dbuf_read_ascii_number(c->infile, pos, 6, 8, &md->mode);
 	if(!ret) goto done;
 	de_dbg(c, "c_mode: octal(%06o)\n", (unsigned int)md->mode);
 	pos += 6;
@@ -128,19 +103,19 @@ static int read_header_ascii_portable(deark *c, lctx *d, struct member_data *md)
 	pos += 6; // c_nlink
 	pos += 6; // c_rdev
 
-	ret = read_ascii_number(c, d, pos, 11, 8, &modtime_unix);
+	ret = dbuf_read_ascii_number(c->infile, pos, 11, 8, &modtime_unix);
 	if(!ret) goto done;
 	de_unix_time_to_timestamp(modtime_unix, &md->fi->mod_time);
 	de_timestamp_to_string(&md->fi->mod_time, timestamp_buf, sizeof(timestamp_buf), 1);
 	de_dbg(c, "c_mtime: %d (%s)\n", (int)modtime_unix, timestamp_buf);
 	pos += 11;
 
-	ret = read_ascii_number(c, d, pos, 6, 8, &md->namesize);
+	ret = dbuf_read_ascii_number(c->infile, pos, 6, 8, &md->namesize);
 	if(!ret) goto done;
 	de_dbg(c, "c_namesize: %d\n", (int)md->namesize);
 	pos += 6;
 
-	ret = read_ascii_number(c, d, pos, 11, 8, &md->filesize);
+	ret = dbuf_read_ascii_number(c->infile, pos, 11, 8, &md->filesize);
 	if(!ret) goto done;
 	de_dbg(c, "c_filesize: %d\n", (int)md->filesize);
 	pos += 11;
@@ -169,12 +144,12 @@ static int read_header_ascii_new(deark *c, lctx *d, struct member_data *md)
 
 	pos += 6; // c_magic
 
-	ret = read_ascii_number(c, d, pos, 8, 16, &n);
+	ret = dbuf_read_ascii_number(c->infile, pos, 8, 16, &n);
 	if(!ret) goto done;
 	de_dbg(c, "c_ino: %d\n", (int)n);
 	pos += 8;
 
-	ret = read_ascii_number(c, d, pos, 8, 16, &md->mode);
+	ret = dbuf_read_ascii_number(c->infile, pos, 8, 16, &md->mode);
 	if(!ret) goto done;
 	de_dbg(c, "c_mode: octal(%06o)\n", (unsigned int)md->mode);
 	pos += 8;
@@ -183,14 +158,14 @@ static int read_header_ascii_new(deark *c, lctx *d, struct member_data *md)
 	pos += 8; // c_gid
 	pos += 8; // c_nlink
 
-	ret = read_ascii_number(c, d, pos, 8, 16, &modtime_unix);
+	ret = dbuf_read_ascii_number(c->infile, pos, 8, 16, &modtime_unix);
 	if(!ret) goto done;
 	de_unix_time_to_timestamp(modtime_unix, &md->fi->mod_time);
 	de_timestamp_to_string(&md->fi->mod_time, timestamp_buf, sizeof(timestamp_buf), 1);
 	de_dbg(c, "c_mtime: %d (%s)\n", (int)modtime_unix, timestamp_buf);
 	pos += 8;
 
-	ret = read_ascii_number(c, d, pos, 8, 16, &md->filesize);
+	ret = dbuf_read_ascii_number(c->infile, pos, 8, 16, &md->filesize);
 	if(!ret) goto done;
 	de_dbg(c, "c_filesize: %d\n", (int)md->filesize);
 	pos += 8;
@@ -200,7 +175,7 @@ static int read_header_ascii_new(deark *c, lctx *d, struct member_data *md)
 	pos += 8; // c_rdevmajor
 	pos += 8; // c_rdevminor
 
-	ret = read_ascii_number(c, d, pos, 8, 16, &md->namesize);
+	ret = dbuf_read_ascii_number(c->infile, pos, 8, 16, &md->namesize);
 	if(!ret) goto done;
 	de_dbg(c, "c_namesize: %d\n", (int)md->namesize);
 	pos += 8;
@@ -209,10 +184,10 @@ static int read_header_ascii_new(deark *c, lctx *d, struct member_data *md)
 
 	md->fixed_header_size = pos - md->startpos;
 
-	header_and_namesize_padded = pad_to_4(md->fixed_header_size + md->namesize);
+	header_and_namesize_padded = de_pad_to_4(md->fixed_header_size + md->namesize);
 	md->namesize_padded = header_and_namesize_padded - md->fixed_header_size;
 
-	md->filesize_padded = pad_to_4(md->filesize);
+	md->filesize_padded = de_pad_to_4(md->filesize);
 
 	retval = 1;
 
@@ -267,8 +242,8 @@ static int read_header_binary(deark *c, lctx *d, struct member_data *md)
 	pos += 4;
 
 	md->fixed_header_size = pos - md->startpos;
-	md->namesize_padded = pad_to_2(md->namesize);
-	md->filesize_padded = pad_to_2(md->filesize);
+	md->namesize_padded = de_pad_to_2(md->namesize);
+	md->filesize_padded = de_pad_to_2(md->filesize);
 
 	retval = 1;
 	return retval;

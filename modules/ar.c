@@ -11,20 +11,6 @@ typedef struct localctx_struct {
 	de_int64 extended_name_table_size;
 } lctx;
 
-static de_int64 read_decimal(deark *c, de_int64 pos, de_int64 len)
-{
-	de_byte b;
-	de_int64 k;
-	de_int64 val = 0;
-
-	for(k=0; k<len; k++) {
-		b = de_getbyte(pos+k);
-		if(b<'0' || b>'9') break;
-		val = 10*val + (b-'0');
-	}
-	return val;
-}
-
 static int do_ar_item(deark *c, lctx *d, de_int64 pos1, de_int64 *p_item_len)
 {
 	char name_orig[17];
@@ -63,20 +49,19 @@ static int do_ar_item(deark *c, lctx *d, de_int64 pos1, de_int64 *p_item_len)
 
 	de_dbg(c, "member raw name: \"%s\"\n", ucstring_get_printable_sz(rawname_ucstring));
 
-	mod_time = read_decimal(c, pos1+16, 12);
+	(void)dbuf_read_ascii_number(c->infile, pos1+16, 12, 10, &mod_time);
 	de_unix_time_to_timestamp(mod_time, &fi->mod_time);
 	de_timestamp_to_string(&fi->mod_time, timestamp_buf, sizeof(timestamp_buf), 1);
 	de_dbg(c, "mod time: %" INT64_FMT " (%s)\n", mod_time, timestamp_buf);
 
-	// "File mode" field is not actually decimal, but it doesn't matter.
-	file_mode = read_decimal(c, pos1+40, 8);
-	de_dbg(c, "file mode: %d\n", (int)file_mode);
-	if((file_mode&0x1) || ((file_mode/10)&1) || ((file_mode/100)&1)) {
+	(void)dbuf_read_ascii_number(c->infile, pos1+40, 8, 8, &file_mode);
+	de_dbg(c, "file mode: octal(%06o)\n", (int)file_mode);
+	if((file_mode & 0111)!=0) {
 		fi->is_executable = 1;
 	}
 
 	file_offset = pos1 + 60;
-	file_size = read_decimal(c, pos1+48, 10);
+	(void)dbuf_read_ascii_number(c->infile, pos1+48, 10, 10, &file_size);
 	de_dbg(c, "member data at %d, size: %d\n",
 		(int)file_offset, (int)file_size);
 
@@ -103,7 +88,7 @@ static int do_ar_item(deark *c, lctx *d, de_int64 pos1, de_int64 *p_item_len)
 			goto done;
 		}
 
-		name_offset = read_decimal(c, pos1+1, 15);
+		(void)dbuf_read_ascii_number(c->infile, pos1+1, 15, 10, &name_offset);
 		if(name_offset >= d->extended_name_table_size) {
 			goto done;
 		}

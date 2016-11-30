@@ -381,6 +381,9 @@ double dbuf_getfloat32x(dbuf *f, de_int64 pos, int is_le);
 double de_getfloat64x_direct(deark *c, const de_byte *m, int is_le);
 double dbuf_getfloat64x(dbuf *f, de_int64 pos, int is_le);
 
+int dbuf_read_ascii_number(dbuf *f, de_int64 pos, de_int64 fieldsize,
+	int base, de_int64 *value);
+
 #define DE_GETRGBFLAG_BGR 0x1 // Assume BGR order instead of RGB
 de_uint32 dbuf_getRGB(dbuf *f, de_int64 pos, unsigned int flags);
 
@@ -548,6 +551,10 @@ void de_read_palette_rgb(dbuf *f,
 void de_convert_image_paletted(dbuf *f, de_int64 fpos,
 	de_int64 bpp, de_int64 rowspan, const de_uint32 *pal,
 	struct deark_bitmap *img, unsigned int flags);
+
+de_int64 de_pad_to_2(de_int64 x);
+de_int64 de_pad_to_4(de_int64 x);
+de_int64 de_pad_to_n(de_int64 x, de_int64 n);
 
 // Calculate the number of bits required to store n symbols.
 // Intended to be used with bitmap graphics.

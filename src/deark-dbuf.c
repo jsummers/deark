@@ -415,6 +415,20 @@ double dbuf_getfloat64x(dbuf *f, de_int64 pos, int is_le)
 	return de_getfloat64x_direct(f->c, buf, is_le);
 }
 
+int dbuf_read_ascii_number(dbuf *f, de_int64 pos, de_int64 fieldsize,
+	int base, de_int64 *value)
+{
+	char buf[32];
+
+	*value = 0;
+	if(fieldsize>(de_int64)(sizeof(buf)-1)) return 0;
+
+	dbuf_read(f, (de_byte*)buf, pos, fieldsize);
+	buf[fieldsize] = '\0';
+
+	*value = de_strtoll(buf, NULL, base);
+	return 1;
+}
 
 de_uint32 dbuf_getRGB(dbuf *f, de_int64 pos, unsigned int flags)
 {

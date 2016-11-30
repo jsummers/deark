@@ -323,17 +323,6 @@ static void do_tagged_blocks(deark *c, lctx *d, zztype *zz, int tbnamespace);
 static int do_descriptor_item_ostype_and_data(deark *c, lctx *d,
 	const struct flexible_id *key_flid, zztype *zz, de_int64 itempos);
 
-
-static de_int64 pad_to_2(de_int64 n)
-{
-	return (n&0x1) ? n+1 : n;
-}
-
-static de_int64 pad_to_4(de_int64 n)
-{
-	return ((n+3)/4)*4;
-}
-
 #define psd_getui16(p) dbuf_getui16x(c->infile,p,d->is_le)
 #define psd_geti16(p) dbuf_geti16x(c->infile,p,d->is_le)
 #define psd_getui32(p) dbuf_getui32x(c->infile,p,d->is_le)
@@ -1867,7 +1856,7 @@ static int do_image_resource(deark *c, lctx *d, zztype *zz)
 	blkname = ucstring_create(c);
 	zz_init(&czz, zz);
 	read_pascal_string_to_ucstring(c, d, blkname, &czz);
-	zz->pos += pad_to_2(zz_used(&czz));
+	zz->pos += de_pad_to_2(zz_used(&czz));
 
 	block_data_len = psd_getui32zz(zz);
 
@@ -1888,7 +1877,7 @@ static int do_image_resource(deark *c, lctx *d, zztype *zz)
 	}
 	de_dbg_indent(c, -1);
 
-	zz->pos += pad_to_2(block_data_len);
+	zz->pos += de_pad_to_2(block_data_len);
 
 	retval = 1;
 
@@ -1934,7 +1923,7 @@ static void do_layer_name(deark *c, lctx *d, zztype *zz)
 	s = ucstring_create(c);
 	read_pascal_string_to_ucstring(c, d, s, zz);
 	de_dbg(c, "layer name: \"%s\"\n", ucstring_get_printable_sz(s));
-	zz->pos = zz->startpos + pad_to_4(zz_used(zz));
+	zz->pos = zz->startpos + de_pad_to_4(zz_used(zz));
 	ucstring_destroy(s);
 }
 
@@ -2190,7 +2179,7 @@ static int do_one_linked_layer(deark *c, lctx *d, zztype *zz, const struct de_fo
 
 	// Seems to be padded to a multiple of 4 bytes. (The spec says nothing
 	// about this.)
-	zz->pos += pad_to_4(dlen);
+	zz->pos += de_pad_to_4(dlen);
 	retval = 1;
 
 	psd_read_fourcc_zz(c, d, &datazz, &type4cc);
@@ -2401,7 +2390,7 @@ static int do_pattern(deark *c, lctx *d, zztype *zz, de_int64 pattern_idx)
 
 	do_pattern_internal(c, d, &datazz);
 
-	zz->pos += pad_to_4(pat_dlen);
+	zz->pos += de_pad_to_4(pat_dlen);
 	retval = 1;
 
 	de_dbg_indent(c, -1);
@@ -2519,7 +2508,7 @@ static void do_samp_block(deark *c, lctx *d, zztype *zz)
 			do_samp_block_v62stuff(c, d, &czz);
 		}
 
-		zz->pos += pad_to_4(item_data_len2);
+		zz->pos += de_pad_to_4(item_data_len2);
 
 		de_dbg_indent(c, -1);
 		item_idx++;
@@ -3105,7 +3094,7 @@ static int do_tagged_block(deark *c, lctx *d, zztype *zz, int tbnamespace)
 
 	// Apparently, the data is padded to the next multiple of 4 bytes.
 	// (This is not what the PSD spec says.)
-	zz->pos += pad_to_4(blklen);
+	zz->pos += de_pad_to_4(blklen);
 	return 1;
 }
 
@@ -3907,7 +3896,7 @@ static void do_custom_shape(deark *c, lctx *d, zztype *zz)
 	de_dbg(c, "name: \"%s\"\n", ucstring_get_printable_sz_n(s, 300));
 	// This Unicode String is padded to a multiple of 4 bytes, unlike pretty much
 	// every other Unicode String in every Photoshop format.
-	zz->pos = saved_pos + pad_to_4(zz->pos - saved_pos);
+	zz->pos = saved_pos + de_pad_to_4(zz->pos - saved_pos);
 
 	zz->pos += 4; // Unknown field
 
