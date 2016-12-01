@@ -19,6 +19,8 @@ typedef struct localctx_struct {
 #define RT_FORMAT_TIFF  4
 #define RT_FORMAT_IFF   5
 	de_int64 imgtype;
+	int is_compressed;
+	int is_rgb_order;
 
 	de_int64 imglen;
 
@@ -29,6 +31,8 @@ typedef struct localctx_struct {
 
 	de_int64 maplen;
 
+	de_int64 rowspan;
+	de_int64 unc_pixels_size;
 	int is_paletted;
 	int is_grayscale;
 
@@ -61,15 +65,23 @@ static void do_image(deark *c, lctx *d, dbuf *unc_pixels)
 	de_uint32 clr;
 	de_byte b;
 	de_int64 i, j;
-	de_int64 rowspan;
 	de_int64 src_bypp, dst_bypp;
+	unsigned int getrgbflags;
 
 	if(d->depth!=1 && d->depth!=4 && d->depth!=8 && d->depth!=24 && d->depth!=32) {
 		de_err(c, "Bit depth %d not supported\n", (int)d->depth);
 		goto done;
 	}
+	if(d->depth==32) {
+		// Some apps think the extra channel comes first (e.g. xBGR); others
+		// think it comes last (BGRx).
+		// Some apps think the extra channel is for alpha; others think it is
+		// unused.
+		// Some apps think the color channels are always in BGR order; others
+		// think the order is RGB for RT_FORMAT_RGB format.
+		de_warn(c, "32-bit Sun Raster files are not portable\n");
+	}
 	if(!de_good_image_dimensions(c, d->width, d->height)) goto done;
-	if(d->imgtype!=RT_STANDARD) goto done;
 
 	src_bypp = d->depth/8;
 
@@ -83,18 +95,24 @@ static void do_image(deark *c, lctx *d, dbuf *unc_pixels)
 		dst_bypp = 3;
 	}
 
+	if(d->is_rgb_order) {
+		getrgbflags = 0;
+	}
+	else {
+		getrgbflags = DE_GETRGBFLAG_BGR;
+	}
+
 	img = de_bitmap_create(c, d->width, d->height, (int)dst_bypp);
-	rowspan = (((d->width * d->depth)+15)/16)*2;
 
 	for(j=0; j<d->height; j++) {
 		for(i=0; i<d->width; i++) {
 			if(d->is_paletted || d->is_grayscale) {
-				b = de_get_bits_symbol(unc_pixels, d->depth, rowspan*j, i);
+				b = de_get_bits_symbol(unc_pixels, d->depth, d->rowspan*j, i);
 				clr = d->pal[(unsigned int)b];
 				de_bitmap_setpixel_rgb(img, i, j, clr);
 			}
 			else if(d->depth==24 || d->depth==32) {
-				clr = dbuf_getRGB(unc_pixels, rowspan*j+i*src_bypp, DE_GETRGBFLAG_BGR);
+				clr = dbuf_getRGB(unc_pixels, d->rowspan*j+i*src_bypp, getrgbflags);
 				de_bitmap_setpixel_rgb(img, i, j, clr);
 			}
 		}
@@ -121,6 +139,12 @@ static void read_header(deark *c, lctx *d, de_int64 pos)
 	d->imglen = de_getui32be(pos+16);
 	d->imgtype = de_getui32be(pos+20);
 	de_dbg(c, "image type=%d, len=%d\n", (int)d->imgtype, (int)d->imglen);
+	if(d->imgtype==RT_BYTE_ENCODED) {
+		d->is_compressed = 1;
+	}
+	if(d->imgtype==RT_FORMAT_RGB) {
+		d->is_rgb_order = 1;
+	}
 
 	d->maptype = de_getui32be(pos+24);
 	d->maplen = de_getui32be(pos+28);
@@ -129,11 +153,41 @@ static void read_header(deark *c, lctx *d, de_int64 pos)
 	de_dbg_indent(c, -1);
 }
 
+static void do_uncompress_image(deark *c, lctx *d, de_int64 pos1, de_int64 len, dbuf *unc_pixels)
+{
+	de_int64 pos = pos1;
+
+	while(1) {
+		de_byte b0, b1, b2;
+
+		// Stop if we reach the end of the input file.
+		if(pos >= c->infile->len) break;
+
+		b0 = de_getbyte(pos++);
+		if(b0==0x80) {
+			b1 = de_getbyte(pos++);
+			if(b1==0x00) { // An escaped 0x80 byte
+				dbuf_writebyte(unc_pixels, 0x80);
+			}
+			else { // A compressed run
+				b2 = de_getbyte(pos++);
+				dbuf_write_run(unc_pixels, b2, (de_int64)b1+1);
+			}
+		}
+		else { // An uncompressed byte
+			dbuf_writebyte(unc_pixels, b0);
+		}
+	}
+}
+
 static void de_run_sunras(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
 	dbuf *unc_pixels = NULL;
 	de_int64 pos;
+	int saved_indent_level;
+
+	de_dbg_indent_save(c, &saved_indent_level);
 
 	d = de_malloc(c, sizeof(lctx));
 
@@ -141,32 +195,69 @@ static void de_run_sunras(deark *c, de_module_params *mparams)
 	read_header(c, d, pos);
 	pos += 32;
 
-	if(d->maptype==RMT_EQUAL_RGB) {
-		d->is_paletted = 1;
-		do_read_palette(c, d, pos);
-	}
-	else if(d->maptype==RMT_NONE && d->depth<=8) {
-		d->is_grayscale = 1;
-		de_make_grayscale_palette(d->pal, ((de_int64)1)<<d->depth, d->depth==1 ? 1 : 0);
-	}
-	pos += d->maplen;
+	if(pos >= c->infile->len) goto done;
 
-	if(pos+d->imglen > c->infile->len) {
-		de_err(c, "Unexpected end of file\n");
+	if(d->maplen > 0)
+		de_dbg(c, "colormap at %d\n", (int)pos);
+
+	de_dbg_indent(c, 1);
+
+	if(d->maptype==RMT_EQUAL_RGB) {
+		if(d->depth<=8) {
+			d->is_paletted = 1;
+			do_read_palette(c, d, pos);
+		}
+		else {
+			de_err(c, "This type of image is not supported\n");
+			goto done;
+		}
+	}
+	else if(d->maptype==RMT_NONE) {
+		if(d->depth<=8) {
+			d->is_grayscale = 1;
+			de_make_grayscale_palette(d->pal, ((de_int64)1)<<d->depth, d->depth==1 ? 1 : 0);
+		}
+	}
+	else {
+		// TODO: Support RMT_RAW
+		de_err(c, "Colormap type (%d) is not supported\n", (int)d->maptype);
 		goto done;
 	}
+	pos += d->maplen;
+	de_dbg_indent(c, -1);
 
-	if(d->imgtype!=RT_STANDARD) {
+	if(pos >= c->infile->len) goto done;
+	de_dbg(c, "image data at %d\n", (int)pos);
+	de_dbg_indent(c, 1);
+
+	d->rowspan = (((d->width * d->depth)+15)/16)*2;
+	d->unc_pixels_size = d->rowspan * d->height;
+
+	if(d->imgtype>5) {
 		de_err(c, "This type of image (%d) is not supported\n", (int)d->imgtype);
 		goto done;
 	}
 
-	unc_pixels = dbuf_open_input_subfile(c->infile, pos, c->infile->len - pos);
+	if((d->imgtype==RT_STANDARD || d->imgtype==RT_FORMAT_RGB) && d->imglen!=d->unc_pixels_size) {
+		de_warn(c, "Inconsistent image length: reported=%d, calculated=%d\n",
+			(int)d->imglen, (int)d->unc_pixels_size);
+	}
+
+	if(d->is_compressed) {
+		unc_pixels = dbuf_create_membuf(c, d->unc_pixels_size, 0x1);
+		do_uncompress_image(c, d, pos, c->infile->len - pos, unc_pixels);
+	}
+	else {
+		unc_pixels = dbuf_open_input_subfile(c->infile, pos, c->infile->len - pos);
+	}
+
 	do_image(c, d, unc_pixels);
+	de_dbg_indent(c, -1);
 
 done:
 	dbuf_close(unc_pixels);
 	de_free(c, d);
+	de_dbg_indent_restore(c, saved_indent_level);
 }
 
 static int de_identify_sunras(deark *c)

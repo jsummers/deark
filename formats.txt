@@ -362,7 +362,7 @@ Deark -- Information about supported formats
   - Decode "icon bank" images
 
 * Sun Raster (module="sunras") (incomplete)
-  - Supports most uncompressed images
+  - Supports most common image types
 
 * TGA (Targa) (module="tga")
 
