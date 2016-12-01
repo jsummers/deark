@@ -162,19 +162,6 @@ static void read_paletted_image(deark *c, lctx *d, dbuf *unc_pixels, struct dear
 	}
 }
 
-// flag 0x1: white-is-min
-static void make_grayscale_palette(de_uint32 *pal, de_int64 num_entries, unsigned int flags)
-{
-	de_int64 k;
-	de_byte b;
-
-	for(k=0; k<num_entries; k++) {
-		b = (de_byte)(0.5+ (double)k * (255.0 / (double)(num_entries-1)));
-		if(flags&0x1) b = 255-b;
-		pal[k] = DE_MAKE_GRAY(b);
-	}
-}
-
 // These palettes are based on Image Alchemy's interpretation of GEM raster files.
 static const de_uint32 pal3bit[8] = {
 	0xffffff,0x00ffff,0xff00ff,0xffff00,0x0000ff,0x00ff00,0xff0000,0x000000
@@ -223,7 +210,7 @@ static int do_gem_img(deark *c, lctx *d)
 		read_paletted_image(c, d, unc_pixels, img);
 	}
 	else {
-		make_grayscale_palette(d->pal, ((de_int64)1)<<((unsigned int)d->nplanes), 1);
+		de_make_grayscale_palette(d->pal, ((de_int64)1)<<((unsigned int)d->nplanes), 1);
 		read_paletted_image(c, d, unc_pixels, img);
 	}
 

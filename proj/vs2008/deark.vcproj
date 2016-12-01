@@ -722,6 +722,10 @@
 				>
 			</File>
 			<File
+				RelativePath="..\..\modules\sunras.c"
+				>
+			</File>
+			<File
 				RelativePath="..\..\modules\t64.c"
 				>
 			</File>

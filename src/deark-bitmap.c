@@ -175,7 +175,7 @@ void de_bitmap_setpixel_gray(struct deark_bitmap *img, de_int64 x, de_int64 y, d
 	}
 }
 
-// TODO: Decide if this should just be an alias of setpixel_rgb, or if it will
+// TODO: Decide if this should just be an alias of setpixel_rgba, or if it will
 // force colors to be opaque.
 void de_bitmap_setpixel_rgb(struct deark_bitmap *img, de_int64 x, de_int64 y,
 	de_uint32 color)
@@ -463,5 +463,18 @@ void de_bitmap_apply_mask(struct deark_bitmap *fg, struct deark_bitmap *mask,
 				a = 0xff-a;
 			de_bitmap_setsample(fg, i, j, 3, a);
 		}
+	}
+}
+
+// flag 0x1: white-is-min
+void de_make_grayscale_palette(de_uint32 *pal, de_int64 num_entries, unsigned int flags)
+{
+	de_int64 k;
+	de_byte b;
+
+	for(k=0; k<num_entries; k++) {
+		b = (de_byte)(0.5+ (double)k * (255.0 / (double)(num_entries-1)));
+		if(flags&0x1) b = 255-b;
+		pal[k] = DE_MAKE_GRAY(b);
 	}
 }

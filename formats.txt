@@ -361,6 +361,9 @@ Deark -- Information about supported formats
   - Decode "sprite bank" images
   - Decode "icon bank" images
 
+* Sun Raster (module="sunras") (incomplete)
+  - Supports most uncompressed images
+
 * TGA (Targa) (module="tga")
 
 * Thumbs.db (Windows thumbnail) (part of module "cfb")
