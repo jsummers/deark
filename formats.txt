@@ -466,6 +466,9 @@ Deark -- Information about supported formats
 * T64 (Commodore 64 "tape" format) (module="t64")
   - Partial support
 
+* tar (module="tar") (experimental/incomplete)
+  - Not always autodetected; may need "-m tar".
+
 * ZIP (module="zip")
   - Does not extract files, only comments.
   - Extract main ZIP file comment.
