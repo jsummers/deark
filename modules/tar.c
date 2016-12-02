@@ -244,8 +244,6 @@ static void de_run_tar(deark *c, de_module_params *mparams)
 	de_int64 item_len;
 	int ret;
 
-	de_warn(c, "tar support is incomplete\n");
-
 	d = de_malloc(c, sizeof(lctx));
 
 	pos = 0;
@@ -267,10 +265,37 @@ static void de_run_tar(deark *c, de_module_params *mparams)
 
 static int de_identify_tar(deark *c)
 {
-	if(!dbuf_memcmp(c->infile, 257, "ustar", 5))
-		return 90;
-	// TODO: Detect tar formats that don't have the "ustar" identifier.
-	return 0;
+	int has_ext;
+	de_byte buf[8];
+	de_int64 k;
+	de_int64 digit_count;
+
+	has_ext = de_input_file_has_ext(c, "tar");;
+	if(!dbuf_memcmp(c->infile, 257, "ustar", 5)) {
+		return has_ext ? 100 : 90;
+	}
+
+	// Try to detect tar formats that don't have the "ustar" identifier.
+	if(!has_ext) return 0;
+
+	// The 'checksum' field has a fairly distinctive format.
+	// "This field should be stored as six octal digits followed by a null and
+	// a space character."
+
+	de_read(buf, 148, 8);
+	digit_count = 0;
+	for(k=0; k<6; k++) {
+		if(buf[k]>='0' && buf[k]<='7') {
+			digit_count++;
+		}
+		else if(buf[k]!=' ') {
+			return 0;
+		}
+	}
+	if(digit_count<1) return 0;
+	if(buf[6]!=0x00) return 0;
+	if(buf[7]!=' ') return 0;
+	return 60;
 }
 
 void de_module_tar(deark *c, struct deark_module_info *mi)

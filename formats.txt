@@ -470,7 +470,7 @@ Deark -- Information about supported formats
   - Partial support
 
 * tar (module="tar") (experimental/incomplete)
-  - Not always autodetected; may need "-m tar".
+  - Rare files may need "-m tar", as tar is difficult to autodetect.
 
 * ZIP (module="zip")
   - Does not extract files, only comments.

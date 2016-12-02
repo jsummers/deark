@@ -157,8 +157,6 @@ static void de_run_ar(deark *c, de_module_params *mparams)
 	de_int64 item_len;
 	int ret;
 
-	de_warn(c, "AR support is incomplete\n");
-
 	d = de_malloc(c, sizeof(lctx));
 
 	pos = 8;
