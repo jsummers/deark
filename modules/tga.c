@@ -29,6 +29,7 @@ typedef struct localctx_struct {
 	de_int64 num_attribute_bits;
 	de_byte attributes_type;
 	de_byte top_down, right_to_left;
+	de_byte interleave_mode;
 	int has_signature;
 	int has_extension_area;
 	int has_alpha_channel; // Our guess as to whether the image has transparency.
@@ -51,31 +52,30 @@ typedef struct localctx_struct {
 	de_uint32 pal[256];
 } lctx;
 
-static void do_decode_image_1bpp(deark *c, lctx *d, struct tgaimginfo *imginfo, dbuf *unc_pixels,
-	de_finfo *fi, unsigned int createflags)
-{
-	de_warn(c, "1-bit TGA images are not portable, and may not be decoded correctly\n");
-
-	de_convert_and_write_image_bilevel(unc_pixels, 0, imginfo->width, imginfo->height,
-		(imginfo->width+7)/8, 0, fi, createflags);
-}
-
 static void do_decode_image_default(deark *c, lctx *d, struct tgaimginfo *imginfo, dbuf *unc_pixels,
 	de_finfo *fi, unsigned int createflags)
 {
 	struct deark_bitmap *img = NULL;
 	de_int64 i, j;
-	de_int64 i_adj, j_adj;
 	de_byte b;
 	de_uint32 clr;
 	de_byte a;
 	de_int64 rowspan;
 	int output_bypp;
 	unsigned int getrgbflags;
+	de_int64 interleave_stride;
+	de_int64 interleave_pass;
+	de_int64 cur_rownum; // 0-based, does not account for bottom-up orientation
 
-	rowspan = imginfo->width*d->bytes_per_pixel;
+	if(d->pixel_depth==1) {
+		de_warn(c, "1-bit TGA images are not portable, and may not be decoded correctly\n");
+		rowspan = (imginfo->width+7)/8;
+	}
+	else {
+		rowspan = imginfo->width*d->bytes_per_pixel;
+	}
 
-	if(d->color_type==TGA_CLRTYPE_GRAYSCALE)
+	if(d->color_type==TGA_CLRTYPE_GRAYSCALE || d->pixel_depth==1)
 		output_bypp=1;
 	else
 		output_bypp=3;
@@ -90,19 +90,43 @@ static void do_decode_image_default(deark *c, lctx *d, struct tgaimginfo *imginf
 
 	img = de_bitmap_create(c, imginfo->width, imginfo->height, output_bypp);
 
+	switch(d->interleave_mode) {
+	case 1: interleave_stride = 2; break;
+	case 2: interleave_stride = 4; break;
+	default: interleave_stride = 1;
+	}
+
+	cur_rownum = 0;
+	interleave_pass = 0;
+
 	for(j=0; j<imginfo->height; j++) {
+		de_int64 j_adj;
+
 		if(d->top_down)
-			j_adj = j;
+			j_adj = cur_rownum;
 		else
-			j_adj = imginfo->height-1-j;
+			j_adj = imginfo->height-1-cur_rownum;
+
+		// Update the row number for next time
+		cur_rownum += interleave_stride;
+		if(cur_rownum >= imginfo->height) {
+			// Went past the end of the image; move back to near the start.
+			interleave_pass++;
+			cur_rownum = interleave_pass;
+		}
 
 		for(i=0; i<imginfo->width; i++) {
+			de_int64 i_adj;
+
 			if(d->right_to_left)
 				i_adj = imginfo->width-1-i;
 			else
 				i_adj = i;
 
-			if(d->color_type==TGA_CLRTYPE_TRUECOLOR && (d->pixel_depth==15 || d->pixel_depth==16)) {
+			if(d->pixel_depth==1) {
+				de_convert_row_bilevel(unc_pixels, j*rowspan, img, j_adj, 0);
+			}
+			else if(d->color_type==TGA_CLRTYPE_TRUECOLOR && (d->pixel_depth==15 || d->pixel_depth==16)) {
 				clr = (de_uint32)dbuf_getui16le(unc_pixels, j*rowspan + i*d->bytes_per_pixel);
 				clr = de_rgb555_to_888(clr);
 				de_bitmap_setpixel_rgb(img, i_adj, j_adj, clr);
@@ -129,6 +153,7 @@ static void do_decode_image_default(deark *c, lctx *d, struct tgaimginfo *imginf
 	}
 
 	de_bitmap_write_to_file_finfo(img, fi, createflags);
+
 	de_bitmap_destroy(img);
 }
 
@@ -143,12 +168,7 @@ static void do_decode_image(deark *c, lctx *d, struct tgaimginfo *imginfo, dbuf 
 		fi->file_name = de_strdup(c, token);
 	}
 
-	if(d->pixel_depth==1) {
-		do_decode_image_1bpp(c, d, imginfo, unc_pixels, fi, createflags);
-	}
-	else {
-		do_decode_image_default(c, d, imginfo, unc_pixels, fi, createflags);
-	}
+	do_decode_image_default(c, d, imginfo, unc_pixels, fi, createflags);
 
 	de_finfo_destroy(c, fi);
 }
@@ -465,6 +485,11 @@ static void do_read_image_descriptor(deark *c, lctx *d)
 	d->top_down = (d->image_descriptor>>5)&0x01;
 	de_dbg(c, "right-to-left flag: %d\n", (int)d->right_to_left);
 	de_dbg(c, "top-down flag: %d\n", (int)d->top_down);
+
+	d->interleave_mode = d->image_descriptor >> 6;
+	if(d->interleave_mode != 0) {
+		de_dbg(c, "interleaving: %d\n", (int)d->interleave_mode);
+	}
 	de_dbg_indent(c, -1);
 }
 
@@ -732,11 +757,6 @@ static void de_run_tga(deark *c, de_module_params *mparams)
 	}
 	else {
 		de_err(c, "Unsupported compression type (%d, %s)\n", (int)d->cmpr_type, d->cmpr_name);
-		goto done;
-	}
-
-	if(d->image_descriptor >= 0x40) {
-		de_err(c, "TGA interleaving not supported\n");
 		goto done;
 	}
 
