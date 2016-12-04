@@ -36,6 +36,7 @@ DE_DECLARE_MODULE(de_module_vgafont);
 DE_DECLARE_MODULE(de_module_hsiraw);
 DE_DECLARE_MODULE(de_module_qdv);
 DE_DECLARE_MODULE(de_module_vitec);
+DE_DECLARE_MODULE(de_module_hs2);
 
 // **************************************************************************
 // "copy" module
@@ -1670,4 +1671,38 @@ void de_module_vitec(deark *c, struct deark_module_info *mi)
 	mi->desc = "VITec image format";
 	mi->run_fn = de_run_vitec;
 	mi->identify_fn = de_identify_vitec;
+}
+
+// **************************************************************************
+// HS2 module
+//
+// .HS2 format is associated with a program called POSTERING.
+// **************************************************************************
+
+static void de_run_hs2(deark *c, de_module_params *mparams)
+{
+	de_int64 width, height;
+	de_int64 rowspan;
+
+	rowspan = 105;
+	width = rowspan*8;
+	height = (c->infile->len+(rowspan-1))/rowspan;
+	de_convert_and_write_image_bilevel(c->infile, 0, width, height, rowspan, 0, NULL, 0);
+}
+
+static int de_identify_hs2(deark *c)
+{
+	if(!de_input_file_has_ext(c, "hs2")) return 0;
+	if(c->infile->len>0 && (c->infile->len%105 == 0)) {
+		return 15;
+	}
+	return 0;
+}
+
+void de_module_hs2(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "hs2";
+	mi->desc = "HS2 (POSTERING)";
+	mi->run_fn = de_run_hs2;
+	mi->identify_fn = de_identify_hs2;
 }

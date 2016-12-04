@@ -144,6 +144,8 @@ Deark -- Information about supported formats
 
 * HR (TRS-80 High Resolution graphics file) (module="hr")
 
+* .HS2 (module="hs2")
+
 * HSI Raw (module="hsiraw")
 
 * icns (Apple Icon) (module="icns")
