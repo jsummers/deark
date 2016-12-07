@@ -3,8 +3,8 @@
 // See the file COPYING for terms of use.
 
 // MAKIchan graphics
-//  Supported: .MAG, .MKI
-//  TODO: .MAX
+//  Supported: Most .MAG, .MKI
+//  Not support: .MAX, some variant formats
 
 #include <deark-config.h>
 #include <deark-private.h>
@@ -256,7 +256,7 @@ static int read_mag_header(deark *c, lctx *d)
 	model_flags = de_getbyte(pos+2);
 	de_dbg(c, "model code: 0x%02x, flags: 0x%02x\n",
 		(unsigned int)model_code, (unsigned int)model_flags);
-	if(model_code==0x03 && ((model_flags&0x44)==0x44)) { // Just a guess
+	if(model_code==0x03 && (model_flags==0x44 || model_flags==0x24)) {
 		de_warn(c, "This looks like MAX format, which is not correctly supported.\n");
 		d->is_max = 1;
 	}

@@ -207,9 +207,9 @@ Deark -- Information about supported formats
   Options
    -opt macpaint:macbinary=<0|1>
 
-* MAKIchan graphics (module="makichan")
-  - Supports 16- and 256-color .MAG images
-  - Supports 16-color .MKI images
+* MAKIchan graphics (module="makichan") (experimental)
+  - Supports most 16- and 256-color .MAG images
+  - Supports most 16-color .MKI images
   - Does not support .MAX
 
 * MRW (Minolta RAW) (module="mrw")
