@@ -8,15 +8,15 @@
 #include <deark-private.h>
 DE_DECLARE_MODULE(de_module_png);
 
-#define PNGID_IDAT 0x49444154
+#define PNGID_IDAT 0x49444154U
 #define PNGID_IHDR 0x49484452U
 #define PNGID_gAMA 0x67414d41U
-#define PNGID_iCCP 0x69434350
-#define PNGID_iTXt 0x69545874
+#define PNGID_iCCP 0x69434350U
+#define PNGID_iTXt 0x69545874U
 #define PNGID_pHYs 0x70485973U
-#define PNGID_tEXt 0x74455874
+#define PNGID_tEXt 0x74455874U
 #define PNGID_tIME 0x74494d45U
-#define PNGID_zTXt 0x7a545874
+#define PNGID_zTXt 0x7a545874U
 
 typedef struct localctx_struct {
 #define DE_PNGFMT_PNG 1
