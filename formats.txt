@@ -299,6 +299,8 @@ Deark -- Information about supported formats
   - Extract XMP data.
   - Extract ICC profiles.
 
+* PNM/PBM/PGM/PPM (module="pnm")
+
 * PrintMaster .SHP format (module="printmaster")
   Options
    -file2 <file.sdr> - Use this "name" file

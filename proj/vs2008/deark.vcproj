@@ -674,6 +674,10 @@
 				>
 			</File>
 			<File
+				RelativePath="..\..\modules\pnm.c"
+				>
+			</File>
+			<File
 				RelativePath="..\..\modules\portfolio.c"
 				>
 			</File>

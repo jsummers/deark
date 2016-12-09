@@ -69,27 +69,6 @@ static void get_fmt(deark *c, struct fmtinfo_struct *fmti)
 		return;
 	}
 
-	if(b[0]=='P' && b[2]=='\n') {
-		switch(b[1]) {
-		case '1': case '4':
-			fmti->confidence = 50;
-			fmti->descr = "a PBM file";
-			return;
-		case '2': case '5':
-			fmti->confidence = 50;
-			fmti->descr = "a PGM file";
-			return;
-		case '3': case '6':
-			fmti->confidence = 50;
-			fmti->descr = "a PPM file";
-			return;
-		case '7':
-			fmti->confidence = 50;
-			fmti->descr = "a PAM file";
-			return;
-		}
-	}
-
 	if(!de_memcmp(b, "FORM", 4)) {
 		fmti->confidence = 2;
 		fmti->special_message = 1;
