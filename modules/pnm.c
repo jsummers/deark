@@ -10,6 +10,7 @@
 #include <deark-private.h>
 DE_DECLARE_MODULE(de_module_pnm);
 
+// Numbers 1-6 are assumed to match the "Px" number in the file signature.
 #define FMT_PBM_ASCII    1
 #define FMT_PGM_ASCII    2
 #define FMT_PPM_ASCII    3
@@ -20,6 +21,7 @@ DE_DECLARE_MODULE(de_module_pnm);
 
 struct page_ctx {
 	int fmt;
+	const char *fmt_name;
 	de_int64 width, height;
 	de_int64 maxval;
 
@@ -31,6 +33,22 @@ typedef struct localctx_struct {
 	int last_fmt;
 	de_int64 last_bytesused;
 } lctx;
+
+static int fmt_is_pbm(int fmt)
+{
+	return (fmt==FMT_PBM_ASCII || fmt==FMT_PBM_BINARY);
+}
+
+static int fmt_is_ppm(int fmt)
+{
+	return (fmt==FMT_PPM_ASCII || fmt==FMT_PPM_BINARY);
+}
+
+static int fmt_is_binary(int fmt)
+{
+	return (fmt==FMT_PBM_BINARY || fmt==FMT_PGM_BINARY ||
+		fmt==FMT_PPM_BINARY || fmt==FMT_PAM);
+}
 
 static int is_pnm_whitespace(de_byte b)
 {
@@ -92,6 +110,7 @@ static int read_pnm_header(deark *c, lctx *d, struct page_ctx *pg, de_int64 pos1
 	de_dbg(c, "header at %d\n", (int)pos1);
 	de_dbg_indent(c, 1);
 
+	de_dbg(c, "format: %s\n", pg->fmt_name);
 	pg->hdr_parse_pos = pos1+2; // Skip "P?"
 
 	if(!read_next_token(c, d, pg, tokenbuf, sizeof(tokenbuf))) goto done;
@@ -100,7 +119,7 @@ static int read_pnm_header(deark *c, lctx *d, struct page_ctx *pg, de_int64 pos1
 	pg->height = de_atoi64(tokenbuf);
 	de_dbg(c, "dimensions: %dx%d\n", (int)pg->width, (int)pg->height);
 
-	if(pg->fmt==FMT_PBM_ASCII || pg->fmt==FMT_PBM_BINARY) {
+	if(fmt_is_pbm(pg->fmt)) {
 		pg->maxval = 1;
 	}
 	else {
@@ -163,7 +182,7 @@ static int do_image_pgm_ppm_ascii(deark *c, lctx *d, struct page_ctx *pg, de_int
 	size_t samplebuf_used;
 	de_byte b;
 
-	if(pg->fmt==FMT_PPM_ASCII) nsamples=3;
+	if(fmt_is_ppm(pg->fmt)) nsamples=3;
 	else nsamples=1;
 
 	img = de_bitmap_create(c, pg->width, pg->height, (int)nsamples);
@@ -189,7 +208,7 @@ static int do_image_pgm_ppm_ascii(deark *c, lctx *d, struct page_ctx *pg, de_int
 				v_adj = de_scale_n_to_255(pg->maxval, v);
 				samplebuf_used = 0;
 
-				if(pg->fmt==FMT_PPM_ASCII) {
+				if(nsamples>1) {
 					de_bitmap_setsample(img, xpos, ypos, sampidx, v_adj);
 				}
 				else {
@@ -247,7 +266,7 @@ static int do_image_pgm_ppm_binary(deark *c, lctx *d, struct page_ctx *pg, de_in
 	unsigned int samp_ori[3];
 	de_byte samp_adj[3];
 
-	if(pg->fmt==FMT_PPM_BINARY) nsamples=3;
+	if(fmt_is_ppm(pg->fmt)) nsamples=3;
 	else nsamples=1;
 
 	if(pg->maxval<=255) bytes_per_sample=1;
@@ -331,18 +350,27 @@ static int identify_fmt(deark *c, de_int64 pos)
 
 	de_read(buf, pos, 3);
 	if(buf[0]!='P') return 0;
-	switch(buf[1]) {
-	case '7':
-		if(buf[2]==0x0a) return FMT_PAM;
-		break;
-	case '1': return FMT_PBM_ASCII;
-	case '2': return FMT_PGM_ASCII;
-	case '3': return FMT_PPM_ASCII;
-	case '4': return FMT_PBM_BINARY;
-	case '5': return FMT_PGM_BINARY;
-	case '6': return FMT_PPM_BINARY;
-	}
+
+	if(buf[1]=='7' && buf[2]==0x0a)
+		return FMT_PAM;
+	if(buf[1]>='1' && buf[1]<='6')
+		return buf[1] - '0';
 	return 0;
+}
+
+static const char *get_fmt_name(int fmt)
+{
+	const char *name="unknown";
+	switch(fmt) {
+	case FMT_PBM_ASCII: name="PBM plain"; break;
+	case FMT_PGM_ASCII: name="PGM plain"; break;
+	case FMT_PPM_ASCII: name="PPM plain"; break;
+	case FMT_PBM_BINARY: name="PBM"; break;
+	case FMT_PGM_BINARY: name="PGM"; break;
+	case FMT_PPM_BINARY: name="PPM"; break;
+	case FMT_PAM: name="PAM"; break;
+	}
+	return name;
 }
 
 static int do_page(deark *c, lctx *d, int pagenum, de_int64 pos1)
@@ -354,21 +382,14 @@ static int do_page(deark *c, lctx *d, int pagenum, de_int64 pos1)
 
 	pg->fmt = identify_fmt(c, pos1);
 	d->last_fmt = pg->fmt;
+	pg->fmt_name = get_fmt_name(pg->fmt);
 	if(pg->fmt==0) {
 		de_err(c, "Not PNM/PAM format\n");
 		goto done;
 	}
 
 	if(pagenum==0) {
-		switch(pg->fmt) {
-		case FMT_PBM_ASCII: de_declare_fmt(c, "PBM plain"); break;
-		case FMT_PGM_ASCII: de_declare_fmt(c, "PGM plain"); break;
-		case FMT_PPM_ASCII: de_declare_fmt(c, "PPM plain"); break;
-		case FMT_PBM_BINARY: de_declare_fmt(c, "PBM"); break;
-		case FMT_PGM_BINARY: de_declare_fmt(c, "PGM"); break;
-		case FMT_PPM_BINARY: de_declare_fmt(c, "PPM"); break;
-		case FMT_PAM: de_declare_fmt(c, "PAM"); break;
-		}
+		de_declare_fmt(c, pg->fmt_name);
 	}
 
 	if(pg->fmt==FMT_PAM) {
@@ -409,11 +430,9 @@ static void de_run_pnm(deark *c, de_module_params *mparams)
 		if(!ret) break;
 		if(d->last_bytesused<8) break;
 
-		if(d->last_fmt!=FMT_PBM_BINARY && d->last_fmt!=FMT_PGM_BINARY &&
-			d->last_fmt!=FMT_PPM_BINARY && d->last_fmt!=FMT_PAM)
+		if(!fmt_is_binary(d->last_fmt))
 		{
-			// This ormat does not support multiple images
-			break;
+			break; // ASCII formats don't support multiple images
 		}
 
 		pos += d->last_bytesused;
