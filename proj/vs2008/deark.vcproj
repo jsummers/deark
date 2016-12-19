@@ -598,6 +598,10 @@
 				>
 			</File>
 			<File
+				RelativePath="..\..\modules\iff.c"
+				>
+			</File>
+			<File
 				RelativePath="..\..\modules\ilbm.c"
 				>
 			</File>

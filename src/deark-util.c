@@ -590,7 +590,10 @@ de_int64 de_pad_to_4(de_int64 x)
 
 de_int64 de_pad_to_n(de_int64 x, de_int64 n)
 {
-	de_int64 r = x%n;
+	de_int64 r;
+	if(n<2)
+		return x;
+	r = x%n;
 	if(r==0)
 		return x;
 	return x - r + n;

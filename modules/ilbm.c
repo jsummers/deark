@@ -150,22 +150,6 @@ static void do_dpi(deark *c, lctx *d, de_int64 pos, de_int64 len)
 	de_dbg(c, "dpi: %dx%d\n", (int)d->x_dpi, (int)d->y_dpi);
 }
 
-static void do_anno(deark *c, lctx *d, de_int64 pos, de_int64 len)
-{
-	de_int64 foundpos;
-
-	if(len<1) return;
-	if(c->extract_level<2) return;
-
-	// Some ANNO chunks seem to be padded with one or more NUL bytes. Probably
-	// best not to save them.
-	if(dbuf_search_byte(c->infile, 0x00, pos, len, &foundpos)) {
-		len = foundpos - pos;
-	}
-
-	dbuf_create_file_from_slice(c->infile, pos, len, "anno.txt", NULL, DE_CREATEFLAG_IS_AUX);
-}
-
 static de_byte getbit(const de_byte *m, de_int64 bitnum)
 {
 	de_byte b;
@@ -863,7 +847,7 @@ static int do_chunk(deark *c, lctx *d, de_int64 pos, de_int64 bytes_avail,
 		break;
 
 	case CODE_ANNO:
-		do_anno(c, d, chunk_data_pos, chunk_data_len);
+		de_fmtutil_handle_standard_iff_chunk(c, c->infile, chunk_data_pos, chunk_data_len, chunk4cc.id);
 		break;
 
 	case CODE_CRNG:

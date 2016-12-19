@@ -538,6 +538,11 @@ Deark -- Information about supported formats
 * ICC profile (module="iccprofile")
   - Debug info only.
 
+* IFF (Interchange File Format) (module="iff")
+  - IFF can be parsed, but in many cases nothing can be extracted from it.
+  Options
+   -opt iff:align=<n> - Assume chunks are padded to an n-byte boundary.
+
 * IPTC metadata (module="iptc")
   - Extract captions/abstracts (use -a).
   - Extract raster caption bitmaps.

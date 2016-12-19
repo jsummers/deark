@@ -69,13 +69,6 @@ static void get_fmt(deark *c, struct fmtinfo_struct *fmti)
 		return;
 	}
 
-	if(!de_memcmp(b, "FORM", 4)) {
-		fmti->confidence = 2;
-		fmti->special_message = 1;
-		fmti->descr = "an IFF file, but it is not one of the supported IFF subformats.";
-		return;
-	}
-
 	if(!de_memcmp(b, "ICE!", 4) ||
 		!de_memcmp(b, "Ice!", 4))
 	{

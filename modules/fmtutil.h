@@ -117,3 +117,6 @@ void de_fmtutil_read_atari_palette(deark *c, dbuf *f, de_int64 pos,
 
 int de_fmtutil_atari_decode_image(deark *c, struct atari_img_decode_data *adata);
 void de_fmtutil_atari_set_standard_density(deark *c, struct atari_img_decode_data *adata);
+
+void de_fmtutil_handle_standard_iff_chunk(deark *c, dbuf *f, de_int64 dpos, de_int64 dlen,
+	de_uint32 chunktype);

@@ -878,3 +878,32 @@ void de_fmtutil_atari_set_standard_density(deark *c, struct atari_img_decode_dat
 		break;
 	}
 }
+
+#define CODE_ANNO  0x414e4e4fU
+
+static void do_iff_anno(deark *c, de_int64 pos, de_int64 len)
+{
+	de_int64 foundpos;
+
+	if(len<1) return;
+	if(c->extract_level<2) return;
+
+	// Some ANNO chunks seem to be padded with one or more NUL bytes. Probably
+	// best not to save them.
+	if(dbuf_search_byte(c->infile, 0x00, pos, len, &foundpos)) {
+		len = foundpos - pos;
+	}
+	if(len<1) return;
+
+	dbuf_create_file_from_slice(c->infile, pos, len, "anno.txt", NULL, DE_CREATEFLAG_IS_AUX);
+}
+
+void de_fmtutil_handle_standard_iff_chunk(deark *c, dbuf *f, de_int64 dpos, de_int64 dlen,
+	de_uint32 chunktype)
+{
+	switch(chunktype) {
+	case CODE_ANNO:
+		do_iff_anno(c, dpos, dlen);
+		break;
+	}
+}
