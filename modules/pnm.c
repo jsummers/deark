@@ -138,6 +138,124 @@ done:
 	return retval;
 }
 
+// Read a token from a NUL-terminated string.
+static int read_next_pam_token(deark *c, lctx *d, struct page_ctx *pg,
+	const char *linebuf, char *tokenbuf, size_t tokenbuflen, de_int64 *curpos)
+{
+	de_byte b;
+	de_int64 token_len = 0;
+	de_int64 linepos;
+
+	token_len = 0;
+
+	linepos = *curpos;
+	while(1) {
+		if(token_len >= (de_int64)tokenbuflen) {
+			// Token too long.
+			return 0;
+		}
+
+		b = linebuf[linepos++];
+		if(b==0) break; // End of line
+
+		if(is_pnm_whitespace(b)) {
+			if(token_len>0) {
+				break;
+			}
+			else {
+				continue; // Skip leading whitespace.
+			}
+		}
+		else {
+			// Append the character to the token.
+			tokenbuf[token_len++] = b;
+		}
+	}
+
+	tokenbuf[token_len] = '\0';
+	*curpos = linepos;
+	return 1;
+}
+
+static int read_pam_header_line(deark *c, lctx *d, struct page_ctx *pg, de_int64 pos,
+	de_int64 *content_len, de_int64 *total_len,
+	char *linebuf, size_t linebuf_len)
+{
+	int ret;
+	de_int64 amt_to_read;
+
+	linebuf[0]='\0';
+
+	ret = dbuf_find_line(c->infile, pos,
+		content_len, total_len);
+
+	if(!ret) return 0;
+
+	amt_to_read = *content_len;
+	if(amt_to_read > (de_int64)(linebuf_len-1)) amt_to_read = (de_int64)(linebuf_len-1);
+
+	de_read((de_byte*)linebuf, pos, amt_to_read);
+
+	*content_len = amt_to_read;
+	linebuf[amt_to_read] = '\0';
+	return 1;
+}
+
+static int read_pam_header(deark *c, lctx *d, struct page_ctx *pg, de_int64 pos1)
+{
+	int ret;
+	de_int64 pos = pos1;
+	int retval = 0;
+	char linebuf[200];
+	char token1buf[200];
+	//char token2buf[200];
+
+	de_dbg(c, "header at %d\n", (int)pos1);
+	de_dbg_indent(c, 1);
+
+	de_err(c, "PAM format not supported\n");
+	goto done;
+
+	pos += 3; // Skip "P7\n"
+	while(1) {
+		de_int64 content_len;
+		de_int64 total_len;
+		de_int64 curpos;
+
+		//ret = dbuf_find_line(c->infile, pos,
+		//	&content_len, &total_len);
+		ret = read_pam_header_line(c, d, pg, pos, &content_len, &total_len,
+			linebuf, sizeof(linebuf));
+
+		if(!ret) {
+			de_err(c, "Invalid PAM header\n");
+			break;
+		}
+
+		if(content_len>0 && (de_getbyte(pos)=='#')) {
+			// comment line
+			pos += total_len;
+			continue;
+		}
+
+		curpos = 0;
+		if(!read_next_pam_token(c, d, pg, linebuf, token1buf, sizeof(token1buf), &curpos)) goto done;
+
+		if(!de_strcmp(token1buf,"ENDHDR")) {
+			break;
+		}
+
+		pos += total_len;
+		continue;
+
+	}
+
+	retval = 1;
+done:
+	de_dbg_indent(c, -1);
+	return retval;
+}
+
 static int do_image_pbm_ascii(deark *c, lctx *d, struct page_ctx *pg, de_int64 pos1)
 {
 	struct deark_bitmap *img = NULL;
@@ -393,8 +511,7 @@ static int do_page(deark *c, lctx *d, int pagenum, de_int64 pos1)
 	}
 
 	if(pg->fmt==FMT_PAM) {
-		de_err(c, "PAM format not supported\n");
-		goto done;
+		if(!read_pam_header(c, d, pg, pos1)) goto done;
 	}
 	else {
 		if(!read_pnm_header(c, d, pg, pos1)) goto done;
