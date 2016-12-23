@@ -17,7 +17,6 @@ DE_DECLARE_MODULE(de_module_iff);
 #define FMT_FOR4   4
 #define FMT_DJVU   10
 
-#define CODE_ANNO  0x414e4e4fU
 #define CODE_CAT   0x43415420U
 #define CODE_CAT4  0x43415434U
 #define CODE_FOR4  0x464f5234U
@@ -27,11 +26,6 @@ DE_DECLARE_MODULE(de_module_iff);
 
 typedef struct localctx_struct {
 	int fmt; // FMT_*
-	de_int64 alignment;
-
-	int level;
-	de_uint32 main_formtype;
-	de_uint32 curr_formtype;
 } lctx;
 
 static int is_container_chunk(deark *c, lctx *d, de_uint32 ct)
@@ -45,104 +39,11 @@ static int is_container_chunk(deark *c, lctx *d, de_uint32 ct)
 	return 0;
 }
 
-static int do_chunk_sequence(deark *c, lctx *d, de_int64 pos1, de_int64 len);
-
-// Returns 0 if we can't continue
-static int do_chunk(deark *c, lctx *d, de_int64 pos, de_int64 bytes_avail,
-	de_int64 *bytes_consumed)
+static int my_iff_chunk_handler(deark *c, struct de_iffctx *ictx)
 {
-	int ret;
-	de_int64 chunk_dpos;
-	de_int64 chunk_dlen;
-	de_int64 chunk_dlen_padded;
-	de_int64 data_bytes_avail;
-	struct de_fourcc chunk4cc;
-	struct de_fourcc formtype4cc;
-	de_uint32 saved_formtype;
-	int saved_indent_level;
-	int retval = 0;
+	lctx *d = (lctx*)ictx->userdata;
 
-	de_dbg_indent_save(c, &saved_indent_level);
-
-	if(bytes_avail<8) {
-		de_err(c, "Invalid chunk size (at %d, size=%d)\n", (int)pos, (int)bytes_avail);
-		goto done;
-	}
-	data_bytes_avail = bytes_avail-8;
-
-	dbuf_read_fourcc(c->infile, pos, &chunk4cc, 0);
-	chunk_dlen = de_getui32be(pos+4);
-	chunk_dpos = pos+8;
-
-	de_dbg(c, "Chunk '%s' at %d, dpos=%d, dlen=%d\n", chunk4cc.id_printable, (int)pos,
-		(int)chunk_dpos, (int)chunk_dlen);
-	de_dbg_indent(c, 1);
-
-	if(chunk_dlen > data_bytes_avail) {
-		de_warn(c, "Invalid chunk size at %d (chunk '%s', bytes_needed=%"INT64_FMT", "
-			"bytes_avail=%"INT64_FMT")\n",
-			(int)pos, chunk4cc.id_printable, chunk_dlen, data_bytes_avail);
-		chunk_dlen = data_bytes_avail; // Try to continue
-	}
-
-	chunk_dlen_padded = de_pad_to_n(chunk_dlen, d->alignment);
-	*bytes_consumed = 8 + chunk_dlen_padded;
-
-	// We've set *bytes_consumed, so we can return "success"
-	retval = 1;
-
-	if(is_container_chunk(c, d, chunk4cc.id)) {
-		// First 4 bytes of payload are the "contents type" or "FORM type"
-		dbuf_read_fourcc(c->infile, pos+8, &formtype4cc, 0);
-		d->curr_formtype = formtype4cc.id;
-		if(d->level==0) {
-			d->main_formtype = formtype4cc.id;
-		}
-		de_dbg(c, "contents type: '%s'\n", formtype4cc.id_printable);
-
-		// The rest is a sequence of chunks.
-		saved_formtype = d->curr_formtype;
-		d->level++;
-		ret = do_chunk_sequence(c, d, chunk_dpos+4, chunk_dlen-4);
-		d->level--;
-		d->curr_formtype = saved_formtype;
-		if(!ret) {
-			goto done;
-		}
-	}
-	else {
-		switch(chunk4cc.id) {
-		case CODE_ANNO:
-			de_fmtutil_handle_standard_iff_chunk(c, c->infile, chunk_dpos, chunk_dlen, chunk4cc.id);
-			break;
-		}
-	}
-
-done:
-	de_dbg_indent_restore(c, saved_indent_level);
-	return retval;
-}
-
-static int do_chunk_sequence(deark *c, lctx *d, de_int64 pos1, de_int64 len)
-{
-	de_int64 pos;
-	de_int64 endpos;
-	de_int64 chunk_len;
-	int ret;
-
-	if(d->level >= 10) { // An arbitrary recursion limit.
-		return 0;
-	}
-
-	endpos = pos1+len;
-
-	pos = pos1;
-	while(pos < endpos) {
-		ret = do_chunk(c, d, pos, endpos-pos, &chunk_len);
-		if(!ret) return 0;
-		pos += chunk_len;
-	}
-
+	ictx->is_container = is_container_chunk(c, d, ictx->chunk4cc.id);
 	return 1;
 }
 
@@ -168,22 +69,25 @@ static int identify_internal(deark *c)
 static void de_run_iff(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
+	struct de_iffctx *ictx = NULL;
 	const char *s;
 	de_int64 pos;
 
-	d = de_malloc(c, sizeof(lctx));
 
-	d->alignment = 2; // default
+	d = de_malloc(c, sizeof(lctx));
+	ictx = de_malloc(c, sizeof(struct de_iffctx));
+
+	ictx->alignment = 2; // default
 
 	d->fmt = identify_internal(c);
 
 	if(d->fmt==FMT_FOR4) {
-		d->alignment = 4;
+		ictx->alignment = 4;
 	}
 
 	s = de_get_ext_option(c, "iff:align");
 	if(s) {
-		d->alignment = de_atoi(s);
+		ictx->alignment = de_atoi(s);
 	}
 
 	if(d->fmt==FMT_DJVU) {
@@ -193,8 +97,14 @@ static void de_run_iff(deark *c, de_module_params *mparams)
 	else {
 		pos = 0;
 	}
-	do_chunk_sequence(c, d, pos, c->infile->len - pos);
 
+	ictx->userdata = (void*)d;
+	ictx->handle_chunk_fn = my_iff_chunk_handler;
+	ictx->f = c->infile;
+
+	de_fmtutil_read_iff_format(c, ictx, pos, c->infile->len - pos);
+
+	de_free(c, ictx);
 	de_free(c, d);
 }
 

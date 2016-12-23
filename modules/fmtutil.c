@@ -881,7 +881,7 @@ void de_fmtutil_atari_set_standard_density(deark *c, struct atari_img_decode_dat
 
 #define CODE_ANNO  0x414e4e4fU
 
-static void do_iff_anno(deark *c, de_int64 pos, de_int64 len)
+static void do_iff_anno(deark *c, dbuf *f, de_int64 pos, de_int64 len)
 {
 	de_int64 foundpos;
 
@@ -890,7 +890,7 @@ static void do_iff_anno(deark *c, de_int64 pos, de_int64 len)
 
 	// Some ANNO chunks seem to be padded with one or more NUL bytes. Probably
 	// best not to save them.
-	if(dbuf_search_byte(c->infile, 0x00, pos, len, &foundpos)) {
+	if(dbuf_search_byte(f, 0x00, pos, len, &foundpos)) {
 		len = foundpos - pos;
 	}
 	if(len<1) return;
@@ -903,7 +903,148 @@ void de_fmtutil_handle_standard_iff_chunk(deark *c, dbuf *f, de_int64 dpos, de_i
 {
 	switch(chunktype) {
 	case CODE_ANNO:
-		do_iff_anno(c, dpos, dlen);
+		do_iff_anno(c, f, dpos, dlen);
 		break;
 	}
+}
+
+int de_fmtutil_default_iff_chunk_handler(deark *c, struct de_iffctx *ictx)
+{
+	de_fmtutil_handle_standard_iff_chunk(c, ictx->f, ictx->chunk_dpos, ictx->chunk_dlen,
+		ictx->chunk4cc.id);
+	// Note we do not set ictx->handled. The caller is responsible for that.
+	return 1;
+}
+
+static int do_iff_chunk_sequence(deark *c, struct de_iffctx *ictx,
+	de_int64 pos1, de_int64 len, int level);
+
+// Returns 0 if we can't continue
+static int do_iff_chunk(deark *c, struct de_iffctx *ictx, de_int64 pos, de_int64 bytes_avail,
+	int level, de_int64 *pbytes_consumed)
+{
+	int ret;
+	de_int64 chunk_dpos;
+	de_int64 chunk_dlen;
+	de_int64 chunk_dlen_padded;
+	de_int64 data_bytes_avail;
+	de_uint32 saved_formtype;
+	int saved_indent_level;
+	int retval = 0;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+
+	if(bytes_avail<8) {
+		de_err(c, "Invalid chunk size (at %d, size=%" INT64_FMT ")\n",
+			(int)pos, bytes_avail);
+		goto done;
+	}
+	data_bytes_avail = bytes_avail-8;
+
+	dbuf_read_fourcc(ictx->f, pos, &ictx->chunk4cc, 0);
+	chunk_dlen = de_getui32be(pos+4);
+	chunk_dpos = pos+8;
+
+	de_dbg(c, "Chunk '%s' at %d, dpos=%d, dlen=%d\n", ictx->chunk4cc.id_printable, (int)pos,
+		(int)chunk_dpos, (int)chunk_dlen);
+	de_dbg_indent(c, 1);
+
+	if(chunk_dlen > data_bytes_avail) {
+		de_warn(c, "Invalid oversized chunk, or unexpected end of file "
+			"(chunk at %d ends at %" INT64_FMT ", "
+			"parent ends at %" INT64_FMT ")\n",
+			(int)pos, chunk_dlen+chunk_dpos, pos+bytes_avail);
+
+		chunk_dlen = data_bytes_avail; // Try to continue
+	}
+
+	chunk_dlen_padded = de_pad_to_n(chunk_dlen, ictx->alignment);
+	*pbytes_consumed = 8 + chunk_dlen_padded;
+
+	// We've set *pbytes_consumed, so we can return "success"
+	retval = 1;
+
+	de_dbg_indent(c, 1);
+
+	// Set ictx fields, prior to calling the handler
+	ictx->level = level;
+	ictx->chunk_pos = pos;
+	ictx->chunk_len = bytes_avail;
+	ictx->chunk_dpos = chunk_dpos;
+	ictx->chunk_dlen = chunk_dlen;
+	ictx->handled = 0;
+	ictx->is_container = 0;
+
+	(void)ictx->handle_chunk_fn(c, ictx);
+	de_dbg_indent(c, -1);
+
+	if(ictx->handled) {
+		goto done;
+	}
+
+	if(ictx->is_container) {
+		struct de_fourcc formtype4cc;
+
+		// First 4 bytes of payload are the "contents type" or "FORM type"
+		dbuf_read_fourcc(ictx->f, pos+8, &formtype4cc, 0);
+		ictx->curr_formtype = formtype4cc.id;
+		if(level==0) {
+			ictx->main_formtype = formtype4cc.id;
+		}
+		de_dbg(c, "contents type: '%s'\n", formtype4cc.id_printable);
+
+		// The rest is a sequence of chunks.
+		saved_formtype = ictx->curr_formtype;
+		ret = do_iff_chunk_sequence(c, ictx, chunk_dpos+4, chunk_dlen-4, level++);
+		ictx->curr_formtype = saved_formtype;
+		if(!ret) {
+			goto done;
+		}
+	}
+	else if(!ictx->handled) {
+		de_fmtutil_default_iff_chunk_handler(c, ictx);
+	}
+
+done:
+	de_dbg_indent_restore(c, saved_indent_level);
+	return retval;
+}
+
+static int do_iff_chunk_sequence(deark *c, struct de_iffctx *ictx,
+	de_int64 pos1, de_int64 len, int level)
+{
+	de_int64 pos;
+	de_int64 endpos;
+	de_int64 chunk_len;
+	int ret;
+
+	if(level >= 16) { // An arbitrary recursion limit.
+		return 0;
+	}
+
+	endpos = pos1+len;
+
+	pos = pos1;
+	while(pos < endpos) {
+		ret = do_iff_chunk(c, ictx, pos, endpos-pos, level, &chunk_len);
+		if(!ret) return 0;
+		pos += chunk_len;
+	}
+
+	return 1;
+}
+
+void de_fmtutil_read_iff_format(deark *c, struct de_iffctx *ictx,
+	de_int64 pos, de_int64 len)
+{
+	if(!ictx->f || !ictx->handle_chunk_fn) return; // Internal error
+
+	ictx->level = 0;
+	ictx->main_formtype = 0;
+	ictx->curr_formtype = 0;
+	if(!ictx->alignment) {
+		ictx->alignment = 2;
+	}
+
+	do_iff_chunk_sequence(c, ictx, pos, len, 0);
 }
