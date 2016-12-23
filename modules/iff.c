@@ -15,6 +15,7 @@ DE_DECLARE_MODULE(de_module_iff);
 
 #define FMT_FORM   1
 #define FMT_FOR4   4
+#define FMT_DJVU   10
 
 #define CODE_ANNO  0x414e4e4fU
 #define CODE_CAT   0x43415420U
@@ -147,7 +148,7 @@ static int do_chunk_sequence(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 
 static int identify_internal(deark *c)
 {
-	de_byte buf[4];
+	de_byte buf[8];
 
 	de_read(buf, 0, sizeof(buf));
 
@@ -156,6 +157,9 @@ static int identify_internal(deark *c)
 	}
 	if(!de_memcmp(buf, (const de_byte*)"FOR4", 4)) {
 		return FMT_FOR4;
+	}
+	if(!de_memcmp(buf, (const de_byte*)"AT&TFORM", 8)) {
+		return FMT_DJVU;
 	}
 
 	return 0;
@@ -182,8 +186,14 @@ static void de_run_iff(deark *c, de_module_params *mparams)
 		d->alignment = de_atoi(s);
 	}
 
-	pos = 0;
-	do_chunk_sequence(c, d, pos, c->infile->len);
+	if(d->fmt==FMT_DJVU) {
+		de_declare_fmt(c, "DjVu");
+		pos = 4;
+	}
+	else {
+		pos = 0;
+	}
+	do_chunk_sequence(c, d, pos, c->infile->len - pos);
 
 	de_free(c, d);
 }
@@ -191,6 +201,9 @@ static void de_run_iff(deark *c, de_module_params *mparams)
 static int de_identify_iff(deark *c)
 {
 	int fmt = identify_internal(c);
+	if(fmt==FMT_DJVU) {
+		return 100;
+	}
 	if(fmt!=0) {
 		return 9;
 	}
