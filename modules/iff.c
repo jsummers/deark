@@ -43,7 +43,7 @@ static int my_iff_chunk_handler(deark *c, struct de_iffctx *ictx)
 {
 	lctx *d = (lctx*)ictx->userdata;
 
-	ictx->is_container = is_container_chunk(c, d, ictx->chunk4cc.id);
+	ictx->is_std_container = is_container_chunk(c, d, ictx->chunk4cc.id);
 	return 1;
 }
 

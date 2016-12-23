@@ -121,27 +121,36 @@ void de_fmtutil_atari_set_standard_density(deark *c, struct atari_img_decode_dat
 struct de_iffctx;
 
 // An IFF chunk handler is expected to do one of the following:
-// - Set ictx->is_container.
+// - Set ictx->is_std_container (ictx->handled is ignored).
+// - Set ictx->is_raw_container (ictx->handled is ignored).
 // - Handle the chunk, and set ictx->handled.
 // - Rare: Call de_fmtutil_default_iff_chunk_handler, and presumably do something else,
 //   and set ictx->handled.
 // - Do nothing, and set ictx->handled, to suppress default handling.
 // - Do nothing, in which case standard IFF chunks (ANNO, at least) will
 //   handled by the IFF parser.
-// It should always return 1. Other return values are reserved.
+// Return value: Normally 1; 0 to immediately stop processing the entire file.
 typedef int (*de_handle_iff_chunk_fn)(deark *c, struct de_iffctx *ictx);
+
+// Return value: Normally 1; 0 to immediately stop processing the entire file.
+typedef int (*de_on_iff_container_end_fn)(deark *c, struct de_iffctx *ictx);
+
+typedef void (*de_on_std_iff_container_start_fn)(deark *c, struct de_iffctx *ictx);
 
 struct de_iffctx {
 	void *userdata;
 	dbuf *f; // Input file
 	de_handle_iff_chunk_fn handle_chunk_fn;
+	de_on_std_iff_container_start_fn on_std_container_start_fn;
+	de_on_iff_container_end_fn on_container_end_fn;
 	de_int64 alignment;
 
 	// Per-chunk info supplied to handle_chunk_fn:
 	int level;
 	struct de_fourcc chunk4cc;
-	de_uint32 main_formtype; // Top-level container type
-	de_uint32 curr_formtype; // Current container type
+	de_uint32 main_contentstype; // Top-level container type
+	de_uint32 curr_container_fmt;
+	de_uint32 curr_container_contentstype;
 	de_int64 chunk_pos;
 	de_int64 chunk_len;
 	de_int64 chunk_dpos;
@@ -149,7 +158,8 @@ struct de_iffctx {
 
 	// To be filled in by handle_chunk_fn:
 	int handled;
-	int is_container;
+	int is_std_container;
+	int is_raw_container;
 };
 
 int de_fmtutil_default_iff_chunk_handler(deark *c, struct de_iffctx *ictx);
