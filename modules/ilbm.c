@@ -40,8 +40,7 @@ struct img_info {
 };
 
 typedef struct localctx_struct {
-	int level;
-	de_uint32 formtype;
+	de_uint32 formtype; // TODO: Maybe use ictx->main_contentstype instead.
 
 	// This struct is for image attributes that might be different in
 	// thumbnail images vs. the main image.
@@ -734,13 +733,10 @@ done:
 	de_free(c, cmds);
 }
 
-static int do_chunk_sequence(deark *c, lctx *d, de_int64 pos1, de_int64 len);
-
 // A BODY or ABIT chunk
-static int do_body(deark *c, lctx *d, de_int64 pos, de_int64 len, de_uint32 ct)
+static int do_body(deark *c, lctx *d, struct de_iffctx *ictx, de_int64 pos, de_int64 len,
+	de_uint32 ct, int *is_vdat)
 {
-	int ret;
-
 	if(d->uses_color_cycling) {
 		de_warn(c, "This image uses color cycling animation, which is not supported.\n");
 	}
@@ -748,112 +744,85 @@ static int do_body(deark *c, lctx *d, de_int64 pos, de_int64 len, de_uint32 ct)
 	if(ct==CODE_BODY && d->compression==2 &&
 		!dbuf_memcmp(c->infile, pos, "VDAT", 4))
 	{
-		d->level++;
-		ret = do_chunk_sequence(c, d, pos, len);
-		d->level--;
-		if(!ret) {
-			return 0;
-		}
-
-		d->is_vdat = 1;
-		do_image(c, d, &d->main_img, 0, 0, 0);
-		d->is_vdat = 0;
+		ictx->is_raw_container = 1;
+		*is_vdat = 1;
 		return 1;
 	}
 
 	return do_image(c, d, &d->main_img, pos, len, 0);
 }
 
-static int do_chunk(deark *c, lctx *d, de_int64 pos, de_int64 bytes_avail,
-	de_int64 *bytes_consumed)
+static int my_iff_chunk_handler(deark *c, struct de_iffctx *ictx)
 {
 	int errflag = 0;
 	int doneflag = 0;
-	int ret;
-	de_int64 chunk_data_pos;
-	de_int64 chunk_data_len;
+	int is_vdat;
 	de_int64 tmp1, tmp2;
-	int need_unindent = 0;
-	struct de_fourcc chunk4cc;
-	struct de_fourcc formtype4cc;
+	int saved_indent_level;
+	lctx *d = (lctx*)ictx->userdata;
 
-	if(bytes_avail<8) {
-		de_err(c, "Invalid chunk size (at %d, size=%d)\n", (int)pos, (int)bytes_avail);
-		errflag = 1;
-		goto done;
-	}
+	de_dbg_indent_save(c, &saved_indent_level);
 
-	dbuf_read_fourcc(c->infile, pos, &chunk4cc, 0);
-	chunk_data_len = de_getui32be(pos+4);
-	chunk_data_pos = pos+8;
-
-	de_dbg(c, "Chunk '%s' at %d, data at %d, size %d\n", chunk4cc.id_printable, (int)pos,
-		(int)chunk_data_pos, (int)chunk_data_len);
-	de_dbg_indent(c, 1);
-	need_unindent = 1;
-
-	if(chunk_data_len > bytes_avail-8) {
-		de_err(c, "Invalid chunk size ('%s' at %d, size=%d)\n",
-			chunk4cc.id_printable, (int)pos, (int)chunk_data_len);
-		errflag = 1;
-		goto done;
-	}
+	ictx->handled = 1; // default
 
 	// Most chunks are only processed at level 1.
-	if(d->level!=1 && chunk4cc.id!=CODE_FORM && chunk4cc.id!=CODE_VDAT) {
+	if(ictx->level!=1 && ictx->chunk4cc.id!=CODE_FORM && ictx->chunk4cc.id!=CODE_VDAT) {
 		goto done_chunk;
 	}
 
-	switch(chunk4cc.id) {
+	switch(ictx->chunk4cc.id) {
 	case CODE_BODY:
 	case CODE_ABIT:
 
-		if(!do_body(c, d, chunk_data_pos, chunk_data_len, chunk4cc.id)) {
+		is_vdat = 0;
+		if(!do_body(c, d, ictx, ictx->chunk_dpos, ictx->chunk_dlen, ictx->chunk4cc.id, &is_vdat)) {
 			errflag = 1;
 		}
 
 		// A lot of ILBM files have padding or garbage data at the end of the file
 		// (apparently included in the file size given by the FORM chunk).
 		// To avoid it, don't read past the BODY chunk.
-		doneflag = 1;
+
+		if(!is_vdat)
+			doneflag = 1;
 		break;
 
 	case CODE_VDAT:
-		if(d->level!=2) break;
-		do_vdat(c, d, chunk_data_pos, chunk_data_len);
+		if(ictx->level!=2) break;
+		do_vdat(c, d, ictx->chunk_dpos, ictx->chunk_dlen);
 		break;
 
 	case CODE_TINY:
-		do_tiny(c, d, chunk_data_pos, chunk_data_len);
+		do_tiny(c, d, ictx->chunk_dpos, ictx->chunk_dlen);
 		break;
 
 	case CODE_BMHD:
-		if(!do_bmhd(c, d, chunk_data_pos, chunk_data_len)) {
+		if(!do_bmhd(c, d, ictx->chunk_dpos, ictx->chunk_dlen)) {
 			errflag = 1;
 			goto done;
 		}
 		break;
 
 	case CODE_CMAP:
-		do_cmap(c, d, chunk_data_pos, chunk_data_len);
+		do_cmap(c, d, ictx->chunk_dpos, ictx->chunk_dlen);
 		break;
 
 	case CODE_CAMG:
-		do_camg(c, d, chunk_data_pos, chunk_data_len);
+		do_camg(c, d, ictx->chunk_dpos, ictx->chunk_dlen);
 		break;
 
 	case CODE_DPI:
-		do_dpi(c, d, chunk_data_pos, chunk_data_len);
+		do_dpi(c, d, ictx->chunk_dpos, ictx->chunk_dlen);
 		break;
 
 	case CODE_ANNO:
-		de_fmtutil_handle_standard_iff_chunk(c, c->infile, chunk_data_pos, chunk_data_len, chunk4cc.id);
+		ictx->handled = 0;
 		break;
 
 	case CODE_CRNG:
-		if(chunk_data_len<8) break;
-		tmp1 = de_getui16be(chunk_data_pos+2);
-		tmp2 = de_getui16be(chunk_data_pos+4);
+		if(ictx->chunk_dlen<8) break;
+		tmp1 = de_getui16be(ictx->chunk_dpos+2);
+		tmp2 = de_getui16be(ictx->chunk_dpos+4);
 		de_dbg(c, "flags: 0x%04x\n", (unsigned int)tmp2);
 		if(tmp2&0x1) {
 			d->uses_color_cycling = 1;
@@ -864,9 +833,9 @@ static int do_chunk(deark *c, lctx *d, de_int64 pos, de_int64 bytes_avail,
 		break;
 
 	case CODE_GRAB:
-		if(chunk_data_len<4) break;
-		tmp1 = de_getui16be(chunk_data_pos);
-		tmp2 = de_getui16be(chunk_data_pos+2);
+		if(ictx->chunk_dlen<4) break;
+		tmp1 = de_getui16be(ictx->chunk_dpos);
+		tmp2 = de_getui16be(ictx->chunk_dpos+2);
 		de_dbg(c, "hotspot: (%d, %d)\n", (int)tmp1, (int)tmp2);
 		break;
 
@@ -878,58 +847,51 @@ static int do_chunk(deark *c, lctx *d, de_int64 pos, de_int64 bytes_avail,
 		goto done;
 
 	case CODE_FORM:
-		if(d->level!=0) break;
-		d->level++;
-
-		// First 4 bytes of payload are the FORM type ID (usually "ILBM").
-		dbuf_read_fourcc(c->infile, pos+8, &formtype4cc, 0);
-		d->formtype = formtype4cc.id;
-		de_dbg(c, "FORM type: '%s'\n", formtype4cc.id_printable);
-
-		switch(d->formtype) {
-		case CODE_ILBM: de_declare_fmt(c, "IFF-ILBM"); break;
-		case CODE_PBM:  de_declare_fmt(c, "IFF-PBM");  break;
-		case CODE_ACBM: de_declare_fmt(c, "IFF-ACBM"); break;
-		}
-
-		// The rest is a sequence of chunks.
-		ret = do_chunk_sequence(c, d, pos+12, bytes_avail-12);
-		d->level--;
-		if(!ret) {
-			errflag = 1;
-			goto done;
-		}
+		if(ictx->level!=0) break;
+		ictx->is_std_container = 1;
 		break;
 	}
 
 done_chunk:
-	*bytes_consumed = 8 + chunk_data_len;
-	if(chunk_data_len%2) (*bytes_consumed)++; // Padding byte
-
 done:
-	if(need_unindent)
-		de_dbg_indent(c, -1);
+	de_dbg_indent_restore(c, saved_indent_level);
 	return (errflag || doneflag) ? 0 : 1;
 }
 
-static int do_chunk_sequence(deark *c, lctx *d, de_int64 pos1, de_int64 len)
+static void my_on_std_container_start_fn(deark *c, struct de_iffctx *ictx)
 {
-	de_int64 pos;
-	de_int64 endpos;
-	de_int64 chunk_len;
-	int ret;
+	lctx *d = (lctx*)ictx->userdata;
 
-	if(d->level >= 10) { // An arbitrary recursion limit.
-		return 0;
+	de_dbg2(c, "std_container_start(level=%d, type=%08x)\n", ictx->level,
+		(unsigned int)ictx->curr_container_contentstype);
+
+	if(ictx->level==0 && ictx->curr_container_fmt==CODE_FORM) {
+
+		d->formtype = ictx->curr_container_contentstype;
+		// FIXME:
+		//de_dbg(c, "FORM type: '%s'\n", formtype4cc.id_printable);
+
+		switch(ictx->main_contentstype) {
+		case CODE_ILBM: de_declare_fmt(c, "IFF-ILBM"); break;
+		case CODE_PBM:  de_declare_fmt(c, "IFF-PBM");  break;
+		case CODE_ACBM: de_declare_fmt(c, "IFF-ACBM"); break;
+		}
 	}
+}
 
-	endpos = pos1+len;
+static int my_on_container_end_fn(deark *c, struct de_iffctx *ictx)
+{
+	lctx *d = (lctx*)ictx->userdata;
 
-	pos = pos1;
-	while(pos < endpos) {
-		ret = do_chunk(c, d, pos, endpos-pos, &chunk_len);
-		if(!ret) return 0;
-		pos += chunk_len;
+	de_dbg2(c, "container_end(level=%d, fmt=%08x, contentstype=%08x)\n",
+		ictx->level,
+		(unsigned int)ictx->curr_container_fmt,
+		(unsigned int)ictx->curr_container_contentstype);
+
+	if(ictx->curr_container_fmt==CODE_BODY) {
+		d->is_vdat = 1;
+		do_image(c, d, &d->main_img, 0, 0, 0);
+		d->is_vdat = 0;
 	}
 
 	return 1;
@@ -938,9 +900,11 @@ static int do_chunk_sequence(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 static void de_run_ilbm(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
+	struct de_iffctx *ictx = NULL;
 	const char *s;
 
 	d = de_malloc(c, sizeof(lctx));
+	ictx = de_malloc(c, sizeof(struct de_iffctx));
 
 	s = de_get_ext_option(c, "ilbm:notrans");
 	if(s) d->opt_notrans = 1;
@@ -949,9 +913,15 @@ static void de_run_ilbm(deark *c, de_module_params *mparams)
 	s = de_get_ext_option(c, "ilbm:fixpal");
 	if(s) d->opt_fixpal = de_atoi(s);
 
-	do_chunk_sequence(c, d, 0, c->infile->len);
+	ictx->userdata = (void*)d;
+	ictx->handle_chunk_fn = my_iff_chunk_handler;
+	ictx->on_std_container_start_fn = my_on_std_container_start_fn;
+	ictx->on_container_end_fn = my_on_container_end_fn;
+	ictx->f = c->infile;
+	de_fmtutil_read_iff_format(c, ictx, 0,c->infile->len);
 
 	dbuf_close(d->vdat_unc_pixels);
+	de_free(c, ictx);
 	de_free(c, d);
 }
 
