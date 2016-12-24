@@ -57,6 +57,7 @@ typedef struct localctx_struct {
 	de_byte is_ham8;
 	de_byte is_vdat;
 	de_byte uses_color_cycling;
+	de_byte errflag; // Set if image(s) format is not supported.
 	de_int64 transparent_color;
 
 	de_int64 x_aspect, y_aspect;
@@ -564,6 +565,8 @@ static int do_image(deark *c, lctx *d, struct img_info *ii,
 	dbuf *unc_pixels_toclose = NULL;
 	int retval = 0;
 
+	if(d->errflag) goto done;
+
 	if(!d->found_bmhd) {
 		de_err(c, "Missing BMHD chunk\n");
 		goto done;
@@ -754,8 +757,7 @@ static int do_body(deark *c, lctx *d, struct de_iffctx *ictx, de_int64 pos, de_i
 
 static int my_iff_chunk_handler(deark *c, struct de_iffctx *ictx)
 {
-	int errflag = 0;
-	int doneflag = 0;
+	int quitflag = 0;
 	int is_vdat;
 	de_int64 tmp1, tmp2;
 	int saved_indent_level;
@@ -763,20 +765,28 @@ static int my_iff_chunk_handler(deark *c, struct de_iffctx *ictx)
 
 	de_dbg_indent_save(c, &saved_indent_level);
 
-	ictx->handled = 1; // default
-
-	// Most chunks are only processed at level 1.
-	if(ictx->level!=1 && ictx->chunk4cc.id!=CODE_FORM && ictx->chunk4cc.id!=CODE_VDAT) {
-		goto done_chunk;
+	if(ictx->chunkctx->chunk4cc.id==CODE_ANNO) {
+		// This is the only chunk we want the IFF parser to handle
+		ictx->handled = 0;
+	}
+	else {
+		ictx->handled = 1;
 	}
 
-	switch(ictx->chunk4cc.id) {
+	// Most chunks are only processed at level 1.
+	if(ictx->level!=1 && ictx->chunkctx->chunk4cc.id!=CODE_FORM &&
+		ictx->chunkctx->chunk4cc.id!=CODE_VDAT)
+	{
+		goto done;
+	}
+
+	switch(ictx->chunkctx->chunk4cc.id) {
 	case CODE_BODY:
 	case CODE_ABIT:
-
 		is_vdat = 0;
-		if(!do_body(c, d, ictx, ictx->chunk_dpos, ictx->chunk_dlen, ictx->chunk4cc.id, &is_vdat)) {
-			errflag = 1;
+		if(!do_body(c, d, ictx, ictx->chunkctx->chunk_dpos, ictx->chunkctx->chunk_dlen,
+			ictx->chunkctx->chunk4cc.id, &is_vdat)) {
+			d->errflag = 1;
 		}
 
 		// A lot of ILBM files have padding or garbage data at the end of the file
@@ -784,45 +794,41 @@ static int my_iff_chunk_handler(deark *c, struct de_iffctx *ictx)
 		// To avoid it, don't read past the BODY chunk.
 
 		if(!is_vdat)
-			doneflag = 1;
+			quitflag = 1;
 		break;
 
 	case CODE_VDAT:
 		if(ictx->level!=2) break;
-		do_vdat(c, d, ictx->chunk_dpos, ictx->chunk_dlen);
+		do_vdat(c, d, ictx->chunkctx->chunk_dpos, ictx->chunkctx->chunk_dlen);
 		break;
 
 	case CODE_TINY:
-		do_tiny(c, d, ictx->chunk_dpos, ictx->chunk_dlen);
+		do_tiny(c, d, ictx->chunkctx->chunk_dpos, ictx->chunkctx->chunk_dlen);
 		break;
 
 	case CODE_BMHD:
-		if(!do_bmhd(c, d, ictx->chunk_dpos, ictx->chunk_dlen)) {
-			errflag = 1;
+		if(!do_bmhd(c, d, ictx->chunkctx->chunk_dpos, ictx->chunkctx->chunk_dlen)) {
+			d->errflag = 1;
 			goto done;
 		}
 		break;
 
 	case CODE_CMAP:
-		do_cmap(c, d, ictx->chunk_dpos, ictx->chunk_dlen);
+		do_cmap(c, d, ictx->chunkctx->chunk_dpos, ictx->chunkctx->chunk_dlen);
 		break;
 
 	case CODE_CAMG:
-		do_camg(c, d, ictx->chunk_dpos, ictx->chunk_dlen);
+		do_camg(c, d, ictx->chunkctx->chunk_dpos, ictx->chunkctx->chunk_dlen);
 		break;
 
 	case CODE_DPI:
-		do_dpi(c, d, ictx->chunk_dpos, ictx->chunk_dlen);
-		break;
-
-	case CODE_ANNO:
-		ictx->handled = 0;
+		do_dpi(c, d, ictx->chunkctx->chunk_dpos, ictx->chunkctx->chunk_dlen);
 		break;
 
 	case CODE_CRNG:
-		if(ictx->chunk_dlen<8) break;
-		tmp1 = de_getui16be(ictx->chunk_dpos+2);
-		tmp2 = de_getui16be(ictx->chunk_dpos+4);
+		if(ictx->chunkctx->chunk_dlen<8) break;
+		tmp1 = de_getui16be(ictx->chunkctx->chunk_dpos+2);
+		tmp2 = de_getui16be(ictx->chunkctx->chunk_dpos+4);
 		de_dbg(c, "flags: 0x%04x\n", (unsigned int)tmp2);
 		if(tmp2&0x1) {
 			d->uses_color_cycling = 1;
@@ -833,9 +839,9 @@ static int my_iff_chunk_handler(deark *c, struct de_iffctx *ictx)
 		break;
 
 	case CODE_GRAB:
-		if(ictx->chunk_dlen<4) break;
-		tmp1 = de_getui16be(ictx->chunk_dpos);
-		tmp2 = de_getui16be(ictx->chunk_dpos+2);
+		if(ictx->chunkctx->chunk_dlen<4) break;
+		tmp1 = de_getui16be(ictx->chunkctx->chunk_dpos);
+		tmp2 = de_getui16be(ictx->chunkctx->chunk_dpos+2);
 		de_dbg(c, "hotspot: (%d, %d)\n", (int)tmp1, (int)tmp2);
 		break;
 
@@ -843,7 +849,7 @@ static int my_iff_chunk_handler(deark *c, struct de_iffctx *ictx)
 	case CODE_PCHG:
 	case CODE_CTBL:
 		de_err(c, "Multi-palette ILBM images are not supported.\n");
-		errflag = 1;
+		d->errflag = 1;
 		goto done;
 
 	case CODE_FORM:
@@ -852,10 +858,9 @@ static int my_iff_chunk_handler(deark *c, struct de_iffctx *ictx)
 		break;
 	}
 
-done_chunk:
 done:
 	de_dbg_indent_restore(c, saved_indent_level);
-	return (errflag || doneflag) ? 0 : 1;
+	return (quitflag) ? 0 : 1;
 }
 
 static void my_on_std_container_start_fn(deark *c, struct de_iffctx *ictx)
@@ -863,15 +868,14 @@ static void my_on_std_container_start_fn(deark *c, struct de_iffctx *ictx)
 	lctx *d = (lctx*)ictx->userdata;
 
 	de_dbg2(c, "std_container_start(level=%d, type=%08x)\n", ictx->level,
-		(unsigned int)ictx->curr_container_contentstype);
+		(unsigned int)ictx->curr_container_contentstype4cc.id);
 
-	if(ictx->level==0 && ictx->curr_container_fmt==CODE_FORM) {
+	if(ictx->level==0 && ictx->curr_container_fmt4cc.id==CODE_FORM) {
 
-		d->formtype = ictx->curr_container_contentstype;
-		// FIXME:
-		//de_dbg(c, "FORM type: '%s'\n", formtype4cc.id_printable);
+		d->formtype = ictx->curr_container_contentstype4cc.id;
+		//de_dbg(c, "FORM type: '%s'\n", ictx->curr_container_contentstype4cc.id_printable);
 
-		switch(ictx->main_contentstype) {
+		switch(ictx->main_contentstype4cc.id) {
 		case CODE_ILBM: de_declare_fmt(c, "IFF-ILBM"); break;
 		case CODE_PBM:  de_declare_fmt(c, "IFF-PBM");  break;
 		case CODE_ACBM: de_declare_fmt(c, "IFF-ACBM"); break;
@@ -885,10 +889,10 @@ static int my_on_container_end_fn(deark *c, struct de_iffctx *ictx)
 
 	de_dbg2(c, "container_end(level=%d, fmt=%08x, contentstype=%08x)\n",
 		ictx->level,
-		(unsigned int)ictx->curr_container_fmt,
-		(unsigned int)ictx->curr_container_contentstype);
+		(unsigned int)ictx->curr_container_fmt4cc.id,
+		(unsigned int)ictx->curr_container_contentstype4cc.id);
 
-	if(ictx->curr_container_fmt==CODE_BODY) {
+	if(ictx->curr_container_fmt4cc.id==CODE_BODY) {
 		d->is_vdat = 1;
 		do_image(c, d, &d->main_img, 0, 0, 0);
 		d->is_vdat = 0;

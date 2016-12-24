@@ -43,26 +43,30 @@ static int my_iff_chunk_handler(deark *c, struct de_iffctx *ictx)
 {
 	lctx *d = (lctx*)ictx->userdata;
 
-	ictx->is_std_container = is_container_chunk(c, d, ictx->chunk4cc.id);
+	ictx->is_std_container = is_container_chunk(c, d, ictx->chunkctx->chunk4cc.id);
 	return 1;
 }
 
-static int identify_internal(deark *c)
+static int identify_internal(deark *c, int *confidence)
 {
 	de_byte buf[8];
 
 	de_read(buf, 0, sizeof(buf));
 
 	if(!de_memcmp(buf, (const de_byte*)"FORM", 4)) {
+		if(confidence) *confidence = 9;
 		return FMT_FORM;
 	}
 	if(!de_memcmp(buf, (const de_byte*)"FOR4", 4)) {
+		if(confidence) *confidence = 25;
 		return FMT_FOR4;
 	}
 	if(!de_memcmp(buf, (const de_byte*)"AT&TFORM", 8)) {
+		if(confidence) *confidence = 100;
 		return FMT_DJVU;
 	}
 
+	if(confidence) *confidence = 0;
 	return 0;
 }
 
@@ -79,7 +83,7 @@ static void de_run_iff(deark *c, de_module_params *mparams)
 
 	ictx->alignment = 2; // default
 
-	d->fmt = identify_internal(c);
+	d->fmt = identify_internal(c, NULL);
 
 	if(d->fmt==FMT_FOR4) {
 		ictx->alignment = 4;
@@ -110,12 +114,12 @@ static void de_run_iff(deark *c, de_module_params *mparams)
 
 static int de_identify_iff(deark *c)
 {
-	int fmt = identify_internal(c);
-	if(fmt==FMT_DJVU) {
-		return 100;
-	}
+	int confidence = 0;
+	int fmt;
+
+	fmt = identify_internal(c, &confidence);
 	if(fmt!=0) {
-		return 9;
+		return confidence;
 	}
 	// TODO: LIST, CAT formats?
 	return 0;

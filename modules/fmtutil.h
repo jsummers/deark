@@ -137,6 +137,14 @@ typedef int (*de_on_iff_container_end_fn)(deark *c, struct de_iffctx *ictx);
 
 typedef void (*de_on_std_iff_container_start_fn)(deark *c, struct de_iffctx *ictx);
 
+struct de_iffchunkctx {
+	struct de_fourcc chunk4cc;
+	de_int64 chunk_pos;
+	de_int64 chunk_len;
+	de_int64 chunk_dpos;
+	de_int64 chunk_dlen;
+};
+
 struct de_iffctx {
 	void *userdata;
 	dbuf *f; // Input file
@@ -145,16 +153,15 @@ struct de_iffctx {
 	de_on_iff_container_end_fn on_container_end_fn;
 	de_int64 alignment;
 
-	// Per-chunk info supplied to handle_chunk_fn:
 	int level;
-	struct de_fourcc chunk4cc;
-	de_uint32 main_contentstype; // Top-level container type
-	de_uint32 curr_container_fmt;
-	de_uint32 curr_container_contentstype;
-	de_int64 chunk_pos;
-	de_int64 chunk_len;
-	de_int64 chunk_dpos;
-	de_int64 chunk_dlen;
+	struct de_fourcc main_fmt4cc;
+	struct de_fourcc main_contentstype4cc; // Top-level container type
+
+	struct de_fourcc curr_container_fmt4cc; // E.g. "FORM"
+	struct de_fourcc curr_container_contentstype4cc; // E.g. "ILBM"
+
+	// Per-chunk info supplied to handle_chunk_fn:
+	const struct de_iffchunkctx *chunkctx;
 
 	// To be filled in by handle_chunk_fn:
 	int handled;

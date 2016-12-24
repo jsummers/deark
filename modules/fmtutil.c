@@ -910,10 +910,16 @@ void de_fmtutil_handle_standard_iff_chunk(deark *c, dbuf *f, de_int64 dpos, de_i
 
 int de_fmtutil_default_iff_chunk_handler(deark *c, struct de_iffctx *ictx)
 {
-	de_fmtutil_handle_standard_iff_chunk(c, ictx->f, ictx->chunk_dpos, ictx->chunk_dlen,
-		ictx->chunk4cc.id);
+	de_fmtutil_handle_standard_iff_chunk(c, ictx->f,
+		ictx->chunkctx->chunk_dpos, ictx->chunkctx->chunk_dlen,
+		ictx->chunkctx->chunk4cc.id);
 	// Note we do not set ictx->handled. The caller is responsible for that.
 	return 1;
+}
+
+static void fourcc_clear(struct de_fourcc *fourcc)
+{
+	de_memset(fourcc, 0, sizeof(struct de_fourcc));
 }
 
 static int do_iff_chunk_sequence(deark *c, struct de_iffctx *ictx,
@@ -928,11 +934,11 @@ static int do_iff_chunk(deark *c, struct de_iffctx *ictx, de_int64 pos, de_int64
 	de_int64 chunk_dlen;
 	de_int64 chunk_dlen_padded;
 	de_int64 data_bytes_avail;
-	struct de_fourcc chunk4cc;
-	de_uint32 saved_fmt;
-	de_uint32 saved_contentstype;
+	struct de_iffchunkctx chunkctx;
 	int saved_indent_level;
 	int retval = 0;
+
+	de_memset(&chunkctx, 0, sizeof(struct de_iffchunkctx));
 
 	de_dbg_indent_save(c, &saved_indent_level);
 
@@ -943,11 +949,11 @@ static int do_iff_chunk(deark *c, struct de_iffctx *ictx, de_int64 pos, de_int64
 	}
 	data_bytes_avail = bytes_avail-8;
 
-	dbuf_read_fourcc(ictx->f, pos, &chunk4cc, 0);
+	dbuf_read_fourcc(ictx->f, pos, &chunkctx.chunk4cc, 0);
 	chunk_dlen = de_getui32be(pos+4);
 	chunk_dpos = pos+8;
 
-	de_dbg(c, "Chunk '%s' at %d, dpos=%d, dlen=%d\n", chunk4cc.id_printable, (int)pos,
+	de_dbg(c, "chunk '%s' at %d, dpos=%d, dlen=%d\n", chunkctx.chunk4cc.id_printable, (int)pos,
 		(int)chunk_dpos, (int)chunk_dlen);
 	de_dbg_indent(c, 1);
 
@@ -966,19 +972,17 @@ static int do_iff_chunk(deark *c, struct de_iffctx *ictx, de_int64 pos, de_int64
 	// We've set *pbytes_consumed, so we can return "success"
 	retval = 1;
 
-	//de_dbg_indent(c, 1);
-
 	// Set ictx fields, prior to calling the handler
 	ictx->level = level;
-	ictx->chunk4cc = chunk4cc; // struct copy
-	ictx->chunk_pos = pos;
-	ictx->chunk_len = bytes_avail;
-	ictx->chunk_dpos = chunk_dpos;
-	ictx->chunk_dlen = chunk_dlen;
+	chunkctx.chunk_pos = pos;
+	chunkctx.chunk_len = bytes_avail;
+	chunkctx.chunk_dpos = chunk_dpos;
+	chunkctx.chunk_dlen = chunk_dlen;
 	ictx->handled = 0;
 	ictx->is_std_container = 0;
 	ictx->is_raw_container = 0;
 
+	ictx->chunkctx = &chunkctx;
 	ret = ictx->handle_chunk_fn(c, ictx);
 	if(!ret) {
 		retval = 0;
@@ -988,21 +992,22 @@ static int do_iff_chunk(deark *c, struct de_iffctx *ictx, de_int64 pos, de_int64
 	if(ictx->is_std_container || ictx->is_raw_container) {
 		de_int64 contents_dpos, contents_dlen;
 
-		ictx->curr_container_fmt = chunk4cc.id;
+		ictx->chunkctx = NULL;
+		ictx->curr_container_fmt4cc = chunkctx.chunk4cc;
+		fourcc_clear(&ictx->curr_container_contentstype4cc);
 
 		if(ictx->is_std_container) {
-			struct de_fourcc formtype4cc;
-
 			contents_dpos = chunk_dpos+4;
 			contents_dlen = chunk_dlen-4;
 
 			// First 4 bytes of payload are the "contents type" or "FORM type"
-			dbuf_read_fourcc(ictx->f, pos+8, &formtype4cc, 0);
-			ictx->curr_container_contentstype = formtype4cc.id;
+			dbuf_read_fourcc(ictx->f, pos+8, &ictx->curr_container_contentstype4cc, 0);
+
 			if(level==0) {
-				ictx->main_contentstype = formtype4cc.id;
+				ictx->main_fmt4cc = ictx->curr_container_fmt4cc;
+				ictx->main_contentstype4cc = ictx->curr_container_contentstype4cc; // struct copy
 			}
-			de_dbg(c, "contents type: '%s'\n", formtype4cc.id_printable);
+			de_dbg(c, "contents type: '%s'\n", ictx->curr_container_contentstype4cc.id_printable);
 
 			if(ictx->on_std_container_start_fn) {
 				// Call only for standard-format containers.
@@ -1012,12 +1017,7 @@ static int do_iff_chunk(deark *c, struct de_iffctx *ictx, de_int64 pos, de_int64
 		else { // ictx->is_raw_container
 			contents_dpos = chunk_dpos;
 			contents_dlen = chunk_dlen;
-
-			ictx->curr_container_contentstype = 0;
 		}
-
-		saved_fmt = ictx->curr_container_fmt;
-		saved_contentstype = ictx->curr_container_contentstype;
 
 		ret = do_iff_chunk_sequence(c, ictx, contents_dpos, contents_dlen, level+1);
 		if(!ret) {
@@ -1025,16 +1025,13 @@ static int do_iff_chunk(deark *c, struct de_iffctx *ictx, de_int64 pos, de_int64
 			goto done;
 		}
 
-		ictx->curr_container_fmt = saved_fmt;
-		ictx->curr_container_contentstype = saved_contentstype;
-
 		if(ictx->on_container_end_fn) {
-			// Call for all containers (not just standard-format containers.
+			// Call for all containers (not just standard-format containers).
 
 			// TODO: Decide exactly what ictx->* fields to set here.
 			ictx->level = level;
-			ictx->chunk_pos = pos;
-			ictx->chunk_len = bytes_avail;
+
+			ictx->chunkctx = NULL;
 			ret = ictx->on_container_end_fn(c, ictx);
 			if(!ret) {
 				retval = 0;
@@ -1057,7 +1054,8 @@ static int do_iff_chunk_sequence(deark *c, struct de_iffctx *ictx,
 	de_int64 pos;
 	de_int64 endpos;
 	de_int64 chunk_len;
-	de_uint32 saved_container_contentstype;
+	struct de_fourcc saved_container_fmt4cc;
+	struct de_fourcc saved_container_contentstype4cc;
 	int ret;
 
 	if(level >= 16) { // An arbitrary recursion limit.
@@ -1065,7 +1063,8 @@ static int do_iff_chunk_sequence(deark *c, struct de_iffctx *ictx,
 	}
 
 	endpos = pos1+len;
-	saved_container_contentstype = ictx->curr_container_contentstype;
+	saved_container_fmt4cc = ictx->curr_container_fmt4cc;
+	saved_container_contentstype4cc = ictx->curr_container_contentstype4cc;
 
 	pos = pos1;
 	while(pos < endpos) {
@@ -1074,7 +1073,8 @@ static int do_iff_chunk_sequence(deark *c, struct de_iffctx *ictx,
 		pos += chunk_len;
 	}
 
-	ictx->curr_container_contentstype = saved_container_contentstype;
+	ictx->curr_container_fmt4cc = saved_container_fmt4cc;
+	ictx->curr_container_contentstype4cc = saved_container_contentstype4cc;
 
 	return 1;
 }
@@ -1085,9 +1085,11 @@ void de_fmtutil_read_iff_format(deark *c, struct de_iffctx *ictx,
 	if(!ictx->f || !ictx->handle_chunk_fn) return; // Internal error
 
 	ictx->level = 0;
-	ictx->main_contentstype = 0;
-	ictx->curr_container_contentstype = 0;
-	if(!ictx->alignment) {
+	fourcc_clear(&ictx->main_fmt4cc);
+	fourcc_clear(&ictx->main_contentstype4cc);
+	fourcc_clear(&ictx->curr_container_fmt4cc);
+	fourcc_clear(&ictx->curr_container_contentstype4cc);
+	if(ictx->alignment==0) {
 		ictx->alignment = 2;
 	}
 
