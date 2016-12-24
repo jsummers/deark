@@ -6,6 +6,7 @@
 
 #include <deark-config.h>
 #include <deark-private.h>
+#include "fmtutil.h"
 DE_DECLARE_MODULE(de_module_amigaicon);
 
 typedef struct localctx_struct {
@@ -529,55 +530,61 @@ static int do_detect_glowicons(deark *c, lctx *d, de_int64 pos)
 	return 0;
 }
 
-static void do_glowicons(deark *c, lctx *d, de_int64 pos)
+static int my_iff_chunk_handler(deark *c, struct de_iffctx *ictx)
 {
-	de_int64 startpos;
-	de_int64 endpos;
-	de_int64 len;
-	int saved_indent_level;
+	lctx *d = (lctx*)ictx->userdata;
+	de_int64 dpos, dlen;
 
-	de_dbg_indent_save(c, &saved_indent_level);
-	startpos = pos;
-
-	len = de_getui32be(pos+4);
-	endpos = startpos + 8 + len;
-	if(len%2) endpos++;
-
-	de_dbg(c, "GlowIcons data at offset %d (%d bytes)\n", (int)startpos, (int)len);
-	de_dbg_indent(c, 1);
-
-	de_dbg(c, "expected end of file: %d\n", (int)endpos);
-	pos+=12; // Skip past the "FORM" id, length, and FORM type code
-
-	while(pos < endpos) {
-		struct de_fourcc chunk4cc;
-
-		dbuf_read_fourcc(c->infile, pos, &chunk4cc, 0);
-		len = de_getui32be(pos+4);
-
-		de_dbg(c, "chunk '%s' at %d, dlen=%d\n", chunk4cc.id_printable, (int)pos, (int)len);
-		pos+=8;
-
-		de_dbg_indent(c, 1);
-
-		switch(chunk4cc.id) {
-		case CODE_FACE: // FACE (parameters)
-			d->glowicons_width = 1+(de_int64)de_getbyte(pos);
-			d->glowicons_height = 1+(de_int64)de_getbyte(pos+1);
-			de_dbg(c, "dimensions: %dx%d\n", (int)d->glowicons_width, (int)d->glowicons_height);
-			break;
-		case CODE_IMAG: // IMAG (one of the images that make up this icon)
-			do_glowicons_IMAG(c, d, pos, len);
-			break;
-		}
-
-		de_dbg_indent(c, -1);
-
-		pos += len;
-		if(len%2) pos++; // skip padding byte
+	if(ictx->chunkctx->chunk4cc.id == CODE_FORM) {
+		ictx->is_std_container = 1;
+		return 1;
 	}
 
+	ictx->handled = 1;
+
+	if(ictx->level!=1) {
+		return 1;
+	}
+
+	if(ictx->curr_container_contentstype4cc.id != CODE_ICON) {
+		return 1;
+	}
+
+	dpos = ictx->chunkctx->chunk_dpos;
+	dlen = ictx->chunkctx->chunk_dlen;
+
+	switch(ictx->chunkctx->chunk4cc.id) {
+	case CODE_FACE: // FACE (parameters)
+		d->glowicons_width = 1+(de_int64)de_getbyte(dpos);
+		d->glowicons_height = 1+(de_int64)de_getbyte(dpos+1);
+		de_dbg(c, "dimensions: %dx%d\n", (int)d->glowicons_width, (int)d->glowicons_height);
+		break;
+	case CODE_IMAG: // IMAG (one of the images that make up this icon)
+		do_glowicons_IMAG(c, d, dpos, dlen);
+		break;
+	}
+
+	return 1;
+}
+
+static void do_glowicons(deark *c, lctx *d, de_int64 pos1)
+{
+	struct de_iffctx *ictx = NULL;
+	int saved_indent_level;
+
+	ictx = de_malloc(c, sizeof(struct de_iffctx));
+	de_dbg_indent_save(c, &saved_indent_level);
+
+	de_dbg(c, "GlowIcons data at offset %d\n", (int)pos1);
+	de_dbg_indent(c, 1);
+
+	ictx->userdata = (void*)d;
+	ictx->handle_chunk_fn = my_iff_chunk_handler;
+	ictx->f = c->infile;
+	de_fmtutil_read_iff_format(c, ictx, pos1, c->infile->len - pos1);
+
 	de_dbg_indent_restore(c, saved_indent_level);
+	de_free(c, ictx);
 }
 
 static void do_scan_file(deark *c, lctx *d)
