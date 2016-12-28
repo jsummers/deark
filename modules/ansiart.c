@@ -3,7 +3,6 @@
 // See the file COPYING for terms of use.
 
 // ANSI art
-// (very incomplete)
 
 #include <deark-config.h>
 #include <deark-private.h>
@@ -853,11 +852,12 @@ static void do_main(deark *c, lctx *d)
 
 // With vt100 graphics, each row can be "double width".
 // But our character cells are always single width. We support double
-// width characters by copying in a double-wide row to two character cells,
+// width characters by copying each character in a double-wide row to
+// two character cells,
 // and setting flags to paint either the left half or the right half
 // of the character.
 // This function also copies the row's "double height" setting to each
-// cell. (The vt100 handles double-height characters the same way we do.
+// cell. (The vt100 handles double-*height* characters the same way we do.
 // Consistency is not its strong point.)
 static void fixup_doublesize_rows(deark *c, lctx *d)
 {

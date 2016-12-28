@@ -4,7 +4,7 @@
 
 // MAKIchan graphics
 //  Supported: Most .MAG, .MKI
-//  Not support: .MAX, some variant formats
+//  Not supported: .MAX, some variant formats
 
 #include <deark-config.h>
 #include <deark-private.h>
