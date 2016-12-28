@@ -118,6 +118,7 @@ void de_fmtutil_read_atari_palette(deark *c, dbuf *f, de_int64 pos,
 int de_fmtutil_atari_decode_image(deark *c, struct atari_img_decode_data *adata);
 void de_fmtutil_atari_set_standard_density(deark *c, struct atari_img_decode_data *adata);
 
+// The IFF parser supports IFF and similar formats, including RIFF.
 struct de_iffctx;
 
 // An IFF chunk handler is expected to do one of the following:
@@ -135,7 +136,9 @@ typedef int (*de_handle_iff_chunk_fn)(deark *c, struct de_iffctx *ictx);
 // Return value: Normally 1; 0 to immediately stop processing the entire file.
 typedef int (*de_on_iff_container_end_fn)(deark *c, struct de_iffctx *ictx);
 
-typedef void (*de_on_std_iff_container_start_fn)(deark *c, struct de_iffctx *ictx);
+// Return value: Normally 1; 0 to stop processing this container (the
+// on_container_end_fn will not be called).
+typedef int (*de_on_std_iff_container_start_fn)(deark *c, struct de_iffctx *ictx);
 
 struct de_iffchunkctx {
 	struct de_fourcc chunk4cc;
@@ -153,6 +156,8 @@ struct de_iffctx {
 	de_on_iff_container_end_fn on_container_end_fn;
 	de_int64 alignment; // 0 = default
 	de_int64 sizeof_len; // 0 = default
+	int is_le; // For RIFF format
+	int reversed_4cc;
 
 	int level;
 

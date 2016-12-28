@@ -863,7 +863,7 @@ done:
 	return (quitflag) ? 0 : 1;
 }
 
-static void my_on_std_container_start_fn(deark *c, struct de_iffctx *ictx)
+static int my_on_std_container_start_fn(deark *c, struct de_iffctx *ictx)
 {
 	lctx *d = (lctx*)ictx->userdata;
 
@@ -881,6 +881,7 @@ static void my_on_std_container_start_fn(deark *c, struct de_iffctx *ictx)
 		case CODE_ACBM: de_declare_fmt(c, "IFF-ACBM"); break;
 		}
 	}
+	return 1;
 }
 
 static int my_on_container_end_fn(deark *c, struct de_iffctx *ictx)

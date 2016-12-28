@@ -880,6 +880,7 @@ void de_fmtutil_atari_set_standard_density(deark *c, struct atari_img_decode_dat
 }
 
 #define CODE_ANNO  0x414e4e4fU
+#define CODE_RIFF  0x52494646U
 
 static void do_iff_anno(deark *c, dbuf *f, de_int64 pos, de_int64 len)
 {
@@ -951,12 +952,12 @@ static int do_iff_chunk(deark *c, struct de_iffctx *ictx, de_int64 pos, de_int64
 	}
 	data_bytes_avail = bytes_avail-hdrsize;
 
-	dbuf_read_fourcc(ictx->f, pos, &chunkctx.chunk4cc, 0);
+	dbuf_read_fourcc(ictx->f, pos, &chunkctx.chunk4cc, ictx->reversed_4cc);
 	if(ictx->sizeof_len==2) {
-		chunk_dlen = de_getui16be(pos+4);
+		chunk_dlen = dbuf_getui16x(ictx->f, pos+4, ictx->is_le);
 	}
 	else {
-		chunk_dlen = de_getui32be(pos+4);
+		chunk_dlen = dbuf_getui32x(ictx->f, pos+4, ictx->is_le);
 	}
 	chunk_dpos = pos+hdrsize;
 
@@ -965,12 +966,25 @@ static int do_iff_chunk(deark *c, struct de_iffctx *ictx, de_int64 pos, de_int64
 	de_dbg_indent(c, 1);
 
 	if(chunk_dlen > data_bytes_avail) {
-		de_warn(c, "Invalid oversized chunk, or unexpected end of file "
-			"(chunk at %d ends at %" INT64_FMT ", "
-			"parent ends at %" INT64_FMT ")\n",
-			(int)pos, chunk_dlen+chunk_dpos, pos+bytes_avail);
+		int should_warn = 1;
+
+		if(chunkctx.chunk4cc.id==CODE_RIFF && pos==0 && bytes_avail==ictx->f->len) {
+			// Hack:
+			// This apparent error, in which the RIFF chunk's length field gives the
+			// length of the entire file, is too common (particularly in .ani files)
+			// to warn about.
+			should_warn = 0;
+		}
+
+		if(should_warn) {
+			de_warn(c, "Invalid oversized chunk, or unexpected end of file "
+				"(chunk at %d ends at %" INT64_FMT ", "
+				"parent ends at %" INT64_FMT ")\n",
+				(int)pos, chunk_dlen+chunk_dpos, pos+bytes_avail);
+		}
 
 		chunk_dlen = data_bytes_avail; // Try to continue
+		de_dbg(c, "adjusting chunk data len to %d\n", (int)chunk_dlen);
 	}
 
 	chunk_dlen_padded = de_pad_to_n(chunk_dlen, ictx->alignment);
@@ -1008,7 +1022,7 @@ static int do_iff_chunk(deark *c, struct de_iffctx *ictx, de_int64 pos, de_int64
 			contents_dlen = chunk_dlen-4;
 
 			// First 4 bytes of payload are the "contents type" or "FORM type"
-			dbuf_read_fourcc(ictx->f, chunk_dpos, &ictx->curr_container_contentstype4cc, 0);
+			dbuf_read_fourcc(ictx->f, chunk_dpos, &ictx->curr_container_contentstype4cc, ictx->reversed_4cc);
 
 			if(level==0) {
 				ictx->main_fmt4cc = ictx->curr_container_fmt4cc;
@@ -1018,7 +1032,8 @@ static int do_iff_chunk(deark *c, struct de_iffctx *ictx, de_int64 pos, de_int64
 
 			if(ictx->on_std_container_start_fn) {
 				// Call only for standard-format containers.
-				ictx->on_std_container_start_fn(c, ictx);
+				ret = ictx->on_std_container_start_fn(c, ictx);
+				if(!ret) goto done;
 			}
 		}
 		else { // ictx->is_raw_container
@@ -1051,6 +1066,9 @@ static int do_iff_chunk(deark *c, struct de_iffctx *ictx, de_int64 pos, de_int64
 	}
 
 done:
+	fourcc_clear(&ictx->curr_container_fmt4cc);
+	fourcc_clear(&ictx->curr_container_contentstype4cc);
+
 	de_dbg_indent_restore(c, saved_indent_level);
 	return retval;
 }
@@ -1075,6 +1093,9 @@ static int do_iff_chunk_sequence(deark *c, struct de_iffctx *ictx,
 
 	pos = pos1;
 	while(pos < endpos) {
+		ictx->curr_container_fmt4cc = saved_container_fmt4cc;
+		ictx->curr_container_contentstype4cc = saved_container_contentstype4cc;
+
 		ret = do_iff_chunk(c, ictx, pos, endpos-pos, level, &chunk_len);
 		if(!ret) return 0;
 		pos += chunk_len;

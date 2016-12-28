@@ -33,20 +33,16 @@ DE_DECLARE_MODULE(de_module_ani);
 #define CHUNK_icon 0x69636f6eU
 
 typedef struct localctx_struct {
-	de_uint32 riff_type;
-	int level;
-	int is_le;
-	int char_codes_are_reversed;
 	int is_cdr;
 } lctx;
 
-static void do_extract_raw(deark *c, lctx *d, de_int64 pos, de_int64 len, const char *ext,
+static void do_extract_raw(deark *c, lctx *d, struct de_iffctx *ictx, de_int64 pos, de_int64 len, const char *ext,
 	unsigned int createflags)
 {
 	dbuf_create_file_from_slice(c->infile, pos, len, ext, NULL, createflags);
 }
 
-static void do_INFO_item(deark *c, lctx *d, de_int64 pos, de_int64 len, de_uint32 chunk_id)
+static void do_INFO_item(deark *c, lctx *d, struct de_iffctx *ictx, de_int64 pos, de_int64 len, de_uint32 chunk_id)
 {
 	de_ucstring *s = NULL;
 
@@ -62,7 +58,7 @@ static void do_INFO_item(deark *c, lctx *d, de_int64 pos, de_int64 len, de_uint3
 	ucstring_destroy(s);
 }
 
-static void extract_ani_frame(deark *c, lctx *d, de_int64 pos, de_int64 len)
+static void extract_ani_frame(deark *c, lctx *d, struct de_iffctx *ictx, de_int64 pos, de_int64 len)
 {
 	de_byte buf[4];
 	const char *ext;
@@ -89,11 +85,11 @@ static void extract_ani_frame(deark *c, lctx *d, de_int64 pos, de_int64 len)
 	dbuf_create_file_from_slice(c->infile, pos, len, ext, NULL, 0);
 }
 
-static void do_wav_fmt(deark *c, lctx *d, de_int64 pos, de_int64 len)
+static void do_wav_fmt(deark *c, lctx *d, struct de_iffctx *ictx, de_int64 pos, de_int64 len)
 {
 	de_int64 n;
 
-	if(!d->is_le) return;
+	if(!ictx->is_le) return;
 	if(len<14) return;
 
 	n = de_getui16le(pos);
@@ -117,24 +113,24 @@ static void do_wav_fmt(deark *c, lctx *d, de_int64 pos, de_int64 len)
 	pos += 2;
 }
 
-static void do_wav_fact(deark *c, lctx *d, de_int64 pos, de_int64 len)
+static void do_wav_fact(deark *c, lctx *d, struct de_iffctx *ictx, de_int64 pos, de_int64 len)
 {
 	de_int64 n;
 
-	if(!d->is_le) return;
+	if(!ictx->is_le) return;
 	if(len<4) return;
 	n = de_getui32le(pos);
 	de_dbg(c, "number of samples: %u\n", (unsigned int)n);
 }
 
-static void do_palette(deark *c, lctx *d, de_int64 pos, de_int64 len)
+static void do_palette(deark *c, lctx *d, struct de_iffctx *ictx, de_int64 pos, de_int64 len)
 {
 	de_int64 ver;
 	de_int64 n;
 	de_int64 i;
 	de_byte r,g,b,flags;
 
-	if(!d->is_le) return;
+	if(!ictx->is_le) return;
 	ver = de_getui16le(pos);
 	de_dbg(c, "version: 0x%04x\n", (unsigned int)ver);
 	pos += 2;
@@ -159,14 +155,14 @@ static void do_palette(deark *c, lctx *d, de_int64 pos, de_int64 len)
 	de_dbg_indent(c, -1);
 }
 
-static void do_DISP_DIB(deark *c, lctx *d, de_int64 pos, de_int64 len)
+static void do_DISP_DIB(deark *c, lctx *d, struct de_iffctx *ictx, de_int64 pos, de_int64 len)
 {
 	if(len<12) return;
 	// "X" = Tell the dib module to mark the output file as "auxiliary".
 	de_run_module_by_id_on_slice2(c, "dib", "X", c->infile, pos, len);
 }
 
-static void do_DISP_TEXT(deark *c, lctx *d, de_int64 pos, de_int64 len1)
+static void do_DISP_TEXT(deark *c, lctx *d, struct de_iffctx *ictx, de_int64 pos, de_int64 len1)
 {
 	de_int64 foundpos;
 	de_int64 len = len1;
@@ -178,20 +174,20 @@ static void do_DISP_TEXT(deark *c, lctx *d, de_int64 pos, de_int64 len1)
 	de_dbg(c, "text length: %d\n", (int)len);
 	if(len<1) return;
 
-	do_extract_raw(c, d, pos, len, "disp.txt", DE_CREATEFLAG_IS_AUX);
+	do_extract_raw(c, d, ictx, pos, len, "disp.txt", DE_CREATEFLAG_IS_AUX);
 }
 
-static void do_ICCP(deark *c, lctx *d, de_int64 pos, de_int64 len)
+static void do_ICCP(deark *c, lctx *d, struct de_iffctx *ictx, de_int64 pos, de_int64 len)
 {
 	dbuf_create_file_from_slice(c->infile, pos, len, "icc", NULL, DE_CREATEFLAG_IS_AUX);
 }
 
-static void do_EXIF(deark *c, lctx *d, de_int64 pos, de_int64 len)
+static void do_EXIF(deark *c, lctx *d, struct de_iffctx *ictx, de_int64 pos, de_int64 len)
 {
 	de_fmtutil_handle_exif(c, pos, len);
 }
 
-static void do_XMP(deark *c, lctx *d, de_int64 pos, de_int64 len)
+static void do_XMP(deark *c, lctx *d, struct de_iffctx *ictx, de_int64 pos, de_int64 len)
 {
 	dbuf_create_file_from_slice(c->infile, pos, len, "xmp", NULL, DE_CREATEFLAG_IS_AUX);
 }
@@ -216,12 +212,12 @@ static const char *get_cb_data_type_name(de_int64 ty)
 	return name;
 }
 
-static void do_DISP(deark *c, lctx *d, de_int64 pos, de_int64 len)
+static void do_DISP(deark *c, lctx *d, struct de_iffctx *ictx, de_int64 pos, de_int64 len)
 {
 	de_int64 ty;
 	de_int64 dpos, dlen;
 
-	if(!d->is_le) return;
+	if(!ictx->is_le) return;
 	if(len<4) return;
 	ty = de_getui32le(pos);
 	de_dbg(c, "data type: %u (%s)\n", (unsigned int)ty,
@@ -232,176 +228,152 @@ static void do_DISP(deark *c, lctx *d, de_int64 pos, de_int64 len)
 	switch(ty) {
 	case 1:
 	case 7:
-		do_DISP_TEXT(c, d, dpos, dlen);
+		do_DISP_TEXT(c, d, ictx, dpos, dlen);
 		break;
 	case 8:
 	case 17:
-		do_DISP_DIB(c, d, dpos, dlen);
+		do_DISP_DIB(c, d, ictx, dpos, dlen);
 		break;
 	}
 }
 
-static void process_riff_sequence(deark *c, lctx *d, de_int64 pos, de_int64 len1, de_uint32 list_type)
+static int my_on_std_container_start_fn(deark *c, struct de_iffctx *ictx)
 {
-	de_int64 chunk_pos;
-	de_int64 chunk_data_pos;
-	de_int64 chunk_data_len;
-	de_int64 endpos;
-	struct de_fourcc chunk4cc;
-	struct de_fourcc listid4cc;
+	lctx *d = (lctx*)ictx->userdata;
 
-	if(d->level >= 16) { // An arbitrary recursion limit
-		return;
+	if(ictx->level==0) {
+		// Special check for CorelDraw formats.
+		if(!de_memcmp(ictx->main_contentstype4cc.bytes, (const void*)"CDR", 3)) {
+			d->is_cdr = 1;
+		}
 	}
 
-	if(d->is_cdr && list_type==CODE_cmpr) {
+	if(d->is_cdr && ictx->curr_container_fmt4cc.id==CHUNK_LIST) {
 		// 'cmpr' LISTs in CorelDraw files are not correctly formed.
-		de_dbg(c, "[not decoding CDR cmpr list]\n");
-		return;
+		// Tell the parser not to process them.
+		if(ictx->curr_container_contentstype4cc.id==CODE_cmpr) {
+			de_dbg(c, "[not decoding CDR cmpr list]\n");
+			return 0;
+		}
+	}
+	return 1;
+
+}
+
+static int my_riff_chunk_handler(deark *c, struct de_iffctx *ictx)
+{
+	de_int64 dpos, dlen;
+	de_uint32 list_type;
+	lctx *d = (lctx*)ictx->userdata;
+
+	// We should always set this flag for formats (like RIFF) that aren't standard IFF.
+	ictx->handled = 1;
+
+	list_type = ictx->curr_container_contentstype4cc.id;
+	dpos = ictx->chunkctx->chunk_dpos;
+	dlen = ictx->chunkctx->chunk_dlen;
+
+	switch(ictx->chunkctx->chunk4cc.id) {
+	case CHUNK_RIFF:
+	case CHUNK_RIFX:
+	case CHUNK_LIST:
+		ictx->is_std_container = 1;
+		return 1;
 	}
 
-	endpos = pos+len1;
+	if(list_type==CODE_INFO) {
+		do_INFO_item(c, d, ictx, dpos, dlen, ictx->chunkctx->chunk4cc.id);
+		goto chunk_handled;
+	}
 
-	while((endpos-pos) >= 8) {
-		chunk_pos = pos;
-		dbuf_read_fourcc(c->infile, pos, &chunk4cc, d->char_codes_are_reversed);
-		pos+=4;
-		chunk_data_len = dbuf_getui32x(c->infile, pos, d->is_le);
-		pos+=4;
-		chunk_data_pos = pos;
+	switch(ictx->chunkctx->chunk4cc.id) {
 
-		de_dbg(c, "chunk '%s' at %d, dpos=%d, dlen=%d\n", chunk4cc.id_printable, (int)chunk_pos,
-			(int)chunk_data_pos, (int)chunk_data_len);
+	case CHUNK_DISP:
+		do_DISP(c, d, ictx, dpos, dlen);
+		break;
 
-		if(chunk_data_pos + chunk_data_len > endpos) {
-			if(chunk4cc.id==CHUNK_RIFF && chunk_pos==0 && chunk_data_len==endpos) {
-				// This apparent error, in which the RIFF chunk's length field gives the
-				// length of the entire file, is too common (particularly in .ani files)
-				// to warn about.
-				;
-			}
-			else if(chunk_data_pos+chunk_data_len > c->infile->len) {
-				de_warn(c, "Chunk '%s' at offset %d goes beyond end of file.\n", chunk4cc.id_printable,
-					(int)chunk_pos);
-			}
-			else {
-				de_warn(c, "Chunk '%s' at offset %d exceeds its bounds.\n", chunk4cc.id_printable,
-					(int)chunk_pos);
-			}
+	case CHUNK_ICCP: // Used by WebP
+		do_ICCP(c, d, ictx, dpos, dlen);
+		break;
 
-			chunk_data_len = endpos - chunk_data_pos; // Fixup bad chunk length
-			de_dbg(c, "adjusting chunk data len to %d\n", (int)chunk_data_len);
+	case CHUNK_EXIF: // Used by WebP
+		do_EXIF(c, d, ictx, dpos, dlen);
+		break;
+
+	case CHUNK_XMP: // Used by WebP
+	case CHUNK__PMX: // Used by WAVE, AVI
+		do_XMP(c, d, ictx, dpos, dlen);
+		break;
+
+	case CHUNK_icon:
+		if(ictx->main_contentstype4cc.id==CODE_ACON) {
+			extract_ani_frame(c, d, ictx, dpos, dlen);
 		}
+		break;
 
-		de_dbg_indent(c, 1);
-
-		if(list_type==CODE_INFO) {
-			do_INFO_item(c, d, pos, chunk_data_len, chunk4cc.id);
-			goto chunk_handled;
+	case CHUNK_data:
+		if(list_type==CODE_RMID) {
+			do_extract_raw(c, d, ictx, dpos, dlen, "mid", 0);
 		}
-
-		switch(chunk4cc.id) {
-		case CHUNK_RIFF:
-		case CHUNK_RIFX:
-		case CHUNK_LIST:
-			dbuf_read_fourcc(c->infile, pos, &listid4cc, d->char_codes_are_reversed);
-			if(d->level==0) {
-				d->riff_type = listid4cc.id; // Remember the file type for later
-
-				// Special check for CorelDraw formats.
-				if(!de_memcmp(listid4cc.bytes, (const void*)"CDR", 3)) {
-					d->is_cdr = 1;
-				}
-			}
-			de_dbg(c, "%s type: '%s'\n", chunk4cc.id_printable, listid4cc.id_printable);
-
-			d->level++;
-			process_riff_sequence(c, d, pos+4, chunk_data_len-4, listid4cc.id);
-			d->level--;
-			break;
-
-		case CHUNK_DISP:
-			do_DISP(c, d, pos, chunk_data_len);
-			break;
-
-		case CHUNK_ICCP: // Used by WebP
-			do_ICCP(c, d, pos, chunk_data_len);
-			break;
-
-		case CHUNK_EXIF: // Used by WebP
-			do_EXIF(c, d, pos, chunk_data_len);
-			break;
-
-		case CHUNK_XMP: // Used by WebP
-		case CHUNK__PMX: // Used by WAVE, AVI
-			do_XMP(c, d, pos, chunk_data_len);
-			break;
-
-		case CHUNK_icon:
-			if(d->riff_type==CODE_ACON) {
-				extract_ani_frame(c, d, pos, chunk_data_len);
-			}
-			break;
-
-		case CHUNK_data:
-			if(list_type==CODE_RMID) {
-				do_extract_raw(c, d, pos, chunk_data_len, "mid", 0);
-			}
-			else if(list_type==CODE_PAL) {
-				do_palette(c, d, pos, chunk_data_len);
-			}
-			break;
-
-		case CHUNK_fmt:
-			if(d->riff_type==CODE_WAVE) {
-				do_wav_fmt(c, d, pos, chunk_data_len);
-			}
-			break;
-
-		case CHUNK_fact:
-			if(d->riff_type==CODE_WAVE) {
-				do_wav_fact(c, d, pos, chunk_data_len);
-			}
-			break;
+		else if(list_type==CODE_PAL) {
+			do_palette(c, d, ictx, dpos, dlen);
 		}
+		break;
+
+	case CHUNK_fmt:
+		if(ictx->main_contentstype4cc.id==CODE_WAVE) {
+			do_wav_fmt(c, d, ictx, dpos, dlen);
+		}
+		break;
+
+	case CHUNK_fact:
+		if(ictx->main_contentstype4cc.id==CODE_WAVE) {
+			do_wav_fact(c, d, ictx, dpos, dlen);
+		}
+		break;
+	}
 
 chunk_handled:
-		de_dbg_indent(c, -1);
-
-		pos += chunk_data_len;
-		if(chunk_data_len%2) pos++; // Padding byte
-	}
+	return 1;
 }
 
 static void de_run_riff(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
+	struct de_iffctx *ictx = NULL;
 	de_byte buf[4];
 
 	d = de_malloc(c, sizeof(lctx));
+	ictx = de_malloc(c, sizeof(struct de_iffctx));
+
+	ictx->userdata = (void*)d;
+	ictx->handle_chunk_fn = my_riff_chunk_handler;
+	ictx->on_std_container_start_fn = my_on_std_container_start_fn;
+	ictx->f = c->infile;
 
 	de_read(buf, 0, 4);
 
 	if(!de_memcmp(buf, "RIFF", 4)) {
-		d->is_le = 1;
-		d->char_codes_are_reversed = 0;
+		ictx->is_le = 1;
+		ictx->reversed_4cc = 0;
 	}
 	else if(!de_memcmp(buf, "RIFX", 4)) {
-		d->is_le = 0;
-		d->char_codes_are_reversed = 0;
+		ictx->is_le = 0;
+		ictx->reversed_4cc = 0;
 	}
 	else if(!de_memcmp(buf, "XFIR", 4)) {
-		d->is_le = 1;
-		d->char_codes_are_reversed = 1;
+		ictx->is_le = 1;
+		ictx->reversed_4cc = 1;
 	}
 	else {
 		de_warn(c, "This is probably not a RIFF file.\n");
-		d->is_le = 1;
-		d->char_codes_are_reversed = 0;
+		ictx->is_le = 1;
+		ictx->reversed_4cc = 0;
 	}
 
-	process_riff_sequence(c, d, 0, c->infile->len, 0);
+	de_fmtutil_read_iff_format(c, ictx, 0, c->infile->len);
 
+	de_free(c, ictx);
 	de_free(c, d);
 }
 
