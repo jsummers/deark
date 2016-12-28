@@ -6,6 +6,7 @@
 
 #include <deark-config.h>
 #include <deark-private.h>
+#include "fmtutil.h"
 DE_DECLARE_MODULE(de_module_nol);
 DE_DECLARE_MODULE(de_module_ngg);
 DE_DECLARE_MODULE(de_module_npm);
@@ -14,7 +15,6 @@ DE_DECLARE_MODULE(de_module_nsl);
 
 typedef struct localctx_struct {
 	de_int64 w, h;
-	int nesting_level;
 	int done_flag;
 } lctx;
 
@@ -222,7 +222,6 @@ static void nsl_read_bitmap(deark *c, lctx *d, de_int64 pos, de_int64 len)
 	de_int64 i, j;
 	de_byte x;
 
-	de_dbg_indent(c, 1);
 	de_dbg(c, "bitmap at %d, len=%d\n", (int)pos, (int)len);
 	d->done_flag = 1;
 
@@ -248,78 +247,49 @@ static void nsl_read_bitmap(deark *c, lctx *d, de_int64 pos, de_int64 len)
 	de_bitmap_write_to_file(img, NULL, 0);
 
 done:
-	de_dbg_indent(c, -1);
 	de_bitmap_destroy(img);
 }
-
-static int read_nsl_chunk_sequence(deark *c, lctx *d, de_int64 pos, de_int64 len);
 
 #define CODE_FORM  0x464f524dU
 #define CODE_NSLD  0x4e534c44U
 
-static int read_nsl_chunk(deark *c, lctx *d, de_int64 pos1, de_int64 *plen)
+static int my_nsl_chunk_handler(deark *c, struct de_iffctx *ictx)
 {
-	de_int64 payload_len;
-	de_int64 pos;
-	struct de_fourcc chunk4cc;
+	lctx *d = (lctx*)ictx->userdata;
 
-	pos = pos1;
-	dbuf_read_fourcc(c->infile, pos, &chunk4cc, 0);
-
-	pos += 4;
-	payload_len = de_getui16be(pos);
-	pos += 2;
-
-	de_dbg(c, "chunk '%s' at %d, dlen=%d, tlen=%d\n", chunk4cc.id_printable, (int)pos1,
-		(int)payload_len, (int)(6+payload_len));
-
-	if(chunk4cc.id==CODE_FORM && d->nesting_level==0) {
-		d->nesting_level++;
-		de_dbg_indent(c, 1);
-		read_nsl_chunk_sequence(c, d, pos, payload_len);
-		de_dbg_indent(c, -1);
-		d->nesting_level--;
-	}
-	else if(chunk4cc.id==CODE_NSLD && d->nesting_level==1 && !d->done_flag) {
-		nsl_read_bitmap(c, d, pos, payload_len);
+	if(ictx->chunkctx->chunk4cc.id == CODE_FORM) {
+		ictx->is_raw_container = 1;
+		return 1;
 	}
 
-	*plen = 6 + payload_len;
+	switch(ictx->chunkctx->chunk4cc.id) {
+	case CODE_NSLD:
+		if(ictx->level==1 && !d->done_flag) {
+			nsl_read_bitmap(c, d, ictx->chunkctx->chunk_dpos, ictx->chunkctx->chunk_dlen);
+		}
+		break;
+	}
+
+	ictx->handled = 1;
 	return 1;
-}
-
-static int read_nsl_chunk_sequence(deark *c, lctx *d, de_int64 pos, de_int64 len)
-{
-	de_int64 endpos;
-	de_int64 chunk_len;
-	int ret;
-	int retval = 0;
-
-	endpos = pos + len;
-
-	if(d->nesting_level>10) return 0;
-
-	while(pos < endpos) {
-		ret = read_nsl_chunk(c, d, pos, &chunk_len);
-		if(!ret) goto done;
-		pos += chunk_len;
-	}
-	retval = 1;
-
-done:
-	return retval;
 }
 
 static void de_run_nsl(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
-	de_int64 pos;
+	struct de_iffctx *ictx = NULL;
 
 	d = de_malloc(c, sizeof(lctx));
+	ictx = de_malloc(c, sizeof(struct de_iffctx));
 
-	pos = 0;
-	read_nsl_chunk_sequence(c, d, pos, c->infile->len);
+	ictx->userdata = (void*)d;
+	ictx->handle_chunk_fn = my_nsl_chunk_handler;
+	ictx->f = c->infile;
+	ictx->sizeof_len = 2;
 
+	de_fmtutil_read_iff_format(c, ictx, 0, c->infile->len);
+
+	de_free(c, ictx);
 	de_free(c, d);
 }
 

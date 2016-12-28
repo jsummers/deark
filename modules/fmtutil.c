@@ -934,6 +934,7 @@ static int do_iff_chunk(deark *c, struct de_iffctx *ictx, de_int64 pos, de_int64
 	de_int64 chunk_dlen;
 	de_int64 chunk_dlen_padded;
 	de_int64 data_bytes_avail;
+	de_int64 hdrsize;
 	struct de_iffchunkctx chunkctx;
 	int saved_indent_level;
 	int retval = 0;
@@ -942,16 +943,22 @@ static int do_iff_chunk(deark *c, struct de_iffctx *ictx, de_int64 pos, de_int64
 
 	de_dbg_indent_save(c, &saved_indent_level);
 
-	if(bytes_avail<8) {
+	hdrsize = 4+ictx->sizeof_len;
+	if(bytes_avail<hdrsize) {
 		de_err(c, "Invalid chunk size (at %d, size=%" INT64_FMT ")\n",
 			(int)pos, bytes_avail);
 		goto done;
 	}
-	data_bytes_avail = bytes_avail-8;
+	data_bytes_avail = bytes_avail-hdrsize;
 
 	dbuf_read_fourcc(ictx->f, pos, &chunkctx.chunk4cc, 0);
-	chunk_dlen = de_getui32be(pos+4);
-	chunk_dpos = pos+8;
+	if(ictx->sizeof_len==2) {
+		chunk_dlen = de_getui16be(pos+4);
+	}
+	else {
+		chunk_dlen = de_getui32be(pos+4);
+	}
+	chunk_dpos = pos+hdrsize;
 
 	de_dbg(c, "chunk '%s' at %d, dpos=%d, dlen=%d\n", chunkctx.chunk4cc.id_printable, (int)pos,
 		(int)chunk_dpos, (int)chunk_dlen);
@@ -967,7 +974,7 @@ static int do_iff_chunk(deark *c, struct de_iffctx *ictx, de_int64 pos, de_int64
 	}
 
 	chunk_dlen_padded = de_pad_to_n(chunk_dlen, ictx->alignment);
-	*pbytes_consumed = 8 + chunk_dlen_padded;
+	*pbytes_consumed = hdrsize + chunk_dlen_padded;
 
 	// We've set *pbytes_consumed, so we can return "success"
 	retval = 1;
@@ -1001,7 +1008,7 @@ static int do_iff_chunk(deark *c, struct de_iffctx *ictx, de_int64 pos, de_int64
 			contents_dlen = chunk_dlen-4;
 
 			// First 4 bytes of payload are the "contents type" or "FORM type"
-			dbuf_read_fourcc(ictx->f, pos+8, &ictx->curr_container_contentstype4cc, 0);
+			dbuf_read_fourcc(ictx->f, chunk_dpos, &ictx->curr_container_contentstype4cc, 0);
 
 			if(level==0) {
 				ictx->main_fmt4cc = ictx->curr_container_fmt4cc;
@@ -1091,6 +1098,9 @@ void de_fmtutil_read_iff_format(deark *c, struct de_iffctx *ictx,
 	fourcc_clear(&ictx->curr_container_contentstype4cc);
 	if(ictx->alignment==0) {
 		ictx->alignment = 2;
+	}
+	if(ictx->sizeof_len==0) {
+		ictx->sizeof_len = 4;
 	}
 
 	do_iff_chunk_sequence(c, ictx, pos, len, 0);

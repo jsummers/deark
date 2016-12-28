@@ -4,9 +4,9 @@
 
 // IFF (Interchange File Format)
 
-// TODO: This module might eventually become general enough that it
-// can share most of its code with other modules that parse IFF-like
-// formats (ilbm, amigaicon, nokia, riff).
+// Note that the IFF parser is actually implemented in fmtutil.c, not here.
+// This module uses fmtutil to support unknown IFF formats, and IFF formats
+// for which we have very little format-specific logic.
 
 #include <deark-config.h>
 #include <deark-private.h>

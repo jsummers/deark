@@ -151,14 +151,18 @@ struct de_iffctx {
 	de_handle_iff_chunk_fn handle_chunk_fn;
 	de_on_std_iff_container_start_fn on_std_container_start_fn;
 	de_on_iff_container_end_fn on_container_end_fn;
-	de_int64 alignment;
+	de_int64 alignment; // 0 = default
+	de_int64 sizeof_len; // 0 = default
 
 	int level;
-	struct de_fourcc main_fmt4cc;
-	struct de_fourcc main_contentstype4cc; // Top-level container type
 
-	struct de_fourcc curr_container_fmt4cc; // E.g. "FORM"
-	struct de_fourcc curr_container_contentstype4cc; // E.g. "ILBM"
+	// Top-level container type:
+	struct de_fourcc main_fmt4cc; // E.g. "FORM"
+	struct de_fourcc main_contentstype4cc; // E.g. "ILBM"
+
+	// Current container type:
+	struct de_fourcc curr_container_fmt4cc;
+	struct de_fourcc curr_container_contentstype4cc;
 
 	// Per-chunk info supplied to handle_chunk_fn:
 	const struct de_iffchunkctx *chunkctx;
