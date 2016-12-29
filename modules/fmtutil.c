@@ -4,6 +4,7 @@
 
 // This file is for format-specific functions that are used by multiple modules.
 
+#define DE_NOT_IN_MODULE
 #include <deark-config.h>
 #include <deark-private.h>
 #include "fmtutil.h"

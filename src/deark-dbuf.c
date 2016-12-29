@@ -6,6 +6,7 @@
 //
 // Functions related to the dbuf object.
 
+#define DE_NOT_IN_MODULE
 #include "deark-config.h"
 
 #include <stdlib.h>

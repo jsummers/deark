@@ -6,6 +6,7 @@
 //
 // Data lookup and conversion.
 
+#define DE_NOT_IN_MODULE
 #include "deark-config.h"
 
 #include "deark-private.h"

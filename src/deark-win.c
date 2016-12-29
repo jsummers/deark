@@ -5,6 +5,7 @@
 // Functions specific to Microsoft Windows, especially those that require
 // windows.h.
 
+#define DE_NOT_IN_MODULE
 #include "deark-config.h"
 
 #ifndef DE_WINDOWS

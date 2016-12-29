@@ -6,6 +6,7 @@
 //
 // Functions related to bitmaps and struct deark_bitmap.
 
+#define DE_NOT_IN_MODULE
 #include "deark-config.h"
 #include "deark-private.h"
 

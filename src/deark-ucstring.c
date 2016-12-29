@@ -4,6 +4,7 @@
 
 // Implementation of de_ucstring Unicode string object
 
+#define DE_NOT_IN_MODULE
 #include "deark-config.h"
 
 #include "deark-private.h"

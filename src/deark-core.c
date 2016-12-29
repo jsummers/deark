@@ -7,6 +7,7 @@
 // Functions in this file can be called by deark-cmd.c, but should not be called
 // by anything in the library or modules (use deark-util.c instead).
 
+#define DE_NOT_IN_MODULE
 #include "deark-config.h"
 #include <stdlib.h>
 #include "deark-private.h"

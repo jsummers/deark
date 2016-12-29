@@ -2,6 +2,7 @@
 // Copyright (C) 2016 Jason Summers
 // See the file COPYING for terms of use.
 
+#define DE_NOT_IN_MODULE
 #include "deark-config.h"
 #include "deark-private.h"
 

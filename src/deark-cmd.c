@@ -4,6 +4,7 @@
 
 // Command-line interface
 
+#define DE_NOT_IN_MODULE
 #include "deark-config.h"
 
 #include <stdio.h>

@@ -4,6 +4,7 @@
 
 // Functions specific to Unix and other non-Windows builds
 
+#define DE_NOT_IN_MODULE
 #include "deark-config.h"
 
 #ifdef DE_WINDOWS
