@@ -888,7 +888,6 @@ static void do_iff_anno(deark *c, dbuf *f, de_int64 pos, de_int64 len)
 	de_int64 foundpos;
 
 	if(len<1) return;
-	if(c->extract_level<2) return;
 
 	// Some ANNO chunks seem to be padded with one or more NUL bytes. Probably
 	// best not to save them.
@@ -896,8 +895,16 @@ static void do_iff_anno(deark *c, dbuf *f, de_int64 pos, de_int64 len)
 		len = foundpos - pos;
 	}
 	if(len<1) return;
-
-	dbuf_create_file_from_slice(c->infile, pos, len, "anno.txt", NULL, DE_CREATEFLAG_IS_AUX);
+	if(c->extract_level>=2) {
+		dbuf_create_file_from_slice(c->infile, pos, len, "anno.txt", NULL, DE_CREATEFLAG_IS_AUX);
+	}
+	else {
+		de_ucstring *s = NULL;
+		s = ucstring_create(c);
+		dbuf_read_to_ucstring_n(c->infile, pos, len, 300, s, 0, DE_ENCODING_ASCII);
+		de_dbg(c, "annotation: \"%s\"\n", ucstring_get_printable_sz(s));
+		ucstring_destroy(s);
+	}
 }
 
 void de_fmtutil_handle_standard_iff_chunk(deark *c, dbuf *f, de_int64 dpos, de_int64 dlen,

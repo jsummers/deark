@@ -17,16 +17,33 @@ DE_DECLARE_MODULE(de_module_iff);
 #define FMT_FOR4   4
 #define FMT_DJVU   10
 
+#define CODE__c_   0x28632920U
+#define CODE_8SVX  0x38535658U
+#define CODE_AUTH  0x41555448U
 #define CODE_CAT   0x43415420U
 #define CODE_CAT4  0x43415434U
 #define CODE_FOR4  0x464f5234U
 #define CODE_FORM  0x464f524dU
 #define CODE_LIS4  0x4c495334U
 #define CODE_LIST  0x4c495354U
+#define CODE_NAME  0x4e414d45U
 
 typedef struct localctx_struct {
 	int fmt; // FMT_*
 } lctx;
+
+static void do_text_chunk(deark *c, struct de_iffctx *ictx, const char *name)
+{
+	de_ucstring *s = NULL;
+
+	ictx->handled = 1;
+	s = ucstring_create(c);
+	dbuf_read_to_ucstring_n(c->infile,
+		ictx->chunkctx->chunk_dpos, ictx->chunkctx->chunk_dlen, 300,
+		s, DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_ASCII);
+	de_dbg(c, "%s: \"%s\"\n", name, ucstring_get_printable_sz(s));
+	ucstring_destroy(s);
+}
 
 static int is_container_chunk(deark *c, lctx *d, de_uint32 ct)
 {
@@ -44,6 +61,23 @@ static int my_iff_chunk_handler(deark *c, struct de_iffctx *ictx)
 	lctx *d = (lctx*)ictx->userdata;
 
 	ictx->is_std_container = is_container_chunk(c, d, ictx->chunkctx->chunk4cc.id);
+	if(ictx->is_std_container) goto done;
+
+	if(ictx->main_contentstype4cc.id==CODE_8SVX) {
+		switch(ictx->chunkctx->chunk4cc.id) {
+		case CODE__c_:
+			do_text_chunk(c, ictx, "copyright");
+			break;
+		case CODE_AUTH:
+			do_text_chunk(c, ictx, "author");
+			break;
+		case CODE_NAME:
+			do_text_chunk(c, ictx, "voice name");
+			break;
+		}
+	}
+
+done:
 	return 1;
 }
 
