@@ -196,7 +196,7 @@ static int decode_egavga16(deark *c, lctx *d)
 	de_int64 src_planespan;
 	int palent;
 
-	de_dbg(c, "16-color EGA/VGA\n");
+	de_dbg(c, "image type: 16-color EGA/VGA\n");
 	de_memset(pal, 0, sizeof(pal));
 
 	// Read the palette
@@ -258,7 +258,7 @@ static int decode_vga256(deark *c, lctx *d)
 	de_uint32 pal[256];
 	de_int64 k;
 
-	de_dbg(c, "256-color image\n");
+	de_dbg(c, "image type: 256-color\n");
 	de_memset(pal, 0, sizeof(pal));
 
 	// Read the palette
@@ -290,7 +290,7 @@ static int decode_bilevel(deark *c, lctx *d)
 	int is_grayscale;
 	de_int64 edesc = d->pal_info_to_use->edesc;
 
-	de_dbg(c, "bilevel image\n");
+	de_dbg(c, "image type: bilevel\n");
 
 	if(!d->unc_pixels) return 0;
 
@@ -334,7 +334,7 @@ static int decode_cga4(deark *c, lctx *d)
 	de_byte pal_id = 0;
 	de_byte border_col = 0;
 
-	de_dbg(c, "CGA 4-color\n");
+	de_dbg(c, "image type: CGA 4-color\n");
 
 	if(!d->unc_pixels) return 0;
 
@@ -578,15 +578,22 @@ static int do_set_up_decoder(deark *c, lctx *d)
 
 static void de_run_pcpaint_pic(deark *c, lctx *d, de_module_params *mparams)
 {
+	int saved_indent_level;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+
 	de_declare_fmt(c, "PCPaint PIC");
 
 	// Note that this bitmap will not be rendered in the case of character
 	// graphics, but it's still needed to store the width and height.
 	d->img = de_bitmap_create_noinit(c);
 
+	de_dbg(c, "header at %d\n", 0);
+	de_dbg_indent(c, 1);
+
 	d->img->width = de_getui16le(2);
 	d->img->height = de_getui16le(4);
-	de_dbg(c, "dimensions = %dx%d\n", (int)d->img->width, (int)d->img->height);
+	de_dbg(c, "dimensions: %dx%d\n", (int)d->img->width, (int)d->img->height);
 
 	d->plane_info = de_getbyte(10);
 	d->palette_flag = de_getbyte(11);
@@ -604,11 +611,15 @@ static void de_run_pcpaint_pic(deark *c, lctx *d, de_module_params *mparams)
 	}
 
 	d->video_mode = de_getbyte(12);
-	do_read_palette_data(c, d, c->infile, &d->pal_info_mainfile);
-
 	de_dbg(c, "video_mode: 0x%02x\n",(int)d->video_mode);
+
+	do_read_palette_data(c, d, c->infile, &d->pal_info_mainfile);
 	de_dbg(c, "edesc: %d\n",(int)d->pal_info_mainfile.edesc);
 	de_dbg(c, "esize: %d\n",(int)d->pal_info_mainfile.esize);
+
+	if(d->pal_info_mainfile.esize>0) {
+		de_dbg(c, "palette or other info at %d\n", 17);
+	}
 
 	set_density(c, d);
 
@@ -619,8 +630,11 @@ static void de_run_pcpaint_pic(deark *c, lctx *d, de_module_params *mparams)
 
 	d->header_size = 17 + d->pal_info_mainfile.esize + 2;
 
-	de_dbg(c, "rle blocks: %d\n", (int)d->num_rle_blocks);
+	de_dbg(c, "num rle blocks: %d\n", (int)d->num_rle_blocks);
+	de_dbg_indent(c, -1);
 
+	de_dbg(c, "image data at %d\n", (int)d->header_size);
+	de_dbg_indent(c, 1);
 	if(!do_set_up_decoder(c, d)) goto done;
 
 	if(d->num_rle_blocks>0) {
@@ -636,7 +650,7 @@ static void de_run_pcpaint_pic(deark *c, lctx *d, de_module_params *mparams)
 	d->decoder_fn(c, d);
 
 done:
-	;
+	de_dbg_indent_restore(c, saved_indent_level);
 }
 
 static void de_run_pcpaint_clp(deark *c, lctx *d, de_module_params *mparams)
@@ -644,6 +658,9 @@ static void de_run_pcpaint_clp(deark *c, lctx *d, de_module_params *mparams)
 	de_int64 file_size;
 	de_byte run_marker;
 	int is_compressed;
+	int saved_indent_level;
+
+	de_dbg_indent_save(c, &saved_indent_level);
 
 	de_declare_fmt(c, "PCPaint CLP");
 
@@ -651,11 +668,11 @@ static void de_run_pcpaint_clp(deark *c, lctx *d, de_module_params *mparams)
 
 	d->img = de_bitmap_create_noinit(c);
 
-	file_size = de_getui16le(0);
-	d->img->width = de_getui16le(2);
-	d->img->height = de_getui16le(4);
-	d->plane_info = de_getbyte(10);
+	de_dbg(c, "header at %d\n", 0);
+	de_dbg_indent(c, 1);
 
+	file_size = de_getui16le(0);
+	de_dbg(c, "reported file size: %d\n", (int)file_size);
 	if(file_size != c->infile->len) {
 		if(file_size==0x1234) {
 			de_warn(c, "This is probably a .PIC file, not a CLIP file.\n");
@@ -666,6 +683,12 @@ static void de_run_pcpaint_clp(deark *c, lctx *d, de_module_params *mparams)
 		}
 	}
 
+	d->img->width = de_getui16le(2);
+	d->img->height = de_getui16le(4);
+	de_dbg(c, "dimensions: %dx%d\n", (int)d->img->width, (int)d->img->height);
+
+	d->plane_info = de_getbyte(10);
+
 	is_compressed = (d->plane_info==0xff);
 
 	if(is_compressed) {
@@ -675,10 +698,10 @@ static void de_run_pcpaint_clp(deark *c, lctx *d, de_module_params *mparams)
 	else {
 		d->header_size = 11;
 	}
+	de_dbg(c, "compressed: %d\n", (int)is_compressed);
+	de_dbg(c, "plane info: 0x%02x\n",(int)d->plane_info);
 
-	de_dbg(c, "reported file size=%d, width=%d, height=%d, compressed=%d, bits/planes=0x%02x\n",
-		(int)file_size, (int)d->img->width, (int)d->img->height, (int)is_compressed, (int)d->plane_info);
-
+	de_dbg_indent(c, -1);
 
 	// The colors probably won't be right, but we have no way to tell what palette
 	// is used by a CLP image.
@@ -689,6 +712,8 @@ static void de_run_pcpaint_clp(deark *c, lctx *d, de_module_params *mparams)
 	d->pal_info_to_use = &d->pal_info_mainfile; // tentative
 	if(!do_read_alt_palette_file(c, d)) goto done;
 
+	de_dbg(c, "image data at %d\n", (int)d->header_size);
+	de_dbg_indent(c, 1);
 	if(!do_set_up_decoder(c, d)) goto done;
 
 	if(is_compressed) {
@@ -704,13 +729,14 @@ static void de_run_pcpaint_clp(deark *c, lctx *d, de_module_params *mparams)
 	}
 	else {
 		// Uncompressed.
-		d->unc_pixels = dbuf_open_input_subfile(c->infile, 11, c->infile->len-11);
+		d->unc_pixels = dbuf_open_input_subfile(c->infile,
+			d->header_size, c->infile->len-d->header_size);
 	}
 
 	d->decoder_fn(c, d);
 
 done:
-	;
+	de_dbg_indent_restore(c, saved_indent_level);
 }
 
 // Dispatch to either pcpaint_pic or pcpaint_clp.
@@ -768,6 +794,8 @@ static void de_run_pcpaint(deark *c, de_module_params *mparams)
 
 	if(d->unc_pixels) dbuf_close(d->unc_pixels);
 	de_bitmap_destroy(d->img);
+	de_free(c, d->pal_info_mainfile.data);
+	de_free(c, d->pal_info_palfile.data);
 	de_free(c, d);
 }
 
