@@ -210,8 +210,8 @@ Thanks to countless others who have documented the supported file formats.
 
 === Authors ===
 
-Written by Jason Summers, 2014-2016.
-Copyright (C) 2016 Jason Summers
+Written by Jason Summers, 2014-2017.
+Copyright (C) 2016-2017 Jason Summers
 <http://entropymine.com/deark/>
 <https://github.com/jsummers/deark>
 

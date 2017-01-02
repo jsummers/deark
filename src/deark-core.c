@@ -197,6 +197,11 @@ void de_run(deark *c)
 	}
 
 	de_msg(c, "Module: %s\n", module_to_use->id);
+	if(module_to_use->flags&DE_MODFLAG_NONWORKING) {
+		de_warn(c, "The %s module is considered to be incomplete, and may "
+			"not work properly. Caveat emptor.\n",
+			module_to_use->id);
+	}
 	de_dbg2(c, "file size: %" INT64_FMT "\n", c->infile->len);
 
 	if(!de_run_module(c, module_to_use, NULL)) {

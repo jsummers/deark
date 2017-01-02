@@ -586,6 +586,10 @@
 				>
 			</File>
 			<File
+				RelativePath="..\..\modules\hlp.c"
+				>
+			</File>
+			<File
 				RelativePath="..\..\modules\iccprofile.c"
 				>
 			</File>

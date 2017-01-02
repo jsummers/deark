@@ -366,14 +366,18 @@ de_int64 dbuf_geti64be(dbuf *f, de_int64 pos);
 de_int64 dbuf_geti64le(dbuf *f, de_int64 pos);
 de_int64 dbuf_geti64x(dbuf *f, de_int64 pos, int is_le);
 
-#ifndef DE_NOT_IN_MODULE
 // Only format modules should use these convenience macros.
+// (The DE_WINDOWS condition has no functional purpose; it's a hack to make
+// some development tools work better.)
+#if !defined(DE_NOT_IN_MODULE) || defined(DE_WINDOWS)
 #define de_read(b,p,l) dbuf_read(c->infile,b,p,l);
 #define de_getbyte(p) dbuf_getbyte(c->infile,p)
 #define de_getui16be(p) dbuf_getui16be(c->infile,p)
 #define de_getui16le(p) dbuf_getui16le(c->infile,p)
+#define de_geti16le(p) dbuf_geti16le(c->infile,p)
 #define de_getui32be(p) dbuf_getui32be(c->infile,p)
 #define de_getui32le(p) dbuf_getui32le(c->infile,p)
+#define de_geti32le(p) dbuf_geti32le(c->infile,p)
 #define de_geti64be(p) dbuf_geti64be(c->infile,p)
 #define de_geti64le(p) dbuf_geti64le(c->infile,p)
 #endif
