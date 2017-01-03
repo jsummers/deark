@@ -467,6 +467,9 @@ Deark -- Information about supported formats
    -opt cfb:fmt=auto - Autodetect the document type (default).
    -opt cfb:fmt=thumbsdb - Treat the file as a Thumbs.db file.
 
+* Microsoft Installation Compression (module="mscompress")
+  - "KWAJ" variant not supported
+
 * RPM (package manager) (module="rpm)
   - Extract compressed cpio file.
 

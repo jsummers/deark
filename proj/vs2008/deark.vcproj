@@ -646,6 +646,10 @@
 				>
 			</File>
 			<File
+				RelativePath="..\..\modules\mscompress.c"
+				>
+			</File>
+			<File
 				RelativePath="..\..\modules\msp.c"
 				>
 			</File>

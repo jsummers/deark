@@ -16,7 +16,7 @@ OFILES_MODS:=$(addprefix $(OBJDIR)/modules/,os2bmp.o eps.o bsave.o ilbm.o \
  atari-img.o tga.o sunras.o pnm.o \
  jpeg.o tiff.o psd.o misc.o msp.o pcpaint.o grasp.o amigaicon.o macpaint.o \
  pcx.o epocimage.o psionpic.o psionapp.o exe.o riff.o iff.o \
- boxes.o zip.o atari.o \
+ boxes.o zip.o atari.o mscompress.o \
  fnt.o nokia.o grob.o d64.o t64.o cardfile.o jovianvi.o \
  tivariable.o basic-c64.o ico.o rpm.o cpio.o \
  rosprite.o binhex.o icns.o awbm.o printshop.o qtif.o portfolio.o bpg.o shg.o \
