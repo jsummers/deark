@@ -261,6 +261,7 @@ void de_strlcpy(char *dst, const char *src, size_t dstlen);
 char *de_strchr(const char *s, int c);
 #define de_strlen   strlen
 #define de_strcmp   strcmp
+#define de_strncmp  strncmp
 #define de_memcmp   memcmp
 #define de_memcpy   memcpy
 #define de_memmove  memmove

@@ -8,6 +8,8 @@
 #include <deark-private.h>
 DE_DECLARE_MODULE(de_module_hlp);
 
+#define FILETYPE_BM 1
+
 struct bptree {
 	unsigned int flags;
 	de_int64 pagesize;
@@ -22,6 +24,54 @@ typedef struct localctx_struct {
 	de_int64 internal_dir_FILEHEADER_offs;
 	struct bptree bpt;
 } lctx;
+
+static void do_file(deark *c, lctx *d, de_int64 pos1, int file_fmt)
+{
+	de_int64 reserved_space;
+	de_int64 used_space;
+	de_int64 pos = pos1;
+	unsigned int fileflags;
+
+	de_dbg(c, "file at %d\n", (int)pos1);
+	de_dbg_indent(c, 1);
+
+	// FILEHEADER
+	reserved_space = de_getui32le(pos);
+	de_dbg(c, "ReservedSpace: %d\n", (int)reserved_space);
+	pos += 4;
+
+	used_space = de_getui32le(pos);
+	de_dbg(c, "UsedSpace: %d\n", (int)used_space);
+	pos += 4;
+
+	fileflags = (unsigned int)de_getbyte(pos);
+	de_dbg(c, "FileFlags: 0x%02x\n", fileflags);
+	pos += 1;
+
+	if(pos+used_space > c->infile->len) {
+		de_err(c, "Bad file size\n");
+		goto done;
+	}
+
+	//
+	switch(file_fmt) {
+	case FILETYPE_BM:
+		{
+			de_byte b;
+			const char *ext;
+			b = de_getbyte(pos+1);
+			if(b==0x70) ext="mrb";
+			else ext="shg";
+			// TODO: Detect shg vs mrb based on number of images, maybe modify
+			// the signature.
+			dbuf_create_file_from_slice(c->infile, pos, used_space, ext, NULL, 0);
+		}
+		break;
+	}
+
+done:
+	de_dbg_indent(c, -1);
+}
 
 static void do_header(deark *c, lctx *d, de_int64 pos)
 {
@@ -63,18 +113,34 @@ static void do_index_page(deark *c, lctx *d, de_int64 pos1)
 	de_dbg_indent(c, -1);
 }
 
+static int filename_to_filetype(deark *c, lctx *d, const char *fn)
+{
+	if(!de_strncmp(fn, "|bm", 3)) return FILETYPE_BM;
+	if(!de_strncmp(fn, "bm", 2)) return FILETYPE_BM;
+	return 0;
+}
+
 static void do_leaf_page(deark *c, lctx *d, de_int64 pos1)
 {
 	de_int64 n;
 	de_int64 pos = pos1;
+	de_int64 foundpos;
+	de_int64 num_entries;
+	de_int64 file_offset;
+	de_ucstring *s = NULL;
+	char filename_raw[300];
+	de_int64 k;
+	int file_type;
 
 	de_dbg(c, "leaf page at %d\n", (int)pos1);
 	de_dbg_indent(c, 1);
 
-	pos += 2; // Unused
+	n = de_getui16le(pos); // "Unused"
+	de_dbg(c, "free bytes at end of this page: %d\n", (int)n);
+	pos += 2;
 
-	n = de_geti16le(pos);
-	de_dbg(c, "NEntries: %d\n", (int)n);
+	num_entries = de_geti16le(pos);
+	de_dbg(c, "NEntries: %d\n", (int)num_entries);
 	pos += 2;
 
 	n = de_geti16le(pos);
@@ -85,6 +151,32 @@ static void do_leaf_page(deark *c, lctx *d, de_int64 pos1)
 	de_dbg(c, "NextPage: %d\n", (int)n);
 	pos += 2;
 
+	for(k=0; k<num_entries; k++) {
+		// TODO: Verify that pos is sane.
+
+		if(!dbuf_search_byte(c->infile, 0x00, pos, 260, &foundpos)) {
+			de_err(c, "Malformed leaf page at %d\n", (int)pos1);
+			goto done;
+		}
+
+		de_read((de_byte*)filename_raw, pos, foundpos+1-pos);
+		s = ucstring_create(c);
+		ucstring_append_sz(s, filename_raw, DE_ENCODING_WINDOWS1252);
+		de_dbg(c, "FileName: \"%s\"\n", ucstring_get_printable_sz(s));
+		pos = foundpos + 1;
+
+		file_offset = de_geti32le(pos);
+		de_dbg(c, "FileOffset: %d\n", (int)file_offset);
+		pos += 4;
+
+
+		file_type = filename_to_filetype(c, d, filename_raw);
+
+		do_file(c, d, file_offset, file_type);
+	}
+
+done:
+	ucstring_destroy(s);
 	de_dbg_indent(c, -1);
 }
 
@@ -93,6 +185,8 @@ static void do_bplustree(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 	de_int64 pos = pos1;
 	de_int64 n;
 	int saved_indent_level;
+	char structure_string[17];
+	de_ucstring *structure_string_u = NULL;
 
 	de_dbg_indent_save(c, &saved_indent_level);
 
@@ -114,7 +208,13 @@ static void do_bplustree(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 	de_dbg(c, "PageSize: %d\n", (int)d->bpt.pagesize);
 	pos += 2;
 
-	pos += 16; // TODO: Structure
+	de_read((de_byte*)structure_string, pos, 16);
+	structure_string[16] = '\0';
+	structure_string_u = ucstring_create(c);
+	ucstring_append_sz(structure_string_u, structure_string, DE_ENCODING_ASCII);
+	de_dbg(c, "Structure: \"%s\"\n", ucstring_get_printable_sz(structure_string_u));
+	pos += 16;
+
 	pos += 2; // MustBeZero
 	pos += 2; // PageSplits
 
@@ -153,6 +253,7 @@ static void do_bplustree(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 	}
 
 done:
+	ucstring_destroy(structure_string_u);
 	de_dbg_indent_restore(c, saved_indent_level);
 }
 
