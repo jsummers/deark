@@ -18,6 +18,71 @@ typedef struct localctx_struct {
 	de_byte packing_method;
 } lctx;
 
+// This is very similar to the mscompress SZDD algorithm, but
+// gratuitously different.
+// If expected_output_len is 0, it will be ignored.
+static void do_uncompress_lz77(deark *c,
+	dbuf *inf, de_int64 pos1, de_int64 input_len,
+	dbuf *outf, de_int64 expected_output_len)
+{
+	de_int64 pos = pos1;
+	de_byte *window = NULL;
+	unsigned int wpos;
+	de_int64 nbytes_read;
+
+	window = de_malloc(c, 4096);
+	wpos = 4096 - 16;
+	de_memset(window, 0x20, 4096);
+
+	while(1) {
+		unsigned int control;
+		unsigned int cbit;
+
+		if(pos >= (pos1+input_len)) break; // Out of input data
+
+		control = (unsigned int)dbuf_getbyte(inf, pos++);
+
+		for(cbit=0x01; cbit&0xff; cbit<<=1) {
+			if(!(control & cbit)) { // literal
+				de_byte b;
+				b = dbuf_getbyte(inf, pos++);
+				dbuf_writebyte(outf, b);
+				if(expected_output_len>0 && outf->len>=expected_output_len) goto unc_done;
+				window[wpos] = b;
+				wpos++; wpos &= 4095;
+			}
+			else { // match
+				unsigned int matchpos;
+				unsigned int matchlen;
+				matchpos = (unsigned int)dbuf_getui16le(inf, pos);
+				pos+=2;
+				matchlen = ((matchpos>>12) & 0x0f) + 3;
+				matchpos = wpos-(matchpos&4095)-1;
+				matchpos &= 4095;
+				while(matchlen--) {
+					dbuf_writebyte(outf, window[matchpos]);
+					if(expected_output_len>0 && outf->len>=expected_output_len) goto unc_done;
+					window[wpos] = window[matchpos];
+					wpos++; wpos &= 4095;
+					matchpos++; matchpos &= 4095;
+				}
+			}
+		}
+	}
+
+unc_done:
+	nbytes_read = pos-pos1;
+	de_dbg(c, "uncompressed %d bytes to %d bytes\n",
+		(int)nbytes_read, (int)outf->len);
+
+	if(expected_output_len>0 && outf->len!=expected_output_len) {
+		de_warn(c, "Expected %d output bytes, got %d\n",
+			(int)expected_output_len, (int)outf->len);
+	}
+
+	de_free(c, window);
+}
+
 // "compressed unsigned short" - a variable-length integer format
 static de_int64 get_cus(dbuf *f, de_int64 *pos)
 {
@@ -52,8 +117,9 @@ static de_int64 get_cul(dbuf *f, de_int64 *pos)
 	return (x1>>1) | (x2<<15);
 }
 
-static void do_uncompress_rle(deark *c, lctx *d, dbuf *unc_pixels,
-	de_int64 pos1, de_int64 len)
+static void do_uncompress_rle(deark *c, lctx *d,
+	dbuf *inf, de_int64 pos1, de_int64 len,
+	dbuf *unc_pixels)
 {
 	de_int64 pos;
 	de_int64 endpos;
@@ -64,18 +130,18 @@ static void do_uncompress_rle(deark *c, lctx *d, dbuf *unc_pixels,
 	endpos = pos1 + len;
 	pos = pos1;
 	while(pos<endpos) {
-		b = de_getbyte(pos);
+		b = dbuf_getbyte(inf, pos);
 		pos++;
 		if(b&0x80) {
 			// uncompressed run
 			count = (de_int64)(b&0x7f);
-			dbuf_copy(c->infile, pos, count, unc_pixels);
+			dbuf_copy(inf, pos, count, unc_pixels);
 			pos += count;
 		}
 		else {
 			// compressed run
 			count = (de_int64)b;
-			b = de_getbyte(pos);
+			b = dbuf_getbyte(inf, pos);
 			pos++;
 			dbuf_write_run(unc_pixels, b, count);
 		}
@@ -103,8 +169,9 @@ static int do_dib(deark *c, lctx *d, de_int64 pos1)
 	de_int64 pal_offset;
 	de_int64 pal_size_in_colors;
 	de_int64 pal_size_in_bytes;
-	de_int64 image_size;
-	dbuf *unc_pixels = NULL;
+	de_int64 final_image_size;
+	dbuf *pixels_final = NULL;
+	dbuf *pixels_tmp = NULL;
 	dbuf *outf = NULL;
 	int retval = 1;
 
@@ -179,35 +246,51 @@ static int do_dib(deark *c, lctx *d, de_int64 pos1)
 
 	pal_size_in_bytes = 4*pal_size_in_colors;
 
-	image_size = height * (((width*bitcount +31)/32)*4);
+	final_image_size = height * (((width*bitcount +31)/32)*4);
 
-	if(d->packing_method==0) { // Uncompressed
-		unc_pixels = dbuf_open_input_subfile(c->infile,
-			compressed_offset, compressed_size);
-	}
-	else if(d->packing_method==1) { // RLE
-		unc_pixels = dbuf_create_membuf(c, image_size, 1);
-		do_uncompress_rle(c, d, unc_pixels, compressed_offset, compressed_size);
-
-		if(unc_pixels->len < image_size) {
-			de_warn(c, "Expected %d bytes after decompression, only got %d\n",
-				(int)image_size, (int)unc_pixels->len);
-		}
-	}
-	else if(d->packing_method==2 || d->packing_method==3) {
-		de_err(c, "LZ77 compression is not supported\n");
-		goto done;
-	}
-	else {
+	if(d->packing_method>3) {
 		de_err(c, "Unsupported compression type: %d\n", (int)d->packing_method);
 		goto done;
+	}
+
+	pixels_final = dbuf_create_membuf(c, 0, 0);
+	pixels_tmp = dbuf_create_membuf(c, 0, 0);
+
+	// Copy the pixels to a membuf, then run zero or more decompression
+	// algorithms on them using a temporary membuf.
+	// This is not very efficient, but it keeps the code simple.
+	dbuf_copy(c->infile, compressed_offset, compressed_size, pixels_final);
+
+	if(d->packing_method==2 || d->packing_method==3) {
+		de_dbg(c, "doing LZ77 decompression\n");
+		dbuf_copy(pixels_final, 0, pixels_final->len, pixels_tmp);
+		dbuf_truncate(pixels_final, 0);
+
+		// If packing_method==2, then this is the last decompression algorithm,
+		// so we know how many output bytes to expect.
+		do_uncompress_lz77(c, pixels_tmp, 0, pixels_tmp->len,
+			pixels_final, d->packing_method==2 ? final_image_size : 0);
+		dbuf_truncate(pixels_tmp, 0);
+	}
+
+	if(d->packing_method==1 || d->packing_method==3) {
+		de_dbg(c, "doing RLE decompression\n");
+		dbuf_copy(pixels_final, 0, pixels_final->len, pixels_tmp);
+		dbuf_truncate(pixels_final, 0);
+		do_uncompress_rle(c, d, pixels_tmp, 0, pixels_tmp->len, pixels_final);
+		dbuf_truncate(pixels_tmp, 0);
+
+		if(pixels_final->len < final_image_size) {
+			de_warn(c, "Expected %d bytes after decompression, only got %d\n",
+				(int)final_image_size, (int)pixels_final->len);
+		}
 	}
 
 	outf = dbuf_create_output_file(c, "bmp", NULL, 0);
 
 	// Write fileheader
 	dbuf_write(outf, (const de_byte*)"BM", 2);
-	dbuf_writeui32le(outf, 14 + 40 + pal_size_in_bytes + image_size);
+	dbuf_writeui32le(outf, 14 + 40 + pal_size_in_bytes + final_image_size);
 	dbuf_write_zeroes(outf, 4);
 	dbuf_writeui32le(outf, 14 + 40 + pal_size_in_bytes);
 
@@ -228,12 +311,13 @@ static int do_dib(deark *c, lctx *d, de_int64 pos1)
 	dbuf_copy(c->infile, pal_offset, pal_size_in_bytes, outf);
 
 	// Write pixels
-	dbuf_copy(unc_pixels, 0, image_size, outf);
+	dbuf_copy(pixels_final, 0, final_image_size, outf);
 
 	retval = 1;
 done:
-	dbuf_close(unc_pixels);
 	dbuf_close(outf);
+	dbuf_close(pixels_tmp);
+	dbuf_close(pixels_final);
 	return retval;
 }
 
@@ -279,7 +363,7 @@ static int do_wmf(deark *c, lctx *d, de_int64 pos1)
 	}
 
 	outf = dbuf_create_output_file(c, "wmf", NULL, 0);
-	do_uncompress_rle(c, d, outf, compressed_offset, compressed_size);
+	do_uncompress_rle(c, d, c->infile, compressed_offset, compressed_size, outf);
 
 	if(outf->len != decompressed_size) {
 		de_warn(c, "Expected %d bytes after decompression, got %d\n",

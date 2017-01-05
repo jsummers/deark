@@ -57,14 +57,27 @@ static void do_file(deark *c, lctx *d, de_int64 pos1, int file_fmt)
 	switch(file_fmt) {
 	case FILETYPE_BM:
 		{
-			de_byte b;
+			de_int64 num_images;
+			de_int64 sig;
 			const char *ext;
-			b = de_getbyte(pos+1);
-			if(b==0x70) ext="mrb";
-			else ext="shg";
-			// TODO: Detect shg vs mrb based on number of images, maybe modify
-			// the signature.
-			dbuf_create_file_from_slice(c->infile, pos, used_space, ext, NULL, 0);
+			dbuf *outf = NULL;
+
+			// Ignore the file SHG vs. MRB file type signature, and replace it with
+			// the correct one based on the number of images in the file.
+			num_images = de_getui16le(pos+2);
+			if(num_images>1) {
+				ext="mrb";
+				sig = 0x706c;
+			}
+			else {
+				ext="shg";
+				sig = 0x506c;
+			}
+
+			outf = dbuf_create_output_file(c, ext, NULL, 0);
+			dbuf_writeui16le(outf, sig);
+			dbuf_copy(c->infile, pos+2, used_space-2, outf);
+			dbuf_close(outf);
 		}
 		break;
 	}
