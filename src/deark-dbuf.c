@@ -639,6 +639,8 @@ dbuf *dbuf_create_output_file(deark *c, const char *ext, de_finfo *fi,
 		return f;
 	}
 
+	c->num_files_extracted++;
+
 	if(c->list_mode) {
 		f->btype = DBUF_TYPE_NULL;
 		de_msg(c, "%s\n", f->name);

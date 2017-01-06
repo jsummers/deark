@@ -210,7 +210,7 @@ void de_run(deark *c)
 
 	// The DE_MODFLAG_NOEXTRACT flag means the module is not expected to extract
 	// any files.
-	if(c->file_count==0 && c->error_count==0 &&
+	if(c->num_files_extracted==0 && c->error_count==0 &&
 		!(module_to_use->flags&DE_MODFLAG_NOEXTRACT))
 	{
 		de_msg(c, "No files found to extract!\n");

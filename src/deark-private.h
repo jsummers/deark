@@ -191,7 +191,12 @@ struct deark_struct {
 
 	////////////////////////////////////////////////////
 
-	int file_count; // Counts the number of files written.
+	int file_count; // The number of extractable files encountered so far.
+
+	// The number of files we've actually written (or listed), after taking
+	// first_output_file/max_output_files into account.
+	int num_files_extracted;
+
 	int error_count;
 
 	const char *input_filename;
