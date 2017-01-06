@@ -18,6 +18,7 @@ DE_DECLARE_MODULE(de_module_fpaint_pi4);
 DE_DECLARE_MODULE(de_module_fpaint_pi9);
 DE_DECLARE_MODULE(de_module_atari_pi7);
 DE_DECLARE_MODULE(de_module_falcon_xga);
+DE_DECLARE_MODULE(de_module_coke);
 DE_DECLARE_MODULE(de_module_animatic);
 
 static void fix_dark_pal(deark *c, struct atari_img_decode_data *adata);
@@ -1344,4 +1345,55 @@ void de_module_falcon_xga(deark *c, struct deark_module_info *mi)
 	mi->desc = "Atari Falcon XGA image";
 	mi->run_fn = de_run_falcon_xga;
 	mi->identify_fn = de_identify_falcon_xga;
+}
+
+// **************************************************************************
+// Atari Falcon COKE (.tg1)
+// **************************************************************************
+
+static void de_run_coke(deark *c, de_module_params *mparams)
+{
+	de_int64 imgdatapos;
+	struct atari_img_decode_data *adata = NULL;
+
+	adata = de_malloc(c, sizeof(struct atari_img_decode_data));
+	adata->bpp = 16;
+	adata->w = de_getui16be(12);
+	adata->h = de_getui16be(14);
+	de_dbg(c, "dimensions: %dx%d\n", (int)adata->w, (int)adata->h);
+	imgdatapos = de_getui16be(16);
+	de_dbg(c, "image data pos: %d\n", (int)imgdatapos);
+
+	adata->unc_pixels = dbuf_open_input_subfile(c->infile,
+		imgdatapos, c->infile->len-imgdatapos);
+	adata->img = de_bitmap_create(c, adata->w, adata->h, 3);
+
+	adata->img->density_code = DE_DENSITY_UNK_UNITS;
+	adata->img->xdens = 288;
+	adata->img->ydens = 240;
+
+	de_fmtutil_atari_decode_image(c, adata);
+	de_bitmap_write_to_file(adata->img, NULL, 0);
+
+	if(adata) {
+		dbuf_close(adata->unc_pixels);
+		de_bitmap_destroy(adata->img);
+		de_free(c, adata);
+	}
+}
+
+static int de_identify_coke(deark *c)
+{
+	if(!dbuf_memcmp(c->infile, 0, (const void*)"COKE format.", 12)) {
+		return 100;
+	}
+	return 0;
+}
+
+void de_module_coke(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "coke";
+	mi->desc = "Atari Falcon COKE image (.TG1)";
+	mi->run_fn = de_run_coke;
+	mi->identify_fn = de_identify_coke;
 }

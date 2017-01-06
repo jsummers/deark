@@ -90,6 +90,8 @@ Deark -- Information about supported formats
   - Extracts bitmaps.
   - Extracts text (use -a).
 
+* COKE (Atari Falcon) (*.tg1) (module="coke")
+
 * DIB (module="dib")
   - Adds a BMP file header to a raw Windows DIB file.
 
