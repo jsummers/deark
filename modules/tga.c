@@ -788,6 +788,7 @@ static int de_identify_tga(deark *c)
 {
 	de_byte b[18];
 	de_byte x;
+	int has_tga_ext;
 
 	if(has_signature(c)) {
 		return 100;
@@ -820,10 +821,12 @@ static int de_identify_tga(deark *c)
 		return 0;
 	}
 
-	x = b[17]&0x0f; // Number of attribute bits
-	if(x!=0 && x!=1 && x!=8) return 0;
+	has_tga_ext = de_input_file_has_ext(c, "tga");
 
-	if(de_input_file_has_ext(c, "tga")) {
+	x = b[17]&0x0f; // Number of attribute bits
+	if(x!=0 && x!=1 && x!=8 && !has_tga_ext) return 0;
+
+	if(has_tga_ext) {
 		return 100;
 	}
 	if(de_input_file_has_ext(c, "vst")) {
