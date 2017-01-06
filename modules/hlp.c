@@ -8,7 +8,8 @@
 #include <deark-private.h>
 DE_DECLARE_MODULE(de_module_hlp);
 
-#define FILETYPE_BM 1
+#define FILETYPE_SYSTEM 1
+#define FILETYPE_BM     10
 
 struct bptree {
 	unsigned int flags;
@@ -24,6 +25,97 @@ typedef struct localctx_struct {
 	de_int64 internal_dir_FILEHEADER_offs;
 	struct bptree bpt;
 } lctx;
+
+static void do_SYSTEMREC(deark *c, lctx *d, unsigned int recordtype,
+	de_int64 pos1, de_int64 len)
+{
+	if(recordtype==5) { // Icon
+		dbuf_create_file_from_slice(c->infile, pos1, len, "ico", NULL, DE_CREATEFLAG_IS_AUX);
+	}
+}
+
+static void do_file_SYSTEM(deark *c, lctx *d, de_int64 pos1, de_int64 len)
+{
+	de_int64 pos = pos1;
+	de_int64 magic;
+	int saved_indent_level;
+	de_int64 ver_major, ver_minor;
+	de_int64 gen_date;
+	unsigned int flags;
+	int is_compressed;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+
+	magic = de_getui16le(pos);
+	if(magic!=0x036c) {
+		de_err(c, "Expected SYSTEM data at %d not found\n", (int)pos1);
+		goto done;
+	}
+	pos += 2;
+
+	de_dbg(c, "SYSTEM file at %d\n", (int)pos1);
+	de_dbg_indent(c, 1);
+
+	ver_minor = de_getui16le(pos);
+	pos += 2;
+	ver_major = de_getui16le(pos);
+	pos += 2;
+	de_dbg(c, "help format version: %d.%d\n", (int)ver_major, (int)ver_minor);
+
+	if(ver_major!=1) {
+		de_err(c, "Unsupported file version: %d.%d\n", (int)ver_major, (int)ver_minor);
+		goto done;
+	}
+
+	gen_date = de_geti32le(pos);
+	de_dbg(c, "GenDate: %d\n", (int)gen_date);
+	pos += 4;
+
+	flags = (unsigned int)de_getui16le(pos);
+	de_dbg(c, "flags: 0x%04x\n", flags);
+	pos += 2;
+
+	if(ver_minor>=16 && ((flags&0x4) || (flags&0x8))) {
+		is_compressed = 1;
+	}
+	else {
+		is_compressed = 0;
+	}
+	de_dbg(c, "compressed: %d\n", is_compressed);
+
+	if(ver_minor<16) {
+		// TODO: HelpFileTitle
+	}
+	else {
+		// A sequence of variable-sized SYSTEMRECs
+
+		while((pos1+len)-pos >=4) {
+			unsigned int recordtype;
+			de_int64 datasize;
+			de_int64 systemrec_startpos;
+
+			systemrec_startpos = pos;
+
+			recordtype = (unsigned int)de_getui16le(pos);
+			pos += 2;
+			datasize = de_getui16le(pos);
+			pos += 2;
+
+			de_dbg(c, "SYSTEMREC type %u at %d, dpos=%d, dlen=%d\n",
+				recordtype, (int)systemrec_startpos,
+				(int)pos, (int)datasize);
+
+			if(pos+datasize > pos1+len) break; // bad data
+			de_dbg_indent(c, 1);
+			do_SYSTEMREC(c, d, recordtype, pos, datasize);
+			de_dbg_indent(c, -1);
+			pos += datasize;
+		}
+	}
+
+done:
+	de_dbg_indent_restore(c, saved_indent_level);
+}
 
 static void do_file(deark *c, lctx *d, de_int64 pos1, int file_fmt)
 {
@@ -55,6 +147,10 @@ static void do_file(deark *c, lctx *d, de_int64 pos1, int file_fmt)
 
 	//
 	switch(file_fmt) {
+	case FILETYPE_SYSTEM:
+		do_file_SYSTEM(c, d, pos, used_space);
+		break;
+
 	case FILETYPE_BM:
 		{
 			de_int64 num_images;
@@ -128,6 +224,7 @@ static void do_index_page(deark *c, lctx *d, de_int64 pos1)
 
 static int filename_to_filetype(deark *c, lctx *d, const char *fn)
 {
+	if(!de_strcmp(fn, "|SYSTEM")) return FILETYPE_SYSTEM;
 	if(!de_strncmp(fn, "|bm", 3)) return FILETYPE_BM;
 	if(!de_strncmp(fn, "bm", 2)) return FILETYPE_BM;
 	return 0;
@@ -283,6 +380,7 @@ static void do_internal_dir_FILEHEADER(deark *c, lctx *d)
 	de_dbg(c, "internal dir at %d\n", (int)pos);
 	de_dbg_indent(c, 1);
 
+	// TODO: Consolidate this code with the code in do_file().
 	n = de_geti32le(pos);
 	de_dbg(c, "ReservedSpace: %d\n", (int)n);
 	usedspace = de_geti32le(pos+4);
@@ -326,5 +424,4 @@ void de_module_hlp(deark *c, struct deark_module_info *mi)
 	mi->desc = "HLP";
 	mi->run_fn = de_run_hlp;
 	mi->identify_fn = de_identify_hlp;
-	mi->flags |= DE_MODFLAG_NONWORKING;
 }

@@ -355,8 +355,8 @@ Deark -- Information about supported formats
   - "New" format is mostly supported, but not well-tested.
 
 * SHG and MRB (module="shg")
-  Segmented Hypergraphics and Multi-Resolution Bitmap formats are used in the
-  development of Windows .HLP files.
+  Segmented Hypergraphics and Multi-Resolution Bitmap formats are used in
+  Windows .HLP files.
   - Converts bitmap graphics to BMP format.
   - Extracts WMF files.
   - Does not support LZ77 compression.
@@ -553,6 +553,10 @@ Deark -- Information about supported formats
 * JPEG scan (module="jpegscan")
   - This module tries to find and extract embedded JPEG and JPEG-LS files from
     otherwise-unsupported formats. Use "-m jpegscan".
+
+* HLP (Windows Help) (module="hlp") (experimental)
+  - Extract SHG/MRB graphics
+  - Extract icon (rarely present)
 
 * NULL (module="null")
   - Do nothing.
