@@ -135,6 +135,8 @@ Deark -- Information about supported formats
   - Extract text from plaintext extensions (use -a). (Text only; colors are
      ignored.)
 
+* GodPaint (Atari Falcon) (module="godpaint")
+
 * GRASP GL animation (module="graspgl")
   - Extracts all files.
 

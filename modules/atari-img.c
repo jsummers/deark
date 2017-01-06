@@ -10,6 +10,7 @@ DE_DECLARE_MODULE(de_module_prismpaint);
 DE_DECLARE_MODULE(de_module_ftc);
 DE_DECLARE_MODULE(de_module_eggpaint);
 DE_DECLARE_MODULE(de_module_indypaint);
+DE_DECLARE_MODULE(de_module_godpaint);
 DE_DECLARE_MODULE(de_module_tinystuff);
 DE_DECLARE_MODULE(de_module_doodle);
 DE_DECLARE_MODULE(de_module_neochrome);
@@ -533,6 +534,48 @@ void de_module_indypaint(deark *c, struct deark_module_info *mi)
 	mi->desc = "Atari IndyPaint .TRU";
 	mi->run_fn = de_run_indypaint;
 	mi->identify_fn = de_identify_indypaint;
+}
+
+// **************************************************************************
+// Atari Falcon GodPaint .GOD
+// **************************************************************************
+
+static void de_run_godpaint(deark *c, de_module_params *mparams)
+{
+	struct atari_img_decode_data *adata = NULL;
+
+	adata = de_malloc(c, sizeof(struct atari_img_decode_data));
+	adata->bpp = 16;
+	adata->w = de_getui16be(2);
+	adata->h = de_getui16be(4);
+	de_dbg(c, "dimensions: %dx%d\n", (int)adata->w, (int)adata->h);
+	adata->unc_pixels = dbuf_open_input_subfile(c->infile, 6, c->infile->len-6);
+	adata->img = de_bitmap_create(c, adata->w, adata->h, 3);
+	de_fmtutil_atari_decode_image(c, adata);
+	de_bitmap_write_to_file(adata->img, NULL, 0);
+
+	dbuf_close(adata->unc_pixels);
+	de_bitmap_destroy(adata->img);
+	de_free(c, adata);
+}
+
+static int de_identify_godpaint(deark *c)
+{
+	de_int64 sig;
+
+	sig = de_getui16be(0);
+	if(sig!=0x4734 && sig!=0x0400) return 0;
+	if(de_input_file_has_ext(c, "god")) return 100;
+	if(sig==0x4734) return 5;
+	return 0;
+}
+
+void de_module_godpaint(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "godpaint";
+	mi->desc = "Atari Falcon GodPaint";
+	mi->run_fn = de_run_godpaint;
+	mi->identify_fn = de_identify_godpaint;
 }
 
 // **************************************************************************
