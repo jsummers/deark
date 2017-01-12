@@ -148,6 +148,57 @@ static void do_uncompress_rle(deark *c, lctx *d,
 	}
 }
 
+static int do_uncompress_picture_data(deark *c, lctx *d,
+	de_int64 compressed_offset, de_int64 compressed_size,
+	dbuf *pixels_final, de_int64 final_image_size)
+{
+	dbuf *pixels_tmp = NULL;
+	int retval = 0;
+
+	if(d->packing_method>3) {
+		de_err(c, "Unsupported compression type: %d\n", (int)d->packing_method);
+		goto done;
+	}
+
+	pixels_tmp = dbuf_create_membuf(c, 0, 0);
+
+	// Copy the pixels to a membuf, then run zero or more decompression
+	// algorithms on them using a temporary membuf.
+	// This is not very efficient, but it keeps the code simple.
+	dbuf_copy(c->infile, compressed_offset, compressed_size, pixels_final);
+
+	if(d->packing_method==2 || d->packing_method==3) {
+		de_dbg(c, "doing LZ77 decompression\n");
+		dbuf_copy(pixels_final, 0, pixels_final->len, pixels_tmp);
+		dbuf_truncate(pixels_final, 0);
+
+		// If packing_method==2, then this is the last decompression algorithm,
+		// so we know how many output bytes to expect.
+		do_uncompress_lz77(c, pixels_tmp, 0, pixels_tmp->len,
+			pixels_final, d->packing_method==2 ? final_image_size : 0);
+		dbuf_truncate(pixels_tmp, 0);
+	}
+
+	if(d->packing_method==1 || d->packing_method==3) {
+		de_dbg(c, "doing RLE decompression\n");
+		dbuf_copy(pixels_final, 0, pixels_final->len, pixels_tmp);
+		dbuf_truncate(pixels_final, 0);
+		do_uncompress_rle(c, d, pixels_tmp, 0, pixels_tmp->len, pixels_final);
+		dbuf_truncate(pixels_tmp, 0);
+
+		if(pixels_final->len < final_image_size) {
+			de_warn(c, "Expected %d bytes after decompression, only got %d\n",
+				(int)final_image_size, (int)pixels_final->len);
+		}
+	}
+
+	retval = 1;
+
+done:
+	dbuf_close(pixels_tmp);
+	return retval;
+}
+
 static de_int64 per_inch_to_per_meter(de_int64 dpi)
 {
 	return (de_int64)(0.5 + (100.0/2.54)*(double)dpi);
@@ -171,9 +222,8 @@ static int do_dib(deark *c, lctx *d, de_int64 pos1)
 	de_int64 pal_size_in_bytes;
 	de_int64 final_image_size;
 	dbuf *pixels_final = NULL;
-	dbuf *pixels_tmp = NULL;
 	dbuf *outf = NULL;
-	int retval = 1;
+	int retval = 0;
 
 	if(d->picture_type==5) {
 		// TODO: Support this
@@ -186,6 +236,10 @@ static int do_dib(deark *c, lctx *d, de_int64 pos1)
 	xdpi = get_cul(c->infile, &pos);
 	ydpi = get_cul(c->infile, &pos);
 	de_dbg(c, "dpi: %dx%d\n", (int)xdpi, (int)ydpi);
+	if(xdpi<10 || ydpi<10 || xdpi>30000 || ydpi>30000) {
+		xdpi = 0;
+		ydpi = 0;
+	}
 
 	planes = get_cus(c->infile, &pos);
 	bitcount = get_cus(c->infile, &pos);
@@ -248,42 +302,12 @@ static int do_dib(deark *c, lctx *d, de_int64 pos1)
 
 	final_image_size = height * (((width*bitcount +31)/32)*4);
 
-	if(d->packing_method>3) {
-		de_err(c, "Unsupported compression type: %d\n", (int)d->packing_method);
-		goto done;
-	}
-
 	pixels_final = dbuf_create_membuf(c, 0, 0);
-	pixels_tmp = dbuf_create_membuf(c, 0, 0);
-
-	// Copy the pixels to a membuf, then run zero or more decompression
-	// algorithms on them using a temporary membuf.
-	// This is not very efficient, but it keeps the code simple.
-	dbuf_copy(c->infile, compressed_offset, compressed_size, pixels_final);
-
-	if(d->packing_method==2 || d->packing_method==3) {
-		de_dbg(c, "doing LZ77 decompression\n");
-		dbuf_copy(pixels_final, 0, pixels_final->len, pixels_tmp);
-		dbuf_truncate(pixels_final, 0);
-
-		// If packing_method==2, then this is the last decompression algorithm,
-		// so we know how many output bytes to expect.
-		do_uncompress_lz77(c, pixels_tmp, 0, pixels_tmp->len,
-			pixels_final, d->packing_method==2 ? final_image_size : 0);
-		dbuf_truncate(pixels_tmp, 0);
-	}
-
-	if(d->packing_method==1 || d->packing_method==3) {
-		de_dbg(c, "doing RLE decompression\n");
-		dbuf_copy(pixels_final, 0, pixels_final->len, pixels_tmp);
-		dbuf_truncate(pixels_final, 0);
-		do_uncompress_rle(c, d, pixels_tmp, 0, pixels_tmp->len, pixels_final);
-		dbuf_truncate(pixels_tmp, 0);
-
-		if(pixels_final->len < final_image_size) {
-			de_warn(c, "Expected %d bytes after decompression, only got %d\n",
-				(int)final_image_size, (int)pixels_final->len);
-		}
+	if(!do_uncompress_picture_data(c, d,
+		compressed_offset, compressed_size,
+		pixels_final, final_image_size))
+	{
+		goto done;
 	}
 
 	outf = dbuf_create_output_file(c, "bmp", NULL, 0);
@@ -316,7 +340,6 @@ static int do_dib(deark *c, lctx *d, de_int64 pos1)
 	retval = 1;
 done:
 	dbuf_close(outf);
-	dbuf_close(pixels_tmp);
 	dbuf_close(pixels_final);
 	return retval;
 }
@@ -331,6 +354,7 @@ static int do_wmf(deark *c, lctx *d, de_int64 pos1)
 	de_int64 hotspot_size;
 	de_int64 compressed_offset;
 	de_int64 hotspot_offset;
+	dbuf *pixels_final = NULL;
 	dbuf *outf = NULL;
 	int retval = 0;
 
@@ -362,23 +386,32 @@ static int do_wmf(deark *c, lctx *d, de_int64 pos1)
 		goto done;
 	}
 
-	outf = dbuf_create_output_file(c, "wmf", NULL, 0);
-	do_uncompress_rle(c, d, c->infile, compressed_offset, compressed_size, outf);
+	pixels_final = dbuf_create_membuf(c, decompressed_size, 0x1);
+	if(!do_uncompress_picture_data(c, d, compressed_offset, compressed_size,
+		pixels_final, decompressed_size))
+	{
+		goto done;
+	}
 
-	if(outf->len != decompressed_size) {
+	if(pixels_final->len != decompressed_size) {
 		de_warn(c, "Expected %d bytes after decompression, got %d\n",
 			(int)decompressed_size, (int)outf->len);
 	}
 
+	outf = dbuf_create_output_file(c, "wmf", NULL, 0);
+	dbuf_copy(pixels_final, 0, pixels_final->len, outf);
+
 	retval = 1;
 done:
 	dbuf_close(outf);
+	dbuf_close(pixels_final);
 	return retval;
 }
 
 static int do_picture(deark *c, lctx *d, de_int64 pic_index)
 {
 	de_int64 pic_offset;
+	const char *ptname;
 
 	int retval = 0;
 
@@ -395,7 +428,13 @@ static int do_picture(deark *c, lctx *d, de_int64 pic_index)
 	d->picture_type = de_getbyte(pic_offset);
 	d->packing_method = de_getbyte(pic_offset+1);
 
-	de_dbg(c, "picture type: %d\n", (int)d->picture_type);
+	switch(d->picture_type) {
+	case 5: ptname="DDB"; break;
+	case 6: ptname="DIB"; break;
+	case 8: ptname="metafile"; break;
+	default: ptname="?";
+	}
+	de_dbg(c, "picture type: %d (%s)\n", (int)d->picture_type, ptname);
 	de_dbg(c, "packing method: %d\n", (int)d->packing_method);
 
 	if(d->picture_type==5 || d->picture_type==6) { // DDB or DIB
