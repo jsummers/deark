@@ -171,6 +171,33 @@ void de_dbg_indent_restore(deark *c, int saved_indent_level)
 	c->dbg_indent_amount = saved_indent_level;
 }
 
+void de_dbg_hexdump(deark *c, dbuf *f, de_int64 pos1, de_int64 len,
+	const char *prefix, unsigned int flags)
+{
+	char linebuf[3*16+32];
+	de_int64 pos = pos1;
+	de_int64 k;
+	de_int64 bytesthisrow;
+	de_byte b;
+
+	if(c->debug_level<1) return;
+
+	while(1) {
+		if(pos >= pos1+len) break;
+		bytesthisrow = (pos1+len)-pos;
+		if(bytesthisrow>16) bytesthisrow=16;
+		for(k=0; k<bytesthisrow; k++) {
+			b = dbuf_getbyte(f, pos+k);
+			linebuf[k*3] = de_get_hexchar(b/16);
+			linebuf[k*3+1] = de_get_hexchar(b%16);
+			linebuf[k*3+2] = ' ';
+			linebuf[k*3+3] = '\0';
+		}
+		de_dbg(c, "%s:%d: %s\n", prefix, (int)(pos-pos1), linebuf);
+		pos += bytesthisrow;
+	}
+}
+
 // Print debugging output for an 8-bit RGB palette entry.
 void de_dbg_pal_entry(deark *c, de_int64 idx, de_uint32 clr)
 {
