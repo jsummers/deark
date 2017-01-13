@@ -28,6 +28,7 @@ typedef struct localctx_struct {
 	de_int64 internal_dir_FILEHEADER_offs;
 	struct bptree bpt;
 	int found_system_file;
+	de_int64 ver_minor;
 	de_int64 topic_block_size;
 	int is_compressed;
 } lctx;
@@ -35,7 +36,7 @@ typedef struct localctx_struct {
 static void do_file(deark *c, lctx *d, de_int64 pos1, int file_fmt);
 
 static void do_SYSTEMREC(deark *c, lctx *d, unsigned int recordtype,
-	de_int64 pos1, de_int64 len)
+	de_int64 pos1, de_int64 len, const char *recordtypename)
 {
 	if(recordtype==5) { // Icon
 		dbuf_create_file_from_slice(c->infile, pos1, len, "ico", NULL, DE_CREATEFLAG_IS_AUX);
@@ -71,20 +72,16 @@ static const char *sysrec_type_to_type_name(unsigned int t)
 	return name;
 }
 
-static void do_file_SYSTEM(deark *c, lctx *d, de_int64 pos1, de_int64 len)
+static int do_file_SYSTEM_header(deark *c, lctx *d, de_int64 pos1)
 {
 	de_int64 pos = pos1;
 	de_int64 magic;
-	int saved_indent_level;
-	de_int64 ver_major, ver_minor;
+	de_int64 ver_major;
 	de_int64 gen_date;
 	unsigned int flags;
 	struct de_timestamp ts;
 	char timestamp_buf[64];
-
-	de_dbg_indent_save(c, &saved_indent_level);
-	if(d->found_system_file) goto done;
-	d->found_system_file = 1;
+	int retval = 0;
 
 	magic = de_getui16le(pos);
 	if(magic!=0x036c) {
@@ -96,14 +93,14 @@ static void do_file_SYSTEM(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 	de_dbg(c, "SYSTEM file data at %d\n", (int)pos1);
 	de_dbg_indent(c, 1);
 
-	ver_minor = de_getui16le(pos);
+	d->ver_minor = de_getui16le(pos);
 	pos += 2;
 	ver_major = de_getui16le(pos);
 	pos += 2;
-	de_dbg(c, "help format version: %d.%d\n", (int)ver_major, (int)ver_minor);
+	de_dbg(c, "help format version: %d.%d\n", (int)ver_major, (int)d->ver_minor);
 
 	if(ver_major!=1) {
-		de_err(c, "Unsupported file version: %d.%d\n", (int)ver_major, (int)ver_minor);
+		de_err(c, "Unsupported file version: %d.%d\n", (int)ver_major, (int)d->ver_minor);
 		goto done;
 	}
 
@@ -117,7 +114,7 @@ static void do_file_SYSTEM(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 	de_dbg(c, "flags: 0x%04x\n", flags);
 	pos += 2;
 
-	if(ver_minor>=16) {
+	if(d->ver_minor>=16) {
 		if(flags==8) {
 			d->is_compressed = 1;
 			d->topic_block_size = 2048;
@@ -138,34 +135,59 @@ static void do_file_SYSTEM(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 	de_dbg(c, "compressed: %d\n", d->is_compressed);
 	de_dbg(c, "topic block size: %d\n", (int)d->topic_block_size);
 
-	if(ver_minor<16) {
+	retval = 1;
+done:
+	return retval;
+}
+
+static void do_file_SYSTEM_SYSTEMRECS(deark *c, lctx *d, de_int64 pos1, de_int64 len)
+{
+	de_int64 pos = pos1;
+
+	while((pos1+len)-pos >=4) {
+		unsigned int recordtype;
+		de_int64 datasize;
+		de_int64 systemrec_startpos;
+		const char *recordtypename;
+
+		systemrec_startpos = pos;
+
+		recordtype = (unsigned int)de_getui16le(pos);
+		pos += 2;
+		datasize = de_getui16le(pos);
+		pos += 2;
+
+		recordtypename = sysrec_type_to_type_name(recordtype);
+		de_dbg(c, "SYSTEMREC type %u (%s) at %d, dpos=%d, dlen=%d\n",
+			recordtype, recordtypename,
+			(int)systemrec_startpos, (int)pos, (int)datasize);
+
+		if(pos+datasize > pos1+len) break; // bad data
+		de_dbg_indent(c, 1);
+		do_SYSTEMREC(c, d, recordtype, pos, datasize, recordtypename);
+		de_dbg_indent(c, -1);
+		pos += datasize;
+	}
+}
+
+static void do_file_SYSTEM(deark *c, lctx *d, de_int64 pos1, de_int64 len)
+{
+	de_int64 pos = pos1;
+	int saved_indent_level;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+	if(d->found_system_file) goto done;
+	d->found_system_file = 1;
+
+	if(!do_file_SYSTEM_header(c, d, pos)) goto done;
+	pos += 12;
+
+	if(d->ver_minor<16) {
 		// TODO: HelpFileTitle
 	}
 	else {
 		// A sequence of variable-sized SYSTEMRECs
-
-		while((pos1+len)-pos >=4) {
-			unsigned int recordtype;
-			de_int64 datasize;
-			de_int64 systemrec_startpos;
-
-			systemrec_startpos = pos;
-
-			recordtype = (unsigned int)de_getui16le(pos);
-			pos += 2;
-			datasize = de_getui16le(pos);
-			pos += 2;
-
-			de_dbg(c, "SYSTEMREC type %u (%s) at %d, dpos=%d, dlen=%d\n",
-				recordtype, sysrec_type_to_type_name(recordtype),
-				(int)systemrec_startpos, (int)pos, (int)datasize);
-
-			if(pos+datasize > pos1+len) break; // bad data
-			de_dbg_indent(c, 1);
-			do_SYSTEMREC(c, d, recordtype, pos, datasize);
-			de_dbg_indent(c, -1);
-			pos += datasize;
-		}
+		do_file_SYSTEM_SYSTEMRECS(c, d, pos, (pos1+len)-pos);
 	}
 
 done:
@@ -376,6 +398,10 @@ done:
 	return retval;
 }
 
+// This function is only for the "internal directory" tree.
+// There are other data objects in HLP files that use the same kind of data
+// structure. If we ever want to parse them, this function will have to be
+// genericized.
 static void do_bplustree(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 {
 	int pass;
@@ -393,7 +419,7 @@ static void do_bplustree(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 	}
 	pos += 2;
 
-	de_dbg(c, "B+ tree at %d\n", (int)pos1);
+	//de_dbg(c, "B+ tree at %d\n", (int)pos1);
 	de_dbg_indent(c, 1);
 
 	d->bpt.flags = (unsigned int)de_getui16le(pos);
