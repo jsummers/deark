@@ -776,6 +776,31 @@ void de_fmtutil_read_atari_palette(deark *c, dbuf *f, de_int64 pos,
 	}
 }
 
+/*
+ *  Given an x-coordinate and a color index, returns the corresponding
+ *  Spectrum palette index.
+ *
+ *  by Steve Belczyk; placed in the public domain December, 1990.
+ *  [Adapted for Deark.]
+ */
+static unsigned int spectrum512_FindIndex(de_int64 x, unsigned int c)
+{
+	int x1;
+
+	x1 = 10 * c;
+
+	if (c & 1)  /* If c is odd */
+		x1 = x1 - 5;
+	else        /* If c is even */
+		x1 = x1 + 1;
+
+	if (x >= x1 && x < x1+160)
+		c = c + 16;
+	else if (x >= x1+160)
+		c = c + 32;
+
+	return c;
+}
 
 static int decode_atari_image_paletted(deark *c, struct atari_img_decode_data *adata)
 {
@@ -785,9 +810,14 @@ static int decode_atari_image_paletted(deark *c, struct atari_img_decode_data *a
 	de_byte b;
 	de_uint32 v;
 	de_int64 planespan;
+	de_int64 ncolors;
 
 	planespan = 2*((adata->w+15)/16);
 	rowspan = planespan*adata->bpp;
+	if(adata->ncolors>0)
+		ncolors = adata->ncolors;
+	else
+		ncolors = ((de_int64)1)<<adata->bpp;
 
 	for(j=0; j<adata->h; j++) {
 		for(i=0; i<adata->w; i++) {
@@ -821,7 +851,14 @@ static int decode_atari_image_paletted(deark *c, struct atari_img_decode_data *a
 				if(b) v |= 1<<plane;
 			}
 
-			if(v>255) v=255;
+			if(adata->is_spectrum512) {
+				v = spectrum512_FindIndex(i, v);
+				if(j>0) {
+					v += (unsigned int)(48*(j));
+				}
+			}
+			if(v>=(unsigned int)ncolors) v=(unsigned int)(ncolors-1);
+
 			de_bitmap_setpixel_rgb(adata->img, i, j, adata->pal[v]);
 		}
 	}

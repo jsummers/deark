@@ -365,6 +365,8 @@ Deark -- Information about supported formats
   - Extracts WMF files.
   - Does not support LZ77 compression.
 
+* Spectrum 512 uncompressed (.SPU) (module="spectrum512u")
+
 * STOS Memory Bank (module="stos") (experimental)
   - Decode "sprite bank" images
   - Decode "icon bank" images

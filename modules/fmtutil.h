@@ -108,6 +108,7 @@ struct atari_img_decode_data {
 	de_int64 w, h;
 	dbuf *unc_pixels;
 	int was_compressed;
+	int is_spectrum512;
 	de_uint32 *pal;
 	struct deark_bitmap *img;
 };
