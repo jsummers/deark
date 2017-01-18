@@ -12,7 +12,6 @@ DE_DECLARE_MODULE(de_module_eggpaint);
 DE_DECLARE_MODULE(de_module_indypaint);
 DE_DECLARE_MODULE(de_module_godpaint);
 DE_DECLARE_MODULE(de_module_tinystuff);
-DE_DECLARE_MODULE(de_module_spectrum512u);
 DE_DECLARE_MODULE(de_module_doodle);
 DE_DECLARE_MODULE(de_module_neochrome);
 DE_DECLARE_MODULE(de_module_neochrome_ani);
@@ -910,63 +909,6 @@ void de_module_tinystuff(deark *c, struct deark_module_info *mi)
 	mi->desc = "Atari Tiny Stuff, a.k.a. Tiny image format";
 	mi->run_fn = de_run_tinystuff;
 	mi->identify_fn = de_identify_tinystuff;
-}
-
-// **************************************************************************
-// Spectrum 512 Uncompressed (.spu)
-// **************************************************************************
-
-static void de_run_spectrum512u(deark *c, de_module_params *mparams)
-{
-	struct atari_img_decode_data *adata = NULL;
-	static const de_int64 num_colors = 199*48;
-
-	adata = de_malloc(c, sizeof(struct atari_img_decode_data));
-	adata->is_spectrum512 = 1;
-	adata->pal = de_malloc(c, num_colors*sizeof(de_uint32));
-	adata->bpp = 4;
-	adata->w = 320;
-	adata->h = 199;
-	adata->ncolors = num_colors;
-
-	if(!dbuf_memcmp(c->infile, 0, (const void*)"5BIT", 4)) {
-		de_warn(c, "This looks like an \"Enhanced\" Spectrum 512 file, "
-			"which is not fully supported.\n");
-	}
-
-	de_fmtutil_read_atari_palette(c, c->infile, 32000, adata->pal, num_colors, num_colors);
-
-	adata->unc_pixels = dbuf_open_input_subfile(c->infile, 160, c->infile->len-160);
-	adata->img = de_bitmap_create(c, adata->w, adata->h, 3);
-	de_fmtutil_atari_set_standard_density(c, adata);
-	de_fmtutil_atari_decode_image(c, adata);
-	de_bitmap_write_to_file(adata->img, NULL, 0);
-
-	if(adata) {
-		de_bitmap_destroy(adata->img);
-		de_free(c, adata->pal);
-		dbuf_close(adata->unc_pixels);
-		de_free(c, adata);
-	}
-}
-
-static int de_identify_spectrum512u(deark *c)
-{
-	if(c->infile->len!=51104 && c->infile->len!=51200)
-		return 0;
-
-	if(de_input_file_has_ext(c, "spu")) {
-		return (c->infile->len==51104) ? 90 : 10;
-	}
-	return 0;
-}
-
-void de_module_spectrum512u(deark *c, struct deark_module_info *mi)
-{
-	mi->id = "spectrum512u";
-	mi->desc = "Spectrum 512 (uncompressed)";
-	mi->run_fn = de_run_spectrum512u;
-	mi->identify_fn = de_identify_spectrum512u;
 }
 
 // **************************************************************************

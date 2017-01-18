@@ -2,12 +2,74 @@
 // Copyright (C) 2017 Jason Summers
 // See the file COPYING for terms of use.
 
+// Spectrum 512 Uncompressed (.SPU)
 // Spectrum 512 Compressed (.SPC)
 
 #include <deark-config.h>
 #include <deark-private.h>
 #include "fmtutil.h"
+DE_DECLARE_MODULE(de_module_spectrum512u);
 DE_DECLARE_MODULE(de_module_spectrum512c);
+
+// **************************************************************************
+
+static void do_spu_internal(deark *c, dbuf *inf)
+{
+	struct atari_img_decode_data *adata = NULL;
+	static const de_int64 num_colors = 199*48;
+
+	adata = de_malloc(c, sizeof(struct atari_img_decode_data));
+	adata->is_spectrum512 = 1;
+	adata->pal = de_malloc(c, num_colors*sizeof(de_uint32));
+	adata->bpp = 4;
+	adata->w = 320;
+	adata->h = 199;
+	adata->ncolors = num_colors;
+
+	if(!dbuf_memcmp(inf, 0, (const void*)"5BIT", 4)) {
+		de_warn(c, "This looks like an \"Enhanced\" Spectrum 512 file, "
+			"which is not fully supported.\n");
+	}
+
+	de_fmtutil_read_atari_palette(c, inf, 32000, adata->pal, num_colors, num_colors);
+
+	adata->unc_pixels = dbuf_open_input_subfile(inf, 160, inf->len-160);
+	adata->img = de_bitmap_create(c, adata->w, adata->h, 3);
+	de_fmtutil_atari_set_standard_density(c, adata);
+	de_fmtutil_atari_decode_image(c, adata);
+	de_bitmap_write_to_file(adata->img, NULL, 0);
+
+	if(adata) {
+		de_bitmap_destroy(adata->img);
+		de_free(c, adata->pal);
+		dbuf_close(adata->unc_pixels);
+		de_free(c, adata);
+	}
+}
+
+static void de_run_spectrum512u(deark *c, de_module_params *mparams)
+{
+	do_spu_internal(c, c->infile);
+}
+
+static int de_identify_spectrum512u(deark *c)
+{
+	if(c->infile->len!=51104 && c->infile->len!=51200)
+		return 0;
+
+	if(de_input_file_has_ext(c, "spu")) {
+		return (c->infile->len==51104) ? 90 : 10;
+	}
+	return 0;
+}
+
+void de_module_spectrum512u(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "spectrum512u";
+	mi->desc = "Spectrum 512 Uncompressed";
+	mi->run_fn = de_run_spectrum512u;
+	mi->identify_fn = de_identify_spectrum512u;
+}
 
 // This is almost PackBits, but not quite.
 static void do_uncompress_spc_pixels(dbuf *f, de_int64 pos1, de_int64 len,
@@ -101,15 +163,16 @@ static void spc_uncompress_pal(deark *c, de_int64 pos1, dbuf *uncmpr_pal)
 
 static void de_run_spectrum512c(deark *c, de_module_params *mparams)
 {
-	static const de_int64 num_colors = 199*48;
 	de_int64 pixels_cmpr_len;
 	de_int64 pal_cmpr_len;
 	de_int64 pos;
 	dbuf *unc_pixels_planar = NULL;
 	dbuf *spufile = NULL;
-	de_uint32 *pal = NULL;
+	int to_spu = 0;
 
-	pal = de_malloc(c, num_colors*sizeof(de_uint32));
+	if(de_get_ext_option(c, "spectrum512:tospu")) {
+		to_spu = 1;
+	}
 
 	pos = 4;
 	pixels_cmpr_len = de_getui32be(pos);
@@ -120,12 +183,13 @@ static void de_run_spectrum512c(deark *c, de_module_params *mparams)
 	pos += 4;
 
 	de_dbg(c, "pixels at %d\n", (int)pos);
+	// Decompress the pixel data into an in-memory buffer.
 	unc_pixels_planar = dbuf_create_membuf(c, 32000, 1);
 	do_uncompress_spc_pixels(c->infile, pos, pixels_cmpr_len, unc_pixels_planar);
 	pos += pixels_cmpr_len;
 
-	// We'll construct an in-memory SPU file, then use our SPU module to
-	// process it. (TODO: This is probably temporary.)
+	// We'll construct an in-memory SPU file, then (usually) use our
+	// SPU module's decoder to process it.
 	spufile = dbuf_create_membuf(c, 51104, 0x1);
 
 	// Rearrange the bytes in the image data, as we write them to our
@@ -140,11 +204,19 @@ static void de_run_spectrum512c(deark *c, de_module_params *mparams)
 	de_dbg(c, "palette at %d\n", (int)pos);
 	spc_uncompress_pal(c, pos, spufile);
 
-	de_run_module_by_id_on_slice(c, "spectrum512u", NULL, spufile, 0, spufile->len);
+	if(to_spu) {
+		// Instead of decoding the image, write it in .SPU format
+		dbuf *outf = NULL;
+		outf = dbuf_create_output_file(c, "spu", NULL, 0);
+		dbuf_copy(spufile, 0, spufile->len, outf);
+		dbuf_close(outf);
+	}
+	else {
+		do_spu_internal(c, spufile);
+	}
 
 	dbuf_close(unc_pixels_planar);
 	dbuf_close(spufile);
-	de_free(c, pal);
 }
 
 static int de_identify_spectrum512c(deark *c)
@@ -155,7 +227,15 @@ static int de_identify_spectrum512c(deark *c)
 	if(de_input_file_has_ext(c, "spc")) {
 		return 100;
 	}
-	return 80;
+
+	if(de_input_file_has_ext(c, "sps")) {
+		// Spectrum 512 Smooshed is not supported.
+		// I don't think there's an easy way to distinguish it from SPC,
+		// except by the file extension.
+		return 0;
+	}
+
+	return 10;
 }
 
 void de_module_spectrum512c(deark *c, struct deark_module_info *mi)
