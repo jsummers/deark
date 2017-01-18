@@ -738,6 +738,10 @@
 				>
 			</File>
 			<File
+				RelativePath="..\..\modules\spectrum512.c"
+				>
+			</File>
+			<File
 				RelativePath="..\..\modules\sunras.c"
 				>
 			</File>

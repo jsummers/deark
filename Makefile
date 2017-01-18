@@ -13,7 +13,7 @@ all: $(DEARK_EXE)
 
 OBJDIR=obj
 OFILES_MODS:=$(addprefix $(OBJDIR)/modules/,os2bmp.o eps.o bsave.o ilbm.o \
- atari-img.o tga.o sunras.o pnm.o \
+ atari-img.o spectrum512.o tga.o sunras.o pnm.o \
  jpeg.o tiff.o psd.o misc.o msp.o pcpaint.o grasp.o amigaicon.o macpaint.o \
  pcx.o epocimage.o psionpic.o psionapp.o exe.o riff.o iff.o \
  boxes.o zip.o atari.o mscompress.o \
@@ -35,7 +35,8 @@ OFILES_ALL:=$(OBJDIR)/src/deark-cmd.o $(OFILES_LIB) $(OFILES_MODS) \
 $(addprefix $(OBJDIR)/modules/,alphabmp.o ansiart.o atari-img.o amigaicon.o \
  bintext.o boxes.o bpg.o exe.o fmtutil.o gemras.o ico.o ilbm.o \
  jbf.o jpeg.o macpaint.o mbk.o misc.o os2bmp.o pict.o psd.o nokia.o \
- qtif.o tga.o tiff.o wmf.o bmp.o riff.o iff.o cfb.o): modules/fmtutil.h
+ qtif.o tga.o tiff.o wmf.o bmp.o riff.o iff.o cfb.o \
+ spectrum512.o): modules/fmtutil.h
 
 $(OBJDIR)/src/deark-miniz.o: foreign/miniz.h
 $(OBJDIR)/modules/compress.o: foreign/liblzw.h
