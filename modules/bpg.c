@@ -51,6 +51,22 @@ static de_int64 get_ue7(deark *c, de_int64 *pos)
 	return val;
 }
 
+static void do_exif(deark *c, lctx *d, de_int64 pos1, de_int64 len1)
+{
+	de_byte buf[3];
+	de_int64 pos = pos1;
+	de_int64 len = len1;
+
+	if(len1<8) return;
+	de_read(buf, pos1, 3);
+	if(buf[0]==0 && (buf[1]=='M' || buf[1]=='I') && buf[2]==buf[1]) {
+		de_warn(c, "Ignoring initial NUL byte in Exif data (libbpg bug?)\n");
+		pos++;
+		len--;
+	}
+	de_fmtutil_handle_exif(c, pos, len);
+}
+
 static void do_extensions(deark *c, lctx *d, de_int64 pos)
 {
 	de_int64 endpos;
@@ -66,7 +82,7 @@ static void do_extensions(deark *c, lctx *d, de_int64 pos)
 
 		switch(tag) {
 		case 1: // Exif
-			de_fmtutil_handle_exif(c, pos, payload_len);
+			do_exif(c, d, pos, payload_len);
 			break;
 		case 2: // ICC profile
 			dbuf_create_file_from_slice(c->infile, pos, payload_len, "icc", NULL, DE_CREATEFLAG_IS_AUX);
