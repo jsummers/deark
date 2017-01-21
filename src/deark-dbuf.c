@@ -813,10 +813,23 @@ void de_writeui16le_direct(de_byte *m, de_int64 n)
 	m[1] = (de_byte)((n & 0xff00)>>8);
 }
 
+void de_writeui16be_direct(de_byte *m, de_int64 n)
+{
+	m[0] = (de_byte)((n & 0xff00)>>8);
+	m[1] = (de_byte)(n & 0x00ff);
+}
+
 void dbuf_writeui16le(dbuf *f, de_int64 n)
 {
 	de_byte buf[2];
 	de_writeui16le_direct(buf, n);
+	dbuf_write(f, buf, 2);
+}
+
+void dbuf_writeui16be(dbuf *f, de_int64 n)
+{
+	de_byte buf[2];
+	de_writeui16be_direct(buf, n);
 	dbuf_write(f, buf, 2);
 }
 
