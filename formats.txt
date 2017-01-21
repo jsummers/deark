@@ -365,7 +365,11 @@ Deark -- Information about supported formats
   - Extracts WMF files.
   - Does not support LZ77 compression.
 
-* Spectrum 512 compressed (.spc) (module="spectrum512c")
+* Spectrum 512 Compressed (.spc) (module="spectrum512c")
+  Options
+   -opt spectrum512:tospu - Output to an .spu file
+
+* Spectrum 512 Smooshed (.sps) (module="spectrum512s")
   Options
    -opt spectrum512:tospu - Output to an .spu file
 

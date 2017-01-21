@@ -4,6 +4,7 @@
 
 // Spectrum 512 Uncompressed (.SPU)
 // Spectrum 512 Compressed (.SPC)
+// Spectrum 512 Smooshed (.SPS)
 
 #include <deark-config.h>
 #include <deark-private.h>
@@ -248,6 +249,28 @@ void de_module_spectrum512c(deark *c, struct deark_module_info *mi)
 
 // **************************************************************************
 
+// After SPS0 decompression, we have a 320x199 image, but with the
+// bytes in an inconvenient order, different from SPU format.
+// This converts an SPS0 after-decompression byte offset (from 0 to 31839)
+// to the corresponding SPU file offset (from 160 to 31999).
+static de_int64 sps0_cvtpos(de_int64 a)
+{
+	de_int64 b;
+	b = 160 + (a%199)*160 + ((a%7960)/398)*8 + (a/(199*40))*2 + (a%398)/199;
+	return b;
+}
+
+static void sps0_deplanarize(deark *c, dbuf *src, dbuf *dst)
+{
+	de_int64 i;
+	de_byte b;
+
+	for(i=0; i<src->len; i++) {
+		b = dbuf_getbyte(src, i);
+		dbuf_writebyte_at(dst, sps0_cvtpos(i), b);
+	}
+}
+
 static void do_uncompress_sps_pixels(dbuf *f, de_int64 pos1, de_int64 len,
 	dbuf *unc_pixels)
 {
@@ -353,6 +376,8 @@ static void de_run_spectrum512s(deark *c, de_module_params *mparams)
 	int to_spu = 0;
 	unsigned int format_code;
 
+	// TODO: Consolidate most of this code with .SPC
+
 	if(de_get_ext_option(c, "spectrum512:tospu")) {
 		to_spu = 1;
 	}
@@ -367,14 +392,14 @@ static void de_run_spectrum512s(deark *c, de_module_params *mparams)
 
 	pal_pos = pos + pixels_cmpr_len;
 
+	if(pal_pos + pal_cmpr_len > c->infile->len) {
+		de_err(c, "Invalid or truncated file\n");
+		goto done;
+	}
+
 	format_code = de_getbyte(pal_pos + pal_cmpr_len-1);
 	format_code &= 0x1;
 	de_dbg(c, "format code: %u\n", format_code);
-
-	if(format_code==0) {
-		de_err(c, "This SPS format is not supported\n");
-		goto done;
-	}
 
 	de_dbg(c, "pixels at %d\n", (int)pos);
 	// Decompress the pixel data into an in-memory buffer.
@@ -390,7 +415,12 @@ static void de_run_spectrum512s(deark *c, de_module_params *mparams)
 	// in-memory image of an SPU file.
 	// (This could be done more efficiently during decompression,
 	// but the code would be messier.)
-	spc_deplanarize(c, unc_pixels_planar, spufile);
+	if(format_code==0) {
+		sps0_deplanarize(c, unc_pixels_planar, spufile);
+	}
+	else {
+		spc_deplanarize(c, unc_pixels_planar, spufile);
+	}
 
 	// Make sure we write the uncompressed palette at exactly offset 32000.
 	dbuf_truncate(spufile, 32000);
