@@ -31,6 +31,7 @@ struct cmdctx {
 	FILE *msgs_FILE; // Where to print (error, etc.) messages
 #ifdef DE_WINDOWS
 	int have_windows_console; // Is msgs_FILE a console?
+	int use_fwputs;
 #endif
 
 	int to_stdout;
@@ -102,17 +103,20 @@ static void our_msgfn(deark *c, int msgtype, const char *s1)
 		}
 
 #ifdef DE_WINDOWS
+
 		// Call _setmode so that Unicode output to the console works correctly
 		// (provided we use Unicode functions like fputws()).
 		if(cc->msgs_to_stderr) {
 			cc->have_windows_console = de_stderr_is_windows_console();
-			if(cc->have_windows_console) {
+			if(cc->have_windows_console && !cc->to_ascii) {
+				cc->use_fwputs = 1;
 				_setmode(_fileno(stderr), _O_U16TEXT);
 			}
 		}
 		else {
 			cc->have_windows_console = de_stdout_is_windows_console();
-			if(cc->have_windows_console) {
+			if(cc->have_windows_console && !cc->to_ascii) {
+				cc->use_fwputs = 1;
 				_setmode(_fileno(stdout), _O_U16TEXT);
 			}
 		}
@@ -135,7 +139,7 @@ static void our_msgfn(deark *c, int msgtype, const char *s1)
 	}
 
 #ifdef DE_WINDOWS
-	if(cc->have_windows_console) {
+	if(cc->use_fwputs) {
 		wchar_t *s_w;
 		s_w = de_utf8_to_utf16_strdup(c, s);
 		fputws(s_w, cc->msgs_FILE);
