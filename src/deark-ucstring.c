@@ -297,7 +297,7 @@ int ucstring_strcmp(de_ucstring *s, const char *s2, int encoding)
 // is "safe" to print to a terminal.
 // We try to ban control characters, formatting characters, private-use characters,
 // and noncharacters.
-// It would be be good to also ban incorrectly-used "combining" and other context-
+// It would be good to also ban incorrectly-used "combining" and other context-
 // sensitive characters, but that's too difficult.
 static int is_printable_uchar(de_int32 ch)
 {

@@ -55,7 +55,7 @@ Command-line options:
   -tostdout
      Write the output file(s) to the standard output stream (stdout).
      This option is experimental, and might not work in all situations.
-     It is recommended to put -tostdout first on the command line. The
+     It is recommended to put -tostdout early on the command line. The
      -msgstostderr and "-maxfiles 1" options are enabled automatically.
      Using -main is suggested. Incompatible with -zip.
   -fromstdin
@@ -140,14 +140,16 @@ Command-line options:
      Print technical and debugging information. -d2 and -d3 are more verbose.
   -dprefix <msg>
      Start each line printed by -d with this prefix. Default is "DEBUG: ".
-  -enc ascii
-     Print all messages using ASCII character only. The default is to use
-     Unicode (UTF-8 encoding, when the encoding is relevant).
-     This only affects messages printed to the terminal. It does not affect the
-     extracted data files.
+  -enc <ascii|oem>
+     Set the encoding of the message that are printed to the console. This does
+     not affect the extracted data files.
+     The default is to use Unicode (UTF-8, when the encoding is relevant).
+     ascii: Use ASCII character only.
+     oem: [Windows only; has no effect on other platforms] Use the "OEM"
+       character set. Maybe useful when paging the output to "|more".
   -msgstostderr
      Print all messages to stderr, instead of stdout. This option should be
-     placed first on the command line, as it might not affect messages
+     placed early on the command line, as it might not affect messages
      related to options that appear before it.
  
 === Terms of use ===

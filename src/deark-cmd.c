@@ -38,6 +38,7 @@ struct cmdctx {
 	int to_zip;
 	int from_stdin;
 	int to_ascii;
+	int to_oem;
 	char msgbuf[1000];
 };
 
@@ -108,14 +109,14 @@ static void our_msgfn(deark *c, int msgtype, const char *s1)
 		// (provided we use Unicode functions like fputws()).
 		if(cc->msgs_to_stderr) {
 			cc->have_windows_console = de_stderr_is_windows_console();
-			if(cc->have_windows_console && !cc->to_ascii) {
+			if(cc->have_windows_console && !cc->to_ascii && !cc->to_oem) {
 				cc->use_fwputs = 1;
 				_setmode(_fileno(stderr), _O_U16TEXT);
 			}
 		}
 		else {
 			cc->have_windows_console = de_stdout_is_windows_console();
-			if(cc->have_windows_console && !cc->to_ascii) {
+			if(cc->have_windows_console && !cc->to_ascii && !cc->to_oem) {
 				cc->use_fwputs = 1;
 				_setmode(_fileno(stdout), _O_U16TEXT);
 			}
@@ -134,6 +135,12 @@ static void our_msgfn(deark *c, int msgtype, const char *s1)
 		de_utf8_to_ascii(s1, cc->msgbuf, sizeof(cc->msgbuf), 0);
 		s = cc->msgbuf;
 	}
+#ifdef DE_WINDOWS
+	else if(cc->to_oem) {
+		de_utf8_to_oem(c, s1, cc->msgbuf, sizeof(cc->msgbuf));
+		s = cc->msgbuf;
+	}
+#endif
 	else {
 		s = s1;
 	}
@@ -184,8 +191,12 @@ static void set_encoding_option(deark *c, struct cmdctx *cc, const char *s)
 	if(!strcmp(s, "ascii")) {
 		cc->to_ascii = 1;
 	}
+	else if(!strcmp(s, "oem")) {
+		cc->to_oem = 1;
+	}
 	else if(!strcmp(s, "utf8") || !strcmp(s, "unicode")) {
 		cc->to_ascii = 0;
+		cc->to_oem = 0;
 	}
 	else {
 		de_puts(c, DE_MSGTYPE_MESSAGE, "Error: Unknown encoding\n");

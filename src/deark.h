@@ -136,6 +136,7 @@ void de_printf(deark *c, int msgtype, const char *fmt, ...)
 void de_utf8_to_ascii(const char *src, char *dst, size_t dstlen, unsigned int flags);
 
 #ifdef DE_WINDOWS
+void de_utf8_to_oem(deark *c, const char *src, char *dst, size_t dstlen);
 char **de_convert_args_to_utf8(int argc, wchar_t **argvW);
 void de_free_utf8_args(int argc, char **argv);
 wchar_t *de_utf8_to_utf16_strdup(deark *c, const char *src);

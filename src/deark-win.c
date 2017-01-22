@@ -52,6 +52,21 @@ de_int64 de_strtoll(const char *string, char **endptr, int base)
 	return _strtoi64(string, endptr, base);
 }
 
+void de_utf8_to_oem(deark *c, const char *src, char *dst, size_t dstlen)
+{
+	WCHAR *srcW;
+	int ret;
+
+	srcW = de_utf8_to_utf16_strdup(c, src);
+
+	ret = WideCharToMultiByte(CP_OEMCP, 0, srcW, -1, dst, (int)dstlen, NULL, NULL);
+	if(ret<1) {
+		dst[0]='\0';
+	}
+
+	de_free(c, srcW);
+}
+
 static char *de_utf16_to_utf8_strdup(deark *c, const WCHAR *src)
 {
 	char *dst;
