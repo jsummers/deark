@@ -303,7 +303,7 @@ Deark -- Information about supported formats
   - Extract XMP data.
   - Extract ICC profiles.
 
-* PNM/PBM/PGM/PPM (module="pnm")
+* PNM/PBM/PGM/PPM/PAM (module="pnm")
 
 * PrintMaster .SHP format (module="printmaster")
   Options
@@ -363,7 +363,6 @@ Deark -- Information about supported formats
   Windows .HLP files.
   - Converts bitmap graphics to BMP format.
   - Extracts WMF files.
-  - Does not support LZ77 compression.
 
 * Spectrum 512 Compressed (.spc) (module="spectrum512c")
   Options

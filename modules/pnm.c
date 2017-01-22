@@ -4,7 +4,7 @@
 
 // Netpbm formats
 // PNM (PBM, PGM, PPM)
-// TODO: PAM
+// PAM
 
 #include <deark-config.h>
 #include <deark-private.h>
@@ -24,6 +24,12 @@ struct page_ctx {
 	const char *fmt_name;
 	de_int64 width, height;
 	de_int64 maxval;
+
+	de_int64 pam_num_samples;
+#define PAMSUBTYPE_GRAY         1
+#define PAMSUBTYPE_RGB          2
+	int pam_subtype;
+	int has_alpha;
 
 	de_int64 hdr_parse_pos;
 	de_int64 image_data_len;
@@ -126,10 +132,6 @@ static int read_pnm_header(deark *c, lctx *d, struct page_ctx *pg, de_int64 pos1
 		if(!read_next_token(c, d, pg, tokenbuf, sizeof(tokenbuf))) goto done;
 		pg->maxval = de_atoi64(tokenbuf);
 		de_dbg(c, "maxval: %d\n", (int)pg->maxval);
-		if(pg->maxval<1 || pg->maxval>65535) {
-			de_err(c, "Invalid maxval: %d\n", (int)pg->maxval);
-			goto done;
-		}
 	}
 
 	retval = 1;
@@ -206,30 +208,28 @@ static int read_pam_header(deark *c, lctx *d, struct page_ctx *pg, de_int64 pos1
 	int ret;
 	de_int64 pos = pos1;
 	int retval = 0;
+	int tupltype_line_count = 0;
 	char linebuf[200];
 	char token1buf[200];
-	//char token2buf[200];
+	char token2buf[200];
 
 	de_dbg(c, "header at %d\n", (int)pos1);
 	de_dbg_indent(c, 1);
 
-	de_err(c, "PAM format not supported\n");
-	goto done;
-
 	pos += 3; // Skip "P7\n"
+
 	while(1) {
 		de_int64 content_len;
 		de_int64 total_len;
 		de_int64 curpos;
 
-		//ret = dbuf_find_line(c->infile, pos,
-		//	&content_len, &total_len);
 		ret = read_pam_header_line(c, d, pg, pos, &content_len, &total_len,
 			linebuf, sizeof(linebuf));
+		pos += total_len;
 
 		if(!ret) {
 			de_err(c, "Invalid PAM header\n");
-			break;
+			goto done;
 		}
 
 		if(content_len>0 && (de_getbyte(pos)=='#')) {
@@ -241,15 +241,67 @@ static int read_pam_header(deark *c, lctx *d, struct page_ctx *pg, de_int64 pos1
 		curpos = 0;
 		if(!read_next_pam_token(c, d, pg, linebuf, token1buf, sizeof(token1buf), &curpos)) goto done;
 
-		if(!de_strcmp(token1buf,"ENDHDR")) {
+		if(!de_strcmp(token1buf, "ENDHDR")) {
 			break;
 		}
 
-		pos += total_len;
-		continue;
+		// Other header lines have a param
+		if(!read_next_pam_token(c, d, pg, linebuf, token2buf, sizeof(token2buf), &curpos)) goto done;
 
+		if(!de_strcmp(token1buf, "WIDTH")) {
+			pg->width = de_atoi64(token2buf);
+		}
+		else if(!de_strcmp(token1buf, "HEIGHT")) {
+			pg->height = de_atoi64(token2buf);
+		}
+		else if(!de_strcmp(token1buf, "DEPTH")) {
+			pg->pam_num_samples = de_atoi64(token2buf);
+		}
+		else if(!de_strcmp(token1buf, "MAXVAL")) {
+			pg->maxval = de_atoi64(token2buf);
+		}
+		else if(!de_strcmp(token1buf, "TUPLTYPE")) {
+			// FIXME: The "TUPLTYPE" line(s) is wacky, and seems underspecified.
+			// We do not support it correctly.
+			// But I doubt any real PAM encoders are pathological enough to
+			// require us to support its wackiness.
+			if(tupltype_line_count>0) {
+				de_err(c, "Multiple TUPLTYPE lines are not supported\n");
+				goto done;
+			}
+			tupltype_line_count++;
+
+			if(!de_strcmp(token2buf, "BLACKANDWHITE")) {
+				pg->pam_subtype = PAMSUBTYPE_GRAY;
+				pg->maxval = 1;
+			}
+			else if(!de_strcmp(token2buf, "BLACKANDWHITE_ALPHA")) {
+				pg->pam_subtype = PAMSUBTYPE_GRAY;
+				pg->has_alpha = 1;
+				pg->maxval = 1;
+			}
+			else if(!de_strcmp(token2buf, "GRAYSCALE")) {
+				pg->pam_subtype = PAMSUBTYPE_GRAY;
+			}
+			else if(!de_strcmp(token2buf, "GRAYSCALE_ALPHA")) {
+				pg->pam_subtype = PAMSUBTYPE_GRAY;
+				pg->has_alpha = 1;
+			}
+			else if(!de_strcmp(token2buf, "RGB")) {
+				pg->pam_subtype = PAMSUBTYPE_RGB;
+			}
+			else if(!de_strcmp(token2buf, "RGB_ALPHA")) {
+				pg->pam_subtype = PAMSUBTYPE_RGB;
+				pg->has_alpha = 1;
+			}
+			else {
+				de_err(c, "Unsupported color type\n");
+				goto done;
+			}
+		}
 	}
 
+	pg->hdr_parse_pos = pos;
 	retval = 1;
 done:
 	de_dbg_indent(c, -1);
@@ -373,7 +425,7 @@ static int do_image_pbm_binary(deark *c, lctx *d, struct page_ctx *pg, de_int64 
 	return 1;
 }
 
-static int do_image_pgm_ppm_binary(deark *c, lctx *d, struct page_ctx *pg, de_int64 pos1)
+static int do_image_pgm_ppm_pam_binary(deark *c, lctx *d, struct page_ctx *pg, de_int64 pos1)
 {
 	struct deark_bitmap *img = NULL;
 	de_int64 rowspan;
@@ -381,11 +433,36 @@ static int do_image_pgm_ppm_binary(deark *c, lctx *d, struct page_ctx *pg, de_in
 	de_int64 bytes_per_sample;
 	de_int64 i, j, k;
 	de_int64 pos = pos1;
-	unsigned int samp_ori[3];
-	de_byte samp_adj[3];
+	unsigned int samp_ori[4];
+	de_byte samp_adj[4];
+	de_uint32 clr;
+	int retval = 0;
 
-	if(fmt_is_ppm(pg->fmt)) nsamples=3;
-	else nsamples=1;
+	if(pg->fmt==FMT_PAM) {
+		nsamples = pg->pam_num_samples;
+
+		if((pg->pam_subtype==PAMSUBTYPE_GRAY && !pg->has_alpha && nsamples==1) ||
+			(pg->pam_subtype==PAMSUBTYPE_GRAY && pg->has_alpha && nsamples==2) ||
+			(pg->pam_subtype==PAMSUBTYPE_RGB && !pg->has_alpha && nsamples==3) ||
+			(pg->pam_subtype==PAMSUBTYPE_RGB && pg->has_alpha && nsamples==4))
+		{
+			;
+		}
+		else {
+			de_err(c, "Unsupported PAM format\n");
+			goto done;
+		}
+	}
+	else if(fmt_is_ppm(pg->fmt)) {
+		nsamples=3;
+	}
+	else {
+		nsamples=1;
+	}
+
+	if(nsamples<1 || nsamples>4) {
+		de_err(c, "Unsupported number of samples: %d\n", (int)nsamples);
+	}
 
 	if(pg->maxval<=255) bytes_per_sample=1;
 	else bytes_per_sample=2;
@@ -409,21 +486,31 @@ static int do_image_pgm_ppm_binary(deark *c, lctx *d, struct page_ctx *pg, de_in
 				samp_adj[k] = de_scale_n_to_255(pg->maxval, samp_ori[k]);
 			}
 
-			if(nsamples==1) {
-				de_bitmap_setpixel_gray(img, i, j, samp_adj[0]);
-			}
-			else {
-				de_uint32 clr;
+			switch(nsamples) {
+			case 4:
+				clr = DE_MAKE_RGBA(samp_adj[0], samp_adj[1], samp_adj[2], samp_adj[3]);
+				de_bitmap_setpixel_rgba(img, i, j, clr);
+				break;
+			case 3:
 				clr = DE_MAKE_RGB(samp_adj[0], samp_adj[1], samp_adj[2]);
 				de_bitmap_setpixel_rgb(img, i, j, clr);
+				break;
+			case 2:
+				clr = DE_MAKE_RGBA(samp_adj[0], samp_adj[0], samp_adj[0], samp_adj[1]);
+				de_bitmap_setpixel_rgba(img, i, j, clr);
+				break;
+			default: // Assuming nsamples==1
+				de_bitmap_setpixel_gray(img, i, j, samp_adj[0]);
 			}
 		}
 	}
 
 	de_bitmap_write_to_file(img, NULL, 0);
+	retval = 1;
 
+done:
 	de_bitmap_destroy(img);
-	return 1;
+	return retval;
 }
 
 static int do_image(deark *c, lctx *d, struct page_ctx *pg, de_int64 pos1)
@@ -433,6 +520,10 @@ static int do_image(deark *c, lctx *d, struct page_ctx *pg, de_int64 pos1)
 	de_dbg(c, "image data at %d\n", (int)pos1);
 	de_dbg_indent(c, 1);
 
+	if(pg->maxval<1 || pg->maxval>65535) {
+		de_err(c, "Invalid maxval: %d\n", (int)pg->maxval);
+		goto done;
+	}
 	if(!de_good_image_dimensions(c, pg->width, pg->height)) goto done;
 
 	switch(pg->fmt) {
@@ -448,7 +539,8 @@ static int do_image(deark *c, lctx *d, struct page_ctx *pg, de_int64 pos1)
 		break;
 	case FMT_PGM_BINARY:
 	case FMT_PPM_BINARY:
-		if(!do_image_pgm_ppm_binary(c, d, pg, pos1)) goto done;
+	case FMT_PAM:
+		if(!do_image_pgm_ppm_pam_binary(c, d, pg, pos1)) goto done;
 		break;
 	default:
 		de_err(c, "Unsupported PNM format\n");
@@ -496,6 +588,9 @@ static int do_page(deark *c, lctx *d, int pagenum, de_int64 pos1)
 	struct page_ctx *pg = NULL;
 	int retval = 0;
 
+	de_dbg(c, "image at %d\n", (int)pos1);
+	de_dbg_indent(c, 1);
+
 	pg = de_malloc(c, sizeof(struct page_ctx));
 
 	pg->fmt = identify_fmt(c, pos1);
@@ -525,6 +620,7 @@ static int do_page(deark *c, lctx *d, int pagenum, de_int64 pos1)
 
 	retval = 1;
 done:
+	de_dbg_indent(c, -1);
 	de_free(c, pg);
 	return retval;
 }
@@ -571,7 +667,7 @@ static int de_identify_pnm(deark *c)
 void de_module_pnm(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "pnm";
-	mi->desc = "Netpbm formats (PNM, PBM, PGM, PPM)";
+	mi->desc = "Netpbm formats (PNM, PBM, PGM, PPM, PAM)";
 	mi->run_fn = de_run_pnm;
 	mi->identify_fn = de_identify_pnm;
 }
