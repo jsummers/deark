@@ -500,6 +500,8 @@ Deark -- Information about supported formats
 * zlib (module="zlib")
   - Raw zlib files are uncompressed.
 
+* ZOO (module="zoo")
+  - "LZH" compression is supported; "LZD" compression is not
 
 == Transfer encoding modules ==
 

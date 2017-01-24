@@ -16,7 +16,7 @@ OFILES_MODS:=$(addprefix $(OBJDIR)/modules/,os2bmp.o eps.o bsave.o ilbm.o \
  atari-img.o spectrum512.o tga.o sunras.o pnm.o \
  jpeg.o tiff.o psd.o misc.o msp.o pcpaint.o grasp.o amigaicon.o macpaint.o \
  pcx.o epocimage.o psionpic.o psionapp.o exe.o riff.o iff.o \
- boxes.o zip.o atari.o mscompress.o \
+ zoo.o boxes.o zip.o atari.o mscompress.o \
  fnt.o nokia.o grob.o d64.o t64.o cardfile.o jovianvi.o \
  tivariable.o basic-c64.o ico.o rpm.o cpio.o \
  rosprite.o binhex.o icns.o awbm.o printshop.o qtif.o portfolio.o bpg.o shg.o \
@@ -40,6 +40,7 @@ $(addprefix $(OBJDIR)/modules/,alphabmp.o ansiart.o atari-img.o amigaicon.o \
 
 $(OBJDIR)/src/deark-miniz.o: foreign/miniz.h
 $(OBJDIR)/modules/compress.o: foreign/liblzw.h
+$(OBJDIR)/modules/zoo.o: foreign/unzoo.h
 $(OBJDIR)/src/deark-modules.o: src/deark-modules.h
 $(OFILES_LIB) $(OFILES_MODS) $(OFILES_MODUTILS): src/deark-private.h
 $(OFILES_ALL): src/deark-config.h src/deark.h

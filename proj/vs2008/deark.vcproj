@@ -442,6 +442,10 @@
 				RelativePath="..\..\foreign\miniz.h"
 				>
 			</File>
+			<File
+				RelativePath="..\..\foreign\unzoo.h"
+				>
+			</File>
 		</Filter>
 		<Filter
 			Name="Resource Files"
@@ -783,6 +787,10 @@
 			</File>
 			<File
 				RelativePath="..\..\modules\zip.c"
+				>
+			</File>
+			<File
+				RelativePath="..\..\modules\zoo.c"
 				>
 			</File>
 		</Filter>
