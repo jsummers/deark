@@ -255,7 +255,7 @@ static void do_png_tIME(deark *c, de_int64 pos, de_int64 len)
 	mi = de_getbyte(pos+5);
 	se = de_getbyte(pos+6);
 
-	de_make_timestamp(&ts, yr, mo, da, hr, mi, (double)se);
+	de_make_timestamp(&ts, yr, mo, da, hr, mi, (double)se, 0);
 	de_timestamp_to_string(&ts, timestamp_buf, sizeof(timestamp_buf), 1);
 	de_dbg(c, "mod time: %s\n", timestamp_buf);
 }

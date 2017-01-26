@@ -98,18 +98,6 @@ struct entryctx {
 	de_uint32           permis;         /* file permissions                */
 	de_byte             modgen;         /* gens. on, last gen., gen. limit */
 	de_uint16           ver;            /* version number of member        */
-	/* the following are not in the archive file and are computed          */
-	//char                naml [256];     /* local name of member of archive */
-	//char                dirl [256];     /* local name of directory         */
-	//char                patl [512];     /* local path name of member       */
-	//char                patv [512];     /* ditto but with version number   */
-	//char *              patw;           /* name used by '-l'               */
-	de_uint32           year;           /* years since 1900                */
-	de_uint32           month;          /* month since January             */
-	de_uint32           day;            /* day of month                    */
-	de_uint32           hour;           /* hours since midnight            */
-	de_uint32           min_;            /* minutes after the hour          */
-	de_uint32           sec;            /* seconds after the minutes       */
 
 	struct lzh_table lzhtbl;
 
@@ -375,22 +363,17 @@ static int EntrReadArch (struct unzooctx *uz, struct entryctx *ze)
 
 	l = ze->lnamu + ze->ldiru;
 	ze->system = (l+2 < ze->lvar ? HalfReadArch(uz) : 0);
+
 	ze->permis = (l+4 < ze->lvar ? TripReadArch(uz) : 0);
+	if(l+4 < ze->lvar) {
+		de_dbg(c, "perms: octal(%o)\n", (unsigned int)ze->permis);
+		if((ze->permis & 0111) != 0) {
+			ze->fi->is_executable = 1;
+		}
+	}
+
 	ze->modgen = (l+7 < ze->lvar ? ByteReadArch(uz) : 0);
 	ze->ver    = (l+7 < ze->lvar ? HalfReadArch(uz) : 0);
-
-	/* convert the names to local format                                   */
-	//de_strlcpy( ze->naml, (ze->lnamu ? ze->namu : ze->nams), sizeof(ze->naml) );
-	//strcat( ze->patl, ze->naml );
-
-	/* convert the time                                                    */
-	ze->year  = ((ze->datdos >>  9) & 0x7f) + 80;
-	ze->month = ((ze->datdos >>  5) & 0x0f) - 1;
-	if(ze->month>11) ze->month = 0;
-	ze->day   = ((ze->datdos      ) & 0x1f);
-	ze->hour  = ((ze->timdos >> 11) & 0x1f);
-	ze->min_  = ((ze->timdos >>  5) & 0x3f);
-	ze->sec   = ((ze->timdos      ) & 0x1f) * 2;
 
 	// Figure out the best filename to use
 	if(longname_ucstring->len>0 || shortname_ucstring->len) {
@@ -411,7 +394,6 @@ static int EntrReadArch (struct unzooctx *uz, struct entryctx *ze)
 		ze->fi->original_filename_flag = 1;
 	}
 
-	/* indicate success                                                    */
 	retval = 1;
 
 done:
@@ -922,9 +904,10 @@ static const de_uint32 BeginMonth [12] = {
 static void ExtrEntry(struct unzooctx *uz, de_int64 pos1, de_int64 *next_entry_pos)
 {
 	de_uint32       res;            /* status of decoding              */
-	de_uint32       secs;           /* seconds since 70/01/01 00:00:00 */
 	struct entryctx *ze = NULL;
 	deark *c = uz->c;
+	de_int64 timestamp_offset;
+	char timestamp_buf[64];
 
 	ze = de_malloc(c, sizeof(struct entryctx));
 	ze->fi = de_finfo_create(c);
@@ -962,30 +945,13 @@ static void ExtrEntry(struct unzooctx *uz, de_int64 pos1, de_int64 *next_entry_p
 		goto done;
 	}
 
-	/* set the file time, evt. correct for timezone of packing system  */
-	secs = 24*60*60L*(365*(ze->year - 70)
-					 + BeginMonth[ze->month]
-					 + ze->day - 1
-					 + (ze->year -  69) / 4
-					 + (ze->year %   4 ==   0 && 1 < ze->month)
-					 - (ze->year + 299) / 400
-					 - (ze->year % 400 == 100 && 1 < ze->month))
-			+60*60L*ze->hour + 60L*ze->min_ + ze->sec;
-	if      ( ze->timzon < 127 )  secs += 15*60*(ze->timzon      );
-	else if ( 127 < ze->timzon )  secs += 15*60*(ze->timzon - 256);
+	timestamp_offset = 0;
+	if      ( ze->timzon < 127 )  timestamp_offset = 15*60*(ze->timzon      );
+	else if ( 127 < ze->timzon )  timestamp_offset = 15*60*(ze->timzon - 256);
 
-	//if ( out == 2 ) {
-		// TODO: Set the timestamp
-		//if ( ! SETF_TIME( patl, secs ) )
-		//    de_warn(c, "unzoo: '%s' could not set the times\n",patl);
-	//}
-
-	/* set the file permissions                                        */
-	// TODO: Set the executable flag
-	//if ( out == 2 && (Entry.permis >> 22) == 1 ) {
-	//    if ( ! SETF_PERM( patl, Entry.permis ) )
-	//        de_warn(c, "unzoo: '%s' could not set the permissions\n",patl);
-	//}
+	de_dos_datetime_to_timestamp(&ze->fi->mod_time, ze->datdos, ze->timdos, timestamp_offset);
+	de_timestamp_to_string(&ze->fi->mod_time, timestamp_buf, sizeof(timestamp_buf), 1);
+	de_dbg(c, "mod time: %s\n", timestamp_buf);
 
 	/* open the file for creation                                      */
 	if ( ! OpenWritFile(uz, ze) ) {

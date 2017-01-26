@@ -782,6 +782,21 @@ void de_FILETIME_to_timestamp(de_int64 ft, struct de_timestamp *ts)
 	de_unix_time_to_timestamp(t, ts);
 }
 
+void de_dos_datetime_to_timestamp(struct de_timestamp *ts,
+   de_int64 ddate, de_int64 dtime, de_int64 offset_seconds)
+{
+	de_int64 yr, mo, da, hr, mi;
+	double se;
+
+	yr = 1980+((ddate&0xfe00)>>9);
+	mo = (ddate&0x01e0)>>5;
+	da = (ddate&0x001f);
+	hr = (dtime&0xf800)>>11;
+	mi = (dtime&0x07e0)>>5;
+	se = (double)(2*(dtime&0x001f));
+	de_make_timestamp(ts, yr, mo, da, hr, mi, se, offset_seconds);
+}
+
 de_int64 de_timestamp_to_unix_time(const struct de_timestamp *ts)
 {
 	if(ts->is_valid)
@@ -798,7 +813,7 @@ de_int64 de_timestamp_to_unix_time(const struct de_timestamp *ts)
 // da = day of month: 1=1, ... 31=31
 void de_make_timestamp(struct de_timestamp *ts,
 	de_int64 yr, de_int64 mo, de_int64 da,
-	de_int64 hr, de_int64 mi, double se)
+	de_int64 hr, de_int64 mi, double se, de_int64 offset_seconds)
 {
 	de_int64 result;
 	de_int64 tm_mon;
@@ -823,7 +838,7 @@ void de_make_timestamp(struct de_timestamp *ts,
 	result *= 60;
 	result += (de_int64)se;
 
-	ts->unix_time = result;
+	ts->unix_time = result + offset_seconds;
 	ts->is_valid = 1;
 }
 

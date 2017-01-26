@@ -421,21 +421,6 @@ static const char *get_platform_name(unsigned int ver_hi)
 	return "?";
 }
 
-static void dos_date_time_to_timestamp(struct de_timestamp *ts,
-   de_int64 ddate, de_int64 dtime)
-{
-	de_int64 yr, mo, da, hr, mi;
-	double se;
-
-	yr = 1980+((ddate&0xfe00)>>9);
-	mo = (ddate&0x01e0)>>5;
-	da = (ddate&0x001f);
-	hr = (dtime&0xf800)>>11;
-	mi = (dtime&0x07e0)>>5;
-	se = (double)(2*(dtime&0x001f));
-	de_make_timestamp(ts, yr, mo, da, hr, mi, se);
-}
-
 // Read either a central directory entry (a.k.a. central directory file header),
 // or a local file header.
 static int do_file_header(deark *c, lctx *d, int is_central, de_int64 central_index,
@@ -516,7 +501,7 @@ static int do_file_header(deark *c, lctx *d, int is_central, de_int64 central_in
 	pos += 2;
 	mod_date_raw = de_getui16le(pos);
 	pos += 2;
-	dos_date_time_to_timestamp(&timestamp_tmp, mod_date_raw, mod_time_raw);
+	de_dos_datetime_to_timestamp(&timestamp_tmp, mod_date_raw, mod_time_raw, 0);
 	de_timestamp_to_string(&timestamp_tmp, timestamp_buf, sizeof(timestamp_buf), 0);
 	de_dbg(c, "mod time: %s\n", timestamp_buf);
 
