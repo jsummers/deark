@@ -446,6 +446,10 @@
 				RelativePath="..\..\foreign\unzoo.h"
 				>
 			</File>
+			<File
+				RelativePath="..\..\foreign\zoo-lzd.h"
+				>
+			</File>
 		</Filter>
 		<Filter
 			Name="Resource Files"

@@ -6,7 +6,10 @@
 
 #include <deark-config.h>
 #include <deark-private.h>
+
 #include "../foreign/unzoo.h"
+#include "../foreign/zoo-lzd.h"
+
 DE_DECLARE_MODULE(de_module_zoo);
 
 static void de_run_zoo(deark *c, de_module_params *mparams)
@@ -27,5 +30,8 @@ void de_module_zoo(deark *c, struct deark_module_info *mi)
 	mi->desc = "ZOO compressed archive format";
 	mi->run_fn = de_run_zoo;
 	mi->identify_fn = de_identify_zoo;
-	//mi->flags |= DE_MODFLAG_NONWORKING;
+	// The imported ZOO code is ancient, complex, and has been refactored by
+	// someone (me) who did not understand it fully. I don't have a good
+	// feeling about it.
+	mi->flags |= DE_MODFLAG_SECURITYWARNING;
 }

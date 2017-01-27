@@ -40,7 +40,7 @@ $(addprefix $(OBJDIR)/modules/,alphabmp.o ansiart.o atari-img.o amigaicon.o \
 
 $(OBJDIR)/src/deark-miniz.o: foreign/miniz.h
 $(OBJDIR)/modules/compress.o: foreign/liblzw.h
-$(OBJDIR)/modules/zoo.o: foreign/unzoo.h
+$(OBJDIR)/modules/zoo.o: foreign/unzoo.h foreign/zoo-lzd.h
 $(OBJDIR)/src/deark-modules.o: src/deark-modules.h
 $(OFILES_LIB) $(OFILES_MODS) $(OFILES_MODUTILS): src/deark-private.h
 $(OFILES_ALL): src/deark-config.h src/deark.h

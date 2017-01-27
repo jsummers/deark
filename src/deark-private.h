@@ -53,6 +53,7 @@ struct deark_module_info {
 #define DE_MODFLAG_HIDDEN       0x01
 #define DE_MODFLAG_NONWORKING   0x02
 #define DE_MODFLAG_NOEXTRACT    0x04
+#define DE_MODFLAG_SECURITYWARNING 0x08
 	de_uint32 flags;
 #define DE_MAX_MODULE_ALIASES 2
 	const char *id_alias[DE_MAX_MODULE_ALIASES];

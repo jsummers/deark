@@ -120,6 +120,7 @@ void de_run(deark *c)
 	de_int64 subfile_size;
 	struct deark_module_info *module_to_use = NULL;
 	const char *friendly_infn;
+	int module_was_autodetected = 0;
 
 	if(c->modhelp_req && c->input_format_req) {
 		do_modhelp(c);
@@ -186,6 +187,7 @@ void de_run(deark *c)
 
 	if(!module_to_use) {
 		module_to_use = detect_module_for_file(c);
+		module_was_autodetected = 1;
 	}
 
 	if(!module_to_use) {
@@ -197,6 +199,15 @@ void de_run(deark *c)
 	}
 
 	de_msg(c, "Module: %s\n", module_to_use->id);
+
+	if(module_was_autodetected && (module_to_use->flags&DE_MODFLAG_SECURITYWARNING)) {
+		de_err(c, "The %s module has not been audited for security. There is a "
+			"greater than average chance that it is unsafe to use with untrusted "
+			"input files. Use \"-m %s\" to confirm that you want to use it.\n",
+			module_to_use->id, module_to_use->id);
+		goto done;
+	}
+
 	if(module_to_use->flags&DE_MODFLAG_NONWORKING) {
 		de_warn(c, "The %s module is considered to be incomplete, and may "
 			"not work properly. Caveat emptor.\n",

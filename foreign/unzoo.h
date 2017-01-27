@@ -67,7 +67,7 @@ struct lzh_table {
 struct entryctx {
 	de_finfo *fi;
 	dbuf *WritBinr;
-	de_uint32   Crc;
+	de_uint16 Crc;
 
 	// Original "Entry":
 	de_uint32           magic;          /* magic word 0xfdc4a7dc           */
@@ -108,9 +108,6 @@ struct unzooctx {
 	deark *c;
 	dbuf *ReadArch;
 	de_int64 ReadArch_fpos;
-	de_byte * PtrArch;                /* pointer to the next byte        */
-	de_byte * EndArch;                /* pointer to the last byte        */
-	size_t   PosArch;                /* position of 'BufArch[0]'        */
 
 	// Original "Descript":
 	char                text[21];       /* "ZOO 2.10 Archive.<ctr>Z"       */
@@ -137,66 +134,22 @@ struct unzooctx {
 	*/
 	char *          ErrMsg;
 
-	de_uint32   CrcTab [256];
-
-	de_byte         BufArch [64+4096];      /* buffer for the archive          */
+	de_uint16   CrcTab [256];
 };
-
-
-static de_int64 BLCK_READ_ARCH(struct unzooctx *uz, de_byte *blk, de_int64 len)
-{
-	return dbuf_standard_read(uz->ReadArch, blk, len, &uz->ReadArch_fpos);
-}
-
-static int   OpenReadArch (struct unzooctx *uz)
-{
-	uz->PtrArch = uz->EndArch = (uz->BufArch+64);
-	uz->PosArch = 0;
-	return 1;
-}
-
-static int FillReadArch (struct unzooctx *uz)
-{
-	de_byte *     s;              /* loop variable                   */
-	de_byte *     d;              /* loop variable                   */
-
-	/* copy the last characters to the beginning (for short backward seeks)*/
-	d = uz->BufArch;
-	for ( s = uz->EndArch-64; s < uz->EndArch; s++ )
-		*d++ = *s;
-	uz->PosArch += uz->EndArch - (uz->BufArch+64);
-
-	/* read a block                                                        */
-	uz->PtrArch = uz->BufArch+64;
-	uz->EndArch = uz->PtrArch + BLCK_READ_ARCH(uz, uz->PtrArch, 4096 );
-
-	/* return the first character                                          */
-	return (uz->PtrArch < uz->EndArch ? *uz->PtrArch++ : EOF);
-}
 
 static int GotoReadArch (struct unzooctx *uz, de_int64 pos)
 {
-	/* for long backward seeks goto the beginning of the file              */
-	if ( pos+64 < (de_int64)uz->PosArch ) {
-		uz->ReadArch_fpos = pos;
-		uz->PtrArch = uz->EndArch = uz->BufArch+64;
-		uz->PosArch = pos;
-	}
-
-	/* jump forward bufferwise                                             */
-	while ( (de_int64)(uz->PosArch + (uz->EndArch - (uz->BufArch+64))) <= pos ) {
-		if ( FillReadArch(uz) == EOF )
-			return 0;
-	}
-
-	/* and goto the position (which is now in the buffer)                  */
-	uz->PtrArch = (uz->BufArch+64) + (pos - uz->PosArch);
-
-	/* indicate success                                                    */
+	uz->ReadArch_fpos = pos;
 	return 1;
 }
 
-#define ByteReadArch(uz)          (uz->PtrArch<uz->EndArch?*uz->PtrArch++:FillReadArch(uz))
+static int ByteReadArch(struct unzooctx *uz)
+{
+	de_byte ch;
+	ch = dbuf_getbyte(uz->ReadArch, uz->ReadArch_fpos);
+	uz->ReadArch_fpos++;
+	return (int)ch;
+}
 
 static de_uint32 HalfReadArch (struct unzooctx *uz)
 {
@@ -299,10 +252,13 @@ static int EntrReadArch (struct unzooctx *uz, struct entryctx *ze)
 	de_ucstring *dirname_ucstring = NULL;
 	de_ucstring *fullname_ucstring = NULL;
 	int retval = 0;
+	de_int64 pos1 = uz->ReadArch_fpos;
 
 	/* try to read the magic words                                         */
-	if ( (ze->magic = WordReadArch(uz)) != (de_uint32)0xfdc4a7dcL )
+	if ( (ze->magic = WordReadArch(uz)) != (de_uint32)0xfdc4a7dcL ) {
+		de_err(c, "Malformed ZOO file, bad magic number at %d\n", (int)pos1);
 		goto done;
+	}
 
 	/* read the fixed part of the directory entry                          */
 	ze->type   = ByteReadArch(uz);
@@ -454,7 +410,10 @@ static de_int64 BlckWritFile (struct unzooctx *uz, struct entryctx *ze, const de
 	return len;
 }
 
-#define CRC_BYTE(uz,crc,byte)      (((crc)>>8) ^ uz->CrcTab[ ((crc)^(byte))&0xff ])
+static de_uint16 CRC_BYTE(struct unzooctx *uz, de_uint16 crc, de_byte byte)
+{
+	return (((crc)>>8) ^ uz->CrcTab[ ((crc)^(byte))&0xff ]);
+}
 
 static int InitCrc (struct unzooctx *uz)
 {
@@ -512,17 +471,17 @@ static int DecodeCopy (struct unzooctx *uz, struct entryctx *ze, de_uint32 size 
 	return 1;
 }
 
+// Forward declaration of a function in zoo-lzd.h
+static int lzd(struct unzooctx *uz, struct entryctx *ze);
+
 /****************************************************************************
 **
 *F  DecodeLzd() . . . . . . . . . . . . . . .  extract a LZ compressed member
 **
-*N  1993/10/21 martin add LZD.
 */
-static int DecodeLzd (struct unzooctx *uz)
+static int DecodeLzd (struct unzooctx *uz, struct entryctx *ze)
 {
-	// TODO:
-	uz->ErrMsg = "LZD compression is supported";
-	return 0;
+	return !lzd(uz, ze);
 }
 
 /****************************************************************************
@@ -940,7 +899,7 @@ static void ExtrEntry(struct unzooctx *uz, de_int64 pos1, de_int64 *next_entry_p
 		goto done;
 	}
 
-	if(ze->method!=0 && ze->method!=2) {
+	if(ze->method!=0 && ze->method!=1 && ze->method!=2) {
 		de_err(c, "Unsupported compression method: %d\n", (int)ze->method);
 		goto done;
 	}
@@ -971,7 +930,7 @@ static void ExtrEntry(struct unzooctx *uz, de_int64 pos1, de_int64 *next_entry_p
 		res = DecodeCopy(uz, ze, ze->siznow );
 		break;
 	case 1:
-		res = DecodeLzd(uz);
+		res = DecodeLzd(uz, ze);
 		break;
 	case 2:
 		res = DecodeLzh(uz, ze);
@@ -1013,11 +972,6 @@ static int ExtrArch (deark *c, dbuf *inf)
 
 	InitCrc(uz);
 
-	/* try to open the archive  */
-	if(!OpenReadArch(uz)) {
-		de_err(uz->c, "Could not open archive\n");
-		goto done;
-	}
 	if(!DescReadArch(uz)) {
 		de_err(uz->c, "Found bad description in archive\n");
 		goto done;

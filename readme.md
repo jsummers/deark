@@ -188,7 +188,8 @@ Thanks to Rich Geldreich for the miniz library.
 
 Thanks to Mike Frysinger, and the authors of compress/ncompress, for liblzw.
 
-Thanks to Martin Schoenert for unzoo.c.
+Thanks to Rahul Dhesi and Martin Schoenert for much of the code used by the ZOO
+format decoder.
 
 Thanks to countless others who have documented the supported file formats.
 
