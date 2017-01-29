@@ -47,7 +47,7 @@ code.  The contents of this file are hereby released to the public domain.
 
 struct lzd_tabentry {
    unsigned int next;
-   char z_ch;
+   de_byte z_ch;
 };
 
 struct lzdctx {
@@ -64,16 +64,16 @@ struct lzdctx {
 	int nbits;
 	unsigned int max_code;
 
-	char fin_char;
-	char k;
+	de_byte fin_char;
+	de_byte k;
 	unsigned int bit_offset;
 	unsigned int output_offset;
 
 	unsigned int stack_pointer;
 	unsigned int *stack;
 
-	char in_buf_adr[LZD_IN_BUF_SIZE]; /* memory allocated for input buffer */
-	char out_buf_adr[LZD_OUT_BUF_SIZE]; /* memory allocated for output buffer(s) */
+	de_byte in_buf_adr[LZD_IN_BUF_SIZE]; /* memory allocated for input buffer */
+	de_byte out_buf_adr[LZD_OUT_BUF_SIZE]; /* memory allocated for output buffer(s) */
 };
 
 static void lzd_init_dtab(struct lzdctx *lc);
@@ -88,7 +88,7 @@ static void lzd_prterror(struct unzooctx *uz, int level, const char *msg)
 	de_fatalerror(uz->c);
 }
 
-static void lzd_push(struct unzooctx *uz, struct lzdctx *lc, char x)
+static void lzd_push(struct unzooctx *uz, struct lzdctx *lc, de_byte x)
 {
 	lc->stack[lc->stack_pointer++] = x;
 	if (lc->stack_pointer >= LZD_STACKSIZE)
@@ -100,7 +100,7 @@ static int lzd_pop(struct lzdctx *lc)
 	return lc->stack[--lc->stack_pointer];
 }
 
-static void lzd_addbfcrc(struct unzooctx *uz, struct lzdctx *lc, const char *buffer, int count)
+static void lzd_addbfcrc(struct unzooctx *uz, struct lzdctx *lc, const de_byte *buffer, int count)
 {
 	de_uint16 localcrc;
 	localcrc = lc->crccode;
@@ -111,15 +111,15 @@ static void lzd_addbfcrc(struct unzooctx *uz, struct lzdctx *lc, const char *buf
 	lc->crccode = localcrc;
 }
 
-static unsigned int lzd_zoowrite (struct unzooctx *uz, dbuf *file, const char *buffer, int count)
+static unsigned int lzd_zoowrite (struct unzooctx *uz, dbuf *file, const de_byte *buffer, int count)
 {
-	dbuf_write(file, (const de_byte*)buffer, count);
+	dbuf_write(file, buffer, count);
 	return (unsigned int)count;
 }
 
-static int lzd_zooread(struct unzooctx *uz, dbuf *file, char *buffer, int count)
+static int lzd_zooread(struct unzooctx *uz, dbuf *file, de_byte *buffer, int count)
 {
-	return (int)dbuf_standard_read(file, (de_byte*)buffer, count, &uz->ReadArch_fpos);
+	return (int)dbuf_standard_read(file, buffer, count, &uz->ReadArch_fpos);
 }
 
 static int lzd(struct unzooctx *uz, struct entryctx *ze)
@@ -213,10 +213,10 @@ done:
 its value. */
 static unsigned int lzd_rd_dcode(struct unzooctx *uz, struct lzdctx *lc)
 {
-	char *ptra, *ptrb;    /* miscellaneous pointers */
+	de_byte *ptra, *ptrb;    /* miscellaneous pointers */
 	unsigned int word;                     /* first 16 bits in buffer */
 	unsigned int byte_offset;
-	char nextch;                           /* next 8 bits in buffer */
+	de_byte nextch;                           /* next 8 bits in buffer */
 	unsigned int ofs_inbyte;               /* offset within byte */
 	static const unsigned int masks[14] = { 0, 0, 0, 0, 0, 0, 0, 0, 0,
                         0x1ff, 0x3ff, 0x7ff, 0xfff, 0x1fff };

@@ -576,27 +576,27 @@ static int MakeTablLzh (struct unzooctx *uz, struct entryctx *ze,
 	start[1] = 0;
 	for (i = 1; i <= 16; i++)
 		start[i + 1] = start[i] + (count[i] << (16 - i));
-	if (start[17] != (de_uint16)((unsigned) 1 << 16))
+	if (start[17] != (de_uint16)((unsigned int) 1 << 16))
 		return 0;
 
 	jutbits = 16 - tablebits;
 	for (i = 1; i <= (unsigned int)tablebits; i++) {
 		start[i] >>= jutbits;
-		weight[i] = (unsigned) 1 << (tablebits - i);
+		weight[i] = (unsigned int) 1 << (tablebits - i);
 	}
 	while (i <= 16) {
-		weight[i] = (unsigned) 1 << (16 - i);
+		weight[i] = (unsigned int) 1 << (16 - i);
 		i++;
 	}
 
 	i = start[tablebits + 1] >> jutbits;
-	if (i != (de_uint16)((unsigned) 1 << 16)) {
+	if (i != (de_uint16)((unsigned int) 1 << 16)) {
 		k = 1 << tablebits;
 		while (i != k) table[i++] = 0;
 	}
 
 	avail = nchar;
-	mask = (unsigned) 1 << (15 - tablebits);
+	mask = (unsigned int) 1 << (15 - tablebits);
 	for (ch = 0; ch < (unsigned int)nchar; ch++) {
 		if ((len = bitlen[ch]) == 0) continue;
 		if (len <= (unsigned int)tablebits) {
@@ -808,7 +808,7 @@ static int DecodeLzh (struct unzooctx *uz, struct entryctx *ze)
 					off = 0;
 				}
 				else {
-					off = ((unsigned)1 << (log-1)) + LZH_PEEK_BITS( log-1 );
+					off = ((unsigned int)1 << (log-1)) + LZH_PEEK_BITS( log-1 );
 					LZH_FLSH_BITS( log-1 );
 				}
 
