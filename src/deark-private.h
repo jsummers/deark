@@ -687,6 +687,12 @@ void de_write_codepoint_to_html(deark *c, dbuf *f, de_int32 ch);
 void de_copy_bits(const de_byte *src, de_int64 srcbitnum,
 	de_byte *dst, de_int64 dstbitnum, de_int64 bitstocopy);
 
+struct de_inthashtable;
+struct de_inthashtable *de_inthashtable_create(deark *c);
+void de_inthashtable_destroy(deark *c, struct de_inthashtable *ht);
+void de_inthashtable_add_item(deark *c, struct de_inthashtable *ht, de_int64 n);
+int de_inthashtable_item_exists(deark *c, struct de_inthashtable *ht, de_int64 n);
+
 ///////////////////////////////////////////
 
 struct de_bitmap_font_char {

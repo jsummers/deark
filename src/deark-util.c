@@ -868,3 +868,101 @@ void de_copy_bits(const de_byte *src, de_int64 srcbitnum,
 		}
 	}
 }
+
+// A very simple hash table implementation, with int64 keys.
+
+// Currently, we are only using it to implement an "unordered set of integers",
+// so there is no need to store any data with the items. It's enough to know
+// whether an item exists.
+
+#define DE_INTHASHTABLE_NBUCKETS 71
+
+struct de_inthashtable_item {
+	de_int64 n;
+	//void *data; // Item data will go here, if we ever need it
+	struct de_inthashtable_item *next; // Next item in linked list
+};
+
+struct de_inthashtable_bucket {
+	struct de_inthashtable_item *first_item;
+};
+
+struct de_inthashtable {
+	struct de_inthashtable_bucket buckets[DE_INTHASHTABLE_NBUCKETS];
+};
+
+static struct de_inthashtable_bucket *inthashtable_find_bucket(struct de_inthashtable *ht,
+	de_int64 n)
+{
+	de_int64 bkt_num;
+
+	if(n>=0) bkt_num =  n%DE_INTHASHTABLE_NBUCKETS;
+	else bkt_num = (-n)%DE_INTHASHTABLE_NBUCKETS;
+
+	return &ht->buckets[bkt_num];
+}
+
+struct de_inthashtable *de_inthashtable_create(deark *c)
+{
+	return de_malloc(c, DE_INTHASHTABLE_NBUCKETS*sizeof(struct de_inthashtable));
+}
+
+static void inthashtable_destroy_items_in_bucket(deark *c, struct de_inthashtable_bucket *bkt)
+{
+	struct de_inthashtable_item *next_item;
+
+	while(bkt->first_item) {
+		next_item = bkt->first_item->next;
+		de_free(c, bkt->first_item);
+		bkt->first_item = next_item;
+	}
+}
+
+void de_inthashtable_destroy(deark *c, struct de_inthashtable *ht)
+{
+	de_int64 i;
+
+	if(!ht) return;
+	for(i=0; i<DE_INTHASHTABLE_NBUCKETS; i++) {
+		if(ht->buckets[i].first_item)
+			inthashtable_destroy_items_in_bucket(c, &ht->buckets[i]);
+	}
+	de_free(c, ht);
+}
+
+void de_inthashtable_add_item(deark *c, struct de_inthashtable *ht, de_int64 n)
+{
+	struct de_inthashtable_bucket *bkt;
+	struct de_inthashtable_item *new_item;
+	struct de_inthashtable_item *old_first_item;
+
+	new_item = de_malloc(c, sizeof(struct de_inthashtable_item));
+	bkt = inthashtable_find_bucket(ht, n);
+	old_first_item = bkt->first_item;
+	new_item->n = n;
+	new_item->next = old_first_item;
+	bkt->first_item = new_item;
+}
+
+// Returns NULL if item does not exist
+static struct de_inthashtable_item *inthashtable_find_item(struct de_inthashtable *ht, de_int64 n)
+{
+	struct de_inthashtable_bucket *bkt;
+	struct de_inthashtable_item *p;
+
+	if(!ht) return NULL;
+	bkt = inthashtable_find_bucket(ht, n);
+	p = bkt->first_item;
+	while(p && (p->n != n)) {
+		p = p->next;
+	}
+	return p;
+}
+
+int de_inthashtable_item_exists(deark *c, struct de_inthashtable *ht, de_int64 n)
+{
+	struct de_inthashtable_item *item;
+
+	item = inthashtable_find_item(ht, n);
+	return (item != NULL);
+}
