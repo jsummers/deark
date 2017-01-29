@@ -106,8 +106,9 @@ struct entryctx {
 
 struct unzooctx {
 	deark *c;
-	dbuf *ReadArch;
+	dbuf *ReadArch; // Input file, owned by the caller
 	de_int64 ReadArch_fpos;
+	struct de_inthashtable *offsets_seen;
 
 	// Original "Descript":
 	char                text[21];       /* "ZOO 2.10 Archive.<ctr>Z"       */
@@ -132,7 +133,7 @@ struct unzooctx {
 	**  'ErrMsg' is used by the  decode functions to communicate  the cause of an
 	**  error to the calling function.
 	*/
-	char *          ErrMsg;
+	const char *ErrMsg;
 
 	de_uint16   CrcTab [256];
 };
@@ -978,14 +979,20 @@ static int ExtrArch (deark *c, dbuf *inf)
 	}
 
 	/* loop over the members of the archive                                */
+	uz->offsets_seen = de_inthashtable_create(c); // For protection against infinite loops
 	pos = uz->posent;
 	while ( 1 ) {
 		de_int64 next_entry_pos;
 
 		de_dbg_indent_restore(c, saved_indent_level);
 
-		// TODO: Prevent infinite loops
 		if(pos==0) break;
+
+		if(de_inthashtable_item_exists(c, uz->offsets_seen, pos)) {
+			de_err(c, "Loop detected\n");
+			goto done;
+		}
+		de_inthashtable_add_item(c, uz->offsets_seen, pos);
 
 		de_dbg(c, "entry at %d\n", (int)pos);
 		de_dbg_indent(c, 1);
@@ -997,7 +1004,10 @@ static int ExtrArch (deark *c, dbuf *inf)
 
 	retval = 1;
 done:
-	de_free(c, uz);
+	if(uz) {
+		de_inthashtable_destroy(c, uz->offsets_seen);
+		de_free(c, uz);
+	}
 	de_dbg_indent_restore(c, saved_indent_level);
 	return retval;
 }
