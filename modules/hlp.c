@@ -455,7 +455,7 @@ static void do_bplustree(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 	pos += 4;
 
 	d->bpt.pagesdata_pos = pos;
-	de_dbg(c, "%d page(s), %d bytes each, at %d (total size=%d)\n",
+	de_dbg(c, "num pages: %d, %d bytes each, at %d (total size=%d)\n",
 		(int)d->bpt.num_pages, (int)d->bpt.pagesize, (int)d->bpt.pagesdata_pos,
 		(int)(d->bpt.num_pages * d->bpt.pagesize));
 
@@ -489,14 +489,17 @@ static void do_bplustree(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 			page_pos = d->bpt.pagesdata_pos + curr_page*d->bpt.pagesize;
 
 			de_dbg(c, "page[%d] at %d (leaf page)\n", (int)curr_page, (int)page_pos);
-			de_dbg_indent(c, 1);
 
 			next_page = -1;
+			de_dbg_indent(c, 1);
 			do_leaf_page(c, d, page_pos, pass, &next_page);
-
-			if(pass==1 && d->found_system_file) break;
-
 			de_dbg_indent(c, -1);
+
+			if(pass==1 && d->found_system_file) {
+				de_dbg(c, "[found SYSTEM file, so stopping pass 1]\n");
+				break;
+			}
+
 			curr_page = next_page;
 		}
 
