@@ -1,5 +1,5 @@
 // This file is part of Deark.
-// Copyright (C) 2016 Jason Summers
+// Copyright (C) 2016-2017 Jason Summers
 // See the file COPYING for terms of use.
 
 #ifdef DEARK_H_INC
@@ -15,8 +15,8 @@
 #define de_gnuc_attribute(x)
 #endif
 
-#define DE_VERSION_NUMBER 0x01040101U
-#define DE_VERSION_SUFFIX "-devel"
+#define DE_VERSION_NUMBER 0x01040200U
+#define DE_VERSION_SUFFIX ""
 
 #ifdef DE_WINDOWS
 
