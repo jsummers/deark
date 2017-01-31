@@ -643,6 +643,25 @@ static int MakeTablLzh (struct unzooctx *uz, struct entryctx *ze,
 	return 1;
 }
 
+struct lzhctx_struct {
+	struct unzooctx *uz;
+	de_uint32 bits;           /* the bits we are looking at      */
+	de_uint32 bitc;           /* number of bits that are valid   */
+};
+
+static de_uint32 lzh_peek_bits_(struct lzhctx_struct *lzhctx, de_uint32 n)
+{
+	return ((lzhctx->bits >> (lzhctx->bitc-n)) & ((1L<<n)-1));
+}
+
+static void lzh_flsh_bits_(struct lzhctx_struct *lzhctx, de_uint32 n)
+{
+	if ( (lzhctx->bitc -= n) < 16 ) {
+		lzhctx->bits  = (lzhctx->bits<<16) + FlahReadArch(lzhctx->uz);
+		lzhctx->bitc += 16;
+	}
+}
+
 static int DecodeLzh (struct unzooctx *uz, struct entryctx *ze)
 {
 	de_uint32 cnt;            /* number of codes in block        */
@@ -658,15 +677,15 @@ static int DecodeLzh (struct unzooctx *uz, struct entryctx *ze)
 	de_byte *    stp;            /* stop pointer during copy        */
 	de_uint32 crc;            /* cyclic redundancy check value   */
 	de_uint32 i;              /* loop variable                   */
-	de_uint32 bits;           /* the bits we are looking at      */
-	de_uint32 bitc;           /* number of bits that are valid   */
+	struct lzhctx_struct lzhctx;
 	struct lzh_table *lzhtbl = &ze->lzhtbl;
 
-#define LZH_PEEK_BITS(N)  ((bits >> (bitc-(N))) & ((1L<<(N))-1))
-#define LZH_FLSH_BITS(N)  if ( (bitc -= (N)) < 16 ) { bits  = (bits<<16) + FlahReadArch(uz); bitc += 16; }
+#define LZH_PEEK_BITS(N)  lzh_peek_bits_(&lzhctx, N)
+#define LZH_FLSH_BITS(N)  lzh_flsh_bits_(&lzhctx, N)
 
 	/* initialize bit source, output pointer, and crc                      */
-	bits = 0;  bitc = 0;  LZH_FLSH_BITS(0);
+	lzhctx.uz = uz;
+	lzhctx.bits = 0;  lzhctx.bitc = 0;  LZH_FLSH_BITS(0);
 	cur = ze->BufFile;  end = ze->BufFile + LZH_MAX_OFF;
 	crc = 0;
 
@@ -978,8 +997,7 @@ done:
 	}
 }
 
-// The main function.
-// Process a ZOO file.
+// The main function: process a ZOO file
 static int ExtrArch (deark *c, dbuf *inf)
 {
 	int retval = 0;
