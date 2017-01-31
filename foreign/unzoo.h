@@ -154,17 +154,17 @@ static int ByteReadArch(struct unzooctx *uz)
 
 static de_uint32 HalfReadArch (struct unzooctx *uz)
 {
-	de_uint32       result;
-	result  = ((de_uint32)ByteReadArch(uz));
-	result += ((de_uint32)ByteReadArch(uz)) << 8;
+	de_uint32 result;
+	result = (de_uint32)dbuf_getui16le(uz->ReadArch, uz->ReadArch_fpos);
+	uz->ReadArch_fpos += 2;
 	return result;
 }
 
 static de_uint32 FlahReadArch (struct unzooctx *uz)
 {
-	de_uint32       result;
-	result  = ((de_uint32)ByteReadArch(uz)) << 8;
-	result += ((de_uint32)ByteReadArch(uz));
+	de_uint32 result;
+	result = (de_uint32)dbuf_getui16be(uz->ReadArch, uz->ReadArch_fpos);
+	uz->ReadArch_fpos += 2;
 	return result;
 }
 
@@ -177,29 +177,40 @@ static de_uint32 TripReadArch (struct unzooctx *uz)
 	return result;
 }
 
-static de_uint32   WordReadArch (struct unzooctx *uz)
+static de_uint32 WordReadArch (struct unzooctx *uz)
 {
-	de_uint32       result;
-	result  = ((de_uint32)ByteReadArch(uz));
-	result += ((de_uint32)ByteReadArch(uz)) << 8;
-	result += ((de_uint32)ByteReadArch(uz)) << 16;
-	result += ((de_uint32)ByteReadArch(uz)) << 24;
+	de_uint32 result;
+	result = (de_uint32)dbuf_getui32le(uz->ReadArch, uz->ReadArch_fpos);
+	uz->ReadArch_fpos += 4;
 	return result;
 }
 
 static de_uint32 BlckReadArch (struct unzooctx *uz, de_byte *blk, de_uint32 len )
 {
-	int                 ch;             /* character read                  */
-	de_uint32       i;              /* loop variable                   */
-	for ( i = 0; i < len; i++ ) {
-		if ( (ch = ByteReadArch(uz)) == EOF )
-			return i;
-		else
-			*blk++ = ch;
+	de_int64 amt_to_read = (de_int64)len;
+
+	if(uz->ReadArch_fpos + amt_to_read > uz->ReadArch->len) {
+		// This read would go past EOF
+		amt_to_read = uz->ReadArch->len - uz->ReadArch_fpos;
+		if(amt_to_read > (de_int64)len) amt_to_read = (de_int64)len;
 	}
-	return len;
+
+	dbuf_read(uz->ReadArch, blk, uz->ReadArch_fpos, amt_to_read);
+	uz->ReadArch_fpos += amt_to_read;
+	return (de_uint32)amt_to_read;
 }
 
+static void do_extract_comment(struct unzooctx *uz, de_int64 pos, de_int64 len, int is_main)
+{
+	if(len<1) return;
+	if(uz->c->extract_level<2) return;
+	if(pos<0 || pos+len>uz->ReadArch->len) return;
+	// TODO: Do ZOO comments use a standard text encoding?
+	dbuf_create_file_from_slice(uz->ReadArch, pos, len, "comment.txt",
+		NULL, DE_CREATEFLAG_IS_AUX);
+}
+
+// Read the main file header
 static int DescReadArch (struct unzooctx *uz)
 {
 	deark *c = uz->c;
@@ -227,8 +238,12 @@ static int DescReadArch (struct unzooctx *uz)
 
 	/* read the new part of the description if present                     */
 	uz->type   = (34 < uz->posent ? ByteReadArch(uz) : 0);
+
 	uz->poscmt = (34 < uz->posent ? WordReadArch(uz) : 0);
 	uz->sizcmt = (34 < uz->posent ? HalfReadArch(uz) : 0);
+	de_dbg(c, "main file comment size: %d, pos=%d\n", (int)uz->sizcmt, (int)uz->poscmt);
+	do_extract_comment(uz, uz->poscmt, uz->sizcmt, 1);
+
 	uz->modgen = (34 < uz->posent ? ByteReadArch(uz) : 0);
 
 	/* initialize the fake entries                                         */
@@ -244,6 +259,7 @@ done:
 	return retval;
 }
 
+// Read the header of a single member file.
 static int EntrReadArch (struct unzooctx *uz, struct entryctx *ze)
 {
 	de_uint32           l;              /* 'Entry.lnamu+Entry.ldiru'       */
@@ -285,7 +301,10 @@ static int EntrReadArch (struct unzooctx *uz, struct entryctx *ze)
 	ze->spared = ByteReadArch(uz);
 	ze->poscmt = WordReadArch(uz);
 	ze->sizcmt = HalfReadArch(uz);
-	// TODO: Read comment
+	de_dbg(c, "comment size: %d, pos=%d\n", (int)ze->sizcmt, (int)ze->poscmt);
+	if((ze->posnxt!=0) && (ze->delete_ != 1)) {
+		do_extract_comment(uz, ze->poscmt, ze->sizcmt, 0);
+	}
 
 	BlckReadArch(uz, (de_byte*)ze->nams, 13L);  ze->nams[13] = '\0';
 	shortname_ucstring = ucstring_create(c);
@@ -861,6 +880,7 @@ static const de_uint32 BeginMonth [12] = {
 	0,    31,   59,   90,  120,  151,  181,  212,  243,  273,  304,  334
 };
 
+// Process a single member file
 static void ExtrEntry(struct unzooctx *uz, de_int64 pos1, de_int64 *next_entry_pos)
 {
 	de_uint32       res;            /* status of decoding              */
@@ -958,6 +978,8 @@ done:
 	}
 }
 
+// The main function.
+// Process a ZOO file.
 static int ExtrArch (deark *c, dbuf *inf)
 {
 	int retval = 0;
