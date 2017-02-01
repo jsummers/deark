@@ -80,7 +80,6 @@ void de_module_null(deark *c, struct deark_module_info *mi)
 // **************************************************************************
 // CP437
 // Convert CP437 text files to UTF-8.
-// Code points 0-31 are treated as C0 control characters.
 // **************************************************************************
 
 static void de_run_cp437(deark *c, de_module_params *mparams)
@@ -133,15 +132,25 @@ void de_module_cp437(deark *c, struct deark_module_info *mi)
 
 static void de_run_crc32(deark *c, de_module_params *mparams)
 {
-	de_byte *buf = NULL;
+#define CRC32BUFSIZE 2048
+	de_byte buf[CRC32BUFSIZE];
+	de_int64 bytestoread;
+	de_int64 pos = 0;
 	de_uint32 crc;
 
-	// TODO: Make this work for arbitrarily large files.
-	buf = de_malloc(c, c->infile->len);
-	de_read(buf, 0, c->infile->len);
-	crc = de_crc32(buf, c->infile->len);
+	crc = de_crc32(NULL, 0);
+
+	while(pos<c->infile->len) {
+		bytestoread = CRC32BUFSIZE;
+		if(bytestoread > c->infile->len - pos) {
+			bytestoread = c->infile->len - pos;
+		}
+
+		de_read(buf, pos, bytestoread);
+		crc = de_crc32_continue(crc, buf, bytestoread);
+		pos += bytestoread;
+	}
 	de_printf(c, DE_MSGTYPE_MESSAGE, "CRC-32: 0x%08x\n", (unsigned int)crc);
-	de_free(c, buf);
 }
 
 void de_module_crc32(deark *c, struct deark_module_info *mi)
@@ -157,7 +166,7 @@ void de_module_crc32(deark *c, struct deark_module_info *mi)
 // zlib module
 //
 // This module is for decompressing zlib-compressed files.
-// It uses the deark-miniz.c utilities, which in turn use miniz.c.
+// It uses the deark-miniz.c utilities, which in turn use miniz.c (miniz.h).
 // **************************************************************************
 
 static void de_run_zlib(deark *c, de_module_params *mparams)

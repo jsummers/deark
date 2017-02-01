@@ -453,7 +453,15 @@ void de_zip_close_file(deark *c)
 	c->zip_file = NULL;
 }
 
+// For a one-shot CRC calculations, or the first part of a multi-part
+// calculation.
+// buf can be NULL (in which case buf_len should be 0, but is ignored)
 de_uint32 de_crc32(const void *buf, de_int64 buf_len)
 {
 	return (de_uint32)mz_crc32(MZ_CRC32_INIT, (const mz_uint8*)buf, (size_t)buf_len);
+}
+
+de_uint32 de_crc32_continue(de_uint32 prev_crc, const void *buf, de_int64 buf_len)
+{
+	return (de_uint32)mz_crc32(prev_crc, (const mz_uint8*)buf, (size_t)buf_len);
 }

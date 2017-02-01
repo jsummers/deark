@@ -9,6 +9,7 @@
 DE_DECLARE_MODULE(de_module_gzip);
 
 typedef struct lctx_struct {
+	// TODO: Some of these fields really belong in a separate per-member struct.
 #define GZIPFLAG_FTEXT    0x01
 #define GZIPFLAG_FHCRC    0x02
 #define GZIPFLAG_FEXTRA   0x04
@@ -16,6 +17,7 @@ typedef struct lctx_struct {
 #define GZIPFLAG_FCOMMENT 0x10
 	de_byte flags;
 	dbuf *output_file;
+	de_uint32 crc_calculated;
 } lctx;
 
 static const char *get_os_name(de_byte n)
@@ -31,6 +33,12 @@ static const char *get_os_name(de_byte n)
 	return name;
 }
 
+static void our_writecallback(dbuf *f, const de_byte *buf, de_int64 buf_len)
+{
+	lctx *d = (lctx*)f->userdata;
+	d->crc_calculated = de_crc32_continue(d->crc_calculated, buf, buf_len);
+}
+
 static int do_gzip_read_member(deark *c, lctx *d, de_int64 pos1, de_int64 *member_size)
 {
 	de_byte b0, b1;
@@ -43,7 +51,8 @@ static int do_gzip_read_member(deark *c, lctx *d, de_int64 pos1, de_int64 *membe
 	de_int64 isize;
 	de_int64 mod_time_unix;
 	struct de_timestamp mod_time_ts;
-	de_uint32 crc32_field;
+	de_uint32 crc16_reported;
+	de_uint32 crc32_reported;
 	de_ucstring *member_name = NULL;
 	de_finfo *fi = NULL;
 	int saved_indent_level;
@@ -129,6 +138,8 @@ static int do_gzip_read_member(deark *c, lctx *d, de_int64 pos1, de_int64 *membe
 	}
 
 	if(d->flags & GZIPFLAG_FHCRC) {
+		crc16_reported = (de_uint32)de_getui16le(pos);
+		de_dbg(c, "crc16 (reported): 0x%04x\n", (unsigned int)crc16_reported);
 		pos += 2;
 	}
 
@@ -149,15 +160,25 @@ static int do_gzip_read_member(deark *c, lctx *d, de_int64 pos1, de_int64 *membe
 		d->output_file = dbuf_create_output_file(c, member_name?NULL:"bin", fi, 0);
 	}
 
+	d->output_file->writecallback_fn = our_writecallback;
+	d->output_file->userdata = (void*)d;
+	d->crc_calculated = de_crc32(NULL, 0);
+
 	ret = de_uncompress_deflate(c->infile, pos, c->infile->len - pos, d->output_file, &cmpr_data_len);
 
 	if(!ret) goto done;
 	pos += cmpr_data_len;
 
-	crc32_field = (de_uint32)de_getui32le(pos);
-	de_dbg(c, "crc32: 0x%08x\n", (unsigned int)crc32_field);
+	de_dbg(c, "crc32 (calculated): 0x%08x\n", (unsigned int)d->crc_calculated);
+
+	crc32_reported = (de_uint32)de_getui32le(pos);
+	de_dbg(c, "crc32 (reported)  : 0x%08x\n", (unsigned int)crc32_reported);
 	pos += 4;
-	// TODO: Validate CRCs
+
+	if(d->crc_calculated != crc32_reported) {
+		de_warn(c, "CRC check failed: Expected 0x%08x, got 0x%08x\n",
+			(unsigned int)crc32_reported, (unsigned int)d->crc_calculated);
+	}
 
 	isize = de_getui32le(pos);
 	de_dbg(c, "uncompressed size (mod 2^32): %u\n", (unsigned int)isize);
