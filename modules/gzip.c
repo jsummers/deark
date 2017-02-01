@@ -8,16 +8,24 @@
 #include <deark-private.h>
 DE_DECLARE_MODULE(de_module_gzip);
 
-typedef struct lctx_struct {
-	// TODO: Some of these fields really belong in a separate per-member struct.
+struct member_data {
 #define GZIPFLAG_FTEXT    0x01
 #define GZIPFLAG_FHCRC    0x02
 #define GZIPFLAG_FEXTRA   0x04
 #define GZIPFLAG_FNAME    0x08
 #define GZIPFLAG_FCOMMENT 0x10
 	de_byte flags;
-	dbuf *output_file;
+	de_byte cmpr_code;
+	de_uint32 crc16_reported;
+	de_uint32 crc32_reported;
+	de_int64 isize;
+	struct de_timestamp mod_time_ts;
+
 	de_uint32 crc_calculated;
+};
+
+typedef struct lctx_struct {
+	dbuf *output_file;
 } lctx;
 
 static const char *get_os_name(de_byte n)
@@ -35,31 +43,26 @@ static const char *get_os_name(de_byte n)
 
 static void our_writecallback(dbuf *f, const de_byte *buf, de_int64 buf_len)
 {
-	lctx *d = (lctx*)f->userdata;
-	d->crc_calculated = de_crc32_continue(d->crc_calculated, buf, buf_len);
+	struct member_data *md = (struct member_data *)f->userdata;
+	md->crc_calculated = de_crc32_continue(md->crc_calculated, buf, buf_len);
 }
 
 static int do_gzip_read_member(deark *c, lctx *d, de_int64 pos1, de_int64 *member_size)
 {
 	de_byte b0, b1;
-	de_int64 cmpr_code;
 	de_int64 pos;
 	de_int64 n;
 	de_int64 foundpos;
 	de_int64 string_len;
 	de_int64 cmpr_data_len;
-	de_int64 isize;
 	de_int64 mod_time_unix;
-	struct de_timestamp mod_time_ts;
-	de_uint32 crc16_reported;
-	de_uint32 crc32_reported;
 	de_ucstring *member_name = NULL;
-	de_finfo *fi = NULL;
 	int saved_indent_level;
 	int ret;
+	struct member_data *md = NULL;
 	int retval = 0;
 
-	mod_time_ts.is_valid = 0;
+	md = de_malloc(c, sizeof(struct member_data));
 
 	de_dbg_indent_save(c, &saved_indent_level);
 
@@ -75,21 +78,21 @@ static int do_gzip_read_member(deark *c, lctx *d, de_int64 pos1, de_int64 *membe
 		goto done;
 	}
 
-	cmpr_code=de_getbyte(pos+2);
-	if(cmpr_code!=0x08) {
-		de_err(c, "Unsupported compression type (%d)\n", (int)cmpr_code);
+	md->cmpr_code = de_getbyte(pos+2);
+	if(md->cmpr_code!=0x08) {
+		de_err(c, "Unsupported compression type (%d)\n", (int)md->cmpr_code);
 		goto done;
 	}
 
-	d->flags = de_getbyte(pos+3);
-	de_dbg(c, "flags: 0x%02x\n", (unsigned int)d->flags);
+	md->flags = de_getbyte(pos+3);
+	de_dbg(c, "flags: 0x%02x\n", (unsigned int)md->flags);
 	pos += 4;
 
 	mod_time_unix = de_getui32le(pos);
-	de_unix_time_to_timestamp(mod_time_unix, &mod_time_ts);
-	if(mod_time_ts.is_valid) {
+	de_unix_time_to_timestamp(mod_time_unix, &md->mod_time_ts);
+	if(md->mod_time_ts.is_valid) {
 		char timestamp_buf[64];
-		de_timestamp_to_string(&mod_time_ts, timestamp_buf, sizeof(timestamp_buf), 1);
+		de_timestamp_to_string(&md->mod_time_ts, timestamp_buf, sizeof(timestamp_buf), 1);
 		de_dbg(c, "mod time: %" INT64_FMT " (%s)\n", mod_time_unix, timestamp_buf);
 	}
 	pos += 4;
@@ -100,7 +103,7 @@ static int do_gzip_read_member(deark *c, lctx *d, de_int64 pos1, de_int64 *membe
 	b0 = de_getbyte(pos++);
 	de_dbg(c, "OS or filesystem: %d (%s)\n", (int)b0, get_os_name(b0));
 
-	if(d->flags & GZIPFLAG_FEXTRA) {
+	if(md->flags & GZIPFLAG_FEXTRA) {
 		n = de_getui16le(pos); // XLEN
 		// TODO: It might be interesting to dissect these extra fields, but it's
 		// hard to find even a single file that uses them.
@@ -110,7 +113,7 @@ static int do_gzip_read_member(deark *c, lctx *d, de_int64 pos1, de_int64 *membe
 		pos += n;
 	}
 
-	if(d->flags & GZIPFLAG_FNAME) {
+	if(md->flags & GZIPFLAG_FNAME) {
 		ret =  dbuf_search_byte(c->infile, 0x00, pos, c->infile->len - pos,
 			&foundpos);
 		if(!ret) {
@@ -127,7 +130,7 @@ static int do_gzip_read_member(deark *c, lctx *d, de_int64 pos1, de_int64 *membe
 		pos = foundpos + 1;
 	}
 
-	if(d->flags & GZIPFLAG_FCOMMENT) {
+	if(md->flags & GZIPFLAG_FCOMMENT) {
 		ret =  dbuf_search_byte(c->infile, 0x00, pos, c->infile->len - pos,
 			&foundpos);
 		if(!ret) {
@@ -137,15 +140,19 @@ static int do_gzip_read_member(deark *c, lctx *d, de_int64 pos1, de_int64 *membe
 		pos = foundpos + 1;
 	}
 
-	if(d->flags & GZIPFLAG_FHCRC) {
-		crc16_reported = (de_uint32)de_getui16le(pos);
-		de_dbg(c, "crc16 (reported): 0x%04x\n", (unsigned int)crc16_reported);
+	if(md->flags & GZIPFLAG_FHCRC) {
+		md->crc16_reported = (de_uint32)de_getui16le(pos);
+		de_dbg(c, "crc16 (reported): 0x%04x\n", (unsigned int)md->crc16_reported);
 		pos += 2;
 	}
 
 	de_dbg(c, "compressed blocks at %d\n", (int)pos);
 
 	if(!d->output_file) {
+		// Although any member can have a name and mod time, this metadata
+		// is ignored for members after the first one.
+		de_finfo *fi = NULL;
+
 		fi = de_finfo_create(c);
 
 		if(member_name && c->filenames_from_file) {
@@ -153,35 +160,40 @@ static int do_gzip_read_member(deark *c, lctx *d, de_int64 pos1, de_int64 *membe
 			fi->original_filename_flag = 1;
 		}
 
-		if(mod_time_ts.is_valid) {
-			fi->mod_time = mod_time_ts;
+		if(md->mod_time_ts.is_valid) {
+			fi->mod_time = md->mod_time_ts;
 		}
 
 		d->output_file = dbuf_create_output_file(c, member_name?NULL:"bin", fi, 0);
+
+		de_finfo_destroy(c, fi);
 	}
 
 	d->output_file->writecallback_fn = our_writecallback;
-	d->output_file->userdata = (void*)d;
-	d->crc_calculated = de_crc32(NULL, 0);
+	d->output_file->userdata = (void*)md;
+	md->crc_calculated = de_crc32(NULL, 0);
 
 	ret = de_uncompress_deflate(c->infile, pos, c->infile->len - pos, d->output_file, &cmpr_data_len);
+
+	d->output_file->writecallback_fn = NULL;
+	d->output_file->userdata = NULL;
 
 	if(!ret) goto done;
 	pos += cmpr_data_len;
 
-	de_dbg(c, "crc32 (calculated): 0x%08x\n", (unsigned int)d->crc_calculated);
+	de_dbg(c, "crc32 (calculated): 0x%08x\n", (unsigned int)md->crc_calculated);
 
-	crc32_reported = (de_uint32)de_getui32le(pos);
-	de_dbg(c, "crc32 (reported)  : 0x%08x\n", (unsigned int)crc32_reported);
+	md->crc32_reported = (de_uint32)de_getui32le(pos);
+	de_dbg(c, "crc32 (reported)  : 0x%08x\n", (unsigned int)md->crc32_reported);
 	pos += 4;
 
-	if(d->crc_calculated != crc32_reported) {
+	if(md->crc_calculated != md->crc32_reported) {
 		de_warn(c, "CRC check failed: Expected 0x%08x, got 0x%08x\n",
-			(unsigned int)crc32_reported, (unsigned int)d->crc_calculated);
+			(unsigned int)md->crc32_reported, (unsigned int)md->crc_calculated);
 	}
 
-	isize = de_getui32le(pos);
-	de_dbg(c, "uncompressed size (mod 2^32): %u\n", (unsigned int)isize);
+	md->isize = de_getui32le(pos);
+	de_dbg(c, "uncompressed size (mod 2^32): %u\n", (unsigned int)md->isize);
 	pos += 4;
 
 	retval = 1;
@@ -192,7 +204,7 @@ done:
 	else
 		*member_size = 0;
 	ucstring_destroy(member_name);
-	de_finfo_destroy(c, fi);
+	de_free(c, md);
 	de_dbg_indent_restore(c, saved_indent_level);
 	return retval;
 }
