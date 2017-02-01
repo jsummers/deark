@@ -74,6 +74,10 @@ struct de_timestamp {
 	de_int64 unix_time; // Unix time_t format
 };
 
+struct dbuf_struct;
+typedef struct dbuf_struct dbuf;
+typedef void (*de_writecallback_fn)(dbuf *f, const de_byte *buf, de_int64 buf_len);
+
 // dbuf is our generalized I/O object. Used for many purposes.
 struct dbuf_struct {
 #define DBUF_TYPE_NULL    0
@@ -106,6 +110,9 @@ struct dbuf_struct {
 	de_int64 membuf_alloc;
 	de_byte *membuf_buf;
 
+	void *userdata;
+	de_writecallback_fn writecallback_fn;
+
 #define DE_CACHE_POLICY_NONE    0
 #define DE_CACHE_POLICY_ENABLED 1
 	int cache_policy;
@@ -120,7 +127,6 @@ struct dbuf_struct {
 
 	struct de_timestamp mod_time;
 };
-typedef struct dbuf_struct dbuf;
 
 // Extended information about a file to be written.
 struct de_finfo_struct {

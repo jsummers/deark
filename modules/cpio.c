@@ -24,8 +24,10 @@ struct member_data {
 	de_int64 filesize;
 	de_int64 filesize_padded;
 	de_int64 mode;
+	de_int64 checksum_reported;
 	de_ucstring *filename;
 	de_finfo *fi;
+	de_uint32 checksum_calculated;
 };
 
 typedef struct localctx_struct {
@@ -180,6 +182,11 @@ static int read_header_ascii_new(deark *c, lctx *d, struct member_data *md)
 	de_dbg(c, "c_namesize: %d\n", (int)md->namesize);
 	pos += 8;
 
+	if(md->subfmt==SUBFMT_ASCII_NEWCRC) {
+		ret = dbuf_read_ascii_number(c->infile, pos, 8, 16, &md->checksum_reported);
+		if(!ret) goto done;
+		de_dbg(c, "c_check: %u\n", (unsigned int)md->checksum_reported);
+	}
 	pos += 8; // c_check
 
 	md->fixed_header_size = pos - md->startpos;
@@ -273,6 +280,17 @@ done:
 	;
 }
 
+static void our_writecallback(dbuf *f, const de_byte *buf, de_int64 buf_len)
+{
+	de_int64 k;
+	struct member_data *md = (struct member_data *)f->userdata;
+
+	for(k=0; k<buf_len; k++) {
+		// The 32-bit unsigned integer overflow is by design.
+		md->checksum_calculated += (de_uint32)buf[k];
+	}
+}
+
 static int read_member(deark *c, lctx *d, de_int64 pos1,
 	de_int64 *bytes_consumed_member)
 {
@@ -352,7 +370,26 @@ static int read_member(deark *c, lctx *d, de_int64 pos1,
 		}
 	}
 	else {
-		dbuf_create_file_from_slice(c->infile, pos, md->filesize, NULL, md->fi, 0);
+		dbuf *outf;
+
+		outf = dbuf_create_output_file(c, NULL, md->fi, 0);
+
+		if(md->subfmt==SUBFMT_ASCII_NEWCRC) {
+			// Use a callback function to calculate the checksum.
+			outf->writecallback_fn = our_writecallback;
+			outf->userdata = (void*)md;
+			md->checksum_calculated = 0;
+		}
+
+		dbuf_copy(c->infile, pos, md->filesize, outf);
+		dbuf_close(outf);
+
+		if(md->subfmt==SUBFMT_ASCII_NEWCRC) {
+			if((de_int64)md->checksum_calculated != md->checksum_reported) {
+				de_warn(c, "Checksum failed: Expected %u, got %u\n",
+				(unsigned int)md->checksum_reported, (unsigned int)md->checksum_calculated);
+			}
+		}
 	}
 
 	de_dbg_indent(c, -1);

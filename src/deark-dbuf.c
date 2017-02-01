@@ -720,18 +720,24 @@ static void membuf_append(dbuf *f, const de_byte *m, de_int64 mlen)
 
 void dbuf_write(dbuf *f, const de_byte *m, de_int64 len)
 {
+	if(f->writecallback_fn) {
+		f->writecallback_fn(f, m, len);
+	}
+
 	if(f->btype==DBUF_TYPE_NULL) {
 		return;
 	}
 	else if(f->btype==DBUF_TYPE_OFILE || f->btype==DBUF_TYPE_STDOUT) {
 		if(!f->fp) return;
-		de_dbg3(f->c, "writing %d bytes to %s\n", (int)len, f->name);
+		if(f->c->debug_level>=3) {
+			de_dbg3(f->c, "writing %d bytes to %s\n", (int)len, f->name);
+		}
 		fwrite(m, 1, (size_t)len, f->fp);
 		f->len += len;
 		return;
 	}
 	else if(f->btype==DBUF_TYPE_MEMBUF) {
-		if(f->name) {
+		if(f->c->debug_level>=3 && f->name) {
 			de_dbg3(f->c, "appending %d bytes to membuf %s\n", (int)len, f->name);
 		}
 		membuf_append(f, m, len);
