@@ -162,6 +162,11 @@ static void read_paletted_image(deark *c, lctx *d, dbuf *unc_pixels, struct dear
 	}
 }
 
+static void read_rgb_image(deark *c, lctx *d, dbuf *unc_pixels, struct deark_bitmap *img)
+{
+	// Not implemented
+}
+
 // These palettes are based on Image Alchemy's interpretation of GEM raster files.
 static const de_uint32 pal3bit[8] = {
 	0xffffff,0x00ffff,0xff00ff,0xffff00,0x0000ff,0x00ff00,0xff0000,0x000000
@@ -223,16 +228,29 @@ static int do_gem_img(deark *c, lctx *d)
 
 static void read_palette_ximg(deark *c, lctx *d)
 {
-	de_int64 pal_entries;
+	de_int64 pal_entries_in_file;
+	de_int64 pal_entries_to_read;
 	de_int64 i;
 	de_int64 cr1, cg1, cb1;
 	de_byte cr, cg, cb;
 	int range_warned = 0;
 
-	pal_entries = (de_int64)(1<<((unsigned int)d->nplanes));
-	if(pal_entries>256) pal_entries=256;
+	pal_entries_in_file = (d->header_size_in_bytes-22)/3;
+	if(pal_entries_in_file<1) return;
+	if(d->nplanes<=8)
+		pal_entries_to_read = (de_int64)(1<<((unsigned int)d->nplanes));
+	else
+		pal_entries_to_read = 0;
+	if(pal_entries_to_read>pal_entries_in_file)
+		pal_entries_to_read = pal_entries_in_file;
+	if(pal_entries_to_read>256)
+		pal_entries_to_read = 256;
 
-	for(i=0; i<pal_entries; i++) {
+	if(pal_entries_in_file<1) return;
+
+	de_dbg(c, "palette at %d\n", 22);
+	de_dbg_indent(c, 1);
+	for(i=0; i<pal_entries_to_read; i++) {
 		cr1 = de_getui16be(22 + 6*i);
 		cg1 = de_getui16be(22 + 6*i + 2);
 		cb1 = de_getui16be(22 + 6*i + 4);
@@ -254,24 +272,40 @@ static void read_palette_ximg(deark *c, lctx *d)
 
 		d->pal[i] = DE_MAKE_RGB(cr, cg, cb);
 	}
+	de_dbg_indent(c, -1);
 }
 
+// XIMG and similar formats.
+// TODO: Should this function be merged with do_gem_img()?
 static int do_gem_ximg(deark *c, lctx *d)
 {
 	dbuf *unc_pixels = NULL;
 	struct deark_bitmap *img = NULL;
 	int retval = 0;
 
-	if(d->nplanes<1 || d->nplanes>8) {
-		de_err(c, "%d-plane XIMG images are not supported\n", (int)d->nplanes);
+	if((d->nplanes>=1 && d->nplanes<=8) /* || d->nplanes==24 */) {
+		;
+	}
+	else {
+		if(d->is_ximg)
+			de_err(c, "%d-plane XIMG images are not supported\n", (int)d->nplanes);
+		else
+			de_err(c, "This type of %d-plane image is not supported\n", (int)d->nplanes);
 		goto done;
 	}
 
 	if(d->header_size_in_words==25 && !d->is_ximg) {
-		de_fmtutil_read_atari_palette(c, c->infile, d->header_size_in_bytes-32, d->pal, 16, 16, 0);
+		de_fmtutil_read_atari_palette(c, c->infile, d->header_size_in_bytes-32,
+			d->pal, 16, ((de_int64)1)<<d->nplanes, 0);
 	}
 	else {
 		read_palette_ximg(c, d);
+	}
+
+	if(d->nplanes==1 && d->pal[0]==d->pal[1]) {
+		de_dbg(c, "Palette doesn't seem to be present. Using a default palette.\n");
+		d->pal[0] = DE_STOCKCOLOR_WHITE;
+		d->pal[1] = DE_STOCKCOLOR_BLACK;
 	}
 
 	unc_pixels = dbuf_create_membuf(c, d->rowspan_total*d->h, 0);
@@ -281,7 +315,13 @@ static int do_gem_ximg(deark *c, lctx *d)
 	img = de_bitmap_create(c, d->w, d->h, 3);
 	set_density(c, d, img);
 
-	read_paletted_image(c, d, unc_pixels, img);
+	if(d->nplanes>8) {
+		read_rgb_image(c, d, unc_pixels, img);
+	}
+	else {
+		read_paletted_image(c, d, unc_pixels, img);
+	}
+
 	de_bitmap_write_to_file_finfo(img, NULL, 0);
 
 	de_bitmap_destroy(img);
@@ -327,6 +367,11 @@ static void de_run_gemraster(deark *c, de_module_params *mparams)
 		ext_word0 = de_getui16be(16);
 	}
 
+	if(ver>2) {
+		de_err(c, "This version of GEM Raster (%d) is not supported.\n", (int)ver);
+		goto done;
+	}
+
 	if(d->is_ximg) {
 		;
 	}
@@ -339,12 +384,12 @@ static void de_run_gemraster(deark *c, de_module_params *mparams)
 	else if(d->header_size_in_words==8 && (d->nplanes>=2 && d->nplanes<=8)) {
 		need_format_warning = 1;
 	}
-	else if(d->header_size_in_words==9 && (d->nplanes>=1 || d->nplanes<=8)) {
+	else if(d->header_size_in_words==9 && (d->nplanes>=1 && d->nplanes<=8)) {
 		need_format_warning = 1;
 	}
 	else {
 		de_err(c, "This version of GEM Raster is not supported.\n");
-		return;
+		goto done;
 	}
 
 	if(need_format_warning) {
@@ -389,18 +434,19 @@ static int de_identify_gemraster(deark *c)
 		return 0;
 	}
 	ver = de_getui16be(0);
-	if(ver!=1 && ver!=2) return 0;
+	if(ver!=1 && ver!=2 && ver!=3) return 0;
 	x2 = de_getui16be(2);
 	if(x2<0x0008 || x2>0x0800) return 0;
 	nplanes = de_getui16be(4);
-	if(!(nplanes>=1 && nplanes<=8) && nplanes!=16 && nplanes!=24) {
+	if(!(nplanes>=1 && nplanes<=8) && nplanes!=15 && nplanes!=16 && nplanes!=24 &&
+		nplanes!=32)
+	{
 		return 0;
 	}
 	if(ver==1 && x2==0x08) return 70;
 	if(!dbuf_memcmp(c->infile, 16, "XIMG", 4)) {
 		return 100;
 	}
-	if(ver!=1) return 0;
 	return 10;
 }
 
