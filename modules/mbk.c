@@ -123,7 +123,7 @@ static void read_sprite_palette(deark *c, lctx *d, de_int64 pos)
 	}
 	de_dbg(c, "sprite palette at %d\n", (int)pos);
 	de_dbg_indent(c, 1);
-	de_fmtutil_read_atari_palette(c, c->infile, pos+4, d->pal, 16, 16);
+	de_fmtutil_read_atari_palette(c, c->infile, pos+4, d->pal, 16, 16, 0);
 	de_dbg_indent(c, -1);
 }
 

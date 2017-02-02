@@ -118,7 +118,7 @@ Command-line options:
        current time, or the source file's timestamp.) The times will be set
        to some arbitrary value if necessary. This option is intended for use
        with testing.
-    -opt atari:palbits=&lt;9|12>
+    -opt atari:palbits=&lt;9|12|15>
        For some Atari image formats, the number of significant bits per
        palette color. The default is to autodetect.
 -h, -?, -help:

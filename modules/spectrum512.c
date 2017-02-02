@@ -15,7 +15,7 @@ DE_DECLARE_MODULE(de_module_spectrum512s);
 
 // **************************************************************************
 
-static void do_spu_internal(deark *c, dbuf *inf)
+static void do_spu_internal(deark *c, dbuf *inf, int is_enhanced)
 {
 	struct atari_img_decode_data *adata = NULL;
 	static const de_int64 num_colors = 199*48;
@@ -28,12 +28,8 @@ static void do_spu_internal(deark *c, dbuf *inf)
 	adata->h = 199;
 	adata->ncolors = num_colors;
 
-	if(!dbuf_memcmp(inf, 0, (const void*)"5BIT", 4)) {
-		de_warn(c, "This looks like an \"Enhanced\" Spectrum 512 file, "
-			"which is not fully supported.\n");
-	}
-
-	de_fmtutil_read_atari_palette(c, inf, 32000, adata->pal, num_colors, num_colors);
+	de_fmtutil_read_atari_palette(c, inf, 32000, adata->pal, num_colors, num_colors,
+		is_enhanced?DE_FLAG_ATARI_15BIT_PAL:0);
 
 	adata->unc_pixels = dbuf_open_input_subfile(inf, 160, inf->len-160);
 	adata->img = de_bitmap_create(c, adata->w, adata->h, 3);
@@ -51,7 +47,17 @@ static void do_spu_internal(deark *c, dbuf *inf)
 
 static void de_run_spectrum512u(deark *c, de_module_params *mparams)
 {
-	do_spu_internal(c, c->infile);
+	int is_enhanced = 0;
+
+	if(!dbuf_memcmp(c->infile, 0, (const void*)"5BIT", 4)) {
+		is_enhanced = 1;
+		de_declare_fmt(c, "Spectrum 512 Uncompressed Enhanced");
+	}
+	else {
+		de_declare_fmt(c, "Spectrum 512 Uncompressed");
+	}
+
+	do_spu_internal(c, c->infile, is_enhanced);
 }
 
 static int de_identify_spectrum512u(deark *c)
@@ -352,7 +358,7 @@ static void do_run_spectrum512c_s_internal(deark *c, de_module_params *mparams, 
 		dbuf_close(outf);
 	}
 	else {
-		do_spu_internal(c, spufile);
+		do_spu_internal(c, spufile, 0);
 	}
 
 done:

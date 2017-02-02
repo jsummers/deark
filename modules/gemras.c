@@ -268,7 +268,7 @@ static int do_gem_ximg(deark *c, lctx *d)
 	}
 
 	if(d->header_size_in_words==25 && !d->is_ximg) {
-		de_fmtutil_read_atari_palette(c, c->infile, d->header_size_in_bytes-32, d->pal, 16, 16);
+		de_fmtutil_read_atari_palette(c, c->infile, d->header_size_in_bytes-32, d->pal, 16, 16, 0);
 	}
 	else {
 		read_palette_ximg(c, d);

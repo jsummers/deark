@@ -113,8 +113,9 @@ struct atari_img_decode_data {
 	struct deark_bitmap *img;
 };
 
+#define DE_FLAG_ATARI_15BIT_PAL 0x2
 void de_fmtutil_read_atari_palette(deark *c, dbuf *f, de_int64 pos,
-	de_uint32 *dstpal, de_int64 ncolors_to_read, de_int64 ncolors_used);
+	de_uint32 *dstpal, de_int64 ncolors_to_read, de_int64 ncolors_used, unsigned int flags);
 
 int de_fmtutil_atari_decode_image(deark *c, struct atari_img_decode_data *adata);
 void de_fmtutil_atari_set_standard_density(deark *c, struct atari_img_decode_data *adata);

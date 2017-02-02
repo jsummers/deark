@@ -693,29 +693,26 @@ static de_byte scale_15_to_255(de_byte x)
 }
 
 void de_fmtutil_read_atari_palette(deark *c, dbuf *f, de_int64 pos,
-	de_uint32 *dstpal, de_int64 ncolors_to_read, de_int64 ncolors_used)
+	de_uint32 *dstpal, de_int64 ncolors_to_read, de_int64 ncolors_used, unsigned int flags)
 {
 	de_int64 i;
 	unsigned int n;
-	int has_12bit_pal = 0;
+	int pal_bits = 0; // 9, 12, or 15. 0 = not yet determined
 	de_byte cr, cg, cb;
 	de_byte cr1, cg1, cb1;
 	char cbuf[32];
 	const char *s;
-	int detect_pal_bits = 1;
 
 	s = de_get_ext_option(c, "atari:palbits");
 	if(s) {
-		int palbits_req = de_atoi(s);
-		if(palbits_req>0) {
-			detect_pal_bits = 0;
-			if(palbits_req>=12) {
-				has_12bit_pal = 1;
-			}
-		}
+		pal_bits = de_atoi(s);
 	}
 
-	if(detect_pal_bits) {
+	if(pal_bits==0 && (flags&DE_FLAG_ATARI_15BIT_PAL)) {
+		pal_bits = 15;
+	}
+
+	if(pal_bits==0) {
 		// Pre-scan the palette, and try to guess whether Atari STE-style 12-bit
 		// colors are used, instead of the usual 9-bit colors.
 		// I don't know the best way to do this. Sometimes the 4th bit in each
@@ -737,19 +734,45 @@ void de_fmtutil_read_atari_palette(deark *c, dbuf *f, de_int64 pos,
 
 		if(bit_3_used && !nibble_3_used) {
 			de_dbg(c, "12-bit palette colors detected\n");
-			has_12bit_pal = 1;
+			pal_bits = 12;
 		}
+	}
+
+	if(pal_bits<12) { // Default to 9 if <12
+		pal_bits = 9;
+	}
+	else if(pal_bits<15) {
+		pal_bits = 12;
+	}
+	else {
+		pal_bits = 15;
 	}
 
 	for(i=0; i<ncolors_to_read; i++) {
 		n = (unsigned int)dbuf_getui16be(f, pos + 2*i);
 
-		if(has_12bit_pal) {
-			cr1 = (de_byte)((n>>7)&14);
+		if(pal_bits==15) {
+			cr1 = (de_byte)((n>>6)&0x1c);
+			if(n&0x0800) cr1+=2;
+			if(n&0x8000) cr1++;
+			cg1 = (de_byte)((n>>2)&0x1c);
+			if(n&0x0080) cg1+=2;
+			if(n&0x4000) cg1++;
+			cb1 = (de_byte)((n<<2)&0x1c);
+			if(n&0x0008) cb1+=2;
+			if(n&0x2000) cb1++;
+			cr = de_scale_n_to_255(31, cr1);
+			cg = de_scale_n_to_255(31, cg1);
+			cb = de_scale_n_to_255(31, cb1);
+			de_snprintf(cbuf, sizeof(cbuf), "%2d,%2d,%2d",
+				(int)cr1, (int)cg1, (int)cb1);
+		}
+		else if(pal_bits==12) {
+			cr1 = (de_byte)((n>>7)&0x0e);
 			if(n&0x800) cr1++;
-			cg1 = (de_byte)((n>>3)&14);
+			cg1 = (de_byte)((n>>3)&0x0e);
 			if(n&0x080) cg1++;
-			cb1 = (de_byte)((n<<1)&14);
+			cb1 = (de_byte)((n<<1)&0x0e);
 			if(n&0x008) cb1++;
 			cr = scale_15_to_255(cr1);
 			cg = scale_15_to_255(cg1);
@@ -758,9 +781,9 @@ void de_fmtutil_read_atari_palette(deark *c, dbuf *f, de_int64 pos,
 				(int)cr1, (int)cg1, (int)cb1);
 		}
 		else {
-			cr1 = (de_byte)((n>>8)&7);
-			cg1 = (de_byte)((n>>4)&7);
-			cb1 = (de_byte)(n&7);
+			cr1 = (de_byte)((n>>8)&0x07);
+			cg1 = (de_byte)((n>>4)&0x07);
+			cb1 = (de_byte)(n&0x07);
 			cr = scale_7_to_255(cr1);
 			cg = scale_7_to_255(cg1);
 			cb = scale_7_to_255(cb1);

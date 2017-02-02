@@ -170,7 +170,7 @@ static void de_run_degas(deark *c, de_module_params *mparams)
 	d->degas_elite_flag = is_degas_elite(c, d);
 	declare_degas_fmt(c, d, adata);
 
-	de_fmtutil_read_atari_palette(c, c->infile, pos, adata->pal, 16, adata->ncolors);
+	de_fmtutil_read_atari_palette(c, c->infile, pos, adata->pal, 16, adata->ncolors, 0);
 	pos += 2*16;
 	fix_dark_pal(c, adata);
 
@@ -842,7 +842,7 @@ static void de_run_tinystuff(deark *c, de_module_params *mparams)
 		pos += 4; // skip animation_info
 	}
 
-	de_fmtutil_read_atari_palette(c, c->infile, pos, adata->pal, 16, adata->ncolors);
+	de_fmtutil_read_atari_palette(c, c->infile, pos, adata->pal, 16, adata->ncolors, 0);
 	fix_dark_pal(c, adata);
 	pos += 16*2;
 
@@ -989,7 +989,7 @@ static void de_run_neochrome(deark *c, de_module_params *mparams)
 	adata->ncolors = (de_int64)(1<<adata->bpp);
 	de_dbg(c, "dimensions: %dx%d, colors: %d\n", (int)adata->w, (int)adata->h, (int)adata->ncolors);
 
-	de_fmtutil_read_atari_palette(c, c->infile, 4, adata->pal, 16, adata->ncolors);
+	de_fmtutil_read_atari_palette(c, c->infile, 4, adata->pal, 16, adata->ncolors, 0);
 	adata->unc_pixels = dbuf_open_input_subfile(c->infile, 128, 32000);
 	is_grayscale = de_is_grayscale_palette(adata->pal, adata->ncolors);
 	adata->img = de_bitmap_create(c, adata->w, adata->h, is_grayscale?1:3);
@@ -1128,7 +1128,7 @@ static void de_run_animatic(deark *c, de_module_params *mparams)
 	adata->ncolors = 16;
 	adata->pal = pal;
 	de_dbg_indent(c, 1);
-	de_fmtutil_read_atari_palette(c, c->infile, 2, adata->pal, 16, adata->ncolors);
+	de_fmtutil_read_atari_palette(c, c->infile, 2, adata->pal, 16, adata->ncolors, 0);
 	de_dbg_indent(c, -1);
 
 	adata->w = de_getui16be(40);
