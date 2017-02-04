@@ -414,6 +414,9 @@ Deark -- Information about supported formats
 * Winzle (module=winzle)
   - Convert Winzle obfuscated BMP (.wzl) to BMP.
 
+* WordPerfect Graphics (module=wpg)
+  - Minimal support for extracting bilevel images
+
 * X11 puzzle (module="xpuzzle")
   Format used by X-Windows "puzzle" program.
   ftp://ftp.x.org/pub/unsupported/programs/puzzle/

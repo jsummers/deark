@@ -786,6 +786,10 @@
 				>
 			</File>
 			<File
+				RelativePath="..\..\modules\wpg.c"
+				>
+			</File>
+			<File
 				RelativePath="..\..\modules\xfer.c"
 				>
 			</File>

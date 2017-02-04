@@ -20,7 +20,7 @@ OFILES_MODS:=$(addprefix $(OBJDIR)/modules/,os2bmp.o eps.o bsave.o ilbm.o \
  fnt.o nokia.o grob.o d64.o t64.o cardfile.o jovianvi.o \
  tivariable.o basic-c64.o ico.o rpm.o cpio.o \
  rosprite.o binhex.o icns.o awbm.o printshop.o qtif.o portfolio.o bpg.o shg.o \
- insetpix.o ansiart.o bintext.o tim.o ar.o tar.o \
+ wpg.o insetpix.o ansiart.o bintext.o tim.o ar.o tar.o \
  rsc.o gemras.o gemfont.o pff2.o jbf.o psf.o pkfont.o png.o cfb.o hlp.o \
  gif.o compress.o wmf.o pict.o xfer.o gemmeta.o alphabmp.o abk.o mbk.o \
  makichan.o bmp.o iccprofile.o iptc.o gzip.o unsupported.o)
