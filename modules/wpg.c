@@ -11,6 +11,8 @@ DE_DECLARE_MODULE(de_module_wpg);
 typedef struct localctx_struct {
 	de_int64 start_of_data;
 	de_byte ver_major, ver_minor;
+	int has_pal;
+	de_uint32 pal[256];
 } lctx;
 
 static int do_read_header(deark *c, lctx *d, de_int64 pos1)
@@ -95,15 +97,19 @@ static int do_uncompress_rle(deark *c, lctx *d, dbuf *f, de_int64 pos1, de_int64
 	return 1;
 }
 
-static void handler_bitmap1(deark *c, lctx *d, de_byte rectype, de_int64 dpos1, de_int64 dlen)
+static void handler_bitmap(deark *c, lctx *d, de_byte rectype, de_int64 dpos1, de_int64 dlen)
 {
 	de_int64 w, h;
 	de_int64 xdens, ydens;
 	de_int64 bpp;
 	de_int64 pos = dpos1;
 	de_int64 rowspan;
+	int is_bilevel;
 	dbuf *unc_pixels = NULL;
 	struct deark_bitmap *img = NULL;
+
+	if(rectype==0x14)
+		pos += 10;
 
 	w = de_getui16le(pos);
 	pos += 2;
@@ -121,12 +127,15 @@ static void handler_bitmap1(deark *c, lctx *d, de_byte rectype, de_int64 dpos1, 
 	pos += 2;
 	de_dbg(c, "density: %dx%d dpi\n", (int)xdens, (int)ydens);
 
-	if(bpp!=1) {
-		// TODO: depth 2, 4, 8
+	if(bpp!=1 && bpp!=2 && bpp!=4 && bpp!=8) {
 		de_err(c, "Unsupported bitmap depth: %d\n", (int)bpp);
 		goto done;
 	}
 	if(!de_good_image_dimensions(c, w, h)) goto done;
+
+	// Evidence suggests the palette is to be ignored if bpp==1.
+	// (Or maybe you're supposed to use pal[0] and pal[15]?)
+	is_bilevel = (bpp==1);
 
 	rowspan = (bpp * w + 7)/8;
 
@@ -136,7 +145,7 @@ static void handler_bitmap1(deark *c, lctx *d, de_byte rectype, de_int64 dpos1, 
 		goto done;
 	}
 
-	img = de_bitmap_create(c, w, h, 1);
+	img = de_bitmap_create(c, w, h, is_bilevel?1:3);
 
 	if(xdens>0 && ydens>0) {
 		img->density_code = DE_DENSITY_DPI;
@@ -144,7 +153,17 @@ static void handler_bitmap1(deark *c, lctx *d, de_byte rectype, de_int64 dpos1, 
 		img->ydens = (double)ydens;
 	}
 
-	de_convert_image_bilevel(unc_pixels, 0, rowspan, img, 0);
+	if(is_bilevel) {
+		de_convert_image_bilevel(unc_pixels, 0, rowspan, img, 0);
+	}
+	else {
+		if(!d->has_pal) {
+			// TODO: Figure out what the default palette is.
+			de_err(c, "Paletted images with no palette are not supported\n");
+		}
+		de_convert_image_paletted(unc_pixels, 0, bpp, rowspan, d->pal, img, 0);
+	}
+
 	de_bitmap_write_to_file(img, NULL, 0);
 
 done:
@@ -152,12 +171,54 @@ done:
 	dbuf_close(unc_pixels);
 }
 
+static void handler_colormap(deark *c, lctx *d, de_byte rectype, de_int64 dpos1, de_int64 dlen)
+{
+	de_int64 start_index;
+	de_int64 num_entries;
+	de_int64 pos = dpos1;
+
+	d->has_pal = 1;
+	start_index = de_getui16le(pos);
+	de_dbg(c, "start index: %d\n", (int)start_index);
+	pos += 2;
+
+	num_entries = de_getui16le(pos);
+	de_dbg(c, "num entries: %d\n", (int)num_entries);
+	pos += 2;
+
+	if(start_index+num_entries>256) start_index = 256 - num_entries;
+	if(start_index<0 || start_index+num_entries>256) return;
+
+	de_read_palette_rgb(c->infile, pos, num_entries, 3, &d->pal[start_index], 256, 0);
+}
+
 static const struct wpg_rectype_info wmf_rectype_info_arr[] = {
+	{ 0x01, "Fill attributes", NULL },
+	{ 0x02, "Line attributes", NULL },
+	{ 0x03, "Marker attributes", NULL },
+	{ 0x04, "Polymarker", NULL },
+	{ 0x05, "Line", NULL },
+	{ 0x06, "Polyline", NULL },
+	{ 0x07, "Rectangle", NULL },
+	{ 0x08, "Polygon", NULL },
+	{ 0x09, "Ellipse", NULL },
+	{ 0x0b, "Bitmap, Type 1", handler_bitmap },
+	{ 0x0c, "Graphics text, Type 1", NULL },
+	{ 0x0d, "Graphics text attributes", NULL },
+	{ 0x0e, "Color map", handler_colormap },
 	{ 0x0f, "Start of WPG data", NULL },
-	{ 0x0b, "Bitmap, Type 1", handler_bitmap1 },
-	{ 0x0e, "Color map", NULL },
 	{ 0x10, "End of WPG data", NULL },
-	{ 0x19, "Start of WPG data, Type 2", NULL }
+	{ 0x11, "PostScript data, Type 1", NULL },
+	{ 0x12, "Output attributes", NULL },
+	{ 0x13, "Curved polyline", NULL },
+	{ 0x14, "Bitmap, Type 2", handler_bitmap },
+	{ 0x15, "Start figure", NULL },
+	{ 0x16, "Start chart", NULL },
+	{ 0x17, "PlanPerfect data", NULL },
+	{ 0x18, "Graphics text, Type 2", NULL },
+	{ 0x19, "Start of WPG data, Type 2", NULL },
+	{ 0x1a, "Graphics text, Type 3", NULL },
+	{ 0x1b, "PostScript data, Type 2", NULL }
 };
 
 static const struct wpg_rectype_info *find_wpg_rectype_info(de_byte rectype)
