@@ -11,6 +11,7 @@ DE_DECLARE_MODULE(de_module_wpg);
 typedef struct localctx_struct {
 	de_int64 start_of_data;
 	de_byte ver_major, ver_minor;
+	int opt_fixpal;
 	int has_pal;
 	de_uint32 pal[256];
 } lctx;
@@ -97,6 +98,50 @@ static int do_uncompress_rle(deark *c, lctx *d, dbuf *f, de_int64 pos1, de_int64
 	return 1;
 }
 
+// Make a copy of the global palette, possibly adjusting it in some way.
+// Caller supplies finalpal[256].
+static void get_final_palette(deark *c, lctx *d, de_uint32 *finalpal, de_int64 bpp)
+{
+	de_int64 k;
+	de_byte cr, cg, cb;
+	int has_8bitpal = 0;
+	int has_nonblack_color = 0;
+	int fixpal_flag = 0;
+
+	for(k=0; k<256; k++) {
+		finalpal[k] = d->pal[k];
+
+		if(d->opt_fixpal && bpp==4) {
+			cr = DE_COLOR_R(d->pal[k]);
+			cg = DE_COLOR_G(d->pal[k]);
+			cb = DE_COLOR_B(d->pal[k]);
+			if((cr&0x0f)!=0 || (cg&0x0f)!=0 || (cb&0x0f)!=0) {
+				has_8bitpal = 1;
+			}
+			if(cr || cg || cb) {
+				has_nonblack_color = 1;
+			}
+		}
+	}
+
+	if(d->opt_fixpal && bpp==4 && !has_8bitpal && has_nonblack_color) {
+		de_dbg(c, "Palette seems to have 4 bits of precision. Rescaling palette.\n");
+		fixpal_flag = 1;
+	}
+
+	if(fixpal_flag) {
+		for(k=0; k<16; k++) {
+			cr = DE_COLOR_R(finalpal[k]);
+			cg = DE_COLOR_G(finalpal[k]);
+			cb = DE_COLOR_B(finalpal[k]);
+			cr = 17*(cr>>4);
+			cg = 17*(cg>>4);
+			cb = 17*(cb>>4);
+			finalpal[k] = DE_MAKE_RGB(cr, cg, cb);
+		}
+	}
+}
+
 static void handler_bitmap(deark *c, lctx *d, de_byte rectype, de_int64 dpos1, de_int64 dlen)
 {
 	de_int64 w, h;
@@ -105,8 +150,11 @@ static void handler_bitmap(deark *c, lctx *d, de_byte rectype, de_int64 dpos1, d
 	de_int64 pos = dpos1;
 	de_int64 rowspan;
 	int is_bilevel;
+	int is_grayscale;
+	int output_bypp;
 	dbuf *unc_pixels = NULL;
 	struct deark_bitmap *img = NULL;
+	de_uint32 finalpal[256];
 
 	if(rectype==0x14)
 		pos += 10;
@@ -137,6 +185,13 @@ static void handler_bitmap(deark *c, lctx *d, de_byte rectype, de_int64 dpos1, d
 	// (Or maybe you're supposed to use pal[0] and pal[15]?)
 	is_bilevel = (bpp==1);
 
+	is_grayscale = de_is_grayscale_palette(d->pal, (de_int64)1<<bpp);
+
+	if(is_bilevel || is_grayscale)
+		output_bypp = 1;
+	else
+		output_bypp = 3;
+
 	rowspan = (bpp * w + 7)/8;
 
 	unc_pixels = dbuf_create_membuf(c, h*rowspan, 0x1);
@@ -145,7 +200,7 @@ static void handler_bitmap(deark *c, lctx *d, de_byte rectype, de_int64 dpos1, d
 		goto done;
 	}
 
-	img = de_bitmap_create(c, w, h, is_bilevel?1:3);
+	img = de_bitmap_create(c, w, h, output_bypp);
 
 	if(xdens>0 && ydens>0) {
 		img->density_code = DE_DENSITY_DPI;
@@ -160,8 +215,11 @@ static void handler_bitmap(deark *c, lctx *d, de_byte rectype, de_int64 dpos1, d
 		if(!d->has_pal) {
 			// TODO: Figure out what the default palette is.
 			de_err(c, "Paletted images with no palette are not supported\n");
+			goto done;
 		}
-		de_convert_image_paletted(unc_pixels, 0, bpp, rowspan, d->pal, img, 0);
+
+		get_final_palette(c, d, finalpal, bpp);
+		de_convert_image_paletted(unc_pixels, 0, bpp, rowspan, finalpal, img, 0);
 	}
 
 	de_bitmap_write_to_file(img, NULL, 0);
@@ -189,7 +247,8 @@ static void handler_colormap(deark *c, lctx *d, de_byte rectype, de_int64 dpos1,
 	if(start_index+num_entries>256) start_index = 256 - num_entries;
 	if(start_index<0 || start_index+num_entries>256) return;
 
-	de_read_palette_rgb(c->infile, pos, num_entries, 3, &d->pal[start_index], 256, 0);
+	de_read_palette_rgb(c->infile, pos, num_entries, 3, &d->pal[start_index],
+		256-start_index, 0);
 }
 
 static const struct wpg_rectype_info wmf_rectype_info_arr[] = {
@@ -310,9 +369,14 @@ static int do_record_area(deark *c, lctx *d, de_int64 pos)
 static void de_run_wpg(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
+	const char *s;
 	de_int64 pos;
 
 	d = de_malloc(c, sizeof(lctx));
+
+	d->opt_fixpal = 1;
+	s = de_get_ext_option(c, "wpg:fixpal");
+	if(s) d->opt_fixpal = de_atoi(s);
 
 	pos = 0;
 	if(!do_read_header(c, d, pos)) goto done;
