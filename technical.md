@@ -12,7 +12,9 @@ open-source software. Most of the formats it currently supports are related to
 graphics, but it is not limited to graphics formats.
 
 One of Deark's purposes is as a tool to find interesting things that are stored
-in files, but usually ignored, such as thumbnail images and comments.
+in files, but usually ignored, such as thumbnail images and comments. The "-d"
+option is a core feature, and can often be used to learn a lot about the file
+in question, whether or not anything is extracted from it.
 
 Another purpose is digital preservation. It is meant to encapsulate information about old formats that might otherwise be hard to find.
 
@@ -76,11 +78,11 @@ they generally have to be placed in separate modules.
 If the user does not use the "-m" option, then Deark will try to guess the best
 module to use. It prefers to do this using only the contents of the file, but
 unfortunately, there are many file formats that cannot realistically be
-identified in such a way. So in some cases, Deark also uses the filename,
+identified in such a way. So, in some cases, Deark also uses the filename,
 especially the filename extension.
 
 It does not use any other file attributes, such as the last-modified time or
-the executable-flag, though this could change in future versions.
+the executable-flag; though this could change in future versions.
 
 The filename is only used for format detection, and not for any other purpose.
 This helps make its behavior safe and predictable. The options -m, -start, and
@@ -109,8 +111,8 @@ to print only ASCII. (This is not ideal, but seriously, it's time to switch to
 UTF-8 if at all possible.)
 
 On Unix-like platforms, command-line parameters are assumed to be in UTF-8.
-Filenames (and other parameters) are just a sequence of arbitrary bytes, so
-it's possible to have filenames that are not valid UTF-8. Deark *will* work
+Filenames (and other parameters) are just sequences of arbitrary bytes, so
+it's possible to have a filename that is not valid UTF-8. Deark *will* work
 when reading such files, but it might echo the ill-formed string to the
 terminal, resulting in ill-formed terminal output.
 
@@ -148,13 +150,23 @@ For the identities of the formats supported by Deark, see
 ## Other information ##
 
 By design, Deark does not look at any files that don't explicitly appear on the
-command line. In the future, there might be an option to change this behavior.
+command line. In the future, there might be an option to change this behavior,
+and automatically try to find related files.
 
 ## How to build ##
 
 Deark is written in C. On a Unix-like system, typing "make" from a shell prompt
-will (hopefully) be sufficient. Deark has no dependencies, other than the
-standard C libraries.
+will (hopefully) be sufficient:
+
+    $ make
+
+This will build an executable file named "deark". Deark has no dependencies,
+other than the standard C libraries.
+
+If you want to install it in a convenient location, just copy the "deark" file.
+For example:
+
+    $ sudo cp deark /usr/local/bin/
 
 For Microsoft Windows, the project files in proj/vs2008 should work for Visual
 Studio 2008 and later. Alternatively, you can use Cygwin.
