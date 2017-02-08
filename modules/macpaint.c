@@ -220,8 +220,18 @@ static void de_run_macpaint(deark *c, de_module_params *mparams)
 		int v512;
 		int v640;
 		de_dbg(c, "trying to determine if file has a MacBinary header\n");
+
+		de_dbg_indent(c, 1);
+		de_dbg(c, "checking for image at offset 512\n");
+		de_dbg_indent(c, 1);
 		v512 = valid_file_at(c, d, 0);
+		de_dbg_indent(c, -1);
+		de_dbg(c, "checking for image at offset 640\n");
+		de_dbg_indent(c, 1);
 		v640 = valid_file_at(c, d, 128);
+		de_dbg_indent(c, -1);
+		de_dbg_indent(c, -1);
+
 		if(v512 > v640) {
 			de_dbg(c, "assuming it has no MacBinary header\n");
 			d->has_macbinary_header = 0;
