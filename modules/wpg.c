@@ -108,6 +108,14 @@ static void get_final_palette(deark *c, lctx *d, de_uint32 *finalpal, de_int64 b
 	int has_nonblack_color = 0;
 	int fixpal_flag = 0;
 
+	if(bpp==2 && !d->has_pal) {
+		// I have some 2bpp images with no palette, but I'm not sure what
+		// the correct way to display them is.
+		de_warn(c, "Using a default grayscale palette\n");
+		de_make_grayscale_palette(finalpal, 4, 0);
+		return;
+	}
+
 	for(k=0; k<256; k++) {
 		finalpal[k] = d->pal[k];
 
@@ -212,7 +220,7 @@ static void handler_bitmap(deark *c, lctx *d, de_byte rectype, de_int64 dpos1, d
 		de_convert_image_bilevel(unc_pixels, 0, rowspan, img, 0);
 	}
 	else {
-		if(!d->has_pal) {
+		if(!d->has_pal && bpp!=2) {
 			// TODO: Figure out what the default palette is.
 			de_err(c, "Paletted images with no palette are not supported\n");
 			goto done;
