@@ -345,9 +345,15 @@ static void do_code_m(deark *c, lctx *d)
 			// Set foreground color
 			d->curr_fgcol = (de_uint32)(sgr_code-30);
 		}
+		else if(sgr_code==39) {
+			d->curr_fgcol = DEFAULT_FGCOL;
+		}
 		else if(sgr_code>=40 && sgr_code<=47) {
 			// Set background color
 			d->curr_bgcol = (de_uint32)(sgr_code-40);
+		}
+		else if(sgr_code==49) {
+			d->curr_bgcol = DEFAULT_BGCOL;
 		}
 		else {
 			if(d->num_warnings<ANSIART_MAX_WARNINGS) {
