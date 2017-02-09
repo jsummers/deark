@@ -14,6 +14,15 @@ typedef struct localctx_struct {
 	int opt_fixpal;
 	int has_pal;
 	de_uint32 pal[256];
+
+	// Fields used only by the "summary" debug line:
+	de_int64 num_pal_entries; // 0 if no palette
+	int start_wpg_data_record_ver; // Highest "Start of WPG data" record type
+	int bitmap_record_ver; // Highest "Bitmap" record type
+	de_int64 bitmap_count;
+	de_int64 bpp_of_first_bitmap;
+	de_int64 width_of_first_bitmap;
+	de_int64 height_of_first_bitmap;
 } lctx;
 
 static int do_read_header(deark *c, lctx *d, de_int64 pos1)
@@ -160,12 +169,25 @@ static void handler_bitmap(deark *c, lctx *d, de_byte rectype, de_int64 dpos1, d
 	int is_bilevel;
 	int is_grayscale;
 	int output_bypp;
+	int record_version;
 	dbuf *unc_pixels = NULL;
 	struct deark_bitmap *img = NULL;
 	de_uint32 finalpal[256];
 
-	if(rectype==0x14)
+	d->bitmap_count++;
+
+	if(rectype==0x14) {
+		record_version = 2;
 		pos += 10;
+	}
+	else {
+		record_version = 1;
+	}
+
+	// Keep track of the highest bitmap record version found.
+	if(record_version > d->bitmap_record_ver) {
+		d->bitmap_record_ver = record_version;
+	}
 
 	w = de_getui16le(pos);
 	pos += 2;
@@ -182,6 +204,12 @@ static void handler_bitmap(deark *c, lctx *d, de_byte rectype, de_int64 dpos1, d
 	ydens = de_getui16le(pos);
 	pos += 2;
 	de_dbg(c, "density: %dx%d dpi\n", (int)xdens, (int)ydens);
+
+	if(d->bitmap_count==1) {
+		d->bpp_of_first_bitmap = bpp;
+		d->width_of_first_bitmap = w;
+		d->height_of_first_bitmap = h;
+	}
 
 	if(bpp!=1 && bpp!=2 && bpp!=4 && bpp!=8) {
 		de_err(c, "Unsupported bitmap depth: %d\n", (int)bpp);
@@ -252,11 +280,32 @@ static void handler_colormap(deark *c, lctx *d, de_byte rectype, de_int64 dpos1,
 	de_dbg(c, "num entries: %d\n", (int)num_entries);
 	pos += 2;
 
-	if(start_index+num_entries>256) start_index = 256 - num_entries;
+	if(start_index+num_entries>256) num_entries = 256 - start_index;
 	if(start_index<0 || start_index+num_entries>256) return;
+
+	if(num_entries > d->num_pal_entries) {
+		d->num_pal_entries = num_entries;
+	}
 
 	de_read_palette_rgb(c->infile, pos, num_entries, 3, &d->pal[start_index],
 		256-start_index, 0);
+}
+
+static void handler_start_of_wpg_data(deark *c, lctx *d, de_byte rectype, de_int64 dpos1, de_int64 dlen)
+{
+	int record_version;
+
+	if(rectype==0x19) {
+		record_version = 2;
+	}
+	else {
+		record_version = 1;
+	}
+
+	// Keep track of the highest record version found.
+	if(record_version > d->start_wpg_data_record_ver) {
+		d->start_wpg_data_record_ver = record_version;
+	}
 }
 
 static const struct wpg_rectype_info wmf_rectype_info_arr[] = {
@@ -273,7 +322,7 @@ static const struct wpg_rectype_info wmf_rectype_info_arr[] = {
 	{ 0x0c, "Graphics text, Type 1", NULL },
 	{ 0x0d, "Graphics text attributes", NULL },
 	{ 0x0e, "Color map", handler_colormap },
-	{ 0x0f, "Start of WPG data", NULL },
+	{ 0x0f, "Start of WPG data", handler_start_of_wpg_data },
 	{ 0x10, "End of WPG data", NULL },
 	{ 0x11, "PostScript data, Type 1", NULL },
 	{ 0x12, "Output attributes", NULL },
@@ -283,7 +332,7 @@ static const struct wpg_rectype_info wmf_rectype_info_arr[] = {
 	{ 0x16, "Start chart", NULL },
 	{ 0x17, "PlanPerfect data", NULL },
 	{ 0x18, "Graphics text, Type 2", NULL },
-	{ 0x19, "Start of WPG data, Type 2", NULL },
+	{ 0x19, "Start of WPG data, Type 2", handler_start_of_wpg_data },
 	{ 0x1a, "Graphics text, Type 3", NULL },
 	{ 0x1b, "PostScript data, Type 2", NULL }
 };
@@ -391,6 +440,15 @@ static void de_run_wpg(deark *c, de_module_params *mparams)
 	pos = d->start_of_data;
 
 	if(!do_record_area(c, d, pos)) goto done;
+
+	// This debug line is mainly to help find interesting WPG files.
+	de_dbg(c, "summary: ver=%d.%d dataver=%d pal=%d bitmaps=%d "
+		"bitmapver=%d bpp=%d dimensions=%dx%d\n",
+		(int)d->ver_major, (int)d->ver_minor, d->start_wpg_data_record_ver,
+		(int)d->num_pal_entries,
+		(int)d->bitmap_count, d->bitmap_record_ver,
+		(int)d->bpp_of_first_bitmap,
+		(int)d->width_of_first_bitmap, (int)d->height_of_first_bitmap);
 
 done:
 	de_free(c, d);
