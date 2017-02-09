@@ -282,6 +282,49 @@ static void read_one_int(deark *c, lctx *d, const de_byte *buf,
 	}
 }
 
+static void do_ext_color(deark *c, lctx *d)
+{
+	int is_bg;
+	const char *name;
+	de_byte cr, cg, cb;
+	de_uint32 clr;
+
+	if(d->parse_results.num_params<2) return;
+
+	if(d->parse_results.params[0]==48) {
+		is_bg = 1;
+		name = "bg";
+	}
+	else {
+		is_bg = 0;
+		name = "fg";
+	}
+
+	if(d->parse_results.params[1]!=2) {
+		de_warn(c, "Unsupported extended %s color format: %d\n",
+			name, (int)d->parse_results.params[1]);
+		return;
+	}
+
+	if(d->parse_results.num_params<5) {
+		de_warn(c, "Invalid extended %s color code\n", name);
+		return;
+	}
+
+	if(d->disable_24bitcolor) return;
+
+	cr = (de_byte)(d->parse_results.params[2]>>8);
+	cg = (de_byte)(d->parse_results.params[3]>>8);
+	cb = (de_byte)(d->parse_results.params[4]>>8);
+	clr = (de_uint32)DE_MAKE_RGB(cr, cg, cb);
+	if(is_bg) {
+		d->curr_bgcol = clr;
+	}
+	else {
+		d->curr_fgcol = clr;
+	}
+}
+
 // m - Select Graphic Rendition
 static void do_code_m(deark *c, lctx *d)
 {
@@ -289,6 +332,14 @@ static void do_code_m(deark *c, lctx *d)
 	de_int64 sgr_code;
 
 	parse_params(c, d, 0, 0);
+
+	if(d->parse_results.num_params>=1) {
+		// SGR 38 and 48 apparently have a special format
+		if(d->parse_results.params[0]==38 || d->parse_results.params[0]==48) {
+			do_ext_color(c, d);
+			return;
+		}
+	}
 
 	for(i=0; i<d->parse_results.num_params; i++) {
 		sgr_code = d->parse_results.params[i];
