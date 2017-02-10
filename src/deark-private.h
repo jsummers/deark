@@ -778,6 +778,10 @@ struct de_char_screen {
 	struct de_char_cell **cell_rows; // Array of [height] row pointers
 };
 
+struct de_char_comment {
+	de_ucstring *s;
+};
+
 struct de_char_context {
 	de_byte prefer_image_output;
 	de_byte prefer_9col_mode;
@@ -791,6 +795,8 @@ struct de_char_context {
 	de_ucstring *artist;
 	de_ucstring *organization;
 	de_ucstring *creation_date;
+	de_int64 num_comments;
+	struct de_char_comment *comments; // arrays of [num_comments]
 };
 
 void de_char_output_to_file(deark *c, struct de_char_context *charctx);

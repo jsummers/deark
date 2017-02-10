@@ -243,6 +243,9 @@ static de_int64 sauce_space_padded_length(const de_byte *buf, de_int64 len)
 	return last_nonspace+1;
 }
 
+// TODO: I don't think there's any reason we couldn't read SAUCE strings
+// directly to ucstrings, without doing it via a temporary buffer.
+
 static void sauce_bytes_to_ucstring(deark *c, const de_byte *buf, de_int64 len,
 	de_ucstring *s, int encoding, int date_fmt_flag)
 {
@@ -352,34 +355,44 @@ static void sauce_read_comments(deark *c, dbuf *inf, struct de_SAUCE_info *si)
 	de_int64 cmnt_len;
 	de_byte buf[64];
 
+	if(si->num_comments<1) goto done;
 	cmnt_blk_start = inf->len - 128 - (5 + si->num_comments*64);
 
 	if(dbuf_memcmp(inf, cmnt_blk_start, "COMNT", 5)) {
 		de_dbg(c, "invalid SAUCE comment, not found at %d\n", (int)cmnt_blk_start);
 		si->num_comments = 0;
+		goto done;
 	}
 
 	de_dbg(c, "SAUCE comment block at %d\n", (int)cmnt_blk_start);
 
-	// No reason to read the comments unless we're going to extract them.
-	if(c->extract_level<2) return;
+	si->comments = de_malloc(c, si->num_comments * sizeof(struct de_char_comment));
 
 	de_dbg_indent(c, 1);
 	for(k=0; k<si->num_comments; k++) {
-		dbuf *outf = NULL;
 		cmnt_pos = cmnt_blk_start+5+k*64;
 		dbuf_read(inf, buf, cmnt_pos, 64);
 		cmnt_len = sauce_space_padded_length(buf, 64);
+
+		si->comments[k].s = ucstring_create(c);
+		sauce_bytes_to_ucstring(c, buf, cmnt_len, si->comments[k].s, DE_ENCODING_CP437_G, 0);
+
 		de_dbg(c, "comment at %d, len=%d\n", (int)cmnt_pos, (int)cmnt_len);
 
-		outf = dbuf_create_output_file(c, "comment.txt", NULL, DE_CREATEFLAG_IS_AUX);
-		if(c->write_bom && !de_is_ascii(buf, cmnt_len)) {
-			dbuf_write_uchar_as_utf8(outf, 0xfeff);
+		if(c->extract_level>=2) {
+			dbuf *outf = NULL;
+			outf = dbuf_create_output_file(c, "comment.txt", NULL, DE_CREATEFLAG_IS_AUX);
+			if(c->write_bom && !de_is_ascii(buf, cmnt_len)) {
+				dbuf_write_uchar_as_utf8(outf, 0xfeff);
+			}
+			write_buffer_as_utf8(c, buf, cmnt_len, outf, DE_ENCODING_CP437_G);
+			dbuf_close(outf);
 		}
-		write_buffer_as_utf8(c, buf, cmnt_len, outf, DE_ENCODING_CP437_G);
-		dbuf_close(outf);
 	}
 	de_dbg_indent(c, -1);
+
+done:
+	;
 }
 
 // SAUCE = Standard Architecture for Universal Comment Extensions
@@ -458,8 +471,8 @@ int de_read_SAUCE(deark *c, dbuf *f, struct de_SAUCE_info *si)
 	}
 
 	si->num_comments = (de_int64)dbuf_getbyte(f, pos+104);
+	de_dbg(c, "num comments: %d\n", (int)si->num_comments);
 	if(si->num_comments>0) {
-		de_dbg(c, "num comments: %d\n", (int)si->num_comments);
 		sauce_read_comments(c, f, si);
 	}
 
@@ -484,6 +497,13 @@ void de_free_SAUCE(deark *c, struct de_SAUCE_info *si)
 	ucstring_destroy(si->artist);
 	ucstring_destroy(si->organization);
 	ucstring_destroy(si->creation_date);
+	if(si->comments) {
+		de_int64 k;
+		for(k=0; k<si->num_comments; k++) {
+			ucstring_destroy(si->comments[k].s);
+		}
+		de_free(c, si->comments);
+	}
 	de_free(c, si);
 }
 

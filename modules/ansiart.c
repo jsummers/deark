@@ -982,6 +982,8 @@ static void de_run_ansiart(deark *c, de_module_params *mparams)
 		charctx->artist = si->artist;
 		charctx->organization = si->organization;
 		charctx->creation_date = si->creation_date;
+		charctx->num_comments = si->num_comments;
+		charctx->comments = si->comments;
 
 		if(si->data_type==1 && (si->file_type==1 || si->file_type==2)) {
 			valid_sauce = 1;

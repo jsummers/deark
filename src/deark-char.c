@@ -409,10 +409,42 @@ static void print_header_item(deark *c, dbuf *ofile, const char *name_rawhtml, c
 	dbuf_puts(ofile, "</td>\n");
 }
 
+static void print_comments(deark *c, struct de_char_context *charctx, dbuf *ofile)
+{
+	int k;
+
+	if(charctx->num_comments<1) return;
+	dbuf_puts(ofile, "<table class=htt><tr>\n");
+	dbuf_puts(ofile, "<td class=htc>");
+	dbuf_printf(ofile, "<span class=hn>Comments:</span>");
+	dbuf_puts(ofile, "</td>\n");
+
+	dbuf_puts(ofile, "<td class=hctc>");
+
+	dbuf_puts(ofile, "<span class=hv>");
+	for(k=0; k<charctx->num_comments; k++) { // For each comment...
+		// TODO: I've seen some comments that contain 0x0a bytes, no doubt
+		// intended to be interpreted as newlines. We don't currently support
+		// that. They end up as CP437-graphics-0x0a, which is
+		// U+25D9 INVERSE WHITE CIRCLE.
+		// The SAUCE spec seems to be vague about how comment bytes are
+		// supposed to be interpreted.
+		write_ucstring_to_html(c, charctx->comments[k].s, ofile);
+		if(k<charctx->num_comments-1) {
+			dbuf_puts(ofile, "<br>\n");
+		}
+	}
+	dbuf_puts(ofile, "</span>");
+
+	dbuf_puts(ofile, "</td>\n");
+
+	dbuf_puts(ofile, "</tr></table>\n");
+}
+
 static void do_output_html_header(deark *c, struct de_char_context *charctx,
 	struct charextractx *ectx, dbuf *ofile)
 {
-	int has_metadata;
+	int has_metadata; // metadata other than comments
 
 	has_metadata = charctx->title || charctx->artist || charctx->organization ||
 		charctx->creation_date;
@@ -435,11 +467,19 @@ static void do_output_html_header(deark *c, struct de_char_context *charctx,
 	// The table for the main graphics
 	dbuf_puts(ofile, " .mt { margin-left: auto; margin-right: auto }\n");
 
-	if(has_metadata) {
+	if(has_metadata || charctx->num_comments>0) {
 		// Styles for header name and value
+		// Header table <table> styles
 		dbuf_puts(ofile, " .htt { width: 100%; border-collapse: collapse; background-color: #034 }\n");
+		// Header table cell <td> styles
 		dbuf_puts(ofile, " .htc { border: 2px solid #056; text-align: center }\n");
+		if(charctx->num_comments>0) {
+			// Comment table cell <td> styles
+			dbuf_puts(ofile, " .hctc { border: 2px solid #056 }\n");
+		}
+		// Header name styles
 		dbuf_puts(ofile, " .hn { color: #aaa; font-style: italic }\n");
+		// Header value styles
 		dbuf_puts(ofile, " .hv { color: #fff }\n");
 	}
 
@@ -473,6 +513,8 @@ static void do_output_html_header(deark *c, struct de_char_context *charctx,
 		print_header_item(c, ofile, "Date", charctx->creation_date);
 		dbuf_puts(ofile, "</tr></table>\n");
 	}
+
+	print_comments(c, charctx, ofile);
 }
 
 static void do_output_html_footer(deark *c, struct de_char_context *charctx,
