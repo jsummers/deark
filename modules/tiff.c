@@ -664,11 +664,10 @@ static void push_ifd(deark *c, lctx *d, de_int64 ifdpos, int ifdtype)
 		de_warn(c, "Too many TIFF IFDs\n");
 		return;
 	}
-	if(de_inthashtable_item_exists(c, d->ifds_seen, ifdpos)) {
+	if(!de_inthashtable_add_item(c, d->ifds_seen, ifdpos)) {
 		de_err(c, "IFD loop detected\n");
 		return;
 	}
-	de_inthashtable_add_item(c, d->ifds_seen, ifdpos);
 	d->ifd_count++;
 
 	// Add to the IFD stack (of unprocessed IFDs).

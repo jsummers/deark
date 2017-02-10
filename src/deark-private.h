@@ -697,8 +697,8 @@ void de_copy_bits(const de_byte *src, de_int64 srcbitnum,
 struct de_inthashtable;
 struct de_inthashtable *de_inthashtable_create(deark *c);
 void de_inthashtable_destroy(deark *c, struct de_inthashtable *ht);
-void de_inthashtable_add_item(deark *c, struct de_inthashtable *ht, de_int64 n);
-int de_inthashtable_item_exists(deark *c, struct de_inthashtable *ht, de_int64 n);
+int de_inthashtable_add_item(deark *c, struct de_inthashtable *ht, de_int64 key);
+int de_inthashtable_item_exists(deark *c, struct de_inthashtable *ht, de_int64 key);
 
 ///////////////////////////////////////////
 

@@ -1028,11 +1028,10 @@ static int ExtrArch (deark *c, dbuf *inf)
 
 		if(pos==0) break;
 
-		if(de_inthashtable_item_exists(c, uz->offsets_seen, pos)) {
+		if(!de_inthashtable_add_item(c, uz->offsets_seen, pos)) {
 			de_err(c, "Loop detected\n");
 			goto done;
 		}
-		de_inthashtable_add_item(c, uz->offsets_seen, pos);
 
 		de_dbg(c, "entry at %d\n", (int)pos);
 		de_dbg_indent(c, 1);
