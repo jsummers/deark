@@ -313,9 +313,9 @@ static void do_ext_color(deark *c, lctx *d)
 
 	if(d->disable_24bitcolor) return;
 
-	cr = (de_byte)(d->parse_results.params[2]>>8);
-	cg = (de_byte)(d->parse_results.params[3]>>8);
-	cb = (de_byte)(d->parse_results.params[4]>>8);
+	cr = (de_byte)(d->parse_results.params[2]%256);
+	cg = (de_byte)(d->parse_results.params[3]%256);
+	cb = (de_byte)(d->parse_results.params[4]%256);
 	clr = (de_uint32)DE_MAKE_RGB(cr, cg, cb);
 	if(is_bg) {
 		d->curr_bgcol = clr;
