@@ -113,40 +113,67 @@ static void get_final_palette(deark *c, lctx *d, de_uint32 *finalpal, de_int64 b
 {
 	de_int64 k;
 	de_byte cr, cg, cb;
-	int has_8bitpal = 0;
+	int has_3plusbitpal = 0;
+	int has_5plusbitpal = 0;
 	int has_nonblack_color = 0;
-	int fixpal_flag = 0;
+	int fixpal2_flag = 0;
+	int fixpal4_flag = 0;
 
 	if(bpp==2 && !d->has_pal) {
-		// I have some 2bpp images with no palette, but I'm not sure what
-		// the correct way to display them is.
-		de_warn(c, "Using a default grayscale palette\n");
-		de_make_grayscale_palette(finalpal, 4, 0);
+		// I'm not sure what I'm supposed to do here. The first 4 colors of
+		// the default palette do not really constitute a usable 4-color
+		// palette.
+		// The images of this type that I've seen look correct if I use a
+		// particular CGA palette. So...
+		de_warn(c, "4-color image with no palette. Using a CGA palette.\n");
+		for(k=0; k<4; k++) {
+			finalpal[k] = de_palette_pcpaint_cga4(2, (int)k);
+		}
 		return;
 	}
 
 	for(k=0; k<256; k++) {
 		finalpal[k] = d->pal[k];
 
-		if(d->opt_fixpal && bpp==4) {
+		if(d->opt_fixpal && bpp==4 && k<16) {
 			cr = DE_COLOR_R(d->pal[k]);
 			cg = DE_COLOR_G(d->pal[k]);
 			cb = DE_COLOR_B(d->pal[k]);
+
 			if((cr&0x0f)!=0 || (cg&0x0f)!=0 || (cb&0x0f)!=0) {
-				has_8bitpal = 1;
+				has_5plusbitpal = 1;
 			}
+			if((cr&0x3f)!=0 || (cg&0x3f)!=0 || (cb&0x3f)!=0) {
+				has_3plusbitpal = 1;
+			}
+
 			if(cr || cg || cb) {
 				has_nonblack_color = 1;
 			}
 		}
 	}
 
-	if(d->opt_fixpal && bpp==4 && !has_8bitpal && has_nonblack_color) {
+	if(d->opt_fixpal && bpp==4 && !has_3plusbitpal && has_nonblack_color) {
+		de_dbg(c, "Palette seems to have 2 bits of precision. Rescaling palette.\n");
+		fixpal2_flag = 1;
+	}
+	else if(d->opt_fixpal && bpp==4 && !has_5plusbitpal && has_nonblack_color) {
 		de_dbg(c, "Palette seems to have 4 bits of precision. Rescaling palette.\n");
-		fixpal_flag = 1;
+		fixpal4_flag = 1;
 	}
 
-	if(fixpal_flag) {
+	if(fixpal2_flag) {
+		for(k=0; k<16; k++) {
+			cr = DE_COLOR_R(finalpal[k]);
+			cg = DE_COLOR_G(finalpal[k]);
+			cb = DE_COLOR_B(finalpal[k]);
+			cr = 85*(cr>>6);
+			cg = 85*(cg>>6);
+			cb = 85*(cb>>6);
+			finalpal[k] = DE_MAKE_RGB(cr, cg, cb);
+		}
+	}
+	else if(fixpal4_flag) {
 		for(k=0; k<16; k++) {
 			cr = DE_COLOR_R(finalpal[k]);
 			cg = DE_COLOR_G(finalpal[k]);
@@ -221,7 +248,13 @@ static void handler_bitmap(deark *c, lctx *d, de_byte rectype, de_int64 dpos1, d
 	// (Or maybe you're supposed to use pal[0] and pal[15]?)
 	is_bilevel = (bpp==1);
 
-	is_grayscale = de_is_grayscale_palette(d->pal, (de_int64)1<<bpp);
+	if(is_bilevel) {
+		is_grayscale = 1;
+	}
+	else {
+		get_final_palette(c, d, finalpal, bpp);
+		is_grayscale = de_is_grayscale_palette(finalpal, (de_int64)1<<bpp);
+	}
 
 	if(is_bilevel || is_grayscale)
 		output_bypp = 1;
@@ -254,7 +287,6 @@ static void handler_bitmap(deark *c, lctx *d, de_byte rectype, de_int64 dpos1, d
 			goto done;
 		}
 
-		get_final_palette(c, d, finalpal, bpp);
 		de_convert_image_paletted(unc_pixels, 0, bpp, rowspan, finalpal, img, 0);
 	}
 
@@ -374,7 +406,7 @@ static int do_record(deark *c, lctx *d, de_int64 pos1, de_int64 *bytes_consumed)
 	//  --------------  -------- -------- -------- -------- --------
 	//  (0-32767)     : 11111111 aaaaaaaa 0bbbbbbb
 	//  (0-2147483647): 11111111 cccccccc 1ddddddd aaaaaaaa bbbbbbbb
-	//  (0-254)       : aaaaaaaa [where the a's are not 1s]
+	//  (0-254)       : aaaaaaaa [where the a's are not all 1's]
 
 	if(rec_dlen==0xff) {
 		// Not an 8-bit value. Could be 16-bit or 32-bit.
@@ -423,6 +455,17 @@ static int do_record_area(deark *c, lctx *d, de_int64 pos)
 	return 1;
 }
 
+static void do_set_default_palette(deark *c, lctx *d)
+{
+	int k;
+
+	if(d->ver_major>1) return; // TODO: v2 files have a different palette
+
+	for(k=0; k<256; k++) {
+		d->pal[k] = de_palette_vga256(k);
+	}
+}
+
 static void de_run_wpg(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
@@ -438,6 +481,8 @@ static void de_run_wpg(deark *c, de_module_params *mparams)
 	pos = 0;
 	if(!do_read_header(c, d, pos)) goto done;
 	pos = d->start_of_data;
+
+	do_set_default_palette(c, d);
 
 	if(!do_record_area(c, d, pos)) goto done;
 
