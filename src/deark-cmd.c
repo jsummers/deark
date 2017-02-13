@@ -132,6 +132,10 @@ static void our_msgfn(deark *c, int msgtype, const char *s1)
 		// the same purposes, and it would be tricky to combine them.
 		// This is really just a quick and dirty way to deal with systems that don't
 		// support Unicode, or don't support the Unicode characters we use.
+
+		// TODO: It's inconsistent that the de_utf8_to_ascii() and de_utf8_to_oem()
+		// code paths have a size limit, while the de_utf8_to_utf16_to_FILE() and
+		// fputs() paths do not.
 		de_utf8_to_ascii(s1, cc->msgbuf, sizeof(cc->msgbuf), 0);
 		s = cc->msgbuf;
 	}
@@ -147,10 +151,7 @@ static void our_msgfn(deark *c, int msgtype, const char *s1)
 
 #ifdef DE_WINDOWS
 	if(cc->use_fwputs) {
-		wchar_t *s_w;
-		s_w = de_utf8_to_utf16_strdup(c, s);
-		fputws(s_w, cc->msgs_FILE);
-		de_free(c, s_w);
+		de_utf8_to_utf16_to_FILE(c, s, cc->msgs_FILE);
 	}
 	else {
 		fputs(s, cc->msgs_FILE);

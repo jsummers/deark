@@ -140,6 +140,7 @@ void de_utf8_to_oem(deark *c, const char *src, char *dst, size_t dstlen);
 char **de_convert_args_to_utf8(int argc, wchar_t **argvW);
 void de_free_utf8_args(int argc, char **argv);
 wchar_t *de_utf8_to_utf16_strdup(deark *c, const char *src);
+void de_utf8_to_utf16_to_FILE(deark *c, const char *src, FILE *f);
 int de_stdout_is_windows_console(void);
 int de_stderr_is_windows_console(void);
 #endif

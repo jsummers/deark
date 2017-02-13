@@ -31,7 +31,6 @@ int de_strcasecmp(const char *a, const char *b)
 void de_vsnprintf(char *buf, size_t buflen, const char *fmt, va_list ap)
 {
 	_vsnprintf_s(buf,buflen,_TRUNCATE,fmt,ap);
-	buf[buflen-1]='\0';
 }
 
 char *de_strdup(deark *c, const char *s)
@@ -96,7 +95,11 @@ wchar_t *de_utf8_to_utf16_strdup(deark *c, const char *src)
 
 	// Calculate the size required by the target string.
 	ret = MultiByteToWideChar(CP_UTF8,0,src,-1,NULL,0);
-	if(ret<1) return NULL;
+	if(ret<1) {
+		de_err(c, "Encoding conversion failed\n");
+		de_fatalerror(c);
+		return NULL;
+	}
 
 	dstlen = ret;
 	dst = (WCHAR*)de_malloc(c, dstlen*sizeof(WCHAR));
@@ -104,9 +107,37 @@ wchar_t *de_utf8_to_utf16_strdup(deark *c, const char *src)
 	ret = MultiByteToWideChar(CP_UTF8,0,src,-1,dst,dstlen);
 	if(ret<1) {
 		de_free(c, dst);
+		de_err(c, "Encoding conversion failed\n");
+		de_fatalerror(c);
 		return NULL;
 	}
 	return dst;
+}
+
+// Convert a string from utf8 to utf16, then write it to a FILE
+// (e.g. using fputws).
+void de_utf8_to_utf16_to_FILE(deark *c, const char *src, FILE *f)
+{
+#define DST_SMALL_SIZE 1024
+	WCHAR dst_small[DST_SMALL_SIZE];
+	WCHAR *dst_large;
+	int ret;
+
+	ret = MultiByteToWideChar(CP_UTF8, 0, src, -1, dst_small, DST_SMALL_SIZE);
+	if(ret>=1) {
+		// Our "small" buffer was big enough for the converted string.
+		fputws(dst_small, f);
+		return;
+	}
+
+	// Our "small" buffer was not big enough. Do it the slow way.
+	// (Unfortunately, MultiByteToWideChar doesn't have a way to automatically
+	// tell us the required buffer size in the case that the supplied buffer
+	// was not big enough. So we end up calling it three times, when two should
+	// have been sufficient. But this is a rare code path.)
+	dst_large = de_utf8_to_utf16_strdup(c, src);
+	fputws(dst_large, f);
+	de_free(c, dst_large);
 }
 
 FILE* de_fopen(deark *c, const char *fn, const char *mode,
