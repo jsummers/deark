@@ -210,6 +210,7 @@ DECLARE_HRSRC(hrsrc_byte);
 DECLARE_HRSRC(hrsrc_uint16);
 DECLARE_HRSRC(hrsrc_uint32);
 DECLARE_HRSRC(hrsrc_unicodestring);
+DECLARE_HRSRC(hrsrc_unicodestring_multi);
 DECLARE_HRSRC(hrsrc_pascalstring);
 DECLARE_HRSRC(hrsrc_plaintext);
 DECLARE_HRSRC(hrsrc_urllist);
@@ -265,7 +266,7 @@ static const struct rsrc_info rsrc_info_arr[] = {
 	{ 0x0412, 0, "Effects visible", hrsrc_byte },
 	{ 0x0413, 0, "Spot Halftone", NULL },
 	{ 0x0414, 0, "Document-specific IDs seed number", hrsrc_uint32 },
-	{ 0x0415, 0, "Unicode Alpha Names", hrsrc_unicodestring },
+	{ 0x0415, 0, "Unicode Alpha Names", hrsrc_unicodestring_multi },
 	{ 0x0416, 0, "Indexed Color Table Count", NULL },
 	{ 0x0417, 0, "Transparency Index", NULL },
 	{ 0x0419, 0, "Global Altitude", hrsrc_uint32 },
@@ -616,7 +617,7 @@ static void hrsrc_resolutioninfo(deark *c, lctx *d, zztype *zz, const struct rsr
 static void hrsrc_namesofalphachannels(deark *c, lctx *d, zztype *zz, const struct rsrc_info *ri)
 {
 	de_ucstring *s = NULL;
-	de_int64 idx = 0;
+	int idx = 0;
 
 	// This is a "series of Pascal strings", whatever that is.
 
@@ -624,7 +625,7 @@ static void hrsrc_namesofalphachannels(deark *c, lctx *d, zztype *zz, const stru
 	while(zz->pos < (zz->endpos-1)) {
 		ucstring_empty(s);
 		read_pascal_string_to_ucstring(c, d, s, zz);
-		de_dbg(c, "name[%d]: \"%s\"\n", (int)idx, ucstring_get_printable_sz_n(s, 300));
+		de_dbg(c, "%s[%d]: \"%s\"\n", ri->idname, idx, ucstring_get_printable_sz_n(s, 300));
 		idx++;
 	}
 	ucstring_destroy(s);
@@ -1696,6 +1697,24 @@ static void hrsrc_unicodestring(deark *c, lctx *d, zztype *zz, const struct rsrc
 	s = ucstring_create(c);
 	read_unicode_string(c, d, s, zz);
 	de_dbg(c, "%s: \"%s\"\n", ri->idname, ucstring_get_printable_sz_n(s, 300));
+	ucstring_destroy(s);
+}
+
+// Handler for the "Unicode Alpha Names" resource, which the documentation
+// incorrectly says is a single Unicode string.
+static void hrsrc_unicodestring_multi(deark *c, lctx *d, zztype *zz,
+	const struct rsrc_info *ri)
+{
+	de_ucstring *s = NULL;
+	int idx = 0;
+
+	s = ucstring_create(c);
+	while(zz_avail(zz)>=4) {
+		ucstring_empty(s);
+		read_unicode_string(c, d, s, zz);
+		de_dbg(c, "%s[%d]: \"%s\"\n", ri->idname, idx, ucstring_get_printable_sz_n(s, 300));
+		idx++;
+	}
 	ucstring_destroy(s);
 }
 
