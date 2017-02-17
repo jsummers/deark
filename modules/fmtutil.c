@@ -136,6 +136,8 @@ int de_fmtutil_get_bmpinfo(deark *c, dbuf *f, struct de_bmpinfo *bi, de_int64 po
 	return 1;
 }
 
+// TODO: Document and review whether the bi->total_size and
+// bi->size_of_headers_and_pal fields include the 14-byte fileheader.
 void de_fmtutil_generate_bmpfileheader(deark *c, dbuf *outf, const struct de_bmpinfo *bi,
 	de_int64 file_size_override)
 {

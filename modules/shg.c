@@ -6,6 +6,7 @@
 
 #include <deark-config.h>
 #include <deark-private.h>
+#include "fmtutil.h"
 DE_DECLARE_MODULE(de_module_shg);
 
 typedef struct localctx_struct {
@@ -222,6 +223,7 @@ static int do_dib(deark *c, lctx *d, de_int64 pos1)
 	de_int64 pal_size_in_bytes;
 	de_int64 final_image_size;
 	dbuf *pixels_final = NULL;
+	struct de_bmpinfo bi;
 	dbuf *outf = NULL;
 	int retval = 0;
 
@@ -313,10 +315,10 @@ static int do_dib(deark *c, lctx *d, de_int64 pos1)
 	outf = dbuf_create_output_file(c, "bmp", NULL, 0);
 
 	// Write fileheader
-	dbuf_write(outf, (const de_byte*)"BM", 2);
-	dbuf_writeui32le(outf, 14 + 40 + pal_size_in_bytes + final_image_size);
-	dbuf_write_zeroes(outf, 4);
-	dbuf_writeui32le(outf, 14 + 40 + pal_size_in_bytes);
+	de_memset(&bi, 0, sizeof(struct de_bmpinfo));
+	bi.size_of_headers_and_pal = 40 + pal_size_in_bytes;
+	bi.total_size = bi.size_of_headers_and_pal + final_image_size;
+	de_fmtutil_generate_bmpfileheader(c, outf, &bi, 0);
 
 	// Write infoheader
 	dbuf_writeui32le(outf, 40);

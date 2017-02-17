@@ -35,7 +35,7 @@ OFILES_ALL:=$(OBJDIR)/src/deark-cmd.o $(OFILES_LIB) $(OFILES_MODS) \
 $(addprefix $(OBJDIR)/modules/,alphabmp.o ansiart.o atari-img.o amigaicon.o \
  bintext.o boxes.o bpg.o exe.o fmtutil.o gemras.o ico.o ilbm.o \
  jbf.o jpeg.o macpaint.o mbk.o misc.o os2bmp.o pict.o psd.o nokia.o \
- qtif.o tga.o tiff.o wmf.o bmp.o riff.o iff.o cfb.o \
+ qtif.o tga.o tiff.o wmf.o bmp.o riff.o iff.o cfb.o shg.o \
  spectrum512.o): modules/fmtutil.h
 
 $(OBJDIR)/src/deark-miniz.o: foreign/miniz.h
