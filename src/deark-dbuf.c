@@ -725,6 +725,7 @@ void dbuf_write(dbuf *f, const de_byte *m, de_int64 len)
 	}
 
 	if(f->btype==DBUF_TYPE_NULL) {
+		f->len += len;
 		return;
 	}
 	else if(f->btype==DBUF_TYPE_OFILE || f->btype==DBUF_TYPE_STDOUT) {
