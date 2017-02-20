@@ -62,6 +62,13 @@ void ucstring_strip_trailing_NUL(de_ucstring *s)
 	}
 }
 
+void ucstring_strip_trailing_spaces(de_ucstring *s)
+{
+	while(s->len>=1 && s->str[s->len-1]==' ') {
+		ucstring_truncate(s, s->len-1);
+	}
+}
+
 // Append s2 to s1
 void ucstring_append_ucstring(de_ucstring *s1, const de_ucstring *s2)
 {

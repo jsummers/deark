@@ -66,6 +66,7 @@ static void handler_subifd(deark *c, lctx *d, const struct taginfo *tg, const st
 static void handler_xmp(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni);
 static void handler_iptc(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni);
 static void handler_photoshoprsrc(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni);
+static void handler_usercomment(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni);
 static void handler_37724(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni);
 static void handler_iccprofile(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni);
 static void handler_utf16(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni);
@@ -379,7 +380,7 @@ static const struct tagnuminfo tagnuminfo_arr[] = {
 	{ 37399, 0x0100, "SensingMethod", NULL, NULL },
 	{ 37439, 0x00, "SToNits(SGI)", NULL, NULL },
 	{ 37500, 0x10, "MakerNote", NULL, NULL },
-	{ 37510, 0x10, "UserComment", NULL, NULL },
+	{ 37510, 0x10, "UserComment", handler_usercomment, NULL },
 	{ 37520, 0x10, "SubSec", NULL, NULL },
 	{ 37521, 0x10, "SubSecTimeOriginal", NULL, NULL },
 	{ 37522, 0x10, "SubsecTimeDigitized", NULL, NULL },
@@ -1529,6 +1530,40 @@ static void handler_photoshoprsrc(deark *c, lctx *d, const struct taginfo *tg, c
 	de_dbg_indent(c, 1);
 	de_fmtutil_handle_photoshop_rsrc(c, tg->val_offset, tg->total_size);
 	de_dbg_indent(c, -1);
+}
+
+static void handler_usercomment(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni)
+{
+	static de_byte charcode[8];
+	de_ucstring *s = NULL;
+	int enc = DE_ENCODING_UNKNOWN;
+
+	if(tg->datatype != DATATYPE_UNDEF) goto done;
+	if(tg->total_size < 8) goto done;
+
+	de_read(charcode, tg->val_offset, 8);
+
+	if(!de_memcmp(charcode, "ASCII\0\0\0", 8)) {
+		enc = DE_ENCODING_ASCII;
+	}
+	// TODO: Support "UNICODE\0" (need samples)
+
+	if(enc == DE_ENCODING_UNKNOWN) goto done;
+
+	s = ucstring_create(c);
+	dbuf_read_to_ucstring_n(c->infile, tg->val_offset + 8, tg->total_size - 8,
+		DE_TIFF_MAX_CHARS_TO_PRINT, s, DE_CONVFLAG_STOP_AT_NUL, enc);
+
+	// FIXME: This is not quite right, though it's not important. We really
+	// need to read the entire string, not just the first
+	// DE_TIFF_MAX_CHARS_TO_PRINT bytes, in order to determine which characters
+	// are trailing spaces.
+	ucstring_strip_trailing_spaces(s);
+
+	de_dbg(c, "%s: \"%s\"\n", tni->tagname, ucstring_get_printable_sz(s));
+
+done:
+	ucstring_destroy(s);
 }
 
 // Photoshop "ImageSourceData"

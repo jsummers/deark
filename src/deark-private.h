@@ -662,6 +662,7 @@ void ucstring_empty(de_ucstring *s);
 void ucstring_truncate(de_ucstring *s, de_int64 newlen);
 void ucstring_truncate_at_NUL(de_ucstring *s);
 void ucstring_strip_trailing_NUL(de_ucstring *s);
+void ucstring_strip_trailing_spaces(de_ucstring *s);
 void ucstring_append_char(de_ucstring *s, de_int32 ch);
 void ucstring_append_ucstring(de_ucstring *s1, const de_ucstring *s2);
 void ucstring_printf(de_ucstring *s, int encoding, const char *fmt, ...)
