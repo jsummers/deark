@@ -188,8 +188,8 @@ static void do_read_patterns(deark *c, lctx *d, de_int64 pos)
 				// Some of them may be shifted differently than MacPaint displays them.
 				x = de_get_bits_symbol(c->infile, 1, pos+cell*8+j%8, i%8);
 
-				// 0 = white. Only need to set the white pixels, since they start out
-				// black.
+				// 0 = white. Only need to set the white pixels, since deark_bitmap
+				// pixels default to black.
 				if(x==0) {
 					de_bitmap_setpixel_gray(pat, xpos+i, ypos+j, 255);
 				}

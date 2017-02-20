@@ -102,6 +102,7 @@ Command-line options:
    a last-modified timestamp.
 -opt &lt;module:option>=&lt;value>
    Module-specific options. See formats.txt.
+   Caution: Unrecognized or misspelled options will be silently ignored.
    Options not specific to one format:
     -opt font:charsperrow=&lt;n>
        The number of characters per row, when rendering a font to a bitmap

@@ -541,7 +541,7 @@ int dbuf_memcmp(dbuf *f, de_int64 pos, const void *s, size_t n)
 
 	buf = de_malloc(f->c, n);
 	dbuf_read(f, buf, pos, n);
-	ret = memcmp(buf, s, n);
+	ret = de_memcmp(buf, s, n);
 	de_free(f->c, buf);
 	return ret;
 }

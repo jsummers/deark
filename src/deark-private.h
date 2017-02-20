@@ -796,7 +796,7 @@ struct de_char_context {
 	de_ucstring *organization;
 	de_ucstring *creation_date;
 	de_int64 num_comments;
-	struct de_char_comment *comments; // arrays of [num_comments]
+	struct de_char_comment *comments; // Array of [num_comments] comments
 };
 
 void de_char_output_to_file(deark *c, struct de_char_context *charctx);

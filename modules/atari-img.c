@@ -178,8 +178,6 @@ static void de_run_degas(deark *c, de_module_params *mparams)
 		adata->was_compressed = 1;
 		adata->unc_pixels = dbuf_create_membuf(c, 32000, 1);
 
-		// TODO: Need to track how many compressed bytes are consumed, so we can locate the
-		// fields following the compressed data.
 		if(!de_fmtutil_uncompress_packbits(c->infile, pos, c->infile->len-pos, adata->unc_pixels, &cmpr_bytes_consumed))
 			goto done;
 
