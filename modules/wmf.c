@@ -44,10 +44,10 @@ struct wmf_func_info {
 	record_decoder_fn fn;
 };
 static const struct wmf_func_info wmf_func_info_arr[] = {
-	// This list is not necessarily complete.
 	{ 0x0000, "EOF", NULL },
 	{ 0x001e, "SAVEDC", NULL },
 	{ 0x0035, "REALIZEPALETTE", NULL },
+	{ 0x0037, "SETPALENTRIES", NULL },
 	{ 0x00f7, "CREATEPALETTE", NULL },
 	{ 0x0102, "SETBKMODE", NULL },
 	{ 0x0103, "SETMAPMODE", NULL },
@@ -55,34 +55,48 @@ static const struct wmf_func_info wmf_func_info_arr[] = {
 	{ 0x0105, "SETRELABS", NULL },
 	{ 0x0106, "SETPOLYFILLMODE", NULL },
 	{ 0x0107, "SETSTRETCHBLTMODE", NULL },
+	{ 0x0108, "SETTEXTCHAREXTRA", NULL },
 	{ 0x0127, "RESTOREDC", NULL },
+	{ 0x012a, "INVERTREGION", NULL },
+	{ 0x012b, "PAINTREGION", NULL },
+	{ 0x012c, "SELECTCLIPREGION", NULL },
 	{ 0x012d, "SELECTOBJECT", NULL },
 	{ 0x012e, "SETTEXTALIGN", NULL },
+	{ 0x0139, "RESIZEPALETTE", NULL },
 	{ 0x0142, "DIBCREATEPATTERNBRUSH", NULL },
+	{ 0x0149, "SETLAYOUT", NULL },
 	{ 0x01f0, "DELETEOBJECT", NULL },
 	{ 0x01f9, "CREATEPATTERNBRUSH", NULL },
 	{ 0x0201, "SETBKCOLOR", NULL },
 	{ 0x0209, "SETTEXTCOLOR", NULL },
+	{ 0x020a, "SETTEXTJUSTIFICATION", NULL },
 	{ 0x020b, "SETWINDOWORG", NULL },
 	{ 0x020c, "SETWINDOWEXT", NULL },
 	{ 0x020d, "SETVIEWPORTORG", NULL },
 	{ 0x020e, "SETVIEWPORTEXT", NULL },
+	{ 0x020f, "OFFSETWINDOWORG", NULL },
+	{ 0x0211, "OFFSETVIEWPORTORG", NULL },
 	{ 0x0213, "LINETO", NULL },
 	{ 0x0214, "MOVETO", NULL },
 	{ 0x0220, "OFFSETCLIPRGN", NULL },
 	{ 0x0228, "FILLREGION", NULL },
+	{ 0x0231, "SETMAPPERFLAGS", NULL },
 	{ 0x0234, "SELECTPALETTE", NULL },
 	{ 0x02fa, "CREATEPENINDIRECT", NULL },
 	{ 0x02fb, "CREATEFONTINDIRECT", NULL },
 	{ 0x02fc, "CREATEBRUSHINDIRECT", NULL },
 	{ 0x0324, "POLYGON", NULL },
 	{ 0x0325, "POLYLINE", NULL },
+	{ 0x0410, "SCALEWINDOWEXT", NULL },
+	{ 0x0412, "SCALEVIEWPORTEXT", NULL },
 	{ 0x0415, "EXCLUDECLIPRECT", NULL },
 	{ 0x0416, "INTERSECTCLIPRECT", NULL },
 	{ 0x0418, "ELLIPSE", NULL },
 	{ 0x0419, "FLOODFILL", NULL },
 	{ 0x041b, "RECTANGLE", NULL },
 	{ 0x041f, "SETPIXEL", NULL },
+	{ 0x0429, "FRAMEREGION", NULL },
+	{ 0x0436, "ANIMATEPALETTE", NULL },
 	{ 0x0521, "TEXTOUT", NULL },
 	{ 0x0538, "POLYPOLYGON", NULL },
 	{ 0x0548, "EXTFLOODFILL", NULL },
@@ -98,8 +112,8 @@ static const struct wmf_func_info wmf_func_info_arr[] = {
 	{ 0x0a32, "EXTTEXTOUT", NULL },
 	{ 0x0b41, "DIBSTRETCHBLT", wmf_handler_0b41_0f43 },
 	{ 0x0b23, "STRETCHBLT", NULL },
-	{ 0x0f43, "STRETCHDIB", wmf_handler_0b41_0f43 },
-	{ 0xffff, NULL, NULL }
+	{ 0x0d33, "SETDIBTODEV", NULL },
+	{ 0x0f43, "STRETCHDIB", wmf_handler_0b41_0f43 }
 };
 
 // DIBSTRETCHBLT, STRETCHDIB
@@ -184,7 +198,7 @@ static const struct wmf_func_info *find_wmf_func_info(de_int64 rectype)
 {
 	de_int64 i;
 
-	for(i=0; wmf_func_info_arr[i].rectype!=0xffff; i++) {
+	for(i=0; i<(de_int64)DE_ITEMS_IN_ARRAY(wmf_func_info_arr); i++) {
 		if(wmf_func_info_arr[i].rectype == rectype) {
 			return &wmf_func_info_arr[i];
 		}
