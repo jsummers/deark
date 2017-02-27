@@ -41,12 +41,21 @@ static void populate_cache(dbuf *f)
 	f->file_pos_known = 0;
 }
 
-// Read all data from stdin into memory.
-static void populate_cache_stdin(dbuf *f)
+// Read all data from stdin (or a named pipe) into memory.
+static void populate_cache_from_pipe(dbuf *f)
 {
+	FILE *fp;
 	de_int64 cache_bytes_alloc = 0;
 
-	if(f->btype!=DBUF_TYPE_STDIN) return;
+	if(f->btype==DBUF_TYPE_STDIN) {
+		fp = stdin;
+	}
+	else if(f->btype==DBUF_TYPE_FIFO) {
+		fp = f->fp;
+	}
+	else {
+		return;
+	}
 
 	f->cache_bytes_used = 0;
 
@@ -68,10 +77,10 @@ static void populate_cache_stdin(dbuf *f)
 		bytes_to_read = cache_bytes_alloc - f->cache_bytes_used;
 		if(bytes_to_read<1) break; // Shouldn't happen
 
-		bytes_read = fread(&f->cache[f->cache_bytes_used], 1, (size_t)bytes_to_read, stdin);
+		bytes_read = fread(&f->cache[f->cache_bytes_used], 1, (size_t)bytes_to_read, fp);
 		if(bytes_read<1 || bytes_read>bytes_to_read) break;
 		f->cache_bytes_used += bytes_read;
-		if(feof(stdin) || ferror(stdin)) break;
+		if(feof(fp) || ferror(fp)) break;
 	}
 
 	f->len = f->cache_bytes_used;
@@ -885,6 +894,7 @@ dbuf *dbuf_open_input_file(deark *c, const char *fn)
 {
 	dbuf *f;
 	int ret;
+	unsigned int returned_flags = 0;
 	char msgbuf[200];
 
 	f = de_malloc(c, sizeof(dbuf));
@@ -892,7 +902,7 @@ dbuf *dbuf_open_input_file(deark *c, const char *fn)
 	f->c = c;
 	f->cache_policy = DE_CACHE_POLICY_ENABLED;
 
-	ret = de_examine_file_by_name(c, fn, &f->len, msgbuf, sizeof(msgbuf));
+	ret = de_examine_file_by_name(c, fn, &f->len, msgbuf, sizeof(msgbuf), &returned_flags);
 	if(!ret) {
 		de_err(c, "Can't read %s: %s\n", fn, msgbuf);
 		de_free(c, f);
@@ -905,6 +915,13 @@ dbuf *dbuf_open_input_file(deark *c, const char *fn)
 		de_err(c, "Can't read %s: %s\n", fn, msgbuf);
 		de_free(c, f);
 		return NULL;
+	}
+
+	if(returned_flags & 0x1) {
+		// This "file" is actually a pipe.
+		f->btype = DBUF_TYPE_FIFO;
+		f->cache_policy = DE_CACHE_POLICY_NONE;
+		populate_cache_from_pipe(f);
 	}
 
 	return f;
@@ -922,7 +939,7 @@ dbuf *dbuf_open_input_stdin(deark *c, const char *fn)
 	// Set to NONE, to make sure we don't try to auto-populate the cache later.
 	f->cache_policy = DE_CACHE_POLICY_NONE;
 
-	populate_cache_stdin(f);
+	populate_cache_from_pipe(f);
 
 	return f;
 }
@@ -970,11 +987,26 @@ void dbuf_close(dbuf *f)
 			de_update_file_time(f);
 		}
 	}
+	else if(f->btype==DBUF_TYPE_FIFO) {
+		de_fclose(f->fp);
+		f->fp = NULL;
+	}
 	else if(f->btype==DBUF_TYPE_STDOUT) {
 		if(f->name) {
 			de_dbg3(c, "finished writing %s to stdout\n", f->name);
 		}
 		f->fp = NULL;
+	}
+	else if(f->btype==DBUF_TYPE_MEMBUF) {
+	}
+	else if(f->btype==DBUF_TYPE_DBUF) {
+	}
+	else if(f->btype==DBUF_TYPE_STDIN) {
+	}
+	else if(f->btype==DBUF_TYPE_NULL) {
+	}
+	else {
+		de_err(c, "Internal: Don't know how to close this type of file (%d)\n", f->btype);
 	}
 
 	de_free(c, f->membuf_buf);

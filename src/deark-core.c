@@ -167,6 +167,13 @@ void de_run(deark *c)
 	}
 	else {
 		orig_ifile = dbuf_open_input_file(c, c->input_filename);
+
+		if(orig_ifile && orig_ifile->btype==DBUF_TYPE_FIFO) {
+			// Only now do we know that the input "file" is a named pipe.
+			// Set a flag to remember that the input filename does not
+			// reflect the file format.
+			c->suppress_detection_by_filename = 1;
+		}
 	}
 	if(!orig_ifile) {
 		goto done;

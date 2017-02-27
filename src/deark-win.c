@@ -171,12 +171,13 @@ int de_fclose(FILE *fp)
 }
 
 int de_examine_file_by_name(deark *c, const char *fn, de_int64 *len,
-	char *errmsg, size_t errmsg_len)
+	char *errmsg, size_t errmsg_len, unsigned int *returned_flags)
 {
 	struct _stat stbuf;
 	WCHAR *fnW;
 	int retval = 0;
 
+	*returned_flags = 0;
 	fnW = de_utf8_to_utf16_strdup(c, fn);
 
 	de_memset(&stbuf, 0, sizeof(struct _stat));

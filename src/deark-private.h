@@ -87,6 +87,7 @@ struct dbuf_struct {
 #define DBUF_TYPE_DBUF    4 // nested dbuf
 #define DBUF_TYPE_STDOUT  5
 #define DBUF_TYPE_STDIN   6
+#define DBUF_TYPE_FIFO    7
 	int btype;
 
 	deark *c;
@@ -211,6 +212,7 @@ struct deark_struct {
 	de_int64 slice_start_req; // Used if we're only to look at part of the file.
 	de_int64 slice_size_req;
 	int slice_size_req_valid;
+	int suppress_detection_by_filename;
 
 	int output_style; // DE_OUTPUTSTYLE_*
 	int input_style; // DE_INPUTSTYLE_*
@@ -315,7 +317,7 @@ int de_fclose(FILE *fp);
 
 // Test if the file seems suitable for reading, and return its size.
 int de_examine_file_by_name(deark *c, const char *fn, de_int64 *len,
-	char *errmsg, size_t errmsg_len);
+	char *errmsg, size_t errmsg_len, unsigned int *returned_flags);
 
 void de_update_file_perms(dbuf *f);
 void de_update_file_time(dbuf *f);

@@ -70,11 +70,13 @@ int de_fclose(FILE *fp)
 	return fclose(fp);
 }
 
+// returned flags: 0x1 = file si a FIFO (named pipe)
 int de_examine_file_by_name(deark *c, const char *fn, de_int64 *len,
-	char *errmsg, size_t errmsg_len)
+	char *errmsg, size_t errmsg_len, unsigned int *returned_flags)
 {
 	struct stat stbuf;
 
+	*returned_flags = 0;
 	de_memset(&stbuf, 0, sizeof(struct stat));
 
 	if(0 != stat(fn, &stbuf)) {
@@ -82,7 +84,12 @@ int de_examine_file_by_name(deark *c, const char *fn, de_int64 *len,
 		return 0;
 	}
 
-	if(!S_ISREG(stbuf.st_mode)) {
+	if(S_ISFIFO(stbuf.st_mode)) {
+		*returned_flags |= 0x1;
+		*len = 0;
+		return 1;
+	}
+	else if(!S_ISREG(stbuf.st_mode)) {
 		de_strlcpy(errmsg, "Not a regular file", errmsg_len);
 		return 0;
 	}
