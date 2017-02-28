@@ -163,6 +163,9 @@ will (hopefully) be sufficient:
 This will build an executable file named "deark". Deark has no dependencies,
 other than the standard C libraries.
 
+It is safe to build Deark using "parallel make", i.e. "make -j". This will
+speed up the build, in most cases.
+
 If you want to install it in a convenient location, just copy the "deark" file.
 For example:
 
