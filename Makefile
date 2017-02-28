@@ -9,7 +9,23 @@ EXE_EXT:=
 endif
 DEARK_EXE:=deark$(EXE_EXT)
 
+ifeq ($(MAKECMDGOALS),dep)
+
+# Regenerate deps.mk only when someone runs "make dep".
+# (I'm aware that there are ways to do this automatically, and that one might
+# have to run "make clean" before "make dep" in some cases. But only
+# developers need to worry about this. Everyone else can just run "make".)
+dep: deps.mk
+
+else
+
 all: $(DEARK_EXE)
+
+include deps.mk
+
+endif
+
+.PHONY: all clean dep
 
 OBJDIR:=obj
 OFILES_MODS:=$(addprefix $(OBJDIR)/modules/,fmtutil.o os2bmp.o eps.o \
@@ -30,20 +46,6 @@ OFILES_LIB:=$(addprefix $(OBJDIR)/src/,deark-miniz.o deark-util.o deark-data.o \
  deark-core.o deark-modules.o deark-unix.o)
 OFILES_ALL:=$(OBJDIR)/src/deark-cmd.o $(OFILES_LIB) $(OFILES_MODS)
 
-# Prerequisites
-$(addprefix $(OBJDIR)/modules/,fmtutil.o alphabmp.o ansiart.o atari-img.o \
- amigaicon.o bintext.o boxes.o bpg.o exe.o fmtutil.o gemras.o ico.o ilbm.o \
- jbf.o jpeg.o macpaint.o mbk.o misc.o os2bmp.o pict.o psd.o nokia.o \
- qtif.o tga.o tiff.o wmf.o bmp.o riff.o iff.o cfb.o shg.o \
- spectrum512.o): modules/fmtutil.h
-
-$(OBJDIR)/src/deark-miniz.o: foreign/miniz.h
-$(OBJDIR)/modules/compress.o: foreign/liblzw.h
-$(OBJDIR)/modules/zoo.o: foreign/unzoo.h foreign/zoo-lzd.h
-$(OBJDIR)/src/deark-modules.o: src/deark-modules.h
-$(OFILES_LIB) $(OFILES_MODS): src/deark-private.h
-$(OFILES_ALL): src/deark-config.h src/deark.h
-
 $(OBJDIR)/src/deark-miniz.o: CFLAGS+=-fno-strict-aliasing
 
 $(DEARK_EXE): $(OFILES_ALL)
@@ -53,7 +55,15 @@ $(OBJDIR)/%.o: %.c
 	$(CC) $(CFLAGS) -c -o $@ $<
 
 clean:
-	rm -f $(OBJDIR)/src/*.o $(OBJDIR)/modules/*.o $(DEARK_EXE)
+	rm -f $(OBJDIR)/src/*.[od] $(OBJDIR)/modules/*.[od] $(DEARK_EXE)
 
-.PHONY: all clean
+ifeq ($(MAKECMDGOALS),dep)
+
+deps.mk: $(OFILES_ALL:.o=.d)
+	cat $^ > $@
+
+$(OBJDIR)/%.d: %.c
+	$(CC) $(CFLAGS) -MM -MT $(OBJDIR)/$*.o -MF $@ $<
+
+endif
 

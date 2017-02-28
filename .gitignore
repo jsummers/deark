@@ -1,4 +1,5 @@
 /obj/**/*.o
+/obj/**/*.d
 /deark
 /deark.exe
 /proj/vs2008/deark.vcproj.*.user
