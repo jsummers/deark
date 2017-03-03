@@ -386,7 +386,12 @@ static void write_ucstring_to_html(deark *c, const de_ucstring *s, dbuf *f)
 			prev_space = 0;
 		}
 
-		de_write_codepoint_to_html(c, f, ch);
+		if(ch==0x0a) {
+			dbuf_puts(f, "<br>");
+		}
+		else {
+			de_write_codepoint_to_html(c, f, ch);
+		}
 	}
 }
 
@@ -415,7 +420,7 @@ static void print_comments(deark *c, struct de_char_context *charctx, dbuf *ofil
 
 	if(charctx->num_comments<1) return;
 	dbuf_puts(ofile, "<table class=htt><tr>\n");
-	dbuf_puts(ofile, "<td class=htc>");
+	dbuf_puts(ofile, "<td class=hcth>");
 	dbuf_printf(ofile, "<span class=hn>Comments:</span>");
 	dbuf_puts(ofile, "</td>\n");
 
@@ -423,12 +428,6 @@ static void print_comments(deark *c, struct de_char_context *charctx, dbuf *ofil
 
 	dbuf_puts(ofile, "<span class=hv>");
 	for(k=0; k<charctx->num_comments; k++) { // For each comment...
-		// TODO: I've seen some comments that contain 0x0a bytes, no doubt
-		// intended to be interpreted as newlines. We don't currently support
-		// that. They end up as CP437-graphics-0x0a, which is
-		// U+25D9 INVERSE WHITE CIRCLE.
-		// The SAUCE spec seems to be vague about how comment bytes are
-		// supposed to be interpreted.
 		write_ucstring_to_html(c, charctx->comments[k].s, ofile);
 		if(k<charctx->num_comments-1) {
 			dbuf_puts(ofile, "<br>\n");
@@ -475,7 +474,9 @@ static void do_output_html_header(deark *c, struct de_char_context *charctx,
 		dbuf_puts(ofile, " .htc { border: 2px solid #056; text-align: center }\n");
 		if(charctx->num_comments>0) {
 			// Comment table cell <td> styles
-			dbuf_puts(ofile, " .hctc { border: 2px solid #056 }\n");
+			dbuf_puts(ofile, " .hcth { border: 2px solid #056; padding-left: 0.5em; "
+				"padding-right: 0.5em; width: 1px }\n");
+			dbuf_puts(ofile, " .hctc { border: 2px solid #056; padding-left: 0.5em }\n");
 		}
 		// Header name styles
 		dbuf_puts(ofile, " .hn { color: #aaa; font-style: italic }\n");

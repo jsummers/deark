@@ -1026,7 +1026,7 @@ static void de_run_ansiart(deark *c, de_module_params *mparams)
 		// Use the width requested by the user.
 		d->screen->width = width_req;
 	}
-	else if(valid_sauce && si->width_in_chars>=40 && si->width_in_chars<=320) {
+	else if(valid_sauce && si->width_in_chars>=40 && si->width_in_chars<=2048) {
 		// Use the width from SAUCE, if it's available and seems sensible.
 		d->screen->width = si->width_in_chars;
 	}

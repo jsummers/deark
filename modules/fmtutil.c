@@ -248,18 +248,25 @@ static de_int64 sauce_space_padded_length(const de_byte *buf, de_int64 len)
 // TODO: I don't think there's any reason we couldn't read SAUCE strings
 // directly to ucstrings, without doing it via a temporary buffer.
 
+// flags: 0x01: Interpret string as a date
+// flags: 0x02: Interpret 0x0a as newline, regardless of encoding
 static void sauce_bytes_to_ucstring(deark *c, const de_byte *buf, de_int64 len,
-	de_ucstring *s, int encoding, int date_fmt_flag)
+	de_ucstring *s, int encoding, unsigned int flags)
 {
 	de_int32 u;
 	de_int64 i;
 
 	for(i=0; i<len; i++) {
-		if(date_fmt_flag && (i==4 || i==6)) {
+		if((flags&0x01) && (i==4 || i==6)) {
 			ucstring_append_char(s, '-');
 		}
-		u = de_char_to_unicode(c, (de_int32)buf[i], encoding);
-		if(date_fmt_flag && u==32) u=48; // Change space to 0 in dates.
+		if((flags&0x02) && buf[i]==0x0a) {
+			u = 0x000a;
+		}
+		else {
+			u = de_char_to_unicode(c, (de_int32)buf[i], encoding);
+		}
+		if((flags&0x01) && u==32) u=48; // Change space to 0 in dates.
 		ucstring_append_char(s, u);
 	}
 }
@@ -377,7 +384,7 @@ static void sauce_read_comments(deark *c, dbuf *inf, struct de_SAUCE_info *si)
 		cmnt_len = sauce_space_padded_length(buf, 64);
 
 		si->comments[k].s = ucstring_create(c);
-		sauce_bytes_to_ucstring(c, buf, cmnt_len, si->comments[k].s, DE_ENCODING_CP437_G, 0);
+		sauce_bytes_to_ucstring(c, buf, cmnt_len, si->comments[k].s, DE_ENCODING_CP437_G, 0x02);
 
 		de_dbg(c, "comment at %d, len=%d\n", (int)cmnt_pos, (int)cmnt_len);
 
@@ -397,6 +404,11 @@ done:
 	;
 }
 
+static void append_list_item(de_ucstring *s, const char *str)
+{
+	ucstring_printf(s, DE_ENCODING_UTF8, "%s%s", (s->len>0)?" | ":"", str);
+}
+
 // SAUCE = Standard Architecture for Universal Comment Extensions
 // Caller allocates si.
 // This function may allocate si->title, artist, organization, creation_date.
@@ -407,6 +419,7 @@ int de_read_SAUCE(deark *c, dbuf *f, struct de_SAUCE_info *si)
 	de_int64 tmpbuf_len;
 	de_int64 pos;
 	const char *name;
+	de_ucstring *tflags_descr = NULL;
 
 	if(!si) return 0;
 	de_memset(si, 0, sizeof(struct de_SAUCE_info));
@@ -448,7 +461,7 @@ int de_read_SAUCE(deark *c, dbuf *f, struct de_SAUCE_info *si)
 	if(sauce_is_valid_date_string(tmpbuf, 8)) {
 		tmpbuf_len = 8;
 		si->creation_date = ucstring_create(c);
-		sauce_bytes_to_ucstring(c, tmpbuf, tmpbuf_len, si->creation_date, DE_ENCODING_CP437_G, 1);
+		sauce_bytes_to_ucstring(c, tmpbuf, tmpbuf_len, si->creation_date, DE_ENCODING_CP437_G, 0x01);
 	}
 
 	si->original_file_size = dbuf_getui32le(f, pos+90);
@@ -480,7 +493,28 @@ int de_read_SAUCE(deark *c, dbuf *f, struct de_SAUCE_info *si)
 
 	si->tflags = dbuf_getbyte(f, pos+105);
 	if(si->tflags!=0) {
-		de_dbg(c, "tflags: 0x%02x\n", (unsigned int)si->tflags);
+		tflags_descr = ucstring_create(c);
+		if(t==0x0100 || t==0x0101 || t==0x0102 || si->data_type==5) {
+			// ANSiFlags
+			if(si->tflags&0x01) {
+				append_list_item(tflags_descr, "non-blink mode");
+			}
+			if((si->tflags & 0x06)>>1 == 1) {
+				append_list_item(tflags_descr, "8-pixel font");
+			}
+			else if((si->tflags & 0x06)>>1 == 2) {
+				append_list_item(tflags_descr, "9-pixel font");
+			}
+			if((si->tflags & 0x18)>>3 == 1) {
+				append_list_item(tflags_descr, "non-square pixels");
+			}
+			else if((si->tflags & 0x18)>>3 == 2) {
+				append_list_item(tflags_descr, "square pixels");
+			}
+
+		}
+		de_dbg(c, "tflags: 0x%02x (%s)\n", (unsigned int)si->tflags,
+			ucstring_get_printable_sz(tflags_descr));
 	}
 
 	if(si->original_file_size==0 || si->original_file_size>f->len-128) {
@@ -489,6 +523,7 @@ int de_read_SAUCE(deark *c, dbuf *f, struct de_SAUCE_info *si)
 	}
 
 	de_dbg_indent(c, -1);
+	ucstring_destroy(tflags_descr);
 	return 1;
 }
 
