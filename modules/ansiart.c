@@ -33,9 +33,10 @@ struct row_data_struct {
 };
 
 typedef struct localctx_struct {
-	int disable_24bitcolor;
+	int opt_disable_24bitcolor;
+	int opt_disable_blink;
 
-	de_byte always_disable_blink;
+	de_byte sauce_disable_blink;
 
 	struct de_char_screen *screen;
 	struct row_data_struct *row_data;
@@ -184,7 +185,7 @@ static void do_normal_char(deark *c, lctx *d, de_int64 pos, de_byte ch)
 
 		cell->size_flags = 0;
 
-		if(d->disable_blink_attr || d->always_disable_blink) {
+		if(d->disable_blink_attr || d->sauce_disable_blink || d->opt_disable_blink) {
 			// "blink" in this mode means intense-background, instead of blink.
 			if(d->curr_blink && DE_IS_PAL_COLOR(cell->bgcol))
 				cell->bgcol |= 0x08;
@@ -311,7 +312,7 @@ static void do_ext_color(deark *c, lctx *d)
 		return;
 	}
 
-	if(d->disable_24bitcolor) return;
+	if(d->opt_disable_24bitcolor) return;
 
 	cr = (de_byte)(d->parse_results.params[2]%256);
 	cg = (de_byte)(d->parse_results.params[3]%256);
@@ -548,7 +549,7 @@ static void do_code_t(deark *c, lctx *d, de_int64 param_start)
 		// 24-bit color definition.
 		// Reference: http://picoe.ca/2014/03/07/24-bit-ansi/
 		de_uint32 clr;
-		if(d->disable_24bitcolor) return;
+		if(d->opt_disable_24bitcolor) return;
 		clr = (de_uint32)DE_MAKE_RGB(d->parse_results.params[1],
 			d->parse_results.params[2], d->parse_results.params[3]);
 		if(d->parse_results.params[0]==0)
@@ -959,7 +960,10 @@ static void de_run_ansiart(deark *c, de_module_params *mparams)
 	d = de_malloc(c, sizeof(lctx));
 
 	if(de_get_ext_option(c, "ansiart:no24bitcolor")) {
-		d->disable_24bitcolor = 1;
+		d->opt_disable_24bitcolor = 1;
+	}
+	if(de_get_ext_option(c, "ansiart:noblink")) {
+		d->opt_disable_blink = 1;
 	}
 	if(de_get_ext_option(c, "ansiart:vt100")) {
 		d->vt100_mode = 1;
@@ -992,7 +996,7 @@ static void de_run_ansiart(deark *c, de_module_params *mparams)
 
 	if(valid_sauce) {
 		if(si->tflags & 0x01) {
-			d->always_disable_blink = 1;
+			d->sauce_disable_blink = 1;
 		}
 		if((si->tflags & 0x18)>>3 == 0x02) {
 			// Square pixels requested.

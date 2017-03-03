@@ -37,6 +37,9 @@ Deark -- Information about supported formats
    -opt char:output=image - Output to a bitmap instead of HTML
    -opt char:width=<n> - Number of characters per row
    -opt ansiart:no24bitcolor - Disable support for 24-bit color definitions
+   -opt ansiart:noblink - Disable blinking characters, enabling high-intensity
+     background colors. This is usually unnecessary, as well-formed files will
+     explicitly disable blink.
    -opt ansiart:vt100 - Use VT100 mode
 
 * Apple volume label image (module="applevol")
