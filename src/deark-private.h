@@ -603,6 +603,8 @@ int de_is_grayscale_palette(const de_uint32 *pal, de_int64 num_entries);
 void de_bitmap_apply_mask(struct deark_bitmap *fg, struct deark_bitmap *mask,
 	unsigned int flags);
 
+void de_optimize_image_alpha(struct deark_bitmap *img, unsigned int flags);
+
 void de_make_grayscale_palette(de_uint32 *pal, de_int64 num_entries, unsigned int flags);
 
 ///////////////////////////////////////////

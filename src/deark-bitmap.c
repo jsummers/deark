@@ -467,6 +467,60 @@ void de_bitmap_apply_mask(struct deark_bitmap *fg, struct deark_bitmap *mask,
 	}
 }
 
+// If the image is 100% opaque, remove the alpha channel.
+// Otherwise do nothing.
+// flags:
+//  0x1: Make 100% invisible images 100% opaque
+//  0x2: Warn if an invisible image was made opaque
+void de_optimize_image_alpha(struct deark_bitmap *img, unsigned int flags)
+{
+	int has_transparency = 0;
+	int has_visible_pixels = 0;
+	de_int64 i, j;
+	de_int64 k;
+	de_byte a;
+
+	if(img->bytes_per_pixel!=2 && img->bytes_per_pixel!=4) return;
+
+	for(j=0; j<img->height; j++) {
+		for(i=0; i<img->width; i++) {
+			a = DE_COLOR_A(de_bitmap_getpixel(img, i, j));
+			if(a<255) {
+				has_transparency = 1;
+			}
+			if(a>0) {
+				has_visible_pixels = 1;
+			}
+			if(has_transparency && has_visible_pixels) break;
+		}
+	}
+
+	if(has_transparency && !has_visible_pixels && (flags&0x1)) {
+		if(flags&0x2) {
+			de_warn(img->c, "Invisible image detected. Ignoring transparency.\n");
+		}
+	}
+	else if(has_transparency) {
+		return;
+	}
+
+	// No meaningful transparency found.
+	de_dbg3(img->c, "Removing alpha channel from image\n");
+
+	// Note that the format conversion is done in-place. The extra memory used
+	// by the alpha channel is not de-allocated.
+	for(j=0; j<img->height; j++) {
+		for(i=0; i<img->width; i++) {
+			for(k=0; k<img->bytes_per_pixel-1; k++) {
+				img->bitmap[(j*img->width+i)*(img->bytes_per_pixel-1) + k] =
+					img->bitmap[(j*img->width+i)*(img->bytes_per_pixel) + k];
+			}
+		}
+	}
+
+	img->bytes_per_pixel--;
+}
+
 // flag 0x1: white-is-min
 void de_make_grayscale_palette(de_uint32 *pal, de_int64 num_entries, unsigned int flags)
 {

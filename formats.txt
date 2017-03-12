@@ -214,6 +214,9 @@ Deark -- Information about supported formats
 
 * LSS16 (SYSLINUX image) (module="lss16")
 
+* Lumena CEL (module="lumena_cel")
+  - Single-image files only
+
 * MacPaint (module="macpaint")
   - Can also decode brush patterns (use -a)
   Options

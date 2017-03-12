@@ -37,6 +37,7 @@ DE_DECLARE_MODULE(de_module_hsiraw);
 DE_DECLARE_MODULE(de_module_qdv);
 DE_DECLARE_MODULE(de_module_vitec);
 DE_DECLARE_MODULE(de_module_hs2);
+DE_DECLARE_MODULE(de_module_lumena_cel);
 
 // **************************************************************************
 // "copy" module
@@ -1714,4 +1715,90 @@ void de_module_hs2(deark *c, struct deark_module_info *mi)
 	mi->desc = "HS2 (POSTERING)";
 	mi->run_fn = de_run_hs2;
 	mi->identify_fn = de_identify_hs2;
+}
+
+
+// **************************************************************************
+// Lumena CEL
+// **************************************************************************
+
+static void de_run_lumena_cel(deark *c, de_module_params *mparams)
+{
+	de_int64 width, height;
+	de_int64 rowspan;
+	de_int64 i, j;
+	de_uint32 clr;
+	de_byte a;
+	int is_16bit = 0;
+	int is_32bit = 0;
+	struct deark_bitmap *img = NULL;
+	const de_int64 headersize = 4;
+	de_int64 bypp;
+
+	width = de_getui16le(0);
+	height = de_getui16le(2);
+	if(!de_good_image_dimensions_noerr(c, width, height)) goto done;
+
+	// TODO: Support multi-image files
+	is_16bit = (c->infile->len == headersize + width*height*2);
+	is_32bit = (c->infile->len == headersize + width*height*4);
+	if(!is_16bit && !is_32bit) {
+		de_warn(c, "Cannot detect bits/pixel, assuming 32\n");
+		is_32bit = 1;
+	}
+
+	bypp = (is_32bit) ? 4 : 2;
+	rowspan = width * bypp;
+
+	img = de_bitmap_create(c, width, height, is_32bit?4:3);
+	img->flipped = 1;
+
+	for(j=0; j<height; j++) {
+		for(i=0; i<width; i++) {
+			de_int64 pos = headersize + j*rowspan + i*bypp;
+			if(is_32bit) {
+				clr = dbuf_getRGB(c->infile, pos, 0);
+				a = de_getbyte(pos + 3);
+				clr = DE_SET_ALPHA(clr, a);
+			}
+			else {
+				clr = (de_uint32)de_getui16le(pos);
+				clr = de_rgb555_to_888(clr);
+			}
+			de_bitmap_setpixel_rgba(img, i, j, clr);
+		}
+	}
+
+	de_optimize_image_alpha(img, 0x3);
+	de_bitmap_write_to_file(img, NULL, 0);
+
+done:
+	de_bitmap_destroy(img);
+}
+
+static int de_identify_lumena_cel(deark *c)
+{
+	de_int64 width, height;
+	int is_16bit = 0;
+	int is_32bit = 0;
+
+	if(!de_input_file_has_ext(c, "cel")) return 0;
+	width = de_getui16le(0);
+	height = de_getui16le(2);
+
+	is_16bit = (c->infile->len == 4 + width*height*2);
+	is_32bit = (c->infile->len == 4 + width*height*4);
+
+	if(is_16bit || is_32bit)
+		return 60;
+
+	return 0;
+}
+
+void de_module_lumena_cel(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "lumena_cel";
+	mi->desc = "Lumena CEL";
+	mi->run_fn = de_run_lumena_cel;
+	mi->identify_fn = de_identify_lumena_cel;
 }
