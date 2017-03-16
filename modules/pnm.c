@@ -301,6 +301,31 @@ static int read_pam_header(deark *c, lctx *d, struct page_ctx *pg, de_int64 pos1
 		}
 	}
 
+	if(tupltype_line_count==0) {
+		// The TUPLTYPE field is technically optional, but the image is not
+		// portable without it.
+		switch(pg->pam_num_samples) {
+		case 1:
+			pg->pam_subtype = PAMSUBTYPE_GRAY;
+			break;
+		case 2:
+			pg->pam_subtype = PAMSUBTYPE_GRAY;
+			pg->has_alpha = 1;
+			break;
+		case 3:
+			pg->pam_subtype = PAMSUBTYPE_RGB;
+			break;
+		case 4:
+			pg->pam_subtype = PAMSUBTYPE_RGB;
+			pg->has_alpha = 1;
+			break;
+		}
+
+		if(pg->pam_subtype!=0) {
+			de_warn(c, "Color type not specified. Attempting to guess.\n");
+		}
+	}
+
 	pg->hdr_parse_pos = pos;
 	retval = 1;
 done:

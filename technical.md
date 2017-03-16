@@ -135,7 +135,7 @@ UTC (often the case on Windows), the timestamps may not be very accurate.
 ## Modification times and thumbnails ##
 
 Some thumbnail image formats store the last-modified time of the original file.
-This raises the question is whether Deark should use this as the last-modified
+This raises the question of whether Deark should use this as the last-modified
 time of the extracted thumbnail file. Currently, Deark *does* do this, but it
 must be acknowledged that there's something not quite right about it, because
 the thumbnail may have been created much later than the original image.
