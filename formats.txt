@@ -165,6 +165,7 @@ Deark -- Information about supported formats
 * ICO/CUR (Windows icon/cursor) (module="ico")
   - Supports most but not all formats.
   - PNG-formatted icons will be extracted as-is, not decoded.
+  - Extract images of the (otherwise unused) masks for 32-bit images (use -a).
 
 * ILBM and related IFF-based images (module="ilbm")
   - Supports ILBM, ACBM, PBM

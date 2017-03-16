@@ -11,29 +11,20 @@ DE_DECLARE_MODULE(de_module_ico);
 
 typedef struct localctx_struct {
 	int is_cur;
+	int extract_unused_masks;
 } lctx;
 
-// For 32-bit images, the only way to know if an alpha channel is present is
-// to check and see if any of the could-be alpha samples are nonzero.
-static int detect_alpha_channel(deark *c, struct de_bmpinfo *bi, de_int64 pos1)
+static void do_extract_png(deark *c, lctx *d, de_int64 pos, de_int64 len)
 {
-	de_int64 i, j;
-	de_int64 fg_start;
-	de_byte ca;
+	char ext[64];
+	de_int64 w, h;
 
-	if(bi->bitcount!=32) return 0;
-	if(bi->compression_field!=0) return 0; // Not supported
+	// Peek at the PNG data, to figure out the dimensions.
+	w = de_getui32be(pos+16);
+	h = de_getui32be(pos+20);
 
-	fg_start = pos1 + bi->size_of_headers_and_pal;
-
-	for(j=0; j<bi->height; j++) {
-		for(i=0; i<bi->width; i++) {
-			ca = de_getbyte(fg_start + bi->rowspan*j + i*4 + 3);
-			if(ca!=0)
-				return 1;
-		}
-	}
-	return 0;
+	de_snprintf(ext, sizeof(ext), "%dx%d.png", (int)w, (int)h);
+	dbuf_create_file_from_slice(c->infile, pos, len, ext, NULL, 0);
 }
 
 static void do_image_data(deark *c, lctx *d, de_int64 img_num, de_int64 pos1, de_int64 len)
@@ -47,6 +38,7 @@ static void do_image_data(deark *c, lctx *d, de_int64 img_num, de_int64 pos1, de
 	de_byte x;
 	de_byte cr=0, cg=0, cb=0, ca=0;
 	int inverse_warned = 0;
+	int use_mask;
 	int has_alpha_channel = 0;
 	de_int64 bitcount_color;
 	char filename_token[32];
@@ -59,8 +51,7 @@ static void do_image_data(deark *c, lctx *d, de_int64 img_num, de_int64 pos1, de
 	}
 
 	if(bi.file_format == DE_BMPINFO_FMT_PNG) {
-		de_dbg(c, "PNG format\n");
-		dbuf_create_file_from_slice(c->infile, pos1, len, "png", NULL, 0);
+		do_extract_png(c, d, pos1, len);
 		return;
 	}
 
@@ -82,12 +73,17 @@ static void do_image_data(deark *c, lctx *d, de_int64 img_num, de_int64 pos1, de
 	}
 
 	if(bi.bitcount==32) {
-		has_alpha_channel = detect_alpha_channel(c, &bi, pos1);
-
-		if(has_alpha_channel)
-			de_dbg(c, "alpha channel detected\n");
-		else
-			de_dbg(c, "no alpha channel detected, will use mask\n");
+		// 32bpp images have both an alpha channel, and a 1bpp "mask".
+		// We never use a 32bpp image's mask (although we may extract it
+		// separately).
+		// I'm not sure that's necessarily the best thing to do. I think that
+		// in theory the mask could be used to get inverted-background-color
+		// pixels, though I don't know if Windows allows that.
+		use_mask = 0;
+		has_alpha_channel = 1;
+	}
+	else {
+		use_mask = 1;
 	}
 
 	// In the filename, we use the bitcount just for the color data,
@@ -144,7 +140,7 @@ static void do_image_data(deark *c, lctx *d, de_int64 img_num, de_int64 pos1, de
 				}
 			}
 
-			if(!has_alpha_channel) {
+			if(use_mask) {
 				// Read the mask bit, if the main bitmap didn't already
 				// have transparency.
 
@@ -172,7 +168,23 @@ static void do_image_data(deark *c, lctx *d, de_int64 img_num, de_int64 pos1, de
 		}
 	}
 
+	de_optimize_image_alpha(img, (bi.bitcount==32)?0x1:0x0);
+
 	de_bitmap_write_to_file(img, filename_token, 0);
+
+	if(!use_mask && d->extract_unused_masks) {
+		char maskname_token[32];
+		struct deark_bitmap *mask_img = NULL;
+
+		de_snprintf(maskname_token, sizeof(maskname_token), "%dx%dmask",
+			(int)bi.width, (int)bi.height);
+		mask_img = de_bitmap_create(c, bi.width, bi.height, 1);
+		mask_img->flipped = 1;
+		de_convert_image_bilevel(c->infile, bg_start, bi.mask_rowspan, mask_img, 0);
+		de_bitmap_write_to_file(mask_img, maskname_token, DE_CREATEFLAG_IS_AUX);
+		de_bitmap_destroy(mask_img);
+	}
+
 done:
 	de_bitmap_destroy(img);
 }
@@ -201,6 +213,7 @@ static void de_run_ico(deark *c, de_module_params *mparams)
 	de_int64 i;
 
 	d = de_malloc(c, sizeof(lctx));
+	d->extract_unused_masks = (c->extract_level>=2);
 
 	x = de_getui16le(2);
 	if(x==1) {

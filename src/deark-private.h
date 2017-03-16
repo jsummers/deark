@@ -566,7 +566,7 @@ void de_convert_image_bilevel(dbuf *f, de_int64 fpos, de_int64 rowspan,
 	struct deark_bitmap *img, unsigned int flags);
 
 void de_convert_and_write_image_bilevel(dbuf *f, de_int64 fpos,
-	de_int64 w, de_int64 height, de_int64 rowspan, unsigned int cvtflags,
+	de_int64 w, de_int64 h, de_int64 rowspan, unsigned int cvtflags,
 	de_finfo *fi, unsigned int createflags);
 
 void de_read_palette_rgb(dbuf *f,
