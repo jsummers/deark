@@ -55,7 +55,9 @@ typedef struct localctx_struct {
 	de_byte ehb_flag; // "extra halfbrite"
 	de_byte is_ham6;
 	de_byte is_ham8;
+	de_byte in_vdat_image;
 	de_byte is_vdat;
+	de_byte is_sham, is_pchg, is_ctbl;
 	de_byte uses_color_cycling;
 	de_byte errflag; // Set if image(s) format is not supported.
 	de_int64 transparent_color;
@@ -418,7 +420,7 @@ static int do_image_1to8(deark *c, lctx *d, struct img_info *ii,
 	}
 
 	ii->bits_per_row_per_plane = ((ii->width+15)/16)*16;
-	if(d->is_vdat) {
+	if(d->in_vdat_image) {
 		ii->rowspan = ii->bits_per_row_per_plane/8;
 	}
 	else if(d->formtype==CODE_ACBM) {
@@ -461,7 +463,7 @@ static int do_image_1to8(deark *c, lctx *d, struct img_info *ii,
 			cb = DE_COLOR_B(d->pal[0]);
 		}
 
-		if(d->is_vdat) {
+		if(d->in_vdat_image) {
 			get_row_vdat(c, d, ii, unc_pixels, j, row_deplanarized);
 		}
 		else if(d->formtype==CODE_ACBM) {
@@ -558,6 +560,50 @@ done:
 	return retval;
 }
 
+// Print a summary line indicating the main characteristics of this file.
+static void print_summary(deark *c, lctx *d)
+{
+	de_ucstring *summary = NULL;
+
+	if(!d->found_bmhd) goto done;
+
+	summary = ucstring_create(c);
+
+	switch(d->formtype) {
+	case CODE_ILBM: ucstring_append_sz(summary, "ILBM", DE_ENCODING_UTF8); break;
+	case CODE_PBM:  ucstring_append_sz(summary, "PBM" , DE_ENCODING_UTF8); break;
+	case CODE_ACBM: ucstring_append_sz(summary, "ACBM", DE_ENCODING_UTF8); break;
+	default: ucstring_append_sz(summary, "???", DE_ENCODING_UTF8); break;
+	}
+
+	if(d->is_vdat)
+		ucstring_append_sz(summary, " VDAT", DE_ENCODING_UTF8);
+	else if(d->is_sham)
+		ucstring_append_sz(summary, " SHAM", DE_ENCODING_UTF8);
+	else if(d->is_pchg)
+		ucstring_append_sz(summary, " PCHG", DE_ENCODING_UTF8);
+	else if(d->is_ctbl)
+		ucstring_append_sz(summary, " CBTL", DE_ENCODING_UTF8);
+	else if(d->ham_flag)
+		ucstring_append_sz(summary, " HAM", DE_ENCODING_UTF8);
+	else if(d->ehb_flag)
+		ucstring_append_sz(summary, " EHB", DE_ENCODING_UTF8);
+
+	ucstring_printf(summary, DE_ENCODING_UTF8, " cmpr=%d", (int)d->compression);
+	ucstring_printf(summary, DE_ENCODING_UTF8, " planes=%d", (int)d->planes);
+
+	if(d->main_img.masking_code!=0)
+		ucstring_printf(summary, DE_ENCODING_UTF8, " masking=%d", (int)d->main_img.masking_code);
+
+	if(d->uses_color_cycling)
+		ucstring_append_sz(summary, " color-cycling", DE_ENCODING_UTF8);
+
+	de_dbg(c, "summary: %s\n", ucstring_get_printable_sz(summary));
+
+done:
+	ucstring_destroy(summary);
+}
+
 static int do_image(deark *c, lctx *d, struct img_info *ii,
 	de_int64 pos1, de_int64 len, unsigned int createflags)
 {
@@ -578,12 +624,13 @@ static int do_image(deark *c, lctx *d, struct img_info *ii,
 		;
 	}
 	else {
+		de_err(c, "Unsupported ILBM format\n");
 		goto done;
 	}
 
 	if(!de_good_image_dimensions(c, ii->width, ii->height)) goto done;
 
-	if(d->is_vdat) {
+	if(d->in_vdat_image) {
 		// TODO: Consider using the tinystuff decoder for VDAT.
 		if(d->planes!=4) {
 			de_err(c, "VDAT compression not supported with planes=%d\n", (int)d->planes);
@@ -665,9 +712,11 @@ static void do_vdat(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 	de_byte *cmds = NULL;
 	de_int64 prev_unc_len;
 
+	d->is_vdat = 1;
+
 	if(!d->vdat_unc_pixels) {
 		// TODO: Ensure that a VDAT chunk with the wrong amount of uncompressed
-		// data doesn't case remaining VDAT chunks to get out of sync.
+		// data doesn't cause remaining VDAT chunks to get out of sync.
 		d->vdat_unc_pixels = dbuf_create_membuf(c, 0, 0);
 	}
 
@@ -753,6 +802,16 @@ static int do_body(deark *c, lctx *d, struct de_iffctx *ictx, de_int64 pos, de_i
 	}
 
 	return do_image(c, d, &d->main_img, pos, len, 0);
+}
+
+static void do_multipalette(deark *c, lctx *d, de_uint32 chunktype)
+{
+	if(chunktype==CODE_SHAM) { d->is_sham = 1; }
+	else if(chunktype==CODE_PCHG) { d->is_pchg = 1; }
+	else if(chunktype==CODE_CTBL) { d->is_ctbl = 1; }
+
+	de_err(c, "Multi-palette ILBM images are not supported.\n");
+	d->errflag = 1;
 }
 
 static int my_iff_chunk_handler(deark *c, struct de_iffctx *ictx)
@@ -848,8 +907,7 @@ static int my_iff_chunk_handler(deark *c, struct de_iffctx *ictx)
 	case CODE_SHAM:
 	case CODE_PCHG:
 	case CODE_CTBL:
-		de_err(c, "Multi-palette ILBM images are not supported.\n");
-		d->errflag = 1;
+		do_multipalette(c, d, ictx->chunkctx->chunk4cc.id);
 		goto done;
 
 	case CODE_FORM:
@@ -894,9 +952,9 @@ static int my_on_container_end_fn(deark *c, struct de_iffctx *ictx)
 		(unsigned int)ictx->curr_container_contentstype4cc.id);
 
 	if(ictx->curr_container_fmt4cc.id==CODE_BODY) {
-		d->is_vdat = 1;
+		d->in_vdat_image = 1;
 		do_image(c, d, &d->main_img, 0, 0, 0);
-		d->is_vdat = 0;
+		d->in_vdat_image = 0;
 	}
 
 	return 1;
@@ -924,6 +982,7 @@ static void de_run_ilbm(deark *c, de_module_params *mparams)
 	ictx->on_container_end_fn = my_on_container_end_fn;
 	ictx->f = c->infile;
 	de_fmtutil_read_iff_format(c, ictx, 0,c->infile->len);
+	print_summary(c, d);
 
 	dbuf_close(d->vdat_unc_pixels);
 	de_free(c, ictx);
