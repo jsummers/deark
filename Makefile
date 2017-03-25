@@ -46,8 +46,6 @@ OFILES_LIB:=$(addprefix $(OBJDIR)/src/,deark-miniz.o deark-util.o deark-data.o \
  deark-core.o deark-modules.o deark-unix.o)
 OFILES_ALL:=$(OBJDIR)/src/deark-cmd.o $(OFILES_LIB) $(OFILES_MODS)
 
-$(OBJDIR)/src/deark-miniz.o: CFLAGS+=-fno-strict-aliasing
-
 $(DEARK_EXE): $(OFILES_ALL)
 	$(CC) $(LDFLAGS) -o $@ $(OFILES_ALL)
 
