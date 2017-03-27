@@ -13,10 +13,13 @@ DE_DECLARE_MODULE(de_module_ilbm);
 #define CODE_BMHD  0x424d4844
 #define CODE_BODY  0x424f4459
 #define CODE_CAMG  0x43414d47
+#define CODE_CCRT  0x43435254U
+#define CODE_CLUT  0x434c5554U
 #define CODE_CMAP  0x434d4150
 #define CODE_CRNG  0x43524e47
 #define CODE_CTBL  0x4354424c
 #define CODE_DPI   0x44504920
+#define CODE_DRNG  0x44524e47U
 #define CODE_FORM  0x464f524d
 #define CODE_GRAB  0x47524142
 #define CODE_PCHG  0x50434847
@@ -69,6 +72,9 @@ typedef struct localctx_struct {
 	int opt_fixpal;
 
 	dbuf *vdat_unc_pixels;
+
+	// TODO: This hashtable should probably be used more than it is.
+	struct de_inthashtable *chunks_seen;
 
 	// Our palette always has 256 colors. This is how many we read from the file.
 	de_int64 pal_ncolors;
@@ -597,6 +603,14 @@ static void print_summary(deark *c, lctx *d)
 	if(d->uses_color_cycling)
 		ucstring_append_sz(summary, " color-cycling", DE_ENCODING_UTF8);
 
+	if(de_inthashtable_item_exists(c, d->chunks_seen, (de_int64)CODE_CLUT)) {
+		ucstring_append_sz(summary, " CLUT", DE_ENCODING_UTF8);
+	}
+
+	if(!d->found_cmap) {
+		ucstring_append_sz(summary, " no-CMAP", DE_ENCODING_UTF8);
+	}
+
 	de_dbg(c, "summary: %s\n", ucstring_get_printable_sz(summary));
 
 done:
@@ -823,6 +837,9 @@ static int my_iff_chunk_handler(deark *c, struct de_iffctx *ictx)
 
 	de_dbg_indent_save(c, &saved_indent_level);
 
+	// Remember that we've seen at least one chunk of this type
+	de_inthashtable_add_item(c, d->chunks_seen, (de_int64)ictx->chunkctx->chunk4cc.id);
+
 	// Pretend we can handle all nonstandard chunks
 	if(!de_fmtutil_is_standard_iff_chunk(c, ictx, ictx->chunkctx->chunk4cc.id)) {
 		ictx->handled = 1;
@@ -880,17 +897,31 @@ static int my_iff_chunk_handler(deark *c, struct de_iffctx *ictx)
 		do_dpi(c, d, ictx->chunkctx->chunk_dpos, ictx->chunkctx->chunk_dlen);
 		break;
 
+	case CODE_CCRT: // Graphicraft Color Cycling Range and Timing
+		tmp1 = dbuf_geti16be(c->infile, ictx->chunkctx->chunk_dpos);
+		de_dbg(c, "cycling direction: %d\n", (int)tmp1);
+		if(tmp1!=0) {
+			d->uses_color_cycling = 1;
+		}
+		break;
+
 	case CODE_CRNG:
 		if(ictx->chunkctx->chunk_dlen<8) break;
 		tmp1 = de_getui16be(ictx->chunkctx->chunk_dpos+2);
 		tmp2 = de_getui16be(ictx->chunkctx->chunk_dpos+4);
-		de_dbg(c, "flags: 0x%04x\n", (unsigned int)tmp2);
+		de_dbg(c, "CRNG flags: 0x%04x\n", (unsigned int)tmp2);
 		if(tmp2&0x1) {
 			d->uses_color_cycling = 1;
 			de_dbg(c, "rate: %.2f fps\n", (double)(((double)tmp1)*(60.0/16384.0)));
 		}
-		// TODO: Recognize CCRT chunks, and any other color cycling chunks that
-		// may exist.
+		break;
+
+	case CODE_DRNG:
+		tmp2 = de_getui16be(ictx->chunkctx->chunk_dpos+4);
+		de_dbg(c, "DRNG flags: 0x%04x\n", (unsigned int)tmp2);
+		if(tmp2&0x1) {
+			d->uses_color_cycling = 1;
+		}
 		break;
 
 	case CODE_GRAB:
@@ -977,10 +1008,12 @@ static void de_run_ilbm(deark *c, de_module_params *mparams)
 	ictx->on_std_container_start_fn = my_on_std_container_start_fn;
 	ictx->on_container_end_fn = my_on_container_end_fn;
 	ictx->f = c->infile;
+	d->chunks_seen = de_inthashtable_create(c);
 	de_fmtutil_read_iff_format(c, ictx, 0,c->infile->len);
 	print_summary(c, d);
 
 	dbuf_close(d->vdat_unc_pixels);
+	de_inthashtable_destroy(c, d->chunks_seen);
 	de_free(c, ictx);
 	de_free(c, d);
 }
