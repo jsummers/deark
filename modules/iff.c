@@ -17,9 +17,7 @@ DE_DECLARE_MODULE(de_module_iff);
 #define FMT_FOR4   4
 #define FMT_DJVU   10
 
-#define CODE__c_   0x28632920U
 #define CODE_8SVX  0x38535658U
-#define CODE_AUTH  0x41555448U
 #define CODE_CAT   0x43415420U
 #define CODE_CAT4  0x43415434U
 #define CODE_FOR4  0x464f5234U
@@ -38,6 +36,9 @@ static void do_text_chunk(deark *c, struct de_iffctx *ictx, const char *name)
 
 	ictx->handled = 1;
 	s = ucstring_create(c);
+	// TODO: Sometimes this text is clearly not ASCII, but I've never seen
+	// a file with a "CSET" chunk, and I don't know how else I would know
+	// the character encoding.
 	dbuf_read_to_ucstring_n(c->infile,
 		ictx->chunkctx->chunk_dpos, ictx->chunkctx->chunk_dlen, 300,
 		s, DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_ASCII);
@@ -65,13 +66,9 @@ static int my_iff_chunk_handler(deark *c, struct de_iffctx *ictx)
 
 	if(ictx->main_contentstype4cc.id==CODE_8SVX) {
 		switch(ictx->chunkctx->chunk4cc.id) {
-		case CODE__c_:
-			do_text_chunk(c, ictx, "copyright");
-			break;
-		case CODE_AUTH:
-			do_text_chunk(c, ictx, "author");
-			break;
 		case CODE_NAME:
+			// In 8SVX, the NAME chunk means "voice name". In other types
+			// of files, it presumably means some other sort of name.
 			do_text_chunk(c, ictx, "voice name");
 			break;
 		}

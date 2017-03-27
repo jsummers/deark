@@ -128,8 +128,6 @@ struct de_iffctx;
 // - Set ictx->is_std_container (ictx->handled is ignored).
 // - Set ictx->is_raw_container (ictx->handled is ignored).
 // - Handle the chunk, and set ictx->handled.
-// - Rare: Call de_fmtutil_default_iff_chunk_handler, and presumably do something else,
-//   and set ictx->handled.
 // - Do nothing, and set ictx->handled, to suppress default handling.
 // - Do nothing, in which case standard IFF chunks (ANNO, at least) will
 //   handled by the IFF parser.
@@ -181,10 +179,7 @@ struct de_iffctx {
 	int is_raw_container;
 };
 
-int de_fmtutil_default_iff_chunk_handler(deark *c, struct de_iffctx *ictx);
 void de_fmtutil_read_iff_format(deark *c, struct de_iffctx *ictx,
 	de_int64 pos, de_int64 len);
-
-// This function is only for modules that don't use our standard IFF parser.
-void de_fmtutil_handle_standard_iff_chunk(deark *c, dbuf *f, de_int64 dpos, de_int64 dlen,
-	de_uint32 chunktype);
+int de_fmtutil_is_standard_iff_chunk(deark *c, struct de_iffctx *ictx,
+	de_uint32 ct);

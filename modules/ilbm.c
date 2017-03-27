@@ -10,7 +10,6 @@
 DE_DECLARE_MODULE(de_module_ilbm);
 
 #define CODE_ABIT  0x41424954
-#define CODE_ANNO  0x414e4e4f
 #define CODE_BMHD  0x424d4844
 #define CODE_BODY  0x424f4459
 #define CODE_CAMG  0x43414d47
@@ -824,11 +823,8 @@ static int my_iff_chunk_handler(deark *c, struct de_iffctx *ictx)
 
 	de_dbg_indent_save(c, &saved_indent_level);
 
-	if(ictx->chunkctx->chunk4cc.id==CODE_ANNO) {
-		// This is the only chunk we want the IFF parser to handle
-		ictx->handled = 0;
-	}
-	else {
+	// Pretend we can handle all nonstandard chunks
+	if(!de_fmtutil_is_standard_iff_chunk(c, ictx, ictx->chunkctx->chunk4cc.id)) {
 		ictx->handled = 1;
 	}
 

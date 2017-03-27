@@ -997,8 +997,26 @@ void de_fmtutil_atari_set_standard_density(deark *c, struct atari_img_decode_dat
 	}
 }
 
+#define CODE__c_   0x28632920U // "(c) "
 #define CODE_ANNO  0x414e4e4fU
+#define CODE_AUTH  0x41555448U
+#define CODE_NAME  0x4e414d45U
+#define CODE_TEXT  0x54455854U
 #define CODE_RIFF  0x52494646U
+
+static void do_iff_text_chunk(deark *c, dbuf *f, de_int64 dpos, de_int64 dlen,
+	const char *name)
+{
+	de_ucstring *s = NULL;
+
+	if(dlen<1) return;
+	s = ucstring_create(c);
+	dbuf_read_to_ucstring_n(f,
+		dpos, dlen, 300,
+		s, DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_ASCII);
+	de_dbg(c, "%s: \"%s\"\n", name, ucstring_get_printable_sz(s));
+	ucstring_destroy(s);
+}
 
 static void do_iff_anno(deark *c, dbuf *f, de_int64 pos, de_int64 len)
 {
@@ -1024,17 +1042,54 @@ static void do_iff_anno(deark *c, dbuf *f, de_int64 pos, de_int64 len)
 	}
 }
 
-void de_fmtutil_handle_standard_iff_chunk(deark *c, dbuf *f, de_int64 dpos, de_int64 dlen,
+// TODO: This function used to be exported, but it's probably no longer
+// needed for that. It should be refactored to at least have a
+// "struct de_iffctx *ictx" param.
+//
+// Note that some of these chunks are *not* defined in the generic IFF
+// specification.
+// They might be defined in the 8SVX specification. They seem to have
+// become unofficial standard chunks.
+static void de_fmtutil_handle_standard_iff_chunk(deark *c, dbuf *f, de_int64 dpos, de_int64 dlen,
 	de_uint32 chunktype)
 {
 	switch(chunktype) {
+		// Note that chunks appearing here should also be listed below,
+		// in de_fmtutil_is_standard_iff_chunk().
+	case CODE__c_:
+		do_iff_text_chunk(c, f, dpos, dlen, "copyright");
+		break;
 	case CODE_ANNO:
 		do_iff_anno(c, f, dpos, dlen);
+		break;
+	case CODE_AUTH:
+		do_iff_text_chunk(c, f, dpos, dlen, "author");
+		break;
+	case CODE_NAME:
+		do_iff_text_chunk(c, f, dpos, dlen, "name");
+		break;
+	case CODE_TEXT:
+		do_iff_text_chunk(c, f, dpos, dlen, "text");
 		break;
 	}
 }
 
-int de_fmtutil_default_iff_chunk_handler(deark *c, struct de_iffctx *ictx)
+// ictx can be NULL
+int de_fmtutil_is_standard_iff_chunk(deark *c, struct de_iffctx *ictx,
+	de_uint32 ct)
+{
+	switch(ct) {
+	case CODE__c_:
+	case CODE_ANNO:
+	case CODE_AUTH:
+	case CODE_NAME:
+	case CODE_TEXT:
+		return 1;
+	}
+	return 0;
+}
+
+static int de_fmtutil_default_iff_chunk_handler(deark *c, struct de_iffctx *ictx)
 {
 	de_fmtutil_handle_standard_iff_chunk(c, ictx->f,
 		ictx->chunkctx->chunk_dpos, ictx->chunkctx->chunk_dlen,
