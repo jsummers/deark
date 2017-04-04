@@ -46,8 +46,8 @@ static void do_record_pixel(deark *c, lctx *d, struct gif_image_data *gi, unsign
 	pixnum = gi->pixels_set + offset;
 	xi = pixnum%gi->width;
 	yi1 = pixnum/gi->width;
-	if(gi->interlace_map) {
-		yi = gi->interlace_map[(de_uint16)yi1];
+	if(gi->interlace_map && yi1<gi->height) {
+		yi = gi->interlace_map[yi1];
 	}
 	else {
 		yi = yi1;
@@ -220,7 +220,7 @@ static int lzw_process_code(deark *c, lctx *d, struct gif_image_data *gi, struct
 	else {
 		// No, code is not in table.
 		if(lz->oldcode>=lz->ct_used) {
-			de_err(c, "GIF decoding error");
+			de_err(c, "GIF decoding error\n");
 			return 0;
 		}
 
