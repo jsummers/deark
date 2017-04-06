@@ -30,7 +30,7 @@ int de_strcasecmp(const char *a, const char *b)
 
 void de_vsnprintf(char *buf, size_t buflen, const char *fmt, va_list ap)
 {
-	_vsnprintf_s(buf,buflen,_TRUNCATE,fmt,ap);
+	_vsnprintf_s(buf, buflen, _TRUNCATE, fmt, ap);
 }
 
 char *de_strdup(deark *c, const char *s)
@@ -73,13 +73,13 @@ static char *de_utf16_to_utf8_strdup(deark *c, const WCHAR *src)
 	int ret;
 
 	// Calculate the size required by the target string.
-	ret = WideCharToMultiByte(CP_UTF8,0,src,-1,NULL,0,NULL,NULL);
+	ret = WideCharToMultiByte(CP_UTF8, 0, src, -1, NULL, 0, NULL, NULL);
 	if(ret<1) return NULL;
 
 	dstlen = ret;
 	dst = (char*)de_malloc(c, dstlen*sizeof(char));
 
-	ret = WideCharToMultiByte(CP_UTF8,0,src,-1,dst,dstlen,NULL,NULL);
+	ret = WideCharToMultiByte(CP_UTF8, 0, src, -1, dst, dstlen, NULL, NULL);
 	if(ret<1) {
 		de_free(c, dst);
 		return NULL;
@@ -94,7 +94,7 @@ wchar_t *de_utf8_to_utf16_strdup(deark *c, const char *src)
 	int ret;
 
 	// Calculate the size required by the target string.
-	ret = MultiByteToWideChar(CP_UTF8,0,src,-1,NULL,0);
+	ret = MultiByteToWideChar(CP_UTF8, 0, src, -1, NULL, 0);
 	if(ret<1) {
 		de_err(c, "Encoding conversion failed\n");
 		de_fatalerror(c);
@@ -104,7 +104,7 @@ wchar_t *de_utf8_to_utf16_strdup(deark *c, const char *src)
 	dstlen = ret;
 	dst = (WCHAR*)de_malloc(c, dstlen*sizeof(WCHAR));
 
-	ret = MultiByteToWideChar(CP_UTF8,0,src,-1,dst,dstlen);
+	ret = MultiByteToWideChar(CP_UTF8, 0, src, -1, dst, dstlen);
 	if(ret<1) {
 		de_free(c, dst);
 		de_err(c, "Encoding conversion failed\n");
@@ -149,7 +149,7 @@ static FILE* de_fopen(deark *c, const char *fn, const WCHAR *modeW,
 
 	fnW = de_utf8_to_utf16_strdup(c, fn);
 
-	errcode = _wfopen_s(&f,fnW,modeW);
+	errcode = _wfopen_s(&f, fnW, modeW);
 
 	de_free(c, fnW);
 
