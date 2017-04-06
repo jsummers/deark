@@ -6,7 +6,7 @@
 
 #include <deark-config.h>
 #include <deark-private.h>
-#include "fmtutil.h"
+#include <deark-fmtutil.h>
 DE_DECLARE_MODULE(de_module_qtif);
 
 typedef struct localctx_struct {

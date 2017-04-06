@@ -419,6 +419,10 @@
 				>
 			</File>
 			<File
+				RelativePath="..\..\src\deark-fmtutil.h"
+				>
+			</File>
+			<File
 				RelativePath="..\..\src\deark-modules.h"
 				>
 			</File>
@@ -428,10 +432,6 @@
 			</File>
 			<File
 				RelativePath="..\..\src\deark.h"
-				>
-			</File>
-			<File
-				RelativePath="..\..\modules\fmtutil.h"
 				>
 			</File>
 			<File

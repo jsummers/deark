@@ -8,7 +8,7 @@
 
 #include <deark-config.h>
 #include <deark-private.h>
-#include "fmtutil.h"
+#include <deark-fmtutil.h>
 DE_DECLARE_MODULE(de_module_jpeg);
 DE_DECLARE_MODULE(de_module_j2c);
 DE_DECLARE_MODULE(de_module_jpegscan);

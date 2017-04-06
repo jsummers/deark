@@ -7,7 +7,7 @@
 #define DE_NOT_IN_MODULE
 #include <deark-config.h>
 #include <deark-private.h>
-#include "fmtutil.h"
+#include <deark-fmtutil.h>
 
 // Gathers information about a DIB.
 // If DE_BMPINFO_HAS_FILEHEADER flag is set, pos points to the BITMAPFILEHEADER.
