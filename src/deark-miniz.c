@@ -328,7 +328,7 @@ static mz_bool my_mz_zip_writer_init_file(deark *c, mz_zip_archive *pZip, const 
     de_err(c, "Failed to initialize ZIP file\n");
     return MZ_FALSE;
   }
-  if (NULL == (pFile = de_fopen(c, pFilename, "wb", msgbuf, sizeof(msgbuf))))
+  if (NULL == (pFile = de_fopen_for_write(c, pFilename, msgbuf, sizeof(msgbuf))))
   {
     de_err(c, "Failed to write %s: %s\n", pFilename, msgbuf);
     mz_zip_writer_end(pZip);

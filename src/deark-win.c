@@ -140,21 +140,18 @@ void de_utf8_to_utf16_to_FILE(deark *c, const char *src, FILE *f)
 	de_free(c, dst_large);
 }
 
-FILE* de_fopen(deark *c, const char *fn, const char *mode,
+static FILE* de_fopen(deark *c, const char *fn, const WCHAR *modeW,
 	char *errmsg, size_t errmsg_len)
 {
 	FILE *f = NULL;
 	errno_t errcode;
 	WCHAR *fnW;
-	WCHAR *modeW;
 
 	fnW = de_utf8_to_utf16_strdup(c, fn);
-	modeW = de_utf8_to_utf16_strdup(c, mode);
 
 	errcode = _wfopen_s(&f,fnW,modeW);
 
 	de_free(c, fnW);
-	de_free(c, modeW);
 
 	errmsg[0] = '\0';
 
@@ -165,24 +162,17 @@ FILE* de_fopen(deark *c, const char *fn, const char *mode,
 	return f;
 }
 
-int de_fclose(FILE *fp)
-{
-	return fclose(fp);
-}
-
-int de_examine_file_by_name(deark *c, const char *fn, de_int64 *len,
+static int de_examine_file_by_fd(deark *c, int fd, de_int64 *len,
 	char *errmsg, size_t errmsg_len, unsigned int *returned_flags)
 {
-	struct _stat stbuf;
-	WCHAR *fnW;
+	struct __stat64 stbuf;
 	int retval = 0;
 
 	*returned_flags = 0;
-	fnW = de_utf8_to_utf16_strdup(c, fn);
 
-	de_memset(&stbuf, 0, sizeof(struct _stat));
+	de_memset(&stbuf, 0, sizeof(struct __stat64));
 
-	if(0 != _wstat(fnW, &stbuf)) {
+	if(0 != _fstat64(fd, &stbuf)) {
 		strerror_s(errmsg, (size_t)errmsg_len, errno);
 		goto done;
 	}
@@ -197,8 +187,39 @@ int de_examine_file_by_name(deark *c, const char *fn, de_int64 *len,
 	retval = 1;
 
 done:
-	de_free(c, fnW);
 	return retval;
+}
+
+FILE* de_fopen_for_read(deark *c, const char *fn, de_int64 *len,
+	char *errmsg, size_t errmsg_len, unsigned int *returned_flags)
+{
+	int ret;
+	FILE *f;
+
+	f = de_fopen(c, fn, L"rb", errmsg, errmsg_len);
+	if(!f) {
+		return NULL;
+	}
+
+	ret = de_examine_file_by_fd(c, _fileno(f), len, errmsg, errmsg_len,
+		returned_flags);
+	if(!ret) {
+		de_fclose(f);
+		return NULL;
+	}
+
+	return f;
+}
+
+FILE* de_fopen_for_write(deark *c, const char *fn,
+	char *errmsg, size_t errmsg_len)
+{
+	return de_fopen(c, fn, L"wb", errmsg, errmsg_len);
+}
+
+int de_fclose(FILE *fp)
+{
+	return fclose(fp);
 }
 
 void de_update_file_perms(dbuf *f)

@@ -51,7 +51,7 @@ de_int64 de_strtoll(const char *string, char **endptr, int base)
 	return strtoll(string, endptr, base);
 }
 
-FILE* de_fopen(deark *c, const char *fn, const char *mode,
+static FILE* de_fopen(deark *c, const char *fn, const char *mode,
 	char *errmsg, size_t errmsg_len)
 {
 	FILE *f;
@@ -65,13 +65,9 @@ FILE* de_fopen(deark *c, const char *fn, const char *mode,
 	return f;
 }
 
-int de_fclose(FILE *fp)
-{
-	return fclose(fp);
-}
-
+// Test if the file seems suitable for reading, and return its size.
 // returned flags: 0x1 = file si a FIFO (named pipe)
-int de_examine_file_by_name(deark *c, const char *fn, de_int64 *len,
+static int de_examine_file_by_fd(deark *c, int fd, de_int64 *len,
 	char *errmsg, size_t errmsg_len, unsigned int *returned_flags)
 {
 	struct stat stbuf;
@@ -79,7 +75,7 @@ int de_examine_file_by_name(deark *c, const char *fn, de_int64 *len,
 	*returned_flags = 0;
 	de_memset(&stbuf, 0, sizeof(struct stat));
 
-	if(0 != stat(fn, &stbuf)) {
+	if(0 != fstat(fd, &stbuf)) {
 		de_strlcpy(errmsg, strerror(errno), errmsg_len);
 		return 0;
 	}
@@ -96,6 +92,38 @@ int de_examine_file_by_name(deark *c, const char *fn, de_int64 *len,
 
 	*len = (de_int64)stbuf.st_size;
 	return 1;
+}
+
+FILE* de_fopen_for_read(deark *c, const char *fn, de_int64 *len,
+	char *errmsg, size_t errmsg_len, unsigned int *returned_flags)
+{
+	int ret;
+	FILE *f;
+
+	f = de_fopen(c, fn, "rb", errmsg, errmsg_len);
+	if(!f) {
+		return NULL;
+	}
+
+	ret = de_examine_file_by_fd(c, fileno(f), len, errmsg, errmsg_len,
+		returned_flags);
+	if(!ret) {
+		de_fclose(f);
+		return NULL;
+	}
+
+	return f;
+}
+
+FILE* de_fopen_for_write(deark *c, const char *fn,
+	char *errmsg, size_t errmsg_len)
+{
+	return de_fopen(c, fn, "wb", errmsg, errmsg_len);
+}
+
+int de_fclose(FILE *fp)
+{
+	return fclose(fp);
 }
 
 // If f->is_executable is set, try to make the file executable.

@@ -310,14 +310,12 @@ void de_msg(deark *c, const char *fmt, ...)
 void de_warn(deark *c, const char *fmt, ...)
   de_gnuc_attribute ((format (printf, 2, 3)));
 
-FILE* de_fopen(deark *c, const char *fn, const char *mode,
+FILE* de_fopen_for_read(deark *c, const char *fn, de_int64 *len,
+	char *errmsg, size_t errmsg_len, unsigned int *returned_flags);
+FILE* de_fopen_for_write(deark *c, const char *fn,
 	char *errmsg, size_t errmsg_len);
 
 int de_fclose(FILE *fp);
-
-// Test if the file seems suitable for reading, and return its size.
-int de_examine_file_by_name(deark *c, const char *fn, de_int64 *len,
-	char *errmsg, size_t errmsg_len, unsigned int *returned_flags);
 
 void de_update_file_perms(dbuf *f);
 void de_update_file_time(dbuf *f);

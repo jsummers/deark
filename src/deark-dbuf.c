@@ -671,7 +671,7 @@ dbuf *dbuf_create_output_file(deark *c, const char *ext, de_finfo *fi,
 	else {
 		de_msg(c, "Writing %s\n", f->name);
 		f->btype = DBUF_TYPE_OFILE;
-		f->fp = de_fopen(c, f->name, "wb", msgbuf, sizeof(msgbuf));
+		f->fp = de_fopen_for_write(c, f->name, msgbuf, sizeof(msgbuf));
 
 		if(!f->fp) {
 			de_err(c, "Failed to write %s: %s\n", f->name, msgbuf);
@@ -893,7 +893,6 @@ void dbuf_printf(dbuf *f, const char *fmt, ...)
 dbuf *dbuf_open_input_file(deark *c, const char *fn)
 {
 	dbuf *f;
-	int ret;
 	unsigned int returned_flags = 0;
 	char msgbuf[200];
 
@@ -902,14 +901,7 @@ dbuf *dbuf_open_input_file(deark *c, const char *fn)
 	f->c = c;
 	f->cache_policy = DE_CACHE_POLICY_ENABLED;
 
-	ret = de_examine_file_by_name(c, fn, &f->len, msgbuf, sizeof(msgbuf), &returned_flags);
-	if(!ret) {
-		de_err(c, "Can't read %s: %s\n", fn, msgbuf);
-		de_free(c, f);
-		return NULL;
-	}
-
-	f->fp = de_fopen(c, fn, "rb", msgbuf, sizeof(msgbuf));
+	f->fp = de_fopen_for_read(c, fn, &f->len, msgbuf, sizeof(msgbuf), &returned_flags);
 
 	if(!f->fp) {
 		de_err(c, "Can't read %s: %s\n", fn, msgbuf);
@@ -1169,7 +1161,7 @@ int dbuf_dump_to_file(dbuf *inf, const char *fn)
 	dbuf *tmpdbuf = NULL;
 	deark *c = inf->c;
 
-	fp = de_fopen(c, fn, "wb", msgbuf, sizeof(msgbuf));
+	fp = de_fopen_for_write(c, fn, msgbuf, sizeof(msgbuf));
 	if(!fp) return 0;
 
 	tmpdbuf = dbuf_create_membuf(c, inf->len, 1);
