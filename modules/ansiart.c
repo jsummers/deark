@@ -1110,6 +1110,16 @@ static int de_identify_ansiart(deark *c)
 	return 0;
 }
 
+static void de_help_ansiart(deark *c)
+{
+	de_msg(c, "-opt ansiart:no24bitcolor : Disable extended colors\n");
+	de_msg(c, "-opt ansiart:noblink : Disable blinking characters\n");
+	de_msg(c, "-opt ansiart:vt100 : Use VT100 mode\n");
+	de_msg(c, "-opt char:output=image : Write an image file instead of HTML\n");
+	de_msg(c, " -opt char:charwidth=<8|9> : Width of a character cell\n");
+	de_msg(c, "-opt char:width=<n> : Number of characters per row\n");
+}
+
 void de_module_ansiart(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "ansiart";
@@ -1117,4 +1127,5 @@ void de_module_ansiart(deark *c, struct deark_module_info *mi)
 	mi->desc = "ANSI Art character graphics";
 	mi->run_fn = de_run_ansiart;
 	mi->identify_fn = de_identify_ansiart;
+	mi->help_fn = de_help_ansiart;
 }

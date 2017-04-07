@@ -101,12 +101,17 @@ static void do_modhelp(deark *c)
 		goto done;
 	}
 
+	if(de_strcmp(c->input_format_req, module_to_use->id)) {
+		de_msg(c, "\"%s\" is an alias for module \"%s\"\n",
+			c->input_format_req, module_to_use->id);
+	}
+
 	if(!module_to_use->help_fn) {
-		de_msg(c, "No help available for module \"%s\"\n", c->input_format_req);
+		de_msg(c, "No help available for module \"%s\"\n", module_to_use->id);
 		goto done;
 	}
 
-	de_msg(c, "Help for module \"%s\":\n", c->input_format_req);
+	de_msg(c, "Help for module \"%s\":\n", module_to_use->id);
 	module_to_use->help_fn(c);
 
 done:

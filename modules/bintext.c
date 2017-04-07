@@ -368,12 +368,19 @@ static int de_identify_xbin(deark *c)
 	return 0;
 }
 
+static void de_help_xbin(deark *c)
+{
+	de_msg(c, "-opt char:output=html : Write HTML instead of an image file\n");
+	de_msg(c, "-opt char:charwidth=<8|9> : Width of a character cell\n");
+}
+
 void de_module_xbin(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "xbin";
 	mi->desc = "XBIN character graphics";
 	mi->run_fn = de_run_xbin;
 	mi->identify_fn = de_identify_xbin;
+	mi->help_fn = de_help_xbin;
 }
 
 ////////////////////// Binary Text //////////////////////
@@ -481,12 +488,20 @@ static int de_identify_bintext(deark *c)
 	return 0;
 }
 
+static void de_help_bintext(deark *c)
+{
+	de_msg(c, "-opt char:output=image : Write an image file instead of HTML\n");
+	de_msg(c, " -opt char:charwidth=<8|9> : Width of a character cell\n");
+	de_msg(c, "-opt char:width=<n> : Number of characters per row\n");
+}
+
 void de_module_bintext(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "bintext";
 	mi->desc = "Binary Text character graphics";
 	mi->run_fn = de_run_bintext;
 	mi->identify_fn = de_identify_bintext;
+	mi->help_fn = de_help_bintext;
 }
 
 ////////////////////// ArtWorx Data Format (ADF) //////////////////////
@@ -581,12 +596,20 @@ static int de_identify_artworx_adf(deark *c)
 	return 75;
 }
 
+static void de_help_artworx_adf(deark *c)
+{
+	de_msg(c, "-opt char:output=html : Write HTML instead of an image file\n");
+	de_msg(c, "-opt char:charwidth=<8|9> : Width of a character cell\n");
+	de_msg(c, "-opt char:width=<n> : Number of characters per row\n");
+}
+
 void de_module_artworx_adf(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "artworx_adf";
 	mi->desc = "ArtWorx Data Format (ADF)";
 	mi->run_fn = de_run_artworx_adf;
 	mi->identify_fn = de_identify_artworx_adf;
+	mi->help_fn = de_help_artworx_adf;
 }
 
 ////////////////////// iCEDraw format (.idf) //////////////////////
