@@ -142,7 +142,8 @@ done:
 
 // Read a token from a NUL-terminated string.
 static int read_next_pam_token(deark *c, lctx *d, struct page_ctx *pg,
-	const char *linebuf, char *tokenbuf, size_t tokenbuflen, de_int64 *curpos)
+	const char *linebuf, size_t linebuflen,
+	char *tokenbuf, size_t tokenbuflen, de_int64 *curpos)
 {
 	de_byte b;
 	de_int64 token_len = 0;
@@ -157,6 +158,9 @@ static int read_next_pam_token(deark *c, lctx *d, struct page_ctx *pg,
 			return 0;
 		}
 
+		if(linepos >= (de_int64)linebuflen) {
+			return 0;
+		}
 		b = linebuf[linepos++];
 		if(b==0) break; // End of line
 
@@ -239,14 +243,22 @@ static int read_pam_header(deark *c, lctx *d, struct page_ctx *pg, de_int64 pos1
 		}
 
 		curpos = 0;
-		if(!read_next_pam_token(c, d, pg, linebuf, token1buf, sizeof(token1buf), &curpos)) goto done;
+		if(!read_next_pam_token(c, d, pg, linebuf, sizeof(linebuf),
+			token1buf, sizeof(token1buf), &curpos))
+		{
+			goto done;
+		}
 
 		if(!de_strcmp(token1buf, "ENDHDR")) {
 			break;
 		}
 
 		// Other header lines have a param
-		if(!read_next_pam_token(c, d, pg, linebuf, token2buf, sizeof(token2buf), &curpos)) goto done;
+		if(!read_next_pam_token(c, d, pg, linebuf, sizeof(linebuf),
+			token2buf, sizeof(token2buf), &curpos))
+		{
+			goto done;
+		}
 
 		if(!de_strcmp(token1buf, "WIDTH")) {
 			pg->width = de_atoi64(token2buf);
