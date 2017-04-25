@@ -117,7 +117,7 @@ void dbuf_read(dbuf *f, de_byte *buf, de_int64 pos, de_int64 len)
 		pos >= f->cache_start_pos &&
 		bytes_to_read <= f->cache_bytes_used - (pos - f->cache_start_pos) )
 	{
-		memcpy(buf, &f->cache[pos - f->cache_start_pos], (size_t)bytes_to_read);
+		de_memcpy(buf, &f->cache[pos - f->cache_start_pos], (size_t)bytes_to_read);
 		bytes_read = bytes_to_read;
 		goto done_read;
 	}
@@ -151,7 +151,7 @@ void dbuf_read(dbuf *f, de_byte *buf, de_int64 pos, de_int64 len)
 		break;
 
 	case DBUF_TYPE_MEMBUF:
-		memcpy(buf, &f->membuf_buf[pos], (size_t)bytes_to_read);
+		de_memcpy(buf, &f->membuf_buf[pos], (size_t)bytes_to_read);
 		bytes_read = bytes_to_read;
 		break;
 
@@ -288,8 +288,13 @@ de_int64 dbuf_geti32le(dbuf *f, de_int64 pos)
 
 de_int64 de_geti64be_direct(const de_byte *m)
 {
-	return ((de_int64)m[7]) | (((de_int64)m[6])<<8) | (((de_int64)m[5])<<16) | (((de_int64)m[4])<<24) |
-		(((de_int64)m[3])<<32) | (((de_int64)m[2])<<40) | (((de_int64)m[1])<<48) | (((de_int64)m[0])<<56);
+	unsigned int i;
+	de_uint64 val = 0;
+
+	for(i=0; i<8; i++) {
+		val |= ((de_uint64)m[i])<<((7-i)*8);
+	}
+	return (de_int64)val;
 }
 
 de_int64 dbuf_geti64be(dbuf *f, de_int64 pos)
@@ -301,8 +306,13 @@ de_int64 dbuf_geti64be(dbuf *f, de_int64 pos)
 
 de_int64 de_geti64le_direct(const de_byte *m)
 {
-	return ((de_int64)m[0]) | (((de_int64)m[1])<<8) | (((de_int64)m[2])<<16) | (((de_int64)m[3])<<24) |
-		(((de_int64)m[4])<<32) | (((de_int64)m[5])<<40) | (((de_int64)m[6])<<48) | (((de_int64)m[7])<<56);
+	unsigned int i;
+	de_uint64 val = 0;
+
+	for(i=0; i<8; i++) {
+		val |= ((de_uint64)m[i])<<(i*8);
+	}
+	return (de_int64)val;
 }
 
 de_int64 dbuf_geti64le(dbuf *f, de_int64 pos)
@@ -723,7 +733,7 @@ static void membuf_append(dbuf *f, const de_byte *m, de_int64 mlen)
 		f->membuf_alloc = new_alloc_size;
 	}
 
-	memcpy(&f->membuf_buf[f->len], m, (size_t)mlen);
+	de_memcpy(&f->membuf_buf[f->len], m, (size_t)mlen);
 	f->len += mlen;
 }
 
@@ -874,7 +884,7 @@ void dbuf_writeui32le(dbuf *f, de_int64 n)
 
 void dbuf_puts(dbuf *f, const char *sz)
 {
-	dbuf_write(f, (const de_byte*)sz, (de_int64)strlen(sz));
+	dbuf_write(f, (const de_byte*)sz, (de_int64)de_strlen(sz));
 }
 
 // TODO: Remove the buffer size limitation?

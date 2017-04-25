@@ -39,9 +39,9 @@ unsigned int de_get_version_int(void)
 void de_strlcpy(char *dst, const char *src, size_t dstlen)
 {
 	size_t n;
-	n = strlen(src);
+	n = de_strlen(src);
 	if(n>dstlen-1) n=dstlen-1;
-	memcpy(dst, src, n);
+	de_memcpy(dst, src, n);
 	dst[n]='\0';
 }
 
@@ -647,7 +647,7 @@ const char *de_get_sz_ext(const char *sz)
 
 	if(!sz) return g_empty_string;
 
-	len = (int)strlen(sz);
+	len = (int)de_strlen(sz);
 	if(len<2) return g_empty_string;
 
 	// Find the position of the last ".", that's after the last "/"
