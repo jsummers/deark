@@ -1,6 +1,7 @@
 # Technical information about Deark #
 
-This document is a supplement to the information in the readme.md file.
+This document is a supplement to the information in the [readme.md](readme.md)
+file.
 
 ## Mission statement ##
 

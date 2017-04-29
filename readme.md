@@ -11,7 +11,7 @@ The files it writes are usually named "output.*".
 This program is still being developed, and its features are subject to change
 without notice.
 
-For additional information, see the technical.md file.
+For additional information, see the [technical.md](technical.md) file.
 
 ## Usage ##
 
@@ -161,11 +161,11 @@ See the "COPYING" file for the license text.
 The main Deark license does not necessarily apply to the code in the "foreign"
 subdirectory. Each file there may have its own licensing terms.
 
-By necessity, Deark contains knowledge about how to decode various file
-formats. This knowledge includes data structures, algorithms, tables, color
-palettes, etc. The author(s) of Deark make no intellectual property claims to
-this essential knowledge, but they cannot guarantee that no one else will
-attempt to do so.
+By necessity, Deark contains knowledge about how to decode various
+third-party file formats. This knowledge includes data structures,
+algorithms, tables, color palettes, etc. The author(s) of Deark make no
+intellectual property claims to this essential knowledge, but they cannot
+guarantee that no one else will attempt to do so.
 
 Deark contains at least one bitmapped font, which has been reported to be in
 the public domain.
@@ -177,11 +177,12 @@ legally permissible in your jurisdiction.
 Be particularly wary of relying on Deark to decode archive and compression
 formats (tar, ar, gzip, cpio, ...). For example, to decode tar format, you
 really should use a battle-hardened application like GNU Tar, not Deark.
-Deark's support for such formats is often incomplete, and it usually does no integrity checking.
+Deark's support for such formats is often incomplete, and it does not always
+do integrity checking.
 
 ## How to build ##
 
-See the technical.md file.
+See the [technical.md](technical.md) file.
 
 ## Acknowledgements ##
 
