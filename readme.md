@@ -79,6 +79,11 @@ Command-line options:
    Extract at most &lt;n> files.
 -maxdim &lt;n>
    Allow image dimensions up to &lt;n> pixels.
+   By default, Deark refuses to generate images with a dimension larger than
+   10000 pixels. You can use -maxdim to decrease or increase the limit.
+   Increase the limit at your own risk. Deark does not generate large images
+   efficiently. In practice, a large dimension will only work if the other
+   dimension is very small.
 -get &lt;n>
    Extract only the file identifed by &lt;n>. The first file is 0.
    Equivalent to "-firstfile &lt;n> -maxfiles 1".

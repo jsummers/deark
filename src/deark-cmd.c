@@ -433,7 +433,7 @@ static void parse_cmdline(deark *c, struct cmdctx *cc, int argc, char **argv)
 				de_set_max_output_files(c, de_atoi(argv[i+1]));
 				break;
 			case DE_OPT_MAXIMGDIM:
-				de_set_max_image_dimension(c, de_atoi(argv[i+1]));
+				de_set_max_image_dimension(c, de_atoi64(argv[i+1]));
 				break;
 			case DE_OPT_DPREFIX:
 				de_set_dprefix(c, argv[i+1]);

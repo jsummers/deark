@@ -459,6 +459,8 @@ void de_set_max_output_files(deark *c, int n)
 
 void de_set_max_image_dimension(deark *c, de_int64 n)
 {
+	if(n<0) n=0;
+	else if (n>0x7fffffff) n=0x7fffffff;
 	c->max_image_dimension = n;
 }
 

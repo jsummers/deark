@@ -71,9 +71,12 @@ static void *my_tdefl_write_image_to_png_file_in_memory_ex(const void *pImage, i
 		mz_uint8 pnghdr[33]={
 			0x89,0x50,0x4e,0x47,0x0d,0x0a,0x1a,0x0a, // 8-byte signature
 			0x00,0x00,0x00,0x0d,0x49,0x48,0x44,0x52, // IHDR length, type
-			0,0,(mz_uint8)(w>>8),(mz_uint8)w,0,0,(mz_uint8)(h>>8),(mz_uint8)h,8,chans[num_chans],0,0,0, // 13 bytes of IHDR data
+			0,0,0,0,0,0,0,0,8,0,0,0,0, // 13 bytes of IHDR data
 			0,0,0,0 // IHDR CRC
 		};
+		de_writeui32be_direct(&pnghdr[16], w);
+		de_writeui32be_direct(&pnghdr[20], h);
+		pnghdr[25] = chans[num_chans];
 		c=(mz_uint32)mz_crc32(MZ_CRC32_INIT,pnghdr+12,17);
 		for (i=0; i<4; ++i, c<<=8) ((mz_uint8*)(pnghdr+29))[i]=(mz_uint8)(c>>24); // Set IHDR CRC
 		memcpy(out_buf.m_pBuf, pnghdr, 33);
