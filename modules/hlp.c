@@ -31,17 +31,41 @@ typedef struct localctx_struct {
 	de_int64 ver_minor;
 	de_int64 topic_block_size;
 	int is_compressed;
+	int pass;
 } lctx;
 
 static void do_file(deark *c, lctx *d, de_int64 pos1, int file_fmt);
 
-static void do_SYSTEMREC(deark *c, lctx *d, unsigned int recordtype,
-	de_int64 pos1, de_int64 len, const char *recordtypename)
-{
-	if(recordtype==5) { // Icon
-		dbuf_create_file_from_slice(c->infile, pos1, len, "ico", NULL, DE_CREATEFLAG_IS_AUX);
-	}
-}
+struct systemrec_info {
+	unsigned int rectype;
+
+	// low 8 bits = version info
+	// 0x0010 = STRINGZ type
+	unsigned int flags;
+
+	const char *name;
+	void *reserved;
+};
+static const struct systemrec_info systemrec_info_arr[] = {
+	{ 1,  0x0010, "Title", NULL },
+	{ 2,  0x0010, "Copyright", NULL },
+	{ 3,  0x0000, "Contents", NULL },
+	{ 4,  0x0010, "Macro", NULL },
+	{ 5,  0x0000, "Icon", NULL },
+	{ 6,  0x0000, "Window", NULL },
+	{ 8,  0x0010, "Citation", NULL },
+	{ 9,  0x0000, "Language ID", NULL },
+	{ 10, 0x0010, "CNT file name", NULL },
+	{ 11, 0x0000, "Charset", NULL },
+	{ 12, 0x0000, "Default dialog font", NULL },
+	{ 13, 0x0010, "Defined GROUPs", NULL },
+	{ 14, 0x0011, "IndexSeparators separators", NULL },
+	{ 14, 0x0002, "Multimedia Help Files", NULL },
+	{ 18, 0x0010, "Defined language", NULL },
+	{ 19, 0x0000, "Defined DLLMAPS", NULL }
+};
+static const struct systemrec_info systemrec_info_default =
+	{ 0, 0x0000, "?", NULL };
 
 static void hlptime_to_timestamp(de_int64 ht, struct de_timestamp *ts)
 {
@@ -55,21 +79,28 @@ static void hlptime_to_timestamp(de_int64 ht, struct de_timestamp *ts)
 	}
 }
 
-static const char *sysrec_type_to_type_name(unsigned int t)
+static void do_SYSTEMREC(deark *c, lctx *d, unsigned int recordtype,
+	de_int64 pos1, de_int64 len, const char *recordtypename)
 {
-	const char *name = "?";
-	switch(t) {
-	case 1: name="title"; break;
-	case 2: name="copyright"; break;
-	case 3: name="contents"; break;
-	case 4: name="macro"; break;
-	case 5: name="icon"; break;
-	case 6: name="window"; break;
-	case 9: name="language ID"; break;
-	case 10: name="CNT file name"; break;
-	case 11: name="charset"; break;
+	if(recordtype==5) { // Icon
+		dbuf_create_file_from_slice(c->infile, pos1, len, "ico", NULL, DE_CREATEFLAG_IS_AUX);
 	}
-	return name;
+}
+
+static const struct systemrec_info *find_sysrec_info(deark *c, lctx *d, unsigned int t)
+{
+	size_t i;
+
+	for(i=0; i<DE_ITEMS_IN_ARRAY(systemrec_info_arr); i++) {
+		const struct systemrec_info *sti;
+		sti = &systemrec_info_arr[i];
+		if(sti->rectype==t &&
+			(sti->flags&0x0f)==0)
+		{
+			return sti;
+		}
+	}
+	return &systemrec_info_default;
 }
 
 static int do_file_SYSTEM_header(deark *c, lctx *d, de_int64 pos1)
@@ -140,7 +171,8 @@ done:
 	return retval;
 }
 
-static void do_file_SYSTEM_SYSTEMRECS(deark *c, lctx *d, de_int64 pos1, de_int64 len)
+static void do_file_SYSTEM_SYSTEMRECS(deark *c, lctx *d, de_int64 pos1, de_int64 len,
+	int systemrecs_pass)
 {
 	de_int64 pos = pos1;
 
@@ -148,7 +180,7 @@ static void do_file_SYSTEM_SYSTEMRECS(deark *c, lctx *d, de_int64 pos1, de_int64
 		unsigned int recordtype;
 		de_int64 datasize;
 		de_int64 systemrec_startpos;
-		const char *recordtypename;
+		const struct systemrec_info *sti;
 
 		systemrec_startpos = pos;
 
@@ -157,14 +189,14 @@ static void do_file_SYSTEM_SYSTEMRECS(deark *c, lctx *d, de_int64 pos1, de_int64
 		datasize = de_getui16le(pos);
 		pos += 2;
 
-		recordtypename = sysrec_type_to_type_name(recordtype);
+		sti = find_sysrec_info(c, d, recordtype);
 		de_dbg(c, "SYSTEMREC type %u (%s) at %d, dpos=%d, dlen=%d\n",
-			recordtype, recordtypename,
+			recordtype, sti->name,
 			(int)systemrec_startpos, (int)pos, (int)datasize);
 
 		if(pos+datasize > pos1+len) break; // bad data
 		de_dbg_indent(c, 1);
-		do_SYSTEMREC(c, d, recordtype, pos, datasize, recordtypename);
+		do_SYSTEMREC(c, d, recordtype, pos, datasize, sti->name);
 		de_dbg_indent(c, -1);
 		pos += datasize;
 	}
@@ -176,7 +208,18 @@ static void do_file_SYSTEM(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 	int saved_indent_level;
 
 	de_dbg_indent_save(c, &saved_indent_level);
-	if(d->found_system_file) goto done;
+
+	// We'll read the SYSTEM "file" only in pass 1, most importantly to record
+	// the format version information.
+	//
+	// The SYSTEM file may contain a series of SYSTEMREC records that we want
+	// to parse. We might [someday] have to make two (sub)passes over the
+	// SYSTEMREC records, the first pass to collect "charset" setting, so it
+	// can be used when parsing the other SYSTEMREC records.
+	// (We can do it this way because there doesn't seem to be anything in the
+	// SYSTEM header that would require knowing the charset.)
+
+	if(d->pass!=1) goto done;
 	d->found_system_file = 1;
 
 	if(!do_file_SYSTEM_header(c, d, pos)) goto done;
@@ -187,7 +230,7 @@ static void do_file_SYSTEM(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 	}
 	else {
 		// A sequence of variable-sized SYSTEMRECs
-		do_file_SYSTEM_SYSTEMRECS(c, d, pos, (pos1+len)-pos);
+		do_file_SYSTEM_SYSTEMRECS(c, d, pos, (pos1+len)-pos, 1);
 	}
 
 done:
@@ -283,7 +326,7 @@ static int filename_to_filetype(deark *c, lctx *d, const char *fn)
 	return 0;
 }
 
-static void do_leaf_page(deark *c, lctx *d, de_int64 pos1, int pass, de_int64 *pnext_page)
+static void do_leaf_page(deark *c, lctx *d, de_int64 pos1, de_int64 *pnext_page)
 {
 	de_int64 n;
 	de_int64 pos = pos1;
@@ -337,8 +380,8 @@ static void do_leaf_page(deark *c, lctx *d, de_int64 pos1, int pass, de_int64 *p
 
 		file_type = filename_to_filetype(c, d, filename_raw);
 
-		if((pass==1 && file_type==FILETYPE_SYSTEM) ||
-			(pass==2 && file_type!=FILETYPE_SYSTEM))
+		if((d->pass==1 && file_type==FILETYPE_SYSTEM) ||
+			(d->pass==2 && file_type!=FILETYPE_SYSTEM))
 		{
 			do_file(c, d, file_offset, file_type);
 		}
@@ -347,7 +390,7 @@ static void do_leaf_page(deark *c, lctx *d, de_int64 pos1, int pass, de_int64 *p
 
 		// All we do in pass 1 is read the SYSTEM file, so we can stop if we've
 		// done that.
-		if(pass==1 && d->found_system_file) break;
+		if(d->pass==1 && d->found_system_file) break;
 	}
 
 done:
@@ -404,7 +447,6 @@ done:
 // genericized.
 static void do_bplustree(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 {
-	int pass;
 	de_int64 pos = pos1;
 	de_int64 n;
 	int saved_indent_level;
@@ -463,12 +505,12 @@ static void do_bplustree(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 
 	page_seen = de_malloc(c, d->bpt.num_pages); // For loop detection
 
-	for(pass=1; pass<=2; pass++) {
+	for(d->pass=1; d->pass<=2; d->pass++) {
 		de_int64 curr_page;
 
 		de_memset(page_seen, 0, (size_t)d->bpt.num_pages);
 
-		de_dbg(c, "pass %d\n", pass);
+		de_dbg(c, "pass %d\n", d->pass);
 		de_dbg_indent(c, 1);
 
 		curr_page = d->bpt.first_leaf_page;
@@ -480,7 +522,7 @@ static void do_bplustree(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 			if(curr_page<0) break;
 			if(curr_page>d->bpt.num_pages) goto done;
 
-			if(pass==1 && page_seen[curr_page]) {
+			if(d->pass==1 && page_seen[curr_page]) {
 				de_err(c, "Page loop detected\n");
 				goto done;
 			}
@@ -492,10 +534,10 @@ static void do_bplustree(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 
 			next_page = -1;
 			de_dbg_indent(c, 1);
-			do_leaf_page(c, d, page_pos, pass, &next_page);
+			do_leaf_page(c, d, page_pos, &next_page);
 			de_dbg_indent(c, -1);
 
-			if(pass==1 && d->found_system_file) {
+			if(d->pass==1 && d->found_system_file) {
 				de_dbg(c, "[found SYSTEM file, so stopping pass 1]\n");
 				break;
 			}
