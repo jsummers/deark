@@ -79,11 +79,35 @@ static void hlptime_to_timestamp(de_int64 ht, struct de_timestamp *ts)
 	}
 }
 
+static void do_display_STRINGZ(deark *c, lctx *d, de_int64 pos1, de_int64 len,
+	const char *name)
+{
+	de_ucstring *s = NULL;
+
+	if(len<1) return;
+	s = ucstring_create(c);
+	dbuf_read_to_ucstring_n(c->infile,
+		pos1, len, 300,
+		s, DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_ASCII);
+	de_dbg(c, "%s: \"%s\"\n", name, ucstring_get_printable_sz(s));
+	ucstring_destroy(s);
+}
+
+static void do_SYSTEMREC_STRINGZ(deark *c, lctx *d, unsigned int recordtype,
+	de_int64 pos1, de_int64 len, const struct systemrec_info *sti)
+{
+	// TODO: Can we figure out the encoding?
+	do_display_STRINGZ(c, d, pos1, len, sti->name);
+}
+
 static void do_SYSTEMREC(deark *c, lctx *d, unsigned int recordtype,
-	de_int64 pos1, de_int64 len, const char *recordtypename)
+	de_int64 pos1, de_int64 len, const struct systemrec_info *sti)
 {
 	if(recordtype==5) { // Icon
 		dbuf_create_file_from_slice(c->infile, pos1, len, "ico", NULL, DE_CREATEFLAG_IS_AUX);
+	}
+	else if(sti->flags&0x10) {
+		do_SYSTEMREC_STRINGZ(c, d, recordtype, pos1, len, sti);
 	}
 }
 
@@ -196,7 +220,7 @@ static void do_file_SYSTEM_SYSTEMRECS(deark *c, lctx *d, de_int64 pos1, de_int64
 
 		if(pos+datasize > pos1+len) break; // bad data
 		de_dbg_indent(c, 1);
-		do_SYSTEMREC(c, d, recordtype, pos, datasize, sti->name);
+		do_SYSTEMREC(c, d, recordtype, pos, datasize, sti);
 		de_dbg_indent(c, -1);
 		pos += datasize;
 	}
@@ -226,7 +250,7 @@ static void do_file_SYSTEM(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 	pos += 12;
 
 	if(d->ver_minor<16) {
-		// TODO: HelpFileTitle
+		do_display_STRINGZ(c, d, pos, (pos1+len)-pos, "HelpFileTitle");
 	}
 	else {
 		// A sequence of variable-sized SYSTEMRECs
