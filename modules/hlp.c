@@ -12,6 +12,7 @@ DE_DECLARE_MODULE(de_module_hlp);
 #define FILETYPE_SYSTEM       2
 #define FILETYPE_TOPIC        10
 #define FILETYPE_SHG          11
+#define FILETYPE_BMP          20
 
 struct bptree {
 	unsigned int flags;
@@ -28,10 +29,13 @@ typedef struct localctx_struct {
 	de_int64 internal_dir_FILEHEADER_offs;
 	struct bptree bpt;
 	int found_system_file;
-	de_int64 ver_minor;
+	int ver_major;
+	int ver_minor;
 	de_int64 topic_block_size;
 	int is_compressed;
 	int pass;
+	int has_shg, has_ico, has_bmp;
+	de_int64 internal_dir_num_levels;
 } lctx;
 
 static void do_file(deark *c, lctx *d, de_int64 pos1, int file_fmt);
@@ -104,6 +108,7 @@ static void do_SYSTEMREC(deark *c, lctx *d, unsigned int recordtype,
 	de_int64 pos1, de_int64 len, const struct systemrec_info *sti)
 {
 	if(recordtype==5) { // Icon
+		d->has_ico = 1;
 		dbuf_create_file_from_slice(c->infile, pos1, len, "ico", NULL, DE_CREATEFLAG_IS_AUX);
 	}
 	else if(sti->flags&0x10) {
@@ -131,7 +136,6 @@ static int do_file_SYSTEM_header(deark *c, lctx *d, de_int64 pos1)
 {
 	de_int64 pos = pos1;
 	de_int64 magic;
-	de_int64 ver_major;
 	de_int64 gen_date;
 	unsigned int flags;
 	struct de_timestamp ts;
@@ -148,14 +152,14 @@ static int do_file_SYSTEM_header(deark *c, lctx *d, de_int64 pos1)
 	de_dbg(c, "SYSTEM file data at %d\n", (int)pos1);
 	de_dbg_indent(c, 1);
 
-	d->ver_minor = de_getui16le(pos);
+	d->ver_minor = (int)de_getui16le(pos);
 	pos += 2;
-	ver_major = de_getui16le(pos);
+	d->ver_major = (int)de_getui16le(pos);
 	pos += 2;
-	de_dbg(c, "help format version: %d.%d\n", (int)ver_major, (int)d->ver_minor);
+	de_dbg(c, "help format version: %d.%d\n", d->ver_major, d->ver_minor);
 
-	if(ver_major!=1) {
-		de_err(c, "Unsupported file version: %d.%d\n", (int)ver_major, (int)d->ver_minor);
+	if(d->ver_major!=1) {
+		de_err(c, "Unsupported file version: %d.%d\n", d->ver_major, d->ver_minor);
 		goto done;
 	}
 
@@ -347,6 +351,7 @@ static int filename_to_filetype(deark *c, lctx *d, const char *fn)
 	if(!de_strcmp(fn, "|SYSTEM")) return FILETYPE_SYSTEM;
 	if(!de_strncmp(fn, "|bm", 3) && de_is_digit(fn[3])) return FILETYPE_SHG;
 	if(!de_strncmp(fn, "bm", 2) && de_is_digit(fn[2])) return FILETYPE_SHG;
+	if(de_sz_has_ext(fn, "bmp")) return FILETYPE_BMP;
 	return 0;
 }
 
@@ -469,12 +474,15 @@ done:
 // There are other data objects in HLP files that use the same kind of data
 // structure. If we ever want to parse them, this function will have to be
 // genericized.
-static void do_bplustree(deark *c, lctx *d, de_int64 pos1, de_int64 len)
+static void do_bplustree(deark *c, lctx *d, de_int64 pos1, de_int64 len,
+	int is_internaldir)
 {
 	de_int64 pos = pos1;
 	de_int64 n;
 	int saved_indent_level;
 	de_byte *page_seen = NULL;
+
+	if(!is_internaldir) return;
 
 	de_dbg_indent_save(c, &saved_indent_level);
 
@@ -514,6 +522,7 @@ static void do_bplustree(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 
 	d->bpt.num_levels = de_geti16le(pos);
 	de_dbg(c, "NLevels: %d\n", (int)d->bpt.num_levels);
+	if(is_internaldir) d->internal_dir_num_levels = d->bpt.num_levels;
 	pos += 2;
 
 	d->bpt.num_entries = de_geti32le(pos);
@@ -580,7 +589,7 @@ done:
 static void do_file_INTERNALDIR(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 {
 	de_dbg(c, "internal dir data at %d\n", (int)pos1);
-	do_bplustree(c, d, pos1, len);
+	do_bplustree(c, d, pos1, len, 1);
 }
 
 static const char* file_type_to_type_name(int file_fmt)
@@ -638,7 +647,12 @@ static void do_file(deark *c, lctx *d, de_int64 pos1, int file_fmt)
 		break;
 
 	case FILETYPE_SHG:
+		d->has_shg = 1;
 		do_file_SHG(c, d, pos, used_space);
+		break;
+
+	case FILETYPE_BMP:
+		d->has_bmp = 1;
 		break;
 	}
 
@@ -676,6 +690,15 @@ static void de_run_hlp(deark *c, de_module_params *mparams)
 	do_header(c, d, pos);
 
 	do_file(c, d, d->internal_dir_FILEHEADER_offs, FILETYPE_INTERNALDIR);
+
+	de_dbg(c, "summary: v%d.%d cmpr=%s blksize=%d levels=%d%s%s%s\n",
+		d->ver_major, d->ver_minor,
+		d->is_compressed?"lz77":"none",
+		(int)d->topic_block_size,
+		(int)d->internal_dir_num_levels,
+		d->has_shg?" has-shg":"",
+		d->has_ico?" has-ico":"",
+		d->has_bmp?" has-bmp":"");
 
 	de_free(c, d);
 }
