@@ -3470,6 +3470,13 @@ static void do_psd_color_mode_data(deark *c, lctx *d, zztype *zz)
 	de_dbg_indent(c, -1);
 }
 
+static de_byte scale_float_to_255(double x)
+{
+	if(x<=0.0) return 0;
+	if(x>=1.0) return 255;
+	return (de_byte)(0.5+x*255.0);
+}
+
 // Extract the primary image
 static void do_bitmap(deark *c, lctx *d, const struct image_info *iinfo, dbuf *f,
 	de_int64 pos, de_int64 len)
@@ -3482,7 +3489,9 @@ static void do_bitmap(deark *c, lctx *d, const struct image_info *iinfo, dbuf *f
 
 	if(!de_good_image_dimensions(c, iinfo->width, iinfo->height)) goto done;
 
-	if(iinfo->bits_per_channel!=8 && iinfo->bits_per_channel!=16) {
+	if(iinfo->bits_per_channel!=8 && iinfo->bits_per_channel!=16 &&
+		iinfo->bits_per_channel!=32)
+	{
 		de_err(c, "Unsupported bits/channel: %d\n", (int)iinfo->bits_per_channel);
 		goto done;
 	}
@@ -3503,7 +3512,8 @@ static void do_bitmap(deark *c, lctx *d, const struct image_info *iinfo, dbuf *f
 		goto done;
 	}
 
-	img = de_bitmap_create(c, iinfo->width, iinfo->height, iinfo->color_mode==1 ? 1 : 3);
+	img = de_bitmap_create(c, iinfo->width, iinfo->height,
+		iinfo->color_mode==PSD_CM_GRAY ? 1 : 3);
 
 	samplespan = iinfo->bits_per_channel/8;
 	rowspan = iinfo->width * samplespan;
@@ -3512,7 +3522,16 @@ static void do_bitmap(deark *c, lctx *d, const struct image_info *iinfo, dbuf *f
 	for(plane=0; plane<nplanes; plane++) {
 		for(j=0; j<iinfo->height; j++) {
 			for(i=0; i<iinfo->width; i++) {
-				b = dbuf_getbyte(f, pos + plane*planespan + j*rowspan + i*samplespan);
+				if(iinfo->bits_per_channel==32) {
+					// TODO: The format of 32-bit samples does not seem to be documented.
+					// This is little more than a guess.
+					double tmpd;
+					tmpd = dbuf_getfloat32x(f, pos + plane*planespan + j*rowspan + i*samplespan, d->is_le);
+					b = scale_float_to_255(tmpd);
+				}
+				else {
+					b = dbuf_getbyte(f, pos + plane*planespan + j*rowspan + i*samplespan);
+				}
 				if(iinfo->color_mode==PSD_CM_RGB) {
 					de_bitmap_setsample(img, i, j, plane, b);
 				}
