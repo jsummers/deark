@@ -102,11 +102,16 @@ struct lzwdeccontext {
 	struct lzw_tableentry ct[4096]; // Code table
 };
 
-static void lzw_init(struct lzwdeccontext *lz, unsigned int root_codesize)
+static int lzw_init(deark *c, struct lzwdeccontext *lz, unsigned int root_codesize)
 {
 	unsigned int i;
 
 	de_memset(lz, 0, sizeof(struct lzwdeccontext));
+
+	if(root_codesize<2 || root_codesize>11) {
+		de_err(c, "Invalid LZW root codesize (%u)\n", root_codesize);
+		return 0;
+	}
 
 	lz->root_codesize = root_codesize;
 	lz->num_root_codes = 1<<lz->root_codesize;
@@ -118,6 +123,8 @@ static void lzw_init(struct lzwdeccontext *lz, unsigned int root_codesize)
 		lz->ct[i].lastchar = (de_byte)i;
 		lz->ct[i].firstchar = (de_byte)i;
 	}
+
+	return 1;
 }
 
 static void lzw_clear(struct lzwdeccontext *lz)
@@ -152,8 +159,8 @@ static void lzw_emit_code(deark *c, lctx *d, struct gif_image_data *gi, struct l
 
 // Add a code to the dictionary.
 // Sets d->last_code_added to the position where it was added.
-// Returns 1 if successful, 0 if table is full.
-static int lzw_add_to_dict(struct lzwdeccontext *lz, unsigned int oldcode, de_byte val)
+// Returns 1 if successful, 2 if table is full, 0 on error.
+static int lzw_add_to_dict(deark *c, struct lzwdeccontext *lz, unsigned int oldcode, de_byte val)
 {
 	static const unsigned int last_code_of_size[] = {
 		// The first 3 values are unused.
@@ -163,10 +170,16 @@ static int lzw_add_to_dict(struct lzwdeccontext *lz, unsigned int oldcode, de_by
 
 	if(lz->ct_used>=4096) {
 		lz->last_code_added = 0;
-		return 0;
+		return 2;
 	}
 
 	newpos = lz->ct_used;
+
+	if(oldcode >= newpos) {
+		de_err(c, "GIF decoding error\n");
+		return 0;
+	}
+
 	lz->ct_used++;
 
 	lz->ct[newpos].parent = (de_uint16)oldcode;
@@ -182,6 +195,7 @@ static int lzw_add_to_dict(struct lzwdeccontext *lz, unsigned int oldcode, de_by
 	}
 
 	lz->last_code_added = newpos;
+
 	return 1;
 }
 
@@ -189,6 +203,8 @@ static int lzw_add_to_dict(struct lzwdeccontext *lz, unsigned int oldcode, de_by
 static int lzw_process_code(deark *c, lctx *d, struct gif_image_data *gi, struct lzwdeccontext *lz,
 		unsigned int code)
 {
+	int ret;
+
 	if(code==lz->eoi_code) {
 		lz->eoi_flag=1;
 		return 1;
@@ -215,7 +231,8 @@ static int lzw_process_code(deark *c, lctx *d, struct gif_image_data *gi, struct
 
 		// Let k = the first character of the translation of the code.
 		// Add <oldcode>k to the dictionary.
-		lzw_add_to_dict(lz,lz->oldcode,lz->ct[code].firstchar);
+		ret = lzw_add_to_dict(c, lz,lz->oldcode,lz->ct[code].firstchar);
+		if(ret==0) return 0;
 	}
 	else {
 		// No, code is not in table.
@@ -226,7 +243,9 @@ static int lzw_process_code(deark *c, lctx *d, struct gif_image_data *gi, struct
 
 		// Let k = the first char of the translation of oldcode.
 		// Add <oldcode>k to the dictionary.
-		if(lzw_add_to_dict(lz,lz->oldcode,lz->ct[lz->oldcode].firstchar)) {
+		ret = lzw_add_to_dict(c, lz,lz->oldcode,lz->ct[lz->oldcode].firstchar);
+		if(ret==0) return 0;
+		if(ret==1) {
 			// Write <oldcode>k to the output stream.
 			lzw_emit_code(c, d, gi, lz, lz->last_code_added);
 		}
@@ -586,7 +605,7 @@ static int do_read_image(deark *c, lctx *d, de_int64 pos1, de_int64 *bytesused)
 	}
 
 	lz = de_malloc(c, sizeof(struct lzwdeccontext));
-	lzw_init(lz, lzw_min_code_size);
+	if(!lzw_init(c, lz, lzw_min_code_size)) goto done;
 	lzw_clear(lz);
 
 	if(gi->interlaced) {
