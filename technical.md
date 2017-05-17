@@ -17,7 +17,8 @@ in files, but usually ignored, such as thumbnail images and comments. The "-d"
 option is a core feature, and can often be used to learn a lot about the file
 in question, whether or not anything is extracted from it.
 
-Another purpose is digital preservation. It is meant to encapsulate information about old formats that might otherwise be hard to find.
+Another purpose is digital preservation. It is meant to encapsulate information
+about old formats that might otherwise be hard to find.
 
 One guideline is that any image format supported by XnView, and not by any
 well-maintained open source software, is a candidate for being supported, no

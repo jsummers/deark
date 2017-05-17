@@ -192,7 +192,7 @@ Deark -- Information about supported formats
   - Extract ICC profiles.
   - Extract JFXX JPEG-formatted thumbnails (rare).
   - Extract XMP data, including "extended XMP".
-  - Extrac JPEG-HDR residual images.
+  - Extract JPEG-HDR residual images.
   - Process Exif data (or extract it: use -a)
   - Process Photoshop-related data.
   - Process Multi-Picture Format (MPF/MPO) data.

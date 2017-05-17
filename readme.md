@@ -149,7 +149,7 @@ Command-line options:
    Set the encoding of the message that are printed to the console. This does
    not affect the extracted data files.
    The default is to use Unicode (UTF-8, when the encoding is relevant).
-   ascii: Use ASCII character only.
+   ascii: Use ASCII characters only.
    oem: [Windows only; has no effect on other platforms] Use the "OEM"
      character set. Maybe useful when paging the output to "|more".
 -msgstostderr
@@ -161,7 +161,7 @@ Command-line options:
 ## Terms of use ##
 
 Starting with version 1.4.x, Deark is distributed under an MIT-style license.
-See the "COPYING" file for the license text.
+See the [COPYING](COPYING) file for the license text.
 
 The main Deark license does not necessarily apply to the code in the "foreign"
 subdirectory. Each file there may have its own licensing terms.
