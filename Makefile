@@ -40,7 +40,7 @@ OFILES_MODS:=$(addprefix $(OBJDIR)/modules/,fmtutil.o os2bmp.o eps.o \
  wpg.o insetpix.o ansiart.o bintext.o tim.o ar.o tar.o \
  rsc.o gemras.o gemfont.o pff2.o jbf.o psf.o pkfont.o png.o cfb.o hlp.o \
  gif.o compress.o wmf.o pict.o xfer.o gemmeta.o alphabmp.o abk.o mbk.o \
- makichan.o bmp.o iccprofile.o iptc.o gzip.o unsupported.o)
+ makichan.o bmp.o iccprofile.o iptc.o gzip.o xface.o unsupported.o)
 OFILES_LIB:=$(addprefix $(OBJDIR)/src/,deark-miniz.o deark-util.o deark-data.o \
  deark-dbuf.o deark-bitmap.o deark-char.o deark-font.o deark-ucstring.o \
  deark-core.o deark-modules.o deark-unix.o)
