@@ -6,34 +6,60 @@
 
 #include <deark-config.h>
 #include <deark-private.h>
+
 DE_DECLARE_MODULE(de_module_xface);
 DE_DECLARE_MODULE(de_module_compfacei);
 
-typedef struct localctx_struct {
-	int reserved;
-} lctx;
+// **************************************************************************
+// X-Face format
+// **************************************************************************
+
+static int has_x_header(dbuf *f)
+{
+	char b[8];
+
+	dbuf_read(f, (de_byte*)b, 0, 8);
+	if((b[0]=='X' || b[0]=='x') &&
+		(b[1]=='-') &&
+		(b[2]=='F' || b[2]=='f') &&
+		(b[3]=='A' || b[3]=='a') &&
+		(b[4]=='C' || b[4]=='c') &&
+		(b[5]=='E' || b[5]=='e') &&
+		(b[6]==':') &&
+		(b[7]==' ' || b[7]=='\t'))
+	{
+		return 1;
+	}
+	return 0;
+}
+
+#include "../foreign/uncompface.h"
 
 static void de_run_xface(deark *c, de_module_params *mparams)
 {
-	lctx *d = NULL;
-
-	d = de_malloc(c, sizeof(lctx));
-
-	de_free(c, d);
+	uncompface_main(c);
 }
 
 static int de_identify_xface(deark *c)
 {
+	int has_ext;
+	int has_hdr;
+
+	has_hdr = has_x_header(c->infile);
+	has_ext = de_input_file_has_ext(c, "xface");
+	if(has_hdr && has_ext) return 100;
+	if(has_hdr) return 80;
+	if(has_ext) return 5;
 	return 0;
 }
 
 void de_module_xface(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "xface";
-	mi->desc = "X-Face";
+	mi->desc = "X-Face icon/avatar";
 	mi->run_fn = de_run_xface;
 	mi->identify_fn = de_identify_xface;
-	mi->flags |= DE_MODFLAG_NONWORKING;
+	mi->flags |= DE_MODFLAG_SECURITYWARNING;
 }
 
 // **************************************************************************
@@ -81,7 +107,7 @@ static int cfi_get_next_token_lowlevel(deark *c, struct compfacei_ctx *cfictx)
 
 	// Skip whitespace
 	// (Note that de_getbyte returns NUL bytes after the end of file,
-	// which we don't count as whitespace, so this loop will definitely
+	// and NUL doesn't count as whitespace, so this loop will definitely
 	// end eventually.)
 	while(cfi_is_whitespace(ch)) {
 		ch = de_getbyte(cfictx->input_parse_pos++);
@@ -152,7 +178,7 @@ static void cfi_set_image_byte(deark *c, struct compfacei_ctx *cfictx, de_byte c
 		}
 	}
 	cfictx->imgpos_x += 8;
-	if(cfictx->imgpos_x>=48) {
+	if(cfictx->imgpos_x>=XFACE_WIDTH) {
 		cfictx->imgpos_x=0;
 		cfictx->imgpos_y++;
 	}
@@ -164,10 +190,10 @@ static void de_run_compfacei(deark *c, de_module_params *mparams)
 	struct compfacei_ctx *cfictx = NULL;
 
 	cfictx = de_malloc(c, sizeof(struct compfacei_ctx));
-	cfictx->img = de_bitmap_create(c, 48, 48, 1);
+	cfictx->img = de_bitmap_create(c, XFACE_WIDTH, XFACE_HEIGHT, 1);
 
 	while(1) {
-		if(image_bytes_processed>=(48*48)/8) break;
+		if(image_bytes_processed>=(XFACE_WIDTH*XFACE_HEIGHT)/8) break;
 		if(!cfi_get_next_token(c, cfictx)) {
 			goto done;
 		}

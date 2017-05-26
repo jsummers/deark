@@ -443,6 +443,10 @@
 				>
 			</File>
 			<File
+				RelativePath="..\..\foreign\uncompface.h"
+				>
+			</File>
+			<File
 				RelativePath="..\..\foreign\unzoo.h"
 				>
 			</File>

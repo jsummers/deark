@@ -96,6 +96,11 @@ Deark -- Information about supported formats
 
 * COKE (Atari Falcon) (*.tg1) (module="coke")
 
+* Compface intermediate format (module="compfacei")
+  This is an obscure text-based format related to X-Face, used by the Compface
+  software.
+  - Cannot be autodetected. You must use "-m compfacei".
+
 * DIB (module="dib")
   - Adds a BMP file header to a raw Windows DIB file.
 
@@ -434,6 +439,9 @@ Deark -- Information about supported formats
   - Extract embedded fonts (use -a).
   Options
    -opt char:output=html - Use HTML output format
+
+* X-Face (icon/avatar format) (module="xface")
+  - You may have to use "-m xface".
 
 * XGA (Atari Falcon image) (module="falcon_xga")
 

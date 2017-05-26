@@ -188,6 +188,6 @@ obj/modules/iptc.o: modules/iptc.c src/deark-config.h src/deark-private.h \
 obj/modules/gzip.o: modules/gzip.c src/deark-config.h src/deark-private.h \
  src/deark.h
 obj/modules/xface.o: modules/xface.c src/deark-config.h \
- src/deark-private.h src/deark.h
+ src/deark-private.h src/deark.h modules/../foreign/uncompface.h
 obj/modules/unsupported.o: modules/unsupported.c src/deark-config.h \
  src/deark-private.h src/deark.h

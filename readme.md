@@ -164,7 +164,10 @@ Starting with version 1.4.x, Deark is distributed under an MIT-style license.
 See the [COPYING](COPYING) file for the license text.
 
 The main Deark license does not necessarily apply to the code in the "foreign"
-subdirectory. Each file there may have its own licensing terms.
+subdirectory. Each file there may have its own licensing terms. In particular:
+
+uncompface.h: Copyright (c) James Ashton - Sydney University - June 1990
+(See the file foreign/readme-compface.txt for details.)
 
 By necessity, Deark contains knowledge about how to decode various
 third-party file formats. This knowledge includes data structures,
@@ -197,6 +200,8 @@ Thanks to Mike Frysinger, and the authors of compress/ncompress, for liblzw.
 
 Thanks to Rahul Dhesi and Martin Schoenert for much of the code used by the ZOO
 format decoder.
+
+Thanks to James Ashton for much of the code used by the X-Face format decoder.
 
 Thanks to countless others who have documented the supported file formats.
 
