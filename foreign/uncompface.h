@@ -43,7 +43,7 @@
  * Implementation uses arrays of WORDs.  COMPs must have at least
  * twice as many bits as WORDs to handle intermediate results */
 #define XFACE_WORD unsigned char
-#define XFACE_COMP unsigned long
+#define XFACE_COMP de_uint32
 #define BITSPERWORD 8
 #define WORDCARRY (1 << BITSPERWORD)
 #define WORDMASK (WORDCARRY - 1)
@@ -245,6 +245,8 @@ struct xfacectx {
 	/* internal face representation - 1 char per pixel is faster */
 	char gg_F[PIXELS];
 
+	// fbuf stores the contents of the source file, plus a NUL terminator.
+	// (Originally, fbuf was overloaded and used for other things as well.)
 	/* the buffer is longer than needed to handle sparse input formats */
 #define FACEBUFLEN 2048
 	char gg_fbuf[FACEBUFLEN];
@@ -257,7 +259,7 @@ static void BigAdd(struct xfacectx *ctx, unsigned char);
 static void BigClear(struct xfacectx *ctx);
 static void BigDiv(struct xfacectx *ctx, unsigned char, unsigned char *);
 static void BigMul(struct xfacectx *ctx, unsigned char);
-static void BigRead(struct xfacectx *ctx, char *);
+static void BigRead(struct xfacectx *ctx, const char *);
 static void PopGreys(struct xfacectx *ctx, char *, int, int);
 static void UnCompAll(struct xfacectx *ctx);
 static void UnCompress(struct xfacectx *ctx, char *, int, int, int);
@@ -267,7 +269,7 @@ static void WriteFace(struct xfacectx *ctx);
 
 // Reads ctx->gg_fbuf into gg_B, as a big int.
 static void
-BigRead(struct xfacectx *ctx, char *fbuf)
+BigRead(struct xfacectx *ctx, const char *fbuf)
 {
 	int c;
 
@@ -290,8 +292,6 @@ WriteFace(struct xfacectx *ctx)
 {
 	de_int64 i, j;
 	struct deark_bitmap *img = NULL;
-
-	ctx->gg_fbuf[0] = '\0'; // FIXME: Remove this
 
 	img = de_bitmap_create(ctx->c, XFACE_WIDTH, XFACE_HEIGHT, 1);
 
@@ -390,7 +390,7 @@ BigMul(struct xfacectx *ctx, XFACE_WORD a)
 	if (a == 0)	/* treat this as a == WORDCARRY */
 	{			/* and just shift everything left a XFACE_WORD */
 		if ((i = ctx->gg_B.b_words++) >= MAXWORDS - 1) {
-			de_err(ctx->c, "xface: Internal error\n");
+			de_err(ctx->c, "xface: Internal error (1)\n");
 			ctx->errflag = 1;
 			return;
 		}
@@ -415,7 +415,7 @@ BigMul(struct xfacectx *ctx, XFACE_WORD a)
 	if (c)
 	{
 		if (ctx->gg_B.b_words++ >= MAXWORDS) {
-			de_err(ctx->c, "xface: Internal error\n");
+			de_err(ctx->c, "xface: Internal error (2)\n");
 			ctx->errflag = 1;
 			return;
 		}
@@ -448,7 +448,7 @@ BigAdd(struct xfacectx *ctx, XFACE_WORD a)
 	if ((i == ctx->gg_B.b_words) && c)
 	{
 		if (ctx->gg_B.b_words++ >= MAXWORDS) {
-			de_err(ctx->c, "xface: Internal error\n");
+			de_err(ctx->c, "xface: Internal error (3)\n");
 			ctx->errflag = 1;
 			return;
 		}
@@ -466,6 +466,23 @@ BigClear(struct xfacectx *ctx)
 
 //========================= gen.c begin =========================
 
+static void gen_helper(struct xfacectx *ctx, const de_byte *arr, size_t arr_len,
+	int h, int k)
+{
+	size_t arr_idx = 0;
+
+	if(k<0 || h<0 || h>=(int)sizeof(ctx->gg_F)) {
+		return;
+	}
+	arr_idx = (size_t)(k/8);
+	if(arr_idx>=arr_len) {
+		return;
+	}
+	if((arr[arr_idx]>>(7-(k%8)))&0x1) {
+		ctx->gg_F[h] ^= 1;
+	}
+}
+
 // I guess that Gen() is where prediction is done.
 // It has what appears to be a programming error, considering that the
 // "case XFACE_WIDTH" code cannot be reached, because i is never larger
@@ -475,11 +492,11 @@ BigClear(struct xfacectx *ctx)
 // -JS
 
 static void
-Gen(struct xfacectx *ctx, char *f)
+Gen(struct xfacectx *ctx, char *f, size_t f_len)
 {
 	int m, l, k, j, i, h;
 
-#define XFACE_GEN(g) ctx->gg_F[h] ^= (gg_G.g[k/8]>>(7-(k%8)))&0x1; break
+#define XFACE_GEN(g) gen_helper(ctx, gg_G.g, sizeof(gg_G.g), h, k); break
 
 	for (j = 0; j < XFACE_HEIGHT;  j++)
 	{
@@ -492,8 +509,14 @@ Gen(struct xfacectx *ctx, char *f)
 				{
 					if ((l >= i) && (m == j))
 						continue;
-					if ((l > 0) && (l <= XFACE_WIDTH) && (m > 0))
+					if ((l > 0) && (l <= XFACE_WIDTH) && (m > 0)) {
+						if((l + m * XFACE_WIDTH < 0) || (l + m * XFACE_WIDTH >= (int)f_len)) {
+							de_err(ctx->c, "xface: Internal error (4)\n");
+							ctx->errflag = 1;
+							return;
+						}
 						k = *(f + l + m * XFACE_WIDTH) ? k * 2 + 1 : k * 2;
+					}
 				}
 			switch (i)
 			{
@@ -611,17 +634,14 @@ UnCompress(struct xfacectx *ctx, char *f, int wid, int hei, int lev)
 	}
 }
 
-// Decompresses image from ctx->gg_fbuf to ctx->gg_F
+// Decompresses image from ctx->gg_fbuf to ctx->gg_F.
+// Assumes ctx->gg_F is initialized to all zero bytes.
 static void
 UnCompAll(struct xfacectx *ctx)
 {
-	char *p;
-
 	BigClear(ctx);
 	BigRead(ctx, ctx->gg_fbuf);
-	p = ctx->gg_F;
-	while (p < ctx->gg_F + PIXELS)
-		*(p++) = 0;
+
 	UnCompress(ctx, ctx->gg_F, 16, 16, 0);
 	if(ctx->errflag) return;
 	UnCompress(ctx, ctx->gg_F + 16, 16, 16, 0);
@@ -651,7 +671,8 @@ uncompface(struct xfacectx *ctx)
 {
 	UnCompAll(ctx);
 	if(ctx->errflag) return;
-	Gen(ctx, ctx->gg_F);
+	Gen(ctx, ctx->gg_F, sizeof(ctx->gg_F));
+	if(ctx->errflag) return;
 	WriteFace(ctx);
 }
 
@@ -665,12 +686,9 @@ uncompface_main(deark *c)
   struct xfacectx *ctx = NULL;
 
   ctx = de_malloc(c, sizeof(struct xfacectx));
-  de_memset(ctx, 0, sizeof(struct xfacectx));
-
   ctx->c = c;
   ctx->inf = c->infile;
 
-  //makearrays(c, ctx);
   ReadBuf(ctx);
   uncompface(ctx);
 
