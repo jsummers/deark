@@ -257,7 +257,7 @@ static void ReadBuf(struct xfacectx *ctx);
 static void uncompface(struct xfacectx *ctx);
 static void BigAdd(struct xfacectx *ctx, unsigned char);
 static void BigClear(struct xfacectx *ctx);
-static void BigDiv(struct xfacectx *ctx, unsigned char, unsigned char *);
+static void BigRSH(struct xfacectx *ctx, XFACE_WORD *r);
 static void BigMul(struct xfacectx *ctx, unsigned char);
 static void BigRead(struct xfacectx *ctx, const char *);
 static void PopGreys(struct xfacectx *ctx, char *, int, int);
@@ -317,7 +317,7 @@ BigPop(struct xfacectx *ctx, const Prob *p)
 	XFACE_WORD tmp = 0;
 	int i;
 
-	BigDiv(ctx, 0, &tmp);
+	BigRSH(ctx, &tmp);
 	i = 0;
 	while ((tmp < p->p_offset) || (tmp >= p->p_range + p->p_offset))
 	{
@@ -331,24 +331,22 @@ BigPop(struct xfacectx *ctx, const Prob *p)
 	return i;
 }
 
-/* Divide B by a storing the result in B and the remainder in the word
- * pointer to by r
- */
+// This is what's left of the original BigDiv() function.
+// It's only needed for the right-shift operation.
+// (Stores the remainder in the word pointer to by r)
 static void
-BigDiv(struct xfacectx *ctx, XFACE_WORD a, XFACE_WORD *r)
+BigRSH(struct xfacectx *ctx, XFACE_WORD *r)
 {
 	int i;
 	XFACE_WORD *w;
-	XFACE_COMP c, d;
 
-	a &= WORDMASK;
-	if ((a == 1) || (ctx->gg_B.b_words == 0))
+	if (ctx->gg_B.b_words == 0)
 	{
 		*r = 0;
 		return;
 	}
-	if (a == 0)	/* treat this as a == WORDCARRY */
-	{			/* and just shift everything right a WORD */
+
+	{
 		i = --ctx->gg_B.b_words;
 		w = ctx->gg_B.b_word;
 		*r = *w;
@@ -358,21 +356,7 @@ BigDiv(struct xfacectx *ctx, XFACE_WORD a, XFACE_WORD *r)
 			w++;
 		}
 		*w = 0;
-		return;
 	}
-	w = ctx->gg_B.b_word + (i = ctx->gg_B.b_words);
-	c = 0;
-	while (i--)
-	{
-		c <<= BITSPERWORD;
-		c += (XFACE_COMP)*--w;
-		d = c / (XFACE_COMP)a;
-		c = c % (XFACE_COMP)a;
-		*w = (XFACE_WORD)(d & WORDMASK);
-	}
-	*r = (XFACE_WORD)c;
-	if (ctx->gg_B.b_word[ctx->gg_B.b_words - 1] == 0)
-		ctx->gg_B.b_words--;
 }
 
 /* Multiply a by ctx->gg_B storing the result in ctx->gg_B
@@ -415,7 +399,7 @@ BigMul(struct xfacectx *ctx, XFACE_WORD a)
 	if (c)
 	{
 		if (ctx->gg_B.b_words++ >= MAXWORDS) {
-			de_err(ctx->c, "xface: Internal error (2)\n");
+			de_err(ctx->c, "Invalid or oversized X-Face image\n");
 			ctx->errflag = 1;
 			return;
 		}

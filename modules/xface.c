@@ -59,7 +59,6 @@ void de_module_xface(deark *c, struct deark_module_info *mi)
 	mi->desc = "X-Face icon/avatar";
 	mi->run_fn = de_run_xface;
 	mi->identify_fn = de_identify_xface;
-	mi->flags |= DE_MODFLAG_SECURITYWARNING;
 }
 
 // **************************************************************************
