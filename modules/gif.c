@@ -366,14 +366,36 @@ static void do_skip_subblocks(deark *c, lctx *d, de_int64 pos1, de_int64 *bytesu
 static void do_graphic_control_extension(deark *c, lctx *d, de_int64 pos)
 {
 	de_byte packed_fields;
+	de_byte disposal_method;
+	de_byte user_input_flag;
+	de_int64 delay_time_raw;
+	double delay_time;
+	const char *name;
 
 	d->graphic_control_ext_data_valid = 1;
 	d->trns_color_idx_valid = 0;
 
 	// 0 = block size (we assume this is 4 or more)
 	packed_fields = de_getbyte(pos+1);
-	d->trns_color_idx_valid = (packed_fields&0x01)?1:0;
+	d->trns_color_idx_valid = packed_fields&0x01;
 	de_dbg(c, "has transparency: %d\n", d->trns_color_idx_valid);
+
+	user_input_flag = (packed_fields>>1)&0x1;
+	de_dbg(c, "user input flag: %d\n", (int)user_input_flag);
+
+	disposal_method = (packed_fields>>2)&0x7;
+	switch(disposal_method) {
+	case 0: name="unspecified"; break;
+	case 1: name="leave in place"; break;
+	case 2: name="restore to background"; break;
+	case 3: name="restore to previous"; break;
+	default: name="?";
+	}
+	de_dbg(c, "disposal method: %d (%s)\n", (int)disposal_method, name);
+
+	delay_time_raw = de_getui16le(pos+2);
+	delay_time = ((double)delay_time_raw)/100.0;
+	de_dbg(c, "delay time: %.02f sec\n", delay_time);
 
 	if(d->trns_color_idx_valid) {
 		d->trns_color_idx = de_getbyte(pos+4);
@@ -462,6 +484,56 @@ static void do_plaintext_extension(deark *c, lctx *d, de_int64 pos)
 	dbuf_close(f);
 }
 
+static void do_animation_extension(deark *c, lctx *d, de_int64 pos)
+{
+	de_int64 sub_block_len;
+	de_byte sub_block_id;
+	const char *name;
+
+	sub_block_len = (de_int64)de_getbyte(pos++);
+	if(sub_block_len<1) return;
+
+	sub_block_id = de_getbyte(pos++);
+	switch(sub_block_id) {
+	case 1: name="looping"; break;
+	case 2: name="buffering"; break;
+	default: name="?";
+	}
+	de_dbg(c, "netscape extension type: %d (%s)\n", (int)sub_block_id, name);
+
+	if(sub_block_id==1 && sub_block_len>=3) {
+		de_int64 loop_count;
+		loop_count = de_getui16le(pos);
+		de_dbg(c, "loop count: %d%s\n", (int)loop_count,
+			(loop_count==0)?" (infinite)":"");
+	}
+}
+
+static void do_application_extension(deark *c, lctx *d, de_int64 pos)
+{
+	de_ucstring *s = NULL;
+	de_byte app_id[11];
+	de_int64 n;
+
+	n = (de_int64)de_getbyte(pos);
+	pos++;
+	if(n<11) return;
+
+	de_read(app_id, pos, 11);
+	pos += n;
+
+	s = ucstring_create(c);
+	ucstring_append_bytes(s, app_id, 11, 0, DE_ENCODING_ASCII);
+	de_dbg(c, "app id: \"%s\"\n", ucstring_get_printable_sz(s));
+	ucstring_destroy(s);
+
+	if(!de_memcmp(app_id, "NETSCAPE2.0", 11) ||
+		!de_memcmp(app_id, "ANIMEXTS1.0", 11))
+	{
+		do_animation_extension(c, d, pos);
+	}
+}
+
 static int do_read_extension(deark *c, lctx *d, de_int64 pos1, de_int64 *bytesused)
 {
 	de_int64 bytesused2 = 0;
@@ -496,6 +568,9 @@ static int do_read_extension(deark *c, lctx *d, de_int64 pos1, de_int64 *bytesus
 	case 0xfe:
 		do_comment_extension(c, d, pos);
 		break;
+	case 0xff:
+		do_application_extension(c, d, pos);
+		break;
 	}
 	de_dbg_indent(c, -1);
 
@@ -504,6 +579,7 @@ static int do_read_extension(deark *c, lctx *d, de_int64 pos1, de_int64 *bytesus
 
 	*bytesused = pos - pos1;
 	de_dbg_indent(c, -1);
+
 	return 1;
 }
 
