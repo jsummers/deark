@@ -28,19 +28,19 @@ endif
 .PHONY: all clean dep
 
 OBJDIR:=obj
-OFILES_MODS:=$(addprefix $(OBJDIR)/modules/,fmtutil.o os2bmp.o eps.o \
- bsave.o ilbm.o \
- atari-img.o spectrum512.o tga.o sunras.o pnm.o \
- jpeg.o tiff.o psd.o misc.o msp.o pcpaint.o grasp.o amigaicon.o macpaint.o \
- pcx.o epocimage.o psionpic.o psionapp.o exe.o riff.o iff.o \
- zoo.o boxes.o zip.o atari.o mscompress.o \
- fnt.o nokia.o grob.o d64.o t64.o cardfile.o jovianvi.o \
- tivariable.o basic-c64.o ico.o rpm.o cpio.o \
- rosprite.o binhex.o icns.o awbm.o printshop.o qtif.o portfolio.o bpg.o shg.o \
- wpg.o insetpix.o ansiart.o bintext.o tim.o ar.o tar.o \
- rsc.o gemras.o gemfont.o pff2.o jbf.o psf.o pkfont.o png.o cfb.o hlp.o \
- gif.o compress.o wmf.o pict.o xfer.o gemmeta.o alphabmp.o abk.o mbk.o \
- makichan.o bmp.o iccprofile.o iptc.o gzip.o xface.o unsupported.o)
+OFILES_MODS:=$(addprefix $(OBJDIR)/modules/,fmtutil.o misc.o unsupported.o \
+ psd.o tiff.o zoo.o cfb.o atari-img.o jpeg.o pict.o wmf.o \
+ ilbm.o exe.o ansiart.o xface.o tga.o bmp.o pcpaint.o zip.o \
+ amigaicon.o xfer.o gif.o abk.o bintext.o hlp.o iccprofile.o \
+ epocimage.o bsave.o pcx.o pnm.o icns.o insetpix.o os2bmp.o \
+ pkfont.o rsc.o shg.o makichan.o wpg.o rosprite.o jbf.o \
+ iptc.o cpio.o gemras.o boxes.o spectrum512.o tivariable.o riff.o \
+ png.o psf.o grasp.o mbk.o compress.o ico.o macpaint.o fnt.o \
+ tar.o nokia.o atari.o binhex.o d64.o sunras.o gzip.o gemmeta.o \
+ awbm.o rpm.o qtif.o printshop.o mscompress.o jovianvi.o \
+ portfolio.o eps.o ar.o gemfont.o psionpic.o \
+ grob.o alphabmp.o bpg.o iff.o cardfile.o pff2.o \
+ tim.o t64.o msp.o basic-c64.o psionapp.o)
 OFILES_LIB:=$(addprefix $(OBJDIR)/src/,deark-miniz.o deark-util.o deark-data.o \
  deark-dbuf.o deark-bitmap.o deark-char.o deark-font.o deark-ucstring.o \
  deark-core.o deark-modules.o deark-unix.o)
@@ -58,7 +58,7 @@ clean:
 ifeq ($(MAKECMDGOALS),dep)
 
 deps.mk: $(OFILES_ALL:.o=.d)
-	cat $^ > $@
+	cat $(sort $^) > $@
 
 $(OBJDIR)/%.d: %.c
 	$(CC) $(CFLAGS) -MM -MT $(OBJDIR)/$*.o -MF $@ $<
