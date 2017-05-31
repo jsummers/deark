@@ -44,6 +44,8 @@ obj/modules/eps.o: modules/eps.c src/deark-config.h src/deark-private.h \
  src/deark.h
 obj/modules/exe.o: modules/exe.c src/deark-config.h src/deark-private.h \
  src/deark.h src/deark-fmtutil.h
+obj/modules/flif.o: modules/flif.c src/deark-config.h src/deark-private.h \
+ src/deark.h
 obj/modules/fmtutil.o: modules/fmtutil.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h
 obj/modules/fnt.o: modules/fnt.c src/deark-config.h src/deark-private.h \

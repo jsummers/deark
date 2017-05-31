@@ -562,6 +562,10 @@
 				>
 			</File>
 			<File
+				RelativePath="..\..\modules\flif.c"
+				>
+			</File>
+			<File
 				RelativePath="..\..\modules\fmtutil.c"
 				>
 			</File>
