@@ -195,6 +195,78 @@ static const char *get_machine_type_name(de_int64 n)
 	return s;
 }
 
+static void do_Rich_segment(deark *c, lctx *d)
+{
+	de_int64 segment_start;
+	de_int64 segment_end;
+	de_int64 sig_pos;
+	de_int64 pos;
+	de_int64 p;
+	de_int64 k;
+	de_uint32 n;
+	de_uint32 key;
+	de_int64 num_entries;
+
+	segment_start = 128;
+	segment_end = d->ext_header_offset;
+	if(segment_end%8) segment_end -= segment_end%8;
+	if(segment_end - segment_start < 24) return; // No place for a Rich segment
+
+	// Try to find the "Rich" signature", which starts 8 bytes from the end of
+	// the Rich segment.
+	// Based on limited research, the Rich signature usually starts 16, 24, or 32
+	// bytes before the "PE" signature.
+	sig_pos = 0;
+	for(p = segment_end-8; p >= segment_start+16; p -= 8 ) {
+		n = (de_uint32)de_getui32le(p);
+		if(n==0x68636952U) { // "Rich"
+			sig_pos = p;
+			break;
+		}
+	}
+	if(sig_pos==0) {
+		return; // Rich segment not found
+	}
+
+	// Likely "Rich" signature found at sig_pos
+
+	key = (de_uint32)de_getui32le(sig_pos+4);
+
+	// Decode and verify the "start" signature
+	n = (de_uint32)de_getui32le(segment_start);
+	if((n ^ key) != 0x536e6144U) { // "Dans"
+		// False positive? Or maybe our detection logic isn't perfect?
+		return;
+	}
+
+	de_dbg(c, "\"Rich\" segment detected at %d, sig at %d, len=%d\n",
+		(int)segment_start, (int)sig_pos,
+		(int)(sig_pos+8 - segment_start));
+
+	de_dbg_indent(c, 1);
+
+	pos = segment_start + 16;
+	num_entries  = (sig_pos - pos)/8;
+	for(k=0; k<num_entries; k++) {
+		de_uint32 id_and_value;
+		de_uint32 id;
+		de_uint32 value;
+		de_uint32 use_count;
+
+		id_and_value = (de_uint32)de_getui32le(pos+8*k);
+		use_count = (de_uint32)de_getui32le(pos+8*k+4);
+		id_and_value ^= key;
+		use_count ^= key;
+		id = (id_and_value&0xffff0000U)>>16;
+		value = id_and_value&0x0000ffffU;
+		// TODO: Provide additional information, based on the 'type' and 'build'?
+		de_dbg(c, "entry[%d]: type=%d, build=%d, use_count=%u\n",
+			(int)k, (int)id, (int)value, (unsigned int)use_count);
+	}
+
+	de_dbg_indent(c, -1);
+}
+
 // 'pos' is the start of the 4-byte PE signature.
 // Following it is a 20-byte COFF header.
 static void do_pe_coff_header(deark *c, lctx *d, de_int64 pos)
@@ -362,11 +434,13 @@ static void do_ext_header(deark *c, lctx *d)
 
 	de_read(buf, d->ext_header_offset, 4);
 	if(!de_memcmp(buf, "PE\0\0", 4)) {
+		do_Rich_segment(c, d);
 		do_pe_coff_header(c, d, d->ext_header_offset);
 		// If do_pe_coff_header didn't figure out the format...
 		de_declare_fmt(c, "PE");
 	}
 	else if(!de_memcmp(buf, "NE", 2)) {
+		// TODO: Do "Rich" segments ever exist in files that are not PE files?
 		de_declare_fmt(c, "NE");
 		d->fmt = EXE_FMT_NE;
 		do_ne_ext_header(c, d, d->ext_header_offset);
