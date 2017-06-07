@@ -1,6 +1,6 @@
 #!/bin/bash
 
-VER=1.4.2
+VER=1.4.3
 
 if [ ! -f formats.txt ]
 then
@@ -21,7 +21,7 @@ mkdir $D/src
 cp -p src/*.c src/*.h src/*.rc $D/src/
 
 mkdir $D/modules
-cp -p modules/*.c modules/*.h $D/modules/
+cp -p modules/*.c $D/modules/
 
 mkdir $D/foreign
 cp -p foreign/* $D/foreign/
