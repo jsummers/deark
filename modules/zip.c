@@ -34,8 +34,9 @@ typedef struct localctx_struct {
 	de_int64 central_dir_offset;
 } lctx;
 
-typedef void (*extrafield_decoder_fn)(deark *c, lctx *d, de_int64 fieldtype, de_int64 pos,
-	de_int64 len, int is_central);
+typedef void (*extrafield_decoder_fn)(deark *c, lctx *d,
+	struct member_data *md, struct dir_entry_data *dd, de_int64 fieldtype,
+	de_int64 pos, de_int64 len, int is_central);
 
 // Write a buffer to a file, converting the encoding.
 static void copy_cp437c_to_utf8(deark *c, const de_byte *buf, de_int64 len, dbuf *outf)
@@ -113,38 +114,39 @@ static void do_comment(deark *c, lctx *d, de_int64 pos, de_int64 len, int utf8_f
 	de_free(c, comment);
 }
 
-static void read_unix_timestamp(deark *c, lctx *d, de_int64 pos, const char *name)
+static void read_unix_timestamp(deark *c, lctx *d, de_int64 pos,
+	struct de_timestamp *timestamp, const char *name)
 {
 	de_int64 t;
-	struct de_timestamp timestamp;
 	char timestamp_buf[64];
 
 	t = dbuf_geti32le(c->infile, pos);
-	de_unix_time_to_timestamp(t, &timestamp);
-	de_timestamp_to_string(&timestamp, timestamp_buf, sizeof(timestamp_buf), 1);
+	de_unix_time_to_timestamp(t, timestamp);
+	de_timestamp_to_string(timestamp, timestamp_buf, sizeof(timestamp_buf), 1);
 	de_dbg(c, "%s: %d (%s)\n", name, (int)t, timestamp_buf);
 }
 
-static void read_FILETIME(deark *c, lctx *d, de_int64 pos, const char *name)
+static void read_FILETIME(deark *c, lctx *d, de_int64 pos,
+	struct de_timestamp *timestamp, const char *name)
 {
 	de_int64 t_FILETIME;
-	struct de_timestamp timestamp;
 	char timestamp_buf[64];
 
 	t_FILETIME = de_geti64le(pos);
-	de_FILETIME_to_timestamp(t_FILETIME, &timestamp);
-	de_timestamp_to_string(&timestamp, timestamp_buf, sizeof(timestamp_buf), 1);
+	de_FILETIME_to_timestamp(t_FILETIME, timestamp);
+	de_timestamp_to_string(timestamp, timestamp_buf, sizeof(timestamp_buf), 1);
 	de_dbg(c, "%s: %s\n", name, timestamp_buf);
 }
 
-// TODO: Remember timestamps read in this way
 // Extra field 0x5455
-static void ef_extended_timestamp(deark *c, lctx *d, de_int64 fieldtype,
+static void ef_extended_timestamp(deark *c, lctx *d,
+	struct member_data *md, struct dir_entry_data *dd, de_int64 fieldtype,
 	de_int64 pos, de_int64 len, int is_central)
 {
 	de_byte flags;
 	de_int64 endpos;
 	int has_mtime, has_atime, has_ctime;
+	struct de_timestamp timestamp_tmp;
 
 	endpos = pos+len;
 	if(pos+1>endpos) return;
@@ -162,32 +164,33 @@ static void ef_extended_timestamp(deark *c, lctx *d, de_int64 fieldtype,
 	}
 	if(has_mtime) {
 		if(pos+4>endpos) return;
-		read_unix_timestamp(c, d, pos, "mtime");
+		read_unix_timestamp(c, d, pos, &dd->timestamp, "mtime");
 		pos+=4;
 	}
 	if(has_atime) {
 		if(pos+4>endpos) return;
-		read_unix_timestamp(c, d, pos, "atime");
+		read_unix_timestamp(c, d, pos, &timestamp_tmp, "atime");
 		pos+=4;
 	}
 	if(has_ctime) {
 		if(pos+4>endpos) return;
-		read_unix_timestamp(c, d, pos, "ctime");
+		read_unix_timestamp(c, d, pos, &timestamp_tmp, "ctime");
 		pos+=4;
 	}
 }
 
-// TODO: Remember timestamps read in this way
 // Extra field 0x5855
-static void ef_infozip1(deark *c, lctx *d, de_int64 fieldtype,
+static void ef_infozip1(deark *c, lctx *d,
+	struct member_data *md, struct dir_entry_data *dd, de_int64 fieldtype,
 	de_int64 pos, de_int64 len, int is_central)
 {
 	de_int64 uidnum, gidnum;
+	struct de_timestamp timestamp_tmp;
 
 	if(is_central && len<8) return;
 	if(!is_central && len<12) return;
-	read_unix_timestamp(c, d, pos, "atime");
-	read_unix_timestamp(c, d, pos+4, "mtime");
+	read_unix_timestamp(c, d, pos, &timestamp_tmp, "atime");
+	read_unix_timestamp(c, d, pos+4, &dd->timestamp, "mtime");
 	if(!is_central) {
 		uidnum = de_getui16le(pos+8);
 		gidnum = de_getui16le(pos+10);
@@ -196,7 +199,8 @@ static void ef_infozip1(deark *c, lctx *d, de_int64 fieldtype,
 }
 
 // Extra field 0x7855
-static void ef_infozip2(deark *c, lctx *d, de_int64 fieldtype,
+static void ef_infozip2(deark *c, lctx *d,
+	struct member_data *md, struct dir_entry_data *dd, de_int64 fieldtype,
 	de_int64 pos, de_int64 len, int is_central)
 {
 	de_int64 uidnum, gidnum;
@@ -220,7 +224,8 @@ static de_int64 get_variable_length_uint_le(dbuf *f, de_int64 pos, de_int64 len)
 }
 
 // Extra field 0x7875
-static void ef_infozip3(deark *c, lctx *d, de_int64 fieldtype,
+static void ef_infozip3(deark *c, lctx *d,
+	struct member_data *md, struct dir_entry_data *dd, de_int64 fieldtype,
 	de_int64 pos, de_int64 len, int is_central)
 {
 	de_int64 uidnum, gidnum;
@@ -253,15 +258,16 @@ static void ef_infozip3(deark *c, lctx *d, de_int64 fieldtype,
 	de_dbg(c, "uid: %d, gid: %d\n", (int)uidnum, (int)gidnum);
 }
 
-// TODO: Remember timestamps read in this way
 // Extra field 0x000a
-static void ef_ntfs(deark *c, lctx *d, de_int64 fieldtype,
-	de_int64 pos, de_int64 len, int is_central)
+static void ef_ntfs(deark *c, lctx *d,
+	struct member_data *md, struct dir_entry_data *dd,
+	de_int64 fieldtype, de_int64 pos, de_int64 len, int is_central)
 {
 	de_int64 endpos;
 	de_int64 attr_tag;
 	de_int64 attr_size;
 	const char *name;
+	struct de_timestamp timestamp_tmp;
 
 	endpos = pos+len;
 	pos += 4; // skip reserved field
@@ -279,9 +285,9 @@ static void ef_ntfs(deark *c, lctx *d, de_int64 fieldtype,
 
 		de_dbg_indent(c, 1);
 		if(attr_tag==0x0001 && attr_size>=24) {
-			read_FILETIME(c, d, pos, "mtime");
-			read_FILETIME(c, d, pos+8, "atime");
-			read_FILETIME(c, d, pos+16, "ctime");
+			read_FILETIME(c, d, pos, &dd->timestamp, "mtime");
+			read_FILETIME(c, d, pos+8, &timestamp_tmp, "atime");
+			read_FILETIME(c, d, pos+16, &timestamp_tmp, "ctime");
 		}
 		de_dbg_indent(c, -1);
 
@@ -290,8 +296,9 @@ static void ef_ntfs(deark *c, lctx *d, de_int64 fieldtype,
 }
 
 // Extra field 0x0009
-static void ef_os2(deark *c, lctx *d, de_int64 fieldtype,
-	de_int64 pos, de_int64 len, int is_central)
+static void ef_os2(deark *c, lctx *d,
+	struct member_data *md, struct dir_entry_data *dd,
+	de_int64 fieldtype, de_int64 pos, de_int64 len, int is_central)
 {
 	de_int64 endpos;
 	de_int64 unc_size;
@@ -390,8 +397,9 @@ static const struct extra_item_type_info_struct *get_extra_item_type_info(de_int
 	return NULL;
 }
 
-static void do_extra_data(deark *c, lctx *d, de_int64 pos1, de_int64 len,
-	int is_central)
+static void do_extra_data(deark *c, lctx *d,
+	struct member_data *md, struct dir_entry_data *dd,
+	de_int64 pos1, de_int64 len, int is_central)
 {
 	de_int64 pos;
 	de_int64 item_id;
@@ -418,7 +426,7 @@ static void do_extra_data(deark *c, lctx *d, de_int64 pos1, de_int64 len,
 
 		if(ei->fn) {
 			de_dbg_indent(c, 1);
-			ei->fn(c, d, item_id, pos+4, item_len, is_central);
+			ei->fn(c, d, md, dd, item_id, pos+4, item_len, is_central);
 			de_dbg_indent(c, -1);
 		}
 
@@ -597,7 +605,7 @@ static int do_file_header(deark *c, lctx *d, struct member_data *md,
 	do_read_filename(c, d, pos1+fixed_header_size, fn_len, utf8_flag);
 
 	if(extra_len>0) {
-		do_extra_data(c, d, pos1+fixed_header_size+fn_len, extra_len, is_central);
+		do_extra_data(c, d, md, dd, pos1+fixed_header_size+fn_len, extra_len, is_central);
 	}
 
 	if(comment_len>0) {
