@@ -8,6 +8,25 @@
 #include <deark-private.h>
 DE_DECLARE_MODULE(de_module_zip);
 
+struct dir_entry_data {
+	de_int64 ver_needed;
+	de_int64 size1, size2;
+	int cmpr_method;
+	unsigned int bit_flags;
+	de_uint32 crc_reported;
+	struct de_timestamp timestamp;
+};
+
+struct member_data {
+	de_int64 ver_made_by;
+	de_int64 attr_i, attr_e;
+	de_int64 offset_of_local_header;
+	de_int64 disk_number_start;
+
+	struct dir_entry_data central_dir_entry_data;
+	struct dir_entry_data local_dir_entry_data;
+};
+
 typedef struct localctx_struct {
 	de_int64 end_of_central_dir_pos;
 	de_int64 central_dir_num_entries;
@@ -118,6 +137,7 @@ static void read_FILETIME(deark *c, lctx *d, de_int64 pos, const char *name)
 	de_dbg(c, "%s: %s\n", name, timestamp_buf);
 }
 
+// TODO: Remember timestamps read in this way
 // Extra field 0x5455
 static void ef_extended_timestamp(deark *c, lctx *d, de_int64 fieldtype,
 	de_int64 pos, de_int64 len, int is_central)
@@ -157,6 +177,7 @@ static void ef_extended_timestamp(deark *c, lctx *d, de_int64 fieldtype,
 	}
 }
 
+// TODO: Remember timestamps read in this way
 // Extra field 0x5855
 static void ef_infozip1(deark *c, lctx *d, de_int64 fieldtype,
 	de_int64 pos, de_int64 len, int is_central)
@@ -232,6 +253,7 @@ static void ef_infozip3(deark *c, lctx *d, de_int64 fieldtype,
 	de_dbg(c, "uid: %d, gid: %d\n", (int)uidnum, (int)gidnum);
 }
 
+// TODO: Remember timestamps read in this way
 // Extra field 0x000a
 static void ef_ntfs(deark *c, lctx *d, de_int64 fieldtype,
 	de_int64 pos, de_int64 len, int is_central)
@@ -406,6 +428,10 @@ static void do_extra_data(deark *c, lctx *d, de_int64 pos1, de_int64 len,
 	de_dbg_indent(c, -1);
 }
 
+static void do_extract_file(deark *c, lctx *d, struct member_data *md)
+{
+}
+
 static const char *get_platform_name(unsigned int ver_hi)
 {
 	static const char *pltf_names[20] = {
@@ -421,39 +447,49 @@ static const char *get_platform_name(unsigned int ver_hi)
 	return "?";
 }
 
+static const char *get_cmpr_meth_name(int n)
+{
+	const char *s = "?";
+	switch(n) {
+	case 0: s="uncompressed"; break;
+	case 1: s="shrink"; break;
+	case 2: case 3: case 4: case 5: s="reduce"; break;
+	case 6: s="implode"; break;
+	case 8: s="deflate"; break;
+	case 9: s="deflate64"; break;
+	case 12: s="bzip2"; break;
+	case 14: s="LZMA"; break;
+	}
+	return s;
+}
+
 // Read either a central directory entry (a.k.a. central directory file header),
 // or a local file header.
-static int do_file_header(deark *c, lctx *d, int is_central, de_int64 central_index,
+static int do_file_header(deark *c, lctx *d, struct member_data *md,
+	int is_central,
 	de_int64 pos1, de_int64 *p_entry_size)
 {
 	de_int64 pos;
-	int ret;
 	de_int64 sig;
-	de_int64 cmpr_method;
-	unsigned int bit_flags;
-	de_int64 size1, size2;
-	de_int64 ver_made_by;
-	de_int64 ver_needed;
 	unsigned int ver_hi, ver_lo;
 	de_int64 fn_len, extra_len, comment_len;
 	int utf8_flag;
 	int retval = 0;
 	de_int64 fixed_header_size;
-	de_int64 offset_of_local_header  = 0;
-	de_int64 disk_number_start = 0;
-	de_int64 crc;
 	de_int64 mod_time_raw, mod_date_raw;
-	de_int64 attr_i, attr_e;
-	struct de_timestamp timestamp_tmp;
+	struct dir_entry_data *dd; // Points to either md->central or md->local
 	char timestamp_buf[64];
 
 	pos = pos1;
 	if(is_central) {
+		dd = &md->central_dir_entry_data;
 		fixed_header_size = 46;
-		de_dbg(c, "central dir entry #%d at %d\n", (int)central_index, (int)pos);
+		de_dbg(c, "central dir entry at %d\n", (int)pos);
 	}
 	else {
+		dd = &md->local_dir_entry_data;
 		fixed_header_size = 30;
+		if(md->disk_number_start!=0) return 0;
 		de_dbg(c, "local file header at %d\n", (int)pos);
 	}
 	de_dbg_indent(c, 1);
@@ -471,49 +507,50 @@ static int do_file_header(deark *c, lctx *d, int is_central, de_int64 central_in
 
 	if(is_central) {
 		const char *pltf_name;
-		ver_made_by = de_getui16le(pos);
+		md->ver_made_by = de_getui16le(pos);
 		pos += 2;
-		ver_hi = (unsigned int)((ver_made_by&0xff00)>>8);
-		ver_lo = (unsigned int)(ver_made_by&0x00ff);
+		ver_hi = (unsigned int)((md->ver_made_by&0xff00)>>8);
+		ver_lo = (unsigned int)(md->ver_made_by&0x00ff);
 		pltf_name = get_platform_name(ver_hi);
 		de_dbg(c, "version made by: platform=%u (%s), ZIP spec=%u.%u\n",
 			ver_hi, pltf_name,
 			(unsigned int)(ver_lo/10), (unsigned int)(ver_lo%10));
 	}
 
-	ver_needed = de_getui16le(pos);
+	dd->ver_needed = de_getui16le(pos);
 	pos += 2;
-	ver_lo = (unsigned int)(ver_needed%0x00ff);
+	ver_lo = (unsigned int)(dd->ver_needed%0x00ff);
 	de_dbg(c, "version needed to extract: %u.%u\n",
 		(unsigned int)(ver_lo/10), (unsigned int)(ver_lo%10));
 
-	bit_flags = (unsigned int)de_getui16le(pos);
+	dd->bit_flags = (unsigned int)de_getui16le(pos);
 	pos += 2;
-	de_dbg(c, "flags: 0x%04x\n", bit_flags);
+	de_dbg(c, "flags: 0x%04x\n", dd->bit_flags);
 
-	utf8_flag = (bit_flags & 0x800)?1:0;
+	utf8_flag = (dd->bit_flags & 0x800)?1:0;
 
-	cmpr_method = de_getui16le(pos);
+	dd->cmpr_method = (int)de_getui16le(pos);
 	pos += 2;
-	de_dbg(c, "cmpr method: %d\n", (int)cmpr_method);
+	de_dbg(c, "cmpr method: %d (%s)\n", dd->cmpr_method,
+		get_cmpr_meth_name(dd->cmpr_method));
 
 	mod_time_raw = de_getui16le(pos);
 	pos += 2;
 	mod_date_raw = de_getui16le(pos);
 	pos += 2;
-	de_dos_datetime_to_timestamp(&timestamp_tmp, mod_date_raw, mod_time_raw, 0);
-	de_timestamp_to_string(&timestamp_tmp, timestamp_buf, sizeof(timestamp_buf), 0);
+	de_dos_datetime_to_timestamp(&dd->timestamp, mod_date_raw, mod_time_raw, 0);
+	de_timestamp_to_string(&dd->timestamp, timestamp_buf, sizeof(timestamp_buf), 0);
 	de_dbg(c, "mod time: %s\n", timestamp_buf);
 
-	crc = de_getui32le(pos);
+	dd->crc_reported = (de_uint32)de_getui32le(pos);
 	pos += 4;
-	de_dbg(c, "crc: 0x%08x\n", (unsigned int)crc);
+	de_dbg(c, "crc (reported): 0x%08x\n", (unsigned int)dd->crc_reported);
 
-	size1 = de_getui32le(pos); // compressed size
+	dd->size1 = de_getui32le(pos); // compressed size
 	pos += 4;
-	size2 = de_getui32le(pos); // uncompressed size
+	dd->size2 = de_getui32le(pos); // uncompressed size
 	pos += 4;
-	de_dbg(c, "cmpr size: %" INT64_FMT ", uncmpr size: %" INT64_FMT "\n", size1, size2);
+	de_dbg(c, "cmpr size: %" INT64_FMT ", uncmpr size: %" INT64_FMT "\n", dd->size1, dd->size2);
 
 	fn_len = de_getui16le(pos);
 	pos += 2;
@@ -530,20 +567,20 @@ static int do_file_header(deark *c, lctx *d, int is_central, de_int64 central_in
 	}
 
 	if(is_central) {
-		disk_number_start = de_getui16le(pos);
+		md->disk_number_start = de_getui16le(pos);
 		pos += 2;
 
-		attr_i = de_getui16le(pos);
+		md->attr_i = de_getui16le(pos);
 		pos += 2;
-		attr_e = de_getui32le(pos);
+		md->attr_e = de_getui32le(pos);
 		pos += 4;
 		de_dbg(c, "file attributes: internal=0x%04x, external=0x%08x\n",
-			(unsigned int)attr_i, (unsigned int)attr_e);
+			(unsigned int)md->attr_i, (unsigned int)md->attr_e);
 
-		offset_of_local_header = de_getui32le(pos);
+		md->offset_of_local_header = de_getui32le(pos);
 		pos += 4;
-		de_dbg(c, "offset of local header: %d, disk: %d\n", (int)offset_of_local_header,
-			(int)disk_number_start);
+		de_dbg(c, "offset of local header: %d, disk: %d\n", (int)md->offset_of_local_header,
+			(int)md->disk_number_start);
 	}
 
 	if(is_central) {
@@ -567,17 +604,48 @@ static int do_file_header(deark *c, lctx *d, int is_central, de_int64 central_in
 		do_comment(c, d, pos1+fixed_header_size+fn_len+extra_len, comment_len, utf8_flag, "fcomment.txt");
 	}
 
-	if(is_central && disk_number_start==0) {
-		// Read the corresponding local file header
-		de_int64 tmp_entry_size = 0;
-		ret = do_file_header(c, d, 0, central_index, offset_of_local_header, &tmp_entry_size);
-		if(!ret) goto done;
-	}
-
 	retval = 1;
 
 done:
 	de_dbg_indent(c, -1);
+	return retval;
+}
+
+static void destroy_member_data_contents(deark *c, struct member_data *md)
+{
+	de_memset(md, 0, sizeof(struct member_data));
+}
+
+static int do_central_dir_entry(deark *c, lctx *d,
+	de_int64 central_index, de_int64 pos, de_int64 *entry_size)
+{
+	struct member_data *md = NULL;
+	de_int64 tmp_entry_size;
+	int retval = 0;
+
+	md = de_malloc(c, sizeof(struct member_data));
+	*entry_size = 0;
+
+	if(pos >= d->central_dir_offset+d->central_dir_byte_size) {
+		goto done;
+	}
+
+	de_dbg(c, "central dir entry #%d\n", (int)central_index);
+	de_dbg_indent(c, 1);
+
+	if(!do_file_header(c, d, md, 1, pos, entry_size)) {
+		goto done;
+	}
+	if(!do_file_header(c, d, md, 0, md->offset_of_local_header, &tmp_entry_size)) {
+		goto done;
+	}
+	do_extract_file(c, d, md);
+	retval = 1;
+
+done:
+	de_dbg_indent(c, -1);
+	destroy_member_data_contents(c, md);
+	de_free(c, md);
 	return retval;
 }
 
@@ -593,14 +661,9 @@ static int do_central_dir(deark *c, lctx *d)
 	de_dbg_indent(c, 1);
 
 	for(i=0; i<d->central_dir_num_entries; i++) {
-		if(pos >= d->central_dir_offset+d->central_dir_byte_size) {
+		if(!do_central_dir_entry(c, d, i, pos, &entry_size)) {
 			goto done;
 		}
-
-		if(!do_file_header(c, d, 1, i, pos, &entry_size)) {
-			goto done;
-		}
-
 		pos += entry_size;
 	}
 	retval = 1;
