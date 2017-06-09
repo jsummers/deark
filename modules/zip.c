@@ -10,11 +10,12 @@ DE_DECLARE_MODULE(de_module_zip);
 
 struct dir_entry_data {
 	de_int64 ver_needed;
-	de_int64 size1, size2;
+	de_int64 cmpr_size, uncmpr_size;
 	int cmpr_method;
 	unsigned int bit_flags;
 	de_uint32 crc_reported;
 	struct de_timestamp timestamp;
+	de_ucstring *fname;
 };
 
 struct member_data {
@@ -22,6 +23,7 @@ struct member_data {
 	de_int64 attr_i, attr_e;
 	de_int64 offset_of_local_header;
 	de_int64 disk_number_start;
+	de_int64 file_data_pos;
 
 	struct dir_entry_data central_dir_entry_data;
 	struct dir_entry_data local_dir_entry_data;
@@ -50,16 +52,18 @@ static void copy_cp437c_to_utf8(deark *c, const de_byte *buf, de_int64 len, dbuf
 	}
 }
 
-static void do_read_filename(deark *c, lctx *d, de_int64 pos, de_int64 len, int utf8_flag)
+static void do_read_filename(deark *c, lctx *d,
+	struct member_data *md, struct dir_entry_data *dd,
+	de_int64 pos, de_int64 len, int utf8_flag)
 {
-	de_ucstring *fname = NULL;
 	int from_encoding;
 
-	fname = ucstring_create(c);
+	if(dd->fname)
+		ucstring_destroy(dd->fname);
+	dd->fname = ucstring_create(c);
 	from_encoding = utf8_flag ? DE_ENCODING_UTF8 : DE_ENCODING_CP437_G;
-	dbuf_read_to_ucstring_n(c->infile, pos, len, 256, fname, 0, from_encoding);
-	de_dbg(c, "filename: \"%s\"\n", ucstring_get_printable_sz(fname));
-	ucstring_destroy(fname);
+	dbuf_read_to_ucstring(c->infile, pos, len, dd->fname, 0, from_encoding);
+	de_dbg(c, "filename: \"%s\"\n", ucstring_get_printable_sz_n(dd->fname, 256));
 }
 
 static void do_comment(deark *c, lctx *d, de_int64 pos, de_int64 len, int utf8_flag,
@@ -438,6 +442,8 @@ static void do_extra_data(deark *c, lctx *d,
 
 static void do_extract_file(deark *c, lctx *d, struct member_data *md)
 {
+	de_dbg(c, "file data at %d, len=%d\n", (int)md->file_data_pos,
+		(int)md->local_dir_entry_data.cmpr_size);
 }
 
 static const char *get_platform_name(unsigned int ver_hi)
@@ -474,8 +480,7 @@ static const char *get_cmpr_meth_name(int n)
 // Read either a central directory entry (a.k.a. central directory file header),
 // or a local file header.
 static int do_file_header(deark *c, lctx *d, struct member_data *md,
-	int is_central,
-	de_int64 pos1, de_int64 *p_entry_size)
+	int is_central, de_int64 pos1, de_int64 *p_entry_size)
 {
 	de_int64 pos;
 	de_int64 sig;
@@ -554,11 +559,11 @@ static int do_file_header(deark *c, lctx *d, struct member_data *md,
 	pos += 4;
 	de_dbg(c, "crc (reported): 0x%08x\n", (unsigned int)dd->crc_reported);
 
-	dd->size1 = de_getui32le(pos); // compressed size
+	dd->cmpr_size = de_getui32le(pos);
 	pos += 4;
-	dd->size2 = de_getui32le(pos); // uncompressed size
+	dd->uncmpr_size = de_getui32le(pos);
 	pos += 4;
-	de_dbg(c, "cmpr size: %" INT64_FMT ", uncmpr size: %" INT64_FMT "\n", dd->size1, dd->size2);
+	de_dbg(c, "cmpr size: %" INT64_FMT ", uncmpr size: %" INT64_FMT "\n", dd->cmpr_size, dd->uncmpr_size);
 
 	fn_len = de_getui16le(pos);
 	pos += 2;
@@ -572,6 +577,10 @@ static int do_file_header(deark *c, lctx *d, struct member_data *md,
 	}
 	else {
 		comment_len = 0;
+	}
+
+	if(!is_central) {
+		md->file_data_pos = pos + fn_len + extra_len;
 	}
 
 	if(is_central) {
@@ -602,7 +611,7 @@ static int do_file_header(deark *c, lctx *d, struct member_data *md,
 
 	*p_entry_size = fixed_header_size + fn_len + extra_len + comment_len;
 
-	do_read_filename(c, d, pos1+fixed_header_size, fn_len, utf8_flag);
+	do_read_filename(c, d, md, dd, pos1+fixed_header_size, fn_len, utf8_flag);
 
 	if(extra_len>0) {
 		do_extra_data(c, d, md, dd, pos1+fixed_header_size+fn_len, extra_len, is_central);
@@ -617,11 +626,6 @@ static int do_file_header(deark *c, lctx *d, struct member_data *md,
 done:
 	de_dbg_indent(c, -1);
 	return retval;
-}
-
-static void destroy_member_data_contents(deark *c, struct member_data *md)
-{
-	de_memset(md, 0, sizeof(struct member_data));
 }
 
 static int do_central_dir_entry(deark *c, lctx *d,
@@ -652,8 +656,13 @@ static int do_central_dir_entry(deark *c, lctx *d,
 
 done:
 	de_dbg_indent(c, -1);
-	destroy_member_data_contents(c, md);
-	de_free(c, md);
+	if(md) {
+		if(md->central_dir_entry_data.fname)
+			ucstring_destroy(md->central_dir_entry_data.fname);
+		if(md->local_dir_entry_data.fname)
+			ucstring_destroy(md->local_dir_entry_data.fname);
+		de_free(c, md);
+	}
 	return retval;
 }
 
