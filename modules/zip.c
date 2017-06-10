@@ -2,7 +2,7 @@
 // Copyright (C) 2016 Jason Summers
 // See the file COPYING for terms of use.
 
-// Extract comments from ZIP files.
+// ZIP format
 
 #include <deark-config.h>
 #include <deark-private.h>
@@ -24,6 +24,7 @@ struct member_data {
 	de_int64 offset_of_local_header;
 	de_int64 disk_number_start;
 	de_int64 file_data_pos;
+	de_uint32 crc_calculated;
 
 	struct dir_entry_data central_dir_entry_data;
 	struct dir_entry_data local_dir_entry_data;
@@ -72,6 +73,7 @@ static void do_comment(deark *c, lctx *d, de_int64 pos, de_int64 len, int utf8_f
 	de_byte *comment = NULL;
 	dbuf *f = NULL;
 
+	if(c->extract_level<2) return;
 	if(len<1) return;
 
 	comment = de_malloc(c, len);
@@ -440,10 +442,69 @@ static void do_extra_data(deark *c, lctx *d,
 	de_dbg_indent(c, -1);
 }
 
+static void our_writecallback(dbuf *f, const de_byte *buf, de_int64 buf_len)
+{
+	struct member_data *md = (struct member_data *)f->userdata;
+	md->crc_calculated = de_crc32_continue(md->crc_calculated, buf, buf_len);
+}
+
 static void do_extract_file(deark *c, lctx *d, struct member_data *md)
 {
+	int ret;
+	dbuf *outf = NULL;
+	de_finfo *fi = NULL;
+	struct dir_entry_data *ldd = &md->local_dir_entry_data;
+
 	de_dbg(c, "file data at %d, len=%d\n", (int)md->file_data_pos,
-		(int)md->local_dir_entry_data.cmpr_size);
+		(int)ldd->cmpr_size);
+
+	if(ldd->cmpr_method!=0 && ldd->cmpr_method!=8) {
+		de_err(c, "Unsupported compression method: %d\n",
+			(int)ldd->cmpr_method);
+		goto done;
+	}
+
+	fi = de_finfo_create(c);
+
+	if(ldd->fname) {
+		de_finfo_set_name_from_ucstring(c, fi, ldd->fname);
+		fi->original_filename_flag = 1;
+	}
+
+	if(ldd->timestamp.is_valid) {
+		fi->mod_time = ldd->timestamp;
+	}
+
+	outf = dbuf_create_output_file(c, NULL, fi, 0);
+	outf->writecallback_fn = our_writecallback;
+	outf->userdata = (void*)md;
+
+	md->crc_calculated = de_crc32(NULL, 0);
+
+	switch(ldd->cmpr_method) {
+	case 0: // uncompressed
+		dbuf_copy(c->infile, md->file_data_pos, ldd->cmpr_size, outf);
+		break;
+	case 8: // deflate
+		{
+			de_int64 bytes_consumed = 0;
+			ret = de_uncompress_deflate(c->infile, md->file_data_pos, ldd->cmpr_size,
+				outf, &bytes_consumed);
+			if(!ret) goto done;
+		}
+		break;
+	}
+
+	de_dbg(c, "crc (calculated): 0x%08x\n", (unsigned int)md->crc_calculated);
+
+	if(md->crc_calculated != ldd->crc_reported) {
+		de_warn(c, "CRC check failed: Expected 0x%08x, got 0x%08x\n",
+			(unsigned int)ldd->crc_reported, (unsigned int)md->crc_calculated);
+	}
+
+done:
+	dbuf_close(outf);
+	de_finfo_destroy(c, fi);
 }
 
 static const char *get_platform_name(unsigned int ver_hi)
@@ -679,6 +740,7 @@ static int do_central_dir(deark *c, lctx *d)
 
 	for(i=0; i<d->central_dir_num_entries; i++) {
 		if(!do_central_dir_entry(c, d, i, pos, &entry_size)) {
+			// TODO: Decide exactly what to do if something fails.
 			goto done;
 		}
 		pos += entry_size;
@@ -791,7 +853,7 @@ static void de_run_zip(deark *c, de_module_params *mparams)
 
 	d = de_malloc(c, sizeof(lctx));
 
-	de_declare_fmt(c, "ZIP (extract comments only)");
+	de_declare_fmt(c, "ZIP");
 
 	if(!find_end_of_central_dir(c, d)) {
 		de_err(c, "Not a ZIP file\n");
@@ -836,7 +898,7 @@ static int de_identify_zip(deark *c)
 void de_module_zip(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "zip";
-	mi->desc = "ZIP archive (extract comments only)";
+	mi->desc = "ZIP archive";
 	mi->run_fn = de_run_zip;
 	mi->identify_fn = de_identify_zip;
 }

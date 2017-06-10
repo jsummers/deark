@@ -509,9 +509,9 @@ Deark -- Information about supported formats
   - Rare files may need "-m tar", as tar is difficult to autodetect.
 
 * ZIP (module="zip")
-  - Does not extract files, only comments.
-  - Extract main ZIP file comment.
-  - Extract comments for individual files.
+  - Limited support
+  - Extract main ZIP file comment (use -a).
+  - Extract comments for individual files (use -a).
 
 * zlib (module="zlib")
   - Raw zlib files are uncompressed.
