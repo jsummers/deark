@@ -9,21 +9,25 @@
 DE_DECLARE_MODULE(de_module_zip);
 
 struct dir_entry_data {
-	de_int64 ver_needed;
+	unsigned int ver_needed;
 	de_int64 cmpr_size, uncmpr_size;
 	int cmpr_method;
 	unsigned int bit_flags;
 	de_uint32 crc_reported;
-	struct de_timestamp timestamp;
+	struct de_timestamp mod_time;
 	de_ucstring *fname;
 };
 
 struct member_data {
 	de_int64 ver_made_by;
-	de_int64 attr_i, attr_e;
+	unsigned int ver_made_by_hi, ver_made_by_lo;
+	unsigned int attr_i, attr_e;
 	de_int64 offset_of_local_header;
 	de_int64 disk_number_start;
 	de_int64 file_data_pos;
+	int is_executable;
+	int is_dir;
+	int is_symlink;
 	de_uint32 crc_calculated;
 
 	struct dir_entry_data central_dir_entry_data;
@@ -64,7 +68,7 @@ static void do_read_filename(deark *c, lctx *d,
 	dd->fname = ucstring_create(c);
 	from_encoding = utf8_flag ? DE_ENCODING_UTF8 : DE_ENCODING_CP437_G;
 	dbuf_read_to_ucstring(c->infile, pos, len, dd->fname, 0, from_encoding);
-	de_dbg(c, "filename: \"%s\"\n", ucstring_get_printable_sz_n(dd->fname, 256));
+	de_dbg(c, "filename: \"%s\"\n", ucstring_get_printable_sz_n(dd->fname, 300));
 }
 
 static void do_comment(deark *c, lctx *d, de_int64 pos, de_int64 len, int utf8_flag,
@@ -170,7 +174,7 @@ static void ef_extended_timestamp(deark *c, lctx *d,
 	}
 	if(has_mtime) {
 		if(pos+4>endpos) return;
-		read_unix_timestamp(c, d, pos, &dd->timestamp, "mtime");
+		read_unix_timestamp(c, d, pos, &dd->mod_time, "mtime");
 		pos+=4;
 	}
 	if(has_atime) {
@@ -196,7 +200,7 @@ static void ef_infozip1(deark *c, lctx *d,
 	if(is_central && len<8) return;
 	if(!is_central && len<12) return;
 	read_unix_timestamp(c, d, pos, &timestamp_tmp, "atime");
-	read_unix_timestamp(c, d, pos+4, &dd->timestamp, "mtime");
+	read_unix_timestamp(c, d, pos+4, &dd->mod_time, "mtime");
 	if(!is_central) {
 		uidnum = de_getui16le(pos+8);
 		gidnum = de_getui16le(pos+10);
@@ -291,7 +295,7 @@ static void ef_ntfs(deark *c, lctx *d,
 
 		de_dbg_indent(c, 1);
 		if(attr_tag==0x0001 && attr_size>=24) {
-			read_FILETIME(c, d, pos, &dd->timestamp, "mtime");
+			read_FILETIME(c, d, pos, &dd->mod_time, "mtime");
 			read_FILETIME(c, d, pos+8, &timestamp_tmp, "atime");
 			read_FILETIME(c, d, pos+16, &timestamp_tmp, "ctime");
 		}
@@ -464,6 +468,17 @@ static void do_extract_file(deark *c, lctx *d, struct member_data *md)
 		goto done;
 	}
 
+	if(md->is_dir && ldd->uncmpr_size==0) {
+		de_warn(c, "\"%s\" is a directory. Ignoring.\n",
+			ucstring_get_printable_sz_n(ldd->fname, 300));
+		goto done;
+	}
+
+	if(md->is_symlink) {
+		de_warn(c, "\"%s\" is a symbolic link. It will not be extracted as a link.\n",
+			ucstring_get_printable_sz_n(ldd->fname, 300));
+	}
+
 	fi = de_finfo_create(c);
 
 	if(ldd->fname) {
@@ -471,8 +486,12 @@ static void do_extract_file(deark *c, lctx *d, struct member_data *md)
 		fi->original_filename_flag = 1;
 	}
 
-	if(ldd->timestamp.is_valid) {
-		fi->mod_time = ldd->timestamp;
+	if(ldd->mod_time.is_valid) {
+		fi->mod_time = ldd->mod_time;
+	}
+
+	if(md->is_executable) {
+		fi->is_executable = 1;
 	}
 
 	outf = dbuf_create_output_file(c, NULL, fi, 0);
@@ -538,6 +557,26 @@ static const char *get_cmpr_meth_name(int n)
 	return s;
 }
 
+// Look at md->attr_e, and set some other fields based on it.
+static void process_ext_attr(deark *c, lctx *d, struct member_data *md)
+{
+	if(md->ver_made_by_hi==3) { // Unix
+		unsigned int unix_filetype;
+		unix_filetype = (md->attr_e>>16)&0170000;
+		if(unix_filetype == 0040000) {
+			md->is_dir = 1;
+		}
+		else if(unix_filetype == 0120000) {
+			md->is_symlink = 1;
+		}
+
+		if((md->attr_e>>16)&0111) {
+			md->is_executable = 1;
+		}
+	}
+	// TODO: Support platforms other than Unix.
+}
+
 // Read either a central directory entry (a.k.a. central directory file header),
 // or a local file header.
 static int do_file_header(deark *c, lctx *d, struct member_data *md,
@@ -545,7 +584,6 @@ static int do_file_header(deark *c, lctx *d, struct member_data *md,
 {
 	de_int64 pos;
 	de_int64 sig;
-	unsigned int ver_hi, ver_lo;
 	de_int64 fn_len, extra_len, comment_len;
 	int utf8_flag;
 	int retval = 0;
@@ -583,19 +621,18 @@ static int do_file_header(deark *c, lctx *d, struct member_data *md,
 		const char *pltf_name;
 		md->ver_made_by = de_getui16le(pos);
 		pos += 2;
-		ver_hi = (unsigned int)((md->ver_made_by&0xff00)>>8);
-		ver_lo = (unsigned int)(md->ver_made_by&0x00ff);
-		pltf_name = get_platform_name(ver_hi);
+		md->ver_made_by_hi = (unsigned int)((md->ver_made_by&0xff00)>>8);
+		md->ver_made_by_lo = (unsigned int)(md->ver_made_by&0x00ff);
+		pltf_name = get_platform_name(md->ver_made_by_hi);
 		de_dbg(c, "version made by: platform=%u (%s), ZIP spec=%u.%u\n",
-			ver_hi, pltf_name,
-			(unsigned int)(ver_lo/10), (unsigned int)(ver_lo%10));
+			md->ver_made_by_hi, pltf_name,
+			(unsigned int)(md->ver_made_by_lo/10), (unsigned int)(md->ver_made_by_lo%10));
 	}
 
-	dd->ver_needed = de_getui16le(pos);
+	dd->ver_needed = (unsigned int)de_getui16le(pos);
 	pos += 2;
-	ver_lo = (unsigned int)(dd->ver_needed%0x00ff);
 	de_dbg(c, "version needed to extract: %u.%u\n",
-		(unsigned int)(ver_lo/10), (unsigned int)(ver_lo%10));
+		(unsigned int)(dd->ver_needed/10), (unsigned int)(dd->ver_needed%10));
 
 	dd->bit_flags = (unsigned int)de_getui16le(pos);
 	pos += 2;
@@ -612,8 +649,8 @@ static int do_file_header(deark *c, lctx *d, struct member_data *md,
 	pos += 2;
 	mod_date_raw = de_getui16le(pos);
 	pos += 2;
-	de_dos_datetime_to_timestamp(&dd->timestamp, mod_date_raw, mod_time_raw, 0);
-	de_timestamp_to_string(&dd->timestamp, timestamp_buf, sizeof(timestamp_buf), 0);
+	de_dos_datetime_to_timestamp(&dd->mod_time, mod_date_raw, mod_time_raw, 0);
+	de_timestamp_to_string(&dd->mod_time, timestamp_buf, sizeof(timestamp_buf), 0);
 	de_dbg(c, "mod time: %s\n", timestamp_buf);
 
 	dd->crc_reported = (de_uint32)de_getui32le(pos);
@@ -648,12 +685,13 @@ static int do_file_header(deark *c, lctx *d, struct member_data *md,
 		md->disk_number_start = de_getui16le(pos);
 		pos += 2;
 
-		md->attr_i = de_getui16le(pos);
+		md->attr_i = (unsigned int)de_getui16le(pos);
 		pos += 2;
-		md->attr_e = de_getui32le(pos);
+		md->attr_e = (unsigned int)de_getui32le(pos);
 		pos += 4;
 		de_dbg(c, "file attributes: internal=0x%04x, external=0x%08x\n",
-			(unsigned int)md->attr_i, (unsigned int)md->attr_e);
+			md->attr_i, md->attr_e);
+		process_ext_attr(c, d, md);
 
 		md->offset_of_local_header = de_getui32le(pos);
 		pos += 4;
