@@ -359,6 +359,52 @@ done:
 	;
 }
 
+// Extra field 0x334d (Info-ZIP Macintosh)
+static void ef_infozipmac(deark *c, lctx *d,
+	struct member_data *md, struct dir_entry_data *dd,
+	de_int64 fieldtype, de_int64 pos1, de_int64 len, int is_central)
+{
+	de_int64 pos = pos1;
+	de_int64 ulen;
+	unsigned int flags;
+	unsigned int cmprtype;
+	unsigned int crc_reported;
+	struct de_fourcc filetype;
+	struct de_fourcc creator;
+
+	if(len<14) goto done;
+
+	ulen = de_getui32le(pos);
+	de_dbg(c, "uncmpr. finder attr. size: %d\n", (int)ulen);
+	pos += 4;
+
+	flags = (unsigned int)de_getui16le(pos);
+	de_dbg(c, "flags: 0x%04x\n", flags);
+	pos += 2;
+
+	dbuf_read_fourcc(c->infile, pos, &filetype, 0);
+	de_dbg(c, "filetype: '%s'\n", filetype.id_printable);
+	pos += 4;
+	dbuf_read_fourcc(c->infile, pos, &creator, 0);
+	de_dbg(c, "creator: '%s'\n", creator.id_printable);
+	pos += 4;
+
+	if(!is_central && !(flags&0x0004)) {
+		cmprtype = (unsigned int)de_getui16le(pos);
+		de_dbg(c, "finder attr. cmpr. method: %d\n", (int)cmprtype);
+		pos += 2;
+
+		crc_reported = (unsigned int)de_getui32le(pos);
+		de_dbg(c, "finder attr. data crc (reported): 0x%08x\n", crc_reported);
+		pos += 4;
+	}
+
+	// TODO: Uncompress and decode the finder data
+
+done:
+	;
+}
+
 struct extra_item_type_info_struct {
 	de_uint16 id;
 	const char *name;
@@ -386,7 +432,7 @@ static const struct extra_item_type_info_struct extra_item_type_info_arr[] = {
 	{ 0x2605 /*    */, "ZipIt Macintosh", NULL },
 	{ 0x2705 /*    */, "ZipIt Macintosh 1.3.5+", ef_zipitmac_2705 },
 	{ 0x2805 /*    */, "ZipIt Macintosh 1.3.5+", NULL },
-	{ 0x334d /* M3 */, "Info-ZIP Macintosh", NULL },
+	{ 0x334d /* M3 */, "Info-ZIP Macintosh", ef_infozipmac },
 	{ 0x4154 /* TA */, "Tandem NSK", NULL },
 	{ 0x4341 /* AC */, "Acorn/SparkFS", NULL },
 	{ 0x4453 /* SE */, "Windows NT security descriptor (binary ACL)", NULL },
