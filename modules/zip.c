@@ -57,6 +57,40 @@ static void copy_cp437c_to_utf8(deark *c, const de_byte *buf, de_int64 len, dbuf
 	}
 }
 
+static int is_compression_method_supported(int cmpr_method)
+{
+	if(cmpr_method==0 || cmpr_method==8) return 1;
+	return 0;
+}
+
+// Decompress some data from inf, using the given ZIP compression method,
+// and append it to outf.
+static int do_decompress_data(deark *c, lctx *d,
+	dbuf *inf, de_int64 inf_pos, de_int64 inf_size,
+	dbuf *outf, int cmpr_method)
+{
+	int retval = 0;
+	int ret;
+	de_int64 bytes_consumed = 0;
+
+	switch(cmpr_method) {
+	case 0: // uncompressed
+		dbuf_copy(inf, inf_pos, inf_size, outf);
+		retval = 1;
+		break;
+	case 8: // deflate
+		{
+			ret = de_uncompress_deflate(inf, inf_pos, inf_size, outf, &bytes_consumed);
+			if(!ret) goto done;
+			retval = 1;
+		}
+		break;
+	}
+
+done:
+	return retval;
+}
+
 static void do_read_filename(deark *c, lctx *d,
 	struct member_data *md, struct dir_entry_data *dd,
 	de_int64 pos, de_int64 len, int utf8_flag)
@@ -523,7 +557,6 @@ static void our_writecallback(dbuf *f, const de_byte *buf, de_int64 buf_len)
 
 static void do_extract_file(deark *c, lctx *d, struct member_data *md)
 {
-	int ret;
 	dbuf *outf = NULL;
 	de_finfo *fi = NULL;
 	struct dir_entry_data *ldd = &md->local_dir_entry_data;
@@ -531,7 +564,7 @@ static void do_extract_file(deark *c, lctx *d, struct member_data *md)
 	de_dbg(c, "file data at %d, len=%d\n", (int)md->file_data_pos,
 		(int)ldd->cmpr_size);
 
-	if(ldd->cmpr_method!=0 && ldd->cmpr_method!=8) {
+	if(!is_compression_method_supported(ldd->cmpr_method)) {
 		de_err(c, "Unsupported compression method: %d\n",
 			(int)ldd->cmpr_method);
 		goto done;
@@ -569,19 +602,7 @@ static void do_extract_file(deark *c, lctx *d, struct member_data *md)
 
 	md->crc_calculated = de_crc32(NULL, 0);
 
-	switch(ldd->cmpr_method) {
-	case 0: // uncompressed
-		dbuf_copy(c->infile, md->file_data_pos, ldd->cmpr_size, outf);
-		break;
-	case 8: // deflate
-		{
-			de_int64 bytes_consumed = 0;
-			ret = de_uncompress_deflate(c->infile, md->file_data_pos, ldd->cmpr_size,
-				outf, &bytes_consumed);
-			if(!ret) goto done;
-		}
-		break;
-	}
+	do_decompress_data(c, d, c->infile, md->file_data_pos, ldd->cmpr_size, outf, ldd->cmpr_method);
 
 	de_dbg(c, "crc (calculated): 0x%08x\n", (unsigned int)md->crc_calculated);
 
