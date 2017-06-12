@@ -336,6 +336,29 @@ static void ef_os2(deark *c, lctx *d,
 	// TODO: Uncompress and decode OS/2 extended attribute structure (FEA2LIST)
 }
 
+// Extra field 0x2705 (ZipIt Macintosh 1.3.5+)
+static void ef_zipitmac_2705(deark *c, lctx *d,
+	struct member_data *md, struct dir_entry_data *dd,
+	de_int64 fieldtype, de_int64 pos, de_int64 len, int is_central)
+{
+	struct de_fourcc sig;
+	struct de_fourcc filetype;
+	struct de_fourcc creator;
+
+	if(len<4) goto done;
+	dbuf_read_fourcc(c->infile, pos, &sig, 0);
+	de_dbg(c, "signature: '%s'\n", sig.id_printable);
+	if(sig.id!=0x5a504954U) goto done; // expecting 'ZPIT'
+	if(len<12) goto done;
+	dbuf_read_fourcc(c->infile, pos+4, &filetype, 0);
+	de_dbg(c, "filetype: '%s'\n", filetype.id_printable);
+	dbuf_read_fourcc(c->infile, pos+8, &creator, 0);
+	de_dbg(c, "creator: '%s'\n", creator.id_printable);
+
+done:
+	;
+}
+
 struct extra_item_type_info_struct {
 	de_uint16 id;
 	const char *name;
@@ -361,7 +384,7 @@ static const struct extra_item_type_info_struct extra_item_type_info_arr[] = {
 	{ 0x0066 /*    */, "IBM S/390 (Z390), AS/400 (I400) attributes - compressed", NULL },
 	{ 0x07c8 /*    */, "Macintosh", NULL },
 	{ 0x2605 /*    */, "ZipIt Macintosh", NULL },
-	{ 0x2705 /*    */, "ZipIt Macintosh 1.3.5+", NULL },
+	{ 0x2705 /*    */, "ZipIt Macintosh 1.3.5+", ef_zipitmac_2705 },
 	{ 0x2805 /*    */, "ZipIt Macintosh 1.3.5+", NULL },
 	{ 0x334d /* M3 */, "Info-ZIP Macintosh", NULL },
 	{ 0x4154 /* TA */, "Tandem NSK", NULL },
