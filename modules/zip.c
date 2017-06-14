@@ -63,6 +63,11 @@ static int is_compression_method_supported(int cmpr_method)
 	return 0;
 }
 
+static void append_list_item(de_ucstring *s, const char *str)
+{
+	ucstring_printf(s, DE_ENCODING_UTF8, "%s%s", (s->len>0)?" | ":"", str);
+}
+
 // Decompress some data from inf, using the given ZIP compression method,
 // and append it to outf.
 static int do_decompress_data(deark *c, lctx *d,
@@ -393,18 +398,43 @@ done:
 	;
 }
 
+// The time will be returned in the caller-supplied 'ts'
+static void handle_mac_time(deark *c, lctx *d,
+	de_int64 mt_raw, de_int64 mt_offset,
+	struct de_timestamp *ts, const char *name)
+{
+	char timestamp_buf[64];
+	de_unix_time_to_timestamp(mt_raw - mt_offset - 2082844800, ts);
+	de_timestamp_to_string(ts, timestamp_buf, sizeof(timestamp_buf), 1);
+	de_dbg(c, "%s: %"INT64_FMT" %+"INT64_FMT" (%s)\n", name,
+		mt_raw, -mt_offset, timestamp_buf);
+}
+
 // Extra field 0x334d (Info-ZIP Macintosh)
 static void ef_infozipmac(deark *c, lctx *d,
 	struct member_data *md, struct dir_entry_data *dd,
 	de_int64 fieldtype, de_int64 pos1, de_int64 len, int is_central)
 {
 	de_int64 pos = pos1;
+	de_int64 dpos;
 	de_int64 ulen;
+	de_int64 cmpr_attr_size;
 	unsigned int flags;
 	unsigned int cmprtype;
 	unsigned int crc_reported;
 	struct de_fourcc filetype;
 	struct de_fourcc creator;
+	de_ucstring *flags_str = NULL;
+	dbuf *attr_data = NULL;
+	int ret;
+	de_int64 create_time_raw;
+	de_int64 create_time_offset;
+	de_int64 mod_time_raw;
+	de_int64 mod_time_offset;
+	de_int64 backup_time_raw;
+	de_int64 backup_time_offset;
+	struct de_timestamp tmp_timestamp;
+	int charset;
 
 	if(len<14) goto done;
 
@@ -413,7 +443,14 @@ static void ef_infozipmac(deark *c, lctx *d,
 	pos += 4;
 
 	flags = (unsigned int)de_getui16le(pos);
-	de_dbg(c, "flags: 0x%04x\n", flags);
+	flags_str = ucstring_create(c);
+	if(flags&0x0001) append_list_item(flags_str, "data_fork");
+	if(flags&0x0002) append_list_item(flags_str, "0x0002"); // something about the filename
+	append_list_item(flags_str,
+		(flags&0x0004)?"uncmpressed_attribute_data":"compressed_attribute_data");
+	if(flags&0x0008) append_list_item(flags_str, "64-bit_times");
+	if(flags&0x0010) append_list_item(flags_str, "no_timezone_offsets");
+	de_dbg(c, "flags: 0x%04x (%s)\n", flags, ucstring_get_printable_sz(flags_str));
 	pos += 2;
 
 	dbuf_read_fourcc(c->infile, pos, &filetype, 0);
@@ -423,7 +460,13 @@ static void ef_infozipmac(deark *c, lctx *d,
 	de_dbg(c, "creator: '%s'\n", creator.id_printable);
 	pos += 4;
 
-	if(!is_central && !(flags&0x0004)) {
+	if(is_central) goto done;
+
+	if(flags&0x0004) { // Uncompressed attribute data
+		cmprtype = 0;
+		crc_reported = 0;
+	}
+	else {
 		cmprtype = (unsigned int)de_getui16le(pos);
 		de_dbg(c, "finder attr. cmpr. method: %d\n", (int)cmprtype);
 		pos += 2;
@@ -433,10 +476,55 @@ static void ef_infozipmac(deark *c, lctx *d,
 		pos += 4;
 	}
 
-	// TODO: Uncompress and decode the finder data
+	// The rest of the data is Finder attribute data
+	cmpr_attr_size = pos1+len - pos;
+	de_dbg(c, "cmpr. finder attr. size: %d\n", (int)cmpr_attr_size);
+	if(ulen<1 || ulen>1000000) goto done;
+
+	if(!is_compression_method_supported(cmprtype)) {
+		de_warn(c, "Finder attribute data: Unspported compression method: %d\n", (int)cmprtype);
+	}
+
+	// Decompress and decode the Finder attribute data
+	attr_data = dbuf_create_membuf(c, ulen, 0x1);
+	ret = do_decompress_data(c, d, c->infile, pos, cmpr_attr_size, attr_data, cmprtype);
+	if(!ret) {
+		de_warn(c, "Failed to decompress finder attribute data\n");
+		goto done;
+	}
+
+	dpos = 0;
+	dpos += 2; // Finder flags
+	dpos += 4; // Icon location
+	dpos += 2; // Folder
+	dpos += 16; // FXInfo
+	dpos += 1; // file version number
+	dpos += 1; // dir access rights
+
+	if(flags&0x0008) goto done; // We don't support 64-bit times
+	if(flags&0x0010) goto done; // We want timezone offsets
+	if(attr_data->len - dpos < 6*4) goto done;
+
+	create_time_raw = dbuf_getui32le(attr_data, dpos); dpos += 4;
+	mod_time_raw    = dbuf_getui32le(attr_data, dpos); dpos += 4;
+	backup_time_raw = dbuf_getui32le(attr_data, dpos); dpos += 4;
+	create_time_offset = dbuf_geti32le(attr_data, dpos); dpos += 4;
+	mod_time_offset    = dbuf_geti32le(attr_data, dpos); dpos += 4;
+	backup_time_offset = dbuf_geti32le(attr_data, dpos); dpos += 4;
+
+	handle_mac_time(c, d, create_time_raw, create_time_offset, &tmp_timestamp, "create time");
+	// TODO: Remember the mod_time?
+	handle_mac_time(c, d, mod_time_raw,    mod_time_offset,    &tmp_timestamp, "mod time   ");
+	handle_mac_time(c, d, backup_time_raw, backup_time_offset, &tmp_timestamp, "backup time");
+
+	if(attr_data->len - dpos < 4) goto done;
+	charset = (int)dbuf_getui16le(attr_data, dpos);
+	dpos += 2;
+	de_dbg(c, "charset for path/comment: %d\n", (int)charset);
 
 done:
-	;
+	ucstring_destroy(flags_str);
+	dbuf_close(attr_data);
 }
 
 struct extra_item_type_info_struct {
