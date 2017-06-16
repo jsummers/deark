@@ -404,11 +404,6 @@ done:
 	;
 }
 
-static void append_list_item(de_ucstring *s, const char *str)
-{
-	ucstring_printf(s, DE_ENCODING_UTF8, "%s%s", (s->len>0)?" | ":"", str);
-}
-
 // SAUCE = Standard Architecture for Universal Comment Extensions
 // Caller allocates si.
 // This function may allocate si->title, artist, organization, creation_date.
@@ -497,19 +492,19 @@ int de_read_SAUCE(deark *c, dbuf *f, struct de_SAUCE_info *si)
 		if(t==0x0100 || t==0x0101 || t==0x0102 || si->data_type==5) {
 			// ANSiFlags
 			if(si->tflags&0x01) {
-				append_list_item(tflags_descr, "non-blink mode");
+				ucstring_append_flags_item(tflags_descr, "non-blink mode");
 			}
 			if((si->tflags & 0x06)>>1 == 1) {
-				append_list_item(tflags_descr, "8-pixel font");
+				ucstring_append_flags_item(tflags_descr, "8-pixel font");
 			}
 			else if((si->tflags & 0x06)>>1 == 2) {
-				append_list_item(tflags_descr, "9-pixel font");
+				ucstring_append_flags_item(tflags_descr, "9-pixel font");
 			}
 			if((si->tflags & 0x18)>>3 == 1) {
-				append_list_item(tflags_descr, "non-square pixels");
+				ucstring_append_flags_item(tflags_descr, "non-square pixels");
 			}
 			else if((si->tflags & 0x18)>>3 == 2) {
-				append_list_item(tflags_descr, "square pixels");
+				ucstring_append_flags_item(tflags_descr, "square pixels");
 			}
 
 		}

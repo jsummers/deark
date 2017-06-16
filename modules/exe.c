@@ -63,11 +63,6 @@ typedef struct localctx_struct {
 	de_int64 rsrc_item_count;
 } lctx;
 
-static void append_list_item(de_ucstring *s, const char *str)
-{
-	ucstring_printf(s, DE_ENCODING_UTF8, "%s%s", (s->len>0)?" | ":"", str);
-}
-
 static void do_opt_coff_data_dirs(deark *c, lctx *d, de_int64 pos)
 {
 	de_int64 rsrc_tbl_rva;
@@ -169,14 +164,14 @@ static void do_pe_characteristics(deark *c, lctx *d, unsigned int v)
 	de_ucstring *s = NULL;
 	s = ucstring_create(c);
 
-	if(v&0x0001) append_list_item(s, "relocs_stripped");
-	if(v&0x0002) append_list_item(s, "valid_executable");
-	if(v&0x0004) append_list_item(s, "COFF_line_numbers_stripped");
-	if(v&0x0008) append_list_item(s, "COFF_local_stripped");
-	if(v&0x0020) append_list_item(s, "large_address_aware");
-	if(v&0x0100) append_list_item(s, "32-bit");
-	if(v&0x0200) append_list_item(s, "stripped");
-	if(v&0x2000) append_list_item(s, "DLL");
+	if(v&0x0001) ucstring_append_flags_item(s, "relocs_stripped");
+	if(v&0x0002) ucstring_append_flags_item(s, "valid_executable");
+	if(v&0x0004) ucstring_append_flags_item(s, "COFF_line_numbers_stripped");
+	if(v&0x0008) ucstring_append_flags_item(s, "COFF_local_stripped");
+	if(v&0x0020) ucstring_append_flags_item(s, "large_address_aware");
+	if(v&0x0100) ucstring_append_flags_item(s, "32-bit");
+	if(v&0x0200) ucstring_append_flags_item(s, "stripped");
+	if(v&0x2000) ucstring_append_flags_item(s, "DLL");
 	// TODO: There are more flags than this.
 	de_dbg(c, "characteristics: 0x%04x (%s)\n", v, ucstring_get_printable_sz(s));
 	ucstring_destroy(s);
@@ -306,17 +301,17 @@ static void do_ne_program_flags(deark *c, lctx *d, de_byte flags)
 	s = ucstring_create(c);
 
 	switch(flags&0x03) {
-	case 1: append_list_item(s, "dgroup_type=single_shared"); break;
-	case 2: append_list_item(s, "dgroup_type=multiple"); break;
-	case 3: append_list_item(s, "dgroup_type=null"); break;
+	case 1: ucstring_append_flags_item(s, "dgroup_type=single_shared"); break;
+	case 2: ucstring_append_flags_item(s, "dgroup_type=multiple"); break;
+	case 3: ucstring_append_flags_item(s, "dgroup_type=null"); break;
 	}
 
-	if(flags&0x4) append_list_item(s, "global init");
-	if(flags&0x8) append_list_item(s, "protected mode");
-	if(flags&0x10) append_list_item(s, "8086");
-	if(flags&0x20) append_list_item(s, "80286");
-	if(flags&0x40) append_list_item(s, "80386");
-	if(flags&0x80) append_list_item(s, "80x87");
+	if(flags&0x4) ucstring_append_flags_item(s, "global init");
+	if(flags&0x8) ucstring_append_flags_item(s, "protected mode");
+	if(flags&0x10) ucstring_append_flags_item(s, "8086");
+	if(flags&0x20) ucstring_append_flags_item(s, "80286");
+	if(flags&0x40) ucstring_append_flags_item(s, "80386");
+	if(flags&0x80) ucstring_append_flags_item(s, "80x87");
 
 	de_dbg(c, "program flags: 0x%02x (%s)\n", (unsigned int)flags,
 		ucstring_get_printable_sz(s));
@@ -330,13 +325,13 @@ static void do_ne_app_flags(deark *c, lctx *d, de_byte flags)
 	s = ucstring_create(c);
 
 	switch(flags&0x07) {
-	case 0x1: append_list_item(s, "type=non-windowed"); break;
-	case 0x2: append_list_item(s, "type=windowed-compatible"); break;
-	case 0x3: append_list_item(s, "type=windowed"); break;
+	case 0x1: ucstring_append_flags_item(s, "type=non-windowed"); break;
+	case 0x2: ucstring_append_flags_item(s, "type=windowed-compatible"); break;
+	case 0x3: ucstring_append_flags_item(s, "type=windowed"); break;
 	}
 
-	if(flags&0x08) append_list_item(s, "OS/2");
-	if(flags&0x80) append_list_item(s, "DLL");
+	if(flags&0x08) ucstring_append_flags_item(s, "OS/2");
+	if(flags&0x80) ucstring_append_flags_item(s, "DLL");
 
 	de_dbg(c, "application flags: 0x%02x (%s)\n", (unsigned int)flags,
 		ucstring_get_printable_sz(s));

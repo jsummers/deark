@@ -63,11 +63,6 @@ static int is_compression_method_supported(int cmpr_method)
 	return 0;
 }
 
-static void append_list_item(de_ucstring *s, const char *str)
-{
-	ucstring_printf(s, DE_ENCODING_UTF8, "%s%s", (s->len>0)?" | ":"", str);
-}
-
 // Decompress some data from inf, using the given ZIP compression method,
 // and append it to outf.
 static int do_decompress_data(deark *c, lctx *d,
@@ -444,12 +439,12 @@ static void ef_infozipmac(deark *c, lctx *d,
 
 	flags = (unsigned int)de_getui16le(pos);
 	flags_str = ucstring_create(c);
-	if(flags&0x0001) append_list_item(flags_str, "data_fork");
-	if(flags&0x0002) append_list_item(flags_str, "0x0002"); // something about the filename
-	append_list_item(flags_str,
+	if(flags&0x0001) ucstring_append_flags_item(flags_str, "data_fork");
+	if(flags&0x0002) ucstring_append_flags_item(flags_str, "0x0002"); // something about the filename
+	ucstring_append_flags_item(flags_str,
 		(flags&0x0004)?"uncmpressed_attribute_data":"compressed_attribute_data");
-	if(flags&0x0008) append_list_item(flags_str, "64-bit_times");
-	if(flags&0x0010) append_list_item(flags_str, "no_timezone_offsets");
+	if(flags&0x0008) ucstring_append_flags_item(flags_str, "64-bit_times");
+	if(flags&0x0010) ucstring_append_flags_item(flags_str, "no_timezone_offsets");
 	de_dbg(c, "flags: 0x%04x (%s)\n", flags, ucstring_get_printable_sz(flags_str));
 	pos += 2;
 

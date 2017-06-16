@@ -670,6 +670,7 @@ void ucstring_append_ucstring(de_ucstring *s1, const de_ucstring *s2);
 void ucstring_printf(de_ucstring *s, int encoding, const char *fmt, ...)
   de_gnuc_attribute ((format (printf, 3, 4)));
 
+
 // Convert and append an encoded array of bytes to the string.
 void ucstring_append_bytes(de_ucstring *s, const de_byte *buf, de_int64 buflen, unsigned int conv_flags, int encoding);
 
@@ -691,6 +692,9 @@ const char *ucstring_get_printable_sz(de_ucstring *s);
 const char *ucstring_get_printable_sz_n(de_ucstring *s, de_int64 max_chars);
 
 int ucstring_strcmp(de_ucstring *s, const char *s2, int encoding);
+
+// Helper function for printing the contents of bit-flags fields
+void ucstring_append_flags_item(de_ucstring *s, const char *str);
 
 void de_write_codepoint_to_html(deark *c, dbuf *f, de_int32 ch);
 
