@@ -337,39 +337,36 @@ static void handler_app(deark *c, lctx *d, struct page_ctx *pg,
 	const struct marker_info *mi, de_int64 seg_data_pos, de_int64 seg_data_size)
 {
 #define MAX_APP_ID_LEN 256
-	char app_id_orig[MAX_APP_ID_LEN];
 	char app_id_normalized[MAX_APP_ID_LEN];
-	char app_id_printable[MAX_APP_ID_LEN];
 	de_int64 app_id_orig_strlen;
-	de_int64 app_id_orig_size;
 	de_int64 payload_pos;
 	de_int64 payload_size;
 	de_byte seg_type = mi->seg_type;
+	struct de_stringreaderdata *srd = NULL;
 
 	de_dbg_indent(c, 1);
 	if(seg_data_size<3) goto done;
 
-	// Read the first few bytes of the segment, so we can tell what kind of segment it is.
-	if(seg_data_size+1 < (de_int64)sizeof(app_id_orig))
-		dbuf_read_sz(c->infile, seg_data_pos, app_id_orig, (size_t)(seg_data_size+1));
-	else
-		dbuf_read_sz(c->infile, seg_data_pos, app_id_orig, sizeof(app_id_orig));
-
+	// Read the first part of the segment, so we can tell what kind of segment it is.
 	// APP ID is the string before the first NUL byte.
-	// app_id_orig_size includes the NUL byte
-	app_id_orig_strlen = (de_int64)de_strlen(app_id_orig);
-	app_id_orig_size = app_id_orig_strlen + 1;
 
-	de_bytes_to_printable_sz((const de_byte*)app_id_orig, app_id_orig_strlen,
-		app_id_printable, sizeof(app_id_printable), 0, DE_ENCODING_ASCII);
+	srd = dbuf_read_string(c->infile, seg_data_pos, MAX_APP_ID_LEN, MAX_APP_ID_LEN,
+		DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_ASCII);
 
-	de_dbg(c, "app id: \"%s\"\n", app_id_printable);
+	if(!srd->found_nul || srd->was_truncated) {
+		de_dbg(c, "app id: [not found]\n");
+		goto done;
+	}
 
-	normalize_app_id(app_id_orig, app_id_normalized, sizeof(app_id_normalized));
+	de_dbg(c, "app id: \"%s\"\n", ucstring_get_printable_sz(srd->str));
+
+	app_id_orig_strlen = srd->bytes_consumed-1;
+
+	normalize_app_id((const char*)srd->sz, app_id_normalized, sizeof(app_id_normalized));
 
 	// The payload data size is usually everything after the first NUL byte.
-	payload_pos = seg_data_pos + app_id_orig_size;
-	payload_size = seg_data_size - app_id_orig_size;
+	payload_pos = seg_data_pos + srd->bytes_consumed;
+	payload_size = seg_data_size - srd->bytes_consumed;
 	if(payload_size<1) goto done;
 
 	if(seg_type==0xe0 && !de_strcmp(app_id_normalized, "JFIF")) {
@@ -417,6 +414,7 @@ static void handler_app(deark *c, lctx *d, struct page_ctx *pg,
 	}
 
 done:
+	de_destroy_stringreaderdata(c, srd);
 	de_dbg_indent(c, -1);
 }
 
