@@ -499,13 +499,13 @@ static int do_read_AmBk(deark *c, lctx *d, struct amosbank *bk)
 	de_int64 banknum;
 	de_int64 bank_len_code;
 	de_int64 bank_len_raw;
-	de_byte bank_name[8];
 	int membanktype = 0;
-	char bank_name_printable[16];
 	const struct membankinfo *mbi = NULL;
+	struct de_stringreaderdata *srd = NULL;
 	de_int64 i;
+	int retval = 0;
 
-	if(bk->f->len < 20) return 0;
+	if(bk->f->len < 20) goto done;
 
 	banknum = dbuf_getui16be(bk->f, 4);
 	de_dbg(c, "bank number (1-15): %d\n", (int)banknum);
@@ -517,14 +517,13 @@ static int do_read_AmBk(deark *c, lctx *d, struct amosbank *bk)
 	de_dbg(c, "bank length: %d (dlen=%d, tlen=%d)\n", (int)bank_len_raw,
 		(int)bk->bank_data_len, (int)bk->bank_len);
 
-	dbuf_read(bk->f, bank_name, 12, 8);
-	de_bytes_to_printable_sz(bank_name, 8, bank_name_printable, sizeof(bank_name_printable), 0, DE_ENCODING_ASCII);
-	de_dbg(c, "bank name: \"%s\"\n", bank_name_printable);
+	srd = dbuf_read_string(bk->f, 12, 8, 8, 0, DE_ENCODING_ASCII);
+	de_dbg(c, "bank name: \"%s\"\n", ucstring_get_printable_sz(srd->str));
 
-	if(bk->bank_data_len<0) return 0;
+	if(bk->bank_data_len<0) goto done;
 
 	for(i=0; membankinfo_arr[i].type!=0; i++) {
-		if(!de_memcmp(bank_name, membankinfo_arr[i].name, 8)) {
+		if(!de_memcmp(srd->sz, membankinfo_arr[i].name, 8)) {
 			mbi = &membankinfo_arr[i];
 			break;
 		}
@@ -538,22 +537,26 @@ static int do_read_AmBk(deark *c, lctx *d, struct amosbank *bk)
 	if(d->fmt==CODE_AmBs) {
 		// If original file is in AmBs format, just extract the AmBk file.
 		dbuf_create_file_from_slice(bk->f, 0, bk->bank_len, bk->file_ext, NULL, 0);
-		return 1;
+		retval = 1;
+		goto done;
 	}
 
 	switch(membanktype) {
 	case MEMBANKTYPE_PICTURE:
 		do_picture_bank(c, d, bk);
-		return 1;
+		retval = 1;
+		goto done;
 	}
 
 	if(c->extract_level>=2) {
 		// Extracting the raw memory-bank data can be useful sometimes.
 		dbuf_create_file_from_slice(bk->f, 20, bk->bank_data_len, "bin", NULL, 0);
-		return 1;
 	}
 
-	return 1;
+	retval = 1;
+done:
+	de_destroy_stringreaderdata(c, srd);
+	return retval;
 }
 
 static int do_read_bank(deark *c, lctx *d, de_int64 pos, de_int64 *bytesused)
