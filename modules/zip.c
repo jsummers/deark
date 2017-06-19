@@ -430,6 +430,7 @@ static void ef_infozipmac(deark *c, lctx *d,
 	de_int64 backup_time_offset;
 	struct de_timestamp tmp_timestamp;
 	int charset;
+	struct de_stringreaderdata *srd;
 
 	if(len<14) goto done;
 
@@ -508,14 +509,28 @@ static void ef_infozipmac(deark *c, lctx *d,
 	backup_time_offset = dbuf_geti32le(attr_data, dpos); dpos += 4;
 
 	handle_mac_time(c, d, create_time_raw, create_time_offset, &tmp_timestamp, "create time");
-	// TODO: Remember the mod_time?
+	// TODO: Remember the mod_time? Need to decide what mod_time field takes precedence.
 	handle_mac_time(c, d, mod_time_raw,    mod_time_offset,    &tmp_timestamp, "mod time   ");
 	handle_mac_time(c, d, backup_time_raw, backup_time_offset, &tmp_timestamp, "backup time");
 
+	// Expecting 2 bytes for charset, and at least 2 more for the 2 NUL-terminated
+	// strings that follow.
 	if(attr_data->len - dpos < 4) goto done;
+
 	charset = (int)dbuf_getui16le(attr_data, dpos);
 	dpos += 2;
-	de_dbg(c, "charset for path/comment: %d\n", (int)charset);
+	de_dbg(c, "charset for fullpath/comment: %d\n", (int)charset);
+
+	// TODO: Can we use the correct encoding?
+	srd = dbuf_read_string(attr_data, dpos, attr_data->len-dpos, 300, DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_ASCII);
+	de_dbg(c, "fullpath: \"%s\"\n", ucstring_get_printable_sz(srd->str));
+	dpos += srd->bytes_consumed;
+	de_destroy_stringreaderdata(c, srd);
+
+	srd = dbuf_read_string(attr_data, dpos, attr_data->len-dpos, 300, DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_ASCII);
+	de_dbg(c, "comment: \"%s\"\n", ucstring_get_printable_sz(srd->str));
+	dpos += srd->bytes_consumed;
+	de_destroy_stringreaderdata(c, srd);
 
 done:
 	ucstring_destroy(flags_str);
