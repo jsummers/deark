@@ -1673,73 +1673,51 @@ static void do_dbg_print_text_values(deark *c, lctx *d, const struct taginfo *tg
 	de_ucstring *dbgline)
 {
 	de_ucstring *str = NULL;
-	de_int64 adjusted_total_size;
+	struct de_stringreaderdata *srd;
 	int is_truncated = 0;
-	de_int64 bytes_to_read;
-	de_int64 bytes_consumed = 0;
 	int str_count = 0;
-	de_byte inputbuf[DE_TIFF_MAX_CHARS_TO_PRINT+1];
+	de_int64 pos, endpos;
+	de_int64 adj_totalsize;
 
 	// An ASCII field is a sequence of NUL-terminated strings.
 	// The spec does not say what to do if an ASCII field does not end in a NUL.
 	// Our rule is that if the field does not end in a NUL byte (including the case
 	// where it is 0 length), then treat it as if it has a NUL byte appended to it.
-	// That way, the number of (logical) NUL bytes equals the number of strings in the
-	// field.
+	// The other options would be to pretend the last byte is always NUL, or to
+	// ignore everything after the last NUL byte.
 
-	bytes_to_read = tg->total_size;
-
-	if(bytes_to_read > DE_TIFF_MAX_CHARS_TO_PRINT) {
-		bytes_to_read = DE_TIFF_MAX_CHARS_TO_PRINT;
+	adj_totalsize = tg->total_size;
+	if(adj_totalsize > DE_TIFF_MAX_CHARS_TO_PRINT) {
+		adj_totalsize = DE_TIFF_MAX_CHARS_TO_PRINT;
 		// FIXME: Suboptimal things might happen if we truncate exactly one byte
 		is_truncated = 1;
 	}
-	de_read(inputbuf, tg->val_offset, bytes_to_read);
-
-	adjusted_total_size = bytes_to_read;
-
-	if(bytes_to_read==0 || (inputbuf[bytes_to_read-1]!='\0')) {
-		// If the data we read didn't end with a NUL, append one.
-		inputbuf[bytes_to_read] = '\0';
-		adjusted_total_size++;
-	}
+	endpos = tg->val_offset + adj_totalsize;
 
 	ucstring_append_sz(dbgline, " {", DE_ENCODING_UTF8);
 
-	str = ucstring_create(c);
+	pos = tg->val_offset;
+	while(1) {
+		if(pos>=endpos && str_count>0) break;
 
-	while(bytes_consumed < adjusted_total_size) {
-		de_int64 len;
-		const de_byte *tmpp;
-
-		ucstring_empty(str);
-
-		// Find the NUL byte.
-		tmpp = (const de_byte*)de_memchr(&inputbuf[bytes_consumed], 0, (size_t)(adjusted_total_size-bytes_consumed));
-		if(tmpp) {
-			len = (tmpp - &inputbuf[bytes_consumed]);
-		}
-		else {
-			// This should never happen, since we added our own trailing NUL if
-			// there wasn't one.
-			break;
-		}
-
-		ucstring_append_bytes(str, &inputbuf[bytes_consumed], len, 0, d->current_textfield_encoding);
-
-		bytes_consumed += len+1;
+		srd = dbuf_read_string(c->infile, pos, endpos-pos, endpos-pos,
+			DE_CONVFLAG_STOP_AT_NUL, d->current_textfield_encoding);
 
 		if(str_count>0) ucstring_append_sz(dbgline, ",", DE_ENCODING_UTF8);
 		ucstring_append_sz(dbgline, "\"", DE_ENCODING_UTF8);
-		ucstring_append_ucstring(dbgline, str);
+		ucstring_append_ucstring(dbgline, srd->str);
 		ucstring_append_sz(dbgline, "\"", DE_ENCODING_UTF8);
 		str_count++;
+
+		pos += srd->bytes_consumed;
+		de_destroy_stringreaderdata(c, srd);
 	}
 
 	if(is_truncated) {
 		ucstring_append_sz(dbgline, "...", DE_ENCODING_UTF8);
 	}
 	ucstring_append_sz(dbgline, "}", DE_ENCODING_UTF8);
+
 	ucstring_destroy(str);
 }
 
