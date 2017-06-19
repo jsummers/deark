@@ -813,8 +813,11 @@ de_uint32 de_rgb555_to_888(de_uint32 x)
 	return DE_MAKE_RGB(cr, cg, cb);
 }
 
+// This function has been largely replaced by other functions, and should
+// rarely be used. See the comment in the header file.
 // s1 is not NUL terminated, but s2 will be.
 // s2_size includes the NUL terminator.
+// src_encoding: Only DE_ENCODING_ASCII is supported.
 void de_bytes_to_printable_sz(const de_byte *s1, de_int64 s1_len,
 	char *s2, de_int64 s2_size, unsigned int conv_flags, int src_encoding)
 {
@@ -823,7 +826,6 @@ void de_bytes_to_printable_sz(const de_byte *s1, de_int64 s1_len,
 	char ch;
 
 	if(src_encoding!=DE_ENCODING_ASCII) {
-		// TODO: Implement other encodings
 		s2[0] = '\0';
 		return;
 	}

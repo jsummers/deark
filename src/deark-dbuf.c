@@ -525,6 +525,108 @@ void dbuf_read_sz(dbuf *f, de_int64 pos, char *dst, size_t dst_size)
 	dst[bytes_copied] = '\0';
 }
 
+// A more flexible version of dbuf_read_sz().
+// The issue is that some strings are both human-readable and machine-readable.
+// In such a case, we'd like to read some data from a file into a nice printable
+// ucstring, while also making some or all of the raw bytes available, say for
+// byte-for-byte string comparisons.
+// Plus, we may need to know the actual length of the string in the file, so that
+// it can be skipped over, even if we don't care about the whole string.
+// This function is currently only for NUL-terminated strings, but it may evolve
+// into something more.
+// Caller is responsible for calling destroy_stringreader() on the returned value.
+//  max_bytes_to_scan: The maximum number of bytes to read from the file.
+//  max_bytes_to_keep: The maximum number of bytes, not counting any NUL
+//   terminator, to return in ->sz. The ->str field is a Unicode version of ->sz,
+//   this also affects ->str.
+// If DE_CONVFLAG_STOP_AT_NUL is not set, it is assumed we are reading a string
+// of known length, that may have internal NUL bytes. The caller must set
+// max_bytes_to_scan and max_bytes_to_keep to the same value. The ->sz field will
+// always be allocated with this many bytes, plus one more for an artificial NUL
+// terminator.
+// Recognized flags:
+//   - DE_CONVFLAG_STOP_AT_NUL
+struct de_stringreaderdata *dbuf_read_string(dbuf *f, de_int64 pos,
+	de_int64 max_bytes_to_scan,
+	de_int64 max_bytes_to_keep,
+	unsigned int flags, int encoding)
+{
+	deark *c = f->c;
+	struct de_stringreaderdata *srd;
+	de_int64 foundpos = 0;
+	int ret;
+	de_int64 bytes_avail_to_read;
+	de_int64 bytes_to_malloc;
+	de_int64 x_strlen;
+
+	srd = de_malloc(c, sizeof(struct de_stringreaderdata));
+	srd->str = ucstring_create(c);
+
+	bytes_avail_to_read = max_bytes_to_scan;
+	if(bytes_avail_to_read > f->len-pos) {
+		bytes_avail_to_read = f->len-pos;
+	}
+
+	srd->bytes_consumed = bytes_avail_to_read; // default
+
+	// From here on, we can safely bail out ("goto done"). The
+	// de_stringreaderdata struct is sufficiently valid.
+
+	if(!(flags&DE_CONVFLAG_STOP_AT_NUL) &&
+		(max_bytes_to_scan != max_bytes_to_keep))
+	{
+		// To reduce possible confusion, we require that
+		// max_bytes_to_scan==max_bytes_to_keep in this case.
+		srd->sz = de_malloc(c, max_bytes_to_keep);
+		goto done;
+	}
+
+	if(flags&DE_CONVFLAG_STOP_AT_NUL) {
+		ret = dbuf_search_byte(f, 0x00, pos, bytes_avail_to_read, &foundpos);
+		if(ret) {
+			srd->found_nul = 1;
+		}
+		else {
+			// No NUL byte found. Could be an error in some formats, but in
+			// others NUL is used as separator, not a terminator.
+			foundpos = pos+bytes_avail_to_read;
+		}
+
+		x_strlen = foundpos-pos;
+		srd->bytes_consumed = x_strlen+1;
+	}
+	else {
+		x_strlen = max_bytes_to_keep;
+		srd->bytes_consumed = x_strlen;
+	}
+
+	bytes_to_malloc = x_strlen+1;
+	if(bytes_to_malloc>(max_bytes_to_keep+1)) {
+		bytes_to_malloc = max_bytes_to_keep+1;
+		srd->was_truncated = 1;
+	}
+
+	srd->sz = de_malloc(c, bytes_to_malloc);
+	dbuf_read(f, srd->sz, pos, bytes_to_malloc-1); // The last byte remains NUL
+
+	ucstring_append_bytes(srd->str, srd->sz, bytes_to_malloc-1, 0, encoding);
+
+done:
+	if(!srd->sz) {
+		// Always return a valid sz, even on failure.
+		srd->sz = de_malloc(c, 1);
+	}
+	return srd;
+}
+
+void de_destroy_stringreaderdata(deark *c, struct de_stringreaderdata *srd)
+{
+	if(!srd) return;
+	de_free(c, srd->sz);
+	ucstring_destroy(srd->str);
+	de_free(c, srd);
+}
+
 // Read (up to) len bytes from f, translate them to characters, and append
 // them to s.
 void dbuf_read_to_ucstring(dbuf *f, de_int64 pos, de_int64 len,

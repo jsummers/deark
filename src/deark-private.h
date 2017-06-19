@@ -467,7 +467,24 @@ void dbuf_copy_all_to_sz(dbuf *f, char *dst, size_t dst_size);
 // Read a NUL-terminated string from a dbuf.
 void dbuf_read_sz(dbuf *f, de_int64 pos, char *dst, size_t dst_size);
 
-// Compare bytes in a dbuf to s. The dbuf bytes are thrown away after the memcmp.
+struct de_stringreaderdata {
+   // The number of bytes used by the string in the file (ie includes trailing NUL),
+   // even if they aren't all stored in ->sz.
+   de_int64 bytes_consumed;
+
+   de_byte *sz; // Stores some or all of the bytes read. Always NUL terminated.
+   de_ucstring *str; // Unicode version of ->sz
+   int was_truncated;
+   int found_nul;
+};
+
+struct de_stringreaderdata *dbuf_read_string(dbuf *f, de_int64 pos,
+	de_int64 max_bytes_to_scan,	de_int64 max_bytes_to_keep,
+	unsigned int flags, int encoding);
+void de_destroy_stringreaderdata(deark *c, struct de_stringreaderdata *srd);
+
+// Compare bytes in a dbuf to s.
+// Note that repeatedly comparing the same dbuf bytes might be inefficient.
 int dbuf_memcmp(dbuf *f, de_int64 pos, const void *s, size_t n);
 
 // Read a slice of a dbuf, and create a new file containing only that.
@@ -641,7 +658,8 @@ int de_is_ascii(const de_byte *buf, de_int64 buflen);
 
 // Convert encoded bytes to a NUL-terminated string that can be
 // printed to the terminal.
-// Consider using {dbuf_read_to_ucstring or ucstring_append_bytes} followed by
+// Consider using {dbuf_read_to_ucstring or dbuf_read_string or
+// ucstring_append_bytes} followed by
 // {ucstring_get_printable_sz or ucstring_to_printable_sz} instead.
 void de_bytes_to_printable_sz(const de_byte *src, de_int64 src_len,
 	char *dst, de_int64 dst_len, unsigned int conv_flags, int src_encoding);
@@ -669,7 +687,6 @@ void ucstring_append_char(de_ucstring *s, de_int32 ch);
 void ucstring_append_ucstring(de_ucstring *s1, const de_ucstring *s2);
 void ucstring_printf(de_ucstring *s, int encoding, const char *fmt, ...)
   de_gnuc_attribute ((format (printf, 3, 4)));
-
 
 // Convert and append an encoded array of bytes to the string.
 void ucstring_append_bytes(de_ucstring *s, const de_byte *buf, de_int64 buflen, unsigned int conv_flags, int encoding);
