@@ -784,19 +784,15 @@ static void do_pe_resource_section(deark *c, lctx *d, de_int64 pos, de_int64 len
 
 static void do_pe_section_header(deark *c, lctx *d, de_int64 pos)
 {
-	de_byte name_raw[8];
-	char name[9];
 	de_int64 section_data_size;
+	struct de_stringreaderdata *srd = NULL;
 
 	de_dbg(c, "section header at %d\n", (unsigned int)pos);
 	de_dbg_indent(c, 1);
 
-	de_read(name_raw, pos, 8); // Section name
-
-	if(c->debug_level>0) {
-		de_bytes_to_printable_sz(name_raw, 8, name, sizeof(name), DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_ASCII);
-		de_dbg(c, "section name: \"%s\"\n", name);
-	}
+	// Section name: "An 8-byte, null-padded UTF-8 encoded string"
+	srd = dbuf_read_string(c->infile, pos, 8, 8, DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_UTF8);
+	de_dbg(c, "section name: \"%s\"\n", ucstring_get_printable_sz(srd->str));
 
 	d->pe_cur_section_virt_addr = de_getui32le(pos+12);
 	section_data_size = de_getui32le(pos+16);
@@ -805,10 +801,11 @@ static void do_pe_section_header(deark *c, lctx *d, de_int64 pos)
 	de_dbg(c, "section virt. addr=%d (0x%08x)\n", (int)d->pe_cur_section_virt_addr, (unsigned int)d->pe_cur_section_virt_addr);
 	de_dbg(c, "section data offset=%d, size=%d\n", (int)d->pe_cur_section_data_offset, (int)section_data_size);
 
-	if(!de_memcmp(name_raw, ".rsrc\0", 5)) {
+	if(!de_strcmp((const char*)srd->sz, ".rsrc")) {
 		do_pe_resource_section(c, d, d->pe_cur_section_data_offset, section_data_size);
 	}
 
+	de_destroy_stringreaderdata(c, srd);
 	de_dbg_indent(c, -1);
 }
 
