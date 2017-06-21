@@ -510,22 +510,7 @@ void dbuf_copy_all_to_sz(dbuf *f, char *dst, size_t dst_size)
 	dst[amt_to_read] = '\0';
 }
 
-void dbuf_read_sz(dbuf *f, de_int64 pos, char *dst, size_t dst_size)
-{
-	de_int64 i;
-	de_int64 bytes_copied = 0;
-	de_byte b;
-
-	for(i=0; i<(de_int64)dst_size-1; i++) {
-		b = dbuf_getbyte(f, pos+i);
-		if(b==0x00) break;
-		dst[i] = (char)b;
-		bytes_copied++;
-	}
-	dst[bytes_copied] = '\0';
-}
-
-// A more flexible version of dbuf_read_sz().
+// An advanced function for reading a string from a file.
 // The issue is that some strings are both human-readable and machine-readable.
 // In such a case, we'd like to read some data from a file into a nice printable
 // ucstring, while also making some or all of the raw bytes available, say for

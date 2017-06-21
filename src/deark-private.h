@@ -464,9 +464,6 @@ void dbuf_copy_at(dbuf *inf, de_int64 input_offset, de_int64 input_len, dbuf *ou
 // NUL-terminated) to a NUL-terminated string.
 void dbuf_copy_all_to_sz(dbuf *f, char *dst, size_t dst_size);
 
-// Read a NUL-terminated string from a dbuf.
-void dbuf_read_sz(dbuf *f, de_int64 pos, char *dst, size_t dst_size);
-
 struct de_stringreaderdata {
    // The number of bytes used by the string in the file (ie includes trailing NUL),
    // even if they aren't all stored in ->sz.
