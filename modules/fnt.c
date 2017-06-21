@@ -26,6 +26,7 @@ typedef struct localctx_struct {
 	de_int64 dfFace; // Offset of font face name
 	de_byte dfCharSet;
 
+	int is_vector;
 	int encoding;
 
 	de_finfo *fi;
@@ -139,20 +140,26 @@ static void do_make_image(deark *c, lctx *d)
 
 static void read_face_name(deark *c, lctx *d)
 {
-	char buf[50];
 	char buf2[50];
+	struct de_stringreaderdata *srd = NULL;
 
 	if(d->dfFace<1) return;
-	if(!c->filenames_from_file) return;
 
 	// The facename is terminated with a NUL byte.
 	// There seems to be no defined limit to its length, but Windows font face
 	// names traditionally have to be quite short.
-	dbuf_read_sz(c->infile, d->dfFace, buf, sizeof(buf));
-	de_snprintf(buf2, sizeof(buf2), "%s-%d", buf, (int)d->dfPoints);
+	srd = dbuf_read_string(c->infile, d->dfFace, 260, 50,
+		DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_ASCII);
+	de_dbg(c, "face name: \"%s\"\n", ucstring_get_printable_sz(srd->str));
+
+	if(!c->filenames_from_file) goto done;
 
 	d->fi = de_finfo_create(c);
+	de_snprintf(buf2, sizeof(buf2), "%s-%d", srd->sz, (int)d->dfPoints);
 	de_finfo_set_name_from_sz(c, d->fi, buf2, DE_ENCODING_ASCII);
+
+done:
+	de_destroy_stringreaderdata(c, srd);
 }
 
 static int do_read_header(deark *c, lctx *d)
@@ -161,7 +168,6 @@ static int do_read_header(deark *c, lctx *d)
 	de_int64 dfPixWidth;
 	de_int64 dfPixHeight;
 	de_int64 dfMaxWidth;
-	int is_vector = 0;
 	int retval = 0;
 
 	d->fnt_version = de_getui16le(0);
@@ -174,8 +180,8 @@ static int do_read_header(deark *c, lctx *d)
 
 	dfType = de_getui16le(66);
 	de_dbg(c, "dfType: 0x%04x\n", (int)dfType);
-	is_vector = (dfType&0x1)?1:0;
-	de_dbg(c, "Font type: %s\n", is_vector?"vector":"bitmap");
+	d->is_vector = (dfType&0x1)?1:0;
+	de_dbg(c, "Font type: %s\n", d->is_vector?"vector":"bitmap");
 
 	d->dfPoints = de_getui16le(68);
 	de_dbg(c, "dfPoints: %d\n", (int)d->dfPoints);
@@ -209,8 +215,12 @@ static int do_read_header(deark *c, lctx *d)
 	d->last_char = de_getbyte(96);
 	de_dbg(c, "first char: %d, last char: %d\n", (int)d->first_char, (int)d->last_char);
 
-	if(is_vector) {
-		de_err(c, "This is a vector font. Not supported.\n");
+	if(d->fnt_version >= 0x0200) {
+		d->dfFace = de_getui32le(105);
+	}
+
+	if(d->is_vector) {
+		retval = 1;
 		goto done;
 	}
 
@@ -219,10 +229,6 @@ static int do_read_header(deark *c, lctx *d)
 	if(d->fnt_version<0x0200) {
 		de_err(c, "This version of FNT is not supported\n");
 		goto done;
-	}
-
-	if(d->fnt_version >= 0x0200) {
-		d->dfFace = de_getui32le(105);
 	}
 
 	// There is an extra character at the end of the table that is an
@@ -259,6 +265,12 @@ static void de_run_fnt(deark *c, de_module_params *mparams)
 
 	if(!do_read_header(c, d)) goto done;
 	read_face_name(c, d);
+
+	if(d->is_vector) {
+		de_err(c, "This is a vector font. Not supported.\n");
+		goto done;
+	}
+
 	do_make_image(c, d);
 done:
 	de_finfo_destroy(c, d->fi);

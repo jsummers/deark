@@ -530,15 +530,14 @@ void dbuf_read_sz(dbuf *f, de_int64 pos, char *dst, size_t dst_size)
 // In such a case, we'd like to read some data from a file into a nice printable
 // ucstring, while also making some or all of the raw bytes available, say for
 // byte-for-byte string comparisons.
-// Plus, we may need to know the actual length of the string in the file, so that
-// it can be skipped over, even if we don't care about the whole string.
-// This function is currently only for NUL-terminated strings, but it may evolve
-// into something more.
+// Plus (for NUL-terminated/padded strings), we may need to know the actual length
+// of the string in the file, so that it can be skipped over, even if we don't
+// care about the whole string.
 // Caller is responsible for calling destroy_stringreader() on the returned value.
 //  max_bytes_to_scan: The maximum number of bytes to read from the file.
-//  max_bytes_to_keep: The maximum number of bytes, not counting any NUL
-//   terminator, to return in ->sz. The ->str field is a Unicode version of ->sz,
-//   this also affects ->str.
+//  max_bytes_to_keep: The maximum (or in some cases the exact) number of bytes,
+//   not counting any NUL terminator, to return in ->sz.
+//   The ->str field is a Unicode version of ->sz, this also affects ->str.
 // If DE_CONVFLAG_STOP_AT_NUL is not set, it is assumed we are reading a string
 // of known length, that may have internal NUL bytes. The caller must set
 // max_bytes_to_scan and max_bytes_to_keep to the same value. The ->sz field will
@@ -588,7 +587,7 @@ struct de_stringreaderdata *dbuf_read_string(dbuf *f, de_int64 pos,
 		}
 		else {
 			// No NUL byte found. Could be an error in some formats, but in
-			// others NUL is used as separator, not a terminator.
+			// others NUL is used as separator or as padding, not a terminator.
 			foundpos = pos+bytes_avail_to_read;
 		}
 
