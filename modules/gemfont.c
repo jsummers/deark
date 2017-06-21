@@ -73,25 +73,29 @@ done:
 
 static void do_face_name(deark *c, lctx *d)
 {
-	char buf[100];
 	char buf2[100];
 	size_t nlen;
+	struct de_stringreaderdata *srd = NULL;
 
-	if(!c->filenames_from_file) return;
+	srd = dbuf_read_string(c->infile, 4, 32, 32, DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_ASCII);
+	de_dbg(c, "face name: \"%s\"\n", ucstring_get_printable_sz(srd->str));
 
-	dbuf_read_sz(c->infile, 4, buf, 32);
-	nlen = de_strlen(buf);
+	if(!c->filenames_from_file) goto done;
 
 	// Strip trailing spaces
-	while(nlen>0 && buf[nlen-1]==' ') {
-		buf[nlen-1] = '\0';
+	nlen = de_strlen((const char*)srd->sz);
+	while(nlen>0 && srd->sz[nlen-1]==' ') {
+		srd->sz[nlen-1] = '\0';
 		nlen--;
 	}
 
-	de_snprintf(buf2, sizeof(buf2), "%s-%d", buf, (int)d->face_size);
+	de_snprintf(buf2, sizeof(buf2), "%s-%d", srd->sz, (int)d->face_size);
 
 	d->fi = de_finfo_create(c);
 	de_finfo_set_name_from_sz(c, d->fi, buf2, DE_ENCODING_ASCII);
+
+done:
+	de_destroy_stringreaderdata(c, srd);
 }
 
 static void de_run_gemfont(deark *c, de_module_params *mparams)
