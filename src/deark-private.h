@@ -460,10 +460,6 @@ void dbuf_printf(dbuf *f, const char *fmt, ...)
 void dbuf_copy(dbuf *inf, de_int64 input_offset, de_int64 input_len, dbuf *outf);
 void dbuf_copy_at(dbuf *inf, de_int64 input_offset, de_int64 input_len, dbuf *outf, de_int64 outpos);
 
-// Copy the entire contents of the dbuf (which are not expected to be
-// NUL-terminated) to a NUL-terminated string.
-void dbuf_copy_all_to_sz(dbuf *f, char *dst, size_t dst_size);
-
 struct de_stringreaderdata {
    // The number of bytes used by the string in the file (ie includes trailing NUL),
    // even if they aren't all stored in ->sz.

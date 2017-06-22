@@ -498,18 +498,6 @@ void dbuf_copy_at(dbuf *inf, de_int64 input_offset, de_int64 input_len,
 	}
 }
 
-void dbuf_copy_all_to_sz(dbuf *f, char *dst, size_t dst_size)
-{
-	de_int64 amt_to_read;
-
-	if(dst_size<1) return;
-	amt_to_read = f->len;
-	if(amt_to_read > (de_int64)(dst_size-1))
-		amt_to_read = (de_int64)(dst_size-1);
-	dbuf_read(f, (de_byte*)dst, 0, amt_to_read);
-	dst[amt_to_read] = '\0';
-}
-
 // An advanced function for reading a string from a file.
 // The issue is that some strings are both human-readable and machine-readable.
 // In such a case, we'd like to read some data from a file into a nice printable
