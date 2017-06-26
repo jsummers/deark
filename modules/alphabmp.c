@@ -21,17 +21,20 @@ typedef struct localctx_struct {
 
 static int do_read_palette(deark *c, lctx *d, de_int64 pos, de_int64 *pal_nbytes)
 {
-	de_dbg(c, "Palette at %d\n", (int)pos);
+	de_dbg(c, "palette at %d\n", (int)pos);
+	de_dbg_indent(c, 1);
 
 	d->num_pal_entries = de_getui16le(pos) + 1;
-	de_dbg(c, "Number of palette colors: %d\n", (int)d->num_pal_entries);
+	de_dbg(c, "number of palette colors: %d\n", (int)d->num_pal_entries);
 	if(d->palette_is_hls)
 		*pal_nbytes = 2 + d->num_pal_entries * 6;
 	else
 		*pal_nbytes = 2 + d->num_pal_entries * 3;
-	if(d->palette_is_hls) return 1;
+	if(d->palette_is_hls) goto done;
 
 	de_read_palette_rgb(c->infile, pos+2, d->num_pal_entries, 3, d->pal, 256, 0);
+done:
+	de_dbg_indent(c, -1);
 	return 1;
 }
 
@@ -65,13 +68,14 @@ static void do_bitmap(deark *c, lctx *d, dbuf *unc_pixels)
 	de_bitmap_destroy(img);
 }
 
-static int do_uncompress_image(deark *c, lctx *d, de_int64 pos, dbuf *unc_pixels)
+static int do_uncompress_image(deark *c, lctx *d, de_int64 pos1, dbuf *unc_pixels)
 {
 	de_int64 bytes_in_this_line;
+	de_int64 pos = pos1;
 	de_int64 j;
 	int ret;
 
-	de_dbg(c, "Decompressing bitmap\n");
+	de_dbg(c, "decompressing bitmap\n");
 
 	// Each line is compressed independently, using PackBits.
 
@@ -83,6 +87,8 @@ static int do_uncompress_image(deark *c, lctx *d, de_int64 pos, dbuf *unc_pixels
 		if(!ret) return 0;
 		pos += bytes_in_this_line;
 	}
+	de_dbg(c, "decompressed %d bytes to %d bytes\n", (int)(pos-pos1),
+		(int)unc_pixels->len);
 	return 1;
 }
 
@@ -93,13 +99,17 @@ static void de_run_alphabmp(deark *c, de_module_params *mparams)
 	de_int64 pos;
 	de_int64 palsize;
 	dbuf *unc_pixels = NULL;
+	int saved_indent_level;
+
+	de_dbg_indent_save(c, &saved_indent_level);
 
 	d = de_malloc(c, sizeof(lctx));
 	de_declare_fmt(c, "Alpha Microsystems BMP");
 
 	pos = 10;
 
-	de_dbg(c, "Bitmap image definition block at %d\n", (int)pos);
+	de_dbg(c, "bitmap image definition block at %d\n", (int)pos);
+	de_dbg_indent(c, 1);
 
 	d->w = de_getui16le(pos);
 	d->h = de_getui16le(pos+2);
@@ -118,6 +128,7 @@ static void de_run_alphabmp(deark *c, de_module_params *mparams)
 
 	d->compression = de_getui16le(pos+8);
 	de_dbg(c, "compression: %d\n", (int)d->compression);
+	de_dbg_indent(c, -1);
 
 	pos += 70;
 
@@ -134,7 +145,8 @@ static void de_run_alphabmp(deark *c, de_module_params *mparams)
 		goto done;
 	}
 
-	de_dbg(c, "Bitmap at %d\n", (int)pos);
+	de_dbg(c, "bitmap at %d\n", (int)pos);
+	de_dbg_indent(c, 1);
 
 	if(d->compression) {
 		unc_pixels = dbuf_create_membuf(c, 32768, 0);
@@ -150,8 +162,10 @@ static void de_run_alphabmp(deark *c, de_module_params *mparams)
 	}
 
 	do_bitmap(c, d, unc_pixels);
+	de_dbg_indent(c, -1);
 
 done:
+	de_dbg_indent_restore(c, saved_indent_level);
 	dbuf_close(unc_pixels);
 	de_free(c, d);
 }
