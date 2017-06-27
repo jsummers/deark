@@ -32,6 +32,9 @@ static int do_characters(deark *c, lctx *d)
 	de_int64 form_nbytes;
 	int retval = 0;
 
+	de_dbg(c, "reading characters\n");
+	de_dbg_indent(c, 1);
+
 	form_nbytes = d->form_width_bytes * d->form_height_pixels;
 	if(d->font_data_pos + form_nbytes > c->infile->len) {
 		de_err(c, "Font data goes beyond end of file\n");
@@ -67,6 +70,7 @@ static int do_characters(deark *c, lctx *d)
 	retval = 1;
 
 done:
+	de_dbg_indent(c, -1);
 	de_free(c, font_data);
 	return retval;
 }
@@ -102,12 +106,21 @@ static void de_run_gemfont(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
 	de_int64 i;
+	de_int64 n;
 	unsigned int font_flags;
 	de_int64 max_char_width;
+	int saved_indent_level;
 
+	de_dbg_indent_save(c, &saved_indent_level);
 	d = de_malloc(c, sizeof(lctx));
 	d->font = de_create_bitmap_font(c);
 	d->font->has_nonunicode_codepoints = 1;
+
+	de_dbg(c, "header at %d\n", 0);
+	de_dbg_indent(c, 1);
+
+	n = de_getui16le(0);
+	de_dbg(c, "face ID: %d\n", (int)n);
 
 	d->face_size = de_getui16le(2);
 	de_dbg(c, "point size: %d\n", (int)d->face_size);
@@ -135,13 +148,15 @@ static void de_run_gemfont(deark *c, de_module_params *mparams)
 
 	d->char_offset_table_pos = de_getui32le(72);
 	d->font_data_pos = de_getui32le(76);
-	de_dbg(c, "char. offset table at %d\n", (int)d->char_offset_table_pos);
-	de_dbg(c, "font data at %d\n", (int)d->font_data_pos);
+	de_dbg(c, "char. offset table offset: %d\n", (int)d->char_offset_table_pos);
+	de_dbg(c, "font data offset: %d\n", (int)d->font_data_pos);
 
 	d->form_width_bytes = de_getui16le(80);
 	d->form_height_pixels = de_getui16le(82);
 	de_dbg(c, "form width: %d bytes\n", (int)d->form_width_bytes);
 	de_dbg(c, "form height: %d pixels\n", (int)d->form_height_pixels);
+
+	de_dbg_indent(c, -1); // End of header
 
 	d->font->nominal_width = 1; // This will be calculated later
 	d->font->nominal_height = (int)d->form_height_pixels;
@@ -155,6 +170,7 @@ static void de_run_gemfont(deark *c, de_module_params *mparams)
 	de_font_bitmap_font_to_image(c, d->font, d->fi, 0);
 
 done:
+	de_dbg_indent_restore(c, saved_indent_level);
 	if(d->font) {
 		if(d->font->char_array) {
 			for(i=0; i<d->font->num_chars; i++) {
