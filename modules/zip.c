@@ -25,6 +25,7 @@ struct member_data {
 	de_int64 offset_of_local_header;
 	de_int64 disk_number_start;
 	de_int64 file_data_pos;
+	int is_nonexecutable;
 	int is_executable;
 	int is_dir;
 	int is_symlink;
@@ -691,7 +692,10 @@ static void do_extract_file(deark *c, lctx *d, struct member_data *md)
 	}
 
 	if(md->is_executable) {
-		fi->is_executable = 1;
+		fi->mode_flags |= DE_MODEFLAG_EXE;
+	}
+	else if(md->is_nonexecutable) {
+		fi->mode_flags |= DE_MODEFLAG_NONEXE;
 	}
 
 	outf = dbuf_create_output_file(c, NULL, fi, 0);
@@ -760,6 +764,9 @@ static void process_ext_attr(deark *c, lctx *d, struct member_data *md)
 
 		if((md->attr_e>>16)&0111) {
 			md->is_executable = 1;
+		}
+		else {
+			md->is_nonexecutable = 1;
 		}
 	}
 	// TODO: Support platforms other than Unix.

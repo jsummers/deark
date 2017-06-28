@@ -57,7 +57,10 @@ static int do_ar_item(deark *c, lctx *d, de_int64 pos1, de_int64 *p_item_len)
 	(void)dbuf_read_ascii_number(c->infile, pos1+40, 8, 8, &file_mode);
 	de_dbg(c, "file mode: octal(%06o)\n", (int)file_mode);
 	if((file_mode & 0111)!=0) {
-		fi->is_executable = 1;
+		fi->mode_flags |= DE_MODEFLAG_EXE;
+	}
+	else {
+		fi->mode_flags |= DE_MODEFLAG_NONEXE;
 	}
 
 	file_offset = pos1 + 60;

@@ -351,7 +351,10 @@ static int read_member(deark *c, lctx *d, de_int64 pos1,
 	}
 
 	if((md->mode & 0111) != 0) {
-		md->fi->is_executable = 1;
+		md->fi->mode_flags |= DE_MODEFLAG_EXE;
+	}
+	else {
+		md->fi->mode_flags |= DE_MODEFLAG_NONEXE;
 	}
 
 	if((md->mode & 0170000) != 0100000) {

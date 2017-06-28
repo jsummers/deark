@@ -118,6 +118,16 @@ it's possible to have a filename that is not valid UTF-8. Deark *will* work
 when reading such files, but it might echo the ill-formed string to the
 terminal, resulting in ill-formed terminal output.
 
+## Executable output files ##
+
+Most file attributes (such as file ownership) are ignored when extracting
+files, but Deark does try to maintain the "executable" status of output
+files, for formats which store this attribute. The Windows version of Deark
+does not use this information, except when writing to a ZIP file.
+
+This is a simple yes/no flag. It does not distinguish between
+owner-executable and world-executable, for example.
+
 ## Modification times ##
 
 In certain cases, Deark tries to maintain the modification time of the original

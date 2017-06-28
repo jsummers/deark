@@ -344,7 +344,10 @@ static int EntrReadArch (struct unzooctx *uz, struct entryctx *ze)
 	if(l+4 < ze->lvar) {
 		de_dbg(c, "perms: octal(%o)\n", (unsigned int)ze->permis);
 		if((ze->permis & 0111) != 0) {
-			ze->fi->is_executable = 1;
+			ze->fi->mode_flags |= DE_MODEFLAG_EXE;
+		}
+		else {
+			ze->fi->mode_flags |= DE_MODEFLAG_NONEXE;
 		}
 	}
 

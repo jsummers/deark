@@ -717,7 +717,7 @@ dbuf *dbuf_create_output_file(deark *c, const char *ext, de_finfo *fi,
 
 	if(fi) {
 		f->mod_time = fi->mod_time; // struct copy
-		f->is_executable = fi->is_executable;
+		f->mode_flags = fi->mode_flags;
 	}
 
 	if(file_index < c->first_output_file) {

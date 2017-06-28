@@ -411,7 +411,7 @@ void de_zip_add_file_to_archive(deark *c, dbuf *f)
 		dfa.modtime_valid = 1;
 	}
 
-	dfa.is_executable = f->is_executable;
+	dfa.is_executable = (f->mode_flags&DE_MODEFLAG_EXE)?1:0;
 
 	// Create ZIP "extra data" "Extended Timestamp" fields, containing the
 	// UTC timestamp.

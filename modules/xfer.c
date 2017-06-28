@@ -245,7 +245,10 @@ static void parse_begin_line(deark *c, lctx *d, const de_byte *buf, de_int64 buf
 	mode = de_strtoll(tmpbuf, NULL, 8);
 	de_dbg(c, "mode: %03o\n", (unsigned int)mode);
 	if((mode & 0111)!=0) {
-		d->fi->is_executable = 1;
+		d->fi->mode_flags |= DE_MODEFLAG_EXE;
+	}
+	else {
+		d->fi->mode_flags |= DE_MODEFLAG_NONEXE;
 	}
 
 	fn = ucstring_create(c);

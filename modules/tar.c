@@ -135,7 +135,10 @@ static int read_member(deark *c, lctx *d, de_int64 pos1, de_int64 *bytes_consume
 	pos += 8;
 	de_dbg(c, "mode: octal(%06o)\n", (unsigned int)md->mode);
 	if((md->mode & 0111)!=0) {
-		md->fi->is_executable = 1;
+		md->fi->mode_flags |= DE_MODEFLAG_EXE;
+	}
+	else {
+		md->fi->mode_flags |= DE_MODEFLAG_NONEXE;
 	}
 
 	pos += 8; // uid
