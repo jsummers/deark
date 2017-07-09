@@ -646,6 +646,10 @@
 				>
 			</File>
 			<File
+				RelativePath="..\..\modules\lha.c"
+				>
+			</File>
+			<File
 				RelativePath="..\..\modules\macpaint.c"
 				>
 			</File>

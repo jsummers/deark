@@ -24,12 +24,6 @@ typedef struct localctx_struct {
 	int found_trailer;
 } lctx;
 
-static char byte_to_printable_char(de_byte b)
-{
-	if(b>=32 && b<=126) return (char)b;
-	return '_';
-}
-
 static const char* get_fmt_name(int fmt)
 {
 	const char *n = "unknown or old-style";
@@ -160,7 +154,7 @@ static int read_member(deark *c, lctx *d, de_int64 pos1, de_int64 *bytes_consume
 
 	md->linkflag = de_getbyte(pos);
 	de_dbg(c, "linkflag/typeflag: 0x%02x ('%c')\n", (unsigned int)md->linkflag,
-		byte_to_printable_char(md->linkflag));
+		de_byte_to_printable_char(md->linkflag));
 	pos += 1;
 
 	pos += 100; // linkname (TODO)

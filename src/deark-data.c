@@ -813,6 +813,12 @@ de_uint32 de_rgb555_to_888(de_uint32 x)
 	return DE_MAKE_RGB(cr, cg, cb);
 }
 
+char de_byte_to_printable_char(de_byte b)
+{
+	if(b>=32 && b<=126) return (char)b;
+	return '_';
+}
+
 // This function has been largely replaced by other functions, and should
 // rarely be used. See the comment in the header file.
 // s1 is not NUL terminated, but s2 will be.

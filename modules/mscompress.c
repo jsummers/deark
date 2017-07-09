@@ -20,7 +20,6 @@ typedef struct localctx_struct {
 static int do_header_SZDD(deark *c, lctx *d, de_int64 pos1)
 {
 	de_byte cmpr_mode;
-	char cmpr_mode_printable;
 	de_byte fnchar;
 	de_int64 pos = pos1;
 	char tmps[80];
@@ -32,9 +31,8 @@ static int do_header_SZDD(deark *c, lctx *d, de_int64 pos1)
 	pos += 8; // signature
 
 	cmpr_mode = de_getbyte(pos++);
-	cmpr_mode_printable = (cmpr_mode>=32 && cmpr_mode<=126) ? (char)cmpr_mode : ' ';
 	de_dbg(c, "compression mode: 0x%02x ('%c')\n", (unsigned int)cmpr_mode,
-		cmpr_mode_printable);
+		de_byte_to_printable_char(cmpr_mode));
 	if(cmpr_mode != 0x41) {
 		de_err(c, "Unsupported compression mode\n");
 		goto done;

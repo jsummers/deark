@@ -651,6 +651,8 @@ int de_is_ascii(const de_byte *buf, de_int64 buflen);
 
 #define DE_CONVFLAG_STOP_AT_NUL 0x1
 
+char de_byte_to_printable_char(de_byte b);
+
 // Convert encoded bytes to a NUL-terminated string that can be
 // printed to the terminal.
 // Consider using {dbuf_read_to_ucstring or dbuf_read_string or

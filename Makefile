@@ -36,7 +36,7 @@ OFILES_MODS:=$(addprefix $(OBJDIR)/modules/,fmtutil.o misc.o unsupported.o \
  pkfont.o rsc.o shg.o makichan.o wpg.o rosprite.o jbf.o \
  iptc.o cpio.o gemras.o boxes.o spectrum512.o tivariable.o riff.o \
  png.o psf.o grasp.o mbk.o compress.o ico.o macpaint.o fnt.o \
- tar.o nokia.o atari.o binhex.o d64.o sunras.o gzip.o gemmeta.o \
+ tar.o nokia.o atari.o binhex.o d64.o sunras.o gzip.o gemmeta.o lha.o \
  awbm.o rpm.o qtif.o printshop.o mscompress.o jovianvi.o \
  portfolio.o eps.o ar.o gemfont.o psionpic.o flif.o \
  grob.o alphabmp.o bpg.o iff.o cardfile.o pff2.o \

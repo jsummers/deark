@@ -55,17 +55,17 @@ static void get_fmt(deark *c, struct fmtinfo_struct *fmti)
 		return;
 	}
 
-	if(b[2]=='-' && b[3]=='l' && b[6]=='-' && (b[4]=='h' || b[4]=='z')) {
-		fmti->confidence = 10;
-		fmti->descr = "an LHA file";
-		return;
-	}
-
 	if(b[0]=='H' && b[1]=='P' && b[2]=='H' && b[3]=='P' &&
 		b[4]=='4' && (b[5]=='8' || b[5]=='9'))
 	{
 		fmti->confidence = 90;
 		fmti->descr = "a non-GROB HP-48/49 file";
+		return;
+	}
+
+	if(!de_memcmp(b, "%PDF-", 5)) {
+		fmti->confidence = 90;
+		fmti->descr = "a PDF file";
 		return;
 	}
 
