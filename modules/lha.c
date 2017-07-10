@@ -42,63 +42,103 @@ static void read_filename(deark *c, lctx *d, struct member_data *md,
 	ucstring_destroy(s);
 }
 
-// Returns 1 on success.
-// Returns 0 on fatal error.
-// On end-of-ext-headers, returns 1 and sets *bytes_consumed to 2.
-static int do_read_ext_header(deark *c, lctx *d, struct member_data *md,
-	de_int64 pos1, de_int64 *bytes_consumed)
+static void do_read_ext_header(deark *c, lctx *d, struct member_data *md,
+	de_int64 pos1, de_int64 len, de_int64 dlen)
 {
-	de_int64 hlen;
+	de_byte id = 0;
 
-	hlen = de_getui16le(pos1);
-	if(hlen==0) {
-		de_dbg(c, "end-of-ext-headers marker at %d\n", (int)pos1);
-		*bytes_consumed = 2;
-		return 1;
-	}
-	else if(hlen<2) {
-		*bytes_consumed = 2;
-		return 0;
-	}
-
-	de_dbg(c, "ext header at %d, dpos=%d, dlen=%d\n", (int)pos1,
-		(int)(pos1+2), (int)(hlen-2));
-	*bytes_consumed = hlen;
-	return 1;
+	if(dlen>=1)
+		id = de_getbyte(pos1);
+	de_dbg(c, "ext header at %d, len=%d, dlen=%d, id=0x%02x\n", (int)pos1, (int)len,
+		(int)dlen, (unsigned int)id);
 }
 
+static void do_lev0_ext_area(deark *c, lctx *d, struct member_data *md,
+	de_int64 pos1, de_int64 len)
+{
+	if(len<1) return;
+	md->os_id = de_getbyte(pos1);
+	de_dbg(c, "OS id: %d ('%c')\n", (int)md->os_id,
+		de_byte_to_printable_char(md->os_id));
+	// TODO
+}
+
+// AFAICT, we're expected to think of the extended headers as a kind of linked
+// list. The last field in each node is the "size of next node" (instead of
+// "pointer to next node", as a real linked list would have). A size of 0 is
+// like a "nil" pointer, and marks the end of the list.
+// The "size of the first node" field (analogous to the "head" pointer) is
+// conceptually not part of the extended headers section.
+//
+// Note that if we simply shift our frame of reference, this format is identical
+// to a more typical length-prefixed format. But our code follows the
+// linked-list model, to make it more consistent with most LHA documentation,
+// and the various "size" fields.
+//
 // A return value of 0 means we failed to calculate the size of the
 // extended headers segment.
 static int do_read_ext_headers(deark *c, lctx *d, struct member_data *md,
-	de_int64 pos1, de_int64 len, de_int64 *tot_bytes_consumed)
+	de_int64 pos1, de_int64 len, de_int64 first_ext_hdr_size, de_int64 *tot_bytes_consumed)
 {
-	int ret;
 	de_int64 pos = pos1;
-	de_int64 bytes_consumed;
+	de_int64 this_ext_hdr_size, next_ext_hdr_size;
+	int retval = 0;
 
-	while(1) {
-		if(pos >= pos1+len) return 0;
-		ret = do_read_ext_header(c, d, md, pos, &bytes_consumed);
-		if(!ret) return 0;
-		pos += bytes_consumed;
-		if(bytes_consumed==2) {
-			break;
-		}
+	*tot_bytes_consumed = 0;
+
+	if(first_ext_hdr_size==0) {
+		return 1;
 	}
 
-	*tot_bytes_consumed = pos - pos1;
-	return 1;
+	de_dbg(c, "ext headers section at %d\n", (int)pos);
+	de_dbg_indent(c, 1);
+
+	next_ext_hdr_size = first_ext_hdr_size;
+	while(1) {
+		this_ext_hdr_size = next_ext_hdr_size;
+		if(this_ext_hdr_size==0) {
+			retval = 1;
+			*tot_bytes_consumed = pos - pos1;
+			goto done;
+		}
+		if(this_ext_hdr_size<2) goto done;
+		if(pos+this_ext_hdr_size > pos1+len) goto done;
+
+		do_read_ext_header(c, d, md, pos, this_ext_hdr_size, this_ext_hdr_size-2);
+
+		// Each ext header ends with a "size of next header" field.
+		// We'll read it at this level, instead of in do_read_ext_header().
+		pos += this_ext_hdr_size-2;
+		next_ext_hdr_size = de_getui16le(pos);
+		pos += 2;
+	}
+
+done:
+	if(retval) {
+		de_dbg(c, "size of ext headers section: %d\n", (int)*tot_bytes_consumed);
+	}
+	de_dbg_indent(c, -1);
+	return retval;
 }
 
-// Caller allocates and initializes md
-static int do_read_header(deark *c, lctx *d, struct member_data *md, de_int64 pos1)
+// This single function parses all the different header formats, using lots of
+// "if" statements. It is messy, but it's a no-win situation.
+// The alternative of four separate functions would be have a lot of redundant
+// code, and be harder to maintain.
+//
+// Caller allocates and initializes md.
+static int do_read_member(deark *c, lctx *d, struct member_data *md, de_int64 pos1)
 {
 	int retval = 0;
 	de_int64 lev0_header_size = 0;
 	de_int64 lev1_base_header_size = 0;
+	de_int64 lev1_skip_size = 0;
 	de_int64 lev2_total_header_size = 0;
 	de_int64 pos = pos1;
 	de_int64 exthdr_bytes_consumed = 0;
+	de_int64 fnlen = 0;
+	de_int64 compressed_data_pos = 0; // relative to beginning of file
+	de_int64 compressed_data_len = 0;
 	int ret;
 
 	if(c->infile->len - pos1 < 21) {
@@ -152,23 +192,23 @@ static int do_read_header(deark *c, lctx *d, struct member_data *md, de_int64 po
 	}
 
 	if(md->hlev==1) {
-		de_int64 skip_size;
-		skip_size = de_getui32le(pos);
-		de_dbg(c, "skip size: %u\n", (unsigned int)skip_size);
+		// lev1_skip_size is the distance from the third byte of the extended
+		// header section, to the end of the compressed data.
+		lev1_skip_size = de_getui32le(pos);
+		de_dbg(c, "skip size: %u\n", (unsigned int)lev1_skip_size);
 		pos += 4;
-		md->total_size = 2 + lev1_base_header_size + skip_size;
+		md->total_size = 2 + lev1_base_header_size + lev1_skip_size;
 	}
 	else {
-		de_int64 compressed_size;
-		compressed_size = de_getui32le(pos);
-		de_dbg(c, "compressed size: %u\n", (unsigned int)compressed_size);
+		compressed_data_len = de_getui32le(pos);
+		de_dbg(c, "compressed size: %u\n", (unsigned int)compressed_data_len);
 		pos += 4;
 
 		if(md->hlev==0) {
-			md->total_size = 2 + lev0_header_size + compressed_size;
+			md->total_size = 2 + lev0_header_size + compressed_data_len;
 		}
 		else if(md->hlev==2) {
-			md->total_size = lev2_total_header_size + compressed_size;
+			md->total_size = lev2_total_header_size + compressed_data_len;
 		}
 	}
 
@@ -192,7 +232,6 @@ static int do_read_header(deark *c, lctx *d, struct member_data *md, de_int64 po
 	}
 
 	if(md->hlev<=1) {
-		de_int64 fnlen;
 		fnlen = de_getbyte(pos++);
 		de_dbg(c, "filename len: %d\n", (int)fnlen);
 		read_filename(c, d, md, pos, fnlen);
@@ -213,30 +252,53 @@ static int do_read_header(deark *c, lctx *d, struct member_data *md, de_int64 po
 
 	if(md->hlev==0) {
 		de_int64 ext_headers_size = (2+lev0_header_size) - (pos-pos1);
+		compressed_data_pos = pos1 + 2 + lev0_header_size;
 		if(ext_headers_size>0) {
-			de_dbg(c, "extended headers section at %d\n", (int)pos);
-			// TODO (need samples)
+			de_dbg(c, "extended header area at %d, len=%d\n", (int)pos, (int)ext_headers_size);
+			de_dbg_indent(c, 1);
+			do_lev0_ext_area(c, d, md, pos, ext_headers_size);
+			de_dbg_indent(c, -1);
 		}
 	}
 	else if(md->hlev==1) {
-		de_int64 compressed_size;
-		de_dbg(c, "extended headers section at %d\n", (int)pos);
-		de_dbg_indent(c, 1);
-		ret = do_read_ext_headers(c, d, md, pos, (2+lev1_base_header_size) - (pos-pos1), &exthdr_bytes_consumed);
-		de_dbg_indent(c, -1);
-		if(ret) {
-			de_dbg(c, "size of extended headers section: %d\n", (int)exthdr_bytes_consumed);
-			pos += exthdr_bytes_consumed;
-			compressed_size = md->total_size - (pos-pos1);
-			de_dbg(c, "compressed size (calculated): %u\n", (unsigned int)compressed_size);
+		de_int64 first_ext_hdr_size;
+
+		// The last two bytes of the base header are the size of the first ext. header.
+		pos = pos1 + 2 + lev1_base_header_size - 2;
+		// TODO: sanitize pos?
+		first_ext_hdr_size = de_getui16le(pos);
+		de_dbg(c, "first ext hdr size: %d\n", (int)first_ext_hdr_size);
+		pos += 2;
+
+		ret = do_read_ext_headers(c, d, md, pos, lev1_skip_size, first_ext_hdr_size,
+			&exthdr_bytes_consumed);
+
+		if(!ret) {
+			de_err(c, "Error parsing extended headers at %d. Cannot extract this file.\n",
+				(int)pos);
+			retval = 1;
+			goto done;
 		}
+
+		pos += exthdr_bytes_consumed;
+		compressed_data_pos = pos;
+		compressed_data_len = lev1_skip_size - exthdr_bytes_consumed;
 	}
 	else if(md->hlev==2) {
-		de_dbg(c, "extended headers section at %d\n", (int)pos);
-		de_dbg_indent(c, 1);
-		do_read_ext_headers(c, d, md, pos, pos+lev2_total_header_size-pos, &exthdr_bytes_consumed);
-		de_dbg_indent(c, -1);
+		de_int64 first_ext_hdr_size;
+
+		compressed_data_pos = pos1+lev2_total_header_size;
+
+		first_ext_hdr_size = de_getui16le(pos);
+		de_dbg(c, "first ext hdr size: %d\n", (int)first_ext_hdr_size);
+		pos += 2;
+
+		do_read_ext_headers(c, d, md, pos, pos1+lev2_total_header_size-pos,
+			first_ext_hdr_size, &exthdr_bytes_consumed);
 	}
+
+	de_dbg(c, "compressed member data at %d, len=%d\n",
+		(int)compressed_data_pos, (int)compressed_data_len);
 
 	retval = 1;
 done:
@@ -257,7 +319,7 @@ static void de_run_lha(deark *c, de_module_params *mparams)
 		if(pos >= c->infile->len) break;
 
 		md = de_malloc(c, sizeof(struct member_data));
-		if(!do_read_header(c, d, md, pos)) goto done;
+		if(!do_read_member(c, d, md, pos)) goto done;
 		if(md->total_size<1) goto done;
 
 		pos += md->total_size;
