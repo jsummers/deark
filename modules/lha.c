@@ -22,6 +22,93 @@ typedef struct localctx_struct {
 	int reserved;
 } lctx;
 
+struct exthdr_type_info_struct;
+
+typedef void (*exthdr_decoder_fn)(deark *c, lctx *d, struct member_data *md,
+	de_byte id, const struct exthdr_type_info_struct *e,
+	de_int64 pos, de_int64 dlen);
+
+struct exthdr_type_info_struct {
+	de_byte id;
+	de_byte flags;
+	const char *name;
+	exthdr_decoder_fn decoder_fn;
+};
+
+static void read_filename(deark *c, lctx *d, struct member_data *md,
+	de_int64 pos, de_int64 len)
+{
+	de_ucstring *s = NULL;
+
+	s = ucstring_create(c);
+	dbuf_read_to_ucstring(c->infile, pos, len,
+		s, 0, DE_ENCODING_ASCII);
+	de_dbg(c, "filename: \"%s\"\n", ucstring_get_printable_sz(s));
+	ucstring_destroy(s);
+}
+
+static void exthdr_filename(deark *c, lctx *d, struct member_data *md,
+	de_byte id, const struct exthdr_type_info_struct *e,
+	de_int64 pos, de_int64 dlen)
+{
+	read_filename(c, d, md, pos, dlen);
+}
+
+static void exthdr_dirname(deark *c, lctx *d, struct member_data *md,
+	de_byte id, const struct exthdr_type_info_struct *e,
+	de_int64 pos, de_int64 dlen)
+{
+	de_ucstring *s = NULL;
+
+	s = ucstring_create(c);
+	// TODO: The path delimiter in this field is 0xff. It's not clear what we
+	// ought to do about that, if anything.
+
+	if(dlen>=1) {
+		// This field is expected to end with 0xff. If that is the case, we'll
+		// ignore the last byte.
+		de_byte lastbyte;
+		lastbyte = de_getbyte(pos+dlen-1);
+		if(lastbyte==0xff) {
+			dlen--;
+		}
+	}
+
+	dbuf_read_to_ucstring(c->infile, pos, dlen,
+		s, 0, DE_ENCODING_ASCII);
+	de_dbg(c, "dir name: \"%s\"\n", ucstring_get_printable_sz(s));
+	ucstring_destroy(s);
+}
+
+static void exthdr_filesize(deark *c, lctx *d, struct member_data *md,
+	de_byte id, const struct exthdr_type_info_struct *e,
+	de_int64 pos, de_int64 dlen)
+{
+	// TODO: Support this
+	de_warn(c, "Unsupported \"file size\" extended header found. This may prevent "
+		"the rest of the file from being processed correctly.\n");
+}
+
+static const struct exthdr_type_info_struct exthdr_type_info_arr[] = {
+	{ 0x00, 0, "common/CRC", NULL },
+	{ 0x01, 0, "filename", exthdr_filename },
+	{ 0x02, 0, "dir name", exthdr_dirname },
+	{ 0x39, 0, "multi-disc", NULL },
+	{ 0x3f, 0, "comment", NULL },
+	{ 0x40, 0, "MS-DOS file attribs", NULL },
+	{ 0x41, 0, "Windows timestamp", NULL },
+	{ 0x42, 0, "MS-DOS file size", exthdr_filesize },
+	{ 0x50, 0, "Unix perms", NULL },
+	{ 0x51, 0, "Unix UID/GID", NULL },
+	{ 0x52, 0, "Unix group name", NULL },
+	{ 0x53, 0, "Unix username", NULL },
+	{ 0x54, 0, "Unix timestamp", NULL },
+	{ 0x7d, 0, "capsule", NULL },
+	{ 0x7e, 0, "OS/2 extended attribs", NULL },
+	{ 0x7f, 0, "level 3 new attribs type-1", NULL },
+	{ 0xff, 0, "level 3 new attribs type-2", NULL }
+};
+
 static void destroy_member_data(deark *c, struct member_data *md)
 {
 	if(!md) return;
@@ -29,28 +116,41 @@ static void destroy_member_data(deark *c, struct member_data *md)
 	de_free(c, md);
 }
 
-static void read_filename(deark *c, lctx *d, struct member_data *md,
-	de_int64 pos, de_int64 len)
+static const struct exthdr_type_info_struct *get_exthdr_type_info(de_byte id)
 {
-	de_ucstring *s = NULL;
-	s = ucstring_create(c);
+	size_t i;
 
-	dbuf_read_to_ucstring(c->infile, pos, len,
-		s, 0, DE_ENCODING_ASCII);
-	de_dbg(c, "filename: \"%s\"\n", ucstring_get_printable_sz(s));
-
-	ucstring_destroy(s);
+	for(i=0; i<DE_ITEMS_IN_ARRAY(exthdr_type_info_arr); i++) {
+		if(id == exthdr_type_info_arr[i].id) {
+			return &exthdr_type_info_arr[i];
+		}
+	}
+	return NULL;
 }
 
 static void do_read_ext_header(deark *c, lctx *d, struct member_data *md,
 	de_int64 pos1, de_int64 len, de_int64 dlen)
 {
 	de_byte id = 0;
+	const char *name;
+	const struct exthdr_type_info_struct *e = NULL;
 
-	if(dlen>=1)
+	if(dlen>=1) {
 		id = de_getbyte(pos1);
-	de_dbg(c, "ext header at %d, len=%d, dlen=%d, id=0x%02x\n", (int)pos1, (int)len,
-		(int)dlen, (unsigned int)id);
+		e = get_exthdr_type_info(id);
+	}
+	name = e ? e->name : "?";
+
+	de_dbg(c, "ext header at %d, len=%d, dlen=%d, id=0x%02x (%s)\n", (int)pos1, (int)len,
+		(int)dlen, (unsigned int)id, name);
+
+	if(dlen<1) return; // Invalid header, too short to even have an id field
+
+	if(e && e->decoder_fn) {
+		de_dbg_indent(c, 1);
+		e->decoder_fn(c, d, md, id, e, pos1+1, dlen-1);
+		de_dbg_indent(c, -1);
+	}
 }
 
 static void do_lev0_ext_area(deark *c, lctx *d, struct member_data *md,
