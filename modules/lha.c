@@ -35,6 +35,33 @@ struct exthdr_type_info_struct {
 	exthdr_decoder_fn decoder_fn;
 };
 
+static void read_msdos_datetime(deark *c, lctx *d, struct member_data *md,
+	de_int64 pos, const char *name)
+{
+	de_int64 mod_time_raw, mod_date_raw;
+	char timestamp_buf[64];
+	struct de_timestamp tmp_timestamp;
+
+	mod_time_raw = de_getui16le(pos);
+	mod_date_raw = de_getui16le(pos+2);
+	de_dos_datetime_to_timestamp(&tmp_timestamp, mod_date_raw, mod_time_raw, 0);
+	de_timestamp_to_string(&tmp_timestamp, timestamp_buf, sizeof(timestamp_buf), 0);
+	de_dbg(c, "%s: %s\n", name, timestamp_buf);
+}
+
+static void read_unix_timestamp(deark *c, lctx *d, struct member_data *md,
+	de_int64 pos, const char *name)
+{
+	de_int64 t;
+	char timestamp_buf[64];
+	struct de_timestamp tmp_timestamp;
+
+	t = de_geti32le(pos);
+	de_unix_time_to_timestamp(t, &tmp_timestamp);
+	de_timestamp_to_string(&tmp_timestamp, timestamp_buf, sizeof(timestamp_buf), 1);
+	de_dbg(c, "%s: %d (%s)\n", name, (int)t, timestamp_buf);
+}
+
 static void read_filename(deark *c, lctx *d, struct member_data *md,
 	de_int64 pos, de_int64 len)
 {
@@ -89,6 +116,40 @@ static void exthdr_filesize(deark *c, lctx *d, struct member_data *md,
 		"the rest of the file from being processed correctly.\n");
 }
 
+static void exthdr_unixperms(deark *c, lctx *d, struct member_data *md,
+	de_byte id, const struct exthdr_type_info_struct *e,
+	de_int64 pos, de_int64 dlen)
+{
+	de_int64 mode;
+
+	if(dlen<2) return;
+	mode = de_getui16le(pos+6);
+	de_dbg(c, "mode: octal(%06o)\n", (unsigned int)mode);
+}
+
+static void exthdr_unixuidgid(deark *c, lctx *d, struct member_data *md,
+	de_byte id, const struct exthdr_type_info_struct *e,
+	de_int64 pos, de_int64 dlen)
+{
+	de_int64 uid, gid;
+	if(dlen<4) return;
+
+	// It's strange that the GID comes first, while the UID comes first in the
+	// level-0 "extended area".
+	gid = de_getui16le(pos);
+	de_dbg(c, "gid: %d\n", (int)gid);
+	uid = de_getui16le(pos+2);
+	de_dbg(c, "uid: %d\n", (int)uid);
+}
+
+static void exthdr_unixtimestamp(deark *c, lctx *d, struct member_data *md,
+	de_byte id, const struct exthdr_type_info_struct *e,
+	de_int64 pos, de_int64 dlen)
+{
+	if(dlen<4) return;
+	read_unix_timestamp(c, d, md, pos, "last-modified");
+}
+
 static const struct exthdr_type_info_struct exthdr_type_info_arr[] = {
 	{ 0x00, 0, "common/CRC", NULL },
 	{ 0x01, 0, "filename", exthdr_filename },
@@ -98,11 +159,11 @@ static const struct exthdr_type_info_struct exthdr_type_info_arr[] = {
 	{ 0x40, 0, "MS-DOS file attribs", NULL },
 	{ 0x41, 0, "Windows timestamp", NULL },
 	{ 0x42, 0, "MS-DOS file size", exthdr_filesize },
-	{ 0x50, 0, "Unix perms", NULL },
-	{ 0x51, 0, "Unix UID/GID", NULL },
+	{ 0x50, 0, "Unix perms", exthdr_unixperms },
+	{ 0x51, 0, "Unix UID/GID", exthdr_unixuidgid },
 	{ 0x52, 0, "Unix group name", NULL },
 	{ 0x53, 0, "Unix username", NULL },
-	{ 0x54, 0, "Unix timestamp", NULL },
+	{ 0x54, 0, "Unix timestamp", exthdr_unixtimestamp },
 	{ 0x7d, 0, "capsule", NULL },
 	{ 0x7e, 0, "OS/2 extended attribs", NULL },
 	{ 0x7f, 0, "level 3 new attribs type-1", NULL },
@@ -141,8 +202,8 @@ static void do_read_ext_header(deark *c, lctx *d, struct member_data *md,
 	}
 	name = e ? e->name : "?";
 
-	de_dbg(c, "ext header at %d, len=%d, dlen=%d, id=0x%02x (%s)\n", (int)pos1, (int)len,
-		(int)dlen, (unsigned int)id, name);
+	de_dbg(c, "ext header at %d, len=%d (1+%d+%d), id=0x%02x (%s)\n", (int)pos1, (int)len,
+		(int)(dlen-1), (int)(len-dlen), (unsigned int)id, name);
 
 	if(dlen<1) return; // Invalid header, too short to even have an id field
 
@@ -160,7 +221,26 @@ static void do_lev0_ext_area(deark *c, lctx *d, struct member_data *md,
 	md->os_id = de_getbyte(pos1);
 	de_dbg(c, "OS id: %d ('%c')\n", (int)md->os_id,
 		de_byte_to_printable_char(md->os_id));
-	// TODO
+
+	// TODO: Finish this
+	if(md->os_id=='U') {
+		de_int64 mode;
+		de_int64 uid, gid;
+
+		if(len<12) goto done;
+
+		read_unix_timestamp(c, d, md, pos1+2, "last-modified");
+
+		mode = de_getui16le(pos1+6);
+		de_dbg(c, "mode: octal(%06o)\n", (unsigned int)mode);
+
+		uid = de_getui16le(pos1+8);
+		de_dbg(c, "uid: %d\n", (int)uid);
+		gid = de_getui16le(pos1+10);
+		de_dbg(c, "gid: %d\n", (int)gid);
+	}
+
+done: ;
 }
 
 // AFAICT, we're expected to think of the extended headers as a kind of linked
@@ -317,9 +397,11 @@ static int do_read_member(deark *c, lctx *d, struct member_data *md, de_int64 po
 	pos += 4;
 
 	if(md->hlev==0 || md->hlev==1) {
+		read_msdos_datetime(c, d, md, pos, "late-modified");
 		pos += 4; // modification time/date (MS-DOS)
 	}
 	else if(md->hlev==2) {
+		read_unix_timestamp(c, d, md, pos, "late-modified");
 		pos += 4; // Unix time
 	}
 
