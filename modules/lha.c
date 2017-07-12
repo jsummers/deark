@@ -49,6 +49,19 @@ static void read_msdos_datetime(deark *c, lctx *d, struct member_data *md,
 	de_dbg(c, "%s: %s\n", name, timestamp_buf);
 }
 
+static void read_windows_FILETIME(deark *c, lctx *d, struct member_data *md,
+	de_int64 pos, const char *name)
+{
+	de_int64 t_FILETIME;
+	char timestamp_buf[64];
+	struct de_timestamp tmp_timestamp;
+
+	t_FILETIME = de_geti64le(pos);
+	de_FILETIME_to_timestamp(t_FILETIME, &tmp_timestamp);
+	de_timestamp_to_string(&tmp_timestamp, timestamp_buf, sizeof(timestamp_buf), 1);
+	de_dbg(c, "%s: %s\n", name, timestamp_buf);
+}
+
 static void read_unix_timestamp(deark *c, lctx *d, struct member_data *md,
 	de_int64 pos, const char *name)
 {
@@ -72,6 +85,18 @@ static void read_filename(deark *c, lctx *d, struct member_data *md,
 		s, 0, DE_ENCODING_ASCII);
 	de_dbg(c, "filename: \"%s\"\n", ucstring_get_printable_sz(s));
 	ucstring_destroy(s);
+}
+
+static void exthdr_common(deark *c, lctx *d, struct member_data *md,
+	de_byte id, const struct exthdr_type_info_struct *e,
+	de_int64 pos, de_int64 dlen)
+{
+	de_uint32 crchdr;
+
+	if(dlen<2) return;
+	crchdr = (de_uint32)de_getui16le(pos);
+	de_dbg(c, "crc16 of header (reported): 0x%04x\n", (unsigned int)crchdr);
+	// TODO: Additional information
 }
 
 static void exthdr_filename(deark *c, lctx *d, struct member_data *md,
@@ -103,8 +128,19 @@ static void exthdr_dirname(deark *c, lctx *d, struct member_data *md,
 
 	dbuf_read_to_ucstring(c->infile, pos, dlen,
 		s, 0, DE_ENCODING_ASCII);
-	de_dbg(c, "dir name: \"%s\"\n", ucstring_get_printable_sz(s));
+	de_dbg(c, "%s: \"%s\"\n", e->name, ucstring_get_printable_sz(s));
 	ucstring_destroy(s);
+}
+
+static void exthdr_msdosattribs(deark *c, lctx *d, struct member_data *md,
+	de_byte id, const struct exthdr_type_info_struct *e,
+	de_int64 pos, de_int64 dlen)
+{
+	de_uint32 attribs;
+
+	if(dlen<2) return;
+	attribs = (de_uint32)de_getui16le(pos);
+	de_dbg(c, "%s: 0x%04x\n", e->name, (unsigned int)attribs);
 }
 
 static void exthdr_filesize(deark *c, lctx *d, struct member_data *md,
@@ -114,6 +150,16 @@ static void exthdr_filesize(deark *c, lctx *d, struct member_data *md,
 	// TODO: Support this
 	de_warn(c, "Unsupported \"file size\" extended header found. This may prevent "
 		"the rest of the file from being processed correctly.\n");
+}
+
+static void exthdr_windowstimestamp(deark *c, lctx *d, struct member_data *md,
+	de_byte id, const struct exthdr_type_info_struct *e,
+	de_int64 pos, de_int64 dlen)
+{
+	if(dlen<24) return;
+	read_windows_FILETIME(c, d, md, pos,    "create time");
+	read_windows_FILETIME(c, d, md, pos+8,  "mod time   ");
+	read_windows_FILETIME(c, d, md, pos+16, "access time");
 }
 
 static void exthdr_unixperms(deark *c, lctx *d, struct member_data *md,
@@ -150,14 +196,30 @@ static void exthdr_unixtimestamp(deark *c, lctx *d, struct member_data *md,
 	read_unix_timestamp(c, d, md, pos, "last-modified");
 }
 
+static void exthdr_lev3newattribs2(deark *c, lctx *d, struct member_data *md,
+	de_byte id, const struct exthdr_type_info_struct *e,
+	de_int64 pos, de_int64 dlen)
+{
+	if(dlen<20) return;
+
+	// TODO: Permission
+	// TODO: GID/UID
+
+	// [Documented as "creation time", but this is a Unix-style header, so I
+	// wonder if someone mistranslated "ctime" (=change time).]
+	read_unix_timestamp(c, d, md, pos+12, "create(?) time");
+
+	read_unix_timestamp(c, d, md, pos+16, "access time   ");
+}
+
 static const struct exthdr_type_info_struct exthdr_type_info_arr[] = {
-	{ 0x00, 0, "common/CRC", NULL },
+	{ 0x00, 0, "common", exthdr_common },
 	{ 0x01, 0, "filename", exthdr_filename },
 	{ 0x02, 0, "dir name", exthdr_dirname },
 	{ 0x39, 0, "multi-disc", NULL },
 	{ 0x3f, 0, "comment", NULL },
-	{ 0x40, 0, "MS-DOS file attribs", NULL },
-	{ 0x41, 0, "Windows timestamp", NULL },
+	{ 0x40, 0, "MS-DOS file attribs", exthdr_msdosattribs },
+	{ 0x41, 0, "Windows timestamp", exthdr_windowstimestamp },
 	{ 0x42, 0, "MS-DOS file size", exthdr_filesize },
 	{ 0x50, 0, "Unix perms", exthdr_unixperms },
 	{ 0x51, 0, "Unix UID/GID", exthdr_unixuidgid },
@@ -167,7 +229,7 @@ static const struct exthdr_type_info_struct exthdr_type_info_arr[] = {
 	{ 0x7d, 0, "capsule", NULL },
 	{ 0x7e, 0, "OS/2 extended attribs", NULL },
 	{ 0x7f, 0, "level 3 new attribs type-1", NULL },
-	{ 0xff, 0, "level 3 new attribs type-2", NULL }
+	{ 0xff, 0, "level 3 new attribs type-2", exthdr_lev3newattribs2 }
 };
 
 static void destroy_member_data(deark *c, struct member_data *md)
