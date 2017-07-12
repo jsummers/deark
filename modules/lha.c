@@ -123,7 +123,7 @@ static void exthdr_unixperms(deark *c, lctx *d, struct member_data *md,
 	de_int64 mode;
 
 	if(dlen<2) return;
-	mode = de_getui16le(pos+6);
+	mode = de_getui16le(pos);
 	de_dbg(c, "mode: octal(%06o)\n", (unsigned int)mode);
 }
 
@@ -263,6 +263,7 @@ static int do_read_ext_headers(deark *c, lctx *d, struct member_data *md,
 	de_int64 pos = pos1;
 	de_int64 this_ext_hdr_size, next_ext_hdr_size;
 	int retval = 0;
+	de_int64 size_of_size_field;
 
 	*tot_bytes_consumed = 0;
 
@@ -273,6 +274,8 @@ static int do_read_ext_headers(deark *c, lctx *d, struct member_data *md,
 	de_dbg(c, "ext headers section at %d\n", (int)pos);
 	de_dbg_indent(c, 1);
 
+	size_of_size_field = (md->hlev==3) ? 4 : 2;
+
 	next_ext_hdr_size = first_ext_hdr_size;
 	while(1) {
 		this_ext_hdr_size = next_ext_hdr_size;
@@ -281,16 +284,21 @@ static int do_read_ext_headers(deark *c, lctx *d, struct member_data *md,
 			*tot_bytes_consumed = pos - pos1;
 			goto done;
 		}
-		if(this_ext_hdr_size<2) goto done;
+		if(this_ext_hdr_size<size_of_size_field) goto done;
 		if(pos+this_ext_hdr_size > pos1+len) goto done;
 
-		do_read_ext_header(c, d, md, pos, this_ext_hdr_size, this_ext_hdr_size-2);
+		do_read_ext_header(c, d, md, pos, this_ext_hdr_size, this_ext_hdr_size-size_of_size_field);
 
 		// Each ext header ends with a "size of next header" field.
 		// We'll read it at this level, instead of in do_read_ext_header().
-		pos += this_ext_hdr_size-2;
-		next_ext_hdr_size = de_getui16le(pos);
-		pos += 2;
+		pos += this_ext_hdr_size-size_of_size_field;
+		if(size_of_size_field==2) {
+			next_ext_hdr_size = de_getui16le(pos);
+		}
+		else {
+			next_ext_hdr_size = de_getui32le(pos);
+		}
+		pos += size_of_size_field;
 	}
 
 done:
@@ -314,6 +322,7 @@ static int do_read_member(deark *c, lctx *d, struct member_data *md, de_int64 po
 	de_int64 lev1_base_header_size = 0;
 	de_int64 lev1_skip_size = 0;
 	de_int64 lev2_total_header_size = 0;
+	de_int64 lev3_header_size = 0;
 	de_int64 pos = pos1;
 	de_int64 exthdr_bytes_consumed = 0;
 	de_int64 fnlen = 0;
@@ -335,11 +344,6 @@ static int do_read_member(deark *c, lctx *d, struct member_data *md, de_int64 po
 	// version (called "header level" in LHA jargon).
 	md->hlev = de_getbyte(pos+20);
 	de_dbg(c, "header level: %d\n", (int)md->hlev);
-	if(md->hlev!=0 && md->hlev!=1 && md->hlev!=2) {
-		// TODO: Support level 3
-		de_err(c, "Unsupported header level: %d\n", (int)md->hlev);
-		goto done;
-	}
 	if(md->hlev>3) {
 		de_err(c, "Invalid or unsupported header level: %d\n", (int)md->hlev);
 		goto done;
@@ -361,6 +365,16 @@ static int do_read_member(deark *c, lctx *d, struct member_data *md, de_int64 po
 		lev2_total_header_size = de_getui16le(pos);
 		de_dbg(c, "total header size: %d\n", (int)lev2_total_header_size);
 		pos += 2;
+	}
+	else if(md->hlev==3) {
+		de_int64 lev3_word_size;
+		lev3_word_size = de_getui16le(pos);
+		de_dbg(c, "word size: %d\n", (int)lev3_word_size);
+		pos += 2;
+		if(lev3_word_size!=4) {
+			de_err(c, "Unsupported word size: %d\n", (int)lev3_word_size);
+			goto done;
+		}
 	}
 
 	md->cmpr_method = dbuf_read_string(c->infile, pos, 5, 5, 0, DE_ENCODING_ASCII);
@@ -400,7 +414,7 @@ static int do_read_member(deark *c, lctx *d, struct member_data *md, de_int64 po
 		read_msdos_datetime(c, d, md, pos, "late-modified");
 		pos += 4; // modification time/date (MS-DOS)
 	}
-	else if(md->hlev==2) {
+	else if(md->hlev==2 || md->hlev==3) {
 		read_unix_timestamp(c, d, md, pos, "late-modified");
 		pos += 4; // Unix time
 	}
@@ -408,7 +422,7 @@ static int do_read_member(deark *c, lctx *d, struct member_data *md, de_int64 po
 	if(md->hlev==0) {
 		pos += 2; // MS-DOS file attributes
 	}
-	else if(md->hlev==1 || md->hlev==2) {
+	else if(md->hlev==1 || md->hlev==2 || md->hlev==3) {
 		pos++; // reserved
 		pos++; // header level
 	}
@@ -420,16 +434,20 @@ static int do_read_member(deark *c, lctx *d, struct member_data *md, de_int64 po
 		pos += fnlen;
 	}
 
-	if(md->hlev==0 || md->hlev==1 || md->hlev==2) {
-		md->crc16 = (de_uint32)de_getui16le(pos);
-		de_dbg(c, "crc16 (reported): 0x%04x\n", (unsigned int)md->crc16);
-		pos += 2; // CRC16
-	}
+	md->crc16 = (de_uint32)de_getui16le(pos);
+	de_dbg(c, "crc16 (reported): 0x%04x\n", (unsigned int)md->crc16);
+	pos += 2; // CRC16
 
-	if(md->hlev==1 || md->hlev==2) {
+	if(md->hlev==1 || md->hlev==2 || md->hlev==3) {
 		md->os_id = de_getbyte(pos++);
 		de_dbg(c, "OS id: %d ('%c')\n", (int)md->os_id,
 			de_byte_to_printable_char(md->os_id));
+	}
+
+	if(md->hlev==3) {
+		lev3_header_size = de_getui32le(pos);
+		pos += 4;
+		md->total_size = lev3_header_size + compressed_data_len;
 	}
 
 	if(md->hlev==0) {
@@ -476,6 +494,18 @@ static int do_read_member(deark *c, lctx *d, struct member_data *md, de_int64 po
 		pos += 2;
 
 		do_read_ext_headers(c, d, md, pos, pos1+lev2_total_header_size-pos,
+			first_ext_hdr_size, &exthdr_bytes_consumed);
+	}
+	else if(md->hlev==3) {
+		de_int64 first_ext_hdr_size;
+
+		compressed_data_pos = pos1+lev3_header_size;
+
+		first_ext_hdr_size = de_getui32le(pos);
+		de_dbg(c, "first ext hdr size: %d\n", (int)first_ext_hdr_size);
+		pos += 4;
+
+		do_read_ext_headers(c, d, md, pos, pos1+lev3_header_size-pos,
 			first_ext_hdr_size, &exthdr_bytes_consumed);
 	}
 
