@@ -183,6 +183,7 @@ void de_update_file_time(dbuf *f)
 void de_timestamp_to_string(const struct de_timestamp *ts,
 	char *buf, size_t buf_len, unsigned int flags)
 {
+	de_int64 tmpt_int64;
 	time_t tmpt;
 	struct tm *tm1;
 	const char *tzlabel;
@@ -192,7 +193,18 @@ void de_timestamp_to_string(const struct de_timestamp *ts,
 		return;
 	}
 
-	tmpt = (time_t)de_timestamp_to_unix_time(ts);
+	tmpt_int64 = de_timestamp_to_unix_time(ts);
+
+	if(sizeof(time_t)<=4) {
+		if(tmpt_int64<-0x80000000LL || tmpt_int64>0x7fffffffLL) {
+			// TODO: Support a wider range of timestamps.
+			// See comment in deark-win.c.
+			de_snprintf(buf, buf_len, "[timestamp out of range: %"INT64_FMT"]", tmpt_int64);
+			return;
+		}
+	}
+
+	tmpt = (time_t)tmpt_int64;
 	tm1 = gmtime(&tmpt);
 
 	tzlabel = (flags&0x1)?" UTC":"";
