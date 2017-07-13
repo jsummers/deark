@@ -50,7 +50,7 @@ static void show_version(deark *c)
 }
 
 static void show_usage_preamble(deark *c) {
-	de_puts(c, DE_MSGTYPE_MESSAGE, "usage: deark [options] <input-file>\n");
+	de_puts(c, DE_MSGTYPE_MESSAGE, "Usage: deark [options] <input-file> [options]\n");
 }
 
 static void show_usage_error(deark *c)
@@ -306,6 +306,13 @@ static void parse_cmdline(deark *c, struct cmdctx *cc, int argc, char **argv)
 
 			if(!opt) {
 				de_printf(c, DE_MSGTYPE_MESSAGE, "Unrecognized option: %s\n", argv[i]);
+				if(!strcmp(argv[i], "-")) {
+					// I don't want "-" to be an alias for "-fromstdin", because it
+					// would have different syntax rules than it does in most programs.
+					// (Question: Is "-" an *option*, or a kind of *filename*?)
+					de_printf(c, DE_MSGTYPE_MESSAGE,
+						"Note: To use stdin/stdout, use \"-fromstdin\"/\"-tostdout\".\n");
+				}
 				cc->error_flag = 1;
 				cc->show_usage_message = 1;
 				return;
@@ -470,6 +477,7 @@ static void parse_cmdline(deark *c, struct cmdctx *cc, int argc, char **argv)
 	}
 
 	if(!cc->input_filename && !cc->special_command_flag && !cc->from_stdin) {
+		de_puts(c, DE_MSGTYPE_MESSAGE, "Error: Need an input filename\n");
 		cc->error_flag = 1;
 		cc->show_usage_message = 1;
 		return;

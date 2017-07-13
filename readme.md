@@ -36,7 +36,8 @@ Command-line options:
 -aux
    Extract only "auxiliary" files, such as thumbnail images.
 -a, -extractall
-   Also extract data that's usually useless.
+   Extract more data than usual, including things that are rarely of interest,
+   such as comments.
    Note that, as a general rule, Deark doesn't extract the same data twice.
    In rare cases, the -a option can actually *prevent* it from extracting
    certain data, because it may now, for example, extract a block of Exif
@@ -44,7 +45,7 @@ Command-line options:
    it.
 -o &lt;name>
    Output filenames begin with this string. This can include a directory
-   path. Default="output".
+   path. Default is "output", except in some cases when using -zip.
 -file2 &lt;file>
    Some formats are composed of more than one file. In some cases, you can
    use the -file2 option to specify the secondary file. Refer to the
@@ -61,7 +62,7 @@ Command-line options:
    This option is experimental, and might not work in all situations.
    It is recommended to put -tostdout early on the command line. The
    -msgstostderr and "-maxfiles 1" options are enabled automatically.
-   Using -main is suggested. Incompatible with -zip.
+   Including the -main option is recommended. Incompatible with -zip.
 -fromstdin
    Read the input file from the standard input stream (stdin).
    If you use -fromstdin, supplying an input filename is optional. If it is
@@ -88,23 +89,26 @@ Command-line options:
    Extract only the file identifed by &lt;n>. The first file is 0.
    Equivalent to "-firstfile &lt;n> -maxfiles 1".
 -nobom
-   Do not write a BOM to UTF-8 output files generated or converted by Deark.
+   Do not add a BOM to UTF-8 output files generated or converted by Deark. Note
+   that if a BOM already exists in the source data, it will not necessarily be
+   removed.
 -nodens
    Do not try to record the original aspect ratio and pixel density in output
    image files.
 -asciihtml
-   When generating an HTML document, use only ASCII, instead of UTF-8.
+   When generating an HTML document, use ASCII encoding instead of UTF-8. This
+   does not change how a browser will render the file; it just makes it larger
+   and very slightly more portable.
 -nonames
    Make Deark less likely to try to improve output filenames by using names
-   from the contents of the input file. This is mainly intended to make the
-   output filename predictable, in the case of a format for which only a
-   single file is usually extracted.
+   from the contents of the input file. The output filenames will be more
+   predictable, but less informative.
 -modtime
 -nomodtime
    Do / Do not try to preserve the modification timestamp of extracted files.
-   On by default, but only supported for a few formats. It's intended for
-   archive formats where files are extracted as-is, and where each file has
-   a last-modified timestamp.
+   On by default, but not relevant to most formats. It's used with archive
+   formats where files are extracted as-is, and where each member file has a
+   last-modified timestamp.
 -opt &lt;module:option>=&lt;value>
    Module-specific options. See formats.txt.
    Caution: Unrecognized or misspelled options will be silently ignored.
@@ -146,12 +150,12 @@ Command-line options:
 -dprefix &lt;msg>
    Start each line printed by -d with this prefix. Default is "DEBUG: ".
 -enc &lt;ascii|oem>
-   Set the encoding of the message that are printed to the console. This does
+   Set the encoding of the messages that are printed to the console. This does
    not affect the extracted data files.
    The default is to use Unicode (UTF-8, when the encoding is relevant).
    ascii: Use ASCII characters only.
    oem: [Windows only; has no effect on other platforms] Use the "OEM"
-     character set. Maybe useful when paging the output to "|more".
+     character set. This may be useful when paging the output with "|more".
 -msgstostderr
    Print all messages to stderr, instead of stdout. This option should be
    placed early on the command line, as it might not affect messages
