@@ -6,10 +6,12 @@
 
 #include <deark-config.h>
 #include <deark-private.h>
+#include <deark-fmtutil.h>
 DE_DECLARE_MODULE(de_module_png);
 
 #define PNGID_IDAT 0x49444154U
 #define PNGID_IHDR 0x49484452U
+#define PNGID_eXIf 0x65584966U
 #define PNGID_gAMA 0x67414d41U
 #define PNGID_iCCP 0x69434350U
 #define PNGID_iTXt 0x69545874U
@@ -294,6 +296,21 @@ static void do_png_iccp(deark *c, de_int64 pos, de_int64 len)
 	de_finfo_destroy(c, fi);
 }
 
+static void do_png_eXIf(deark *c, de_int64 pos, de_int64 len)
+{
+	if(len>=6 && !dbuf_memcmp(c->infile, pos, "Exif\0", 5)) {
+		// Some versions of the PNG-Exif proposal had the Exif data starting with
+		// an "Exif\0\0" identifier, and some files were created in this format.
+		// So we'll support it.
+		de_dbg(c, "[skipping JPEG app ID]\n");
+		pos += 6;
+		len -= 6;
+	}
+	if(len<8) return;
+
+	de_fmtutil_handle_exif(c, pos, len);
+}
+
 static int do_identify_png_internal(deark *c)
 {
 	de_byte buf[8];
@@ -357,6 +374,9 @@ static void de_run_png(deark *c, de_module_params *mparams)
 			break;
 		case PNGID_iCCP:
 			do_png_iccp(c, pos+8, chunk_data_len);
+			break;
+		case PNGID_eXIf:
+			do_png_eXIf(c, pos+8, chunk_data_len);
 			break;
 		case PNGID_tEXt:
 		case PNGID_zTXt:
