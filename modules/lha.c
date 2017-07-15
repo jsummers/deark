@@ -221,6 +221,10 @@ static const struct exthdr_type_info_struct exthdr_type_info_arr[] = {
 	{ 0x40, 0, "MS-DOS file attribs", exthdr_msdosattribs },
 	{ 0x41, 0, "Windows timestamp", exthdr_windowstimestamp },
 	{ 0x42, 0, "MS-DOS file size", exthdr_filesize },
+	{ 0x43, 0, "time zone", NULL },
+	{ 0x44, 0, "UTF-16 filename", NULL },
+	{ 0x45, 0, "UTF-16 dir name", NULL },
+	{ 0x46, 0, "codepage", NULL },
 	{ 0x50, 0, "Unix perms", exthdr_unixperms },
 	{ 0x51, 0, "Unix UID/GID", exthdr_unixuidgid },
 	{ 0x52, 0, "Unix group name", NULL },
@@ -228,7 +232,7 @@ static const struct exthdr_type_info_struct exthdr_type_info_arr[] = {
 	{ 0x54, 0, "Unix timestamp", exthdr_unixtimestamp },
 	{ 0x7d, 0, "capsule", NULL },
 	{ 0x7e, 0, "OS/2 extended attribs", NULL },
-	{ 0x7f, 0, "level 3 new attribs type-1", NULL },
+	{ 0x7f, 0, "level 3 new attribs type-1", NULL }, // (OS/2 only)
 	{ 0xff, 0, "level 3 new attribs type-2", exthdr_lev3newattribs2 }
 };
 
