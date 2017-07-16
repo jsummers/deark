@@ -1,0 +1,50 @@
+Source: deark
+Section: utils
+Priority: optional
+Maintainer: Nicolas HOUDELOT <nicolas@demosdebs.org>
+Build-Depends: debhelper (>= 9.0)
+Standards-Version: 3.9.7
+Homepage: http://entropymine.com/deark/
+Vcs-Git: https://github.com/jsummers/deark.git
+
+Package: deark
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}
+Description: Command line utility that can convert old image files
+ Portable command-line utility that can decode certain
+ types of files, and either convert them to a more-modern
+ or more-readable format, or extract embedded files from
+ them. 
+ . 
+ Among the formats supported (in one way or another) are:
+ .
+ Acorn Sprite
+ Amiga icon / NewIcons / GlowIcons
+ ANI (Windows animated cursor)
+ ANSI Art
+ BinHex (HQX)
+ BLOAD/BSAVE
+ Encapsulated PostScript
+ EPOC MBM / Sketch / AIF
+ EXE
+ FON / FNT (Windows font)
+ GEM Bit Image
+ GRASP GL
+ ICO / CUR (Windows icon/cursor)
+ ILBM
+ JPEG
+ JPEG 2000
+ MacPaint
+ Mac icon (icns)
+ Microsoft Paint
+ Nokia Phone image formats (NGG, NLM, NOL, NPM, NSL)
+ OS/2 Icon / Pointer / Bitmap array
+ PCPaint PIC / CLP
+ PCX
+ Psion PIC
+ Psion APP / IMG / OPA / OPO
+ RPM
+ T64
+ TGA
+ TI-83/89/92/etc. calculator pictures
+ TIFF / Exif 

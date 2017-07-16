@@ -1,0 +1,54 @@
+--- a/Makefile
++++ b/Makefile
+@@ -1,6 +1,28 @@
++SHELL = /bin/sh
++CC    = gcc
++CFLAGS += -O3 -flto -Wall -Wextra -Wmissing-prototypes -Wformat-security -Wno-unused-parameter -Isrc
++LDFLAGS +=-Wall
++RM_F = rm -f
++INSTALL = install
++INSTALL_DIR     = $(INSTALL) -p -d -o root -g root  -m  755
++INSTALL_PROGRAM = $(INSTALL) -p    -o root -g root  -m  755
++
++prefix = /usr
++exec_prefix = $(prefix)
++bindir = $(exec_prefix)/bin
++
++#si code gcc4 compilé via gcc5 le standard par défaut était different
++GCCVERSIONGTEQ5 := $(shell expr `gcc -dumpversion | cut -f1 -d.` \>= 5)
++ifeq "$(GCCVERSIONGTEQ5)" "1"
++    CFLAGS += -std=gnu90
++endif
++#parallel compilation if available
++ifneq (,$(filter parallel=%,$(DEB_BUILD_OPTIONS)))
++ NUMJOBS = $(patsubst parallel=%,%,$(filter parallel=%,$(DEB_BUILD_OPTIONS)))
++ MAKEFLAGS += -j$(NUMJOBS)
++endif
+ 
+-CFLAGS:=-g -O2 -Wall -Wextra -Wmissing-prototypes -Wformat-security -Wno-unused-parameter -Isrc
+-LDFLAGS:=-Wall
++export
+ 
+ ifeq ($(OS),Windows_NT)
+ EXE_EXT:=.exe
+@@ -47,13 +69,18 @@
+ OFILES_ALL:=$(OBJDIR)/src/deark-cmd.o $(OFILES_LIB) $(OFILES_MODS)
+ 
+ $(DEARK_EXE): $(OFILES_ALL)
+-	$(CC) $(LDFLAGS) -o $@ $(OFILES_ALL)
++	$(CC) -flto $(LDFLAGS) -o $@ $(OFILES_ALL)
+ 
+ $(OBJDIR)/%.o: %.c
+ 	$(CC) $(CFLAGS) -c -o $@ $<
+ 
++install: $(DEARK_EXE)
++	$(INSTALL_DIR) $(DESTDIR)$(bindir)
++	-@$(RM_F) $(DESTDIR)$(bindir)/$(DEARK_EXE)
++	$(INSTALL_PROGRAM) $(DEARK_EXE) $(DESTDIR)$(bindir)
++
+ clean:
+-	rm -f $(OBJDIR)/src/*.[od] $(OBJDIR)/modules/*.[od] $(DEARK_EXE)
++	-@$(RM_F) -f $(OBJDIR)/src/*.[od] $(OBJDIR)/modules/*.[od] $(DEARK_EXE)
+ 
+ ifeq ($(MAKECMDGOALS),dep)
+ 

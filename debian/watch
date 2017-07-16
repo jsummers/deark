@@ -1,0 +1,3 @@
+version=3
+opts=filenamemangle=s/.+\/v?(\d\S*)\.tar\.gz/deark-$1\.tar\.gz/ \
+  https://github.com/jsummers/deark/tags .*/v?(\d\S*)\.tar\.gz
