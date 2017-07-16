@@ -1,6 +1,6 @@
 --- a/Makefile
 +++ b/Makefile
-@@ -1,6 +1,28 @@
+@@ -1,6 +1,23 @@
 +SHELL = /bin/sh
 +CC    = gcc
 +CFLAGS += -O3 -flto -Wall -Wextra -Wmissing-prototypes -Wformat-security -Wno-unused-parameter -Isrc
@@ -14,11 +14,6 @@
 +exec_prefix = $(prefix)
 +bindir = $(exec_prefix)/bin
 +
-+#si code gcc4 compilé via gcc5 le standard par défaut était different
-+GCCVERSIONGTEQ5 := $(shell expr `gcc -dumpversion | cut -f1 -d.` \>= 5)
-+ifeq "$(GCCVERSIONGTEQ5)" "1"
-+    CFLAGS += -std=gnu90
-+endif
 +#parallel compilation if available
 +ifneq (,$(filter parallel=%,$(DEB_BUILD_OPTIONS)))
 + NUMJOBS = $(patsubst parallel=%,%,$(filter parallel=%,$(DEB_BUILD_OPTIONS)))
@@ -31,7 +26,7 @@
  
  ifeq ($(OS),Windows_NT)
  EXE_EXT:=.exe
-@@ -47,13 +69,18 @@
+@@ -47,13 +64,18 @@
  OFILES_ALL:=$(OBJDIR)/src/deark-cmd.o $(OFILES_LIB) $(OFILES_MODS)
  
  $(DEARK_EXE): $(OFILES_ALL)

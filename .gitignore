@@ -9,3 +9,5 @@
 /Debug64/
 /Release32/
 /Release64/
+
+\.pc/
