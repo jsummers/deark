@@ -19,7 +19,7 @@ struct member_data {
 };
 
 typedef struct localctx_struct {
-	int reserved;
+	int member_count;
 } lctx;
 
 struct exthdr_type_info_struct;
@@ -44,6 +44,10 @@ static void read_msdos_datetime(deark *c, lctx *d, struct member_data *md,
 
 	mod_time_raw = de_getui16le(pos);
 	mod_date_raw = de_getui16le(pos+2);
+	if(mod_time_raw==0 && mod_date_raw==0) {
+		de_dbg(c, "%s: (not set)\n", name);
+		return;
+	}
 	de_dos_datetime_to_timestamp(&tmp_timestamp, mod_date_raw, mod_time_raw, 0);
 	de_timestamp_to_string(&tmp_timestamp, timestamp_buf, sizeof(timestamp_buf), 0);
 	de_dbg(c, "%s: %s\n", name, timestamp_buf);
@@ -403,6 +407,19 @@ static int do_read_member(deark *c, lctx *d, struct member_data *md, de_int64 po
 	de_dbg(c, "member at %d\n", (int)pos);
 	de_dbg_indent(c, 1);
 
+	// Read this first, to help decide whether this is LHA data at all.
+	md->cmpr_method = dbuf_read_string(c->infile, pos1+2, 5, 5, 0, DE_ENCODING_ASCII);
+	if(md->cmpr_method->sz[0]!='-' || md->cmpr_method->sz[4]!='-') {
+		if(d->member_count==0) {
+			de_err(c, "Not an LHA file\n");
+			goto done;
+		}
+		else {
+			de_warn(c, "Extra non-LHA data found at end of file (offset %d)\n", (int)pos1);
+			goto done;
+		}
+	}
+
 	// Look ahead to figure out the header format version.
 	// This byte was originally the high byte of the "MS-DOS file attribute" field,
 	// which happened to always be zero.
@@ -443,7 +460,7 @@ static int do_read_member(deark *c, lctx *d, struct member_data *md, de_int64 po
 		}
 	}
 
-	md->cmpr_method = dbuf_read_string(c->infile, pos, 5, 5, 0, DE_ENCODING_ASCII);
+	// This field was read earlier.
 	de_dbg(c, "cmpr method: \"%s\"\n", ucstring_get_printable_sz(md->cmpr_method->str));
 	pos+=5;
 
@@ -477,11 +494,11 @@ static int do_read_member(deark *c, lctx *d, struct member_data *md, de_int64 po
 	pos += 4;
 
 	if(md->hlev==0 || md->hlev==1) {
-		read_msdos_datetime(c, d, md, pos, "late-modified");
+		read_msdos_datetime(c, d, md, pos, "last-modified");
 		pos += 4; // modification time/date (MS-DOS)
 	}
 	else if(md->hlev==2 || md->hlev==3) {
-		read_unix_timestamp(c, d, md, pos, "late-modified");
+		read_unix_timestamp(c, d, md, pos, "last-modified");
 		pos += 4; // Unix time
 	}
 
@@ -591,6 +608,7 @@ static void de_run_lha(deark *c, de_module_params *mparams)
 	struct member_data *md = NULL;
 
 	d = de_malloc(c, sizeof(lctx));
+	de_msg(c, "Note: LHA files can be parsed, but no files can be extracted from them.\n");
 
 	pos = 0;
 	while(1) {
@@ -600,6 +618,7 @@ static void de_run_lha(deark *c, de_module_params *mparams)
 		if(!do_read_member(c, d, md, pos)) goto done;
 		if(md->total_size<1) goto done;
 
+		d->member_count++;
 		pos += md->total_size;
 
 		destroy_member_data(c, md);
@@ -616,9 +635,16 @@ static int de_identify_lha(deark *c)
 	de_byte b[7];
 
 	de_read(b, 0, 7);
-
-	if(b[2]=='-' && b[3]=='l' && b[6]=='-' && (b[4]=='h' || b[4]=='z')) {
-		return 100;
+	if(b[2]!='-' || b[6]!='-') return 0;
+	if(b[3]=='l') {
+		if(b[4]=='h' || b[4]=='z') {
+			return 100;
+		}
+	}
+	else if(b[3]=='p') {
+		if(b[4]=='c' || b[4]=='m') {
+			return 100;
+		}
 	}
 	return 0;
 }
@@ -626,8 +652,8 @@ static int de_identify_lha(deark *c)
 void de_module_lha(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "lha";
-	mi->desc = "LHA/LZW";
+	mi->desc = "LHA/LZW/PMA archive";
 	mi->run_fn = de_run_lha;
 	mi->identify_fn = de_identify_lha;
-	mi->flags |= DE_MODFLAG_NONWORKING;
+	mi->flags |= DE_MODFLAG_HIDDEN;
 }
