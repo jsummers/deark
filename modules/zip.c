@@ -593,20 +593,21 @@ static const struct extra_item_type_info_struct extra_item_type_info_arr[] = {
 	{ 0x7875 /* ux */, "Info-ZIP Unix, third version", ef_infozip3 },
 	{ 0xa220 /*    */, "Microsoft Open Packaging Growth Hint", NULL },
 	{ 0xfb4a /*    */, "SMS/QDOS", NULL }, // according to Info-ZIP zip 3.0
-	{ 0xfd4a /*    */, "SMS/QDOS", NULL }, // according to ZIP v6.3.4 APPNOTE
-	{ 0x0000, NULL, NULL }
+	{ 0xfd4a /*    */, "SMS/QDOS", NULL }  // according to ZIP v6.3.4 APPNOTE
 };
 
 static const struct extra_item_type_info_struct *get_extra_item_type_info(de_int64 id)
 {
-	de_int64 i;
-	i=0;
-	for(i=0; extra_item_type_info_arr[i].name!=NULL; i++) {
+	static const struct extra_item_type_info_struct default_ei =
+		{ 0, "?", NULL };
+	size_t i;
+
+	for(i=0; i<DE_ITEMS_IN_ARRAY(extra_item_type_info_arr); i++) {
 		if(id == (de_int64)extra_item_type_info_arr[i].id) {
 			return &extra_item_type_info_arr[i];
 		}
 	}
-	return NULL;
+	return &default_ei;
 }
 
 static void do_extra_data(deark *c, lctx *d,
@@ -616,7 +617,6 @@ static void do_extra_data(deark *c, lctx *d,
 	de_int64 pos;
 	de_int64 item_id;
 	de_int64 item_len;
-	const char *item_name;
 	const struct extra_item_type_info_struct *ei;
 
 	de_dbg(c, "extra data at %d, len=%d\n", (int)pos1, (int)len);
@@ -629,10 +629,8 @@ static void do_extra_data(deark *c, lctx *d,
 		item_len = de_getui16le(pos+2);
 
 		ei = get_extra_item_type_info(item_id);
-		item_name = "?";
-		if(ei && ei->name) item_name = ei->name;
 
-		de_dbg(c, "item id=0x%04x (%s), dlen=%d\n", (unsigned int)item_id, item_name,
+		de_dbg(c, "item id=0x%04x (%s), dlen=%d\n", (unsigned int)item_id, ei->name,
 			(int)item_len);
 		if(pos+4+item_len > pos1+len) break;
 
@@ -670,7 +668,7 @@ static void do_extract_file(deark *c, lctx *d, struct member_data *md)
 	}
 
 	if(md->is_dir && ldd->uncmpr_size==0) {
-		de_warn(c, "\"%s\" is a directory. Ignoring.\n",
+		de_msg(c, "Note: \"%s\" is a directory. Ignoring.\n",
 			ucstring_get_printable_sz_n(ldd->fname, 300));
 		goto done;
 	}
