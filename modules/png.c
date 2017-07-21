@@ -36,6 +36,19 @@ struct text_chunk_ctx {
 #define FIELD_XKEYWORD 3
 #define FIELD_MAIN     4
 
+struct chunk_type_info_struct;
+
+typedef void (*chunk_decoder_fn)(deark *c, lctx *d,
+	const struct de_fourcc *chunk4cc, const struct chunk_type_info_struct *cti,
+	de_int64 pos, de_int64 dlen);
+
+struct chunk_type_info_struct {
+	de_uint32 id;
+	de_uint32 flags;
+	const char *name;
+	chunk_decoder_fn decoder_fn;
+};
+
 // Read and process the keyword, language, translated keyword, or main text
 // field of a tEXt/zTXt/iTXt chunk.
 // 'bytes_consumed' does not include the NUL separator/terminator.
@@ -120,7 +133,9 @@ done:
 	return retval;
 }
 
-static void do_png_text(deark *c, lctx *d, de_uint32 chunk_id, de_int64 pos1, de_int64 len)
+static void do_png_text(deark *c, lctx *d,
+	const struct de_fourcc *chunk4cc, const struct chunk_type_info_struct *cti,
+	de_int64 pos1, de_int64 len)
 {
 	de_int64 pos;
 	de_int64 endpos;
@@ -143,16 +158,16 @@ static void do_png_text(deark *c, lctx *d, de_uint32 chunk_id, de_int64 pos1, de
 	pos += 1;
 
 	// Compression flag
-	if(chunk_id==PNGID_iTXt) {
+	if(chunk4cc->id==PNGID_iTXt) {
 		is_compressed = (int)de_getbyte(pos++);
 		de_dbg(c, "compression flag: %d\n", (int)is_compressed);
 	}
-	else if(chunk_id==PNGID_zTXt) {
+	else if(chunk4cc->id==PNGID_zTXt) {
 		is_compressed = 1;
 	}
 
 	// Compression method
-	if(chunk_id==PNGID_zTXt || chunk_id==PNGID_iTXt) {
+	if(chunk4cc->id==PNGID_zTXt || chunk4cc->id==PNGID_iTXt) {
 		de_byte cmpr_method;
 		cmpr_method = de_getbyte(pos++);
 		if(is_compressed && cmpr_method!=0) {
@@ -161,7 +176,7 @@ static void do_png_text(deark *c, lctx *d, de_uint32 chunk_id, de_int64 pos1, de
 		}
 	}
 
-	if(chunk_id==PNGID_iTXt) {
+	if(chunk4cc->id==PNGID_iTXt) {
 		// Language tag
 		ret = do_text_field(c, d, &tcc, FIELD_LANG, c->infile, pos, endpos-pos,
 			1, 0, DE_ENCODING_ASCII, &field_bytes_consumed);
@@ -177,7 +192,7 @@ static void do_png_text(deark *c, lctx *d, de_uint32 chunk_id, de_int64 pos1, de
 		pos += 1;
 	}
 
-	if(chunk_id==PNGID_iTXt)
+	if(chunk4cc->id==PNGID_iTXt)
 		encoding = DE_ENCODING_UTF8;
 	else
 		encoding = DE_ENCODING_LATIN1;
@@ -189,7 +204,9 @@ done:
 	;
 }
 
-static void do_png_IHDR(deark *c, de_int64 pos, de_int64 len)
+static void do_png_IHDR(deark *c, lctx *d,
+	const struct de_fourcc *chunk4cc, const struct chunk_type_info_struct *cti,
+	de_int64 pos, de_int64 len)
 {
 	de_int64 w, h;
 	de_byte n;
@@ -218,14 +235,18 @@ static void do_png_IHDR(deark *c, de_int64 pos, de_int64 len)
 	de_dbg(c, "interlaced: %d\n", (int)n);
 }
 
-static void do_png_gAMA(deark *c, de_int64 pos, de_int64 len)
+static void do_png_gAMA(deark *c, lctx *d,
+	const struct de_fourcc *chunk4cc, const struct chunk_type_info_struct *cti,
+	de_int64 pos, de_int64 len)
 {
 	de_int64 n;
 	n = de_getui32be(pos);
 	de_dbg(c, "image gamma: %.5f\n", (double)n / 100000.0);
 }
 
-static void do_png_pHYs(deark *c, de_int64 pos, de_int64 len)
+static void do_png_pHYs(deark *c, lctx *d,
+	const struct de_fourcc *chunk4cc, const struct chunk_type_info_struct *cti,
+	de_int64 pos, de_int64 len)
 {
 	de_int64 dx, dy;
 	de_byte u;
@@ -243,7 +264,9 @@ static void do_png_pHYs(deark *c, de_int64 pos, de_int64 len)
 	de_dbg(c, "units: %d (%s)\n", (int)u, name);
 }
 
-static void do_png_tIME(deark *c, de_int64 pos, de_int64 len)
+static void do_png_tIME(deark *c, lctx *d,
+	const struct de_fourcc *chunk4cc, const struct chunk_type_info_struct *cti,
+	de_int64 pos, de_int64 len)
 {
 	de_int64 yr;
 	de_byte mo, da, hr, mi, se;
@@ -262,7 +285,9 @@ static void do_png_tIME(deark *c, de_int64 pos, de_int64 len)
 	de_dbg(c, "mod time: %s\n", timestamp_buf);
 }
 
-static void do_png_iccp(deark *c, de_int64 pos, de_int64 len)
+static void do_png_iccp(deark *c, lctx *d,
+	const struct de_fourcc *chunk4cc, const struct chunk_type_info_struct *cti,
+	de_int64 pos, de_int64 len)
 {
 	de_byte prof_name[81];
 	de_int64 prof_name_len;
@@ -296,7 +321,9 @@ static void do_png_iccp(deark *c, de_int64 pos, de_int64 len)
 	de_finfo_destroy(c, fi);
 }
 
-static void do_png_eXIf(deark *c, de_int64 pos, de_int64 len)
+static void do_png_eXIf(deark *c, lctx *d,
+	const struct de_fourcc *chunk4cc, const struct chunk_type_info_struct *cti,
+	de_int64 pos, de_int64 len)
 {
 	if(len>=6 && !dbuf_memcmp(c->infile, pos, "Exif\0", 5)) {
 		// Some versions of the PNG-Exif proposal had the Exif data starting with
@@ -309,6 +336,30 @@ static void do_png_eXIf(deark *c, de_int64 pos, de_int64 len)
 	if(len<8) return;
 
 	de_fmtutil_handle_exif(c, pos, len);
+}
+
+static const struct chunk_type_info_struct chunk_type_info_arr[] = {
+	{ PNGID_IHDR, 0, NULL, do_png_IHDR },
+	{ PNGID_eXIf, 0, NULL, do_png_eXIf },
+	{ PNGID_gAMA, 0, NULL, do_png_gAMA },
+	{ PNGID_iCCP, 0, NULL, do_png_iccp },
+	{ PNGID_iTXt, 0, NULL, do_png_text },
+	{ PNGID_pHYs, 0, NULL, do_png_pHYs },
+	{ PNGID_tEXt, 0, NULL, do_png_text },
+	{ PNGID_tIME, 0, NULL, do_png_tIME },
+	{ PNGID_zTXt, 0, NULL, do_png_text }
+};
+
+static const struct chunk_type_info_struct *get_chunk_type_info(de_uint32 id)
+{
+	size_t i;
+
+	for(i=0; i<DE_ITEMS_IN_ARRAY(chunk_type_info_arr); i++) {
+		if(id == chunk_type_info_arr[i].id) {
+			return &chunk_type_info_arr[i];
+		}
+	}
+	return NULL;
 }
 
 static int do_identify_png_internal(deark *c)
@@ -329,6 +380,7 @@ static void de_run_png(deark *c, de_module_params *mparams)
 	de_int32 prev_chunk_id = 0;
 	int suppress_idat_dbg = 0;
 	struct de_fourcc chunk4cc;
+	const struct chunk_type_info_struct *cti;
 
 	d = de_malloc(c, sizeof(lctx));
 
@@ -345,6 +397,8 @@ static void de_run_png(deark *c, de_module_params *mparams)
 		if(pos + 8 + chunk_data_len + 4 > c->infile->len) break;
 		dbuf_read_fourcc(c->infile, pos+4, &chunk4cc, 0);
 
+		cti = get_chunk_type_info(chunk4cc.id);
+
 		if(chunk4cc.id==PNGID_IDAT && suppress_idat_dbg) {
 			;
 		}
@@ -358,33 +412,12 @@ static void de_run_png(deark *c, de_module_params *mparams)
 			if(chunk4cc.id!=PNGID_IDAT) suppress_idat_dbg = 0;
 		}
 
-		de_dbg_indent(c, 1);
-		switch(chunk4cc.id) {
-		case PNGID_IHDR:
-			do_png_IHDR(c, pos+8, chunk_data_len);
-			break;
-		case PNGID_gAMA:
-			do_png_gAMA(c, pos+8, chunk_data_len);
-			break;
-		case PNGID_pHYs:
-			do_png_pHYs(c, pos+8, chunk_data_len);
-			break;
-		case PNGID_tIME:
-			do_png_tIME(c, pos+8, chunk_data_len);
-			break;
-		case PNGID_iCCP:
-			do_png_iccp(c, pos+8, chunk_data_len);
-			break;
-		case PNGID_eXIf:
-			do_png_eXIf(c, pos+8, chunk_data_len);
-			break;
-		case PNGID_tEXt:
-		case PNGID_zTXt:
-		case PNGID_iTXt:
-			do_png_text(c, d, chunk4cc.id, pos+8, chunk_data_len);
-			break;
+		if(cti && cti->decoder_fn) {
+			de_dbg_indent(c, 1);
+			cti->decoder_fn(c, d, &chunk4cc, NULL, pos+8, chunk_data_len);
+			de_dbg_indent(c, -1);
 		}
-		de_dbg_indent(c, -1);
+
 		pos += 8 + chunk_data_len + 4;
 		prev_chunk_id = chunk4cc.id;
 	}
