@@ -11,11 +11,13 @@ DE_DECLARE_MODULE(de_module_png);
 
 #define PNGID_IDAT 0x49444154U
 #define PNGID_IHDR 0x49484452U
+#define PNGID_cHRM 0x6348524dU
 #define PNGID_eXIf 0x65584966U
 #define PNGID_gAMA 0x67414d41U
 #define PNGID_iCCP 0x69434350U
 #define PNGID_iTXt 0x69545874U
 #define PNGID_pHYs 0x70485973U
+#define PNGID_sRGB 0x73524742U
 #define PNGID_tEXt 0x74455874U
 #define PNGID_tIME 0x74494d45U
 #define PNGID_zTXt 0x7a545874U
@@ -285,6 +287,44 @@ static void do_png_tIME(deark *c, lctx *d,
 	de_dbg(c, "mod time: %s\n", timestamp_buf);
 }
 
+static void do_png_cHRM(deark *c, lctx *d,
+	const struct de_fourcc *chunk4cc, const struct chunk_type_info_struct *cti,
+	de_int64 pos, de_int64 len)
+{
+	de_int64 n[8];
+	double nd[8];
+	size_t i;
+
+	if(len<32) return;
+	for(i=0; i<8; i++) {
+		n[i] = de_getui32be(pos+4*i);
+		nd[i] = ((double)n[i])/100000.0;
+	}
+	de_dbg(c, "white point: (%1.5f, %1.5f)\n", nd[0], nd[1]);
+	de_dbg(c, "red        : (%1.5f, %1.5f)\n", nd[2], nd[3]);
+	de_dbg(c, "green      : (%1.5f, %1.5f)\n", nd[4], nd[5]);
+	de_dbg(c, "blue       : (%1.5f, %1.5f)\n", nd[6], nd[7]);
+}
+
+static void do_png_sRGB(deark *c, lctx *d,
+	const struct de_fourcc *chunk4cc, const struct chunk_type_info_struct *cti,
+	de_int64 pos, de_int64 len)
+{
+	de_byte intent;
+	const char *name;
+
+	if(len<1) return;
+	intent = de_getbyte(pos);
+	switch(intent) {
+	case 0: name="perceptual"; break;
+	case 1: name="relative"; break;
+	case 2: name="saturation"; break;
+	case 3: name="absolute"; break;
+	default: name="?";
+	}
+	de_dbg(c, "rendering intent: %d (%s)\n", (int)intent, name);
+}
+
 static void do_png_iccp(deark *c, lctx *d,
 	const struct de_fourcc *chunk4cc, const struct chunk_type_info_struct *cti,
 	de_int64 pos, de_int64 len)
@@ -342,9 +382,11 @@ static const struct chunk_type_info_struct chunk_type_info_arr[] = {
 	{ PNGID_IHDR, 0, NULL, do_png_IHDR },
 	{ PNGID_eXIf, 0, NULL, do_png_eXIf },
 	{ PNGID_gAMA, 0, NULL, do_png_gAMA },
+	{ PNGID_cHRM, 0, NULL, do_png_cHRM },
 	{ PNGID_iCCP, 0, NULL, do_png_iccp },
 	{ PNGID_iTXt, 0, NULL, do_png_text },
 	{ PNGID_pHYs, 0, NULL, do_png_pHYs },
+	{ PNGID_sRGB, 0, NULL, do_png_sRGB },
 	{ PNGID_tEXt, 0, NULL, do_png_text },
 	{ PNGID_tIME, 0, NULL, do_png_tIME },
 	{ PNGID_zTXt, 0, NULL, do_png_text }
