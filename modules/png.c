@@ -11,15 +11,18 @@ DE_DECLARE_MODULE(de_module_png);
 
 #define PNGID_IDAT 0x49444154U
 #define PNGID_IHDR 0x49484452U
+#define PNGID_PLTE 0x504c5445U
 #define PNGID_cHRM 0x6348524dU
 #define PNGID_eXIf 0x65584966U
 #define PNGID_gAMA 0x67414d41U
 #define PNGID_iCCP 0x69434350U
 #define PNGID_iTXt 0x69545874U
 #define PNGID_pHYs 0x70485973U
+#define PNGID_sBIT 0x73424954U
 #define PNGID_sRGB 0x73524742U
 #define PNGID_tEXt 0x74455874U
 #define PNGID_tIME 0x74494d45U
+#define PNGID_tRNS 0x74524e53U
 #define PNGID_zTXt 0x7a545874U
 
 typedef struct localctx_struct {
@@ -27,6 +30,7 @@ typedef struct localctx_struct {
 #define DE_PNGFMT_JNG 2
 #define DE_PNGFMT_MNG 3
 	int fmt;
+	de_byte color_type;
 } lctx;
 
 struct text_chunk_ctx {
@@ -222,8 +226,8 @@ static void do_png_IHDR(deark *c, lctx *d,
 	n = de_getbyte(pos+8);
 	de_dbg(c, "depth: %d bits/sample\n", (int)n);
 
-	n = de_getbyte(pos+9);
-	switch(n) {
+	d->color_type = de_getbyte(pos+9);
+	switch(d->color_type) {
 	case 0: name="grayscale"; break;
 	case 2: name="truecolor"; break;
 	case 3: name="palette"; break;
@@ -231,10 +235,55 @@ static void do_png_IHDR(deark *c, lctx *d,
 	case 6: name="truecolor+alpha"; break;
 	default: name="?";
 	}
-	de_dbg(c, "color type: %d (%s)\n", (int)n, name);
+	de_dbg(c, "color type: %d (%s)\n", (int)d->color_type, name);
 
 	n = de_getbyte(pos+12);
 	de_dbg(c, "interlaced: %d\n", (int)n);
+}
+
+static void do_png_PLTE(deark *c, lctx *d,
+	const struct de_fourcc *chunk4cc, const struct chunk_type_info_struct *cti,
+	de_int64 pos, de_int64 len)
+{
+	// pal is a dummy variable, since we don't need to keep the palette.
+	// TODO: Maybe de_read_palette_rgb shouldn't require the palette to be returned.
+	de_uint32 pal[256];
+	de_int64 nentries;
+
+	nentries = len/3;
+	de_dbg(c, "num palette entries: %d\n", (int)nentries);
+	de_read_palette_rgb(c->infile, pos, nentries, 3, pal, DE_ITEMS_IN_ARRAY(pal), 0);
+}
+
+static void do_png_tRNS(deark *c, lctx *d,
+	const struct de_fourcc *chunk4cc, const struct chunk_type_info_struct *cti,
+	de_int64 pos, de_int64 len)
+{
+	de_int64 r, g, b;
+
+	if(d->color_type==0) {
+		if(len<2) return;
+		r = de_getui16be(pos);
+		de_dbg(c, "transparent gray shade: %d\n", (int)r);
+	}
+	else if(d->color_type==2) {
+		if(len<6) return;
+		r = de_getui16be(pos);
+		g = de_getui16be(pos+2);
+		b = de_getui16be(pos+4);
+		de_dbg(c, "transparent color: (%d,%d,%d)\n", (int)r, (int)g, (int)b);
+	}
+	else if(d->color_type==3) {
+		de_int64 i;
+		de_byte a;
+
+		de_dbg(c, "number of alpha values: %d\n", (int)len);
+		if(c->debug_level<2) return;
+		for(i=0; i<len && i<256; i++) {
+			a = de_getbyte(pos+i);
+			de_dbg2(c, "alpha[%3d] = %d\n", (int)i, (int)a);
+		}
+	}
 }
 
 static void do_png_gAMA(deark *c, lctx *d,
@@ -264,6 +313,29 @@ static void do_png_pHYs(deark *c, lctx *d,
 	default: name="?";
 	}
 	de_dbg(c, "units: %d (%s)\n", (int)u, name);
+}
+
+static void do_png_sBIT(deark *c, lctx *d,
+	const struct de_fourcc *chunk4cc, const struct chunk_type_info_struct *cti,
+	de_int64 pos, de_int64 len)
+{
+	const char *sbname[4];
+	de_int64 i;
+
+	sbname[0] = "red";
+	sbname[1] = "green";
+	sbname[2] = "blue";
+	sbname[3] = "alpha";
+	if(d->color_type==0 || d->color_type==4) {
+		sbname[0] = "gray";
+		sbname[1] = "alpha";
+	}
+
+	for(i=0; i<4 && i<len; i++) {
+		de_byte n;
+		n = de_getbyte(pos+i);
+		de_dbg(c, "significant %s bits: %d\n", sbname[i], (int)n);
+	}
 }
 
 static void do_png_tIME(deark *c, lctx *d,
@@ -380,15 +452,18 @@ static void do_png_eXIf(deark *c, lctx *d,
 
 static const struct chunk_type_info_struct chunk_type_info_arr[] = {
 	{ PNGID_IHDR, 0, NULL, do_png_IHDR },
+	{ PNGID_PLTE, 0, NULL, do_png_PLTE },
 	{ PNGID_eXIf, 0, NULL, do_png_eXIf },
 	{ PNGID_gAMA, 0, NULL, do_png_gAMA },
 	{ PNGID_cHRM, 0, NULL, do_png_cHRM },
 	{ PNGID_iCCP, 0, NULL, do_png_iccp },
 	{ PNGID_iTXt, 0, NULL, do_png_text },
 	{ PNGID_pHYs, 0, NULL, do_png_pHYs },
+	{ PNGID_sBIT, 0, NULL, do_png_sBIT },
 	{ PNGID_sRGB, 0, NULL, do_png_sRGB },
 	{ PNGID_tEXt, 0, NULL, do_png_text },
 	{ PNGID_tIME, 0, NULL, do_png_tIME },
+	{ PNGID_tRNS, 0, NULL, do_png_tRNS },
 	{ PNGID_zTXt, 0, NULL, do_png_text }
 };
 
@@ -435,6 +510,8 @@ static void de_run_png(deark *c, de_module_params *mparams)
 
 	pos = 8;
 	while(pos < c->infile->len) {
+		de_uint32 crc;
+
 		chunk_data_len = de_getui32be(pos);
 		if(pos + 8 + chunk_data_len + 4 > c->infile->len) break;
 		dbuf_read_fourcc(c->infile, pos+4, &chunk4cc, 0);
@@ -454,13 +531,20 @@ static void de_run_png(deark *c, de_module_params *mparams)
 			if(chunk4cc.id!=PNGID_IDAT) suppress_idat_dbg = 0;
 		}
 
-		if(cti && cti->decoder_fn) {
-			de_dbg_indent(c, 1);
-			cti->decoder_fn(c, d, &chunk4cc, NULL, pos+8, chunk_data_len);
-			de_dbg_indent(c, -1);
-		}
+		pos += 8;
 
-		pos += 8 + chunk_data_len + 4;
+		de_dbg_indent(c, 1);
+		if(cti && cti->decoder_fn) {
+			cti->decoder_fn(c, d, &chunk4cc, NULL, pos, chunk_data_len);
+		}
+		pos += chunk_data_len;
+
+		crc = (de_uint32)de_getui32be(pos);
+		de_dbg2(c, "crc32 (reported): 0x%08x\n", (unsigned int)crc);
+		pos += 4;
+
+		de_dbg_indent(c, -1);
+
 		prev_chunk_id = chunk4cc.id;
 	}
 
