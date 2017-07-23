@@ -12,13 +12,16 @@ DE_DECLARE_MODULE(de_module_png);
 #define PNGID_IDAT 0x49444154U
 #define PNGID_IHDR 0x49484452U
 #define PNGID_PLTE 0x504c5445U
+#define PNGID_bKGD 0x624b4744U
 #define PNGID_cHRM 0x6348524dU
 #define PNGID_eXIf 0x65584966U
 #define PNGID_gAMA 0x67414d41U
+#define PNGID_hIST 0x68495354U
 #define PNGID_iCCP 0x69434350U
 #define PNGID_iTXt 0x69545874U
 #define PNGID_pHYs 0x70485973U
 #define PNGID_sBIT 0x73424954U
+#define PNGID_sPLT 0x73504c54U
 #define PNGID_sRGB 0x73524742U
 #define PNGID_tEXt 0x74455874U
 #define PNGID_tIME 0x74494d45U
@@ -255,6 +258,12 @@ static void do_png_PLTE(deark *c, lctx *d,
 	de_read_palette_rgb(c->infile, pos, nentries, 3, pal, DE_ITEMS_IN_ARRAY(pal), 0);
 }
 
+static void do_png_sPLT(deark *c, lctx *d,
+	const struct de_fourcc *chunk4cc, const struct chunk_type_info_struct *cti,
+	de_int64 pos, de_int64 len)
+{
+}
+
 static void do_png_tRNS(deark *c, lctx *d,
 	const struct de_fourcc *chunk4cc, const struct chunk_type_info_struct *cti,
 	de_int64 pos, de_int64 len)
@@ -264,7 +273,7 @@ static void do_png_tRNS(deark *c, lctx *d,
 	if(d->color_type==0) {
 		if(len<2) return;
 		r = de_getui16be(pos);
-		de_dbg(c, "transparent gray shade: %d\n", (int)r);
+		de_dbg(c, "transparent color gray shade: %d\n", (int)r);
 	}
 	else if(d->color_type==2) {
 		if(len<6) return;
@@ -283,6 +292,48 @@ static void do_png_tRNS(deark *c, lctx *d,
 			a = de_getbyte(pos+i);
 			de_dbg2(c, "alpha[%3d] = %d\n", (int)i, (int)a);
 		}
+	}
+}
+
+static void do_png_hIST(deark *c, lctx *d,
+	const struct de_fourcc *chunk4cc, const struct chunk_type_info_struct *cti,
+	de_int64 pos, de_int64 len)
+{
+	de_int64 i;
+	de_int64 v;
+	de_int64 nentries = len/2;
+
+	de_dbg(c, "number of histogram values: %d\n", (int)nentries);
+	if(c->debug_level<2) return;
+	for(i=0; i<nentries; i++) {
+		v = de_getui16be(pos+i*2);
+		de_dbg2(c, "freq[%3d] = %d\n", (int)i, (int)v);
+	}
+}
+
+static void do_png_bKGD(deark *c, lctx *d,
+	const struct de_fourcc *chunk4cc, const struct chunk_type_info_struct *cti,
+	de_int64 pos, de_int64 len)
+{
+	de_int64 r, g, b;
+	de_byte idx;
+
+	if(d->color_type==0 || d->color_type==4) {
+		if(len<2) return;
+		r = de_getui16be(pos);
+		de_dbg(c, "%s gray shade: %d\n", cti->name, (int)r);
+	}
+	else if(d->color_type==2 || d->color_type==6) {
+		if(len<6) return;
+		r = de_getui16be(pos);
+		g = de_getui16be(pos+2);
+		b = de_getui16be(pos+4);
+		de_dbg(c, "%s: (%d,%d,%d)\n", cti->name, (int)r, (int)g, (int)b);
+	}
+	else if(d->color_type==3) {
+		if(len<1) return;
+		idx = de_getbyte(pos);
+		de_dbg(c, "%s palette index: %d\n", cti->name, (int)idx);
 	}
 }
 
@@ -453,13 +504,16 @@ static void do_png_eXIf(deark *c, lctx *d,
 static const struct chunk_type_info_struct chunk_type_info_arr[] = {
 	{ PNGID_IHDR, 0, NULL, do_png_IHDR },
 	{ PNGID_PLTE, 0, NULL, do_png_PLTE },
+	{ PNGID_bKGD, 0, "background color", do_png_bKGD },
+	{ PNGID_cHRM, 0, "chromaticities", do_png_cHRM },
 	{ PNGID_eXIf, 0, NULL, do_png_eXIf },
 	{ PNGID_gAMA, 0, NULL, do_png_gAMA },
-	{ PNGID_cHRM, 0, NULL, do_png_cHRM },
+	{ PNGID_hIST, 0, "histogram", do_png_hIST },
 	{ PNGID_iCCP, 0, NULL, do_png_iccp },
 	{ PNGID_iTXt, 0, NULL, do_png_text },
 	{ PNGID_pHYs, 0, NULL, do_png_pHYs },
 	{ PNGID_sBIT, 0, NULL, do_png_sBIT },
+	{ PNGID_sPLT, 0, "suggested palette", do_png_sPLT },
 	{ PNGID_sRGB, 0, NULL, do_png_sRGB },
 	{ PNGID_tEXt, 0, NULL, do_png_text },
 	{ PNGID_tIME, 0, NULL, do_png_tIME },
@@ -535,7 +589,7 @@ static void de_run_png(deark *c, de_module_params *mparams)
 
 		de_dbg_indent(c, 1);
 		if(cti && cti->decoder_fn) {
-			cti->decoder_fn(c, d, &chunk4cc, NULL, pos, chunk_data_len);
+			cti->decoder_fn(c, d, &chunk4cc, cti, pos, chunk_data_len);
 		}
 		pos += chunk_data_len;
 
