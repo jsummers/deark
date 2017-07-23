@@ -260,8 +260,59 @@ static void do_png_PLTE(deark *c, lctx *d,
 
 static void do_png_sPLT(deark *c, lctx *d,
 	const struct de_fourcc *chunk4cc, const struct chunk_type_info_struct *cti,
-	de_int64 pos, de_int64 len)
+	de_int64 pos1, de_int64 len)
 {
+	struct de_stringreaderdata *srd = NULL;
+	de_int64 pos = pos1;
+	de_int64 nbytes_to_scan;
+	de_byte depth;
+	de_int64 nentries;
+	de_int64 stride;
+	de_int64 i;
+
+	nbytes_to_scan = len;
+	if(nbytes_to_scan>80) nbytes_to_scan=80;
+	srd = dbuf_read_string(c->infile, pos, nbytes_to_scan, 79, DE_CONVFLAG_STOP_AT_NUL,
+		DE_ENCODING_LATIN1);
+	if(!srd->found_nul) goto done;
+	de_dbg(c, "palette name: \"%s\"\n", ucstring_get_printable_sz(srd->str));
+	pos += srd->bytes_consumed;
+
+	if(pos >= pos1+len) goto done;
+	depth = de_getbyte(pos++);
+	de_dbg(c, "depth: %d\n", (int)depth);
+	if(depth!=8 && depth!=16) goto done;
+
+	stride = (depth==8) ? 6 : 10;
+	nentries = (pos1+len-pos)/stride;
+	de_dbg(c, "number of entries: %d\n", (int)nentries);
+
+	if(c->debug_level<2) goto done;
+	for(i=0; i<nentries; i++) {
+		unsigned int cr, cg, cb, ca, cf;
+		if(depth==8) {
+			cr = (unsigned int)de_getbyte(pos);
+			cg = (unsigned int)de_getbyte(pos+1);
+			cb = (unsigned int)de_getbyte(pos+2);
+			ca = (unsigned int)de_getbyte(pos+3);
+			cf = (unsigned int)de_getui16be(pos+4);
+			de_dbg2(c, "pal[%3d] = (%3u,%3u,%3u,A=%u) F=%u\n",
+				(int)i, cr, cg, cb, ca, cf);
+		}
+		else {
+			cr = (unsigned int)de_getui16be(pos);
+			cg = (unsigned int)de_getui16be(pos+2);
+			cb = (unsigned int)de_getui16be(pos+4);
+			ca = (unsigned int)de_getui16be(pos+6);
+			cf = (unsigned int)de_getui16be(pos+8);
+			de_dbg2(c, "pal[%3d] = (%5u,%5u,%5u,A=%u) F=%u\n",
+				(int)i, cr, cg, cb, ca, cf);
+		}
+		pos += stride;
+	}
+
+done:
+	de_destroy_stringreaderdata(c, srd);
 }
 
 static void do_png_tRNS(deark *c, lctx *d,
@@ -565,6 +616,7 @@ static void de_run_png(deark *c, de_module_params *mparams)
 	pos = 8;
 	while(pos < c->infile->len) {
 		de_uint32 crc;
+		char nbuf[80];
 
 		chunk_data_len = de_getui32be(pos);
 		if(pos + 8 + chunk_data_len + 4 > c->infile->len) break;
@@ -580,8 +632,16 @@ static void de_run_png(deark *c, de_module_params *mparams)
 			suppress_idat_dbg = 1;
 		}
 		else {
-			de_dbg(c, "chunk '%s' at %d dpos=%d dlen=%d\n", chunk4cc.id_printable, (int)pos,
-				(int)(pos+8), (int)chunk_data_len);
+			if(cti && cti->name) {
+				de_snprintf(nbuf, sizeof(nbuf), " (%s)", cti->name);
+			}
+			else {
+				de_strlcpy(nbuf, "", sizeof(nbuf));
+			}
+
+			de_dbg(c, "chunk '%s'%s at %d dpos=%d dlen=%d\n",
+				chunk4cc.id_printable, nbuf,
+				(int)pos, (int)(pos+8), (int)chunk_data_len);
 			if(chunk4cc.id!=PNGID_IDAT) suppress_idat_dbg = 0;
 		}
 
