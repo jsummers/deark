@@ -510,7 +510,7 @@ void dbuf_copy_at(dbuf *inf, de_int64 input_offset, de_int64 input_len,
 //  max_bytes_to_scan: The maximum number of bytes to read from the file.
 //  max_bytes_to_keep: The maximum (or in some cases the exact) number of bytes,
 //   not counting any NUL terminator, to return in ->sz.
-//   The ->str field is a Unicode version of ->sz, this also affects ->str.
+//   The ->str field is a Unicode version of ->sz, so this also affects ->str.
 // If DE_CONVFLAG_STOP_AT_NUL is not set, it is assumed we are reading a string
 // of known length, that may have internal NUL bytes. The caller must set
 // max_bytes_to_scan and max_bytes_to_keep to the same value. The ->sz field will

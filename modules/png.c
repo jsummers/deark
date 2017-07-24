@@ -58,73 +58,50 @@ struct chunk_type_info_struct {
 	chunk_decoder_fn decoder_fn;
 };
 
-// Read and process the keyword, language, translated keyword, or main text
-// field of a tEXt/zTXt/iTXt chunk.
-// 'bytes_consumed' does not include the NUL separator/terminator.
-static int do_text_field(deark *c, lctx *d,
-	struct text_chunk_ctx *tcc,
-	int which_field,
+// An internal function that does the main work of do_text_field().
+static int do_unc_text_field(deark *c, lctx *d,
+	struct text_chunk_ctx *tcc, int which_field,
 	dbuf *srcdbuf, de_int64 pos, de_int64 bytes_avail,
-	int is_nul_terminated, int is_compressed, int encoding,
-	de_int64 *bytes_consumed)
+	int is_nul_terminated, int encoding, de_int64 *bytes_consumed)
 {
-	dbuf *tmpdbuf = NULL;
-	de_ucstring *value_s = NULL;
-	dbuf *value_dbuf = NULL; // Uncompressed value. A pointer to either src_dbuf, or tmpdbuf.
-	de_int64 value_pos, value_len; // Position in value_dbuf.
 	const char *name;
 	int retval = 0;
+	struct de_stringreaderdata *srd = NULL;
 
 	*bytes_consumed = 0;
-
 	if(bytes_avail<0) return 0;
 
-	if(is_compressed) {
-		// Decompress to a membuf
-		tmpdbuf = dbuf_create_membuf(c, 0, 0);
-		if(!de_uncompress_zlib(srcdbuf, pos, bytes_avail, tmpdbuf)) {
-			goto done;
-		}
-		value_dbuf = tmpdbuf;
-		value_pos = 0;
-		value_len = tmpdbuf->len;
-	}
-	else {
-		de_int64 foundpos;
-
-		if(is_nul_terminated) {
-			if(!dbuf_search_byte(srcdbuf, 0x00, pos, bytes_avail, &foundpos)) {
-				goto done;
-			}
-			value_len = foundpos - pos;
-		}
-		else {
-			value_len = bytes_avail;
-		}
-
-		value_dbuf = srcdbuf;
-		value_pos = pos;
-		*bytes_consumed = value_len;
-	}
-
-	if(which_field==FIELD_KEYWORD) {
-		// This is a bit of a hack. If there are any other special keywords we need
-		// to look for, we should do something better.
-		if(value_len==17 && !dbuf_memcmp(value_dbuf, value_pos, "XML:com.adobe.xmp", 17)) {
-			tcc->is_xmp = 1;
-		}
-	}
-
 	if(which_field==FIELD_MAIN && tcc->is_xmp) {
-		dbuf_create_file_from_slice(value_dbuf, value_pos, value_len, "xmp",
+		// The main field is never NUL terminated, so we can do this right away.
+		dbuf_create_file_from_slice(srcdbuf, pos, bytes_avail, "xmp",
 			NULL, DE_CREATEFLAG_IS_AUX);
 		retval = 1;
 		goto done;
 	}
 
-	// Read the value into a ucstring, for easy printing.
-	value_s = ucstring_create(c);
-	dbuf_read_to_ucstring_n(value_dbuf, value_pos, value_len, 300, value_s, 0, encoding);
+	if(is_nul_terminated) {
+		srd = dbuf_read_string(srcdbuf, pos, bytes_avail, 300, DE_CONVFLAG_STOP_AT_NUL, encoding);
+
+		if(!srd->found_nul) goto done;
+		*bytes_consumed = srd->bytes_consumed - 1;
+	}
+	else {
+		de_int64 bytes_to_scan;
+
+		*bytes_consumed = bytes_avail;
+
+		bytes_to_scan = bytes_avail;
+		if(bytes_to_scan>300) bytes_to_scan = 300;
+		srd = dbuf_read_string(srcdbuf, pos, bytes_to_scan, bytes_to_scan, 0, encoding);
+	}
+
+	if(which_field==FIELD_KEYWORD) {
+		// This is a bit of a hack. If there are any other special keywords we need
+		// to look for, we should do something better.
+		if(!de_strcmp((const char*)srd->sz, "XML:com.adobe.xmp")) {
+			tcc->is_xmp = 1;
+		}
+	}
 
 	switch(which_field) {
 	case FIELD_KEYWORD: name="keyword"; break;
@@ -133,11 +110,49 @@ static int do_text_field(deark *c, lctx *d,
 	default: name="text";
 	}
 
-	de_dbg(c, "%s: \"%s\"\n", name, ucstring_get_printable_sz(value_s));
+	de_dbg(c, "%s: \"%s\"\n", name, ucstring_get_printable_sz(srd->str));
 	retval = 1;
 
 done:
-	ucstring_destroy(value_s);
+	de_destroy_stringreaderdata(c, srd);
+	return retval;
+}
+
+// Read and process the keyword, language, translated keyword, or main text
+// field of a tEXt/zTXt/iTXt chunk.
+// 'bytes_consumed' does not include the NUL separator/terminator.
+// This is a wrapper that first decompresses the field if necessary.
+static int do_text_field(deark *c, lctx *d,
+	struct text_chunk_ctx *tcc, int which_field,
+	de_int64 pos, de_int64 bytes_avail,
+	int is_nul_terminated, int is_compressed, int encoding,
+	de_int64 *bytes_consumed)
+{
+	dbuf *tmpdbuf = NULL;
+	int retval = 0;
+	de_int64 bytes_consumed2;
+
+	if(!is_compressed) {
+		retval = do_unc_text_field(c, d, tcc,
+			which_field, c->infile, pos, bytes_avail,
+			is_nul_terminated, encoding, bytes_consumed);
+		goto done;
+	}
+
+	// Decompress to a membuf, then call do_unc_text_field() with that membuf.
+	// Note that a compressed field cannot be NUL-terminated.
+	*bytes_consumed = bytes_avail;
+
+	tmpdbuf = dbuf_create_membuf(c, 0, 0);
+	if(!de_uncompress_zlib(c->infile, pos, bytes_avail, tmpdbuf)) {
+		goto done;
+	}
+
+	retval = do_unc_text_field(c, d, tcc,
+		which_field, tmpdbuf, 0, tmpdbuf->len,
+		0, encoding, &bytes_consumed2);
+
+done:
 	dbuf_close(tmpdbuf);
 	return retval;
 }
@@ -160,7 +175,7 @@ static void do_png_text(deark *c, lctx *d,
 	pos = pos1;
 
 	// Keyword
-	ret = do_text_field(c, d, &tcc, FIELD_KEYWORD, c->infile, pos, endpos-pos,
+	ret = do_text_field(c, d, &tcc, FIELD_KEYWORD, pos, endpos-pos,
 		1, 0, DE_ENCODING_LATIN1, &field_bytes_consumed);
 	if(!ret) goto done;
 	pos += field_bytes_consumed;
@@ -187,14 +202,14 @@ static void do_png_text(deark *c, lctx *d,
 
 	if(chunk4cc->id==PNGID_iTXt) {
 		// Language tag
-		ret = do_text_field(c, d, &tcc, FIELD_LANG, c->infile, pos, endpos-pos,
+		ret = do_text_field(c, d, &tcc, FIELD_LANG, pos, endpos-pos,
 			1, 0, DE_ENCODING_ASCII, &field_bytes_consumed);
 		if(!ret) goto done;
 		pos += field_bytes_consumed;
 		pos += 1;
 
 		// Translated keyword
-		ret = do_text_field(c, d, &tcc, FIELD_XKEYWORD, c->infile, pos, endpos-pos,
+		ret = do_text_field(c, d, &tcc, FIELD_XKEYWORD, pos, endpos-pos,
 			1, 0, DE_ENCODING_UTF8, &field_bytes_consumed);
 		if(!ret) goto done;
 		pos += field_bytes_consumed;
@@ -206,7 +221,7 @@ static void do_png_text(deark *c, lctx *d,
 	else
 		encoding = DE_ENCODING_LATIN1;
 
-	do_text_field(c, d, &tcc, FIELD_MAIN, c->infile, pos, endpos-pos,
+	do_text_field(c, d, &tcc, FIELD_MAIN, pos, endpos-pos,
 		0, is_compressed, encoding, &field_bytes_consumed);
 
 done:
@@ -554,21 +569,21 @@ static void do_png_eXIf(deark *c, lctx *d,
 
 static const struct chunk_type_info_struct chunk_type_info_arr[] = {
 	{ PNGID_IHDR, 0, NULL, do_png_IHDR },
-	{ PNGID_PLTE, 0, NULL, do_png_PLTE },
+	{ PNGID_PLTE, 0, "palette", do_png_PLTE },
 	{ PNGID_bKGD, 0, "background color", do_png_bKGD },
 	{ PNGID_cHRM, 0, "chromaticities", do_png_cHRM },
 	{ PNGID_eXIf, 0, NULL, do_png_eXIf },
-	{ PNGID_gAMA, 0, NULL, do_png_gAMA },
+	{ PNGID_gAMA, 0, "image gamma", do_png_gAMA },
 	{ PNGID_hIST, 0, "histogram", do_png_hIST },
-	{ PNGID_iCCP, 0, NULL, do_png_iccp },
+	{ PNGID_iCCP, 0, "ICC profile", do_png_iccp },
 	{ PNGID_iTXt, 0, NULL, do_png_text },
-	{ PNGID_pHYs, 0, NULL, do_png_pHYs },
-	{ PNGID_sBIT, 0, NULL, do_png_sBIT },
+	{ PNGID_pHYs, 0, "physical pixel size", do_png_pHYs },
+	{ PNGID_sBIT, 0, "significant bits", do_png_sBIT },
 	{ PNGID_sPLT, 0, "suggested palette", do_png_sPLT },
 	{ PNGID_sRGB, 0, NULL, do_png_sRGB },
 	{ PNGID_tEXt, 0, NULL, do_png_text },
-	{ PNGID_tIME, 0, NULL, do_png_tIME },
-	{ PNGID_tRNS, 0, NULL, do_png_tRNS },
+	{ PNGID_tIME, 0, "last-modification time", do_png_tIME },
+	{ PNGID_tRNS, 0, "transparency info", do_png_tRNS },
 	{ PNGID_zTXt, 0, NULL, do_png_text }
 };
 
