@@ -171,7 +171,8 @@ static int de_identify_bpg(deark *c)
 void de_module_bpg(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "bpg";
-	mi->desc = "BPG (Better Portable Graphics) (resources only)";
+	mi->desc = "BPG (Better Portable Graphics)";
+	mi->desc2 = "resources only";
 	mi->run_fn = de_run_bpg;
 	mi->identify_fn = de_identify_bpg;
 }

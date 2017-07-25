@@ -317,7 +317,8 @@ static int de_identify_wmf(deark *c)
 void de_module_wmf(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "wmf";
-	mi->desc = "Windows Metafile (extract bitmaps only)";
+	mi->desc = "Windows Metafile";
+	mi->desc2 = "extract bitmaps only";
 	mi->run_fn = de_run_wmf;
 	mi->identify_fn = de_identify_wmf;
 }
@@ -1091,7 +1092,8 @@ static int de_identify_emf(deark *c)
 void de_module_emf(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "emf";
-	mi->desc = "Enhanced Windows Metafile (extract bitmaps only)";
+	mi->desc = "Enhanced Windows Metafile";
+	mi->desc2 = "extract bitmaps only";
 	mi->run_fn = de_run_emf;
 	mi->identify_fn = de_identify_emf;
 }

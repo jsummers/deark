@@ -138,7 +138,9 @@ Command-line options:
 -version
    Print the version number.
 -modules
-   Print the names of all available modules.
+   Print the names of the available modules.
+   With -a, list all modules, including internal modules, and modules that
+   don't work.
 -noinfo
    Suppress informational messages.
 -nowarn

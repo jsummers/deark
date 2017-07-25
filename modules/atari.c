@@ -56,6 +56,7 @@ static int de_identify_cas(deark *c)
 void de_module_atari_cas(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "cas";
+	mi->desc = "Atari CAS tape image format";
 	mi->run_fn = de_run_cas;
 	mi->identify_fn = de_identify_cas;
 	mi->flags |= DE_MODFLAG_NONWORKING;
@@ -299,7 +300,7 @@ static int de_identify_atr(deark *c)
 void de_module_atr(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "atr";
+	mi->desc = "ATR Atari floppy disk image format";
 	mi->run_fn = de_run_atr;
 	mi->identify_fn = de_identify_atr;
-	mi->flags |= DE_MODFLAG_NONWORKING;
 }

@@ -23,6 +23,8 @@ struct cmdctx {
 	int error_flag;
 	int show_usage_message;
 	int special_command_flag;
+#define CMD_PRINTMODULES 2
+	int special_command_code;
 	int msgs_to_stderr;
 
 	// Have we set msgs_FILE and have_windows_console, and called _setmode if needed?
@@ -366,14 +368,16 @@ static void parse_cmdline(deark *c, struct cmdctx *cc, int argc, char **argv)
 				de_set_warnings(c, 0);
 				break;
 			case DE_OPT_VERSION:
+				// TODO: Use ->special_command_code instead of calling show_version() here.
 				show_version(c);
 				cc->special_command_flag = 1;
 				break;
 			case DE_OPT_PRINTMODULES:
-				print_modules(c);
 				cc->special_command_flag = 1;
+				cc->special_command_code = CMD_PRINTMODULES;
 				break;
 			case DE_OPT_HELP:
+				// TODO: Use ->special_command_code instead of help_flag.
 				help_flag = 1;
 				break;
 			case DE_OPT_MAINONLY:
@@ -516,7 +520,14 @@ static void main2(int argc, char **argv)
 		goto done;
 	}
 
-	if(cc->special_command_flag) goto done;
+	if(cc->special_command_flag) {
+		switch(cc->special_command_code) {
+		case CMD_PRINTMODULES:
+			print_modules(c);
+			break;
+		}
+		goto done;
+	}
 
 #ifdef DE_WINDOWS
 	if(cc->to_stdout) {

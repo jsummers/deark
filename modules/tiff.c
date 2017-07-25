@@ -2102,7 +2102,8 @@ static int de_identify_tiff(deark *c)
 void de_module_tiff(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "tiff";
-	mi->desc = "TIFF image (resources only)";
+	mi->desc = "TIFF image";
+	mi->desc2 = "resources only";
 	mi->run_fn = de_run_tiff;
 	mi->identify_fn = de_identify_tiff;
 }

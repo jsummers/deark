@@ -139,7 +139,8 @@ static int de_identify_psionapp(deark *c)
 void de_module_psionapp(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "psionapp";
-	mi->desc = "Psion .APP/.IMG and .OPA/.OPO (extract images)";
+	mi->desc = "Psion .APP/.IMG and .OPA/.OPO";
+	mi->desc2 = "extract images";
 	mi->run_fn = de_run_psionapp;
 	mi->identify_fn = de_identify_psionapp;
 }

@@ -75,7 +75,7 @@ void de_module_null(deark *c, struct deark_module_info *mi)
 	mi->desc = "Do nothing";
 	mi->run_fn = de_run_null;
 	mi->identify_fn = de_identify_none;
-	mi->flags |= DE_MODFLAG_HIDDEN | DE_MODFLAG_NOEXTRACT;
+	mi->flags |= DE_MODFLAG_NOEXTRACT;
 }
 
 // **************************************************************************
@@ -439,7 +439,8 @@ static int de_identify_mrw(deark *c)
 void de_module_mrw(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "mrw";
-	mi->desc = "Minolta RAW (resources only)";
+	mi->desc = "Minolta RAW";
+	mi->desc2 = "resources only";
 	mi->run_fn = de_run_mrw;
 	mi->identify_fn = de_identify_mrw;
 }

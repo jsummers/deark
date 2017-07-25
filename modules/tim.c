@@ -3,6 +3,7 @@
 // See the file COPYING for terms of use.
 
 // Playstation .TIM image format
+// (Limited support. Probably works for 8-bits/pixel.)
 
 #include <deark-config.h>
 #include <deark-private.h>
@@ -143,9 +144,7 @@ static int de_identify_tim(deark *c)
 void de_module_tim(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "tim";
+	mi->desc = "PlayStation graphics";
 	mi->run_fn = de_run_tim;
 	mi->identify_fn = de_identify_tim;
-
-	// Probably works for 8-bits/pixel, but I'm not convinced.
-	mi->flags |= DE_MODFLAG_NONWORKING;
 }

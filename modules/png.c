@@ -691,7 +691,8 @@ static int de_identify_png(deark *c)
 void de_module_png(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "png";
-	mi->desc = "PNG image (resources only)";
+	mi->desc = "PNG image";
+	mi->desc2 = "resources only";
 	mi->run_fn = de_run_png;
 	mi->identify_fn = de_identify_png;
 }

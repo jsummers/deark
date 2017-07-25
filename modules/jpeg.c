@@ -1151,7 +1151,8 @@ static int de_identify_jpeg(deark *c)
 void de_module_jpeg(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "jpeg";
-	mi->desc = "JPEG image (resources only)";
+	mi->desc = "JPEG image";
+	mi->desc2 = "resources only";
 	mi->run_fn = de_run_jpeg;
 	mi->identify_fn = de_identify_jpeg;
 }

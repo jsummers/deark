@@ -1096,6 +1096,7 @@ static int de_identify_neochrome_ani(deark *c)
 void de_module_neochrome_ani(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "neochrome_ani";
+	mi->desc = "NEOchrome Animation";
 	mi->run_fn = de_run_neochrome_ani;
 	mi->identify_fn = de_identify_neochrome_ani;
 	mi->flags |= DE_MODFLAG_NONWORKING;

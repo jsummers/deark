@@ -47,12 +47,13 @@ typedef void (*de_module_help_fn)(deark *c);
 struct deark_module_info {
 	const char *id;
 	const char *desc;
+	const char *desc2; // Additional notes
 	de_module_run_fn run_fn;
 	de_module_identify_fn identify_fn;
 	de_module_help_fn help_fn;
-#define DE_MODFLAG_HIDDEN       0x01
-#define DE_MODFLAG_NONWORKING   0x02
-#define DE_MODFLAG_NOEXTRACT    0x04
+#define DE_MODFLAG_HIDDEN       0x01 // Do not list
+#define DE_MODFLAG_NONWORKING   0x02 // Do not list, and print a warning
+#define DE_MODFLAG_NOEXTRACT    0x04 // Do not warn if no files are extracted
 #define DE_MODFLAG_SECURITYWARNING 0x08
 	de_uint32 flags;
 #define DE_MAX_MODULE_ALIASES 2

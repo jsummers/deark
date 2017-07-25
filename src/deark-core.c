@@ -75,16 +75,16 @@ void de_print_module_list(deark *c)
 		module_compare_fn);
 
 	for(k=0; k<c->num_modules; k++) {
+		const char *desc;
 		i = sort_data[k].module_index;
-		if(c->module_info[i].id &&
-			!(c->module_info[i].flags&DE_MODFLAG_HIDDEN) &&
-			!(c->module_info[i].flags&DE_MODFLAG_NONWORKING) )
-		{
-			if(c->module_info[i].desc)
-				de_printf(c, DE_MSGTYPE_MESSAGE, "%-14s %s\n", c->module_info[i].id, c->module_info[i].desc);
-			else
-				de_printf(c, DE_MSGTYPE_MESSAGE, "%s\n", c->module_info[i].id);
+		if(!c->module_info[i].id) continue;
+		if(c->extract_level<2) {
+			if(c->module_info[i].flags & DE_MODFLAG_HIDDEN) continue;
+			if(c->module_info[i].flags & DE_MODFLAG_NONWORKING) continue;
 		}
+		desc = c->module_info[i].desc ? c->module_info[i].desc : "-";
+		// TODO: Maybe do something with .desc2
+		de_printf(c, DE_MSGTYPE_MESSAGE, "%-14s %s\n", c->module_info[i].id, desc);
 	}
 
 	de_free(c, sort_data);
