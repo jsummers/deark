@@ -531,6 +531,21 @@ static void do_animation_extension(deark *c, lctx *d, de_int64 pos)
 	}
 }
 
+static void do_xmp_extension(deark *c, lctx *d, de_int64 pos)
+{
+	de_int64 nbytes_tot, nbytes_payload;
+
+	// XMP abuses GIF's subblock structure. Instead of being split into
+	// subblocks as GIF expects, XMP is stored as a single blob of bytes,
+	// followed by 258 "magic" bytes that re-sync the GIF decoder.
+
+	// Calculate the total number of bytes used in this series of subblocks.
+	do_skip_subblocks(c, d, pos, &nbytes_tot);
+	if(nbytes_tot<=258) return;
+	nbytes_payload = nbytes_tot-258;
+	dbuf_create_file_from_slice(c->infile, pos, nbytes_payload, "xmp", NULL, DE_CREATEFLAG_IS_AUX);
+}
+
 static void do_application_extension(deark *c, lctx *d, de_int64 pos)
 {
 	de_ucstring *s = NULL;
@@ -553,6 +568,9 @@ static void do_application_extension(deark *c, lctx *d, de_int64 pos)
 		!de_memcmp(app_id, "ANIMEXTS1.0", 11))
 	{
 		do_animation_extension(c, d, pos);
+	}
+	else if(!de_memcmp(app_id, "XMP DataXMP", 11)) {
+		do_xmp_extension(c, d, pos);
 	}
 }
 
