@@ -147,6 +147,8 @@ struct deark_bitmap {
 	de_int64 height;
 	int invalid_image_flag;
 	int bytes_per_pixel;
+	// 'flipped' changes the coordinate system when writing the bitmap to a file.
+	// It is ignored by most other functions.
 	int flipped;
 	de_byte *bitmap;
 	de_int64 bitmap_size; // bytes allocated for bitmap
@@ -609,6 +611,12 @@ int de_good_image_dimensions(deark *c, de_int64 w, de_int64 h);
 int de_good_image_count(deark *c, de_int64 n);
 
 int de_is_grayscale_palette(const de_uint32 *pal, de_int64 num_entries);
+
+void de_bitmap_rect(struct deark_bitmap *img,
+	de_int64 xpos, de_int64 ypos, de_int64 width, de_int64 height,
+	de_uint32 clr, unsigned int flags);
+void de_bitmap_paint_bitmap(struct deark_bitmap *canvas, struct deark_bitmap *fg,
+	de_int64 xoffset, de_int64 yoffset, unsigned int flags);
 
 #define DE_BITMAPFLAG_WHITEISTRNS 0x1
 void de_bitmap_apply_mask(struct deark_bitmap *fg, struct deark_bitmap *mask,

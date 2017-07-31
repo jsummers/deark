@@ -449,6 +449,48 @@ void de_convert_image_paletted(dbuf *f, de_int64 fpos,
 	}
 }
 
+// Paint a solid, solid-color rectangle onto an image.
+// (Pixels will be replaced, not merged.)
+void de_bitmap_rect(struct deark_bitmap *img,
+	de_int64 xpos, de_int64 ypos, de_int64 width, de_int64 height,
+	de_uint32 clr, unsigned int flags)
+{
+	de_int64 i, j;
+
+	for(j=0; j<height; j++) {
+		for(i=0; i<width; i++) {
+			de_bitmap_setpixel_rgba(img, xpos+i, ypos+j, clr);
+		}
+	}
+}
+
+// Paint fg onto canvas.
+// (canvas will be modified. fg will not.)
+void de_bitmap_paint_bitmap(struct deark_bitmap *canvas, struct deark_bitmap *fg,
+	de_int64 xoffset, de_int64 yoffset, unsigned int flags)
+{
+	de_int64 i, j;
+	de_uint32 bg_clr, fg_clr, clr;
+	de_byte fg_a;
+
+	for(j=0; j<fg->height; j++) {
+		for(i=0; i<fg->width; i++) {
+			fg_clr = de_bitmap_getpixel(fg, i, j);
+			fg_a = DE_COLOR_A(fg_clr);
+			if(fg_a>0) {
+				// TODO: Support partial transparency (of both foreground and
+				// background, ideally)
+				clr = fg_clr;
+			}
+			else {
+				bg_clr = de_bitmap_getpixel(canvas, xoffset+i, yoffset+j);
+				clr = bg_clr;
+			}
+			de_bitmap_setpixel_rgba(canvas, xoffset+i, yoffset+j, clr);
+		}
+	}
+}
+
 void de_bitmap_apply_mask(struct deark_bitmap *fg, struct deark_bitmap *mask,
 	unsigned int flags)
 {

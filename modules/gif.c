@@ -8,7 +8,18 @@
 #include <deark-private.h>
 DE_DECLARE_MODULE(de_module_gif);
 
+#define DISPOSE_LEAVE     1
+#define DISPOSE_BKGD      2
+#define DISPOSE_PREVIOUS  3
+
+struct gceinfo {
+	de_byte disposal_method;
+};
+
 typedef struct localctx_struct {
+	int compose;
+
+	de_int64 screen_w, screen_h;
 	int has_global_color_table;
 	de_byte aspect_ratio_code;
 	de_int64 global_color_table_size; // Number of colors stored in the file
@@ -19,11 +30,15 @@ typedef struct localctx_struct {
 	int graphic_control_ext_data_valid;
 	int trns_color_idx_valid;
 	de_byte trns_color_idx;
+
+	struct deark_bitmap *screen_img;
+	struct gceinfo *gce; // The Graphic Control Ext. in effect for the next image
 } lctx;
 
 // Data about a single image
 struct gif_image_data {
 	struct deark_bitmap *img;
+	de_int64 xpos, ypos;
 	de_int64 width, height;
 	de_int64 pixels_set;
 	int interlaced;
@@ -295,7 +310,6 @@ done:
 
 static int do_read_screen_descriptor(deark *c, lctx *d, de_int64 pos)
 {
-	de_int64 sw, sh;
 	de_int64 bgcol_index;
 	de_byte packed_fields;
 	unsigned int global_color_table_size_code;
@@ -303,9 +317,9 @@ static int do_read_screen_descriptor(deark *c, lctx *d, de_int64 pos)
 	de_dbg(c, "screen descriptor at %d\n", (int)pos);
 	de_dbg_indent(c, 1);
 
-	sw = de_getui16le(pos);
-	sh = de_getui16le(pos+2);
-	de_dbg(c, "screen dimensions: %dx%d\n", (int)sw, (int)sh);
+	d->screen_w = de_getui16le(pos);
+	d->screen_h = de_getui16le(pos+2);
+	de_dbg(c, "screen dimensions: %dx%d\n", (int)d->screen_w, (int)d->screen_h);
 
 	packed_fields = de_getbyte(pos+4);
 	d->has_global_color_table = (packed_fields&0x80)?1:0;
@@ -316,6 +330,10 @@ static int do_read_screen_descriptor(deark *c, lctx *d, de_int64 pos)
 		de_dbg(c, "global color table size: %d colors\n", (int)d->global_color_table_size);
 	}
 
+	// We don't care about the background color, because we always assume the
+	// background is transparent.
+	// TODO: If we ever support writing background-color chunks to PNG files,
+	// then we should look up this color and use it.
 	bgcol_index = (de_int64)de_getbyte(pos+5);
 	de_dbg(c, "background color index: %d\n", (int)bgcol_index);
 
@@ -366,12 +384,16 @@ static void do_skip_subblocks(deark *c, lctx *d, de_int64 pos1, de_int64 *bytesu
 static void do_graphic_control_extension(deark *c, lctx *d, de_int64 pos)
 {
 	de_byte packed_fields;
-	de_byte disposal_method;
 	de_byte user_input_flag;
 	de_int64 delay_time_raw;
 	double delay_time;
 	const char *name;
 
+	if(d->gce) {
+		de_free(c, d->gce);
+		d->gce = NULL;
+	}
+	d->gce = de_malloc(c, sizeof(struct gceinfo));
 	d->graphic_control_ext_data_valid = 1;
 	d->trns_color_idx_valid = 0;
 
@@ -383,15 +405,15 @@ static void do_graphic_control_extension(deark *c, lctx *d, de_int64 pos)
 	user_input_flag = (packed_fields>>1)&0x1;
 	de_dbg(c, "user input flag: %d\n", (int)user_input_flag);
 
-	disposal_method = (packed_fields>>2)&0x7;
-	switch(disposal_method) {
+	d->gce->disposal_method = (packed_fields>>2)&0x7;
+	switch(d->gce->disposal_method) {
 	case 0: name="unspecified"; break;
-	case 1: name="leave in place"; break;
-	case 2: name="restore to background"; break;
-	case 3: name="restore to previous"; break;
+	case DISPOSE_LEAVE: name="leave in place"; break;
+	case DISPOSE_BKGD: name="restore to background"; break;
+	case DISPOSE_PREVIOUS: name="restore to previous"; break;
 	default: name="?";
 	}
-	de_dbg(c, "disposal method: %d (%s)\n", (int)disposal_method, name);
+	de_dbg(c, "disposal method: %d (%s)\n", (int)d->gce->disposal_method, name);
 
 	delay_time_raw = de_getui16le(pos+2);
 	delay_time = ((double)delay_time_raw)/100.0;
@@ -592,6 +614,9 @@ static void do_read_image_descriptor(deark *c, lctx *d, struct gif_image_data *g
 	de_dbg(c, "image descriptor at %d\n", (int)pos);
 	de_dbg_indent(c, 1);
 
+	gi->xpos = de_getui16le(pos);
+	gi->ypos = de_getui16le(pos+2);
+	de_dbg(c, "image position: (%d,%d)\n", (int)gi->xpos, (int)gi->ypos);
 	gi->width = de_getui16le(pos+4);
 	gi->height = de_getui16le(pos+6);
 	de_dbg(c, "image dimensions: %dx%d\n", (int)gi->width, (int)gi->height);
@@ -633,9 +658,9 @@ static void do_create_interlace_map(deark *c, lctx *d, struct gif_image_data *gi
 	}
 }
 
-static int do_read_image(deark *c, lctx *d, de_int64 pos1, de_int64 *bytesused)
+static int do_image_internal(deark *c, lctx *d,
+	struct gif_image_data *gi, de_int64 pos1, de_int64 *bytesused)
 {
-	struct gif_image_data *gi = NULL;
 	int retval = 0;
 	de_int64 pos;
 	de_int64 n;
@@ -646,10 +671,8 @@ static int do_read_image(deark *c, lctx *d, de_int64 pos1, de_int64 *bytesused)
 	de_byte buf[256];
 
 	de_dbg_indent_save(c, &saved_indent_level);
-	de_dbg_indent(c, 1);
 	pos = pos1;
 	*bytesused = 0;
-	gi = de_malloc(c, sizeof(struct gif_image_data));
 
 	do_read_image_descriptor(c, d, gi, pos);
 	pos += 9;
@@ -672,6 +695,7 @@ static int do_read_image(deark *c, lctx *d, de_int64 pos1, de_int64 *bytesused)
 		bypp = 4;
 	else
 		bypp = 3;
+
 	gi->img = de_bitmap_create(c, gi->width, gi->height, bypp);
 
 	if(d->aspect_ratio_code!=0 && d->aspect_ratio_code!=49) {
@@ -710,10 +734,6 @@ static int do_read_image(deark *c, lctx *d, de_int64 pos1, de_int64 *bytesused)
 	}
 	de_dbg_indent(c, -1);
 
-	de_bitmap_write_to_file(gi->img, NULL, 0);
-
-	de_dbg_indent(c, -1);
-
 	*bytesused = pos - pos1;
 
 	// Graphic control extensions are only valid for one image, so invalidate
@@ -723,12 +743,54 @@ static int do_read_image(deark *c, lctx *d, de_int64 pos1, de_int64 *bytesused)
 	retval = 1;
 done:
 	de_free(c, lz);
+	de_dbg_indent_restore(c, saved_indent_level);
+	return retval;
+}
+
+static int do_image(deark *c, lctx *d, de_int64 pos1, de_int64 *bytesused)
+{
+	int retval = 0;
+	struct gif_image_data *gi = NULL;
+	de_byte disposal_method = 0;
+
+	de_dbg_indent(c, 1);
+	gi = de_malloc(c, sizeof(struct gif_image_data));
+	retval = do_image_internal(c, d, gi, pos1, bytesused);
+	if(!retval) goto done;
+
+	if(d->compose) {
+		de_bitmap_paint_bitmap(d->screen_img, gi->img, gi->xpos, gi->ypos, 0);
+		de_bitmap_write_to_file(d->screen_img, NULL, 0);
+
+		if(d->gce) {
+			disposal_method = d->gce->disposal_method;
+		}
+
+		if(disposal_method == DISPOSE_BKGD) {
+			de_bitmap_rect(d->screen_img, gi->xpos, gi->ypos, gi->width, gi->height,
+				DE_STOCKCOLOR_TRANSPARENT, 0);
+		}
+		// TODO: Support DISPOSE_PREVIOUS
+	}
+	else {
+		de_bitmap_write_to_file(gi->img, NULL, 0);
+	}
+
+done:
 	if(gi) {
 		de_bitmap_destroy(gi->img);
 		de_free(c, gi->interlace_map);
 		de_free(c, gi);
 	}
-	de_dbg_indent_restore(c, saved_indent_level);
+
+	if(d->gce) {
+		// A Graphic Control Extension applies only to the next image, so
+		// if there was one, delete it now that we've used it up.
+		de_free(c, d->gce);
+		d->gce = NULL;
+	}
+
+	de_dbg_indent(c, -1);
 	return retval;
 }
 
@@ -742,11 +804,24 @@ static void de_run_gif(deark *c, de_module_params *mparams)
 
 	d = de_malloc(c, sizeof(lctx));
 
+	if(de_get_ext_option(c, "gif:test")) {
+		d->compose = 1;
+	}
+
 	pos = 6;
 	if(!do_read_screen_descriptor(c, d, pos)) goto done;
 	pos += 7;
 	if(!do_read_global_color_table(c, d, pos, &bytesused)) goto done;
 	pos += bytesused;
+
+	// If we're fully rendering the frames, create a "screen" image to
+	// track the current state of the animation.
+	if(d->compose) {
+		if(!de_good_image_dimensions(c, d->screen_w, d->screen_h)) {
+			goto done;
+		}
+		d->screen_img = de_bitmap_create(c, d->screen_w, d->screen_h, 4);
+	}
 
 	while(1) {
 		if(pos >= c->infile->len) break;
@@ -762,17 +837,19 @@ static void de_run_gif(deark *c, de_module_params *mparams)
 		de_dbg(c, "block type 0x%02x (%s) at %d\n", (unsigned int)block_type, blk_name, (int)pos);
 		pos++;
 
+		if(block_type==0x3b) {
+			break; // Trailer
+		}
+
 		switch(block_type) {
 		case 0x21:
 			if(!do_read_extension(c, d, pos, &bytesused)) goto done;
 			pos += bytesused;
 			break;
 		case 0x2c:
-			if(!do_read_image(c, d, pos, &bytesused)) goto done;
+			if(!do_image(c, d, pos, &bytesused)) goto done;
 			pos += bytesused;
 			break;
-		case 0x3b:
-			goto done; // Trailer
 		default:
 			de_err(c, "Unknown block type: 0x%02x\n", (unsigned int)block_type);
 			goto done;
@@ -780,7 +857,11 @@ static void de_run_gif(deark *c, de_module_params *mparams)
 	}
 
 done:
-	de_free(c, d);
+	if(d) {
+		de_bitmap_destroy(d->screen_img);
+		de_free(c, d->gce);
+		de_free(c, d);
+	}
 }
 
 static int de_identify_gif(deark *c)
