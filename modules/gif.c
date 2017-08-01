@@ -368,8 +368,7 @@ static void do_skip_subblocks(deark *c, lctx *d, de_int64 pos1, de_int64 *bytesu
 	pos = pos1;
 	while(1) {
 		if(pos >= c->infile->len) break;
-		n = (de_int64)de_getbyte(pos);
-		pos++;
+		n = (de_int64)de_getbyte(pos++);
 		if(n==0) break;
 		pos += n;
 	}
@@ -387,6 +386,7 @@ static void discard_current_gce_data(deark *c, lctx *d)
 
 static void do_graphic_control_extension(deark *c, lctx *d, de_int64 pos)
 {
+	de_int64 n;
 	de_byte packed_fields;
 	de_byte user_input_flag;
 	de_int64 delay_time_raw;
@@ -394,9 +394,16 @@ static void do_graphic_control_extension(deark *c, lctx *d, de_int64 pos)
 	const char *name;
 
 	discard_current_gce_data(c, d);
+
+	n = (de_int64)de_getbyte(pos);
+	if(n!=4) {
+		de_warn(c, "Wrong graphic control ext. block size (expected 4, is %d)\n",
+			(int)n);
+		if(n<4) return;
+	}
+
 	d->gce = de_malloc(c, sizeof(struct gceinfo));
 
-	// 0 = block size (we assume this is 4 or more)
 	packed_fields = de_getbyte(pos+1);
 	d->gce->trns_color_idx_valid = packed_fields&0x01;
 	de_dbg(c, "has transparency: %d\n", (int)d->gce->trns_color_idx_valid);
@@ -440,8 +447,7 @@ static void do_comment_extension(deark *c, lctx *d, de_int64 pos)
 
 	while(1) {
 		if(pos >= c->infile->len) break;
-		n = (de_int64)de_getbyte(pos);
-		pos++;
+		n = (de_int64)de_getbyte(pos++);
 		if(n==0) break;
 
 		if(f) {
@@ -473,8 +479,7 @@ static void do_plaintext_extension(deark *c, lctx *d, de_int64 pos)
 	de_byte b;
 
 	// The first sub-block is the header
-	n = (de_int64)de_getbyte(pos);
-	pos++;
+	n = (de_int64)de_getbyte(pos++);
 	if(n<12) goto done;
 
 	text_width_in_pixels = de_getui16le(pos+4);
@@ -498,8 +503,7 @@ static void do_plaintext_extension(deark *c, lctx *d, de_int64 pos)
 	char_count = 0;
 	while(1) {
 		if(pos >= c->infile->len) break;
-		n = (de_int64)de_getbyte(pos);
-		pos++;
+		n = (de_int64)de_getbyte(pos++);
 		if(n==0) break;
 
 		for(k=0; k<n; k++) {
@@ -565,8 +569,7 @@ static void do_application_extension(deark *c, lctx *d, de_int64 pos)
 	de_byte app_id[11];
 	de_int64 n;
 
-	n = (de_int64)de_getbyte(pos);
-	pos++;
+	n = (de_int64)de_getbyte(pos++);
 	if(n<11) return;
 
 	de_read(app_id, pos, 11);
@@ -716,6 +719,10 @@ static int do_image_internal(deark *c, lctx *d,
 		pos += 3*gi->local_color_table_size;
 	}
 
+	if(c->infile->len-pos < 1) {
+		de_err(c, "Unexpected end of file\n");
+		goto done;
+	}
 	de_dbg(c, "image data at %d\n", (int)pos);
 	de_dbg_indent(c, 1);
 	lzw_min_code_size = (unsigned int)de_getbyte(pos++);
@@ -848,7 +855,10 @@ static void de_run_gif(deark *c, de_module_params *mparams)
 	}
 
 	while(1) {
-		if(pos >= c->infile->len) break;
+		if(pos >= c->infile->len) {
+			de_err(c, "Unexpected end of file\n");
+			break;
+		}
 		block_type = de_getbyte(pos);
 
 		switch(block_type) {
