@@ -464,29 +464,38 @@ void de_bitmap_rect(struct deark_bitmap *img,
 	}
 }
 
-// Paint fg onto canvas.
-// (canvas will be modified. fg will not.)
-void de_bitmap_paint_bitmap(struct deark_bitmap *canvas, struct deark_bitmap *fg,
-	de_int64 xoffset, de_int64 yoffset, unsigned int flags)
+// Paint or copy (all or part of) srcimg onto dstimg.
+// If srcimg and dstimg are the same image, the source and destination
+// rectangles must not overlap.
+// Flags supported:
+//   DE_BITMAPFLAG_MERGE - Merge transparent pixels (partially supported)
+void de_bitmap_copy_rect(struct deark_bitmap *srcimg, struct deark_bitmap *dstimg,
+	de_int64 srcxpos, de_int64 srcypos, de_int64 width, de_int64 height,
+	de_int64 dstxpos, de_int64 dstypos, unsigned int flags)
 {
 	de_int64 i, j;
-	de_uint32 bg_clr, fg_clr, clr;
-	de_byte fg_a;
+	de_uint32 dst_clr, src_clr, clr;
+	de_byte src_a;
 
-	for(j=0; j<fg->height; j++) {
-		for(i=0; i<fg->width; i++) {
-			fg_clr = de_bitmap_getpixel(fg, i, j);
-			fg_a = DE_COLOR_A(fg_clr);
-			if(fg_a>0) {
-				// TODO: Support partial transparency (of both foreground and
-				// background, ideally)
-				clr = fg_clr;
+	for(j=0; j<height; j++) {
+		for(i=0; i<width; i++) {
+			src_clr = de_bitmap_getpixel(srcimg, srcxpos+i, srcypos+j);
+			if(!(flags&DE_BITMAPFLAG_MERGE)) {
+				clr = src_clr;
 			}
 			else {
-				bg_clr = de_bitmap_getpixel(canvas, xoffset+i, yoffset+j);
-				clr = bg_clr;
+				src_a = DE_COLOR_A(src_clr);
+				if(src_a>0) {
+					// TODO: Support partial transparency (of both foreground and
+					// background, ideally)
+					clr = src_clr;
+				}
+				else {
+					dst_clr = de_bitmap_getpixel(dstimg, dstxpos+i, dstypos+j);
+					clr = dst_clr;
+				}
 			}
-			de_bitmap_setpixel_rgba(canvas, xoffset+i, yoffset+j, clr);
+			de_bitmap_setpixel_rgba(dstimg, dstxpos+i, dstypos+j, clr);
 		}
 	}
 }

@@ -781,10 +781,25 @@ done:
 	return retval;
 }
 
+// Write an image to an output file, removing any superfluous alpha channel.
+// TODO: There needs to be a better way to do this. It should probably happen
+// automatically in de_bitmap_write_to_file().
+static void optimize_and_write_bitmap_to_file(deark *c, lctx *d, struct deark_bitmap *img)
+{
+	struct deark_bitmap *tmp_img;
+
+	tmp_img = de_bitmap_create(c, img->width, img->height, 4);
+	de_bitmap_copy_rect(img, tmp_img, 0, 0, img->width, img->height, 0, 0, 0);
+	de_optimize_image_alpha(tmp_img, 0);
+	de_bitmap_write_to_file(tmp_img, NULL, 0);
+	de_bitmap_destroy(tmp_img);
+}
+
 static int do_image(deark *c, lctx *d, de_int64 pos1, de_int64 *bytesused)
 {
 	int retval = 0;
 	struct gif_image_data *gi = NULL;
+	struct deark_bitmap *prev_img = NULL;
 	de_byte disposal_method = 0;
 
 	de_dbg_indent(c, 1);
@@ -793,24 +808,41 @@ static int do_image(deark *c, lctx *d, de_int64 pos1, de_int64 *bytesused)
 	if(!retval) goto done;
 
 	if(d->compose) {
-		de_bitmap_paint_bitmap(d->screen_img, gi->img, gi->xpos, gi->ypos, 0);
-		de_bitmap_write_to_file(d->screen_img, NULL, 0);
-
 		if(d->gce) {
 			disposal_method = d->gce->disposal_method;
 		}
+
+		if(disposal_method == DISPOSE_PREVIOUS) {
+			// In this case, we need to save a copy of the pixels that may
+			// be overwritten
+			prev_img = de_bitmap_create(c, gi->width, gi->height, 4);
+			de_bitmap_copy_rect(d->screen_img, prev_img,
+				gi->xpos, gi->ypos, gi->width, gi->height,
+				0, 0, 0);
+		}
+
+		de_bitmap_copy_rect(gi->img, d->screen_img,
+			0, 0, d->screen_img->width, d->screen_img->height,
+			gi->xpos, gi->ypos, DE_BITMAPFLAG_MERGE);
+
+		optimize_and_write_bitmap_to_file(c, d, d->screen_img);
 
 		if(disposal_method == DISPOSE_BKGD) {
 			de_bitmap_rect(d->screen_img, gi->xpos, gi->ypos, gi->width, gi->height,
 				DE_STOCKCOLOR_TRANSPARENT, 0);
 		}
-		// TODO: Support DISPOSE_PREVIOUS
+		else if(disposal_method == DISPOSE_PREVIOUS && prev_img) {
+			de_bitmap_copy_rect(prev_img, d->screen_img,
+				0, 0, gi->width, gi->height,
+				gi->xpos, gi->ypos, 0);
+		}
 	}
 	else {
 		de_bitmap_write_to_file(gi->img, NULL, 0);
 	}
 
 done:
+	de_bitmap_destroy(prev_img);
 	if(gi) {
 		de_bitmap_destroy(gi->img);
 		de_free(c, gi->interlace_map);
@@ -834,9 +866,10 @@ static void de_run_gif(deark *c, de_module_params *mparams)
 	const char *blk_name;
 
 	d = de_malloc(c, sizeof(lctx));
+	d->compose = 1;
 
-	if(de_get_ext_option(c, "gif:test")) {
-		d->compose = 1;
+	if(de_get_ext_option(c, "gif:raw")) {
+		d->compose = 0;
 	}
 
 	pos = 6;
@@ -908,10 +941,16 @@ static int de_identify_gif(deark *c)
 	return 0;
 }
 
+static void de_help_gif(deark *c)
+{
+	de_msg(c, "-opt gif:raw : Extract individual component images\n");
+}
+
 void de_module_gif(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "gif";
 	mi->desc = "GIF image";
 	mi->run_fn = de_run_gif;
 	mi->identify_fn = de_identify_gif;
+	mi->help_fn = de_help_gif;
 }

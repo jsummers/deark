@@ -138,11 +138,13 @@ Deark -- Information about supported formats
   - Supports some non-XIMG 16-color images
 
 * GIF (module="gif")
-  - Extract individual images. (Note that for animated GIFs, these are often
-     just portions of an image.)
+  - Extract the image, or every frame from an animated or mult-image GIF.
   - Extract text from plaintext extensions, as separate text files. Text only;
      colors are ignored.
   - Extract comments (use -a).
+  Options
+   -opt gif:raw - Extract the individual component images, instead of rendering
+     the frame in full.
 
 * GodPaint (Atari Falcon) (module="godpaint")
 
