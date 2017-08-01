@@ -14,6 +14,8 @@ DE_DECLARE_MODULE(de_module_gif);
 
 struct gceinfo {
 	de_byte disposal_method;
+	de_byte trns_color_idx_valid;
+	de_byte trns_color_idx;
 };
 
 typedef struct localctx_struct {
@@ -24,12 +26,6 @@ typedef struct localctx_struct {
 	de_byte aspect_ratio_code;
 	de_int64 global_color_table_size; // Number of colors stored in the file
 	de_uint32 global_ct[256];
-
-	// This should really be in a separate struct (or maybe in gif_image_data),
-	// but it's not worth it for just one field.
-	int graphic_control_ext_data_valid;
-	int trns_color_idx_valid;
-	de_byte trns_color_idx;
 
 	struct deark_bitmap *screen_img;
 	struct gceinfo *gce; // The Graphic Control Ext. in effect for the next image
@@ -75,8 +71,8 @@ static void do_record_pixel(deark *c, lctx *d, struct gif_image_data *gi, unsign
 		clr = d->global_ct[coloridx];
 	}
 
-	if(d->graphic_control_ext_data_valid && d->trns_color_idx_valid &&
-		(d->trns_color_idx == coloridx))
+	if(d->gce && d->gce->trns_color_idx_valid &&
+		(d->gce->trns_color_idx == coloridx))
 	{
 		// Make this pixel transparent
 		clr = DE_SET_ALPHA(clr, 0);
@@ -381,6 +377,14 @@ static void do_skip_subblocks(deark *c, lctx *d, de_int64 pos1, de_int64 *bytesu
 	return;
 }
 
+static void discard_current_gce_data(deark *c, lctx *d)
+{
+	if(d->gce) {
+		de_free(c, d->gce);
+		d->gce = NULL;
+	}
+}
+
 static void do_graphic_control_extension(deark *c, lctx *d, de_int64 pos)
 {
 	de_byte packed_fields;
@@ -389,18 +393,13 @@ static void do_graphic_control_extension(deark *c, lctx *d, de_int64 pos)
 	double delay_time;
 	const char *name;
 
-	if(d->gce) {
-		de_free(c, d->gce);
-		d->gce = NULL;
-	}
+	discard_current_gce_data(c, d);
 	d->gce = de_malloc(c, sizeof(struct gceinfo));
-	d->graphic_control_ext_data_valid = 1;
-	d->trns_color_idx_valid = 0;
 
 	// 0 = block size (we assume this is 4 or more)
 	packed_fields = de_getbyte(pos+1);
-	d->trns_color_idx_valid = packed_fields&0x01;
-	de_dbg(c, "has transparency: %d\n", d->trns_color_idx_valid);
+	d->gce->trns_color_idx_valid = packed_fields&0x01;
+	de_dbg(c, "has transparency: %d\n", (int)d->gce->trns_color_idx_valid);
 
 	user_input_flag = (packed_fields>>1)&0x1;
 	de_dbg(c, "user input flag: %d\n", (int)user_input_flag);
@@ -419,20 +418,25 @@ static void do_graphic_control_extension(deark *c, lctx *d, de_int64 pos)
 	delay_time = ((double)delay_time_raw)/100.0;
 	de_dbg(c, "delay time: %.02f sec\n", delay_time);
 
-	if(d->trns_color_idx_valid) {
-		d->trns_color_idx = de_getbyte(pos+4);
-		de_dbg(c, "transparent color index: %d\n", (int)d->trns_color_idx);
+	if(d->gce->trns_color_idx_valid) {
+		d->gce->trns_color_idx = de_getbyte(pos+4);
+		de_dbg(c, "transparent color index: %d\n", (int)d->gce->trns_color_idx);
 	}
 }
 
 static void do_comment_extension(deark *c, lctx *d, de_int64 pos)
 {
 	dbuf *f = NULL;
+	de_ucstring *s = NULL;
 	de_int64 n;
 
-	if(c->extract_level<2) return;
-
-	f = dbuf_create_output_file(c, "comment.txt", NULL, DE_CREATEFLAG_IS_AUX);
+	// Either write the comment to a file, or store it in a string.
+	if(c->extract_level>=2) {
+		f = dbuf_create_output_file(c, "comment.txt", NULL, DE_CREATEFLAG_IS_AUX);
+	}
+	else {
+		s = ucstring_create(c);
+	}
 
 	while(1) {
 		if(pos >= c->infile->len) break;
@@ -440,11 +444,20 @@ static void do_comment_extension(deark *c, lctx *d, de_int64 pos)
 		pos++;
 		if(n==0) break;
 
-		// GIF comments are supposed to be 7-bit ASCII, so just copy them as-is.
-		dbuf_copy(c->infile, pos, n, f);
+		if(f) {
+			// GIF comments are supposed to be 7-bit ASCII, so just copy them as-is.
+			dbuf_copy(c->infile, pos, n, f);
+		}
+		if(s && s->len<300) {
+			dbuf_read_to_ucstring(c->infile, pos, n, s, 0, DE_ENCODING_ASCII);
+		}
+
 		pos += n;
 	}
 
+	if(s) {
+		de_dbg(c, "comment: \"%s\"\n", ucstring_get_printable_sz_n(s, 300));
+	}
 	dbuf_close(f);
 }
 
@@ -459,12 +472,10 @@ static void do_plaintext_extension(deark *c, lctx *d, de_int64 pos)
 	de_int64 k;
 	de_byte b;
 
-	if(c->extract_level<2) return;
-
 	// The first sub-block is the header
 	n = (de_int64)de_getbyte(pos);
 	pos++;
-	if(n<12) return;
+	if(n<12) goto done;
 
 	text_width_in_pixels = de_getui16le(pos+4);
 	char_width = (de_int64)de_getbyte(pos+8);
@@ -482,7 +493,7 @@ static void do_plaintext_extension(deark *c, lctx *d, de_int64 pos)
 
 	pos += n;
 
-	f = dbuf_create_output_file(c, "plaintext.txt", NULL, DE_CREATEFLAG_IS_AUX);
+	f = dbuf_create_output_file(c, "plaintext.txt", NULL, 0);
 
 	char_count = 0;
 	while(1) {
@@ -503,7 +514,9 @@ static void do_plaintext_extension(deark *c, lctx *d, de_int64 pos)
 		pos += n;
 	}
 
+done:
 	dbuf_close(f);
+	discard_current_gce_data(c, d);
 }
 
 static void do_animation_extension(deark *c, lctx *d, de_int64 pos)
@@ -709,7 +722,7 @@ static int do_image_internal(deark *c, lctx *d,
 	de_dbg(c, "lzw min code size: %u\n", lzw_min_code_size);
 
 	if(!de_good_image_dimensions(c, gi->width, gi->height)) goto done;
-	if(d->graphic_control_ext_data_valid && d->trns_color_idx_valid)
+	if(d->gce && d->gce->trns_color_idx_valid)
 		bypp = 4;
 	else
 		bypp = 3;
@@ -754,10 +767,6 @@ static int do_image_internal(deark *c, lctx *d,
 
 	*bytesused = pos - pos1;
 
-	// Graphic control extensions are only valid for one image, so invalidate
-	// any previous extension.
-	d->graphic_control_ext_data_valid = 0;
-
 	retval = 1;
 done:
 	de_free(c, lz);
@@ -801,12 +810,9 @@ done:
 		de_free(c, gi);
 	}
 
-	if(d->gce) {
-		// A Graphic Control Extension applies only to the next image, so
-		// if there was one, delete it now that we've used it up.
-		de_free(c, d->gce);
-		d->gce = NULL;
-	}
+	// A Graphic Control Extension applies only to the next image (or plaintext
+	// extension), so if there was one, delete it now that we've used it up.
+	discard_current_gce_data(c, d);
 
 	de_dbg_indent(c, -1);
 	return retval;
@@ -877,7 +883,7 @@ static void de_run_gif(deark *c, de_module_params *mparams)
 done:
 	if(d) {
 		de_bitmap_destroy(d->screen_img);
-		de_free(c, d->gce);
+		discard_current_gce_data(c, d);
 		de_free(c, d);
 	}
 }

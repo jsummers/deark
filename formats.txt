@@ -140,9 +140,9 @@ Deark -- Information about supported formats
 * GIF (module="gif")
   - Extract individual images. (Note that for animated GIFs, these are often
      just portions of an image.)
+  - Extract text from plaintext extensions, as separate text files. Text only;
+     colors are ignored.
   - Extract comments (use -a).
-  - Extract text from plaintext extensions (use -a). Text only; colors are
-     ignored.
 
 * GodPaint (Atari Falcon) (module="godpaint")
 
