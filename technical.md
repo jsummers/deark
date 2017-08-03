@@ -30,8 +30,7 @@ convert them to some portable font format, but that is difficult to do well.
 ## Security ##
 
 Deark is intended to be safe to use with untrusted input files, but there are
-no promises. It has proven to be fairly robust, but note that it is written in
-C, and vulnerabilities very likely exist.
+no promises. It is written in C, and vulnerabilities very likely exist.
 
 A strategically-designed input file can definitely cause Deark to use a
 disproportionate amount of system resources, such as disk space or CPU time.
@@ -100,8 +99,7 @@ Deark has to settle for a generic name like "output.000.bin".
 ## Character encoding ##
 
 The "-d" option prints a lot of textual information to the console, some of
-which is not ASCII-compatible. For historical reasons, non-ASCII text can
-sometimes cause problems.
+which is not ASCII-compatible. Non-ASCII text can sometimes cause problems.
 
 On Windows, Deark generally does the right thing automatically. However, if you
 are redirecting the output to a file or a pipe, there are cases where the
@@ -191,3 +189,6 @@ Studio 2008 and later. Alternatively, you can use Cygwin.
 The Deark source code is structured like a library, but it's not intended to be
 used as such. The error handling methods, and error messages, are not really
 suitable for use in a library.
+
+A regression test suite does exist for Deark, but is not available publicly at
+this time.

@@ -21,9 +21,9 @@ For additional information, see the [technical.md](technical.md) file.
 Command-line options:
 <pre>
 -m &lt;module>
-   Deark will use a "module" to process the input file. A module may
-   represent one file format, a group of related formats, or may have some
-   special purpose.
+   The "module" to use to process the input file. The default is to autodetect.
+   A module may represent one file format, or a group of related formats, or
+   may have some special purpose.
    See formats.txt for a list of modules. You usually don't need to use -m,
    unless the format can't be detected, or you want to use a special-purpose
    module such as "copy".
@@ -56,7 +56,7 @@ Command-line options:
    by default, the filenames in the ZIP archive might not include the usual
    "output.NNN" prefix.
 -arcfn &lt;filename>
-   Use this name for the .zip file. Default="output.zip".
+   When using -zip, use this name for the .zip file. Default="output.zip".
 -tostdout
    Write the output file(s) to the standard output stream (stdout).
    This option is experimental, and might not work in all situations.
