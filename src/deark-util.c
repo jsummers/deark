@@ -60,29 +60,29 @@ void de_snprintf(char *buf, size_t buflen, const char *fmt, ...)
 	va_end(ap);
 }
 
-void de_puts(deark *c, int msgtype, const char *s)
+void de_puts(deark *c, unsigned int flags, const char *s)
 {
 	if(!c || !c->msgfn) {
 		fputs(s, stderr);
 		return;
 	}
-	c->msgfn(c, msgtype, s);
+	c->msgfn(c, flags, s);
 }
 
-static void de_vprintf(deark *c, int msgtype, const char *fmt, va_list ap)
+static void de_vprintf(deark *c, unsigned int flags, const char *fmt, va_list ap)
 {
 	char buf[1024];
 
 	de_vsnprintf(buf, sizeof(buf), fmt, ap);
-	de_puts(c, msgtype, buf);
+	de_puts(c, flags, buf);
 }
 
-void de_printf(deark *c, int msgtype, const char *fmt, ...)
+void de_printf(deark *c, unsigned int flags, const char *fmt, ...)
 {
 	va_list ap;
 
 	va_start(ap, fmt);
-	de_vprintf(c, msgtype, fmt, ap);
+	de_vprintf(c, flags, fmt, ap);
 	va_end(ap);
 }
 

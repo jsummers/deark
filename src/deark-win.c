@@ -272,25 +272,20 @@ void de_free_utf8_args(int argc, char **argv)
 	de_free(NULL, argv);
 }
 
-// A helper function that returns nonzero if stdout seems to be a Windows console.
-// 0 means that stdout is redirected.
-int de_stdout_is_windows_console(void)
+// Return an output HANDLE that can be passed to other winconsole functions.
+// n: 1=stdout, 2=stderr
+void *de_winconsole_get_handle(int n)
 {
-	DWORD consolemode=0;
-	BOOL n;
-
-	n=GetConsoleMode(GetStdHandle(STD_OUTPUT_HANDLE), &consolemode);
-	return n ? 1 : 0;
+	return (void*)GetStdHandle((n==2)?STD_ERROR_HANDLE:STD_OUTPUT_HANDLE);
 }
 
-// A helper function that returns nonzero if stderr seems to be a Windows console.
-// 0 means that stderr is redirected.
-int de_stderr_is_windows_console(void)
+// Does the given HANDLE (cast to void*) seem to be a Windows console?
+int de_winconsole_is_console(void *h1)
 {
 	DWORD consolemode=0;
 	BOOL n;
 
-	n=GetConsoleMode(GetStdHandle(STD_ERROR_HANDLE), &consolemode);
+	n=GetConsoleMode((HANDLE)h1, &consolemode);
 	return n ? 1 : 0;
 }
 

@@ -32,6 +32,7 @@ struct cmdctx {
 
 	FILE *msgs_FILE; // Where to print (error, etc.) messages
 #ifdef DE_WINDOWS
+	void *msgs_HANDLE;
 	int have_windows_console; // Is msgs_FILE a console?
 	int use_fwputs;
 #endif
@@ -89,7 +90,7 @@ static void print_modules(deark *c)
 	de_print_module_list(c);
 }
 
-static void our_msgfn(deark *c, int msgtype, const char *s1)
+static void our_msgfn(deark *c, unsigned int flags, const char *s1)
 {
 	struct cmdctx *cc;
 	const char *s;
@@ -106,22 +107,14 @@ static void our_msgfn(deark *c, int msgtype, const char *s1)
 		}
 
 #ifdef DE_WINDOWS
+		// If appropriate, call _setmode so that Unicode output to the console
+		// works correctly (provided we use Unicode functions like fputws()).
 
-		// Call _setmode so that Unicode output to the console works correctly
-		// (provided we use Unicode functions like fputws()).
-		if(cc->msgs_to_stderr) {
-			cc->have_windows_console = de_stderr_is_windows_console();
-			if(cc->have_windows_console && !cc->to_ascii && !cc->to_oem) {
-				cc->use_fwputs = 1;
-				_setmode(_fileno(stderr), _O_U16TEXT);
-			}
-		}
-		else {
-			cc->have_windows_console = de_stdout_is_windows_console();
-			if(cc->have_windows_console && !cc->to_ascii && !cc->to_oem) {
-				cc->use_fwputs = 1;
-				_setmode(_fileno(stdout), _O_U16TEXT);
-			}
+		cc->msgs_HANDLE = de_winconsole_get_handle(cc->msgs_to_stderr ? 2 : 1);
+		cc->have_windows_console = de_winconsole_is_console(cc->msgs_HANDLE);
+		if(cc->have_windows_console && !cc->to_ascii && !cc->to_oem) {
+			cc->use_fwputs = 1;
+			_setmode(_fileno(cc->msgs_FILE), _O_U16TEXT);
 		}
 #endif
 
