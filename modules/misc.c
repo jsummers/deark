@@ -1749,6 +1749,7 @@ static void de_run_lumena_cel(deark *c, de_module_params *mparams)
 	}
 
 	bypp = (is_32bit) ? 4 : 2;
+	de_dbg(c, "bytes/pixel: %d\n", (int)bypp);
 	rowspan = width * bypp;
 
 	img = de_bitmap_create(c, width, height, is_32bit?4:3);

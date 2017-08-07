@@ -86,7 +86,7 @@ static void de_bitmap_alloc_pixels(struct deark_bitmap *img)
 struct image_scan_results {
 	int has_color;
 	int has_trns;
-	// TODO: has_visible_pixels
+	int has_visible_pixels;
 };
 
 // Scan the image's pixels, and report whether any are transparent, etc.
@@ -95,8 +95,11 @@ static void scan_image(struct deark_bitmap *img, struct image_scan_results *isre
 	de_int64 i, j;
 	de_uint32 clr;
 	de_byte a, r, g, b;
+
 	de_memset(isres, 0, sizeof(struct image_scan_results));
 	if(img->bytes_per_pixel==1) {
+		// No reason to scan opaque grayscale images.
+		isres->has_visible_pixels = 1;
 		return;
 	}
 	for(j=0; j<img->height; j++) {
@@ -108,19 +111,23 @@ static void scan_image(struct deark_bitmap *img, struct image_scan_results *isre
 			r = DE_COLOR_R(clr);
 			g = DE_COLOR_G(clr);
 			b = DE_COLOR_B(clr);
-			if(a<255) {
+			if(!isres->has_visible_pixels && a!=0) {
+				isres->has_visible_pixels = 1;
+			}
+			if(!isres->has_trns && a<255) {
 				isres->has_trns = 1;
 			}
-			if(img->bytes_per_pixel>=3) {
-				if((g!=r || b!=r) && a!=0) {
-					isres->has_color = 1;
-				}
+			if(!isres->has_color && img->bytes_per_pixel>=3 &&
+				((g!=r || b!=r) && a!=0) )
+			{
+				isres->has_color = 1;
 			}
 		}
 
 		// After each row, test whether we've learned everything we can learn
 		// about this image.
 		if((isres->has_trns || img->bytes_per_pixel==1 || img->bytes_per_pixel==3) &&
+			(isres->has_visible_pixels) &&
 			(isres->has_color || img->bytes_per_pixel<=2))
 		{
 			return;
@@ -618,7 +625,6 @@ void de_bitmap_apply_mask(struct deark_bitmap *fg, struct deark_bitmap *mask,
 	}
 }
 
-// TODO: This function should use scan_image().
 // Note: This function's features overlap with the DE_CREATEFLAG_OPT_IMAGE
 //  flag supported by de_bitmap_write_to_file().
 // If the image is 100% opaque, remove the alpha channel.
@@ -628,34 +634,20 @@ void de_bitmap_apply_mask(struct deark_bitmap *fg, struct deark_bitmap *mask,
 //  0x2: Warn if an invisible image was made opaque
 void de_optimize_image_alpha(struct deark_bitmap *img, unsigned int flags)
 {
-	int has_transparency = 0;
-	int has_visible_pixels = 0;
 	de_int64 i, j;
 	de_int64 k;
-	de_byte a;
+	struct image_scan_results isres;
 
 	if(img->bytes_per_pixel!=2 && img->bytes_per_pixel!=4) return;
 
-	for(j=0; j<img->height; j++) {
-		for(i=0; i<img->width; i++) {
-			a = DE_COLOR_A(de_bitmap_getpixel(img, i, j));
-			if(a<255) {
-				has_transparency = 1;
-			}
-			if(a>0) {
-				has_visible_pixels = 1;
-			}
-			if(has_transparency && has_visible_pixels) goto scan_done;
-		}
-	}
-scan_done:
+	scan_image(img, &isres);
 
-	if(has_transparency && !has_visible_pixels && (flags&0x1)) {
+	if(isres.has_trns && !isres.has_visible_pixels && (flags&0x1)) {
 		if(flags&0x2) {
 			de_warn(img->c, "Invisible image detected. Ignoring transparency.\n");
 		}
 	}
-	else if(has_transparency) {
+	else if(isres.has_trns) {
 		return;
 	}
 
