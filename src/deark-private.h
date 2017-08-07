@@ -425,6 +425,7 @@ void dbuf_read_to_ucstring_n(dbuf *f, de_int64 pos, de_int64 len, de_int64 max_l
 
 // At least one of 'ext' or 'fi' should be non-NULL.
 #define DE_CREATEFLAG_IS_AUX   0x1
+#define DE_CREATEFLAG_OPT_IMAGE 0x2
 dbuf *dbuf_create_output_file(deark *c, const char *ext, de_finfo *fi, unsigned int createflags);
 
 dbuf *dbuf_open_input_file(deark *c, const char *fn);

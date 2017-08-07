@@ -67,6 +67,7 @@ static void de_bitmap_alloc_pixels(struct deark_bitmap *img)
 {
 	if(img->bitmap) {
 		de_free(img->c, img->bitmap);
+		img->bitmap = NULL;
 	}
 
 	if(!de_good_image_dimensions(img->c, img->width, img->height)) {
@@ -82,13 +83,95 @@ static void de_bitmap_alloc_pixels(struct deark_bitmap *img)
 	img->bitmap = de_malloc(img->c, img->bitmap_size);
 }
 
+struct image_scan_results {
+	int has_color;
+	int has_trns;
+	// TODO: has_visible_pixels
+};
+
+// Scan the image's pixels, and report whether any are transparent, etc.
+static void scan_image(struct deark_bitmap *img, struct image_scan_results *isres)
+{
+	de_int64 i, j;
+	de_uint32 clr;
+	de_byte a, r, g, b;
+	de_memset(isres, 0, sizeof(struct image_scan_results));
+	if(img->bytes_per_pixel==1) {
+		return;
+	}
+	for(j=0; j<img->height; j++) {
+		for(i=0; i<img->width; i++) {
+			clr = de_bitmap_getpixel(img, i, j);
+			// TODO: Optimize these tests. We check for too many things we
+			// already know the answer to.
+			a = DE_COLOR_A(clr);
+			r = DE_COLOR_R(clr);
+			g = DE_COLOR_G(clr);
+			b = DE_COLOR_B(clr);
+			if(a<255) {
+				isres->has_trns = 1;
+			}
+			if(img->bytes_per_pixel>=3) {
+				if((g!=r || b!=r) && a!=0) {
+					isres->has_color = 1;
+				}
+			}
+		}
+
+		// After each row, test whether we've learned everything we can learn
+		// about this image.
+		if((isres->has_trns || img->bytes_per_pixel==1 || img->bytes_per_pixel==3) &&
+			(isres->has_color || img->bytes_per_pixel<=2))
+		{
+			return;
+		}
+	}
+}
+
+// Clone an existing bitmap's metadata, but don't allocate the new pixels.
+// The caller can then change the bytes_per_pixel if desired.
+static struct deark_bitmap *de_bitmap_clone_noalloc(struct deark_bitmap *img1)
+{
+	struct deark_bitmap *img2;
+
+	img2 = de_bitmap_create_noinit(img1->c);
+	de_memcpy(img2, img1, sizeof(struct deark_bitmap));
+	img2->bitmap = 0;
+	img2->bitmap_size = 0;
+	return img2;
+}
+
+// Returns NULL if there's no need to optimize the image
+static struct deark_bitmap *get_optimized_image(struct deark_bitmap *img1)
+{
+	struct image_scan_results isres;
+	int opt_bytes_per_pixel;
+	struct deark_bitmap *optimg;
+
+	scan_image(img1, &isres);
+	opt_bytes_per_pixel = isres.has_color ? 3 : 1;
+	if(isres.has_trns) opt_bytes_per_pixel++;
+
+	if(opt_bytes_per_pixel>=img1->bytes_per_pixel) {
+		return NULL;
+	}
+
+	optimg = de_bitmap_clone_noalloc(img1);
+	optimg->bytes_per_pixel = opt_bytes_per_pixel;
+	de_bitmap_copy_rect(img1, optimg, 0, 0, img1->width, img1->height, 0, 0, 0);
+	return optimg;
+}
+
 void de_bitmap_write_to_file(struct deark_bitmap *img, const char *token,
 	unsigned int createflags)
 {
+	deark *c;
 	dbuf *f;
+	struct deark_bitmap *optimg = NULL;
 	char buf[80];
 
 	if(!img) return;
+	c = img->c;
 	if(img->invalid_image_flag) return;
 
 	if(token==NULL || token[0]=='\0') {
@@ -100,9 +183,26 @@ void de_bitmap_write_to_file(struct deark_bitmap *img, const char *token,
 
 	if(!img->bitmap) de_bitmap_alloc_pixels(img);
 
-	f = dbuf_create_output_file(img->c, buf, NULL, createflags);
-	de_write_png(img->c, img, f);
+	if(createflags & DE_CREATEFLAG_OPT_IMAGE) {
+		// This should probably be the default, but our optimization routine
+		// isn't very efficient, and wouldn't change anything in most cases.
+		optimg = get_optimized_image(img);
+		if(optimg) {
+			de_dbg3(c, "reducing image depth (%d->%d)\n", img->bytes_per_pixel,
+				optimg->bytes_per_pixel);
+		}
+	}
+
+	f = dbuf_create_output_file(c, buf, NULL, createflags);
+	if(optimg) {
+		de_write_png(c, optimg, f);
+	}
+	else {
+		de_write_png(c, img, f);
+	}
 	dbuf_close(f);
+
+	if(optimg) de_bitmap_destroy(optimg);
 }
 
 void de_bitmap_write_to_file_finfo(struct deark_bitmap *img, de_finfo *fi,
@@ -518,6 +618,9 @@ void de_bitmap_apply_mask(struct deark_bitmap *fg, struct deark_bitmap *mask,
 	}
 }
 
+// TODO: This function should use scan_image().
+// Note: This function's features overlap with the DE_CREATEFLAG_OPT_IMAGE
+//  flag supported by de_bitmap_write_to_file().
 // If the image is 100% opaque, remove the alpha channel.
 // Otherwise do nothing.
 // flags:
@@ -542,9 +645,10 @@ void de_optimize_image_alpha(struct deark_bitmap *img, unsigned int flags)
 			if(a>0) {
 				has_visible_pixels = 1;
 			}
-			if(has_transparency && has_visible_pixels) break;
+			if(has_transparency && has_visible_pixels) goto scan_done;
 		}
 	}
+scan_done:
 
 	if(has_transparency && !has_visible_pixels && (flags&0x1)) {
 		if(flags&0x2) {

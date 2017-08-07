@@ -781,20 +781,6 @@ done:
 	return retval;
 }
 
-// Write an image to an output file, removing any superfluous alpha channel.
-// TODO: There needs to be a better way to do this. It should probably happen
-// automatically in de_bitmap_write_to_file().
-static void optimize_and_write_bitmap_to_file(deark *c, lctx *d, struct deark_bitmap *img)
-{
-	struct deark_bitmap *tmp_img;
-
-	tmp_img = de_bitmap_create(c, img->width, img->height, 4);
-	de_bitmap_copy_rect(img, tmp_img, 0, 0, img->width, img->height, 0, 0, 0);
-	de_optimize_image_alpha(tmp_img, 0);
-	de_bitmap_write_to_file(tmp_img, NULL, 0);
-	de_bitmap_destroy(tmp_img);
-}
-
 static int do_image(deark *c, lctx *d, de_int64 pos1, de_int64 *bytesused)
 {
 	int retval = 0;
@@ -825,7 +811,7 @@ static int do_image(deark *c, lctx *d, de_int64 pos1, de_int64 *bytesused)
 			0, 0, d->screen_img->width, d->screen_img->height,
 			gi->xpos, gi->ypos, DE_BITMAPFLAG_MERGE);
 
-		optimize_and_write_bitmap_to_file(c, d, d->screen_img);
+		de_bitmap_write_to_file(d->screen_img, NULL, DE_CREATEFLAG_OPT_IMAGE);
 
 		if(disposal_method == DISPOSE_BKGD) {
 			de_bitmap_rect(d->screen_img, gi->xpos, gi->ypos, gi->width, gi->height,
