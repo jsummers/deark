@@ -563,9 +563,11 @@ Deark -- Information about supported formats
   - Print the IEEE CRC-32 of the file.
 
 * EXE/PE/NE/etc. (module="exe")
+  EXE format can be complex. Not all varieties are correctly supported.
   - Extract bitmaps, icons, and cursors from NE and PE (Windows .exe) files.
   - Extract fonts.
   - Extract embedded manifests (use -a).
+  - Extract code-signing certificates (use -a).
   - Extract bitmaps from LX (Linear Executable) files. Note that some of these
     may be in "Bitmap Array" format. Reprocess them with Deark to extract the
     actual BMP file(s).

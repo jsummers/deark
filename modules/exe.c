@@ -63,10 +63,41 @@ typedef struct localctx_struct {
 	de_int64 rsrc_item_count;
 } lctx;
 
+static void do_certificate(deark *c, lctx *d, de_int64 pos1, de_int64 len)
+{
+	de_int64 dlen;
+	de_int64 revision;
+	de_int64 certtype;
+
+	// This is a WIN_CERTIFICATE structure.
+	if(pos1<1 || len<=8 || (pos1+len > c->infile->len)) return;
+
+	de_dbg(c, "certificate data at %d\n", (int)pos1);
+	de_dbg_indent(c, 1);
+	dlen = de_getui32le(pos1);
+	de_dbg(c, "length: %d\n", (int)dlen); // Includes the 8-byte header
+	revision = de_getui16le(pos1+4);
+	de_dbg(c, "revision: 0x%04x\n", (unsigned int)revision);
+	certtype = de_getui16le(pos1+6);
+	de_dbg(c, "cert type: %d\n", (int)certtype);
+	if(dlen<=8 || dlen > len) goto done;
+	if(c->extract_level>=2) {
+		const char *ext;
+		if(certtype==2) ext="p7b";
+		else ext="crt";
+		dbuf_create_file_from_slice(c->infile, pos1+8, dlen-8, ext, NULL, 0);
+	}
+done:
+	de_dbg_indent(c, -1);
+
+}
+
 static void do_opt_coff_data_dirs(deark *c, lctx *d, de_int64 pos)
 {
 	de_int64 rsrc_tbl_rva;
 	de_int64 rsrc_tbl_size;
+	de_int64 pe_security_pos;
+	de_int64 pe_security_size;
 
 	de_dbg(c, "COFF/PE optional header (data directories) at %d\n", (int)pos);
 	de_dbg_indent(c, 1);
@@ -75,6 +106,17 @@ static void do_opt_coff_data_dirs(deark *c, lctx *d, de_int64 pos)
 	rsrc_tbl_size = de_getui32le(pos+20);
 	de_dbg(c, "resource table RVA=0x%08x, size=%d\n", (unsigned int)rsrc_tbl_rva,
 		(int)rsrc_tbl_size);
+
+	pe_security_pos = de_getui32le(pos+32);
+	pe_security_size = de_getui32le(pos+36);
+	de_dbg(c, "security pos=0x%08x, size=%d\n", (unsigned int)pe_security_pos,
+		(int)pe_security_size);
+	if(pe_security_pos>0) {
+		de_dbg_indent(c, 1);
+		do_certificate(c, d, pe_security_pos, pe_security_size);
+		de_dbg_indent(c, -1);
+	}
+
 	de_dbg_indent(c, -1);
 }
 
@@ -782,12 +824,12 @@ static void do_pe_resource_section(deark *c, lctx *d, de_int64 pos, de_int64 len
 	do_pe_resource_dir_table(c, d, 0, 1);
 }
 
-static void do_pe_section_header(deark *c, lctx *d, de_int64 pos)
+static void do_pe_section_header(deark *c, lctx *d, de_int64 section_index, de_int64 pos)
 {
 	de_int64 section_data_size;
 	struct de_stringreaderdata *srd = NULL;
 
-	de_dbg(c, "section header at %d\n", (unsigned int)pos);
+	de_dbg(c, "section[%d] header at %d\n", (int)section_index, (unsigned int)pos);
 	de_dbg_indent(c, 1);
 
 	// Section name: "An 8-byte, null-padded UTF-8 encoded string"
@@ -818,7 +860,7 @@ static void do_pe_section_table(deark *c, lctx *d)
 	de_dbg(c, "section table at %d\n", (int)pos);
 	de_dbg_indent(c, 1);
 	for(i=0; i<d->pe_number_of_sections; i++) {
-		do_pe_section_header(c, d, pos + 40*i);
+		do_pe_section_header(c, d, i, pos + 40*i);
 	}
 	de_dbg_indent(c, -1);
 }
