@@ -24,8 +24,7 @@ struct dir_entry_info {
 	de_int64 stream_size;
 	de_int64 normal_sec_id; // First SecID, valid if is_mini_stream==0
 	de_int64 minisec_id; // First MiniSecID, valid if is_mini_stream==1
-	de_ucstring *fname;
-	char fname_utf8[80];
+	struct de_stringreaderdata *fname_srd;
 	de_byte clsid[16];
 	struct de_timestamp mod_time;
 };
@@ -500,16 +499,16 @@ static de_int64 stream_name_to_catalog_id(deark *c, lctx *d, struct dir_entry_in
 	size_t nlen;
 	size_t i;
 
-	nlen = de_strlen(dei->fname_utf8);
+	nlen = dei->fname_srd->sz_utf8_strlen;
 	if(nlen>sizeof(buf)-1) return -1;
 
 	for(i=0; i<nlen; i++) {
 		// Name should contain only digits
-		if(dei->fname_utf8[i]<'0' || dei->fname_utf8[i]>'9') return -1;
+		if(dei->fname_srd->sz_utf8[i]<'0' || dei->fname_srd->sz_utf8[i]>'9') return -1;
 
 		// The stream name is the *reversed* string form of the ID number.
 		// (I assume this is to try to keep the directory tree structure balanced.)
-		buf[nlen-1-i] = dei->fname_utf8[i];
+		buf[nlen-1-i] = dei->fname_srd->sz_utf8[i];
 	}
 	buf[nlen] = '\0';
 
@@ -524,7 +523,7 @@ static de_int64 lookup_catalog_entry(deark *c, lctx *d, struct dir_entry_info *d
 	de_int64 id;
 
 	if(d->thumbsdb_catalog_num_entries<1 || !d->thumbsdb_catalog) return -1;
-	if(!dei->fname) return -1;
+	if(!dei->fname_srd || !dei->fname_srd->str) return -1;
 
 	id = stream_name_to_catalog_id(c, d, dei);
 	if(id<0) return -1;
@@ -562,7 +561,7 @@ static void extract_stream_to_file(deark *c, lctx *d, de_int64 dir_entry_idx, st
 		ucstring_append_sz(tmpfn, "/", DE_ENCODING_ASCII);
 	}
 
-	ucstring_append_ucstring(tmpfn, dei->fname);
+	ucstring_append_ucstring(tmpfn, dei->fname_srd->str);
 
 	fi = de_finfo_create(c);
 
@@ -584,7 +583,7 @@ static void extract_stream_to_file(deark *c, lctx *d, de_int64 dir_entry_idx, st
 		// A Thumbs.db stream typically has a header, followed by an embedded JPEG
 		// (or something) file.
 
-		if(!de_strcmp(dei->fname_utf8, thumbsdb_catalog_streamname)) {
+		if(!de_strcmp(dei->fname_srd->sz_utf8, thumbsdb_catalog_streamname)) {
 			goto done;
 		}
 
@@ -653,7 +652,7 @@ static void extract_stream_to_file(deark *c, lctx *d, de_int64 dir_entry_idx, st
 		}
 		else {
 			de_warn(c, "Unidentified Thumbs.db stream \"%s\"\n",
-				ucstring_get_printable_sz(dei->fname));
+				ucstring_get_printable_sz(dei->fname_srd->str));
 		}
 
 		de_dbg_indent(c, -1);
@@ -1224,23 +1223,23 @@ static void do_per_dir_entry_format_detection(deark *c, lctx *d, struct dir_entr
 		return;
 	}
 
-	nlen = de_strlen(dei->fname_utf8);
+	nlen = dei->fname_srd->sz_utf8_strlen;
 	if(nlen<1 || nlen>21) {
 		d->could_be_thumbsdb = 0;
 		return;
 	}
 
-	if(!de_strcmp(dei->fname_utf8, thumbsdb_catalog_streamname)) {
+	if(!de_strcmp(dei->fname_srd->sz_utf8, thumbsdb_catalog_streamname)) {
 		d->thumbsdb_catalog_found++;
 		return;
 	}
 
-	if(is_thumbsdb_orig_name(c, d, dei->fname_utf8, nlen)) {
+	if(is_thumbsdb_orig_name(c, d, dei->fname_srd->sz_utf8, nlen)) {
 		d->thumbsdb_old_names_found++;
 		return;
 	}
 
-	if(is_thumbsdb_new_name(c, d, dei->fname_utf8, nlen)) {
+	if(is_thumbsdb_new_name(c, d, dei->fname_srd->sz_utf8, nlen)) {
 		d->thumbsdb_new_names_found++;
 		return;
 	}
@@ -1300,24 +1299,21 @@ static void do_dir_entry(deark *c, lctx *d, de_int64 dir_entry_idx, de_int64 dir
 	name_len_bytes = name_len_raw-2; // Ignore the trailing U+0000
 	if(name_len_bytes<0) name_len_bytes = 0;
 
-	dei->fname = ucstring_create(c);
-	dbuf_read_to_ucstring(d->dir, dir_entry_offs, name_len_bytes, dei->fname,
-		0, DE_ENCODING_UTF16LE);
-	de_dbg(c, "name: \"%s\"\n", ucstring_get_printable_sz(dei->fname));
+	dei->fname_srd = dbuf_read_string(d->dir, dir_entry_offs, name_len_bytes, name_len_bytes,
+		DE_CONVFLAG_WANT_UTF8, DE_ENCODING_UTF16LE);
+
+	de_dbg(c, "name: \"%s\"\n", ucstring_get_printable_sz(dei->fname_srd->str));
 	if(pass==1 && dei->entry_type==OBJTYPE_STORAGE &&
 		!d->dir_entry_extra_info[dir_entry_idx].fname)
 	{
 		// Save a copy of directory names, so we can construct the path later.
-		d->dir_entry_extra_info[dir_entry_idx].fname = ucstring_clone(dei->fname);
+		d->dir_entry_extra_info[dir_entry_idx].fname = ucstring_clone(dei->fname_srd->str);
 	}
 
 	if(pass==2) {
 		de_dbg(c, "parent: %d\n",
 			(int)d->dir_entry_extra_info[dir_entry_idx].parent_id);
 	}
-
-	// A C-style version of the stream name, to make it easier to analyze.
-	ucstring_to_sz(dei->fname, dei->fname_utf8, sizeof(dei->fname_utf8), DE_ENCODING_UTF8, 0);
 
 	node_color = dbuf_getbyte(d->dir, dir_entry_offs+67);
 	de_dbg(c, "node color: %u\n", (unsigned int)node_color);
@@ -1383,7 +1379,7 @@ static void do_dir_entry(deark *c, lctx *d, de_int64 dir_entry_idx, de_int64 dir
 	}
 
 	if((d->subformat_req==SUBFMT_THUMBSDB || d->subformat_req==SUBFMT_AUTO) &&
-		!de_strcmp(dei->fname_utf8, thumbsdb_catalog_streamname))
+		!de_strcmp(dei->fname_srd->sz_utf8, thumbsdb_catalog_streamname))
 	{
 		is_thumbsdb_catalog = 1;
 	}
@@ -1394,7 +1390,7 @@ static void do_dir_entry(deark *c, lctx *d, de_int64 dir_entry_idx, de_int64 dir
 		// It's against our ground rules to both extract a file, and also analyze it,
 		// but there's no good alternative in this case.
 
-		if(!de_strcmp(dei->fname_utf8, summaryinformation_streamname)) {
+		if(!de_strcmp(dei->fname_srd->sz_utf8, summaryinformation_streamname)) {
 			do_SummaryInformation(c, d, dei, (d->dir_entry_extra_info[dir_entry_idx].parent_id==0));
 		}
 	}
@@ -1407,7 +1403,7 @@ static void do_dir_entry(deark *c, lctx *d, de_int64 dir_entry_idx, de_int64 dir
 
 done:
 	if(dei) {
-		ucstring_destroy(dei->fname);
+		de_destroy_stringreaderdata(c, dei->fname_srd);
 		de_free(c, dei);
 	}
 }

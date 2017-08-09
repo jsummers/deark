@@ -473,6 +473,8 @@ struct de_stringreaderdata {
 
    de_byte *sz; // Stores some or all of the bytes read. Always NUL terminated.
    de_ucstring *str; // Unicode version of ->sz
+   char *sz_utf8; // UTF-8 version of ->str (+ NUL terminator) (optional)
+   size_t sz_utf8_strlen;
    int was_truncated;
    int found_nul;
 };
@@ -664,6 +666,7 @@ int de_is_ascii(const de_byte *buf, de_int64 buflen);
 
 #define DE_CONVFLAG_STOP_AT_NUL 0x1
 #define DE_CONVFLAG_MAKE_PRINTABLE 0x2
+#define DE_CONVFLAG_WANT_UTF8 0x10
 
 char de_byte_to_printable_char(de_byte b);
 
@@ -705,6 +708,7 @@ void ucstring_append_bytes(de_ucstring *s, const de_byte *buf, de_int64 buflen, 
 void ucstring_append_sz(de_ucstring *s, const char *sz, int encoding);
 
 void ucstring_write_as_utf8(deark *c, de_ucstring *s, dbuf *outf, int add_bom_if_needed);
+de_int64 ucstring_count_utf8_bytes(de_ucstring *s);
 
 // Supported encodings are DE_ENCODING_UTF8, DE_ENCODING_ASCII, DE_ENCODING_LATIN1.
 // flags: DE_CONVFLAG_*

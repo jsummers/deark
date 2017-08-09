@@ -210,6 +210,20 @@ static int ucstring_is_ascii(const de_ucstring *s)
 	return 1;
 }
 
+de_int64 ucstring_count_utf8_bytes(de_ucstring *s)
+{
+	de_int64 i;
+	de_int64 n = 0;
+	if(!s) return n;
+	for(i=0; i<s->len; i++) {
+		if(s->str[i]<0 || s->str[i]>0xffff) n+=4;
+		else if(s->str[i]<=0x7f) n+=1;
+		else if(s->str[i]<=0x7ff) n+=2;
+		else n+=3;
+	}
+	return n;
+}
+
 // If add_bom_if_needed is set, we'll prepend a BOM if the global c->write_bom
 // option is enabled, 's' has any non-ASCII characters, and 's' doesn't already
 // start with a BOM.

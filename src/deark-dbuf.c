@@ -516,8 +516,13 @@ void dbuf_copy_at(dbuf *inf, de_int64 input_offset, de_int64 input_len,
 // max_bytes_to_scan and max_bytes_to_keep to the same value. The ->sz field will
 // always be allocated with this many bytes, plus one more for an artificial NUL
 // terminator.
+// If DE_CONVFLAG_WANT_UTF8 is set, then the ->sz_utf8 field will be set to a
+// UTF-8 version of ->str. This is mainly useful if the original string was
+// UTF-16. sz_utf8 is not "printable" -- use ucstring_get_printable_sz_n(str) for
+// that.
 // Recognized flags:
 //   - DE_CONVFLAG_STOP_AT_NUL
+//   - DE_CONVFLAG_WANT_UTF8
 struct de_stringreaderdata *dbuf_read_string(dbuf *f, de_int64 pos,
 	de_int64 max_bytes_to_scan,
 	de_int64 max_bytes_to_keep,
@@ -583,10 +588,21 @@ struct de_stringreaderdata *dbuf_read_string(dbuf *f, de_int64 pos,
 
 	ucstring_append_bytes(srd->str, srd->sz, bytes_to_malloc-1, 0, encoding);
 
+	if(flags&DE_CONVFLAG_WANT_UTF8) {
+		srd->sz_utf8_strlen = (size_t)ucstring_count_utf8_bytes(srd->str);
+		srd->sz_utf8 = de_malloc(c, srd->sz_utf8_strlen + 1);
+		ucstring_to_sz(srd->str, srd->sz_utf8, srd->sz_utf8_strlen + 1, DE_ENCODING_UTF8, 0);
+	}
+
 done:
 	if(!srd->sz) {
 		// Always return a valid sz, even on failure.
 		srd->sz = de_malloc(c, 1);
+	}
+	if((flags&DE_CONVFLAG_WANT_UTF8) && !srd->sz_utf8) {
+		// Always return a valid sz_utf8 if it was requested, even on failure.
+		srd->sz_utf8 = de_malloc(c, 1);
+		srd->sz_utf8_strlen = 0;
 	}
 	return srd;
 }
@@ -595,6 +611,7 @@ void de_destroy_stringreaderdata(deark *c, struct de_stringreaderdata *srd)
 {
 	if(!srd) return;
 	de_free(c, srd->sz);
+	de_free(c, srd->sz_utf8);
 	ucstring_destroy(srd->str);
 	de_free(c, srd);
 }
