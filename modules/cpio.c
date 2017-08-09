@@ -262,6 +262,7 @@ static void read_member_name(deark *c, lctx *d, struct member_data *md)
 	// Filenames end with a NUL byte, which is included in the namesize field.
 	if(md->namesize<1) goto done;
 
+	// TODO: Use dbuf_read_string() here.
 	md->filename = ucstring_create(c);
 
 	// The encoding is presumably whatever encoding the filenames used on the

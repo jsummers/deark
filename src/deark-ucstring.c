@@ -245,9 +245,10 @@ void ucstring_write_as_utf8(deark *c, de_ucstring *s, dbuf *outf, int add_bom_if
 	}
 }
 
+static int is_printable_uchar(de_int32 ch);
+
 // Note: This function is similar to de_finfo_set_name_from_ucstring().
 // Maybe they should be consolidated.
-// TODO: Support DE_CONVFLAG_MAKE_PRINTABLE
 void ucstring_to_sz(de_ucstring *s, char *szbuf, size_t szbuf_len, unsigned int flags, int encoding)
 {
 	de_int64 i;
@@ -268,32 +269,20 @@ void ucstring_to_sz(de_ucstring *s, char *szbuf, size_t szbuf_len, unsigned int 
 				utf8buf[0] = '_';
 			utf8codelen = 1;
 		}
+
+		if(flags & DE_CONVFLAG_MAKE_PRINTABLE) {
+			if(!is_printable_uchar(s->str[i])) {
+				utf8buf[0] = '_';
+				utf8codelen = 1;
+			}
+		}
+
 		if(szpos + utf8codelen + 1 > (de_int64)szbuf_len) break;
 		de_memcpy(&szbuf[szpos], utf8buf, (size_t)utf8codelen);
 		szpos += utf8codelen;
 	}
 
 	szbuf[szpos] = '\0';
-}
-
-static void ucstring_make_printable_inplace(de_ucstring *s);
-
-// If has_max!=0, uses no more than max_chars Unicode characters from s to create the
-// printable string.
-// TODO: Rethink max_chars.
-static void ucstring_to_printable_sz_internal(de_ucstring *s, char *szbuf, size_t szbuf_len,
-	int has_max, de_int64 max_chars)
-{
-	de_ucstring *s2 = NULL;
-
-	s2 = ucstring_clone(s);
-	if(has_max) {
-		// TODO: Maybe this should add an ellipsis, or something.
-		ucstring_truncate(s2, max_chars);
-	}
-	ucstring_make_printable_inplace(s2);
-	ucstring_to_sz(s2, szbuf, szbuf_len, 0, DE_ENCODING_UTF8);
-	ucstring_destroy(s2);
 }
 
 int ucstring_strcmp(de_ucstring *s, const char *s2, int encoding)
@@ -346,36 +335,31 @@ static int is_printable_uchar(de_int32 ch)
 	return 0;
 }
 
-// TODO: Remove this function.
-static void ucstring_make_printable_inplace(de_ucstring *s)
-{
-	de_int64 i;
-
-	for(i=0; i<s->len; i++) {
-		if(!is_printable_uchar(s->str[i])) {
-			s->str[i] = '_';
-		}
-	}
-}
-
 static const char *ucstring_get_printable_sz_internal(de_ucstring *s,
-	int has_max, de_int64 max_chars)
+	int has_max, de_int64 max_bytes)
 {
 	de_int64 allocsize;
 
-	if(!s) return "(null)";
+	if(!s) {
+		if(has_max && max_bytes<6) return "";
+		return "(null)";
+	}
 
 	if(s->tmp_string)
 		de_free(s->c, s->tmp_string);
 
-	if(has_max)
-		allocsize = max_chars * 4 + 1;
-	else
+	if(has_max) {
+		allocsize = max_bytes + 1;
+	}
+	else {
+		// TODO: Calculating the proper allocsize could be difficult,
+		// depending on how DE_CONVFLAG_MAKE_PRINTABLE is implemented.
 		allocsize = s->len * 4 + 1;
+	}
 
 	s->tmp_string = de_malloc(s->c, allocsize);
 
-	ucstring_to_printable_sz_internal(s, s->tmp_string, (size_t)allocsize, has_max, max_chars);
+	ucstring_to_sz(s, s->tmp_string, (size_t)allocsize, DE_CONVFLAG_MAKE_PRINTABLE, DE_ENCODING_UTF8);
 
 	return s->tmp_string;
 }
@@ -385,9 +369,11 @@ const char *ucstring_get_printable_sz(de_ucstring *s)
 	return ucstring_get_printable_sz_internal(s, 0, 0);
 }
 
-const char *ucstring_get_printable_sz_n(de_ucstring *s, de_int64 max_chars)
+// It might make more sense to limit the number of visible characters, instead
+// of the number of bytes in the encoded string, but that's too difficult.
+const char *ucstring_get_printable_sz_n(de_ucstring *s, de_int64 max_bytes)
 {
-	return ucstring_get_printable_sz_internal(s, 1, max_chars);
+	return ucstring_get_printable_sz_internal(s, 1, max_bytes);
 }
 
 void ucstring_append_flags_item(de_ucstring *s, const char *str)

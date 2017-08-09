@@ -717,8 +717,9 @@ void ucstring_to_sz(de_ucstring *s, char *szbuf, size_t szbuf_len, unsigned int 
 // Returns a pointer to a NUL-terminated string, that is valid until the
 // next ucstring_* function is called on that string.
 const char *ucstring_get_printable_sz(de_ucstring *s);
-// The _n version limits the number of Unicode chars (not bytes) in the result.
-const char *ucstring_get_printable_sz_n(de_ucstring *s, de_int64 max_chars);
+// The _n version limits the number of bytes in the result.
+// max_bytes does not count the terminating NUL.
+const char *ucstring_get_printable_sz_n(de_ucstring *s, de_int64 max_bytes);
 
 int ucstring_strcmp(de_ucstring *s, const char *s2, int encoding);
 
