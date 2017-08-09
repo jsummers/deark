@@ -591,7 +591,7 @@ struct de_stringreaderdata *dbuf_read_string(dbuf *f, de_int64 pos,
 	if(flags&DE_CONVFLAG_WANT_UTF8) {
 		srd->sz_utf8_strlen = (size_t)ucstring_count_utf8_bytes(srd->str);
 		srd->sz_utf8 = de_malloc(c, srd->sz_utf8_strlen + 1);
-		ucstring_to_sz(srd->str, srd->sz_utf8, srd->sz_utf8_strlen + 1, DE_ENCODING_UTF8, 0);
+		ucstring_to_sz(srd->str, srd->sz_utf8, srd->sz_utf8_strlen + 1, 0, DE_ENCODING_UTF8);
 	}
 
 done:

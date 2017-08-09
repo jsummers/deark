@@ -712,7 +712,7 @@ de_int64 ucstring_count_utf8_bytes(de_ucstring *s);
 
 // Supported encodings are DE_ENCODING_UTF8, DE_ENCODING_ASCII, DE_ENCODING_LATIN1.
 // flags: DE_CONVFLAG_*
-void ucstring_to_sz(de_ucstring *s, char *szbuf, size_t szbuf_len, int encoding, unsigned int flags);
+void ucstring_to_sz(de_ucstring *s, char *szbuf, size_t szbuf_len, unsigned int flags, int encoding);
 
 // Returns a pointer to a NUL-terminated string, that is valid until the
 // next ucstring_* function is called on that string.
