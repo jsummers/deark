@@ -25,7 +25,7 @@ struct member_data {
 	de_int64 filesize_padded;
 	de_int64 mode;
 	de_int64 checksum_reported;
-	de_ucstring *filename;
+	struct de_stringreaderdata *filename_srd;
 	de_finfo *fi;
 	de_uint32 checksum_calculated;
 };
@@ -259,22 +259,24 @@ static int read_header_binary(deark *c, lctx *d, struct member_data *md)
 // Allocates md->namesize.
 static void read_member_name(deark *c, lctx *d, struct member_data *md)
 {
+	de_int64 namesize_adjusted;
+
 	// Filenames end with a NUL byte, which is included in the namesize field.
 	if(md->namesize<1) goto done;
 
-	// TODO: Use dbuf_read_string() here.
-	md->filename = ucstring_create(c);
+	namesize_adjusted = md->namesize - 1;
+	if(namesize_adjusted>300) namesize_adjusted=300;
 
 	// The encoding is presumably whatever encoding the filenames used on the
 	// system on which the archive was created, and there's no way to tell
 	// what that was.
 	// This should maybe be a command line option.
-	dbuf_read_to_ucstring_n(c->infile, md->startpos + md->fixed_header_size,
-		md->namesize-1, 300, md->filename, 0, DE_ENCODING_UTF8);
+	md->filename_srd = dbuf_read_string(c->infile, md->startpos + md->fixed_header_size,
+		namesize_adjusted, namesize_adjusted, 0, DE_ENCODING_UTF8);
 
-	de_dbg(c, "name: \"%s\"\n", ucstring_get_printable_sz(md->filename));
+	de_dbg(c, "name: \"%s\"\n", ucstring_get_printable_sz(md->filename_srd->str));
 
-	de_finfo_set_name_from_ucstring(c, md->fi, md->filename);
+	de_finfo_set_name_from_ucstring(c, md->fi, md->filename_srd->str);
 	md->fi->original_filename_flag = 1;
 
 done:
@@ -362,7 +364,7 @@ static int read_member(deark *c, lctx *d, de_int64 pos1,
 		int msgflag = 0;
 
 		if(md->mode==0 && md->namesize==11) {
-			if(!ucstring_strcmp(md->filename, "TRAILER!!!", DE_ENCODING_ASCII)) {
+			if(!de_strcmp((const char*)md->filename_srd->sz, "TRAILER!!!")) {
 				de_dbg(c, "[Trailer. Not extracting.]\n");
 				msgflag = 1;
 				d->trailer_found = 1;
@@ -406,7 +408,7 @@ done:
 		*bytes_consumed_member = md->fixed_header_size + md->namesize_padded + md->filesize_padded;
 	}
 	if(md) {
-		ucstring_destroy(md->filename);
+		de_destroy_stringreaderdata(c, md->filename_srd);
 		de_finfo_destroy(c, md->fi);
 		de_free(c, md);
 	}
