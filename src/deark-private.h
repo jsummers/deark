@@ -663,6 +663,7 @@ int de_utf16x_to_uchar(const de_byte *utf16buf, de_int64 buflen,
 int de_is_ascii(const de_byte *buf, de_int64 buflen);
 
 #define DE_CONVFLAG_STOP_AT_NUL 0x1
+#define DE_CONVFLAG_MAKE_PRINTABLE 0x2
 
 char de_byte_to_printable_char(de_byte b);
 
@@ -706,11 +707,8 @@ void ucstring_append_sz(de_ucstring *s, const char *sz, int encoding);
 void ucstring_write_as_utf8(deark *c, de_ucstring *s, dbuf *outf, int add_bom_if_needed);
 
 // Supported encodings are DE_ENCODING_UTF8, DE_ENCODING_ASCII, DE_ENCODING_LATIN1.
-void ucstring_to_sz(de_ucstring *s, char *szbuf, size_t szbuf_len, int encoding);
-
-void ucstring_to_printable_sz(de_ucstring *s, char *szbuf, size_t szbuf_len);
-
-void ucstring_make_printable(de_ucstring *s);
+// flags: DE_CONVFLAG_*
+void ucstring_to_sz(de_ucstring *s, char *szbuf, size_t szbuf_len, int encoding, unsigned int flags);
 
 // Returns a pointer to a NUL-terminated string, that is valid until the
 // next ucstring_* function is called on that string.

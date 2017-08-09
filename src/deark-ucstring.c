@@ -233,7 +233,8 @@ void ucstring_write_as_utf8(deark *c, de_ucstring *s, dbuf *outf, int add_bom_if
 
 // Note: This function is similar to de_finfo_set_name_from_ucstring().
 // Maybe they should be consolidated.
-void ucstring_to_sz(de_ucstring *s, char *szbuf, size_t szbuf_len, int encoding)
+// TODO: Support DE_CONVFLAG_MAKE_PRINTABLE
+void ucstring_to_sz(de_ucstring *s, char *szbuf, size_t szbuf_len, int encoding, unsigned int flags)
 {
 	de_int64 i;
 	de_int64 szpos = 0;
@@ -261,8 +262,11 @@ void ucstring_to_sz(de_ucstring *s, char *szbuf, size_t szbuf_len, int encoding)
 	szbuf[szpos] = '\0';
 }
 
+static void ucstring_make_printable_inplace(de_ucstring *s);
+
 // If has_max!=0, uses no more than max_chars Unicode characters from s to create the
 // printable string.
+// TODO: Rethink max_chars.
 static void ucstring_to_printable_sz_internal(de_ucstring *s, char *szbuf, size_t szbuf_len,
 	int has_max, de_int64 max_chars)
 {
@@ -273,14 +277,9 @@ static void ucstring_to_printable_sz_internal(de_ucstring *s, char *szbuf, size_
 		// TODO: Maybe this should add an ellipsis, or something.
 		ucstring_truncate(s2, max_chars);
 	}
-	ucstring_make_printable(s2);
-	ucstring_to_sz(s2, szbuf, szbuf_len, DE_ENCODING_UTF8);
+	ucstring_make_printable_inplace(s2);
+	ucstring_to_sz(s2, szbuf, szbuf_len, DE_ENCODING_UTF8, 0);
 	ucstring_destroy(s2);
-}
-
-void ucstring_to_printable_sz(de_ucstring *s, char *szbuf, size_t szbuf_len)
-{
-	ucstring_to_printable_sz_internal(s, szbuf, szbuf_len, 0, 0);
 }
 
 int ucstring_strcmp(de_ucstring *s, const char *s2, int encoding)
@@ -294,7 +293,7 @@ int ucstring_strcmp(de_ucstring *s, const char *s2, int encoding)
 
 	s2len = de_strlen(s2);
 	tmpbuf = de_malloc(s->c, s2len+1);
-	ucstring_to_sz(s, tmpbuf, s2len+1, encoding);
+	ucstring_to_sz(s, tmpbuf, s2len+1, encoding, 0);
 	ret = de_strcmp(tmpbuf, tmpbuf);
 	de_free(s->c, tmpbuf);
 	return ret;
@@ -333,7 +332,8 @@ static int is_printable_uchar(de_int32 ch)
 	return 0;
 }
 
-void ucstring_make_printable(de_ucstring *s)
+// TODO: Remove this function.
+static void ucstring_make_printable_inplace(de_ucstring *s)
 {
 	de_int64 i;
 

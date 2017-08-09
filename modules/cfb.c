@@ -1317,7 +1317,7 @@ static void do_dir_entry(deark *c, lctx *d, de_int64 dir_entry_idx, de_int64 dir
 	}
 
 	// A C-style version of the stream name, to make it easier to analyze.
-	ucstring_to_sz(dei->fname, dei->fname_utf8, sizeof(dei->fname_utf8), DE_ENCODING_UTF8);
+	ucstring_to_sz(dei->fname, dei->fname_utf8, sizeof(dei->fname_utf8), DE_ENCODING_UTF8, 0);
 
 	node_color = dbuf_getbyte(d->dir, dir_entry_offs+67);
 	de_dbg(c, "node color: %u\n", (unsigned int)node_color);
