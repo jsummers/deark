@@ -249,37 +249,56 @@ static int is_printable_uchar(de_int32 ch);
 
 // Note: This function is similar to de_finfo_set_name_from_ucstring().
 // Maybe they should be consolidated.
+// TODO: Should we remove the 'encoding' param, and always assume UTF-8?
 void ucstring_to_sz(de_ucstring *s, char *szbuf, size_t szbuf_len, unsigned int flags, int encoding)
 {
 	de_int64 i;
 	de_int64 szpos = 0;
-	de_byte utf8buf[4];
-	de_int64 utf8codelen;
+	de_int32 ch;
+	de_int64 charcodelen;
+	de_byte charcodebuf[24];
 
 	if(szbuf_len<1) return;
 
 	for(i=0; i<s->len; i++) {
+		ch = s->str[i];
 		if(encoding==DE_ENCODING_UTF8) {
-			de_uchar_to_utf8(s->str[i], utf8buf, &utf8codelen);
+			de_uchar_to_utf8(ch, charcodebuf, &charcodelen);
 		}
 		else { // DE_ENCODING_LATIN1 or DE_ENCODING_ASCII
-			if(s->str[i]>=0 && s->str[i]<=(encoding==DE_ENCODING_LATIN1?255:127))
-				utf8buf[0] = (de_byte)s->str[i];
+			// TODO: This may not work right if DE_CONVFLAG_MAKE_PRINTABLE is used,
+			// but currently that never happens.
+			if(ch>=0 && ch<=(encoding==DE_ENCODING_LATIN1?255:127))
+				charcodebuf[0] = (de_byte)ch;
 			else
-				utf8buf[0] = '_';
-			utf8codelen = 1;
+				charcodebuf[0] = '_';
+			charcodelen = 1;
 		}
 
 		if(flags & DE_CONVFLAG_MAKE_PRINTABLE) {
-			if(!is_printable_uchar(s->str[i])) {
-				utf8buf[0] = '_';
-				utf8codelen = 1;
+			if(!is_printable_uchar(ch)) {
+				if(ch==0x0a) {
+					de_memcpy(charcodebuf, "<\\n>", 4);
+					charcodelen = 4;
+				}
+				else if(ch==0x0d) {
+					de_memcpy(charcodebuf, "<\\r>", 4);
+					charcodelen = 4;
+				}
+				else if(ch==0x09) {
+					de_memcpy(charcodebuf, "<\\t>", 4);
+					charcodelen = 4;
+				}
+				else {
+					de_snprintf((char*)charcodebuf, sizeof(charcodebuf), "<U+%04X>", (unsigned int)ch);
+					charcodelen = (de_int64)de_strlen((const char*)charcodebuf);
+				}
 			}
 		}
 
-		if(szpos + utf8codelen + 1 > (de_int64)szbuf_len) break;
-		de_memcpy(&szbuf[szpos], utf8buf, (size_t)utf8codelen);
-		szpos += utf8codelen;
+		if(szpos + charcodelen + 1 > (de_int64)szbuf_len) break;
+		de_memcpy(&szbuf[szpos], charcodebuf, (size_t)charcodelen);
+		szpos += charcodelen;
 	}
 
 	szbuf[szpos] = '\0';
