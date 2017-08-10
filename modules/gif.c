@@ -20,6 +20,7 @@ struct gceinfo {
 
 typedef struct localctx_struct {
 	int compose;
+	int bad_screen_flag;
 
 	de_int64 screen_w, screen_h;
 	int has_global_color_table;
@@ -692,6 +693,8 @@ static void do_create_interlace_map(deark *c, lctx *d, struct gif_image_data *gi
 	}
 }
 
+// Returns nonzero if parsing can continue.
+// If an image was successfully decoded, also sets gi->img.
 static int do_image_internal(deark *c, lctx *d,
 	struct gif_image_data *gi, de_int64 pos1, de_int64 *bytesused)
 {
@@ -699,6 +702,7 @@ static int do_image_internal(deark *c, lctx *d,
 	de_int64 pos;
 	de_int64 n;
 	int bypp;
+	int failure_flag = 0;
 	int saved_indent_level;
 	unsigned int lzw_min_code_size;
 	struct lzwdeccontext *lz = NULL;
@@ -728,13 +732,31 @@ static int do_image_internal(deark *c, lctx *d,
 	lzw_min_code_size = (unsigned int)de_getbyte(pos++);
 	de_dbg(c, "lzw min code size: %u\n", lzw_min_code_size);
 
-	if(!de_good_image_dimensions(c, gi->width, gi->height)) goto done;
+	// Using a failure_flag variable like this is ugly, but I don't like any
+	// of the other options either, short of a major redesign of this module.
+	// We have to continue to parse the image segment, even after most errors,
+	// so that we know where it ends.
+
+	if(gi->width==0 || gi->height==0) {
+		// This doesn't seem to be forbidden by the spec.
+		de_warn(c, "Image has zero size (%dx%d)\n", (int)gi->width, (int)gi->height);
+		failure_flag = 1;
+	}
+	else if(!de_good_image_dimensions(c, gi->width, gi->height)) {
+		failure_flag = 1;
+	}
+
 	if(d->gce && d->gce->trns_color_idx_valid)
 		bypp = 4;
 	else
 		bypp = 3;
 
-	gi->img = de_bitmap_create(c, gi->width, gi->height, bypp);
+	if(failure_flag) {
+		gi->img = de_bitmap_create(c, 1, 1, 1);
+	}
+	else {
+		gi->img = de_bitmap_create(c, gi->width, gi->height, bypp);
+	}
 
 	if(d->aspect_ratio_code!=0 && d->aspect_ratio_code!=49) {
 		gi->img->density_code = DE_DENSITY_UNK_UNITS;
@@ -743,10 +765,14 @@ static int do_image_internal(deark *c, lctx *d,
 	}
 
 	lz = de_malloc(c, sizeof(struct lzwdeccontext));
-	if(!lzw_init(c, lz, lzw_min_code_size)) goto done;
-	lzw_clear(lz);
+	if(!lzw_init(c, lz, lzw_min_code_size)) {
+		failure_flag = 1;
+	}
+	if(!failure_flag) {
+		lzw_clear(lz);
+	}
 
-	if(gi->interlaced) {
+	if(gi->interlaced && !failure_flag) {
 		do_create_interlace_map(c, d, gi);
 	}
 
@@ -762,9 +788,9 @@ static int do_image_internal(deark *c, lctx *d,
 
 		de_read(buf, pos, n);
 
-		if(!lz->eoi_flag) {
+		if(!lz->eoi_flag && !failure_flag) {
 			if(!lzw_process_bytes(c, d, gi, lz, buf, n)) {
-				goto done;
+				failure_flag = 1;
 			}
 		}
 
@@ -777,6 +803,10 @@ static int do_image_internal(deark *c, lctx *d,
 	retval = 1;
 done:
 	de_free(c, lz);
+	if(failure_flag) {
+		de_bitmap_destroy(gi->img);
+		gi->img = NULL;
+	}
 	de_dbg_indent_restore(c, saved_indent_level);
 	return retval;
 }
@@ -792,6 +822,11 @@ static int do_image(deark *c, lctx *d, de_int64 pos1, de_int64 *bytesused)
 	gi = de_malloc(c, sizeof(struct gif_image_data));
 	retval = do_image_internal(c, d, gi, pos1, bytesused);
 	if(!retval) goto done;
+	if(d->bad_screen_flag || !gi->img) {
+		de_warn(c, "Skipping image due to errors\n");
+		retval = 1;
+		goto done;
+	}
 
 	if(d->compose) {
 		if(d->gce) {
@@ -868,7 +903,10 @@ static void de_run_gif(deark *c, de_module_params *mparams)
 	// track the current state of the animation.
 	if(d->compose) {
 		if(!de_good_image_dimensions(c, d->screen_w, d->screen_h)) {
-			goto done;
+			// Try to continue. There could be other interesting things in the file.
+			d->bad_screen_flag = 1;
+			d->screen_w = 1;
+			d->screen_h = 1;
 		}
 		d->screen_img = de_bitmap_create(c, d->screen_w, d->screen_h, 4);
 	}
