@@ -27,7 +27,9 @@
 #define DE_ENCODING_DEC_SPECIAL_GRAPHICS 80
 #define DE_ENCODING_UNKNOWN      99
 
-#define DE_INVALID_CODEPOINT ((de_int32)-1)
+#define DE_INVALID_CODEPOINT 0x0fffffff // Generic invalid codepoint
+#define DE_CODEPOINT_BYTE00  0x10000000 // More "invalid" codepoints
+#define DE_CODEPOINT_BYTEFF  0x100000ff
 
 #define DE_ITEMS_IN_ARRAY(x) (sizeof(x)/sizeof(x[0]))
 

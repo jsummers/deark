@@ -181,7 +181,11 @@ void de_uchar_to_utf8(de_int32 u1, de_byte *utf8buf, de_int64 *p_utf8len)
 {
 	de_uint32 u = (de_uint32)u1;
 
-	if(u>0x10ffff || u1==DE_INVALID_CODEPOINT) u=0xfffd;
+	// TODO: Maybe there should be a flag to tell what to do with
+	// our special codepoints (DE_CODEPOINT_BYTE00, ...).
+	if(u1<0 || u1>0x10ffff)	{
+		u=0xfffd;
+	}
 
 	if(u<=0x7f) {
 		*p_utf8len = 1;

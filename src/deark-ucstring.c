@@ -162,14 +162,15 @@ void ucstring_append_bytes(de_ucstring *s, const de_byte *buf, de_int64 buflen,
 	while(pos<buflen) {
 		if(encoding==DE_ENCODING_UTF8) {
 			ret = de_utf8_to_uchar(&buf[pos], buflen-pos, &ch, &code_len);
-			if(!ret) {
-				ch = '_';
+			if(!ret) { // Invalid UTF8
+				ch = DE_CODEPOINT_BYTE00 + (de_int32)buf[pos];
 				code_len = 1;
 			}
 		}
 		else if(encoding==DE_ENCODING_UTF16LE) {
 			ret = de_utf16x_to_uchar(&buf[pos], buflen-pos, &ch, &code_len, 1);
 			if(!ret) {
+				// TODO: Handle invalid UTF16 gracefully
 				ch = '_';
 				code_len = 2;
 			}
@@ -184,7 +185,8 @@ void ucstring_append_bytes(de_ucstring *s, const de_byte *buf, de_int64 buflen,
 		else {
 			ch = de_char_to_unicode(s->c, buf[pos], encoding);
 			if(ch==DE_INVALID_CODEPOINT) {
-				ch = '_';
+				// Map unconvertible bytes to a special range.
+				ch = DE_CODEPOINT_BYTE00 + (de_int32)buf[pos];
 			}
 			code_len = 1;
 		}
@@ -276,6 +278,8 @@ void ucstring_to_sz(de_ucstring *s, char *szbuf, size_t szbuf_len, unsigned int 
 		}
 
 		if(flags & DE_CONVFLAG_MAKE_PRINTABLE) {
+			// TODO: This is slightly inefficient, because we're overwriting the
+			// conversion we already did.
 			if(!is_printable_uchar(ch)) {
 				if(ch==0x0a) {
 					de_memcpy(charcodebuf, "<\\n>", 4);
@@ -288,6 +292,10 @@ void ucstring_to_sz(de_ucstring *s, char *szbuf, size_t szbuf_len, unsigned int 
 				else if(ch==0x09) {
 					de_memcpy(charcodebuf, "<\\t>", 4);
 					charcodelen = 4;
+				}
+				else if(ch>=DE_CODEPOINT_BYTE00 && ch<=DE_CODEPOINT_BYTEFF) {
+					de_snprintf((char*)charcodebuf, sizeof(charcodebuf), "<%02X>", (int)(ch-DE_CODEPOINT_BYTE00));
+					charcodelen = (de_int64)de_strlen((const char*)charcodebuf);
 				}
 				else {
 					de_snprintf((char*)charcodebuf, sizeof(charcodebuf), "<U+%04X>", (unsigned int)ch);
@@ -347,9 +355,6 @@ static const char *ucstring_get_printable_sz_internal(de_ucstring *s,
 		return "(null)";
 	}
 
-	if(s->tmp_string)
-		de_free(s->c, s->tmp_string);
-
 	if(has_max) {
 		allocsize = max_bytes + 1;
 	}
@@ -359,6 +364,8 @@ static const char *ucstring_get_printable_sz_internal(de_ucstring *s,
 		allocsize = s->len * 4 + 1;
 	}
 
+	if(s->tmp_string)
+		de_free(s->c, s->tmp_string);
 	s->tmp_string = de_malloc(s->c, allocsize);
 
 	ucstring_to_sz(s, s->tmp_string, (size_t)allocsize, DE_CONVFLAG_MAKE_PRINTABLE, DE_ENCODING_UTF8);
