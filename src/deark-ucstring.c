@@ -227,7 +227,7 @@ de_int64 ucstring_count_utf8_bytes(de_ucstring *s)
 }
 
 // If add_bom_if_needed is set, we'll prepend a BOM if the global c->write_bom
-// option is enabled, 's' has any non-ASCII characters, and 's' doesn't already
+// option is enabled, and 's' has any non-ASCII characters, and 's' doesn't already
 // start with a BOM.
 void ucstring_write_as_utf8(deark *c, de_ucstring *s, dbuf *outf, int add_bom_if_needed)
 {

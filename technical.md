@@ -96,7 +96,7 @@ module for each possibility isn't always feasible. For example, with Unix
 compress format, there is no other way to construct a good output filename, so
 Deark has to settle for a generic name like "output.000.bin".
 
-## Character encoding ##
+## Character encoding (console) ##
 
 The "-d" option prints a lot of textual information to the console, some of
 which is not ASCII-compatible. Non-ASCII text can sometimes cause problems.
@@ -115,6 +115,21 @@ Filenames (and other parameters) are just sequences of arbitrary bytes, so
 it's possible to have a filename that is not valid UTF-8. Deark *will* work
 when reading such files, but it might echo the ill-formed string to the
 terminal, resulting in ill-formed terminal output.
+
+## Character encoding (output files) ##
+
+When Deark generates a text file, its preferred encoding is UTF-8, with a BOM
+(unless you use "-nobom"). But there are many cases where it can't do that,
+because the original encoding is undefined, unsupported, or incompatible with
+Unicode. In such cases, it just writes out the original bytes as they are.
+
+If the text was already encoded in UTF-8, Deark does not behave perfectly
+consistently. Some modules copy the bytes as they are, while other sanitize
+them first.
+
+Deark keeps the end-of-line characters as they are in the original file. If it
+has to generate end-of-line characters of its own, it uses Unix-style line-feed
+characters.
 
 ## Executable output files ##
 

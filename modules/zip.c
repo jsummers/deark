@@ -46,18 +46,6 @@ typedef void (*extrafield_decoder_fn)(deark *c, lctx *d,
 	struct member_data *md, struct dir_entry_data *dd, de_int64 fieldtype,
 	de_int64 pos, de_int64 len, int is_central);
 
-// Write a buffer to a file, converting the encoding.
-static void copy_cp437c_to_utf8(deark *c, const de_byte *buf, de_int64 len, dbuf *outf)
-{
-	de_int32 u;
-	de_int64 i;
-
-	for(i=0; i<len; i++) {
-		u = de_char_to_unicode(c, (de_int32)buf[i], DE_ENCODING_CP437_C);
-		dbuf_write_uchar_as_utf8(outf, u);
-	}
-}
-
 static int is_compression_method_supported(int cmpr_method)
 {
 	if(cmpr_method==0 || cmpr_method==8) return 1;
@@ -106,57 +94,44 @@ static void do_read_filename(deark *c, lctx *d,
 	de_dbg(c, "filename: \"%s\"\n", ucstring_get_printable_sz_n(dd->fname, 300));
 }
 
-static void do_comment(deark *c, lctx *d, de_int64 pos, de_int64 len, int utf8_flag,
+
+static void do_comment_display(deark *c, lctx *d, de_int64 pos, de_int64 len, int encoding,
+	const char *name)
+{
+	de_ucstring *s = NULL;
+
+	s = ucstring_create(c);
+	dbuf_read_to_ucstring(c->infile, pos, len, s, 0, encoding);
+	de_dbg(c, "%s: \"%s\"\n", name, ucstring_get_printable_sz_n(s, 300));
+	ucstring_destroy(s);
+}
+
+static void do_comment_extract(deark *c, lctx *d, de_int64 pos, de_int64 len, int encoding,
 	const char *ext)
 {
-	de_byte *comment = NULL;
 	dbuf *f = NULL;
-
-	if(c->extract_level<2) return;
-	if(len<1) return;
-
-	comment = de_malloc(c, len);
-	de_read(comment, pos, len);
+	de_ucstring *s = NULL;
 
 	f = dbuf_create_output_file(c, ext, NULL, DE_CREATEFLAG_IS_AUX);
+	s = ucstring_create(c);
+	dbuf_read_to_ucstring(c->infile, pos, len, s, 0, encoding);
+	ucstring_write_as_utf8(c, s, f, 1);
+	ucstring_destroy(s);
+}
 
-	if(de_is_ascii(comment, len)) {
-		// No non-ASCII characters, so write the comment as-is.
-		dbuf_write(f, comment, len);
-	}
-	else if(utf8_flag) {
+static void do_comment(deark *c, lctx *d, de_int64 pos, de_int64 len, int utf8_flag,
+	const char *name, const char *ext)
+{
+	int encoding;
 
-		// Comment is already UTF-8. Copy as-is, but maybe add a BOM.
-
-		if(c->write_bom) {
-			int already_has_bom = 0;
-
-			// A UTF-8 comment is not expected to have a BOM, but just in case it does,
-			// make sure we don't add a second one.
-			if(len>=3) {
-				already_has_bom = dbuf_has_utf8_bom(c->infile, pos);
-			}
-
-			if(!already_has_bom) {
-				dbuf_write_uchar_as_utf8(f, 0xfeff);
-			}
-		}
-
-		dbuf_write(f, comment, len);
+	if(len<1) return;
+	encoding = utf8_flag ? DE_ENCODING_UTF8 : DE_ENCODING_CP437_C;
+	if(c->extract_level>=2) {
+		do_comment_extract(c, d, pos, len, encoding, ext);
 	}
 	else {
-		// Convert the comment to UTF-8.
-
-		if(c->write_bom) {
-			// Write a BOM.
-			dbuf_write_uchar_as_utf8(f, 0xfeff);
-		}
-
-		copy_cp437c_to_utf8(c, comment, len, f);
+		do_comment_display(c, d, pos, len, encoding, name);
 	}
-
-	dbuf_close(f);
-	de_free(c, comment);
 }
 
 static void read_unix_timestamp(deark *c, lctx *d, de_int64 pos,
@@ -910,7 +885,8 @@ static int do_file_header(deark *c, lctx *d, struct member_data *md,
 	}
 
 	if(comment_len>0) {
-		do_comment(c, d, pos1+fixed_header_size+fn_len+extra_len, comment_len, utf8_flag, "fcomment.txt");
+		do_comment(c, d, pos1+fixed_header_size+fn_len+extra_len, comment_len, utf8_flag,
+			"member file comment", "fcomment.txt");
 	}
 
 	retval = 1;
@@ -1016,7 +992,8 @@ static int do_end_of_central_dir(deark *c, lctx *d)
 	if(comment_length>0) {
 		// The comment for the whole .ZIP file presumably has to use
 		// cp437 encoding. There's no flag that could indicate otherwise.
-		do_comment(c, d, pos+22, comment_length, 0, "comment.txt");
+		do_comment(c, d, pos+22, comment_length, 0,
+			"ZIP file comment", "comment.txt");
 	}
 
 	// TODO: Figure out exactly how to detect disk spanning.
