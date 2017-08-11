@@ -455,7 +455,7 @@ static void do_comment_extension(deark *c, lctx *d, de_int64 pos)
 			// GIF comments are supposed to be 7-bit ASCII, so just copy them as-is.
 			dbuf_copy(c->infile, pos, n, f);
 		}
-		if(s && s->len<300) {
+		if(s && s->len<DE_DBG_MAX_STRLEN) {
 			dbuf_read_to_ucstring(c->infile, pos, n, s, 0, DE_ENCODING_ASCII);
 		}
 
@@ -463,7 +463,7 @@ static void do_comment_extension(deark *c, lctx *d, de_int64 pos)
 	}
 
 	if(s) {
-		de_dbg(c, "comment: \"%s\"\n", ucstring_get_printable_sz_n(s, 300));
+		de_dbg(c, "comment: \"%s\"\n", ucstring_get_printable_sz_d(s));
 	}
 	dbuf_close(f);
 }

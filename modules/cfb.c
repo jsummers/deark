@@ -881,7 +881,7 @@ static void do_prop_data(deark *c, lctx *d, struct summaryinfo_struct *si,
 	case 0x1e: // string with length prefix
 		s = ucstring_create(c);
 		n = dbuf_geti32le(si->f, si->tbloffset+pinfo->data_offs+4);
-		dbuf_read_to_ucstring_n(si->f, si->tbloffset+pinfo->data_offs+8, n, 300, s,
+		dbuf_read_to_ucstring_n(si->f, si->tbloffset+pinfo->data_offs+8, n, DE_DBG_MAX_STRLEN, s,
 			DE_CONVFLAG_STOP_AT_NUL, si->encoding);
 		de_dbg(c, "%s: \"%s\"\n", pinfo->name, ucstring_get_printable_sz(s));
 		break;

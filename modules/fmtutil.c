@@ -1007,7 +1007,7 @@ static void do_iff_text_chunk(deark *c, dbuf *f, de_int64 dpos, de_int64 dlen,
 	if(dlen<1) return;
 	s = ucstring_create(c);
 	dbuf_read_to_ucstring_n(f,
-		dpos, dlen, 300,
+		dpos, dlen, DE_DBG_MAX_STRLEN,
 		s, DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_ASCII);
 	de_dbg(c, "%s: \"%s\"\n", name, ucstring_get_printable_sz(s));
 	ucstring_destroy(s);
@@ -1031,7 +1031,7 @@ static void do_iff_anno(deark *c, dbuf *f, de_int64 pos, de_int64 len)
 	else {
 		de_ucstring *s = NULL;
 		s = ucstring_create(c);
-		dbuf_read_to_ucstring_n(c->infile, pos, len, 300, s, 0, DE_ENCODING_ASCII);
+		dbuf_read_to_ucstring_n(c->infile, pos, len, DE_DBG_MAX_STRLEN, s, 0, DE_ENCODING_ASCII);
 		de_dbg(c, "annotation: \"%s\"\n", ucstring_get_printable_sz(s));
 		ucstring_destroy(s);
 	}

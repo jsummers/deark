@@ -128,21 +128,24 @@ static int do_header_structure(deark *c, lctx *d, int is_sig, de_int64 pos1,
 		}
 		else if(is_sig==0 && tag_id==DE_RPMTAG_NAME && tag_type==DE_RPM_STRING_TYPE) {
 			if(!d->name_srd) {
-				d->name_srd = dbuf_read_string(c->infile, data_store_pos+tag_offset, 300, 300,
+				d->name_srd = dbuf_read_string(c->infile, data_store_pos+tag_offset,
+					DE_DBG_MAX_STRLEN, DE_DBG_MAX_STRLEN,
 					DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_ASCII);
 				de_dbg(c, "name: \"%s\"\n", ucstring_get_printable_sz(d->name_srd->str));
 			}
 		}
 		else if(is_sig==0 && tag_id==DE_RPMTAG_VERSION && tag_type==DE_RPM_STRING_TYPE) {
 			if(!d->version_srd) {
-				d->version_srd = dbuf_read_string(c->infile, data_store_pos+tag_offset, 300, 300,
+				d->version_srd = dbuf_read_string(c->infile, data_store_pos+tag_offset,
+					DE_DBG_MAX_STRLEN, DE_DBG_MAX_STRLEN,
 					DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_ASCII);
 				de_dbg(c, "version: \"%s\"\n", ucstring_get_printable_sz(d->version_srd->str));
 			}
 		}
 		else if(is_sig==0 && tag_id==DE_RPMTAG_RELEASE && tag_type==DE_RPM_STRING_TYPE) {
 			if(!d->release_srd) {
-				d->release_srd = dbuf_read_string(c->infile, data_store_pos+tag_offset, 300, 300,
+				d->release_srd = dbuf_read_string(c->infile, data_store_pos+tag_offset,
+					DE_DBG_MAX_STRLEN, DE_DBG_MAX_STRLEN,
 					DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_ASCII);
 				de_dbg(c, "release: \"%s\"\n", ucstring_get_printable_sz(d->release_srd->str));
 			}

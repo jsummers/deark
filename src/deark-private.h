@@ -723,6 +723,10 @@ const char *ucstring_get_printable_sz(de_ucstring *s);
 // max_bytes does not count the terminating NUL.
 const char *ucstring_get_printable_sz_n(de_ucstring *s, de_int64 max_bytes);
 
+#define DE_DBG_MAX_STRLEN 500
+// Same as ..._n, with max_bytes=DE_DBG_MAX_STRLEN
+const char *ucstring_get_printable_sz_d(de_ucstring *s);
+
 // Helper function for printing the contents of bit-flags fields
 void ucstring_append_flags_item(de_ucstring *s, const char *str);
 

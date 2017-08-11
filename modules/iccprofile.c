@@ -198,7 +198,7 @@ static void typedec_text(deark *c, lctx *d, de_int64 pos, de_int64 len)
 	if(textlen<0) goto done;
 
 	s = ucstring_create(c);
-	dbuf_read_to_ucstring_n(c->infile, pos+8, textlen, 300,
+	dbuf_read_to_ucstring_n(c->infile, pos+8, textlen, DE_DBG_MAX_STRLEN,
 		s, 0, DE_ENCODING_ASCII);
 	ucstring_truncate_at_NUL(s);
 	de_dbg(c, "text: \"%s\"\n", ucstring_get_printable_sz(s));
@@ -226,7 +226,7 @@ static void typedec_desc(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 	invdesclen = de_getui32be(pos); // invariant desc. len, including NUL byte
 	pos += 4;
 	s = ucstring_create(c);
-	dbuf_read_to_ucstring_n(c->infile, pos, invdesclen, 300,
+	dbuf_read_to_ucstring_n(c->infile, pos, invdesclen, DE_DBG_MAX_STRLEN,
 		s, 0, DE_ENCODING_ASCII);
 	ucstring_truncate_at_NUL(s);
 	de_dbg(c, "invariant desc.: \"%s\"\n", ucstring_get_printable_sz(s));
@@ -269,7 +269,7 @@ static void typedec_desc(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 		}
 	}
 
-	dbuf_read_to_ucstring_n(c->infile, lstrstartpos, bytes_to_read, 300*2,
+	dbuf_read_to_ucstring_n(c->infile, lstrstartpos, bytes_to_read, DE_DBG_MAX_STRLEN*2,
 		s, 0, encoding);
 	ucstring_truncate_at_NUL(s);
 	if(s->len>0) {
@@ -307,7 +307,7 @@ static void do_mluc_record(deark *c, lctx *d, de_int64 tagstartpos,
 	de_dbg(c, "string offset=%d+%d, len=%d bytes\n", (int)tagstartpos,
 		(int)string_offset, (int)string_len);
 
-	dbuf_read_to_ucstring_n(c->infile, tagstartpos+string_offset, string_len, 300*2,
+	dbuf_read_to_ucstring_n(c->infile, tagstartpos+string_offset, string_len, DE_DBG_MAX_STRLEN*2,
 		s, 0, DE_ENCODING_UTF16BE);
 	ucstring_truncate_at_NUL(s);
 	de_dbg(c, "string: \"%s\"\n", ucstring_get_printable_sz(s));

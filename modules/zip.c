@@ -91,7 +91,7 @@ static void do_read_filename(deark *c, lctx *d,
 	dd->fname = ucstring_create(c);
 	from_encoding = utf8_flag ? DE_ENCODING_UTF8 : DE_ENCODING_CP437_G;
 	dbuf_read_to_ucstring(c->infile, pos, len, dd->fname, 0, from_encoding);
-	de_dbg(c, "filename: \"%s\"\n", ucstring_get_printable_sz_n(dd->fname, 300));
+	de_dbg(c, "filename: \"%s\"\n", ucstring_get_printable_sz_d(dd->fname));
 }
 
 
@@ -102,7 +102,7 @@ static void do_comment_display(deark *c, lctx *d, de_int64 pos, de_int64 len, in
 
 	s = ucstring_create(c);
 	dbuf_read_to_ucstring(c->infile, pos, len, s, 0, encoding);
-	de_dbg(c, "%s: \"%s\"\n", name, ucstring_get_printable_sz_n(s, 300));
+	de_dbg(c, "%s: \"%s\"\n", name, ucstring_get_printable_sz_d(s));
 	ucstring_destroy(s);
 }
 
@@ -498,12 +498,14 @@ static void ef_infozipmac(deark *c, lctx *d,
 	de_dbg(c, "charset for fullpath/comment: %d\n", (int)charset);
 
 	// TODO: Can we use the correct encoding?
-	srd = dbuf_read_string(attr_data, dpos, attr_data->len-dpos, 300, DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_ASCII);
+	srd = dbuf_read_string(attr_data, dpos, attr_data->len-dpos, DE_DBG_MAX_STRLEN,
+		DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_ASCII);
 	de_dbg(c, "fullpath: \"%s\"\n", ucstring_get_printable_sz(srd->str));
 	dpos += srd->bytes_consumed;
 	de_destroy_stringreaderdata(c, srd);
 
-	srd = dbuf_read_string(attr_data, dpos, attr_data->len-dpos, 300, DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_ASCII);
+	srd = dbuf_read_string(attr_data, dpos, attr_data->len-dpos, DE_DBG_MAX_STRLEN,
+		DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_ASCII);
 	de_dbg(c, "comment: \"%s\"\n", ucstring_get_printable_sz(srd->str));
 	dpos += srd->bytes_consumed;
 	de_destroy_stringreaderdata(c, srd);
@@ -644,13 +646,13 @@ static void do_extract_file(deark *c, lctx *d, struct member_data *md)
 
 	if(md->is_dir && ldd->uncmpr_size==0) {
 		de_msg(c, "Note: \"%s\" is a directory. Ignoring.\n",
-			ucstring_get_printable_sz_n(ldd->fname, 300));
+			ucstring_get_printable_sz_d(ldd->fname));
 		goto done;
 	}
 
 	if(md->is_symlink) {
 		de_warn(c, "\"%s\" is a symbolic link. It will not be extracted as a link.\n",
-			ucstring_get_printable_sz_n(ldd->fname, 300));
+			ucstring_get_printable_sz_d(ldd->fname));
 	}
 
 	fi = de_finfo_create(c);

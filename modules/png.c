@@ -80,7 +80,8 @@ static int do_unc_text_field(deark *c, lctx *d,
 	}
 
 	if(is_nul_terminated) {
-		srd = dbuf_read_string(srcdbuf, pos, bytes_avail, 300, DE_CONVFLAG_STOP_AT_NUL, encoding);
+		srd = dbuf_read_string(srcdbuf, pos, bytes_avail, DE_DBG_MAX_STRLEN,
+			DE_CONVFLAG_STOP_AT_NUL, encoding);
 
 		if(!srd->found_nul) goto done;
 		*bytes_consumed = srd->bytes_consumed - 1;
@@ -91,7 +92,7 @@ static int do_unc_text_field(deark *c, lctx *d,
 		*bytes_consumed = bytes_avail;
 
 		bytes_to_scan = bytes_avail;
-		if(bytes_to_scan>300) bytes_to_scan = 300;
+		if(bytes_to_scan>DE_DBG_MAX_STRLEN) bytes_to_scan = DE_DBG_MAX_STRLEN;
 		srd = dbuf_read_string(srcdbuf, pos, bytes_to_scan, bytes_to_scan, 0, encoding);
 	}
 

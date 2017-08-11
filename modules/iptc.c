@@ -291,7 +291,7 @@ static void handle_text(deark *c, lctx *d, const struct ds_info *dsi,
 	if(encoding==DE_ENCODING_UNKNOWN)
 		encoding = DE_ENCODING_ASCII;
 	dbuf_read_to_ucstring(c->infile, pos, len, s, 0, encoding);
-	de_dbg(c, "%s: \"%s\"\n", dsi->dsname, ucstring_get_printable_sz_n(s, 300));
+	de_dbg(c, "%s: \"%s\"\n", dsi->dsname, ucstring_get_printable_sz_d(s));
 	ucstring_destroy(s);
 }
 

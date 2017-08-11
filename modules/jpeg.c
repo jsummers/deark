@@ -596,8 +596,6 @@ done:
 	de_dbg_indent(c, -1);
 }
 
-#define DE_MAX_DBG_CHARS 500
-
 static void handle_comment(deark *c, lctx *d, de_int64 pos, de_int64 comment_size,
    int encoding)
 {
@@ -637,7 +635,7 @@ static void handle_comment(deark *c, lctx *d, de_int64 pos, de_int64 comment_siz
 		dbuf_close(outf);
 	}
 	else {
-		de_dbg(c, "comment: \"%s\"\n", ucstring_get_printable_sz_n(s, DE_MAX_DBG_CHARS));
+		de_dbg(c, "comment: \"%s\"\n", ucstring_get_printable_sz_d(s));
 	}
 
 done:

@@ -265,7 +265,7 @@ static void read_member_name(deark *c, lctx *d, struct member_data *md)
 	if(md->namesize<1) goto done;
 
 	namesize_adjusted = md->namesize - 1;
-	if(namesize_adjusted>300) namesize_adjusted=300;
+	if(namesize_adjusted>DE_DBG_MAX_STRLEN) namesize_adjusted=DE_DBG_MAX_STRLEN;
 
 	// The encoding is presumably whatever encoding the filenames used on the
 	// system on which the archive was created, and there's no way to tell

@@ -1892,7 +1892,7 @@ static void process_ifd(deark *c, lctx *d, de_int64 ifdpos, int ifdtype)
 
 		do_dbg_print_values(c, d, &tg, tni, dbgline);
 
-		de_dbg(c, "%s\n", ucstring_get_printable_sz_n(dbgline, 1024));
+		de_dbg(c, "%s\n", ucstring_get_printable_sz_n(dbgline, 80+DE_DBG_MAX_STRLEN));
 		de_dbg_indent(c, 1);
 
 		switch(tg.tagnum) {

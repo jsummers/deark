@@ -625,7 +625,7 @@ static void hrsrc_namesofalphachannels(deark *c, lctx *d, zztype *zz, const stru
 	while(zz->pos < (zz->endpos-1)) {
 		ucstring_empty(s);
 		read_pascal_string_to_ucstring(c, d, s, zz);
-		de_dbg(c, "%s[%d]: \"%s\"\n", ri->idname, idx, ucstring_get_printable_sz_n(s, 300));
+		de_dbg(c, "%s[%d]: \"%s\"\n", ri->idname, idx, ucstring_get_printable_sz_d(s));
 		idx++;
 	}
 	ucstring_destroy(s);
@@ -853,7 +853,9 @@ static void read_unicode_string(deark *c, lctx *d, de_ucstring *s, zztype *zz)
 		return;
 	}
 
-	dbuf_read_to_ucstring_n(c->infile, zz->pos, num_code_units*2, 300*2, s, 0,
+	// Use DE_DBG_MAX_STRLEN, because we assume the string is being read for
+	// the purposes of printing it in the debug info.
+	dbuf_read_to_ucstring_n(c->infile, zz->pos, num_code_units*2, DE_DBG_MAX_STRLEN*2, s, 0,
 		d->is_le ? DE_ENCODING_UTF16LE : DE_ENCODING_UTF16BE);
 	zz->pos += num_code_units*2;
 
@@ -969,7 +971,7 @@ static int do_item_type_class(deark *c, lctx *d, zztype *zz)
 
 	tmps = ucstring_create(c);
 	read_unicode_string(c, d, tmps, zz);
-	de_dbg(c, "name from classID: \"%s\"\n", ucstring_get_printable_sz_n(tmps, 300));
+	de_dbg(c, "name from classID: \"%s\"\n", ucstring_get_printable_sz_d(tmps));
 
 	read_flexible_id_zz(c, d, zz, &flid);
 	dbg_print_flexible_id(c, d, &flid, "classID");
@@ -1019,7 +1021,7 @@ static void do_item_type_TEXT(deark *c, lctx *d, zztype *zz)
 
 	s = ucstring_create(c);
 	read_unicode_string(c, d, s, zz);
-	de_dbg(c, "value: \"%s\"\n", ucstring_get_printable_sz_n(s, 300));
+	de_dbg(c, "value: \"%s\"\n", ucstring_get_printable_sz_d(s));
 	ucstring_destroy(s);
 }
 
@@ -1123,7 +1125,7 @@ static int do_Enmr_reference(deark *c, lctx *d, zztype *zz)
 
 	tmps = ucstring_create(c);
 	read_unicode_string(c, d, tmps, zz);
-	de_dbg(c, "name from classID: \"%s\"\n", ucstring_get_printable_sz_n(tmps, 300));
+	de_dbg(c, "name from classID: \"%s\"\n", ucstring_get_printable_sz_d(tmps));
 
 	read_flexible_id_zz(c, d, zz, &flid);
 	dbg_print_flexible_id(c, d, &flid, "classID");
@@ -1148,7 +1150,7 @@ static int do_prop_reference(deark *c, lctx *d, zztype *zz)
 
 	tmps = ucstring_create(c);
 	read_unicode_string(c, d, tmps, zz);
-	de_dbg(c, "name from classID: \"%s\"\n", ucstring_get_printable_sz_n(tmps, 300));
+	de_dbg(c, "name from classID: \"%s\"\n", ucstring_get_printable_sz_d(tmps));
 
 	read_flexible_id_zz(c, d, zz, &flid);
 	dbg_print_flexible_id(c, d, &flid, "classID");
@@ -1178,7 +1180,7 @@ static int do_name_reference(deark *c, lctx *d, zztype *zz)
 	tmps = ucstring_create(c);
 
 	read_unicode_string(c, d, tmps, zz);
-	de_dbg(c, "name from classID: \"%s\"\n", ucstring_get_printable_sz_n(tmps, 300));
+	de_dbg(c, "name from classID: \"%s\"\n", ucstring_get_printable_sz_d(tmps));
 	ucstring_empty(tmps);
 
 	read_flexible_id_zz(c, d, zz, &flid);
@@ -1186,7 +1188,7 @@ static int do_name_reference(deark *c, lctx *d, zztype *zz)
 	flexible_id_free_contents(c, &flid);
 
 	read_unicode_string(c, d, tmps, zz);
-	de_dbg(c, "undocumented unicode string: \"%s\"\n", ucstring_get_printable_sz_n(tmps, 300));
+	de_dbg(c, "undocumented unicode string: \"%s\"\n", ucstring_get_printable_sz_d(tmps));
 
 	ucstring_destroy(tmps);
 	return 1;
@@ -1201,7 +1203,7 @@ static int do_rele_reference(deark *c, lctx *d, zztype *zz)
 	tmps = ucstring_create(c);
 
 	read_unicode_string(c, d, tmps, zz);
-	de_dbg(c, "name from classID: \"%s\"\n", ucstring_get_printable_sz_n(tmps, 300));
+	de_dbg(c, "name from classID: \"%s\"\n", ucstring_get_printable_sz_d(tmps));
 	ucstring_empty(tmps);
 
 	read_flexible_id_zz(c, d, zz, &flid);
@@ -1227,7 +1229,7 @@ static int do_indx_reference(deark *c, lctx *d, zztype *zz)
 	tmps = ucstring_create(c);
 
 	read_unicode_string(c, d, tmps, zz);
-	de_dbg(c, "name from classID: \"%s\"\n", ucstring_get_printable_sz_n(tmps, 300));
+	de_dbg(c, "name from classID: \"%s\"\n", ucstring_get_printable_sz_d(tmps));
 	ucstring_empty(tmps);
 
 	read_flexible_id_zz(c, d, zz, &flid);
@@ -1466,7 +1468,7 @@ static int read_descriptor(deark *c, lctx *d, zztype *zz, int has_version, const
 	name_from_classid = ucstring_create(c);
 	read_unicode_string(c, d, name_from_classid, zz);
 	if(name_from_classid->len > 0) {
-		de_dbg(c, "name from classID: \"%s\"\n", ucstring_get_printable_sz_n(name_from_classid, 300));
+		de_dbg(c, "name from classID: \"%s\"\n", ucstring_get_printable_sz_d(name_from_classid));
 	}
 
 	read_flexible_id_zz(c, d, zz, &classid);
@@ -1585,7 +1587,7 @@ static void do_slices_v6(deark *c, lctx *d, zztype *zz)
 	name_of_group_of_slices = ucstring_create(c);
 	read_unicode_string(c, d, name_of_group_of_slices, zz);
 	de_dbg(c, "name of group of slices: \"%s\"\n",
-		ucstring_get_printable_sz_n(name_of_group_of_slices, 300));
+		ucstring_get_printable_sz_d(name_of_group_of_slices));
 	if(zz->pos >= zz->endpos) goto done;
 
 	num_slices = psd_getui32zz(zz);
@@ -1696,7 +1698,7 @@ static void hrsrc_unicodestring(deark *c, lctx *d, zztype *zz, const struct rsrc
 
 	s = ucstring_create(c);
 	read_unicode_string(c, d, s, zz);
-	de_dbg(c, "%s: \"%s\"\n", ri->idname, ucstring_get_printable_sz_n(s, 300));
+	de_dbg(c, "%s: \"%s\"\n", ri->idname, ucstring_get_printable_sz_d(s));
 	ucstring_destroy(s);
 }
 
@@ -1712,7 +1714,7 @@ static void hrsrc_unicodestring_multi(deark *c, lctx *d, zztype *zz,
 	while(zz_avail(zz)>=4) {
 		ucstring_empty(s);
 		read_unicode_string(c, d, s, zz);
-		de_dbg(c, "%s[%d]: \"%s\"\n", ri->idname, idx, ucstring_get_printable_sz_n(s, 300));
+		de_dbg(c, "%s[%d]: \"%s\"\n", ri->idname, idx, ucstring_get_printable_sz_d(s));
 		idx++;
 	}
 	ucstring_destroy(s);
@@ -1735,7 +1737,7 @@ static void hrsrc_plaintext(deark *c, lctx *d, zztype *zz, const struct rsrc_inf
 	de_ucstring *s = NULL;
 
 	s = ucstring_create(c);
-	dbuf_read_to_ucstring_n(c->infile, zz->pos, zz_avail(zz), 300,
+	dbuf_read_to_ucstring_n(c->infile, zz->pos, zz_avail(zz), DE_DBG_MAX_STRLEN,
 		s, 0, DE_ENCODING_MACROMAN);
 	de_dbg(c, "%s: \"%s\"\n", ri->idname, ucstring_get_printable_sz(s));
 	ucstring_destroy(s);
@@ -2369,11 +2371,11 @@ static int do_pattern_internal(deark *c, lctx *d, zztype *zz)
 
 	s = ucstring_create(c);
 	read_unicode_string(c, d, s, zz);
-	de_dbg(c, "name: \"%s\"\n", ucstring_get_printable_sz_n(s, 300));
+	de_dbg(c, "name: \"%s\"\n", ucstring_get_printable_sz_d(s));
 
 	ucstring_empty(s);
 	read_pascal_string_to_ucstring(c, d, s, zz);
-	de_dbg(c, "id: \"%s\"\n", ucstring_get_printable_sz_n(s, 300));
+	de_dbg(c, "id: \"%s\"\n", ucstring_get_printable_sz_d(s));
 
 	if(pat_color_mode==PSD_CM_PALETTE) {
 		de_dbg(c, "palette at %d\n", (int)zz->pos);
@@ -2516,7 +2518,7 @@ static void do_samp_block(deark *c, lctx *d, zztype *zz)
 
 		ucstring_empty(tmps);
 		read_pascal_string_to_ucstring(c, d, tmps, &datazz);
-		de_dbg(c, "id: \"%s\"\n", ucstring_get_printable_sz_n(tmps, 300));
+		de_dbg(c, "id: \"%s\"\n", ucstring_get_printable_sz_d(tmps));
 
 		if(d->abr_major_ver==6 && d->abr_minor_ver<=1) {
 			zz_init(&czz, &datazz);
@@ -3246,7 +3248,7 @@ static int do_action_item(deark *c, lctx *d, zztype *zz)
 	de_dbg(c, "identifier type: '%s'\n", id4cc.id_printable);
 	if(id4cc.id==CODE_TEXT) {
 		read_prefixed_string_to_ucstring(c, d, s, zz);
-		de_dbg(c, "id: \"%s\"\n", ucstring_get_printable_sz_n(s, 300));
+		de_dbg(c, "id: \"%s\"\n", ucstring_get_printable_sz_d(s));
 	}
 	else if(id4cc.id==CODE_long) {
 		de_int64 id_long;
@@ -3260,7 +3262,7 @@ static int do_action_item(deark *c, lctx *d, zztype *zz)
 
 	ucstring_empty(s);
 	read_prefixed_string_to_ucstring(c, d, s, zz);
-	de_dbg(c, "dictionary name: \"%s\"\n", ucstring_get_printable_sz_n(s, 300));
+	de_dbg(c, "dictionary name: \"%s\"\n", ucstring_get_printable_sz_d(s));
 
 	dscr_flag = psd_geti32zz(zz);
 	de_dbg(c, "descriptor flag: %d\n", (int)dscr_flag);
@@ -3305,7 +3307,7 @@ static int do_one_action(deark *c, lctx *d, zztype *zz)
 
 	s = ucstring_create(c);
 	read_unicode_string(c, d, s, zz);
-	de_dbg(c, "action name: \"%s\"\n", ucstring_get_printable_sz_n(s, 300));
+	de_dbg(c, "action name: \"%s\"\n", ucstring_get_printable_sz_d(s));
 
 	zz->pos += 1; // action-is-expanded
 
@@ -3350,7 +3352,7 @@ static void do_action_set(deark *c, lctx *d, zztype *zz)
 
 	s = ucstring_create(c);
 	read_unicode_string(c, d, s, zz);
-	de_dbg(c, "action set name: \"%s\"\n", ucstring_get_printable_sz_n(s, 300));
+	de_dbg(c, "action set name: \"%s\"\n", ucstring_get_printable_sz_d(s));
 
 	b = psd_getbytezz(zz);
 	de_dbg(c, "set-is-expanded: %d\n", (int)b);
@@ -3931,7 +3933,7 @@ static void do_custom_shape(deark *c, lctx *d, zztype *zz)
 	s = ucstring_create(c);
 	saved_pos = zz->pos;
 	read_unicode_string(c, d, s, zz);
-	de_dbg(c, "name: \"%s\"\n", ucstring_get_printable_sz_n(s, 300));
+	de_dbg(c, "name: \"%s\"\n", ucstring_get_printable_sz_d(s));
 	// This Unicode String is padded to a multiple of 4 bytes, unlike pretty much
 	// every other Unicode String in every Photoshop format.
 	zz->pos = saved_pos + de_pad_to_4(zz->pos - saved_pos);

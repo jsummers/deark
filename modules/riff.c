@@ -51,7 +51,7 @@ static void do_INFO_item(deark *c, lctx *d, struct de_iffctx *ictx, de_int64 pos
 	// TODO: Decode the chunk_id (e.g. ICRD = Creation date).
 
 	// TODO: Support the CSET chunk
-	dbuf_read_to_ucstring_n(c->infile, pos, len, 300, s,
+	dbuf_read_to_ucstring_n(c->infile, pos, len, DE_DBG_MAX_STRLEN, s,
 		DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_LATIN1);
 	de_dbg(c, "value: \"%s\"\n", ucstring_get_printable_sz(s));
 
