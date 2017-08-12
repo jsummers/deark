@@ -258,7 +258,9 @@ void ucstring_to_sz(de_ucstring *s, char *szbuf, size_t szbuf_len, unsigned int 
 	de_int64 szpos = 0;
 	de_int32 ch;
 	de_int64 charcodelen;
-	de_byte charcodebuf[24];
+	static const char *sc1 = "\x01<"; // DE_CODEPOINT_HL in UTF-8
+	static const char *sc2 = ">\x02"; // DE_CODEPOINT_UNHL
+	de_byte charcodebuf[32];
 
 	if(szbuf_len<1) return;
 
@@ -282,25 +284,26 @@ void ucstring_to_sz(de_ucstring *s, char *szbuf, size_t szbuf_len, unsigned int 
 			// conversion we already did.
 			if(!is_printable_uchar(ch)) {
 				if(ch==0x0a) {
-					de_memcpy(charcodebuf, "<\\n>", 4);
-					charcodelen = 4;
+					de_snprintf((char*)charcodebuf, sizeof(charcodebuf),
+						"%s\\n%s", sc1, sc2);
 				}
 				else if(ch==0x0d) {
-					de_memcpy(charcodebuf, "<\\r>", 4);
-					charcodelen = 4;
+					de_snprintf((char*)charcodebuf, sizeof(charcodebuf),
+						"%s\\r%s", sc1, sc2);
 				}
 				else if(ch==0x09) {
-					de_memcpy(charcodebuf, "<\\t>", 4);
-					charcodelen = 4;
+					de_snprintf((char*)charcodebuf, sizeof(charcodebuf),
+						"%s\\t%s", sc1, sc2);
 				}
 				else if(ch>=DE_CODEPOINT_BYTE00 && ch<=DE_CODEPOINT_BYTEFF) {
-					de_snprintf((char*)charcodebuf, sizeof(charcodebuf), "<%02X>", (int)(ch-DE_CODEPOINT_BYTE00));
-					charcodelen = (de_int64)de_strlen((const char*)charcodebuf);
+					de_snprintf((char*)charcodebuf, sizeof(charcodebuf), "%s%02X%s",
+						sc1, (int)(ch-DE_CODEPOINT_BYTE00), sc2);
 				}
 				else {
-					de_snprintf((char*)charcodebuf, sizeof(charcodebuf), "<U+%04X>", (unsigned int)ch);
-					charcodelen = (de_int64)de_strlen((const char*)charcodebuf);
+					de_snprintf((char*)charcodebuf, sizeof(charcodebuf),
+						"%sU+%04X%s", sc1, (unsigned int)ch, sc2);
 				}
+				charcodelen = (de_int64)de_strlen((const char*)charcodebuf);
 			}
 		}
 

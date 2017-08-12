@@ -27,6 +27,9 @@
 #define DE_ENCODING_DEC_SPECIAL_GRAPHICS 80
 #define DE_ENCODING_UNKNOWN      99
 
+#define DE_CODEPOINT_HL          0x0001
+#define DE_CODEPOINT_UNHL        0x0002
+#define DE_CODEPOINT_MOVED      0xfde00
 #define DE_INVALID_CODEPOINT 0x0fffffff // Generic invalid codepoint
 #define DE_CODEPOINT_BYTE00  0x10000000 // More "invalid" codepoints
 #define DE_CODEPOINT_BYTEFF  0x100000ff
@@ -244,6 +247,7 @@ struct deark_struct {
 	int modhelp_req;
 
 	de_msgfn_type msgfn; // Caller's message output function
+	de_specialmsgfn_type specialmsgfn;
 	de_fatalerrorfn_type fatalerrorfn;
 	const char *dprefix;
 

@@ -289,6 +289,28 @@ int de_winconsole_is_console(void *h1)
 	return n ? 1 : 0;
 }
 
+int de_get_current_windows_attributes(void *handle, unsigned int *attrs)
+{
+	CONSOLE_SCREEN_BUFFER_INFO csbi;
+	if(!GetConsoleScreenBufferInfo((HANDLE)handle, &csbi))
+		return 0;
+	*attrs = (unsigned int)csbi.wAttributes;
+	return 1;
+}
+
+void de_windows_highlight(void *handle1, unsigned int orig_attr, int x)
+{
+	if(x) {
+		SetConsoleTextAttribute((void*)handle1,
+			(orig_attr&0xff00) |
+			((orig_attr&0x000fU)<<4) |
+			((orig_attr&0x00f0U)>>4) );
+	}
+	else {
+		SetConsoleTextAttribute((void*)handle1, (WORD)orig_attr);
+	}
+}
+
 // Note: Need to keep this function in sync with the implementation in deark-unix.c.
 void de_timestamp_to_string(const struct de_timestamp *ts,
 	char *buf, size_t buf_len, unsigned int flags)

@@ -35,6 +35,7 @@ struct cmdctx {
 	void *msgs_HANDLE;
 	int have_windows_console; // Is msgs_FILE a console?
 	int use_fwputs;
+	unsigned int orig_console_attribs;
 #endif
 
 	int to_stdout;
@@ -42,6 +43,8 @@ struct cmdctx {
 	int from_stdin;
 	int to_ascii;
 	int to_oem;
+	int use_color_req;
+	int color_method; // 0=no color, 1=ANSI codes, 2=Windows console commands
 	char msgbuf[1000];
 };
 
@@ -90,15 +93,8 @@ static void print_modules(deark *c)
 	de_print_module_list(c);
 }
 
-static void our_msgfn(deark *c, unsigned int flags, const char *s1)
+static void initialize_output_stream(struct cmdctx *cc)
 {
-	struct cmdctx *cc;
-	const char *s;
-
-	cc = de_get_userdata(c);
-
-	if(!cc->have_initialized_output_stream) {
-
 		if(cc->msgs_to_stderr) {
 			cc->msgs_FILE = stderr;
 		}
@@ -116,9 +112,72 @@ static void our_msgfn(deark *c, unsigned int flags, const char *s1)
 			cc->use_fwputs = 1;
 			_setmode(_fileno(cc->msgs_FILE), _O_U16TEXT);
 		}
+		if(cc->use_color_req) {
+			if(cc->have_windows_console) {
+				if(de_get_current_windows_attributes(cc->msgs_HANDLE, &cc->orig_console_attribs)) {
+					cc->color_method = 2;
+				}
+			}
+			else {
+				cc->color_method = 1;
+			}
+		}
+#else
+		cc->color_method = cc->use_color_req ? 1 : 0;
 #endif
 
+		if(cc->color_method==1) {
+			// If using ANSI codes, start by unsetting reversed-colors
+			fputs("\x1b[27m", cc->msgs_FILE);
+		}
+
 		cc->have_initialized_output_stream = 1;
+}
+
+static void our_specialmsgfn(deark *c, unsigned int flags, unsigned int code)
+{
+	struct cmdctx *cc;
+
+	cc = de_get_userdata(c);
+	if(!cc->color_method) return;
+
+	if(!cc->have_initialized_output_stream) {
+		initialize_output_stream(cc);
+	}
+
+#ifdef DE_WINDOWS
+	if(cc->have_windows_console) {
+		if(code==DE_MSGCODE_HL) {
+			de_windows_highlight(cc->msgs_HANDLE, cc->orig_console_attribs, 1);
+		}
+		else if(code==DE_MSGCODE_UNHL) {
+			de_windows_highlight(cc->msgs_HANDLE, cc->orig_console_attribs, 0);
+		}
+		return;
+	}
+	else if(cc->use_fwputs) {
+		return; // Shouldn't be possible
+	}
+#endif
+
+	if(code==DE_MSGCODE_HL) {
+		fputs("\x1b[7m", cc->msgs_FILE);
+	}
+	else if(code==DE_MSGCODE_UNHL) {
+		fputs("\x1b[27m", cc->msgs_FILE);
+	}
+
+}
+
+static void our_msgfn(deark *c, unsigned int flags, const char *s1)
+{
+	struct cmdctx *cc;
+	const char *s;
+
+	cc = de_get_userdata(c);
+
+	if(!cc->have_initialized_output_stream) {
+		initialize_output_stream(cc);
 	}
 
 	if(cc->to_ascii) {
@@ -207,7 +266,8 @@ enum opt_id_enum {
  DE_OPT_NOMODTIME,
  DE_OPT_Q, DE_OPT_VERSION, DE_OPT_HELP,
  DE_OPT_MAINONLY, DE_OPT_AUXONLY, DE_OPT_EXTRACTALL, DE_OPT_ZIP,
- DE_OPT_TOSTDOUT, DE_OPT_MSGSTOSTDERR, DE_OPT_FROMSTDIN, DE_OPT_ENCODING,
+ DE_OPT_TOSTDOUT, DE_OPT_MSGSTOSTDERR, DE_OPT_FROMSTDIN, DE_OPT_COLOR,
+ DE_OPT_ENCODING,
  DE_OPT_EXTOPT, DE_OPT_FILE2, DE_OPT_START, DE_OPT_SIZE, DE_OPT_M, DE_OPT_O,
  DE_OPT_ARCFN, DE_OPT_GET, DE_OPT_FIRSTFILE, DE_OPT_MAXFILES, DE_OPT_MAXIMGDIM,
  DE_OPT_PRINTMODULES, DE_OPT_DPREFIX
@@ -246,6 +306,7 @@ struct opt_struct option_array[] = {
 	{ "tostdout",     DE_OPT_TOSTDOUT,     0 },
 	{ "msgstostderr", DE_OPT_MSGSTOSTDERR, 0 },
 	{ "fromstdin",    DE_OPT_FROMSTDIN,    0 },
+	{ "color",        DE_OPT_COLOR,        0 },
 	{ "enc",          DE_OPT_ENCODING,     1 },
 	{ "opt",          DE_OPT_EXTOPT,       1 },
 	{ "file2",        DE_OPT_FILE2,        1 },
@@ -399,6 +460,9 @@ static void parse_cmdline(deark *c, struct cmdctx *cc, int argc, char **argv)
 				de_set_input_style(c, DE_INPUTSTYLE_STDIN);
 				cc->from_stdin = 1;
 				break;
+			case DE_OPT_COLOR:
+				cc->use_color_req = 1;
+				break;
 			case DE_OPT_ENCODING:
 				set_encoding_option(c, cc, argv[i+1]);
 				if(cc->error_flag) return;
@@ -498,6 +562,7 @@ static void main2(int argc, char **argv)
 	de_set_userdata(c, (void*)cc);
 	de_set_fatalerror_callback(c, our_fatalerrorfn);
 	de_set_messages_callback(c, our_msgfn);
+	de_set_special_messages_callback(c, our_specialmsgfn);
 
 	if(argc<2) { // Empty command line
 		show_help(c);

@@ -151,6 +151,11 @@ Command-line options:
    Print technical and debugging information. -d2 and -d3 are more verbose.
 -dprefix &lt;msg>
    Start each line printed by -d with this prefix. Default is "DEBUG: ".
+-color
+   Allow the use of color and similar features in the debug output. This
+   feature is experimental.
+   Currently, all it does is try to highlight unprintable characters. This is
+   done using ANSI escape sequences, or Windows console commands.
 -enc &lt;ascii|oem>
    Set the encoding of the messages that are printed to the console. This does
    not affect the extracted data files.

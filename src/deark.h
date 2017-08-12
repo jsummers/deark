@@ -121,6 +121,11 @@ const char *de_get_ext_option(deark *c, const char *name);
 typedef void (*de_msgfn_type)(deark *c, unsigned int flags, const char *s);
 void de_set_messages_callback(deark *c, de_msgfn_type fn);
 
+#define DE_MSGCODE_HL      0x1000U
+#define DE_MSGCODE_UNHL    0x1100U
+typedef void (*de_specialmsgfn_type)(deark *c, unsigned int flags, unsigned int code);
+void de_set_special_messages_callback(deark *c, de_specialmsgfn_type fn);
+
 typedef void (*de_fatalerrorfn_type)(deark *c);
 // The caller's fatalerror callback is not expected to return.
 void de_set_fatalerror_callback(deark *c, de_fatalerrorfn_type fn);
@@ -146,6 +151,8 @@ wchar_t *de_utf8_to_utf16_strdup(deark *c, const char *src);
 void de_utf8_to_utf16_to_FILE(deark *c, const char *src, FILE *f);
 void *de_winconsole_get_handle(int n);
 int de_winconsole_is_console(void *h1);
+int de_get_current_windows_attributes(void *handle, unsigned int *attrs);
+void de_windows_highlight(void *handle1, unsigned int orig_attr, int x);
 #endif
 
 void de_set_base_output_filename(deark *c, const char *fn);

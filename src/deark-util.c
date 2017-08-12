@@ -60,12 +60,106 @@ void de_snprintf(char *buf, size_t buflen, const char *fmt, ...)
 	va_end(ap);
 }
 
+static void de_puts_advanced(deark *c, unsigned int flags, const char *s)
+{
+	size_t s_len;
+	size_t s_pos = 0;
+	char *tmps = NULL;
+	size_t tmps_pos = 0;
+	int hlmode = 0;
+	unsigned int special_code;
+
+	s_len = de_strlen(s);
+	tmps = de_malloc(c, s_len+1);
+
+	// Search for characters that enable/disable highlighting,
+	// and split the string at them.
+	while(s_pos < s_len) {
+		if(s[s_pos]=='\x01' || s[s_pos]=='\x02') {
+			// Found a special code
+
+			if(s[s_pos]=='\x02' && s[s_pos+1]=='\x01' && hlmode) {
+				// Optimization: UNHL followed immediately by HL is a no-op.
+				special_code = 0;
+			}
+			else if(s[s_pos]=='\x01') {
+				special_code = DE_MSGCODE_HL;
+				hlmode = 1;
+			}
+			else {
+				special_code = DE_MSGCODE_UNHL;
+				hlmode = 0;
+			}
+
+			// Print what we have of the string before the special code
+			if(tmps_pos>0) {
+				tmps[tmps_pos] = '\0';
+				c->msgfn(c, flags, tmps);
+			}
+			tmps_pos = 0;
+
+			// "Print" the special code
+			if(special_code && c->specialmsgfn) {
+				c->specialmsgfn(c, flags, special_code);
+			}
+
+			// Advance past the special code
+			if(special_code==0)
+				s_pos += 2;
+			else
+				s_pos += 1;
+
+		}
+		else {
+			tmps[tmps_pos++] = s[s_pos++];
+		}
+	}
+
+	// Unset highlight, if it somehow got left on.
+	if(hlmode) {
+		c->specialmsgfn(c, flags, DE_MSGCODE_UNHL);
+	}
+
+	tmps[tmps_pos] = '\0';
+	c->msgfn(c, flags, tmps);
+	de_free(c, tmps);
+}
+
 void de_puts(deark *c, unsigned int flags, const char *s)
 {
+	size_t k;
+
 	if(!c || !c->msgfn) {
 		fputs(s, stderr);
 		return;
 	}
+
+	// Scan the printable string for "magic" byte sequences that represent
+	// text color changes, etc. It's admittedly a little ugly that we have to
+	// do this.
+	//
+	// We could invent and use any byte sequences we want for this, as long as
+	// they will not otherwise occur in "printable" output.
+	// I.e., if it's valid UTF-8, it must contain a character we classify as
+	// "nonprintable". We could even use actual ANSI escape sequences, since
+	// Esc is a nonprintable character (but that would have little benefit,
+	// and feel kinda wrong, since this part of the code isn't supposed to
+	// know about ANSI escape sequences).
+	// Short sequences are preferable, because they're simpler to detect, and
+	// because these bytes count against some of our size limits.
+	// Valid UTF-8 is probably best, because someday we might want this scheme
+	// to be compatible with something else (such as ucstrings).
+	// So, we're simply using:
+	//   U+0001 : DE_CODEPOINT_HL
+	//   U+0002 : DE_CODEPOINT_UNHL
+
+	for(k=0; s[k]; k++) {
+		if(s[k]=='\x01' || s[k]=='\x02') {
+			de_puts_advanced(c, flags, s);
+			return;
+		}
+	}
+
 	c->msgfn(c, flags, s);
 }
 
@@ -361,6 +455,11 @@ void *de_get_userdata(deark *c)
 void de_set_messages_callback(deark *c, de_msgfn_type fn)
 {
 	c->msgfn = fn;
+}
+
+void de_set_special_messages_callback(deark *c, de_specialmsgfn_type fn)
+{
+	c->specialmsgfn = fn;
 }
 
 void de_set_fatalerror_callback(deark *c, de_fatalerrorfn_type fn)

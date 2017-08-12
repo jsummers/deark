@@ -313,7 +313,7 @@ static void fixup_codepoints(deark *c, struct font_render_ctx *fctx)
 			}
 			// Move uncoded characters to a Private Use area.
 			// (Supplementary Private Use Area-A = U+F0000 - U+FFFFD)
-			fctx->codepoint_tmp[i] = (de_int32)(0xfde00 + num_uncoded_chars);
+			fctx->codepoint_tmp[i] = (de_int32)(DE_CODEPOINT_MOVED + num_uncoded_chars);
 			num_uncoded_chars++;
 		}
 		else {
