@@ -184,7 +184,7 @@ void ucstring_append_bytes(de_ucstring *s, const de_byte *buf, de_int64 buflen,
 		}
 		else {
 			ch = de_char_to_unicode(s->c, buf[pos], encoding);
-			if(ch==DE_INVALID_CODEPOINT) {
+			if(ch==DE_CODEPOINT_INVALID) {
 				// Map unconvertible bytes to a special range.
 				ch = DE_CODEPOINT_BYTE00 + (de_int32)buf[pos];
 			}

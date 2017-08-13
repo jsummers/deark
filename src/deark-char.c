@@ -718,7 +718,7 @@ static void do_create_standard_font(deark *c, struct charextractx *ectx)
 	// Add vt100 characters that aren't in CP437
 	for(i=0; i<NUM_EXTRA_FONT_CHARS; i++) {
 		ch = &font->char_array[256+i];
-		ch->codepoint_nonunicode = DE_INVALID_CODEPOINT;
+		ch->codepoint_nonunicode = DE_CODEPOINT_INVALID;
 		ch->codepoint_unicode = extra_font_codepoints[i];
 		ch->bitmap = (de_byte*)&extra_font_data[i*16];
 	}

@@ -306,7 +306,7 @@ static void fixup_codepoints(deark *c, struct font_render_ctx *fctx)
 			used_codepoint_map[c1/8] |= 1<<(c1%8);
 		}
 
-		if(codepoint_already_used || c1==DE_INVALID_CODEPOINT) {
+		if(codepoint_already_used || c1==DE_CODEPOINT_INVALID) {
 			if(codepoint_already_used) {
 				de_dbg2(c, "moving duplicate codepoint U+%04x at index %d to private use area\n",
 					(unsigned int)c1, (int)i);

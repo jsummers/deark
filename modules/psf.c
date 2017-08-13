@@ -216,8 +216,8 @@ static void do_glyphs(deark *c, lctx *d)
 		if(i<d->num_glyphs)
 			font->char_array[i].codepoint_nonunicode = (de_int32)i;
 		else
-			font->char_array[i].codepoint_nonunicode = DE_INVALID_CODEPOINT;
-		font->char_array[i].codepoint_unicode = DE_INVALID_CODEPOINT;
+			font->char_array[i].codepoint_nonunicode = DE_CODEPOINT_INVALID;
+		font->char_array[i].codepoint_unicode = DE_CODEPOINT_INVALID;
 		if(i<d->num_glyphs)
 			font->char_array[i].bitmap = &font_data[i*d->bytes_per_glyph];
 	}

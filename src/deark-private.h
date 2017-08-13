@@ -30,7 +30,7 @@
 #define DE_CODEPOINT_HL          0x0001
 #define DE_CODEPOINT_UNHL        0x0002
 #define DE_CODEPOINT_MOVED      0xfde00
-#define DE_INVALID_CODEPOINT 0x0fffffff // Generic invalid codepoint
+#define DE_CODEPOINT_INVALID 0x0fffffff // Generic invalid codepoint
 #define DE_CODEPOINT_BYTE00  0x10000000 // More "invalid" codepoints
 #define DE_CODEPOINT_BYTEFF  0x100000ff
 

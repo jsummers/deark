@@ -94,8 +94,8 @@ static de_int32 de_cp437g_to_unicode(de_int32 a)
 {
 	de_int32 n;
 	if(a<=0xff) n = (de_int32)cp437table[a];
-	else n = DE_INVALID_CODEPOINT;
-	if(n==0xffff) n = DE_INVALID_CODEPOINT;
+	else n = DE_CODEPOINT_INVALID;
+	if(n==0xffff) n = DE_CODEPOINT_INVALID;
 	return n;
 }
 
@@ -105,8 +105,8 @@ static de_int32 de_cp437c_to_unicode(de_int32 a)
 	de_int32 n;
 	if(a<=0x7f) n = a;
 	else if(a>=0x080 && a<=0xff) n = (de_int32)cp437table[a];
-	else n = DE_INVALID_CODEPOINT;
-	if(n==0xffff) n = DE_INVALID_CODEPOINT;
+	else n = DE_CODEPOINT_INVALID;
+	if(n==0xffff) n = DE_CODEPOINT_INVALID;
 	return n;
 }
 
@@ -115,8 +115,8 @@ static de_int32 de_windows1252_to_unicode(de_int32 a)
 	de_int32 n;
 	if(a>=0x80 && a<=0x9f) n = (de_int32)windows1252table[a-0x80];
 	else if(a<=0xff) n = a;
-	else n = DE_INVALID_CODEPOINT;
-	if(n==0xffff) n = DE_INVALID_CODEPOINT;
+	else n = DE_CODEPOINT_INVALID;
+	if(n==0xffff) n = DE_CODEPOINT_INVALID;
 	return n;
 }
 
@@ -126,8 +126,8 @@ static de_int32 de_macroman_to_unicode(de_int32 a)
 	de_int32 n;
 	if(a<=0x7f) n = a;
 	else if(a>=0x080 && a<=0xff) n = (de_int32)macromantable[a-0x80];
-	else n = DE_INVALID_CODEPOINT;
-	if(n==0xffff) n = DE_INVALID_CODEPOINT;
+	else n = DE_CODEPOINT_INVALID;
+	if(n==0xffff) n = DE_CODEPOINT_INVALID;
 	return n;
 }
 
@@ -135,8 +135,8 @@ static de_int32 de_petscii_to_unicode(de_int32 a)
 {
 	de_int32 n;
 	if(a<=0xff) n = (de_int32)petscii1table[a];
-	else n = DE_INVALID_CODEPOINT;
-	if(n==0xffff) n = DE_INVALID_CODEPOINT;
+	else n = DE_CODEPOINT_INVALID;
+	if(n==0xffff) n = DE_CODEPOINT_INVALID;
 	return n;
 }
 
@@ -144,20 +144,20 @@ static de_int32 de_decspecialgraphics_to_unicode(de_int32 a)
 {
 	de_int32 n;
 	if(a>=95 && a<=126) n = (de_int32)decspecialgraphicstable[a-95];
-	else n = DE_INVALID_CODEPOINT;
-	if(n==0xffff) n = DE_INVALID_CODEPOINT;
+	else n = DE_CODEPOINT_INVALID;
+	if(n==0xffff) n = DE_CODEPOINT_INVALID;
 	return n;
 }
 
 de_int32 de_char_to_unicode(deark *c, de_int32 a, int encoding)
 {
-	if(a<0) return DE_INVALID_CODEPOINT;
+	if(a<0) return DE_CODEPOINT_INVALID;
 
 	switch(encoding) {
 	case DE_ENCODING_ASCII:
-		return (a<128)?a:DE_INVALID_CODEPOINT;
+		return (a<128)?a:DE_CODEPOINT_INVALID;
 	case DE_ENCODING_LATIN1:
-		return (a<256)?a:DE_INVALID_CODEPOINT;
+		return (a<256)?a:DE_CODEPOINT_INVALID;
 	case DE_ENCODING_CP437_G:
 		return de_cp437g_to_unicode(a);
 	case DE_ENCODING_CP437_C:
@@ -883,7 +883,7 @@ void de_write_codepoint_to_html(deark *c, dbuf *f, de_int32 ch)
 {
 	int e; // How to encode this codepoint
 
-	if(ch<0 || ch>0x10ffff || ch==DE_INVALID_CODEPOINT) ch=0xfffd;
+	if(ch<0 || ch>0x10ffff || ch==DE_CODEPOINT_INVALID) ch=0xfffd;
 
 	if(ch=='&' || ch=='<' || ch=='>') {
 		e = 1; // HTML entity
