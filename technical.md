@@ -111,10 +111,6 @@ to print only ASCII. (This is not ideal, but seriously, it's time to switch to
 UTF-8 if at all possible.)
 
 On Unix-like platforms, command-line parameters are assumed to be in UTF-8.
-Filenames (and other parameters) are just sequences of arbitrary bytes, so
-it's possible to have a filename that is not valid UTF-8. Deark *will* work
-when reading such files, but it might echo the ill-formed string to the
-terminal, resulting in ill-formed terminal output.
 
 ## Character encoding (output files) ##
 

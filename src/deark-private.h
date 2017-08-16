@@ -436,7 +436,7 @@ void dbuf_read_to_ucstring_n(dbuf *f, de_int64 pos, de_int64 len, de_int64 max_l
 dbuf *dbuf_create_output_file(deark *c, const char *ext, de_finfo *fi, unsigned int createflags);
 
 dbuf *dbuf_open_input_file(deark *c, const char *fn);
-dbuf *dbuf_open_input_stdin(deark *c, const char *fn);
+dbuf *dbuf_open_input_stdin(deark *c);
 
 dbuf *dbuf_open_input_subfile(dbuf *parent, de_int64 offset, de_int64 size);
 

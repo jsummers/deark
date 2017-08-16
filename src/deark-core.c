@@ -124,25 +124,26 @@ void de_run(deark *c)
 	dbuf *subfile = NULL;
 	de_int64 subfile_size;
 	struct deark_module_info *module_to_use = NULL;
-	const char *friendly_infn;
 	int module_was_autodetected = 0;
+	de_ucstring *friendly_infn = NULL;
 
 	if(c->modhelp_req && c->input_format_req) {
 		do_modhelp(c);
 		goto done;
 	}
 
+	friendly_infn = ucstring_create(c);
+
 	if(c->input_style==DE_INPUTSTYLE_STDIN) {
-		friendly_infn = "[stdin]";
+		ucstring_append_sz(friendly_infn, "[stdin]", DE_ENCODING_LATIN1);
 	}
 	else {
-		friendly_infn = c->input_filename;
-	}
-
-	if(!friendly_infn) {
-		de_err(c, "Input file not set\n");
-		de_fatalerror(c);
-		return;
+		if(!c->input_filename) {
+			de_err(c, "Internal: Input file not set\n");
+			de_fatalerror(c);
+			return;
+		}
+		ucstring_append_sz(friendly_infn, c->input_filename, DE_ENCODING_UTF8);
 	}
 
 	de_register_modules(c);
@@ -156,19 +157,19 @@ void de_run(deark *c)
 	}
 
 	if(c->slice_size_req_valid) {
-		de_dbg(c, "Input file: %s[%d,%d]\n", friendly_infn,
+		de_dbg(c, "Input file: %s[%d,%d]\n", ucstring_get_printable_sz_d(friendly_infn),
 			(int)c->slice_start_req, (int)c->slice_size_req);
 	}
 	else if(c->slice_start_req) {
-		de_dbg(c, "Input file: %s[%d]\n", friendly_infn,
+		de_dbg(c, "Input file: %s[%d]\n", ucstring_get_printable_sz_d(friendly_infn),
 			(int)c->slice_start_req);
 	}
 	else {
-		de_dbg(c, "Input file: %s\n", friendly_infn);
+		de_dbg(c, "Input file: %s\n", ucstring_get_printable_sz_d(friendly_infn));
 	}
 
 	if(c->input_style==DE_INPUTSTYLE_STDIN) {
-		orig_ifile = dbuf_open_input_stdin(c, c->input_filename);
+		orig_ifile = dbuf_open_input_stdin(c);
 	}
 	else {
 		orig_ifile = dbuf_open_input_file(c, c->input_filename);
@@ -240,6 +241,7 @@ void de_run(deark *c)
 	}
 
 done:
+	ucstring_destroy(friendly_infn);
 	if(subfile) dbuf_close(subfile);
 	if(orig_ifile) dbuf_close(orig_ifile);
 }

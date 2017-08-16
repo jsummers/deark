@@ -997,6 +997,7 @@ dbuf *dbuf_open_input_file(deark *c, const char *fn)
 	unsigned int returned_flags = 0;
 	char msgbuf[200];
 
+	if(!fn) return NULL;
 	f = de_malloc(c, sizeof(dbuf));
 	f->btype = DBUF_TYPE_IFILE;
 	f->c = c;
@@ -1020,8 +1021,7 @@ dbuf *dbuf_open_input_file(deark *c, const char *fn)
 	return f;
 }
 
-// fn can be (and usually is) NULL.
-dbuf *dbuf_open_input_stdin(deark *c, const char *fn)
+dbuf *dbuf_open_input_stdin(deark *c)
 {
 	dbuf *f;
 
