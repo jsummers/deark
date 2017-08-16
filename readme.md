@@ -78,6 +78,9 @@ Command-line options:
    Don't extract the first &lt;n> files found.
 -maxfiles &lt;n>
    Extract at most &lt;n> files.
+-get &lt;n>
+   Extract only the file identifed by &lt;n>. The first file is 0.
+   Equivalent to "-firstfile &lt;n> -maxfiles 1".
 -maxdim &lt;n>
    Allow image dimensions up to &lt;n> pixels.
    By default, Deark refuses to generate images with a dimension larger than
@@ -85,9 +88,6 @@ Command-line options:
    Increase the limit at your own risk. Deark does not generate large images
    efficiently. In practice, a large dimension will only work if the other
    dimension is very small.
--get &lt;n>
-   Extract only the file identifed by &lt;n>. The first file is 0.
-   Equivalent to "-firstfile &lt;n> -maxfiles 1".
 -nobom
    Do not add a BOM to UTF-8 output files generated or converted by Deark. Note
    that if a BOM already exists in the source data, it will not necessarily be
@@ -122,12 +122,14 @@ Command-line options:
     -opt char:charwidth=&lt;8|9>
        The VGA character cell width for character graphics, when the output
        format is "image".
+    -opt archive:timestamp=<n>
     -opt archive:repro
        Make the -zip output reproducible, by not including modification times
        that are not contained in the source file. (That is, don't use the
-       current time, or the source file's timestamp.) The times will be set
-       to some arbitrary value if necessary. This option is intended for use
-       with testing.
+       current time, or the source file's timestamp.) If you use "repro", the
+       times will be set to some arbitrary value. If you use "timestamp", the
+       times will be set to the value you supply, in Unix time format (the
+       number of seconds since the beginning of 1970).
     -opt atari:palbits=&lt;9|12|15>
        For some Atari image formats, the number of significant bits per
        palette color. The default is to autodetect.

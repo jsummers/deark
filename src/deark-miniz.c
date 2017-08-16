@@ -350,14 +350,31 @@ static mz_bool my_mz_zip_writer_init_file(deark *c, mz_zip_archive *pZip, const 
   return MZ_TRUE;
 }
 
+static void init_reproducible_archive_settings(deark *c)
+{
+	const char *s;
+
+	s = de_get_ext_option(c, "archive:timestamp");
+	if(s) {
+		c->reproducible_output = 1;
+		de_unix_time_to_timestamp(de_atoi64(s), &c->reproducible_timestamp);
+	}
+	else {
+		if(de_get_ext_option(c, "archive:repro")) {
+			c->reproducible_output = 1;
+		}
+	}
+}
+
 int de_zip_create_file(deark *c)
 {
 	mz_zip_archive *zip;
 	mz_bool b;
 	const char *arcfn;
-	const char *s;
 
 	if(c->zip_file) return 1; // Already created. Shouldn't happen.
+
+	init_reproducible_archive_settings(c);
 
 	zip = de_malloc(c, sizeof(mz_zip_archive));
 
@@ -372,13 +389,18 @@ int de_zip_create_file(deark *c)
 	de_msg(c, "Creating %s\n", arcfn);
 
 	c->zip_file = (void*)zip;
+	return 1;
+}
 
-	s = de_get_ext_option(c, "archive:repro");
-	if(s) {
-		c->reproducible_output = 1;
+static de_int64 de_get_reproducible_unix_timestamp(deark *c)
+{
+	if(c->reproducible_timestamp.is_valid) {
+		return de_timestamp_to_unix_time(&c->reproducible_timestamp);
 	}
 
-	return 1;
+	// An arbitrary timestamp
+	// $ date -u --date='2010-09-08 07:06:05' '+%s'
+	return 1283929565LL;
 }
 
 void de_zip_add_file_to_archive(deark *c, dbuf *f)
@@ -405,8 +427,7 @@ void de_zip_add_file_to_archive(deark *c, dbuf *f)
 		dfa.modtime_valid = 1;
 	}
 	else if(c->reproducible_output) {
-		// An arbitrary timestamp (2010-09-08 07:06:05)
-		dfa.modtime = 1283929565LL;
+		dfa.modtime = de_get_reproducible_unix_timestamp(c);
 		dfa.modtime_valid = 1;
 	}
 	else {

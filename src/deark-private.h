@@ -242,6 +242,7 @@ struct deark_struct {
 	int filenames_from_file;
 	int preserve_file_times;
 	int reproducible_output;
+	struct de_timestamp reproducible_timestamp;
 	int can_decode_fltpt;
 	int host_is_le;
 	int modhelp_req;
