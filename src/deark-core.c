@@ -83,7 +83,6 @@ void de_print_module_list(deark *c)
 			if(c->module_info[i].flags & DE_MODFLAG_NONWORKING) continue;
 		}
 		desc = c->module_info[i].desc ? c->module_info[i].desc : "-";
-		// TODO: Maybe do something with .desc2
 		de_printf(c, DE_MSGTYPE_MESSAGE, "%-14s %s\n", c->module_info[i].id, desc);
 	}
 
@@ -104,6 +103,15 @@ static void do_modhelp(deark *c)
 	if(de_strcmp(c->input_format_req, module_to_use->id)) {
 		de_msg(c, "\"%s\" is an alias for module \"%s\"\n",
 			c->input_format_req, module_to_use->id);
+	}
+
+	de_msg(c, "Module: %s\n", module_to_use->id);
+
+	if(module_to_use->desc) {
+		de_msg(c, "Description: %s\n", module_to_use->desc);
+	}
+	if(module_to_use->desc2) {
+		de_msg(c, "Other notes: %s\n", module_to_use->desc2);
 	}
 
 	if(!module_to_use->help_fn) {

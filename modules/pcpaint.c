@@ -823,10 +823,18 @@ static int de_identify_pcpaint(deark *c)
 	return 0;
 }
 
+static void de_help_pcpaint(deark *c)
+{
+	de_msg(c, "-file2 <file.pic> : PIC file to read the palette from\n");
+	de_msg(c, "-opt pcpaint:fmt=pic : Assume PIC format\n");
+	de_msg(c, "-opt pcpaint:fmt=clp : Assume CLP format\n");
+}
+
 void de_module_pcpaint(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "pcpaint";
 	mi->desc = "PCPaint PIC or CLP image";
 	mi->run_fn = de_run_pcpaint;
 	mi->identify_fn = de_identify_pcpaint;
+	mi->help_fn = de_help_pcpaint;
 }

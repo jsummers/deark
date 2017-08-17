@@ -180,10 +180,16 @@ static int de_identify_psionpic(deark *c)
 	return 0;
 }
 
+static void de_help_psionpic(deark *c)
+{
+	de_msg(c, "-opt psionpic:bw : Do not try to detect grayscale images\n");
+}
+
 void de_module_psionpic(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "psionpic";
 	mi->desc = "Psion PIC, a.k.a. EPOC PIC";
 	mi->run_fn = de_run_psionpic;
 	mi->identify_fn = de_identify_psionpic;
+	mi->help_fn = de_help_psionpic;
 }

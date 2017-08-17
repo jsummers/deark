@@ -374,10 +374,16 @@ static int de_identify_psf(deark *c)
 	return 0;
 }
 
+static void de_help_psf(deark *c)
+{
+	de_msg(c, "-opt font:noaliases : Restrict to one codepoint per glyph\n");
+}
+
 void de_module_psf(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "psf";
 	mi->desc = "PC Screen Font";
 	mi->run_fn = de_run_psf;
 	mi->identify_fn = de_identify_psf;
+	mi->help_fn = de_help_psf;
 }

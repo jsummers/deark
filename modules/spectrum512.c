@@ -387,12 +387,18 @@ static int de_identify_spectrum512c(deark *c)
 	return 10;
 }
 
+static void de_help_spectrum512cs(deark *c)
+{
+	de_msg(c, "-opt spectrum512:tospu : Output to an .spu file\n");
+}
+
 void de_module_spectrum512c(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "spectrum512c";
 	mi->desc = "Spectrum 512 Compressed";
 	mi->run_fn = de_run_spectrum512c;
 	mi->identify_fn = de_identify_spectrum512c;
+	mi->help_fn = de_help_spectrum512cs;
 }
 
 static void de_run_spectrum512s(deark *c, de_module_params *mparams)
@@ -419,4 +425,5 @@ void de_module_spectrum512s(deark *c, struct deark_module_info *mi)
 	mi->desc = "Spectrum 512 Smooshed";
 	mi->run_fn = de_run_spectrum512s;
 	mi->identify_fn = de_identify_spectrum512s;
+	mi->help_fn = de_help_spectrum512cs;
 }

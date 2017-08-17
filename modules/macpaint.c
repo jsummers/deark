@@ -282,10 +282,17 @@ static int de_identify_macpaint(deark *c)
 	return 0;
 }
 
+static void de_help_macpaint(deark *c)
+{
+	de_msg(c, "-opt macpaint:macbinary=<0|1> : Assume file doesn't/does have "
+		"a MacBinary header\n");
+}
+
 void de_module_macpaint(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "macpaint";
 	mi->desc = "MacPaint image";
 	mi->run_fn = de_run_macpaint;
 	mi->identify_fn = de_identify_macpaint;
+	mi->help_fn = de_help_macpaint;
 }

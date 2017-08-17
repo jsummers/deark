@@ -1033,12 +1033,20 @@ static int de_identify_ilbm(deark *c)
 	return 0;
 }
 
+static void de_help_ilbm(deark *c)
+{
+	de_msg(c, "-opt ilbm:notrans : Disable support for transparency\n");
+	de_msg(c, "-opt ilbm:fixpal=<0|1> : Don't/Do try to fix palettes that are "
+		"slightly too dark\n");
+}
+
 void de_module_ilbm(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "ilbm";
 	mi->desc = "IFF-ILBM and related image formats";
 	mi->run_fn = de_run_ilbm;
 	mi->identify_fn = de_identify_ilbm;
+	mi->help_fn = de_help_ilbm;
 }
 
 // -----------------------------------

@@ -122,7 +122,7 @@ Command-line options:
     -opt char:charwidth=&lt;8|9>
        The VGA character cell width for character graphics, when the output
        format is "image".
-    -opt archive:timestamp=<n>
+    -opt archive:timestamp=&lt;n>
     -opt archive:repro
        Make the -zip output reproducible, by not including modification times
        that are not contained in the source file. (That is, don't use the
@@ -135,8 +135,8 @@ Command-line options:
        palette color. The default is to autodetect.
 -h, -?, -help:
    Print the help message.
-   Use with -m to get help for a specific module. Only a few modules support
-   this.
+   Use with -m to get help for a specific module. Note that most modules have
+   no module-specific help to speak of.
 -version
    Print the version number.
 -modules

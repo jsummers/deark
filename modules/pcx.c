@@ -528,12 +528,20 @@ static int de_identify_pcx(deark *c)
 	return 0;
 }
 
+static void de_help_pcx(deark *c)
+{
+	de_msg(c, "-opt pcx:pal=<0|1> : Code for the predefined palette to use, "
+		"if there is no palette in the file\n");
+	de_msg(c, "-file2 <file.p13> : Read the palette from a separate file\n");
+}
+
 void de_module_pcx(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "pcx";
 	mi->desc = "PCX image";
 	mi->run_fn = de_run_pcx;
 	mi->identify_fn = de_identify_pcx;
+	mi->help_fn = de_help_pcx;
 }
 
 // **************************************************************************

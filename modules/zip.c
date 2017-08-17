@@ -68,11 +68,9 @@ static int do_decompress_data(deark *c, lctx *d,
 		retval = 1;
 		break;
 	case 8: // deflate
-		{
-			ret = de_uncompress_deflate(inf, inf_pos, inf_size, outf, &bytes_consumed);
-			if(!ret) goto done;
-			retval = 1;
-		}
+		ret = de_uncompress_deflate(inf, inf_pos, inf_size, outf, &bytes_consumed);
+		if(!ret) goto done;
+		retval = 1;
 		break;
 	}
 

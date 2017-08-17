@@ -241,10 +241,17 @@ static int de_identify_awbm(deark *c)
 	return 0;
 }
 
+static void de_help_awbm(deark *c)
+{
+	de_msg(c, "-opt awbm:rgb=0 : Assume BGR sample order\n");
+	de_msg(c, "-opt awbm:rgb=1 : Assume RGB sample order\n");
+}
+
 void de_module_awbm(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "awbm";
 	mi->desc = "Award BIOS logo";
 	mi->run_fn = de_run_awbm;
 	mi->identify_fn = de_identify_awbm;
+	mi->help_fn = de_help_awbm;
 }

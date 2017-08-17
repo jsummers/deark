@@ -1506,10 +1506,17 @@ static int de_identify_cfb(deark *c)
 	return 0;
 }
 
+static void de_help_cfb(deark *c)
+{
+	de_msg(c, "-opt cfb:fmt=raw : Do not try to detect the document type\n");
+	de_msg(c, "-opt cfb:fmt=thumbsdb : Assume Thumbs.db format\n");
+}
+
 void de_module_cfb(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "cfb";
 	mi->desc = "Microsoft Compound File Binary File";
 	mi->run_fn = de_run_cfb;
 	mi->identify_fn = de_identify_cfb;
+	mi->help_fn = de_help_cfb;
 }

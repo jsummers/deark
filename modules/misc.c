@@ -1417,12 +1417,18 @@ done:
 	de_free(c, fontdata);
 }
 
+static void de_help_vgafont(deark *c)
+{
+	de_msg(c, "-opt vgafont:c : Emit C code\n");
+}
+
 void de_module_vgafont(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "vgafont";
-	mi->desc = "Raw 8x16 VGA font";
+	mi->desc = "Raw 8x16 or 8x14 VGA font";
 	mi->run_fn = de_run_vgafont;
 	mi->identify_fn = de_identify_none;
+	mi->help_fn = de_help_vgafont;
 	mi->flags |= DE_MODFLAG_HIDDEN;
 }
 
