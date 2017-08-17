@@ -29,6 +29,8 @@ DE_DECLARE_MODULE(de_module_exe);
 #define DE_RT_ANIICON       22
 #define DE_RT_MANIFEST      24
 
+struct rsrc_type_info_struct;
+
 typedef struct localctx_struct {
 	int fmt;
 	de_int64 ext_header_offset;
@@ -36,7 +38,8 @@ typedef struct localctx_struct {
 	de_int64 ne_rsrc_tbl_offset;
 	unsigned int ne_align_shift;
 	int ne_have_type;
-	de_int64 ne_rsrc_type_id;
+	de_uint32 ne_rsrc_type_id;
+	const struct rsrc_type_info_struct *ne_rsrc_type_info;
 
 	de_int64 lx_page_offset_shift;
 	de_int64 lx_object_tbl_offset;
@@ -59,9 +62,22 @@ typedef struct localctx_struct {
 
 	de_int64 pe_cur_name_offset; // 0 if no name
 
-	de_int64 cur_rsrc_type;
+	de_uint32 cur_rsrc_type;
+	const struct rsrc_type_info_struct *cur_rsrc_type_info;
+
 	de_int64 rsrc_item_count;
 } lctx;
+
+struct rsrc_type_info_struct;
+
+typedef void (*rsrc_decoder_fn)(deark *c, lctx *d, de_int64 pos, de_int64 len, de_finfo *fi);
+
+struct rsrc_type_info_struct {
+	de_uint32 id;
+	de_byte flags;
+	const char *name;
+	rsrc_decoder_fn decoder_fn;
+};
 
 static void do_certificate(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 {
@@ -621,7 +637,39 @@ static void do_extract_MANIFEST(deark *c, lctx *d, de_int64 pos, de_int64 len, d
 	}
 }
 
-static int ne_pe_resource_type_is_supported(deark *c, lctx *d, de_int64 type_id)
+static const struct rsrc_type_info_struct rsrc_type_info_arr[] = {
+	{ DE_RT_CURSOR,       0, "RT_CURSOR",       do_extract_CURSOR },
+	{ DE_RT_BITMAP,       0, "RT_BITMAP",       do_extract_BITMAP },
+	{ DE_RT_ICON,         0, "RT_ICON",         do_extract_ICON },
+	{ 4,                  0, "RT_MENU",         NULL },
+	{ 5,                  0, "RT_DIALOG",       NULL },
+	{ 6,                  0, "RT_STRING",       NULL },
+	{ DE_RT_FONTDIR,      0, "RT_FONTDIR",      NULL },
+	{ DE_RT_FONT,         0, "RT_FONT",         do_extract_FONT },
+	{ 9,                  0, "RT_ACCELERATOR",  NULL },
+	{ 10,                 0, "RT_RCDATA",       NULL },
+	{ 11,                 0, "RT_MESSAGETABLE", NULL },
+	{ DE_RT_GROUP_CURSOR, 0, "RT_GROUP_CURSOR", NULL },
+	{ DE_RT_GROUP_ICON,   0, "RT_GROUP_ICON",   NULL },
+	{ 16,                 0, "RT_VERSION",      NULL },
+	{ DE_RT_ANICURSOR,    0, "RT_ANICURSOR",    NULL },
+	{ DE_RT_ANIICON,      0, "RT_ANIICON",      NULL },
+	{ DE_RT_MANIFEST,     0, "RT_MANIFEST",     do_extract_MANIFEST }
+};
+
+static const struct rsrc_type_info_struct *get_rsrc_type_info(de_uint32 id)
+{
+	size_t i;
+
+	for(i=0; i<DE_ITEMS_IN_ARRAY(rsrc_type_info_arr); i++) {
+		if(id == rsrc_type_info_arr[i].id) {
+			return &rsrc_type_info_arr[i];
+		}
+	}
+	return NULL;
+}
+
+static int ne_pe_resource_type_is_supported(deark *c, lctx *d, de_uint32 type_id)
 {
 	switch(type_id) {
 	case DE_RT_CURSOR:
@@ -634,29 +682,15 @@ static int ne_pe_resource_type_is_supported(deark *c, lctx *d, de_int64 type_id)
 	return 0;
 }
 
-static void do_ne_pe_extract_resource(deark *c, lctx *d, de_int64 type_id,
+static void do_ne_pe_extract_resource(deark *c, lctx *d,
+	de_uint32 type_id, const struct rsrc_type_info_struct *rsrci,
 	de_int64 pos, de_int64 len, de_finfo *fi)
 {
 	if(len<1 || len>DE_MAX_FILE_SIZE) return;
 
-	switch(type_id) {
-		// Note that any new types added here also need to be listed in
-		// ne_pe_resource_type_is_supported().
-	case DE_RT_CURSOR:
-		do_extract_CURSOR(c, d, pos, len, fi);
-		break;
-	case DE_RT_BITMAP:
-		do_extract_BITMAP(c, d, pos, len, fi);
-		break;
-	case DE_RT_ICON:
-		do_extract_ICON(c, d, pos, len, fi);
-		break;
-	case DE_RT_FONT:
-		do_extract_FONT(c, d, pos, len, fi);
-		break;
-	case DE_RT_MANIFEST:
-		do_extract_MANIFEST(c, d, pos, len, fi);
-		break;
+	if(rsrci && rsrci->decoder_fn) {
+		rsrci->decoder_fn(c, d, pos, len, fi);
+		return;
 	}
 }
 
@@ -685,13 +719,18 @@ static void do_pe_resource_data_entry(deark *c, lctx *d, de_int64 rel_pos)
 	de_int64 data_size;
 	de_int64 data_virt_addr;
 	de_int64 data_real_offset;
-	de_int64 type_id;
+	de_uint32 type_id;
 	de_finfo *fi = NULL;
+	const char *rsrcname;
 
 	type_id = d->cur_rsrc_type;
+	if(d->cur_rsrc_type_info && d->cur_rsrc_type_info->name)
+		rsrcname = d->cur_rsrc_type_info->name;
+	else
+		rsrcname = "?";
 
-	de_dbg(c, "resource data entry at %d(%d) rsrc_type=%d\n",
-		(int)(d->pe_cur_base_addr+rel_pos), (int)rel_pos, (int)type_id);
+	de_dbg(c, "resource data entry at %d(%d) rsrc_type=%d (%s)\n",
+		(int)(d->pe_cur_base_addr+rel_pos), (int)rel_pos, (int)type_id, rsrcname);
 	de_dbg_indent(c, 1);
 
 	data_virt_addr = de_getui32le(d->pe_cur_base_addr+rel_pos);
@@ -708,7 +747,7 @@ static void do_pe_resource_data_entry(deark *c, lctx *d, de_int64 rel_pos)
 		de_finfo_set_name_from_pe_string(c, fi, c->infile, d->pe_cur_name_offset);
 	}
 
-	do_ne_pe_extract_resource(c, d, type_id, data_real_offset, data_size, fi);
+	do_ne_pe_extract_resource(c, d, type_id, d->cur_rsrc_type_info, data_real_offset, data_size, fi);
 
 	de_finfo_destroy(c, fi);
 	de_dbg_indent(c, -1);
@@ -718,7 +757,7 @@ static void do_pe_resource_dir_table(deark *c, lctx *d, de_int64 rel_pos, int le
 
 static void do_pe_resource_node(deark *c, lctx *d, de_int64 rel_pos, int level)
 {
-	de_int64 name_or_id;
+	de_uint32 name_or_id;
 	de_int64 next_offset;
 	int has_name, is_branch_node;
 	int orig_indent;
@@ -734,19 +773,20 @@ static void do_pe_resource_node(deark *c, lctx *d, de_int64 rel_pos, int level)
 	has_name = 0;
 	is_branch_node = 0;
 
-	name_or_id = de_getui32le(d->pe_cur_base_addr+rel_pos);
-	if(name_or_id & 0x80000000) {
+	name_or_id = (de_uint32)de_getui32le(d->pe_cur_base_addr+rel_pos);
+	if(name_or_id & 0x80000000U) {
 		has_name = 1;
-		name_or_id -= 0x80000000;
+		name_or_id -= 0x80000000U;
 	}
 	next_offset = de_getui32le(d->pe_cur_base_addr+rel_pos+4);
-	if(next_offset & 0x80000000) {
+	if(next_offset & 0x80000000U) {
 		is_branch_node = 1;
-		next_offset -= 0x80000000;
+		next_offset -= 0x80000000U;
 	}
 
 	if(level==1) {
 		d->cur_rsrc_type = name_or_id;
+		d->cur_rsrc_type_info = get_rsrc_type_info((de_uint32)d->cur_rsrc_type);
 	}
 
 	de_dbg(c, "level %d node at %d(%d) id=%d next-offset=%d is-named=%d is-branch=%d\n",
@@ -755,8 +795,14 @@ static void do_pe_resource_node(deark *c, lctx *d, de_int64 rel_pos, int level)
 	de_dbg_indent(c, 1);
 
 	if(!ne_pe_resource_type_is_supported(c, d, d->cur_rsrc_type)) {
+		const char *rsrcname;
+		if(d->cur_rsrc_type_info && d->cur_rsrc_type_info->name)
+			rsrcname = d->cur_rsrc_type_info->name;
+		else
+			rsrcname = "?";
+
 		// We don't support this type of resource, so don't go down this path.
-		de_dbg(c, "resource type %d not supported\n", (int)d->cur_rsrc_type);
+		de_dbg(c, "resource type %d (%s) not supported\n", (int)d->cur_rsrc_type, rsrcname);
 		goto done;
 	}
 
@@ -924,9 +970,18 @@ static void do_ne_one_nameinfo(deark *c, lctx *d, de_int64 npos)
 	}
 
 	if(rsrc_size>0) {
-		de_dbg(c, "resource at %d, type_id=%d\n", (int)rsrc_offset, (int)d->ne_rsrc_type_id);
+		const char *rsrcname;
+
+		if(d->ne_rsrc_type_info && d->ne_rsrc_type_info->name)
+			rsrcname = d->ne_rsrc_type_info->name;
+		else
+			rsrcname = "?";
+
+		de_dbg(c, "resource at %d, type_id=%d (%s)\n", (int)rsrc_offset, (int)d->ne_rsrc_type_id,
+			rsrcname);
 		de_dbg_indent(c, 1);
-		do_ne_pe_extract_resource(c, d, d->ne_rsrc_type_id, rsrc_offset, rsrc_size, fi);
+		do_ne_pe_extract_resource(c, d, d->ne_rsrc_type_id, d->ne_rsrc_type_info,
+			rsrc_offset, rsrc_size, fi);
 		de_dbg_indent(c, -1);
 	}
 
@@ -972,7 +1027,8 @@ static void do_ne_rsrc_tbl(deark *c, lctx *d)
 		de_dbg_indent(c, 1);
 
 		if(x & 0x8000) {
-			d->ne_rsrc_type_id = x-0x8000;
+			d->ne_rsrc_type_id = (de_uint32)(x-0x8000);
+			d->ne_rsrc_type_info = get_rsrc_type_info(d->ne_rsrc_type_id);
 			d->ne_have_type = 1;
 		}
 		else {
@@ -980,6 +1036,7 @@ static void do_ne_rsrc_tbl(deark *c, lctx *d)
 			// TODO: Could the name ever be a standard type (e.g. "ICON"), that
 			// we ought to support?
 			d->ne_rsrc_type_id = 0;
+			d->ne_rsrc_type_info = NULL;
 			d->ne_have_type = 0;
 			// name_offset = d->ne_rsrc_tbl_offset + x;
 		}
