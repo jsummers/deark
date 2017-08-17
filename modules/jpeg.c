@@ -32,6 +32,7 @@ struct page_ctx {
 typedef struct localctx_struct {
 	int is_j2c;
 	int image_count;
+	int stop_at_eoi;
 } lctx;
 
 struct marker_info;
@@ -1000,6 +1001,7 @@ static void do_jpeg_internal(deark *c, lctx *d)
 		ret = do_jpeg_page(c, d, pos, &bytes_consumed);
 		if(!ret) break;
 		pos += bytes_consumed;
+		if(d->stop_at_eoi) break;
 	}
 
 	if(d->image_count>1) {
@@ -1014,6 +1016,11 @@ static void de_run_jpeg(deark *c, de_module_params *mparams)
 	lctx *d = NULL;
 
 	d = de_malloc(c, sizeof(lctx));
+
+	if(de_get_ext_option(c, "jpeg:stopateoi")) {
+		d->stop_at_eoi = 1;
+	}
+
 	do_jpeg_internal(c, d);
 	de_free(c, d);
 }
@@ -1146,6 +1153,12 @@ static int de_identify_jpeg(deark *c)
 	return 0;
 }
 
+static void de_help_jpeg(deark *c)
+{
+	de_msg(c, "-opt jpeg:stopateoi : Stop when the end of the first JPEG "
+		"\"file\" has been found\n");
+}
+
 void de_module_jpeg(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "jpeg";
@@ -1153,6 +1166,7 @@ void de_module_jpeg(deark *c, struct deark_module_info *mi)
 	mi->desc2 = "resources only";
 	mi->run_fn = de_run_jpeg;
 	mi->identify_fn = de_identify_jpeg;
+	mi->help_fn = de_help_jpeg;
 }
 
 void de_module_jpegscan(deark *c, struct deark_module_info *mi)
@@ -1174,6 +1188,7 @@ static void de_run_j2c(deark *c, de_module_params *mparams)
 
 	d = de_malloc(c, sizeof(lctx));
 	d->is_j2c = 1;
+	d->stop_at_eoi = 1;
 	do_jpeg_internal(c, d);
 	de_free(c, d);
 }
