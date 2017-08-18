@@ -235,17 +235,41 @@ static void do_pe_characteristics(deark *c, lctx *d, unsigned int v)
 	ucstring_destroy(s);
 }
 
-static const char *get_machine_type_name(de_int64 n)
+static const char *get_machine_type_name(unsigned int n)
 {
-	const char *s = "?";
-	switch(n) {
-		// TODO: This list is incomplete.
-	case 0x0000: s = "neutral"; break;
-	case 0x014c: s = "386+"; break;
-	case 0x0200: s = "Itanium"; break;
-	case 0x8664: s = "x64"; break;
+	size_t i;
+	struct mtn_struct { unsigned int id; const char *name; };
+	static const struct mtn_struct mtn_arr[] = {
+		{ 0x0000, "neutral" },
+		{ 0x014c, "386+" },
+		{ 0x0166, "MIPS LE" },
+		{ 0x0169, "MIPS LE WCE v2" },
+		{ 0x01a2, "Hitachi SH3" },
+		{ 0x01a3, "Hitachi SH3 DSP" },
+		{ 0x01a6, "Hitachi SH4" },
+		{ 0x01a8, "Hitachi SH5" },
+		{ 0x01c0, "ARM LE" },
+		{ 0x01c2, "ARM or Thumb" },
+		{ 0x01c4, "ARMv7+ Thumb" },
+		{ 0x01d3, "Matsushita AM33" },
+		{ 0x01f0, "Power PC LE" },
+		{ 0x01f1, "Power PC w/FP" },
+		{ 0x0200, "Itanium" },
+		{ 0x0266, "MIPS16" },
+		{ 0x0366, "MIPS with FPU" },
+		{ 0x0466, "MIPS16 with FPU" },
+		{ 0x0ebc, "EFI byte code" },
+		{ 0x8664, "x64" },
+		{ 0x9041, "Mitsubishi M32R LE" },
+		{ 0xaa64, "ARMv8 64-bit" }
+	};
+
+	for(i=0; i<DE_ITEMS_IN_ARRAY(mtn_arr); i++) {
+		if(mtn_arr[i].id == n) {
+			return mtn_arr[i].name;
+		}
 	}
-	return s;
+	return "?";
 }
 
 static void do_Rich_segment(deark *c, lctx *d)
