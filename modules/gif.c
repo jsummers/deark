@@ -21,6 +21,7 @@ struct gceinfo {
 typedef struct localctx_struct {
 	int compose;
 	int bad_screen_flag;
+	int dump_screen;
 
 	de_int64 screen_w, screen_h;
 	int has_global_color_table;
@@ -472,7 +473,8 @@ static void do_plaintext_extension(deark *c, lctx *d, de_int64 pos)
 {
 	dbuf *f = NULL;
 	de_int64 n;
-	de_int64 text_width_in_pixels;
+	de_int64 text_pos_x, text_pos_y; // In pixels
+	de_int64 text_size_x, text_size_y; // In pixels
 	de_int64 text_width_in_chars;
 	de_int64 char_width;
 	de_int64 char_count;
@@ -483,13 +485,17 @@ static void do_plaintext_extension(deark *c, lctx *d, de_int64 pos)
 	n = (de_int64)de_getbyte(pos++);
 	if(n<12) goto done;
 
-	text_width_in_pixels = de_getui16le(pos+4);
+	text_pos_x = de_getui16le(pos);
+	text_pos_y = de_getui16le(pos+2);
+	text_size_x = de_getui16le(pos+4);
+	text_size_y = de_getui16le(pos+6);
 	char_width = (de_int64)de_getbyte(pos+8);
-	de_dbg(c, "text-area width: %d pixels\n", (int)text_width_in_pixels);
+	de_dbg(c, "text-area pos: %d,%d pixels\n", (int)text_pos_x, (int)text_pos_y);
+	de_dbg(c, "text-area size: %dx%d pixels\n", (int)text_size_x, (int)text_size_y);
 	de_dbg(c, "character width: %d pixels\n", (int)char_width);
 
 	if(char_width>0) {
-		text_width_in_chars = text_width_in_pixels / char_width;
+		text_width_in_chars = text_size_x / char_width;
 		if(text_width_in_chars<1) text_width_in_chars = 1;
 	}
 	else {
@@ -517,6 +523,18 @@ static void do_plaintext_extension(deark *c, lctx *d, de_int64 pos)
 			}
 		}
 		pos += n;
+	}
+
+	// We should try to handle disposal of a plain text extension, because this
+	// can affect the images that come after it.
+	// If the disposal method is restore-to-previous, we should do nothing,
+	// since we didn't do anything that we'd have to undo.
+	// We have no way to support leave-in-place at this time (maybe we should
+	// warn about this), and doing nothing is the best we can do.
+	// So, restore-to-background is the only time we'll to do something.
+	if(d->compose && d->gce && d->gce->disposal_method==DISPOSE_BKGD) {
+		de_bitmap_rect(d->screen_img, text_pos_x, text_pos_y, text_size_x, text_size_y,
+			DE_STOCKCOLOR_TRANSPARENT, 0);
 	}
 
 done:
@@ -892,6 +910,12 @@ static void de_run_gif(deark *c, de_module_params *mparams)
 	if(de_get_ext_option(c, "gif:raw")) {
 		d->compose = 0;
 	}
+	if(de_get_ext_option(c, "gif:dumpscreen")) {
+		// This is a debugging feature, not intended to be documented.
+		// It lets us see what the screen looks like after the last
+		// "graphic rendering block" has been disposed of.
+		d->dump_screen = 1;
+	}
 
 	pos = 6;
 	if(!do_read_screen_descriptor(c, d, pos)) goto done;
@@ -949,7 +973,12 @@ static void de_run_gif(deark *c, de_module_params *mparams)
 
 done:
 	if(d) {
-		de_bitmap_destroy(d->screen_img);
+		if(d->screen_img) {
+			if(d->dump_screen) {
+				de_bitmap_write_to_file(d->screen_img, "screen", DE_CREATEFLAG_OPT_IMAGE);
+			}
+			de_bitmap_destroy(d->screen_img);
+		}
 		discard_current_gce_data(c, d);
 		de_free(c, d);
 	}
