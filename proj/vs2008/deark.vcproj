@@ -794,6 +794,10 @@
 				>
 			</File>
 			<File
+				RelativePath="..\..\modules\wad.c"
+				>
+			</File>
+			<File
 				RelativePath="..\..\modules\wmf.c"
 				>
 			</File>

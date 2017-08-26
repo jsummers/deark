@@ -492,6 +492,9 @@ Deark -- Information about supported formats
 
 * D64 (Commodore 64 disk format) (module="d64") (experimental)
 
+* Doom WAD (module="wad")
+  - The extracted files are usually in specialized formats.
+
 * Gzip (module="gzip")
 
 * Microsoft Compound File Binary (module="cfb")
