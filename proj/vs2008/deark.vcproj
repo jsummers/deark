@@ -682,6 +682,10 @@
 				>
 			</File>
 			<File
+				RelativePath="..\..\modules\palmdb.c"
+				>
+			</File>
+			<File
 				RelativePath="..\..\modules\pcpaint.c"
 				>
 			</File>
