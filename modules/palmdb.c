@@ -12,6 +12,10 @@ DE_DECLARE_MODULE(de_module_palmdb);
 #define CODE_clpr 0x636c7072U
 #define CODE_pqa  0x70716120U
 
+struct rec_data_struct {
+	de_uint32 offset;
+};
+
 typedef struct localctx_struct {
 #define FMT_PDB 0
 #define FMT_PQA 1
@@ -20,6 +24,9 @@ typedef struct localctx_struct {
 	de_int64 num_recs;
 	struct de_fourcc dtype4cc;
 	struct de_fourcc creator4cc;
+	de_int64 appinfo_offs;
+	de_int64 sortinfo_offs;
+	struct rec_data_struct *rec_data;
 } lctx;
 
 static void handle_palm_timestamp(deark *c, lctx *d, de_int64 pos, const char *name)
@@ -68,8 +75,6 @@ static int do_read_header(deark *c, lctx *d)
 	de_uint32 attribs;
 	de_uint32 version;
 	de_int64 x;
-	de_int64 appinfo_offs;
-	de_int64 sortinfo_offs;
 
 	de_dbg(c, "header at %d\n", (int)pos1);
 	de_dbg_indent(c, 1);
@@ -91,10 +96,10 @@ static int do_read_header(deark *c, lctx *d)
 
 	x = de_getui32be(pos1+48);
 	de_dbg(c, "mod number: %d\n", (int)x);
-	appinfo_offs = de_getui32be(pos1+52);
-	de_dbg(c, "app info pos: %d\n", (int)appinfo_offs);
-	sortinfo_offs = de_getui32be(pos1+56);
-	de_dbg(c, "sort info pos: %d\n", (int)sortinfo_offs);
+	d->appinfo_offs = de_getui32be(pos1+52);
+	de_dbg(c, "app info pos: %d\n", (int)d->appinfo_offs);
+	d->sortinfo_offs = de_getui32be(pos1+56);
+	de_dbg(c, "sort info pos: %d\n", (int)d->sortinfo_offs);
 
 	dbuf_read_fourcc(c->infile, pos1+60, &d->dtype4cc, 0);
 	de_dbg(c, "type: \"%s\"\n", d->dtype4cc.id_printable);
@@ -133,12 +138,21 @@ static int do_read_pdb_record(deark *c, lctx *d, de_int64 rec_idx, de_int64 pos1
 	de_int64 data_offset;
 	de_byte attribs;
 	de_uint32 id;
+	de_int64 len;
 
 	de_dbg(c, "record[%d] at %d\n", (int)rec_idx, (int)pos1);
 	de_dbg_indent(c, 1);
 
-	data_offset = de_getui32be(pos1);
+	data_offset = (int)d->rec_data[rec_idx].offset;
 	de_dbg(c, "data pos: %d\n", (int)data_offset);
+
+	if(rec_idx+1 < d->num_recs) {
+		len = (de_int64)d->rec_data[rec_idx+1].offset - data_offset;
+	}
+	else {
+		len = c->infile->len - data_offset;
+	}
+	de_dbg(c, "calculated len: %d\n", (int)len);
 
 	if(d->file_fmt==FMT_PDB) {
 		attribs = de_getbyte(pos1+4);
@@ -173,7 +187,6 @@ done:
 
 static int do_read_prc_record(deark *c, lctx *d, de_int64 rec_idx, de_int64 pos1)
 {
-	de_int64 data_offset;
 	de_uint32 id;
 	struct de_fourcc name4cc;
 
@@ -186,8 +199,7 @@ static int do_read_prc_record(deark *c, lctx *d, de_int64 rec_idx, de_int64 pos1
 	id = (de_uint32)de_getui16be(pos1+4);
 	de_dbg(c, "id: %d\n", (int)id);
 
-	data_offset = de_getui32be(pos1+6);
-	de_dbg(c, "data pos: %d\n", (int)data_offset);
+	de_dbg(c, "data pos: %d\n", (int)d->rec_data[rec_idx].offset);
 
 	de_dbg_indent(c, -1);
 	return 1;
@@ -208,6 +220,81 @@ done:
 	de_dbg_indent(c, -1);
 }
 
+// You're expected to be clairvoyant and know the offset of the *next* record
+// block, in order to calculate the size of the current one.
+static int do_scan_records(deark *c, lctx *d, de_int64 pos1)
+{
+	de_int64 i;
+
+	if(d->num_recs<1) return 1;
+	// num_recs is untrusted, but it is a 16-bit int that can be at most 65535.
+	d->rec_data = de_malloc(c, sizeof(struct rec_data_struct)*d->num_recs);
+	for(i=0; i<d->num_recs; i++) {
+		if(d->file_fmt==FMT_PRC) {
+			d->rec_data[i].offset = (de_uint32)de_getui32be(pos1 + 10*i + 6);
+		}
+		else {
+			d->rec_data[i].offset = (de_uint32)de_getui32be(pos1 + 8*i);
+		}
+
+		// Record data must not start beyond the end of file.
+		if((de_int64)d->rec_data[i].offset > c->infile->len) {
+			de_err(c, "Record %d (at %d) starts after end of file (%d)\n",
+				(int)i, (int)d->rec_data[i].offset, (int)c->infile->len);
+			return 0;
+		}
+
+		// Record data must not start before the previous record's data.
+		if(i>0) {
+			if(d->rec_data[i].offset < d->rec_data[i-1].offset) {
+				de_err(c, "Record %d (at %d) starts before previous record (at %d)\n",
+					(int)i, (int)d->rec_data[i].offset, (int)d->rec_data[i-1].offset);
+				return 0;
+			}
+		}
+	}
+	return 1;
+}
+
+static void do_app_info_block(deark *c, lctx *d)
+{
+	de_int64 len;
+
+	if(d->appinfo_offs==0) return;
+	de_dbg(c, "app info block at %d\n", (int)d->appinfo_offs);
+
+	de_dbg_indent(c, 1);
+	if(d->sortinfo_offs) {
+		len = d->sortinfo_offs - d->appinfo_offs;
+	}
+	else if(d->num_recs>0) {
+		len = (de_int64)d->rec_data[0].offset - d->appinfo_offs;
+	}
+	else {
+		len = c->infile->len - d->appinfo_offs;
+	}
+	de_dbg(c, "calculated len: %d\n", (int)len);
+	de_dbg_indent(c, -1);
+}
+
+static void do_sort_info_block(deark *c, lctx *d)
+{
+	de_int64 len;
+
+	if(d->sortinfo_offs==0) return;
+	de_dbg(c, "sort info block at %d\n", (int)d->sortinfo_offs);
+
+	de_dbg_indent(c, 1);
+	if(d->num_recs>0) {
+		len = (de_int64)d->rec_data[0].offset - d->sortinfo_offs;
+	}
+	else {
+		len = c->infile->len - d->sortinfo_offs;
+	}
+	de_dbg(c, "calculated len: %d\n", (int)len);
+	de_dbg_indent(c, -1);
+}
+
 static void de_run_palmdb(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
@@ -215,15 +302,23 @@ static void de_run_palmdb(deark *c, de_module_params *mparams)
 	d = de_malloc(c, sizeof(lctx));
 	if(!do_read_header(c, d)) goto done;
 
-	if(d->file_fmt == FMT_PRC) {
+	if(!do_scan_records(c, d, 78)) goto done;
+
+	if(d->file_fmt==FMT_PRC) {
 		do_read_prc_records(c, d, 78);
 	}
 	else {
 		do_read_pdb_records(c, d, 78);
 	}
 
+	do_app_info_block(c, d);
+	do_sort_info_block(c, d);
+
 done:
-	de_free(c, d);
+	if(d) {
+		de_free(c, d->rec_data);
+		de_free(c, d);
+	}
 }
 
 static int de_identify_palmdb(deark *c)
