@@ -9,8 +9,14 @@
 DE_DECLARE_MODULE(de_module_palmdb);
 
 #define CODE_appl 0x6170706cU
+#define CODE_clpr 0x636c7072U
+#define CODE_pqa  0x70716120U
 
 typedef struct localctx_struct {
+#define FMT_PDB 0
+#define FMT_PQA 1
+#define FMT_PRC 2
+	int file_fmt;
 	de_int64 num_recs;
 	struct de_fourcc dtype4cc;
 	struct de_fourcc creator4cc;
@@ -96,6 +102,19 @@ static int do_read_header(deark *c, lctx *d)
 	dbuf_read_fourcc(c->infile, pos1+64, &d->creator4cc, 0);
 	de_dbg(c, "creator: \"%s\"\n", d->creator4cc.id_printable);
 
+	if(d->dtype4cc.id==CODE_appl) {
+		d->file_fmt = FMT_PRC;
+		de_declare_fmt(c, "Palm PRC");
+	}
+	else if(d->dtype4cc.id==CODE_pqa && d->creator4cc.id==CODE_clpr) {
+		d->file_fmt = FMT_PQA;
+		de_declare_fmt(c, "Palm PQA");
+	}
+	else {
+		d->file_fmt = FMT_PDB;
+		de_declare_fmt(c, "Palm PDB");
+	}
+
 	x = de_getui32be(68);
 	de_dbg(c, "uniqueIDseed: %d\n", (int)x);
 	x = de_getui32be(72);
@@ -108,6 +127,7 @@ static int do_read_header(deark *c, lctx *d)
 	return 1;
 }
 
+// For PDB or PQA format
 static int do_read_pdb_record(deark *c, lctx *d, de_int64 rec_idx, de_int64 pos1)
 {
 	de_int64 data_offset;
@@ -120,23 +140,27 @@ static int do_read_pdb_record(deark *c, lctx *d, de_int64 rec_idx, de_int64 pos1
 	data_offset = de_getui32be(pos1);
 	de_dbg(c, "data pos: %d\n", (int)data_offset);
 
-	attribs = de_getbyte(pos1+4);
-	de_dbg(c, "attributes: 0x%02x\n", (unsigned int)attribs);
+	if(d->file_fmt==FMT_PDB) {
+		attribs = de_getbyte(pos1+4);
+		de_dbg(c, "attributes: 0x%02x\n", (unsigned int)attribs);
 
-	id = (de_getbyte(pos1+5)<<16) |
-		(de_getbyte(pos1+6)<<8) |
-		(de_getbyte(pos1+7));
-	de_dbg(c, "id: %d\n", (int)id);
+		id = (de_getbyte(pos1+5)<<16) |
+			(de_getbyte(pos1+6)<<8) |
+			(de_getbyte(pos1+7));
+		de_dbg(c, "id: %d\n", (int)id);
+	}
 
 	de_dbg_indent(c, -1);
 	return 1;
 }
 
+// For PDB or PQA format
 static void do_read_pdb_records(deark *c, lctx *d, de_int64 pos1)
 {
 	de_int64 i;
 
-	de_dbg(c, "PDB records section at %d\n", (int)pos1);
+	de_dbg(c, "%s records section at %d\n",
+		d->file_fmt==FMT_PQA ? "PQA" : "PDB", (int)pos1);
 	de_dbg_indent(c, 1);
 
 	for(i=0; i<d->num_recs; i++) {
@@ -191,7 +215,7 @@ static void de_run_palmdb(deark *c, de_module_params *mparams)
 	d = de_malloc(c, sizeof(lctx));
 	if(!do_read_header(c, d)) goto done;
 
-	if(d->dtype4cc.id == 0x6170706c) {
+	if(d->file_fmt == FMT_PRC) {
 		do_read_prc_records(c, d, 78);
 	}
 	else {
@@ -211,7 +235,7 @@ static int de_identify_palmdb(deark *c)
 void de_module_palmdb(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "palmdb";
-	mi->desc = "PDB (PalmOS Database), or PRC";
+	mi->desc = "Palm OS PDB, PRC, PQA";
 	mi->run_fn = de_run_palmdb;
 	mi->identify_fn = de_identify_palmdb;
 }
