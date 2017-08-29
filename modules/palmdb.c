@@ -16,29 +16,43 @@ typedef struct localctx_struct {
 	struct de_fourcc creator4cc;
 } lctx;
 
-static void palm_date_to_timestamp_and_string(de_int64 pt, struct de_timestamp *ts,
-	char *timestamp_buf, size_t timestamp_buf_len)
+static void handle_palm_timestamp(deark *c, lctx *d, de_int64 pos, const char *name)
 {
-	unsigned int flags = 0;
+	struct de_timestamp ts;
+	char timestamp_buf[64];
+	de_int64 ts_int;
 
-	if((pt&0x80000000LL) || (pt==0)) {
-		// TODO: This is clearly wrong for some files.
-		// TODO: What timezone are these times in?
-		ts->unix_time = pt - 2082844800;
-	}
-	else { // Assume Unix-style time
-		ts->unix_time = pt;
-		flags &= 0x1;
+	ts_int = de_getui32be(pos);
+	if(ts_int==0) {
+		de_dbg(c, "%s: 0 (not set)\n", name);
+		return;
 	}
 
-	if(pt==0) {
-		de_strlcpy(timestamp_buf, "not set", timestamp_buf_len);
-		ts->is_valid = 0;
+	de_dbg(c, "%s: ...\n", name);
+	de_dbg_indent(c, 1);
+
+	// I've seen three different ways to interpret this 32-bit timestamp, and
+	// I don't know how to guess the correct one.
+
+	de_unix_time_to_timestamp(ts_int - 2082844800, &ts);
+	de_timestamp_to_string(&ts, timestamp_buf, sizeof(timestamp_buf), 0);
+	de_dbg(c, "... if Mac-BE: %"INT64_FMT" (%s)\n", ts_int, timestamp_buf);
+
+	ts_int = de_getui32le(pos);
+	if(ts_int>2082844800) { // Assume dates before 1970 are wrong
+		de_unix_time_to_timestamp(ts_int - 2082844800, &ts);
+		de_timestamp_to_string(&ts, timestamp_buf, sizeof(timestamp_buf), 0);
+		de_dbg(c, "... if Mac-LE: %"INT64_FMT" (%s)\n", ts_int, timestamp_buf);
 	}
-	else {
-		de_timestamp_to_string(ts, timestamp_buf, timestamp_buf_len, flags);
-		ts->is_valid = 1;
+
+	ts_int = dbuf_geti32be(c->infile, pos);
+	if(ts_int>0) {
+		de_unix_time_to_timestamp(ts_int, &ts);
+		de_timestamp_to_string(&ts, timestamp_buf, sizeof(timestamp_buf), 0x1);
+		de_dbg(c, "... if Unix-BE: %"INT64_FMT" (%s)\n", ts_int, timestamp_buf);
 	}
+
+	de_dbg_indent(c, -1);
 }
 
 static int do_read_header(deark *c, lctx *d)
@@ -47,12 +61,9 @@ static int do_read_header(deark *c, lctx *d)
 	de_ucstring *dname = NULL;
 	de_uint32 attribs;
 	de_uint32 version;
-	de_int64 ctime, mtime, btime;
-	struct de_timestamp ctime_ts, mtime_ts, btime_ts;
 	de_int64 x;
 	de_int64 appinfo_offs;
 	de_int64 sortinfo_offs;
-	char timestamp_buf[64];
 
 	de_dbg(c, "header at %d\n", (int)pos1);
 	de_dbg_indent(c, 1);
@@ -68,17 +79,9 @@ static int do_read_header(deark *c, lctx *d)
 	version = (de_uint32)de_getui16be(pos1+34);
 	de_dbg(c, "version: 0x%04x\n", (unsigned int)version);
 
-	ctime = de_getui32be(pos1+36);
-	palm_date_to_timestamp_and_string(ctime, &ctime_ts, timestamp_buf, sizeof(timestamp_buf));
-	de_dbg(c, "create date: %"INT64_FMT" (%s)\n", ctime, timestamp_buf);
-
-	mtime = de_getui32be(pos1+40);
-	palm_date_to_timestamp_and_string(mtime, &mtime_ts, timestamp_buf, sizeof(timestamp_buf));
-	de_dbg(c, "mod date: %"INT64_FMT" (%s)\n", mtime, timestamp_buf);
-
-	btime = de_getui32be(pos1+44);
-	palm_date_to_timestamp_and_string(btime, &btime_ts, timestamp_buf, sizeof(timestamp_buf));
-	de_dbg(c, "backup date: %"INT64_FMT" (%s)\n", btime, timestamp_buf);
+	handle_palm_timestamp(c, d, pos1+36, "create date");
+	handle_palm_timestamp(c, d, pos1+40, "mod date");
+	handle_palm_timestamp(c, d, pos1+44, "backup date");
 
 	x = de_getui32be(pos1+48);
 	de_dbg(c, "mod number: %d\n", (int)x);
