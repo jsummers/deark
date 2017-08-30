@@ -356,7 +356,29 @@ done:
 
 static int de_identify_palmdb(deark *c)
 {
-	// TODO
+	int has_ext = 0;
+	de_byte id[8];
+	static const char *exts[] = {"pdb", "prc", "pqa", "mobi"};
+	static const char *ids[] = {"vIMGView", "TEXtREAd", "pqa clpr", "BOOKMOBI"};
+	size_t k;
+
+	for(k=0; k<DE_ITEMS_IN_ARRAY(exts); k++) {
+		if(de_input_file_has_ext(c, exts[k])) {
+			has_ext = 1;
+			break;
+		}
+	}
+	if(!has_ext) return 0;
+
+	de_read(id, 60, 8);
+
+	if(!de_memcmp(id, "appl", 4)) return 100;
+
+	for(k=0; k<DE_ITEMS_IN_ARRAY(ids); k++) {
+		if(!de_memcmp(id, ids[k], 8)) return 100;
+	}
+
+	// TODO: More work is needed here.
 	return 0;
 }
 
