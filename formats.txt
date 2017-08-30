@@ -508,6 +508,11 @@ Deark -- Information about supported formats
 * Microsoft Installation Compression (module="mscompress")
   - "KWAJ" variant not supported
 
+* Palm OS PDB/PRC/PQA (module="palmdb")
+  - You may have to use "-m palmdb".
+  - Use -a to extract the record blocks, but note that they are usually not in
+    well-known formats.
+
 * RPM (package manager) (module="rpm)
   - Extract compressed cpio file.
 
