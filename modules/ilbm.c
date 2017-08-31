@@ -900,7 +900,7 @@ static int my_ilbm_chunk_handler(deark *c, struct de_iffctx *ictx)
 		break;
 
 	case CODE_CCRT: // Graphicraft Color Cycling Range and Timing
-		tmp1 = dbuf_geti16be(c->infile, ictx->chunkctx->chunk_dpos);
+		tmp1 = de_geti16be(ictx->chunkctx->chunk_dpos);
 		de_dbg(c, "cycling direction: %d\n", (int)tmp1);
 		if(tmp1!=0) {
 			d->uses_color_cycling = 1;

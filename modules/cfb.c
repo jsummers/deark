@@ -308,7 +308,7 @@ static int do_header(deark *c, lctx *d)
 	d->num_fat_sectors = de_getui32le(pos+44);
 	de_dbg(c, "number of FAT sectors: %d\n", (int)d->num_fat_sectors);
 
-	d->first_dir_sec_id = dbuf_geti32le(c->infile, pos+48);
+	d->first_dir_sec_id = de_geti32le(pos+48);
 	describe_sec_id(c, d, d->first_dir_sec_id, buf, sizeof(buf));
 	de_dbg(c, "first directory sector: %d (%s)\n", (int)d->first_dir_sec_id, buf);
 
@@ -318,7 +318,7 @@ static int do_header(deark *c, lctx *d)
 	de_dbg(c, "min size of a standard stream: %d\n", (int)d->std_stream_min_size);
 
 	// First sector of mini sector allocation table (MiniFAT)
-	d->first_minifat_sec_id = dbuf_geti32le(c->infile, pos+60);
+	d->first_minifat_sec_id = de_geti32le(pos+60);
 	describe_sec_id(c, d, d->first_minifat_sec_id, buf, sizeof(buf));
 	de_dbg(c, "first MiniFAT sector: %d (%s)\n", (int)d->first_minifat_sec_id, buf);
 
@@ -328,7 +328,7 @@ static int do_header(deark *c, lctx *d)
 
 	// SecID of first (extra??) sector of the DIFAT
 	// (also called the Master Sector Allocation Table (MSAT))
-	d->first_difat_sec_id = dbuf_geti32le(c->infile, pos+68);
+	d->first_difat_sec_id = de_geti32le(pos+68);
 	describe_sec_id(c, d, d->first_difat_sec_id, buf, sizeof(buf));
 	de_dbg(c, "first extended DIFAT sector: %d (%s)\n", (int)d->first_difat_sec_id, buf);
 
@@ -383,7 +383,7 @@ static void read_difat(deark *c, lctx *d)
 
 		dbuf_copy(c->infile, difat_sec_offs, num_to_read*4, d->difat);
 		still_to_read -= num_to_read;
-		difat_sec_id = (de_int64)dbuf_geti32le(c->infile, difat_sec_offs + num_to_read*4);
+		difat_sec_id = de_geti32le(difat_sec_offs + num_to_read*4);
 	}
 
 	de_dbg_indent(c, -1);

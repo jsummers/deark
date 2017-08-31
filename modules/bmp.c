@@ -199,8 +199,8 @@ static int read_infoheader(deark *c, lctx *d, de_int64 pos)
 		d->height = de_getui16le(pos+6);
 	}
 	else {
-		d->width = dbuf_geti32le(c->infile, pos+4);
-		height_raw = dbuf_geti32le(c->infile, pos+8);
+		d->width = de_geti32le(pos+4);
+		height_raw = de_geti32le(pos+8);
 		if(height_raw<0) {
 			d->top_down = 1;
 			d->height = -height_raw;
@@ -316,8 +316,8 @@ static int read_infoheader(deark *c, lctx *d, de_int64 pos)
 	}
 
 	if(d->infohdrsize>=32) {
-		d->xpelspermeter = dbuf_geti32le(c->infile, pos+24);
-		d->ypelspermeter = dbuf_geti32le(c->infile, pos+28);
+		d->xpelspermeter = de_geti32le(pos+24);
+		d->ypelspermeter = de_geti32le(pos+28);
 		de_dbg(c, "density: %dx%d pixels/meter\n", (int)d->xpelspermeter, (int)d->ypelspermeter);
 	}
 

@@ -186,7 +186,7 @@ static void read_unix_time(deark *c, lctx *d, struct page_ctx *pg, de_int64 pos)
 	de_int64 ut;
 	char timestamp_buf[64];
 
-	ut = dbuf_geti32le(c->infile, pos);
+	ut = de_geti32le(pos);
 	de_unix_time_to_timestamp(ut, &pg->fi->mod_time);
 	de_timestamp_to_string(&pg->fi->mod_time, timestamp_buf, sizeof(timestamp_buf), 1);
 	de_dbg(c, "mod time: %s\n", timestamp_buf);

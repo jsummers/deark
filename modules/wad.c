@@ -20,7 +20,7 @@ static void do_lump_extract(deark *c, lctx *d, de_int64 dpos, de_int64 dlen, str
 	// 0-length lumps are assumed to be special "virtual" lumps.
 	if(dlen<=0) return;
 	if(dpos<0 || dpos>=c->infile->len || dpos+dlen>c->infile->len) return;
-	
+
 	fi = de_finfo_create(c);
 	de_finfo_set_name_from_ucstring(c, fi, srd->str);
 	fi->original_filename_flag = 1;

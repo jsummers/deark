@@ -1198,7 +1198,7 @@ static void decode_falcon_8bit_image(deark *c, struct atari_img_decode_data *ada
 		for(i=0; i<adata->w; i++) {
 			v = 0;
 			for(k=0; k<8; k++) {
-				n = (de_uint32)dbuf_getui16be(c->infile,  pos+j*adata->w + (i-i%16) +2*k);
+				n = (de_uint32)de_getui16be(pos+j*adata->w + (i-i%16) +2*k);
 				if(n&(1<<(15-i%16))) v |= 1<<k;
 			}
 			de_bitmap_setpixel_rgb(adata->img, i, j, adata->pal[v]);

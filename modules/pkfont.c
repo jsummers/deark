@@ -369,8 +369,8 @@ static int do_char_descr(deark *c, lctx *d, de_int64 pos, de_int64 *bytesused)
 		pg->dm = de_getui16be(pos+7);
 		pg->w = (int)de_getui16be(pos+9);
 		pg->h = (int)de_getui16be(pos+11);
-		pg->hoff = dbuf_geti16be(c->infile, pos+13);
-		pg->voff = dbuf_geti16be(c->infile, pos+15);
+		pg->hoff = de_geti16be(pos+13);
+		pg->voff = de_geti16be(pos+15);
 		pg->raster_pos = pos + 17;
 	}
 	else {

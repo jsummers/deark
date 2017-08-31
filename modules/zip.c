@@ -138,7 +138,7 @@ static void read_unix_timestamp(deark *c, lctx *d, de_int64 pos,
 	de_int64 t;
 	char timestamp_buf[64];
 
-	t = dbuf_geti32le(c->infile, pos);
+	t = de_geti32le(pos);
 	de_unix_time_to_timestamp(t, timestamp);
 	de_timestamp_to_string(timestamp, timestamp_buf, sizeof(timestamp_buf), 1);
 	de_dbg(c, "%s: %d (%s)\n", name, (int)t, timestamp_buf);

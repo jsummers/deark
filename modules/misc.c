@@ -1472,7 +1472,7 @@ static void de_run_hsiraw(deark *c, de_module_params *mparams)
 
 	w = de_getui16be(8);
 	if(w==0) {
-		 // MPlayer extension?
+		// MPlayer extension?
 		de_dbg2(c, "reading 32-bit width\n");
 		w = de_getui32be(28);
 	}
@@ -1481,8 +1481,8 @@ static void de_run_hsiraw(deark *c, de_module_params *mparams)
 	num_pal_colors = de_getui16be(12);
 	de_dbg(c, "number of palette colors: %d\n", (int)num_pal_colors);
 
-	hdpi = dbuf_geti16be(c->infile, 14);
-	vdpi = dbuf_geti16be(c->infile, 16);
+	hdpi = de_geti16be(14);
+	vdpi = de_geti16be(16);
 	de_dbg(c, "density: %dx%d\n", (int)hdpi, (int)vdpi);
 	// [18: Gamma]
 	cmpr = de_getui16be(20);

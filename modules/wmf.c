@@ -147,10 +147,10 @@ static void do_read_aldus_header(deark *c, lctx *d)
 
 	de_dbg(c, "Aldus Placeable Metafile header at 0\n");
 	de_dbg_indent(c, 1);
-	left = dbuf_geti16le(c->infile, 6);
-	top = dbuf_geti16le(c->infile, 8);
-	right = dbuf_geti16le(c->infile, 10);
-	bottom = dbuf_geti16le(c->infile, 12);
+	left = de_geti16le(6);
+	top = de_geti16le(8);
+	right = de_geti16le(10);
+	bottom = de_geti16le(12);
 	de_dbg(c, "location: (%d,%d) - (%d,%d)\n", (int)left, (int)top,
 		(int)right, (int)bottom);
 	units_per_inch = de_getui16le(14);
