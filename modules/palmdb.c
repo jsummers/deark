@@ -65,7 +65,7 @@ static void handle_palm_timestamp(deark *c, lctx *d, de_int64 pos, const char *n
 		de_dbg(c, "... if Mac-LE: %"INT64_FMT" (%s)\n", ts_int, timestamp_buf);
 	}
 
-	ts_int = dbuf_geti32be(c->infile, pos);
+	ts_int = de_geti32be(pos);
 	if(ts_int>0) {
 		de_unix_time_to_timestamp(ts_int, &ts);
 		de_timestamp_to_string(&ts, timestamp_buf, sizeof(timestamp_buf), 0x1);
@@ -307,11 +307,96 @@ done:
 	return retval;
 }
 
-static void do_palm_bitmap(deark *c, lctx *d, de_int64 pos, de_int64 len,
-	const char *token)
+// Palm "BitmapType"
+static void do_palm_bitmap(deark *c, lctx *d, de_int64 pos1, de_int64 len,
+	const char *name, const char *token, unsigned int createflags)
 {
-	de_dbg(c, "bitmap at %d, len=%d\n", (int)pos, (int)len);
-	// TODO: Palm BitmapType
+	de_int64 w, h;
+	de_int64 i, j;
+	de_int64 rowbytes;
+	de_int64 bitsperpixel;
+	de_int64 pos = pos1;
+	de_uint32 bitmapflags;
+	de_byte pixelsize_raw;
+	de_byte bitmapversion;
+	struct deark_bitmap *img = NULL;
+	de_finfo *fi = NULL;
+	de_uint32 pal[256];
+
+	de_dbg(c, "%s bitmap at %d, len=%d\n", name, (int)pos, (int)len);
+	de_dbg_indent(c, 1);
+
+	w = de_geti16be(pos);
+	pos += 2;
+	h = de_geti16be(pos);
+	pos += 2;
+	de_dbg(c, "dimensions: %dx%d\n", (int)w, (int)h);
+	if(!de_good_image_dimensions(c, w, h)) goto done;
+
+	rowbytes = de_getui16be(pos);
+	pos += 2;
+	de_dbg(c, "rowBytes: %d\n", (int)rowbytes);
+
+	bitmapflags = (de_uint32)de_getui16be(pos);
+	de_dbg(c, "flags: 0x%04x\n", (unsigned int)bitmapflags);
+	pos += 2;
+
+	pixelsize_raw = de_getbyte(pos++);
+	bitmapversion = de_getbyte(pos++);
+	if(bitmapversion!=0) {
+		de_dbg(c, "pixelSize: %d\n", (int)pixelsize_raw);
+	}
+	de_dbg(c, "version: %d\n", (int)bitmapversion);
+
+	if(bitmapversion==0) bitsperpixel = 1;
+	else bitsperpixel = (de_int64)pixelsize_raw;
+
+	if(bitmapversion==1 || bitmapversion==2) pos += 6;
+	else if(bitmapversion==3) pos += 14;
+
+	if(bitmapversion>3) {
+		de_warn(c, "Unsupported bitmap version: %d\n", (int)bitmapversion);
+		goto done;
+	}
+
+	if(bitsperpixel!=1 && bitsperpixel!=2 && bitsperpixel!=4 && bitsperpixel!=8) {
+		de_err(c, "Unexpected bits/pixel: %d\n", (int)bitsperpixel);
+		goto done;
+	}
+
+	fi = de_finfo_create(c);
+	de_finfo_set_name_from_sz(c, fi, token, DE_ENCODING_UTF8);
+
+	if(bitsperpixel==1) {
+		de_convert_and_write_image_bilevel(c->infile, pos, w, h, rowbytes,
+			DE_CVTF_WHITEISZERO, fi, createflags);
+		goto done;
+	}
+
+	img = de_bitmap_create(c, w, h, 1);
+
+	// According to what I've read, icons in PQA files are not expected to have a
+	// a color table. I don't know what we're supposed to do if they have a bit
+	// depth larger than 1 (which some do).
+	de_warn(c, "Using a grayscale palette.\n");
+	de_make_grayscale_palette(pal, ((de_int64)1)<<bitsperpixel, 0x1);
+
+	for(j=0; j<h; j++) {
+		for(i=0; i<w; i++) {
+			de_byte b;
+			de_uint32 clr;
+
+			b = de_get_bits_symbol(c->infile, bitsperpixel, pos + rowbytes*j, i);
+			clr = pal[(unsigned int)b];
+			de_bitmap_setpixel_rgb(img, i, j, clr);
+		}
+	}
+	de_bitmap_write_to_file_finfo(img, fi, createflags);
+
+done:
+	de_dbg_indent(c, -1);
+	de_bitmap_destroy(img);
+	de_finfo_destroy(c, fi);
 }
 
 static void do_pqa_app_info_block(deark *c, lctx *d, de_int64 pos1, de_int64 len)
@@ -351,16 +436,14 @@ static void do_pqa_app_info_block(deark *c, lctx *d, de_int64 pos1, de_int64 len
 	ucstring_empty(s);
 	pos += 2*ux;
 
-	ux = (de_uint32)de_getui16be(pos);
-	de_dbg(c, "iconWords: %d\n", (int)ux);
+	ux = (de_uint32)de_getui16be(pos); // iconWords (length prefix)
 	pos += 2;
-	do_palm_bitmap(c, d, pos, 2*ux, "icon");
+	do_palm_bitmap(c, d, pos, 2*ux, "icon", "icon", DE_CREATEFLAG_IS_AUX);
 	pos += 2*ux;
 
-	ux = (de_uint32)de_getui16be(pos);
-	de_dbg(c, "smIconWords: %d\n", (int)ux);
+	ux = (de_uint32)de_getui16be(pos); // smIconWords
 	pos += 2;
-	do_palm_bitmap(c, d, pos, 2*ux, "smicon");
+	do_palm_bitmap(c, d, pos, 2*ux, "smIcon", "smicon", DE_CREATEFLAG_IS_AUX);
 	pos += 2*ux;
 
 	ucstring_destroy(s);
@@ -386,10 +469,12 @@ static void do_app_info_block(deark *c, lctx *d)
 	de_dbg(c, "calculated len: %d\n", (int)len);
 
 	if(len>0) {
+		// TODO: Decide exactly when to extract this, and when to decode it.
+		extract_item(c, d, d->appinfo_offs, len, "appinfo.bin", DE_CREATEFLAG_IS_AUX);
+
 		if(d->file_fmt==FMT_PQA) {
 			do_pqa_app_info_block(c, d, d->appinfo_offs, len);
 		}
-		extract_item(c, d, d->appinfo_offs, len, "appinfo.bin", DE_CREATEFLAG_IS_AUX);
 	}
 
 	de_dbg_indent(c, -1);

@@ -510,6 +510,7 @@ Deark -- Information about supported formats
 
 * Palm OS PDB/PRC/PQA (module="palmdb")
   - You may have to use "-m palmdb".
+  - Limited support. For example, ImageViewer images are *not* decoded.
   - Use -a to extract the record blocks, but note that they are usually not in
     well-known formats.
 
