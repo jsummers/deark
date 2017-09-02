@@ -12,6 +12,8 @@ DE_DECLARE_MODULE(de_module_palmdb);
 #define CODE_clpr 0x636c7072U
 #define CODE_lnch 0x6c6e6368U
 #define CODE_pqa  0x70716120U
+#define CODE_vIMG 0x76494d47U
+#define CODE_View 0x56696577U
 
 struct rec_data_struct {
 	de_uint32 offset;
@@ -58,18 +60,18 @@ static void handle_palm_timestamp(deark *c, lctx *d, de_int64 pos, const char *n
 	de_timestamp_to_string(&ts, timestamp_buf, sizeof(timestamp_buf), 0);
 	de_dbg(c, "... if Mac-BE: %"INT64_FMT" (%s)\n", ts_int, timestamp_buf);
 
-	ts_int = de_getui32le(pos);
-	if(ts_int>2082844800) { // Assume dates before 1970 are wrong
-		de_unix_time_to_timestamp(ts_int - 2082844800, &ts);
-		de_timestamp_to_string(&ts, timestamp_buf, sizeof(timestamp_buf), 0);
-		de_dbg(c, "... if Mac-LE: %"INT64_FMT" (%s)\n", ts_int, timestamp_buf);
-	}
-
 	ts_int = de_geti32be(pos);
-	if(ts_int>0) {
+	if(ts_int>0) { // Assume dates before 1970 are wrong
 		de_unix_time_to_timestamp(ts_int, &ts);
 		de_timestamp_to_string(&ts, timestamp_buf, sizeof(timestamp_buf), 0x1);
 		de_dbg(c, "... if Unix-BE: %"INT64_FMT" (%s)\n", ts_int, timestamp_buf);
+	}
+
+	ts_int = de_getui32le(pos);
+	if(ts_int>2082844800) {
+		de_unix_time_to_timestamp(ts_int - 2082844800, &ts);
+		de_timestamp_to_string(&ts, timestamp_buf, sizeof(timestamp_buf), 0);
+		de_dbg(c, "... if Mac-LE: %"INT64_FMT" (%s)\n", ts_int, timestamp_buf);
 	}
 
 	de_dbg_indent(c, -1);
@@ -165,6 +167,134 @@ done:
 	de_finfo_destroy(c, fi);
 }
 
+static void do_imgview_image(deark *c, lctx *d, de_int64 pos1, de_int64 len)
+{
+	de_byte imgver;
+	de_byte imgtype;
+	de_byte b;
+	unsigned int cmpr_meth;
+	de_int64 w, h;
+	de_int64 i, j;
+	de_int64 x0, x1;
+	de_int64 pos = pos1;
+	de_int64 bitsperpixel;
+	de_int64 rowbytes;
+	de_ucstring *iname = NULL;
+	dbuf *unc_pixels = NULL;
+	struct deark_bitmap *img = NULL;
+
+	de_dbg(c, "image record at %d\n", (int)pos1);
+	de_dbg_indent(c, 1);
+
+	iname = ucstring_create(c);
+	dbuf_read_to_ucstring(c->infile, pos, 32, iname, DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_LATIN1);
+	de_dbg(c, "name: \"%s\"\n", ucstring_get_printable_sz(iname));
+	// TODO: Use this in the filename?
+	pos += 32;
+
+	imgver = de_getbyte(pos++);
+	de_dbg(c, "version: 0x%02x\n", (unsigned int)imgver);
+	cmpr_meth = (unsigned int)(imgver&0x07);
+	de_dbg_indent(c, 1);
+	de_dbg(c, "compression method: %u\n", cmpr_meth);
+	de_dbg_indent(c, -1);
+
+	imgtype = de_getbyte(pos++);
+	de_dbg(c, "type: 0x%02x\n", (unsigned int)imgtype);
+	de_dbg_indent(c, 1);
+	switch(imgtype) {
+	case 0: bitsperpixel = 2; break;
+	case 2: bitsperpixel = 4; break;
+	default: bitsperpixel = 1;
+	}
+	de_dbg(c, "bits/pixel: %d\n", (int)bitsperpixel);
+	de_dbg_indent(c, -1);
+
+	pos += 4; // reserved
+	pos += 4; // note
+
+	x0 = de_getui16be(pos);
+	pos += 2; // xlast
+	x1 = de_getui16be(pos);
+	pos += 2; // ylast
+	de_dbg(c, "last: (%d,%d)\n", (int)x0, (int)x1);
+
+	pos += 4; // reserved
+
+	x0 = de_getui16be(pos);
+	pos += 2; // xanchor
+	x1 = de_getui16be(pos);
+	pos += 2; // yanchor
+	de_dbg(c, "anchor: (%d,%d)\n", (int)x0, (int)x1);
+
+	w = de_getui16be(pos);
+	pos += 2;
+	h = de_getui16be(pos);
+	pos += 2;
+	de_dbg(c, "dimensions: %dx%d\n", (int)w, (int)h);
+	if(!de_good_image_dimensions(c, w, h)) goto done;
+
+	rowbytes = (w*bitsperpixel + 7)/8;
+
+	if(cmpr_meth==0 && (pos+rowbytes*h > pos1+len)) {
+		de_warn(c, "Not enough data for image\n");
+	}
+
+	if(cmpr_meth==0) {
+		unc_pixels = dbuf_open_input_subfile(c->infile, pos, pos1+len - pos);
+	}
+	else {
+		de_err(c, "Compressed images are not supported\n");
+		goto done;
+	}
+
+	if(bitsperpixel==1) {
+		de_convert_and_write_image_bilevel(c->infile, pos, w, h, rowbytes,
+			DE_CVTF_WHITEISZERO, NULL, 0);
+		goto done;
+	}
+
+	img = de_bitmap_create(c, w, h, 1);
+
+	for(j=0; j<h; j++) {
+		for(i=0; i<w; i++) {
+			b = de_get_bits_symbol(unc_pixels, bitsperpixel, rowbytes*j, i);
+			b = 255 - de_sample_nbit_to_8bit(bitsperpixel, (unsigned int)b);
+			de_bitmap_setpixel_gray(img, i, j, b);
+		}
+	}
+
+	de_bitmap_write_to_file(img, NULL, 0);
+
+done:
+	de_dbg_indent(c, -1);
+	de_bitmap_destroy(img);
+	dbuf_close(unc_pixels);
+	ucstring_destroy(iname);
+}
+
+static void do_imgview_text(deark *c, lctx *d, de_int64 pos, de_int64 len)
+{
+	de_ucstring *s = NULL;
+
+	if(len<1) return;
+
+	// (I'm pretty much just guessing the format of this record.)
+	s = ucstring_create(c);
+	dbuf_read_to_ucstring(c->infile, pos, len, s, DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_LATIN1);
+
+	// TODO: Decide when to write the text record to a file.
+	// Problem is that we're already using -a to mean "write all raw records to files".
+	{
+		dbuf *outf = NULL;
+		outf = dbuf_create_output_file(c, "comment.txt", NULL, DE_CREATEFLAG_IS_AUX);
+		ucstring_write_as_utf8(c, s, outf, 1);
+		dbuf_close(outf);
+	}
+
+	ucstring_destroy(s);
+}
+
 // For PDB or PQA format
 static int do_read_pdb_record(deark *c, lctx *d, de_int64 rec_idx, de_int64 pos1)
 {
@@ -183,13 +313,32 @@ static int do_read_pdb_record(deark *c, lctx *d, de_int64 rec_idx, de_int64 pos1
 	de_dbg(c, "calculated len: %d\n", (int)data_len);
 
 	if(d->file_fmt==FMT_PDB) {
+		const char *idname = NULL;
+		char tmpstr[80];
+
 		attribs = de_getbyte(pos1+4);
 		de_dbg(c, "attributes: 0x%02x\n", (unsigned int)attribs);
 
 		id = (de_getbyte(pos1+5)<<16) |
 			(de_getbyte(pos1+6)<<8) |
 			(de_getbyte(pos1+7));
-		de_dbg(c, "id: %d\n", (int)id);
+
+		if(d->dtype4cc.id==CODE_vIMG && d->creator4cc.id==CODE_View) {
+			if(id==0x6f8000) idname = "image record";
+			else if(id==0x6f8001) idname = "text record";
+			else idname = "?";
+		}
+		if(idname)
+			de_snprintf(tmpstr, sizeof(tmpstr), " (%s)", idname);
+		else
+			tmpstr[0] = '\0';
+
+		de_dbg(c, "id: %u (0x%06x)%s\n", (unsigned int)id, (unsigned int)id, tmpstr);
+
+		if(d->dtype4cc.id==CODE_vIMG && d->creator4cc.id==CODE_View) {
+			if(id==0x6f8000) do_imgview_image(c, d, data_offs, data_len);
+			else if(id==0x6f8001) do_imgview_text(c, d, data_offs, data_len);
+		}
 	}
 
 	extract_item(c, d, data_offs, data_len, "bin", 0);
