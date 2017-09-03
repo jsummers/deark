@@ -190,14 +190,42 @@ static int do_decompress_imgview_image(deark *c, lctx *d,
 	return 1;
 }
 
+static void do_decode_image(deark *c, lctx *d,
+	dbuf *unc_pixels, de_int64 pos,
+	de_int64 w, de_int64 h, de_int64 bitsperpixel, de_int64 rowbytes,
+	de_finfo *fi, unsigned int createflags)
+{
+	de_int64 i, j;
+	de_byte b;
+	struct deark_bitmap *img = NULL;
+
+	if(bitsperpixel==1) {
+		de_convert_and_write_image_bilevel(unc_pixels, pos, w, h, rowbytes,
+			DE_CVTF_WHITEISZERO, fi, createflags);
+		goto done;
+	}
+
+	img = de_bitmap_create(c, w, h, 1);
+
+	for(j=0; j<h; j++) {
+		for(i=0; i<w; i++) {
+			b = de_get_bits_symbol(unc_pixels, bitsperpixel, pos+rowbytes*j, i);
+			b = 255 - de_sample_nbit_to_8bit(bitsperpixel, (unsigned int)b);
+			de_bitmap_setpixel_gray(img, i, j, b);
+		}
+	}
+
+	de_bitmap_write_to_file_finfo(img, fi, createflags);
+done:
+	de_bitmap_destroy(img);
+}
+
 static void do_imgview_image(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 {
 	de_byte imgver;
 	de_byte imgtype;
-	de_byte b;
 	unsigned int cmpr_meth;
 	de_int64 w, h;
-	de_int64 i, j;
 	de_int64 x0, x1;
 	de_int64 pos = pos1;
 	de_int64 bitsperpixel;
@@ -206,7 +234,6 @@ static void do_imgview_image(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 	de_int64 expected_num_uncmpr_image_bytes;
 	de_ucstring *iname = NULL;
 	dbuf *unc_pixels = NULL;
-	struct deark_bitmap *img = NULL;
 
 	de_dbg(c, "image record at %d\n", (int)pos1);
 	de_dbg_indent(c, 1);
@@ -277,27 +304,11 @@ static void do_imgview_image(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 			(int)unc_pixels->len);
 	}
 
-	if(bitsperpixel==1) {
-		de_convert_and_write_image_bilevel(unc_pixels, 0, w, h, rowbytes,
-			DE_CVTF_WHITEISZERO, NULL, 0);
-		goto done;
-	}
-
-	img = de_bitmap_create(c, w, h, 1);
-
-	for(j=0; j<h; j++) {
-		for(i=0; i<w; i++) {
-			b = de_get_bits_symbol(unc_pixels, bitsperpixel, rowbytes*j, i);
-			b = 255 - de_sample_nbit_to_8bit(bitsperpixel, (unsigned int)b);
-			de_bitmap_setpixel_gray(img, i, j, b);
-		}
-	}
-
-	de_bitmap_write_to_file(img, NULL, 0);
+	do_decode_image(c, d, unc_pixels, 0, w, h, bitsperpixel, rowbytes,
+		NULL, 0);
 
 done:
 	de_dbg_indent(c, -1);
-	de_bitmap_destroy(img);
 	dbuf_close(unc_pixels);
 	ucstring_destroy(iname);
 }
@@ -490,16 +501,13 @@ static void do_palm_bitmap(deark *c, lctx *d, de_int64 pos1, de_int64 len,
 	const char *name, const char *token, unsigned int createflags)
 {
 	de_int64 w, h;
-	de_int64 i, j;
 	de_int64 rowbytes;
 	de_int64 bitsperpixel;
 	de_int64 pos = pos1;
 	de_uint32 bitmapflags;
 	de_byte pixelsize_raw;
 	de_byte bitmapversion;
-	struct deark_bitmap *img = NULL;
 	de_finfo *fi = NULL;
-	de_uint32 pal[256];
 
 	de_dbg(c, "%s bitmap at %d, len=%d\n", name, (int)pos, (int)len);
 	de_dbg_indent(c, 1);
@@ -545,32 +553,11 @@ static void do_palm_bitmap(deark *c, lctx *d, de_int64 pos1, de_int64 len,
 	fi = de_finfo_create(c);
 	de_finfo_set_name_from_sz(c, fi, token, DE_ENCODING_UTF8);
 
-	if(bitsperpixel==1) {
-		de_convert_and_write_image_bilevel(c->infile, pos, w, h, rowbytes,
-			DE_CVTF_WHITEISZERO, fi, createflags);
-		goto done;
-	}
-
-	img = de_bitmap_create(c, w, h, 1);
-
-	// TODO: Consolidate this with do_imgview_image()?
-	de_make_grayscale_palette(pal, ((de_int64)1)<<bitsperpixel, 0x1);
-
-	for(j=0; j<h; j++) {
-		for(i=0; i<w; i++) {
-			de_byte b;
-			de_uint32 clr;
-
-			b = de_get_bits_symbol(c->infile, bitsperpixel, pos + rowbytes*j, i);
-			clr = pal[(unsigned int)b];
-			de_bitmap_setpixel_rgb(img, i, j, clr);
-		}
-	}
-	de_bitmap_write_to_file_finfo(img, fi, createflags);
+	do_decode_image(c, d, c->infile, pos, w, h, bitsperpixel, rowbytes,
+		fi, createflags);
 
 done:
 	de_dbg_indent(c, -1);
-	de_bitmap_destroy(img);
 	de_finfo_destroy(c, fi);
 }
 
