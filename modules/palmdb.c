@@ -167,6 +167,29 @@ done:
 	de_finfo_destroy(c, fi);
 }
 
+static int do_decompress_imgview_image(deark *c, lctx *d,
+	de_int64 pos1, de_int64 len, dbuf *unc_pixels)
+{
+	de_int64 pos = pos1;
+	de_byte b1, b2;
+	de_int64 count;
+
+	while(pos < pos1+len) {
+		b1 = de_getbyte(pos++);
+		if(b1>128) {
+			count = (de_int64)b1-127;
+			b2 = de_getbyte(pos++);
+			dbuf_write_run(unc_pixels, b2, count);
+		}
+		else {
+			count = (de_int64)b1+1;
+			dbuf_copy(c->infile, pos, count, unc_pixels);
+			pos += count;
+		}
+	}
+	return 1;
+}
+
 static void do_imgview_image(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 {
 	de_byte imgver;
@@ -179,6 +202,8 @@ static void do_imgview_image(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 	de_int64 pos = pos1;
 	de_int64 bitsperpixel;
 	de_int64 rowbytes;
+	de_int64 num_raw_image_bytes;
+	de_int64 expected_num_uncmpr_image_bytes;
 	de_ucstring *iname = NULL;
 	dbuf *unc_pixels = NULL;
 	struct deark_bitmap *img = NULL;
@@ -214,17 +239,17 @@ static void do_imgview_image(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 	pos += 4; // note
 
 	x0 = de_getui16be(pos);
-	pos += 2; // xlast
+	pos += 2;
 	x1 = de_getui16be(pos);
-	pos += 2; // ylast
+	pos += 2;
 	de_dbg(c, "last: (%d,%d)\n", (int)x0, (int)x1);
 
 	pos += 4; // reserved
 
 	x0 = de_getui16be(pos);
-	pos += 2; // xanchor
+	pos += 2;
 	x1 = de_getui16be(pos);
-	pos += 2; // yanchor
+	pos += 2;
 	de_dbg(c, "anchor: (%d,%d)\n", (int)x0, (int)x1);
 
 	w = de_getui16be(pos);
@@ -235,21 +260,25 @@ static void do_imgview_image(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 	if(!de_good_image_dimensions(c, w, h)) goto done;
 
 	rowbytes = (w*bitsperpixel + 7)/8;
+	expected_num_uncmpr_image_bytes = rowbytes*h;
+	num_raw_image_bytes = pos1+len-pos;
 
 	if(cmpr_meth==0 && (pos+rowbytes*h > pos1+len)) {
 		de_warn(c, "Not enough data for image\n");
 	}
 
 	if(cmpr_meth==0) {
-		unc_pixels = dbuf_open_input_subfile(c->infile, pos, pos1+len - pos);
+		unc_pixels = dbuf_open_input_subfile(c->infile, pos, num_raw_image_bytes);
 	}
 	else {
-		de_err(c, "Compressed images are not supported\n");
-		goto done;
+		unc_pixels = dbuf_create_membuf(c, expected_num_uncmpr_image_bytes, 1);
+		do_decompress_imgview_image(c, d, pos, num_raw_image_bytes, unc_pixels);
+		de_dbg(c, "decompressed %d bytes to %d bytes\n", (int)num_raw_image_bytes,
+			(int)unc_pixels->len);
 	}
 
 	if(bitsperpixel==1) {
-		de_convert_and_write_image_bilevel(c->infile, pos, w, h, rowbytes,
+		de_convert_and_write_image_bilevel(unc_pixels, 0, w, h, rowbytes,
 			DE_CVTF_WHITEISZERO, NULL, 0);
 		goto done;
 	}
@@ -524,10 +553,7 @@ static void do_palm_bitmap(deark *c, lctx *d, de_int64 pos1, de_int64 len,
 
 	img = de_bitmap_create(c, w, h, 1);
 
-	// According to what I've read, icons in PQA files are not expected to have a
-	// a color table. I don't know what we're supposed to do if they have a bit
-	// depth larger than 1 (which some do).
-	de_warn(c, "Using a grayscale palette.\n");
+	// TODO: Consolidate this with do_imgview_image()?
 	de_make_grayscale_palette(pal, ((de_int64)1)<<bitsperpixel, 0x1);
 
 	for(j=0; j<h; j++) {

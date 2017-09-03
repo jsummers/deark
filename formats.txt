@@ -278,6 +278,8 @@ Deark -- Information about supported formats
   - Format v1.x: BMP files are reconstructed and extracted.
   - Format v2.x: JPEG files are extracted.
 
+* Palm Database (PDB) ImageViewer/FireViewer (part of module "palmdb")
+
 * PCPaint / Pictor (module="pcpaint")
   - Supports PIC and CLP formats. Some files are not portable, because they use
     a nonstandard palette that is not contained in the file.
@@ -510,7 +512,6 @@ Deark -- Information about supported formats
 
 * Palm OS PDB/PRC/PQA (module="palmdb")
   - You may have to use "-m palmdb".
-  - Limited support.
   - Use -a to extract the record blocks, but note that they are usually not in
     well-known formats.
 
