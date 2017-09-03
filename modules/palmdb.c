@@ -8,12 +8,14 @@
 #include <deark-private.h>
 DE_DECLARE_MODULE(de_module_palmdb);
 
+#define CODE_Tbmp 0x54626d70U
+#define CODE_View 0x56696577U
 #define CODE_appl 0x6170706cU
 #define CODE_clpr 0x636c7072U
 #define CODE_lnch 0x6c6e6368U
 #define CODE_pqa  0x70716120U
+#define CODE_tAIB 0x74414942U
 #define CODE_vIMG 0x76494d47U
-#define CODE_View 0x56696577U
 
 struct rec_data_struct {
 	de_uint32 offset;
@@ -387,6 +389,10 @@ static int do_read_pdb_record(deark *c, lctx *d, de_int64 rec_idx, de_int64 pos1
 	return 1;
 }
 
+static void do_palm_bitmap(deark *c, lctx *d, de_int64 pos1, de_int64 len,
+	const char *name, const char *token, unsigned int createflags,
+	int is_tbmp);
+
 static int do_read_prc_record(deark *c, lctx *d, de_int64 rec_idx, de_int64 pos1)
 {
 	de_uint32 id;
@@ -408,6 +414,14 @@ static int do_read_prc_record(deark *c, lctx *d, de_int64 rec_idx, de_int64 pos1
 	de_dbg(c, "data pos: %d\n", (int)data_offs);
 	data_len = calc_rec_len(c, d, rec_idx);
 	de_dbg(c, "calculated len: %d\n", (int)data_len);
+
+	switch(name4cc.id) {
+	case CODE_Tbmp:
+	case CODE_tAIB:
+		do_palm_bitmap(c, d, data_offs, data_len,
+			name4cc.id_printable, name4cc.id_printable, 0, 1);
+		break;
+	}
 
 	de_snprintf(ext, sizeof(ext), "%s.bin", name4cc.id_printable);
 	extract_item(c, d, data_offs, data_len, ext, 0);
@@ -498,7 +512,8 @@ done:
 
 // Palm "BitmapType"
 static void do_palm_bitmap(deark *c, lctx *d, de_int64 pos1, de_int64 len,
-	const char *name, const char *token, unsigned int createflags)
+	const char *name, const char *token, unsigned int createflags,
+	int is_tbmp)
 {
 	de_int64 w, h;
 	de_int64 rowbytes;
@@ -537,7 +552,9 @@ static void do_palm_bitmap(deark *c, lctx *d, de_int64 pos1, de_int64 len,
 	if(bitmapversion==0) bitsperpixel = 1;
 	else bitsperpixel = (de_int64)pixelsize_raw;
 
-	if(bitmapversion==1 || bitmapversion==2) pos += 6;
+	// I don't know the format of Tbmp bitmaps, but they seem to be like
+	// version 0 "BitmapTypes", except the header is the size of v1/v2.
+	if(bitmapversion==1 || bitmapversion==2 || is_tbmp) pos += 6;
 	else if(bitmapversion==3) pos += 14;
 
 	if(bitmapversion>3) {
@@ -547,6 +564,12 @@ static void do_palm_bitmap(deark *c, lctx *d, de_int64 pos1, de_int64 len,
 
 	if(bitsperpixel!=1 && bitsperpixel!=2 && bitsperpixel!=4 && bitsperpixel!=8) {
 		de_err(c, "Unexpected bits/pixel: %d\n", (int)bitsperpixel);
+		goto done;
+	}
+
+	if(bitmapflags&0x8000) {
+		// TODO
+		de_err(c, "This type of compressed bitmap is not supported\n");
 		goto done;
 	}
 
@@ -600,12 +623,12 @@ static void do_pqa_app_info_block(deark *c, lctx *d, de_int64 pos1, de_int64 len
 
 	ux = (de_uint32)de_getui16be(pos); // iconWords (length prefix)
 	pos += 2;
-	do_palm_bitmap(c, d, pos, 2*ux, "icon", "icon", DE_CREATEFLAG_IS_AUX);
+	do_palm_bitmap(c, d, pos, 2*ux, "icon", "icon", DE_CREATEFLAG_IS_AUX, 0);
 	pos += 2*ux;
 
 	ux = (de_uint32)de_getui16be(pos); // smIconWords
 	pos += 2;
-	do_palm_bitmap(c, d, pos, 2*ux, "smIcon", "smicon", DE_CREATEFLAG_IS_AUX);
+	do_palm_bitmap(c, d, pos, 2*ux, "smIcon", "smicon", DE_CREATEFLAG_IS_AUX, 0);
 	pos += 2*ux;
 
 	ucstring_destroy(s);
