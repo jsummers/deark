@@ -280,6 +280,10 @@ Deark -- Information about supported formats
 
 * Palm BitmapType (module="palmbitmap")
   - Cannot be autodetected. You must use "-m palmbitmap".
+  - May be found inside some Palm PRC/PQA files. See also the notes for the
+    "Palm PDB/PRC/PQA" module.
+  - Uncompressed and ScanLine compression are supported. RLE and PackBits are
+    not.
 
 * Palm Database (PDB) ImageViewer/FireViewer (part of module "palmdb")
 
@@ -513,8 +517,9 @@ Deark -- Information about supported formats
 * Microsoft Installation Compression (module="mscompress")
   - "KWAJ" variant not supported
 
-* Palm OS PDB/PRC/PQA (module="palmdb")
+* Palm PDB/PRC/PQA (module="palmdb")
   - You may have to use "-m palmdb".
+  - See also the notes about the "Palm BitmapType" module.
   - Use -a to extract the record blocks, but note that they are usually not in
     well-known formats.
 

@@ -35,6 +35,14 @@ struct rec_list_struct {
 	struct rec_data_struct *rec_data;
 };
 
+struct img_gen_info {
+	de_int64 w, h;
+	de_int64 bitsperpixel;
+	de_int64 rowbytes;
+	de_finfo *fi;
+	unsigned int createflags;
+};
+
 typedef struct localctx_struct {
 #define FMT_PDB 0
 #define FMT_PQA 1
@@ -201,13 +209,54 @@ static int do_decompress_imgview_image(deark *c, lctx *d, dbuf *inf,
 	return 1;
 }
 
-struct img_gen_info {
-	de_int64 w, h;
-	de_int64 bitsperpixel;
-	de_int64 rowbytes;
-	de_finfo *fi;
-	unsigned int createflags;
-};
+static int do_decompress_scanline_compression(deark *c, lctx *d, dbuf *inf,
+	de_int64 pos1, de_int64 len, dbuf *unc_pixels, struct img_gen_info *igi)
+{
+	de_int64 srcpos = pos1;
+	de_int64 j;
+	de_int64 blocknum;
+	de_int64 blocksperrow;
+	de_byte bf;
+	de_byte dstb;
+	unsigned int k;
+	de_int64 x;
+
+	blocksperrow = (igi->rowbytes+7)/8;
+
+	x = dbuf_getui16be(inf, srcpos);
+	// TODO: Find documentation for this field, and maybe do something with it.
+	// It apparently includes the 2 bytes for itself.
+	de_dbg2(c, "cmpr len: %d\n", (int)x);
+	srcpos += 2;
+
+	for(j=0; j<igi->h; j++) {
+		de_int64 bytes_written_this_row = 0;
+
+		for(blocknum=0; blocknum<blocksperrow; blocknum++) {
+			// For each byte-per-row, we expect a lead byte, which is a
+			// bitfield that tells us which of the next 8 bytes are stored
+			// in the file, versus being copied from the previous row.
+			bf = dbuf_getbyte(inf, srcpos++);
+			for(k=0; k<8; k++) {
+				if(bytes_written_this_row>=igi->rowbytes) break;
+
+				if(bf&(1<<(7-k))) {
+					// byte is present
+					dstb = dbuf_getbyte(inf, srcpos++);
+				}
+				else {
+					// copy from previous row
+					dstb = dbuf_getbyte(unc_pixels, unc_pixels->len - igi->rowbytes);
+				}
+				dbuf_writebyte(unc_pixels, dstb);
+
+				bytes_written_this_row++;
+			}
+		}
+	}
+
+	return 1;
+}
 
 static void do_generate_unc_image(deark *c, lctx *d, dbuf *unc_pixels,
 	struct img_gen_info *igi)
@@ -255,22 +304,43 @@ static void do_generate_image(deark *c, lctx *d,
 		}
 		unc_pixels = dbuf_open_input_subfile(inf, pos, len);
 	}
-	else if(cmpr_type==CMPR_IMGVIEWER) {
+	else {
 		unc_pixels = dbuf_create_membuf(c, expected_num_uncmpr_image_bytes, 1);
-		do_decompress_imgview_image(c, d, inf, pos, len, unc_pixels);
+
+		if(cmpr_type==CMPR_IMGVIEWER) {
+			do_decompress_imgview_image(c, d, inf, pos, len, unc_pixels);
+		}
+		else if(cmpr_type==CMPR_SCANLINE) {
+			do_decompress_scanline_compression(c, d, inf, pos, len, unc_pixels, igi);
+		}
+		else {
+			de_err(c, "Unsupported compression type: %u\n", cmpr_type);
+			goto done;
+		}
+
 		// TODO: The byte counts in this message are not very accurate.
 		de_dbg(c, "decompressed %d bytes to %d bytes\n", (int)len,
 			(int)unc_pixels->len);
-	}
-	else {
-		de_err(c, "Unsupported compression type: %u\n", cmpr_type);
-		goto done;
 	}
 
 	do_generate_unc_image(c, d, unc_pixels, igi);
 
 done:
 	dbuf_close(unc_pixels);
+}
+
+static const char *get_cmpr_type_name(unsigned int cmpr_type)
+{
+	const char *name;
+
+	switch(cmpr_type) {
+	case 0: name = "ScanLine"; break;
+	case 1: name = "RLE"; break;
+	case 2: name = "PackBits"; break;
+	case 0xff: name = "none"; break;
+	default: name = "?"; break;
+	}
+	return name;
 }
 
 static void do_palm_BitmapType_internal(deark *c, lctx *d, de_int64 pos1, de_int64 len,
@@ -313,7 +383,7 @@ static void do_palm_BitmapType_internal(deark *c, lctx *d, de_int64 pos1, de_int
 	de_dbg(c, "rowBytes: %d\n", (int)igi->rowbytes);
 
 	bitmapflags = (de_uint32)de_getui16be(pos1+6);
-	de_dbg(c, "flags: 0x%04x\n", (unsigned int)bitmapflags);
+	de_dbg(c, "bitmap flags: 0x%04x\n", (unsigned int)bitmapflags);
 
 	if(bitmapversion>=1) {
 		pixelsize_raw = de_getbyte(pos1+8);
@@ -345,7 +415,7 @@ static void do_palm_BitmapType_internal(deark *c, lctx *d, de_int64 pos1, de_int
 	if(bitmapflags&0x8000) {
 		if(bitmapversion>=2) {
 			cmpr_type = (unsigned int)de_getbyte(pos1+13);
-			de_dbg(c, "compression type: 0x%02x\n", cmpr_type);
+			de_dbg(c, "compression type field: 0x%02x\n", cmpr_type);
 		}
 		else {
 			// V1 & V2 have no cmpr_type field, but can still be compressed.
@@ -354,6 +424,13 @@ static void do_palm_BitmapType_internal(deark *c, lctx *d, de_int64 pos1, de_int
 	}
 	else {
 		cmpr_type = CMPR_NONE;
+	}
+
+	if((bitmapflags&0x8000) && (bitmapversion>=2)) {
+		de_dbg(c, "compression type: %s (0x%02x)\n", get_cmpr_type_name(cmpr_type), cmpr_type);
+	}
+	else {
+		de_dbg(c, "compression type: %s (based on flags)\n", get_cmpr_type_name(cmpr_type));
 	}
 
 	// TODO: [14] density (V3)
@@ -580,7 +657,8 @@ static int do_read_prc_record(deark *c, lctx *d, de_int64 rec_idx, de_int64 pos1
 	struct de_fourcc name4cc;
 	de_int64 data_offs;
 	de_int64 data_len;
-	char ext[80];
+	const char *ext1 = "bin";
+	char extfull[80];
 
 	de_dbg(c, "record[%d] at %d\n", (int)rec_idx, (int)pos1);
 	de_dbg_indent(c, 1);
@@ -599,13 +677,14 @@ static int do_read_prc_record(deark *c, lctx *d, de_int64 rec_idx, de_int64 pos1
 	switch(name4cc.id) {
 	case CODE_Tbmp:
 	case CODE_tAIB:
+		ext1 = "palm";
 		do_palm_BitmapType(c, d, data_offs, data_len,
 			name4cc.id_printable, 0);
 		break;
 	}
 
-	de_snprintf(ext, sizeof(ext), "%s.bin", name4cc.id_printable);
-	extract_item(c, d, data_offs, data_len, ext, 0);
+	de_snprintf(extfull, sizeof(extfull), "%s.%s", name4cc.id_printable, ext1);
+	extract_item(c, d, data_offs, data_len, extfull, 0);
 
 	de_dbg_indent(c, -1);
 	return 1;
@@ -733,6 +812,7 @@ static void do_pqa_app_info_block(deark *c, lctx *d, de_int64 pos1, de_int64 len
 	ux = (de_uint32)de_getui16be(pos); // iconWords (length prefix)
 	pos += 2;
 	do_palm_BitmapType(c, d, pos, 2*ux, "icon", DE_CREATEFLAG_IS_AUX);
+	extract_item(c, d, pos, 2*ux, "icon.palm", DE_CREATEFLAG_IS_AUX);
 	pos += 2*ux;
 	de_dbg_indent(c, -1);
 
@@ -741,6 +821,7 @@ static void do_pqa_app_info_block(deark *c, lctx *d, de_int64 pos1, de_int64 len
 	ux = (de_uint32)de_getui16be(pos); // smIconWords
 	pos += 2;
 	do_palm_BitmapType(c, d, pos, 2*ux, "smicon", DE_CREATEFLAG_IS_AUX);
+	extract_item(c, d, pos, 2*ux, "smicon.palm", DE_CREATEFLAG_IS_AUX);
 	pos += 2*ux;
 	de_dbg_indent(c, -1);
 
