@@ -17,6 +17,11 @@ DE_DECLARE_MODULE(de_module_palmdb);
 #define CODE_tAIB 0x74414942U
 #define CODE_vIMG 0x76494d47U
 
+#define CMPR_SCANLINE 0
+#define CMPR_RLE      1
+#define CMPR_PACKBITS 2
+#define CMPR_NONE     0xff
+
 struct rec_data_struct {
 	de_uint32 offset;
 };
@@ -242,6 +247,159 @@ done:
 	dbuf_close(unc_pixels);
 }
 
+static void do_palm_BitmapType_internal(deark *c, lctx *d, de_int64 pos1, de_int64 len,
+	const char *name, const char *token, unsigned int createflags,
+	de_int64 *pnextbitmapoffset)
+{
+	de_int64 w, h;
+	de_int64 x;
+	de_int64 rowbytes;
+	de_int64 bitsperpixel;
+	de_int64 pos;
+	de_uint32 bitmapflags;
+	de_byte pixelsize_raw;
+	de_byte bitmapversion;
+	de_finfo *fi = NULL;
+	de_int64 headersize;
+	de_int64 nextbitmapoffs = 0;
+	de_byte cmpr_type;
+
+	de_dbg(c, "BitmapType (%s) at %d, len=%d\n", name, (int)pos1, (int)len);
+	de_dbg_indent(c, 1);
+
+	// Look ahead to get the version
+	bitmapversion = de_getbyte(pos1+9);
+	de_dbg(c, "bitmap version: %d\n", (int)bitmapversion);
+
+	if(bitmapversion>3) {
+		// Note that V3 allows the high bit of the version field to
+		// be set (to mean little-endian), but we don't support that.
+		de_err(c, "Unsupported bitmap version: %d\n", (int)bitmapversion);
+		goto done;
+	}
+
+	w = de_geti16be(pos1);
+	h = de_geti16be(pos1+2);
+	de_dbg(c, "dimensions: %dx%d\n", (int)w, (int)h);
+	if(!de_good_image_dimensions(c, w, h)) goto done;
+
+	rowbytes = de_getui16be(pos1+4);
+	de_dbg(c, "rowBytes: %d\n", (int)rowbytes);
+
+	bitmapflags = (de_uint32)de_getui16be(pos1+6);
+	de_dbg(c, "flags: 0x%04x\n", (unsigned int)bitmapflags);
+
+	if(bitmapversion>=1) {
+		pixelsize_raw = de_getbyte(pos1+8);
+		de_dbg(c, "pixelSize: %d\n", (int)pixelsize_raw);
+	}
+	else {
+		pixelsize_raw = 0;
+	}
+	if(pixelsize_raw==0) bitsperpixel = 1;
+	else bitsperpixel = (de_int64)pixelsize_raw;
+
+	if(bitmapversion==1 || bitmapversion==2) {
+		x = de_getui16be(pos1+10);
+		nextbitmapoffs = 4*x;
+		de_dbg(c, "nextDepthOffset: %d (%d bytes)\n", (int)x, (int)nextbitmapoffs);
+	}
+
+	if(bitmapversion<3) {
+		headersize = 16;
+	}
+	else {
+		headersize = (de_int64)de_getbyte(pos1+10);
+		de_dbg(c, "header size: %d\n", (int)headersize);
+	}
+
+	// [11] TODO: pixelFormat (V3)
+	// [12] TODO: transp. idx. (V2)
+
+	if(bitmapflags&0x8000) {
+		if(bitmapversion>=2) {
+			cmpr_type = de_getbyte(pos1+13);
+			de_dbg(c, "compression type: 0x%02x\n", (unsigned int)cmpr_type);
+		}
+		else {
+			// V1 & V2 have no cmpr_type field, but can still be compressed.
+			cmpr_type = CMPR_SCANLINE;
+		}
+	}
+	else {
+		cmpr_type = CMPR_NONE;
+	}
+
+	// TODO: [14] density (V3)
+	// TODO: [16] transparentValue (V3)
+
+	if(bitmapversion==3 && headersize>=24) {
+		// Documented as the "number of bytes to the next bitmap", but it doesn't
+		// say where it is measured *from*. I'll assume it's the same logic as
+		// the "nextDepthOffset" field.
+		nextbitmapoffs = de_getui32be(pos1+20);
+		de_dbg(c, "nextBitmapOffset: %u (bytes)\n", (unsigned int)nextbitmapoffs);
+	}
+
+	pos = pos1 + headersize;
+	if(pos >= pos1+len) goto done;
+
+	if(cmpr_type != CMPR_NONE) {
+		// TODO
+		de_err(c, "This type of compressed bitmap (%d) is not supported\n",
+			(int)cmpr_type);
+		goto done;
+	}
+
+	if(bitmapversion>=1 && (bitmapflags&0x4000)) {
+		de_err(c, "Bitmaps with a color table are not supported\n");
+		goto done;
+	}
+
+	if(bitmapversion>=2 && (bitmapflags&0x2000)) {
+		de_warn(c, "Transparency is not supported\n");
+	}
+
+	if(bitmapversion>=3 && (bitmapflags&0x0400)) {
+		de_err(c, "RGB color is not supported\n");
+		goto done;
+	}
+
+	if(bitsperpixel!=1 && bitsperpixel!=2 && bitsperpixel!=4 && bitsperpixel!=8) {
+		de_err(c, "Unsupported bits/pixel: %d\n", (int)bitsperpixel);
+		goto done;
+	}
+
+	fi = de_finfo_create(c);
+	de_finfo_set_name_from_sz(c, fi, token, DE_ENCODING_UTF8);
+
+	do_generate_image(c, d, c->infile, pos, pos1+len-pos,
+		(bitmapflags&0x8000)?1:0, w, h,
+		bitsperpixel, rowbytes, fi, createflags);
+
+done:
+	*pnextbitmapoffset = nextbitmapoffs;
+	de_dbg_indent(c, -1);
+	de_finfo_destroy(c, fi);
+}
+
+static void do_palm_BitmapType(deark *c, lctx *d, de_int64 pos1, de_int64 len,
+	const char *name, const char *token, unsigned int createflags)
+{
+	de_int64 nextbitmapoffs = 0;
+	de_int64 pos = pos1;
+
+	while(1) {
+		if(pos > pos1+len-16) {
+			de_err(c, "Bitmap exceeds its bounds\n");
+			break;
+		}
+		do_palm_BitmapType_internal(c, d, pos, pos1+len-pos, name, token, createflags, &nextbitmapoffs);
+		if(nextbitmapoffs<=0) break;
+		pos += nextbitmapoffs;
+	}
+}
+
 static void do_imgview_image(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 {
 	de_byte imgver;
@@ -391,10 +549,6 @@ static int do_read_pdb_record(deark *c, lctx *d, de_int64 rec_idx, de_int64 pos1
 	return 1;
 }
 
-static void do_palm_bitmap(deark *c, lctx *d, de_int64 pos1, de_int64 len,
-	const char *name, const char *token, unsigned int createflags,
-	int is_tbmp);
-
 static int do_read_prc_record(deark *c, lctx *d, de_int64 rec_idx, de_int64 pos1)
 {
 	de_uint32 id;
@@ -420,8 +574,8 @@ static int do_read_prc_record(deark *c, lctx *d, de_int64 rec_idx, de_int64 pos1
 	switch(name4cc.id) {
 	case CODE_Tbmp:
 	case CODE_tAIB:
-		do_palm_bitmap(c, d, data_offs, data_len,
-			name4cc.id_printable, name4cc.id_printable, 0, 1);
+		do_palm_BitmapType(c, d, data_offs, data_len,
+			name4cc.id_printable, name4cc.id_printable, 0);
 		break;
 	}
 
@@ -512,80 +666,6 @@ done:
 	return retval;
 }
 
-// Palm "BitmapType"
-static void do_palm_bitmap(deark *c, lctx *d, de_int64 pos1, de_int64 len,
-	const char *name, const char *token, unsigned int createflags,
-	int is_tbmp)
-{
-	de_int64 w, h;
-	de_int64 rowbytes;
-	de_int64 bitsperpixel;
-	de_int64 pos = pos1;
-	de_uint32 bitmapflags;
-	de_byte pixelsize_raw;
-	de_byte bitmapversion;
-	de_finfo *fi = NULL;
-
-	de_dbg(c, "%s bitmap at %d, len=%d\n", name, (int)pos, (int)len);
-	de_dbg_indent(c, 1);
-
-	w = de_geti16be(pos);
-	pos += 2;
-	h = de_geti16be(pos);
-	pos += 2;
-	de_dbg(c, "dimensions: %dx%d\n", (int)w, (int)h);
-	if(!de_good_image_dimensions(c, w, h)) goto done;
-
-	rowbytes = de_getui16be(pos);
-	pos += 2;
-	de_dbg(c, "rowBytes: %d\n", (int)rowbytes);
-
-	bitmapflags = (de_uint32)de_getui16be(pos);
-	de_dbg(c, "flags: 0x%04x\n", (unsigned int)bitmapflags);
-	pos += 2;
-
-	pixelsize_raw = de_getbyte(pos++);
-	bitmapversion = de_getbyte(pos++);
-	if(bitmapversion!=0) {
-		de_dbg(c, "pixelSize: %d\n", (int)pixelsize_raw);
-	}
-	de_dbg(c, "version: %d\n", (int)bitmapversion);
-
-	if(bitmapversion==0) bitsperpixel = 1;
-	else bitsperpixel = (de_int64)pixelsize_raw;
-
-	// I don't know the format of Tbmp bitmaps, but they seem to be like
-	// version 0 "BitmapTypes", except the header is the size of v1/v2.
-	if(bitmapversion==1 || bitmapversion==2 || is_tbmp) pos += 6;
-	else if(bitmapversion==3) pos += 14;
-
-	if(bitmapversion>3) {
-		de_warn(c, "Unsupported bitmap version: %d\n", (int)bitmapversion);
-		goto done;
-	}
-
-	if(bitsperpixel!=1 && bitsperpixel!=2 && bitsperpixel!=4 && bitsperpixel!=8) {
-		de_err(c, "Unexpected bits/pixel: %d\n", (int)bitsperpixel);
-		goto done;
-	}
-
-	if(bitmapflags&0x8000) {
-		// TODO
-		de_err(c, "This type of compressed bitmap is not supported\n");
-		goto done;
-	}
-
-	fi = de_finfo_create(c);
-	de_finfo_set_name_from_sz(c, fi, token, DE_ENCODING_UTF8);
-
-	do_generate_image(c, d, c->infile, pos, pos1+len-pos, 0, w, h,
-		bitsperpixel, rowbytes, fi, createflags);
-
-done:
-	de_dbg_indent(c, -1);
-	de_finfo_destroy(c, fi);
-}
-
 static void do_pqa_app_info_block(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 {
 	de_uint32 sig;
@@ -625,12 +705,12 @@ static void do_pqa_app_info_block(deark *c, lctx *d, de_int64 pos1, de_int64 len
 
 	ux = (de_uint32)de_getui16be(pos); // iconWords (length prefix)
 	pos += 2;
-	do_palm_bitmap(c, d, pos, 2*ux, "icon", "icon", DE_CREATEFLAG_IS_AUX, 0);
+	do_palm_BitmapType(c, d, pos, 2*ux, "icon", "icon", DE_CREATEFLAG_IS_AUX);
 	pos += 2*ux;
 
 	ux = (de_uint32)de_getui16be(pos); // smIconWords
 	pos += 2;
-	do_palm_bitmap(c, d, pos, 2*ux, "smIcon", "smicon", DE_CREATEFLAG_IS_AUX, 0);
+	do_palm_BitmapType(c, d, pos, 2*ux, "smIcon", "smicon", DE_CREATEFLAG_IS_AUX);
 	pos += 2*ux;
 
 	ucstring_destroy(s);
