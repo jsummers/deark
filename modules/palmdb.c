@@ -18,10 +18,13 @@ DE_DECLARE_MODULE(de_module_palmbitmap);
 #define CODE_tAIB 0x74414942U
 #define CODE_vIMG 0x76494d47U
 
+// Our compression code scheme is an extension of the standard BitmapType codes.
+// Codes 0x100 and higher are not standard.
 #define CMPR_SCANLINE 0
 #define CMPR_RLE      1
 #define CMPR_PACKBITS 2
 #define CMPR_NONE     0xff
+#define CMPR_IMGVIEWER 0x100
 
 struct rec_data_struct {
 	de_uint32 offset;
@@ -198,31 +201,38 @@ static int do_decompress_imgview_image(deark *c, lctx *d, dbuf *inf,
 	return 1;
 }
 
+struct img_gen_info {
+	de_int64 w, h;
+	de_int64 bitsperpixel;
+	de_int64 rowbytes;
+	de_finfo *fi;
+	unsigned int createflags;
+};
+
 static void do_generate_unc_image(deark *c, lctx *d, dbuf *unc_pixels,
-	de_int64 w, de_int64 h, de_int64 bitsperpixel, de_int64 rowbytes,
-	de_finfo *fi, unsigned int createflags)
+	struct img_gen_info *igi)
 {
 	de_int64 i, j;
 	de_byte b;
 	struct deark_bitmap *img = NULL;
 
-	if(bitsperpixel==1) {
-		de_convert_and_write_image_bilevel(unc_pixels, 0, w, h, rowbytes,
-			DE_CVTF_WHITEISZERO, fi, createflags);
+	if(igi->bitsperpixel==1) {
+		de_convert_and_write_image_bilevel(unc_pixels, 0, igi->w, igi->h, igi->rowbytes,
+			DE_CVTF_WHITEISZERO, igi->fi, igi->createflags);
 		goto done;
 	}
 
-	img = de_bitmap_create(c, w, h, 1);
+	img = de_bitmap_create(c, igi->w, igi->h, 1);
 
-	for(j=0; j<h; j++) {
-		for(i=0; i<w; i++) {
-			b = de_get_bits_symbol(unc_pixels, bitsperpixel, rowbytes*j, i);
-			b = 255 - de_sample_nbit_to_8bit(bitsperpixel, (unsigned int)b);
+	for(j=0; j<igi->h; j++) {
+		for(i=0; i<igi->w; i++) {
+			b = de_get_bits_symbol(unc_pixels, igi->bitsperpixel, igi->rowbytes*j, i);
+			b = 255 - de_sample_nbit_to_8bit(igi->bitsperpixel, (unsigned int)b);
 			de_bitmap_setpixel_gray(img, i, j, b);
 		}
 	}
 
-	de_bitmap_write_to_file_finfo(img, fi, createflags);
+	de_bitmap_write_to_file_finfo(img, igi->fi, igi->createflags);
 
 done:
 	de_bitmap_destroy(img);
@@ -231,16 +241,21 @@ done:
 // A wrapper that decompresses the image if necessary, then calls do_generate_unc_image().
 // TODO: This function signature is a mess.
 static void do_generate_image(deark *c, lctx *d,
-	dbuf *inf, de_int64 pos, de_int64 len, int is_compressed,
-	de_int64 w, de_int64 h, de_int64 bitsperpixel, de_int64 rowbytes,
-	de_finfo *fi, unsigned int createflags)
+	dbuf *inf, de_int64 pos, de_int64 len, unsigned int cmpr_type,
+	struct img_gen_info *igi)
 {
 	dbuf *unc_pixels = NULL;
 	de_int64 expected_num_uncmpr_image_bytes;
 
-	expected_num_uncmpr_image_bytes = rowbytes*h;
+	expected_num_uncmpr_image_bytes = igi->rowbytes*igi->h;
 
-	if(is_compressed) {
+	if(cmpr_type==CMPR_NONE) {
+		if(expected_num_uncmpr_image_bytes > len) {
+			de_warn(c, "Not enough data for image\n");
+		}
+		unc_pixels = dbuf_open_input_subfile(inf, pos, len);
+	}
+	else if(cmpr_type==CMPR_IMGVIEWER) {
 		unc_pixels = dbuf_create_membuf(c, expected_num_uncmpr_image_bytes, 1);
 		do_decompress_imgview_image(c, d, inf, pos, len, unc_pixels);
 		// TODO: The byte counts in this message are not very accurate.
@@ -248,14 +263,13 @@ static void do_generate_image(deark *c, lctx *d,
 			(int)unc_pixels->len);
 	}
 	else {
-		if(expected_num_uncmpr_image_bytes > len) {
-			de_warn(c, "Not enough data for image\n");
-		}
-		unc_pixels = dbuf_open_input_subfile(inf, pos, len);
+		de_err(c, "Unsupported compression type: %u\n", cmpr_type);
+		goto done;
 	}
 
-	do_generate_unc_image(c, d, unc_pixels, w, h, bitsperpixel, rowbytes, fi, createflags);
+	do_generate_unc_image(c, d, unc_pixels, igi);
 
+done:
 	dbuf_close(unc_pixels);
 }
 
@@ -263,18 +277,18 @@ static void do_palm_BitmapType_internal(deark *c, lctx *d, de_int64 pos1, de_int
 	const char *token, unsigned int createflags,
 	de_int64 *pnextbitmapoffset)
 {
-	de_int64 w, h;
 	de_int64 x;
-	de_int64 rowbytes;
-	de_int64 bitsperpixel;
 	de_int64 pos;
 	de_uint32 bitmapflags;
 	de_byte pixelsize_raw;
 	de_byte bitmapversion;
-	de_finfo *fi = NULL;
 	de_int64 headersize;
 	de_int64 nextbitmapoffs = 0;
-	de_byte cmpr_type;
+	unsigned int cmpr_type;
+	struct img_gen_info *igi = NULL;
+
+	igi = de_malloc(c, sizeof(struct img_gen_info));
+	igi->createflags = createflags;
 
 	de_dbg(c, "BitmapType at %d, len<=%d\n", (int)pos1, (int)len);
 	de_dbg_indent(c, 1);
@@ -290,13 +304,13 @@ static void do_palm_BitmapType_internal(deark *c, lctx *d, de_int64 pos1, de_int
 		goto done;
 	}
 
-	w = de_geti16be(pos1);
-	h = de_geti16be(pos1+2);
-	de_dbg(c, "dimensions: %dx%d\n", (int)w, (int)h);
-	if(!de_good_image_dimensions(c, w, h)) goto done;
+	igi->w = de_geti16be(pos1);
+	igi->h = de_geti16be(pos1+2);
+	de_dbg(c, "dimensions: %dx%d\n", (int)igi->w, (int)igi->h);
+	if(!de_good_image_dimensions(c, igi->w, igi->h)) goto done;
 
-	rowbytes = de_getui16be(pos1+4);
-	de_dbg(c, "rowBytes: %d\n", (int)rowbytes);
+	igi->rowbytes = de_getui16be(pos1+4);
+	de_dbg(c, "rowBytes: %d\n", (int)igi->rowbytes);
 
 	bitmapflags = (de_uint32)de_getui16be(pos1+6);
 	de_dbg(c, "flags: 0x%04x\n", (unsigned int)bitmapflags);
@@ -308,8 +322,8 @@ static void do_palm_BitmapType_internal(deark *c, lctx *d, de_int64 pos1, de_int
 	else {
 		pixelsize_raw = 0;
 	}
-	if(pixelsize_raw==0) bitsperpixel = 1;
-	else bitsperpixel = (de_int64)pixelsize_raw;
+	if(pixelsize_raw==0) igi->bitsperpixel = 1;
+	else igi->bitsperpixel = (de_int64)pixelsize_raw;
 
 	if(bitmapversion==1 || bitmapversion==2) {
 		x = de_getui16be(pos1+10);
@@ -330,8 +344,8 @@ static void do_palm_BitmapType_internal(deark *c, lctx *d, de_int64 pos1, de_int
 
 	if(bitmapflags&0x8000) {
 		if(bitmapversion>=2) {
-			cmpr_type = de_getbyte(pos1+13);
-			de_dbg(c, "compression type: 0x%02x\n", (unsigned int)cmpr_type);
+			cmpr_type = (unsigned int)de_getbyte(pos1+13);
+			de_dbg(c, "compression type: 0x%02x\n", cmpr_type);
 		}
 		else {
 			// V1 & V2 have no cmpr_type field, but can still be compressed.
@@ -356,13 +370,6 @@ static void do_palm_BitmapType_internal(deark *c, lctx *d, de_int64 pos1, de_int
 	pos = pos1 + headersize;
 	if(pos >= pos1+len) goto done;
 
-	if(cmpr_type != CMPR_NONE) {
-		// TODO
-		de_err(c, "Compression type %d is not supported\n",
-			(int)cmpr_type);
-		goto done;
-	}
-
 	if(bitmapversion>=1 && (bitmapflags&0x4000)) {
 		de_err(c, "Bitmaps with a color table are not supported\n");
 		goto done;
@@ -377,24 +384,25 @@ static void do_palm_BitmapType_internal(deark *c, lctx *d, de_int64 pos1, de_int
 		goto done;
 	}
 
-	if(bitsperpixel!=1 && bitsperpixel!=2 && bitsperpixel!=4 && bitsperpixel!=8) {
-		de_err(c, "Unsupported bits/pixel: %d\n", (int)bitsperpixel);
+	if(igi->bitsperpixel!=1 && igi->bitsperpixel!=2 && igi->bitsperpixel!=4 && igi->bitsperpixel!=8) {
+		de_err(c, "Unsupported bits/pixel: %d\n", (int)igi->bitsperpixel);
 		goto done;
 	}
 
-	fi = de_finfo_create(c);
+	igi->fi = de_finfo_create(c);
 	if(token) {
-		de_finfo_set_name_from_sz(c, fi, token, DE_ENCODING_UTF8);
+		de_finfo_set_name_from_sz(c, igi->fi, token, DE_ENCODING_UTF8);
 	}
 
-	do_generate_image(c, d, c->infile, pos, pos1+len-pos,
-		0, w, h,
-		bitsperpixel, rowbytes, fi, createflags);
+	do_generate_image(c, d, c->infile, pos, pos1+len-pos, cmpr_type, igi);
 
 done:
 	*pnextbitmapoffset = nextbitmapoffs;
 	de_dbg_indent(c, -1);
-	de_finfo_destroy(c, fi);
+	if(igi) {
+		de_finfo_destroy(c, igi->fi);
+		de_free(c, igi);
+	}
 }
 
 static void do_palm_BitmapType(deark *c, lctx *d, de_int64 pos1, de_int64 len,
@@ -419,13 +427,13 @@ static void do_imgview_image(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 	de_byte imgver;
 	de_byte imgtype;
 	unsigned int cmpr_meth;
-	de_int64 w, h;
 	de_int64 x0, x1;
 	de_int64 pos = pos1;
-	de_int64 bitsperpixel;
-	de_int64 rowbytes;
 	de_int64 num_raw_image_bytes;
 	de_ucstring *iname = NULL;
+	struct img_gen_info *igi = NULL;
+
+	igi = de_malloc(c, sizeof(struct img_gen_info));
 
 	de_dbg(c, "image record at %d\n", (int)pos1);
 	de_dbg_indent(c, 1);
@@ -447,11 +455,11 @@ static void do_imgview_image(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 	de_dbg(c, "type: 0x%02x\n", (unsigned int)imgtype);
 	de_dbg_indent(c, 1);
 	switch(imgtype) {
-	case 0: bitsperpixel = 2; break;
-	case 2: bitsperpixel = 4; break;
-	default: bitsperpixel = 1;
+	case 0: igi->bitsperpixel = 2; break;
+	case 2: igi->bitsperpixel = 4; break;
+	default: igi->bitsperpixel = 1;
 	}
-	de_dbg(c, "bits/pixel: %d\n", (int)bitsperpixel);
+	de_dbg(c, "bits/pixel: %d\n", (int)igi->bitsperpixel);
 	de_dbg_indent(c, -1);
 
 	pos += 4; // reserved
@@ -471,22 +479,25 @@ static void do_imgview_image(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 	pos += 2;
 	de_dbg(c, "anchor: (%d,%d)\n", (int)x0, (int)x1);
 
-	w = de_getui16be(pos);
+	igi->w = de_getui16be(pos);
 	pos += 2;
-	h = de_getui16be(pos);
+	igi->h = de_getui16be(pos);
 	pos += 2;
-	de_dbg(c, "dimensions: %dx%d\n", (int)w, (int)h);
-	if(!de_good_image_dimensions(c, w, h)) goto done;
+	de_dbg(c, "dimensions: %dx%d\n", (int)igi->w, (int)igi->h);
+	if(!de_good_image_dimensions(c, igi->w, igi->h)) goto done;
 
-	rowbytes = (w*bitsperpixel + 7)/8;
+	igi->rowbytes = (igi->w*igi->bitsperpixel + 7)/8;
 	num_raw_image_bytes = pos1+len-pos;
 
 	do_generate_image(c, d, c->infile, pos, num_raw_image_bytes,
-		(cmpr_meth==0)?0:1, w, h, bitsperpixel, rowbytes, NULL, 0);
+		(cmpr_meth==0)?CMPR_NONE:CMPR_IMGVIEWER, igi);
 
 done:
 	de_dbg_indent(c, -1);
 	ucstring_destroy(iname);
+	if(igi) {
+		de_free(c, igi);
+	}
 }
 
 static void do_imgview_text(deark *c, lctx *d, de_int64 pos, de_int64 len)
