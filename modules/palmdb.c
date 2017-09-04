@@ -169,7 +169,7 @@ done:
 	de_finfo_destroy(c, fi);
 }
 
-static int do_decompress_imgview_image(deark *c, lctx *d,
+static int do_decompress_imgview_image(deark *c, lctx *d, dbuf *inf,
 	de_int64 pos1, de_int64 len, dbuf *unc_pixels)
 {
 	de_int64 pos = pos1;
@@ -177,32 +177,51 @@ static int do_decompress_imgview_image(deark *c, lctx *d,
 	de_int64 count;
 
 	while(pos < pos1+len) {
-		b1 = de_getbyte(pos++);
+		b1 = dbuf_getbyte(inf, pos++);
 		if(b1>128) {
 			count = (de_int64)b1-127;
-			b2 = de_getbyte(pos++);
+			b2 = dbuf_getbyte(inf, pos++);
 			dbuf_write_run(unc_pixels, b2, count);
 		}
 		else {
 			count = (de_int64)b1+1;
-			dbuf_copy(c->infile, pos, count, unc_pixels);
+			dbuf_copy(inf, pos, count, unc_pixels);
 			pos += count;
 		}
 	}
 	return 1;
 }
 
-static void do_decode_image(deark *c, lctx *d,
-	dbuf *unc_pixels, de_int64 pos,
+// TODO: This function signature is a mess.
+static void do_generate_image(deark *c, lctx *d,
+	dbuf *inf, de_int64 pos, de_int64 len, int is_compressed,
 	de_int64 w, de_int64 h, de_int64 bitsperpixel, de_int64 rowbytes,
 	de_finfo *fi, unsigned int createflags)
 {
 	de_int64 i, j;
 	de_byte b;
+	dbuf *unc_pixels = NULL;
 	struct deark_bitmap *img = NULL;
+	de_int64 expected_num_uncmpr_image_bytes;
+
+	expected_num_uncmpr_image_bytes = rowbytes*h;
+
+	if(is_compressed) {
+		unc_pixels = dbuf_create_membuf(c, expected_num_uncmpr_image_bytes, 1);
+		do_decompress_imgview_image(c, d, inf, pos, len, unc_pixels);
+		// TODO: The byte counts in this message are not very accurate.
+		de_dbg(c, "decompressed %d bytes to %d bytes\n", (int)len,
+			(int)unc_pixels->len);
+	}
+	else {
+		if(expected_num_uncmpr_image_bytes > len) {
+			de_warn(c, "Not enough data for image\n");
+		}
+		unc_pixels = dbuf_open_input_subfile(inf, pos, len);
+	}
 
 	if(bitsperpixel==1) {
-		de_convert_and_write_image_bilevel(unc_pixels, pos, w, h, rowbytes,
+		de_convert_and_write_image_bilevel(unc_pixels, 0, w, h, rowbytes,
 			DE_CVTF_WHITEISZERO, fi, createflags);
 		goto done;
 	}
@@ -211,7 +230,7 @@ static void do_decode_image(deark *c, lctx *d,
 
 	for(j=0; j<h; j++) {
 		for(i=0; i<w; i++) {
-			b = de_get_bits_symbol(unc_pixels, bitsperpixel, pos+rowbytes*j, i);
+			b = de_get_bits_symbol(unc_pixels, bitsperpixel, rowbytes*j, i);
 			b = 255 - de_sample_nbit_to_8bit(bitsperpixel, (unsigned int)b);
 			de_bitmap_setpixel_gray(img, i, j, b);
 		}
@@ -220,6 +239,7 @@ static void do_decode_image(deark *c, lctx *d,
 	de_bitmap_write_to_file_finfo(img, fi, createflags);
 done:
 	de_bitmap_destroy(img);
+	dbuf_close(unc_pixels);
 }
 
 static void do_imgview_image(deark *c, lctx *d, de_int64 pos1, de_int64 len)
@@ -233,9 +253,7 @@ static void do_imgview_image(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 	de_int64 bitsperpixel;
 	de_int64 rowbytes;
 	de_int64 num_raw_image_bytes;
-	de_int64 expected_num_uncmpr_image_bytes;
 	de_ucstring *iname = NULL;
-	dbuf *unc_pixels = NULL;
 
 	de_dbg(c, "image record at %d\n", (int)pos1);
 	de_dbg_indent(c, 1);
@@ -289,29 +307,13 @@ static void do_imgview_image(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 	if(!de_good_image_dimensions(c, w, h)) goto done;
 
 	rowbytes = (w*bitsperpixel + 7)/8;
-	expected_num_uncmpr_image_bytes = rowbytes*h;
 	num_raw_image_bytes = pos1+len-pos;
 
-	if(cmpr_meth==0 && (pos+rowbytes*h > pos1+len)) {
-		de_warn(c, "Not enough data for image\n");
-	}
-
-	if(cmpr_meth==0) {
-		unc_pixels = dbuf_open_input_subfile(c->infile, pos, num_raw_image_bytes);
-	}
-	else {
-		unc_pixels = dbuf_create_membuf(c, expected_num_uncmpr_image_bytes, 1);
-		do_decompress_imgview_image(c, d, pos, num_raw_image_bytes, unc_pixels);
-		de_dbg(c, "decompressed %d bytes to %d bytes\n", (int)num_raw_image_bytes,
-			(int)unc_pixels->len);
-	}
-
-	do_decode_image(c, d, unc_pixels, 0, w, h, bitsperpixel, rowbytes,
-		NULL, 0);
+	do_generate_image(c, d, c->infile, pos, num_raw_image_bytes,
+		(cmpr_meth==0)?0:1, w, h, bitsperpixel, rowbytes, NULL, 0);
 
 done:
 	de_dbg_indent(c, -1);
-	dbuf_close(unc_pixels);
 	ucstring_destroy(iname);
 }
 
@@ -576,8 +578,8 @@ static void do_palm_bitmap(deark *c, lctx *d, de_int64 pos1, de_int64 len,
 	fi = de_finfo_create(c);
 	de_finfo_set_name_from_sz(c, fi, token, DE_ENCODING_UTF8);
 
-	do_decode_image(c, d, c->infile, pos, w, h, bitsperpixel, rowbytes,
-		fi, createflags);
+	do_generate_image(c, d, c->infile, pos, pos1+len-pos, 0, w, h,
+		bitsperpixel, rowbytes, fi, createflags);
 
 done:
 	de_dbg_indent(c, -1);
