@@ -7,6 +7,7 @@
 #include <deark-config.h>
 #include <deark-private.h>
 DE_DECLARE_MODULE(de_module_palmdb);
+DE_DECLARE_MODULE(de_module_palmbitmap);
 
 #define CODE_Tbmp 0x54626d70U
 #define CODE_View 0x56696577U
@@ -197,33 +198,13 @@ static int do_decompress_imgview_image(deark *c, lctx *d, dbuf *inf,
 	return 1;
 }
 
-// TODO: This function signature is a mess.
-static void do_generate_image(deark *c, lctx *d,
-	dbuf *inf, de_int64 pos, de_int64 len, int is_compressed,
+static void do_generate_unc_image(deark *c, lctx *d, dbuf *unc_pixels,
 	de_int64 w, de_int64 h, de_int64 bitsperpixel, de_int64 rowbytes,
 	de_finfo *fi, unsigned int createflags)
 {
 	de_int64 i, j;
 	de_byte b;
-	dbuf *unc_pixels = NULL;
 	struct deark_bitmap *img = NULL;
-	de_int64 expected_num_uncmpr_image_bytes;
-
-	expected_num_uncmpr_image_bytes = rowbytes*h;
-
-	if(is_compressed) {
-		unc_pixels = dbuf_create_membuf(c, expected_num_uncmpr_image_bytes, 1);
-		do_decompress_imgview_image(c, d, inf, pos, len, unc_pixels);
-		// TODO: The byte counts in this message are not very accurate.
-		de_dbg(c, "decompressed %d bytes to %d bytes\n", (int)len,
-			(int)unc_pixels->len);
-	}
-	else {
-		if(expected_num_uncmpr_image_bytes > len) {
-			de_warn(c, "Not enough data for image\n");
-		}
-		unc_pixels = dbuf_open_input_subfile(inf, pos, len);
-	}
 
 	if(bitsperpixel==1) {
 		de_convert_and_write_image_bilevel(unc_pixels, 0, w, h, rowbytes,
@@ -242,13 +223,44 @@ static void do_generate_image(deark *c, lctx *d,
 	}
 
 	de_bitmap_write_to_file_finfo(img, fi, createflags);
+
 done:
 	de_bitmap_destroy(img);
+}
+
+// A wrapper that decompresses the image if necessary, then calls do_generate_unc_image().
+// TODO: This function signature is a mess.
+static void do_generate_image(deark *c, lctx *d,
+	dbuf *inf, de_int64 pos, de_int64 len, int is_compressed,
+	de_int64 w, de_int64 h, de_int64 bitsperpixel, de_int64 rowbytes,
+	de_finfo *fi, unsigned int createflags)
+{
+	dbuf *unc_pixels = NULL;
+	de_int64 expected_num_uncmpr_image_bytes;
+
+	expected_num_uncmpr_image_bytes = rowbytes*h;
+
+	if(is_compressed) {
+		unc_pixels = dbuf_create_membuf(c, expected_num_uncmpr_image_bytes, 1);
+		do_decompress_imgview_image(c, d, inf, pos, len, unc_pixels);
+		// TODO: The byte counts in this message are not very accurate.
+		de_dbg(c, "decompressed %d bytes to %d bytes\n", (int)len,
+			(int)unc_pixels->len);
+	}
+	else {
+		if(expected_num_uncmpr_image_bytes > len) {
+			de_warn(c, "Not enough data for image\n");
+		}
+		unc_pixels = dbuf_open_input_subfile(inf, pos, len);
+	}
+
+	do_generate_unc_image(c, d, unc_pixels, w, h, bitsperpixel, rowbytes, fi, createflags);
+
 	dbuf_close(unc_pixels);
 }
 
 static void do_palm_BitmapType_internal(deark *c, lctx *d, de_int64 pos1, de_int64 len,
-	const char *name, const char *token, unsigned int createflags,
+	const char *token, unsigned int createflags,
 	de_int64 *pnextbitmapoffset)
 {
 	de_int64 w, h;
@@ -264,7 +276,7 @@ static void do_palm_BitmapType_internal(deark *c, lctx *d, de_int64 pos1, de_int
 	de_int64 nextbitmapoffs = 0;
 	de_byte cmpr_type;
 
-	de_dbg(c, "BitmapType (%s) at %d, len=%d\n", name, (int)pos1, (int)len);
+	de_dbg(c, "BitmapType at %d, len<=%d\n", (int)pos1, (int)len);
 	de_dbg_indent(c, 1);
 
 	// Look ahead to get the version
@@ -346,7 +358,7 @@ static void do_palm_BitmapType_internal(deark *c, lctx *d, de_int64 pos1, de_int
 
 	if(cmpr_type != CMPR_NONE) {
 		// TODO
-		de_err(c, "This type of compressed bitmap (%d) is not supported\n",
+		de_err(c, "Compression type %d is not supported\n",
 			(int)cmpr_type);
 		goto done;
 	}
@@ -371,10 +383,12 @@ static void do_palm_BitmapType_internal(deark *c, lctx *d, de_int64 pos1, de_int
 	}
 
 	fi = de_finfo_create(c);
-	de_finfo_set_name_from_sz(c, fi, token, DE_ENCODING_UTF8);
+	if(token) {
+		de_finfo_set_name_from_sz(c, fi, token, DE_ENCODING_UTF8);
+	}
 
 	do_generate_image(c, d, c->infile, pos, pos1+len-pos,
-		(bitmapflags&0x8000)?1:0, w, h,
+		0, w, h,
 		bitsperpixel, rowbytes, fi, createflags);
 
 done:
@@ -384,7 +398,7 @@ done:
 }
 
 static void do_palm_BitmapType(deark *c, lctx *d, de_int64 pos1, de_int64 len,
-	const char *name, const char *token, unsigned int createflags)
+	const char *token, unsigned int createflags)
 {
 	de_int64 nextbitmapoffs = 0;
 	de_int64 pos = pos1;
@@ -394,7 +408,7 @@ static void do_palm_BitmapType(deark *c, lctx *d, de_int64 pos1, de_int64 len,
 			de_err(c, "Bitmap exceeds its bounds\n");
 			break;
 		}
-		do_palm_BitmapType_internal(c, d, pos, pos1+len-pos, name, token, createflags, &nextbitmapoffs);
+		do_palm_BitmapType_internal(c, d, pos, pos1+len-pos, token, createflags, &nextbitmapoffs);
 		if(nextbitmapoffs<=0) break;
 		pos += nextbitmapoffs;
 	}
@@ -575,7 +589,7 @@ static int do_read_prc_record(deark *c, lctx *d, de_int64 rec_idx, de_int64 pos1
 	case CODE_Tbmp:
 	case CODE_tAIB:
 		do_palm_BitmapType(c, d, data_offs, data_len,
-			name4cc.id_printable, name4cc.id_printable, 0);
+			name4cc.id_printable, 0);
 		break;
 	}
 
@@ -703,15 +717,21 @@ static void do_pqa_app_info_block(deark *c, lctx *d, de_int64 pos1, de_int64 len
 	ucstring_empty(s);
 	pos += 2*ux;
 
+	de_dbg(c, "icon\n");
+	de_dbg_indent(c, 1);
 	ux = (de_uint32)de_getui16be(pos); // iconWords (length prefix)
 	pos += 2;
-	do_palm_BitmapType(c, d, pos, 2*ux, "icon", "icon", DE_CREATEFLAG_IS_AUX);
+	do_palm_BitmapType(c, d, pos, 2*ux, "icon", DE_CREATEFLAG_IS_AUX);
 	pos += 2*ux;
+	de_dbg_indent(c, -1);
 
+	de_dbg(c, "smIcon\n");
+	de_dbg_indent(c, 1);
 	ux = (de_uint32)de_getui16be(pos); // smIconWords
 	pos += 2;
-	do_palm_BitmapType(c, d, pos, 2*ux, "smIcon", "smicon", DE_CREATEFLAG_IS_AUX);
+	do_palm_BitmapType(c, d, pos, 2*ux, "smicon", DE_CREATEFLAG_IS_AUX);
 	pos += 2*ux;
+	de_dbg_indent(c, -1);
 
 	ucstring_destroy(s);
 }
@@ -770,6 +790,14 @@ static void do_sort_info_block(deark *c, lctx *d)
 	de_dbg_indent(c, -1);
 }
 
+static void free_lctx(deark *c, lctx *d)
+{
+	if(d) {
+		de_free(c, d->rec_list.rec_data);
+		de_free(c, d);
+	}
+}
+
 static void de_run_palmdb(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
@@ -781,10 +809,7 @@ static void de_run_palmdb(deark *c, de_module_params *mparams)
 	do_sort_info_block(c, d);
 
 done:
-	if(d) {
-		de_free(c, d->rec_list.rec_data);
-		de_free(c, d);
-	}
+	free_lctx(c, d);
 }
 
 static int de_identify_palmdb(deark *c)
@@ -821,4 +846,23 @@ void de_module_palmdb(deark *c, struct deark_module_info *mi)
 	mi->desc = "Palm OS PDB, PRC, PQA";
 	mi->run_fn = de_run_palmdb;
 	mi->identify_fn = de_identify_palmdb;
+}
+
+static void de_run_palmbitmap(deark *c, de_module_params *mparams)
+{
+	lctx *d = NULL;
+
+	d = de_malloc(c, sizeof(lctx));
+
+	do_palm_BitmapType(c, d, 0, c->infile->len, NULL, 0);
+
+	free_lctx(c, d);
+}
+
+void de_module_palmbitmap(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "palmbitmap";
+	mi->desc = "Palm BitmapType";
+	mi->run_fn = de_run_palmbitmap;
+	mi->identify_fn = de_identify_none;
 }

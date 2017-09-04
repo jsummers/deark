@@ -278,6 +278,9 @@ Deark -- Information about supported formats
   - Format v1.x: BMP files are reconstructed and extracted.
   - Format v2.x: JPEG files are extracted.
 
+* Palm BitmapType (module="palmbitmap")
+  - Cannot be autodetected. You must use "-m palmbitmap".
+
 * Palm Database (PDB) ImageViewer/FireViewer (part of module "palmdb")
 
 * PCPaint / Pictor (module="pcpaint")
