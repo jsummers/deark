@@ -7,6 +7,7 @@
 #include <deark-config.h>
 #include <deark-private.h>
 DE_DECLARE_MODULE(de_module_palmdb);
+DE_DECLARE_MODULE(de_module_palmrc);
 DE_DECLARE_MODULE(de_module_palmbitmap);
 
 #define CODE_Tbmp 0x54626d70U
@@ -44,10 +45,14 @@ struct img_gen_info {
 };
 
 typedef struct localctx_struct {
-#define FMT_PDB 0
-#define FMT_PQA 1
-#define FMT_PRC 2
+#define FMT_PDB     1
+#define FMT_PRC     2
 	int file_fmt;
+#define SUBFMT_NONE 0
+#define SUBFMT_PQA  1
+	int file_subfmt;
+	int rawbitmaps;
+	int has_nonzero_ids;
 	const char *fmt_shortname;
 	de_int64 rec_size; // bytes per record
 	struct de_fourcc dtype4cc;
@@ -103,13 +108,13 @@ static int do_read_header(deark *c, lctx *d)
 	de_uint32 attribs;
 	de_uint32 version;
 	de_int64 x;
+	int retval = 0;
 
 	de_dbg(c, "header at %d\n", (int)pos1);
 	de_dbg_indent(c, 1);
 
 	dname = ucstring_create(c);
-	// TODO: What exactly is the encoding?
-	dbuf_read_to_ucstring(c->infile, pos1, 32, dname, DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_LATIN1);
+	dbuf_read_to_ucstring(c->infile, pos1, 32, dname, DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_PALM);
 	de_dbg(c, "name: \"%s\"\n", ucstring_get_printable_sz(dname));
 
 	attribs = (de_uint32)de_getui16be(pos1+32);
@@ -135,28 +140,33 @@ static int do_read_header(deark *c, lctx *d)
 	dbuf_read_fourcc(c->infile, pos1+64, &d->creator4cc, 0);
 	de_dbg(c, "creator: \"%s\"\n", d->creator4cc.id_printable);
 
-	if(d->dtype4cc.id==CODE_appl) {
-		d->file_fmt = FMT_PRC;
+	if(d->file_fmt==FMT_PDB) {
+		if(d->dtype4cc.id==CODE_pqa && d->creator4cc.id==CODE_clpr) {
+			d->file_subfmt = SUBFMT_PQA;
+			d->fmt_shortname = "PQA";
+			de_declare_fmt(c, "Palm PQA");
+		}
+		else {
+			d->fmt_shortname = "PDB";
+			de_declare_fmt(c, "Palm PDB");
+		}
+	}
+	else if(d->file_fmt==FMT_PRC) {
 		d->fmt_shortname = "PRC";
 		de_declare_fmt(c, "Palm PRC");
 	}
-	else if(d->dtype4cc.id==CODE_pqa && d->creator4cc.id==CODE_clpr) {
-		d->file_fmt = FMT_PQA;
-		d->fmt_shortname = "PQA";
-		de_declare_fmt(c, "Palm PQA");
-	}
 	else {
-		d->file_fmt = FMT_PDB;
-		d->fmt_shortname = "PDB";
-		de_declare_fmt(c, "Palm PDB");
+		goto done;
 	}
 
 	x = de_getui32be(68);
 	de_dbg(c, "uniqueIDseed: %d\n", (int)x);
 
+	retval = 1;
+done:
 	de_dbg_indent(c, -1);
 	ucstring_destroy(dname);
-	return 1;
+	return retval;
 }
 
 static de_int64 calc_rec_len(deark *c, lctx *d, de_int64 rec_idx)
@@ -172,11 +182,11 @@ static de_int64 calc_rec_len(deark *c, lctx *d, de_int64 rec_idx)
 }
 
 static void extract_item(deark *c, lctx *d, de_int64 data_offs, de_int64 data_len,
-	const char *ext, unsigned int createflags)
+	const char *ext, unsigned int createflags, int always_extract)
 {
 	de_finfo *fi = NULL;
 
-	if(c->extract_level<2) goto done;
+	if(c->extract_level<2 && !always_extract) goto done;
 	if(data_offs<0 || data_len<0) goto done;
 	if(data_offs+data_len > c->infile->len) goto done;
 	fi = de_finfo_create(c);
@@ -288,7 +298,6 @@ done:
 }
 
 // A wrapper that decompresses the image if necessary, then calls do_generate_unc_image().
-// TODO: This function signature is a mess.
 static void do_generate_image(deark *c, lctx *d,
 	dbuf *inf, de_int64 pos, de_int64 len, unsigned int cmpr_type,
 	struct img_gen_info *igi)
@@ -516,7 +525,7 @@ static void do_imgview_image(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 	de_dbg_indent(c, 1);
 
 	iname = ucstring_create(c);
-	dbuf_read_to_ucstring(c->infile, pos, 32, iname, DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_LATIN1);
+	dbuf_read_to_ucstring(c->infile, pos, 32, iname, DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_PALM);
 	de_dbg(c, "name: \"%s\"\n", ucstring_get_printable_sz(iname));
 	// TODO: Use this in the filename?
 	pos += 32;
@@ -585,7 +594,7 @@ static void do_imgview_text(deark *c, lctx *d, de_int64 pos, de_int64 len)
 
 	// (I'm pretty much just guessing the format of this record.)
 	s = ucstring_create(c);
-	dbuf_read_to_ucstring(c->infile, pos, len, s, DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_LATIN1);
+	dbuf_read_to_ucstring(c->infile, pos, len, s, DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_PALM);
 
 	// TODO: Decide when to write the text record to a file.
 	// Problem is that we're already using -a to mean "write all raw records to files".
@@ -606,6 +615,7 @@ static int do_read_pdb_record(deark *c, lctx *d, de_int64 rec_idx, de_int64 pos1
 	de_byte attribs;
 	de_uint32 id;
 	de_int64 data_len;
+	char extfull[80];
 
 	de_dbg(c, "record[%d] at %d\n", (int)rec_idx, (int)pos1);
 	de_dbg_indent(c, 1);
@@ -616,7 +626,9 @@ static int do_read_pdb_record(deark *c, lctx *d, de_int64 rec_idx, de_int64 pos1
 	data_len = calc_rec_len(c, d, rec_idx);
 	de_dbg(c, "calculated len: %d\n", (int)data_len);
 
-	if(d->file_fmt==FMT_PDB) {
+	de_snprintf(extfull, sizeof(extfull), "rec%d.bin", (int)rec_idx); // May be overridden
+
+	if(d->file_subfmt!=SUBFMT_PQA) {
 		const char *idname = NULL;
 		char tmpstr[80];
 
@@ -639,13 +651,17 @@ static int do_read_pdb_record(deark *c, lctx *d, de_int64 rec_idx, de_int64 pos1
 
 		de_dbg(c, "id: %u (0x%06x)%s\n", (unsigned int)id, (unsigned int)id, tmpstr);
 
+		if(d->has_nonzero_ids) {
+			de_snprintf(extfull, sizeof(extfull), "%06x.bin", (unsigned int)id);
+		}
+
 		if(d->dtype4cc.id==CODE_vIMG && d->creator4cc.id==CODE_View) {
 			if(id==0x6f8000) do_imgview_image(c, d, data_offs, data_len);
 			else if(id==0x6f8001) do_imgview_text(c, d, data_offs, data_len);
 		}
 	}
 
-	extract_item(c, d, data_offs, data_len, "bin", 0);
+	extract_item(c, d, data_offs, data_len, extfull, 0, 0);
 
 	de_dbg_indent(c, -1);
 	return 1;
@@ -657,6 +673,8 @@ static int do_read_prc_record(deark *c, lctx *d, de_int64 rec_idx, de_int64 pos1
 	struct de_fourcc name4cc;
 	de_int64 data_offs;
 	de_int64 data_len;
+	int always_extract = 0;
+	int extracted_flag;
 	const char *ext1 = "bin";
 	char extfull[80];
 
@@ -674,17 +692,26 @@ static int do_read_prc_record(deark *c, lctx *d, de_int64 rec_idx, de_int64 pos1
 	data_len = calc_rec_len(c, d, rec_idx);
 	de_dbg(c, "calculated len: %d\n", (int)data_len);
 
+	extracted_flag = 0;
 	switch(name4cc.id) {
 	case CODE_Tbmp:
 	case CODE_tAIB:
 		ext1 = "palm";
-		do_palm_BitmapType(c, d, data_offs, data_len,
-			name4cc.id_printable, 0);
+		if(d->rawbitmaps) {
+			always_extract = 1;
+		}
+		else {
+			do_palm_BitmapType(c, d, data_offs, data_len,
+				name4cc.id_printable, 0);
+			extracted_flag = 1;
+		}
 		break;
 	}
 
 	de_snprintf(extfull, sizeof(extfull), "%s.%s", name4cc.id_printable, ext1);
-	extract_item(c, d, data_offs, data_len, extfull, 0);
+	if(!extracted_flag) {
+		extract_item(c, d, data_offs, data_len, extfull, 0, always_extract);
+	}
 
 	de_dbg_indent(c, -1);
 	return 1;
@@ -704,7 +731,14 @@ static int do_prescan_records(deark *c, lctx *d, de_int64 pos1)
 			d->rec_list.rec_data[i].offset = (de_uint32)de_getui32be(pos1 + d->rec_size*i + 6);
 		}
 		else {
+			de_uint32 id;
 			d->rec_list.rec_data[i].offset = (de_uint32)de_getui32be(pos1 + d->rec_size*i);
+			if(!d->has_nonzero_ids) {
+				id = (de_getbyte(pos1+d->rec_size*i+5)<<16) |
+					(de_getbyte(pos1+d->rec_size*i+6)<<8) |
+					(de_getbyte(pos1+d->rec_size*i+7));
+				if(id!=0) d->has_nonzero_ids = 1;
+			}
 		}
 
 		// Record data must not start beyond the end of file.
@@ -776,6 +810,7 @@ static void do_pqa_app_info_block(deark *c, lctx *d, de_int64 pos1, de_int64 len
 	de_uint32 ux;
 	de_ucstring *s = NULL;
 	de_int64 pos = pos1;
+	int extracted_flag;
 
 	sig = (de_uint32)de_getui32be(pos);
 	if(sig!=CODE_lnch) return; // Apparently not a PQA appinfo block
@@ -794,7 +829,7 @@ static void do_pqa_app_info_block(deark *c, lctx *d, de_int64 pos1, de_int64 len
 	ux = (de_uint32)de_getui16be(pos);
 	pos += 2;
 	dbuf_read_to_ucstring_n(c->infile, pos, ux*2, DE_DBG_MAX_STRLEN, s,
-		DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_LATIN1);
+		DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_PALM);
 	de_dbg(c, "verStr: \"%s\"\n", ucstring_get_printable_sz(s));
 	ucstring_empty(s);
 	pos += 2*ux;
@@ -802,7 +837,7 @@ static void do_pqa_app_info_block(deark *c, lctx *d, de_int64 pos1, de_int64 len
 	ux = (de_uint32)de_getui16be(pos);
 	pos += 2;
 	dbuf_read_to_ucstring_n(c->infile, pos, ux*2, DE_DBG_MAX_STRLEN, s,
-		DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_LATIN1);
+		DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_PALM);
 	de_dbg(c, "pqaTitle: \"%s\"\n", ucstring_get_printable_sz(s));
 	ucstring_empty(s);
 	pos += 2*ux;
@@ -811,8 +846,15 @@ static void do_pqa_app_info_block(deark *c, lctx *d, de_int64 pos1, de_int64 len
 	de_dbg_indent(c, 1);
 	ux = (de_uint32)de_getui16be(pos); // iconWords (length prefix)
 	pos += 2;
-	do_palm_BitmapType(c, d, pos, 2*ux, "icon", DE_CREATEFLAG_IS_AUX);
-	extract_item(c, d, pos, 2*ux, "icon.palm", DE_CREATEFLAG_IS_AUX);
+	// TODO: The logic as to which things to extract is a mess...
+	extracted_flag = 0;
+	if(!d->rawbitmaps) {
+		do_palm_BitmapType(c, d, pos, 2*ux, "icon", DE_CREATEFLAG_IS_AUX);
+		extracted_flag = 1;
+	}
+	if(!extracted_flag) {
+		extract_item(c, d, pos, 2*ux, "icon.palm", DE_CREATEFLAG_IS_AUX, d->rawbitmaps?1:0);
+	}
 	pos += 2*ux;
 	de_dbg_indent(c, -1);
 
@@ -820,8 +862,14 @@ static void do_pqa_app_info_block(deark *c, lctx *d, de_int64 pos1, de_int64 len
 	de_dbg_indent(c, 1);
 	ux = (de_uint32)de_getui16be(pos); // smIconWords
 	pos += 2;
-	do_palm_BitmapType(c, d, pos, 2*ux, "smicon", DE_CREATEFLAG_IS_AUX);
-	extract_item(c, d, pos, 2*ux, "smicon.palm", DE_CREATEFLAG_IS_AUX);
+	extracted_flag = 0;
+	if(!d->rawbitmaps) {
+		do_palm_BitmapType(c, d, pos, 2*ux, "smicon", DE_CREATEFLAG_IS_AUX);
+		extracted_flag = 1;
+	}
+	if(!extracted_flag) {
+		extract_item(c, d, pos, 2*ux, "smicon.palm", DE_CREATEFLAG_IS_AUX, d->rawbitmaps?1:0);
+	}
 	pos += 2*ux;
 	de_dbg_indent(c, -1);
 
@@ -849,9 +897,9 @@ static void do_app_info_block(deark *c, lctx *d)
 
 	if(len>0) {
 		// TODO: Decide exactly when to extract this, and when to decode it.
-		extract_item(c, d, d->appinfo_offs, len, "appinfo.bin", DE_CREATEFLAG_IS_AUX);
+		extract_item(c, d, d->appinfo_offs, len, "appinfo.bin", DE_CREATEFLAG_IS_AUX, 0);
 
-		if(d->file_fmt==FMT_PQA) {
+		if(d->file_subfmt==SUBFMT_PQA) {
 			do_pqa_app_info_block(c, d, d->appinfo_offs, len);
 		}
 	}
@@ -876,7 +924,7 @@ static void do_sort_info_block(deark *c, lctx *d)
 	de_dbg(c, "calculated len: %d\n", (int)len);
 
 	if(len>0) {
-		extract_item(c, d, d->sortinfo_offs, len, "sortinfo.bin", DE_CREATEFLAG_IS_AUX);
+		extract_item(c, d, d->sortinfo_offs, len, "sortinfo.bin", DE_CREATEFLAG_IS_AUX, 0);
 	}
 
 	de_dbg_indent(c, -1);
@@ -890,17 +938,44 @@ static void free_lctx(deark *c, lctx *d)
 	}
 }
 
-static void de_run_palmdb(deark *c, de_module_params *mparams)
+static void de_run_pdb_or_prc(deark *c, lctx *d, de_module_params *mparams)
 {
-	lctx *d = NULL;
+	if(de_get_ext_option(c, "palm:rawbitmaps")) {
+		// Hard to decide if this should be the default, or even the only, setting.
+		d->rawbitmaps = 1;
+	}
 
-	d = de_malloc(c, sizeof(lctx));
 	if(!do_read_header(c, d)) goto done;
 	if(!do_read_records(c, d, 72)) goto done;
 	do_app_info_block(c, d);
 	do_sort_info_block(c, d);
-
 done:
+	;
+}
+
+static void de_run_palmdb(deark *c, de_module_params *mparams)
+{
+	lctx *d = NULL;
+	d = de_malloc(c, sizeof(lctx));
+	d->file_fmt = FMT_PDB;
+	de_run_pdb_or_prc(c, d, mparams);
+	free_lctx(c, d);
+}
+
+static void de_run_palmrc(deark *c, de_module_params *mparams)
+{
+	lctx *d = NULL;
+	d = de_malloc(c, sizeof(lctx));
+	d->file_fmt = FMT_PRC;
+	de_run_pdb_or_prc(c, d, mparams);
+	free_lctx(c, d);
+}
+
+static void de_run_palmbitmap(deark *c, de_module_params *mparams)
+{
+	lctx *d = NULL;
+	d = de_malloc(c, sizeof(lctx));
+	do_palm_BitmapType(c, d, 0, c->infile->len, NULL, 0);
 	free_lctx(c, d);
 }
 
@@ -922,7 +997,7 @@ static int de_identify_palmdb(deark *c)
 
 	de_read(id, 60, 8);
 
-	if(!de_memcmp(id, "appl", 4)) return 100;
+	if(!de_memcmp(id, "appl", 4)) return 0; // PRC, not PDB
 
 	for(k=0; k<DE_ITEMS_IN_ARRAY(ids); k++) {
 		if(!de_memcmp(id, ids[k], 8)) return 100;
@@ -932,23 +1007,38 @@ static int de_identify_palmdb(deark *c)
 	return 0;
 }
 
+static int de_identify_palmrc(deark *c)
+{
+	de_byte id[8];
+
+	// TODO: Improve this ID algorithm
+	if(!de_input_file_has_ext(c, "prc")) return 0;
+	de_read(id, 60, 8);
+	if(!de_memcmp(id, "appl", 4)) return 100;
+	return 0;
+}
+
+static void de_help_pdb_prc(deark *c)
+{
+	de_msg(c, "-opt palm:rawbitmaps : Leave BitmapType images in that format\n");
+}
+
 void de_module_palmdb(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "palmdb";
-	mi->desc = "Palm OS PDB, PRC, PQA";
+	mi->desc = "Palm OS PDB, PQA";
 	mi->run_fn = de_run_palmdb;
 	mi->identify_fn = de_identify_palmdb;
+	mi->help_fn = de_help_pdb_prc;
 }
 
-static void de_run_palmbitmap(deark *c, de_module_params *mparams)
+void de_module_palmrc(deark *c, struct deark_module_info *mi)
 {
-	lctx *d = NULL;
-
-	d = de_malloc(c, sizeof(lctx));
-
-	do_palm_BitmapType(c, d, 0, c->infile->len, NULL, 0);
-
-	free_lctx(c, d);
+	mi->id = "palmrc";
+	mi->desc = "Palm OS PRC";
+	mi->run_fn = de_run_palmrc;
+	mi->identify_fn = de_identify_palmrc;
+	mi->help_fn = de_help_pdb_prc;
 }
 
 void de_module_palmbitmap(deark *c, struct deark_module_info *mi)

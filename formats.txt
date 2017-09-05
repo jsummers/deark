@@ -517,11 +517,22 @@ Deark -- Information about supported formats
 * Microsoft Installation Compression (module="mscompress")
   - "KWAJ" variant not supported
 
-* Palm PDB/PRC/PQA (module="palmdb")
+* Palm PDB/PQA (module="palmdb")
   - You may have to use "-m palmdb".
   - See also the notes about the "Palm BitmapType" module.
   - Use -a to extract the record blocks, but note that they are usually not in
     well-known formats.
+  Options
+   -opt palm:rawbitmaps - When possible, leave bitmaps in Palm BitmapType
+     format (see "palmbitmap" module).
+
+* Palm PRC (module="palmrc")
+  - You may have to use "-m palmrc".
+  - Use -a to extract the record blocks, but note that they are usually not in
+    well-known formats.
+  Options
+   -opt palm:rawbitmaps - When possible, leave bitmaps in Palm BitmapType
+     format (see "palmbitmap" module).
 
 * RPM (package manager) (module="rpm)
   - Extract compressed cpio file.
