@@ -42,6 +42,8 @@ struct img_gen_info {
 	de_int64 rowbytes;
 	de_finfo *fi;
 	unsigned int createflags;
+	int has_trns;
+	de_uint32 trns_value;
 };
 
 typedef struct localctx_struct {
@@ -273,6 +275,8 @@ static void do_generate_unc_image(deark *c, lctx *d, dbuf *unc_pixels,
 {
 	de_int64 i, j;
 	de_byte b;
+	de_byte b_adj;
+	de_uint32 clr;
 	struct deark_bitmap *img = NULL;
 
 	if(igi->bitsperpixel==1) {
@@ -281,13 +285,18 @@ static void do_generate_unc_image(deark *c, lctx *d, dbuf *unc_pixels,
 		goto done;
 	}
 
-	img = de_bitmap_create(c, igi->w, igi->h, 1);
+	img = de_bitmap_create(c, igi->w, igi->h, 1 + (igi->has_trns?1:0));
 
 	for(j=0; j<igi->h; j++) {
 		for(i=0; i<igi->w; i++) {
 			b = de_get_bits_symbol(unc_pixels, igi->bitsperpixel, igi->rowbytes*j, i);
-			b = 255 - de_sample_nbit_to_8bit(igi->bitsperpixel, (unsigned int)b);
-			de_bitmap_setpixel_gray(img, i, j, b);
+			b_adj = 255 - de_sample_nbit_to_8bit(igi->bitsperpixel, (unsigned int)b);
+			if(igi->has_trns && (de_uint32)b==igi->trns_value) {
+				clr = DE_MAKE_RGBA(b_adj,b_adj,b_adj,0);
+				de_bitmap_setpixel_rgba(img, i, j, clr);
+				continue;
+			}
+			de_bitmap_setpixel_gray(img, i, j, b_adj);
 		}
 	}
 
@@ -418,8 +427,17 @@ static void do_palm_BitmapType_internal(deark *c, lctx *d, de_int64 pos1, de_int
 		de_dbg(c, "header size: %d\n", (int)headersize);
 	}
 
-	// [11] TODO: pixelFormat (V3)
-	// [12] TODO: transp. idx. (V2)
+	if(bitmapversion==3) {
+		de_byte pixfmt = de_getbyte(pos1+11);
+		de_dbg(c, "pixel format: %d\n", (int)pixfmt);
+		// TODO: Do something with this
+	}
+
+	if(bitmapversion==2 && (bitmapflags&0x2000)) {
+		igi->has_trns = 1;
+		igi->trns_value = (de_uint32)de_getbyte(pos1+12);
+		de_dbg(c, "transparent color: %u\n", (unsigned int)igi->trns_value);
+	}
 
 	if(bitmapflags&0x8000) {
 		if(bitmapversion>=2) {
@@ -443,7 +461,13 @@ static void do_palm_BitmapType_internal(deark *c, lctx *d, de_int64 pos1, de_int
 	}
 
 	// TODO: [14] density (V3)
-	// TODO: [16] transparentValue (V3)
+
+	if(bitmapversion==3 && (bitmapflags&0x2000) && headersize>=20) {
+		// I'm assuming the flag affects this field. The spec is ambiguous.
+		igi->has_trns = 1;
+		igi->trns_value = (de_uint32)de_getui32be(pos1+16);
+		de_dbg(c, "transparent color: %u\n", (unsigned int)igi->trns_value);
+	}
 
 	if(bitmapversion==3 && headersize>=24) {
 		// Documented as the "number of bytes to the next bitmap", but it doesn't
@@ -459,10 +483,6 @@ static void do_palm_BitmapType_internal(deark *c, lctx *d, de_int64 pos1, de_int
 	if(bitmapversion>=1 && (bitmapflags&0x4000)) {
 		de_err(c, "Bitmaps with a color table are not supported\n");
 		goto done;
-	}
-
-	if(bitmapversion>=2 && (bitmapflags&0x2000)) {
-		de_warn(c, "Transparency is not supported\n");
 	}
 
 	if(bitmapversion>=3 && (bitmapflags&0x0400)) {
