@@ -3,6 +3,8 @@
 // See the file COPYING for terms of use.
 
 // Palm Database (PDB)
+// Palm Resource (PRC)
+// Palm BitmapType
 
 #include <deark-config.h>
 #include <deark-private.h>
@@ -18,6 +20,41 @@ DE_DECLARE_MODULE(de_module_palmbitmap);
 #define CODE_pqa  0x70716120U
 #define CODE_tAIB 0x74414942U
 #define CODE_vIMG 0x76494d47U
+
+static const de_uint32 palm256pal[256] = {
+	0xffffff,0xffccff,0xff99ff,0xff66ff,0xff33ff,0xff00ff,0xffffcc,0xffcccc,
+	0xff99cc,0xff66cc,0xff33cc,0xff00cc,0xffff99,0xffcc99,0xff9999,0xff6699,
+	0xff3399,0xff0099,0xccffff,0xccccff,0xcc99ff,0xcc66ff,0xcc33ff,0xcc00ff,
+	0xccffcc,0xcccccc,0xcc99cc,0xcc66cc,0xcc33cc,0xcc00cc,0xccff99,0xcccc99,
+	0xcc9999,0xcc6699,0xcc3399,0xcc0099,0x99ffff,0x99ccff,0x9999ff,0x9966ff,
+	0x9933ff,0x9900ff,0x99ffcc,0x99cccc,0x9999cc,0x9966cc,0x9933cc,0x9900cc,
+	0x99ff99,0x99cc99,0x999999,0x996699,0x993399,0x990099,0x66ffff,0x66ccff,
+	0x6699ff,0x6666ff,0x6633ff,0x6600ff,0x66ffcc,0x66cccc,0x6699cc,0x6666cc,
+	0x6633cc,0x6600cc,0x66ff99,0x66cc99,0x669999,0x666699,0x663399,0x660099,
+	0x33ffff,0x33ccff,0x3399ff,0x3366ff,0x3333ff,0x3300ff,0x33ffcc,0x33cccc,
+	0x3399cc,0x3366cc,0x3333cc,0x3300cc,0x33ff99,0x33cc99,0x339999,0x336699,
+	0x333399,0x330099,0x00ffff,0x00ccff,0x0099ff,0x0066ff,0x0033ff,0x0000ff,
+	0x00ffcc,0x00cccc,0x0099cc,0x0066cc,0x0033cc,0x0000cc,0x00ff99,0x00cc99,
+	0x009999,0x006699,0x003399,0x000099,0xffff66,0xffcc66,0xff9966,0xff6666,
+	0xff3366,0xff0066,0xffff33,0xffcc33,0xff9933,0xff6633,0xff3333,0xff0033,
+	0xffff00,0xffcc00,0xff9900,0xff6600,0xff3300,0xff0000,0xccff66,0xcccc66,
+	0xcc9966,0xcc6666,0xcc3366,0xcc0066,0xccff33,0xcccc33,0xcc9933,0xcc6633,
+	0xcc3333,0xcc0033,0xccff00,0xcccc00,0xcc9900,0xcc6600,0xcc3300,0xcc0000,
+	0x99ff66,0x99cc66,0x999966,0x996666,0x993366,0x990066,0x99ff33,0x99cc33,
+	0x999933,0x996633,0x993333,0x990033,0x99ff00,0x99cc00,0x999900,0x996600,
+	0x993300,0x990000,0x66ff66,0x66cc66,0x669966,0x666666,0x663366,0x660066,
+	0x66ff33,0x66cc33,0x669933,0x666633,0x663333,0x660033,0x66ff00,0x66cc00,
+	0x669900,0x666600,0x663300,0x660000,0x33ff66,0x33cc66,0x339966,0x336666,
+	0x333366,0x330066,0x33ff33,0x33cc33,0x339933,0x336633,0x333333,0x330033,
+	0x33ff00,0x33cc00,0x339900,0x336600,0x333300,0x330000,0x00ff66,0x00cc66,
+	0x009966,0x006666,0x003366,0x000066,0x00ff33,0x00cc33,0x009933,0x006633,
+	0x003333,0x000033,0x00ff00,0x00cc00,0x009900,0x006600,0x003300,0x111111,
+	0x222222,0x444444,0x555555,0x777777,0x888888,0xaaaaaa,0xbbbbbb,0xdddddd,
+	0xeeeeee,0xc0c0c0,0x800000,0x800080,0x008000,0x008080,0x000000,0x000000,
+	0x000000,0x000000,0x000000,0x000000,0x000000,0x000000,0x000000,0x000000,
+	0x000000,0x000000,0x000000,0x000000,0x000000,0x000000,0x000000,0x000000,
+	0x000000,0x000000,0x000000,0x000000,0x000000,0x000000,0x000000,0x000000
+};
 
 // Our compression code scheme is an extension of the standard BitmapType codes.
 // Codes 0x100 and higher are not standard.
@@ -277,7 +314,10 @@ static void do_generate_unc_image(deark *c, lctx *d, dbuf *unc_pixels,
 	de_byte b;
 	de_byte b_adj;
 	de_uint32 clr;
+	int has_color;
 	struct deark_bitmap *img = NULL;
+
+	has_color = (igi->bitsperpixel>4);
 
 	if(igi->bitsperpixel==1) {
 		de_convert_and_write_image_bilevel(unc_pixels, 0, igi->w, igi->h, igi->rowbytes,
@@ -285,18 +325,26 @@ static void do_generate_unc_image(deark *c, lctx *d, dbuf *unc_pixels,
 		goto done;
 	}
 
-	img = de_bitmap_create(c, igi->w, igi->h, 1 + (igi->has_trns?1:0));
+	img = de_bitmap_create(c, igi->w, igi->h,
+		(has_color?3:1) + (igi->has_trns?1:0));
 
 	for(j=0; j<igi->h; j++) {
 		for(i=0; i<igi->w; i++) {
 			b = de_get_bits_symbol(unc_pixels, igi->bitsperpixel, igi->rowbytes*j, i);
-			b_adj = 255 - de_sample_nbit_to_8bit(igi->bitsperpixel, (unsigned int)b);
-			if(igi->has_trns && (de_uint32)b==igi->trns_value) {
-				clr = DE_MAKE_RGBA(b_adj,b_adj,b_adj,0);
-				de_bitmap_setpixel_rgba(img, i, j, clr);
-				continue;
+			if(has_color) {
+				clr = DE_MAKE_OPAQUE(palm256pal[(unsigned int)b]);
 			}
-			de_bitmap_setpixel_gray(img, i, j, b_adj);
+			else {
+				// TODO: What are the correct colors (esp. for 4bpp)?
+				b_adj = 255 - de_sample_nbit_to_8bit(igi->bitsperpixel, (unsigned int)b);
+				clr = DE_MAKE_GRAY(b_adj);
+			}
+
+			de_bitmap_setpixel_rgb(img, i, j, clr);
+
+			if(igi->has_trns && (de_uint32)b==igi->trns_value) {
+				de_bitmap_setsample(img, i, j, 3, 0);
+			}
 		}
 	}
 
@@ -371,9 +419,12 @@ static void do_palm_BitmapType_internal(deark *c, lctx *d, de_int64 pos1, de_int
 	de_byte pixelsize_raw;
 	de_byte bitmapversion;
 	de_int64 headersize;
-	de_int64 nextbitmapoffs = 0;
+	de_int64 nextbitmapoffs_in_bytes = 0;
 	unsigned int cmpr_type;
+	const char *cmpr_type_src_name = "";
+	const char *bpp_src_name = "";
 	struct img_gen_info *igi = NULL;
+	char tmps[80];
 
 	igi = de_malloc(c, sizeof(struct img_gen_info));
 	igi->createflags = createflags;
@@ -395,7 +446,6 @@ static void do_palm_BitmapType_internal(deark *c, lctx *d, de_int64 pos1, de_int
 	igi->w = de_geti16be(pos1);
 	igi->h = de_geti16be(pos1+2);
 	de_dbg(c, "dimensions: %dx%d\n", (int)igi->w, (int)igi->h);
-	if(!de_good_image_dimensions(c, igi->w, igi->h)) goto done;
 
 	igi->rowbytes = de_getui16be(pos1+4);
 	de_dbg(c, "rowBytes: %d\n", (int)igi->rowbytes);
@@ -406,17 +456,28 @@ static void do_palm_BitmapType_internal(deark *c, lctx *d, de_int64 pos1, de_int
 	if(bitmapversion>=1) {
 		pixelsize_raw = de_getbyte(pos1+8);
 		de_dbg(c, "pixelSize: %d\n", (int)pixelsize_raw);
+		bpp_src_name = "based on pixelSize field";
 	}
 	else {
 		pixelsize_raw = 0;
 	}
-	if(pixelsize_raw==0) igi->bitsperpixel = 1;
+	if(pixelsize_raw==0) {
+		igi->bitsperpixel = 1;
+		bpp_src_name = "default";
+	}
 	else igi->bitsperpixel = (de_int64)pixelsize_raw;
+	de_dbg(c, "bits/pixel: %d (%s)\n", (int)igi->bitsperpixel, bpp_src_name);
 
 	if(bitmapversion==1 || bitmapversion==2) {
 		x = de_getui16be(pos1+10);
-		nextbitmapoffs = 4*x;
-		de_dbg(c, "nextDepthOffset: %d (%d bytes)\n", (int)x, (int)nextbitmapoffs);
+		nextbitmapoffs_in_bytes = 4*x;
+		if(x==0) {
+			de_snprintf(tmps, sizeof(tmps), "none");
+		}
+		else {
+			de_snprintf(tmps, sizeof(tmps), "%d + 4*%d = %d", (int)pos1, (int)x, (int)(pos1+nextbitmapoffs_in_bytes));
+		}
+		de_dbg(c, "nextDepthOffset: %d (%s)\n", (int)x, tmps);
 	}
 
 	if(bitmapversion<3) {
@@ -439,9 +500,11 @@ static void do_palm_BitmapType_internal(deark *c, lctx *d, de_int64 pos1, de_int
 		de_dbg(c, "transparent color: %u\n", (unsigned int)igi->trns_value);
 	}
 
+	cmpr_type_src_name = "flags";
 	if(bitmapflags&0x8000) {
 		if(bitmapversion>=2) {
 			cmpr_type = (unsigned int)de_getbyte(pos1+13);
+			cmpr_type_src_name = "compression type field";
 			de_dbg(c, "compression type field: 0x%02x\n", cmpr_type);
 		}
 		else {
@@ -453,12 +516,7 @@ static void do_palm_BitmapType_internal(deark *c, lctx *d, de_int64 pos1, de_int
 		cmpr_type = CMPR_NONE;
 	}
 
-	if((bitmapflags&0x8000) && (bitmapversion>=2)) {
-		de_dbg(c, "compression type: %s (0x%02x)\n", get_cmpr_type_name(cmpr_type), cmpr_type);
-	}
-	else {
-		de_dbg(c, "compression type: %s (based on flags)\n", get_cmpr_type_name(cmpr_type));
-	}
+	de_dbg(c, "compression type: %s (based on %s)\n", get_cmpr_type_name(cmpr_type), cmpr_type_src_name);
 
 	// TODO: [14] density (V3)
 
@@ -473,9 +531,20 @@ static void do_palm_BitmapType_internal(deark *c, lctx *d, de_int64 pos1, de_int
 		// Documented as the "number of bytes to the next bitmap", but it doesn't
 		// say where it is measured *from*. I'll assume it's the same logic as
 		// the "nextDepthOffset" field.
-		nextbitmapoffs = de_getui32be(pos1+20);
-		de_dbg(c, "nextBitmapOffset: %u (bytes)\n", (unsigned int)nextbitmapoffs);
+		nextbitmapoffs_in_bytes = de_getui32be(pos1+20);
+		if(nextbitmapoffs_in_bytes==0) {
+			de_snprintf(tmps, sizeof(tmps), "none");
+		}
+		else {
+			de_snprintf(tmps, sizeof(tmps), "%u + %u = %u", (unsigned int)pos1,
+				(unsigned int)nextbitmapoffs_in_bytes, (unsigned int)(pos1+nextbitmapoffs_in_bytes));
+		}
+		de_dbg(c, "nextBitmapOffset: %u (%s)\n", (unsigned int)nextbitmapoffs_in_bytes, tmps);
 	}
+
+	// Now that we've read the nextBitmapOffset fields, we can stop processing this
+	// image if it's invalid or unsupported.
+	if(!de_good_image_dimensions(c, igi->w, igi->h)) goto done;
 
 	pos = pos1 + headersize;
 	if(pos >= pos1+len) goto done;
@@ -503,7 +572,7 @@ static void do_palm_BitmapType_internal(deark *c, lctx *d, de_int64 pos1, de_int
 	do_generate_image(c, d, c->infile, pos, pos1+len-pos, cmpr_type, igi);
 
 done:
-	*pnextbitmapoffset = nextbitmapoffs;
+	*pnextbitmapoffset = nextbitmapoffs_in_bytes;
 	de_dbg_indent(c, -1);
 	if(igi) {
 		de_finfo_destroy(c, igi->fi);
@@ -1038,6 +1107,14 @@ static int de_identify_palmrc(deark *c)
 	return 0;
 }
 
+static int de_identify_palmbitmap(deark *c)
+{
+	if(de_input_file_has_ext(c, "palm")) {
+		return 15;
+	}
+	return 0;
+}
+
 static void de_help_pdb_prc(deark *c)
 {
 	de_msg(c, "-opt palm:rawbitmaps : Leave BitmapType images in that format\n");
@@ -1066,5 +1143,5 @@ void de_module_palmbitmap(deark *c, struct deark_module_info *mi)
 	mi->id = "palmbitmap";
 	mi->desc = "Palm BitmapType";
 	mi->run_fn = de_run_palmbitmap;
-	mi->identify_fn = de_identify_none;
+	mi->identify_fn = de_identify_palmbitmap;
 }
