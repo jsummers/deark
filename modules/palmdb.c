@@ -81,6 +81,8 @@ struct img_gen_info {
 	unsigned int createflags;
 	int has_trns;
 	de_uint32 trns_value;
+	int has_custom_pal;
+	de_uint32 custom_pal[256];
 };
 
 typedef struct localctx_struct {
@@ -332,7 +334,10 @@ static void do_generate_unc_image(deark *c, lctx *d, dbuf *unc_pixels,
 		for(i=0; i<igi->w; i++) {
 			b = de_get_bits_symbol(unc_pixels, igi->bitsperpixel, igi->rowbytes*j, i);
 			if(has_color) {
-				clr = DE_MAKE_OPAQUE(palm256pal[(unsigned int)b]);
+				if(igi->has_custom_pal)
+					clr = igi->custom_pal[(unsigned int)b];
+				else
+					clr = DE_MAKE_OPAQUE(palm256pal[(unsigned int)b]);
 			}
 			else {
 				// TODO: What are the correct colors (esp. for 4bpp)?
@@ -409,6 +414,28 @@ static const char *get_cmpr_type_name(unsigned int cmpr_type)
 	return name;
 }
 
+static int read_colortable(deark *c, lctx *d, struct img_gen_info *igi,
+	de_int64 pos1, de_int64 *bytes_consumed)
+{
+	de_int64 num_entries;
+
+	de_dbg(c, "color table at %d\n", (int)pos1);
+	de_dbg_indent(c, 1);
+	igi->has_custom_pal = 1;
+	num_entries = de_getui16be(pos1);
+	de_dbg(c, "number of entries: %d\n", (int)num_entries);
+	*bytes_consumed = 2+4*num_entries;
+
+	// The first byte of each entry is an index, which I think we can ignore.
+	// We're pretending the palette starts at offset 3 (the offset of the
+	// red sample of the first entry), when it really starts at offset 2.
+	de_read_palette_rgb(c->infile, pos1+3, num_entries, 4,
+		igi->custom_pal, 256, 0);
+
+	de_dbg_indent(c, -1);
+	return 1;
+}
+
 static void do_palm_BitmapType_internal(deark *c, lctx *d, de_int64 pos1, de_int64 len,
 	const char *token, unsigned int createflags,
 	de_int64 *pnextbitmapoffset)
@@ -419,17 +446,22 @@ static void do_palm_BitmapType_internal(deark *c, lctx *d, de_int64 pos1, de_int
 	de_byte pixelsize_raw;
 	de_byte bitmapversion;
 	de_int64 headersize;
+	de_int64 headersize_extra; // including color table, etc.
 	de_int64 nextbitmapoffs_in_bytes = 0;
 	unsigned int cmpr_type;
 	const char *cmpr_type_src_name = "";
 	const char *bpp_src_name = "";
 	struct img_gen_info *igi = NULL;
+	int saved_indent_level;
 	char tmps[80];
 
+	de_dbg_indent_save(c, &saved_indent_level);
 	igi = de_malloc(c, sizeof(struct img_gen_info));
 	igi->createflags = createflags;
 
 	de_dbg(c, "BitmapType at %d, len<=%d\n", (int)pos1, (int)len);
+	de_dbg_indent(c, 1);
+	de_dbg(c, "bitmap header at %d\n", (int)pos1);
 	de_dbg_indent(c, 1);
 
 	// Look ahead to get the version
@@ -546,13 +578,19 @@ static void do_palm_BitmapType_internal(deark *c, lctx *d, de_int64 pos1, de_int
 	// image if it's invalid or unsupported.
 	if(!de_good_image_dimensions(c, igi->w, igi->h)) goto done;
 
-	pos = pos1 + headersize;
+	de_dbg_indent(c, -1);
+
+	pos = pos1;
+	pos += headersize;
 	if(pos >= pos1+len) goto done;
 
+	headersize_extra = 0;
 	if(bitmapversion>=1 && (bitmapflags&0x4000)) {
-		de_err(c, "Bitmaps with a color table are not supported\n");
-		goto done;
+		if(!read_colortable(c, d, igi, pos, &headersize_extra)) goto done;
 	}
+
+	pos += headersize_extra;
+	if(pos >= pos1+len) goto done;
 
 	if(bitmapversion>=3 && (bitmapflags&0x0400)) {
 		de_err(c, "RGB color is not supported\n");
@@ -569,11 +607,12 @@ static void do_palm_BitmapType_internal(deark *c, lctx *d, de_int64 pos1, de_int
 		de_finfo_set_name_from_sz(c, igi->fi, token, DE_ENCODING_UTF8);
 	}
 
+	de_dbg(c, "image data at %d\n", (int)pos);
 	do_generate_image(c, d, c->infile, pos, pos1+len-pos, cmpr_type, igi);
 
 done:
 	*pnextbitmapoffset = nextbitmapoffs_in_bytes;
-	de_dbg_indent(c, -1);
+	de_dbg_indent_restore(c, saved_indent_level);
 	if(igi) {
 		de_finfo_destroy(c, igi->fi);
 		de_free(c, igi);
