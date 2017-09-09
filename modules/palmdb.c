@@ -21,6 +21,11 @@ DE_DECLARE_MODULE(de_module_palmbitmap);
 #define CODE_tAIB 0x74414942U
 #define CODE_vIMG 0x76494d47U
 
+#define PALMBMPFLAG_COMPRESSED     0x8000U
+#define PALMBMPFLAG_HASCOLORTABLE  0x4000U
+#define PALMBMPFLAG_HASTRNS        0x2000U
+#define PALMBMPFLAG_DIRECTCOLOR    0x0400U
+
 static const de_uint32 palm256pal[256] = {
 	0xffffff,0xffccff,0xff99ff,0xff66ff,0xff33ff,0xff00ff,0xffffcc,0xffcccc,
 	0xff99cc,0xff66cc,0xff33cc,0xff00cc,0xffff99,0xffcc99,0xff9999,0xff6699,
@@ -81,6 +86,7 @@ struct img_gen_info {
 	unsigned int createflags;
 	int has_trns;
 	de_uint32 trns_value;
+	int is_rgb;
 	int has_custom_pal;
 	de_uint32 custom_pal[256];
 };
@@ -332,23 +338,31 @@ static void do_generate_unc_image(deark *c, lctx *d, dbuf *unc_pixels,
 
 	for(j=0; j<igi->h; j++) {
 		for(i=0; i<igi->w; i++) {
-			b = de_get_bits_symbol(unc_pixels, igi->bitsperpixel, igi->rowbytes*j, i);
-			if(has_color) {
-				if(igi->has_custom_pal)
-					clr = igi->custom_pal[(unsigned int)b];
-				else
-					clr = DE_MAKE_OPAQUE(palm256pal[(unsigned int)b]);
+			if(igi->bitsperpixel==16) {
+				clr = (de_uint32)dbuf_getui16be(unc_pixels, igi->rowbytes*j + 2*i);
+				clr = de_rgb565_to_888(clr);
+				de_bitmap_setpixel_rgb(img, i, j, clr);
+				// TODO: Transparency
 			}
 			else {
-				// TODO: What are the correct colors (esp. for 4bpp)?
-				b_adj = 255 - de_sample_nbit_to_8bit(igi->bitsperpixel, (unsigned int)b);
-				clr = DE_MAKE_GRAY(b_adj);
-			}
+				b = de_get_bits_symbol(unc_pixels, igi->bitsperpixel, igi->rowbytes*j, i);
+				if(has_color) {
+					if(igi->has_custom_pal)
+						clr = igi->custom_pal[(unsigned int)b];
+					else
+						clr = DE_MAKE_OPAQUE(palm256pal[(unsigned int)b]);
+				}
+				else {
+					// TODO: What are the correct colors (esp. for 4bpp)?
+					b_adj = 255 - de_sample_nbit_to_8bit(igi->bitsperpixel, (unsigned int)b);
+					clr = DE_MAKE_GRAY(b_adj);
+				}
 
-			de_bitmap_setpixel_rgb(img, i, j, clr);
+				de_bitmap_setpixel_rgb(img, i, j, clr);
 
-			if(igi->has_trns && (de_uint32)b==igi->trns_value) {
-				de_bitmap_setsample(img, i, j, 3, 0);
+				if(igi->has_trns && (de_uint32)b==igi->trns_value) {
+					de_bitmap_setsample(img, i, j, 3, 0);
+				}
 			}
 		}
 	}
@@ -422,8 +436,12 @@ static int read_colortable(deark *c, lctx *d, struct img_gen_info *igi,
 	de_dbg(c, "color table at %d\n", (int)pos1);
 	de_dbg_indent(c, 1);
 	igi->has_custom_pal = 1;
+
+	// TODO: Documentation says "High bits (numEntries > 256) reserved."
+	// What exactly does that mean?
 	num_entries = de_getui16be(pos1);
 	de_dbg(c, "number of entries: %d\n", (int)num_entries);
+
 	*bytes_consumed = 2+4*num_entries;
 
 	// The first byte of each entry is an index, which I think we can ignore.
@@ -446,7 +464,7 @@ static void do_palm_BitmapType_internal(deark *c, lctx *d, de_int64 pos1, de_int
 	de_byte pixelsize_raw;
 	de_byte bitmapversion;
 	de_int64 headersize;
-	de_int64 headersize_extra; // including color table, etc.
+	de_int64 bytes_consumed;
 	de_int64 nextbitmapoffs_in_bytes = 0;
 	unsigned int cmpr_type;
 	const char *cmpr_type_src_name = "";
@@ -526,14 +544,14 @@ static void do_palm_BitmapType_internal(deark *c, lctx *d, de_int64 pos1, de_int
 		// TODO: Do something with this
 	}
 
-	if(bitmapversion==2 && (bitmapflags&0x2000)) {
+	if(bitmapversion==2 && (bitmapflags&PALMBMPFLAG_HASTRNS)) {
 		igi->has_trns = 1;
 		igi->trns_value = (de_uint32)de_getbyte(pos1+12);
 		de_dbg(c, "transparent color: %u\n", (unsigned int)igi->trns_value);
 	}
 
 	cmpr_type_src_name = "flags";
-	if(bitmapflags&0x8000) {
+	if(bitmapflags&PALMBMPFLAG_COMPRESSED) {
 		if(bitmapversion>=2) {
 			cmpr_type = (unsigned int)de_getbyte(pos1+13);
 			cmpr_type_src_name = "compression type field";
@@ -552,7 +570,7 @@ static void do_palm_BitmapType_internal(deark *c, lctx *d, de_int64 pos1, de_int
 
 	// TODO: [14] density (V3)
 
-	if(bitmapversion==3 && (bitmapflags&0x2000) && headersize>=20) {
+	if(bitmapversion==3 && (bitmapflags&PALMBMPFLAG_HASTRNS) && headersize>=20) {
 		// I'm assuming the flag affects this field. The spec is ambiguous.
 		igi->has_trns = 1;
 		igi->trns_value = (de_uint32)de_getui32be(pos1+16);
@@ -580,27 +598,49 @@ static void do_palm_BitmapType_internal(deark *c, lctx *d, de_int64 pos1, de_int
 
 	de_dbg_indent(c, -1);
 
+	if(bitmapflags&PALMBMPFLAG_DIRECTCOLOR) {
+		igi->is_rgb = 1;
+		if(bitmapversion<2) {
+			de_warn(c, "BitmapTypeV%d with RGB color is not standard\n", (int)bitmapversion);
+		}
+	}
+
+	if(igi->bitsperpixel!=1 && igi->bitsperpixel!=2 && igi->bitsperpixel!=4 &&
+		igi->bitsperpixel!=8 && igi->bitsperpixel!=16)
+	{
+		de_err(c, "Unsupported bits/pixel: %d\n", (int)igi->bitsperpixel);
+		goto done;
+	}
+
+	if((igi->is_rgb && igi->bitsperpixel!=16) ||
+		(!igi->is_rgb && igi->bitsperpixel>8))
+	{
+		de_err(c, "This type of image is not supported\n");
+		goto done;
+	}
+
 	pos = pos1;
 	pos += headersize;
 	if(pos >= pos1+len) goto done;
 
-	headersize_extra = 0;
-	if(bitmapversion>=1 && (bitmapflags&0x4000)) {
-		if(!read_colortable(c, d, igi, pos, &headersize_extra)) goto done;
+	if(bitmapflags&PALMBMPFLAG_HASCOLORTABLE) {
+		if(bitmapversion<1) {
+			de_warn(c, "BitmapTypeV%d a color table is not standard\n", (int)bitmapversion);
+		}
+		if(!read_colortable(c, d, igi, pos, &bytes_consumed)) goto done;
+		pos += bytes_consumed;
 	}
 
-	pos += headersize_extra;
+	if(bitmapflags&PALMBMPFLAG_DIRECTCOLOR) {
+		de_dbg(c, "BitmapDirectInfoType structure at %d\n", (int)pos);
+		// TODO: Read this struct, at least to support transparency
+		pos += 8;
+		if(bitmapflags&PALMBMPFLAG_HASTRNS) {
+			de_warn(c, "Transparency is not supported for RGB bitmaps\n");
+		}
+	}
+
 	if(pos >= pos1+len) goto done;
-
-	if(bitmapversion>=3 && (bitmapflags&0x0400)) {
-		de_err(c, "RGB color is not supported\n");
-		goto done;
-	}
-
-	if(igi->bitsperpixel!=1 && igi->bitsperpixel!=2 && igi->bitsperpixel!=4 && igi->bitsperpixel!=8) {
-		de_err(c, "Unsupported bits/pixel: %d\n", (int)igi->bitsperpixel);
-		goto done;
-	}
 
 	igi->fi = de_finfo_create(c);
 	if(token) {
