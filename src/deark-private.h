@@ -856,6 +856,7 @@ void de_free_charctx(deark *c, struct de_char_context *charctx);
 ///////////////////////////////////////////
 
 void de_unix_time_to_timestamp(de_int64 ut, struct de_timestamp *ts);
+void de_mac_time_to_timestamp(de_int64 mt, struct de_timestamp *ts);
 void de_FILETIME_to_timestamp(de_int64 ft, struct de_timestamp *ts);
 void de_dos_datetime_to_timestamp(struct de_timestamp *ts,
    de_int64 ddate, de_int64 dtime, de_int64 offset_seconds);

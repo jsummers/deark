@@ -884,6 +884,11 @@ void de_unix_time_to_timestamp(de_int64 ut, struct de_timestamp *ts)
 	ts->unix_time = ut;
 }
 
+void de_mac_time_to_timestamp(de_int64 mt, struct de_timestamp *ts)
+{
+	de_unix_time_to_timestamp(mt - 2082844800, ts);
+}
+
 // Convert a Windows FILETIME to a Deark timestamp.
 void de_FILETIME_to_timestamp(de_int64 ft, struct de_timestamp *ts)
 {

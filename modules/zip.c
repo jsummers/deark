@@ -373,7 +373,7 @@ static void handle_mac_time(deark *c, lctx *d,
 	struct de_timestamp *ts, const char *name)
 {
 	char timestamp_buf[64];
-	de_unix_time_to_timestamp(mt_raw - mt_offset - 2082844800, ts);
+	de_mac_time_to_timestamp(mt_raw - mt_offset, ts);
 	de_timestamp_to_string(ts, timestamp_buf, sizeof(timestamp_buf), 1);
 	de_dbg(c, "%s: %"INT64_FMT" %+"INT64_FMT" (%s)\n", name,
 		mt_raw, -mt_offset, timestamp_buf);

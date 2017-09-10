@@ -128,7 +128,7 @@ static void handle_palm_timestamp(deark *c, lctx *d, de_int64 pos, const char *n
 	// I've seen three different ways to interpret this 32-bit timestamp, and
 	// I don't know how to guess the correct one.
 
-	de_unix_time_to_timestamp(ts_int - 2082844800, &ts);
+	de_mac_time_to_timestamp(ts_int, &ts);
 	de_timestamp_to_string(&ts, timestamp_buf, sizeof(timestamp_buf), 0);
 	de_dbg(c, "... if Mac-BE: %"INT64_FMT" (%s)\n", ts_int, timestamp_buf);
 
@@ -141,7 +141,7 @@ static void handle_palm_timestamp(deark *c, lctx *d, de_int64 pos, const char *n
 
 	ts_int = de_getui32le(pos);
 	if(ts_int>2082844800) {
-		de_unix_time_to_timestamp(ts_int - 2082844800, &ts);
+		de_mac_time_to_timestamp(ts_int, &ts);
 		de_timestamp_to_string(&ts, timestamp_buf, sizeof(timestamp_buf), 0);
 		de_dbg(c, "... if Mac-LE: %"INT64_FMT" (%s)\n", ts_int, timestamp_buf);
 	}
