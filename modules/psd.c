@@ -3467,7 +3467,7 @@ static void do_psd_color_mode_data(deark *c, lctx *d, zztype *zz)
 		g = de_getbyte(zz->pos + iinfo->pal_entries + k);
 		b = de_getbyte(zz->pos + 2*iinfo->pal_entries + k);
 		iinfo->pal[k] = DE_MAKE_RGB(r, g, b);
-		de_dbg_pal_entry(c, k, iinfo->pal[k]);
+		de_dbg_pal_entry(c, k, iinfo->pal[k], NULL, NULL);
 	}
 	de_dbg_indent(c, -1);
 }

@@ -170,7 +170,7 @@ static void make_rgb_palette(deark *c, lctx *d, de_uint32 *pal, de_int64 num_ent
 			cg2 = (cg1<<2) | (cg1>>6);
 			cb2 = (cb1<<2) | (cb1>>6);
 			pal[k] = DE_MAKE_RGB(cr2, cg2, cb2);
-			de_dbg_pal_entry(c, k, pal[k]);
+			de_dbg_pal_entry(c, k, pal[k], NULL, NULL);
 		}
 		else {
 			cr2 = de_scale_63_to_255(cr1);

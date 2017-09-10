@@ -99,6 +99,7 @@ typedef struct localctx_struct {
 #define SUBFMT_PQA  1
 	int file_subfmt;
 	int rawbitmaps;
+	int ignore_color_table_flag;
 	int has_nonzero_ids;
 	const char *fmt_shortname;
 	de_int64 rec_size; // bytes per record
@@ -325,9 +326,9 @@ static void do_generate_unc_image(deark *c, lctx *d, dbuf *unc_pixels,
 	int has_color;
 	struct deark_bitmap *img = NULL;
 
-	has_color = (igi->bitsperpixel>4);
+	has_color = (igi->bitsperpixel>4 || igi->has_custom_pal);
 
-	if(igi->bitsperpixel==1) {
+	if(igi->bitsperpixel==1 && !has_color) {
 		de_convert_and_write_image_bilevel(unc_pixels, 0, igi->w, igi->h, igi->rowbytes,
 			DE_CVTF_WHITEISZERO, igi->fi, igi->createflags);
 		goto done;
@@ -432,23 +433,41 @@ static int read_colortable(deark *c, lctx *d, struct img_gen_info *igi,
 	de_int64 pos1, de_int64 *bytes_consumed)
 {
 	de_int64 num_entries;
+	de_int64 k;
+	de_int64 pos = pos1;
+	unsigned int idx;
+	char tmps[32];
 
 	de_dbg(c, "color table at %d\n", (int)pos1);
 	de_dbg_indent(c, 1);
 	igi->has_custom_pal = 1;
 
-	// TODO: Documentation says "High bits (numEntries > 256) reserved."
-	// What exactly does that mean?
 	num_entries = de_getui16be(pos1);
 	de_dbg(c, "number of entries: %d\n", (int)num_entries);
+	// TODO: Documentation says "High bits (numEntries > 256) reserved."
+	// What exactly does that mean?
+	if(num_entries>256) {
+		de_warn(c, "Invalid or unsupported type of color table\n");
+	}
+	pos += 2;
 
 	*bytes_consumed = 2+4*num_entries;
 
 	// The first byte of each entry is an index, which I think we can ignore.
 	// We're pretending the palette starts at offset 3 (the offset of the
 	// red sample of the first entry), when it really starts at offset 2.
-	de_read_palette_rgb(c->infile, pos1+3, num_entries, 4,
-		igi->custom_pal, 256, 0);
+	//de_read_palette_rgb(c->infile, pos1+3, num_entries, 4,
+	//	igi->custom_pal, 256, 0);
+
+	for(k=0; k<num_entries && k<256; k++) {
+		idx = (unsigned int)de_getbyte(pos);
+		de_snprintf(tmps, sizeof(tmps), ",idx=%u", idx);
+		// Not entirely sure if we should set entry #k, or entry #idx.
+		// idx is documented as "The index of this color in the color table."
+		igi->custom_pal[idx] = dbuf_getRGB(c->infile, pos+1, 0);
+		de_dbg_pal_entry(c, k, igi->custom_pal[idx], tmps, NULL);
+		pos += 4;
+	}
 
 	de_dbg_indent(c, -1);
 	return 1;
@@ -471,6 +490,7 @@ static void do_palm_BitmapType_internal(deark *c, lctx *d, de_int64 pos1, de_int
 	const char *bpp_src_name = "";
 	struct img_gen_info *igi = NULL;
 	int saved_indent_level;
+	de_ucstring *flagsdescr;
 	char tmps[80];
 
 	de_dbg_indent_save(c, &saved_indent_level);
@@ -501,12 +521,30 @@ static void do_palm_BitmapType_internal(deark *c, lctx *d, de_int64 pos1, de_int
 	de_dbg(c, "rowBytes: %d\n", (int)igi->rowbytes);
 
 	bitmapflags = (de_uint32)de_getui16be(pos1+6);
-	de_dbg(c, "bitmap flags: 0x%04x\n", (unsigned int)bitmapflags);
+	flagsdescr = ucstring_create(c);
+	if(bitmapflags&PALMBMPFLAG_COMPRESSED) ucstring_append_flags_item(flagsdescr, "compressed");
+	if(bitmapflags&PALMBMPFLAG_HASCOLORTABLE) ucstring_append_flags_item(flagsdescr, "hasColorTable");
+	if(bitmapflags&PALMBMPFLAG_HASTRNS) ucstring_append_flags_item(flagsdescr, "hasTransparency");
+	if(bitmapflags&PALMBMPFLAG_DIRECTCOLOR) ucstring_append_flags_item(flagsdescr, "directColor");
+	if(bitmapflags==0) ucstring_append_flags_item(flagsdescr, "none");
+	de_dbg(c, "bitmap flags: 0x%04x (%s)\n", (unsigned int)bitmapflags,
+		ucstring_get_printable_sz(flagsdescr));
+	ucstring_destroy(flagsdescr);
+	if((bitmapflags&PALMBMPFLAG_HASCOLORTABLE) && d->ignore_color_table_flag) {
+		bitmapflags -= PALMBMPFLAG_HASCOLORTABLE;
+	}
+	if((bitmapflags&PALMBMPFLAG_HASCOLORTABLE) && bitmapversion<1) {
+		de_warn(c, "BitmapTypeV%d with a color table is not standard\n", (int)bitmapversion);
+	}
 
 	if(bitmapversion>=1) {
 		pixelsize_raw = de_getbyte(pos1+8);
 		de_dbg(c, "pixelSize: %d\n", (int)pixelsize_raw);
 		bpp_src_name = "based on pixelSize field";
+		if(bitmapversion<2 && pixelsize_raw==8) {
+			de_warn(c, "BitmapTypeV%d with pixelSize=%d is not standard\n",
+				(int)bitmapversion, (int)pixelsize_raw);
+		}
 	}
 	else {
 		pixelsize_raw = 0;
@@ -624,9 +662,6 @@ static void do_palm_BitmapType_internal(deark *c, lctx *d, de_int64 pos1, de_int
 	if(pos >= pos1+len) goto done;
 
 	if(bitmapflags&PALMBMPFLAG_HASCOLORTABLE) {
-		if(bitmapversion<1) {
-			de_warn(c, "BitmapTypeV%d a color table is not standard\n", (int)bitmapversion);
-		}
 		if(!read_colortable(c, d, igi, pos, &bytes_consumed)) goto done;
 		pos += bytes_consumed;
 	}
@@ -640,7 +675,10 @@ static void do_palm_BitmapType_internal(deark *c, lctx *d, de_int64 pos1, de_int
 		}
 	}
 
-	if(pos >= pos1+len) goto done;
+	if(pos >= pos1+len) {
+		de_err(c, "Unexpected end of file\n");
+		goto done;
+	}
 
 	igi->fi = de_finfo_create(c);
 	if(token) {
@@ -1106,8 +1144,18 @@ static void free_lctx(deark *c, lctx *d)
 	}
 }
 
+static void do_common_opts(deark *c, lctx *d)
+{
+	if(de_get_ext_option(c, "palm:nocolortable")) {
+		// Enables a hack, for files that apparently set the hasColorTable flag
+		// incorrectly
+		d->ignore_color_table_flag = 1;
+	}
+}
+
 static void de_run_pdb_or_prc(deark *c, lctx *d, de_module_params *mparams)
 {
+	do_common_opts(c, d);
 	if(de_get_ext_option(c, "palm:rawbitmaps")) {
 		// Hard to decide if this should be the default, or even the only, setting.
 		d->rawbitmaps = 1;
@@ -1143,6 +1191,7 @@ static void de_run_palmbitmap(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
 	d = de_malloc(c, sizeof(lctx));
+	do_common_opts(c, d);
 	do_palm_BitmapType(c, d, 0, c->infile->len, NULL, 0);
 	free_lctx(c, d);
 }
@@ -1194,9 +1243,15 @@ static int de_identify_palmbitmap(deark *c)
 	return 0;
 }
 
+static void de_help_common(deark *c)
+{
+	de_msg(c, "-opt palm:nocolortable : Ignore the hasColorTable flag, if set\n");
+}
+
 static void de_help_pdb_prc(deark *c)
 {
 	de_msg(c, "-opt palm:rawbitmaps : Leave BitmapType images in that format\n");
+	de_help_common(c);
 }
 
 void de_module_palmdb(deark *c, struct deark_module_info *mi)
@@ -1223,4 +1278,5 @@ void de_module_palmbitmap(deark *c, struct deark_module_info *mi)
 	mi->desc = "Palm BitmapType";
 	mi->run_fn = de_run_palmbitmap;
 	mi->identify_fn = de_identify_palmbitmap;
+	mi->help_fn = de_help_common;
 }

@@ -50,7 +50,7 @@ static void read_palette(deark *c, lctx *d, de_int64 pos)
 		cr = de_getbyte(pos+3*k+1);
 		cb = de_getbyte(pos+3*k+2);
 		d->pal[k] = DE_MAKE_RGB(cr,cg,cb);
-		de_dbg_pal_entry(c, k, d->pal[k]);
+		de_dbg_pal_entry(c, k, d->pal[k], NULL, NULL);
 	}
 
 	de_dbg_indent(c, -1);

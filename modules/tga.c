@@ -370,7 +370,7 @@ static int do_read_palette(deark *c, lctx *d, de_int64 pos)
 		idx = d->cmap_start + i;
 		if(idx<0 || idx>255) continue;
 		d->pal[idx] = dbuf_getRGB(c->infile, pos + i*d->bytes_per_pal_entry, getrgbflags);
-		de_dbg_pal_entry(c, idx, d->pal[idx]);
+		de_dbg_pal_entry(c, idx, d->pal[idx], NULL, NULL);
 	}
 	return 1;
 }

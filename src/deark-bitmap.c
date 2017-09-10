@@ -534,7 +534,7 @@ void de_read_palette_rgb(dbuf *f,
 	if(num_entries > ncolors_in_pal) num_entries = ncolors_in_pal;
 	for(k=0; k<num_entries; k++) {
 		pal[k] = dbuf_getRGB(f, fpos + k*entryspan, flags);
-		de_dbg_pal_entry(f->c, k, pal[k]);
+		de_dbg_pal_entry(f->c, k, pal[k], NULL, NULL);
 	}
 }
 

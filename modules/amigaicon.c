@@ -170,7 +170,7 @@ static void do_decode_newicons(deark *c, lctx *d,
 		if(i==0 && has_trns)
 			pal[i] = DE_SET_ALPHA(pal[i], 0x00);
 
-		de_dbg_pal_entry(c, i, pal[i]);
+		de_dbg_pal_entry(c, i, pal[i], NULL, NULL);
 	}
 	de_dbg_indent(c, -1);
 
@@ -482,7 +482,7 @@ static void do_glowicons_IMAG(deark *c, lctx *d,
 				if(has_trns && k==(de_int64)trns_color) {
 					d->glowicons_palette[k] = DE_SET_ALPHA(d->glowicons_palette[k], 0x00);
 				}
-				de_dbg_pal_entry(c, k, d->glowicons_palette[k]);
+				de_dbg_pal_entry(c, k, d->glowicons_palette[k], NULL, NULL);
 			}
 			else {
 				d->glowicons_palette[k] = DE_STOCKCOLOR_BLACK;

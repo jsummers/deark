@@ -293,20 +293,25 @@ void de_dbg_hexdump(deark *c, dbuf *f, de_int64 pos1, de_int64 len,
 }
 
 // Print debugging output for an 8-bit RGB palette entry.
-void de_dbg_pal_entry(deark *c, de_int64 idx, de_uint32 clr)
+void de_dbg_pal_entry(deark *c, de_int64 idx, de_uint32 clr,
+	const char *extratext1, const char *extratext2)
 {
 	int r,g,b,a;
 
 	if(c->debug_level<2) return;
+	if(!extratext1) extratext1="";
+	if(!extratext2) extratext2="";
 	r = (int)DE_COLOR_R(clr);
 	g = (int)DE_COLOR_G(clr);
 	b = (int)DE_COLOR_B(clr);
 	a = (int)DE_COLOR_A(clr);
 	if(a!=0xff) {
-		de_dbg2(c, "pal[%3d] = (%3d,%3d,%3d,A=%d)\n", (int)idx, r, g, b, a);
+		de_dbg2(c, "pal[%3d] = (%3d,%3d,%3d,A=%d%s)%s\n", (int)idx, r, g, b, a,
+			extratext1, extratext2);
 		return;
 	}
-	de_dbg2(c, "pal[%3d] = (%3d,%3d,%3d)\n", (int)idx, r, g, b);
+	de_dbg2(c, "pal[%3d] = (%3d,%3d,%3d%s)%s\n", (int)idx, r, g, b,
+		extratext1, extratext2);
 }
 
 // c can be NULL
