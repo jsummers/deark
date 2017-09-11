@@ -476,7 +476,7 @@ static int read_colortable(deark *c, lctx *d, struct img_gen_info *igi,
 		// Not entirely sure if we should set entry #k, or entry #idx.
 		// idx is documented as "The index of this color in the color table."
 		igi->custom_pal[idx] = dbuf_getRGB(c->infile, pos+1, 0);
-		de_dbg_pal_entry(c, k, igi->custom_pal[idx], tmps, NULL);
+		de_dbg_pal_entry2(c, k, igi->custom_pal[idx], NULL, tmps, NULL);
 		pos += 4;
 	}
 

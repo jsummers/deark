@@ -234,6 +234,7 @@ static void read_palette_ximg(deark *c, lctx *d)
 	de_int64 cr1, cg1, cb1;
 	de_byte cr, cg, cb;
 	int range_warned = 0;
+	char tmps[64];
 
 	pal_entries_in_file = (d->header_size_in_bytes-22)/3;
 	if(pal_entries_in_file<1) return;
@@ -259,9 +260,11 @@ static void read_palette_ximg(deark *c, lctx *d)
 		cg = de_scale_1000_to_255(cg1);
 		cb = de_scale_1000_to_255(cb1);
 
-		de_dbg2(c, "pal[%3d] = (%4d,%4d,%4d) -> (%3d,%3d,%3d)\n", (int)i,
-			(int)cr1, (int)cg1, (int)cb1,
-			(int)cr, (int)cg, (int)cb);
+		d->pal[i] = DE_MAKE_RGB(cr, cg, cb);
+
+		de_snprintf(tmps, sizeof(tmps), "(%4d,%4d,%4d) -> ",
+			(int)cr1, (int)cg1, (int)cb1);
+		de_dbg_pal_entry2(c, (int)i, d->pal[i], tmps, NULL, NULL);
 
 		// TODO: Maybe some out-of-range colors have special meaning?
 		if(!range_warned && (cr1>1000 || cg1>1000 || cb1>1000)) {
@@ -269,8 +272,6 @@ static void read_palette_ximg(deark *c, lctx *d)
 				(int)i, (int)cr1, (int)cg1, (int)cb1);
 			range_warned=1;
 		}
-
-		d->pal[i] = DE_MAKE_RGB(cr, cg, cb);
 	}
 	de_dbg_indent(c, -1);
 }

@@ -236,7 +236,7 @@ static void do_setup_palette(deark *c, lctx *d, struct page_ctx *pg)
 				clr2 = dbuf_getRGB(c->infile, pg->custom_palette_pos + 8*k + 4 + 1, 0);
 				if(clr1==clr2) {
 					pg->pal[k] = clr1;
-					de_dbg_pal_entry(c, k, clr1, NULL, NULL);
+					de_dbg_pal_entry(c, k, clr1);
 				}
 				else {
 					clr3 = average_color(clr1, clr2);

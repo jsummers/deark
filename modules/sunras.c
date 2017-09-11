@@ -55,7 +55,7 @@ static void do_read_palette(deark *c, lctx *d, de_int64 pos)
 		g = de_getbyte(pos+num_entries + k);
 		b = de_getbyte(pos+num_entries*2 + k);
 		d->pal[k] = DE_MAKE_RGB(r, g, b);
-		de_dbg_pal_entry(c, k, d->pal[k], NULL, NULL);
+		de_dbg_pal_entry(c, k, d->pal[k]);
 	}
 }
 

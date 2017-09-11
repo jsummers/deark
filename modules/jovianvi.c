@@ -54,7 +54,7 @@ static void do_read_palette(deark *c, lctx *d)
 				(int)b2[0], (int)b2[1], (int)b2[2]);
 		}
 		else {
-			de_dbg_pal_entry(c, k, d->pal[idx], NULL, NULL);
+			de_dbg_pal_entry(c, k, d->pal[idx]);
 		}
 	}
 
