@@ -19,6 +19,10 @@ DE_DECLARE_MODULE(de_module_palmbitmap);
 #define CODE_lnch 0x6c6e6368U
 #define CODE_pqa  0x70716120U
 #define CODE_tAIB 0x74414942U
+#define CODE_tAIN 0x7441494eU
+#define CODE_tAIS 0x74414953U
+#define CODE_tSTR 0x74535452U
+#define CODE_tver 0x74766572U
 #define CODE_vIMG 0x76494d47U
 
 #define PALMBMPFLAG_COMPRESSED     0x8000U
@@ -76,6 +80,13 @@ struct rec_data_struct {
 struct rec_list_struct {
 	de_int64 num_recs;
 	struct rec_data_struct *rec_data;
+};
+
+struct rsrc_type_info_struct {
+	de_uint32 id;
+	de_uint32 flags; // 1=standard Palm resource
+	const char *descr;
+	void* /* rsrc_decoder_fn */ decoder_fn;
 };
 
 struct img_gen_info {
@@ -873,6 +884,76 @@ static int do_read_pdb_record(deark *c, lctx *d, de_int64 rec_idx, de_int64 pos1
 	return 1;
 }
 
+static void do_string_rsrc(deark *c, lctx *d,
+	de_int64 pos, de_int64 len,
+	const struct rsrc_type_info_struct *rti)
+{
+	de_ucstring *s = NULL;
+
+	if(!rti || !rti->descr) return;
+	s = ucstring_create(c);
+	dbuf_read_to_ucstring_n(c->infile, pos, len, DE_DBG_MAX_STRLEN, s,
+		DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_PALM);
+	de_dbg(c, "%s: \"%s\"\n", rti->descr, ucstring_get_printable_sz(s));
+	ucstring_destroy(s);
+}
+
+static const struct rsrc_type_info_struct rsrc_type_info_arr[] = {
+	//{ FONT, 0x1, "custom font", NULL },
+	{ 0x4d424152U /* MBAR */, 0x1, "menu bar", NULL },
+	{ 0x4d454e55U /* MENU */, 0x1, "menu", NULL },
+	//{ TRAP, 0x0, "", NULL },
+	{ 0x54616c74U /* Talt */, 0x1, "alert", NULL },
+	{ CODE_Tbmp, 0x1, "bitmap image", NULL },
+	//{ cnty, 0x1, "country-dependent info", NULL },
+	//{ 0x636f6465U /* code */, 0x0, "", NULL },
+	//{ 0x64617461U /* data */, 0x0, "", NULL },
+	//{ libr, 0x0, "", NULL }
+	//{ 0x70726566U /* pref */, 0x0, "", NULL },
+	//{ rloc, 0x0, "", NULL }
+	//{ silk, 0x1, "silk-screened area info", NULL },
+	{ CODE_tAIB, 0x1, "app icon", NULL },
+	{ CODE_tAIN, 0x1, "app icon name", NULL },
+	{ CODE_tAIS, 0x1, "app info string", NULL },
+	{ 0x7442544eU /* tBTN */, 0x1, "command button", NULL },
+	//{ tCBX, 0x1, "check box", NULL },
+	//{ tFBM, 0x1, "form bitmap", NULL },
+	{ 0x74464c44U /* tFLD */, 0x1, "text field", NULL },
+	{ 0x7446524dU /* tFRM */, 0x1, "form", NULL },
+	//{ tGDT, 0x1, "gadget", NULL },
+	//{ tGSI, 0x1, "graffiti shift indicator", NULL },
+	{ 0x744c424c /* tLBL */, 0x1, "label", NULL },
+	//{ tLST, 0x1, "list", NULL },
+	//{ tPBN, 0x1, "push button", NULL },
+	{ 0x7450554cU /* tPUL */, 0x1, "pop-up list", NULL },
+	{ 0x74505554U /* tPUT */, 0x1, "pop-up trigger", NULL },
+	//{ tREP, 0x1, "repeating button", NULL },
+	//{ tSCL, 0x1, "scroll bar", NULL },
+	//{ tSLT, 0x1, "selector trigger", NULL },
+	{ 0x7453544cU /* tSTL */, 0x1, "string list", NULL },
+	{ CODE_tSTR, 0x1, "string", NULL },
+	{ 0x7454424cU /* tTBL */, 0x1, "table", NULL },
+	//{ taif, 0x1, "app icon family", NULL },
+	//{ tbmf, 0x1, "bitmap family", NULL },
+	//{ tgbn, 0x1, "graphic button", NULL },
+	//{ tgpb, 0x1, "graphic push button", NULL },
+	//{ tgrb, 0x1, "graphic repeating button", NULL },
+	//{ tint, 0x1, "integer constant", NULL },
+	{ CODE_tver, 0x1, "app version string", NULL }
+};
+
+static const struct rsrc_type_info_struct *get_rsrc_type_info(de_uint32 id)
+{
+	size_t i;
+
+	for(i=0; i<DE_ITEMS_IN_ARRAY(rsrc_type_info_arr); i++) {
+		if(id == rsrc_type_info_arr[i].id) {
+			return &rsrc_type_info_arr[i];
+		}
+	}
+	return NULL;
+}
+
 static int do_read_prc_record(deark *c, lctx *d, de_int64 rec_idx, de_int64 pos1)
 {
 	de_uint32 id;
@@ -882,13 +963,18 @@ static int do_read_prc_record(deark *c, lctx *d, de_int64 rec_idx, de_int64 pos1
 	int always_extract = 0;
 	int extracted_flag;
 	const char *ext1 = "bin";
+	const char *rsrc_type_descr;
+	const struct rsrc_type_info_struct *rti;
 	char extfull[80];
 
 	de_dbg(c, "record[%d] at %d\n", (int)rec_idx, (int)pos1);
 	de_dbg_indent(c, 1);
 
 	dbuf_read_fourcc(c->infile, pos1, &name4cc, 0);
-	de_dbg(c, "name: \"%s\"\n", name4cc.id_printable);
+	rti = get_rsrc_type_info(name4cc.id);
+	if(rti && rti->descr) rsrc_type_descr = rti->descr;
+	else rsrc_type_descr = "?";
+	de_dbg(c, "resource type: '%s' (%s)\n", name4cc.id_printable, rsrc_type_descr);
 
 	id = (de_uint32)de_getui16be(pos1+4);
 	de_dbg(c, "id: %d\n", (int)id);
@@ -902,6 +988,7 @@ static int do_read_prc_record(deark *c, lctx *d, de_int64 rec_idx, de_int64 pos1
 	switch(name4cc.id) {
 	case CODE_Tbmp:
 	case CODE_tAIB:
+		// TODO: tbmf, taif
 		ext1 = "palm";
 		if(d->rawbitmaps) {
 			always_extract = 1;
@@ -911,6 +998,12 @@ static int do_read_prc_record(deark *c, lctx *d, de_int64 rec_idx, de_int64 pos1
 				name4cc.id_printable, 0);
 			extracted_flag = 1;
 		}
+		break;
+	case CODE_tAIN:
+	case CODE_tAIS:
+	case CODE_tSTR:
+	case CODE_tver:
+		do_string_rsrc(c, d, data_offs, data_len, rti);
 		break;
 	}
 
