@@ -143,6 +143,7 @@ static void make_rgb_palette(deark *c, lctx *d, de_uint32 *pal, de_int64 num_ent
 	de_byte cr1, cg1, cb1;
 	de_byte cr2, cg2, cb2;
 	int has_8bit_samples = 0;
+	char tmps[64];
 
 	// Pre-scan
 	for(k=0; k<num_entries; k++) {
@@ -177,9 +178,9 @@ static void make_rgb_palette(deark *c, lctx *d, de_uint32 *pal, de_int64 num_ent
 			cg2 = de_scale_63_to_255(cg1);
 			cb2 = de_scale_63_to_255(cb1);
 			pal[k] = DE_MAKE_RGB(cr2, cg2, cb2);
-			de_dbg2(c, "pal[%3d] = (%2d,%2d,%2d) -> (%3d,%3d,%3d)\n", (int)k,
-				(int)cr1, (int)cg1, (int)cb1,
-				(int)cr2, (int)cg2, (int)cb2);
+			de_snprintf(tmps, sizeof(tmps), "(%2d,%2d,%2d) -> ",
+				(int)cr1, (int)cg1, (int)cb1);
+			de_dbg_pal_entry2(c, k, pal[k], tmps, NULL, NULL);
 		}
 	}
 	de_dbg_indent(c, -1);
@@ -195,6 +196,7 @@ static int decode_egavga16(deark *c, lctx *d)
 	de_int64 src_rowspan;
 	de_int64 src_planespan;
 	int palent;
+	char tmps[32];
 
 	de_dbg(c, "image type: 16-color EGA/VGA\n");
 	de_memset(pal, 0, sizeof(pal));
@@ -213,8 +215,8 @@ static int decode_egavga16(deark *c, lctx *d)
 		for(k=0; k<16; k++) {
 			if(k >= d->pal_info_to_use->esize) break;
 			pal[k] = de_palette_ega64(d->pal_info_to_use->data[k]);
-			de_dbg2(c, "pal[%2d] = %2d (%3d,%3d,%3d)\n", (int)k, (int)d->pal_info_to_use->data[k],
-				(int)DE_COLOR_R(pal[k]), (int)DE_COLOR_G(pal[k]), (int)DE_COLOR_B(pal[k]));
+			de_snprintf(tmps, sizeof(tmps), "%2d ", (int)d->pal_info_to_use->data[k]);
+			de_dbg_pal_entry2(c, k, pal[k], tmps, NULL, NULL);
 		}
 	}
 	else { // assuming edesc==5

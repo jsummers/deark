@@ -49,9 +49,10 @@ static void do_read_palette(deark *c, lctx *d)
 		d->pal[idx] = DE_MAKE_RGB(b2[0],b2[1],b2[2]);
 
 		if(d->pal_code==0) {
-			de_dbg2(c, "pal[%3d] = (%2d,%2d,%2d) -> (%3d,%3d,%3d)\n", (int)idx,
-				(int)b1[0], (int)b1[1], (int)b1[2],
-				(int)b2[0], (int)b2[1], (int)b2[2]);
+			char tmps[64];
+			de_snprintf(tmps, sizeof(tmps), "(%2d,%2d,%2d) -> ",
+				(int)b1[0], (int)b1[1], (int)b1[2]);
+			de_dbg_pal_entry2(c, k, d->pal[idx], tmps, NULL, NULL);
 		}
 		else {
 			de_dbg_pal_entry(c, k, d->pal[idx]);

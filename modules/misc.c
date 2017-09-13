@@ -806,6 +806,7 @@ static void de_run_lss16(deark *c, de_module_params *mparams)
 	de_byte cr1, cg1, cb1;
 	de_byte cr2, cg2, cb2;
 	de_uint32 pal[16];
+	char tmps[64];
 
 	d = de_malloc(c, sizeof(struct lss16ctx));
 
@@ -824,10 +825,10 @@ static void de_run_lss16(deark *c, de_module_params *mparams)
 		cr2 = de_scale_63_to_255(cr1);
 		cg2 = de_scale_63_to_255(cg1);
 		cb2 = de_scale_63_to_255(cb1);
-		de_dbg2(c, "pal[%2d] = (%2d,%2d,%2d) -> (%3d,%3d,%3d)\n", (int)i,
-			(int)cr1, (int)cg1, (int)cb1,
-			(int)cr2, (int)cg2, (int)cb2);
 		pal[i] = DE_MAKE_RGB(cr2, cg2, cb2);
+		de_snprintf(tmps, sizeof(tmps), "(%2d,%2d,%2d) -> ",
+			(int)cr1, (int)cg1, (int)cb1);
+		de_dbg_pal_entry2(c, i, pal[i], tmps, NULL, NULL);
 		d->pos+=3;
 	}
 

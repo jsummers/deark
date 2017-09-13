@@ -21,12 +21,13 @@ static void do_read_palette(deark *c, lctx *d, de_int64 pos, de_int64 ncolors)
 {
 	de_int64 k;
 	de_uint32 n1, n2;
+	char tmps[32];
 
 	for(k=0; k<ncolors && k<256; k++) {
 		n1 = (de_uint32)de_getui16le(pos + 2*k);
 		n2 = de_bgr555_to_888(n1);
-		de_dbg2(c, "pal[%3d] = 0x%04x -> (%3d,%3d,%3d)\n", (int)k, n1,
-			(int)DE_COLOR_R(n2), (int)DE_COLOR_G(n2), (int)DE_COLOR_B(n2));
+		de_snprintf(tmps, sizeof(tmps), "0x%04x -> ", (unsigned int)n1);
+		de_dbg_pal_entry2(c, k, n2, tmps, NULL, NULL);
 		d->pal[k] = n2;
 	}
 }

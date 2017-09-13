@@ -66,6 +66,8 @@ static int do_palette(deark *c, lctx *d, de_int64 pos, de_int64 len)
 	}
 
 	for(i=0; i<pal_entries_in_file; i++) {
+		char tmps[64];
+
 		if(i>255) break;
 		ci1 = de_getbyte(pos+4*i);
 		cr1 = de_getbyte(pos+4*i+1);
@@ -100,9 +102,9 @@ static int do_palette(deark *c, lctx *d, de_int64 pos, de_int64 len)
 			d->pal[i] = DE_MAKE_RGB(cr2,cg2,cb2);
 		}
 
-		de_dbg2(c, "pal[%3d] = (I=%d, %d,%d,%d) -> (%d,%d,%d)%s\n", (int)i,
-			(int)ci1, (int)cr1, (int)cg1, (int)cb1,
-			(int)cr2, (int)cg2, (int)cb2,
+		de_snprintf(tmps, sizeof(tmps), "(%d,%d,%d,intens=%d) -> ",
+			(int)cr1, (int)cg1, (int)cb1, (int)ci1);
+		de_dbg_pal_entry2(c, i, d->pal[i], tmps, NULL,
 			i<d->pal_entries_used ? "":" [unused]");
 	}
 

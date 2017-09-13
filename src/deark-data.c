@@ -447,7 +447,7 @@ de_uint32 de_palette_ega64(int index)
 {
 
 	if(index>=0 && index<64) {
-		return ega64pal[index];
+		return DE_MAKE_OPAQUE(ega64pal[index]);
 	}
 	return 0;
 }

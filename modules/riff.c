@@ -129,6 +129,8 @@ static void do_palette(deark *c, lctx *d, struct de_iffctx *ictx, de_int64 pos, 
 	de_int64 n;
 	de_int64 i;
 	de_byte r,g,b,flags;
+	de_uint32 clr;
+	char tmps[32];
 
 	if(!ictx->is_le) return;
 	ver = de_getui16le(pos);
@@ -149,8 +151,9 @@ static void do_palette(deark *c, lctx *d, struct de_iffctx *ictx, de_int64 pos, 
 		b = de_getbyte(pos+2);
 		flags = de_getbyte(pos+3);
 		pos += 4;
-		de_dbg(c, "pal[%d] = (%3d,%3d,%3d) flags=0x%02x\n", (int)i,
-			(int)r, (int)g, (int)b, (unsigned int)flags);
+		clr = DE_MAKE_RGB(r, g, b);
+		de_snprintf(tmps, sizeof(tmps), " flags=0x%02x", (unsigned int)flags);
+		de_dbg_pal_entry2(c, i, clr, NULL, NULL, tmps);
 	}
 	de_dbg_indent(c, -1);
 }

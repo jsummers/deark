@@ -135,6 +135,7 @@ static void do_read_palette(deark *c, lctx *d,struct de_char_context *charctx,
 	de_byte cr1, cg1, cb1;
 	de_byte cr2, cg2, cb2;
 	de_int64 cpos;
+	char tmps[64];
 
 	de_dbg(c, "palette at %d\n", (int)pos);
 
@@ -150,9 +151,9 @@ static void do_read_palette(deark *c, lctx *d,struct de_char_context *charctx,
 		cg2 = de_scale_63_to_255(cg1);
 		cb2 = de_scale_63_to_255(cb1);
 		charctx->pal[k] = DE_MAKE_RGB(cr2, cg2, cb2);
-		de_dbg2(c, "pal[%2d] = (%2d,%2d,%2d) -> (%3d,%3d,%3d)\n", (int)k,
-			(int)cr1, (int)cg1, (int)cb1,
-			(int)cr2, (int)cg2, (int)cb2);
+		de_snprintf(tmps, sizeof(tmps), "(%2d,%2d,%2d) -> ",
+			(int)cr1, (int)cg1, (int)cb1);
+		de_dbg_pal_entry2(c, k, charctx->pal[k], tmps, NULL, NULL);
 	}
 }
 
