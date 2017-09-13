@@ -195,6 +195,7 @@ static int do_read_alt_palette_file(deark *c, lctx *d)
 	de_byte b1[3];
 	de_byte b2[3];
 	int badflag = 0;
+	char tmps[64];
 
 	palfn = de_get_ext_option(c, "file2");
 	if(!palfn) goto done;
@@ -216,9 +217,9 @@ static int do_read_alt_palette_file(deark *c, lctx *d)
 		}
 		d->pal[k] = DE_MAKE_RGB(b2[0],b2[1],b2[2]);
 
-		de_dbg2(c, "pal[%3d] = (%2d,%2d,%2d) -> (%3d,%3d,%3d)\n", (int)k,
-			(int)b1[0], (int)b1[1], (int)b1[2],
-			(int)b2[0], (int)b2[1], (int)b2[2]);
+		de_snprintf(tmps, sizeof(tmps), "(%2d,%2d,%2d) -> ",
+			(int)b1[0], (int)b1[1], (int)b1[2]);
+		de_dbg_pal_entry2(c, k, d->pal[k], tmps, NULL, NULL);
 	}
 	de_dbg_indent(c, -1);
 

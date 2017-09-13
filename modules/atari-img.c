@@ -297,6 +297,8 @@ static void do_prism_read_palette(deark *c, prismctx *d, struct atari_img_decode
 	de_int64 r1, g1, b1;
 	de_byte r, g, b;
 	de_uint32 pal1[256];
+	de_uint32 clr;
+	char tmps[32];
 
 	de_memset(pal1, 0, sizeof(pal1));
 
@@ -307,10 +309,13 @@ static void do_prism_read_palette(deark *c, prismctx *d, struct atari_img_decode
 		r = de_scale_1000_to_255(r1);
 		g = de_scale_1000_to_255(g1);
 		b = de_scale_1000_to_255(b1);
-		de_dbg2(c, "pal[%3d] = (%4d,%4d,%4d) -> (%3d,%3d,%3d)\n", (int)i, (int)r1, (int)g1, (int)b1,
-			(int)r, (int)g, (int)b);
-		if(i>255) continue;
-		pal1[i] = DE_MAKE_RGB(r,g,b);
+		clr = DE_MAKE_RGB(r,g,b);
+		de_snprintf(tmps, sizeof(tmps), "(%4d,%4d,%4d) -> ",
+			(int)r1, (int)g1, (int)b1);
+		de_dbg_pal_entry2(c, i, clr, tmps, NULL, NULL);
+		if(i<256) {
+			pal1[i] = clr;
+		}
 	}
 
 	for(i=0; i<d->pal_size; i++) {

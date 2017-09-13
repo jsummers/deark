@@ -753,6 +753,7 @@ void de_fmtutil_read_atari_palette(deark *c, dbuf *f, de_int64 pos,
 	de_byte cr, cg, cb;
 	de_byte cr1, cg1, cb1;
 	char cbuf[32];
+	char tmps[64];
 	const char *s;
 
 	s = de_get_ext_option(c, "atari:palbits");
@@ -843,11 +844,10 @@ void de_fmtutil_read_atari_palette(deark *c, dbuf *f, de_int64 pos,
 				(int)cr1, (int)cg1, (int)cb1);
 		}
 
-		de_dbg2(c, "pal[%2d] = 0x%04x (%s) -> (%3d,%3d,%3d)%s\n", (int)i, n, cbuf,
-			(int)cr, (int)cg, (int)cb,
-			(i>=ncolors_used)?" [unused]":"");
-
 		dstpal[i] = DE_MAKE_RGB(cr, cg, cb);
+		de_snprintf(tmps, sizeof(tmps), "0x%04x (%s) -> ", n, cbuf);
+		de_dbg_pal_entry2(c, i, dstpal[i], tmps, NULL,
+			(i>=ncolors_used)?" [unused]":"");
 	}
 }
 

@@ -159,6 +159,7 @@ static void do_read_sprite_palette(deark *c, lctx *d, struct amosbank *bk)
 	de_byte cr1, cg1, cb1;
 	de_int64 pos;
 	de_int64 colors_used;
+	char tmps[64];
 
 	pos = bk->pal_pos;
 	de_dbg(c, "palette at %d\n", (int)pos);
@@ -174,12 +175,11 @@ static void do_read_sprite_palette(deark *c, lctx *d, struct amosbank *bk)
 		cr = cr1*17;
 		cg = cg1*17;
 		cb = cb1*17;
-		de_dbg2(c, "pal[%2d] = 0x%04x (%2d,%2d,%2d) -> (%3d,%3d,%3d)%s\n", (int)k, n,
-			(int)cr1, (int)cg1, (int)cb1,
-			(int)cr, (int)cg, (int)cb,
-			(k>=colors_used)?" [unused]":"");
-
 		bk->pal[k] = DE_MAKE_RGB(cr, cg, cb);
+		de_snprintf(tmps, sizeof(tmps), "0x%04x (%2d,%2d,%2d) -> ",
+			n, (int)cr1, (int)cg1, (int)cb1);
+		de_dbg_pal_entry2(c, k, bk->pal[k], tmps, NULL,
+			(k>=colors_used)?" [unused]":"");
 
 		// Set up colors #32-63 for 6-plane "Extra Half-Brite" mode.
 		// For normal images (<=5 planes), these colors won't be used.

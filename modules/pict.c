@@ -394,6 +394,8 @@ static int read_colortable(deark *c, lctx *d, struct bitmapinfo *bi, de_int64 po
 	de_int64 k, z;
 	de_uint32 s[4];
 	de_byte cr, cg, cb;
+	de_uint32 clr;
+	char tmps[64];
 
 	*bytes_used = 0;
 	de_dbg(c, "color table at %d\n", (int)pos);
@@ -413,9 +415,10 @@ static int read_colortable(deark *c, lctx *d, struct bitmapinfo *bi, de_int64 po
 		cr = (de_byte)(s[1]>>8);
 		cg = (de_byte)(s[2]>>8);
 		cb = (de_byte)(s[3]>>8);
-		de_dbg2(c, "pal[%3d] = (%5d,%5d,%5d) -> (%3d,%3d,%3d)\n", (int)s[0],
-			(int)s[1], (int)s[2], (int)s[3],
-			(int)cr, (int)cg, (int)cb);
+		clr = DE_MAKE_RGB(cr,cg,cb);
+		de_snprintf(tmps, sizeof(tmps), "(%5d,%5d,%5d,idx=%3d) -> ",
+			(int)s[1], (int)s[2], (int)s[3], (int)s[0]);
+		de_dbg_pal_entry2(c, k, clr, tmps, NULL, NULL);
 
 		// Some files don't have the palette indices set. Most PICT decoders ignore
 		// the indices if the "device" flag of ct_flags is set, and that seems to
@@ -425,7 +428,7 @@ static int read_colortable(deark *c, lctx *d, struct bitmapinfo *bi, de_int64 po
 		}
 
 		if(s[0]<=255) {
-			bi->pal[s[0]] = DE_MAKE_RGB(cr,cg,cb);
+			bi->pal[s[0]] = clr;
 		}
 	}
 
