@@ -109,7 +109,6 @@ typedef struct localctx_struct {
 #define SUBFMT_NONE 0
 #define SUBFMT_PQA  1
 	int file_subfmt;
-	int rawbitmaps;
 	int ignore_color_table_flag;
 	int has_nonzero_ids;
 	const char *fmt_shortname;
@@ -160,7 +159,34 @@ static void handle_palm_timestamp(deark *c, lctx *d, de_int64 pos, const char *n
 	de_dbg_indent(c, -1);
 }
 
-static int do_read_header(deark *c, lctx *d)
+static int de_identify_palmbitmap_internal(deark *c, dbuf *f, de_int64 pos, de_int64 len)
+{
+	de_int64 w, h;
+	de_int64 rowbytes;
+	de_byte ver;
+	de_byte pixelsize;
+
+	ver = de_getbyte(pos+9);
+	if(ver>3) return 0;
+	w = dbuf_getui16be(f, pos+0);
+	h = dbuf_getui16be(f, pos+2);
+	if(w==0 || h==0) return 0;
+	rowbytes = dbuf_getui16be(f, pos+4);
+	pixelsize = de_getbyte(pos+8);
+	if((pixelsize==0 && ver==0) || pixelsize==1 || pixelsize==2 ||
+		pixelsize==4 || pixelsize==8 || pixelsize==16)
+	{
+		;
+	}
+	else {
+		return 0;
+	}
+	if(rowbytes==0 || (rowbytes&0x1)) return 0;
+	// TODO: Make sure rowbytes is sensible
+	return 1;
+}
+
+static int do_read_pdb_prc_header(deark *c, lctx *d)
 {
 	de_int64 pos1 = 0;
 	de_ucstring *dname = NULL;
@@ -961,7 +987,6 @@ static int do_read_prc_record(deark *c, lctx *d, de_int64 rec_idx, de_int64 pos1
 	de_int64 data_offs;
 	de_int64 data_len;
 	int always_extract = 0;
-	int extracted_flag;
 	const char *ext1 = "bin";
 	const char *rsrc_type_descr;
 	const struct rsrc_type_info_struct *rti;
@@ -984,20 +1009,12 @@ static int do_read_prc_record(deark *c, lctx *d, de_int64 rec_idx, de_int64 pos1
 	data_len = calc_rec_len(c, d, rec_idx);
 	de_dbg(c, "calculated len: %d\n", (int)data_len);
 
-	extracted_flag = 0;
 	switch(name4cc.id) {
 	case CODE_Tbmp:
 	case CODE_tAIB:
 		// TODO: tbmf, taif
 		ext1 = "palm";
-		if(d->rawbitmaps) {
-			always_extract = 1;
-		}
-		else {
-			do_palm_BitmapType(c, d, data_offs, data_len,
-				name4cc.id_printable, 0);
-			extracted_flag = 1;
-		}
+		always_extract = 1;
 		break;
 	case CODE_tAIN:
 	case CODE_tAIS:
@@ -1008,9 +1025,7 @@ static int do_read_prc_record(deark *c, lctx *d, de_int64 rec_idx, de_int64 pos1
 	}
 
 	de_snprintf(extfull, sizeof(extfull), "%s.%s", name4cc.id_printable, ext1);
-	if(!extracted_flag) {
-		extract_item(c, d, data_offs, data_len, extfull, 0, always_extract);
-	}
+	extract_item(c, d, data_offs, data_len, extfull, 0, always_extract);
 
 	de_dbg_indent(c, -1);
 	return 1;
@@ -1059,8 +1074,8 @@ static int do_prescan_records(deark *c, lctx *d, de_int64 pos1)
 	return 1;
 }
 
-// Read "Palm Database record list", and the data it refers to
-static int do_read_records(deark *c, lctx *d, de_int64 pos1)
+// Read "Palm Database record list" or PRC records, and the data it refers to
+static int do_read_pdb_prc_records(deark *c, lctx *d, de_int64 pos1)
 {
 	de_int64 i;
 	de_int64 x;
@@ -1109,7 +1124,6 @@ static void do_pqa_app_info_block(deark *c, lctx *d, de_int64 pos1, de_int64 len
 	de_uint32 ux;
 	de_ucstring *s = NULL;
 	de_int64 pos = pos1;
-	int extracted_flag;
 
 	sig = (de_uint32)de_getui32be(pos);
 	if(sig!=CODE_lnch) return; // Apparently not a PQA appinfo block
@@ -1145,15 +1159,7 @@ static void do_pqa_app_info_block(deark *c, lctx *d, de_int64 pos1, de_int64 len
 	de_dbg_indent(c, 1);
 	ux = (de_uint32)de_getui16be(pos); // iconWords (length prefix)
 	pos += 2;
-	// TODO: The logic as to which things to extract is a mess...
-	extracted_flag = 0;
-	if(!d->rawbitmaps) {
-		do_palm_BitmapType(c, d, pos, 2*ux, "icon", DE_CREATEFLAG_IS_AUX);
-		extracted_flag = 1;
-	}
-	if(!extracted_flag) {
-		extract_item(c, d, pos, 2*ux, "icon.palm", DE_CREATEFLAG_IS_AUX, d->rawbitmaps?1:0);
-	}
+	extract_item(c, d, pos, 2*ux, "icon.palm", DE_CREATEFLAG_IS_AUX, 1);
 	pos += 2*ux;
 	de_dbg_indent(c, -1);
 
@@ -1161,14 +1167,7 @@ static void do_pqa_app_info_block(deark *c, lctx *d, de_int64 pos1, de_int64 len
 	de_dbg_indent(c, 1);
 	ux = (de_uint32)de_getui16be(pos); // smIconWords
 	pos += 2;
-	extracted_flag = 0;
-	if(!d->rawbitmaps) {
-		do_palm_BitmapType(c, d, pos, 2*ux, "smicon", DE_CREATEFLAG_IS_AUX);
-		extracted_flag = 1;
-	}
-	if(!extracted_flag) {
-		extract_item(c, d, pos, 2*ux, "smicon.palm", DE_CREATEFLAG_IS_AUX, d->rawbitmaps?1:0);
-	}
+	extract_item(c, d, pos, 2*ux, "smicon.palm", DE_CREATEFLAG_IS_AUX, 1);
 	pos += 2*ux;
 	de_dbg_indent(c, -1);
 
@@ -1249,13 +1248,9 @@ static void do_common_opts(deark *c, lctx *d)
 static void de_run_pdb_or_prc(deark *c, lctx *d, de_module_params *mparams)
 {
 	do_common_opts(c, d);
-	if(de_get_ext_option(c, "palm:rawbitmaps")) {
-		// Hard to decide if this should be the default, or even the only, setting.
-		d->rawbitmaps = 1;
-	}
 
-	if(!do_read_header(c, d)) goto done;
-	if(!do_read_records(c, d, 72)) goto done;
+	if(!do_read_pdb_prc_header(c, d)) goto done;
+	if(!do_read_pdb_prc_records(c, d, 72)) goto done;
 	do_app_info_block(c, d);
 	do_sort_info_block(c, d);
 done:
@@ -1331,7 +1326,9 @@ static int de_identify_palmrc(deark *c)
 static int de_identify_palmbitmap(deark *c)
 {
 	if(de_input_file_has_ext(c, "palm")) {
-		return 15;
+		int x;
+		x = de_identify_palmbitmap_internal(c, c->infile, 0, c->infile->len);
+		if(x) return 90;
 	}
 	return 0;
 }
@@ -1343,7 +1340,6 @@ static void de_help_common(deark *c)
 
 static void de_help_pdb_prc(deark *c)
 {
-	de_msg(c, "-opt palm:rawbitmaps : Leave BitmapType images in that format\n");
 	de_help_common(c);
 }
 

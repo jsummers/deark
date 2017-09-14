@@ -520,20 +520,15 @@ Deark -- Information about supported formats
 
 * Palm PDB/PQA (module="palmdb")
   - You may have to use "-m palmdb".
-  - See also the notes about the "Palm BitmapType" module.
   - Use -a to extract the record blocks, but note that they are usually not in
     well-known formats.
-  Options
-   -opt palm:rawbitmaps - When possible, leave bitmaps in Palm BitmapType
-     format (see "palmbitmap" module).
 
 * Palm PRC (module="palmrc")
   - You may have to use "-m palmrc".
   - Use -a to extract the record blocks, but note that they are usually not in
     well-known formats.
-  Options
-   -opt palm:rawbitmaps - When possible, leave bitmaps in Palm BitmapType
-     format (see "palmbitmap" module).
+  - Extracted ".palm" files are in Palm BitmapType format. Reprocess them to
+    convert to PNG.
 
 * RPM (package manager) (module="rpm)
   - Extract compressed cpio file.
