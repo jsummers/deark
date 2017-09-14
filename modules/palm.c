@@ -238,7 +238,6 @@ static int do_read_pdb_prc_header(deark *c, lctx *d)
 	}
 	else if(d->file_fmt==FMT_PRC) {
 		d->fmt_shortname = "PRC";
-		de_declare_fmt(c, "Palm PRC");
 	}
 	else {
 		goto done;
@@ -1271,6 +1270,7 @@ static void de_run_palmrc(deark *c, de_module_params *mparams)
 	lctx *d = NULL;
 	d = de_malloc(c, sizeof(lctx));
 	d->file_fmt = FMT_PRC;
+	de_declare_fmt(c, "Palm PRC");
 	de_run_pdb_or_prc(c, d, mparams);
 	free_lctx(c, d);
 }
@@ -1312,14 +1312,51 @@ static int de_identify_palmdb(deark *c)
 	return 0;
 }
 
+static int looks_like_a_4cc(dbuf *f, de_int64 pos)
+{
+	de_int64 i;
+	de_byte buf[4];
+	dbuf_read(f, buf, pos, 4);
+	for(i=0; i<4; i++) {
+		if(buf[i]<32 || buf[i]>126) return 0;
+	}
+	return 1;
+}
+
+// returns 1 if it might be a pdb, 2 if it might be a prc
+// TODO: pdb
+// TODO: Improve this ID algorithm
+static int identify_pdb_prc_internal(deark *c, dbuf *f)
+{
+	de_int64 nrecs;
+	if(!looks_like_a_4cc(f, 60)) return 0;
+	if(!looks_like_a_4cc(f, 64)) return 0;
+
+	nrecs = dbuf_getui16be(f, 72+4);
+	if(nrecs<1) return 0;
+	if(!looks_like_a_4cc(f, 72+6+0)) return 0;
+	return 2;
+}
+
 static int de_identify_palmrc(deark *c)
 {
+	int prc_ext = 0;
+	int pdb_ext = 0;
+	int x;
 	de_byte id[8];
 
-	// TODO: Improve this ID algorithm
-	if(!de_input_file_has_ext(c, "prc")) return 0;
+	if(de_input_file_has_ext(c, "prc"))
+		prc_ext = 1;
+	else if(de_input_file_has_ext(c, "pdb"))
+		pdb_ext = 1;
+	if(!prc_ext && !pdb_ext) return 0;
+
 	de_read(id, 60, 8);
 	if(!de_memcmp(id, "appl", 4)) return 100;
+
+	x = identify_pdb_prc_internal(c, c->infile);
+	if(x==2 && prc_ext) return 90;
+	if(x==2 && pdb_ext) return 60;
 	return 0;
 }
 
