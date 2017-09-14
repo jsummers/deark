@@ -244,7 +244,7 @@ static int do_read_pdb_prc_header(deark *c, lctx *d)
 	}
 
 	x = de_getui32be(68);
-	de_dbg(c, "uniqueIDseed: %d\n", (int)x);
+	de_dbg(c, "uniqueIDseed: %u\n", (unsigned int)x);
 
 	retval = 1;
 done:
@@ -801,6 +801,7 @@ static void do_imgview_image(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 
 	pos += 4; // reserved
 
+	// TODO: Is the anchor signed or unsigned?
 	x0 = de_getui16be(pos);
 	pos += 2;
 	x1 = de_getui16be(pos);
@@ -1036,6 +1037,9 @@ static int do_prescan_records(deark *c, lctx *d, de_int64 pos1)
 {
 	de_int64 i;
 
+	// TODO: Maybe read or track the 'tAIN' resource, so that it can be
+	// used in the filename of the 'tAIB' icon.
+
 	if(d->rec_list.num_recs<1) return 1;
 	// num_recs is untrusted, but it is a 16-bit int that can be at most 65535.
 	d->rec_list.rec_data = de_malloc(c, sizeof(struct rec_data_struct)*d->rec_list.num_recs);
@@ -1099,7 +1103,9 @@ static int do_read_pdb_prc_records(deark *c, lctx *d, de_int64 pos1)
 	if(d->file_fmt==FMT_PRC) d->rec_size = 10;
 	else d->rec_size = 8;
 
+	de_dbg(c, "[pre-scanning record list]\n");
 	if(!do_prescan_records(c, d, pos1+6)) goto done;
+	de_dbg(c, "[main pass through record list]\n");
 
 	for(i=0; i<d->rec_list.num_recs; i++) {
 		if(d->file_fmt==FMT_PRC) {
