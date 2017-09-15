@@ -79,7 +79,11 @@ struct rec_data_struct {
 
 struct rec_list_struct {
 	de_int64 num_recs;
+	// The rec_data items are in the order they appear in the file
 	struct rec_data_struct *rec_data;
+	// A list of all the rec_data indices, in the order we should read them
+	size_t *order_to_read;
+	de_int64 icon_name_count;
 };
 
 struct rsrc_type_info_struct {
@@ -118,6 +122,7 @@ typedef struct localctx_struct {
 	de_int64 appinfo_offs;
 	de_int64 sortinfo_offs;
 	struct rec_list_struct rec_list;
+	de_ucstring *icon_name;
 } lctx;
 
 static void handle_palm_timestamp(deark *c, lctx *d, de_int64 pos, const char *name)
@@ -265,8 +270,10 @@ static de_int64 calc_rec_len(deark *c, lctx *d, de_int64 rec_idx)
 	return len;
 }
 
+// ext_ucstring will be used if ext_sz is NULL
 static void extract_item(deark *c, lctx *d, de_int64 data_offs, de_int64 data_len,
-	const char *ext, unsigned int createflags, int always_extract)
+	const char *ext_sz, de_ucstring *ext_ucstring,
+	unsigned int createflags, int always_extract)
 {
 	de_finfo *fi = NULL;
 
@@ -274,7 +281,12 @@ static void extract_item(deark *c, lctx *d, de_int64 data_offs, de_int64 data_le
 	if(data_offs<0 || data_len<0) goto done;
 	if(data_offs+data_len > c->infile->len) goto done;
 	fi = de_finfo_create(c);
-	de_finfo_set_name_from_sz(c, fi, ext, DE_ENCODING_ASCII);
+	if(ext_sz) {
+		de_finfo_set_name_from_sz(c, fi, ext_sz, DE_ENCODING_ASCII);
+	}
+	else if(ext_ucstring) {
+		de_finfo_set_name_from_ucstring(c, fi, ext_ucstring);
+	}
 	dbuf_create_file_from_slice(c->infile, data_offs, data_len, NULL, fi, createflags);
 done:
 	de_finfo_destroy(c, fi);
@@ -904,7 +916,7 @@ static int do_read_pdb_record(deark *c, lctx *d, de_int64 rec_idx, de_int64 pos1
 		}
 	}
 
-	extract_item(c, d, data_offs, data_len, extfull, 0, 0);
+	extract_item(c, d, data_offs, data_len, extfull, NULL, 0, 0);
 
 	de_dbg_indent(c, -1);
 	return 1;
@@ -912,7 +924,7 @@ static int do_read_pdb_record(deark *c, lctx *d, de_int64 rec_idx, de_int64 pos1
 
 static void do_string_rsrc(deark *c, lctx *d,
 	de_int64 pos, de_int64 len,
-	const struct rsrc_type_info_struct *rti)
+	const struct rsrc_type_info_struct *rti, unsigned int flags)
 {
 	de_ucstring *s = NULL;
 
@@ -921,6 +933,14 @@ static void do_string_rsrc(deark *c, lctx *d,
 	dbuf_read_to_ucstring_n(c->infile, pos, len, DE_DBG_MAX_STRLEN, s,
 		DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_PALM);
 	de_dbg(c, "%s: \"%s\"\n", rti->descr, ucstring_get_printable_sz(s));
+
+	if((flags&0x1) & !d->icon_name) {
+		// Also save the string to d->icon_name, to be used later
+		d->icon_name = ucstring_create(c);
+		dbuf_read_to_ucstring_n(c->infile, pos, len, 80, d->icon_name,
+			DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_PALM);
+	}
+
 	ucstring_destroy(s);
 }
 
@@ -932,8 +952,8 @@ static const struct rsrc_type_info_struct rsrc_type_info_arr[] = {
 	{ 0x54616c74U /* Talt */, 0x1, "alert", NULL },
 	{ CODE_Tbmp, 0x1, "bitmap image", NULL },
 	//{ cnty, 0x1, "country-dependent info", NULL },
-	//{ 0x636f6465U /* code */, 0x0, "", NULL },
-	//{ 0x64617461U /* data */, 0x0, "", NULL },
+	{ 0x636f6465U /* code */, 0x0, "code segment", NULL },
+	{ 0x64617461U /* data */, 0x0, "data segment", NULL },
 	//{ libr, 0x0, "", NULL }
 	//{ 0x70726566U /* pref */, 0x0, "", NULL },
 	//{ rloc, 0x0, "", NULL }
@@ -983,23 +1003,27 @@ static const struct rsrc_type_info_struct *get_rsrc_type_info(de_uint32 id)
 static int do_read_prc_record(deark *c, lctx *d, de_int64 rec_idx, de_int64 pos1)
 {
 	de_uint32 id;
-	struct de_fourcc name4cc;
+	struct de_fourcc rsrc_type_4cc;
 	de_int64 data_offs;
 	de_int64 data_len;
 	int always_extract = 0;
-	const char *ext1 = "bin";
+	de_ucstring *ext_ucstring = NULL;
+	int ext_set = 0;
 	const char *rsrc_type_descr;
 	const struct rsrc_type_info_struct *rti;
-	char extfull[80];
 
 	de_dbg(c, "record[%d] at %d\n", (int)rec_idx, (int)pos1);
 	de_dbg_indent(c, 1);
 
-	dbuf_read_fourcc(c->infile, pos1, &name4cc, 0);
-	rti = get_rsrc_type_info(name4cc.id);
+	dbuf_read_fourcc(c->infile, pos1, &rsrc_type_4cc, 0);
+	rti = get_rsrc_type_info(rsrc_type_4cc.id);
 	if(rti && rti->descr) rsrc_type_descr = rti->descr;
 	else rsrc_type_descr = "?";
-	de_dbg(c, "resource type: '%s' (%s)\n", name4cc.id_printable, rsrc_type_descr);
+	de_dbg(c, "resource type: '%s' (%s)\n", rsrc_type_4cc.id_printable, rsrc_type_descr);
+
+	ext_ucstring = ucstring_create(c);
+	// The "filename" always starts with the fourcc.
+	ucstring_append_sz(ext_ucstring, rsrc_type_4cc.id_printable, DE_ENCODING_ASCII);
 
 	id = (de_uint32)de_getui16be(pos1+4);
 	de_dbg(c, "id: %d\n", (int)id);
@@ -1009,26 +1033,55 @@ static int do_read_prc_record(deark *c, lctx *d, de_int64 rec_idx, de_int64 pos1
 	data_len = calc_rec_len(c, d, rec_idx);
 	de_dbg(c, "calculated len: %d\n", (int)data_len);
 
-	switch(name4cc.id) {
+	switch(rsrc_type_4cc.id) {
 	case CODE_Tbmp:
-	case CODE_tAIB:
+		ucstring_append_sz(ext_ucstring, ".palm", DE_ENCODING_LATIN1);
+		ext_set = 1;
+		always_extract = 1;
+		break;
 		// TODO: tbmf, taif
-		ext1 = "palm";
+	case CODE_tAIB:
+		if(d->icon_name && c->filenames_from_file) {
+			ucstring_append_sz(ext_ucstring, ".", DE_ENCODING_LATIN1);
+			ucstring_append_ucstring(ext_ucstring, d->icon_name);
+		}
+		ucstring_append_sz(ext_ucstring, ".palm", DE_ENCODING_LATIN1);
+		ext_set = 1;
 		always_extract = 1;
 		break;
 	case CODE_tAIN:
+		do_string_rsrc(c, d, data_offs, data_len, rti,
+			(d->rec_list.icon_name_count==1)?0x1:0x0);
+		break;
 	case CODE_tAIS:
 	case CODE_tSTR:
 	case CODE_tver:
-		do_string_rsrc(c, d, data_offs, data_len, rti);
+		do_string_rsrc(c, d, data_offs, data_len, rti, 0);
 		break;
 	}
 
-	de_snprintf(extfull, sizeof(extfull), "%s.%s", name4cc.id_printable, ext1);
-	extract_item(c, d, data_offs, data_len, extfull, 0, always_extract);
+	if(!ext_set) {
+		ucstring_append_sz(ext_ucstring, ".bin", DE_ENCODING_LATIN1);
+	}
+	extract_item(c, d, data_offs, data_len, NULL, ext_ucstring, 0, always_extract);
 
 	de_dbg_indent(c, -1);
+	ucstring_destroy(ext_ucstring);
 	return 1;
+}
+
+// Put idx at the beginning of the order_to_read array, shifting everything else
+// over. Assumes items [0] through [idx-1] are valid.
+static void rec_list_insert_at_start(struct rec_list_struct *rl, de_int64 idx)
+{
+	de_int64 i;
+	// Move [idx-1] to [idx],
+	//      [idx-2] to [idx-1], ...
+	for(i=idx; i>0; i--) {
+		rl->order_to_read[i] = rl->order_to_read[i-1];
+	}
+	// Put idx at [0]
+	rl->order_to_read[0] = (size_t)idx;
 }
 
 // Allocates and populates the d->rec_data array.
@@ -1037,14 +1090,23 @@ static int do_prescan_records(deark *c, lctx *d, de_int64 pos1)
 {
 	de_int64 i;
 
-	// TODO: Maybe read or track the 'tAIN' resource, so that it can be
-	// used in the filename of the 'tAIB' icon.
-
 	if(d->rec_list.num_recs<1) return 1;
 	// num_recs is untrusted, but it is a 16-bit int that can be at most 65535.
 	d->rec_list.rec_data = de_malloc(c, sizeof(struct rec_data_struct)*d->rec_list.num_recs);
+	d->rec_list.order_to_read = de_malloc(c, sizeof(size_t)*d->rec_list.num_recs);
 	for(i=0; i<d->rec_list.num_recs; i++) {
+		// By default, read the records in the order they appear in the file.
+		d->rec_list.order_to_read[i] = i;
+
 		if(d->file_fmt==FMT_PRC) {
+			de_uint32 rsrc_type;
+			rsrc_type = (de_uint32)de_getui32be(pos1 + d->rec_size*i);
+			if(rsrc_type==CODE_tAIN && d->rec_list.icon_name_count==0) {
+				// "Move" the tAIN record to the beginning, so we will read it
+				// before any tAIB resources.
+				rec_list_insert_at_start(&d->rec_list, i);
+				d->rec_list.icon_name_count++;
+			}
 			d->rec_list.rec_data[i].offset = (de_uint32)de_getui32be(pos1 + d->rec_size*i + 6);
 		}
 		else {
@@ -1107,13 +1169,17 @@ static int do_read_pdb_prc_records(deark *c, lctx *d, de_int64 pos1)
 	if(!do_prescan_records(c, d, pos1+6)) goto done;
 	de_dbg(c, "[main pass through record list]\n");
 
+	// i is the index in rec_list.order_to_read
+	// n is the index in rec_list.rec_data
 	for(i=0; i<d->rec_list.num_recs; i++) {
+		de_int64 n;
+		n = (de_int64)d->rec_list.order_to_read[i];
 		if(d->file_fmt==FMT_PRC) {
-			if(!do_read_prc_record(c, d, i, pos1+6+d->rec_size*i))
+			if(!do_read_prc_record(c, d, n, pos1+6+d->rec_size*n))
 				goto done;
 		}
 		else {
-			if(!do_read_pdb_record(c, d, i, pos1+6+d->rec_size*i))
+			if(!do_read_pdb_record(c, d, n, pos1+6+d->rec_size*n))
 				goto done;
 		}
 	}
@@ -1164,7 +1230,7 @@ static void do_pqa_app_info_block(deark *c, lctx *d, de_int64 pos1, de_int64 len
 	de_dbg_indent(c, 1);
 	ux = (de_uint32)de_getui16be(pos); // iconWords (length prefix)
 	pos += 2;
-	extract_item(c, d, pos, 2*ux, "icon.palm", DE_CREATEFLAG_IS_AUX, 1);
+	extract_item(c, d, pos, 2*ux, "icon.palm", NULL, DE_CREATEFLAG_IS_AUX, 1);
 	pos += 2*ux;
 	de_dbg_indent(c, -1);
 
@@ -1172,7 +1238,7 @@ static void do_pqa_app_info_block(deark *c, lctx *d, de_int64 pos1, de_int64 len
 	de_dbg_indent(c, 1);
 	ux = (de_uint32)de_getui16be(pos); // smIconWords
 	pos += 2;
-	extract_item(c, d, pos, 2*ux, "smicon.palm", DE_CREATEFLAG_IS_AUX, 1);
+	extract_item(c, d, pos, 2*ux, "smicon.palm", NULL, DE_CREATEFLAG_IS_AUX, 1);
 	pos += 2*ux;
 	de_dbg_indent(c, -1);
 
@@ -1200,7 +1266,7 @@ static void do_app_info_block(deark *c, lctx *d)
 
 	if(len>0) {
 		// TODO: Decide exactly when to extract this, and when to decode it.
-		extract_item(c, d, d->appinfo_offs, len, "appinfo.bin", DE_CREATEFLAG_IS_AUX, 0);
+		extract_item(c, d, d->appinfo_offs, len, "appinfo.bin", NULL, DE_CREATEFLAG_IS_AUX, 0);
 
 		if(d->file_subfmt==SUBFMT_PQA) {
 			do_pqa_app_info_block(c, d, d->appinfo_offs, len);
@@ -1227,7 +1293,7 @@ static void do_sort_info_block(deark *c, lctx *d)
 	de_dbg(c, "calculated len: %d\n", (int)len);
 
 	if(len>0) {
-		extract_item(c, d, d->sortinfo_offs, len, "sortinfo.bin", DE_CREATEFLAG_IS_AUX, 0);
+		extract_item(c, d, d->sortinfo_offs, len, "sortinfo.bin", NULL, DE_CREATEFLAG_IS_AUX, 0);
 	}
 
 	de_dbg_indent(c, -1);
@@ -1237,6 +1303,8 @@ static void free_lctx(deark *c, lctx *d)
 {
 	if(d) {
 		de_free(c, d->rec_list.rec_data);
+		de_free(c, d->rec_list.order_to_read);
+		ucstring_destroy(d->icon_name);
 		de_free(c, d);
 	}
 }
