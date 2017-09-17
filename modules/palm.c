@@ -112,6 +112,7 @@ typedef struct localctx_struct {
 	int file_fmt;
 #define SUBFMT_NONE 0
 #define SUBFMT_PQA  1
+#define SUBFMT_IMAGEVIEWER 2
 	int file_subfmt;
 	int ignore_color_table_flag;
 	int has_nonzero_ids;
@@ -191,10 +192,37 @@ static int de_identify_palmbitmap_internal(deark *c, dbuf *f, de_int64 pos, de_i
 	return 1;
 }
 
+static void get_db_attr_descr(de_ucstring *s, de_uint32 attribs)
+{
+	size_t i;
+	struct { de_uint32 a; const char *n; } flags_arr[] = {
+		{0x0001, "dmHdrAttrResDB"},
+		{0x0002, "dmHdrAttrReadOnly"},
+		{0x0004, "dmHdrAttrAppInfoDirty"},
+		{0x0008, "dmHdrAttrBackup"},
+		{0x0010, "dmHdrAttrOKToInstallNewer"},
+		{0x0020, "dmHdrAttrResetAfterInstall"},
+		{0x0040, "dmHdrAttrCopyPrevention"},
+		{0x0080, "dmHdrAttrStream"},
+		{0x0100, "dmHdrAttrHidden"},
+		{0x0200, "dmHdrAttrLaunchableData"},
+		{0x0400, "dmHdrAttrRecyclable"},
+		{0x0800, "dmHdrAttrBundle"},
+		{0x8000, "dmHdrAttrOpen"}
+	};
+	for(i=0; i<DE_ITEMS_IN_ARRAY(flags_arr); i++) {
+		if(attribs & flags_arr[i].a)
+			ucstring_append_flags_item(s, flags_arr[i].n);
+
+	}
+	if(attribs==0) ucstring_append_flags_item(s, "none");
+}
+
 static int do_read_pdb_prc_header(deark *c, lctx *d)
 {
 	de_int64 pos1 = 0;
 	de_ucstring *dname = NULL;
+	de_ucstring *attr_descr = NULL;
 	de_uint32 attribs;
 	de_uint32 version;
 	de_int64 x;
@@ -208,7 +236,10 @@ static int do_read_pdb_prc_header(deark *c, lctx *d)
 	de_dbg(c, "name: \"%s\"\n", ucstring_get_printable_sz(dname));
 
 	attribs = (de_uint32)de_getui16be(pos1+32);
-	de_dbg(c, "attributes: 0x%04x\n", (unsigned int)attribs);
+	attr_descr = ucstring_create(c);
+	get_db_attr_descr(attr_descr, attribs);
+	de_dbg(c, "attributes: 0x%04x (%s)\n", (unsigned int)attribs,
+		ucstring_get_printable_sz(attr_descr));
 
 	version = (de_uint32)de_getui16be(pos1+34);
 	de_dbg(c, "version: 0x%04x\n", (unsigned int)version);
@@ -231,13 +262,16 @@ static int do_read_pdb_prc_header(deark *c, lctx *d)
 	de_dbg(c, "creator: \"%s\"\n", d->creator4cc.id_printable);
 
 	if(d->file_fmt==FMT_PDB) {
+		d->fmt_shortname = "PDB";
 		if(d->dtype4cc.id==CODE_pqa && d->creator4cc.id==CODE_clpr) {
 			d->file_subfmt = SUBFMT_PQA;
-			d->fmt_shortname = "PQA";
 			de_declare_fmt(c, "Palm PQA");
 		}
+		else if(d->dtype4cc.id==CODE_vIMG && d->creator4cc.id==CODE_View) {
+			d->file_subfmt = SUBFMT_IMAGEVIEWER;
+			de_declare_fmt(c, "Palm Database ImageViewer");
+		}
 		else {
-			d->fmt_shortname = "PDB";
 			de_declare_fmt(c, "Palm PDB");
 		}
 	}
@@ -255,6 +289,7 @@ static int do_read_pdb_prc_header(deark *c, lctx *d)
 done:
 	de_dbg_indent(c, -1);
 	ucstring_destroy(dname);
+	ucstring_destroy(attr_descr);
 	return retval;
 }
 
@@ -774,6 +809,7 @@ static void do_imgview_image(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 	struct img_gen_info *igi = NULL;
 
 	igi = de_malloc(c, sizeof(struct img_gen_info));
+	igi->fi = de_finfo_create(c);
 
 	de_dbg(c, "image record at %d\n", (int)pos1);
 	de_dbg_indent(c, 1);
@@ -781,7 +817,9 @@ static void do_imgview_image(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 	iname = ucstring_create(c);
 	dbuf_read_to_ucstring(c->infile, pos, 32, iname, DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_PALM);
 	de_dbg(c, "name: \"%s\"\n", ucstring_get_printable_sz(iname));
-	// TODO: Use this in the filename?
+	if(iname->len>0 && c->filenames_from_file) {
+		de_finfo_set_name_from_ucstring(c, igi->fi, iname);
+	}
 	pos += 32;
 
 	imgver = de_getbyte(pos++);
@@ -837,6 +875,7 @@ done:
 	de_dbg_indent(c, -1);
 	ucstring_destroy(iname);
 	if(igi) {
+		de_finfo_destroy(c, igi->fi);
 		de_free(c, igi);
 	}
 }
@@ -863,6 +902,15 @@ static void do_imgview_text(deark *c, lctx *d, de_int64 pos, de_int64 len)
 	ucstring_destroy(s);
 }
 
+static void get_rec_attr_descr(de_ucstring *s, de_byte attribs)
+{
+	if(attribs&0x10) ucstring_append_flags_item(s, "mRecAttrSecret");
+	if(attribs&0x20) ucstring_append_flags_item(s, "dmRecAttrBusy");
+	if(attribs&0x40) ucstring_append_flags_item(s, "dmRecAttrDirty");
+	if(attribs&0x80) ucstring_append_flags_item(s, "dmRecAttrDelete");
+	if(attribs==0) ucstring_append_flags_item(s, "none");
+}
+
 // For PDB or PQA format
 static int do_read_pdb_record(deark *c, lctx *d, de_int64 rec_idx, de_int64 pos1)
 {
@@ -870,6 +918,7 @@ static int do_read_pdb_record(deark *c, lctx *d, de_int64 rec_idx, de_int64 pos1
 	de_byte attribs;
 	de_uint32 id;
 	de_int64 data_len;
+	de_ucstring *attr_descr = NULL;
 	char extfull[80];
 
 	de_dbg(c, "record[%d] at %d\n", (int)rec_idx, (int)pos1);
@@ -883,18 +932,21 @@ static int do_read_pdb_record(deark *c, lctx *d, de_int64 rec_idx, de_int64 pos1
 
 	de_snprintf(extfull, sizeof(extfull), "rec%d.bin", (int)rec_idx); // May be overridden
 
-	if(d->file_subfmt!=SUBFMT_PQA) {
+	{
 		const char *idname = NULL;
 		char tmpstr[80];
 
 		attribs = de_getbyte(pos1+4);
-		de_dbg(c, "attributes: 0x%02x\n", (unsigned int)attribs);
+		attr_descr = ucstring_create(c);
+		get_rec_attr_descr(attr_descr, attribs);
+		de_dbg(c, "attributes: 0x%02x (%s)\n", (unsigned int)attribs,
+			ucstring_get_printable_sz(attr_descr));
 
 		id = (de_getbyte(pos1+5)<<16) |
 			(de_getbyte(pos1+6)<<8) |
 			(de_getbyte(pos1+7));
 
-		if(d->dtype4cc.id==CODE_vIMG && d->creator4cc.id==CODE_View) {
+		if(d->file_subfmt==SUBFMT_IMAGEVIEWER) {
 			if(id==0x6f8000) idname = "image record";
 			else if(id==0x6f8001) idname = "text record";
 			else idname = "?";
@@ -910,7 +962,7 @@ static int do_read_pdb_record(deark *c, lctx *d, de_int64 rec_idx, de_int64 pos1
 			de_snprintf(extfull, sizeof(extfull), "%06x.bin", (unsigned int)id);
 		}
 
-		if(d->dtype4cc.id==CODE_vIMG && d->creator4cc.id==CODE_View) {
+		if(d->file_subfmt==SUBFMT_IMAGEVIEWER) {
 			if(id==0x6f8000) do_imgview_image(c, d, data_offs, data_len);
 			else if(id==0x6f8001) do_imgview_text(c, d, data_offs, data_len);
 		}
@@ -919,6 +971,7 @@ static int do_read_pdb_record(deark *c, lctx *d, de_int64 rec_idx, de_int64 pos1
 	extract_item(c, d, data_offs, data_len, extfull, NULL, 0, 0);
 
 	de_dbg_indent(c, -1);
+	ucstring_destroy(attr_descr);
 	return 1;
 }
 
@@ -1265,7 +1318,9 @@ static void do_app_info_block(deark *c, lctx *d)
 	de_dbg(c, "calculated len: %d\n", (int)len);
 
 	if(len>0) {
-		// TODO: Decide exactly when to extract this, and when to decode it.
+		// TODO: In many cases, this can be parsed as a format called "standard
+		// category data". But I don't know how to tell whether it is in that
+		// format.
 		extract_item(c, d, d->appinfo_offs, len, "appinfo.bin", NULL, DE_CREATEFLAG_IS_AUX, 0);
 
 		if(d->file_subfmt==SUBFMT_PQA) {
@@ -1403,11 +1458,13 @@ static int looks_like_a_4cc(dbuf *f, de_int64 pos)
 static int identify_pdb_prc_internal(deark *c, dbuf *f)
 {
 	de_int64 nrecs;
+	de_uint32 flags;
+	flags = (de_uint32)dbuf_getui32be(f, 32);
 	if(!looks_like_a_4cc(f, 60)) return 0;
 	if(!looks_like_a_4cc(f, 64)) return 0;
-
 	nrecs = dbuf_getui16be(f, 72+4);
 	if(nrecs<1) return 0;
+	if(!(flags&0x0001)) return 0;
 	if(!looks_like_a_4cc(f, 72+6+0)) return 0;
 	return 2;
 }
@@ -1457,7 +1514,7 @@ static void de_help_pdb_prc(deark *c)
 void de_module_palmdb(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "palmdb";
-	mi->desc = "Palm OS PDB, PQA";
+	mi->desc = "Palm OS PDB";
 	mi->run_fn = de_run_palmdb;
 	mi->identify_fn = de_identify_palmdb;
 	mi->help_fn = de_help_pdb_prc;
