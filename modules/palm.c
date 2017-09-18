@@ -1417,6 +1417,15 @@ static int de_identify_palmdb(deark *c)
 {
 	int has_ext = 0;
 	de_byte id[8];
+	de_byte buf[32];
+	de_uint32 attribs;
+	de_int64 appinfo_offs;
+	de_int64 sortinfo_offs;
+	de_int64 n;
+	de_int64 num_recs;
+	de_int64 recdata_offs;
+	de_int64 curpos;
+
 	static const char *exts[] = {"pdb", "prc", "pqa", "mobi"};
 	static const char *ids[] = {"vIMGView", "TEXtREAd", "pqa clpr", "BOOKMOBI"};
 	size_t k;
@@ -1429,16 +1438,66 @@ static int de_identify_palmdb(deark *c)
 	}
 	if(!has_ext) return 0;
 
+	attribs = (de_uint32)de_getui16be(32);
+	if(attribs & 0x0001) return 0; // Might be PRC, but is not PDB
+
+	// It is not easy to identify PDB format from its contents.
+	// But it's good to do what we can, because the .pdb file extension
+	// is used by several other formats.
+
+	// The type/creator codes must presumably be printable characters
 	de_read(id, 60, 8);
+	for(k=0; k<8; k++) {
+		if(id[k]<32) return 0;
+	}
 
-	if(!de_memcmp(id, "appl", 4)) return 0; // PRC, not PDB
-
+	// Check for known file types
 	for(k=0; k<DE_ITEMS_IN_ARRAY(ids); k++) {
 		if(!de_memcmp(id, ids[k], 8)) return 100;
 	}
 
-	// TODO: More work is needed here.
-	return 0;
+	// There must be at least one NUL byte in the first 32 bytes,
+	// and any bytes before the NUL must presumably be printable.
+	de_read(buf, 0, 32);
+	n = 0;
+	for(k=0; k<32; k++) {
+		if(buf[k]=='\0') {
+			n=1;
+			break;
+		}
+		if(buf[k]<32) return 0;
+	}
+	if(n==0) return 0;
+
+	appinfo_offs = de_getui32be(52);
+	sortinfo_offs = de_getui32be(56);
+	num_recs = de_getui16be(72+4);
+
+	curpos = 72 + 6 + num_recs*8;
+	if(curpos>c->infile->len) return 0;
+
+	if(appinfo_offs!=0) {
+		if(appinfo_offs<curpos) return 0;
+		curpos = appinfo_offs;
+	}
+	if(curpos>c->infile->len) return 0;
+
+	if(sortinfo_offs!=0) {
+		if(sortinfo_offs<curpos) return 0;
+		curpos = sortinfo_offs;
+	}
+	if(curpos>c->infile->len) return 0;
+
+	if(num_recs>0) {
+		// Sanity-check the first record.
+		// TODO? We could check more than one record.
+		recdata_offs = de_getui32be(72+6+0);
+		if(recdata_offs<curpos) return 0;
+		curpos = recdata_offs;
+		if(curpos>c->infile->len) return 0;
+	}
+
+	return 25;
 }
 
 static int looks_like_a_4cc(dbuf *f, de_int64 pos)
@@ -1458,13 +1517,13 @@ static int looks_like_a_4cc(dbuf *f, de_int64 pos)
 static int identify_pdb_prc_internal(deark *c, dbuf *f)
 {
 	de_int64 nrecs;
-	de_uint32 flags;
-	flags = (de_uint32)dbuf_getui32be(f, 32);
+	de_uint32 attribs;
+	attribs = (de_uint32)dbuf_getui16be(f, 32);
 	if(!looks_like_a_4cc(f, 60)) return 0;
 	if(!looks_like_a_4cc(f, 64)) return 0;
 	nrecs = dbuf_getui16be(f, 72+4);
 	if(nrecs<1) return 0;
-	if(!(flags&0x0001)) return 0;
+	if(!(attribs&0x0001)) return 0;
 	if(!looks_like_a_4cc(f, 72+6+0)) return 0;
 	return 2;
 }
