@@ -556,6 +556,31 @@ static int read_colortable(deark *c, lctx *d, struct img_gen_info *igi,
 	return 1;
 }
 
+static void do_BitmapDirectInfoType(deark *c, lctx *d, de_int64 pos,
+	de_uint32 bitmapflags)
+{
+	de_byte cbits[3];
+	de_byte t[4];
+
+	de_dbg(c, "BitmapDirectInfoType structure at %d\n", (int)pos);
+	de_dbg_indent(c, 1);
+	cbits[0] = de_getbyte(pos);
+	cbits[1] = de_getbyte(pos+1);
+	cbits[2] = de_getbyte(pos+2);
+	de_dbg(c, "bits/component: %d,%d,%d\n", (int)cbits[0], (int)cbits[1], (int)cbits[2]);
+
+	// TODO: The format of this field (RGBColorType) is not the same as the
+	// format as the actual pixels, and I don't know how the mapping is done.
+	// Need to figure that out to support this type of transparency.
+	t[0] = de_getbyte(pos+4);
+	t[1] = de_getbyte(pos+5);
+	t[2] = de_getbyte(pos+6);
+	t[3] = de_getbyte(pos+7);
+	de_dbg(c, "transparentColor: (%d,%d,%d,idx=%d)\n", (int)t[0], (int)t[1],
+		(int)t[2], (int)t[3]);
+	de_dbg_indent(c, -1);
+}
+
 static void do_palm_BitmapType_internal(deark *c, lctx *d, de_int64 pos1, de_int64 len,
 	const char *token, unsigned int createflags,
 	de_int64 *pnextbitmapoffset)
@@ -750,9 +775,10 @@ static void do_palm_BitmapType_internal(deark *c, lctx *d, de_int64 pos1, de_int
 	}
 
 	if(bitmapflags&PALMBMPFLAG_DIRECTCOLOR) {
-		de_dbg(c, "BitmapDirectInfoType structure at %d\n", (int)pos);
-		// TODO: Read this struct, at least to support transparency
-		pos += 8;
+		if(bitmapversion<=2) {
+			do_BitmapDirectInfoType(c, d, pos, bitmapflags);
+			pos += 8;
+		}
 		if(bitmapflags&PALMBMPFLAG_HASTRNS) {
 			de_warn(c, "Transparency is not supported for RGB bitmaps\n");
 		}
