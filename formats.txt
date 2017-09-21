@@ -154,6 +154,10 @@ Deark -- Information about supported formats
 * GROB (HP calculator) (module="grob")
   - Supports binary and text encodings.
   - Some text GROB files can't be autodetected, and need "-m grob".
+  Options
+   -opt grob:planes=<n> - Treat image as grayscale. <n> should usually be 2.
+   -opt grob:planeorder=l - For grayscale, assume the least-significant
+     bitplane comes first.
 
 * HP 100LX / HP 200LX .ICN icon format (module="hpicn")
 
