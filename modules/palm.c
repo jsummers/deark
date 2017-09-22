@@ -569,8 +569,8 @@ static void do_BitmapDirectInfoType(deark *c, lctx *d, de_int64 pos,
 	cbits[2] = de_getbyte(pos+2);
 	de_dbg(c, "bits/component: %d,%d,%d\n", (int)cbits[0], (int)cbits[1], (int)cbits[2]);
 
-	// TODO: The format of this field (RGBColorType) is not the same as the
-	// format as the actual pixels, and I don't know how the mapping is done.
+	// TODO: The format of this field (RGBColorType) is not the same as that
+	// of the actual pixels, and I don't know how the mapping is done.
 	// Need to figure that out to support this type of transparency.
 	t[0] = de_getbyte(pos+4);
 	t[1] = de_getbyte(pos+5);

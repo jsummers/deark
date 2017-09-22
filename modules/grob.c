@@ -52,9 +52,8 @@ static void grob_read_binary_bitmap(deark *c, lctx *d, dbuf *inf, de_int64 pos)
 			for(plane=0; plane<d->num_planes; plane++) {
 				b = de_get_bits_symbol_lsb(inf, 1,
 					pos+rowspan*(h_logical*(de_int64)plane+j), i);
-
 				if(d->grayscale_lsb)
-					v = v|(b<<(unsigned int)d->num_planes);
+					v |= b<<(unsigned int)plane;
 				else
 					v = (v<<1)|b;
 			}
