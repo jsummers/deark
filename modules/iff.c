@@ -3,6 +3,7 @@
 // See the file COPYING for terms of use.
 
 // IFF (Interchange File Format)
+// MIDI
 
 // Note that the IFF parser is actually implemented in fmtutil.c, not here.
 // This module uses fmtutil to support unknown IFF formats, and IFF formats
@@ -12,6 +13,7 @@
 #include <deark-private.h>
 #include <deark-fmtutil.h>
 DE_DECLARE_MODULE(de_module_iff);
+DE_DECLARE_MODULE(de_module_midi);
 
 #define FMT_FORM   1
 #define FMT_FOR4   4
@@ -24,6 +26,7 @@ DE_DECLARE_MODULE(de_module_iff);
 #define CODE_FORM  0x464f524dU
 #define CODE_LIS4  0x4c495334U
 #define CODE_LIST  0x4c495354U
+#define CODE_MThd  0x4d546864U
 #define CODE_NAME  0x4e414d45U
 
 typedef struct localctx_struct {
@@ -167,4 +170,69 @@ void de_module_iff(deark *c, struct deark_module_info *mi)
 	mi->run_fn = de_run_iff;
 	mi->identify_fn = de_identify_iff;
 	mi->help_fn = de_help_iff;
+}
+
+///// MIDI /////
+// MIDI is not IFF, but it's close enough.
+
+static void do_midi_MThd(deark *c, struct de_iffctx *ictx,
+	const struct de_iffchunkctx *chunkctx)
+{
+	de_int64 format_field, ntrks_field, division_field;
+
+	if(chunkctx->chunk_dlen<6) return;
+	format_field = dbuf_getui16be(ictx->f, chunkctx->chunk_dpos);
+	de_dbg(c, "format: %d\n", (int)format_field);
+	ntrks_field = dbuf_getui16be(ictx->f, chunkctx->chunk_dpos+2);
+	de_dbg(c, "ntrks: %d\n", (int)ntrks_field);
+	division_field = dbuf_getui16be(ictx->f, chunkctx->chunk_dpos+4);
+	de_dbg(c, "division: %d\n", (int)division_field);
+}
+
+static int my_midi_chunk_handler(deark *c, struct de_iffctx *ictx)
+{
+	switch(ictx->chunkctx->chunk4cc.id) {
+	case CODE_MThd:
+		do_midi_MThd(c, ictx, ictx->chunkctx);
+		break;
+	}
+	ictx->handled = 1;
+	return 1;
+}
+
+static void de_run_midi(deark *c, de_module_params *mparams)
+{
+	lctx *d = NULL;
+	struct de_iffctx *ictx = NULL;
+
+	de_msg(c, "Note: MIDI files can be parsed, but no files can be extracted from them.\n");
+	d = de_malloc(c, sizeof(lctx));
+
+	ictx = de_malloc(c, sizeof(struct de_iffctx));
+	ictx->alignment = 1;
+	ictx->userdata = (void*)d;
+	ictx->handle_chunk_fn = my_midi_chunk_handler;
+	ictx->f = c->infile;
+
+	de_fmtutil_read_iff_format(c, ictx, 0, c->infile->len);
+
+	de_free(c, ictx);
+	de_free(c, d);
+}
+
+static int de_identify_midi(deark *c)
+{
+	if(!dbuf_memcmp(c->infile, 0, "MThd", 4)) {
+		return 100;
+	}
+	return 0;
+}
+
+void de_module_midi(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "midi";
+	mi->desc = "MIDI audio";
+	mi->run_fn = de_run_midi;
+	mi->identify_fn = de_identify_midi;
+	mi->flags |= DE_MODFLAG_HIDDEN | DE_MODFLAG_NOEXTRACT;
 }
