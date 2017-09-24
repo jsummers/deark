@@ -363,3 +363,8 @@ void de_current_time_to_timestamp(struct de_timestamp *ts)
 	ts->unix_time = (de_int64)t;
 	ts->is_valid = 1;
 }
+
+void de_exitprocess(void)
+{
+	exit(1);
+}

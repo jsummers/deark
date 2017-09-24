@@ -51,6 +51,7 @@ unsigned int de_get_version_int(void);
 
 deark *de_create(void);
 void de_destroy(deark *c);
+void de_exitprocess(void);
 
 void *de_malloc(deark *c, de_int64 n);
 void *de_realloc(deark *c, void *m, de_int64 oldsize, de_int64 newsize);

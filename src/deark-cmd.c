@@ -218,7 +218,7 @@ static void our_msgfn(deark *c, unsigned int flags, const char *s1)
 static void our_fatalerrorfn(deark *c)
 {
 	de_puts(c, DE_MSGTYPE_MESSAGE, "Exiting\n");
-	exit(1);
+	de_exitprocess();
 }
 
 static void set_ext_option(deark *c, struct cmdctx *cc, const char *optionstring)
