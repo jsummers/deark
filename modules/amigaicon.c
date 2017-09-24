@@ -255,7 +255,7 @@ static int do_read_main_icon(deark *c, lctx *d,
 		for(i=0; i<256; i++) pal[i] = magicwbpal[i>>5];
 	}
 	else {
-		de_warn(c, "Don't know how to handle images with bit depth %d\n", (int)depth);
+		de_warn(c, "Don't know how to handle images with bit depth %d", (int)depth);
 	}
 
 	pos += 20;

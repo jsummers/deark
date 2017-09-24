@@ -225,7 +225,7 @@ static void de_run_rpm(deark *c, de_module_params *mparams)
 		ext = "cpio.lzma";
 	}
 	else {
-		de_warn(c, "Unidentified compression or archive format\n");
+		de_warn(c, "Unidentified compression or archive format");
 		ext = "cpio.bin";
 	}
 

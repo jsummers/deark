@@ -250,7 +250,7 @@ static struct deark_bitmap *do_read_paint_data_section(deark *c, lctx *d,
 			goto done;
 		}
 		if(pg->bits_per_pixel==16 && !d->warned_exp) {
-			de_warn(c, "Support for this type of 16-bit image is experimental, and may not be correct.\n");
+			de_warn(c, "Support for this type of 16-bit image is experimental, and may not be correct.");
 			d->warned_exp = 1;
 		}
 	}

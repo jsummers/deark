@@ -532,7 +532,7 @@ static void de_char_output_to_html_file(deark *c, struct de_char_context *charct
 
 	if(charctx->font && !charctx->suppress_custom_font_warning) {
 		de_warn(c, "This file uses a custom font, which is not supported with "
-			"HTML output.\n");
+			"HTML output.");
 	}
 
 	if(ectx->used_24bitcolor) {
@@ -732,7 +732,7 @@ static void de_char_output_to_image_files(deark *c, struct de_char_context *char
 
 	if(ectx->used_blink) {
 		de_warn(c, "This file uses blinking characters, which are not supported with "
-			"image output.\n");
+			"image output.");
 	}
 
 	if(charctx->font) {

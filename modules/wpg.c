@@ -125,7 +125,7 @@ static void get_final_palette(deark *c, lctx *d, de_uint32 *finalpal, de_int64 b
 		// palette.
 		// The images of this type that I've seen look correct if I use a
 		// particular CGA palette. So...
-		de_warn(c, "4-color image with no palette. Using a CGA palette.\n");
+		de_warn(c, "4-color image with no palette. Using a CGA palette.");
 		for(k=0; k<4; k++) {
 			finalpal[k] = de_palette_pcpaint_cga4(2, (int)k);
 		}

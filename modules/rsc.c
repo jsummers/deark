@@ -152,7 +152,7 @@ static void do_color_icon(deark *c, lctx *d, struct iconinfo *ii, de_int64 fg_po
 	de_uint32 clr;
 
 	if(ii->nplanes!=4 && ii->nplanes!=8) {
-		de_warn(c, "%d-plane icons not supported\n", (int)ii->nplanes);
+		de_warn(c, "%d-plane icons not supported", (int)ii->nplanes);
 		return;
 	}
 
@@ -462,7 +462,7 @@ static void de_run_rsc(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
 
-	de_warn(c, "RSC support is experimental and incomplete. Images may not be decoded correctly.\n");
+	de_warn(c, "RSC support is experimental and incomplete. Images may not be decoded correctly.");
 
 	d = de_malloc(c, sizeof(lctx));
 

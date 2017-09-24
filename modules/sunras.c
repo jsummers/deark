@@ -79,7 +79,7 @@ static void do_image(deark *c, lctx *d, dbuf *unc_pixels)
 		// unused.
 		// Some apps think the color channels are always in BGR order; others
 		// think the order is RGB for RT_FORMAT_RGB format.
-		de_warn(c, "32-bit Sun Raster files are not portable\n");
+		de_warn(c, "32-bit Sun Raster files are not portable");
 	}
 	if(!de_good_image_dimensions(c, d->width, d->height)) goto done;
 
@@ -239,7 +239,7 @@ static void de_run_sunras(deark *c, de_module_params *mparams)
 	}
 
 	if((d->imgtype==RT_STANDARD || d->imgtype==RT_FORMAT_RGB) && d->imglen!=d->unc_pixels_size) {
-		de_warn(c, "Inconsistent image length: reported=%d, calculated=%d\n",
+		de_warn(c, "Inconsistent image length: reported=%d, calculated=%d",
 			(int)d->imglen, (int)d->unc_pixels_size);
 	}
 

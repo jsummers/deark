@@ -349,6 +349,7 @@ void de_warn(deark *c, const char *fmt, ...)
 	va_start(ap, fmt);
 	de_vprintf(c, DE_MSGTYPE_WARNING, fmt, ap);
 	va_end(ap);
+	de_puts(c, DE_MSGTYPE_WARNING, "\n");
 }
 
 void de_msg(deark *c, const char *fmt, ...)

@@ -867,7 +867,7 @@ static void do_pe_resource_dir_table(deark *c, lctx *d, de_int64 rel_pos, int le
 	// 16-byte "Resource node header" a.k.a "Resource directory table"
 
 	if(level>3) {
-		de_warn(c, "Resource tree too deep\n");
+		de_warn(c, "Resource tree too deep");
 		return;
 	}
 

@@ -72,7 +72,7 @@ static void do_psf1_unicode_table(deark *c, lctx *d, struct de_bitmap_font *font
 
 		if(n==0xffff) {
 			if(!got_cp) {
-				de_warn(c, "Missing codepoint for char #%d\n", (int)cur_idx);
+				de_warn(c, "Missing codepoint for char #%d", (int)cur_idx);
 			}
 			cur_idx++;
 			got_cp = 0;
@@ -169,7 +169,7 @@ static void do_psf2_unicode_table(deark *c, lctx *d, struct de_bitmap_font *font
 		}
 
 		if(cp_idx==0) {
-			de_warn(c, "Missing codepoint for char #%d\n", (int)cur_idx);
+			de_warn(c, "Missing codepoint for char #%d", (int)cur_idx);
 		}
 
 		// Advance to the next glyph
@@ -280,7 +280,7 @@ static void do_psf2_header(deark *c, lctx *d)
 	d->psf2_version = (de_uint32)de_getui32le(pos+4);
 	de_dbg(c, "PSFv2 version number: %d", (int)d->psf2_version);
 	if(d->psf2_version!=0) {
-		de_warn(c, "Unknown PSFv2 version number: %d\n", (int)d->psf2_version);
+		de_warn(c, "Unknown PSFv2 version number: %d", (int)d->psf2_version);
 	}
 
 	d->headersize = de_getui32le(pos+8);

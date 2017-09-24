@@ -69,7 +69,7 @@ static int do_ar_item(deark *c, lctx *d, de_int64 pos1, de_int64 *p_item_len)
 		(int)file_offset, (int)file_size);
 
 	if(name_orig_len<1) {
-		de_warn(c, "Missing filename\n");
+		de_warn(c, "Missing filename");
 		retval = 1;
 		goto done;
 	}
@@ -117,7 +117,7 @@ static int do_ar_item(deark *c, lctx *d, de_int64 pos1, de_int64 *p_item_len)
 		fi->original_filename_flag = 1;
 	}
 	else if(name_orig[0]=='/') {
-		de_warn(c, "Unsupported extension: \"%s\"\n", ucstring_get_printable_sz(rawname_ucstring));
+		de_warn(c, "Unsupported extension: \"%s\"", ucstring_get_printable_sz(rawname_ucstring));
 		retval = 1;
 		goto done;
 	}

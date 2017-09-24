@@ -300,7 +300,7 @@ static int decode_bilevel(deark *c, lctx *d)
 	pal[1] = DE_STOCKCOLOR_WHITE; // default
 
 	if(edesc!=0 && edesc!=4 && edesc!=5) {
-		de_warn(c, "The colors in this image might not be handled correctly (edesc=%d)\n",
+		de_warn(c, "The colors in this image might not be handled correctly (edesc=%d)",
 			(int)edesc);
 	}
 
@@ -517,7 +517,7 @@ static int do_read_alt_palette_file(deark *c, lctx *d)
 	do_read_palette_data(c, d, palfile, &d->pal_info_palfile);
 
 	if(d->pal_info_palfile.edesc==0) {
-		de_warn(c, "Palette file does not contain palette information.\n");
+		de_warn(c, "Palette file does not contain palette information.");
 		retval = 1;
 		goto done;
 	}
@@ -677,11 +677,11 @@ static void de_run_pcpaint_clp(deark *c, lctx *d, de_module_params *mparams)
 	de_dbg(c, "reported file size: %d", (int)file_size);
 	if(file_size != c->infile->len) {
 		if(file_size==0x1234) {
-			de_warn(c, "This is probably a .PIC file, not a CLIP file.\n");
+			de_warn(c, "This is probably a .PIC file, not a CLIP file.");
 		}
 		else {
 			de_warn(c, "Reported file size (%d) does not equal actual file size (%d). "
-				"Format may not be correct.\n", (int)file_size, (int)c->infile->len);
+				"Format may not be correct.", (int)file_size, (int)c->infile->len);
 		}
 	}
 
@@ -774,7 +774,7 @@ static void de_run_pcpaint(deark *c, de_module_params *mparams)
 					d->file_fmt = FMT_CLP;
 				}
 				else {
-					de_warn(c, "Format can't be reliably identified. Try \"-opt pcpaint:fmt=clp\" if necessary.\n");
+					de_warn(c, "Format can't be reliably identified. Try \"-opt pcpaint:fmt=clp\" if necessary.");
 					d->file_fmt = FMT_PIC;
 				}
 			}

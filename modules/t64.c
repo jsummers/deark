@@ -114,7 +114,7 @@ static void de_run_t64(deark *c, de_module_params *mparams)
 	d->version = de_getui16le(pos);
 	de_dbg(c, "version: 0x%04x", (int)d->version);
 	if(d->version!=0x100 && d->version!=0x101) {
-		de_warn(c, "Unexpected version number. This might not be a T64 file.\n");
+		de_warn(c, "Unexpected version number. This might not be a T64 file.");
 	}
 
 	d->max_dir_entries = de_getui16le(pos+2);

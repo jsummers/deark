@@ -224,7 +224,7 @@ static int do_read_alt_palette_file(deark *c, lctx *d)
 	de_dbg_indent(c, -1);
 
 	if(badflag) {
-		de_warn(c, "%s doesn't look like the right kind of palette file\n", palfn);
+		de_warn(c, "%s doesn't look like the right kind of palette file", palfn);
 	}
 
 	retval = 1;
@@ -292,7 +292,7 @@ static void do_palette_stuff(deark *c, lctx *d)
 		if(do_read_vga_palette(c, d)) {
 			return;
 		}
-		de_warn(c, "Expected VGA palette was not found\n");
+		de_warn(c, "Expected VGA palette was not found");
 		// (Use the grayscale palette created earlier, as a last resort.)
 		return;
 	}
@@ -302,7 +302,7 @@ static void do_palette_stuff(deark *c, lctx *d)
 		unsigned int bgcolor;
 		unsigned int fgpal;
 
-		de_warn(c, "4-color PCX images might not be supported correctly\n");
+		de_warn(c, "4-color PCX images might not be supported correctly");
 		de_dbg(c, "using a CGA palette");
 
 		p0 = de_getbyte(16);
@@ -334,7 +334,7 @@ static void do_palette_stuff(deark *c, lctx *d)
 	}
 
 	if(d->ncolors>16 && d->ncolors<=256) {
-		de_warn(c, "No suitable palette found\n");
+		de_warn(c, "No suitable palette found");
 	}
 
 	de_dbg(c, "using 16-color palette from header");
@@ -384,7 +384,7 @@ static int do_uncompress(deark *c, lctx *d)
 	}
 
 	if(d->unc_pixels->len < expected_bytes) {
-		de_warn(c, "Expected %d bytes of image data, but only found %d\n",
+		de_warn(c, "Expected %d bytes of image data, but only found %d",
 			(int)expected_bytes, (int)d->unc_pixels->len);
 	}
 

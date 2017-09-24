@@ -644,7 +644,7 @@ void de_optimize_image_alpha(struct deark_bitmap *img, unsigned int flags)
 
 	if(isres.has_trns && !isres.has_visible_pixels && (flags&0x1)) {
 		if(flags&0x2) {
-			de_warn(img->c, "Invisible image detected. Ignoring transparency.\n");
+			de_warn(img->c, "Invisible image detected. Ignoring transparency.");
 		}
 	}
 	else if(isres.has_trns) {

@@ -334,7 +334,7 @@ static int read_pam_header(deark *c, lctx *d, struct page_ctx *pg, de_int64 pos1
 		}
 
 		if(pg->pam_subtype!=0) {
-			de_warn(c, "Color type not specified. Attempting to guess.\n");
+			de_warn(c, "Color type not specified. Attempting to guess.");
 		}
 	}
 

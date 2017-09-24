@@ -67,7 +67,7 @@ static int do_process_frame(deark *c, lctx *d, de_int64 pos1, de_int64 *bytes_co
 		break;
 
 	case 0x01:
-		de_warn(c, "PGT frames (text screen dumps) are not supported\n");
+		de_warn(c, "PGT frames (text screen dumps) are not supported");
 
 		// The spec contradicts itself about how to figure out the frame
 		// payload size of PGT frames. First it says the size field is not

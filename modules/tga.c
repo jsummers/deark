@@ -68,7 +68,7 @@ static void do_decode_image_default(deark *c, lctx *d, struct tgaimginfo *imginf
 	de_int64 cur_rownum; // 0-based, does not account for bottom-up orientation
 
 	if(d->pixel_depth==1) {
-		de_warn(c, "1-bit TGA images are not portable, and may not be decoded correctly\n");
+		de_warn(c, "1-bit TGA images are not portable, and may not be decoded correctly");
 		rowspan = (imginfo->width+7)/8;
 	}
 	else {
@@ -190,7 +190,7 @@ static void do_prescan_image(deark *c, lctx *d, dbuf *unc_pixels)
 	}
 
 	if(d->num_attribute_bits!=0 && d->num_attribute_bits!=8) {
-		de_warn(c, "%d-bit attribute channel not supported. Transparency disabled.\n",
+		de_warn(c, "%d-bit attribute channel not supported. Transparency disabled.",
 			(int)d->num_attribute_bits);
 		return;
 	}
@@ -217,7 +217,7 @@ static void do_prescan_image(deark *c, lctx *d, dbuf *unc_pixels)
 			// Field *23* ("Attributes Type") == *3* is for premultiplied alpha.
 			// I have to guess that the "23" and "3" are clerical errors, but that
 			// doesn't do me much good unless all TGA developers made the same guess.
-			de_warn(c, "Pre-multiplied alpha is not supported. Disabling transparency.\n");
+			de_warn(c, "Pre-multiplied alpha is not supported. Disabling transparency.");
 			return;
 		}
 	}
@@ -249,14 +249,14 @@ static void do_prescan_image(deark *c, lctx *d, dbuf *unc_pixels)
 	if(has_alpha_partial || (has_alpha_0 && has_alpha_255)) {
 		if(d->num_attribute_bits==0) {
 			de_warn(c, "Detected likely alpha channel. Enabling transparency, even though "
-				"the image is labeled as non-transparent.\n");
+				"the image is labeled as non-transparent.");
 		}
 		d->has_alpha_channel = 1;
 		return;
 	}
 	else if(has_alpha_0) { // All 0x00
 		if(d->num_attribute_bits!=0) {
-			de_warn(c, "Non-visible image detected. Disabling transparency.\n");
+			de_warn(c, "Non-visible image detected. Disabling transparency.");
 		}
 		else {
 			de_dbg(c, "potential alpha channel ignored: all 0 bits");
@@ -324,7 +324,7 @@ static void do_decode_thumbnail(deark *c, lctx *d)
 
 	if(d->thumbnail_image.width!=0 && d->thumbnail_image.height==0) {
 		de_warn(c, "Thumbnail image height is 0. Assuming the file incorrectly uses "
-			"16-bit thumbnail dimensions, instead of 8.\n");
+			"16-bit thumbnail dimensions, instead of 8.");
 		d->thumbnail_image.width = de_getui16le(d->thumbnail_offset);
 		d->thumbnail_image.height = de_getui16le(d->thumbnail_offset+2);
 		de_dbg(c, "revised thumbnail dimensions: %dx%d", (int)d->thumbnail_image.width, (int)d->thumbnail_image.height);
@@ -381,7 +381,7 @@ static void do_read_extension_area(deark *c, lctx *d, de_int64 pos)
 
 	de_dbg(c, "extension area at %d", (int)pos);
 	if(pos > c->infile->len - 2) {
-		de_warn(c, "Bad extension area offset: %u\n", (unsigned int)pos);
+		de_warn(c, "Bad extension area offset: %u", (unsigned int)pos);
 		return;
 	}
 
@@ -404,7 +404,7 @@ static void do_read_extension_area(deark *c, lctx *d, de_int64 pos)
 	de_dbg(c, "attributes type: %d", (int)d->attributes_type);
 	if(d->attributes_type==0 && d->num_attribute_bits!=0) {
 		de_warn(c, "Incompatible \"number of attribute bits\" (%d) and \"attributes type\" "
-			"(%d) fields. Transparency may not be handled correctly.\n",
+			"(%d) fields. Transparency may not be handled correctly.",
 			(int)d->num_attribute_bits, (int)d->attributes_type);
 	}
 
@@ -420,7 +420,7 @@ static void do_read_developer_area(deark *c, lctx *d, de_int64 pos)
 
 	de_dbg(c, "developer area at %d", (int)pos);
 	if(pos > c->infile->len - 2) {
-		de_warn(c, "Bad developer area offset: %u\n", (unsigned int)pos);
+		de_warn(c, "Bad developer area offset: %u", (unsigned int)pos);
 		return;
 	}
 

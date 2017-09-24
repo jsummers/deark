@@ -170,7 +170,7 @@ static void do_generate_final_image(deark *c, struct srcbitmap *srcbmp_main, str
 			else  {  // (andbit && xorbit)
 				// Inverse of the background. Not supported by PNG format.
 				if(!inverse_warned) {
-					de_warn(c, "This image contains inverse background pixels, which are not fully supported.\n");
+					de_warn(c, "This image contains inverse background pixels, which are not fully supported.");
 					inverse_warned = 1;
 				}
 				if((i+j)%2) {

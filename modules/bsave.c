@@ -81,7 +81,7 @@ static int do_cga16(deark *c, lctx *d)
 			if(charwarning==0 && charcode!=0xdd && charcode!=0xde) {
 				// TODO: We could also handle space characters and full-block characters,
 				// at least. But maybe not worth the trouble.
-				de_warn(c, "Unexpected code found (0x%02x). Format may not be correct.\n", (int)charcode);
+				de_warn(c, "Unexpected code found (0x%02x). Format may not be correct.", (int)charcode);
 				charwarning=1;
 			}
 
@@ -591,7 +591,7 @@ static void de_run_bsave(deark *c, de_module_params *mparams)
 
 	if(!de_strcmp(bsavefmt,"auto")) {
 		de_warn(c, "BSAVE formats can't be reliably identified. You may need to "
-			"use \"-opt bsave:fmt=...\". Use \"-m bsave -h\" for a list.\n");
+			"use \"-opt bsave:fmt=...\". Use \"-m bsave -h\" for a list.");
 	}
 
 	s = de_get_ext_option(c, "palfile");

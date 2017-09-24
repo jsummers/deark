@@ -153,7 +153,7 @@ static void do_dir_entry(deark *c, lctx *d, de_int64 pos)
 	de_dbg(c, "file type: 0x%02x (%s)", (unsigned int)file_type1, file_type_str);
 
 	if(file_type==FTYPE_REL) {
-		de_warn(c, "REL files are not supported\n");
+		de_warn(c, "REL files are not supported");
 		goto done;
 	}
 	if(file_type!=FTYPE_SEQ && file_type!=FTYPE_PRG && file_type!=FTYPE_USR) {

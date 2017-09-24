@@ -557,7 +557,7 @@ static void do_identify_and_extract_compressed_bitmap(deark *c, lctx *d,
 		ext = "tif";
 	}
 	else {
-		de_warn(c, "Unidentified bitmap format at %d\n", (int)pos);
+		de_warn(c, "Unidentified bitmap format at %d", (int)pos);
 		return;
 	}
 
@@ -846,7 +846,7 @@ static void extract_dib(deark *c, lctx *d, de_int64 bmi_pos, de_int64 bmi_len,
 	if(bits_len<1 || bmi_len+bits_len>DE_MAX_FILE_SIZE) goto done;
 
 	if(!de_fmtutil_get_bmpinfo(c, c->infile, &bi, bmi_pos, bmi_len, 0)) {
-		de_warn(c, "Invalid bitmap\n");
+		de_warn(c, "Invalid bitmap");
 		goto done;
 	}
 

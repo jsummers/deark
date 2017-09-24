@@ -248,7 +248,7 @@ static void de_run_tar(deark *c, de_module_params *mparams)
 		if(d->found_trailer) break;
 		if(pos >= c->infile->len) break;
 		if(pos+512 > c->infile->len) {
-			de_warn(c, "Ignoring %d extra bytes at end of file\n", (int)(c->infile->len - pos));
+			de_warn(c, "Ignoring %d extra bytes at end of file", (int)(c->infile->len - pos));
 			break;
 		}
 

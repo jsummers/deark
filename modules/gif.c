@@ -399,7 +399,7 @@ static void do_graphic_control_extension(deark *c, lctx *d, de_int64 pos)
 
 	n = (de_int64)de_getbyte(pos);
 	if(n!=4) {
-		de_warn(c, "Wrong graphic control ext. block size (expected 4, is %d)\n",
+		de_warn(c, "Wrong graphic control ext. block size (expected 4, is %d)",
 			(int)n);
 		if(n<4) return;
 	}
@@ -757,7 +757,7 @@ static int do_image_internal(deark *c, lctx *d,
 
 	if(gi->width==0 || gi->height==0) {
 		// This doesn't seem to be forbidden by the spec.
-		de_warn(c, "Image has zero size (%dx%d)\n", (int)gi->width, (int)gi->height);
+		de_warn(c, "Image has zero size (%dx%d)", (int)gi->width, (int)gi->height);
 		failure_flag = 1;
 	}
 	else if(!de_good_image_dimensions(c, gi->width, gi->height)) {
@@ -841,7 +841,7 @@ static int do_image(deark *c, lctx *d, de_int64 pos1, de_int64 *bytesused)
 	retval = do_image_internal(c, d, gi, pos1, bytesused);
 	if(!retval) goto done;
 	if(d->bad_screen_flag || !gi->img) {
-		de_warn(c, "Skipping image due to errors\n");
+		de_warn(c, "Skipping image due to errors");
 		retval = 1;
 		goto done;
 	}

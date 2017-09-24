@@ -60,7 +60,7 @@ static void do_exif(deark *c, lctx *d, de_int64 pos1, de_int64 len1)
 	if(len1<8) return;
 	de_read(buf, pos1, 3);
 	if(buf[0]==0 && (buf[1]=='M' || buf[1]=='I') && buf[2]==buf[1]) {
-		de_warn(c, "Ignoring initial NUL byte in Exif data (libbpg bug?)\n");
+		de_warn(c, "Ignoring initial NUL byte in Exif data (libbpg bug?)");
 		pos++;
 		len--;
 	}

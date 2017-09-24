@@ -651,7 +651,7 @@ static void extract_stream_to_file(deark *c, lctx *d, de_int64 dir_entry_idx, st
 			ucstring_printf(tmpfn, DE_ENCODING_ASCII, ".thumb.%s", ext);
 		}
 		else {
-			de_warn(c, "Unidentified Thumbs.db stream \"%s\"\n",
+			de_warn(c, "Unidentified Thumbs.db stream \"%s\"",
 				ucstring_get_printable_sz(dei->fname_srd->str));
 		}
 
@@ -711,7 +711,7 @@ static int read_thumbsdb_catalog(deark *c, lctx *d, struct dir_entry_info *dei)
 	n = dbuf_getui16le(catf, 2);
 	de_dbg(c, "catalog version: %d", (int)n); // (?)
 	if(n!=5 && n!=6 && n!=7) {
-		de_warn(c, "Unsupported Catalog version: %d\n", (int)n);
+		de_warn(c, "Unsupported Catalog version: %d", (int)n);
 		goto done;
 	}
 

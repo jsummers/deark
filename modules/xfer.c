@@ -81,7 +81,7 @@ static void de_run_base16(deark *c, de_module_params *mparams)
 		}
 		else {
 			if(!bad_warned) {
-				de_warn(c, "Bad hex character(s) found (offset %d)\n", (int)pos);
+				de_warn(c, "Bad hex character(s) found (offset %d)", (int)pos);
 				bad_warned = 1;
 			}
 		}
@@ -93,7 +93,7 @@ static void de_run_base16(deark *c, de_module_params *mparams)
 	}
 
 	if(d->cbuf_count>0) {
-		de_warn(c, "Unexpected end of hex data\n");
+		de_warn(c, "Unexpected end of hex data");
 	}
 
 	dbuf_close(f);
@@ -168,7 +168,7 @@ static void do_base64_internal(deark *c, lctx *d, de_int64 pos, dbuf *outf)
 		}
 		else {
 			if(!bad_warned) {
-				de_warn(c, "Bad Base64 character(s) found (offset %d)\n", (int)pos);
+				de_warn(c, "Bad Base64 character(s) found (offset %d)", (int)pos);
 				bad_warned = 1;
 			}
 		}
@@ -180,7 +180,7 @@ static void do_base64_internal(deark *c, lctx *d, de_int64 pos, dbuf *outf)
 
 	if(d->cbuf_count>0) {
 		if(!found_terminator || d->cbuf_count==1) {
-			de_warn(c, "Unexpected end of Base64 data\n");
+			de_warn(c, "Unexpected end of Base64 data");
 		}
 		do_base64_flush(c, d, outf, 3);
 	}
@@ -382,7 +382,7 @@ static void do_uudecode_internal(deark *c, lctx *d, dbuf *outf)
 				expected_decoded_bytes_this_line-decoded_bytes_this_line);
 
 			if(decoded_bytes_this_line != expected_decoded_bytes_this_line) {
-				de_warn(c, "Expected %d bytes on line, got %d\n",
+				de_warn(c, "Expected %d bytes on line, got %d",
 					(int)expected_decoded_bytes_this_line, (int)decoded_bytes_this_line);
 			}
 
@@ -409,7 +409,7 @@ static void do_uudecode_internal(deark *c, lctx *d, dbuf *outf)
 		}
 		else {
 			if(!bad_warned) {
-				de_warn(c, "Bad uuencode character (offset %d)\n", (int)pos);
+				de_warn(c, "Bad uuencode character (offset %d)", (int)pos);
 				bad_warned = 1;
 			}
 		}

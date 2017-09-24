@@ -153,7 +153,7 @@ unc_done:
 		(int)nbytes_read, (int)outf->len);
 
 	if(outf->len != expected_output_len) {
-		de_warn(c, "Expected %d output bytes, got %d\n",
+		de_warn(c, "Expected %d output bytes, got %d",
 			(int)expected_output_len, (int)outf->len);
 	}
 

@@ -254,7 +254,7 @@ static int do_read_header(deark *c, lctx *d)
 	de_dbg(c, "dfMaxWidth: %d", (int)dfMaxWidth);
 
 	if(dfPixWidth!=dfMaxWidth && dfPixWidth!=0) {
-		de_warn(c, "dfMaxWidth (%d) does not equal dfPixWidth (%d)\n",
+		de_warn(c, "dfMaxWidth (%d) does not equal dfPixWidth (%d)",
 			(int)dfMaxWidth, (int)dfPixWidth);
 	}
 

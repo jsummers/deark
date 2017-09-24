@@ -722,7 +722,7 @@ static int decode_pixdata(deark *c, lctx *d, struct bitmapinfo *bi, de_int64 pos
 	}
 
 	if(bi->cmpcount==4) {
-		de_warn(c, "This image might have transparency, which is not supported.\n");
+		de_warn(c, "This image might have transparency, which is not supported.");
 	}
 
 	decode_bitmap(c, d, bi, pos);

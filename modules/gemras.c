@@ -268,7 +268,7 @@ static void read_palette_ximg(deark *c, lctx *d)
 
 		// TODO: Maybe some out-of-range colors have special meaning?
 		if(!range_warned && (cr1>1000 || cg1>1000 || cb1>1000)) {
-			de_warn(c, "Bad palette color #%d: is (%d,%d,%d), max=(1000,1000,1000).\n",
+			de_warn(c, "Bad palette color #%d: is (%d,%d,%d), max=(1000,1000,1000).",
 				(int)i, (int)cr1, (int)cg1, (int)cb1);
 			range_warned=1;
 		}
@@ -395,7 +395,7 @@ static void de_run_gemraster(deark *c, de_module_params *mparams)
 
 	if(need_format_warning) {
 		de_warn(c, "This type of GEM Raster image is not very portable, and might "
-			"not be handled correctly.\n");
+			"not be handled correctly.");
 	}
 
 	if(!de_good_image_dimensions(c, d->w, d->h)) goto done;

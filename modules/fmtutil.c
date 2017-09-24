@@ -96,7 +96,7 @@ int de_fmtutil_get_bmpinfo(deark *c, dbuf *f, struct de_bmpinfo *bi, de_int64 po
 	de_dbg(c, "compression: %d", (int)bi->compression_field);
 	de_dbg(c, "palette entries: %u", (unsigned int)bi->pal_entries);
 	if(bi->pal_entries>256 && bi->bitcount>8) {
-		de_warn(c, "Ignoring bad palette size (%u entries)\n", (unsigned int)bi->pal_entries);
+		de_warn(c, "Ignoring bad palette size (%u entries)", (unsigned int)bi->pal_entries);
 		bi->pal_entries = 0;
 	}
 
@@ -1154,7 +1154,7 @@ static int do_iff_chunk(deark *c, struct de_iffctx *ictx, de_int64 pos, de_int64
 		if(should_warn) {
 			de_warn(c, "Invalid oversized chunk, or unexpected end of file "
 				"(chunk at %d ends at %" INT64_FMT ", "
-				"parent ends at %" INT64_FMT ")\n",
+				"parent ends at %" INT64_FMT ")",
 				(int)pos, chunk_dlen+chunk_dpos, pos+bytes_avail);
 		}
 

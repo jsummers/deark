@@ -1077,7 +1077,7 @@ static int do_item_type_VlLs(deark *c, lctx *d,
 	num_items = psd_getui32zz(zz);
 	de_dbg(c, "number of items in list: %d", (int)num_items);
 	if(num_items>5000) {
-		de_warn(c, "Excessively large VlLs item (%d)\n", (int)num_items);
+		de_warn(c, "Excessively large VlLs item (%d)", (int)num_items);
 		goto done;
 	}
 
@@ -1459,7 +1459,7 @@ static int read_descriptor(deark *c, lctx *d, zztype *zz, int has_version, const
 	}
 
 	if(dv!=16) {
-		de_warn(c, "Unsupported descriptor version: %d\n", (int)dv);
+		de_warn(c, "Unsupported descriptor version: %d", (int)dv);
 		goto done;
 	}
 
@@ -1866,7 +1866,7 @@ static int do_image_resource(deark *c, lctx *d, zztype *zz)
 		signame = "PHUT";
 	}
 	else {
-		de_warn(c, "Bad Photoshop resource block signature '%s' at %d\n",
+		de_warn(c, "Bad Photoshop resource block signature '%s' at %d",
 			sig4cc.id_printable, (int)zz->startpos);
 		goto done;
 	}
@@ -1980,7 +1980,7 @@ static int do_layer_record(deark *c, lctx *d, zztype *zz, struct channel_data *c
 
 	psd_read_fourcc_zz(c, d, zz, &tmp4cc);
 	if(tmp4cc.id != CODE_8BIM) {
-		de_warn(c, "Expected blend mode signature not found at %d\n", (int)(zz->pos-4));
+		de_warn(c, "Expected blend mode signature not found at %d", (int)(zz->pos-4));
 		goto done;
 	}
 
@@ -2001,7 +2001,7 @@ static int do_layer_record(deark *c, lctx *d, zztype *zz, struct channel_data *c
 	extra_data_len = psd_getui32zz(zz);
 
 	if(zz->pos + extra_data_len > zz->endpos) {
-		de_warn(c, "Malformed layer record at %d\n", (int)zz->startpos);
+		de_warn(c, "Malformed layer record at %d", (int)zz->startpos);
 		goto done;
 	}
 
@@ -2192,7 +2192,7 @@ static int do_one_linked_layer(deark *c, lctx *d, zztype *zz, const struct de_fo
 	dlen = psd_geti64zz(zz);
 	de_dbg(c, "length: %"INT64_FMT"", dlen);
 	if(dlen<8 || zz->pos+dlen>zz->endpos) {
-		de_warn(c, "Bad linked layer size %"INT64_FMT" at %"INT64_FMT"\n", dlen, zz->startpos);
+		de_warn(c, "Bad linked layer size %"INT64_FMT" at %"INT64_FMT"", dlen, zz->startpos);
 		goto done;
 	}
 
@@ -2562,7 +2562,7 @@ static void do_lrFX_block(deark *c, lctx *d, zztype *zz, const struct de_fourcc 
 
 		sig = (de_uint32)psd_getui32zz(zz);
 		if(sig!=CODE_8BIM) {
-			de_warn(c, "Bad 'effects' block signature at %d\n", (int)zz->pos);
+			de_warn(c, "Bad 'effects' block signature at %d", (int)zz->pos);
 			goto done;
 		}
 
@@ -2950,7 +2950,7 @@ static int do_tagged_block(deark *c, lctx *d, zztype *zz, int tbnamespace)
 
 	sig = (de_uint32)psd_getui32zz(zz);
 	if(sig!=CODE_8BIM && sig!=CODE_8B64) {
-		de_warn(c, "Expected tagged block signature not found at %d\n", (int)zz->pos);
+		de_warn(c, "Expected tagged block signature not found at %d", (int)zz->pos);
 		return 0;
 	}
 
@@ -3186,7 +3186,7 @@ static int do_layer_and_mask_info_section(deark *c, lctx *d, zztype *zz)
 		goto done;
 	}
 	if(czz.endpos > lmidataczz.endpos) {
-		de_warn(c, "Oversized Layer Info section\n");
+		de_warn(c, "Oversized Layer Info section");
 		goto done;
 	}
 	lmidataczz.pos += zz_used(&czz);
@@ -3205,7 +3205,7 @@ static int do_layer_and_mask_info_section(deark *c, lctx *d, zztype *zz)
 	de_dbg(c, "length of global layer mask info section: %d", (int)gl_layer_mask_info_len);
 	de_dbg_indent(c, -1);
 	if(lmidataczz.pos+gl_layer_mask_info_len > lmidataczz.endpos) {
-		de_warn(c, "Oversized Global Layer Mask Info section\n");
+		de_warn(c, "Oversized Global Layer Mask Info section");
 		goto done;
 	}
 	lmidataczz.pos += gl_layer_mask_info_len;
@@ -3985,7 +3985,7 @@ static void de_run_ps_csh(deark *c, de_module_params *mparams)
 	de_dbg(c, "file version: %d", (int)csh_ver);
 
 	if(csh_ver!=2) {
-		de_warn(c, "CSH v%d format might not be supported correctly\n", (int)csh_ver);
+		de_warn(c, "CSH v%d format might not be supported correctly", (int)csh_ver);
 	}
 
 	num_shapes = psd_getui32zz(zz);
@@ -4027,7 +4027,7 @@ static void de_run_ps_pattern(deark *c, de_module_params *mparams)
 	de_dbg(c, "file version: %d", (int)pat_ver);
 
 	if(pat_ver!=1) {
-		de_warn(c, "PAT v%d format might not be supported correctly\n", (int)pat_ver);
+		de_warn(c, "PAT v%d format might not be supported correctly", (int)pat_ver);
 	}
 
 	num_patterns = psd_getui32zz(zz);

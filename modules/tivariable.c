@@ -315,7 +315,7 @@ static void do_ti85(deark *c, lctx *d)
 	pos = 55;
 	while(pos < data_section_end) {
 		if(data_section_end - pos < 8) {
-			de_warn(c, "Invalid variable entry size. This file may not have been processed correctly.\n");
+			de_warn(c, "Invalid variable entry size. This file may not have been processed correctly.");
 			break;
 		}
 
@@ -338,7 +338,7 @@ static void do_ti85(deark *c, lctx *d)
 				if(x1!=var_data_size && x2==var_data_size) {
 					if(!warned) {
 						de_warn(c, "This TI86 file appears to use TI85 variable name format "
-							"instead of TI86 format. Trying to continue.\n");
+							"instead of TI86 format. Trying to continue.");
 						warned = 1;
 					}
 					name_field_len = name_len_reported;
@@ -355,7 +355,7 @@ static void do_ti85(deark *c, lctx *d)
 		x1 = de_getui16le(pos);
 		if(x1!=var_data_size) {
 			de_warn(c, "Inconsistent variable-data-length fields. "
-				"This file may not be processed correctly.\n");
+				"This file may not be processed correctly.");
 		}
 		pos += 2;
 

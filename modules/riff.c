@@ -369,7 +369,7 @@ static void de_run_riff(deark *c, de_module_params *mparams)
 		ictx->reversed_4cc = 1;
 	}
 	else {
-		de_warn(c, "This is probably not a RIFF file.\n");
+		de_warn(c, "This is probably not a RIFF file.");
 		ictx->is_le = 1;
 		ictx->reversed_4cc = 0;
 	}

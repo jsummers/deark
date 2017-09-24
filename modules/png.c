@@ -196,7 +196,7 @@ static void do_png_text(deark *c, lctx *d,
 		de_byte cmpr_method;
 		cmpr_method = de_getbyte(pos++);
 		if(is_compressed && cmpr_method!=0) {
-			de_warn(c, "Unsupported text compression type: %d\n", (int)cmpr_method);
+			de_warn(c, "Unsupported text compression type: %d", (int)cmpr_method);
 			goto done;
 		}
 	}

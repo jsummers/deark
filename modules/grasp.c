@@ -43,12 +43,12 @@ static int do_extract_file(deark *c, lctx *d, de_int64 fnum)
 	de_dbg_indent(c, 1);
 
 	if(file_info_offset < d->dir_header_nbytes) {
-		de_warn(c, "Bad file offset (%d)\n", (int)file_info_offset);
+		de_warn(c, "Bad file offset (%d)", (int)file_info_offset);
 		goto done;
 	}
 
 	if(de_getbyte(pos+4)==0x00) {
-		de_warn(c, "Missing file name\n");
+		de_warn(c, "Missing file name");
 		goto done;
 	}
 

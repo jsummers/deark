@@ -58,7 +58,7 @@ static void do_degas_anim_fields(deark *c, degasctx *d, de_int64 pos)
 
 	// TODO: Can we determine if palette animation is actually used,
 	// and only show the warning if it is?
-	//de_warn(c, "This image may use palette color animation, which is not supported.\n");
+	//de_warn(c, "This image may use palette color animation, which is not supported.");
 }
 
 // Try to figure out if this is a DEGAS Elite file (as opposed to original DEGAS).
@@ -188,7 +188,7 @@ static void de_run_degas(deark *c, de_module_params *mparams)
 		de_int64 avail_bytes = 32000;
 		if(pos+32000 > c->infile->len) {
 			avail_bytes = c->infile->len - pos;
-			de_warn(c, "Unexpected end of file (expected 32000 bytes, got %d)\n", (int)avail_bytes);
+			de_warn(c, "Unexpected end of file (expected 32000 bytes, got %d)", (int)avail_bytes);
 		}
 		adata->unc_pixels = dbuf_open_input_subfile(c->infile, pos, avail_bytes);
 		pos += avail_bytes;
@@ -362,7 +362,7 @@ static void de_run_prismpaint(deark *c, de_module_params *mparams)
 		goto done;
 	}
 	if(adata->bpp==16 && d->compression_code!=0) {
-		de_warn(c, "Compressed 16-bit image support is untested, and may not work.\n");
+		de_warn(c, "Compressed 16-bit image support is untested, and may not work.");
 	}
 
 	pixels_start = 128 + 2*3*d->pal_size;
@@ -656,7 +656,7 @@ static int tiny_uncompress(deark *c, tinyctx *d, struct atari_img_decode_data *a
 	de_dbg(c, "decompressed words: %d", (int)dcmpr_word_count);
 	// Many files seem to decompress to 16001 words instead of 16000. I don't know why.
 	if(dcmpr_word_count<16000 || dcmpr_word_count>16008) {
-		de_warn(c, "Expected 16000 decompressed words, got %d\n", (int)dcmpr_word_count);
+		de_warn(c, "Expected 16000 decompressed words, got %d", (int)dcmpr_word_count);
 	}
 
 	de_free(c, control_bytes);
@@ -790,7 +790,7 @@ static void fix_dark_pal(deark *c, struct atari_img_decode_data *adata)
 	if((adata->pal[0]&0xffffff)==0x000024 &&
 		(adata->pal[1]&0xffffff)==0)
 	{
-		de_warn(c, "All colors are very dark. Converting to black & white.\n");
+		de_warn(c, "All colors are very dark. Converting to black & white.");
 		adata->pal[0] = DE_STOCKCOLOR_WHITE;
 	}
 }
@@ -841,7 +841,7 @@ static void de_run_tinystuff(deark *c, de_module_params *mparams)
 	de_dbg(c, "dimensions: %dx%d, colors: %d", (int)adata->w, (int)adata->h, (int)adata->ncolors);
 
 	if(d->res_code>=3) {
-		de_warn(c, "This image uses palette color animation, which is not supported.\n");
+		de_warn(c, "This image uses palette color animation, which is not supported.");
 		pos += 4; // skip animation_info
 	}
 
@@ -864,7 +864,7 @@ static void de_run_tinystuff(deark *c, de_module_params *mparams)
 	expected_max_file_size = ((expected_min_file_size+127)/128)*128;
 	de_dbg(c, "expected file size: %d or %d", (int)expected_min_file_size, (int)expected_max_file_size);
 	if(c->infile->len<expected_min_file_size || c->infile->len>expected_max_file_size) {
-		de_warn(c, "Expected file size to be %d, but it is %d.\n", (int)expected_min_file_size,
+		de_warn(c, "Expected file size to be %d, but it is %d.", (int)expected_min_file_size,
 			(int)c->infile->len);
 	}
 
@@ -1045,7 +1045,7 @@ static void de_run_neochrome_ani(deark *c, de_module_params *mparams)
 
 	de_declare_fmt(c, "NEOchrome Animation");
 
-	de_warn(c, "NEOchrome Animation images may not be decoded correctly.\n");
+	de_warn(c, "NEOchrome Animation images may not be decoded correctly.");
 
 	adata = de_malloc(c, sizeof(struct atari_img_decode_data));
 

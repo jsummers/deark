@@ -668,7 +668,7 @@ static void push_ifd(deark *c, lctx *d, de_int64 ifdpos, int ifdtype)
 		d->ifds_seen = de_inthashtable_create(c);
 	}
 	if(d->ifd_count >= MAX_IFDS) {
-		de_warn(c, "Too many TIFF IFDs\n");
+		de_warn(c, "Too many TIFF IFDs");
 		return;
 	}
 	if(!de_inthashtable_add_item(c, d->ifds_seen, ifdpos)) {
@@ -684,7 +684,7 @@ static void push_ifd(deark *c, lctx *d, de_int64 ifdpos, int ifdtype)
 		d->ifdstack_numused = 0;
 	}
 	if(d->ifdstack_numused >= d->ifdstack_capacity) {
-		de_warn(c, "Too many TIFF IFDs\n");
+		de_warn(c, "Too many TIFF IFDs");
 		return;
 	}
 	d->ifdstack[d->ifdstack_numused].offset = ifdpos;
@@ -1563,7 +1563,7 @@ static void handler_37724(deark *c, lctx *d, const struct taginfo *tg, const str
 	}
 
 	if(psdver==0) {
-		de_warn(c, "Bad or unsupported ImageSourceData tag at %d\n", (int)tg->val_offset);
+		de_warn(c, "Bad or unsupported ImageSourceData tag at %d", (int)tg->val_offset);
 		goto done;
 	}
 
@@ -1830,7 +1830,7 @@ static void process_ifd(deark *c, lctx *d, de_int64 ifdpos, int ifdtype)
 	de_dbg_indent(c, 1);
 
 	if(ifdpos >= c->infile->len || ifdpos<8) {
-		de_warn(c, "Invalid IFD offset (%d)\n", (int)ifdpos);
+		de_warn(c, "Invalid IFD offset (%d)", (int)ifdpos);
 		goto done;
 	}
 
@@ -1843,7 +1843,7 @@ static void process_ifd(deark *c, lctx *d, de_int64 ifdpos, int ifdtype)
 
 	de_dbg(c, "number of tags: %d", num_tags);
 	if(num_tags>200) {
-		de_warn(c, "Invalid or excessive number of TIFF tags (%d)\n", num_tags);
+		de_warn(c, "Invalid or excessive number of TIFF tags (%d)", num_tags);
 		goto done;
 	}
 
@@ -2062,7 +2062,7 @@ static void de_run_tiff(deark *c, de_module_params *mparams)
 	}
 
 	if(d->fmt==0) {
-		de_warn(c, "This is not a known/supported TIFF or TIFF-like format.\n");
+		de_warn(c, "This is not a known/supported TIFF or TIFF-like format.");
 	}
 
 	if(d->is_bigtiff) {

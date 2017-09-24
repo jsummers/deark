@@ -364,7 +364,7 @@ static void do_icon(deark *c, lctx *d, struct page_ctx *pg)
 			return;
 		}
 		if(pg->image_len > expected_image_size) {
-			de_warn(c, "(Image #%d) Extra image data found (expected %d bytes, found %d)\n",
+			de_warn(c, "(Image #%d) Extra image data found (expected %d bytes, found %d)",
 				pg->image_num, (int)expected_image_size, (int)pg->image_len);
 		}
 	}
@@ -386,7 +386,7 @@ static void do_icon(deark *c, lctx *d, struct page_ctx *pg)
 		return;
 	}
 
-	de_warn(c, "(Image #%d) Image type '%s' is not supported\n", pg->image_num, pg->code4cc.id_printable);
+	de_warn(c, "(Image #%d) Image type '%s' is not supported", pg->image_num, pg->code4cc.id_printable);
 }
 
 static void de_run_icns_pass(deark *c, lctx *d, int pass)
@@ -438,7 +438,7 @@ static void de_run_icns_pass(deark *c, lctx *d, int pass)
 				}
 			}
 			if(!pg->type_info) {
-				de_warn(c, "(Image #%d) Unknown image type '%s'\n", pg->image_num, pg->code4cc.id_printable);
+				de_warn(c, "(Image #%d) Unknown image type '%s'", pg->image_num, pg->code4cc.id_printable);
 			}
 		}
 

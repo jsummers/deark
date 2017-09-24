@@ -152,7 +152,7 @@ static void do_image_data(deark *c, lctx *d, de_int64 img_num, de_int64 pos1, de
 				// TODO: Should we do this only for cursors, and not icons?
 				if(x==1 && (cr || cg || cb)) {
 					if(!inverse_warned) {
-						de_warn(c, "This image contains inverse background pixels, which are not fully supported.\n");
+						de_warn(c, "This image contains inverse background pixels, which are not fully supported.");
 						inverse_warned = 1;
 					}
 					if((i+j)%2) {

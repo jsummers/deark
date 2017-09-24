@@ -116,7 +116,7 @@ static void de_run_pff2(deark *c, de_module_params *mparams)
 		}
 
 		if(pos+len > c->infile->len) {
-			de_warn(c, "Chunk goes beyond end of file\n");
+			de_warn(c, "Chunk goes beyond end of file");
 			goto done;
 
 		}

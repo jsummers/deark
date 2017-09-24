@@ -75,7 +75,7 @@ static int do_read_header(deark *c, lctx *d, de_int64 pos1,
 	case 5: d->is_animated = 1; break;
 	case 6: d->is_interlaced = 1; d->is_animated = 1; break;
 	default:
-		de_warn(c, "Unknown interlace/animation code: %d\n", (int)intl_anim_code);
+		de_warn(c, "Unknown interlace/animation code: %d", (int)intl_anim_code);
 	}
 	de_dbg(c, "interlaced: %d", d->is_interlaced);
 	de_dbg(c, "animated: %d", d->is_animated);

@@ -102,11 +102,11 @@ static int read_mki_header(deark *c, lctx *d)
 	d->height = height_raw - yoffset;
 	de_dbg(c, "dimensions: %dx%d", (int)d->width, (int)d->height);
 	if(d->width%64 != 0) {
-		de_warn(c, "Width is not a multiple of 64. This image may not be handled correctly.\n");
+		de_warn(c, "Width is not a multiple of 64. This image may not be handled correctly.");
 	}
 	d->width_adj = de_int_round_up(d->width, 64);
 	if(d->height%4 != 0) {
-		de_warn(c, "Height is not a multiple of 4. This image may not be handled correctly.\n");
+		de_warn(c, "Height is not a multiple of 4. This image may not be handled correctly.");
 	}
 	d->height_adj = de_int_round_up(d->height, 4);
 
@@ -257,7 +257,7 @@ static int read_mag_header(deark *c, lctx *d)
 	de_dbg(c, "model code: 0x%02x, flags: 0x%02x",
 		(unsigned int)model_code, (unsigned int)model_flags);
 	if(model_code==0x03 && (model_flags==0x44 || model_flags==0x24)) {
-		de_warn(c, "This looks like MAX format, which is not correctly supported.\n");
+		de_warn(c, "This looks like MAX format, which is not correctly supported.");
 		d->is_max = 1;
 	}
 

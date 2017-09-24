@@ -25,7 +25,7 @@ static void do_read_bitmap(deark *c, lctx *d, de_int64 pos)
 	ver_num = de_getui32be(pos);
 	de_dbg(c, "version number: %u", (unsigned int)ver_num);
 	if(ver_num!=0 && ver_num!=2 && ver_num!=3) {
-		de_warn(c, "Unrecognized version number: %u\n", (unsigned int)ver_num);
+		de_warn(c, "Unrecognized version number: %u", (unsigned int)ver_num);
 	}
 
 	pos += 512;
@@ -35,7 +35,7 @@ static void do_read_bitmap(deark *c, lctx *d, de_int64 pos)
 	de_fmtutil_uncompress_packbits(c->infile, pos, c->infile->len - pos, unc_pixels, NULL);
 
 	if(unc_pixels->len < MACPAINT_IMAGE_BYTES) {
-		de_warn(c, "Image decompressed to %d bytes, expected %d.\n",
+		de_warn(c, "Image decompressed to %d bytes, expected %d.",
 			(int)unc_pixels->len, (int)MACPAINT_IMAGE_BYTES);
 	}
 
@@ -242,11 +242,11 @@ static void de_run_macpaint(deark *c, de_module_params *mparams)
 		}
 		else if(v512 && v640) {
 			de_warn(c, "Can't determine if this file has a MacBinary header. "
-				"Try \"-opt macpaint:macbinary=0\".\n");
+				"Try \"-opt macpaint:macbinary=0\".");
 			d->has_macbinary_header = 1;
 		}
 		else {
-			de_warn(c, "This is probably not a MacPaint file.\n");
+			de_warn(c, "This is probably not a MacPaint file.");
 			d->has_macbinary_header = 1;
 		}
 	}

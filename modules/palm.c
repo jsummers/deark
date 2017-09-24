@@ -469,7 +469,7 @@ static void do_generate_image(deark *c, lctx *d,
 
 	if(cmpr_type==CMPR_NONE) {
 		if(expected_num_uncmpr_image_bytes > len) {
-			de_warn(c, "Not enough data for image\n");
+			de_warn(c, "Not enough data for image");
 		}
 		unc_pixels = dbuf_open_input_subfile(inf, pos, len);
 	}
@@ -530,7 +530,7 @@ static int read_colortable(deark *c, lctx *d, struct img_gen_info *igi,
 	// TODO: Documentation says "High bits (numEntries > 256) reserved."
 	// What exactly does that mean?
 	if(num_entries>256) {
-		de_warn(c, "Invalid or unsupported type of color table\n");
+		de_warn(c, "Invalid or unsupported type of color table");
 	}
 	pos += 2;
 
@@ -642,7 +642,7 @@ static void do_palm_BitmapType_internal(deark *c, lctx *d, de_int64 pos1, de_int
 		bitmapflags -= PALMBMPFLAG_HASCOLORTABLE;
 	}
 	if((bitmapflags&PALMBMPFLAG_HASCOLORTABLE) && bitmapversion<1) {
-		de_warn(c, "BitmapTypeV%d with a color table is not standard\n", (int)bitmapversion);
+		de_warn(c, "BitmapTypeV%d with a color table is not standard", (int)bitmapversion);
 	}
 
 	if(bitmapversion>=1) {
@@ -650,7 +650,7 @@ static void do_palm_BitmapType_internal(deark *c, lctx *d, de_int64 pos1, de_int
 		de_dbg(c, "pixelSize: %d", (int)pixelsize_raw);
 		bpp_src_name = "based on pixelSize field";
 		if(bitmapversion<2 && pixelsize_raw==8) {
-			de_warn(c, "BitmapTypeV%d with pixelSize=%d is not standard\n",
+			de_warn(c, "BitmapTypeV%d with pixelSize=%d is not standard",
 				(int)bitmapversion, (int)pixelsize_raw);
 		}
 	}
@@ -747,7 +747,7 @@ static void do_palm_BitmapType_internal(deark *c, lctx *d, de_int64 pos1, de_int
 	if(bitmapflags&PALMBMPFLAG_DIRECTCOLOR) {
 		igi->is_rgb = 1;
 		if(bitmapversion<2) {
-			de_warn(c, "BitmapTypeV%d with RGB color is not standard\n", (int)bitmapversion);
+			de_warn(c, "BitmapTypeV%d with RGB color is not standard", (int)bitmapversion);
 		}
 	}
 
@@ -780,7 +780,7 @@ static void do_palm_BitmapType_internal(deark *c, lctx *d, de_int64 pos1, de_int
 			pos += 8;
 		}
 		if(bitmapflags&PALMBMPFLAG_HASTRNS) {
-			de_warn(c, "Transparency is not supported for RGB bitmaps\n");
+			de_warn(c, "Transparency is not supported for RGB bitmaps");
 		}
 	}
 
@@ -1233,7 +1233,7 @@ static int do_read_pdb_prc_records(deark *c, lctx *d, de_int64 pos1)
 	x = de_getui32be(pos1);
 	de_dbg(c, "nextRecordListID: %d", (int)x);
 	if(x!=0) {
-		de_warn(c, "This file contains multiple record lists, which is not supported.\n");
+		de_warn(c, "This file contains multiple record lists, which is not supported.");
 	}
 
 	d->rec_list.num_recs = de_getui16be(pos1+4);

@@ -81,7 +81,7 @@ static int do_read_header(deark *c, lctx *d, de_int64 pos)
 	}
 	if(d->ver_major==1 && (d->ver_minor==2 || d->ver_minor>3)) {
 		de_warn(c, "Unrecognized JBF format version (%u.%u). File may not be "
-			"decoded correctly.\n", d->ver_major, d->ver_minor);
+			"decoded correctly.", d->ver_major, d->ver_minor);
 	}
 
 	d->image_count = de_getui32le(pos);

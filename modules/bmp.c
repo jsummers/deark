@@ -437,7 +437,7 @@ static void do_os2v2_bad_palette(deark *c, lctx *d)
 	}
 	if(!nonzero_rsvd) return;
 
-	de_warn(c, "Assuming palette has 3 bytes per entry, instead of 4\n");
+	de_warn(c, "Assuming palette has 3 bytes per entry, instead of 4");
 	d->bytes_per_pal_entry = 3;
 }
 
@@ -449,7 +449,7 @@ static void do_read_palette(deark *c, lctx *d)
 
 	pal_size_in_bytes = d->pal_entries*d->bytes_per_pal_entry;
 	if(d->pal_pos+pal_size_in_bytes > d->bits_offset) {
-		de_warn(c, "Palette at %d (size %d) overlaps bitmap at %d\n",
+		de_warn(c, "Palette at %d (size %d) overlaps bitmap at %d",
 			(int)d->pal_pos, (int)pal_size_in_bytes, (int)d->bits_offset);
 		if(d->version==DE_BMPVER_OS2V2) {
 			do_os2v2_bad_palette(c, d);
@@ -736,7 +736,7 @@ static void de_run_bmp(deark *c, de_module_params *mparams)
 	if(d->bitfields_type==BF_SEGMENT) {
 		de_dbg(c, "bitfields segment at %d, len=%d", (int)pos, (int)d->bitfields_segment_len);
 		if(pos+d->bitfields_segment_len > d->bits_offset) {
-			de_warn(c, "BITFIELDS segment at %d (size %d) overlaps bitmap at %d\n",
+			de_warn(c, "BITFIELDS segment at %d (size %d) overlaps bitmap at %d",
 				(int)pos, (int)d->bitfields_segment_len, (int)d->bits_offset);
 		}
 		de_dbg_indent(c, 1);

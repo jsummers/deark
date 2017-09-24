@@ -223,7 +223,7 @@ static void do_uncompress_tile(deark *c, lctx *d, de_int64 tile_num,
 
 	for(plane=0; plane<d->gfore; plane++) {
 		if(pos >= tile_loc + tile_len) {
-			de_warn(c, "Not enough data in tile %d\n", (int)tile_num);
+			de_warn(c, "Not enough data in tile %d", (int)tile_num);
 			goto done;
 		}
 
@@ -385,7 +385,7 @@ static void de_run_insetpix(deark *c, de_module_params *mparams)
 
 	d = de_malloc(c, sizeof(lctx));
 
-	de_warn(c, "The Inset PIX module is experimental, and may not work correctly.\n");
+	de_warn(c, "The Inset PIX module is experimental, and may not work correctly.");
 
 	pix_version = de_getui16le(0);
 	d->item_count = de_getui16le(2);

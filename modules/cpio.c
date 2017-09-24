@@ -392,7 +392,7 @@ static int read_member(deark *c, lctx *d, de_int64 pos1,
 
 		if(md->subfmt==SUBFMT_ASCII_NEWCRC) {
 			if((de_int64)md->checksum_calculated != md->checksum_reported) {
-				de_warn(c, "Checksum failed: Expected %u, got %u\n",
+				de_warn(c, "Checksum failed: Expected %u, got %u",
 				(unsigned int)md->checksum_reported, (unsigned int)md->checksum_calculated);
 			}
 		}

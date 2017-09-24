@@ -34,7 +34,7 @@ static void grob_read_binary_bitmap(deark *c, lctx *d, dbuf *inf, de_int64 pos)
 
 	if((d->h_phys % d->num_planes) != 0) {
 		de_warn(c, "Number of rows is not divisible by number of planes. The grob:planes "
-			"setting is probably not correct.\n");
+			"setting is probably not correct.");
 	}
 	h_logical = d->h_phys/d->num_planes;
 
@@ -83,7 +83,7 @@ static void de_run_grob_binary(deark *c, lctx *d)
 	length = hdr[12]<<12 | hdr[11]<<4 | hdr[10]>>4;
 	de_dbg(c, "object id: 0x%05x", (unsigned int)obj_id);
 	if(obj_id != 0x02b1e) {
-		de_warn(c, "Unexpected object identifier (0x%05x, expected 0x02b1e)\n", (unsigned int)obj_id);
+		de_warn(c, "Unexpected object identifier (0x%05x, expected 0x02b1e)", (unsigned int)obj_id);
 	}
 	de_dbg(c, "object length in nibbles: %d", (int)length);
 

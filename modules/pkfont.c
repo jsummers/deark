@@ -299,7 +299,7 @@ static void do_read_raster(deark *c, lctx *d, struct page_ctx *pg)
 	}
 
 	if(pg->pixelcount != expected_num_pixels) {
-		de_warn(c, "Expected %d pixels, got %d (codepoint %d)\n", (int)expected_num_pixels,
+		de_warn(c, "Expected %d pixels, got %d (codepoint %d)", (int)expected_num_pixels,
 			(int)pg->pixelcount, (int)pg->cc);
 	}
 

@@ -143,7 +143,7 @@ static void de_run_gemfont(deark *c, de_module_params *mparams)
 	de_dbg(c, "byte swap flag: %d", (int)d->byte_swap_flag);
 	if(d->byte_swap_flag) {
 		de_warn(c, "This font uses an unsupported byte-swap option, and might not be "
-			"decoded correctly.\n");
+			"decoded correctly.");
 	}
 
 	d->char_offset_table_pos = de_getui32le(72);

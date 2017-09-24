@@ -117,7 +117,7 @@ static void read_sprite_palette(deark *c, lctx *d, de_int64 pos)
 
 	n = de_getui32be(pos);
 	if(n!=0x50414c54) {
-		de_warn(c, "Sprite palette not found (expected at %d)\n", (int)pos);
+		de_warn(c, "Sprite palette not found (expected at %d)", (int)pos);
 		d->pal[0] = DE_STOCKCOLOR_WHITE;
 		return;
 	}

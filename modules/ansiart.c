@@ -210,7 +210,7 @@ static void do_normal_char(deark *c, lctx *d, de_int64 pos, de_byte ch)
 	}
 	else {
 		if(d->num_warnings<ANSIART_MAX_WARNINGS) {
-			de_warn(c, "Off-screen write (%d,%d) at %d\n",
+			de_warn(c, "Off-screen write (%d,%d) at %d",
 				(int)(d->xpos+1), (int)(d->ypos+1), (int)pos);
 			d->num_warnings++;
 		}
@@ -302,13 +302,13 @@ static void do_ext_color(deark *c, lctx *d)
 	}
 
 	if(d->parse_results.params[1]!=2) {
-		de_warn(c, "Unsupported extended %s color format: %d\n",
+		de_warn(c, "Unsupported extended %s color format: %d",
 			name, (int)d->parse_results.params[1]);
 		return;
 	}
 
 	if(d->parse_results.num_params<5) {
-		de_warn(c, "Invalid extended %s color code\n", name);
+		de_warn(c, "Invalid extended %s color code", name);
 		return;
 	}
 
@@ -409,7 +409,7 @@ static void do_code_m(deark *c, lctx *d)
 		}
 		else {
 			if(d->num_warnings<ANSIART_MAX_WARNINGS) {
-				de_warn(c, "Unsupported SGR code %d\n", (int)sgr_code);
+				de_warn(c, "Unsupported SGR code %d", (int)sgr_code);
 				d->num_warnings++;
 			}
 		}
@@ -477,7 +477,7 @@ static void do_code_h(deark *c, lctx *d, de_int64 param_start)
 		}
 
 		if(!ok && d->num_warnings<ANSIART_MAX_WARNINGS) {
-			de_warn(c, "Unsupported 'h' control sequence '%s%d' at %d\n",
+			de_warn(c, "Unsupported 'h' control sequence '%s%d' at %d",
 				is_DEC?"?":"", (int)d->parse_results.params[i], (int)param_start);
 			d->num_warnings++;
 		}
@@ -529,7 +529,7 @@ static void do_code_l(deark *c, lctx *d, de_int64 param_start)
 		}
 
 		if(!ok && d->num_warnings<ANSIART_MAX_WARNINGS) {
-			de_warn(c, "Unsupported 'l' control sequence '%s%d' at %d\n",
+			de_warn(c, "Unsupported 'l' control sequence '%s%d' at %d",
 				is_DEC?"?":"", (int)d->parse_results.params[i], (int)param_start);
 			d->num_warnings++;
 		}
@@ -559,7 +559,7 @@ static void do_code_t(deark *c, lctx *d, de_int64 param_start)
 	}
 	else {
 		if(d->num_warnings<ANSIART_MAX_WARNINGS) {
-			de_warn(c, "Unsupported 't' control sequence at %d\n", (int)param_start);
+			de_warn(c, "Unsupported 't' control sequence at %d", (int)param_start);
 			d->num_warnings++;
 		}
 	}
@@ -673,7 +673,7 @@ static void do_control_sequence(deark *c, lctx *d, de_byte code,
 	}
 
 	if(param_len > (de_int64)(sizeof(d->param_string_buf)-1)) {
-		de_warn(c, "Ignoring long control sequence (len %d at %d)\n",
+		de_warn(c, "Ignoring long control sequence (len %d at %d)",
 			(int)param_len, (int)param_start);
 		goto done;
 	}
@@ -711,17 +711,17 @@ static void do_control_sequence(deark *c, lctx *d, de_byte code,
 			}
 
 			if(name) {
-				de_warn(c, "Unsupported control sequence '%c' (%s) at %d\n",
+				de_warn(c, "Unsupported control sequence '%c' (%s) at %d",
 					(char)code, name, (int)param_start);
 			}
 			else if(code>=0x70 && code<=0x7e) {
 				// "Bit combinations 07/00 to 07/14 are available as final bytes
 				// of control sequences for private use" -- ECMA 48
-				de_warn(c, "Unsupported private-use control sequence '%c' at %d\n",
+				de_warn(c, "Unsupported private-use control sequence '%c' at %d",
 					(char)code, (int)param_start);
 			}
 			else {
-				de_warn(c, "Unsupported control sequence '%c' at %d\n",
+				de_warn(c, "Unsupported control sequence '%c' at %d",
 					(char)code, (int)param_start);
 			}
 		}
@@ -778,7 +778,7 @@ static void do_2char_code(deark *c, lctx *d, de_byte ch1, de_byte ch2, de_int64 
 	}
 
 	if(!ok && d->num_warnings<ANSIART_MAX_WARNINGS) {
-		de_warn(c, "Unsupported escape code '%c%c' at %d\n",
+		de_warn(c, "Unsupported escape code '%c%c' at %d",
 			make_printable_char(ch1),
 			make_printable_char(ch2), (int)pos);
 		d->num_warnings++;
@@ -819,7 +819,7 @@ static void do_escape_code(deark *c, lctx *d, de_byte code, de_int64 pos,
 	if(code=='b') return; // Enable Manual Input (we ignore this)
 
 	if(d->control_seq_seen[(unsigned int)code]==0) {
-		de_warn(c, "Unsupported escape code '%c' at %d\n",
+		de_warn(c, "Unsupported escape code '%c' at %d",
 			(char)code, (int)pos);
 		d->control_seq_seen[(unsigned int)code] = 1;
 	}

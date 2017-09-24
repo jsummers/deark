@@ -453,7 +453,7 @@ static void de_run_rosprite(deark *c, de_module_params *mparams)
 	de_dbg(c, "reported file size: %d", (int)implied_file_size);
 	if(implied_file_size != c->infile->len) {
 		de_warn(c, "The \"first free word\" field implies the file size is %d, but it "
-			"is actually %d. This may not be a sprite file.\n",
+			"is actually %d. This may not be a sprite file.",
 			(int)implied_file_size, (int)c->infile->len);
 	}
 

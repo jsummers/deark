@@ -399,7 +399,7 @@ static int do_image_1to8(deark *c, lctx *d, struct img_info *ii,
 			d->is_ham8 = 1;
 		}
 		else {
-			de_warn(c, "Invalid bit depth (%d) for HAM image.\n", (int)d->planes);
+			de_warn(c, "Invalid bit depth (%d) for HAM image.", (int)d->planes);
 		}
 	}
 
@@ -553,7 +553,7 @@ static int do_image_1to8(deark *c, lctx *d, struct img_info *ii,
 	}
 
 	if(bytes_expected_valid && bytes_expected!=unc_pixels->len) {
-		de_warn(c, "Expected %d uncompressed bytes, got %d\n", (int)bytes_expected,
+		de_warn(c, "Expected %d uncompressed bytes, got %d", (int)bytes_expected,
 			(int)unc_pixels->len);
 	}
 
@@ -755,7 +755,7 @@ static void do_vdat(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 	// Read data
 	for(i=0; i<cmd_cnt; i++) {
 		if(pos>=endpos) {
-			de_warn(c, "Unexpected end of data in VDAT chunk. %d of %d command bytes processed\n",
+			de_warn(c, "Unexpected end of data in VDAT chunk. %d of %d command bytes processed",
 				(int)i, (int)cmd_cnt);
 			break;
 		}
@@ -805,7 +805,7 @@ static int do_body(deark *c, lctx *d, struct de_iffctx *ictx, de_int64 pos, de_i
 	de_uint32 ct, int *is_vdat)
 {
 	if(d->uses_color_cycling) {
-		de_warn(c, "This image uses color cycling animation, which is not supported.\n");
+		de_warn(c, "This image uses color cycling animation, which is not supported.");
 	}
 
 	if(ct==CODE_BODY && d->compression==2 &&

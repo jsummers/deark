@@ -77,7 +77,7 @@ unc_done:
 		(int)nbytes_read, (int)outf->len);
 
 	if(expected_output_len>0 && outf->len!=expected_output_len) {
-		de_warn(c, "Expected %d output bytes, got %d\n",
+		de_warn(c, "Expected %d output bytes, got %d",
 			(int)expected_output_len, (int)outf->len);
 	}
 
@@ -188,7 +188,7 @@ static int do_uncompress_picture_data(deark *c, lctx *d,
 		dbuf_truncate(pixels_tmp, 0);
 
 		if(pixels_final->len < final_image_size) {
-			de_warn(c, "Expected %d bytes after decompression, only got %d\n",
+			de_warn(c, "Expected %d bytes after decompression, only got %d",
 				(int)final_image_size, (int)pixels_final->len);
 		}
 	}
@@ -396,7 +396,7 @@ static int do_wmf(deark *c, lctx *d, de_int64 pos1)
 	}
 
 	if(pixels_final->len != decompressed_size) {
-		de_warn(c, "Expected %d bytes after decompression, got %d\n",
+		de_warn(c, "Expected %d bytes after decompression, got %d",
 			(int)decompressed_size, (int)outf->len);
 	}
 
@@ -446,7 +446,7 @@ static int do_picture(deark *c, lctx *d, de_int64 pic_index)
 		do_wmf(c, d, pic_offset);
 	}
 	else {
-		de_warn(c, "Unsupported picture type: %d\n", (int)d->picture_type);
+		de_warn(c, "Unsupported picture type: %d", (int)d->picture_type);
 	}
 
 	retval = 1;
@@ -490,7 +490,7 @@ static void de_run_shg(deark *c, de_module_params *mparams)
 		de_declare_fmt(c, "MRB");
 	}
 	else {
-		de_warn(c, "This is probably not an SHG/MRB file.\n");
+		de_warn(c, "This is probably not an SHG/MRB file.");
 	}
 
 	do_shg(c, d);

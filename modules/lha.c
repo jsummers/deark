@@ -153,7 +153,7 @@ static void exthdr_filesize(deark *c, lctx *d, struct member_data *md,
 {
 	// TODO: Support this
 	de_warn(c, "Unsupported \"file size\" extended header found. This may prevent "
-		"the rest of the file from being processed correctly.\n");
+		"the rest of the file from being processed correctly.");
 }
 
 static void exthdr_windowstimestamp(deark *c, lctx *d, struct member_data *md,
@@ -415,7 +415,7 @@ static int do_read_member(deark *c, lctx *d, struct member_data *md, de_int64 po
 			goto done;
 		}
 		else {
-			de_warn(c, "Extra non-LHA data found at end of file (offset %d)\n", (int)pos1);
+			de_warn(c, "Extra non-LHA data found at end of file (offset %d)", (int)pos1);
 			goto done;
 		}
 	}

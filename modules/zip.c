@@ -452,14 +452,14 @@ static void ef_infozipmac(deark *c, lctx *d,
 	if(ulen<1 || ulen>1000000) goto done;
 
 	if(!is_compression_method_supported(cmprtype)) {
-		de_warn(c, "Finder attribute data: Unspported compression method: %d\n", (int)cmprtype);
+		de_warn(c, "Finder attribute data: Unspported compression method: %d", (int)cmprtype);
 	}
 
 	// Decompress and decode the Finder attribute data
 	attr_data = dbuf_create_membuf(c, ulen, 0x1);
 	ret = do_decompress_data(c, d, c->infile, pos, cmpr_attr_size, attr_data, cmprtype);
 	if(!ret) {
-		de_warn(c, "Failed to decompress finder attribute data\n");
+		de_warn(c, "Failed to decompress finder attribute data");
 		goto done;
 	}
 
@@ -649,7 +649,7 @@ static void do_extract_file(deark *c, lctx *d, struct member_data *md)
 	}
 
 	if(md->is_symlink) {
-		de_warn(c, "\"%s\" is a symbolic link. It will not be extracted as a link.\n",
+		de_warn(c, "\"%s\" is a symbolic link. It will not be extracted as a link.",
 			ucstring_get_printable_sz_d(ldd->fname));
 	}
 
@@ -682,7 +682,7 @@ static void do_extract_file(deark *c, lctx *d, struct member_data *md)
 	de_dbg(c, "crc (calculated): 0x%08x", (unsigned int)md->crc_calculated);
 
 	if(md->crc_calculated != ldd->crc_reported) {
-		de_warn(c, "CRC check failed: Expected 0x%08x, got 0x%08x\n",
+		de_warn(c, "CRC check failed: Expected 0x%08x, got 0x%08x",
 			(unsigned int)ldd->crc_reported, (unsigned int)md->crc_calculated);
 	}
 

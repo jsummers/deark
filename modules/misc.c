@@ -1468,7 +1468,7 @@ static void de_run_hsiraw(deark *c, de_module_params *mparams)
 	ver = de_getui16be(6);
 	de_dbg(c, "version: %d", (int)ver);
 	if(ver!=4) {
-		de_warn(c, "HSI Raw version %d might not be supported correctly\n", (int)ver);
+		de_warn(c, "HSI Raw version %d might not be supported correctly", (int)ver);
 	}
 
 	w = de_getui16be(8);
@@ -1616,7 +1616,7 @@ static void de_run_vitec(deark *c, de_module_params *mparams)
 	// This code is based on reverse engineering, and may be incorrect.
 
 	de_dbg_indent_save(c, &saved_indent_level);
-	de_warn(c, "VITec image support is experimental, and may not work correctly.\n");
+	de_warn(c, "VITec image support is experimental, and may not work correctly.");
 
 	pos = 4;
 	h1size = de_getui32be(pos);
@@ -1751,7 +1751,7 @@ static void de_run_lumena_cel(deark *c, de_module_params *mparams)
 	is_16bit = (c->infile->len == headersize + width*height*2);
 	is_32bit = (c->infile->len == headersize + width*height*4);
 	if(!is_16bit && !is_32bit) {
-		de_warn(c, "Cannot detect bits/pixel, assuming 32\n");
+		de_warn(c, "Cannot detect bits/pixel, assuming 32");
 		is_32bit = 1;
 	}
 

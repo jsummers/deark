@@ -190,7 +190,7 @@ static int do_gzip_read_member(deark *c, lctx *d, de_int64 pos1, de_int64 *membe
 	pos += 4;
 
 	if(md->crc_calculated != md->crc32_reported) {
-		de_warn(c, "CRC check failed: Expected 0x%08x, got 0x%08x\n",
+		de_warn(c, "CRC check failed: Expected 0x%08x, got 0x%08x",
 			(unsigned int)md->crc32_reported, (unsigned int)md->crc_calculated);
 	}
 

@@ -256,7 +256,7 @@ static void do_xmp_extension_segment(deark *c, lctx *d, struct page_ctx *pg,
 		// is, because we don't parse XMP. We'll just hope that the first extended
 		// XMP segment has the correct digest.
 		if(!pg->extxmp_warned_flag) {
-			de_warn(c, "Multiple extended XMP blocks found. All but the first will be ignored.\n");
+			de_warn(c, "Multiple extended XMP blocks found. All but the first will be ignored.");
 			pg->extxmp_warned_flag = 1;
 		}
 		goto done;
@@ -275,13 +275,13 @@ static void do_xmp_extension_segment(deark *c, lctx *d, struct page_ctx *pg,
 	}
 	de_dbg(c, "full ext. XMP length: %d", (int)thisseg_full_extxmp_len);
 	if(thisseg_full_extxmp_len != pg->extxmp_total_len) {
-		de_warn(c, "Inconsistent extended XMP block lengths\n");
+		de_warn(c, "Inconsistent extended XMP block lengths");
 		pg->extxmp_error_flag = 1;
 		goto done;
 	}
 
 	if(pg->extxmp_total_len > 10000000) {
-		de_warn(c, "Extended XMP block too large\n");
+		de_warn(c, "Extended XMP block too large");
 		pg->extxmp_error_flag = 1;
 		goto done;
 	}
@@ -294,7 +294,7 @@ static void do_xmp_extension_segment(deark *c, lctx *d, struct page_ctx *pg,
 	de_dbg(c, "[%d bytes of ext. XMP data at %d]", (int)dlen, (int)pos);
 
 	if(segment_offset + dlen > pg->extxmp_total_len) {
-		de_warn(c, "Extended XMP segment too long\n");
+		de_warn(c, "Extended XMP segment too long");
 		pg->extxmp_error_flag = 1;
 		goto done;
 	}

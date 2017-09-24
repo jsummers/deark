@@ -447,7 +447,7 @@ static void picture_bank_make_palette(deark *c, lctx *d, struct amosbank *bk)
 	de_int64 k;
 	de_byte v;
 
-	de_warn(c, "No palette found. Using grayscale palette.\n");
+	de_warn(c, "No palette found. Using grayscale palette.");
 	for(k=0; k<32; k++) {
 		v = (de_byte)(0.5+ ((double)k)*(255.0/31.0));
 		bk->pal[k] = DE_MAKE_GRAY(v);
