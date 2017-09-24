@@ -3202,7 +3202,7 @@ static int do_layer_and_mask_info_section(deark *c, lctx *d, zztype *zz)
 	de_dbg(c, "global layer mask info at %d", (int)lmidataczz.pos);
 	de_dbg_indent(c, 1);
 	gl_layer_mask_info_len = psd_getui32zz(&lmidataczz);
-	de_dbg(c, "length of global layer mask info section: %d", (int)gl_layer_mask_info_len);
+	de_dbg(c, "length of global layer mask info section: %"INT64_FMT, gl_layer_mask_info_len);
 	de_dbg_indent(c, -1);
 	if(lmidataczz.pos+gl_layer_mask_info_len > lmidataczz.endpos) {
 		de_warn(c, "Oversized Global Layer Mask Info section");
@@ -3572,6 +3572,11 @@ static void do_bitmap_packbits(deark *c, lctx *d, zztype *zz, const struct image
 	}
 
 	de_dbg(c, "compressed data at %"INT64_FMT", len=%"INT64_FMT"", zz->pos, cmpr_data_size);
+	if(zz->pos + cmpr_data_size>c->infile->len) {
+		de_err(c, "Unexpected end of file");
+		goto done;
+	}
+
 	unc_pixels = dbuf_create_membuf(c, 1024, 0);
 	de_fmtutil_uncompress_packbits(c->infile, zz->pos, cmpr_data_size, unc_pixels, NULL);
 	zz->pos += cmpr_data_size;
@@ -3579,6 +3584,8 @@ static void do_bitmap_packbits(deark *c, lctx *d, zztype *zz, const struct image
 	de_dbg(c, "decompressed %"INT64_FMT" bytes to %"INT64_FMT"", cmpr_data_size, unc_pixels->len);
 	de_dbg_indent(c, -1);
 	do_bitmap(c, d, iinfo, unc_pixels, 0, unc_pixels->len);
+
+done:
 	dbuf_close(unc_pixels);
 }
 
