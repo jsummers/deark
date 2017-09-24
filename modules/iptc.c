@@ -271,7 +271,7 @@ static int read_dflen(deark *c, dbuf *f, de_int64 pos,
 			// IPTC seems to support fields up to (2^262136)-1 bytes.
 			// We arbitrarily limit it (2^48)-1.
 			if((*dflen)>=0x1000000000000LL) {
-				de_err(c, "Bad or unsupported IPTC data field length\n");
+				de_err(c, "Bad or unsupported IPTC data field length");
 				return 0;
 			}
 		}
@@ -326,7 +326,7 @@ static int do_dataset(deark *c, lctx *d, de_int64 ds_idx, de_int64 pos1,
 				(int)c->infile->len, (int)pos);
 		}
 		else {
-			de_err(c, "Bad IPTC tag marker (0x%02x) at %d\n", (int)b, (int)pos);
+			de_err(c, "Bad IPTC tag marker (0x%02x) at %d", (int)b, (int)pos);
 		}
 		goto done;
 	}

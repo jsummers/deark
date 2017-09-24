@@ -91,10 +91,10 @@ static void de_run_unsupported(deark *c, de_module_params *mparams)
 	get_fmt(c, &fmti);
 	if(fmti.confidence>0 && fmti.descr) {
 		if(fmti.special_message) {
-			de_err(c, "This looks like %s\n", fmti.descr);
+			de_err(c, "This looks like %s", fmti.descr);
 		}
 		else {
-			de_err(c, "This looks like %s, which is not a supported format.\n", fmti.descr);
+			de_err(c, "This looks like %s, which is not a supported format.", fmti.descr);
 		}
 	}
 }

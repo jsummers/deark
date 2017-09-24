@@ -127,7 +127,7 @@ static int read_mki_header(deark *c, lctx *d)
 	de_dbg(c, "calculated file size: %d", (int)expected_file_size);
 
 	if(d->bits_per_pixel!=4 && d->bits_per_pixel!=8) {
-		de_err(c, "Unsupported or unknown bits/pixel\n");
+		de_err(c, "Unsupported or unknown bits/pixel");
 		goto done;
 	}
 
@@ -306,7 +306,7 @@ static int read_mag_header(deark *c, lctx *d)
 	de_dbg(c, "pixels offset: %d, size=%d", (int)d->pixels_offset, (int)d->pixels_size);
 
 	if(d->bits_per_pixel!=4 && d->bits_per_pixel!=8) {
-		de_err(c, "Unsupported or unknown bits/pixel\n");
+		de_err(c, "Unsupported or unknown bits/pixel");
 		goto done;
 	}
 
@@ -436,7 +436,7 @@ static int find_mag_header(deark *c, lctx *d)
 		return 1;
 	}
 
-	de_err(c, "Failed to find header. This is probably not a MAKIchan file.\n");
+	de_err(c, "Failed to find header. This is probably not a MAKIchan file.");
 	return 0;
 }
 

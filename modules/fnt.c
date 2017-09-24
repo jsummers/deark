@@ -276,7 +276,7 @@ static int do_read_header(deark *c, lctx *d)
 	// Apparently, the first 117 bytes (through the dfBitsOffset field) are
 	// common to all versions
 	if(d->fnt_version<0x0200) {
-		de_err(c, "This version of FNT is not supported\n");
+		de_err(c, "This version of FNT is not supported");
 		goto done;
 	}
 
@@ -320,7 +320,7 @@ static void de_run_fnt(deark *c, de_module_params *mparams)
 	read_face_name(c, d);
 
 	if(d->is_vector) {
-		de_err(c, "This is a vector font. Not supported.\n");
+		de_err(c, "This is a vector font. Not supported.");
 		goto done;
 	}
 

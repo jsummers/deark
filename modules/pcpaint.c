@@ -510,7 +510,7 @@ static int do_read_alt_palette_file(deark *c, lctx *d)
 
 	magic = dbuf_getui16le(palfile, 0);
 	if(magic!=0x1234) {
-		de_err(c, "Palette file is not in PIC format.\n");
+		de_err(c, "Palette file is not in PIC format.");
 		goto done;
 	}
 
@@ -571,7 +571,7 @@ static int do_set_up_decoder(deark *c, lctx *d)
 		return 1;
 	}
 
-	de_err(c, "This type of PCPaint %s is not supported (evideo=0x%02x, bitsinf=0x%02x, edesc=%d)\n",
+	de_err(c, "This type of PCPaint %s is not supported (evideo=0x%02x, bitsinf=0x%02x, edesc=%d)",
 		(d->file_fmt==FMT_CLP) ? "CLP" : "PIC",
 		d->video_mode, d->plane_info, (int)edesc);
 
@@ -608,7 +608,7 @@ static void de_run_pcpaint_pic(deark *c, lctx *d, de_module_params *mparams)
 	}
 
 	if(d->ver!=2) {
-		de_err(c, "This version of PCPaint PIC is not supported\n");
+		de_err(c, "This version of PCPaint PIC is not supported");
 		goto done;
 	}
 

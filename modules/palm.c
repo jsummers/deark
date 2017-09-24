@@ -483,7 +483,7 @@ static void do_generate_image(deark *c, lctx *d,
 			do_decompress_scanline_compression(c, d, inf, pos, len, unc_pixels, igi);
 		}
 		else {
-			de_err(c, "Unsupported compression type: %u\n", cmpr_type);
+			de_err(c, "Unsupported compression type: %u", cmpr_type);
 			goto done;
 		}
 
@@ -617,7 +617,7 @@ static void do_palm_BitmapType_internal(deark *c, lctx *d, de_int64 pos1, de_int
 	if(bitmapversion>3) {
 		// Note that V3 allows the high bit of the version field to
 		// be set (to mean little-endian), but we don't support that.
-		de_err(c, "Unsupported bitmap version: %d\n", (int)bitmapversion);
+		de_err(c, "Unsupported bitmap version: %d", (int)bitmapversion);
 		goto done;
 	}
 
@@ -754,14 +754,14 @@ static void do_palm_BitmapType_internal(deark *c, lctx *d, de_int64 pos1, de_int
 	if(igi->bitsperpixel!=1 && igi->bitsperpixel!=2 && igi->bitsperpixel!=4 &&
 		igi->bitsperpixel!=8 && igi->bitsperpixel!=16)
 	{
-		de_err(c, "Unsupported bits/pixel: %d\n", (int)igi->bitsperpixel);
+		de_err(c, "Unsupported bits/pixel: %d", (int)igi->bitsperpixel);
 		goto done;
 	}
 
 	if((igi->is_rgb && igi->bitsperpixel!=16) ||
 		(!igi->is_rgb && igi->bitsperpixel>8))
 	{
-		de_err(c, "This type of image is not supported\n");
+		de_err(c, "This type of image is not supported");
 		goto done;
 	}
 
@@ -785,7 +785,7 @@ static void do_palm_BitmapType_internal(deark *c, lctx *d, de_int64 pos1, de_int
 	}
 
 	if(pos >= pos1+len) {
-		de_err(c, "Unexpected end of file\n");
+		de_err(c, "Unexpected end of file");
 		goto done;
 	}
 
@@ -814,7 +814,7 @@ static void do_palm_BitmapType(deark *c, lctx *d, de_int64 pos1, de_int64 len,
 
 	while(1) {
 		if(pos > pos1+len-16) {
-			de_err(c, "Bitmap exceeds its bounds\n");
+			de_err(c, "Bitmap exceeds its bounds");
 			break;
 		}
 		do_palm_BitmapType_internal(c, d, pos, pos1+len-pos, token, createflags, &nextbitmapoffs);
@@ -1201,7 +1201,7 @@ static int do_prescan_records(deark *c, lctx *d, de_int64 pos1)
 
 		// Record data must not start beyond the end of file.
 		if((de_int64)d->rec_list.rec_data[i].offset > c->infile->len) {
-			de_err(c, "Record %d (at %d) starts after end of file (%d)\n",
+			de_err(c, "Record %d (at %d) starts after end of file (%d)",
 				(int)i, (int)d->rec_list.rec_data[i].offset, (int)c->infile->len);
 			return 0;
 		}
@@ -1209,7 +1209,7 @@ static int do_prescan_records(deark *c, lctx *d, de_int64 pos1)
 		// Record data must not start before the previous record's data.
 		if(i>0) {
 			if(d->rec_list.rec_data[i].offset < d->rec_list.rec_data[i-1].offset) {
-				de_err(c, "Record %d (at %d) starts before previous record (at %d)\n",
+				de_err(c, "Record %d (at %d) starts before previous record (at %d)",
 					(int)i, (int)d->rec_list.rec_data[i].offset, (int)d->rec_list.rec_data[i-1].offset);
 				return 0;
 			}

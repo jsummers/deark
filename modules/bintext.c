@@ -209,11 +209,11 @@ static int do_generate_font(deark *c, lctx *d)
 
 	if(!d->font) return 0;
 	if(d->font->num_chars!=256) {
-		de_err(c, "Only 256-character fonts are supported\n");
+		de_err(c, "Only 256-character fonts are supported");
 		return 0;
 	}
 	if(d->font_data_len!=d->font->num_chars*d->font_height) {
-		de_err(c, "Incorrect font data size\n");
+		de_err(c, "Incorrect font data size");
 		return 0;
 	}
 	d->font->nominal_width = 8;
@@ -276,7 +276,7 @@ static void de_run_xbin(deark *c, de_module_params *mparams)
 	d->height_in_chars = de_getui16le(7);
 	d->font_height = (de_int64)de_getbyte(9);
 	if(d->font_height<1 || d->font_height>32) {
-		de_err(c, "Invalid font height: %d\n", (int)d->font_height);
+		de_err(c, "Invalid font height: %d", (int)d->font_height);
 		goto done;
 	}
 
@@ -314,7 +314,7 @@ static void de_run_xbin(deark *c, de_module_params *mparams)
 		d->font->num_chars = d->has_512chars ? 512 : 256;
 		d->font_data_len = d->font->num_chars * d->font_height;
 		if(d->font->num_chars!=256) {
-			de_err(c, "%d-character mode is not supported\n", (int)d->font->num_chars);
+			de_err(c, "%d-character mode is not supported", (int)d->font->num_chars);
 			goto done;
 		}
 
@@ -339,7 +339,7 @@ static void de_run_xbin(deark *c, de_module_params *mparams)
 		// FIXME: We probably shouldn't give up if font_height!=16, at
 		// least if the output format is HTML.
 		if(d->has_512chars || d->font_height!=16) {
-			de_err(c, "This type of XBIN file is not supported.\n");
+			de_err(c, "This type of XBIN file is not supported.");
 			goto done;
 		}
 	}
@@ -637,7 +637,7 @@ static void de_run_icedraw(deark *c, de_module_params *mparams)
 		de_free_SAUCE(c, si);
 	}
 
-	de_err(c, "iCEDraw format is not supported\n");
+	de_err(c, "iCEDraw format is not supported");
 }
 
 static int de_identify_icedraw(deark *c)

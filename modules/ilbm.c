@@ -90,7 +90,7 @@ static int do_bmhd(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 	const char *masking_name;
 
 	if(len<20) {
-		de_err(c, "Bad BMHD chunk\n");
+		de_err(c, "Bad BMHD chunk");
 		goto done;
 	}
 
@@ -270,7 +270,7 @@ static void do_image_24(deark *c, lctx *d, struct img_info *ii,
 	de_byte cr, cg, cb;
 
 	if(d->formtype!=CODE_ILBM) {
-		de_err(c, "This image type is not supported\n");
+		de_err(c, "This image type is not supported");
 		goto done;
 	}
 
@@ -387,7 +387,7 @@ static int do_image_1to8(deark *c, lctx *d, struct img_info *ii,
 	int bytes_expected_valid = 0;
 
 	if(!d->found_cmap) {
-		de_err(c, "Missing CMAP chunk\n");
+		de_err(c, "Missing CMAP chunk");
 		goto done;
 	}
 
@@ -420,7 +420,7 @@ static int do_image_1to8(deark *c, lctx *d, struct img_info *ii,
 	ii->planes_total = d->planes;
 	if(ii->masking_code==1) {
 		if(d->formtype!=CODE_ILBM) {
-			de_err(c, "This type of image is not supported.\n");
+			de_err(c, "This type of image is not supported.");
 			goto done;
 		}
 		ii->planes_total++;
@@ -478,7 +478,7 @@ static int do_image_1to8(deark *c, lctx *d, struct img_info *ii,
 		}
 		else if(d->formtype==CODE_PBM) {
 			if(ii->rowspan < ii->width) {
-				de_err(c, "Internal error\n");
+				de_err(c, "Internal error");
 				goto done;
 			}
 			dbuf_read(unc_pixels, row_deplanarized, j*ii->rowspan, ii->width);
@@ -629,7 +629,7 @@ static int do_image(deark *c, lctx *d, struct img_info *ii,
 	if(d->errflag) goto done;
 
 	if(!d->found_bmhd) {
-		de_err(c, "Missing BMHD chunk\n");
+		de_err(c, "Missing BMHD chunk");
 		goto done;
 	}
 
@@ -639,7 +639,7 @@ static int do_image(deark *c, lctx *d, struct img_info *ii,
 		;
 	}
 	else {
-		de_err(c, "Unsupported ILBM format\n");
+		de_err(c, "Unsupported ILBM format");
 		goto done;
 	}
 
@@ -648,7 +648,7 @@ static int do_image(deark *c, lctx *d, struct img_info *ii,
 	if(d->in_vdat_image) {
 		// TODO: Consider using the tinystuff decoder for VDAT.
 		if(d->planes!=4) {
-			de_err(c, "VDAT compression not supported with planes=%d\n", (int)d->planes);
+			de_err(c, "VDAT compression not supported with planes=%d", (int)d->planes);
 			goto done;
 		}
 		unc_pixels = d->vdat_unc_pixels;
@@ -666,7 +666,7 @@ static int do_image(deark *c, lctx *d, struct img_info *ii,
 		de_dbg(c, "decompressed %d bytes to %d bytes", (int)len, (int)unc_pixels->len);
 	}
 	else {
-		de_err(c, "Unsupported compression type: %d\n", (int)d->compression);
+		de_err(c, "Unsupported compression type: %d", (int)d->compression);
 		goto done;
 	}
 
@@ -679,7 +679,7 @@ static int do_image(deark *c, lctx *d, struct img_info *ii,
 		do_image_24(c, d, ii, unc_pixels, createflags);
 	}
 	else {
-		de_err(c, "Support for this type of IFF/ILBM image is not implemented\n");
+		de_err(c, "Support for this type of IFF/ILBM image is not implemented");
 	}
 	retval = 1;
 
@@ -825,7 +825,7 @@ static void do_multipalette(deark *c, lctx *d, de_uint32 chunktype)
 	else if(chunktype==CODE_PCHG) { d->is_pchg = 1; }
 	else if(chunktype==CODE_CTBL) { d->is_ctbl = 1; }
 
-	de_err(c, "Multi-palette ILBM images are not supported.\n");
+	de_err(c, "Multi-palette ILBM images are not supported.");
 	d->errflag = 1;
 }
 

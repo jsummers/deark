@@ -238,7 +238,7 @@ static struct deark_bitmap *do_read_paint_data_section(deark *c, lctx *d,
 
 	if(pg->color_type==0) {
 		if(pg->bits_per_pixel!=2 && pg->bits_per_pixel!=4 && pg->bits_per_pixel!=8) {
-			de_err(c, "Unsupported bits/pixel (%d) for grayscale image\n", (int)pg->bits_per_pixel);
+			de_err(c, "Unsupported bits/pixel (%d) for grayscale image", (int)pg->bits_per_pixel);
 			goto done;
 		}
 	}
@@ -246,7 +246,7 @@ static struct deark_bitmap *do_read_paint_data_section(deark *c, lctx *d,
 		if(pg->bits_per_pixel!=4 && pg->bits_per_pixel!=8 && pg->bits_per_pixel!=16 &&
 			pg->bits_per_pixel!=24)
 		{
-			de_err(c, "Unsupported bits/pixel (%d) for color image\n", (int)pg->bits_per_pixel);
+			de_err(c, "Unsupported bits/pixel (%d) for color image", (int)pg->bits_per_pixel);
 			goto done;
 		}
 		if(pg->bits_per_pixel==16 && !d->warned_exp) {
@@ -279,7 +279,7 @@ static struct deark_bitmap *do_read_paint_data_section(deark *c, lctx *d,
 		// TODO: RLE12 (2)
 
 	default:
-		de_err(c, "Unsupported compression type: %d\n", (int)compression_type);
+		de_err(c, "Unsupported compression type: %d", (int)compression_type);
 		goto done;
 	}
 
@@ -556,7 +556,7 @@ static void do_epocmbm_jumptable(deark *c, lctx *d, de_int64 pos)
 	num_images = de_getui32le(pos);
 	de_dbg(c, "number of images: %d", (int)num_images);
 	if(!de_good_image_count(c, num_images)) {
-		de_err(c, "Too many images\n");
+		de_err(c, "Too many images");
 		goto done;
 	}
 
@@ -641,7 +641,7 @@ static void de_run_epocimage(deark *c, de_module_params *mparams)
 		de_run_epocaif(c, d);
 		break;
 	default:
-		de_err(c, "Internal: Unidentified format\n");
+		de_err(c, "Internal: Unidentified format");
 	}
 
 	de_free(c, d);

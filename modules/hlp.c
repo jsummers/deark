@@ -144,7 +144,7 @@ static int do_file_SYSTEM_header(deark *c, lctx *d, de_int64 pos1)
 
 	magic = de_getui16le(pos);
 	if(magic!=0x036c) {
-		de_err(c, "Expected SYSTEM data at %d not found\n", (int)pos1);
+		de_err(c, "Expected SYSTEM data at %d not found", (int)pos1);
 		goto done;
 	}
 	pos += 2;
@@ -159,7 +159,7 @@ static int do_file_SYSTEM_header(deark *c, lctx *d, de_int64 pos1)
 	de_dbg(c, "help format version: %d.%d", d->ver_major, d->ver_minor);
 
 	if(d->ver_major!=1) {
-		de_err(c, "Unsupported file version: %d.%d\n", d->ver_major, d->ver_minor);
+		de_err(c, "Unsupported file version: %d.%d", d->ver_major, d->ver_minor);
 		goto done;
 	}
 
@@ -300,7 +300,7 @@ static void do_file_TOPIC(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 	de_dbg_indent(c, 1);
 
 	if(!d->found_system_file || d->topic_block_size<2048) {
-		de_err(c, "SYSTEM file not found\n");
+		de_err(c, "SYSTEM file not found");
 		goto done;
 	}
 
@@ -393,7 +393,7 @@ static void do_leaf_page(deark *c, lctx *d, de_int64 pos1, de_int64 *pnext_page)
 		de_dbg_indent(c, 1);
 
 		if(!dbuf_search_byte(c->infile, 0x00, pos, 260, &foundpos)) {
-			de_err(c, "Malformed leaf page at %d\n", (int)pos1);
+			de_err(c, "Malformed leaf page at %d", (int)pos1);
 			goto done;
 		}
 
@@ -488,7 +488,7 @@ static void do_bplustree(deark *c, lctx *d, de_int64 pos1, de_int64 len,
 
 	n = de_getui16le(pos);
 	if(n != 0x293b) {
-		de_err(c, "Expected B+ tree structure at %d not found\n", (int)pos1);
+		de_err(c, "Expected B+ tree structure at %d not found", (int)pos1);
 		goto done;
 	}
 	pos += 2;
@@ -556,7 +556,7 @@ static void do_bplustree(deark *c, lctx *d, de_int64 pos1, de_int64 len,
 			if(curr_page>d->bpt.num_pages) goto done;
 
 			if(d->pass==1 && page_seen[curr_page]) {
-				de_err(c, "Page loop detected\n");
+				de_err(c, "Page loop detected");
 				goto done;
 			}
 			page_seen[curr_page] = 1;
@@ -628,7 +628,7 @@ static void do_file(deark *c, lctx *d, de_int64 pos1, int file_fmt)
 	pos += 1;
 
 	if(pos+used_space > c->infile->len) {
-		de_err(c, "Bad file size\n");
+		de_err(c, "Bad file size");
 		goto done;
 	}
 

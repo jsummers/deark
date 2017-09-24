@@ -365,7 +365,7 @@ void de_font_bitmap_font_to_image(deark *c, struct de_bitmap_font *font1, de_fin
 
 	if(fctx->font->num_chars<1) goto done;
 	if(fctx->font->nominal_width>512 || fctx->font->nominal_height>512) {
-		de_err(c, "Font size too big (%dx%d). Not supported.\n",
+		de_err(c, "Font size too big (%dx%d). Not supported.",
 			(int)fctx->font->nominal_width, (int)fctx->font->nominal_height);
 		goto done;
 	}

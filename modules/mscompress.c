@@ -34,7 +34,7 @@ static int do_header_SZDD(deark *c, lctx *d, de_int64 pos1)
 	de_dbg(c, "compression mode: 0x%02x ('%c')", (unsigned int)cmpr_mode,
 		de_byte_to_printable_char(cmpr_mode));
 	if(cmpr_mode != 0x41) {
-		de_err(c, "Unsupported compression mode\n");
+		de_err(c, "Unsupported compression mode");
 		goto done;
 	}
 
@@ -189,14 +189,14 @@ static void de_run_mscompress(deark *c, de_module_params *mparams)
 		de_declare_fmt(c, "MS Installation Compression, KWAJ variant");
 	}
 	else {
-		de_err(c, "Unidentified format\n");
+		de_err(c, "Unidentified format");
 		goto done;
 	}
 
 	if(d->fmt==FMT_KWAJ) {
 		do_header_KWAJ(c, d, pos);
 		// TODO: KWAJ format
-		de_err(c, "MS Compress KWAJ format is not supported\n");
+		de_err(c, "MS Compress KWAJ format is not supported");
 		goto done;
 	}
 	else {

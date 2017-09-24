@@ -69,7 +69,7 @@ static void do_image(deark *c, lctx *d, dbuf *unc_pixels)
 	unsigned int getrgbflags;
 
 	if(d->depth!=1 && d->depth!=4 && d->depth!=8 && d->depth!=24 && d->depth!=32) {
-		de_err(c, "Bit depth %d not supported\n", (int)d->depth);
+		de_err(c, "Bit depth %d not supported", (int)d->depth);
 		goto done;
 	}
 	if(d->depth==32) {
@@ -208,7 +208,7 @@ static void de_run_sunras(deark *c, de_module_params *mparams)
 			do_read_palette(c, d, pos);
 		}
 		else {
-			de_err(c, "This type of image is not supported\n");
+			de_err(c, "This type of image is not supported");
 			goto done;
 		}
 	}
@@ -220,7 +220,7 @@ static void de_run_sunras(deark *c, de_module_params *mparams)
 	}
 	else {
 		// TODO: Support RMT_RAW
-		de_err(c, "Colormap type (%d) is not supported\n", (int)d->maptype);
+		de_err(c, "Colormap type (%d) is not supported", (int)d->maptype);
 		goto done;
 	}
 	pos += d->maplen;
@@ -234,7 +234,7 @@ static void de_run_sunras(deark *c, de_module_params *mparams)
 	d->unc_pixels_size = d->rowspan * d->height;
 
 	if(d->imgtype>5) {
-		de_err(c, "This type of image (%d) is not supported\n", (int)d->imgtype);
+		de_err(c, "This type of image (%d) is not supported", (int)d->imgtype);
 		goto done;
 	}
 

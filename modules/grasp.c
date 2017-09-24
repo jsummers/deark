@@ -174,7 +174,7 @@ static void de_run_graspfont_oldfmt(deark *c)
 	if(bytes_per_glyph < glyph_rowspan*font->nominal_height ||
 		font->nominal_width<1 || font->nominal_height<1)
 	{
-		de_err(c, "Bad font metrics\n");
+		de_err(c, "Bad font metrics");
 		goto done;
 	}
 

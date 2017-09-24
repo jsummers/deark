@@ -223,7 +223,7 @@ static int read_infoheader(deark *c, lctx *d, de_int64 pos)
 	if(d->bitcount!=0 && d->bitcount!=1 && d->bitcount!=2 && d->bitcount!=4 &&
 		d->bitcount!=8 && d->bitcount!=16 && d->bitcount!=24 && d->bitcount!=32)
 	{
-		de_err(c, "Bad bits/pixel: %d\n", (int)d->bitcount);
+		de_err(c, "Bad bits/pixel: %d", (int)d->bitcount);
 		goto done;
 	}
 
@@ -306,7 +306,7 @@ static int read_infoheader(deark *c, lctx *d, de_int64 pos)
 	}
 
 	if(!cmpr_ok) {
-		de_err(c, "Unsupported compression type: %d\n", (int)d->compression_field);
+		de_err(c, "Unsupported compression type: %d", (int)d->compression_field);
 		goto done;
 	}
 
@@ -670,7 +670,7 @@ static void do_image(deark *c, lctx *d)
 	de_dbg(c, "bitmap at %d", (int)d->bits_offset);
 
 	if(d->bits_offset >= c->infile->len) {
-		de_err(c, "Bad bits-offset field\n");
+		de_err(c, "Bad bits-offset field");
 		goto done;
 	}
 
@@ -698,7 +698,7 @@ static void do_image(deark *c, lctx *d)
 		extract_embedded_image(c, d, "png");
 	}
 	else {
-		de_err(c, "This type of BMP image is not supported\n");
+		de_err(c, "This type of BMP image is not supported");
 	}
 
 done:
@@ -713,12 +713,12 @@ static void de_run_bmp(deark *c, de_module_params *mparams)
 	d = de_malloc(c, sizeof(lctx));
 
 	if(dbuf_memcmp(c->infile, 0, "BM", 2)) {
-		de_err(c, "Not a BMP file.\n");
+		de_err(c, "Not a BMP file.");
 		goto done;
 	}
 
 	if(!detect_bmp_version(c, d)) {
-		de_err(c, "Unidentified BMP version.\n");
+		de_err(c, "Unidentified BMP version.");
 		goto done;
 	}
 
@@ -810,7 +810,7 @@ static void de_run_dib(deark *c, de_module_params *mparams)
 	dbuf *outf = NULL;
 
 	if(!de_fmtutil_get_bmpinfo(c, c->infile, &bi, 0, c->infile->len, 0)) {
-		de_err(c, "Invalid DIB, or not a DIB file\n");
+		de_err(c, "Invalid DIB, or not a DIB file");
 		goto done;
 	}
 

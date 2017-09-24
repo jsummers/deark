@@ -321,7 +321,7 @@ static void de_run_mbk_mbs(deark *c, de_module_params *mparams)
 			do_sprite_bank(c, d, 0);
 		}
 		else {
-			de_err(c, "Not a (supported) STOS/MBK format\n");
+			de_err(c, "Not a (supported) STOS/MBK format");
 		}
 	}
 

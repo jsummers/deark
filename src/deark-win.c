@@ -39,7 +39,7 @@ char *de_strdup(deark *c, const char *s)
 
 	s2 = _strdup(s);
 	if(!s2) {
-		de_err(c, "Memory allocation failed\n");
+		de_err(c, "Memory allocation failed");
 		de_fatalerror(c);
 		return NULL;
 	}
@@ -96,7 +96,7 @@ wchar_t *de_utf8_to_utf16_strdup(deark *c, const char *src)
 	// Calculate the size required by the target string.
 	ret = MultiByteToWideChar(CP_UTF8, 0, src, -1, NULL, 0);
 	if(ret<1) {
-		de_err(c, "Encoding conversion failed\n");
+		de_err(c, "Encoding conversion failed");
 		de_fatalerror(c);
 		return NULL;
 	}
@@ -107,7 +107,7 @@ wchar_t *de_utf8_to_utf16_strdup(deark *c, const char *src)
 	ret = MultiByteToWideChar(CP_UTF8, 0, src, -1, dst, dstlen);
 	if(ret<1) {
 		de_free(c, dst);
-		de_err(c, "Encoding conversion failed\n");
+		de_err(c, "Encoding conversion failed");
 		de_fatalerror(c);
 		return NULL;
 	}

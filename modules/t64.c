@@ -61,7 +61,7 @@ static void do_extract_file(deark *c, lctx *d, de_int64 dir_pos,
 	payload_size = end_addr - load_addr;
 	if(payload_size < 0) {
 		// TODO: Try to support files that don't have end_addr set properly.
-		de_err(c, "This type of T64 file is not supported.\n");
+		de_err(c, "This type of T64 file is not supported.");
 		goto done;
 	}
 
@@ -93,7 +93,7 @@ static void do_dir_entry(deark *c, lctx *d, de_int64 entry_num, de_int64 pos)
 	de_dbg(c, "c64s filetype=%d, filetype=0x%02x", (int)filetype_c64s, (int)filetype);
 
 	if(filetype==0x00) {
-		de_err(c, "Unsupported file type (0x%02x)\n", (int)filetype);
+		de_err(c, "Unsupported file type (0x%02x)", (int)filetype);
 	}
 	else {
 		do_extract_file(c, d, pos, filetype_c64s, filetype);

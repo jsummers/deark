@@ -96,7 +96,7 @@ static void do_modhelp(deark *c)
 	de_register_modules(c);
 	module_to_use = de_get_module_by_id(c, c->input_format_req);
 	if(!module_to_use) {
-		de_err(c, "Unknown module \"%s\"\n", c->input_format_req);
+		de_err(c, "Unknown module \"%s\"", c->input_format_req);
 		goto done;
 	}
 
@@ -147,7 +147,7 @@ void de_run(deark *c)
 	}
 	else {
 		if(!c->input_filename) {
-			de_err(c, "Internal: Input file not set\n");
+			de_err(c, "Internal: Input file not set");
 			de_fatalerror(c);
 			return;
 		}
@@ -159,7 +159,7 @@ void de_run(deark *c)
 	if(c->input_format_req) {
 		module_to_use = de_get_module_by_id(c, c->input_format_req);
 		if(!module_to_use) {
-			de_err(c, "Unknown module \"%s\"\n", c->input_format_req);
+			de_err(c, "Unknown module \"%s\"", c->input_format_req);
 			goto done;
 		}
 	}
@@ -213,9 +213,9 @@ void de_run(deark *c)
 
 	if(!module_to_use) {
 		if(c->infile->len==0)
-			de_err(c, "Unknown or unsupported file format (empty file)\n");
+			de_err(c, "Unknown or unsupported file format (empty file)");
 		else
-			de_err(c, "Unknown or unsupported file format\n");
+			de_err(c, "Unknown or unsupported file format");
 		goto done;
 	}
 
@@ -224,7 +224,7 @@ void de_run(deark *c)
 	if(module_was_autodetected && (module_to_use->flags&DE_MODFLAG_SECURITYWARNING)) {
 		de_err(c, "The %s module has not been audited for security. There is a "
 			"greater than average chance that it is unsafe to use with untrusted "
-			"input files. Use \"-m %s\" to confirm that you want to use it.\n",
+			"input files. Use \"-m %s\" to confirm that you want to use it.",
 			module_to_use->id, module_to_use->id);
 		goto done;
 	}

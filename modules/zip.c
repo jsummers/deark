@@ -637,7 +637,7 @@ static void do_extract_file(deark *c, lctx *d, struct member_data *md)
 		(int)ldd->cmpr_size);
 
 	if(!is_compression_method_supported(ldd->cmpr_method)) {
-		de_err(c, "Unsupported compression method: %d\n",
+		de_err(c, "Unsupported compression method: %d",
 			(int)ldd->cmpr_method);
 		goto done;
 	}
@@ -777,11 +777,11 @@ static int do_file_header(deark *c, lctx *d, struct member_data *md,
 	sig = de_getui32le(pos);
 	pos += 4;
 	if(is_central && sig!=0x02014b50) {
-		de_err(c, "Invalid central file header at %d\n", (int)pos1);
+		de_err(c, "Invalid central file header at %d", (int)pos1);
 		goto done;
 	}
 	else if(!is_central && sig!=0x04034b50) {
-		de_err(c, "Invalid local file header at %d\n", (int)pos1);
+		de_err(c, "Invalid local file header at %d", (int)pos1);
 		goto done;
 	}
 
@@ -1000,7 +1000,7 @@ static int do_end_of_central_dir(deark *c, lctx *d)
 	if(this_disk_num!=0 || disk_num_with_central_dir_start!=0 ||
 		num_entries_this_disk!=d->central_dir_num_entries)
 	{
-		de_err(c, "Disk spanning not supported\n");
+		de_err(c, "Disk spanning not supported");
 		goto done;
 	}
 
@@ -1064,7 +1064,7 @@ static void de_run_zip(deark *c, de_module_params *mparams)
 	de_declare_fmt(c, "ZIP");
 
 	if(!find_end_of_central_dir(c, d)) {
-		de_err(c, "Not a ZIP file\n");
+		de_err(c, "Not a ZIP file");
 		goto done;
 	}
 

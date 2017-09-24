@@ -136,7 +136,7 @@ static void do_decode_epsi(deark *c, const char *hdrfields, de_int64 pos1)
 
 	ret = de_sscanf(hdrfields, " %d %d %d %d", &width, &height, &depth, &lines);
 	if(ret!=4) {
-		de_err(c, "Failed to parse EPSI header line\n");
+		de_err(c, "Failed to parse EPSI header line");
 		return;
 	}
 	de_dbg(c, "w=%d h=%d d=%d l=%d", width, height, depth, lines);
@@ -149,11 +149,11 @@ static void do_decode_epsi(deark *c, const char *hdrfields, de_int64 pos1)
 		goto done;
 	}
 	if(d->depth!=1 && d->depth!=2 && d->depth!=4 && d->depth!=8) {
-		de_err(c, "Unsupported EPSI bit depth (%d)\n", (int)d->depth);
+		de_err(c, "Unsupported EPSI bit depth (%d)", (int)d->depth);
 		goto done;
 	}
 	if(d->lines>100000 || d->lines<1) {
-		de_err(c, "Bad EPSI header\n");
+		de_err(c, "Bad EPSI header");
 		goto done;
 	}
 
@@ -203,7 +203,7 @@ static void de_run_eps(deark *c, de_module_params *mparams)
 		de_run_eps_normal(c);
 	}
 	else {
-		de_err(c, "Not an EPS file\n");
+		de_err(c, "Not an EPS file");
 	}
 }
 

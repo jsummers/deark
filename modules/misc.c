@@ -217,7 +217,7 @@ static void de_run_sauce(deark *c, de_module_params *mparams)
 	si = de_malloc(c, sizeof(struct de_SAUCE_info));
 	if(de_read_SAUCE(c, c->infile, si)) {
 		de_err(c, "This file has a SAUCE metadata record that identifies it as "
-			"DataType %d, FileType %d, but it is not a supported format.\n",
+			"DataType %d, FileType %d, but it is not a supported format.",
 			(int)si->data_type, (int)si->file_type);
 	}
 	de_free_SAUCE(c, si);
@@ -524,7 +524,7 @@ static void de_run_alias_pix(deark *c, de_module_params *mparams)
 	if(!de_good_image_dimensions(c, w, h)) goto done;
 	if(firstline >= h) goto done;
 	if(depth!=24) {
-		de_err(c, "Unsupported image type\n");
+		de_err(c, "Unsupported image type");
 		goto done;
 	}
 
@@ -900,7 +900,7 @@ static void de_run_vbm(deark *c, de_module_params *mparams)
 	ver = de_getbyte(3);
 	if(ver!=2) {
 		// TODO: Support VBM v3.
-		de_err(c, "Unsupported VBM version (%d)\n", (int)ver);
+		de_err(c, "Unsupported VBM version (%d)", (int)ver);
 		return;
 	}
 	width = de_getui16be(4);
@@ -1180,7 +1180,7 @@ static void de_run_pm_xv(deark *c, de_module_params *mparams)
 	}
 	else {
 		de_err(c, "Unsupported image type (pixel format=0x%04x, "
-			"planes=%d, bands=%d)\n", (unsigned int)pixelformat,
+			"planes=%d, bands=%d)", (unsigned int)pixelformat,
 			(int)nplanes, (int)nbands);
 		goto done;
 	}
@@ -1251,7 +1251,7 @@ static void de_run_crg(deark *c, de_module_params *mparams)
 
 	b1 = de_getbyte(32);
 	if(b1!=0x01) {
-		de_err(c, "Unsupported CRG format\n");
+		de_err(c, "Unsupported CRG format");
 		goto done;
 	}
 
@@ -1371,7 +1371,7 @@ static void de_run_vgafont(deark *c, de_module_params *mparams)
 		height = 14;
 	}
 	else {
-		de_err(c, "Bad file size\n");
+		de_err(c, "Bad file size");
 		goto done;
 	}
 
@@ -1492,7 +1492,7 @@ static void de_run_hsiraw(deark *c, de_module_params *mparams)
 	de_dbg(c, "alpha: %d", (int)alpha_info);
 
 	if(num_pal_colors>256 || cmpr!=0 || alpha_info!=0) {
-		de_err(c, "This type of HSI Raw image is not supported\n");
+		de_err(c, "This type of HSI Raw image is not supported");
 		goto done;
 	}
 	if(!de_good_image_dimensions(c, w, h)) goto done;
@@ -1642,7 +1642,7 @@ static void de_run_vitec(deark *c, de_module_params *mparams)
 	samplesperpixel = de_getui32be(pos+56);
 	de_dbg(c, "samples/pixel: %d", (int)samplesperpixel);
 	if(samplesperpixel!=1 && samplesperpixel!=3) {
-		de_err(c, "Unsupported samples/pixel: %d\n", (int)samplesperpixel);
+		de_err(c, "Unsupported samples/pixel: %d", (int)samplesperpixel);
 		goto done;
 	}
 

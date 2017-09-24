@@ -328,7 +328,7 @@ static void de_run_psf(deark *c, de_module_params *mparams)
 		d->version=2;
 	}
 	else {
-		de_err(c, "Not a PSF file\n");
+		de_err(c, "Not a PSF file");
 		goto done;
 	}
 
@@ -353,7 +353,7 @@ static void de_run_psf(deark *c, de_module_params *mparams)
 		d->glyph_height<1 || d->glyph_height>256 ||
 		d->num_glyphs<1 || d->num_glyphs>2000000)
 	{
-		de_err(c, "Invalid or unsupported PSF file\n");
+		de_err(c, "Invalid or unsupported PSF file");
 		goto done;
 	}
 

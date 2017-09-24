@@ -199,7 +199,7 @@ static int handler_11(deark *c, lctx *d, de_int64 opcode, de_int64 data_pos, de_
 		d->version = 2;
 	}
 	else if(ver!=1) {
-		de_err(c, "Unsupported PICT version: %d\n", (int)ver);
+		de_err(c, "Unsupported PICT version: %d", (int)ver);
 		return 0;
 	}
 	return 1;
@@ -474,13 +474,13 @@ static int get_pixdata_size(deark *c, lctx *d, struct bitmapinfo *bi,
 	de_dbg_indent(c, 1);
 
 	if(bi->height<1 || bi->height>65535) {
-		de_err(c, "Invalid bitmap height (%d)\n", (int)bi->height);
+		de_err(c, "Invalid bitmap height (%d)", (int)bi->height);
 		goto done;
 	}
 
 	// Make sure rowbytes is sane. We use it to decide how much memory to allocate.
 	if(bi->rowbytes > (bi->width * bi->pixelsize)/8 + 100) {
-		de_err(c, "Bad rowBytes value (%d)\n", (int)bi->rowbytes);
+		de_err(c, "Bad rowBytes value (%d)", (int)bi->rowbytes);
 		goto done;
 	}
 
@@ -501,7 +501,7 @@ static int get_pixdata_size(deark *c, lctx *d, struct bitmapinfo *bi,
 		pos += bi->rowbytes * bi->height; // uncompressed
 	}
 	else {
-		de_err(c, "Unsupported packing type: %d\n", (int)bi->packing_type);
+		de_err(c, "Unsupported packing type: %d", (int)bi->packing_type);
 		goto done;
 	}
 
@@ -689,23 +689,23 @@ static int decode_pixdata(deark *c, lctx *d, struct bitmapinfo *bi, de_int64 pos
 	if(!de_good_image_dimensions(c, bi->width, bi->height)) goto done;
 
 	if(bi->pixelsize!=1 && bi->pixelsize!=8 && bi->pixelsize!=16 && bi->pixelsize!=24 && bi->pixelsize!=32) {
-		de_err(c, "%d bits/pixel images are not supported\n", (int)bi->pixelsize);
+		de_err(c, "%d bits/pixel images are not supported", (int)bi->pixelsize);
 		goto done;
 	}
 	if((bi->uses_pal && bi->pixeltype!=0) || (!bi->uses_pal && bi->pixeltype!=16)) {
-		de_err(c, "Pixel type %d is not supported\n", (int)bi->pixeltype);
+		de_err(c, "Pixel type %d is not supported", (int)bi->pixeltype);
 		goto done;
 	}
 	if(bi->cmpcount!=1 && bi->cmpcount!=3 && bi->cmpcount!=4) {
-		de_err(c, "Component count %d is not supported\n", (int)bi->cmpcount);
+		de_err(c, "Component count %d is not supported", (int)bi->cmpcount);
 		goto done;
 	}
 	if(bi->cmpsize!=1 && bi->cmpsize!=5 && bi->cmpsize!=8) {
-		de_err(c, "%d-bit components are not supported\n", (int)bi->cmpsize);
+		de_err(c, "%d-bit components are not supported", (int)bi->cmpsize);
 		goto done;
 	}
 	if(bi->packing_type!=0 && bi->packing_type!=3 && bi->packing_type!=4) {
-		de_err(c, "Packing type %d is not supported\n", (int)bi->packing_type);
+		de_err(c, "Packing type %d is not supported", (int)bi->packing_type);
 		goto done;
 	}
 	if((bi->uses_pal && bi->packing_type==0 && bi->pixelsize==1 && bi->cmpcount==1 && bi->cmpsize==1) ||
@@ -717,7 +717,7 @@ static int decode_pixdata(deark *c, lctx *d, struct bitmapinfo *bi, de_int64 pos
 		;
 	}
 	else {
-		de_err(c, "This type of image is not supported\n");
+		de_err(c, "This type of image is not supported");
 		goto done;
 	}
 
@@ -772,7 +772,7 @@ static int handler_98_9a(deark *c, lctx *d, de_int64 opcode, de_int64 pos1, de_i
 		bi->pal[1] = DE_STOCKCOLOR_BLACK;
 	}
 	else if(opcode==0x9a && !bi->pixmap_flag) {
-		de_err(c, "DirectBitsRect image without PixMap flag is not supported\n");
+		de_err(c, "DirectBitsRect image without PixMap flag is not supported");
 		goto done;
 	}
 
@@ -985,7 +985,7 @@ static int do_handle_item(deark *c, lctx *d, de_int64 opcode_pos, de_int64 opcod
 		ret = 1;
 	}
 	else {
-		de_err(c, "Unsupported opcode: 0x%04x\n", (unsigned int)opcode);
+		de_err(c, "Unsupported opcode: 0x%04x", (unsigned int)opcode);
 	}
 
 	return ret;

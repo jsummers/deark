@@ -207,7 +207,7 @@ static void de_run_grob_text(deark *c, lctx *d)
 	}
 
 	if(img_count==0) {
-		de_err(c, "Unknown or unsupported GROB format\n");
+		de_err(c, "Unknown or unsupported GROB format");
 	}
 }
 
@@ -225,7 +225,7 @@ static void de_run_grob(deark *c, de_module_params *mparams)
 	}
 	if(d->num_planes<1) d->num_planes=1;
 	if(d->num_planes>8) {
-		de_err(c, "Unsupported grob:planes option\n");
+		de_err(c, "Unsupported grob:planes option");
 		goto done;
 	}
 

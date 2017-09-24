@@ -337,6 +337,7 @@ void de_err(deark *c, const char *fmt, ...)
 	va_start(ap, fmt);
 	de_vprintf(c, DE_MSGTYPE_ERROR, fmt, ap);
 	va_end(ap);
+	de_puts(c, DE_MSGTYPE_ERROR, "\n");
 }
 
 void de_warn(deark *c, const char *fmt, ...)
@@ -377,14 +378,14 @@ void *de_malloc(deark *c, de_int64 n)
 	void *m;
 	if(n==0) n=1;
 	if(n<0 || n>500000000) {
-		de_err(c, "Out of memory (%d bytes requested)\n",(int)n);
+		de_err(c, "Out of memory (%d bytes requested)",(int)n);
 		de_fatalerror(c);
 		return NULL;
 	}
 
 	m = calloc((size_t)n,1);
 	if(!m) {
-		de_err(c, "Memory allocation failed (%d bytes)\n",(int)n);
+		de_err(c, "Memory allocation failed (%d bytes)",(int)n);
 		de_fatalerror(c);
 		return NULL;
 	}
@@ -404,7 +405,7 @@ void *de_realloc(deark *c, void *oldmem, de_int64 oldsize, de_int64 newsize)
 
 	newmem = realloc(oldmem, (size_t)newsize);
 	if(!newmem) {
-		de_err(c, "Memory reallocation failed (%d bytes)\n",(int)newsize);
+		de_err(c, "Memory reallocation failed (%d bytes)",(int)newsize);
 		free(oldmem);
 		de_fatalerror(c);
 		return NULL;
@@ -650,7 +651,7 @@ int de_run_module_by_id(deark *c, const char *id, de_module_params *mparams)
 
 	module_to_use = de_get_module_by_id(c, id);
 	if(!module_to_use) {
-		de_err(c, "Unknown or unsupported format \"%s\"\n", id);
+		de_err(c, "Unknown or unsupported format \"%s\"", id);
 		return 0;
 	}
 

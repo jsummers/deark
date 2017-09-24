@@ -289,9 +289,9 @@ static int do_gem_ximg(deark *c, lctx *d)
 	}
 	else {
 		if(d->is_ximg)
-			de_err(c, "%d-plane XIMG images are not supported\n", (int)d->nplanes);
+			de_err(c, "%d-plane XIMG images are not supported", (int)d->nplanes);
 		else
-			de_err(c, "This type of %d-plane image is not supported\n", (int)d->nplanes);
+			de_err(c, "This type of %d-plane image is not supported", (int)d->nplanes);
 		goto done;
 	}
 
@@ -369,7 +369,7 @@ static void de_run_gemraster(deark *c, de_module_params *mparams)
 	}
 
 	if(ver>2) {
-		de_err(c, "This version of GEM Raster (%d) is not supported.\n", (int)ver);
+		de_err(c, "This version of GEM Raster (%d) is not supported.", (int)ver);
 		goto done;
 	}
 
@@ -389,7 +389,7 @@ static void de_run_gemraster(deark *c, de_module_params *mparams)
 		need_format_warning = 1;
 	}
 	else {
-		de_err(c, "This version of GEM Raster is not supported.\n");
+		de_err(c, "This version of GEM Raster is not supported.");
 		goto done;
 	}
 

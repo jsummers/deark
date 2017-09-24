@@ -300,7 +300,7 @@ static int uuencode_read_header(deark *c, lctx *d)
 		line_count++;
 	}
 
-	de_err(c, "Unrecognized file format\n");
+	de_err(c, "Unrecognized file format");
 	d->hdr_line_type = 0;
 	return 0;
 }
@@ -365,7 +365,7 @@ static void do_uudecode_internal(deark *c, lctx *d, dbuf *outf)
 					// Assume this is the "end" footer line.
 					goto done;
 				}
-				de_err(c, "Bad uuencoded data (offset %d)\n", (int)pos);
+				de_err(c, "Bad uuencoded data (offset %d)", (int)pos);
 				goto done;
 			}
 
@@ -670,7 +670,7 @@ static int do_ascii85_read_btoa_end_line(deark *c, lctx *d, de_int64 linenum,
 
 	de_dbg(c, "btoa footer at line %d", (int)linenum);
 	if(de_sscanf((const char *)linebuf, "xbtoa End N %ld ", &filesize1) != 1) {
-		de_err(c, "Bad btoa End line\n");
+		de_err(c, "Bad btoa End line");
 		return 0;
 	}
 
@@ -694,13 +694,13 @@ static void do_ascii85_btoa(deark *c, lctx *d, dbuf *f)
 
 	while(1) {
 		if(!dbuf_find_line(c->infile, pos, &content_len, &total_len)) {
-			de_err(c, "Bad Ascii85 format at line %d\n", (int)linenum);
+			de_err(c, "Bad Ascii85 format at line %d", (int)linenum);
 			goto done;
 		}
 		linenum++;
 
 		if(content_len > (de_int64)(sizeof(linebuf)-1)) {
-			de_err(c, "Line %d too long\n", (int)linenum);
+			de_err(c, "Line %d too long", (int)linenum);
 			goto done;
 		}
 		de_read(linebuf, pos, content_len);
@@ -733,7 +733,7 @@ static void do_ascii85_btoa(deark *c, lctx *d, dbuf *f)
 	do_ascii85_flush(c, d, f);
 
 	if(d->output_filesize_known && (d->bytes_written != d->output_filesize)) {
-		de_err(c, "Expected output file size=%d, actual size=%d\n", (int)d->output_filesize,
+		de_err(c, "Expected output file size=%d, actual size=%d", (int)d->output_filesize,
 			(int)d->bytes_written);
 	}
 
@@ -787,7 +787,7 @@ static void de_run_ascii85(deark *c, de_module_params *mparams)
 	d->ascii85_fmt = ascii85_detect_fmt(c);
 	if(d->ascii85_fmt==0) {
 		// TODO: Scan the file to try to detect the format.
-		de_err(c, "Unknown Ascii85 format\n");
+		de_err(c, "Unknown Ascii85 format");
 		goto done;
 	}
 

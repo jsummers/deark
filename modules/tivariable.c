@@ -75,7 +75,7 @@ static int do_bitmap(deark *c, lctx *d, de_int64 pos)
 	rowspan = (d->w+7)/8;
 
 	if(pos+rowspan*d->h > c->infile->len) {
-		de_err(c, "Unexpected end of file\n");
+		de_err(c, "Unexpected end of file");
 		goto done;
 	}
 
@@ -101,7 +101,7 @@ static int do_bitmap_8ca(deark *c, lctx *d, de_int64 pos)
 	rowspan = (((d->w * 16)+31)/32)*4; // Uses 4-byte alignment, apparently
 
 	if(pos+rowspan*d->h > c->infile->len) {
-		de_err(c, "Unexpected end of file\n");
+		de_err(c, "Unexpected end of file");
 		goto done;
 	}
 	if(!de_good_image_dimensions(c, d->w, d->h)) goto done;
@@ -141,7 +141,7 @@ static int do_bitmap_8ci(deark *c, lctx *d, de_int64 pos)
 	rowspan = (d->w + 1) / 2;
 
 	if(pos+rowspan*d->h > c->infile->len) {
-		de_err(c, "Unexpected end of file\n");
+		de_err(c, "Unexpected end of file");
 		goto done;
 	}
 	if(!de_good_image_dimensions(c, d->w, d->h)) goto done;
@@ -258,7 +258,7 @@ static void do_ti83(deark *c, lctx *d)
 	de_dbg(c, "data section size: %d", (int)data_section_size);
 	data_section_end = 55+data_section_size;
 	if(data_section_end > c->infile->len) {
-		de_err(c, "Data section goes beyond end of file\n");
+		de_err(c, "Data section goes beyond end of file");
 		goto done;
 	}
 
@@ -307,7 +307,7 @@ static void do_ti85(deark *c, lctx *d)
 	de_dbg(c, "data section size: %d", (int)data_section_size);
 	data_section_end = 55+data_section_size;
 	if(data_section_end > c->infile->len) {
-		de_err(c, "Data section goes beyond end of file\n");
+		de_err(c, "Data section goes beyond end of file");
 		goto done;
 	}
 
@@ -411,7 +411,7 @@ static void de_run_tivariable(deark *c, de_module_params *mparams)
 	d->fmt = identify_internal(c);
 
 	if(!ti_ver_info_arr[d->fmt].decoder_fn) {
-		de_err(c, "Unknown or unsupported TI variable file version\n");
+		de_err(c, "Unknown or unsupported TI variable file version");
 		goto done;
 	}
 

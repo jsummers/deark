@@ -125,7 +125,7 @@ void dbuf_read(dbuf *f, de_byte *buf, de_int64 pos, de_int64 len)
 	switch(f->btype) {
 	case DBUF_TYPE_IFILE:
 		if(!f->fp) {
-			de_err(c, "Internal: File not open\n");
+			de_err(c, "Internal: File not open");
 			de_fatalerror(c);
 			return;
 		}
@@ -156,7 +156,7 @@ void dbuf_read(dbuf *f, de_byte *buf, de_int64 pos, de_int64 len)
 		break;
 
 	default:
-		de_err(c, "Internal: getbytes from this I/O type not implemented\n");
+		de_err(c, "Internal: getbytes from this I/O type not implemented");
 		de_fatalerror(c);
 		return;
 	}
@@ -468,7 +468,7 @@ void dbuf_copy(dbuf *inf, de_int64 input_offset, de_int64 input_len, dbuf *outf)
 
 	// To do: fail if input data goes far beyond the end of the input file.
 	if(input_len > DE_MAX_FILE_SIZE) {
-		de_err(inf->c, "File %s too large (%" INT64_FMT ")\n",outf->name,input_len);
+		de_err(inf->c, "File %s too large (%" INT64_FMT ")",outf->name,input_len);
 		return;
 	}
 
@@ -775,7 +775,7 @@ dbuf *dbuf_create_output_file(deark *c, const char *ext, de_finfo *fi,
 		f->fp = de_fopen_for_write(c, f->name, msgbuf, sizeof(msgbuf));
 
 		if(!f->fp) {
-			de_err(c, "Failed to write %s: %s\n", f->name, msgbuf);
+			de_err(c, "Failed to write %s: %s", f->name, msgbuf);
 			f->btype = DBUF_TYPE_NULL;
 		}
 	}
@@ -855,7 +855,7 @@ void dbuf_write(dbuf *f, const de_byte *m, de_int64 len)
 		return;
 	}
 
-	de_err(f->c, "Internal: Invalid output file type (%d)\n", f->btype);
+	de_err(f->c, "Internal: Invalid output file type (%d)", f->btype);
 }
 
 void dbuf_writebyte(dbuf *f, de_byte n)
@@ -1006,7 +1006,7 @@ dbuf *dbuf_open_input_file(deark *c, const char *fn)
 	f->fp = de_fopen_for_read(c, fn, &f->len, msgbuf, sizeof(msgbuf), &returned_flags);
 
 	if(!f->fp) {
-		de_err(c, "Can't read %s: %s\n", fn, msgbuf);
+		de_err(c, "Can't read %s: %s", fn, msgbuf);
 		de_free(c, f);
 		return NULL;
 	}
@@ -1099,7 +1099,7 @@ void dbuf_close(dbuf *f)
 	else if(f->btype==DBUF_TYPE_NULL) {
 	}
 	else {
-		de_err(c, "Internal: Don't know how to close this type of file (%d)\n", f->btype);
+		de_err(c, "Internal: Don't know how to close this type of file (%d)", f->btype);
 	}
 
 	de_free(c, f->membuf_buf);

@@ -672,7 +672,7 @@ static void push_ifd(deark *c, lctx *d, de_int64 ifdpos, int ifdtype)
 		return;
 	}
 	if(!de_inthashtable_add_item(c, d->ifds_seen, ifdpos)) {
-		de_err(c, "IFD loop detected\n");
+		de_err(c, "IFD loop detected");
 		return;
 	}
 	d->ifd_count++;

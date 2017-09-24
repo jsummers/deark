@@ -87,7 +87,7 @@ static int do_ar_item(deark *c, lctx *d, de_int64 pos1, de_int64 *p_item_len)
 	}
 	else if(name_orig[0]=='/' && name_orig[1]>='0' && name_orig[1]<='9') {
 		if(d->extended_name_table_pos==0) {
-			de_err(c, "Missing extended name table\n");
+			de_err(c, "Missing extended name table");
 			goto done;
 		}
 

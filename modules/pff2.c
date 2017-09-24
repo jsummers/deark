@@ -75,7 +75,7 @@ static void do_code_chix(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 		de_dbg2(c, "code point U+%04X, index at %d, definition at %d",
 			(unsigned int)codepoint, (int)pos, (int)defpos);
 		if((storage_flags&0x07)!=0) {
-			de_err(c, "Compressed PFF2 format is not supported\n");
+			de_err(c, "Compressed PFF2 format is not supported");
 			goto done;
 		}
 		de_dbg_indent(c, 1);

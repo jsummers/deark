@@ -134,14 +134,14 @@ static void de_run_alphabmp(deark *c, de_module_params *mparams)
 
 	if(d->has_palette) {
 		if(d->palette_is_hls && d->bpp<=8) {
-			de_err(c, "HLS palettes are not supported\n");
+			de_err(c, "HLS palettes are not supported");
 			goto done;
 		}
 		if(!do_read_palette(c, d, pos, &palsize)) goto done;
 		pos += palsize;
 	}
 	else if(d->bpp<=8) {
-		de_err(c, "Paletted images without an embedded palette are not supported\n");
+		de_err(c, "Paletted images without an embedded palette are not supported");
 		goto done;
 	}
 
@@ -157,7 +157,7 @@ static void de_run_alphabmp(deark *c, de_module_params *mparams)
 	}
 
 	if(d->bpp!=1 && d->bpp!=4 && d->bpp!=8 && d->bpp!=24) {
-		de_err(c, "%d bits/pixel is not supported\n", (int)d->bpp);
+		de_err(c, "%d bits/pixel is not supported", (int)d->bpp);
 		goto done;
 	}
 

@@ -158,7 +158,7 @@ static void de_run_jovianvi(deark *c, de_module_params *mparams)
 		has_palette = 1;
 		break;
 	default:
-		de_err(c, "Unknown VI image type: 0x%02x\n", (unsigned int)d->imgtype);
+		de_err(c, "Unknown VI image type: 0x%02x", (unsigned int)d->imgtype);
 		goto done;
 	}
 
@@ -175,7 +175,7 @@ static void de_run_jovianvi(deark *c, de_module_params *mparams)
 	de_dbg(c, "%d bits/pixel, %s", (int)d->bitdepth, imgtypename);
 	de_dbg_indent(c, -1);
 	if(is_grayscale && (d->bitdepth!=1 && d->bitdepth!=4 && d->bitdepth!=6 && d->bitdepth!=8)) {
-		de_err(c, "This type of VI image is not supported\n");
+		de_err(c, "This type of VI image is not supported");
 		goto done;
 	}
 

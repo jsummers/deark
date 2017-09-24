@@ -223,7 +223,7 @@ static int do_read_main_icon(deark *c, lctx *d,
 		(int)depth);
 
 	if(depth<1 || depth>8) {
-		de_err(c, "Unsupported bit depth (%d)\n", (int)depth);
+		de_err(c, "Unsupported bit depth (%d)", (int)depth);
 		goto done;
 	}
 
@@ -310,7 +310,7 @@ static int do_read_tooltypes_table(deark *c, lctx *d,
 		len = de_getui32be(pos);
 		pos+=4;
 		if(len>10000) {
-			de_err(c, "Bad ToolTypes data\n");
+			de_err(c, "Bad ToolTypes data");
 			goto done;
 		}
 		tpos=pos; // Remember where the text starts
@@ -410,7 +410,7 @@ static void do_glowicons_IMAG(deark *c, lctx *d,
 
 	if(d->glowicons_width<1) {
 		// We must not have found a FACE chunk yet.
-		de_err(c, "Invalid GlowIcons data\n");
+		de_err(c, "Invalid GlowIcons data");
 		goto done;
 	}
 
@@ -427,14 +427,14 @@ static void do_glowicons_IMAG(deark *c, lctx *d,
 	cmpr_type = de_getbyte(pos+3);
 	de_dbg(c, "compression type: %d", cmpr_type);
 	if(cmpr_type!=0 && cmpr_type!=1) {
-		de_err(c, "Unsupported compression type\n");
+		de_err(c, "Unsupported compression type");
 		goto done;
 	}
 
 	if(cmpr_type!=1) {
 		// TODO uncompressed images (Need sample files. I don't know how
 		// they are structured.)
-		de_err(c, "Uncompressed images are not supported\n");
+		de_err(c, "Uncompressed images are not supported");
 		goto done;
 	}
 
@@ -442,7 +442,7 @@ static void do_glowicons_IMAG(deark *c, lctx *d,
 		pal_cmpr_type = de_getbyte(pos+4);
 		de_dbg(c, "palette compression type: %d", pal_cmpr_type);
 		if(pal_cmpr_type!=0 && pal_cmpr_type!=1) {
-			de_err(c, "Unsupported palette compression type\n");
+			de_err(c, "Unsupported palette compression type");
 			goto done;
 		}
 	}
@@ -451,7 +451,7 @@ static void do_glowicons_IMAG(deark *c, lctx *d,
 	de_dbg(c, "bits per pixel: %d", (int)bits_per_pixel);
 
 	if(bits_per_pixel<1 || bits_per_pixel>8) {
-		de_err(c, "Invalid or unsupported bits per pixel (%d)\n", (int)bits_per_pixel);
+		de_err(c, "Invalid or unsupported bits per pixel (%d)", (int)bits_per_pixel);
 		goto done;
 	}
 

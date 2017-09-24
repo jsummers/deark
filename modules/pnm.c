@@ -232,7 +232,7 @@ static int read_pam_header(deark *c, lctx *d, struct page_ctx *pg, de_int64 pos1
 		pos += total_len;
 
 		if(!ret) {
-			de_err(c, "Invalid PAM header\n");
+			de_err(c, "Invalid PAM header");
 			goto done;
 		}
 
@@ -278,7 +278,7 @@ static int read_pam_header(deark *c, lctx *d, struct page_ctx *pg, de_int64 pos1
 			// But I doubt any real PAM encoders are pathological enough to
 			// require us to support its wackiness.
 			if(tupltype_line_count>0) {
-				de_err(c, "Multiple TUPLTYPE lines are not supported\n");
+				de_err(c, "Multiple TUPLTYPE lines are not supported");
 				goto done;
 			}
 			tupltype_line_count++;
@@ -307,7 +307,7 @@ static int read_pam_header(deark *c, lctx *d, struct page_ctx *pg, de_int64 pos1
 				pg->has_alpha = 1;
 			}
 			else {
-				de_err(c, "Unsupported color type\n");
+				de_err(c, "Unsupported color type");
 				goto done;
 			}
 		}
@@ -486,7 +486,7 @@ static int do_image_pgm_ppm_pam_binary(deark *c, lctx *d, struct page_ctx *pg, d
 			;
 		}
 		else {
-			de_err(c, "Unsupported PAM format\n");
+			de_err(c, "Unsupported PAM format");
 			goto done;
 		}
 	}
@@ -498,7 +498,7 @@ static int do_image_pgm_ppm_pam_binary(deark *c, lctx *d, struct page_ctx *pg, d
 	}
 
 	if(nsamples<1 || nsamples>4) {
-		de_err(c, "Unsupported number of samples: %d\n", (int)nsamples);
+		de_err(c, "Unsupported number of samples: %d", (int)nsamples);
 	}
 
 	if(pg->maxval<=255) bytes_per_sample=1;
@@ -558,7 +558,7 @@ static int do_image(deark *c, lctx *d, struct page_ctx *pg, de_int64 pos1)
 	de_dbg_indent(c, 1);
 
 	if(pg->maxval<1 || pg->maxval>65535) {
-		de_err(c, "Invalid maxval: %d\n", (int)pg->maxval);
+		de_err(c, "Invalid maxval: %d", (int)pg->maxval);
 		goto done;
 	}
 	if(!de_good_image_dimensions(c, pg->width, pg->height)) goto done;
@@ -580,7 +580,7 @@ static int do_image(deark *c, lctx *d, struct page_ctx *pg, de_int64 pos1)
 		if(!do_image_pgm_ppm_pam_binary(c, d, pg, pos1)) goto done;
 		break;
 	default:
-		de_err(c, "Unsupported PNM format\n");
+		de_err(c, "Unsupported PNM format");
 		goto done;
 	}
 
@@ -634,7 +634,7 @@ static int do_page(deark *c, lctx *d, int pagenum, de_int64 pos1)
 	d->last_fmt = pg->fmt;
 	pg->fmt_name = get_fmt_name(pg->fmt);
 	if(pg->fmt==0) {
-		de_err(c, "Not PNM/PAM format\n");
+		de_err(c, "Not PNM/PAM format");
 		goto done;
 	}
 

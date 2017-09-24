@@ -354,11 +354,11 @@ static void de_run_prismpaint(deark *c, de_module_params *mparams)
 	if(adata->bpp!=1 && adata->bpp!=2 && adata->bpp!=4
 		&& adata->bpp!=8 && adata->bpp!=16)
 	{
-		de_err(c, "Unsupported bits/pixel (%d)\n", (int)adata->bpp);
+		de_err(c, "Unsupported bits/pixel (%d)", (int)adata->bpp);
 		goto done;
 	}
 	if(d->compression_code!=0 && d->compression_code!=1) {
-		de_err(c, "Unsupported compression (%d)\n", (int)d->compression_code);
+		de_err(c, "Unsupported compression (%d)", (int)d->compression_code);
 		goto done;
 	}
 	if(adata->bpp==16 && d->compression_code!=0) {
@@ -831,7 +831,7 @@ static void de_run_tinystuff(deark *c, de_module_params *mparams)
 		adata->h = 400;
 		break;
 	default:
-		de_err(c, "Invalid resolution code (%d). This is not a Tiny Stuff file.\n",
+		de_err(c, "Invalid resolution code (%d). This is not a Tiny Stuff file.",
 			(int)d->res_code);
 		goto done;
 	}
@@ -979,7 +979,7 @@ static void de_run_neochrome(deark *c, de_module_params *mparams)
 	resolution_code = (unsigned int)de_getui16be(2);
 	de_dbg(c, "resolution code: %u", resolution_code);
 	if(resolution_code!=0) {
-		de_err(c, "Invalid or unsupported NEOchrome image (resolution=%d)\n", (int)resolution_code);
+		de_err(c, "Invalid or unsupported NEOchrome image (resolution=%d)", (int)resolution_code);
 		goto done;
 	}
 

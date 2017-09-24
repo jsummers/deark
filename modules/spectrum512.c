@@ -302,7 +302,7 @@ static void do_run_spectrum512c_s_internal(deark *c, de_module_params *mparams, 
 	pal_pos = pos + pixels_cmpr_len;
 
 	if(pal_pos + pal_cmpr_len > c->infile->len) {
-		de_err(c, "Invalid or truncated file\n");
+		de_err(c, "Invalid or truncated file");
 		goto done;
 	}
 

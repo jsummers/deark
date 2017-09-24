@@ -55,7 +55,7 @@ static int do_process_frame(deark *c, lctx *d, de_int64 pos1, de_int64 *bytes_co
 	*bytes_consumed += 8;
 	pos += 8;
 	if(pos + frame_payload_size > c->infile->len) {
-		de_err(c, "Frame goes beyond end of file\n");
+		de_err(c, "Frame goes beyond end of file");
 		retval = 0;
 		goto done;
 	}
@@ -87,7 +87,7 @@ static int do_process_frame(deark *c, lctx *d, de_int64 pos1, de_int64 *bytes_co
 		break;
 
 	default:
-		de_err(c, "Unknown frame type (%d)\n", (int)frame_type);
+		de_err(c, "Unknown frame type (%d)", (int)frame_type);
 		retval = 0;
 		break;
 	}

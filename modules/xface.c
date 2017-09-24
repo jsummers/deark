@@ -138,7 +138,7 @@ static int cfi_get_next_token_lowlevel(deark *c, struct compfacei_ctx *cfictx)
 	retval = 1;
 done:
 	if(!retval) {
-		de_err(c, "Error parsing Compface format\n");
+		de_err(c, "Error parsing Compface format");
 	}
 	return retval;
 }

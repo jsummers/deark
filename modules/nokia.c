@@ -226,7 +226,7 @@ static void nsl_read_bitmap(deark *c, lctx *d, de_int64 pos, de_int64 len)
 	d->done_flag = 1;
 
 	if(len!=504) {
-		de_err(c, "Unsupported NSL version (bitmap size=%d)\n", (int)len);
+		de_err(c, "Unsupported NSL version (bitmap size=%d)", (int)len);
 		goto done;
 	}
 

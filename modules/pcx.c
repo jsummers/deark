@@ -93,7 +93,7 @@ static int do_read_header(deark *c, lctx *d)
 	d->bits_per_pixel = d->bits * d->planes;
 
 	if(d->encoding!=0 && d->encoding!=1) {
-		de_err(c, "Unsupported compression type: %d\n", (int)d->encoding);
+		de_err(c, "Unsupported compression type: %d", (int)d->encoding);
 		goto done;
 	}
 
@@ -142,7 +142,7 @@ static int do_read_header(deark *c, lctx *d)
 		d->has_transparency = 1;
 	}
 	else {
-		de_err(c, "Unsupported image type (bits=%d, planes=%d)\n",
+		de_err(c, "Unsupported image type (bits=%d, planes=%d)",
 			(int)d->bits, (int)d->planes);
 		goto done;
 	}
@@ -151,7 +151,7 @@ static int do_read_header(deark *c, lctx *d)
 
 	// Sanity check
 	if(d->rowspan > d->width * 4 + 100) {
-		de_err(c, "Bad bytes/line (%d)\n", (int)d->rowspan_raw);
+		de_err(c, "Bad bytes/line (%d)", (int)d->rowspan_raw);
 		goto done;
 	}
 
@@ -461,7 +461,7 @@ static void do_bitmap(deark *c, lctx *d)
 		do_bitmap_24bpp(c, d);
 	}
 	else {
-		de_err(c, "Unsupported bits/pixel: %d\n", (int)d->bits_per_pixel);
+		de_err(c, "Unsupported bits/pixel: %d", (int)d->bits_per_pixel);
 	}
 }
 

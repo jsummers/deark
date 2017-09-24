@@ -469,7 +469,7 @@ static void do_lx_or_le_ext_header(deark *c, lctx *d, de_int64 pos)
 	x2 = (de_byte)de_getbyte(pos+3);
 	de_dbg(c, "byte order, word order: %d, %d", (int)x1, (int)x2);
 	if(x1!=0 || x2!=0) {
-		de_err(c, "Unsupported byte order.\n");
+		de_err(c, "Unsupported byte order.");
 		return;
 	}
 
@@ -578,7 +578,7 @@ static void do_extract_ico_cur(deark *c, lctx *d, de_int64 pos, de_int64 len,
 	// ICO header, but I don't know exactly how it's connected to the icon image(s).
 
 	if(!de_fmtutil_get_bmpinfo(c, c->infile, &bi, pos, len, DE_BMPINFO_ICO_FORMAT)) {
-		de_err(c, "Invalid bitmap\n");
+		de_err(c, "Invalid bitmap");
 		return;
 	}
 
@@ -790,7 +790,7 @@ static void do_pe_resource_node(deark *c, lctx *d, de_int64 rel_pos, int level)
 
 	d->rsrc_item_count++;
 	if(d->rsrc_item_count>MAX_RESOURCES) {
-		de_err(c, "Too many resources.\n");
+		de_err(c, "Too many resources.");
 		goto done;
 	}
 
@@ -1035,7 +1035,7 @@ static void do_ne_rsrc_tbl(deark *c, lctx *d)
 	de_dbg(c, "rscAlignShift: %u", d->ne_align_shift);
 	pos += 2;
 	if(d->ne_align_shift>24) {
-		de_err(c, "Unreasonable rscAlignShift setting\n");
+		de_err(c, "Unreasonable rscAlignShift setting");
 		goto done;
 	}
 
@@ -1074,7 +1074,7 @@ static void do_ne_rsrc_tbl(deark *c, lctx *d)
 		tot_resources += rsrc_count;
 
 		if(tot_resources>MAX_RESOURCES) {
-			de_err(c, "Too many resources, or invalid resource table.\n");
+			de_err(c, "Too many resources, or invalid resource table.");
 			goto done;
 		}
 
@@ -1136,7 +1136,7 @@ static void do_lx_rsrc(deark *c, lctx *d,
 	//de_int64 data_size;
 
 	if(obj_num<1 || obj_num>d->lx_object_tbl_entries) {
-		de_err(c, "Invalid object number (%d).\n", (int)obj_num);
+		de_err(c, "Invalid object number (%d).", (int)obj_num);
 		return;
 	}
 
@@ -1198,7 +1198,7 @@ static void do_lx_or_le_rsrc_tbl(deark *c, lctx *d)
 
 	de_dbg(c, "%s resource table at %d", d->fmt==EXE_FMT_LE?"LE":"LX", (int)d->lx_rsrc_tbl_offset);
 	if(d->lx_rsrc_tbl_entries>MAX_RESOURCES) {
-		de_err(c, "Too many resources.\n");
+		de_err(c, "Too many resources.");
 		return;
 	}
 

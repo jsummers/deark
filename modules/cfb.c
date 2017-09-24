@@ -270,13 +270,13 @@ static int do_header(deark *c, lctx *d)
 	d->major_ver = de_getui16le(pos+26);
 	de_dbg(c, "format version: %d.%d", (int)d->major_ver, (int)d->minor_ver);
 	if(d->major_ver!=3 && d->major_ver!=4) {
-		de_err(c, "Unsupported format version: %d\n", (int)d->major_ver);
+		de_err(c, "Unsupported format version: %d", (int)d->major_ver);
 		goto done;
 	}
 
 	byte_order_code = de_getui16le(pos+28);
 	if(byte_order_code != 0xfffe) {
-		de_err(c, "Unsupported byte order code: 0x%04x\n", (unsigned int)byte_order_code);
+		de_err(c, "Unsupported byte order code: 0x%04x", (unsigned int)byte_order_code);
 		goto done;
 	}
 
@@ -285,7 +285,7 @@ static int do_header(deark *c, lctx *d)
 	de_dbg(c, "sector size: 2^%d (%d bytes)", (int)sector_shift,
 		(int)d->sec_size);
 	if(d->sec_size!=512 && d->sec_size!=4096) {
-		de_err(c, "Unsupported sector size: %d\n", (int)d->sec_size);
+		de_err(c, "Unsupported sector size: %d", (int)d->sec_size);
 		goto done;
 	}
 
@@ -294,7 +294,7 @@ static int do_header(deark *c, lctx *d)
 	de_dbg(c, "mini sector size: 2^%d (%d bytes)", (int)mini_sector_shift,
 		(int)d->mini_sector_size);
 	if(d->mini_sector_size!=64) {
-		de_err(c, "Unsupported mini sector size: %d\n", (int)d->mini_sector_size);
+		de_err(c, "Unsupported mini sector size: %d", (int)d->mini_sector_size);
 		goto done;
 	}
 

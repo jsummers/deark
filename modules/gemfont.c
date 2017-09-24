@@ -37,7 +37,7 @@ static int do_characters(deark *c, lctx *d)
 
 	form_nbytes = d->form_width_bytes * d->form_height_pixels;
 	if(d->font_data_pos + form_nbytes > c->infile->len) {
-		de_err(c, "Font data goes beyond end of file\n");
+		de_err(c, "Font data goes beyond end of file");
 		goto done;
 	}
 	font_data = de_malloc(c, form_nbytes);

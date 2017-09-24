@@ -76,7 +76,7 @@ static int do_read_header(deark *c, lctx *d, de_int64 pos)
 	pos+=4;
 
 	if(d->ver_major<1 || d->ver_major>2) {
-		de_err(c, "Unsupported JBF format version: %u.%u\n", d->ver_major, d->ver_minor);
+		de_err(c, "Unsupported JBF format version: %u.%u", d->ver_major, d->ver_minor);
 		goto done;
 	}
 	if(d->ver_major==1 && (d->ver_minor==2 || d->ver_minor>3)) {
@@ -128,7 +128,7 @@ static int read_filename(deark *c, lctx *d, struct page_ctx *pg, de_int64 pos1, 
 		de_dbg(c, "original filename len: %d", (int)fnlen);
 		pos += 4;
 		if(fnlen>1000) {
-			de_err(c, "Bad filename length\n");
+			de_err(c, "Bad filename length");
 			goto done;
 		}
 
@@ -206,12 +206,12 @@ static int read_bitmap_v1(deark *c, lctx *d, struct page_ctx *pg, de_int64 pos1,
 	de_dbg_indent(c, 1);
 
 	if(!de_fmtutil_get_bmpinfo(c, c->infile, &bi, pos, c->infile->len-pos, 0)) {
-		de_err(c, "Invalid bitmap\n");
+		de_err(c, "Invalid bitmap");
 		goto done;
 	}
 
 	if(bi.infohdrsize != 40) {
-		de_err(c, "Unexpected BMP format\n");
+		de_err(c, "Unexpected BMP format");
 		goto done;
 	}
 
@@ -360,7 +360,7 @@ static int do_one_thumbnail(deark *c, lctx *d, de_int64 pos1, de_int64 imgidx, d
 		pos += 4;
 
 		if(pos + payload_len > c->infile->len) {
-			de_err(c, "Bad payload length (%u) or unsupported format\n", (unsigned int)payload_len);
+			de_err(c, "Bad payload length (%u) or unsupported format", (unsigned int)payload_len);
 			goto done;
 		}
 

@@ -273,7 +273,7 @@ static int EntrReadArch (struct unzooctx *uz, struct entryctx *ze)
 
 	/* try to read the magic words                                         */
 	if ( (ze->magic = WordReadArch(uz)) != (de_uint32)0xfdc4a7dcL ) {
-		de_err(c, "Malformed ZOO file, bad magic number at %d\n", (int)pos1);
+		de_err(c, "Malformed ZOO file, bad magic number at %d", (int)pos1);
 		goto done;
 	}
 
@@ -916,7 +916,7 @@ static void ExtrEntry(struct unzooctx *uz, de_int64 pos1, de_int64 *next_entry_p
 
 	/* read the directory entry for the next member                    */
 	if ( ! GotoReadArch(uz, pos1) || ! EntrReadArch(uz, ze) ) {
-		de_err(c, "Found bad directory entry in archive\n");
+		de_err(c, "Found bad directory entry in archive");
 		goto done;
 	}
 
@@ -937,13 +937,13 @@ static void ExtrEntry(struct unzooctx *uz, de_int64 pos1, de_int64 *next_entry_p
 
 	/* check that we can decode this file                              */
 	if ( (2 < ze->majver) || (2 == ze->majver && 1 < ze->minver) ) {
-		de_err(c, "Unsupported format version: %d.%d\n",
+		de_err(c, "Unsupported format version: %d.%d",
 			(int)ze->majver, (int)ze->minver);
 		goto done;
 	}
 
 	if(ze->method!=0 && ze->method!=1 && ze->method!=2) {
-		de_err(c, "Unsupported compression method: %d\n", (int)ze->method);
+		de_err(c, "Unsupported compression method: %d", (int)ze->method);
 		goto done;
 	}
 
@@ -962,7 +962,7 @@ static void ExtrEntry(struct unzooctx *uz, de_int64 pos1, de_int64 *next_entry_p
 
 	/* decode the file                                                 */
 	if ( ! GotoReadArch(uz,  ze->posdat ) ) {
-		de_err(c, "Cannot find data in archive\n");
+		de_err(c, "Cannot find data in archive");
 		goto done;
 	}
 	res = 0;
@@ -986,10 +986,10 @@ static void ExtrEntry(struct unzooctx *uz, de_int64 pos1, de_int64 *next_entry_p
 
 	/* check that everything went ok                                   */
 	if      ( res == 0 ) {
-		de_err(c, "%s\n", uz->ErrMsg);
+		de_err(c, "%s", uz->ErrMsg);
 	}
 	else if ( ze->Crc != ze->crcdat ) {
-		de_err(c, "CRC failed\n");
+		de_err(c, "CRC failed");
 	}
 
 done:
@@ -1017,7 +1017,7 @@ static int ExtrArch (deark *c, dbuf *inf)
 	InitCrc(uz);
 
 	if(!DescReadArch(uz)) {
-		de_err(uz->c, "Found bad description in archive\n");
+		de_err(uz->c, "Found bad description in archive");
 		goto done;
 	}
 
@@ -1032,7 +1032,7 @@ static int ExtrArch (deark *c, dbuf *inf)
 		if(pos==0) break;
 
 		if(!de_inthashtable_add_item(c, uz->offsets_seen, pos)) {
-			de_err(c, "Loop detected\n");
+			de_err(c, "Loop detected");
 			goto done;
 		}
 

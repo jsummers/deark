@@ -42,7 +42,7 @@ static int do_lead_section(deark *c, lctx *d)
 	d->ver_minor = de_getbyte(5);
 	de_dbg(c, "RPM format version: %d.%d", (int)d->ver_major, (int)d->ver_minor);
 	if(d->ver_major < 3) {
-		de_err(c, "Unsupported RPM version (%d.%d)\n", (int)d->ver_major, (int)d->ver_minor);
+		de_err(c, "Unsupported RPM version (%d.%d)", (int)d->ver_major, (int)d->ver_minor);
 		goto done;
 	}
 
@@ -90,12 +90,12 @@ static int do_header_structure(deark *c, lctx *d, int is_sig, de_int64 pos1,
 
 	de_read(buf, pos, 4);
 	if(buf[0]!=0x8e || buf[1]!=0xad || buf[2]!=0xe8) {
-		de_err(c, "Bad header signature at %d\n", (int)pos);
+		de_err(c, "Bad header signature at %d", (int)pos);
 		goto done;
 	}
 	header_ver = buf[3];
 	if(header_ver != 1) {
-		de_err(c, "Unsupported header version\n");
+		de_err(c, "Unsupported header version");
 		goto done;
 	}
 	pos += 8;

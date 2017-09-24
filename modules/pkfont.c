@@ -86,7 +86,7 @@ static int get_packed_int(dbuf *f, de_int64 raster_pos, de_int64 *nybble_pos,
 		if(v==0) {
 			zero_count++;
 			if(zero_count>16) { // Sanity check
-				de_err(f->c, "Bad packed int at %d\n", (int)raster_pos);
+				de_err(f->c, "Bad packed int at %d", (int)raster_pos);
 				*result = 0;
 				return 0;
 			}
@@ -374,7 +374,7 @@ static int do_char_descr(deark *c, lctx *d, de_int64 pos, de_int64 *bytesused)
 		pg->raster_pos = pos + 17;
 	}
 	else {
-		de_err(c, "Unsupported character preamble format (%d)\n", (int)lsb3);
+		de_err(c, "Unsupported character preamble format (%d)", (int)lsb3);
 		goto done;
 	}
 
@@ -481,7 +481,7 @@ static void de_run_pkfont(deark *c, de_module_params *mparams)
 				do_preamble(c, d, pos, &bytesused);
 				break;
 			default:
-				de_err(c, "Unsupported command: %d at %d\n", (int)flagbyte, (int)pos);
+				de_err(c, "Unsupported command: %d at %d", (int)flagbyte, (int)pos);
 				goto done;
 			}
 		}

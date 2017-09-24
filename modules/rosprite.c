@@ -341,12 +341,12 @@ static void do_sprite(deark *c, lctx *d, de_int64 index,
 		}
 
 		if(pg->fgbpp==0) {
-			de_err(c, "Screen mode %d not supported\n", (int)pg->mode);
+			de_err(c, "Screen mode %d not supported", (int)pg->mode);
 			goto done;
 		}
 
 		if(pg->fgbpp>8 && pg->has_mask) {
-			de_err(c, "Transparency not supported for this image format\n");
+			de_err(c, "Transparency not supported for this image format");
 			goto done;
 		}
 
@@ -383,7 +383,7 @@ static void do_sprite(deark *c, lctx *d, de_int64 index,
 		//case 7: 32bpp CMYK (TODO)
 		//case 8: 24bpp (TODO)
 		default:
-			de_err(c, "New format type %d not supported\n", (int)new_img_type);
+			de_err(c, "New format type %d not supported", (int)new_img_type);
 			goto done;
 		}
 

@@ -64,7 +64,7 @@ static void do_read_sprite_image(deark *c, lctx *d, struct amosbank *bk, de_int6
 	de_dbg(c, "planes: %d", (int)bk->nplanes);
 	if(!de_good_image_dimensions(c, width, height)) goto done;
 	if(bk->nplanes<1 || bk->nplanes>6) {
-		de_err(c, "Unsupported number of planes: %d\n", (int)bk->nplanes);
+		de_err(c, "Unsupported number of planes: %d", (int)bk->nplanes);
 		goto done;
 	}
 
@@ -391,7 +391,7 @@ static void picture_bank_read_picture(deark *c, lctx *d, struct amosbank *bk, de
 
 	if(!de_good_image_dimensions(c, width, height)) goto done;
 	if(bk->nplanes<1 || bk->nplanes>6) {
-		de_err(c, "Unsupported number of planes: %d\n", (int)bk->nplanes);
+		de_err(c, "Unsupported number of planes: %d", (int)bk->nplanes);
 		goto done;
 	}
 
@@ -472,7 +472,7 @@ static void do_picture_bank(deark *c, lctx *d, struct amosbank *bk)
 		pos += 90;
 
 		if(bk->amiga_mode & 0x0800) {
-			de_err(c, "HAM Picture Bank images are not supported.\n");
+			de_err(c, "HAM Picture Bank images are not supported.");
 			goto done;
 		}
 
@@ -480,7 +480,7 @@ static void do_picture_bank(deark *c, lctx *d, struct amosbank *bk)
 	}
 
 	if(segtype!=0x06071963) {
-		de_err(c, "Missing Picture Header\n");
+		de_err(c, "Missing Picture Header");
 		goto done;
 	}
 
@@ -589,7 +589,7 @@ static int do_read_bank(deark *c, lctx *d, de_int64 pos, de_int64 *bytesused)
 		*bytesused = bk->bank_len;
 	}
 	else {
-		de_err(c, "Unsupported bank type: '%s'\n", bk->banktype4cc.id_printable);
+		de_err(c, "Unsupported bank type: '%s'", bk->banktype4cc.id_printable);
 	}
 
 	if(bk) {
@@ -645,7 +645,7 @@ static void de_run_abk(deark *c, de_module_params *mparams)
 		de_declare_fmt(c, "AMOS AmBs format");
 	}
 	else {
-		de_err(c, "Unsupported format\n");
+		de_err(c, "Unsupported format");
 		goto done;
 	}
 
@@ -703,7 +703,7 @@ static void de_run_amos_source(deark *c, de_module_params *mparams)
 	pos += basic_len;
 	if(pos >= c->infile->len) goto done;
 	if(dbuf_memcmp(c->infile, pos, "AmBs", 4)) {
-		de_err(c, "AmBs segment not found, expected at offset %d\n", (int)pos);
+		de_err(c, "AmBs segment not found, expected at offset %d", (int)pos);
 		goto done;
 	}
 

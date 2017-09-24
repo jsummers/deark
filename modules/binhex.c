@@ -49,7 +49,7 @@ static int do_decode_main(deark *c, lctx *d, de_int64 pos)
 
 		x = get_char_value(b);
 		if(x>=64) {
-			de_err(c, "Invalid BinHex data at %d\n", (int)(pos-1));
+			de_err(c, "Invalid BinHex data at %d", (int)(pos-1));
 			return 0;
 		}
 
@@ -170,7 +170,7 @@ static void do_extract_files(deark *c, lctx *d)
 	// Data fork
 
 	if(pos+dlen > f->len) {
-		de_err(c, "Data fork goes beyond end of file\n");
+		de_err(c, "Data fork goes beyond end of file");
 		goto done;
 	}
 
@@ -185,7 +185,7 @@ static void do_extract_files(deark *c, lctx *d)
 	// Resource fork
 
 	if(pos+rlen > f->len) {
-		de_err(c, "Resource fork goes beyond end of file\n");
+		de_err(c, "Resource fork goes beyond end of file");
 		goto done;
 	}
 
@@ -281,7 +281,7 @@ static void de_run_binhex(deark *c, de_module_params *mparams)
 
 	ret = find_start(c, &pos);
 	if(!ret) {
-		de_err(c, "Not a BinHex file\n");
+		de_err(c, "Not a BinHex file");
 		goto done;
 	}
 

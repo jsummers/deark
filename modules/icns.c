@@ -261,7 +261,7 @@ static void do_extract_png_or_jp2(deark *c, lctx *d, struct page_ctx *pg)
 		dbuf_create_file_from_slice(c->infile, pg->image_pos, pg->image_len, "png", fi, 0);
 	}
 	else {
-		de_err(c, "(Image #%d) Unidentified file format\n", pg->image_num);
+		de_err(c, "(Image #%d) Unidentified file format", pg->image_num);
 	}
 
 	de_finfo_destroy(c, fi);
@@ -359,7 +359,7 @@ static void do_icon(deark *c, lctx *d, struct page_ctx *pg)
 
 	if(!is_compressed) {
 		if(pg->image_len < expected_image_size) {
-			de_err(c, "(Image #%d) Premature end of image (expected %d bytes, found %d)\n",
+			de_err(c, "(Image #%d) Premature end of image (expected %d bytes, found %d)",
 				pg->image_num, (int)expected_image_size, (int)pg->image_len);
 			return;
 		}
@@ -422,7 +422,7 @@ static void de_run_icns_pass(deark *c, lctx *d, int pass)
 		}
 		if(segment_len<8 || segment_pos+segment_len > d->file_size) {
 			if(pass==2) {
-				de_err(c, "Invalid length for segment '%s' (%u)\n", pg->code4cc.id_printable,
+				de_err(c, "Invalid length for segment '%s' (%u)", pg->code4cc.id_printable,
 					(unsigned int)segment_len);
 			}
 			break;

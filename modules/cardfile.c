@@ -132,7 +132,7 @@ static void de_run_cardfile(deark *c, de_module_params *mparams)
 	else d->fmt=DE_CRDFMT_MGC;
 
 	if(d->fmt==DE_CRDFMT_RRG) {
-		de_err(c, "CardFile RRG format is not supported\n");
+		de_err(c, "CardFile RRG format is not supported");
 		goto done;
 	}
 

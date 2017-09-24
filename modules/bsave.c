@@ -483,7 +483,7 @@ static int do_read_palette_file(deark *c, lctx *d, const char *palfn)
 
 	f = dbuf_open_input_file(c, palfn);
 	if(!f) {
-		de_err(c, "Cannot read palette file %s\n", palfn);
+		de_err(c, "Cannot read palette file %s", palfn);
 		goto done;
 	}
 
@@ -585,7 +585,7 @@ static void de_run_bsave(deark *c, de_module_params *mparams)
 
 	if(!decoder_fn) {
 		de_err(c, "Unidentified BSAVE format, try \"-opt bsave:fmt=...\". "
-			"Use \"-m bsave -h\" for a list.\n");
+			"Use \"-m bsave -h\" for a list.");
 		goto done;
 	}
 

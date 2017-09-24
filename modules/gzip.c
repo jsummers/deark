@@ -73,14 +73,14 @@ static int do_gzip_read_member(deark *c, lctx *d, de_int64 pos1, de_int64 *membe
 	b0 = de_getbyte(pos+0);
 	b1 = de_getbyte(pos+1);
 	if(b0!=0x1f || b1!=0x8b) {
-		de_err(c, "Invalid gzip signature at %d. This is not a valid gzip file.\n",
+		de_err(c, "Invalid gzip signature at %d. This is not a valid gzip file.",
 			(int)pos1);
 		goto done;
 	}
 
 	md->cmpr_code = de_getbyte(pos+2);
 	if(md->cmpr_code!=0x08) {
-		de_err(c, "Unsupported compression type (%d)\n", (int)md->cmpr_code);
+		de_err(c, "Unsupported compression type (%d)", (int)md->cmpr_code);
 		goto done;
 	}
 
@@ -117,7 +117,7 @@ static int do_gzip_read_member(deark *c, lctx *d, de_int64 pos1, de_int64 *membe
 		ret =  dbuf_search_byte(c->infile, 0x00, pos, c->infile->len - pos,
 			&foundpos);
 		if(!ret) {
-			de_err(c, "Invalid NAME field\n");
+			de_err(c, "Invalid NAME field");
 			goto done;
 		}
 
@@ -136,7 +136,7 @@ static int do_gzip_read_member(deark *c, lctx *d, de_int64 pos1, de_int64 *membe
 		ret =  dbuf_search_byte(c->infile, 0x00, pos, c->infile->len - pos,
 			&foundpos);
 		if(!ret) {
-			de_err(c, "Invalid COMMENT field\n");
+			de_err(c, "Invalid COMMENT field");
 			goto done;
 		}
 		pos = foundpos + 1;

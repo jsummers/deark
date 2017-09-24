@@ -317,7 +317,7 @@ static int read_member(deark *c, lctx *d, de_int64 pos1,
 	pos = md->startpos;
 	identify_cpio_internal(c, md->startpos, &md->subfmt);
 	if(md->subfmt==0) {
-		de_err(c, "Unknown cpio format at %d\n", (int)md->startpos);
+		de_err(c, "Unknown cpio format at %d", (int)md->startpos);
 		goto done;
 	}
 
@@ -335,7 +335,7 @@ static int read_member(deark *c, lctx *d, de_int64 pos1,
 		read_header_binary(c, d, md);
 	}
 	else {
-		de_err(c, "Unsupported cpio format at %d\n", (int)md->startpos);
+		de_err(c, "Unsupported cpio format at %d", (int)md->startpos);
 		goto done;
 	}
 
@@ -427,7 +427,7 @@ static void de_run_cpio(deark *c, de_module_params *mparams)
 	pos = 0;
 
 	if(identify_cpio_internal(c, pos, &d->first_subfmt)==0) {
-		de_err(c, "Not a cpio file, or unknown cpio format\n");
+		de_err(c, "Not a cpio file, or unknown cpio format");
 		goto done;
 	}
 

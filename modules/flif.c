@@ -37,7 +37,7 @@ static int read_varint(deark *c, de_int64 pos1, de_int64 *result, de_int64 *byte
 			// (Note that if we were to allow 63 bits, we could have int64
 			// overflow when we convert from a physical value to a logical
 			// value.)
-			de_err(c, "Excessively large varint at %d\n", (int)pos1);
+			de_err(c, "Excessively large varint at %d", (int)pos1);
 			goto done;
 		}
 	}
@@ -144,7 +144,7 @@ static int do_read_metadata(deark *c, lctx *d, de_int64 pos1,
 	}
 
 	de_dbg(c, "metadata segment at %d", (int)pos1);
-	de_err(c, "not implemented\n");
+	de_err(c, "not implemented");
 
 	// TODO (need samples)
 
@@ -166,7 +166,7 @@ static int do_second_header(deark *c, lctx *d, de_int64 pos1,
 	de_dbg(c, "chunk type: 0x%02x", (unsigned int)ct);
 
 	if(ct!=0x00) {
-		de_err(c, "unsupported chunk type: 0x%02x\n", (unsigned int)ct);
+		de_err(c, "unsupported chunk type: 0x%02x", (unsigned int)ct);
 		goto done;
 	}
 

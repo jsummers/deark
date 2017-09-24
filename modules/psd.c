@@ -3168,7 +3168,7 @@ static int do_layer_and_mask_info_section(deark *c, lctx *d, zztype *zz)
 	layer_and_mask_info_section_len = psd_getui32or64zz(c, d, zz);
 	de_dbg(c, "layer & mask info section total data len: %d", (int)layer_and_mask_info_section_len);
 	if(zz->pos + layer_and_mask_info_section_len > zz->endpos) {
-		de_err(c, "Unexpected end of PSD file\n");
+		de_err(c, "Unexpected end of PSD file");
 		goto done;
 	}
 	zz_init_with_len(&lmidataczz, zz, layer_and_mask_info_section_len);
@@ -3256,7 +3256,7 @@ static int do_action_item(deark *c, lctx *d, zztype *zz)
 		de_dbg(c, "itemID: %d", (int)id_long);
 	}
 	else {
-		de_err(c, "Unsupported identifier type: '%s'\n", id4cc.id_printable);
+		de_err(c, "Unsupported identifier type: '%s'", id4cc.id_printable);
 		goto done;
 	}
 
@@ -3274,7 +3274,7 @@ static int do_action_item(deark *c, lctx *d, zztype *zz)
 		;
 	}
 	else {
-		de_err(c, "Unsupported descriptor flag: %d\n", (int)dscr_flag);
+		de_err(c, "Unsupported descriptor flag: %d", (int)dscr_flag);
 		goto done;
 	}
 
@@ -3346,7 +3346,7 @@ static void do_action_set(deark *c, lctx *d, zztype *zz)
 	ver = psd_getui32zz(zz);
 	de_dbg(c, "version: %d", (int)ver);
 	if(ver!=16) {
-		de_err(c, "Unsupported Action format version: %d\n", (int)ver);
+		de_err(c, "Unsupported Action format version: %d", (int)ver);
 		goto done;
 	}
 
@@ -3405,7 +3405,7 @@ static int do_psd_header(deark *c, lctx *d, de_int64 pos)
 		de_declare_fmt(c, "PSB");
 	}
 	else {
-		de_err(c, "Unsupported PSD version: %d\n", (int)d->version);
+		de_err(c, "Unsupported PSD version: %d", (int)d->version);
 		goto done;
 	}
 
@@ -3494,7 +3494,7 @@ static void do_bitmap(deark *c, lctx *d, const struct image_info *iinfo, dbuf *f
 	if(iinfo->bits_per_channel!=8 && iinfo->bits_per_channel!=16 &&
 		iinfo->bits_per_channel!=32)
 	{
-		de_err(c, "Unsupported bits/channel: %d\n", (int)iinfo->bits_per_channel);
+		de_err(c, "Unsupported bits/channel: %d", (int)iinfo->bits_per_channel);
 		goto done;
 	}
 
@@ -3509,7 +3509,7 @@ static void do_bitmap(deark *c, lctx *d, const struct image_info *iinfo, dbuf *f
 	}
 	else {
 		de_err(c, "This type of image is not supported (color=%d, "
-			"num channels=%d, bits/channel=%d)\n",
+			"num channels=%d, bits/channel=%d)",
 			(int)iinfo->color_mode, (int)iinfo->num_channels, (int)iinfo->bits_per_channel);
 		goto done;
 	}
@@ -3609,7 +3609,7 @@ static void do_image_data(deark *c, lctx *d, zztype *zz)
 		zz->pos += zz_used(&czz);
 	}
 	else {
-		de_err(c, "Compression method not supported: %d\n", (int)cmpr);
+		de_err(c, "Compression method not supported: %d", (int)cmpr);
 	}
 
 done:
@@ -3736,7 +3736,7 @@ static void de_run_ps_gradient(deark *c, de_module_params *mparams)
 		read_descriptor(c, d, zz, 1, "");
 	}
 	else {
-		de_err(c, "Unsupported Photoshop Gradient file version: %d\n", (int)grd_ver);
+		de_err(c, "Unsupported Photoshop Gradient file version: %d", (int)grd_ver);
 	}
 
 	de_free(c, zz);
@@ -3825,7 +3825,7 @@ static void de_run_ps_styles(deark *c, de_module_params *mparams)
 	asl_ver = psd_getui16zz(zz);
 	de_dbg(c, "file version: %d", (int)asl_ver);
 	if(asl_ver!=2) {
-		de_err(c, "Unsupported Photoshop Styles file version: %d\n", (int)asl_ver);
+		de_err(c, "Unsupported Photoshop Styles file version: %d", (int)asl_ver);
 		goto done;
 	}
 
@@ -3874,7 +3874,7 @@ static void do_abr_v6(deark *c, lctx *d, zztype *zz)
 	zz->pos += 4; // Version numbers(?), already read
 	sig = (de_uint32)psd_getui32(zz->pos);
 	if(sig!=CODE_8BIM) {
-		de_err(c, "Bad signature or unsupported Brush format\n");
+		de_err(c, "Bad signature or unsupported Brush format");
 		goto done;
 	}
 
@@ -3913,7 +3913,7 @@ static void de_run_ps_brush(deark *c, de_module_params *mparams)
 		do_abr_v1(c, d, zz);
 	}
 	else {
-		de_err(c, "Unsupported Photoshop Brush format (version=%d)\n", (int)d->abr_major_ver);
+		de_err(c, "Unsupported Photoshop Brush format (version=%d)", (int)d->abr_major_ver);
 		goto done;
 	}
 

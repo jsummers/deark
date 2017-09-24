@@ -353,11 +353,11 @@ static int do_read_palette(deark *c, lctx *d, de_int64 pos)
 	}
 
 	if(d->cmap_depth != 24) {
-		de_err(c, "Palettes with depth=%d are not supported.\n", (int)d->cmap_depth);
+		de_err(c, "Palettes with depth=%d are not supported.", (int)d->cmap_depth);
 		return 0;
 	}
 	if(d->pixel_depth != 8) {
-		de_err(c, "Paletted images with depth=%d are not supported.\n", (int)d->pixel_depth);
+		de_err(c, "Paletted images with depth=%d are not supported.", (int)d->pixel_depth);
 		return 0;
 	}
 
@@ -723,7 +723,7 @@ static void de_run_tga(deark *c, de_module_params *mparams)
 	if(d->color_type!=TGA_CLRTYPE_PALETTE && d->color_type!=TGA_CLRTYPE_TRUECOLOR &&
 		d->color_type!=TGA_CLRTYPE_GRAYSCALE)
 	{
-		de_err(c, "Unsupported color type (%d: %s)\n", (int)d->color_type, d->clrtype_name);
+		de_err(c, "Unsupported color type (%d: %s)", (int)d->color_type, d->clrtype_name);
 		goto done;
 	}
 
@@ -738,14 +738,14 @@ static void de_run_tga(deark *c, de_module_params *mparams)
 		;
 	}
 	else {
-		de_err(c, "Unsupported TGA image type (%s, depth=%d)\n", d->clrtype_name,
+		de_err(c, "Unsupported TGA image type (%s, depth=%d)", d->clrtype_name,
 			(int)d->pixel_depth);
 		goto done;
 	}
 
 	if(d->cmpr_type==TGA_CMPR_RLE) {
 		if(d->pixel_depth<8) {
-			de_err(c, "RLE compression not supported when depth (%d) is less than 8\n",
+			de_err(c, "RLE compression not supported when depth (%d) is less than 8",
 				(int)d->pixel_depth);
 			goto done;
 		}
@@ -756,7 +756,7 @@ static void de_run_tga(deark *c, de_module_params *mparams)
 		unc_pixels = dbuf_open_input_subfile(c->infile, pos, d->main_image.img_size_in_bytes);
 	}
 	else {
-		de_err(c, "Unsupported compression type (%d, %s)\n", (int)d->cmpr_type, d->cmpr_name);
+		de_err(c, "Unsupported compression type (%d, %s)", (int)d->cmpr_type, d->cmpr_name);
 		goto done;
 	}
 

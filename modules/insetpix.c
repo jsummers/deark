@@ -121,7 +121,7 @@ static int do_image_info(deark *c, lctx *d, de_int64 pos, de_int64 len)
 	de_dbg(c, "image information at %d", (int)pos);
 	de_dbg_indent(c, 1);
 	if(len<32) {
-		de_err(c, "Image Information item too small\n");
+		de_err(c, "Image Information item too small");
 		goto done;
 	}
 
@@ -169,7 +169,7 @@ static int do_tileinfo(deark *c, lctx *d, de_int64 pos, de_int64 len)
 	de_dbg(c, "tile information at %d", (int)pos);
 	de_dbg_indent(c, 1);
 	if(len<8) {
-		de_err(c, "Tile Information item too small\n");
+		de_err(c, "Tile Information item too small");
 		goto done;
 	}
 
@@ -182,7 +182,7 @@ static int do_tileinfo(deark *c, lctx *d, de_int64 pos, de_int64 len)
 	de_dbg(c, "strip_rows=%d, strip_cols=%d", (int)d->stp_rows, (int)d->stp_cols);
 
 	if(d->page_cols%8 != 0) {
-		de_err(c, "page_cols must be a multiple of 8 (is %d)\n", (int)d->page_cols);
+		de_err(c, "page_cols must be a multiple of 8 (is %d)", (int)d->page_cols);
 		goto done;
 	}
 
@@ -409,7 +409,7 @@ static void de_run_insetpix(deark *c, de_module_params *mparams)
 			(int)item_id, (int)item_loc, (int)item_len);
 
 		if(item_loc + item_len > c->infile->len) {
-			de_err(c, "Item #%d (ID %d) goes beyond end of file\n",
+			de_err(c, "Item #%d (ID %d) goes beyond end of file",
 				(int)item, (int)item_id);
 			goto done;
 		}
@@ -440,25 +440,25 @@ static void de_run_insetpix(deark *c, de_module_params *mparams)
 	indent_flag = 0;
 
 	if(!imginfo_pos) {
-		de_err(c, "Missing Image Information item\n");
+		de_err(c, "Missing Image Information item");
 		goto done;
 	}
 	if(!do_image_info(c, d, imginfo_pos, imginfo_len)) goto done;
 
 	if(d->graphics_type==0) {
-		de_err(c, "Inset PIX character graphics not supported\n");
+		de_err(c, "Inset PIX character graphics not supported");
 		goto done;
 	}
 
 	if(!pal_pos) {
-		de_err(c, "Missing palette\n");
+		de_err(c, "Missing palette");
 		goto done;
 	}
 
 	if(!do_palette(c, d, pal_pos, pal_len)) goto done;
 
 	if(d->gfore<1 || d->gfore>8) {
-		de_err(c, "Inset PIX with %d bits/pixel are not supported\n", (int)d->gfore);
+		de_err(c, "Inset PIX with %d bits/pixel are not supported", (int)d->gfore);
 		goto done;
 	}
 
@@ -469,7 +469,7 @@ static void de_run_insetpix(deark *c, de_module_params *mparams)
 	}
 
 	if(!tileinfo_pos) {
-		de_err(c, "Missing Tile Information item\n");
+		de_err(c, "Missing Tile Information item");
 		goto done;
 	}
 

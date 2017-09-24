@@ -1070,7 +1070,7 @@ static int de_identify_ansiart(deark *c)
 	int has_ans_ext;
 
 	if(!c->detection_data.sauce.detection_attempted) {
-		de_err(c, "ansiart internal\n");
+		de_err(c, "ansiart internal");
 		de_fatalerror(c);
 	}
 

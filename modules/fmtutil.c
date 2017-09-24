@@ -612,7 +612,7 @@ static int do_box(deark *c, struct de_boxesctx *bctx, de_int64 pos, de_int64 len
 		payload_len = size64-16;
 	}
 	else {
-		de_err(c, "Invalid or unsupported box format\n");
+		de_err(c, "Invalid or unsupported box format");
 		return 0;
 	}
 
@@ -639,7 +639,7 @@ static int do_box(deark *c, struct de_boxesctx *bctx, de_int64 pos, de_int64 len
 	if(total_len > len) {
 		de_err(c, "Invalid oversized box, or unexpected end of file "
 			"(box at %d ends at %" INT64_FMT ", "
-			"parent ends at %" INT64_FMT ")\n",
+			"parent ends at %" INT64_FMT ")",
 			(int)pos, pos+total_len, pos+len);
 		return 0;
 	}
@@ -967,7 +967,7 @@ int de_fmtutil_atari_decode_image(deark *c, struct atari_img_decode_data *adata)
 		return decode_atari_image_paletted(c, adata);
 	}
 
-	de_err(c, "Unsupported bits/pixel (%d)\n", (int)adata->bpp);
+	de_err(c, "Unsupported bits/pixel (%d)", (int)adata->bpp);
 	return 0;
 }
 
@@ -1121,7 +1121,7 @@ static int do_iff_chunk(deark *c, struct de_iffctx *ictx, de_int64 pos, de_int64
 
 	hdrsize = 4+ictx->sizeof_len;
 	if(bytes_avail<hdrsize) {
-		de_err(c, "Invalid chunk size (at %d, size=%" INT64_FMT ")\n",
+		de_err(c, "Invalid chunk size (at %d, size=%" INT64_FMT ")",
 			(int)pos, bytes_avail);
 		goto done;
 	}

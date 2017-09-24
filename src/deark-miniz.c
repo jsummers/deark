@@ -172,7 +172,7 @@ int de_write_png(deark *c, struct deark_bitmap *img, dbuf *f)
 		&pei);
 
 	if(!memblk) {
-		de_err(c, "PNG write failed\n");
+		de_err(c, "PNG write failed");
 		return 0;
 	}
 
@@ -206,7 +206,7 @@ static int de_inflate_internal(dbuf *inf, de_int64 inputstart, de_int64 inputsiz
 	*bytes_consumed = 0;
 	c = inf->c;
 	if(inputsize<0) {
-		de_err(c, "Internal error\n");
+		de_err(c, "Internal error");
 		goto done;
 	}
 
@@ -221,7 +221,7 @@ static int de_inflate_internal(dbuf *inf, de_int64 inputstart, de_int64 inputsiz
 		ret = mz_inflateInit2(&strm, -MZ_DEFAULT_WINDOW_BITS);
 	}
 	if(ret!=MZ_OK) {
-		de_err(c, "Inflate error\n");
+		de_err(c, "Inflate error");
 		goto done;
 	}
 
@@ -273,7 +273,7 @@ static int de_inflate_internal(dbuf *inf, de_int64 inputstart, de_int64 inputsiz
 
 		ret = mz_inflate(&strm, MZ_SYNC_FLUSH);
 		if(ret!=MZ_STREAM_END && ret!=MZ_OK) {
-			de_err(c, "Inflate error (%d)\n", (int)ret);
+			de_err(c, "Inflate error (%d)", (int)ret);
 			goto done;
 		}
 
@@ -290,7 +290,7 @@ static int de_inflate_internal(dbuf *inf, de_int64 inputstart, de_int64 inputsiz
 
 		inbuf_num_consumed_bytes_this_time = (de_int64)(orig_avail_in - strm.avail_in);
 		if(inbuf_num_consumed_bytes_this_time<1 && output_bytes_this_time<1) {
-			de_err(c, "Inflate error\n");
+			de_err(c, "Inflate error");
 			goto done;
 		}
 		inbuf_num_consumed_bytes += inbuf_num_consumed_bytes_this_time;
@@ -337,12 +337,12 @@ static mz_bool my_mz_zip_writer_init_file(deark *c, mz_zip_archive *pZip, const 
   pZip->m_pIO_opaque = pZip;
   if (!mz_zip_writer_init(pZip, size_to_reserve_at_beginning))
   {
-    de_err(c, "Failed to initialize ZIP file\n");
+    de_err(c, "Failed to initialize ZIP file");
     return MZ_FALSE;
   }
   if (NULL == (pFile = de_fopen_for_write(c, pFilename, msgbuf, sizeof(msgbuf))))
   {
-    de_err(c, "Failed to write %s: %s\n", pFilename, msgbuf);
+    de_err(c, "Failed to write %s: %s", pFilename, msgbuf);
     mz_zip_writer_end(pZip);
     return MZ_FALSE;
   }

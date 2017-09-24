@@ -21,7 +21,7 @@ int de_good_image_dimensions_noerr(deark *c, de_int64 w, de_int64 h)
 int de_good_image_dimensions(deark *c, de_int64 w, de_int64 h)
 {
 	if(!de_good_image_dimensions_noerr(c, w, h)) {
-		de_err(c, "Bad or unsupported image dimensions (%dx%d)\n",
+		de_err(c, "Bad or unsupported image dimensions (%dx%d)",
 			(int)w, (int)h);
 		return 0;
 	}
@@ -44,7 +44,7 @@ int de_good_image_count(deark *c, de_int64 n)
 	}
 
 	if(n<0 || n>maximages) {
-		de_err(c, "Bad or unsupported number of images (%d)\n", (int)n);
+		de_err(c, "Bad or unsupported number of images (%d)", (int)n);
 		return 0;
 	}
 	return 1;

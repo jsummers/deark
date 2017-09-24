@@ -170,13 +170,13 @@ static int do_read_wmf_header(deark *c, lctx *d, de_int64 pos)
 	d->wmf_file_type = de_getui16le(pos);
 	de_dbg(c, "file type: %d", (int)d->wmf_file_type);
 	if(d->wmf_file_type!=1 && d->wmf_file_type!=2) {
-		de_err(c, "Invalid or unsupported WMF file type (%d)\n", (int)d->wmf_file_type);
+		de_err(c, "Invalid or unsupported WMF file type (%d)", (int)d->wmf_file_type);
 		goto done;
 	}
 	hsize_words = de_getui16le(pos+2);
 	de_dbg(c, "header size: %d bytes", (int)(hsize_words*2));
 	if(hsize_words != 9) {
-		de_err(c, "Incorrect WMF header size (expected 9, is %d)\n", (int)hsize_words);
+		de_err(c, "Incorrect WMF header size (expected 9, is %d)", (int)hsize_words);
 		goto done;
 	}
 	d->wmf_windows_version = de_getui16le(pos+4);
@@ -494,7 +494,7 @@ static int emf_handler_01(deark *c, lctx *d, de_int64 rectype, de_int64 recpos, 
 	d->emf_found_header = 1;
 
 	if(recsize_bytes<88) {
-		de_err(c, "Invalid EMF header size (is %d, must be at least 88)\n", (int)recsize_bytes);
+		de_err(c, "Invalid EMF header size (is %d, must be at least 88)", (int)recsize_bytes);
 		return 0;
 	}
 
@@ -1025,13 +1025,13 @@ static void do_emf_record_list(deark *c, lctx *d)
 		recpos = pos;
 
 		if(recpos+8 > c->infile->len) {
-			de_err(c, "Unexpected end of file (no EOF record found)\n");
+			de_err(c, "Unexpected end of file (no EOF record found)");
 			goto done;
 		}
 
 		recsize_bytes = de_getui32le(recpos+4);
 		if(recpos+recsize_bytes > c->infile->len) {
-			de_err(c, "Unexpected end of file in record %d\n", (int)count);
+			de_err(c, "Unexpected end of file in record %d", (int)count);
 			goto done;
 		}
 

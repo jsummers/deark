@@ -157,7 +157,7 @@ static int do_uncompress_picture_data(deark *c, lctx *d,
 	int retval = 0;
 
 	if(d->packing_method>3) {
-		de_err(c, "Unsupported compression type: %d\n", (int)d->packing_method);
+		de_err(c, "Unsupported compression type: %d", (int)d->packing_method);
 		goto done;
 	}
 
@@ -229,7 +229,7 @@ static int do_dib(deark *c, lctx *d, de_int64 pos1)
 
 	if(d->picture_type==5) {
 		// TODO: Support this
-		de_err(c, "DDB image format is not supported\n");
+		de_err(c, "DDB image format is not supported");
 		goto done;
 	}
 
@@ -269,19 +269,19 @@ static int do_dib(deark *c, lctx *d, de_int64 pos1)
 		(int)hotspot_size);
 
 	if(bitcount!=1 && bitcount!=4 && bitcount!=8 && bitcount!=24) {
-		de_err(c, "Unsupported bit count: %d\n", (int)bitcount);
+		de_err(c, "Unsupported bit count: %d", (int)bitcount);
 		goto done;
 	}
 
 	if(planes!=1) {
-		de_err(c, "Unsupported planes: %d\n", (int)planes);
+		de_err(c, "Unsupported planes: %d", (int)planes);
 		goto done;
 	}
 
 	if(!de_good_image_dimensions(c, width, height)) goto done;
 
 	if(compressed_offset + compressed_size > c->infile->len) {
-		de_err(c, "Image goes beyond end of file\n");
+		de_err(c, "Image goes beyond end of file");
 		goto done;
 	}
 
@@ -384,7 +384,7 @@ static int do_wmf(deark *c, lctx *d, de_int64 pos1)
 	de_dbg(c, "hotspot offset=%d, size=%d", (int)hotspot_offset,
 		(int)hotspot_size);
 	if(compressed_offset+compressed_size>c->infile->len) {
-		de_err(c, "WMF data goes beyond end of file\n");
+		de_err(c, "WMF data goes beyond end of file");
 		goto done;
 	}
 

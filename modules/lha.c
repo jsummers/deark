@@ -411,7 +411,7 @@ static int do_read_member(deark *c, lctx *d, struct member_data *md, de_int64 po
 	md->cmpr_method = dbuf_read_string(c->infile, pos1+2, 5, 5, 0, DE_ENCODING_ASCII);
 	if(md->cmpr_method->sz[0]!='-' || md->cmpr_method->sz[4]!='-') {
 		if(d->member_count==0) {
-			de_err(c, "Not an LHA file\n");
+			de_err(c, "Not an LHA file");
 			goto done;
 		}
 		else {
@@ -428,7 +428,7 @@ static int do_read_member(deark *c, lctx *d, struct member_data *md, de_int64 po
 	md->hlev = de_getbyte(pos+20);
 	de_dbg(c, "header level: %d", (int)md->hlev);
 	if(md->hlev>3) {
-		de_err(c, "Invalid or unsupported header level: %d\n", (int)md->hlev);
+		de_err(c, "Invalid or unsupported header level: %d", (int)md->hlev);
 		goto done;
 	}
 
@@ -455,7 +455,7 @@ static int do_read_member(deark *c, lctx *d, struct member_data *md, de_int64 po
 		de_dbg(c, "word size: %d", (int)lev3_word_size);
 		pos += 2;
 		if(lev3_word_size!=4) {
-			de_err(c, "Unsupported word size: %d\n", (int)lev3_word_size);
+			de_err(c, "Unsupported word size: %d", (int)lev3_word_size);
 			goto done;
 		}
 	}
@@ -557,7 +557,7 @@ static int do_read_member(deark *c, lctx *d, struct member_data *md, de_int64 po
 			&exthdr_bytes_consumed);
 
 		if(!ret) {
-			de_err(c, "Error parsing extended headers at %d. Cannot extract this file.\n",
+			de_err(c, "Error parsing extended headers at %d. Cannot extract this file.",
 				(int)pos);
 			retval = 1;
 			goto done;

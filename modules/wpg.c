@@ -239,7 +239,7 @@ static void handler_bitmap(deark *c, lctx *d, de_byte rectype, de_int64 dpos1, d
 	}
 
 	if(bpp!=1 && bpp!=2 && bpp!=4 && bpp!=8) {
-		de_err(c, "Unsupported bitmap depth: %d\n", (int)bpp);
+		de_err(c, "Unsupported bitmap depth: %d", (int)bpp);
 		goto done;
 	}
 	if(!de_good_image_dimensions(c, w, h)) goto done;
@@ -283,7 +283,7 @@ static void handler_bitmap(deark *c, lctx *d, de_byte rectype, de_int64 dpos1, d
 	else {
 		if(!d->has_pal && bpp!=2) {
 			// TODO: Figure out what the default palette is.
-			de_err(c, "Paletted images with no palette are not supported\n");
+			de_err(c, "Paletted images with no palette are not supported");
 			goto done;
 		}
 

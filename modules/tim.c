@@ -45,7 +45,7 @@ static void do_pal8(deark *c, lctx *d)
 	de_int64 pos;
 
 	if(!d->palette_flag) {
-		de_err(c, "8-bit images without a palette aren't supported\n");
+		de_err(c, "8-bit images without a palette aren't supported");
 		goto done;
 	}
 
@@ -104,10 +104,10 @@ static void de_run_tim(deark *c, de_module_params *mparams)
 	case 2: d->bpp = 16; break;
 	case 3: d->bpp = 24; break;
 	case 4:
-		de_err(c, "Mixed Format not supported\n");
+		de_err(c, "Mixed Format not supported");
 		goto done;
 	default:
-		de_err(c, "Unknown bits/pixel code (%u)\n", d->bpp_code);
+		de_err(c, "Unknown bits/pixel code (%u)", d->bpp_code);
 		goto done;
 	}
 
@@ -119,7 +119,7 @@ static void de_run_tim(deark *c, de_module_params *mparams)
 		do_pal8(c, d);
 		break;
 	default:
-		de_err(c, "Unsupported bits/pixel (%d)\n", (int)d->bpp);
+		de_err(c, "Unsupported bits/pixel (%d)", (int)d->bpp);
 		goto done;
 	}
 

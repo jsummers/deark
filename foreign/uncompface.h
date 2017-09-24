@@ -374,7 +374,7 @@ BigMul(struct xfacectx *ctx, XFACE_WORD a)
 	if (a == 0)	/* treat this as a == WORDCARRY */
 	{			/* and just shift everything left a XFACE_WORD */
 		if ((i = ctx->gg_B.b_words++) >= MAXWORDS - 1) {
-			de_err(ctx->c, "xface: Internal error (1)\n");
+			de_err(ctx->c, "xface: Internal error (1)");
 			ctx->errflag = 1;
 			return;
 		}
@@ -399,7 +399,7 @@ BigMul(struct xfacectx *ctx, XFACE_WORD a)
 	if (c)
 	{
 		if (ctx->gg_B.b_words++ >= MAXWORDS) {
-			de_err(ctx->c, "Invalid or oversized X-Face image\n");
+			de_err(ctx->c, "Invalid or oversized X-Face image");
 			ctx->errflag = 1;
 			return;
 		}
@@ -432,7 +432,7 @@ BigAdd(struct xfacectx *ctx, XFACE_WORD a)
 	if ((i == ctx->gg_B.b_words) && c)
 	{
 		if (ctx->gg_B.b_words++ >= MAXWORDS) {
-			de_err(ctx->c, "xface: Internal error (3)\n");
+			de_err(ctx->c, "xface: Internal error (3)");
 			ctx->errflag = 1;
 			return;
 		}
@@ -494,7 +494,7 @@ Gen(struct xfacectx *ctx, char *f, size_t f_len)
 						continue;
 					if ((l > 0) && (l <= XFACE_WIDTH) && (m > 0)) {
 						if((l + m * XFACE_WIDTH < 0) || (l + m * XFACE_WIDTH >= (int)f_len)) {
-							de_err(ctx->c, "xface: Internal error (4)\n");
+							de_err(ctx->c, "xface: Internal error (4)");
 							ctx->errflag = 1;
 							return;
 						}

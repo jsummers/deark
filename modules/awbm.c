@@ -158,7 +158,7 @@ static void do_v2(deark *c, lctx *d)
 	}
 
 	if(!ncolors) {
-		de_err(c, "Can't detect image format\n");
+		de_err(c, "Can't detect image format");
 		goto done;
 	}
 

@@ -42,11 +42,11 @@ static int get_bitmap_info(deark *c, struct srcbitmap *srcbmp, const char *fmt, 
 		flags |= DE_BMPINFO_HAS_HOTSPOT;
 	}
 	if(!de_fmtutil_get_bmpinfo(c, c->infile, &srcbmp->bi, pos, c->infile->len - pos, flags)) {
-		de_err(c, "Unsupported image type (header size %d)\n", (int)srcbmp->bi.infohdrsize);
+		de_err(c, "Unsupported image type (header size %d)", (int)srcbmp->bi.infohdrsize);
 	}
 
 	if(srcbmp->bi.compression_field!=0) {
-		de_err(c, "Unsupported compression type (%d)\n", (int)srcbmp->bi.compression_field);
+		de_err(c, "Unsupported compression type (%d)", (int)srcbmp->bi.compression_field);
 		goto done;
 	}
 
@@ -209,7 +209,7 @@ static void do_decode_CI_or_CP_pair(deark *c, const char *fmt, de_int64 pos)
 		}
 
 		if(srcbmp->bi.size_of_headers_and_pal<26) {
-			de_err(c, "Bad CI or CP image\n");
+			de_err(c, "Bad CI or CP image");
 			goto done;
 		}
 		pos += srcbmp->bi.size_of_headers_and_pal;
@@ -230,7 +230,7 @@ static void do_decode_CI_or_CP_pair(deark *c, const char *fmt, de_int64 pos)
 	}
 
 	if(srcbmp_mask==NULL || srcbmp_main==NULL) {
-		de_err(c, "Bad CI or CP image\n");
+		de_err(c, "Bad CI or CP image");
 		goto done;
 	}
 
@@ -251,7 +251,7 @@ static void do_decode_IC_or_PT(deark *c, const char *fmt, de_int64 pos)
 		goto done;
 	}
 	if(srcbmp_mask->bi.size_of_headers_and_pal<26) {
-		de_err(c, "Bad %s image\n", fmt);
+		de_err(c, "Bad %s image", fmt);
 		goto done;
 	}
 
@@ -293,11 +293,11 @@ static void do_extract_CI_or_CP_pair(deark *c, const char *fmt, de_int64 pos)
 		if(!de_fmtutil_get_bmpinfo(c, c->infile, bi, pos, c->infile->len - pos,
 			DE_BMPINFO_HAS_FILEHEADER))
 		{
-			de_err(c, "Unsupported image type\n");
+			de_err(c, "Unsupported image type");
 			goto done;
 		}
 		if(bi->compression_field!=0) {
-			de_err(c, "Unsupported compression type (%d)\n", (int)bi->compression_field);
+			de_err(c, "Unsupported compression type (%d)", (int)bi->compression_field);
 			goto done;
 		}
 
@@ -387,7 +387,7 @@ static void do_BA_segment(deark *c, de_int64 pos, de_int64 *pnextoffset)
 	b0 = de_getbyte(pos+0);
 	b1 = de_getbyte(pos+1);
 	if(b0!='B' || b1!='A') {
-		de_err(c, "Not a BA segment\n");
+		de_err(c, "Not a BA segment");
 		goto done;
 	}
 
@@ -413,7 +413,7 @@ static void do_BA_segment(deark *c, de_int64 pos, de_int64 *pnextoffset)
 		do_extract_one_image(c, pos+14, "PT", "ptr");
 	}
 	else {
-		de_err(c, "Not BM/IC/PT/CI/CP format. Not supported.\n");
+		de_err(c, "Not BM/IC/PT/CI/CP format. Not supported.");
 		goto done;
 	}
 
@@ -434,7 +434,7 @@ static void do_BA_file(deark *c)
 		do_BA_segment(c, pos, &nextoffset);
 		if(nextoffset==0) break;
 		if(nextoffset<=pos) {
-			de_err(c, "Invalid BA segment offset\n");
+			de_err(c, "Invalid BA segment offset");
 			break;
 		}
 		pos = nextoffset;
@@ -519,7 +519,7 @@ static void de_run_os2bmp(deark *c, de_module_params *mparams)
 		do_BA_file(c);
 		break;
 	default:
-		de_err(c, "Format not supported\n");
+		de_err(c, "Format not supported");
 	}
 }
 

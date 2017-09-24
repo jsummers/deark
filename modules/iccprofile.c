@@ -485,7 +485,7 @@ static void do_tag_data(deark *c, lctx *d, de_int64 tagindex,
 
 	if(tagdatalen<1) return;
 	if(tagdataoffset+tagdatalen > c->infile->len) {
-		de_err(c, "Tag #%d data goes beyond end of file\n", (int)tagindex);
+		de_err(c, "Tag #%d data goes beyond end of file", (int)tagindex);
 		return;
 	}
 	if(is_duplicate_data(c, d, tagindex, tagdataoffset, tagdatalen, &idx_of_dup)) {
@@ -548,7 +548,7 @@ static void do_read_tags(deark *c, lctx *d, de_int64 pos1)
 	d->num_tags = de_getui32be(pos1);
 	de_dbg(c, "number of tags: %d", (int)d->num_tags);
 	if(d->num_tags>500) {
-		de_err(c, "Invalid or excessive number of tags: %d\n", (int)d->num_tags);
+		de_err(c, "Invalid or excessive number of tags: %d", (int)d->num_tags);
 		goto done;
 	}
 	de_dbg(c, "expected start of data segment: %d", (int)(pos1+4+12*d->num_tags));

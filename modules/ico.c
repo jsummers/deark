@@ -46,7 +46,7 @@ static void do_image_data(deark *c, lctx *d, de_int64 img_num, de_int64 pos1, de
 	if(pos1+len > c->infile->len) return;
 
 	if(!de_fmtutil_get_bmpinfo(c, c->infile, &bi, pos1, len, DE_BMPINFO_ICO_FORMAT)) {
-		de_err(c, "Invalid bitmap\n");
+		de_err(c, "Invalid bitmap");
 		return;
 	}
 
@@ -59,16 +59,16 @@ static void do_image_data(deark *c, lctx *d, de_int64 img_num, de_int64 pos1, de
 	case 1: case 2: case 4: case 8: case 24: case 32:
 		break;
 	case 16:
-		de_err(c, "(image #%d) Unsupported bit count (%d)\n", (int)img_num, (int)bi.bitcount);
+		de_err(c, "(image #%d) Unsupported bit count (%d)", (int)img_num, (int)bi.bitcount);
 		goto done;
 	default:
-		de_err(c, "(image #%d) Invalid bit count (%d)\n", (int)img_num, (int)bi.bitcount);
+		de_err(c, "(image #%d) Invalid bit count (%d)", (int)img_num, (int)bi.bitcount);
 		goto done;
 	}
 
 	if(bi.compression_field!=0) {
 		// TODO: Support BITFIELDS
-		de_err(c, "Compression / BITFIELDS not supported\n");
+		de_err(c, "Compression / BITFIELDS not supported");
 		goto done;
 	}
 

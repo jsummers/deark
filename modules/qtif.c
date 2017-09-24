@@ -67,7 +67,7 @@ static void do_decode_raw(deark *c, lctx *d)
 	de_uint32 clr;
 
 	if(d->bitdepth != 32) {
-		de_err(c, "Unsupported bit depth for raw image (%d)\n", (int)d->bitdepth);
+		de_err(c, "Unsupported bit depth for raw image (%d)", (int)d->bitdepth);
 		goto done;
 	}
 	if(!de_good_image_dimensions(c, d->width, d->height)) goto done;
@@ -105,7 +105,7 @@ static void do_write_image(deark *c, lctx *d)
 	de_int64 dsize;
 
 	if(!d->idsc_found) {
-		de_err(c, "Missing idsc atom\n");
+		de_err(c, "Missing idsc atom");
 		return;
 	}
 
@@ -131,7 +131,7 @@ static void do_write_image(deark *c, lctx *d)
 		dbuf_create_file_from_slice(c->infile, d->idat_pos, dsize, "pcd", NULL, 0);
 	}
 	else {
-		de_err(c, "Unsupported compression type: \"%s\"\n", d->cmpr4cc.id_printable);
+		de_err(c, "Unsupported compression type: \"%s\"", d->cmpr4cc.id_printable);
 	}
 }
 

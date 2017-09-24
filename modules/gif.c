@@ -122,7 +122,7 @@ static int lzw_init(deark *c, struct lzwdeccontext *lz, unsigned int root_codesi
 	de_memset(lz, 0, sizeof(struct lzwdeccontext));
 
 	if(root_codesize<2 || root_codesize>11) {
-		de_err(c, "Invalid LZW root codesize (%u)\n", root_codesize);
+		de_err(c, "Invalid LZW root codesize (%u)", root_codesize);
 		return 0;
 	}
 
@@ -189,7 +189,7 @@ static int lzw_add_to_dict(deark *c, struct lzwdeccontext *lz, unsigned int oldc
 	newpos = lz->ct_used;
 
 	if(oldcode >= newpos) {
-		de_err(c, "GIF decoding error\n");
+		de_err(c, "GIF decoding error");
 		return 0;
 	}
 
@@ -250,7 +250,7 @@ static int lzw_process_code(deark *c, lctx *d, struct gif_image_data *gi, struct
 	else {
 		// No, code is not in table.
 		if(lz->oldcode>=lz->ct_used) {
-			de_err(c, "GIF decoding error\n");
+			de_err(c, "GIF decoding error");
 			return 0;
 		}
 
@@ -742,7 +742,7 @@ static int do_image_internal(deark *c, lctx *d,
 	}
 
 	if(c->infile->len-pos < 1) {
-		de_err(c, "Unexpected end of file\n");
+		de_err(c, "Unexpected end of file");
 		goto done;
 	}
 	de_dbg(c, "image data at %d", (int)pos);
@@ -937,7 +937,7 @@ static void de_run_gif(deark *c, de_module_params *mparams)
 
 	while(1) {
 		if(pos >= c->infile->len) {
-			de_err(c, "Unexpected end of file\n");
+			de_err(c, "Unexpected end of file");
 			break;
 		}
 		block_type = de_getbyte(pos);
@@ -966,7 +966,7 @@ static void de_run_gif(deark *c, de_module_params *mparams)
 			pos += bytesused;
 			break;
 		default:
-			de_err(c, "Unknown block type: 0x%02x\n", (unsigned int)block_type);
+			de_err(c, "Unknown block type: 0x%02x", (unsigned int)block_type);
 			goto done;
 		}
 	}

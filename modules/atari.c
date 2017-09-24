@@ -38,7 +38,7 @@ static void do_cas(deark *c)
 static void de_run_cas(deark *c, de_module_params *mparams)
 {
 	do_cas(c);
-	de_err(c, "Atari CAS format is not supported\n");
+	de_err(c, "Atari CAS format is not supported");
 }
 
 static int de_identify_cas(deark *c)
@@ -165,11 +165,11 @@ static void do_directory_entry(deark *c, lctx *d, dbuf *f, de_int64 pos)
 	if(starting_sector<1) goto done;
 
 	if(starting_sector > 720) {
-		de_err(c, "Bad starting sector: %d\n", (int)starting_sector);
+		de_err(c, "Bad starting sector: %d", (int)starting_sector);
 		goto done;
 	}
 	if(sector_count > 720) {
-		de_err(c, "Bad file size: %d blocks\n", (int)sector_count);
+		de_err(c, "Bad file size: %d blocks", (int)sector_count);
 		goto done;
 	}
 
@@ -224,7 +224,7 @@ static void do_disk_image(deark *c, lctx *d, dbuf *f)
 	de_byte flags;
 
 	if(d->sector_size!=128 && d->sector_size!=256) {
-		de_err(c, "Unsupported sector size: %d\n", (int)d->sector_size);
+		de_err(c, "Unsupported sector size: %d", (int)d->sector_size);
 		return;
 	}
 	entries_per_sector = d->sector_size / 16;
