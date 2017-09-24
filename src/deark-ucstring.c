@@ -295,6 +295,10 @@ void ucstring_to_sz(de_ucstring *s, char *szbuf, size_t szbuf_len, unsigned int 
 					de_snprintf((char*)charcodebuf, sizeof(charcodebuf),
 						"%s\\t%s", sc1, sc2);
 				}
+				else if(ch==0x00) {
+					de_snprintf((char*)charcodebuf, sizeof(charcodebuf),
+						"%s\\0%s", sc1, sc2);
+				}
 				else if(ch>=DE_CODEPOINT_BYTE00 && ch<=DE_CODEPOINT_BYTEFF) {
 					de_snprintf((char*)charcodebuf, sizeof(charcodebuf), "%s%02X%s",
 						sc1, (int)(ch-DE_CODEPOINT_BYTE00), sc2);
