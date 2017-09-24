@@ -333,7 +333,7 @@ BigPop(struct xfacectx *ctx, const Prob *p)
 
 // This is what's left of the original BigDiv() function.
 // It's only needed for the right-shift operation.
-// (Stores the remainder in the word pointer to by r)
+// (Stores the remainder in the word pointed to by r)
 static void
 BigRSH(struct xfacectx *ctx, XFACE_WORD *r)
 {
@@ -472,8 +472,7 @@ static void gen_helper(struct xfacectx *ctx, const de_byte *arr, size_t arr_len,
 // "case XFACE_WIDTH" code cannot be reached, because i is never larger
 // than XFACE_WIDTH-1. I suspect that, in fact, all of the "cases" are off by
 // 1. But it's not like I can "fix" it, because that would change the format
-// in an incompatible way.
-// -JS
+// in an incompatible way. -JS
 
 static void
 Gen(struct xfacectx *ctx, char *f, size_t f_len)

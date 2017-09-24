@@ -1175,7 +1175,7 @@ static int do_prescan_records(deark *c, lctx *d, de_int64 pos1)
 	d->rec_list.order_to_read = de_malloc(c, sizeof(size_t)*d->rec_list.num_recs);
 	for(i=0; i<d->rec_list.num_recs; i++) {
 		// By default, read the records in the order they appear in the file.
-		d->rec_list.order_to_read[i] = i;
+		d->rec_list.order_to_read[i] = (size_t)i;
 
 		if(d->file_fmt==FMT_PRC) {
 			de_uint32 rsrc_type;
