@@ -89,7 +89,7 @@ static void do_read_filename(deark *c, lctx *d,
 	dd->fname = ucstring_create(c);
 	from_encoding = utf8_flag ? DE_ENCODING_UTF8 : DE_ENCODING_CP437_G;
 	dbuf_read_to_ucstring(c->infile, pos, len, dd->fname, 0, from_encoding);
-	de_dbg(c, "filename: \"%s\"\n", ucstring_get_printable_sz_d(dd->fname));
+	de_dbg(c, "filename: \"%s\"", ucstring_get_printable_sz_d(dd->fname));
 }
 
 
@@ -100,7 +100,7 @@ static void do_comment_display(deark *c, lctx *d, de_int64 pos, de_int64 len, in
 
 	s = ucstring_create(c);
 	dbuf_read_to_ucstring(c->infile, pos, len, s, 0, encoding);
-	de_dbg(c, "%s: \"%s\"\n", name, ucstring_get_printable_sz_d(s));
+	de_dbg(c, "%s: \"%s\"", name, ucstring_get_printable_sz_d(s));
 	ucstring_destroy(s);
 }
 
@@ -141,7 +141,7 @@ static void read_unix_timestamp(deark *c, lctx *d, de_int64 pos,
 	t = de_geti32le(pos);
 	de_unix_time_to_timestamp(t, timestamp);
 	de_timestamp_to_string(timestamp, timestamp_buf, sizeof(timestamp_buf), 1);
-	de_dbg(c, "%s: %d (%s)\n", name, (int)t, timestamp_buf);
+	de_dbg(c, "%s: %d (%s)", name, (int)t, timestamp_buf);
 }
 
 static void read_FILETIME(deark *c, lctx *d, de_int64 pos,
@@ -153,7 +153,7 @@ static void read_FILETIME(deark *c, lctx *d, de_int64 pos,
 	t_FILETIME = de_geti64le(pos);
 	de_FILETIME_to_timestamp(t_FILETIME, timestamp);
 	de_timestamp_to_string(timestamp, timestamp_buf, sizeof(timestamp_buf), 1);
-	de_dbg(c, "%s: %s\n", name, timestamp_buf);
+	de_dbg(c, "%s: %s", name, timestamp_buf);
 }
 
 // Extra field 0x5455
@@ -212,7 +212,7 @@ static void ef_infozip1(deark *c, lctx *d,
 	if(!is_central) {
 		uidnum = de_getui16le(pos+8);
 		gidnum = de_getui16le(pos+10);
-		de_dbg(c, "uid: %d, gid: %d\n", (int)uidnum, (int)gidnum);
+		de_dbg(c, "uid: %d, gid: %d", (int)uidnum, (int)gidnum);
 	}
 }
 
@@ -227,7 +227,7 @@ static void ef_infozip2(deark *c, lctx *d,
 	if(len<4) return;
 	uidnum = de_getui16le(pos);
 	gidnum = de_getui16le(pos+2);
-	de_dbg(c, "uid: %d, gid: %d\n", (int)uidnum, (int)gidnum);
+	de_dbg(c, "uid: %d, gid: %d", (int)uidnum, (int)gidnum);
 }
 
 static de_int64 get_variable_length_uint_le(dbuf *f, de_int64 pos, de_int64 len)
@@ -256,7 +256,7 @@ static void ef_infozip3(deark *c, lctx *d,
 	if(pos+1>endpos) return;
 	ver = de_getbyte(pos);
 	pos++;
-	de_dbg(c, "version: %d\n", (int)ver);
+	de_dbg(c, "version: %d", (int)ver);
 	if(ver!=1) return;
 
 	if(pos+1>endpos) return;
@@ -273,7 +273,7 @@ static void ef_infozip3(deark *c, lctx *d,
 	gidnum = get_variable_length_uint_le(c->infile, pos, sz);
 	pos += sz;
 
-	de_dbg(c, "uid: %d, gid: %d\n", (int)uidnum, (int)gidnum);
+	de_dbg(c, "uid: %d, gid: %d", (int)uidnum, (int)gidnum);
 }
 
 // Extra field 0x000a
@@ -297,7 +297,7 @@ static void ef_ntfs(deark *c, lctx *d,
 		pos += 4;
 		if(attr_tag==0x0001) name="NTFS filetimes";
 		else name="?";
-		de_dbg(c, "tag: 0x%04x (%s), dlen: %d\n", (unsigned int)attr_tag, name,
+		de_dbg(c, "tag: 0x%04x (%s), dlen: %d", (unsigned int)attr_tag, name,
 			(int)attr_size);
 		if(pos+attr_size>endpos) break;
 
@@ -327,20 +327,20 @@ static void ef_os2(deark *c, lctx *d,
 	if(pos+4>endpos) return;
 	unc_size = de_getui32le(pos);
 	pos += 4;
-	de_dbg(c, "uncmpr ext attr data size: %d\n", (int)unc_size);
+	de_dbg(c, "uncmpr ext attr data size: %d", (int)unc_size);
 	if(is_central) return;
 
 	if(pos+2>endpos) return;
 	cmpr_type = de_getui16le(pos);
 	pos += 2;
-	de_dbg(c, "ext attr cmpr method: %d\n", (int)cmpr_type);
+	de_dbg(c, "ext attr cmpr method: %d", (int)cmpr_type);
 
 	if(pos+4>endpos) return;
 	crc = de_getui32le(pos);
 	pos += 4;
-	de_dbg(c, "ext attr crc: 0x%08x\n", (unsigned int)crc);
+	de_dbg(c, "ext attr crc: 0x%08x", (unsigned int)crc);
 
-	de_dbg(c, "cmpr ext attr data at %d, len=%d\n", (int)pos, (int)(endpos-pos));
+	de_dbg(c, "cmpr ext attr data at %d, len=%d", (int)pos, (int)(endpos-pos));
 	// TODO: Uncompress and decode OS/2 extended attribute structure (FEA2LIST)
 }
 
@@ -355,13 +355,13 @@ static void ef_zipitmac_2705(deark *c, lctx *d,
 
 	if(len<4) goto done;
 	dbuf_read_fourcc(c->infile, pos, &sig, 0);
-	de_dbg(c, "signature: '%s'\n", sig.id_printable);
+	de_dbg(c, "signature: '%s'", sig.id_printable);
 	if(sig.id!=0x5a504954U) goto done; // expecting 'ZPIT'
 	if(len<12) goto done;
 	dbuf_read_fourcc(c->infile, pos+4, &filetype, 0);
-	de_dbg(c, "filetype: '%s'\n", filetype.id_printable);
+	de_dbg(c, "filetype: '%s'", filetype.id_printable);
 	dbuf_read_fourcc(c->infile, pos+8, &creator, 0);
-	de_dbg(c, "creator: '%s'\n", creator.id_printable);
+	de_dbg(c, "creator: '%s'", creator.id_printable);
 
 done:
 	;
@@ -375,7 +375,7 @@ static void handle_mac_time(deark *c, lctx *d,
 	char timestamp_buf[64];
 	de_mac_time_to_timestamp(mt_raw - mt_offset, ts);
 	de_timestamp_to_string(ts, timestamp_buf, sizeof(timestamp_buf), 1);
-	de_dbg(c, "%s: %"INT64_FMT" %+"INT64_FMT" (%s)\n", name,
+	de_dbg(c, "%s: %"INT64_FMT" %+"INT64_FMT" (%s)", name,
 		mt_raw, -mt_offset, timestamp_buf);
 }
 
@@ -409,7 +409,7 @@ static void ef_infozipmac(deark *c, lctx *d,
 	if(len<14) goto done;
 
 	ulen = de_getui32le(pos);
-	de_dbg(c, "uncmpr. finder attr. size: %d\n", (int)ulen);
+	de_dbg(c, "uncmpr. finder attr. size: %d", (int)ulen);
 	pos += 4;
 
 	flags = (unsigned int)de_getui16le(pos);
@@ -420,14 +420,14 @@ static void ef_infozipmac(deark *c, lctx *d,
 		(flags&0x0004)?"uncmpressed_attribute_data":"compressed_attribute_data");
 	if(flags&0x0008) ucstring_append_flags_item(flags_str, "64-bit_times");
 	if(flags&0x0010) ucstring_append_flags_item(flags_str, "no_timezone_offsets");
-	de_dbg(c, "flags: 0x%04x (%s)\n", flags, ucstring_get_printable_sz(flags_str));
+	de_dbg(c, "flags: 0x%04x (%s)", flags, ucstring_get_printable_sz(flags_str));
 	pos += 2;
 
 	dbuf_read_fourcc(c->infile, pos, &filetype, 0);
-	de_dbg(c, "filetype: '%s'\n", filetype.id_printable);
+	de_dbg(c, "filetype: '%s'", filetype.id_printable);
 	pos += 4;
 	dbuf_read_fourcc(c->infile, pos, &creator, 0);
-	de_dbg(c, "creator: '%s'\n", creator.id_printable);
+	de_dbg(c, "creator: '%s'", creator.id_printable);
 	pos += 4;
 
 	if(is_central) goto done;
@@ -438,17 +438,17 @@ static void ef_infozipmac(deark *c, lctx *d,
 	}
 	else {
 		cmprtype = (unsigned int)de_getui16le(pos);
-		de_dbg(c, "finder attr. cmpr. method: %d\n", (int)cmprtype);
+		de_dbg(c, "finder attr. cmpr. method: %d", (int)cmprtype);
 		pos += 2;
 
 		crc_reported = (unsigned int)de_getui32le(pos);
-		de_dbg(c, "finder attr. data crc (reported): 0x%08x\n", crc_reported);
+		de_dbg(c, "finder attr. data crc (reported): 0x%08x", crc_reported);
 		pos += 4;
 	}
 
 	// The rest of the data is Finder attribute data
 	cmpr_attr_size = pos1+len - pos;
-	de_dbg(c, "cmpr. finder attr. size: %d\n", (int)cmpr_attr_size);
+	de_dbg(c, "cmpr. finder attr. size: %d", (int)cmpr_attr_size);
 	if(ulen<1 || ulen>1000000) goto done;
 
 	if(!is_compression_method_supported(cmprtype)) {
@@ -493,18 +493,18 @@ static void ef_infozipmac(deark *c, lctx *d,
 
 	charset = (int)dbuf_getui16le(attr_data, dpos);
 	dpos += 2;
-	de_dbg(c, "charset for fullpath/comment: %d\n", (int)charset);
+	de_dbg(c, "charset for fullpath/comment: %d", (int)charset);
 
 	// TODO: Can we use the correct encoding?
 	srd = dbuf_read_string(attr_data, dpos, attr_data->len-dpos, DE_DBG_MAX_STRLEN,
 		DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_ASCII);
-	de_dbg(c, "fullpath: \"%s\"\n", ucstring_get_printable_sz(srd->str));
+	de_dbg(c, "fullpath: \"%s\"", ucstring_get_printable_sz(srd->str));
 	dpos += srd->bytes_consumed;
 	de_destroy_stringreaderdata(c, srd);
 
 	srd = dbuf_read_string(attr_data, dpos, attr_data->len-dpos, DE_DBG_MAX_STRLEN,
 		DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_ASCII);
-	de_dbg(c, "comment: \"%s\"\n", ucstring_get_printable_sz(srd->str));
+	de_dbg(c, "comment: \"%s\"", ucstring_get_printable_sz(srd->str));
 	dpos += srd->bytes_consumed;
 	de_destroy_stringreaderdata(c, srd);
 
@@ -594,7 +594,7 @@ static void do_extra_data(deark *c, lctx *d,
 	de_int64 item_len;
 	const struct extra_item_type_info_struct *ei;
 
-	de_dbg(c, "extra data at %d, len=%d\n", (int)pos1, (int)len);
+	de_dbg(c, "extra data at %d, len=%d", (int)pos1, (int)len);
 	de_dbg_indent(c, 1);
 
 	pos = pos1;
@@ -605,7 +605,7 @@ static void do_extra_data(deark *c, lctx *d,
 
 		ei = get_extra_item_type_info(item_id);
 
-		de_dbg(c, "item id=0x%04x (%s), dlen=%d\n", (unsigned int)item_id, ei->name,
+		de_dbg(c, "item id=0x%04x (%s), dlen=%d", (unsigned int)item_id, ei->name,
 			(int)item_len);
 		if(pos+4+item_len > pos1+len) break;
 
@@ -633,7 +633,7 @@ static void do_extract_file(deark *c, lctx *d, struct member_data *md)
 	de_finfo *fi = NULL;
 	struct dir_entry_data *ldd = &md->local_dir_entry_data;
 
-	de_dbg(c, "file data at %d, len=%d\n", (int)md->file_data_pos,
+	de_dbg(c, "file data at %d, len=%d", (int)md->file_data_pos,
 		(int)ldd->cmpr_size);
 
 	if(!is_compression_method_supported(ldd->cmpr_method)) {
@@ -679,7 +679,7 @@ static void do_extract_file(deark *c, lctx *d, struct member_data *md)
 
 	do_decompress_data(c, d, c->infile, md->file_data_pos, ldd->cmpr_size, outf, ldd->cmpr_method);
 
-	de_dbg(c, "crc (calculated): 0x%08x\n", (unsigned int)md->crc_calculated);
+	de_dbg(c, "crc (calculated): 0x%08x", (unsigned int)md->crc_calculated);
 
 	if(md->crc_calculated != ldd->crc_reported) {
 		de_warn(c, "CRC check failed: Expected 0x%08x, got 0x%08x\n",
@@ -764,13 +764,13 @@ static int do_file_header(deark *c, lctx *d, struct member_data *md,
 	if(is_central) {
 		dd = &md->central_dir_entry_data;
 		fixed_header_size = 46;
-		de_dbg(c, "central dir entry at %d\n", (int)pos);
+		de_dbg(c, "central dir entry at %d", (int)pos);
 	}
 	else {
 		dd = &md->local_dir_entry_data;
 		fixed_header_size = 30;
 		if(md->disk_number_start!=0) return 0;
-		de_dbg(c, "local file header at %d\n", (int)pos);
+		de_dbg(c, "local file header at %d", (int)pos);
 	}
 	de_dbg_indent(c, 1);
 
@@ -792,25 +792,25 @@ static int do_file_header(deark *c, lctx *d, struct member_data *md,
 		md->ver_made_by_hi = (unsigned int)((md->ver_made_by&0xff00)>>8);
 		md->ver_made_by_lo = (unsigned int)(md->ver_made_by&0x00ff);
 		pltf_name = get_platform_name(md->ver_made_by_hi);
-		de_dbg(c, "version made by: platform=%u (%s), ZIP spec=%u.%u\n",
+		de_dbg(c, "version made by: platform=%u (%s), ZIP spec=%u.%u",
 			md->ver_made_by_hi, pltf_name,
 			(unsigned int)(md->ver_made_by_lo/10), (unsigned int)(md->ver_made_by_lo%10));
 	}
 
 	dd->ver_needed = (unsigned int)de_getui16le(pos);
 	pos += 2;
-	de_dbg(c, "version needed to extract: %u.%u\n",
+	de_dbg(c, "version needed to extract: %u.%u",
 		(unsigned int)(dd->ver_needed/10), (unsigned int)(dd->ver_needed%10));
 
 	dd->bit_flags = (unsigned int)de_getui16le(pos);
 	pos += 2;
-	de_dbg(c, "flags: 0x%04x\n", dd->bit_flags);
+	de_dbg(c, "flags: 0x%04x", dd->bit_flags);
 
 	utf8_flag = (dd->bit_flags & 0x800)?1:0;
 
 	dd->cmpr_method = (int)de_getui16le(pos);
 	pos += 2;
-	de_dbg(c, "cmpr method: %d (%s)\n", dd->cmpr_method,
+	de_dbg(c, "cmpr method: %d (%s)", dd->cmpr_method,
 		get_cmpr_meth_name(dd->cmpr_method));
 
 	mod_time_raw = de_getui16le(pos);
@@ -819,17 +819,17 @@ static int do_file_header(deark *c, lctx *d, struct member_data *md,
 	pos += 2;
 	de_dos_datetime_to_timestamp(&dd->mod_time, mod_date_raw, mod_time_raw, 0);
 	de_timestamp_to_string(&dd->mod_time, timestamp_buf, sizeof(timestamp_buf), 0);
-	de_dbg(c, "mod time: %s\n", timestamp_buf);
+	de_dbg(c, "mod time: %s", timestamp_buf);
 
 	dd->crc_reported = (de_uint32)de_getui32le(pos);
 	pos += 4;
-	de_dbg(c, "crc (reported): 0x%08x\n", (unsigned int)dd->crc_reported);
+	de_dbg(c, "crc (reported): 0x%08x", (unsigned int)dd->crc_reported);
 
 	dd->cmpr_size = de_getui32le(pos);
 	pos += 4;
 	dd->uncmpr_size = de_getui32le(pos);
 	pos += 4;
-	de_dbg(c, "cmpr size: %" INT64_FMT ", uncmpr size: %" INT64_FMT "\n", dd->cmpr_size, dd->uncmpr_size);
+	de_dbg(c, "cmpr size: %" INT64_FMT ", uncmpr size: %" INT64_FMT "", dd->cmpr_size, dd->uncmpr_size);
 
 	fn_len = de_getui16le(pos);
 	pos += 2;
@@ -857,22 +857,22 @@ static int do_file_header(deark *c, lctx *d, struct member_data *md,
 		pos += 2;
 		md->attr_e = (unsigned int)de_getui32le(pos);
 		pos += 4;
-		de_dbg(c, "file attributes: internal=0x%04x, external=0x%08x\n",
+		de_dbg(c, "file attributes: internal=0x%04x, external=0x%08x",
 			md->attr_i, md->attr_e);
 		process_ext_attr(c, d, md);
 
 		md->offset_of_local_header = de_getui32le(pos);
 		pos += 4;
-		de_dbg(c, "offset of local header: %d, disk: %d\n", (int)md->offset_of_local_header,
+		de_dbg(c, "offset of local header: %d, disk: %d", (int)md->offset_of_local_header,
 			(int)md->disk_number_start);
 	}
 
 	if(is_central) {
-		de_dbg(c, "filename_len=%d, extra_len=%d, comment_len=%d\n", (int)fn_len,
+		de_dbg(c, "filename_len=%d, extra_len=%d, comment_len=%d", (int)fn_len,
 			(int)extra_len, (int)comment_len);
 	}
 	else {
-		de_dbg(c, "filename_len=%d, extra_len=%d\n", (int)fn_len,
+		de_dbg(c, "filename_len=%d, extra_len=%d", (int)fn_len,
 			(int)extra_len);
 	}
 
@@ -910,7 +910,7 @@ static int do_central_dir_entry(deark *c, lctx *d,
 		goto done;
 	}
 
-	de_dbg(c, "central dir entry #%d\n", (int)central_index);
+	de_dbg(c, "central dir entry #%d", (int)central_index);
 	de_dbg_indent(c, 1);
 
 	if(!do_file_header(c, d, md, 1, pos, entry_size)) {
@@ -942,7 +942,7 @@ static int do_central_dir(deark *c, lctx *d)
 	int retval = 0;
 
 	pos = d->central_dir_offset;
-	de_dbg(c, "central dir at %d\n", (int)pos);
+	de_dbg(c, "central dir at %d", (int)pos);
 	de_dbg_indent(c, 1);
 
 	for(i=0; i<d->central_dir_num_entries; i++) {
@@ -969,26 +969,26 @@ static int do_end_of_central_dir(deark *c, lctx *d)
 	int retval = 0;
 
 	pos = d->end_of_central_dir_pos;
-	de_dbg(c, "end-of-central-dir record at %d\n", (int)pos);
+	de_dbg(c, "end-of-central-dir record at %d", (int)pos);
 	de_dbg_indent(c, 1);
 
 	this_disk_num = de_getui16le(pos+4);
-	de_dbg(c, "this disk num: %d\n", (int)this_disk_num);
+	de_dbg(c, "this disk num: %d", (int)this_disk_num);
 	disk_num_with_central_dir_start = de_getui16le(pos+6);
-	de_dbg(c, "disk with central dir start: %d\n", (int)disk_num_with_central_dir_start);
+	de_dbg(c, "disk with central dir start: %d", (int)disk_num_with_central_dir_start);
 	num_entries_this_disk = de_getui16le(pos+8);
 
 	d->central_dir_num_entries = de_getui16le(pos+10);
 	d->central_dir_byte_size  = de_getui32le(pos+12);
 	d->central_dir_offset = de_getui32le(pos+16);
 
-	de_dbg(c, "central dir: num_entries=%d, offset=%d, size=%d\n",
+	de_dbg(c, "central dir: num_entries=%d, offset=%d, size=%d",
 		(int)d->central_dir_num_entries,
 		(int)d->central_dir_offset,
 		(int)d->central_dir_byte_size);
 
 	comment_length = de_getui16le(pos+20);
-	de_dbg(c, "comment length: %d\n", (int)comment_length);
+	de_dbg(c, "comment length: %d", (int)comment_length);
 	if(comment_length>0) {
 		// The comment for the whole .ZIP file presumably has to use
 		// cp437 encoding. There's no flag that could indicate otherwise.
@@ -1068,7 +1068,7 @@ static void de_run_zip(deark *c, de_module_params *mparams)
 		goto done;
 	}
 
-	de_dbg(c, "end-of-central-dir record signature found at %d\n", (int)d->end_of_central_dir_pos);
+	de_dbg(c, "end-of-central-dir record signature found at %d", (int)d->end_of_central_dir_pos);
 
 	if(!do_end_of_central_dir(c, d)) {
 		goto done;

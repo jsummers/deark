@@ -137,7 +137,7 @@ static void do_read_palette(deark *c, lctx *d,struct de_char_context *charctx,
 	de_int64 cpos;
 	char tmps[64];
 
-	de_dbg(c, "palette at %d\n", (int)pos);
+	de_dbg(c, "palette at %d", (int)pos);
 
 	for(k=0; k<16; k++) {
 		if(adf_style && k>=8)
@@ -183,14 +183,14 @@ static void do_read_font_data(deark *c, lctx *d, de_int64 pos)
 {
 	de_uint32 crc;
 
-	de_dbg(c, "font at %d, %d bytes\n", (int)pos, (int)d->font_data_len);
+	de_dbg(c, "font at %d, %d bytes", (int)pos, (int)d->font_data_len);
 	de_dbg_indent(c, 1);
 	d->font_data = de_malloc(c, d->font_data_len);
 	de_read(d->font_data, pos, d->font_data_len);
 
 	crc = de_crc32(d->font_data, d->font_data_len);
 	d->is_standard_font = de_font_is_standard_vga_font(c, crc);
-	de_dbg(c, "font crc: 0x%08x (%s)\n", (unsigned int)crc,
+	de_dbg(c, "font crc: 0x%08x (%s)", (unsigned int)crc,
 		d->is_standard_font?"known CP437 font":"unrecognized");
 
 	if(de_get_ext_option(c, "font:dumpvgafont")) {
@@ -281,19 +281,19 @@ static void de_run_xbin(deark *c, de_module_params *mparams)
 	}
 
 	flags = de_getbyte(10);
-	de_dbg(c, "dimensions: %dx%d characters\n", (int)d->width_in_chars, (int)d->height_in_chars);
-	de_dbg(c, "font height: %d\n", (int)d->font_height);
-	de_dbg(c, "flags: 0x%02x\n", (unsigned int)flags);
+	de_dbg(c, "dimensions: %dx%d characters", (int)d->width_in_chars, (int)d->height_in_chars);
+	de_dbg(c, "font height: %d", (int)d->font_height);
+	de_dbg(c, "flags: 0x%02x", (unsigned int)flags);
 	d->has_palette = (flags&0x01)?1:0;
 	d->has_font = (flags&0x02)?1:0;
 	d->compression = (flags&0x04)?1:0;
 	d->nonblink = (flags&0x08)?1:0;
 	d->has_512chars = (flags&0x10)?1:0;
-	de_dbg(c, " has palette: %d\n", (int)d->has_palette);
-	de_dbg(c, " has font: %d\n", (int)d->has_font);
-	de_dbg(c, " compression: %d\n", (int)d->compression);
-	de_dbg(c, " non-blink mode: %d\n", (int)d->nonblink);
-	de_dbg(c, " 512 character mode: %d\n", (int)d->has_512chars);
+	de_dbg(c, " has palette: %d", (int)d->has_palette);
+	de_dbg(c, " has font: %d", (int)d->has_font);
+	de_dbg(c, " compression: %d", (int)d->compression);
+	de_dbg(c, " non-blink mode: %d", (int)d->nonblink);
+	de_dbg(c, " 512 character mode: %d", (int)d->has_512chars);
 
 	pos = 11;
 
@@ -302,7 +302,7 @@ static void de_run_xbin(deark *c, de_module_params *mparams)
 		pos += 48;
 	}
 	else {
-		de_dbg(c, "using default palette\n");
+		de_dbg(c, "using default palette");
 		do_default_palette(c, d, charctx);
 	}
 
@@ -344,7 +344,7 @@ static void de_run_xbin(deark *c, de_module_params *mparams)
 		}
 	}
 
-	de_dbg(c, "image data at %d\n", (int)pos);
+	de_dbg(c, "image data at %d", (int)pos);
 
 	if(d->compression) {
 		unc_data = dbuf_create_membuf(c, d->width_in_chars * d->height_in_chars * 2, 1);
@@ -456,8 +456,8 @@ static void de_run_bintext(deark *c, de_module_params *mparams)
 	}
 	d->height_in_chars = effective_file_size / (d->width_in_chars*2);
 
-	de_dbg(c, "width: %d chars\n", (int)d->width_in_chars);
-	de_dbg(c, "calculated height: %d chars\n", (int)d->height_in_chars);
+	de_dbg(c, "width: %d chars", (int)d->width_in_chars);
+	de_dbg(c, "calculated height: %d chars", (int)d->height_in_chars);
 	d->has_palette = 1;
 	d->has_font = 1;
 	d->compression = 0;
@@ -531,8 +531,8 @@ static void de_run_artworx_adf(deark *c, de_module_params *mparams)
 	d->width_in_chars = 80;
 	d->height_in_chars = data_len / (d->width_in_chars*2);
 
-	de_dbg(c, "guessed width: %d chars\n", (int)d->width_in_chars);
-	de_dbg(c, "calculated height: %d chars\n", (int)d->height_in_chars);
+	de_dbg(c, "guessed width: %d chars", (int)d->width_in_chars);
+	de_dbg(c, "calculated height: %d chars", (int)d->height_in_chars);
 	if(d->height_in_chars<1) goto done;
 	d->has_palette = 0;
 	d->has_font = 1;

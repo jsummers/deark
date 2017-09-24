@@ -30,7 +30,7 @@ static int do_ar_item(deark *c, lctx *d, de_int64 pos1, de_int64 *p_item_len)
 	de_int64 foundpos;
 	de_int64 ext_name_len;
 
-	de_dbg(c, "archive member at %d\n", (int)pos1);
+	de_dbg(c, "archive member at %d", (int)pos1);
 	de_dbg_indent(c, 1);
 
 	fi = de_finfo_create(c);
@@ -47,15 +47,15 @@ static int do_ar_item(deark *c, lctx *d, de_int64 pos1, de_int64 *p_item_len)
 	rawname_ucstring = ucstring_create(c);
 	ucstring_append_bytes(rawname_ucstring, (const de_byte*)name_orig, name_orig_len, 0, DE_ENCODING_UTF8);
 
-	de_dbg(c, "member raw name: \"%s\"\n", ucstring_get_printable_sz(rawname_ucstring));
+	de_dbg(c, "member raw name: \"%s\"", ucstring_get_printable_sz(rawname_ucstring));
 
 	(void)dbuf_read_ascii_number(c->infile, pos1+16, 12, 10, &mod_time);
 	de_unix_time_to_timestamp(mod_time, &fi->mod_time);
 	de_timestamp_to_string(&fi->mod_time, timestamp_buf, sizeof(timestamp_buf), 1);
-	de_dbg(c, "mod time: %" INT64_FMT " (%s)\n", mod_time, timestamp_buf);
+	de_dbg(c, "mod time: %" INT64_FMT " (%s)", mod_time, timestamp_buf);
 
 	(void)dbuf_read_ascii_number(c->infile, pos1+40, 8, 8, &file_mode);
-	de_dbg(c, "file mode: octal(%06o)\n", (int)file_mode);
+	de_dbg(c, "file mode: octal(%06o)", (int)file_mode);
 	if((file_mode & 0111)!=0) {
 		fi->mode_flags |= DE_MODEFLAG_EXE;
 	}
@@ -65,7 +65,7 @@ static int do_ar_item(deark *c, lctx *d, de_int64 pos1, de_int64 *p_item_len)
 
 	file_offset = pos1 + 60;
 	(void)dbuf_read_ascii_number(c->infile, pos1+48, 10, 10, &file_size);
-	de_dbg(c, "member data at %d, size: %d\n",
+	de_dbg(c, "member data at %d, size: %d",
 		(int)file_offset, (int)file_size);
 
 	if(name_orig_len<1) {
@@ -74,12 +74,12 @@ static int do_ar_item(deark *c, lctx *d, de_int64 pos1, de_int64 *p_item_len)
 		goto done;
 	}
 	else if(!de_strcmp(name_orig, "/")) {
-		de_dbg(c, "symbol table (ignoring)\n");
+		de_dbg(c, "symbol table (ignoring)");
 		retval = 1;
 		goto done;
 	}
 	else if(!de_strcmp(name_orig, "//")) {
-		de_dbg(c, "extended name table\n");
+		de_dbg(c, "extended name table");
 		d->extended_name_table_pos = file_offset;
 		d->extended_name_table_size = file_size;
 		retval = 1;
@@ -111,7 +111,7 @@ static int do_ar_item(deark *c, lctx *d, de_int64 pos1, de_int64 *p_item_len)
 		dbuf_read_to_ucstring(c->infile, d->extended_name_table_pos+name_offset,
 			ext_name_len, filename_ucstring, 0, DE_ENCODING_UTF8);
 
-		de_dbg(c, "extended filename: \"%s\"\n", ucstring_get_printable_sz(filename_ucstring));
+		de_dbg(c, "extended filename: \"%s\"", ucstring_get_printable_sz(filename_ucstring));
 
 		de_finfo_set_name_from_ucstring(c, fi, filename_ucstring);
 		fi->original_filename_flag = 1;
@@ -135,7 +135,7 @@ static int do_ar_item(deark *c, lctx *d, de_int64 pos1, de_int64 *p_item_len)
 		ucstring_append_bytes(filename_ucstring, (de_byte*)name_orig, adjusted_len,
 			0, DE_ENCODING_UTF8);
 
-		de_dbg(c, "filename: \"%s\"\n", ucstring_get_printable_sz(filename_ucstring));
+		de_dbg(c, "filename: \"%s\"", ucstring_get_printable_sz(filename_ucstring));
 		de_finfo_set_name_from_ucstring(c, fi, filename_ucstring);
 		fi->original_filename_flag = 1;
 	}

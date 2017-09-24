@@ -45,12 +45,12 @@ static void read_msdos_datetime(deark *c, lctx *d, struct member_data *md,
 	mod_time_raw = de_getui16le(pos);
 	mod_date_raw = de_getui16le(pos+2);
 	if(mod_time_raw==0 && mod_date_raw==0) {
-		de_dbg(c, "%s: (not set)\n", name);
+		de_dbg(c, "%s: (not set)", name);
 		return;
 	}
 	de_dos_datetime_to_timestamp(&tmp_timestamp, mod_date_raw, mod_time_raw, 0);
 	de_timestamp_to_string(&tmp_timestamp, timestamp_buf, sizeof(timestamp_buf), 0);
-	de_dbg(c, "%s: %s\n", name, timestamp_buf);
+	de_dbg(c, "%s: %s", name, timestamp_buf);
 }
 
 static void read_windows_FILETIME(deark *c, lctx *d, struct member_data *md,
@@ -63,7 +63,7 @@ static void read_windows_FILETIME(deark *c, lctx *d, struct member_data *md,
 	t_FILETIME = de_geti64le(pos);
 	de_FILETIME_to_timestamp(t_FILETIME, &tmp_timestamp);
 	de_timestamp_to_string(&tmp_timestamp, timestamp_buf, sizeof(timestamp_buf), 1);
-	de_dbg(c, "%s: %s\n", name, timestamp_buf);
+	de_dbg(c, "%s: %s", name, timestamp_buf);
 }
 
 static void read_unix_timestamp(deark *c, lctx *d, struct member_data *md,
@@ -76,7 +76,7 @@ static void read_unix_timestamp(deark *c, lctx *d, struct member_data *md,
 	t = de_geti32le(pos);
 	de_unix_time_to_timestamp(t, &tmp_timestamp);
 	de_timestamp_to_string(&tmp_timestamp, timestamp_buf, sizeof(timestamp_buf), 1);
-	de_dbg(c, "%s: %d (%s)\n", name, (int)t, timestamp_buf);
+	de_dbg(c, "%s: %d (%s)", name, (int)t, timestamp_buf);
 }
 
 static void read_filename(deark *c, lctx *d, struct member_data *md,
@@ -87,7 +87,7 @@ static void read_filename(deark *c, lctx *d, struct member_data *md,
 	s = ucstring_create(c);
 	dbuf_read_to_ucstring(c->infile, pos, len,
 		s, 0, DE_ENCODING_ASCII);
-	de_dbg(c, "filename: \"%s\"\n", ucstring_get_printable_sz(s));
+	de_dbg(c, "filename: \"%s\"", ucstring_get_printable_sz(s));
 	ucstring_destroy(s);
 }
 
@@ -99,7 +99,7 @@ static void exthdr_common(deark *c, lctx *d, struct member_data *md,
 
 	if(dlen<2) return;
 	crchdr = (de_uint32)de_getui16le(pos);
-	de_dbg(c, "crc16 of header (reported): 0x%04x\n", (unsigned int)crchdr);
+	de_dbg(c, "crc16 of header (reported): 0x%04x", (unsigned int)crchdr);
 	// TODO: Additional information
 }
 
@@ -132,7 +132,7 @@ static void exthdr_dirname(deark *c, lctx *d, struct member_data *md,
 
 	dbuf_read_to_ucstring(c->infile, pos, dlen,
 		s, 0, DE_ENCODING_ASCII);
-	de_dbg(c, "%s: \"%s\"\n", e->name, ucstring_get_printable_sz(s));
+	de_dbg(c, "%s: \"%s\"", e->name, ucstring_get_printable_sz(s));
 	ucstring_destroy(s);
 }
 
@@ -144,7 +144,7 @@ static void exthdr_msdosattribs(deark *c, lctx *d, struct member_data *md,
 
 	if(dlen<2) return;
 	attribs = (de_uint32)de_getui16le(pos);
-	de_dbg(c, "%s: 0x%04x\n", e->name, (unsigned int)attribs);
+	de_dbg(c, "%s: 0x%04x", e->name, (unsigned int)attribs);
 }
 
 static void exthdr_filesize(deark *c, lctx *d, struct member_data *md,
@@ -174,7 +174,7 @@ static void exthdr_unixperms(deark *c, lctx *d, struct member_data *md,
 
 	if(dlen<2) return;
 	mode = de_getui16le(pos);
-	de_dbg(c, "mode: octal(%06o)\n", (unsigned int)mode);
+	de_dbg(c, "mode: octal(%06o)", (unsigned int)mode);
 }
 
 static void exthdr_unixuidgid(deark *c, lctx *d, struct member_data *md,
@@ -187,9 +187,9 @@ static void exthdr_unixuidgid(deark *c, lctx *d, struct member_data *md,
 	// It's strange that the GID comes first, while the UID comes first in the
 	// level-0 "extended area".
 	gid = de_getui16le(pos);
-	de_dbg(c, "gid: %d\n", (int)gid);
+	de_dbg(c, "gid: %d", (int)gid);
 	uid = de_getui16le(pos+2);
-	de_dbg(c, "uid: %d\n", (int)uid);
+	de_dbg(c, "uid: %d", (int)uid);
 }
 
 static void exthdr_unixtimestamp(deark *c, lctx *d, struct member_data *md,
@@ -272,7 +272,7 @@ static void do_read_ext_header(deark *c, lctx *d, struct member_data *md,
 	}
 	name = e ? e->name : "?";
 
-	de_dbg(c, "ext header at %d, len=%d (1+%d+%d), id=0x%02x (%s)\n", (int)pos1, (int)len,
+	de_dbg(c, "ext header at %d, len=%d (1+%d+%d), id=0x%02x (%s)", (int)pos1, (int)len,
 		(int)(dlen-1), (int)(len-dlen), (unsigned int)id, name);
 
 	if(dlen<1) return; // Invalid header, too short to even have an id field
@@ -289,7 +289,7 @@ static void do_lev0_ext_area(deark *c, lctx *d, struct member_data *md,
 {
 	if(len<1) return;
 	md->os_id = de_getbyte(pos1);
-	de_dbg(c, "OS id: %d ('%c')\n", (int)md->os_id,
+	de_dbg(c, "OS id: %d ('%c')", (int)md->os_id,
 		de_byte_to_printable_char(md->os_id));
 
 	// TODO: Finish this
@@ -302,12 +302,12 @@ static void do_lev0_ext_area(deark *c, lctx *d, struct member_data *md,
 		read_unix_timestamp(c, d, md, pos1+2, "last-modified");
 
 		mode = de_getui16le(pos1+6);
-		de_dbg(c, "mode: octal(%06o)\n", (unsigned int)mode);
+		de_dbg(c, "mode: octal(%06o)", (unsigned int)mode);
 
 		uid = de_getui16le(pos1+8);
-		de_dbg(c, "uid: %d\n", (int)uid);
+		de_dbg(c, "uid: %d", (int)uid);
 		gid = de_getui16le(pos1+10);
-		de_dbg(c, "gid: %d\n", (int)gid);
+		de_dbg(c, "gid: %d", (int)gid);
 	}
 
 done: ;
@@ -341,7 +341,7 @@ static int do_read_ext_headers(deark *c, lctx *d, struct member_data *md,
 		return 1;
 	}
 
-	de_dbg(c, "ext headers section at %d\n", (int)pos);
+	de_dbg(c, "ext headers section at %d", (int)pos);
 	de_dbg_indent(c, 1);
 
 	size_of_size_field = (md->hlev==3) ? 4 : 2;
@@ -373,7 +373,7 @@ static int do_read_ext_headers(deark *c, lctx *d, struct member_data *md,
 
 done:
 	if(retval) {
-		de_dbg(c, "size of ext headers section: %d\n", (int)*tot_bytes_consumed);
+		de_dbg(c, "size of ext headers section: %d", (int)*tot_bytes_consumed);
 	}
 	de_dbg_indent(c, -1);
 	return retval;
@@ -404,7 +404,7 @@ static int do_read_member(deark *c, lctx *d, struct member_data *md, de_int64 po
 		goto done;
 	}
 
-	de_dbg(c, "member at %d\n", (int)pos);
+	de_dbg(c, "member at %d", (int)pos);
 	de_dbg_indent(c, 1);
 
 	// Read this first, to help decide whether this is LHA data at all.
@@ -426,7 +426,7 @@ static int do_read_member(deark *c, lctx *d, struct member_data *md, de_int64 po
 	// In later LHA versions, it is overloaded to identify the header format
 	// version (called "header level" in LHA jargon).
 	md->hlev = de_getbyte(pos+20);
-	de_dbg(c, "header level: %d\n", (int)md->hlev);
+	de_dbg(c, "header level: %d", (int)md->hlev);
 	if(md->hlev>3) {
 		de_err(c, "Invalid or unsupported header level: %d\n", (int)md->hlev);
 		goto done;
@@ -434,25 +434,25 @@ static int do_read_member(deark *c, lctx *d, struct member_data *md, de_int64 po
 
 	if(md->hlev==0) {
 		lev0_header_size = (de_int64)de_getbyte(pos);
-		de_dbg(c, "header size: (2+)%d\n", (int)lev0_header_size);
+		de_dbg(c, "header size: (2+)%d", (int)lev0_header_size);
 		pos++;
 		pos++; // Cksum
 	}
 	else if(md->hlev==1) {
 		lev1_base_header_size = (de_int64)de_getbyte(pos);
-		de_dbg(c, "base header size: %d\n", (int)lev1_base_header_size);
+		de_dbg(c, "base header size: %d", (int)lev1_base_header_size);
 		pos++;
 		pos++; // Cksum
 	}
 	else if(md->hlev==2) {
 		lev2_total_header_size = de_getui16le(pos);
-		de_dbg(c, "total header size: %d\n", (int)lev2_total_header_size);
+		de_dbg(c, "total header size: %d", (int)lev2_total_header_size);
 		pos += 2;
 	}
 	else if(md->hlev==3) {
 		de_int64 lev3_word_size;
 		lev3_word_size = de_getui16le(pos);
-		de_dbg(c, "word size: %d\n", (int)lev3_word_size);
+		de_dbg(c, "word size: %d", (int)lev3_word_size);
 		pos += 2;
 		if(lev3_word_size!=4) {
 			de_err(c, "Unsupported word size: %d\n", (int)lev3_word_size);
@@ -461,7 +461,7 @@ static int do_read_member(deark *c, lctx *d, struct member_data *md, de_int64 po
 	}
 
 	// This field was read earlier.
-	de_dbg(c, "cmpr method: \"%s\"\n", ucstring_get_printable_sz(md->cmpr_method->str));
+	de_dbg(c, "cmpr method: \"%s\"", ucstring_get_printable_sz(md->cmpr_method->str));
 	pos+=5;
 
 	if(!de_strcmp("-lhd-", (const char*)md->cmpr_method->sz)) {
@@ -472,13 +472,13 @@ static int do_read_member(deark *c, lctx *d, struct member_data *md, de_int64 po
 		// lev1_skip_size is the distance from the third byte of the extended
 		// header section, to the end of the compressed data.
 		lev1_skip_size = de_getui32le(pos);
-		de_dbg(c, "skip size: %u\n", (unsigned int)lev1_skip_size);
+		de_dbg(c, "skip size: %u", (unsigned int)lev1_skip_size);
 		pos += 4;
 		md->total_size = 2 + lev1_base_header_size + lev1_skip_size;
 	}
 	else {
 		compressed_data_len = de_getui32le(pos);
-		de_dbg(c, "compressed size: %u\n", (unsigned int)compressed_data_len);
+		de_dbg(c, "compressed size: %u", (unsigned int)compressed_data_len);
 		pos += 4;
 
 		if(md->hlev==0) {
@@ -490,7 +490,7 @@ static int do_read_member(deark *c, lctx *d, struct member_data *md, de_int64 po
 	}
 
 	md->orig_size = de_getui32le(pos);
-	de_dbg(c, "original size: %u\n", (unsigned int)md->orig_size);
+	de_dbg(c, "original size: %u", (unsigned int)md->orig_size);
 	pos += 4;
 
 	if(md->hlev==0 || md->hlev==1) {
@@ -512,18 +512,18 @@ static int do_read_member(deark *c, lctx *d, struct member_data *md, de_int64 po
 
 	if(md->hlev<=1) {
 		fnlen = de_getbyte(pos++);
-		de_dbg(c, "filename len: %d\n", (int)fnlen);
+		de_dbg(c, "filename len: %d", (int)fnlen);
 		read_filename(c, d, md, pos, fnlen);
 		pos += fnlen;
 	}
 
 	md->crc16 = (de_uint32)de_getui16le(pos);
-	de_dbg(c, "crc16 (reported): 0x%04x\n", (unsigned int)md->crc16);
+	de_dbg(c, "crc16 (reported): 0x%04x", (unsigned int)md->crc16);
 	pos += 2; // CRC16
 
 	if(md->hlev==1 || md->hlev==2 || md->hlev==3) {
 		md->os_id = de_getbyte(pos++);
-		de_dbg(c, "OS id: %d ('%c')\n", (int)md->os_id,
+		de_dbg(c, "OS id: %d ('%c')", (int)md->os_id,
 			de_byte_to_printable_char(md->os_id));
 	}
 
@@ -537,7 +537,7 @@ static int do_read_member(deark *c, lctx *d, struct member_data *md, de_int64 po
 		de_int64 ext_headers_size = (2+lev0_header_size) - (pos-pos1);
 		compressed_data_pos = pos1 + 2 + lev0_header_size;
 		if(ext_headers_size>0) {
-			de_dbg(c, "extended header area at %d, len=%d\n", (int)pos, (int)ext_headers_size);
+			de_dbg(c, "extended header area at %d, len=%d", (int)pos, (int)ext_headers_size);
 			de_dbg_indent(c, 1);
 			do_lev0_ext_area(c, d, md, pos, ext_headers_size);
 			de_dbg_indent(c, -1);
@@ -550,7 +550,7 @@ static int do_read_member(deark *c, lctx *d, struct member_data *md, de_int64 po
 		pos = pos1 + 2 + lev1_base_header_size - 2;
 		// TODO: sanitize pos?
 		first_ext_hdr_size = de_getui16le(pos);
-		de_dbg(c, "first ext hdr size: %d\n", (int)first_ext_hdr_size);
+		de_dbg(c, "first ext hdr size: %d", (int)first_ext_hdr_size);
 		pos += 2;
 
 		ret = do_read_ext_headers(c, d, md, pos, lev1_skip_size, first_ext_hdr_size,
@@ -573,7 +573,7 @@ static int do_read_member(deark *c, lctx *d, struct member_data *md, de_int64 po
 		compressed_data_pos = pos1+lev2_total_header_size;
 
 		first_ext_hdr_size = de_getui16le(pos);
-		de_dbg(c, "first ext hdr size: %d\n", (int)first_ext_hdr_size);
+		de_dbg(c, "first ext hdr size: %d", (int)first_ext_hdr_size);
 		pos += 2;
 
 		do_read_ext_headers(c, d, md, pos, pos1+lev2_total_header_size-pos,
@@ -585,14 +585,14 @@ static int do_read_member(deark *c, lctx *d, struct member_data *md, de_int64 po
 		compressed_data_pos = pos1+lev3_header_size;
 
 		first_ext_hdr_size = de_getui32le(pos);
-		de_dbg(c, "first ext hdr size: %d\n", (int)first_ext_hdr_size);
+		de_dbg(c, "first ext hdr size: %d", (int)first_ext_hdr_size);
 		pos += 4;
 
 		do_read_ext_headers(c, d, md, pos, pos1+lev3_header_size-pos,
 			first_ext_hdr_size, &exthdr_bytes_consumed);
 	}
 
-	de_dbg(c, "compressed member data at %d, len=%d\n",
+	de_dbg(c, "compressed member data at %d, len=%d",
 		(int)compressed_data_pos, (int)compressed_data_len);
 
 	retval = 1;

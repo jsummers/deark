@@ -260,7 +260,7 @@ static int do_header(deark *c, lctx *d)
 	char buf[80];
 	int retval = 0;
 
-	de_dbg(c, "header at %d\n", (int)pos);
+	de_dbg(c, "header at %d", (int)pos);
 	de_dbg_indent(c, 1);
 
 	// offset 0-7: signature
@@ -268,7 +268,7 @@ static int do_header(deark *c, lctx *d)
 
 	d->minor_ver = de_getui16le(pos+24);
 	d->major_ver = de_getui16le(pos+26);
-	de_dbg(c, "format version: %d.%d\n", (int)d->major_ver, (int)d->minor_ver);
+	de_dbg(c, "format version: %d.%d", (int)d->major_ver, (int)d->minor_ver);
 	if(d->major_ver!=3 && d->major_ver!=4) {
 		de_err(c, "Unsupported format version: %d\n", (int)d->major_ver);
 		goto done;
@@ -282,7 +282,7 @@ static int do_header(deark *c, lctx *d)
 
 	sector_shift = de_getui16le(pos+30); // aka ssz
 	d->sec_size = (de_int64)(1<<(unsigned int)sector_shift);
-	de_dbg(c, "sector size: 2^%d (%d bytes)\n", (int)sector_shift,
+	de_dbg(c, "sector size: 2^%d (%d bytes)", (int)sector_shift,
 		(int)d->sec_size);
 	if(d->sec_size!=512 && d->sec_size!=4096) {
 		de_err(c, "Unsupported sector size: %d\n", (int)d->sec_size);
@@ -291,7 +291,7 @@ static int do_header(deark *c, lctx *d)
 
 	mini_sector_shift = de_getui16le(pos+32); // aka sssz
 	d->mini_sector_size = (de_int64)(1<<(unsigned int)mini_sector_shift);
-	de_dbg(c, "mini sector size: 2^%d (%d bytes)\n", (int)mini_sector_shift,
+	de_dbg(c, "mini sector size: 2^%d (%d bytes)", (int)mini_sector_shift,
 		(int)d->mini_sector_size);
 	if(d->mini_sector_size!=64) {
 		de_err(c, "Unsupported mini sector size: %d\n", (int)d->mini_sector_size);
@@ -301,40 +301,40 @@ static int do_header(deark *c, lctx *d)
 	// offset 34: 6 reserved bytes
 
 	//d->num_dir_sectors = de_getui32le(pos+40);
-	//de_dbg(c, "number of directory sectors: %u\n", (unsigned int)d->num_dir_sectors);
+	//de_dbg(c, "number of directory sectors: %u", (unsigned int)d->num_dir_sectors);
 	// Should be 0 if major_ver==3
 
 	// Number of sectors used by sector allocation table (FAT)
 	d->num_fat_sectors = de_getui32le(pos+44);
-	de_dbg(c, "number of FAT sectors: %d\n", (int)d->num_fat_sectors);
+	de_dbg(c, "number of FAT sectors: %d", (int)d->num_fat_sectors);
 
 	d->first_dir_sec_id = de_geti32le(pos+48);
 	describe_sec_id(c, d, d->first_dir_sec_id, buf, sizeof(buf));
-	de_dbg(c, "first directory sector: %d (%s)\n", (int)d->first_dir_sec_id, buf);
+	de_dbg(c, "first directory sector: %d (%s)", (int)d->first_dir_sec_id, buf);
 
 	// offset 52, transaction signature number
 
 	d->std_stream_min_size = de_getui32le(pos+56);
-	de_dbg(c, "min size of a standard stream: %d\n", (int)d->std_stream_min_size);
+	de_dbg(c, "min size of a standard stream: %d", (int)d->std_stream_min_size);
 
 	// First sector of mini sector allocation table (MiniFAT)
 	d->first_minifat_sec_id = de_geti32le(pos+60);
 	describe_sec_id(c, d, d->first_minifat_sec_id, buf, sizeof(buf));
-	de_dbg(c, "first MiniFAT sector: %d (%s)\n", (int)d->first_minifat_sec_id, buf);
+	de_dbg(c, "first MiniFAT sector: %d (%s)", (int)d->first_minifat_sec_id, buf);
 
 	// Number of sectors used by MiniFAT
 	d->num_minifat_sectors = de_getui32le(pos+64);
-	de_dbg(c, "number of MiniFAT sectors: %d\n", (int)d->num_minifat_sectors);
+	de_dbg(c, "number of MiniFAT sectors: %d", (int)d->num_minifat_sectors);
 
 	// SecID of first (extra??) sector of the DIFAT
 	// (also called the Master Sector Allocation Table (MSAT))
 	d->first_difat_sec_id = de_geti32le(pos+68);
 	describe_sec_id(c, d, d->first_difat_sec_id, buf, sizeof(buf));
-	de_dbg(c, "first extended DIFAT sector: %d (%s)\n", (int)d->first_difat_sec_id, buf);
+	de_dbg(c, "first extended DIFAT sector: %d (%s)", (int)d->first_difat_sec_id, buf);
 
 	// Number of (extra??) sectors used by the DIFAT
 	d->num_difat_sectors = de_getui32le(pos+72);
-	de_dbg(c, "number of extended DIFAT sectors: %d\n", (int)d->num_difat_sectors);
+	de_dbg(c, "number of extended DIFAT sectors: %d", (int)d->num_difat_sectors);
 
 	// offset 76: 436 bytes of DIFAT data
 	retval = 1;
@@ -353,7 +353,7 @@ static void read_difat(deark *c, lctx *d)
 	de_int64 difat_sec_offs;
 
 
-	de_dbg(c, "reading DIFAT (total number of entries=%d)\n", (int)d->num_fat_sectors);
+	de_dbg(c, "reading DIFAT (total number of entries=%d)", (int)d->num_fat_sectors);
 	de_dbg_indent(c, 1);
 
 	if(d->num_fat_sectors > 1000000) {
@@ -369,7 +369,7 @@ static void read_difat(deark *c, lctx *d)
 	// Copy the part of the DIFAT that is in the header
 	num_to_read = still_to_read;
 	if(num_to_read>109) num_to_read = 109;
-	de_dbg(c, "reading %d DIFAT entries from header, at 76\n", (int)num_to_read);
+	de_dbg(c, "reading %d DIFAT entries from header, at 76", (int)num_to_read);
 	dbuf_copy(c->infile, 76, num_to_read*4, d->difat);
 	still_to_read -= num_to_read;
 
@@ -378,7 +378,7 @@ static void read_difat(deark *c, lctx *d)
 		if(difat_sec_id<0) break;
 
 		difat_sec_offs = sec_id_to_offset(c, d, difat_sec_id);
-		de_dbg(c, "reading DIFAT sector at %d\n", (int)difat_sec_offs);
+		de_dbg(c, "reading DIFAT sector at %d", (int)difat_sec_offs);
 		num_to_read = (d->sec_size - 4)/4;
 
 		dbuf_copy(c->infile, difat_sec_offs, num_to_read*4, d->difat);
@@ -397,13 +397,13 @@ static void dump_fat(deark *c, lctx *d)
 
 	if(c->debug_level<2) return;
 
-	de_dbg2(c, "dumping FAT contents (%d entries)\n", (int)d->num_fat_entries);
+	de_dbg2(c, "dumping FAT contents (%d entries)", (int)d->num_fat_entries);
 
 	de_dbg_indent(c, 1);
 	for(i=0; i<d->num_fat_entries; i++) {
 		sec_id = dbuf_geti32le(d->fat, i*4);
 		describe_sec_id(c, d, sec_id, buf, sizeof(buf));
-		de_dbg2(c, "FAT[%d]: next_SecID=%d (%s)\n", (int)i, (int)sec_id, buf);
+		de_dbg2(c, "FAT[%d]: next_SecID=%d (%s)", (int)i, (int)sec_id, buf);
 	}
 	de_dbg_indent(c, -1);
 }
@@ -418,13 +418,13 @@ static void read_fat(deark *c, lctx *d)
 
 	d->fat = dbuf_create_membuf(c, d->num_fat_sectors * d->sec_size, 1);
 
-	de_dbg(c, "reading FAT contents (%d sectors)\n", (int)d->num_fat_sectors);
+	de_dbg(c, "reading FAT contents (%d sectors)", (int)d->num_fat_sectors);
 	de_dbg_indent(c, 1);
 	for(i=0; i<d->num_fat_sectors; i++) {
 		sec_id = dbuf_geti32le(d->difat, i*4);
 		sec_offset = sec_id_to_offset(c, d, sec_id);
 		describe_sec_id(c, d, sec_id, buf, sizeof(buf));
-		de_dbg(c, "reading sector: DIFAT_idx=%d, SecID=%d (%s)\n",
+		de_dbg(c, "reading sector: DIFAT_idx=%d, SecID=%d (%s)",
 			(int)i, (int)sec_id, buf);
 		dbuf_copy(c->infile, sec_offset, d->sec_size, d->fat);
 	}
@@ -444,12 +444,12 @@ static void dump_minifat(deark *c, lctx *d)
 	if(!d->minifat) return;
 
 	num_minifat_entries = d->minifat->len / 4;
-	de_dbg2(c, "dumping MiniFAT contents (%d entries)\n", (int)num_minifat_entries);
+	de_dbg2(c, "dumping MiniFAT contents (%d entries)", (int)num_minifat_entries);
 
 	de_dbg_indent(c, 1);
 	for(i=0; i<num_minifat_entries; i++) {
 		sec_id = dbuf_geti32le(d->minifat, i*4);
-		de_dbg2(c, "MiniFAT[%d]: next_MiniSecID=%d\n", (int)i, (int)sec_id);
+		de_dbg2(c, "MiniFAT[%d]: next_MiniSecID=%d", (int)i, (int)sec_id);
 	}
 	de_dbg_indent(c, -1);
 }
@@ -470,7 +470,7 @@ static void read_minifat(deark *c, lctx *d)
 	d->minifat = dbuf_create_membuf(c, d->num_minifat_sectors * d->sec_size, 1);
 
 	// TODO: Use copy_normal_stream_to_dbuf
-	de_dbg(c, "reading MiniFAT contents (%d sectors)\n", (int)d->num_minifat_sectors);
+	de_dbg(c, "reading MiniFAT contents (%d sectors)", (int)d->num_minifat_sectors);
 	de_dbg_indent(c, 1);
 
 	sec_id = d->first_minifat_sec_id;
@@ -480,7 +480,7 @@ static void read_minifat(deark *c, lctx *d)
 
 		sec_offset = sec_id_to_offset(c, d, sec_id);
 		describe_sec_id(c, d, sec_id, buf, sizeof(buf));
-		de_dbg(c, "reading MiniFAT sector #%d, SecID=%d (%s), MiniSecIDs %d-%d\n",
+		de_dbg(c, "reading MiniFAT sector #%d, SecID=%d (%s), MiniSecIDs %d-%d",
 			(int)i, (int)sec_id, buf,
 			(int)(i*(d->sec_size/4)), (int)((i+1)*(d->sec_size/4)-1));
 		dbuf_copy(c->infile, sec_offset, d->sec_size, d->minifat);
@@ -577,7 +577,7 @@ static void extract_stream_to_file(deark *c, lctx *d, de_int64 dir_entry_idx, st
 
 		// Special handling of Thumbs.db files.
 
-		de_dbg(c, "reading Thumbs.db stream\n");
+		de_dbg(c, "reading Thumbs.db stream");
 		de_dbg_indent(c, 1);
 
 		// A Thumbs.db stream typically has a header, followed by an embedded JPEG
@@ -601,10 +601,10 @@ static void extract_stream_to_file(deark *c, lctx *d, de_int64 dir_entry_idx, st
 		copy_any_stream_to_dbuf(c, d, dei, 0, 64, tmpdbuf);
 
 		hdrsize = dbuf_getui32le(tmpdbuf, 0);
-		de_dbg(c, "header size: %d\n", (int)hdrsize);
+		de_dbg(c, "header size: %d", (int)hdrsize);
 
 		ver = dbuf_getui32le(tmpdbuf, 4);
-		de_dbg(c, "version: %d\n", (int)ver);
+		de_dbg(c, "version: %d", (int)ver);
 
 		// 0x0c = "Original format" Thumbs.db
 		// 0x18 = "Windows 7 format"
@@ -614,14 +614,14 @@ static void extract_stream_to_file(deark *c, lctx *d, de_int64 dir_entry_idx, st
 			de_byte sig2[4];
 
 			reported_size = dbuf_getui32le(tmpdbuf, 8);
-			de_dbg(c, "reported size: %d\n", (int)reported_size);
+			de_dbg(c, "reported size: %d", (int)reported_size);
 
 			startpos = hdrsize;
 			final_streamsize -= hdrsize;
-			de_dbg(c, "calculated size: %d\n", (int)final_streamsize);
+			de_dbg(c, "calculated size: %d", (int)final_streamsize);
 
 			if(catalog_idx>=0 && c->filenames_from_file) {
-				de_dbg(c, "name from catalog: \"%s\"\n",
+				de_dbg(c, "name from catalog: \"%s\"",
 					ucstring_get_printable_sz(d->thumbsdb_catalog[catalog_idx].fname));
 
 				// Replace the default name with the name from the catalog.
@@ -683,7 +683,7 @@ static void read_timestamp(deark *c, lctx *d, dbuf *f, de_int64 pos,
 	if(ts_as_FILETIME!=0) {
 		de_FILETIME_to_timestamp(ts_as_FILETIME, ts);
 		de_timestamp_to_string(ts, timestamp_buf, sizeof(timestamp_buf), 1);
-		de_dbg(c, "%s: %s\n", field_name, timestamp_buf);
+		de_dbg(c, "%s: %s", field_name, timestamp_buf);
 	}
 }
 
@@ -698,25 +698,25 @@ static int read_thumbsdb_catalog(deark *c, lctx *d, struct dir_entry_info *dei)
 
 	if(d->thumbsdb_catalog) return 0; // Already read a catalog
 
-	de_dbg(c, "reading thumbsdb catalog\n");
+	de_dbg(c, "reading thumbsdb catalog");
 	de_dbg_indent(c, 1);
 
 	catf = dbuf_create_membuf(c, dei->stream_size, 0);
 	copy_any_stream_to_dbuf(c, d, dei, 0, dei->stream_size, catf);
 
 	item_len = dbuf_getui16le(catf, 0);
-	de_dbg(c, "header size: %d\n", (int)item_len); // (?)
+	de_dbg(c, "header size: %d", (int)item_len); // (?)
 	if(item_len!=16) goto done;
 
 	n = dbuf_getui16le(catf, 2);
-	de_dbg(c, "catalog version: %d\n", (int)n); // (?)
+	de_dbg(c, "catalog version: %d", (int)n); // (?)
 	if(n!=5 && n!=6 && n!=7) {
 		de_warn(c, "Unsupported Catalog version: %d\n", (int)n);
 		goto done;
 	}
 
 	d->thumbsdb_catalog_num_entries = dbuf_getui16le(catf, 4); // This might really be a 4 byte int.
-	de_dbg(c, "num entries: %d\n", (int)d->thumbsdb_catalog_num_entries);
+	de_dbg(c, "num entries: %d", (int)d->thumbsdb_catalog_num_entries);
 	if(d->thumbsdb_catalog_num_entries>2048)
 		d->thumbsdb_catalog_num_entries = 2048;
 
@@ -727,13 +727,13 @@ static int read_thumbsdb_catalog(deark *c, lctx *d, struct dir_entry_info *dei)
 	for(i=0; i<d->thumbsdb_catalog_num_entries; i++) {
 		if(pos >= catf->len) goto done;
 		item_len = dbuf_getui32le(catf, pos);
-		de_dbg(c, "catalog entry #%d, len=%d\n", (int)i, (int)item_len);
+		de_dbg(c, "catalog entry #%d, len=%d", (int)i, (int)item_len);
 		if(item_len<20) goto done;
 
 		de_dbg_indent(c, 1);
 
 		d->thumbsdb_catalog[i].id = (de_uint32)dbuf_getui32le(catf, pos+4);
-		de_dbg(c, "id: %u\n", (unsigned int)d->thumbsdb_catalog[i].id);
+		de_dbg(c, "id: %u", (unsigned int)d->thumbsdb_catalog[i].id);
 
 		read_timestamp(c, d, catf, pos+8, &d->thumbsdb_catalog[i].mod_time, "timestamp");
 
@@ -741,7 +741,7 @@ static int read_thumbsdb_catalog(deark *c, lctx *d, struct dir_entry_info *dei)
 
 		dbuf_read_to_ucstring(catf, pos+16, item_len-20, d->thumbsdb_catalog[i].fname,
 			0, DE_ENCODING_UTF16LE);
-		de_dbg(c, "name: \"%s\"\n", ucstring_get_printable_sz(d->thumbsdb_catalog[i].fname));
+		de_dbg(c, "name: \"%s\"", ucstring_get_printable_sz(d->thumbsdb_catalog[i].fname));
 
 		de_dbg_indent(c, -1);
 
@@ -799,10 +799,10 @@ static void do_prop_clipboard(deark *c, lctx *d, struct summaryinfo_struct *si,
 	de_int64 cbdatapos;
 
 	cbsize_reported = dbuf_getui32le(si->f, si->tbloffset+pinfo->data_offs+4);
-	de_dbg(c, "clipboard data size: %d\n", (int)cbsize_reported);
+	de_dbg(c, "clipboard data size: %d", (int)cbsize_reported);
 
 	cbtype = (de_uint32)dbuf_getui32le(si->f, si->tbloffset+pinfo->data_offs+12);
-	de_dbg(c, "clipboard data type: 0x%08x\n", (unsigned int)cbtype);
+	de_dbg(c, "clipboard data type: 0x%08x", (unsigned int)cbtype);
 
 	cbdatapos = si->tbloffset+pinfo->data_offs+16;
 	cbsize_payload = cbsize_reported-8;
@@ -855,7 +855,7 @@ static void do_prop_data(deark *c, lctx *d, struct summaryinfo_struct *si,
 	switch(pinfo->data_type) {
 	case 0x02: // int16
 		n = dbuf_geti16le(si->f, si->tbloffset+pinfo->data_offs+4);
-		de_dbg(c, "%s: %d\n", pinfo->name, (int)n);
+		de_dbg(c, "%s: %d", pinfo->name, (int)n);
 
 		if(pinfo->type==0x01) { // code page
 			// I've seen some files in which the Code Page property appears
@@ -876,14 +876,14 @@ static void do_prop_data(deark *c, lctx *d, struct summaryinfo_struct *si,
 		break;
 	case 0x03: // int32
 		n = dbuf_geti32le(si->f, si->tbloffset+pinfo->data_offs+4);
-		de_dbg(c, "%s: %d\n", pinfo->name, (int)n);
+		de_dbg(c, "%s: %d", pinfo->name, (int)n);
 		break;
 	case 0x1e: // string with length prefix
 		s = ucstring_create(c);
 		n = dbuf_geti32le(si->f, si->tbloffset+pinfo->data_offs+4);
 		dbuf_read_to_ucstring_n(si->f, si->tbloffset+pinfo->data_offs+8, n, DE_DBG_MAX_STRLEN, s,
 			DE_CONVFLAG_STOP_AT_NUL, si->encoding);
-		de_dbg(c, "%s: \"%s\"\n", pinfo->name, ucstring_get_printable_sz(s));
+		de_dbg(c, "%s: \"%s\"", pinfo->name, ucstring_get_printable_sz(s));
 		break;
 	case 0x40:
 		do_prop_FILETIME(c, d, si, pinfo);
@@ -892,7 +892,7 @@ static void do_prop_data(deark *c, lctx *d, struct summaryinfo_struct *si,
 		do_prop_clipboard(c, d, si, pinfo);
 		break;
 	default:
-		de_dbg(c, "[data type 0x%04x not supported]\n", (unsigned int)pinfo->data_type);
+		de_dbg(c, "[data type 0x%04x not supported]", (unsigned int)pinfo->data_type);
 	}
 
 	ucstring_destroy(s);
@@ -911,7 +911,7 @@ static void do_SummaryInformation(deark *c, lctx *d, struct dir_entry_info *dei,
 	si.encoding = DE_ENCODING_ASCII;
 
 	de_dbg_indent_save(c, &saved_indent_level);
-	de_dbg(c, "SummaryInformation (%s)\n", is_root?"root":"non-root");
+	de_dbg(c, "SummaryInformation (%s)", is_root?"root":"non-root");
 	de_dbg_indent(c, 1);
 	if(dei->stream_size>1000000) goto done;
 
@@ -920,22 +920,22 @@ static void do_SummaryInformation(deark *c, lctx *d, struct dir_entry_info *dei,
 
 	// expecting 48 (or more?) bytes of header info.
 	n = dbuf_getui16le(si.f, 0);
-	de_dbg(c, "byte order code: 0x%04x\n", (unsigned int)n);
+	de_dbg(c, "byte order code: 0x%04x", (unsigned int)n);
 	if(n != 0xfffe) goto done;
 	n = dbuf_getui16le(si.f, 4);
-	de_dbg(c, "OS ver: 0x%04x\n", (unsigned int)n);
+	de_dbg(c, "OS ver: 0x%04x", (unsigned int)n);
 	n = dbuf_getui16le(si.f, 6);
-	de_dbg(c, "OS: 0x%04x\n", (unsigned int)n);
+	de_dbg(c, "OS: 0x%04x", (unsigned int)n);
 
 	si.tbloffset = dbuf_getui32le(si.f, 44);
-	de_dbg(c, "table offset: %d\n", (int)si.tbloffset);
+	de_dbg(c, "table offset: %d", (int)si.tbloffset);
 
 	// I think this is the length of the data section
 	n = dbuf_getui32le(si.f, si.tbloffset);
-	de_dbg(c, "property data length: %d\n", (int)n);
+	de_dbg(c, "property data length: %d", (int)n);
 
 	nproperties = dbuf_getui32le(si.f, si.tbloffset+4);
-	de_dbg(c, "number of properties: %d\n", (int)nproperties);
+	de_dbg(c, "number of properties: %d", (int)nproperties);
 	if(nproperties>200) goto done;
 
 	for(i=0; i<nproperties; i++) {
@@ -945,7 +945,7 @@ static void do_SummaryInformation(deark *c, lctx *d, struct dir_entry_info *dei,
 		pinfo.data_offs = dbuf_getui32le(si.f, si.tbloffset+8 + 8*i + 4);
 		get_prop_name(c, d, &pinfo);
 
-		de_dbg(c, "prop[%d]: type=0x%04x (%s), data_offs=%d\n", (int)i,
+		de_dbg(c, "prop[%d]: type=0x%04x (%s), data_offs=%d", (int)i,
 			(unsigned int)pinfo.type, pinfo.name,
 			(int)pinfo.data_offs);
 		de_dbg_indent(c, 1);
@@ -962,7 +962,7 @@ static void read_mini_sector_stream(deark *c, lctx *d, de_int64 first_sec_id, de
 {
 	if(d->mini_sector_stream) return; // Already done
 
-	de_dbg(c, "reading mini sector stream (%d bytes)\n", (int)stream_size);
+	de_dbg(c, "reading mini sector stream (%d bytes)", (int)stream_size);
 	d->mini_sector_stream = dbuf_create_membuf(c, 0, 0);
 	copy_normal_stream_to_dbuf(c, d, first_sec_id, 0, stream_size, d->mini_sector_stream);
 }
@@ -975,7 +975,7 @@ static void read_directory_stream(deark *c, lctx *d)
 	de_int64 num_entries_per_sector;
 	de_int64 dir_sector_count = 0;
 
-	de_dbg(c, "reading directory stream\n");
+	de_dbg(c, "reading directory stream");
 	de_dbg_indent(c, 1);
 
 	d->dir = dbuf_create_membuf(c, 0, 0);
@@ -992,7 +992,7 @@ static void read_directory_stream(deark *c, lctx *d)
 
 		dir_sector_offs = sec_id_to_offset(c, d, dir_sec_id);
 
-		de_dbg(c, "directory sector #%d SecID=%d (offs=%d), entries %d-%d\n",
+		de_dbg(c, "directory sector #%d SecID=%d (offs=%d), entries %d-%d",
 			(int)dir_sector_count,
 			(int)dir_sec_id, (int)dir_sector_offs,
 			(int)d->num_dir_entries, (int)(d->num_dir_entries + num_entries_per_sector - 1));
@@ -1005,7 +1005,7 @@ static void read_directory_stream(deark *c, lctx *d)
 		dir_sector_count++;
 	}
 
-	de_dbg(c, "number of directory entries: %d\n", (int)d->num_dir_entries);
+	de_dbg(c, "number of directory entries: %d", (int)d->num_dir_entries);
 
 	de_dbg_indent(c, -1);
 }
@@ -1054,18 +1054,18 @@ static void do_dump_dir_structure(deark *c, lctx *d)
 {
 	de_int64 i;
 	for(i=0; i<d->num_dir_entries; i++) {
-		de_dbg(c, "[%d] t=%d p=%d c=%d s=%d,%d\n", (int)i,
+		de_dbg(c, "[%d] t=%d p=%d c=%d s=%d,%d", (int)i,
 			(int)d->dir_entry_extra_info[i].entry_type,
 			(int)d->dir_entry_extra_info[i].parent_id,
 			(int)d->dir_entry_extra_info[i].child_id,
 			(int)d->dir_entry_extra_info[i].sibling_id[0],
 			(int)d->dir_entry_extra_info[i].sibling_id[1]);
 		if(d->dir_entry_extra_info[i].fname) {
-			de_dbg(c, "  fname: \"%s\"\n",
+			de_dbg(c, "  fname: \"%s\"",
 				ucstring_get_printable_sz(d->dir_entry_extra_info[i].fname));
 		}
 		if(d->dir_entry_extra_info[i].path) {
-			de_dbg(c, "  path: \"%s\"\n",
+			de_dbg(c, "  path: \"%s\"",
 				ucstring_get_printable_sz(d->dir_entry_extra_info[i].path));
 		}
 	}
@@ -1286,7 +1286,7 @@ static void do_dir_entry(deark *c, lctx *d, de_int64 dir_entry_idx, de_int64 dir
 	case OBJTYPE_ROOT_STORAGE: tname="root storage object"; break;
 	default: tname="?";
 	}
-	de_dbg(c, "type: 0x%02x (%s)\n", (unsigned int)dei->entry_type, tname);
+	de_dbg(c, "type: 0x%02x (%s)", (unsigned int)dei->entry_type, tname);
 
 	if(pass==1) d->dir_entry_extra_info[dir_entry_idx].entry_type = dei->entry_type;
 
@@ -1295,14 +1295,14 @@ static void do_dir_entry(deark *c, lctx *d, de_int64 dir_entry_idx, de_int64 dir
 	if(pass==2 && dei->entry_type==OBJTYPE_ROOT_STORAGE) goto done;
 
 	name_len_raw = dbuf_getui16le(d->dir, dir_entry_offs+64);
-	de_dbg2(c, "name len: %d bytes\n", (int)name_len_raw);
+	de_dbg2(c, "name len: %d bytes", (int)name_len_raw);
 	name_len_bytes = name_len_raw-2; // Ignore the trailing U+0000
 	if(name_len_bytes<0) name_len_bytes = 0;
 
 	dei->fname_srd = dbuf_read_string(d->dir, dir_entry_offs, name_len_bytes, name_len_bytes,
 		DE_CONVFLAG_WANT_UTF8, DE_ENCODING_UTF16LE);
 
-	de_dbg(c, "name: \"%s\"\n", ucstring_get_printable_sz(dei->fname_srd->str));
+	de_dbg(c, "name: \"%s\"", ucstring_get_printable_sz(dei->fname_srd->str));
 	if(pass==1 && dei->entry_type==OBJTYPE_STORAGE &&
 		!d->dir_entry_extra_info[dir_entry_idx].fname)
 	{
@@ -1311,18 +1311,18 @@ static void do_dir_entry(deark *c, lctx *d, de_int64 dir_entry_idx, de_int64 dir
 	}
 
 	if(pass==2) {
-		de_dbg(c, "parent: %d\n",
+		de_dbg(c, "parent: %d",
 			(int)d->dir_entry_extra_info[dir_entry_idx].parent_id);
 	}
 
 	node_color = dbuf_getbyte(d->dir, dir_entry_offs+67);
-	de_dbg(c, "node color: %u\n", (unsigned int)node_color);
+	de_dbg(c, "node color: %u", (unsigned int)node_color);
 
 	if(dei->entry_type==OBJTYPE_STORAGE || dei->entry_type==OBJTYPE_STREAM) {
 		de_int32 sibling_id[2];
 		sibling_id[0] = (de_int32)dbuf_geti32le(d->dir, dir_entry_offs+68);
 		sibling_id[1] = (de_int32)dbuf_geti32le(d->dir, dir_entry_offs+72);
-		de_dbg(c, "sibling StreamIDs: %d, %d\n", (int)sibling_id[0], (int)sibling_id[1]);
+		de_dbg(c, "sibling StreamIDs: %d, %d", (int)sibling_id[0], (int)sibling_id[1]);
 		if(pass==1) {
 			d->dir_entry_extra_info[dir_entry_idx].sibling_id[0] = sibling_id[0];
 			d->dir_entry_extra_info[dir_entry_idx].sibling_id[1] = sibling_id[1];
@@ -1332,7 +1332,7 @@ static void do_dir_entry(deark *c, lctx *d, de_int64 dir_entry_idx, de_int64 dir
 	if(dei->entry_type==OBJTYPE_STORAGE || dei->entry_type==OBJTYPE_ROOT_STORAGE) {
 		de_int32 child_id;
 		child_id = (de_int32)dbuf_geti32le(d->dir, dir_entry_offs+76);
-		de_dbg(c, "child StreamID: %d\n", (int)child_id);
+		de_dbg(c, "child StreamID: %d", (int)child_id);
 		if(pass==1) d->dir_entry_extra_info[dir_entry_idx].child_id = child_id;
 	}
 
@@ -1346,7 +1346,7 @@ static void do_dir_entry(deark *c, lctx *d, de_int64 dir_entry_idx, de_int64 dir
 		}
 
 		de_fmtutil_render_uuid(c, dei->clsid, clsid_string, sizeof(clsid_string));
-		de_dbg(c, "%sclsid: {%s}%s\n", (dei->entry_type==OBJTYPE_ROOT_STORAGE)?"root ":"",
+		de_dbg(c, "%sclsid: {%s}%s", (dei->entry_type==OBJTYPE_ROOT_STORAGE)?"root ":"",
 			clsid_string, buf);
 	}
 
@@ -1361,17 +1361,17 @@ static void do_dir_entry(deark *c, lctx *d, de_int64 dir_entry_idx, de_int64 dir
 		dei->stream_size = dbuf_geti64le(d->dir, dir_entry_offs+120);
 	}
 
-	de_dbg(c, "stream size: %"INT64_FMT"\n", dei->stream_size);
+	de_dbg(c, "stream size: %"INT64_FMT"", dei->stream_size);
 	dei->is_mini_stream = (dei->entry_type==OBJTYPE_STREAM) && (dei->stream_size < d->std_stream_min_size);
 
 	if(dei->is_mini_stream) {
 		dei->minisec_id = raw_sec_id;
-		de_dbg(c, "first MiniSecID: %d\n", (int)dei->minisec_id);
+		de_dbg(c, "first MiniSecID: %d", (int)dei->minisec_id);
 	}
 	else {
 		dei->normal_sec_id = raw_sec_id;
 		describe_sec_id(c, d, dei->normal_sec_id, buf, sizeof(buf));
-		de_dbg(c, "first SecID: %d (%s)\n", (int)dei->normal_sec_id, buf);
+		de_dbg(c, "first SecID: %d (%s)", (int)dei->normal_sec_id, buf);
 	}
 
 	if(pass==1) {
@@ -1415,12 +1415,12 @@ static void do_directory(deark *c, lctx *d, int pass)
 	de_int64 dir_entry_offs; // Offset in d->dir
 	de_int64 i;
 
-	de_dbg(c, "scanning directory, pass %d\n", pass);
+	de_dbg(c, "scanning directory, pass %d", pass);
 	de_dbg_indent(c, 1);
 
 	for(i=0; i<d->num_dir_entries; i++) {
 		dir_entry_offs = 128*i;
-		de_dbg(c, "directory entry, StreamID=%d\n", (int)i);
+		de_dbg(c, "directory entry, StreamID=%d", (int)i);
 
 		de_dbg_indent(c, 1);
 		do_dir_entry(c, d, i, dir_entry_offs, pass);

@@ -58,7 +58,7 @@ static int read_member(deark *c, lctx *d, de_int64 pos1, de_int64 *bytes_consume
 
 	md->filename = ucstring_create(c);
 
-	de_dbg(c, "archive member at %d\n", (int)pos1);
+	de_dbg(c, "archive member at %d", (int)pos1);
 	de_dbg_indent(c, 1);
 
 	// Look ahead to try to figure out some things about the format of this member.
@@ -67,7 +67,7 @@ static int read_member(deark *c, lctx *d, de_int64 pos1, de_int64 *bytes_consume
 		// "The end of the archive is indicated by two records consisting
 		// entirely of zero bytes."
 		// TODO: We should maybe test more than just the first byte.
-		de_dbg(c, "[trailer record]\n");
+		de_dbg(c, "[trailer record]");
 		d->found_trailer = 1;
 		retval = 1;
 		goto done;
@@ -83,22 +83,22 @@ static int read_member(deark *c, lctx *d, de_int64 pos1, de_int64 *bytes_consume
 		md->fmt = TARFMT_POSIX;
 	}
 
-	de_dbg(c, "tar format: %s\n", get_fmt_name(md->fmt));
+	de_dbg(c, "tar format: %s", get_fmt_name(md->fmt));
 
 	////
 
 	if(linkflag1 == 'L') {
-		de_dbg(c, "LongPath data at %d\n", (int)pos);
+		de_dbg(c, "LongPath data at %d", (int)pos);
 		de_dbg_indent(c, 1);
 		ret = dbuf_read_ascii_number(c->infile, pos+124, 11, 8, &ext_name_len);
 		if(!ret) goto done;
-		de_dbg(c, "ext. filename len: %d\n", (int)ext_name_len);
+		de_dbg(c, "ext. filename len: %d", (int)ext_name_len);
 		if(ext_name_len<1 || ext_name_len>32768) goto done;
 
 		pos += 512; // LongPath header record
-		de_dbg(c, "ext. filename at %d\n", (int)pos);
+		de_dbg(c, "ext. filename at %d", (int)pos);
 		dbuf_read_to_ucstring(c->infile, pos, ext_name_len-1, md->filename, 0, DE_ENCODING_UTF8);
-		de_dbg(c, "ext. filename: \"%s\"\n", ucstring_get_printable_sz_d(md->filename));
+		de_dbg(c, "ext. filename: \"%s\"", ucstring_get_printable_sz_d(md->filename));
 
 		pos += de_pad_to_n(ext_name_len, 512); // The long filename
 
@@ -106,7 +106,7 @@ static int read_member(deark *c, lctx *d, de_int64 pos1, de_int64 *bytes_consume
 		de_dbg_indent(c, -1);
 	}
 
-	de_dbg(c, "header at %d\n", (int)pos);
+	de_dbg(c, "header at %d", (int)pos);
 	de_dbg_indent(c, 1);
 
 	de_read((de_byte*)rawname_sz, pos, 99);
@@ -118,7 +118,7 @@ static int read_member(deark *c, lctx *d, de_int64 pos1, de_int64 *bytes_consume
 
 	rawname = ucstring_create(c);
 	ucstring_append_bytes(rawname, (const de_byte*)rawname_sz, rawname_sz_len, 0, DE_ENCODING_UTF8);
-	de_dbg(c, "member raw name: \"%s\"\n", ucstring_get_printable_sz(rawname));
+	de_dbg(c, "member raw name: \"%s\"", ucstring_get_printable_sz(rawname));
 
 	if(md->filename->len==0) {
 		ucstring_append_ucstring(md->filename, rawname);
@@ -127,7 +127,7 @@ static int read_member(deark *c, lctx *d, de_int64 pos1, de_int64 *bytes_consume
 	ret = dbuf_read_ascii_number(c->infile, pos, 7, 8, &md->mode);
 	if(!ret) goto done;
 	pos += 8;
-	de_dbg(c, "mode: octal(%06o)\n", (unsigned int)md->mode);
+	de_dbg(c, "mode: octal(%06o)", (unsigned int)md->mode);
 	if((md->mode & 0111)!=0) {
 		md->fi->mode_flags |= DE_MODEFLAG_EXE;
 	}
@@ -141,19 +141,19 @@ static int read_member(deark *c, lctx *d, de_int64 pos1, de_int64 *bytes_consume
 	ret = dbuf_read_ascii_number(c->infile, pos, 11, 8, &md->filesize);
 	if(!ret) goto done;
 	pos += 12;
-	de_dbg(c, "size: %"INT64_FMT"\n", md->filesize);
+	de_dbg(c, "size: %"INT64_FMT"", md->filesize);
 
 	ret = dbuf_read_ascii_number(c->infile, pos, 11, 8, &modtime_unix);
 	if(!ret) goto done;
 	de_unix_time_to_timestamp(modtime_unix, &md->fi->mod_time);
 	de_timestamp_to_string(&md->fi->mod_time, timestamp_buf, sizeof(timestamp_buf), 1);
-	de_dbg(c, "mtime: %d (%s)\n", (int)modtime_unix, timestamp_buf);
+	de_dbg(c, "mtime: %d (%s)", (int)modtime_unix, timestamp_buf);
 	pos += 12;
 
 	pos += 8; // checksum
 
 	md->linkflag = de_getbyte(pos);
-	de_dbg(c, "linkflag/typeflag: 0x%02x ('%c')\n", (unsigned int)md->linkflag,
+	de_dbg(c, "linkflag/typeflag: 0x%02x ('%c')", (unsigned int)md->linkflag,
 		de_byte_to_printable_char(md->linkflag));
 	pos += 1;
 
@@ -194,20 +194,20 @@ static int read_member(deark *c, lctx *d, de_int64 pos1, de_int64 *bytes_consume
 	}
 
 	if(is_dir) {
-		de_dbg(c, "[directory, not extracting]\n");
+		de_dbg(c, "[directory, not extracting]");
 		md->filesize = 0;
 		retval = 1;
 		goto done;
 	}
 
 	if(!is_regular_file) {
-		de_dbg(c, "[not a regular file, not extracting]\n");
+		de_dbg(c, "[not a regular file, not extracting]");
 		md->filesize = 0; // FIXME: There may be cases where this is wrong.
 		retval = 1;
 		goto done;
 	}
 
-	de_dbg(c, "file data at %d\n", (int)pos);
+	de_dbg(c, "file data at %d", (int)pos);
 	de_dbg_indent(c, 1);
 
 	de_finfo_set_name_from_ucstring(c, md->fi, md->filename);

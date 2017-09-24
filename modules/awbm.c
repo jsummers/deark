@@ -134,7 +134,7 @@ static void do_v2(deark *c, lctx *d)
 	de_memset(pal, 0, sizeof(pal));
 	d->w = de_getui16le(4);
 	d->h = de_getui16le(6);
-	de_dbg(c, "dimensions: %dx%d\n", (int)d->w, (int)d->h);
+	de_dbg(c, "dimensions: %dx%d", (int)d->w, (int)d->h);
 	if(!de_good_image_dimensions(c, d->w, d->h)) goto done;
 
 	bitmap_start = 8;

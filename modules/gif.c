@@ -312,20 +312,20 @@ static int do_read_screen_descriptor(deark *c, lctx *d, de_int64 pos)
 	de_byte packed_fields;
 	unsigned int global_color_table_size_code;
 
-	de_dbg(c, "screen descriptor at %d\n", (int)pos);
+	de_dbg(c, "screen descriptor at %d", (int)pos);
 	de_dbg_indent(c, 1);
 
 	d->screen_w = de_getui16le(pos);
 	d->screen_h = de_getui16le(pos+2);
-	de_dbg(c, "screen dimensions: %dx%d\n", (int)d->screen_w, (int)d->screen_h);
+	de_dbg(c, "screen dimensions: %dx%d", (int)d->screen_w, (int)d->screen_h);
 
 	packed_fields = de_getbyte(pos+4);
 	d->has_global_color_table = (packed_fields&0x80)?1:0;
-	de_dbg(c, "global color table flag: %d\n", d->has_global_color_table);
+	de_dbg(c, "global color table flag: %d", d->has_global_color_table);
 	if(d->has_global_color_table) {
 		global_color_table_size_code = (unsigned int)(packed_fields&0x07);
 		d->global_color_table_size = (de_int64)(1<<(global_color_table_size_code+1));
-		de_dbg(c, "global color table size: %d colors\n", (int)d->global_color_table_size);
+		de_dbg(c, "global color table size: %d colors", (int)d->global_color_table_size);
 	}
 
 	// We don't care about the background color, because we always assume the
@@ -333,10 +333,10 @@ static int do_read_screen_descriptor(deark *c, lctx *d, de_int64 pos)
 	// TODO: If we ever support writing background-color chunks to PNG files,
 	// then we should look up this color and use it.
 	bgcol_index = (de_int64)de_getbyte(pos+5);
-	de_dbg(c, "background color index: %d\n", (int)bgcol_index);
+	de_dbg(c, "background color index: %d", (int)bgcol_index);
 
 	d->aspect_ratio_code = de_getbyte(pos+6);
-	de_dbg(c, "aspect ratio code: %d\n", (int)d->aspect_ratio_code);
+	de_dbg(c, "aspect ratio code: %d", (int)d->aspect_ratio_code);
 
 	de_dbg_indent(c, -1);
 	return 1;
@@ -352,7 +352,7 @@ static int do_read_global_color_table(deark *c, lctx *d, de_int64 pos, de_int64 
 {
 
 	if(!d->has_global_color_table) return 1;
-	de_dbg(c, "global color table at %d\n", (int)pos);
+	de_dbg(c, "global color table at %d", (int)pos);
 
 	de_dbg_indent(c, 1);
 	do_read_color_table(c, d, pos, d->global_color_table_size, d->global_ct);
@@ -408,10 +408,10 @@ static void do_graphic_control_extension(deark *c, lctx *d, de_int64 pos)
 
 	packed_fields = de_getbyte(pos+1);
 	d->gce->trns_color_idx_valid = packed_fields&0x01;
-	de_dbg(c, "has transparency: %d\n", (int)d->gce->trns_color_idx_valid);
+	de_dbg(c, "has transparency: %d", (int)d->gce->trns_color_idx_valid);
 
 	user_input_flag = (packed_fields>>1)&0x1;
-	de_dbg(c, "user input flag: %d\n", (int)user_input_flag);
+	de_dbg(c, "user input flag: %d", (int)user_input_flag);
 
 	d->gce->disposal_method = (packed_fields>>2)&0x7;
 	switch(d->gce->disposal_method) {
@@ -421,15 +421,15 @@ static void do_graphic_control_extension(deark *c, lctx *d, de_int64 pos)
 	case DISPOSE_PREVIOUS: name="restore to previous"; break;
 	default: name="?";
 	}
-	de_dbg(c, "disposal method: %d (%s)\n", (int)d->gce->disposal_method, name);
+	de_dbg(c, "disposal method: %d (%s)", (int)d->gce->disposal_method, name);
 
 	delay_time_raw = de_getui16le(pos+2);
 	delay_time = ((double)delay_time_raw)/100.0;
-	de_dbg(c, "delay time: %.02f sec\n", delay_time);
+	de_dbg(c, "delay time: %.02f sec", delay_time);
 
 	if(d->gce->trns_color_idx_valid) {
 		d->gce->trns_color_idx = de_getbyte(pos+4);
-		de_dbg(c, "transparent color index: %d\n", (int)d->gce->trns_color_idx);
+		de_dbg(c, "transparent color index: %d", (int)d->gce->trns_color_idx);
 	}
 }
 
@@ -464,7 +464,7 @@ static void do_comment_extension(deark *c, lctx *d, de_int64 pos)
 	}
 
 	if(s) {
-		de_dbg(c, "comment: \"%s\"\n", ucstring_get_printable_sz_d(s));
+		de_dbg(c, "comment: \"%s\"", ucstring_get_printable_sz_d(s));
 	}
 	dbuf_close(f);
 }
@@ -490,9 +490,9 @@ static void do_plaintext_extension(deark *c, lctx *d, de_int64 pos)
 	text_size_x = de_getui16le(pos+4);
 	text_size_y = de_getui16le(pos+6);
 	char_width = (de_int64)de_getbyte(pos+8);
-	de_dbg(c, "text-area pos: %d,%d pixels\n", (int)text_pos_x, (int)text_pos_y);
-	de_dbg(c, "text-area size: %dx%d pixels\n", (int)text_size_x, (int)text_size_y);
-	de_dbg(c, "character width: %d pixels\n", (int)char_width);
+	de_dbg(c, "text-area pos: %d,%d pixels", (int)text_pos_x, (int)text_pos_y);
+	de_dbg(c, "text-area size: %dx%d pixels", (int)text_size_x, (int)text_size_y);
+	de_dbg(c, "character width: %d pixels", (int)char_width);
 
 	if(char_width>0) {
 		text_width_in_chars = text_size_x / char_width;
@@ -501,7 +501,7 @@ static void do_plaintext_extension(deark *c, lctx *d, de_int64 pos)
 	else {
 		text_width_in_chars = 80;
 	}
-	de_dbg(c, "calculated chars/line: %d\n", (int)text_width_in_chars);
+	de_dbg(c, "calculated chars/line: %d", (int)text_width_in_chars);
 
 	pos += n;
 
@@ -557,12 +557,12 @@ static void do_animation_extension(deark *c, lctx *d, de_int64 pos)
 	case 2: name="buffering"; break;
 	default: name="?";
 	}
-	de_dbg(c, "netscape extension type: %d (%s)\n", (int)sub_block_id, name);
+	de_dbg(c, "netscape extension type: %d (%s)", (int)sub_block_id, name);
 
 	if(sub_block_id==1 && sub_block_len>=3) {
 		de_int64 loop_count;
 		loop_count = de_getui16le(pos);
-		de_dbg(c, "loop count: %d%s\n", (int)loop_count,
+		de_dbg(c, "loop count: %d%s", (int)loop_count,
 			(loop_count==0)?" (infinite)":"");
 	}
 }
@@ -596,7 +596,7 @@ static void do_application_extension(deark *c, lctx *d, de_int64 pos)
 
 	s = ucstring_create(c);
 	ucstring_append_bytes(s, app_id, 11, 0, DE_ENCODING_ASCII);
-	de_dbg(c, "app id: \"%s\"\n", ucstring_get_printable_sz(s));
+	de_dbg(c, "app id: \"%s\"", ucstring_get_printable_sz(s));
 	ucstring_destroy(s);
 
 	if(!de_memcmp(app_id, "NETSCAPE2.0", 11) ||
@@ -629,7 +629,7 @@ static int do_read_extension(deark *c, lctx *d, de_int64 pos1, de_int64 *bytesus
 	default: ext_name="?";
 	}
 
-	de_dbg(c, "extension type 0x%02x (%s) at %d\n", (unsigned int)ext_type, ext_name, (int)pos);
+	de_dbg(c, "extension type 0x%02x (%s) at %d", (unsigned int)ext_type, ext_name, (int)pos);
 	pos++;
 
 	de_dbg_indent(c, 1);
@@ -664,26 +664,26 @@ static void do_read_image_descriptor(deark *c, lctx *d, struct gif_image_data *g
 	de_byte packed_fields;
 	unsigned int local_color_table_size_code;
 
-	de_dbg(c, "image descriptor at %d\n", (int)pos);
+	de_dbg(c, "image descriptor at %d", (int)pos);
 	de_dbg_indent(c, 1);
 
 	gi->xpos = de_getui16le(pos);
 	gi->ypos = de_getui16le(pos+2);
-	de_dbg(c, "image position: (%d,%d)\n", (int)gi->xpos, (int)gi->ypos);
+	de_dbg(c, "image position: (%d,%d)", (int)gi->xpos, (int)gi->ypos);
 	gi->width = de_getui16le(pos+4);
 	gi->height = de_getui16le(pos+6);
-	de_dbg(c, "image dimensions: %dx%d\n", (int)gi->width, (int)gi->height);
+	de_dbg(c, "image dimensions: %dx%d", (int)gi->width, (int)gi->height);
 
 	packed_fields = de_getbyte(pos+8);
 	gi->has_local_color_table = (packed_fields&0x80)?1:0;
-	de_dbg(c, "local color table flag: %d\n", (int)gi->has_local_color_table);
+	de_dbg(c, "local color table flag: %d", (int)gi->has_local_color_table);
 	if(gi->has_local_color_table) {
 		local_color_table_size_code = (unsigned int)(packed_fields&0x07);
 		gi->local_color_table_size = (de_int64)(1<<(local_color_table_size_code+1));
-		de_dbg(c, "local color table size: %d colors\n", (int)gi->local_color_table_size);
+		de_dbg(c, "local color table size: %d colors", (int)gi->local_color_table_size);
 	}
 	gi->interlaced = (packed_fields&0x40)?1:0;
-	de_dbg(c, "interlaced: %d\n", (int)gi->interlaced);
+	de_dbg(c, "interlaced: %d", (int)gi->interlaced);
 
 	de_dbg_indent(c, -1);
 }
@@ -734,7 +734,7 @@ static int do_image_internal(deark *c, lctx *d,
 	pos += 9;
 
 	if(gi->has_local_color_table) {
-		de_dbg(c, "local color table at %d\n", (int)pos);
+		de_dbg(c, "local color table at %d", (int)pos);
 		de_dbg_indent(c, 1);
 		do_read_color_table(c, d, pos, gi->local_color_table_size, gi->local_ct);
 		de_dbg_indent(c, -1);
@@ -745,10 +745,10 @@ static int do_image_internal(deark *c, lctx *d,
 		de_err(c, "Unexpected end of file\n");
 		goto done;
 	}
-	de_dbg(c, "image data at %d\n", (int)pos);
+	de_dbg(c, "image data at %d", (int)pos);
 	de_dbg_indent(c, 1);
 	lzw_min_code_size = (unsigned int)de_getbyte(pos++);
-	de_dbg(c, "lzw min code size: %u\n", lzw_min_code_size);
+	de_dbg(c, "lzw min code size: %u", lzw_min_code_size);
 
 	// Using a failure_flag variable like this is ugly, but I don't like any
 	// of the other options either, short of a major redesign of this module.
@@ -798,9 +798,9 @@ static int do_image_internal(deark *c, lctx *d,
 		if(pos >= c->infile->len) break;
 		n = (de_int64)de_getbyte(pos);
 		if(n==0)
-			de_dbg(c, "block terminator at %d\n", (int)pos);
+			de_dbg(c, "block terminator at %d", (int)pos);
 		else
-			de_dbg2(c, "sub-block at %d, size=%d\n", (int)pos, (int)n);
+			de_dbg2(c, "sub-block at %d, size=%d", (int)pos, (int)n);
 		pos++;
 		if(n==0) break;
 
@@ -949,7 +949,7 @@ static void de_run_gif(deark *c, de_module_params *mparams)
 		default: blk_name="?"; break;
 		}
 
-		de_dbg(c, "block type 0x%02x (%s) at %d\n", (unsigned int)block_type, blk_name, (int)pos);
+		de_dbg(c, "block type 0x%02x (%s) at %d", (unsigned int)block_type, blk_name, (int)pos);
 		pos++;
 
 		if(block_type==0x3b) {

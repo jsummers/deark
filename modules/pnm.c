@@ -113,17 +113,17 @@ static int read_pnm_header(deark *c, lctx *d, struct page_ctx *pg, de_int64 pos1
 	char tokenbuf[100];
 	int retval = 0;
 
-	de_dbg(c, "header at %d\n", (int)pos1);
+	de_dbg(c, "header at %d", (int)pos1);
 	de_dbg_indent(c, 1);
 
-	de_dbg(c, "format: %s\n", pg->fmt_name);
+	de_dbg(c, "format: %s", pg->fmt_name);
 	pg->hdr_parse_pos = pos1+2; // Skip "P?"
 
 	if(!read_next_token(c, d, pg, tokenbuf, sizeof(tokenbuf))) goto done;
 	pg->width = de_atoi64(tokenbuf);
 	if(!read_next_token(c, d, pg, tokenbuf, sizeof(tokenbuf))) goto done;
 	pg->height = de_atoi64(tokenbuf);
-	de_dbg(c, "dimensions: %dx%d\n", (int)pg->width, (int)pg->height);
+	de_dbg(c, "dimensions: %dx%d", (int)pg->width, (int)pg->height);
 
 	if(fmt_is_pbm(pg->fmt)) {
 		pg->maxval = 1;
@@ -131,7 +131,7 @@ static int read_pnm_header(deark *c, lctx *d, struct page_ctx *pg, de_int64 pos1
 	else {
 		if(!read_next_token(c, d, pg, tokenbuf, sizeof(tokenbuf))) goto done;
 		pg->maxval = de_atoi64(tokenbuf);
-		de_dbg(c, "maxval: %d\n", (int)pg->maxval);
+		de_dbg(c, "maxval: %d", (int)pg->maxval);
 	}
 
 	retval = 1;
@@ -217,7 +217,7 @@ static int read_pam_header(deark *c, lctx *d, struct page_ctx *pg, de_int64 pos1
 	char token1buf[200];
 	char token2buf[200];
 
-	de_dbg(c, "header at %d\n", (int)pos1);
+	de_dbg(c, "header at %d", (int)pos1);
 	de_dbg_indent(c, 1);
 
 	pos += 3; // Skip "P7\n"
@@ -554,7 +554,7 @@ static int do_image(deark *c, lctx *d, struct page_ctx *pg, de_int64 pos1)
 {
 	int retval = 0;
 
-	de_dbg(c, "image data at %d\n", (int)pos1);
+	de_dbg(c, "image data at %d", (int)pos1);
 	de_dbg_indent(c, 1);
 
 	if(pg->maxval<1 || pg->maxval>65535) {
@@ -625,7 +625,7 @@ static int do_page(deark *c, lctx *d, int pagenum, de_int64 pos1)
 	struct page_ctx *pg = NULL;
 	int retval = 0;
 
-	de_dbg(c, "image at %d\n", (int)pos1);
+	de_dbg(c, "image at %d", (int)pos1);
 	de_dbg_indent(c, 1);
 
 	pg = de_malloc(c, sizeof(struct page_ctx));

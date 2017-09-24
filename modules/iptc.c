@@ -150,7 +150,7 @@ static void handle_1_90(deark *c, lctx *d, const struct ds_info *dsi,
 	else
 		csname="unknown";
 
-	de_dbg(c, "charset: %s\n", csname);
+	de_dbg(c, "charset: %s", csname);
 }
 
 // Caption/abstract
@@ -291,7 +291,7 @@ static void handle_text(deark *c, lctx *d, const struct ds_info *dsi,
 	if(encoding==DE_ENCODING_UNKNOWN)
 		encoding = DE_ENCODING_ASCII;
 	dbuf_read_to_ucstring(c->infile, pos, len, s, 0, encoding);
-	de_dbg(c, "%s: \"%s\"\n", dsi->dsname, ucstring_get_printable_sz_d(s));
+	de_dbg(c, "%s: \"%s\"", dsi->dsname, ucstring_get_printable_sz_d(s));
 	ucstring_destroy(s);
 }
 
@@ -301,7 +301,7 @@ static void handle_uint16(deark *c, lctx *d, const struct ds_info *dsi,
 	de_int64 x;
 	if(len!=2) return;
 	x = de_getui16be(pos);
-	de_dbg(c, "%s: %d\n", dsi->dsname, (int)x);
+	de_dbg(c, "%s: %d", dsi->dsname, (int)x);
 }
 
 static int do_dataset(deark *c, lctx *d, de_int64 ds_idx, de_int64 pos1,
@@ -340,7 +340,7 @@ static int do_dataset(deark *c, lctx *d, de_int64 ds_idx, de_int64 pos1,
 	if(!read_dflen(c, c->infile, pos, &dflen, &dflen_bytes_consumed)) goto done;
 	pos += dflen_bytes_consumed;
 
-	de_dbg(c, "IPTC dataset %d:%02d (%s) dpos=%" INT64_FMT " dlen=%" INT64_FMT "\n",
+	de_dbg(c, "IPTC dataset %d:%02d (%s) dpos=%" INT64_FMT " dlen=%" INT64_FMT "",
 		(int)recnum, (int)dsnum, dsi.dsname, pos, dflen);
 
 	// Decode the value

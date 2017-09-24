@@ -246,7 +246,7 @@ static void do_extract_png_or_jp2(deark *c, lctx *d, struct page_ctx *pg)
 	de_byte buf[8];
 	de_finfo *fi = NULL;
 
-	de_dbg(c, "Trying to extract file at %d\n", (int)pg->image_pos);
+	de_dbg(c, "Trying to extract file at %d", (int)pg->image_pos);
 
 	// Detect the format
 	de_read(buf, pg->image_pos, sizeof(buf));
@@ -327,7 +327,7 @@ static void do_icon(deark *c, lctx *d, struct page_ctx *pg)
 	de_strlcpy(pg->filename_token, "", sizeof(pg->filename_token));
 
 	if(pg->type_info->image_type==IMGTYPE_MASK) {
-		de_dbg(c, "transparency mask\n");
+		de_dbg(c, "transparency mask");
 		return;
 	}
 
@@ -374,7 +374,7 @@ static void do_icon(deark *c, lctx *d, struct page_ctx *pg)
 	de_snprintf(pg->filename_token, sizeof(pg->filename_token), "%dx%dx%d",
 		(int)pg->type_info->width, (int)pg->type_info->height, (int)pg->type_info->bpp);
 
-	de_dbg(c, "image dimensions: %dx%d, bpp: %d\n",
+	de_dbg(c, "image dimensions: %dx%d, bpp: %d",
 		pg->type_info->width, pg->type_info->height, pg->type_info->bpp);
 
 	if(pg->type_info->bpp==1 || pg->type_info->bpp==4 || pg->type_info->bpp==8) {
@@ -417,7 +417,7 @@ static void de_run_icns_pass(deark *c, lctx *d, int pass)
 		pg->image_len = segment_len - 8;
 
 		if(pass==2) {
-			de_dbg(c, "image #%d, type '%s', at %d, size=%d\n", pg->image_num, pg->code4cc.id_printable,
+			de_dbg(c, "image #%d, type '%s', at %d, size=%d", pg->image_num, pg->code4cc.id_printable,
 				(int)pg->image_pos, (int)pg->image_len);
 		}
 		if(segment_len<8 || segment_pos+segment_len > d->file_size) {
@@ -490,12 +490,12 @@ static void de_run_icns(deark *c, de_module_params *mparams)
 	d = de_malloc(c, sizeof(lctx));
 
 	d->file_size = de_getui32be(4);
-	de_dbg(c, "reported file size: %d\n", (int)d->file_size);
+	de_dbg(c, "reported file size: %d", (int)d->file_size);
 	if(d->file_size > c->infile->len) d->file_size = c->infile->len;
 
-	de_dbg(c, "pass 1: recording mask locations\n");
+	de_dbg(c, "pass 1: recording mask locations");
 	de_run_icns_pass(c, d, 1);
-	de_dbg(c, "pass 2: decoding/extracting icons\n");
+	de_dbg(c, "pass 2: decoding/extracting icons");
 	de_run_icns_pass(c, d, 2);
 
 	de_free(c, d);

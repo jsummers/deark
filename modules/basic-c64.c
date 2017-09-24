@@ -48,7 +48,7 @@ static void process_line(deark *c, lctx *d, de_int64 file_pos, de_int64 mem_pos,
 
 	pos = file_pos;
 	line_num = de_getui16le(pos);
-	de_dbg(c, "line %d at %d, mem pos=%d, size=%d\n", (int)line_num, (int)file_pos,
+	de_dbg(c, "line %d at %d, mem pos=%d, size=%d", (int)line_num, (int)file_pos,
 		(int)mem_pos, (int)line_size);
 	pos += 2;
 

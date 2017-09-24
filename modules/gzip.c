@@ -66,7 +66,7 @@ static int do_gzip_read_member(deark *c, lctx *d, de_int64 pos1, de_int64 *membe
 
 	de_dbg_indent_save(c, &saved_indent_level);
 
-	de_dbg(c, "gzip member at %d\n", (int)pos1);
+	de_dbg(c, "gzip member at %d", (int)pos1);
 	de_dbg_indent(c, 1);
 	pos = pos1;
 
@@ -85,7 +85,7 @@ static int do_gzip_read_member(deark *c, lctx *d, de_int64 pos1, de_int64 *membe
 	}
 
 	md->flags = de_getbyte(pos+3);
-	de_dbg(c, "flags: 0x%02x\n", (unsigned int)md->flags);
+	de_dbg(c, "flags: 0x%02x", (unsigned int)md->flags);
 	pos += 4;
 
 	mod_time_unix = de_getui32le(pos);
@@ -93,21 +93,21 @@ static int do_gzip_read_member(deark *c, lctx *d, de_int64 pos1, de_int64 *membe
 	if(md->mod_time_ts.is_valid) {
 		char timestamp_buf[64];
 		de_timestamp_to_string(&md->mod_time_ts, timestamp_buf, sizeof(timestamp_buf), 1);
-		de_dbg(c, "mod time: %" INT64_FMT " (%s)\n", mod_time_unix, timestamp_buf);
+		de_dbg(c, "mod time: %" INT64_FMT " (%s)", mod_time_unix, timestamp_buf);
 	}
 	pos += 4;
 
 	b0 = de_getbyte(pos++);
-	de_dbg(c, "extra flags: 0x%02x\n", (unsigned int)b0);
+	de_dbg(c, "extra flags: 0x%02x", (unsigned int)b0);
 
 	b0 = de_getbyte(pos++);
-	de_dbg(c, "OS or filesystem: %d (%s)\n", (int)b0, get_os_name(b0));
+	de_dbg(c, "OS or filesystem: %d (%s)", (int)b0, get_os_name(b0));
 
 	if(md->flags & GZIPFLAG_FEXTRA) {
 		n = de_getui16le(pos); // XLEN
 		// TODO: It might be interesting to dissect these extra fields, but it's
 		// hard to find even a single file that uses them.
-		de_dbg(c, "[extra fields at %d, dpos=%d, dlen=%d]\n",
+		de_dbg(c, "[extra fields at %d, dpos=%d, dlen=%d]",
 			(int)pos, (int)(pos+2), (int)n);
 		pos += 2;
 		pos += n;
@@ -127,7 +127,7 @@ static int do_gzip_read_member(deark *c, lctx *d, de_int64 pos1, de_int64 *membe
 #define DE_GZIP_MAX_FNLEN 300
 		dbuf_read_to_ucstring_n(c->infile, pos, string_len, DE_GZIP_MAX_FNLEN,
 			member_name, 0, DE_ENCODING_LATIN1);
-		de_dbg(c, "file name at %d, len=%d: \"%s\"\n", (int)pos, (int)string_len,
+		de_dbg(c, "file name at %d, len=%d: \"%s\"", (int)pos, (int)string_len,
 			ucstring_get_printable_sz_d(member_name));
 		pos = foundpos + 1;
 	}
@@ -144,11 +144,11 @@ static int do_gzip_read_member(deark *c, lctx *d, de_int64 pos1, de_int64 *membe
 
 	if(md->flags & GZIPFLAG_FHCRC) {
 		md->crc16_reported = (de_uint32)de_getui16le(pos);
-		de_dbg(c, "crc16 (reported): 0x%04x\n", (unsigned int)md->crc16_reported);
+		de_dbg(c, "crc16 (reported): 0x%04x", (unsigned int)md->crc16_reported);
 		pos += 2;
 	}
 
-	de_dbg(c, "compressed blocks at %d\n", (int)pos);
+	de_dbg(c, "compressed blocks at %d", (int)pos);
 
 	if(!d->output_file) {
 		// Although any member can have a name and mod time, this metadata
@@ -183,10 +183,10 @@ static int do_gzip_read_member(deark *c, lctx *d, de_int64 pos1, de_int64 *membe
 	if(!ret) goto done;
 	pos += cmpr_data_len;
 
-	de_dbg(c, "crc32 (calculated): 0x%08x\n", (unsigned int)md->crc_calculated);
+	de_dbg(c, "crc32 (calculated): 0x%08x", (unsigned int)md->crc_calculated);
 
 	md->crc32_reported = (de_uint32)de_getui32le(pos);
-	de_dbg(c, "crc32 (reported)  : 0x%08x\n", (unsigned int)md->crc32_reported);
+	de_dbg(c, "crc32 (reported)  : 0x%08x", (unsigned int)md->crc32_reported);
 	pos += 4;
 
 	if(md->crc_calculated != md->crc32_reported) {
@@ -195,7 +195,7 @@ static int do_gzip_read_member(deark *c, lctx *d, de_int64 pos1, de_int64 *membe
 	}
 
 	md->isize = de_getui32le(pos);
-	de_dbg(c, "uncompressed size (mod 2^32): %u\n", (unsigned int)md->isize);
+	de_dbg(c, "uncompressed size (mod 2^32): %u", (unsigned int)md->isize);
 	pos += 4;
 
 	retval = 1;

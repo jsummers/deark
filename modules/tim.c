@@ -54,21 +54,21 @@ static void do_pal8(deark *c, lctx *d)
 	ncolors_per_clut = de_getui16le(16);
 	num_cluts = de_getui16le(18);
 
-	de_dbg(c, "clut 'size': %d\n", (int)clut_size);
-	de_dbg(c, "colors per clut: %d\n", (int)ncolors_per_clut);
-	de_dbg(c, "num cluts: %d\n", (int)num_cluts);
+	de_dbg(c, "clut 'size': %d", (int)clut_size);
+	de_dbg(c, "colors per clut: %d", (int)ncolors_per_clut);
+	de_dbg(c, "num cluts: %d", (int)num_cluts);
 
 	do_read_palette(c, d, 20, ncolors_per_clut);
 
 	second_header_blk_pos = 20 + num_cluts*ncolors_per_clut*2;
-	de_dbg(c, "second header block at %d\n", (int)second_header_blk_pos);
+	de_dbg(c, "second header block at %d", (int)second_header_blk_pos);
 	img_data_size_field = de_getui32le(second_header_blk_pos);
-	de_dbg(c, "image data size field: %d\n", (int)img_data_size_field);
+	de_dbg(c, "image data size field: %d", (int)img_data_size_field);
 	width_field = de_getui16le(second_header_blk_pos+8);
 	d->width = 2*width_field;
 	d->height = de_getui16le(second_header_blk_pos+10);
-	de_dbg(c, "width field: %d (width=%d)\n", (int)width_field, (int)d->width);
-	de_dbg(c, "height: %d\n", (int)d->height);
+	de_dbg(c, "width field: %d (width=%d)", (int)width_field, (int)d->width);
+	de_dbg(c, "height: %d", (int)d->height);
 
 	if(!de_good_image_dimensions(c, d->width, d->height)) goto done;
 
@@ -96,7 +96,7 @@ static void de_run_tim(deark *c, de_module_params *mparams)
 	d->bpp_code = tim_type & 0x07;
 	d->palette_flag = (tim_type>>3)&0x01;
 
-	de_dbg(c, "TIM type: %08x\n", tim_type);
+	de_dbg(c, "TIM type: %08x", tim_type);
 
 	switch(d->bpp_code) {
 	case 0: d->bpp = 4; break;
@@ -111,7 +111,7 @@ static void de_run_tim(deark *c, de_module_params *mparams)
 		goto done;
 	}
 
-	de_dbg(c, "bits/pixel: %d, has-palette: %u\n", (int)d->bpp, d->palette_flag);
+	de_dbg(c, "bits/pixel: %d, has-palette: %u", (int)d->bpp, d->palette_flag);
 
 
 	switch(d->bpp) {

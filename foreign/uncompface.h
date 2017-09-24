@@ -692,7 +692,7 @@ ReadBuf(struct xfacectx *ctx)
 
 	// Handle a possible "X-Face:" prefix.
 	if(amt_to_read>=8 && has_x_header(ctx->inf)) {
-		de_dbg(ctx->c, "found X-Face prefix\n");
+		de_dbg(ctx->c, "found X-Face prefix");
 		startpos += 8;
 		amt_to_read -= 8;
 	}

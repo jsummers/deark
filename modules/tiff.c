@@ -972,7 +972,7 @@ static void do_leaf_metadata(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 
 	if(len<1) return;
 	if(pos1+len > c->infile->len) return;
-	de_dbg(c, "leaf metadata at %d size=%d\n", (int)pos1, (int)len);
+	de_dbg(c, "leaf metadata at %d size=%d", (int)pos1, (int)len);
 
 	// This format appears to be hierarchical, but for now we only care about
 	// the top level.
@@ -995,7 +995,7 @@ static void do_leaf_metadata(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 		pos+=4;
 
 		if(!de_memcmp(segtype, "JPEG_preview_data\0", 18)) {
-			de_dbg(c, "jpeg preview at %d len=%d\n", (int)pos, (int)data_len);
+			de_dbg(c, "jpeg preview at %d len=%d", (int)pos, (int)data_len);
 			dbuf_create_file_from_slice(c->infile, pos, data_len, "leafthumb.jpg", NULL, DE_CREATEFLAG_IS_AUX);
 		}
 		pos += data_len;
@@ -1457,7 +1457,7 @@ static void handler_colormap(deark *c, lctx *d, const struct taginfo *tg, const 
 	de_int64 i;
 
 	num_entries = tg->valcount / 3;
-	de_dbg(c, "ColorMap with %d entries\n", (int)num_entries);
+	de_dbg(c, "ColorMap with %d entries", (int)num_entries);
 	if(c->debug_level<2) return;
 	for(i=0; i<num_entries; i++) {
 		read_tag_value_as_int64(c, d, tg, num_entries*0 + i, &r1);
@@ -1466,7 +1466,7 @@ static void handler_colormap(deark *c, lctx *d, const struct taginfo *tg, const 
 		r2 = (de_byte)(r1>>8);
 		g2 = (de_byte)(g1>>8);
 		b2 = (de_byte)(b1>>8);
-		de_dbg2(c, "pal[%3d] = (%5d,%5d,%5d) -> (%3d,%3d,%3d)\n", (int)i,
+		de_dbg2(c, "pal[%3d] = (%5d,%5d,%5d) -> (%3d,%3d,%3d)", (int)i,
 			(int)r1, (int)g1, (int)b1,
 			(int)r2, (int)g2, (int)b2);
 	}
@@ -1486,7 +1486,7 @@ static void handler_subifd(deark *c, lctx *d, const struct taginfo *tg, const st
 
 	for(j=0; j<tg->valcount;j++) {
 		read_tag_value_as_int64(c, d, tg, j, &tmpoffset);
-		de_dbg(c, "offset of %s: %d\n", tni->tagname, (int)tmpoffset);
+		de_dbg(c, "offset of %s: %d", tni->tagname, (int)tmpoffset);
 		push_ifd(c, d, tmpoffset, ifdtype);
 	}
 }
@@ -1503,7 +1503,7 @@ static void handler_iptc(deark *c, lctx *d, const struct taginfo *tg, const stru
 
 static void handler_photoshoprsrc(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni)
 {
-	de_dbg(c, "Photoshop resources at %d, len=%d\n",
+	de_dbg(c, "Photoshop resources at %d, len=%d",
 		(int)tg->val_offset, (int)tg->total_size);
 	de_dbg_indent(c, 1);
 	de_fmtutil_handle_photoshop_rsrc(c, tg->val_offset, tg->total_size);
@@ -1538,7 +1538,7 @@ static void handler_usercomment(deark *c, lctx *d, const struct taginfo *tg, con
 	// are trailing spaces.
 	ucstring_strip_trailing_spaces(s);
 
-	de_dbg(c, "%s: \"%s\"\n", tni->tagname, ucstring_get_printable_sz(s));
+	de_dbg(c, "%s: \"%s\"", tni->tagname, ucstring_get_printable_sz(s));
 
 done:
 	ucstring_destroy(s);
@@ -1567,11 +1567,11 @@ static void handler_37724(deark *c, lctx *d, const struct taginfo *tg, const str
 		goto done;
 	}
 
-	de_dbg(c, "ImageSourceData signature at %d, PSD version=%d\n", (int)tg->val_offset, psdver);
+	de_dbg(c, "ImageSourceData signature at %d, PSD version=%d", (int)tg->val_offset, psdver);
 
 	dpos = tg->val_offset + siglen;
 	dlen = tg->total_size - siglen;
-	de_dbg(c, "ImageSourceData blocks at %d, len=%d\n", (int)dpos, (int)dlen);
+	de_dbg(c, "ImageSourceData blocks at %d, len=%d", (int)dpos, (int)dlen);
 
 	codes = (psdver==2)? "B" : "T";
 	de_dbg_indent(c, 1);
@@ -1603,7 +1603,7 @@ static void handler_utf16(deark *c, lctx *d, const struct taginfo *tg, const str
 	dbuf_read_to_ucstring_n(c->infile, tg->val_offset, tg->total_size,
 		DE_TIFF_MAX_CHARS_TO_PRINT*2, s, 0, DE_ENCODING_UTF16LE);
 	ucstring_strip_trailing_NUL(s);
-	de_dbg(c, "UTF-16 string: \"%s\"\n", ucstring_get_printable_sz(s));
+	de_dbg(c, "UTF-16 string: \"%s\"", ucstring_get_printable_sz(s));
 
 done:
 	ucstring_destroy(s);
@@ -1826,7 +1826,7 @@ static void process_ifd(deark *c, lctx *d, de_int64 ifdpos, int ifdtype)
 		name="";
 	}
 
-	de_dbg(c, "IFD at %d%s\n", (int)ifdpos, name);
+	de_dbg(c, "IFD at %d%s", (int)ifdpos, name);
 	de_dbg_indent(c, 1);
 
 	if(ifdpos >= c->infile->len || ifdpos<8) {
@@ -1841,7 +1841,7 @@ static void process_ifd(deark *c, lctx *d, de_int64 ifdpos, int ifdtype)
 		num_tags = (int)dbuf_getui16x(c->infile, ifdpos, d->is_le);
 	}
 
-	de_dbg(c, "number of tags: %d\n", num_tags);
+	de_dbg(c, "number of tags: %d", num_tags);
 	if(num_tags>200) {
 		de_warn(c, "Invalid or excessive number of TIFF tags (%d)\n", num_tags);
 		goto done;
@@ -1850,7 +1850,7 @@ static void process_ifd(deark *c, lctx *d, de_int64 ifdpos, int ifdtype)
 	// Record the next IFD in the main list.
 	tmpoffset = dbuf_getui32x(c->infile, ifdpos+d->ifdhdrsize+num_tags*d->ifditemsize, d->is_le);
 	if(tmpoffset!=0) {
-		de_dbg(c, "offset of next IFD: %d\n", (int)tmpoffset);
+		de_dbg(c, "offset of next IFD: %d", (int)tmpoffset);
 		push_ifd(c, d, tmpoffset, IFDTYPE_NORMAL);
 	}
 
@@ -1892,7 +1892,7 @@ static void process_ifd(deark *c, lctx *d, de_int64 ifdpos, int ifdtype)
 
 		do_dbg_print_values(c, d, &tg, tni, dbgline);
 
-		de_dbg(c, "%s\n", ucstring_get_printable_sz_n(dbgline, 80+DE_DBG_MAX_STRLEN));
+		de_dbg(c, "%s", ucstring_get_printable_sz_n(dbgline, 80+DE_DBG_MAX_STRLEN));
 		de_dbg_indent(c, 1);
 
 		switch(tg.tagnum) {
@@ -1941,10 +1941,10 @@ static void do_tiff(deark *c, lctx *d)
 	de_int64 ifdoffs;
 
 	pos = 0;
-	de_dbg(c, "TIFF file header at %d\n", (int)pos);
+	de_dbg(c, "TIFF file header at %d", (int)pos);
 	de_dbg_indent(c, 1);
 
-	de_dbg(c, "byte order: %s-endian\n", d->is_le?"little":"big");
+	de_dbg(c, "byte order: %s-endian", d->is_le?"little":"big");
 
 	// Skip over the signature
 	if(d->is_bigtiff) {
@@ -1956,7 +1956,7 @@ static void do_tiff(deark *c, lctx *d)
 
 	// Read the first IFD offset
 	ifdoffs = getfpos(c, d, pos);
-	de_dbg(c, "offset of first IFD: %d\n", (int)ifdoffs);
+	de_dbg(c, "offset of first IFD: %d", (int)ifdoffs);
 	push_ifd(c, d, ifdoffs, IFDTYPE_NORMAL);
 
 	de_dbg_indent(c, -1);
@@ -2023,7 +2023,7 @@ static void de_run_tiff(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
 
-	if(c->module_nesting_level>1) de_dbg2(c, "in tiff module\n");
+	if(c->module_nesting_level>1) de_dbg2(c, "in tiff module");
 	d = de_malloc(c, sizeof(lctx));
 
 	d->mparams = mparams;

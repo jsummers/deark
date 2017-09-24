@@ -73,7 +73,7 @@ static void do_uncompress_lz77(deark *c,
 
 unc_done:
 	nbytes_read = pos-pos1;
-	de_dbg(c, "uncompressed %d bytes to %d bytes\n",
+	de_dbg(c, "uncompressed %d bytes to %d bytes",
 		(int)nbytes_read, (int)outf->len);
 
 	if(expected_output_len>0 && outf->len!=expected_output_len) {
@@ -127,7 +127,7 @@ static void do_uncompress_rle(deark *c, lctx *d,
 	de_byte b;
 	de_int64 count;
 
-	de_dbg(c, "uncompressing RLE data\n");
+	de_dbg(c, "uncompressing RLE data");
 	endpos = pos1 + len;
 	pos = pos1;
 	while(pos<endpos) {
@@ -169,7 +169,7 @@ static int do_uncompress_picture_data(deark *c, lctx *d,
 	dbuf_copy(c->infile, compressed_offset, compressed_size, pixels_final);
 
 	if(d->packing_method==2 || d->packing_method==3) {
-		de_dbg(c, "doing LZ77 decompression\n");
+		de_dbg(c, "doing LZ77 decompression");
 		dbuf_copy(pixels_final, 0, pixels_final->len, pixels_tmp);
 		dbuf_truncate(pixels_final, 0);
 
@@ -181,7 +181,7 @@ static int do_uncompress_picture_data(deark *c, lctx *d,
 	}
 
 	if(d->packing_method==1 || d->packing_method==3) {
-		de_dbg(c, "doing RLE decompression\n");
+		de_dbg(c, "doing RLE decompression");
 		dbuf_copy(pixels_final, 0, pixels_final->len, pixels_tmp);
 		dbuf_truncate(pixels_final, 0);
 		do_uncompress_rle(c, d, pixels_tmp, 0, pixels_tmp->len, pixels_final);
@@ -237,7 +237,7 @@ static int do_dib(deark *c, lctx *d, de_int64 pos1)
 
 	xdpi = get_cul(c->infile, &pos);
 	ydpi = get_cul(c->infile, &pos);
-	de_dbg(c, "dpi: %dx%d\n", (int)xdpi, (int)ydpi);
+	de_dbg(c, "dpi: %dx%d", (int)xdpi, (int)ydpi);
 	if(xdpi<10 || ydpi<10 || xdpi>30000 || ydpi>30000) {
 		xdpi = 0;
 		ydpi = 0;
@@ -247,12 +247,12 @@ static int do_dib(deark *c, lctx *d, de_int64 pos1)
 	bitcount = get_cus(c->infile, &pos);
 	width = get_cul(c->infile, &pos);
 	height = get_cul(c->infile, &pos);
-	de_dbg(c, "planes=%d, bitcount=%d, dimensions=%dx%d\n", (int)planes,
+	de_dbg(c, "planes=%d, bitcount=%d, dimensions=%dx%d", (int)planes,
 		(int)bitcount, (int)width, (int)height);
 
 	colors_used = get_cul(c->infile, &pos);
 	colors_important = get_cul(c->infile, &pos);
-	de_dbg(c, "colors used=%d, important=%d\n", (int)colors_used,
+	de_dbg(c, "colors used=%d, important=%d", (int)colors_used,
 		(int)colors_important);
 
 	compressed_size = get_cul(c->infile, &pos);
@@ -263,9 +263,9 @@ static int do_dib(deark *c, lctx *d, de_int64 pos1)
 	hotspot_offset = de_getui32le(pos);
 	pos+=4;
 	hotspot_offset += pos1;
-	de_dbg(c, "bits offset=%d, size=%d\n", (int)compressed_offset,
+	de_dbg(c, "bits offset=%d, size=%d", (int)compressed_offset,
 		(int)compressed_size);
-	de_dbg(c, "hotspot offset=%d, size=%d\n", (int)hotspot_offset,
+	de_dbg(c, "hotspot offset=%d, size=%d", (int)hotspot_offset,
 		(int)hotspot_size);
 
 	if(bitcount!=1 && bitcount!=4 && bitcount!=8 && bitcount!=24) {
@@ -367,7 +367,7 @@ static int do_wmf(deark *c, lctx *d, de_int64 pos1)
 	pos+=2;
 	height = de_getui16le(pos);
 	pos+=2;
-	de_dbg(c, "mapping mode: %d, nominal dimensions: %dx%d\n",
+	de_dbg(c, "mapping mode: %d, nominal dimensions: %dx%d",
 		(int)mapping_mode, (int)width, (int)height);
 	decompressed_size = get_cul(c->infile, &pos);
 	compressed_size = get_cul(c->infile, &pos);
@@ -379,9 +379,9 @@ static int do_wmf(deark *c, lctx *d, de_int64 pos1)
 	pos+=4;
 	hotspot_offset += pos1;
 
-	de_dbg(c, "wmf offset=%d, size=%d\n", (int)compressed_offset,
+	de_dbg(c, "wmf offset=%d, size=%d", (int)compressed_offset,
 		(int)compressed_size);
-	de_dbg(c, "hotspot offset=%d, size=%d\n", (int)hotspot_offset,
+	de_dbg(c, "hotspot offset=%d, size=%d", (int)hotspot_offset,
 		(int)hotspot_size);
 	if(compressed_offset+compressed_size>c->infile->len) {
 		de_err(c, "WMF data goes beyond end of file\n");
@@ -417,12 +417,12 @@ static int do_picture(deark *c, lctx *d, de_int64 pic_index)
 
 	int retval = 0;
 
-	de_dbg(c, "picture #%d\n", (int)pic_index);
+	de_dbg(c, "picture #%d", (int)pic_index);
 	de_dbg_indent(c, 1);
 
 	pic_offset = de_getui32le(d->shg_startpos + 4 + 4*pic_index);
 	pic_offset += d->shg_startpos;
-	de_dbg(c, "picture data at %d\n", (int)pic_offset);
+	de_dbg(c, "picture data at %d", (int)pic_offset);
 	if(pic_offset >= c->infile->len) {
 		goto done;
 	}
@@ -436,8 +436,8 @@ static int do_picture(deark *c, lctx *d, de_int64 pic_index)
 	case 8: ptname="metafile"; break;
 	default: ptname="?";
 	}
-	de_dbg(c, "picture type: %d (%s)\n", (int)d->picture_type, ptname);
-	de_dbg(c, "packing method: %d\n", (int)d->packing_method);
+	de_dbg(c, "picture type: %d (%s)", (int)d->picture_type, ptname);
+	de_dbg(c, "packing method: %d", (int)d->packing_method);
 
 	if(d->picture_type==5 || d->picture_type==6) { // DDB or DIB
 		do_dib(c, d, pic_offset);
@@ -460,7 +460,7 @@ static void do_shg(deark *c, lctx *d)
 	de_int64 k;
 
 	d->num_pictures = de_getui16le(d->shg_startpos+2);
-	de_dbg(c, "number of pictures in file: %d\n", (int)d->num_pictures);
+	de_dbg(c, "number of pictures in file: %d", (int)d->num_pictures);
 	if(!de_good_image_count(c, d->num_pictures)) {
 		goto done;
 	}

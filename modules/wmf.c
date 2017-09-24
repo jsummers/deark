@@ -132,7 +132,7 @@ static int wmf_handler_0b41_0f43(deark *c, lctx *d, de_int64 rectype, de_int64 r
 	dib_pos = recpos + hdrsize;
 	dib_len = recsize_bytes - hdrsize;
 	if(dib_len < 12) return 1;
-	de_dbg(c, "DIB at %d, size=%d\n", (int)dib_pos, (int)dib_len);
+	de_dbg(c, "DIB at %d, size=%d", (int)dib_pos, (int)dib_len);
 
 	de_dbg_indent(c, 1);
 	de_run_module_by_id_on_slice(c, "dib", NULL, c->infile, dib_pos, dib_len);
@@ -145,16 +145,16 @@ static void do_read_aldus_header(deark *c, lctx *d)
 	de_int64 left, top, right, bottom;
 	de_int64 units_per_inch;
 
-	de_dbg(c, "Aldus Placeable Metafile header at 0\n");
+	de_dbg(c, "Aldus Placeable Metafile header at 0");
 	de_dbg_indent(c, 1);
 	left = de_geti16le(6);
 	top = de_geti16le(8);
 	right = de_geti16le(10);
 	bottom = de_geti16le(12);
-	de_dbg(c, "location: (%d,%d) - (%d,%d)\n", (int)left, (int)top,
+	de_dbg(c, "location: (%d,%d) - (%d,%d)", (int)left, (int)top,
 		(int)right, (int)bottom);
 	units_per_inch = de_getui16le(14);
-	de_dbg(c, "metafile units per inch: %d\n", (int)units_per_inch);
+	de_dbg(c, "metafile units per inch: %d", (int)units_per_inch);
 	de_dbg_indent(c, -1);
 }
 
@@ -164,30 +164,30 @@ static int do_read_wmf_header(deark *c, lctx *d, de_int64 pos)
 	de_int64 num_objects;
 	int retval = 0;
 
-	de_dbg(c, "WMF header at %d\n", (int)pos);
+	de_dbg(c, "WMF header at %d", (int)pos);
 	de_dbg_indent(c, 1);
 
 	d->wmf_file_type = de_getui16le(pos);
-	de_dbg(c, "file type: %d\n", (int)d->wmf_file_type);
+	de_dbg(c, "file type: %d", (int)d->wmf_file_type);
 	if(d->wmf_file_type!=1 && d->wmf_file_type!=2) {
 		de_err(c, "Invalid or unsupported WMF file type (%d)\n", (int)d->wmf_file_type);
 		goto done;
 	}
 	hsize_words = de_getui16le(pos+2);
-	de_dbg(c, "header size: %d bytes\n", (int)(hsize_words*2));
+	de_dbg(c, "header size: %d bytes", (int)(hsize_words*2));
 	if(hsize_words != 9) {
 		de_err(c, "Incorrect WMF header size (expected 9, is %d)\n", (int)hsize_words);
 		goto done;
 	}
 	d->wmf_windows_version = de_getui16le(pos+4);
-	de_dbg(c, "Windows version: %d.%d\n", (int)((d->wmf_windows_version&0xff00)>>8),
+	de_dbg(c, "Windows version: %d.%d", (int)((d->wmf_windows_version&0xff00)>>8),
 		(int)(d->wmf_windows_version&0x00ff));
 	filesize_words = de_getui32le(pos+6);
-	de_dbg(c, "reported file size: %d bytes\n", (int)(filesize_words*2));
+	de_dbg(c, "reported file size: %d bytes", (int)(filesize_words*2));
 	num_objects = de_getui16le(pos+10);
-	de_dbg(c, "number of objects: %d\n", (int)num_objects);
+	de_dbg(c, "number of objects: %d", (int)num_objects);
 	maxrecsize_words = de_getui32le(pos+12);
-	de_dbg(c, "max record size: %d bytes\n", (int)(maxrecsize_words*2));
+	de_dbg(c, "max record size: %d bytes", (int)(maxrecsize_words*2));
 	retval = 1;
 done:
 	de_dbg_indent(c, -1);
@@ -217,7 +217,7 @@ static int do_wmf_record(deark *c, lctx *d, de_int64 recnum, de_int64 recpos,
 
 	fnci = find_wmf_func_info(rectype);
 
-	de_dbg(c, "record #%d at %d, type=0x%04x (%s), size=%d bytes\n", (int)recnum,
+	de_dbg(c, "record #%d at %d, type=0x%04x (%s), size=%d bytes", (int)recnum,
 		(int)recpos, (unsigned int)rectype,
 		fnci ? fnci->name : "?",
 		(int)recsize_bytes);
@@ -237,7 +237,7 @@ static void do_wmf_record_list(deark *c, lctx *d, de_int64 pos)
 	de_int64 recsize_words, recsize_bytes;
 	de_int64 count;
 
-	de_dbg(c, "record list at %d\n", (int)pos);
+	de_dbg(c, "record list at %d", (int)pos);
 	de_dbg_indent(c, 1);
 
 	count = 0;
@@ -501,18 +501,18 @@ static int emf_handler_01(deark *c, lctx *d, de_int64 rectype, de_int64 recpos, 
 	// 2.2.9 Header Object
 	pos = recpos + 8;
 	d->emf_version = de_getui32le(pos+36);
-	de_dbg(c, "version: 0x%08x\n", (unsigned int)d->emf_version);
+	de_dbg(c, "version: 0x%08x", (unsigned int)d->emf_version);
 	file_size = de_getui32le(pos+40);
-	de_dbg(c, "reported file size: %d\n", (int)file_size);
+	de_dbg(c, "reported file size: %d", (int)file_size);
 	d->emf_num_records = de_getui32le(pos+44);
-	de_dbg(c, "number of records in file: %d\n", (int)d->emf_num_records);
+	de_dbg(c, "number of records in file: %d", (int)d->emf_num_records);
 	handles = de_getui16le(pos+48);
-	de_dbg(c, "handles: %d\n", (int)handles);
+	de_dbg(c, "handles: %d", (int)handles);
 	desc_len = de_getui32le(pos+52);
 	desc_offs = de_getui32le(pos+56);
-	de_dbg(c, "description offset=%d, len=%d\n", (int)desc_offs, (int)desc_len);
+	de_dbg(c, "description offset=%d, len=%d", (int)desc_offs, (int)desc_len);
 	num_pal_entries = de_getui32le(pos+60);
-	de_dbg(c, "num pal entries: %d\n", (int)num_pal_entries);
+	de_dbg(c, "num pal entries: %d", (int)num_pal_entries);
 
 	return 1;
 }
@@ -534,7 +534,7 @@ static void do_identify_and_extract_compressed_bitmap(deark *c, lctx *d,
 	// And we *still* don't know what format it's in! We apparently have to
 	// sniff the data and make a guess.
 
-	de_dbg(c, "bitmap at %d, padded_len=%d\n", (int)pos, (int)len);
+	de_dbg(c, "bitmap at %d, padded_len=%d", (int)pos, (int)len);
 
 	de_read(buf, pos, 4);
 	if(buf[0]==0x89 && buf[1]==0x50) {
@@ -578,7 +578,7 @@ static void do_emfplus_object_image_bitmap(deark *c, lctx *d, de_int64 pos, de_i
 
 	w = de_getui32le(pos);
 	h = de_getui32le(pos+4);
-	de_dbg(c, "dimensions: %dx%d\n", (int)w, (int)h);
+	de_dbg(c, "dimensions: %dx%d", (int)w, (int)h);
 
 	// 8 stride
 	// 12 pixelformat
@@ -588,7 +588,7 @@ static void do_emfplus_object_image_bitmap(deark *c, lctx *d, de_int64 pos, de_i
 	case 1: name="Compressed"; break;
 	default: name="?"; break;
 	}
-	de_dbg(c, "type: %d (%s)\n", (int)ty, name);
+	de_dbg(c, "type: %d (%s)", (int)ty, name);
 
 	if(ty==1) {
 		do_identify_and_extract_compressed_bitmap(c, d, pos+20, endpos - (pos+20));
@@ -614,10 +614,10 @@ static void do_emfplus_object_image_metafile(deark *c, lctx *d, de_int64 pos, de
 	case 5: name="EmfPlusDual"; break;
 	default: name = "?";
 	}
-	de_dbg(c, "type: %d (%s)\n", (int)ty, name);
+	de_dbg(c, "type: %d (%s)", (int)ty, name);
 
 	dlen = de_getui32le(pos+4);
-	de_dbg(c, "metafile data size: %d\n", (int)dlen);
+	de_dbg(c, "metafile data size: %d", (int)dlen);
 
 	if(dlen<1 || dlen>len-8) return;
 
@@ -647,7 +647,7 @@ static void do_emfplus_object_image(deark *c, lctx *d, de_int64 pos1, de_int64 l
 	default: name="?"; break;
 	}
 
-	de_dbg(c, "Image osver=0x%08x, type=%d (%s)\n", (unsigned int)ver,
+	de_dbg(c, "Image osver=0x%08x, type=%d (%s)", (unsigned int)ver,
 		(int)datatype, name);
 
 	if(datatype==1) {
@@ -679,7 +679,7 @@ static void do_emfplus_object(deark *c, lctx *d, de_int64 pos, de_int64 len,
 	else
 		name = "?";
 
-	de_dbg(c, "EmfPlusObject type=%d (%s), id=%d\n", (int)object_type, name,
+	de_dbg(c, "EmfPlusObject type=%d (%s), id=%d", (int)object_type, name,
 		(int)object_id);
 
 	de_dbg_indent(c, 1);
@@ -736,7 +736,7 @@ static void do_one_emfplus_record(deark *c, lctx *d, de_int64 pos, de_int64 len,
 		}
 	}
 
-	de_dbg(c, "rectype 0x%04x (%s) at %d, flags=0x%04x, dpos=%d, dlen=%d\n",
+	de_dbg(c, "rectype 0x%04x (%s) at %d, flags=0x%04x, dpos=%d, dlen=%d",
 		(unsigned int)rectype, epinfo ? epinfo->name : "?",
 		(int)pos,
 		(unsigned int)flags,
@@ -767,7 +767,7 @@ static void do_comment_emfplus(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 	de_int64 bytes_consumed;
 	int continuation_flag = 0;
 
-	de_dbg(c, "EMF+ data at %d, len=%d\n", (int)pos1, (int)len);
+	de_dbg(c, "EMF+ data at %d, len=%d", (int)pos1, (int)len);
 	de_dbg_indent(c, 1);
 
 	while(1) {
@@ -794,7 +794,7 @@ static void do_comment_public(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 	case 0x00000080U: name = "UNICODE_END"; break;
 	default: name = "?";
 	}
-	de_dbg(c, "public comment record type: 0x%08x (%s)\n", (unsigned int)ty, name);
+	de_dbg(c, "public comment record type: 0x%08x (%s)", (unsigned int)ty, name);
 }
 
 // Comment record
@@ -804,7 +804,7 @@ static int emf_handler_46(deark *c, lctx *d, de_int64 rectype, de_int64 recpos, 
 	const char *name;
 	de_int64 datasize;
 
-	//de_dbg(c, "comment at %d len=%d\n", (int)recpos, (int)recsize_bytes);
+	//de_dbg(c, "comment at %d len=%d", (int)recpos, (int)recsize_bytes);
 	if(recsize_bytes<16) goto done;
 
 	// Datasize is measured from the beginning of the next field (CommentIdentifier).
@@ -819,7 +819,7 @@ static int emf_handler_46(deark *c, lctx *d, de_int64 rectype, de_int64 recpos, 
 	default: name="?";
 	}
 
-	de_dbg(c, "type: 0x%08x '%s' (%s) datasize=%d\n", (unsigned int)id4cc.id, id4cc.id_printable, name,
+	de_dbg(c, "type: 0x%08x '%s' (%s) datasize=%d", (unsigned int)id4cc.id, id4cc.id_printable, name,
 		(int)datasize);
 
 	if(datasize<=4 || 12+datasize > recsize_bytes) goto done; // Bad datasize
@@ -907,14 +907,14 @@ static int emf_handler_4c(deark *c, lctx *d, de_int64 rectype, de_int64 recpos, 
 	if(recsize_bytes<100) return 1;
 
 	rop = de_getui32le(recpos+40);
-	de_dbg(c, "raster operation: 0x%08x\n", (unsigned int)rop);
+	de_dbg(c, "raster operation: 0x%08x", (unsigned int)rop);
 
 	bmi_offs = de_getui32le(recpos+84);
 	bmi_len = de_getui32le(recpos+88);
-	de_dbg(c, "bmi offset=%d, len=%d\n", (int)bmi_offs, (int)bmi_len);
+	de_dbg(c, "bmi offset=%d, len=%d", (int)bmi_offs, (int)bmi_len);
 	bits_offs = de_getui32le(recpos+92);
 	bits_len = de_getui32le(recpos+96);
-	de_dbg(c, "bits offset=%d, len=%d\n", (int)bits_offs, (int)bits_len);
+	de_dbg(c, "bits offset=%d, len=%d", (int)bits_offs, (int)bits_len);
 
 	if(bmi_len<12) return 1;
 	if(bmi_offs<100) return 1;
@@ -947,19 +947,19 @@ static int emf_handler_50_51(deark *c, lctx *d, de_int64 rectype, de_int64 recpo
 
 	bmi_offs = de_getui32le(recpos+48);
 	bmi_len = de_getui32le(recpos+52);
-	de_dbg(c, "bmi offset=%d, len=%d\n", (int)bmi_offs, (int)bmi_len);
+	de_dbg(c, "bmi offset=%d, len=%d", (int)bmi_offs, (int)bmi_len);
 	bits_offs = de_getui32le(recpos+56);
 	bits_len = de_getui32le(recpos+60);
-	de_dbg(c, "bits offset=%d, len=%d\n", (int)bits_offs, (int)bits_len);
+	de_dbg(c, "bits offset=%d, len=%d", (int)bits_offs, (int)bits_len);
 
 	if(rectype==0x51) {
 		rop = de_getui32le(recpos+68);
-		de_dbg(c, "raster operation: 0x%08x\n", (unsigned int)rop);
+		de_dbg(c, "raster operation: 0x%08x", (unsigned int)rop);
 	}
 
 	if(rectype==0x50) {
 		num_scans = de_getui32le(recpos+72);
-		de_dbg(c, "number of scanlines: %d\n", (int)num_scans);
+		de_dbg(c, "number of scanlines: %d", (int)num_scans);
 	}
 
 	if(bmi_len<12) return 1;
@@ -996,7 +996,7 @@ static int do_emf_record(deark *c, lctx *d, de_int64 recnum, de_int64 recpos,
 
 	fnci = find_emf_func_info(rectype);
 
-	de_dbg(c, "record #%d at %d, type=0x%02x (%s), size=%d bytes\n", (int)recnum,
+	de_dbg(c, "record #%d at %d, type=0x%02x (%s), size=%d bytes", (int)recnum,
 		(int)recpos, (unsigned int)rectype,
 		fnci ? fnci->name : "?",
 		(int)recsize_bytes);

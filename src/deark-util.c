@@ -218,6 +218,7 @@ static void de_vdbg_internal(deark *c, const char *fmt, va_list ap)
 
 	de_printf(c, DE_MSGTYPE_DEBUG, "%s%s", dprefix, bars_and_spaces);
 	de_vprintf(c, DE_MSGTYPE_DEBUG, fmt, ap);
+	de_puts(c, DE_MSGTYPE_DEBUG, "\n");
 }
 
 void de_dbg(deark *c, const char *fmt, ...)
@@ -287,7 +288,7 @@ void de_dbg_hexdump(deark *c, dbuf *f, de_int64 pos1, de_int64 len,
 			linebuf[k*3+2] = ' ';
 			linebuf[k*3+3] = '\0';
 		}
-		de_dbg(c, "%s:%d: %s\n", prefix, (int)(pos-pos1), linebuf);
+		de_dbg(c, "%s:%d: %s", prefix, (int)(pos-pos1), linebuf);
 		pos += bytesthisrow;
 	}
 }
@@ -313,7 +314,7 @@ void de_dbg_pal_entry2(deark *c, de_int64 idx, de_uint32 clr,
 	else {
 		astr[0] = '\0';
 	}
-	de_dbg2(c, "pal[%3d] = %s(%3d,%3d,%3d%s%s)%s\n", (int)idx, txt_before,
+	de_dbg2(c, "pal[%3d] = %s(%3d,%3d,%3d%s%s)%s", (int)idx, txt_before,
 		r, g, b, astr, txt_in, txt_after);
 }
 

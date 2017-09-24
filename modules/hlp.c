@@ -93,7 +93,7 @@ static void do_display_STRINGZ(deark *c, lctx *d, de_int64 pos1, de_int64 len,
 	dbuf_read_to_ucstring_n(c->infile,
 		pos1, len, DE_DBG_MAX_STRLEN,
 		s, DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_ASCII);
-	de_dbg(c, "%s: \"%s\"\n", name, ucstring_get_printable_sz(s));
+	de_dbg(c, "%s: \"%s\"", name, ucstring_get_printable_sz(s));
 	ucstring_destroy(s);
 }
 
@@ -149,14 +149,14 @@ static int do_file_SYSTEM_header(deark *c, lctx *d, de_int64 pos1)
 	}
 	pos += 2;
 
-	de_dbg(c, "SYSTEM file data at %d\n", (int)pos1);
+	de_dbg(c, "SYSTEM file data at %d", (int)pos1);
 	de_dbg_indent(c, 1);
 
 	d->ver_minor = (int)de_getui16le(pos);
 	pos += 2;
 	d->ver_major = (int)de_getui16le(pos);
 	pos += 2;
-	de_dbg(c, "help format version: %d.%d\n", d->ver_major, d->ver_minor);
+	de_dbg(c, "help format version: %d.%d", d->ver_major, d->ver_minor);
 
 	if(d->ver_major!=1) {
 		de_err(c, "Unsupported file version: %d.%d\n", d->ver_major, d->ver_minor);
@@ -166,11 +166,11 @@ static int do_file_SYSTEM_header(deark *c, lctx *d, de_int64 pos1)
 	gen_date = de_geti32le(pos);
 	hlptime_to_timestamp(gen_date, &ts);
 	de_timestamp_to_string(&ts, timestamp_buf, sizeof(timestamp_buf), 0);
-	de_dbg(c, "GenDate: %d (%s)\n", (int)gen_date, timestamp_buf);
+	de_dbg(c, "GenDate: %d (%s)", (int)gen_date, timestamp_buf);
 	pos += 4;
 
 	flags = (unsigned int)de_getui16le(pos);
-	de_dbg(c, "flags: 0x%04x\n", flags);
+	de_dbg(c, "flags: 0x%04x", flags);
 	pos += 2;
 
 	if(d->ver_minor>=16) {
@@ -191,8 +191,8 @@ static int do_file_SYSTEM_header(deark *c, lctx *d, de_int64 pos1)
 		d->is_compressed = 0;
 		d->topic_block_size = 2048;
 	}
-	de_dbg(c, "compressed: %d\n", d->is_compressed);
-	de_dbg(c, "topic block size: %d\n", (int)d->topic_block_size);
+	de_dbg(c, "compressed: %d", d->is_compressed);
+	de_dbg(c, "topic block size: %d", (int)d->topic_block_size);
 
 	retval = 1;
 done:
@@ -218,7 +218,7 @@ static void do_file_SYSTEM_SYSTEMRECS(deark *c, lctx *d, de_int64 pos1, de_int64
 		pos += 2;
 
 		sti = find_sysrec_info(c, d, recordtype);
-		de_dbg(c, "SYSTEMREC type %u (%s) at %d, dpos=%d, dlen=%d\n",
+		de_dbg(c, "SYSTEMREC type %u (%s) at %d, dpos=%d, dlen=%d",
 			recordtype, sti->name,
 			(int)systemrec_startpos, (int)pos, (int)datasize);
 
@@ -296,7 +296,7 @@ static void do_file_TOPIC(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 	int saved_indent_level;
 
 	de_dbg_indent_save(c, &saved_indent_level);
-	de_dbg(c, "TOPIC at %d\n", (int)pos1);
+	de_dbg(c, "TOPIC at %d", (int)pos1);
 	de_dbg_indent(c, 1);
 
 	if(!d->found_system_file || d->topic_block_size<2048) {
@@ -317,13 +317,13 @@ static void do_file_TOPIC(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 		blk_dpos = pos+12;
 		blk_dlen = blklen-12;
 
-		de_dbg(c, "TOPIC block at %d, dpos=%d, dlen=%d\n", (int)pos,
+		de_dbg(c, "TOPIC block at %d, dpos=%d, dlen=%d", (int)pos,
 			(int)blk_dpos, (int)blk_dlen);
 		de_dbg_indent(c, 1);
 		lastlink = de_geti32le(pos);
 		firstlink = de_geti32le(pos+4);
 		lastheader = de_geti32le(pos+8);
-		de_dbg(c, "LastLink=%d, FirstLink=%d, LastHeader=%d\n",
+		de_dbg(c, "LastLink=%d, FirstLink=%d, LastHeader=%d",
 			(int)lastlink, (int)firstlink, (int)lastheader);
 
 		de_dbg_indent(c, -1);
@@ -337,7 +337,7 @@ done:
 static void do_index_page(deark *c, lctx *d, de_int64 pos1, de_int64 *prev_page)
 {
 	*prev_page = de_geti16le(pos1+4);
-	de_dbg(c, "PreviousPage: %d\n", (int)*prev_page);
+	de_dbg(c, "PreviousPage: %d", (int)*prev_page);
 }
 
 static int de_is_digit(char x)
@@ -370,26 +370,26 @@ static void do_leaf_page(deark *c, lctx *d, de_int64 pos1, de_int64 *pnext_page)
 
 	de_dbg_indent_save(c, &saved_indent_level);
 	n = de_getui16le(pos); // "Unused"
-	de_dbg(c, "free bytes at end of this page: %d\n", (int)n);
+	de_dbg(c, "free bytes at end of this page: %d", (int)n);
 	pos += 2;
 
 	num_entries = de_geti16le(pos);
-	de_dbg(c, "NEntries: %d\n", (int)num_entries);
+	de_dbg(c, "NEntries: %d", (int)num_entries);
 	pos += 2;
 
 	n = de_geti16le(pos);
-	de_dbg(c, "PreviousPage: %d\n", (int)n);
+	de_dbg(c, "PreviousPage: %d", (int)n);
 	pos += 2;
 
 	n = de_geti16le(pos);
-	de_dbg(c, "NextPage: %d\n", (int)n);
+	de_dbg(c, "NextPage: %d", (int)n);
 	if(pnext_page) *pnext_page = n;
 	pos += 2;
 
 	s = ucstring_create(c);
 
 	for(k=0; k<num_entries; k++) {
-		de_dbg(c, "entry[%d]\n", (int)k);
+		de_dbg(c, "entry[%d]", (int)k);
 		de_dbg_indent(c, 1);
 
 		if(!dbuf_search_byte(c->infile, 0x00, pos, 260, &foundpos)) {
@@ -400,11 +400,11 @@ static void do_leaf_page(deark *c, lctx *d, de_int64 pos1, de_int64 *pnext_page)
 		de_read((de_byte*)filename_raw, pos, foundpos+1-pos);
 		ucstring_truncate(s, 0);
 		ucstring_append_sz(s, filename_raw, DE_ENCODING_WINDOWS1252);
-		de_dbg(c, "FileName: \"%s\"\n", ucstring_get_printable_sz_d(s));
+		de_dbg(c, "FileName: \"%s\"", ucstring_get_printable_sz_d(s));
 		pos = foundpos + 1;
 
 		file_offset = de_geti32le(pos);
-		de_dbg(c, "FileOffset: %d\n", (int)file_offset);
+		de_dbg(c, "FileOffset: %d", (int)file_offset);
 		pos += 4;
 
 		file_type = filename_to_filetype(c, d, filename_raw);
@@ -439,7 +439,7 @@ static int find_first_leaf_page(deark *c, lctx *d)
 	curr_page = d->bpt.root_page;
 	curr_level = d->bpt.num_levels;
 
-	de_dbg(c, "looking for first leaf page\n");
+	de_dbg(c, "looking for first leaf page");
 	de_dbg_indent(c, 1);
 
 	while(curr_level>1) {
@@ -449,7 +449,7 @@ static int find_first_leaf_page(deark *c, lctx *d)
 		if(curr_page<0) goto done;
 		page_pos = d->bpt.pagesdata_pos + curr_page*d->bpt.pagesize;
 
-		de_dbg(c, "page %d is an index page, level=%d\n", (int)curr_page, (int)curr_level);
+		de_dbg(c, "page %d is an index page, level=%d", (int)curr_page, (int)curr_level);
 
 		prev_page = -1;
 		de_dbg_indent(c, 1);
@@ -460,7 +460,7 @@ static int find_first_leaf_page(deark *c, lctx *d)
 		curr_level--;
 	}
 
-	de_dbg(c, "page %d is the first leaf page\n", (int)curr_page);
+	de_dbg(c, "page %d is the first leaf page", (int)curr_page);
 	d->bpt.first_leaf_page = curr_page;
 
 	retval = 1;
@@ -493,15 +493,15 @@ static void do_bplustree(deark *c, lctx *d, de_int64 pos1, de_int64 len,
 	}
 	pos += 2;
 
-	//de_dbg(c, "B+ tree at %d\n", (int)pos1);
+	//de_dbg(c, "B+ tree at %d", (int)pos1);
 	de_dbg_indent(c, 1);
 
 	d->bpt.flags = (unsigned int)de_getui16le(pos);
-	de_dbg(c, "flags: 0x%04x\n", d->bpt.flags);
+	de_dbg(c, "flags: 0x%04x", d->bpt.flags);
 	pos += 2;
 
 	d->bpt.pagesize = de_getui16le(pos);
-	de_dbg(c, "PageSize: %d\n", (int)d->bpt.pagesize);
+	de_dbg(c, "PageSize: %d", (int)d->bpt.pagesize);
 	pos += 2;
 
 	// TODO: Understand the Structure field
@@ -511,26 +511,26 @@ static void do_bplustree(deark *c, lctx *d, de_int64 pos1, de_int64 len,
 	pos += 2; // PageSplits
 
 	d->bpt.root_page = de_geti16le(pos);
-	de_dbg(c, "RootPage: %d\n", (int)d->bpt.root_page);
+	de_dbg(c, "RootPage: %d", (int)d->bpt.root_page);
 	pos += 2;
 
 	pos += 2; // MustBeNegOne
 
 	d->bpt.num_pages = de_geti16le(pos);
-	de_dbg(c, "TotalPages: %d\n", (int)d->bpt.num_pages);
+	de_dbg(c, "TotalPages: %d", (int)d->bpt.num_pages);
 	pos += 2;
 
 	d->bpt.num_levels = de_geti16le(pos);
-	de_dbg(c, "NLevels: %d\n", (int)d->bpt.num_levels);
+	de_dbg(c, "NLevels: %d", (int)d->bpt.num_levels);
 	if(is_internaldir) d->internal_dir_num_levels = d->bpt.num_levels;
 	pos += 2;
 
 	d->bpt.num_entries = de_geti32le(pos);
-	de_dbg(c, "TotalBtreeEntries: %d\n", (int)d->bpt.num_entries);
+	de_dbg(c, "TotalBtreeEntries: %d", (int)d->bpt.num_entries);
 	pos += 4;
 
 	d->bpt.pagesdata_pos = pos;
-	de_dbg(c, "num pages: %d, %d bytes each, at %d (total size=%d)\n",
+	de_dbg(c, "num pages: %d, %d bytes each, at %d (total size=%d)",
 		(int)d->bpt.num_pages, (int)d->bpt.pagesize, (int)d->bpt.pagesdata_pos,
 		(int)(d->bpt.num_pages * d->bpt.pagesize));
 
@@ -543,7 +543,7 @@ static void do_bplustree(deark *c, lctx *d, de_int64 pos1, de_int64 len,
 
 		de_memset(page_seen, 0, (size_t)d->bpt.num_pages);
 
-		de_dbg(c, "pass %d\n", d->pass);
+		de_dbg(c, "pass %d", d->pass);
 		de_dbg_indent(c, 1);
 
 		curr_page = d->bpt.first_leaf_page;
@@ -563,7 +563,7 @@ static void do_bplustree(deark *c, lctx *d, de_int64 pos1, de_int64 len,
 
 			page_pos = d->bpt.pagesdata_pos + curr_page*d->bpt.pagesize;
 
-			de_dbg(c, "page[%d] at %d (leaf page)\n", (int)curr_page, (int)page_pos);
+			de_dbg(c, "page[%d] at %d (leaf page)", (int)curr_page, (int)page_pos);
 
 			next_page = -1;
 			de_dbg_indent(c, 1);
@@ -571,7 +571,7 @@ static void do_bplustree(deark *c, lctx *d, de_int64 pos1, de_int64 len,
 			de_dbg_indent(c, -1);
 
 			if(d->pass==1 && d->found_system_file) {
-				de_dbg(c, "[found SYSTEM file, so stopping pass 1]\n");
+				de_dbg(c, "[found SYSTEM file, so stopping pass 1]");
 				break;
 			}
 
@@ -588,7 +588,7 @@ done:
 
 static void do_file_INTERNALDIR(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 {
-	de_dbg(c, "internal dir data at %d\n", (int)pos1);
+	de_dbg(c, "internal dir data at %d", (int)pos1);
 	do_bplustree(c, d, pos1, len, 1);
 }
 
@@ -611,20 +611,20 @@ static void do_file(deark *c, lctx *d, de_int64 pos1, int file_fmt)
 	de_int64 pos = pos1;
 	unsigned int fileflags;
 
-	de_dbg(c, "file at %d, type=%s\n", (int)pos1, file_type_to_type_name(file_fmt));
+	de_dbg(c, "file at %d, type=%s", (int)pos1, file_type_to_type_name(file_fmt));
 	de_dbg_indent(c, 1);
 
 	// FILEHEADER
 	reserved_space = de_getui32le(pos);
-	de_dbg(c, "ReservedSpace: %d\n", (int)reserved_space);
+	de_dbg(c, "ReservedSpace: %d", (int)reserved_space);
 	pos += 4;
 
 	used_space = de_getui32le(pos);
-	de_dbg(c, "UsedSpace: %d\n", (int)used_space);
+	de_dbg(c, "UsedSpace: %d", (int)used_space);
 	pos += 4;
 
 	fileflags = (unsigned int)de_getbyte(pos);
-	de_dbg(c, "FileFlags: 0x%02x\n", fileflags);
+	de_dbg(c, "FileFlags: 0x%02x", fileflags);
 	pos += 1;
 
 	if(pos+used_space > c->infile->len) {
@@ -664,17 +664,17 @@ static void do_header(deark *c, lctx *d, de_int64 pos)
 {
 	de_int64 n;
 
-	de_dbg(c, "header at %d\n", (int)pos);
+	de_dbg(c, "header at %d", (int)pos);
 	de_dbg_indent(c, 1);
 
 	d->internal_dir_FILEHEADER_offs = de_geti32le(4);
-	de_dbg(c, "internal dir FILEHEADER pos: %d\n", (int)d->internal_dir_FILEHEADER_offs);
+	de_dbg(c, "internal dir FILEHEADER pos: %d", (int)d->internal_dir_FILEHEADER_offs);
 
 	n = de_geti32le(8);
-	de_dbg(c, "FREEHEADER pos: %d\n", (int)n);
+	de_dbg(c, "FREEHEADER pos: %d", (int)n);
 
 	n = de_geti32le(12);
-	de_dbg(c, "reported file size: %d\n", (int)n);
+	de_dbg(c, "reported file size: %d", (int)n);
 
 	de_dbg_indent(c, -1);
 }
@@ -691,7 +691,7 @@ static void de_run_hlp(deark *c, de_module_params *mparams)
 
 	do_file(c, d, d->internal_dir_FILEHEADER_offs, FILETYPE_INTERNALDIR);
 
-	de_dbg(c, "summary: v%d.%d cmpr=%s blksize=%d levels=%d%s%s%s\n",
+	de_dbg(c, "summary: v%d.%d cmpr=%s blksize=%d levels=%d%s%s%s",
 		d->ver_major, d->ver_minor,
 		d->is_compressed?"lz77":"none",
 		(int)d->topic_block_size,

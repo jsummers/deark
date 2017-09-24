@@ -30,11 +30,11 @@ int de_fmtutil_get_bmpinfo(deark *c, dbuf *f, struct de_bmpinfo *bi, de_int64 po
 		if(flags & DE_BMPINFO_HAS_HOTSPOT) {
 			bi->hotspot_x = dbuf_getui16le(f, pos+6);
 			bi->hotspot_y = dbuf_getui16le(f, pos+8);
-			de_dbg(c, "hotspot: (%d,%d)\n", (int)bi->hotspot_x, (int)bi->hotspot_y);
+			de_dbg(c, "hotspot: (%d,%d)", (int)bi->hotspot_x, (int)bi->hotspot_y);
 		}
 
 		bi->bitsoffset = dbuf_getui32le(f, pos+10);
-		de_dbg(c, "bits offset: %d\n", (int)bi->bitsoffset);
+		de_dbg(c, "bits offset: %d", (int)bi->bitsoffset);
 	}
 
 	bmih_pos = pos + fhs;
@@ -48,7 +48,7 @@ int de_fmtutil_get_bmpinfo(deark *c, dbuf *f, struct de_bmpinfo *bi, de_int64 po
 		return 1;
 	}
 
-	de_dbg(c, "info header size: %d\n", (int)bi->infohdrsize);
+	de_dbg(c, "info header size: %d", (int)bi->infohdrsize);
 
 	if(bi->infohdrsize==12) {
 		bi->bytes_per_pal_entry = 3;
@@ -91,10 +91,10 @@ int de_fmtutil_get_bmpinfo(deark *c, dbuf *f, struct de_bmpinfo *bi, de_int64 po
 		bi->num_colors = 16777216;
 	}
 
-	de_dbg(c, "dimensions: %dx%d\n", (int)bi->width, (int)bi->height);
-	de_dbg(c, "bit count: %d\n", (int)bi->bitcount);
-	de_dbg(c, "compression: %d\n", (int)bi->compression_field);
-	de_dbg(c, "palette entries: %u\n", (unsigned int)bi->pal_entries);
+	de_dbg(c, "dimensions: %dx%d", (int)bi->width, (int)bi->height);
+	de_dbg(c, "bit count: %d", (int)bi->bitcount);
+	de_dbg(c, "compression: %d", (int)bi->compression_field);
+	de_dbg(c, "palette entries: %u", (unsigned int)bi->pal_entries);
 	if(bi->pal_entries>256 && bi->bitcount>8) {
 		de_warn(c, "Ignoring bad palette size (%u entries)\n", (unsigned int)bi->pal_entries);
 		bi->pal_entries = 0;
@@ -115,12 +115,12 @@ int de_fmtutil_get_bmpinfo(deark *c, dbuf *f, struct de_bmpinfo *bi, de_int64 po
 
 		bi->rowspan = ((bi->bitcount*bi->width +31)/32)*4;
 		bi->foreground_size = bi->rowspan * bi->height;
-		de_dbg(c, "foreground size: %d\n", (int)bi->foreground_size);
+		de_dbg(c, "foreground size: %d", (int)bi->foreground_size);
 
 		if(flags & DE_BMPINFO_ICO_FORMAT) {
 			bi->mask_rowspan = ((bi->width +31)/32)*4;
 			bi->mask_size = bi->mask_rowspan * bi->height;
-			de_dbg(c, "mask size: %d\n", (int)bi->mask_size);
+			de_dbg(c, "mask size: %d", (int)bi->mask_size);
 		}
 		else {
 			bi->mask_size = 0;
@@ -368,12 +368,12 @@ static void sauce_read_comments(deark *c, dbuf *inf, struct de_SAUCE_info *si)
 	cmnt_blk_start = inf->len - 128 - (5 + si->num_comments*64);
 
 	if(dbuf_memcmp(inf, cmnt_blk_start, "COMNT", 5)) {
-		de_dbg(c, "invalid SAUCE comment, not found at %d\n", (int)cmnt_blk_start);
+		de_dbg(c, "invalid SAUCE comment, not found at %d", (int)cmnt_blk_start);
 		si->num_comments = 0;
 		goto done;
 	}
 
-	de_dbg(c, "SAUCE comment block at %d\n", (int)cmnt_blk_start);
+	de_dbg(c, "SAUCE comment block at %d", (int)cmnt_blk_start);
 
 	si->comments = de_malloc(c, si->num_comments * sizeof(struct de_char_comment));
 
@@ -386,7 +386,7 @@ static void sauce_read_comments(deark *c, dbuf *inf, struct de_SAUCE_info *si)
 		si->comments[k].s = ucstring_create(c);
 		sauce_bytes_to_ucstring(c, buf, cmnt_len, si->comments[k].s, DE_ENCODING_CP437_G, 0x02);
 
-		de_dbg(c, "comment at %d, len=%d\n", (int)cmnt_pos, (int)cmnt_len);
+		de_dbg(c, "comment at %d, len=%d", (int)cmnt_pos, (int)cmnt_len);
 
 		if(c->extract_level>=2) {
 			dbuf *outf = NULL;
@@ -424,7 +424,7 @@ int de_read_SAUCE(deark *c, dbuf *f, struct de_SAUCE_info *si)
 		return 0;
 	}
 
-	de_dbg(c, "SAUCE metadata at %d\n", (int)pos);
+	de_dbg(c, "SAUCE metadata at %d", (int)pos);
 	de_dbg_indent(c, 1);
 
 	// Title
@@ -460,28 +460,28 @@ int de_read_SAUCE(deark *c, dbuf *f, struct de_SAUCE_info *si)
 	}
 
 	si->original_file_size = dbuf_getui32le(f, pos+90);
-	de_dbg(c, "original file size: %d\n", (int)si->original_file_size);
+	de_dbg(c, "original file size: %d", (int)si->original_file_size);
 
 	si->data_type = dbuf_getbyte(f, pos+94);
 	name = get_sauce_datatype_name(si->data_type);
-	de_dbg(c, "data type: %d (%s)\n", (int)si->data_type, name);
+	de_dbg(c, "data type: %d (%s)", (int)si->data_type, name);
 
 	si->file_type = dbuf_getbyte(f, pos+95);
 	t = 256*(unsigned int)si->data_type + si->file_type;
 	name = get_sauce_filetype_name(si->data_type, t);
-	de_dbg(c, "file type: %d (%s)\n", (int)si->file_type, name);
+	de_dbg(c, "file type: %d (%s)", (int)si->file_type, name);
 
 	if(t==0x0100 || t==0x0101 || t==0x0102 || t==0x0104 || t==0x0105 || t==0x0108 || t==0x0600) {
 		si->width_in_chars = dbuf_getui16le(f, pos+96);
-		de_dbg(c, "width in chars: %d\n", (int)si->width_in_chars);
+		de_dbg(c, "width in chars: %d", (int)si->width_in_chars);
 	}
 	if(t==0x0100 || t==0x0101 || t==0x0104 || t==0x0105 || t==0x0108 || t==0x0600) {
 		si->number_of_lines = dbuf_getui16le(f, pos+98);
-		de_dbg(c, "number of lines: %d\n", (int)si->number_of_lines);
+		de_dbg(c, "number of lines: %d", (int)si->number_of_lines);
 	}
 
 	si->num_comments = (de_int64)dbuf_getbyte(f, pos+104);
-	de_dbg(c, "num comments: %d\n", (int)si->num_comments);
+	de_dbg(c, "num comments: %d", (int)si->num_comments);
 	if(si->num_comments>0) {
 		sauce_read_comments(c, f, si);
 	}
@@ -508,7 +508,7 @@ int de_read_SAUCE(deark *c, dbuf *f, struct de_SAUCE_info *si)
 			}
 
 		}
-		de_dbg(c, "tflags: 0x%02x (%s)\n", (unsigned int)si->tflags,
+		de_dbg(c, "tflags: 0x%02x (%s)", (unsigned int)si->tflags,
 			ucstring_get_printable_sz(tflags_descr));
 	}
 
@@ -584,7 +584,7 @@ static int do_box(deark *c, struct de_boxesctx *bctx, de_int64 pos, de_int64 len
 	int ret;
 
 	if(len<8) {
-		de_dbg(c, "(ignoring %d extra bytes at %d)\n", (int)len, (int)pos);
+		de_dbg(c, "(ignoring %d extra bytes at %d)", (int)len, (int)pos);
 		return 0;
 	}
 
@@ -603,7 +603,7 @@ static int do_box(deark *c, struct de_boxesctx *bctx, de_int64 pos, de_int64 len
 	}
 	else if(size32==1) {
 		if(len<16) {
-			de_dbg(c, "(ignoring %d extra bytes at %d)\n", (int)len, (int)pos);
+			de_dbg(c, "(ignoring %d extra bytes at %d)", (int)len, (int)pos);
 			return 0;
 		}
 		header_len = 16;
@@ -626,12 +626,12 @@ static int do_box(deark *c, struct de_boxesctx *bctx, de_int64 pos, de_int64 len
 	if(c->debug_level>0) {
 		if(bctx->is_uuid) {
 			de_fmtutil_render_uuid(c, bctx->uuid, uuid_string, sizeof(uuid_string));
-			de_dbg(c, "box '%s'{%s} at %d, len=%" INT64_FMT "\n",
+			de_dbg(c, "box '%s'{%s} at %d, len=%" INT64_FMT "",
 				box4cc.id_printable, uuid_string,
 				(int)pos, total_len);
 		}
 		else {
-			de_dbg(c, "box '%s' at %d, len=%" INT64_FMT ", dlen=%d\n", box4cc.id_printable,
+			de_dbg(c, "box '%s' at %d, len=%" INT64_FMT ", dlen=%d", box4cc.id_printable,
 				(int)pos, total_len, (int)payload_len);
 		}
 	}
@@ -709,19 +709,19 @@ int de_fmtutil_default_box_handler(deark *c, struct de_boxesctx *bctx)
 {
 	if(bctx->is_uuid) {
 		if(!de_memcmp(bctx->uuid, "\xb1\x4b\xf8\xbd\x08\x3d\x4b\x43\xa5\xae\x8c\xd7\xd5\xa6\xce\x03", 16)) {
-			de_dbg(c, "GeoTIFF data at %d, len=%d\n", (int)bctx->payload_pos, (int)bctx->payload_len);
+			de_dbg(c, "GeoTIFF data at %d, len=%d", (int)bctx->payload_pos, (int)bctx->payload_len);
 			dbuf_create_file_from_slice(bctx->f, bctx->payload_pos, bctx->payload_len, "geo.tif", NULL, DE_CREATEFLAG_IS_AUX);
 		}
 		else if(!de_memcmp(bctx->uuid, "\xbe\x7a\xcf\xcb\x97\xa9\x42\xe8\x9c\x71\x99\x94\x91\xe3\xaf\xac", 16)) {
-			de_dbg(c, "XMP data at %d, len=%d\n", (int)bctx->payload_pos, (int)bctx->payload_len);
+			de_dbg(c, "XMP data at %d, len=%d", (int)bctx->payload_pos, (int)bctx->payload_len);
 			dbuf_create_file_from_slice(bctx->f, bctx->payload_pos, bctx->payload_len, "xmp", NULL, DE_CREATEFLAG_IS_AUX);
 		}
 		else if(!de_memcmp(bctx->uuid, "\x2c\x4c\x01\x00\x85\x04\x40\xb9\xa0\x3e\x56\x21\x48\xd6\xdf\xeb", 16)) {
-			de_dbg(c, "Photoshop resources at %d, len=%d\n", (int)bctx->payload_pos, (int)bctx->payload_len);
+			de_dbg(c, "Photoshop resources at %d, len=%d", (int)bctx->payload_pos, (int)bctx->payload_len);
 			de_fmtutil_handle_photoshop_rsrc(c, bctx->payload_pos, bctx->payload_len);
 		}
 		else if(!de_memcmp(bctx->uuid, "\x05\x37\xcd\xab\x9d\x0c\x44\x31\xa7\x2a\xfa\x56\x1f\x2a\x11\x3e", 16)) {
-			de_dbg(c, "Exif data at %d, len=%d\n", (int)bctx->payload_pos, (int)bctx->payload_len);
+			de_dbg(c, "Exif data at %d, len=%d", (int)bctx->payload_pos, (int)bctx->payload_len);
 			de_fmtutil_handle_exif(c, bctx->payload_pos, bctx->payload_len);
 		}
 	}
@@ -786,7 +786,7 @@ void de_fmtutil_read_atari_palette(deark *c, dbuf *f, de_int64 pos,
 		}
 
 		if(bit_3_used && !nibble_3_used) {
-			de_dbg(c, "12-bit palette colors detected\n");
+			de_dbg(c, "12-bit palette colors detected");
 			pal_bits = 12;
 		}
 	}
@@ -1009,7 +1009,7 @@ static void do_iff_text_chunk(deark *c, dbuf *f, de_int64 dpos, de_int64 dlen,
 	dbuf_read_to_ucstring_n(f,
 		dpos, dlen, DE_DBG_MAX_STRLEN,
 		s, DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_ASCII);
-	de_dbg(c, "%s: \"%s\"\n", name, ucstring_get_printable_sz(s));
+	de_dbg(c, "%s: \"%s\"", name, ucstring_get_printable_sz(s));
 	ucstring_destroy(s);
 }
 
@@ -1032,7 +1032,7 @@ static void do_iff_anno(deark *c, dbuf *f, de_int64 pos, de_int64 len)
 		de_ucstring *s = NULL;
 		s = ucstring_create(c);
 		dbuf_read_to_ucstring_n(c->infile, pos, len, DE_DBG_MAX_STRLEN, s, 0, DE_ENCODING_ASCII);
-		de_dbg(c, "annotation: \"%s\"\n", ucstring_get_printable_sz(s));
+		de_dbg(c, "annotation: \"%s\"", ucstring_get_printable_sz(s));
 		ucstring_destroy(s);
 	}
 }
@@ -1136,7 +1136,7 @@ static int do_iff_chunk(deark *c, struct de_iffctx *ictx, de_int64 pos, de_int64
 	}
 	chunk_dpos = pos+hdrsize;
 
-	de_dbg(c, "chunk '%s' at %d, dpos=%d, dlen=%d\n", chunkctx.chunk4cc.id_printable, (int)pos,
+	de_dbg(c, "chunk '%s' at %d, dpos=%d, dlen=%d", chunkctx.chunk4cc.id_printable, (int)pos,
 		(int)chunk_dpos, (int)chunk_dlen);
 	de_dbg_indent(c, 1);
 
@@ -1159,7 +1159,7 @@ static int do_iff_chunk(deark *c, struct de_iffctx *ictx, de_int64 pos, de_int64
 		}
 
 		chunk_dlen = data_bytes_avail; // Try to continue
-		de_dbg(c, "adjusting chunk data len to %d\n", (int)chunk_dlen);
+		de_dbg(c, "adjusting chunk data len to %d", (int)chunk_dlen);
 	}
 
 	chunk_dlen_padded = de_pad_to_n(chunk_dlen, ictx->alignment);
@@ -1203,7 +1203,7 @@ static int do_iff_chunk(deark *c, struct de_iffctx *ictx, de_int64 pos, de_int64
 				ictx->main_fmt4cc = ictx->curr_container_fmt4cc;
 				ictx->main_contentstype4cc = ictx->curr_container_contentstype4cc; // struct copy
 			}
-			de_dbg(c, "contents type: '%s'\n", ictx->curr_container_contentstype4cc.id_printable);
+			de_dbg(c, "contents type: '%s'", ictx->curr_container_contentstype4cc.id_printable);
 
 			if(ictx->on_std_container_start_fn) {
 				// Call only for standard-format containers.

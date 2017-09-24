@@ -243,7 +243,7 @@ static void parse_begin_line(deark *c, lctx *d, const de_byte *buf, de_int64 buf
 	if(nbytes_to_copy>sizeof(tmpbuf)) nbytes_to_copy = sizeof(tmpbuf);
 	de_strlcpy(tmpbuf, (const char*)&buf[beginsize+1], nbytes_to_copy);
 	mode = de_strtoll(tmpbuf, NULL, 8);
-	de_dbg(c, "mode: %03o\n", (unsigned int)mode);
+	de_dbg(c, "mode: %03o", (unsigned int)mode);
 	if((mode & 0111)!=0) {
 		d->fi->mode_flags |= DE_MODEFLAG_EXE;
 	}
@@ -253,7 +253,7 @@ static void parse_begin_line(deark *c, lctx *d, const de_byte *buf, de_int64 buf
 
 	fn = ucstring_create(c);
 	ucstring_append_bytes(fn, &buf[beginsize+5], buf_len-(beginsize+5), 0, DE_ENCODING_ASCII);
-	de_dbg(c, "filename: \"%s\"\n", ucstring_get_printable_sz_d(fn));
+	de_dbg(c, "filename: \"%s\"", ucstring_get_printable_sz_d(fn));
 	de_finfo_set_name_from_ucstring(c, d->fi, fn);
 	d->fi->original_filename_flag = 1;
 
@@ -668,7 +668,7 @@ static int do_ascii85_read_btoa_end_line(deark *c, lctx *d, de_int64 linenum,
 {
 	long filesize1 = 0;
 
-	de_dbg(c, "btoa footer at line %d\n", (int)linenum);
+	de_dbg(c, "btoa footer at line %d", (int)linenum);
 	if(de_sscanf((const char *)linebuf, "xbtoa End N %ld ", &filesize1) != 1) {
 		de_err(c, "Bad btoa End line\n");
 		return 0;
@@ -676,7 +676,7 @@ static int do_ascii85_read_btoa_end_line(deark *c, lctx *d, de_int64 linenum,
 
 	d->output_filesize = (de_int64)filesize1;
 	d->output_filesize_known = 1;
-	de_dbg(c, "reported file size: %d\n", (int)d->output_filesize);
+	de_dbg(c, "reported file size: %d", (int)d->output_filesize);
 	return 1;
 }
 
@@ -711,11 +711,11 @@ static void do_ascii85_btoa(deark *c, lctx *d, dbuf *f)
 
 		if(linebuf[0]=='x') {
 			if(content_len>=7 && !de_memcmp(linebuf, "xbtoa5 ", 7)) {
-				de_dbg(c, "btoa new format header at line %d\n", (int)linenum);
+				de_dbg(c, "btoa new format header at line %d", (int)linenum);
 				d->ascii85_fmt = ASCII85_FMT_BTOA_NEW;
 			}
 			else if(content_len>=11 && !de_memcmp(linebuf, "xbtoa Begin", 11)) {
-				de_dbg(c, "btoa old format header at line %d\n", (int)linenum);
+				de_dbg(c, "btoa old format header at line %d", (int)linenum);
 			}
 			else if(content_len>=9 && !de_memcmp(linebuf, "xbtoa End", 9)) {
 				if(!do_ascii85_read_btoa_end_line(c, d, linenum, linebuf, content_len)) {

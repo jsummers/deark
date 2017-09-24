@@ -668,7 +668,7 @@ static void do_control_sequence(deark *c, lctx *d, de_byte code,
 	if(code>=128) return;
 
 	if(c->debug_level>=2) {
-		de_dbg2(c, "[(%2d,%d) %c at %d %d]\n", (int)(d->xpos+1), (int)(d->ypos+1),
+		de_dbg2(c, "[(%2d,%d) %c at %d %d]", (int)(d->xpos+1), (int)(d->ypos+1),
 			(char)code, (int)param_start, (int)param_len);
 	}
 
@@ -736,7 +736,7 @@ static void do_2char_code(deark *c, lctx *d, de_byte ch1, de_byte ch2, de_int64 
 	int ok = 0;
 
 	if(!d->vt100_mode) {
-		de_dbg(c, "switching to vt100 mode\n");
+		de_dbg(c, "switching to vt100 mode");
 		d->vt100_mode = 1;
 	}
 
@@ -1013,11 +1013,11 @@ static void de_run_ansiart(deark *c, de_module_params *mparams)
 
 	// Ignore any Ctrl-Z at the end of data.
 	if(de_getbyte(d->effective_file_size-1) == 0x1a) {
-		de_dbg(c, "found Ctrl+Z byte at %d\n", (int)(d->effective_file_size-1));
+		de_dbg(c, "found Ctrl+Z byte at %d", (int)(d->effective_file_size-1));
 		d->effective_file_size--;
 	}
 	if(d->effective_file_size!=c->infile->len) {
-		de_dbg(c, "effective file size set to %d\n", (int)d->effective_file_size);
+		de_dbg(c, "effective file size set to %d", (int)d->effective_file_size);
 	}
 
 	charctx->nscreens = 1;

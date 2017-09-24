@@ -87,7 +87,7 @@ static void do_decode_newicons(deark *c, lctx *d,
 	de_int64 rle_len;
 	de_uint32 pal[256];
 
-	de_dbg(c, "decoding NewIcons[%d], size=%d\n", newicons_num,
+	de_dbg(c, "decoding NewIcons[%d], size=%d", newicons_num,
 		(int)f->len);
 	de_dbg_indent(c, 1);
 
@@ -107,7 +107,7 @@ static void do_decode_newicons(deark *c, lctx *d,
 	img->height = (de_int64)height_code - 0x21;
 	img->bytes_per_pixel = 4;
 
-	de_dbg(c, "dimensions=%dx%d, transparency=%d, colors=%d\n",
+	de_dbg(c, "dimensions=%dx%d, transparency=%d, colors=%d",
 		(int)img->width, (int)img->height, has_trns, (int)ncolors);
 
 	decoded = dbuf_create_membuf(c, 2048, 0);
@@ -156,10 +156,10 @@ static void do_decode_newicons(deark *c, lctx *d,
 		}
 	}
 
-	de_dbg(c, "decompressed to %d bytes\n", (int)decoded->len);
+	de_dbg(c, "decompressed to %d bytes", (int)decoded->len);
 
 	// The first ncolors*3 bytes are the palette
-	de_dbg2(c, "NewIcons palette\n");
+	de_dbg2(c, "NewIcons palette");
 	de_dbg_indent(c, 1);
 	for(i=0; i<ncolors; i++) {
 		if(i>255) break;
@@ -212,14 +212,14 @@ static int do_read_main_icon(deark *c, lctx *d,
 	de_byte b, b1;
 	de_uint32 pal[256];
 
-	de_dbg(c, "main icon #%d, at %d\n", (int)icon_index, (int)pos);
+	de_dbg(c, "main icon #%d, at %d", (int)icon_index, (int)pos);
 	de_dbg_indent(c, 1);
 
 	// 20-byte header, followed by one or more bitmap "planes".
 	width = de_getui16be(pos+4);
 	height = de_getui16be(pos+6);
 	depth = de_getui16be(pos+8);
-	de_dbg(c, "dimensions=%dx%d, depth=%d\n", (int)width, (int)height,
+	de_dbg(c, "dimensions=%dx%d, depth=%d", (int)width, (int)height,
 		(int)depth);
 
 	if(depth<1 || depth>8) {
@@ -295,12 +295,12 @@ static int do_read_tooltypes_table(deark *c, lctx *d,
 
 	pos = orig_pos;
 
-	de_dbg(c, "tool types table at %d\n", (int)pos);
+	de_dbg(c, "tool types table at %d", (int)pos);
 	de_dbg_indent(c, 1);
 
 	num_entries_raw = de_getui32be(pos);
 	num_entries = num_entries_raw/4 - 1;
-	de_dbg(c, "number of tool types: %d\n", (int)num_entries);
+	de_dbg(c, "number of tool types: %d", (int)num_entries);
 	pos+=4;
 	if(num_entries<0 || num_entries>1000) {
 		goto done;
@@ -335,11 +335,11 @@ static int do_read_tooltypes_table(deark *c, lctx *d,
 		// Write NewIcons data to membufs, for later decoding.
 
 		if(!d->newicons_data[newicons_num]) {
-			de_dbg(c, "NewIcons data [%d] starting at pos=%d\n", newicons_num, (int)tpos);
+			de_dbg(c, "NewIcons data [%d] starting at pos=%d", newicons_num, (int)tpos);
 			d->newicons_data[newicons_num] = dbuf_create_membuf(c, 2048, 0);
 			// The data we copy includes the terminating NUL.
 		}
-		de_dbg2(c, "NewIcons data [%d] pos=%d size=%d\n", newicons_num, (int)tpos, (int)len);
+		de_dbg2(c, "NewIcons data [%d] pos=%d size=%d", newicons_num, (int)tpos, (int)len);
 		dbuf_copy(c->infile, tpos+4, len-4, d->newicons_data[newicons_num]);
 	}
 
@@ -415,17 +415,17 @@ static void do_glowicons_IMAG(deark *c, lctx *d,
 	}
 
 	trns_color = de_getbyte(pos);
-	de_dbg(c, "transparent color: 0x%02x\n", (int)trns_color);
+	de_dbg(c, "transparent color: 0x%02x", (int)trns_color);
 	num_colors = 1+(int)de_getbyte(pos+1);
-	de_dbg(c, "number of colors: %d\n", (int)num_colors);
+	de_dbg(c, "number of colors: %d", (int)num_colors);
 	flags = de_getbyte(pos+2);
 	has_trns = (flags & 0x01)?1:0;
 	has_palette = (flags & 0x02)?1:0;
-	de_dbg(c, "has transparency: %d\n", has_trns);
-	de_dbg(c, "has palette: %d\n", has_palette);
+	de_dbg(c, "has transparency: %d", has_trns);
+	de_dbg(c, "has palette: %d", has_palette);
 
 	cmpr_type = de_getbyte(pos+3);
-	de_dbg(c, "compression type: %d\n", cmpr_type);
+	de_dbg(c, "compression type: %d", cmpr_type);
 	if(cmpr_type!=0 && cmpr_type!=1) {
 		de_err(c, "Unsupported compression type\n");
 		goto done;
@@ -440,7 +440,7 @@ static void do_glowicons_IMAG(deark *c, lctx *d,
 
 	if(has_palette) {
 		pal_cmpr_type = de_getbyte(pos+4);
-		de_dbg(c, "palette compression type: %d\n", pal_cmpr_type);
+		de_dbg(c, "palette compression type: %d", pal_cmpr_type);
 		if(pal_cmpr_type!=0 && pal_cmpr_type!=1) {
 			de_err(c, "Unsupported palette compression type\n");
 			goto done;
@@ -448,7 +448,7 @@ static void do_glowicons_IMAG(deark *c, lctx *d,
 	}
 
 	bits_per_pixel = (de_int64)de_getbyte(pos+5);
-	de_dbg(c, "bits per pixel: %d\n", (int)bits_per_pixel);
+	de_dbg(c, "bits per pixel: %d", (int)bits_per_pixel);
 
 	if(bits_per_pixel<1 || bits_per_pixel>8) {
 		de_err(c, "Invalid or unsupported bits per pixel (%d)\n", (int)bits_per_pixel);
@@ -463,10 +463,10 @@ static void do_glowicons_IMAG(deark *c, lctx *d,
 
 	image_pos = pos;
 	pal_pos = image_pos+image_size_in_bytes;
-	de_dbg(c, "image data at %d, len=%d\n", (int)image_pos, (int)image_size_in_bytes);
+	de_dbg(c, "image data at %d, len=%d", (int)image_pos, (int)image_size_in_bytes);
 
 	if(has_palette) {
-		de_dbg(c, "palette data at %d, len=%d\n", (int)pal_pos, (int)pal_size_in_bytes);
+		de_dbg(c, "palette data at %d, len=%d", (int)pal_pos, (int)pal_size_in_bytes);
 		de_dbg_indent(c, 1);
 
 		if(pal_cmpr_type==1) {
@@ -528,7 +528,7 @@ static int do_detect_glowicons(deark *c, lctx *d, de_int64 pos)
 		chunk_id = (de_uint32)de_getui32be(pos);
 		form_type = (de_uint32)de_getui32be(pos+8);
 		if(chunk_id==CODE_FORM && form_type==CODE_ICON) {
-			de_dbg(c, "GlowIcons data found at %d\n", (int)pos);
+			de_dbg(c, "GlowIcons data found at %d", (int)pos);
 			return 1;
 		}
 	}
@@ -564,7 +564,7 @@ static int my_iff_chunk_handler(deark *c, struct de_iffctx *ictx)
 	case CODE_FACE: // FACE (parameters)
 		d->glowicons_width = 1+(de_int64)de_getbyte(dpos);
 		d->glowicons_height = 1+(de_int64)de_getbyte(dpos+1);
-		de_dbg(c, "dimensions: %dx%d\n", (int)d->glowicons_width, (int)d->glowicons_height);
+		de_dbg(c, "dimensions: %dx%d", (int)d->glowicons_width, (int)d->glowicons_height);
 		break;
 	case CODE_IMAG: // IMAG (one of the images that make up this icon)
 		do_glowicons_IMAG(c, d, dpos, dlen);
@@ -582,7 +582,7 @@ static void do_glowicons(deark *c, lctx *d, de_int64 pos1)
 	ictx = de_malloc(c, sizeof(struct de_iffctx));
 	de_dbg_indent_save(c, &saved_indent_level);
 
-	de_dbg(c, "GlowIcons data at offset %d\n", (int)pos1);
+	de_dbg(c, "GlowIcons data at offset %d", (int)pos1);
 	de_dbg_indent(c, 1);
 
 	ictx->userdata = (void*)d;
@@ -607,24 +607,24 @@ static void do_scan_file(deark *c, lctx *d)
 	int saved_indent_level;
 
 	de_dbg_indent_save(c, &saved_indent_level);
-	de_dbg(c, "DiskObject at %d, len=%d\n", 0, 78);
+	de_dbg(c, "DiskObject at %d, len=%d", 0, 78);
 	de_dbg_indent(c, 1);
 
 	version = de_getui16be(2);
-	de_dbg(c, "version: %d\n", (int)version);
+	de_dbg(c, "version: %d", (int)version);
 
-	de_dbg(c, "Gadget at %d, len=%d\n", 4, 44);
+	de_dbg(c, "Gadget at %d, len=%d", 4, 44);
 	de_dbg_indent(c, 1);
 
 	main_width = de_getui16be(12);
 	main_height = de_getui16be(14);
-	de_dbg(c, "main canvas size: %dx%d\n", (int)main_width, (int)main_height);
+	de_dbg(c, "main canvas size: %dx%d", (int)main_width, (int)main_height);
 
 	d->num_main_icons = (de_getui32be(26)==0) ? 1 : 2; // "SelectRender" field
-	de_dbg(c, "number of (original) icons: %d\n", (int)d->num_main_icons);
+	de_dbg(c, "number of (original) icons: %d", (int)d->num_main_icons);
 
 	d->icon_revision = de_getui32be(44) & 0xff;
-	de_dbg(c, "icon revision: %d\n", (int)d->icon_revision);
+	de_dbg(c, "icon revision: %d", (int)d->icon_revision);
 
 	de_dbg_indent(c, -1); // end of embedded "Gadget" object
 
@@ -637,23 +637,23 @@ static void do_scan_file(deark *c, lctx *d)
 	case 6: tn="device"; break;
 	case 7: tn="kick"; break;
 	}
-	de_dbg(c, "icon type: %d (%s)\n", (int)d->icon_type, tn);
+	de_dbg(c, "icon type: %d (%s)", (int)d->icon_type, tn);
 
 	x = de_getui32be(50);
 	d->has_defaulttool = (x!=0);
-	de_dbg(c, "defaulttool: 0x%08x\n", (unsigned int)x);
+	de_dbg(c, "defaulttool: 0x%08x", (unsigned int)x);
 
 	x = de_getui32be(54);
 	d->has_tooltypes = (x!=0);
-	de_dbg(c, "tooltypes: 0x%08x\n", (unsigned int)x);
+	de_dbg(c, "tooltypes: 0x%08x", (unsigned int)x);
 
 	x = de_getui32be(66);
 	d->has_drawerdata = (x!=0);
-	de_dbg(c, "drawerdata: 0x%08x\n", (unsigned int)x);
+	de_dbg(c, "drawerdata: 0x%08x", (unsigned int)x);
 
 	x = de_getui32be(70);
 	d->has_toolwindow = (x!=0);
-	de_dbg(c, "toolwindow: 0x%08x\n", (unsigned int)x);
+	de_dbg(c, "toolwindow: 0x%08x", (unsigned int)x);
 
 	de_dbg_indent(c, -1);
 
@@ -661,7 +661,7 @@ static void do_scan_file(deark *c, lctx *d)
 
 	// Skip the DrawerData segment
 	if(d->has_drawerdata) {
-		de_dbg(c, "DrawerData: 56 bytes at %d\n", (int)pos);
+		de_dbg(c, "DrawerData: 56 bytes at %d", (int)pos);
 		pos+=56;
 	}
 
@@ -669,14 +669,14 @@ static void do_scan_file(deark *c, lctx *d)
 	for(i=0; i<d->num_main_icons; i++) {
 		d->main_icon_pos[i] = pos;
 		get_main_icon_size(c, d, pos, &bytesused);
-		de_dbg(c, "main icon #%d data at %d, size=%d\n", (int)i, (int)d->main_icon_pos[i], (int)bytesused);
+		de_dbg(c, "main icon #%d data at %d, size=%d", (int)i, (int)d->main_icon_pos[i], (int)bytesused);
 		pos += bytesused;
 	}
 
 	// Skip the DefaultTool segment
 	if(d->has_defaulttool) {
 		x = de_getui32be(pos);
-		de_dbg(c, "DefaultTool: %d bytes at %d\n", (int)(4+x), (int)pos);
+		de_dbg(c, "DefaultTool: %d bytes at %d", (int)(4+x), (int)pos);
 		pos += 4+x;
 	}
 
@@ -690,13 +690,13 @@ static void do_scan_file(deark *c, lctx *d)
 	// Skip the ToolWindow segment (untested)
 	if(d->has_toolwindow) {
 		x = de_getui32be(pos);
-		de_dbg(c, "ToolWindow: %d bytes at %d\n", (int)(4+x), (int)pos);
+		de_dbg(c, "ToolWindow: %d bytes at %d", (int)(4+x), (int)pos);
 		pos += 4+x;
 	}
 
 	// Skip DrawerData2
 	if(d->has_drawerdata && d->icon_revision==1) {
-		de_dbg(c, "DrawerData2: 6 bytes at %d\n", (int)pos);
+		de_dbg(c, "DrawerData2: 6 bytes at %d", (int)pos);
 		pos += 6;
 	}
 
@@ -728,7 +728,7 @@ static void de_run_amigaicon(deark *c, de_module_params *mparams)
 		de_declare_fmt(c, "Amiga Workbench Icon");
 	}
 
-	de_dbg(c, "finished scanning file, now extracting icons\n");
+	de_dbg(c, "finished scanning file, now extracting icons");
 
 	// Original format icons
 	for(i=0; i<d->num_main_icons; i++) {

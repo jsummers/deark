@@ -33,9 +33,9 @@ static void do_read_plane_info(deark *c, lctx *d, struct plane_info_struct *pi, 
 	pi->image_pos = pos + 12 + image_relative_pos;
 	pi->rowspan = ((pi->width+15)/16)*2; // 2-byte alignment
 
-	de_dbg(c, "bitmap: descriptor at %d, image at %d (size %d)\n",
+	de_dbg(c, "bitmap: descriptor at %d, image at %d (size %d)",
 		(int)pos, (int)pi->image_pos, (int)image_size_in_bytes);
-	de_dbg(c, "dimensions: %dx%d\n", (int)pi->width,
+	de_dbg(c, "dimensions: %dx%d", (int)pi->width,
 		(int)pi->height);
 }
 
@@ -43,7 +43,7 @@ static void do_bitmap_1plane(deark *c, lctx *d, de_int64 plane_num)
 {
 	struct plane_info_struct *pi = &d->plane_info[plane_num];
 
-	de_dbg(c, "making a bilevel image from plane %d\n", (int)plane_num);
+	de_dbg(c, "making a bilevel image from plane %d", (int)plane_num);
 
 	de_convert_and_write_image_bilevel(c->infile, pi->image_pos, pi->width, pi->height,
 		pi->rowspan, DE_CVTF_WHITEISZERO|DE_CVTF_LSBFIRST, NULL, 0);
@@ -55,7 +55,7 @@ static void do_bitmap_2planes(deark *c, lctx *d, de_int64 pn1, de_int64 pn2)
 	de_int64 i, j;
 	de_byte n0, n1;
 
-	de_dbg(c, "making a grayscale image from planes %d and %d\n", (int)pn1, (int)pn2);
+	de_dbg(c, "making a grayscale image from planes %d and %d", (int)pn1, (int)pn2);
 
 	img = de_bitmap_create(c, d->plane_info[pn1].width, d->plane_info[pn1].height, 1);
 
@@ -127,7 +127,7 @@ static void de_run_psionpic(deark *c, de_module_params *mparams)
 	int format;
 	const char *s;
 
-	if(c->module_nesting_level>1) de_dbg2(c, "in psionpic module\n");
+	if(c->module_nesting_level>1) de_dbg2(c, "in psionpic module");
 	d = de_malloc(c, sizeof(lctx));
 
 	s = de_get_ext_option(c, "psionpic:bw");
@@ -136,7 +136,7 @@ static void de_run_psionpic(deark *c, de_module_params *mparams)
 	}
 
 	d->num_planes = de_getui16le(6);
-	de_dbg(c, "number of planes/bitmaps: %d\n", (int)d->num_planes);
+	de_dbg(c, "number of planes/bitmaps: %d", (int)d->num_planes);
 
 	// After the 8-byte header are [num_images] 12-byte bitmap descriptors.
 	d->plane_info = de_malloc(c, d->num_planes * sizeof(struct plane_info_struct));

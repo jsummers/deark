@@ -34,18 +34,18 @@ static void do_lump_entry(deark *c, lctx *d, de_int64 lump_idx, de_int64 pos)
 	de_int64 lump_size;
 	struct de_stringreaderdata *srd = NULL;
 
-	de_dbg(c, "lump[%d] dir entry at %d\n", (int)lump_idx, (int)pos);
+	de_dbg(c, "lump[%d] dir entry at %d", (int)lump_idx, (int)pos);
 	de_dbg_indent(c, 1);
 	lump_pos = de_getui32le(pos);
-	de_dbg(c, "data pos: %d\n", (int)lump_pos);
+	de_dbg(c, "data pos: %d", (int)lump_pos);
 	lump_size = de_getui32le(pos+4);
-	de_dbg(c, "data size: %d\n", (int)lump_size);
+	de_dbg(c, "data size: %d", (int)lump_size);
 
 	// dbuf_read_string is used (instead of dbuf_read_to_ucstring) because
 	// the names have special meanings, so someday we might want to run
 	// comparisons against them. But currently we don't do that.
 	srd = dbuf_read_string(c->infile, pos+8, 8, 8, DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_ASCII);
-	de_dbg(c, "name: \"%s\"\n", ucstring_get_printable_sz_d(srd->str));
+	de_dbg(c, "name: \"%s\"", ucstring_get_printable_sz_d(srd->str));
 
 	do_lump_extract(c, d, lump_pos, lump_size, srd);
 
@@ -56,7 +56,7 @@ static void do_lump_entry(deark *c, lctx *d, de_int64 lump_idx, de_int64 pos)
 static int do_directory(deark *c, lctx *d, de_int64 pos)
 {
 	de_int64 k;
-	de_dbg(c, "directory at %d\n", (int)pos);
+	de_dbg(c, "directory at %d", (int)pos);
 	de_dbg_indent(c, 1);
 
 	if(pos<0 || pos>=c->infile->len) goto done;
@@ -74,12 +74,12 @@ done:
 
 static int do_header(deark *c, lctx *d, de_int64 pos)
 {
-	de_dbg(c, "header at %d\n", (int)pos);
+	de_dbg(c, "header at %d", (int)pos);
 	de_dbg_indent(c, 1);
 	d->nlumps = de_getui32le(pos+4);
-	de_dbg(c, "#lumps: %d\n", (int)d->nlumps);
+	de_dbg(c, "#lumps: %d", (int)d->nlumps);
 	d->dir_pos = de_getui32le(pos+8);
-	de_dbg(c, "dir pos: %d\n", (int)d->dir_pos);
+	de_dbg(c, "dir pos: %d", (int)d->dir_pos);
 	de_dbg_indent(c, -1);
 	return 1;
 }

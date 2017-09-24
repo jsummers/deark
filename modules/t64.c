@@ -31,7 +31,7 @@ static void do_extract_file(deark *c, lctx *d, de_int64 dir_pos,
 	load_addr = de_getui16le(dir_pos+2);
 	end_addr = de_getui16le(dir_pos+4);
 	offset = de_getui32le(dir_pos+8);
-	de_dbg(c, "load_addr=%d end_addr=%d offset=%d\n", (int)load_addr,
+	de_dbg(c, "load_addr=%d end_addr=%d offset=%d", (int)load_addr,
 		(int)end_addr, (int)offset);
 
 	// File name at pos+16
@@ -46,11 +46,11 @@ static void do_extract_file(deark *c, lctx *d, de_int64 dir_pos,
 			break;
 		}
 	}
-	de_dbg2(c, "filename length: %d\n", (int)fname_len);
+	de_dbg2(c, "filename length: %d", (int)fname_len);
 
 	fname = ucstring_create(c);
 	dbuf_read_to_ucstring(c->infile, fnpos, fname_len, fname, 0, DE_ENCODING_PETSCII);
-	de_dbg(c, "filename: \"%s\"\n", ucstring_get_printable_sz(fname));
+	de_dbg(c, "filename: \"%s\"", ucstring_get_printable_sz(fname));
 
 	ucstring_append_sz(fname, ".prg", DE_ENCODING_ASCII);
 
@@ -82,15 +82,15 @@ static void do_dir_entry(deark *c, lctx *d, de_int64 entry_num, de_int64 pos)
 
 	filetype_c64s = de_getbyte(pos);
 	if(filetype_c64s==0) {
-		de_dbg2(c, "unused entry #%d at %d\n", (int)entry_num, (int)pos);
+		de_dbg2(c, "unused entry #%d at %d", (int)entry_num, (int)pos);
 		return;
 	}
-	de_dbg(c, "entry #%d at %d\n", (int)entry_num, (int)pos);
+	de_dbg(c, "entry #%d at %d", (int)entry_num, (int)pos);
 
 	de_dbg_indent(c, 1);
 
 	filetype = de_getbyte(pos+1);
-	de_dbg(c, "c64s filetype=%d, filetype=0x%02x\n", (int)filetype_c64s, (int)filetype);
+	de_dbg(c, "c64s filetype=%d, filetype=0x%02x", (int)filetype_c64s, (int)filetype);
 
 	if(filetype==0x00) {
 		de_err(c, "Unsupported file type (0x%02x)\n", (int)filetype);
@@ -112,14 +112,14 @@ static void de_run_t64(deark *c, de_module_params *mparams)
 
 	pos = 32;
 	d->version = de_getui16le(pos);
-	de_dbg(c, "version: 0x%04x\n", (int)d->version);
+	de_dbg(c, "version: 0x%04x", (int)d->version);
 	if(d->version!=0x100 && d->version!=0x101) {
 		de_warn(c, "Unexpected version number. This might not be a T64 file.\n");
 	}
 
 	d->max_dir_entries = de_getui16le(pos+2);
 	d->used_dir_entries = de_getui16le(pos+4);
-	de_dbg(c, "max dir entries = %d, files = %d\n", (int)d->max_dir_entries, (int)d->used_dir_entries);
+	de_dbg(c, "max dir entries = %d, files = %d", (int)d->max_dir_entries, (int)d->used_dir_entries);
 
 	pos += 32;
 	for(i=0; i<d->max_dir_entries; i++) {

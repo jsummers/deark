@@ -134,11 +134,11 @@ static void handle_palm_timestamp(deark *c, lctx *d, de_int64 pos, const char *n
 
 	ts_int = de_getui32be(pos);
 	if(ts_int==0) {
-		de_dbg(c, "%s: 0 (not set)\n", name);
+		de_dbg(c, "%s: 0 (not set)", name);
 		return;
 	}
 
-	de_dbg(c, "%s: ...\n", name);
+	de_dbg(c, "%s: ...", name);
 	de_dbg_indent(c, 1);
 
 	// I've seen three different ways to interpret this 32-bit timestamp, and
@@ -146,20 +146,20 @@ static void handle_palm_timestamp(deark *c, lctx *d, de_int64 pos, const char *n
 
 	de_mac_time_to_timestamp(ts_int, &ts);
 	de_timestamp_to_string(&ts, timestamp_buf, sizeof(timestamp_buf), 0);
-	de_dbg(c, "... if Mac-BE: %"INT64_FMT" (%s)\n", ts_int, timestamp_buf);
+	de_dbg(c, "... if Mac-BE: %"INT64_FMT" (%s)", ts_int, timestamp_buf);
 
 	ts_int = de_geti32be(pos);
 	if(ts_int>0) { // Assume dates before 1970 are wrong
 		de_unix_time_to_timestamp(ts_int, &ts);
 		de_timestamp_to_string(&ts, timestamp_buf, sizeof(timestamp_buf), 0x1);
-		de_dbg(c, "... if Unix-BE: %"INT64_FMT" (%s)\n", ts_int, timestamp_buf);
+		de_dbg(c, "... if Unix-BE: %"INT64_FMT" (%s)", ts_int, timestamp_buf);
 	}
 
 	ts_int = de_getui32le(pos);
 	if(ts_int>2082844800) {
 		de_mac_time_to_timestamp(ts_int, &ts);
 		de_timestamp_to_string(&ts, timestamp_buf, sizeof(timestamp_buf), 0);
-		de_dbg(c, "... if Mac-LE: %"INT64_FMT" (%s)\n", ts_int, timestamp_buf);
+		de_dbg(c, "... if Mac-LE: %"INT64_FMT" (%s)", ts_int, timestamp_buf);
 	}
 
 	de_dbg_indent(c, -1);
@@ -228,38 +228,38 @@ static int do_read_pdb_prc_header(deark *c, lctx *d)
 	de_int64 x;
 	int retval = 0;
 
-	de_dbg(c, "header at %d\n", (int)pos1);
+	de_dbg(c, "header at %d", (int)pos1);
 	de_dbg_indent(c, 1);
 
 	dname = ucstring_create(c);
 	dbuf_read_to_ucstring(c->infile, pos1, 32, dname, DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_PALM);
-	de_dbg(c, "name: \"%s\"\n", ucstring_get_printable_sz(dname));
+	de_dbg(c, "name: \"%s\"", ucstring_get_printable_sz(dname));
 
 	attribs = (de_uint32)de_getui16be(pos1+32);
 	attr_descr = ucstring_create(c);
 	get_db_attr_descr(attr_descr, attribs);
-	de_dbg(c, "attributes: 0x%04x (%s)\n", (unsigned int)attribs,
+	de_dbg(c, "attributes: 0x%04x (%s)", (unsigned int)attribs,
 		ucstring_get_printable_sz(attr_descr));
 
 	version = (de_uint32)de_getui16be(pos1+34);
-	de_dbg(c, "version: 0x%04x\n", (unsigned int)version);
+	de_dbg(c, "version: 0x%04x", (unsigned int)version);
 
 	handle_palm_timestamp(c, d, pos1+36, "create date");
 	handle_palm_timestamp(c, d, pos1+40, "mod date");
 	handle_palm_timestamp(c, d, pos1+44, "backup date");
 
 	x = de_getui32be(pos1+48);
-	de_dbg(c, "mod number: %d\n", (int)x);
+	de_dbg(c, "mod number: %d", (int)x);
 	d->appinfo_offs = de_getui32be(pos1+52);
-	de_dbg(c, "app info pos: %d\n", (int)d->appinfo_offs);
+	de_dbg(c, "app info pos: %d", (int)d->appinfo_offs);
 	d->sortinfo_offs = de_getui32be(pos1+56);
-	de_dbg(c, "sort info pos: %d\n", (int)d->sortinfo_offs);
+	de_dbg(c, "sort info pos: %d", (int)d->sortinfo_offs);
 
 	dbuf_read_fourcc(c->infile, pos1+60, &d->dtype4cc, 0);
-	de_dbg(c, "type: \"%s\"\n", d->dtype4cc.id_printable);
+	de_dbg(c, "type: \"%s\"", d->dtype4cc.id_printable);
 
 	dbuf_read_fourcc(c->infile, pos1+64, &d->creator4cc, 0);
-	de_dbg(c, "creator: \"%s\"\n", d->creator4cc.id_printable);
+	de_dbg(c, "creator: \"%s\"", d->creator4cc.id_printable);
 
 	if(d->file_fmt==FMT_PDB) {
 		d->fmt_shortname = "PDB";
@@ -283,7 +283,7 @@ static int do_read_pdb_prc_header(deark *c, lctx *d)
 	}
 
 	x = de_getui32be(68);
-	de_dbg(c, "uniqueIDseed: %u\n", (unsigned int)x);
+	de_dbg(c, "uniqueIDseed: %u", (unsigned int)x);
 
 	retval = 1;
 done:
@@ -367,7 +367,7 @@ static int do_decompress_scanline_compression(deark *c, lctx *d, dbuf *inf,
 	x = dbuf_getui16be(inf, srcpos);
 	// TODO: Find documentation for this field, and maybe do something with it.
 	// It apparently includes the 2 bytes for itself.
-	de_dbg2(c, "cmpr len: %d\n", (int)x);
+	de_dbg2(c, "cmpr len: %d", (int)x);
 	srcpos += 2;
 
 	for(j=0; j<igi->h; j++) {
@@ -488,7 +488,7 @@ static void do_generate_image(deark *c, lctx *d,
 		}
 
 		// TODO: The byte counts in this message are not very accurate.
-		de_dbg(c, "decompressed %d bytes to %d bytes\n", (int)len,
+		de_dbg(c, "decompressed %d bytes to %d bytes", (int)len,
 			(int)unc_pixels->len);
 	}
 
@@ -521,12 +521,12 @@ static int read_colortable(deark *c, lctx *d, struct img_gen_info *igi,
 	unsigned int idx;
 	char tmps[32];
 
-	de_dbg(c, "color table at %d\n", (int)pos1);
+	de_dbg(c, "color table at %d", (int)pos1);
 	de_dbg_indent(c, 1);
 	igi->has_custom_pal = 1;
 
 	num_entries = de_getui16be(pos1);
-	de_dbg(c, "number of entries: %d\n", (int)num_entries);
+	de_dbg(c, "number of entries: %d", (int)num_entries);
 	// TODO: Documentation says "High bits (numEntries > 256) reserved."
 	// What exactly does that mean?
 	if(num_entries>256) {
@@ -562,12 +562,12 @@ static void do_BitmapDirectInfoType(deark *c, lctx *d, de_int64 pos,
 	de_byte cbits[3];
 	de_byte t[4];
 
-	de_dbg(c, "BitmapDirectInfoType structure at %d\n", (int)pos);
+	de_dbg(c, "BitmapDirectInfoType structure at %d", (int)pos);
 	de_dbg_indent(c, 1);
 	cbits[0] = de_getbyte(pos);
 	cbits[1] = de_getbyte(pos+1);
 	cbits[2] = de_getbyte(pos+2);
-	de_dbg(c, "bits/component: %d,%d,%d\n", (int)cbits[0], (int)cbits[1], (int)cbits[2]);
+	de_dbg(c, "bits/component: %d,%d,%d", (int)cbits[0], (int)cbits[1], (int)cbits[2]);
 
 	// TODO: The format of this field (RGBColorType) is not the same as that
 	// of the actual pixels, and I don't know how the mapping is done.
@@ -576,7 +576,7 @@ static void do_BitmapDirectInfoType(deark *c, lctx *d, de_int64 pos,
 	t[1] = de_getbyte(pos+5);
 	t[2] = de_getbyte(pos+6);
 	t[3] = de_getbyte(pos+7);
-	de_dbg(c, "transparentColor: (%d,%d,%d,idx=%d)\n", (int)t[0], (int)t[1],
+	de_dbg(c, "transparentColor: (%d,%d,%d,idx=%d)", (int)t[0], (int)t[1],
 		(int)t[2], (int)t[3]);
 	de_dbg_indent(c, -1);
 }
@@ -605,14 +605,14 @@ static void do_palm_BitmapType_internal(deark *c, lctx *d, de_int64 pos1, de_int
 	igi = de_malloc(c, sizeof(struct img_gen_info));
 	igi->createflags = createflags;
 
-	de_dbg(c, "BitmapType at %d, len<=%d\n", (int)pos1, (int)len);
+	de_dbg(c, "BitmapType at %d, len<=%d", (int)pos1, (int)len);
 	de_dbg_indent(c, 1);
-	de_dbg(c, "bitmap header at %d\n", (int)pos1);
+	de_dbg(c, "bitmap header at %d", (int)pos1);
 	de_dbg_indent(c, 1);
 
 	// Look ahead to get the version
 	bitmapversion = de_getbyte(pos1+9);
-	de_dbg(c, "bitmap version: %d\n", (int)bitmapversion);
+	de_dbg(c, "bitmap version: %d", (int)bitmapversion);
 
 	if(bitmapversion>3) {
 		// Note that V3 allows the high bit of the version field to
@@ -623,10 +623,10 @@ static void do_palm_BitmapType_internal(deark *c, lctx *d, de_int64 pos1, de_int
 
 	igi->w = de_geti16be(pos1);
 	igi->h = de_geti16be(pos1+2);
-	de_dbg(c, "dimensions: %dx%d\n", (int)igi->w, (int)igi->h);
+	de_dbg(c, "dimensions: %dx%d", (int)igi->w, (int)igi->h);
 
 	igi->rowbytes = de_getui16be(pos1+4);
-	de_dbg(c, "rowBytes: %d\n", (int)igi->rowbytes);
+	de_dbg(c, "rowBytes: %d", (int)igi->rowbytes);
 
 	bitmapflags = (de_uint32)de_getui16be(pos1+6);
 	flagsdescr = ucstring_create(c);
@@ -635,7 +635,7 @@ static void do_palm_BitmapType_internal(deark *c, lctx *d, de_int64 pos1, de_int
 	if(bitmapflags&PALMBMPFLAG_HASTRNS) ucstring_append_flags_item(flagsdescr, "hasTransparency");
 	if(bitmapflags&PALMBMPFLAG_DIRECTCOLOR) ucstring_append_flags_item(flagsdescr, "directColor");
 	if(bitmapflags==0) ucstring_append_flags_item(flagsdescr, "none");
-	de_dbg(c, "bitmap flags: 0x%04x (%s)\n", (unsigned int)bitmapflags,
+	de_dbg(c, "bitmap flags: 0x%04x (%s)", (unsigned int)bitmapflags,
 		ucstring_get_printable_sz(flagsdescr));
 	ucstring_destroy(flagsdescr);
 	if((bitmapflags&PALMBMPFLAG_HASCOLORTABLE) && d->ignore_color_table_flag) {
@@ -647,7 +647,7 @@ static void do_palm_BitmapType_internal(deark *c, lctx *d, de_int64 pos1, de_int
 
 	if(bitmapversion>=1) {
 		pixelsize_raw = de_getbyte(pos1+8);
-		de_dbg(c, "pixelSize: %d\n", (int)pixelsize_raw);
+		de_dbg(c, "pixelSize: %d", (int)pixelsize_raw);
 		bpp_src_name = "based on pixelSize field";
 		if(bitmapversion<2 && pixelsize_raw==8) {
 			de_warn(c, "BitmapTypeV%d with pixelSize=%d is not standard\n",
@@ -662,7 +662,7 @@ static void do_palm_BitmapType_internal(deark *c, lctx *d, de_int64 pos1, de_int
 		bpp_src_name = "default";
 	}
 	else igi->bitsperpixel = (de_int64)pixelsize_raw;
-	de_dbg(c, "bits/pixel: %d (%s)\n", (int)igi->bitsperpixel, bpp_src_name);
+	de_dbg(c, "bits/pixel: %d (%s)", (int)igi->bitsperpixel, bpp_src_name);
 
 	if(bitmapversion==1 || bitmapversion==2) {
 		x = de_getui16be(pos1+10);
@@ -673,7 +673,7 @@ static void do_palm_BitmapType_internal(deark *c, lctx *d, de_int64 pos1, de_int
 		else {
 			de_snprintf(tmps, sizeof(tmps), "%d + 4*%d = %d", (int)pos1, (int)x, (int)(pos1+nextbitmapoffs_in_bytes));
 		}
-		de_dbg(c, "nextDepthOffset: %d (%s)\n", (int)x, tmps);
+		de_dbg(c, "nextDepthOffset: %d (%s)", (int)x, tmps);
 	}
 
 	if(bitmapversion<3) {
@@ -681,19 +681,19 @@ static void do_palm_BitmapType_internal(deark *c, lctx *d, de_int64 pos1, de_int
 	}
 	else {
 		headersize = (de_int64)de_getbyte(pos1+10);
-		de_dbg(c, "header size: %d\n", (int)headersize);
+		de_dbg(c, "header size: %d", (int)headersize);
 	}
 
 	if(bitmapversion==3) {
 		de_byte pixfmt = de_getbyte(pos1+11);
-		de_dbg(c, "pixel format: %d\n", (int)pixfmt);
+		de_dbg(c, "pixel format: %d", (int)pixfmt);
 		// TODO: Do something with this
 	}
 
 	if(bitmapversion==2 && (bitmapflags&PALMBMPFLAG_HASTRNS)) {
 		igi->has_trns = 1;
 		igi->trns_value = (de_uint32)de_getbyte(pos1+12);
-		de_dbg(c, "transparent color: %u\n", (unsigned int)igi->trns_value);
+		de_dbg(c, "transparent color: %u", (unsigned int)igi->trns_value);
 	}
 
 	cmpr_type_src_name = "flags";
@@ -701,7 +701,7 @@ static void do_palm_BitmapType_internal(deark *c, lctx *d, de_int64 pos1, de_int
 		if(bitmapversion>=2) {
 			cmpr_type = (unsigned int)de_getbyte(pos1+13);
 			cmpr_type_src_name = "compression type field";
-			de_dbg(c, "compression type field: 0x%02x\n", cmpr_type);
+			de_dbg(c, "compression type field: 0x%02x", cmpr_type);
 		}
 		else {
 			// V1 & V2 have no cmpr_type field, but can still be compressed.
@@ -712,7 +712,7 @@ static void do_palm_BitmapType_internal(deark *c, lctx *d, de_int64 pos1, de_int
 		cmpr_type = CMPR_NONE;
 	}
 
-	de_dbg(c, "compression type: %s (based on %s)\n", get_cmpr_type_name(cmpr_type), cmpr_type_src_name);
+	de_dbg(c, "compression type: %s (based on %s)", get_cmpr_type_name(cmpr_type), cmpr_type_src_name);
 
 	// TODO: [14] density (V3)
 
@@ -720,7 +720,7 @@ static void do_palm_BitmapType_internal(deark *c, lctx *d, de_int64 pos1, de_int
 		// I'm assuming the flag affects this field. The spec is ambiguous.
 		igi->has_trns = 1;
 		igi->trns_value = (de_uint32)de_getui32be(pos1+16);
-		de_dbg(c, "transparent color: %u\n", (unsigned int)igi->trns_value);
+		de_dbg(c, "transparent color: %u", (unsigned int)igi->trns_value);
 	}
 
 	if(bitmapversion==3 && headersize>=24) {
@@ -735,7 +735,7 @@ static void do_palm_BitmapType_internal(deark *c, lctx *d, de_int64 pos1, de_int
 			de_snprintf(tmps, sizeof(tmps), "%u + %u = %u", (unsigned int)pos1,
 				(unsigned int)nextbitmapoffs_in_bytes, (unsigned int)(pos1+nextbitmapoffs_in_bytes));
 		}
-		de_dbg(c, "nextBitmapOffset: %u (%s)\n", (unsigned int)nextbitmapoffs_in_bytes, tmps);
+		de_dbg(c, "nextBitmapOffset: %u (%s)", (unsigned int)nextbitmapoffs_in_bytes, tmps);
 	}
 
 	// Now that we've read the nextBitmapOffset fields, we can stop processing this
@@ -794,7 +794,7 @@ static void do_palm_BitmapType_internal(deark *c, lctx *d, de_int64 pos1, de_int
 		de_finfo_set_name_from_sz(c, igi->fi, token, DE_ENCODING_UTF8);
 	}
 
-	de_dbg(c, "image data at %d\n", (int)pos);
+	de_dbg(c, "image data at %d", (int)pos);
 	do_generate_image(c, d, c->infile, pos, pos1+len-pos, cmpr_type, igi);
 
 done:
@@ -837,33 +837,33 @@ static void do_imgview_image(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 	igi = de_malloc(c, sizeof(struct img_gen_info));
 	igi->fi = de_finfo_create(c);
 
-	de_dbg(c, "image record at %d\n", (int)pos1);
+	de_dbg(c, "image record at %d", (int)pos1);
 	de_dbg_indent(c, 1);
 
 	iname = ucstring_create(c);
 	dbuf_read_to_ucstring(c->infile, pos, 32, iname, DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_PALM);
-	de_dbg(c, "name: \"%s\"\n", ucstring_get_printable_sz(iname));
+	de_dbg(c, "name: \"%s\"", ucstring_get_printable_sz(iname));
 	if(iname->len>0 && c->filenames_from_file) {
 		de_finfo_set_name_from_ucstring(c, igi->fi, iname);
 	}
 	pos += 32;
 
 	imgver = de_getbyte(pos++);
-	de_dbg(c, "version: 0x%02x\n", (unsigned int)imgver);
+	de_dbg(c, "version: 0x%02x", (unsigned int)imgver);
 	cmpr_meth = (unsigned int)(imgver&0x07);
 	de_dbg_indent(c, 1);
-	de_dbg(c, "compression method: %u\n", cmpr_meth);
+	de_dbg(c, "compression method: %u", cmpr_meth);
 	de_dbg_indent(c, -1);
 
 	imgtype = de_getbyte(pos++);
-	de_dbg(c, "type: 0x%02x\n", (unsigned int)imgtype);
+	de_dbg(c, "type: 0x%02x", (unsigned int)imgtype);
 	de_dbg_indent(c, 1);
 	switch(imgtype) {
 	case 0: igi->bitsperpixel = 2; break;
 	case 2: igi->bitsperpixel = 4; break;
 	default: igi->bitsperpixel = 1;
 	}
-	de_dbg(c, "bits/pixel: %d\n", (int)igi->bitsperpixel);
+	de_dbg(c, "bits/pixel: %d", (int)igi->bitsperpixel);
 	de_dbg_indent(c, -1);
 
 	pos += 4; // reserved
@@ -873,7 +873,7 @@ static void do_imgview_image(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 	pos += 2;
 	x1 = de_getui16be(pos);
 	pos += 2;
-	de_dbg(c, "last: (%d,%d)\n", (int)x0, (int)x1);
+	de_dbg(c, "last: (%d,%d)", (int)x0, (int)x1);
 
 	pos += 4; // reserved
 
@@ -882,13 +882,13 @@ static void do_imgview_image(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 	pos += 2;
 	x1 = de_getui16be(pos);
 	pos += 2;
-	de_dbg(c, "anchor: (%d,%d)\n", (int)x0, (int)x1);
+	de_dbg(c, "anchor: (%d,%d)", (int)x0, (int)x1);
 
 	igi->w = de_getui16be(pos);
 	pos += 2;
 	igi->h = de_getui16be(pos);
 	pos += 2;
-	de_dbg(c, "dimensions: %dx%d\n", (int)igi->w, (int)igi->h);
+	de_dbg(c, "dimensions: %dx%d", (int)igi->w, (int)igi->h);
 	if(!de_good_image_dimensions(c, igi->w, igi->h)) goto done;
 
 	igi->rowbytes = (igi->w*igi->bitsperpixel + 7)/8;
@@ -947,14 +947,14 @@ static int do_read_pdb_record(deark *c, lctx *d, de_int64 rec_idx, de_int64 pos1
 	de_ucstring *attr_descr = NULL;
 	char extfull[80];
 
-	de_dbg(c, "record[%d] at %d\n", (int)rec_idx, (int)pos1);
+	de_dbg(c, "record[%d] at %d", (int)rec_idx, (int)pos1);
 	de_dbg_indent(c, 1);
 
 	data_offs = (int)d->rec_list.rec_data[rec_idx].offset;
-	de_dbg(c, "data pos: %d\n", (int)data_offs);
+	de_dbg(c, "data pos: %d", (int)data_offs);
 
 	data_len = calc_rec_len(c, d, rec_idx);
-	de_dbg(c, "calculated len: %d\n", (int)data_len);
+	de_dbg(c, "calculated len: %d", (int)data_len);
 
 	de_snprintf(extfull, sizeof(extfull), "rec%d.bin", (int)rec_idx); // May be overridden
 
@@ -965,7 +965,7 @@ static int do_read_pdb_record(deark *c, lctx *d, de_int64 rec_idx, de_int64 pos1
 		attribs = de_getbyte(pos1+4);
 		attr_descr = ucstring_create(c);
 		get_rec_attr_descr(attr_descr, attribs);
-		de_dbg(c, "attributes: 0x%02x (%s)\n", (unsigned int)attribs,
+		de_dbg(c, "attributes: 0x%02x (%s)", (unsigned int)attribs,
 			ucstring_get_printable_sz(attr_descr));
 
 		id = (de_getbyte(pos1+5)<<16) |
@@ -982,7 +982,7 @@ static int do_read_pdb_record(deark *c, lctx *d, de_int64 rec_idx, de_int64 pos1
 		else
 			tmpstr[0] = '\0';
 
-		de_dbg(c, "id: %u (0x%06x)%s\n", (unsigned int)id, (unsigned int)id, tmpstr);
+		de_dbg(c, "id: %u (0x%06x)%s", (unsigned int)id, (unsigned int)id, tmpstr);
 
 		if(d->has_nonzero_ids) {
 			de_snprintf(extfull, sizeof(extfull), "%06x.bin", (unsigned int)id);
@@ -1011,7 +1011,7 @@ static void do_string_rsrc(deark *c, lctx *d,
 	s = ucstring_create(c);
 	dbuf_read_to_ucstring_n(c->infile, pos, len, DE_DBG_MAX_STRLEN, s,
 		DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_PALM);
-	de_dbg(c, "%s: \"%s\"\n", rti->descr, ucstring_get_printable_sz(s));
+	de_dbg(c, "%s: \"%s\"", rti->descr, ucstring_get_printable_sz(s));
 
 	if((flags&0x1) & !d->icon_name) {
 		// Also save the string to d->icon_name, to be used later
@@ -1091,26 +1091,26 @@ static int do_read_prc_record(deark *c, lctx *d, de_int64 rec_idx, de_int64 pos1
 	const char *rsrc_type_descr;
 	const struct rsrc_type_info_struct *rti;
 
-	de_dbg(c, "record[%d] at %d\n", (int)rec_idx, (int)pos1);
+	de_dbg(c, "record[%d] at %d", (int)rec_idx, (int)pos1);
 	de_dbg_indent(c, 1);
 
 	dbuf_read_fourcc(c->infile, pos1, &rsrc_type_4cc, 0);
 	rti = get_rsrc_type_info(rsrc_type_4cc.id);
 	if(rti && rti->descr) rsrc_type_descr = rti->descr;
 	else rsrc_type_descr = "?";
-	de_dbg(c, "resource type: '%s' (%s)\n", rsrc_type_4cc.id_printable, rsrc_type_descr);
+	de_dbg(c, "resource type: '%s' (%s)", rsrc_type_4cc.id_printable, rsrc_type_descr);
 
 	ext_ucstring = ucstring_create(c);
 	// The "filename" always starts with the fourcc.
 	ucstring_append_sz(ext_ucstring, rsrc_type_4cc.id_printable, DE_ENCODING_ASCII);
 
 	id = (de_uint32)de_getui16be(pos1+4);
-	de_dbg(c, "id: %d\n", (int)id);
+	de_dbg(c, "id: %d", (int)id);
 
 	data_offs = (de_int64)d->rec_list.rec_data[rec_idx].offset;
-	de_dbg(c, "data pos: %d\n", (int)data_offs);
+	de_dbg(c, "data pos: %d", (int)data_offs);
 	data_len = calc_rec_len(c, d, rec_idx);
-	de_dbg(c, "calculated len: %d\n", (int)data_len);
+	de_dbg(c, "calculated len: %d", (int)data_len);
 
 	switch(rsrc_type_4cc.id) {
 	case CODE_Tbmp:
@@ -1225,28 +1225,28 @@ static int do_read_pdb_prc_records(deark *c, lctx *d, de_int64 pos1)
 	de_int64 x;
 	int retval = 0;
 
-	de_dbg(c, "%s record list at %d\n", d->fmt_shortname, (int)pos1);
+	de_dbg(c, "%s record list at %d", d->fmt_shortname, (int)pos1);
 	de_dbg_indent(c, 1);
 
 	// 6-byte header
 
 	x = de_getui32be(pos1);
-	de_dbg(c, "nextRecordListID: %d\n", (int)x);
+	de_dbg(c, "nextRecordListID: %d", (int)x);
 	if(x!=0) {
 		de_warn(c, "This file contains multiple record lists, which is not supported.\n");
 	}
 
 	d->rec_list.num_recs = de_getui16be(pos1+4);
-	de_dbg(c, "number of records: %d\n", (int)d->rec_list.num_recs);
+	de_dbg(c, "number of records: %d", (int)d->rec_list.num_recs);
 
 	/////
 
 	if(d->file_fmt==FMT_PRC) d->rec_size = 10;
 	else d->rec_size = 8;
 
-	de_dbg(c, "[pre-scanning record list]\n");
+	de_dbg(c, "[pre-scanning record list]");
 	if(!do_prescan_records(c, d, pos1+6)) goto done;
-	de_dbg(c, "[main pass through record list]\n");
+	de_dbg(c, "[main pass through record list]");
 
 	// i is the index in rec_list.order_to_read
 	// n is the index in rec_list.rec_data
@@ -1277,14 +1277,14 @@ static void do_pqa_app_info_block(deark *c, lctx *d, de_int64 pos1, de_int64 len
 
 	sig = (de_uint32)de_getui32be(pos);
 	if(sig!=CODE_lnch) return; // Apparently not a PQA appinfo block
-	de_dbg(c, "PQA sig: 0x%08x\n", (unsigned int)sig);
+	de_dbg(c, "PQA sig: 0x%08x", (unsigned int)sig);
 	pos += 4;
 
 	ux = (de_uint32)de_getui16be(pos);
-	de_dbg(c, "hdrVersion: 0x%04x\n", (unsigned int)ux);
+	de_dbg(c, "hdrVersion: 0x%04x", (unsigned int)ux);
 	pos += 2;
 	ux = (de_uint32)de_getui16be(pos);
-	de_dbg(c, "encVersion: 0x%04x\n", (unsigned int)ux);
+	de_dbg(c, "encVersion: 0x%04x", (unsigned int)ux);
 	pos += 2;
 
 	s = ucstring_create(c);
@@ -1293,7 +1293,7 @@ static void do_pqa_app_info_block(deark *c, lctx *d, de_int64 pos1, de_int64 len
 	pos += 2;
 	dbuf_read_to_ucstring_n(c->infile, pos, ux*2, DE_DBG_MAX_STRLEN, s,
 		DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_PALM);
-	de_dbg(c, "verStr: \"%s\"\n", ucstring_get_printable_sz(s));
+	de_dbg(c, "verStr: \"%s\"", ucstring_get_printable_sz(s));
 	ucstring_empty(s);
 	pos += 2*ux;
 
@@ -1301,11 +1301,11 @@ static void do_pqa_app_info_block(deark *c, lctx *d, de_int64 pos1, de_int64 len
 	pos += 2;
 	dbuf_read_to_ucstring_n(c->infile, pos, ux*2, DE_DBG_MAX_STRLEN, s,
 		DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_PALM);
-	de_dbg(c, "pqaTitle: \"%s\"\n", ucstring_get_printable_sz(s));
+	de_dbg(c, "pqaTitle: \"%s\"", ucstring_get_printable_sz(s));
 	ucstring_empty(s);
 	pos += 2*ux;
 
-	de_dbg(c, "icon\n");
+	de_dbg(c, "icon");
 	de_dbg_indent(c, 1);
 	ux = (de_uint32)de_getui16be(pos); // iconWords (length prefix)
 	pos += 2;
@@ -1313,7 +1313,7 @@ static void do_pqa_app_info_block(deark *c, lctx *d, de_int64 pos1, de_int64 len
 	pos += 2*ux;
 	de_dbg_indent(c, -1);
 
-	de_dbg(c, "smIcon\n");
+	de_dbg(c, "smIcon");
 	de_dbg_indent(c, 1);
 	ux = (de_uint32)de_getui16be(pos); // smIconWords
 	pos += 2;
@@ -1329,7 +1329,7 @@ static void do_app_info_block(deark *c, lctx *d)
 	de_int64 len;
 
 	if(d->appinfo_offs==0) return;
-	de_dbg(c, "app info block at %d\n", (int)d->appinfo_offs);
+	de_dbg(c, "app info block at %d", (int)d->appinfo_offs);
 
 	de_dbg_indent(c, 1);
 	if(d->sortinfo_offs) {
@@ -1341,7 +1341,7 @@ static void do_app_info_block(deark *c, lctx *d)
 	else {
 		len = c->infile->len - d->appinfo_offs;
 	}
-	de_dbg(c, "calculated len: %d\n", (int)len);
+	de_dbg(c, "calculated len: %d", (int)len);
 
 	if(len>0) {
 		// TODO: In many cases, this can be parsed as a format called "standard
@@ -1362,7 +1362,7 @@ static void do_sort_info_block(deark *c, lctx *d)
 	de_int64 len;
 
 	if(d->sortinfo_offs==0) return;
-	de_dbg(c, "sort info block at %d\n", (int)d->sortinfo_offs);
+	de_dbg(c, "sort info block at %d", (int)d->sortinfo_offs);
 
 	de_dbg_indent(c, 1);
 	if(d->rec_list.num_recs>0) {
@@ -1371,7 +1371,7 @@ static void do_sort_info_block(deark *c, lctx *d)
 	else {
 		len = c->infile->len - d->sortinfo_offs;
 	}
-	de_dbg(c, "calculated len: %d\n", (int)len);
+	de_dbg(c, "calculated len: %d", (int)len);
 
 	if(len>0) {
 		extract_item(c, d, d->sortinfo_offs, len, "sortinfo.bin", NULL, DE_CREATEFLAG_IS_AUX, 0);

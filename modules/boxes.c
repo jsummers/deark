@@ -92,7 +92,7 @@ static void do_box_ftyp(deark *c, lctx *d, struct de_boxesctx *bctx)
 	if(bctx->payload_len<4) return;
 	dbuf_read_fourcc(bctx->f, bctx->payload_pos, &brand4cc, 0);
 	d->major_brand = brand4cc.id;
-	de_dbg(c, "major brand: '%s'\n", brand4cc.id_printable);
+	de_dbg(c, "major brand: '%s'", brand4cc.id_printable);
 	apply_brand(c, d, d->major_brand);
 
 	if(bctx->payload_len>=12)
@@ -103,7 +103,7 @@ static void do_box_ftyp(deark *c, lctx *d, struct de_boxesctx *bctx)
 	for(i=0; i<num_compat_brands; i++) {
 		dbuf_read_fourcc(bctx->f, bctx->payload_pos + 8 + i*4, &brand4cc, 0);
 		if(brand4cc.id==0) continue; // Placeholder. Ignore.
-		de_dbg(c, "compatible brand: '%s'\n", brand4cc.id_printable);
+		de_dbg(c, "compatible brand: '%s'", brand4cc.id_printable);
 		apply_brand(c, d, brand4cc.id);
 	}
 }
@@ -119,7 +119,7 @@ static void do_read_version_and_flags(deark *c, lctx *d, struct de_boxesctx *bct
 	version1 = (de_byte)(n>>24);
 	flags1 = n&0x00ffffff;
 	if(dbgflag) {
-		de_dbg(c, "version=%d, flags=0x%06x\n", (int)version1, (unsigned int)flags1);
+		de_dbg(c, "version=%d, flags=0x%06x", (int)version1, (unsigned int)flags1);
 	}
 	if(version) *version = version1;
 	if(flags) *flags = flags1;
@@ -154,7 +154,7 @@ static void do_box_tkhd(deark *c, lctx *d, struct de_boxesctx *bctx)
 
 	n = dbuf_getui32be(bctx->f, pos);
 	pos += 4;
-	de_dbg(c, "track id: %d\n", (int)n);
+	de_dbg(c, "track id: %d", (int)n);
 
 	pos += 4; // reserved
 
@@ -170,7 +170,7 @@ static void do_box_tkhd(deark *c, lctx *d, struct de_boxesctx *bctx)
 
 	n = dbuf_getui16be(bctx->f, pos);
 	pos += 2; // volume
-	de_dbg(c, "volume: %.3f\n", ((double)n)/256.0);
+	de_dbg(c, "volume: %.3f", ((double)n)/256.0);
 
 	pos += 2; // reserved
 	pos += 4*9; // matrix
@@ -179,7 +179,7 @@ static void do_box_tkhd(deark *c, lctx *d, struct de_boxesctx *bctx)
 	pos += 4;
 	h = dbuf_fmtutil_read_fixed_16_16(bctx->f, pos);
 	pos += 4;
-	de_dbg(c, "dimensions: %.1fx%.1f\n", w, h);
+	de_dbg(c, "dimensions: %.1fx%.1f", w, h);
 }
 
 static void do_box_mvhd(deark *c, lctx *d, struct de_boxesctx *bctx)
@@ -212,7 +212,7 @@ static void do_box_mvhd(deark *c, lctx *d, struct de_boxesctx *bctx)
 
 	timescale = dbuf_getui32be(bctx->f, pos);
 	pos += 4;
-	de_dbg(c, "timescale: %d time units per second\n", (int)timescale);
+	de_dbg(c, "timescale: %d time units per second", (int)timescale);
 
 	// duration
 	if(version==1) {
@@ -227,15 +227,15 @@ static void do_box_mvhd(deark *c, lctx *d, struct de_boxesctx *bctx)
 		nd = (double)n / (double)timescale;
 	else
 		nd = 0.0;
-	de_dbg(c, "duration: %d time units (%.2f seconds)\n", (int)n, nd);
+	de_dbg(c, "duration: %d time units (%.2f seconds)", (int)n, nd);
 
 	nd = dbuf_fmtutil_read_fixed_16_16(bctx->f, pos);
 	pos += 4; // rate
-	de_dbg(c, "rate: %.3f\n", nd);
+	de_dbg(c, "rate: %.3f", nd);
 
 	n = dbuf_getui16be(bctx->f, pos);
 	pos += 2; // volume
-	de_dbg(c, "volume: %.3f\n", ((double)n)/256.0);
+	de_dbg(c, "volume: %.3f", ((double)n)/256.0);
 
 	pos += 2; // reserved
 	pos += 4*2; // reserved
@@ -243,7 +243,7 @@ static void do_box_mvhd(deark *c, lctx *d, struct de_boxesctx *bctx)
 	pos += 4*6; // pre_defined
 
 	n = dbuf_getui32be(bctx->f, pos);
-	de_dbg(c, "next track id: %d\n", (int)n);
+	de_dbg(c, "next track id: %d", (int)n);
 }
 
 static void do_box_mdhd(deark *c, lctx *d, struct de_boxesctx *bctx)
@@ -277,7 +277,7 @@ static void do_box_mdhd(deark *c, lctx *d, struct de_boxesctx *bctx)
 
 	timescale = dbuf_getui32be(bctx->f, pos);
 	pos += 4;
-	de_dbg(c, "timescale: %d time units per second\n", (int)timescale);
+	de_dbg(c, "timescale: %d time units per second", (int)timescale);
 
 	// duration
 	if(version==1) {
@@ -292,7 +292,7 @@ static void do_box_mdhd(deark *c, lctx *d, struct de_boxesctx *bctx)
 		nd = (double)n / (double)timescale;
 	else
 		nd = 0.0;
-	de_dbg(c, "duration: %d time units (%.2f seconds)\n", (int)n, nd);
+	de_dbg(c, "duration: %d time units (%.2f seconds)", (int)n, nd);
 }
 
 static void do_box_stsd(deark *c, lctx *d, struct de_boxesctx *bctx)
@@ -312,18 +312,18 @@ static void do_box_stsd(deark *c, lctx *d, struct de_boxesctx *bctx)
 	if(version!=0) return;
 
 	num_entries = dbuf_getui32be(bctx->f, pos);
-	de_dbg(c, "number of sample description entries: %d\n", (int)num_entries);
+	de_dbg(c, "number of sample description entries: %d", (int)num_entries);
 	pos += 4;
 
 	while(1) {
 		if(pos + 16 >= bctx->payload_pos + bctx->payload_len) break;
 		entry_size = dbuf_getui32be(bctx->f, pos);
-		de_dbg(c, "sample description at %d, len=%d\n", (int)pos, (int)entry_size);
+		de_dbg(c, "sample description at %d, len=%d", (int)pos, (int)entry_size);
 		if(entry_size<16) break;
 
 		de_dbg_indent(c, 1);
 		dbuf_read_fourcc(bctx->f, pos+4, &fmt4cc, 0);
-		de_dbg(c, "data format: '%s'\n", fmt4cc.id_printable);
+		de_dbg(c, "data format: '%s'", fmt4cc.id_printable);
 		de_dbg_indent(c, -1);
 
 		pos += entry_size;
@@ -353,7 +353,7 @@ static int my_box_handler(deark *c, struct de_boxesctx *bctx)
 		do_box_ftyp(c, d, bctx);
 		break;
 	case BOX_jp2c: // Contiguous Codestream box
-		de_dbg(c, "JPEG 2000 codestream at %d, len=%d\n", (int)bctx->payload_pos, (int)bctx->payload_len);
+		de_dbg(c, "JPEG 2000 codestream at %d, len=%d", (int)bctx->payload_pos, (int)bctx->payload_len);
 		dbuf_create_file_from_slice(bctx->f, bctx->payload_pos, bctx->payload_len, "j2c", NULL, 0);
 		break;
 	case BOX_mdhd:
@@ -371,7 +371,7 @@ static int my_box_handler(deark *c, struct de_boxesctx *bctx)
 	case BOX_xml:
 		// TODO: Detect the specific XML format, and use it to choose a better
 		// filename.
-		de_dbg(c, "XML data at %d, len=%d\n", (int)bctx->payload_pos, (int)bctx->payload_len);
+		de_dbg(c, "XML data at %d, len=%d", (int)bctx->payload_pos, (int)bctx->payload_len);
 		dbuf_create_file_from_slice(bctx->f, bctx->payload_pos, bctx->payload_len, "xml", NULL, DE_CREATEFLAG_IS_AUX);
 		break;
 	default:

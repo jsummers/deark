@@ -195,7 +195,7 @@ void de_bitmap_write_to_file(struct deark_bitmap *img, const char *token,
 		// isn't very efficient, and wouldn't change anything in most cases.
 		optimg = get_optimized_image(img);
 		if(optimg) {
-			de_dbg3(c, "reducing image depth (%d->%d)\n", img->bytes_per_pixel,
+			de_dbg3(c, "reducing image depth (%d->%d)", img->bytes_per_pixel,
 				optimg->bytes_per_pixel);
 		}
 	}
@@ -652,7 +652,7 @@ void de_optimize_image_alpha(struct deark_bitmap *img, unsigned int flags)
 	}
 
 	// No meaningful transparency found.
-	de_dbg3(img->c, "Removing alpha channel from image\n");
+	de_dbg3(img->c, "Removing alpha channel from image");
 
 	// Note that the format conversion is done in-place. The extra memory used
 	// by the alpha channel is not de-allocated.

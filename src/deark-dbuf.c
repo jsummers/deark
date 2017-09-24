@@ -683,14 +683,14 @@ dbuf *dbuf_create_output_file(deark *c, const char *ext, de_finfo *fi,
 
 	if(c->extract_policy==DE_EXTRACTPOLICY_MAINONLY) {
 		if(createflags&DE_CREATEFLAG_IS_AUX) {
-			de_dbg(c, "skipping 'auxiliary' file\n");
+			de_dbg(c, "skipping 'auxiliary' file");
 			f->btype = DBUF_TYPE_NULL;
 			return f;
 		}
 	}
 	else if(c->extract_policy==DE_EXTRACTPOLICY_AUXONLY) {
 		if(!(createflags&DE_CREATEFLAG_IS_AUX)) {
-			de_dbg(c, "skipping 'main' file\n");
+			de_dbg(c, "skipping 'main' file");
 			f->btype = DBUF_TYPE_NULL;
 			return f;
 		}
@@ -819,7 +819,7 @@ static void membuf_append(dbuf *f, const de_byte *m, de_int64 mlen)
 		new_alloc_size = (f->membuf_alloc + mlen)*2;
 		if(new_alloc_size<1024) new_alloc_size=1024;
 		// TODO: Guard against integer overflows.
-		de_dbg3(f->c, "increasing membuf size %d -> %d\n", (int)f->membuf_alloc, (int)new_alloc_size);
+		de_dbg3(f->c, "increasing membuf size %d -> %d", (int)f->membuf_alloc, (int)new_alloc_size);
 		f->membuf_buf = de_realloc(f->c, f->membuf_buf, f->membuf_alloc, new_alloc_size);
 		f->membuf_alloc = new_alloc_size;
 	}
@@ -841,7 +841,7 @@ void dbuf_write(dbuf *f, const de_byte *m, de_int64 len)
 	else if(f->btype==DBUF_TYPE_OFILE || f->btype==DBUF_TYPE_STDOUT) {
 		if(!f->fp) return;
 		if(f->c->debug_level>=3) {
-			de_dbg3(f->c, "writing %d bytes to %s\n", (int)len, f->name);
+			de_dbg3(f->c, "writing %d bytes to %s", (int)len, f->name);
 		}
 		fwrite(m, 1, (size_t)len, f->fp);
 		f->len += len;
@@ -849,7 +849,7 @@ void dbuf_write(dbuf *f, const de_byte *m, de_int64 len)
 	}
 	else if(f->btype==DBUF_TYPE_MEMBUF) {
 		if(f->c->debug_level>=3 && f->name) {
-			de_dbg3(f->c, "appending %d bytes to membuf %s\n", (int)len, f->name);
+			de_dbg3(f->c, "appending %d bytes to membuf %s", (int)len, f->name);
 		}
 		membuf_append(f, m, len);
 		return;
@@ -1061,13 +1061,13 @@ void dbuf_close(dbuf *f)
 	if(f->btype==DBUF_TYPE_MEMBUF && f->write_memfile_to_zip_archive) {
 		de_zip_add_file_to_archive(c, f);
 		if(f->name) {
-			de_dbg3(c, "closing memfile %s\n", f->name);
+			de_dbg3(c, "closing memfile %s", f->name);
 		}
 	}
 
 	if(f->btype==DBUF_TYPE_IFILE || f->btype==DBUF_TYPE_OFILE) {
 		if(f->name) {
-			de_dbg3(c, "closing file %s\n", f->name);
+			de_dbg3(c, "closing file %s", f->name);
 		}
 		de_fclose(f->fp);
 		f->fp = NULL;
@@ -1086,7 +1086,7 @@ void dbuf_close(dbuf *f)
 	}
 	else if(f->btype==DBUF_TYPE_STDOUT) {
 		if(f->name) {
-			de_dbg3(c, "finished writing %s to stdout\n", f->name);
+			de_dbg3(c, "finished writing %s to stdout", f->name);
 		}
 		f->fp = NULL;
 	}

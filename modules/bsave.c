@@ -224,7 +224,7 @@ static int do_2color(deark *c, lctx *d)
 		img->height = get_height(c, d, 200); // TODO: calculate this?
 	}
 
-	de_dbg(c, "dimensions: %dx%d\n", (int)img->width, (int)img->height);
+	de_dbg(c, "dimensions: %dx%d", (int)img->width, (int)img->height);
 	src_rowspan = (img->width+7)/8;
 
 	for(j=0; j<img->height; j++) {
@@ -300,7 +300,7 @@ static int do_wh16(deark *c, lctx *d)
 	img->height = de_getui16le(pos+2);
 	pos+=4;
 
-	de_dbg(c, "dimensions: %dx%d\n", (int)img->width, (int)img->height);
+	de_dbg(c, "dimensions: %dx%d", (int)img->width, (int)img->height);
 
 	src_rowspan1 = (img->width+7)/8;
 	src_rowspan = src_rowspan1*4;
@@ -437,7 +437,7 @@ static int do_char(deark *c, lctx *d)
 	if(numpages<1) {
 		goto done;
 	}
-	de_dbg(c, "pages: %d\n", (int)numpages);
+	de_dbg(c, "pages: %d", (int)numpages);
 
 	charctx = de_malloc(c, sizeof(struct de_char_context));
 	charctx->nscreens = numpages;
@@ -479,7 +479,7 @@ static int do_read_palette_file(deark *c, lctx *d, const char *palfn)
 	de_int64 i;
 	de_byte buf[3];
 
-	de_dbg(c, "reading palette file %s\n", palfn);
+	de_dbg(c, "reading palette file %s", palfn);
 
 	f = dbuf_open_input_file(c, palfn);
 	if(!f) {
@@ -517,9 +517,9 @@ static void de_run_bsave(deark *c, de_module_params *mparams)
 	d->offset_from_base = de_getui16le(3);
 	d->data_size = de_getui16le(5);
 
-	de_dbg(c, "base_addr: 0x%04x\n", (int)d->base_addr);
-	de_dbg(c, "offset_from_base: 0x%04x\n", (int)d->offset_from_base);
-	de_dbg(c, "data_size: 0x%04x (%d)\n", (int)d->data_size, (int)d->data_size);
+	de_dbg(c, "base_addr: 0x%04x", (int)d->base_addr);
+	de_dbg(c, "offset_from_base: 0x%04x", (int)d->offset_from_base);
+	de_dbg(c, "data_size: 0x%04x (%d)", (int)d->data_size, (int)d->data_size);
 
 	bsavefmt = de_get_ext_option(c, "bsave:fmt");
 	if(!bsavefmt) {

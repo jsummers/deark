@@ -123,11 +123,11 @@ static int detect_bmp_version(deark *c, lctx *d)
 
 static int read_fileheader(deark *c, lctx *d, de_int64 pos)
 {
-	de_dbg(c, "file header at %d\n", (int)pos);
+	de_dbg(c, "file header at %d", (int)pos);
 	de_dbg_indent(c, 1);
-	de_dbg(c, "bfSize: %d\n", (int)d->fsize);
+	de_dbg(c, "bfSize: %d", (int)d->fsize);
 	d->bits_offset = de_getui32le(pos+10);
-	de_dbg(c, "bfOffBits: %d\n", (int)d->bits_offset);
+	de_dbg(c, "bfOffBits: %d", (int)d->bits_offset);
 	de_dbg_indent(c, -1);
 	return 1;
 }
@@ -156,7 +156,7 @@ static void do_read_bitfields(deark *c, lctx *d, de_int64 pos, de_int64 len)
 	if(len>16) len=16;
 	for(k=0; 4*k<len; k++) {
 		d->bitfield[k].mask = (de_uint32)de_getui32le(pos+4*k);
-		de_dbg(c, "mask[%d]: 0x%08x\n", (int)k, (unsigned int)d->bitfield[k].mask);
+		de_dbg(c, "mask[%d]: 0x%08x", (int)k, (unsigned int)d->bitfield[k].mask);
 	}
 	update_bitfields_info(c, d);
 }
@@ -190,9 +190,9 @@ static int read_infoheader(deark *c, lctx *d, de_int64 pos)
 	int cmpr_ok;
 	int retval = 0;
 
-	de_dbg(c, "info header at %d\n", (int)pos);
+	de_dbg(c, "info header at %d", (int)pos);
 	de_dbg_indent(c, 1);
-	de_dbg(c, "info header size: %d\n", (int)d->infohdrsize);
+	de_dbg(c, "info header size: %d", (int)d->infohdrsize);
 
 	if(d->version==DE_BMPVER_OS2V1) {
 		d->width = de_getui16le(pos+4);
@@ -209,16 +209,16 @@ static int read_infoheader(deark *c, lctx *d, de_int64 pos)
 			d->height = height_raw;
 		}
 	}
-	de_dbg(c, "dimensions: %dx%d\n", (int)d->width, (int)d->height);
+	de_dbg(c, "dimensions: %dx%d", (int)d->width, (int)d->height);
 	if(!de_good_image_dimensions(c, d->width, d->height)) {
 		goto done;
 	}
 	if(d->top_down) {
-		de_dbg(c, "orientation: top-down\n");
+		de_dbg(c, "orientation: top-down");
 	}
 
 	// Already read, in detect_bmp_version()
-	de_dbg(c, "bits/pixel: %d\n", (int)d->bitcount);
+	de_dbg(c, "bits/pixel: %d", (int)d->bitcount);
 
 	if(d->bitcount!=0 && d->bitcount!=1 && d->bitcount!=2 && d->bitcount!=4 &&
 		d->bitcount!=8 && d->bitcount!=16 && d->bitcount!=24 && d->bitcount!=32)
@@ -232,7 +232,7 @@ static int read_infoheader(deark *c, lctx *d, de_int64 pos)
 	}
 	else {
 		// Already read, in detect_bmp_version()
-		de_dbg(c, "compression (etc.): %d\n", (int)d->compression_field);
+		de_dbg(c, "compression (etc.): %d", (int)d->compression_field);
 		d->bytes_per_pal_entry = 4;
 	}
 
@@ -312,13 +312,13 @@ static int read_infoheader(deark *c, lctx *d, de_int64 pos)
 
 	if(d->infohdrsize>=24) {
 		d->size_image = de_getui32le(pos+20);
-		de_dbg(c, "biSizeImage: %d\n", (int)d->size_image);
+		de_dbg(c, "biSizeImage: %d", (int)d->size_image);
 	}
 
 	if(d->infohdrsize>=32) {
 		d->xpelspermeter = de_geti32le(pos+24);
 		d->ypelspermeter = de_geti32le(pos+28);
-		de_dbg(c, "density: %dx%d pixels/meter\n", (int)d->xpelspermeter, (int)d->ypelspermeter);
+		de_dbg(c, "density: %dx%d pixels/meter", (int)d->xpelspermeter, (int)d->ypelspermeter);
 	}
 
 	if(d->infohdrsize>=36)
@@ -332,7 +332,7 @@ static int read_infoheader(deark *c, lctx *d, de_int64 pos)
 	else {
 		d->pal_entries = clr_used_raw;
 	}
-	de_dbg(c, "number of palette colors: %d\n", (int)d->pal_entries);
+	de_dbg(c, "number of palette colors: %d", (int)d->pal_entries);
 
 	// Note that after 40 bytes, WINV345 and OS2V2 header fields are different,
 	// so we have to pay more attention to the version.
@@ -347,7 +347,7 @@ static int read_infoheader(deark *c, lctx *d, de_int64 pos)
 
 	if(d->version==DE_BMPVER_WINV345 && d->infohdrsize>=108) {
 		dbuf_read_fourcc(c->infile, pos+56, &d->cstype4cc, 1);
-		de_dbg(c, "CSType: 0x%08x ('%s')\n", (unsigned int)d->cstype4cc.id,
+		de_dbg(c, "CSType: 0x%08x ('%s')", (unsigned int)d->cstype4cc.id,
 			d->cstype4cc.id_printable);
 	}
 
@@ -355,10 +355,10 @@ static int read_infoheader(deark *c, lctx *d, de_int64 pos)
 		(d->cstype4cc.id==CODE_MBED || d->cstype4cc.id==CODE_LINK))
 	{
 		d->profile_offset_raw = de_getui32le(pos+112);
-		de_dbg(c, "profile offset: %d+%d\n", FILEHEADER_SIZE,
+		de_dbg(c, "profile offset: %d+%d", FILEHEADER_SIZE,
 			(int)d->profile_offset_raw);
 		d->profile_size = de_getui32le(pos+116);
-		de_dbg(c, "profile size: %d\n", (int)d->profile_size);
+		de_dbg(c, "profile size: %d", (int)d->profile_size);
 	}
 
 	retval = 1;
@@ -371,20 +371,20 @@ static void do_read_linked_profile(deark *c, lctx *d)
 {
 	de_ucstring *fname = NULL;
 
-	de_dbg(c, "linked profile filename at %d\n", (int)d->profile_offset);
+	de_dbg(c, "linked profile filename at %d", (int)d->profile_offset);
 	fname = ucstring_create(c);
 	dbuf_read_to_ucstring_n(c->infile, d->profile_offset,
 		d->profile_size, DE_DBG_MAX_STRLEN, fname,
 		DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_WINDOWS1252);
 	de_dbg_indent(c, 1);
-	de_dbg(c, "profile filename: \"%s\"\n", ucstring_get_printable_sz(fname));
+	de_dbg(c, "profile filename: \"%s\"", ucstring_get_printable_sz(fname));
 	de_dbg_indent(c, -1);
 	ucstring_destroy(fname);
 }
 
 static void do_read_embedded_profile(deark *c, lctx *d)
 {
-	de_dbg(c, "embedded profile at %d, size=%d\n", (int)d->profile_offset,
+	de_dbg(c, "embedded profile at %d, size=%d", (int)d->profile_offset,
 		(int)d->profile_size);
 	de_dbg_indent(c, 1);
 	dbuf_create_file_from_slice(c->infile, d->profile_offset, d->profile_size, "icc",
@@ -456,7 +456,7 @@ static void do_read_palette(deark *c, lctx *d)
 		}
 	}
 
-	de_dbg(c, "color table at %d, %d entries\n", (int)d->pal_pos, (int)d->pal_entries);
+	de_dbg(c, "color table at %d, %d entries", (int)d->pal_pos, (int)d->pal_entries);
 
 	de_dbg_indent(c, 1);
 	de_read_palette_rgb(c->infile, d->pal_pos, d->pal_entries, d->bytes_per_pal_entry,
@@ -667,7 +667,7 @@ static void extract_embedded_image(deark *c, lctx *d, const char *ext)
 
 static void do_image(deark *c, lctx *d)
 {
-	de_dbg(c, "bitmap at %d\n", (int)d->bits_offset);
+	de_dbg(c, "bitmap at %d", (int)d->bits_offset);
 
 	if(d->bits_offset >= c->infile->len) {
 		de_err(c, "Bad bits-offset field\n");
@@ -734,7 +734,7 @@ static void de_run_bmp(deark *c, de_module_params *mparams)
 	if(!read_infoheader(c, d, pos)) goto done;
 	pos += d->infohdrsize;
 	if(d->bitfields_type==BF_SEGMENT) {
-		de_dbg(c, "bitfields segment at %d, len=%d\n", (int)pos, (int)d->bitfields_segment_len);
+		de_dbg(c, "bitfields segment at %d, len=%d", (int)pos, (int)d->bitfields_segment_len);
 		if(pos+d->bitfields_segment_len > d->bits_offset) {
 			de_warn(c, "BITFIELDS segment at %d (size %d) overlaps bitmap at %d\n",
 				(int)pos, (int)d->bitfields_segment_len, (int)d->bits_offset);
@@ -820,10 +820,10 @@ static void de_run_dib(deark *c, de_module_params *mparams)
 
 	outf = dbuf_create_output_file(c, "bmp", NULL, createflags);
 
-	de_dbg(c, "writing a BMP FILEHEADER\n");
+	de_dbg(c, "writing a BMP FILEHEADER");
 	de_fmtutil_generate_bmpfileheader(c, outf, &bi, 14+c->infile->len);
 
-	de_dbg(c, "copying DIB file\n");
+	de_dbg(c, "copying DIB file");
 	dbuf_copy(c->infile, 0, c->infile->len, outf);
 
 done:

@@ -29,13 +29,13 @@ static int do_read_header(deark *c, lctx *d, de_int64 pos1)
 {
 	de_int64 pos = pos1;
 
-	de_dbg(c, "header at %d\n", (int)pos);
+	de_dbg(c, "header at %d", (int)pos);
 	de_dbg_indent(c, 1);
 
 	pos += 4; // FileId
 
 	d->start_of_data = de_getui32le(pos);
-	de_dbg(c, "start of data: %u\n", (unsigned int)d->start_of_data);
+	de_dbg(c, "start of data: %u", (unsigned int)d->start_of_data);
 	pos += 4;
 
 	pos++; // ProductType
@@ -43,7 +43,7 @@ static int do_read_header(deark *c, lctx *d, de_int64 pos1)
 
 	d->ver_major = de_getbyte(pos++);
 	d->ver_minor = de_getbyte(pos++);
-	de_dbg(c, "version: %d.%d\n", (int)d->ver_major, (int)d->ver_minor);
+	de_dbg(c, "version: %d.%d", (int)d->ver_major, (int)d->ver_minor);
 
 	de_dbg_indent(c, -1);
 	return 1;
@@ -154,11 +154,11 @@ static void get_final_palette(deark *c, lctx *d, de_uint32 *finalpal, de_int64 b
 	}
 
 	if(d->opt_fixpal && bpp==4 && !has_3plusbitpal && has_nonblack_color) {
-		de_dbg(c, "Palette seems to have 2 bits of precision. Rescaling palette.\n");
+		de_dbg(c, "Palette seems to have 2 bits of precision. Rescaling palette.");
 		fixpal2_flag = 1;
 	}
 	else if(d->opt_fixpal && bpp==4 && !has_5plusbitpal && has_nonblack_color) {
-		de_dbg(c, "Palette seems to have 4 bits of precision. Rescaling palette.\n");
+		de_dbg(c, "Palette seems to have 4 bits of precision. Rescaling palette.");
 		fixpal4_flag = 1;
 	}
 
@@ -220,17 +220,17 @@ static void handler_bitmap(deark *c, lctx *d, de_byte rectype, de_int64 dpos1, d
 	pos += 2;
 	h = de_getui16le(pos);
 	pos += 2;
-	de_dbg(c, "dimensions: %dx%d\n", (int)w, (int)h);
+	de_dbg(c, "dimensions: %dx%d", (int)w, (int)h);
 
 	bpp = de_getui16le(pos);
-	de_dbg(c, "bits/pixel: %d\n", (int)bpp);
+	de_dbg(c, "bits/pixel: %d", (int)bpp);
 	pos += 2;
 
 	xdens = de_getui16le(pos);
 	pos += 2;
 	ydens = de_getui16le(pos);
 	pos += 2;
-	de_dbg(c, "density: %dx%d dpi\n", (int)xdens, (int)ydens);
+	de_dbg(c, "density: %dx%d dpi", (int)xdens, (int)ydens);
 
 	if(d->bitmap_count==1) {
 		d->bpp_of_first_bitmap = bpp;
@@ -305,11 +305,11 @@ static void handler_colormap(deark *c, lctx *d, de_byte rectype, de_int64 dpos1,
 
 	d->has_pal = 1;
 	start_index = de_getui16le(pos);
-	de_dbg(c, "start index: %d\n", (int)start_index);
+	de_dbg(c, "start index: %d", (int)start_index);
 	pos += 2;
 
 	num_entries = de_getui16le(pos);
-	de_dbg(c, "num entries: %d\n", (int)num_entries);
+	de_dbg(c, "num entries: %d", (int)num_entries);
 	pos += 2;
 
 	if(start_index+num_entries>256) num_entries = 256 - start_index;
@@ -393,7 +393,7 @@ static int do_record(deark *c, lctx *d, de_int64 pos1, de_int64 *bytes_consumed)
 	wri = find_wpg_rectype_info(rectype);
 	if(wri) name = wri->name;
 	else name="?";
-	de_dbg(c, "record type 0x%02x (%s) at %d\n", (unsigned int)rectype, name, (int)pos1);
+	de_dbg(c, "record type 0x%02x (%s) at %d", (unsigned int)rectype, name, (int)pos1);
 	de_dbg_indent(c, 1);
 
 	rec_dlen = (de_int64)de_getbyte(pos++);
@@ -422,7 +422,7 @@ static int do_record(deark *c, lctx *d, de_int64 pos1, de_int64 *bytes_consumed)
 		}
 	}
 
-	de_dbg(c, "rec dpos=%d, dlen=[%d]%d\n", (int)pos, (int)(pos-(pos1+1)), (int)rec_dlen);
+	de_dbg(c, "rec dpos=%d, dlen=[%d]%d", (int)pos, (int)(pos-(pos1+1)), (int)rec_dlen);
 
 	if(wri && wri->fn) {
 		wri->fn(c, d, rectype, pos, rec_dlen);
@@ -437,7 +437,7 @@ static int do_record(deark *c, lctx *d, de_int64 pos1, de_int64 *bytes_consumed)
 
 static int do_record_area(deark *c, lctx *d, de_int64 pos)
 {
-	de_dbg(c, "record area at %d\n", (int)pos);
+	de_dbg(c, "record area at %d", (int)pos);
 	de_dbg_indent(c, 1);
 	while(1) {
 		de_int64 bytes_consumed = 0;
@@ -488,7 +488,7 @@ static void de_run_wpg(deark *c, de_module_params *mparams)
 
 	// This debug line is mainly to help find interesting WPG files.
 	de_dbg(c, "summary: ver=%d.%d dataver=%d pal=%d bitmaps=%d "
-		"bitmapver=%d bpp=%d dimensions=%dx%d\n",
+		"bitmapver=%d bpp=%d dimensions=%dx%d",
 		(int)d->ver_major, (int)d->ver_minor, d->start_wpg_data_record_ver,
 		(int)d->num_pal_entries,
 		(int)d->bitmap_count, d->bitmap_record_ver,

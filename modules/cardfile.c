@@ -42,12 +42,12 @@ static void do_card_index(deark *c, lctx *d, de_int64 cardnum, de_int64 pos)
 	de_dbg_indent_save(c, &saved_indent_level);
 
 	datapos = de_getui32le(pos+6);
-	de_dbg(c, "card #%d at %d, dpos=%d\n", (int)cardnum, (int)pos, (int)datapos);
+	de_dbg(c, "card #%d at %d, dpos=%d", (int)cardnum, (int)pos, (int)datapos);
 	de_dbg_indent(c, 1);
 
 	if(datapos>=c->infile->len) goto done;
 	bitmap_len = de_getui16le(datapos);
-	de_dbg(c, "bitmap length: %d\n", (int)bitmap_len);
+	de_dbg(c, "bitmap length: %d", (int)bitmap_len);
 
 	if(bitmap_len==0) {
 		text_len = de_getui16le(datapos+2);
@@ -57,7 +57,7 @@ static void do_card_index(deark *c, lctx *d, de_int64 cardnum, de_int64 pos)
 		text_len = de_getui16le(datapos + bitmap_len + 10);
 		text_pos = datapos + bitmap_len + 10;
 	}
-	de_dbg(c, "text length: %d\n", (int)text_len);
+	de_dbg(c, "text length: %d", (int)text_len);
 
 	if(bitmap_len==0 && text_len==0) {
 		cardtype = "empty";
@@ -71,7 +71,7 @@ static void do_card_index(deark *c, lctx *d, de_int64 cardnum, de_int64 pos)
 	else {
 		cardtype = "graphics+text";
 	}
-	de_dbg(c, "card type: %s\n", cardtype);
+	de_dbg(c, "card type: %s", cardtype);
 
 	if(bitmap_len==0 && text_len==0) {
 		goto done;
@@ -79,7 +79,7 @@ static void do_card_index(deark *c, lctx *d, de_int64 cardnum, de_int64 pos)
 
 	name = ucstring_create(c);
 	dbuf_read_to_ucstring(c->infile, pos+11, 40, name, DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_ASCII);
-	de_dbg(c, "name: \"%s\"\n", ucstring_get_printable_sz(name));
+	de_dbg(c, "name: \"%s\"", ucstring_get_printable_sz(name));
 
 	// Text
 
@@ -101,7 +101,7 @@ static void do_card_index(deark *c, lctx *d, de_int64 cardnum, de_int64 pos)
 
 	w = de_getui16le(datapos+2);
 	h = de_getui16le(datapos+4);
-	de_dbg(c, "bitmap dimensions: %dx%d\n", (int)w, (int)h);
+	de_dbg(c, "bitmap dimensions: %dx%d", (int)w, (int)h);
 
 	img = de_bitmap_create(c, w, h, 1);
 	src_rowspan = ((w+15)/16)*2;
@@ -139,7 +139,7 @@ static void de_run_cardfile(deark *c, de_module_params *mparams)
 	pos+=3;
 
 	d->numcards = de_getui16le(pos);
-	de_dbg(c, "number of cards: %d\n", (int)d->numcards);
+	de_dbg(c, "number of cards: %d", (int)d->numcards);
 	pos+=2;
 
 	for(n=0; n<d->numcards; n++) {

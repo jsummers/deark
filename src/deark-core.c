@@ -165,15 +165,15 @@ void de_run(deark *c)
 	}
 
 	if(c->slice_size_req_valid) {
-		de_dbg(c, "Input file: %s[%d,%d]\n", ucstring_get_printable_sz_d(friendly_infn),
+		de_dbg(c, "Input file: %s[%d,%d]", ucstring_get_printable_sz_d(friendly_infn),
 			(int)c->slice_start_req, (int)c->slice_size_req);
 	}
 	else if(c->slice_start_req) {
-		de_dbg(c, "Input file: %s[%d]\n", ucstring_get_printable_sz_d(friendly_infn),
+		de_dbg(c, "Input file: %s[%d]", ucstring_get_printable_sz_d(friendly_infn),
 			(int)c->slice_start_req);
 	}
 	else {
-		de_dbg(c, "Input file: %s\n", ucstring_get_printable_sz_d(friendly_infn));
+		de_dbg(c, "Input file: %s", ucstring_get_printable_sz_d(friendly_infn));
 	}
 
 	if(c->input_style==DE_INPUTSTYLE_STDIN) {
@@ -234,7 +234,7 @@ void de_run(deark *c)
 			"not work properly. Caveat emptor.\n",
 			module_to_use->id);
 	}
-	de_dbg2(c, "file size: %" INT64_FMT "\n", c->infile->len);
+	de_dbg2(c, "file size: %" INT64_FMT "", c->infile->len);
 
 	if(!de_run_module(c, module_to_use, NULL)) {
 		goto done;

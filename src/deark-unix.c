@@ -156,7 +156,7 @@ void de_update_file_perms(dbuf *f)
 	}
 
 	if(newmode != oldmode) {
-		de_dbg2(f->c, "changing file mode from %03o to %03o\n",
+		de_dbg2(f->c, "changing file mode from %03o to %03o",
 			(unsigned int)oldmode, (unsigned int)newmode);
 		chmod(f->name, newmode);
 	}

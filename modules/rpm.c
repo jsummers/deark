@@ -35,12 +35,12 @@ static int do_lead_section(deark *c, lctx *d)
 {
 	int retval = 0;
 
-	de_dbg(c, "lead section at %d\n", 0);
+	de_dbg(c, "lead section at %d", 0);
 	de_dbg_indent(c, 1);
 
 	d->ver_major = de_getbyte(4);
 	d->ver_minor = de_getbyte(5);
-	de_dbg(c, "RPM format version: %d.%d\n", (int)d->ver_major, (int)d->ver_minor);
+	de_dbg(c, "RPM format version: %d.%d", (int)d->ver_major, (int)d->ver_minor);
 	if(d->ver_major < 3) {
 		de_err(c, "Unsupported RPM version (%d.%d)\n", (int)d->ver_major, (int)d->ver_minor);
 		goto done;
@@ -56,7 +56,7 @@ static void read_compression_type(deark *c, lctx *d, de_int64 pos)
 {
 	de_byte buf[16];
 
-	de_dbg(c, "compression type at %d\n", (int)pos);
+	de_dbg(c, "compression type at %d", (int)pos);
 
 	de_read(buf, pos, sizeof(buf));
 
@@ -85,7 +85,7 @@ static int do_header_structure(deark *c, lctx *d, int is_sig, de_int64 pos1,
 
 	hdrname = is_sig?"sig":"hdr";
 	pos = pos1;
-	de_dbg(c, "%s section at %d\n", hdrname, (int)pos1);
+	de_dbg(c, "%s section at %d", hdrname, (int)pos1);
 	de_dbg_indent(c, 1);
 
 	de_read(buf, pos, 4);
@@ -102,7 +102,7 @@ static int do_header_structure(deark *c, lctx *d, int is_sig, de_int64 pos1,
 
 	indexcount = de_getui32be(pos);
 	storesize = de_getui32be(pos+4);
-	de_dbg(c, "%s: pos=%d indexcount=%d storesize=%d\n", hdrname,
+	de_dbg(c, "%s: pos=%d indexcount=%d storesize=%d", hdrname,
 		(int)pos, (int)indexcount, (int)storesize);
 	pos += 8;
 
@@ -110,7 +110,7 @@ static int do_header_structure(deark *c, lctx *d, int is_sig, de_int64 pos1,
 
 	data_store_pos = pos + 16*indexcount;
 
-	de_dbg(c, "%s: tag table at %d\n", hdrname, (int)pos);
+	de_dbg(c, "%s: tag table at %d", hdrname, (int)pos);
 	de_dbg_indent(c, 1);
 
 	for(i=0; i<indexcount; i++) {
@@ -119,7 +119,7 @@ static int do_header_structure(deark *c, lctx *d, int is_sig, de_int64 pos1,
 		tag_offset = de_getui32be(pos+8);
 		tag_count = de_getui32be(pos+12);
 
-		de_dbg2(c, "tag #%d type=%d offset=%d count=%d\n", (int)tag_id,
+		de_dbg2(c, "tag #%d type=%d offset=%d count=%d", (int)tag_id,
 			(int)tag_type, (int)tag_offset, (int)tag_count);
 
 
@@ -131,7 +131,7 @@ static int do_header_structure(deark *c, lctx *d, int is_sig, de_int64 pos1,
 				d->name_srd = dbuf_read_string(c->infile, data_store_pos+tag_offset,
 					DE_DBG_MAX_STRLEN, DE_DBG_MAX_STRLEN,
 					DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_ASCII);
-				de_dbg(c, "name: \"%s\"\n", ucstring_get_printable_sz(d->name_srd->str));
+				de_dbg(c, "name: \"%s\"", ucstring_get_printable_sz(d->name_srd->str));
 			}
 		}
 		else if(is_sig==0 && tag_id==DE_RPMTAG_VERSION && tag_type==DE_RPM_STRING_TYPE) {
@@ -139,7 +139,7 @@ static int do_header_structure(deark *c, lctx *d, int is_sig, de_int64 pos1,
 				d->version_srd = dbuf_read_string(c->infile, data_store_pos+tag_offset,
 					DE_DBG_MAX_STRLEN, DE_DBG_MAX_STRLEN,
 					DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_ASCII);
-				de_dbg(c, "version: \"%s\"\n", ucstring_get_printable_sz(d->version_srd->str));
+				de_dbg(c, "version: \"%s\"", ucstring_get_printable_sz(d->version_srd->str));
 			}
 		}
 		else if(is_sig==0 && tag_id==DE_RPMTAG_RELEASE && tag_type==DE_RPM_STRING_TYPE) {
@@ -147,7 +147,7 @@ static int do_header_structure(deark *c, lctx *d, int is_sig, de_int64 pos1,
 				d->release_srd = dbuf_read_string(c->infile, data_store_pos+tag_offset,
 					DE_DBG_MAX_STRLEN, DE_DBG_MAX_STRLEN,
 					DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_ASCII);
-				de_dbg(c, "release: \"%s\"\n", ucstring_get_printable_sz(d->release_srd->str));
+				de_dbg(c, "release: \"%s\"", ucstring_get_printable_sz(d->release_srd->str));
 			}
 		}
 
@@ -157,7 +157,7 @@ static int do_header_structure(deark *c, lctx *d, int is_sig, de_int64 pos1,
 	de_dbg_indent(c, -1);
 
 	pos = data_store_pos;
-	de_dbg(c, "%s: data store at %d\n", hdrname, (int)pos);
+	de_dbg(c, "%s: data store at %d", hdrname, (int)pos);
 	pos += storesize;
 
 	*section_size = pos - pos1;
@@ -200,7 +200,7 @@ static void de_run_rpm(deark *c, de_module_params *mparams)
 	}
 	pos += section_size;
 
-	de_dbg(c, "data pos: %d\n", (int)pos);
+	de_dbg(c, "data pos: %d", (int)pos);
 	if(pos > c->infile->len) goto done;
 
 	// There is usually a tag that indicates the compression format, but we

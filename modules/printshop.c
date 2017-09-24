@@ -54,7 +54,7 @@ static void do_printshop_etc_image(deark *c, lctx *d, de_int64 imgnum,
 		if(pos+imgspan > c->infile->len) goto done; // Reached end of file
 	}
 
-	de_dbg(c, "image[%d] at %d, %dx%d\n", (int)imgnum, (int)pos, (int)width, (int)height);
+	de_dbg(c, "image[%d] at %d, %dx%d", (int)imgnum, (int)pos, (int)width, (int)height);
 	de_dbg_indent(c, 1);
 
 	fi = de_finfo_create(c);
@@ -63,7 +63,7 @@ static void do_printshop_etc_image(deark *c, lctx *d, de_int64 imgnum,
 		de_ucstring *name = NULL;
 		name = ucstring_create(c);
 		dbuf_read_to_ucstring(d->namefile, imgnum*16, 16, name, DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_ASCII);
-		de_dbg(c, "name: \"%s\"\n", ucstring_get_printable_sz(name));
+		de_dbg(c, "name: \"%s\"", ucstring_get_printable_sz(name));
 		de_finfo_set_name_from_ucstring(c, fi, name);
 		ucstring_destroy(name);
 	}
@@ -93,7 +93,7 @@ static void do_printshop_etc(deark *c, lctx *d)
 		d->namefile = dbuf_open_input_file(c, namefile_fn);
 	}
 	if(d->namefile) {
-		de_dbg(c, "Using name file: %s\n", namefile_fn);
+		de_dbg(c, "Using name file: %s", namefile_fn);
 	}
 
 	if(d->fmt == PRINTSHOP_FMT_POG) {

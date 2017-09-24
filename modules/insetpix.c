@@ -44,11 +44,11 @@ static int do_palette(deark *c, lctx *d, de_int64 pos, de_int64 len)
 	double max_color_sample;
 	double pal_sample_scalefactor[4];
 
-	de_dbg(c, "palette at %d\n", (int)pos);
+	de_dbg(c, "palette at %d", (int)pos);
 	de_dbg_indent(c, 1);
 
 	pal_entries_in_file = len/4;
-	de_dbg(c, "number of palette colors: %d\n", (int)pal_entries_in_file);
+	de_dbg(c, "number of palette colors: %d", (int)pal_entries_in_file);
 
 	d->pal_entries_used = d->max_sample_value+1;
 	if(d->pal_entries_used > pal_entries_in_file) d->pal_entries_used = pal_entries_in_file;
@@ -118,7 +118,7 @@ static int do_image_info(deark *c, lctx *d, de_int64 pos, de_int64 len)
 {
 	int retval = 0;
 
-	de_dbg(c, "image information at %d\n", (int)pos);
+	de_dbg(c, "image information at %d", (int)pos);
 	de_dbg_indent(c, 1);
 	if(len<32) {
 		de_err(c, "Image Information item too small\n");
@@ -126,35 +126,35 @@ static int do_image_info(deark *c, lctx *d, de_int64 pos, de_int64 len)
 	}
 
 	d->hmode = de_getbyte(pos);
-	de_dbg(c, "hardware mode: %d\n", (int)d->hmode);
+	de_dbg(c, "hardware mode: %d", (int)d->hmode);
 
 	d->htype = de_getbyte(pos+1);
 	d->graphics_type = d->htype & 0x01;
 	d->board_type = d->htype & 0xfe;
 
-	de_dbg(c, "graphics type: %d (%s)\n", (int)d->graphics_type,
+	de_dbg(c, "graphics type: %d (%s)", (int)d->graphics_type,
 		d->graphics_type?"bitmap":"character");
-	de_dbg(c, "board type: %d\n", (int)d->board_type);
+	de_dbg(c, "board type: %d", (int)d->board_type);
 
 	d->width = de_getui16le(pos+18);
 	d->height = de_getui16le(pos+20);
-	de_dbg(c, "dimensions: %dx%d\n", (int)d->width, (int)d->height);
+	de_dbg(c, "dimensions: %dx%d", (int)d->width, (int)d->height);
 
 	d->gfore = (de_int64)de_getbyte(pos+22);
-	de_dbg(c, "foreground color bits: %d\n", (int)d->gfore);
+	de_dbg(c, "foreground color bits: %d", (int)d->gfore);
 	d->max_sample_value = (de_int64)(1 << (unsigned int)d->gfore) -1;
 
 	d->num_pal_bits[0] = (de_int64)de_getbyte(pos+25);
 	d->num_pal_bits[1] = (de_int64)de_getbyte(pos+26);
 	d->num_pal_bits[2] = (de_int64)de_getbyte(pos+27);
 	d->num_pal_bits[3] = (de_int64)de_getbyte(pos+28);
-	de_dbg(c, "\"number of palette bits\" (IRGB): %d,%d,%d,%d\n",
+	de_dbg(c, "\"number of palette bits\" (IRGB): %d,%d,%d,%d",
 		(int)d->num_pal_bits[0], (int)d->num_pal_bits[1],
 		(int)d->num_pal_bits[2], (int)d->num_pal_bits[3] );
 
 	d->haspect = de_getbyte(pos+30);
 	d->vaspect = de_getbyte(pos+31);
-	de_dbg(c, "aspect ratio: %dx%d\n", (int)d->haspect, (int)d->vaspect);
+	de_dbg(c, "aspect ratio: %dx%d", (int)d->haspect, (int)d->vaspect);
 
 	retval = 1;
 done:
@@ -166,7 +166,7 @@ static int do_tileinfo(deark *c, lctx *d, de_int64 pos, de_int64 len)
 {
 	int retval = 0;
 
-	de_dbg(c, "tile information at %d\n", (int)pos);
+	de_dbg(c, "tile information at %d", (int)pos);
 	de_dbg_indent(c, 1);
 	if(len<8) {
 		de_err(c, "Tile Information item too small\n");
@@ -178,8 +178,8 @@ static int do_tileinfo(deark *c, lctx *d, de_int64 pos, de_int64 len)
 	d->stp_rows = de_getui16le(pos+4);
 	d->stp_cols = de_getui16le(pos+6);
 
-	de_dbg(c, "page_rows=%d, page_cols=%d\n", (int)d->page_rows, (int)d->page_cols);
-	de_dbg(c, "strip_rows=%d, strip_cols=%d\n", (int)d->stp_rows, (int)d->stp_cols);
+	de_dbg(c, "page_rows=%d, page_cols=%d", (int)d->page_rows, (int)d->page_cols);
+	de_dbg(c, "strip_rows=%d, strip_cols=%d", (int)d->stp_rows, (int)d->stp_cols);
 
 	if(d->page_cols%8 != 0) {
 		de_err(c, "page_cols must be a multiple of 8 (is %d)\n", (int)d->page_cols);
@@ -292,7 +292,7 @@ static void do_render_tile(deark *c, lctx *d, struct deark_bitmap *img,
 	if(nrows_expected > d->page_rows) nrows_expected = d->page_rows;
 	planespan = nrows_expected * d->rowspan;
 
-	de_dbg(c, "tile (%d,%d), pixel position (%d,%d), size %dx%d\n",
+	de_dbg(c, "tile (%d,%d), pixel position (%d,%d), size %dx%d",
 		(int)x_pos_in_tiles, (int)y_pos_in_tiles,
 		(int)x_origin_in_pixels, (int)y_origin_in_pixels,
 		(int)d->page_cols, (int)nrows_expected);
@@ -335,7 +335,7 @@ static void do_bitmap(deark *c, lctx *d)
 	de_int64 tile_num;
 	struct deark_bitmap *img = NULL;
 
-	de_dbg(c, "reading image data\n");
+	de_dbg(c, "reading image data");
 	de_dbg_indent(c, 1);
 
 	if(!de_good_image_dimensions(c, d->width, d->height)) goto done;
@@ -357,7 +357,7 @@ static void do_bitmap(deark *c, lctx *d)
 		tile_loc = de_getui32le(pos+4);
 
 		tile_num = item_id-0x8000;
-		de_dbg(c, "item #%d: tile #%d: loc=%d, len=%d\n", (int)item, (int)tile_num,
+		de_dbg(c, "item #%d: tile #%d: loc=%d, len=%d", (int)item, (int)tile_num,
 			(int)tile_loc, (int)tile_len);
 
 		do_render_tile(c, d, img, tile_num, tile_loc, tile_len);
@@ -389,8 +389,8 @@ static void de_run_insetpix(deark *c, de_module_params *mparams)
 
 	pix_version = de_getui16le(0);
 	d->item_count = de_getui16le(2);
-	de_dbg(c, "version: %d\n", (int)pix_version);
-	de_dbg(c, "index at 4, %d items\n", (int)d->item_count);
+	de_dbg(c, "version: %d", (int)pix_version);
+	de_dbg(c, "index at 4, %d items", (int)d->item_count);
 
 	// Scan the index, and record the location of items we care about.
 	// (The index will be read again when converting the image bitmap.)
@@ -405,7 +405,7 @@ static void de_run_insetpix(deark *c, de_module_params *mparams)
 
 		item_len = de_getui16le(pos+2);
 		item_loc = de_getui32le(pos+4);
-		de_dbg(c, "item #%d: id=%d, loc=%d, len=%d\n", (int)item,
+		de_dbg(c, "item #%d: id=%d, loc=%d, len=%d", (int)item,
 			(int)item_id, (int)item_loc, (int)item_len);
 
 		if(item_loc + item_len > c->infile->len) {
@@ -433,7 +433,7 @@ static void de_run_insetpix(deark *c, de_module_params *mparams)
 		case 0xffff: // Empty item
 			break;
 		default:
-			de_dbg(c, "unknown item type %d\n", (int)item_id);
+			de_dbg(c, "unknown item type %d", (int)item_id);
 		}
 	}
 	de_dbg_indent(c, -1);

@@ -19,7 +19,7 @@ static void handle_embedded_file(deark *c, lctx *d, de_int64 offset, de_int64 le
 	int extract_this_file;
 	int is_pic;
 
-	de_dbg(c, "embedded file at %d, len=%d\n", (int)offset, (int)len);
+	de_dbg(c, "embedded file at %d, len=%d", (int)offset, (int)len);
 	is_pic = 0;
 	ext = "bin";
 	extract_this_file = 0;
@@ -54,7 +54,7 @@ static void handle_embedded_file(deark *c, lctx *d, de_int64 offset, de_int64 le
 		}
 	}
 	else {
-		de_dbg(c, "(not extracting this file)\n");
+		de_dbg(c, "(not extracting this file)");
 	}
 }
 
@@ -69,7 +69,7 @@ static void do_opo_opa(deark *c, lctx *d)
 
 	// The second header marks the end of the embedded files section, I guess.
 	offset_2ndheader = de_getui16le(18);
-	de_dbg(c, "offset of second header: %d\n", (int)offset_2ndheader);
+	de_dbg(c, "offset of second header: %d", (int)offset_2ndheader);
 	pos = 20;
 
 	// Read length of source filename

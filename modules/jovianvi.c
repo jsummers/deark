@@ -29,7 +29,7 @@ static void do_read_palette(deark *c, lctx *d)
 	de_byte b1[3];
 	de_byte b2[3];
 
-	de_dbg(c, "palette at %d\n", (int)d->palpos);
+	de_dbg(c, "palette at %d", (int)d->palpos);
 	de_dbg_indent(c, 1);
 
 	for(k=0; k<d->num_pal_colors; k++) {
@@ -124,7 +124,7 @@ static void de_run_jovianvi(deark *c, de_module_params *mparams)
 	d = de_malloc(c, sizeof(lctx));
 
 	d->imgtype = de_getbyte(2);
-	de_dbg(c, "image type: 0x%02x\n", (unsigned int)d->imgtype);
+	de_dbg(c, "image type: 0x%02x", (unsigned int)d->imgtype);
 
 	switch(d->imgtype) {
 	case 0x10:
@@ -172,7 +172,7 @@ static void de_run_jovianvi(deark *c, de_module_params *mparams)
 	if(is_grayscale) imgtypename="grayscale";
 	else if(has_palette) imgtypename="palette color";
 	else imgtypename="RGB";
-	de_dbg(c, "%d bits/pixel, %s\n", (int)d->bitdepth, imgtypename);
+	de_dbg(c, "%d bits/pixel, %s", (int)d->bitdepth, imgtypename);
 	de_dbg_indent(c, -1);
 	if(is_grayscale && (d->bitdepth!=1 && d->bitdepth!=4 && d->bitdepth!=6 && d->bitdepth!=8)) {
 		de_err(c, "This type of VI image is not supported\n");
@@ -181,20 +181,20 @@ static void de_run_jovianvi(deark *c, de_module_params *mparams)
 
 	d->w = de_getui16le(3);
 	d->h = de_getui16le(5);
-	de_dbg(c, "dimensions: %dx%d\n", (int)d->w, (int)d->h);
+	de_dbg(c, "dimensions: %dx%d", (int)d->w, (int)d->h);
 	if(!de_good_image_dimensions(c, d->w, d->h)) goto done;
 
 
 	if(has_palette) {
 		d->pal_code = de_getbyte(9);
-		de_dbg(c, "palette code: 0x%02x\n", (unsigned int)d->pal_code);
+		de_dbg(c, "palette code: 0x%02x", (unsigned int)d->pal_code);
 
 		d->pal_first_entry_idx = (de_int64)de_getbyte(10);
 		d->num_pal_colors =  (de_int64)de_getbyte(11);
 		if(d->num_pal_colors==0)
 			d->num_pal_colors = 256;
-		de_dbg(c, "index of first palette color: %d\n", (int)d->pal_first_entry_idx);
-		de_dbg(c, "number of palette colors: %d\n", (int)d->num_pal_colors);
+		de_dbg(c, "index of first palette color: %d", (int)d->pal_first_entry_idx);
+		de_dbg(c, "number of palette colors: %d", (int)d->num_pal_colors);
 	}
 
 	d->palpos = de_getui16le(12);
@@ -206,7 +206,7 @@ static void de_run_jovianvi(deark *c, de_module_params *mparams)
 	}
 
 	// Convert the image
-	de_dbg(c, "bitmap at %d\n", (int)d->bitspos);
+	de_dbg(c, "bitmap at %d", (int)d->bitspos);
 	d->rowspan = (d->w*d->bits_alloc + 7)/8;
 	img = de_bitmap_create(c, d->w, d->h, is_grayscale?1:3);
 	if(has_palette) {

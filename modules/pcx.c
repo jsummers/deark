@@ -43,7 +43,7 @@ static int do_read_header(deark *c, lctx *d)
 	de_int64 hres, vres;
 	const char *imgtypename = "";
 
-	de_dbg(c, "header at %d\n", 0);
+	de_dbg(c, "header at %d", 0);
 	de_dbg_indent(c, 1);
 
 	d->version = de_getbyte(1);
@@ -67,11 +67,11 @@ static int do_read_header(deark *c, lctx *d)
 	d->rowspan_raw = de_getui16le(66);
 	d->palette_info = de_getbyte(68);
 
-	de_dbg(c, "format version: %d, encoding: %d, planes: %d, bits: %d\n", (int)d->version,
+	de_dbg(c, "format version: %d, encoding: %d, planes: %d, bits: %d", (int)d->version,
 		(int)d->encoding, (int)d->planes, (int)d->bits);
-	de_dbg(c, "bytes/plane/row: %d, palette info: %d, vmode: 0x%02x\n", (int)d->rowspan_raw,
+	de_dbg(c, "bytes/plane/row: %d, palette info: %d, vmode: 0x%02x", (int)d->rowspan_raw,
 		(int)d->palette_info, (unsigned int)d->reserved1);
-	de_dbg(c, "margins: %d, %d, %d, %d\n", (int)d->margin_L, (int)d->margin_T,
+	de_dbg(c, "margins: %d, %d, %d, %d", (int)d->margin_L, (int)d->margin_T,
 		(int)d->margin_R, (int)d->margin_B);
 
 	// TODO: We could try to use the resolution field to set the pixel density,
@@ -80,15 +80,15 @@ static int do_read_header(deark *c, lctx *d)
 	// * The pixel dimensions of the target screen mode
 	// * The dimensions of the image itself
 	// * A corrupted attempt at one of the above things
-	de_dbg(c, "\"resolution\": %dx%d\n", (int)hres, (int)vres);
+	de_dbg(c, "\"resolution\": %dx%d", (int)hres, (int)vres);
 
 	d->width = d->margin_R - d->margin_L +1;
 	d->height = d->margin_B - d->margin_T +1;
-	de_dbg(c, "dimensions: %dx%d\n", (int)d->width, (int)d->height);
+	de_dbg(c, "dimensions: %dx%d", (int)d->width, (int)d->height);
 	if(!de_good_image_dimensions(c, d->width, d->height)) goto done;
 
 	d->rowspan = d->rowspan_raw * d->planes;
-	de_dbg(c, "calculated bytes/row: %d\n", (int)d->rowspan);
+	de_dbg(c, "calculated bytes/row: %d", (int)d->rowspan);
 
 	d->bits_per_pixel = d->bits * d->planes;
 
@@ -147,7 +147,7 @@ static int do_read_header(deark *c, lctx *d)
 		goto done;
 	}
 
-	de_dbg(c, "image type: %s\n", imgtypename);
+	de_dbg(c, "image type: %s", imgtypename);
 
 	// Sanity check
 	if(d->rowspan > d->width * 4 + 100) {
@@ -174,7 +174,7 @@ static int do_read_vga_palette(deark *c, lctx *d)
 		return 0;
 	}
 
-	de_dbg(c, "VGA palette at %d\n", (int)pos);
+	de_dbg(c, "VGA palette at %d", (int)pos);
 	d->has_vga_pal = 1;
 	pos++;
 	de_dbg_indent(c, 1);
@@ -202,7 +202,7 @@ static int do_read_alt_palette_file(deark *c, lctx *d)
 
 	palfile = dbuf_open_input_file(c, palfn);
 	if(!palfile) goto done;
-	de_dbg(c, "using palette from separate file\n");
+	de_dbg(c, "using palette from separate file");
 
 	if(palfile->len != d->ncolors*3) {
 		badflag = 1;
@@ -281,7 +281,7 @@ static void do_palette_stuff(deark *c, lctx *d)
 			de_msg(c, "Note: This paletted PCX file does not contain a palette. "
 				"If it is not decoded correctly, try \"-opt pcx:pal=1\".\n");
 		}
-		de_dbg(c, "Using a default EGA palette\n");
+		de_dbg(c, "Using a default EGA palette");
 		for(k=0; k<16; k++) {
 			d->pal[k] = ega16pal[d->default_pal_num][k];
 		}
@@ -303,13 +303,13 @@ static void do_palette_stuff(deark *c, lctx *d)
 		unsigned int fgpal;
 
 		de_warn(c, "4-color PCX images might not be supported correctly\n");
-		de_dbg(c, "using a CGA palette\n");
+		de_dbg(c, "using a CGA palette");
 
 		p0 = de_getbyte(16);
 		p3 = de_getbyte(19);
 		bgcolor = p0>>4;
 		fgpal = p3>>5;
-		de_dbg(c, "palette #%d, background color %d\n", (int)fgpal, (int)bgcolor);
+		de_dbg(c, "palette #%d, background color %d", (int)fgpal, (int)bgcolor);
 
 		// Set first pal entry to background color
 		d->pal[0] = de_palette_pc16(bgcolor);
@@ -337,7 +337,7 @@ static void do_palette_stuff(deark *c, lctx *d)
 		de_warn(c, "No suitable palette found\n");
 	}
 
-	de_dbg(c, "using 16-color palette from header\n");
+	de_dbg(c, "using 16-color palette from header");
 
 	de_dbg_indent(c, 1);
 	de_read_palette_rgb(c->infile, 16, 16, 3, d->pal, 256, 0);
@@ -487,7 +487,7 @@ static void de_run_pcx_internal(deark *c, lctx *d, de_module_params *mparams)
 	if(d->encoding==0) {
 		// Uncompressed PCXs are probably not standard, but support for them is not
 		// uncommon. Imagemagick, for example, will create them if you ask it to.
-		de_dbg(c, "assuming pixels are uncompressed (encoding=0)\n");
+		de_dbg(c, "assuming pixels are uncompressed (encoding=0)");
 		d->unc_pixels = dbuf_open_input_subfile(c->infile,
 			PCX_HDRSIZE, c->infile->len-PCX_HDRSIZE);
 	}
@@ -604,7 +604,7 @@ static void de_run_dcx(deark *c, de_module_params *mparams)
 		num_pages++;
 	}
 
-	de_dbg(c, "number of pages: %d\n", (int)num_pages);
+	de_dbg(c, "number of pages: %d", (int)num_pages);
 
 	for(page=0; page<num_pages; page++) {
 		if(page == num_pages-1) {
@@ -615,7 +615,7 @@ static void de_run_dcx(deark *c, de_module_params *mparams)
 			page_size = page_offset[page+1] - page_offset[page];
 		}
 		if(page_size<0) page_size=0;
-		de_dbg(c, "page %d at %d, size=%d\n", (int)page, (int)page_offset[page],
+		de_dbg(c, "page %d at %d, size=%d", (int)page, (int)page_offset[page],
 			(int)page_size);
 
 		dbuf_create_file_from_slice(c->infile, page_offset[page], page_size, "pcx", NULL, 0);

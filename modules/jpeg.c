@@ -119,7 +119,7 @@ static void do_icc_profile_segment(deark *c, lctx *d, struct page_ctx *pg, de_in
 	if(data_size<2) return; // bogus data
 	b1 = de_getbyte(pos);
 	b2 = de_getbyte(pos+1);
-	de_dbg(c, "icc profile segment at %d datasize=%d part %d of %d\n", (int)pos, (int)(data_size-2), b1, b2);
+	de_dbg(c, "icc profile segment at %d datasize=%d part %d of %d", (int)pos, (int)(data_size-2), b1, b2);
 
 	if(!pg->iccprofile_file) {
 		pg->iccprofile_file = dbuf_create_output_file(c, "icc", NULL, DE_CREATEFLAG_IS_AUX);
@@ -141,11 +141,11 @@ static void do_jpeghdr_segment(deark *c, lctx *d, struct page_ctx *pg, de_int64 
 	de_int64 data_size, int is_ext)
 {
 	if(is_ext) {
-		de_dbg(c, "JPEG-HDR residual image continuation, pos=%d size=%d\n",
+		de_dbg(c, "JPEG-HDR residual image continuation, pos=%d size=%d",
 			(int)pos, (int)data_size);
 	}
 	else {
-		de_dbg(c, "JPEG-HDR residual image start, pos=%d size=%d\n",
+		de_dbg(c, "JPEG-HDR residual image start, pos=%d size=%d",
 			(int)pos, (int)data_size);
 
 		// Close any previous file
@@ -156,7 +156,7 @@ static void do_jpeghdr_segment(deark *c, lctx *d, struct page_ctx *pg, de_int64 
 
 		// Make sure it looks like an embedded JPEG file
 		if(dbuf_memcmp(c->infile, pos, "\xff\xd8", 2)) {
-			de_dbg(c, "unexpected HDR format\n");
+			de_dbg(c, "unexpected HDR format");
 			return;
 		}
 
@@ -177,21 +177,21 @@ static void do_jfif_segment(deark *c, lctx *d, de_int64 pos, de_int64 data_size)
 	if(data_size<9) return;
 	ver_h = de_getbyte(pos);
 	ver_l = de_getbyte(pos+1);
-	de_dbg(c, "JFIF version: %d.%02d\n", (int)ver_h, (int)ver_l);
+	de_dbg(c, "JFIF version: %d.%02d", (int)ver_h, (int)ver_l);
 	units = de_getbyte(pos+2);
 	xdens = de_getui16be(pos+3);
 	ydens = de_getui16be(pos+5);
 	if(units==1) units_name="dpi";
 	else if(units==2) units_name="dots/cm";
 	else units_name="(unspecified units)";
-	de_dbg(c, "density: %dx%d %s\n", (int)xdens, (int)ydens, units_name);
+	de_dbg(c, "density: %dx%d %s", (int)xdens, (int)ydens, units_name);
 }
 
 static void do_jfxx_segment(deark *c, lctx *d, de_int64 pos, de_int64 data_size)
 {
 	de_byte t;
 
-	de_dbg(c, "jfxx segment at %d datasize=%d\n", (int)pos, (int)data_size);
+	de_dbg(c, "jfxx segment at %d datasize=%d", (int)pos, (int)data_size);
 	if(data_size<2) return;
 
 	// The first byte indicates the type of thumbnail.
@@ -218,12 +218,12 @@ static void do_adobeapp14_segment(deark *c, lctx *d, de_int64 pos, de_int64 data
 	else if(transform==1) tname="YCbCr";
 	else if(transform==2) tname="YCCK";
 	else tname="unknown";
-	de_dbg(c, "color transform: %d (%s)\n", (int)transform, tname);
+	de_dbg(c, "color transform: %d (%s)", (int)transform, tname);
 }
 
 static void do_mpf_segment(deark *c, lctx *d, de_int64 pos, de_int64 data_size)
 {
-	de_dbg(c, "MPF data at %d, size=%d\n", (int)pos, (int)data_size);
+	de_dbg(c, "MPF data at %d, size=%d", (int)pos, (int)data_size);
 	de_dbg_indent(c, 1);
 	de_run_module_by_id_on_slice2(c, "tiff", "M", c->infile, pos, data_size);
 	de_dbg_indent(c, -1);
@@ -240,7 +240,7 @@ static void do_xmp_extension_segment(deark *c, lctx *d, struct page_ctx *pg,
 	de_int64 dlen;
 	int is_first_segment = 0;
 
-	de_dbg(c, "extended XMP segment, dpos=%d, dlen=%d\n", (int)pos1, (int)(data_size));
+	de_dbg(c, "extended XMP segment, dpos=%d, dlen=%d", (int)pos1, (int)(data_size));
 	de_dbg_indent(c, 1);
 	if(pg->extxmp_error_flag) goto done;
 
@@ -248,7 +248,7 @@ static void do_xmp_extension_segment(deark *c, lctx *d, struct page_ctx *pg,
 	pos += 32;
 	digest_str = ucstring_create(c);
 	ucstring_append_bytes(digest_str, thisseg_digest_raw, 32, 0, DE_ENCODING_ASCII);
-	de_dbg(c, "digest: \"%s\"\n", ucstring_get_printable_sz(digest_str));
+	de_dbg(c, "digest: \"%s\"", ucstring_get_printable_sz(digest_str));
 
 	if(pg->extxmp_found && de_memcmp(thisseg_digest_raw, pg->extxmp_digest, 32)) {
 		// We only care about the extended XMP segments whose digest matches that
@@ -273,7 +273,7 @@ static void do_xmp_extension_segment(deark *c, lctx *d, struct page_ctx *pg,
 	if(is_first_segment) {
 		pg->extxmp_total_len = thisseg_full_extxmp_len;
 	}
-	de_dbg(c, "full ext. XMP length: %d\n", (int)thisseg_full_extxmp_len);
+	de_dbg(c, "full ext. XMP length: %d", (int)thisseg_full_extxmp_len);
 	if(thisseg_full_extxmp_len != pg->extxmp_total_len) {
 		de_warn(c, "Inconsistent extended XMP block lengths\n");
 		pg->extxmp_error_flag = 1;
@@ -288,10 +288,10 @@ static void do_xmp_extension_segment(deark *c, lctx *d, struct page_ctx *pg,
 
 	segment_offset = de_getui32be(pos);
 	pos += 4;
-	de_dbg(c, "offset of this segment: %d\n", (int)segment_offset);
+	de_dbg(c, "offset of this segment: %d", (int)segment_offset);
 
 	dlen = data_size - (pos-pos1);
-	de_dbg(c, "[%d bytes of ext. XMP data at %d]\n", (int)dlen, (int)pos);
+	de_dbg(c, "[%d bytes of ext. XMP data at %d]", (int)dlen, (int)pos);
 
 	if(segment_offset + dlen > pg->extxmp_total_len) {
 		de_warn(c, "Extended XMP segment too long\n");
@@ -355,11 +355,11 @@ static void handler_app(deark *c, lctx *d, struct page_ctx *pg,
 		DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_ASCII);
 
 	if(!srd->found_nul || srd->was_truncated) {
-		de_dbg(c, "app id: [not found]\n");
+		de_dbg(c, "app id: [not found]");
 		goto done;
 	}
 
-	de_dbg(c, "app id: \"%s\"\n", ucstring_get_printable_sz(srd->str));
+	de_dbg(c, "app id: \"%s\"", ucstring_get_printable_sz(srd->str));
 
 	app_id_orig_strlen = srd->bytes_consumed-1;
 
@@ -383,7 +383,7 @@ static void handler_app(deark *c, lctx *d, struct page_ctx *pg,
 	}
 	else if(seg_type==0xe1 && !de_strcmp(app_id_normalized, "EXIF")) {
 		// Note that Exif has an additional padding byte after the APP ID NUL terminator.
-		de_dbg(c, "Exif data at %d, size=%d\n", (int)(payload_pos+1), (int)(payload_size-1));
+		de_dbg(c, "Exif data at %d, size=%d", (int)(payload_pos+1), (int)(payload_size-1));
 		de_dbg_indent(c, 1);
 		de_fmtutil_handle_exif(c, payload_pos+1, payload_size-1);
 		de_dbg_indent(c, -1);
@@ -392,13 +392,13 @@ static void handler_app(deark *c, lctx *d, struct page_ctx *pg,
 		do_icc_profile_segment(c, d, pg, payload_pos, payload_size);
 	}
 	else if(seg_type==0xed && !de_strcmp(app_id_normalized, "PHOTOSHOP 3.0")) {
-		de_dbg(c, "photoshop data at %d, size=%d\n", (int)(payload_pos), (int)(payload_size));
+		de_dbg(c, "photoshop data at %d, size=%d", (int)(payload_pos), (int)(payload_size));
 		de_dbg_indent(c, 1);
 		de_fmtutil_handle_photoshop_rsrc(c, payload_pos, payload_size);
 		de_dbg_indent(c, -1);
 	}
 	else if(seg_type==0xe1 && !de_strcmp(app_id_normalized, "HTTP://NS.ADOBE.COM/XAP/1.0/")) {
-		de_dbg(c, "XMP data at %d, size=%d\n", (int)(payload_pos), (int)(payload_size));
+		de_dbg(c, "XMP data at %d, size=%d", (int)(payload_pos), (int)(payload_size));
 		dbuf_create_file_from_slice(c->infile, payload_pos, payload_size, "xmp", NULL, DE_CREATEFLAG_IS_AUX);
 	}
 	else if(seg_type==0xe1 && !de_strcmp(app_id_normalized, "HTTP://NS.ADOBE.COM/XMP/EXTENSION/")) {
@@ -440,24 +440,24 @@ static void handler_sof(deark *c, lctx *d, struct page_ctx *pg,
 		if(seg_type%16>=9) attr_cmpr="arithmetic";
 		if((seg_type%4)==2) attr_progr="progressive";
 		if((seg_type%8)>=5) attr_hier="hierarchical";
-		de_dbg(c, "image type: %s, %s, %s, %s\n",
+		de_dbg(c, "image type: %s, %s, %s, %s",
 			attr_lossy, attr_cmpr, attr_progr, attr_hier);
 	}
 	else if(seg_type==0xc0) {
-		de_dbg(c, "image type: baseline (%s, %s, %s, %s)\n",
+		de_dbg(c, "image type: baseline (%s, %s, %s, %s)",
 			attr_lossy, attr_cmpr, attr_progr, attr_hier);
 	}
 	else if(seg_type==0xf7) {
-		de_dbg(c, "image type: JPEG-LS\n");
+		de_dbg(c, "image type: JPEG-LS");
 	}
 
 	b = de_getbyte(pos);
-	de_dbg(c, "precision: %d\n", (int)b);
+	de_dbg(c, "precision: %d", (int)b);
 	h = de_getui16be(pos+1);
 	w = de_getui16be(pos+3);
-	de_dbg(c, "dimensions: %dx%d\n", (int)w, (int)h);
+	de_dbg(c, "dimensions: %dx%d", (int)w, (int)h);
 	ncomp = (de_int64)de_getbyte(pos+5);
-	de_dbg(c, "number of components: %d\n", (int)ncomp);
+	de_dbg(c, "number of components: %d", (int)ncomp);
 
 	// per-component data
 	if(data_size<6+3*ncomp) goto done;
@@ -470,7 +470,7 @@ static void handler_sof(deark *c, lctx *d, struct page_ctx *pg,
 		sf1 = (de_int64)(b>>4);
 		sf2 = (de_int64)(b&0x0f);
 		qtid = de_getbyte(pos+6+3*i+2);
-		de_dbg(c, "cmp #%d: id=%d sampling=%dx%d quant_table=Q%d\n",
+		de_dbg(c, "cmp #%d: id=%d sampling=%dx%d quant_table=Q%d",
 			(int)i, (int)comp_id, (int)sf1, (int)sf2, (int)qtid);
 	}
 
@@ -484,7 +484,7 @@ static void handler_dri(deark *c, lctx *d, struct page_ctx *pg,
 	if(data_size!=2) return;
 	de_dbg_indent(c, 1);
 	ri = de_getui16be(pos);
-	de_dbg(c, "restart interval: %d\n", (int)ri);
+	de_dbg(c, "restart interval: %d", (int)ri);
 	de_dbg_indent(c, -1);
 }
 
@@ -508,7 +508,7 @@ static void handler_dht(deark *c, lctx *d, struct page_ctx *pg,
 		b = de_getbyte(pos);
 		table_class = b>>4;
 		table_id = b&0x0f;
-		de_dbg(c, "table: %s%d, at %d\n", table_class==0?"DC":"AC",
+		de_dbg(c, "table: %s%d, at %d", table_class==0?"DC":"AC",
 			(int)table_id, (int)pos);
 
 		num_huff_codes = 0;
@@ -540,11 +540,11 @@ static void handler_dac(deark *c, lctx *d, struct page_ctx *pg,
 		b = de_getbyte(pos1+i*2);
 		table_class = b>>4;
 		table_id = b&0x0f;
-		de_dbg(c, "table: %s%u\n", table_class==0?"DC":"AC",
+		de_dbg(c, "table: %s%u", table_class==0?"DC":"AC",
 			(unsigned int)table_id);
 		cs = de_getbyte(pos1+i*2+1);
 		de_dbg_indent(c, 1);
-		de_dbg(c, "conditioning value: %d\n", (int)cs);
+		de_dbg(c, "conditioning value: %d", (int)cs);
 		de_dbg_indent(c, -1);
 	}
 	de_dbg_indent(c, -1);
@@ -582,10 +582,10 @@ static void handler_dqt(deark *c, lctx *d, struct page_ctx *pg,
 			s="?";
 			qsize = 0;
 		}
-		de_dbg(c, "table: Q%d, at %d\n", table_id, (int)pos);
+		de_dbg(c, "table: Q%d, at %d", table_id, (int)pos);
 
 		de_dbg_indent(c, 1);
-		de_dbg(c, "precision: %d (%s)\n", (int)precision_code, s);
+		de_dbg(c, "precision: %d (%s)", (int)precision_code, s);
 		de_dbg_indent(c, -1);
 
 		if(qsize==0) goto done;
@@ -636,7 +636,7 @@ static void handle_comment(deark *c, lctx *d, de_int64 pos, de_int64 comment_siz
 		dbuf_close(outf);
 	}
 	else {
-		de_dbg(c, "comment: \"%s\"\n", ucstring_get_printable_sz_d(s));
+		de_dbg(c, "comment: \"%s\"", ucstring_get_printable_sz_d(s));
 	}
 
 done:
@@ -671,7 +671,7 @@ static void handler_cme(deark *c, lctx *d, struct page_ctx *pg,
 	case 1: name="text"; break;
 	default: name="?";
 	}
-	de_dbg(c, "comment/extension type: %d (%s)\n", (int)reg_val, name);
+	de_dbg(c, "comment/extension type: %d (%s)", (int)reg_val, name);
 
 	comment_pos = pos+2;
 	comment_size = data_size-2;
@@ -699,25 +699,25 @@ static void handler_sos(deark *c, lctx *d, struct page_ctx *pg,
 	if(data_size<1) goto done;
 
 	ncomp = (de_int64)de_getbyte(pos);
-	de_dbg(c, "number of components in scan: %d\n", (int)ncomp);
+	de_dbg(c, "number of components in scan: %d", (int)ncomp);
 	if(data_size < 4 + 2*ncomp) goto done;
 
 	for(i=0; i<ncomp; i++) {
 		cs = de_getbyte(pos+1+i*2);
-		de_dbg(c, "component #%d id: %d\n", (int)i, (int)cs);
+		de_dbg(c, "component #%d id: %d", (int)i, (int)cs);
 		de_dbg_indent(c, 1);
 		b = de_getbyte(pos+1+i*2+1);
 		dctable = b>>4;
 		actable = b&0x0f;
-		de_dbg(c, "tables to use: DC%d, AC%d\n", (int)dctable, (int)actable);
+		de_dbg(c, "tables to use: DC%d, AC%d", (int)dctable, (int)actable);
 		de_dbg_indent(c, -1);
 	}
 
 	ss = de_getbyte(pos+1+ncomp*2);
 	se = de_getbyte(pos+1+ncomp*2+1);
 	ax = de_getbyte(pos+1+ncomp*2+2);
-	de_dbg(c, "spectral selection start/end: %d, %d\n", (int)ss, (int)se);
-	de_dbg(c, "successive approx. bit pos high/low: %u, %u\n",
+	de_dbg(c, "spectral selection start/end: %d, %d", (int)ss, (int)se);
+	de_dbg(c, "successive approx. bit pos high/low: %u, %u",
 		(unsigned int)(ax>>4), (unsigned int)(ax&0x0f));
 
 done:
@@ -804,7 +804,7 @@ done:
 static void do_segment(deark *c, lctx *d, struct page_ctx *pg, const struct marker_info *mi,
 	de_int64 payload_pos, de_int64 payload_size)
 {
-	de_dbg(c, "segment 0x%02x (%s) at %d, dpos=%d, dlen=%d\n",
+	de_dbg(c, "segment 0x%02x (%s) at %d, dpos=%d, dlen=%d",
 		(unsigned int)mi->seg_type, mi->longname, (int)(payload_pos-4),
 		(int)payload_pos, (int)payload_size);
 
@@ -824,7 +824,7 @@ static int do_read_scan_data(deark *c, lctx *d, struct page_ctx *pg,
 	struct marker_info mi;
 
 	*bytes_consumed = c->infile->len - pos1; // default
-	de_dbg(c, "scan data at %d\n", (int)pos1);
+	de_dbg(c, "scan data at %d", (int)pos1);
 
 	de_dbg_indent(c, 1);
 
@@ -849,7 +849,7 @@ static int do_read_scan_data(deark *c, lctx *d, struct page_ctx *pg,
 			else if(b1>=0xd0 && b1<=0xd7) { // an RSTn marker
 				if(c->debug_level>=2) {
 					get_marker_info(c, d, pg, b1, &mi);
-					de_dbg2(c, "marker 0x%02x (%s) at %d\n", (unsigned int)b1,
+					de_dbg2(c, "marker 0x%02x (%s) at %d", (unsigned int)b1,
 						mi.longname, (int)(pos-2));
 				}
 			}
@@ -861,7 +861,7 @@ static int do_read_scan_data(deark *c, lctx *d, struct page_ctx *pg,
 				// Subtract the bytes consumed by it, and stop.
 				pos -= 2;
 				*bytes_consumed = pos - pos1;
-				de_dbg(c, "end of scan data found at %d (len=%d)\n", (int)pos, (int)*bytes_consumed);
+				de_dbg(c, "end of scan data found at %d (len=%d)", (int)pos, (int)*bytes_consumed);
 				break;
 			}
 		}
@@ -925,7 +925,7 @@ static int do_jpeg_page(deark *c, lctx *d, de_int64 pos1, de_int64 *bytes_consum
 		}
 
 		if(mi.flags & FLAG_NO_DATA) {
-			de_dbg(c, "marker 0x%02x (%s) at %d\n", (unsigned int)seg_type,
+			de_dbg(c, "marker 0x%02x (%s) at %d", (unsigned int)seg_type,
 				mi.longname, (int)(pos-2));
 
 			if(seg_type==0xd9) { // EOI / EOC
@@ -1073,7 +1073,7 @@ static int detect_jpeg_len(deark *c, scanctx *d, de_int64 pos1, de_int64 len)
 			return 1;
 		}
 		else if(b1==0xf7) {
-			de_dbg(c, "Looks like a JPEG-LS file.\n");
+			de_dbg(c, "Looks like a JPEG-LS file.");
 			found_sof = 1;
 			d->is_jpegls = 1;
 		}
@@ -1126,18 +1126,18 @@ static void de_run_jpegscan(deark *c, de_module_params *mparams)
 			pos, c->infile->len-pos, &foundpos);
 		if(!ret) break; // No more JPEGs in file.
 
-		de_dbg(c, "Found possible JPEG file at %d\n", (int)foundpos);
+		de_dbg(c, "Found possible JPEG file at %d", (int)foundpos);
 
 		pos = foundpos;
 
 		if(detect_jpeg_len(c, d, pos, c->infile->len-pos)) {
-			de_dbg(c, "length=%d\n", (int)d->len);
+			de_dbg(c, "length=%d", (int)d->len);
 			dbuf_create_file_from_slice(c->infile, pos, d->len,
 				d->is_jpegls ? "jls" : "jpg", NULL, 0);
 			pos += d->len;
 		}
 		else {
-			de_dbg(c, "Doesn't seem to be a valid JPEG.\n");
+			de_dbg(c, "Doesn't seem to be a valid JPEG.");
 			pos++;
 		}
 	}

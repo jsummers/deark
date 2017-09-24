@@ -71,7 +71,7 @@ static int do_bitmap(deark *c, lctx *d, de_int64 pos)
 	de_int64 rowspan;
 	int retval = 0;
 
-	de_dbg(c, "dimensions: %dx%d\n", (int)d->w, (int)d->h);
+	de_dbg(c, "dimensions: %dx%d", (int)d->w, (int)d->h);
 	rowspan = (d->w+7)/8;
 
 	if(pos+rowspan*d->h > c->infile->len) {
@@ -96,7 +96,7 @@ static int do_bitmap_8ca(deark *c, lctx *d, de_int64 pos)
 	de_byte b0, b1;
 	de_uint32 clr;
 
-	de_dbg(c, "dimensions: %dx%d\n", (int)d->w, (int)d->h);
+	de_dbg(c, "dimensions: %dx%d", (int)d->w, (int)d->h);
 
 	rowspan = (((d->w * 16)+31)/32)*4; // Uses 4-byte alignment, apparently
 
@@ -136,7 +136,7 @@ static int do_bitmap_8ci(deark *c, lctx *d, de_int64 pos)
 	int retval = 0;
 	de_byte b0;
 
-	de_dbg(c, "dimensions: %dx%d\n", (int)d->w, (int)d->h);
+	de_dbg(c, "dimensions: %dx%d", (int)d->w, (int)d->h);
 
 	rowspan = (d->w + 1) / 2;
 
@@ -173,9 +173,9 @@ static int do_ti83_picture_var(deark *c, lctx *d, de_int64 pos)
 {
 	de_int64 picture_size;
 
-	de_dbg(c, "picture at %d\n", (int)pos);
+	de_dbg(c, "picture at %d", (int)pos);
 	picture_size = de_getui16le(pos);
-	de_dbg(c, "picture size: %d\n", (int)picture_size);
+	de_dbg(c, "picture size: %d", (int)picture_size);
 
 	if(picture_size==21945) {
 		d->w = 265;
@@ -192,7 +192,7 @@ static int do_ti83c_picture_var(deark *c, lctx *d, de_int64 pos)
 {
 	// Try to support a type of color image (.8ca).
 	// This code may not be correct.
-	de_dbg(c, "picture at %d\n", (int)pos);
+	de_dbg(c, "picture at %d", (int)pos);
 	d->w = 133;
 	d->h = 83;
 	return do_bitmap_8ca(c, d, pos+3);
@@ -202,9 +202,9 @@ static int do_ti85_picture_var(deark *c, lctx *d, de_int64 pos)
 {
 	de_int64 x;
 
-	de_dbg(c, "picture at %d\n", (int)pos);
+	de_dbg(c, "picture at %d", (int)pos);
 	x = de_getui16le(pos);
-	de_dbg(c, "picture size: %d\n", (int)x);
+	de_dbg(c, "picture size: %d", (int)x);
 	d->w = 128;
 	d->h = 63;
 	return do_bitmap(c, d, pos+2);
@@ -214,11 +214,11 @@ static int do_ti92_picture_var(deark *c, lctx *d, de_int64 pos)
 {
 	de_int64 x;
 
-	de_dbg(c, "picture at %d\n", (int)pos);
+	de_dbg(c, "picture at %d", (int)pos);
 	pos+=4;
 
 	x = de_getui16be(pos);
-	de_dbg(c, "picture size: %d\n", (int)x);
+	de_dbg(c, "picture size: %d", (int)x);
 	d->h = de_getui16be(pos+2);
 	d->w = de_getui16be(pos+4);
 	return do_bitmap(c, d, pos+6);
@@ -229,16 +229,16 @@ static void do_ti92_var_table_entry(deark *c, lctx *d, de_int64 pos)
 	de_int64 data_offset;
 	de_byte type_id;
 
-	de_dbg(c, "var table entry at %d\n", (int)pos);
+	de_dbg(c, "var table entry at %d", (int)pos);
 	data_offset = de_getui32le(pos);
 
 	type_id = de_getbyte(pos+12);
-	de_dbg(c, "var type: 0x%02x\n", (unsigned int)type_id);
+	de_dbg(c, "var type: 0x%02x", (unsigned int)type_id);
 	if(type_id!=0x10) {
 		// Not a picture
 		return;
 	}
-	de_dbg(c, "data offset: %d\n", (int)data_offset);
+	de_dbg(c, "data offset: %d", (int)data_offset);
 	do_ti92_picture_var(c, d, data_offset);
 }
 
@@ -255,7 +255,7 @@ static void do_ti83(deark *c, lctx *d)
 	// 11-52: comment
 
 	data_section_size = de_getui16le(53);
-	de_dbg(c, "data section size: %d\n", (int)data_section_size);
+	de_dbg(c, "data section size: %d", (int)data_section_size);
 	data_section_end = 55+data_section_size;
 	if(data_section_end > c->infile->len) {
 		de_err(c, "Data section goes beyond end of file\n");
@@ -270,7 +270,7 @@ static void do_ti83(deark *c, lctx *d)
 		pos += 15;
 		if(d->fmt==DE_FMT_TI83F)
 			pos += 2;
-		de_dbg(c, "var type=0x%02x pos=%d len=%d\n", (unsigned int)type_id,
+		de_dbg(c, "var type=0x%02x pos=%d len=%d", (unsigned int)type_id,
 			(int)pos, (int)var_data_size);
 
 		if(type_id==0x07) { // guess
@@ -304,7 +304,7 @@ static void do_ti85(deark *c, lctx *d)
 	// 11-52: comment
 
 	data_section_size = de_getui16le(53);
-	de_dbg(c, "data section size: %d\n", (int)data_section_size);
+	de_dbg(c, "data section size: %d", (int)data_section_size);
 	data_section_end = 55+data_section_size;
 	if(data_section_end > c->infile->len) {
 		de_err(c, "Data section goes beyond end of file\n");
@@ -322,7 +322,7 @@ static void do_ti85(deark *c, lctx *d)
 		var_data_size = de_getui16le(pos+2);
 		type_id = de_getbyte(pos+4);
 		name_len_reported = (de_int64)de_getbyte(pos+5);
-		de_dbg(c, "reported var name length: %d\n", (int)name_len_reported);
+		de_dbg(c, "reported var name length: %d", (int)name_len_reported);
 		if(d->fmt==DE_FMT_TI86) {
 			name_field_len = 8; // Initial default
 
@@ -359,7 +359,7 @@ static void do_ti85(deark *c, lctx *d)
 		}
 		pos += 2;
 
-		de_dbg(c, "var type=0x%02x pos=%d len=%d\n", (unsigned int)type_id,
+		de_dbg(c, "var type=0x%02x pos=%d len=%d", (unsigned int)type_id,
 			(int)pos, (int)var_data_size);
 
 		if(type_id==0x11) { // guess
@@ -386,7 +386,7 @@ static void do_ti92(deark *c, lctx *d)
 	// 18-57: comment
 
 	numvars = de_getui16le(58);
-	de_dbg(c, "number of variables/folders: %d\n", (int)numvars);
+	de_dbg(c, "number of variables/folders: %d", (int)numvars);
 	if(!de_good_image_count(c, numvars)) goto done;
 
 	pos = 60;
@@ -397,7 +397,7 @@ static void do_ti92(deark *c, lctx *d)
 
 	// Data section
 	x = de_getui32le(pos);
-	de_dbg(c, "reported file size: %d\n", (int)x);
+	de_dbg(c, "reported file size: %d", (int)x);
 
 done:
 	;

@@ -719,7 +719,7 @@ static void de_run_ripicon(deark *c, de_module_params *mparams)
 
 	width = 1 + de_getui16le(0);
 	height = 1 + de_getui16le(2);
-	de_dbg(c, "dimensions: %dx%d\n", (int)width, (int)height);
+	de_dbg(c, "dimensions: %dx%d", (int)width, (int)height);
 	if(!de_good_image_dimensions(c, width, height)) goto done;
 
 	img = de_bitmap_create(c, width, height, 3);
@@ -813,7 +813,7 @@ static void de_run_lss16(deark *c, de_module_params *mparams)
 	d->pos = 4;
 	width = de_getui16le(d->pos);
 	height = de_getui16le(d->pos+2);
-	de_dbg(c, "dimensions: %dx%d\n", (int)width, (int)height);
+	de_dbg(c, "dimensions: %dx%d", (int)width, (int)height);
 	if(!de_good_image_dimensions(c, width, height)) goto done;
 
 	d->pos += 4;
@@ -1092,7 +1092,7 @@ static void de_run_iim(deark *c, de_module_params *mparams)
 	n = de_getui16be(8); // Unknown field
 	bpp = de_getui16be(10);
 	if(n!=4 || bpp!=24) {
-		de_dbg(c, "This type of IIM image is not supported\n");
+		de_dbg(c, "This type of IIM image is not supported");
 		goto done;
 	}
 	width = de_getui16be(12);
@@ -1155,21 +1155,21 @@ static void de_run_pm_xv(deark *c, de_module_params *mparams)
 		is_le = 0;
 
 	nplanes = dbuf_geti32x(c->infile, 4, is_le);
-	de_dbg(c, "planes: %d\n", (int)nplanes);
+	de_dbg(c, "planes: %d", (int)nplanes);
 
 	height = dbuf_geti32x(c->infile, 8, is_le);
 	width = dbuf_geti32x(c->infile, 12, is_le);
-	de_dbg(c, "dimensions: %dx%d\n", (int)width, (int)height);
+	de_dbg(c, "dimensions: %dx%d", (int)width, (int)height);
 	if(!de_good_image_dimensions(c, width, height)) goto done;
 
 	nbands = dbuf_geti32x(c->infile, 16, is_le);
-	de_dbg(c, "bands: %d\n", (int)nbands);
+	de_dbg(c, "bands: %d", (int)nbands);
 
 	pixelformat = dbuf_geti32x(c->infile, 20, is_le);
-	de_dbg(c, "pixel format: 0x%04x\n", (unsigned int)pixelformat);
+	de_dbg(c, "pixel format: 0x%04x", (unsigned int)pixelformat);
 
 	commentsize = dbuf_geti32x(c->infile, 24, is_le);
-	de_dbg(c, "comment size: %d\n", (int)commentsize);
+	de_dbg(c, "comment size: %d", (int)commentsize);
 
 	pos = 28;
 
@@ -1246,7 +1246,7 @@ static void de_run_crg(deark *c, de_module_params *mparams)
 
 	width = de_getui32be(20);
 	height = de_getui32be(24);
-	de_dbg(c, "dimensions: %dx%d\n", (int)width, (int)height);
+	de_dbg(c, "dimensions: %dx%d", (int)width, (int)height);
 	if(!de_good_image_dimensions(c, width, height)) goto done;
 
 	b1 = de_getbyte(32);
@@ -1256,7 +1256,7 @@ static void de_run_crg(deark *c, de_module_params *mparams)
 	}
 
 	num_cmpr_bytes = de_getui32be(38);
-	de_dbg(c, "compressed data size: %d\n", (int)num_cmpr_bytes);
+	de_dbg(c, "compressed data size: %d", (int)num_cmpr_bytes);
 	cmpr_img_start = 42;
 
 	if(cmpr_img_start + num_cmpr_bytes > c->infile->len) {
@@ -1281,7 +1281,7 @@ static void de_run_crg(deark *c, de_module_params *mparams)
 			dbuf_write_run(unc_pixels, b2, count);
 		}
 	}
-	de_dbg(c, "decompressed to %d bytes\n", (int)unc_pixels->len);
+	de_dbg(c, "decompressed to %d bytes", (int)unc_pixels->len);
 
 	de_convert_and_write_image_bilevel(unc_pixels, 0, width, height, rowspan,
 		DE_CVTF_WHITEISZERO, NULL, 0);
@@ -1319,7 +1319,7 @@ static void de_run_farbfeld(deark *c, de_module_params *mparams)
 
 	width = de_getui32be(8);
 	height = de_getui32be(12);
-	de_dbg(c, "dimensions: %dx%d\n", (int)width, (int)height);
+	de_dbg(c, "dimensions: %dx%d", (int)width, (int)height);
 	if(!de_good_image_dimensions(c, width, height)) return;
 
 	img = de_bitmap_create(c, width, height, 4);
@@ -1466,7 +1466,7 @@ static void de_run_hsiraw(deark *c, de_module_params *mparams)
 	int is_grayscale;
 
 	ver = de_getui16be(6);
-	de_dbg(c, "version: %d\n", (int)ver);
+	de_dbg(c, "version: %d", (int)ver);
 	if(ver!=4) {
 		de_warn(c, "HSI Raw version %d might not be supported correctly\n", (int)ver);
 	}
@@ -1474,22 +1474,22 @@ static void de_run_hsiraw(deark *c, de_module_params *mparams)
 	w = de_getui16be(8);
 	if(w==0) {
 		// MPlayer extension?
-		de_dbg2(c, "reading 32-bit width\n");
+		de_dbg2(c, "reading 32-bit width");
 		w = de_getui32be(28);
 	}
 	h = de_getui16be(10);
-	de_dbg(c, "dimensions: %dx%d\n", (int)w, (int)h);
+	de_dbg(c, "dimensions: %dx%d", (int)w, (int)h);
 	num_pal_colors = de_getui16be(12);
-	de_dbg(c, "number of palette colors: %d\n", (int)num_pal_colors);
+	de_dbg(c, "number of palette colors: %d", (int)num_pal_colors);
 
 	hdpi = de_geti16be(14);
 	vdpi = de_geti16be(16);
-	de_dbg(c, "density: %dx%d\n", (int)hdpi, (int)vdpi);
+	de_dbg(c, "density: %dx%d", (int)hdpi, (int)vdpi);
 	// [18: Gamma]
 	cmpr = de_getui16be(20);
-	de_dbg(c, "compression: %d\n", (int)cmpr);
+	de_dbg(c, "compression: %d", (int)cmpr);
 	alpha_info = de_getui16be(22);
-	de_dbg(c, "alpha: %d\n", (int)alpha_info);
+	de_dbg(c, "alpha: %d", (int)alpha_info);
 
 	if(num_pal_colors>256 || cmpr!=0 || alpha_info!=0) {
 		de_err(c, "This type of HSI Raw image is not supported\n");
@@ -1555,11 +1555,11 @@ static void de_run_qdv(deark *c, de_module_params *mparams)
 
 	w = de_getui16be(0);
 	h = de_getui16be(2);
-	de_dbg(c, "dimensions: %dx%d\n", (int)w, (int)h);
+	de_dbg(c, "dimensions: %dx%d", (int)w, (int)h);
 	if(!de_good_image_dimensions(c, w, h)) goto done;
 
 	num_pal_colors = 1 + (de_int64)de_getbyte(4);
-	de_dbg(c, "number of palette colors: %d\n", (int)num_pal_colors);
+	de_dbg(c, "number of palette colors: %d", (int)num_pal_colors);
 
 	pos = 5;
 	de_memset(pal, 0, sizeof(pal));
@@ -1620,13 +1620,13 @@ static void de_run_vitec(deark *c, de_module_params *mparams)
 
 	pos = 4;
 	h1size = de_getui32be(pos);
-	de_dbg(c, "header 1 at %d, len=%d\n", (int)pos, (int)h1size);
+	de_dbg(c, "header 1 at %d, len=%d", (int)pos, (int)h1size);
 	// Don't know what's in this part of the header. Just ignore it.
 	pos += h1size;
 	if(pos>=c->infile->len) goto done;
 
 	h2size = de_getui32be(pos);
-	de_dbg(c, "header 2 at %d, len=%d\n", (int)pos, (int)h2size);
+	de_dbg(c, "header 2 at %d, len=%d", (int)pos, (int)h2size);
 	de_dbg_indent(c, 1);
 
 	// pos+4: Bits size?
@@ -1634,13 +1634,13 @@ static void de_run_vitec(deark *c, de_module_params *mparams)
 
 	w = de_getui32be(pos+36);
 	h = de_getui32be(pos+40);
-	de_dbg(c, "dimensions: %dx%d\n", (int)w, (int)h);
+	de_dbg(c, "dimensions: %dx%d", (int)w, (int)h);
 	if(!de_good_image_dimensions(c, w, h)) goto done;
 
 	// pos+52: Unknown field, 1 in grayscale images
 
 	samplesperpixel = de_getui32be(pos+56);
-	de_dbg(c, "samples/pixel: %d\n", (int)samplesperpixel);
+	de_dbg(c, "samples/pixel: %d", (int)samplesperpixel);
 	if(samplesperpixel!=1 && samplesperpixel!=3) {
 		de_err(c, "Unsupported samples/pixel: %d\n", (int)samplesperpixel);
 		goto done;
@@ -1650,7 +1650,7 @@ static void de_run_vitec(deark *c, de_module_params *mparams)
 	if(pos>=c->infile->len) goto done;
 	de_dbg_indent(c, -1);
 
-	de_dbg(c, "bitmap at %d\n", (int)pos);
+	de_dbg(c, "bitmap at %d", (int)pos);
 	img = de_bitmap_create(c, w, h, (int)samplesperpixel);
 	rowspan = ((w+7)/8)*8;
 	planespan = rowspan*h;
@@ -1756,7 +1756,7 @@ static void de_run_lumena_cel(deark *c, de_module_params *mparams)
 	}
 
 	bypp = (is_32bit) ? 4 : 2;
-	de_dbg(c, "bytes/pixel: %d\n", (int)bypp);
+	de_dbg(c, "bytes/pixel: %d", (int)bypp);
 	rowspan = width * bypp;
 
 	img = de_bitmap_create(c, width, height, is_32bit?4:3);

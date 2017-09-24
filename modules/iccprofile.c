@@ -185,7 +185,7 @@ static void typedec_XYZ(deark *c, lctx *d, de_int64 pos, de_int64 len)
 		v[0] = read_s15Fixed16Number(c->infile, pos+8+12*k);
 		v[1] = read_s15Fixed16Number(c->infile, pos+8+12*k+4);
 		v[2] = read_s15Fixed16Number(c->infile, pos+8+12*k+8);
-		de_dbg(c, "XYZ[%d]: %.5f, %.5f, %.5f\n", (int)k,
+		de_dbg(c, "XYZ[%d]: %.5f, %.5f, %.5f", (int)k,
 			v[0], v[1], v[2]);
 	}
 }
@@ -201,7 +201,7 @@ static void typedec_text(deark *c, lctx *d, de_int64 pos, de_int64 len)
 	dbuf_read_to_ucstring_n(c->infile, pos+8, textlen, DE_DBG_MAX_STRLEN,
 		s, 0, DE_ENCODING_ASCII);
 	ucstring_truncate_at_NUL(s);
-	de_dbg(c, "text: \"%s\"\n", ucstring_get_printable_sz(s));
+	de_dbg(c, "text: \"%s\"", ucstring_get_printable_sz(s));
 
 done:
 	ucstring_destroy(s);
@@ -229,7 +229,7 @@ static void typedec_desc(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 	dbuf_read_to_ucstring_n(c->infile, pos, invdesclen, DE_DBG_MAX_STRLEN,
 		s, 0, DE_ENCODING_ASCII);
 	ucstring_truncate_at_NUL(s);
-	de_dbg(c, "invariant desc.: \"%s\"\n", ucstring_get_printable_sz(s));
+	de_dbg(c, "invariant desc.: \"%s\"", ucstring_get_printable_sz(s));
 	pos += invdesclen;
 	if(pos >= pos1+len) goto done;
 
@@ -244,7 +244,7 @@ static void typedec_desc(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 
 	if(uloclen>0) {
 		// TODO: How to interpret the language code?
-		de_dbg(c, "language code: %d\n", (int)langcode);
+		de_dbg(c, "language code: %d", (int)langcode);
 	}
 
 	lstrstartpos = pos;
@@ -273,7 +273,7 @@ static void typedec_desc(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 		s, 0, encoding);
 	ucstring_truncate_at_NUL(s);
 	if(s->len>0) {
-		de_dbg(c, "localizable desc.: \"%s\"\n", ucstring_get_printable_sz(s));
+		de_dbg(c, "localizable desc.: \"%s\"", ucstring_get_printable_sz(s));
 	}
 	pos += uloclen*2;
 	if(pos >= pos1+len) goto done;
@@ -295,22 +295,22 @@ static void do_mluc_record(deark *c, lctx *d, de_int64 tagstartpos,
 	s = ucstring_create(c);
 
 	dbuf_read_to_ucstring(c->infile, pos, 2, s, 0, DE_ENCODING_ASCII);
-	de_dbg(c, "language code: '%s'\n", ucstring_get_printable_sz(s));
+	de_dbg(c, "language code: '%s'", ucstring_get_printable_sz(s));
 	ucstring_empty(s);
 
 	dbuf_read_to_ucstring(c->infile, pos+2, 2, s, 0, DE_ENCODING_ASCII);
-	de_dbg(c, "country code: '%s'\n", ucstring_get_printable_sz(s));
+	de_dbg(c, "country code: '%s'", ucstring_get_printable_sz(s));
 	ucstring_empty(s);
 
 	string_len = de_getui32be(pos+4);
 	string_offset = de_getui32be(pos+8);
-	de_dbg(c, "string offset=%d+%d, len=%d bytes\n", (int)tagstartpos,
+	de_dbg(c, "string offset=%d+%d, len=%d bytes", (int)tagstartpos,
 		(int)string_offset, (int)string_len);
 
 	dbuf_read_to_ucstring_n(c->infile, tagstartpos+string_offset, string_len, DE_DBG_MAX_STRLEN*2,
 		s, 0, DE_ENCODING_UTF16BE);
 	ucstring_truncate_at_NUL(s);
-	de_dbg(c, "string: \"%s\"\n", ucstring_get_printable_sz(s));
+	de_dbg(c, "string: \"%s\"", ucstring_get_printable_sz(s));
 
 	ucstring_destroy(s);
 }
@@ -327,11 +327,11 @@ static void typedec_mluc(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 	pos += 8;
 
 	num_recs = de_getui32be(pos);
-	de_dbg(c, "number of records: %d\n", (int)num_recs);
+	de_dbg(c, "number of records: %d", (int)num_recs);
 	pos += 4;
 
 	recsize = de_getui32be(pos);
-	de_dbg(c, "record size: %d\n", (int)recsize);
+	de_dbg(c, "record size: %d", (int)recsize);
 	if(recsize<12) goto done;
 	pos += 4;
 
@@ -340,7 +340,7 @@ static void typedec_mluc(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 	for(rec=0; rec<num_recs; rec++) {
 		if(rec_array_startpos+rec*recsize > pos1+len) break;
 
-		de_dbg(c, "record #%d at %d\n", (int)rec, (int)pos);
+		de_dbg(c, "record #%d at %d", (int)rec, (int)pos);
 		de_dbg_indent(c, 1);
 		do_mluc_record(c, d, pos1, pos, recsize);
 		de_dbg_indent(c, -1);
@@ -359,14 +359,14 @@ static void do_read_header(deark *c, lctx *d, de_int64 pos)
 	char tmpbuf[80];
 	const char *name;
 
-	de_dbg(c, "header at %d\n", (int)pos);
+	de_dbg(c, "header at %d", (int)pos);
 	de_dbg_indent(c, 1);
 
 	x = de_getui32be(pos+0);
-	de_dbg(c, "profile size: %d\n", (int)x);
+	de_dbg(c, "profile size: %d", (int)x);
 
 	dbuf_read_fourcc(c->infile, pos+4, &tmp4cc, 0);
-	de_dbg(c, "preferred CMM type: %s\n",
+	de_dbg(c, "preferred CMM type: %s",
 		format_4cc(&tmp4cc, tmpbuf, sizeof(tmpbuf), 0x1));
 
 	profile_ver_raw = (de_uint32)de_getui32be(pos+8);
@@ -374,39 +374,39 @@ static void do_read_header(deark *c, lctx *d, de_int64 pos)
 		((profile_ver_raw&0x0f000000U)>>24);
 	d->profile_ver_minor = (profile_ver_raw&0x00f00000U)>>20;
 	d->profile_ver_bugfix = (profile_ver_raw&0x000f0000U)>>16;
-	de_dbg(c, "profile version: %u.%u.%u\n", d->profile_ver_major,
+	de_dbg(c, "profile version: %u.%u.%u", d->profile_ver_major,
 		d->profile_ver_minor, d->profile_ver_bugfix);
 
 	dbuf_read_fourcc(c->infile, pos+12, &tmp4cc, 0);
-	de_dbg(c, "profile/device class: %s\n",
+	de_dbg(c, "profile/device class: %s",
 		format_4cc(&tmp4cc, tmpbuf, sizeof(tmpbuf), 0x1));
 
 	dbuf_read_fourcc(c->infile, pos+16, &tmp4cc, 0);
-	de_dbg(c, "colour space: %s\n",
+	de_dbg(c, "colour space: %s",
 		format_4cc(&tmp4cc, tmpbuf, sizeof(tmpbuf), 0x1));
 
 	dbuf_read_fourcc(c->infile, pos+20, &tmp4cc, 0);
-	de_dbg(c, "PCS: %s\n",
+	de_dbg(c, "PCS: %s",
 		format_4cc(&tmp4cc, tmpbuf, sizeof(tmpbuf), 0x1));
 
 	// TODO: pos=24-35 Date & time
 
 	dbuf_read_fourcc(c->infile, pos+36, &tmp4cc, 0);
-	de_dbg(c, "file signature: %s\n",
+	de_dbg(c, "file signature: %s",
 		format_4cc(&tmp4cc, tmpbuf, sizeof(tmpbuf), 0x1));
 
 	dbuf_read_fourcc(c->infile, pos+40, &tmp4cc, 0);
-	de_dbg(c, "primary platform: %s\n",
+	de_dbg(c, "primary platform: %s",
 		format_4cc(&tmp4cc, tmpbuf, sizeof(tmpbuf), 0x3));
 
 	// TODO: pos=44-47 Profile flags
 
 	dbuf_read_fourcc(c->infile, pos+48, &tmp4cc, 0);
-	de_dbg(c, "device manufacturer: %s\n",
+	de_dbg(c, "device manufacturer: %s",
 		format_4cc(&tmp4cc, tmpbuf, sizeof(tmpbuf), 0x3));
 
 	dbuf_read_fourcc(c->infile, pos+52, &tmp4cc, 0);
-	de_dbg(c, "device model: %s\n",
+	de_dbg(c, "device model: %s",
 		format_4cc(&tmp4cc, tmpbuf, sizeof(tmpbuf), 0x3));
 
 	// TODO: pos=56-63 Device attributes
@@ -419,12 +419,12 @@ static void do_read_header(deark *c, lctx *d, de_int64 pos)
 	case 3: name="absolute colorimetric"; break;
 	default: name="?"; break;
 	}
-	de_dbg(c, "rendering intent: %d (%s)\n", (int)x, name);
+	de_dbg(c, "rendering intent: %d (%s)", (int)x, name);
 
 	// TODO: pos=68-79 PCS illuminant
 
 	dbuf_read_fourcc(c->infile, pos+80, &tmp4cc, 0);
-	de_dbg(c, "profile creator: %s\n",
+	de_dbg(c, "profile creator: %s",
 		format_4cc(&tmp4cc, tmpbuf, sizeof(tmpbuf), 0x3));
 
 	// TODO: pos=84-99 Profile ID
@@ -489,7 +489,7 @@ static void do_tag_data(deark *c, lctx *d, de_int64 tagindex,
 		return;
 	}
 	if(is_duplicate_data(c, d, tagindex, tagdataoffset, tagdatalen, &idx_of_dup)) {
-		de_dbg(c, "[data is a duplicate of tag #%d]\n", (int)idx_of_dup);
+		de_dbg(c, "[data is a duplicate of tag #%d]", (int)idx_of_dup);
 		return;
 	}
 
@@ -499,7 +499,7 @@ static void do_tag_data(deark *c, lctx *d, de_int64 tagindex,
 	dti = lookup_datatypeinfo(tagtype4cc.id);
 	if(dti && dti->name) dtname=dti->name;
 	else dtname="?";
-	de_dbg(c, "data type: %s (%s)\n",
+	de_dbg(c, "data type: %s (%s)",
 		format_4cc(&tagtype4cc, tmpbuf, sizeof(tmpbuf), 0x0), dtname);
 
 	if(!dti) return;
@@ -526,7 +526,7 @@ static void do_tag(deark *c, lctx *d, de_int64 tagindex, de_int64 pos_in_tagtabl
 		tname = ti->name;
 	else
 		tname = "?";
-	de_dbg(c, "tag #%d %s (%s) offs=%d dlen=%d\n", (int)tagindex,
+	de_dbg(c, "tag #%d %s (%s) offs=%d dlen=%d", (int)tagindex,
 		format_4cc(&tag4cc, tmpbuf, sizeof(tmpbuf), 0x0), tname,
 		(int)tagdataoffset, (int)tagdatalen);
 
@@ -542,16 +542,16 @@ static void do_read_tags(deark *c, lctx *d, de_int64 pos1)
 {
 	de_int64 tagindex;
 
-	de_dbg(c, "tag table at %d\n", (int)pos1);
+	de_dbg(c, "tag table at %d", (int)pos1);
 	de_dbg_indent(c, 1);
 
 	d->num_tags = de_getui32be(pos1);
-	de_dbg(c, "number of tags: %d\n", (int)d->num_tags);
+	de_dbg(c, "number of tags: %d", (int)d->num_tags);
 	if(d->num_tags>500) {
 		de_err(c, "Invalid or excessive number of tags: %d\n", (int)d->num_tags);
 		goto done;
 	}
-	de_dbg(c, "expected start of data segment: %d\n", (int)(pos1+4+12*d->num_tags));
+	de_dbg(c, "expected start of data segment: %d", (int)(pos1+4+12*d->num_tags));
 
 	// Make a place to record some information about each tag we encounter in the table.
 	d->tags_seen = de_malloc(c, d->num_tags * sizeof(struct tag_seen_type));

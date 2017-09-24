@@ -94,7 +94,7 @@ static void do_extensions(deark *c, lctx *d, de_int64 pos)
 			dbuf_create_file_from_slice(c->infile, pos, payload_len, "thumb.bpg", NULL, DE_CREATEFLAG_IS_AUX);
 			break;
 		default:
-			de_dbg(c, "unrecognized extension type: %d\n", (int)tag);
+			de_dbg(c, "unrecognized extension type: %d", (int)tag);
 		}
 
 		pos += payload_len;
@@ -112,9 +112,9 @@ static void do_hevc_file(deark *c, lctx *d)
 	d->pixel_format = b>>5;
 	d->alpha_flag = (b>>4)&0x01;
 	d->bit_depth = (de_int64)(b&0x0f) +8;
-	de_dbg(c, "pixel format: %d\n", (int)d->pixel_format);
-	de_dbg(c, "alpha flag: %d\n", (int)d->alpha_flag);
-	de_dbg(c, "bit depth: %d\n", (int)d->bit_depth);
+	de_dbg(c, "pixel format: %d", (int)d->pixel_format);
+	de_dbg(c, "alpha flag: %d", (int)d->alpha_flag);
+	de_dbg(c, "bit depth: %d", (int)d->bit_depth);
 
 	b = de_getbyte(pos);
 	pos++;
@@ -122,23 +122,23 @@ static void do_hevc_file(deark *c, lctx *d)
 	d->extension_present_flag = (b>>3)&0x01;
 	d->alpha2_flag = (b>>2)&0x01;
 	d->limited_range_flag = (b>>1)&0x01;
-	de_dbg(c, "color_space: %d\n", (int)d->color_space);
-	de_dbg(c, "extension_present_flag: %d\n", (int)d->extension_present_flag);
-	de_dbg(c, "alpha2_flag: %d\n", (int)d->alpha2_flag);
-	de_dbg(c, "limited_range_flag: %d\n", (int)d->limited_range_flag);
+	de_dbg(c, "color_space: %d", (int)d->color_space);
+	de_dbg(c, "extension_present_flag: %d", (int)d->extension_present_flag);
+	de_dbg(c, "alpha2_flag: %d", (int)d->alpha2_flag);
+	de_dbg(c, "limited_range_flag: %d", (int)d->limited_range_flag);
 
 	d->width = get_ue7(c, &pos);
 	d->height = get_ue7(c, &pos);
-	de_dbg(c, "dimensions: %dx%d\n", (int)d->width, (int)d->height);
+	de_dbg(c, "dimensions: %dx%d", (int)d->width, (int)d->height);
 
 
 	d->picture_data_len = get_ue7(c, &pos);
-	de_dbg(c, "picture_data_len: %d%s\n", (int)d->picture_data_len,
+	de_dbg(c, "picture_data_len: %d%s", (int)d->picture_data_len,
 		(d->picture_data_len==0)?" (= to EOF)":"");
 
 	if(d->extension_present_flag) {
 		d->extension_data_len = get_ue7(c, &pos);
-		de_dbg(c, "extension data len: %d\n", (int)d->extension_data_len);
+		de_dbg(c, "extension data len: %d", (int)d->extension_data_len);
 	}
 
 	if(d->extension_present_flag) {
@@ -146,7 +146,7 @@ static void do_hevc_file(deark *c, lctx *d)
 		pos += d->extension_data_len;
 	}
 
-	de_dbg(c, "hevc_header_and_data begins at %d\n", (int)pos);
+	de_dbg(c, "hevc_header_and_data begins at %d", (int)pos);
 }
 
 static void de_run_bpg(deark *c, de_module_params *mparams)

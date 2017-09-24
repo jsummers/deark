@@ -35,15 +35,15 @@ static void de_run_eps_binary(deark *c)
 	tiff_len    = de_getui32le(24);
 
 	if(eps_len>0) {
-		de_dbg(c, "Extracting EPS offs=%d len=%d\n", (int)eps_offset, (int)eps_len);
+		de_dbg(c, "Extracting EPS offs=%d len=%d", (int)eps_offset, (int)eps_len);
 		dbuf_create_file_from_slice(c->infile, eps_offset, eps_len, "eps", NULL, 0);
 	}
 	if(wmf_len>0) {
-		de_dbg(c, "Extracting WMF offs=%d len=%d\n", (int)wmf_offset, (int)wmf_len);
+		de_dbg(c, "Extracting WMF offs=%d len=%d", (int)wmf_offset, (int)wmf_len);
 		dbuf_create_file_from_slice(c->infile, wmf_offset, wmf_len, "preview.wmf", NULL, DE_CREATEFLAG_IS_AUX);
 	}
 	if(tiff_len>0) {
-		de_dbg(c, "Extracting TIFF offs=%d len=%d\n", (int)tiff_offset, (int)tiff_len);
+		de_dbg(c, "Extracting TIFF offs=%d len=%d", (int)tiff_offset, (int)tiff_len);
 		dbuf_create_file_from_slice(c->infile, tiff_offset, tiff_len, "preview.tif", NULL, DE_CREATEFLAG_IS_AUX);
 	}
 }
@@ -139,7 +139,7 @@ static void do_decode_epsi(deark *c, const char *hdrfields, de_int64 pos1)
 		de_err(c, "Failed to parse EPSI header line\n");
 		return;
 	}
-	de_dbg(c, "w=%d h=%d d=%d l=%d\n", width, height, depth, lines);
+	de_dbg(c, "w=%d h=%d d=%d l=%d", width, height, depth, lines);
 	d->w = width;
 	d->h = height;
 	d->depth = depth;
@@ -173,7 +173,7 @@ static void de_run_eps_normal(deark *c)
 
 	pos = 0;
 	while(dbuf_find_line(c->infile, pos, &content_len, &total_len)) {
-		de_dbg2(c, "line: pos=%d c_len=%d t_len=%d\n", (int)pos, (int)content_len, (int)total_len);
+		de_dbg2(c, "line: pos=%d c_len=%d t_len=%d", (int)pos, (int)content_len, (int)total_len);
 
 		if(content_len > (de_int64)(sizeof(linebuf)-1))
 			content_len = sizeof(linebuf)-1;

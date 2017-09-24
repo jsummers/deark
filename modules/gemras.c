@@ -63,14 +63,14 @@ static void uncompress_line(deark *c, lctx *d, dbuf *unc_line,
 					pos++;
 					tmp_repeat_count = (de_int64)de_getbyte(pos++);
 					if(tmp_repeat_count == 0) {
-						de_dbg(c, "row %d: bad repeat count\n", (int)rownum);
+						de_dbg(c, "row %d: bad repeat count", (int)rownum);
 					}
 					else {
 						*repeat_count = tmp_repeat_count;
 					}
 				}
 				else {
-					de_dbg(c, "row %d: bad scanline run marker: 0x%02x\n",
+					de_dbg(c, "row %d: bad scanline run marker: 0x%02x",
 						(int)rownum, (unsigned int)flagbyte);
 				}
 			}
@@ -249,7 +249,7 @@ static void read_palette_ximg(deark *c, lctx *d)
 
 	if(pal_entries_in_file<1) return;
 
-	de_dbg(c, "palette at %d\n", 22);
+	de_dbg(c, "palette at %d", 22);
 	de_dbg_indent(c, 1);
 	for(i=0; i<pal_entries_to_read; i++) {
 		cr1 = de_getui16be(22 + 6*i);
@@ -304,7 +304,7 @@ static int do_gem_ximg(deark *c, lctx *d)
 	}
 
 	if(d->nplanes==1 && d->pal[0]==d->pal[1]) {
-		de_dbg(c, "Palette doesn't seem to be present. Using a default palette.\n");
+		de_dbg(c, "Palette doesn't seem to be present. Using a default palette.");
 		d->pal[0] = DE_STOCKCOLOR_WHITE;
 		d->pal[1] = DE_STOCKCOLOR_BLACK;
 	}
@@ -342,26 +342,26 @@ static void de_run_gemraster(deark *c, de_module_params *mparams)
 
 	d = de_malloc(c, sizeof(lctx));
 	ver = de_getui16be(0);
-	de_dbg(c, "version: %d\n", (int)ver);
+	de_dbg(c, "version: %d", (int)ver);
 	d->header_size_in_words = de_getui16be(2);
 	d->header_size_in_bytes = d->header_size_in_words*2;
-	de_dbg(c, "header size: %d words (%d bytes)\n", (int)d->header_size_in_words,
+	de_dbg(c, "header size: %d words (%d bytes)", (int)d->header_size_in_words,
 		(int)d->header_size_in_bytes);
 	d->nplanes = de_getui16be(4);
-	de_dbg(c, "planes: %d\n", (int)d->nplanes);
+	de_dbg(c, "planes: %d", (int)d->nplanes);
 
 	if(d->header_size_in_words>=11) {
 		d->is_ximg = !dbuf_memcmp(c->infile, 16, "XIMG", 4);
 	}
 
 	d->patlen = de_getui16be(6);
-	de_dbg(c, "pattern def len: %d\n", (int)d->patlen);
+	de_dbg(c, "pattern def len: %d", (int)d->patlen);
 	d->pixwidth = de_getui16be(8);
 	d->pixheight = de_getui16be(10);
-	de_dbg(c, "pixel size: %dx%d microns\n", (int)d->pixwidth, (int)d->pixheight);
+	de_dbg(c, "pixel size: %dx%d microns", (int)d->pixwidth, (int)d->pixheight);
 	d->w = de_getui16be(12);
 	d->h = de_getui16be(14);
-	de_dbg(c, "dimensions: %dx%d\n", (int)d->w, (int)d->h);
+	de_dbg(c, "dimensions: %dx%d", (int)d->w, (int)d->h);
 
 	if(d->header_size_in_words>=9) {
 		// This may help to detect the image format.

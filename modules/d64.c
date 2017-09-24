@@ -53,7 +53,7 @@ static void do_extract_file(deark *c, lctx *d, de_int64 dir_entry_pos,
 	de_int64 i;
 	de_byte z;
 
-	de_dbg(c, "extracting file: t=%d,s=%d,sectors=%d\n", (int)ftrack, (int)fsector,
+	de_dbg(c, "extracting file: t=%d,s=%d,sectors=%d", (int)ftrack, (int)fsector,
 		(int)nsectors);
 
 	// Figure out the filename
@@ -70,10 +70,10 @@ static void do_extract_file(deark *c, lctx *d, de_int64 dir_entry_pos,
 			break;
 		}
 	}
-	de_dbg2(c, "filename length: %d\n", (int)fname_len);
+	de_dbg2(c, "filename length: %d", (int)fname_len);
 	fname = ucstring_create(c);
 	dbuf_read_to_ucstring(c->infile, dir_entry_pos+5, fname_len, fname, 0, DE_ENCODING_PETSCII);
-	de_dbg(c, "filename: \"%s\"\n", ucstring_get_printable_sz(fname));
+	de_dbg(c, "filename: \"%s\"", ucstring_get_printable_sz(fname));
 
 	switch(file_type) {
 	case FTYPE_SEQ: ext="seq"; break;
@@ -103,7 +103,7 @@ static void do_extract_file(deark *c, lctx *d, de_int64 dir_entry_pos,
 
 		nexttrack = (de_int64)de_getbyte(pos+0);
 		nextsector = (de_int64)de_getbyte(pos+1);
-		de_dbg2(c, "next sector: t=%d,s=%d\n", (int)nexttrack, (int)nextsector);
+		de_dbg2(c, "next sector: t=%d,s=%d", (int)nexttrack, (int)nextsector);
 
 		if(nexttrack==0 && nextsector>=1) amt_to_copy = (de_int64)nextsector-1;
 		else amt_to_copy = 254;
@@ -129,7 +129,7 @@ static void do_dir_entry(deark *c, lctx *d, de_int64 pos)
 	const char *file_type_str;
 	char tmps[100];
 
-	de_dbg(c, "directory entry at %d\n", (int)pos);
+	de_dbg(c, "directory entry at %d", (int)pos);
 	de_dbg_indent(c, 1);
 
 	file_type1 = de_getbyte(pos+2);
@@ -150,7 +150,7 @@ static void do_dir_entry(deark *c, lctx *d, de_int64 pos)
 	default: file_type_str = "unknown"; break;
 	}
 
-	de_dbg(c, "file type: 0x%02x (%s)\n", (unsigned int)file_type1, file_type_str);
+	de_dbg(c, "file type: 0x%02x (%s)", (unsigned int)file_type1, file_type_str);
 
 	if(file_type==FTYPE_REL) {
 		de_warn(c, "REL files are not supported\n");
@@ -162,7 +162,7 @@ static void do_dir_entry(deark *c, lctx *d, de_int64 pos)
 
 	ftrack = (de_int64)de_getbyte(pos+3);
 	fsector = (de_int64)de_getbyte(pos+4);
-	de_dbg(c, "file starts at t=%d,s=%d\n", (int)ftrack, (int)fsector);
+	de_dbg(c, "file starts at t=%d,s=%d", (int)ftrack, (int)fsector);
 
 	nsectors = de_getui16le(pos+30);
 	if(nsectors>0) {
@@ -173,7 +173,7 @@ static void do_dir_entry(deark *c, lctx *d, de_int64 pos)
 	else {
 		de_strlcpy(tmps, "0", sizeof(tmps));
 	}
-	de_dbg(c, "number of sectors used: %d (expected file size=%s)\n",
+	de_dbg(c, "number of sectors used: %d (expected file size=%s)",
 		(int)nsectors, tmps);
 
 	do_extract_file(c, d, pos, file_type, ftrack, fsector, nsectors);
@@ -189,13 +189,13 @@ static void do_directory_sector(deark *c, lctx *d, de_int64 track, de_int64 sect
 	de_int64 i;
 
 	pos = sector_offset(track, sector);
-	de_dbg(c, "directory sector at t=%d,s=%d pos=%d\n", (int)track, (int)sector,
+	de_dbg(c, "directory sector at t=%d,s=%d pos=%d", (int)track, (int)sector,
 		(int)pos);
 	de_dbg_indent(c, 1);
 
 	*nexttrack = (de_int64)de_getbyte(pos);
 	*nextsector = (de_int64)de_getbyte(pos+1);
-	de_dbg(c, "next dir sector: t=%d,s=%d\n", (int)*nexttrack, (int)*nextsector);
+	de_dbg(c, "next dir sector: t=%d,s=%d", (int)*nexttrack, (int)*nextsector);
 
 	for(i=0; i<8; i++) {
 		do_dir_entry(c, d, pos+i*32);
@@ -212,7 +212,7 @@ static void do_directory(deark *c, lctx *d, de_int64 track, de_int64 sector)
 	de_int64 curtrack, cursector;
 
 	pos = sector_offset(track, sector);
-	de_dbg(c, "directory at t=%d,s=%d pos=%d\n", (int)track, (int)sector,
+	de_dbg(c, "directory at t=%d,s=%d pos=%d", (int)track, (int)sector,
 		(int)pos);
 
 	curtrack = track;

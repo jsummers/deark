@@ -26,7 +26,7 @@ static void do_cas(deark *c)
 		chunk_len = de_getui16le(pos+4);
 		chunk_extra = de_getui16le(pos+6);
 
-		de_dbg(c, "chunk at %d, data_len=%d, extra=%d\n", (int)pos, (int)chunk_len,
+		de_dbg(c, "chunk at %d, data_len=%d, extra=%d", (int)pos, (int)chunk_len,
 			(int)chunk_extra);
 
 		pos += 8;
@@ -114,7 +114,7 @@ static void do_extract_file_contents(deark *c, lctx *d, dbuf *inf, dbuf *outf,
 	cur_sector = starting_sector;
 	while(sectors_extracted < sector_count) {
 		get_sector_offset_and_size(c, d, cur_sector, &sector_pos, &sector_size);
-		de_dbg(c, "sector %d, #%d, at %d\n", (int)sectors_extracted, (int)cur_sector, (int)sector_pos);
+		de_dbg(c, "sector %d, #%d, at %d", (int)sectors_extracted, (int)cur_sector, (int)sector_pos);
 		de_dbg_indent(c, 1);
 
 		dbuf_read(inf, mdata, sector_pos + sector_size-3, 3);
@@ -127,7 +127,7 @@ static void do_extract_file_contents(deark *c, lctx *d, dbuf *inf, dbuf *outf,
 		if(sector_size<=128)
 			nbytes = nbytes & 0x7f;
 
-		de_dbg(c, "byte count: %d, next sector: %d\n", (int)nbytes, (int)next_sector);
+		de_dbg(c, "byte count: %d, next sector: %d", (int)nbytes, (int)next_sector);
 
 		dbuf_copy(inf, sector_pos, nbytes, outf);
 
@@ -152,7 +152,7 @@ static void do_directory_entry(deark *c, lctx *d, dbuf *f, de_int64 pos)
 	de_int32 ch;
 
 	flags = dbuf_getbyte(f, pos);
-	de_dbg(c, "flags: 0x%02x\n", (unsigned int)flags);
+	de_dbg(c, "flags: 0x%02x", (unsigned int)flags);
 	if((flags&0x40)==0) {
 		// Unused or deleted directory entry
 		return;
@@ -160,7 +160,7 @@ static void do_directory_entry(deark *c, lctx *d, dbuf *f, de_int64 pos)
 
 	sector_count = dbuf_getui16le(f, pos+1);
 	starting_sector = dbuf_getui16le(f, pos+3);
-	de_dbg(c, "sector start: %d, count: %d\n", (int)starting_sector, (int)sector_count);
+	de_dbg(c, "sector start: %d, count: %d", (int)starting_sector, (int)sector_count);
 
 	if(starting_sector<1) goto done;
 
@@ -232,7 +232,7 @@ static void do_disk_image(deark *c, lctx *d, dbuf *f)
 	for(sector_index=0; sector_index<8; sector_index++) {
 		get_sector_offset_and_size(c, d, 361+sector_index, &sector_pos, &sector_size);
 		if(sector_pos + sector_size > f->len) break;
-		de_dbg(c, "directory sector %d at %d\n", (int)sector_index, (int)sector_pos);
+		de_dbg(c, "directory sector %d at %d", (int)sector_index, (int)sector_pos);
 		de_dbg_indent(c, 1);
 		for(entry_index=0; entry_index<entries_per_sector; entry_index++) {
 			entrypos = sector_pos + 16*entry_index;
@@ -242,7 +242,7 @@ static void do_disk_image(deark *c, lctx *d, dbuf *f)
 			flags = dbuf_getbyte(f, entrypos);
 			if(flags==0x00) continue;
 
-			de_dbg(c, "directory sector %d entry %d at %d\n", (int)sector_index,
+			de_dbg(c, "directory sector %d entry %d at %d", (int)sector_index,
 				(int)entry_index, (int)entrypos);
 			de_dbg_indent(c, 1);
 			do_directory_entry(c, d, f, entrypos);
@@ -266,7 +266,7 @@ static void do_atr(deark *c, lctx *d)
 	image_size_hi = de_getui16le(pos+6);
 	image_size_bytes = 16*(image_size_lo + 65536*image_size_hi);
 
-	de_dbg(c, "image size=%d bytes, sector size=%d\n", (int)image_size_bytes, (int)d->sector_size);
+	de_dbg(c, "image size=%d bytes, sector size=%d", (int)image_size_bytes, (int)d->sector_size);
 
 	diskimg = dbuf_open_input_subfile(c->infile, 16, c->infile->len-16);
 

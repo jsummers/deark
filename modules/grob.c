@@ -41,7 +41,7 @@ static void grob_read_binary_bitmap(deark *c, lctx *d, dbuf *inf, de_int64 pos)
 	if(!de_good_image_dimensions(c, d->w, h_logical))
 		goto done;
 
-	de_dbg(c, "logical dimensions: %dx%d\n", (int)d->w, (int)h_logical);
+	de_dbg(c, "logical dimensions: %dx%d", (int)d->w, (int)h_logical);
 
 	rowspan = (d->w+7)/8;
 	img = de_bitmap_create(c, d->w, h_logical, 1);
@@ -81,15 +81,15 @@ static void de_run_grob_binary(deark *c, lctx *d)
 
 	obj_id = (hdr[10]&0x0f)<<16 | hdr[9]<<8 | hdr[8];
 	length = hdr[12]<<12 | hdr[11]<<4 | hdr[10]>>4;
-	de_dbg(c, "object id: 0x%05x\n", (unsigned int)obj_id);
+	de_dbg(c, "object id: 0x%05x", (unsigned int)obj_id);
 	if(obj_id != 0x02b1e) {
 		de_warn(c, "Unexpected object identifier (0x%05x, expected 0x02b1e)\n", (unsigned int)obj_id);
 	}
-	de_dbg(c, "object length in nibbles: %d\n", (int)length);
+	de_dbg(c, "object length in nibbles: %d", (int)length);
 
 	d->h_phys = (hdr[15]&0x0f)<<16 | hdr[14]<<8 | hdr[13];
 	d->w = hdr[17]<<12 | hdr[16]<<4 | hdr[15]>>4;
-	de_dbg(c, "%sdimensions: %dx%d\n", (d->num_planes==1)?"":"physical ",
+	de_dbg(c, "%sdimensions: %dx%d", (d->num_planes==1)?"":"physical ",
 		(int)d->w, (int)d->h_phys);
 
 	grob_read_binary_bitmap(c, d, c->infile, 18);
@@ -135,7 +135,7 @@ static void grob_text_1_image(deark *c, lctx *d, de_int64 pos1)
 		pos++;
 	data_start = pos;
 
-	de_dbg(c, "%sdimensions: %dx%d\n", (d->num_planes==1)?"":"physical ",
+	de_dbg(c, "%sdimensions: %dx%d", (d->num_planes==1)?"":"physical ",
 		(int)d->w, (int)d->h_phys);
 
 	// FIXME: This should really be testing the logical height, not the
@@ -197,7 +197,7 @@ static void de_run_grob_text(deark *c, lctx *d)
 			break;
 		}
 
-		de_dbg(c, "GROB format found at %d\n", (int)img_pos);
+		de_dbg(c, "GROB format found at %d", (int)img_pos);
 
 		img_count++;
 		grob_text_1_image(c, d, img_pos);

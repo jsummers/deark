@@ -45,7 +45,7 @@ static void do_text_chunk(deark *c, struct de_iffctx *ictx, const char *name)
 	dbuf_read_to_ucstring_n(c->infile,
 		ictx->chunkctx->chunk_dpos, ictx->chunkctx->chunk_dlen, DE_DBG_MAX_STRLEN,
 		s, DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_ASCII);
-	de_dbg(c, "%s: \"%s\"\n", name, ucstring_get_printable_sz(s));
+	de_dbg(c, "%s: \"%s\"", name, ucstring_get_printable_sz(s));
 	ucstring_destroy(s);
 }
 
@@ -182,11 +182,11 @@ static void do_midi_MThd(deark *c, struct de_iffctx *ictx,
 
 	if(chunkctx->chunk_dlen<6) return;
 	format_field = dbuf_getui16be(ictx->f, chunkctx->chunk_dpos);
-	de_dbg(c, "format: %d\n", (int)format_field);
+	de_dbg(c, "format: %d", (int)format_field);
 	ntrks_field = dbuf_getui16be(ictx->f, chunkctx->chunk_dpos+2);
-	de_dbg(c, "ntrks: %d\n", (int)ntrks_field);
+	de_dbg(c, "ntrks: %d", (int)ntrks_field);
 	division_field = dbuf_getui16be(ictx->f, chunkctx->chunk_dpos+4);
-	de_dbg(c, "division: %d\n", (int)division_field);
+	de_dbg(c, "division: %d", (int)division_field);
 }
 
 static int my_midi_chunk_handler(deark *c, struct de_iffctx *ictx)

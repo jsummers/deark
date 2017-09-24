@@ -131,7 +131,7 @@ static void de_run_npm(deark *c, de_module_params *mparams)
 	pos = 4;
 	txt_len = (de_int64)de_getbyte(pos);
 	pos += txt_len;
-	if(txt_len>0) de_dbg(c, "text length: %d\n", (int)txt_len);
+	if(txt_len>0) de_dbg(c, "text length: %d", (int)txt_len);
 	// TODO: Maybe write the text to a file.
 
 	pos += 2;
@@ -140,7 +140,7 @@ static void de_run_npm(deark *c, de_module_params *mparams)
 	pos += 1;
 	d->h = (de_int64)de_getbyte(pos);
 	pos += 1;
-	de_dbg(c, "dimensions: %dx%d\n", (int)d->w, (int)d->h);
+	de_dbg(c, "dimensions: %dx%d", (int)d->w, (int)d->h);
 
 	pos += 3;
 	npm_nlm_read_bitmap(c, d, pos);
@@ -184,11 +184,11 @@ static void de_run_nlm(deark *c, de_module_params *mparams)
 	case 3: s="Picture image logo"; break;
 	default: s="unknown";
 	}
-	de_dbg(c, "image type: %d (%s)\n", (int)imgtype, s);
+	de_dbg(c, "image type: %d (%s)", (int)imgtype, s);
 
 	d->w = (de_int64)de_getbyte(7);
 	d->h = (de_int64)de_getbyte(8);
-	de_dbg(c, "dimensions: %dx%d\n", (int)d->w, (int)d->h);
+	de_dbg(c, "dimensions: %dx%d", (int)d->w, (int)d->h);
 
 	npm_nlm_read_bitmap(c, d, 10);
 
@@ -222,7 +222,7 @@ static void nsl_read_bitmap(deark *c, lctx *d, de_int64 pos, de_int64 len)
 	de_int64 i, j;
 	de_byte x;
 
-	de_dbg(c, "bitmap at %d, len=%d\n", (int)pos, (int)len);
+	de_dbg(c, "bitmap at %d, len=%d", (int)pos, (int)len);
 	d->done_flag = 1;
 
 	if(len!=504) {

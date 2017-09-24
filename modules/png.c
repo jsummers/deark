@@ -111,7 +111,7 @@ static int do_unc_text_field(deark *c, lctx *d,
 	default: name="text";
 	}
 
-	de_dbg(c, "%s: \"%s\"\n", name, ucstring_get_printable_sz(srd->str));
+	de_dbg(c, "%s: \"%s\"", name, ucstring_get_printable_sz(srd->str));
 	retval = 1;
 
 done:
@@ -185,7 +185,7 @@ static void do_png_text(deark *c, lctx *d,
 	// Compression flag
 	if(chunk4cc->id==PNGID_iTXt) {
 		is_compressed = (int)de_getbyte(pos++);
-		de_dbg(c, "compression flag: %d\n", (int)is_compressed);
+		de_dbg(c, "compression flag: %d", (int)is_compressed);
 	}
 	else if(chunk4cc->id==PNGID_zTXt) {
 		is_compressed = 1;
@@ -240,10 +240,10 @@ static void do_png_IHDR(deark *c, lctx *d,
 	if(len<13) return;
 	w = de_getui32be(pos);
 	h = de_getui32be(pos+4);
-	de_dbg(c, "dimensions: %dx%d\n", (int)w, (int)h);
+	de_dbg(c, "dimensions: %dx%d", (int)w, (int)h);
 
 	n = de_getbyte(pos+8);
-	de_dbg(c, "depth: %d bits/sample\n", (int)n);
+	de_dbg(c, "depth: %d bits/sample", (int)n);
 
 	d->color_type = de_getbyte(pos+9);
 	switch(d->color_type) {
@@ -254,10 +254,10 @@ static void do_png_IHDR(deark *c, lctx *d,
 	case 6: name="truecolor+alpha"; break;
 	default: name="?";
 	}
-	de_dbg(c, "color type: %d (%s)\n", (int)d->color_type, name);
+	de_dbg(c, "color type: %d (%s)", (int)d->color_type, name);
 
 	n = de_getbyte(pos+12);
-	de_dbg(c, "interlaced: %d\n", (int)n);
+	de_dbg(c, "interlaced: %d", (int)n);
 }
 
 static void do_png_PLTE(deark *c, lctx *d,
@@ -270,7 +270,7 @@ static void do_png_PLTE(deark *c, lctx *d,
 	de_int64 nentries;
 
 	nentries = len/3;
-	de_dbg(c, "num palette entries: %d\n", (int)nentries);
+	de_dbg(c, "num palette entries: %d", (int)nentries);
 	de_read_palette_rgb(c->infile, pos, nentries, 3, pal, DE_ITEMS_IN_ARRAY(pal), 0);
 }
 
@@ -291,17 +291,17 @@ static void do_png_sPLT(deark *c, lctx *d,
 	srd = dbuf_read_string(c->infile, pos, nbytes_to_scan, 79, DE_CONVFLAG_STOP_AT_NUL,
 		DE_ENCODING_LATIN1);
 	if(!srd->found_nul) goto done;
-	de_dbg(c, "palette name: \"%s\"\n", ucstring_get_printable_sz(srd->str));
+	de_dbg(c, "palette name: \"%s\"", ucstring_get_printable_sz(srd->str));
 	pos += srd->bytes_consumed;
 
 	if(pos >= pos1+len) goto done;
 	depth = de_getbyte(pos++);
-	de_dbg(c, "depth: %d\n", (int)depth);
+	de_dbg(c, "depth: %d", (int)depth);
 	if(depth!=8 && depth!=16) goto done;
 
 	stride = (depth==8) ? 6 : 10;
 	nentries = (pos1+len-pos)/stride;
-	de_dbg(c, "number of entries: %d\n", (int)nentries);
+	de_dbg(c, "number of entries: %d", (int)nentries);
 
 	if(c->debug_level<2) goto done;
 	for(i=0; i<nentries; i++) {
@@ -312,7 +312,7 @@ static void do_png_sPLT(deark *c, lctx *d,
 			cb = (unsigned int)de_getbyte(pos+2);
 			ca = (unsigned int)de_getbyte(pos+3);
 			cf = (unsigned int)de_getui16be(pos+4);
-			de_dbg2(c, "pal[%3d] = (%3u,%3u,%3u,A=%u) F=%u\n",
+			de_dbg2(c, "pal[%3d] = (%3u,%3u,%3u,A=%u) F=%u",
 				(int)i, cr, cg, cb, ca, cf);
 		}
 		else {
@@ -321,7 +321,7 @@ static void do_png_sPLT(deark *c, lctx *d,
 			cb = (unsigned int)de_getui16be(pos+4);
 			ca = (unsigned int)de_getui16be(pos+6);
 			cf = (unsigned int)de_getui16be(pos+8);
-			de_dbg2(c, "pal[%3d] = (%5u,%5u,%5u,A=%u) F=%u\n",
+			de_dbg2(c, "pal[%3d] = (%5u,%5u,%5u,A=%u) F=%u",
 				(int)i, cr, cg, cb, ca, cf);
 		}
 		pos += stride;
@@ -340,24 +340,24 @@ static void do_png_tRNS(deark *c, lctx *d,
 	if(d->color_type==0) {
 		if(len<2) return;
 		r = de_getui16be(pos);
-		de_dbg(c, "transparent color gray shade: %d\n", (int)r);
+		de_dbg(c, "transparent color gray shade: %d", (int)r);
 	}
 	else if(d->color_type==2) {
 		if(len<6) return;
 		r = de_getui16be(pos);
 		g = de_getui16be(pos+2);
 		b = de_getui16be(pos+4);
-		de_dbg(c, "transparent color: (%d,%d,%d)\n", (int)r, (int)g, (int)b);
+		de_dbg(c, "transparent color: (%d,%d,%d)", (int)r, (int)g, (int)b);
 	}
 	else if(d->color_type==3) {
 		de_int64 i;
 		de_byte a;
 
-		de_dbg(c, "number of alpha values: %d\n", (int)len);
+		de_dbg(c, "number of alpha values: %d", (int)len);
 		if(c->debug_level<2) return;
 		for(i=0; i<len && i<256; i++) {
 			a = de_getbyte(pos+i);
-			de_dbg2(c, "alpha[%3d] = %d\n", (int)i, (int)a);
+			de_dbg2(c, "alpha[%3d] = %d", (int)i, (int)a);
 		}
 	}
 }
@@ -370,11 +370,11 @@ static void do_png_hIST(deark *c, lctx *d,
 	de_int64 v;
 	de_int64 nentries = len/2;
 
-	de_dbg(c, "number of histogram values: %d\n", (int)nentries);
+	de_dbg(c, "number of histogram values: %d", (int)nentries);
 	if(c->debug_level<2) return;
 	for(i=0; i<nentries; i++) {
 		v = de_getui16be(pos+i*2);
-		de_dbg2(c, "freq[%3d] = %d\n", (int)i, (int)v);
+		de_dbg2(c, "freq[%3d] = %d", (int)i, (int)v);
 	}
 }
 
@@ -388,19 +388,19 @@ static void do_png_bKGD(deark *c, lctx *d,
 	if(d->color_type==0 || d->color_type==4) {
 		if(len<2) return;
 		r = de_getui16be(pos);
-		de_dbg(c, "%s gray shade: %d\n", cti->name, (int)r);
+		de_dbg(c, "%s gray shade: %d", cti->name, (int)r);
 	}
 	else if(d->color_type==2 || d->color_type==6) {
 		if(len<6) return;
 		r = de_getui16be(pos);
 		g = de_getui16be(pos+2);
 		b = de_getui16be(pos+4);
-		de_dbg(c, "%s: (%d,%d,%d)\n", cti->name, (int)r, (int)g, (int)b);
+		de_dbg(c, "%s: (%d,%d,%d)", cti->name, (int)r, (int)g, (int)b);
 	}
 	else if(d->color_type==3) {
 		if(len<1) return;
 		idx = de_getbyte(pos);
-		de_dbg(c, "%s palette index: %d\n", cti->name, (int)idx);
+		de_dbg(c, "%s palette index: %d", cti->name, (int)idx);
 	}
 }
 
@@ -410,7 +410,7 @@ static void do_png_gAMA(deark *c, lctx *d,
 {
 	de_int64 n;
 	n = de_getui32be(pos);
-	de_dbg(c, "image gamma: %.5f\n", (double)n / 100000.0);
+	de_dbg(c, "image gamma: %.5f", (double)n / 100000.0);
 }
 
 static void do_png_pHYs(deark *c, lctx *d,
@@ -423,14 +423,14 @@ static void do_png_pHYs(deark *c, lctx *d,
 
 	dx = de_getui32be(pos);
 	dy = de_getui32be(pos+4);
-	de_dbg(c, "density: %dx%d\n", (int)dx, (int)dy);
+	de_dbg(c, "density: %dx%d", (int)dx, (int)dy);
 	u = de_getbyte(pos+8);
 	switch(u) {
 	case 0: name="unspecified"; break;
 	case 1: name="per meter"; break;
 	default: name="?";
 	}
-	de_dbg(c, "units: %d (%s)\n", (int)u, name);
+	de_dbg(c, "units: %d (%s)", (int)u, name);
 }
 
 static void do_png_sBIT(deark *c, lctx *d,
@@ -452,7 +452,7 @@ static void do_png_sBIT(deark *c, lctx *d,
 	for(i=0; i<4 && i<len; i++) {
 		de_byte n;
 		n = de_getbyte(pos+i);
-		de_dbg(c, "significant %s bits: %d\n", sbname[i], (int)n);
+		de_dbg(c, "significant %s bits: %d", sbname[i], (int)n);
 	}
 }
 
@@ -474,7 +474,7 @@ static void do_png_tIME(deark *c, lctx *d,
 
 	de_make_timestamp(&ts, yr, mo, da, hr, mi, (double)se, 0);
 	de_timestamp_to_string(&ts, timestamp_buf, sizeof(timestamp_buf), 1);
-	de_dbg(c, "mod time: %s\n", timestamp_buf);
+	de_dbg(c, "mod time: %s", timestamp_buf);
 }
 
 static void do_png_cHRM(deark *c, lctx *d,
@@ -490,10 +490,10 @@ static void do_png_cHRM(deark *c, lctx *d,
 		n[i] = de_getui32be(pos+4*i);
 		nd[i] = ((double)n[i])/100000.0;
 	}
-	de_dbg(c, "white point: (%1.5f, %1.5f)\n", nd[0], nd[1]);
-	de_dbg(c, "red        : (%1.5f, %1.5f)\n", nd[2], nd[3]);
-	de_dbg(c, "green      : (%1.5f, %1.5f)\n", nd[4], nd[5]);
-	de_dbg(c, "blue       : (%1.5f, %1.5f)\n", nd[6], nd[7]);
+	de_dbg(c, "white point: (%1.5f, %1.5f)", nd[0], nd[1]);
+	de_dbg(c, "red        : (%1.5f, %1.5f)", nd[2], nd[3]);
+	de_dbg(c, "green      : (%1.5f, %1.5f)", nd[4], nd[5]);
+	de_dbg(c, "blue       : (%1.5f, %1.5f)", nd[6], nd[7]);
 }
 
 static void do_png_sRGB(deark *c, lctx *d,
@@ -512,7 +512,7 @@ static void do_png_sRGB(deark *c, lctx *d,
 	case 3: name="absolute"; break;
 	default: name="?";
 	}
-	de_dbg(c, "rendering intent: %d (%s)\n", (int)intent, name);
+	de_dbg(c, "rendering intent: %d (%s)", (int)intent, name);
 }
 
 static void do_png_iccp(deark *c, lctx *d,
@@ -559,7 +559,7 @@ static void do_png_eXIf(deark *c, lctx *d,
 		// Some versions of the PNG-Exif proposal had the Exif data starting with
 		// an "Exif\0\0" identifier, and some files were created in this format.
 		// So we'll support it.
-		de_dbg(c, "[skipping JPEG app ID]\n");
+		de_dbg(c, "[skipping JPEG app ID]");
 		pos += 6;
 		len -= 6;
 	}
@@ -644,7 +644,7 @@ static void de_run_png(deark *c, de_module_params *mparams)
 			;
 		}
 		else if(chunk4cc.id==PNGID_IDAT && prev_chunk_id==PNGID_IDAT && c->debug_level<2) {
-			de_dbg(c, "(more IDAT chunks follow)\n");
+			de_dbg(c, "(more IDAT chunks follow)");
 			suppress_idat_dbg = 1;
 		}
 		else {
@@ -655,7 +655,7 @@ static void de_run_png(deark *c, de_module_params *mparams)
 				de_strlcpy(nbuf, "", sizeof(nbuf));
 			}
 
-			de_dbg(c, "chunk '%s'%s at %d dpos=%d dlen=%d\n",
+			de_dbg(c, "chunk '%s'%s at %d dpos=%d dlen=%d",
 				chunk4cc.id_printable, nbuf,
 				(int)pos, (int)(pos+8), (int)chunk_data_len);
 			if(chunk4cc.id!=PNGID_IDAT) suppress_idat_dbg = 0;
@@ -670,7 +670,7 @@ static void de_run_png(deark *c, de_module_params *mparams)
 		pos += chunk_data_len;
 
 		crc = (de_uint32)de_getui32be(pos);
-		de_dbg2(c, "crc32 (reported): 0x%08x\n", (unsigned int)crc);
+		de_dbg2(c, "crc32 (reported): 0x%08x", (unsigned int)crc);
 		pos += 4;
 
 		de_dbg_indent(c, -1);

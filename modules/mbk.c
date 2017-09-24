@@ -34,7 +34,7 @@ static void do_sprite_param_block(deark *c, lctx *d, de_int64 res,
 	struct atari_img_decode_data *adata_mask = NULL;
 	de_uint32 mask_pal[2] = { DE_STOCKCOLOR_WHITE, DE_STOCKCOLOR_BLACK };
 
-	de_dbg(c, "%s-res sprite #%d param block at %d\n", sprite_res_name[res],
+	de_dbg(c, "%s-res sprite #%d param block at %d", sprite_res_name[res],
 		(int)sprite_index, (int)pos);
 	de_dbg_indent(c, 1);
 	adata_fg = de_malloc(c, sizeof(struct atari_img_decode_data));
@@ -47,23 +47,23 @@ static void do_sprite_param_block(deark *c, lctx *d, de_int64 res,
 
 	sprite_data_offs_raw = de_getui32be(pos);
 
-	//de_dbg(c, "sprite data offset: %d (->%d)\n", (int)sprite_data_offs_raw, (int)mask_offs);
+	//de_dbg(c, "sprite data offset: %d (->%d)", (int)sprite_data_offs_raw, (int)mask_offs);
 	width_raw = (de_int64)de_getbyte(pos+4);
 	adata_fg->w = width_raw*16;
 	adata_fg->h = (de_int64)de_getbyte(pos+5);
-	de_dbg(c, "dimensions: %dx%d\n", (int)adata_fg->w, (int)adata_fg->h);
+	de_dbg(c, "dimensions: %dx%d", (int)adata_fg->w, (int)adata_fg->h);
 	if(!de_good_image_dimensions(c, adata_fg->w, adata_fg->h)) goto done;
 
 	adata_mask->w = adata_fg->w;
 	adata_mask->h = adata_fg->h;
 	mask_offs = param_blk_pos + sprite_data_offs_raw;
 	mask_size = (width_raw * 2 * 1) * adata_mask->h;
-	de_dbg(c, "mask image at %d, len=%d\n", (int)mask_offs, (int)mask_size);
+	de_dbg(c, "mask image at %d, len=%d", (int)mask_offs, (int)mask_size);
 	if(mask_offs>=c->infile->len) goto done;
 
 	fg_offs = mask_offs + mask_size;
 	fg_size = (width_raw * 2 * adata_fg->bpp) * adata_fg->h;
-	de_dbg(c, "foreground image at %d, len=%d\n", (int)fg_offs, (int)fg_size);
+	de_dbg(c, "foreground image at %d, len=%d", (int)fg_offs, (int)fg_size);
 
 	adata_mask->unc_pixels = dbuf_open_input_subfile(c->infile, mask_offs, mask_size);
 	adata_fg->unc_pixels = dbuf_open_input_subfile(c->infile, fg_offs, fg_size);
@@ -99,7 +99,7 @@ static void do_sprite_param_blocks(deark *c, lctx *d, de_int64 res,
 	de_int64 nsprites, de_int64 pos)
 {
 	de_int64 k;
-	de_dbg(c, "%s-res sprite param blocks at %d\n", sprite_res_name[res],
+	de_dbg(c, "%s-res sprite param blocks at %d", sprite_res_name[res],
 		(int)pos);
 
 	de_dbg_indent(c, 1);
@@ -121,7 +121,7 @@ static void read_sprite_palette(deark *c, lctx *d, de_int64 pos)
 		d->pal[0] = DE_STOCKCOLOR_WHITE;
 		return;
 	}
-	de_dbg(c, "sprite palette at %d\n", (int)pos);
+	de_dbg(c, "sprite palette at %d", (int)pos);
 	de_dbg_indent(c, 1);
 	de_fmtutil_read_atari_palette(c, c->infile, pos+4, d->pal, 16, 16, 0);
 	de_dbg_indent(c, -1);
@@ -141,7 +141,7 @@ static void do_sprite_bank(deark *c, lctx *d, de_int64 pos)
 		// paramoffs is relative to the first position after the ID.
 		paramoffs[res] = pos + 4 + paramoffs_raw[res];
 		nsprites[res] = de_getui16be(pos+16+2*res);
-		de_dbg(c, "%s-res sprites: %d, param blk offset: %d (-> %d)\n", sprite_res_name[res],
+		de_dbg(c, "%s-res sprites: %d, param blk offset: %d (-> %d)", sprite_res_name[res],
 			(int)nsprites[res], (int)paramoffs_raw[res], (int)paramoffs[res]);
 		nsprites_total += nsprites[res];
 	}
@@ -169,14 +169,14 @@ static void do_icon(deark *c, lctx *d, de_int64 idx, de_int64 pos)
 	de_int64 bitsstart;
 	de_uint32 clr;
 
-	de_dbg(c, "icon #%d, at %d\n", (int)idx, (int)pos);
+	de_dbg(c, "icon #%d, at %d", (int)idx, (int)pos);
 	de_dbg_indent(c, 1);
 
 	format_flag = de_getui16be(pos+4);
-	de_dbg(c, "format flag: 0x%04x\n", (unsigned int)format_flag);
+	de_dbg(c, "format flag: 0x%04x", (unsigned int)format_flag);
 	bgcol = de_getui16be(pos+6);
 	fgcol = de_getui16be(pos+8);
-	de_dbg(c, "bgcol: 0x%04x, fgcol: 0x%04x\n", (unsigned int)bgcol, (unsigned int)fgcol);
+	de_dbg(c, "bgcol: 0x%04x, fgcol: 0x%04x", (unsigned int)bgcol, (unsigned int)fgcol);
 
 	// TODO: I don't know how to figure out what colors to use.
 	if(fgcol==0 && bgcol!=0) {
@@ -217,7 +217,7 @@ static void do_icon_bank(deark *c, lctx *d, de_int64 pos)
 	de_int64 k;
 
 	num_icons = de_getui16be(pos+4);
-	de_dbg(c, "number of icons: %d\n", (int)num_icons);
+	de_dbg(c, "number of icons: %d", (int)num_icons);
 	for(k=0; k<num_icons; k++) {
 		do_icon(c, d, k, pos+6+84*k);
 	}
@@ -227,7 +227,7 @@ static void do_mbk_data_bank(deark *c, lctx *d, de_int64 pos)
 {
 	const char *bn = "?";
 
-	de_dbg(c, "STOS data bank at %d\n", (int)pos);
+	de_dbg(c, "STOS data bank at %d", (int)pos);
 	de_dbg_indent(c, 1);
 	d->data_bank_id = (de_uint32)de_getui32be(pos);
 
@@ -239,7 +239,7 @@ static void do_mbk_data_bank(deark *c, lctx *d, de_int64 pos)
 	case 0x4d414553U: bn = "Maestro!"; break;
 	}
 
-	de_dbg(c, "data bank id: 0x%08x (%s)\n", (unsigned int)d->data_bank_id, bn);
+	de_dbg(c, "data bank id: 0x%08x (%s)", (unsigned int)d->data_bank_id, bn);
 
 	switch(d->data_bank_id) {
 	case 0x19861987U:
@@ -257,10 +257,10 @@ static void do_mbk(deark *c, lctx *d)
 	de_int64 pos = 0;
 	const char *bt = "?";
 
-	de_dbg(c, "MBK header at %d\n", (int)pos);
+	de_dbg(c, "MBK header at %d", (int)pos);
 	de_dbg_indent(c, 1);
 
-	de_dbg(c, "bank number: %d\n", (int)d->banknum);
+	de_dbg(c, "bank number: %d", (int)d->banknum);
 
 	d->banksize = de_getui32be(14);
 	d->banktype = (de_byte)(d->banksize>>24);
@@ -275,8 +275,8 @@ static void do_mbk(deark *c, lctx *d)
 	case 0x85: bt = "packed files"; break;
 	}
 
-	de_dbg(c, "bank type: 0x%02x (%s)\n", (unsigned int)d->banktype, bt);
-	de_dbg(c, "bank size: %d\n", (int)d->banksize);
+	de_dbg(c, "bank type: 0x%02x (%s)", (unsigned int)d->banktype, bt);
+	de_dbg(c, "bank size: %d", (int)d->banksize);
 
 	de_dbg_indent(c, -1);
 
@@ -290,7 +290,7 @@ static void do_mbk(deark *c, lctx *d)
 static void do_mbs(deark *c, lctx *d)
 {
 	de_int64 pos = 0;
-	de_dbg(c, "MBS header at %d\n", (int)pos);
+	de_dbg(c, "MBS header at %d", (int)pos);
 }
 
 static void de_run_mbk_mbs(deark *c, de_module_params *mparams)

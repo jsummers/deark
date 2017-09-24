@@ -21,11 +21,11 @@ typedef struct localctx_struct {
 
 static int do_read_palette(deark *c, lctx *d, de_int64 pos, de_int64 *pal_nbytes)
 {
-	de_dbg(c, "palette at %d\n", (int)pos);
+	de_dbg(c, "palette at %d", (int)pos);
 	de_dbg_indent(c, 1);
 
 	d->num_pal_entries = de_getui16le(pos) + 1;
-	de_dbg(c, "number of palette colors: %d\n", (int)d->num_pal_entries);
+	de_dbg(c, "number of palette colors: %d", (int)d->num_pal_entries);
 	if(d->palette_is_hls)
 		*pal_nbytes = 2 + d->num_pal_entries * 6;
 	else
@@ -75,7 +75,7 @@ static int do_uncompress_image(deark *c, lctx *d, de_int64 pos1, dbuf *unc_pixel
 	de_int64 j;
 	int ret;
 
-	de_dbg(c, "decompressing bitmap\n");
+	de_dbg(c, "decompressing bitmap");
 
 	// Each line is compressed independently, using PackBits.
 
@@ -87,7 +87,7 @@ static int do_uncompress_image(deark *c, lctx *d, de_int64 pos1, dbuf *unc_pixel
 		if(!ret) return 0;
 		pos += bytes_in_this_line;
 	}
-	de_dbg(c, "decompressed %d bytes to %d bytes\n", (int)(pos-pos1),
+	de_dbg(c, "decompressed %d bytes to %d bytes", (int)(pos-pos1),
 		(int)unc_pixels->len);
 	return 1;
 }
@@ -108,26 +108,26 @@ static void de_run_alphabmp(deark *c, de_module_params *mparams)
 
 	pos = 10;
 
-	de_dbg(c, "bitmap image definition block at %d\n", (int)pos);
+	de_dbg(c, "bitmap image definition block at %d", (int)pos);
 	de_dbg_indent(c, 1);
 
 	d->w = de_getui16le(pos);
 	d->h = de_getui16le(pos+2);
-	de_dbg(c, "dimensions: %dx%d\n", (int)d->w, (int)d->h);
+	de_dbg(c, "dimensions: %dx%d", (int)d->w, (int)d->h);
 	if(!de_good_image_dimensions(c, d->w, d->h)) goto done;
 
 	d->bpp = de_getui16le(pos+4);
-	de_dbg(c, "bits/pixel: %d\n", (int)d->bpp);
+	de_dbg(c, "bits/pixel: %d", (int)d->bpp);
 
 	flags = (unsigned int)de_getui16le(pos+6);
 	d->has_palette = flags & 0x01;
 	d->palette_is_hls = (flags>>1) & 0x01;
-	de_dbg(c, "has-palette: %d\n", (int)d->has_palette);
+	de_dbg(c, "has-palette: %d", (int)d->has_palette);
 	if(d->has_palette)
-		de_dbg(c, "palette-is-HLS: %d\n", (int)d->palette_is_hls);
+		de_dbg(c, "palette-is-HLS: %d", (int)d->palette_is_hls);
 
 	d->compression = de_getui16le(pos+8);
-	de_dbg(c, "compression: %d\n", (int)d->compression);
+	de_dbg(c, "compression: %d", (int)d->compression);
 	de_dbg_indent(c, -1);
 
 	pos += 70;
@@ -145,7 +145,7 @@ static void de_run_alphabmp(deark *c, de_module_params *mparams)
 		goto done;
 	}
 
-	de_dbg(c, "bitmap at %d\n", (int)pos);
+	de_dbg(c, "bitmap at %d", (int)pos);
 	de_dbg_indent(c, 1);
 
 	if(d->compression) {

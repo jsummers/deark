@@ -110,12 +110,12 @@ static int do_bmhd(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 	d->transparent_color = de_getui16be(pos1+12);
 	d->x_aspect = (de_int64)de_getbyte(pos1+14);
 	d->y_aspect = (de_int64)de_getbyte(pos1+15);
-	de_dbg(c, "dimensions: %dx%d, planes: %d, compression: %d\n", (int)d->main_img.width,
+	de_dbg(c, "dimensions: %dx%d, planes: %d, compression: %d", (int)d->main_img.width,
 		(int)d->main_img.height, (int)d->planes, (int)d->compression);
-	de_dbg(c, "apect ratio: %d, %d\n", (int)d->x_aspect, (int)d->y_aspect);
-	de_dbg(c, "masking: %d (%s)\n", (int)d->main_img.masking_code, masking_name);
+	de_dbg(c, "apect ratio: %d, %d", (int)d->x_aspect, (int)d->y_aspect);
+	de_dbg(c, "masking: %d (%s)", (int)d->main_img.masking_code, masking_name);
 	if(d->main_img.masking_code==2 || d->main_img.masking_code==3) {
-		de_dbg(c, " color key: %d\n", (int)d->transparent_color);
+		de_dbg(c, " color key: %d", (int)d->transparent_color);
 	}
 
 	retval = 1;
@@ -127,7 +127,7 @@ static void do_cmap(deark *c, lctx *d, de_int64 pos, de_int64 len)
 {
 	d->found_cmap = 1;
 	d->pal_ncolors = len/3;
-	de_dbg(c, "number of palette colors: %d\n", (int)d->pal_ncolors);
+	de_dbg(c, "number of palette colors: %d", (int)d->pal_ncolors);
 	if(d->pal_ncolors>256) d->pal_ncolors=256;
 
 	de_read_palette_rgb(c->infile, pos, d->pal_ncolors, 3, d->pal, 256, 0);
@@ -139,7 +139,7 @@ static void do_camg(deark *c, lctx *d, de_int64 pos, de_int64 len)
 	d->has_camg = 1;
 
 	d->camg_mode = (de_uint32)de_getui32be(pos);
-	de_dbg(c, "CAMG mode: 0x%x\n", (unsigned int)d->camg_mode);
+	de_dbg(c, "CAMG mode: 0x%x", (unsigned int)d->camg_mode);
 
 	if(d->camg_mode & 0x0800)
 		d->ham_flag = 1;
@@ -147,7 +147,7 @@ static void do_camg(deark *c, lctx *d, de_int64 pos, de_int64 len)
 		d->ehb_flag = 1;
 
 	de_dbg_indent(c, 1);
-	de_dbg(c, "HAM: %d, EHB: %d\n", (int)d->ham_flag, (int)d->ehb_flag);
+	de_dbg(c, "HAM: %d, EHB: %d", (int)d->ham_flag, (int)d->ehb_flag);
 	de_dbg_indent(c, -1);
 }
 
@@ -156,7 +156,7 @@ static void do_dpi(deark *c, lctx *d, de_int64 pos, de_int64 len)
 	if(len<4) return;
 	d->x_dpi = de_getui16be(pos);
 	d->y_dpi = de_getui16be(pos+2);
-	de_dbg(c, "dpi: %dx%d\n", (int)d->x_dpi, (int)d->y_dpi);
+	de_dbg(c, "dpi: %dx%d", (int)d->x_dpi, (int)d->y_dpi);
 }
 
 static de_byte getbit(const de_byte *m, de_int64 bitnum)
@@ -353,7 +353,7 @@ static void fixup_palette(deark *c, lctx *d)
 			if((cg&0x0f) != 0) return;
 			if((cb&0x0f) != 0) return;
 		}
-		de_dbg(c, "Palette seems to have 4 bits of precision. Rescaling palette.\n");
+		de_dbg(c, "Palette seems to have 4 bits of precision. Rescaling palette.");
 	}
 
 	for(k=0; k<d->pal_ncolors; k++) {
@@ -613,7 +613,7 @@ static void print_summary(deark *c, lctx *d)
 		ucstring_append_sz(summary, " no-CMAP", DE_ENCODING_UTF8);
 	}
 
-	de_dbg(c, "summary: %s\n", ucstring_get_printable_sz(summary));
+	de_dbg(c, "summary: %s", ucstring_get_printable_sz(summary));
 
 done:
 	ucstring_destroy(summary);
@@ -663,7 +663,7 @@ static int do_image(deark *c, lctx *d, struct img_info *ii,
 		// TODO: Call dbuf_set_max_length()
 		if(!de_fmtutil_uncompress_packbits(c->infile, pos1, len, unc_pixels, NULL))
 			goto done;
-		de_dbg(c, "decompressed %d bytes to %d bytes\n", (int)len, (int)unc_pixels->len);
+		de_dbg(c, "decompressed %d bytes to %d bytes", (int)len, (int)unc_pixels->len);
 	}
 	else {
 		de_err(c, "Unsupported compression type: %d\n", (int)d->compression);
@@ -702,7 +702,7 @@ static void do_tiny(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 	ii->width = de_getui16be(pos1);
 	if(len<=4) goto done;
 	ii->height = de_getui16be(pos1+2);
-	de_dbg(c, "thumbnail image, dimensions: %dx%d\n", (int)ii->width, (int)ii->height);
+	de_dbg(c, "thumbnail image, dimensions: %dx%d", (int)ii->width, (int)ii->height);
 
 	// Based on what little data I have, it seems that TINY images do not have
 	// a transparency mask, even if the main image does.
@@ -743,7 +743,7 @@ static void do_vdat(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 	cmd_cnt = de_getui16be(pos); // command count + 2
 	pos+=2;
 	cmd_cnt -= 2;
-	de_dbg(c, "number of command bytes: %d\n", (int)cmd_cnt);
+	de_dbg(c, "number of command bytes: %d", (int)cmd_cnt);
 	if(cmd_cnt<1) goto done;
 
 	cmds = de_malloc(c, cmd_cnt * sizeof(de_byte));
@@ -795,7 +795,7 @@ static void do_vdat(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 		}
 	}
 
-	de_dbg(c, "uncompressed to %d bytes\n", (int)(d->vdat_unc_pixels->len - prev_unc_len));
+	de_dbg(c, "uncompressed to %d bytes", (int)(d->vdat_unc_pixels->len - prev_unc_len));
 done:
 	de_free(c, cmds);
 }
@@ -901,7 +901,7 @@ static int my_ilbm_chunk_handler(deark *c, struct de_iffctx *ictx)
 
 	case CODE_CCRT: // Graphicraft Color Cycling Range and Timing
 		tmp1 = de_geti16be(ictx->chunkctx->chunk_dpos);
-		de_dbg(c, "cycling direction: %d\n", (int)tmp1);
+		de_dbg(c, "cycling direction: %d", (int)tmp1);
 		if(tmp1!=0) {
 			d->uses_color_cycling = 1;
 		}
@@ -911,16 +911,16 @@ static int my_ilbm_chunk_handler(deark *c, struct de_iffctx *ictx)
 		if(ictx->chunkctx->chunk_dlen<8) break;
 		tmp1 = de_getui16be(ictx->chunkctx->chunk_dpos+2);
 		tmp2 = de_getui16be(ictx->chunkctx->chunk_dpos+4);
-		de_dbg(c, "CRNG flags: 0x%04x\n", (unsigned int)tmp2);
+		de_dbg(c, "CRNG flags: 0x%04x", (unsigned int)tmp2);
 		if(tmp2&0x1) {
 			d->uses_color_cycling = 1;
-			de_dbg(c, "rate: %.2f fps\n", (double)(((double)tmp1)*(60.0/16384.0)));
+			de_dbg(c, "rate: %.2f fps", (double)(((double)tmp1)*(60.0/16384.0)));
 		}
 		break;
 
 	case CODE_DRNG:
 		tmp2 = de_getui16be(ictx->chunkctx->chunk_dpos+4);
-		de_dbg(c, "DRNG flags: 0x%04x\n", (unsigned int)tmp2);
+		de_dbg(c, "DRNG flags: 0x%04x", (unsigned int)tmp2);
 		if(tmp2&0x1) {
 			d->uses_color_cycling = 1;
 		}
@@ -930,7 +930,7 @@ static int my_ilbm_chunk_handler(deark *c, struct de_iffctx *ictx)
 		if(ictx->chunkctx->chunk_dlen<4) break;
 		tmp1 = de_getui16be(ictx->chunkctx->chunk_dpos);
 		tmp2 = de_getui16be(ictx->chunkctx->chunk_dpos+2);
-		de_dbg(c, "hotspot: (%d, %d)\n", (int)tmp1, (int)tmp2);
+		de_dbg(c, "hotspot: (%d, %d)", (int)tmp1, (int)tmp2);
 		break;
 
 	case CODE_SHAM:
@@ -954,13 +954,13 @@ static int my_on_std_container_start_fn(deark *c, struct de_iffctx *ictx)
 {
 	lctx *d = (lctx*)ictx->userdata;
 
-	de_dbg2(c, "std_container_start(level=%d, type=%08x)\n", ictx->level,
+	de_dbg2(c, "std_container_start(level=%d, type=%08x)", ictx->level,
 		(unsigned int)ictx->curr_container_contentstype4cc.id);
 
 	if(ictx->level==0 && ictx->curr_container_fmt4cc.id==CODE_FORM) {
 
 		d->formtype = ictx->curr_container_contentstype4cc.id;
-		//de_dbg(c, "FORM type: '%s'\n", ictx->curr_container_contentstype4cc.id_printable);
+		//de_dbg(c, "FORM type: '%s'", ictx->curr_container_contentstype4cc.id_printable);
 
 		switch(ictx->main_contentstype4cc.id) {
 		case CODE_ILBM: de_declare_fmt(c, "IFF-ILBM"); break;
@@ -975,7 +975,7 @@ static int my_on_container_end_fn(deark *c, struct de_iffctx *ictx)
 {
 	lctx *d = (lctx*)ictx->userdata;
 
-	de_dbg2(c, "container_end(level=%d, fmt=%08x, contentstype=%08x)\n",
+	de_dbg2(c, "container_end(level=%d, fmt=%08x, contentstype=%08x)",
 		ictx->level,
 		(unsigned int)ictx->curr_container_fmt4cc.id,
 		(unsigned int)ictx->curr_container_contentstype4cc.id);
@@ -1063,7 +1063,7 @@ static void do_anim_anhd(deark *c, animctx *d, de_int64 pos, de_int64 len)
 	if(len<24) return;
 
 	op = de_getbyte(pos++);
-	de_dbg(c, "operation: %d\n", (int)op);
+	de_dbg(c, "operation: %d", (int)op);
 
 	pos++; // Mask
 	pos+=2; // w
@@ -1073,7 +1073,7 @@ static void do_anim_anhd(deark *c, animctx *d, de_int64 pos, de_int64 len)
 	pos+=4; // abstime
 
 	tmp = de_getui32be(pos); // reltime
-	de_dbg(c, "reltime: %.5f sec\n", ((double)tmp)/60.0);
+	de_dbg(c, "reltime: %.5f sec", ((double)tmp)/60.0);
 	pos+=4;
 
 	pos++; // interleave
@@ -1082,7 +1082,7 @@ static void do_anim_anhd(deark *c, animctx *d, de_int64 pos, de_int64 len)
 	// bits
 	if(op==4 || op==5) {
 		tmp = de_getui32be(pos);
-		de_dbg(c, "flags: 0x%08u\n", (unsigned int)tmp);
+		de_dbg(c, "flags: 0x%08u", (unsigned int)tmp);
 	}
 	pos+=4;
 }

@@ -109,7 +109,7 @@ static void do_image_data(deark *c, lctx *d, de_int64 img_num, de_int64 pos1, de
 	fg_start = pos1 + bi.size_of_headers_and_pal;
 	bg_start = pos1 + bi.size_of_headers_and_pal + bi.foreground_size;
 
-	de_dbg(c, "foreground at %d, mask at %d\n", (int)fg_start, (int)bg_start);
+	de_dbg(c, "foreground at %d, mask at %d", (int)fg_start, (int)bg_start);
 
 	for(j=0; j<img->height; j++) {
 		for(i=0; i<img->width; i++) {
@@ -194,11 +194,11 @@ static void do_image_dir_entry(deark *c, lctx *d, de_int64 img_num, de_int64 pos
 	de_int64 data_size;
 	de_int64 data_offset;
 
-	de_dbg(c, "image #%d, index at %d\n", (int)img_num, (int)pos);
+	de_dbg(c, "image #%d, index at %d", (int)img_num, (int)pos);
 	de_dbg_indent(c, 1);
 	data_size = de_getui32le(pos+8);
 	data_offset = de_getui32le(pos+12);
-	de_dbg(c, "offset=%d, size=%d\n", (int)data_offset, (int)data_size);
+	de_dbg(c, "offset=%d, size=%d", (int)data_offset, (int)data_size);
 
 	do_image_data(c, d, img_num, data_offset, data_size);
 
@@ -225,12 +225,12 @@ static void de_run_ico(deark *c, de_module_params *mparams)
 		de_declare_fmt(c, "Windows Cursor");
 	}
 	else {
-		de_dbg(c, "Not an ICO/CUR file\n");
+		de_dbg(c, "Not an ICO/CUR file");
 		goto done;
 	}
 
 	num_images = de_getui16le(4);
-	de_dbg(c, "images in file: %d\n", (int)num_images);
+	de_dbg(c, "images in file: %d", (int)num_images);
 	if(!de_good_image_count(c, num_images)) {
 		goto done;
 	}

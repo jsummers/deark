@@ -42,7 +42,7 @@ static void read_palette(deark *c, lctx *d, de_int64 pos)
 	de_int64 k;
 	de_byte cr, cg, cb;
 
-	de_dbg(c, "palette at %d\n", (int)pos);
+	de_dbg(c, "palette at %d", (int)pos);
 	de_dbg_indent(c, 1);
 
 	for(k=0; k<d->num_colors; k++) {
@@ -68,7 +68,7 @@ static int read_mki_header(deark *c, lctx *d)
 	unsigned int extension_flags;
 	int retval = 0;
 
-	de_dbg(c, "MKI header at %d\n", (int)d->header_pos);
+	de_dbg(c, "MKI header at %d", (int)d->header_pos);
 	de_dbg_indent(c, 1);
 
 	pos = d->header_pos;
@@ -79,7 +79,7 @@ static int read_mki_header(deark *c, lctx *d)
 	d->pixels_size = pix_data_a_size + pix_data_b_size;
 
 	extension_flags = (unsigned int)de_getui16be(pos+6);
-	de_dbg(c, "extension flags: 0x%04x\n", extension_flags);
+	de_dbg(c, "extension flags: 0x%04x", extension_flags);
 	de_dbg_indent(c, 1);
 	d->aspect_ratio_flag = extension_flags&0x0001;
 	if(extension_flags&0x0002) {
@@ -89,18 +89,18 @@ static int read_mki_header(deark *c, lctx *d)
 		d->num_colors = 16;
 		d->bits_per_pixel = 4;
 	}
-	de_dbg(c, "number of colors: %d\n", (int)d->num_colors);
+	de_dbg(c, "number of colors: %d", (int)d->num_colors);
 	de_dbg_indent(c, -1);
 
 	xoffset = de_getui16be(pos+8);
 	yoffset = de_getui16be(pos+10);
-	de_dbg(c, "image offset: (%d,%d)\n", (int)xoffset, (int)yoffset);
+	de_dbg(c, "image offset: (%d,%d)", (int)xoffset, (int)yoffset);
 
 	width_raw = de_getui16be(pos+12);
 	d->width = width_raw - xoffset;
 	height_raw = de_getui16be(pos+14);
 	d->height = height_raw - yoffset;
-	de_dbg(c, "dimensions: %dx%d\n", (int)d->width, (int)d->height);
+	de_dbg(c, "dimensions: %dx%d", (int)d->width, (int)d->height);
 	if(d->width%64 != 0) {
 		de_warn(c, "Width is not a multiple of 64. This image may not be handled correctly.\n");
 	}
@@ -120,11 +120,11 @@ static int read_mki_header(deark *c, lctx *d)
 	d->flag_b_offset = d->flag_a_offset + flag_a_size;
 	d->pixels_offset = d->flag_b_offset + d->flag_b_size;
 	expected_file_size = d->pixels_offset + d->pixels_size;
-	de_dbg(c, "flag A offset=%d, size=%d\n", (int)d->flag_a_offset, (int)flag_a_size);
-	de_dbg(c, "flag B calculated_offset=%d, size=%d\n", (int)d->flag_b_offset, (int)d->flag_b_size);
-	de_dbg(c, "pix data size_A=%d, size_B=%d\n", (int)pix_data_a_size, (int)pix_data_b_size);
-	de_dbg(c, "pix data calculated_offset=%d, calculated_size=%d\n", (int)d->pixels_offset, (int)d->pixels_size);
-	de_dbg(c, "calculated file size: %d\n", (int)expected_file_size);
+	de_dbg(c, "flag A offset=%d, size=%d", (int)d->flag_a_offset, (int)flag_a_size);
+	de_dbg(c, "flag B calculated_offset=%d, size=%d", (int)d->flag_b_offset, (int)d->flag_b_size);
+	de_dbg(c, "pix data size_A=%d, size_B=%d", (int)pix_data_a_size, (int)pix_data_b_size);
+	de_dbg(c, "pix data calculated_offset=%d, calculated_size=%d", (int)d->pixels_offset, (int)d->pixels_size);
+	de_dbg(c, "calculated file size: %d", (int)expected_file_size);
 
 	if(d->bits_per_pixel!=4 && d->bits_per_pixel!=8) {
 		de_err(c, "Unsupported or unknown bits/pixel\n");
@@ -247,14 +247,14 @@ static int read_mag_header(deark *c, lctx *d)
 	de_byte colors_code;
 	int retval = 0;
 
-	de_dbg(c, "header at %d\n", (int)d->header_pos);
+	de_dbg(c, "header at %d", (int)d->header_pos);
 	de_dbg_indent(c, 1);
 
 	pos = d->header_pos;
 
 	model_code = de_getbyte(pos+1);
 	model_flags = de_getbyte(pos+2);
-	de_dbg(c, "model code: 0x%02x, flags: 0x%02x\n",
+	de_dbg(c, "model code: 0x%02x, flags: 0x%02x",
 		(unsigned int)model_code, (unsigned int)model_flags);
 	if(model_code==0x03 && (model_flags==0x44 || model_flags==0x24)) {
 		de_warn(c, "This looks like MAX format, which is not correctly supported.\n");
@@ -262,7 +262,7 @@ static int read_mag_header(deark *c, lctx *d)
 	}
 
 	screen_mode = de_getbyte(pos+3);
-	de_dbg(c, "screen mode: %d\n", (int)screen_mode);
+	de_dbg(c, "screen mode: %d", (int)screen_mode);
 	de_dbg_indent(c, 1);
 	d->aspect_ratio_flag = screen_mode&0x01;
 	colors_code = screen_mode&0x82;
@@ -278,32 +278,32 @@ static int read_mag_header(deark *c, lctx *d)
 		d->num_colors = 8;
 		// TODO: Support 8 color images
 	}
-	de_dbg(c, "number of colors: %d\n", (int)d->num_colors);
+	de_dbg(c, "number of colors: %d", (int)d->num_colors);
 	de_dbg_indent(c, -1);
 
 	xoffset = de_getui16le(pos+4);
 	yoffset = de_getui16le(pos+6);
-	de_dbg(c, "image offset: (%d,%d)\n", (int)xoffset, (int)yoffset);
+	de_dbg(c, "image offset: (%d,%d)", (int)xoffset, (int)yoffset);
 
 	width_raw = de_getui16le(pos+8);
 	height_raw = de_getui16le(pos+10);
 	d->width = width_raw - xoffset + 1;
 	d->height = height_raw - yoffset + 1;
-	de_dbg(c, "dimensions: %dx%d\n", (int)d->width, (int)d->height);
+	de_dbg(c, "dimensions: %dx%d", (int)d->width, (int)d->height);
 
 	d->flag_a_offset = de_getui32le(pos+12);
 	d->flag_a_offset += d->header_pos;
-	de_dbg(c, "flag A offset: %d\n", (int)d->flag_a_offset);
+	de_dbg(c, "flag A offset: %d", (int)d->flag_a_offset);
 
 	d->flag_b_offset = de_getui32le(pos+16);
 	d->flag_b_offset += d->header_pos;
 	d->flag_b_size = de_getui32le(pos+20);
-	de_dbg(c, "flag B offset: %d, size=%d\n", (int)d->flag_b_offset, (int)d->flag_b_size);
+	de_dbg(c, "flag B offset: %d, size=%d", (int)d->flag_b_offset, (int)d->flag_b_size);
 
 	d->pixels_offset = de_getui32le(pos+24);
 	d->pixels_offset += d->header_pos;
 	d->pixels_size = de_getui32le(pos+28);
-	de_dbg(c, "pixels offset: %d, size=%d\n", (int)d->pixels_offset, (int)d->pixels_size);
+	de_dbg(c, "pixels offset: %d, size=%d", (int)d->pixels_offset, (int)d->pixels_size);
 
 	if(d->bits_per_pixel!=4 && d->bits_per_pixel!=8) {
 		de_err(c, "Unsupported or unknown bits/pixel\n");
@@ -331,7 +331,7 @@ static int do_mag_decompress(deark *c, lctx *d)
 	de_byte *action_byte_buf = NULL;
 	de_byte wordbuf[2];
 
-	de_dbg(c, "decompressing pixels\n");
+	de_dbg(c, "decompressing pixels");
 
 	// Presumably, due to the compression scheme, every row must have a
 	// multiple of 4 bytes.
@@ -432,7 +432,7 @@ static int find_mag_header(deark *c, lctx *d)
 		// TODO: Is this the correct algorithm, or should we just assume the
 		// header starts immediately after the first 0x1a byte?
 		ret = dbuf_search_byte(c->infile, '\0', pos_1a+1, c->infile->len-pos_1a-1, &d->header_pos);
-		de_dbg(c, "header found at %d\n", (int)d->header_pos);
+		de_dbg(c, "header found at %d", (int)d->header_pos);
 		return 1;
 	}
 

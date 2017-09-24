@@ -92,12 +92,12 @@ static int read_header_ascii_portable(deark *c, lctx *d, struct member_data *md)
 
 	ret = dbuf_read_ascii_number(c->infile, pos, 6, 8, &n);
 	if(!ret) goto done;
-	de_dbg(c, "c_ino: %d\n", (int)n);
+	de_dbg(c, "c_ino: %d", (int)n);
 	pos += 6;
 
 	ret = dbuf_read_ascii_number(c->infile, pos, 6, 8, &md->mode);
 	if(!ret) goto done;
-	de_dbg(c, "c_mode: octal(%06o)\n", (unsigned int)md->mode);
+	de_dbg(c, "c_mode: octal(%06o)", (unsigned int)md->mode);
 	pos += 6;
 
 	pos += 6; // c_uid
@@ -109,17 +109,17 @@ static int read_header_ascii_portable(deark *c, lctx *d, struct member_data *md)
 	if(!ret) goto done;
 	de_unix_time_to_timestamp(modtime_unix, &md->fi->mod_time);
 	de_timestamp_to_string(&md->fi->mod_time, timestamp_buf, sizeof(timestamp_buf), 1);
-	de_dbg(c, "c_mtime: %d (%s)\n", (int)modtime_unix, timestamp_buf);
+	de_dbg(c, "c_mtime: %d (%s)", (int)modtime_unix, timestamp_buf);
 	pos += 11;
 
 	ret = dbuf_read_ascii_number(c->infile, pos, 6, 8, &md->namesize);
 	if(!ret) goto done;
-	de_dbg(c, "c_namesize: %d\n", (int)md->namesize);
+	de_dbg(c, "c_namesize: %d", (int)md->namesize);
 	pos += 6;
 
 	ret = dbuf_read_ascii_number(c->infile, pos, 11, 8, &md->filesize);
 	if(!ret) goto done;
-	de_dbg(c, "c_filesize: %d\n", (int)md->filesize);
+	de_dbg(c, "c_filesize: %d", (int)md->filesize);
 	pos += 11;
 
 	md->fixed_header_size = pos - md->startpos;
@@ -148,12 +148,12 @@ static int read_header_ascii_new(deark *c, lctx *d, struct member_data *md)
 
 	ret = dbuf_read_ascii_number(c->infile, pos, 8, 16, &n);
 	if(!ret) goto done;
-	de_dbg(c, "c_ino: %d\n", (int)n);
+	de_dbg(c, "c_ino: %d", (int)n);
 	pos += 8;
 
 	ret = dbuf_read_ascii_number(c->infile, pos, 8, 16, &md->mode);
 	if(!ret) goto done;
-	de_dbg(c, "c_mode: octal(%06o)\n", (unsigned int)md->mode);
+	de_dbg(c, "c_mode: octal(%06o)", (unsigned int)md->mode);
 	pos += 8;
 
 	pos += 8; // c_uid
@@ -164,12 +164,12 @@ static int read_header_ascii_new(deark *c, lctx *d, struct member_data *md)
 	if(!ret) goto done;
 	de_unix_time_to_timestamp(modtime_unix, &md->fi->mod_time);
 	de_timestamp_to_string(&md->fi->mod_time, timestamp_buf, sizeof(timestamp_buf), 1);
-	de_dbg(c, "c_mtime: %d (%s)\n", (int)modtime_unix, timestamp_buf);
+	de_dbg(c, "c_mtime: %d (%s)", (int)modtime_unix, timestamp_buf);
 	pos += 8;
 
 	ret = dbuf_read_ascii_number(c->infile, pos, 8, 16, &md->filesize);
 	if(!ret) goto done;
-	de_dbg(c, "c_filesize: %d\n", (int)md->filesize);
+	de_dbg(c, "c_filesize: %d", (int)md->filesize);
 	pos += 8;
 
 	pos += 8; // c_devmajor
@@ -179,13 +179,13 @@ static int read_header_ascii_new(deark *c, lctx *d, struct member_data *md)
 
 	ret = dbuf_read_ascii_number(c->infile, pos, 8, 16, &md->namesize);
 	if(!ret) goto done;
-	de_dbg(c, "c_namesize: %d\n", (int)md->namesize);
+	de_dbg(c, "c_namesize: %d", (int)md->namesize);
 	pos += 8;
 
 	if(md->subfmt==SUBFMT_ASCII_NEWCRC) {
 		ret = dbuf_read_ascii_number(c->infile, pos, 8, 16, &md->checksum_reported);
 		if(!ret) goto done;
-		de_dbg(c, "c_check: %u\n", (unsigned int)md->checksum_reported);
+		de_dbg(c, "c_check: %u", (unsigned int)md->checksum_reported);
 	}
 	pos += 8; // c_check
 
@@ -218,11 +218,11 @@ static int read_header_binary(deark *c, lctx *d, struct member_data *md)
 	pos += 2; // c_dev
 
 	n = dbuf_getui16x(c->infile, pos, md->is_le);
-	de_dbg(c, "c_ino: %d\n", (int)n);
+	de_dbg(c, "c_ino: %d", (int)n);
 	pos += 2;
 
 	md->mode = dbuf_getui16x(c->infile, pos, md->is_le);
-	de_dbg(c, "c_mode: octal(%06o)\n", (unsigned int)md->mode);
+	de_dbg(c, "c_mode: octal(%06o)", (unsigned int)md->mode);
 	pos += 2;
 
 	pos += 2; // c_uid
@@ -235,17 +235,17 @@ static int read_header_binary(deark *c, lctx *d, struct member_data *md)
 	modtime_unix = (modtime_msw<<16) | modtime_lsw;
 	de_unix_time_to_timestamp(modtime_unix, &md->fi->mod_time);
 	de_timestamp_to_string(&md->fi->mod_time, timestamp_buf, sizeof(timestamp_buf), 1);
-	de_dbg(c, "c_mtime: %d (%s)\n", (int)modtime_unix, timestamp_buf);
+	de_dbg(c, "c_mtime: %d (%s)", (int)modtime_unix, timestamp_buf);
 	pos += 4;
 
 	md->namesize = dbuf_getui16x(c->infile, pos, md->is_le);
-	de_dbg(c, "c_namesize: %d\n", (int)md->namesize);
+	de_dbg(c, "c_namesize: %d", (int)md->namesize);
 	pos += 2;
 
 	filesize_msw = dbuf_getui16x(c->infile, pos, md->is_le);
 	filesize_lsw = dbuf_getui16x(c->infile, pos+2, md->is_le);
 	md->filesize = (filesize_msw<<16) | filesize_lsw;
-	de_dbg(c, "c_filesize: %d\n", (int)md->filesize);
+	de_dbg(c, "c_filesize: %d", (int)md->filesize);
 	pos += 4;
 
 	md->fixed_header_size = pos - md->startpos;
@@ -274,7 +274,7 @@ static void read_member_name(deark *c, lctx *d, struct member_data *md)
 	md->filename_srd = dbuf_read_string(c->infile, md->startpos + md->fixed_header_size,
 		namesize_adjusted, namesize_adjusted, 0, DE_ENCODING_UTF8);
 
-	de_dbg(c, "name: \"%s\"\n", ucstring_get_printable_sz(md->filename_srd->str));
+	de_dbg(c, "name: \"%s\"", ucstring_get_printable_sz(md->filename_srd->str));
 
 	de_finfo_set_name_from_ucstring(c, md->fi, md->filename_srd->str);
 	md->fi->original_filename_flag = 1;
@@ -304,10 +304,10 @@ static int read_member(deark *c, lctx *d, de_int64 pos1,
 
 	de_dbg_indent_save(c, &saved_indent_level);
 
-	de_dbg(c, "member at %d\n", (int)pos);
+	de_dbg(c, "member at %d", (int)pos);
 	de_dbg_indent(c, 1);
 
-	de_dbg(c, "fixed header at %d\n", (int)pos);
+	de_dbg(c, "fixed header at %d", (int)pos);
 	de_dbg_indent(c, 1);
 
 	md = de_malloc(c, sizeof(struct member_data));
@@ -340,13 +340,13 @@ static int read_member(deark *c, lctx *d, de_int64 pos1,
 	}
 
 	de_dbg_indent(c, -1);
-	de_dbg(c, "member name at %d\n", (int)pos);
+	de_dbg(c, "member name at %d", (int)pos);
 	de_dbg_indent(c, 1);
 	read_member_name(c, d, md);
 	pos = md->startpos + md->fixed_header_size + md->namesize_padded;
 	de_dbg_indent(c, -1);
 
-	de_dbg(c, "member data at %d, len=%d\n", (int)pos, (int)md->filesize);
+	de_dbg(c, "member data at %d, len=%d", (int)pos, (int)md->filesize);
 	de_dbg_indent(c, 1);
 
 	if(pos + md->filesize > c->infile->len) {
@@ -365,14 +365,14 @@ static int read_member(deark *c, lctx *d, de_int64 pos1,
 
 		if(md->mode==0 && md->namesize==11) {
 			if(!de_strcmp((const char*)md->filename_srd->sz, "TRAILER!!!")) {
-				de_dbg(c, "[Trailer. Not extracting.]\n");
+				de_dbg(c, "[Trailer. Not extracting.]");
 				msgflag = 1;
 				d->trailer_found = 1;
 			}
 		}
 
 		if(!msgflag) {
-			de_dbg(c, "[Not a regular file. Skipping.]\n");
+			de_dbg(c, "[Not a regular file. Skipping.]");
 		}
 	}
 	else {

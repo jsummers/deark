@@ -232,10 +232,10 @@ static int de_inflate_internal(dbuf *inf, de_int64 inputstart, de_int64 inputsiz
 	inbuf_num_valid_bytes = 0;
 	inbuf_num_consumed_bytes = 0;
 
-	de_dbg2(c, "inflating up to %d bytes\n", (int)inputsize);
+	de_dbg2(c, "inflating up to %d bytes", (int)inputsize);
 
 	while(1) {
-		de_dbg3(c, "input remaining: %d\n", (int)(inputstart+inputsize-input_cur_pos));
+		de_dbg3(c, "input remaining: %d", (int)(inputstart+inputsize-input_cur_pos));
 
 		// If we have read all the available bytes from the file,
 		// and all bytes in inbuf are consumed, then stop.
@@ -278,12 +278,12 @@ static int de_inflate_internal(dbuf *inf, de_int64 inputstart, de_int64 inputsiz
 		}
 
 		output_bytes_this_time = DE_DFL_OUTBUF_SIZE - strm.avail_out;
-		de_dbg3(c, "got %d output bytes\n", (int)output_bytes_this_time);
+		de_dbg3(c, "got %d output bytes", (int)output_bytes_this_time);
 
 		dbuf_write(outf, outbuf, output_bytes_this_time);
 
 		if(ret==MZ_STREAM_END) {
-			de_dbg2(c, "inflate finished normally\n");
+			de_dbg2(c, "inflate finished normally");
 			retval = 1;
 			goto done;
 		}
@@ -301,7 +301,7 @@ static int de_inflate_internal(dbuf *inf, de_int64 inputstart, de_int64 inputsiz
 done:
 	if(retval) {
 		*bytes_consumed = (de_int64)strm.total_in;
-		de_dbg2(c, "inflated %u to %u bytes\n", (unsigned int)strm.total_in,
+		de_dbg2(c, "inflated %u to %u bytes", (unsigned int)strm.total_in,
 			(unsigned int)strm.total_out);
 	}
 	if(stream_open_flag) {
@@ -420,7 +420,7 @@ void de_zip_add_file_to_archive(deark *c, dbuf *f)
 
 	zip = (mz_zip_archive*)c->zip_file;
 
-	de_dbg(c, "adding to zip: name:%s len:%d\n", f->name, (int)dbuf_get_length(f));
+	de_dbg(c, "adding to zip: name:%s len:%d", f->name, (int)dbuf_get_length(f));
 
 	if(c->preserve_file_times && f->mod_time.is_valid) {
 		dfa.modtime = de_timestamp_to_unix_time(&f->mod_time);
@@ -474,13 +474,13 @@ void de_zip_close_file(deark *c)
 	mz_zip_archive *zip;
 
 	if(!c->zip_file) return;
-	de_dbg(c, "closing zip file\n");
+	de_dbg(c, "closing zip file");
 
 	zip = (mz_zip_archive*)c->zip_file;
 
 	mz_zip_writer_finalize_archive(zip);
 	mz_zip_writer_end(zip);
-	de_dbg(c, "zip file closed\n");
+	de_dbg(c, "zip file closed");
 
 	de_free(c, c->zip_file);
 	c->zip_file = NULL;

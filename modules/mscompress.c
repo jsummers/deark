@@ -25,13 +25,13 @@ static int do_header_SZDD(deark *c, lctx *d, de_int64 pos1)
 	char tmps[80];
 	int retval = 0;
 
-	de_dbg(c, "header at %d\n", (int)pos);
+	de_dbg(c, "header at %d", (int)pos);
 	de_dbg_indent(c, 1);
 
 	pos += 8; // signature
 
 	cmpr_mode = de_getbyte(pos++);
-	de_dbg(c, "compression mode: 0x%02x ('%c')\n", (unsigned int)cmpr_mode,
+	de_dbg(c, "compression mode: 0x%02x ('%c')", (unsigned int)cmpr_mode,
 		de_byte_to_printable_char(cmpr_mode));
 	if(cmpr_mode != 0x41) {
 		de_err(c, "Unsupported compression mode\n");
@@ -48,10 +48,10 @@ static int do_header_SZDD(deark *c, lctx *d, de_int64 pos1)
 	else {
 		de_strlcpy(tmps, "", sizeof(tmps));
 	}
-	de_dbg(c, "missing filename char: 0x%02x%s\n", (unsigned int)fnchar, tmps);
+	de_dbg(c, "missing filename char: 0x%02x%s", (unsigned int)fnchar, tmps);
 
 	d->uncmpr_len = de_getui32le(pos);
-	de_dbg(c, "uncompressed len: %"INT64_FMT"\n", d->uncmpr_len);
+	de_dbg(c, "uncompressed len: %"INT64_FMT"", d->uncmpr_len);
 	pos += 4;
 
 	d->header_len = pos - pos1;
@@ -68,26 +68,26 @@ static int do_header_KWAJ(deark *c, lctx *d, de_int64 pos1)
 	unsigned int flags;
 	de_int64 pos = pos1;
 
-	de_dbg(c, "header at %d\n", (int)pos);
+	de_dbg(c, "header at %d", (int)pos);
 	de_dbg_indent(c, 1);
 
 	pos += 8; // signature
 
 	cmpr_method = (int)de_getui16le(pos);
-	de_dbg(c, "compression method: %d\n", cmpr_method);
+	de_dbg(c, "compression method: %d", cmpr_method);
 	pos+=2;
 
 	data_offs = de_getui16le(pos);
-	de_dbg(c, "compressed data offset: %d\n", (int)data_offs);
+	de_dbg(c, "compressed data offset: %d", (int)data_offs);
 	pos+=2;
 
 	flags = (unsigned int)de_getui16le(pos);
-	de_dbg(c, "header extension flags: 0x%04x\n", flags);
+	de_dbg(c, "header extension flags: 0x%04x", flags);
 	pos+=2;
 
 	if(flags&0x01) {
 		d->uncmpr_len = de_getui32le(pos);
-		de_dbg(c, "uncompressed len: %"INT64_FMT"\n", d->uncmpr_len);
+		de_dbg(c, "uncompressed len: %"INT64_FMT"", d->uncmpr_len);
 		pos += 4;
 	}
 	// TODO: More header fields
@@ -149,7 +149,7 @@ static void do_uncompress_SZDD(deark *c,
 
 unc_done:
 	nbytes_read = pos-pos1;
-	de_dbg(c, "uncompressed %d bytes to %d bytes\n",
+	de_dbg(c, "uncompressed %d bytes to %d bytes",
 		(int)nbytes_read, (int)outf->len);
 
 	if(outf->len != expected_output_len) {
@@ -204,7 +204,7 @@ static void de_run_mscompress(deark *c, de_module_params *mparams)
 	}
 	pos += d->header_len;
 
-	de_dbg(c, "compressed data at %d\n", (int)pos);
+	de_dbg(c, "compressed data at %d", (int)pos);
 	de_dbg_indent(c, 1);
 	outf = dbuf_create_output_file(c, "bin", NULL, 0);
 	do_uncompress_SZDD(c, c->infile, pos, c->infile->len-pos, outf, d->uncmpr_len);
