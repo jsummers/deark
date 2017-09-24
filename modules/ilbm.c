@@ -1035,9 +1035,9 @@ static int de_identify_ilbm(deark *c)
 
 static void de_help_ilbm(deark *c)
 {
-	de_msg(c, "-opt ilbm:notrans : Disable support for transparency\n");
+	de_msg(c, "-opt ilbm:notrans : Disable support for transparency");
 	de_msg(c, "-opt ilbm:fixpal=<0|1> : Don't/Do try to fix palettes that are "
-		"slightly too dark\n");
+		"slightly too dark");
 }
 
 void de_module_ilbm(deark *c, struct deark_module_info *mi)

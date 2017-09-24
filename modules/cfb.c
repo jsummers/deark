@@ -1508,8 +1508,8 @@ static int de_identify_cfb(deark *c)
 
 static void de_help_cfb(deark *c)
 {
-	de_msg(c, "-opt cfb:fmt=raw : Do not try to detect the document type\n");
-	de_msg(c, "-opt cfb:fmt=thumbsdb : Assume Thumbs.db format\n");
+	de_msg(c, "-opt cfb:fmt=raw : Do not try to detect the document type");
+	de_msg(c, "-opt cfb:fmt=thumbsdb : Assume Thumbs.db format");
 }
 
 void de_module_cfb(deark *c, struct deark_module_info *mi)

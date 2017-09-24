@@ -161,7 +161,7 @@ static int de_identify_iff(deark *c)
 
 static void de_help_iff(deark *c)
 {
-	de_msg(c, "-opt iff:align=<n> : Assume chunks are padded to an n-byte boundary\n");
+	de_msg(c, "-opt iff:align=<n> : Assume chunks are padded to an n-byte boundary");
 }
 void de_module_iff(deark *c, struct deark_module_info *mi)
 {
@@ -205,7 +205,7 @@ static void de_run_midi(deark *c, de_module_params *mparams)
 	lctx *d = NULL;
 	struct de_iffctx *ictx = NULL;
 
-	de_msg(c, "Note: MIDI files can be parsed, but no files can be extracted from them.\n");
+	de_msg(c, "Note: MIDI files can be parsed, but no files can be extracted from them.");
 	d = de_malloc(c, sizeof(lctx));
 
 	ictx = de_malloc(c, sizeof(struct de_iffctx));

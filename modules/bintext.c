@@ -371,8 +371,8 @@ static int de_identify_xbin(deark *c)
 
 static void de_help_xbin(deark *c)
 {
-	de_msg(c, "-opt char:output=html : Write HTML instead of an image file\n");
-	de_msg(c, "-opt char:charwidth=<8|9> : Width of a character cell\n");
+	de_msg(c, "-opt char:output=html : Write HTML instead of an image file");
+	de_msg(c, "-opt char:charwidth=<8|9> : Width of a character cell");
 }
 
 void de_module_xbin(deark *c, struct deark_module_info *mi)
@@ -491,9 +491,9 @@ static int de_identify_bintext(deark *c)
 
 static void de_help_bintext(deark *c)
 {
-	de_msg(c, "-opt char:output=image : Write an image file instead of HTML\n");
-	de_msg(c, " -opt char:charwidth=<8|9> : Width of a character cell\n");
-	de_msg(c, "-opt char:width=<n> : Number of characters per row\n");
+	de_msg(c, "-opt char:output=image : Write an image file instead of HTML");
+	de_msg(c, " -opt char:charwidth=<8|9> : Width of a character cell");
+	de_msg(c, "-opt char:width=<n> : Number of characters per row");
 }
 
 void de_module_bintext(deark *c, struct deark_module_info *mi)
@@ -599,9 +599,9 @@ static int de_identify_artworx_adf(deark *c)
 
 static void de_help_artworx_adf(deark *c)
 {
-	de_msg(c, "-opt char:output=html : Write HTML instead of an image file\n");
-	de_msg(c, "-opt char:charwidth=<8|9> : Width of a character cell\n");
-	de_msg(c, "-opt char:width=<n> : Number of characters per row\n");
+	de_msg(c, "-opt char:output=html : Write HTML instead of an image file");
+	de_msg(c, "-opt char:charwidth=<8|9> : Width of a character cell");
+	de_msg(c, "-opt char:width=<n> : Number of characters per row");
 }
 
 void de_module_artworx_adf(deark *c, struct deark_module_info *mi)

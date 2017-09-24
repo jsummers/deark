@@ -608,7 +608,7 @@ static void de_run_lha(deark *c, de_module_params *mparams)
 	struct member_data *md = NULL;
 
 	d = de_malloc(c, sizeof(lctx));
-	de_msg(c, "Note: LHA files can be parsed, but no files can be extracted from them.\n");
+	de_msg(c, "Note: LHA files can be parsed, but no files can be extracted from them.");
 
 	pos = 0;
 	while(1) {

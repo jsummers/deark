@@ -360,6 +360,7 @@ void de_msg(deark *c, const char *fmt, ...)
 	va_start(ap, fmt);
 	de_vprintf(c, DE_MSGTYPE_MESSAGE, fmt, ap);
 	va_end(ap);
+	de_puts(c, DE_MSGTYPE_MESSAGE, "\n");
 }
 
 // c can be NULL.
@@ -975,7 +976,7 @@ void de_declare_fmt(deark *c, const char *fmtname)
 		return; // Only allowed for the top-level module
 	}
 	if(c->format_declared) return;
-	de_msg(c, "Format: %s\n", fmtname);
+	de_msg(c, "Format: %s", fmtname);
 	c->format_declared = 1;
 }
 

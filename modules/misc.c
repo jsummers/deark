@@ -1420,7 +1420,7 @@ done:
 
 static void de_help_vgafont(deark *c)
 {
-	de_msg(c, "-opt vgafont:c : Emit C code\n");
+	de_msg(c, "-opt vgafont:c : Emit C code");
 }
 
 void de_module_vgafont(deark *c, struct deark_module_info *mi)

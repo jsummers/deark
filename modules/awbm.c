@@ -243,8 +243,8 @@ static int de_identify_awbm(deark *c)
 
 static void de_help_awbm(deark *c)
 {
-	de_msg(c, "-opt awbm:rgb=0 : Assume BGR sample order\n");
-	de_msg(c, "-opt awbm:rgb=1 : Assume RGB sample order\n");
+	de_msg(c, "-opt awbm:rgb=0 : Assume BGR sample order");
+	de_msg(c, "-opt awbm:rgb=1 : Assume RGB sample order");
 }
 
 void de_module_awbm(deark *c, struct deark_module_info *mi)

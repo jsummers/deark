@@ -615,18 +615,18 @@ static int de_identify_bsave(deark *c)
 
 static void de_help_bsave(deark *c)
 {
-	de_msg(c, "-opt bsave:fmt=...\n");
-	de_msg(c, " char  : Character graphics\n");
-	de_msg(c, " cga2  : 2-color, 640x200\n");
-	de_msg(c, " cga4  : 4-color, 320x200\n");
-	de_msg(c, " cga16 : 16-color, 160x100 pseudographics\n");
-	de_msg(c, " mcga  : 256-color, 320x200\n");
-	de_msg(c, " wh2   : 2-color, 11-byte header\n");
-	de_msg(c, " wh4   : 4-color, 11-byte header\n");
-	de_msg(c, " wh16  : 16-color, 11-byte header, inter-row interlaced\n");
-	de_msg(c, " b256  : Special\n");
-	de_msg(c, " 2col  : 2-color noninterlaced\n");
-	de_msg(c, " 4col  : 4-color noninterlaced\n");
+	de_msg(c, "-opt bsave:fmt=...");
+	de_msg(c, " char  : Character graphics");
+	de_msg(c, " cga2  : 2-color, 640x200");
+	de_msg(c, " cga4  : 4-color, 320x200");
+	de_msg(c, " cga16 : 16-color, 160x100 pseudographics");
+	de_msg(c, " mcga  : 256-color, 320x200");
+	de_msg(c, " wh2   : 2-color, 11-byte header");
+	de_msg(c, " wh4   : 4-color, 11-byte header");
+	de_msg(c, " wh16  : 16-color, 11-byte header, inter-row interlaced");
+	de_msg(c, " b256  : Special");
+	de_msg(c, " 2col  : 2-color noninterlaced");
+	de_msg(c, " 4col  : 4-color noninterlaced");
 }
 
 void de_module_bsave(deark *c, struct deark_module_info *mi)

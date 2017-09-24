@@ -376,7 +376,7 @@ static int de_identify_psf(deark *c)
 
 static void de_help_psf(deark *c)
 {
-	de_msg(c, "-opt font:noaliases : Restrict to one codepoint per glyph\n");
+	de_msg(c, "-opt font:noaliases : Restrict to one codepoint per glyph");
 }
 
 void de_module_psf(deark *c, struct deark_module_info *mi)

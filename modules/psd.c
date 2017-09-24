@@ -1660,7 +1660,7 @@ static void hrsrc_thumbnail(deark *c, lctx *d, zztype *zz, const struct rsrc_inf
 	zz->pos += 28;
 
 	if(ri->id==0x0409 && c->extract_policy!=DE_EXTRACTPOLICY_MAINONLY) {
-		de_msg(c, "Note: This Photoshop thumbnail uses nonstandard colors, and may not look right.\n");
+		de_msg(c, "Note: This Photoshop thumbnail uses nonstandard colors, and may not look right.");
 	}
 	dbuf_create_file_from_slice(c->infile, zz->pos, zz_avail(zz),
 		"psdthumb.jpg", NULL, DE_CREATEFLAG_IS_AUX);

@@ -571,7 +571,7 @@ static void de_run_iccprofile(deark *c, de_module_params *mparams)
 	de_int64 pos;
 
 	d = de_malloc(c, sizeof(lctx));
-	de_msg(c, "Note: ICC profiles can be parsed, but no files can be extracted from them.\n");
+	de_msg(c, "Note: ICC profiles can be parsed, but no files can be extracted from them.");
 
 	pos = 0;
 	do_read_header(c, d, pos);

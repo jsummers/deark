@@ -753,24 +753,24 @@ dbuf *dbuf_create_output_file(deark *c, const char *ext, de_finfo *fi,
 
 	if(c->list_mode) {
 		f->btype = DBUF_TYPE_NULL;
-		de_msg(c, "%s\n", f->name);
+		de_msg(c, "%s", f->name);
 		return f;
 	}
 
 	if(c->output_style==DE_OUTPUTSTYLE_ZIP) {
-		de_msg(c, "Adding %s to ZIP file\n", f->name);
+		de_msg(c, "Adding %s to ZIP file", f->name);
 		f->btype = DBUF_TYPE_MEMBUF;
 		f->membuf_buf = de_malloc(c, 65536);
 		f->membuf_alloc = 65536;
 		f->write_memfile_to_zip_archive = 1;
 	}
 	else if(c->output_style==DE_OUTPUTSTYLE_STDOUT) {
-		de_msg(c, "Writing %s to [stdout]\n", f->name);
+		de_msg(c, "Writing %s to [stdout]", f->name);
 		f->btype = DBUF_TYPE_STDOUT;
 		f->fp = stdout;
 	}
 	else {
-		de_msg(c, "Writing %s\n", f->name);
+		de_msg(c, "Writing %s", f->name);
 		f->btype = DBUF_TYPE_OFILE;
 		f->fp = de_fopen_for_write(c, f->name, msgbuf, sizeof(msgbuf));
 

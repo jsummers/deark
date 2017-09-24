@@ -643,7 +643,7 @@ static void do_extract_file(deark *c, lctx *d, struct member_data *md)
 	}
 
 	if(md->is_dir && ldd->uncmpr_size==0) {
-		de_msg(c, "Note: \"%s\" is a directory. Ignoring.\n",
+		de_msg(c, "Note: \"%s\" is a directory. Ignoring.",
 			ucstring_get_printable_sz_d(ldd->fname));
 		goto done;
 	}

@@ -279,7 +279,7 @@ static void do_palette_stuff(deark *c, lctx *d)
 	if(d->version==3 && d->ncolors>=8 && d->ncolors<=16) {
 		if(!d->default_pal_set) {
 			de_msg(c, "Note: This paletted PCX file does not contain a palette. "
-				"If it is not decoded correctly, try \"-opt pcx:pal=1\".\n");
+				"If it is not decoded correctly, try \"-opt pcx:pal=1\".");
 		}
 		de_dbg(c, "Using a default EGA palette");
 		for(k=0; k<16; k++) {
@@ -532,8 +532,8 @@ static int de_identify_pcx(deark *c)
 static void de_help_pcx(deark *c)
 {
 	de_msg(c, "-opt pcx:pal=<0|1> : Code for the predefined palette to use, "
-		"if there is no palette in the file\n");
-	de_msg(c, "-file2 <file.p13> : Read the palette from a separate file\n");
+		"if there is no palette in the file");
+	de_msg(c, "-file2 <file.p13> : Read the palette from a separate file");
 }
 
 void de_module_pcx(deark *c, struct deark_module_info *mi)

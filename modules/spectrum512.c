@@ -389,7 +389,7 @@ static int de_identify_spectrum512c(deark *c)
 
 static void de_help_spectrum512cs(deark *c)
 {
-	de_msg(c, "-opt spectrum512:tospu : Output to an .spu file\n");
+	de_msg(c, "-opt spectrum512:tospu : Output to an .spu file");
 }
 
 void de_module_spectrum512c(deark *c, struct deark_module_info *mi)

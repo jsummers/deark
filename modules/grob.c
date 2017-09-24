@@ -268,8 +268,8 @@ static int de_identify_grob(deark *c)
 
 static void de_help_grob(deark *c)
 {
-	de_msg(c, "-opt grob:planes=<n> : Treat image as grayscale\n");
-	de_msg(c, "-opt grob:planeorder=l : Least-significant plane comes first\n");
+	de_msg(c, "-opt grob:planes=<n> : Treat image as grayscale");
+	de_msg(c, "-opt grob:planeorder=l : Least-significant plane comes first");
 }
 
 void de_module_grob(deark *c, struct deark_module_info *mi)

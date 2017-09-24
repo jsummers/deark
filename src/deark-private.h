@@ -305,22 +305,22 @@ void de_vsnprintf(char *buf, size_t buflen, const char *fmt, va_list ap);
 void de_snprintf(char *buf, size_t buflen, const char *fmt, ...)
   de_gnuc_attribute ((format (printf, 3, 4)));
 
+// de_dbg*, de_msg, de_warn, de_err: The output is a single line, to which a
+// standard prefix like "Warning: " may be added. A newline will be added
+// automatically.
+// [For other output functions, see de_puts, de_printf (deark.h).]
+
 void de_dbg(deark *c, const char *fmt, ...)
   de_gnuc_attribute ((format (printf, 2, 3)));
-
 void de_dbg2(deark *c, const char *fmt, ...)
   de_gnuc_attribute ((format (printf, 2, 3)));
-
 void de_dbg3(deark *c, const char *fmt, ...)
   de_gnuc_attribute ((format (printf, 2, 3)));
-
-void de_err(deark *c, const char *fmt, ...)
-  de_gnuc_attribute ((format (printf, 2, 3)));
-
 void de_msg(deark *c, const char *fmt, ...)
   de_gnuc_attribute ((format (printf, 2, 3)));
-
 void de_warn(deark *c, const char *fmt, ...)
+  de_gnuc_attribute ((format (printf, 2, 3)));
+void de_err(deark *c, const char *fmt, ...)
   de_gnuc_attribute ((format (printf, 2, 3)));
 
 FILE* de_fopen_for_read(deark *c, const char *fn, de_int64 *len,

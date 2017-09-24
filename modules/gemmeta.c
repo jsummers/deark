@@ -193,7 +193,7 @@ static void de_run_gemmeta(deark *c, de_module_params *mparams)
 	de_int64 bytesused;
 
 	d = de_malloc(c, sizeof(lctx));
-	de_msg(c, "Note: GEM VDI Metafiles can be parsed, but no files can be extracted from them.\n");
+	de_msg(c, "Note: GEM VDI Metafiles can be parsed, but no files can be extracted from them.");
 
 	pos = 0;
 	hdrlen_words = de_getui16le(pos+2);

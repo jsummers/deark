@@ -996,7 +996,7 @@ static int de_identify_gif(deark *c)
 
 static void de_help_gif(deark *c)
 {
-	de_msg(c, "-opt gif:raw : Extract individual component images\n");
+	de_msg(c, "-opt gif:raw : Extract individual component images");
 }
 
 void de_module_gif(deark *c, struct deark_module_info *mi)

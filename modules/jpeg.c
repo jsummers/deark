@@ -1007,7 +1007,7 @@ static void do_jpeg_internal(deark *c, lctx *d)
 	if(d->image_count>1) {
 		// For Multi-Picture Format (.mpo) and similar.
 		de_msg(c, "Note: This file seems to contain %d JPEG files. "
-			"Use \"-m jpegscan\" to extract them.\n", d->image_count);
+			"Use \"-m jpegscan\" to extract them.", d->image_count);
 	}
 }
 
@@ -1156,7 +1156,7 @@ static int de_identify_jpeg(deark *c)
 static void de_help_jpeg(deark *c)
 {
 	de_msg(c, "-opt jpeg:stopateoi : Stop when the end of the first JPEG "
-		"\"file\" has been found\n");
+		"\"file\" has been found");
 }
 
 void de_module_jpeg(deark *c, struct deark_module_info *mi)

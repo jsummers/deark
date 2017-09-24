@@ -1588,7 +1588,7 @@ static int de_identify_palmbitmap(deark *c)
 
 static void de_help_common(deark *c)
 {
-	de_msg(c, "-opt palm:nocolortable : Ignore the hasColorTable flag, if set\n");
+	de_msg(c, "-opt palm:nocolortable : Ignore the hasColorTable flag, if set");
 }
 
 static void de_help_pdb_prc(deark *c)

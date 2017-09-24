@@ -182,7 +182,7 @@ static int de_identify_psionpic(deark *c)
 
 static void de_help_psionpic(deark *c)
 {
-	de_msg(c, "-opt psionpic:bw : Do not try to detect grayscale images\n");
+	de_msg(c, "-opt psionpic:bw : Do not try to detect grayscale images");
 }
 
 void de_module_psionpic(deark *c, struct deark_module_info *mi)

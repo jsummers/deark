@@ -101,25 +101,25 @@ static void do_modhelp(deark *c)
 	}
 
 	if(de_strcmp(c->input_format_req, module_to_use->id)) {
-		de_msg(c, "\"%s\" is an alias for module \"%s\"\n",
+		de_msg(c, "\"%s\" is an alias for module \"%s\"",
 			c->input_format_req, module_to_use->id);
 	}
 
-	de_msg(c, "Module: %s\n", module_to_use->id);
+	de_msg(c, "Module: %s", module_to_use->id);
 
 	if(module_to_use->desc) {
-		de_msg(c, "Description: %s\n", module_to_use->desc);
+		de_msg(c, "Description: %s", module_to_use->desc);
 	}
 	if(module_to_use->desc2) {
-		de_msg(c, "Other notes: %s\n", module_to_use->desc2);
+		de_msg(c, "Other notes: %s", module_to_use->desc2);
 	}
 
 	if(!module_to_use->help_fn) {
-		de_msg(c, "No help available for module \"%s\"\n", module_to_use->id);
+		de_msg(c, "No help available for module \"%s\"", module_to_use->id);
 		goto done;
 	}
 
-	de_msg(c, "Help for module \"%s\":\n", module_to_use->id);
+	de_msg(c, "Help for module \"%s\":", module_to_use->id);
 	module_to_use->help_fn(c);
 
 done:
@@ -219,7 +219,7 @@ void de_run(deark *c)
 		goto done;
 	}
 
-	de_msg(c, "Module: %s\n", module_to_use->id);
+	de_msg(c, "Module: %s", module_to_use->id);
 
 	if(module_was_autodetected && (module_to_use->flags&DE_MODFLAG_SECURITYWARNING)) {
 		de_err(c, "The %s module has not been audited for security. There is a "
@@ -245,7 +245,7 @@ void de_run(deark *c)
 	if(c->num_files_extracted==0 && c->error_count==0 &&
 		!(module_to_use->flags&DE_MODFLAG_NOEXTRACT))
 	{
-		de_msg(c, "No files found to extract!\n");
+		de_msg(c, "No files found to extract!");
 	}
 
 done:

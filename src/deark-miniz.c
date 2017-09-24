@@ -386,7 +386,7 @@ int de_zip_create_file(deark *c)
 		de_free(c, zip);
 		return 0;
 	}
-	de_msg(c, "Creating %s\n", arcfn);
+	de_msg(c, "Creating %s", arcfn);
 
 	c->zip_file = (void*)zip;
 	return 1;
