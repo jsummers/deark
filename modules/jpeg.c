@@ -488,6 +488,27 @@ static void handler_dri(deark *c, lctx *d, struct page_ctx *pg,
 	de_dbg_indent(c, -1);
 }
 
+static void dump_htable_data(deark *c, lctx *d, const de_byte *codecounts)
+{
+	de_int64 k;
+	de_ucstring *s = NULL;
+
+	if(c->debug_level<2) return;
+
+	s = ucstring_create(c);
+	for(k=0; k<16; k++) {
+		ucstring_printf(s, DE_ENCODING_LATIN1, " %3u",
+			(unsigned int)codecounts[k]);
+		if(k%8==7) { // end of a debug line
+			de_dbg(c, "number of codes of len[%d-%2d]:%s",
+				(int)(k-7), (int)k,
+				ucstring_get_printable_sz(s));
+			ucstring_empty(s);
+		}
+	}
+	ucstring_destroy(s);
+}
+
 static void handler_dht(deark *c, lctx *d, struct page_ctx *pg,
 	const struct marker_info *mi, de_int64 pos1, de_int64 data_size)
 {
@@ -497,6 +518,7 @@ static void handler_dht(deark *c, lctx *d, struct page_ctx *pg,
 	de_byte table_id;
 	de_int64 num_huff_codes;
 	de_int64 k;
+	de_byte codecounts[16];
 
 	de_dbg_indent(c, 1);
 
@@ -511,11 +533,15 @@ static void handler_dht(deark *c, lctx *d, struct page_ctx *pg,
 		de_dbg(c, "table: %s%d, at %d", table_class==0?"DC":"AC",
 			(int)table_id, (int)pos);
 
+		de_read(codecounts, pos+1, 16);
 		num_huff_codes = 0;
 		for(k=0; k<16; k++) {
-			num_huff_codes += (de_int64)de_getbyte(pos+1+k);
+			num_huff_codes += (de_int64)codecounts[k];
 		}
-
+		de_dbg_indent(c, 1);
+		dump_htable_data(c, d, codecounts);
+		de_dbg(c, "number of codes: %d", (int)num_huff_codes);
+		de_dbg_indent(c, -1);
 		pos += 1 + 16 + num_huff_codes;
 	}
 
@@ -548,6 +574,38 @@ static void handler_dac(deark *c, lctx *d, struct page_ctx *pg,
 		de_dbg_indent(c, -1);
 	}
 	de_dbg_indent(c, -1);
+}
+
+static void dump_qtable_data(deark *c, lctx *d, de_int64 pos, de_byte precision_code)
+{
+	de_byte qbuf[64];
+	de_int64 k;
+	de_ucstring *s = NULL;
+	static const de_byte zigzag[64] = {
+		 0, 1, 5, 6,14,15,27,28,
+		 2, 4, 7,13,16,26,29,42,
+		 3, 8,12,17,25,30,41,43,
+		 9,11,18,24,31,40,44,53,
+		10,19,23,32,39,45,52,54,
+		20,22,33,38,46,51,55,60,
+		21,34,37,47,50,56,59,61,
+		35,36,48,49,57,58,62,63
+	};
+
+	if(c->debug_level<2) return;
+	if(precision_code!=0) return;
+
+	de_read(qbuf, pos, 64);
+	s = ucstring_create(c);
+	for(k=0; k<64; k++) {
+		ucstring_printf(s, DE_ENCODING_LATIN1, " %3u",
+			(unsigned int)qbuf[(unsigned int)zigzag[k]]);
+		if(k%8==7) { // end of a debug line
+			de_dbg(c, "data:%s", ucstring_get_printable_sz(s));
+			ucstring_empty(s);
+		}
+	}
+	ucstring_destroy(s);
 }
 
 static void handler_dqt(deark *c, lctx *d, struct page_ctx *pg,
@@ -586,6 +644,7 @@ static void handler_dqt(deark *c, lctx *d, struct page_ctx *pg,
 
 		de_dbg_indent(c, 1);
 		de_dbg(c, "precision: %d (%s)", (int)precision_code, s);
+		dump_qtable_data(c, d, pos+1, precision_code);
 		de_dbg_indent(c, -1);
 
 		if(qsize==0) goto done;
