@@ -14,8 +14,10 @@ DE_DECLARE_MODULE(de_module_j2c);
 DE_DECLARE_MODULE(de_module_jpegscan);
 
 struct page_ctx {
-	int is_jpegls;
-	int is_j2c;
+	de_byte is_jpegls;
+	de_byte is_j2c;
+	de_byte has_jfif_seg, has_exif_seg;
+	de_byte is_jpeghdr, is_jpegxt, is_mpo, is_jps;
 
 	int found_sof;
 	dbuf *iccprofile_file;
@@ -30,7 +32,7 @@ struct page_ctx {
 };
 
 typedef struct localctx_struct {
-	int is_j2c;
+	de_byte is_j2c;
 	int image_count;
 	int stop_at_eoi;
 } lctx;
@@ -167,13 +169,15 @@ static void do_jpeghdr_segment(deark *c, lctx *d, struct page_ctx *pg, de_int64 
 	dbuf_copy(c->infile, pos, data_size, pg->hdr_residual_file);
 }
 
-static void do_jfif_segment(deark *c, lctx *d, de_int64 pos, de_int64 data_size)
+static void do_jfif_segment(deark *c, lctx *d, struct page_ctx *pg,
+	de_int64 pos, de_int64 data_size)
 {
 	de_byte ver_h, ver_l;
 	de_byte units;
 	const char *units_name;
 	de_int64 xdens, ydens;
 
+	pg->has_jfif_seg = 1;
 	if(data_size<9) return;
 	ver_h = de_getbyte(pos);
 	ver_l = de_getbyte(pos+1);
@@ -376,7 +380,7 @@ static void handler_app(deark *c, lctx *d, struct page_ctx *pg,
 	if(payload_size<1) goto done;
 
 	if(seg_type==0xe0 && !de_strcmp(app_id_normalized, "JFIF")) {
-		do_jfif_segment(c, d, payload_pos, payload_size);
+		do_jfif_segment(c, d, pg, payload_pos, payload_size);
 	}
 	else if(seg_type==0xe0 && !de_strcmp(app_id_normalized, "JFXX")) {
 		do_jfxx_segment(c, d, payload_pos, payload_size);
@@ -389,6 +393,7 @@ static void handler_app(deark *c, lctx *d, struct page_ctx *pg,
 	else if(seg_type==0xe1 && !de_strcmp(app_id_normalized, "EXIF")) {
 		// Note that Exif has an additional padding byte after the APP ID NUL terminator.
 		de_dbg(c, "Exif data at %d, size=%d", (int)(payload_pos+1), (int)(payload_size-1));
+		pg->has_exif_seg = 1;
 		de_dbg_indent(c, 1);
 		de_fmtutil_handle_exif(c, payload_pos+1, payload_size-1);
 		de_dbg_indent(c, -1);
@@ -410,18 +415,49 @@ static void handler_app(deark *c, lctx *d, struct page_ctx *pg,
 		do_xmp_extension_segment(c, d, pg, payload_pos, payload_size);
 	}
 	else if(seg_type==0xeb && app_id_orig_strlen>=10 && !de_memcmp(app_id_normalized, "HDR_RI VER", 10)) {
+		pg->is_jpeghdr = 1;
 		do_jpeghdr_segment(c, d, pg, payload_pos, payload_size, 0);
 	}
 	else if(seg_type==0xeb && app_id_orig_strlen>=10 && !de_memcmp(app_id_normalized, "HDR_RI EXT", 10)) {
 		do_jpeghdr_segment(c, d, pg, payload_pos, payload_size, 1);
 	}
+	else if(seg_type==0xeb && !de_strcmp(app_id_normalized, "JP")) {
+		pg->is_jpegxt = 1;
+	}
 	else if(seg_type==0xe2 && !de_strcmp(app_id_normalized, "MPF")) {
+		pg->is_mpo = 1;
 		do_mpf_segment(c, d, payload_pos, payload_size);
+	}
+	else if(seg_type==0xe3 && !de_strcmp(app_id_normalized, "_JPSJPS_")) {
+		pg->is_jps = 1;
 	}
 
 done:
 	de_destroy_stringreaderdata(c, srd);
 	de_dbg_indent(c, -1);
+}
+
+static void declare_jpeg_fmt(deark *c, lctx *d, struct page_ctx *pg, de_byte seg_type)
+{
+	const char *name = NULL;
+	if(pg->is_j2c) return;
+
+	// The declared format is only an executive summary of the kind of JPEG.
+	// It does not come close to covering all possible combinations of attributes.
+	if(pg->is_jpegls) { name = "JPEG-LS"; }
+	else if(pg->is_mpo) { name = "JPEG/MPO"; }
+	else if(pg->is_jps) { name = "JPEG/JPS"; }
+	else if(pg->is_jpegxt) { name = "JPEG/JPEG XT"; }
+	else if(pg->is_jpeghdr) { name = "JPEG-HDR"; }
+	else if((seg_type%4)==3) { name = "JPEG/lossless"; }
+	else if(pg->has_jfif_seg && pg->has_exif_seg) { name = "JPEG/JFIF+Exif"; }
+	else if(pg->has_jfif_seg) { name = "JPEG/JFIF"; }
+	else if(pg->has_exif_seg) { name = "JPEG/Exif"; }
+	else { name = "JPEG (other)"; }
+
+	if(name) {
+		de_declare_fmt(c, name);
+	}
 }
 
 static void handler_sof(deark *c, lctx *d, struct page_ctx *pg,
@@ -436,6 +472,10 @@ static void handler_sof(deark *c, lctx *d, struct page_ctx *pg,
 	const char *attr_progr = "non-progr.";
 	const char *attr_hier = "non-hier.";
 	de_byte seg_type = mi->seg_type;
+
+	// By now we have hopefully collected the info we need to decide what JPEG
+	// format we're dealing with.
+	declare_jpeg_fmt(c, d, pg, seg_type);
 
 	if(data_size<6) return;
 	de_dbg_indent(c, 1);
@@ -1091,7 +1131,7 @@ static void de_run_jpeg(deark *c, de_module_params *mparams)
 
 typedef struct scanctx_struct {
 	de_int64 len;
-	int is_jpegls;
+	de_byte is_jpegls;
 } scanctx;
 
 static int detect_jpeg_len(deark *c, scanctx *d, de_int64 pos1, de_int64 len)
@@ -1250,6 +1290,7 @@ static void de_run_j2c(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
 
+	de_declare_fmt(c, "JPEG 2000 codestream");
 	d = de_malloc(c, sizeof(lctx));
 	d->is_j2c = 1;
 	d->stop_at_eoi = 1;
