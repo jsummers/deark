@@ -340,6 +340,7 @@ static void handler_app(deark *c, lctx *d, struct page_ctx *pg,
 #define MAX_APP_ID_LEN 256
 	char app_id_normalized[MAX_APP_ID_LEN];
 	de_int64 app_id_orig_strlen;
+	de_int64 app_id_bytes_to_scan;
 	de_int64 payload_pos;
 	de_int64 payload_size;
 	de_byte seg_type = mi->seg_type;
@@ -351,7 +352,11 @@ static void handler_app(deark *c, lctx *d, struct page_ctx *pg,
 	// Read the first part of the segment, so we can tell what kind of segment it is.
 	// APP ID is the string before the first NUL byte.
 
-	srd = dbuf_read_string(c->infile, seg_data_pos, MAX_APP_ID_LEN, MAX_APP_ID_LEN,
+	app_id_bytes_to_scan = MAX_APP_ID_LEN;
+	if(app_id_bytes_to_scan>seg_data_size)
+		app_id_bytes_to_scan = seg_data_size;
+
+	srd = dbuf_read_string(c->infile, seg_data_pos, app_id_bytes_to_scan, MAX_APP_ID_LEN,
 		DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_ASCII);
 
 	if(!srd->found_nul || srd->was_truncated) {
