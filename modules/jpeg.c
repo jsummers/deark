@@ -16,10 +16,18 @@ DE_DECLARE_MODULE(de_module_jpegscan);
 struct page_ctx {
 	de_byte is_jpegls;
 	de_byte is_j2c;
-	de_byte has_jfif_seg, has_exif_seg;
+
+	de_byte has_jfif_seg, has_jfxx_seg, has_exif_seg, has_spiff_seg;
+	de_byte has_psd, has_xmp, has_iccprofile, has_flashpix;
+	de_byte is_baseline, is_progressive, is_lossless, is_arithmetic, is_hierarchical;
 	de_byte is_jpeghdr, is_jpegxt, is_mpo, is_jps;
+	de_byte precision;
+	de_byte has_adobeapp14;
+	de_byte color_transform; // valid if(has_adobeapp14)
+	int scan_count;
 
 	int found_sof;
+	de_int64 ncomp;
 	dbuf *iccprofile_file;
 	dbuf *hdr_residual_file;
 
@@ -124,6 +132,7 @@ static void do_icc_profile_segment(deark *c, lctx *d, struct page_ctx *pg, de_in
 	de_dbg(c, "icc profile segment at %d datasize=%d part %d of %d", (int)pos, (int)(data_size-2), b1, b2);
 
 	if(!pg->iccprofile_file) {
+		pg->has_iccprofile = 1;
 		pg->iccprofile_file = dbuf_create_output_file(c, "icc", NULL, DE_CREATEFLAG_IS_AUX);
 	}
 	dbuf_copy(c->infile, pos+2, data_size-2, pg->iccprofile_file);
@@ -191,10 +200,12 @@ static void do_jfif_segment(deark *c, lctx *d, struct page_ctx *pg,
 	de_dbg(c, "density: %dx%d %s", (int)xdens, (int)ydens, units_name);
 }
 
-static void do_jfxx_segment(deark *c, lctx *d, de_int64 pos, de_int64 data_size)
+static void do_jfxx_segment(deark *c, lctx *d, struct page_ctx *pg,
+	de_int64 pos, de_int64 data_size)
 {
 	de_byte t;
 
+	pg->has_jfxx_seg = 1;
 	de_dbg(c, "jfxx segment at %d datasize=%d", (int)pos, (int)data_size);
 	if(data_size<2) return;
 
@@ -211,18 +222,19 @@ static void do_jfxx_segment(deark *c, lctx *d, de_int64 pos, de_int64 data_size)
 	}
 }
 
-static void do_adobeapp14_segment(deark *c, lctx *d, de_int64 pos, de_int64 data_size)
+static void do_adobeapp14_segment(deark *c, lctx *d, struct page_ctx *pg,
+	de_int64 pos, de_int64 data_size)
 {
-	de_byte transform;
 	const char *tname;
 
 	if(data_size<7) return;
-	transform = de_getbyte(pos+6);
-	if(transform==0) tname="RGB or CMYK";
-	else if(transform==1) tname="YCbCr";
-	else if(transform==2) tname="YCCK";
+	pg->has_adobeapp14 = 1;
+	pg->color_transform = de_getbyte(pos+6);
+	if(pg->color_transform==0) tname="RGB or CMYK";
+	else if(pg->color_transform==1) tname="YCbCr";
+	else if(pg->color_transform==2) tname="YCCK";
 	else tname="unknown";
-	de_dbg(c, "color transform: %d (%s)", (int)transform, tname);
+	de_dbg(c, "color transform: %d (%s)", (int)pg->color_transform, tname);
 }
 
 static void do_mpf_segment(deark *c, lctx *d, de_int64 pos, de_int64 data_size)
@@ -383,12 +395,12 @@ static void handler_app(deark *c, lctx *d, struct page_ctx *pg,
 		do_jfif_segment(c, d, pg, payload_pos, payload_size);
 	}
 	else if(seg_type==0xe0 && !de_strcmp(app_id_normalized, "JFXX")) {
-		do_jfxx_segment(c, d, payload_pos, payload_size);
+		do_jfxx_segment(c, d, pg, payload_pos, payload_size);
 	}
 	else if(seg_type==0xee && app_id_orig_strlen>=5 && !de_memcmp(app_id_normalized, "ADOBE", 5)) {
 		// libjpeg implies that the "Adobe" string is *not* NUL-terminated. That the byte
 		// that is usually 0 is actually the high byte of a version number.
-		do_adobeapp14_segment(c, d, seg_data_pos+5, seg_data_size-5);
+		do_adobeapp14_segment(c, d, pg, seg_data_pos+5, seg_data_size-5);
 	}
 	else if(seg_type==0xe1 && !de_strcmp(app_id_normalized, "EXIF")) {
 		// Note that Exif has an additional padding byte after the APP ID NUL terminator.
@@ -401,14 +413,22 @@ static void handler_app(deark *c, lctx *d, struct page_ctx *pg,
 	else if(seg_type==0xe2 && !de_strcmp(app_id_normalized, "ICC_PROFILE")) {
 		do_icc_profile_segment(c, d, pg, payload_pos, payload_size);
 	}
+	else if(seg_type==0xe2 && !de_strcmp(app_id_normalized, "FPXR")) {
+		pg->has_flashpix = 1;
+	}
+	else if(seg_type==0xe8 && !de_strcmp(app_id_normalized, "SPIFF")) {
+		pg->has_spiff_seg = 1;
+	}
 	else if(seg_type==0xed && !de_strcmp(app_id_normalized, "PHOTOSHOP 3.0")) {
 		de_dbg(c, "photoshop data at %d, size=%d", (int)(payload_pos), (int)(payload_size));
+		pg->has_psd = 1;
 		de_dbg_indent(c, 1);
 		de_fmtutil_handle_photoshop_rsrc(c, payload_pos, payload_size);
 		de_dbg_indent(c, -1);
 	}
 	else if(seg_type==0xe1 && !de_strcmp(app_id_normalized, "HTTP://NS.ADOBE.COM/XAP/1.0/")) {
 		de_dbg(c, "XMP data at %d, size=%d", (int)(payload_pos), (int)(payload_size));
+		pg->has_xmp = 1;
 		dbuf_create_file_from_slice(c->infile, payload_pos, payload_size, "xmp", NULL, DE_CREATEFLAG_IS_AUX);
 	}
 	else if(seg_type==0xe1 && !de_strcmp(app_id_normalized, "HTTP://NS.ADOBE.COM/XMP/EXTENSION/")) {
@@ -439,7 +459,7 @@ done:
 
 static void declare_jpeg_fmt(deark *c, lctx *d, struct page_ctx *pg, de_byte seg_type)
 {
-	const char *name = NULL;
+	const char *name = "JPEG (other)";
 	if(pg->is_j2c) return;
 
 	// The declared format is only an executive summary of the kind of JPEG.
@@ -447,17 +467,13 @@ static void declare_jpeg_fmt(deark *c, lctx *d, struct page_ctx *pg, de_byte seg
 	if(pg->is_jpegls) { name = "JPEG-LS"; }
 	else if(pg->is_mpo) { name = "JPEG/MPO"; }
 	else if(pg->is_jps) { name = "JPEG/JPS"; }
-	else if(pg->is_jpegxt) { name = "JPEG/JPEG XT"; }
+	else if(pg->is_jpegxt) { name = "JPEG/JPEG_XT"; }
 	else if(pg->is_jpeghdr) { name = "JPEG-HDR"; }
-	else if((seg_type%4)==3) { name = "JPEG/lossless"; }
+	else if(pg->is_lossless) { name = "JPEG/lossless"; }
 	else if(pg->has_jfif_seg && pg->has_exif_seg) { name = "JPEG/JFIF+Exif"; }
 	else if(pg->has_jfif_seg) { name = "JPEG/JFIF"; }
 	else if(pg->has_exif_seg) { name = "JPEG/Exif"; }
-	else { name = "JPEG (other)"; }
-
-	if(name) {
-		de_declare_fmt(c, name);
-	}
+	de_declare_fmt(c, name);
 }
 
 static void handler_sof(deark *c, lctx *d, struct page_ctx *pg,
@@ -465,7 +481,6 @@ static void handler_sof(deark *c, lctx *d, struct page_ctx *pg,
 {
 	de_int64 w, h;
 	de_byte b;
-	de_int64 ncomp;
 	de_int64 i;
 	const char *attr_lossy = "DCT";
 	const char *attr_cmpr = "huffman";
@@ -473,22 +488,19 @@ static void handler_sof(deark *c, lctx *d, struct page_ctx *pg,
 	const char *attr_hier = "non-hier.";
 	de_byte seg_type = mi->seg_type;
 
-	// By now we have hopefully collected the info we need to decide what JPEG
-	// format we're dealing with.
-	declare_jpeg_fmt(c, d, pg, seg_type);
-
 	if(data_size<6) return;
 	de_dbg_indent(c, 1);
 
 	if(seg_type>=0xc1 && seg_type<=0xcf && (seg_type%4)!=0) {
-		if((seg_type%4)==3) attr_lossy="lossless";
-		if(seg_type%16>=9) attr_cmpr="arithmetic";
-		if((seg_type%4)==2) attr_progr="progressive";
-		if((seg_type%8)>=5) attr_hier="hierarchical";
+		if((seg_type%4)==3) { pg->is_lossless=1; attr_lossy="lossless"; }
+		if(seg_type%16>=9) { pg->is_arithmetic=1; attr_cmpr="arithmetic"; }
+		if((seg_type%4)==2) { pg->is_progressive=1; attr_progr="progressive"; }
+		if((seg_type%8)>=5) { pg->is_hierarchical=1; attr_hier="hierarchical"; }
 		de_dbg(c, "image type: %s, %s, %s, %s",
 			attr_lossy, attr_cmpr, attr_progr, attr_hier);
 	}
 	else if(seg_type==0xc0) {
+		pg->is_baseline = 1;
 		de_dbg(c, "image type: baseline (%s, %s, %s, %s)",
 			attr_lossy, attr_cmpr, attr_progr, attr_hier);
 	}
@@ -496,17 +508,21 @@ static void handler_sof(deark *c, lctx *d, struct page_ctx *pg,
 		de_dbg(c, "image type: JPEG-LS");
 	}
 
-	b = de_getbyte(pos);
-	de_dbg(c, "precision: %d", (int)b);
+	// By now we have hopefully collected the info we need to decide what JPEG
+	// format we're dealing with.
+	declare_jpeg_fmt(c, d, pg, seg_type);
+
+	pg->precision = de_getbyte(pos);
+	de_dbg(c, "precision: %d", (int)pg->precision);
 	h = de_getui16be(pos+1);
 	w = de_getui16be(pos+3);
 	de_dbg(c, "dimensions: %dx%d", (int)w, (int)h);
-	ncomp = (de_int64)de_getbyte(pos+5);
-	de_dbg(c, "number of components: %d", (int)ncomp);
+	pg->ncomp = (de_int64)de_getbyte(pos+5);
+	de_dbg(c, "number of components: %d", (int)pg->ncomp);
 
 	// per-component data
-	if(data_size<6+3*ncomp) goto done;
-	for(i=0; i<ncomp; i++) {
+	if(data_size<6+3*pg->ncomp) goto done;
+	for(i=0; i<pg->ncomp; i++) {
 		de_byte comp_id;
 		de_int64 sf1, sf2;
 		de_byte qtid;
@@ -802,6 +818,7 @@ static void handler_sos(deark *c, lctx *d, struct page_ctx *pg,
 	de_dbg_indent(c, 1);
 	if(data_size<1) goto done;
 
+	pg->scan_count++;
 	ncomp = (de_int64)de_getbyte(pos);
 	de_dbg(c, "number of components in scan: %d", (int)ncomp);
 	if(data_size < 4 + 2*ncomp) goto done;
@@ -976,6 +993,47 @@ done:
 	return 1;
 }
 
+// Print a summary line indicating the main characteristics of this image.
+static void print_summary(deark *c, lctx *d, struct page_ctx *pg)
+{
+	de_ucstring *summary = NULL;
+
+	if(pg->is_j2c || pg->is_jpegls) goto done;
+	if(!pg->found_sof) goto done;
+	summary = ucstring_create(c);
+
+	if(pg->is_baseline) ucstring_append_sz(summary, " baseline", DE_ENCODING_LATIN1);
+	if(pg->is_lossless) ucstring_append_sz(summary, " lossless", DE_ENCODING_LATIN1);
+	if(pg->is_progressive) ucstring_append_sz(summary, " progressive", DE_ENCODING_LATIN1);
+	if(pg->is_arithmetic) ucstring_append_sz(summary, " arithmetic", DE_ENCODING_LATIN1);
+	if(pg->is_hierarchical) ucstring_append_sz(summary, " hierarchical", DE_ENCODING_LATIN1);
+	ucstring_printf(summary, DE_ENCODING_LATIN1, " cmpts=%d", (int)pg->ncomp);
+	ucstring_printf(summary, DE_ENCODING_LATIN1, " bits=%d", (int)pg->precision);
+
+	if(pg->has_jfif_seg) ucstring_append_sz(summary, " JFIF", DE_ENCODING_LATIN1);
+	if(pg->has_spiff_seg) ucstring_append_sz(summary, " SPIFF", DE_ENCODING_LATIN1);
+	if(pg->has_exif_seg) ucstring_append_sz(summary, " Exif", DE_ENCODING_LATIN1);
+	if(pg->has_adobeapp14)
+		ucstring_printf(summary, DE_ENCODING_LATIN1, " colorxform=%d", (int)pg->color_transform);
+
+	if(pg->has_jfxx_seg) ucstring_append_sz(summary, " JFXX", DE_ENCODING_LATIN1);
+	if(pg->has_flashpix) ucstring_append_sz(summary, " FlashPix", DE_ENCODING_LATIN1);
+	if(pg->is_jpeghdr) ucstring_append_sz(summary, " HDR", DE_ENCODING_LATIN1);
+	if(pg->is_jpegxt) ucstring_append_sz(summary, " XT", DE_ENCODING_LATIN1);
+	if(pg->is_mpo) ucstring_append_sz(summary, " MPO", DE_ENCODING_LATIN1);
+	if(pg->is_jps) ucstring_append_sz(summary, " JPS", DE_ENCODING_LATIN1);
+	if(pg->has_iccprofile) ucstring_append_sz(summary, " ICC", DE_ENCODING_LATIN1);
+	if(pg->has_xmp) ucstring_append_sz(summary, " XMP", DE_ENCODING_LATIN1);
+	if(pg->has_psd) ucstring_append_sz(summary, " PSD", DE_ENCODING_LATIN1);
+
+	if(pg->scan_count!=1) ucstring_printf(summary, DE_ENCODING_LATIN1, " scans=%d", pg->scan_count);
+
+	de_dbg(c, "summary:%s", ucstring_get_printable_sz(summary));
+
+done:
+	ucstring_destroy(summary);
+}
+
 // Process a single JPEG image (through the EOI marker).
 // Returns nonzero if we should continue, and look for more images after the EOI.
 static int do_jpeg_page(deark *c, lctx *d, de_int64 pos1, de_int64 *bytes_consumed)
@@ -1083,6 +1141,10 @@ done:
 			dbuf_close(tmpdbuf);
 		}
 		dbuf_close(pg->extxmp_membuf);
+
+		if(retval) {
+			print_summary(c, d, pg);
+		}
 
 		de_free(c, pg);
 	}
