@@ -177,6 +177,7 @@ typedef struct localctx_struct {
 	de_int64 intsize_4or8;
 
 	int abr_major_ver, abr_minor_ver;
+	de_byte has_iptc;
 
 	struct image_info *main_iinfo;
 } lctx;
@@ -718,6 +719,7 @@ static void hrsrc_exif(deark *c, lctx *d, zztype *zz, const struct rsrc_info *ri
 
 static void hrsrc_iptc(deark *c, lctx *d, zztype *zz, const struct rsrc_info *ri)
 {
+	d->has_iptc = 1;
 	de_fmtutil_handle_iptc(c, zz->pos, zz_avail(zz));
 }
 
@@ -3640,6 +3642,8 @@ static void de_run_psd(deark *c, de_module_params *mparams)
 			d->version = 1;
 			init_version_specific_info(c, d);
 			do_image_resource_blocks(c, d, zz);
+			mparams->returned_flags = 0;
+			if(d->has_iptc) mparams->returned_flags |= 0x02;
 			goto done;
 		}
 		if(de_strchr(mparams->codes, 'T')) { // Tagged blocks

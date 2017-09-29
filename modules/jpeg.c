@@ -18,7 +18,7 @@ struct page_ctx {
 	de_byte is_j2c;
 
 	de_byte has_jfif_seg, has_jfxx_seg, has_exif_seg, has_spiff_seg;
-	de_byte has_psd, has_xmp, has_iccprofile, has_flashpix;
+	de_byte has_psd, has_iptc, has_xmp, has_iccprofile, has_flashpix;
 	de_byte is_baseline, is_progressive, is_lossless, is_arithmetic, is_hierarchical;
 	de_byte is_jpeghdr, is_jpegxt, is_mpo, is_jps;
 	de_byte precision;
@@ -420,10 +420,13 @@ static void handler_app(deark *c, lctx *d, struct page_ctx *pg,
 		pg->has_spiff_seg = 1;
 	}
 	else if(seg_type==0xed && !de_strcmp(app_id_normalized, "PHOTOSHOP 3.0")) {
+		de_uint32 psdflags = 0;
 		de_dbg(c, "photoshop data at %d, size=%d", (int)(payload_pos), (int)(payload_size));
 		pg->has_psd = 1;
 		de_dbg_indent(c, 1);
-		de_fmtutil_handle_photoshop_rsrc(c, payload_pos, payload_size);
+		de_fmtutil_handle_photoshop_rsrc2(c, payload_pos, payload_size, &psdflags);
+		if(psdflags&0x02)
+			pg->has_iptc = 1;
 		de_dbg_indent(c, -1);
 	}
 	else if(seg_type==0xe1 && !de_strcmp(app_id_normalized, "HTTP://NS.ADOBE.COM/XAP/1.0/")) {
@@ -1025,6 +1028,7 @@ static void print_summary(deark *c, lctx *d, struct page_ctx *pg)
 	if(pg->has_iccprofile) ucstring_append_sz(summary, " ICC", DE_ENCODING_LATIN1);
 	if(pg->has_xmp) ucstring_append_sz(summary, " XMP", DE_ENCODING_LATIN1);
 	if(pg->has_psd) ucstring_append_sz(summary, " PSD", DE_ENCODING_LATIN1);
+	if(pg->has_iptc) ucstring_append_sz(summary, " IPTC", DE_ENCODING_LATIN1);
 
 	if(pg->scan_count!=1) ucstring_printf(summary, DE_ENCODING_LATIN1, " scans=%d", pg->scan_count);
 

@@ -45,6 +45,8 @@ void de_fmtutil_handle_exif(deark *c, de_int64 pos, de_int64 len);
 
 void de_fmtutil_handle_iptc(deark *c, de_int64 pos, de_int64 len);
 
+void de_fmtutil_handle_photoshop_rsrc2(deark *c, de_int64 pos, de_int64 len,
+	de_uint32 *returned_flags);
 void de_fmtutil_handle_photoshop_rsrc(deark *c, de_int64 pos, de_int64 len);
 
 int de_fmtutil_uncompress_packbits(dbuf *f, de_int64 pos1, de_int64 len,

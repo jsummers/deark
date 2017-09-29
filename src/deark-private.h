@@ -39,6 +39,7 @@
 
 typedef struct de_module_params_struct {
 	const char *codes;
+	de_uint32 returned_flags;
 } de_module_params;
 
 #define DE_DECLARE_MODULE(x) void x(deark *c, struct deark_module_info *mi)

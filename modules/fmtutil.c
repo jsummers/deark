@@ -182,9 +182,23 @@ void de_fmtutil_handle_iptc(deark *c, de_int64 pos, de_int64 len)
 	de_run_module_by_id_on_slice(c, "iptc", NULL, c->infile, pos, len);
 }
 
+void de_fmtutil_handle_photoshop_rsrc2(deark *c, de_int64 pos, de_int64 len,
+	de_uint32 *returned_flags)
+{
+	de_module_params *mparams = NULL;
+
+	mparams = de_malloc(c, sizeof(de_module_params));
+	mparams->codes = "R";
+	de_run_module_by_id_on_slice(c, "psd", mparams, c->infile, pos, len);
+	if(returned_flags) {
+		*returned_flags = mparams->returned_flags;
+	}
+	de_free(c, mparams);
+}
+
 void de_fmtutil_handle_photoshop_rsrc(deark *c, de_int64 pos, de_int64 len)
 {
-	de_run_module_by_id_on_slice2(c, "psd", "R", c->infile, pos, len);
+	de_fmtutil_handle_photoshop_rsrc2(c, pos, len, NULL);
 }
 
 // Returns 0 on failure (currently impossible).
