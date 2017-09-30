@@ -17,13 +17,15 @@ struct page_ctx {
 	de_byte is_jpegls;
 	de_byte is_j2c;
 
-	de_byte has_jfif_seg, has_jfxx_seg, has_exif_seg, has_spiff_seg;
+	de_byte has_jfif_seg, has_jfif_thumb, has_jfxx_seg;
+	de_byte has_exif_seg, has_spiff_seg;
 	de_byte has_psd, has_iptc, has_xmp, has_iccprofile, has_flashpix;
 	de_byte is_baseline, is_progressive, is_lossless, is_arithmetic, is_hierarchical;
 	de_byte is_jpeghdr, is_jpegxt, is_mpo, is_jps;
 	de_byte precision;
 	de_byte has_adobeapp14;
 	de_byte color_transform; // valid if(has_adobeapp14)
+	de_byte has_revcolorxform;
 	int scan_count;
 
 	int found_sof;
@@ -62,6 +64,7 @@ DECLARE_HANDLER(handler_com);
 DECLARE_HANDLER(handler_cme);
 DECLARE_HANDLER(handler_app);
 DECLARE_HANDLER(handler_sof);
+DECLARE_HANDLER(handler_jpg8);
 
 #define FLAG_JPEG_COMPAT   0x0001
 #define FLAG_JPEGLS_COMPAT 0x0002
@@ -118,6 +121,7 @@ static const struct marker_info1 marker_info1_arr[] = {
 	{0xde, 0x0001, "DHP", "Define hierarchical progression", NULL},
 	{0xdf, 0x0001, "EXP", "Expand reference component", NULL},
 	{0xf7, 0x0202, "SOF55", "JPEG-LS start of frame", handler_sof},
+	{0xf8, 0x0001, "JPG8", NULL, handler_jpg8},
 	{0xf8, 0x0002, "LSE", "JPEG-LS preset parameters", NULL},
 	{0xfe, 0x0003, "COM", "Comment", handler_com}
 };
@@ -185,6 +189,7 @@ static void do_jfif_segment(deark *c, lctx *d, struct page_ctx *pg,
 	de_byte units;
 	const char *units_name;
 	de_int64 xdens, ydens;
+	de_int64 tn_w, tn_h;
 
 	pg->has_jfif_seg = 1;
 	if(data_size<9) return;
@@ -198,6 +203,13 @@ static void do_jfif_segment(deark *c, lctx *d, struct page_ctx *pg,
 	else if(units==2) units_name="dots/cm";
 	else units_name="(unspecified units)";
 	de_dbg(c, "density: %dx%d %s", (int)xdens, (int)ydens, units_name);
+
+	tn_w = (de_int64)de_getbyte(pos+7);
+	tn_h = (de_int64)de_getbyte(pos+8);
+	de_dbg(c, "thumbnail dimensions: %dx%d", (int)tn_w, (int)tn_h);
+	if(tn_w>0 && tn_h>0 && data_size>9) {
+		pg->has_jfif_thumb = 1;
+	}
 }
 
 static void do_jfxx_segment(deark *c, lctx *d, struct page_ctx *pg,
@@ -457,6 +469,23 @@ static void handler_app(deark *c, lctx *d, struct page_ctx *pg,
 
 done:
 	de_destroy_stringreaderdata(c, srd);
+	de_dbg_indent(c, -1);
+}
+
+static void handler_jpg8(deark *c, lctx *d, struct page_ctx *pg,
+	const struct marker_info *mi, de_int64 seg_data_pos, de_int64 seg_data_size)
+{
+	de_byte id;
+	const char *name = "?";
+
+	if(seg_data_size<1) return;
+	de_dbg_indent(c, 1);
+	id = de_getbyte(seg_data_pos);
+	if(id==0x0d) {
+		pg->has_revcolorxform = 1;
+		name="inverse color transform specification";
+	}
+	de_dbg(c, "id: 0x%02x (%s)", (unsigned int)id, name);
 	de_dbg_indent(c, -1);
 }
 
@@ -1018,7 +1047,9 @@ static void print_summary(deark *c, lctx *d, struct page_ctx *pg)
 	if(pg->has_exif_seg) ucstring_append_sz(summary, " Exif", DE_ENCODING_LATIN1);
 	if(pg->has_adobeapp14)
 		ucstring_printf(summary, DE_ENCODING_LATIN1, " colorxform=%d", (int)pg->color_transform);
+	if(pg->has_revcolorxform) ucstring_append_sz(summary, " rev-colorxform", DE_ENCODING_LATIN1);
 
+	if(pg->has_jfif_thumb) ucstring_append_sz(summary, " JFIFthumbnail", DE_ENCODING_LATIN1);
 	if(pg->has_jfxx_seg) ucstring_append_sz(summary, " JFXX", DE_ENCODING_LATIN1);
 	if(pg->has_flashpix) ucstring_append_sz(summary, " FlashPix", DE_ENCODING_LATIN1);
 	if(pg->is_jpeghdr) ucstring_append_sz(summary, " HDR", DE_ENCODING_LATIN1);
