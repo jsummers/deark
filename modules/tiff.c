@@ -69,6 +69,7 @@ static void handler_photoshoprsrc(deark *c, lctx *d, const struct taginfo *tg, c
 static void handler_usercomment(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni);
 static void handler_37724(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni);
 static void handler_iccprofile(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni);
+static void handler_mpentry(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni);
 static void handler_utf16(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni);
 
 struct valdec_params {
@@ -440,7 +441,7 @@ static const struct tagnuminfo tagnuminfo_arr[] = {
 	{ 42240, 0x10, "Gamma", NULL, NULL },
 	{ 45056, 0x0801, "MPFVersion", NULL, NULL },
 	{ 45057, 0x0801, "NumberOfImages", NULL, NULL },
-	{ 45058, 0x0801, "MPEntry", NULL, NULL },
+	{ 45058, 0x0809, "MPEntry", handler_mpentry, NULL },
 	{ 45059, 0x0801, "ImageUIDList", NULL, NULL },
 	{ 45060, 0x0801, "TotalFrames", NULL, NULL },
 	{ 45313, 0x0801, "MPIndividualNum", NULL, NULL },
@@ -1250,7 +1251,7 @@ static int valdec_exposureprogram(deark *c, const struct valdec_params *vp, stru
 static int valdec_componentsconfiguration(deark *c, const struct valdec_params *vp, struct valdec_result *vr)
 {
 	static const struct int_and_str name_map[] = {
-		{0, "does not exist"}, {1, "Y"}, {2, "Cb"}, {3, "Cr"}, {4, "R"}, {5, "G"}, {6, "B"}
+		{0, "n/a"}, {1, "Y"}, {2, "Cb"}, {3, "Cr"}, {4, "R"}, {5, "G"}, {6, "B"}
 	};
 	lookup_str_and_append_to_ucstring(name_map, ITEMS_IN_ARRAY(name_map), vp->n, vr->s);
 	return 1;
@@ -1586,6 +1587,63 @@ static void handler_iccprofile(deark *c, lctx *d, const struct taginfo *tg, cons
 	dbuf_create_file_from_slice(c->infile, tg->val_offset, tg->total_size, "icc", NULL, DE_CREATEFLAG_IS_AUX);
 }
 
+static void handler_mpentry(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni)
+{
+	de_int64 num_entries;
+	de_int64 k;
+	de_int64 pos = tg->val_offset;
+	de_ucstring *s = NULL;
+
+	// Length is supposed to be 16x{NumberOfImages; tag 45057}. We'll just assume
+	// it's correct.
+	num_entries = tg->total_size/16;
+
+	s = ucstring_create(c);
+	for(k=0; k<num_entries; k++) {
+		de_int64 n;
+		de_uint32 attrs;
+		de_uint32 dataformat;
+		de_uint32 typecode;
+
+		de_dbg(c, "entry #%d", (int)(k+1));
+		de_dbg_indent(c, 1);
+
+		attrs = (de_uint32)dbuf_getui32x(c->infile, pos, d->is_le);
+		dataformat = (attrs&0x07000000)>>24;
+		typecode = attrs&0x00ffffff;
+		ucstring_empty(s);
+		if(attrs&0x80000000U) ucstring_append_flags_item(s, "dependent parent");
+		if(attrs&0x40000000U) ucstring_append_flags_item(s, "dependent child");
+		if(attrs&0x20000000U) ucstring_append_flags_item(s, "representative image");
+		if(dataformat==0) ucstring_append_flags_item(s, "JPEG");
+		if(typecode==0x030000U) ucstring_append_flags_item(s, "baseline MP primary image");
+		if(typecode==0x010001U) ucstring_append_flags_item(s, "large thumbnail class 1");
+		if(typecode==0x010002U) ucstring_append_flags_item(s, "large thumbnail class 2");
+		if(typecode==0x020001U) ucstring_append_flags_item(s, "multi-frame image panorama");
+		if(typecode==0x020002U) ucstring_append_flags_item(s, "multi-frame image disparity");
+		if(typecode==0x020003U) ucstring_append_flags_item(s, "multi-frame image multi-angle");
+
+		de_dbg(c, "image attribs: 0x%08x (%s)", (unsigned int)attrs,
+			ucstring_get_printable_sz(s));
+
+		n = dbuf_getui32x(c->infile, pos+4, d->is_le);
+		de_dbg(c, "image size: %u", (unsigned int)n);
+		n = dbuf_getui32x(c->infile, pos+8, d->is_le);
+
+		// This is apparently relative to the offset of the MPF segment in
+		// the parent JPEG file.
+		de_dbg(c, "image offset: %u", (unsigned int)n);
+		n = dbuf_getui16x(c->infile, pos+12, d->is_le);
+
+		de_dbg(c, "dep. image #1 entry: %u", (unsigned int)n);
+		n = dbuf_getui16x(c->infile, pos+14, d->is_le);
+		de_dbg(c, "dep. image #2 entry: %u", (unsigned int)n);
+		de_dbg_indent(c, -1);
+		pos += 16;
+	}
+	ucstring_destroy(s);
+}
+
 // This is for certain Microsoft tags that are apparently in UTF-16 format.
 // They use the BYTE data type (instead of the logical SHORT), and are always
 // little-endian, even in big-endian files.
@@ -1849,10 +1907,8 @@ static void process_ifd(deark *c, lctx *d, de_int64 ifdpos, int ifdtype)
 
 	// Record the next IFD in the main list.
 	tmpoffset = dbuf_getui32x(c->infile, ifdpos+d->ifdhdrsize+num_tags*d->ifditemsize, d->is_le);
-	if(tmpoffset!=0) {
-		de_dbg(c, "offset of next IFD: %d", (int)tmpoffset);
-		push_ifd(c, d, tmpoffset, IFDTYPE_NORMAL);
-	}
+	de_dbg(c, "offset of next IFD: %d%s", (int)tmpoffset, tmpoffset==0?" (none)":"");
+	push_ifd(c, d, tmpoffset, IFDTYPE_NORMAL);
 
 	dbgline = ucstring_create(c);
 
