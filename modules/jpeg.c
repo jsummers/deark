@@ -19,7 +19,7 @@ struct page_ctx {
 
 	de_byte has_jfif_seg, has_jfif_thumb, has_jfxx_seg;
 	de_byte has_exif_seg, has_spiff_seg;
-	de_byte has_psd, has_iptc, has_xmp, has_iccprofile, has_flashpix;
+	de_byte has_psd, has_iptc, has_xmp, has_xmp_ext, has_iccprofile, has_flashpix;
 	de_byte is_baseline, is_progressive, is_lossless, is_arithmetic, is_hierarchical;
 	de_byte is_jpeghdr, is_jpegxt, is_mpo, is_jps;
 	de_byte precision;
@@ -28,7 +28,8 @@ struct page_ctx {
 	de_byte has_revcolorxform;
 	int scan_count;
 
-	int found_sof;
+	de_byte found_soi;
+	de_byte found_sof;
 	de_int64 ncomp;
 	dbuf *iccprofile_file;
 	dbuf *hdr_residual_file;
@@ -182,6 +183,42 @@ static void do_jpeghdr_segment(deark *c, lctx *d, struct page_ctx *pg, de_int64 
 	dbuf_copy(c->infile, pos, data_size, pg->hdr_residual_file);
 }
 
+// Decode an uncompressed JFIF thumbnail.
+// This code has not been properly tested, because I can't find any files in
+// the wild that have these kinds of thumbnails.
+static void extract_unc_jfif_thumbnail(deark *c, lctx *d, struct page_ctx *pg,
+	de_int64 pos1, de_int64 len, de_int64 w, de_int64 h, int has_pal,
+	const char *token)
+{
+	de_int64 i, j;
+	de_int64 pos = pos1;
+	struct deark_bitmap *img = NULL;
+	de_uint32 clr;
+	de_int64 rowspan;
+
+	img = de_bitmap_create(c, w, h, 3);
+
+	if(has_pal) {
+		de_uint32 pal[256];
+		de_read_palette_rgb(c->infile, pos, 256, 3, pal, 256, 0);
+		pos += 768;
+		de_convert_image_paletted(c->infile, pos, 8, w, pal, img, 0);
+	}
+	else {
+		rowspan = 3*w;
+		for(j=0; j<h; j++) {
+			for(i=0; i<w; i++) {
+				clr = dbuf_getRGB(c->infile, pos + j*rowspan + i*3, 0);
+				de_bitmap_setpixel_rgb(img, i, j, clr);
+			}
+		}
+	}
+
+	de_bitmap_write_to_file(img, token, DE_CREATEFLAG_IS_AUX);
+
+	de_bitmap_destroy(img);
+}
+
 static void do_jfif_segment(deark *c, lctx *d, struct page_ctx *pg,
 	de_int64 pos, de_int64 data_size)
 {
@@ -209,6 +246,8 @@ static void do_jfif_segment(deark *c, lctx *d, struct page_ctx *pg,
 	de_dbg(c, "thumbnail dimensions: %dx%d", (int)tn_w, (int)tn_h);
 	if(tn_w>0 && tn_h>0 && data_size>9) {
 		pg->has_jfif_thumb = 1;
+		extract_unc_jfif_thumbnail(c, d, pg, pos+9, data_size-9, tn_w, tn_h,
+			0, "jfifthumb");
 	}
 }
 
@@ -218,19 +257,29 @@ static void do_jfxx_segment(deark *c, lctx *d, struct page_ctx *pg,
 	de_byte t;
 
 	pg->has_jfxx_seg = 1;
-	de_dbg(c, "jfxx segment at %d datasize=%d", (int)pos, (int)data_size);
-	if(data_size<2) return;
+	de_dbg(c, "JFXX segment at %d datasize=%d", (int)pos, (int)data_size);
+	if(data_size<1) return;
 
-	// The first byte indicates the type of thumbnail.
 	t = de_getbyte(pos);
+	de_dbg(c, "thumbnail type: 0x%02x", (unsigned int)t);
 
-	if(t==16) { // thumbnail coded using JPEG
+	if(t==0x10) { // thumbnail coded using JPEG
 		// TODO: JPEG-formatted thumbnails are forbidden from containing JFIF segments.
 		// They essentially inherit them from their parent.
 		// So, maybe, when we extract a thumbnail, we should insert an artificial JFIF
 		// segment into it. We currently don't do that.
 		// (However, this is not at all important.)
 		dbuf_create_file_from_slice(c->infile, pos+1, data_size-1, "jfxxthumb.jpg", NULL, DE_CREATEFLAG_IS_AUX);
+	}
+	else if(t==0x11 || t==0x13) {
+		de_int64 tn_w, tn_h;
+
+		if(data_size<3) return;
+		tn_w = (de_int64)de_getbyte(pos+1);
+		tn_h = (de_int64)de_getbyte(pos+2);
+		de_dbg(c, "JFXX thumbnail dimensions: %dx%d", (int)tn_w, (int)tn_h);
+		extract_unc_jfif_thumbnail(c, d, pg, pos+3, data_size-3, tn_w, tn_h,
+			(t==0x11)?1:0, "jfxxthumb");
 	}
 }
 
@@ -447,6 +496,7 @@ static void handler_app(deark *c, lctx *d, struct page_ctx *pg,
 		dbuf_create_file_from_slice(c->infile, payload_pos, payload_size, "xmp", NULL, DE_CREATEFLAG_IS_AUX);
 	}
 	else if(seg_type==0xe1 && !de_strcmp(app_id_normalized, "HTTP://NS.ADOBE.COM/XMP/EXTENSION/")) {
+		pg->has_xmp_ext = 1;
 		do_xmp_extension_segment(c, d, pg, payload_pos, payload_size);
 	}
 	else if(seg_type==0xeb && app_id_orig_strlen>=10 && !de_memcmp(app_id_normalized, "HDR_RI VER", 10)) {
@@ -1032,6 +1082,12 @@ static void print_summary(deark *c, lctx *d, struct page_ctx *pg)
 
 	if(pg->is_j2c || pg->is_jpegls) goto done;
 	if(!pg->found_sof) goto done;
+
+	// This is just to avoid printing a summary line for garbage that sometimes
+	// appears at the end of a file, after the EOI.
+	// TODO: We should probably handle such garbage better.
+	if(!pg->found_soi) goto done;
+
 	summary = ucstring_create(c);
 
 	if(pg->is_baseline) ucstring_append_sz(summary, " baseline", DE_ENCODING_LATIN1);
@@ -1058,6 +1114,7 @@ static void print_summary(deark *c, lctx *d, struct page_ctx *pg)
 	if(pg->is_jps) ucstring_append_sz(summary, " JPS", DE_ENCODING_LATIN1);
 	if(pg->has_iccprofile) ucstring_append_sz(summary, " ICC", DE_ENCODING_LATIN1);
 	if(pg->has_xmp) ucstring_append_sz(summary, " XMP", DE_ENCODING_LATIN1);
+	if(pg->has_xmp_ext) ucstring_append_sz(summary, " XMPext", DE_ENCODING_LATIN1);
 	if(pg->has_psd) ucstring_append_sz(summary, " PSD", DE_ENCODING_LATIN1);
 	if(pg->has_iptc) ucstring_append_sz(summary, " IPTC", DE_ENCODING_LATIN1);
 
@@ -1131,6 +1188,7 @@ static int do_jpeg_page(deark *c, lctx *d, de_int64 pos1, de_int64 *bytes_consum
 			}
 
 			if(seg_type==0xd8 && !pg->is_j2c) {
+				pg->found_soi = 1;
 				// Count the number of SOI segments
 				d->image_count++;
 			}
