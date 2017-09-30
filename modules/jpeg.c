@@ -18,7 +18,7 @@ struct page_ctx {
 	de_byte is_j2c;
 
 	de_byte has_jfif_seg, has_jfif_thumb, has_jfxx_seg;
-	de_byte has_exif_seg, has_spiff_seg;
+	de_byte has_exif_seg, has_exif_gps, has_spiff_seg;
 	de_byte has_psd, has_iptc, has_xmp, has_xmp_ext, has_iccprofile, has_flashpix;
 	de_byte is_baseline, is_progressive, is_lossless, is_arithmetic, is_hierarchical;
 	de_byte is_jpeghdr, is_jpegxt, is_mpo, is_jps;
@@ -464,11 +464,14 @@ static void handler_app(deark *c, lctx *d, struct page_ctx *pg,
 		do_adobeapp14_segment(c, d, pg, seg_data_pos+5, seg_data_size-5);
 	}
 	else if(seg_type==0xe1 && !de_strcmp(app_id_normalized, "EXIF")) {
+		de_uint32 exifflags = 0;
 		// Note that Exif has an additional padding byte after the APP ID NUL terminator.
 		de_dbg(c, "Exif data at %d, size=%d", (int)(payload_pos+1), (int)(payload_size-1));
 		pg->has_exif_seg = 1;
 		de_dbg_indent(c, 1);
-		de_fmtutil_handle_exif(c, payload_pos+1, payload_size-1);
+		de_fmtutil_handle_exif2(c, payload_pos+1, payload_size-1, &exifflags);
+		if(exifflags&0x08)
+			pg->has_exif_gps = 1;
 		de_dbg_indent(c, -1);
 	}
 	else if(seg_type==0xe2 && !de_strcmp(app_id_normalized, "ICC_PROFILE")) {
@@ -1117,6 +1120,7 @@ static void print_summary(deark *c, lctx *d, struct page_ctx *pg)
 	if(pg->has_xmp_ext) ucstring_append_sz(summary, " XMPext", DE_ENCODING_LATIN1);
 	if(pg->has_psd) ucstring_append_sz(summary, " PSD", DE_ENCODING_LATIN1);
 	if(pg->has_iptc) ucstring_append_sz(summary, " IPTC", DE_ENCODING_LATIN1);
+	if(pg->has_exif_gps) ucstring_append_sz(summary, " GPS", DE_ENCODING_LATIN1);
 
 	if(pg->scan_count!=1) ucstring_printf(summary, DE_ENCODING_LATIN1, " scans=%d", pg->scan_count);
 

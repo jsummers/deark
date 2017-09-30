@@ -155,8 +155,14 @@ void de_fmtutil_generate_bmpfileheader(deark *c, dbuf *outf, const struct de_bmp
 	dbuf_writeui32le(outf, 14 + bi->size_of_headers_and_pal);
 }
 
-void de_fmtutil_handle_exif(deark *c, de_int64 pos, de_int64 len)
+void de_fmtutil_handle_exif2(deark *c, de_int64 pos, de_int64 len, de_uint32 *returned_flags)
 {
+	de_module_params *mparams = NULL;
+
+	if(returned_flags) {
+		*returned_flags = 0;
+	}
+
 	if(c->extract_level>=2) {
 		// Writing raw Exif data isn't very useful, but do so if requested.
 		dbuf_create_file_from_slice(c->infile, pos, len, "exif.tif", NULL, DE_CREATEFLAG_IS_AUX);
@@ -165,7 +171,22 @@ void de_fmtutil_handle_exif(deark *c, de_int64 pos, de_int64 len)
 		return;
 	}
 
-	de_run_module_by_id_on_slice2(c, "tiff", "E", c->infile, pos, len);
+	mparams = de_malloc(c, sizeof(de_module_params));
+	mparams->codes = "E";
+
+	de_run_module_by_id_on_slice(c, "tiff", mparams, c->infile, pos, len);
+	if(returned_flags) {
+		// It's an unfortunate bug that returned_flags does not work if
+		// extract_level>=2, but for now there's no reasonable way to fix it.
+		*returned_flags = mparams->returned_flags;
+	}
+
+	de_free(c, mparams);
+}
+
+void de_fmtutil_handle_exif(deark *c, de_int64 pos, de_int64 len)
+{
+	de_fmtutil_handle_exif2(c, pos, len, NULL);
 }
 
 // Either extract the IPTC data to a file, or drill down into it,

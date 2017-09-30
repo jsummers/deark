@@ -70,6 +70,7 @@ static void handler_usercomment(deark *c, lctx *d, const struct taginfo *tg, con
 static void handler_37724(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni);
 static void handler_iccprofile(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni);
 static void handler_mpentry(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni);
+static void handler_gpslatitude(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni);
 static void handler_utf16(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni);
 
 struct valdec_params {
@@ -582,7 +583,7 @@ static const struct tagnuminfo tagnuminfo_arr[] = {
 
 	{ 0, 0x0041, "GPSVersionID", NULL, NULL },
 	{ 1, 0x0041, "GPSLatitudeRef", NULL, NULL },
-	{ 2, 0x0041, "GPSGpsLatitude", NULL, NULL },
+	{ 2, 0x0041, "GPSLatitude", handler_gpslatitude, NULL },
 	{ 3, 0x0041, "GPSLongitudeRef", NULL, NULL },
 	{ 4, 0x0041, "GPSLongitude", NULL, NULL },
 	{ 5, 0x0041, "GPSAltitudeRef", NULL, NULL },
@@ -631,6 +632,7 @@ struct localctx_struct {
 	int fmt;
 	int host_is_le;
 	int can_decode_fltpt;
+	de_byte has_exif_gps;
 
 	struct ifdstack_item *ifdstack;
 	int ifdstack_capacity;
@@ -1644,6 +1646,14 @@ static void handler_mpentry(deark *c, lctx *d, const struct taginfo *tg, const s
 	ucstring_destroy(s);
 }
 
+static void handler_gpslatitude(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni)
+{
+	// We look for this tag instead of GPS IFD or GPSVersionID, because we want
+	// to know whether the file contains actual GPS coordinates. A lot of files
+	// have a GPS IFD that contains nothing.
+	d->has_exif_gps = 1;
+}
+
 // This is for certain Microsoft tags that are apparently in UTF-16 format.
 // They use the BYTE data type (instead of the logical SHORT), and are always
 // little-endian, even in big-endian files.
@@ -2137,6 +2147,10 @@ static void de_run_tiff(deark *c, de_module_params *mparams)
 	d->current_textfield_encoding = DE_ENCODING_ASCII;
 
 	do_tiff(c, d);
+
+	if(mparams) {
+		if(d->has_exif_gps) mparams->returned_flags |= 0x08;
+	}
 
 	if(d) {
 		de_free(c, d->ifdstack);
