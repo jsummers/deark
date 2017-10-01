@@ -386,6 +386,135 @@ done:
 	ucstring_destroy(digest_str);
 }
 
+// It is uncommon for a U+0000-terminated UTF-16 string to be stored in a file,
+// without any way to determine its length except by scanning for the U+0000
+// character. But FPXR segments do just that.
+// At this time, Deark has no library function for this.
+static int find_utf16_NULterm_len(dbuf *f, de_int64 pos1, de_int64 bytes_avail,
+	de_int64 *bytes_consumed)
+{
+	de_int64 x;
+	de_int64 pos = pos1;
+
+	*bytes_consumed = bytes_avail;
+	while(1) {
+		if(pos1+bytes_avail-pos < 2) {
+			return 0;
+		}
+		// Endianness doesn't matter, because we're only looking for 0x00 0x00.
+		x = dbuf_getui16le(f, pos);
+		pos += 2;
+		if(x==0) {
+			*bytes_consumed = pos - pos1;
+			return 1;
+		}
+	}
+}
+
+static void do_fpxr_segment(deark *c, lctx *d, struct page_ctx *pg, de_int64 pos1, de_int64 len)
+{
+	de_int64 pos = pos1;
+	de_int64 x;
+	de_int64 k;
+	de_int64 nbytesleft;
+	int saved_indent_level;
+	de_byte ver;
+	de_byte segtype;
+	const char *name;
+	de_ucstring *s = NULL;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+	if(len<2) goto done;
+	ver = de_getbyte(pos++);
+
+	de_dbg(c, "version: %u", (unsigned int)ver);
+	segtype = de_getbyte(pos++);
+	switch(segtype) {
+	case 1: name = "contents list"; break;
+	case 2: name = "stream data"; break;
+	default: name = "?";
+	}
+	de_dbg(c, "segment type: %u (%s)", (unsigned int)segtype, name);
+
+	if(segtype==1) {
+		de_int64 i_count;
+
+		if(len<4) goto done;
+
+		i_count = de_getui16be(pos);
+		de_dbg(c, "interoperability count: %d", (int)i_count);
+		pos += 2;
+
+		s = ucstring_create(c);
+
+		for(k=0; k<i_count; k++) {
+			de_int64 bytes_consumed = 0;
+			de_int64 esize;
+			de_byte defval;
+			int is_storage = 0;
+			de_byte clsid_buf[16];
+			char clsid_string[50];
+
+			if(pos>=pos1+len) goto done;
+			de_dbg(c, "entity[%d] at %d", (int)k, (int)pos);
+			de_dbg_indent(c, 1);
+
+			esize = de_getui32be(pos);
+			if(esize==0xffffffffLL) {
+				is_storage = 1;
+			}
+			de_dbg(c, "entity type: %s", is_storage?"storage":"stream");
+			if(!is_storage) {
+				de_dbg(c, "stream size: %u", (unsigned int)esize);
+			}
+			pos += 4;
+
+			defval = de_getbyte(pos++);
+			de_dbg(c, "default value: 0x%02x", (unsigned int)defval);
+
+			nbytesleft = pos1+len-pos;
+			if(!find_utf16_NULterm_len(c->infile, pos, nbytesleft, &bytes_consumed)) goto done;
+			ucstring_empty(s);
+			dbuf_read_to_ucstring_n(c->infile, pos, bytes_consumed-2, DE_DBG_MAX_STRLEN, s,
+				0, DE_ENCODING_UTF16LE);
+			de_dbg(c, "entity name: \"%s\"", ucstring_get_printable_sz_d(s));
+			pos += bytes_consumed;
+
+			if(is_storage) { // read Entity class ID
+				de_read(clsid_buf, pos, 16);
+				pos += 16;
+				de_fmtutil_guid_to_uuid(clsid_buf);
+				de_fmtutil_render_uuid(c, clsid_buf, clsid_string, sizeof(clsid_string));
+				de_dbg(c, "class id: {%s}", clsid_string);
+			}
+			de_dbg_indent(c, -1);
+		}
+
+	}
+	else if(segtype==2) {
+		if(len<6) goto done;
+
+		x = de_getui16be(pos);
+		de_dbg(c, "index to contents list: %d", (int)x);
+		pos += 2;
+
+		// The Exif spec (2.31) says this field is at offset 0x0C, but I'm
+		// assuming that's a clerical error that should be 0x0D.
+		x = de_getui32be(pos);
+		de_dbg(c, "offset to flashpix stream: %u", (unsigned int)x);
+		pos += 4;
+
+		nbytesleft = pos1+len-pos;
+		if(nbytesleft>0) {
+			de_dbg(c, "[%d bytes of flashpix stream data, at %d]", (int)nbytesleft, (int)pos);
+		}
+	}
+
+done:
+	ucstring_destroy(s);
+	de_dbg_indent_restore(c, saved_indent_level);
+}
+
 // ITU-T Rec. T.86 says nothing about canonicalizing the APP ID, but in
 // practice, some apps are sloppy about capitalization, and trailing spaces.
 static void normalize_app_id(const char *app_id_orig, char *app_id_normalized,
@@ -479,6 +608,7 @@ static void handler_app(deark *c, lctx *d, struct page_ctx *pg,
 	}
 	else if(seg_type==0xe2 && !de_strcmp(app_id_normalized, "FPXR")) {
 		pg->has_flashpix = 1;
+		do_fpxr_segment(c, d, pg, payload_pos, payload_size);
 	}
 	else if(seg_type==0xe8 && !de_strcmp(app_id_normalized, "SPIFF")) {
 		pg->has_spiff_seg = 1;
