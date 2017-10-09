@@ -40,6 +40,9 @@ struct page_ctx {
 	dbuf *extxmp_membuf;
 	de_byte extxmp_digest[32];
 	de_int64 extxmp_total_len;
+
+	int is_subsampled;
+	de_ucstring *sampling_code;
 };
 
 typedef struct localctx_struct {
@@ -745,6 +748,8 @@ static void handler_sof(deark *c, lctx *d, struct page_ctx *pg,
 		b = de_getbyte(pos+6+3*i+1);
 		sf1 = (de_int64)(b>>4);
 		sf2 = (de_int64)(b&0x0f);
+		if(sf1!=1 || sf2!=1) pg->is_subsampled = 1;
+		ucstring_printf(pg->sampling_code, DE_ENCODING_LATIN1, "%d%d", (int)sf1, (int)sf2);
 		qtid = de_getbyte(pos+6+3*i+2);
 		de_dbg(c, "cmp #%d: id=%d sampling=%dx%d quant_table=Q%d",
 			(int)i, (int)comp_id, (int)sf1, (int)sf2, (int)qtid);
@@ -1229,6 +1234,13 @@ static void print_summary(deark *c, lctx *d, struct page_ctx *pg)
 	if(pg->is_arithmetic) ucstring_append_sz(summary, " arithmetic", DE_ENCODING_LATIN1);
 	if(pg->is_hierarchical) ucstring_append_sz(summary, " hierarchical", DE_ENCODING_LATIN1);
 	ucstring_printf(summary, DE_ENCODING_LATIN1, " cmpts=%d", (int)pg->ncomp);
+	if(pg->is_subsampled) {
+		// The subsampling type code printed here is not the standard way to denote
+		// subsampling, but the standard notation is incomprehensible, and doesn't
+		// cover all the possible cases.
+		ucstring_printf(summary, DE_ENCODING_UTF8, " subsampling=%s",
+			ucstring_get_printable_sz(pg->sampling_code));
+	}
 	ucstring_printf(summary, DE_ENCODING_LATIN1, " bits=%d", (int)pg->precision);
 
 	if(pg->has_jfif_seg) ucstring_append_sz(summary, " JFIF", DE_ENCODING_LATIN1);
@@ -1276,6 +1288,7 @@ static int do_jpeg_page(deark *c, lctx *d, de_int64 pos1, de_int64 *bytes_consum
 
 	pg = de_malloc(c, sizeof(struct page_ctx));
 	pg->is_j2c = d->is_j2c; // Inherit J2C file format
+	pg->sampling_code = ucstring_create(c);
 
 	pos = pos1;
 	found_marker = 0;
@@ -1373,6 +1386,7 @@ done:
 			print_summary(c, d, pg);
 		}
 
+		ucstring_destroy(pg->sampling_code);
 		de_free(c, pg);
 	}
 
