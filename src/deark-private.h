@@ -39,7 +39,13 @@
 
 typedef struct de_module_params_struct {
 	const char *codes;
+	// returned_flags can be module-specific.
+	//  psd: 0x02: has_iptc
+	//  tiff: 0x08: has_exif_gps
+	//  tiff: 0x10: first IFD has subsampling=cosited
+	//  tiff: 0x20: uint1 = first IFD's orientation
 	de_uint32 returned_flags;
+	de_uint32 uint1;
 } de_module_params;
 
 #define DE_DECLARE_MODULE(x) void x(deark *c, struct deark_module_info *mi)

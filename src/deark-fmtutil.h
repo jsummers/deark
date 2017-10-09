@@ -42,7 +42,7 @@ void de_fmtutil_generate_bmpfileheader(deark *c, dbuf *outf, const struct de_bmp
 	de_int64 file_size_override);
 
 void de_fmtutil_handle_exif2(deark *c, de_int64 pos, de_int64 len,
-	de_uint32 *returned_flags);
+	de_uint32 *returned_flags, de_uint32 *orientation);
 void de_fmtutil_handle_exif(deark *c, de_int64 pos, de_int64 len);
 
 void de_fmtutil_handle_iptc(deark *c, de_int64 pos, de_int64 len);
@@ -187,3 +187,5 @@ void de_fmtutil_read_iff_format(deark *c, struct de_iffctx *ictx,
 	de_int64 pos, de_int64 len);
 int de_fmtutil_is_standard_iff_chunk(deark *c, struct de_iffctx *ictx,
 	de_uint32 ct);
+
+const char *de_fmtutil_tiff_orientation_name(de_int64 n);

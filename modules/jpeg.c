@@ -26,11 +26,15 @@ struct page_ctx {
 	de_byte has_adobeapp14;
 	de_byte color_transform; // valid if(has_adobeapp14)
 	de_byte has_revcolorxform;
+	de_byte exif_cosited;
 	int scan_count;
 
 	de_byte found_soi;
 	de_byte found_sof;
 	de_int64 ncomp;
+
+	de_byte jfif_ver_h, jfif_ver_l; // valid if(has_jfif_seg)
+	de_uint32 exif_orientation; // valid if != 0, and(has_exif_seg)
 	dbuf *iccprofile_file;
 	dbuf *hdr_residual_file;
 
@@ -225,7 +229,6 @@ static void extract_unc_jfif_thumbnail(deark *c, lctx *d, struct page_ctx *pg,
 static void do_jfif_segment(deark *c, lctx *d, struct page_ctx *pg,
 	de_int64 pos, de_int64 data_size)
 {
-	de_byte ver_h, ver_l;
 	de_byte units;
 	const char *units_name;
 	de_int64 xdens, ydens;
@@ -233,9 +236,9 @@ static void do_jfif_segment(deark *c, lctx *d, struct page_ctx *pg,
 
 	pg->has_jfif_seg = 1;
 	if(data_size<9) return;
-	ver_h = de_getbyte(pos);
-	ver_l = de_getbyte(pos+1);
-	de_dbg(c, "JFIF version: %d.%02d", (int)ver_h, (int)ver_l);
+	pg->jfif_ver_h = de_getbyte(pos);
+	pg->jfif_ver_l = de_getbyte(pos+1);
+	de_dbg(c, "JFIF version: %d.%02d", (int)pg->jfif_ver_h, (int)pg->jfif_ver_l);
 	units = de_getbyte(pos+2);
 	xdens = de_getui16be(pos+3);
 	ydens = de_getui16be(pos+5);
@@ -597,13 +600,19 @@ static void handler_app(deark *c, lctx *d, struct page_ctx *pg,
 	}
 	else if(seg_type==0xe1 && !de_strcmp(app_id_normalized, "EXIF")) {
 		de_uint32 exifflags = 0;
+		de_uint32 exiforientation = 0;
+
 		// Note that Exif has an additional padding byte after the APP ID NUL terminator.
 		de_dbg(c, "Exif data at %d, size=%d", (int)(payload_pos+1), (int)(payload_size-1));
 		pg->has_exif_seg = 1;
 		de_dbg_indent(c, 1);
-		de_fmtutil_handle_exif2(c, payload_pos+1, payload_size-1, &exifflags);
+		de_fmtutil_handle_exif2(c, payload_pos+1, payload_size-1, &exifflags, &exiforientation);
 		if(exifflags&0x08)
 			pg->has_exif_gps = 1;
+		if(exifflags&0x10)
+			pg->exif_cosited = 1;
+		if(exifflags&0x20)
+			pg->exif_orientation = exiforientation;
 		de_dbg_indent(c, -1);
 	}
 	else if(seg_type==0xe2 && !de_strcmp(app_id_normalized, "ICC_PROFILE")) {
@@ -682,6 +691,7 @@ static void declare_jpeg_fmt(deark *c, lctx *d, struct page_ctx *pg, de_byte seg
 
 	// The declared format is only an executive summary of the kind of JPEG.
 	// It does not come close to covering all possible combinations of attributes.
+	// (The "summary:" line goes a bit further.)
 	if(pg->is_jpegls) { name = "JPEG-LS"; }
 	else if(pg->is_mpo) { name = "JPEG/MPO"; }
 	else if(pg->is_jps) { name = "JPEG/JPS"; }
@@ -1243,7 +1253,10 @@ static void print_summary(deark *c, lctx *d, struct page_ctx *pg)
 	}
 	ucstring_printf(summary, DE_ENCODING_LATIN1, " bits=%d", (int)pg->precision);
 
-	if(pg->has_jfif_seg) ucstring_append_sz(summary, " JFIF", DE_ENCODING_LATIN1);
+	if(pg->has_jfif_seg) {
+		ucstring_printf(summary, DE_ENCODING_LATIN1, " JFIF=%u.%u",
+			(unsigned int)pg->jfif_ver_h, (unsigned int)pg->jfif_ver_l);
+	}
 	if(pg->has_spiff_seg) ucstring_append_sz(summary, " SPIFF", DE_ENCODING_LATIN1);
 	if(pg->has_exif_seg) ucstring_append_sz(summary, " Exif", DE_ENCODING_LATIN1);
 	if(pg->has_adobeapp14)
@@ -1272,6 +1285,33 @@ done:
 	ucstring_destroy(summary);
 }
 
+static void do_post_sof_stuff(deark *c, lctx *d, struct page_ctx *pg)
+{
+	if(pg->is_jpegls || pg->is_j2c) return;
+
+	// There is really no reason to warn about these JFIF vs. Exif conflicts.
+	// It's just a pet peeve.
+
+	if(pg->has_jfif_seg && pg->has_exif_seg &&
+		(pg->jfif_ver_h==1 && (pg->jfif_ver_l==1 || pg->jfif_ver_l==2)))
+	{
+		if(pg->exif_orientation>1) {
+			de_warn(c, "Image has an ambiguous orientation: JFIF says "
+				"%s; Exif says %s",
+				de_fmtutil_tiff_orientation_name(1),
+				de_fmtutil_tiff_orientation_name((de_int64)pg->exif_orientation));
+		}
+
+		if(pg->exif_cosited && pg->is_subsampled && pg->ncomp>1) {
+			de_warn(c, "Image has an ambiguous subsampling position: JFIF says "
+				"centered; Exif says cosited");
+		}
+
+		// TODO: Another thing we could check for is a significant conflict in
+		// the JFIF and Exif density settings.
+	}
+}
+
 // Process a single JPEG image (through the EOI marker).
 // Returns nonzero if we should continue, and look for more images after the EOI.
 static int do_jpeg_page(deark *c, lctx *d, de_int64 pos1, de_int64 *bytes_consumed)
@@ -1283,6 +1323,7 @@ static int do_jpeg_page(deark *c, lctx *d, de_int64 pos1, de_int64 *bytes_consum
 	int found_marker;
 	struct marker_info mi;
 	de_int64 scan_byte_count;
+	int sof_count = 0;
 	int retval = 0;
 	struct page_ctx *pg = NULL;
 
@@ -1358,6 +1399,13 @@ static int do_jpeg_page(deark *c, lctx *d, de_int64 pos1, de_int64 *bytes_consum
 		do_segment(c, d, pg, &mi, pos+2, seg_size-2);
 
 		pos += seg_size;
+
+		if(mi.flags & FLAG_IS_SOF) {
+			if(sof_count==0) {
+				do_post_sof_stuff(c, d, pg);
+			}
+			sof_count++;
+		}
 
 		if(seg_type==0xda && !pg->is_j2c) {
 			// If we read an SOS segment, now read the untagged image data that

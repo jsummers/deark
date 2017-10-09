@@ -61,8 +61,10 @@ struct ifdstack_item {
 typedef void (*handler_fn_type)(deark *c, lctx *d, const struct taginfo *tg,
 	const struct tagnuminfo *tni);
 
+static void handler_orientation(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni);
 static void handler_colormap(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni);
 static void handler_subifd(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni);
+static void handler_ycbcrpositioning(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni);
 static void handler_xmp(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni);
 static void handler_iptc(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni);
 static void handler_photoshoprsrc(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni);
@@ -163,7 +165,7 @@ static const struct tagnuminfo tagnuminfo_arr[] = {
 	{ 271, 0x0400, "Make", NULL, NULL },
 	{ 272, 0x0400, "Model", NULL, NULL },
 	{ 273, 0x00, "StripOffsets", NULL, NULL },
-	{ 274, 0x00, "Orientation", NULL, valdec_orientation },
+	{ 274, 0x00, "Orientation", handler_orientation, valdec_orientation },
 	{ 277, 0x00, "SamplesPerPixel", NULL, NULL },
 	{ 278, 0x00, "RowsPerStrip", NULL, NULL },
 	{ 279, 0x00, "StripByteCounts", NULL, NULL },
@@ -240,7 +242,7 @@ static const struct tagnuminfo tagnuminfo_arr[] = {
 	{ 521, 0x00, "JPEGACTables", NULL, NULL },
 	{ 529, 0x00, "YCbCrCoefficients", NULL, NULL },
 	{ 530, 0x00, "YCbCrSubSampling", NULL, NULL },
-	{ 531, 0x00, "YCbCrPositioning", NULL, valdec_ycbcrpositioning },
+	{ 531, 0x00, "YCbCrPositioning", handler_ycbcrpositioning, valdec_ycbcrpositioning },
 	{ 532, 0x00, "ReferenceBlackWhite", NULL, NULL },
 	{ 559, 0x0000, "StripRowCounts", NULL, NULL },
 	{ 700, 0x0408, "XMP", handler_xmp, NULL },
@@ -624,15 +626,21 @@ struct taginfo {
 	de_int64 val_offset;
 	de_int64 unit_size;
 	de_int64 total_size;
+	// Might be more logical for us to have a separate struct for IFDinfo, but
+	// I don't want to add a param to every "handler" function
+	de_int64 ifd_idx;
 };
 
 struct localctx_struct {
 	int is_le;
 	int is_bigtiff;
 	int fmt;
+	int is_exif_submodule;
 	int host_is_le;
 	int can_decode_fltpt;
+	de_uint32 first_ifd_orientation; // Valid if != 0
 	de_byte has_exif_gps;
+	de_byte first_ifd_cosited;
 
 	struct ifdstack_item *ifdstack;
 	int ifdstack_capacity;
@@ -640,14 +648,14 @@ struct localctx_struct {
 	int current_textfield_encoding;
 
 	struct de_inthashtable *ifds_seen;
-	de_int64 ifd_count;
+	de_int64 ifd_count; // Number of IFDs that we currently know of
 
 	de_int64 ifdhdrsize;
 	de_int64 ifditemsize;
 	de_int64 offsetoffset;
 	de_int64 offsetsize; // Number of bytes in a file offset
 
-	de_module_params *mparams;
+	//de_module_params *mparams;
 };
 
 // Returns 0 if stack is empty.
@@ -954,7 +962,7 @@ static void do_oldjpeg(deark *c, lctx *d, de_int64 jpegoffset, de_int64 jpegleng
 	}
 
 	// Found an embedded JPEG image or thumbnail that we can extract.
-	if(d->mparams && d->mparams->codes && de_strchr(d->mparams->codes, 'E')) {
+	if(d->is_exif_submodule) {
 		extension = "exifthumb.jpg";
 		createflags = DE_CREATEFLAG_IS_AUX;
 	}
@@ -1107,11 +1115,7 @@ static int valdec_fillorder(deark *c, const struct valdec_params *vp, struct val
 
 static int valdec_orientation(deark *c, const struct valdec_params *vp, struct valdec_result *vr)
 {
-	static const struct int_and_str name_map[] = {
-		{1, "top-left"}, {2, "top-right"}, {3, "bottom-right"}, {4, "bottom-left"},
-		{5, "left-top"}, {6, "right-top"}, {7, "right-bottom"}, {8, "left-bottom"}
-	};
-	lookup_str_and_append_to_ucstring(name_map, ITEMS_IN_ARRAY(name_map), vp->n, vr->s);
+	ucstring_append_sz(vr->s,de_fmtutil_tiff_orientation_name(vp->n), DE_ENCODING_UTF8);
 	return 1;
 }
 
@@ -1452,6 +1456,21 @@ static int valdec_dngcolorspace(deark *c, const struct valdec_params *vp, struct
 	return 1;
 }
 
+static void handler_orientation(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni)
+{
+	de_int64 tmpval;
+
+	// The only purpose of this handler is to possibly set d->first_ifd_orientation,
+	// for later use.
+	if(tg->ifd_idx!=0) return;
+	if(tg->valcount!=1) return;
+
+	read_tag_value_as_int64(c, d, tg, 0, &tmpval);
+	if(tmpval>=1 && tmpval<=8) {
+		d->first_ifd_orientation = (de_uint32)tmpval;
+	}
+}
+
 static void handler_colormap(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni)
 {
 	de_int64 num_entries;
@@ -1491,6 +1510,21 @@ static void handler_subifd(deark *c, lctx *d, const struct taginfo *tg, const st
 		read_tag_value_as_int64(c, d, tg, j, &tmpoffset);
 		de_dbg(c, "offset of %s: %d", tni->tagname, (int)tmpoffset);
 		push_ifd(c, d, tmpoffset, ifdtype);
+	}
+}
+
+static void handler_ycbcrpositioning(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni)
+{
+	de_int64 tmpval;
+
+	// The only purpose of this handler is to possibly set the d->first_ifd_cosited
+	// flag, for later use.
+	if(tg->ifd_idx!=0) return;
+	if(tg->valcount!=1) return;
+
+	read_tag_value_as_int64(c, d, tg, 0, &tmpval);
+	if(tmpval==2) {
+		d->first_ifd_cosited = 1;
 	}
 }
 
@@ -1849,7 +1883,7 @@ static const struct tagnuminfo *find_tagnuminfo(int tagnum, int filefmt, int ifd
 	return NULL;
 }
 
-static void process_ifd(deark *c, lctx *d, de_int64 ifdpos, int ifdtype)
+static void process_ifd(deark *c, lctx *d, de_int64 ifd_idx, de_int64 ifdpos, int ifdtype)
 {
 	int num_tags;
 	int i;
@@ -1927,6 +1961,7 @@ static void process_ifd(deark *c, lctx *d, de_int64 ifdpos, int ifdtype)
 
 		de_memset(&tg, 0, sizeof(struct taginfo));
 
+		tg.ifd_idx = ifd_idx;
 		tg.tagnum = (int)dbuf_getui16x(c->infile, ifdpos+d->ifdhdrsize+i*d->ifditemsize, d->is_le);
 		tg.datatype = (int)dbuf_getui16x(c->infile, ifdpos+d->ifdhdrsize+i*d->ifditemsize+2, d->is_le);
 		// Not a file pos, but getfpos() does the right thing.
@@ -2005,6 +2040,7 @@ static void do_tiff(deark *c, lctx *d)
 {
 	de_int64 pos;
 	de_int64 ifdoffs;
+	de_int64 ifd_idx;
 
 	pos = 0;
 	de_dbg(c, "TIFF file header at %d", (int)pos);
@@ -2028,11 +2064,16 @@ static void do_tiff(deark *c, lctx *d)
 	de_dbg_indent(c, -1);
 
 	// Process IFDs until we run out of them.
+	// ifd_idx tracks how many IFDs we have finished processing, but it's not
+	// really meaningful except when it's 0.
+	// TODO: It might be useful to count just the IFDs in the main IFD list.
+	ifd_idx = 0;
 	while(1) {
 		int ifdtype = IFDTYPE_NORMAL;
 		ifdoffs = pop_ifd(c, d, &ifdtype);
 		if(ifdoffs==0) break;
-		process_ifd(c, d, ifdoffs, ifdtype);
+		process_ifd(c, d, ifd_idx, ifdoffs, ifdtype);
+		ifd_idx++;
 	}
 }
 
@@ -2092,14 +2133,17 @@ static void de_run_tiff(deark *c, de_module_params *mparams)
 	if(c->module_nesting_level>1) de_dbg2(c, "in tiff module");
 	d = de_malloc(c, sizeof(lctx));
 
-	d->mparams = mparams;
-
 	d->fmt = de_identify_tiff_internal(c, &d->is_le);
 
-	if(d->mparams && d->mparams->codes && de_strchr(d->mparams->codes, 'M') &&
-		d->fmt==DE_TIFFFMT_TIFF)
-	{
-		d->fmt = DE_TIFFFMT_MPEXT;
+	if(mparams && mparams->codes) {
+		if(de_strchr(mparams->codes, 'M') && (d->fmt==DE_TIFFFMT_TIFF))
+		{
+			d->fmt = DE_TIFFFMT_MPEXT;
+		}
+
+		if(de_strchr(mparams->codes, 'E')) {
+			d->is_exif_submodule = 1;
+		}
 	}
 
 	switch(d->fmt) {
@@ -2149,7 +2193,16 @@ static void de_run_tiff(deark *c, de_module_params *mparams)
 	do_tiff(c, d);
 
 	if(mparams) {
-		if(d->has_exif_gps) mparams->returned_flags |= 0x08;
+		if(d->has_exif_gps) {
+			mparams->returned_flags |= 0x08;
+		}
+		if(d->first_ifd_cosited) {
+			mparams->returned_flags |= 0x10;
+		}
+		if(d->first_ifd_orientation>0) {
+			mparams->returned_flags |= 0x20;
+			mparams->uint1 = d->first_ifd_orientation;
+		}
 	}
 
 	if(d) {

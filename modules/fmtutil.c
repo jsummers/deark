@@ -155,7 +155,8 @@ void de_fmtutil_generate_bmpfileheader(deark *c, dbuf *outf, const struct de_bmp
 	dbuf_writeui32le(outf, 14 + bi->size_of_headers_and_pal);
 }
 
-void de_fmtutil_handle_exif2(deark *c, de_int64 pos, de_int64 len, de_uint32 *returned_flags)
+void de_fmtutil_handle_exif2(deark *c, de_int64 pos, de_int64 len,
+	de_uint32 *returned_flags, de_uint32 *orientation)
 {
 	de_module_params *mparams = NULL;
 
@@ -176,9 +177,14 @@ void de_fmtutil_handle_exif2(deark *c, de_int64 pos, de_int64 len, de_uint32 *re
 
 	de_run_module_by_id_on_slice(c, "tiff", mparams, c->infile, pos, len);
 	if(returned_flags) {
-		// It's an unfortunate bug that returned_flags does not work if
+		// FIXME: It's an unfortunate bug that returned_flags does not work if
 		// extract_level>=2, but for now there's no reasonable way to fix it.
+		// We have to process -- not extract -- the Exif chunk if we want to
+		// know what's in it.
 		*returned_flags = mparams->returned_flags;
+		if((mparams->returned_flags & 0x20) && orientation) {
+			*orientation = mparams->uint1;
+		}
 	}
 
 	de_free(c, mparams);
@@ -186,7 +192,7 @@ void de_fmtutil_handle_exif2(deark *c, de_int64 pos, de_int64 len, de_uint32 *re
 
 void de_fmtutil_handle_exif(deark *c, de_int64 pos, de_int64 len)
 {
-	de_fmtutil_handle_exif2(c, pos, len, NULL);
+	de_fmtutil_handle_exif2(c, pos, len, NULL, NULL);
 }
 
 // Either extract the IPTC data to a file, or drill down into it,
@@ -1335,4 +1341,14 @@ void de_fmtutil_read_iff_format(deark *c, struct de_iffctx *ictx,
 	}
 
 	do_iff_chunk_sequence(c, ictx, pos, len, 0);
+}
+
+const char *de_fmtutil_tiff_orientation_name(de_int64 n)
+{
+	static const char *names[9] = {
+		"?", "top-left", "top-right", "bottom-right", "bottom-left",
+		"left-top", "right-top", "right-bottom", "left-bottom"
+	};
+	if(n>=1 && n<=8) return names[n];
+	return names[0];
 }
