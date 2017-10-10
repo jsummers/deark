@@ -35,6 +35,7 @@ struct page_ctx {
 
 	de_byte jfif_ver_h, jfif_ver_l; // valid if(has_jfif_seg)
 	de_uint32 exif_orientation; // valid if != 0, and(has_exif_seg)
+	de_uint32 exif_version_as_uint32; // valid if != 0, and(has_exif_seg)
 	dbuf *iccprofile_file;
 	dbuf *hdr_residual_file;
 
@@ -601,18 +602,22 @@ static void handler_app(deark *c, lctx *d, struct page_ctx *pg,
 	else if(seg_type==0xe1 && !de_strcmp(app_id_normalized, "EXIF")) {
 		de_uint32 exifflags = 0;
 		de_uint32 exiforientation = 0;
+		de_uint32 exifversion = 0;
 
 		// Note that Exif has an additional padding byte after the APP ID NUL terminator.
 		de_dbg(c, "Exif data at %d, size=%d", (int)(payload_pos+1), (int)(payload_size-1));
 		pg->has_exif_seg = 1;
 		de_dbg_indent(c, 1);
-		de_fmtutil_handle_exif2(c, payload_pos+1, payload_size-1, &exifflags, &exiforientation);
+		de_fmtutil_handle_exif2(c, payload_pos+1, payload_size-1,
+			&exifflags, &exiforientation, &exifversion);
 		if(exifflags&0x08)
 			pg->has_exif_gps = 1;
 		if(exifflags&0x10)
 			pg->exif_cosited = 1;
 		if(exifflags&0x20)
 			pg->exif_orientation = exiforientation;
+		if(exifflags&0x40)
+			pg->exif_version_as_uint32 = exifversion;
 		de_dbg_indent(c, -1);
 	}
 	else if(seg_type==0xe2 && !de_strcmp(app_id_normalized, "ICC_PROFILE")) {
@@ -1223,6 +1228,16 @@ done:
 	return 1;
 }
 
+// Caller supplies s[5].
+static void exif_version_to_string(de_uint32 v, char *s)
+{
+	s[0] = de_byte_to_printable_char((de_byte)((v>>24)&0xff));
+	s[1] = de_byte_to_printable_char((de_byte)((v>>16)&0xff));
+	s[2] = de_byte_to_printable_char((de_byte)((v>>8)&0xff));
+	s[3] = de_byte_to_printable_char((de_byte)(v&0xff));
+	s[4] = '\0';
+}
+
 // Print a summary line indicating the main characteristics of this image.
 static void print_summary(deark *c, lctx *d, struct page_ctx *pg)
 {
@@ -1254,11 +1269,18 @@ static void print_summary(deark *c, lctx *d, struct page_ctx *pg)
 	ucstring_printf(summary, DE_ENCODING_LATIN1, " bits=%d", (int)pg->precision);
 
 	if(pg->has_jfif_seg) {
-		ucstring_printf(summary, DE_ENCODING_LATIN1, " JFIF=%u.%u",
+		ucstring_printf(summary, DE_ENCODING_LATIN1, " JFIF=%u.%02u",
 			(unsigned int)pg->jfif_ver_h, (unsigned int)pg->jfif_ver_l);
 	}
 	if(pg->has_spiff_seg) ucstring_append_sz(summary, " SPIFF", DE_ENCODING_LATIN1);
-	if(pg->has_exif_seg) ucstring_append_sz(summary, " Exif", DE_ENCODING_LATIN1);
+	if(pg->has_exif_seg) {
+		ucstring_append_sz(summary, " Exif", DE_ENCODING_LATIN1);
+		if(pg->exif_version_as_uint32!=0) {
+			char tmps[5];
+			exif_version_to_string(pg->exif_version_as_uint32, tmps);
+			ucstring_printf(summary, DE_ENCODING_LATIN1, "=%s", tmps);
+		}
+	}
 	if(pg->has_adobeapp14)
 		ucstring_printf(summary, DE_ENCODING_LATIN1, " colorxform=%d", (int)pg->color_transform);
 	if(pg->has_revcolorxform) ucstring_append_sz(summary, " rev-colorxform", DE_ENCODING_LATIN1);

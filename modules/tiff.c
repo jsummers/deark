@@ -71,6 +71,7 @@ static void handler_photoshoprsrc(deark *c, lctx *d, const struct taginfo *tg, c
 static void handler_usercomment(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni);
 static void handler_37724(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni);
 static void handler_iccprofile(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni);
+static void handler_exifversion(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni);
 static void handler_mpentry(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni);
 static void handler_gpslatitude(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni);
 static void handler_utf16(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni);
@@ -360,7 +361,7 @@ static const struct tagnuminfo tagnuminfo_arr[] = {
 	{ 34911, 0x0000, "FaxDCS", NULL, NULL },
 	{ 34929, 0x0000, "FEDEX_EDR", NULL, NULL },
 	//{ 34954, 0x0000, "LeafSubIFD", NULL, NULL },
-	{ 36864, 0x10, "ExifVersion", NULL, NULL },
+	{ 36864, 0x10, "ExifVersion", handler_exifversion, NULL },
 	{ 36867, 0x10, "DateTimeOriginal", NULL, NULL },
 	{ 36868, 0x10, "DateTimeDigitized", NULL, NULL },
 	{ 37121, 0x10, "ComponentsConfiguration", NULL, valdec_componentsconfiguration },
@@ -639,6 +640,7 @@ struct localctx_struct {
 	int host_is_le;
 	int can_decode_fltpt;
 	de_uint32 first_ifd_orientation; // Valid if != 0
+	de_uint32 exif_version_as_uint32; // Valid if != 0
 	de_byte has_exif_gps;
 	de_byte first_ifd_cosited;
 
@@ -1623,6 +1625,15 @@ static void handler_iccprofile(deark *c, lctx *d, const struct taginfo *tg, cons
 	dbuf_create_file_from_slice(c->infile, tg->val_offset, tg->total_size, "icc", NULL, DE_CREATEFLAG_IS_AUX);
 }
 
+static void handler_exifversion(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni)
+{
+	// The only purpose of this handler is to possibly set d->exif_version_as_uint32,
+	// for later use.
+	if(tg->valcount!=4) return;
+	if(tg->datatype!=DATATYPE_UNDEF) return;
+	d->exif_version_as_uint32 = (de_uint32)de_getui32be(tg->val_offset);
+}
+
 static void handler_mpentry(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni)
 {
 	de_int64 num_entries;
@@ -2202,6 +2213,10 @@ static void de_run_tiff(deark *c, de_module_params *mparams)
 		if(d->first_ifd_orientation>0) {
 			mparams->returned_flags |= 0x20;
 			mparams->uint1 = d->first_ifd_orientation;
+		}
+		if(d->exif_version_as_uint32>0) {
+			mparams->returned_flags |= 0x40;
+			mparams->uint2 = d->exif_version_as_uint32;
 		}
 	}
 

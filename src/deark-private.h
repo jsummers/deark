@@ -44,8 +44,10 @@ typedef struct de_module_params_struct {
 	//  tiff: 0x08: has_exif_gps
 	//  tiff: 0x10: first IFD has subsampling=cosited
 	//  tiff: 0x20: uint1 = first IFD's orientation
+	//  tiff: 0x40: uint2 = Exif version
 	de_uint32 returned_flags;
 	de_uint32 uint1;
+	de_uint32 uint2;
 } de_module_params;
 
 #define DE_DECLARE_MODULE(x) void x(deark *c, struct deark_module_info *mi)

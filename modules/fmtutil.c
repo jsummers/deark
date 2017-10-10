@@ -156,7 +156,7 @@ void de_fmtutil_generate_bmpfileheader(deark *c, dbuf *outf, const struct de_bmp
 }
 
 void de_fmtutil_handle_exif2(deark *c, de_int64 pos, de_int64 len,
-	de_uint32 *returned_flags, de_uint32 *orientation)
+	de_uint32 *returned_flags, de_uint32 *orientation, de_uint32 *exifversion)
 {
 	de_module_params *mparams = NULL;
 
@@ -185,6 +185,10 @@ void de_fmtutil_handle_exif2(deark *c, de_int64 pos, de_int64 len,
 		if((mparams->returned_flags & 0x20) && orientation) {
 			*orientation = mparams->uint1;
 		}
+
+		if((mparams->returned_flags & 0x40) && exifversion) {
+			*exifversion = mparams->uint2;
+		}
 	}
 
 	de_free(c, mparams);
@@ -192,7 +196,7 @@ void de_fmtutil_handle_exif2(deark *c, de_int64 pos, de_int64 len,
 
 void de_fmtutil_handle_exif(deark *c, de_int64 pos, de_int64 len)
 {
-	de_fmtutil_handle_exif2(c, pos, len, NULL, NULL);
+	de_fmtutil_handle_exif2(c, pos, len, NULL, NULL, NULL);
 }
 
 // Either extract the IPTC data to a file, or drill down into it,
