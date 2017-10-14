@@ -795,7 +795,9 @@ static void do_palm_BitmapType_internal(deark *c, lctx *d, de_int64 pos1, de_int
 	}
 
 	de_dbg(c, "image data at %d", (int)pos);
+	de_dbg_indent(c, 1);
 	do_generate_image(c, d, c->infile, pos, pos1+len-pos, cmpr_type, igi);
+	de_dbg_indent(c, -1);
 
 done:
 	*pnextbitmapoffset = nextbitmapoffs_in_bytes;
@@ -854,6 +856,10 @@ static void do_imgview_image(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 	de_dbg_indent(c, 1);
 	de_dbg(c, "compression method: %u", cmpr_meth);
 	de_dbg_indent(c, -1);
+	if(imgver>0x01) {
+		de_warn(c, "This version of ImageViewer format (0x%02x) might not be supported correctly.",
+			(unsigned int)imgver);
+	}
 
 	imgtype = de_getbyte(pos++);
 	de_dbg(c, "type: 0x%02x", (unsigned int)imgtype);
@@ -866,8 +872,13 @@ static void do_imgview_image(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 	de_dbg(c, "bits/pixel: %d", (int)igi->bitsperpixel);
 	de_dbg_indent(c, -1);
 
-	pos += 4; // reserved
-	pos += 4; // note
+	x0 = de_getui32be(pos);
+	de_dbg(c, "reserved1: 0x%08x", (unsigned int)x0);
+	pos += 4;
+
+	x0 = de_getui32be(pos);
+	de_dbg(c, "note: 0x%08x", (unsigned int)x0);
+	pos += 4;
 
 	x0 = de_getui16be(pos);
 	pos += 2;
@@ -875,7 +886,9 @@ static void do_imgview_image(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 	pos += 2;
 	de_dbg(c, "last: (%d,%d)", (int)x0, (int)x1);
 
-	pos += 4; // reserved
+	x0 = de_getui32be(pos);
+	de_dbg(c, "reserved2: 0x%08x", (unsigned int)x0);
+	pos += 4;
 
 	// TODO: Is the anchor signed or unsigned?
 	x0 = de_getui16be(pos);
@@ -894,8 +907,11 @@ static void do_imgview_image(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 	igi->rowbytes = (igi->w*igi->bitsperpixel + 7)/8;
 	num_raw_image_bytes = pos1+len-pos;
 
+	de_dbg(c, "image data at %d", (int)pos);
+	de_dbg_indent(c, 1);
 	do_generate_image(c, d, c->infile, pos, num_raw_image_bytes,
 		(cmpr_meth==0)?CMPR_NONE:CMPR_IMGVIEWER, igi);
+	de_dbg_indent(c, -1);
 
 done:
 	de_dbg_indent(c, -1);
