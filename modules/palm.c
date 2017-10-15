@@ -102,6 +102,7 @@ struct img_gen_info {
 	int has_trns;
 	de_uint32 trns_value;
 	int is_rgb;
+	de_byte bitmapversion; // Used by BitmapType decompression routines
 	int has_custom_pal;
 	de_uint32 custom_pal[256];
 };
@@ -171,6 +172,11 @@ static int de_identify_palmbitmap_internal(deark *c, dbuf *f, de_int64 pos, de_i
 	de_int64 rowbytes;
 	de_byte ver;
 	de_byte pixelsize;
+
+	pixelsize = de_getbyte(pos+8);
+	if(pixelsize==0xff) {
+		pos += 16;
+	}
 
 	ver = de_getbyte(pos+9);
 	if(ver>3) return 0;
@@ -364,11 +370,17 @@ static int do_decompress_scanline_compression(deark *c, lctx *d, dbuf *inf,
 
 	blocksperrow = (igi->rowbytes+7)/8;
 
-	x = dbuf_getui16be(inf, srcpos);
-	// TODO: Find documentation for this field, and maybe do something with it.
-	// It apparently includes the 2 bytes for itself.
+	// TODO: This is not the ideal place to read this field.
+	// Duplicated code in do_decompress_rle_compression().
+	if(igi->bitmapversion >= 3) {
+		x = dbuf_getui32be(inf, srcpos);
+		srcpos += 4;
+	}
+	else {
+		x = dbuf_getui16be(inf, srcpos);
+		srcpos += 2;
+	}
 	de_dbg2(c, "cmpr len: %d", (int)x);
-	srcpos += 2;
 
 	for(j=0; j<igi->h; j++) {
 		de_int64 bytes_written_this_row = 0;
@@ -406,9 +418,15 @@ static int do_decompress_rle_compression(deark *c, lctx *d, dbuf *inf,
 	de_int64 srcpos = pos1;
 	de_int64 x;
 
-	x = dbuf_getui16be(inf, srcpos);
+	if(igi->bitmapversion >= 3) {
+		x = dbuf_getui32be(inf, srcpos);
+		srcpos += 4;
+	}
+	else {
+		x = dbuf_getui16be(inf, srcpos);
+		srcpos += 2;
+	}
 	de_dbg2(c, "cmpr len: %d", (int)x);
-	srcpos += 2;
 
 	while(srcpos <= (pos1+len-2)) {
 		de_int64 count;
@@ -615,7 +633,6 @@ static void do_palm_BitmapType_internal(deark *c, lctx *d, de_int64 pos1, de_int
 	de_int64 pos;
 	de_uint32 bitmapflags;
 	de_byte pixelsize_raw;
-	de_byte bitmapversion;
 	de_int64 headersize;
 	de_int64 bytes_consumed;
 	de_int64 nextbitmapoffs_in_bytes = 0;
@@ -637,13 +654,13 @@ static void do_palm_BitmapType_internal(deark *c, lctx *d, de_int64 pos1, de_int
 	de_dbg_indent(c, 1);
 
 	// Look ahead to get the version
-	bitmapversion = de_getbyte(pos1+9);
-	de_dbg(c, "bitmap version: %d", (int)bitmapversion);
+	igi->bitmapversion = de_getbyte(pos1+9);
+	de_dbg(c, "bitmap version: %d", (int)igi->bitmapversion);
 
-	if(bitmapversion>3) {
+	if(igi->bitmapversion>3) {
 		// Note that V3 allows the high bit of the version field to
 		// be set (to mean little-endian), but we don't support that.
-		de_err(c, "Unsupported bitmap version: %d", (int)bitmapversion);
+		de_err(c, "Unsupported bitmap version: %d", (int)igi->bitmapversion);
 		goto done;
 	}
 
@@ -667,17 +684,17 @@ static void do_palm_BitmapType_internal(deark *c, lctx *d, de_int64 pos1, de_int
 	if((bitmapflags&PALMBMPFLAG_HASCOLORTABLE) && d->ignore_color_table_flag) {
 		bitmapflags -= PALMBMPFLAG_HASCOLORTABLE;
 	}
-	if((bitmapflags&PALMBMPFLAG_HASCOLORTABLE) && bitmapversion<1) {
-		de_warn(c, "BitmapTypeV%d with a color table is not standard", (int)bitmapversion);
+	if((bitmapflags&PALMBMPFLAG_HASCOLORTABLE) && igi->bitmapversion<1) {
+		de_warn(c, "BitmapTypeV%d with a color table is not standard", (int)igi->bitmapversion);
 	}
 
-	if(bitmapversion>=1) {
+	if(igi->bitmapversion>=1) {
 		pixelsize_raw = de_getbyte(pos1+8);
 		de_dbg(c, "pixelSize: %d", (int)pixelsize_raw);
 		bpp_src_name = "based on pixelSize field";
-		if(bitmapversion<2 && pixelsize_raw==8) {
+		if(igi->bitmapversion<2 && pixelsize_raw==8) {
 			de_warn(c, "BitmapTypeV%d with pixelSize=%d is not standard",
-				(int)bitmapversion, (int)pixelsize_raw);
+				(int)igi->bitmapversion, (int)pixelsize_raw);
 		}
 	}
 	else {
@@ -690,7 +707,7 @@ static void do_palm_BitmapType_internal(deark *c, lctx *d, de_int64 pos1, de_int
 	else igi->bitsperpixel = (de_int64)pixelsize_raw;
 	de_dbg(c, "bits/pixel: %d (%s)", (int)igi->bitsperpixel, bpp_src_name);
 
-	if(bitmapversion==1 || bitmapversion==2) {
+	if(igi->bitmapversion==1 || igi->bitmapversion==2) {
 		x = de_getui16be(pos1+10);
 		nextbitmapoffs_in_bytes = 4*x;
 		if(x==0) {
@@ -702,7 +719,7 @@ static void do_palm_BitmapType_internal(deark *c, lctx *d, de_int64 pos1, de_int
 		de_dbg(c, "nextDepthOffset: %d (%s)", (int)x, tmps);
 	}
 
-	if(bitmapversion<3) {
+	if(igi->bitmapversion<3) {
 		headersize = 16;
 	}
 	else {
@@ -710,13 +727,13 @@ static void do_palm_BitmapType_internal(deark *c, lctx *d, de_int64 pos1, de_int
 		de_dbg(c, "header size: %d", (int)headersize);
 	}
 
-	if(bitmapversion==3) {
+	if(igi->bitmapversion==3) {
 		de_byte pixfmt = de_getbyte(pos1+11);
 		de_dbg(c, "pixel format: %d", (int)pixfmt);
 		// TODO: Do something with this
 	}
 
-	if(bitmapversion==2 && (bitmapflags&PALMBMPFLAG_HASTRNS)) {
+	if(igi->bitmapversion==2 && (bitmapflags&PALMBMPFLAG_HASTRNS)) {
 		igi->has_trns = 1;
 		igi->trns_value = (de_uint32)de_getbyte(pos1+12);
 		de_dbg(c, "transparent color: %u", (unsigned int)igi->trns_value);
@@ -724,7 +741,7 @@ static void do_palm_BitmapType_internal(deark *c, lctx *d, de_int64 pos1, de_int
 
 	cmpr_type_src_name = "flags";
 	if(bitmapflags&PALMBMPFLAG_COMPRESSED) {
-		if(bitmapversion>=2) {
+		if(igi->bitmapversion>=2) {
 			cmpr_type = (unsigned int)de_getbyte(pos1+13);
 			cmpr_type_src_name = "compression type field";
 			de_dbg(c, "compression type field: 0x%02x", cmpr_type);
@@ -742,14 +759,14 @@ static void do_palm_BitmapType_internal(deark *c, lctx *d, de_int64 pos1, de_int
 
 	// TODO: [14] density (V3)
 
-	if(bitmapversion==3 && (bitmapflags&PALMBMPFLAG_HASTRNS) && headersize>=20) {
+	if(igi->bitmapversion==3 && (bitmapflags&PALMBMPFLAG_HASTRNS) && headersize>=20) {
 		// I'm assuming the flag affects this field. The spec is ambiguous.
 		igi->has_trns = 1;
 		igi->trns_value = (de_uint32)de_getui32be(pos1+16);
-		de_dbg(c, "transparent color: %u", (unsigned int)igi->trns_value);
+		de_dbg(c, "transparent color: 0x%08x", (unsigned int)igi->trns_value);
 	}
 
-	if(bitmapversion==3 && headersize>=24) {
+	if(igi->bitmapversion==3 && headersize>=24) {
 		// Documented as the "number of bytes to the next bitmap", but it doesn't
 		// say where it is measured *from*. I'll assume it's the same logic as
 		// the "nextDepthOffset" field.
@@ -772,8 +789,8 @@ static void do_palm_BitmapType_internal(deark *c, lctx *d, de_int64 pos1, de_int
 
 	if(bitmapflags&PALMBMPFLAG_DIRECTCOLOR) {
 		igi->is_rgb = 1;
-		if(bitmapversion<2) {
-			de_warn(c, "BitmapTypeV%d with RGB color is not standard", (int)bitmapversion);
+		if(igi->bitmapversion<2) {
+			de_warn(c, "BitmapTypeV%d with RGB color is not standard", (int)igi->bitmapversion);
 		}
 	}
 
@@ -801,7 +818,7 @@ static void do_palm_BitmapType_internal(deark *c, lctx *d, de_int64 pos1, de_int
 	}
 
 	if(bitmapflags&PALMBMPFLAG_DIRECTCOLOR) {
-		if(bitmapversion<=2) {
+		if(igi->bitmapversion<=2) {
 			do_BitmapDirectInfoType(c, d, pos, bitmapflags);
 			pos += 8;
 		}
@@ -841,6 +858,11 @@ static void do_palm_BitmapType(deark *c, lctx *d, de_int64 pos1, de_int64 len,
 	de_int64 pos = pos1;
 
 	while(1) {
+		if(de_getbyte(pos+8) == 0xff) {
+			de_dbg(c, "skipping stub bitmap header at %d", (int)pos);
+			pos += 16;
+		}
+
 		if(pos > pos1+len-16) {
 			de_err(c, "Bitmap exceeds its bounds");
 			break;
