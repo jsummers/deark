@@ -399,6 +399,29 @@ static int do_decompress_scanline_compression(deark *c, lctx *d, dbuf *inf,
 	return 1;
 }
 
+// Note that this is distinct from ImageViewer RLE compression.
+static int do_decompress_rle_compression(deark *c, lctx *d, dbuf *inf,
+	de_int64 pos1, de_int64 len, dbuf *unc_pixels, struct img_gen_info *igi)
+{
+	de_int64 srcpos = pos1;
+	de_int64 x;
+
+	x = dbuf_getui16be(inf, srcpos);
+	de_dbg2(c, "cmpr len: %d", (int)x);
+	srcpos += 2;
+
+	while(srcpos <= (pos1+len-2)) {
+		de_int64 count;
+		de_byte val;
+
+		count = (de_int64)de_getbyte(srcpos++);
+		val = (de_int64)de_getbyte(srcpos++);
+		dbuf_write_run(unc_pixels, val, count);
+	}
+
+	return 1;
+}
+
 static void do_generate_unc_image(deark *c, lctx *d, dbuf *unc_pixels,
 	struct img_gen_info *igi)
 {
@@ -481,6 +504,9 @@ static void do_generate_image(deark *c, lctx *d,
 		}
 		else if(cmpr_type==CMPR_SCANLINE) {
 			do_decompress_scanline_compression(c, d, inf, pos, len, unc_pixels, igi);
+		}
+		else if(cmpr_type==CMPR_RLE) {
+			do_decompress_rle_compression(c, d, inf, pos, len, unc_pixels, igi);
 		}
 		else {
 			de_err(c, "Unsupported compression type: %u", cmpr_type);
