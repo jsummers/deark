@@ -8,6 +8,7 @@
 
 #include <deark-config.h>
 #include <deark-private.h>
+#include <deark-fmtutil.h>
 DE_DECLARE_MODULE(de_module_palmdb);
 DE_DECLARE_MODULE(de_module_palmrc);
 DE_DECLARE_MODULE(de_module_palmbitmap);
@@ -94,6 +95,8 @@ struct rsrc_type_info_struct {
 };
 
 struct img_gen_info {
+	de_byte is_imageviewer;
+	de_byte is_bitmaptype;
 	de_int64 w, h;
 	de_int64 bitsperpixel;
 	de_int64 rowbytes;
@@ -366,21 +369,8 @@ static int do_decompress_scanline_compression(deark *c, lctx *d, dbuf *inf,
 	de_byte bf;
 	de_byte dstb;
 	unsigned int k;
-	de_int64 x;
 
 	blocksperrow = (igi->rowbytes+7)/8;
-
-	// TODO: This is not the ideal place to read this field.
-	// Duplicated code in do_decompress_rle_compression().
-	if(igi->bitmapversion >= 3) {
-		x = dbuf_getui32be(inf, srcpos);
-		srcpos += 4;
-	}
-	else {
-		x = dbuf_getui16be(inf, srcpos);
-		srcpos += 2;
-	}
-	de_dbg2(c, "cmpr len: %d", (int)x);
 
 	for(j=0; j<igi->h; j++) {
 		de_int64 bytes_written_this_row = 0;
@@ -416,17 +406,6 @@ static int do_decompress_rle_compression(deark *c, lctx *d, dbuf *inf,
 	de_int64 pos1, de_int64 len, dbuf *unc_pixels, struct img_gen_info *igi)
 {
 	de_int64 srcpos = pos1;
-	de_int64 x;
-
-	if(igi->bitmapversion >= 3) {
-		x = dbuf_getui32be(inf, srcpos);
-		srcpos += 4;
-	}
-	else {
-		x = dbuf_getui16be(inf, srcpos);
-		srcpos += 2;
-	}
-	de_dbg2(c, "cmpr len: %d", (int)x);
 
 	while(srcpos <= (pos1+len-2)) {
 		de_int64 count;
@@ -437,6 +416,61 @@ static int do_decompress_rle_compression(deark *c, lctx *d, dbuf *inf,
 		dbuf_write_run(unc_pixels, val, count);
 	}
 
+	return 1;
+}
+
+// 16-bit variant of de_fmtutil_uncompress_packbits().
+// (copied from pict.c)
+// TODO: Maybe move this to fmtutil.c.
+static void do_uncompress_packbits16(dbuf *f, de_int64 pos1, de_int64 len,
+	dbuf *unc_pixels)
+{
+	de_int64 pos;
+	de_byte b, b1, b2;
+	de_int64 k;
+	de_int64 count;
+	de_int64 endpos;
+
+	pos = pos1;
+	endpos = pos1+len;
+
+	while(1) {
+		if(unc_pixels->max_len>0 && unc_pixels->len>=unc_pixels->max_len) {
+			break; // Decompressed the requested amount of dst data.
+		}
+
+		if(pos>=endpos) {
+			break; // Reached the end of source data
+		}
+		b = dbuf_getbyte(f, pos++);
+
+		if(b>128) { // A compressed run
+			count = 257 - (de_int64)b;
+			b1 = dbuf_getbyte(f, pos++);
+			b2 = dbuf_getbyte(f, pos++);
+			for(k=0; k<count; k++) {
+				dbuf_writebyte(unc_pixels, b1);
+				dbuf_writebyte(unc_pixels, b2);
+			}
+		}
+		else if(b<128) { // An uncompressed run
+			count = 1 + (de_int64)b;
+			dbuf_copy(f, pos, count*2, unc_pixels);
+			pos += count*2;
+		}
+		// Else b==128. No-op.
+	}
+}
+
+static int do_decompress_packbits_compression(deark *c, lctx *d, dbuf *inf,
+	de_int64 pos1, de_int64 len, dbuf *unc_pixels, struct img_gen_info *igi)
+{
+	if(igi->bitsperpixel==16) {
+		do_uncompress_packbits16(c->infile, pos1, len, unc_pixels);
+	}
+	else {
+		de_fmtutil_uncompress_packbits(c->infile, pos1, len, unc_pixels, NULL);
+	}
 	return 1;
 }
 
@@ -515,6 +549,29 @@ static void do_generate_image(deark *c, lctx *d,
 		unc_pixels = dbuf_open_input_subfile(inf, pos, len);
 	}
 	else {
+		if(igi->is_bitmaptype) {
+			de_int64 cmpr_len;
+			de_int64 hdr_len;
+
+			if(igi->bitmapversion >= 3) {
+				hdr_len = 4;
+				cmpr_len = dbuf_getui32be(inf, pos);
+			}
+			else {
+				hdr_len = 2;
+				cmpr_len = dbuf_getui16be(inf, pos);
+			}
+			de_dbg(c, "cmpr len: %d", (int)cmpr_len);
+			if(cmpr_len < len) {
+				// Reduce the number of available bytes, based on the cmpr_len field.
+				len = cmpr_len;
+			}
+			// Account for the size of the cmpr_len field.
+			pos += hdr_len;
+			len -= hdr_len;
+			if(len<0) goto done;
+		}
+
 		unc_pixels = dbuf_create_membuf(c, expected_num_uncmpr_image_bytes, 1);
 
 		if(cmpr_type==CMPR_IMGVIEWER) {
@@ -525,6 +582,9 @@ static void do_generate_image(deark *c, lctx *d,
 		}
 		else if(cmpr_type==CMPR_RLE) {
 			do_decompress_rle_compression(c, d, inf, pos, len, unc_pixels, igi);
+		}
+		else if(cmpr_type==CMPR_PACKBITS) {
+			do_decompress_packbits_compression(c, d, inf, pos, len, unc_pixels, igi);
 		}
 		else {
 			de_err(c, "Unsupported compression type: %u", cmpr_type);
@@ -646,6 +706,7 @@ static void do_palm_BitmapType_internal(deark *c, lctx *d, de_int64 pos1, de_int
 
 	de_dbg_indent_save(c, &saved_indent_level);
 	igi = de_malloc(c, sizeof(struct img_gen_info));
+	igi->is_bitmaptype = 1;
 	igi->createflags = createflags;
 
 	de_dbg(c, "BitmapType at %d, len<=%d", (int)pos1, (int)len);
@@ -885,6 +946,7 @@ static void do_imgview_image(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 	struct img_gen_info *igi = NULL;
 
 	igi = de_malloc(c, sizeof(struct img_gen_info));
+	igi->is_imageviewer = 1;
 	igi->fi = de_finfo_create(c);
 
 	de_dbg(c, "image record at %d", (int)pos1);
