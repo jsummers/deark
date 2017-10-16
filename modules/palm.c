@@ -498,10 +498,13 @@ static void do_generate_unc_image(deark *c, lctx *d, dbuf *unc_pixels,
 	for(j=0; j<igi->h; j++) {
 		for(i=0; i<igi->w; i++) {
 			if(igi->bitsperpixel==16) {
-				clr = (de_uint32)dbuf_getui16be(unc_pixels, igi->rowbytes*j + 2*i);
-				clr = de_rgb565_to_888(clr);
+				de_uint32 clr1;
+				clr1 = (de_uint32)dbuf_getui16be(unc_pixels, igi->rowbytes*j + 2*i);
+				clr = de_rgb565_to_888(clr1);
 				de_bitmap_setpixel_rgb(img, i, j, clr);
-				// TODO: Transparency
+				if(igi->has_trns && clr1==igi->trns_value) {
+					de_bitmap_setsample(img, i, j, 3, 0);
+				}
 			}
 			else {
 				b = de_get_bits_symbol(unc_pixels, igi->bitsperpixel, igi->rowbytes*j, i);
@@ -627,7 +630,6 @@ static int read_colortable(deark *c, lctx *d, struct img_gen_info *igi,
 
 	de_dbg(c, "color table at %d", (int)pos1);
 	de_dbg_indent(c, 1);
-	igi->has_custom_pal = 1;
 
 	num_entries = de_getui16be(pos1);
 	de_dbg(c, "number of entries: %d", (int)num_entries);
@@ -637,6 +639,15 @@ static int read_colortable(deark *c, lctx *d, struct img_gen_info *igi,
 		de_warn(c, "Invalid or unsupported type of color table");
 	}
 	pos += 2;
+
+	if(num_entries>0) {
+		// The only custom palettes I've seen in the wild have either 0 (!) or
+		// 256 entries.
+		// TODO: It might be better to treat all <=8 bit images as paletted:
+		// Start with a default palette, then overlay it with any custom
+		// palette entries that exist.
+		igi->has_custom_pal = 1;
+	}
 
 	*bytes_consumed = 2+4*num_entries;
 
@@ -660,8 +671,8 @@ static int read_colortable(deark *c, lctx *d, struct img_gen_info *igi,
 	return 1;
 }
 
-static void do_BitmapDirectInfoType(deark *c, lctx *d, de_int64 pos,
-	de_uint32 bitmapflags)
+static void do_BitmapDirectInfoType(deark *c, lctx *d, struct img_gen_info *igi,
+	de_int64 pos)
 {
 	de_byte cbits[3];
 	de_byte t[4];
@@ -673,15 +684,23 @@ static void do_BitmapDirectInfoType(deark *c, lctx *d, de_int64 pos,
 	cbits[2] = de_getbyte(pos+2);
 	de_dbg(c, "bits/component: %d,%d,%d", (int)cbits[0], (int)cbits[1], (int)cbits[2]);
 
-	// TODO: The format of this field (RGBColorType) is not the same as that
-	// of the actual pixels, and I don't know how the mapping is done.
-	// Need to figure that out to support this type of transparency.
 	t[0] = de_getbyte(pos+4);
 	t[1] = de_getbyte(pos+5);
 	t[2] = de_getbyte(pos+6);
 	t[3] = de_getbyte(pos+7);
-	de_dbg(c, "transparentColor: (%d,%d,%d,idx=%d)", (int)t[0], (int)t[1],
-		(int)t[2], (int)t[3]);
+	de_dbg(c, "transparentColor: (%d,%d,%d,idx=%d)", (int)t[1], (int)t[2],
+		(int)t[3], (int)t[0]);
+	if(igi->has_trns) {
+		// The format of this field (RGBColorType) is not the same as that of
+		// the actual pixels, and I can't find documentation that says how the
+		// mapping is done.
+		// This appears to work (though it's quick & dirty, and only supports
+		// RGB565).
+		igi->trns_value =
+			((((de_uint32)t[1])&0xf8)<<8) |
+			((((de_uint32)t[2])&0xfc)<<3) |
+			((((de_uint32)t[3])&0xf8)>>3);
+	}
 	de_dbg_indent(c, -1);
 }
 
@@ -694,6 +713,7 @@ static void do_palm_BitmapType_internal(deark *c, lctx *d, de_int64 pos1, de_int
 	de_uint32 bitmapflags;
 	de_byte pixelsize_raw;
 	de_int64 headersize;
+	de_int64 needed_rowbytes;
 	de_int64 bytes_consumed;
 	de_int64 nextbitmapoffs_in_bytes = 0;
 	unsigned int cmpr_type;
@@ -844,6 +864,14 @@ static void do_palm_BitmapType_internal(deark *c, lctx *d, de_int64 pos1, de_int
 
 	// Now that we've read the nextBitmapOffset fields, we can stop processing this
 	// image if it's invalid or unsupported.
+
+	needed_rowbytes = (igi->w * igi->bitsperpixel +7)/8;
+	if(igi->rowbytes < needed_rowbytes) {
+		de_err(c, "Bad rowBytes value (is %d, need at least %d) or unsupported format version",
+			(int)igi->rowbytes, (int)needed_rowbytes);
+		goto done;
+	}
+
 	if(!de_good_image_dimensions(c, igi->w, igi->h)) goto done;
 
 	de_dbg_indent(c, -1);
@@ -853,6 +881,16 @@ static void do_palm_BitmapType_internal(deark *c, lctx *d, de_int64 pos1, de_int
 		if(igi->bitmapversion<2) {
 			de_warn(c, "BitmapTypeV%d with RGB color is not standard", (int)igi->bitmapversion);
 		}
+	}
+
+	if(igi->bitmapversion==2 && igi->bitsperpixel==16 &&
+		!(bitmapflags&PALMBMPFLAG_DIRECTCOLOR) && !(bitmapflags&PALMBMPFLAG_HASCOLORTABLE))
+	{
+		// I have some images like this. I guess they are standard RGB565, with no
+		// BitmapDirectInfoType header.
+		igi->is_rgb = 1;
+		de_warn(c, "This type of image (16-bit, without directColor flag) might "
+			"not be decoded correctly");
 	}
 
 	if(igi->bitsperpixel!=1 && igi->bitsperpixel!=2 && igi->bitsperpixel!=4 &&
@@ -880,11 +918,8 @@ static void do_palm_BitmapType_internal(deark *c, lctx *d, de_int64 pos1, de_int
 
 	if(bitmapflags&PALMBMPFLAG_DIRECTCOLOR) {
 		if(igi->bitmapversion<=2) {
-			do_BitmapDirectInfoType(c, d, pos, bitmapflags);
+			do_BitmapDirectInfoType(c, d, igi, pos);
 			pos += 8;
-		}
-		if(bitmapflags&PALMBMPFLAG_HASTRNS) {
-			de_warn(c, "Transparency is not supported for RGB bitmaps");
 		}
 	}
 
