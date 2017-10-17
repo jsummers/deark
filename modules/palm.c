@@ -671,6 +671,7 @@ static void do_palm_BitmapType_internal(deark *c, lctx *d, de_int64 pos1, de_int
 	de_int64 pos;
 	de_uint32 bitmapflags;
 	de_byte pixelsize_raw;
+	de_byte pixelformat = 0; // V3 only
 	de_int64 headersize;
 	de_int64 needed_rowbytes;
 	de_int64 bytes_consumed;
@@ -768,9 +769,8 @@ static void do_palm_BitmapType_internal(deark *c, lctx *d, de_int64 pos1, de_int
 	}
 
 	if(igi->bitmapversion==3) {
-		de_byte pixfmt = de_getbyte(pos1+11);
-		de_dbg(c, "pixel format: %d", (int)pixfmt);
-		// TODO: Do something with this
+		pixelformat = de_getbyte(pos1+11);
+		de_dbg(c, "pixel format: %d", (int)pixelformat);
 	}
 
 	if(igi->bitmapversion==2 && (bitmapflags&PALMBMPFLAG_HASTRNS)) {
@@ -797,7 +797,14 @@ static void do_palm_BitmapType_internal(deark *c, lctx *d, de_int64 pos1, de_int
 
 	de_dbg(c, "compression type: %s (based on %s)", get_cmpr_type_name(cmpr_type), cmpr_type_src_name);
 
-	// TODO: [14] density (V3)
+	if(igi->bitmapversion==3) {
+		de_int64 densitycode;
+		densitycode = de_getui16be(pos1+14);
+		de_dbg(c, "density: %d", (int)densitycode);
+		// The density is used to help display images sensibly on Palm devices,
+		// and probably does not represent the image's "natural" density.
+		// So maybe it's best not to copy it to the output PNG file.
+	}
 
 	if(igi->bitmapversion==3 && (bitmapflags&PALMBMPFLAG_HASTRNS) && headersize>=20) {
 		// I'm assuming the flag affects this field. The spec is ambiguous.
@@ -839,6 +846,22 @@ static void do_palm_BitmapType_internal(deark *c, lctx *d, de_int64 pos1, de_int
 		igi->is_rgb = 1;
 		if(igi->bitmapversion<2) {
 			de_warn(c, "BitmapTypeV%d with RGB color is not standard", (int)igi->bitmapversion);
+		}
+	}
+
+	if(igi->bitmapversion>=3) {
+		if(pixelformat>1 ||
+			(pixelformat==0 && igi->bitsperpixel>8) ||
+			(pixelformat==1 && igi->bitsperpixel!=16))
+		{
+			de_err(c, "Unsupported pixelFormat (%d) for this image", (int)pixelformat);
+			goto done;
+		}
+
+		if(pixelformat==1 && igi->bitsperpixel==16) {
+			// This should have already been set, by PALMBMPFLAG_DIRECTCOLOR,
+			// but that flag seems kind of obsolete in V3.
+			igi->is_rgb = 1;
 		}
 	}
 
@@ -914,7 +937,7 @@ static void do_palm_BitmapType(deark *c, lctx *d, de_int64 pos1, de_int64 len,
 
 	while(1) {
 		if(de_getbyte(pos+8) == 0xff) {
-			de_dbg(c, "skipping stub bitmap header at %d", (int)pos);
+			de_dbg(c, "[skipping dummy bitmap header at %d]", (int)pos);
 			pos += 16;
 		}
 

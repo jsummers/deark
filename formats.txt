@@ -285,10 +285,8 @@ Deark -- Information about supported formats
 * Palm BitmapType (module="palmbitmap")
   - Cannot easily be autodetected. You must use "-m palmbitmap", except in most
     cases when the file extension is ".palm".
-  - May be found inside some Palm PRC/PQA files. See also the notes for the
-    "Palm PDB/PRC/PQA" module.
-  - Uncompressed and ScanLine compression are supported. RLE and PackBits are
-    not.
+  - May be found inside some Palm files. See also the notes for the "Palm PRC"
+    and "Palm PDB/PQA" modules.
 
 * Palm Database (PDB) ImageViewer/FireViewer (part of module "palmdb")
 
