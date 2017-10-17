@@ -564,47 +564,6 @@ static void decode_bitmap_paletted(deark *c, lctx *d, struct bitmapinfo *bi,
 	}
 }
 
-// 16-bit variant of de_fmtutil_uncompress_packbits()
-static void do_uncompress_packbits16(dbuf *f, de_int64 pos1, de_int64 len,
-	dbuf *unc_pixels)
-{
-	de_int64 pos;
-	de_byte b, b1, b2;
-	de_int64 k;
-	de_int64 count;
-	de_int64 endpos;
-
-	pos = pos1;
-	endpos = pos1+len;
-
-	while(1) {
-		if(unc_pixels->max_len>0 && unc_pixels->len>=unc_pixels->max_len) {
-			break; // Decompressed the requested amount of dst data.
-		}
-
-		if(pos>=endpos) {
-			break; // Reached the end of source data
-		}
-		b = dbuf_getbyte(f, pos++);
-
-		if(b>128) { // A compressed run
-			count = 257 - (de_int64)b;
-			b1 = dbuf_getbyte(f, pos++);
-			b2 = dbuf_getbyte(f, pos++);
-			for(k=0; k<count; k++) {
-				dbuf_writebyte(unc_pixels, b1);
-				dbuf_writebyte(unc_pixels, b2);
-			}
-		}
-		else if(b<128) { // An uncompressed run
-			count = 1 + (de_int64)b;
-			dbuf_copy(f, pos, count*2, unc_pixels);
-			pos += count*2;
-		}
-		// Else b==128. No-op.
-	}
-}
-
 static int decode_bitmap(deark *c, lctx *d, struct bitmapinfo *bi, de_int64 pos)
 {
 	de_int64 j;
@@ -633,7 +592,7 @@ static int decode_bitmap(deark *c, lctx *d, struct bitmapinfo *bi, de_int64 pos)
 		}
 
 		if(bi->packing_type==3 && bi->pixelsize==16) {
-			do_uncompress_packbits16(c->infile, pos, bytecount, unc_pixels);
+			de_fmtutil_uncompress_packbits16(c->infile, pos, bytecount, unc_pixels, NULL);
 		}
 		else {
 			de_fmtutil_uncompress_packbits(c->infile, pos, bytecount, unc_pixels, NULL);

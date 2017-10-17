@@ -419,59 +419,18 @@ static int do_decompress_rle_compression(deark *c, lctx *d, dbuf *inf,
 	return 1;
 }
 
-// 16-bit variant of de_fmtutil_uncompress_packbits().
-// (copied from pict.c)
-// TODO: Maybe move this to fmtutil.c.
-static void do_uncompress_packbits16(dbuf *f, de_int64 pos1, de_int64 len,
-	dbuf *unc_pixels)
-{
-	de_int64 pos;
-	de_byte b, b1, b2;
-	de_int64 k;
-	de_int64 count;
-	de_int64 endpos;
-
-	pos = pos1;
-	endpos = pos1+len;
-
-	while(1) {
-		if(unc_pixels->max_len>0 && unc_pixels->len>=unc_pixels->max_len) {
-			break; // Decompressed the requested amount of dst data.
-		}
-
-		if(pos>=endpos) {
-			break; // Reached the end of source data
-		}
-		b = dbuf_getbyte(f, pos++);
-
-		if(b>128) { // A compressed run
-			count = 257 - (de_int64)b;
-			b1 = dbuf_getbyte(f, pos++);
-			b2 = dbuf_getbyte(f, pos++);
-			for(k=0; k<count; k++) {
-				dbuf_writebyte(unc_pixels, b1);
-				dbuf_writebyte(unc_pixels, b2);
-			}
-		}
-		else if(b<128) { // An uncompressed run
-			count = 1 + (de_int64)b;
-			dbuf_copy(f, pos, count*2, unc_pixels);
-			pos += count*2;
-		}
-		// Else b==128. No-op.
-	}
-}
-
 static int do_decompress_packbits_compression(deark *c, lctx *d, dbuf *inf,
 	de_int64 pos1, de_int64 len, dbuf *unc_pixels, struct img_gen_info *igi)
 {
+	int ret;
+
 	if(igi->bitsperpixel==16) {
-		do_uncompress_packbits16(c->infile, pos1, len, unc_pixels);
+		ret = de_fmtutil_uncompress_packbits16(c->infile, pos1, len, unc_pixels, NULL);
 	}
 	else {
-		de_fmtutil_uncompress_packbits(c->infile, pos1, len, unc_pixels, NULL);
+		ret = de_fmtutil_uncompress_packbits(c->infile, pos1, len, unc_pixels, NULL);
 	}
-	return 1;
+	return ret;
 }
 
 static void do_generate_unc_image(deark *c, lctx *d, dbuf *unc_pixels,

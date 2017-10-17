@@ -53,6 +53,8 @@ void de_fmtutil_handle_photoshop_rsrc(deark *c, de_int64 pos, de_int64 len);
 
 int de_fmtutil_uncompress_packbits(dbuf *f, de_int64 pos1, de_int64 len,
 	dbuf *unc_pixels, de_int64 *cmpr_bytes_consumed);
+int de_fmtutil_uncompress_packbits16(dbuf *f, de_int64 pos1, de_int64 len,
+	dbuf *unc_pixels, de_int64 *cmpr_bytes_consumed);
 
 struct de_SAUCE_info {
 	de_ucstring *title;
