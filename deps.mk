@@ -104,8 +104,8 @@ obj/modules/nokia.o: modules/nokia.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h
 obj/modules/os2bmp.o: modules/os2bmp.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h
-obj/modules/palm.o: modules/palm.c src/deark-config.h src/deark-private.h \
- src/deark.h src/deark-fmtutil.h
+obj/modules/palmpdb.o: modules/palmpdb.c src/deark-config.h \
+ src/deark-private.h src/deark.h src/deark-fmtutil.h
 obj/modules/pcpaint.o: modules/pcpaint.c src/deark-config.h \
  src/deark-private.h src/deark.h
 obj/modules/pcx.o: modules/pcx.c src/deark-config.h src/deark-private.h \

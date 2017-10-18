@@ -682,7 +682,7 @@
 				>
 			</File>
 			<File
-				RelativePath="..\..\modules\palm.c"
+				RelativePath="..\..\modules\palmpdb.c"
 				>
 			</File>
 			<File
