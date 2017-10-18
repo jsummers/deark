@@ -118,6 +118,7 @@ typedef struct localctx_struct {
 #define SUBFMT_PQA  1
 #define SUBFMT_IMAGEVIEWER 2
 	int file_subfmt;
+	int is_le; // only for BitmapType
 	int ignore_color_table_flag;
 	int has_nonzero_ids;
 	const char *fmt_shortname;
@@ -517,11 +518,11 @@ static void do_generate_image(deark *c, lctx *d,
 
 			if(igi->bitmapversion >= 3) {
 				hdr_len = 4;
-				cmpr_len = dbuf_getui32be(inf, pos);
+				cmpr_len = dbuf_getui32x(inf, pos, d->is_le);
 			}
 			else {
 				hdr_len = 2;
-				cmpr_len = dbuf_getui16be(inf, pos);
+				cmpr_len = dbuf_getui16x(inf, pos, d->is_le);
 			}
 			de_dbg(c, "cmpr len: %d", (int)cmpr_len);
 			if(cmpr_len < len) {
@@ -578,7 +579,7 @@ static const char *get_cmpr_type_name(unsigned int cmpr_type)
 	return name;
 }
 
-static int read_colortable(deark *c, lctx *d, struct img_gen_info *igi,
+static int read_BitmapType_colortable(deark *c, lctx *d, struct img_gen_info *igi,
 	de_int64 pos1, de_int64 *bytes_consumed)
 {
 	de_int64 num_entries;
@@ -590,7 +591,7 @@ static int read_colortable(deark *c, lctx *d, struct img_gen_info *igi,
 	de_dbg(c, "color table at %d", (int)pos1);
 	de_dbg_indent(c, 1);
 
-	num_entries = de_getui16be(pos1);
+	num_entries = dbuf_getui16x(c->infile, pos1, d->is_le);
 	de_dbg(c, "number of entries: %d", (int)num_entries);
 	// TODO: Documentation says "High bits (numEntries > 256) reserved."
 	// What exactly does that mean?
@@ -664,7 +665,6 @@ static void do_BitmapDirectInfoType(deark *c, lctx *d, struct img_gen_info *igi,
 }
 
 static void do_palm_BitmapType_internal(deark *c, lctx *d, de_int64 pos1, de_int64 len,
-	const char *token, unsigned int createflags,
 	de_int64 *pnextbitmapoffset)
 {
 	de_int64 x;
@@ -687,7 +687,7 @@ static void do_palm_BitmapType_internal(deark *c, lctx *d, de_int64 pos1, de_int
 	de_dbg_indent_save(c, &saved_indent_level);
 	igi = de_malloc(c, sizeof(struct img_gen_info));
 	igi->is_bitmaptype = 1;
-	igi->createflags = createflags;
+	igi->createflags = 0;
 
 	de_dbg(c, "BitmapType at %d, len<=%d", (int)pos1, (int)len);
 	de_dbg_indent(c, 1);
@@ -705,14 +705,14 @@ static void do_palm_BitmapType_internal(deark *c, lctx *d, de_int64 pos1, de_int
 		goto done;
 	}
 
-	igi->w = de_geti16be(pos1);
-	igi->h = de_geti16be(pos1+2);
+	igi->w = dbuf_geti16x(c->infile, pos1, d->is_le);
+	igi->h =  dbuf_geti16x(c->infile, pos1+2, d->is_le);
 	de_dbg(c, "dimensions: %dx%d", (int)igi->w, (int)igi->h);
 
-	igi->rowbytes = de_getui16be(pos1+4);
+	igi->rowbytes = dbuf_getui16x(c->infile, pos1+4, d->is_le);
 	de_dbg(c, "rowBytes: %d", (int)igi->rowbytes);
 
-	bitmapflags = (de_uint32)de_getui16be(pos1+6);
+	bitmapflags = (de_uint32)dbuf_getui16x(c->infile, pos1+6, d->is_le);
 	flagsdescr = ucstring_create(c);
 	if(bitmapflags&PALMBMPFLAG_COMPRESSED) ucstring_append_flags_item(flagsdescr, "compressed");
 	if(bitmapflags&PALMBMPFLAG_HASCOLORTABLE) ucstring_append_flags_item(flagsdescr, "hasColorTable");
@@ -749,7 +749,7 @@ static void do_palm_BitmapType_internal(deark *c, lctx *d, de_int64 pos1, de_int
 	de_dbg(c, "bits/pixel: %d (%s)", (int)igi->bitsperpixel, bpp_src_name);
 
 	if(igi->bitmapversion==1 || igi->bitmapversion==2) {
-		x = de_getui16be(pos1+10);
+		x = dbuf_getui16x(c->infile, pos1+10, d->is_le);
 		nextbitmapoffs_in_bytes = 4*x;
 		if(x==0) {
 			de_snprintf(tmps, sizeof(tmps), "none");
@@ -799,17 +799,18 @@ static void do_palm_BitmapType_internal(deark *c, lctx *d, de_int64 pos1, de_int
 
 	if(igi->bitmapversion==3) {
 		de_int64 densitycode;
-		densitycode = de_getui16be(pos1+14);
+		densitycode = dbuf_getui16x(c->infile, pos1+14, d->is_le);
 		de_dbg(c, "density: %d", (int)densitycode);
-		// The density is used to help display images sensibly on Palm devices,
-		// and probably does not represent the image's "natural" density.
-		// So maybe it's best not to copy it to the output PNG file.
+		// The density is an indication of the target screen density.
+		// It's tempting to interpet it as pixels per inch, and copy it to the
+		// output image -- though the documentation says it "should not be
+		// interpreted as representing pixels per inch".
 	}
 
 	if(igi->bitmapversion==3 && (bitmapflags&PALMBMPFLAG_HASTRNS) && headersize>=20) {
 		// I'm assuming the flag affects this field. The spec is ambiguous.
 		igi->has_trns = 1;
-		igi->trns_value = (de_uint32)de_getui32be(pos1+16);
+		igi->trns_value = (de_uint32)dbuf_getui32x(c->infile, pos1+16, d->is_le);
 		de_dbg(c, "transparent color: 0x%08x", (unsigned int)igi->trns_value);
 	}
 
@@ -817,7 +818,7 @@ static void do_palm_BitmapType_internal(deark *c, lctx *d, de_int64 pos1, de_int
 		// Documented as the "number of bytes to the next bitmap", but it doesn't
 		// say where it is measured *from*. I'll assume it's the same logic as
 		// the "nextDepthOffset" field.
-		nextbitmapoffs_in_bytes = de_getui32be(pos1+20);
+		nextbitmapoffs_in_bytes = dbuf_getui32x(c->infile, pos1+20, d->is_le);
 		if(nextbitmapoffs_in_bytes==0) {
 			de_snprintf(tmps, sizeof(tmps), "none");
 		}
@@ -894,15 +895,15 @@ static void do_palm_BitmapType_internal(deark *c, lctx *d, de_int64 pos1, de_int
 	if(pos >= pos1+len) goto done;
 
 	if(bitmapflags&PALMBMPFLAG_HASCOLORTABLE) {
-		if(!read_colortable(c, d, igi, pos, &bytes_consumed)) goto done;
+		if(!read_BitmapType_colortable(c, d, igi, pos, &bytes_consumed)) goto done;
 		pos += bytes_consumed;
 	}
 
-	if(bitmapflags&PALMBMPFLAG_DIRECTCOLOR) {
-		if(igi->bitmapversion<=2) {
-			do_BitmapDirectInfoType(c, d, igi, pos);
-			pos += 8;
-		}
+	// If there is both a color table and a DirectInfo struct, I don't know which
+	// one appears first. But that shouldn't happen.
+	if((bitmapflags&PALMBMPFLAG_DIRECTCOLOR) && (igi->bitmapversion<=2)) {
+		do_BitmapDirectInfoType(c, d, igi, pos);
+		pos += 8;
 	}
 
 	if(pos >= pos1+len) {
@@ -911,9 +912,6 @@ static void do_palm_BitmapType_internal(deark *c, lctx *d, de_int64 pos1, de_int
 	}
 
 	igi->fi = de_finfo_create(c);
-	if(token) {
-		de_finfo_set_name_from_sz(c, igi->fi, token, DE_ENCODING_UTF8);
-	}
 
 	de_dbg(c, "image data at %d", (int)pos);
 	de_dbg_indent(c, 1);
@@ -929,8 +927,7 @@ done:
 	}
 }
 
-static void do_palm_BitmapType(deark *c, lctx *d, de_int64 pos1, de_int64 len,
-	const char *token, unsigned int createflags)
+static void do_palm_BitmapType(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 {
 	de_int64 nextbitmapoffs = 0;
 	de_int64 pos = pos1;
@@ -945,7 +942,7 @@ static void do_palm_BitmapType(deark *c, lctx *d, de_int64 pos1, de_int64 len,
 			de_err(c, "Bitmap exceeds its bounds");
 			break;
 		}
-		do_palm_BitmapType_internal(c, d, pos, pos1+len-pos, token, createflags, &nextbitmapoffs);
+		do_palm_BitmapType_internal(c, d, pos, pos1+len-pos, &nextbitmapoffs);
 		if(nextbitmapoffs<=0) break;
 		pos += nextbitmapoffs;
 	}
@@ -1533,19 +1530,8 @@ static void free_lctx(deark *c, lctx *d)
 	}
 }
 
-static void do_common_opts(deark *c, lctx *d)
-{
-	if(de_get_ext_option(c, "palm:nocolortable")) {
-		// Enables a hack, for files that apparently set the hasColorTable flag
-		// incorrectly
-		d->ignore_color_table_flag = 1;
-	}
-}
-
 static void de_run_pdb_or_prc(deark *c, lctx *d, de_module_params *mparams)
 {
-	do_common_opts(c, d);
-
 	if(!do_read_pdb_prc_header(c, d)) goto done;
 	if(!do_read_pdb_prc_records(c, d, 72)) goto done;
 	do_app_info_block(c, d);
@@ -1576,9 +1562,17 @@ static void de_run_palmrc(deark *c, de_module_params *mparams)
 static void de_run_palmbitmap(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
+
 	d = de_malloc(c, sizeof(lctx));
-	do_common_opts(c, d);
-	do_palm_BitmapType(c, d, 0, c->infile->len, NULL, 0);
+	if(de_get_ext_option(c, "palm:le")) {
+		d->is_le = 1;
+	}
+	if(de_get_ext_option(c, "palm:nocolortable")) {
+		// Enables a hack, for files that apparently set the hasColorTable flag
+		// incorrectly
+		d->ignore_color_table_flag = 1;
+	}
+	do_palm_BitmapType(c, d, 0, c->infile->len);
 	free_lctx(c, d);
 }
 

@@ -287,6 +287,8 @@ Deark -- Information about supported formats
     cases when the file extension is ".palm".
   - May be found inside some Palm files. See also the notes for the "Palm PRC"
     and "Palm PDB/PQA" modules.
+  Options
+   -opt palm:le - Assume little-endian byte order
 
 * Palm Database (PDB) ImageViewer/FireViewer (part of module "palmdb")
 
