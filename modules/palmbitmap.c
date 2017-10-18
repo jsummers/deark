@@ -54,7 +54,7 @@ static const de_uint32 palm256pal[256] = {
 	0x000000,0x000000,0x000000,0x000000,0x000000,0x000000,0x000000,0x000000
 };
 
-struct img_gen_info {
+struct page_ctx {
 	de_int64 w, h;
 	de_int64 bitsperpixel;
 	de_int64 rowbytes;
@@ -103,8 +103,8 @@ static int de_identify_palmbitmap_internal(deark *c, dbuf *f, de_int64 pos, de_i
 	return 1;
 }
 
-static int do_decompress_scanline_compression(deark *c, lctx *d, dbuf *inf,
-	de_int64 pos1, de_int64 len, dbuf *unc_pixels, struct img_gen_info *igi)
+static int do_decompress_scanline_compression(deark *c, lctx *d, struct page_ctx *pg,
+	dbuf *inf, de_int64 pos1, de_int64 len, dbuf *unc_pixels)
 {
 	de_int64 srcpos = pos1;
 	de_int64 j;
@@ -114,9 +114,9 @@ static int do_decompress_scanline_compression(deark *c, lctx *d, dbuf *inf,
 	de_byte dstb;
 	unsigned int k;
 
-	blocksperrow = (igi->rowbytes+7)/8;
+	blocksperrow = (pg->rowbytes+7)/8;
 
-	for(j=0; j<igi->h; j++) {
+	for(j=0; j<pg->h; j++) {
 		de_int64 bytes_written_this_row = 0;
 
 		for(blocknum=0; blocknum<blocksperrow; blocknum++) {
@@ -125,7 +125,7 @@ static int do_decompress_scanline_compression(deark *c, lctx *d, dbuf *inf,
 			// in the file, versus being copied from the previous row.
 			bf = dbuf_getbyte(inf, srcpos++);
 			for(k=0; k<8; k++) {
-				if(bytes_written_this_row>=igi->rowbytes) break;
+				if(bytes_written_this_row>=pg->rowbytes) break;
 
 				if(bf&(1<<(7-k))) {
 					// byte is present
@@ -133,7 +133,7 @@ static int do_decompress_scanline_compression(deark *c, lctx *d, dbuf *inf,
 				}
 				else {
 					// copy from previous row
-					dstb = dbuf_getbyte(unc_pixels, unc_pixels->len - igi->rowbytes);
+					dstb = dbuf_getbyte(unc_pixels, unc_pixels->len - pg->rowbytes);
 				}
 				dbuf_writebyte(unc_pixels, dstb);
 
@@ -146,8 +146,8 @@ static int do_decompress_scanline_compression(deark *c, lctx *d, dbuf *inf,
 }
 
 // Note that this is distinct from ImageViewer RLE compression.
-static int do_decompress_rle_compression(deark *c, lctx *d, dbuf *inf,
-	de_int64 pos1, de_int64 len, dbuf *unc_pixels, struct img_gen_info *igi)
+static int do_decompress_rle_compression(deark *c, lctx *d, struct page_ctx *pg,
+	dbuf *inf, de_int64 pos1, de_int64 len, dbuf *unc_pixels)
 {
 	de_int64 srcpos = pos1;
 
@@ -163,12 +163,12 @@ static int do_decompress_rle_compression(deark *c, lctx *d, dbuf *inf,
 	return 1;
 }
 
-static int do_decompress_packbits_compression(deark *c, lctx *d, dbuf *inf,
-	de_int64 pos1, de_int64 len, dbuf *unc_pixels, struct img_gen_info *igi)
+static int do_decompress_packbits_compression(deark *c, lctx *d, struct page_ctx *pg,
+	dbuf *inf, de_int64 pos1, de_int64 len, dbuf *unc_pixels)
 {
 	int ret;
 
-	if(igi->bitsperpixel==16) {
+	if(pg->bitsperpixel==16) {
 		ret = de_fmtutil_uncompress_packbits16(c->infile, pos1, len, unc_pixels, NULL);
 	}
 	else {
@@ -177,8 +177,8 @@ static int do_decompress_packbits_compression(deark *c, lctx *d, dbuf *inf,
 	return ret;
 }
 
-static void do_generate_unc_image(deark *c, lctx *d, dbuf *unc_pixels,
-	struct img_gen_info *igi)
+static void do_generate_unc_image(deark *c, lctx *d, struct page_ctx *pg,
+	dbuf *unc_pixels)
 {
 	de_int64 i, j;
 	de_byte b;
@@ -187,45 +187,45 @@ static void do_generate_unc_image(deark *c, lctx *d, dbuf *unc_pixels,
 	int has_color;
 	struct deark_bitmap *img = NULL;
 
-	has_color = (igi->bitsperpixel>4 || igi->has_custom_pal);
+	has_color = (pg->bitsperpixel>4 || pg->has_custom_pal);
 
-	if(igi->bitsperpixel==1 && !has_color) {
-		de_convert_and_write_image_bilevel(unc_pixels, 0, igi->w, igi->h, igi->rowbytes,
+	if(pg->bitsperpixel==1 && !has_color) {
+		de_convert_and_write_image_bilevel(unc_pixels, 0, pg->w, pg->h, pg->rowbytes,
 			DE_CVTF_WHITEISZERO, NULL, 0);
 		goto done;
 	}
 
-	img = de_bitmap_create(c, igi->w, igi->h,
-		(has_color?3:1) + (igi->has_trns?1:0));
+	img = de_bitmap_create(c, pg->w, pg->h,
+		(has_color?3:1) + (pg->has_trns?1:0));
 
-	for(j=0; j<igi->h; j++) {
-		for(i=0; i<igi->w; i++) {
-			if(igi->bitsperpixel==16) {
+	for(j=0; j<pg->h; j++) {
+		for(i=0; i<pg->w; i++) {
+			if(pg->bitsperpixel==16) {
 				de_uint32 clr1;
-				clr1 = (de_uint32)dbuf_getui16be(unc_pixels, igi->rowbytes*j + 2*i);
+				clr1 = (de_uint32)dbuf_getui16be(unc_pixels, pg->rowbytes*j + 2*i);
 				clr = de_rgb565_to_888(clr1);
 				de_bitmap_setpixel_rgb(img, i, j, clr);
-				if(igi->has_trns && clr1==igi->trns_value) {
+				if(pg->has_trns && clr1==pg->trns_value) {
 					de_bitmap_setsample(img, i, j, 3, 0);
 				}
 			}
 			else {
-				b = de_get_bits_symbol(unc_pixels, igi->bitsperpixel, igi->rowbytes*j, i);
+				b = de_get_bits_symbol(unc_pixels, pg->bitsperpixel, pg->rowbytes*j, i);
 				if(has_color) {
-					if(igi->has_custom_pal)
-						clr = igi->custom_pal[(unsigned int)b];
+					if(pg->has_custom_pal)
+						clr = pg->custom_pal[(unsigned int)b];
 					else
 						clr = DE_MAKE_OPAQUE(palm256pal[(unsigned int)b]);
 				}
 				else {
 					// TODO: What are the correct colors (esp. for 4bpp)?
-					b_adj = 255 - de_sample_nbit_to_8bit(igi->bitsperpixel, (unsigned int)b);
+					b_adj = 255 - de_sample_nbit_to_8bit(pg->bitsperpixel, (unsigned int)b);
 					clr = DE_MAKE_GRAY(b_adj);
 				}
 
 				de_bitmap_setpixel_rgb(img, i, j, clr);
 
-				if(igi->has_trns && (de_uint32)b==igi->trns_value) {
+				if(pg->has_trns && (de_uint32)b==pg->trns_value) {
 					de_bitmap_setsample(img, i, j, 3, 0);
 				}
 			}
@@ -239,14 +239,13 @@ done:
 }
 
 // A wrapper that decompresses the image if necessary, then calls do_generate_unc_image().
-static void do_generate_image(deark *c, lctx *d,
-	dbuf *inf, de_int64 pos, de_int64 len, unsigned int cmpr_type,
-	struct img_gen_info *igi)
+static void do_generate_image(deark *c, lctx *d, struct page_ctx *pg,
+	dbuf *inf, de_int64 pos, de_int64 len, unsigned int cmpr_type)
 {
 	dbuf *unc_pixels = NULL;
 	de_int64 expected_num_uncmpr_image_bytes;
 
-	expected_num_uncmpr_image_bytes = igi->rowbytes*igi->h;
+	expected_num_uncmpr_image_bytes = pg->rowbytes*pg->h;
 
 	if(cmpr_type==CMPR_NONE) {
 		if(expected_num_uncmpr_image_bytes > len) {
@@ -258,7 +257,7 @@ static void do_generate_image(deark *c, lctx *d,
 		de_int64 cmpr_len;
 		de_int64 hdr_len;
 
-		if(igi->bitmapversion >= 3) {
+		if(pg->bitmapversion >= 3) {
 			hdr_len = 4;
 			cmpr_len = dbuf_getui32x(inf, pos, d->is_le);
 		}
@@ -279,13 +278,13 @@ static void do_generate_image(deark *c, lctx *d,
 		unc_pixels = dbuf_create_membuf(c, expected_num_uncmpr_image_bytes, 1);
 
 		if(cmpr_type==CMPR_SCANLINE) {
-			do_decompress_scanline_compression(c, d, inf, pos, len, unc_pixels, igi);
+			do_decompress_scanline_compression(c, d, pg, inf, pos, len, unc_pixels);
 		}
 		else if(cmpr_type==CMPR_RLE) {
-			do_decompress_rle_compression(c, d, inf, pos, len, unc_pixels, igi);
+			do_decompress_rle_compression(c, d, pg, inf, pos, len, unc_pixels);
 		}
 		else if(cmpr_type==CMPR_PACKBITS) {
-			do_decompress_packbits_compression(c, d, inf, pos, len, unc_pixels, igi);
+			do_decompress_packbits_compression(c, d, pg, inf, pos, len, unc_pixels);
 		}
 		else {
 			de_err(c, "Unsupported compression type: %u", cmpr_type);
@@ -297,7 +296,7 @@ static void do_generate_image(deark *c, lctx *d,
 			(int)unc_pixels->len);
 	}
 
-	do_generate_unc_image(c, d, unc_pixels, igi);
+	do_generate_unc_image(c, d, pg, unc_pixels);
 
 done:
 	dbuf_close(unc_pixels);
@@ -317,7 +316,7 @@ static const char *get_cmpr_type_name(unsigned int cmpr_type)
 	return name;
 }
 
-static int read_BitmapType_colortable(deark *c, lctx *d, struct img_gen_info *igi,
+static int read_BitmapType_colortable(deark *c, lctx *d, struct page_ctx *pg,
 	de_int64 pos1, de_int64 *bytes_consumed)
 {
 	de_int64 num_entries;
@@ -344,7 +343,7 @@ static int read_BitmapType_colortable(deark *c, lctx *d, struct img_gen_info *ig
 		// TODO: It might be better to treat all <=8 bit images as paletted:
 		// Start with a default palette, then overlay it with any custom
 		// palette entries that exist.
-		igi->has_custom_pal = 1;
+		pg->has_custom_pal = 1;
 	}
 
 	*bytes_consumed = 2+4*num_entries;
@@ -354,8 +353,8 @@ static int read_BitmapType_colortable(deark *c, lctx *d, struct img_gen_info *ig
 		de_snprintf(tmps, sizeof(tmps), ",idx=%u", idx);
 		// Not entirely sure if we should set entry #k, or entry #idx.
 		// idx is documented as "The index of this color in the color table."
-		igi->custom_pal[idx] = dbuf_getRGB(c->infile, pos+1, 0);
-		de_dbg_pal_entry2(c, k, igi->custom_pal[idx], NULL, tmps, NULL);
+		pg->custom_pal[idx] = dbuf_getRGB(c->infile, pos+1, 0);
+		de_dbg_pal_entry2(c, k, pg->custom_pal[idx], NULL, tmps, NULL);
 		pos += 4;
 	}
 
@@ -363,7 +362,7 @@ static int read_BitmapType_colortable(deark *c, lctx *d, struct img_gen_info *ig
 	return 1;
 }
 
-static void do_BitmapDirectInfoType(deark *c, lctx *d, struct img_gen_info *igi,
+static void do_BitmapDirectInfoType(deark *c, lctx *d, struct page_ctx *pg,
 	de_int64 pos)
 {
 	de_byte cbits[3];
@@ -382,13 +381,13 @@ static void do_BitmapDirectInfoType(deark *c, lctx *d, struct img_gen_info *igi,
 	t[3] = de_getbyte(pos+7);
 	de_dbg(c, "transparentColor: (%d,%d,%d,idx=%d)", (int)t[1], (int)t[2],
 		(int)t[3], (int)t[0]);
-	if(igi->has_trns) {
+	if(pg->has_trns) {
 		// The format of this field (RGBColorType) is not the same as that of
 		// the actual pixels, and I can't find documentation that says how the
 		// mapping is done.
 		// This appears to work (though it's quick & dirty, and only supports
 		// RGB565).
-		igi->trns_value =
+		pg->trns_value =
 			((((de_uint32)t[1])&0xf8)<<8) |
 			((((de_uint32)t[2])&0xfc)<<3) |
 			((((de_uint32)t[3])&0xf8)>>3);
@@ -411,13 +410,13 @@ static void do_palm_BitmapType_internal(deark *c, lctx *d, de_int64 pos1, de_int
 	unsigned int cmpr_type;
 	const char *cmpr_type_src_name = "";
 	const char *bpp_src_name = "";
-	struct img_gen_info *igi = NULL;
+	struct page_ctx *pg = NULL;
 	int saved_indent_level;
 	de_ucstring *flagsdescr;
 	char tmps[80];
 
 	de_dbg_indent_save(c, &saved_indent_level);
-	igi = de_malloc(c, sizeof(struct img_gen_info));
+	pg = de_malloc(c, sizeof(struct page_ctx));
 
 	de_dbg(c, "BitmapType at %d, len<=%d", (int)pos1, (int)len);
 	de_dbg_indent(c, 1);
@@ -425,22 +424,22 @@ static void do_palm_BitmapType_internal(deark *c, lctx *d, de_int64 pos1, de_int
 	de_dbg_indent(c, 1);
 
 	// Look ahead to get the version
-	igi->bitmapversion = de_getbyte(pos1+9);
-	de_dbg(c, "bitmap version: %d", (int)igi->bitmapversion);
+	pg->bitmapversion = de_getbyte(pos1+9);
+	de_dbg(c, "bitmap version: %d", (int)pg->bitmapversion);
 
-	if(igi->bitmapversion>3) {
+	if(pg->bitmapversion>3) {
 		// Note that V3 allows the high bit of the version field to
 		// be set (to mean little-endian), but we don't support that.
-		de_err(c, "Unsupported bitmap version: %d", (int)igi->bitmapversion);
+		de_err(c, "Unsupported bitmap version: %d", (int)pg->bitmapversion);
 		goto done;
 	}
 
-	igi->w = dbuf_geti16x(c->infile, pos1, d->is_le);
-	igi->h =  dbuf_geti16x(c->infile, pos1+2, d->is_le);
-	de_dbg(c, "dimensions: %dx%d", (int)igi->w, (int)igi->h);
+	pg->w = dbuf_geti16x(c->infile, pos1, d->is_le);
+	pg->h =  dbuf_geti16x(c->infile, pos1+2, d->is_le);
+	de_dbg(c, "dimensions: %dx%d", (int)pg->w, (int)pg->h);
 
-	igi->rowbytes = dbuf_getui16x(c->infile, pos1+4, d->is_le);
-	de_dbg(c, "rowBytes: %d", (int)igi->rowbytes);
+	pg->rowbytes = dbuf_getui16x(c->infile, pos1+4, d->is_le);
+	de_dbg(c, "rowBytes: %d", (int)pg->rowbytes);
 
 	bitmapflags = (de_uint32)dbuf_getui16x(c->infile, pos1+6, d->is_le);
 	flagsdescr = ucstring_create(c);
@@ -455,30 +454,30 @@ static void do_palm_BitmapType_internal(deark *c, lctx *d, de_int64 pos1, de_int
 	if((bitmapflags&PALMBMPFLAG_HASCOLORTABLE) && d->ignore_color_table_flag) {
 		bitmapflags -= PALMBMPFLAG_HASCOLORTABLE;
 	}
-	if((bitmapflags&PALMBMPFLAG_HASCOLORTABLE) && igi->bitmapversion<1) {
-		de_warn(c, "BitmapTypeV%d with a color table is not standard", (int)igi->bitmapversion);
+	if((bitmapflags&PALMBMPFLAG_HASCOLORTABLE) && pg->bitmapversion<1) {
+		de_warn(c, "BitmapTypeV%d with a color table is not standard", (int)pg->bitmapversion);
 	}
 
-	if(igi->bitmapversion>=1) {
+	if(pg->bitmapversion>=1) {
 		pixelsize_raw = de_getbyte(pos1+8);
 		de_dbg(c, "pixelSize: %d", (int)pixelsize_raw);
 		bpp_src_name = "based on pixelSize field";
-		if(igi->bitmapversion<2 && pixelsize_raw==8) {
+		if(pg->bitmapversion<2 && pixelsize_raw==8) {
 			de_warn(c, "BitmapTypeV%d with pixelSize=%d is not standard",
-				(int)igi->bitmapversion, (int)pixelsize_raw);
+				(int)pg->bitmapversion, (int)pixelsize_raw);
 		}
 	}
 	else {
 		pixelsize_raw = 0;
 	}
 	if(pixelsize_raw==0) {
-		igi->bitsperpixel = 1;
+		pg->bitsperpixel = 1;
 		bpp_src_name = "default";
 	}
-	else igi->bitsperpixel = (de_int64)pixelsize_raw;
-	de_dbg(c, "bits/pixel: %d (%s)", (int)igi->bitsperpixel, bpp_src_name);
+	else pg->bitsperpixel = (de_int64)pixelsize_raw;
+	de_dbg(c, "bits/pixel: %d (%s)", (int)pg->bitsperpixel, bpp_src_name);
 
-	if(igi->bitmapversion==1 || igi->bitmapversion==2) {
+	if(pg->bitmapversion==1 || pg->bitmapversion==2) {
 		x = dbuf_getui16x(c->infile, pos1+10, d->is_le);
 		nextbitmapoffs_in_bytes = 4*x;
 		if(x==0) {
@@ -490,7 +489,7 @@ static void do_palm_BitmapType_internal(deark *c, lctx *d, de_int64 pos1, de_int
 		de_dbg(c, "nextDepthOffset: %d (%s)", (int)x, tmps);
 	}
 
-	if(igi->bitmapversion<3) {
+	if(pg->bitmapversion<3) {
 		headersize = 16;
 	}
 	else {
@@ -498,20 +497,20 @@ static void do_palm_BitmapType_internal(deark *c, lctx *d, de_int64 pos1, de_int
 		de_dbg(c, "header size: %d", (int)headersize);
 	}
 
-	if(igi->bitmapversion==3) {
+	if(pg->bitmapversion==3) {
 		pixelformat = de_getbyte(pos1+11);
 		de_dbg(c, "pixel format: %d", (int)pixelformat);
 	}
 
-	if(igi->bitmapversion==2 && (bitmapflags&PALMBMPFLAG_HASTRNS)) {
-		igi->has_trns = 1;
-		igi->trns_value = (de_uint32)de_getbyte(pos1+12);
-		de_dbg(c, "transparent color: %u", (unsigned int)igi->trns_value);
+	if(pg->bitmapversion==2 && (bitmapflags&PALMBMPFLAG_HASTRNS)) {
+		pg->has_trns = 1;
+		pg->trns_value = (de_uint32)de_getbyte(pos1+12);
+		de_dbg(c, "transparent color: %u", (unsigned int)pg->trns_value);
 	}
 
 	cmpr_type_src_name = "flags";
 	if(bitmapflags&PALMBMPFLAG_COMPRESSED) {
-		if(igi->bitmapversion>=2) {
+		if(pg->bitmapversion>=2) {
 			cmpr_type = (unsigned int)de_getbyte(pos1+13);
 			cmpr_type_src_name = "compression type field";
 			de_dbg(c, "compression type field: 0x%02x", cmpr_type);
@@ -527,7 +526,7 @@ static void do_palm_BitmapType_internal(deark *c, lctx *d, de_int64 pos1, de_int
 
 	de_dbg(c, "compression type: %s (based on %s)", get_cmpr_type_name(cmpr_type), cmpr_type_src_name);
 
-	if(igi->bitmapversion==3) {
+	if(pg->bitmapversion==3) {
 		de_int64 densitycode;
 		densitycode = dbuf_getui16x(c->infile, pos1+14, d->is_le);
 		de_dbg(c, "density: %d", (int)densitycode);
@@ -537,14 +536,14 @@ static void do_palm_BitmapType_internal(deark *c, lctx *d, de_int64 pos1, de_int
 		// interpreted as representing pixels per inch".
 	}
 
-	if(igi->bitmapversion==3 && (bitmapflags&PALMBMPFLAG_HASTRNS) && headersize>=20) {
+	if(pg->bitmapversion==3 && (bitmapflags&PALMBMPFLAG_HASTRNS) && headersize>=20) {
 		// I'm assuming the flag affects this field. The spec is ambiguous.
-		igi->has_trns = 1;
-		igi->trns_value = (de_uint32)dbuf_getui32x(c->infile, pos1+16, d->is_le);
-		de_dbg(c, "transparent color: 0x%08x", (unsigned int)igi->trns_value);
+		pg->has_trns = 1;
+		pg->trns_value = (de_uint32)dbuf_getui32x(c->infile, pos1+16, d->is_le);
+		de_dbg(c, "transparent color: 0x%08x", (unsigned int)pg->trns_value);
 	}
 
-	if(igi->bitmapversion==3 && headersize>=24) {
+	if(pg->bitmapversion==3 && headersize>=24) {
 		// Documented as the "number of bytes to the next bitmap", but it doesn't
 		// say where it is measured *from*. I'll assume it's the same logic as
 		// the "nextDepthOffset" field.
@@ -562,59 +561,59 @@ static void do_palm_BitmapType_internal(deark *c, lctx *d, de_int64 pos1, de_int
 	// Now that we've read the nextBitmapOffset fields, we can stop processing this
 	// image if it's invalid or unsupported.
 
-	needed_rowbytes = (igi->w * igi->bitsperpixel +7)/8;
-	if(igi->rowbytes < needed_rowbytes) {
+	needed_rowbytes = (pg->w * pg->bitsperpixel +7)/8;
+	if(pg->rowbytes < needed_rowbytes) {
 		de_err(c, "Bad rowBytes value (is %d, need at least %d) or unsupported format version",
-			(int)igi->rowbytes, (int)needed_rowbytes);
+			(int)pg->rowbytes, (int)needed_rowbytes);
 		goto done;
 	}
 
-	if(!de_good_image_dimensions(c, igi->w, igi->h)) goto done;
+	if(!de_good_image_dimensions(c, pg->w, pg->h)) goto done;
 
 	de_dbg_indent(c, -1);
 
 	if(bitmapflags&PALMBMPFLAG_DIRECTCOLOR) {
-		igi->is_rgb = 1;
-		if(igi->bitmapversion<2) {
-			de_warn(c, "BitmapTypeV%d with RGB color is not standard", (int)igi->bitmapversion);
+		pg->is_rgb = 1;
+		if(pg->bitmapversion<2) {
+			de_warn(c, "BitmapTypeV%d with RGB color is not standard", (int)pg->bitmapversion);
 		}
 	}
 
-	if(igi->bitmapversion>=3) {
+	if(pg->bitmapversion>=3) {
 		if(pixelformat>1 ||
-			(pixelformat==0 && igi->bitsperpixel>8) ||
-			(pixelformat==1 && igi->bitsperpixel!=16))
+			(pixelformat==0 && pg->bitsperpixel>8) ||
+			(pixelformat==1 && pg->bitsperpixel!=16))
 		{
 			de_err(c, "Unsupported pixelFormat (%d) for this image", (int)pixelformat);
 			goto done;
 		}
 
-		if(pixelformat==1 && igi->bitsperpixel==16) {
+		if(pixelformat==1 && pg->bitsperpixel==16) {
 			// This should have already been set, by PALMBMPFLAG_DIRECTCOLOR,
 			// but that flag seems kind of obsolete in V3.
-			igi->is_rgb = 1;
+			pg->is_rgb = 1;
 		}
 	}
 
-	if(igi->bitmapversion==2 && igi->bitsperpixel==16 &&
+	if(pg->bitmapversion==2 && pg->bitsperpixel==16 &&
 		!(bitmapflags&PALMBMPFLAG_DIRECTCOLOR) && !(bitmapflags&PALMBMPFLAG_HASCOLORTABLE))
 	{
 		// I have some images like this. I guess they are standard RGB565, with no
 		// BitmapDirectInfoType header.
-		igi->is_rgb = 1;
+		pg->is_rgb = 1;
 		de_warn(c, "This type of image (16-bit, without directColor flag) might "
 			"not be decoded correctly");
 	}
 
-	if(igi->bitsperpixel!=1 && igi->bitsperpixel!=2 && igi->bitsperpixel!=4 &&
-		igi->bitsperpixel!=8 && igi->bitsperpixel!=16)
+	if(pg->bitsperpixel!=1 && pg->bitsperpixel!=2 && pg->bitsperpixel!=4 &&
+		pg->bitsperpixel!=8 && pg->bitsperpixel!=16)
 	{
-		de_err(c, "Unsupported bits/pixel: %d", (int)igi->bitsperpixel);
+		de_err(c, "Unsupported bits/pixel: %d", (int)pg->bitsperpixel);
 		goto done;
 	}
 
-	if((igi->is_rgb && igi->bitsperpixel!=16) ||
-		(!igi->is_rgb && igi->bitsperpixel>8))
+	if((pg->is_rgb && pg->bitsperpixel!=16) ||
+		(!pg->is_rgb && pg->bitsperpixel>8))
 	{
 		de_err(c, "This type of image is not supported");
 		goto done;
@@ -625,14 +624,14 @@ static void do_palm_BitmapType_internal(deark *c, lctx *d, de_int64 pos1, de_int
 	if(pos >= pos1+len) goto done;
 
 	if(bitmapflags&PALMBMPFLAG_HASCOLORTABLE) {
-		if(!read_BitmapType_colortable(c, d, igi, pos, &bytes_consumed)) goto done;
+		if(!read_BitmapType_colortable(c, d, pg, pos, &bytes_consumed)) goto done;
 		pos += bytes_consumed;
 	}
 
 	// If there is both a color table and a DirectInfo struct, I don't know which
 	// one appears first. But that shouldn't happen.
-	if((bitmapflags&PALMBMPFLAG_DIRECTCOLOR) && (igi->bitmapversion<=2)) {
-		do_BitmapDirectInfoType(c, d, igi, pos);
+	if((bitmapflags&PALMBMPFLAG_DIRECTCOLOR) && (pg->bitmapversion<=2)) {
+		do_BitmapDirectInfoType(c, d, pg, pos);
 		pos += 8;
 	}
 
@@ -641,19 +640,16 @@ static void do_palm_BitmapType_internal(deark *c, lctx *d, de_int64 pos1, de_int
 		goto done;
 	}
 
-	//igi->fi = de_finfo_create(c);
-
 	de_dbg(c, "image data at %d", (int)pos);
 	de_dbg_indent(c, 1);
-	do_generate_image(c, d, c->infile, pos, pos1+len-pos, cmpr_type, igi);
+	do_generate_image(c, d, pg, c->infile, pos, pos1+len-pos, cmpr_type);
 	de_dbg_indent(c, -1);
 
 done:
 	*pnextbitmapoffset = nextbitmapoffs_in_bytes;
 	de_dbg_indent_restore(c, saved_indent_level);
-	if(igi) {
-		//de_finfo_destroy(c, igi->fi);
-		de_free(c, igi);
+	if(pg) {
+		de_free(c, pg);
 	}
 }
 
