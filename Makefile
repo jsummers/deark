@@ -32,7 +32,8 @@ OFILES_MODS:=$(addprefix $(OBJDIR)/modules/,fmtutil.o misc.o unsupported.o \
  psd.o tiff.o zoo.o cfb.o atari-img.o jpeg.o pict.o wmf.o \
  ilbm.o exe.o ansiart.o xface.o tga.o bmp.o pcpaint.o zip.o \
  amigaicon.o xfer.o gif.o abk.o bintext.o hlp.o iccprofile.o \
- palmpdb.o epocimage.o bsave.o pcx.o pnm.o icns.o insetpix.o os2bmp.o \
+ palmpdb.o palmbitmap.o epocimage.o bsave.o \
+ pcx.o pnm.o icns.o insetpix.o os2bmp.o \
  pkfont.o rsc.o shg.o makichan.o wpg.o rosprite.o jbf.o \
  iptc.o cpio.o gemras.o boxes.o spectrum512.o tivariable.o riff.o \
  png.o psf.o grasp.o mbk.o compress.o ico.o macpaint.o fnt.o \

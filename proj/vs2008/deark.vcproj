@@ -682,6 +682,10 @@
 				>
 			</File>
 			<File
+				RelativePath="..\..\modules\palmbitmap.c"
+				>
+			</File>
+			<File
 				RelativePath="..\..\modules\palmpdb.c"
 				>
 			</File>
