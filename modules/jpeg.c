@@ -546,20 +546,36 @@ static void normalize_app_id(const char *app_id_orig, char *app_id_normalized,
 	}
 }
 
-// seg_size is the data size, excluding the marker and length fields.
-static void handler_app(deark *c, lctx *d, struct page_ctx *pg,
-	const struct marker_info *mi, de_int64 seg_data_pos, de_int64 seg_data_size)
+#define APPSEGTYPE_UNKNOWN        0
+#define APPSEGTYPE_JFIF           2
+#define APPSEGTYPE_JFXX           3
+#define APPSEGTYPE_SPIFF          5
+#define APPSEGTYPE_EXIF           6
+#define APPSEGTYPE_FPXR           7
+#define APPSEGTYPE_ADOBEAPP14     9
+#define APPSEGTYPE_ICC_PROFILE    10
+#define APPSEGTYPE_PHOTOSHOP      11
+#define APPSEGTYPE_XMP            14
+#define APPSEGTYPE_XMP_EXTENSION  15
+#define APPSEGTYPE_JPEGXT         20
+#define APPSEGTYPE_MPF            21
+#define APPSEGTYPE_JPS            22
+#define APPSEGTYPE_HDR_RI_VER     24
+#define APPSEGTYPE_HDR_RI_EXT     25
+
+static int detect_app_seg_type(deark *c, lctx *d, const struct marker_info *mi,
+	de_int64 seg_data_pos, de_int64 seg_data_size, de_int64 *p_payload_pos)
 {
 #define MAX_APP_ID_LEN 256
 	char app_id_normalized[MAX_APP_ID_LEN];
 	de_int64 app_id_orig_strlen;
 	de_int64 app_id_bytes_to_scan;
-	de_int64 payload_pos;
+	de_int64 sig_size = 0;
 	de_int64 payload_size;
-	de_byte seg_type = mi->seg_type;
 	struct de_stringreaderdata *srd = NULL;
+	de_byte seg_type = mi->seg_type;
+	int appsegtype = APPSEGTYPE_UNKNOWN;
 
-	de_dbg_indent(c, 1);
 	if(seg_data_size<3) goto done;
 
 	// Read the first part of the segment, so we can tell what kind of segment it is.
@@ -584,91 +600,166 @@ static void handler_app(deark *c, lctx *d, struct page_ctx *pg,
 	normalize_app_id((const char*)srd->sz, app_id_normalized, sizeof(app_id_normalized));
 
 	// The payload data size is usually everything after the first NUL byte.
-	payload_pos = seg_data_pos + srd->bytes_consumed;
+	sig_size = srd->bytes_consumed;
 	payload_size = seg_data_size - srd->bytes_consumed;
 	if(payload_size<1) goto done;
 
 	if(seg_type==0xe0 && !de_strcmp(app_id_normalized, "JFIF")) {
-		do_jfif_segment(c, d, pg, payload_pos, payload_size);
+		appsegtype = APPSEGTYPE_JFIF;
 	}
 	else if(seg_type==0xe0 && !de_strcmp(app_id_normalized, "JFXX")) {
-		do_jfxx_segment(c, d, pg, payload_pos, payload_size);
+		appsegtype = APPSEGTYPE_JFXX;
 	}
 	else if(seg_type==0xee && app_id_orig_strlen>=5 && !de_memcmp(app_id_normalized, "ADOBE", 5)) {
 		// libjpeg implies that the "Adobe" string is *not* NUL-terminated. That the byte
 		// that is usually 0 is actually the high byte of a version number.
-		do_adobeapp14_segment(c, d, pg, seg_data_pos+5, seg_data_size-5);
+		appsegtype = APPSEGTYPE_ADOBEAPP14;
 	}
 	else if(seg_type==0xe1 && !de_strcmp(app_id_normalized, "EXIF")) {
-		de_uint32 exifflags = 0;
-		de_uint32 exiforientation = 0;
-		de_uint32 exifversion = 0;
-
-		// Note that Exif has an additional padding byte after the APP ID NUL terminator.
-		de_dbg(c, "Exif data at %d, size=%d", (int)(payload_pos+1), (int)(payload_size-1));
-		pg->has_exif_seg = 1;
-		de_dbg_indent(c, 1);
-		de_fmtutil_handle_exif2(c, payload_pos+1, payload_size-1,
-			&exifflags, &exiforientation, &exifversion);
-		if(exifflags&0x08)
-			pg->has_exif_gps = 1;
-		if(exifflags&0x10)
-			pg->exif_cosited = 1;
-		if(exifflags&0x20)
-			pg->exif_orientation = exiforientation;
-		if(exifflags&0x40)
-			pg->exif_version_as_uint32 = exifversion;
-		de_dbg_indent(c, -1);
+		// This detection routine considers the payload to start with the second NULL
+		// byte that follows the "Exif" string, though in another sense it starts after
+		// that byte.
+		appsegtype = APPSEGTYPE_EXIF;
 	}
 	else if(seg_type==0xe2 && !de_strcmp(app_id_normalized, "ICC_PROFILE")) {
-		do_icc_profile_segment(c, d, pg, payload_pos, payload_size);
+		appsegtype = APPSEGTYPE_ICC_PROFILE;
 	}
 	else if(seg_type==0xe2 && !de_strcmp(app_id_normalized, "FPXR")) {
-		pg->has_flashpix = 1;
-		do_fpxr_segment(c, d, pg, payload_pos, payload_size);
+		appsegtype = APPSEGTYPE_FPXR;
 	}
 	else if(seg_type==0xe8 && !de_strcmp(app_id_normalized, "SPIFF")) {
-		pg->has_spiff_seg = 1;
+		appsegtype = APPSEGTYPE_SPIFF;
 	}
 	else if(seg_type==0xed && !de_strcmp(app_id_normalized, "PHOTOSHOP 3.0")) {
-		de_uint32 psdflags = 0;
-		de_dbg(c, "photoshop data at %d, size=%d", (int)(payload_pos), (int)(payload_size));
-		pg->has_psd = 1;
-		de_dbg_indent(c, 1);
-		de_fmtutil_handle_photoshop_rsrc2(c, payload_pos, payload_size, &psdflags);
-		if(psdflags&0x02)
-			pg->has_iptc = 1;
-		de_dbg_indent(c, -1);
+		appsegtype = APPSEGTYPE_PHOTOSHOP;
 	}
 	else if(seg_type==0xe1 && !de_strcmp(app_id_normalized, "HTTP://NS.ADOBE.COM/XAP/1.0/")) {
-		de_dbg(c, "XMP data at %d, size=%d", (int)(payload_pos), (int)(payload_size));
-		pg->has_xmp = 1;
-		dbuf_create_file_from_slice(c->infile, payload_pos, payload_size, "xmp", NULL, DE_CREATEFLAG_IS_AUX);
+		appsegtype = APPSEGTYPE_XMP;
 	}
 	else if(seg_type==0xe1 && !de_strcmp(app_id_normalized, "HTTP://NS.ADOBE.COM/XMP/EXTENSION/")) {
-		pg->has_xmp_ext = 1;
-		do_xmp_extension_segment(c, d, pg, payload_pos, payload_size);
+		appsegtype = APPSEGTYPE_XMP_EXTENSION;
 	}
 	else if(seg_type==0xeb && app_id_orig_strlen>=10 && !de_memcmp(app_id_normalized, "HDR_RI VER", 10)) {
-		pg->is_jpeghdr = 1;
-		do_jpeghdr_segment(c, d, pg, payload_pos, payload_size, 0);
+		appsegtype = APPSEGTYPE_HDR_RI_VER;
 	}
 	else if(seg_type==0xeb && app_id_orig_strlen>=10 && !de_memcmp(app_id_normalized, "HDR_RI EXT", 10)) {
-		do_jpeghdr_segment(c, d, pg, payload_pos, payload_size, 1);
+		appsegtype = APPSEGTYPE_HDR_RI_EXT;
 	}
 	else if(seg_type==0xeb && !de_strcmp(app_id_normalized, "JP")) {
-		pg->is_jpegxt = 1;
+		appsegtype = APPSEGTYPE_JPEGXT;
 	}
 	else if(seg_type==0xe2 && !de_strcmp(app_id_normalized, "MPF")) {
-		pg->is_mpo = 1;
-		do_mpf_segment(c, d, payload_pos, payload_size);
+		appsegtype = APPSEGTYPE_MPF;
 	}
 	else if(seg_type==0xe3 && !de_strcmp(app_id_normalized, "_JPSJPS_")) {
-		pg->is_jps = 1;
+		appsegtype = APPSEGTYPE_JPS;
 	}
 
 done:
-	de_destroy_stringreaderdata(c, srd);
+	*p_payload_pos = seg_data_pos + sig_size;
+	return appsegtype;
+}
+
+// seg_size is the data size, excluding the marker and length fields.
+static void handler_app(deark *c, lctx *d, struct page_ctx *pg,
+	const struct marker_info *mi, de_int64 seg_data_pos, de_int64 seg_data_size)
+{
+	int appsegtype;
+	de_int64 payload_pos;
+	de_int64 payload_size;
+
+	de_dbg_indent(c, 1);
+
+	appsegtype = detect_app_seg_type(c, d, mi, seg_data_pos, seg_data_size, &payload_pos);
+	payload_size = seg_data_pos + seg_data_size - payload_pos;
+	if(payload_size<0) goto done;
+
+	switch(appsegtype) {
+	case APPSEGTYPE_JFIF:
+		do_jfif_segment(c, d, pg, payload_pos, payload_size);
+		break;
+	case APPSEGTYPE_JFXX:
+		do_jfxx_segment(c, d, pg, payload_pos, payload_size);
+		break;
+	case APPSEGTYPE_ADOBEAPP14:
+		// Note that we're not using payload_pos. See comment in detect_app_seg_type().
+		do_adobeapp14_segment(c, d, pg, seg_data_pos+5, seg_data_size-5);
+		break;
+	case APPSEGTYPE_EXIF:
+		{
+			de_uint32 exifflags = 0;
+			de_uint32 exiforientation = 0;
+			de_uint32 exifversion = 0;
+
+			if(payload_size<1) goto done;
+			// Note that Exif has an additional padding byte after the APP ID NUL terminator.
+			de_dbg(c, "Exif data at %d, size=%d", (int)(payload_pos+1), (int)(payload_size-1));
+			pg->has_exif_seg = 1;
+			de_dbg_indent(c, 1);
+			de_fmtutil_handle_exif2(c, payload_pos+1, payload_size-1,
+				&exifflags, &exiforientation, &exifversion);
+			if(exifflags&0x08)
+				pg->has_exif_gps = 1;
+			if(exifflags&0x10)
+				pg->exif_cosited = 1;
+			if(exifflags&0x20)
+				pg->exif_orientation = exiforientation;
+			if(exifflags&0x40)
+				pg->exif_version_as_uint32 = exifversion;
+			de_dbg_indent(c, -1);
+		}
+		break;
+	case APPSEGTYPE_ICC_PROFILE:
+		do_icc_profile_segment(c, d, pg, payload_pos, payload_size);
+		break;
+	case APPSEGTYPE_FPXR:
+		pg->has_flashpix = 1;
+		do_fpxr_segment(c, d, pg, payload_pos, payload_size);
+		break;
+	case APPSEGTYPE_SPIFF:
+		pg->has_spiff_seg = 1;
+		break;
+	case APPSEGTYPE_PHOTOSHOP:
+		{
+			de_uint32 psdflags = 0;
+			de_dbg(c, "photoshop data at %d, size=%d", (int)(payload_pos), (int)(payload_size));
+			pg->has_psd = 1;
+			de_dbg_indent(c, 1);
+			de_fmtutil_handle_photoshop_rsrc2(c, payload_pos, payload_size, &psdflags);
+			if(psdflags&0x02)
+				pg->has_iptc = 1;
+			de_dbg_indent(c, -1);
+		}
+		break;
+	case APPSEGTYPE_XMP:
+		de_dbg(c, "XMP data at %d, size=%d", (int)(payload_pos), (int)(payload_size));
+		pg->has_xmp = 1;
+		dbuf_create_file_from_slice(c->infile, payload_pos, payload_size, "xmp", NULL, DE_CREATEFLAG_IS_AUX);
+		break;
+	case APPSEGTYPE_XMP_EXTENSION:
+		pg->has_xmp_ext = 1;
+		do_xmp_extension_segment(c, d, pg, payload_pos, payload_size);
+		break;
+	case APPSEGTYPE_HDR_RI_VER:
+		pg->is_jpeghdr = 1;
+		do_jpeghdr_segment(c, d, pg, payload_pos, payload_size, 0);
+		break;
+	case APPSEGTYPE_HDR_RI_EXT:
+		do_jpeghdr_segment(c, d, pg, payload_pos, payload_size, 1);
+		break;
+	case APPSEGTYPE_JPEGXT:
+		pg->is_jpegxt = 1;
+		break;
+	case APPSEGTYPE_MPF:
+		pg->is_mpo = 1;
+		do_mpf_segment(c, d, payload_pos, payload_size);
+		break;
+	case APPSEGTYPE_JPS:
+		pg->is_jps = 1;
+		break;
+	}
+
+done:
 	de_dbg_indent(c, -1);
 }
 
