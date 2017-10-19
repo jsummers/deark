@@ -25,10 +25,12 @@ DE_DECLARE_MODULE(de_module_ps_pattern);
 
 #define CODE_8B64 0x38423634U
 #define CODE_8BIM 0x3842494dU
+#define CODE_AgHg 0x41674867U
 #define CODE_Alph 0x416c7068U
 #define CODE_AnDs 0x416e4473U
 #define CODE_CgEd 0x43674564U
 #define CODE_Clss 0x436c7373U
+#define CODE_DCSR 0x44435352U
 #define CODE_Enmr 0x456e6d72U
 #define CODE_FEid 0x46456964U
 #define CODE_FMsk 0x464d736bU
@@ -1856,10 +1858,18 @@ static int do_image_resource(deark *c, lctx *d, zztype *zz)
 	zztype czz;
 	int retval = 0;
 
-	// Check the "8BIM" signature
+	// Check the "8BIM" (etc.) signature.
+	// TODO: Maybe we should allow arbitrary signatures, but restricting it to
+	// known signatures lets us know if the parser has gone off the rails.
 	psd_read_fourcc_zz(c, d, zz, &sig4cc);
 	if(sig4cc.id==CODE_8BIM) {
 		;
+	}
+	else if(sig4cc.id==CODE_AgHg) { // Seen in Photoshop Elements files
+		signame = "AgHg";
+	}
+	else if(sig4cc.id==CODE_DCSR) { // ExifTool says this exists
+		signame = "DCSR";
 	}
 	else if(sig4cc.id==CODE_MeSa) { // Image Ready resource?
 		signame = "MeSa";
@@ -1883,6 +1893,7 @@ static int do_image_resource(deark *c, lctx *d, zztype *zz)
 
 	block_data_len = psd_getui32zz(zz);
 
+	// TODO: Are resource_ids "namespaced" based on the block signature?
 	lookup_rsrc(sig4cc.id, (de_uint16)resource_id, &ri);
 
 	de_dbg(c, "%s rsrc 0x%04x (%s) pos=%d blkname=\"%s\" dpos=%d dlen=%d",
