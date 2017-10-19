@@ -637,13 +637,17 @@ struct deark_module_info *de_get_module_by_id(deark *c, const char *module_id)
 	return NULL;
 }
 
-int de_run_module(deark *c, struct deark_module_info *mi, de_module_params *mparams)
+int de_run_module(deark *c, struct deark_module_info *mi, de_module_params *mparams, int moddisp)
 {
+	int old_moddisp;
 	if(!mi) return 0;
 	if(!mi->run_fn) return 0;
+	old_moddisp = c->module_disposition;
+	c->module_disposition = moddisp;
 	c->module_nesting_level++;
 	mi->run_fn(c, mparams);
 	c->module_nesting_level--;
+	c->module_disposition = old_moddisp;
 	return 1;
 }
 
@@ -657,7 +661,7 @@ int de_run_module_by_id(deark *c, const char *id, de_module_params *mparams)
 		return 0;
 	}
 
-	return de_run_module(c, module_to_use, mparams);
+	return de_run_module(c, module_to_use, mparams, DE_MODDISP_INTERNAL);
 }
 
 void de_run_module_by_id_on_slice(deark *c, const char *id, de_module_params *mparams,

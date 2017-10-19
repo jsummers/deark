@@ -217,6 +217,12 @@ struct deark_struct {
 	// top-level file.
 	int format_declared;
 
+#define DE_MODDISP_NONE       0 // No active module, or unknown
+#define DE_MODDISP_AUTODETECT 1 // Format was autodetected
+#define DE_MODDISP_EXPLICIT   2 // User used -m to select the module
+#define DE_MODDISP_INTERNAL   3 // Another module is using this module
+	int module_disposition; // Why are we using this module?
+
 	////////////////////////////////////////////////////
 
 	int file_count; // The number of extractable files encountered so far.
@@ -285,7 +291,7 @@ void de_fatalerror(deark *c);
 
 void de_register_modules(deark *c);
 
-int de_run_module(deark *c, struct deark_module_info *mi, de_module_params *mparams);
+int de_run_module(deark *c, struct deark_module_info *mi, de_module_params *mparams, int moddisp);
 int de_run_module_by_id(deark *c, const char *id, de_module_params *mparams);
 void de_run_module_by_id_on_slice(deark *c, const char *id, de_module_params *mparams,
 	dbuf *f, de_int64 pos, de_int64 len);

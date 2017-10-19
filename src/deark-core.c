@@ -133,6 +133,7 @@ void de_run(deark *c)
 	de_int64 subfile_size;
 	struct deark_module_info *module_to_use = NULL;
 	int module_was_autodetected = 0;
+	int moddisp;
 	de_ucstring *friendly_infn = NULL;
 
 	if(c->modhelp_req && c->input_format_req) {
@@ -236,7 +237,11 @@ void de_run(deark *c)
 	}
 	de_dbg2(c, "file size: %" INT64_FMT "", c->infile->len);
 
-	if(!de_run_module(c, module_to_use, NULL)) {
+	if(module_was_autodetected)
+		moddisp = DE_MODDISP_AUTODETECT;
+	else
+		moddisp = DE_MODDISP_EXPLICIT;
+	if(!de_run_module(c, module_to_use, NULL, moddisp)) {
 		goto done;
 	}
 
