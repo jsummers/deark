@@ -595,6 +595,22 @@ static int detect_app_seg_type(deark *c, lctx *d, const struct marker_info *mi,
 
 	de_dbg(c, "app id: \"%s\"", ucstring_get_printable_sz(srd->str));
 
+	if(seg_type==0xe1 && seg_data_size>20 && !de_strcmp((const char*)srd->sz, "XMP")) {
+		// Ugly hack. I've seen a fair number of files in which the first four
+		// bytes of the "http://ns.adobe.com/xap/1.0/" signature seem to have
+		// been corrupted, and replaced with "XMP\0".
+		// If we suspect that's what we have, create a temporary dbuf, write a
+		// repaired signature to, and re-read the signature from it.
+		dbuf *tmpdbuf = dbuf_create_membuf(c, 0, 0);
+		dbuf_write(tmpdbuf, (const de_byte*)"http", 4);
+		dbuf_copy(c->infile, seg_data_pos+4, app_id_bytes_to_scan-4, tmpdbuf);
+		de_destroy_stringreaderdata(c, srd);
+		srd = dbuf_read_string(tmpdbuf, 0, app_id_bytes_to_scan, MAX_APP_ID_LEN,
+			DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_ASCII);
+		dbuf_close(tmpdbuf);
+		if(!srd->found_nul || srd->was_truncated) goto done;
+	}
+
 	app_id_orig_strlen = srd->bytes_consumed-1;
 
 	normalize_app_id((const char*)srd->sz, app_id_normalized, sizeof(app_id_normalized));
