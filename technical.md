@@ -24,9 +24,6 @@ One guideline is that any image format supported by XnView, and not by any
 well-maintained open source software, is a candidate for being supported, no
 matter how obscure it may be.
 
-Bitmap fonts are converted to images. Someday, there might be an option to
-convert them to some portable font format, but that is difficult to do well.
-
 ## Security ##
 
 Deark is intended to be safe to use with untrusted input files, but there are
@@ -173,6 +170,9 @@ For the identities of the formats supported by Deark, see
 By design, Deark does not look at any files that don't explicitly appear on the
 command line. In the future, there might be an option to change this behavior,
 and automatically try to find related files.
+
+Bitmap fonts are converted to images. Someday, there might be an option to
+convert them to some portable font format, but that is difficult to do well.
 
 ## How to build ##
 
