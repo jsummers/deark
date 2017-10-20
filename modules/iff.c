@@ -234,5 +234,5 @@ void de_module_midi(deark *c, struct deark_module_info *mi)
 	mi->desc = "MIDI audio";
 	mi->run_fn = de_run_midi;
 	mi->identify_fn = de_identify_midi;
-	mi->flags |= DE_MODFLAG_HIDDEN | DE_MODFLAG_NOEXTRACT;
+	mi->flags |= DE_MODFLAG_HIDDEN;
 }
