@@ -213,12 +213,17 @@ void de_module_zlib(deark *c, struct deark_module_info *mi)
 static void de_run_sauce(deark *c, de_module_params *mparams)
 {
 	struct de_SAUCE_info *si = NULL;
+	int ret;
 
 	si = de_malloc(c, sizeof(struct de_SAUCE_info));
-	if(de_read_SAUCE(c, c->infile, si)) {
+	ret = de_read_SAUCE(c, c->infile, si);
+	if(ret && c->module_disposition==DE_MODDISP_AUTODETECT) {
 		de_err(c, "This file has a SAUCE metadata record that identifies it as "
 			"DataType %d, FileType %d, but it is not a supported format.",
 			(int)si->data_type, (int)si->file_type);
+	}
+	if(!ret && c->module_disposition==DE_MODDISP_EXPLICIT) {
+		de_err(c, "No SAUCE record found");
 	}
 	de_free_SAUCE(c, si);
 }
