@@ -48,6 +48,9 @@ Deark -- Information about supported formats
 
 * ArtWorx Data Format (ADF) (module="artworx_adf")
 
+* AutoCAD Slide Library (.slb) (module="autocad_slb")
+  - Extracts the component AutoCAD Slide (.sld) files.
+
 * Award BIOS logo (EPA, AWBM) (module="awbm") (experimental)
   - Supports version 1
   - Supports 4-bit and 8-bit version 2

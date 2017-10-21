@@ -12,6 +12,8 @@ obj/modules/atari-img.o: modules/atari-img.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h
 obj/modules/atari.o: modules/atari.c src/deark-config.h \
  src/deark-private.h src/deark.h
+obj/modules/autocad.o: modules/autocad.c src/deark-config.h \
+ src/deark-private.h src/deark.h
 obj/modules/awbm.o: modules/awbm.c src/deark-config.h src/deark-private.h \
  src/deark.h
 obj/modules/basic-c64.o: modules/basic-c64.c src/deark-config.h \

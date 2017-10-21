@@ -498,6 +498,10 @@
 				>
 			</File>
 			<File
+				RelativePath="..\..\modules\autocad.c"
+				>
+			</File>
+			<File
 				RelativePath="..\..\modules\awbm.c"
 				>
 			</File>

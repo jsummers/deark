@@ -83,6 +83,12 @@ static void get_fmt(deark *c, struct fmtinfo_struct *fmti)
 		fmti->descr = "a Fujifilm RAF file";
 		return;
 	}
+
+	if(!de_memcmp(b, "AutoCAD Slide\r\n\x1a", 16)) {
+		fmti->confidence = 100;
+		fmti->descr = "an AutoCAD Slide file";
+		return;
+	}
 }
 
 static void de_run_unsupported(deark *c, de_module_params *mparams)
