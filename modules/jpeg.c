@@ -313,6 +313,10 @@ static void do_mpf_segment(deark *c, lctx *d, de_int64 pos, de_int64 data_size)
 	de_dbg_indent(c, -1);
 }
 
+static void do_jps_segment(deark *c, lctx *d, de_int64 pos1, de_int64 len)
+{
+}
+
 static void do_xmp_extension_segment(deark *c, lctx *d, struct page_ctx *pg,
 	de_int64 pos1, de_int64 data_size)
 {
@@ -563,117 +567,182 @@ static void normalize_app_id(const char *app_id_orig, char *app_id_normalized,
 #define APPSEGTYPE_HDR_RI_VER     24
 #define APPSEGTYPE_HDR_RI_EXT     25
 
-static int detect_app_seg_type(deark *c, lctx *d, const struct marker_info *mi,
-	de_int64 seg_data_pos, de_int64 seg_data_size, de_int64 *p_payload_pos)
-{
-#define MAX_APP_ID_LEN 256
+struct app_id_info_struct {
+	int app_id_found;
+	int appsegtype;
+	de_int64 payload_pos;
+	de_ucstring *app_id_str; // valid if(app_id_found)
+	const char *app_type_name;
+};
+
+#define MAX_APP_ID_LEN 80
+struct app_id_decode_struct {
+	// In:
+	de_byte raw_bytes[MAX_APP_ID_LEN];
+	de_int64 nraw_bytes;
+
+	// Out:
+	char app_id_orig[MAX_APP_ID_LEN];
 	char app_id_normalized[MAX_APP_ID_LEN];
 	de_int64 app_id_orig_strlen;
-	de_int64 app_id_bytes_to_scan;
-	de_int64 sig_size = 0;
-	de_int64 payload_size;
-	struct de_stringreaderdata *srd = NULL;
-	de_byte seg_type = mi->seg_type;
-	int appsegtype = APPSEGTYPE_UNKNOWN;
+	int has_app_id;
+};
 
-	if(seg_data_size<3) goto done;
+// Caller allocates ad, and initializes the "In" fields.
+static void decode_app_id(struct app_id_decode_struct *ad)
+{
+	de_int64 k;
 
-	// Read the first part of the segment, so we can tell what kind of segment it is.
-	// APP ID is the string before the first NUL byte.
+	if(ad->nraw_bytes<2) return;
+	if(ad->raw_bytes[0]<32 || ad->raw_bytes[0]>126) return;
 
-	app_id_bytes_to_scan = MAX_APP_ID_LEN;
-	if(app_id_bytes_to_scan>seg_data_size)
-		app_id_bytes_to_scan = seg_data_size;
-
-	srd = dbuf_read_string(c->infile, seg_data_pos, app_id_bytes_to_scan, MAX_APP_ID_LEN,
-		DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_ASCII);
-
-	if(!srd->found_nul || srd->was_truncated) {
-		de_dbg(c, "app id: [not found]");
-		goto done;
+	// Might have an app id.
+	for(k=0; k<ad->nraw_bytes; k++) {
+		if(ad->raw_bytes[k]==0) {
+			ad->has_app_id = 1;
+			ad->app_id_orig_strlen = k;
+			break;
+		}
 	}
 
-	de_dbg(c, "app id: \"%s\"", ucstring_get_printable_sz(srd->str));
+	if(ad->has_app_id) {
+		// We'll assume this is an app id
+		de_strlcpy(ad->app_id_orig, (const char*)ad->raw_bytes, sizeof(ad->app_id_orig));
+		normalize_app_id(ad->app_id_orig, ad->app_id_normalized, sizeof(ad->app_id_normalized));
+	}
+}
 
-	if(seg_type==0xe1 && seg_data_size>20 && !de_strcmp((const char*)srd->sz, "XMP")) {
+// Caller allocates app_id_info, and initializes it to all 0.
+// Caller must free ->app_id_str.
+static void detect_app_seg_type(deark *c, lctx *d, const struct marker_info *mi,
+	de_int64 seg_data_pos, de_int64 seg_data_size, struct app_id_info_struct *app_id_info)
+{
+	de_int64 sig_size = 0;
+	de_int64 payload_size;
+	de_byte seg_type = mi->seg_type;
+	struct app_id_decode_struct ad;
+
+	de_memset(&ad, 0, sizeof(struct app_id_decode_struct));
+
+	// defaults:
+	payload_size = seg_data_size;
+	app_id_info->app_id_found = 0;
+	app_id_info->appsegtype = APPSEGTYPE_UNKNOWN;
+	app_id_info->app_type_name = "?";
+
+	ad.nraw_bytes = (de_int64)sizeof(ad.raw_bytes);
+	if(ad.nraw_bytes>seg_data_size)
+		ad.nraw_bytes = seg_data_size;
+	de_read(ad.raw_bytes, seg_data_pos, ad.nraw_bytes);
+
+	decode_app_id(&ad);
+
+	if(ad.has_app_id) {
+		app_id_info->app_id_str = ucstring_create(c);
+		ucstring_append_bytes(app_id_info->app_id_str, (const de_byte*)ad.app_id_orig, ad.app_id_orig_strlen, 0,
+			DE_ENCODING_ASCII);
+	}
+
+	if(seg_type==0xe1 && ad.nraw_bytes>20 && ad.has_app_id && !de_strcmp(ad.app_id_orig, "XMP")) {
 		// Ugly hack. I've seen a fair number of files in which the first four
 		// bytes of the "http://ns.adobe.com/xap/1.0/" signature seem to have
 		// been corrupted, and replaced with "XMP\0".
-		// If we suspect that's what we have, create a temporary dbuf, write a
-		// repaired signature to, and re-read the signature from it.
-		dbuf *tmpdbuf = dbuf_create_membuf(c, 0, 0);
-		dbuf_write(tmpdbuf, (const de_byte*)"http", 4);
-		dbuf_copy(c->infile, seg_data_pos+4, app_id_bytes_to_scan-4, tmpdbuf);
-		de_destroy_stringreaderdata(c, srd);
-		srd = dbuf_read_string(tmpdbuf, 0, app_id_bytes_to_scan, MAX_APP_ID_LEN,
-			DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_ASCII);
-		dbuf_close(tmpdbuf);
-		if(!srd->found_nul || srd->was_truncated) goto done;
+		struct app_id_decode_struct ad2;
+
+		de_memset(&ad2, 0, sizeof(struct app_id_decode_struct));
+		de_memcpy(ad2.raw_bytes, ad.raw_bytes, ad.nraw_bytes);
+		ad2.nraw_bytes = ad.nraw_bytes;
+		// Try to patch the app ID, decode it, and see what happens.
+		de_memcpy(ad2.raw_bytes, (const de_byte*)"http", 4);
+
+		decode_app_id(&ad2);
+
+		// If that seemed to work, replace the old "normalized" ID with the patched one.
+		if(ad2.has_app_id) {
+			de_strlcpy(ad.app_id_normalized, ad2.app_id_normalized, sizeof(ad.app_id_normalized));
+			// Need to update orig_strlen, so we can find the payload data position.
+			// (ad.app_id_orig can stay the same.)
+			ad.app_id_orig_strlen = ad2.app_id_orig_strlen;
+		}
 	}
 
-	app_id_orig_strlen = srd->bytes_consumed-1;
-
-	normalize_app_id((const char*)srd->sz, app_id_normalized, sizeof(app_id_normalized));
-
-	// The payload data size is usually everything after the first NUL byte.
-	sig_size = srd->bytes_consumed;
-	payload_size = seg_data_size - srd->bytes_consumed;
-	if(payload_size<1) goto done;
-
-	if(seg_type==0xe0 && !de_strcmp(app_id_normalized, "JFIF")) {
-		appsegtype = APPSEGTYPE_JFIF;
+	if(ad.has_app_id) {
+		app_id_info->app_id_found = 1;
+		sig_size = ad.app_id_orig_strlen + 1;
 	}
-	else if(seg_type==0xe0 && !de_strcmp(app_id_normalized, "JFXX")) {
-		appsegtype = APPSEGTYPE_JFXX;
+
+	payload_size = seg_data_size - sig_size;
+	if(payload_size<0) goto done;
+
+	if(seg_type==0xe0 && !de_strcmp(ad.app_id_normalized, "JFIF")) {
+		app_id_info->appsegtype = APPSEGTYPE_JFIF;
+		app_id_info->app_type_name = "JFIF";
 	}
-	else if(seg_type==0xee && app_id_orig_strlen>=5 && !de_memcmp(app_id_normalized, "ADOBE", 5)) {
+	else if(seg_type==0xe0 && !de_strcmp(ad.app_id_normalized, "JFXX")) {
+		app_id_info->appsegtype = APPSEGTYPE_JFXX;
+		app_id_info->app_type_name = "JFIF-JFXX";
+	}
+	else if(seg_type==0xee && ad.app_id_orig_strlen>=5 && !de_memcmp(ad.app_id_normalized, "ADOBE", 5)) {
 		// libjpeg implies that the "Adobe" string is *not* NUL-terminated. That the byte
 		// that is usually 0 is actually the high byte of a version number.
-		appsegtype = APPSEGTYPE_ADOBEAPP14;
+		app_id_info->appsegtype = APPSEGTYPE_ADOBEAPP14;
+		app_id_info->app_type_name = "AdobeAPP14";
 	}
-	else if(seg_type==0xe1 && !de_strcmp(app_id_normalized, "EXIF")) {
+	else if(seg_type==0xe1 && !de_strcmp(ad.app_id_normalized, "EXIF")) {
 		// This detection routine considers the payload to start with the second NULL
 		// byte that follows the "Exif" string, though in another sense it starts after
 		// that byte.
-		appsegtype = APPSEGTYPE_EXIF;
+		app_id_info->appsegtype = APPSEGTYPE_EXIF;
+		app_id_info->app_type_name = "Exif";
 	}
-	else if(seg_type==0xe2 && !de_strcmp(app_id_normalized, "ICC_PROFILE")) {
-		appsegtype = APPSEGTYPE_ICC_PROFILE;
+	else if(seg_type==0xe2 && !de_strcmp(ad.app_id_normalized, "ICC_PROFILE")) {
+		app_id_info->appsegtype = APPSEGTYPE_ICC_PROFILE;
+		app_id_info->app_type_name = "ICC profile";
 	}
-	else if(seg_type==0xe2 && !de_strcmp(app_id_normalized, "FPXR")) {
-		appsegtype = APPSEGTYPE_FPXR;
+	else if(seg_type==0xe2 && !de_strcmp(ad.app_id_normalized, "FPXR")) {
+		app_id_info->appsegtype = APPSEGTYPE_FPXR;
+		app_id_info->app_type_name = "FlashPix";
 	}
-	else if(seg_type==0xe8 && !de_strcmp(app_id_normalized, "SPIFF")) {
-		appsegtype = APPSEGTYPE_SPIFF;
+	else if(seg_type==0xe8 && !de_strcmp(ad.app_id_normalized, "SPIFF")) {
+		app_id_info->appsegtype = APPSEGTYPE_SPIFF;
+		app_id_info->app_type_name = "SPIFF";
 	}
-	else if(seg_type==0xed && !de_strcmp(app_id_normalized, "PHOTOSHOP 3.0")) {
-		appsegtype = APPSEGTYPE_PHOTOSHOP;
+	else if(seg_type==0xed && !de_strcmp(ad.app_id_normalized, "PHOTOSHOP 3.0")) {
+		app_id_info->appsegtype = APPSEGTYPE_PHOTOSHOP;
+		app_id_info->app_type_name = "Photoshop resources";
 	}
-	else if(seg_type==0xe1 && !de_strcmp(app_id_normalized, "HTTP://NS.ADOBE.COM/XAP/1.0/")) {
-		appsegtype = APPSEGTYPE_XMP;
+	else if(seg_type==0xe1 && !de_strcmp(ad.app_id_normalized, "HTTP://NS.ADOBE.COM/XAP/1.0/")) {
+		app_id_info->appsegtype = APPSEGTYPE_XMP;
+		app_id_info->app_type_name = "XMP";
 	}
-	else if(seg_type==0xe1 && !de_strcmp(app_id_normalized, "HTTP://NS.ADOBE.COM/XMP/EXTENSION/")) {
-		appsegtype = APPSEGTYPE_XMP_EXTENSION;
+	else if(seg_type==0xe1 && !de_strcmp(ad.app_id_normalized, "HTTP://NS.ADOBE.COM/XMP/EXTENSION/")) {
+		app_id_info->appsegtype = APPSEGTYPE_XMP_EXTENSION;
+		app_id_info->app_type_name = "XMP extension";
 	}
-	else if(seg_type==0xeb && app_id_orig_strlen>=10 && !de_memcmp(app_id_normalized, "HDR_RI VER", 10)) {
-		appsegtype = APPSEGTYPE_HDR_RI_VER;
+	else if(seg_type==0xeb && ad.app_id_orig_strlen>=10 && !de_memcmp(ad.app_id_normalized, "HDR_RI VER", 10)) {
+		app_id_info->appsegtype = APPSEGTYPE_HDR_RI_VER;
+		app_id_info->app_type_name = "JPEG-HDR Ver";
 	}
-	else if(seg_type==0xeb && app_id_orig_strlen>=10 && !de_memcmp(app_id_normalized, "HDR_RI EXT", 10)) {
-		appsegtype = APPSEGTYPE_HDR_RI_EXT;
+	else if(seg_type==0xeb && ad.app_id_orig_strlen>=10 && !de_memcmp(ad.app_id_normalized, "HDR_RI EXT", 10)) {
+		app_id_info->appsegtype = APPSEGTYPE_HDR_RI_EXT;
+		app_id_info->app_type_name = "JPEG-HDR Ext";
 	}
-	else if(seg_type==0xeb && !de_strcmp(app_id_normalized, "JP")) {
-		appsegtype = APPSEGTYPE_JPEGXT;
+	else if(seg_type==0xeb && !de_strcmp(ad.app_id_normalized, "JP")) {
+		app_id_info->appsegtype = APPSEGTYPE_JPEGXT;
+		app_id_info->app_type_name = "JPEG XT";
 	}
-	else if(seg_type==0xe2 && !de_strcmp(app_id_normalized, "MPF")) {
-		appsegtype = APPSEGTYPE_MPF;
+	else if(seg_type==0xe2 && !de_strcmp(ad.app_id_normalized, "MPF")) {
+		app_id_info->appsegtype = APPSEGTYPE_MPF;
+		app_id_info->app_type_name = "Multi-Picture Format";
 	}
-	else if(seg_type==0xe3 && !de_strcmp(app_id_normalized, "_JPSJPS_")) {
-		appsegtype = APPSEGTYPE_JPS;
+	else if(seg_type==0xe3 && ad.nraw_bytes>=8 && !de_strncmp((const char*)ad.raw_bytes, "_JPSJPS_", 8)) {
+		// This signature is not NUL terminated.
+		app_id_info->appsegtype = APPSEGTYPE_JPS;
+		app_id_info->app_type_name = "JPS";
 	}
 
 done:
-	*p_payload_pos = seg_data_pos + sig_size;
-	return appsegtype;
+	app_id_info->payload_pos = seg_data_pos + sig_size;
 }
 
 // seg_size is the data size, excluding the marker and length fields.
@@ -683,10 +752,23 @@ static void handler_app(deark *c, lctx *d, struct page_ctx *pg,
 	int appsegtype;
 	de_int64 payload_pos;
 	de_int64 payload_size;
+	struct app_id_info_struct app_id_info;
+
+	de_memset(&app_id_info, 0, sizeof(struct app_id_info_struct));
 
 	de_dbg_indent(c, 1);
 
-	appsegtype = detect_app_seg_type(c, d, mi, seg_data_pos, seg_data_size, &payload_pos);
+	detect_app_seg_type(c, d, mi, seg_data_pos, seg_data_size, &app_id_info);
+	appsegtype = app_id_info.appsegtype;
+	payload_pos = app_id_info.payload_pos;
+	if(app_id_info.app_id_found) {
+		de_dbg(c, "app id: \"%s\", identified as: %s", ucstring_get_printable_sz(app_id_info.app_id_str),
+			app_id_info.app_type_name);
+	}
+	else {
+		de_dbg(c, "app id: (not found), identified as: %s", app_id_info.app_type_name);
+	}
+
 	payload_size = seg_data_pos + seg_data_size - payload_pos;
 	if(payload_size<0) goto done;
 
@@ -772,10 +854,14 @@ static void handler_app(deark *c, lctx *d, struct page_ctx *pg,
 		break;
 	case APPSEGTYPE_JPS:
 		pg->is_jps = 1;
+		do_jps_segment(c, d, payload_pos, payload_size);
 		break;
 	}
 
 done:
+	if(app_id_info.app_id_str) {
+		ucstring_destroy(app_id_info.app_id_str);
+	}
 	de_dbg_indent(c, -1);
 }
 
