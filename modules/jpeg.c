@@ -315,6 +315,63 @@ static void do_mpf_segment(deark *c, lctx *d, de_int64 pos, de_int64 data_size)
 
 static void do_jps_segment(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 {
+	de_int64 pos = pos1;
+	de_int64 blk_len;
+	de_uint32 st_descr;
+	de_ucstring *flags_str = NULL;
+	de_ucstring *comment = NULL;
+	unsigned int mtype;
+
+	// Descriptor block
+	if(len<8) goto done;
+	blk_len = de_getui16be(pos);
+	pos += 2;
+	if(blk_len<4) goto done;
+	st_descr = (de_uint32)de_getui32be(pos);
+
+	flags_str = ucstring_create(c);
+	mtype = (unsigned int)(st_descr&0x000000ff);
+	switch(mtype) {
+	case 0: ucstring_append_flags_item(flags_str, "MONOSCOPIC_IMAGE"); break;
+	case 1: ucstring_append_flags_item(flags_str, "STEREOSCOPIC_IMAGE"); break;
+	}
+	if(mtype==0) {
+		switch((st_descr&0x0000ff00)>>8) {
+		case 0: ucstring_append_flags_item(flags_str, "EYE_BOTH"); break;
+		case 1: ucstring_append_flags_item(flags_str, "EYE_LEFT"); break;
+		case 2: ucstring_append_flags_item(flags_str, "EYE_RIGHT"); break;
+		}
+	}
+	else if(mtype==1) {
+		switch((st_descr&0x0000ff00)>>8) {
+		case 1: ucstring_append_flags_item(flags_str, "LAYOUT_INTERLEAVED"); break;
+		case 2: ucstring_append_flags_item(flags_str, "LAYOUT_SIDEBYSIDE"); break;
+		case 3: ucstring_append_flags_item(flags_str, "LAYOUT_OVERUNDER"); break;
+		case 4: ucstring_append_flags_item(flags_str, "LAYOUT_ANAGLYPH"); break;
+		}
+	}
+	ucstring_append_flags_item(flags_str, (st_descr&0x00010000)?"half-height":"full-height");
+	ucstring_append_flags_item(flags_str, (st_descr&0x00020000)?"half-width":"full-width");
+	// TODO: FIELD ORDER BIT
+	// TODO: SEPARATION
+
+	de_dbg(c, "stereoscopic descriptor: 0x%08x (%s)", (unsigned int)st_descr,
+		ucstring_get_printable_sz(flags_str));
+	pos += blk_len;
+
+	// Comment block
+	if(pos1+len-pos<2) goto done;
+	blk_len = de_getui16be(pos);
+	pos += 2;
+	if(pos+blk_len > pos1+len) goto done;
+	comment = ucstring_create(c);
+	dbuf_read_to_ucstring_n(c->infile, pos, blk_len, DE_DBG_MAX_STRLEN, comment,
+				0, DE_ENCODING_ASCII);
+	de_dbg(c, "comment: \"%s\"", ucstring_get_printable_sz(comment));
+
+done:
+	ucstring_destroy(flags_str);
+	ucstring_destroy(comment);
 }
 
 static void do_xmp_extension_segment(deark *c, lctx *d, struct page_ctx *pg,
@@ -739,6 +796,7 @@ static void detect_app_seg_type(deark *c, lctx *d, const struct marker_info *mi,
 		// This signature is not NUL terminated.
 		app_id_info->appsegtype = APPSEGTYPE_JPS;
 		app_id_info->app_type_name = "JPS";
+		sig_size = 8;
 	}
 
 done:
