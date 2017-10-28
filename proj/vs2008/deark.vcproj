@@ -554,6 +554,10 @@
 				>
 			</File>
 			<File
+				RelativePath="..\..\modules\drhalo.c"
+				>
+			</File>
+			<File
 				RelativePath="..\..\modules\epocimage.c"
 				>
 			</File>

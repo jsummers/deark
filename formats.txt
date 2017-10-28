@@ -104,6 +104,10 @@ Deark -- Information about supported formats
   software.
   - Cannot be autodetected. You must use "-m compfacei".
 
+* Dr. Halo .CUT (module="drhalocut")
+  Options
+   -file2 <file.pal> - Read the palette from this file.
+
 * DIB (module="dib")
   - Adds a BMP file header to a raw Windows DIB file.
 

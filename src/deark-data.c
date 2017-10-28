@@ -795,7 +795,7 @@ de_byte de_scale_1000_to_255(de_int64 x)
 
 de_byte de_scale_n_to_255(de_int64 n, de_int64 x)
 {
-	if(x>=1000) return 255;
+	if(x>=n) return 255;
 	if(x<=0) return 0;
 	return (de_byte)(0.5+(((double)x)*(255.0/(double)n)));
 }

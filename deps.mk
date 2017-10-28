@@ -40,6 +40,8 @@ obj/modules/cpio.o: modules/cpio.c src/deark-config.h src/deark-private.h \
  src/deark.h
 obj/modules/d64.o: modules/d64.c src/deark-config.h src/deark-private.h \
  src/deark.h
+obj/modules/drhalo.o: modules/drhalo.c src/deark-config.h \
+ src/deark-private.h src/deark.h
 obj/modules/epocimage.o: modules/epocimage.c src/deark-config.h \
  src/deark-private.h src/deark.h
 obj/modules/eps.o: modules/eps.c src/deark-config.h src/deark-private.h \
