@@ -128,6 +128,8 @@ obj/modules/pnm.o: modules/pnm.c src/deark-config.h src/deark-private.h \
  src/deark.h
 obj/modules/portfolio.o: modules/portfolio.c src/deark-config.h \
  src/deark-private.h src/deark.h
+obj/modules/printptnr.o: modules/printptnr.c src/deark-config.h \
+ src/deark-private.h src/deark.h
 obj/modules/printshop.o: modules/printshop.c src/deark-config.h \
  src/deark-private.h src/deark.h
 obj/modules/psd.o: modules/psd.c src/deark-config.h src/deark-private.h \

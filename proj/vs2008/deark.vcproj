@@ -730,6 +730,10 @@
 				>
 			</File>
 			<File
+				RelativePath="..\..\modules\printptnr.c"
+				>
+			</File>
+			<File
 				RelativePath="..\..\modules\printshop.c"
 				>
 			</File>
