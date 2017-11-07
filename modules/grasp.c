@@ -215,6 +215,7 @@ done:
 static void de_run_graspfont_newfmt(deark *c)
 {
 	struct de_bitmap_font *font = NULL;
+	de_ucstring *fontname = NULL;
 	de_int64 k;
 	de_int64 glyph_offsets_table_pos;
 	de_int64 widths_table_pos;
@@ -222,10 +223,17 @@ static void de_run_graspfont_newfmt(deark *c)
 	int tmp_width;
 	int ch_max_width = 0;
 
-	font = de_create_bitmap_font(c);
+	de_dbg(c, "header at %d", 0);
+	de_dbg_indent(c, 1);
 
+	font = de_create_bitmap_font(c);
 	font->has_nonunicode_codepoints = 1;
-	font->num_chars = (de_int64)de_getbyte(16) +1;
+
+	fontname = ucstring_create(c);
+	dbuf_read_to_ucstring(c->infile, 1, 13, fontname, DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_ASCII);
+	de_dbg(c, "name: \"%s\"", ucstring_get_printable_sz(fontname));
+
+	font->num_chars = (de_int64)de_getbyte(16);
 	de_dbg(c, "number of glyphs: %d", (int)font->num_chars);
 
 	tmp_width = (int)de_getbyte(19);
@@ -235,12 +243,15 @@ static void de_run_graspfont_newfmt(deark *c)
 
 	glyph_rowspan = (de_int64)de_getbyte(21);
 
+	de_dbg_indent(c, -1);
+
 	glyph_offsets_table_pos = 59;
 	widths_table_pos = glyph_offsets_table_pos +2*font->num_chars;
 	if(widths_table_pos<249)
 		widths_table_pos = 249;
-	de_dbg(c, "glyph offsets table is at %d", (int)glyph_offsets_table_pos);
-	de_dbg(c, "width table is at %d", (int)widths_table_pos);
+	de_dbg(c, "glyph offsets table at %d, width table at %d", (int)glyph_offsets_table_pos,
+		(int)widths_table_pos);
+	de_dbg_indent(c, 1);
 
 	font->char_array = de_malloc(c, font->num_chars * sizeof(struct de_bitmap_font_char));
 
@@ -249,15 +260,13 @@ static void de_run_graspfont_newfmt(deark *c)
 		de_int64 bitmapsize;
 		struct de_bitmap_font_char *ch = &font->char_array[k];
 
-		ch->codepoint_nonunicode = (de_int32)(32 + k);
+		ch->codepoint_nonunicode = (de_int32)(33 + k);
 
-		if(k==0)
-			ch_offset = 0;
-		else
-			ch_offset = de_getui16le(glyph_offsets_table_pos + 2*k);
+		ch_offset = de_getui16le(glyph_offsets_table_pos + 2 + 2*k);
 
-		ch->width = (int)de_getbyte(widths_table_pos + k);
-		de_dbg(c, "ch[%d]: width=%d, glyph_offs=%d", (int)ch->codepoint_nonunicode,
+		ch->width = (int)de_getbyte(widths_table_pos + 1 + k);
+		de_dbg(c, "ch[%d]: codepoint=%d, width=%d, glyph_offs=%d", (int)k,
+			(int)ch->codepoint_nonunicode,
 			(int)ch->width, (int)ch_offset);
 
 		if(ch->width<1) continue;
@@ -267,12 +276,10 @@ static void de_run_graspfont_newfmt(deark *c)
 		ch->rowspan = glyph_rowspan;
 		bitmapsize = ch->rowspan * ch->height;
 		ch->bitmap = de_malloc(c, bitmapsize);
-		if(k!=0) {
-			// The space character's bitmap offset doesn't seem to be reliable.
-			// (Maybe even its width is supposed to be ignored. Dunno.)
-			de_read(ch->bitmap, ch_offset, bitmapsize);
-		}
+		de_read(ch->bitmap, ch_offset, bitmapsize);
 	}
+
+	de_dbg_indent(c, -1);
 
 	de_dbg(c, "calculated maximum width: %d", (int)ch_max_width);
 	font->nominal_width = ch_max_width;
@@ -288,6 +295,8 @@ static void de_run_graspfont_newfmt(deark *c)
 		}
 		de_destroy_bitmap_font(c, font);
 	}
+
+	ucstring_destroy(fontname);
 }
 
 static int gfont_is_new_format(deark *c)
