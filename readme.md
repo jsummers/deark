@@ -15,7 +15,7 @@ For additional information, see the [technical.md](technical.md) file.
 
 ## Usage ##
 
-    deark [options] <input-file>
+    deark [options] [-file] <input-file> [options]
     deark <-h|-version|-modules>
 
 Command-line options:
@@ -46,6 +46,9 @@ Command-line options:
 -o &lt;name>
    Output filenames begin with this string. This can include a directory
    path. Default is "output", except in some cases when using -zip.
+-file &lt;input-file>
+   This is an alternate syntax for specifying the primary input file. It works
+   even if the filename begins with "-".
 -file2 &lt;file>
    Some formats are composed of more than one file. In some cases, you can
    use the -file2 option to specify the secondary file. Refer to the
