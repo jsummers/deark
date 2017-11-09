@@ -61,21 +61,6 @@ struct ifdstack_item {
 typedef void (*handler_fn_type)(deark *c, lctx *d, const struct taginfo *tg,
 	const struct tagnuminfo *tni);
 
-static void handler_orientation(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni);
-static void handler_colormap(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni);
-static void handler_subifd(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni);
-static void handler_ycbcrpositioning(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni);
-static void handler_xmp(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni);
-static void handler_iptc(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni);
-static void handler_photoshoprsrc(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni);
-static void handler_usercomment(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni);
-static void handler_37724(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni);
-static void handler_iccprofile(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni);
-static void handler_exifversion(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni);
-static void handler_mpentry(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni);
-static void handler_gpslatitude(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni);
-static void handler_utf16(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni);
-
 struct valdec_params {
 	lctx *d;
 	const struct taginfo *tg;
@@ -88,47 +73,6 @@ struct valdec_result {
 };
 
 typedef int (*val_decoder_fn_type)(deark *c, const struct valdec_params *vp, struct valdec_result *vr);
-
-// Forward declaration of value decoder functions
-#define DECLARE_VALDEC(x) static int x(deark *c, const struct valdec_params *vp, struct valdec_result *vr)
-DECLARE_VALDEC(valdec_newsubfiletype);
-DECLARE_VALDEC(valdec_oldsubfiletype);
-DECLARE_VALDEC(valdec_compression);
-DECLARE_VALDEC(valdec_photometric);
-DECLARE_VALDEC(valdec_threshholding);
-DECLARE_VALDEC(valdec_fillorder);
-DECLARE_VALDEC(valdec_orientation);
-DECLARE_VALDEC(valdec_planarconfiguration);
-DECLARE_VALDEC(valdec_t4options);
-DECLARE_VALDEC(valdec_t6options);
-DECLARE_VALDEC(valdec_resolutionunit);
-DECLARE_VALDEC(valdec_pagenumber);
-DECLARE_VALDEC(valdec_predictor);
-DECLARE_VALDEC(valdec_inkset);
-DECLARE_VALDEC(valdec_extrasamples);
-DECLARE_VALDEC(valdec_sampleformat);
-DECLARE_VALDEC(valdec_jpegproc);
-DECLARE_VALDEC(valdec_ycbcrpositioning);
-DECLARE_VALDEC(valdec_exposureprogram);
-DECLARE_VALDEC(valdec_componentsconfiguration);
-DECLARE_VALDEC(valdec_meteringmode);
-DECLARE_VALDEC(valdec_lightsource);
-DECLARE_VALDEC(valdec_flash);
-DECLARE_VALDEC(valdec_exifcolorspace);
-DECLARE_VALDEC(valdec_filesource);
-DECLARE_VALDEC(valdec_scenetype);
-DECLARE_VALDEC(valdec_sensingmethod);
-DECLARE_VALDEC(valdec_customrendered);
-DECLARE_VALDEC(valdec_exposuremode);
-DECLARE_VALDEC(valdec_whitebalance);
-DECLARE_VALDEC(valdec_scenecapturetype);
-DECLARE_VALDEC(valdec_gaincontrol);
-DECLARE_VALDEC(valdec_contrast);
-DECLARE_VALDEC(valdec_saturation);
-DECLARE_VALDEC(valdec_sharpness);
-DECLARE_VALDEC(valdec_subjectdistancerange);
-DECLARE_VALDEC(valdec_profileembedpolicy);
-DECLARE_VALDEC(valdec_dngcolorspace);
 
 struct tagnuminfo {
 	int tagnum;
@@ -149,473 +93,14 @@ struct tagnuminfo {
 	handler_fn_type hfn;
 	val_decoder_fn_type vdfn;
 };
-static const struct tagnuminfo tagnuminfo_arr[] = {
-	{ 254, 0x00, "NewSubfileType", NULL, valdec_newsubfiletype },
-	{ 255, 0x00, "OldSubfileType", NULL, valdec_oldsubfiletype },
-	{ 256, 0x00, "ImageWidth", NULL, NULL },
-	{ 257, 0x00, "ImageLength", NULL, NULL },
-	{ 258, 0x00, "BitsPerSample", NULL, NULL },
-	{ 259, 0x00, "Compression", NULL, valdec_compression },
-	{ 262, 0x00, "PhotometricInterpretation", NULL, valdec_photometric },
-	{ 263, 0x00, "Threshholding", NULL, valdec_threshholding },
-	{ 264, 0x00, "CellWidth", NULL, NULL },
-	{ 265, 0x00, "CellLength", NULL, NULL },
-	{ 266, 0x00, "FillOrder", NULL, valdec_fillorder },
-	{ 269, 0x0400, "DocumentName", NULL, NULL },
-	{ 270, 0x0400, "ImageDescription", NULL, NULL },
-	{ 271, 0x0400, "Make", NULL, NULL },
-	{ 272, 0x0400, "Model", NULL, NULL },
-	{ 273, 0x00, "StripOffsets", NULL, NULL },
-	{ 274, 0x00, "Orientation", handler_orientation, valdec_orientation },
-	{ 277, 0x00, "SamplesPerPixel", NULL, NULL },
-	{ 278, 0x00, "RowsPerStrip", NULL, NULL },
-	{ 279, 0x00, "StripByteCounts", NULL, NULL },
-	{ 280, 0x00, "MinSampleValue", NULL, NULL },
-	{ 281, 0x00, "MaxSampleValue", NULL, NULL },
-	{ 282, 0x00, "XResolution", NULL, NULL },
-	{ 283, 0x00, "YResolution", NULL, NULL },
-	{ 284, 0x00, "PlanarConfiguration", NULL, valdec_planarconfiguration },
-	{ 285, 0x0400, "PageName", NULL, NULL },
-	{ 286, 0x00, "XPosition", NULL, NULL },
-	{ 287, 0x00, "YPosition", NULL, NULL },
-	{ 288, 0x00, "FreeOffsets", NULL, NULL },
-	{ 289, 0x00, "FreeByteCounts", NULL, NULL },
-	{ 290, 0x00, "GrayResponseUnit", NULL, NULL },
-	{ 291, 0x00, "GrayResponseCurve", NULL, NULL },
-	{ 292, 0x00, "T4Options", NULL, valdec_t4options },
-	{ 293, 0x00, "T6Options", NULL, valdec_t6options },
-	{ 296, 0x00, "ResolutionUnit", NULL, valdec_resolutionunit },
-	{ 297, 0x0400, "PageNumber", NULL, valdec_pagenumber },
-	{ 300, 0x0000, "ColorResponseUnit", NULL, NULL },
-	{ 301, 0x00, "TransferFunction", NULL, NULL },
-	{ 305, 0x0400, "Software", NULL, NULL },
-	{ 306, 0x0400, "DateTime", NULL, NULL },
-	{ 315, 0x0400, "Artist", NULL, NULL },
-	{ 316, 0x0400, "HostComputer", NULL, NULL },
-	{ 317, 0x00, "Predictor", NULL, valdec_predictor },
-	{ 318, 0x00, "WhitePoint", NULL, NULL },
-	{ 319, 0x00, "PrimaryChromaticities", NULL, NULL },
-	{ 320, 0x08, "ColorMap", handler_colormap, NULL },
-	{ 321, 0x00, "HalftoneHints", NULL, NULL },
-	{ 322, 0x00, "TileWidth", NULL, NULL },
-	{ 323, 0x00, "TileLength", NULL, NULL },
-	{ 324, 0x00, "TileOffsets", NULL, NULL },
-	{ 325, 0x00, "TileByteCounts", NULL, NULL },
-	{ 326, 0x00, "BadFaxLines", NULL, NULL },
-	{ 327, 0x00, "CleanFaxData", NULL, NULL },
-	{ 328, 0x00, "ConsecutiveBadFaxLines", NULL, NULL },
-	{ 330, 0x08, "SubIFD", handler_subifd, NULL },
-	{ 332, 0x0000, "InkSet", NULL, valdec_inkset },
-	{ 333, 0x00, "InkNames", NULL, NULL },
-	{ 334, 0x00, "NumberOfInks", NULL, NULL },
-	{ 336, 0x00, "DotRange", NULL, NULL },
-	{ 337, 0x00, "TargetPrinter", NULL, NULL },
-	{ 338, 0x00, "ExtraSamples", NULL, valdec_extrasamples },
-	{ 339, 0x00, "SampleFormat", NULL, valdec_sampleformat },
-	{ 340, 0x00, "SMinSampleValue", NULL, NULL },
-	{ 341, 0x00, "SMaxSampleValue", NULL, NULL },
-	{ 342, 0x00, "TransferRange", NULL, NULL },
-	{ 343, 0x0000, "ClipPath", NULL, NULL },
-	{ 344, 0x0000, "XClipPathUnits", NULL, NULL },
-	{ 345, 0x0000, "YClipPathUnits", NULL, NULL },
-	{ 346, 0x0000, "Indexed", NULL, NULL },
-	{ 347, 0x00, "JPEGTables", NULL, NULL },
-	{ 351, 0x0000, "OPIProxy", NULL, NULL },
-	{ 400, 0x0008, "GlobalParametersIFD", handler_subifd, NULL },
-	{ 401, 0x0000, "ProfileType", NULL, NULL },
-	{ 402, 0x0000, "FaxProfile", NULL, NULL },
-	{ 403, 0x0000, "CodingMethods", NULL, NULL },
-	{ 404, 0x0000, "VersionYear", NULL, NULL },
-	{ 405, 0x0000, "ModeNumber", NULL, NULL },
-	{ 433, 0x0000, "Decode", NULL, NULL },
-	{ 434, 0x0000, "DefaultImageColor", NULL, NULL },
-	{ 435, 0x0000, "T82Options", NULL, NULL },
-	{ 512, 0x00, "JPEGProc", NULL, valdec_jpegproc },
-#define TAG_JPEGINTERCHANGEFORMAT 513
-	{ TAG_JPEGINTERCHANGEFORMAT, 0x00, "JPEGInterchangeFormat", NULL, NULL },
-#define TAG_JPEGINTERCHANGEFORMATLENGTH 514
-	{ TAG_JPEGINTERCHANGEFORMATLENGTH, 0x00, "JPEGInterchangeFormatLength", NULL, NULL },
-	{ 515, 0x00, "JPEGRestartInterval", NULL, NULL },
-	{ 517, 0x00, "JPEGLosslessPredictors", NULL, NULL },
-	{ 518, 0x00, "JPEGPointTransforms", NULL, NULL },
-	{ 519, 0x00, "JPEGQTables", NULL, NULL },
-	{ 520, 0x00, "JPEGDCTables", NULL, NULL },
-	{ 521, 0x00, "JPEGACTables", NULL, NULL },
-	{ 529, 0x00, "YCbCrCoefficients", NULL, NULL },
-	{ 530, 0x00, "YCbCrSubSampling", NULL, NULL },
-	{ 531, 0x00, "YCbCrPositioning", handler_ycbcrpositioning, valdec_ycbcrpositioning },
-	{ 532, 0x00, "ReferenceBlackWhite", NULL, NULL },
-	{ 559, 0x0000, "StripRowCounts", NULL, NULL },
-	{ 700, 0x0408, "XMP", handler_xmp, NULL },
-	{ 769, 0x0010, "PropertyTagGamma", NULL, NULL },
-	{ 770, 0x0010, "PropertyTagICCProfileDescriptor", NULL, NULL },
-	{ 771, 0x0010, "PropertyTagSRGBRenderingIntent", NULL, NULL },
-	//{ 999, 0x0000, "USPTOMiscellaneous", NULL, NULL },
-	{ 18246, 0x0400, "RatingStars", NULL, NULL },
-	{ 18247, 0x0000, "XP_DIP_XML", NULL, NULL },
-	{ 18248, 0x0000, "StitchInfo", NULL, NULL },
-	{ 18249, 0x0400, "RatingValue", NULL, NULL },
-	{ 20752, 0x0010, "PropertyTagPixelUnit", NULL, NULL },
-	{ 20753, 0x0010, "PropertyTagPixelPerUnitX", NULL, NULL },
-	{ 20754, 0x0010, "PropertyTagPixelPerUnitY", NULL, NULL },
-	//{ 28672, 0x0000, "SonyRawFileType", NULL, NULL },
-	//{ 28725, 0x0000, "ChromaticAberrationCorrParams", NULL, NULL },
-	//{ 28727, 0x0000, "DistortionCorrParams", NULL, NULL },
-	{ 32781, 0x0000, "ImageID", NULL, NULL },
-	{ 32932, 0x0000, "Wang Annotation", NULL, NULL },
-	{ 32934, 0x0000, "Wang PageControl", NULL, NULL },
-	{ 32953, 0x0000, "ImageReferencePoints", NULL, NULL },
-	{ 32954, 0x0000, "RegionXformTackPoint", NULL, NULL },
-	{ 32955, 0x0000, "RegionWarpCorners", NULL, NULL },
-	{ 32956, 0x0000, "RegionAffine", NULL, NULL },
-	{ 32995, 0x00, "Matteing(SGI)", NULL, NULL },
-	{ 32996, 0x00, "DataType(SGI)", NULL, NULL },
-	{ 32997, 0x00, "ImageDepth(SGI)", NULL, NULL },
-	{ 32998, 0x00, "TileDepth(SGI)", NULL, NULL },
-	{ 33300, 0x0000, "Pixar ImageFullWidth", NULL, NULL },
-	{ 33301, 0x0000, "Pixar ImageFullLength", NULL, NULL },
-	{ 33302, 0x0000, "Pixar TextureFormat", NULL, NULL },
-	{ 33303, 0x0000, "Pixar WrapModes", NULL, NULL },
-	{ 33304, 0x0000, "Pixar FOVCOT", NULL, NULL },
-	{ 33305, 0x0000, "Pixar MatrixWorldToScreen", NULL, NULL },
-	{ 33306, 0x0000, "Pixar MatrixWorldToCamera", NULL, NULL },
-	{ 33405, 0x0000, "Model2", NULL, NULL },
-	{ 33421, 0x0100, "CFARepeatPatternDim", NULL, NULL },
-	{ 33422, 0x0100, "CFAPattern", NULL, NULL },
-	{ 33423, 0x0100, "BatteryLevel", NULL, NULL },
-	//{ 33424, 0x0000, "KodakIFD", NULL, NULL },
-	{ 33432, 0x0400, "Copyright", NULL, NULL },
-	{ 33434, 0x10, "ExposureTime", NULL, NULL },
-	{ 33437, 0x10, "FNumber", NULL, NULL },
-	{ 33445, 0x0000, "MD FileTag", NULL, NULL },
-	{ 33446, 0x0000, "MD ScalePixel", NULL, NULL },
-	{ 33447, 0x0000, "MD ColorTable", NULL, NULL },
-	{ 33448, 0x0000, "MD LabName", NULL, NULL },
-	{ 33449, 0x0000, "MD SampleInfo", NULL, NULL },
-	{ 33450, 0x0000, "MD PrepDate", NULL, NULL },
-	{ 33451, 0x0000, "MD PrepTime", NULL, NULL },
-	{ 33452, 0x0000, "MD FileUnits", NULL, NULL },
-	{ 33550, 0x0000, "ModelPixelScaleTag", NULL, NULL },
-	{ 33589, 0x0000, "AdventScale", NULL, NULL },
-	{ 33590, 0x0000, "AdventRevision", NULL, NULL },
-	// 33628-33631: UICTags
-	{ 33723, 0x0408, "IPTC", handler_iptc, NULL },
-	{ 33918, 0x0000, "INGR Packet Data", NULL, NULL },
-	{ 33919, 0x0000, "INGR Flag Registers", NULL, NULL },
-	{ 33920, 0x0000, "IrasB Transformation Matrix", NULL, NULL },
-	{ 33922, 0x0000, "ModelTiepointTag", NULL, NULL },
-	{ 34016, 0x0200, "Site", NULL, NULL },
-	{ 34017, 0x0200, "ColorSequence", NULL, NULL },
-	{ 34018, 0x0200, "IT8Header", NULL, NULL },
-	{ 34019, 0x0200, "RasterPadding", NULL, NULL },
-	{ 34020, 0x0200, "BitsPerRunLength", NULL, NULL },
-	{ 34021, 0x0200, "BitsPerExtendedRunLength", NULL, NULL },
-	{ 34022, 0x0200, "ColorTable", NULL, NULL },
-	{ 34023, 0x0200, "ImageColorIndicator", NULL, NULL },
-	{ 34024, 0x0200, "BackgroundColorIndicator", NULL, NULL },
-	{ 34025, 0x0200, "ImageColorValue", NULL, NULL },
-	{ 34026, 0x0200, "BackgroundColorValue", NULL, NULL },
-	{ 34027, 0x0200, "PixelIntensityRange", NULL, NULL },
-	{ 34028, 0x0200, "TransparencyIndicator", NULL, NULL },
-	{ 34029, 0x0200, "ColorCharacterization", NULL, NULL },
-	{ 34030, 0x0200, "HCUsage", NULL, NULL },
-	{ 34031, 0x0200, "TrapIndicator", NULL, NULL },
-	{ 34032, 0x0200, "CMYKEquivalent", NULL, NULL },
-	{ 34118, 0x0000, "SEMInfo", NULL, NULL },
-	{ 34152, 0x0000, "AFCP_IPTC", NULL, NULL },
-	// Contradictory info about 34232
-	{ 34232, 0x0000, "FrameCount or PixelMagicJBIGOptions", NULL, NULL },
-	{ 34263, 0x0000, "JPLCartoIFD", NULL, NULL },
-	{ 34264, 0x0000, "ModelTransformationTag", NULL, NULL },
-	//{ 34306, 0x0000, "WB_GRGBLevels", NULL, NULL },
-	//{ 34310, 0x0000, "LeafData", NULL, NULL },
-	{ 34377, 0x0408, "PhotoshopImageResources", handler_photoshoprsrc, NULL },
-	{ 34665, 0x0408, "Exif IFD", handler_subifd, NULL },
-	{ 34675, 0x0408, "ICC Profile", handler_iccprofile, NULL },
-	//{ 34687, 0x0000, "TIFF_FXExtensions", NULL, NULL },
-	//{ 34688, 0x0000, "MultiProfiles", NULL, NULL, NULL },
-	//{ 34689, 0x0000, "SharedData", NULL, NULL, NULL },
-	//{ 34690, 0x0000, "T88Options", NULL, NULL, NULL },
-	{ 34732, 0x0000, "ImageLayer", NULL, NULL },
-	{ 34735, 0x0000, "GeoKeyDirectoryTag", NULL, NULL },
-	{ 34736, 0x0000, "GeoDoubleParamsTag", NULL, NULL },
-	{ 34737, 0x0000, "GeoAsciiParamsTag", NULL, NULL },
-	{ 34750, 0x0000, "JBIGOptions", NULL, NULL },
-	{ 34850, 0x10, "ExposureProgram", NULL, valdec_exposureprogram },
-	{ 34852, 0x10, "SpectralSensitivity", NULL, NULL },
-	{ 34853, 0x0408, "GPS IFD", handler_subifd, NULL },
-	{ 34855, 0x10, "PhotographicSensitivity/ISOSpeedRatings", NULL, NULL },
-	{ 34856, 0x10, "OECF", NULL, NULL },
-	{ 34857, 0x0100, "Interlace", NULL, NULL },
-	{ 34858, 0x0100, "TimeZoneOffset", NULL, NULL },
-	{ 34859, 0x0100, "SelfTimerMode", NULL, NULL },
-	{ 34864, 0x10, "SensitivityType", NULL, NULL },
-	{ 34865, 0x10, "StandardOutputSensitivity", NULL, NULL },
-	{ 34866, 0x10, "RecommendedExposureIndex", NULL, NULL },
-	{ 34867, 0x10, "ISOSpeed", NULL, NULL },
-	{ 34868, 0x10, "ISOSpeedLatitudeyyy", NULL, NULL },
-	{ 34869, 0x10, "ISOSpeedLatitudezzz", NULL, NULL },
-	{ 34908, 0x00, "FaxRecvParams", NULL, NULL },
-	{ 34909, 0x00, "FaxSubAddress", NULL, NULL },
-	{ 34910, 0x0000, "FaxRecvTime", NULL, NULL },
-	{ 34911, 0x0000, "FaxDCS", NULL, NULL },
-	{ 34929, 0x0000, "FEDEX_EDR", NULL, NULL },
-	//{ 34954, 0x0000, "LeafSubIFD", NULL, NULL },
-	{ 36864, 0x10, "ExifVersion", handler_exifversion, NULL },
-	{ 36867, 0x10, "DateTimeOriginal", NULL, NULL },
-	{ 36868, 0x10, "DateTimeDigitized", NULL, NULL },
-	{ 37121, 0x10, "ComponentsConfiguration", NULL, valdec_componentsconfiguration },
-	{ 37122, 0x10, "CompressedBitsPerPixel", NULL, NULL },
-	{ 37377, 0x10, "ShutterSpeedValue", NULL, NULL },
-	{ 37378, 0x10, "ApertureValue", NULL, NULL },
-	{ 37379, 0x10, "BrightnessValue", NULL, NULL },
-	{ 37380, 0x10, "ExposureBiasValue", NULL, NULL },
-	{ 37381, 0x10, "MaxApertureValue", NULL, NULL },
-	{ 37382, 0x10, "SubjectDistance", NULL, NULL },
-	{ 37383, 0x10, "MeteringMode", NULL, valdec_meteringmode },
-	{ 37384, 0x10, "LightSource", NULL, valdec_lightsource },
-	{ 37385, 0x10, "Flash", NULL, valdec_flash },
-	{ 37386, 0x10, "FocalLength", NULL, NULL },
-	{ 37387, 0x0100, "FlashEnergy", NULL, NULL },
-	{ 37388, 0x0100, "SpatialFrequencyResponse", NULL, NULL },
-	{ 37389, 0x0100, "Noise", NULL, NULL },
-	{ 37390, 0x0100, "FocalPlaneXResolution", NULL, NULL },
-	{ 37391, 0x0100, "FocalPlaneYResolution", NULL, NULL },
-	{ 37392, 0x0100, "FocalPlaneResolutionUnit", NULL, NULL },
-	{ 37393, 0x0100, "ImageNumber", NULL, NULL },
-	{ 37394, 0x0100, "SecurityClassification", NULL, NULL },
-	{ 37395, 0x0100, "ImageHistory", NULL, NULL },
-	{ 37396, 0x10, "SubjectArea", NULL, NULL },
-	{ 37397, 0x0100, "ExposureIndex", NULL, NULL },
-	{ 37398, 0x0100, "TIFF/EPStandardID", NULL, NULL },
-	{ 37399, 0x0100, "SensingMethod", NULL, NULL },
-	{ 37439, 0x00, "SToNits(SGI)", NULL, NULL },
-	{ 37500, 0x10, "MakerNote", NULL, NULL },
-	{ 37510, 0x10, "UserComment", handler_usercomment, NULL },
-	{ 37520, 0x10, "SubSec", NULL, NULL },
-	{ 37521, 0x10, "SubSecTimeOriginal", NULL, NULL },
-	{ 37522, 0x10, "SubsecTimeDigitized", NULL, NULL },
-	{ 37679, 0x0000, "OCR Text", NULL, NULL },
-	{ 37680, 0x0000, "OLE Property Set Storage", NULL, NULL },
-	{ 37681, 0x0000, "OCR Text Position Info", NULL, NULL },
-	{ 37724, 0x0008, "Photoshop ImageSourceData", handler_37724, NULL },
-	{ 40091, 0x0408, "XPTitle/Caption", handler_utf16, NULL },
-	{ 40092, 0x0008, "XPComment", handler_utf16, NULL },
-	{ 40093, 0x0008, "XPAuthor", handler_utf16, NULL },
-	{ 40094, 0x0008, "XPKeywords", handler_utf16, NULL },
-	{ 40095, 0x0008, "XPSubject", handler_utf16, NULL },
-	{ 40960, 0x10, "FlashPixVersion", NULL, NULL },
-	{ 40961, 0x0410, "ColorSpace", NULL, valdec_exifcolorspace },
-	{ 40962, 0x10, "PixelXDimension", NULL, NULL },
-	{ 40963, 0x10, "PixelYDimension", NULL, NULL },
-	{ 40964, 0x10, "RelatedSoundFile", NULL, NULL },
-	{ 40965, 0x0418, "Interoperability IFD", handler_subifd, NULL },
-	{ 41483, 0x10, "FlashEnergy", NULL, NULL },
-	{ 41484, 0x10, "SpatialFrequencyResponse", NULL, NULL },
-	{ 41486, 0x10, "FocalPlaneXResolution", NULL, NULL },
-	{ 41487, 0x10, "FocalPlaneYResolution", NULL, NULL },
-	{ 41488, 0x10, "FocalPlaneResolutionUnit", NULL, valdec_resolutionunit },
-	{ 41492, 0x10, "SubjectLocation", NULL, NULL },
-	{ 41493, 0x10, "ExposureIndex", NULL, NULL },
-	{ 41495, 0x10, "SensingMethod", NULL, valdec_sensingmethod },
-	{ 41728, 0x10, "FileSource", NULL, valdec_filesource },
-	{ 41729, 0x10, "SceneType", NULL, valdec_scenetype },
-	{ 41730, 0x10, "CFAPattern", NULL, NULL },
-	{ 41985, 0x10, "CustomRendered", NULL, valdec_customrendered },
-	{ 41986, 0x10, "ExposureMode", NULL, valdec_exposuremode },
-	{ 41987, 0x10, "WhiteBalance", NULL, valdec_whitebalance },
-	{ 41988, 0x10, "DigitalZoomRatio", NULL, NULL },
-	{ 41989, 0x10, "FocalLengthIn35mmFilm", NULL, NULL },
-	{ 41990, 0x10, "SceneCaptureType", NULL, valdec_scenecapturetype },
-	{ 41991, 0x10, "GainControl", NULL, valdec_gaincontrol },
-	{ 41992, 0x10, "Contrast", NULL, valdec_contrast },
-	{ 41993, 0x10, "Saturation", NULL, valdec_saturation },
-	{ 41994, 0x10, "Sharpness", NULL, valdec_sharpness },
-	{ 41995, 0x10, "DeviceSettingDescription", NULL, NULL },
-	{ 41996, 0x10, "SubjectDistanceRange", NULL, valdec_subjectdistancerange },
-	{ 42016, 0x10, "ImageUniqueID", NULL, NULL },
-	{ 42032, 0x10, "CameraOwnerName", NULL, NULL },
-	{ 42033, 0x10, "BodySerialNumber", NULL, NULL },
-	{ 42034, 0x10, "LensSpecification", NULL, NULL },
-	{ 42035, 0x10, "LensMake", NULL, NULL },
-	{ 42036, 0x10, "LensModel", NULL, NULL },
-	{ 42037, 0x10, "LensSerialNumber", NULL, NULL },
-	{ 42112, 0x0000, "GDAL_METADATA", NULL, NULL },
-	{ 42113, 0x0000, "GDAL_NODATA", NULL, NULL },
-	{ 42240, 0x10, "Gamma", NULL, NULL },
-	{ 45056, 0x0801, "MPFVersion", NULL, NULL },
-	{ 45057, 0x0801, "NumberOfImages", NULL, NULL },
-	{ 45058, 0x0809, "MPEntry", handler_mpentry, NULL },
-	{ 45059, 0x0801, "ImageUIDList", NULL, NULL },
-	{ 45060, 0x0801, "TotalFrames", NULL, NULL },
-	{ 45313, 0x0801, "MPIndividualNum", NULL, NULL },
-	{ 45569, 0x0801, "PanOrientation", NULL, NULL },
-	{ 45570, 0x0801, "PanOverlap_H", NULL, NULL },
-	{ 45571, 0x0801, "PanOverlap_V", NULL, NULL },
-	{ 45572, 0x0801, "BaseViewpointNum", NULL, NULL },
-	{ 45573, 0x0801, "ConvergenceAngle", NULL, NULL },
-	{ 45574, 0x0801, "BaselineLength", NULL, NULL },
-	{ 45575, 0x0801, "VerticalDivergence", NULL, NULL },
-	{ 45576, 0x0801, "AxisDistance_X", NULL, NULL },
-	{ 45577, 0x0801, "AxisDistance_Y", NULL, NULL },
-	{ 45578, 0x0801, "AxisDistance_Z", NULL, NULL },
-	{ 45579, 0x0801, "YawAngle", NULL, NULL },
-	{ 45580, 0x0801, "PitchAngle", NULL, NULL },
-	{ 45581, 0x0801, "RollAngle", NULL, NULL },
-	{ 48129, 0x0401, "PIXEL_FORMAT", NULL, NULL },
-	{ 48130, 0x0401, "SPATIAL_XFRM_PRIMARY", NULL, NULL },
-	{ 48131, 0x0401, "Uncompressed", NULL, NULL },
-	{ 48132, 0x0401, "IMAGE_TYPE", NULL, NULL },
-	{ 48133, 0x0401, "PTM_COLOR_INFO", NULL, NULL },
-	{ 48134, 0x0401, "PROFILE_LEVEL_CONTAINER", NULL, NULL },
-	{ 48256, 0x0401, "IMAGE_WIDTH", NULL, NULL },
-	{ 48257, 0x0401, "IMAGE_HEIGHT", NULL, NULL },
-	{ 48258, 0x0401, "WIDTH_RESOLUTION", NULL, NULL },
-	{ 48259, 0x0401, "HEIGHT_RESOLUTION", NULL, NULL },
-	{ 48320, 0x0401, "IMAGE_OFFSET", NULL, NULL },
-	{ 48321, 0x0401, "IMAGE_BYTE_COUNT", NULL, NULL },
-	{ 48322, 0x0401, "ALPHA_OFFSET", NULL, NULL },
-	{ 48323, 0x0401, "ALPHA_BYTE_COUNT", NULL, NULL },
-	{ 48324, 0x0401, "IMAGE_BAND_PRESENCE", NULL, NULL },
-	{ 48325, 0x0401, "ALPHA_BAND_PRESENCE", NULL, NULL },
-	{ 50215, 0x0000, "Oce Scanjob Description", NULL, NULL },
-	{ 50216, 0x0000, "Oce Application Selector", NULL, NULL },
-	{ 50217, 0x0000, "Oce Identification Number", NULL, NULL },
-	{ 50218, 0x0000, "Oce ImageLogic Characteristics", NULL, NULL },
-	{ 50341, 0x0000, "PrintImageMatching", NULL, NULL },
-	{ 50706, 0x80, "DNGVersion", NULL, NULL},
-	{ 50707, 0x80, "DNGBackwardVersion", NULL, NULL},
-	{ 50708, 0x80, "UniqueCameraModel", NULL, NULL},
-	{ 50709, 0x80, "LocalizedCameraModel", NULL, NULL},
-	{ 50710, 0x80, "CFAPlaneColor", NULL, NULL},
-	{ 50711, 0x80, "CFALayout", NULL, NULL},
-	{ 50712, 0x80, "LinearizationTable", NULL, NULL},
-	{ 50713, 0x80, "BlackLevelRepeatDim", NULL, NULL},
-	{ 50714, 0x80, "BlackLevel", NULL, NULL},
-	{ 50715, 0x80, "BlackLevelDeltaH", NULL, NULL},
-	{ 50716, 0x80, "BlackLevelDeltaV", NULL, NULL},
-	{ 50717, 0x80, "WhiteLevel", NULL, NULL},
-	{ 50718, 0x80, "DefaultScale", NULL, NULL},
-	{ 50719, 0x80, "DefaultCropOrigin", NULL, NULL},
-	{ 50720, 0x80, "DefaultCropSize", NULL, NULL},
-	{ 50721, 0x80, "ColorMatrix1", NULL, NULL},
-	{ 50722, 0x80, "ColorMatrix2", NULL, NULL},
-	{ 50723, 0x80, "CameraCalibration1", NULL, NULL},
-	{ 50724, 0x80, "CameraCalibration2", NULL, NULL},
-	{ 50725, 0x80, "ReductionMatrix1", NULL, NULL},
-	{ 50726, 0x80, "ReductionMatrix2", NULL, NULL},
-	{ 50727, 0x80, "AnalogBalance", NULL, NULL},
-	{ 50728, 0x80, "AsShotNeutral", NULL, NULL},
-	{ 50729, 0x80, "AsShotWhiteXY", NULL, NULL},
-	{ 50730, 0x80, "BaselineExposure", NULL, NULL},
-	{ 50731, 0x80, "BaselineNoise", NULL, NULL},
-	{ 50732, 0x80, "BaselineSharpness", NULL, NULL},
-	{ 50733, 0x80, "BayerGreenSplit", NULL, NULL},
-	{ 50734, 0x80, "LinearResponseLimit", NULL, NULL},
-	{ 50735, 0x80, "CameraSerialNumber", NULL, NULL},
-	{ 50736, 0x80, "LensInfo", NULL, NULL},
-	{ 50737, 0x80, "ChromaBlurRadius", NULL, NULL},
-	{ 50738, 0x80, "AntiAliasStrength", NULL, NULL},
-	{ 50739, 0x80, "ShadowScale", NULL, NULL},
-	{ 50740, 0x80, "DNGPrivateData", NULL, NULL},
-	{ 50741, 0x80, "MakerNoteSafety", NULL, NULL},
-	{ 50778, 0x80, "CalibrationIlluminant1", NULL, NULL},
-	{ 50779, 0x80, "CalibrationIlluminant2", NULL, NULL},
-	{ 50780, 0x80, "BestQualityScale", NULL, NULL},
-	{ 50781, 0x80, "RawDataUniqueID", NULL, NULL},
-	{ 50784, 0x0000, "Alias Layer Metadata", NULL, NULL },
-	{ 50827, 0x80, "OriginalRawFileName", NULL, NULL},
-	{ 50828, 0x80, "OriginalRawFileData", NULL, NULL},
-	{ 50829, 0x80, "ActiveArea", NULL, NULL},
-	{ 50830, 0x80, "MaskedAreas", NULL, NULL},
-	{ 50831, 0x80, "AsShotICCProfile", NULL, NULL},
-	{ 50832, 0x80, "AsShotPreProfileMatrix", NULL, NULL},
-	{ 50833, 0x80, "CurrentICCProfile", NULL, NULL},
-	{ 50834, 0x80, "CurrentPreProfileMatrix", NULL, NULL},
-	{ 50879, 0x80, "ColorimetricReference", NULL, NULL},
-	{ 50931, 0x80, "CameraCalibrationSignature", NULL, NULL},
-	{ 50932, 0x80, "ProfileCalibrationSignature", NULL, NULL},
-	{ 50933, 0x80, "ExtraCameraProfiles", NULL, NULL},
-	{ 50934, 0x80, "AsShotProfileName", NULL, NULL},
-	{ 50935, 0x80, "NoiseReductionApplied", NULL, NULL},
-	{ 50936, 0x80, "ProfileName", NULL, NULL},
-	{ 50937, 0x80, "ProfileHueSatMapDims", NULL, NULL},
-	{ 50938, 0x80, "ProfileHueSatMapData1", NULL, NULL},
-	{ 50939, 0x80, "ProfileHueSatMapData2", NULL, NULL},
-	{ 50940, 0x80, "ProfileToneCurve", NULL, NULL},
-	{ 50941, 0x80, "ProfileEmbedPolicy", NULL, valdec_profileembedpolicy},
-	{ 50942, 0x80, "ProfileCopyright", NULL, NULL},
-	{ 50964, 0x80, "ForwardMatrix1", NULL, NULL},
-	{ 50965, 0x80, "ForwardMatrix2", NULL, NULL},
-	{ 50966, 0x80, "PreviewApplicationName", NULL, NULL},
-	{ 50967, 0x80, "PreviewApplicationVersion", NULL, NULL},
-	{ 50968, 0x80, "PreviewSettingsName", NULL, NULL},
-	{ 50969, 0x80, "PreviewSettingsDigest", NULL, NULL},
-	{ 50970, 0x80, "PreviewColorSpace", NULL, valdec_dngcolorspace},
-	{ 50971, 0x80, "PreviewDateTime", NULL, NULL},
-	{ 50972, 0x80, "RawImageDigest", NULL, NULL},
-	{ 50973, 0x80, "OriginalRawFileDigest", NULL, NULL},
-	{ 50974, 0x80, "SubTileBlockSize", NULL, NULL},
-	{ 50975, 0x80, "RowInterleaveFactor", NULL, NULL},
-	{ 50981, 0x80, "ProfileLookTableDims", NULL, NULL},
-	{ 50982, 0x80, "ProfileLookTableData", NULL, NULL},
-	{ 51008, 0x80, "OpcodeList1", NULL, NULL},
-	{ 51009, 0x80, "OpcodeList2", NULL, NULL},
-	{ 51022, 0x80, "OpcodeList3", NULL, NULL},
-	{ 51041, 0x80, "NoiseProfile", NULL, NULL},
-	{ 51089, 0x80, "OriginalDefaultFinalSize", NULL, NULL},
-	{ 51090, 0x80, "OriginalBestQualityFinalSize", NULL, NULL},
-	{ 51091, 0x80, "OriginalDefaultCropSize", NULL, NULL},
-	{ 51107, 0x80, "ProfileHueSatMapEncoding", NULL, NULL},
-	{ 51108, 0x80, "ProfileLookTableEncoding", NULL, NULL},
-	{ 51109, 0x80, "BaselineExposureOffset", NULL, NULL},
-	{ 51110, 0x80, "DefaultBlackRender", NULL, NULL},
-	{ 51111, 0x80, "NewRawImageDigest", NULL, NULL},
-	{ 51112, 0x80, "RawToPreviewGain", NULL, NULL},
-	{ 51113, 0x80, "CacheBlob", NULL, NULL},
-	{ 51114, 0x80, "CacheVersion", NULL, NULL},
-	{ 51125, 0x80, "DefaultUserCrop", NULL, NULL},
-	{ 59932, 0x0400, "PADDING_DATA", NULL, NULL },
-	{ 59933, 0x0010, "OffsetSchema", NULL, NULL },
 
-	{ 1, 0x0021, "InteroperabilityIndex", NULL, NULL },
-	{ 2, 0x0021, "InteroperabilityVersion", NULL, NULL },
-	{ 4096, 0x0020, "RelatedImageFileFormat", NULL, NULL },
-	{ 4097, 0x0020, "RelatedImageWidth", NULL, NULL },
-	{ 4098, 0x0020, "RelatedImageLength", NULL, NULL },
-
-	{ 0, 0x0041, "GPSVersionID", NULL, NULL },
-	{ 1, 0x0041, "GPSLatitudeRef", NULL, NULL },
-	{ 2, 0x0041, "GPSLatitude", handler_gpslatitude, NULL },
-	{ 3, 0x0041, "GPSLongitudeRef", NULL, NULL },
-	{ 4, 0x0041, "GPSLongitude", NULL, NULL },
-	{ 5, 0x0041, "GPSAltitudeRef", NULL, NULL },
-	{ 6, 0x0041, "GPSAltitude", NULL, NULL },
-	{ 7, 0x0041, "GPSTimeStamp", NULL, NULL },
-	{ 8, 0x0041, "GPSSatellites", NULL, NULL },
-	{ 9, 0x0041, "GPSStatus", NULL, NULL },
-	{ 10, 0x0041, "GPSMeasureMode", NULL, NULL },
-	{ 11, 0x0041, "GPSDOP", NULL, NULL },
-	{ 12, 0x0041, "GPSSpeedRef", NULL, NULL },
-	{ 13, 0x0041, "GPSSpeed", NULL, NULL },
-	{ 14, 0x0041, "GPSTrackRef", NULL, NULL },
-	{ 15, 0x0041, "GPSTrack", NULL, NULL },
-	{ 16, 0x0041, "GPSImgDirectionRef", NULL, NULL },
-	{ 17, 0x0041, "GPSImgDirection", NULL, NULL },
-	{ 18, 0x0041, "GPSMapDatum", NULL, NULL },
-	{ 19, 0x0041, "GPSLatitudeRef", NULL, NULL },
-	{ 20, 0x0041, "GPSLatitude", NULL, NULL },
-	{ 21, 0x0041, "GPSDestLongitudeRef", NULL, NULL },
-	{ 22, 0x0041, "GPSDestLongitude", NULL, NULL },
-	{ 23, 0x0041, "GPSDestBearingRef", NULL, NULL },
-	{ 24, 0x0041, "GPSDestBearing", NULL, NULL },
-	{ 25, 0x0041, "GPSDestDistanceRef", NULL, NULL },
-	{ 26, 0x0041, "GPSDestDistance", NULL, NULL },
-	{ 27, 0x0041, "GPSProcessingMethod", NULL, NULL },
-	{ 28, 0x0041, "GPSAreaInformation", NULL, NULL },
-	{ 29, 0x0041, "GPSDateStamp", NULL, NULL },
-	{ 30, 0x0041, "GPSDifferential", NULL, NULL },
-	{ 31, 0x0041, "GPSHPositioningError", NULL, NULL }
+struct page_ctx {
+	de_int64 ifd_idx;
+	de_int64 ifdpos;
+	int ifdtype;
+	de_uint32 orientation;
+	de_uint32 ycbcrpositioning;
+	de_int64 imagewidth, imagelength; // Raw tag values, before considering Orientation
 };
 
 // Data associated with an actual tag in an IFD in the file
@@ -627,9 +112,9 @@ struct taginfo {
 	de_int64 val_offset;
 	de_int64 unit_size;
 	de_int64 total_size;
-	// Might be more logical for us to have a separate struct for IFDinfo, but
+	// Might be more logical for us to have a separate struct for page_ctx, but
 	// I don't want to add a param to every "handler" function
-	de_int64 ifd_idx;
+	struct page_ctx *pg;
 };
 
 struct localctx_struct {
@@ -656,8 +141,6 @@ struct localctx_struct {
 	de_int64 ifditemsize;
 	de_int64 offsetoffset;
 	de_int64 offsetsize; // Number of bytes in a file offset
-
-	//de_module_params *mparams;
 };
 
 // Returns 0 if stack is empty.
@@ -1458,18 +941,29 @@ static int valdec_dngcolorspace(deark *c, const struct valdec_params *vp, struct
 	return 1;
 }
 
+static void handler_imagewidth(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni)
+{
+	if(tg->valcount!=1) return;
+	read_tag_value_as_int64(c, d, tg, 0, &tg->pg->imagewidth);
+}
+
+static void handler_imagelength(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni)
+{
+	if(tg->valcount!=1) return;
+	read_tag_value_as_int64(c, d, tg, 0, &tg->pg->imagelength);
+}
+
 static void handler_orientation(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni)
 {
 	de_int64 tmpval;
 
-	// The only purpose of this handler is to possibly set d->first_ifd_orientation,
-	// for later use.
-	if(tg->ifd_idx!=0) return;
 	if(tg->valcount!=1) return;
-
 	read_tag_value_as_int64(c, d, tg, 0, &tmpval);
 	if(tmpval>=1 && tmpval<=8) {
-		d->first_ifd_orientation = (de_uint32)tmpval;
+		tg->pg->orientation = (de_uint32)tmpval;
+		if(tg->pg->ifd_idx==0) { // FIXME: Don't do this here.
+			d->first_ifd_orientation = tg->pg->orientation;
+		}
 	}
 }
 
@@ -1519,15 +1013,9 @@ static void handler_ycbcrpositioning(deark *c, lctx *d, const struct taginfo *tg
 {
 	de_int64 tmpval;
 
-	// The only purpose of this handler is to possibly set the d->first_ifd_cosited
-	// flag, for later use.
-	if(tg->ifd_idx!=0) return;
 	if(tg->valcount!=1) return;
-
 	read_tag_value_as_int64(c, d, tg, 0, &tmpval);
-	if(tmpval==2) {
-		d->first_ifd_cosited = 1;
-	}
+	tg->pg->ycbcrpositioning = (de_uint32)tmpval;
 }
 
 static void handler_xmp(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni)
@@ -1723,6 +1211,475 @@ done:
 	return;
 }
 
+static const struct tagnuminfo tagnuminfo_arr[] = {
+	{ 254, 0x00, "NewSubfileType", NULL, valdec_newsubfiletype },
+	{ 255, 0x00, "OldSubfileType", NULL, valdec_oldsubfiletype },
+	{ 256, 0x00, "ImageWidth", handler_imagewidth, NULL },
+	{ 257, 0x00, "ImageLength", handler_imagelength, NULL },
+	{ 258, 0x00, "BitsPerSample", NULL, NULL },
+	{ 259, 0x00, "Compression", NULL, valdec_compression },
+	{ 262, 0x00, "PhotometricInterpretation", NULL, valdec_photometric },
+	{ 263, 0x00, "Threshholding", NULL, valdec_threshholding },
+	{ 264, 0x00, "CellWidth", NULL, NULL },
+	{ 265, 0x00, "CellLength", NULL, NULL },
+	{ 266, 0x00, "FillOrder", NULL, valdec_fillorder },
+	{ 269, 0x0400, "DocumentName", NULL, NULL },
+	{ 270, 0x0400, "ImageDescription", NULL, NULL },
+	{ 271, 0x0400, "Make", NULL, NULL },
+	{ 272, 0x0400, "Model", NULL, NULL },
+	{ 273, 0x00, "StripOffsets", NULL, NULL },
+	{ 274, 0x00, "Orientation", handler_orientation, valdec_orientation },
+	{ 277, 0x00, "SamplesPerPixel", NULL, NULL },
+	{ 278, 0x00, "RowsPerStrip", NULL, NULL },
+	{ 279, 0x00, "StripByteCounts", NULL, NULL },
+	{ 280, 0x00, "MinSampleValue", NULL, NULL },
+	{ 281, 0x00, "MaxSampleValue", NULL, NULL },
+	{ 282, 0x00, "XResolution", NULL, NULL },
+	{ 283, 0x00, "YResolution", NULL, NULL },
+	{ 284, 0x00, "PlanarConfiguration", NULL, valdec_planarconfiguration },
+	{ 285, 0x0400, "PageName", NULL, NULL },
+	{ 286, 0x00, "XPosition", NULL, NULL },
+	{ 287, 0x00, "YPosition", NULL, NULL },
+	{ 288, 0x00, "FreeOffsets", NULL, NULL },
+	{ 289, 0x00, "FreeByteCounts", NULL, NULL },
+	{ 290, 0x00, "GrayResponseUnit", NULL, NULL },
+	{ 291, 0x00, "GrayResponseCurve", NULL, NULL },
+	{ 292, 0x00, "T4Options", NULL, valdec_t4options },
+	{ 293, 0x00, "T6Options", NULL, valdec_t6options },
+	{ 296, 0x00, "ResolutionUnit", NULL, valdec_resolutionunit },
+	{ 297, 0x0400, "PageNumber", NULL, valdec_pagenumber },
+	{ 300, 0x0000, "ColorResponseUnit", NULL, NULL },
+	{ 301, 0x00, "TransferFunction", NULL, NULL },
+	{ 305, 0x0400, "Software", NULL, NULL },
+	{ 306, 0x0400, "DateTime", NULL, NULL },
+	{ 315, 0x0400, "Artist", NULL, NULL },
+	{ 316, 0x0400, "HostComputer", NULL, NULL },
+	{ 317, 0x00, "Predictor", NULL, valdec_predictor },
+	{ 318, 0x00, "WhitePoint", NULL, NULL },
+	{ 319, 0x00, "PrimaryChromaticities", NULL, NULL },
+	{ 320, 0x08, "ColorMap", handler_colormap, NULL },
+	{ 321, 0x00, "HalftoneHints", NULL, NULL },
+	{ 322, 0x00, "TileWidth", NULL, NULL },
+	{ 323, 0x00, "TileLength", NULL, NULL },
+	{ 324, 0x00, "TileOffsets", NULL, NULL },
+	{ 325, 0x00, "TileByteCounts", NULL, NULL },
+	{ 326, 0x00, "BadFaxLines", NULL, NULL },
+	{ 327, 0x00, "CleanFaxData", NULL, NULL },
+	{ 328, 0x00, "ConsecutiveBadFaxLines", NULL, NULL },
+	{ 330, 0x08, "SubIFD", handler_subifd, NULL },
+	{ 332, 0x0000, "InkSet", NULL, valdec_inkset },
+	{ 333, 0x00, "InkNames", NULL, NULL },
+	{ 334, 0x00, "NumberOfInks", NULL, NULL },
+	{ 336, 0x00, "DotRange", NULL, NULL },
+	{ 337, 0x00, "TargetPrinter", NULL, NULL },
+	{ 338, 0x00, "ExtraSamples", NULL, valdec_extrasamples },
+	{ 339, 0x00, "SampleFormat", NULL, valdec_sampleformat },
+	{ 340, 0x00, "SMinSampleValue", NULL, NULL },
+	{ 341, 0x00, "SMaxSampleValue", NULL, NULL },
+	{ 342, 0x00, "TransferRange", NULL, NULL },
+	{ 343, 0x0000, "ClipPath", NULL, NULL },
+	{ 344, 0x0000, "XClipPathUnits", NULL, NULL },
+	{ 345, 0x0000, "YClipPathUnits", NULL, NULL },
+	{ 346, 0x0000, "Indexed", NULL, NULL },
+	{ 347, 0x00, "JPEGTables", NULL, NULL },
+	{ 351, 0x0000, "OPIProxy", NULL, NULL },
+	{ 400, 0x0008, "GlobalParametersIFD", handler_subifd, NULL },
+	{ 401, 0x0000, "ProfileType", NULL, NULL },
+	{ 402, 0x0000, "FaxProfile", NULL, NULL },
+	{ 403, 0x0000, "CodingMethods", NULL, NULL },
+	{ 404, 0x0000, "VersionYear", NULL, NULL },
+	{ 405, 0x0000, "ModeNumber", NULL, NULL },
+	{ 433, 0x0000, "Decode", NULL, NULL },
+	{ 434, 0x0000, "DefaultImageColor", NULL, NULL },
+	{ 435, 0x0000, "T82Options", NULL, NULL },
+	{ 512, 0x00, "JPEGProc", NULL, valdec_jpegproc },
+#define TAG_JPEGINTERCHANGEFORMAT 513
+	{ TAG_JPEGINTERCHANGEFORMAT, 0x00, "JPEGInterchangeFormat", NULL, NULL },
+#define TAG_JPEGINTERCHANGEFORMATLENGTH 514
+	{ TAG_JPEGINTERCHANGEFORMATLENGTH, 0x00, "JPEGInterchangeFormatLength", NULL, NULL },
+	{ 515, 0x00, "JPEGRestartInterval", NULL, NULL },
+	{ 517, 0x00, "JPEGLosslessPredictors", NULL, NULL },
+	{ 518, 0x00, "JPEGPointTransforms", NULL, NULL },
+	{ 519, 0x00, "JPEGQTables", NULL, NULL },
+	{ 520, 0x00, "JPEGDCTables", NULL, NULL },
+	{ 521, 0x00, "JPEGACTables", NULL, NULL },
+	{ 529, 0x00, "YCbCrCoefficients", NULL, NULL },
+	{ 530, 0x00, "YCbCrSubSampling", NULL, NULL },
+	{ 531, 0x00, "YCbCrPositioning", handler_ycbcrpositioning, valdec_ycbcrpositioning },
+	{ 532, 0x00, "ReferenceBlackWhite", NULL, NULL },
+	{ 559, 0x0000, "StripRowCounts", NULL, NULL },
+	{ 700, 0x0408, "XMP", handler_xmp, NULL },
+	{ 769, 0x0010, "PropertyTagGamma", NULL, NULL },
+	{ 770, 0x0010, "PropertyTagICCProfileDescriptor", NULL, NULL },
+	{ 771, 0x0010, "PropertyTagSRGBRenderingIntent", NULL, NULL },
+	//{ 999, 0x0000, "USPTOMiscellaneous", NULL, NULL },
+	{ 18246, 0x0400, "RatingStars", NULL, NULL },
+	{ 18247, 0x0000, "XP_DIP_XML", NULL, NULL },
+	{ 18248, 0x0000, "StitchInfo", NULL, NULL },
+	{ 18249, 0x0400, "RatingValue", NULL, NULL },
+	{ 20752, 0x0010, "PropertyTagPixelUnit", NULL, NULL },
+	{ 20753, 0x0010, "PropertyTagPixelPerUnitX", NULL, NULL },
+	{ 20754, 0x0010, "PropertyTagPixelPerUnitY", NULL, NULL },
+	//{ 28672, 0x0000, "SonyRawFileType", NULL, NULL },
+	//{ 28725, 0x0000, "ChromaticAberrationCorrParams", NULL, NULL },
+	//{ 28727, 0x0000, "DistortionCorrParams", NULL, NULL },
+	{ 32781, 0x0000, "ImageID", NULL, NULL },
+	{ 32932, 0x0000, "Wang Annotation", NULL, NULL },
+	{ 32934, 0x0000, "Wang PageControl", NULL, NULL },
+	{ 32953, 0x0000, "ImageReferencePoints", NULL, NULL },
+	{ 32954, 0x0000, "RegionXformTackPoint", NULL, NULL },
+	{ 32955, 0x0000, "RegionWarpCorners", NULL, NULL },
+	{ 32956, 0x0000, "RegionAffine", NULL, NULL },
+	{ 32995, 0x00, "Matteing(SGI)", NULL, NULL },
+	{ 32996, 0x00, "DataType(SGI)", NULL, NULL },
+	{ 32997, 0x00, "ImageDepth(SGI)", NULL, NULL },
+	{ 32998, 0x00, "TileDepth(SGI)", NULL, NULL },
+	{ 33300, 0x0000, "Pixar ImageFullWidth", NULL, NULL },
+	{ 33301, 0x0000, "Pixar ImageFullLength", NULL, NULL },
+	{ 33302, 0x0000, "Pixar TextureFormat", NULL, NULL },
+	{ 33303, 0x0000, "Pixar WrapModes", NULL, NULL },
+	{ 33304, 0x0000, "Pixar FOVCOT", NULL, NULL },
+	{ 33305, 0x0000, "Pixar MatrixWorldToScreen", NULL, NULL },
+	{ 33306, 0x0000, "Pixar MatrixWorldToCamera", NULL, NULL },
+	{ 33405, 0x0000, "Model2", NULL, NULL },
+	{ 33421, 0x0100, "CFARepeatPatternDim", NULL, NULL },
+	{ 33422, 0x0100, "CFAPattern", NULL, NULL },
+	{ 33423, 0x0100, "BatteryLevel", NULL, NULL },
+	//{ 33424, 0x0000, "KodakIFD", NULL, NULL },
+	{ 33432, 0x0400, "Copyright", NULL, NULL },
+	{ 33434, 0x10, "ExposureTime", NULL, NULL },
+	{ 33437, 0x10, "FNumber", NULL, NULL },
+	{ 33445, 0x0000, "MD FileTag", NULL, NULL },
+	{ 33446, 0x0000, "MD ScalePixel", NULL, NULL },
+	{ 33447, 0x0000, "MD ColorTable", NULL, NULL },
+	{ 33448, 0x0000, "MD LabName", NULL, NULL },
+	{ 33449, 0x0000, "MD SampleInfo", NULL, NULL },
+	{ 33450, 0x0000, "MD PrepDate", NULL, NULL },
+	{ 33451, 0x0000, "MD PrepTime", NULL, NULL },
+	{ 33452, 0x0000, "MD FileUnits", NULL, NULL },
+	{ 33550, 0x0000, "ModelPixelScaleTag", NULL, NULL },
+	{ 33589, 0x0000, "AdventScale", NULL, NULL },
+	{ 33590, 0x0000, "AdventRevision", NULL, NULL },
+	// 33628-33631: UICTags
+	{ 33723, 0x0408, "IPTC", handler_iptc, NULL },
+	{ 33918, 0x0000, "INGR Packet Data", NULL, NULL },
+	{ 33919, 0x0000, "INGR Flag Registers", NULL, NULL },
+	{ 33920, 0x0000, "IrasB Transformation Matrix", NULL, NULL },
+	{ 33922, 0x0000, "ModelTiepointTag", NULL, NULL },
+	{ 34016, 0x0200, "Site", NULL, NULL },
+	{ 34017, 0x0200, "ColorSequence", NULL, NULL },
+	{ 34018, 0x0200, "IT8Header", NULL, NULL },
+	{ 34019, 0x0200, "RasterPadding", NULL, NULL },
+	{ 34020, 0x0200, "BitsPerRunLength", NULL, NULL },
+	{ 34021, 0x0200, "BitsPerExtendedRunLength", NULL, NULL },
+	{ 34022, 0x0200, "ColorTable", NULL, NULL },
+	{ 34023, 0x0200, "ImageColorIndicator", NULL, NULL },
+	{ 34024, 0x0200, "BackgroundColorIndicator", NULL, NULL },
+	{ 34025, 0x0200, "ImageColorValue", NULL, NULL },
+	{ 34026, 0x0200, "BackgroundColorValue", NULL, NULL },
+	{ 34027, 0x0200, "PixelIntensityRange", NULL, NULL },
+	{ 34028, 0x0200, "TransparencyIndicator", NULL, NULL },
+	{ 34029, 0x0200, "ColorCharacterization", NULL, NULL },
+	{ 34030, 0x0200, "HCUsage", NULL, NULL },
+	{ 34031, 0x0200, "TrapIndicator", NULL, NULL },
+	{ 34032, 0x0200, "CMYKEquivalent", NULL, NULL },
+	{ 34118, 0x0000, "SEMInfo", NULL, NULL },
+	{ 34152, 0x0000, "AFCP_IPTC", NULL, NULL },
+	// Contradictory info about 34232
+	{ 34232, 0x0000, "FrameCount or PixelMagicJBIGOptions", NULL, NULL },
+	{ 34263, 0x0000, "JPLCartoIFD", NULL, NULL },
+	{ 34264, 0x0000, "ModelTransformationTag", NULL, NULL },
+	//{ 34306, 0x0000, "WB_GRGBLevels", NULL, NULL },
+	//{ 34310, 0x0000, "LeafData", NULL, NULL },
+	{ 34377, 0x0408, "PhotoshopImageResources", handler_photoshoprsrc, NULL },
+	{ 34665, 0x0408, "Exif IFD", handler_subifd, NULL },
+	{ 34675, 0x0408, "ICC Profile", handler_iccprofile, NULL },
+	//{ 34687, 0x0000, "TIFF_FXExtensions", NULL, NULL },
+	//{ 34688, 0x0000, "MultiProfiles", NULL, NULL, NULL },
+	//{ 34689, 0x0000, "SharedData", NULL, NULL, NULL },
+	//{ 34690, 0x0000, "T88Options", NULL, NULL, NULL },
+	{ 34732, 0x0000, "ImageLayer", NULL, NULL },
+	{ 34735, 0x0000, "GeoKeyDirectoryTag", NULL, NULL },
+	{ 34736, 0x0000, "GeoDoubleParamsTag", NULL, NULL },
+	{ 34737, 0x0000, "GeoAsciiParamsTag", NULL, NULL },
+	{ 34750, 0x0000, "JBIGOptions", NULL, NULL },
+	{ 34850, 0x10, "ExposureProgram", NULL, valdec_exposureprogram },
+	{ 34852, 0x10, "SpectralSensitivity", NULL, NULL },
+	{ 34853, 0x0408, "GPS IFD", handler_subifd, NULL },
+	{ 34855, 0x10, "PhotographicSensitivity/ISOSpeedRatings", NULL, NULL },
+	{ 34856, 0x10, "OECF", NULL, NULL },
+	{ 34857, 0x0100, "Interlace", NULL, NULL },
+	{ 34858, 0x0100, "TimeZoneOffset", NULL, NULL },
+	{ 34859, 0x0100, "SelfTimerMode", NULL, NULL },
+	{ 34864, 0x10, "SensitivityType", NULL, NULL },
+	{ 34865, 0x10, "StandardOutputSensitivity", NULL, NULL },
+	{ 34866, 0x10, "RecommendedExposureIndex", NULL, NULL },
+	{ 34867, 0x10, "ISOSpeed", NULL, NULL },
+	{ 34868, 0x10, "ISOSpeedLatitudeyyy", NULL, NULL },
+	{ 34869, 0x10, "ISOSpeedLatitudezzz", NULL, NULL },
+	{ 34908, 0x00, "FaxRecvParams", NULL, NULL },
+	{ 34909, 0x00, "FaxSubAddress", NULL, NULL },
+	{ 34910, 0x0000, "FaxRecvTime", NULL, NULL },
+	{ 34911, 0x0000, "FaxDCS", NULL, NULL },
+	{ 34929, 0x0000, "FEDEX_EDR", NULL, NULL },
+	//{ 34954, 0x0000, "LeafSubIFD", NULL, NULL },
+	{ 36864, 0x10, "ExifVersion", handler_exifversion, NULL },
+	{ 36867, 0x10, "DateTimeOriginal", NULL, NULL },
+	{ 36868, 0x10, "DateTimeDigitized", NULL, NULL },
+	{ 37121, 0x10, "ComponentsConfiguration", NULL, valdec_componentsconfiguration },
+	{ 37122, 0x10, "CompressedBitsPerPixel", NULL, NULL },
+	{ 37377, 0x10, "ShutterSpeedValue", NULL, NULL },
+	{ 37378, 0x10, "ApertureValue", NULL, NULL },
+	{ 37379, 0x10, "BrightnessValue", NULL, NULL },
+	{ 37380, 0x10, "ExposureBiasValue", NULL, NULL },
+	{ 37381, 0x10, "MaxApertureValue", NULL, NULL },
+	{ 37382, 0x10, "SubjectDistance", NULL, NULL },
+	{ 37383, 0x10, "MeteringMode", NULL, valdec_meteringmode },
+	{ 37384, 0x10, "LightSource", NULL, valdec_lightsource },
+	{ 37385, 0x10, "Flash", NULL, valdec_flash },
+	{ 37386, 0x10, "FocalLength", NULL, NULL },
+	{ 37387, 0x0100, "FlashEnergy", NULL, NULL },
+	{ 37388, 0x0100, "SpatialFrequencyResponse", NULL, NULL },
+	{ 37389, 0x0100, "Noise", NULL, NULL },
+	{ 37390, 0x0100, "FocalPlaneXResolution", NULL, NULL },
+	{ 37391, 0x0100, "FocalPlaneYResolution", NULL, NULL },
+	{ 37392, 0x0100, "FocalPlaneResolutionUnit", NULL, NULL },
+	{ 37393, 0x0100, "ImageNumber", NULL, NULL },
+	{ 37394, 0x0100, "SecurityClassification", NULL, NULL },
+	{ 37395, 0x0100, "ImageHistory", NULL, NULL },
+	{ 37396, 0x10, "SubjectArea", NULL, NULL },
+	{ 37397, 0x0100, "ExposureIndex", NULL, NULL },
+	{ 37398, 0x0100, "TIFF/EPStandardID", NULL, NULL },
+	{ 37399, 0x0100, "SensingMethod", NULL, NULL },
+	{ 37439, 0x00, "SToNits(SGI)", NULL, NULL },
+	{ 37500, 0x10, "MakerNote", NULL, NULL },
+	{ 37510, 0x10, "UserComment", handler_usercomment, NULL },
+	{ 37520, 0x10, "SubSec", NULL, NULL },
+	{ 37521, 0x10, "SubSecTimeOriginal", NULL, NULL },
+	{ 37522, 0x10, "SubsecTimeDigitized", NULL, NULL },
+	{ 37679, 0x0000, "OCR Text", NULL, NULL },
+	{ 37680, 0x0000, "OLE Property Set Storage", NULL, NULL },
+	{ 37681, 0x0000, "OCR Text Position Info", NULL, NULL },
+	{ 37724, 0x0008, "Photoshop ImageSourceData", handler_37724, NULL },
+	{ 40091, 0x0408, "XPTitle/Caption", handler_utf16, NULL },
+	{ 40092, 0x0008, "XPComment", handler_utf16, NULL },
+	{ 40093, 0x0008, "XPAuthor", handler_utf16, NULL },
+	{ 40094, 0x0008, "XPKeywords", handler_utf16, NULL },
+	{ 40095, 0x0008, "XPSubject", handler_utf16, NULL },
+	{ 40960, 0x10, "FlashPixVersion", NULL, NULL },
+	{ 40961, 0x0410, "ColorSpace", NULL, valdec_exifcolorspace },
+	{ 40962, 0x10, "PixelXDimension", NULL, NULL },
+	{ 40963, 0x10, "PixelYDimension", NULL, NULL },
+	{ 40964, 0x10, "RelatedSoundFile", NULL, NULL },
+	{ 40965, 0x0418, "Interoperability IFD", handler_subifd, NULL },
+	{ 41483, 0x10, "FlashEnergy", NULL, NULL },
+	{ 41484, 0x10, "SpatialFrequencyResponse", NULL, NULL },
+	{ 41486, 0x10, "FocalPlaneXResolution", NULL, NULL },
+	{ 41487, 0x10, "FocalPlaneYResolution", NULL, NULL },
+	{ 41488, 0x10, "FocalPlaneResolutionUnit", NULL, valdec_resolutionunit },
+	{ 41492, 0x10, "SubjectLocation", NULL, NULL },
+	{ 41493, 0x10, "ExposureIndex", NULL, NULL },
+	{ 41495, 0x10, "SensingMethod", NULL, valdec_sensingmethod },
+	{ 41728, 0x10, "FileSource", NULL, valdec_filesource },
+	{ 41729, 0x10, "SceneType", NULL, valdec_scenetype },
+	{ 41730, 0x10, "CFAPattern", NULL, NULL },
+	{ 41985, 0x10, "CustomRendered", NULL, valdec_customrendered },
+	{ 41986, 0x10, "ExposureMode", NULL, valdec_exposuremode },
+	{ 41987, 0x10, "WhiteBalance", NULL, valdec_whitebalance },
+	{ 41988, 0x10, "DigitalZoomRatio", NULL, NULL },
+	{ 41989, 0x10, "FocalLengthIn35mmFilm", NULL, NULL },
+	{ 41990, 0x10, "SceneCaptureType", NULL, valdec_scenecapturetype },
+	{ 41991, 0x10, "GainControl", NULL, valdec_gaincontrol },
+	{ 41992, 0x10, "Contrast", NULL, valdec_contrast },
+	{ 41993, 0x10, "Saturation", NULL, valdec_saturation },
+	{ 41994, 0x10, "Sharpness", NULL, valdec_sharpness },
+	{ 41995, 0x10, "DeviceSettingDescription", NULL, NULL },
+	{ 41996, 0x10, "SubjectDistanceRange", NULL, valdec_subjectdistancerange },
+	{ 42016, 0x10, "ImageUniqueID", NULL, NULL },
+	{ 42032, 0x10, "CameraOwnerName", NULL, NULL },
+	{ 42033, 0x10, "BodySerialNumber", NULL, NULL },
+	{ 42034, 0x10, "LensSpecification", NULL, NULL },
+	{ 42035, 0x10, "LensMake", NULL, NULL },
+	{ 42036, 0x10, "LensModel", NULL, NULL },
+	{ 42037, 0x10, "LensSerialNumber", NULL, NULL },
+	{ 42112, 0x0000, "GDAL_METADATA", NULL, NULL },
+	{ 42113, 0x0000, "GDAL_NODATA", NULL, NULL },
+	{ 42240, 0x10, "Gamma", NULL, NULL },
+	{ 45056, 0x0801, "MPFVersion", NULL, NULL },
+	{ 45057, 0x0801, "NumberOfImages", NULL, NULL },
+	{ 45058, 0x0809, "MPEntry", handler_mpentry, NULL },
+	{ 45059, 0x0801, "ImageUIDList", NULL, NULL },
+	{ 45060, 0x0801, "TotalFrames", NULL, NULL },
+	{ 45313, 0x0801, "MPIndividualNum", NULL, NULL },
+	{ 45569, 0x0801, "PanOrientation", NULL, NULL },
+	{ 45570, 0x0801, "PanOverlap_H", NULL, NULL },
+	{ 45571, 0x0801, "PanOverlap_V", NULL, NULL },
+	{ 45572, 0x0801, "BaseViewpointNum", NULL, NULL },
+	{ 45573, 0x0801, "ConvergenceAngle", NULL, NULL },
+	{ 45574, 0x0801, "BaselineLength", NULL, NULL },
+	{ 45575, 0x0801, "VerticalDivergence", NULL, NULL },
+	{ 45576, 0x0801, "AxisDistance_X", NULL, NULL },
+	{ 45577, 0x0801, "AxisDistance_Y", NULL, NULL },
+	{ 45578, 0x0801, "AxisDistance_Z", NULL, NULL },
+	{ 45579, 0x0801, "YawAngle", NULL, NULL },
+	{ 45580, 0x0801, "PitchAngle", NULL, NULL },
+	{ 45581, 0x0801, "RollAngle", NULL, NULL },
+	{ 48129, 0x0401, "PIXEL_FORMAT", NULL, NULL },
+	{ 48130, 0x0401, "SPATIAL_XFRM_PRIMARY", NULL, NULL },
+	{ 48131, 0x0401, "Uncompressed", NULL, NULL },
+	{ 48132, 0x0401, "IMAGE_TYPE", NULL, NULL },
+	{ 48133, 0x0401, "PTM_COLOR_INFO", NULL, NULL },
+	{ 48134, 0x0401, "PROFILE_LEVEL_CONTAINER", NULL, NULL },
+	{ 48256, 0x0401, "IMAGE_WIDTH", NULL, NULL },
+	{ 48257, 0x0401, "IMAGE_HEIGHT", NULL, NULL },
+	{ 48258, 0x0401, "WIDTH_RESOLUTION", NULL, NULL },
+	{ 48259, 0x0401, "HEIGHT_RESOLUTION", NULL, NULL },
+	{ 48320, 0x0401, "IMAGE_OFFSET", NULL, NULL },
+	{ 48321, 0x0401, "IMAGE_BYTE_COUNT", NULL, NULL },
+	{ 48322, 0x0401, "ALPHA_OFFSET", NULL, NULL },
+	{ 48323, 0x0401, "ALPHA_BYTE_COUNT", NULL, NULL },
+	{ 48324, 0x0401, "IMAGE_BAND_PRESENCE", NULL, NULL },
+	{ 48325, 0x0401, "ALPHA_BAND_PRESENCE", NULL, NULL },
+	{ 50215, 0x0000, "Oce Scanjob Description", NULL, NULL },
+	{ 50216, 0x0000, "Oce Application Selector", NULL, NULL },
+	{ 50217, 0x0000, "Oce Identification Number", NULL, NULL },
+	{ 50218, 0x0000, "Oce ImageLogic Characteristics", NULL, NULL },
+	{ 50341, 0x0000, "PrintImageMatching", NULL, NULL },
+	{ 50706, 0x80, "DNGVersion", NULL, NULL},
+	{ 50707, 0x80, "DNGBackwardVersion", NULL, NULL},
+	{ 50708, 0x80, "UniqueCameraModel", NULL, NULL},
+	{ 50709, 0x80, "LocalizedCameraModel", NULL, NULL},
+	{ 50710, 0x80, "CFAPlaneColor", NULL, NULL},
+	{ 50711, 0x80, "CFALayout", NULL, NULL},
+	{ 50712, 0x80, "LinearizationTable", NULL, NULL},
+	{ 50713, 0x80, "BlackLevelRepeatDim", NULL, NULL},
+	{ 50714, 0x80, "BlackLevel", NULL, NULL},
+	{ 50715, 0x80, "BlackLevelDeltaH", NULL, NULL},
+	{ 50716, 0x80, "BlackLevelDeltaV", NULL, NULL},
+	{ 50717, 0x80, "WhiteLevel", NULL, NULL},
+	{ 50718, 0x80, "DefaultScale", NULL, NULL},
+	{ 50719, 0x80, "DefaultCropOrigin", NULL, NULL},
+	{ 50720, 0x80, "DefaultCropSize", NULL, NULL},
+	{ 50721, 0x80, "ColorMatrix1", NULL, NULL},
+	{ 50722, 0x80, "ColorMatrix2", NULL, NULL},
+	{ 50723, 0x80, "CameraCalibration1", NULL, NULL},
+	{ 50724, 0x80, "CameraCalibration2", NULL, NULL},
+	{ 50725, 0x80, "ReductionMatrix1", NULL, NULL},
+	{ 50726, 0x80, "ReductionMatrix2", NULL, NULL},
+	{ 50727, 0x80, "AnalogBalance", NULL, NULL},
+	{ 50728, 0x80, "AsShotNeutral", NULL, NULL},
+	{ 50729, 0x80, "AsShotWhiteXY", NULL, NULL},
+	{ 50730, 0x80, "BaselineExposure", NULL, NULL},
+	{ 50731, 0x80, "BaselineNoise", NULL, NULL},
+	{ 50732, 0x80, "BaselineSharpness", NULL, NULL},
+	{ 50733, 0x80, "BayerGreenSplit", NULL, NULL},
+	{ 50734, 0x80, "LinearResponseLimit", NULL, NULL},
+	{ 50735, 0x80, "CameraSerialNumber", NULL, NULL},
+	{ 50736, 0x80, "LensInfo", NULL, NULL},
+	{ 50737, 0x80, "ChromaBlurRadius", NULL, NULL},
+	{ 50738, 0x80, "AntiAliasStrength", NULL, NULL},
+	{ 50739, 0x80, "ShadowScale", NULL, NULL},
+	{ 50740, 0x80, "DNGPrivateData", NULL, NULL},
+	{ 50741, 0x80, "MakerNoteSafety", NULL, NULL},
+	{ 50778, 0x80, "CalibrationIlluminant1", NULL, NULL},
+	{ 50779, 0x80, "CalibrationIlluminant2", NULL, NULL},
+	{ 50780, 0x80, "BestQualityScale", NULL, NULL},
+	{ 50781, 0x80, "RawDataUniqueID", NULL, NULL},
+	{ 50784, 0x0000, "Alias Layer Metadata", NULL, NULL },
+	{ 50827, 0x80, "OriginalRawFileName", NULL, NULL},
+	{ 50828, 0x80, "OriginalRawFileData", NULL, NULL},
+	{ 50829, 0x80, "ActiveArea", NULL, NULL},
+	{ 50830, 0x80, "MaskedAreas", NULL, NULL},
+	{ 50831, 0x80, "AsShotICCProfile", NULL, NULL},
+	{ 50832, 0x80, "AsShotPreProfileMatrix", NULL, NULL},
+	{ 50833, 0x80, "CurrentICCProfile", NULL, NULL},
+	{ 50834, 0x80, "CurrentPreProfileMatrix", NULL, NULL},
+	{ 50879, 0x80, "ColorimetricReference", NULL, NULL},
+	{ 50931, 0x80, "CameraCalibrationSignature", NULL, NULL},
+	{ 50932, 0x80, "ProfileCalibrationSignature", NULL, NULL},
+	{ 50933, 0x80, "ExtraCameraProfiles", NULL, NULL},
+	{ 50934, 0x80, "AsShotProfileName", NULL, NULL},
+	{ 50935, 0x80, "NoiseReductionApplied", NULL, NULL},
+	{ 50936, 0x80, "ProfileName", NULL, NULL},
+	{ 50937, 0x80, "ProfileHueSatMapDims", NULL, NULL},
+	{ 50938, 0x80, "ProfileHueSatMapData1", NULL, NULL},
+	{ 50939, 0x80, "ProfileHueSatMapData2", NULL, NULL},
+	{ 50940, 0x80, "ProfileToneCurve", NULL, NULL},
+	{ 50941, 0x80, "ProfileEmbedPolicy", NULL, valdec_profileembedpolicy},
+	{ 50942, 0x80, "ProfileCopyright", NULL, NULL},
+	{ 50964, 0x80, "ForwardMatrix1", NULL, NULL},
+	{ 50965, 0x80, "ForwardMatrix2", NULL, NULL},
+	{ 50966, 0x80, "PreviewApplicationName", NULL, NULL},
+	{ 50967, 0x80, "PreviewApplicationVersion", NULL, NULL},
+	{ 50968, 0x80, "PreviewSettingsName", NULL, NULL},
+	{ 50969, 0x80, "PreviewSettingsDigest", NULL, NULL},
+	{ 50970, 0x80, "PreviewColorSpace", NULL, valdec_dngcolorspace},
+	{ 50971, 0x80, "PreviewDateTime", NULL, NULL},
+	{ 50972, 0x80, "RawImageDigest", NULL, NULL},
+	{ 50973, 0x80, "OriginalRawFileDigest", NULL, NULL},
+	{ 50974, 0x80, "SubTileBlockSize", NULL, NULL},
+	{ 50975, 0x80, "RowInterleaveFactor", NULL, NULL},
+	{ 50981, 0x80, "ProfileLookTableDims", NULL, NULL},
+	{ 50982, 0x80, "ProfileLookTableData", NULL, NULL},
+	{ 51008, 0x80, "OpcodeList1", NULL, NULL},
+	{ 51009, 0x80, "OpcodeList2", NULL, NULL},
+	{ 51022, 0x80, "OpcodeList3", NULL, NULL},
+	{ 51041, 0x80, "NoiseProfile", NULL, NULL},
+	{ 51089, 0x80, "OriginalDefaultFinalSize", NULL, NULL},
+	{ 51090, 0x80, "OriginalBestQualityFinalSize", NULL, NULL},
+	{ 51091, 0x80, "OriginalDefaultCropSize", NULL, NULL},
+	{ 51107, 0x80, "ProfileHueSatMapEncoding", NULL, NULL},
+	{ 51108, 0x80, "ProfileLookTableEncoding", NULL, NULL},
+	{ 51109, 0x80, "BaselineExposureOffset", NULL, NULL},
+	{ 51110, 0x80, "DefaultBlackRender", NULL, NULL},
+	{ 51111, 0x80, "NewRawImageDigest", NULL, NULL},
+	{ 51112, 0x80, "RawToPreviewGain", NULL, NULL},
+	{ 51113, 0x80, "CacheBlob", NULL, NULL},
+	{ 51114, 0x80, "CacheVersion", NULL, NULL},
+	{ 51125, 0x80, "DefaultUserCrop", NULL, NULL},
+	{ 59932, 0x0400, "PADDING_DATA", NULL, NULL },
+	{ 59933, 0x0010, "OffsetSchema", NULL, NULL },
+
+	{ 1, 0x0021, "InteroperabilityIndex", NULL, NULL },
+	{ 2, 0x0021, "InteroperabilityVersion", NULL, NULL },
+	{ 4096, 0x0020, "RelatedImageFileFormat", NULL, NULL },
+	{ 4097, 0x0020, "RelatedImageWidth", NULL, NULL },
+	{ 4098, 0x0020, "RelatedImageLength", NULL, NULL },
+
+	{ 0, 0x0041, "GPSVersionID", NULL, NULL },
+	{ 1, 0x0041, "GPSLatitudeRef", NULL, NULL },
+	{ 2, 0x0041, "GPSLatitude", handler_gpslatitude, NULL },
+	{ 3, 0x0041, "GPSLongitudeRef", NULL, NULL },
+	{ 4, 0x0041, "GPSLongitude", NULL, NULL },
+	{ 5, 0x0041, "GPSAltitudeRef", NULL, NULL },
+	{ 6, 0x0041, "GPSAltitude", NULL, NULL },
+	{ 7, 0x0041, "GPSTimeStamp", NULL, NULL },
+	{ 8, 0x0041, "GPSSatellites", NULL, NULL },
+	{ 9, 0x0041, "GPSStatus", NULL, NULL },
+	{ 10, 0x0041, "GPSMeasureMode", NULL, NULL },
+	{ 11, 0x0041, "GPSDOP", NULL, NULL },
+	{ 12, 0x0041, "GPSSpeedRef", NULL, NULL },
+	{ 13, 0x0041, "GPSSpeed", NULL, NULL },
+	{ 14, 0x0041, "GPSTrackRef", NULL, NULL },
+	{ 15, 0x0041, "GPSTrack", NULL, NULL },
+	{ 16, 0x0041, "GPSImgDirectionRef", NULL, NULL },
+	{ 17, 0x0041, "GPSImgDirection", NULL, NULL },
+	{ 18, 0x0041, "GPSMapDatum", NULL, NULL },
+	{ 19, 0x0041, "GPSLatitudeRef", NULL, NULL },
+	{ 20, 0x0041, "GPSLatitude", NULL, NULL },
+	{ 21, 0x0041, "GPSDestLongitudeRef", NULL, NULL },
+	{ 22, 0x0041, "GPSDestLongitude", NULL, NULL },
+	{ 23, 0x0041, "GPSDestBearingRef", NULL, NULL },
+	{ 24, 0x0041, "GPSDestBearing", NULL, NULL },
+	{ 25, 0x0041, "GPSDestDistanceRef", NULL, NULL },
+	{ 26, 0x0041, "GPSDestDistance", NULL, NULL },
+	{ 27, 0x0041, "GPSProcessingMethod", NULL, NULL },
+	{ 28, 0x0041, "GPSAreaInformation", NULL, NULL },
+	{ 29, 0x0041, "GPSDateStamp", NULL, NULL },
+	{ 30, 0x0041, "GPSDifferential", NULL, NULL },
+	{ 31, 0x0041, "GPSHPositioningError", NULL, NULL }
+};
+
 static void do_dbg_print_numeric_values(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni,
 	de_ucstring *dbgline)
 {
@@ -1894,8 +1851,9 @@ static const struct tagnuminfo *find_tagnuminfo(int tagnum, int filefmt, int ifd
 	return NULL;
 }
 
-static void process_ifd(deark *c, lctx *d, de_int64 ifd_idx, de_int64 ifdpos, int ifdtype)
+static void process_ifd(deark *c, lctx *d, de_int64 ifd_idx1, de_int64 ifdpos1, int ifdtype1)
 {
+	struct page_ctx *pg = NULL;
 	int num_tags;
 	int i;
 	de_int64 jpegoffset = 0;
@@ -1906,17 +1864,22 @@ static void process_ifd(deark *c, lctx *d, de_int64 ifd_idx, de_int64 ifdpos, in
 	const char *name;
 	static const struct tagnuminfo default_tni = { 0, 0x00, "?", NULL, NULL };
 
+	pg = de_malloc(c, sizeof(struct page_ctx));
+	pg->ifd_idx = ifd_idx1;
+	pg->ifdpos = ifdpos1;
+	pg->ifdtype = ifdtype1;
+
 	// NOTE: Some TIFF apps (e.g. Windows Photo Viewer) have been observed to encode
 	// ASCII fields (e.g. ImageDescription) in UTF-8, in violation of the TIFF spec.
 	// It might be better to give up trying to obey the various specifications, and
 	// just try to autodetect the encoding, based on whether it is valid UTF-8, etc.
 
-	if(ifdtype==DE_TIFFFMT_JPEGXR)
+	if(pg->ifdtype==DE_TIFFFMT_JPEGXR)
 		d->current_textfield_encoding = DE_ENCODING_UTF8; // Might be overridden below
 	else
 		d->current_textfield_encoding = DE_ENCODING_ASCII;
 
-	switch(ifdtype) {
+	switch(pg->ifdtype) {
 	case IFDTYPE_SUBIFD:
 		name=" (SubIFD)";
 		break;
@@ -1939,19 +1902,19 @@ static void process_ifd(deark *c, lctx *d, de_int64 ifd_idx, de_int64 ifdpos, in
 		name="";
 	}
 
-	de_dbg(c, "IFD at %d%s", (int)ifdpos, name);
+	de_dbg(c, "IFD at %d%s", (int)pg->ifdpos, name);
 	de_dbg_indent(c, 1);
 
-	if(ifdpos >= c->infile->len || ifdpos<8) {
-		de_warn(c, "Invalid IFD offset (%d)", (int)ifdpos);
+	if(pg->ifdpos >= c->infile->len || pg->ifdpos<8) {
+		de_warn(c, "Invalid IFD offset (%d)", (int)pg->ifdpos);
 		goto done;
 	}
 
 	if(d->is_bigtiff) {
-		num_tags = (int)dbuf_geti64x(c->infile, ifdpos, d->is_le);
+		num_tags = (int)dbuf_geti64x(c->infile, pg->ifdpos, d->is_le);
 	}
 	else {
-		num_tags = (int)dbuf_getui16x(c->infile, ifdpos, d->is_le);
+		num_tags = (int)dbuf_getui16x(c->infile, pg->ifdpos, d->is_le);
 	}
 
 	de_dbg(c, "number of tags: %d", num_tags);
@@ -1961,7 +1924,7 @@ static void process_ifd(deark *c, lctx *d, de_int64 ifd_idx, de_int64 ifdpos, in
 	}
 
 	// Record the next IFD in the main list.
-	tmpoffset = dbuf_getui32x(c->infile, ifdpos+d->ifdhdrsize+num_tags*d->ifditemsize, d->is_le);
+	tmpoffset = dbuf_getui32x(c->infile, pg->ifdpos+d->ifdhdrsize+num_tags*d->ifditemsize, d->is_le);
 	de_dbg(c, "offset of next IFD: %d%s", (int)tmpoffset, tmpoffset==0?" (none)":"");
 	push_ifd(c, d, tmpoffset, IFDTYPE_NORMAL);
 
@@ -1971,23 +1934,23 @@ static void process_ifd(deark *c, lctx *d, de_int64 ifd_idx, de_int64 ifdpos, in
 		const struct tagnuminfo *tni;
 
 		de_memset(&tg, 0, sizeof(struct taginfo));
+		tg.pg = pg;
 
-		tg.ifd_idx = ifd_idx;
-		tg.tagnum = (int)dbuf_getui16x(c->infile, ifdpos+d->ifdhdrsize+i*d->ifditemsize, d->is_le);
-		tg.datatype = (int)dbuf_getui16x(c->infile, ifdpos+d->ifdhdrsize+i*d->ifditemsize+2, d->is_le);
+		tg.tagnum = (int)dbuf_getui16x(c->infile, pg->ifdpos+d->ifdhdrsize+i*d->ifditemsize, d->is_le);
+		tg.datatype = (int)dbuf_getui16x(c->infile, pg->ifdpos+d->ifdhdrsize+i*d->ifditemsize+2, d->is_le);
 		// Not a file pos, but getfpos() does the right thing.
-		tg.valcount = getfpos(c, d, ifdpos+d->ifdhdrsize+i*d->ifditemsize+4);
+		tg.valcount = getfpos(c, d, pg->ifdpos+d->ifdhdrsize+i*d->ifditemsize+4);
 
 		tg.unit_size = size_of_data_type(tg.datatype);
 		tg.total_size = tg.unit_size * tg.valcount;
 		if(tg.total_size <= d->offsetsize) {
-			tg.val_offset = ifdpos+d->ifdhdrsize+i*d->ifditemsize+d->offsetoffset;
+			tg.val_offset = pg->ifdpos+d->ifdhdrsize+i*d->ifditemsize+d->offsetoffset;
 		}
 		else {
-			tg.val_offset = getfpos(c, d, ifdpos+d->ifdhdrsize+i*d->ifditemsize+d->offsetoffset);
+			tg.val_offset = getfpos(c, d, pg->ifdpos+d->ifdhdrsize+i*d->ifditemsize+d->offsetoffset);
 		}
 
-		tni = find_tagnuminfo(tg.tagnum, d->fmt, ifdtype);
+		tni = find_tagnuminfo(tg.tagnum, d->fmt, pg->ifdtype);
 		if(tni) {
 			tg.tag_known = 1;
 		}
@@ -2042,9 +2005,15 @@ static void process_ifd(deark *c, lctx *d, de_int64 ifd_idx, de_int64 ifdpos, in
 		do_oldjpeg(c, d, jpegoffset, jpeglength);
 	}
 
+	if(pg->ifd_idx==0) {
+		d->first_ifd_orientation = pg->orientation;
+		d->first_ifd_cosited = (pg->ycbcrpositioning==2);
+	}
+
 done:
 	de_dbg_indent(c, -1);
 	ucstring_destroy(dbgline);
+	de_free(c, pg);
 }
 
 static void do_tiff(deark *c, lctx *d)
