@@ -804,6 +804,12 @@ static void detect_app_seg_type(deark *c, lctx *d, const struct marker_info *mi,
 		app_id_info->appsegtype = APPSEGTYPE_XMP;
 		app_id_info->app_type_name = "XMP";
 	}
+	else if(seg_type==0xe1 && ad.nraw_bytes>=32 && !de_memcmp(ad.raw_bytes, "<?xpacket begin=", 16)) {
+		// I have a few files like this, that are missing the XMP signature.
+		app_id_info->appsegtype = APPSEGTYPE_XMP;
+		app_id_info->app_type_name = "XMP";
+		sig_size = 0;
+	}
 	else if(seg_type==0xe1 && !de_strcmp(ad.app_id_normalized, "HTTP://NS.ADOBE.COM/XMP/EXTENSION/")) {
 		app_id_info->appsegtype = APPSEGTYPE_XMP_EXTENSION;
 		app_id_info->app_type_name = "XMP extension";
