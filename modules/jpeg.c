@@ -309,7 +309,9 @@ static void do_mpf_segment(deark *c, lctx *d, de_int64 pos, de_int64 data_size)
 {
 	de_dbg(c, "MPF data at %d, size=%d", (int)pos, (int)data_size);
 	de_dbg_indent(c, 1);
-	de_run_module_by_id_on_slice2(c, "tiff", "M", c->infile, pos, data_size);
+	// TODO: The 3rd param below should probably represent some sort of TIFF
+	// tag "namespace".
+	de_run_module_by_id_on_slice2(c, "tiff", "", c->infile, pos, data_size);
 	de_dbg_indent(c, -1);
 }
 
@@ -583,6 +585,26 @@ done:
 	de_dbg_indent_restore(c, saved_indent_level);
 }
 
+static void do_meta_segment(deark *c, lctx *d, struct page_ctx *pg, de_int64 pos1, de_int64 len)
+{
+	de_module_params *mparams = NULL;
+
+	if(len<1) return;
+
+	de_dbg(c, "\"Meta\" data at %d, size=%d", (int)(pos1+1), (int)(len-1));
+	de_dbg_indent(c, 1);
+
+	mparams = de_malloc(c, sizeof(de_module_params));
+	mparams->codes = "M";
+
+	de_run_module_by_id_on_slice(c, "tiff", mparams, c->infile, pos1+1, len-1);
+
+//done:
+	de_dbg_indent(c, -1);
+	de_free(c, mparams);
+}
+
+
 // ITU-T Rec. T.86 says nothing about canonicalizing the APP ID, but in
 // practice, some apps are sloppy about capitalization, and trailing spaces.
 static void normalize_app_id(const char *app_id_orig, char *app_id_normalized,
@@ -623,6 +645,7 @@ static void normalize_app_id(const char *app_id_orig, char *app_id_normalized,
 #define APPSEGTYPE_JPS            22
 #define APPSEGTYPE_HDR_RI_VER     24
 #define APPSEGTYPE_HDR_RI_EXT     25
+#define APPSEGTYPE_META           26
 
 struct app_id_info_struct {
 	int app_id_found;
@@ -752,6 +775,15 @@ static void detect_app_seg_type(deark *c, lctx *d, const struct marker_info *mi,
 		app_id_info->appsegtype = APPSEGTYPE_EXIF;
 		app_id_info->app_type_name = "Exif";
 	}
+	else if((seg_type==0xe1 || seg_type==0xe3) && ad.nraw_bytes>=14 &&
+		!de_memcmp(ad.raw_bytes, "Meta\0\0", 6) &&
+		(ad.raw_bytes[6]=='I' || ad.raw_bytes[6]=='M'))
+	{
+		// This seems to be some Kodak imitation of an Exif segment.
+		// ExifTool says APP3, but all I've seen is APP1.
+		app_id_info->appsegtype = APPSEGTYPE_META;
+		app_id_info->app_type_name = "Meta";
+	}
 	else if(seg_type==0xe2 && !de_strcmp(ad.app_id_normalized, "ICC_PROFILE")) {
 		app_id_info->appsegtype = APPSEGTYPE_ICC_PROFILE;
 		app_id_info->app_type_name = "ICC profile";
@@ -871,6 +903,9 @@ static void handler_app(deark *c, lctx *d, struct page_ctx *pg,
 				pg->exif_version_as_uint32 = exifversion;
 			de_dbg_indent(c, -1);
 		}
+		break;
+	case APPSEGTYPE_META:
+		do_meta_segment(c, d, pg, payload_pos, payload_size);
 		break;
 	case APPSEGTYPE_ICC_PROFILE:
 		do_icc_profile_segment(c, d, pg, payload_pos, payload_size);
