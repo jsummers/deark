@@ -831,6 +831,13 @@ static void handler_app(deark *c, lctx *d, struct page_ctx *pg,
 	if(payload_size<0) goto done;
 
 	switch(appsegtype) {
+	case APPSEGTYPE_UNKNOWN:
+		if(c->debug_level>=2) {
+			de_int64 dumplen = seg_data_size;
+			if(dumplen>256) dumplen=256;
+			de_dbg_hexdump(c, c->infile, seg_data_pos, dumplen, "segment data", 0x1);
+		}
+		break;
 	case APPSEGTYPE_JFIF:
 		do_jfif_segment(c, d, pg, payload_pos, payload_size);
 		break;

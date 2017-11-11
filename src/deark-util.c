@@ -266,29 +266,41 @@ void de_dbg_indent_restore(deark *c, int saved_indent_level)
 	c->dbg_indent_amount = saved_indent_level;
 }
 
+// flags:
+//  0x1 = Include an ASCII representation
 void de_dbg_hexdump(deark *c, dbuf *f, de_int64 pos1, de_int64 len,
 	const char *prefix, unsigned int flags)
 {
 	char linebuf[3*16+32];
+	char asciibuf[32];
 	de_int64 pos = pos1;
 	de_int64 k;
 	de_int64 bytesthisrow;
+	de_int64 asciibufpos;
 	de_byte b;
-
-	if(c->debug_level<1) return;
 
 	while(1) {
 		if(pos >= pos1+len) break;
 		bytesthisrow = (pos1+len)-pos;
 		if(bytesthisrow>16) bytesthisrow=16;
+		asciibufpos = 0;
+		asciibuf[asciibufpos++] = '\"';
 		for(k=0; k<bytesthisrow; k++) {
 			b = dbuf_getbyte(f, pos+k);
 			linebuf[k*3] = de_get_hexchar(b/16);
 			linebuf[k*3+1] = de_get_hexchar(b%16);
 			linebuf[k*3+2] = ' ';
 			linebuf[k*3+3] = '\0';
+			asciibuf[asciibufpos++] = (b>=32 && b<=126) ? (char)b : '.';
 		}
-		de_dbg(c, "%s:%d: %s", prefix, (int)(pos-pos1), linebuf);
+		if(flags&0x1) {
+			asciibuf[asciibufpos++] = '\"';
+			asciibuf[asciibufpos++] = '\0';
+		}
+		else {
+			asciibuf[0] = '\0';
+		}
+		de_dbg(c, "%s:%d: %s%s", prefix, (int)(pos-pos1), linebuf, asciibuf);
 		pos += bytesthisrow;
 	}
 }
