@@ -1637,7 +1637,7 @@ static const struct tagnuminfo tagnuminfo_arr[] = {
 	{ 51113, 0x80, "CacheBlob", NULL, NULL},
 	{ 51114, 0x80, "CacheVersion", NULL, NULL},
 	{ 51125, 0x80, "DefaultUserCrop", NULL, NULL},
-	{ 59932, 0x0400, "PADDING_DATA", NULL, NULL },
+	{ 59932, 0x0440, "PADDING_DATA", NULL, NULL },
 	{ 59933, 0x0010, "OffsetSchema", NULL, NULL },
 
 	{ 1, 0x0021, "InteroperabilityIndex", NULL, NULL },
