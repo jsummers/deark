@@ -585,6 +585,59 @@ done:
 	de_dbg_indent_restore(c, saved_indent_level);
 }
 
+static void do_ducky_stringblock(deark *c, lctx *d, struct page_ctx *pg,
+	de_int64 pos1, de_int64 len, const char *name)
+{
+	de_int64 pos = pos1;
+	de_int64 nchars;
+	de_ucstring *s = NULL;
+
+	if(len<4) goto done;
+	nchars = de_getui32be(pos);
+	pos += 4;
+	if(nchars*2 > len-4) goto done;
+
+	s = ucstring_create(c);
+	dbuf_read_to_ucstring_n(c->infile, pos, nchars*2, DE_DBG_MAX_STRLEN, s,
+		0, DE_ENCODING_UTF16BE);
+	de_dbg(c, "%s: \"%s\"", name, ucstring_get_printable_sz(s));
+done:
+	ucstring_destroy(s);
+}
+
+static void do_ducky_segment(deark *c, lctx *d, struct page_ctx *pg, de_int64 pos1, de_int64 len)
+{
+	de_int64 pos = pos1;
+	de_uint32 blktype;
+	de_int64 blklen;
+	de_int64 n;
+
+	while(1) {
+		blktype = (de_uint32)de_getui16be(pos);
+		pos += 2;
+		if(blktype==0) break;
+		if(pos+2 > pos1+len) break;
+		blklen = de_getui16be(pos);
+		pos += 2;
+		if(pos+blklen > pos1+len) break;
+		switch(blktype) {
+		case 1:
+			if(blklen==4) {
+				n = de_getui32be(pos);
+				de_dbg(c, "quality: %d", (int)n);
+			}
+			break;
+		case 2:
+			do_ducky_stringblock(c, d, pg, pos, blklen, "comment");
+			break;
+		case 3:
+			do_ducky_stringblock(c, d, pg, pos, blklen, "copyright");
+			break;
+		}
+		pos += blklen;
+	}
+}
+
 static void do_meta_segment(deark *c, lctx *d, struct page_ctx *pg, de_int64 pos1, de_int64 len)
 {
 	de_module_params *mparams = NULL;
@@ -638,6 +691,7 @@ static void normalize_app_id(const char *app_id_orig, char *app_id_normalized,
 #define APPSEGTYPE_ADOBEAPP14     9
 #define APPSEGTYPE_ICC_PROFILE    10
 #define APPSEGTYPE_PHOTOSHOP      11
+#define APPSEGTYPE_DUCKY          12
 #define APPSEGTYPE_XMP            14
 #define APPSEGTYPE_XMP_EXTENSION  15
 #define APPSEGTYPE_JPEGXT         20
@@ -767,6 +821,11 @@ static void detect_app_seg_type(deark *c, lctx *d, const struct marker_info *mi,
 		// that is usually 0 is actually the high byte of a version number.
 		app_id_info->appsegtype = APPSEGTYPE_ADOBEAPP14;
 		app_id_info->app_type_name = "AdobeAPP14";
+	}
+	else if(seg_type==0xec && ad.nraw_bytes>=5 && !de_strncmp((const char*)ad.raw_bytes, "Ducky", 5)) {
+		app_id_info->appsegtype = APPSEGTYPE_DUCKY;
+		app_id_info->app_type_name = "Ducky";
+		sig_size = 5;
 	}
 	else if(seg_type==0xe1 && !de_strcmp(ad.app_id_normalized, "EXIF")) {
 		// This detection routine considers the payload to start with the second NULL
@@ -934,6 +993,9 @@ static void handler_app(deark *c, lctx *d, struct page_ctx *pg,
 				pg->has_iptc = 1;
 			de_dbg_indent(c, -1);
 		}
+		break;
+	case APPSEGTYPE_DUCKY:
+		do_ducky_segment(c, d, pg, payload_pos, payload_size);
 		break;
 	case APPSEGTYPE_XMP:
 		de_dbg(c, "XMP data at %d, size=%d", (int)(payload_pos), (int)(payload_size));
