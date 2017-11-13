@@ -135,7 +135,7 @@ static de_uint32 getpal256(int k)
 
 static void do_image(deark *c, lctx *d, struct page_ctx *pg, de_finfo *fi)
 {
-	struct deark_bitmap *img = NULL;
+	de_bitmap *img = NULL;
 	de_int64 i, j;
 	de_byte n;
 	de_uint32 clr;

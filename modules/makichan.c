@@ -402,7 +402,7 @@ static int do_mag_decompress(deark *c, lctx *d)
 
 static void do_create_image(deark *c, lctx *d)
 {
-	struct deark_bitmap *img = NULL;
+	de_bitmap *img = NULL;
 
 	img = de_bitmap_create(c, d->width, d->height, 3);
 

@@ -122,7 +122,7 @@ static de_uint32 getpal256(int k)
 
 static void do_decode_1_4_8bit(deark *c, lctx *d, struct page_ctx *pg)
 {
-	struct deark_bitmap *img = NULL;
+	de_bitmap *img = NULL;
 	de_int64 i, j;
 	de_byte a, b;
 	de_byte x;
@@ -196,7 +196,7 @@ static void do_uncompress_24(deark *c, lctx *d, struct page_ctx *pg, dbuf *unc_p
 static void do_decode_24bit(deark *c, lctx *d, struct page_ctx *pg)
 {
 	dbuf *unc_pixels = NULL;
-	struct deark_bitmap *img = NULL;
+	de_bitmap *img = NULL;
 	de_int64 i, j;
 	de_byte cr, cg, cb, ca;
 	de_int64 w, h;

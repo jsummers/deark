@@ -552,7 +552,7 @@ static void de_char_output_to_html_file(deark *c, struct de_char_context *charct
 }
 
 static void do_render_character(deark *c, struct de_char_context *charctx,
-	struct charextractx *ectx, struct deark_bitmap *img,
+	struct charextractx *ectx, de_bitmap *img,
 	de_int64 xpos, de_int64 ypos,
 	de_int32 codepoint, int codepoint_is_unicode,
 	de_uint32 fgcol, de_uint32 bgcol,
@@ -588,7 +588,7 @@ static void do_render_character(deark *c, struct de_char_context *charctx,
 }
 
 static void set_density(deark *c, struct de_char_context *charctx,
-	struct charextractx *ectx, struct deark_bitmap *img)
+	struct charextractx *ectx, de_bitmap *img)
 {
 	// FIXME: This is quick and dirty. Need to put more thought into how to
 	// figure out the pixel density.
@@ -613,7 +613,7 @@ static void de_char_output_screen_to_image_file(deark *c, struct de_char_context
 	struct charextractx *ectx, struct de_char_screen *screen)
 {
 	de_int64 screen_width_in_pixels, screen_height_in_pixels;
-	struct deark_bitmap *img = NULL;
+	de_bitmap *img = NULL;
 	int i, j;
 	const struct de_char_cell *cell;
 	unsigned int flags;

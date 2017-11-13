@@ -63,10 +63,10 @@ typedef struct localctx_struct {
 	de_int64 section_table_offset;
 } lctx;
 
-static struct deark_bitmap *do_create_image(deark *c, lctx *d, struct page_ctx *pg,
+static de_bitmap *do_create_image(deark *c, lctx *d, struct page_ctx *pg,
 	dbuf *unc_pixels, int is_mask)
 {
-	struct deark_bitmap *img = NULL;
+	de_bitmap *img = NULL;
 	de_int64 i, j;
 	de_int64 src_rowspan;
 	de_byte b;
@@ -198,7 +198,7 @@ static void do_rle16_24(deark *c, lctx *d, dbuf *unc_pixels,
 
 // Sets d->paint_data_section_size.
 // Returns a bitmap.
-static struct deark_bitmap *do_read_paint_data_section(deark *c, lctx *d,
+static de_bitmap *do_read_paint_data_section(deark *c, lctx *d,
 	de_int64 pos1, int is_mask)
 {
 	de_int64 pixel_data_offset;
@@ -206,7 +206,7 @@ static struct deark_bitmap *do_read_paint_data_section(deark *c, lctx *d,
 	dbuf *unc_pixels = NULL;
 	de_int64 compression_type;
 	de_int64 cmpr_pixels_size;
-	struct deark_bitmap *img = NULL;
+	de_bitmap *img = NULL;
 	struct page_ctx *pg = NULL;
 
 	pg = de_malloc(c, sizeof(struct page_ctx));
@@ -296,7 +296,7 @@ done:
 // Sets d->paint_data_section_size.
 static void do_read_and_write_paint_data_section(deark *c, lctx *d, de_int64 pos1)
 {
-	struct deark_bitmap *img = NULL;
+	de_bitmap *img = NULL;
 
 	img = do_read_paint_data_section(c, d, pos1, 0);
 	de_bitmap_write_to_file(img, NULL, 0);
@@ -304,9 +304,9 @@ static void do_read_and_write_paint_data_section(deark *c, lctx *d, de_int64 pos
 }
 
 static void do_combine_and_write_images(deark *c, lctx *d,
-	struct deark_bitmap *fg_img, struct deark_bitmap *mask_img)
+	de_bitmap *fg_img, de_bitmap *mask_img)
 {
-	struct deark_bitmap *img = NULL; // The combined image
+	de_bitmap *img = NULL; // The combined image
 	de_int64 i, j;
 	de_uint32 clr;
 	de_byte a;
@@ -461,8 +461,8 @@ static void de_run_epocaif(deark *c, lctx *d)
 	de_int64 num_images;
 	de_int64 first_image_pos;
 	de_int64 img_pos;
-	struct deark_bitmap *fg_img = NULL;
-	struct deark_bitmap *mask_img = NULL;
+	de_bitmap *fg_img = NULL;
+	de_bitmap *mask_img = NULL;
 
 	de_dbg(c, "header at %d", 0);
 	de_dbg_indent(c, 1);

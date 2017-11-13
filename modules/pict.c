@@ -515,7 +515,7 @@ done:
 }
 
 static void decode_bitmap_rgb24(deark *c, lctx *d, struct bitmapinfo *bi,
-	dbuf *unc_pixels, struct deark_bitmap *img, de_int64 pos)
+	dbuf *unc_pixels, de_bitmap *img, de_int64 pos)
 {
 	de_int64 i, j;
 	de_byte cr, cg, cb;
@@ -531,7 +531,7 @@ static void decode_bitmap_rgb24(deark *c, lctx *d, struct bitmapinfo *bi,
 }
 
 static void decode_bitmap_rgb16(deark *c, lctx *d, struct bitmapinfo *bi,
-	dbuf *unc_pixels, struct deark_bitmap *img, de_int64 pos)
+	dbuf *unc_pixels, de_bitmap *img, de_int64 pos)
 {
 	de_int64 i, j;
 	de_byte c0, c1; //, cg, cb;
@@ -549,7 +549,7 @@ static void decode_bitmap_rgb16(deark *c, lctx *d, struct bitmapinfo *bi,
 }
 
 static void decode_bitmap_paletted(deark *c, lctx *d, struct bitmapinfo *bi,
-	dbuf *unc_pixels, struct deark_bitmap *img, de_int64 pos)
+	dbuf *unc_pixels, de_bitmap *img, de_int64 pos)
 {
 	de_int64 i, j;
 	de_byte b;
@@ -568,7 +568,7 @@ static int decode_bitmap(deark *c, lctx *d, struct bitmapinfo *bi, de_int64 pos)
 {
 	de_int64 j;
 	dbuf *unc_pixels = NULL;
-	struct deark_bitmap *img = NULL;
+	de_bitmap *img = NULL;
 	de_int64 bytecount;
 	de_int64 bitmapsize;
 	int dst_nsamples;

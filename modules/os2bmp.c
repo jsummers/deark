@@ -104,7 +104,7 @@ done:
 // srcbmp_main can be NULL.
 static void do_generate_final_image(deark *c, struct srcbitmap *srcbmp_main, struct srcbitmap *srcbmp_mask)
 {
-	struct deark_bitmap *img;
+	de_bitmap *img;
 	de_int64 w, h;
 	de_int64 i, j;
 	de_int64 byte_offset;

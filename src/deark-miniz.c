@@ -124,7 +124,7 @@ static void *my_tdefl_write_image_to_png_file_in_memory_ex(const void *pImage, i
 	return out_buf.m_pBuf;
 }
 
-int de_write_png(deark *c, struct deark_bitmap *img, dbuf *f)
+int de_write_png(deark *c, de_bitmap *img, dbuf *f)
 {
 	size_t len_out = 0;
 	de_byte *memblk = NULL;

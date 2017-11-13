@@ -61,7 +61,7 @@ done:
 
 static void do_decode_raw(deark *c, lctx *d)
 {
-	struct deark_bitmap *img = NULL;
+	de_bitmap *img = NULL;
 	de_int64 i, j;
 	de_int64 rowspan;
 	de_uint32 clr;

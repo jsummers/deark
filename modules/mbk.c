@@ -159,7 +159,7 @@ static void do_sprite_bank(deark *c, lctx *d, de_int64 pos)
 
 static void do_icon(deark *c, lctx *d, de_int64 idx, de_int64 pos)
 {
-	struct deark_bitmap *img = NULL;
+	de_bitmap *img = NULL;
 	de_int64 format_flag;
 	de_int64 bgcol, fgcol;
 	de_int64 i, j;

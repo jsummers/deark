@@ -32,7 +32,7 @@ static void do_card_index(deark *c, lctx *d, de_int64 cardnum, de_int64 pos)
 	de_int64 src_rowspan;
 	de_int64 text_len;
 	de_int64 text_pos;
-	struct deark_bitmap *img = NULL;
+	de_bitmap *img = NULL;
 	de_finfo *fi_bitmap = NULL;
 	de_finfo *fi_text = NULL;
 	const char *cardtype;

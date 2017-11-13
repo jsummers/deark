@@ -24,7 +24,7 @@ struct localctx_struct {
 #define FMT_CLP 2
 	int file_fmt;
 	int ver;
-	struct deark_bitmap *img;
+	de_bitmap *img;
 	de_int64 header_size;
 	de_byte plane_info;
 	de_byte palette_flag;

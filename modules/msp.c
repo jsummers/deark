@@ -26,7 +26,7 @@ static void do_ver1(deark *c, lctx *d)
 		d->width, d->height, src_rowspan, 0, NULL, 0);
 }
 
-static void do_decompress_scanline(deark *c, lctx *d, struct deark_bitmap *img,
+static void do_decompress_scanline(deark *c, lctx *d, de_bitmap *img,
 	de_int64 rownum, de_int64 rowoffset, de_int64 bytes_in_row)
 {
 	de_int64 i;
@@ -72,7 +72,7 @@ static void do_ver2(deark *c, lctx *d)
 	de_int64 j;
 	de_int64 *rowoffset;
 	de_int64 *rowsize;
-	struct deark_bitmap *img = NULL;
+	de_bitmap *img = NULL;
 
 	rowoffset = de_malloc(c, d->height * sizeof(de_int64));
 	rowsize = de_malloc(c, d->height * sizeof(de_int64));

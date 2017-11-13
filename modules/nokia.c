@@ -26,7 +26,7 @@ typedef struct localctx_struct {
 
 static void nol_ngg_read_bitmap(deark *c, lctx *d, de_int64 pos)
 {
-	struct deark_bitmap *img = NULL;
+	de_bitmap *img = NULL;
 	de_int64 i, j;
 	de_byte n;
 
@@ -218,7 +218,7 @@ void de_module_nlm(deark *c, struct deark_module_info *mi)
 
 static void nsl_read_bitmap(deark *c, lctx *d, de_int64 pos, de_int64 len)
 {
-	struct deark_bitmap *img = NULL;
+	de_bitmap *img = NULL;
 	de_int64 i, j;
 	de_byte x;
 

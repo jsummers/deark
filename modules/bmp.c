@@ -467,9 +467,9 @@ static void do_read_palette(deark *c, lctx *d)
 }
 
 // A wrapper for de_bitmap_create()
-static struct deark_bitmap *bmp_bitmap_create(deark *c, lctx *d, int bypp)
+static de_bitmap *bmp_bitmap_create(deark *c, lctx *d, int bypp)
 {
-	struct deark_bitmap *img;
+	de_bitmap *img;
 
 	img = de_bitmap_create(c, d->width, d->height, bypp);
 	img->flipped = !d->top_down;
@@ -483,7 +483,7 @@ static struct deark_bitmap *bmp_bitmap_create(deark *c, lctx *d, int bypp)
 
 static void do_image_paletted(deark *c, lctx *d, dbuf *bits, de_int64 bits_offset)
 {
-	struct deark_bitmap *img = NULL;
+	de_bitmap *img = NULL;
 
 	img = bmp_bitmap_create(c, d, d->pal_is_grayscale?1:3);
 	de_convert_image_paletted(bits, bits_offset,
@@ -494,7 +494,7 @@ static void do_image_paletted(deark *c, lctx *d, dbuf *bits, de_int64 bits_offse
 
 static void do_image_24bit(deark *c, lctx *d, dbuf *bits, de_int64 bits_offset)
 {
-	struct deark_bitmap *img = NULL;
+	de_bitmap *img = NULL;
 	de_int64 i, j;
 	de_uint32 clr;
 
@@ -511,7 +511,7 @@ static void do_image_24bit(deark *c, lctx *d, dbuf *bits, de_int64 bits_offset)
 
 static void do_image_16_32bit(deark *c, lctx *d, dbuf *bits, de_int64 bits_offset)
 {
-	struct deark_bitmap *img = NULL;
+	de_bitmap *img = NULL;
 	de_int64 i, j;
 	int has_transparency;
 	de_uint32 v;
@@ -562,7 +562,7 @@ static void do_image_rle_4_8(deark *c, lctx *d, dbuf *bits, de_int64 bits_offset
 	de_int64 xpos, ypos;
 	de_byte b1, b2;
 	de_byte b;
-	struct deark_bitmap *img = NULL;
+	de_bitmap *img = NULL;
 	de_uint32 clr1, clr2;
 	de_int64 num_bytes;
 	de_int64 num_pixels;

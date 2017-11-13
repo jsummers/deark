@@ -34,7 +34,7 @@ static void do_image_data(deark *c, lctx *d, de_int64 img_num, de_int64 pos1, de
 	de_int64 i, j;
 	de_uint32 pal[256];
 	de_int64 p;
-	struct deark_bitmap *img = NULL;
+	de_bitmap *img = NULL;
 	de_byte x;
 	de_byte cr=0, cg=0, cb=0, ca=0;
 	int inverse_warned = 0;
@@ -174,7 +174,7 @@ static void do_image_data(deark *c, lctx *d, de_int64 img_num, de_int64 pos1, de
 
 	if(!use_mask && d->extract_unused_masks) {
 		char maskname_token[32];
-		struct deark_bitmap *mask_img = NULL;
+		de_bitmap *mask_img = NULL;
 
 		de_snprintf(maskname_token, sizeof(maskname_token), "%dx%dmask",
 			(int)bi.width, (int)bi.height);

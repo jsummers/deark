@@ -55,7 +55,7 @@ typedef struct localctx_struct {
 static void do_decode_image_default(deark *c, lctx *d, struct tgaimginfo *imginfo, dbuf *unc_pixels,
 	de_finfo *fi, unsigned int createflags)
 {
-	struct deark_bitmap *img = NULL;
+	de_bitmap *img = NULL;
 	de_int64 i, j;
 	de_byte b;
 	de_uint32 clr;

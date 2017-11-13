@@ -51,7 +51,7 @@ static void do_bitmap_1plane(deark *c, lctx *d, de_int64 plane_num)
 
 static void do_bitmap_2planes(deark *c, lctx *d, de_int64 pn1, de_int64 pn2)
 {
-	struct deark_bitmap *img = NULL;
+	de_bitmap *img = NULL;
 	de_int64 i, j;
 	de_byte n0, n1;
 

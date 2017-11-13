@@ -132,7 +132,7 @@ done1:
 	d->pattern_buf = NULL;
 }
 
-static void set_density(deark *c, lctx *d, struct deark_bitmap *img)
+static void set_density(deark *c, lctx *d, de_bitmap *img)
 {
 	if(d->pixwidth>0 && d->pixheight>0) {
 		img->density_code = DE_DENSITY_DPI;
@@ -141,7 +141,7 @@ static void set_density(deark *c, lctx *d, struct deark_bitmap *img)
 	}
 }
 
-static void read_paletted_image(deark *c, lctx *d, dbuf *unc_pixels, struct deark_bitmap *img)
+static void read_paletted_image(deark *c, lctx *d, dbuf *unc_pixels, de_bitmap *img)
 {
 	de_int64 i, j, plane;
 	unsigned int n;
@@ -162,7 +162,7 @@ static void read_paletted_image(deark *c, lctx *d, dbuf *unc_pixels, struct dear
 	}
 }
 
-static void read_rgb_image(deark *c, lctx *d, dbuf *unc_pixels, struct deark_bitmap *img)
+static void read_rgb_image(deark *c, lctx *d, dbuf *unc_pixels, de_bitmap *img)
 {
 	// Not implemented
 }
@@ -180,7 +180,7 @@ static const de_uint32 pal4bit[16] = {
 static int do_gem_img(deark *c, lctx *d)
 {
 	dbuf *unc_pixels = NULL;
-	struct deark_bitmap *img = NULL;
+	de_bitmap *img = NULL;
 	int is_color = 0;
 	de_int64 k;
 
@@ -281,7 +281,7 @@ static void read_palette_ximg(deark *c, lctx *d)
 static int do_gem_ximg(deark *c, lctx *d)
 {
 	dbuf *unc_pixels = NULL;
-	struct deark_bitmap *img = NULL;
+	de_bitmap *img = NULL;
 	int retval = 0;
 
 	if((d->nplanes>=1 && d->nplanes<=8) /* || d->nplanes==24 */) {

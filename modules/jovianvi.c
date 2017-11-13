@@ -62,7 +62,7 @@ static void do_read_palette(deark *c, lctx *d)
 	de_dbg_indent(c, -1);
 }
 
-static void do_convert_grayscale(deark *c, lctx *d, struct deark_bitmap *img)
+static void do_convert_grayscale(deark *c, lctx *d, de_bitmap *img)
 {
 	int i, j;
 	de_byte v;
@@ -88,7 +88,7 @@ done:
 	;
 }
 
-static void do_convert_rgb(deark *c, lctx *d, struct deark_bitmap *img)
+static void do_convert_rgb(deark *c, lctx *d, de_bitmap *img)
 {
 	int i, j;
 	de_uint32 clr;
@@ -113,7 +113,7 @@ static void do_convert_rgb(deark *c, lctx *d, struct deark_bitmap *img)
 static void de_run_jovianvi(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
-	struct deark_bitmap *img = NULL;
+	de_bitmap *img = NULL;
 	int has_palette = 0;
 	int is_grayscale = 0;
 	const char *imgtypename;

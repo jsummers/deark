@@ -156,7 +156,7 @@ struct de_finfo_struct {
 };
 typedef struct de_finfo_struct de_finfo;
 
-struct deark_bitmap {
+struct deark_bitmap_struct {
 	deark *c;
 	de_int64 width;
 	de_int64 height;
@@ -178,6 +178,7 @@ struct deark_bitmap {
 	double xdens;
 	double ydens;
 };
+typedef struct deark_bitmap_struct de_bitmap;
 
 struct de_SAUCE_detection_data {
 	de_byte detection_attempted;
@@ -378,7 +379,7 @@ int de_zip_create_file(deark *c);
 void de_zip_add_file_to_archive(deark *c, dbuf *f);
 void de_zip_close_file(deark *c);
 
-int de_write_png(deark *c, struct deark_bitmap *img, dbuf *f);
+int de_write_png(deark *c, de_bitmap *img, dbuf *f);
 
 de_uint32 de_crc32(const void *buf, de_int64 buf_len);
 de_uint32 de_crc32_continue(de_uint32 prev_crc, const void *buf, de_int64 buf_len);
@@ -551,26 +552,26 @@ void dbuf_read_fourcc(dbuf *f, de_int64 pos, struct de_fourcc *fcc, int is_rever
 
 ///////////////////////////////////////////
 
-void de_bitmap_write_to_file(struct deark_bitmap *img, const char *token, unsigned int createflags);
-void de_bitmap_write_to_file_finfo(struct deark_bitmap *img, de_finfo *fi, unsigned int createflags);
+void de_bitmap_write_to_file(de_bitmap *img, const char *token, unsigned int createflags);
+void de_bitmap_write_to_file_finfo(de_bitmap *img, de_finfo *fi, unsigned int createflags);
 
-void de_bitmap_setsample(struct deark_bitmap *img, de_int64 x, de_int64 y,
+void de_bitmap_setsample(de_bitmap *img, de_int64 x, de_int64 y,
 	de_int64 samplenum, de_byte v);
 
-void de_bitmap_setpixel_gray(struct deark_bitmap *img, de_int64 x, de_int64 y, de_byte v);
+void de_bitmap_setpixel_gray(de_bitmap *img, de_int64 x, de_int64 y, de_byte v);
 
-void de_bitmap_setpixel_rgb(struct deark_bitmap *img, de_int64 x, de_int64 y,
+void de_bitmap_setpixel_rgb(de_bitmap *img, de_int64 x, de_int64 y,
 	de_uint32 color);
 
-void de_bitmap_setpixel_rgba(struct deark_bitmap *img, de_int64 x, de_int64 y,
+void de_bitmap_setpixel_rgba(de_bitmap *img, de_int64 x, de_int64 y,
 	de_uint32 color);
 
-de_uint32 de_bitmap_getpixel(struct deark_bitmap *img, de_int64 x, de_int64 y);
+de_uint32 de_bitmap_getpixel(de_bitmap *img, de_int64 x, de_int64 y);
 
-struct deark_bitmap *de_bitmap_create_noinit(deark *c);
-struct deark_bitmap *de_bitmap_create(deark *c, de_int64 width, de_int64 height, int bypp);
+de_bitmap *de_bitmap_create_noinit(deark *c);
+de_bitmap *de_bitmap_create(deark *c, de_int64 width, de_int64 height, int bypp);
 
-void de_bitmap_destroy(struct deark_bitmap *b);
+void de_bitmap_destroy(de_bitmap *b);
 
 #define DE_COLOR_A(x)  (((x)>>24)&0xff)
 #define DE_COLOR_R(x)  (((x)>>16)&0xff)
@@ -602,11 +603,11 @@ de_byte de_get_bits_symbol2(dbuf *f, int nbits, de_int64 bytepos, de_int64 bitpo
 
 // Utility function for the common case of reading a packed bi-level row, and
 // writing to a bitmap.
-void de_convert_row_bilevel(dbuf *f, de_int64 fpos, struct deark_bitmap *img,
+void de_convert_row_bilevel(dbuf *f, de_int64 fpos, de_bitmap *img,
 	de_int64 rownum, unsigned int flags);
 
 void de_convert_image_bilevel(dbuf *f, de_int64 fpos, de_int64 rowspan,
-	struct deark_bitmap *img, unsigned int flags);
+	de_bitmap *img, unsigned int flags);
 
 void de_convert_and_write_image_bilevel(dbuf *f, de_int64 fpos,
 	de_int64 w, de_int64 h, de_int64 rowspan, unsigned int cvtflags,
@@ -620,7 +621,7 @@ void de_read_palette_rgb(dbuf *f,
 // Utility function that will work for many of the common kinds of paletted images.
 void de_convert_image_paletted(dbuf *f, de_int64 fpos,
 	de_int64 bpp, de_int64 rowspan, const de_uint32 *pal,
-	struct deark_bitmap *img, unsigned int flags);
+	de_bitmap *img, unsigned int flags);
 
 de_int64 de_pad_to_2(de_int64 x);
 de_int64 de_pad_to_4(de_int64 x);
@@ -645,17 +646,17 @@ int de_is_grayscale_palette(const de_uint32 *pal, de_int64 num_entries);
 #define DE_BITMAPFLAG_WHITEISTRNS 0x1
 #define DE_BITMAPFLAG_MERGE       0x2
 
-void de_bitmap_rect(struct deark_bitmap *img,
+void de_bitmap_rect(de_bitmap *img,
 	de_int64 xpos, de_int64 ypos, de_int64 width, de_int64 height,
 	de_uint32 clr, unsigned int flags);
-void de_bitmap_copy_rect(struct deark_bitmap *srcimg, struct deark_bitmap *dstimg,
+void de_bitmap_copy_rect(de_bitmap *srcimg, de_bitmap *dstimg,
 	de_int64 srcxpos, de_int64 srcypos, de_int64 width, de_int64 height,
 	de_int64 dstxpos, de_int64 dstypos, unsigned int flags);
 
-void de_bitmap_apply_mask(struct deark_bitmap *fg, struct deark_bitmap *mask,
+void de_bitmap_apply_mask(de_bitmap *fg, de_bitmap *mask,
 	unsigned int flags);
 
-void de_optimize_image_alpha(struct deark_bitmap *img, unsigned int flags);
+void de_optimize_image_alpha(de_bitmap *img, unsigned int flags);
 
 void de_make_grayscale_palette(de_uint32 *pal, de_int64 num_entries, unsigned int flags);
 
@@ -809,10 +810,10 @@ void de_destroy_bitmap_font(deark *c, struct de_bitmap_font *font);
 #define DE_PAINTFLAG_RIGHTHALF  0x08 // because they are stored in de_char_cell::size_flags.
 #define DE_PAINTFLAG_TOPHALF    0x10
 #define DE_PAINTFLAG_BOTTOMHALF 0x20
-void de_font_paint_character_idx(deark *c, struct deark_bitmap *img,
+void de_font_paint_character_idx(deark *c, de_bitmap *img,
 	struct de_bitmap_font *font, de_int64 char_idx,
 	de_int64 xpos, de_int64 ypos, de_uint32 fgcol, de_uint32 bgcol, unsigned int flags);
-void de_font_paint_character_cp(deark *c, struct deark_bitmap *img,
+void de_font_paint_character_cp(deark *c, de_bitmap *img,
 	struct de_bitmap_font *font, de_int32 codepoint,
 	de_int64 xpos, de_int64 ypos, de_uint32 fgcol, de_uint32 bgcol, unsigned int flags);
 

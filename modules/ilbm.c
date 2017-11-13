@@ -239,7 +239,7 @@ static void get_row_vdat(deark *c, lctx *d, struct img_info *ii,
 	}
 }
 
-static void set_density(deark *c, lctx *d, struct deark_bitmap *img)
+static void set_density(deark *c, lctx *d, de_bitmap *img)
 {
 	int has_aspect, has_dpi;
 
@@ -263,7 +263,7 @@ static void set_density(deark *c, lctx *d, struct deark_bitmap *img)
 static void do_image_24(deark *c, lctx *d, struct img_info *ii,
 	dbuf *unc_pixels, unsigned int createflags)
 {
-	struct deark_bitmap *img = NULL;
+	de_bitmap *img = NULL;
 	de_int64 i, j;
 	de_byte *row_orig = NULL;
 	de_byte *row_deplanarized = NULL;
@@ -370,7 +370,7 @@ static void fixup_palette(deark *c, lctx *d)
 static int do_image_1to8(deark *c, lctx *d, struct img_info *ii,
 	dbuf *unc_pixels, unsigned int createflags)
 {
-	struct deark_bitmap *img = NULL;
+	de_bitmap *img = NULL;
 	de_int64 i, j;
 	de_byte *row_orig = NULL;
 	de_byte *row_deplanarized = NULL;

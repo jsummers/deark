@@ -265,7 +265,7 @@ done:
 	de_free(c, rowbuf2);
 }
 
-static void do_render_tile(deark *c, lctx *d, struct deark_bitmap *img,
+static void do_render_tile(deark *c, lctx *d, de_bitmap *img,
 	de_int64 tile_num, de_int64 tile_loc, de_int64 tile_len)
 {
 	de_int64 i, j;
@@ -333,7 +333,7 @@ static void do_bitmap(deark *c, lctx *d)
 	de_int64 item_id;
 	de_int64 tile_loc, tile_len;
 	de_int64 tile_num;
-	struct deark_bitmap *img = NULL;
+	de_bitmap *img = NULL;
 
 	de_dbg(c, "reading image data");
 	de_dbg_indent(c, 1);

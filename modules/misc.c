@@ -304,7 +304,7 @@ static int xpuzz_read_header(deark *c, struct xpuzzctx *d)
 static void de_run_xpuzzle(deark *c, de_module_params *mparams)
 {
 	struct xpuzzctx *d = NULL;
-	struct deark_bitmap *img = NULL;
+	de_bitmap *img = NULL;
 	de_uint32 pal[256];
 	de_int64 p;
 
@@ -457,7 +457,7 @@ void de_module_mrw(deark *c, struct deark_module_info *mi)
 
 static void de_run_bob(deark *c, de_module_params *mparams)
 {
-	struct deark_bitmap *img = NULL;
+	de_bitmap *img = NULL;
 	de_int64 w, h;
 	de_uint32 pal[256];
 	de_int64 p;
@@ -511,7 +511,7 @@ void de_module_bob(deark *c, struct deark_module_info *mi)
 
 static void de_run_alias_pix(deark *c, de_module_params *mparams)
 {
-	struct deark_bitmap *img = NULL;
+	de_bitmap *img = NULL;
 	de_int64 w, h;
 	de_int64 i;
 	de_int64 pos;
@@ -630,7 +630,7 @@ static de_byte applevol_get_gray_shade(de_byte clr)
 
 static void de_run_applevol(deark *c, de_module_params *mparams)
 {
-	struct deark_bitmap *img = NULL;
+	de_bitmap *img = NULL;
 	de_int64 w, h;
 	de_int64 i, j;
 	de_int64 p;
@@ -680,7 +680,7 @@ void de_module_applevol(deark *c, struct deark_module_info *mi)
 
 static void de_run_hr(deark *c, de_module_params *mparams)
 {
-	struct deark_bitmap *img = NULL;
+	de_bitmap *img = NULL;
 
 	img = de_bitmap_create(c, 640, 240, 1);
 	img->density_code = DE_DENSITY_UNK_UNITS;
@@ -714,7 +714,7 @@ void de_module_hr(deark *c, struct deark_module_info *mi)
 
 static void de_run_ripicon(deark *c, de_module_params *mparams)
 {
-	struct deark_bitmap *img = NULL;
+	de_bitmap *img = NULL;
 	de_int64 width, height;
 	de_int64 chunk_span;
 	de_int64 src_rowspan;
@@ -801,7 +801,7 @@ static de_byte lss16_get_nibble(deark *c, struct lss16ctx *d)
 static void de_run_lss16(deark *c, de_module_params *mparams)
 {
 	struct lss16ctx *d = NULL;
-	struct deark_bitmap *img = NULL;
+	de_bitmap *img = NULL;
 	de_int64 width, height;
 	de_int64 i;
 	de_int64 xpos, ypos;
@@ -979,7 +979,7 @@ void de_module_fp_art(deark *c, struct deark_module_info *mi)
 
 static void de_run_ybm(deark *c, de_module_params *mparams)
 {
-	struct deark_bitmap *img = NULL;
+	de_bitmap *img = NULL;
 	de_int64 width, height;
 	de_int64 i, j;
 	de_int64 rowspan;
@@ -1035,7 +1035,7 @@ void de_module_ybm(deark *c, struct deark_module_info *mi)
 
 static void de_run_olpc565(deark *c, de_module_params *mparams)
 {
-	struct deark_bitmap *img = NULL;
+	de_bitmap *img = NULL;
 	de_int64 width, height;
 	de_int64 i, j;
 	de_int64 rowspan;
@@ -1085,7 +1085,7 @@ void de_module_olpc565(deark *c, struct deark_module_info *mi)
 
 static void de_run_iim(deark *c, de_module_params *mparams)
 {
-	struct deark_bitmap *img = NULL;
+	de_bitmap *img = NULL;
 	de_int64 width, height;
 	de_int64 i, j;
 	de_int64 n, bpp;
@@ -1140,7 +1140,7 @@ void de_module_iim(deark *c, struct deark_module_info *mi)
 
 static void de_run_pm_xv(deark *c, de_module_params *mparams)
 {
-	struct deark_bitmap *img = NULL;
+	de_bitmap *img = NULL;
 	int is_le;
 	de_int64 width, height;
 	de_int64 nplanes;
@@ -1316,7 +1316,7 @@ void de_module_crg(deark *c, struct deark_module_info *mi)
 
 static void de_run_farbfeld(deark *c, de_module_params *mparams)
 {
-	struct deark_bitmap *img = NULL;
+	de_bitmap *img = NULL;
 	de_int64 width, height;
 	de_int64 i, j, k;
 	de_int64 ppos;
@@ -1444,7 +1444,7 @@ void de_module_vgafont(deark *c, struct deark_module_info *mi)
 
 static void convert_image_rgb(dbuf *f, de_int64 fpos,
 	de_int64 rowspan, de_int64 pixelspan,
-	struct deark_bitmap *img, unsigned int flags)
+	de_bitmap *img, unsigned int flags)
 {
 	de_int64 i, j;
 	de_int32 clr;
@@ -1466,7 +1466,7 @@ static void de_run_hsiraw(deark *c, de_module_params *mparams)
 	de_int64 hdpi, vdpi;
 	de_int64 cmpr;
 	de_int64 alpha_info;
-	struct deark_bitmap *img = NULL;
+	de_bitmap *img = NULL;
 	de_uint32 pal[256];
 	int is_grayscale;
 
@@ -1552,7 +1552,7 @@ static void de_run_qdv(deark *c, de_module_params *mparams)
 	de_int64 w, h;
 	de_int64 num_pal_colors;
 	de_int64 pos;
-	struct deark_bitmap *img = NULL;
+	de_bitmap *img = NULL;
 	de_uint32 pal[256];
 
 	// Warning: This decoder is based on reverse engineering, and may be
@@ -1610,7 +1610,7 @@ static void de_run_vitec(deark *c, de_module_params *mparams)
 {
 	de_int64 w, h;
 	de_int64 i, j, plane;
-	struct deark_bitmap *img = NULL;
+	de_bitmap *img = NULL;
 	de_int64 samplesperpixel;
 	de_int64 rowspan, planespan;
 	de_int64 pos;
@@ -1744,7 +1744,7 @@ static void de_run_lumena_cel(deark *c, de_module_params *mparams)
 	de_byte a;
 	int is_16bit = 0;
 	int is_32bit = 0;
-	struct deark_bitmap *img = NULL;
+	de_bitmap *img = NULL;
 	const de_int64 headersize = 4;
 	de_int64 bypp;
 

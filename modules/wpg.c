@@ -198,7 +198,7 @@ static void handler_bitmap(deark *c, lctx *d, de_byte rectype, de_int64 dpos1, d
 	int output_bypp;
 	int record_version;
 	dbuf *unc_pixels = NULL;
-	struct deark_bitmap *img = NULL;
+	de_bitmap *img = NULL;
 	de_uint32 finalpal[256];
 
 	d->bitmap_count++;

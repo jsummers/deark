@@ -20,7 +20,7 @@ typedef struct localctx_struct {
 } lctx;
 
 static void do_write_image_frombitmap(deark *c, lctx *d, struct page_ctx *pg,
-	struct deark_bitmap *img)
+	de_bitmap *img)
 {
 	de_finfo *fi = NULL;
 
@@ -39,7 +39,7 @@ static void do_write_image_frombitmap(deark *c, lctx *d, struct page_ctx *pg,
 static void do_write_image_fromuncpixels(deark *c, lctx *d, struct page_ctx *pg,
 	dbuf *unc_pixels)
 {
-	struct deark_bitmap *img = NULL;
+	de_bitmap *img = NULL;
 
 	img = de_bitmap_create(c, pg->width, pg->height, 1);
 	de_convert_image_bilevel(unc_pixels, 0, pg->width_raw, img, DE_CVTF_WHITEISZERO);
@@ -103,7 +103,7 @@ static void do_image_cmpr2(deark *c, lctx *d, struct page_ctx *pg, de_int64 pos1
 static void do_image_cmpr3(deark *c, lctx *d, struct page_ctx *pg, de_int64 pos1,
 	de_int64 *bytes_consumed)
 {
-	struct deark_bitmap *img = NULL;
+	de_bitmap *img = NULL;
 	de_int64 pos = pos1;
 	de_int64 nibble_count;
 	de_int64 nibble_idx;

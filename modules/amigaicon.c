@@ -77,7 +77,7 @@ static void do_decode_newicons(deark *c, lctx *d,
 {
 	de_byte trns_code, width_code, height_code;
 	de_byte b0, b1, tmpb;
-	struct deark_bitmap *img = NULL;
+	de_bitmap *img = NULL;
 	int has_trns;
 	de_int64 ncolors;
 	dbuf *decoded = NULL;
@@ -208,7 +208,7 @@ static int do_read_main_icon(deark *c, lctx *d,
 	de_int64 src_rowspan, src_planespan;
 	de_int64 i, j, plane;
 	int retval = 0;
-	struct deark_bitmap *img = NULL;
+	de_bitmap *img = NULL;
 	de_byte b, b1;
 	de_uint32 pal[256];
 
@@ -392,7 +392,7 @@ static void glowdata_uncompress(dbuf *f, de_int64 pos, de_int64 len,
 static void do_glowicons_IMAG(deark *c, lctx *d,
 	de_int64 pos, de_int64 len)
 {
-	struct deark_bitmap *img = NULL;
+	de_bitmap *img = NULL;
 	de_byte trns_color;
 	de_int64 num_colors;
 	de_byte flags;

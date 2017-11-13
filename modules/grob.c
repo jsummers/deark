@@ -24,7 +24,7 @@ static void grob_read_binary_bitmap(deark *c, lctx *d, dbuf *inf, de_int64 pos)
 	de_byte b;
 	unsigned int v;
 	de_byte v2;
-	struct deark_bitmap *img = NULL;
+	de_bitmap *img = NULL;
 
 	if(d->num_planes<=1) {
 		de_convert_and_write_image_bilevel(inf, pos, d->w, d->h_phys, (d->w+7)/8,

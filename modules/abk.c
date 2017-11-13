@@ -55,7 +55,7 @@ static void do_read_sprite_image(deark *c, lctx *d, struct amosbank *bk, de_int6
 	de_byte b;
 	de_int64 rowspan, planespan;
 	de_uint32 clr;
-	struct deark_bitmap *img = NULL;
+	de_bitmap *img = NULL;
 
 	width = bk->xsize * 16;
 	height = bk->ysize;
@@ -343,7 +343,7 @@ static void picture_bank_read_picture(deark *c, lctx *d, struct amosbank *bk, de
 	de_int64 height_in_lumps;
 	de_int64 lines_per_lump;
 	de_int64 width, height;
-	struct deark_bitmap *img = NULL;
+	de_bitmap *img = NULL;
 	dbuf *unc_pixels = NULL;
 	de_int64 k;
 	de_int64 xpos, ypos;

@@ -185,7 +185,7 @@ static void do_generate_unc_image(deark *c, lctx *d, struct page_ctx *pg,
 	de_byte b_adj;
 	de_uint32 clr;
 	int has_color;
-	struct deark_bitmap *img = NULL;
+	de_bitmap *img = NULL;
 
 	has_color = (pg->bitsperpixel>4 || pg->has_custom_pal);
 

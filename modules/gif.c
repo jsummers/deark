@@ -29,13 +29,13 @@ typedef struct localctx_struct {
 	de_int64 global_color_table_size; // Number of colors stored in the file
 	de_uint32 global_ct[256];
 
-	struct deark_bitmap *screen_img;
+	de_bitmap *screen_img;
 	struct gceinfo *gce; // The Graphic Control Ext. in effect for the next image
 } lctx;
 
 // Data about a single image
 struct gif_image_data {
-	struct deark_bitmap *img;
+	de_bitmap *img;
 	de_int64 xpos, ypos;
 	de_int64 width, height;
 	de_int64 pixels_set;
@@ -833,7 +833,7 @@ static int do_image(deark *c, lctx *d, de_int64 pos1, de_int64 *bytesused)
 {
 	int retval = 0;
 	struct gif_image_data *gi = NULL;
-	struct deark_bitmap *prev_img = NULL;
+	de_bitmap *prev_img = NULL;
 	de_byte disposal_method = 0;
 
 	de_dbg_indent(c, 1);

@@ -401,7 +401,7 @@ static void do_bitmap_1bpp(deark *c, lctx *d)
 
 static void do_bitmap_paletted(deark *c, lctx *d)
 {
-	struct deark_bitmap *img = NULL;
+	de_bitmap *img = NULL;
 	de_int64 i, j;
 	de_int64 plane;
 	de_byte b;
@@ -428,7 +428,7 @@ static void do_bitmap_paletted(deark *c, lctx *d)
 
 static void do_bitmap_24bpp(deark *c, lctx *d)
 {
-	struct deark_bitmap *img = NULL;
+	de_bitmap *img = NULL;
 	de_int64 i, j;
 	de_int64 plane;
 	de_byte s[4];

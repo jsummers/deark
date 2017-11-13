@@ -84,7 +84,7 @@ static int do_decompress(deark *c, lctx *d, de_int64 pos1, dbuf *unc_pixels)
 
 static void do_write_image_gray(deark *c, lctx *d, dbuf *unc_pixels)
 {
-	struct deark_bitmap *img = NULL;
+	de_bitmap *img = NULL;
 	de_int64 i, j;
 	de_byte b;
 	de_int64 k;
@@ -115,7 +115,7 @@ static void do_write_image_gray(deark *c, lctx *d, dbuf *unc_pixels)
 
 static void do_write_image_pal(deark *c, lctx *d, dbuf *unc_pixels)
 {
-	struct deark_bitmap *img = NULL;
+	de_bitmap *img = NULL;
 	de_int64 i, j;
 	de_byte b;
 

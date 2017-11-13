@@ -88,7 +88,7 @@ done:
 
 static int do_bitmap_8ca(deark *c, lctx *d, de_int64 pos)
 {
-	struct deark_bitmap *img = NULL;
+	de_bitmap *img = NULL;
 	de_int64 i;
 	de_int64 j;
 	de_int64 rowspan;
@@ -129,7 +129,7 @@ done:
 
 static int do_bitmap_8ci(deark *c, lctx *d, de_int64 pos)
 {
-	struct deark_bitmap *img = NULL;
+	de_bitmap *img = NULL;
 	de_int64 i;
 	de_int64 j;
 	de_int64 rowspan;

@@ -291,7 +291,7 @@ static void
 WriteFace(struct xfacectx *ctx)
 {
 	de_int64 i, j;
-	struct deark_bitmap *img = NULL;
+	de_bitmap *img = NULL;
 
 	img = de_bitmap_create(ctx->c, XFACE_WIDTH, XFACE_HEIGHT, 1);
 

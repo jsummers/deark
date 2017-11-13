@@ -39,7 +39,7 @@ static void do_read_palette(deark *c, lctx *d, de_int64 pos, de_int64 ncolors)
 
 static void do_pal8(deark *c, lctx *d)
 {
-	struct deark_bitmap *img = NULL;
+	de_bitmap *img = NULL;
 	de_int64 clut_size;
 	de_int64 ncolors_per_clut;
 	de_int64 num_cluts;

@@ -198,7 +198,7 @@ static void handle_2_125(deark *c, lctx *d, const struct ds_info *dsi,
 	de_int64 pos, de_int64 len)
 {
 	dbuf *unc_pixels = NULL;
-	struct deark_bitmap *img = NULL;
+	de_bitmap *img = NULL;
 	de_int64 i, j;
 	de_byte b;
 	de_int64 rowspan;

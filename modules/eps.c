@@ -68,7 +68,7 @@ static void process_hex_digit(deark *c, lctx *d, de_byte hexdigit, dbuf *outf)
 	return;
 }
 
-static void convert_row_gray(dbuf *f, de_int64 fpos, struct deark_bitmap *img,
+static void convert_row_gray(dbuf *f, de_int64 fpos, de_bitmap *img,
 	de_int64 rownum, int depth)
 {
 	de_int64 i;
@@ -85,7 +85,7 @@ static void convert_row_gray(dbuf *f, de_int64 fpos, struct deark_bitmap *img,
 
 static void do_decode_epsi_image(deark *c, lctx *d, de_int64 pos1)
 {
-	struct deark_bitmap *img = NULL;
+	de_bitmap *img = NULL;
 	dbuf *tmpf = NULL;
 	de_int64 content_len, total_len;
 	de_int64 pos;

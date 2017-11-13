@@ -18,7 +18,7 @@ typedef struct localctx_struct {
 static int do_v1_image(deark *c, de_int64 pos,
 	de_int64 w_blocks, de_int64 h_blocks, int special, unsigned int createflags)
 {
-	struct deark_bitmap *img = NULL;
+	de_bitmap *img = NULL;
 	de_int64 w, h;
 	de_int64 i, j, i2, j2;
 	de_int64 colors_start=0, bitmap_start;
@@ -116,7 +116,7 @@ static int detect_palette_at(deark *c, lctx *d, de_int64 pos, de_int64 ncolors)
 
 static void do_v2(deark *c, lctx *d)
 {
-	struct deark_bitmap *img = NULL;
+	de_bitmap *img = NULL;
 	de_int64 rowspan1;
 	de_int64 rowspan;
 	de_int64 bitmap_start;

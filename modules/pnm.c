@@ -347,7 +347,7 @@ done:
 
 static int do_image_pbm_ascii(deark *c, lctx *d, struct page_ctx *pg, de_int64 pos1)
 {
-	struct deark_bitmap *img = NULL;
+	de_bitmap *img = NULL;
 	de_int64 xpos, ypos;
 	de_int64 pos = pos1;
 	de_byte b;
@@ -381,7 +381,7 @@ static int do_image_pbm_ascii(deark *c, lctx *d, struct page_ctx *pg, de_int64 p
 
 static int do_image_pgm_ppm_ascii(deark *c, lctx *d, struct page_ctx *pg, de_int64 pos1)
 {
-	struct deark_bitmap *img = NULL;
+	de_bitmap *img = NULL;
 	de_int64 nsamples; // For both input and output
 	de_int64 pos = pos1;
 	de_int64 xpos, ypos, sampidx;
@@ -464,7 +464,7 @@ static int do_image_pbm_binary(deark *c, lctx *d, struct page_ctx *pg, de_int64 
 
 static int do_image_pgm_ppm_pam_binary(deark *c, lctx *d, struct page_ctx *pg, de_int64 pos1)
 {
-	struct deark_bitmap *img = NULL;
+	de_bitmap *img = NULL;
 	de_int64 rowspan;
 	de_int64 nsamples; // For both input and output
 	de_int64 bytes_per_sample;

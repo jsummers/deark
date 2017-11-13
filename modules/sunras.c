@@ -61,7 +61,7 @@ static void do_read_palette(deark *c, lctx *d, de_int64 pos)
 
 static void do_image(deark *c, lctx *d, dbuf *unc_pixels)
 {
-	struct deark_bitmap *img = NULL;
+	de_bitmap *img = NULL;
 	de_uint32 clr;
 	de_byte b;
 	de_int64 i, j;

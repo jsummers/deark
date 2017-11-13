@@ -273,7 +273,7 @@ static void do_generate_unc_image(deark *c, lctx *d, dbuf *unc_pixels,
 	de_int64 i, j;
 	de_byte b;
 	de_byte b_adj;
-	struct deark_bitmap *img = NULL;
+	de_bitmap *img = NULL;
 
 	if(igi->bitsperpixel==1) {
 		de_convert_and_write_image_bilevel(unc_pixels, 0, igi->w, igi->h, igi->rowbytes,

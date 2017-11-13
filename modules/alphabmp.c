@@ -43,7 +43,7 @@ static void do_bitmap(deark *c, lctx *d, dbuf *unc_pixels)
 	de_int64 i, j;
 	de_int64 rowspan;
 	de_uint32 clr;
-	struct deark_bitmap *img = NULL;
+	de_bitmap *img = NULL;
 	de_byte b;
 
 	rowspan = (d->w * d->bpp +7)/8;

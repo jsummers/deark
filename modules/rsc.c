@@ -49,7 +49,7 @@ static void do_bilevel_icon(deark *c, lctx *d, struct iconinfo *ii, de_int64 fg_
 {
 	de_int64 i, j;
 	de_byte n, a;
-	struct deark_bitmap *img = NULL;
+	de_bitmap *img = NULL;
 
 	img = de_bitmap_create(c, ii->width, ii->height, 2);
 
@@ -144,7 +144,7 @@ static void do_color_icon(deark *c, lctx *d, struct iconinfo *ii, de_int64 fg_po
 {
 	de_int64 i, j;
 	de_byte a;
-	struct deark_bitmap *img = NULL;
+	de_bitmap *img = NULL;
 	de_int64 plane;
 	de_int64 planespan;
 	de_byte b;

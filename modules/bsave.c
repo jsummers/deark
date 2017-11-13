@@ -45,7 +45,7 @@ static de_int64 get_height(deark *c, lctx *d, de_int64 default_height)
 // This is really a text mode, and can be processed by do_char() as well.
 static int do_cga16(deark *c, lctx *d)
 {
-	struct deark_bitmap *img = NULL;
+	de_bitmap *img = NULL;
 	de_int64 max_possible_height;
 	de_int64 i, j;
 	int retval = 0;
@@ -120,7 +120,7 @@ static int do_4color(deark *c, lctx *d)
 	de_int64 i,j;
 	de_int64 pos;
 	de_int64 src_rowspan;
-	struct deark_bitmap *img = NULL;
+	de_bitmap *img = NULL;
 
 	if(d->has_dimension_fields) {
 		if(d->interlaced)
@@ -194,7 +194,7 @@ static int do_2color(deark *c, lctx *d)
 	de_int64 j;
 	de_int64 src_rowspan;
 	de_int64 pos;
-	struct deark_bitmap *img = NULL;
+	de_bitmap *img = NULL;
 
 	img = de_bitmap_create_noinit(c);
 	img->bytes_per_pixel = 1;
@@ -249,7 +249,7 @@ static int do_256color(deark *c, lctx *d)
 	de_int64 i, j;
 	de_byte palent;
 	de_uint32 clr;
-	struct deark_bitmap *img = NULL;
+	de_bitmap *img = NULL;
 
 	de_declare_fmt(c, "BSAVE-PC 256-color");
 
@@ -283,7 +283,7 @@ static int do_256color(deark *c, lctx *d)
 static int do_wh16(deark *c, lctx *d)
 {
 	de_int64 i, j;
-	struct deark_bitmap *img = NULL;
+	de_bitmap *img = NULL;
 	de_int64 src_rowspan1;
 	de_int64 src_rowspan;
 	de_int64 pos;
@@ -331,7 +331,7 @@ static int do_b265(deark *c, lctx *d)
 	int palent;
 	de_int64 i,j;
 	de_int64 bits_per_scanline;
-	struct deark_bitmap *img = NULL;
+	de_bitmap *img = NULL;
 	de_int64 fakewidth;
 	int retval = 0;
 

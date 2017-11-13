@@ -200,7 +200,7 @@ static void extract_unc_jfif_thumbnail(deark *c, lctx *d, struct page_ctx *pg,
 {
 	de_int64 i, j;
 	de_int64 pos = pos1;
-	struct deark_bitmap *img = NULL;
+	de_bitmap *img = NULL;
 	de_uint32 clr;
 	de_int64 rowspan;
 

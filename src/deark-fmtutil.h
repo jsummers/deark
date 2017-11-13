@@ -117,7 +117,7 @@ struct atari_img_decode_data {
 	int was_compressed;
 	int is_spectrum512;
 	de_uint32 *pal;
-	struct deark_bitmap *img;
+	de_bitmap *img;
 };
 
 #define DE_FLAG_ATARI_15BIT_PAL 0x2

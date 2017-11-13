@@ -3496,7 +3496,7 @@ static de_byte scale_float_to_255(double x)
 static void do_bitmap(deark *c, lctx *d, const struct image_info *iinfo, dbuf *f,
 	de_int64 pos, de_int64 len)
 {
-	struct deark_bitmap *img = NULL;
+	de_bitmap *img = NULL;
 	de_int64 i, j, plane;
 	de_int64 nplanes = 0; // Number of planes to read. May be less than d->num_channels.
 	de_int64 planespan, rowspan, samplespan;
