@@ -1110,7 +1110,7 @@ static void handler_sof(deark *c, lctx *d, struct page_ctx *pg,
 	de_dbg(c, "precision: %d", (int)pg->precision);
 	h = de_getui16be(pos+1);
 	w = de_getui16be(pos+3);
-	de_dbg(c, "dimensions: %dx%d", (int)w, (int)h);
+	de_dbg_dimensions(c, w, h);
 	pg->ncomp = (de_int64)de_getbyte(pos+5);
 	de_dbg(c, "number of components: %d", (int)pg->ncomp);
 

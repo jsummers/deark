@@ -100,7 +100,7 @@ static int read_mki_header(deark *c, lctx *d)
 	d->width = width_raw - xoffset;
 	height_raw = de_getui16be(pos+14);
 	d->height = height_raw - yoffset;
-	de_dbg(c, "dimensions: %dx%d", (int)d->width, (int)d->height);
+	de_dbg_dimensions(c, d->width, d->height);
 	if(d->width%64 != 0) {
 		de_warn(c, "Width is not a multiple of 64. This image may not be handled correctly.");
 	}
@@ -289,7 +289,7 @@ static int read_mag_header(deark *c, lctx *d)
 	height_raw = de_getui16le(pos+10);
 	d->width = width_raw - xoffset + 1;
 	d->height = height_raw - yoffset + 1;
-	de_dbg(c, "dimensions: %dx%d", (int)d->width, (int)d->height);
+	de_dbg_dimensions(c, d->width, d->height);
 
 	d->flag_a_offset = de_getui32le(pos+12);
 	d->flag_a_offset += d->header_pos;

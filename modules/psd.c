@@ -2380,7 +2380,7 @@ static int do_pattern_internal(deark *c, lctx *d, zztype *zz)
 
 	h = psd_getui16zz(zz);
 	w = psd_getui16zz(zz);
-	de_dbg(c, "dimensions: %dx%d", (int)w, (int)h);
+	de_dbg_dimensions(c, w, h);
 
 	s = ucstring_create(c);
 	read_unicode_string(c, d, s, zz);
@@ -3427,7 +3427,7 @@ static int do_psd_header(deark *c, lctx *d, de_int64 pos)
 
 	d->main_iinfo->height = psd_getui32(pos+14);
 	d->main_iinfo->width = psd_getui32(pos+18);
-	de_dbg(c, "dimensions: %dx%d", (int)d->main_iinfo->width, (int)d->main_iinfo->height);
+	de_dbg_dimensions(c, d->main_iinfo->width, d->main_iinfo->height);
 
 	d->main_iinfo->bits_per_channel = psd_getui16(pos+22);
 	de_dbg(c, "bits/channel: %d", (int)d->main_iinfo->bits_per_channel);

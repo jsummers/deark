@@ -403,7 +403,7 @@ static void do_imgview_image(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 	pos += 2;
 	igi->h = de_getui16be(pos);
 	pos += 2;
-	de_dbg(c, "dimensions: %dx%d", (int)igi->w, (int)igi->h);
+	de_dbg_dimensions(c, igi->w, igi->h);
 	if(!de_good_image_dimensions(c, igi->w, igi->h)) goto done;
 
 	igi->rowbytes = (igi->w*igi->bitsperpixel + 7)/8;

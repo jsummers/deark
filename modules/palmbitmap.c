@@ -436,7 +436,7 @@ static void do_palm_BitmapType_internal(deark *c, lctx *d, de_int64 pos1, de_int
 
 	pg->w = dbuf_geti16x(c->infile, pos1, d->is_le);
 	pg->h =  dbuf_geti16x(c->infile, pos1+2, d->is_le);
-	de_dbg(c, "dimensions: %dx%d", (int)pg->w, (int)pg->h);
+	de_dbg_dimensions(c, pg->w, pg->h);
 
 	pg->rowbytes = dbuf_getui16x(c->infile, pos1+4, d->is_le);
 	de_dbg(c, "rowBytes: %d", (int)pg->rowbytes);

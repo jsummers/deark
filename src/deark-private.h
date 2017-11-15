@@ -356,6 +356,7 @@ void de_dbg_indent_save(deark *c, int *saved_indent_level);
 void de_dbg_indent_restore(deark *c, int saved_indent_level);
 void de_dbg_hexdump(deark *c, dbuf *f, de_int64 pos1, de_int64 len,
 	const char *prefix, unsigned int flags);
+void de_dbg_dimensions(deark *c, de_int64 w, de_int64 h);
 void de_dbg_pal_entry(deark *c, de_int64 idx, de_uint32 clr);
 void de_dbg_pal_entry2(deark *c, de_int64 idx, de_uint32 clr,
 	const char *txt_before, const char *txt_in, const char *txt_after);

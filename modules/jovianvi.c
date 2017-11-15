@@ -181,7 +181,7 @@ static void de_run_jovianvi(deark *c, de_module_params *mparams)
 
 	d->w = de_getui16le(3);
 	d->h = de_getui16le(5);
-	de_dbg(c, "dimensions: %dx%d", (int)d->w, (int)d->h);
+	de_dbg_dimensions(c, d->w, d->h);
 	if(!de_good_image_dimensions(c, d->w, d->h)) goto done;
 
 

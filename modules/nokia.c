@@ -140,7 +140,7 @@ static void de_run_npm(deark *c, de_module_params *mparams)
 	pos += 1;
 	d->h = (de_int64)de_getbyte(pos);
 	pos += 1;
-	de_dbg(c, "dimensions: %dx%d", (int)d->w, (int)d->h);
+	de_dbg_dimensions(c, d->w, d->h);
 
 	pos += 3;
 	npm_nlm_read_bitmap(c, d, pos);
@@ -188,7 +188,7 @@ static void de_run_nlm(deark *c, de_module_params *mparams)
 
 	d->w = (de_int64)de_getbyte(7);
 	d->h = (de_int64)de_getbyte(8);
-	de_dbg(c, "dimensions: %dx%d", (int)d->w, (int)d->h);
+	de_dbg_dimensions(c, d->w, d->h);
 
 	npm_nlm_read_bitmap(c, d, 10);
 

@@ -724,7 +724,7 @@ static void de_run_ripicon(deark *c, de_module_params *mparams)
 
 	width = 1 + de_getui16le(0);
 	height = 1 + de_getui16le(2);
-	de_dbg(c, "dimensions: %dx%d", (int)width, (int)height);
+	de_dbg_dimensions(c, width, height);
 	if(!de_good_image_dimensions(c, width, height)) goto done;
 
 	img = de_bitmap_create(c, width, height, 3);
@@ -818,7 +818,7 @@ static void de_run_lss16(deark *c, de_module_params *mparams)
 	d->pos = 4;
 	width = de_getui16le(d->pos);
 	height = de_getui16le(d->pos+2);
-	de_dbg(c, "dimensions: %dx%d", (int)width, (int)height);
+	de_dbg_dimensions(c, width, height);
 	if(!de_good_image_dimensions(c, width, height)) goto done;
 
 	d->pos += 4;
@@ -1164,7 +1164,7 @@ static void de_run_pm_xv(deark *c, de_module_params *mparams)
 
 	height = dbuf_geti32x(c->infile, 8, is_le);
 	width = dbuf_geti32x(c->infile, 12, is_le);
-	de_dbg(c, "dimensions: %dx%d", (int)width, (int)height);
+	de_dbg_dimensions(c, width, height);
 	if(!de_good_image_dimensions(c, width, height)) goto done;
 
 	nbands = dbuf_geti32x(c->infile, 16, is_le);
@@ -1251,7 +1251,7 @@ static void de_run_crg(deark *c, de_module_params *mparams)
 
 	width = de_getui32be(20);
 	height = de_getui32be(24);
-	de_dbg(c, "dimensions: %dx%d", (int)width, (int)height);
+	de_dbg_dimensions(c, width, height);
 	if(!de_good_image_dimensions(c, width, height)) goto done;
 
 	b1 = de_getbyte(32);
@@ -1324,7 +1324,7 @@ static void de_run_farbfeld(deark *c, de_module_params *mparams)
 
 	width = de_getui32be(8);
 	height = de_getui32be(12);
-	de_dbg(c, "dimensions: %dx%d", (int)width, (int)height);
+	de_dbg_dimensions(c, width, height);
 	if(!de_good_image_dimensions(c, width, height)) return;
 
 	img = de_bitmap_create(c, width, height, 4);
@@ -1483,7 +1483,7 @@ static void de_run_hsiraw(deark *c, de_module_params *mparams)
 		w = de_getui32be(28);
 	}
 	h = de_getui16be(10);
-	de_dbg(c, "dimensions: %dx%d", (int)w, (int)h);
+	de_dbg_dimensions(c, w, h);
 	num_pal_colors = de_getui16be(12);
 	de_dbg(c, "number of palette colors: %d", (int)num_pal_colors);
 
@@ -1560,7 +1560,7 @@ static void de_run_qdv(deark *c, de_module_params *mparams)
 
 	w = de_getui16be(0);
 	h = de_getui16be(2);
-	de_dbg(c, "dimensions: %dx%d", (int)w, (int)h);
+	de_dbg_dimensions(c, w, h);
 	if(!de_good_image_dimensions(c, w, h)) goto done;
 
 	num_pal_colors = 1 + (de_int64)de_getbyte(4);
@@ -1639,7 +1639,7 @@ static void de_run_vitec(deark *c, de_module_params *mparams)
 
 	w = de_getui32be(pos+36);
 	h = de_getui32be(pos+40);
-	de_dbg(c, "dimensions: %dx%d", (int)w, (int)h);
+	de_dbg_dimensions(c, w, h);
 	if(!de_good_image_dimensions(c, w, h)) goto done;
 
 	// pos+52: Unknown field, 1 in grayscale images

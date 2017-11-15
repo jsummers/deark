@@ -123,7 +123,7 @@ static int read_pnm_header(deark *c, lctx *d, struct page_ctx *pg, de_int64 pos1
 	pg->width = de_atoi64(tokenbuf);
 	if(!read_next_token(c, d, pg, tokenbuf, sizeof(tokenbuf))) goto done;
 	pg->height = de_atoi64(tokenbuf);
-	de_dbg(c, "dimensions: %dx%d", (int)pg->width, (int)pg->height);
+	de_dbg_dimensions(c, pg->width, pg->height);
 
 	if(fmt_is_pbm(pg->fmt)) {
 		pg->maxval = 1;

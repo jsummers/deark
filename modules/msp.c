@@ -117,7 +117,7 @@ static void de_run_msp(deark *c, de_module_params *mparams)
 
 	d->width = de_getui16le(4);
 	d->height = de_getui16le(6);
-	de_dbg(c, "dimensions: %dx%d", (int)d->width, (int)d->height);
+	de_dbg_dimensions(c, d->width, d->height);
 
 	if(d->ver==1) {
 		de_declare_fmt(c, "MS Paint v1");

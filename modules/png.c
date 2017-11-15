@@ -240,7 +240,7 @@ static void do_png_IHDR(deark *c, lctx *d,
 	if(len<13) return;
 	w = de_getui32be(pos);
 	h = de_getui32be(pos+4);
-	de_dbg(c, "dimensions: %dx%d", (int)w, (int)h);
+	de_dbg_dimensions(c, w, h);
 
 	n = de_getbyte(pos+8);
 	de_dbg(c, "depth: %d bits/sample", (int)n);

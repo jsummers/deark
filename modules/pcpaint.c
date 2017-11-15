@@ -595,7 +595,7 @@ static void de_run_pcpaint_pic(deark *c, lctx *d, de_module_params *mparams)
 
 	d->img->width = de_getui16le(2);
 	d->img->height = de_getui16le(4);
-	de_dbg(c, "dimensions: %dx%d", (int)d->img->width, (int)d->img->height);
+	de_dbg_dimensions(c, d->img->width, d->img->height);
 
 	d->plane_info = de_getbyte(10);
 	d->palette_flag = de_getbyte(11);
@@ -687,7 +687,7 @@ static void de_run_pcpaint_clp(deark *c, lctx *d, de_module_params *mparams)
 
 	d->img->width = de_getui16le(2);
 	d->img->height = de_getui16le(4);
-	de_dbg(c, "dimensions: %dx%d", (int)d->img->width, (int)d->img->height);
+	de_dbg_dimensions(c, d->img->width, d->img->height);
 
 	d->plane_info = de_getbyte(10);
 

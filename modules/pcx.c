@@ -84,7 +84,7 @@ static int do_read_header(deark *c, lctx *d)
 
 	d->width = d->margin_R - d->margin_L +1;
 	d->height = d->margin_B - d->margin_T +1;
-	de_dbg(c, "dimensions: %dx%d", (int)d->width, (int)d->height);
+	de_dbg_dimensions(c, d->width, d->height);
 	if(!de_good_image_dimensions(c, d->width, d->height)) goto done;
 
 	d->rowspan = d->rowspan_raw * d->planes;
