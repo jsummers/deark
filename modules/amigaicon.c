@@ -564,7 +564,7 @@ static int my_iff_chunk_handler(deark *c, struct de_iffctx *ictx)
 	case CODE_FACE: // FACE (parameters)
 		d->glowicons_width = 1+(de_int64)de_getbyte(dpos);
 		d->glowicons_height = 1+(de_int64)de_getbyte(dpos+1);
-		de_dbg(c, "dimensions: %dx%d", (int)d->glowicons_width, (int)d->glowicons_height);
+		de_dbg_dimensions(c, d->glowicons_width, d->glowicons_height);
 		break;
 	case CODE_IMAG: // IMAG (one of the images that make up this icon)
 		do_glowicons_IMAG(c, d, dpos, dlen);

@@ -35,8 +35,7 @@ static void do_read_plane_info(deark *c, lctx *d, struct plane_info_struct *pi, 
 
 	de_dbg(c, "bitmap: descriptor at %d, image at %d (size %d)",
 		(int)pos, (int)pi->image_pos, (int)image_size_in_bytes);
-	de_dbg(c, "dimensions: %dx%d", (int)pi->width,
-		(int)pi->height);
+	de_dbg_dimensions(c, pi->width, pi->height);
 }
 
 static void do_bitmap_1plane(deark *c, lctx *d, de_int64 plane_num)

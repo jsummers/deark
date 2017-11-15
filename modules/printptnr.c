@@ -180,7 +180,7 @@ static int do_one_image(deark *c, lctx *d, de_int64 pos1, int img_idx, de_int64 
 	pg->height = (de_int64)de_getbyte(pos++);
 	pg->width_raw = (de_int64)de_getbyte(pos++);
 	pg->width = pg->width_raw*8;
-	de_dbg(c, "dimensions: %dx%d", (int)pg->width, (int)pg->height);
+	de_dbg_dimensions(c, pg->width, pg->height);
 
 	if(pg->cmpr_type==1) {
 		do_image_cmpr1(c, d, pg, pos, &bytes_consumed2);

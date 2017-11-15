@@ -37,7 +37,7 @@ static int do_scan_iconblk(deark *c, lctx *d, de_int64 pos1, struct iconinfo *ii
 	pos = pos1;
 	ii->width = de_getui16be(pos+22);
 	ii->height = de_getui16be(pos+24);
-	de_dbg(c, "dimensions: %dx%d", (int)ii->width, (int)ii->height);
+	de_dbg_dimensions(c, ii->width, ii->height);
 	if(!de_good_image_dimensions(c, ii->width, ii->height)) {
 		return 0;
 	}
@@ -398,7 +398,7 @@ static int do_object(deark *c, lctx *d, de_int64 obj_index, de_int64 pos)
 	// (Fortunately, we don't necessarily need them.)
 	width = de_getui16be(pos+20);
 	height = de_getui16be(pos+22);
-	de_dbg(c, "dimensions: %dx%d", (int)width, (int)height);
+	de_dbg_dimensions(c, width, height);
 
 	de_dbg_indent(c, -1);
 	return 1;
@@ -420,7 +420,7 @@ static int do_bitblk(deark *c, lctx *d, de_int64 pos)
 	width = width_in_bytes*8;
 	de_dbg(c, "width in bytes: %d", (int)width_in_bytes);
 	height = de_getui16be(pos+6);
-	de_dbg(c, "dimensions: %dx%d", (int)width, (int)height);
+	de_dbg_dimensions(c, width, height);
 	fgcol = de_getui16be(pos+12);
 	de_dbg(c, "foreground color: 0x%04x", (unsigned int)fgcol);
 	// TODO: Can we do anything with the foreground color?

@@ -131,7 +131,7 @@ static void read_header(deark *c, lctx *d, de_int64 pos)
 
 	d->width = de_getui32be(pos+4);
 	d->height = de_getui32be(pos+8);
-	de_dbg(c, "dimensions: %dx%d", (int)d->width, (int)d->height);
+	de_dbg_dimensions(c, d->width, d->height);
 
 	d->depth = de_getui32be(pos+12);
 	de_dbg(c, "depth: %d", (int)d->depth);

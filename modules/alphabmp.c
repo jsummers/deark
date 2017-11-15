@@ -113,7 +113,7 @@ static void de_run_alphabmp(deark *c, de_module_params *mparams)
 
 	d->w = de_getui16le(pos);
 	d->h = de_getui16le(pos+2);
-	de_dbg(c, "dimensions: %dx%d", (int)d->w, (int)d->h);
+	de_dbg_dimensions(c, d->w, d->h);
 	if(!de_good_image_dimensions(c, d->w, d->h)) goto done;
 
 	d->bpp = de_getui16le(pos+4);

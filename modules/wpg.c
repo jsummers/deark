@@ -220,7 +220,7 @@ static void handler_bitmap(deark *c, lctx *d, de_byte rectype, de_int64 dpos1, d
 	pos += 2;
 	h = de_getui16le(pos);
 	pos += 2;
-	de_dbg(c, "dimensions: %dx%d", (int)w, (int)h);
+	de_dbg_dimensions(c, w, h);
 
 	bpp = de_getui16le(pos);
 	de_dbg(c, "bits/pixel: %d", (int)bpp);

@@ -51,7 +51,7 @@ static void do_sprite_param_block(deark *c, lctx *d, de_int64 res,
 	width_raw = (de_int64)de_getbyte(pos+4);
 	adata_fg->w = width_raw*16;
 	adata_fg->h = (de_int64)de_getbyte(pos+5);
-	de_dbg(c, "dimensions: %dx%d", (int)adata_fg->w, (int)adata_fg->h);
+	de_dbg_dimensions(c, adata_fg->w, adata_fg->h);
 	if(!de_good_image_dimensions(c, adata_fg->w, adata_fg->h)) goto done;
 
 	adata_mask->w = adata_fg->w;

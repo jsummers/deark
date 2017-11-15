@@ -19,7 +19,7 @@ static int do_read_header(deark *c, lctx *d)
 {
 	d->w = de_getui16le(0);
 	d->h = de_getui16le(2);
-	de_dbg(c, "dimensions: %dx%d", (int)d->w, (int)d->h);
+	de_dbg_dimensions(c, d->w, d->h);
 	if(!de_good_image_dimensions(c, d->w, d->h)) return 0;
 	return 1;
 }

@@ -578,7 +578,7 @@ static void do_emfplus_object_image_bitmap(deark *c, lctx *d, de_int64 pos, de_i
 
 	w = de_getui32le(pos);
 	h = de_getui32le(pos+4);
-	de_dbg(c, "dimensions: %dx%d", (int)w, (int)h);
+	de_dbg_dimensions(c, w, h);
 
 	// 8 stride
 	// 12 pixelformat

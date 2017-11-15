@@ -209,7 +209,7 @@ static int read_infoheader(deark *c, lctx *d, de_int64 pos)
 			d->height = height_raw;
 		}
 	}
-	de_dbg(c, "dimensions: %dx%d", (int)d->width, (int)d->height);
+	de_dbg_dimensions(c, d->width, d->height);
 	if(!de_good_image_dimensions(c, d->width, d->height)) {
 		goto done;
 	}

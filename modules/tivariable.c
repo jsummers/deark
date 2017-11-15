@@ -71,7 +71,7 @@ static int do_bitmap(deark *c, lctx *d, de_int64 pos)
 	de_int64 rowspan;
 	int retval = 0;
 
-	de_dbg(c, "dimensions: %dx%d", (int)d->w, (int)d->h);
+	de_dbg_dimensions(c, d->w, d->h);
 	rowspan = (d->w+7)/8;
 
 	if(pos+rowspan*d->h > c->infile->len) {
@@ -96,7 +96,7 @@ static int do_bitmap_8ca(deark *c, lctx *d, de_int64 pos)
 	de_byte b0, b1;
 	de_uint32 clr;
 
-	de_dbg(c, "dimensions: %dx%d", (int)d->w, (int)d->h);
+	de_dbg_dimensions(c, d->w, d->h);
 
 	rowspan = (((d->w * 16)+31)/32)*4; // Uses 4-byte alignment, apparently
 
@@ -136,7 +136,7 @@ static int do_bitmap_8ci(deark *c, lctx *d, de_int64 pos)
 	int retval = 0;
 	de_byte b0;
 
-	de_dbg(c, "dimensions: %dx%d", (int)d->w, (int)d->h);
+	de_dbg_dimensions(c, d->w, d->h);
 
 	rowspan = (d->w + 1) / 2;
 

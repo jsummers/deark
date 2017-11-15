@@ -129,7 +129,7 @@ static void do_hevc_file(deark *c, lctx *d)
 
 	d->width = get_ue7(c, &pos);
 	d->height = get_ue7(c, &pos);
-	de_dbg(c, "dimensions: %dx%d", (int)d->width, (int)d->height);
+	de_dbg_dimensions(c, d->width, d->height);
 
 
 	d->picture_data_len = get_ue7(c, &pos);

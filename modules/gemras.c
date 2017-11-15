@@ -361,7 +361,7 @@ static void de_run_gemraster(deark *c, de_module_params *mparams)
 	de_dbg(c, "pixel size: %dx%d microns", (int)d->pixwidth, (int)d->pixheight);
 	d->w = de_getui16be(12);
 	d->h = de_getui16be(14);
-	de_dbg(c, "dimensions: %dx%d", (int)d->w, (int)d->h);
+	de_dbg_dimensions(c, d->w, d->h);
 
 	if(d->header_size_in_words>=9) {
 		// This may help to detect the image format.

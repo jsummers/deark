@@ -224,7 +224,7 @@ static int do_2color(deark *c, lctx *d)
 		img->height = get_height(c, d, 200); // TODO: calculate this?
 	}
 
-	de_dbg(c, "dimensions: %dx%d", (int)img->width, (int)img->height);
+	de_dbg_dimensions(c, img->width, img->height);
 	src_rowspan = (img->width+7)/8;
 
 	for(j=0; j<img->height; j++) {
@@ -300,7 +300,7 @@ static int do_wh16(deark *c, lctx *d)
 	img->height = de_getui16le(pos+2);
 	pos+=4;
 
-	de_dbg(c, "dimensions: %dx%d", (int)img->width, (int)img->height);
+	de_dbg_dimensions(c, img->width, img->height);
 
 	src_rowspan1 = (img->width+7)/8;
 	src_rowspan = src_rowspan1*4;

@@ -138,7 +138,7 @@ static int do_image_info(deark *c, lctx *d, de_int64 pos, de_int64 len)
 
 	d->width = de_getui16le(pos+18);
 	d->height = de_getui16le(pos+20);
-	de_dbg(c, "dimensions: %dx%d", (int)d->width, (int)d->height);
+	de_dbg_dimensions(c, d->width, d->height);
 
 	d->gfore = (de_int64)de_getbyte(pos+22);
 	de_dbg(c, "foreground color bits: %d", (int)d->gfore);

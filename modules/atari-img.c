@@ -470,7 +470,7 @@ static void de_run_eggpaint(deark *c, de_module_params *mparams)
 	adata->bpp = 16;
 	adata->w = de_getui16be(4);
 	adata->h = de_getui16be(6);
-	de_dbg(c, "dimensions: %dx%d", (int)adata->w, (int)adata->h);
+	de_dbg_dimensions(c, adata->w, adata->h);
 	adata->unc_pixels = dbuf_open_input_subfile(c->infile, 8, c->infile->len-8);
 	adata->img = de_bitmap_create(c, adata->w, adata->h, 3);
 	de_fmtutil_atari_decode_image(c, adata);
@@ -512,7 +512,7 @@ static void de_run_indypaint(deark *c, de_module_params *mparams)
 	adata->bpp = 16;
 	adata->w = de_getui16be(4);
 	adata->h = de_getui16be(6);
-	de_dbg(c, "dimensions: %dx%d", (int)adata->w, (int)adata->h);
+	de_dbg_dimensions(c, adata->w, adata->h);
 	adata->unc_pixels = dbuf_open_input_subfile(c->infile, 256, c->infile->len-256);
 	adata->img = de_bitmap_create(c, adata->w, adata->h, 3);
 	de_fmtutil_atari_decode_image(c, adata);
@@ -551,7 +551,7 @@ static void de_run_godpaint(deark *c, de_module_params *mparams)
 	adata->bpp = 16;
 	adata->w = de_getui16be(2);
 	adata->h = de_getui16be(4);
-	de_dbg(c, "dimensions: %dx%d", (int)adata->w, (int)adata->h);
+	de_dbg_dimensions(c, adata->w, adata->h);
 	adata->unc_pixels = dbuf_open_input_subfile(c->infile, 6, c->infile->len-6);
 	adata->img = de_bitmap_create(c, adata->w, adata->h, 3);
 	de_fmtutil_atari_decode_image(c, adata);
@@ -1060,7 +1060,7 @@ static void de_run_neochrome_ani(deark *c, de_module_params *mparams)
 	width_in_bytes = de_getui16be(4); // Always a multiple of 8
 	adata->w = ((width_in_bytes+7)/8)*16;
 	adata->h = de_getui16be(6);
-	de_dbg(c, "dimensions: %dx%d", (int)adata->w, (int)adata->h);
+	de_dbg_dimensions(c, adata->w, adata->h);
 	if(!de_good_image_dimensions(c, adata->w, adata->h)) goto done;
 
 	bytes_per_frame = de_getui16be(8);
@@ -1137,7 +1137,7 @@ static void de_run_animatic(deark *c, de_module_params *mparams)
 
 	adata->w = de_getui16be(40);
 	adata->h = de_getui16be(42);
-	de_dbg(c, "dimensions: %dx%d", (int)adata->w, (int)adata->h);
+	de_dbg_dimensions(c, adata->w, adata->h);
 	if(!de_good_image_dimensions(c, adata->w, adata->h)) goto done;
 
 	planespan = 2*((adata->w+15)/16);
@@ -1229,7 +1229,7 @@ static void do_atari_falcon_8bit_img(deark *c, de_int64 width, de_int64 height)
 	adata->ncolors = 256;
 	adata->w = width;
 	adata->h = height;
-	de_dbg(c, "dimensions: %dx%d", (int)adata->w, (int)adata->h);
+	de_dbg_dimensions(c, adata->w, adata->h);
 
 	for(k=0; k<256; k++) {
 		cr = de_getbyte(k*4+0);
@@ -1361,7 +1361,7 @@ static void de_run_falcon_xga(deark *c, de_module_params *mparams)
 		adata->w = 384;
 		adata->h = 480;
 	}
-	de_dbg(c, "dimensions: %dx%d", (int)adata->w, (int)adata->h);
+	de_dbg_dimensions(c, adata->w, adata->h);
 	adata->unc_pixels = c->infile;
 	adata->img = de_bitmap_create(c, adata->w, adata->h, 3);
 	if(adata->w==384 && adata->h == 480) {
@@ -1407,7 +1407,7 @@ static void de_run_coke(deark *c, de_module_params *mparams)
 	adata->bpp = 16;
 	adata->w = de_getui16be(12);
 	adata->h = de_getui16be(14);
-	de_dbg(c, "dimensions: %dx%d", (int)adata->w, (int)adata->h);
+	de_dbg_dimensions(c, adata->w, adata->h);
 	imgdatapos = de_getui16be(16);
 	de_dbg(c, "image data pos: %d", (int)imgdatapos);
 

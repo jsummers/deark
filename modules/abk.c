@@ -60,7 +60,7 @@ static void do_read_sprite_image(deark *c, lctx *d, struct amosbank *bk, de_int6
 	width = bk->xsize * 16;
 	height = bk->ysize;
 
-	de_dbg(c, "dimensions: %dx%d", (int)width, (int)height);
+	de_dbg_dimensions(c, width, height);
 	de_dbg(c, "planes: %d", (int)bk->nplanes);
 	if(!de_good_image_dimensions(c, width, height)) goto done;
 	if(bk->nplanes<1 || bk->nplanes>6) {

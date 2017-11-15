@@ -554,7 +554,7 @@ static int do_read_tga_headers(deark *c, lctx *d)
 
 	d->main_image.width = de_getui16le(12);
 	d->main_image.height = de_getui16le(14);
-	de_dbg(c, "dimensions: %dx%d", (int)d->main_image.width, (int)d->main_image.height);
+	de_dbg_dimensions(c, d->main_image.width, d->main_image.height);
 
 	d->pixel_depth = (de_int64)de_getbyte(16);
 	de_dbg(c, "pixel depth: %d", (int)d->pixel_depth);
@@ -595,7 +595,7 @@ static int do_read_vst_headers(deark *c, lctx *d)
 
 	d->main_image.width = de_getui16le(12);
 	d->main_image.height = de_getui16le(14);
-	de_dbg(c, "dimensions: %dx%d", (int)d->main_image.width, (int)d->main_image.height);
+	de_dbg_dimensions(c, d->main_image.width, d->main_image.height);
 
 	d->pixel_depth = (de_int64)de_getbyte(16);
 	de_dbg(c, "pixel depth: %d", (int)d->pixel_depth);

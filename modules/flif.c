@@ -105,7 +105,7 @@ static int do_read_header(deark *c, lctx *d, de_int64 pos1,
 	d->height = tmpcode+1;
 	pos += bytes_consumed2;
 
-	de_dbg(c, "dimensions: %dx%d", (int)d->width, (int)d->height);
+	de_dbg_dimensions(c, d->width, d->height);
 
 	if(d->is_animated) {
 		if(!read_varint(c, pos, &tmpcode, &bytes_consumed2)) goto done;
