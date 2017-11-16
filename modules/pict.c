@@ -364,7 +364,7 @@ static int read_pixmap_only_fields(deark *c, lctx *d, struct bitmapinfo *bi,
 
 	bi->hdpi = pict_read_fixed(c->infile, pos+8);
 	bi->vdpi = pict_read_fixed(c->infile, pos+12);
-	de_dbg(c, "dpi: %.2fx%.2f", bi->hdpi, bi->vdpi);
+	de_dbg(c, "dpi: %.2f"DE_CHAR_TIMES"%.2f", bi->hdpi, bi->vdpi);
 
 	bi->pixeltype = de_getui16be(pos+16);
 	bi->pixelsize = de_getui16be(pos+18);
@@ -834,7 +834,7 @@ static int handler_0c00(deark *c, lctx *d, de_int64 opcode, de_int64 data_pos, d
 	if(d->is_extended_v2) {
 		hres = pict_read_fixed(c->infile, data_pos+4);
 		vres = pict_read_fixed(c->infile, data_pos+8);
-		de_dbg(c, "dpi: %.2fx%.2f", hres, vres);
+		de_dbg(c, "dpi: %.2f"DE_CHAR_TIMES"%.2f", hres, vres);
 		pict_read_rect(c->infile, data_pos+12, &srcrect, "srcRect");
 	}
 

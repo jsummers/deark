@@ -358,7 +358,7 @@ static void de_run_gemraster(deark *c, de_module_params *mparams)
 	de_dbg(c, "pattern def len: %d", (int)d->patlen);
 	d->pixwidth = de_getui16be(8);
 	d->pixheight = de_getui16be(10);
-	de_dbg(c, "pixel size: %dx%d microns", (int)d->pixwidth, (int)d->pixheight);
+	de_dbg(c, "pixel size: %d"DE_CHAR_TIMES"%d microns", (int)d->pixwidth, (int)d->pixheight);
 	d->w = de_getui16be(12);
 	d->h = de_getui16be(14);
 	de_dbg_dimensions(c, d->w, d->h);

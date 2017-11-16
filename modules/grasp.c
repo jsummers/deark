@@ -167,7 +167,7 @@ static void de_run_graspfont_oldfmt(deark *c)
 	bytes_per_glyph = (de_int64)de_getbyte(6);
 
 	de_dbg(c, "number of glyphs: %d, first codepoint: %d", (int)font->num_chars, (int)first_codepoint);
-	de_dbg(c, "glyph dimensions: %dx%d, size in bytes: %d", font->nominal_width,
+	de_dbg(c, "glyph dimensions: %d"DE_CHAR_TIMES"%d, size in bytes: %d", font->nominal_width,
 		font->nominal_height, (int)bytes_per_glyph);
 
 	glyph_rowspan = (font->nominal_width+7)/8;

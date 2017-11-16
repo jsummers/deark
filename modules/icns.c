@@ -374,7 +374,7 @@ static void do_icon(deark *c, lctx *d, struct page_ctx *pg)
 	de_snprintf(pg->filename_token, sizeof(pg->filename_token), "%dx%dx%d",
 		(int)pg->type_info->width, (int)pg->type_info->height, (int)pg->type_info->bpp);
 
-	de_dbg(c, "image dimensions: %dx%d, bpp: %d",
+	de_dbg(c, "image dimensions: %d"DE_CHAR_TIMES"%d, bpp: %d",
 		pg->type_info->width, pg->type_info->height, pg->type_info->bpp);
 
 	if(pg->type_info->bpp==1 || pg->type_info->bpp==4 || pg->type_info->bpp==8) {

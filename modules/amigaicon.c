@@ -107,7 +107,7 @@ static void do_decode_newicons(deark *c, lctx *d,
 	img->height = (de_int64)height_code - 0x21;
 	img->bytes_per_pixel = 4;
 
-	de_dbg(c, "dimensions=%dx%d, transparency=%d, colors=%d",
+	de_dbg(c, "dimensions=%d"DE_CHAR_TIMES"%d, transparency=%d, colors=%d",
 		(int)img->width, (int)img->height, has_trns, (int)ncolors);
 
 	decoded = dbuf_create_membuf(c, 2048, 0);
@@ -219,7 +219,7 @@ static int do_read_main_icon(deark *c, lctx *d,
 	width = de_getui16be(pos+4);
 	height = de_getui16be(pos+6);
 	depth = de_getui16be(pos+8);
-	de_dbg(c, "dimensions=%dx%d, depth=%d", (int)width, (int)height,
+	de_dbg(c, "dimensions=%d"DE_CHAR_TIMES"%d, depth=%d", (int)width, (int)height,
 		(int)depth);
 
 	if(depth<1 || depth>8) {
@@ -618,7 +618,7 @@ static void do_scan_file(deark *c, lctx *d)
 
 	main_width = de_getui16be(12);
 	main_height = de_getui16be(14);
-	de_dbg(c, "main canvas size: %dx%d", (int)main_width, (int)main_height);
+	de_dbg(c, "main canvas size: %d"DE_CHAR_TIMES"%d", (int)main_width, (int)main_height);
 
 	d->num_main_icons = (de_getui32be(26)==0) ? 1 : 2; // "SelectRender" field
 	de_dbg(c, "number of (original) icons: %d", (int)d->num_main_icons);

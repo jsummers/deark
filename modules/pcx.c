@@ -80,7 +80,7 @@ static int do_read_header(deark *c, lctx *d)
 	// * The pixel dimensions of the target screen mode
 	// * The dimensions of the image itself
 	// * A corrupted attempt at one of the above things
-	de_dbg(c, "\"resolution\": %dx%d", (int)hres, (int)vres);
+	de_dbg(c, "\"resolution\": %d"DE_CHAR_TIMES"%d", (int)hres, (int)vres);
 
 	d->width = d->margin_R - d->margin_L +1;
 	d->height = d->margin_B - d->margin_T +1;

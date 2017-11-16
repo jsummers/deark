@@ -1489,7 +1489,7 @@ static void de_run_hsiraw(deark *c, de_module_params *mparams)
 
 	hdpi = de_geti16be(14);
 	vdpi = de_geti16be(16);
-	de_dbg(c, "density: %dx%d", (int)hdpi, (int)vdpi);
+	de_dbg(c, "density: %d"DE_CHAR_TIMES"%d", (int)hdpi, (int)vdpi);
 	// [18: Gamma]
 	cmpr = de_getui16be(20);
 	de_dbg(c, "compression: %d", (int)cmpr);

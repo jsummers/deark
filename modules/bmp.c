@@ -318,7 +318,7 @@ static int read_infoheader(deark *c, lctx *d, de_int64 pos)
 	if(d->infohdrsize>=32) {
 		d->xpelspermeter = de_geti32le(pos+24);
 		d->ypelspermeter = de_geti32le(pos+28);
-		de_dbg(c, "density: %dx%d pixels/meter", (int)d->xpelspermeter, (int)d->ypelspermeter);
+		de_dbg(c, "density: %d"DE_CHAR_TIMES"%d pixels/meter", (int)d->xpelspermeter, (int)d->ypelspermeter);
 	}
 
 	if(d->infohdrsize>=36)

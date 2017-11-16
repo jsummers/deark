@@ -101,7 +101,7 @@ static int decode_text(deark *c, lctx *d)
 	screen->width = width_in_chars;
 	screen->height = d->img->height;
 
-	de_dbg(c, "dimensions: %dx%d characters", (int)screen->width, (int)screen->height);
+	de_dbg(c, "dimensions: %d"DE_CHAR_TIMES"%d characters", (int)screen->width, (int)screen->height);
 
 	if(screen->height<1) goto done;
 

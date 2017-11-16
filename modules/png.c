@@ -423,7 +423,7 @@ static void do_png_pHYs(deark *c, lctx *d,
 
 	dx = de_getui32be(pos);
 	dy = de_getui32be(pos+4);
-	de_dbg(c, "density: %dx%d", (int)dx, (int)dy);
+	de_dbg(c, "density: %d"DE_CHAR_TIMES"%d", (int)dx, (int)dy);
 	u = de_getbyte(pos+8);
 	switch(u) {
 	case 0: name="unspecified"; break;

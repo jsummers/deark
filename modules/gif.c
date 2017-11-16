@@ -317,7 +317,7 @@ static int do_read_screen_descriptor(deark *c, lctx *d, de_int64 pos)
 
 	d->screen_w = de_getui16le(pos);
 	d->screen_h = de_getui16le(pos+2);
-	de_dbg(c, "screen dimensions: %dx%d", (int)d->screen_w, (int)d->screen_h);
+	de_dbg(c, "screen dimensions: %d"DE_CHAR_TIMES"%d", (int)d->screen_w, (int)d->screen_h);
 
 	packed_fields = de_getbyte(pos+4);
 	d->has_global_color_table = (packed_fields&0x80)?1:0;
@@ -491,7 +491,7 @@ static void do_plaintext_extension(deark *c, lctx *d, de_int64 pos)
 	text_size_y = de_getui16le(pos+6);
 	char_width = (de_int64)de_getbyte(pos+8);
 	de_dbg(c, "text-area pos: %d,%d pixels", (int)text_pos_x, (int)text_pos_y);
-	de_dbg(c, "text-area size: %dx%d pixels", (int)text_size_x, (int)text_size_y);
+	de_dbg(c, "text-area size: %d"DE_CHAR_TIMES"%d pixels", (int)text_size_x, (int)text_size_y);
 	de_dbg(c, "character width: %d pixels", (int)char_width);
 
 	if(char_width>0) {
@@ -672,7 +672,7 @@ static void do_read_image_descriptor(deark *c, lctx *d, struct gif_image_data *g
 	de_dbg(c, "image position: (%d,%d)", (int)gi->xpos, (int)gi->ypos);
 	gi->width = de_getui16le(pos+4);
 	gi->height = de_getui16le(pos+6);
-	de_dbg(c, "image dimensions: %dx%d", (int)gi->width, (int)gi->height);
+	de_dbg(c, "image dimensions: %d"DE_CHAR_TIMES"%d", (int)gi->width, (int)gi->height);
 
 	packed_fields = de_getbyte(pos+8);
 	gi->has_local_color_table = (packed_fields&0x80)?1:0;
@@ -757,7 +757,7 @@ static int do_image_internal(deark *c, lctx *d,
 
 	if(gi->width==0 || gi->height==0) {
 		// This doesn't seem to be forbidden by the spec.
-		de_warn(c, "Image has zero size (%dx%d)", (int)gi->width, (int)gi->height);
+		de_warn(c, "Image has zero size (%d"DE_CHAR_TIMES"%d)", (int)gi->width, (int)gi->height);
 		failure_flag = 1;
 	}
 	else if(!de_good_image_dimensions(c, gi->width, gi->height)) {

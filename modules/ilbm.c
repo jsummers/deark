@@ -110,7 +110,7 @@ static int do_bmhd(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 	d->transparent_color = de_getui16be(pos1+12);
 	d->x_aspect = (de_int64)de_getbyte(pos1+14);
 	d->y_aspect = (de_int64)de_getbyte(pos1+15);
-	de_dbg(c, "dimensions: %dx%d, planes: %d, compression: %d", (int)d->main_img.width,
+	de_dbg(c, "dimensions: %d"DE_CHAR_TIMES"%d, planes: %d, compression: %d", (int)d->main_img.width,
 		(int)d->main_img.height, (int)d->planes, (int)d->compression);
 	de_dbg(c, "apect ratio: %d, %d", (int)d->x_aspect, (int)d->y_aspect);
 	de_dbg(c, "masking: %d (%s)", (int)d->main_img.masking_code, masking_name);
@@ -156,7 +156,7 @@ static void do_dpi(deark *c, lctx *d, de_int64 pos, de_int64 len)
 	if(len<4) return;
 	d->x_dpi = de_getui16be(pos);
 	d->y_dpi = de_getui16be(pos+2);
-	de_dbg(c, "dpi: %dx%d", (int)d->x_dpi, (int)d->y_dpi);
+	de_dbg(c, "dpi: %d"DE_CHAR_TIMES"%d", (int)d->x_dpi, (int)d->y_dpi);
 }
 
 static de_byte getbit(const de_byte *m, de_int64 bitnum)
@@ -702,7 +702,7 @@ static void do_tiny(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 	ii->width = de_getui16be(pos1);
 	if(len<=4) goto done;
 	ii->height = de_getui16be(pos1+2);
-	de_dbg(c, "thumbnail image, dimensions: %dx%d", (int)ii->width, (int)ii->height);
+	de_dbg(c, "thumbnail image, dimensions: %d"DE_CHAR_TIMES"%d", (int)ii->width, (int)ii->height);
 
 	// Based on what little data I have, it seems that TINY images do not have
 	// a transparency mask, even if the main image does.

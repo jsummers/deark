@@ -154,7 +154,7 @@ static int do_image_info(deark *c, lctx *d, de_int64 pos, de_int64 len)
 
 	d->haspect = de_getbyte(pos+30);
 	d->vaspect = de_getbyte(pos+31);
-	de_dbg(c, "aspect ratio: %dx%d", (int)d->haspect, (int)d->vaspect);
+	de_dbg(c, "aspect ratio: %d"DE_CHAR_TIMES"%d", (int)d->haspect, (int)d->vaspect);
 
 	retval = 1;
 done:
@@ -292,7 +292,7 @@ static void do_render_tile(deark *c, lctx *d, de_bitmap *img,
 	if(nrows_expected > d->page_rows) nrows_expected = d->page_rows;
 	planespan = nrows_expected * d->rowspan;
 
-	de_dbg(c, "tile (%d,%d), pixel position (%d,%d), size %dx%d",
+	de_dbg(c, "tile (%d,%d), pixel position (%d,%d), size %d"DE_CHAR_TIMES"%d",
 		(int)x_pos_in_tiles, (int)y_pos_in_tiles,
 		(int)x_origin_in_pixels, (int)y_origin_in_pixels,
 		(int)d->page_cols, (int)nrows_expected);

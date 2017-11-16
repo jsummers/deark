@@ -320,14 +320,14 @@ static void do_decode_thumbnail(deark *c, lctx *d)
 	// TGA 2.0 spec says the dimensions are one *byte* each.
 	d->thumbnail_image.width = (de_int64)de_getbyte(d->thumbnail_offset);
 	d->thumbnail_image.height = (de_int64)de_getbyte(d->thumbnail_offset+1);
-	de_dbg(c, "thumbnail dimensions: %dx%d", (int)d->thumbnail_image.width, (int)d->thumbnail_image.height);
+	de_dbg(c, "thumbnail dimensions: %d"DE_CHAR_TIMES"%d", (int)d->thumbnail_image.width, (int)d->thumbnail_image.height);
 
 	if(d->thumbnail_image.width!=0 && d->thumbnail_image.height==0) {
 		de_warn(c, "Thumbnail image height is 0. Assuming the file incorrectly uses "
 			"16-bit thumbnail dimensions, instead of 8.");
 		d->thumbnail_image.width = de_getui16le(d->thumbnail_offset);
 		d->thumbnail_image.height = de_getui16le(d->thumbnail_offset+2);
-		de_dbg(c, "revised thumbnail dimensions: %dx%d", (int)d->thumbnail_image.width, (int)d->thumbnail_image.height);
+		de_dbg(c, "revised thumbnail dimensions: %d"DE_CHAR_TIMES"%d", (int)d->thumbnail_image.width, (int)d->thumbnail_image.height);
 		hdrsize = 4;
 	}
 	if(!de_good_image_dimensions(c, d->thumbnail_image.width, d->thumbnail_image.height)) goto done;

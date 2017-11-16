@@ -34,7 +34,7 @@ static void do_char(deark *c, lctx *d, de_int64 char_idx, de_int32 codepoint, de
 	if(ch->height > d->font->nominal_height) d->font->nominal_height = ch->height;
 
 	bitmap_pos = pos+10;
-	de_dbg2(c, "%dx%d, bitmap at %d", (int)ch->width, (int)ch->height, (int)bitmap_pos);
+	de_dbg2(c, "%d"DE_CHAR_TIMES"%d, bitmap at %d", (int)ch->width, (int)ch->height, (int)bitmap_pos);
 	ch->rowspan = (ch->width +7)/8;
 
 	srcbitmapsize = (ch->width * ch->height + 7)/8;

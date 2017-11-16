@@ -101,7 +101,7 @@ static void do_card_index(deark *c, lctx *d, de_int64 cardnum, de_int64 pos)
 
 	w = de_getui16le(datapos+2);
 	h = de_getui16le(datapos+4);
-	de_dbg(c, "bitmap dimensions: %dx%d", (int)w, (int)h);
+	de_dbg(c, "bitmap dimensions: %d"DE_CHAR_TIMES"%d", (int)w, (int)h);
 
 	img = de_bitmap_create(c, w, h, 1);
 	src_rowspan = ((w+15)/16)*2;

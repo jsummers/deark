@@ -54,7 +54,7 @@ static void do_printshop_etc_image(deark *c, lctx *d, de_int64 imgnum,
 		if(pos+imgspan > c->infile->len) goto done; // Reached end of file
 	}
 
-	de_dbg(c, "image[%d] at %d, %dx%d", (int)imgnum, (int)pos, (int)width, (int)height);
+	de_dbg(c, "image[%d] at %d, %d"DE_CHAR_TIMES"%d", (int)imgnum, (int)pos, (int)width, (int)height);
 	de_dbg_indent(c, 1);
 
 	fi = de_finfo_create(c);

@@ -223,7 +223,7 @@ static de_bitmap *do_read_paint_data_section(deark *c, lctx *d,
 
 	pg->width = de_getui16le(pos+8);
 	pg->height = de_getui16le(pos+12);
-	de_dbg(c, "picture dimensions: %dx%d", (int)pg->width, (int)pg->height);
+	de_dbg(c, "picture dimensions: %d"DE_CHAR_TIMES"%d", (int)pg->width, (int)pg->height);
 
 	pg->bits_per_pixel = de_getui32le(pos+24);
 	de_dbg(c, "bits/pixel: %d", (int)pg->bits_per_pixel);
@@ -368,7 +368,7 @@ static void do_sketch_section(deark *c, lctx *d, de_int64 pos1)
 
 	s_s_w = de_getui16le(pos);
 	s_s_h = de_getui16le(pos+2);
-	de_dbg(c, "sketch section dimensions: %dx%d", (int)s_s_w, (int)s_s_h);
+	de_dbg(c, "sketch section dimensions: %d"DE_CHAR_TIMES"%d", (int)s_s_w, (int)s_s_h);
 
 	pos += 18;
 
@@ -383,7 +383,7 @@ static void do_sketch_section(deark *c, lctx *d, de_int64 pos1)
 	pos = paint_data_section_start + d->paint_data_section_size;
 	x1 = de_getui16le(pos);
 	x2 = de_getui16le(pos+2);
-	de_dbg(c, "magnification: %dx%d", (int)x1, (int)x2);
+	de_dbg(c, "magnification: %d"DE_CHAR_TIMES"%d", (int)x1, (int)x2);
 	x1 = de_getui32le(pos+4);
 	x2 = de_getui32le(pos+8);
 	de_dbg(c, "left, right cut: %d, %d", (int)x1, (int)x2);

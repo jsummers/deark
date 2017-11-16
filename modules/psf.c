@@ -265,7 +265,7 @@ static void do_psf1_header(deark *c, lctx *d)
 	d->bytes_per_glyph = (de_int64)de_getbyte(3);
 	d->glyph_height = d->bytes_per_glyph;
 	d->glyph_width = 8;
-	de_dbg(c, "glyph dimensions: %dx%d", (int)d->glyph_width, (int)d->glyph_height);
+	de_dbg(c, "glyph dimensions: %d"DE_CHAR_TIMES"%d", (int)d->glyph_width, (int)d->glyph_height);
 
 	de_dbg_indent(c, -1);
 }
@@ -301,7 +301,7 @@ static void do_psf2_header(deark *c, lctx *d)
 
 	d->glyph_height = de_getui32le(pos+24);
 	d->glyph_width = de_getui32le(pos+28);
-	de_dbg(c, "glyph dimensions: %dx%d", (int)d->glyph_width, (int)d->glyph_height);
+	de_dbg(c, "glyph dimensions: %d"DE_CHAR_TIMES"%d", (int)d->glyph_width, (int)d->glyph_height);
 
 	de_dbg_indent(c, -1);
 }

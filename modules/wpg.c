@@ -230,7 +230,7 @@ static void handler_bitmap(deark *c, lctx *d, de_byte rectype, de_int64 dpos1, d
 	pos += 2;
 	ydens = de_getui16le(pos);
 	pos += 2;
-	de_dbg(c, "density: %dx%d dpi", (int)xdens, (int)ydens);
+	de_dbg(c, "density: %d"DE_CHAR_TIMES"%d dpi", (int)xdens, (int)ydens);
 
 	if(d->bitmap_count==1) {
 		d->bpp_of_first_bitmap = bpp;
@@ -488,7 +488,7 @@ static void de_run_wpg(deark *c, de_module_params *mparams)
 
 	// This debug line is mainly to help find interesting WPG files.
 	de_dbg(c, "summary: ver=%d.%d dataver=%d pal=%d bitmaps=%d "
-		"bitmapver=%d bpp=%d dimensions=%dx%d",
+		"bitmapver=%d bpp=%d dimensions=%d"DE_CHAR_TIMES"%d",
 		(int)d->ver_major, (int)d->ver_minor, d->start_wpg_data_record_ver,
 		(int)d->num_pal_entries,
 		(int)d->bitmap_count, d->bitmap_record_ver,

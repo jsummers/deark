@@ -246,11 +246,11 @@ static void do_jfif_segment(deark *c, lctx *d, struct page_ctx *pg,
 	if(units==1) units_name="dpi";
 	else if(units==2) units_name="dots/cm";
 	else units_name="(unspecified units)";
-	de_dbg(c, "density: %dx%d %s", (int)xdens, (int)ydens, units_name);
+	de_dbg(c, "density: %d"DE_CHAR_TIMES"%d %s", (int)xdens, (int)ydens, units_name);
 
 	tn_w = (de_int64)de_getbyte(pos+7);
 	tn_h = (de_int64)de_getbyte(pos+8);
-	de_dbg(c, "thumbnail dimensions: %dx%d", (int)tn_w, (int)tn_h);
+	de_dbg(c, "thumbnail dimensions: %d"DE_CHAR_TIMES"%d", (int)tn_w, (int)tn_h);
 	if(tn_w>0 && tn_h>0 && data_size>9) {
 		pg->has_jfif_thumb = 1;
 		extract_unc_jfif_thumbnail(c, d, pg, pos+9, data_size-9, tn_w, tn_h,
@@ -284,7 +284,7 @@ static void do_jfxx_segment(deark *c, lctx *d, struct page_ctx *pg,
 		if(data_size<3) return;
 		tn_w = (de_int64)de_getbyte(pos+1);
 		tn_h = (de_int64)de_getbyte(pos+2);
-		de_dbg(c, "JFXX thumbnail dimensions: %dx%d", (int)tn_w, (int)tn_h);
+		de_dbg(c, "JFXX thumbnail dimensions: %d"DE_CHAR_TIMES"%d", (int)tn_w, (int)tn_h);
 		extract_unc_jfif_thumbnail(c, d, pg, pos+3, data_size-3, tn_w, tn_h,
 			(t==0x11)?1:0, "jfxxthumb");
 	}
@@ -1127,7 +1127,7 @@ static void handler_sof(deark *c, lctx *d, struct page_ctx *pg,
 		if(sf1!=1 || sf2!=1) pg->is_subsampled = 1;
 		ucstring_printf(pg->sampling_code, DE_ENCODING_LATIN1, "%d%d", (int)sf1, (int)sf2);
 		qtid = de_getbyte(pos+6+3*i+2);
-		de_dbg(c, "cmp #%d: id=%d sampling=%dx%d quant_table=Q%d",
+		de_dbg(c, "cmp #%d: id=%d sampling=%d"DE_CHAR_TIMES"%d quant_table=Q%d",
 			(int)i, (int)comp_id, (int)sf1, (int)sf2, (int)qtid);
 	}
 

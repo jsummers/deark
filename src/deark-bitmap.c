@@ -21,7 +21,7 @@ int de_good_image_dimensions_noerr(deark *c, de_int64 w, de_int64 h)
 int de_good_image_dimensions(deark *c, de_int64 w, de_int64 h)
 {
 	if(!de_good_image_dimensions_noerr(c, w, h)) {
-		de_err(c, "Bad or unsupported image dimensions (%dx%d)",
+		de_err(c, "Bad or unsupported image dimensions (%d"DE_CHAR_TIMES"%d)",
 			(int)w, (int)h);
 		return 0;
 	}

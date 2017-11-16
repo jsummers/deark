@@ -308,7 +308,7 @@ void de_dbg_hexdump(deark *c, dbuf *f, de_int64 pos1, de_int64 len,
 // This is such a common thing to do, that it's worth having a function for it.
 void de_dbg_dimensions(deark *c, de_int64 w, de_int64 h)
 {
-	de_dbg(c, "dimensions: %"INT64_FMT"\xc3\x97%"INT64_FMT, w, h);
+	de_dbg(c, "dimensions: %"INT64_FMT DE_CHAR_TIMES "%"INT64_FMT, w, h);
 }
 
 // Print debugging output for an 8-bit RGB palette entry.

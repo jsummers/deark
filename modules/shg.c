@@ -237,7 +237,7 @@ static int do_dib(deark *c, lctx *d, de_int64 pos1)
 
 	xdpi = get_cul(c->infile, &pos);
 	ydpi = get_cul(c->infile, &pos);
-	de_dbg(c, "dpi: %dx%d", (int)xdpi, (int)ydpi);
+	de_dbg(c, "dpi: %d"DE_CHAR_TIMES"%d", (int)xdpi, (int)ydpi);
 	if(xdpi<10 || ydpi<10 || xdpi>30000 || ydpi>30000) {
 		xdpi = 0;
 		ydpi = 0;
@@ -247,7 +247,7 @@ static int do_dib(deark *c, lctx *d, de_int64 pos1)
 	bitcount = get_cus(c->infile, &pos);
 	width = get_cul(c->infile, &pos);
 	height = get_cul(c->infile, &pos);
-	de_dbg(c, "planes=%d, bitcount=%d, dimensions=%dx%d", (int)planes,
+	de_dbg(c, "planes=%d, bitcount=%d, dimensions=%d"DE_CHAR_TIMES"%d", (int)planes,
 		(int)bitcount, (int)width, (int)height);
 
 	colors_used = get_cul(c->infile, &pos);
@@ -367,7 +367,7 @@ static int do_wmf(deark *c, lctx *d, de_int64 pos1)
 	pos+=2;
 	height = de_getui16le(pos);
 	pos+=2;
-	de_dbg(c, "mapping mode: %d, nominal dimensions: %dx%d",
+	de_dbg(c, "mapping mode: %d, nominal dimensions: %d"DE_CHAR_TIMES"%d",
 		(int)mapping_mode, (int)width, (int)height);
 	decompressed_size = get_cul(c->infile, &pos);
 	compressed_size = get_cul(c->infile, &pos);

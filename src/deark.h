@@ -43,6 +43,8 @@
 
 #endif
 
+#define DE_CHAR_TIMES "\xc3\x97"
+
 struct deark_struct;
 typedef struct deark_struct deark;
 

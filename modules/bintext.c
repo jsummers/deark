@@ -281,7 +281,7 @@ static void de_run_xbin(deark *c, de_module_params *mparams)
 	}
 
 	flags = de_getbyte(10);
-	de_dbg(c, "dimensions: %dx%d characters", (int)d->width_in_chars, (int)d->height_in_chars);
+	de_dbg(c, "dimensions: %d"DE_CHAR_TIMES"%d characters", (int)d->width_in_chars, (int)d->height_in_chars);
 	de_dbg(c, "font height: %d", (int)d->font_height);
 	de_dbg(c, "flags: 0x%02x", (unsigned int)flags);
 	d->has_palette = (flags&0x01)?1:0;

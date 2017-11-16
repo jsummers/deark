@@ -248,7 +248,7 @@ static void picture_bank_screen_header(deark *c, lctx *d, struct amosbank *bk, d
 
 	screen_width = dbuf_getui16be(bk->f, pos+4);
 	screen_height = dbuf_getui16be(bk->f, pos+6);
-	de_dbg(c, "screen dimensions: %dx%d", (int)screen_width, (int)screen_height);
+	de_dbg(c, "screen dimensions: %d"DE_CHAR_TIMES"%d", (int)screen_width, (int)screen_height);
 
 	bk->amiga_mode = (de_uint32)dbuf_getui16be(bk->f, pos+20);
 	ncolors = dbuf_getui16be(bk->f, pos+22);
@@ -374,7 +374,7 @@ static void picture_bank_read_picture(deark *c, lctx *d, struct amosbank *bk, de
 	de_dbg(c, "lines per lump: %d", (int)lines_per_lump);
 	height = height_in_lumps * lines_per_lump;
 
-	de_dbg(c, "calculated dimensions: %dx%d", (int)width, (int)height);
+	de_dbg(c, "calculated dimensions: %d"DE_CHAR_TIMES"%d", (int)width, (int)height);
 
 	bk->nplanes = dbuf_getui16be(bk->f, pos+14);
 	de_dbg(c, "number of bitplanes: %d", (int)bk->nplanes);

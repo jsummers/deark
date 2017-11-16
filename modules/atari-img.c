@@ -165,7 +165,7 @@ static void de_run_degas(deark *c, de_module_params *mparams)
 	}
 	adata->ncolors = (de_int64)(1<<adata->bpp);
 
-	de_dbg(c, "dimensions: %dx%d, colors: %d", (int)adata->w, (int)adata->h, (int)adata->ncolors);
+	de_dbg(c, "dimensions: %d"DE_CHAR_TIMES"%d, colors: %d", (int)adata->w, (int)adata->h, (int)adata->ncolors);
 
 	d->degas_elite_flag = is_degas_elite(c, d);
 	declare_degas_fmt(c, d, adata);
@@ -337,7 +337,7 @@ static void de_run_prismpaint(deark *c, de_module_params *mparams)
 	d->pal_size = de_getui16be(6);
 	adata->w = de_getui16be(8);
 	adata->h = de_getui16be(10);
-	de_dbg(c, "pal_size: %d, dimensions: %dx%d", (int)d->pal_size,
+	de_dbg(c, "pal_size: %d, dimensions: %d"DE_CHAR_TIMES"%d", (int)d->pal_size,
 		(int)adata->w, (int)adata->h);
 	if(!de_good_image_dimensions(c, adata->w, adata->h)) goto done;
 
@@ -838,7 +838,7 @@ static void de_run_tinystuff(deark *c, de_module_params *mparams)
 
 	adata->ncolors = (de_int64)(1<<adata->bpp);
 
-	de_dbg(c, "dimensions: %dx%d, colors: %d", (int)adata->w, (int)adata->h, (int)adata->ncolors);
+	de_dbg(c, "dimensions: %d"DE_CHAR_TIMES"%d, colors: %d", (int)adata->w, (int)adata->h, (int)adata->ncolors);
 
 	if(d->res_code>=3) {
 		de_warn(c, "This image uses palette color animation, which is not supported.");
@@ -990,7 +990,7 @@ static void de_run_neochrome(deark *c, de_module_params *mparams)
 	adata->w = 320;
 	adata->h = 200;
 	adata->ncolors = (de_int64)(1<<adata->bpp);
-	de_dbg(c, "dimensions: %dx%d, colors: %d", (int)adata->w, (int)adata->h, (int)adata->ncolors);
+	de_dbg(c, "dimensions: %d"DE_CHAR_TIMES"%d, colors: %d", (int)adata->w, (int)adata->h, (int)adata->ncolors);
 
 	de_fmtutil_read_atari_palette(c, c->infile, 4, adata->pal, 16, adata->ncolors, 0);
 	adata->unc_pixels = dbuf_open_input_subfile(c->infile, 128, 32000);

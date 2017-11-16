@@ -179,7 +179,7 @@ static void do_box_tkhd(deark *c, lctx *d, struct de_boxesctx *bctx)
 	pos += 4;
 	h = dbuf_fmtutil_read_fixed_16_16(bctx->f, pos);
 	pos += 4;
-	de_dbg(c, "dimensions: %.1fx%.1f", w, h);
+	de_dbg(c, "dimensions: %.1f"DE_CHAR_TIMES"%.1f", w, h);
 }
 
 static void do_box_mvhd(deark *c, lctx *d, struct de_boxesctx *bctx)

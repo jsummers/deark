@@ -324,7 +324,7 @@ static int do_one_thumbnail(deark *c, lctx *d, de_int64 pos1, de_int64 imgidx, d
 	pos += 4;
 	tn_h = de_getui16le(pos);
 	pos += 4;
-	de_dbg(c, "original dimensions: %dx%d", (int)tn_w, (int)tn_h);
+	de_dbg(c, "original dimensions: %d"DE_CHAR_TIMES"%d", (int)tn_w, (int)tn_h);
 
 	pos += 4; // color depth
 

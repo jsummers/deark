@@ -46,13 +46,13 @@ static int do_read_idsc(deark *c, lctx *d, de_int64 pos, de_int64 len)
 	d->height = de_getui16be(pos+34);
 	d->hres = dbuf_fmtutil_read_fixed_16_16(c->infile, pos+36);
 	d->vres = dbuf_fmtutil_read_fixed_16_16(c->infile, pos+40);
-	de_dbg(c, "dpi: %.2fx%.2f", d->hres, d->vres);
+	de_dbg(c, "dpi: %.2f"DE_CHAR_TIMES"%.2f", d->hres, d->vres);
 	d->idat_data_size = de_getui32be(pos+44);
 	de_dbg(c, "reported data size: %d", (int)d->idat_data_size);
 	if(d->idat_data_size>c->infile->len) d->idat_data_size=0;
 	d->bitdepth = de_getui16be(pos+82);
 	d->palette_id = de_getui16be(pos+84);
-	de_dbg(c, "dimensions: %dx%d, bitdepth: %d, palette: %d", (int)d->width,
+	de_dbg(c, "dimensions: %d"DE_CHAR_TIMES"%d, bitdepth: %d, palette: %d", (int)d->width,
 		(int)d->height, (int)d->bitdepth, (int)d->palette_id);
 	retval = 1;
 done:
