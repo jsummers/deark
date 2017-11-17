@@ -626,6 +626,10 @@
 				>
 			</File>
 			<File
+				RelativePath="..\..\modules\id3.c"
+				>
+			</File>
+			<File
 				RelativePath="..\..\modules\iff.c"
 				>
 			</File>
