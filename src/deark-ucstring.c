@@ -368,7 +368,7 @@ static const char *ucstring_get_printable_sz_internal(de_ucstring *s,
 	else {
 		// TODO: Calculating the proper allocsize could be difficult,
 		// depending on how DE_CONVFLAG_MAKE_PRINTABLE is implemented.
-		allocsize = s->len * 4 + 1;
+		allocsize = s->len * 4 + 1 + 100;
 	}
 
 	if(s->tmp_string)
