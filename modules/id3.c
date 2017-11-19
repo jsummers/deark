@@ -11,8 +11,8 @@ DE_DECLARE_MODULE(de_module_id3v2);
 #define CODE_COM  0x434f4d00U
 #define CODE_COMM 0x434f4d4dU
 #define CODE_PIC  0x50494300U
-#define CODE_TXXX 0x54585858U
 #define CODE_TXX  0x54585800U
+#define CODE_TXXX 0x54585858U
 
 struct id3v2_ctx {
 	de_byte has_id3v2;
@@ -262,8 +262,8 @@ static void unescape_id3v2_data(deark *c, dbuf *inf, de_int64 inf_start,
 	de_dbg(c, "unescaped %d bytes to %d bytes", (int)inf_len, (int)outf->len);
 }
 
-static void decode_id3v2_frame_text(deark *c, dbuf *f, de_int64 pos1, de_int64 len,
-	struct de_fourcc *tag4cc)
+static void decode_id3v2_frame_text(deark *c, struct id3v2_ctx *dd,
+	dbuf *f, de_int64 pos1, de_int64 len, struct de_fourcc *tag4cc)
 {
 	de_byte id3_encoding;
 	de_ucstring *s = NULL;
@@ -281,7 +281,36 @@ done:
 	ucstring_destroy(s);
 }
 
-static void decode_id3v2_frame_com(deark *c, struct id3v2_ctx *dd,
+static void decode_id3v2_frame_txxx(deark *c, struct id3v2_ctx *dd,
+	dbuf *f, de_int64 pos1, de_int64 len)
+{
+	de_int64 pos = pos1;
+	de_byte id3_encoding;
+	de_ucstring *description = NULL;
+	de_ucstring *value = NULL;
+	de_int64 bytes_consumed;
+	int ret;
+
+	id3_encoding = dbuf_getbyte(f, pos++);
+	de_dbg(c, "text encoding: %d (%s)", (int)id3_encoding, get_textenc_name(id3_encoding));
+
+	description = ucstring_create(c);
+	bytes_consumed = 0;
+	ret = read_terminated_string(c, dd, f, pos, pos1+len-pos, id3_encoding, description, &bytes_consumed);
+	if(!ret) goto done;
+	de_dbg(c, "description: \"%s\"", ucstring_get_printable_sz(description));
+	pos += bytes_consumed;
+
+	value = ucstring_create(c);
+	id3v2_read_to_ucstring(f, pos, pos1+len-pos, value, id3_encoding);
+	de_dbg(c, "value: \"%s\"", ucstring_get_printable_sz(value));
+
+done:
+	ucstring_destroy(description);
+	ucstring_destroy(value);
+}
+
+static void decode_id3v2_frame_comm(deark *c, struct id3v2_ctx *dd,
 	dbuf *f, de_int64 pos1, de_int64 len)
 {
 	de_byte id3_encoding;
@@ -368,25 +397,31 @@ done:
 static void decode_id3v2_frame_internal(deark *c, struct id3v2_ctx *dd, dbuf *f,
 	de_int64 pos1, de_int64 len, struct de_fourcc *tag4cc)
 {
-	// "All text frame identifiers begin with "T". Only text frame identifiers
-	// begin with "T", with the exception of the "TXXX" frame."
 	if(dd->version_code==2) {
-		if(tag4cc->bytes[0]=='T' && tag4cc->id!=CODE_TXX) {
-			decode_id3v2_frame_text(c, f, pos1, len, tag4cc);
+		if(tag4cc->id==CODE_TXX) {
+			decode_id3v2_frame_txxx(c, dd, f, pos1, len);
+		}
+		if(tag4cc->bytes[0]=='T') {
+			decode_id3v2_frame_text(c, dd, f, pos1, len, tag4cc);
 		}
 		else if(tag4cc->id==CODE_COM) {
-			decode_id3v2_frame_com(c, dd, f, pos1, len);
+			decode_id3v2_frame_comm(c, dd, f, pos1, len);
 		}
 		else if(tag4cc->id==CODE_PIC) {
 			decode_id3v2_frame_pic(c, dd, f, pos1, len);
 		}
 	}
 	else if(dd->version_code>=3) {
-		if(tag4cc->bytes[0]=='T' && tag4cc->id!=CODE_TXXX) {
-			decode_id3v2_frame_text(c, f, pos1, len, tag4cc);
+		// "All text frame identifiers begin with "T". Only text frame identifiers
+		// begin with "T", with the exception of the "TXXX" frame."
+		if(tag4cc->id==CODE_TXXX) {
+			decode_id3v2_frame_txxx(c, dd, f, pos1, len);
+		}
+		else if(tag4cc->bytes[0]=='T') {
+			decode_id3v2_frame_text(c, dd, f, pos1, len, tag4cc);
 		}
 		else if(tag4cc->id==CODE_COMM) {
-			decode_id3v2_frame_com(c, dd, f, pos1, len);
+			decode_id3v2_frame_comm(c, dd, f, pos1, len);
 		}
 	}
 }
