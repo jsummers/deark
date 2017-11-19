@@ -8,6 +8,7 @@
 #include <deark-private.h>
 DE_DECLARE_MODULE(de_module_id3v2);
 
+#define CODE_PIC  0x50494300U
 #define CODE_TXXX 0x54585858U
 #define CODE_TXX  0x54585800U
 
@@ -51,6 +52,63 @@ static de_int64 get_synchsafe_int(dbuf *f, de_int64 pos)
 	de_byte buf[4];
 	dbuf_read(f, buf, pos, 4);
 	return (buf[0]<<21)|(buf[1]<<14)|(buf[2]<<7)|(buf[3]);
+}
+
+static const char *get_textenc_name(de_byte id3_encoding)
+{
+	const char *encname;
+
+	switch(id3_encoding) {
+	case 0: encname = "ISO-8859-1"; break;
+	case 1: encname = "UTF-16 w/BOM"; break;
+	case 2: encname = "UTF-16BE"; break;
+	case 3: encname = "UTF-8"; break;
+	default: encname = "?";
+	}
+	return encname;
+}
+
+static void id3v2_read_to_ucstring(dbuf *f, de_int64 pos1, de_int64 len,
+	de_ucstring *s, de_byte id3_encoding)
+{
+	de_int64 pos = pos1;
+	int encoding_to_use = DE_ENCODING_UNKNOWN;
+
+	if(len<=0) return;
+
+	if(id3_encoding==0x00) {
+		encoding_to_use = DE_ENCODING_LATIN1;
+	}
+	else if(id3_encoding==0x01) { // UTF-16 with BOM
+		de_uint32 bom_id;
+
+		if(len<2) return; // This is okay, for an empty string.
+		bom_id = (de_uint32)dbuf_getui16be(f, pos);
+
+		if(bom_id==0xfeff) {
+			encoding_to_use = DE_ENCODING_UTF16BE;
+		}
+		else if(bom_id==0xfffe) {
+			encoding_to_use = DE_ENCODING_UTF16LE;
+		}
+		else {
+			return; // Error
+		}
+		pos += 2;
+	}
+	else if(id3_encoding==0x02) { // UTF-16BE
+		encoding_to_use = DE_ENCODING_UTF16BE;
+	}
+	else if(id3_encoding==0x03) { // UTF-8
+		encoding_to_use = DE_ENCODING_UTF8;
+	}
+	else {
+		return; // Error
+	}
+
+	// TODO: Maybe shouldn't use DE_DBG_MAX_STRLEN here.
+	dbuf_read_to_ucstring_n(f, pos, pos1+len-pos, DE_DBG_MAX_STRLEN, s, 0, encoding_to_use);
+	ucstring_truncate_at_NUL(s);
 }
 
 // Read 10-byte main ID3v2 header
@@ -161,61 +219,97 @@ static void unescape_id3v2_data(deark *c, dbuf *inf, de_int64 inf_start,
 	de_dbg(c, "unescaped %d bytes to %d bytes", (int)inf_len, (int)outf->len);
 }
 
-
-static void decode_id3v2_text_frame(deark *c, dbuf *f, de_int64 pos1, de_int64 len,
+static void decode_id3v2_frame_text(deark *c, dbuf *f, de_int64 pos1, de_int64 len,
 	struct de_fourcc *tag4cc)
 {
 	de_byte id3_encoding;
 	de_ucstring *s = NULL;
 	de_int64 pos = pos1;
-	int encoding_to_use = DE_ENCODING_UNKNOWN;
-	const char *encname;
 
 	if(len<1) goto done;
-	s = ucstring_create(c);
 	id3_encoding = dbuf_getbyte(f, pos++);
-	switch(id3_encoding) {
-	case 0: encname = "ISO-8859-1"; break;
-	case 1: encname = "UTF-16 w/BOM"; break;
-	case 2: encname = "UTF-16BE"; break;
-	case 3: encname = "UTF-8"; break;
-	default: encname = "?";
-	}
-	de_dbg(c, "text encoding: %d (%s)", (int)id3_encoding, encname);
+	de_dbg(c, "text encoding: %d (%s)", (int)id3_encoding, get_textenc_name(id3_encoding));
 
-	if(id3_encoding==0x00) { // ISO-8859-1
-		encoding_to_use = DE_ENCODING_LATIN1;
-	}
-	else if(id3_encoding==0x01) { // UTF-16 with BOM
-		de_uint32 bom_id;
-		if(pos+2 <= pos1+len) {
-			bom_id = (de_uint32)dbuf_getui16be(f, pos);
-			pos += 2;
-			if(bom_id==0xfeff) {
-				encoding_to_use = DE_ENCODING_UTF16BE;
-			}
-			else if(bom_id==0xfffe) {
-				encoding_to_use = DE_ENCODING_UTF16LE;
-			}
-		}
-	}
-	else if(id3_encoding==0x02) { // UTF-16BE
-		encoding_to_use = DE_ENCODING_UTF16BE;
-	}
-	else if(id3_encoding==0x03) { // UTF-8
-		encoding_to_use = DE_ENCODING_UTF8;
-	}
-	else {
-		de_dbg(c, "text: [unsupported encoding]");
-		goto done;
-	}
-
-	dbuf_read_to_ucstring_n(f, pos, pos1+len-pos, DE_DBG_MAX_STRLEN, s, 0, encoding_to_use);
-	ucstring_truncate_at_NUL(s);
+	s = ucstring_create(c);
+	id3v2_read_to_ucstring(f, pos, pos1+len-pos, s, id3_encoding);
 	de_dbg(c, "text: \"%s\"", ucstring_get_printable_sz(s));
 
 done:
 	ucstring_destroy(s);
+}
+
+static int read_terminated_string(deark *c, struct id3v2_ctx *dd, dbuf *f,
+	de_int64 pos, de_int64 nbytes_to_scan, de_byte id3_encoding,
+	de_ucstring *s, de_int64 *bytes_consumed)
+{
+	de_int64 foundpos = 0;
+	de_int64 stringlen;
+	int ret;
+	int retval = 0;
+
+	if(id3_encoding==1 || id3_encoding==2) { // UTF-16
+		// TODO
+		goto done;
+	}
+
+	ret = dbuf_search_byte(f, 0x00, pos, nbytes_to_scan, &foundpos);
+	if(!ret) goto done;
+
+	stringlen = foundpos - pos;
+	id3v2_read_to_ucstring(f, pos, stringlen, s, id3_encoding);
+
+	*bytes_consumed = stringlen + 1;
+	retval = 1;
+done:
+	return retval;
+}
+
+static void decode_id3v2_frame_pic(deark *c, struct id3v2_ctx *dd,
+	dbuf *f, de_int64 pos1, de_int64 len)
+{
+	de_byte id3_encoding;
+	de_byte picture_type;
+	de_int64 pos = pos1;
+	struct de_stringreaderdata *fmt_srd = NULL;
+	de_ucstring *description = NULL;
+	de_int64 descr_nbytes_to_scan;
+	de_int64 bytes_consumed = 0;
+	int ret;
+	const char *ext;
+	de_byte sig[2];
+
+	de_dbg(c, "PIC");
+	id3_encoding = dbuf_getbyte(f, pos++);
+	de_dbg(c, "text encoding: %d (%s)", (int)id3_encoding, get_textenc_name(id3_encoding));
+
+	fmt_srd = dbuf_read_string(f, pos, 3, 3, 0, DE_ENCODING_ASCII);
+	de_dbg(c, "format: \"%s\"", ucstring_get_printable_sz(fmt_srd->str));
+	pos += 3;
+
+	picture_type = dbuf_getbyte(f, pos++);
+	de_dbg(c, "picture type: 0x%02x", (unsigned int)picture_type);
+
+	description = ucstring_create(c);
+	// "The description has a maximum length of 64 characters" [we'll allow more]
+	descr_nbytes_to_scan = pos1+len-pos;
+	if(descr_nbytes_to_scan>256) descr_nbytes_to_scan = 256;
+	ret = read_terminated_string(c, dd, f, pos, descr_nbytes_to_scan, id3_encoding,
+		description, &bytes_consumed);
+	if(!ret) goto done;
+	de_dbg(c, "description: \"%s\"", ucstring_get_printable_sz(description));
+	pos += bytes_consumed;
+
+	if(pos >= pos1+len) goto done;
+
+	dbuf_read(f, sig, pos, 2);
+	if(sig[0]==0x89 && sig[1]==0x50) ext="png";
+	else if(sig[0]==0xff && sig[1]==0xd8) ext="jpg";
+	else ext="bin";
+	dbuf_create_file_from_slice(f, pos, pos1+len-pos, ext, NULL, DE_CREATEFLAG_IS_AUX);
+
+done:
+	de_destroy_stringreaderdata(c, fmt_srd);
+	ucstring_destroy(description);
 }
 
 static void decode_id3v2_frame_internal(deark *c, struct id3v2_ctx *dd, dbuf *f,
@@ -225,12 +319,15 @@ static void decode_id3v2_frame_internal(deark *c, struct id3v2_ctx *dd, dbuf *f,
 	// begin with "T", with the exception of the "TXXX" frame."
 	if(dd->version_code==2) {
 		if(tag4cc->bytes[0]=='T' && tag4cc->id!=CODE_TXX) {
-			decode_id3v2_text_frame(c, f, pos1, len, tag4cc);
+			decode_id3v2_frame_text(c, f, pos1, len, tag4cc);
+		}
+		else if(tag4cc->id==CODE_PIC) {
+			decode_id3v2_frame_pic(c, dd, f, pos1, len);
 		}
 	}
 	else if(dd->version_code>=3) {
 		if(tag4cc->bytes[0]=='T' && tag4cc->id!=CODE_TXXX) {
-			decode_id3v2_text_frame(c, f, pos1, len, tag4cc);
+			decode_id3v2_frame_text(c, f, pos1, len, tag4cc);
 		}
 	}
 }
