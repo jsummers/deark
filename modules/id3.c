@@ -12,6 +12,8 @@ DE_DECLARE_MODULE(de_module_id3v2);
 #define CODE_COM  0x434f4d00U
 #define CODE_COMM 0x434f4d4dU
 #define CODE_PIC  0x50494300U
+#define CODE_POP  0x504f5000U
+#define CODE_POPM 0x504f504dU
 #define CODE_TXX  0x54585800U
 #define CODE_TXXX 0x54585858U
 
@@ -427,6 +429,33 @@ done:
 	ucstring_destroy(description);
 }
 
+// Popularimeter
+static void decode_id3v2_frame_pop_popm(deark *c, struct id3v2_ctx *dd,
+	dbuf *f, de_int64 pos1, de_int64 len)
+{
+	de_int64 bytes_consumed = 0;
+	de_ucstring *email = NULL;
+	de_int64 pos = pos1;
+	int rating;
+	int ret;
+
+	email = ucstring_create(c);
+	ret = read_terminated_string(c, dd, f, pos, 256, ID3ENC_ISO_8859_1,
+		email, &bytes_consumed);
+	if(!ret) goto done;
+	de_dbg(c, "email/id: \"%s\"", ucstring_get_printable_sz(email));
+	pos += bytes_consumed;
+
+	if(pos1+len-pos < 1) goto done;
+	rating = (int)dbuf_getbyte(f, pos++);
+	de_dbg(c, "rating: %d%s", rating, (rating==0)?" (unknown)":"/255");
+
+	// TODO: There can be a "counter" field here.
+
+done:
+	ucstring_destroy(email);
+}
+
 static void decode_id3v2_frame_internal(deark *c, struct id3v2_ctx *dd, dbuf *f,
 	de_int64 pos1, de_int64 len, struct de_fourcc *tag4cc)
 {
@@ -443,6 +472,9 @@ static void decode_id3v2_frame_internal(deark *c, struct id3v2_ctx *dd, dbuf *f,
 		else if(tag4cc->id==CODE_PIC) {
 			decode_id3v2_frame_pic_apic(c, dd, f, pos1, len, tag4cc);
 		}
+		else if(tag4cc->id==CODE_POP) {
+			decode_id3v2_frame_pop_popm(c, dd, f, pos1, len);
+		}
 	}
 	else if(dd->version_code>=3) {
 		// "All text frame identifiers begin with "T". Only text frame identifiers
@@ -458,6 +490,9 @@ static void decode_id3v2_frame_internal(deark *c, struct id3v2_ctx *dd, dbuf *f,
 		}
 		else if(tag4cc->id==CODE_APIC) {
 			decode_id3v2_frame_pic_apic(c, dd, f, pos1, len, tag4cc);
+		}
+		else if(tag4cc->id==CODE_POPM) {
+			decode_id3v2_frame_pop_popm(c, dd, f, pos1, len);
 		}
 	}
 }
