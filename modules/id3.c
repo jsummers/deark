@@ -14,6 +14,7 @@ DE_DECLARE_MODULE(de_module_id3v2);
 #define CODE_PIC  0x50494300U
 #define CODE_POP  0x504f5000U
 #define CODE_POPM 0x504f504dU
+#define CODE_PRIV 0x50524956U
 #define CODE_TXX  0x54585800U
 #define CODE_TXXX 0x54585858U
 
@@ -138,13 +139,18 @@ done:
 }
 
 static int read_terminated_string(deark *c, struct id3v2_ctx *dd, dbuf *f,
-	de_int64 pos, de_int64 nbytes_to_scan, de_byte id3_encoding,
+	de_int64 pos, de_int64 nbytes_avail, de_int64 nbytes_to_scan, de_byte id3_encoding,
 	de_ucstring *s, de_int64 *bytes_consumed)
 {
 	de_int64 foundpos = 0;
 	de_int64 stringlen;
 	int ret;
 	int retval = 0;
+
+	if(nbytes_to_scan > nbytes_avail)
+		nbytes_to_scan = nbytes_avail;
+	if(nbytes_to_scan < 0)
+		nbytes_to_scan = 0;
 
 	if(id3_encoding==ID3ENC_UTF16 || id3_encoding==ID3ENC_UTF16BE) {
 		// A 2-byte encoding
@@ -320,7 +326,7 @@ static void decode_id3v2_frame_txxx(deark *c, struct id3v2_ctx *dd,
 
 	description = ucstring_create(c);
 	bytes_consumed = 0;
-	ret = read_terminated_string(c, dd, f, pos, pos1+len-pos, id3_encoding, description, &bytes_consumed);
+	ret = read_terminated_string(c, dd, f, pos, pos1+len-pos, 256, id3_encoding, description, &bytes_consumed);
 	if(!ret) goto done;
 	de_dbg(c, "description: \"%s\"", ucstring_get_printable_sz(description));
 	pos += bytes_consumed;
@@ -332,6 +338,35 @@ static void decode_id3v2_frame_txxx(deark *c, struct id3v2_ctx *dd,
 done:
 	ucstring_destroy(description);
 	ucstring_destroy(value);
+}
+
+static void decode_id3v2_frame_priv(deark *c, struct id3v2_ctx *dd,
+	dbuf *f, de_int64 pos1, de_int64 len)
+{
+	struct de_stringreaderdata *owner = NULL;
+	de_int64 pos = pos1;
+	de_int64 nbytes_to_scan;
+	de_int64 payload_len;
+
+	nbytes_to_scan = pos1+len-pos;
+	if(nbytes_to_scan>256) nbytes_to_scan=256;
+
+	owner = dbuf_read_string(f, pos, nbytes_to_scan, nbytes_to_scan,
+		DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_LATIN1);
+	if(!owner->found_nul) goto done;
+
+	de_dbg(c, "owner: \"%s\"", ucstring_get_printable_sz(owner->str));
+	pos += owner->bytes_consumed;
+
+	payload_len = pos1+len-pos;
+	if(payload_len<1) goto done;
+
+	if(!de_strcmp((const char*)owner->sz, "XMP")) {
+		dbuf_create_file_from_slice(f, pos, payload_len, "xmp", NULL, DE_CREATEFLAG_IS_AUX);
+	}
+
+done:
+	de_destroy_stringreaderdata(c, owner);
 }
 
 static void decode_id3v2_frame_comm(deark *c, struct id3v2_ctx *dd,
@@ -355,7 +390,7 @@ static void decode_id3v2_frame_comm(deark *c, struct id3v2_ctx *dd,
 
 	shortdesc = ucstring_create(c);
 	bytes_consumed = 0;
-	ret = read_terminated_string(c, dd, f, pos, pos1+len-pos, id3_encoding, shortdesc, &bytes_consumed);
+	ret = read_terminated_string(c, dd, f, pos, pos1+len-pos, 256, id3_encoding, shortdesc, &bytes_consumed);
 	if(!ret) goto done;
 	de_dbg(c, "short description: \"%s\"", ucstring_get_printable_sz(shortdesc));
 	pos += bytes_consumed;
@@ -379,7 +414,6 @@ static void decode_id3v2_frame_pic_apic(deark *c, struct id3v2_ctx *dd,
 	struct de_stringreaderdata *fmt_srd = NULL;
 	de_ucstring *mimetype = NULL;
 	de_ucstring *description = NULL;
-	de_int64 descr_nbytes_to_scan;
 	de_int64 bytes_consumed = 0;
 	int ret;
 	const char *ext;
@@ -395,7 +429,7 @@ static void decode_id3v2_frame_pic_apic(deark *c, struct id3v2_ctx *dd,
 	}
 	else {
 		mimetype = ucstring_create(c);
-		ret = read_terminated_string(c, dd, f, pos, 256, ID3ENC_ISO_8859_1,
+		ret = read_terminated_string(c, dd, f, pos, pos1+len-pos, 256, ID3ENC_ISO_8859_1,
 			mimetype, &bytes_consumed);
 		if(!ret) goto done;
 		de_dbg(c, "mime type: \"%s\"", ucstring_get_printable_sz(mimetype));
@@ -407,9 +441,7 @@ static void decode_id3v2_frame_pic_apic(deark *c, struct id3v2_ctx *dd,
 
 	description = ucstring_create(c);
 	// "The description has a maximum length of 64 characters" [we'll allow more]
-	descr_nbytes_to_scan = pos1+len-pos;
-	if(descr_nbytes_to_scan>256) descr_nbytes_to_scan = 256;
-	ret = read_terminated_string(c, dd, f, pos, descr_nbytes_to_scan, id3_encoding,
+	ret = read_terminated_string(c, dd, f, pos, pos1+len-pos, 256, id3_encoding,
 		description, &bytes_consumed);
 	if(!ret) goto done;
 	de_dbg(c, "description: \"%s\"", ucstring_get_printable_sz(description));
@@ -440,7 +472,7 @@ static void decode_id3v2_frame_pop_popm(deark *c, struct id3v2_ctx *dd,
 	int ret;
 
 	email = ucstring_create(c);
-	ret = read_terminated_string(c, dd, f, pos, 256, ID3ENC_ISO_8859_1,
+	ret = read_terminated_string(c, dd, f, pos, pos1+len-pos, 256, ID3ENC_ISO_8859_1,
 		email, &bytes_consumed);
 	if(!ret) goto done;
 	de_dbg(c, "email/id: \"%s\"", ucstring_get_printable_sz(email));
@@ -487,6 +519,9 @@ static void decode_id3v2_frame_internal(deark *c, struct id3v2_ctx *dd, dbuf *f,
 		}
 		else if(tag4cc->id==CODE_COMM) {
 			decode_id3v2_frame_comm(c, dd, f, pos1, len);
+		}
+		else if(tag4cc->id==CODE_PRIV) {
+			decode_id3v2_frame_priv(c, dd, f, pos1, len);
 		}
 		else if(tag4cc->id==CODE_APIC) {
 			decode_id3v2_frame_pic_apic(c, dd, f, pos1, len, tag4cc);
@@ -582,7 +617,7 @@ static const char *get_frame_name(struct id3v2_ctx *dd, de_uint32 id)
 		{0x4d434900U, 0x4d434449U, "Music CD identifier"},
 		{0x544f4100U, 0x544f5045U, "Original artist/performer"},
 		{CODE_POP,    CODE_POPM,   "Popularimeter"},
-		{0,           0x50524956U, "Private frame"},
+		{0,           CODE_PRIV,   "Private frame"},
 		{0x54504200U, 0x54505542U, "Publisher"},
 		{0,           0x54445243U, "Recording time"},
 		{0x52564100U, 0x52564144U, "Relative volume adjustment"},
