@@ -8,11 +8,17 @@
 #include <deark-private.h>
 DE_DECLARE_MODULE(de_module_id3v2);
 
+#define CODE_APIC 0x41504943U
 #define CODE_COM  0x434f4d00U
 #define CODE_COMM 0x434f4d4dU
 #define CODE_PIC  0x50494300U
 #define CODE_TXX  0x54585800U
 #define CODE_TXXX 0x54585858U
+
+#define ID3ENC_ISO_8859_1 0
+#define ID3ENC_UTF16      1
+#define ID3ENC_UTF16BE    2
+#define ID3ENC_UTF8       3
 
 struct id3v2_ctx {
 	de_byte has_id3v2;
@@ -56,13 +62,17 @@ static de_int64 get_synchsafe_int(dbuf *f, de_int64 pos)
 	return (buf[0]<<21)|(buf[1]<<14)|(buf[2]<<7)|(buf[3]);
 }
 
-static const char *get_textenc_name(de_byte id3_encoding)
+static const char *get_textenc_name(struct id3v2_ctx *dd, de_byte id3_encoding)
 {
 	const char *encname;
 
 	switch(id3_encoding) {
 	case 0: encname = "ISO-8859-1"; break;
-	case 1: encname = "UTF-16 w/BOM"; break;
+	case 1:
+		if(dd->version_code==2) encname = "UCS-2";
+		else if(dd->version_code==3) encname = "UCS-2 w/BOM";
+		else encname = "UTF-16 w/BOM";
+		break;
 	case 2: encname = "UTF-16BE"; break;
 	case 3: encname = "UTF-8"; break;
 	default: encname = "?";
@@ -79,10 +89,10 @@ static void id3v2_read_to_ucstring(deark *c, dbuf *f, de_int64 pos1, de_int64 le
 
 	if(len<=0) goto done;
 
-	if(id3_encoding==0x00) {
+	if(id3_encoding==ID3ENC_ISO_8859_1) {
 		encoding_to_use = DE_ENCODING_LATIN1;
 	}
-	else if(id3_encoding==0x01) { // UTF-16 with BOM
+	else if(id3_encoding==ID3ENC_UTF16) {
 		de_uint32 bom_id;
 
 		if(len<2) goto done;
@@ -105,10 +115,10 @@ static void id3v2_read_to_ucstring(deark *c, dbuf *f, de_int64 pos1, de_int64 le
 		}
 		pos += 2;
 	}
-	else if(id3_encoding==0x02) { // UTF-16BE
+	else if(id3_encoding==ID3ENC_UTF16BE) {
 		encoding_to_use = DE_ENCODING_UTF16BE;
 	}
-	else if(id3_encoding==0x03) { // UTF-8
+	else if(id3_encoding==ID3ENC_UTF8) { // UTF-8
 		encoding_to_use = DE_ENCODING_UTF8;
 	}
 	else {
@@ -120,7 +130,7 @@ static void id3v2_read_to_ucstring(deark *c, dbuf *f, de_int64 pos1, de_int64 le
 	ucstring_truncate_at_NUL(s);
 
 done:
-	if(id3_encoding==0x01 && c->debug_level>=2) {
+	if(id3_encoding==ID3ENC_UTF16 && c->debug_level>=2) {
 		de_dbg2(c, "BOM: %s", bomdesc);
 	}
 }
@@ -134,7 +144,7 @@ static int read_terminated_string(deark *c, struct id3v2_ctx *dd, dbuf *f,
 	int ret;
 	int retval = 0;
 
-	if(id3_encoding==1 || id3_encoding==2) {
+	if(id3_encoding==ID3ENC_UTF16 || id3_encoding==ID3ENC_UTF16BE) {
 		// A 2-byte encoding
 		de_int64 k;
 		int foundflag = 0;
@@ -283,7 +293,7 @@ static void decode_id3v2_frame_text(deark *c, struct id3v2_ctx *dd,
 
 	if(len<1) goto done;
 	id3_encoding = dbuf_getbyte(f, pos++);
-	de_dbg(c, "text encoding: %d (%s)", (int)id3_encoding, get_textenc_name(id3_encoding));
+	de_dbg(c, "text encoding: %d (%s)", (int)id3_encoding, get_textenc_name(dd, id3_encoding));
 
 	s = ucstring_create(c);
 	id3v2_read_to_ucstring(c, f, pos, pos1+len-pos, s, id3_encoding);
@@ -304,7 +314,7 @@ static void decode_id3v2_frame_txxx(deark *c, struct id3v2_ctx *dd,
 	int ret;
 
 	id3_encoding = dbuf_getbyte(f, pos++);
-	de_dbg(c, "text encoding: %d (%s)", (int)id3_encoding, get_textenc_name(id3_encoding));
+	de_dbg(c, "text encoding: %d (%s)", (int)id3_encoding, get_textenc_name(dd, id3_encoding));
 
 	description = ucstring_create(c);
 	bytes_consumed = 0;
@@ -334,7 +344,7 @@ static void decode_id3v2_frame_comm(deark *c, struct id3v2_ctx *dd,
 	int ret;
 
 	id3_encoding = dbuf_getbyte(f, pos++);
-	de_dbg(c, "text encoding: %d (%s)", (int)id3_encoding, get_textenc_name(id3_encoding));
+	de_dbg(c, "text encoding: %d (%s)", (int)id3_encoding, get_textenc_name(dd, id3_encoding));
 
 	lang = ucstring_create(c);
 	dbuf_read_to_ucstring(f, pos, 3, lang, 0, DE_ENCODING_ASCII);
@@ -358,13 +368,14 @@ done:
 	ucstring_destroy(comment_text);
 }
 
-static void decode_id3v2_frame_pic(deark *c, struct id3v2_ctx *dd,
-	dbuf *f, de_int64 pos1, de_int64 len)
+static void decode_id3v2_frame_pic_apic(deark *c, struct id3v2_ctx *dd,
+	dbuf *f, de_int64 pos1, de_int64 len, struct de_fourcc *tag4cc)
 {
 	de_byte id3_encoding;
 	de_byte picture_type;
 	de_int64 pos = pos1;
 	struct de_stringreaderdata *fmt_srd = NULL;
+	de_ucstring *mimetype = NULL;
 	de_ucstring *description = NULL;
 	de_int64 descr_nbytes_to_scan;
 	de_int64 bytes_consumed = 0;
@@ -373,11 +384,21 @@ static void decode_id3v2_frame_pic(deark *c, struct id3v2_ctx *dd,
 	de_byte sig[2];
 
 	id3_encoding = dbuf_getbyte(f, pos++);
-	de_dbg(c, "text encoding: %d (%s)", (int)id3_encoding, get_textenc_name(id3_encoding));
+	de_dbg(c, "text encoding: %d (%s)", (int)id3_encoding, get_textenc_name(dd, id3_encoding));
 
-	fmt_srd = dbuf_read_string(f, pos, 3, 3, 0, DE_ENCODING_ASCII);
-	de_dbg(c, "format: \"%s\"", ucstring_get_printable_sz(fmt_srd->str));
-	pos += 3;
+	if(tag4cc->id==CODE_PIC) {
+		fmt_srd = dbuf_read_string(f, pos, 3, 3, 0, DE_ENCODING_ASCII);
+		de_dbg(c, "format: \"%s\"", ucstring_get_printable_sz(fmt_srd->str));
+		pos += 3;
+	}
+	else {
+		mimetype = ucstring_create(c);
+		ret = read_terminated_string(c, dd, f, pos, 256, ID3ENC_ISO_8859_1,
+			mimetype, &bytes_consumed);
+		if(!ret) goto done;
+		de_dbg(c, "mime type: \"%s\"", ucstring_get_printable_sz(mimetype));
+		pos += bytes_consumed;
+	}
 
 	picture_type = dbuf_getbyte(f, pos++);
 	de_dbg(c, "picture type: 0x%02x", (unsigned int)picture_type);
@@ -402,6 +423,7 @@ static void decode_id3v2_frame_pic(deark *c, struct id3v2_ctx *dd,
 
 done:
 	de_destroy_stringreaderdata(c, fmt_srd);
+	ucstring_destroy(mimetype);
 	ucstring_destroy(description);
 }
 
@@ -419,7 +441,7 @@ static void decode_id3v2_frame_internal(deark *c, struct id3v2_ctx *dd, dbuf *f,
 			decode_id3v2_frame_comm(c, dd, f, pos1, len);
 		}
 		else if(tag4cc->id==CODE_PIC) {
-			decode_id3v2_frame_pic(c, dd, f, pos1, len);
+			decode_id3v2_frame_pic_apic(c, dd, f, pos1, len, tag4cc);
 		}
 	}
 	else if(dd->version_code>=3) {
@@ -433,6 +455,9 @@ static void decode_id3v2_frame_internal(deark *c, struct id3v2_ctx *dd, dbuf *f,
 		}
 		else if(tag4cc->id==CODE_COMM) {
 			decode_id3v2_frame_comm(c, dd, f, pos1, len);
+		}
+		else if(tag4cc->id==CODE_APIC) {
+			decode_id3v2_frame_pic_apic(c, dd, f, pos1, len, tag4cc);
 		}
 	}
 }
