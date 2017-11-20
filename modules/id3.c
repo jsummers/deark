@@ -17,13 +17,15 @@ DE_DECLARE_MODULE(de_module_id3v2);
 #define CODE_PRIV 0x50524956U
 #define CODE_TXX  0x54585800U
 #define CODE_TXXX 0x54585858U
+#define CODE_WXX  0x57585800U
+#define CODE_WXXX 0x57585858U
 
 #define ID3ENC_ISO_8859_1 0
 #define ID3ENC_UTF16      1
 #define ID3ENC_UTF16BE    2
 #define ID3ENC_UTF8       3
 
-struct id3v2_ctx {
+typedef struct localctx_struct {
 	de_byte has_id3v2;
 
 	de_int64 total_len;
@@ -49,7 +51,7 @@ struct id3v2_ctx {
 	de_byte has_ext_header;
 	de_byte is_experimental;
 	de_byte has_footer;
-};
+} lctx;
 
 static de_int64 get_ui24be(dbuf *f, de_int64 pos)
 {
@@ -65,15 +67,15 @@ static de_int64 get_synchsafe_int(dbuf *f, de_int64 pos)
 	return (buf[0]<<21)|(buf[1]<<14)|(buf[2]<<7)|(buf[3]);
 }
 
-static const char *get_textenc_name(struct id3v2_ctx *dd, de_byte id3_encoding)
+static const char *get_textenc_name(lctx *d, de_byte id3_encoding)
 {
 	const char *encname;
 
 	switch(id3_encoding) {
 	case 0: encname = "ISO-8859-1"; break;
 	case 1:
-		if(dd->version_code==2) encname = "UCS-2";
-		else if(dd->version_code==3) encname = "UCS-2 w/BOM";
+		if(d->version_code==2) encname = "UCS-2";
+		else if(d->version_code==3) encname = "UCS-2 w/BOM";
 		else encname = "UTF-16 w/BOM";
 		break;
 	case 2: encname = "UTF-16BE"; break;
@@ -138,7 +140,7 @@ done:
 	}
 }
 
-static int read_terminated_string(deark *c, struct id3v2_ctx *dd, dbuf *f,
+static int read_terminated_string(deark *c, lctx *d, dbuf *f,
 	de_int64 pos, de_int64 nbytes_avail, de_int64 nbytes_to_scan, de_byte id3_encoding,
 	de_ucstring *s, de_int64 *bytes_consumed)
 {
@@ -185,7 +187,7 @@ done:
 }
 
 // Read 10-byte main ID3v2 header
-static int do_id3v2_header(deark *c, dbuf *f, struct id3v2_ctx *dd)
+static int do_id3v2_header(deark *c, dbuf *f, lctx *d)
 {
 	de_int64 pos;
 	de_byte flags;
@@ -198,14 +200,14 @@ static int do_id3v2_header(deark *c, dbuf *f, struct id3v2_ctx *dd)
 	de_dbg_indent(c, 1);
 
 	// TODO: Verify signature
-	dd->has_id3v2 = 1;
+	d->has_id3v2 = 1;
 
 	pos += 3; // ID3v2 file identifier
-	dd->version_code = dbuf_getbyte(f, pos++);
-	dd->ver_revision = dbuf_getbyte(f, pos++);
-	de_dbg(c, "ID3v2 version: (2.)%d.%d", (int)dd->version_code, (int)dd->ver_revision);
-	if(dd->version_code<2 || dd->version_code>4) {
-		de_warn(c, "Unsupported ID3v2 version: (2.)%d.x", (int)dd->version_code);
+	d->version_code = dbuf_getbyte(f, pos++);
+	d->ver_revision = dbuf_getbyte(f, pos++);
+	de_dbg(c, "ID3v2 version: (2.)%d.%d", (int)d->version_code, (int)d->ver_revision);
+	if(d->version_code<2 || d->version_code>4) {
+		de_warn(c, "Unsupported ID3v2 version: (2.)%d.x", (int)d->version_code);
 		goto done;
 	}
 
@@ -213,46 +215,46 @@ static int do_id3v2_header(deark *c, dbuf *f, struct id3v2_ctx *dd)
 	de_dbg(c, "flags: 0x%02x", (unsigned int)flags);
 	de_dbg_indent(c, 1);
 
-	if(dd->version_code<=3) {
-		dd->global_level_unsync = (flags&0x80)?1:0;
-		de_dbg(c, "global-level unsynchronisation: %d", (int)dd->global_level_unsync);
+	if(d->version_code<=3) {
+		d->global_level_unsync = (flags&0x80)?1:0;
+		de_dbg(c, "global-level unsynchronisation: %d", (int)d->global_level_unsync);
 	}
-	else if(dd->version_code==4) {
-		dd->global_frame_level_unsync = (flags&0x80)?1:0;
-		de_dbg(c, "all frames use unsynchronisation: %d", (int)dd->global_frame_level_unsync);
+	else if(d->version_code==4) {
+		d->global_frame_level_unsync = (flags&0x80)?1:0;
+		de_dbg(c, "all frames use unsynchronisation: %d", (int)d->global_frame_level_unsync);
 	}
 
-	if(dd->version_code==2) {
+	if(d->version_code==2) {
 		has_global_compression = (flags&0x40)?1:0;
-		de_dbg(c, "uses compression: %d", dd->has_ext_header);
+		de_dbg(c, "uses compression: %d", d->has_ext_header);
 	}
-	else if(dd->version_code>=3) {
-		dd->has_ext_header = (flags&0x40)?1:0;
-		de_dbg(c, "has extended header: %d", dd->has_ext_header);
-	}
-
-	if(dd->version_code>=3) {
-		dd->is_experimental = (flags&0x20)?1:0;
-		de_dbg(c, "is experimental: %d", dd->is_experimental);
+	else if(d->version_code>=3) {
+		d->has_ext_header = (flags&0x40)?1:0;
+		de_dbg(c, "has extended header: %d", d->has_ext_header);
 	}
 
-	if(dd->version_code >= 4) {
-		dd->has_footer = (flags&0x10)?1:0;
-		de_dbg(c, "has footer: %d", dd->has_footer);
+	if(d->version_code>=3) {
+		d->is_experimental = (flags&0x20)?1:0;
+		de_dbg(c, "is experimental: %d", d->is_experimental);
+	}
+
+	if(d->version_code >= 4) {
+		d->has_footer = (flags&0x10)?1:0;
+		de_dbg(c, "has footer: %d", d->has_footer);
 	}
 
 	de_dbg_indent(c, -1);
 
-	dd->data_len = get_synchsafe_int(f, pos);
-	de_dbg(c, "size: %d", (int)dd->data_len);
+	d->data_len = get_synchsafe_int(f, pos);
+	de_dbg(c, "size: %d", (int)d->data_len);
 	pos += 4;
 
-	dd->data_start = 10;
+	d->data_start = 10;
 
-	dd->total_len = dd->data_start + dd->data_len;
-	if(dd->has_footer) dd->total_len += 10;
+	d->total_len = d->data_start + d->data_len;
+	if(d->has_footer) d->total_len += 10;
 
-	de_dbg(c, "calculated end of ID3v2 data: %d", (int)dd->total_len);
+	de_dbg(c, "calculated end of ID3v2 data: %d", (int)d->total_len);
 
 	if(has_global_compression) {
 		de_warn(c, "ID3v2.2.x Compression not supported");
@@ -280,6 +282,7 @@ static void unescape_id3v2_data(deark *c, dbuf *inf, de_int64 inf_start,
 	de_byte b0;
 
 	de_dbg(c, "unescaping \"unsynchronised\" ID3v2 data");
+	de_dbg_indent(c, 1);
 
 	while(srcpos<inf_start+inf_len) {
 		b0 = dbuf_getbyte(inf, srcpos++);
@@ -290,9 +293,10 @@ static void unescape_id3v2_data(deark *c, dbuf *inf, de_int64 inf_start,
 	}
 
 	de_dbg(c, "unescaped %d bytes to %d bytes", (int)inf_len, (int)outf->len);
+	de_dbg_indent(c, -1);
 }
 
-static void decode_id3v2_frame_text(deark *c, struct id3v2_ctx *dd,
+static void decode_id3v2_frame_text(deark *c, lctx *d,
 	dbuf *f, de_int64 pos1, de_int64 len, struct de_fourcc *tag4cc)
 {
 	de_byte id3_encoding;
@@ -301,7 +305,7 @@ static void decode_id3v2_frame_text(deark *c, struct id3v2_ctx *dd,
 
 	if(len<1) goto done;
 	id3_encoding = dbuf_getbyte(f, pos++);
-	de_dbg(c, "text encoding: %d (%s)", (int)id3_encoding, get_textenc_name(dd, id3_encoding));
+	de_dbg(c, "text encoding: %d (%s)", (int)id3_encoding, get_textenc_name(d, id3_encoding));
 
 	s = ucstring_create(c);
 	id3v2_read_to_ucstring(c, f, pos, pos1+len-pos, s, id3_encoding);
@@ -311,36 +315,40 @@ done:
 	ucstring_destroy(s);
 }
 
-static void decode_id3v2_frame_txxx(deark *c, struct id3v2_ctx *dd,
-	dbuf *f, de_int64 pos1, de_int64 len)
+// TXX, TXXX, WXX, WXXX
+static void decode_id3v2_frame_txxx_etc(deark *c, lctx *d,
+	dbuf *f, de_int64 pos1, de_int64 len, struct de_fourcc *tag4cc)
 {
 	de_int64 pos = pos1;
 	de_byte id3_encoding;
 	de_ucstring *description = NULL;
 	de_ucstring *value = NULL;
 	de_int64 bytes_consumed;
+	const char *name;
 	int ret;
 
 	id3_encoding = dbuf_getbyte(f, pos++);
-	de_dbg(c, "text encoding: %d (%s)", (int)id3_encoding, get_textenc_name(dd, id3_encoding));
+	de_dbg(c, "text encoding: %d (%s)", (int)id3_encoding, get_textenc_name(d, id3_encoding));
 
 	description = ucstring_create(c);
 	bytes_consumed = 0;
-	ret = read_terminated_string(c, dd, f, pos, pos1+len-pos, 256, id3_encoding, description, &bytes_consumed);
+	ret = read_terminated_string(c, d, f, pos, pos1+len-pos, 256, id3_encoding, description, &bytes_consumed);
 	if(!ret) goto done;
 	de_dbg(c, "description: \"%s\"", ucstring_get_printable_sz(description));
 	pos += bytes_consumed;
 
 	value = ucstring_create(c);
 	id3v2_read_to_ucstring(c, f, pos, pos1+len-pos, value, id3_encoding);
-	de_dbg(c, "value: \"%s\"", ucstring_get_printable_sz(value));
+	if(tag4cc->id==CODE_WXX || tag4cc->id==CODE_WXXX) name="url";
+	else name="value";
+	de_dbg(c, "%s: \"%s\"", name, ucstring_get_printable_sz(value));
 
 done:
 	ucstring_destroy(description);
 	ucstring_destroy(value);
 }
 
-static void decode_id3v2_frame_priv(deark *c, struct id3v2_ctx *dd,
+static void decode_id3v2_frame_priv(deark *c, lctx *d,
 	dbuf *f, de_int64 pos1, de_int64 len)
 {
 	struct de_stringreaderdata *owner = NULL;
@@ -369,7 +377,7 @@ done:
 	de_destroy_stringreaderdata(c, owner);
 }
 
-static void decode_id3v2_frame_comm(deark *c, struct id3v2_ctx *dd,
+static void decode_id3v2_frame_comm(deark *c, lctx *d,
 	dbuf *f, de_int64 pos1, de_int64 len)
 {
 	de_byte id3_encoding;
@@ -381,7 +389,7 @@ static void decode_id3v2_frame_comm(deark *c, struct id3v2_ctx *dd,
 	int ret;
 
 	id3_encoding = dbuf_getbyte(f, pos++);
-	de_dbg(c, "text encoding: %d (%s)", (int)id3_encoding, get_textenc_name(dd, id3_encoding));
+	de_dbg(c, "text encoding: %d (%s)", (int)id3_encoding, get_textenc_name(d, id3_encoding));
 
 	lang = ucstring_create(c);
 	dbuf_read_to_ucstring(f, pos, 3, lang, 0, DE_ENCODING_ASCII);
@@ -390,7 +398,7 @@ static void decode_id3v2_frame_comm(deark *c, struct id3v2_ctx *dd,
 
 	shortdesc = ucstring_create(c);
 	bytes_consumed = 0;
-	ret = read_terminated_string(c, dd, f, pos, pos1+len-pos, 256, id3_encoding, shortdesc, &bytes_consumed);
+	ret = read_terminated_string(c, d, f, pos, pos1+len-pos, 256, id3_encoding, shortdesc, &bytes_consumed);
 	if(!ret) goto done;
 	de_dbg(c, "short description: \"%s\"", ucstring_get_printable_sz(shortdesc));
 	pos += bytes_consumed;
@@ -405,7 +413,7 @@ done:
 	ucstring_destroy(comment_text);
 }
 
-static void decode_id3v2_frame_pic_apic(deark *c, struct id3v2_ctx *dd,
+static void decode_id3v2_frame_pic_apic(deark *c, lctx *d,
 	dbuf *f, de_int64 pos1, de_int64 len, struct de_fourcc *tag4cc)
 {
 	de_byte id3_encoding;
@@ -420,7 +428,7 @@ static void decode_id3v2_frame_pic_apic(deark *c, struct id3v2_ctx *dd,
 	de_byte sig[2];
 
 	id3_encoding = dbuf_getbyte(f, pos++);
-	de_dbg(c, "text encoding: %d (%s)", (int)id3_encoding, get_textenc_name(dd, id3_encoding));
+	de_dbg(c, "text encoding: %d (%s)", (int)id3_encoding, get_textenc_name(d, id3_encoding));
 
 	if(tag4cc->id==CODE_PIC) {
 		fmt_srd = dbuf_read_string(f, pos, 3, 3, 0, DE_ENCODING_ASCII);
@@ -429,7 +437,7 @@ static void decode_id3v2_frame_pic_apic(deark *c, struct id3v2_ctx *dd,
 	}
 	else {
 		mimetype = ucstring_create(c);
-		ret = read_terminated_string(c, dd, f, pos, pos1+len-pos, 256, ID3ENC_ISO_8859_1,
+		ret = read_terminated_string(c, d, f, pos, pos1+len-pos, 256, ID3ENC_ISO_8859_1,
 			mimetype, &bytes_consumed);
 		if(!ret) goto done;
 		de_dbg(c, "mime type: \"%s\"", ucstring_get_printable_sz(mimetype));
@@ -441,7 +449,7 @@ static void decode_id3v2_frame_pic_apic(deark *c, struct id3v2_ctx *dd,
 
 	description = ucstring_create(c);
 	// "The description has a maximum length of 64 characters" [we'll allow more]
-	ret = read_terminated_string(c, dd, f, pos, pos1+len-pos, 256, id3_encoding,
+	ret = read_terminated_string(c, d, f, pos, pos1+len-pos, 256, id3_encoding,
 		description, &bytes_consumed);
 	if(!ret) goto done;
 	de_dbg(c, "description: \"%s\"", ucstring_get_printable_sz(description));
@@ -462,7 +470,7 @@ done:
 }
 
 // Popularimeter
-static void decode_id3v2_frame_pop_popm(deark *c, struct id3v2_ctx *dd,
+static void decode_id3v2_frame_pop_popm(deark *c, lctx *d,
 	dbuf *f, de_int64 pos1, de_int64 len)
 {
 	de_int64 bytes_consumed = 0;
@@ -472,7 +480,7 @@ static void decode_id3v2_frame_pop_popm(deark *c, struct id3v2_ctx *dd,
 	int ret;
 
 	email = ucstring_create(c);
-	ret = read_terminated_string(c, dd, f, pos, pos1+len-pos, 256, ID3ENC_ISO_8859_1,
+	ret = read_terminated_string(c, d, f, pos, pos1+len-pos, 256, ID3ENC_ISO_8859_1,
 		email, &bytes_consumed);
 	if(!ret) goto done;
 	de_dbg(c, "email/id: \"%s\"", ucstring_get_printable_sz(email));
@@ -488,58 +496,58 @@ done:
 	ucstring_destroy(email);
 }
 
-static void decode_id3v2_frame_internal(deark *c, struct id3v2_ctx *dd, dbuf *f,
+static void decode_id3v2_frame_internal(deark *c, lctx *d, dbuf *f,
 	de_int64 pos1, de_int64 len, struct de_fourcc *tag4cc)
 {
-	if(dd->version_code==2) {
-		if(tag4cc->id==CODE_TXX) {
-			decode_id3v2_frame_txxx(c, dd, f, pos1, len);
+	if(d->version_code==2) {
+		if(tag4cc->id==CODE_TXX || tag4cc->id==CODE_WXX) {
+			decode_id3v2_frame_txxx_etc(c, d, f, pos1, len, tag4cc);
 		}
 		if(tag4cc->bytes[0]=='T') {
-			decode_id3v2_frame_text(c, dd, f, pos1, len, tag4cc);
+			decode_id3v2_frame_text(c, d, f, pos1, len, tag4cc);
 		}
 		else if(tag4cc->id==CODE_COM) {
-			decode_id3v2_frame_comm(c, dd, f, pos1, len);
+			decode_id3v2_frame_comm(c, d, f, pos1, len);
 		}
 		else if(tag4cc->id==CODE_PIC) {
-			decode_id3v2_frame_pic_apic(c, dd, f, pos1, len, tag4cc);
+			decode_id3v2_frame_pic_apic(c, d, f, pos1, len, tag4cc);
 		}
 		else if(tag4cc->id==CODE_POP) {
-			decode_id3v2_frame_pop_popm(c, dd, f, pos1, len);
+			decode_id3v2_frame_pop_popm(c, d, f, pos1, len);
 		}
 	}
-	else if(dd->version_code>=3) {
+	else if(d->version_code>=3) {
 		// "All text frame identifiers begin with "T". Only text frame identifiers
 		// begin with "T", with the exception of the "TXXX" frame."
-		if(tag4cc->id==CODE_TXXX) {
-			decode_id3v2_frame_txxx(c, dd, f, pos1, len);
+		if(tag4cc->id==CODE_TXXX || tag4cc->id==CODE_WXXX) {
+			decode_id3v2_frame_txxx_etc(c, d, f, pos1, len, tag4cc);
 		}
 		else if(tag4cc->bytes[0]=='T') {
-			decode_id3v2_frame_text(c, dd, f, pos1, len, tag4cc);
+			decode_id3v2_frame_text(c, d, f, pos1, len, tag4cc);
 		}
 		else if(tag4cc->id==CODE_COMM) {
-			decode_id3v2_frame_comm(c, dd, f, pos1, len);
+			decode_id3v2_frame_comm(c, d, f, pos1, len);
 		}
 		else if(tag4cc->id==CODE_PRIV) {
-			decode_id3v2_frame_priv(c, dd, f, pos1, len);
+			decode_id3v2_frame_priv(c, d, f, pos1, len);
 		}
 		else if(tag4cc->id==CODE_APIC) {
-			decode_id3v2_frame_pic_apic(c, dd, f, pos1, len, tag4cc);
+			decode_id3v2_frame_pic_apic(c, d, f, pos1, len, tag4cc);
 		}
 		else if(tag4cc->id==CODE_POPM) {
-			decode_id3v2_frame_pop_popm(c, dd, f, pos1, len);
+			decode_id3v2_frame_pop_popm(c, d, f, pos1, len);
 		}
 	}
 }
 
-static void decode_id3v2_frame(deark *c, struct id3v2_ctx *dd, dbuf *f,
+static void decode_id3v2_frame(deark *c, lctx *d, dbuf *f,
 	de_int64 pos1, de_int64 len,
 	struct de_fourcc *tag4cc, unsigned int flags1, unsigned int flags2)
 {
-	de_byte frame_level_unsynch = dd->global_frame_level_unsync;
+	de_byte frame_level_unsynch = d->global_frame_level_unsync;
 	dbuf *unescaped_frame = NULL;
 
-	if(dd->version_code==3) {
+	if(d->version_code==3) {
 		if(flags2&0x80) { // 'i'
 			de_dbg(c, "[compressed frame not supported]");
 			goto done;
@@ -553,7 +561,7 @@ static void decode_id3v2_frame(deark *c, struct id3v2_ctx *dd, dbuf *f,
 			goto done;
 		}
 	}
-	if(dd->version_code==4) {
+	if(d->version_code==4) {
 		if(flags2&0x40) { // 'h'
 			de_dbg(c, "[grouped frame not supported]");
 			goto done;
@@ -581,17 +589,17 @@ static void decode_id3v2_frame(deark *c, struct id3v2_ctx *dd, dbuf *f,
 	if(frame_level_unsynch) {
 		unescaped_frame = dbuf_create_membuf(c, 0, 0);
 		unescape_id3v2_data(c, f, pos1, len, unescaped_frame);
-		decode_id3v2_frame_internal(c, dd, unescaped_frame, 0, unescaped_frame->len, tag4cc);
+		decode_id3v2_frame_internal(c, d, unescaped_frame, 0, unescaped_frame->len, tag4cc);
 	}
 	else {
-		decode_id3v2_frame_internal(c, dd, f, pos1, len, tag4cc);
+		decode_id3v2_frame_internal(c, d, f, pos1, len, tag4cc);
 	}
 
 done:
 	dbuf_close(unescaped_frame);
 }
 
-static const char *get_frame_name(struct id3v2_ctx *dd, de_uint32 id)
+static const char *get_frame_name(lctx *d, de_uint32 id)
 {
 	struct frame_list_entry {
 		de_uint32 threecc, fourcc;
@@ -626,13 +634,13 @@ static const char *get_frame_name(struct id3v2_ctx *dd, de_uint32 id)
 		{0x54543200U, 0x54495432U, "Title"},
 		{0x54524b00U, 0x5452434bU, "Track number"},
 		{CODE_TXX,    CODE_TXXX,   "User defined text information"},
-		{0x57585800U, 0x57585858U, "User defined URL link"},
+		{CODE_WXX,    CODE_WXXX,   "User defined URL link"},
 		{0x54594500U, 0x54594552U, "Year"}
 	};
 	size_t k;
 
 	for(k=0; k<DE_ITEMS_IN_ARRAY(frame_list); k++) {
-		if(dd->version_code==2) {
+		if(d->version_code==2) {
 			if(id==frame_list[k].threecc)
 				return frame_list[k].name;
 		}
@@ -644,7 +652,7 @@ static const char *get_frame_name(struct id3v2_ctx *dd, de_uint32 id)
 	return "?";
 }
 
-static void do_id3v2_frames(deark *c, struct id3v2_ctx *dd,
+static void do_id3v2_frames(deark *c, lctx *d,
 	dbuf *f, de_int64 pos1, de_int64 len, de_int64 orig_pos)
 {
 	de_int64 pos = pos1;
@@ -654,7 +662,7 @@ static void do_id3v2_frames(deark *c, struct id3v2_ctx *dd,
 	de_int64 frame_header_len;
 
 	de_memset(&tag4cc, 0, sizeof(struct de_fourcc));
-	if(dd->version_code<=2) frame_header_len = 6;
+	if(d->version_code<=2) frame_header_len = 6;
 	else frame_header_len = 10;
 
 	de_dbg_indent_save(c, &saved_indent_level);
@@ -666,7 +674,7 @@ static void do_id3v2_frames(deark *c, struct id3v2_ctx *dd,
 		de_int64 frame_dlen;
 		de_byte flags1, flags2;
 		de_byte b;
-		char *flgname;
+		char *flg2name;
 
 		if(pos+frame_header_len > pos1+len) break;
 
@@ -680,7 +688,7 @@ static void do_id3v2_frames(deark *c, struct id3v2_ctx *dd,
 		de_dbg(c, "frame #%d", (int)frame_idx);
 		de_dbg_indent(c, 1);
 
-		if(dd->version_code<=2) {
+		if(d->version_code<=2) {
 			// Version 2.2.x uses a "THREECC".
 			dbuf_read(f, tag4cc.bytes, pos, 3);
 			tag4cc.id = (tag4cc.bytes[0]<<24)|(tag4cc.bytes[1]<<16)|(tag4cc.bytes[2]<<8);
@@ -695,13 +703,13 @@ static void do_id3v2_frames(deark *c, struct id3v2_ctx *dd,
 		}
 
 		de_dbg(c, "tag: '%s' (%s)", tag4cc.id_printable,
-			get_frame_name(dd, tag4cc.id));
+			get_frame_name(d, tag4cc.id));
 
-		if(dd->version_code<=2) {
+		if(d->version_code<=2) {
 			frame_dlen = get_ui24be(f, pos);
 			pos += 3;
 		}
-		else if(dd->version_code==3) {
+		else if(d->version_code==3) {
 			frame_dlen = dbuf_getui32be(f, pos);
 			pos += 4;
 		}
@@ -711,22 +719,21 @@ static void do_id3v2_frames(deark *c, struct id3v2_ctx *dd,
 		}
 		de_dbg(c, "size: %d", (int)frame_dlen);
 
-		if(dd->version_code<=2) {
+		if(d->version_code<=2) {
 			flags1 = 0;
 			flags2 = 0;
 		}
 		else {
 			flags1 = dbuf_getbyte(f, pos++);
-			de_dbg(c, "status messages flags: 0x%02x", (unsigned int)flags1);
-
 			flags2 = dbuf_getbyte(f, pos++);
-			if(dd->version_code<=3) flgname = "encoding";
-			else flgname = "format description";
-			de_dbg(c, "%s flags: 0x%02x", flgname, (unsigned int)flags2);
+			if(d->version_code<=3) flg2name = "encoding";
+			else flg2name = "format description";
+			de_dbg(c, "flags: status messages=0x%02x, %s=0x%02x",
+				(unsigned int)flags1, flg2name, (unsigned int)flags2);
 		}
 
 		if(pos+frame_dlen > pos1+len) goto done;
-		decode_id3v2_frame(c, dd, f, pos, frame_dlen, &tag4cc, flags1, flags2);
+		decode_id3v2_frame(c, d, f, pos, frame_dlen, &tag4cc, flags1, flags2);
 
 		pos += frame_dlen;
 		frame_idx++;
@@ -739,44 +746,44 @@ done:
 
 static void de_run_id3v2(deark *c, de_module_params *mparams)
 {
-	struct id3v2_ctx *dd = NULL;
+	lctx *d = NULL;
 	dbuf *unescaped_data = NULL;
 	de_int64 ext_header_size = 0;
 
-	dd = de_malloc(c, sizeof(struct id3v2_ctx));
-	if(!do_id3v2_header(c, c->infile, dd)) goto done;
-	if(!dd->has_id3v2) goto done;
+	d = de_malloc(c, sizeof(lctx));
+	if(!do_id3v2_header(c, c->infile, d)) goto done;
+	if(!d->has_id3v2) goto done;
 
-	if(dd->has_ext_header) {
-		if(dd->version_code!=4) {
+	if(d->has_ext_header) {
+		if(d->version_code!=4) {
 			de_warn(c, "extended header not supported");
 			goto done; // TODO
 		}
-		de_dbg(c, "ID3v2 extended header at %d", (int)dd->data_start);
-		ext_header_size = get_synchsafe_int(c->infile, dd->data_start);
+		de_dbg(c, "ID3v2 extended header at %d", (int)d->data_start);
+		ext_header_size = get_synchsafe_int(c->infile, d->data_start);
 		de_dbg_indent(c, 1);
 		de_dbg(c, "extended header size: %d", (int)ext_header_size);
 		de_dbg_indent(c, -1);
-		if(ext_header_size > dd->data_len) goto done;
+		if(ext_header_size > d->data_len) goto done;
 	}
 
-	if(dd->global_level_unsync) {
+	if(d->global_level_unsync) {
 		unescaped_data = dbuf_create_membuf(c, 0, 0);
-		unescape_id3v2_data(c, c->infile, dd->data_start,
-			dd->data_len, unescaped_data);
+		unescape_id3v2_data(c, c->infile, d->data_start,
+			d->data_len, unescaped_data);
 	}
 	else {
 		unescaped_data = dbuf_open_input_subfile(c->infile,
-			dd->data_start + ext_header_size,
-			dd->data_len - ext_header_size);
+			d->data_start + ext_header_size,
+			d->data_len - ext_header_size);
 	}
 
-	do_id3v2_frames(c, dd, unescaped_data, 0, unescaped_data->len,
-		dd->data_start + ext_header_size);
+	do_id3v2_frames(c, d, unescaped_data, 0, unescaped_data->len,
+		d->data_start + ext_header_size);
 
 done:
 	dbuf_close(unescaped_data);
-	de_free(c, dd);
+	de_free(c, d);
 }
 
 static int de_identify_id3v2(deark *c)
