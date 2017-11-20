@@ -70,13 +70,14 @@ static const char *get_textenc_name(de_byte id3_encoding)
 	return encname;
 }
 
-static void id3v2_read_to_ucstring(dbuf *f, de_int64 pos1, de_int64 len,
+static void id3v2_read_to_ucstring(deark *c, dbuf *f, de_int64 pos1, de_int64 len,
 	de_ucstring *s, de_byte id3_encoding)
 {
 	de_int64 pos = pos1;
+	const char *bomdesc = "none";
 	int encoding_to_use = DE_ENCODING_UNKNOWN;
 
-	if(len<=0) return;
+	if(len<=0) goto done;
 
 	if(id3_encoding==0x00) {
 		encoding_to_use = DE_ENCODING_LATIN1;
@@ -84,17 +85,23 @@ static void id3v2_read_to_ucstring(dbuf *f, de_int64 pos1, de_int64 len,
 	else if(id3_encoding==0x01) { // UTF-16 with BOM
 		de_uint32 bom_id;
 
-		if(len<2) return; // This is okay, for an empty string.
+		if(len<2) goto done;
 		bom_id = (de_uint32)dbuf_getui16be(f, pos);
 
 		if(bom_id==0xfeff) {
 			encoding_to_use = DE_ENCODING_UTF16BE;
+			bomdesc = "BE";
 		}
 		else if(bom_id==0xfffe) {
 			encoding_to_use = DE_ENCODING_UTF16LE;
+			bomdesc = "LE";
 		}
 		else {
-			return; // Error
+			// TODO: What should we do if there's no BOM?
+			// v2.2.x does not say anything about a BOM, but it also does not
+			// say anything about what byte order is used.
+			// v2.3.x and 2.4.x require a BOM.
+			goto done;
 		}
 		pos += 2;
 	}
@@ -105,12 +112,17 @@ static void id3v2_read_to_ucstring(dbuf *f, de_int64 pos1, de_int64 len,
 		encoding_to_use = DE_ENCODING_UTF8;
 	}
 	else {
-		return; // Error
+		goto done; // Error
 	}
 
 	// TODO: Maybe shouldn't use DE_DBG_MAX_STRLEN here.
 	dbuf_read_to_ucstring_n(f, pos, pos1+len-pos, DE_DBG_MAX_STRLEN, s, 0, encoding_to_use);
 	ucstring_truncate_at_NUL(s);
+
+done:
+	if(id3_encoding==0x01 && c->debug_level>=2) {
+		de_dbg2(c, "BOM: %s", bomdesc);
+	}
 }
 
 static int read_terminated_string(deark *c, struct id3v2_ctx *dd, dbuf *f,
@@ -147,7 +159,7 @@ static int read_terminated_string(deark *c, struct id3v2_ctx *dd, dbuf *f,
 		*bytes_consumed = stringlen + 1;
 	}
 
-	id3v2_read_to_ucstring(f, pos, stringlen, s, id3_encoding);
+	id3v2_read_to_ucstring(c, f, pos, stringlen, s, id3_encoding);
 
 	retval = 1;
 done:
@@ -274,7 +286,7 @@ static void decode_id3v2_frame_text(deark *c, struct id3v2_ctx *dd,
 	de_dbg(c, "text encoding: %d (%s)", (int)id3_encoding, get_textenc_name(id3_encoding));
 
 	s = ucstring_create(c);
-	id3v2_read_to_ucstring(f, pos, pos1+len-pos, s, id3_encoding);
+	id3v2_read_to_ucstring(c, f, pos, pos1+len-pos, s, id3_encoding);
 	de_dbg(c, "text: \"%s\"", ucstring_get_printable_sz(s));
 
 done:
@@ -302,7 +314,7 @@ static void decode_id3v2_frame_txxx(deark *c, struct id3v2_ctx *dd,
 	pos += bytes_consumed;
 
 	value = ucstring_create(c);
-	id3v2_read_to_ucstring(f, pos, pos1+len-pos, value, id3_encoding);
+	id3v2_read_to_ucstring(c, f, pos, pos1+len-pos, value, id3_encoding);
 	de_dbg(c, "value: \"%s\"", ucstring_get_printable_sz(value));
 
 done:
@@ -337,7 +349,7 @@ static void decode_id3v2_frame_comm(deark *c, struct id3v2_ctx *dd,
 	pos += bytes_consumed;
 
 	comment_text = ucstring_create(c);
-	id3v2_read_to_ucstring(f, pos, pos1+len-pos, comment_text, id3_encoding);
+	id3v2_read_to_ucstring(c, f, pos, pos1+len-pos, comment_text, id3_encoding);
 	de_dbg(c, "comment: \"%s\"", ucstring_get_printable_sz(comment_text));
 
 done:
@@ -360,7 +372,6 @@ static void decode_id3v2_frame_pic(deark *c, struct id3v2_ctx *dd,
 	const char *ext;
 	de_byte sig[2];
 
-	de_dbg(c, "PIC");
 	id3_encoding = dbuf_getbyte(f, pos++);
 	de_dbg(c, "text encoding: %d (%s)", (int)id3_encoding, get_textenc_name(id3_encoding));
 
@@ -384,9 +395,9 @@ static void decode_id3v2_frame_pic(deark *c, struct id3v2_ctx *dd,
 	if(pos >= pos1+len) goto done;
 
 	dbuf_read(f, sig, pos, 2);
-	if(sig[0]==0x89 && sig[1]==0x50) ext="png";
-	else if(sig[0]==0xff && sig[1]==0xd8) ext="jpg";
-	else ext="bin";
+	if(sig[0]==0x89 && sig[1]==0x50) ext="id3pic.png";
+	else if(sig[0]==0xff && sig[1]==0xd8) ext="id3pic.jpg";
+	else ext="id3pic.bin";
 	dbuf_create_file_from_slice(f, pos, pos1+len-pos, ext, NULL, DE_CREATEFLAG_IS_AUX);
 
 done:
