@@ -556,6 +556,59 @@ done:
 	dbuf_close(unescaped_frame);
 }
 
+static const char *get_frame_name(struct id3v2_ctx *dd, de_uint32 id)
+{
+	struct frame_list_entry {
+		de_uint32 threecc, fourcc;
+		const char *name;
+	};
+	static const struct frame_list_entry frame_list[] = {
+		// This is a partial list, of some of the common frame types.
+		{0x54414c00U, 0x54414c42U, "Album/Movie/Show title"},
+		{CODE_PIC,    CODE_APIC,   "Attached picture"},
+		{0x54503200U, 0x54504532U, "Band/orchestra/accompaniment"},
+		{0x54425000U, 0x5442504dU, "Beats per minute"},
+		{CODE_COM,    CODE_COMM,   "Comments"},
+		{0x54434d00U, 0x54434f4dU, "Composer"},
+		{0x54434f00U, 0x54434f4eU, "Content type"},
+		{0x54435200U, 0x54434f50U, "Copyright message"},
+		{0x54444100U, 0x54444154U, "Date"},
+		{0x54454e00U, 0x54454e43U, "Encoded by"},
+		{0x47454f00U, 0x47454f42U, "General encapsulated object"},
+		{0x544b4500U, 0x544b4559U, "Initial key"},
+		{0x54503100U, 0,           "Lead artist/Performing group"},
+		{0,           0x54504531U, "Lead performer"},
+		{0x544c4500U, 0x544c454eU, "Length"},
+		{0x4d434900U, 0x4d434449U, "Music CD identifier"},
+		{0x544f4100U, 0x544f5045U, "Original artist/performer"},
+		{CODE_POP,    CODE_POPM,   "Popularimeter"},
+		{0,           0x50524956U, "Private frame"},
+		{0x54504200U, 0x54505542U, "Publisher"},
+		{0,           0x54445243U, "Recording time"},
+		{0x52564100U, 0x52564144U, "Relative volume adjustment"},
+		{0x54535300U, 0x54535345U, "Software/Hardware and settings used for encoding"},
+		{0x54494d00U, 0x54494d45U, "Time"},
+		{0x54543200U, 0x54495432U, "Title"},
+		{0x54524b00U, 0x5452434bU, "Track number"},
+		{CODE_TXX,    CODE_TXXX,   "User defined text information"},
+		{0x57585800U, 0x57585858U, "User defined URL link"},
+		{0x54594500U, 0x54594552U, "Year"}
+	};
+	size_t k;
+
+	for(k=0; k<DE_ITEMS_IN_ARRAY(frame_list); k++) {
+		if(dd->version_code==2) {
+			if(id==frame_list[k].threecc)
+				return frame_list[k].name;
+		}
+		else {
+			if(id==frame_list[k].fourcc)
+				return frame_list[k].name;
+		}
+	}
+	return "?";
+}
+
 static void do_id3v2_frames(deark *c, struct id3v2_ctx *dd,
 	dbuf *f, de_int64 pos1, de_int64 len, de_int64 orig_pos)
 {
@@ -606,7 +659,8 @@ static void do_id3v2_frames(deark *c, struct id3v2_ctx *dd,
 			pos += 4;
 		}
 
-		de_dbg(c, "tag: '%s'", tag4cc.id_printable);
+		de_dbg(c, "tag: '%s' (%s)", tag4cc.id_printable,
+			get_frame_name(dd, tag4cc.id));
 
 		if(dd->version_code<=2) {
 			frame_dlen = get_ui24be(f, pos);
