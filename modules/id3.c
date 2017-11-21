@@ -3,10 +3,12 @@
 // See the file COPYING for terms of use.
 
 // ID3v2 metadata
+// MP3 audio
 
 #include <deark-config.h>
 #include <deark-private.h>
 DE_DECLARE_MODULE(de_module_id3v2);
+DE_DECLARE_MODULE(de_module_mp3);
 
 #define CODE_APIC 0x41504943U
 #define CODE_COM  0x434f4d00U
@@ -881,17 +883,108 @@ done:
 	de_free(c, d);
 }
 
-static int de_identify_id3v2(deark *c)
-{
-	if(!dbuf_memcmp(c->infile, 0, "ID3", 3))
-		return 45;
-	return 0;
-}
-
 void de_module_id3v2(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "id3v2";
 	mi->desc = "ID3v2 metadata";
 	mi->run_fn = de_run_id3v2;
-	mi->identify_fn = de_identify_id3v2;
+	mi->identify_fn = de_identify_none;
+}
+
+// **************************************************************************
+// MP3
+// **************************************************************************
+
+static void do_mp3_id3v1(deark *c, de_int64 pos1)
+{
+	de_int64 pos = pos1;
+	de_ucstring *s = NULL;
+	de_byte genre;
+
+	s = ucstring_create(c);
+	pos += 3;
+
+	dbuf_read_to_ucstring(c->infile, pos, 30, s, DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_ASCII);
+	de_dbg(c, "song title: \"%s\"", ucstring_get_printable_sz(s));
+	pos += 30;
+
+	ucstring_empty(s);
+	dbuf_read_to_ucstring(c->infile, pos, 30, s, DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_ASCII);
+	de_dbg(c, "artist: \"%s\"", ucstring_get_printable_sz(s));
+	pos += 30;
+
+	ucstring_empty(s);
+	dbuf_read_to_ucstring(c->infile, pos, 30, s, DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_ASCII);
+	de_dbg(c, "album: \"%s\"", ucstring_get_printable_sz(s));
+	pos += 30;
+
+	ucstring_empty(s);
+	dbuf_read_to_ucstring(c->infile, pos, 4, s, DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_ASCII);
+	de_dbg(c, "year: \"%s\"", ucstring_get_printable_sz(s));
+	pos += 4;
+
+	ucstring_empty(s);
+	dbuf_read_to_ucstring(c->infile, pos, 30, s, DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_ASCII);
+	de_dbg(c, "comment: \"%s\"", ucstring_get_printable_sz(s));
+	pos += 30;
+
+	genre = de_getbyte(pos);
+	de_dbg(c, "genre: %d", (int)genre);
+
+	ucstring_destroy(s);
+}
+
+static void de_run_mp3(deark *c, de_module_params *mparams)
+{
+	de_int64 id3v1pos;
+
+	if(!dbuf_memcmp(c->infile, 0, "ID3", 3)) {
+		de_dbg(c, "ID3v2 tag at %d", 0);
+		// ID3v2 is such a heavyweight format that we put it in a separate module.
+		de_run_module_by_id_on_slice(c, "id3v2", NULL, c->infile, 0, c->infile->len);
+	}
+
+	id3v1pos = c->infile->len-128;
+	if(!dbuf_memcmp(c->infile, id3v1pos, "TAG", 3)) {
+		de_dbg(c, "ID3v1 tag at %d", (int)id3v1pos);
+		de_dbg_indent(c, 1);
+		do_mp3_id3v1(c, id3v1pos);
+		de_dbg_indent(c, -1);
+	}
+}
+
+static int de_identify_mp3(deark *c)
+{
+	de_byte b[4];
+	int has_ext;
+	unsigned int x;
+
+	has_ext = de_input_file_has_ext(c, "mp3");
+
+	de_read(b, 0, 4);
+	if(!de_memcmp(b, "ID3", 3)) {
+		if(has_ext) return 100;
+		else return 85;
+	}
+
+	// TODO: We could try harder to identify MP3.
+	if(!has_ext) return 0;
+
+	x = (unsigned int)de_getui16be_direct(b);
+	if(((x&0xfffe) == 0xfffa) ||
+		((x&0xfffe) == 0xfff2) ||
+		((x&0xfffe) == 0xffe2))
+	{
+		return 100;
+	}
+	return 0;
+}
+
+
+void de_module_mp3(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "mp3";
+	mi->desc = "MP3 audio";
+	mi->run_fn = de_run_mp3;
+	mi->identify_fn = de_identify_mp3;
 }

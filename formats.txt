@@ -617,9 +617,6 @@ Deark -- Information about supported formats
 * ICC profile (module="iccprofile")
   - Debug info only.
 
-* ID3v2 metadata (module="id3v2") (experimental)
-  - Found in some MP3 files.
-
 * IFF (Interchange File Format) (module="iff")
   - IFF can be parsed, but in many cases nothing can be extracted from it.
   Options
@@ -636,6 +633,10 @@ Deark -- Information about supported formats
 * HLP (Windows Help) (module="hlp") (experimental)
   - Extract SHG/MRB graphics
   - Extract icon (rarely present)
+
+* MP3 audio (module="mp3") (experimental)
+  - Not all files can be autodetected.
+  - Supports only ID3 metadata. The audio data is not converted.
 
 * NULL (module="null")
   - Do nothing.
