@@ -11,6 +11,8 @@ DE_DECLARE_MODULE(de_module_id3v2);
 #define CODE_APIC 0x41504943U
 #define CODE_COM  0x434f4d00U
 #define CODE_COMM 0x434f4d4dU
+#define CODE_GEO  0x47454f00U
+#define CODE_GEOB 0x47454f42U
 #define CODE_PIC  0x50494300U
 #define CODE_POP  0x504f5000U
 #define CODE_POPM 0x504f504dU
@@ -315,6 +317,18 @@ done:
 	ucstring_destroy(s);
 }
 
+// From frames starting with "W", except WXXX
+static void decode_id3v2_frame_urllink(deark *c, lctx *d,
+	dbuf *f, de_int64 pos1, de_int64 len, struct de_fourcc *tag4cc)
+{
+	de_ucstring *s = NULL;
+
+	s = ucstring_create(c);
+	dbuf_read_to_ucstring(f, pos1, len, s, 0, DE_ENCODING_LATIN1);
+	de_dbg(c, "url: \"%s\"", ucstring_get_printable_sz(s));
+	ucstring_destroy(s);
+}
+
 // TXX, TXXX, WXX, WXXX
 static void decode_id3v2_frame_txxx_etc(deark *c, lctx *d,
 	dbuf *f, de_int64 pos1, de_int64 len, struct de_fourcc *tag4cc)
@@ -469,6 +483,65 @@ done:
 	ucstring_destroy(description);
 }
 
+static void decode_id3v2_frame_geob(deark *c, lctx *d,
+	dbuf *f, de_int64 pos1, de_int64 len)
+{
+	de_byte id3_encoding;
+	de_int64 pos = pos1;
+	de_ucstring *mimetype = NULL;
+	de_ucstring *filename = NULL;
+	de_ucstring *description = NULL;
+	de_int64 bytes_consumed = 0;
+	int ret;
+	de_int64 objlen;
+
+	id3_encoding = dbuf_getbyte(f, pos++);
+	de_dbg(c, "text encoding: %d (%s)", (int)id3_encoding, get_textenc_name(d, id3_encoding));
+
+	mimetype = ucstring_create(c);
+	ret = read_terminated_string(c, d, f, pos, pos1+len-pos, 256, ID3ENC_ISO_8859_1,
+		mimetype, &bytes_consumed);
+	if(!ret) goto done;
+	de_dbg(c, "mime type: \"%s\"", ucstring_get_printable_sz(mimetype));
+	pos += bytes_consumed;
+
+	filename = ucstring_create(c);
+	ret = read_terminated_string(c, d, f, pos, pos1+len-pos, 256, id3_encoding,
+		filename, &bytes_consumed);
+	if(!ret) goto done;
+	de_dbg(c, "filename: \"%s\"", ucstring_get_printable_sz(filename));
+	pos += bytes_consumed;
+
+	description = ucstring_create(c);
+	ret = read_terminated_string(c, d, f, pos, pos1+len-pos, 256, id3_encoding,
+		description, &bytes_consumed);
+	if(!ret) goto done;
+	de_dbg(c, "description: \"%s\"", ucstring_get_printable_sz(description));
+	pos += bytes_consumed;
+
+	objlen = pos1+len-pos;
+	if(objlen<1) goto done;
+
+	de_dbg(c, "[%d bytes of encapsulated object data]", (int)objlen);
+
+	if(c->extract_level>=2) {
+		dbuf_create_file_from_slice(f, pos, objlen, "encobj.bin",
+			NULL, DE_CREATEFLAG_IS_AUX);
+	}
+	else if(c->debug_level>=2) {
+		de_int64 dumplen = objlen;
+		if(dumplen>256) dumplen=256;
+		de_dbg_indent(c, 1);
+		de_dbg_hexdump(c, f, pos, dumplen, "data", 0x1);
+		de_dbg_indent(c, -1);
+	}
+
+done:
+	ucstring_destroy(mimetype);
+	ucstring_destroy(filename);
+	ucstring_destroy(description);
+}
+
 // Popularimeter
 static void decode_id3v2_frame_pop_popm(deark *c, lctx *d,
 	dbuf *f, de_int64 pos1, de_int64 len)
@@ -503,11 +576,17 @@ static void decode_id3v2_frame_internal(deark *c, lctx *d, dbuf *f,
 		if(tag4cc->id==CODE_TXX || tag4cc->id==CODE_WXX) {
 			decode_id3v2_frame_txxx_etc(c, d, f, pos1, len, tag4cc);
 		}
-		if(tag4cc->bytes[0]=='T') {
+		else if(tag4cc->bytes[0]=='T') {
 			decode_id3v2_frame_text(c, d, f, pos1, len, tag4cc);
+		}
+		else if(tag4cc->bytes[0]=='W') {
+			decode_id3v2_frame_urllink(c, d, f, pos1, len, tag4cc);
 		}
 		else if(tag4cc->id==CODE_COM) {
 			decode_id3v2_frame_comm(c, d, f, pos1, len);
+		}
+		else if(tag4cc->id==CODE_GEO) {
+			decode_id3v2_frame_geob(c, d, f, pos1, len);
 		}
 		else if(tag4cc->id==CODE_PIC) {
 			decode_id3v2_frame_pic_apic(c, d, f, pos1, len, tag4cc);
@@ -525,8 +604,14 @@ static void decode_id3v2_frame_internal(deark *c, lctx *d, dbuf *f,
 		else if(tag4cc->bytes[0]=='T') {
 			decode_id3v2_frame_text(c, d, f, pos1, len, tag4cc);
 		}
+		else if(tag4cc->bytes[0]=='W') {
+			decode_id3v2_frame_urllink(c, d, f, pos1, len, tag4cc);
+		}
 		else if(tag4cc->id==CODE_COMM) {
 			decode_id3v2_frame_comm(c, d, f, pos1, len);
+		}
+		else if(tag4cc->id==CODE_GEOB) {
+			decode_id3v2_frame_geob(c, d, f, pos1, len);
 		}
 		else if(tag4cc->id==CODE_PRIV) {
 			decode_id3v2_frame_priv(c, d, f, pos1, len);
@@ -617,7 +702,7 @@ static const char *get_frame_name(lctx *d, de_uint32 id)
 		{0x54435200U, 0x54434f50U, "Copyright message"},
 		{0x54444100U, 0x54444154U, "Date"},
 		{0x54454e00U, 0x54454e43U, "Encoded by"},
-		{0x47454f00U, 0x47454f42U, "General encapsulated object"},
+		{CODE_GEO,    CODE_GEOB,   "General encapsulated object"},
 		{0x544b4500U, 0x544b4559U, "Initial key"},
 		{0x54503100U, 0,           "Lead artist/Performing group"},
 		{0,           0x54504531U, "Lead performer"},
