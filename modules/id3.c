@@ -39,6 +39,9 @@ typedef struct localctx_struct {
 	de_int64 data_start;
 	de_int64 data_len;
 
+	int has_padding;
+	de_int64 approx_padding_pos;
+
 	// Sigh. One would think that the "major version" of ID3v2 would
 	// necessarily always be 2. One would be wrong. It depends on context.
 	// The "2" is not stored in the file, which is fine. But the spec calls the
@@ -778,11 +781,17 @@ static void do_id3v2_frames(deark *c, lctx *d,
 		// Peek at the next byte
 		b = dbuf_getbyte(f, pos);
 		if(b==0x00) {
-			de_dbg(c, "[found padding]");
+			d->has_padding = 1;
+			d->approx_padding_pos = orig_pos+pos;
 			break;
 		}
 
-		de_dbg(c, "frame #%d", (int)frame_idx);
+		// The offset we print might not be exact, because of (pre-v2.4.x)
+		// unsynchronisation.
+		// (We have no efficient way to map the position in the unescaped data
+		// back to the corresponding position in the original file.)
+		// TODO: Leave off the "~" when the position is known to be exact.
+		de_dbg(c, "frame #%d at ~%d", (int)frame_idx, (int)(orig_pos+pos));
 		de_dbg_indent(c, 1);
 
 		if(d->version_code<=2) {
@@ -846,20 +855,34 @@ static void de_run_id3v2(deark *c, de_module_params *mparams)
 	lctx *d = NULL;
 	dbuf *unescaped_data = NULL;
 	de_int64 ext_header_size = 0;
+	int saved_indent_level;
 
+	de_dbg_indent_save(c, &saved_indent_level);
 	d = de_malloc(c, sizeof(lctx));
 	if(!do_id3v2_header(c, c->infile, d)) goto done;
 	if(!d->has_id3v2) goto done;
 
 	if(d->has_ext_header) {
-		if(d->version_code!=4) {
-			de_warn(c, "extended header not supported");
-			goto done; // TODO
-		}
 		de_dbg(c, "ID3v2 extended header at %d", (int)d->data_start);
-		ext_header_size = get_synchsafe_int(c->infile, d->data_start);
 		de_dbg_indent(c, 1);
-		de_dbg(c, "extended header size: %d", (int)ext_header_size);
+		if(d->version_code==3 && !d->global_level_unsync) {
+			ext_header_size = 4 + dbuf_getui32be(c->infile, d->data_start);
+			de_dbg(c, "extended header size: %d", (int)ext_header_size);
+			// TODO: Decode the rest of the extended header
+		}
+		else if(d->version_code==4) {
+			de_byte ext_flags;
+			ext_header_size = get_synchsafe_int(c->infile, d->data_start);
+			de_dbg(c, "extended header size: %d", (int)ext_header_size);
+			// [d->data_start+5] = flag byte count that should always be 1
+			ext_flags = de_getbyte(d->data_start+5);
+			de_dbg(c, "extended flags: 0x%02x", (unsigned int)ext_flags);
+			// TODO: Decode the rest of the extended header
+		}
+		else {
+			de_warn(c, "Extended header not supported");
+			goto done; // TODO: v2.3.x w/ unsynch
+		}
 		de_dbg_indent(c, -1);
 		if(ext_header_size > d->data_len) goto done;
 	}
@@ -878,7 +901,12 @@ static void de_run_id3v2(deark *c, de_module_params *mparams)
 	do_id3v2_frames(c, d, unescaped_data, 0, unescaped_data->len,
 		d->data_start + ext_header_size);
 
+	if(d->has_padding) {
+		de_dbg(c, "ID3v2 padding at ~%d", (int)d->approx_padding_pos);
+	}
+
 done:
+	de_dbg_indent_restore(c, saved_indent_level);
 	dbuf_close(unescaped_data);
 	de_free(c, d);
 }
