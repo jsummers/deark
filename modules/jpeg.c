@@ -784,7 +784,7 @@ static void detect_app_seg_type(deark *c, lctx *d, const struct marker_info *mi,
 		struct app_id_decode_struct ad2;
 
 		de_memset(&ad2, 0, sizeof(struct app_id_decode_struct));
-		de_memcpy(ad2.raw_bytes, ad.raw_bytes, ad.nraw_bytes);
+		de_memcpy(ad2.raw_bytes, ad.raw_bytes, (size_t)ad.nraw_bytes);
 		ad2.nraw_bytes = ad.nraw_bytes;
 		// Try to patch the app ID, decode it, and see what happens.
 		de_memcpy(ad2.raw_bytes, (const de_byte*)"http", 4);
