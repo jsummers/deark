@@ -859,6 +859,7 @@ static void de_run_id3v2(deark *c, de_module_params *mparams)
 
 	de_dbg_indent_save(c, &saved_indent_level);
 	d = de_malloc(c, sizeof(lctx));
+	if(mparams) mparams->uint1 = 0;
 	if(!do_id3v2_header(c, c->infile, d)) goto done;
 	if(!d->has_id3v2) goto done;
 
@@ -905,6 +906,10 @@ static void de_run_id3v2(deark *c, de_module_params *mparams)
 		de_dbg(c, "ID3v2 padding at ~%d", (int)d->approx_padding_pos);
 	}
 
+	// Return the data length to the calling module, in the
+	// general-purpose mparams->uint1 field.
+	if(mparams) mparams->uint1 = (de_uint32)d->total_len;
+
 done:
 	de_dbg_indent_restore(c, saved_indent_level);
 	dbuf_close(unescaped_data);
@@ -923,6 +928,13 @@ void de_module_id3v2(deark *c, struct deark_module_info *mi)
 // MP3
 // **************************************************************************
 
+typedef struct mp3ctx_struct {
+	// Settings are for the current frame.
+	unsigned int version_id, layer_desc, has_crc;
+	unsigned int bitrate_idx, samprate_idx;
+	unsigned int has_padding, channel_mode;
+} mp3ctx;
+
 static void do_mp3_id3v1(deark *c, de_int64 pos1)
 {
 	de_int64 pos = pos1;
@@ -933,16 +945,19 @@ static void do_mp3_id3v1(deark *c, de_int64 pos1)
 	pos += 3;
 
 	dbuf_read_to_ucstring(c->infile, pos, 30, s, DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_ASCII);
+	ucstring_strip_trailing_spaces(s);
 	de_dbg(c, "song title: \"%s\"", ucstring_get_printable_sz(s));
 	pos += 30;
 
 	ucstring_empty(s);
 	dbuf_read_to_ucstring(c->infile, pos, 30, s, DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_ASCII);
+	ucstring_strip_trailing_spaces(s);
 	de_dbg(c, "artist: \"%s\"", ucstring_get_printable_sz(s));
 	pos += 30;
 
 	ucstring_empty(s);
 	dbuf_read_to_ucstring(c->infile, pos, 30, s, DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_ASCII);
+	ucstring_strip_trailing_spaces(s);
 	de_dbg(c, "album: \"%s\"", ucstring_get_printable_sz(s));
 	pos += 30;
 
@@ -953,6 +968,7 @@ static void do_mp3_id3v1(deark *c, de_int64 pos1)
 
 	ucstring_empty(s);
 	dbuf_read_to_ucstring(c->infile, pos, 30, s, DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_ASCII);
+	ucstring_strip_trailing_spaces(s);
 	de_dbg(c, "comment: \"%s\"", ucstring_get_printable_sz(s));
 	pos += 30;
 
@@ -962,23 +978,106 @@ static void do_mp3_id3v1(deark *c, de_int64 pos1)
 	ucstring_destroy(s);
 }
 
+static const char *get_mp3_ver_id_name(unsigned int n)
+{
+	const char *name;
+	switch(n) {
+	case 0: name = "MPEG v2.5"; break;
+	case 2: name = "MPEG v2"; break;
+	case 3: name = "MPEG v1"; break;
+	default: name = "?";
+	}
+	return name;
+}
+
+static const char *get_mp3_layer_desc_name(unsigned int n)
+{
+	const char *name;
+	switch(n) {
+	case 1: name = "Layer III"; break;
+	case 2: name = "Layer II"; break;
+	case 3: name = "Layer I"; break;
+	default: name = "?";
+	}
+	return name;
+}
+
+static void do_mp3_frame(deark *c, mp3ctx *d, de_int64 pos1, de_int64 len)
+{
+	de_uint32 x;
+	de_int64 pos = pos1;
+
+	x = (de_uint32)de_getui32be(pos);
+	// SSSSSSSS SSSIIDDP BBBBFFpX MM......
+	de_dbg(c, "frame header at %d: 0x%08x", (int)pos, (unsigned int)x);
+	if((x & 0xffe00000U) != 0xffe00000U) {
+		de_warn(c, "MP3 frame header not found at %d", (int)pos);
+		goto done;
+	}
+	d->version_id = (x&0x00180000U)>>19;
+	de_dbg(c, "audio version id: %u (%s)", d->version_id, get_mp3_ver_id_name(d->version_id));
+	d->layer_desc = (x&0x00060000U)>>17;
+	de_dbg(c, "layer description: %u (%s)", d->layer_desc, get_mp3_layer_desc_name(d->layer_desc));
+	d->has_crc = (x&0x00010000U)>>16;
+	de_dbg(c, "has crc: %u", d->has_crc);
+	d->bitrate_idx =  (x&0x0000f000U)>>12;
+	de_dbg(c, "bitrate id: %u", d->bitrate_idx);
+	d->samprate_idx = (x&0x00000c00U)>>10;
+	de_dbg(c, "sampling rate frequency id: %u", d->samprate_idx);
+	d->has_padding =  (x&0x00000200U)>>9;
+	de_dbg(c, "has padding: %u", d->has_padding);
+	d->channel_mode = (x&0x000000c0U)>>6;
+	de_dbg(c, "channel mode: %u", d->channel_mode);
+	pos += 4;
+done:
+	;
+}
+
+static void do_mp3_data(deark *c, mp3ctx *d, de_int64 pos1, de_int64 len)
+{
+
+	de_dbg(c, "MP3 data, starting at %d", (int)pos1);
+	de_dbg_indent(c, 1);
+	do_mp3_frame(c, d, pos1, len);
+	// TODO: Don't stop after the first frame
+	de_dbg_indent(c, -1);
+}
+
 static void de_run_mp3(deark *c, de_module_params *mparams)
 {
+	mp3ctx *d = NULL;
 	de_int64 id3v1pos;
+	de_int64 pos;
+	de_int64 endpos;
+	de_module_params *mparams_id3v2 = NULL;
+
+	d = de_malloc(c, sizeof(mp3ctx));
+	pos = 0;
+	endpos = c->infile->len;
 
 	if(!dbuf_memcmp(c->infile, 0, "ID3", 3)) {
 		de_dbg(c, "ID3v2 tag at %d", 0);
+		mparams_id3v2 = de_malloc(c, sizeof(de_module_params));
 		// ID3v2 is such a heavyweight format that we put it in a separate module.
-		de_run_module_by_id_on_slice(c, "id3v2", NULL, c->infile, 0, c->infile->len);
+		de_run_module_by_id_on_slice(c, "id3v2", mparams_id3v2, c->infile, 0, c->infile->len);
+		if(mparams_id3v2->uint1 != 0) {
+			pos += (de_int64)mparams_id3v2->uint1;
+		}
 	}
 
 	id3v1pos = c->infile->len-128;
 	if(!dbuf_memcmp(c->infile, id3v1pos, "TAG", 3)) {
 		de_dbg(c, "ID3v1 tag at %d", (int)id3v1pos);
+		endpos -= 128;
 		de_dbg_indent(c, 1);
 		do_mp3_id3v1(c, id3v1pos);
 		de_dbg_indent(c, -1);
 	}
+
+	do_mp3_data(c, d, pos, endpos-pos);
+
+	de_free(c, mparams_id3v2);
+	de_free(c, d);
 }
 
 static int de_identify_mp3(deark *c)

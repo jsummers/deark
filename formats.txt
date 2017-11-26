@@ -636,7 +636,7 @@ Deark -- Information about supported formats
 
 * MP3 audio (module="mp3") (experimental)
   - Not all files can be autodetected.
-  - Supports only ID3 metadata. The audio data is not converted.
+  - Mainly for ID3 metadata. The audio data is not converted.
 
 * NULL (module="null")
   - Do nothing.
