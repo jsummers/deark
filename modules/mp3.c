@@ -1041,12 +1041,105 @@ struct ape_tag_header_footer {
 	de_int64 tag_size_total;
 	de_int64 items_startpos;
 	de_int64 items_size;
+	int has_header;
 };
 
+static const char *get_ape_item_type_name(unsigned int t)
+{
+	const char *name;
+
+	switch(t) {
+	case 0: name = "UTF-8 text"; break;
+	case 1: name = "binary"; break;
+	case 2: name = "locator"; break;
+	default: name = "?";
+	}
+	return name;
+}
+
+static void do_ape_text_item(deark *c, struct ape_tag_header_footer *ah,
+   de_int64 pos, de_int64 len)
+{
+	int encoding;
+	de_ucstring *s = NULL;
+
+	encoding = (ah->ape_ver>=2000)?DE_ENCODING_UTF8:DE_ENCODING_ASCII;
+	s = ucstring_create(c);
+	dbuf_read_to_ucstring_n(c->infile, pos, len, DE_DBG_MAX_STRLEN,
+		s, 0, encoding);
+	de_dbg(c, "value: \"%s\"", ucstring_get_printable_sz(s));
+	ucstring_destroy(s);
+}
+
+static int do_ape_item(deark *c, struct ape_tag_header_footer *ah,
+   de_int64 pos1, de_int64 bytes_avail, de_int64 *bytes_consumed)
+{
+	de_int64 item_value_len;
+	de_int64 pos = pos1;
+	de_uint32 flags;
+	unsigned int item_type;
+	struct de_stringreaderdata *key = NULL;
+	int retval = 0;
+
+	de_dbg(c, "APE item at %"INT64_FMT, pos1);
+	de_dbg_indent(c, 1);
+
+	item_value_len = de_getui32le(pos);
+	pos += 4;
+
+	flags = (de_uint32)de_getui32le(pos);
+	de_dbg(c, "flags: 0x%08x", (unsigned int)flags);
+	if(ah->ape_ver>=2000) {
+		de_dbg_indent(c, 1);
+		item_type = (flags&0x00000006)>>1;
+		de_dbg(c, "type: %u (%s)", item_type, get_ape_item_type_name(item_type));
+		de_dbg_indent(c, -1);
+	}
+	else {
+		item_type = 0;
+	}
+	pos += 4;
+
+	key = dbuf_read_string(c->infile, pos, 256, 256, DE_CONVFLAG_STOP_AT_NUL,
+		DE_ENCODING_ASCII);
+	if(!key->found_nul) goto done;
+	de_dbg(c, "key: \"%s\"", ucstring_get_printable_sz(key->str));
+	pos += key->bytes_consumed;
+
+	de_dbg(c, "item data at %"INT64_FMT", len=%"INT64_FMT, pos, item_value_len);
+	if(item_type==0 || item_type==2) {
+		do_ape_text_item(c, ah, pos, item_value_len);
+	}
+
+	pos += item_value_len;
+	*bytes_consumed = pos - pos1;
+	retval = 1;
+
+done:
+	de_dbg_indent(c, -1);
+	de_destroy_stringreaderdata(c, key);
+	return retval;
+}
 static void do_ape_item_list(deark *c, struct ape_tag_header_footer *ah,
 	de_int64 pos1, de_int64 len)
 {
-	de_dbg(c, "APE items at %d, len=%d", (int)pos1, (int)len);
+	de_int64 pos = pos1;
+
+	de_dbg(c, "APE items at %"INT64_FMT", len=%"INT64_FMT, pos1, len);
+	de_dbg_indent(c, 1);
+	while(1) {
+		de_int64 bytes_consumed = 0;
+
+		if(pos >= pos1+len) break;
+		if(!do_ape_item(c, ah, pos, pos1+len-pos, &bytes_consumed)) {
+			goto done;
+		}
+		if(bytes_consumed<1) goto done;
+
+		pos += bytes_consumed;
+	}
+done:
+	de_dbg_indent(c, -1);
 }
 
 static int do_ape_tag_header_or_footer(deark *c, struct ape_tag_header_footer *ah,
@@ -1066,13 +1159,13 @@ static int do_ape_tag_header_or_footer(deark *c, struct ape_tag_header_footer *a
 	de_dbg(c, "item count: %d", (int)ah->item_count);
 	ah->ape_flags = (de_uint32)de_getui32le(pos1+20);
 	de_dbg(c, "flags: 0x%08x", (unsigned int)ah->ape_flags);
+	if(ah->ape_ver>=2000) {
+		ah->has_header = (ah->ape_flags&0x80000000U) ? 1 : 0;
+	}
 
-	if(ah->ape_ver<2000) {
-		ah->tag_size_total = ah->tag_size_raw;
-	}
-	else {
-		ah->tag_size_total = 32 + ah->tag_size_raw;
-	}
+	ah->tag_size_total = ah->tag_size_raw;
+	if(ah->has_header)
+		ah->tag_size_total += 32;
 
 	if(ah->ape_ver<1000 || ah->ape_ver>=3000) {
 		de_warn(c, "Unrecognized APE tag version: %u", (unsigned int)ah->ape_ver);
@@ -1081,7 +1174,7 @@ static int do_ape_tag_header_or_footer(deark *c, struct ape_tag_header_footer *a
 
 	if(is_footer) {
 		ah->tag_startpos = pos1 + 32 - ah->tag_size_total;
-		de_dbg(c, "calculated start of APE tag: %d", (int)(ah->tag_startpos));
+		de_dbg(c, "calculated start of APE tag: %"INT64_FMT, ah->tag_startpos);
 	}
 	retval = 1;
 done:
@@ -1105,7 +1198,7 @@ static int do_ape_tag(deark *c, de_int64 endpos, de_int64 *ape_tag_bytes_consume
 
 	af = de_malloc(c, sizeof(struct ape_tag_header_footer));
 
-	de_dbg(c, "APE tag found, ending at %d", (int)endpos);
+	de_dbg(c, "APE tag found, ending at %"INT64_FMT, endpos);
 
 	de_dbg_indent(c, 1);
 	if(!do_ape_tag_header_or_footer(c, af, footer_startpos, 1)) goto done;
