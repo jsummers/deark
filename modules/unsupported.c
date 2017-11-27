@@ -55,6 +55,24 @@ static void get_fmt(deark *c, struct fmtinfo_struct *fmti)
 		return;
 	}
 
+	if(!de_memcmp(b, "<?xpacket", 9)) {
+		fmti->confidence = 20;
+		fmti->descr = "an XMP file";
+		return;
+	}
+
+	if(!de_memcmp(b, "MSCF", 4)) {
+		fmti->confidence = 40;
+		fmti->descr = "a Microsoft CAB file";
+		return;
+	}
+
+	if(!de_memcmp(b, "ISc(", 4)) {
+		fmti->confidence = 40;
+		fmti->descr = "an InstallShield CAB file";
+		return;
+	}
+
 	if(b[0]=='H' && b[1]=='P' && b[2]=='H' && b[3]=='P' &&
 		b[4]=='4' && (b[5]=='8' || b[5]=='9'))
 	{
