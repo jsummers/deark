@@ -933,6 +933,9 @@ typedef struct mp3ctx_struct {
 	unsigned int version_id, layer_desc, has_crc;
 	unsigned int bitrate_idx, samprate_idx;
 	unsigned int has_padding, channel_mode;
+	unsigned int mode_extension;
+	unsigned int copyright_flag, orig_media_flag;
+	unsigned int emphasis;
 } mp3ctx;
 
 static const char *get_id3v1_genre_name(de_byte g)
@@ -1014,12 +1017,109 @@ static void do_mp3_id3v1(deark *c, de_int64 pos1)
 	dbuf_read_to_ucstring(c->infile, pos, 30, s, DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_ASCII);
 	ucstring_strip_trailing_spaces(s);
 	de_dbg(c, "comment: \"%s\"", ucstring_get_printable_sz(s));
-	pos += 30;
+	pos += 28;
+	if(de_getbyte(pos)==0) {
+		de_byte trknum;
+		trknum = de_getbyte(pos+1);
+		if(trknum!=0) {
+			// Looks like ID3v1.1
+			de_dbg(c, "track number: %d", (int)trknum);
+		}
+	}
+	pos += 2;
 
 	genre = de_getbyte(pos);
 	de_dbg(c, "genre: %d (%s)", (int)genre, get_id3v1_genre_name(genre));
 
 	ucstring_destroy(s);
+}
+
+struct ape_tag_header_footer {
+	de_uint32 ape_ver, ape_flags;
+	de_int64 tag_size_raw, item_count;
+	de_int64 tag_startpos;
+	de_int64 tag_size_total;
+	de_int64 items_startpos;
+	de_int64 items_size;
+};
+
+static void do_ape_item_list(deark *c, struct ape_tag_header_footer *ah,
+	de_int64 pos1, de_int64 len)
+{
+	de_dbg(c, "APE items at %d, len=%d", (int)pos1, (int)len);
+}
+
+static int do_ape_tag_header_or_footer(deark *c, struct ape_tag_header_footer *ah,
+	de_int64 pos1, int is_footer)
+{
+	int retval = 0;
+
+	ah->ape_ver = (de_uint32)de_getui32le(pos1+8);
+	de_dbg(c, "version: %u", (unsigned int)ah->ape_ver);
+	ah->tag_size_raw = de_getui32le(pos1+12);
+	de_dbg(c, "tag size: %d", (int)ah->tag_size_raw);
+	if(is_footer) {
+		ah->items_startpos = pos1 + 32 - ah->tag_size_raw;
+		ah->items_size = pos1 - ah->items_startpos;
+	}
+	ah->item_count = de_getui32le(pos1+16);
+	de_dbg(c, "item count: %d", (int)ah->item_count);
+	ah->ape_flags = (de_uint32)de_getui32le(pos1+20);
+	de_dbg(c, "flags: 0x%08x", (unsigned int)ah->ape_flags);
+
+	if(ah->ape_ver<2000) {
+		ah->tag_size_total = ah->tag_size_raw;
+	}
+	else {
+		ah->tag_size_total = 32 + ah->tag_size_raw;
+	}
+
+	if(ah->ape_ver<1000 || ah->ape_ver>=3000) {
+		de_warn(c, "Unrecognized APE tag version: %u", (unsigned int)ah->ape_ver);
+		goto done;
+	}
+
+	if(is_footer) {
+		ah->tag_startpos = pos1 + 32 - ah->tag_size_total;
+		de_dbg(c, "calculated start of APE tag: %d", (int)(ah->tag_startpos));
+	}
+	retval = 1;
+done:
+	return retval;
+}
+
+static int do_ape_tag(deark *c, de_int64 endpos, de_int64 *ape_tag_bytes_consumed)
+{
+	struct ape_tag_header_footer *af = NULL;
+	int saved_indent_level;
+	int retval = 0;
+
+	de_int64 footer_startpos;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+	*ape_tag_bytes_consumed = 0;
+
+	footer_startpos = endpos-32;
+	if(dbuf_memcmp(c->infile, footer_startpos, "APETAGEX", 8))
+		goto done;
+
+	af = de_malloc(c, sizeof(struct ape_tag_header_footer));
+
+	de_dbg(c, "APE tag found, ending at %d", (int)endpos);
+
+	de_dbg_indent(c, 1);
+	if(!do_ape_tag_header_or_footer(c, af, footer_startpos, 1)) goto done;
+	*ape_tag_bytes_consumed = af->tag_size_total;
+
+	do_ape_item_list(c, af, af->items_startpos, af->tag_size_raw - 32);
+
+	de_dbg_indent(c, -1);
+	retval = 1;
+
+done:
+	de_free(c, af);
+	de_dbg_indent_restore(c, saved_indent_level);
+	return retval;
 }
 
 static const char *get_mp3_ver_id_name(unsigned int n)
@@ -1046,18 +1146,35 @@ static const char *get_mp3_layer_desc_name(unsigned int n)
 	return name;
 }
 
+static const char *get_mp3_channel_mode_name(unsigned int n)
+{
+	const char *name;
+	switch(n) {
+	case 0: name = "Stereo"; break;
+	case 1: name = "Joint stereo"; break;
+	case 2: name = "Dual channel"; break;
+	case 3: name = "Single channel"; break;
+	default: name = "?";
+	}
+	return name;
+}
+
 static void do_mp3_frame(deark *c, mp3ctx *d, de_int64 pos1, de_int64 len)
 {
 	de_uint32 x;
 	de_int64 pos = pos1;
+	int saved_indent_level;
 
+	de_dbg_indent_save(c, &saved_indent_level);
 	x = (de_uint32)de_getui32be(pos);
-	// SSSSSSSS SSSIIDDP BBBBFFpX MM......
-	de_dbg(c, "frame header at %d: 0x%08x", (int)pos, (unsigned int)x);
 	if((x & 0xffe00000U) != 0xffe00000U) {
-		de_warn(c, "MP3 frame header not found at %d", (int)pos);
+		de_warn(c, "MP3 frame header not found at %"INT64_FMT, pos);
 		goto done;
 	}
+	de_dbg(c, "frame at %"INT64_FMT, pos);
+	de_dbg_indent(c, 1);
+	de_dbg(c, "frame header: 0x%08x", (unsigned int)x);
+	de_dbg_indent(c, 1);
 	d->version_id = (x&0x00180000U)>>19;
 	de_dbg(c, "audio version id: %u (%s)", d->version_id, get_mp3_ver_id_name(d->version_id));
 	d->layer_desc = (x&0x00060000U)>>17;
@@ -1065,25 +1182,37 @@ static void do_mp3_frame(deark *c, mp3ctx *d, de_int64 pos1, de_int64 len)
 	d->has_crc = (x&0x00010000U)>>16;
 	de_dbg(c, "has crc: %u", d->has_crc);
 	d->bitrate_idx =  (x&0x0000f000U)>>12;
-	de_dbg(c, "bitrate id: %u", d->bitrate_idx);
+	de_dbg(c, "bitrate id: %u", d->bitrate_idx); // TODO: Decode this
 	d->samprate_idx = (x&0x00000c00U)>>10;
-	de_dbg(c, "sampling rate frequency id: %u", d->samprate_idx);
+	de_dbg(c, "sampling rate frequency id: %u", d->samprate_idx); // TODO: Decode this
 	d->has_padding =  (x&0x00000200U)>>9;
 	de_dbg(c, "has padding: %u", d->has_padding);
 	d->channel_mode = (x&0x000000c0U)>>6;
-	de_dbg(c, "channel mode: %u", d->channel_mode);
+	de_dbg(c, "channel mode: %u (%s)", d->channel_mode, get_mp3_channel_mode_name(d->channel_mode));
+	if(d->channel_mode==1) {
+		d->mode_extension = (x&0x00000030U)>>4;
+		de_dbg(c, "mode extension: %u", d->mode_extension);
+	}
+	d->copyright_flag = (x&0x00000008U)>>3;
+	de_dbg(c, "copyright flag: %u", d->has_padding);
+	d->orig_media_flag = (x&0x00000004U)>>2;
+	de_dbg(c, "original media flag: %u", d->has_padding);
+	d->emphasis = (x&0x00000003U);
+	de_dbg(c, "emphasis: %u", d->emphasis);
 	pos += 4;
+
 done:
-	;
+	de_dbg_indent_restore(c, saved_indent_level);
 }
 
 static void do_mp3_data(deark *c, mp3ctx *d, de_int64 pos1, de_int64 len)
 {
 
-	de_dbg(c, "MP3 data, starting at %d", (int)pos1);
+	de_dbg(c, "MP3 data at %"INT64_FMT", len=%"INT64_FMT, pos1, len);
 	de_dbg_indent(c, 1);
 	do_mp3_frame(c, d, pos1, len);
-	// TODO: Don't stop after the first frame
+	// TODO: There are probably many frames. Should we look for more frames
+	// (in some cases?)?
 	de_dbg_indent(c, -1);
 }
 
@@ -1093,6 +1222,7 @@ static void de_run_mp3(deark *c, de_module_params *mparams)
 	de_int64 id3v1pos;
 	de_int64 pos;
 	de_int64 endpos;
+	de_int64 ape_tag_len;
 	de_module_params *mparams_id3v2 = NULL;
 
 	d = de_malloc(c, sizeof(mp3ctx));
@@ -1111,12 +1241,15 @@ static void de_run_mp3(deark *c, de_module_params *mparams)
 
 	id3v1pos = c->infile->len-128;
 	if(!dbuf_memcmp(c->infile, id3v1pos, "TAG", 3)) {
-		de_dbg(c, "ID3v1 tag at %d", (int)id3v1pos);
+		de_dbg(c, "ID3v1 tag at %"INT64_FMT, id3v1pos);
 		endpos -= 128;
 		de_dbg_indent(c, 1);
 		do_mp3_id3v1(c, id3v1pos);
 		de_dbg_indent(c, -1);
 	}
+
+	do_ape_tag(c, endpos, &ape_tag_len);
+	endpos -= ape_tag_len;
 
 	do_mp3_data(c, d, pos, endpos-pos);
 
