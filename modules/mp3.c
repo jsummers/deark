@@ -388,8 +388,14 @@ static void decode_id3v2_frame_priv(deark *c, lctx *d,
 	payload_len = pos1+len-pos;
 	if(payload_len<1) goto done;
 
+	de_dbg(c, "private frame data at %"INT64_FMT", len=%"INT64_FMT, pos, payload_len);
 	if(!de_strcmp((const char*)owner->sz, "XMP")) {
 		dbuf_create_file_from_slice(f, pos, payload_len, "xmp", NULL, DE_CREATEFLAG_IS_AUX);
+	}
+	else if(c->debug_level>=2) {
+		de_dbg_indent(c, 1);
+		de_dbg_hexdump(c, f, pos, payload_len, 256, "data", 0x1);
+		de_dbg_indent(c, -1);
 	}
 
 done:
@@ -534,10 +540,8 @@ static void decode_id3v2_frame_geob(deark *c, lctx *d,
 			NULL, DE_CREATEFLAG_IS_AUX);
 	}
 	else if(c->debug_level>=2) {
-		de_int64 dumplen = objlen;
-		if(dumplen>256) dumplen=256;
 		de_dbg_indent(c, 1);
-		de_dbg_hexdump(c, f, pos, dumplen, "data", 0x1);
+		de_dbg_hexdump(c, f, pos, objlen, 256, "data", 0x1);
 		de_dbg_indent(c, -1);
 	}
 
@@ -833,8 +837,8 @@ static void do_id3v2_frames(deark *c, lctx *d,
 			flags1 = dbuf_getbyte(f, pos++);
 			flags2 = dbuf_getbyte(f, pos++);
 			if(d->version_code<=3) flg2name = "encoding";
-			else flg2name = "format description";
-			de_dbg(c, "flags: status messages=0x%02x, %s=0x%02x",
+			else flg2name = "format_description";
+			de_dbg(c, "flags: status_messages=0x%02x, %s=0x%02x",
 				(unsigned int)flags1, flg2name, (unsigned int)flags2);
 		}
 
@@ -1107,9 +1111,14 @@ static int do_ape_item(deark *c, struct ape_tag_header_footer *ah,
 	pos += key->bytes_consumed;
 
 	de_dbg(c, "item data at %"INT64_FMT", len=%"INT64_FMT, pos, item_value_len);
+	de_dbg_indent(c, 1);
 	if(item_type==0 || item_type==2) {
 		do_ape_text_item(c, ah, pos, item_value_len);
 	}
+	else if(c->debug_level>=2) {
+		de_dbg_hexdump(c, c->infile, pos, item_value_len, 256, "data", 0x1);
+	}
+	de_dbg_indent(c, -1);
 
 	pos += item_value_len;
 	*bytes_consumed = pos - pos1;

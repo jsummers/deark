@@ -268,7 +268,8 @@ void de_dbg_indent_restore(deark *c, int saved_indent_level)
 
 // flags:
 //  0x1 = Include an ASCII representation
-void de_dbg_hexdump(deark *c, dbuf *f, de_int64 pos1, de_int64 len,
+void de_dbg_hexdump(deark *c, dbuf *f, de_int64 pos1,
+	de_int64 nbytes_avail, de_int64 max_nbytes_to_dump,
 	const char *prefix, unsigned int flags)
 {
 	char linebuf[3*16+32];
@@ -278,6 +279,16 @@ void de_dbg_hexdump(deark *c, dbuf *f, de_int64 pos1, de_int64 len,
 	de_int64 bytesthisrow;
 	de_int64 asciibufpos;
 	de_byte b;
+	de_int64 len;
+	int was_truncated = 0;
+
+	if(nbytes_avail > max_nbytes_to_dump) {
+		len = max_nbytes_to_dump;
+		was_truncated = 1;
+	}
+	else {
+		len = nbytes_avail;
+	}
 
 	while(1) {
 		if(pos >= pos1+len) break;
@@ -302,6 +313,9 @@ void de_dbg_hexdump(deark *c, dbuf *f, de_int64 pos1, de_int64 len,
 		}
 		de_dbg(c, "%s:%d: %s%s", prefix, (int)(pos-pos1), linebuf, asciibuf);
 		pos += bytesthisrow;
+	}
+	if(was_truncated) {
+		de_dbg(c, "%s:%d: ...", prefix, (int)len);
 	}
 }
 
