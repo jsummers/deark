@@ -44,6 +44,7 @@
 #endif
 
 #define DE_CHAR_TIMES "\xc3\x97"
+#define DE_CHAR_RIGHTARROW "\xe2\x86\x92"
 
 struct deark_struct;
 typedef struct deark_struct deark;

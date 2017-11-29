@@ -296,9 +296,11 @@ void de_utf8_to_ascii(const char *src, char *dst, size_t dstlen, unsigned int fl
 	de_int32 uchar;
 	de_int64 code_len;
 	int ret;
-	char sc; // substitution character
 
 	while(1) {
+		char sc; // substitution character 1
+		char sc2 = 0; // substitution character 2
+
 		if(dstpos >= dstlen-1) {
 			dst[dstlen-1] = '\0';
 			break;
@@ -319,6 +321,7 @@ void de_utf8_to_ascii(const char *src, char *dst, size_t dstlen, unsigned int fl
 				case 0x00d7: sc='x'; break; // Multiplication sign
 				case 0x2018: case 0x2019: sc='\''; break; // single quotes
 				case 0x201c: case 0x201d: sc='"'; break; // double quotes
+				case 0x2192: sc='-'; sc2='>'; break; // Rightwards arrow
 				case 0x2502: sc='|'; break; // Box drawings light vertical
 				default: sc = '_';
 				}
@@ -328,6 +331,7 @@ void de_utf8_to_ascii(const char *src, char *dst, size_t dstlen, unsigned int fl
 				sc = '?';
 			}
 			dst[dstpos++] = sc;
+			if(sc2 && dstpos<dstlen-1) dst[dstpos++] = sc2;
 		}
 	}
 }
