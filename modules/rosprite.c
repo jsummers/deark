@@ -243,7 +243,7 @@ static void do_setup_palette(deark *c, lctx *d, struct page_ctx *pg)
 
 					clr3 = average_color(clr1, clr2);
 					pg->pal[k] = clr3;
-					de_snprintf(tmps, sizeof(tmps), "(%3d,%3d,%3d),(%3d,%3d,%3d) -> ",
+					de_snprintf(tmps, sizeof(tmps), "(%3d,%3d,%3d),(%3d,%3d,%3d) "DE_CHAR_RIGHTARROW" ",
 						(int)DE_COLOR_R(clr1), (int)DE_COLOR_G(clr1), (int)DE_COLOR_B(clr1),
 						(int)DE_COLOR_R(clr2), (int)DE_COLOR_G(clr2), (int)DE_COLOR_B(clr2));
 					de_dbg_pal_entry2(c, k, clr3, tmps, NULL, NULL);

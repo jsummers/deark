@@ -831,7 +831,7 @@ static void de_run_lss16(deark *c, de_module_params *mparams)
 		cg2 = de_scale_63_to_255(cg1);
 		cb2 = de_scale_63_to_255(cb1);
 		pal[i] = DE_MAKE_RGB(cr2, cg2, cb2);
-		de_snprintf(tmps, sizeof(tmps), "(%2d,%2d,%2d) -> ",
+		de_snprintf(tmps, sizeof(tmps), "(%2d,%2d,%2d) "DE_CHAR_RIGHTARROW" ",
 			(int)cr1, (int)cg1, (int)cb1);
 		de_dbg_pal_entry2(c, i, pal[i], tmps, NULL, NULL);
 		d->pos+=3;

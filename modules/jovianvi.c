@@ -50,7 +50,7 @@ static void do_read_palette(deark *c, lctx *d)
 
 		if(d->pal_code==0) {
 			char tmps[64];
-			de_snprintf(tmps, sizeof(tmps), "(%2d,%2d,%2d) -> ",
+			de_snprintf(tmps, sizeof(tmps), "(%2d,%2d,%2d) "DE_CHAR_RIGHTARROW" ",
 				(int)b1[0], (int)b1[1], (int)b1[2]);
 			de_dbg_pal_entry2(c, k, d->pal[idx], tmps, NULL, NULL);
 		}

@@ -219,7 +219,7 @@ static int do_read_pal_file(deark *c, lctx *d, const char *palfn)
 		}
 		d->pal[k] = DE_MAKE_RGB(samp[0], samp[1], samp[2]);
 
-		de_snprintf(tmps, sizeof(tmps), "(%5d,%5d,%5d) -> ",
+		de_snprintf(tmps, sizeof(tmps), "(%5d,%5d,%5d) "DE_CHAR_RIGHTARROW" ",
 			(int)osamp[0], (int)osamp[1], (int)osamp[2]);
 		de_dbg_pal_entry2(c, k, d->pal[k], tmps, NULL, NULL);
 	}

@@ -141,7 +141,7 @@ static void do_sprite_bank(deark *c, lctx *d, de_int64 pos)
 		// paramoffs is relative to the first position after the ID.
 		paramoffs[res] = pos + 4 + paramoffs_raw[res];
 		nsprites[res] = de_getui16be(pos+16+2*res);
-		de_dbg(c, "%s-res sprites: %d, param blk offset: %d (-> %d)", sprite_res_name[res],
+		de_dbg(c, "%s-res sprites: %d, param blk offset: %d ("DE_CHAR_RIGHTARROW" %d)", sprite_res_name[res],
 			(int)nsprites[res], (int)paramoffs_raw[res], (int)paramoffs[res]);
 		nsprites_total += nsprites[res];
 	}

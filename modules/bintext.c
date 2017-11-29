@@ -151,7 +151,7 @@ static void do_read_palette(deark *c, lctx *d,struct de_char_context *charctx,
 		cg2 = de_scale_63_to_255(cg1);
 		cb2 = de_scale_63_to_255(cb1);
 		charctx->pal[k] = DE_MAKE_RGB(cr2, cg2, cb2);
-		de_snprintf(tmps, sizeof(tmps), "(%2d,%2d,%2d) -> ",
+		de_snprintf(tmps, sizeof(tmps), "(%2d,%2d,%2d) "DE_CHAR_RIGHTARROW" ",
 			(int)cr1, (int)cg1, (int)cb1);
 		de_dbg_pal_entry2(c, k, charctx->pal[k], tmps, NULL, NULL);
 	}

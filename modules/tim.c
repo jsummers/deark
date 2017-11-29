@@ -29,7 +29,7 @@ static void do_read_palette(deark *c, lctx *d, de_int64 pos, de_int64 ncolors)
 	for(k=0; k<ncolors && k<256; k++) {
 		n1 = (de_uint32)de_getui16le(pos + 2*k);
 		n2 = de_bgr555_to_888(n1);
-		de_snprintf(tmps, sizeof(tmps), "0x%04x -> ", (unsigned int)n1);
+		de_snprintf(tmps, sizeof(tmps), "0x%04x "DE_CHAR_RIGHTARROW" ", (unsigned int)n1);
 		de_dbg_pal_entry2(c, k, n2, tmps, NULL, NULL);
 		d->pal[k] = n2;
 	}

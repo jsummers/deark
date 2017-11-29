@@ -416,7 +416,7 @@ static int read_colortable(deark *c, lctx *d, struct bitmapinfo *bi, de_int64 po
 		cg = (de_byte)(s[2]>>8);
 		cb = (de_byte)(s[3]>>8);
 		clr = DE_MAKE_RGB(cr,cg,cb);
-		de_snprintf(tmps, sizeof(tmps), "(%5d,%5d,%5d,idx=%3d) -> ",
+		de_snprintf(tmps, sizeof(tmps), "(%5d,%5d,%5d,idx=%3d) "DE_CHAR_RIGHTARROW" ",
 			(int)s[1], (int)s[2], (int)s[3], (int)s[0]);
 		de_dbg_pal_entry2(c, k, clr, tmps, NULL, NULL);
 

@@ -176,7 +176,7 @@ static void do_read_sprite_palette(deark *c, lctx *d, struct amosbank *bk)
 		cg = cg1*17;
 		cb = cb1*17;
 		bk->pal[k] = DE_MAKE_RGB(cr, cg, cb);
-		de_snprintf(tmps, sizeof(tmps), "0x%04x (%2d,%2d,%2d) -> ",
+		de_snprintf(tmps, sizeof(tmps), "0x%04x (%2d,%2d,%2d) "DE_CHAR_RIGHTARROW" ",
 			n, (int)cr1, (int)cg1, (int)cb1);
 		de_dbg_pal_entry2(c, k, bk->pal[k], tmps, NULL,
 			(k>=colors_used)?" [unused]":"");

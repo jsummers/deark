@@ -102,7 +102,7 @@ static int do_palette(deark *c, lctx *d, de_int64 pos, de_int64 len)
 			d->pal[i] = DE_MAKE_RGB(cr2,cg2,cb2);
 		}
 
-		de_snprintf(tmps, sizeof(tmps), "(%d,%d,%d,intens=%d) -> ",
+		de_snprintf(tmps, sizeof(tmps), "(%d,%d,%d,intens=%d) "DE_CHAR_RIGHTARROW" ",
 			(int)cr1, (int)cg1, (int)cb1, (int)ci1);
 		de_dbg_pal_entry2(c, i, d->pal[i], tmps, NULL,
 			i<d->pal_entries_used ? "":" [unused]");

@@ -217,7 +217,7 @@ static int do_read_alt_palette_file(deark *c, lctx *d)
 		}
 		d->pal[k] = DE_MAKE_RGB(b2[0],b2[1],b2[2]);
 
-		de_snprintf(tmps, sizeof(tmps), "(%2d,%2d,%2d) -> ",
+		de_snprintf(tmps, sizeof(tmps), "(%2d,%2d,%2d) "DE_CHAR_RIGHTARROW" ",
 			(int)b1[0], (int)b1[1], (int)b1[2]);
 		de_dbg_pal_entry2(c, k, d->pal[k], tmps, NULL, NULL);
 	}

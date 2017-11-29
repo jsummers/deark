@@ -310,7 +310,7 @@ static void do_prism_read_palette(deark *c, prismctx *d, struct atari_img_decode
 		g = de_scale_1000_to_255(g1);
 		b = de_scale_1000_to_255(b1);
 		clr = DE_MAKE_RGB(r,g,b);
-		de_snprintf(tmps, sizeof(tmps), "(%4d,%4d,%4d) -> ",
+		de_snprintf(tmps, sizeof(tmps), "(%4d,%4d,%4d) "DE_CHAR_RIGHTARROW" ",
 			(int)r1, (int)g1, (int)b1);
 		de_dbg_pal_entry2(c, i, clr, tmps, NULL, NULL);
 		if(i<256) {

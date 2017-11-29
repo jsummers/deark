@@ -178,7 +178,7 @@ static void make_rgb_palette(deark *c, lctx *d, de_uint32 *pal, de_int64 num_ent
 			cg2 = de_scale_63_to_255(cg1);
 			cb2 = de_scale_63_to_255(cb1);
 			pal[k] = DE_MAKE_RGB(cr2, cg2, cb2);
-			de_snprintf(tmps, sizeof(tmps), "(%2d,%2d,%2d) -> ",
+			de_snprintf(tmps, sizeof(tmps), "(%2d,%2d,%2d) "DE_CHAR_RIGHTARROW" ",
 				(int)cr1, (int)cg1, (int)cb1);
 			de_dbg_pal_entry2(c, k, pal[k], tmps, NULL, NULL);
 		}

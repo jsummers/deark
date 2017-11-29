@@ -934,7 +934,7 @@ void de_fmtutil_read_atari_palette(deark *c, dbuf *f, de_int64 pos,
 		}
 
 		dstpal[i] = DE_MAKE_RGB(cr, cg, cb);
-		de_snprintf(tmps, sizeof(tmps), "0x%04x (%s) -> ", n, cbuf);
+		de_snprintf(tmps, sizeof(tmps), "0x%04x (%s) "DE_CHAR_RIGHTARROW" ", n, cbuf);
 		de_dbg_pal_entry2(c, i, dstpal[i], tmps, NULL,
 			(i>=ncolors_used)?" [unused]":"");
 	}

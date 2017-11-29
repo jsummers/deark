@@ -984,7 +984,7 @@ static void handler_colormap(deark *c, lctx *d, const struct taginfo *tg, const 
 		r2 = (de_byte)(r1>>8);
 		g2 = (de_byte)(g1>>8);
 		b2 = (de_byte)(b1>>8);
-		de_dbg2(c, "pal[%3d] = (%5d,%5d,%5d) -> (%3d,%3d,%3d)", (int)i,
+		de_dbg2(c, "pal[%3d] = (%5d,%5d,%5d) "DE_CHAR_RIGHTARROW" (%3d,%3d,%3d)", (int)i,
 			(int)r1, (int)g1, (int)b1,
 			(int)r2, (int)g2, (int)b2);
 	}

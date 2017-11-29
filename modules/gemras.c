@@ -262,7 +262,7 @@ static void read_palette_ximg(deark *c, lctx *d)
 
 		d->pal[i] = DE_MAKE_RGB(cr, cg, cb);
 
-		de_snprintf(tmps, sizeof(tmps), "(%4d,%4d,%4d) -> ",
+		de_snprintf(tmps, sizeof(tmps), "(%4d,%4d,%4d) "DE_CHAR_RIGHTARROW" ",
 			(int)cr1, (int)cg1, (int)cb1);
 		de_dbg_pal_entry2(c, (int)i, d->pal[i], tmps, NULL, NULL);
 
