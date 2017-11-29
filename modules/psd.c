@@ -312,10 +312,10 @@ static const struct rsrc_info rsrc_info_arr[] = {
 	// 0x0fa0 to 0x1387: See lookup_rsrc() below
 	{ 0x1b58, 0, "Image Ready variables", NULL },
 	{ 0x1b59, 0, "Image Ready data sets", NULL },
-	{ 0x1b5a, 0, "Image Ready default selected state", NULL },
+	{ 0x1b5a, 0x0004, "Image Ready default selected state", NULL },
 	{ 0x1b5b, 0, "Image Ready 7 rollover expanded state", NULL },
 	{ 0x1b5c, 0, "Image Ready rollover expanded state", NULL },
-	{ 0x1b5d, 0, "Image Ready save layer settings", NULL },
+	{ 0x1b5d, 0x0004, "Image Ready save layer settings", NULL },
 	{ 0x1b5e, 0, "Image Ready version", NULL },
 	{ 0x1f40, 0, "Lightroom workflow", NULL },
 	{ 0x2710, 0, "Print flags info", hrsrc_printflagsinfo }
@@ -790,6 +790,11 @@ static void do_pluginrsrc_mopt(deark *c, lctx *d, zztype *zz)
 		de_dbg_indent(c, 1);
 
 		de_dbg(c, "[%d bytes of data at %d]", (int)something_len, (int)zz->pos);
+		if(c->debug_level>=2) {
+			de_dbg_indent(c, 1);
+			de_dbg_hexdump(c, c->infile, zz->pos, something_len, 256, "data", 0x1);
+			de_dbg_indent(c, -1);
+		}
 		zz->pos += something_len;
 
 		if(zz_avail(zz)<4) break;
@@ -837,6 +842,16 @@ static void hrsrc_pluginresource(deark *c, lctx *d, zztype *zz, const struct rsr
 	case CODE_mset:
 		do_pluginrsrc_descriptor(c, d, &czz);
 		break;
+	default:
+		if(zz_avail(&czz)>0) {
+			de_dbg(c, "[%d more bytes of plug-in resource data at %d]",
+				(int)zz_avail(&czz), (int)czz.startpos);
+			if(c->debug_level>=2) {
+				de_dbg_indent(c, 1);
+				de_dbg_hexdump(c, c->infile, czz.startpos, zz_avail(&czz), 256, "data", 0x1);
+				de_dbg_indent(c, -1);
+			}
+		}
 	}
 }
 
@@ -1908,6 +1923,9 @@ static int do_image_resource(deark *c, lctx *d, zztype *zz)
 	else if(ri.flags&0x0004) {
 		zz_init_with_len(&czz, zz, block_data_len);
 		hrsrc_descriptor_with_version(c, d, &czz, &ri);
+	}
+	else if(c->debug_level>=2) {
+		de_dbg_hexdump(c, c->infile, zz->pos, block_data_len, 256, "data", 0x1);
 	}
 	de_dbg_indent(c, -1);
 
@@ -3123,6 +3141,15 @@ static int do_tagged_block(deark *c, lctx *d, zztype *zz, int tbnamespace)
 			do_samp_block(c, d, &czz);
 		}
 		break;
+	default:
+		if(blklen>0) {
+			if(c->debug_level>=2) {
+				de_dbg_hexdump(c, c->infile, czz.startpos, blklen, 256, "data", 0x1);
+			}
+			else {
+				de_dbg(c, "[%d bytes of tagged block data at %d]", (int)blklen, (int)czz.startpos);
+			}
+		}
 	}
 	de_dbg_indent(c, -1);
 
