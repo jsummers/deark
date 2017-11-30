@@ -36,6 +36,7 @@ typedef int (*record_decoder_fn)(deark *c, lctx *d, de_int64 rectype, de_int64 r
 // WMF
 // **************************************************************************
 
+static int wmf_handler_0a32(deark *c, lctx *d, de_int64 rectype, de_int64 recpos, de_int64 recsize_bytes);
 static int wmf_handler_0b41_0f43(deark *c, lctx *d, de_int64 rectype, de_int64 recpos, de_int64 recsize_bytes);
 
 struct wmf_func_info {
@@ -109,12 +110,45 @@ static const struct wmf_func_info wmf_func_info_arr[] = {
 	{ 0x0830, "CHORD", NULL },
 	{ 0x0922, "BITBLT", NULL },
 	{ 0x0940, "DIBBITBLT", NULL },
-	{ 0x0a32, "EXTTEXTOUT", NULL },
+	{ 0x0a32, "EXTTEXTOUT", wmf_handler_0a32 },
 	{ 0x0b41, "DIBSTRETCHBLT", wmf_handler_0b41_0f43 },
 	{ 0x0b23, "STRETCHBLT", NULL },
 	{ 0x0d33, "SETDIBTODEV", NULL },
 	{ 0x0f43, "STRETCHDIB", wmf_handler_0b41_0f43 }
 };
+
+// EXTTEXTOUT
+static int wmf_handler_0a32(deark *c, lctx *d, de_int64 rectype, de_int64 recpos, de_int64 recsize_bytes)
+{
+	de_int64 pos = recpos;
+	de_int64 stringlen;
+	de_ucstring *s = NULL;
+	de_uint32 fwOpts;
+
+	pos += 6; // RecordSize, RecordFunction
+	pos += 4; // Y, X
+
+	stringlen = de_getui16le(pos);
+	pos += 2;
+
+	fwOpts = (de_uint32)de_getui16le(pos);
+	pos += 2;
+
+	if(fwOpts & 0x0004) {
+		// My best guess is that this flag determines whether the
+		// Rectangle field exists. The specification says the field is
+		// optional, but AFAICT does not say how to tell whether it exists.
+		pos += 8; // Rectangle
+	}
+
+	s = ucstring_create(c);
+	dbuf_read_to_ucstring_n(c->infile, pos, stringlen, DE_DBG_MAX_STRLEN, s,
+		0, DE_ENCODING_WINDOWS1252);
+	de_dbg(c, "text: \"%s\"", ucstring_get_printable_sz(s));
+
+	ucstring_destroy(s);
+	return 1;
+}
 
 // DIBSTRETCHBLT, STRETCHDIB
 static int wmf_handler_0b41_0f43(deark *c, lctx *d, de_int64 rectype, de_int64 recpos, de_int64 recsize_bytes)
