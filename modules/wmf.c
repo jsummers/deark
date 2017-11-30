@@ -331,6 +331,7 @@ static int emf_handler_01(deark *c, lctx *d, de_int64 rectype, de_int64 recpos, 
 static int emf_handler_46(deark *c, lctx *d, de_int64 rectype, de_int64 recpos, de_int64 recsize_bytes);
 static int emf_handler_4c(deark *c, lctx *d, de_int64 rectype, de_int64 recpos, de_int64 recsize_bytes);
 static int emf_handler_50_51(deark *c, lctx *d, de_int64 rectype, de_int64 recpos, de_int64 recsize_bytes);
+static int emf_handler_54(deark *c, lctx *d, de_int64 rectype, de_int64 recpos, de_int64 recsize_bytes);
 
 struct emf_func_info {
 	de_uint32 rectype;
@@ -410,7 +411,7 @@ static const struct emf_func_info emf_func_info_arr[] = {
 	{ 0x51, "STRETCHDIBITS", emf_handler_50_51 },
 	{ 0x52, "EXTCREATEFONTINDIRECTW", NULL },
 	{ 0x53, "EXTTEXTOUTA", NULL },
-	{ 0x54, "EXTTEXTOUTW", NULL },
+	{ 0x54, "EXTTEXTOUTW", emf_handler_54 },
 	{ 0x55, "POLYBEZIER16", NULL },
 	{ 0x56, "POLYGON16", NULL },
 	{ 0x57, "POLYLINE16", NULL },
@@ -970,6 +971,40 @@ static int emf_handler_50_51(deark *c, lctx *d, de_int64 rectype, de_int64 recpo
 	if(bits_offs+bits_len>recsize_bytes) return 1;
 	extract_dib(c, d, recpos+bmi_offs, bmi_len, recpos+bits_offs, bits_len);
 
+	return 1;
+}
+
+static void do_emf_wEmrText(deark *c, lctx *d, de_int64 recpos, de_int64 pos1, de_int64 len)
+{
+	de_int64 pos = pos1;
+	de_int64 nchars;
+	de_int64 offstring;
+	de_ucstring *s = NULL;
+
+	pos += 8; // Reference
+	nchars = de_getui32le(pos);
+	pos += 4;
+	offstring = de_getui32le(pos);
+	if(recpos+offstring+nchars*2 > pos1+len) goto done;
+	s = ucstring_create(c);
+	dbuf_read_to_ucstring_n(c->infile, recpos+offstring, nchars*2, DE_DBG_MAX_STRLEN*2, s,
+		0, DE_ENCODING_UTF16LE);
+	ucstring_strip_trailing_NUL(s);
+	de_dbg(c, "text: \"%s\"", ucstring_get_printable_sz(s));
+
+done:
+	ucstring_destroy(s);
+}
+
+// 0x54 = EMR_EXTTEXTOUTW
+static int emf_handler_54(deark *c, lctx *d, de_int64 rectype, de_int64 recpos, de_int64 recsize_bytes)
+{
+	de_int64 pos = recpos;
+
+	pos += 8; // type, size
+	pos += 16; // bounds
+	pos += 12; // iGraphicsMode, exScale, eyScale
+	do_emf_wEmrText(c, d, recpos, pos, recpos+recsize_bytes - pos);
 	return 1;
 }
 
