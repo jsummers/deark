@@ -461,8 +461,7 @@ static const struct emf_func_info emf_func_info_arr[] = {
 	{ 0x62, "SETICMMODE", NULL },
 	{ 0x6c, "SMALLTEXTOUT", NULL },
 	{ 0x73, "SETLAYOUT", NULL },
-	{ 0x76, "GRADIENTFILL", NULL },
-	{ 0x0, NULL, NULL }
+	{ 0x76, "GRADIENTFILL", NULL }
 };
 
 struct emfplus_rec_info {
@@ -745,6 +744,40 @@ static void do_emfplus_object(deark *c, lctx *d, de_int64 pos, de_int64 len,
 	de_dbg_indent(c, -1);
 }
 
+// EMF+ Comment
+static int emfplus_handler_4003(deark *c, lctx *d, de_int64 rectype, de_int64 pos, de_int64 len)
+{
+	if(c->debug_level>=2) {
+		de_dbg_hexdump(c, c->infile, pos, len, 256, "comment", 0x1);
+	}
+	else {
+		de_dbg(c, "[%d comment bytes at %d]", (int)len, (int)pos);
+	}
+	return 1;
+}
+
+// EMF+ DrawString
+static int emfplus_handler_401c(deark *c, lctx *d, de_int64 rectype, de_int64 pos1, de_int64 len)
+{
+	de_int64 pos = pos1;
+	de_int64 nchars;
+	de_ucstring *s = NULL;
+
+	pos += 8; // brushid, formatid
+	nchars = de_getui32le(pos);
+	pos += 4;
+	pos += 16; // layoutrect
+	if(pos+nchars*2 > pos1+len) goto done;
+	s = ucstring_create(c);
+	dbuf_read_to_ucstring_n(c->infile, pos, nchars*2, DE_DBG_MAX_STRLEN*2,
+		s, 0, DE_ENCODING_UTF16LE);
+	de_dbg(c, "text: \"%s\"", ucstring_get_printable_sz(s));
+
+done:
+	ucstring_destroy(s);
+	return 1;
+}
+
 static void do_one_emfplus_record(deark *c, lctx *d, de_int64 pos, de_int64 len,
 	de_int64 *bytes_consumed, int *continuation_flag)
 {
@@ -805,8 +838,15 @@ static void do_one_emfplus_record(deark *c, lctx *d, de_int64 pos, de_int64 len,
 	}
 
 	de_dbg_indent(c, 1);
-	if(rectype==0x4008) {
+	// TODO: Use handler function via epinfo
+	if(rectype==0x4003) {
+		emfplus_handler_4003(c, d, rectype, payload_pos, datasize);
+	}
+	else if(rectype==0x4008) {
 		do_emfplus_object(c, d, payload_pos, datasize, flags);
+	}
+	else if(rectype==0x401c) {
+		emfplus_handler_401c(c, d, rectype, payload_pos, datasize);
 	}
 	de_dbg_indent(c, -1);
 
