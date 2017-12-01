@@ -365,6 +365,7 @@ static int emf_handler_01(deark *c, lctx *d, de_int64 rectype, de_int64 recpos, 
 static int emf_handler_46(deark *c, lctx *d, de_int64 rectype, de_int64 recpos, de_int64 recsize_bytes);
 static int emf_handler_4c(deark *c, lctx *d, de_int64 rectype, de_int64 recpos, de_int64 recsize_bytes);
 static int emf_handler_50_51(deark *c, lctx *d, de_int64 rectype, de_int64 recpos, de_int64 recsize_bytes);
+static int emf_handler_53(deark *c, lctx *d, de_int64 rectype, de_int64 recpos, de_int64 recsize_bytes);
 static int emf_handler_54(deark *c, lctx *d, de_int64 rectype, de_int64 recpos, de_int64 recsize_bytes);
 
 struct emf_func_info {
@@ -444,7 +445,7 @@ static const struct emf_func_info emf_func_info_arr[] = {
 	{ 0x50, "SETDIBITSTODEVICE", emf_handler_50_51 },
 	{ 0x51, "STRETCHDIBITS", emf_handler_50_51 },
 	{ 0x52, "EXTCREATEFONTINDIRECTW", NULL },
-	{ 0x53, "EXTTEXTOUTA", NULL },
+	{ 0x53, "EXTTEXTOUTA", emf_handler_53 },
 	{ 0x54, "EXTTEXTOUTW", emf_handler_54 },
 	{ 0x55, "POLYBEZIER16", NULL },
 	{ 0x56, "POLYGON16", NULL },
@@ -1028,7 +1029,8 @@ static int emf_handler_50_51(deark *c, lctx *d, de_int64 rectype, de_int64 recpo
 	return 1;
 }
 
-static void do_emf_wEmrText(deark *c, lctx *d, de_int64 recpos, de_int64 pos1, de_int64 len)
+static void do_emf_xEmrText(deark *c, lctx *d, de_int64 recpos, de_int64 pos1, de_int64 len,
+	de_int64 bytesperchar, int encoding)
 {
 	de_int64 pos = pos1;
 	de_int64 nchars;
@@ -1039,15 +1041,37 @@ static void do_emf_wEmrText(deark *c, lctx *d, de_int64 recpos, de_int64 pos1, d
 	nchars = de_getui32le(pos);
 	pos += 4;
 	offstring = de_getui32le(pos);
-	if(recpos+offstring+nchars*2 > pos1+len) goto done;
+	if(recpos+offstring+nchars*bytesperchar > pos1+len) goto done;
 	s = ucstring_create(c);
-	dbuf_read_to_ucstring_n(c->infile, recpos+offstring, nchars*2, DE_DBG_MAX_STRLEN*2, s,
-		0, DE_ENCODING_UTF16LE);
+	dbuf_read_to_ucstring_n(c->infile, recpos+offstring, nchars*bytesperchar,
+		DE_DBG_MAX_STRLEN*bytesperchar, s, 0, encoding);
 	ucstring_strip_trailing_NUL(s);
 	de_dbg(c, "text: \"%s\"", ucstring_get_printable_sz(s));
 
 done:
 	ucstring_destroy(s);
+}
+
+static void do_emf_aEmrText(deark *c, lctx *d, de_int64 recpos, de_int64 pos1, de_int64 len)
+{
+	do_emf_xEmrText(c, d, recpos, pos1, len, 1, DE_ENCODING_WINDOWS1252);
+}
+
+static void do_emf_wEmrText(deark *c, lctx *d, de_int64 recpos, de_int64 pos1, de_int64 len)
+{
+	do_emf_xEmrText(c, d, recpos, pos1, len, 2, DE_ENCODING_UTF16LE);
+}
+
+// 0x53 = EMR_EXTTEXTOUTA
+static int emf_handler_53(deark *c, lctx *d, de_int64 rectype, de_int64 recpos, de_int64 recsize_bytes)
+{
+	de_int64 pos = recpos;
+
+	pos += 8; // type, size
+	pos += 16; // bounds
+	pos += 12; // iGraphicsMode, exScale, eyScale
+	do_emf_aEmrText(c, d, recpos, pos, recpos+recsize_bytes - pos);
+	return 1;
 }
 
 // 0x54 = EMR_EXTTEXTOUTW
