@@ -230,9 +230,9 @@ done:
 
 static const struct wmf_func_info *find_wmf_func_info(de_int64 rectype)
 {
-	de_int64 i;
+	size_t i;
 
-	for(i=0; i<(de_int64)DE_ITEMS_IN_ARRAY(wmf_func_info_arr); i++) {
+	for(i=0; i<DE_ITEMS_IN_ARRAY(wmf_func_info_arr); i++) {
 		if(wmf_func_info_arr[i].rectype == rectype) {
 			return &wmf_func_info_arr[i];
 		}
@@ -470,7 +470,7 @@ struct emfplus_rec_info {
 	void *reserved1;
 };
 static const struct emfplus_rec_info emfplus_red_info_arr[] = {
-	{ 0x4001, "Header", emf_handler_01 },
+	{ 0x4001, "Header", NULL },
 	{ 0x4002, "EndOfFile", NULL },
 	{ 0x4003, "Comment", NULL },
 	{ 0x4004, "GetDC", NULL },
@@ -515,6 +515,13 @@ static const struct emfplus_rec_info emfplus_red_info_arr[] = {
 	{ 0x4038, "SerializableObject", NULL }
 };
 
+static void ucstring_strip_trailing_NULs(de_ucstring *s)
+{
+	while(s->len>=1 && s->str[s->len-1]==0x0000) {
+		ucstring_truncate(s, s->len-1);
+	}
+}
+
 // Header record
 static int emf_handler_01(deark *c, lctx *d, de_int64 rectype, de_int64 recpos, de_int64 recsize_bytes)
 {
@@ -524,13 +531,15 @@ static int emf_handler_01(deark *c, lctx *d, de_int64 rectype, de_int64 recpos, 
 	de_int64 desc_len;
 	de_int64 desc_offs;
 	de_int64 num_pal_entries;
+	int retval = 0;
+	de_ucstring *desc = NULL;
 
-	if(d->emf_found_header) return 1;
+	if(d->emf_found_header) { retval = 1; goto done; }
 	d->emf_found_header = 1;
 
 	if(recsize_bytes<88) {
 		de_err(c, "Invalid EMF header size (is %d, must be at least 88)", (int)recsize_bytes);
-		return 0;
+		goto done;
 	}
 
 	// 2.2.9 Header Object
@@ -549,7 +558,18 @@ static int emf_handler_01(deark *c, lctx *d, de_int64 rectype, de_int64 recpos, 
 	num_pal_entries = de_getui32le(pos+60);
 	de_dbg(c, "num pal entries: %d", (int)num_pal_entries);
 
-	return 1;
+	if((desc_len>0) && (desc_offs+desc_len*2 <= recsize_bytes)) {
+		desc = ucstring_create(c);
+		dbuf_read_to_ucstring_n(c->infile, recpos+desc_offs, desc_len*2, DE_DBG_MAX_STRLEN*2,
+			desc, 0, DE_ENCODING_UTF16LE);
+		ucstring_strip_trailing_NULs(desc);
+		de_dbg(c, "description: \"%s\"", ucstring_get_printable_sz(desc));
+	}
+
+	retval = 1;
+done:
+	ucstring_destroy(desc);
+	return retval;
 }
 
 static void do_identify_and_extract_compressed_bitmap(deark *c, lctx *d,
@@ -732,7 +752,7 @@ static void do_one_emfplus_record(deark *c, lctx *d, de_int64 pos, de_int64 len,
 	de_int64 size, datasize;
 	de_int64 payload_pos;
 	const struct emfplus_rec_info *epinfo = NULL;
-	de_int64 i;
+	size_t k;
 	int is_continued = 0;
 
 	if(len<12) {
@@ -764,9 +784,9 @@ static void do_one_emfplus_record(deark *c, lctx *d, de_int64 pos, de_int64 len,
 	payload_pos = pos+12;
 
 	// Find the name, etc. of this record type
-	for(i=0; i<(de_int64)DE_ITEMS_IN_ARRAY(emfplus_red_info_arr); i++) {
-		if(emfplus_red_info_arr[i].rectype == rectype) {
-			epinfo = &emfplus_red_info_arr[i];
+	for(k=0; k<DE_ITEMS_IN_ARRAY(emfplus_red_info_arr); k++) {
+		if(emfplus_red_info_arr[k].rectype == rectype) {
+			epinfo = &emfplus_red_info_arr[k];
 			break;
 		}
 	}
@@ -1044,9 +1064,9 @@ static int emf_handler_54(deark *c, lctx *d, de_int64 rectype, de_int64 recpos, 
 
 static const struct emf_func_info *find_emf_func_info(de_int64 rectype)
 {
-	de_int64 i;
+	size_t i;
 
-	for(i=0; emf_func_info_arr[i].rectype!=0; i++) {
+	for(i=0; i<DE_ITEMS_IN_ARRAY(emf_func_info_arr); i++) {
 		if(emf_func_info_arr[i].rectype == rectype) {
 			return &emf_func_info_arr[i];
 		}
