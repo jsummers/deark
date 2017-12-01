@@ -1261,6 +1261,34 @@ static const char *get_mp3_channel_mode_name(unsigned int n)
 	return name;
 }
 
+static int find_mp3_frame_header(deark *c, mp3ctx *d, de_int64 pos1, de_int64 nbytes_avail,
+	de_int64 *skip_this_many_bytes)
+{
+	de_byte *buf = NULL;
+	de_int64 nbytes_in_buf;
+	de_int64 bpos = 0;
+	int retval = 0;
+
+	*skip_this_many_bytes = 0;
+	nbytes_in_buf = 65536;
+	if(nbytes_avail < nbytes_in_buf) nbytes_in_buf = nbytes_avail;
+	buf = de_malloc(c, nbytes_in_buf);
+	de_read(buf, pos1, nbytes_in_buf);
+	for(bpos=0; bpos<nbytes_in_buf-1; bpos++) {
+		if(buf[bpos]==0xff) {
+			if((buf[bpos+1]&0xe0) == 0xe0) {
+				*skip_this_many_bytes = bpos;
+				retval = 1;
+				goto done;
+			}
+		}
+	}
+
+done:
+	de_free(c, buf);
+	return retval;
+}
+
 static void do_mp3_frame(deark *c, mp3ctx *d, de_int64 pos1, de_int64 len)
 {
 	de_uint32 x;
@@ -1270,8 +1298,17 @@ static void do_mp3_frame(deark *c, mp3ctx *d, de_int64 pos1, de_int64 len)
 	de_dbg_indent_save(c, &saved_indent_level);
 	x = (de_uint32)de_getui32be(pos);
 	if((x & 0xffe00000U) != 0xffe00000U) {
-		de_warn(c, "MP3 frame header not found at %"INT64_FMT, pos);
-		goto done;
+		int ret;
+		de_int64 num_bytes_to_skip = 0;
+		de_msg(c, "Note: MP3 frame header not found at %"INT64_FMT". Scanning for frame header.", pos);
+		ret = find_mp3_frame_header(c, d, pos1, len, &num_bytes_to_skip);
+		if(!ret) {
+			de_err(c, "MP3 frame header not found");
+			goto done;
+		}
+		pos += num_bytes_to_skip;
+		de_msg(c, "Note: Possible MP3 frame header found at %"INT64_FMT".", pos);
+		x = (de_uint32)de_getui32be(pos);
 	}
 	de_dbg(c, "frame at %"INT64_FMT, pos);
 	de_dbg_indent(c, 1);
