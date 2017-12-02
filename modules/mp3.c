@@ -29,7 +29,7 @@ DE_DECLARE_MODULE(de_module_mp3);
 #define ID3ENC_UTF16BE    2
 #define ID3ENC_UTF8       3
 
-typedef struct localctx_struct {
+typedef struct id3v2ctx_struct {
 	de_byte has_id3v2;
 
 	de_int64 total_len;
@@ -58,7 +58,7 @@ typedef struct localctx_struct {
 	de_byte has_ext_header;
 	de_byte is_experimental;
 	de_byte has_footer;
-} lctx;
+} id3v2ctx;
 
 static de_int64 get_ui24be(dbuf *f, de_int64 pos)
 {
@@ -74,7 +74,7 @@ static de_int64 get_synchsafe_int(dbuf *f, de_int64 pos)
 	return (buf[0]<<21)|(buf[1]<<14)|(buf[2]<<7)|(buf[3]);
 }
 
-static const char *get_textenc_name(lctx *d, de_byte id3_encoding)
+static const char *get_id3v2_textenc_name(id3v2ctx *d, de_byte id3_encoding)
 {
 	const char *encname;
 
@@ -147,7 +147,7 @@ done:
 	}
 }
 
-static int read_terminated_string(deark *c, lctx *d, dbuf *f,
+static int read_id3v2_terminated_string(deark *c, id3v2ctx *d, dbuf *f,
 	de_int64 pos, de_int64 nbytes_avail, de_int64 nbytes_to_scan, de_byte id3_encoding,
 	de_ucstring *s, de_int64 *bytes_consumed)
 {
@@ -194,7 +194,7 @@ done:
 }
 
 // Read 10-byte main ID3v2 header
-static int do_id3v2_header(deark *c, dbuf *f, lctx *d)
+static int do_id3v2_header(deark *c, dbuf *f, id3v2ctx *d)
 {
 	de_int64 pos;
 	de_byte flags;
@@ -303,7 +303,7 @@ static void unescape_id3v2_data(deark *c, dbuf *inf, de_int64 inf_start,
 	de_dbg_indent(c, -1);
 }
 
-static void decode_id3v2_frame_text(deark *c, lctx *d,
+static void decode_id3v2_frame_text(deark *c, id3v2ctx *d,
 	dbuf *f, de_int64 pos1, de_int64 len, struct de_fourcc *tag4cc)
 {
 	de_byte id3_encoding;
@@ -312,7 +312,8 @@ static void decode_id3v2_frame_text(deark *c, lctx *d,
 
 	if(len<1) goto done;
 	id3_encoding = dbuf_getbyte(f, pos++);
-	de_dbg(c, "text encoding: %d (%s)", (int)id3_encoding, get_textenc_name(d, id3_encoding));
+	de_dbg(c, "text encoding: %d (%s)", (int)id3_encoding,
+		get_id3v2_textenc_name(d, id3_encoding));
 
 	s = ucstring_create(c);
 	id3v2_read_to_ucstring(c, f, pos, pos1+len-pos, s, id3_encoding);
@@ -323,7 +324,7 @@ done:
 }
 
 // From frames starting with "W", except WXXX
-static void decode_id3v2_frame_urllink(deark *c, lctx *d,
+static void decode_id3v2_frame_urllink(deark *c, id3v2ctx *d,
 	dbuf *f, de_int64 pos1, de_int64 len, struct de_fourcc *tag4cc)
 {
 	de_ucstring *s = NULL;
@@ -335,7 +336,7 @@ static void decode_id3v2_frame_urllink(deark *c, lctx *d,
 }
 
 // TXX, TXXX, WXX, WXXX
-static void decode_id3v2_frame_txxx_etc(deark *c, lctx *d,
+static void decode_id3v2_frame_txxx_etc(deark *c, id3v2ctx *d,
 	dbuf *f, de_int64 pos1, de_int64 len, struct de_fourcc *tag4cc)
 {
 	de_int64 pos = pos1;
@@ -347,11 +348,12 @@ static void decode_id3v2_frame_txxx_etc(deark *c, lctx *d,
 	int ret;
 
 	id3_encoding = dbuf_getbyte(f, pos++);
-	de_dbg(c, "text encoding: %d (%s)", (int)id3_encoding, get_textenc_name(d, id3_encoding));
+	de_dbg(c, "text encoding: %d (%s)", (int)id3_encoding,
+		get_id3v2_textenc_name(d, id3_encoding));
 
 	description = ucstring_create(c);
 	bytes_consumed = 0;
-	ret = read_terminated_string(c, d, f, pos, pos1+len-pos, 256, id3_encoding, description, &bytes_consumed);
+	ret = read_id3v2_terminated_string(c, d, f, pos, pos1+len-pos, 256, id3_encoding, description, &bytes_consumed);
 	if(!ret) goto done;
 	de_dbg(c, "description: \"%s\"", ucstring_get_printable_sz(description));
 	pos += bytes_consumed;
@@ -367,7 +369,7 @@ done:
 	ucstring_destroy(value);
 }
 
-static void decode_id3v2_frame_priv(deark *c, lctx *d,
+static void decode_id3v2_frame_priv(deark *c, id3v2ctx *d,
 	dbuf *f, de_int64 pos1, de_int64 len)
 {
 	struct de_stringreaderdata *owner = NULL;
@@ -402,7 +404,7 @@ done:
 	de_destroy_stringreaderdata(c, owner);
 }
 
-static void decode_id3v2_frame_comm(deark *c, lctx *d,
+static void decode_id3v2_frame_comm(deark *c, id3v2ctx *d,
 	dbuf *f, de_int64 pos1, de_int64 len)
 {
 	de_byte id3_encoding;
@@ -414,7 +416,8 @@ static void decode_id3v2_frame_comm(deark *c, lctx *d,
 	int ret;
 
 	id3_encoding = dbuf_getbyte(f, pos++);
-	de_dbg(c, "text encoding: %d (%s)", (int)id3_encoding, get_textenc_name(d, id3_encoding));
+	de_dbg(c, "text encoding: %d (%s)", (int)id3_encoding,
+		get_id3v2_textenc_name(d, id3_encoding));
 
 	lang = ucstring_create(c);
 	dbuf_read_to_ucstring(f, pos, 3, lang, 0, DE_ENCODING_ASCII);
@@ -423,7 +426,8 @@ static void decode_id3v2_frame_comm(deark *c, lctx *d,
 
 	shortdesc = ucstring_create(c);
 	bytes_consumed = 0;
-	ret = read_terminated_string(c, d, f, pos, pos1+len-pos, 256, id3_encoding, shortdesc, &bytes_consumed);
+	ret = read_id3v2_terminated_string(c, d, f, pos, pos1+len-pos, 256, id3_encoding,
+		shortdesc, &bytes_consumed);
 	if(!ret) goto done;
 	de_dbg(c, "short description: \"%s\"", ucstring_get_printable_sz(shortdesc));
 	pos += bytes_consumed;
@@ -438,7 +442,7 @@ done:
 	ucstring_destroy(comment_text);
 }
 
-static void decode_id3v2_frame_pic_apic(deark *c, lctx *d,
+static void decode_id3v2_frame_pic_apic(deark *c, id3v2ctx *d,
 	dbuf *f, de_int64 pos1, de_int64 len, struct de_fourcc *tag4cc)
 {
 	de_byte id3_encoding;
@@ -453,7 +457,8 @@ static void decode_id3v2_frame_pic_apic(deark *c, lctx *d,
 	de_byte sig[2];
 
 	id3_encoding = dbuf_getbyte(f, pos++);
-	de_dbg(c, "text encoding: %d (%s)", (int)id3_encoding, get_textenc_name(d, id3_encoding));
+	de_dbg(c, "text encoding: %d (%s)", (int)id3_encoding,
+		get_id3v2_textenc_name(d, id3_encoding));
 
 	if(tag4cc->id==CODE_PIC) {
 		fmt_srd = dbuf_read_string(f, pos, 3, 3, 0, DE_ENCODING_ASCII);
@@ -462,7 +467,7 @@ static void decode_id3v2_frame_pic_apic(deark *c, lctx *d,
 	}
 	else {
 		mimetype = ucstring_create(c);
-		ret = read_terminated_string(c, d, f, pos, pos1+len-pos, 256, ID3ENC_ISO_8859_1,
+		ret = read_id3v2_terminated_string(c, d, f, pos, pos1+len-pos, 256, ID3ENC_ISO_8859_1,
 			mimetype, &bytes_consumed);
 		if(!ret) goto done;
 		de_dbg(c, "mime type: \"%s\"", ucstring_get_printable_sz(mimetype));
@@ -474,7 +479,7 @@ static void decode_id3v2_frame_pic_apic(deark *c, lctx *d,
 
 	description = ucstring_create(c);
 	// "The description has a maximum length of 64 characters" [we'll allow more]
-	ret = read_terminated_string(c, d, f, pos, pos1+len-pos, 256, id3_encoding,
+	ret = read_id3v2_terminated_string(c, d, f, pos, pos1+len-pos, 256, id3_encoding,
 		description, &bytes_consumed);
 	if(!ret) goto done;
 	de_dbg(c, "description: \"%s\"", ucstring_get_printable_sz(description));
@@ -494,7 +499,7 @@ done:
 	ucstring_destroy(description);
 }
 
-static void decode_id3v2_frame_geob(deark *c, lctx *d,
+static void decode_id3v2_frame_geob(deark *c, id3v2ctx *d,
 	dbuf *f, de_int64 pos1, de_int64 len)
 {
 	de_byte id3_encoding;
@@ -507,24 +512,25 @@ static void decode_id3v2_frame_geob(deark *c, lctx *d,
 	de_int64 objlen;
 
 	id3_encoding = dbuf_getbyte(f, pos++);
-	de_dbg(c, "text encoding: %d (%s)", (int)id3_encoding, get_textenc_name(d, id3_encoding));
+	de_dbg(c, "text encoding: %d (%s)", (int)id3_encoding,
+		get_id3v2_textenc_name(d, id3_encoding));
 
 	mimetype = ucstring_create(c);
-	ret = read_terminated_string(c, d, f, pos, pos1+len-pos, 256, ID3ENC_ISO_8859_1,
+	ret = read_id3v2_terminated_string(c, d, f, pos, pos1+len-pos, 256, ID3ENC_ISO_8859_1,
 		mimetype, &bytes_consumed);
 	if(!ret) goto done;
 	de_dbg(c, "mime type: \"%s\"", ucstring_get_printable_sz(mimetype));
 	pos += bytes_consumed;
 
 	filename = ucstring_create(c);
-	ret = read_terminated_string(c, d, f, pos, pos1+len-pos, 256, id3_encoding,
+	ret = read_id3v2_terminated_string(c, d, f, pos, pos1+len-pos, 256, id3_encoding,
 		filename, &bytes_consumed);
 	if(!ret) goto done;
 	de_dbg(c, "filename: \"%s\"", ucstring_get_printable_sz(filename));
 	pos += bytes_consumed;
 
 	description = ucstring_create(c);
-	ret = read_terminated_string(c, d, f, pos, pos1+len-pos, 256, id3_encoding,
+	ret = read_id3v2_terminated_string(c, d, f, pos, pos1+len-pos, 256, id3_encoding,
 		description, &bytes_consumed);
 	if(!ret) goto done;
 	de_dbg(c, "description: \"%s\"", ucstring_get_printable_sz(description));
@@ -552,7 +558,7 @@ done:
 }
 
 // Popularimeter
-static void decode_id3v2_frame_pop_popm(deark *c, lctx *d,
+static void decode_id3v2_frame_pop_popm(deark *c, id3v2ctx *d,
 	dbuf *f, de_int64 pos1, de_int64 len)
 {
 	de_int64 bytes_consumed = 0;
@@ -562,7 +568,7 @@ static void decode_id3v2_frame_pop_popm(deark *c, lctx *d,
 	int ret;
 
 	email = ucstring_create(c);
-	ret = read_terminated_string(c, d, f, pos, pos1+len-pos, 256, ID3ENC_ISO_8859_1,
+	ret = read_id3v2_terminated_string(c, d, f, pos, pos1+len-pos, 256, ID3ENC_ISO_8859_1,
 		email, &bytes_consumed);
 	if(!ret) goto done;
 	de_dbg(c, "email/id: \"%s\"", ucstring_get_printable_sz(email));
@@ -578,7 +584,7 @@ done:
 	ucstring_destroy(email);
 }
 
-static void decode_id3v2_frame_internal(deark *c, lctx *d, dbuf *f,
+static void decode_id3v2_frame_internal(deark *c, id3v2ctx *d, dbuf *f,
 	de_int64 pos1, de_int64 len, struct de_fourcc *tag4cc)
 {
 	if(d->version_code==2) {
@@ -634,7 +640,7 @@ static void decode_id3v2_frame_internal(deark *c, lctx *d, dbuf *f,
 	}
 }
 
-static void decode_id3v2_frame(deark *c, lctx *d, dbuf *f,
+static void decode_id3v2_frame(deark *c, id3v2ctx *d, dbuf *f,
 	de_int64 pos1, de_int64 len,
 	struct de_fourcc *tag4cc, unsigned int flags1, unsigned int flags2)
 {
@@ -693,7 +699,7 @@ done:
 	dbuf_close(unescaped_frame);
 }
 
-static const char *get_frame_name(lctx *d, de_uint32 id)
+static const char *get_id3v2_frame_name(id3v2ctx *d, de_uint32 id)
 {
 	struct frame_list_entry {
 		de_uint32 threecc, fourcc;
@@ -756,7 +762,7 @@ static const char *get_frame_name(lctx *d, de_uint32 id)
 	return "?";
 }
 
-static void do_id3v2_frames(deark *c, lctx *d,
+static void do_id3v2_frames(deark *c, id3v2ctx *d,
 	dbuf *f, de_int64 pos1, de_int64 len, de_int64 orig_pos)
 {
 	de_int64 pos = pos1;
@@ -813,7 +819,7 @@ static void do_id3v2_frames(deark *c, lctx *d,
 		}
 
 		de_dbg(c, "tag: '%s' (%s)", tag4cc.id_printable,
-			get_frame_name(d, tag4cc.id));
+			get_id3v2_frame_name(d, tag4cc.id));
 
 		if(d->version_code<=2) {
 			frame_dlen = get_ui24be(f, pos);
@@ -856,13 +862,13 @@ done:
 
 static void de_run_id3v2(deark *c, de_module_params *mparams)
 {
-	lctx *d = NULL;
+	id3v2ctx *d = NULL;
 	dbuf *unescaped_data = NULL;
 	de_int64 ext_header_size = 0;
 	int saved_indent_level;
 
 	de_dbg_indent_save(c, &saved_indent_level);
-	d = de_malloc(c, sizeof(lctx));
+	d = de_malloc(c, sizeof(id3v2ctx));
 	if(mparams) mparams->uint1 = 0;
 	if(!do_id3v2_header(c, c->infile, d)) goto done;
 	if(!d->has_id3v2) goto done;
@@ -1355,6 +1361,21 @@ static void do_mp3_data(deark *c, mp3ctx *d, de_int64 pos1, de_int64 len)
 	de_dbg_indent(c, -1);
 }
 
+static void do_id3v2(deark *c, dbuf *f, de_int64 pos, de_int64 bytes_avail,
+	 de_int64 *bytes_consumed)
+{
+	de_module_params *mparams_id3v2 = NULL;
+
+	*bytes_consumed = 0;
+	mparams_id3v2 = de_malloc(c, sizeof(de_module_params));
+	de_run_module_by_id_on_slice(c, "id3v2", mparams_id3v2, f, pos, bytes_avail);
+	if(mparams_id3v2->uint1 != 0) {
+		*bytes_consumed = (de_int64)mparams_id3v2->uint1;
+	}
+
+	de_free(c, mparams_id3v2);
+}
+
 static void de_run_mp3(deark *c, de_module_params *mparams)
 {
 	mp3ctx *d = NULL;
@@ -1362,20 +1383,19 @@ static void de_run_mp3(deark *c, de_module_params *mparams)
 	de_int64 pos;
 	de_int64 endpos;
 	de_int64 ape_tag_len;
-	de_module_params *mparams_id3v2 = NULL;
 
 	d = de_malloc(c, sizeof(mp3ctx));
 	pos = 0;
 	endpos = c->infile->len;
 
 	if(!dbuf_memcmp(c->infile, 0, "ID3", 3)) {
+		de_int64 bytes_consumed_id3v2 = 0;
+
 		de_dbg(c, "ID3v2 tag at %d", 0);
-		mparams_id3v2 = de_malloc(c, sizeof(de_module_params));
-		// ID3v2 is such a heavyweight format that we put it in a separate module.
-		de_run_module_by_id_on_slice(c, "id3v2", mparams_id3v2, c->infile, 0, c->infile->len);
-		if(mparams_id3v2->uint1 != 0) {
-			pos += (de_int64)mparams_id3v2->uint1;
-		}
+		de_dbg_indent(c, 1);
+		do_id3v2(c, c->infile, 0, c->infile->len, &bytes_consumed_id3v2);
+		de_dbg_indent(c, -1);
+		pos += bytes_consumed_id3v2;
 	}
 
 	id3v1pos = c->infile->len-128;
@@ -1392,7 +1412,6 @@ static void de_run_mp3(deark *c, de_module_params *mparams)
 
 	do_mp3_data(c, d, pos, endpos-pos);
 
-	de_free(c, mparams_id3v2);
 	de_free(c, d);
 }
 
