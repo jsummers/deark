@@ -2,13 +2,15 @@
 // Copyright (C) 2017 Jason Summers
 // See the file COPYING for terms of use.
 
-// ID3v2 metadata
 // MP3 audio
 
 #include <deark-config.h>
 #include <deark-private.h>
-DE_DECLARE_MODULE(de_module_id3v2);
 DE_DECLARE_MODULE(de_module_mp3);
+
+// **************************************************************************
+// ID3v2
+// **************************************************************************
 
 #define CODE_APIC 0x41504943U
 #define CODE_COM  0x434f4d00U
@@ -860,7 +862,8 @@ done:
 	de_dbg_indent_restore(c, saved_indent_level);
 }
 
-static void de_run_id3v2(deark *c, de_module_params *mparams)
+static void do_id3v2(deark *c, dbuf *f, de_int64 pos, de_int64 bytes_avail,
+	 de_int64 *bytes_consumed)
 {
 	id3v2ctx *d = NULL;
 	dbuf *unescaped_data = NULL;
@@ -868,25 +871,25 @@ static void de_run_id3v2(deark *c, de_module_params *mparams)
 	int saved_indent_level;
 
 	de_dbg_indent_save(c, &saved_indent_level);
+	*bytes_consumed = 0;
 	d = de_malloc(c, sizeof(id3v2ctx));
-	if(mparams) mparams->uint1 = 0;
-	if(!do_id3v2_header(c, c->infile, d)) goto done;
+	if(!do_id3v2_header(c, f, d)) goto done;
 	if(!d->has_id3v2) goto done;
 
 	if(d->has_ext_header) {
 		de_dbg(c, "ID3v2 extended header at %d", (int)d->data_start);
 		de_dbg_indent(c, 1);
 		if(d->version_code==3 && !d->global_level_unsync) {
-			ext_header_size = 4 + dbuf_getui32be(c->infile, d->data_start);
+			ext_header_size = 4 + dbuf_getui32be(f, d->data_start);
 			de_dbg(c, "extended header size: %d", (int)ext_header_size);
 			// TODO: Decode the rest of the extended header
 		}
 		else if(d->version_code==4) {
 			de_byte ext_flags;
-			ext_header_size = get_synchsafe_int(c->infile, d->data_start);
+			ext_header_size = get_synchsafe_int(f, d->data_start);
 			de_dbg(c, "extended header size: %d", (int)ext_header_size);
 			// [d->data_start+5] = flag byte count that should always be 1
-			ext_flags = de_getbyte(d->data_start+5);
+			ext_flags = dbuf_getbyte(f, d->data_start+5);
 			de_dbg(c, "extended flags: 0x%02x", (unsigned int)ext_flags);
 			// TODO: Decode the rest of the extended header
 		}
@@ -900,11 +903,11 @@ static void de_run_id3v2(deark *c, de_module_params *mparams)
 
 	if(d->global_level_unsync) {
 		unescaped_data = dbuf_create_membuf(c, 0, 0);
-		unescape_id3v2_data(c, c->infile, d->data_start,
+		unescape_id3v2_data(c, f, d->data_start,
 			d->data_len, unescaped_data);
 	}
 	else {
-		unescaped_data = dbuf_open_input_subfile(c->infile,
+		unescaped_data = dbuf_open_input_subfile(f,
 			d->data_start + ext_header_size,
 			d->data_len - ext_header_size);
 	}
@@ -916,9 +919,7 @@ static void de_run_id3v2(deark *c, de_module_params *mparams)
 		de_dbg(c, "ID3v2 padding at ~%d", (int)d->approx_padding_pos);
 	}
 
-	// Return the data length to the calling module, in the
-	// general-purpose mparams->uint1 field.
-	if(mparams) mparams->uint1 = (de_uint32)d->total_len;
+	*bytes_consumed = d->total_len;
 
 done:
 	de_dbg_indent_restore(c, saved_indent_level);
@@ -926,16 +927,6 @@ done:
 	de_free(c, d);
 }
 
-void de_module_id3v2(deark *c, struct deark_module_info *mi)
-{
-	mi->id = "id3v2";
-	mi->desc = "ID3v2 metadata";
-	mi->run_fn = de_run_id3v2;
-	mi->identify_fn = de_identify_none;
-}
-
-// **************************************************************************
-// MP3
 // **************************************************************************
 
 typedef struct mp3ctx_struct {
@@ -1361,21 +1352,6 @@ static void do_mp3_data(deark *c, mp3ctx *d, de_int64 pos1, de_int64 len)
 	de_dbg_indent(c, -1);
 }
 
-static void do_id3v2(deark *c, dbuf *f, de_int64 pos, de_int64 bytes_avail,
-	 de_int64 *bytes_consumed)
-{
-	de_module_params *mparams_id3v2 = NULL;
-
-	*bytes_consumed = 0;
-	mparams_id3v2 = de_malloc(c, sizeof(de_module_params));
-	de_run_module_by_id_on_slice(c, "id3v2", mparams_id3v2, f, pos, bytes_avail);
-	if(mparams_id3v2->uint1 != 0) {
-		*bytes_consumed = (de_int64)mparams_id3v2->uint1;
-	}
-
-	de_free(c, mparams_id3v2);
-}
-
 static void de_run_mp3(deark *c, de_module_params *mparams)
 {
 	mp3ctx *d = NULL;
@@ -1383,6 +1359,7 @@ static void de_run_mp3(deark *c, de_module_params *mparams)
 	de_int64 pos;
 	de_int64 endpos;
 	de_int64 ape_tag_len;
+	int found_id3v2 = 0;
 
 	d = de_malloc(c, sizeof(mp3ctx));
 	pos = 0;
@@ -1395,7 +1372,10 @@ static void de_run_mp3(deark *c, de_module_params *mparams)
 		de_dbg_indent(c, 1);
 		do_id3v2(c, c->infile, 0, c->infile->len, &bytes_consumed_id3v2);
 		de_dbg_indent(c, -1);
-		pos += bytes_consumed_id3v2;
+		if(bytes_consumed_id3v2>0) {
+			found_id3v2 = 1;
+			pos += bytes_consumed_id3v2;
+		}
 	}
 
 	id3v1pos = c->infile->len-128;
@@ -1405,6 +1385,13 @@ static void de_run_mp3(deark *c, de_module_params *mparams)
 		de_dbg_indent(c, 1);
 		do_mp3_id3v1(c, id3v1pos);
 		de_dbg_indent(c, -1);
+	}
+
+	if(!found_id3v2) {
+		if(!dbuf_memcmp(c->infile, endpos-10, "3DI", 3)) {
+			de_warn(c, "Possible ID3v2 tag found at end of file (footer at %"INT64_FMT"). "
+				"This is not supported.", endpos-10);
+		}
 	}
 
 	do_ape_tag(c, endpos, &ape_tag_len);
