@@ -60,6 +60,8 @@ typedef struct id3v2ctx_struct {
 	de_byte has_ext_header;
 	de_byte is_experimental;
 	de_byte has_footer;
+
+	const char *approx_mark;
 } id3v2ctx;
 
 static de_int64 get_ui24be(dbuf *f, de_int64 pos)
@@ -204,14 +206,15 @@ static int do_id3v2_header(deark *c, dbuf *f, id3v2ctx *d)
 	int has_global_compression = 0;
 
 	pos = 0;
+	d->approx_mark = "";
 
 	de_dbg(c, "ID3v2 header at %d", (int)pos);
 	de_dbg_indent(c, 1);
 
 	// TODO: Verify signature
 	d->has_id3v2 = 1;
-
 	pos += 3; // ID3v2 file identifier
+
 	d->version_code = dbuf_getbyte(f, pos++);
 	d->ver_revision = dbuf_getbyte(f, pos++);
 	de_dbg(c, "ID3v2 version: (2.)%d.%d", (int)d->version_code, (int)d->ver_revision);
@@ -231,6 +234,10 @@ static int do_id3v2_header(deark *c, dbuf *f, id3v2ctx *d)
 	else if(d->version_code==4) {
 		d->global_frame_level_unsync = (flags&0x80)?1:0;
 		de_dbg(c, "all frames use unsynchronisation: %d", (int)d->global_frame_level_unsync);
+	}
+
+	if(d->global_level_unsync) {
+		d->approx_mark = "~";
 	}
 
 	if(d->version_code==2) {
@@ -802,8 +809,7 @@ static void do_id3v2_frames(deark *c, id3v2ctx *d,
 		// unsynchronisation.
 		// (We have no efficient way to map the position in the unescaped data
 		// back to the corresponding position in the original file.)
-		// TODO: Leave off the "~" when the position is known to be exact.
-		de_dbg(c, "frame #%d at ~%d", (int)frame_idx, (int)(orig_pos+pos));
+		de_dbg(c, "frame #%d at %s%d", (int)frame_idx, d->approx_mark, (int)(orig_pos+pos));
 		de_dbg_indent(c, 1);
 
 		if(d->version_code<=2) {
@@ -916,7 +922,7 @@ static void do_id3v2(deark *c, dbuf *f, de_int64 pos, de_int64 bytes_avail,
 		d->data_start + ext_header_size);
 
 	if(d->has_padding) {
-		de_dbg(c, "ID3v2 padding at ~%d", (int)d->approx_padding_pos);
+		de_dbg(c, "ID3v2 padding at %s%d", d->approx_mark, (int)d->approx_padding_pos);
 	}
 
 	*bytes_consumed = d->total_len;
