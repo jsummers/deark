@@ -253,6 +253,10 @@ static void do_jfif_segment(deark *c, lctx *d, struct page_ctx *pg,
 	de_dbg(c, "thumbnail dimensions: %d"DE_CHAR_TIMES"%d", (int)tn_w, (int)tn_h);
 	if(tn_w>0 && tn_h>0 && data_size>9) {
 		pg->has_jfif_thumb = 1;
+		if(tn_w*tn_h*3 != data_size-9) {
+			de_warn(c, "Expected %d bytes of JFIF thumbnail image data at %d, found %d",
+				(int)(tn_w*tn_h*3), (int)(pos+9), (int)(data_size-9));
+		}
 		extract_unc_jfif_thumbnail(c, d, pg, pos+9, data_size-9, tn_w, tn_h,
 			0, "jfifthumb");
 	}
