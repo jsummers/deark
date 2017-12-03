@@ -269,7 +269,7 @@ struct deark_struct {
 	de_fatalerrorfn_type fatalerrorfn;
 	const char *dprefix;
 
-	void *zip_file;
+	void *zip_data;
 
 	char *base_output_filename;
 	char *output_archive_filename;

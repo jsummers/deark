@@ -485,7 +485,7 @@ void de_destroy(deark *c)
 		de_free(c, c->ext_option[i].name);
 		de_free(c, c->ext_option[i].val);
 	}
-	if(c->zip_file) { de_zip_close_file(c); }
+	if(c->zip_data) { de_zip_close_file(c); }
 	if(c->base_output_filename) { de_free(c, c->base_output_filename); }
 	if(c->output_archive_filename) { de_free(c, c->output_archive_filename); }
 	de_free(c, c->module_info);

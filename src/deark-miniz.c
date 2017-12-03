@@ -21,6 +21,12 @@ struct deark_file_attribs {
 #define MINIZ_NO_ZLIB_COMPATIBLE_NAMES
 #include "../foreign/miniz.h"
 
+// Our custom version of mz_zip_archive
+struct zip_data_struct {
+	deark *c;
+	mz_zip_archive *pZip;
+};
+
 struct deark_png_encode_info {
 	int has_phys;
 	mz_uint32 xdens;
@@ -324,6 +330,20 @@ int de_uncompress_deflate(dbuf *inf, de_int64 inputstart, de_int64 inputsize, db
 	return de_inflate_internal(inf, inputstart, inputsize, outf, 0, bytes_consumed);
 }
 
+// TODO: We'd like to us a dbuf for ZIP output, both to make our I/O functions
+// consistent, and with the idea that we could write a ZIP file to stdout (via
+// a membuf). That will take a lot of work, though. For one thing, file-output
+// dbufs don't even support seeking yet.
+static size_t my_mz_zip_file_write_func(void *pOpaque, mz_uint64 file_ofs, const void *pBuf, size_t n)
+{
+  struct zip_data_struct *zzz = (struct zip_data_struct*)pOpaque;
+  mz_zip_archive *pZip = zzz->pZip;
+  mz_int64 cur_ofs = MZ_FTELL64(pZip->m_pState->m_pFile);
+  if (((mz_int64)file_ofs < 0) || (((cur_ofs != (mz_int64)file_ofs)) && (MZ_FSEEK64(pZip->m_pState->m_pFile, (mz_int64)file_ofs, SEEK_SET))))
+    return 0;
+  return MZ_FWRITE(pBuf, 1, n, pZip->m_pState->m_pFile);
+}
+
 // A customized copy of mz_zip_writer_init_file().
 // Customized to support Unicode filenames (on Windows), and to better
 // report errors.
@@ -333,8 +353,7 @@ static mz_bool my_mz_zip_writer_init_file(deark *c, mz_zip_archive *pZip, const 
   mz_uint64 size_to_reserve_at_beginning = 0;
   char msgbuf[200];
 
-  pZip->m_pWrite = mz_zip_file_write_func;
-  pZip->m_pIO_opaque = pZip;
+  pZip->m_pWrite = my_mz_zip_file_write_func;
   if (!mz_zip_writer_init(pZip, size_to_reserve_at_beginning))
   {
     de_err(c, "Failed to initialize ZIP file");
@@ -368,27 +387,32 @@ static void init_reproducible_archive_settings(deark *c)
 
 int de_zip_create_file(deark *c)
 {
-	mz_zip_archive *zip;
+	struct zip_data_struct *zzz;
 	mz_bool b;
 	const char *arcfn;
 
-	if(c->zip_file) return 1; // Already created. Shouldn't happen.
+	if(c->zip_data) return 1; // Already created. Shouldn't happen.
 
 	init_reproducible_archive_settings(c);
 
-	zip = de_malloc(c, sizeof(mz_zip_archive));
+	zzz = de_malloc(c, sizeof(struct zip_data_struct));
+	zzz->pZip = de_malloc(c, sizeof(mz_zip_archive));
+	zzz->c = c;
+	zzz->pZip->m_pIO_opaque = (void*)zzz;
+	c->zip_data = (void*)zzz;
 
 	arcfn = c->output_archive_filename;
 	if(!arcfn) arcfn = "output.zip";
 
-	b = my_mz_zip_writer_init_file(c, zip, arcfn);
+	b = my_mz_zip_writer_init_file(c, zzz->pZip, arcfn);
 	if(!b) {
-		de_free(c, zip);
+		de_free(c, zzz->pZip);
+		de_free(c, zzz);
+		c->zip_data = NULL;
 		return 0;
 	}
 	de_msg(c, "Creating %s", arcfn);
 
-	c->zip_file = (void*)zip;
 	return 1;
 }
 
@@ -405,12 +429,12 @@ static de_int64 de_get_reproducible_unix_timestamp(deark *c)
 
 void de_zip_add_file_to_archive(deark *c, dbuf *f)
 {
-	mz_zip_archive *zip;
+	struct zip_data_struct *zzz;
 	struct deark_file_attribs dfa;
 
 	de_memset(&dfa, 0, sizeof(struct deark_file_attribs));
 
-	if(!c->zip_file) {
+	if(!c->zip_data) {
 		// ZIP file hasn't been created yet
 		if(!de_zip_create_file(c)) {
 			de_fatalerror(c);
@@ -418,7 +442,8 @@ void de_zip_add_file_to_archive(deark *c, dbuf *f)
 		}
 	}
 
-	zip = (mz_zip_archive*)c->zip_file;
+	zzz = (struct zip_data_struct*)c->zip_data;
+	if(!zzz) { de_err(c, "asdf"); de_fatalerror(c); }
 
 	de_dbg(c, "adding to zip: name:%s len:%d", f->name, (int)dbuf_get_length(f));
 
@@ -462,7 +487,7 @@ void de_zip_add_file_to_archive(deark *c, dbuf *f)
 	dfa.extra_data_central[4] = dfa.extra_data_local[4];
 	de_writeui32le_direct(&dfa.extra_data_central[5], dfa.modtime);
 
-	mz_zip_writer_add_mem(zip, f->name, f->membuf_buf, (size_t)dbuf_get_length(f),
+	mz_zip_writer_add_mem(zzz->pZip, f->name, f->membuf_buf, (size_t)dbuf_get_length(f),
 		MZ_BEST_COMPRESSION, &dfa);
 
 	de_free(c, dfa.extra_data_local);
@@ -471,19 +496,20 @@ void de_zip_add_file_to_archive(deark *c, dbuf *f)
 
 void de_zip_close_file(deark *c)
 {
-	mz_zip_archive *zip;
+	struct zip_data_struct *zzz;
 
-	if(!c->zip_file) return;
+	if(!c->zip_data) return;
 	de_dbg(c, "closing zip file");
 
-	zip = (mz_zip_archive*)c->zip_file;
+	zzz = (struct zip_data_struct*)c->zip_data;
 
-	mz_zip_writer_finalize_archive(zip);
-	mz_zip_writer_end(zip);
+	mz_zip_writer_finalize_archive(zzz->pZip);
+	mz_zip_writer_end(zzz->pZip);
 	de_dbg(c, "zip file closed");
 
-	de_free(c, c->zip_file);
-	c->zip_file = NULL;
+	de_free(c, zzz->pZip);
+	de_free(c, zzz);
+	c->zip_data = NULL;
 }
 
 // For a one-shot CRC calculations, or the first part of a multi-part
