@@ -24,6 +24,28 @@ struct wmf_func_info {
 	record_decoder_fn fn;
 };
 
+// TEXTOUT
+static int wmf_handler_0521(deark *c, lctx *d, de_int64 rectype, de_int64 recpos, de_int64 recsize_bytes)
+{
+	de_int64 pos = recpos;
+	de_int64 stringlen;
+	de_ucstring *s = NULL;
+
+	pos += 6; // RecordSize, RecordFunction
+	stringlen = de_getui16le(pos);
+	pos += 2;
+
+	if(pos+stringlen > recpos+recsize_bytes) goto done;
+	s = ucstring_create(c);
+	dbuf_read_to_ucstring_n(c->infile, pos, stringlen, DE_DBG_MAX_STRLEN, s,
+		0, DE_ENCODING_WINDOWS1252);
+	de_dbg(c, "text: \"%s\"", ucstring_get_printable_sz(s));
+
+done:
+	ucstring_destroy(s);
+	return 1;
+}
+
 // EXTTEXTOUT
 static int wmf_handler_0a32(deark *c, lctx *d, de_int64 rectype, de_int64 recpos, de_int64 recsize_bytes)
 {
@@ -135,7 +157,7 @@ static const struct wmf_func_info wmf_func_info_arr[] = {
 	{ 0x041f, "SETPIXEL", NULL },
 	{ 0x0429, "FRAMEREGION", NULL },
 	{ 0x0436, "ANIMATEPALETTE", NULL },
-	{ 0x0521, "TEXTOUT", NULL },
+	{ 0x0521, "TEXTOUT", wmf_handler_0521 },
 	{ 0x0538, "POLYPOLYGON", NULL },
 	{ 0x0548, "EXTFLOODFILL", NULL },
 	{ 0x061c, "ROUNDRECT", NULL },
