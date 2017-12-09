@@ -577,15 +577,16 @@ static void extract_stream_to_file(deark *c, lctx *d, de_int64 dir_entry_idx, st
 
 		// Special handling of Thumbs.db files.
 
+		if(!de_strcmp(dei->fname_srd->sz_utf8, thumbsdb_catalog_streamname)) {
+			// We've already read the catalog.
+			goto done;
+		}
+
 		de_dbg(c, "reading Thumbs.db stream");
 		de_dbg_indent(c, 1);
 
 		// A Thumbs.db stream typically has a header, followed by an embedded JPEG
 		// (or something) file.
-
-		if(!de_strcmp(dei->fname_srd->sz_utf8, thumbsdb_catalog_streamname)) {
-			goto done;
-		}
 
 		catalog_idx = lookup_catalog_entry(c, d, dei);
 
