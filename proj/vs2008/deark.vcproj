@@ -558,6 +558,10 @@
 				>
 			</File>
 			<File
+				RelativePath="..\..\modules\emf.c"
+				>
+			</File>
+			<File
 				RelativePath="..\..\modules\epocimage.c"
 				>
 			</File>

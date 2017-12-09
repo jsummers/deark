@@ -42,6 +42,8 @@ obj/modules/d64.o: modules/d64.c src/deark-config.h src/deark-private.h \
  src/deark.h
 obj/modules/drhalo.o: modules/drhalo.c src/deark-config.h \
  src/deark-private.h src/deark.h
+obj/modules/emf.o: modules/emf.c src/deark-config.h src/deark-private.h \
+ src/deark.h src/deark-fmtutil.h
 obj/modules/epocimage.o: modules/epocimage.c src/deark-config.h \
  src/deark-private.h src/deark.h
 obj/modules/eps.o: modules/eps.c src/deark-config.h src/deark-private.h \
@@ -175,7 +177,7 @@ obj/modules/unsupported.o: modules/unsupported.c src/deark-config.h \
 obj/modules/wad.o: modules/wad.c src/deark-config.h src/deark-private.h \
  src/deark.h
 obj/modules/wmf.o: modules/wmf.c src/deark-config.h src/deark-private.h \
- src/deark.h src/deark-fmtutil.h
+ src/deark.h
 obj/modules/wpg.o: modules/wpg.c src/deark-config.h src/deark-private.h \
  src/deark.h
 obj/modules/xface.o: modules/xface.c src/deark-config.h \
