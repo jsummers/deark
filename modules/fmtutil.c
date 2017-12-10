@@ -486,6 +486,11 @@ static void sauce_read_comments(deark *c, dbuf *inf, struct de_SAUCE_info *si)
 			write_buffer_as_utf8(c, buf, cmnt_len, outf, DE_ENCODING_CP437_G);
 			dbuf_close(outf);
 		}
+		else {
+			de_dbg_indent(c, 1);
+			de_dbg(c, "comment: \"%s\"", ucstring_get_printable_sz(si->comments[k].s));
+			de_dbg_indent(c, -1);
+		}
 	}
 	de_dbg_indent(c, -1);
 
