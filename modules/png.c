@@ -9,6 +9,7 @@
 #include <deark-fmtutil.h>
 DE_DECLARE_MODULE(de_module_png);
 
+#define PNGID_CgBI 0x43674249U
 #define PNGID_IDAT 0x49444154U
 #define PNGID_IHDR 0x49484452U
 #define PNGID_PLTE 0x504c5445U
@@ -33,6 +34,7 @@ typedef struct localctx_struct {
 #define DE_PNGFMT_JNG 2
 #define DE_PNGFMT_MNG 3
 	int fmt;
+	int is_CgBI;
 	de_byte color_type;
 } lctx;
 
@@ -227,6 +229,13 @@ static void do_png_text(deark *c, lctx *d,
 
 done:
 	;
+}
+
+static void do_png_CgBI(deark *c, lctx *d,
+	const struct de_fourcc *chunk4cc, const struct chunk_type_info_struct *cti,
+	de_int64 pos, de_int64 len)
+{
+	d->is_CgBI = 1;
 }
 
 static void do_png_IHDR(deark *c, lctx *d,
@@ -545,8 +554,15 @@ static void do_png_iccp(deark *c, lctx *d,
 	if(c->filenames_from_file)
 		de_finfo_set_name_from_sz(c, fi, (const char*)prof_name, DE_ENCODING_LATIN1);
 	f = dbuf_create_output_file(c, "icc", fi, DE_CREATEFLAG_IS_AUX);
-	de_uncompress_zlib(c->infile, pos + prof_name_len + 2,
-		len - (prof_name_len + 2), f);
+	if(d->is_CgBI) {
+		de_int64 bytes_consumed = 0;
+		de_uncompress_deflate(c->infile, pos + prof_name_len + 2,
+			len - (prof_name_len + 2), f, &bytes_consumed);
+	}
+	else {
+		de_uncompress_zlib(c->infile, pos + prof_name_len + 2,
+			len - (prof_name_len + 2), f);
+	}
 	dbuf_close(f);
 	de_finfo_destroy(c, fi);
 }
@@ -569,6 +585,7 @@ static void do_png_eXIf(deark *c, lctx *d,
 }
 
 static const struct chunk_type_info_struct chunk_type_info_arr[] = {
+	{ PNGID_CgBI, 0, NULL, do_png_CgBI },
 	{ PNGID_IHDR, 0, NULL, do_png_IHDR },
 	{ PNGID_PLTE, 0, "palette", do_png_PLTE },
 	{ PNGID_bKGD, 0, "background color", do_png_bKGD },
