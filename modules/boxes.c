@@ -7,6 +7,8 @@
 #include <deark-config.h>
 #include <deark-private.h>
 #include <deark-fmtutil.h>
+// TODO: Rethink how to subdivide these formats into modules.
+DE_DECLARE_MODULE(de_module_bmff);
 DE_DECLARE_MODULE(de_module_jpeg2000);
 DE_DECLARE_MODULE(de_module_mp4);
 
@@ -403,7 +405,7 @@ static int my_box_handler(deark *c, struct de_boxesctx *bctx)
 	return 1;
 }
 
-static void de_run_jpeg2000(deark *c, de_module_params *mparams)
+static void de_run_bmff(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
 	struct de_boxesctx *bctx = NULL;
@@ -433,7 +435,7 @@ void de_module_jpeg2000(deark *c, struct deark_module_info *mi)
 	mi->id = "jpeg2000";
 	mi->desc = "JPEG 2000 image";
 	mi->desc2 = "resources only";
-	mi->run_fn = de_run_jpeg2000;
+	mi->run_fn = de_run_bmff;
 	mi->identify_fn = de_identify_jpeg2000;
 }
 
@@ -453,6 +455,23 @@ void de_module_mp4(deark *c, struct deark_module_info *mi)
 	mi->id = "mp4";
 	mi->desc = "MP4, QuickTime, and similar formats";
 	mi->desc2 = "resources only";
-	mi->run_fn = de_run_jpeg2000;
+	mi->run_fn = de_run_bmff;
 	mi->identify_fn = de_identify_mp4;
+}
+
+static int de_identify_bmff(deark *c)
+{
+	de_byte buf[4];
+
+	de_read(buf, 4, 4);
+	if(!de_memcmp(buf, "ftyp", 4)) return 3;
+	return 0;
+}
+
+void de_module_bmff(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "bmff";
+	mi->desc = "Generic Base Media File Format";
+	mi->run_fn = de_run_bmff;
+	mi->identify_fn = de_identify_bmff;
 }

@@ -191,6 +191,18 @@ static void do_jpeghdr_segment(deark *c, lctx *d, struct page_ctx *pg, de_int64 
 	dbuf_copy(c->infile, pos, data_size, pg->hdr_residual_file);
 }
 
+static void do_jpegxt_segment(deark *c, lctx *d, struct page_ctx *pg, de_int64 pos,
+	de_int64 data_size)
+{
+	de_int64 n;
+	if(data_size<14) return;
+	n = de_getui16be(pos);
+	de_dbg(c, "enumerator: %u", (unsigned int)n);
+	n = de_getui32be(pos+2);
+	de_dbg(c, "seq number: %u", (unsigned int)n);
+	de_run_module_by_id_on_slice(c, "bmff", NULL, c->infile, pos+6, data_size-6);
+}
+
 // Decode an uncompressed JFIF thumbnail.
 // This code has not been properly tested, because I can't find any files in
 // the wild that have these kinds of thumbnails.
@@ -885,9 +897,10 @@ static void detect_app_seg_type(deark *c, lctx *d, const struct marker_info *mi,
 		app_id_info->appsegtype = APPSEGTYPE_HDR_RI_EXT;
 		app_id_info->app_type_name = "JPEG-HDR Ext";
 	}
-	else if(seg_type==0xeb && !de_strcmp(ad.app_id_normalized, "JP")) {
+	else if(seg_type==0xeb && !de_strncmp((const char*)ad.raw_bytes, "JP", 2)) {
 		app_id_info->appsegtype = APPSEGTYPE_JPEGXT;
 		app_id_info->app_type_name = "JPEG XT";
+		sig_size = 2;
 	}
 	else if(seg_type==0xe2 && !de_strcmp(ad.app_id_normalized, "MPF")) {
 		app_id_info->appsegtype = APPSEGTYPE_MPF;
@@ -1017,6 +1030,7 @@ static void handler_app(deark *c, lctx *d, struct page_ctx *pg,
 		break;
 	case APPSEGTYPE_JPEGXT:
 		pg->is_jpegxt = 1;
+		do_jpegxt_segment(c, d, pg, payload_pos, payload_size);
 		break;
 	case APPSEGTYPE_MPF:
 		pg->is_mpo = 1;
