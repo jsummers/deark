@@ -676,6 +676,9 @@ int de_run_module(deark *c, struct deark_module_info *mi, de_module_params *mpar
 	if(!mi->run_fn) return 0;
 	old_moddisp = c->module_disposition;
 	c->module_disposition = moddisp;
+	if(c->module_nesting_level>0 && c->debug_level>=3) {
+		de_dbg3(c, "[using %s module]", mi->id);
+	}
 	c->module_nesting_level++;
 	mi->run_fn(c, mparams);
 	c->module_nesting_level--;

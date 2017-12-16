@@ -3670,7 +3670,6 @@ static void de_run_psd(deark *c, de_module_params *mparams)
 	zztype *zz = NULL;
 	zztype czz;
 
-	if(c->module_nesting_level>1) de_dbg2(c, "in psd module");
 	d = de_malloc(c, sizeof(lctx));
 	zz = de_malloc(c, sizeof(zztype));
 	zz_init_absolute(zz, 0, c->infile->len);

@@ -2110,7 +2110,6 @@ static void de_run_tiff(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
 
-	if(c->module_nesting_level>1) de_dbg2(c, "in tiff module");
 	d = de_malloc(c, sizeof(lctx));
 
 	d->fmt = de_identify_tiff_internal(c, &d->is_le);

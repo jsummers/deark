@@ -196,8 +196,6 @@ static void de_run_qtif(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
 
-	if(c->module_nesting_level>1) de_dbg2(c, "in qtif module");
-
 	d = de_malloc(c, sizeof(lctx));
 
 	if(mparams && mparams->codes && de_strchr(mparams->codes, 'I')) {
