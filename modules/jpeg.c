@@ -200,7 +200,9 @@ static void do_jpegxt_segment(deark *c, lctx *d, struct page_ctx *pg, de_int64 p
 	de_dbg(c, "enumerator: %u", (unsigned int)n);
 	n = de_getui32be(pos+2);
 	de_dbg(c, "seq number: %u", (unsigned int)n);
+	de_dbg_indent(c, 1);
 	de_run_module_by_id_on_slice(c, "bmff", NULL, c->infile, pos+6, data_size-6);
+	de_dbg_indent(c, -1);
 }
 
 // Decode an uncompressed JFIF thumbnail.
@@ -319,6 +321,44 @@ static void do_adobeapp14_segment(deark *c, lctx *d, struct page_ctx *pg,
 	else if(pg->color_transform==2) tname="YCCK";
 	else tname="unknown";
 	de_dbg(c, "color transform: %d (%s)", (int)pg->color_transform, tname);
+}
+
+static void do_exif_segment(deark *c, lctx *d, struct page_ctx *pg,
+	de_int64 pos, de_int64 data_size)
+{
+	de_uint32 exifflags = 0;
+	de_uint32 exiforientation = 0;
+	de_uint32 exifversion = 0;
+
+	if(data_size<8) return;
+	// Note that Exif has an additional padding byte after the APP ID NUL terminator.
+	de_dbg(c, "Exif data at %d, size=%d", (int)pos, (int)data_size);
+	pg->has_exif_seg = 1;
+	de_dbg_indent(c, 1);
+	de_fmtutil_handle_exif2(c, pos, data_size,
+		&exifflags, &exiforientation, &exifversion);
+	if(exifflags&0x08)
+		pg->has_exif_gps = 1;
+	if(exifflags&0x10)
+		pg->exif_cosited = 1;
+	if(exifflags&0x20)
+		pg->exif_orientation = exiforientation;
+	if(exifflags&0x40)
+		pg->exif_version_as_uint32 = exifversion;
+	de_dbg_indent(c, -1);
+}
+
+static void do_photoshop_segment(deark *c, lctx *d, struct page_ctx *pg,
+	de_int64 pos, de_int64 data_size)
+{
+	de_uint32 psdflags = 0;
+	de_dbg(c, "photoshop data at %d, size=%d", (int)pos, (int)data_size);
+	pg->has_psd = 1;
+	de_dbg_indent(c, 1);
+	de_fmtutil_handle_photoshop_rsrc2(c, pos, data_size, &psdflags);
+	if(psdflags&0x02)
+		pg->has_iptc = 1;
+	de_dbg_indent(c, -1);
 }
 
 static void do_mpf_segment(deark *c, lctx *d, de_int64 pos, de_int64 data_size)
@@ -832,23 +872,21 @@ static void detect_app_seg_type(deark *c, lctx *d, const struct marker_info *mi,
 		app_id_info->appsegtype = APPSEGTYPE_JFXX;
 		app_id_info->app_type_name = "JFIF-JFXX";
 	}
-	else if(seg_type==0xee && ad.app_id_orig_strlen>=5 && !de_memcmp(ad.app_id_normalized, "ADOBE", 5)) {
-		// libjpeg implies that the "Adobe" string is *not* NUL-terminated. That the byte
-		// that is usually 0 is actually the high byte of a version number.
+	else if(seg_type==0xee && ad.nraw_bytes>=5 && !de_strncmp((const char*)ad.raw_bytes, "Adobe", 5)) {
 		app_id_info->appsegtype = APPSEGTYPE_ADOBEAPP14;
 		app_id_info->app_type_name = "AdobeAPP14";
+		sig_size = 5;
 	}
 	else if(seg_type==0xec && ad.nraw_bytes>=5 && !de_strncmp((const char*)ad.raw_bytes, "Ducky", 5)) {
 		app_id_info->appsegtype = APPSEGTYPE_DUCKY;
 		app_id_info->app_type_name = "Ducky";
 		sig_size = 5;
 	}
-	else if(seg_type==0xe1 && !de_strcmp(ad.app_id_normalized, "EXIF")) {
-		// This detection routine considers the payload to start with the second NULL
-		// byte that follows the "Exif" string, though in another sense it starts after
-		// that byte.
+	else if(seg_type==0xe1 && seg_data_size>=6 && !de_strcmp(ad.app_id_normalized, "EXIF")) {
 		app_id_info->appsegtype = APPSEGTYPE_EXIF;
 		app_id_info->app_type_name = "Exif";
+		// We arbitrarily consider the "padding byte" to be part of the signature.
+		sig_size = 6;
 	}
 	else if((seg_type==0xe1 || seg_type==0xe3) && ad.nraw_bytes>=14 &&
 		!de_memcmp(ad.raw_bytes, "Meta\0\0", 6) &&
@@ -957,32 +995,10 @@ static void handler_app(deark *c, lctx *d, struct page_ctx *pg,
 		do_jfxx_segment(c, d, pg, payload_pos, payload_size);
 		break;
 	case APPSEGTYPE_ADOBEAPP14:
-		// Note that we're not using payload_pos. See comment in detect_app_seg_type().
-		do_adobeapp14_segment(c, d, pg, seg_data_pos+5, seg_data_size-5);
+		do_adobeapp14_segment(c, d, pg, payload_pos, payload_size);
 		break;
 	case APPSEGTYPE_EXIF:
-		{
-			de_uint32 exifflags = 0;
-			de_uint32 exiforientation = 0;
-			de_uint32 exifversion = 0;
-
-			if(payload_size<1) goto done;
-			// Note that Exif has an additional padding byte after the APP ID NUL terminator.
-			de_dbg(c, "Exif data at %d, size=%d", (int)(payload_pos+1), (int)(payload_size-1));
-			pg->has_exif_seg = 1;
-			de_dbg_indent(c, 1);
-			de_fmtutil_handle_exif2(c, payload_pos+1, payload_size-1,
-				&exifflags, &exiforientation, &exifversion);
-			if(exifflags&0x08)
-				pg->has_exif_gps = 1;
-			if(exifflags&0x10)
-				pg->exif_cosited = 1;
-			if(exifflags&0x20)
-				pg->exif_orientation = exiforientation;
-			if(exifflags&0x40)
-				pg->exif_version_as_uint32 = exifversion;
-			de_dbg_indent(c, -1);
-		}
+		do_exif_segment(c, d, pg, payload_pos, payload_size);
 		break;
 	case APPSEGTYPE_META:
 		do_meta_segment(c, d, pg, payload_pos, payload_size);
@@ -998,16 +1014,7 @@ static void handler_app(deark *c, lctx *d, struct page_ctx *pg,
 		pg->has_spiff_seg = 1;
 		break;
 	case APPSEGTYPE_PHOTOSHOP:
-		{
-			de_uint32 psdflags = 0;
-			de_dbg(c, "photoshop data at %d, size=%d", (int)(payload_pos), (int)(payload_size));
-			pg->has_psd = 1;
-			de_dbg_indent(c, 1);
-			de_fmtutil_handle_photoshop_rsrc2(c, payload_pos, payload_size, &psdflags);
-			if(psdflags&0x02)
-				pg->has_iptc = 1;
-			de_dbg_indent(c, -1);
-		}
+		do_photoshop_segment(c, d, pg, payload_pos, payload_size);
 		break;
 	case APPSEGTYPE_DUCKY:
 		do_ducky_segment(c, d, pg, payload_pos, payload_size);
