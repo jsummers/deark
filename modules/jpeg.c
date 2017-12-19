@@ -1181,7 +1181,7 @@ static void dump_htable_data(deark *c, lctx *d, const de_byte *codecounts)
 			(unsigned int)codecounts[k]);
 		if(k%8==7) { // end of a debug line
 			de_dbg(c, "number of codes of len[%d-%2d]:%s",
-				(int)(k-7), (int)k,
+				(int)(k-7+1), (int)(k+1),
 				ucstring_get_printable_sz(s));
 			ucstring_empty(s);
 		}
