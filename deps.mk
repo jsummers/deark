@@ -174,6 +174,8 @@ obj/modules/tivariable.o: modules/tivariable.c src/deark-config.h \
  src/deark-private.h src/deark.h
 obj/modules/unsupported.o: modules/unsupported.c src/deark-config.h \
  src/deark-private.h src/deark.h
+obj/modules/vort.o: modules/vort.c src/deark-config.h src/deark-private.h \
+ src/deark.h
 obj/modules/wad.o: modules/wad.c src/deark-config.h src/deark-private.h \
  src/deark.h
 obj/modules/wmf.o: modules/wmf.c src/deark-config.h src/deark-private.h \

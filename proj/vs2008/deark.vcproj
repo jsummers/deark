@@ -822,6 +822,10 @@
 				>
 			</File>
 			<File
+				RelativePath="..\..\modules\vort.c"
+				>
+			</File>
+			<File
 				RelativePath="..\..\modules\wad.c"
 				>
 			</File>
