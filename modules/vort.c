@@ -60,6 +60,36 @@ typedef struct localctx_struct {
 	int nesting_level;
 } lctx;
 
+struct obj_type_info_struct;
+
+typedef void (*obj_decoder_fn)(deark *c, lctx *d,
+	const struct obj_type_info_struct *oti,
+	de_int64 pos, de_int64 dlen, de_int64 value_as_vlq);
+
+struct obj_type_info_struct {
+	// 0x01: is a VLQ
+	// 0x02: Print decoded value, even if decoder_fn exists
+	de_uint32 flags;
+
+	de_byte full_type;
+	de_byte primitive_type;
+	const char *name;
+	obj_decoder_fn decoder_fn;
+};
+
+static const char *get_fulltype_name(de_byte t)
+{
+	const char *name;
+	switch(t) {
+	case VORT_V_DIRECTORY: name="directory"; break;
+	case VORT_V_IMAGE: name="image"; break;
+	case VORT_V_TEXT: name="text"; break;
+	case VORT_V_COLORMAP: name="colourmap"; break;
+	default: name="?";
+	}
+	return name;
+}
+
 // Variable length integer/quantity (VLQ)
 // fpos will be read and updated.
 static de_int64 read_vlq(deark *c, de_int64 *fpos)
@@ -86,19 +116,80 @@ static de_int64 read_vlq(deark *c, de_int64 *fpos)
 static int do_full_object(deark *c, lctx *d, de_int64 pos1,
 	de_int64 *bytes_consumed);
 
+static void decode_object_addr(deark *c, lctx *d,
+	const struct obj_type_info_struct *oti,
+	de_int64 pos, de_int64 dlen, de_int64 value_as_vlq)
+{
+	de_int64 bytes_consumed = 0;
+	do_full_object(c, d, value_as_vlq, &bytes_consumed);
+}
+
+static void decode_date(deark *c, lctx *d,
+	const struct obj_type_info_struct *oti,
+	de_int64 pos, de_int64 dlen, de_int64 value_as_vlq)
+{
+	char timestamp_buf[64];
+	struct de_timestamp timestamp;
+
+	de_unix_time_to_timestamp(value_as_vlq, &timestamp);
+	de_timestamp_to_string(&timestamp, timestamp_buf, sizeof(timestamp_buf), 1);
+	de_dbg(c, "%s: %"INT64_FMT" (%s)", oti->name, value_as_vlq, timestamp_buf);
+}
+
+static const struct obj_type_info_struct obj_type_info_arr[] = {
+	{ 0x03, VORT_V_DIRECTORY, 0 /* VORT_D_PARENT */, "address of parent dir", NULL },
+	{ 0x00, VORT_V_DIRECTORY, 1 /* VORT_D_NULL */, "empty", NULL },
+	{ 0x03, VORT_V_DIRECTORY, VORT_D_OBJECT, "address of child object", decode_object_addr },
+	{ 0x03, VORT_V_IMAGE, VORT_I_ADDR, "address of image data", NULL },
+	{ 0x03, VORT_V_IMAGE, VORT_I_IMWIDTH, "image width", NULL },
+	{ 0x03, VORT_V_IMAGE, VORT_I_IMHEIGHT, "image height", NULL },
+	{ 0x03, VORT_V_IMAGE, VORT_I_IMDEPTH, "bits per pixel", NULL },
+	{ 0x03, VORT_V_IMAGE, 4  /* I_RED */, "red channel is present", NULL },
+	{ 0x03, VORT_V_IMAGE, 5  /* I_GREEN */, "green channel is present", NULL },
+	{ 0x03, VORT_V_IMAGE, 6  /* I_BLUE */, "blue channel is present", NULL },
+	{ 0x03, VORT_V_IMAGE, 7  /* I_ALPHA */, "alpha channel is present", NULL },
+	{ 0x03, VORT_V_IMAGE, 8  /* I_BACKGND */, "background colour", NULL },
+	{ 0x01, VORT_V_IMAGE, 9  /* I_DATE */, "creation date", decode_date },
+	{ 0x00, VORT_V_IMAGE, 10 /* I_COLORMAP */, "colourmap", NULL },
+	{ 0x03, VORT_V_IMAGE, 11 /* I_RLE_CODED */, "image is run length encoded", NULL },
+	{ 0x03, VORT_V_IMAGE, 12 /* I_XADDR */, "x coord if fragment", NULL },
+	{ 0x03, VORT_V_IMAGE, 13 /* I_YADDR */, "y coord if fragment", NULL },
+	{ 0x03, VORT_V_IMAGE, 14 /* I_ORIGWIDTH */, "whole width if fragment", NULL },
+	{ 0x03, VORT_V_IMAGE, 15 /* I_ORIGHEIGHT */, "whole height if fragment", NULL }
+};
+
+static const struct obj_type_info_struct *find_obj_type_info(de_byte full_type, de_byte primitive_type)
+{
+	size_t i;
+
+	for(i=0; i<DE_ITEMS_IN_ARRAY(obj_type_info_arr); i++) {
+		if(obj_type_info_arr[i].primitive_type==primitive_type &&
+			obj_type_info_arr[i].full_type==full_type)
+		{
+			return &obj_type_info_arr[i];
+		}
+	}
+	return NULL;
+}
+
 static int do_primitive_object(deark *c, lctx *d, de_int64 pos1,
 	de_byte obj_fulltype, de_int64 *bytes_consumed)
 {
 	de_byte obj_type;
 	de_int64 obj_dlen;
 	de_int64 pos = pos1;
+	const struct obj_type_info_struct *oti;
+	const char *name;
 
 	de_int64 value_as_vlq = 0;
 
 	de_dbg(c, "primitive object at %d", (int)pos1);
 	de_dbg_indent(c, 1);
 	obj_type = de_getbyte(pos++);
-	de_dbg(c, "type: %u", (unsigned int)obj_type);
+	oti = find_obj_type_info(obj_fulltype, obj_type);
+	if(oti && oti->name) name = oti->name;
+	else name = "?";
+	de_dbg(c, "primitive type: %u (%s)", (unsigned int)obj_type, name);
 
 	// The data is usually a VLQ, but sometimes it's not. For convenience,
 	// we'll read the length byte, then go back and read the whole thing as a VLQ.
@@ -110,21 +201,12 @@ static int do_primitive_object(deark *c, lctx *d, de_int64 pos1,
 	}
 	pos++; // For the length byte
 
-	if(obj_fulltype==VORT_V_DIRECTORY && obj_type==VORT_D_OBJECT) {
-		de_int64 bytes_consumed2 = 0;
-		do_full_object(c, d, value_as_vlq, &bytes_consumed2);
+	if(oti && oti->flags&0x01 && (!oti->decoder_fn || (oti->flags&0x2))) {
+		de_dbg(c, "%s: %"INT64_FMT, name, value_as_vlq);
 	}
-	else if(obj_fulltype==VORT_V_IMAGE && obj_type==VORT_I_ADDR) {
-		de_dbg(c, "image data address: %d", (int)value_as_vlq);
-	}
-	else if(obj_fulltype==VORT_V_IMAGE && obj_type==VORT_I_IMWIDTH) {
-		de_dbg(c, "image width: %d", (int)value_as_vlq);
-	}
-	else if(obj_fulltype==VORT_V_IMAGE && obj_type==VORT_I_IMHEIGHT) {
-		de_dbg(c, "image height: %d", (int)value_as_vlq);
-	}
-	else if(obj_fulltype==VORT_V_IMAGE && obj_type==VORT_I_IMDEPTH) {
-		de_dbg(c, "image depth: %d", (int)value_as_vlq);
+
+	if(oti && oti->decoder_fn) {
+		oti->decoder_fn(c, d, oti, pos, obj_dlen, value_as_vlq);
 	}
 
 	pos += obj_dlen;
@@ -142,7 +224,7 @@ static int do_object_list(deark *c, lctx *d, de_int64 pos1, de_int64 len,
 	int retval = 0;
 
 	de_dbg_indent_save(c, &saved_indent_level);
-	de_dbg(c, "object list at %d, len=%d (full type=%d)", (int)pos, (int)len, (int)object_fulltype);
+	de_dbg(c, "object list at %d, len=%d", (int)pos, (int)len);
 	while(1) {
 		de_int64 objsize;
 		if(pos>=pos1+len) break;
@@ -177,7 +259,7 @@ static int do_full_object(deark *c, lctx *d, de_int64 pos1,
 	de_dbg(c, "full object at %d", (int)pos);
 	de_dbg_indent(c, 1);
 	obj_type = de_getbyte(pos++);
-	de_dbg(c, "full type: %u", (unsigned int)obj_type);
+	de_dbg(c, "full type: %u (%s)", (unsigned int)obj_type, get_fulltype_name(obj_type));
 
 	obj_dlen = read_vlq(c, &pos);
 	de_dbg(c, "data len: %"INT64_FMT, obj_dlen);
