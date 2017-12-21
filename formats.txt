@@ -447,6 +447,8 @@ Deark -- Information about supported formats
 
 * VITec image format (module="vitec) (experimental/incomplete)
 
+* VORT ray tracer .pix image (module="vort") (experimental/incomplete)
+
 * Windows Metafile (module=wmf) (experimental)
   - Extract BMP images from some records.
 

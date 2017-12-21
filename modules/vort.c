@@ -327,12 +327,117 @@ done:
 
 static void do_colormap(deark *c, lctx *d)
 {
+	de_int64 k;
+
 	if(d->colormap_pos==0 || d->colormap_size==0) return;
 	de_dbg(c, "colormap at %d, %d entries", (int)d->colormap_pos, (int)d->colormap_size);
+
+	de_dbg_indent(c, 1);
+	for(k=0; k<d->colormap_size && k<256; k++) {
+		de_byte cr, cg, cb;
+		cr = de_getbyte(d->colormap_pos + k);
+		cg = de_getbyte(d->colormap_pos + d->colormap_size + k);
+		cb = de_getbyte(d->colormap_pos + d->colormap_size*2 + k);
+		d->pal[k] = DE_MAKE_RGB(cr, cg, cb);
+		de_dbg_pal_entry(c, k, d->pal[k]);
+	}
+	de_dbg_indent(c, -1);
+}
+
+static void do_decompress(deark *c, lctx *d, de_int64 pos1, dbuf *unc_pixels,
+	de_int64 num_pixels, de_int64 bytes_per_pixel)
+{
+	de_int64 pos = pos1;
+	de_int64 pixel_count = 0;
+
+	while(1) {
+		de_byte b;
+		de_int64 count;
+
+		if(pos>c->infile->len) break;
+		if(pixel_count>=num_pixels) break;
+
+		b = de_getbyte(pos);
+		pos++;
+		if(b>=128) { // uncompressed run
+			count = (de_int64)(b-128);
+			dbuf_copy(c->infile, pos, count*bytes_per_pixel, unc_pixels);
+			pos += count*bytes_per_pixel;
+			pixel_count += count;
+		}
+		else { // compressed run
+			de_int64 k;
+			de_byte pixel_buf[4];
+
+			count = 1+(de_int64)b;
+			de_read(pixel_buf, pos, bytes_per_pixel);
+			pos += bytes_per_pixel;
+			for(k=0; k<count; k++) {
+				dbuf_write(unc_pixels, pixel_buf, bytes_per_pixel);
+			}
+			pixel_count += count;
+		}
+	}
 }
 
 static void do_image(deark *c, lctx *d)
 {
+	de_bitmap *img = NULL;
+	dbuf *unc_pixels = NULL;
+	de_int64 i, j;
+	de_int64 bytes_per_pixel;
+
+	if(d->image_data_pos==0) return;
+
+	de_dbg(c, "image data at %d", (int)d->image_data_pos);
+	de_dbg_indent(c, 1);
+
+	if(!de_good_image_dimensions(c, d->image_width, d->image_height)) goto done;
+
+	img = de_bitmap_create(c, d->image_width, d->image_height, 3);
+
+	if(d->image_depth!=8 && d->image_depth!=24) {
+		de_err(c, "Unsupported bits/pixel: %d", (int)d->image_depth);
+		goto done;
+	}
+	bytes_per_pixel = d->image_depth/8;
+
+	if(d->image_depth==8 && d->colormap_pos==0) {
+		de_err(c, "Missing colormap");
+		goto done;
+	}
+
+	if(d->rle_flag) {
+		unc_pixels = dbuf_create_membuf(c, 0, 0);
+		do_decompress(c, d, d->image_data_pos, unc_pixels,
+			d->image_width*d->image_height, bytes_per_pixel);
+	}
+	else {
+		unc_pixels = dbuf_open_input_subfile(c->infile,
+			d->image_data_pos, c->infile->len-d->image_data_pos);
+	}
+
+	for(j=0; j<d->image_height; j++) {
+		for(i=0; i<d->image_width; i++) {
+			if(d->image_depth==8) {
+				de_byte b;
+				b = dbuf_getbyte(unc_pixels, j*d->image_width + i);
+				de_bitmap_setpixel_rgb(img, i, j, d->pal[(unsigned int)b]);
+			}
+			else if(d->image_depth==24) {
+				de_uint32 clr;
+				clr = dbuf_getRGB(unc_pixels, (j*d->image_width + i)*bytes_per_pixel, 0);
+				de_bitmap_setpixel_rgb(img, i, j, clr);
+			}
+		}
+	}
+
+	de_bitmap_write_to_file(img, NULL, 0);
+
+done:
+	de_dbg_indent(c, -1);
+	dbuf_close(unc_pixels);
+	de_bitmap_destroy(img);
 }
 
 static void de_run_vort(deark *c, de_module_params *mparams)
@@ -373,5 +478,4 @@ void de_module_vort(deark *c, struct deark_module_info *mi)
 	mi->desc = "VORT ray tracer PIX image";
 	mi->run_fn = de_run_vort;
 	mi->identify_fn = de_identify_vort;
-	mi->flags |= DE_MODFLAG_NONWORKING;
 }
