@@ -55,9 +55,25 @@ DE_DECLARE_MODULE(de_module_vort);
 #define VORT_I_IMWIDTH   1
 #define VORT_I_IMHEIGHT  2
 #define VORT_I_IMDEPTH   3
+#define VORT_I_RLE_CODED 11
+
+// Primitive object types for V_COLORMAP:
+#define VORT_C_ADDR      0
+#define VORT_C_SIZE      1
 
 typedef struct localctx_struct {
 	int nesting_level;
+
+	// A file can potentially contain multiple images and/or multiple colormaps.
+	// But I'm just going to cross my fingers and hope it doesn't.
+	de_int64 image_data_pos;
+	de_int64 image_width, image_height;
+	de_int64 image_depth;
+	de_int64 colormap_pos;
+	de_int64 colormap_size;
+	de_byte rle_flag;
+
+	de_uint32 pal[256];
 } lctx;
 
 struct obj_type_info_struct;
@@ -84,7 +100,7 @@ static const char *get_fulltype_name(de_byte t)
 	case VORT_V_DIRECTORY: name="directory"; break;
 	case VORT_V_IMAGE: name="image"; break;
 	case VORT_V_TEXT: name="text"; break;
-	case VORT_V_COLORMAP: name="colourmap"; break;
+	case VORT_V_COLORMAP: name="colormap"; break;
 	default: name="?";
 	}
 	return name;
@@ -136,26 +152,54 @@ static void decode_date(deark *c, lctx *d,
 	de_dbg(c, "%s: %"INT64_FMT" (%s)", oti->name, value_as_vlq, timestamp_buf);
 }
 
+static void decode_simple_item(deark *c, lctx *d,
+	const struct obj_type_info_struct *oti,
+	de_int64 pos, de_int64 dlen, de_int64 val)
+{
+	if(oti->full_type==VORT_V_IMAGE) {
+		switch(oti->primitive_type) {
+		case VORT_I_ADDR: d->image_data_pos = val; break;
+		case VORT_I_IMWIDTH: d->image_width = val; break;
+		case VORT_I_IMHEIGHT: d->image_height = val; break;
+		case VORT_I_IMDEPTH: d->image_depth = val; break;
+		case VORT_I_RLE_CODED: d->rle_flag = 1; break;
+		}
+	}
+	else if(oti->full_type==VORT_V_COLORMAP) {
+		switch(oti->primitive_type) {
+		case VORT_C_ADDR: d->colormap_pos = val; break;
+		case VORT_C_SIZE: d->colormap_size = val; break;
+		}
+	}
+}
+
 static const struct obj_type_info_struct obj_type_info_arr[] = {
 	{ 0x03, VORT_V_DIRECTORY, 0 /* VORT_D_PARENT */, "address of parent dir", NULL },
 	{ 0x00, VORT_V_DIRECTORY, 1 /* VORT_D_NULL */, "empty", NULL },
 	{ 0x03, VORT_V_DIRECTORY, VORT_D_OBJECT, "address of child object", decode_object_addr },
-	{ 0x03, VORT_V_IMAGE, VORT_I_ADDR, "address of image data", NULL },
-	{ 0x03, VORT_V_IMAGE, VORT_I_IMWIDTH, "image width", NULL },
-	{ 0x03, VORT_V_IMAGE, VORT_I_IMHEIGHT, "image height", NULL },
-	{ 0x03, VORT_V_IMAGE, VORT_I_IMDEPTH, "bits per pixel", NULL },
-	{ 0x03, VORT_V_IMAGE, 4  /* I_RED */, "red channel is present", NULL },
-	{ 0x03, VORT_V_IMAGE, 5  /* I_GREEN */, "green channel is present", NULL },
-	{ 0x03, VORT_V_IMAGE, 6  /* I_BLUE */, "blue channel is present", NULL },
-	{ 0x03, VORT_V_IMAGE, 7  /* I_ALPHA */, "alpha channel is present", NULL },
-	{ 0x03, VORT_V_IMAGE, 8  /* I_BACKGND */, "background colour", NULL },
+	{ 0x03, VORT_V_IMAGE, VORT_I_ADDR, "address of image data", decode_simple_item },
+	{ 0x03, VORT_V_IMAGE, VORT_I_IMWIDTH, "image width", decode_simple_item },
+	{ 0x03, VORT_V_IMAGE, VORT_I_IMHEIGHT, "image height", decode_simple_item },
+	{ 0x03, VORT_V_IMAGE, VORT_I_IMDEPTH, "bits per pixel", decode_simple_item },
+	{ 0x03, VORT_V_IMAGE, 4  /* I_RED */, "red channel flag", NULL },
+	{ 0x03, VORT_V_IMAGE, 5  /* I_GREEN */, "green channel flag", NULL },
+	{ 0x03, VORT_V_IMAGE, 6  /* I_BLUE */, "blue channel flag", NULL },
+	{ 0x03, VORT_V_IMAGE, 7  /* I_ALPHA */, "alpha channel flag", NULL },
+	{ 0x03, VORT_V_IMAGE, 8  /* I_BACKGND */, "background color", NULL },
 	{ 0x01, VORT_V_IMAGE, 9  /* I_DATE */, "creation date", decode_date },
-	{ 0x00, VORT_V_IMAGE, 10 /* I_COLORMAP */, "colourmap", NULL },
-	{ 0x03, VORT_V_IMAGE, 11 /* I_RLE_CODED */, "image is run length encoded", NULL },
+	{ 0x03, VORT_V_IMAGE, 10 /* I_COLORMAP */, "address of colormap object", NULL },
+	{ 0x03, VORT_V_IMAGE, VORT_I_RLE_CODED, "run length encoded flag", decode_simple_item },
 	{ 0x03, VORT_V_IMAGE, 12 /* I_XADDR */, "x coord if fragment", NULL },
 	{ 0x03, VORT_V_IMAGE, 13 /* I_YADDR */, "y coord if fragment", NULL },
 	{ 0x03, VORT_V_IMAGE, 14 /* I_ORIGWIDTH */, "whole width if fragment", NULL },
-	{ 0x03, VORT_V_IMAGE, 15 /* I_ORIGHEIGHT */, "whole height if fragment", NULL }
+	{ 0x03, VORT_V_IMAGE, 15 /* I_ORIGHEIGHT */, "whole height if fragment", NULL },
+	{ 0x03, VORT_V_TEXT, 0 /* T_ADDR */, "address of text data", NULL },
+	{ 0x03, VORT_V_TEXT, 1 /* T_LENGTH */, "size of text data", NULL },
+	{ 0x03, VORT_V_COLORMAP, VORT_C_ADDR, "address of colormap data", decode_simple_item },
+	{ 0x03, VORT_V_COLORMAP, VORT_C_SIZE, "size of colormap data", decode_simple_item },
+	{ 0x03, VORT_V_COLORMAP, 2 /* C_RED */, "red channel flag", NULL },
+	{ 0x03, VORT_V_COLORMAP, 3 /* C_GREEN */, "green channel flag", NULL },
+	{ 0x03, VORT_V_COLORMAP, 4 /* C_BLUE */, "blue channel flag", NULL }
 };
 
 static const struct obj_type_info_struct *find_obj_type_info(de_byte full_type, de_byte primitive_type)
@@ -202,7 +246,12 @@ static int do_primitive_object(deark *c, lctx *d, de_int64 pos1,
 	pos++; // For the length byte
 
 	if(oti && oti->flags&0x01 && (!oti->decoder_fn || (oti->flags&0x2))) {
-		de_dbg(c, "%s: %"INT64_FMT, name, value_as_vlq);
+		if(obj_dlen==0) {
+			de_dbg(c, "%s: (field is present)", name);
+		}
+		else {
+			de_dbg(c, "%s: %"INT64_FMT, name, value_as_vlq);
+		}
 	}
 
 	if(oti && oti->decoder_fn) {
@@ -276,6 +325,16 @@ done:
 	return retval;
 }
 
+static void do_colormap(deark *c, lctx *d)
+{
+	if(d->colormap_pos==0 || d->colormap_size==0) return;
+	de_dbg(c, "colormap at %d, %d entries", (int)d->colormap_pos, (int)d->colormap_size);
+}
+
+static void do_image(deark *c, lctx *d)
+{
+}
+
 static void de_run_vort(deark *c, de_module_params *mparams)
 {
 	de_int64 pos;
@@ -293,8 +352,11 @@ static void de_run_vort(deark *c, de_module_params *mparams)
 	de_dbg_indent(c, -1);
 
 	pos = root_obj_offs;
-	do_full_object(c, d, root_obj_offs, &bytes_consumed);
+	if(!do_full_object(c, d, root_obj_offs, &bytes_consumed)) goto done;
+	do_colormap(c, d);
+	do_image(c, d);
 
+done:
 	de_free(c, d);
 }
 
