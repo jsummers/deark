@@ -45,6 +45,8 @@
 
 #define DE_CHAR_TIMES "\xc3\x97"
 #define DE_CHAR_RIGHTARROW "\xe2\x86\x92"
+#define DE_CHAR_LEQ "\xe2\x89\xa4"
+#define DE_CHAR_GEQ "\xe2\x89\xa5"
 
 struct deark_struct;
 typedef struct deark_struct deark;

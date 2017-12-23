@@ -322,6 +322,8 @@ void de_utf8_to_ascii(const char *src, char *dst, size_t dstlen, unsigned int fl
 				case 0x2018: case 0x2019: sc='\''; break; // single quotes
 				case 0x201c: case 0x201d: sc='"'; break; // double quotes
 				case 0x2192: sc='-'; sc2='>'; break; // Rightwards arrow
+				case 0x2264: sc='<'; sc2='='; break;
+				case 0x2265: sc='>'; sc2='='; break;
 				case 0x2502: sc='|'; break; // Box drawings light vertical
 				default: sc = '_';
 				}

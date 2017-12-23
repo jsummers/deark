@@ -898,10 +898,6 @@ static int DecodeLzh (struct unzooctx *uz, struct entryctx *ze)
 	return 1;
 }
 
-static const de_uint32 BeginMonth [12] = {
-	0,    31,   59,   90,  120,  151,  181,  212,  243,  273,  304,  334
-};
-
 // Process a single member file
 static void ExtrEntry(struct unzooctx *uz, de_int64 pos1, de_int64 *next_entry_pos)
 {

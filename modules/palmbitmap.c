@@ -418,7 +418,7 @@ static void do_palm_BitmapType_internal(deark *c, lctx *d, de_int64 pos1, de_int
 	de_dbg_indent_save(c, &saved_indent_level);
 	pg = de_malloc(c, sizeof(struct page_ctx));
 
-	de_dbg(c, "BitmapType at %d, len<=%d", (int)pos1, (int)len);
+	de_dbg(c, "BitmapType at %d, len"DE_CHAR_LEQ"%d", (int)pos1, (int)len);
 	de_dbg_indent(c, 1);
 	de_dbg(c, "bitmap header at %d", (int)pos1);
 	de_dbg_indent(c, 1);
@@ -484,7 +484,7 @@ static void do_palm_BitmapType_internal(deark *c, lctx *d, de_int64 pos1, de_int
 			de_snprintf(tmps, sizeof(tmps), "none");
 		}
 		else {
-			de_snprintf(tmps, sizeof(tmps), "%d + 4*%d = %d", (int)pos1, (int)x, (int)(pos1+nextbitmapoffs_in_bytes));
+			de_snprintf(tmps, sizeof(tmps), "%d + 4"DE_CHAR_TIMES"%d = %d", (int)pos1, (int)x, (int)(pos1+nextbitmapoffs_in_bytes));
 		}
 		de_dbg(c, "nextDepthOffset: %d (%s)", (int)x, tmps);
 	}
