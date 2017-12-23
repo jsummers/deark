@@ -221,7 +221,8 @@ static void de_run_pp_gph(deark *c, de_module_params *mparams)
 
 	d = de_malloc(c, sizeof(lctx));
 
-	de_read(buf, 0, sizeof(buf));
+	de_read(buf, 0, sizeof(buf)-1);
+	buf[sizeof(buf)-1] = '\0';
 	bufptr = (de_byte*)de_strchr((const char*)buf, 0x1a);
 	if(!bufptr) {
 		de_err(c, "This doesn't look like a valid .GPH file");
