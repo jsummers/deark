@@ -127,14 +127,15 @@ static void initialize_output_stream(struct cmdctx *cc)
 #endif
 
 		if(cc->color_method==1) {
-			// If using ANSI codes, start by unsetting reversed-colors
-			fputs("\x1b[27m", cc->msgs_FILE);
+			// If using ANSI codes, start by resetting all attributes
+			fputs("\x1b[0m", cc->msgs_FILE);
 		}
 
 		cc->have_initialized_output_stream = 1;
 }
 
-static void our_specialmsgfn(deark *c, unsigned int flags, unsigned int code)
+static void our_specialmsgfn(deark *c, unsigned int flags, unsigned int code,
+	de_uint32 param1)
 {
 	struct cmdctx *cc;
 
@@ -153,6 +154,16 @@ static void our_specialmsgfn(deark *c, unsigned int flags, unsigned int code)
 		else if(code==DE_MSGCODE_UNHL) {
 			de_windows_highlight(cc->msgs_HANDLE, cc->orig_console_attribs, 0);
 		}
+		else if(code==DE_MSGCODE_RGBSAMPLE) {
+			// TODO: Traditional Windows console only supports 16 colors,
+			// so there's no good solution here. We could approximate the
+			// color somehow, I guess. Though that is complicated, as I think
+			// the color palette can be user-defined, and different editions of
+			// Windows have different default color schemes.
+			// As of 2016-10, Microsoft says they've added truecolor console
+			// support to Windows 10, so we should investigate that.
+			;
+		}
 		return;
 	}
 	else if(cc->use_fwputs) {
@@ -160,13 +171,21 @@ static void our_specialmsgfn(deark *c, unsigned int flags, unsigned int code)
 	}
 #endif
 
+	// TODO: Maybe move the DE_COLOR_* macros to deark.h.
+#define X_DE_COLOR_R(x)  (unsigned int)(((x)>>16)&0xff)
+#define X_DE_COLOR_G(x)  (unsigned int)(((x)>>8)&0xff)
+#define X_DE_COLOR_B(x)  (unsigned int)((x)&0xff)
 	if(code==DE_MSGCODE_HL) {
 		fputs("\x1b[7m", cc->msgs_FILE);
 	}
 	else if(code==DE_MSGCODE_UNHL) {
 		fputs("\x1b[27m", cc->msgs_FILE);
 	}
-
+	else if(code==DE_MSGCODE_RGBSAMPLE) {
+		// Print two spaces with their background color set to the requested color.
+		fprintf(cc->msgs_FILE, "\x1b[48;2;%u;%u;%um  \x1b[0m",
+			X_DE_COLOR_R(param1), X_DE_COLOR_G(param1), X_DE_COLOR_B(param1));
+	}
 }
 
 static void our_msgfn(deark *c, unsigned int flags, const char *s1)

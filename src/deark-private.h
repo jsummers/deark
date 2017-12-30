@@ -30,6 +30,7 @@
 
 #define DE_CODEPOINT_HL          0x0001
 #define DE_CODEPOINT_UNHL        0x0002
+#define DE_CODEPOINT_RGBSAMPLE   0x0003
 #define DE_CODEPOINT_MOVED      0xfde00
 #define DE_CODEPOINT_INVALID 0x0fffffff // Generic invalid codepoint
 #define DE_CODEPOINT_BYTE00  0x10000000 // More "invalid" codepoints
@@ -360,6 +361,8 @@ void de_dbg_dimensions(deark *c, de_int64 w, de_int64 h);
 void de_dbg_pal_entry(deark *c, de_int64 idx, de_uint32 clr);
 void de_dbg_pal_entry2(deark *c, de_int64 idx, de_uint32 clr,
 	const char *txt_before, const char *txt_in, const char *txt_after);
+char *de_get_colorsample_code(deark *c, de_uint32 clr, char *csamp,
+	size_t csamplen);
 
 int de_identify_none(deark *c);
 

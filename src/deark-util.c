@@ -68,6 +68,7 @@ static void de_puts_advanced(deark *c, unsigned int flags, const char *s)
 	size_t tmps_pos = 0;
 	int hlmode = 0;
 	unsigned int special_code;
+	de_uint32 param1 = 0;
 
 	s_len = de_strlen(s);
 	tmps = de_malloc(c, s_len+1);
@@ -75,7 +76,7 @@ static void de_puts_advanced(deark *c, unsigned int flags, const char *s)
 	// Search for characters that enable/disable highlighting,
 	// and split the string at them.
 	while(s_pos < s_len) {
-		if(s[s_pos]=='\x01' || s[s_pos]=='\x02') {
+		if(s[s_pos]=='\x01' || s[s_pos]=='\x02' || s[s_pos]=='\x03') {
 			// Found a special code
 
 			if(s[s_pos]=='\x02' && s[s_pos+1]=='\x01' && hlmode) {
@@ -85,6 +86,15 @@ static void de_puts_advanced(deark *c, unsigned int flags, const char *s)
 			else if(s[s_pos]=='\x01') {
 				special_code = DE_MSGCODE_HL;
 				hlmode = 1;
+			}
+			else if(s[s_pos]=='\x03') {
+				special_code = DE_MSGCODE_RGBSAMPLE;
+				if(s_pos + 7 <= s_len) {
+					param1 = DE_MAKE_RGB(
+						((s[s_pos+1]&0x0f)<<4) | (s[s_pos+2]&0x0f),
+						((s[s_pos+3]&0x0f)<<4) | (s[s_pos+4]&0x0f),
+						((s[s_pos+5]&0x0f)<<4) | (s[s_pos+6]&0x0f));
+				}
 			}
 			else {
 				special_code = DE_MSGCODE_UNHL;
@@ -100,15 +110,16 @@ static void de_puts_advanced(deark *c, unsigned int flags, const char *s)
 
 			// "Print" the special code
 			if(special_code && c->specialmsgfn) {
-				c->specialmsgfn(c, flags, special_code);
+				c->specialmsgfn(c, flags, special_code, param1);
 			}
 
 			// Advance past the special code
 			if(special_code==0)
 				s_pos += 2;
+			else if(special_code==DE_MSGCODE_RGBSAMPLE)
+				s_pos += 7;
 			else
 				s_pos += 1;
-
 		}
 		else {
 			tmps[tmps_pos++] = s[s_pos++];
@@ -117,7 +128,7 @@ static void de_puts_advanced(deark *c, unsigned int flags, const char *s)
 
 	// Unset highlight, if it somehow got left on.
 	if(hlmode) {
-		c->specialmsgfn(c, flags, DE_MSGCODE_UNHL);
+		c->specialmsgfn(c, flags, DE_MSGCODE_UNHL, 0);
 	}
 
 	tmps[tmps_pos] = '\0';
@@ -152,9 +163,10 @@ void de_puts(deark *c, unsigned int flags, const char *s)
 	// So, we're simply using:
 	//   U+0001 : DE_CODEPOINT_HL
 	//   U+0002 : DE_CODEPOINT_UNHL
+	//   U+0003 : DE_CODEPOINT_RGBSAMPLE (followed by 6 bytes for the RGB color)
 
 	for(k=0; s[k]; k++) {
-		if(s[k]=='\x01' || s[k]=='\x02') {
+		if(s[k]=='\x01' || s[k]=='\x02' || s[k]=='\x03') {
 			de_puts_advanced(c, flags, s);
 			return;
 		}
@@ -325,12 +337,46 @@ void de_dbg_dimensions(deark *c, de_int64 w, de_int64 h)
 	de_dbg(c, "dimensions: %"INT64_FMT DE_CHAR_TIMES "%"INT64_FMT, w, h);
 }
 
+// Generates a "magic" code that, when included in the debug output, will
+// (in some circumstances) display a small sample of the given color.
+// Caller supplies csamp[16].
+// Returns a pointer to csamp, for convenience.
+char *de_get_colorsample_code(deark *c, de_uint32 clr, char *csamp,
+	size_t csamplen)
+{
+	unsigned int r, g, b;
+
+	if(csamplen<8) {
+		csamp[0]='\0';
+		return csamp;
+	}
+
+	r = (unsigned int)DE_COLOR_R(clr);
+	g = (unsigned int)DE_COLOR_G(clr);
+	b = (unsigned int)DE_COLOR_B(clr);
+
+	// Only the low 4 bits are significant. We add 16 so that the bits can't
+	// all be 0; since we can't have NUL bytes in this NUL-terminated string.
+	// Also, it's nice if the values are all <= 127, to make them UTF-8
+	// compatible.
+	csamp[0] = '\x03';
+	csamp[1] = 16 + (r>>4)%16;
+	csamp[2] = 16 + r%16;
+	csamp[3] = 16 + (g>>4)%16;
+	csamp[4] = 16 + g%16;
+	csamp[5] = 16 + (b>>4)%16;
+	csamp[6] = 16 + b%16;
+	csamp[7] = '\0';
+	return csamp;
+}
+
 // Print debugging output for an 8-bit RGB palette entry.
 void de_dbg_pal_entry2(deark *c, de_int64 idx, de_uint32 clr,
 	const char *txt_before, const char *txt_in, const char *txt_after)
 {
 	int r,g,b,a;
 	char astr[32];
+	char csamp[16];
 
 	if(c->debug_level<2) return;
 	if(!txt_before) txt_before="";
@@ -346,8 +392,10 @@ void de_dbg_pal_entry2(deark *c, de_int64 idx, de_uint32 clr,
 	else {
 		astr[0] = '\0';
 	}
-	de_dbg2(c, "pal[%3d] = %s(%3d,%3d,%3d%s%s)%s", (int)idx, txt_before,
-		r, g, b, astr, txt_in, txt_after);
+
+	de_get_colorsample_code(c, clr, csamp, sizeof(csamp));
+	de_dbg2(c, "pal[%3d] = %s(%3d,%3d,%3d%s%s)%s%s", (int)idx, txt_before,
+		r, g, b, astr, txt_in, csamp, txt_after);
 }
 
 void de_dbg_pal_entry(deark *c, de_int64 idx, de_uint32 clr)

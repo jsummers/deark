@@ -129,7 +129,9 @@ void de_set_messages_callback(deark *c, de_msgfn_type fn);
 
 #define DE_MSGCODE_HL      0x1000U
 #define DE_MSGCODE_UNHL    0x1100U
-typedef void (*de_specialmsgfn_type)(deark *c, unsigned int flags, unsigned int code);
+#define DE_MSGCODE_RGBSAMPLE 0x2000U
+typedef void (*de_specialmsgfn_type)(deark *c, unsigned int flags, unsigned int code,
+	de_uint32 param1);
 void de_set_special_messages_callback(deark *c, de_specialmsgfn_type fn);
 
 typedef void (*de_fatalerrorfn_type)(deark *c);
