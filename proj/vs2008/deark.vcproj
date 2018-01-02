@@ -337,10 +337,6 @@
 				>
 			</File>
 			<File
-				RelativePath="..\..\src\deark-core.c"
-				>
-			</File>
-			<File
 				RelativePath="..\..\src\deark-data.c"
 				>
 			</File>
@@ -399,6 +395,10 @@
 						Name="VCCLCompilerTool"
 					/>
 				</FileConfiguration>
+			</File>
+			<File
+				RelativePath="..\..\src\deark-user.c"
+				>
 			</File>
 			<File
 				RelativePath="..\..\src\deark-util.c"
