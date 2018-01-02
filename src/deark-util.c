@@ -501,194 +501,9 @@ void de_free(deark *c, void *m)
 	free(m);
 }
 
-deark *de_create(void)
-{
-	deark *c;
-	c = de_malloc(NULL,sizeof(deark));
-	c->show_messages = 1;
-	c->show_warnings = 1;
-	c->write_bom = 1;
-	c->write_density = 1;
-	c->filenames_from_file = 1;
-	c->preserve_file_times = 1;
-	c->max_output_files = -1;
-	c->max_image_dimension = DE_DEFAULT_MAX_IMAGE_DIMENSION;
-	c->current_time.is_valid = 0;
-	c->can_decode_fltpt = -1; // = unknown
-	c->host_is_le = -1; // = unknown
-	return c;
-}
-
-void de_destroy(deark *c)
-{
-	de_int64 i;
-
-	if(!c) return;
-	for(i=0; i<c->num_ext_options; i++) {
-		de_free(c, c->ext_option[i].name);
-		de_free(c, c->ext_option[i].val);
-	}
-	if(c->zip_data) { de_zip_close_file(c); }
-	if(c->base_output_filename) { de_free(c, c->base_output_filename); }
-	if(c->output_archive_filename) { de_free(c, c->output_archive_filename); }
-	de_free(c, c->module_info);
-	de_free(NULL,c);
-}
-
-void de_set_userdata(deark *c, void *x)
-{
-	c->userdata = x;
-}
-
-void *de_get_userdata(deark *c)
-{
-	return c->userdata;
-}
-
-void de_set_messages_callback(deark *c, de_msgfn_type fn)
-{
-	c->msgfn = fn;
-}
-
-void de_set_special_messages_callback(deark *c, de_specialmsgfn_type fn)
-{
-	c->specialmsgfn = fn;
-}
-
-void de_set_fatalerror_callback(deark *c, de_fatalerrorfn_type fn)
-{
-	c->fatalerrorfn = fn;
-}
-
-void de_set_base_output_filename(deark *c, const char *fn)
-{
-	if(c->base_output_filename) de_free(c, c->base_output_filename);
-	c->base_output_filename = NULL;
-	if(fn) {
-		c->base_output_filename = de_strdup(c, fn);
-	}
-}
-
-void de_set_output_archive_filename(deark *c, const char *fn)
-{
-	if(c->output_archive_filename) de_free(c, c->output_archive_filename);
-	c->output_archive_filename = NULL;
-	if(fn) {
-		c->output_archive_filename = de_strdup(c, fn);
-	}
-}
-
-void de_set_input_style(deark *c, int x)
-{
-	c->input_style = x;
-}
-
-void de_set_input_filename(deark *c, const char *fn)
-{
-	c->input_filename = fn;
-}
-
-void de_set_input_file_slice_start(deark *c, de_int64 n)
-{
-	c->slice_start_req = n;
-}
-
-void de_set_input_file_slice_size(deark *c, de_int64 n)
-{
-	c->slice_size_req = n;
-	c->slice_size_req_valid = 1;
-}
-
-void de_set_output_style(deark *c, int x)
-{
-	c->output_style = x;
-}
-
 int de_identify_none(deark *c)
 {
 	return 0;
-}
-
-void de_set_debug_level(deark *c, int x)
-{
-	c->debug_level = x;
-}
-
-void de_set_dprefix(deark *c, const char *s)
-{
-	c->dprefix = s;
-}
-
-void de_set_extract_policy(deark *c, int x)
-{
-	c->extract_policy = x;
-}
-
-void de_set_extract_level(deark *c, int x)
-{
-	c->extract_level = x;
-}
-
-void de_set_listmode(deark *c, int x)
-{
-	c->list_mode = x;
-}
-
-void de_set_want_modhelp(deark *c, int x)
-{
-	c->modhelp_req = x;
-}
-
-void de_set_first_output_file(deark *c, int x)
-{
-	c->first_output_file = x;
-}
-
-void de_set_max_output_files(deark *c, int n)
-{
-	c->max_output_files = n;
-}
-
-void de_set_max_image_dimension(deark *c, de_int64 n)
-{
-	if(n<0) n=0;
-	else if (n>0x7fffffff) n=0x7fffffff;
-	c->max_image_dimension = n;
-}
-
-void de_set_messages(deark *c, int x)
-{
-	c->show_messages = x;
-}
-
-void de_set_warnings(deark *c, int x)
-{
-	c->show_warnings = x;
-}
-
-void de_set_write_bom(deark *c, int x)
-{
-	c->write_bom = x;
-}
-
-void de_set_write_density(deark *c, int x)
-{
-	c->write_density = x;
-}
-
-void de_set_ascii_html(deark *c, int x)
-{
-	c->ascii_html = x;
-}
-
-void de_set_filenames_from_file(deark *c, int x)
-{
-	c->filenames_from_file = x;
-}
-
-void de_set_preserve_file_times(deark *c, int x)
-{
-	c->preserve_file_times = x;
 }
 
 struct deark_module_info *de_get_module_by_id(deark *c, const char *module_id)
@@ -767,19 +582,6 @@ void de_run_module_by_id_on_slice2(deark *c, const char *id, const char *codes,
 	de_free(c, mparams);
 }
 
-void de_set_ext_option(deark *c, const char *name, const char *val)
-{
-	int n;
-
-	n = c->num_ext_options;
-	if(n>=DE_MAX_EXT_OPTIONS) return;
-	if(!name || !val) return;
-
-	c->ext_option[n].name = de_strdup(c, name);
-	c->ext_option[n].val = de_strdup(c, val);
-	c->num_ext_options++;
-}
-
 const char *de_get_ext_option(deark *c, const char *name)
 {
 	int i;
@@ -790,11 +592,6 @@ const char *de_get_ext_option(deark *c, const char *name)
 		}
 	}
 	return NULL; // Option name not found.
-}
-
-void de_set_input_format(deark *c, const char *fmtname)
-{
-	c->input_format_req = fmtname;
 }
 
 int de_atoi(const char *string)

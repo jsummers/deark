@@ -205,12 +205,12 @@ obj/src/deark-font.o: src/deark-font.c src/deark-config.h \
 obj/src/deark-miniz.o: src/deark-miniz.c src/deark-config.h \
  src/deark-private.h src/deark.h src/../foreign/miniz.h
 obj/src/deark-modules.o: src/deark-modules.c src/deark-config.h \
- src/deark-private.h src/deark.h src/deark-modules.h
+ src/deark-private.h src/deark.h src/deark-user.h src/deark-modules.h
 obj/src/deark-ucstring.o: src/deark-ucstring.c src/deark-config.h \
  src/deark-private.h src/deark.h
 obj/src/deark-unix.o: src/deark-unix.c src/deark-config.h \
- src/deark-private.h src/deark.h
+ src/deark-private.h src/deark.h src/deark-user.h
 obj/src/deark-user.o: src/deark-user.c src/deark-config.h \
- src/deark-user.h src/deark.h src/deark-private.h
+ src/deark-private.h src/deark.h src/deark-user.h
 obj/src/deark-util.o: src/deark-util.c src/deark-config.h \
  src/deark-private.h src/deark.h

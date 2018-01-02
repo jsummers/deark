@@ -5,6 +5,7 @@
 #define DE_NOT_IN_MODULE
 #include "deark-config.h"
 #include "deark-private.h"
+#include "deark-user.h"
 
 #define DE_MODULE(x)      DE_DECLARE_MODULE(x);
 #define DE_MODULE_LAST(x) DE_DECLARE_MODULE(x);
