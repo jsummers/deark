@@ -2,14 +2,14 @@
 // Copyright (C) 2016 Jason Summers
 // See the file COPYING for terms of use.
 
-// deark-core.c
+// deark-user.c
 //
 // Functions in this file can be called by deark-cmd.c, but should not be called
 // by anything in the library or modules (use deark-util.c instead).
 
 #define DE_NOT_IN_MODULE
 #include "deark-config.h"
-#include <stdlib.h>
+#include "deark-user.h"
 #include "deark-private.h"
 
 // Returns the best module to use, by looking at the file contents, etc.

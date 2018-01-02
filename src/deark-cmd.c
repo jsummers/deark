@@ -6,17 +6,12 @@
 
 #define DE_NOT_IN_MODULE
 #include "deark-config.h"
-
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
+#include "deark-user.h"
 
 #ifdef DE_WINDOWS
 #include <fcntl.h>
 #include <io.h> // for _setmode
 #endif
-
-#include "deark.h"
 
 struct cmdctx {
 	const char *input_filename;

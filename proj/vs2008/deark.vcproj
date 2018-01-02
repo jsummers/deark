@@ -431,6 +431,10 @@
 				>
 			</File>
 			<File
+				RelativePath="..\..\src\deark-user.h"
+				>
+			</File>
+			<File
 				RelativePath="..\..\src\deark.h"
 				>
 			</File>

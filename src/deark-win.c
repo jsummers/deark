@@ -13,15 +13,12 @@
 #endif
 
 #include <windows.h>
+#include "deark-private.h"
 
-#include <stdlib.h>
-#include <string.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <time.h>
 #include <sys/utime.h>
-
-#include "deark-private.h"
 
 int de_strcasecmp(const char *a, const char *b)
 {

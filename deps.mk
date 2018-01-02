@@ -194,7 +194,8 @@ obj/src/deark-bitmap.o: src/deark-bitmap.c src/deark-config.h \
  src/deark-private.h src/deark.h
 obj/src/deark-char.o: src/deark-char.c src/deark-config.h \
  src/deark-private.h src/deark.h
-obj/src/deark-cmd.o: src/deark-cmd.c src/deark-config.h src/deark.h
+obj/src/deark-cmd.o: src/deark-cmd.c src/deark-config.h src/deark-user.h \
+ src/deark.h
 obj/src/deark-data.o: src/deark-data.c src/deark-config.h \
  src/deark-private.h src/deark.h
 obj/src/deark-dbuf.o: src/deark-dbuf.c src/deark-config.h \
@@ -210,6 +211,6 @@ obj/src/deark-ucstring.o: src/deark-ucstring.c src/deark-config.h \
 obj/src/deark-unix.o: src/deark-unix.c src/deark-config.h \
  src/deark-private.h src/deark.h
 obj/src/deark-user.o: src/deark-user.c src/deark-config.h \
- src/deark-private.h src/deark.h
+ src/deark-user.h src/deark.h src/deark-private.h
 obj/src/deark-util.o: src/deark-util.c src/deark-config.h \
  src/deark-private.h src/deark.h

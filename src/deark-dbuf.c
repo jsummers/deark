@@ -8,11 +8,6 @@
 
 #define DE_NOT_IN_MODULE
 #include "deark-config.h"
-
-#include <stdlib.h>
-#include <string.h>
-#include <stdarg.h>
-
 #include "deark-private.h"
 
 #define DE_CACHE_SIZE 262144

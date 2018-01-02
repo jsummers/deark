@@ -11,16 +11,13 @@
 #error "This file is not for Windows builds"
 #endif
 
-#include <stdlib.h>
-#include <string.h>
+#include "deark-private.h"
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
 #include <time.h>
 #include <utime.h>
 #include <errno.h>
-
-#include "deark-private.h"
 
 int de_strcasecmp(const char *a, const char *b)
 {

@@ -6,11 +6,6 @@
 
 #define DE_NOT_IN_MODULE
 #include "deark-config.h"
-
-#include <stdlib.h>
-#include <string.h>
-#include <stdarg.h>
-
 #include "deark-private.h"
 
 char *de_get_version_string(char *buf, size_t bufsize)

@@ -2,12 +2,20 @@
 // Copyright (C) 2016-2017 Jason Summers
 // See the file COPYING for terms of use.
 
+// Definitions visible to everything.
+
 #ifdef DEARK_H_INC
 #error "deark.h included multiple times"
 #endif
 #define DEARK_H_INC
 
+#include <stdlib.h>
 #include <stdio.h>
+#include <string.h>
+#include <stdarg.h>
+#ifndef DE_WINDOWS
+#include <inttypes.h>
+#endif
 
 #ifdef __GNUC__
 #define de_gnuc_attribute __attribute__
@@ -31,7 +39,6 @@
 
 #else
 
-#include <inttypes.h>
 #define de_int64 int64_t
 #define de_uint64 uint64_t
 #define de_int32 int32_t

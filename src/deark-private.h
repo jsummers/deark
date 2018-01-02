@@ -2,14 +2,16 @@
 // Copyright (C) 2016 Jason Summers
 // See the file COPYING for terms of use.
 
+// Definitions not visible to the command-line utility.
+
 #ifdef DEARK_PRIVATE_H_INC
 #error "deark-private.h included multiple times"
 #endif
 #define DEARK_PRIVATE_H_INC
 
-#include <string.h>
-#include <stdarg.h>
+#ifndef DEARK_H_INC
 #include "deark.h"
+#endif
 
 #define DE_MAX_FILE_SIZE 100000000
 #define DE_DEFAULT_MAX_IMAGE_DIMENSION 10000

@@ -5,7 +5,6 @@
 // Legacy Unix "compress" (.Z) compressed file format
 
 #include <deark-config.h>
-#include <stdlib.h>
 #include <deark-private.h>
 
 #include "../foreign/liblzw.h"
