@@ -71,6 +71,7 @@ void de_set_special_messages_callback(deark *c, de_specialmsgfn_type fn);
 void de_set_fatalerror_callback(deark *c, de_fatalerrorfn_type fn);
 
 void de_set_input_format(deark *c, const char *fmtname);
+void de_set_module_init_codes(deark *c, const char *codes);
 
 // See DE_OUTPUTSTYLE_ defs in deark.h
 void de_set_output_style(deark *c, int x);

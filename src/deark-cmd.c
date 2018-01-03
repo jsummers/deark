@@ -283,7 +283,7 @@ enum opt_id_enum {
  DE_OPT_TOSTDOUT, DE_OPT_MSGSTOSTDERR, DE_OPT_FROMSTDIN, DE_OPT_COLOR,
  DE_OPT_ENCODING,
  DE_OPT_EXTOPT, DE_OPT_FILE, DE_OPT_FILE2,
- DE_OPT_START, DE_OPT_SIZE, DE_OPT_M, DE_OPT_O,
+ DE_OPT_START, DE_OPT_SIZE, DE_OPT_M, DE_OPT_MODCODES, DE_OPT_O,
  DE_OPT_ARCFN, DE_OPT_GET, DE_OPT_FIRSTFILE, DE_OPT_MAXFILES, DE_OPT_MAXIMGDIM,
  DE_OPT_PRINTMODULES, DE_OPT_DPREFIX
 };
@@ -329,6 +329,7 @@ struct opt_struct option_array[] = {
 	{ "start",        DE_OPT_START,        1 },
 	{ "size",         DE_OPT_SIZE,         1 },
 	{ "m",            DE_OPT_M,            1 },
+	{ "modcodes",     DE_OPT_MODCODES,     1 },
 	{ "o",            DE_OPT_O,            1 },
 	{ "basefn",       DE_OPT_O,            1 }, // Deprecated
 	{ "arcfn",        DE_OPT_ARCFN,        1 },
@@ -502,6 +503,9 @@ static void parse_cmdline(deark *c, struct cmdctx *cc, int argc, char **argv)
 			case DE_OPT_M:
 				module_flag = 1;
 				de_set_input_format(c, argv[i+1]);
+				break;
+			case DE_OPT_MODCODES:
+				de_set_module_init_codes(c, argv[i+1]);
 				break;
 			case DE_OPT_O:
 				de_set_base_output_filename(c, argv[i+1]);

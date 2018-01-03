@@ -239,6 +239,7 @@ struct deark_struct {
 
 	const char *input_filename;
 	const char *input_format_req; // Format requested
+	const char *modcodes_req;
 	de_int64 slice_start_req; // Used if we're only to look at part of the file.
 	de_int64 slice_size_req;
 	int slice_size_req_valid;

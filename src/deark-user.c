@@ -134,6 +134,7 @@ void de_run(deark *c)
 	struct deark_module_info *module_to_use = NULL;
 	int module_was_autodetected = 0;
 	int moddisp;
+	de_module_params *mparams = NULL;
 	de_ucstring *friendly_infn = NULL;
 
 	if(c->modhelp_req && c->input_format_req) {
@@ -237,11 +238,24 @@ void de_run(deark *c)
 	}
 	de_dbg2(c, "file size: %" INT64_FMT "", c->infile->len);
 
+	if(c->modcodes_req) {
+		if(!mparams)
+			mparams = de_malloc(c, sizeof(de_module_params));
+		// This is a hack, mainly for developer use. It lets the user set the
+		// "module codes" string from the command line, so that some modules
+		// can be run in special modes. For example, you can run the psd module
+		// in its "tagged blocks" mode. (If that turns out to be useful, though,
+		// it would be better to make it available via an "-opt" option, or
+		// even a new module.)
+		mparams->codes = c->modcodes_req;
+	}
+
 	if(module_was_autodetected)
 		moddisp = DE_MODDISP_AUTODETECT;
 	else
 		moddisp = DE_MODDISP_EXPLICIT;
-	if(!de_run_module(c, module_to_use, NULL, moddisp)) {
+
+	if(!de_run_module(c, module_to_use, mparams, moddisp)) {
 		goto done;
 	}
 
@@ -257,6 +271,7 @@ done:
 	ucstring_destroy(friendly_infn);
 	if(subfile) dbuf_close(subfile);
 	if(orig_ifile) dbuf_close(orig_ifile);
+	de_free(c, mparams);
 }
 
 deark *de_create(void)
@@ -460,4 +475,9 @@ void de_set_ext_option(deark *c, const char *name, const char *val)
 void de_set_input_format(deark *c, const char *fmtname)
 {
 	c->input_format_req = fmtname;
+}
+
+void de_set_module_init_codes(deark *c, const char *codes)
+{
+	c->modcodes_req = codes;
 }
