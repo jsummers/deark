@@ -13,7 +13,7 @@ struct de_bmpinfo {
 	de_int64 width;
 	de_int64 height;
 	de_int64 bitcount;
-	de_int64 compression_field;
+	de_uint32 compression_field;
 
 	de_int64 bytes_per_pal_entry;
 	de_int64 pal_entries;
@@ -35,9 +35,10 @@ struct de_bmpinfo {
 #define DE_BMPINFO_ICO_FORMAT     0x2
 #define DE_BMPINFO_HAS_HOTSPOT    0x4
 
+void de_fmtutil_get_bmp_compression_name(de_uint32 code, char *s, size_t s_len,
+	int is_os2v2);
 int de_fmtutil_get_bmpinfo(deark *c,  dbuf *f, struct de_bmpinfo *bi, de_int64 pos,
 	de_int64 len, unsigned int flags);
-
 void de_fmtutil_generate_bmpfileheader(deark *c, dbuf *outf, const struct de_bmpinfo *bi,
 	de_int64 file_size_override);
 

@@ -177,6 +177,22 @@ static void set_default_bitfields(deark *c, lctx *d)
 	}
 }
 
+static void get_cstype_descr(struct de_fourcc *cstype4cc, char *s, size_t s_len)
+{
+	// The ID might be a FOURCC, or not.
+	if(cstype4cc->id>0xffffU) {
+		de_snprintf(s, s_len, "0x%08x ('%s')", (unsigned int)cstype4cc->id,
+			cstype4cc->id_printable);
+	}
+	else {
+		const char *name = "?";
+		switch(cstype4cc->id) {
+		case 0: name = "LCS_CALIBRATED_RGB"; break;
+		}
+		de_snprintf(s, s_len, "%u (%s)", (unsigned int)cstype4cc->id, name);
+	}
+}
+
 // Read any version of BITMAPINFOHEADER.
 //
 // Note: Some of this BMP parsing code is duplicated in the
@@ -189,6 +205,7 @@ static int read_infoheader(deark *c, lctx *d, de_int64 pos)
 	de_int64 clr_used_raw;
 	int cmpr_ok;
 	int retval = 0;
+	de_int64 nplanes;
 
 	de_dbg(c, "info header at %d", (int)pos);
 	de_dbg_indent(c, 1);
@@ -197,6 +214,7 @@ static int read_infoheader(deark *c, lctx *d, de_int64 pos)
 	if(d->version==DE_BMPVER_OS2V1) {
 		d->width = de_getui16le(pos+4);
 		d->height = de_getui16le(pos+6);
+		nplanes = de_getui16le(pos+8);
 	}
 	else {
 		d->width = de_geti32le(pos+4);
@@ -208,6 +226,7 @@ static int read_infoheader(deark *c, lctx *d, de_int64 pos)
 		else {
 			d->height = height_raw;
 		}
+		nplanes = de_getui16le(pos+12);
 	}
 	de_dbg_dimensions(c, d->width, d->height);
 	if(!de_good_image_dimensions(c, d->width, d->height)) {
@@ -216,6 +235,8 @@ static int read_infoheader(deark *c, lctx *d, de_int64 pos)
 	if(d->top_down) {
 		de_dbg(c, "orientation: top-down");
 	}
+
+	de_dbg(c, "planes: %d", (int)nplanes);
 
 	// Already read, in detect_bmp_version()
 	de_dbg(c, "bits/pixel: %d", (int)d->bitcount);
@@ -231,8 +252,11 @@ static int read_infoheader(deark *c, lctx *d, de_int64 pos)
 		d->bytes_per_pal_entry = 3;
 	}
 	else {
-		// Already read, in detect_bmp_version()
-		de_dbg(c, "compression (etc.): %d", (int)d->compression_field);
+		char cmprname[80];
+		// d->compression_field was already read, in detect_bmp_version()
+		de_fmtutil_get_bmp_compression_name(d->compression_field, cmprname, sizeof(cmprname),
+			(d->version==DE_BMPVER_OS2V2));
+		de_dbg(c, "compression (etc.): %u (%s)", (unsigned int)d->compression_field, cmprname);
 		d->bytes_per_pal_entry = 4;
 	}
 
@@ -346,9 +370,16 @@ static int read_infoheader(deark *c, lctx *d, de_int64 pos)
 	}
 
 	if(d->version==DE_BMPVER_WINV345 && d->infohdrsize>=108) {
+		char cstype_descr[80];
 		dbuf_read_fourcc(c->infile, pos+56, &d->cstype4cc, 1);
-		de_dbg(c, "CSType: 0x%08x ('%s')", (unsigned int)d->cstype4cc.id,
-			d->cstype4cc.id_printable);
+		get_cstype_descr(&d->cstype4cc, cstype_descr, sizeof(cstype_descr));
+		de_dbg(c, "CSType: %s", cstype_descr);
+	}
+
+	if(d->version==DE_BMPVER_WINV345 && d->infohdrsize>=124) {
+		de_uint32 intent;
+		intent = (de_uint32)de_getui32le(pos+108);
+		de_dbg(c, "intent: %u", (unsigned int)intent);
 	}
 
 	if(d->version==DE_BMPVER_WINV345 && d->infohdrsize>=124 &&

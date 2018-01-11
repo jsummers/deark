@@ -9,6 +9,31 @@
 #include <deark-private.h>
 #include <deark-fmtutil.h>
 
+void de_fmtutil_get_bmp_compression_name(de_uint32 code, char *s, size_t s_len,
+	int is_os2v2)
+{
+	const char *name1 = "?";
+	switch(code) {
+	case 0: name1 = "BI_RGB, uncompressed"; break;
+	case 1: name1 = "BI_RLE8"; break;
+	case 2: name1 = "BI_RLE4"; break;
+	case 3:
+		if(is_os2v2)
+			name1 = "Huffman 1D";
+		else
+			name1 = "BI_BITFIELDS, uncompressed";
+		break;
+	case 4:
+		if(is_os2v2)
+			name1 = "RLE24";
+		else
+			name1 = "BI_JPEG";
+		break;
+	case 5: name1 = "BI_PNG"; break;
+	}
+	de_strlcpy(s, name1, s_len);
+}
+
 // Gathers information about a DIB.
 // If DE_BMPINFO_HAS_FILEHEADER flag is set, pos points to the BITMAPFILEHEADER.
 // Otherwise, it points to the BITMAPINFOHEADER.
@@ -19,6 +44,7 @@ int de_fmtutil_get_bmpinfo(deark *c, dbuf *f, struct de_bmpinfo *bi, de_int64 po
 {
 	de_int64 fhs; // file header size
 	de_int64 bmih_pos;
+	char cmprname[80];
 
 	de_memset(bi, 0, sizeof(struct de_bmpinfo));
 
@@ -66,7 +92,7 @@ int de_fmtutil_get_bmpinfo(deark *c, dbuf *f, struct de_bmpinfo *bi, de_int64 po
 		}
 		bi->bitcount = dbuf_getui16le(f, bmih_pos+14);
 		if(bi->infohdrsize>=20) {
-			bi->compression_field = dbuf_getui32le(f, bmih_pos+16);
+			bi->compression_field = (de_uint32)dbuf_getui32le(f, bmih_pos+16);
 		}
 		if(bi->infohdrsize>=36) {
 			bi->pal_entries = dbuf_getui32le(f, bmih_pos+32);
@@ -93,7 +119,10 @@ int de_fmtutil_get_bmpinfo(deark *c, dbuf *f, struct de_bmpinfo *bi, de_int64 po
 
 	de_dbg_dimensions(c, bi->width, bi->height);
 	de_dbg(c, "bit count: %d", (int)bi->bitcount);
-	de_dbg(c, "compression: %d", (int)bi->compression_field);
+
+	de_fmtutil_get_bmp_compression_name(bi->compression_field,
+		cmprname, sizeof(cmprname), 0);
+	de_dbg(c, "compression: %u (%s)", (unsigned int)bi->compression_field, cmprname);
 	de_dbg(c, "palette entries: %u", (unsigned int)bi->pal_entries);
 	if(bi->pal_entries>256 && bi->bitcount>8) {
 		de_warn(c, "Ignoring bad palette size (%u entries)", (unsigned int)bi->pal_entries);
