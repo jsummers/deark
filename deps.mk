@@ -182,6 +182,8 @@ obj/modules/wmf.o: modules/wmf.c src/deark-config.h src/deark-private.h \
  src/deark.h
 obj/modules/wpg.o: modules/wpg.c src/deark-config.h src/deark-private.h \
  src/deark.h
+obj/modules/wri.o: modules/wri.c src/deark-config.h src/deark-private.h \
+ src/deark.h
 obj/modules/xface.o: modules/xface.c src/deark-config.h \
  src/deark-private.h src/deark.h modules/../foreign/uncompface.h
 obj/modules/xfer.o: modules/xfer.c src/deark-config.h src/deark-private.h \

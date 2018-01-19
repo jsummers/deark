@@ -842,6 +842,10 @@
 				>
 			</File>
 			<File
+				RelativePath="..\..\modules\wri.c"
+				>
+			</File>
+			<File
 				RelativePath="..\..\modules\xface.c"
 				>
 			</File>
