@@ -64,14 +64,243 @@ static int do_header(deark *c, lctx *d, de_int64 pos)
 	return 1;
 }
 
+static void do_picture_metafile(deark *c, lctx *d, struct para_info *pinfo)
+{
+	de_int64 pos = pinfo->thisparapos;
+	de_int64 cbHeader, cbSize;
+
+	cbHeader = de_getui16le(pos+30);
+	de_dbg(c, "cbHeader: %d", (int)cbHeader);
+
+	cbSize = de_getui32le(pos+32);
+	de_dbg(c, "cbSize: %d", (int)cbSize);
+
+	if(cbHeader+cbSize <= pinfo->thisparalen) {
+		dbuf_create_file_from_slice(c->infile, pos+cbHeader, cbSize, "wmf", NULL, 0);
+	}
+}
+
+static const char *get_objecttype1_name(unsigned int t)
+{
+	const char *name;
+	switch(t) {
+	case 1: name="static"; break;
+	case 2: name="embedded"; break;
+	case 3: name="link"; break;
+	default: name="?"; break;
+	}
+	return name;
+}
+
+static const char *get_picture_storage_type_name(unsigned int t)
+{
+	const char *name;
+	switch(t) {
+	case 0x88: name="metafile"; break;
+	case 0xe3: name="bitmap"; break;
+	case 0xe4: name="OLE object"; break;
+	default: name="?"; break;
+	}
+	return name;
+}
+
+static int do_picture_ole_static_rendition(deark *c, lctx *d, struct para_info *pinfo,
+	int rendition_idx, de_int64 pos1, de_int64 *bytes_consumed)
+{
+	de_int64 pos = pos1;
+	de_int64 stringlen;
+	struct de_stringreaderdata *srd_typename = NULL;
+
+	pos += 4; // 0x00000501
+	pos += 4; // "type" (probably already read by caller)
+
+	stringlen = de_getui32le(pos);
+	pos += 4;
+	srd_typename = dbuf_read_string(c->infile, pos, stringlen, 260, DE_CONVFLAG_STOP_AT_NUL,
+		DE_ENCODING_ASCII);
+	de_dbg(c, "typename: \"%s\"", ucstring_get_printable_sz(srd_typename->str));
+	pos += stringlen;
+
+	// TODO: Extract bitmaps, at least.
+
+	de_destroy_stringreaderdata(c, srd_typename);
+	return 0;
+}
+
+// pos1 points to the ole_id field (should be 0x00000501).
+// Caller must have looked ahead to check the type.
+static int do_picture_ole_embedded_rendition(deark *c, lctx *d, struct para_info *pinfo,
+	int rendition_idx, de_int64 pos1, de_int64 *bytes_consumed)
+{
+	de_int64 pos = pos1;
+	de_int64 stringlen;
+	de_int64 data_len;
+	struct de_stringreaderdata *srd_typename = NULL;
+	struct de_stringreaderdata *srd_filename = NULL;
+	struct de_stringreaderdata *srd_params = NULL;
+
+	pos += 4; // 0x00000501
+	pos += 4; // "type" (probably already read by caller)
+
+	stringlen = de_getui32le(pos);
+	pos += 4;
+	srd_typename = dbuf_read_string(c->infile, pos, stringlen, 260, DE_CONVFLAG_STOP_AT_NUL,
+		DE_ENCODING_ASCII);
+	de_dbg(c, "typename: \"%s\"", ucstring_get_printable_sz(srd_typename->str));
+	pos += stringlen;
+
+	stringlen = de_getui32le(pos);
+	pos += 4;
+	srd_filename = dbuf_read_string(c->infile, pos, stringlen, 260, DE_CONVFLAG_STOP_AT_NUL,
+		DE_ENCODING_ASCII);
+	de_dbg(c, "filename: \"%s\"", ucstring_get_printable_sz(srd_filename->str));
+	pos += stringlen;
+
+	stringlen = de_getui32le(pos);
+	pos += 4;
+	srd_params = dbuf_read_string(c->infile, pos, stringlen, 260, DE_CONVFLAG_STOP_AT_NUL,
+		DE_ENCODING_ASCII);
+	de_dbg(c, "params: \"%s\"", ucstring_get_printable_sz(srd_params->str));
+	pos += stringlen;
+
+	data_len = de_getui32le(pos);
+	pos += 4;
+	de_dbg(c, "embedded ole rendition data: pos=%d, len=%d", (int)pos, (int)data_len);
+
+	// TODO: Detect type and true length of data
+	dbuf_create_file_from_slice(c->infile, pos, data_len, "bmp", NULL, 0);
+
+	pos += data_len;
+	*bytes_consumed = pos - pos1;
+
+	de_destroy_stringreaderdata(c, srd_typename);
+	de_destroy_stringreaderdata(c, srd_filename);
+	de_destroy_stringreaderdata(c, srd_params);
+	return 1;
+}
+
+// pos1 points to the ole_id field (should be 0x00000501).
+// Returns nonzero if there may be additional renditions.
+static int do_picture_ole_rendition(deark *c, lctx *d, struct para_info *pinfo,
+	unsigned int objectType,
+	int rendition_idx, de_int64 pos1, de_int64 *bytes_consumed)
+{
+	unsigned int ole_id;
+	unsigned int objectType2;
+	int retval = 0;
+
+	de_dbg(c, "OLE rendition[%d] at %d", rendition_idx, (int)pos1);
+	de_dbg_indent(c, 1);
+
+	ole_id = (unsigned int)de_getui32le(pos1);
+	de_dbg(c, "ole id: 0x%08x", ole_id);
+	if(ole_id!=0x00000501U) {
+		de_err(c, "Unexpected ole_id: 0x%08x", ole_id);
+		goto done;
+	}
+
+	objectType2 = (unsigned int)de_getui32le(pos1+4);
+	de_dbg(c, "type: %u", objectType2);
+
+	if(objectType==1) {
+		if(objectType2==3) {
+			do_picture_ole_static_rendition(c, d, pinfo, rendition_idx, pos1, bytes_consumed);
+		}
+	}
+	else if(objectType==2) {
+		if(objectType2==0) {
+			goto done;
+		}
+		else if(objectType2==2) {
+			do_picture_ole_embedded_rendition(c, d, pinfo, rendition_idx, pos1, bytes_consumed);
+			retval = 1;
+		}
+		else if(objectType2==5) { // replacement
+			do_picture_ole_static_rendition(c, d, pinfo, rendition_idx, pos1, bytes_consumed);
+		}
+	}
+
+done:
+	de_dbg_indent(c, -1);
+	return retval;
+}
+
+static void do_picture_ole(deark *c, lctx *d, struct para_info *pinfo)
+{
+	unsigned int objectType;
+	de_int64 cbHeader, dwDataSize;
+	de_int64 pos = pinfo->thisparapos;
+	de_int64 nbytes_left;
+	de_int64 bytes_consumed = 0;
+	int rendition_idx = 0;
+
+	objectType = (unsigned int)de_getui16le(pos+6);
+	de_dbg(c, "objectType: %u (%s)", objectType, get_objecttype1_name(objectType));
+
+	dwDataSize = de_getui32le(pos+16);
+	de_dbg(c, "dwDataSize: %d", (int)dwDataSize);
+
+	cbHeader = de_getui16le(pos+30);
+	de_dbg(c, "cbHeader: %d", (int)cbHeader);
+
+	pos += cbHeader;
+
+	// An "embedded" OLE object contains a sequence of entities that I'll call
+	// renditions. The last entity is just an end-of-sequence marker.
+	// I'm not sure if there can be more than two renditions (one embedded, and
+	// one static "replacement"), or if the order matters.
+
+	while(1) {
+		int ret;
+		nbytes_left = pinfo->thisparapos + pinfo->thisparalen - pos;
+		if(nbytes_left<8) break;
+
+		bytes_consumed = 0;
+		ret = do_picture_ole_rendition(c, d, pinfo, objectType, rendition_idx, pos,
+			&bytes_consumed);
+		if(!ret || bytes_consumed==0) break;
+		pos += bytes_consumed;
+		rendition_idx++;
+	}
+}
+
+static void do_picture(deark *c, lctx *d, struct para_info *pinfo)
+{
+	unsigned int mm;
+	de_int64 pos = pinfo->thisparapos;
+
+	if(pinfo->thisparalen<2) goto done;
+	mm = (unsigned int)de_getui16le(pos);
+	de_dbg(c, "picture storage type: 0x%04x (%s)", mm,
+		get_picture_storage_type_name(mm));
+
+	switch(mm) {
+	case 0x88:
+		do_picture_metafile(c, d, pinfo);
+		break;
+		// todo: 0xe3
+	case 0xe4:
+		do_picture_ole(c, d, pinfo);
+		break;
+	default:
+		de_err(c, "Picture storage type 0x%04x not supported", mm);
+	}
+
+done:
+	;
+}
+
 static void do_paragraph(deark *c, lctx *d, struct para_info *pinfo)
 {
 	if(pinfo->papflags&0x10) {
-		de_dbg(c, "[image at %d, len=%d]", (int)pinfo->thisparapos,
+		de_dbg(c, "picture at %d, len=%d", (int)pinfo->thisparapos,
 			(int)pinfo->thisparalen);
+		de_dbg_indent(c, 1);
+		do_picture(c, d, pinfo);
+		de_dbg_indent(c, -1);
 	}
 	else {
-		de_dbg(c, "[text paragraph at %d, len=%d]", (int)pinfo->thisparapos,
+		de_dbg(c, "text paragraph at %d, len=%d", (int)pinfo->thisparapos,
 			(int)pinfo->thisparalen);
 	}
 }
