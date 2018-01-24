@@ -179,9 +179,17 @@ static int do_picture_ole_static_rendition(deark *c, lctx *d, struct para_info *
 
 		dbuf_close(outf);
 	}
+	else if(!de_strcmp((const char*)srd_typename->sz, "METAFILEPICT")) {
+		de_int64 dlen;
+		pos += 8; // ??
+		dlen = de_getui32le(pos);
+		de_dbg(c, "metafile size: %d", (int)dlen); // Includes "mfp", apparently
+		pos += 4;
+		pos += 8; // "mfp" struct
+		dbuf_create_file_from_slice(c->infile, pos, dlen-8, "wmf", NULL, 0);
+	}
 	else {
 		// TODO: "BITMAP"
-		// TODO: "METAFILEPICT"
 		de_warn(c, "Static OLE picture type \"%s\" is not supported",
 			ucstring_get_printable_sz(srd_typename->str));
 	}
@@ -199,6 +207,7 @@ static int do_picture_ole_embedded_rendition(deark *c, lctx *d, struct para_info
 	de_int64 pos = pos1;
 	de_int64 stringlen;
 	de_int64 data_len;
+	de_byte buf[2];
 	struct de_stringreaderdata *srd_typename = NULL;
 	struct de_stringreaderdata *srd_filename = NULL;
 	struct de_stringreaderdata *srd_params = NULL;
@@ -231,8 +240,16 @@ static int do_picture_ole_embedded_rendition(deark *c, lctx *d, struct para_info
 	pos += 4;
 	de_dbg(c, "embedded ole rendition data: pos=%d, len=%d", (int)pos, (int)data_len);
 
-	// TODO: Detect type and true length of data
-	dbuf_create_file_from_slice(c->infile, pos, data_len, "bmp", NULL, 0);
+	// TODO: I don't know if it's better to sniff the data, or rely on the typename.
+	de_read(buf, pos, 2);
+	if(buf[0]=='B' && buf[1]=='M') {
+		// TODO: Detect true length of data
+		dbuf_create_file_from_slice(c->infile, pos, data_len, "bmp", NULL, 0);
+	}
+	else {
+		de_warn(c, "Unknown/unsupported type of OLE object (\"%s\") at %d",
+			ucstring_get_printable_sz(srd_typename->str), (int)pos1);
+	}
 
 	pos += data_len;
 	*bytes_consumed = pos - pos1;
