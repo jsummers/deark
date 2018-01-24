@@ -84,6 +84,43 @@ static void do_picture_metafile(deark *c, lctx *d, struct para_info *pinfo)
 	}
 }
 
+static void do_picture_bitmap(deark *c, lctx *d, struct para_info *pinfo)
+{
+	de_int64 pos = pinfo->thisparapos;
+	de_int64 cbHeader, cbSize;
+	de_int64 bmWidth, bmHeight;
+	de_int64 bmBitsPerPixel;
+	de_int64 rowspan;
+
+	bmWidth = de_getui16le(pos+16+2);
+	bmHeight = de_getui16le(pos+16+4);
+	de_dbg_dimensions(c, bmWidth, bmHeight);
+	bmBitsPerPixel = de_getui16le(pos+16+9);
+	de_dbg(c, "bmBitsPerPixel: %d", (int)bmBitsPerPixel);
+
+	rowspan = de_getui16le(pos+16+6);
+	de_dbg(c, "bytes/row: %d", (int)rowspan);
+
+	cbHeader = de_getui16le(pos+30);
+	de_dbg(c, "cbHeader: %d", (int)cbHeader);
+
+	cbSize = de_getui32le(pos+32);
+	de_dbg(c, "cbSize: %d", (int)cbSize);
+
+	if(bmBitsPerPixel!=1) {
+		de_err(c, "This type of bitmap is not supported (bmBitsPerPixel=%d)",
+			(int)bmBitsPerPixel);
+		goto done;
+	}
+
+	pos += cbHeader;
+
+	de_convert_and_write_image_bilevel(c->infile, pos, bmWidth, bmHeight, rowspan, 0, NULL, 0);
+
+done:
+	;
+}
+
 static const char *get_objecttype1_name(unsigned int t)
 {
 	const char *name;
@@ -309,7 +346,9 @@ static void do_picture(deark *c, lctx *d, struct para_info *pinfo)
 	case 0x88:
 		do_picture_metafile(c, d, pinfo);
 		break;
-		// todo: 0xe3
+	case 0xe3:
+		do_picture_bitmap(c, d, pinfo);
+		break;
 	case 0xe4:
 		do_picture_ole(c, d, pinfo);
 		break;
