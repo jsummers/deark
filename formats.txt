@@ -676,3 +676,8 @@ Deark -- Information about supported formats
   Metaformat used by WAV, AVI, WebP, etc.
   - RIFF can be parsed, but in many cases nothing can be extracted from it.
 
+* WRI - Microsoft Write (module="wri") (experimental/incomplete)
+  - Extract raw text to an HTML file. No formatting, etc. Only Windows-1252
+    encoding is supported.
+  - Extract most pictures.
+

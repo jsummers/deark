@@ -351,7 +351,7 @@ static void do_picture(deark *c, lctx *d, struct para_info *pinfo)
 	de_int64 pos = pinfo->thisparapos;
 
 	if(d->html_outf) {
-		dbuf_puts(d->html_outf, "<p><i>[picture]</i></p>\n");
+		dbuf_puts(d->html_outf, "<p class=r>[picture]</p>\n");
 	}
 
 	if(pinfo->thisparalen<2) goto done;
@@ -389,7 +389,8 @@ static void do_text_paragraph(deark *c, lctx *d, struct para_info *pinfo)
 
 	if((pinfo->papflags & 0x06)!=0) {
 		// TODO: Decode headers and footers somehow.
-		dbuf_puts(f, "<p><i>[header/footer]</i></p>\n");
+		dbuf_printf(f, "<p class=r>[%s definition]</p>\n",
+			(pinfo->papflags&0x01)?"footer":"header");
 		return;
 	}
 
@@ -589,6 +590,7 @@ static void do_html_begin(deark *c, lctx *d)
 	dbuf_puts(f, "<style type=\"text/css\">\n");
 	dbuf_puts(f, " body { color: #000; background-color: #fff }\n");
 	dbuf_puts(f, " .c { color: #ccc }\n"); // Visible control characters
+	dbuf_puts(f, " .r { color: #800; font-style: italic }\n"); // Replacement text
 	dbuf_puts(f, "</style>\n");
 
 	dbuf_puts(f, "</head>\n");
@@ -648,5 +650,4 @@ void de_module_wri(deark *c, struct deark_module_info *mi)
 	mi->desc = "Microsoft Write";
 	mi->run_fn = de_run_wri;
 	mi->identify_fn = de_identify_wri;
-	mi->flags |= DE_MODFLAG_NONWORKING;
 }
