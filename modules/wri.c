@@ -326,6 +326,7 @@ static void do_text_paragraph(deark *c, lctx *d, struct para_info *pinfo)
 	dbuf *f;
 	de_int64 i, k;
 	int space_count=0;
+	int xpos;
 
 	if(!d->html_outf) return;
 	f = d->html_outf;
@@ -341,6 +342,7 @@ static void do_text_paragraph(deark *c, lctx *d, struct para_info *pinfo)
 	if(pinfo->thisparalen<2) return;
 
 	dbuf_puts(f, "<p>");
+	xpos = 3;
 	for(i=0; i<pinfo->thisparalen-2; i++) {
 		de_byte incp;
 
@@ -350,8 +352,20 @@ static void do_text_paragraph(deark *c, lctx *d, struct para_info *pinfo)
 			// Make all spaces but the last one nonbreaking
 			for(k=0; k<space_count-1; k++) {
 				de_write_codepoint_to_html(c, f, 0xa0);
+				xpos++;
 			}
-			dbuf_writebyte(f, 32);
+
+			if(xpos>70) {
+				// We don't do proper word wrapping of the HTML source, but
+				// maybe this is better than nothing.
+				dbuf_writebyte(f, 0x0a);
+				xpos = 0;
+			}
+			else {
+				dbuf_writebyte(f, 32);
+				xpos++;
+			}
+
 			space_count=0;
 		}
 
@@ -359,18 +373,24 @@ static void do_text_paragraph(deark *c, lctx *d, struct para_info *pinfo)
 			de_int32 outcp;
 			outcp = de_char_to_unicode(c, (de_int32)incp, d->input_encoding);
 			de_write_codepoint_to_html(c, f, outcp);
+			xpos++;
 		}
 		else {
 			switch(incp) {
-			case 9: // tab (TODO: how to handle tabs?)
-				de_write_codepoint_to_html(c, f, 0x9);
+			case 9: // tab
+				dbuf_puts(f, "<span class=c>");
+				de_write_codepoint_to_html(c, f, 0x2192);
+				dbuf_puts(f, "</span>");
+				xpos += 22;
 				break;
 			case 10:
 			case 11:
 				dbuf_puts(f, "<br>\n");
+				xpos = 0;
 				break;
 			case 12: // page break
 				dbuf_puts(f, "</p>\n<hr>\n<p>");
+				xpos = 3;
 				break;
 			case 31:
 				break;
@@ -379,6 +399,7 @@ static void do_text_paragraph(deark *c, lctx *d, struct para_info *pinfo)
 				break;
 			default:
 				de_write_codepoint_to_html(c, f, 0xfffd);
+				xpos++;
 			}
 		}
 	}
@@ -508,6 +529,12 @@ static void do_html_begin(deark *c, lctx *d)
 	dbuf_puts(f, "<head>\n");
 	dbuf_printf(f, "<meta charset=\"%s\">\n", c->ascii_html?"US-ASCII":"UTF-8");
 	dbuf_puts(f, "<title></title>\n");
+
+	dbuf_puts(f, "<style type=\"text/css\">\n");
+	dbuf_puts(f, " body { color: #000; background-color: #fff }\n");
+	dbuf_puts(f, " .c { color: #ccc }\n"); // Visible control characters
+	dbuf_puts(f, "</style>\n");
+
 	dbuf_puts(f, "</head>\n");
 	dbuf_puts(f, "<body>\n");
 }
