@@ -16,6 +16,8 @@ struct para_info {
 };
 
 typedef struct localctx_struct {
+	int extract_text;
+	int input_encoding;
 	de_int64 fcMac;
 	de_int64 pnChar;
 	de_int64 pnChar_offs;
@@ -24,6 +26,7 @@ typedef struct localctx_struct {
 	de_int64 pnPara_npages;
 	de_int64 pnFntb, pnSep, pnSetb, pnPgtb, pnFfntb;
 	de_int64 pnMac;
+	dbuf *html_outf;
 } lctx;
 
 static int do_header(deark *c, lctx *d, de_int64 pos)
@@ -293,6 +296,10 @@ static void do_picture(deark *c, lctx *d, struct para_info *pinfo)
 	unsigned int mm;
 	de_int64 pos = pinfo->thisparapos;
 
+	if(d->html_outf) {
+		dbuf_puts(d->html_outf, "<p><i>[picture]</i></p>\n");
+	}
+
 	if(pinfo->thisparalen<2) goto done;
 	mm = (unsigned int)de_getui16le(pos);
 	de_dbg(c, "picture storage type: 0x%04x (%s)", mm,
@@ -314,6 +321,70 @@ done:
 	;
 }
 
+static void do_text_paragraph(deark *c, lctx *d, struct para_info *pinfo)
+{
+	dbuf *f;
+	de_int64 i, k;
+	int space_count=0;
+
+	if(!d->html_outf) return;
+	f = d->html_outf;
+
+	if((pinfo->papflags & 0x06)!=0) {
+		// TODO: Decode headers and footers somehow.
+		dbuf_puts(f, "<p><i>[header/footer]</i></p>\n");
+		return;
+	}
+
+	// The last 2 bytes should always be CR LF, so a length less than 2
+	// should be impossible.
+	if(pinfo->thisparalen<2) return;
+
+	dbuf_puts(f, "<p>");
+	for(i=0; i<pinfo->thisparalen-2; i++) {
+		de_byte incp;
+
+		incp = de_getbyte(pinfo->thisparapos+i);
+
+		if(incp!=32 && space_count>0) {
+			// Make all spaces but the last one nonbreaking
+			for(k=0; k<space_count-1; k++) {
+				de_write_codepoint_to_html(c, f, 0xa0);
+			}
+			dbuf_writebyte(f, 32);
+			space_count=0;
+		}
+
+		if(incp>=33) {
+			de_int32 outcp;
+			outcp = de_char_to_unicode(c, (de_int32)incp, d->input_encoding);
+			de_write_codepoint_to_html(c, f, outcp);
+		}
+		else {
+			switch(incp) {
+			case 9: // tab (TODO: how to handle tabs?)
+				de_write_codepoint_to_html(c, f, 0x9);
+				break;
+			case 10:
+			case 11:
+				dbuf_puts(f, "<br>\n");
+				break;
+			case 12: // page break
+				dbuf_puts(f, "</p>\n<hr>\n<p>");
+				break;
+			case 31:
+				break;
+			case 32:
+				space_count++;
+				break;
+			default:
+				de_write_codepoint_to_html(c, f, 0xfffd);
+			}
+		}
+	}
+	dbuf_puts(f, "</p>\n");
+}
+
 static void do_paragraph(deark *c, lctx *d, struct para_info *pinfo)
 {
 	if(pinfo->papflags&0x10) {
@@ -326,6 +397,7 @@ static void do_paragraph(deark *c, lctx *d, struct para_info *pinfo)
 	else {
 		de_dbg(c, "text paragraph at %d, len=%d", (int)pinfo->thisparapos,
 			(int)pinfo->thisparalen);
+		do_text_paragraph(c, d, pinfo);
 	}
 }
 
@@ -424,6 +496,30 @@ static void do_para_info(deark *c, lctx *d)
 	de_dbg_indent(c, -1);
 }
 
+static void do_html_begin(deark *c, lctx *d)
+{
+	dbuf *f;
+	if(d->html_outf) return;
+	d->html_outf = dbuf_create_output_file(c, "html", NULL, 0);
+	f = d->html_outf;
+	if(c->write_bom && !c->ascii_html) dbuf_write_uchar_as_utf8(f, 0xfeff);
+	dbuf_puts(f, "<!DOCTYPE html>\n");
+	dbuf_puts(f, "<html>\n");
+	dbuf_puts(f, "<head>\n");
+	dbuf_printf(f, "<meta charset=\"%s\">\n", c->ascii_html?"US-ASCII":"UTF-8");
+	dbuf_puts(f, "<title></title>\n");
+	dbuf_puts(f, "</head>\n");
+	dbuf_puts(f, "<body>\n");
+}
+
+static void do_html_end(deark *c, lctx *d)
+{
+	if(!d->html_outf) return;
+	dbuf_puts(d->html_outf, "</body>\n</html>\n");
+	dbuf_close(d->html_outf);
+	d->html_outf = NULL;
+}
+
 static void de_run_wri(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
@@ -431,11 +527,19 @@ static void de_run_wri(deark *c, de_module_params *mparams)
 
 	d = de_malloc(c, sizeof(lctx));
 
+	d->extract_text = 1;
+	d->input_encoding = DE_ENCODING_WINDOWS1252;
+
 	pos = 0;
 	if(!do_header(c, d, pos)) goto done;
+	if(d->extract_text) {
+		do_html_begin(c, d);
+	}
+
 	do_para_info(c, d);
 
 done:
+	do_html_end(c, d);
 	de_free(c, d);
 }
 
