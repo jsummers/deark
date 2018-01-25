@@ -15,7 +15,8 @@ typedef struct localctx_struct {
 } lctx;
 
 struct decoder_params {
-	de_int64 recfunc;
+	de_uint16 recfunc;
+	de_byte rectype; // low byte of recfunc
 	de_int64 recpos;
 	de_int64 recsize_bytes;
 };
@@ -92,7 +93,9 @@ static int wmf_handler_41_43(deark *c, lctx *d, struct decoder_params *dp)
 	de_int64 dib_len;
 	int hdrsize;// = 26;
 
-	if(dp->recfunc==0x0b41) // DIBSTRETCHBLT
+	// TODO: For DIBSTRETCHBLT, the high byte of dp->recfunc can be relevant.
+
+	if(dp->rectype==0x41) // DIBSTRETCHBLT
 		hdrsize = 26;
 	else
 		hdrsize = 28;
@@ -236,10 +239,10 @@ done:
 	return retval;
 }
 
-static const struct wmf_func_info *find_wmf_func_info(de_int64 rectype)
+static const struct wmf_func_info *find_wmf_func_info(de_uint16 recfunc)
 {
 	size_t i;
-	de_byte rectype_wanted = (de_byte)(rectype&0xff);
+	de_byte rectype_wanted = (de_byte)(recfunc&0xff);
 
 	for(i=0; i<DE_ITEMS_IN_ARRAY(wmf_func_info_arr); i++) {
 		if(wmf_func_info_arr[i].rectype == rectype_wanted) {
@@ -253,21 +256,24 @@ static const struct wmf_func_info *find_wmf_func_info(de_int64 rectype)
 static int do_wmf_record(deark *c, lctx *d, de_int64 recnum, de_int64 recpos,
 	de_int64 recsize_bytes)
 {
-	de_int64 rectype = 0;
+	de_uint16 recfunc;
+	de_byte recfunc_lo;
 	const struct wmf_func_info *fnci;
 
-	rectype = de_getui16le(recpos+4);
+	recfunc = (de_uint16)de_getui16le(recpos+4);
+	recfunc_lo = (de_byte)(recfunc&0xff);
 
-	fnci = find_wmf_func_info(rectype);
+	fnci = find_wmf_func_info(recfunc);
 
-	de_dbg(c, "record #%d at %d, type=0x%04x (%s), size=%d bytes", (int)recnum,
-		(int)recpos, (unsigned int)rectype,
+	de_dbg(c, "record #%d at %d, type=0x%02x (%s), size=%d bytes", (int)recnum,
+		(int)recpos, (unsigned int)recfunc_lo,
 		fnci ? fnci->name : "?",
 		(int)recsize_bytes);
 
 	if(fnci && fnci->fn) {
 		struct decoder_params dp;
-		dp.recfunc = rectype;
+		dp.recfunc = recfunc;
+		dp.rectype = recfunc_lo;
 		dp.recpos = recpos;
 		dp.recsize_bytes = recsize_bytes;
 		de_dbg_indent(c, 1);
@@ -275,7 +281,7 @@ static int do_wmf_record(deark *c, lctx *d, de_int64 recnum, de_int64 recpos,
 		de_dbg_indent(c, -1);
 	}
 
-	return (rectype==0x0000)?0:1;
+	return (recfunc_lo==0x00)?0:1;
 }
 
 static void do_wmf_record_list(deark *c, lctx *d, de_int64 pos)
