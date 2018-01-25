@@ -933,3 +933,24 @@ void de_write_codepoint_to_html(deark *c, dbuf *f, de_int32 ch)
 		dbuf_printf(f, "&#%d;", (int)ch);
 	}
 }
+
+int de_encoding_name_to_code(const char *encname)
+{
+	struct encmap { const char *encname; int n; };
+	struct encmap encmap_arr[] = {
+		{ "ascii", DE_ENCODING_ASCII },
+		{ "utf8", DE_ENCODING_UTF8 },
+		{ "latin1", DE_ENCODING_LATIN1 },
+		{ "cp437", DE_ENCODING_CP437_C },
+		{ "windows1252", DE_ENCODING_WINDOWS1252 },
+		{ "macroman", DE_ENCODING_MACROMAN }
+	};
+	size_t k;
+
+	for(k=0; k<DE_ITEMS_IN_ARRAY(encmap_arr); k++) {
+		if(!de_strcasecmp(encname, encmap_arr[k].encname)) {
+			return encmap_arr[k].n;
+		}
+	}
+	return DE_ENCODING_UNKNOWN;
+}

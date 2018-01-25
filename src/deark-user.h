@@ -20,6 +20,7 @@ void de_exitprocess(void);
 void de_set_input_style(deark *c, int x);
 
 void de_set_input_filename(deark *c, const char *fn);
+int de_set_input_encoding(deark *c, const char *encname, int reserved);
 void de_set_input_file_slice_start(deark *c, de_int64 n);
 void de_set_input_file_slice_size(deark *c, de_int64 n);
 

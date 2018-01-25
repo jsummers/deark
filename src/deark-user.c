@@ -289,6 +289,7 @@ deark *de_create(void)
 	c->current_time.is_valid = 0;
 	c->can_decode_fltpt = -1; // = unknown
 	c->host_is_le = -1; // = unknown
+	c->input_encoding = DE_ENCODING_UNKNOWN;
 	return c;
 }
 
@@ -359,6 +360,18 @@ void de_set_input_style(deark *c, int x)
 void de_set_input_filename(deark *c, const char *fn)
 {
 	c->input_filename = fn;
+}
+
+int de_set_input_encoding(deark *c, const char *encname, int reserved)
+{
+	int enc;
+
+	enc = de_encoding_name_to_code(encname);
+	if(enc==DE_ENCODING_UNKNOWN) {
+		return 0;
+	}
+	c->input_encoding = enc;
+	return 1;
 }
 
 void de_set_input_file_slice_start(deark *c, de_int64 n)

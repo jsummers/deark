@@ -282,7 +282,7 @@ enum opt_id_enum {
  DE_OPT_MAINONLY, DE_OPT_AUXONLY, DE_OPT_EXTRACTALL, DE_OPT_ZIP,
  DE_OPT_TOSTDOUT, DE_OPT_MSGSTOSTDERR, DE_OPT_FROMSTDIN, DE_OPT_COLOR,
  DE_OPT_ENCODING,
- DE_OPT_EXTOPT, DE_OPT_FILE, DE_OPT_FILE2,
+ DE_OPT_EXTOPT, DE_OPT_FILE, DE_OPT_FILE2, DE_OPT_INENC,
  DE_OPT_START, DE_OPT_SIZE, DE_OPT_M, DE_OPT_MODCODES, DE_OPT_O,
  DE_OPT_ARCFN, DE_OPT_GET, DE_OPT_FIRSTFILE, DE_OPT_MAXFILES, DE_OPT_MAXIMGDIM,
  DE_OPT_PRINTMODULES, DE_OPT_DPREFIX
@@ -326,6 +326,7 @@ struct opt_struct option_array[] = {
 	{ "opt",          DE_OPT_EXTOPT,       1 },
 	{ "file",         DE_OPT_FILE,         1 },
 	{ "file2",        DE_OPT_FILE2,        1 },
+	{ "inenc",        DE_OPT_INENC,        1 },
 	{ "start",        DE_OPT_START,        1 },
 	{ "size",         DE_OPT_SIZE,         1 },
 	{ "m",            DE_OPT_M,            1 },
@@ -493,6 +494,14 @@ static void parse_cmdline(deark *c, struct cmdctx *cc, int argc, char **argv)
 				break;
 			case DE_OPT_FILE2:
 				de_set_ext_option(c, "file2", argv[i+1]);
+				break;
+			case DE_OPT_INENC:
+				if(!de_set_input_encoding(c, argv[i+1], 0)) {
+					de_printf(c, DE_MSGTYPE_MESSAGE,
+						"Error: Unknown input encoding: %s\n", argv[i+1]);
+					cc->error_flag = 1;
+					return;
+				}
 				break;
 			case DE_OPT_START:
 				de_set_input_file_slice_start(c, de_atoi64(argv[i+1]));

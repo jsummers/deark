@@ -267,6 +267,7 @@ struct deark_struct {
 	int can_decode_fltpt;
 	int host_is_le;
 	int modhelp_req;
+	int input_encoding;
 
 	de_msgfn_type msgfn; // Caller's message output function
 	de_specialmsgfn_type specialmsgfn;
@@ -762,6 +763,8 @@ const char *ucstring_get_printable_sz_d(de_ucstring *s);
 void ucstring_append_flags_item(de_ucstring *s, const char *str);
 
 void de_write_codepoint_to_html(deark *c, dbuf *f, de_int32 ch);
+
+int de_encoding_name_to_code(const char *encname);
 
 void de_copy_bits(const de_byte *src, de_int64 srcbitnum,
 	de_byte *dst, de_int64 dstbitnum, de_int64 bitstocopy);

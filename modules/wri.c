@@ -655,7 +655,10 @@ static void de_run_wri(deark *c, de_module_params *mparams)
 	d = de_malloc(c, sizeof(lctx));
 
 	d->extract_text = 1;
-	d->input_encoding = DE_ENCODING_WINDOWS1252;
+	if(c->input_encoding==DE_ENCODING_UNKNOWN)
+		d->input_encoding = DE_ENCODING_WINDOWS1252;
+	else
+		d->input_encoding = c->input_encoding;
 
 	pos = 0;
 	if(!do_header(c, d, pos)) goto done;
