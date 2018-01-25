@@ -18,7 +18,9 @@ struct decoder_params {
 	de_uint16 recfunc;
 	de_byte rectype; // low byte of recfunc
 	de_int64 recpos;
-	de_int64 recsize_bytes;
+	de_int64 recsize_bytes; // total record size in bytes
+	de_int64 dpos;
+	de_int64 dlen;
 };
 
 // Handler functions return 0 on fatal error, otherwise 1.
@@ -34,15 +36,14 @@ struct wmf_func_info {
 // TEXTOUT
 static int wmf_handler_21(deark *c, lctx *d, struct decoder_params *dp)
 {
-	de_int64 pos = dp->recpos;
+	de_int64 pos = dp->dpos;
 	de_int64 stringlen;
 	de_ucstring *s = NULL;
 
-	pos += 6; // RecordSize, RecordFunction
 	stringlen = de_getui16le(pos);
 	pos += 2;
 
-	if(pos+stringlen > dp->recpos+dp->recsize_bytes) goto done;
+	if(pos+stringlen > dp->dpos+dp->dlen) goto done;
 	s = ucstring_create(c);
 	dbuf_read_to_ucstring_n(c->infile, pos, stringlen, DE_DBG_MAX_STRLEN, s,
 		0, DE_ENCODING_WINDOWS1252);
@@ -56,12 +57,11 @@ done:
 // EXTTEXTOUT
 static int wmf_handler_32(deark *c, lctx *d, struct decoder_params *dp)
 {
-	de_int64 pos = dp->recpos;
+	de_int64 pos = dp->dpos;
 	de_int64 stringlen;
 	de_ucstring *s = NULL;
 	de_uint32 fwOpts;
 
-	pos += 6; // RecordSize, RecordFunction
 	pos += 4; // Y, X
 
 	stringlen = de_getui16le(pos);
@@ -77,11 +77,13 @@ static int wmf_handler_32(deark *c, lctx *d, struct decoder_params *dp)
 		pos += 8; // Rectangle
 	}
 
+	if(pos+stringlen > dp->dpos+dp->dlen) goto done;
 	s = ucstring_create(c);
 	dbuf_read_to_ucstring_n(c->infile, pos, stringlen, DE_DBG_MAX_STRLEN, s,
 		0, DE_ENCODING_WINDOWS1252);
 	de_dbg(c, "text: \"%s\"", ucstring_get_printable_sz(s));
 
+done:
 	ucstring_destroy(s);
 	return 1;
 }
@@ -256,32 +258,32 @@ static const struct wmf_func_info *find_wmf_func_info(de_uint16 recfunc)
 static int do_wmf_record(deark *c, lctx *d, de_int64 recnum, de_int64 recpos,
 	de_int64 recsize_bytes)
 {
-	de_uint16 recfunc;
-	de_byte recfunc_lo;
 	const struct wmf_func_info *fnci;
+	struct decoder_params dp;
 
-	recfunc = (de_uint16)de_getui16le(recpos+4);
-	recfunc_lo = (de_byte)(recfunc&0xff);
+	de_memset(&dp, 0, sizeof(struct decoder_params));
+	dp.recpos = recpos;
+	dp.recsize_bytes = recsize_bytes;
+	dp.dpos = recpos + 6;
+	dp.dlen = recsize_bytes - 6;
 
-	fnci = find_wmf_func_info(recfunc);
+	dp.recfunc = (de_uint16)de_getui16le(recpos+4);
+	dp.rectype = (de_byte)(dp.recfunc&0xff);
 
-	de_dbg(c, "record #%d at %d, type=0x%02x (%s), size=%d bytes", (int)recnum,
-		(int)recpos, (unsigned int)recfunc_lo,
+	fnci = find_wmf_func_info(dp.recfunc);
+
+	de_dbg(c, "record #%d at %d, type=0x%02x (%s), dpos=%d, dlen=%d", (int)recnum,
+		(int)recpos, (unsigned int)dp.rectype,
 		fnci ? fnci->name : "?",
-		(int)recsize_bytes);
+		(int)dp.dpos, (int)dp.dlen);
 
 	if(fnci && fnci->fn) {
-		struct decoder_params dp;
-		dp.recfunc = recfunc;
-		dp.rectype = recfunc_lo;
-		dp.recpos = recpos;
-		dp.recsize_bytes = recsize_bytes;
 		de_dbg_indent(c, 1);
 		fnci->fn(c, d, &dp);
 		de_dbg_indent(c, -1);
 	}
 
-	return (recfunc_lo==0x00)?0:1;
+	return (dp.rectype==0x00)?0:1;
 }
 
 static void do_wmf_record_list(deark *c, lctx *d, de_int64 pos)
