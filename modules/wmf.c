@@ -14,20 +14,26 @@ typedef struct localctx_struct {
 	de_int64 wmf_windows_version;
 } lctx;
 
+struct decoder_params {
+	de_int64 recfunc;
+	de_int64 recpos;
+	de_int64 recsize_bytes;
+};
+
 // Handler functions return 0 on fatal error, otherwise 1.
-typedef int (*record_decoder_fn)(deark *c, lctx *d, de_int64 rectype, de_int64 recpos,
-	de_int64 recsize_bytes);
+typedef int (*record_decoder_fn)(deark *c, lctx *d, struct decoder_params *dp);
 
 struct wmf_func_info {
-	de_uint16 rectype;
+	de_byte rectype; // Low byte of the RecordFunction field
+	de_byte flags;
 	const char *name;
 	record_decoder_fn fn;
 };
 
 // TEXTOUT
-static int wmf_handler_0521(deark *c, lctx *d, de_int64 rectype, de_int64 recpos, de_int64 recsize_bytes)
+static int wmf_handler_21(deark *c, lctx *d, struct decoder_params *dp)
 {
-	de_int64 pos = recpos;
+	de_int64 pos = dp->recpos;
 	de_int64 stringlen;
 	de_ucstring *s = NULL;
 
@@ -35,7 +41,7 @@ static int wmf_handler_0521(deark *c, lctx *d, de_int64 rectype, de_int64 recpos
 	stringlen = de_getui16le(pos);
 	pos += 2;
 
-	if(pos+stringlen > recpos+recsize_bytes) goto done;
+	if(pos+stringlen > dp->recpos+dp->recsize_bytes) goto done;
 	s = ucstring_create(c);
 	dbuf_read_to_ucstring_n(c->infile, pos, stringlen, DE_DBG_MAX_STRLEN, s,
 		0, DE_ENCODING_WINDOWS1252);
@@ -47,9 +53,9 @@ done:
 }
 
 // EXTTEXTOUT
-static int wmf_handler_0a32(deark *c, lctx *d, de_int64 rectype, de_int64 recpos, de_int64 recsize_bytes)
+static int wmf_handler_32(deark *c, lctx *d, struct decoder_params *dp)
 {
-	de_int64 pos = recpos;
+	de_int64 pos = dp->recpos;
 	de_int64 stringlen;
 	de_ucstring *s = NULL;
 	de_uint32 fwOpts;
@@ -80,20 +86,20 @@ static int wmf_handler_0a32(deark *c, lctx *d, de_int64 rectype, de_int64 recpos
 }
 
 // DIBSTRETCHBLT, STRETCHDIB
-static int wmf_handler_0b41_0f43(deark *c, lctx *d, de_int64 rectype, de_int64 recpos, de_int64 recsize_bytes)
+static int wmf_handler_41_43(deark *c, lctx *d, struct decoder_params *dp)
 {
 	de_int64 dib_pos;
 	de_int64 dib_len;
 	int hdrsize;// = 26;
 
-	if(rectype==0x0b41) // DIBSTRETCHBLT
+	if(dp->recfunc==0x0b41) // DIBSTRETCHBLT
 		hdrsize = 26;
 	else
 		hdrsize = 28;
 
-	if(recsize_bytes < hdrsize) return 1;
-	dib_pos = recpos + hdrsize;
-	dib_len = recsize_bytes - hdrsize;
+	if(dp->recsize_bytes < hdrsize) return 1;
+	dib_pos = dp->recpos + hdrsize;
+	dib_len = dp->recsize_bytes - hdrsize;
 	if(dib_len < 12) return 1;
 	de_dbg(c, "DIB at %d, size=%d", (int)dib_pos, (int)dib_len);
 
@@ -104,76 +110,76 @@ static int wmf_handler_0b41_0f43(deark *c, lctx *d, de_int64 rectype, de_int64 r
 }
 
 static const struct wmf_func_info wmf_func_info_arr[] = {
-	{ 0x0000, "EOF", NULL },
-	{ 0x001e, "SAVEDC", NULL },
-	{ 0x0035, "REALIZEPALETTE", NULL },
-	{ 0x0037, "SETPALENTRIES", NULL },
-	{ 0x00f7, "CREATEPALETTE", NULL },
-	{ 0x0102, "SETBKMODE", NULL },
-	{ 0x0103, "SETMAPMODE", NULL },
-	{ 0x0104, "SETROP2", NULL },
-	{ 0x0105, "SETRELABS", NULL },
-	{ 0x0106, "SETPOLYFILLMODE", NULL },
-	{ 0x0107, "SETSTRETCHBLTMODE", NULL },
-	{ 0x0108, "SETTEXTCHAREXTRA", NULL },
-	{ 0x0127, "RESTOREDC", NULL },
-	{ 0x012a, "INVERTREGION", NULL },
-	{ 0x012b, "PAINTREGION", NULL },
-	{ 0x012c, "SELECTCLIPREGION", NULL },
-	{ 0x012d, "SELECTOBJECT", NULL },
-	{ 0x012e, "SETTEXTALIGN", NULL },
-	{ 0x0139, "RESIZEPALETTE", NULL },
-	{ 0x0142, "DIBCREATEPATTERNBRUSH", NULL },
-	{ 0x0149, "SETLAYOUT", NULL },
-	{ 0x01f0, "DELETEOBJECT", NULL },
-	{ 0x01f9, "CREATEPATTERNBRUSH", NULL },
-	{ 0x0201, "SETBKCOLOR", NULL },
-	{ 0x0209, "SETTEXTCOLOR", NULL },
-	{ 0x020a, "SETTEXTJUSTIFICATION", NULL },
-	{ 0x020b, "SETWINDOWORG", NULL },
-	{ 0x020c, "SETWINDOWEXT", NULL },
-	{ 0x020d, "SETVIEWPORTORG", NULL },
-	{ 0x020e, "SETVIEWPORTEXT", NULL },
-	{ 0x020f, "OFFSETWINDOWORG", NULL },
-	{ 0x0211, "OFFSETVIEWPORTORG", NULL },
-	{ 0x0213, "LINETO", NULL },
-	{ 0x0214, "MOVETO", NULL },
-	{ 0x0220, "OFFSETCLIPRGN", NULL },
-	{ 0x0228, "FILLREGION", NULL },
-	{ 0x0231, "SETMAPPERFLAGS", NULL },
-	{ 0x0234, "SELECTPALETTE", NULL },
-	{ 0x02fa, "CREATEPENINDIRECT", NULL },
-	{ 0x02fb, "CREATEFONTINDIRECT", NULL },
-	{ 0x02fc, "CREATEBRUSHINDIRECT", NULL },
-	{ 0x0324, "POLYGON", NULL },
-	{ 0x0325, "POLYLINE", NULL },
-	{ 0x0410, "SCALEWINDOWEXT", NULL },
-	{ 0x0412, "SCALEVIEWPORTEXT", NULL },
-	{ 0x0415, "EXCLUDECLIPRECT", NULL },
-	{ 0x0416, "INTERSECTCLIPRECT", NULL },
-	{ 0x0418, "ELLIPSE", NULL },
-	{ 0x0419, "FLOODFILL", NULL },
-	{ 0x041b, "RECTANGLE", NULL },
-	{ 0x041f, "SETPIXEL", NULL },
-	{ 0x0429, "FRAMEREGION", NULL },
-	{ 0x0436, "ANIMATEPALETTE", NULL },
-	{ 0x0521, "TEXTOUT", wmf_handler_0521 },
-	{ 0x0538, "POLYPOLYGON", NULL },
-	{ 0x0548, "EXTFLOODFILL", NULL },
-	{ 0x061c, "ROUNDRECT", NULL },
-	{ 0x061d, "PATBLT", NULL },
-	{ 0x0626, "ESCAPE", NULL },
-	{ 0x06ff, "CREATEREGION", NULL },
-	{ 0x0817, "ARC", NULL },
-	{ 0x081a, "PIE", NULL },
-	{ 0x0830, "CHORD", NULL },
-	{ 0x0922, "BITBLT", NULL },
-	{ 0x0940, "DIBBITBLT", NULL },
-	{ 0x0a32, "EXTTEXTOUT", wmf_handler_0a32 },
-	{ 0x0b41, "DIBSTRETCHBLT", wmf_handler_0b41_0f43 },
-	{ 0x0b23, "STRETCHBLT", NULL },
-	{ 0x0d33, "SETDIBTODEV", NULL },
-	{ 0x0f43, "STRETCHDIB", wmf_handler_0b41_0f43 }
+	{ 0x00, 0, "EOF", NULL },
+	{ 0x01, 0, "SETBKCOLOR", NULL },
+	{ 0x02, 0, "SETBKMODE", NULL },
+	{ 0x03, 0, "SETMAPMODE", NULL },
+	{ 0x04, 0, "SETROP2", NULL },
+	{ 0x05, 0, "SETRELABS", NULL },
+	{ 0x06, 0, "SETPOLYFILLMODE", NULL },
+	{ 0x07, 0, "SETSTRETCHBLTMODE", NULL },
+	{ 0x08, 0, "SETTEXTCHAREXTRA", NULL },
+	{ 0x09, 0, "SETTEXTCOLOR", NULL },
+	{ 0x0a, 0, "SETTEXTJUSTIFICATION", NULL },
+	{ 0x0b, 0, "SETWINDOWORG", NULL },
+	{ 0x0c, 0, "SETWINDOWEXT", NULL },
+	{ 0x0d, 0, "SETVIEWPORTORG", NULL },
+	{ 0x0e, 0, "SETVIEWPORTEXT", NULL },
+	{ 0x0f, 0, "OFFSETWINDOWORG", NULL },
+	{ 0x10, 0, "SCALEWINDOWEXT", NULL },
+	{ 0x11, 0, "OFFSETVIEWPORTORG", NULL },
+	{ 0x12, 0, "SCALEVIEWPORTEXT", NULL },
+	{ 0x13, 0, "LINETO", NULL },
+	{ 0x14, 0, "MOVETO", NULL },
+	{ 0x15, 0, "EXCLUDECLIPRECT", NULL },
+	{ 0x16, 0, "INTERSECTCLIPRECT", NULL },
+	{ 0x17, 0, "ARC", NULL },
+	{ 0x18, 0, "ELLIPSE", NULL },
+	{ 0x19, 0, "FLOODFILL", NULL },
+	{ 0x1a, 0, "PIE", NULL },
+	{ 0x1b, 0, "RECTANGLE", NULL },
+	{ 0x1c, 0, "ROUNDRECT", NULL },
+	{ 0x1d, 0, "PATBLT", NULL },
+	{ 0x1e, 0, "SAVEDC", NULL },
+	{ 0x1f, 0, "SETPIXEL", NULL },
+	{ 0x20, 0, "OFFSETCLIPRGN", NULL },
+	{ 0x21, 0, "TEXTOUT", wmf_handler_21 },
+	{ 0x22, 0, "BITBLT", NULL },
+	{ 0x23, 0, "STRETCHBLT", NULL },
+	{ 0x24, 0, "POLYGON", NULL },
+	{ 0x25, 0, "POLYLINE", NULL },
+	{ 0x26, 0, "ESCAPE", NULL },
+	{ 0x27, 0, "RESTOREDC", NULL },
+	{ 0x28, 0, "FILLREGION", NULL },
+	{ 0x29, 0, "FRAMEREGION", NULL },
+	{ 0x2a, 0, "INVERTREGION", NULL },
+	{ 0x2b, 0, "PAINTREGION", NULL },
+	{ 0x2c, 0, "SELECTCLIPREGION", NULL },
+	{ 0x2d, 0, "SELECTOBJECT", NULL },
+	{ 0x2e, 0, "SETTEXTALIGN", NULL },
+	{ 0x30, 0, "CHORD", NULL },
+	{ 0x31, 0, "SETMAPPERFLAGS", NULL },
+	{ 0x32, 0, "EXTTEXTOUT", wmf_handler_32 },
+	{ 0x33, 0, "SETDIBTODEV", NULL },
+	{ 0x34, 0, "SELECTPALETTE", NULL },
+	{ 0x35, 0, "REALIZEPALETTE", NULL },
+	{ 0x36, 0, "ANIMATEPALETTE", NULL },
+	{ 0x37, 0, "SETPALENTRIES", NULL },
+	{ 0x38, 0, "POLYPOLYGON", NULL },
+	{ 0x39, 0, "RESIZEPALETTE", NULL },
+	{ 0x40, 0, "DIBBITBLT", NULL },
+	{ 0x41, 0, "DIBSTRETCHBLT", wmf_handler_41_43 },
+	{ 0x42, 0, "DIBCREATEPATTERNBRUSH", NULL },
+	{ 0x43, 0, "STRETCHDIB", wmf_handler_41_43 },
+	{ 0x48, 0, "EXTFLOODFILL", NULL },
+	{ 0x49, 0, "SETLAYOUT", NULL },
+	{ 0xf0, 0, "DELETEOBJECT", NULL },
+	{ 0xf7, 0, "CREATEPALETTE", NULL },
+	{ 0xf9, 0, "CREATEPATTERNBRUSH", NULL },
+	{ 0xfa, 0, "CREATEPENINDIRECT", NULL },
+	{ 0xfb, 0, "CREATEFONTINDIRECT", NULL },
+	{ 0xfc, 0, "CREATEBRUSHINDIRECT", NULL },
+	{ 0xff, 0, "CREATEREGION", NULL }
 };
 
 static void do_read_aldus_header(deark *c, lctx *d)
@@ -233,9 +239,10 @@ done:
 static const struct wmf_func_info *find_wmf_func_info(de_int64 rectype)
 {
 	size_t i;
+	de_byte rectype_wanted = (de_byte)(rectype&0xff);
 
 	for(i=0; i<DE_ITEMS_IN_ARRAY(wmf_func_info_arr); i++) {
-		if(wmf_func_info_arr[i].rectype == rectype) {
+		if(wmf_func_info_arr[i].rectype == rectype_wanted) {
 			return &wmf_func_info_arr[i];
 		}
 	}
@@ -259,8 +266,12 @@ static int do_wmf_record(deark *c, lctx *d, de_int64 recnum, de_int64 recpos,
 		(int)recsize_bytes);
 
 	if(fnci && fnci->fn) {
+		struct decoder_params dp;
+		dp.recfunc = rectype;
+		dp.recpos = recpos;
+		dp.recsize_bytes = recsize_bytes;
 		de_dbg_indent(c, 1);
-		fnci->fn(c, d, rectype, recpos, recsize_bytes);
+		fnci->fn(c, d, &dp);
 		de_dbg_indent(c, -1);
 	}
 
