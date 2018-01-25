@@ -12,6 +12,10 @@ struct para_info {
 	de_int64 thisparapos, thisparalen;
 	de_int64 bfprop_offset; // file-level offset
 	de_byte papflags;
+
+	int in_para;
+	int xpos;
+	int space_count;
 };
 
 typedef struct localctx_struct {
@@ -365,12 +369,32 @@ done:
 	;
 }
 
+static void ensure_in_para(deark *c, lctx *d, struct para_info *pinfo, dbuf *f)
+{
+	if(pinfo->in_para) return;
+	dbuf_puts(f, "<p>");
+	pinfo->xpos += 3;
+	pinfo->in_para = 1;
+}
+
+static void end_para(deark *c, lctx *d, struct para_info *pinfo, dbuf *f)
+{
+	if(!pinfo->in_para) return;
+
+	if(pinfo->xpos==3) {
+		// No empty paragraphs allowed. HTML will collapse them, but Write does not.
+		// Testing xpos==3 is a hack (3 is the length of "<p>").
+		de_write_codepoint_to_html(c, f, 0xa0);
+	}
+	dbuf_puts(f, "</p>\n");
+	pinfo->xpos = 0;
+	pinfo->in_para = 0;
+}
+
 static void do_text_paragraph(deark *c, lctx *d, struct para_info *pinfo)
 {
 	dbuf *f;
 	de_int64 i, k;
-	int space_count=0;
-	int xpos;
 
 	if(!d->html_outf) return;
 	f = d->html_outf;
@@ -382,73 +406,102 @@ static void do_text_paragraph(deark *c, lctx *d, struct para_info *pinfo)
 		return;
 	}
 
-	// The last 2 bytes should always be CR LF, so a length less than 2
-	// should be impossible.
-	if(pinfo->thisparalen<2) return;
+	pinfo->in_para = 0;
+	pinfo->xpos = 0;
+	pinfo->space_count = 0;
 
-	dbuf_puts(f, "<p>");
-	xpos = 3;
-	for(i=0; i<pinfo->thisparalen-2; i++) {
+	for(i=0; i<pinfo->thisparalen; i++) {
 		de_byte incp;
 
 		incp = de_getbyte(pinfo->thisparapos+i);
-
-		if(incp!=32 && space_count>0) {
-			// Make all spaces but the last one nonbreaking
-			for(k=0; k<space_count-1; k++) {
-				de_write_codepoint_to_html(c, f, 0xa0);
-				xpos++;
+		if(incp==0x0d && i<pinfo->thisparalen-1) {
+			if(de_getbyte(pinfo->thisparapos+i+1)==0x0a) {
+				// Found CR-LF combo
+				i++;
+				ensure_in_para(c, d, pinfo, f);
+				end_para(c, d, pinfo, f);
+				continue;
 			}
+		}
 
-			if(xpos>70) {
-				// We don't do proper word wrapping of the HTML source, but
-				// maybe this is better than nothing.
-				dbuf_writebyte(f, 0x0a);
-				xpos = 0;
+		if(incp!=32 && pinfo->space_count>0) {
+			int nonbreaking_count, breaking_count;
+
+			if(!pinfo->in_para && pinfo->space_count==1) {
+				// If the paragraph starts with a single space, make it nonbreaking.
+				nonbreaking_count = 1;
+				breaking_count = 0;
 			}
 			else {
-				dbuf_writebyte(f, 32);
-				xpos++;
+				// Else make all spaces but the last one nonbreaking
+				nonbreaking_count = pinfo->space_count-1;
+				breaking_count = 1;
 			}
 
-			space_count=0;
+			ensure_in_para(c, d, pinfo, f);
+
+			for(k=0; k<nonbreaking_count; k++) {
+				de_write_codepoint_to_html(c, f, 0xa0);
+				pinfo->xpos++;
+			}
+
+			if(breaking_count>0) {
+				if(pinfo->xpos>70) {
+					// We don't do proper word wrapping of the HTML source, but
+					// maybe this is better than nothing.
+					dbuf_writebyte(f, 0x0a);
+					pinfo->xpos = 0;
+				}
+				else {
+					dbuf_writebyte(f, 32);
+					pinfo->xpos++;
+				}
+			}
+
+			pinfo->space_count=0;
 		}
 
 		if(incp>=33) {
 			de_int32 outcp;
+			ensure_in_para(c, d, pinfo, f);
 			outcp = de_char_to_unicode(c, (de_int32)incp, d->input_encoding);
 			de_write_codepoint_to_html(c, f, outcp);
-			xpos++;
+			pinfo->xpos++;
 		}
 		else {
 			switch(incp) {
 			case 9: // tab
+				ensure_in_para(c, d, pinfo, f);
 				dbuf_puts(f, "<span class=c>");
 				de_write_codepoint_to_html(c, f, 0x2192);
 				dbuf_puts(f, "</span>");
-				xpos += 22;
+				pinfo->xpos += 22;
 				break;
 			case 10:
 			case 11:
+				ensure_in_para(c, d, pinfo, f);
 				dbuf_puts(f, "<br>\n");
-				xpos = 0;
+				pinfo->xpos = 0;
 				break;
 			case 12: // page break
-				dbuf_puts(f, "</p>\n<hr>\n<p>");
-				xpos = 3;
+				end_para(c, d, pinfo, f);
+				dbuf_puts(f, "<hr>\n");
+				pinfo->xpos = 0;
 				break;
 			case 31:
 				break;
 			case 32:
-				space_count++;
+				pinfo->space_count++;
 				break;
 			default:
+				ensure_in_para(c, d, pinfo, f);
 				de_write_codepoint_to_html(c, f, 0xfffd);
-				xpos++;
+				pinfo->xpos++;
 			}
 		}
 	}
-	dbuf_puts(f, "</p>\n");
+
+	end_para(c, d, pinfo, f);
 }
 
 static void do_paragraph(deark *c, lctx *d, struct para_info *pinfo)
@@ -577,6 +630,7 @@ static void do_html_begin(deark *c, lctx *d)
 
 	dbuf_puts(f, "<style type=\"text/css\">\n");
 	dbuf_puts(f, " body { color: #000; background-color: #fff }\n");
+	dbuf_puts(f, " p { margin-top:0; margin-bottom:0 }\n");
 	dbuf_puts(f, " .c { color: #ccc }\n"); // Visible control characters
 	dbuf_puts(f, " .r { color: #800; font-style: italic }\n"); // Replacement text
 	dbuf_puts(f, "</style>\n");
