@@ -6,7 +6,6 @@
 
 #include <deark-config.h>
 #include <deark-private.h>
-#include <deark-fmtutil.h>
 DE_DECLARE_MODULE(de_module_wri);
 
 struct para_info {
@@ -163,21 +162,11 @@ static int do_picture_ole_static_rendition(deark *c, lctx *d, struct para_info *
 	pos += stringlen;
 
 	if(!de_strcmp((const char*)srd_typename->sz, "DIB")) {
-		struct de_bmpinfo bi;
-		dbuf *outf = NULL;
-
 		pos += 12;
-		if(!de_fmtutil_get_bmpinfo(c, c->infile, &bi, pos,
-			pinfo->thisparapos+pinfo->thisparalen-pos, 0))
-		{
-			goto done;
-		}
-
-		outf = dbuf_create_output_file(c, "bmp", NULL, 0);
-		de_fmtutil_generate_bmpfileheader(c, outf, &bi, 0);
-		dbuf_copy(c->infile, pos, bi.total_size, outf);
-
-		dbuf_close(outf);
+		de_dbg_indent(c, 1);
+		de_run_module_by_id_on_slice(c, "dib", NULL, c->infile, pos,
+			pinfo->thisparapos+pinfo->thisparalen-pos);
+		de_dbg_indent(c, -1);
 	}
 	else if(!de_strcmp((const char*)srd_typename->sz, "METAFILEPICT")) {
 		de_int64 dlen;
@@ -194,7 +183,6 @@ static int do_picture_ole_static_rendition(deark *c, lctx *d, struct para_info *
 			ucstring_get_printable_sz(srd_typename->str));
 	}
 
-done:
 	de_destroy_stringreaderdata(c, srd_typename);
 	return 0;
 }
