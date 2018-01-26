@@ -123,6 +123,39 @@ static const struct escape_info escape_info_arr[] = {
 	{ 0x11d8, "SPCLPASSTHROUGH2", NULL }
 };
 
+static void do_ESCAPE_EMF(deark *c, lctx *d, struct decoder_params *dp)
+{
+	de_int64 emfpos, emflen;
+	de_uint32 id;
+
+	// I am clearly missing something here, because of the half dozen
+	// WMF files I have that use this escape, only one of them uses
+	// the format that is in the specification. The others are not
+	// even remotely close to the documented format.
+
+	// dp->dpos points to the beginning of the EscapeFunction field.
+	// There should be 38 more bytes of headers, from this point,
+	// followed by EMF data.
+	emfpos = dp->dpos+38;
+	emflen = dp->dlen-38;
+	if(emflen<=0) {
+		de_dbg(c, "[bad embedded EMF data (too short)]");
+		goto done;
+	}
+	id = (de_uint32)de_getui32le(dp->dpos+4);
+	if(id!=0x43464d57U) {
+		de_dbg(c, "[bad embedded EMF data (bad CommentIdentifier)]");
+		goto done;
+	}
+
+	de_dbg(c, "embedded EMF data at %d, len=%d", (int)emfpos, (int)emflen);
+	de_dbg_indent(c, 1);
+	de_run_module_by_id_on_slice(c, "emf", NULL, c->infile, emfpos, emflen);
+	de_dbg_indent(c, -1);
+done:
+	;
+}
+
 static int wmf_handler_ESCAPE(deark *c, lctx *d, struct decoder_params *dp)
 {
 	de_int64 pos = dp->dpos;
@@ -147,6 +180,10 @@ static int wmf_handler_ESCAPE(deark *c, lctx *d, struct decoder_params *dp)
 		name = "?";
 
 	de_dbg(c, "escape function: 0x%04x (%s)", (unsigned int)escfn, name);
+
+	if(escfn==0x000f) {
+		do_ESCAPE_EMF(c, d, dp);
+	}
 	return 1;
 }
 
