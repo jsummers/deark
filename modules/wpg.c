@@ -340,7 +340,7 @@ static void handler_start_of_wpg_data(deark *c, lctx *d, de_byte rectype, de_int
 	}
 }
 
-static const struct wpg_rectype_info wmf_rectype_info_arr[] = {
+static const struct wpg_rectype_info wpg_rectype_info_arr[] = {
 	{ 0x01, "Fill attributes", NULL },
 	{ 0x02, "Line attributes", NULL },
 	{ 0x03, "Marker attributes", NULL },
@@ -372,9 +372,9 @@ static const struct wpg_rectype_info wmf_rectype_info_arr[] = {
 static const struct wpg_rectype_info *find_wpg_rectype_info(de_byte rectype)
 {
 	de_int64 i;
-	for(i=0; i<(de_int64)DE_ITEMS_IN_ARRAY(wmf_rectype_info_arr); i++) {
-		if(wmf_rectype_info_arr[i].rectype == rectype) {
-			return &wmf_rectype_info_arr[i];
+	for(i=0; i<(de_int64)DE_ITEMS_IN_ARRAY(wpg_rectype_info_arr); i++) {
+		if(wpg_rectype_info_arr[i].rectype == rectype) {
+			return &wpg_rectype_info_arr[i];
 		}
 	}
 	return NULL;

@@ -14,7 +14,7 @@
 // This file is overloaded, in that it contains functions intended to only
 // be used internally, as well as and functions intended only for the
 // command-line utility. That's why we need both deark-user.h and
-// deark-private.
+// deark-private.h.
 #include "deark-private.h"
 #include "deark-user.h"
 

@@ -298,7 +298,7 @@ done:
 	return 1;
 }
 
-static const struct emfplus_rec_info emfplus_red_info_arr[] = {
+static const struct emfplus_rec_info emfplus_rec_info_arr[] = {
 	{ 0x4001, "Header", NULL },
 	{ 0x4002, "EndOfFile", NULL },
 	{ 0x4003, "Comment", NULL },
@@ -384,9 +384,9 @@ static void do_one_emfplus_record(deark *c, lctx *d, de_int64 pos, de_int64 len,
 	payload_pos = pos+12;
 
 	// Find the name, etc. of this record type
-	for(k=0; k<DE_ITEMS_IN_ARRAY(emfplus_red_info_arr); k++) {
-		if(emfplus_red_info_arr[k].rectype == rectype) {
-			epinfo = &emfplus_red_info_arr[k];
+	for(k=0; k<DE_ITEMS_IN_ARRAY(emfplus_rec_info_arr); k++) {
+		if(emfplus_rec_info_arr[k].rectype == rectype) {
+			epinfo = &emfplus_rec_info_arr[k];
 			break;
 		}
 	}
