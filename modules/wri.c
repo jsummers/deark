@@ -21,6 +21,7 @@ struct para_info {
 typedef struct localctx_struct {
 	int extract_text;
 	int input_encoding;
+	int ddbhack;
 	de_int64 fcMac;
 	de_int64 pnChar;
 	de_int64 pnChar_offs;
@@ -92,14 +93,14 @@ static void do_picture_bitmap(deark *c, lctx *d, struct para_info *pinfo)
 	de_int64 pos = pinfo->thisparapos;
 	de_int64 cbHeader, cbSize;
 	de_int64 bmWidth, bmHeight;
-	de_int64 bmBitsPerPixel;
+	de_int64 bmBitsPixel;
 	de_int64 rowspan;
 
 	bmWidth = de_getui16le(pos+16+2);
 	bmHeight = de_getui16le(pos+16+4);
 	de_dbg_dimensions(c, bmWidth, bmHeight);
-	bmBitsPerPixel = de_getui16le(pos+16+9);
-	de_dbg(c, "bmBitsPerPixel: %d", (int)bmBitsPerPixel);
+	bmBitsPixel = (de_int64)de_getbyte(pos+16+9);
+	de_dbg(c, "bmBitsPixel: %d", (int)bmBitsPixel);
 
 	rowspan = de_getui16le(pos+16+6);
 	de_dbg(c, "bytes/row: %d", (int)rowspan);
@@ -110,9 +111,9 @@ static void do_picture_bitmap(deark *c, lctx *d, struct para_info *pinfo)
 	cbSize = de_getui32le(pos+32);
 	de_dbg(c, "cbSize: %d", (int)cbSize);
 
-	if(bmBitsPerPixel!=1) {
-		de_err(c, "This type of bitmap is not supported (bmBitsPerPixel=%d)",
-			(int)bmBitsPerPixel);
+	if(bmBitsPixel!=1) {
+		de_err(c, "This type of bitmap is not supported (bmBitsPixel=%d)",
+			(int)bmBitsPixel);
 		goto done;
 	}
 
@@ -148,6 +149,53 @@ static const char *get_picture_storage_type_name(unsigned int t)
 	return name;
 }
 
+// TODO: This does not really work, and is disabled by default.
+// TODO: Can this be merged with do_picture_bitmap()?
+static void do_static_bitmap(deark *c, lctx *d, struct para_info *pinfo, de_int64 pos1)
+{
+	de_int64 dlen;
+	de_int64 pos = pos1;
+	de_int64 bmWidth, bmHeight;
+	de_int64 bmBitsPixel;
+	de_int64 rowspan;
+
+	pos += 8; // ??
+	dlen = de_getui32le(pos);
+	de_dbg(c, "bitmap size: %d", (int)dlen);
+	pos += 4;
+
+	pos += 2; // bmType
+	bmWidth = de_getui16le(pos);
+	pos += 2;
+	bmHeight = de_getui16le(pos);
+	pos += 2;
+	de_dbg_dimensions(c, bmWidth, bmHeight);
+
+	rowspan = de_getui16le(pos);
+	de_dbg(c, "bytes/row: %d", (int)rowspan);
+	pos += 2;
+
+	pos++; // bmPlanes
+
+	bmBitsPixel = (de_int64)de_getbyte(pos++);
+	de_dbg(c, "bmBitsPixel: %d", (int)bmBitsPixel);
+
+	pos += 4; // bmBits
+
+	if(bmBitsPixel!=1) {
+		de_err(c, "This type of bitmap is not supported (bmBitsPixel=%d)",
+			(int)bmBitsPixel);
+		goto done;
+	}
+
+	rowspan = (dlen-14)/bmHeight;
+	bmWidth = rowspan*8;
+	de_convert_and_write_image_bilevel(c->infile, pos, bmWidth, bmHeight, rowspan, 0, NULL, 0);
+
+done:
+	;
+}
+
 static int do_picture_ole_static_rendition(deark *c, lctx *d, struct para_info *pinfo,
 	int rendition_idx, de_int64 pos1, de_int64 *bytes_consumed)
 {
@@ -181,8 +229,10 @@ static int do_picture_ole_static_rendition(deark *c, lctx *d, struct para_info *
 		pos += 8; // "mfp" struct
 		dbuf_create_file_from_slice(c->infile, pos, dlen-8, "wmf", NULL, 0);
 	}
+	else if(d->ddbhack && !de_strcmp((const char*)srd_typename->sz, "BITMAP")) {
+		do_static_bitmap(c, d, pinfo, pos);
+	}
 	else {
-		// TODO: "BITMAP"
 		de_warn(c, "Static OLE picture type \"%s\" is not supported",
 			ucstring_get_printable_sz(srd_typename->str));
 	}
@@ -659,6 +709,10 @@ static void de_run_wri(deark *c, de_module_params *mparams)
 		d->input_encoding = DE_ENCODING_WINDOWS1252;
 	else
 		d->input_encoding = c->input_encoding;
+
+	if(de_get_ext_option(c, "wri:ddbhack")) {
+		d->ddbhack = 1;
+	}
 
 	pos = 0;
 	if(!do_header(c, d, pos)) goto done;
