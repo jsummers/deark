@@ -875,6 +875,10 @@ static void do_emf_record_list(deark *c, lctx *d)
 			de_err(c, "Unexpected end of file in record %d", (int)count);
 			goto done;
 		}
+		if(recsize_bytes<8) {
+			de_err(c, "Bad record size (%d) at %d", (int)recsize_bytes, (int)recpos);
+			goto done;
+		}
 
 		if(!do_emf_record(c, d, count, recpos, recsize_bytes)) {
 			break;
