@@ -14,6 +14,12 @@ typedef struct localctx_struct {
 	de_int64 wmf_windows_version;
 } lctx;
 
+struct escape_info {
+	de_uint16 escfn;
+	const char *name;
+	void *reserved1;
+};
+
 struct decoder_params {
 	de_uint16 recfunc;
 	de_byte rectype; // low byte of recfunc
@@ -51,6 +57,96 @@ static int wmf_handler_21(deark *c, lctx *d, struct decoder_params *dp)
 
 done:
 	ucstring_destroy(s);
+	return 1;
+}
+
+static const struct escape_info escape_info_arr[] = {
+	{ 0x0001, "NEWFRAME", NULL },
+	{ 0x0002, "ABORTDOC", NULL },
+	{ 0x0003, "NEXTBAND", NULL },
+	{ 0x0004, "SETCOLORTABLE", NULL },
+	{ 0x0005, "GETCOLORTABLE", NULL },
+	{ 0x0006, "FLUSHOUT", NULL },
+	{ 0x0007, "DRAFTMODE", NULL },
+	{ 0x0008, "QUERYESCSUPPORT", NULL },
+	{ 0x0009, "SETABORTPROC", NULL },
+	{ 0x000a, "STARTDOC", NULL },
+	{ 0x000b, "ENDDOC", NULL },
+	{ 0x000c, "GETPHYSPAGESIZE", NULL },
+	{ 0x000d, "GETPRINTINGOFFSET", NULL },
+	{ 0x000e, "GETSCALINGFACTOR", NULL },
+	{ 0x000f, "ENHANCED_METAFILE", NULL },
+	{ 0x0010, "SETPENWIDTH", NULL },
+	{ 0x0011, "SETCOPYCOUNT", NULL },
+	{ 0x0012, "SETPAPERSOURCE", NULL },
+	{ 0x0013, "PASSTHROUGH", NULL },
+	{ 0x0014, "GETTECHNOLOGY", NULL },
+	{ 0x0015, "SETLINECAP", NULL },
+	{ 0x0016, "SETLINEJOIN", NULL },
+	{ 0x0017, "SETMITERLIMIT", NULL },
+	{ 0x0018, "BANDINFO", NULL },
+	{ 0x0019, "DRAWPATTERNRECT", NULL },
+	{ 0x001a, "GETVECTORPENSIZE", NULL },
+	{ 0x001b, "GETVECTORBRUSHSIZE", NULL },
+	{ 0x001c, "ENABLEDUPLEX", NULL },
+	{ 0x001d, "GETSETPAPERBINS", NULL },
+	{ 0x001e, "GETSETPRINTORIENT", NULL },
+	{ 0x001f, "ENUMPAPERBINS", NULL },
+	{ 0x0020, "SETDIBSCALING", NULL },
+	{ 0x0021, "EPSPRINTING", NULL },
+	{ 0x0022, "ENUMPAPERMETRICS", NULL },
+	{ 0x0023, "GETSETPAPERMETRICS", NULL },
+	{ 0x0025, "POSTSCRIPT_DATA", NULL },
+	{ 0x0026, "POSTSCRIPT_IGNORE", NULL },
+	{ 0x002a, "GETDEVICEUNITS", NULL },
+	{ 0x0100, "GETEXTENDEDTEXTMETRICS", NULL },
+	{ 0x0102, "GETPAIRKERNTABLE", NULL },
+	{ 0x0200, "EXTTEXTOUT", NULL },
+	{ 0x0201, "GETFACENAME", NULL },
+	{ 0x0202, "DOWNLOADFACE", NULL },
+	{ 0x0801, "METAFILE_DRIVER", NULL },
+	{ 0x0c01, "QUERYDIBSUPPORT", NULL },
+	{ 0x1000, "BEGIN_PATH", NULL },
+	{ 0x1001, "CLIP_TO_PATH", NULL },
+	{ 0x1002, "END_PATH", NULL },
+	{ 0x100e, "OPEN_CHANNEL", NULL },
+	{ 0x100f, "DOWNLOADHEADER", NULL },
+	{ 0x1010, "CLOSE_CHANNEL", NULL },
+	{ 0x1013, "POSTSCRIPT_PASSTHROUGH", NULL },
+	{ 0x1014, "ENCAPSULATED_POSTSCRIPT", NULL },
+	{ 0x1015, "POSTSCRIPT_IDENTIFY", NULL },
+	{ 0x1016, "POSTSCRIPT_INJECTION", NULL },
+	{ 0x1017, "CHECKJPEGFORMAT", NULL },
+	{ 0x1018, "CHECKPNGFORMAT", NULL },
+	{ 0x1019, "GET_PS_FEATURESETTING", NULL },
+	{ 0x101a, "MXDC_ESCAPE", NULL },
+	{ 0x11d8, "SPCLPASSTHROUGH2", NULL }
+};
+
+static int wmf_handler_ESCAPE(deark *c, lctx *d, struct decoder_params *dp)
+{
+	de_int64 pos = dp->dpos;
+	de_uint16 escfn;
+	const struct escape_info *einfo = NULL;
+	const char *name;
+	de_int64 k;
+
+	escfn = (de_uint16)de_getui16le(pos);
+
+	// Find the name, etc. of this record type
+	for(k=0; k<DE_ITEMS_IN_ARRAY(escape_info_arr); k++) {
+		if(escape_info_arr[k].escfn == escfn) {
+			einfo = &escape_info_arr[k];
+			break;
+		}
+	}
+
+	if(einfo && einfo->name)
+		name = einfo->name;
+	else
+		name = "?";
+
+	de_dbg(c, "escape function: 0x%04x (%s)", (unsigned int)escfn, name);
 	return 1;
 }
 
@@ -153,7 +249,7 @@ static const struct wmf_func_info wmf_func_info_arr[] = {
 	{ 0x23, 0, "STRETCHBLT", NULL },
 	{ 0x24, 0, "POLYGON", NULL },
 	{ 0x25, 0, "POLYLINE", NULL },
-	{ 0x26, 0, "ESCAPE", NULL },
+	{ 0x26, 0, "ESCAPE", wmf_handler_ESCAPE },
 	{ 0x27, 0, "RESTOREDC", NULL },
 	{ 0x28, 0, "FILLREGION", NULL },
 	{ 0x29, 0, "FRAMEREGION", NULL },
