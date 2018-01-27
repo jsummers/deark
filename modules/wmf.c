@@ -10,6 +10,7 @@ DE_DECLARE_MODULE(de_module_wmf);
 
 typedef struct localctx_struct {
 	int has_aldus_header;
+	int input_encoding;
 	de_int64 wmf_file_type;
 	de_int64 wmf_windows_version;
 } lctx;
@@ -52,7 +53,7 @@ static int wmf_handler_21(deark *c, lctx *d, struct decoder_params *dp)
 	if(pos+stringlen > dp->dpos+dp->dlen) goto done;
 	s = ucstring_create(c);
 	dbuf_read_to_ucstring_n(c->infile, pos, stringlen, DE_DBG_MAX_STRLEN, s,
-		0, DE_ENCODING_WINDOWS1252);
+		0, d->input_encoding);
 	de_dbg(c, "text: \"%s\"", ucstring_get_printable_sz(s));
 
 done:
@@ -75,7 +76,7 @@ static const struct escape_info escape_info_arr[] = {
 	{ 0x000c, "GETPHYSPAGESIZE", NULL },
 	{ 0x000d, "GETPRINTINGOFFSET", NULL },
 	{ 0x000e, "GETSCALINGFACTOR", NULL },
-	{ 0x000f, "ENHANCED_METAFILE", NULL },
+	{ 0x000f, "META_ESCAPE_ENHANCED_METAFILE", NULL },
 	{ 0x0010, "SETPENWIDTH", NULL },
 	{ 0x0011, "SETCOPYCOUNT", NULL },
 	{ 0x0012, "SETPAPERSOURCE", NULL },
@@ -123,10 +124,13 @@ static const struct escape_info escape_info_arr[] = {
 	{ 0x11d8, "SPCLPASSTHROUGH2", NULL }
 };
 
-static void do_ESCAPE_EMF(deark *c, lctx *d, struct decoder_params *dp)
+static void do_ESCAPE_EMF(deark *c, lctx *d, struct decoder_params *dp,
+	de_int64 bytecount)
 {
 	de_int64 emfpos, emflen;
 	de_uint32 id;
+	de_int64 CommentRecordCount, CurrentRecordSize;
+	de_int64 RemainingBytes, EnhancedMetafileDataSize;
 
 	// I am clearly missing something here, because of the half dozen
 	// WMF files I have that use this escape, only one of them uses
@@ -136,8 +140,9 @@ static void do_ESCAPE_EMF(deark *c, lctx *d, struct decoder_params *dp)
 	// dp->dpos points to the beginning of the EscapeFunction field.
 	// There should be 38 more bytes of headers, from this point,
 	// followed by EMF data.
+
 	emfpos = dp->dpos+38;
-	emflen = dp->dlen-38;
+	emflen = bytecount-34;
 	if(emflen<=0) {
 		de_dbg(c, "[bad embedded EMF data (too short)]");
 		goto done;
@@ -148,7 +153,26 @@ static void do_ESCAPE_EMF(deark *c, lctx *d, struct decoder_params *dp)
 		goto done;
 	}
 
+	CommentRecordCount = de_getui32le(dp->dpos+22);
+	de_dbg(c, "CommentRecordCount: %d", (int)CommentRecordCount);
+	CurrentRecordSize = de_getui32le(dp->dpos+26);
+	de_dbg(c, "CurrentRecordSize: %d", (int)CurrentRecordSize);
+	RemainingBytes = de_getui32le(dp->dpos+30);
+	de_dbg(c, "RemainingBytes: %d", (int)RemainingBytes);
+
+	// The spec says that the ByteCount field must be 34 +
+	// EnhancedMetafileDataSize, but that doesn't make sense to me.
+	// Maybe it was supposed to be 34 + CurrentRecordSize?
+	EnhancedMetafileDataSize = de_getui32le(dp->dpos+34);
+	de_dbg(c, "EnhancedMetafileDataSize: %d", (int)EnhancedMetafileDataSize);
+
+	if(CommentRecordCount!=1) {
+		de_dbg(c, "[not decoding EMF data (fragments not supported)]");
+		goto done;
+	}
+
 	de_dbg(c, "embedded EMF data at %d, len=%d", (int)emfpos, (int)emflen);
+	// TODO: Maybe this should be extracted, instead of decoded.
 	de_dbg_indent(c, 1);
 	de_run_module_by_id_on_slice(c, "emf", NULL, c->infile, emfpos, emflen);
 	de_dbg_indent(c, -1);
@@ -158,13 +182,13 @@ done:
 
 static int wmf_handler_ESCAPE(deark *c, lctx *d, struct decoder_params *dp)
 {
-	de_int64 pos = dp->dpos;
 	de_uint16 escfn;
+	de_int64 bytecount = 0;
 	const struct escape_info *einfo = NULL;
 	const char *name;
-	de_int64 k;
+	size_t k;
 
-	escfn = (de_uint16)de_getui16le(pos);
+	escfn = (de_uint16)de_getui16le(dp->dpos);
 
 	// Find the name, etc. of this record type
 	for(k=0; k<DE_ITEMS_IN_ARRAY(escape_info_arr); k++) {
@@ -181,9 +205,21 @@ static int wmf_handler_ESCAPE(deark *c, lctx *d, struct decoder_params *dp)
 
 	de_dbg(c, "escape function: 0x%04x (%s)", (unsigned int)escfn, name);
 
-	if(escfn==0x000f) {
-		do_ESCAPE_EMF(c, d, dp);
+	if(dp->dlen>=4) {
+		bytecount = de_getui16le(dp->dpos+2);
+		de_dbg(c, "bytecount: %d (offset %d + %d = %d)", (int)bytecount,
+			(int)(dp->dpos+4), (int)bytecount, (int)(dp->dpos+4+bytecount));
 	}
+
+	if(4+bytecount > dp->dlen) {
+		goto done;
+	}
+
+	if(escfn==0x000f) {
+		do_ESCAPE_EMF(c, d, dp, bytecount);
+	}
+
+done:
 	return 1;
 }
 
@@ -213,7 +249,7 @@ static int wmf_handler_32(deark *c, lctx *d, struct decoder_params *dp)
 	if(pos+stringlen > dp->dpos+dp->dlen) goto done;
 	s = ucstring_create(c);
 	dbuf_read_to_ucstring_n(c->infile, pos, stringlen, DE_DBG_MAX_STRLEN, s,
-		0, DE_ENCODING_WINDOWS1252);
+		0, d->input_encoding);
 	de_dbg(c, "text: \"%s\"", ucstring_get_printable_sz(s));
 
 done:
@@ -455,6 +491,11 @@ static void de_run_wmf(deark *c, de_module_params *mparams)
 	de_int64 pos = 0;
 
 	d = de_malloc(c, sizeof(lctx));
+
+	if(c->input_encoding==DE_ENCODING_UNKNOWN)
+		d->input_encoding = DE_ENCODING_WINDOWS1252;
+	else
+		d->input_encoding = c->input_encoding;
 
 	if(!dbuf_memcmp(c->infile, 0, "\xd7\xcd\xc6\x9a", 4)) {
 		d->has_aldus_header = 1;
