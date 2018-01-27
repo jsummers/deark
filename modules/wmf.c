@@ -25,6 +25,7 @@ struct decoder_params {
 	de_uint16 recfunc;
 	de_byte rectype; // low byte of recfunc
 	de_int64 recpos;
+	de_int64 recsize_words; // total record size in 16-bit units
 	de_int64 recsize_bytes; // total record size in bytes
 	de_int64 dpos;
 	de_int64 dlen;
@@ -40,8 +41,7 @@ struct wmf_func_info {
 	record_decoder_fn fn;
 };
 
-// TEXTOUT
-static int wmf_handler_21(deark *c, lctx *d, struct decoder_params *dp)
+static int wmf_handler_TEXTOUT(deark *c, lctx *d, struct decoder_params *dp)
 {
 	de_int64 pos = dp->dpos;
 	de_int64 stringlen;
@@ -58,6 +58,71 @@ static int wmf_handler_21(deark *c, lctx *d, struct decoder_params *dp)
 
 done:
 	ucstring_destroy(s);
+	return 1;
+}
+
+static int wmf_handler_BITBLT_STRETCHBLT_DIBBITBLT(deark *c, lctx *d, struct decoder_params *dp)
+{
+	de_int64 pos = dp->dpos;
+	int has_src_bitmap;
+	unsigned int RasterOperation;
+	de_int64 XSrc, YSrc;
+	de_int64 Width, Height;
+	de_int64 YDest, XDest;
+
+	has_src_bitmap = (dp->recsize_words != ((dp->recfunc>>8)+3));
+	de_dbg(c, "has src bitmap: %d", has_src_bitmap);
+	if(!has_src_bitmap) goto done;
+
+	RasterOperation = (unsigned int)de_getui32le(pos);
+	de_dbg(c, "RasterOperation: 0x%08x", RasterOperation);
+	pos += 4;
+
+	if(dp->rectype==0x23) { // STRETCHBLT
+		de_int64 SrcWidth, SrcHeight;
+		SrcHeight = de_geti16le(pos);
+		pos += 2;
+		SrcWidth = de_geti16le(pos);
+		pos += 2;
+		de_dbg(c, "SrcWidth, SrcHeight: %d"DE_CHAR_TIMES"%d",
+			(int)SrcWidth, (int)SrcHeight);
+	}
+
+	YSrc = de_geti16le(pos);
+	pos += 2;
+	XSrc = de_geti16le(pos);
+	pos += 2;
+	de_dbg(c, "XSrc, YSrc: (%d, %d)", (int)XSrc, (int)YSrc);
+
+	Height = de_geti16le(pos);
+	pos += 2;
+	Width = de_geti16le(pos);
+	pos += 2;
+	de_dbg_dimensions(c, Width, Height);
+
+	YDest = de_geti16le(pos);
+	pos += 2;
+	XDest = de_geti16le(pos);
+	pos += 2;
+	de_dbg(c, "XDest, YDest: (%d, %d)", (int)XDest, (int)YDest);
+
+	// TODO: Bitmap16 object (if BITBLT or STRETCHBLT)
+	if(dp->rectype==0x40) { // DIBBITBLT
+		de_int64 dib_pos, dib_len;
+
+		// TODO: Merge this with the DIBSTRETCHBLT, STRETCHDIB code.
+		dib_pos = pos;
+		dib_len = dp->dpos + dp->dlen - dib_pos;
+
+		if(dib_len<12) goto done;
+		de_dbg(c, "DIB at %d, size=%d", (int)dib_pos, (int)dib_len);
+
+		de_dbg_indent(c, 1);
+		de_run_module_by_id_on_slice(c, "dib", NULL, c->infile, dib_pos, dib_len);
+		de_dbg_indent(c, -1);
+	}
+
+done:
 	return 1;
 }
 
@@ -223,8 +288,7 @@ done:
 	return 1;
 }
 
-// EXTTEXTOUT
-static int wmf_handler_32(deark *c, lctx *d, struct decoder_params *dp)
+static int wmf_handler_EXTTEXTOUT(deark *c, lctx *d, struct decoder_params *dp)
 {
 	de_int64 pos = dp->dpos;
 	de_int64 stringlen;
@@ -257,29 +321,35 @@ done:
 	return 1;
 }
 
-// DIBSTRETCHBLT, STRETCHDIB
-static int wmf_handler_41_43(deark *c, lctx *d, struct decoder_params *dp)
+static int wmf_handler_DIBSTRETCHBLT_STRETCHDIB(deark *c, lctx *d, struct decoder_params *dp)
 {
 	de_int64 dib_pos;
 	de_int64 dib_len;
-	int hdrsize;// = 26;
+	int hdrsize;
+	int has_src_bitmap = 1;
 
-	// TODO: For DIBSTRETCHBLT, the high byte of dp->recfunc can be relevant.
+	if(dp->rectype==0x41) { // DIBSTRETCHBLT
+		has_src_bitmap = (dp->recsize_words != ((dp->recfunc>>8)+3));
+		de_dbg(c, "has src bitmap: %d", has_src_bitmap);
+	}
 
+	if(!has_src_bitmap) goto done;
 	if(dp->rectype==0x41) // DIBSTRETCHBLT
 		hdrsize = 26;
 	else
 		hdrsize = 28;
 
-	if(dp->recsize_bytes < hdrsize) return 1;
+	if(dp->recsize_bytes < hdrsize) goto done;
 	dib_pos = dp->recpos + hdrsize;
 	dib_len = dp->recsize_bytes - hdrsize;
-	if(dib_len < 12) return 1;
+	if(dib_len < 12) goto done;
 	de_dbg(c, "DIB at %d, size=%d", (int)dib_pos, (int)dib_len);
 
 	de_dbg_indent(c, 1);
 	de_run_module_by_id_on_slice(c, "dib", NULL, c->infile, dib_pos, dib_len);
 	de_dbg_indent(c, -1);
+
+done:
 	return 1;
 }
 
@@ -317,9 +387,9 @@ static const struct wmf_func_info wmf_func_info_arr[] = {
 	{ 0x1e, 0, "SAVEDC", NULL },
 	{ 0x1f, 0, "SETPIXEL", NULL },
 	{ 0x20, 0, "OFFSETCLIPRGN", NULL },
-	{ 0x21, 0, "TEXTOUT", wmf_handler_21 },
-	{ 0x22, 0, "BITBLT", NULL },
-	{ 0x23, 0, "STRETCHBLT", NULL },
+	{ 0x21, 0, "TEXTOUT", wmf_handler_TEXTOUT },
+	{ 0x22, 0, "BITBLT", wmf_handler_BITBLT_STRETCHBLT_DIBBITBLT },
+	{ 0x23, 0, "STRETCHBLT", wmf_handler_BITBLT_STRETCHBLT_DIBBITBLT },
 	{ 0x24, 0, "POLYGON", NULL },
 	{ 0x25, 0, "POLYLINE", NULL },
 	{ 0x26, 0, "ESCAPE", wmf_handler_ESCAPE },
@@ -333,7 +403,7 @@ static const struct wmf_func_info wmf_func_info_arr[] = {
 	{ 0x2e, 0, "SETTEXTALIGN", NULL },
 	{ 0x30, 0, "CHORD", NULL },
 	{ 0x31, 0, "SETMAPPERFLAGS", NULL },
-	{ 0x32, 0, "EXTTEXTOUT", wmf_handler_32 },
+	{ 0x32, 0, "EXTTEXTOUT", wmf_handler_EXTTEXTOUT },
 	{ 0x33, 0, "SETDIBTODEV", NULL },
 	{ 0x34, 0, "SELECTPALETTE", NULL },
 	{ 0x35, 0, "REALIZEPALETTE", NULL },
@@ -341,10 +411,10 @@ static const struct wmf_func_info wmf_func_info_arr[] = {
 	{ 0x37, 0, "SETPALENTRIES", NULL },
 	{ 0x38, 0, "POLYPOLYGON", NULL },
 	{ 0x39, 0, "RESIZEPALETTE", NULL },
-	{ 0x40, 0, "DIBBITBLT", NULL },
-	{ 0x41, 0, "DIBSTRETCHBLT", wmf_handler_41_43 },
+	{ 0x40, 0, "DIBBITBLT", wmf_handler_BITBLT_STRETCHBLT_DIBBITBLT },
+	{ 0x41, 0, "DIBSTRETCHBLT", wmf_handler_DIBSTRETCHBLT_STRETCHDIB },
 	{ 0x42, 0, "DIBCREATEPATTERNBRUSH", NULL },
-	{ 0x43, 0, "STRETCHDIB", wmf_handler_41_43 },
+	{ 0x43, 0, "STRETCHDIB", wmf_handler_DIBSTRETCHBLT_STRETCHDIB },
 	{ 0x48, 0, "EXTFLOODFILL", NULL },
 	{ 0x49, 0, "SETLAYOUT", NULL },
 	{ 0xf0, 0, "DELETEOBJECT", NULL },
@@ -432,6 +502,7 @@ static int do_wmf_record(deark *c, lctx *d, de_int64 recnum, de_int64 recpos,
 
 	de_memset(&dp, 0, sizeof(struct decoder_params));
 	dp.recpos = recpos;
+	dp.recsize_words = recsize_bytes*2;
 	dp.recsize_bytes = recsize_bytes;
 	dp.dpos = recpos + 6;
 	dp.dlen = recsize_bytes - 6;
