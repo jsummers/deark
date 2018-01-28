@@ -19,9 +19,14 @@ typedef struct localctx_struct {
 	de_int64 emf_num_records;
 } lctx;
 
+struct decoder_params {
+	de_uint32 rectype;
+	de_int64 recpos;
+	de_int64 recsize_bytes;
+};
+
 // Handler functions return 0 on fatal error, otherwise 1.
-typedef int (*record_decoder_fn)(deark *c, lctx *d, de_int64 rectype, de_int64 recpos,
-	de_int64 recsize_bytes);
+typedef int (*record_decoder_fn)(deark *c, lctx *d, struct decoder_params *dp);
 
 struct emf_func_info {
 	de_uint32 rectype;
@@ -43,7 +48,7 @@ static void ucstring_strip_trailing_NULs(de_ucstring *s)
 }
 
 // Header record
-static int emf_handler_01(deark *c, lctx *d, de_int64 rectype, de_int64 recpos, de_int64 recsize_bytes)
+static int emf_handler_01(deark *c, lctx *d, struct decoder_params *dp)
 {
 	de_int64 pos;
 	de_int64 file_size;
@@ -57,13 +62,13 @@ static int emf_handler_01(deark *c, lctx *d, de_int64 rectype, de_int64 recpos, 
 	if(d->emf_found_header) { retval = 1; goto done; }
 	d->emf_found_header = 1;
 
-	if(recsize_bytes<88) {
-		de_err(c, "Invalid EMF header size (is %d, must be at least 88)", (int)recsize_bytes);
+	if(dp->recsize_bytes<88) {
+		de_err(c, "Invalid EMF header size (is %d, must be at least 88)", (int)dp->recsize_bytes);
 		goto done;
 	}
 
 	// 2.2.9 Header Object
-	pos = recpos + 8;
+	pos = dp->recpos + 8;
 	d->emf_version = de_getui32le(pos+36);
 	de_dbg(c, "version: 0x%08x", (unsigned int)d->emf_version);
 	file_size = de_getui32le(pos+40);
@@ -78,9 +83,9 @@ static int emf_handler_01(deark *c, lctx *d, de_int64 rectype, de_int64 recpos, 
 	num_pal_entries = de_getui32le(pos+60);
 	de_dbg(c, "num pal entries: %d", (int)num_pal_entries);
 
-	if((desc_len>0) && (desc_offs+desc_len*2 <= recsize_bytes)) {
+	if((desc_len>0) && (desc_offs+desc_len*2 <= dp->recsize_bytes)) {
 		desc = ucstring_create(c);
-		dbuf_read_to_ucstring_n(c->infile, recpos+desc_offs, desc_len*2, DE_DBG_MAX_STRLEN*2,
+		dbuf_read_to_ucstring_n(c->infile, dp->recpos+desc_offs, desc_len*2, DE_DBG_MAX_STRLEN*2,
 			desc, 0, DE_ENCODING_UTF16LE);
 		ucstring_strip_trailing_NULs(desc);
 		de_dbg(c, "description: \"%s\"", ucstring_get_printable_sz(desc));
@@ -460,19 +465,19 @@ static void do_comment_public(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 }
 
 // Comment record
-static int emf_handler_46(deark *c, lctx *d, de_int64 rectype, de_int64 recpos, de_int64 recsize_bytes)
+static int emf_handler_46(deark *c, lctx *d, struct decoder_params *dp)
 {
 	struct de_fourcc id4cc;
 	const char *name;
 	de_int64 datasize;
 
 	//de_dbg(c, "comment at %d len=%d", (int)recpos, (int)recsize_bytes);
-	if(recsize_bytes<16) goto done;
+	if(dp->recsize_bytes<16) goto done;
 
 	// Datasize is measured from the beginning of the next field (CommentIdentifier).
-	datasize = de_getui32le(recpos+8);
+	datasize = de_getui32le(dp->recpos+8);
 
-	dbuf_read_fourcc(c->infile, recpos+12, &id4cc, 0);
+	dbuf_read_fourcc(c->infile, dp->recpos+12, &id4cc, 0);
 
 	switch(id4cc.id) {
 	case 0: name="EMR_COMMENT_EMFSPOOL"; break;
@@ -484,13 +489,13 @@ static int emf_handler_46(deark *c, lctx *d, de_int64 rectype, de_int64 recpos, 
 	de_dbg(c, "type: 0x%08x '%s' (%s) datasize=%d", (unsigned int)id4cc.id, id4cc.id_printable, name,
 		(int)datasize);
 
-	if(datasize<=4 || 12+datasize > recsize_bytes) goto done; // Bad datasize
+	if(datasize<=4 || 12+datasize > dp->recsize_bytes) goto done; // Bad datasize
 
 	if(id4cc.id==CODE_EMFPLUS) {
-		do_comment_emfplus(c, d, recpos+16, datasize-4);
+		do_comment_emfplus(c, d, dp->recpos+16, datasize-4);
 	}
 	else if(id4cc.id==CODE_GDIC) {
-		do_comment_public(c, d, recpos+16, datasize-4);
+		do_comment_public(c, d, dp->recpos+16, datasize-4);
 	}
 
 done:
@@ -558,7 +563,7 @@ done:
 }
 
 // BITBLT
-static int emf_handler_4c(deark *c, lctx *d, de_int64 rectype, de_int64 recpos, de_int64 recsize_bytes)
+static int emf_handler_4c(deark *c, lctx *d, struct decoder_params *dp)
 {
 	de_int64 rop;
 	de_int64 bmi_offs;
@@ -566,31 +571,31 @@ static int emf_handler_4c(deark *c, lctx *d, de_int64 rectype, de_int64 recpos, 
 	de_int64 bits_offs;
 	de_int64 bits_len;
 
-	if(recsize_bytes<100) return 1;
+	if(dp->recsize_bytes<100) return 1;
 
-	rop = de_getui32le(recpos+40);
+	rop = de_getui32le(dp->recpos+40);
 	de_dbg(c, "raster operation: 0x%08x", (unsigned int)rop);
 
-	bmi_offs = de_getui32le(recpos+84);
-	bmi_len = de_getui32le(recpos+88);
+	bmi_offs = de_getui32le(dp->recpos+84);
+	bmi_len = de_getui32le(dp->recpos+88);
 	de_dbg(c, "bmi offset=%d, len=%d", (int)bmi_offs, (int)bmi_len);
-	bits_offs = de_getui32le(recpos+92);
-	bits_len = de_getui32le(recpos+96);
+	bits_offs = de_getui32le(dp->recpos+92);
+	bits_len = de_getui32le(dp->recpos+96);
 	de_dbg(c, "bits offset=%d, len=%d", (int)bits_offs, (int)bits_len);
 
 	if(bmi_len<12) return 1;
 	if(bmi_offs<100) return 1;
-	if(bmi_offs+bmi_len>recsize_bytes) return 1;
+	if(bmi_offs+bmi_len>dp->recsize_bytes) return 1;
 	if(bits_len<1) return 1;
 	if(bits_offs<100) return 1;
-	if(bits_offs+bits_len>recsize_bytes) return 1;
-	extract_dib(c, d, recpos+bmi_offs, bmi_len, recpos+bits_offs, bits_len);
+	if(bits_offs+bits_len>dp->recsize_bytes) return 1;
+	extract_dib(c, d, dp->recpos+bmi_offs, bmi_len, dp->recpos+bits_offs, bits_len);
 	return 1;
 }
 
 // 0x50 = SetDIBitsToDevice
 // 0x51 = StretchDIBits
-static int emf_handler_50_51(deark *c, lctx *d, de_int64 rectype, de_int64 recpos, de_int64 recsize_bytes)
+static int emf_handler_50_51(deark *c, lctx *d, struct decoder_params *dp)
 {
 	de_int64 rop;
 	de_int64 bmi_offs;
@@ -600,37 +605,37 @@ static int emf_handler_50_51(deark *c, lctx *d, de_int64 rectype, de_int64 recpo
 	de_int64 fixed_header_len;
 	de_int64 num_scans;
 
-	if(rectype==0x50)
+	if(dp->rectype==0x50)
 		fixed_header_len = 76;
 	else
 		fixed_header_len = 80;
 
-	if(recsize_bytes<fixed_header_len) return 1;
+	if(dp->recsize_bytes<fixed_header_len) return 1;
 
-	bmi_offs = de_getui32le(recpos+48);
-	bmi_len = de_getui32le(recpos+52);
+	bmi_offs = de_getui32le(dp->recpos+48);
+	bmi_len = de_getui32le(dp->recpos+52);
 	de_dbg(c, "bmi offset=%d, len=%d", (int)bmi_offs, (int)bmi_len);
-	bits_offs = de_getui32le(recpos+56);
-	bits_len = de_getui32le(recpos+60);
+	bits_offs = de_getui32le(dp->recpos+56);
+	bits_len = de_getui32le(dp->recpos+60);
 	de_dbg(c, "bits offset=%d, len=%d", (int)bits_offs, (int)bits_len);
 
-	if(rectype==0x51) {
-		rop = de_getui32le(recpos+68);
+	if(dp->rectype==0x51) {
+		rop = de_getui32le(dp->recpos+68);
 		de_dbg(c, "raster operation: 0x%08x", (unsigned int)rop);
 	}
 
-	if(rectype==0x50) {
-		num_scans = de_getui32le(recpos+72);
+	if(dp->rectype==0x50) {
+		num_scans = de_getui32le(dp->recpos+72);
 		de_dbg(c, "number of scanlines: %d", (int)num_scans);
 	}
 
 	if(bmi_len<12) return 1;
 	if(bmi_offs<fixed_header_len) return 1;
-	if(bmi_offs+bmi_len>recsize_bytes) return 1;
+	if(bmi_offs+bmi_len>dp->recsize_bytes) return 1;
 	if(bits_len<1) return 1;
 	if(bits_offs<fixed_header_len) return 1;
-	if(bits_offs+bits_len>recsize_bytes) return 1;
-	extract_dib(c, d, recpos+bmi_offs, bmi_len, recpos+bits_offs, bits_len);
+	if(bits_offs+bits_len>dp->recsize_bytes) return 1;
+	extract_dib(c, d, dp->recpos+bmi_offs, bmi_len, dp->recpos+bits_offs, bits_len);
 
 	return 1;
 }
@@ -669,26 +674,26 @@ static void do_emf_wEmrText(deark *c, lctx *d, de_int64 recpos, de_int64 pos1, d
 }
 
 // 0x53 = EMR_EXTTEXTOUTA
-static int emf_handler_53(deark *c, lctx *d, de_int64 rectype, de_int64 recpos, de_int64 recsize_bytes)
+static int emf_handler_53(deark *c, lctx *d, struct decoder_params *dp)
 {
-	de_int64 pos = recpos;
+	de_int64 pos = dp->recpos;
 
 	pos += 8; // type, size
 	pos += 16; // bounds
 	pos += 12; // iGraphicsMode, exScale, eyScale
-	do_emf_aEmrText(c, d, recpos, pos, recpos+recsize_bytes - pos);
+	do_emf_aEmrText(c, d, dp->recpos, pos, dp->recpos+dp->recsize_bytes - pos);
 	return 1;
 }
 
 // 0x54 = EMR_EXTTEXTOUTW
-static int emf_handler_54(deark *c, lctx *d, de_int64 rectype, de_int64 recpos, de_int64 recsize_bytes)
+static int emf_handler_54(deark *c, lctx *d, struct decoder_params *dp)
 {
-	de_int64 pos = recpos;
+	de_int64 pos = dp->recpos;
 
 	pos += 8; // type, size
 	pos += 16; // bounds
 	pos += 12; // iGraphicsMode, exScale, eyScale
-	do_emf_wEmrText(c, d, recpos, pos, recpos+recsize_bytes - pos);
+	do_emf_wEmrText(c, d, dp->recpos, pos, dp->recpos+dp->recsize_bytes - pos);
 	return 1;
 }
 
@@ -814,7 +819,7 @@ static const struct emf_func_info emf_func_info_arr[] = {
 	{ 0x7a, "CREATECOLORSPACEW", NULL }
 };
 
-static const struct emf_func_info *find_emf_func_info(de_int64 rectype)
+static const struct emf_func_info *find_emf_func_info(de_uint32 rectype)
 {
 	size_t i;
 
@@ -829,27 +834,31 @@ static const struct emf_func_info *find_emf_func_info(de_int64 rectype)
 static int do_emf_record(deark *c, lctx *d, de_int64 recnum, de_int64 recpos,
 	de_int64 recsize_bytes)
 {
-	de_int64 rectype = 0;
 	int ret;
 	const struct emf_func_info *fnci;
+	struct decoder_params dp;
 
-	rectype = de_getui32le(recpos);
+	de_memset(&dp, 0, sizeof(struct decoder_params));
+	dp.recpos = recpos;
+	dp.recsize_bytes = recsize_bytes;
 
-	fnci = find_emf_func_info(rectype);
+	dp.rectype = (de_uint32)de_getui32le(recpos);
+
+	fnci = find_emf_func_info(dp.rectype);
 
 	de_dbg(c, "record #%d at %d, type=0x%02x (%s), size=%d bytes", (int)recnum,
-		(int)recpos, (unsigned int)rectype,
+		(int)recpos, (unsigned int)dp.rectype,
 		fnci ? fnci->name : "?",
 		(int)recsize_bytes);
 
 	if(fnci && fnci->fn) {
 		de_dbg_indent(c, 1);
-		ret = fnci->fn(c, d, rectype, recpos, recsize_bytes);
+		ret = fnci->fn(c, d, &dp);
 		de_dbg_indent(c, -1);
 		if(!ret) return 0;
 	}
 
-	return rectype==0x0e ? 0 : 1; // 0x0e = EOF record
+	return (dp.rectype==0x0e) ? 0 : 1; // 0x0e = EOF record
 }
 
 static void do_emf_record_list(deark *c, lctx *d)
