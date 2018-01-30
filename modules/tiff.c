@@ -1215,6 +1215,11 @@ done:
 	return;
 }
 
+static void handler_hexdump(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni)
+{
+	de_dbg_hexdump(c, c->infile, tg->val_offset, tg->total_size, 256, "data", 0x1);
+}
+
 static const struct tagnuminfo tagnuminfo_arr[] = {
 	{ 254, 0x00, "NewSubfileType", NULL, valdec_newsubfiletype },
 	{ 255, 0x00, "OldSubfileType", NULL, valdec_oldsubfiletype },
@@ -1456,7 +1461,7 @@ static const struct tagnuminfo tagnuminfo_arr[] = {
 	{ 37398, 0x0100, "TIFF/EPStandardID", NULL, NULL },
 	{ 37399, 0x0100, "SensingMethod", NULL, NULL },
 	{ 37439, 0x00, "SToNits(SGI)", NULL, NULL },
-	{ 37500, 0x10, "MakerNote", NULL, NULL },
+	{ 37500, 0x0018, "MakerNote", handler_hexdump, NULL },
 	{ 37510, 0x10, "UserComment", handler_usercomment, NULL },
 	{ 37520, 0x10, "SubSec", NULL, NULL },
 	{ 37521, 0x10, "SubSecTimeOriginal", NULL, NULL },
