@@ -597,7 +597,7 @@ static void do_para_info_page(deark *c, lctx *d, de_int64 pos)
 
 	for(i=0; i<cfod; i++) {
 		struct para_info *pinfo = NULL;
-		de_int64 fcLim;
+		de_int64 fcLim_orig, fcLim_adj;
 		de_int64 bfprop;
 		de_int64 fodpos = fod_array_startpos + 6*i;
 
@@ -606,12 +606,14 @@ static void do_para_info_page(deark *c, lctx *d, de_int64 pos)
 		de_dbg(c, "FOD[%d] at %d", (int)i, (int)fodpos);
 		de_dbg_indent(c, 1);
 
-		fcLim = de_getui32le(fodpos);
+		fcLim_orig = de_getui32le(fodpos);
+		fcLim_adj = fcLim_orig;
+		if(fcLim_adj > d->fcMac) fcLim_adj = d->fcMac;
 		pinfo->thisparapos = prevtextpos;
-		pinfo->thisparalen = fcLim - prevtextpos;
-		de_dbg(c, "fcLim: %d (paragraph from %d to %d)", (int)fcLim,
-			(int)pinfo->thisparapos, (int)(fcLim-1));
-		prevtextpos = fcLim;
+		pinfo->thisparalen = fcLim_adj - prevtextpos;
+		de_dbg(c, "fcLim: %d (paragraph from %d to %d)", (int)fcLim_orig,
+			(int)pinfo->thisparapos, (int)(fcLim_adj-1));
+		prevtextpos = fcLim_adj;
 
 		bfprop = de_getui16le(fodpos+4);
 		if(bfprop==0xffff) {
