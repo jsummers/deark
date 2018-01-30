@@ -237,10 +237,15 @@ static void do_ESCAPE_EMF(deark *c, lctx *d, struct decoder_params *dp,
 	}
 
 	de_dbg(c, "embedded EMF data at %d, len=%d", (int)emfpos, (int)emflen);
-	// TODO: Maybe this should be extracted, instead of decoded.
-	de_dbg_indent(c, 1);
-	de_run_module_by_id_on_slice(c, "emf", NULL, c->infile, emfpos, emflen);
-	de_dbg_indent(c, -1);
+	if(c->extract_level>=2) {
+		dbuf_create_file_from_slice(c->infile, emfpos, emflen, "emf", NULL, 0);
+	}
+	else {
+		de_dbg_indent(c, 1);
+		de_run_module_by_id_on_slice(c, "emf", NULL, c->infile, emfpos, emflen);
+		de_dbg_indent(c, -1);
+	}
+
 done:
 	;
 }
