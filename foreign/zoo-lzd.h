@@ -28,7 +28,7 @@ code.  The contents of this file are hereby released to the public domain.
 */
 
 #define lzd_debug(x)
-#define lzd_assert(E)
+#define lzd_assert(E) if(!(E)) lzd_on_assert_fail(uz);
 
 #define  LZD_IN_BUF_SIZE       8192
 #define  LZD_OUT_BUF_SIZE      8192
@@ -70,7 +70,7 @@ struct lzdctx {
 	unsigned int output_offset;
 
 	unsigned int stack_pointer;
-	unsigned int *stack;
+	de_byte *stack;
 
 	de_byte in_buf_adr[LZD_IN_BUF_SIZE]; /* memory allocated for input buffer */
 	de_byte out_buf_adr[LZD_OUT_BUF_SIZE]; /* memory allocated for output buffer(s) */
@@ -78,8 +78,14 @@ struct lzdctx {
 
 static void lzd_init_dtab(struct lzdctx *lc);
 static unsigned int lzd_rd_dcode(struct unzooctx *uz, struct lzdctx *lc);
-static void lzd_wr_dchar(struct unzooctx *uz, struct lzdctx *lc, int ch);
-static void lzd_ad_dcode(struct lzdctx *lc);
+static void lzd_wr_dchar(struct unzooctx *uz, struct lzdctx *lc, de_byte ch);
+static void lzd_ad_dcode(struct unzooctx *uz, struct lzdctx *lc);
+
+static void lzd_on_assert_fail(struct unzooctx *uz)
+{
+	de_err(uz->c, "lzd_assert failed");
+	de_fatalerror(uz->c);
+}
 
 static void lzd_prterror(struct unzooctx *uz, int level, const char *msg)
 {
@@ -90,14 +96,22 @@ static void lzd_prterror(struct unzooctx *uz, int level, const char *msg)
 
 static void lzd_push(struct unzooctx *uz, struct lzdctx *lc, de_byte x)
 {
-	lc->stack[lc->stack_pointer++] = x;
-	if (lc->stack_pointer >= LZD_STACKSIZE)
+	if(lc->stack_pointer<LZD_STACKSIZE) {
+		lc->stack[lc->stack_pointer] = x;
+	}
+	lc->stack_pointer++;
+	if (lc->stack_pointer >= LZD_STACKSIZE) {
+		lc->stack_pointer = LZD_STACKSIZE-1;
 		lzd_prterror (uz, 'f', "Stack overflow in lzd().");
+	}
 }
 
-static int lzd_pop(struct lzdctx *lc)
+static de_byte lzd_pop(struct lzdctx *lc)
 {
-	return lc->stack[--lc->stack_pointer];
+	if(lc->stack_pointer>0) {
+		lc->stack_pointer--;
+	}
+	return lc->stack[lc->stack_pointer];
 }
 
 static void lzd_addbfcrc(struct unzooctx *uz, struct lzdctx *lc, const de_byte *buffer, int count)
@@ -143,7 +157,7 @@ static int lzd(struct unzooctx *uz, struct entryctx *ze)
 		goto done;
 	}
 	lc->table = de_malloc(uz->c, (LZD_MAXMAX+10) * sizeof(struct lzd_tabentry));
-	lc->stack = de_malloc(uz->c, sizeof (unsigned int) * LZD_STACKSIZE + 20);
+	lc->stack = de_malloc(uz->c, LZD_STACKSIZE + 20);
 
 	lzd_init_dtab(lc);             /* initialize table */
 
@@ -161,7 +175,7 @@ goteof: /* special case for CLEAR then Z_EOF, for 0-length files */
 		goto done;
 	}
 
-	lzd_assert(nbits >= 9 && nbits <= 13);
+	lzd_assert(lc->nbits >= 9 && lc->nbits <= 13);
 
 	if (lc->cur_code == LZD_CLEAR) {
 		lzd_debug((printf ("lzd: CLEAR\n")))
@@ -184,18 +198,18 @@ goteof: /* special case for CLEAR then Z_EOF, for 0-length files */
 		lc->cur_code = lc->table[lc->cur_code].next;    /* <w> := <w>.code */
 	}
 
-	lzd_assert(nbits >= 9 && nbits <= 13);
+	lzd_assert(lc->nbits >= 9 && lc->nbits <= 13);
 
 	lc->k = lc->fin_char = lc->cur_code;
 	lzd_push(uz, lc, lc->k);
 	while (lc->stack_pointer != 0) {
 		lzd_wr_dchar(uz, lc, lzd_pop(lc));
 	}
-	lzd_assert(nbits >= 9 && nbits <= 13);
-	lzd_ad_dcode(lc);
+	lzd_assert(lc->nbits >= 9 && lc->nbits <= 13);
+	lzd_ad_dcode(uz, lc);
 	lc->old_code = lc->in_code;
 
-	lzd_assert(nbits >= 9 && nbits <= 13);
+	lzd_assert(lc->nbits >= 9 && lc->nbits <= 13);
 
 	goto loop;
 
@@ -225,12 +239,12 @@ static unsigned int lzd_rd_dcode(struct unzooctx *uz, struct lzdctx *lc)
 	byte_offset = lc->bit_offset / 8;
 	lc->bit_offset = lc->bit_offset + lc->nbits;
 
-	lzd_assert(nbits >= 9 && nbits <= 13);
+	lzd_assert(lc->nbits >= 9 && lc->nbits <= 13);
 
 	if (byte_offset >= LZD_INBUFSIZ - 5) {
 		int space_left;
 
-		lzd_assert(byte_offset >= INBUFSIZ - 5);
+		lzd_assert(byte_offset >= LZD_INBUFSIZ - 5);
 		lzd_debug((printf ("lzd: byte_offset near end of buffer\n")))
 
 		lc->bit_offset = ofs_inbyte + lc->nbits;
@@ -243,7 +257,7 @@ static unsigned int lzd_rd_dcode(struct unzooctx *uz, struct lzdctx *lc)
 			*ptra++ = *ptrb++;
 			space_left--;
 		}
-		lzd_assert(ptra - in_buf_adr == ptrb - (in_buf_adr + byte_offset));
+		lzd_assert(ptra - lc->in_buf_adr == ptrb - (lc->in_buf_adr + byte_offset));
 		lzd_assert(space_left == 0);
 		if (lzd_zooread (uz, lc->in_f, ptra, byte_offset) == -1)
 			lzd_prterror (uz, 'f', "I/O error in lzd_rd_dcode.");
@@ -251,8 +265,8 @@ static unsigned int lzd_rd_dcode(struct unzooctx *uz, struct lzdctx *lc)
 	}
 	ptra = byte_offset + lc->in_buf_adr;
 	/* NOTE:  "word = *((int *) ptra)" would not be independent of byte order. */
-	word = (unsigned char) *ptra; ptra++;
-	word = word | ( ((unsigned char) *ptra) << 8 ); ptra++;
+	word = (unsigned int) *ptra; ptra++;
+	word = word | ( ((unsigned int) *ptra) << 8 ); ptra++;
 
 	nextch = *ptra;
 	if (ofs_inbyte != 0) {
@@ -270,7 +284,7 @@ static void lzd_init_dtab(struct lzdctx *lc)
 	lc->free_code = LZD_FIRST_FREE;
 }
 
-static void lzd_wr_dchar(struct unzooctx *uz, struct lzdctx *lc, int ch)
+static void lzd_wr_dchar(struct unzooctx *uz, struct lzdctx *lc, de_byte ch)
 {
 	if (lc->output_offset >= LZD_OUTBUFSIZ) {      /* if buffer full */
 		if (lzd_zoowrite (uz, lc->out_f, lc->out_buf_adr, lc->output_offset) != lc->output_offset)
@@ -278,24 +292,26 @@ static void lzd_wr_dchar(struct unzooctx *uz, struct lzdctx *lc, int ch)
 		lzd_addbfcrc(uz, lc, lc->out_buf_adr, lc->output_offset);     /* update CRC */
 		lc->output_offset = 0;                  /* restore empty buffer */
 	}
-	lzd_assert(output_offset < LZD_OUTBUFSIZ);
-	lc->out_buf_adr[lc->output_offset++] = ch;        /* store character */
+	lzd_assert(lc->output_offset < LZD_OUTBUFSIZ);
+	if(lc->output_offset < LZD_OUTBUFSIZ) {
+		lc->out_buf_adr[lc->output_offset++] = ch;        /* store character */
+	}
 } /* lzd_wr_dchar() */
 
 /* adds a code to table */
-static void lzd_ad_dcode(struct lzdctx *lc)
+static void lzd_ad_dcode(struct unzooctx *uz, struct lzdctx *lc)
 {
 	lzd_assert(lc->nbits >= 9 && lc->nbits <= 13);
 	lzd_assert(lc->free_code <= LZD_MAXMAX+1);
 	lc->table[lc->free_code].z_ch = lc->k;                /* save suffix char */
 	lc->table[lc->free_code].next = lc->old_code;         /* save prefix code */
 	lc->free_code++;
-	lzd_assert(nbits >= 9 && nbits <= 13);
+	lzd_assert(lc->nbits >= 9 && lc->nbits <= 13);
 	if (lc->free_code >= lc->max_code) {
 		if (lc->nbits < LZD_MAXBITS) {
 			lzd_debug((printf("lzd: nbits was %d\n", nbits)))
 			lc->nbits++;
-			lzd_assert(nbits >= 9 && nbits <= 13);
+			lzd_assert(lc->nbits >= 9 && lc->nbits <= 13);
 			lzd_debug((printf("lzd: nbits now %d\n", nbits)))
 			lc->max_code = lc->max_code << 1;        /* double max_code */
 			lzd_debug((printf("lzd: max_code now %d\n", max_code)))
