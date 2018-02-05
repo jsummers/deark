@@ -654,14 +654,30 @@ struct lzhctx_struct {
 
 static de_uint32 lzh_peek_bits_(struct lzhctx_struct *lzhctx, de_uint32 n)
 {
-	return ((lzhctx->bits >> (lzhctx->bitc-n)) & ((1L<<n)-1));
+	if(n<1 || n>31 || n>lzhctx->bitc) return 0;
+	return ((lzhctx->bits >> (lzhctx->bitc-n)) & ((1U<<n)-1));
 }
 
 static void lzh_flsh_bits_(struct lzhctx_struct *lzhctx, de_uint32 n)
 {
-	if ( (lzhctx->bitc -= n) < 16 ) {
+	if(n>lzhctx->bitc) return;
+	lzhctx->bitc -= n;
+	if (lzhctx->bitc < 16) {
 		lzhctx->bits  = (lzhctx->bits<<16) + FlahReadArch(lzhctx->uz);
 		lzhctx->bitc += 16;
+	}
+}
+
+static de_byte BufFile_getbyte(struct entryctx *ze, unsigned int idx)
+{
+	if(idx<LZH_MAX_OFF) return ze->BufFile[idx];
+	return 0;
+}
+
+static void BufFile_setbyte(struct entryctx *ze, unsigned int idx, de_byte n)
+{
+	if(idx<LZH_MAX_OFF) {
+		ze->BufFile[idx] = n;
 	}
 }
 
@@ -671,7 +687,7 @@ static int DecodeLzh (struct unzooctx *uz, struct entryctx *ze)
 	de_uint32 cnt2;           /* number of stuff in pre code     */
 	de_uint32 code;           /* code from the Archive           */
 	de_uint32 len;            /* length of match                 */
-	de_uint32 log;            /* log_2 of offset of match        */
+	de_uint32 log_;           /* log_2 of offset of match        */
 	de_uint32 off;            /* offset of match                 */
 	de_uint32 pre;            /* pre code                        */
 	unsigned int cur_idx;     // current index in BufFile
@@ -771,8 +787,8 @@ static int DecodeLzh (struct unzooctx *uz, struct entryctx *ze)
 		/* read the log_2 of offsets                                       */
 		cnt2 = LZH_PEEK_BITS( LZH_BITS_LOG );  LZH_FLSH_BITS( LZH_BITS_LOG );
 		if ( cnt2 == 0 ) {
-			log = LZH_PEEK_BITS( LZH_BITS_LOG );  LZH_FLSH_BITS( LZH_BITS_LOG );
-			for ( i = 0; i <      256; i++ )  lzhtbl->TabLog[i] = log;
+			log_ = LZH_PEEK_BITS( LZH_BITS_LOG );  LZH_FLSH_BITS( LZH_BITS_LOG );
+			for ( i = 0; i <      256; i++ )  lzhtbl->TabLog[i] = log_;
 			for ( i = 0; i <= LZH_MAX_LOG; i++ )  lzhtbl->LenLog[i] = 0;
 		}
 		else {
@@ -813,7 +829,7 @@ static int DecodeLzh (struct unzooctx *uz, struct entryctx *ze)
 
 			/* if the code is a literal, stuff it into the buffer          */
 			if ( code <= LZH_MAX_LIT ) {
-				ze->BufFile[cur_idx++] = code;
+				BufFile_setbyte(ze, cur_idx++, code);
 				crc = CRC_BYTE(uz, crc, code );
 				if ( cur_idx == end_idx ) {
 					if ( BlckWritFile(uz, ze, ze->BufFile, cur_idx) != cur_idx ) {
@@ -831,27 +847,27 @@ static int DecodeLzh (struct unzooctx *uz, struct entryctx *ze)
 				len = code - (LZH_MAX_LIT+1) + LZH_MIN_LEN;
 
 				/* try to decodes the log_2 of the offset the fast way     */
-				log = lzhtbl->TabLog[ LZH_PEEK_BITS( 8 ) ];
+				log_ = lzhtbl->TabLog[ LZH_PEEK_BITS( 8 ) ];
 				/* if this log_2 needs more than 8 bits look in the tree   */
-				if ( log <= LZH_MAX_LOG ) {
-					LZH_FLSH_BITS( lzhtbl->LenLog[log] );
+				if ( log_ <= LZH_MAX_LOG ) {
+					LZH_FLSH_BITS( lzhtbl->LenLog[log_] );
 				}
 				else {
 					LZH_FLSH_BITS( 8 );
 					do {
-						if ( LZH_PEEK_BITS( 1 ) )  log = lzhtbl->TreeRight[log];
-						else                   log = lzhtbl->TreeLeft [log];
+						if ( LZH_PEEK_BITS( 1 ) )  log_ = lzhtbl->TreeRight[log_];
+						else                   log_ = lzhtbl->TreeLeft [log_];
 						LZH_FLSH_BITS( 1 );
-					} while ( LZH_MAX_LOG < log );
+					} while ( LZH_MAX_LOG < log_ );
 				}
 
 				/* compute the offset                                      */
-				if ( log == 0 ) {
+				if ( log_ == 0 ) {
 					off = 0;
 				}
 				else {
-					off = ((unsigned int)1 << (log-1)) + LZH_PEEK_BITS( log-1 );
-					LZH_FLSH_BITS( log-1 );
+					off = ((unsigned int)1 << (log_-1)) + LZH_PEEK_BITS( log_-1 );
+					LZH_FLSH_BITS( log_-1 );
 				}
 
 				/* copy the match (this accounts for ~ 50% of the time)    */
@@ -860,16 +876,16 @@ static int DecodeLzh (struct unzooctx *uz, struct entryctx *ze)
 					unsigned int stp_idx;     // stop index during copy
 					stp_idx = cur_idx + len;
 					do {
-						code = ze->BufFile[pos_idx++];
+						code = BufFile_getbyte(ze, pos_idx++);
 						crc = CRC_BYTE(uz, crc, code );
-						ze->BufFile[cur_idx++] = code;
+						BufFile_setbyte(ze, cur_idx++, code);
 					} while ( cur_idx < stp_idx );
 				}
 				else {
 					while ( 0 < len-- ) {
-						code = ze->BufFile[pos_idx++];
+						code = BufFile_getbyte(ze, pos_idx++);
 						crc = CRC_BYTE(uz, crc, code );
-						ze->BufFile[cur_idx++] = code;
+						BufFile_setbyte(ze, cur_idx++, code);
 						if ( pos_idx == end_idx ) {
 							pos_idx = 0;
 						}
@@ -891,6 +907,7 @@ static int DecodeLzh (struct unzooctx *uz, struct entryctx *ze)
 	}
 
 	/* write out the rest of the buffer                                    */
+	if(cur_idx>=LZH_MAX_OFF) return 0;
 	if ( BlckWritFile(uz, ze, ze->BufFile, cur_idx) != cur_idx ) {
 		uz->ErrMsg = "Cannot write output file";
 		return 0;
