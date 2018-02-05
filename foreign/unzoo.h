@@ -674,10 +674,8 @@ static int DecodeLzh (struct unzooctx *uz, struct entryctx *ze)
 	de_uint32 log;            /* log_2 of offset of match        */
 	de_uint32 off;            /* offset of match                 */
 	de_uint32 pre;            /* pre code                        */
-	de_byte *    cur;            /* current position in BufFile     */
-	de_byte *    pos;            /* position of match               */
-	de_byte *    end;            /* pointer to the end of BufFile   */
-	de_byte *    stp;            /* stop pointer during copy        */
+	unsigned int cur_idx;     // current index in BufFile
+	unsigned int end_idx;     // index to the end of BufFile
 	de_uint32 crc;            /* cyclic redundancy check value   */
 	de_uint32 i;              /* loop variable                   */
 	struct lzhctx_struct lzhctx;
@@ -689,7 +687,8 @@ static int DecodeLzh (struct unzooctx *uz, struct entryctx *ze)
 	/* initialize bit source, output pointer, and crc                      */
 	lzhctx.uz = uz;
 	lzhctx.bits = 0;  lzhctx.bitc = 0;  LZH_FLSH_BITS(0);
-	cur = ze->BufFile;  end = ze->BufFile + LZH_MAX_OFF;
+	cur_idx = 0;
+	end_idx = LZH_MAX_OFF;
 	crc = 0;
 
 	/* loop until all blocks have been read                                */
@@ -814,19 +813,21 @@ static int DecodeLzh (struct unzooctx *uz, struct entryctx *ze)
 
 			/* if the code is a literal, stuff it into the buffer          */
 			if ( code <= LZH_MAX_LIT ) {
-				*cur++ = code;
+				ze->BufFile[cur_idx++] = code;
 				crc = CRC_BYTE(uz, crc, code );
-				if ( cur == end ) {
-					if ( BlckWritFile(uz, ze, ze->BufFile,cur-ze->BufFile) != cur-ze->BufFile ) {
+				if ( cur_idx == end_idx ) {
+					if ( BlckWritFile(uz, ze, ze->BufFile, cur_idx) != cur_idx ) {
 						uz->ErrMsg = "Cannot write output file";
 						return 0;
 					}
-					cur = ze->BufFile;
+					cur_idx = 0;
 				}
 			}
 
 			/* otherwise compute match length and offset and copy          */
 			else {
+				unsigned int pos_idx;     // index of match
+
 				len = code - (LZH_MAX_LIT+1) + LZH_MIN_LEN;
 
 				/* try to decodes the log_2 of the offset the fast way     */
@@ -854,30 +855,32 @@ static int DecodeLzh (struct unzooctx *uz, struct entryctx *ze)
 				}
 
 				/* copy the match (this accounts for ~ 50% of the time)    */
-				pos = ze->BufFile + (((cur-ze->BufFile) - off - 1) & (LZH_MAX_OFF - 1));
-				if ( cur < end-len && pos < end-len ) {
-					stp = cur + len;
+				pos_idx = ((cur_idx - off - 1) & (LZH_MAX_OFF - 1));
+				if ( cur_idx < end_idx-len && pos_idx < end_idx-len ) {
+					unsigned int stp_idx;     // stop index during copy
+					stp_idx = cur_idx + len;
 					do {
-						code = *pos++;
+						code = ze->BufFile[pos_idx++];
 						crc = CRC_BYTE(uz, crc, code );
-						*cur++ = code;
-					} while ( cur < stp );
+						ze->BufFile[cur_idx++] = code;
+					} while ( cur_idx < stp_idx );
 				}
 				else {
 					while ( 0 < len-- ) {
-						code = *pos++;
+						code = ze->BufFile[pos_idx++];
 						crc = CRC_BYTE(uz, crc, code );
-						*cur++ = code;
-						if ( pos == end ) {
-							pos = ze->BufFile;
+						ze->BufFile[cur_idx++] = code;
+						if ( pos_idx == end_idx ) {
+							pos_idx = 0;
 						}
-						if ( cur == end ) {
-							if ( BlckWritFile(uz, ze, ze->BufFile,cur-ze->BufFile)
-								 != cur-ze->BufFile ) {
+						if ( cur_idx == end_idx ) {
+							if ( BlckWritFile(uz, ze, ze->BufFile, cur_idx)
+								 != cur_idx )
+							{
 								uz->ErrMsg = "Cannot write output file";
 								return 0;
 							}
-							cur = ze->BufFile;
+							cur_idx = 0;
 						}
 					}
 				}
@@ -888,7 +891,7 @@ static int DecodeLzh (struct unzooctx *uz, struct entryctx *ze)
 	}
 
 	/* write out the rest of the buffer                                    */
-	if ( BlckWritFile(uz, ze, ze->BufFile,cur-ze->BufFile) != cur-ze->BufFile ) {
+	if ( BlckWritFile(uz, ze, ze->BufFile, cur_idx) != cur_idx ) {
 		uz->ErrMsg = "Cannot write output file";
 		return 0;
 	}
