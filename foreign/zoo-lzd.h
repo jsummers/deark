@@ -194,6 +194,7 @@ goteof: /* special case for CLEAR then Z_EOF, for 0-length files */
 	}
 
 	while (lc->cur_code > 255) {               /* if code, not character */
+		lzd_assert(lc->cur_code < LZD_MAXMAX+10);
 		lzd_push(uz, lc, lc->table[lc->cur_code].z_ch);         /* push suffix char */
 		lc->cur_code = lc->table[lc->cur_code].next;    /* <w> := <w>.code */
 	}
@@ -227,7 +228,7 @@ done:
 its value. */
 static unsigned int lzd_rd_dcode(struct unzooctx *uz, struct lzdctx *lc)
 {
-	de_byte *ptra, *ptrb;    /* miscellaneous pointers */
+	unsigned int a_idx; // index in lc->in_buf_adr
 	unsigned int word;                     /* first 16 bits in buffer */
 	unsigned int byte_offset;
 	de_byte nextch;                           /* next 8 bits in buffer */
@@ -249,26 +250,24 @@ static unsigned int lzd_rd_dcode(struct unzooctx *uz, struct lzdctx *lc)
 
 		lc->bit_offset = ofs_inbyte + lc->nbits;
 		space_left = LZD_INBUFSIZ - byte_offset;
-		ptrb = byte_offset + lc->in_buf_adr;          /* point to char */
-		ptra = lc->in_buf_adr;
+		a_idx = 0;
 		/* we now move the remaining characters down buffer beginning */
 		lzd_debug((printf ("lzd_rd_dcode: space_left = %d\n", space_left)))
-		while (space_left > 0) {
-			*ptra++ = *ptrb++;
-			space_left--;
-		}
-		lzd_assert(ptra - lc->in_buf_adr == ptrb - (lc->in_buf_adr + byte_offset));
-		lzd_assert(space_left == 0);
-		if (lzd_zooread (uz, lc->in_f, ptra, byte_offset) == -1)
+		lzd_assert(a_idx + byte_offset <= LZD_OUT_BUF_SIZE);
+		de_memmove(&lc->in_buf_adr[a_idx], &lc->in_buf_adr[byte_offset], (size_t)space_left);
+		a_idx += space_left;
+		if (lzd_zooread (uz, lc->in_f, &lc->in_buf_adr[a_idx], (int)byte_offset) == -1)
 			lzd_prterror (uz, 'f', "I/O error in lzd_rd_dcode.");
 		byte_offset = 0;
 	}
-	ptra = byte_offset + lc->in_buf_adr;
-	/* NOTE:  "word = *((int *) ptra)" would not be independent of byte order. */
-	word = (unsigned int) *ptra; ptra++;
-	word = word | ( ((unsigned int) *ptra) << 8 ); ptra++;
+	a_idx = byte_offset;
+	lzd_assert(a_idx <= LZD_OUT_BUF_SIZE-3);
+	word = lc->in_buf_adr[a_idx];
+	a_idx++;
+	word = word | ( ((unsigned int) lc->in_buf_adr[a_idx]) << 8 );
+	a_idx++;
 
-	nextch = *ptra;
+	nextch = lc->in_buf_adr[a_idx];
 	if (ofs_inbyte != 0) {
 		/* shift nextch right by ofs_inbyte bits */
 		/* and shift those bits right into word; */
