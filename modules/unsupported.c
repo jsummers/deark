@@ -61,12 +61,6 @@ static void get_fmt(deark *c, struct fmtinfo_struct *fmti)
 		return;
 	}
 
-	if(!de_memcmp(b, "MSCF", 4)) {
-		fmti->confidence = 40;
-		fmti->descr = "a Microsoft CAB file";
-		return;
-	}
-
 	if(!de_memcmp(b, "ISc(", 4)) {
 		fmti->confidence = 40;
 		fmti->descr = "an InstallShield CAB file";

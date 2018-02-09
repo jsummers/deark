@@ -538,6 +538,10 @@
 				>
 			</File>
 			<File
+				RelativePath="..\..\modules\cab.c"
+				>
+			</File>
+			<File
 				RelativePath="..\..\modules\cardfile.c"
 				>
 			</File>
