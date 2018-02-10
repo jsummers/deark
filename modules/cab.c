@@ -61,6 +61,9 @@ static int do_one_CFFOLDER(deark *c, lctx *d, de_int64 pos1, de_int64 *bytes_con
 	if((d->header_flags&0x0004) && (d->cbCFFolder>0)) {
 		de_dbg(c, "[%d bytes of abReserve data at %d]", (int)d->cbCFFolder,
 			(int)pos);
+		de_dbg_indent(c, 1);
+		de_dbg_hexdump(c, c->infile, pos, d->cbCFFolder, 256, "data", 0x1);
+		de_dbg_indent(c, -1);
 		pos += d->cbCFFolder;
 	}
 
@@ -81,6 +84,8 @@ static void do_CFFOLDERs(deark *c, lctx *d)
 	de_dbg_indent(c, 1);
 	for(i=0; i<d->cFolders; i++) {
 		de_int64 bytes_consumed = 0;
+
+		if(pos>=c->infile->len) break;
 		de_dbg(c, "CFFOLDER[%d] at %d", (int)i, (int)pos);
 		de_dbg_indent(c, 1);
 		if(!do_one_CFFOLDER(c, d, pos, &bytes_consumed)) {
@@ -94,9 +99,85 @@ done:
 	de_dbg_indent_restore(c, saved_indent_level);
 }
 
+static const char *get_special_folder_name(de_int64 n)
+{
+	const char *name;
+	switch(n) {
+	case 0xfffd: name="CONTINUED_FROM_PREV"; break;
+	case 0xfffe: name="CONTINUED_TO_NEXT"; break;
+	case 0xffff: name="CONTINUED_PREV_AND_NEXT"; break;
+	default: name="?"; break;
+	}
+	return name;
+}
+
 static int do_one_CFFILE(deark *c, lctx *d, de_int64 pos1, de_int64 *bytes_consumed)
 {
-	return 0;
+	de_int64 cbFile;
+	de_int64 uoffFolderStart;
+	de_int64 iFolder;
+	de_int64 pos = pos1;
+	de_int64 date_;
+	de_int64 time_;
+	unsigned int attribs;
+	int retval = 0;
+	struct de_stringreaderdata *szName = NULL;
+	de_ucstring *attribs_str = NULL;
+	struct de_timestamp ts;
+	char timestamp_buf[64];
+	char tmps[80];
+
+	cbFile = de_getui32le(pos);
+	de_dbg(c, "uncompressed file size (cbFile): %"INT64_FMT, cbFile);
+	pos += 4;
+
+	uoffFolderStart = de_getui32le(pos);
+	de_dbg(c, "offset in folder (uoffFolderStart): %"INT64_FMT, uoffFolderStart);
+	pos += 4;
+
+	iFolder = de_getui16le(pos);
+	if(iFolder>=0xfffd) {
+		de_snprintf(tmps, sizeof(tmps), "0x%04x (%s)", (unsigned int)iFolder,
+			get_special_folder_name(iFolder));
+	}
+	else {
+		de_snprintf(tmps, sizeof(tmps), "%u", (unsigned int)iFolder);
+	}
+	de_dbg(c, "folder index (iFolder): %s", tmps);
+	pos += 2;
+
+	date_ = de_getui16le(pos);
+	pos += 2;
+	time_ = de_getui16le(pos);
+	pos += 2;
+	de_dos_datetime_to_timestamp(&ts, date_, time_, 0);
+	de_timestamp_to_string(&ts, timestamp_buf, sizeof(timestamp_buf), 0);
+	de_dbg(c, "timestamp: %s", timestamp_buf);
+
+	attribs = (unsigned int)de_getui16le(pos);
+	attribs_str = ucstring_create(c);
+	if(attribs&0x1) ucstring_append_flags_item(attribs_str, "RDONLY");
+	if(attribs&0x2) ucstring_append_flags_item(attribs_str, "HIDDEN");
+	if(attribs&0x4) ucstring_append_flags_item(attribs_str, "SYSTEM");
+	if(attribs&0x20) ucstring_append_flags_item(attribs_str, "ARCH");
+	if(attribs&0x40) ucstring_append_flags_item(attribs_str, "EXEC");
+	if(attribs&0x80) ucstring_append_flags_item(attribs_str, "NAME_IS_UTF8");
+	de_dbg(c, "attribs: 0x%04x (%s)", attribs, ucstring_get_printable_sz(attribs_str));
+	pos += 2;
+
+	szName = dbuf_read_string(c->infile, pos, 257, 257,
+		DE_CONVFLAG_STOP_AT_NUL,
+		(attribs&0x80)?DE_ENCODING_UTF8:DE_ENCODING_ASCII);
+	de_dbg(c, "szName: \"%s\"", ucstring_get_printable_sz(szName->str));
+	if(!szName->found_nul) goto done;
+	pos += szName->bytes_consumed;
+
+	*bytes_consumed = pos-pos1;
+	retval = 1;
+done:
+	de_destroy_stringreaderdata(c, szName);
+	ucstring_destroy(attribs_str);
+	return retval;
 }
 
 static void do_CFFILEs(deark *c, lctx *d)
@@ -111,6 +192,8 @@ static void do_CFFILEs(deark *c, lctx *d)
 	de_dbg_indent(c, 1);
 	for(i=0; i<d->cFiles; i++) {
 		de_int64 bytes_consumed = 0;
+
+		if(pos>=c->infile->len) break;
 		de_dbg(c, "CFFILE[%d] at %d", (int)i, (int)pos);
 		de_dbg_indent(c, 1);
 		if(!do_one_CFFILE(c, d, pos, &bytes_consumed)) {
@@ -187,6 +270,9 @@ static int do_CFHEADER(deark *c, lctx *d)
 		if(d->cbCFHeader!=0) {
 			de_dbg(c, "[%d bytes of abReserve data at %d]", (int)d->cbCFHeader,
 				(int)pos);
+			de_dbg_indent(c, 1);
+			de_dbg_hexdump(c, c->infile, pos, d->cbCFHeader, 256, "data", 0x1);
+			de_dbg_indent(c, -1);
 			pos += d->cbCFHeader;
 		}
 	}
@@ -246,6 +332,7 @@ static void de_run_cab(deark *c, de_module_params *mparams)
 	lctx *d = NULL;
 
 	d = de_malloc(c, sizeof(lctx));
+	de_msg(c, "Note: MS Cabinet files can be parsed, but no files can be extracted from them.");
 
 	if(!do_CFHEADER(c, d)) goto done;
 	do_CFFOLDERs(c, d);
@@ -268,5 +355,4 @@ void de_module_cab(deark *c, struct deark_module_info *mi)
 	mi->desc = "Microsoft Cabinet (CAB)";
 	mi->run_fn = de_run_cab;
 	mi->identify_fn = de_identify_cab;
-	mi->flags |= DE_MODFLAG_NONWORKING;
 }
