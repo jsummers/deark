@@ -8,6 +8,14 @@
 #include <deark-private.h>
 DE_DECLARE_MODULE(de_module_cab);
 
+struct folder_info {
+	de_int64 folder_idx;
+	de_int64 coffCabStart;
+	de_int64 cCFData;
+	unsigned int typeCompress_raw;
+	unsigned int cmpr_type;
+};
+
 typedef struct localctx_struct {
 	de_byte versionMinor, versionMajor;
 	unsigned int header_flags;
@@ -33,28 +41,96 @@ static const char *get_cmpr_type_name(unsigned int n)
 	return name;
 }
 
-static int do_one_CFFOLDER(deark *c, lctx *d, de_int64 pos1, de_int64 *bytes_consumed)
+static int do_one_CFDATA(deark *c, lctx *d, struct folder_info *fldi, de_int64 pos1,
+	de_int64 *bytes_consumed)
 {
-	de_int64 coffCabStart;
-	de_int64 cCFData;
-	unsigned int typeCompress_raw;
-	unsigned int cmpr_type;
+	de_uint32 csum;
+	de_int64 cbData;
+	de_int64 cbUncomp;
 	de_int64 pos = pos1;
 
-	coffCabStart = de_getui32le(pos);
-	de_dbg(c, "coffCabStart: %"INT64_FMT, coffCabStart);
+	csum = (de_uint32)de_getui32le(pos);
+	de_dbg(c, "csum: 0x%08x", (unsigned int)csum);
 	pos += 4;
 
-	cCFData = de_getui16le(pos);
-	de_dbg(c, "cCFData: %d", (int)cCFData);
+	cbData = de_getui16le(pos);
+	de_dbg(c, "cbData: %d", (int)cbData);
 	pos += 2;
 
-	typeCompress_raw = (unsigned int)de_getui16le(pos);
-	cmpr_type = typeCompress_raw & 0x000f;
-	de_dbg(c, "typeCompress field: 0x%04x", typeCompress_raw);
+	cbUncomp = de_getui16le(pos);
+	de_dbg(c, "cbUncomp: %d", (int)cbUncomp);
+	pos += 2;
+
+	if((d->header_flags&0x0004) && (d->cbCFData>0)) {
+		de_dbg(c, "[%d bytes of abReserve data at %d]", (int)d->cbCFData,
+			(int)pos);
+		de_dbg_indent(c, 1);
+		de_dbg_hexdump(c, c->infile, pos, d->cbCFData, 256, "data", 0x1);
+		de_dbg_indent(c, -1);
+		pos += d->cbCFData;
+	}
+
+	de_dbg(c, "[%d bytes of %scompressed data at %d]", (int)cbData,
+		(fldi->cmpr_type==0)?"un":"", (int)pos);
+	pos += cbData;
+
+	*bytes_consumed = pos - pos1;
+	return 1;
+}
+
+static void do_CFDATA_for_one_CFFOLDER(deark *c, lctx *d, struct folder_info *fldi)
+{
+	de_int64 i;
+	int saved_indent_level;
+	de_int64 pos = fldi->coffCabStart;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+	if(fldi->cCFData<1) goto done;
+	de_dbg(c, "CFDATA blocks for CFFOLDER[%d], at %d, #=%d", (int)fldi->folder_idx,
+		(int)fldi->coffCabStart, (int)fldi->cCFData);
 	de_dbg_indent(c, 1);
-	de_dbg(c, "compression type: 0x%04x (%s)", cmpr_type,
-		get_cmpr_type_name(cmpr_type));
+
+	for(i=0; i<fldi->cCFData; i++) {
+		de_int64 bytes_consumed = 0;
+
+		if(pos>=c->infile->len) goto done;
+		de_dbg(c, "CFDATA[%d] for CFFOLDER[%d], at %d", (int)i,
+			(int)fldi->folder_idx, (int)pos);
+		de_dbg_indent(c, 1);
+		if(!do_one_CFDATA(c, d, fldi, pos, &bytes_consumed)) {
+			goto done;
+		}
+		de_dbg_indent(c, -1);
+		pos += bytes_consumed;
+	}
+
+done:
+	de_dbg_indent_restore(c, saved_indent_level);
+}
+
+static int do_one_CFFOLDER(deark *c, lctx *d, de_int64 folder_idx,
+	de_int64 pos1, de_int64 *bytes_consumed)
+{
+	de_int64 pos = pos1;
+	struct folder_info *fldi = NULL;
+
+	fldi = de_malloc(c, sizeof(struct folder_info));
+	fldi->folder_idx = folder_idx;
+
+	fldi->coffCabStart = de_getui32le(pos);
+	de_dbg(c, "first CFDATA blk offset (coffCabStart): %"INT64_FMT, fldi->coffCabStart);
+	pos += 4;
+
+	fldi->cCFData = de_getui16le(pos);
+	de_dbg(c, "no. of CFDATA blks for this folder (cCFData): %d", (int)fldi->cCFData);
+	pos += 2;
+
+	fldi->typeCompress_raw = (unsigned int)de_getui16le(pos);
+	fldi->cmpr_type = fldi->typeCompress_raw & 0x000f;
+	de_dbg(c, "typeCompress field: 0x%04x", fldi->typeCompress_raw);
+	de_dbg_indent(c, 1);
+	de_dbg(c, "compression type: 0x%04x (%s)", fldi->cmpr_type,
+		get_cmpr_type_name(fldi->cmpr_type));
 	de_dbg_indent(c, -1);
 	pos += 2;
 
@@ -68,6 +144,10 @@ static int do_one_CFFOLDER(deark *c, lctx *d, de_int64 pos1, de_int64 *bytes_con
 	}
 
 	*bytes_consumed = pos-pos1;
+
+	do_CFDATA_for_one_CFFOLDER(c, d, fldi);
+
+	de_free(c, fldi);
 	return 1;
 }
 
@@ -88,7 +168,7 @@ static void do_CFFOLDERs(deark *c, lctx *d)
 		if(pos>=c->infile->len) break;
 		de_dbg(c, "CFFOLDER[%d] at %d", (int)i, (int)pos);
 		de_dbg_indent(c, 1);
-		if(!do_one_CFFOLDER(c, d, pos, &bytes_consumed)) {
+		if(!do_one_CFFOLDER(c, d, i, pos, &bytes_consumed)) {
 			goto done;
 		}
 		de_dbg_indent(c, -1);
