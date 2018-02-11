@@ -393,7 +393,7 @@ static void do_picture(deark *c, lctx *d, struct para_info *pinfo)
 	de_int64 pos = pinfo->thisparapos;
 
 	if(d->html_outf) {
-		dbuf_puts(d->html_outf, "<p class=r>[picture]</p>\n");
+		dbuf_puts(d->html_outf, "<p class=r>picture</p>\n");
 	}
 
 	if(pinfo->thisparalen<2) goto done;
@@ -451,7 +451,7 @@ static void do_text_paragraph(deark *c, lctx *d, struct para_info *pinfo)
 
 	if((pinfo->papflags & 0x06)!=0) {
 		// TODO: Decode headers and footers somehow.
-		dbuf_printf(f, "<p class=r>[%s definition]</p>\n",
+		dbuf_printf(f, "<p class=r>%s definition</p>\n",
 			(pinfo->papflags&0x01)?"footer":"header");
 		return;
 	}
@@ -682,9 +682,13 @@ static void do_html_begin(deark *c, lctx *d)
 
 	dbuf_puts(f, "<style type=\"text/css\">\n");
 	dbuf_puts(f, " body { color: #000; background-color: #fff }\n");
-	dbuf_puts(f, " p { margin-top:0; margin-bottom:0 }\n");
+	dbuf_puts(f, " p { margin-top: 0; margin-bottom: 0 }\n");
 	dbuf_puts(f, " .c { color: #ccc }\n"); // Visible control characters
-	dbuf_puts(f, " .r { color: #800; font-style: italic }\n"); // Replacement text
+
+	// Replacement object
+	dbuf_puts(f, " .r { padding: 0.5ex; color: #800; background-color: #eee;\n");
+	dbuf_puts(f, "  font-style: italic; border: 0.34ex dotted #800 }\n");
+
 	dbuf_puts(f, "</style>\n");
 
 	dbuf_puts(f, "</head>\n");
