@@ -40,6 +40,13 @@
 
 */
 
+struct lzh_lookuptable {
+	int tablebits;
+	size_t ncodes;
+	size_t nlengths;
+	de_uint16 *Tab;
+	de_byte *Len;
+};
 
 struct lzh_table {
 #define LZH_MAX_LIT     255     /* maximal literal code            */
@@ -55,12 +62,10 @@ struct lzh_table {
 
 	de_uint16       TreeLeft [2*LZH_MAX_CODE+1];/* tree for codes   (upper half)   */
 	de_uint16       TreeRight[2*LZH_MAX_CODE+1];/* and  for offsets (lower half)   */
-	de_uint16       TabCode  [4096];        /* table for fast lookup of codes  */
-	de_byte         LenCode  [LZH_MAX_CODE+1];  /* number of bits used for code    */
-	de_uint16       TabLog   [256];         /* table for fast lookup of logs   */
-	de_byte         LenLog   [LZH_MAX_LOG+1];   /* number of bits used for logs    */
-	de_uint16       TabPre   [256];         /* table for fast lookup of pres   */
-	de_byte         LenPre   [LZH_MAX_PRE+1];   /* number of bits used for pres    */
+
+	struct lzh_lookuptable CodeTbl; /* table for fast lookup of codes  */
+	struct lzh_lookuptable LogTbl; /* table for fast lookup of logs   */
+	struct lzh_lookuptable PreTbl; /* table for fast lookup of pres   */
 };
 
 // Data associated with one ZOO file Entry
@@ -507,6 +512,13 @@ static int DecodeLzd (struct unzooctx *uz, struct entryctx *ze)
 	return !lzd(uz, ze);
 }
 
+static void SetLookupTblLen(struct lzh_lookuptable *lookuptbl, size_t idx, de_byte val)
+{
+	if(idx < lookuptbl->nlengths) {
+		lookuptbl->Len[idx] = val;
+	}
+}
+
 /****************************************************************************
 **
 *F  DecodeLzh() . . . . . . . . . . . . . . . extract a LZH compressed member
@@ -583,17 +595,18 @@ static int DecodeLzd (struct unzooctx *uz, struct entryctx *ze)
 **  Haruhiko Okumura  wrote the  LZH code (originally for his 'ar' archiver).
 */
 static int MakeTablLzh (struct unzooctx *uz, struct entryctx *ze,
-	int                 nchar,
-	de_byte             bitlen[],
-	int                 tablebits,
-	de_uint16           table[])
+	struct lzh_lookuptable *lookuptbl)
 {
 	de_uint16           count[17], weight[17], start[18], *p;
 	unsigned int        i, k, len, ch, jutbits, avail, mask;
 	struct lzh_table *lzhtbl = &ze->lzhtbl;
 
-	for (i = 1; i <= 16; i++) count[i] = 0;
-	for (i = 0; i < (unsigned int)nchar; i++) count[bitlen[i]]++;
+	de_memset(count, 0, sizeof(count));
+	de_memset(weight, 0, sizeof(weight));
+	de_memset(start, 0, sizeof(start));
+	for (i = 0; i < (unsigned int)lookuptbl->nlengths; i++) {
+		if(lookuptbl->Len[i]<17) count[lookuptbl->Len[i]]++;
+	}
 
 	start[1] = 0;
 	for (i = 1; i <= 16; i++)
@@ -601,33 +614,36 @@ static int MakeTablLzh (struct unzooctx *uz, struct entryctx *ze,
 	if (start[17] != (de_uint16)((unsigned int) 1 << 16))
 		return 0;
 
-	jutbits = 16 - tablebits;
-	for (i = 1; i <= (unsigned int)tablebits; i++) {
+	jutbits = 16 - lookuptbl->tablebits;
+	for (i = 1; i <= (unsigned int)lookuptbl->tablebits; i++) {
 		start[i] >>= jutbits;
-		weight[i] = (unsigned int) 1 << (tablebits - i);
+		weight[i] = (unsigned int) 1 << (lookuptbl->tablebits - i);
 	}
 	while (i <= 16) {
 		weight[i] = (unsigned int) 1 << (16 - i);
 		i++;
 	}
 
-	i = start[tablebits + 1] >> jutbits;
+	i = start[lookuptbl->tablebits + 1] >> jutbits;
 	if (i != (de_uint16)((unsigned int) 1 << 16)) {
-		k = 1 << tablebits;
-		while (i != k) table[i++] = 0;
+		k = 1 << lookuptbl->tablebits;
+		while (i != k) lookuptbl->Tab[i++] = 0;
 	}
 
-	avail = nchar;
-	mask = (unsigned int) 1 << (15 - tablebits);
-	for (ch = 0; ch < (unsigned int)nchar; ch++) {
-		if ((len = bitlen[ch]) == 0) continue;
-		if (len <= (unsigned int)tablebits) {
-			for ( i = 0; i < weight[len]; i++ )  table[i+start[len]] = ch;
+	avail = (unsigned int)lookuptbl->nlengths;
+	mask = (unsigned int) 1 << (15 - lookuptbl->tablebits);
+	for (ch = 0; ch < (unsigned int)lookuptbl->nlengths; ch++) {
+		if ((len = lookuptbl->Len[ch]) == 0) continue;
+		if (len <= (unsigned int)lookuptbl->tablebits) {
+			for ( i = 0; i < weight[len]; i++ ) {
+				if(i+start[len] < lookuptbl->ncodes)
+					lookuptbl->Tab[i+start[len]] = ch;
+			}
 		}
 		else {
 			k = start[len];
-			p = &table[k >> jutbits];
-			i = len - tablebits;
+			p = &lookuptbl->Tab[k >> jutbits];
+			i = len - lookuptbl->tablebits;
 			while (i != 0) {
 				if (*p == 0) {
 					lzhtbl->TreeRight[avail] = lzhtbl->TreeLeft[avail] = 0;
@@ -715,8 +731,8 @@ static int DecodeLzh (struct unzooctx *uz, struct entryctx *ze)
 		cnt2 = LZH_PEEK_BITS( LZH_BITS_PRE );  LZH_FLSH_BITS( LZH_BITS_PRE );
 		if ( cnt2 == 0 ) {
 			pre = LZH_PEEK_BITS( LZH_BITS_PRE );  LZH_FLSH_BITS( LZH_BITS_PRE );
-			for ( i = 0; i <      256; i++ )  lzhtbl->TabPre[i] = pre;
-			for ( i = 0; i <= LZH_MAX_PRE; i++ )  lzhtbl->LenPre[i] = 0;
+			for ( i = 0; i <      256; i++ )  lzhtbl->PreTbl.Tab[i] = pre;
+			for ( i = 0; i <= LZH_MAX_PRE; i++ )  lzhtbl->PreTbl.Len[i] = 0;
 		}
 		else {
 			i = 0;
@@ -726,14 +742,14 @@ static int DecodeLzh (struct unzooctx *uz, struct entryctx *ze)
 					while ( LZH_PEEK_BITS( 1 ) ) { len++; LZH_FLSH_BITS( 1 ); }
 					LZH_FLSH_BITS( 1 );
 				}
-				lzhtbl->LenPre[i++] = len;
+				SetLookupTblLen(&lzhtbl->PreTbl, i++, len);
 				if ( i == 3 ) {
 					len = LZH_PEEK_BITS( 2 );  LZH_FLSH_BITS( 2 );
-					while ( 0 < len-- )  lzhtbl->LenPre[i++] = 0;
+					while ( 0 < len-- )  SetLookupTblLen(&lzhtbl->PreTbl, i++, 0);
 				}
 			}
-			while ( i <= LZH_MAX_PRE )  lzhtbl->LenPre[i++] = 0;
-			if ( ! MakeTablLzh(uz, ze, LZH_MAX_PRE+1, lzhtbl->LenPre, 8, lzhtbl->TabPre ) ) {
+			while ( i <= LZH_MAX_PRE )  lzhtbl->PreTbl.Len[i++] = 0;
+			if ( ! MakeTablLzh(uz, ze, &lzhtbl->PreTbl) ) {
 				uz->ErrMsg = "Pre code description corrupted";
 				return 0;
 			}
@@ -743,15 +759,15 @@ static int DecodeLzh (struct unzooctx *uz, struct entryctx *ze)
 		cnt2 = LZH_PEEK_BITS( LZH_BITS_CODE );  LZH_FLSH_BITS( LZH_BITS_CODE );
 		if ( cnt2 == 0 ) {
 			code = LZH_PEEK_BITS( LZH_BITS_CODE );  LZH_FLSH_BITS( LZH_BITS_CODE );
-			for ( i = 0; i <      4096; i++ )  lzhtbl->TabCode[i] = code;
-			for ( i = 0; i <= LZH_MAX_CODE; i++ )  lzhtbl->LenCode[i] = 0;
+			for ( i = 0; i <      4096; i++ )  lzhtbl->CodeTbl.Tab[i] = code;
+			for ( i = 0; i <= LZH_MAX_CODE; i++ )  lzhtbl->CodeTbl.Len[i] = 0;
 		}
 		else {
 			i = 0;
 			while ( i < cnt2 ) {
-				len = lzhtbl->TabPre[ LZH_PEEK_BITS( 8 ) ];
+				len = lzhtbl->PreTbl.Tab[ LZH_PEEK_BITS( 8 ) ];
 				if ( len <= LZH_MAX_PRE ) {
-					LZH_FLSH_BITS( lzhtbl->LenPre[len] );
+					LZH_FLSH_BITS( lzhtbl->PreTbl.Len[len] );
 				}
 				else {
 					LZH_FLSH_BITS( 8 );
@@ -771,14 +787,16 @@ static int DecodeLzh (struct unzooctx *uz, struct entryctx *ze)
 					else {
 						len = LZH_PEEK_BITS(LZH_BITS_CODE)+20; LZH_FLSH_BITS(LZH_BITS_CODE);
 					}
-					while ( 0 < len-- )  lzhtbl->LenCode[i++] = 0;
+					while ( 0 < len-- ) {
+						SetLookupTblLen(&lzhtbl->CodeTbl, i++, 0);
+					}
 				}
 				else {
-					lzhtbl->LenCode[i++] = len - 2;
+					SetLookupTblLen(&lzhtbl->CodeTbl, i++, len - 2);
 				}
 			}
-			while ( i <= LZH_MAX_CODE )  lzhtbl->LenCode[i++] = 0;
-			if ( ! MakeTablLzh(uz, ze, LZH_MAX_CODE+1, lzhtbl->LenCode, 12, lzhtbl->TabCode ) ) {
+			while ( i <= LZH_MAX_CODE )  lzhtbl->CodeTbl.Len[i++] = 0;
+			if ( ! MakeTablLzh(uz, ze, &lzhtbl->CodeTbl) ) {
 				uz->ErrMsg = "Literal/length code description corrupted";
 				return 0;
 			}
@@ -788,8 +806,8 @@ static int DecodeLzh (struct unzooctx *uz, struct entryctx *ze)
 		cnt2 = LZH_PEEK_BITS( LZH_BITS_LOG );  LZH_FLSH_BITS( LZH_BITS_LOG );
 		if ( cnt2 == 0 ) {
 			log_ = LZH_PEEK_BITS( LZH_BITS_LOG );  LZH_FLSH_BITS( LZH_BITS_LOG );
-			for ( i = 0; i <      256; i++ )  lzhtbl->TabLog[i] = log_;
-			for ( i = 0; i <= LZH_MAX_LOG; i++ )  lzhtbl->LenLog[i] = 0;
+			for ( i = 0; i <      256; i++ )  lzhtbl->LogTbl.Tab[i] = log_;
+			for ( i = 0; i <= LZH_MAX_LOG; i++ )  lzhtbl->LogTbl.Len[i] = 0;
 		}
 		else {
 			i = 0;
@@ -799,10 +817,10 @@ static int DecodeLzh (struct unzooctx *uz, struct entryctx *ze)
 					while ( LZH_PEEK_BITS( 1 ) ) { len++; LZH_FLSH_BITS( 1 ); }
 					LZH_FLSH_BITS( 1 );
 				}
-				lzhtbl->LenLog[i++] = len;
+				SetLookupTblLen(&lzhtbl->LogTbl, i++, len);
 			}
-			while ( i <= LZH_MAX_LOG )  lzhtbl->LenLog[i++] = 0;
-			if ( ! MakeTablLzh(uz, ze, LZH_MAX_LOG+1, lzhtbl->LenLog, 8, lzhtbl->TabLog ) ) {
+			while ( i <= LZH_MAX_LOG )  lzhtbl->LogTbl.Len[i++] = 0;
+			if ( ! MakeTablLzh(uz, ze, &lzhtbl->LogTbl) ) {
 				uz->ErrMsg = "Log code description corrupted";
 				return 0;
 			}
@@ -812,11 +830,11 @@ static int DecodeLzh (struct unzooctx *uz, struct entryctx *ze)
 		while ( 0 < cnt-- ) {
 
 			/* try to decode the code the fast way                         */
-			code = lzhtbl->TabCode[ LZH_PEEK_BITS( 12 ) ];
+			code = lzhtbl->CodeTbl.Tab[ LZH_PEEK_BITS( 12 ) ];
 
 			/* if this code needs more than 12 bits look it up in the tree */
 			if ( code <= LZH_MAX_CODE ) {
-				LZH_FLSH_BITS( lzhtbl->LenCode[code] );
+				LZH_FLSH_BITS( lzhtbl->CodeTbl.Len[code] );
 			}
 			else {
 				LZH_FLSH_BITS( 12 );
@@ -847,10 +865,10 @@ static int DecodeLzh (struct unzooctx *uz, struct entryctx *ze)
 				len = code - (LZH_MAX_LIT+1) + LZH_MIN_LEN;
 
 				/* try to decodes the log_2 of the offset the fast way     */
-				log_ = lzhtbl->TabLog[ LZH_PEEK_BITS( 8 ) ];
+				log_ = lzhtbl->LogTbl.Tab[ LZH_PEEK_BITS( 8 ) ];
 				/* if this log_2 needs more than 8 bits look in the tree   */
 				if ( log_ <= LZH_MAX_LOG ) {
-					LZH_FLSH_BITS( lzhtbl->LenLog[log_] );
+					LZH_FLSH_BITS( lzhtbl->LogTbl.Len[log_] );
 				}
 				else {
 					LZH_FLSH_BITS( 8 );
@@ -918,6 +936,16 @@ static int DecodeLzh (struct unzooctx *uz, struct entryctx *ze)
 	return 1;
 }
 
+static void init_lzh_lookuptable(deark *c, struct lzh_lookuptable *lookuptbl,
+	int tablebits, size_t nlengths)
+{
+	lookuptbl->tablebits = tablebits;
+	lookuptbl->ncodes = ((size_t)1)<<lookuptbl->tablebits;
+	lookuptbl->nlengths = nlengths;
+	lookuptbl->Tab = de_malloc(c, lookuptbl->ncodes * sizeof(de_uint16));
+	lookuptbl->Len = de_malloc(c, lookuptbl->nlengths);
+}
+
 // Process a single member file
 static void ExtrEntry(struct unzooctx *uz, de_int64 pos1, de_int64 *next_entry_pos)
 {
@@ -928,6 +956,11 @@ static void ExtrEntry(struct unzooctx *uz, de_int64 pos1, de_int64 *next_entry_p
 	char timestamp_buf[64];
 
 	ze = de_malloc(c, sizeof(struct entryctx));
+
+	init_lzh_lookuptable(c, &ze->lzhtbl.CodeTbl, 12, LZH_MAX_CODE+1);
+	init_lzh_lookuptable(c, &ze->lzhtbl.LogTbl, 8, LZH_MAX_LOG+1);
+	init_lzh_lookuptable(c, &ze->lzhtbl.PreTbl, 8, LZH_MAX_PRE+1);
+
 	ze->fi = de_finfo_create(c);
 
 	/* read the directory entry for the next member                    */
@@ -1012,6 +1045,14 @@ done:
 	if(ze) {
 		ClosWritFile(uz, ze);
 		de_finfo_destroy(c, ze->fi);
+
+		de_free(c, ze->lzhtbl.CodeTbl.Tab);
+		de_free(c, ze->lzhtbl.CodeTbl.Len);
+		de_free(c, ze->lzhtbl.LogTbl.Tab);
+		de_free(c, ze->lzhtbl.LogTbl.Len);
+		de_free(c, ze->lzhtbl.PreTbl.Tab);
+		de_free(c, ze->lzhtbl.PreTbl.Len);
+
 		de_free(c, ze);
 	}
 }
