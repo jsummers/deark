@@ -59,7 +59,7 @@ static const struct ds_info ds_info_arr[] = {
 	{ 1, 122, 0,      "ARM Version", handle_uint16 },
 	{ 2, 0,   0,      "Record Version", handle_uint16 },
 	{ 2, 3,   0x0001, "Object Type Reference", NULL },
-	{ 2, 4,   0x0001, "Object Atribute Reference", NULL },
+	{ 2, 4,   0x0001, "Object Attribute Reference", NULL },
 	{ 2, 5,   0x0001, "Object Name", NULL },
 	{ 2, 7,   0x0001, "Edit Status", NULL },
 	{ 2, 8,   0x0001, "Editorial Update", NULL },
@@ -119,7 +119,7 @@ static const struct ds_info ds_info_arr[] = {
 	{ 7, 10,  0,      "Size Mode", NULL },
 	{ 7, 20,  0,      "Max Subfile Size", NULL },
 	{ 7, 90,  0,      "ObjectData Size Announced", NULL },
-	{ 7, 95,  0,      "Maxium ObjectData Size", NULL },
+	{ 7, 95,  0,      "Maximum ObjectData Size", NULL },
 	{ 8, 10,  0,      "Subfile", NULL },
 	{ 9, 10,  0,      "Confirmed ObjectData Size", NULL }
 };
