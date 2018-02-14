@@ -1,0 +1,59 @@
+deark (1.4.5-0ddebs1) unstable; urgency=medium
+
+  * New upstream release
+
+ -- Nicolas HOUDELOT <nicolas@demosdebs.org>  Wed, 14 Feb 2018 03:23:24 +0100
+ 
+deark (1.4.3-0ddebs2) xenial; urgency=medium
+
+  * Via Lintian, corrected spelling errors
+
+ -- Nicolas HOUDELOT <nicolas@demosdebs.org>  Mon, 29 Jan 2018 03:04:45 +0100
+
+deark (1.4.3-0ddebs1) unstable; urgency=medium
+
+  * New upstream release
+
+ -- Nicolas HOUDELOT <nicolas@demosdebs.org>  Sun, 16 Jul 2017 02:26:33 +0200
+
+deark (1.4.2-0ddebs1) unstable; urgency=medium
+
+  * New upstream release
+
+ -- Nicolas HOUDELOT <nicolas@demosdebs.org>  Sat, 01 Apr 2017 18:56:30 +0200
+
+deark (1.3.0-0ddebs3) unstable; urgency=medium
+
+  * updated to standards-version 3.9.7
+
+ -- Nicolas HOUDELOT <nicolas@demosdebs.org>  Mon, 25 Jul 2016 17:04:53 +0200
+
+deark (1.3.0-0ddebs2) unstable; urgency=medium
+
+  * update makefile
+
+ -- Nicolas HOUDELOT <nicolas@demosdebs.org>  Fri, 06 May 2016 01:35:20 +0200
+
+deark (1.3.0-0ddebs1) unstable; urgency=medium
+
+  * New upstream release
+
+ -- Nicolas HOUDELOT <nicolas@demosdebs.org>  Thu, 17 Mar 2016 20:27:33 +0100
+
+deark (1.2.5-0ddebs2) unstable; urgency=medium
+
+  * using debian recommended CFLAGS and habits
+
+ -- Nicolas HOUDELOT <nicolas@demosdebs.org>  Wed, 09 Mar 2016 01:14:53 +0100
+
+deark (1.2.5-0ddebs1) unstable; urgency=medium
+
+  * New upstream release
+
+ -- Nicolas HOUDELOT <nicolas@demosdebs.org>  Fri, 15 Jan 2016 00:09:16 +0100
+
+deark (1.2.3-0nash1) trusty; urgency=low
+
+  * Initial release
+
+ -- Nicolas HOUDELOT <nicolas@demosdebs.org>  Thu, 14 Jan 2016 23:50:26 +0100
