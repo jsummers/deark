@@ -24,7 +24,7 @@ struct localctx_struct {
 #define FMT_CLP 2
 	int file_fmt;
 	int ver;
-	struct deark_bitmap *img;
+	de_bitmap *img;
 	de_int64 header_size;
 	de_byte plane_info;
 	de_byte palette_flag;
@@ -101,7 +101,7 @@ static int decode_text(deark *c, lctx *d)
 	screen->width = width_in_chars;
 	screen->height = d->img->height;
 
-	de_dbg(c, "dimensions: %dx%d characters\n", (int)screen->width, (int)screen->height);
+	de_dbg(c, "dimensions: %d"DE_CHAR_TIMES"%d characters", (int)screen->width, (int)screen->height);
 
 	if(screen->height<1) goto done;
 
@@ -143,6 +143,7 @@ static void make_rgb_palette(deark *c, lctx *d, de_uint32 *pal, de_int64 num_ent
 	de_byte cr1, cg1, cb1;
 	de_byte cr2, cg2, cb2;
 	int has_8bit_samples = 0;
+	char tmps[64];
 
 	// Pre-scan
 	for(k=0; k<num_entries; k++) {
@@ -151,7 +152,7 @@ static void make_rgb_palette(deark *c, lctx *d, de_uint32 *pal, de_int64 num_ent
 		cg1 = d->pal_info_to_use->data[3*k+1];
 		cb1 = d->pal_info_to_use->data[3*k+2];
 		if(cr1>63 || cg1>63 || cb1>63) {
-			de_dbg(c, "detected 8-bit palette samples\n");
+			de_dbg(c, "detected 8-bit palette samples");
 			has_8bit_samples = 1;
 			break;
 		}
@@ -177,9 +178,9 @@ static void make_rgb_palette(deark *c, lctx *d, de_uint32 *pal, de_int64 num_ent
 			cg2 = de_scale_63_to_255(cg1);
 			cb2 = de_scale_63_to_255(cb1);
 			pal[k] = DE_MAKE_RGB(cr2, cg2, cb2);
-			de_dbg2(c, "pal[%3d] = (%2d,%2d,%2d) -> (%3d,%3d,%3d)\n", (int)k,
-				(int)cr1, (int)cg1, (int)cb1,
-				(int)cr2, (int)cg2, (int)cb2);
+			de_snprintf(tmps, sizeof(tmps), "(%2d,%2d,%2d) "DE_CHAR_RIGHTARROW" ",
+				(int)cr1, (int)cg1, (int)cb1);
+			de_dbg_pal_entry2(c, k, pal[k], tmps, NULL, NULL);
 		}
 	}
 	de_dbg_indent(c, -1);
@@ -195,13 +196,14 @@ static int decode_egavga16(deark *c, lctx *d)
 	de_int64 src_rowspan;
 	de_int64 src_planespan;
 	int palent;
+	char tmps[32];
 
-	de_dbg(c, "image type: 16-color EGA/VGA\n");
+	de_dbg(c, "image type: 16-color EGA/VGA");
 	de_memset(pal, 0, sizeof(pal));
 
 	// Read the palette
 	if(d->pal_info_to_use->edesc==0) {
-		de_dbg(c, "No palette in file. Using standard 16-color palette.\n");
+		de_dbg(c, "No palette in file. Using standard 16-color palette.");
 		for(k=0; k<16; k++) {
 			pal[k] = de_palette_pc16((int)k);
 		}
@@ -209,16 +211,16 @@ static int decode_egavga16(deark *c, lctx *d)
 	else if(d->pal_info_to_use->edesc==3) {
 		// An EGA palette. Indexes into the standard EGA
 		// 64-color palette.
-		de_dbg(c, "Palette is 16 indices into standard EGA 64-color palette.\n");
+		de_dbg(c, "Palette is 16 indices into standard EGA 64-color palette.");
 		for(k=0; k<16; k++) {
 			if(k >= d->pal_info_to_use->esize) break;
 			pal[k] = de_palette_ega64(d->pal_info_to_use->data[k]);
-			de_dbg2(c, "pal[%2d] = %2d (%3d,%3d,%3d)\n", (int)k, (int)d->pal_info_to_use->data[k],
-				(int)DE_COLOR_R(pal[k]), (int)DE_COLOR_G(pal[k]), (int)DE_COLOR_B(pal[k]));
+			de_snprintf(tmps, sizeof(tmps), "%2d ", (int)d->pal_info_to_use->data[k]);
+			de_dbg_pal_entry2(c, k, pal[k], tmps, NULL, NULL);
 		}
 	}
 	else { // assuming edesc==5
-		de_dbg(c, "Reading 16-color palette from file.\n");
+		de_dbg(c, "Reading 16-color palette from file.");
 		make_rgb_palette(c, d, pal, 16);
 	}
 
@@ -258,18 +260,18 @@ static int decode_vga256(deark *c, lctx *d)
 	de_uint32 pal[256];
 	de_int64 k;
 
-	de_dbg(c, "image type: 256-color\n");
+	de_dbg(c, "image type: 256-color");
 	de_memset(pal, 0, sizeof(pal));
 
 	// Read the palette
 	if(d->pal_info_to_use->edesc==0) {
-		de_dbg(c, "No palette in file. Using standard 256-color palette.\n");
+		de_dbg(c, "No palette in file. Using standard 256-color palette.");
 		for(k=0; k<256; k++) {
 			pal[k] = de_palette_vga256((int)k);
 		}
 	}
 	else {
-		de_dbg(c, "Reading palette.\n");
+		de_dbg(c, "Reading palette.");
 		make_rgb_palette(c, d, pal, 256);
 	}
 
@@ -290,7 +292,7 @@ static int decode_bilevel(deark *c, lctx *d)
 	int is_grayscale;
 	de_int64 edesc = d->pal_info_to_use->edesc;
 
-	de_dbg(c, "image type: bilevel\n");
+	de_dbg(c, "image type: bilevel");
 
 	if(!d->unc_pixels) return 0;
 
@@ -298,7 +300,7 @@ static int decode_bilevel(deark *c, lctx *d)
 	pal[1] = DE_STOCKCOLOR_WHITE; // default
 
 	if(edesc!=0 && edesc!=4 && edesc!=5) {
-		de_warn(c, "The colors in this image might not be handled correctly (edesc=%d)\n",
+		de_warn(c, "The colors in this image might not be handled correctly (edesc=%d)",
 			(int)edesc);
 	}
 
@@ -334,7 +336,7 @@ static int decode_cga4(deark *c, lctx *d)
 	de_byte pal_id = 0;
 	de_byte border_col = 0;
 
-	de_dbg(c, "image type: CGA 4-color\n");
+	de_dbg(c, "image type: CGA 4-color");
 
 	if(!d->unc_pixels) return 0;
 
@@ -348,7 +350,7 @@ static int decode_cga4(deark *c, lctx *d)
 			pal_id = d->pal_info_to_use->data[0];
 		if(d->pal_info_to_use->esize >= 2)
 			border_col = d->pal_info_to_use->data[1];
-		de_dbg(c, "pal_id=0x%02x border=0x%02x\n", pal_id, border_col);
+		de_dbg(c, "pal_id=0x%02x border=0x%02x", pal_id, border_col);
 
 		for(k=0; k<4; k++) {
 			pal[k] = de_palette_pcpaint_cga4(pal_id, (int)k);
@@ -413,7 +415,7 @@ static int uncompress_block(deark *c, lctx *d,
 		// Read the byte value to repeat (run_length) times.
 		x = de_getbyte(pos);
 		pos++;
-		//de_dbg(c, "run of length %d (value 0x%02x)\n", (int)run_length, (int)x);
+		//de_dbg(c, "run of length %d (value 0x%02x)", (int)run_length, (int)x);
 		dbuf_write_run(d->unc_pixels, x, run_length);
 	}
 
@@ -440,11 +442,11 @@ static int uncompress_pixels(deark *c, lctx *d)
 	d->unc_pixels = dbuf_create_membuf(c, 16384, 0);
 	dbuf_set_max_length(d->unc_pixels, d->img->width * d->img->height);
 
-	de_dbg(c, "uncompressing image\n");
+	de_dbg(c, "uncompressing image");
 	pos = d->header_size;
 
 	for(n=0; n<d->num_rle_blocks; n++) {
-		de_dbg3(c, "-- block %d --\n", (int)n);
+		de_dbg3(c, "-- block %d --", (int)n);
 		// start_of_this_block = pos;
 		packed_block_size = de_getui16le(pos);
 		// block size includes the 5-byte header, so it can't be < 5.
@@ -454,9 +456,9 @@ static int uncompress_pixels(deark *c, lctx *d)
 		run_marker = de_getbyte(pos+4);
 		pos+=5;
 
-		de_dbg3(c, "packed block size (+5)=%d\n", (int)packed_block_size);
-		de_dbg3(c, "unpacked block size=%d\n", (int)unpacked_block_size);
-		de_dbg3(c, "run marker=0x%02x\n", (int)run_marker);
+		de_dbg3(c, "packed block size (+5)=%d", (int)packed_block_size);
+		de_dbg3(c, "unpacked block size=%d", (int)unpacked_block_size);
+		de_dbg3(c, "run marker=0x%02x", (int)run_marker);
 
 		if(!uncompress_block(c, d, pos, packed_block_size-5, run_marker)) {
 			goto done;
@@ -465,7 +467,7 @@ static int uncompress_pixels(deark *c, lctx *d)
 		pos = end_of_this_block;
 	}
 
-	de_dbg(c, "uncompressed to %d bytes\n", (int)d->unc_pixels->len);
+	de_dbg(c, "uncompressed to %d bytes", (int)d->unc_pixels->len);
 	retval = 1;
 
 done:
@@ -499,7 +501,7 @@ static int do_read_alt_palette_file(deark *c, lctx *d)
 		goto done;
 	}
 
-	de_dbg(c, "reading palette file %s\n", palfn);
+	de_dbg(c, "reading palette file %s", palfn);
 
 	palfile = dbuf_open_input_file(c, palfn);
 	if(!palfile) {
@@ -508,14 +510,14 @@ static int do_read_alt_palette_file(deark *c, lctx *d)
 
 	magic = dbuf_getui16le(palfile, 0);
 	if(magic!=0x1234) {
-		de_err(c, "Palette file is not in PIC format.\n");
+		de_err(c, "Palette file is not in PIC format.");
 		goto done;
 	}
 
 	do_read_palette_data(c, d, palfile, &d->pal_info_palfile);
 
 	if(d->pal_info_palfile.edesc==0) {
-		de_warn(c, "Palette file does not contain palette information.\n");
+		de_warn(c, "Palette file does not contain palette information.");
 		retval = 1;
 		goto done;
 	}
@@ -564,12 +566,12 @@ static int do_set_up_decoder(deark *c, lctx *d)
 	}
 
 	if(d->decoder_fn) {
-		de_dbg2(c, "image type: evideo=0x%02x, bitsinf=0x%02x, edesc=%d\n",
+		de_dbg2(c, "image type: evideo=0x%02x, bitsinf=0x%02x, edesc=%d",
 			d->video_mode, d->plane_info, (int)edesc);
 		return 1;
 	}
 
-	de_err(c, "This type of PCPaint %s is not supported (evideo=0x%02x, bitsinf=0x%02x, edesc=%d)\n",
+	de_err(c, "This type of PCPaint %s is not supported (evideo=0x%02x, bitsinf=0x%02x, edesc=%d)",
 		(d->file_fmt==FMT_CLP) ? "CLP" : "PIC",
 		d->video_mode, d->plane_info, (int)edesc);
 
@@ -588,37 +590,37 @@ static void de_run_pcpaint_pic(deark *c, lctx *d, de_module_params *mparams)
 	// graphics, but it's still needed to store the width and height.
 	d->img = de_bitmap_create_noinit(c);
 
-	de_dbg(c, "header at %d\n", 0);
+	de_dbg(c, "header at %d", 0);
 	de_dbg_indent(c, 1);
 
 	d->img->width = de_getui16le(2);
 	d->img->height = de_getui16le(4);
-	de_dbg(c, "dimensions: %dx%d\n", (int)d->img->width, (int)d->img->height);
+	de_dbg_dimensions(c, d->img->width, d->img->height);
 
 	d->plane_info = de_getbyte(10);
 	d->palette_flag = de_getbyte(11);
 
-	de_dbg(c, "plane info: 0x%02x\n",(int)d->plane_info);
-	de_dbg(c, "palette flag: 0x%02x\n",(int)d->palette_flag);
+	de_dbg(c, "plane info: 0x%02x",(int)d->plane_info);
+	de_dbg(c, "palette flag: 0x%02x",(int)d->palette_flag);
 
 	if(d->palette_flag==0xff) {
 		d->ver = 2;
 	}
 
 	if(d->ver!=2) {
-		de_err(c, "This version of PCPaint PIC is not supported\n");
+		de_err(c, "This version of PCPaint PIC is not supported");
 		goto done;
 	}
 
 	d->video_mode = de_getbyte(12);
-	de_dbg(c, "video_mode: 0x%02x\n",(int)d->video_mode);
+	de_dbg(c, "video_mode: 0x%02x",(int)d->video_mode);
 
 	do_read_palette_data(c, d, c->infile, &d->pal_info_mainfile);
-	de_dbg(c, "edesc: %d\n",(int)d->pal_info_mainfile.edesc);
-	de_dbg(c, "esize: %d\n",(int)d->pal_info_mainfile.esize);
+	de_dbg(c, "edesc: %d",(int)d->pal_info_mainfile.edesc);
+	de_dbg(c, "esize: %d",(int)d->pal_info_mainfile.esize);
 
 	if(d->pal_info_mainfile.esize>0) {
-		de_dbg(c, "palette or other info at %d\n", 17);
+		de_dbg(c, "palette or other info at %d", 17);
 	}
 
 	set_density(c, d);
@@ -630,10 +632,10 @@ static void de_run_pcpaint_pic(deark *c, lctx *d, de_module_params *mparams)
 
 	d->header_size = 17 + d->pal_info_mainfile.esize + 2;
 
-	de_dbg(c, "num rle blocks: %d\n", (int)d->num_rle_blocks);
+	de_dbg(c, "num rle blocks: %d", (int)d->num_rle_blocks);
 	de_dbg_indent(c, -1);
 
-	de_dbg(c, "image data at %d\n", (int)d->header_size);
+	de_dbg(c, "image data at %d", (int)d->header_size);
 	de_dbg_indent(c, 1);
 	if(!do_set_up_decoder(c, d)) goto done;
 
@@ -668,24 +670,24 @@ static void de_run_pcpaint_clp(deark *c, lctx *d, de_module_params *mparams)
 
 	d->img = de_bitmap_create_noinit(c);
 
-	de_dbg(c, "header at %d\n", 0);
+	de_dbg(c, "header at %d", 0);
 	de_dbg_indent(c, 1);
 
 	file_size = de_getui16le(0);
-	de_dbg(c, "reported file size: %d\n", (int)file_size);
+	de_dbg(c, "reported file size: %d", (int)file_size);
 	if(file_size != c->infile->len) {
 		if(file_size==0x1234) {
-			de_warn(c, "This is probably a .PIC file, not a CLIP file.\n");
+			de_warn(c, "This is probably a .PIC file, not a CLIP file.");
 		}
 		else {
 			de_warn(c, "Reported file size (%d) does not equal actual file size (%d). "
-				"Format may not be correct.\n", (int)file_size, (int)c->infile->len);
+				"Format may not be correct.", (int)file_size, (int)c->infile->len);
 		}
 	}
 
 	d->img->width = de_getui16le(2);
 	d->img->height = de_getui16le(4);
-	de_dbg(c, "dimensions: %dx%d\n", (int)d->img->width, (int)d->img->height);
+	de_dbg_dimensions(c, d->img->width, d->img->height);
 
 	d->plane_info = de_getbyte(10);
 
@@ -698,8 +700,8 @@ static void de_run_pcpaint_clp(deark *c, lctx *d, de_module_params *mparams)
 	else {
 		d->header_size = 11;
 	}
-	de_dbg(c, "compressed: %d\n", (int)is_compressed);
-	de_dbg(c, "plane info: 0x%02x\n",(int)d->plane_info);
+	de_dbg(c, "compressed: %d", (int)is_compressed);
+	de_dbg(c, "plane info: 0x%02x",(int)d->plane_info);
 
 	de_dbg_indent(c, -1);
 
@@ -712,7 +714,7 @@ static void de_run_pcpaint_clp(deark *c, lctx *d, de_module_params *mparams)
 	d->pal_info_to_use = &d->pal_info_mainfile; // tentative
 	if(!do_read_alt_palette_file(c, d)) goto done;
 
-	de_dbg(c, "image data at %d\n", (int)d->header_size);
+	de_dbg(c, "image data at %d", (int)d->header_size);
 	de_dbg_indent(c, 1);
 	if(!do_set_up_decoder(c, d)) goto done;
 
@@ -772,7 +774,7 @@ static void de_run_pcpaint(deark *c, de_module_params *mparams)
 					d->file_fmt = FMT_CLP;
 				}
 				else {
-					de_warn(c, "Format can't be reliably identified. Try \"-opt pcpaint:fmt=clp\" if necessary.\n");
+					de_warn(c, "Format can't be reliably identified. Try \"-opt pcpaint:fmt=clp\" if necessary.");
 					d->file_fmt = FMT_PIC;
 				}
 			}
@@ -823,10 +825,18 @@ static int de_identify_pcpaint(deark *c)
 	return 0;
 }
 
+static void de_help_pcpaint(deark *c)
+{
+	de_msg(c, "-file2 <file.pic> : PIC file to read the palette from");
+	de_msg(c, "-opt pcpaint:fmt=pic : Assume PIC format");
+	de_msg(c, "-opt pcpaint:fmt=clp : Assume CLP format");
+}
+
 void de_module_pcpaint(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "pcpaint";
 	mi->desc = "PCPaint PIC or CLP image";
 	mi->run_fn = de_run_pcpaint;
 	mi->identify_fn = de_identify_pcpaint;
+	mi->help_fn = de_help_pcpaint;
 }

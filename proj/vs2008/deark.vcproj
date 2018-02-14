@@ -498,6 +498,10 @@
 				>
 			</File>
 			<File
+				RelativePath="..\..\modules\autocad.c"
+				>
+			</File>
+			<File
 				RelativePath="..\..\modules\awbm.c"
 				>
 			</File>
@@ -547,6 +551,14 @@
 			</File>
 			<File
 				RelativePath="..\..\modules\d64.c"
+				>
+			</File>
+			<File
+				RelativePath="..\..\modules\drhalo.c"
+				>
+			</File>
+			<File
+				RelativePath="..\..\modules\emf.c"
 				>
 			</File>
 			<File
@@ -646,6 +658,10 @@
 				>
 			</File>
 			<File
+				RelativePath="..\..\modules\lha.c"
+				>
+			</File>
+			<File
 				RelativePath="..\..\modules\macpaint.c"
 				>
 			</File>
@@ -662,6 +678,10 @@
 				>
 			</File>
 			<File
+				RelativePath="..\..\modules\mp3.c"
+				>
+			</File>
+			<File
 				RelativePath="..\..\modules\mscompress.c"
 				>
 			</File>
@@ -675,6 +695,14 @@
 			</File>
 			<File
 				RelativePath="..\..\modules\os2bmp.c"
+				>
+			</File>
+			<File
+				RelativePath="..\..\modules\palmbitmap.c"
+				>
+			</File>
+			<File
+				RelativePath="..\..\modules\palmpdb.c"
 				>
 			</File>
 			<File
@@ -707,6 +735,10 @@
 			</File>
 			<File
 				RelativePath="..\..\modules\portfolio.c"
+				>
+			</File>
+			<File
+				RelativePath="..\..\modules\printptnr.c"
 				>
 			</File>
 			<File
@@ -787,6 +819,14 @@
 			</File>
 			<File
 				RelativePath="..\..\modules\unsupported.c"
+				>
+			</File>
+			<File
+				RelativePath="..\..\modules\vort.c"
+				>
+			</File>
+			<File
+				RelativePath="..\..\modules\wad.c"
 				>
 			</File>
 			<File

@@ -66,7 +66,7 @@ void de_module_xface(deark *c, struct deark_module_info *mi)
 // **************************************************************************
 
 struct compfacei_ctx {
-	struct deark_bitmap *img;
+	de_bitmap *img;
 	de_int64 imgpos_x, imgpos_y;
 
 	de_int64 input_parse_pos;
@@ -138,7 +138,7 @@ static int cfi_get_next_token_lowlevel(deark *c, struct compfacei_ctx *cfictx)
 	retval = 1;
 done:
 	if(!retval) {
-		de_err(c, "Error parsing Compface format\n");
+		de_err(c, "Error parsing Compface format");
 	}
 	return retval;
 }

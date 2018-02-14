@@ -26,29 +26,37 @@ typedef struct localctx_struct {
 	de_byte ver_major, ver_minor;
 	int cmpr_type;
 
-	int name_known;
-	char name[64];
-	char version[32];
-	char release[32];
+	struct de_stringreaderdata *name_srd;
+	struct de_stringreaderdata *version_srd;
+	struct de_stringreaderdata *release_srd;
 } lctx;
 
 static int do_lead_section(deark *c, lctx *d)
 {
+	int retval = 0;
+
+	de_dbg(c, "lead section at %d", 0);
+	de_dbg_indent(c, 1);
+
 	d->ver_major = de_getbyte(4);
 	d->ver_minor = de_getbyte(5);
-	de_dbg(c, "RPM format version %d.%d\n", (int)d->ver_major, (int)d->ver_minor);
+	de_dbg(c, "RPM format version: %d.%d", (int)d->ver_major, (int)d->ver_minor);
 	if(d->ver_major < 3) {
-		de_err(c, "Unsupported RPM version (%d.%d)\n", (int)d->ver_major, (int)d->ver_minor);
-		return 0;
+		de_err(c, "Unsupported RPM version (%d.%d)", (int)d->ver_major, (int)d->ver_minor);
+		goto done;
 	}
-	return 1;
+
+	retval = 1;
+done:
+	de_dbg_indent(c, -1);
+	return retval;
 }
 
 static void read_compression_type(deark *c, lctx *d, de_int64 pos)
 {
 	de_byte buf[16];
 
-	de_dbg(c, "compression type at %d\n", (int)pos);
+	de_dbg(c, "compression type at %d", (int)pos);
 
 	de_read(buf, pos, sizeof(buf));
 
@@ -73,33 +81,37 @@ static int do_header_structure(deark *c, lctx *d, int is_sig, de_int64 pos1,
 	de_int64 tag_id, tag_type, tag_offset, tag_count;
 	de_int64 data_store_pos;
 	const char *hdrname;
+	int retval = 0;
 
 	hdrname = is_sig?"sig":"hdr";
 	pos = pos1;
+	de_dbg(c, "%s section at %d", hdrname, (int)pos1);
+	de_dbg_indent(c, 1);
 
 	de_read(buf, pos, 4);
 	if(buf[0]!=0x8e || buf[1]!=0xad || buf[2]!=0xe8) {
-		de_err(c, "Bad header signature at %d\n", (int)pos);
-		return 0;
+		de_err(c, "Bad header signature at %d", (int)pos);
+		goto done;
 	}
 	header_ver = buf[3];
 	if(header_ver != 1) {
-		de_err(c, "Unsupported header version\n");
-		return 0;
+		de_err(c, "Unsupported header version");
+		goto done;
 	}
 	pos += 8;
 
 	indexcount = de_getui32be(pos);
 	storesize = de_getui32be(pos+4);
-	de_dbg(c, "%s: pos=%d indexcount=%d storesize=%d\n", hdrname,
+	de_dbg(c, "%s: pos=%d indexcount=%d storesize=%d", hdrname,
 		(int)pos, (int)indexcount, (int)storesize);
 	pos += 8;
 
-	if(indexcount>1000) return 0;
+	if(indexcount>1000) goto done;
 
 	data_store_pos = pos + 16*indexcount;
 
-	de_dbg(c, "%s: tag table at %d\n", hdrname, (int)pos);
+	de_dbg(c, "%s: tag table at %d", hdrname, (int)pos);
+	de_dbg_indent(c, 1);
 
 	for(i=0; i<indexcount; i++) {
 		tag_id = de_getui32be(pos);
@@ -107,7 +119,7 @@ static int do_header_structure(deark *c, lctx *d, int is_sig, de_int64 pos1,
 		tag_offset = de_getui32be(pos+8);
 		tag_count = de_getui32be(pos+12);
 
-		de_dbg2(c, "tag #%d type=%d offset=%d count=%d\n", (int)tag_id,
+		de_dbg2(c, "tag #%d type=%d offset=%d count=%d", (int)tag_id,
 			(int)tag_type, (int)tag_offset, (int)tag_count);
 
 
@@ -115,25 +127,44 @@ static int do_header_structure(deark *c, lctx *d, int is_sig, de_int64 pos1,
 			read_compression_type(c, d, data_store_pos+tag_offset);
 		}
 		else if(is_sig==0 && tag_id==DE_RPMTAG_NAME && tag_type==DE_RPM_STRING_TYPE) {
-			dbuf_read_sz(c->infile, data_store_pos+tag_offset, d->name, sizeof(d->name));
-			d->name_known = 1;
+			if(!d->name_srd) {
+				d->name_srd = dbuf_read_string(c->infile, data_store_pos+tag_offset,
+					DE_DBG_MAX_STRLEN, DE_DBG_MAX_STRLEN,
+					DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_ASCII);
+				de_dbg(c, "name: \"%s\"", ucstring_get_printable_sz(d->name_srd->str));
+			}
 		}
 		else if(is_sig==0 && tag_id==DE_RPMTAG_VERSION && tag_type==DE_RPM_STRING_TYPE) {
-			dbuf_read_sz(c->infile, data_store_pos+tag_offset, d->version, sizeof(d->version));
+			if(!d->version_srd) {
+				d->version_srd = dbuf_read_string(c->infile, data_store_pos+tag_offset,
+					DE_DBG_MAX_STRLEN, DE_DBG_MAX_STRLEN,
+					DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_ASCII);
+				de_dbg(c, "version: \"%s\"", ucstring_get_printable_sz(d->version_srd->str));
+			}
 		}
 		else if(is_sig==0 && tag_id==DE_RPMTAG_RELEASE && tag_type==DE_RPM_STRING_TYPE) {
-			dbuf_read_sz(c->infile, data_store_pos+tag_offset, d->release, sizeof(d->release));
+			if(!d->release_srd) {
+				d->release_srd = dbuf_read_string(c->infile, data_store_pos+tag_offset,
+					DE_DBG_MAX_STRLEN, DE_DBG_MAX_STRLEN,
+					DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_ASCII);
+				de_dbg(c, "release: \"%s\"", ucstring_get_printable_sz(d->release_srd->str));
+			}
 		}
 
 		pos += 16;
 	}
 
+	de_dbg_indent(c, -1);
+
 	pos = data_store_pos;
-	de_dbg(c, "%s: data store at %d\n", hdrname, (int)pos);
+	de_dbg(c, "%s: data store at %d", hdrname, (int)pos);
 	pos += storesize;
 
 	*section_size = pos - pos1;
-	return 1;
+	retval = 1;
+done:
+	de_dbg_indent(c, -1);
+	return retval;
 }
 
 static void de_run_rpm(deark *c, de_module_params *mparams)
@@ -169,7 +200,7 @@ static void de_run_rpm(deark *c, de_module_params *mparams)
 	}
 	pos += section_size;
 
-	de_dbg(c, "data pos: %d\n", (int)pos);
+	de_dbg(c, "data pos: %d", (int)pos);
 	if(pos > c->infile->len) goto done;
 
 	// There is usually a tag that indicates the compression format, but we
@@ -194,14 +225,20 @@ static void de_run_rpm(deark *c, de_module_params *mparams)
 		ext = "cpio.lzma";
 	}
 	else {
-		de_warn(c, "Unidentified compression or archive format\n");
+		de_warn(c, "Unidentified compression or archive format");
 		ext = "cpio.bin";
 	}
 
-	if(d->name_known && c->filenames_from_file) {
+	if(d->name_srd && c->filenames_from_file) {
+		const char *version2 = "x";
+		const char *release2 = "x";
+
+		if(d->version_srd) version2 = (const char*)d->version_srd->sz;
+		if(d->release_srd) release2 = (const char*)d->release_srd->sz;
+
 		fi = de_finfo_create(c);
 		de_snprintf(filename, sizeof(filename), "%s-%s.%s",
-			d->name, d->version, d->release);
+			d->name_srd->sz, version2, release2);
 		de_finfo_set_name_from_sz(c, fi, filename, DE_ENCODING_ASCII);
 	}
 
@@ -209,7 +246,12 @@ static void de_run_rpm(deark *c, de_module_params *mparams)
 
 done:
 	de_finfo_destroy(c, fi);
-	de_free(c, d);
+	if(d) {
+		de_destroy_stringreaderdata(c, d->name_srd);
+		de_destroy_stringreaderdata(c, d->release_srd);
+		de_destroy_stringreaderdata(c, d->version_srd);
+		de_free(c, d);
+	}
 }
 
 static int de_identify_rpm(deark *c)

@@ -90,7 +90,7 @@ static int do_bmhd(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 	const char *masking_name;
 
 	if(len<20) {
-		de_err(c, "Bad BMHD chunk\n");
+		de_err(c, "Bad BMHD chunk");
 		goto done;
 	}
 
@@ -110,12 +110,12 @@ static int do_bmhd(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 	d->transparent_color = de_getui16be(pos1+12);
 	d->x_aspect = (de_int64)de_getbyte(pos1+14);
 	d->y_aspect = (de_int64)de_getbyte(pos1+15);
-	de_dbg(c, "dimensions: %dx%d, planes: %d, compression: %d\n", (int)d->main_img.width,
+	de_dbg(c, "dimensions: %d"DE_CHAR_TIMES"%d, planes: %d, compression: %d", (int)d->main_img.width,
 		(int)d->main_img.height, (int)d->planes, (int)d->compression);
-	de_dbg(c, "apect ratio: %d, %d\n", (int)d->x_aspect, (int)d->y_aspect);
-	de_dbg(c, "masking: %d (%s)\n", (int)d->main_img.masking_code, masking_name);
+	de_dbg(c, "apect ratio: %d, %d", (int)d->x_aspect, (int)d->y_aspect);
+	de_dbg(c, "masking: %d (%s)", (int)d->main_img.masking_code, masking_name);
 	if(d->main_img.masking_code==2 || d->main_img.masking_code==3) {
-		de_dbg(c, " color key: %d\n", (int)d->transparent_color);
+		de_dbg(c, " color key: %d", (int)d->transparent_color);
 	}
 
 	retval = 1;
@@ -127,7 +127,7 @@ static void do_cmap(deark *c, lctx *d, de_int64 pos, de_int64 len)
 {
 	d->found_cmap = 1;
 	d->pal_ncolors = len/3;
-	de_dbg(c, "number of palette colors: %d\n", (int)d->pal_ncolors);
+	de_dbg(c, "number of palette colors: %d", (int)d->pal_ncolors);
 	if(d->pal_ncolors>256) d->pal_ncolors=256;
 
 	de_read_palette_rgb(c->infile, pos, d->pal_ncolors, 3, d->pal, 256, 0);
@@ -139,7 +139,7 @@ static void do_camg(deark *c, lctx *d, de_int64 pos, de_int64 len)
 	d->has_camg = 1;
 
 	d->camg_mode = (de_uint32)de_getui32be(pos);
-	de_dbg(c, "CAMG mode: 0x%x\n", (unsigned int)d->camg_mode);
+	de_dbg(c, "CAMG mode: 0x%x", (unsigned int)d->camg_mode);
 
 	if(d->camg_mode & 0x0800)
 		d->ham_flag = 1;
@@ -147,7 +147,7 @@ static void do_camg(deark *c, lctx *d, de_int64 pos, de_int64 len)
 		d->ehb_flag = 1;
 
 	de_dbg_indent(c, 1);
-	de_dbg(c, "HAM: %d, EHB: %d\n", (int)d->ham_flag, (int)d->ehb_flag);
+	de_dbg(c, "HAM: %d, EHB: %d", (int)d->ham_flag, (int)d->ehb_flag);
 	de_dbg_indent(c, -1);
 }
 
@@ -156,7 +156,7 @@ static void do_dpi(deark *c, lctx *d, de_int64 pos, de_int64 len)
 	if(len<4) return;
 	d->x_dpi = de_getui16be(pos);
 	d->y_dpi = de_getui16be(pos+2);
-	de_dbg(c, "dpi: %dx%d\n", (int)d->x_dpi, (int)d->y_dpi);
+	de_dbg(c, "dpi: %d"DE_CHAR_TIMES"%d", (int)d->x_dpi, (int)d->y_dpi);
 }
 
 static de_byte getbit(const de_byte *m, de_int64 bitnum)
@@ -239,7 +239,7 @@ static void get_row_vdat(deark *c, lctx *d, struct img_info *ii,
 	}
 }
 
-static void set_density(deark *c, lctx *d, struct deark_bitmap *img)
+static void set_density(deark *c, lctx *d, de_bitmap *img)
 {
 	int has_aspect, has_dpi;
 
@@ -263,14 +263,14 @@ static void set_density(deark *c, lctx *d, struct deark_bitmap *img)
 static void do_image_24(deark *c, lctx *d, struct img_info *ii,
 	dbuf *unc_pixels, unsigned int createflags)
 {
-	struct deark_bitmap *img = NULL;
+	de_bitmap *img = NULL;
 	de_int64 i, j;
 	de_byte *row_orig = NULL;
 	de_byte *row_deplanarized = NULL;
 	de_byte cr, cg, cb;
 
 	if(d->formtype!=CODE_ILBM) {
-		de_err(c, "This image type is not supported\n");
+		de_err(c, "This image type is not supported");
 		goto done;
 	}
 
@@ -353,7 +353,7 @@ static void fixup_palette(deark *c, lctx *d)
 			if((cg&0x0f) != 0) return;
 			if((cb&0x0f) != 0) return;
 		}
-		de_dbg(c, "Palette seems to have 4 bits of precision. Rescaling palette.\n");
+		de_dbg(c, "Palette seems to have 4 bits of precision. Rescaling palette.");
 	}
 
 	for(k=0; k<d->pal_ncolors; k++) {
@@ -370,7 +370,7 @@ static void fixup_palette(deark *c, lctx *d)
 static int do_image_1to8(deark *c, lctx *d, struct img_info *ii,
 	dbuf *unc_pixels, unsigned int createflags)
 {
-	struct deark_bitmap *img = NULL;
+	de_bitmap *img = NULL;
 	de_int64 i, j;
 	de_byte *row_orig = NULL;
 	de_byte *row_deplanarized = NULL;
@@ -387,7 +387,7 @@ static int do_image_1to8(deark *c, lctx *d, struct img_info *ii,
 	int bytes_expected_valid = 0;
 
 	if(!d->found_cmap) {
-		de_err(c, "Missing CMAP chunk\n");
+		de_err(c, "Missing CMAP chunk");
 		goto done;
 	}
 
@@ -399,7 +399,7 @@ static int do_image_1to8(deark *c, lctx *d, struct img_info *ii,
 			d->is_ham8 = 1;
 		}
 		else {
-			de_warn(c, "Invalid bit depth (%d) for HAM image.\n", (int)d->planes);
+			de_warn(c, "Invalid bit depth (%d) for HAM image.", (int)d->planes);
 		}
 	}
 
@@ -420,7 +420,7 @@ static int do_image_1to8(deark *c, lctx *d, struct img_info *ii,
 	ii->planes_total = d->planes;
 	if(ii->masking_code==1) {
 		if(d->formtype!=CODE_ILBM) {
-			de_err(c, "This type of image is not supported.\n");
+			de_err(c, "This type of image is not supported.");
 			goto done;
 		}
 		ii->planes_total++;
@@ -478,7 +478,7 @@ static int do_image_1to8(deark *c, lctx *d, struct img_info *ii,
 		}
 		else if(d->formtype==CODE_PBM) {
 			if(ii->rowspan < ii->width) {
-				de_err(c, "Internal error\n");
+				de_err(c, "Internal error");
 				goto done;
 			}
 			dbuf_read(unc_pixels, row_deplanarized, j*ii->rowspan, ii->width);
@@ -553,7 +553,7 @@ static int do_image_1to8(deark *c, lctx *d, struct img_info *ii,
 	}
 
 	if(bytes_expected_valid && bytes_expected!=unc_pixels->len) {
-		de_warn(c, "Expected %d uncompressed bytes, got %d\n", (int)bytes_expected,
+		de_warn(c, "Expected %d uncompressed bytes, got %d", (int)bytes_expected,
 			(int)unc_pixels->len);
 	}
 
@@ -613,7 +613,7 @@ static void print_summary(deark *c, lctx *d)
 		ucstring_append_sz(summary, " no-CMAP", DE_ENCODING_UTF8);
 	}
 
-	de_dbg(c, "summary: %s\n", ucstring_get_printable_sz(summary));
+	de_dbg(c, "summary: %s", ucstring_get_printable_sz(summary));
 
 done:
 	ucstring_destroy(summary);
@@ -629,7 +629,7 @@ static int do_image(deark *c, lctx *d, struct img_info *ii,
 	if(d->errflag) goto done;
 
 	if(!d->found_bmhd) {
-		de_err(c, "Missing BMHD chunk\n");
+		de_err(c, "Missing BMHD chunk");
 		goto done;
 	}
 
@@ -639,7 +639,7 @@ static int do_image(deark *c, lctx *d, struct img_info *ii,
 		;
 	}
 	else {
-		de_err(c, "Unsupported ILBM format\n");
+		de_err(c, "Unsupported ILBM format");
 		goto done;
 	}
 
@@ -648,7 +648,7 @@ static int do_image(deark *c, lctx *d, struct img_info *ii,
 	if(d->in_vdat_image) {
 		// TODO: Consider using the tinystuff decoder for VDAT.
 		if(d->planes!=4) {
-			de_err(c, "VDAT compression not supported with planes=%d\n", (int)d->planes);
+			de_err(c, "VDAT compression not supported with planes=%d", (int)d->planes);
 			goto done;
 		}
 		unc_pixels = d->vdat_unc_pixels;
@@ -663,10 +663,10 @@ static int do_image(deark *c, lctx *d, struct img_info *ii,
 		// TODO: Call dbuf_set_max_length()
 		if(!de_fmtutil_uncompress_packbits(c->infile, pos1, len, unc_pixels, NULL))
 			goto done;
-		de_dbg(c, "decompressed %d bytes to %d bytes\n", (int)len, (int)unc_pixels->len);
+		de_dbg(c, "decompressed %d bytes to %d bytes", (int)len, (int)unc_pixels->len);
 	}
 	else {
-		de_err(c, "Unsupported compression type: %d\n", (int)d->compression);
+		de_err(c, "Unsupported compression type: %d", (int)d->compression);
 		goto done;
 	}
 
@@ -679,7 +679,7 @@ static int do_image(deark *c, lctx *d, struct img_info *ii,
 		do_image_24(c, d, ii, unc_pixels, createflags);
 	}
 	else {
-		de_err(c, "Support for this type of IFF/ILBM image is not implemented\n");
+		de_err(c, "Support for this type of IFF/ILBM image is not implemented");
 	}
 	retval = 1;
 
@@ -702,7 +702,7 @@ static void do_tiny(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 	ii->width = de_getui16be(pos1);
 	if(len<=4) goto done;
 	ii->height = de_getui16be(pos1+2);
-	de_dbg(c, "thumbnail image, dimensions: %dx%d\n", (int)ii->width, (int)ii->height);
+	de_dbg(c, "thumbnail image, dimensions: %d"DE_CHAR_TIMES"%d", (int)ii->width, (int)ii->height);
 
 	// Based on what little data I have, it seems that TINY images do not have
 	// a transparency mask, even if the main image does.
@@ -743,7 +743,7 @@ static void do_vdat(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 	cmd_cnt = de_getui16be(pos); // command count + 2
 	pos+=2;
 	cmd_cnt -= 2;
-	de_dbg(c, "number of command bytes: %d\n", (int)cmd_cnt);
+	de_dbg(c, "number of command bytes: %d", (int)cmd_cnt);
 	if(cmd_cnt<1) goto done;
 
 	cmds = de_malloc(c, cmd_cnt * sizeof(de_byte));
@@ -755,7 +755,7 @@ static void do_vdat(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 	// Read data
 	for(i=0; i<cmd_cnt; i++) {
 		if(pos>=endpos) {
-			de_warn(c, "Unexpected end of data in VDAT chunk. %d of %d command bytes processed\n",
+			de_warn(c, "Unexpected end of data in VDAT chunk. %d of %d command bytes processed",
 				(int)i, (int)cmd_cnt);
 			break;
 		}
@@ -795,7 +795,7 @@ static void do_vdat(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 		}
 	}
 
-	de_dbg(c, "uncompressed to %d bytes\n", (int)(d->vdat_unc_pixels->len - prev_unc_len));
+	de_dbg(c, "uncompressed to %d bytes", (int)(d->vdat_unc_pixels->len - prev_unc_len));
 done:
 	de_free(c, cmds);
 }
@@ -805,7 +805,7 @@ static int do_body(deark *c, lctx *d, struct de_iffctx *ictx, de_int64 pos, de_i
 	de_uint32 ct, int *is_vdat)
 {
 	if(d->uses_color_cycling) {
-		de_warn(c, "This image uses color cycling animation, which is not supported.\n");
+		de_warn(c, "This image uses color cycling animation, which is not supported.");
 	}
 
 	if(ct==CODE_BODY && d->compression==2 &&
@@ -825,7 +825,7 @@ static void do_multipalette(deark *c, lctx *d, de_uint32 chunktype)
 	else if(chunktype==CODE_PCHG) { d->is_pchg = 1; }
 	else if(chunktype==CODE_CTBL) { d->is_ctbl = 1; }
 
-	de_err(c, "Multi-palette ILBM images are not supported.\n");
+	de_err(c, "Multi-palette ILBM images are not supported.");
 	d->errflag = 1;
 }
 
@@ -900,8 +900,8 @@ static int my_ilbm_chunk_handler(deark *c, struct de_iffctx *ictx)
 		break;
 
 	case CODE_CCRT: // Graphicraft Color Cycling Range and Timing
-		tmp1 = dbuf_geti16be(c->infile, ictx->chunkctx->chunk_dpos);
-		de_dbg(c, "cycling direction: %d\n", (int)tmp1);
+		tmp1 = de_geti16be(ictx->chunkctx->chunk_dpos);
+		de_dbg(c, "cycling direction: %d", (int)tmp1);
 		if(tmp1!=0) {
 			d->uses_color_cycling = 1;
 		}
@@ -911,16 +911,16 @@ static int my_ilbm_chunk_handler(deark *c, struct de_iffctx *ictx)
 		if(ictx->chunkctx->chunk_dlen<8) break;
 		tmp1 = de_getui16be(ictx->chunkctx->chunk_dpos+2);
 		tmp2 = de_getui16be(ictx->chunkctx->chunk_dpos+4);
-		de_dbg(c, "CRNG flags: 0x%04x\n", (unsigned int)tmp2);
+		de_dbg(c, "CRNG flags: 0x%04x", (unsigned int)tmp2);
 		if(tmp2&0x1) {
 			d->uses_color_cycling = 1;
-			de_dbg(c, "rate: %.2f fps\n", (double)(((double)tmp1)*(60.0/16384.0)));
+			de_dbg(c, "rate: %.2f fps", (double)(((double)tmp1)*(60.0/16384.0)));
 		}
 		break;
 
 	case CODE_DRNG:
 		tmp2 = de_getui16be(ictx->chunkctx->chunk_dpos+4);
-		de_dbg(c, "DRNG flags: 0x%04x\n", (unsigned int)tmp2);
+		de_dbg(c, "DRNG flags: 0x%04x", (unsigned int)tmp2);
 		if(tmp2&0x1) {
 			d->uses_color_cycling = 1;
 		}
@@ -930,7 +930,7 @@ static int my_ilbm_chunk_handler(deark *c, struct de_iffctx *ictx)
 		if(ictx->chunkctx->chunk_dlen<4) break;
 		tmp1 = de_getui16be(ictx->chunkctx->chunk_dpos);
 		tmp2 = de_getui16be(ictx->chunkctx->chunk_dpos+2);
-		de_dbg(c, "hotspot: (%d, %d)\n", (int)tmp1, (int)tmp2);
+		de_dbg(c, "hotspot: (%d, %d)", (int)tmp1, (int)tmp2);
 		break;
 
 	case CODE_SHAM:
@@ -954,13 +954,13 @@ static int my_on_std_container_start_fn(deark *c, struct de_iffctx *ictx)
 {
 	lctx *d = (lctx*)ictx->userdata;
 
-	de_dbg2(c, "std_container_start(level=%d, type=%08x)\n", ictx->level,
+	de_dbg2(c, "std_container_start(level=%d, type=%08x)", ictx->level,
 		(unsigned int)ictx->curr_container_contentstype4cc.id);
 
 	if(ictx->level==0 && ictx->curr_container_fmt4cc.id==CODE_FORM) {
 
 		d->formtype = ictx->curr_container_contentstype4cc.id;
-		//de_dbg(c, "FORM type: '%s'\n", ictx->curr_container_contentstype4cc.id_printable);
+		//de_dbg(c, "FORM type: '%s'", ictx->curr_container_contentstype4cc.id_printable);
 
 		switch(ictx->main_contentstype4cc.id) {
 		case CODE_ILBM: de_declare_fmt(c, "IFF-ILBM"); break;
@@ -975,7 +975,7 @@ static int my_on_container_end_fn(deark *c, struct de_iffctx *ictx)
 {
 	lctx *d = (lctx*)ictx->userdata;
 
-	de_dbg2(c, "container_end(level=%d, fmt=%08x, contentstype=%08x)\n",
+	de_dbg2(c, "container_end(level=%d, fmt=%08x, contentstype=%08x)",
 		ictx->level,
 		(unsigned int)ictx->curr_container_fmt4cc.id,
 		(unsigned int)ictx->curr_container_contentstype4cc.id);
@@ -1033,12 +1033,20 @@ static int de_identify_ilbm(deark *c)
 	return 0;
 }
 
+static void de_help_ilbm(deark *c)
+{
+	de_msg(c, "-opt ilbm:notrans : Disable support for transparency");
+	de_msg(c, "-opt ilbm:fixpal=<0|1> : Don't/Do try to fix palettes that are "
+		"slightly too dark");
+}
+
 void de_module_ilbm(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "ilbm";
 	mi->desc = "IFF-ILBM and related image formats";
 	mi->run_fn = de_run_ilbm;
 	mi->identify_fn = de_identify_ilbm;
+	mi->help_fn = de_help_ilbm;
 }
 
 // -----------------------------------
@@ -1055,7 +1063,7 @@ static void do_anim_anhd(deark *c, animctx *d, de_int64 pos, de_int64 len)
 	if(len<24) return;
 
 	op = de_getbyte(pos++);
-	de_dbg(c, "operation: %d\n", (int)op);
+	de_dbg(c, "operation: %d", (int)op);
 
 	pos++; // Mask
 	pos+=2; // w
@@ -1065,7 +1073,7 @@ static void do_anim_anhd(deark *c, animctx *d, de_int64 pos, de_int64 len)
 	pos+=4; // abstime
 
 	tmp = de_getui32be(pos); // reltime
-	de_dbg(c, "reltime: %.5f sec\n", ((double)tmp)/60.0);
+	de_dbg(c, "reltime: %.5f sec", ((double)tmp)/60.0);
 	pos+=4;
 
 	pos++; // interleave
@@ -1074,7 +1082,7 @@ static void do_anim_anhd(deark *c, animctx *d, de_int64 pos, de_int64 len)
 	// bits
 	if(op==4 || op==5) {
 		tmp = de_getui32be(pos);
-		de_dbg(c, "flags: 0x%08u\n", (unsigned int)tmp);
+		de_dbg(c, "flags: 0x%08u", (unsigned int)tmp);
 	}
 	pos+=4;
 }

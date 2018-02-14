@@ -55,7 +55,7 @@ typedef struct localctx_struct {
 static void do_decode_image_default(deark *c, lctx *d, struct tgaimginfo *imginfo, dbuf *unc_pixels,
 	de_finfo *fi, unsigned int createflags)
 {
-	struct deark_bitmap *img = NULL;
+	de_bitmap *img = NULL;
 	de_int64 i, j;
 	de_byte b;
 	de_uint32 clr;
@@ -68,7 +68,7 @@ static void do_decode_image_default(deark *c, lctx *d, struct tgaimginfo *imginf
 	de_int64 cur_rownum; // 0-based, does not account for bottom-up orientation
 
 	if(d->pixel_depth==1) {
-		de_warn(c, "1-bit TGA images are not portable, and may not be decoded correctly\n");
+		de_warn(c, "1-bit TGA images are not portable, and may not be decoded correctly");
 		rowspan = (imginfo->width+7)/8;
 	}
 	else {
@@ -190,7 +190,7 @@ static void do_prescan_image(deark *c, lctx *d, dbuf *unc_pixels)
 	}
 
 	if(d->num_attribute_bits!=0 && d->num_attribute_bits!=8) {
-		de_warn(c, "%d-bit attribute channel not supported. Transparency disabled.\n",
+		de_warn(c, "%d-bit attribute channel not supported. Transparency disabled.",
 			(int)d->num_attribute_bits);
 		return;
 	}
@@ -217,12 +217,12 @@ static void do_prescan_image(deark *c, lctx *d, dbuf *unc_pixels)
 			// Field *23* ("Attributes Type") == *3* is for premultiplied alpha.
 			// I have to guess that the "23" and "3" are clerical errors, but that
 			// doesn't do me much good unless all TGA developers made the same guess.
-			de_warn(c, "Pre-multiplied alpha is not supported. Disabling transparency.\n");
+			de_warn(c, "Pre-multiplied alpha is not supported. Disabling transparency.");
 			return;
 		}
 	}
 
-	de_dbg(c, "pre-scanning image\n");
+	de_dbg(c, "pre-scanning image");
 
 	num_pixels = d->main_image.width * d->main_image.height;
 	for(i=0; i<num_pixels; i++) {
@@ -249,22 +249,22 @@ static void do_prescan_image(deark *c, lctx *d, dbuf *unc_pixels)
 	if(has_alpha_partial || (has_alpha_0 && has_alpha_255)) {
 		if(d->num_attribute_bits==0) {
 			de_warn(c, "Detected likely alpha channel. Enabling transparency, even though "
-				"the image is labeled as non-transparent.\n");
+				"the image is labeled as non-transparent.");
 		}
 		d->has_alpha_channel = 1;
 		return;
 	}
 	else if(has_alpha_0) { // All 0x00
 		if(d->num_attribute_bits!=0) {
-			de_warn(c, "Non-visible image detected. Disabling transparency.\n");
+			de_warn(c, "Non-visible image detected. Disabling transparency.");
 		}
 		else {
-			de_dbg(c, "potential alpha channel ignored: all 0 bits\n");
+			de_dbg(c, "potential alpha channel ignored: all 0 bits");
 		}
 		return;
 	}
 	else { // All 0xff
-		de_dbg(c, "potential alpha channel is moot: all 1 bits\n");
+		de_dbg(c, "potential alpha channel is moot: all 1 bits");
 		return;
 	}
 }
@@ -299,7 +299,7 @@ static int do_decode_rle(deark *c, lctx *d, de_int64 pos1, dbuf *unc_pixels)
 		}
 	}
 
-	de_dbg(c, "decompressed %d bytes to %d bytes\n", (int)(pos-pos1), (int)unc_pixels->len);
+	de_dbg(c, "decompressed %d bytes to %d bytes", (int)(pos-pos1), (int)unc_pixels->len);
 	return 1;
 }
 
@@ -308,7 +308,7 @@ static void do_decode_thumbnail(deark *c, lctx *d)
 	dbuf *unc_pixels = NULL;
 	de_int64 hdrsize = 2;
 
-	de_dbg(c, "thumbnail image at %d\n", (int)d->thumbnail_offset);
+	de_dbg(c, "thumbnail image at %d", (int)d->thumbnail_offset);
 	de_dbg_indent(c, 1);
 
 	// The thumbnail image is supposed to use the same format as the main image,
@@ -320,14 +320,14 @@ static void do_decode_thumbnail(deark *c, lctx *d)
 	// TGA 2.0 spec says the dimensions are one *byte* each.
 	d->thumbnail_image.width = (de_int64)de_getbyte(d->thumbnail_offset);
 	d->thumbnail_image.height = (de_int64)de_getbyte(d->thumbnail_offset+1);
-	de_dbg(c, "thumbnail dimensions: %dx%d\n", (int)d->thumbnail_image.width, (int)d->thumbnail_image.height);
+	de_dbg(c, "thumbnail dimensions: %d"DE_CHAR_TIMES"%d", (int)d->thumbnail_image.width, (int)d->thumbnail_image.height);
 
 	if(d->thumbnail_image.width!=0 && d->thumbnail_image.height==0) {
 		de_warn(c, "Thumbnail image height is 0. Assuming the file incorrectly uses "
-			"16-bit thumbnail dimensions, instead of 8.\n");
+			"16-bit thumbnail dimensions, instead of 8.");
 		d->thumbnail_image.width = de_getui16le(d->thumbnail_offset);
 		d->thumbnail_image.height = de_getui16le(d->thumbnail_offset+2);
-		de_dbg(c, "revised thumbnail dimensions: %dx%d\n", (int)d->thumbnail_image.width, (int)d->thumbnail_image.height);
+		de_dbg(c, "revised thumbnail dimensions: %d"DE_CHAR_TIMES"%d", (int)d->thumbnail_image.width, (int)d->thumbnail_image.height);
 		hdrsize = 4;
 	}
 	if(!de_good_image_dimensions(c, d->thumbnail_image.width, d->thumbnail_image.height)) goto done;
@@ -353,11 +353,11 @@ static int do_read_palette(deark *c, lctx *d, de_int64 pos)
 	}
 
 	if(d->cmap_depth != 24) {
-		de_err(c, "Palettes with depth=%d are not supported.\n", (int)d->cmap_depth);
+		de_err(c, "Palettes with depth=%d are not supported.", (int)d->cmap_depth);
 		return 0;
 	}
 	if(d->pixel_depth != 8) {
-		de_err(c, "Paletted images with depth=%d are not supported.\n", (int)d->pixel_depth);
+		de_err(c, "Paletted images with depth=%d are not supported.", (int)d->pixel_depth);
 		return 0;
 	}
 
@@ -379,15 +379,15 @@ static void do_read_extension_area(deark *c, lctx *d, de_int64 pos)
 {
 	de_int64 ext_area_size;
 
-	de_dbg(c, "extension area at %d\n", (int)pos);
+	de_dbg(c, "extension area at %d", (int)pos);
 	if(pos > c->infile->len - 2) {
-		de_warn(c, "Bad extension area offset: %u\n", (unsigned int)pos);
+		de_warn(c, "Bad extension area offset: %u", (unsigned int)pos);
 		return;
 	}
 
 	de_dbg_indent(c, 1);
 	ext_area_size = de_getui16le(pos);
-	de_dbg(c, "extension area size: %d\n", (int)ext_area_size);
+	de_dbg(c, "extension area size: %d", (int)ext_area_size);
 	if(ext_area_size<495) goto done;
 
 	d->has_extension_area = 1;
@@ -395,16 +395,16 @@ static void do_read_extension_area(deark *c, lctx *d, de_int64 pos)
 	// TODO: Retain the aspect ratio. (Need sample files. Nobody seems to use this field.)
 	d->aspect_ratio_num = de_getui16le(pos+474);
 	d->aspect_ratio_den = de_getui16le(pos+476);
-	de_dbg(c, "aspect ratio: %d/%d\n", (int)d->aspect_ratio_num, (int)d->aspect_ratio_den);
+	de_dbg(c, "aspect ratio: %d/%d", (int)d->aspect_ratio_num, (int)d->aspect_ratio_den);
 
 	d->thumbnail_offset = de_getui32le(pos+486);
-	de_dbg(c, "thumbnail image offset: %d\n", (int)d->thumbnail_offset);
+	de_dbg(c, "thumbnail image offset: %d", (int)d->thumbnail_offset);
 
 	d->attributes_type = de_getbyte(pos+494);
-	de_dbg(c, "attributes type: %d\n", (int)d->attributes_type);
+	de_dbg(c, "attributes type: %d", (int)d->attributes_type);
 	if(d->attributes_type==0 && d->num_attribute_bits!=0) {
 		de_warn(c, "Incompatible \"number of attribute bits\" (%d) and \"attributes type\" "
-			"(%d) fields. Transparency may not be handled correctly.\n",
+			"(%d) fields. Transparency may not be handled correctly.",
 			(int)d->num_attribute_bits, (int)d->attributes_type);
 	}
 
@@ -418,21 +418,21 @@ static void do_read_developer_area(deark *c, lctx *d, de_int64 pos)
 	de_int64 i;
 	de_int64 tag_id, tag_data_pos, tag_data_size;
 
-	de_dbg(c, "developer area at %d\n", (int)pos);
+	de_dbg(c, "developer area at %d", (int)pos);
 	if(pos > c->infile->len - 2) {
-		de_warn(c, "Bad developer area offset: %u\n", (unsigned int)pos);
+		de_warn(c, "Bad developer area offset: %u", (unsigned int)pos);
 		return;
 	}
 
 	de_dbg_indent(c, 1);
 	num_tags = de_getui16le(pos);
-	de_dbg(c, "number of tags: %d\n", (int)num_tags);
+	de_dbg(c, "number of tags: %d", (int)num_tags);
 	for(i=0; i<num_tags; i++) {
 		if(i>=200) break;
 		tag_id = de_getui16le(pos + 2 + 10*i);
 		tag_data_pos = de_getui32le(pos + 2 + 10*i + 2);
 		tag_data_size = de_getui32le(pos + 2 + 10*i + 6);
-		de_dbg(c, "tag #%d: id=%d, pos=%d, size=%d\n", (int)i, (int)tag_id,
+		de_dbg(c, "tag #%d: id=%d, pos=%d, size=%d", (int)i, (int)tag_id,
 			(int)tag_data_pos, (int)tag_data_size);
 
 		if(tag_id==20) {
@@ -453,12 +453,12 @@ static void do_read_footer(deark *c, lctx *d)
 	de_int64 ext_offset, dev_offset;
 
 	footerpos = c->infile->len - 26;
-	de_dbg(c, "v2 footer at %d\n", (int)footerpos);
+	de_dbg(c, "v2 footer at %d", (int)footerpos);
 	de_dbg_indent(c, 1);
 	ext_offset = de_getui32le(footerpos);
-	de_dbg(c, "extension area offset: %d\n", (int)ext_offset);
+	de_dbg(c, "extension area offset: %d", (int)ext_offset);
 	dev_offset = de_getui32le(footerpos+4);
-	de_dbg(c, "developer area offset: %d\n", (int)dev_offset);
+	de_dbg(c, "developer area offset: %d", (int)dev_offset);
 	de_dbg_indent(c, -1);
 
 	if(ext_offset!=0) {
@@ -473,22 +473,22 @@ static void do_read_footer(deark *c, lctx *d)
 static void do_read_image_descriptor(deark *c, lctx *d)
 {
 	d->image_descriptor = de_getbyte(17);
-	de_dbg(c, "descriptor: 0x%02x\n", (unsigned int)d->image_descriptor);
+	de_dbg(c, "descriptor: 0x%02x", (unsigned int)d->image_descriptor);
 
 	de_dbg_indent(c, 1);
 	d->num_attribute_bits = (de_int64)(d->image_descriptor & 0x0f);
-	de_dbg(c, "number of %s bits: %d\n",
+	de_dbg(c, "number of %s bits: %d",
 		d->file_format==FMT_VST?"alpha channel":"attribute",
 		(int)d->num_attribute_bits);
 
 	d->right_to_left = (d->image_descriptor>>4)&0x01;
 	d->top_down = (d->image_descriptor>>5)&0x01;
-	de_dbg(c, "right-to-left flag: %d\n", (int)d->right_to_left);
-	de_dbg(c, "top-down flag: %d\n", (int)d->top_down);
+	de_dbg(c, "right-to-left flag: %d", (int)d->right_to_left);
+	de_dbg(c, "top-down flag: %d", (int)d->top_down);
 
 	d->interleave_mode = d->image_descriptor >> 6;
 	if(d->interleave_mode != 0) {
-		de_dbg(c, "interleaving: %d\n", (int)d->interleave_mode);
+		de_dbg(c, "interleaving: %d", (int)d->interleave_mode);
 	}
 	de_dbg_indent(c, -1);
 }
@@ -497,14 +497,14 @@ static int do_read_tga_headers(deark *c, lctx *d)
 {
 	int retval = 0;
 
-	de_dbg(c, "header at %d\n", 0);
+	de_dbg(c, "header at %d", 0);
 	de_dbg_indent(c, 1);
 
 	d->id_field_len = (de_int64)de_getbyte(0);
 	d->color_map_type = de_getbyte(1);
-	de_dbg(c, "color map type: %d\n", (int)d->color_map_type);
+	de_dbg(c, "color map type: %d", (int)d->color_map_type);
 	d->img_type = de_getbyte(2);
-	de_dbg(c, "image type: %d\n", (int)d->img_type);
+	de_dbg(c, "image type: %d", (int)d->img_type);
 
 	switch(d->img_type) {
 	case 1: case 9:
@@ -540,24 +540,24 @@ static int do_read_tga_headers(deark *c, lctx *d)
 	}
 
 	de_dbg_indent(c, 1);
-	de_dbg(c, "color type: %d (%s)\n", (int)d->color_type, d->clrtype_name);
-	de_dbg(c, "compression: %d (%s)\n", (int)d->cmpr_type, d->cmpr_name);
+	de_dbg(c, "color type: %d (%s)", (int)d->color_type, d->clrtype_name);
+	de_dbg(c, "compression: %d (%s)", (int)d->cmpr_type, d->cmpr_name);
 	de_dbg_indent(c, -1);
 
 	if(d->color_map_type != 0) {
 		d->cmap_start = de_getui16le(3);
 		d->cmap_length = de_getui16le(5);
 		d->cmap_depth = (de_int64)de_getbyte(7);
-		de_dbg(c, "color map start: %d, len: %d, depth: %d\n", (int)d->cmap_start,
+		de_dbg(c, "color map start: %d, len: %d, depth: %d", (int)d->cmap_start,
 			(int)d->cmap_length, (int)d->cmap_depth);
 	}
 
 	d->main_image.width = de_getui16le(12);
 	d->main_image.height = de_getui16le(14);
-	de_dbg(c, "dimensions: %dx%d\n", (int)d->main_image.width, (int)d->main_image.height);
+	de_dbg_dimensions(c, d->main_image.width, d->main_image.height);
 
 	d->pixel_depth = (de_int64)de_getbyte(16);
-	de_dbg(c, "pixel depth: %d\n", (int)d->pixel_depth);
+	de_dbg(c, "pixel depth: %d", (int)d->pixel_depth);
 
 	do_read_image_descriptor(c, d);
 
@@ -580,7 +580,7 @@ static int do_read_vst_headers(deark *c, lctx *d)
 {
 	int retval = 0;
 
-	de_dbg(c, "header at %d\n", 0);
+	de_dbg(c, "header at %d", 0);
 	de_dbg_indent(c, 1);
 
 	d->id_field_len = (de_int64)de_getbyte(0);
@@ -595,10 +595,10 @@ static int do_read_vst_headers(deark *c, lctx *d)
 
 	d->main_image.width = de_getui16le(12);
 	d->main_image.height = de_getui16le(14);
-	de_dbg(c, "dimensions: %dx%d\n", (int)d->main_image.width, (int)d->main_image.height);
+	de_dbg_dimensions(c, d->main_image.width, d->main_image.height);
 
 	d->pixel_depth = (de_int64)de_getbyte(16);
-	de_dbg(c, "pixel depth: %d\n", (int)d->pixel_depth);
+	de_dbg(c, "pixel depth: %d", (int)d->pixel_depth);
 	if(d->pixel_depth==8) {
 		d->color_map_type = 1;
 		d->color_type = TGA_CLRTYPE_PALETTE;
@@ -642,7 +642,7 @@ static void detect_file_format(deark *c, lctx *d)
 	de_byte img_type;
 
 	d->has_signature = has_signature(c);
-	de_dbg(c, "has v2 signature: %s\n", d->has_signature?"yes":"no");
+	de_dbg(c, "has v2 signature: %s", d->has_signature?"yes":"no");
 	if(d->has_signature) {
 		d->file_format = FMT_TGA;
 		return;
@@ -691,14 +691,14 @@ static void de_run_tga(deark *c, de_module_params *mparams)
 	pos += 18;
 
 	if(d->id_field_len>0) {
-		de_dbg(c, "image ID at %d (len=%d)\n", (int)pos, (int)d->id_field_len);
+		de_dbg(c, "image ID at %d (len=%d)", (int)pos, (int)d->id_field_len);
 		pos += d->id_field_len;
 	}
 
 	if(d->color_map_type!=0) {
 		d->bytes_per_pal_entry = (d->cmap_depth+7)/8;
 		d->pal_size_in_bytes = d->cmap_length * d->bytes_per_pal_entry;
-		de_dbg(c, "color map at %d (%d colors, %d bytes)\n", (int)pos,
+		de_dbg(c, "color map at %d (%d colors, %d bytes)", (int)pos,
 			(int)d->cmap_length, (int)d->pal_size_in_bytes);
 
 		de_dbg_indent(c, 1);
@@ -708,7 +708,7 @@ static void de_run_tga(deark *c, de_module_params *mparams)
 		pos += d->pal_size_in_bytes;
 	}
 
-	de_dbg(c, "bitmap at %d\n", (int)pos);
+	de_dbg(c, "bitmap at %d", (int)pos);
 	de_dbg_indent(c, 1);
 
 	d->bytes_per_pixel = ((d->pixel_depth+7)/8);
@@ -723,7 +723,7 @@ static void de_run_tga(deark *c, de_module_params *mparams)
 	if(d->color_type!=TGA_CLRTYPE_PALETTE && d->color_type!=TGA_CLRTYPE_TRUECOLOR &&
 		d->color_type!=TGA_CLRTYPE_GRAYSCALE)
 	{
-		de_err(c, "Unsupported color type (%d: %s)\n", (int)d->color_type, d->clrtype_name);
+		de_err(c, "Unsupported color type (%d: %s)", (int)d->color_type, d->clrtype_name);
 		goto done;
 	}
 
@@ -738,14 +738,14 @@ static void de_run_tga(deark *c, de_module_params *mparams)
 		;
 	}
 	else {
-		de_err(c, "Unsupported TGA image type (%s, depth=%d)\n", d->clrtype_name,
+		de_err(c, "Unsupported TGA image type (%s, depth=%d)", d->clrtype_name,
 			(int)d->pixel_depth);
 		goto done;
 	}
 
 	if(d->cmpr_type==TGA_CMPR_RLE) {
 		if(d->pixel_depth<8) {
-			de_err(c, "RLE compression not supported when depth (%d) is less than 8\n",
+			de_err(c, "RLE compression not supported when depth (%d) is less than 8",
 				(int)d->pixel_depth);
 			goto done;
 		}
@@ -756,7 +756,7 @@ static void de_run_tga(deark *c, de_module_params *mparams)
 		unc_pixels = dbuf_open_input_subfile(c->infile, pos, d->main_image.img_size_in_bytes);
 	}
 	else {
-		de_err(c, "Unsupported compression type (%d, %s)\n", (int)d->cmpr_type, d->cmpr_name);
+		de_err(c, "Unsupported compression type (%d, %s)", (int)d->cmpr_type, d->cmpr_name);
 		goto done;
 	}
 
@@ -764,7 +764,7 @@ static void de_run_tga(deark *c, de_module_params *mparams)
 	do_prescan_image(c, d, unc_pixels);
 
 	if(d->pixel_depth==32) {
-		de_dbg(c, "using alpha channel: %s\n", d->has_alpha_channel?"yes":"no");
+		de_dbg(c, "using alpha channel: %s", d->has_alpha_channel?"yes":"no");
 	}
 
 	// TODO: 16-bit images could theoretically have a transparency bit, but I don't

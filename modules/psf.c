@@ -37,10 +37,10 @@ static void do_extra_codepoint(deark *c, lctx *d, struct de_bitmap_font *font,
 	if(d->num_extra_codepoints >= MAX_EXTRA_CODEPOINTS) return;
 
 	extra_idx = d->index_of_first_extra_codepoint + d->num_extra_codepoints;
-	de_dbg2(c, "char[%d] alias [%d] = U+%04x\n", (int)cur_idx, (int)extra_idx,
+	de_dbg2(c, "char[%d] alias [%d] = U+%04x", (int)cur_idx, (int)extra_idx,
 		(unsigned int)n);
 	if(n == font->char_array[cur_idx].codepoint_unicode) {
-		de_dbg2(c, "ignoring superfluous alias\n");
+		de_dbg2(c, "ignoring superfluous alias");
 		return;
 	}
 	font->char_array[extra_idx].codepoint_unicode = n;
@@ -56,7 +56,7 @@ static void do_psf1_unicode_table(deark *c, lctx *d, struct de_bitmap_font *font
 	int found_fffe;
 	de_int32 n;
 
-	de_dbg(c, "Unicode table at %d\n", (int)d->unicode_table_pos);
+	de_dbg(c, "Unicode table at %d", (int)d->unicode_table_pos);
 	de_dbg_indent(c, 1);
 
 	pos = d->unicode_table_pos;
@@ -72,7 +72,7 @@ static void do_psf1_unicode_table(deark *c, lctx *d, struct de_bitmap_font *font
 
 		if(n==0xffff) {
 			if(!got_cp) {
-				de_warn(c, "Missing codepoint for char #%d\n", (int)cur_idx);
+				de_warn(c, "Missing codepoint for char #%d", (int)cur_idx);
 			}
 			cur_idx++;
 			got_cp = 0;
@@ -90,7 +90,7 @@ static void do_psf1_unicode_table(deark *c, lctx *d, struct de_bitmap_font *font
 		}
 
 		if(!got_cp) {
-			de_dbg2(c, "char[%d] = U+%04x\n", (int)cur_idx, (unsigned int)n);
+			de_dbg2(c, "char[%d] = U+%04x", (int)cur_idx, (unsigned int)n);
 			font->char_array[cur_idx].codepoint_unicode = n;
 			got_cp = 1;
 			continue;
@@ -117,7 +117,7 @@ static void do_psf2_unicode_table(deark *c, lctx *d, struct de_bitmap_font *font
 	de_int32 ch;
 	de_int64 utf8len;
 
-	de_dbg(c, "Unicode table at %d\n", (int)d->unicode_table_pos);
+	de_dbg(c, "Unicode table at %d", (int)d->unicode_table_pos);
 	de_dbg_indent(c, 1);
 
 	pos = d->unicode_table_pos;
@@ -157,7 +157,7 @@ static void do_psf2_unicode_table(deark *c, lctx *d, struct de_bitmap_font *font
 
 			if(cp_idx==0) {
 				// This is the primary Unicode codepoint for this glyph
-				de_dbg2(c, "char[%d] = U+%04x\n", (int)cur_idx, (unsigned int)ch);
+				de_dbg2(c, "char[%d] = U+%04x", (int)cur_idx, (unsigned int)ch);
 				font->char_array[cur_idx].codepoint_unicode = ch;
 			}
 			else {
@@ -169,7 +169,7 @@ static void do_psf2_unicode_table(deark *c, lctx *d, struct de_bitmap_font *font
 		}
 
 		if(cp_idx==0) {
-			de_warn(c, "Missing codepoint for char #%d\n", (int)cur_idx);
+			de_warn(c, "Missing codepoint for char #%d", (int)cur_idx);
 		}
 
 		// Advance to the next glyph
@@ -216,8 +216,8 @@ static void do_glyphs(deark *c, lctx *d)
 		if(i<d->num_glyphs)
 			font->char_array[i].codepoint_nonunicode = (de_int32)i;
 		else
-			font->char_array[i].codepoint_nonunicode = DE_INVALID_CODEPOINT;
-		font->char_array[i].codepoint_unicode = DE_INVALID_CODEPOINT;
+			font->char_array[i].codepoint_nonunicode = DE_CODEPOINT_INVALID;
+		font->char_array[i].codepoint_unicode = DE_CODEPOINT_INVALID;
 		if(i<d->num_glyphs)
 			font->char_array[i].bitmap = &font_data[i*d->bytes_per_glyph];
 	}
@@ -231,8 +231,8 @@ static void do_glyphs(deark *c, lctx *d)
 
 	if(d->num_extra_codepoints>0) {
 		font->num_chars = d->index_of_first_extra_codepoint + d->num_extra_codepoints;
-		de_dbg(c, "codepoints aliases: %d\n", (int)d->num_extra_codepoints);
-		de_dbg(c, "total characters: %d\n", (int)font->num_chars);
+		de_dbg(c, "codepoints aliases: %d", (int)d->num_extra_codepoints);
+		de_dbg(c, "total characters: %d", (int)font->num_chars);
 	}
 
 	de_font_bitmap_font_to_image(c, font, NULL, 0);
@@ -248,24 +248,24 @@ static void do_psf1_header(deark *c, lctx *d)
 {
 	de_int64 pos = 0;
 
-	de_dbg(c, "PFXv1 header at %d\n", (int)pos);
+	de_dbg(c, "PFXv1 header at %d", (int)pos);
 	de_dbg_indent(c, 1);
 
 	d->headersize = 4;
 
 	d->mode = de_getbyte(2);
-	de_dbg(c, "mode: 0x%02x\n", (unsigned int)d->mode);
+	de_dbg(c, "mode: 0x%02x", (unsigned int)d->mode);
 	de_dbg_indent(c, 1);
 	d->num_glyphs = (d->mode & 0x01) ? 512 : 256;
-	de_dbg(c, "number of glyphs: %d\n", (int)d->num_glyphs);
+	de_dbg(c, "number of glyphs: %d", (int)d->num_glyphs);
 	d->has_unicode_table = (d->mode & 0x02) ? 1 : 0;
-	de_dbg(c, "has Unicode table: %s\n", d->has_unicode_table?"yes":"no");
+	de_dbg(c, "has Unicode table: %s", d->has_unicode_table?"yes":"no");
 	de_dbg_indent(c, -1);
 
 	d->bytes_per_glyph = (de_int64)de_getbyte(3);
 	d->glyph_height = d->bytes_per_glyph;
 	d->glyph_width = 8;
-	de_dbg(c, "glyph dimensions: %dx%d\n", (int)d->glyph_width, (int)d->glyph_height);
+	de_dbg(c, "glyph dimensions: %d"DE_CHAR_TIMES"%d", (int)d->glyph_width, (int)d->glyph_height);
 
 	de_dbg_indent(c, -1);
 }
@@ -274,34 +274,34 @@ static void do_psf2_header(deark *c, lctx *d)
 {
 	de_int64 pos = 0;
 
-	de_dbg(c, "PFXv2 header at %d\n", (int)pos);
+	de_dbg(c, "PFXv2 header at %d", (int)pos);
 	de_dbg_indent(c, 1);
 
 	d->psf2_version = (de_uint32)de_getui32le(pos+4);
-	de_dbg(c, "PSFv2 version number: %d\n", (int)d->psf2_version);
+	de_dbg(c, "PSFv2 version number: %d", (int)d->psf2_version);
 	if(d->psf2_version!=0) {
-		de_warn(c, "Unknown PSFv2 version number: %d\n", (int)d->psf2_version);
+		de_warn(c, "Unknown PSFv2 version number: %d", (int)d->psf2_version);
 	}
 
 	d->headersize = de_getui32le(pos+8);
-	de_dbg(c, "header size: %d\n", (int)d->headersize);
+	de_dbg(c, "header size: %d", (int)d->headersize);
 
 	d->flags = (de_uint32)de_getui32le(pos+12);
-	de_dbg(c, "flags: 0x%08x\n", (unsigned int)d->flags);
+	de_dbg(c, "flags: 0x%08x", (unsigned int)d->flags);
 	de_dbg_indent(c, 1);
 	d->has_unicode_table = (d->flags & 0x01) ? 1 : 0;
-	de_dbg(c, "has Unicode table: %s\n", d->has_unicode_table?"yes":"no");
+	de_dbg(c, "has Unicode table: %s", d->has_unicode_table?"yes":"no");
 	de_dbg_indent(c, -1);
 
 	d->num_glyphs = de_getui32le(pos+16);
-	de_dbg(c, "number of glyphs: %d\n", (int)d->num_glyphs);
+	de_dbg(c, "number of glyphs: %d", (int)d->num_glyphs);
 
 	d->bytes_per_glyph = de_getui32le(pos+20);
-	de_dbg(c, "bytes per glyph: %d\n", (int)d->bytes_per_glyph);
+	de_dbg(c, "bytes per glyph: %d", (int)d->bytes_per_glyph);
 
 	d->glyph_height = de_getui32le(pos+24);
 	d->glyph_width = de_getui32le(pos+28);
-	de_dbg(c, "glyph dimensions: %dx%d\n", (int)d->glyph_width, (int)d->glyph_height);
+	de_dbg(c, "glyph dimensions: %d"DE_CHAR_TIMES"%d", (int)d->glyph_width, (int)d->glyph_height);
 
 	de_dbg_indent(c, -1);
 }
@@ -328,11 +328,11 @@ static void de_run_psf(deark *c, de_module_params *mparams)
 		d->version=2;
 	}
 	else {
-		de_err(c, "Not a PSF file\n");
+		de_err(c, "Not a PSF file");
 		goto done;
 	}
 
-	de_dbg(c, "PSF version: %d\n", (int)d->version);
+	de_dbg(c, "PSF version: %d", (int)d->version);
 
 	if(d->version==2)
 		do_psf2_header(c, d);
@@ -353,7 +353,7 @@ static void de_run_psf(deark *c, de_module_params *mparams)
 		d->glyph_height<1 || d->glyph_height>256 ||
 		d->num_glyphs<1 || d->num_glyphs>2000000)
 	{
-		de_err(c, "Invalid or unsupported PSF file\n");
+		de_err(c, "Invalid or unsupported PSF file");
 		goto done;
 	}
 
@@ -374,10 +374,16 @@ static int de_identify_psf(deark *c)
 	return 0;
 }
 
+static void de_help_psf(deark *c)
+{
+	de_msg(c, "-opt font:noaliases : Restrict to one codepoint per glyph");
+}
+
 void de_module_psf(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "psf";
 	mi->desc = "PC Screen Font";
 	mi->run_fn = de_run_psf;
 	mi->identify_fn = de_identify_psf;
+	mi->help_fn = de_help_psf;
 }

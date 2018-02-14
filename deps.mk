@@ -12,6 +12,8 @@ obj/modules/atari-img.o: modules/atari-img.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h
 obj/modules/atari.o: modules/atari.c src/deark-config.h \
  src/deark-private.h src/deark.h
+obj/modules/autocad.o: modules/autocad.c src/deark-config.h \
+ src/deark-private.h src/deark.h
 obj/modules/awbm.o: modules/awbm.c src/deark-config.h src/deark-private.h \
  src/deark.h
 obj/modules/basic-c64.o: modules/basic-c64.c src/deark-config.h \
@@ -38,6 +40,10 @@ obj/modules/cpio.o: modules/cpio.c src/deark-config.h src/deark-private.h \
  src/deark.h
 obj/modules/d64.o: modules/d64.c src/deark-config.h src/deark-private.h \
  src/deark.h
+obj/modules/drhalo.o: modules/drhalo.c src/deark-config.h \
+ src/deark-private.h src/deark.h
+obj/modules/emf.o: modules/emf.c src/deark-config.h src/deark-private.h \
+ src/deark.h src/deark-fmtutil.h
 obj/modules/epocimage.o: modules/epocimage.c src/deark-config.h \
  src/deark-private.h src/deark.h
 obj/modules/eps.o: modules/eps.c src/deark-config.h src/deark-private.h \
@@ -86,6 +92,8 @@ obj/modules/jovianvi.o: modules/jovianvi.c src/deark-config.h \
  src/deark-private.h src/deark.h
 obj/modules/jpeg.o: modules/jpeg.c src/deark-config.h src/deark-private.h \
  src/deark.h src/deark-fmtutil.h
+obj/modules/lha.o: modules/lha.c src/deark-config.h src/deark-private.h \
+ src/deark.h
 obj/modules/macpaint.o: modules/macpaint.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h
 obj/modules/makichan.o: modules/makichan.c src/deark-config.h \
@@ -94,6 +102,8 @@ obj/modules/mbk.o: modules/mbk.c src/deark-config.h src/deark-private.h \
  src/deark.h src/deark-fmtutil.h
 obj/modules/misc.o: modules/misc.c src/deark-config.h src/deark-private.h \
  src/deark.h src/deark-fmtutil.h
+obj/modules/mp3.o: modules/mp3.c src/deark-config.h src/deark-private.h \
+ src/deark.h
 obj/modules/mscompress.o: modules/mscompress.c src/deark-config.h \
  src/deark-private.h src/deark.h
 obj/modules/msp.o: modules/msp.c src/deark-config.h src/deark-private.h \
@@ -102,6 +112,10 @@ obj/modules/nokia.o: modules/nokia.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h
 obj/modules/os2bmp.o: modules/os2bmp.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h
+obj/modules/palmbitmap.o: modules/palmbitmap.c src/deark-config.h \
+ src/deark-private.h src/deark.h src/deark-fmtutil.h
+obj/modules/palmpdb.o: modules/palmpdb.c src/deark-config.h \
+ src/deark-private.h src/deark.h
 obj/modules/pcpaint.o: modules/pcpaint.c src/deark-config.h \
  src/deark-private.h src/deark.h
 obj/modules/pcx.o: modules/pcx.c src/deark-config.h src/deark-private.h \
@@ -113,10 +127,12 @@ obj/modules/pict.o: modules/pict.c src/deark-config.h src/deark-private.h \
 obj/modules/pkfont.o: modules/pkfont.c src/deark-config.h \
  src/deark-private.h src/deark.h
 obj/modules/png.o: modules/png.c src/deark-config.h src/deark-private.h \
- src/deark.h
+ src/deark.h src/deark-fmtutil.h
 obj/modules/pnm.o: modules/pnm.c src/deark-config.h src/deark-private.h \
  src/deark.h
 obj/modules/portfolio.o: modules/portfolio.c src/deark-config.h \
+ src/deark-private.h src/deark.h
+obj/modules/printptnr.o: modules/printptnr.c src/deark-config.h \
  src/deark-private.h src/deark.h
 obj/modules/printshop.o: modules/printshop.c src/deark-config.h \
  src/deark-private.h src/deark.h
@@ -158,8 +174,12 @@ obj/modules/tivariable.o: modules/tivariable.c src/deark-config.h \
  src/deark-private.h src/deark.h
 obj/modules/unsupported.o: modules/unsupported.c src/deark-config.h \
  src/deark-private.h src/deark.h
+obj/modules/vort.o: modules/vort.c src/deark-config.h src/deark-private.h \
+ src/deark.h
+obj/modules/wad.o: modules/wad.c src/deark-config.h src/deark-private.h \
+ src/deark.h
 obj/modules/wmf.o: modules/wmf.c src/deark-config.h src/deark-private.h \
- src/deark.h src/deark-fmtutil.h
+ src/deark.h
 obj/modules/wpg.o: modules/wpg.c src/deark-config.h src/deark-private.h \
  src/deark.h
 obj/modules/xface.o: modules/xface.c src/deark-config.h \

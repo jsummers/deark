@@ -9,14 +9,62 @@
 DE_DECLARE_MODULE(de_module_grob);
 
 typedef struct localctx_struct {
-	de_int64 w, h;
+	de_int64 w, h_phys;
 	de_int64 bytes_consumed;
+	de_int64 num_planes;
+	int grayscale_lsb; // Does the plane of least-significant bits come first?
 } lctx;
 
 static void grob_read_binary_bitmap(deark *c, lctx *d, dbuf *inf, de_int64 pos)
 {
-	de_convert_and_write_image_bilevel(inf, pos, d->w, d->h, (d->w+7)/8,
-		DE_CVTF_WHITEISZERO|DE_CVTF_LSBFIRST, NULL, 0);
+	de_int64 h_logical;
+	de_int64 i, j;
+	de_int64 plane;
+	de_int64 rowspan;
+	de_byte b;
+	unsigned int v;
+	de_byte v2;
+	de_bitmap *img = NULL;
+
+	if(d->num_planes<=1) {
+		de_convert_and_write_image_bilevel(inf, pos, d->w, d->h_phys, (d->w+7)/8,
+			DE_CVTF_WHITEISZERO|DE_CVTF_LSBFIRST, NULL, 0);
+		return;
+	}
+
+	if((d->h_phys % d->num_planes) != 0) {
+		de_warn(c, "Number of rows is not divisible by number of planes. The grob:planes "
+			"setting is probably not correct.");
+	}
+	h_logical = d->h_phys/d->num_planes;
+
+	if(!de_good_image_dimensions(c, d->w, h_logical))
+		goto done;
+
+	de_dbg(c, "logical dimensions: %d"DE_CHAR_TIMES"%d", (int)d->w, (int)h_logical);
+
+	rowspan = (d->w+7)/8;
+	img = de_bitmap_create(c, d->w, h_logical, 1);
+
+	for(j=0; j<h_logical; j++) {
+		for(i=0; i<d->w; i++) {
+			v = 0;
+			for(plane=0; plane<d->num_planes; plane++) {
+				b = de_get_bits_symbol_lsb(inf, 1,
+					pos+rowspan*(h_logical*(de_int64)plane+j), i);
+				if(d->grayscale_lsb)
+					v |= b<<(unsigned int)plane;
+				else
+					v = (v<<1)|b;
+			}
+			v2 = 255-de_sample_nbit_to_8bit(d->num_planes, v);
+			de_bitmap_setpixel_gray(img, i, j, v2);
+		}
+	}
+
+	de_bitmap_write_to_file_finfo(img, NULL, 0);
+done:
+	de_bitmap_destroy(img);
 }
 
 static void de_run_grob_binary(deark *c, lctx *d)
@@ -33,15 +81,16 @@ static void de_run_grob_binary(deark *c, lctx *d)
 
 	obj_id = (hdr[10]&0x0f)<<16 | hdr[9]<<8 | hdr[8];
 	length = hdr[12]<<12 | hdr[11]<<4 | hdr[10]>>4;
-	de_dbg(c, "object id: 0x%05x\n", (unsigned int)obj_id);
+	de_dbg(c, "object id: 0x%05x", (unsigned int)obj_id);
 	if(obj_id != 0x02b1e) {
-		de_warn(c, "Unexpected object identifier (0x%05x, expected 0x02b1e)\n", (unsigned int)obj_id);
+		de_warn(c, "Unexpected object identifier (0x%05x, expected 0x02b1e)", (unsigned int)obj_id);
 	}
-	de_dbg(c, "object length in nibbles: %d\n", (int)length);
+	de_dbg(c, "object length in nibbles: %d", (int)length);
 
-	d->h = (hdr[15]&0x0f)<<16 | hdr[14]<<8 | hdr[13];
+	d->h_phys = (hdr[15]&0x0f)<<16 | hdr[14]<<8 | hdr[13];
 	d->w = hdr[17]<<12 | hdr[16]<<4 | hdr[15]>>4;
-	de_dbg(c, "dimensions: %dx%d\n", (int)d->w, (int)d->h);
+	de_dbg(c, "%sdimensions: %d"DE_CHAR_TIMES"%d", (d->num_planes==1)?"":"physical ",
+		(int)d->w, (int)d->h_phys);
 
 	grob_read_binary_bitmap(c, d, c->infile, 18);
 }
@@ -58,7 +107,7 @@ static void grob_text_1_image(deark *c, lctx *d, de_int64 pos1)
 	pos = pos1;
 
 	d->w = 0;
-	d->h = 0;
+	d->h_phys = 0;
 
 	// We assume the GROB text format starts with
 	// "GROB" <zero or more spaces> <width> <one or more spaces>
@@ -78,7 +127,7 @@ static void grob_text_1_image(deark *c, lctx *d, de_int64 pos1)
 	while(de_getbyte(pos)==' ')
 		pos++;
 	while((x=de_getbyte(pos))!=' ') {
-		d->h = d->h*10 + (x-'0');
+		d->h_phys = d->h_phys*10 + (x-'0');
 		pos++;
 	}
 
@@ -86,15 +135,18 @@ static void grob_text_1_image(deark *c, lctx *d, de_int64 pos1)
 		pos++;
 	data_start = pos;
 
-	de_dbg(c, "dimensions: %dx%d\n", (int)d->w, (int)d->h);
+	de_dbg(c, "%sdimensions: %d"DE_CHAR_TIMES"%d", (d->num_planes==1)?"":"physical ",
+		(int)d->w, (int)d->h_phys);
 
-	if(!de_good_image_dimensions(c, d->w, d->h))
+	// FIXME: This should really be testing the logical height, not the
+	// physical height.
+	if(!de_good_image_dimensions(c, d->w, d->h_phys))
 		goto done;
 
 	// Decode the quasi-hex-encoded data into a memory buffer, then use the
 	// same decoder as for binary format.
 
-	bin_bmp = dbuf_create_membuf(c, d->h * (d->w+7)/8, 0);
+	bin_bmp = dbuf_create_membuf(c, d->h_phys * (d->w+7)/8, 0);
 
 	pos = data_start;
 	while(pos < c->infile->len) {
@@ -145,7 +197,7 @@ static void de_run_grob_text(deark *c, lctx *d)
 			break;
 		}
 
-		de_dbg(c, "GROB format found at %d\n", (int)img_pos);
+		de_dbg(c, "GROB format found at %d", (int)img_pos);
 
 		img_count++;
 		grob_text_1_image(c, d, img_pos);
@@ -155,7 +207,7 @@ static void de_run_grob_text(deark *c, lctx *d)
 	}
 
 	if(img_count==0) {
-		de_err(c, "Unknown or unsupported GROB format\n");
+		de_err(c, "Unknown or unsupported GROB format");
 	}
 }
 
@@ -163,8 +215,24 @@ static void de_run_grob(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
 	de_byte buf[4];
+	const char *s;
 
 	d = de_malloc(c, sizeof(lctx));
+
+	s = de_get_ext_option(c, "grob:planes");
+	if(s) {
+		d->num_planes = de_atoi64(s);
+	}
+	if(d->num_planes<1) d->num_planes=1;
+	if(d->num_planes>8) {
+		de_err(c, "Unsupported grob:planes option");
+		goto done;
+	}
+
+	s = de_get_ext_option(c, "grob:planeorder");
+	if(s && s[0]=='l') {
+		d->grayscale_lsb = 1;
+	}
 
 	de_read(buf, 0, 4);
 
@@ -175,6 +243,7 @@ static void de_run_grob(deark *c, de_module_params *mparams)
 		de_run_grob_text(c, d);
 	}
 
+done:
 	de_free(c, d);
 }
 
@@ -197,10 +266,17 @@ static int de_identify_grob(deark *c)
 	return 0;
 }
 
+static void de_help_grob(deark *c)
+{
+	de_msg(c, "-opt grob:planes=<n> : Treat image as grayscale");
+	de_msg(c, "-opt grob:planeorder=l : Least-significant plane comes first");
+}
+
 void de_module_grob(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "grob";
 	mi->desc = "GROB - HP48/49 calculator image";
 	mi->run_fn = de_run_grob;
 	mi->identify_fn = de_identify_grob;
+	mi->help_fn = de_help_grob;
 }

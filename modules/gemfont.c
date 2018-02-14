@@ -32,9 +32,12 @@ static int do_characters(deark *c, lctx *d)
 	de_int64 form_nbytes;
 	int retval = 0;
 
+	de_dbg(c, "reading characters");
+	de_dbg_indent(c, 1);
+
 	form_nbytes = d->form_width_bytes * d->form_height_pixels;
 	if(d->font_data_pos + form_nbytes > c->infile->len) {
-		de_err(c, "Font data goes beyond end of file\n");
+		de_err(c, "Font data goes beyond end of file");
 		goto done;
 	}
 	font_data = de_malloc(c, form_nbytes);
@@ -47,7 +50,7 @@ static int do_characters(deark *c, lctx *d)
 		ch->width = (int)(n - char_startpos);
 		ch->height = d->font->nominal_height;
 		ch->codepoint_nonunicode = (de_int32)(d->first_index+i);
-		de_dbg2(c, "char[%d] #%d offset=%d width=%d\n", (int)i, (int)ch->codepoint_nonunicode,
+		de_dbg2(c, "char[%d] #%d offset=%d width=%d", (int)i, (int)ch->codepoint_nonunicode,
 			 (int)char_startpos, ch->width);
 		if(ch->width<1 || ch->width>d->max_char_cell_width) continue;
 
@@ -67,77 +70,93 @@ static int do_characters(deark *c, lctx *d)
 	retval = 1;
 
 done:
+	de_dbg_indent(c, -1);
 	de_free(c, font_data);
 	return retval;
 }
 
 static void do_face_name(deark *c, lctx *d)
 {
-	char buf[100];
 	char buf2[100];
 	size_t nlen;
+	struct de_stringreaderdata *srd = NULL;
 
-	if(!c->filenames_from_file) return;
+	srd = dbuf_read_string(c->infile, 4, 32, 32, DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_ASCII);
+	de_dbg(c, "face name: \"%s\"", ucstring_get_printable_sz(srd->str));
 
-	dbuf_read_sz(c->infile, 4, buf, 32);
-	nlen = de_strlen(buf);
+	if(!c->filenames_from_file) goto done;
 
 	// Strip trailing spaces
-	while(nlen>0 && buf[nlen-1]==' ') {
-		buf[nlen-1] = '\0';
+	nlen = de_strlen((const char*)srd->sz);
+	while(nlen>0 && srd->sz[nlen-1]==' ') {
+		srd->sz[nlen-1] = '\0';
 		nlen--;
 	}
 
-	de_snprintf(buf2, sizeof(buf2), "%s-%d", buf, (int)d->face_size);
+	de_snprintf(buf2, sizeof(buf2), "%s-%d", srd->sz, (int)d->face_size);
 
 	d->fi = de_finfo_create(c);
 	de_finfo_set_name_from_sz(c, d->fi, buf2, DE_ENCODING_ASCII);
+
+done:
+	de_destroy_stringreaderdata(c, srd);
 }
 
 static void de_run_gemfont(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
 	de_int64 i;
+	de_int64 n;
 	unsigned int font_flags;
 	de_int64 max_char_width;
+	int saved_indent_level;
 
+	de_dbg_indent_save(c, &saved_indent_level);
 	d = de_malloc(c, sizeof(lctx));
 	d->font = de_create_bitmap_font(c);
 	d->font->has_nonunicode_codepoints = 1;
 
+	de_dbg(c, "header at %d", 0);
+	de_dbg_indent(c, 1);
+
+	n = de_getui16le(0);
+	de_dbg(c, "face ID: %d", (int)n);
+
 	d->face_size = de_getui16le(2);
-	de_dbg(c, "point size: %d\n", (int)d->face_size);
+	de_dbg(c, "point size: %d", (int)d->face_size);
 
 	do_face_name(c, d); // Offset 4-35
 
 	d->first_index = de_getui16le(36);
 	d->last_index = de_getui16le(38);
-	de_dbg(c, "first char: %d, last char: %d\n", (int)d->first_index, (int)d->last_index);
+	de_dbg(c, "first char: %d, last char: %d", (int)d->first_index, (int)d->last_index);
 	d->font->num_chars = d->last_index - d->first_index + 1;
 
 	max_char_width = de_getui16le(50);
 	d->max_char_cell_width = de_getui16le(52);
-	de_dbg(c, "max char width: %d, max char cell width: %d\n", (int)max_char_width,
+	de_dbg(c, "max char width: %d, max char cell width: %d", (int)max_char_width,
 		(int)d->max_char_cell_width);
 
 	font_flags = (unsigned int)de_getui16le(66);
 	d->byte_swap_flag = (font_flags & 0x04) ? 1 : 0;
 
-	de_dbg(c, "byte swap flag: %d\n", (int)d->byte_swap_flag);
+	de_dbg(c, "byte swap flag: %d", (int)d->byte_swap_flag);
 	if(d->byte_swap_flag) {
 		de_warn(c, "This font uses an unsupported byte-swap option, and might not be "
-			"decoded correctly.\n");
+			"decoded correctly.");
 	}
 
 	d->char_offset_table_pos = de_getui32le(72);
 	d->font_data_pos = de_getui32le(76);
-	de_dbg(c, "char. offset table at %d\n", (int)d->char_offset_table_pos);
-	de_dbg(c, "font data at %d\n", (int)d->font_data_pos);
+	de_dbg(c, "char. offset table offset: %d", (int)d->char_offset_table_pos);
+	de_dbg(c, "font data offset: %d", (int)d->font_data_pos);
 
 	d->form_width_bytes = de_getui16le(80);
 	d->form_height_pixels = de_getui16le(82);
-	de_dbg(c, "form width: %d bytes\n", (int)d->form_width_bytes);
-	de_dbg(c, "form height: %d pixels\n", (int)d->form_height_pixels);
+	de_dbg(c, "form width: %d bytes", (int)d->form_width_bytes);
+	de_dbg(c, "form height: %d pixels", (int)d->form_height_pixels);
+
+	de_dbg_indent(c, -1); // End of header
 
 	d->font->nominal_width = 1; // This will be calculated later
 	d->font->nominal_height = (int)d->form_height_pixels;
@@ -151,6 +170,7 @@ static void de_run_gemfont(deark *c, de_module_params *mparams)
 	de_font_bitmap_font_to_image(c, d->font, d->fi, 0);
 
 done:
+	de_dbg_indent_restore(c, saved_indent_level);
 	if(d->font) {
 		if(d->font->char_array) {
 			for(i=0; i<d->font->num_chars; i++) {

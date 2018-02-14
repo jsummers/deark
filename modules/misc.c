@@ -75,7 +75,7 @@ void de_module_null(deark *c, struct deark_module_info *mi)
 	mi->desc = "Do nothing";
 	mi->run_fn = de_run_null;
 	mi->identify_fn = de_identify_none;
-	mi->flags |= DE_MODFLAG_HIDDEN | DE_MODFLAG_NOEXTRACT;
+	mi->flags |= DE_MODFLAG_NOEXTRACT;
 }
 
 // **************************************************************************
@@ -213,12 +213,17 @@ void de_module_zlib(deark *c, struct deark_module_info *mi)
 static void de_run_sauce(deark *c, de_module_params *mparams)
 {
 	struct de_SAUCE_info *si = NULL;
+	int ret;
 
 	si = de_malloc(c, sizeof(struct de_SAUCE_info));
-	if(de_read_SAUCE(c, c->infile, si)) {
+	ret = de_read_SAUCE(c, c->infile, si);
+	if(ret && c->module_disposition==DE_MODDISP_AUTODETECT) {
 		de_err(c, "This file has a SAUCE metadata record that identifies it as "
-			"DataType %d, FileType %d, but it is not a supported format.\n",
+			"DataType %d, FileType %d, but it is not a supported format.",
 			(int)si->data_type, (int)si->file_type);
+	}
+	if(!ret && c->module_disposition==DE_MODDISP_EXPLICIT) {
+		de_err(c, "No SAUCE record found");
 	}
 	de_free_SAUCE(c, si);
 }
@@ -299,7 +304,7 @@ static int xpuzz_read_header(deark *c, struct xpuzzctx *d)
 static void de_run_xpuzzle(deark *c, de_module_params *mparams)
 {
 	struct xpuzzctx *d = NULL;
-	struct deark_bitmap *img = NULL;
+	de_bitmap *img = NULL;
 	de_uint32 pal[256];
 	de_int64 p;
 
@@ -439,7 +444,8 @@ static int de_identify_mrw(deark *c)
 void de_module_mrw(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "mrw";
-	mi->desc = "Minolta RAW (resources only)";
+	mi->desc = "Minolta RAW";
+	mi->desc2 = "resources only";
 	mi->run_fn = de_run_mrw;
 	mi->identify_fn = de_identify_mrw;
 }
@@ -451,7 +457,7 @@ void de_module_mrw(deark *c, struct deark_module_info *mi)
 
 static void de_run_bob(deark *c, de_module_params *mparams)
 {
-	struct deark_bitmap *img = NULL;
+	de_bitmap *img = NULL;
 	de_int64 w, h;
 	de_uint32 pal[256];
 	de_int64 p;
@@ -505,7 +511,7 @@ void de_module_bob(deark *c, struct deark_module_info *mi)
 
 static void de_run_alias_pix(deark *c, de_module_params *mparams)
 {
-	struct deark_bitmap *img = NULL;
+	de_bitmap *img = NULL;
 	de_int64 w, h;
 	de_int64 i;
 	de_int64 pos;
@@ -523,7 +529,7 @@ static void de_run_alias_pix(deark *c, de_module_params *mparams)
 	if(!de_good_image_dimensions(c, w, h)) goto done;
 	if(firstline >= h) goto done;
 	if(depth!=24) {
-		de_err(c, "Unsupported image type\n");
+		de_err(c, "Unsupported image type");
 		goto done;
 	}
 
@@ -624,7 +630,7 @@ static de_byte applevol_get_gray_shade(de_byte clr)
 
 static void de_run_applevol(deark *c, de_module_params *mparams)
 {
-	struct deark_bitmap *img = NULL;
+	de_bitmap *img = NULL;
 	de_int64 w, h;
 	de_int64 i, j;
 	de_int64 p;
@@ -674,7 +680,7 @@ void de_module_applevol(deark *c, struct deark_module_info *mi)
 
 static void de_run_hr(deark *c, de_module_params *mparams)
 {
-	struct deark_bitmap *img = NULL;
+	de_bitmap *img = NULL;
 
 	img = de_bitmap_create(c, 640, 240, 1);
 	img->density_code = DE_DENSITY_UNK_UNITS;
@@ -708,7 +714,7 @@ void de_module_hr(deark *c, struct deark_module_info *mi)
 
 static void de_run_ripicon(deark *c, de_module_params *mparams)
 {
-	struct deark_bitmap *img = NULL;
+	de_bitmap *img = NULL;
 	de_int64 width, height;
 	de_int64 chunk_span;
 	de_int64 src_rowspan;
@@ -718,7 +724,7 @@ static void de_run_ripicon(deark *c, de_module_params *mparams)
 
 	width = 1 + de_getui16le(0);
 	height = 1 + de_getui16le(2);
-	de_dbg(c, "dimensions: %dx%d\n", (int)width, (int)height);
+	de_dbg_dimensions(c, width, height);
 	if(!de_good_image_dimensions(c, width, height)) goto done;
 
 	img = de_bitmap_create(c, width, height, 3);
@@ -795,7 +801,7 @@ static de_byte lss16_get_nibble(deark *c, struct lss16ctx *d)
 static void de_run_lss16(deark *c, de_module_params *mparams)
 {
 	struct lss16ctx *d = NULL;
-	struct deark_bitmap *img = NULL;
+	de_bitmap *img = NULL;
 	de_int64 width, height;
 	de_int64 i;
 	de_int64 xpos, ypos;
@@ -805,13 +811,14 @@ static void de_run_lss16(deark *c, de_module_params *mparams)
 	de_byte cr1, cg1, cb1;
 	de_byte cr2, cg2, cb2;
 	de_uint32 pal[16];
+	char tmps[64];
 
 	d = de_malloc(c, sizeof(struct lss16ctx));
 
 	d->pos = 4;
 	width = de_getui16le(d->pos);
 	height = de_getui16le(d->pos+2);
-	de_dbg(c, "dimensions: %dx%d\n", (int)width, (int)height);
+	de_dbg_dimensions(c, width, height);
 	if(!de_good_image_dimensions(c, width, height)) goto done;
 
 	d->pos += 4;
@@ -823,10 +830,10 @@ static void de_run_lss16(deark *c, de_module_params *mparams)
 		cr2 = de_scale_63_to_255(cr1);
 		cg2 = de_scale_63_to_255(cg1);
 		cb2 = de_scale_63_to_255(cb1);
-		de_dbg2(c, "pal[%2d] = (%2d,%2d,%2d) -> (%3d,%3d,%3d)\n", (int)i,
-			(int)cr1, (int)cg1, (int)cb1,
-			(int)cr2, (int)cg2, (int)cb2);
 		pal[i] = DE_MAKE_RGB(cr2, cg2, cb2);
+		de_snprintf(tmps, sizeof(tmps), "(%2d,%2d,%2d) "DE_CHAR_RIGHTARROW" ",
+			(int)cr1, (int)cg1, (int)cb1);
+		de_dbg_pal_entry2(c, i, pal[i], tmps, NULL, NULL);
 		d->pos+=3;
 	}
 
@@ -898,7 +905,7 @@ static void de_run_vbm(deark *c, de_module_params *mparams)
 	ver = de_getbyte(3);
 	if(ver!=2) {
 		// TODO: Support VBM v3.
-		de_err(c, "Unsupported VBM version (%d)\n", (int)ver);
+		de_err(c, "Unsupported VBM version (%d)", (int)ver);
 		return;
 	}
 	width = de_getui16be(4);
@@ -972,7 +979,7 @@ void de_module_fp_art(deark *c, struct deark_module_info *mi)
 
 static void de_run_ybm(deark *c, de_module_params *mparams)
 {
-	struct deark_bitmap *img = NULL;
+	de_bitmap *img = NULL;
 	de_int64 width, height;
 	de_int64 i, j;
 	de_int64 rowspan;
@@ -1028,7 +1035,7 @@ void de_module_ybm(deark *c, struct deark_module_info *mi)
 
 static void de_run_olpc565(deark *c, de_module_params *mparams)
 {
-	struct deark_bitmap *img = NULL;
+	de_bitmap *img = NULL;
 	de_int64 width, height;
 	de_int64 i, j;
 	de_int64 rowspan;
@@ -1078,7 +1085,7 @@ void de_module_olpc565(deark *c, struct deark_module_info *mi)
 
 static void de_run_iim(deark *c, de_module_params *mparams)
 {
-	struct deark_bitmap *img = NULL;
+	de_bitmap *img = NULL;
 	de_int64 width, height;
 	de_int64 i, j;
 	de_int64 n, bpp;
@@ -1090,7 +1097,7 @@ static void de_run_iim(deark *c, de_module_params *mparams)
 	n = de_getui16be(8); // Unknown field
 	bpp = de_getui16be(10);
 	if(n!=4 || bpp!=24) {
-		de_dbg(c, "This type of IIM image is not supported\n");
+		de_dbg(c, "This type of IIM image is not supported");
 		goto done;
 	}
 	width = de_getui16be(12);
@@ -1133,7 +1140,7 @@ void de_module_iim(deark *c, struct deark_module_info *mi)
 
 static void de_run_pm_xv(deark *c, de_module_params *mparams)
 {
-	struct deark_bitmap *img = NULL;
+	de_bitmap *img = NULL;
 	int is_le;
 	de_int64 width, height;
 	de_int64 nplanes;
@@ -1153,21 +1160,21 @@ static void de_run_pm_xv(deark *c, de_module_params *mparams)
 		is_le = 0;
 
 	nplanes = dbuf_geti32x(c->infile, 4, is_le);
-	de_dbg(c, "planes: %d\n", (int)nplanes);
+	de_dbg(c, "planes: %d", (int)nplanes);
 
 	height = dbuf_geti32x(c->infile, 8, is_le);
 	width = dbuf_geti32x(c->infile, 12, is_le);
-	de_dbg(c, "dimensions: %dx%d\n", (int)width, (int)height);
+	de_dbg_dimensions(c, width, height);
 	if(!de_good_image_dimensions(c, width, height)) goto done;
 
 	nbands = dbuf_geti32x(c->infile, 16, is_le);
-	de_dbg(c, "bands: %d\n", (int)nbands);
+	de_dbg(c, "bands: %d", (int)nbands);
 
 	pixelformat = dbuf_geti32x(c->infile, 20, is_le);
-	de_dbg(c, "pixel format: 0x%04x\n", (unsigned int)pixelformat);
+	de_dbg(c, "pixel format: 0x%04x", (unsigned int)pixelformat);
 
 	commentsize = dbuf_geti32x(c->infile, 24, is_le);
-	de_dbg(c, "comment size: %d\n", (int)commentsize);
+	de_dbg(c, "comment size: %d", (int)commentsize);
 
 	pos = 28;
 
@@ -1178,7 +1185,7 @@ static void de_run_pm_xv(deark *c, de_module_params *mparams)
 	}
 	else {
 		de_err(c, "Unsupported image type (pixel format=0x%04x, "
-			"planes=%d, bands=%d)\n", (unsigned int)pixelformat,
+			"planes=%d, bands=%d)", (unsigned int)pixelformat,
 			(int)nplanes, (int)nbands);
 		goto done;
 	}
@@ -1244,17 +1251,17 @@ static void de_run_crg(deark *c, de_module_params *mparams)
 
 	width = de_getui32be(20);
 	height = de_getui32be(24);
-	de_dbg(c, "dimensions: %dx%d\n", (int)width, (int)height);
+	de_dbg_dimensions(c, width, height);
 	if(!de_good_image_dimensions(c, width, height)) goto done;
 
 	b1 = de_getbyte(32);
 	if(b1!=0x01) {
-		de_err(c, "Unsupported CRG format\n");
+		de_err(c, "Unsupported CRG format");
 		goto done;
 	}
 
 	num_cmpr_bytes = de_getui32be(38);
-	de_dbg(c, "compressed data size: %d\n", (int)num_cmpr_bytes);
+	de_dbg(c, "compressed data size: %d", (int)num_cmpr_bytes);
 	cmpr_img_start = 42;
 
 	if(cmpr_img_start + num_cmpr_bytes > c->infile->len) {
@@ -1279,7 +1286,7 @@ static void de_run_crg(deark *c, de_module_params *mparams)
 			dbuf_write_run(unc_pixels, b2, count);
 		}
 	}
-	de_dbg(c, "decompressed to %d bytes\n", (int)unc_pixels->len);
+	de_dbg(c, "decompressed to %d bytes", (int)unc_pixels->len);
 
 	de_convert_and_write_image_bilevel(unc_pixels, 0, width, height, rowspan,
 		DE_CVTF_WHITEISZERO, NULL, 0);
@@ -1309,7 +1316,7 @@ void de_module_crg(deark *c, struct deark_module_info *mi)
 
 static void de_run_farbfeld(deark *c, de_module_params *mparams)
 {
-	struct deark_bitmap *img = NULL;
+	de_bitmap *img = NULL;
 	de_int64 width, height;
 	de_int64 i, j, k;
 	de_int64 ppos;
@@ -1317,7 +1324,7 @@ static void de_run_farbfeld(deark *c, de_module_params *mparams)
 
 	width = de_getui32be(8);
 	height = de_getui32be(12);
-	de_dbg(c, "dimensions: %dx%d\n", (int)width, (int)height);
+	de_dbg_dimensions(c, width, height);
 	if(!de_good_image_dimensions(c, width, height)) return;
 
 	img = de_bitmap_create(c, width, height, 4);
@@ -1369,7 +1376,7 @@ static void de_run_vgafont(deark *c, de_module_params *mparams)
 		height = 14;
 	}
 	else {
-		de_err(c, "Bad file size\n");
+		de_err(c, "Bad file size");
 		goto done;
 	}
 
@@ -1416,12 +1423,18 @@ done:
 	de_free(c, fontdata);
 }
 
+static void de_help_vgafont(deark *c)
+{
+	de_msg(c, "-opt vgafont:c : Emit C code");
+}
+
 void de_module_vgafont(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "vgafont";
-	mi->desc = "Raw 8x16 VGA font";
+	mi->desc = "Raw 8x16 or 8x14 VGA font";
 	mi->run_fn = de_run_vgafont;
 	mi->identify_fn = de_identify_none;
+	mi->help_fn = de_help_vgafont;
 	mi->flags |= DE_MODFLAG_HIDDEN;
 }
 
@@ -1431,7 +1444,7 @@ void de_module_vgafont(deark *c, struct deark_module_info *mi)
 
 static void convert_image_rgb(dbuf *f, de_int64 fpos,
 	de_int64 rowspan, de_int64 pixelspan,
-	struct deark_bitmap *img, unsigned int flags)
+	de_bitmap *img, unsigned int flags)
 {
 	de_int64 i, j;
 	de_int32 clr;
@@ -1453,38 +1466,38 @@ static void de_run_hsiraw(deark *c, de_module_params *mparams)
 	de_int64 hdpi, vdpi;
 	de_int64 cmpr;
 	de_int64 alpha_info;
-	struct deark_bitmap *img = NULL;
+	de_bitmap *img = NULL;
 	de_uint32 pal[256];
 	int is_grayscale;
 
 	ver = de_getui16be(6);
-	de_dbg(c, "version: %d\n", (int)ver);
+	de_dbg(c, "version: %d", (int)ver);
 	if(ver!=4) {
-		de_warn(c, "HSI Raw version %d might not be supported correctly\n", (int)ver);
+		de_warn(c, "HSI Raw version %d might not be supported correctly", (int)ver);
 	}
 
 	w = de_getui16be(8);
 	if(w==0) {
-		 // MPlayer extension?
-		de_dbg2(c, "reading 32-bit width\n");
+		// MPlayer extension?
+		de_dbg2(c, "reading 32-bit width");
 		w = de_getui32be(28);
 	}
 	h = de_getui16be(10);
-	de_dbg(c, "dimensions: %dx%d\n", (int)w, (int)h);
+	de_dbg_dimensions(c, w, h);
 	num_pal_colors = de_getui16be(12);
-	de_dbg(c, "number of palette colors: %d\n", (int)num_pal_colors);
+	de_dbg(c, "number of palette colors: %d", (int)num_pal_colors);
 
-	hdpi = dbuf_geti16be(c->infile, 14);
-	vdpi = dbuf_geti16be(c->infile, 16);
-	de_dbg(c, "density: %dx%d\n", (int)hdpi, (int)vdpi);
+	hdpi = de_geti16be(14);
+	vdpi = de_geti16be(16);
+	de_dbg(c, "density: %d"DE_CHAR_TIMES"%d", (int)hdpi, (int)vdpi);
 	// [18: Gamma]
 	cmpr = de_getui16be(20);
-	de_dbg(c, "compression: %d\n", (int)cmpr);
+	de_dbg(c, "compression: %d", (int)cmpr);
 	alpha_info = de_getui16be(22);
-	de_dbg(c, "alpha: %d\n", (int)alpha_info);
+	de_dbg(c, "alpha: %d", (int)alpha_info);
 
 	if(num_pal_colors>256 || cmpr!=0 || alpha_info!=0) {
-		de_err(c, "This type of HSI Raw image is not supported\n");
+		de_err(c, "This type of HSI Raw image is not supported");
 		goto done;
 	}
 	if(!de_good_image_dimensions(c, w, h)) goto done;
@@ -1539,7 +1552,7 @@ static void de_run_qdv(deark *c, de_module_params *mparams)
 	de_int64 w, h;
 	de_int64 num_pal_colors;
 	de_int64 pos;
-	struct deark_bitmap *img = NULL;
+	de_bitmap *img = NULL;
 	de_uint32 pal[256];
 
 	// Warning: This decoder is based on reverse engineering, and may be
@@ -1547,11 +1560,11 @@ static void de_run_qdv(deark *c, de_module_params *mparams)
 
 	w = de_getui16be(0);
 	h = de_getui16be(2);
-	de_dbg(c, "dimensions: %dx%d\n", (int)w, (int)h);
+	de_dbg_dimensions(c, w, h);
 	if(!de_good_image_dimensions(c, w, h)) goto done;
 
 	num_pal_colors = 1 + (de_int64)de_getbyte(4);
-	de_dbg(c, "number of palette colors: %d\n", (int)num_pal_colors);
+	de_dbg(c, "number of palette colors: %d", (int)num_pal_colors);
 
 	pos = 5;
 	de_memset(pal, 0, sizeof(pal));
@@ -1597,7 +1610,7 @@ static void de_run_vitec(deark *c, de_module_params *mparams)
 {
 	de_int64 w, h;
 	de_int64 i, j, plane;
-	struct deark_bitmap *img = NULL;
+	de_bitmap *img = NULL;
 	de_int64 samplesperpixel;
 	de_int64 rowspan, planespan;
 	de_int64 pos;
@@ -1608,17 +1621,17 @@ static void de_run_vitec(deark *c, de_module_params *mparams)
 	// This code is based on reverse engineering, and may be incorrect.
 
 	de_dbg_indent_save(c, &saved_indent_level);
-	de_warn(c, "VITec image support is experimental, and may not work correctly.\n");
+	de_warn(c, "VITec image support is experimental, and may not work correctly.");
 
 	pos = 4;
 	h1size = de_getui32be(pos);
-	de_dbg(c, "header 1 at %d, len=%d\n", (int)pos, (int)h1size);
+	de_dbg(c, "header 1 at %d, len=%d", (int)pos, (int)h1size);
 	// Don't know what's in this part of the header. Just ignore it.
 	pos += h1size;
 	if(pos>=c->infile->len) goto done;
 
 	h2size = de_getui32be(pos);
-	de_dbg(c, "header 2 at %d, len=%d\n", (int)pos, (int)h2size);
+	de_dbg(c, "header 2 at %d, len=%d", (int)pos, (int)h2size);
 	de_dbg_indent(c, 1);
 
 	// pos+4: Bits size?
@@ -1626,15 +1639,15 @@ static void de_run_vitec(deark *c, de_module_params *mparams)
 
 	w = de_getui32be(pos+36);
 	h = de_getui32be(pos+40);
-	de_dbg(c, "dimensions: %dx%d\n", (int)w, (int)h);
+	de_dbg_dimensions(c, w, h);
 	if(!de_good_image_dimensions(c, w, h)) goto done;
 
 	// pos+52: Unknown field, 1 in grayscale images
 
 	samplesperpixel = de_getui32be(pos+56);
-	de_dbg(c, "samples/pixel: %d\n", (int)samplesperpixel);
+	de_dbg(c, "samples/pixel: %d", (int)samplesperpixel);
 	if(samplesperpixel!=1 && samplesperpixel!=3) {
-		de_err(c, "Unsupported samples/pixel: %d\n", (int)samplesperpixel);
+		de_err(c, "Unsupported samples/pixel: %d", (int)samplesperpixel);
 		goto done;
 	}
 
@@ -1642,7 +1655,7 @@ static void de_run_vitec(deark *c, de_module_params *mparams)
 	if(pos>=c->infile->len) goto done;
 	de_dbg_indent(c, -1);
 
-	de_dbg(c, "bitmap at %d\n", (int)pos);
+	de_dbg(c, "bitmap at %d", (int)pos);
 	img = de_bitmap_create(c, w, h, (int)samplesperpixel);
 	rowspan = ((w+7)/8)*8;
 	planespan = rowspan*h;
@@ -1731,7 +1744,7 @@ static void de_run_lumena_cel(deark *c, de_module_params *mparams)
 	de_byte a;
 	int is_16bit = 0;
 	int is_32bit = 0;
-	struct deark_bitmap *img = NULL;
+	de_bitmap *img = NULL;
 	const de_int64 headersize = 4;
 	de_int64 bypp;
 
@@ -1743,11 +1756,12 @@ static void de_run_lumena_cel(deark *c, de_module_params *mparams)
 	is_16bit = (c->infile->len == headersize + width*height*2);
 	is_32bit = (c->infile->len == headersize + width*height*4);
 	if(!is_16bit && !is_32bit) {
-		de_warn(c, "Cannot detect bits/pixel, assuming 32\n");
+		de_warn(c, "Cannot detect bits/pixel, assuming 32");
 		is_32bit = 1;
 	}
 
 	bypp = (is_32bit) ? 4 : 2;
+	de_dbg(c, "bytes/pixel: %d", (int)bypp);
 	rowspan = width * bypp;
 
 	img = de_bitmap_create(c, width, height, is_32bit?4:3);

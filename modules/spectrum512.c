@@ -293,26 +293,26 @@ static void do_run_spectrum512c_s_internal(deark *c, de_module_params *mparams, 
 
 	pos = 4;
 	pixels_cmpr_len = de_getui32be(pos);
-	de_dbg(c, "pixels compressed len: %d\n", (int)pixels_cmpr_len);
+	de_dbg(c, "pixels compressed len: %d", (int)pixels_cmpr_len);
 	pos += 4;
 	pal_cmpr_len = de_getui32be(pos);
-	de_dbg(c, "palette compressed len: %d\n", (int)pal_cmpr_len);
+	de_dbg(c, "palette compressed len: %d", (int)pal_cmpr_len);
 	pos += 4;
 
 	pal_pos = pos + pixels_cmpr_len;
 
 	if(pal_pos + pal_cmpr_len > c->infile->len) {
-		de_err(c, "Invalid or truncated file\n");
+		de_err(c, "Invalid or truncated file");
 		goto done;
 	}
 
 	if(is_sps) {
 		sps_format_code = de_getbyte(pal_pos + pal_cmpr_len-1);
 		sps_format_code &= 0x1;
-		de_dbg(c, "format code: %u\n", sps_format_code);
+		de_dbg(c, "format code: %u", sps_format_code);
 	}
 
-	de_dbg(c, "pixels at %d\n", (int)pos);
+	de_dbg(c, "pixels at %d", (int)pos);
 	// Decompress the pixel data into an in-memory buffer.
 	unc_pixels_planar = dbuf_create_membuf(c, 32000, 1);
 	if(is_sps) {
@@ -342,7 +342,7 @@ static void do_run_spectrum512c_s_internal(deark *c, de_module_params *mparams, 
 	dbuf_truncate(spufile, 32000);
 
 	pos = pal_pos;
-	de_dbg(c, "palette at %d\n", (int)pos);
+	de_dbg(c, "palette at %d", (int)pos);
 	if(is_sps) {
 		sps_uncompress_pal(c, pos, spufile);
 	}
@@ -387,12 +387,18 @@ static int de_identify_spectrum512c(deark *c)
 	return 10;
 }
 
+static void de_help_spectrum512cs(deark *c)
+{
+	de_msg(c, "-opt spectrum512:tospu : Output to an .spu file");
+}
+
 void de_module_spectrum512c(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "spectrum512c";
 	mi->desc = "Spectrum 512 Compressed";
 	mi->run_fn = de_run_spectrum512c;
 	mi->identify_fn = de_identify_spectrum512c;
+	mi->help_fn = de_help_spectrum512cs;
 }
 
 static void de_run_spectrum512s(deark *c, de_module_params *mparams)
@@ -419,4 +425,5 @@ void de_module_spectrum512s(deark *c, struct deark_module_info *mi)
 	mi->desc = "Spectrum 512 Smooshed";
 	mi->run_fn = de_run_spectrum512s;
 	mi->identify_fn = de_identify_spectrum512s;
+	mi->help_fn = de_help_spectrum512cs;
 }

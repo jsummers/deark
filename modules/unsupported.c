@@ -55,9 +55,21 @@ static void get_fmt(deark *c, struct fmtinfo_struct *fmti)
 		return;
 	}
 
-	if(b[2]=='-' && b[3]=='l' && b[6]=='-' && (b[4]=='h' || b[4]=='z')) {
-		fmti->confidence = 10;
-		fmti->descr = "an LHA file";
+	if(!de_memcmp(b, "<?xpacket", 9)) {
+		fmti->confidence = 20;
+		fmti->descr = "an XMP file";
+		return;
+	}
+
+	if(!de_memcmp(b, "MSCF", 4)) {
+		fmti->confidence = 40;
+		fmti->descr = "a Microsoft CAB file";
+		return;
+	}
+
+	if(!de_memcmp(b, "ISc(", 4)) {
+		fmti->confidence = 40;
+		fmti->descr = "an InstallShield CAB file";
 		return;
 	}
 
@@ -66,6 +78,12 @@ static void get_fmt(deark *c, struct fmtinfo_struct *fmti)
 	{
 		fmti->confidence = 90;
 		fmti->descr = "a non-GROB HP-48/49 file";
+		return;
+	}
+
+	if(!de_memcmp(b, "%PDF-", 5)) {
+		fmti->confidence = 90;
+		fmti->descr = "a PDF file";
 		return;
 	}
 
@@ -83,6 +101,12 @@ static void get_fmt(deark *c, struct fmtinfo_struct *fmti)
 		fmti->descr = "a Fujifilm RAF file";
 		return;
 	}
+
+	if(!de_memcmp(b, "AutoCAD Slide\r\n\x1a", 16)) {
+		fmti->confidence = 100;
+		fmti->descr = "an AutoCAD Slide file";
+		return;
+	}
 }
 
 static void de_run_unsupported(deark *c, de_module_params *mparams)
@@ -91,10 +115,10 @@ static void de_run_unsupported(deark *c, de_module_params *mparams)
 	get_fmt(c, &fmti);
 	if(fmti.confidence>0 && fmti.descr) {
 		if(fmti.special_message) {
-			de_err(c, "This looks like %s\n", fmti.descr);
+			de_err(c, "This looks like %s", fmti.descr);
 		}
 		else {
-			de_err(c, "This looks like %s, which is not a supported format.\n", fmti.descr);
+			de_err(c, "This looks like %s, which is not a supported format.", fmti.descr);
 		}
 	}
 }
@@ -109,6 +133,7 @@ static int de_identify_unsupported(deark *c)
 void de_module_unsupported(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "unsupported";
+	mi->desc = "Identify some unsupported formats";
 	mi->run_fn = de_run_unsupported;
 	mi->identify_fn = de_identify_unsupported;
 	mi->flags |= DE_MODFLAG_HIDDEN;

@@ -48,6 +48,9 @@ Deark -- Information about supported formats
 
 * ArtWorx Data Format (ADF) (module="artworx_adf")
 
+* AutoCAD Slide Library (.slb) (module="autocad_slb")
+  - Extracts the component AutoCAD Slide (.sld) files.
+
 * Award BIOS logo (EPA, AWBM) (module="awbm") (experimental)
   - Supports version 1
   - Supports 4-bit and 8-bit version 2
@@ -101,6 +104,10 @@ Deark -- Information about supported formats
   software.
   - Cannot be autodetected. You must use "-m compfacei".
 
+* Dr. Halo .CUT (module="drhalocut")
+  Options
+   -file2 <file.pal> - Read the palette from this file.
+
 * DIB (module="dib")
   - Adds a BMP file header to a raw Windows DIB file.
 
@@ -138,11 +145,13 @@ Deark -- Information about supported formats
   - Supports some non-XIMG 16-color images
 
 * GIF (module="gif")
-  - Extract individual images. (Note that for animated GIFs, these are often
-     just portions of an image.)
+  - Extract the image, or every frame from an animated or mult-image GIF.
+  - Extract text from plaintext extensions, as separate text files. Text only;
+     colors are ignored.
   - Extract comments (use -a).
-  - Extract text from plaintext extensions (use -a). Text only; colors are
-     ignored.
+  Options
+   -opt gif:raw - Extract the individual component images, instead of rendering
+     the frame in full.
 
 * GodPaint (Atari Falcon) (module="godpaint")
 
@@ -152,6 +161,10 @@ Deark -- Information about supported formats
 * GROB (HP calculator) (module="grob")
   - Supports binary and text encodings.
   - Some text GROB files can't be autodetected, and need "-m grob".
+  Options
+   -opt grob:planes=<n> - Treat image as grayscale. <n> should usually be 2.
+   -opt grob:planeorder=l - For grayscale, assume the least-significant
+     bitplane comes first.
 
 * HP 100LX / HP 200LX .ICN icon format (module="hpicn")
 
@@ -203,6 +216,10 @@ Deark -- Information about supported formats
   - Process Multi-Picture Format (MPF/MPO) data.
   - Extract comments (use -a). Comment bytes are extracted as-is, because there
      is no way to determine the character encoding.
+  Options
+   -opt jpeg:stopateoi - Stop when the end of the first JPEG "file" has been
+     found, instead of looking for additional JPEG data after it (as in MPO
+     format, for example)
 
 * JPEG 2000 (module="jpeg2000")
   - Extract JPEG 2000 codestream from JP2/JPX/JPM formats.
@@ -271,6 +288,16 @@ Deark -- Information about supported formats
 * PaintShop Pro Browser Cache (module="jbf")
   - Format v1.x: BMP files are reconstructed and extracted.
   - Format v2.x: JPEG files are extracted.
+
+* Palm BitmapType (module="palmbitmap")
+  - Cannot easily be autodetected. You must use "-m palmbitmap", except in most
+    cases when the file extension is ".palm".
+  - May be found inside some Palm files. See also the notes for the "Palm PRC"
+    and "Palm PDB/PQA" modules.
+  Options
+   -opt palm:le - Assume little-endian byte order
+
+* Palm Database (PDB) ImageViewer/FireViewer (part of module "palmdb")
 
 * PCPaint / Pictor (module="pcpaint")
   - Supports PIC and CLP formats. Some files are not portable, because they use
@@ -420,6 +447,8 @@ Deark -- Information about supported formats
 
 * VITec image format (module="vitec) (experimental/incomplete)
 
+* VORT ray tracer .pix image (module="vort") (experimental/incomplete)
+
 * Windows Metafile (module=wmf) (experimental)
   - Extract BMP images from some records.
 
@@ -486,6 +515,9 @@ Deark -- Information about supported formats
 
 * D64 (Commodore 64 disk format) (module="d64") (experimental)
 
+* Doom WAD (module="wad")
+  - The extracted files are usually in specialized formats.
+
 * Gzip (module="gzip")
 
 * Microsoft Compound File Binary (module="cfb")
@@ -499,6 +531,18 @@ Deark -- Information about supported formats
 * Microsoft Installation Compression (module="mscompress")
   - "KWAJ" variant not supported
 
+* Palm PDB/PQA (module="palmdb")
+  - You may have to use "-m palmdb".
+  - Use -a to extract the record blocks, but note that they are usually not in
+    well-known formats.
+
+* Palm PRC (module="palmrc")
+  - You may have to use "-m palmrc".
+  - Use -a to extract the record blocks, but note that they are usually not in
+    well-known formats.
+  - Extracted ".palm" files are in Palm BitmapType format. Reprocess them to
+    convert to PNG.
+
 * RPM (package manager) (module="rpm)
   - Extract compressed cpio file.
 
@@ -509,9 +553,9 @@ Deark -- Information about supported formats
   - Rare files may need "-m tar", as tar is difficult to autodetect.
 
 * ZIP (module="zip")
-  - Does not extract files, only comments.
-  - Extract main ZIP file comment.
-  - Extract comments for individual files.
+  - Limited support
+  - Extract main ZIP file comment (use -a).
+  - Extract comments for individual files (use -a).
 
 * zlib (module="zlib")
   - Raw zlib files are uncompressed.
@@ -561,9 +605,11 @@ Deark -- Information about supported formats
   - Print the IEEE CRC-32 of the file.
 
 * EXE/PE/NE/etc. (module="exe")
+  EXE format can be complex. Not all varieties are correctly supported.
   - Extract bitmaps, icons, and cursors from NE and PE (Windows .exe) files.
   - Extract fonts.
   - Extract embedded manifests (use -a).
+  - Extract code-signing certificates (use -a).
   - Extract bitmaps from LX (Linear Executable) files. Note that some of these
     may be in "Bitmap Array" format. Reprocess them with Deark to extract the
     actual BMP file(s).
@@ -589,6 +635,10 @@ Deark -- Information about supported formats
 * HLP (Windows Help) (module="hlp") (experimental)
   - Extract SHG/MRB graphics
   - Extract icon (rarely present)
+
+* MP3 audio (module="mp3") (experimental)
+  - Not all files can be autodetected.
+  - Mainly for ID3 metadata. The audio data is not converted.
 
 * NULL (module="null")
   - Do nothing.

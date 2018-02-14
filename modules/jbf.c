@@ -65,27 +65,27 @@ static int do_read_header(deark *c, lctx *d, de_int64 pos)
 {
 	int retval = 0;
 
-	de_dbg(c, "header at %d\n", (int)pos);
+	de_dbg(c, "header at %d", (int)pos);
 	de_dbg_indent(c, 1);
 
 	pos += 15;
 	d->ver_major = (unsigned int)de_getui16be(pos);
 	d->ver_minor = (unsigned int)de_getui16be(pos+2);
 	d->ver_combined = (d->ver_major<<16) | d->ver_minor;
-	de_dbg(c, "format version: %u.%u\n", d->ver_major, d->ver_minor);
+	de_dbg(c, "format version: %u.%u", d->ver_major, d->ver_minor);
 	pos+=4;
 
 	if(d->ver_major<1 || d->ver_major>2) {
-		de_err(c, "Unsupported JBF format version: %u.%u\n", d->ver_major, d->ver_minor);
+		de_err(c, "Unsupported JBF format version: %u.%u", d->ver_major, d->ver_minor);
 		goto done;
 	}
 	if(d->ver_major==1 && (d->ver_minor==2 || d->ver_minor>3)) {
 		de_warn(c, "Unrecognized JBF format version (%u.%u). File may not be "
-			"decoded correctly.\n", d->ver_major, d->ver_minor);
+			"decoded correctly.", d->ver_major, d->ver_minor);
 	}
 
 	d->image_count = de_getui32le(pos);
-	de_dbg(c, "image count: %d\n", (int)d->image_count);
+	de_dbg(c, "image count: %d", (int)d->image_count);
 	pos+=4;
 	if(!de_good_image_count(c, d->image_count)) goto done;
 
@@ -125,10 +125,10 @@ static int read_filename(deark *c, lctx *d, struct page_ctx *pg, de_int64 pos1, 
 	if(d->ver_combined>=0x010001) { // v1.1+
 		de_int64 fnlen;
 		fnlen = de_getui32le(pos);
-		de_dbg(c, "original filename len: %d\n", (int)fnlen);
+		de_dbg(c, "original filename len: %d", (int)fnlen);
 		pos += 4;
 		if(fnlen>1000) {
-			de_err(c, "Bad filename length\n");
+			de_err(c, "Bad filename length");
 			goto done;
 		}
 
@@ -144,7 +144,7 @@ static int read_filename(deark *c, lctx *d, struct page_ctx *pg, de_int64 pos1, 
 		pos += 13;
 	}
 
-	de_dbg(c, "original filename: \"%s\"\n", ucstring_get_printable_sz(fname_orig));
+	de_dbg(c, "original filename: \"%s\"", ucstring_get_printable_sz(fname_orig));
 
 	if(c->filenames_from_file) {
 		pg->fname = ucstring_clone(fname_orig);
@@ -178,7 +178,7 @@ static void read_FILETIME(deark *c, lctx *d, struct page_ctx *pg, de_int64 pos)
 	ft = de_geti64le(pos);
 	de_FILETIME_to_timestamp(ft, &pg->fi->mod_time);
 	de_timestamp_to_string(&pg->fi->mod_time, timestamp_buf, sizeof(timestamp_buf), 1);
-	de_dbg(c, "mod time: %s\n", timestamp_buf);
+	de_dbg(c, "mod time: %s", timestamp_buf);
 }
 
 static void read_unix_time(deark *c, lctx *d, struct page_ctx *pg, de_int64 pos)
@@ -186,10 +186,10 @@ static void read_unix_time(deark *c, lctx *d, struct page_ctx *pg, de_int64 pos)
 	de_int64 ut;
 	char timestamp_buf[64];
 
-	ut = dbuf_geti32le(c->infile, pos);
+	ut = de_geti32le(pos);
 	de_unix_time_to_timestamp(ut, &pg->fi->mod_time);
 	de_timestamp_to_string(&pg->fi->mod_time, timestamp_buf, sizeof(timestamp_buf), 1);
-	de_dbg(c, "mod time: %s\n", timestamp_buf);
+	de_dbg(c, "mod time: %s", timestamp_buf);
 }
 
 static int read_bitmap_v1(deark *c, lctx *d, struct page_ctx *pg, de_int64 pos1, de_int64 *bytes_consumed)
@@ -202,16 +202,16 @@ static int read_bitmap_v1(deark *c, lctx *d, struct page_ctx *pg, de_int64 pos1,
 	de_int64 count;
 	de_int64 dec_bytes = 0;
 
-	de_dbg(c, "bitmap at %d\n", (int)pos);
+	de_dbg(c, "bitmap at %d", (int)pos);
 	de_dbg_indent(c, 1);
 
 	if(!de_fmtutil_get_bmpinfo(c, c->infile, &bi, pos, c->infile->len-pos, 0)) {
-		de_err(c, "Invalid bitmap\n");
+		de_err(c, "Invalid bitmap");
 		goto done;
 	}
 
 	if(bi.infohdrsize != 40) {
-		de_err(c, "Unexpected BMP format\n");
+		de_err(c, "Unexpected BMP format");
 		goto done;
 	}
 
@@ -293,7 +293,7 @@ static int do_one_thumbnail(deark *c, lctx *d, de_int64 pos1, de_int64 imgidx, d
 	struct page_ctx *pg = NULL;
 	de_int64 fn_field_size = 0;
 
-	de_dbg(c, "image #%d at %d\n", (int)imgidx, (int)pos1);
+	de_dbg(c, "image #%d at %d", (int)imgidx, (int)pos1);
 	de_dbg_indent(c, 1);
 
 	pg = de_malloc(c, sizeof(struct page_ctx));
@@ -313,7 +313,7 @@ static int do_one_thumbnail(deark *c, lctx *d, de_int64 pos1, de_int64 imgidx, d
 	if(d->ver_major==2) {
 		// The original file type (not the format of the thumbnail)
 		filetype_code = (unsigned int)de_getui32le(pos);
-		de_dbg(c, "original file type: 0x%02x (%s)\n", filetype_code, get_type_name(filetype_code));
+		de_dbg(c, "original file type: 0x%02x (%s)", filetype_code, get_type_name(filetype_code));
 		pos += 4; // filetype code
 	}
 	else if(d->ver_major==1 && d->ver_minor<3) {
@@ -324,7 +324,7 @@ static int do_one_thumbnail(deark *c, lctx *d, de_int64 pos1, de_int64 imgidx, d
 	pos += 4;
 	tn_h = de_getui16le(pos);
 	pos += 4;
-	de_dbg(c, "original dimensions: %dx%d\n", (int)tn_w, (int)tn_h);
+	de_dbg(c, "original dimensions: %d"DE_CHAR_TIMES"%d", (int)tn_w, (int)tn_h);
 
 	pos += 4; // color depth
 
@@ -333,7 +333,7 @@ static int do_one_thumbnail(deark *c, lctx *d, de_int64 pos1, de_int64 imgidx, d
 	}
 
 	file_size = de_getui32le(pos);
-	de_dbg(c, "original file size: %u\n", (unsigned int)file_size);
+	de_dbg(c, "original file size: %u", (unsigned int)file_size);
 	pos += 4;
 
 	if(d->ver_major==1) {
@@ -348,7 +348,7 @@ static int do_one_thumbnail(deark *c, lctx *d, de_int64 pos1, de_int64 imgidx, d
 		x = de_getui32le(pos);
 		pos += 4;
 		if(x==0) { // truncated entry
-			de_dbg(c, "thumbnail not present\n");
+			de_dbg(c, "thumbnail not present");
 			retval = 1;
 			goto done;
 		}
@@ -356,11 +356,11 @@ static int do_one_thumbnail(deark *c, lctx *d, de_int64 pos1, de_int64 imgidx, d
 		pos += 8; // remaining 8 byte of signature
 
 		payload_len = de_getui32le(pos);
-		de_dbg(c, "payload len: %u\n", (unsigned int)payload_len);
+		de_dbg(c, "payload len: %u", (unsigned int)payload_len);
 		pos += 4;
 
 		if(pos + payload_len > c->infile->len) {
-			de_err(c, "Bad payload length (%u) or unsupported format\n", (unsigned int)payload_len);
+			de_err(c, "Bad payload length (%u) or unsupported format", (unsigned int)payload_len);
 			goto done;
 		}
 

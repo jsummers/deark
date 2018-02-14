@@ -54,16 +54,16 @@ static void do_printshop_etc_image(deark *c, lctx *d, de_int64 imgnum,
 		if(pos+imgspan > c->infile->len) goto done; // Reached end of file
 	}
 
-	de_dbg(c, "image[%d] at %d, %dx%d\n", (int)imgnum, (int)pos, (int)width, (int)height);
+	de_dbg(c, "image[%d] at %d, %d"DE_CHAR_TIMES"%d", (int)imgnum, (int)pos, (int)width, (int)height);
 	de_dbg_indent(c, 1);
 
 	fi = de_finfo_create(c);
 
-	if(d->namefile) {
+	if(d->namefile && (d->namefile->len >= (imgnum+1)*16)) {
 		de_ucstring *name = NULL;
 		name = ucstring_create(c);
 		dbuf_read_to_ucstring(d->namefile, imgnum*16, 16, name, DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_ASCII);
-		de_dbg(c, "name: \"%s\"\n", ucstring_get_printable_sz(name));
+		de_dbg(c, "name: \"%s\"", ucstring_get_printable_sz(name));
 		de_finfo_set_name_from_ucstring(c, fi, name);
 		ucstring_destroy(name);
 	}
@@ -85,6 +85,8 @@ static void do_printshop_etc(deark *c, lctx *d)
 	de_int64 bytes_consumed;
 	de_int64 pos;
 	de_int64 img_count;
+	de_int64 num_images = 0;
+	int num_images_is_known = 0;
 
 	namefile_fn = de_get_ext_option(c, "namefile");
 	if(!namefile_fn) namefile_fn = de_get_ext_option(c, "file2");
@@ -93,10 +95,13 @@ static void do_printshop_etc(deark *c, lctx *d)
 		d->namefile = dbuf_open_input_file(c, namefile_fn);
 	}
 	if(d->namefile) {
-		de_dbg(c, "Using name file: %s\n", namefile_fn);
+		de_dbg(c, "Using name file: %s", namefile_fn);
 	}
 
 	if(d->fmt == PRINTSHOP_FMT_POG) {
+		num_images = de_getui16le(8);
+		de_dbg(c, "number of images: %d", (int)num_images);
+		num_images_is_known = 1;
 		headersize = 10;
 	}
 	else {
@@ -106,11 +111,17 @@ static void do_printshop_etc(deark *c, lctx *d)
 	pos = headersize;
 	img_count = 0;
 	while(1) {
+		if(num_images_is_known && (img_count >= num_images)) break;
 		if(pos >= c->infile->len) break;
 		do_printshop_etc_image(c, d, img_count, pos, &bytes_consumed);
 		if(bytes_consumed<1) break;
 		pos += bytes_consumed;
 		img_count++;
+	}
+
+	if(num_images_is_known && (c->infile->len - pos)>=128) {
+		de_warn(c, "%d bytes of data were ignored. This file may not have "
+			"been fully decoded.", (int)(c->infile->len - pos));
 	}
 
 	dbuf_close(d->namefile);

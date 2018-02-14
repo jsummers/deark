@@ -26,6 +26,7 @@ typedef struct localctx_struct {
 	de_int64 dfFace; // Offset of font face name
 	de_byte dfCharSet;
 
+	int is_vector;
 	int encoding;
 
 	de_finfo *fi;
@@ -46,7 +47,7 @@ static void do_prescan_chars(deark *c, lctx *d)
 			d->detected_max_width = char_width;
 		}
 	}
-	de_dbg(c, "detected max width: %d\n", (int)d->detected_max_width);
+	de_dbg(c, "detected max width: %d", (int)d->detected_max_width);
 }
 
 // create bitmap_font object
@@ -55,6 +56,9 @@ static void do_make_image(deark *c, lctx *d)
 	struct de_bitmap_font *font = NULL;
 	de_int64 i;
 	de_int64 pos;
+
+	de_dbg(c, "reading characters and bitmaps");
+	de_dbg_indent(c, 1);
 
 	font = de_create_bitmap_font(c);
 
@@ -82,7 +86,7 @@ static void do_make_image(deark *c, lctx *d)
 			char_offset = de_getui32le(pos+2);
 		else
 			char_offset = de_getui16le(pos+2);
-		de_dbg2(c, "char[%d] width=%d offset=%d\n", (int)(d->first_char + i), (int)char_width, (int)char_offset);
+		de_dbg2(c, "char[%d] width=%d offset=%d", (int)(d->first_char + i), (int)char_width, (int)char_offset);
 
 		num_tiles = (char_width+7)/8;
 
@@ -135,24 +139,68 @@ static void do_make_image(deark *c, lctx *d)
 		}
 		de_destroy_bitmap_font(c, font);
 	}
+
+	de_dbg_indent(c, -1);
 }
 
 static void read_face_name(deark *c, lctx *d)
 {
-	char buf[50];
 	char buf2[50];
+	struct de_stringreaderdata *srd = NULL;
 
 	if(d->dfFace<1) return;
-	if(!c->filenames_from_file) return;
+
+	de_dbg(c, "face name at %d", (int)d->dfFace);
+	de_dbg_indent(c, 1);
 
 	// The facename is terminated with a NUL byte.
 	// There seems to be no defined limit to its length, but Windows font face
 	// names traditionally have to be quite short.
-	dbuf_read_sz(c->infile, d->dfFace, buf, sizeof(buf));
-	de_snprintf(buf2, sizeof(buf2), "%s-%d", buf, (int)d->dfPoints);
+	srd = dbuf_read_string(c->infile, d->dfFace, 260, 50,
+		DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_ASCII);
+	de_dbg(c, "face name: \"%s\"", ucstring_get_printable_sz(srd->str));
+
+	if(!c->filenames_from_file) goto done;
 
 	d->fi = de_finfo_create(c);
+	de_snprintf(buf2, sizeof(buf2), "%s-%d", srd->sz, (int)d->dfPoints);
 	de_finfo_set_name_from_sz(c, d->fi, buf2, DE_ENCODING_ASCII);
+
+done:
+	de_dbg_indent(c, -1);
+	de_destroy_stringreaderdata(c, srd);
+}
+
+static const char *get_charset_name(de_byte cs)
+{
+	struct csname_struct { de_byte id; const char *name; };
+	static const struct csname_struct csname_arr[] = {
+		{0x00, "ANSI"},
+		{0x01, "default"},
+		{0x02, "symbol"},
+		{0x4d, "Mac"},
+		{0x80, "Shift-JIS"},
+		{0x81, "Hangul"},
+		{0x82, "Johab"},
+		{0x86, "GB2312"},
+		{0x88, "BIG5"},
+		{0xa1, "Greek"},
+		{0xa2, "Turkish"},
+		{0xa3, "Vietnamese"},
+		{0xb1, "Hebrew"},
+		{0xb2, "Arabic"},
+		{0xba, "Baltic"},
+		{0xcc, "Russian"},
+		{0xde, "Thai"},
+		{0xee, "Eastern Europe"},
+		{0xff, "OEM"}
+	};
+	size_t i;
+
+	for(i=0; i<DE_ITEMS_IN_ARRAY(csname_arr); i++) {
+		if(cs==csname_arr[i].id) return csname_arr[i].name;
+	}
+	return "?";
 }
 
 static int do_read_header(deark *c, lctx *d)
@@ -161,11 +209,16 @@ static int do_read_header(deark *c, lctx *d)
 	de_int64 dfPixWidth;
 	de_int64 dfPixHeight;
 	de_int64 dfMaxWidth;
-	int is_vector = 0;
 	int retval = 0;
+	int saved_indent_level;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+
+	de_dbg(c, "fixed header at %d", (int)0);
+	de_dbg_indent(c, 1);
 
 	d->fnt_version = de_getui16le(0);
-	de_dbg(c, "dfVersion: 0x%04x\n", (int)d->fnt_version);
+	de_dbg(c, "dfVersion: 0x%04x", (int)d->fnt_version);
 
 	if(d->fnt_version==0x0300)
 		d->hdrsize = 148;
@@ -173,20 +226,20 @@ static int do_read_header(deark *c, lctx *d)
 		d->hdrsize = 118;
 
 	dfType = de_getui16le(66);
-	de_dbg(c, "dfType: 0x%04x\n", (int)dfType);
-	is_vector = (dfType&0x1)?1:0;
-	de_dbg(c, "Font type: %s\n", is_vector?"vector":"bitmap");
+	d->is_vector = (dfType&0x1)?1:0;
+	de_dbg(c, "dfType: 0x%04x (%s)", (int)dfType, d->is_vector?"vector":"bitmap");
 
 	d->dfPoints = de_getui16le(68);
-	de_dbg(c, "dfPoints: %d\n", (int)d->dfPoints);
+	de_dbg(c, "dfPoints: %d", (int)d->dfPoints);
 
 	dfPixWidth = de_getui16le(86);
-	de_dbg(c, "dfPixWidth: %d\n", (int)dfPixWidth);
+	de_dbg(c, "dfPixWidth: %d", (int)dfPixWidth);
 	dfPixHeight = de_getui16le(88);
-	de_dbg(c, "dfPixHeight: %d\n", (int)dfPixHeight);
+	de_dbg(c, "dfPixHeight: %d", (int)dfPixHeight);
 
 	d->dfCharSet = de_getbyte(85);
-	de_dbg(c, "charset: 0x%02x\n", (int)d->dfCharSet);
+	de_dbg(c, "charset: 0x%02x (%s)", (int)d->dfCharSet,
+		get_charset_name(d->dfCharSet));
 	if(d->dfCharSet==0x00) { // "ANSI"
 		d->encoding = DE_ENCODING_WINDOWS1252; // Guess
 	}
@@ -198,31 +251,33 @@ static int do_read_header(deark *c, lctx *d)
 	}
 
 	dfMaxWidth = de_getui16le(93);
-	de_dbg(c, "dfMaxWidth: %d\n", (int)dfMaxWidth);
+	de_dbg(c, "dfMaxWidth: %d", (int)dfMaxWidth);
 
 	if(dfPixWidth!=dfMaxWidth && dfPixWidth!=0) {
-		de_warn(c, "dfMaxWidth (%d) does not equal dfPixWidth (%d)\n",
+		de_warn(c, "dfMaxWidth (%d) does not equal dfPixWidth (%d)",
 			(int)dfMaxWidth, (int)dfPixWidth);
 	}
 
 	d->first_char = de_getbyte(95);
+	de_dbg(c, "first char: %d", (int)d->first_char);
 	d->last_char = de_getbyte(96);
-	de_dbg(c, "first char: %d, last char: %d\n", (int)d->first_char, (int)d->last_char);
+	de_dbg(c, "last char: %d", (int)d->last_char);
 
-	if(is_vector) {
-		de_err(c, "This is a vector font. Not supported.\n");
+	if(d->fnt_version >= 0x0200) {
+		d->dfFace = de_getui32le(105);
+	}
+	de_dbg_indent(c, -1);
+
+	if(d->is_vector) {
+		retval = 1;
 		goto done;
 	}
 
 	// Apparently, the first 117 bytes (through the dfBitsOffset field) are
 	// common to all versions
 	if(d->fnt_version<0x0200) {
-		de_err(c, "This version of FNT is not supported\n");
+		de_err(c, "This version of FNT is not supported");
 		goto done;
-	}
-
-	if(d->fnt_version >= 0x0200) {
-		d->dfFace = de_getui32le(105);
 	}
 
 	// There is an extra character at the end of the table that is an
@@ -237,17 +292,21 @@ static int do_read_header(deark *c, lctx *d)
 	}
 
 	d->char_table_size = d->char_entry_size * d->num_chars_stored;
-	de_dbg(c, "character index at %d, size %d, %d bytes/entry\n", (int)d->hdrsize,
+	de_dbg(c, "character index at %d, size %d, %d bytes/entry", (int)d->hdrsize,
 		(int)d->char_table_size, (int)d->char_entry_size);
+	de_dbg_indent(c, 1);
 
+	de_dbg(c, "pre-scanning characters");
 	do_prescan_chars(c, d);
 	if(d->detected_max_width<1) goto done;
 	d->nominal_char_width = d->detected_max_width;
 
 	d->char_height = dfPixHeight;
+	de_dbg_indent(c, -1);
 
 	retval = 1;
 done:
+	de_dbg_indent_restore(c, saved_indent_level);
 	return retval;
 }
 
@@ -259,6 +318,12 @@ static void de_run_fnt(deark *c, de_module_params *mparams)
 
 	if(!do_read_header(c, d)) goto done;
 	read_face_name(c, d);
+
+	if(d->is_vector) {
+		de_err(c, "This is a vector font. Not supported.");
+		goto done;
+	}
+
 	do_make_image(c, d);
 done:
 	de_finfo_destroy(c, d->fi);

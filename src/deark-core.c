@@ -75,16 +75,15 @@ void de_print_module_list(deark *c)
 		module_compare_fn);
 
 	for(k=0; k<c->num_modules; k++) {
+		const char *desc;
 		i = sort_data[k].module_index;
-		if(c->module_info[i].id &&
-			!(c->module_info[i].flags&DE_MODFLAG_HIDDEN) &&
-			!(c->module_info[i].flags&DE_MODFLAG_NONWORKING) )
-		{
-			if(c->module_info[i].desc)
-				de_printf(c, DE_MSGTYPE_MESSAGE, "%-14s %s\n", c->module_info[i].id, c->module_info[i].desc);
-			else
-				de_printf(c, DE_MSGTYPE_MESSAGE, "%s\n", c->module_info[i].id);
+		if(!c->module_info[i].id) continue;
+		if(c->extract_level<2) {
+			if(c->module_info[i].flags & DE_MODFLAG_HIDDEN) continue;
+			if(c->module_info[i].flags & DE_MODFLAG_NONWORKING) continue;
 		}
+		desc = c->module_info[i].desc ? c->module_info[i].desc : "-";
+		de_printf(c, DE_MSGTYPE_MESSAGE, "%-14s %s\n", c->module_info[i].id, desc);
 	}
 
 	de_free(c, sort_data);
@@ -97,21 +96,30 @@ static void do_modhelp(deark *c)
 	de_register_modules(c);
 	module_to_use = de_get_module_by_id(c, c->input_format_req);
 	if(!module_to_use) {
-		de_err(c, "Unknown module \"%s\"\n", c->input_format_req);
+		de_err(c, "Unknown module \"%s\"", c->input_format_req);
 		goto done;
 	}
 
 	if(de_strcmp(c->input_format_req, module_to_use->id)) {
-		de_msg(c, "\"%s\" is an alias for module \"%s\"\n",
+		de_msg(c, "\"%s\" is an alias for module \"%s\"",
 			c->input_format_req, module_to_use->id);
 	}
 
+	de_msg(c, "Module: %s", module_to_use->id);
+
+	if(module_to_use->desc) {
+		de_msg(c, "Description: %s", module_to_use->desc);
+	}
+	if(module_to_use->desc2) {
+		de_msg(c, "Other notes: %s", module_to_use->desc2);
+	}
+
 	if(!module_to_use->help_fn) {
-		de_msg(c, "No help available for module \"%s\"\n", module_to_use->id);
+		de_msg(c, "No help available for module \"%s\"", module_to_use->id);
 		goto done;
 	}
 
-	de_msg(c, "Help for module \"%s\":\n", module_to_use->id);
+	de_msg(c, "Help for module \"%s\":", module_to_use->id);
 	module_to_use->help_fn(c);
 
 done:
@@ -124,25 +132,27 @@ void de_run(deark *c)
 	dbuf *subfile = NULL;
 	de_int64 subfile_size;
 	struct deark_module_info *module_to_use = NULL;
-	const char *friendly_infn;
 	int module_was_autodetected = 0;
+	int moddisp;
+	de_ucstring *friendly_infn = NULL;
 
 	if(c->modhelp_req && c->input_format_req) {
 		do_modhelp(c);
 		goto done;
 	}
 
+	friendly_infn = ucstring_create(c);
+
 	if(c->input_style==DE_INPUTSTYLE_STDIN) {
-		friendly_infn = "[stdin]";
+		ucstring_append_sz(friendly_infn, "[stdin]", DE_ENCODING_LATIN1);
 	}
 	else {
-		friendly_infn = c->input_filename;
-	}
-
-	if(!friendly_infn) {
-		de_err(c, "Input file not set\n");
-		de_fatalerror(c);
-		return;
+		if(!c->input_filename) {
+			de_err(c, "Internal: Input file not set");
+			de_fatalerror(c);
+			return;
+		}
+		ucstring_append_sz(friendly_infn, c->input_filename, DE_ENCODING_UTF8);
 	}
 
 	de_register_modules(c);
@@ -150,25 +160,25 @@ void de_run(deark *c)
 	if(c->input_format_req) {
 		module_to_use = de_get_module_by_id(c, c->input_format_req);
 		if(!module_to_use) {
-			de_err(c, "Unknown module \"%s\"\n", c->input_format_req);
+			de_err(c, "Unknown module \"%s\"", c->input_format_req);
 			goto done;
 		}
 	}
 
 	if(c->slice_size_req_valid) {
-		de_dbg(c, "Input file: %s[%d,%d]\n", friendly_infn,
+		de_dbg(c, "Input file: %s[%d,%d]", ucstring_get_printable_sz_d(friendly_infn),
 			(int)c->slice_start_req, (int)c->slice_size_req);
 	}
 	else if(c->slice_start_req) {
-		de_dbg(c, "Input file: %s[%d]\n", friendly_infn,
+		de_dbg(c, "Input file: %s[%d]", ucstring_get_printable_sz_d(friendly_infn),
 			(int)c->slice_start_req);
 	}
 	else {
-		de_dbg(c, "Input file: %s\n", friendly_infn);
+		de_dbg(c, "Input file: %s", ucstring_get_printable_sz_d(friendly_infn));
 	}
 
 	if(c->input_style==DE_INPUTSTYLE_STDIN) {
-		orig_ifile = dbuf_open_input_stdin(c, c->input_filename);
+		orig_ifile = dbuf_open_input_stdin(c);
 	}
 	else {
 		orig_ifile = dbuf_open_input_file(c, c->input_filename);
@@ -204,30 +214,34 @@ void de_run(deark *c)
 
 	if(!module_to_use) {
 		if(c->infile->len==0)
-			de_err(c, "Unknown or unsupported file format (empty file)\n");
+			de_err(c, "Unknown or unsupported file format (empty file)");
 		else
-			de_err(c, "Unknown or unsupported file format\n");
+			de_err(c, "Unknown or unsupported file format");
 		goto done;
 	}
 
-	de_msg(c, "Module: %s\n", module_to_use->id);
+	de_msg(c, "Module: %s", module_to_use->id);
 
 	if(module_was_autodetected && (module_to_use->flags&DE_MODFLAG_SECURITYWARNING)) {
 		de_err(c, "The %s module has not been audited for security. There is a "
 			"greater than average chance that it is unsafe to use with untrusted "
-			"input files. Use \"-m %s\" to confirm that you want to use it.\n",
+			"input files. Use \"-m %s\" to confirm that you want to use it.",
 			module_to_use->id, module_to_use->id);
 		goto done;
 	}
 
 	if(module_to_use->flags&DE_MODFLAG_NONWORKING) {
 		de_warn(c, "The %s module is considered to be incomplete, and may "
-			"not work properly. Caveat emptor.\n",
+			"not work properly. Caveat emptor.",
 			module_to_use->id);
 	}
-	de_dbg2(c, "file size: %" INT64_FMT "\n", c->infile->len);
+	de_dbg2(c, "file size: %" INT64_FMT "", c->infile->len);
 
-	if(!de_run_module(c, module_to_use, NULL)) {
+	if(module_was_autodetected)
+		moddisp = DE_MODDISP_AUTODETECT;
+	else
+		moddisp = DE_MODDISP_EXPLICIT;
+	if(!de_run_module(c, module_to_use, NULL, moddisp)) {
 		goto done;
 	}
 
@@ -236,10 +250,11 @@ void de_run(deark *c)
 	if(c->num_files_extracted==0 && c->error_count==0 &&
 		!(module_to_use->flags&DE_MODFLAG_NOEXTRACT))
 	{
-		de_msg(c, "No files found to extract!\n");
+		de_msg(c, "No files found to extract!");
 	}
 
 done:
+	ucstring_destroy(friendly_infn);
 	if(subfile) dbuf_close(subfile);
 	if(orig_ifile) dbuf_close(orig_ifile);
 }

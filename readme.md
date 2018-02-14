@@ -15,15 +15,15 @@ For additional information, see the [technical.md](technical.md) file.
 
 ## Usage ##
 
-    deark [options] <input-file>
+    deark [options] [-file] <input-file> [options]
     deark <-h|-version|-modules>
 
 Command-line options:
 <pre>
 -m &lt;module>
-   Deark will use a "module" to process the input file. A module may
-   represent one file format, a group of related formats, or may have some
-   special purpose.
+   The "module" to use to process the input file. The default is to autodetect.
+   A module may represent one file format, or a group of related formats, or
+   may have some special purpose.
    See formats.txt for a list of modules. You usually don't need to use -m,
    unless the format can't be detected, or you want to use a special-purpose
    module such as "copy".
@@ -36,7 +36,8 @@ Command-line options:
 -aux
    Extract only "auxiliary" files, such as thumbnail images.
 -a, -extractall
-   Also extract data that's usually useless.
+   Extract more data than usual, including things that are rarely of interest,
+   such as comments.
    Note that, as a general rule, Deark doesn't extract the same data twice.
    In rare cases, the -a option can actually *prevent* it from extracting
    certain data, because it may now, for example, extract a block of Exif
@@ -44,7 +45,10 @@ Command-line options:
    it.
 -o &lt;name>
    Output filenames begin with this string. This can include a directory
-   path. Default="output".
+   path. Default is "output", except in some cases when using -zip.
+-file &lt;input-file>
+   This is an alternate syntax for specifying the primary input file. It works
+   even if the filename begins with "-".
 -file2 &lt;file>
    Some formats are composed of more than one file. In some cases, you can
    use the -file2 option to specify the secondary file. Refer to the
@@ -55,13 +59,13 @@ Command-line options:
    by default, the filenames in the ZIP archive might not include the usual
    "output.NNN" prefix.
 -arcfn &lt;filename>
-   Use this name for the .zip file. Default="output.zip".
+   When using -zip, use this name for the .zip file. Default="output.zip".
 -tostdout
    Write the output file(s) to the standard output stream (stdout).
    This option is experimental, and might not work in all situations.
    It is recommended to put -tostdout early on the command line. The
    -msgstostderr and "-maxfiles 1" options are enabled automatically.
-   Using -main is suggested. Incompatible with -zip.
+   Including the -main option is recommended. Incompatible with -zip.
 -fromstdin
    Read the input file from the standard input stream (stdin).
    If you use -fromstdin, supplying an input filename is optional. If it is
@@ -77,6 +81,9 @@ Command-line options:
    Don't extract the first &lt;n> files found.
 -maxfiles &lt;n>
    Extract at most &lt;n> files.
+-get &lt;n>
+   Extract only the file identifed by &lt;n>. The first file is 0.
+   Equivalent to "-firstfile &lt;n> -maxfiles 1".
 -maxdim &lt;n>
    Allow image dimensions up to &lt;n> pixels.
    By default, Deark refuses to generate images with a dimension larger than
@@ -84,27 +91,27 @@ Command-line options:
    Increase the limit at your own risk. Deark does not generate large images
    efficiently. In practice, a large dimension will only work if the other
    dimension is very small.
--get &lt;n>
-   Extract only the file identifed by &lt;n>. The first file is 0.
-   Equivalent to "-firstfile &lt;n> -maxfiles 1".
 -nobom
-   Do not write a BOM to UTF-8 output files generated or converted by Deark.
+   Do not add a BOM to UTF-8 output files generated or converted by Deark. Note
+   that if a BOM already exists in the source data, it will not necessarily be
+   removed.
 -nodens
    Do not try to record the original aspect ratio and pixel density in output
    image files.
 -asciihtml
-   When generating an HTML document, use only ASCII, instead of UTF-8.
+   When generating an HTML document, use ASCII encoding instead of UTF-8. This
+   does not change how a browser will render the file; it just makes it larger
+   and very slightly more portable.
 -nonames
    Make Deark less likely to try to improve output filenames by using names
-   from the contents of the input file. This is mainly intended to make the
-   output filename predictable, in the case of a format for which only a
-   single file is usually extracted.
+   from the contents of the input file. The output filenames will be more
+   predictable, but less informative.
 -modtime
 -nomodtime
    Do / Do not try to preserve the modification timestamp of extracted files.
-   On by default, but only supported for a few formats. It's intended for
-   archive formats where files are extracted as-is, and where each file has
-   a last-modified timestamp.
+   On by default, but not relevant to most formats. It's used with archive
+   formats where files are extracted as-is, and where each member file has a
+   last-modified timestamp.
 -opt &lt;module:option>=&lt;value>
    Module-specific options. See formats.txt.
    Caution: Unrecognized or misspelled options will be silently ignored.
@@ -118,23 +125,27 @@ Command-line options:
     -opt char:charwidth=&lt;8|9>
        The VGA character cell width for character graphics, when the output
        format is "image".
+    -opt archive:timestamp=&lt;n>
     -opt archive:repro
        Make the -zip output reproducible, by not including modification times
        that are not contained in the source file. (That is, don't use the
-       current time, or the source file's timestamp.) The times will be set
-       to some arbitrary value if necessary. This option is intended for use
-       with testing.
+       current time, or the source file's timestamp.) If you use "repro", the
+       times will be set to some arbitrary value. If you use "timestamp", the
+       times will be set to the value you supply, in Unix time format (the
+       number of seconds since the beginning of 1970).
     -opt atari:palbits=&lt;9|12|15>
        For some Atari image formats, the number of significant bits per
        palette color. The default is to autodetect.
 -h, -?, -help:
    Print the help message.
-   Use with -m to get help for a specific module. Only a few modules support
-   this.
+   Use with -m to get help for a specific module. Note that most modules have
+   no module-specific help to speak of.
 -version
    Print the version number.
 -modules
-   Print the names of all available modules.
+   Print the names of the available modules.
+   With -a, list all modules, including internal modules, and modules that
+   don't work.
 -noinfo
    Suppress informational messages.
 -nowarn
@@ -145,13 +156,19 @@ Command-line options:
    Print technical and debugging information. -d2 and -d3 are more verbose.
 -dprefix &lt;msg>
    Start each line printed by -d with this prefix. Default is "DEBUG: ".
+-color
+   Allow the use of color and similar features in the debug output. This is
+   done using ANSI escape sequences, or Windows console commands.
+   This feature is experimental. Currently, it is limited to highlighting
+   unprintable characters, and previewing most color palettes. The latter does
+   not work on a Windows console.
 -enc &lt;ascii|oem>
-   Set the encoding of the message that are printed to the console. This does
+   Set the encoding of the messages that are printed to the console. This does
    not affect the extracted data files.
    The default is to use Unicode (UTF-8, when the encoding is relevant).
    ascii: Use ASCII characters only.
    oem: [Windows only; has no effect on other platforms] Use the "OEM"
-     character set. Maybe useful when paging the output to "|more".
+     character set. This may be useful when paging the output with "|more".
 -msgstostderr
    Print all messages to stderr, instead of stdout. This option should be
    placed early on the command line, as it might not affect messages

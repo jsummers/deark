@@ -32,7 +32,7 @@ void de_destroy_bitmap_font(deark *c, struct de_bitmap_font *font)
 }
 
 // Paint a character at the given index in the given font, to the given bitmap.
-void de_font_paint_character_idx(deark *c, struct deark_bitmap *img,
+void de_font_paint_character_idx(deark *c, de_bitmap *img,
 	struct de_bitmap_font *font, de_int64 char_idx,
 	de_int64 xpos, de_int64 ypos, de_uint32 fgcol, de_uint32 bgcol,
 	unsigned int flags)
@@ -130,7 +130,7 @@ static de_int64 get_char_idx_by_cp(deark *c, struct de_bitmap_font *font, de_int
 
 // 'codepoint' is expected to be a Unicode codepoint. If the font does not
 // have Unicode codepoints, the non-Unicode codepoint will be used instead.
-void de_font_paint_character_cp(deark *c, struct deark_bitmap *img,
+void de_font_paint_character_cp(deark *c, de_bitmap *img,
 	struct de_bitmap_font *font, de_int32 codepoint,
 	de_int64 xpos, de_int64 ypos, de_uint32 fgcol, de_uint32 bgcol, unsigned int flags)
 {
@@ -216,7 +216,7 @@ struct font_render_ctx {
 
 // (xpos,ypos) is the lower-right corner
 //   (or the bottom-center, if hcenter==1).
-static void draw_number(deark *c, struct deark_bitmap *img,
+static void draw_number(deark *c, de_bitmap *img,
 	struct de_bitmap_font *dfont, de_int64 n, de_int64 xpos1, de_int64 ypos1,
 	unsigned int flags)
 {
@@ -306,14 +306,14 @@ static void fixup_codepoints(deark *c, struct font_render_ctx *fctx)
 			used_codepoint_map[c1/8] |= 1<<(c1%8);
 		}
 
-		if(codepoint_already_used || c1==DE_INVALID_CODEPOINT) {
+		if(codepoint_already_used || c1==DE_CODEPOINT_INVALID) {
 			if(codepoint_already_used) {
-				de_dbg2(c, "moving duplicate codepoint U+%04x at index %d to private use area\n",
+				de_dbg2(c, "moving duplicate codepoint U+%04x at index %d to private use area",
 					(unsigned int)c1, (int)i);
 			}
 			// Move uncoded characters to a Private Use area.
 			// (Supplementary Private Use Area-A = U+F0000 - U+FFFFD)
-			fctx->codepoint_tmp[i] = (de_int32)(0xfde00 + num_uncoded_chars);
+			fctx->codepoint_tmp[i] = (de_int32)(DE_CODEPOINT_MOVED + num_uncoded_chars);
 			num_uncoded_chars++;
 		}
 		else {
@@ -340,7 +340,7 @@ void de_font_bitmap_font_to_image(deark *c, struct de_bitmap_font *font1, de_fin
 {
 	struct font_render_ctx *fctx = NULL;
 	de_int64 i, j, k;
-	struct deark_bitmap *img = NULL;
+	de_bitmap *img = NULL;
 	de_int64 xpos, ypos;
 	de_int64 img_leftmargin, img_topmargin;
 	de_int64 img_rightmargin, img_bottommargin;
@@ -365,7 +365,7 @@ void de_font_bitmap_font_to_image(deark *c, struct de_bitmap_font *font1, de_fin
 
 	if(fctx->font->num_chars<1) goto done;
 	if(fctx->font->nominal_width>512 || fctx->font->nominal_height>512) {
-		de_err(c, "Font size too big (%dx%d). Not supported.\n",
+		de_err(c, "Font size too big (%d"DE_CHAR_TIMES"%d). Not supported.",
 			(int)fctx->font->nominal_width, (int)fctx->font->nominal_height);
 		goto done;
 	}

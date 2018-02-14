@@ -45,7 +45,7 @@ static de_int64 get_height(deark *c, lctx *d, de_int64 default_height)
 // This is really a text mode, and can be processed by do_char() as well.
 static int do_cga16(deark *c, lctx *d)
 {
-	struct deark_bitmap *img = NULL;
+	de_bitmap *img = NULL;
 	de_int64 max_possible_height;
 	de_int64 i, j;
 	int retval = 0;
@@ -81,7 +81,7 @@ static int do_cga16(deark *c, lctx *d)
 			if(charwarning==0 && charcode!=0xdd && charcode!=0xde) {
 				// TODO: We could also handle space characters and full-block characters,
 				// at least. But maybe not worth the trouble.
-				de_warn(c, "Unexpected code found (0x%02x). Format may not be correct.\n", (int)charcode);
+				de_warn(c, "Unexpected code found (0x%02x). Format may not be correct.", (int)charcode);
 				charwarning=1;
 			}
 
@@ -120,7 +120,7 @@ static int do_4color(deark *c, lctx *d)
 	de_int64 i,j;
 	de_int64 pos;
 	de_int64 src_rowspan;
-	struct deark_bitmap *img = NULL;
+	de_bitmap *img = NULL;
 
 	if(d->has_dimension_fields) {
 		if(d->interlaced)
@@ -194,7 +194,7 @@ static int do_2color(deark *c, lctx *d)
 	de_int64 j;
 	de_int64 src_rowspan;
 	de_int64 pos;
-	struct deark_bitmap *img = NULL;
+	de_bitmap *img = NULL;
 
 	img = de_bitmap_create_noinit(c);
 	img->bytes_per_pixel = 1;
@@ -224,7 +224,7 @@ static int do_2color(deark *c, lctx *d)
 		img->height = get_height(c, d, 200); // TODO: calculate this?
 	}
 
-	de_dbg(c, "dimensions: %dx%d\n", (int)img->width, (int)img->height);
+	de_dbg_dimensions(c, img->width, img->height);
 	src_rowspan = (img->width+7)/8;
 
 	for(j=0; j<img->height; j++) {
@@ -249,7 +249,7 @@ static int do_256color(deark *c, lctx *d)
 	de_int64 i, j;
 	de_byte palent;
 	de_uint32 clr;
-	struct deark_bitmap *img = NULL;
+	de_bitmap *img = NULL;
 
 	de_declare_fmt(c, "BSAVE-PC 256-color");
 
@@ -283,7 +283,7 @@ static int do_256color(deark *c, lctx *d)
 static int do_wh16(deark *c, lctx *d)
 {
 	de_int64 i, j;
-	struct deark_bitmap *img = NULL;
+	de_bitmap *img = NULL;
 	de_int64 src_rowspan1;
 	de_int64 src_rowspan;
 	de_int64 pos;
@@ -300,7 +300,7 @@ static int do_wh16(deark *c, lctx *d)
 	img->height = de_getui16le(pos+2);
 	pos+=4;
 
-	de_dbg(c, "dimensions: %dx%d\n", (int)img->width, (int)img->height);
+	de_dbg_dimensions(c, img->width, img->height);
 
 	src_rowspan1 = (img->width+7)/8;
 	src_rowspan = src_rowspan1*4;
@@ -331,7 +331,7 @@ static int do_b265(deark *c, lctx *d)
 	int palent;
 	de_int64 i,j;
 	de_int64 bits_per_scanline;
-	struct deark_bitmap *img = NULL;
+	de_bitmap *img = NULL;
 	de_int64 fakewidth;
 	int retval = 0;
 
@@ -437,7 +437,7 @@ static int do_char(deark *c, lctx *d)
 	if(numpages<1) {
 		goto done;
 	}
-	de_dbg(c, "pages: %d\n", (int)numpages);
+	de_dbg(c, "pages: %d", (int)numpages);
 
 	charctx = de_malloc(c, sizeof(struct de_char_context));
 	charctx->nscreens = numpages;
@@ -479,11 +479,11 @@ static int do_read_palette_file(deark *c, lctx *d, const char *palfn)
 	de_int64 i;
 	de_byte buf[3];
 
-	de_dbg(c, "reading palette file %s\n", palfn);
+	de_dbg(c, "reading palette file %s", palfn);
 
 	f = dbuf_open_input_file(c, palfn);
 	if(!f) {
-		de_err(c, "Cannot read palette file %s\n", palfn);
+		de_err(c, "Cannot read palette file %s", palfn);
 		goto done;
 	}
 
@@ -517,9 +517,9 @@ static void de_run_bsave(deark *c, de_module_params *mparams)
 	d->offset_from_base = de_getui16le(3);
 	d->data_size = de_getui16le(5);
 
-	de_dbg(c, "base_addr: 0x%04x\n", (int)d->base_addr);
-	de_dbg(c, "offset_from_base: 0x%04x\n", (int)d->offset_from_base);
-	de_dbg(c, "data_size: 0x%04x (%d)\n", (int)d->data_size, (int)d->data_size);
+	de_dbg(c, "base_addr: 0x%04x", (int)d->base_addr);
+	de_dbg(c, "offset_from_base: 0x%04x", (int)d->offset_from_base);
+	de_dbg(c, "data_size: 0x%04x (%d)", (int)d->data_size, (int)d->data_size);
 
 	bsavefmt = de_get_ext_option(c, "bsave:fmt");
 	if(!bsavefmt) {
@@ -585,13 +585,13 @@ static void de_run_bsave(deark *c, de_module_params *mparams)
 
 	if(!decoder_fn) {
 		de_err(c, "Unidentified BSAVE format, try \"-opt bsave:fmt=...\". "
-			"Use \"-m bsave -h\" for a list.\n");
+			"Use \"-m bsave -h\" for a list.");
 		goto done;
 	}
 
 	if(!de_strcmp(bsavefmt,"auto")) {
 		de_warn(c, "BSAVE formats can't be reliably identified. You may need to "
-			"use \"-opt bsave:fmt=...\". Use \"-m bsave -h\" for a list.\n");
+			"use \"-opt bsave:fmt=...\". Use \"-m bsave -h\" for a list.");
 	}
 
 	s = de_get_ext_option(c, "palfile");
@@ -615,18 +615,18 @@ static int de_identify_bsave(deark *c)
 
 static void de_help_bsave(deark *c)
 {
-	de_msg(c, "-opt bsave:fmt=...\n");
-	de_msg(c, " char  : Character graphics\n");
-	de_msg(c, " cga2  : 2-color, 640x200\n");
-	de_msg(c, " cga4  : 4-color, 320x200\n");
-	de_msg(c, " cga16 : 16-color, 160x100 pseudographics\n");
-	de_msg(c, " mcga  : 256-color, 320x200\n");
-	de_msg(c, " wh2   : 2-color, 11-byte header\n");
-	de_msg(c, " wh4   : 4-color, 11-byte header\n");
-	de_msg(c, " wh16  : 16-color, 11-byte header, inter-row interlaced\n");
-	de_msg(c, " b256  : Special\n");
-	de_msg(c, " 2col  : 2-color noninterlaced\n");
-	de_msg(c, " 4col  : 4-color noninterlaced\n");
+	de_msg(c, "-opt bsave:fmt=...");
+	de_msg(c, " char  : Character graphics");
+	de_msg(c, " cga2  : 2-color, 640x200");
+	de_msg(c, " cga4  : 4-color, 320x200");
+	de_msg(c, " cga16 : 16-color, 160x100 pseudographics");
+	de_msg(c, " mcga  : 256-color, 320x200");
+	de_msg(c, " wh2   : 2-color, 11-byte header");
+	de_msg(c, " wh4   : 4-color, 11-byte header");
+	de_msg(c, " wh16  : 16-color, 11-byte header, inter-row interlaced");
+	de_msg(c, " b256  : Special");
+	de_msg(c, " 2col  : 2-color noninterlaced");
+	de_msg(c, " 4col  : 4-color noninterlaced");
 }
 
 void de_module_bsave(deark *c, struct deark_module_info *mi)

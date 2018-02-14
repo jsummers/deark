@@ -162,14 +162,15 @@ void ucstring_append_bytes(de_ucstring *s, const de_byte *buf, de_int64 buflen,
 	while(pos<buflen) {
 		if(encoding==DE_ENCODING_UTF8) {
 			ret = de_utf8_to_uchar(&buf[pos], buflen-pos, &ch, &code_len);
-			if(!ret) {
-				ch = '_';
+			if(!ret) { // Invalid UTF8
+				ch = DE_CODEPOINT_BYTE00 + (de_int32)buf[pos];
 				code_len = 1;
 			}
 		}
 		else if(encoding==DE_ENCODING_UTF16LE) {
 			ret = de_utf16x_to_uchar(&buf[pos], buflen-pos, &ch, &code_len, 1);
 			if(!ret) {
+				// TODO: Handle invalid UTF16 gracefully
 				ch = '_';
 				code_len = 2;
 			}
@@ -183,8 +184,9 @@ void ucstring_append_bytes(de_ucstring *s, const de_byte *buf, de_int64 buflen,
 		}
 		else {
 			ch = de_char_to_unicode(s->c, buf[pos], encoding);
-			if(ch==DE_INVALID_CODEPOINT) {
-				ch = '_';
+			if(ch==DE_CODEPOINT_INVALID) {
+				// Map unconvertible bytes to a special range.
+				ch = DE_CODEPOINT_BYTE00 + (de_int32)buf[pos];
 			}
 			code_len = 1;
 		}
@@ -210,8 +212,22 @@ static int ucstring_is_ascii(const de_ucstring *s)
 	return 1;
 }
 
+de_int64 ucstring_count_utf8_bytes(de_ucstring *s)
+{
+	de_int64 i;
+	de_int64 n = 0;
+	if(!s) return n;
+	for(i=0; i<s->len; i++) {
+		if(s->str[i]<0 || s->str[i]>0xffff) n+=4;
+		else if(s->str[i]<=0x7f) n+=1;
+		else if(s->str[i]<=0x7ff) n+=2;
+		else n+=3;
+	}
+	return n;
+}
+
 // If add_bom_if_needed is set, we'll prepend a BOM if the global c->write_bom
-// option is enabled, 's' has any non-ASCII characters, and 's' doesn't already
+// option is enabled, and 's' has any non-ASCII characters, and 's' doesn't already
 // start with a BOM.
 void ucstring_write_as_utf8(deark *c, de_ucstring *s, dbuf *outf, int add_bom_if_needed)
 {
@@ -231,73 +247,76 @@ void ucstring_write_as_utf8(deark *c, de_ucstring *s, dbuf *outf, int add_bom_if
 	}
 }
 
+static int is_printable_uchar(de_int32 ch);
+
 // Note: This function is similar to de_finfo_set_name_from_ucstring().
 // Maybe they should be consolidated.
-void ucstring_to_sz(de_ucstring *s, char *szbuf, size_t szbuf_len, int encoding)
+// TODO: Should we remove the 'encoding' param, and always assume UTF-8?
+void ucstring_to_sz(de_ucstring *s, char *szbuf, size_t szbuf_len, unsigned int flags, int encoding)
 {
 	de_int64 i;
 	de_int64 szpos = 0;
-	de_byte utf8buf[4];
-	de_int64 utf8codelen;
+	de_int32 ch;
+	de_int64 charcodelen;
+	static const char *sc1 = "\x01<"; // DE_CODEPOINT_HL in UTF-8
+	static const char *sc2 = ">\x02"; // DE_CODEPOINT_UNHL
+	de_byte charcodebuf[32];
 
 	if(szbuf_len<1) return;
 
 	for(i=0; i<s->len; i++) {
+		ch = s->str[i];
 		if(encoding==DE_ENCODING_UTF8) {
-			de_uchar_to_utf8(s->str[i], utf8buf, &utf8codelen);
+			de_uchar_to_utf8(ch, charcodebuf, &charcodelen);
 		}
 		else { // DE_ENCODING_LATIN1 or DE_ENCODING_ASCII
-			if(s->str[i]>=0 && s->str[i]<=(encoding==DE_ENCODING_LATIN1?255:127))
-				utf8buf[0] = (de_byte)s->str[i];
+			// TODO: This may not work right if DE_CONVFLAG_MAKE_PRINTABLE is used,
+			// but currently that never happens.
+			if(ch>=0 && ch<=(encoding==DE_ENCODING_LATIN1?255:127))
+				charcodebuf[0] = (de_byte)ch;
 			else
-				utf8buf[0] = '_';
-			utf8codelen = 1;
+				charcodebuf[0] = '_';
+			charcodelen = 1;
 		}
-		if(szpos + utf8codelen + 1 > (de_int64)szbuf_len) break;
-		de_memcpy(&szbuf[szpos], utf8buf, (size_t)utf8codelen);
-		szpos += utf8codelen;
+
+		if(flags & DE_CONVFLAG_MAKE_PRINTABLE) {
+			// TODO: This is slightly inefficient, because we're overwriting the
+			// conversion we already did.
+			if(!is_printable_uchar(ch)) {
+				if(ch==0x0a) {
+					de_snprintf((char*)charcodebuf, sizeof(charcodebuf),
+						"%s\\n%s", sc1, sc2);
+				}
+				else if(ch==0x0d) {
+					de_snprintf((char*)charcodebuf, sizeof(charcodebuf),
+						"%s\\r%s", sc1, sc2);
+				}
+				else if(ch==0x09) {
+					de_snprintf((char*)charcodebuf, sizeof(charcodebuf),
+						"%s\\t%s", sc1, sc2);
+				}
+				else if(ch==0x00) {
+					de_snprintf((char*)charcodebuf, sizeof(charcodebuf),
+						"%s\\0%s", sc1, sc2);
+				}
+				else if(ch>=DE_CODEPOINT_BYTE00 && ch<=DE_CODEPOINT_BYTEFF) {
+					de_snprintf((char*)charcodebuf, sizeof(charcodebuf), "%s%02X%s",
+						sc1, (int)(ch-DE_CODEPOINT_BYTE00), sc2);
+				}
+				else {
+					de_snprintf((char*)charcodebuf, sizeof(charcodebuf),
+						"%sU+%04X%s", sc1, (unsigned int)ch, sc2);
+				}
+				charcodelen = (de_int64)de_strlen((const char*)charcodebuf);
+			}
+		}
+
+		if(szpos + charcodelen + 1 > (de_int64)szbuf_len) break;
+		de_memcpy(&szbuf[szpos], charcodebuf, (size_t)charcodelen);
+		szpos += charcodelen;
 	}
 
 	szbuf[szpos] = '\0';
-}
-
-// If has_max!=0, uses no more than max_chars Unicode characters from s to create the
-// printable string.
-static void ucstring_to_printable_sz_internal(de_ucstring *s, char *szbuf, size_t szbuf_len,
-	int has_max, de_int64 max_chars)
-{
-	de_ucstring *s2 = NULL;
-
-	s2 = ucstring_clone(s);
-	if(has_max) {
-		// TODO: Maybe this should add an ellipsis, or something.
-		ucstring_truncate(s2, max_chars);
-	}
-	ucstring_make_printable(s2);
-	ucstring_to_sz(s2, szbuf, szbuf_len, DE_ENCODING_UTF8);
-	ucstring_destroy(s2);
-}
-
-void ucstring_to_printable_sz(de_ucstring *s, char *szbuf, size_t szbuf_len)
-{
-	ucstring_to_printable_sz_internal(s, szbuf, szbuf_len, 0, 0);
-}
-
-int ucstring_strcmp(de_ucstring *s, const char *s2, int encoding)
-{
-	size_t s2len;
-	char *tmpbuf;
-	int ret;
-
-	if(!s && !s2) return 0;
-	if(!s || !s2) return 1;
-
-	s2len = de_strlen(s2);
-	tmpbuf = de_malloc(s->c, s2len+1);
-	ucstring_to_sz(s, tmpbuf, s2len+1, encoding);
-	ret = de_strcmp(tmpbuf, tmpbuf);
-	de_free(s->c, tmpbuf);
-	return ret;
 }
 
 // Try to determine if a Unicode codepoint (presumed to be from an untrusted source)
@@ -333,35 +352,30 @@ static int is_printable_uchar(de_int32 ch)
 	return 0;
 }
 
-void ucstring_make_printable(de_ucstring *s)
-{
-	de_int64 i;
-
-	for(i=0; i<s->len; i++) {
-		if(!is_printable_uchar(s->str[i])) {
-			s->str[i] = '_';
-		}
-	}
-}
-
 static const char *ucstring_get_printable_sz_internal(de_ucstring *s,
-	int has_max, de_int64 max_chars)
+	int has_max, de_int64 max_bytes)
 {
 	de_int64 allocsize;
 
-	if(!s) return "(null)";
+	if(!s) {
+		if(has_max && max_bytes<6) return "";
+		return "(null)";
+	}
+
+	if(has_max) {
+		allocsize = max_bytes + 1;
+	}
+	else {
+		// TODO: Calculating the proper allocsize could be difficult,
+		// depending on how DE_CONVFLAG_MAKE_PRINTABLE is implemented.
+		allocsize = s->len * 4 + 1 + 100;
+	}
 
 	if(s->tmp_string)
 		de_free(s->c, s->tmp_string);
-
-	if(has_max)
-		allocsize = max_chars * 4 + 1;
-	else
-		allocsize = s->len * 4 + 1;
-
 	s->tmp_string = de_malloc(s->c, allocsize);
 
-	ucstring_to_printable_sz_internal(s, s->tmp_string, (size_t)allocsize, has_max, max_chars);
+	ucstring_to_sz(s, s->tmp_string, (size_t)allocsize, DE_CONVFLAG_MAKE_PRINTABLE, DE_ENCODING_UTF8);
 
 	return s->tmp_string;
 }
@@ -371,7 +385,19 @@ const char *ucstring_get_printable_sz(de_ucstring *s)
 	return ucstring_get_printable_sz_internal(s, 0, 0);
 }
 
-const char *ucstring_get_printable_sz_n(de_ucstring *s, de_int64 max_chars)
+// It might make more sense to limit the number of visible characters, instead
+// of the number of bytes in the encoded string, but that's too difficult.
+const char *ucstring_get_printable_sz_n(de_ucstring *s, de_int64 max_bytes)
 {
-	return ucstring_get_printable_sz_internal(s, 1, max_chars);
+	return ucstring_get_printable_sz_internal(s, 1, max_bytes);
+}
+
+const char *ucstring_get_printable_sz_d(de_ucstring *s)
+{
+	return ucstring_get_printable_sz_internal(s, 1, DE_DBG_MAX_STRLEN);
+}
+
+void ucstring_append_flags_item(de_ucstring *s, const char *str)
+{
+	ucstring_printf(s, DE_ENCODING_UTF8, "%s%s", (s->len>0)?" | ":"", str);
 }

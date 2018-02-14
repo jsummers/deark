@@ -4,7 +4,7 @@
 
 // deark-bitmap.c
 //
-// Functions related to bitmaps and struct deark_bitmap.
+// Functions related to bitmaps and de_bitmap.
 
 #define DE_NOT_IN_MODULE
 #include "deark-config.h"
@@ -21,7 +21,7 @@ int de_good_image_dimensions_noerr(deark *c, de_int64 w, de_int64 h)
 int de_good_image_dimensions(deark *c, de_int64 w, de_int64 h)
 {
 	if(!de_good_image_dimensions_noerr(c, w, h)) {
-		de_err(c, "Bad or unsupported image dimensions (%dx%d)\n",
+		de_err(c, "Bad or unsupported image dimensions (%d"DE_CHAR_TIMES"%d)",
 			(int)w, (int)h);
 		return 0;
 	}
@@ -44,7 +44,7 @@ int de_good_image_count(deark *c, de_int64 n)
 	}
 
 	if(n<0 || n>maximages) {
-		de_err(c, "Bad or unsupported number of images (%d)\n", (int)n);
+		de_err(c, "Bad or unsupported number of images (%d)", (int)n);
 		return 0;
 	}
 	return 1;
@@ -63,10 +63,11 @@ int de_is_grayscale_palette(const de_uint32 *pal, de_int64 num_entries)
 	return 1;
 }
 
-static void de_bitmap_alloc_pixels(struct deark_bitmap *img)
+static void de_bitmap_alloc_pixels(de_bitmap *img)
 {
 	if(img->bitmap) {
 		de_free(img->c, img->bitmap);
+		img->bitmap = NULL;
 	}
 
 	if(!de_good_image_dimensions(img->c, img->width, img->height)) {
@@ -82,13 +83,102 @@ static void de_bitmap_alloc_pixels(struct deark_bitmap *img)
 	img->bitmap = de_malloc(img->c, img->bitmap_size);
 }
 
-void de_bitmap_write_to_file(struct deark_bitmap *img, const char *token,
+struct image_scan_results {
+	int has_color;
+	int has_trns;
+	int has_visible_pixels;
+};
+
+// Scan the image's pixels, and report whether any are transparent, etc.
+static void scan_image(de_bitmap *img, struct image_scan_results *isres)
+{
+	de_int64 i, j;
+	de_uint32 clr;
+	de_byte a, r, g, b;
+
+	de_memset(isres, 0, sizeof(struct image_scan_results));
+	if(img->bytes_per_pixel==1) {
+		// No reason to scan opaque grayscale images.
+		isres->has_visible_pixels = 1;
+		return;
+	}
+	for(j=0; j<img->height; j++) {
+		for(i=0; i<img->width; i++) {
+			clr = de_bitmap_getpixel(img, i, j);
+			// TODO: Optimize these tests. We check for too many things we
+			// already know the answer to.
+			a = DE_COLOR_A(clr);
+			r = DE_COLOR_R(clr);
+			g = DE_COLOR_G(clr);
+			b = DE_COLOR_B(clr);
+			if(!isres->has_visible_pixels && a!=0) {
+				isres->has_visible_pixels = 1;
+			}
+			if(!isres->has_trns && a<255) {
+				isres->has_trns = 1;
+			}
+			if(!isres->has_color && img->bytes_per_pixel>=3 &&
+				((g!=r || b!=r) && a!=0) )
+			{
+				isres->has_color = 1;
+			}
+		}
+
+		// After each row, test whether we've learned everything we can learn
+		// about this image.
+		if((isres->has_trns || img->bytes_per_pixel==1 || img->bytes_per_pixel==3) &&
+			(isres->has_visible_pixels) &&
+			(isres->has_color || img->bytes_per_pixel<=2))
+		{
+			return;
+		}
+	}
+}
+
+// Clone an existing bitmap's metadata, but don't allocate the new pixels.
+// The caller can then change the bytes_per_pixel if desired.
+static de_bitmap *de_bitmap_clone_noalloc(de_bitmap *img1)
+{
+	de_bitmap *img2;
+
+	img2 = de_bitmap_create_noinit(img1->c);
+	de_memcpy(img2, img1, sizeof(de_bitmap));
+	img2->bitmap = 0;
+	img2->bitmap_size = 0;
+	return img2;
+}
+
+// Returns NULL if there's no need to optimize the image
+static de_bitmap *get_optimized_image(de_bitmap *img1)
+{
+	struct image_scan_results isres;
+	int opt_bytes_per_pixel;
+	de_bitmap *optimg;
+
+	scan_image(img1, &isres);
+	opt_bytes_per_pixel = isres.has_color ? 3 : 1;
+	if(isres.has_trns) opt_bytes_per_pixel++;
+
+	if(opt_bytes_per_pixel>=img1->bytes_per_pixel) {
+		return NULL;
+	}
+
+	optimg = de_bitmap_clone_noalloc(img1);
+	optimg->bytes_per_pixel = opt_bytes_per_pixel;
+	de_bitmap_copy_rect(img1, optimg, 0, 0, img1->width, img1->height, 0, 0, 0);
+	return optimg;
+}
+
+void de_bitmap_write_to_file(de_bitmap *img, const char *token,
 	unsigned int createflags)
 {
+	deark *c;
 	dbuf *f;
+	de_bitmap *optimg = NULL;
 	char buf[80];
 
 	if(!img) return;
+	c = img->c;
 	if(img->invalid_image_flag) return;
 
 	if(token==NULL || token[0]=='\0') {
@@ -100,12 +190,29 @@ void de_bitmap_write_to_file(struct deark_bitmap *img, const char *token,
 
 	if(!img->bitmap) de_bitmap_alloc_pixels(img);
 
-	f = dbuf_create_output_file(img->c, buf, NULL, createflags);
-	de_write_png(img->c, img, f);
+	if(createflags & DE_CREATEFLAG_OPT_IMAGE) {
+		// This should probably be the default, but our optimization routine
+		// isn't very efficient, and wouldn't change anything in most cases.
+		optimg = get_optimized_image(img);
+		if(optimg) {
+			de_dbg3(c, "reducing image depth (%d->%d)", img->bytes_per_pixel,
+				optimg->bytes_per_pixel);
+		}
+	}
+
+	f = dbuf_create_output_file(c, buf, NULL, createflags);
+	if(optimg) {
+		de_write_png(c, optimg, f);
+	}
+	else {
+		de_write_png(c, img, f);
+	}
 	dbuf_close(f);
+
+	if(optimg) de_bitmap_destroy(optimg);
 }
 
-void de_bitmap_write_to_file_finfo(struct deark_bitmap *img, de_finfo *fi,
+void de_bitmap_write_to_file_finfo(de_bitmap *img, de_finfo *fi,
 	unsigned int createflags)
 {
 	const char *token = NULL;
@@ -116,7 +223,7 @@ void de_bitmap_write_to_file_finfo(struct deark_bitmap *img, de_finfo *fi,
 }
 
 // samplenum 0=Red, 1=Green, 2=Blue, 3=Alpha
-void de_bitmap_setsample(struct deark_bitmap *img, de_int64 x, de_int64 y,
+void de_bitmap_setsample(de_bitmap *img, de_int64 x, de_int64 y,
 	de_int64 samplenum, de_byte v)
 {
 	de_int64 pos;
@@ -151,7 +258,7 @@ void de_bitmap_setsample(struct deark_bitmap *img, de_int64 x, de_int64 y,
 	}
 }
 
-void de_bitmap_setpixel_gray(struct deark_bitmap *img, de_int64 x, de_int64 y, de_byte v)
+void de_bitmap_setpixel_gray(de_bitmap *img, de_int64 x, de_int64 y, de_byte v)
 {
 	de_int64 pos;
 
@@ -178,13 +285,13 @@ void de_bitmap_setpixel_gray(struct deark_bitmap *img, de_int64 x, de_int64 y, d
 
 // TODO: Decide if this should just be an alias of setpixel_rgba, or if it will
 // force colors to be opaque.
-void de_bitmap_setpixel_rgb(struct deark_bitmap *img, de_int64 x, de_int64 y,
+void de_bitmap_setpixel_rgb(de_bitmap *img, de_int64 x, de_int64 y,
 	de_uint32 color)
 {
 	de_bitmap_setpixel_rgba(img, x, y, color);
 }
 
-void de_bitmap_setpixel_rgba(struct deark_bitmap *img, de_int64 x, de_int64 y,
+void de_bitmap_setpixel_rgba(de_bitmap *img, de_int64 x, de_int64 y,
 	de_uint32 color)
 {
 	de_int64 pos;
@@ -218,7 +325,7 @@ void de_bitmap_setpixel_rgba(struct deark_bitmap *img, de_int64 x, de_int64 y,
 	}
 }
 
-de_uint32 de_bitmap_getpixel(struct deark_bitmap *img, de_int64 x, de_int64 y)
+de_uint32 de_bitmap_getpixel(de_bitmap *img, de_int64 x, de_int64 y)
 {
 	de_int64 pos;
 
@@ -247,17 +354,17 @@ de_uint32 de_bitmap_getpixel(struct deark_bitmap *img, de_int64 x, de_int64 y)
 	return 0;
 }
 
-struct deark_bitmap *de_bitmap_create_noinit(deark *c)
+de_bitmap *de_bitmap_create_noinit(deark *c)
 {
-	struct deark_bitmap *img;
-	img = de_malloc(c, sizeof(struct deark_bitmap));
+	de_bitmap *img;
+	img = de_malloc(c, sizeof(de_bitmap));
 	img->c = c;
 	return img;
 }
 
-struct deark_bitmap *de_bitmap_create(deark *c, de_int64 width, de_int64 height, int bypp)
+de_bitmap *de_bitmap_create(deark *c, de_int64 width, de_int64 height, int bypp)
 {
-	struct deark_bitmap *img;
+	de_bitmap *img;
 	img = de_bitmap_create_noinit(c);
 	img->width = width;
 	img->height = height;
@@ -266,7 +373,7 @@ struct deark_bitmap *de_bitmap_create(deark *c, de_int64 width, de_int64 height,
 	return img;
 }
 
-void de_bitmap_destroy(struct deark_bitmap *b)
+void de_bitmap_destroy(de_bitmap *b)
 {
 	if(b) {
 		deark *c = b->c;
@@ -365,7 +472,7 @@ de_byte de_get_bits_symbol2(dbuf *f, int nbits, de_int64 bytepos, de_int64 bitpo
 	return (b0<<bits_in_second_byte) | (b1>>(8-bits_in_second_byte));
 }
 
-void de_convert_row_bilevel(dbuf *f, de_int64 fpos, struct deark_bitmap *img,
+void de_convert_row_bilevel(dbuf *f, de_int64 fpos, de_bitmap *img,
 	de_int64 rownum, unsigned int flags)
 {
 	de_int64 i;
@@ -391,7 +498,7 @@ void de_convert_row_bilevel(dbuf *f, de_int64 fpos, struct deark_bitmap *img,
 }
 
 void de_convert_image_bilevel(dbuf *f, de_int64 fpos, de_int64 rowspan,
-	struct deark_bitmap *img, unsigned int flags)
+	de_bitmap *img, unsigned int flags)
 {
 	de_int64 j;
 
@@ -404,7 +511,7 @@ void de_convert_and_write_image_bilevel(dbuf *f, de_int64 fpos,
 	de_int64 width, de_int64 height, de_int64 rowspan, unsigned int cvtflags,
 	de_finfo *fi, unsigned int createflags)
 {
-	struct deark_bitmap *img = NULL;
+	de_bitmap *img = NULL;
 	deark *c = f->c;
 
 	if(!de_good_image_dimensions(c, width, height)) return;
@@ -433,7 +540,7 @@ void de_read_palette_rgb(dbuf *f,
 
 void de_convert_image_paletted(dbuf *f, de_int64 fpos,
 	de_int64 bpp, de_int64 rowspan, const de_uint32 *pal,
-	struct deark_bitmap *img, unsigned int flags)
+	de_bitmap *img, unsigned int flags)
 {
 	de_int64 i, j;
 	unsigned int palent;
@@ -449,7 +556,58 @@ void de_convert_image_paletted(dbuf *f, de_int64 fpos,
 	}
 }
 
-void de_bitmap_apply_mask(struct deark_bitmap *fg, struct deark_bitmap *mask,
+// Paint a solid, solid-color rectangle onto an image.
+// (Pixels will be replaced, not merged.)
+void de_bitmap_rect(de_bitmap *img,
+	de_int64 xpos, de_int64 ypos, de_int64 width, de_int64 height,
+	de_uint32 clr, unsigned int flags)
+{
+	de_int64 i, j;
+
+	for(j=0; j<height; j++) {
+		for(i=0; i<width; i++) {
+			de_bitmap_setpixel_rgba(img, xpos+i, ypos+j, clr);
+		}
+	}
+}
+
+// Paint or copy (all or part of) srcimg onto dstimg.
+// If srcimg and dstimg are the same image, the source and destination
+// rectangles must not overlap.
+// Flags supported:
+//   DE_BITMAPFLAG_MERGE - Merge transparent pixels (partially supported)
+void de_bitmap_copy_rect(de_bitmap *srcimg, de_bitmap *dstimg,
+	de_int64 srcxpos, de_int64 srcypos, de_int64 width, de_int64 height,
+	de_int64 dstxpos, de_int64 dstypos, unsigned int flags)
+{
+	de_int64 i, j;
+	de_uint32 dst_clr, src_clr, clr;
+	de_byte src_a;
+
+	for(j=0; j<height; j++) {
+		for(i=0; i<width; i++) {
+			src_clr = de_bitmap_getpixel(srcimg, srcxpos+i, srcypos+j);
+			if(!(flags&DE_BITMAPFLAG_MERGE)) {
+				clr = src_clr;
+			}
+			else {
+				src_a = DE_COLOR_A(src_clr);
+				if(src_a>0) {
+					// TODO: Support partial transparency (of both foreground and
+					// background, ideally)
+					clr = src_clr;
+				}
+				else {
+					dst_clr = de_bitmap_getpixel(dstimg, dstxpos+i, dstypos+j);
+					clr = dst_clr;
+				}
+			}
+			de_bitmap_setpixel_rgba(dstimg, dstxpos+i, dstypos+j, clr);
+		}
+	}
+}
+
+void de_bitmap_apply_mask(de_bitmap *fg, de_bitmap *mask,
 	unsigned int flags)
 {
 	de_int64 i, j;
@@ -467,45 +625,34 @@ void de_bitmap_apply_mask(struct deark_bitmap *fg, struct deark_bitmap *mask,
 	}
 }
 
+// Note: This function's features overlap with the DE_CREATEFLAG_OPT_IMAGE
+//  flag supported by de_bitmap_write_to_file().
 // If the image is 100% opaque, remove the alpha channel.
 // Otherwise do nothing.
 // flags:
 //  0x1: Make 100% invisible images 100% opaque
 //  0x2: Warn if an invisible image was made opaque
-void de_optimize_image_alpha(struct deark_bitmap *img, unsigned int flags)
+void de_optimize_image_alpha(de_bitmap *img, unsigned int flags)
 {
-	int has_transparency = 0;
-	int has_visible_pixels = 0;
 	de_int64 i, j;
 	de_int64 k;
-	de_byte a;
+	struct image_scan_results isres;
 
 	if(img->bytes_per_pixel!=2 && img->bytes_per_pixel!=4) return;
 
-	for(j=0; j<img->height; j++) {
-		for(i=0; i<img->width; i++) {
-			a = DE_COLOR_A(de_bitmap_getpixel(img, i, j));
-			if(a<255) {
-				has_transparency = 1;
-			}
-			if(a>0) {
-				has_visible_pixels = 1;
-			}
-			if(has_transparency && has_visible_pixels) break;
-		}
-	}
+	scan_image(img, &isres);
 
-	if(has_transparency && !has_visible_pixels && (flags&0x1)) {
+	if(isres.has_trns && !isres.has_visible_pixels && (flags&0x1)) {
 		if(flags&0x2) {
-			de_warn(img->c, "Invisible image detected. Ignoring transparency.\n");
+			de_warn(img->c, "Invisible image detected. Ignoring transparency.");
 		}
 	}
-	else if(has_transparency) {
+	else if(isres.has_trns) {
 		return;
 	}
 
 	// No meaningful transparency found.
-	de_dbg3(img->c, "Removing alpha channel from image\n");
+	de_dbg3(img->c, "Removing alpha channel from image");
 
 	// Note that the format conversion is done in-place. The extra memory used
 	// by the alpha channel is not de-allocated.

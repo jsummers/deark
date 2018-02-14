@@ -53,6 +53,12 @@ static const de_uint16 windows1252table[32] = {
 	0xffff,0x2018,0x2019,0x201c,0x201d,0x2022,0x2013,0x2014,0x02dc,0x2122,0x0161,0x203a,0x0153,0xffff,0x017e,0x0178
 };
 
+// Trivia: This table maps the heart and diamond suits to the BLACK Unicode
+// characters. Some sources map them to the WHITE characters instead.
+static const de_uint16 palmcstable[4] = {
+	0x2666,0x2663,0x2665,0x2660
+};
+
 static const de_uint16 macromantable[128] = {
 	0x00c4,0x00c5,0x00c7,0x00c9,0x00d1,0x00d6,0x00dc,0x00e1,0x00e0,0x00e2,0x00e4,0x00e3,0x00e5,0x00e7,0x00e9,0x00e8,
 	0x00ea,0x00eb,0x00ed,0x00ec,0x00ee,0x00ef,0x00f1,0x00f3,0x00f2,0x00f4,0x00f6,0x00f5,0x00fa,0x00f9,0x00fb,0x00fc,
@@ -94,8 +100,8 @@ static de_int32 de_cp437g_to_unicode(de_int32 a)
 {
 	de_int32 n;
 	if(a<=0xff) n = (de_int32)cp437table[a];
-	else n = DE_INVALID_CODEPOINT;
-	if(n==0xffff) n = DE_INVALID_CODEPOINT;
+	else n = DE_CODEPOINT_INVALID;
+	if(n==0xffff) n = DE_CODEPOINT_INVALID;
 	return n;
 }
 
@@ -105,8 +111,8 @@ static de_int32 de_cp437c_to_unicode(de_int32 a)
 	de_int32 n;
 	if(a<=0x7f) n = a;
 	else if(a>=0x080 && a<=0xff) n = (de_int32)cp437table[a];
-	else n = DE_INVALID_CODEPOINT;
-	if(n==0xffff) n = DE_INVALID_CODEPOINT;
+	else n = DE_CODEPOINT_INVALID;
+	if(n==0xffff) n = DE_CODEPOINT_INVALID;
 	return n;
 }
 
@@ -115,8 +121,19 @@ static de_int32 de_windows1252_to_unicode(de_int32 a)
 	de_int32 n;
 	if(a>=0x80 && a<=0x9f) n = (de_int32)windows1252table[a-0x80];
 	else if(a<=0xff) n = a;
-	else n = DE_INVALID_CODEPOINT;
-	if(n==0xffff) n = DE_INVALID_CODEPOINT;
+	else n = DE_CODEPOINT_INVALID;
+	if(n==0xffff) n = DE_CODEPOINT_INVALID;
+	return n;
+}
+
+static de_int32 de_palmcs_to_unicode(de_int32 a)
+{
+	de_int32 n;
+	// This is not perfect, but the diamond/club/heart/spade characters seem to
+	// be about the only printable characters common to all versions of this
+	// encoding, that differ from Windows-1252.
+	if(a>=0x8d && a<=0x90) n = (de_int32)palmcstable[a-0x8d];
+	else n = de_windows1252_to_unicode(a);
 	return n;
 }
 
@@ -126,8 +143,8 @@ static de_int32 de_macroman_to_unicode(de_int32 a)
 	de_int32 n;
 	if(a<=0x7f) n = a;
 	else if(a>=0x080 && a<=0xff) n = (de_int32)macromantable[a-0x80];
-	else n = DE_INVALID_CODEPOINT;
-	if(n==0xffff) n = DE_INVALID_CODEPOINT;
+	else n = DE_CODEPOINT_INVALID;
+	if(n==0xffff) n = DE_CODEPOINT_INVALID;
 	return n;
 }
 
@@ -135,8 +152,8 @@ static de_int32 de_petscii_to_unicode(de_int32 a)
 {
 	de_int32 n;
 	if(a<=0xff) n = (de_int32)petscii1table[a];
-	else n = DE_INVALID_CODEPOINT;
-	if(n==0xffff) n = DE_INVALID_CODEPOINT;
+	else n = DE_CODEPOINT_INVALID;
+	if(n==0xffff) n = DE_CODEPOINT_INVALID;
 	return n;
 }
 
@@ -144,20 +161,20 @@ static de_int32 de_decspecialgraphics_to_unicode(de_int32 a)
 {
 	de_int32 n;
 	if(a>=95 && a<=126) n = (de_int32)decspecialgraphicstable[a-95];
-	else n = DE_INVALID_CODEPOINT;
-	if(n==0xffff) n = DE_INVALID_CODEPOINT;
+	else n = DE_CODEPOINT_INVALID;
+	if(n==0xffff) n = DE_CODEPOINT_INVALID;
 	return n;
 }
 
 de_int32 de_char_to_unicode(deark *c, de_int32 a, int encoding)
 {
-	if(a<0) return DE_INVALID_CODEPOINT;
+	if(a<0) return DE_CODEPOINT_INVALID;
 
 	switch(encoding) {
 	case DE_ENCODING_ASCII:
-		return (a<128)?a:DE_INVALID_CODEPOINT;
+		return (a<128)?a:DE_CODEPOINT_INVALID;
 	case DE_ENCODING_LATIN1:
-		return (a<256)?a:DE_INVALID_CODEPOINT;
+		return (a<256)?a:DE_CODEPOINT_INVALID;
 	case DE_ENCODING_CP437_G:
 		return de_cp437g_to_unicode(a);
 	case DE_ENCODING_CP437_C:
@@ -168,6 +185,8 @@ de_int32 de_char_to_unicode(deark *c, de_int32 a, int encoding)
 		return de_windows1252_to_unicode(a);
 	case DE_ENCODING_MACROMAN:
 		return de_macroman_to_unicode(a);
+	case DE_ENCODING_PALM:
+		return de_palmcs_to_unicode(a);
 	case DE_ENCODING_DEC_SPECIAL_GRAPHICS:
 		return de_decspecialgraphics_to_unicode(a);
 	}
@@ -181,7 +200,11 @@ void de_uchar_to_utf8(de_int32 u1, de_byte *utf8buf, de_int64 *p_utf8len)
 {
 	de_uint32 u = (de_uint32)u1;
 
-	if(u>0x10ffff || u1==DE_INVALID_CODEPOINT) u=0xfffd;
+	// TODO: Maybe there should be a flag to tell what to do with
+	// our special codepoints (DE_CODEPOINT_BYTE00, ...).
+	if(u1<0 || u1>0x10ffff)	{
+		u=0xfffd;
+	}
 
 	if(u<=0x7f) {
 		*p_utf8len = 1;
@@ -273,9 +296,11 @@ void de_utf8_to_ascii(const char *src, char *dst, size_t dstlen, unsigned int fl
 	de_int32 uchar;
 	de_int64 code_len;
 	int ret;
-	char sc; // substitution character
 
 	while(1) {
+		char sc; // substitution character 1
+		char sc2 = 0; // substitution character 2
+
 		if(dstpos >= dstlen-1) {
 			dst[dstlen-1] = '\0';
 			break;
@@ -296,6 +321,9 @@ void de_utf8_to_ascii(const char *src, char *dst, size_t dstlen, unsigned int fl
 				case 0x00d7: sc='x'; break; // Multiplication sign
 				case 0x2018: case 0x2019: sc='\''; break; // single quotes
 				case 0x201c: case 0x201d: sc='"'; break; // double quotes
+				case 0x2192: sc='-'; sc2='>'; break; // Rightwards arrow
+				case 0x2264: sc='<'; sc2='='; break;
+				case 0x2265: sc='>'; sc2='='; break;
 				case 0x2502: sc='|'; break; // Box drawings light vertical
 				default: sc = '_';
 				}
@@ -305,6 +333,7 @@ void de_utf8_to_ascii(const char *src, char *dst, size_t dstlen, unsigned int fl
 				sc = '?';
 			}
 			dst[dstpos++] = sc;
+			if(sc2 && dstpos<dstlen-1) dst[dstpos++] = sc2;
 		}
 	}
 }
@@ -424,7 +453,7 @@ de_uint32 de_palette_ega64(int index)
 {
 
 	if(index>=0 && index<64) {
-		return ega64pal[index];
+		return DE_MAKE_OPAQUE(ega64pal[index]);
 	}
 	return 0;
 }
@@ -772,7 +801,7 @@ de_byte de_scale_1000_to_255(de_int64 x)
 
 de_byte de_scale_n_to_255(de_int64 n, de_int64 x)
 {
-	if(x>=1000) return 255;
+	if(x>=n) return 255;
 	if(x<=0) return 0;
 	return (de_byte)(0.5+(((double)x)*(255.0/(double)n)));
 }
@@ -813,8 +842,17 @@ de_uint32 de_rgb555_to_888(de_uint32 x)
 	return DE_MAKE_RGB(cr, cg, cb);
 }
 
+char de_byte_to_printable_char(de_byte b)
+{
+	if(b>=32 && b<=126) return (char)b;
+	return '_';
+}
+
+// This function has been largely replaced by other functions, and should
+// rarely be used. See the comment in the header file.
 // s1 is not NUL terminated, but s2 will be.
 // s2_size includes the NUL terminator.
+// src_encoding: Only DE_ENCODING_ASCII is supported.
 void de_bytes_to_printable_sz(const de_byte *s1, de_int64 s1_len,
 	char *s2, de_int64 s2_size, unsigned int conv_flags, int src_encoding)
 {
@@ -823,7 +861,6 @@ void de_bytes_to_printable_sz(const de_byte *s1, de_int64 s1_len,
 	char ch;
 
 	if(src_encoding!=DE_ENCODING_ASCII) {
-		// TODO: Implement other encodings
 		s2[0] = '\0';
 		return;
 	}
@@ -871,7 +908,7 @@ void de_write_codepoint_to_html(deark *c, dbuf *f, de_int32 ch)
 {
 	int e; // How to encode this codepoint
 
-	if(ch<0 || ch>0x10ffff || ch==DE_INVALID_CODEPOINT) ch=0xfffd;
+	if(ch<0 || ch>0x10ffff || ch==DE_CODEPOINT_INVALID) ch=0xfffd;
 
 	if(ch=='&' || ch=='<' || ch=='>') {
 		e = 1; // HTML entity

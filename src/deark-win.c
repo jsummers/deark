@@ -39,7 +39,7 @@ char *de_strdup(deark *c, const char *s)
 
 	s2 = _strdup(s);
 	if(!s2) {
-		de_err(c, "Memory allocation failed\n");
+		de_err(c, "Memory allocation failed");
 		de_fatalerror(c);
 		return NULL;
 	}
@@ -96,7 +96,7 @@ wchar_t *de_utf8_to_utf16_strdup(deark *c, const char *src)
 	// Calculate the size required by the target string.
 	ret = MultiByteToWideChar(CP_UTF8, 0, src, -1, NULL, 0);
 	if(ret<1) {
-		de_err(c, "Encoding conversion failed\n");
+		de_err(c, "Encoding conversion failed");
 		de_fatalerror(c);
 		return NULL;
 	}
@@ -107,7 +107,7 @@ wchar_t *de_utf8_to_utf16_strdup(deark *c, const char *src)
 	ret = MultiByteToWideChar(CP_UTF8, 0, src, -1, dst, dstlen);
 	if(ret<1) {
 		de_free(c, dst);
-		de_err(c, "Encoding conversion failed\n");
+		de_err(c, "Encoding conversion failed");
 		de_fatalerror(c);
 		return NULL;
 	}
@@ -272,32 +272,50 @@ void de_free_utf8_args(int argc, char **argv)
 	de_free(NULL, argv);
 }
 
-// A helper function that returns nonzero if stdout seems to be a Windows console.
-// 0 means that stdout is redirected.
-int de_stdout_is_windows_console(void)
+// Return an output HANDLE that can be passed to other winconsole functions.
+// n: 1=stdout, 2=stderr
+void *de_winconsole_get_handle(int n)
+{
+	return (void*)GetStdHandle((n==2)?STD_ERROR_HANDLE:STD_OUTPUT_HANDLE);
+}
+
+// Does the given HANDLE (cast to void*) seem to be a Windows console?
+int de_winconsole_is_console(void *h1)
 {
 	DWORD consolemode=0;
 	BOOL n;
 
-	n=GetConsoleMode(GetStdHandle(STD_OUTPUT_HANDLE), &consolemode);
+	n=GetConsoleMode((HANDLE)h1, &consolemode);
 	return n ? 1 : 0;
 }
 
-// A helper function that returns nonzero if stderr seems to be a Windows console.
-// 0 means that stderr is redirected.
-int de_stderr_is_windows_console(void)
+int de_get_current_windows_attributes(void *handle, unsigned int *attrs)
 {
-	DWORD consolemode=0;
-	BOOL n;
+	CONSOLE_SCREEN_BUFFER_INFO csbi;
+	if(!GetConsoleScreenBufferInfo((HANDLE)handle, &csbi))
+		return 0;
+	*attrs = (unsigned int)csbi.wAttributes;
+	return 1;
+}
 
-	n=GetConsoleMode(GetStdHandle(STD_ERROR_HANDLE), &consolemode);
-	return n ? 1 : 0;
+void de_windows_highlight(void *handle1, unsigned int orig_attr, int x)
+{
+	if(x) {
+		SetConsoleTextAttribute((void*)handle1,
+			(orig_attr&0xff00) |
+			((orig_attr&0x000fU)<<4) |
+			((orig_attr&0x00f0U)>>4) );
+	}
+	else {
+		SetConsoleTextAttribute((void*)handle1, (WORD)orig_attr);
+	}
 }
 
 // Note: Need to keep this function in sync with the implementation in deark-unix.c.
 void de_timestamp_to_string(const struct de_timestamp *ts,
 	char *buf, size_t buf_len, unsigned int flags)
 {
+	de_int64 tmpt_int64;
 	__time64_t tmpt;
 	struct tm tm1;
 	const char *tzlabel;
@@ -309,10 +327,23 @@ void de_timestamp_to_string(const struct de_timestamp *ts,
 	}
 
 	de_memset(&tm1, 0, sizeof(struct tm));
-	tmpt = (__time64_t)de_timestamp_to_unix_time(ts);
+	tmpt_int64 = de_timestamp_to_unix_time(ts);
+	tmpt = (__time64_t)tmpt_int64;
+
+	// _gmtime64_s is documented as supporting times in the range:
+	//  1970-01-01 00:00:00 UTC, through
+	//  3000-12-31 23:59:59 UTC.
+	// I tested it, and on my computer it worked from:
+	//  1969-12-31 12:00:00 UTC, through
+	//  3001-01-01 20:59:59 UTC.
+	// [The behavior of _gmtime64_s does not depend on the user's current
+	// timezone settings, right? I hope?]
+	// TODO: At the very least, we need to support the range ~1900 to 2108,
+	// to cover most of the traditional formats. We probably need a custom
+	// gmtime function.
 	ret = _gmtime64_s(&tm1, &tmpt);
 	if(ret!=0) {
-		de_strlcpy(buf, "[error]", buf_len);
+		de_snprintf(buf, buf_len, "[timestamp out of range: %"INT64_FMT"]", tmpt_int64);
 		return;
 	}
 
@@ -331,4 +362,9 @@ void de_current_time_to_timestamp(struct de_timestamp *ts)
 	_time64(&t);
 	ts->unix_time = (de_int64)t;
 	ts->is_valid = 1;
+}
+
+void de_exitprocess(void)
+{
+	exit(1);
 }

@@ -291,7 +291,7 @@ static void
 WriteFace(struct xfacectx *ctx)
 {
 	de_int64 i, j;
-	struct deark_bitmap *img = NULL;
+	de_bitmap *img = NULL;
 
 	img = de_bitmap_create(ctx->c, XFACE_WIDTH, XFACE_HEIGHT, 1);
 
@@ -333,7 +333,7 @@ BigPop(struct xfacectx *ctx, const Prob *p)
 
 // This is what's left of the original BigDiv() function.
 // It's only needed for the right-shift operation.
-// (Stores the remainder in the word pointer to by r)
+// (Stores the remainder in the word pointed to by r)
 static void
 BigRSH(struct xfacectx *ctx, XFACE_WORD *r)
 {
@@ -374,7 +374,7 @@ BigMul(struct xfacectx *ctx, XFACE_WORD a)
 	if (a == 0)	/* treat this as a == WORDCARRY */
 	{			/* and just shift everything left a XFACE_WORD */
 		if ((i = ctx->gg_B.b_words++) >= MAXWORDS - 1) {
-			de_err(ctx->c, "xface: Internal error (1)\n");
+			de_err(ctx->c, "xface: Internal error (1)");
 			ctx->errflag = 1;
 			return;
 		}
@@ -399,7 +399,7 @@ BigMul(struct xfacectx *ctx, XFACE_WORD a)
 	if (c)
 	{
 		if (ctx->gg_B.b_words++ >= MAXWORDS) {
-			de_err(ctx->c, "Invalid or oversized X-Face image\n");
+			de_err(ctx->c, "Invalid or oversized X-Face image");
 			ctx->errflag = 1;
 			return;
 		}
@@ -432,7 +432,7 @@ BigAdd(struct xfacectx *ctx, XFACE_WORD a)
 	if ((i == ctx->gg_B.b_words) && c)
 	{
 		if (ctx->gg_B.b_words++ >= MAXWORDS) {
-			de_err(ctx->c, "xface: Internal error (3)\n");
+			de_err(ctx->c, "xface: Internal error (3)");
 			ctx->errflag = 1;
 			return;
 		}
@@ -472,8 +472,7 @@ static void gen_helper(struct xfacectx *ctx, const de_byte *arr, size_t arr_len,
 // "case XFACE_WIDTH" code cannot be reached, because i is never larger
 // than XFACE_WIDTH-1. I suspect that, in fact, all of the "cases" are off by
 // 1. But it's not like I can "fix" it, because that would change the format
-// in an incompatible way.
-// -JS
+// in an incompatible way. -JS
 
 static void
 Gen(struct xfacectx *ctx, char *f, size_t f_len)
@@ -495,7 +494,7 @@ Gen(struct xfacectx *ctx, char *f, size_t f_len)
 						continue;
 					if ((l > 0) && (l <= XFACE_WIDTH) && (m > 0)) {
 						if((l + m * XFACE_WIDTH < 0) || (l + m * XFACE_WIDTH >= (int)f_len)) {
-							de_err(ctx->c, "xface: Internal error (4)\n");
+							de_err(ctx->c, "xface: Internal error (4)");
 							ctx->errflag = 1;
 							return;
 						}
@@ -693,7 +692,7 @@ ReadBuf(struct xfacectx *ctx)
 
 	// Handle a possible "X-Face:" prefix.
 	if(amt_to_read>=8 && has_x_header(ctx->inf)) {
-		de_dbg(ctx->c, "found X-Face prefix\n");
+		de_dbg(ctx->c, "found X-Face prefix");
 		startpos += 8;
 		amt_to_read -= 8;
 	}

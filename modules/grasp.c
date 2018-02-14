@@ -34,21 +34,21 @@ static int do_extract_file(deark *c, lctx *d, de_int64 fnum)
 	// an offset of 0. This is worse than useless, since we already know
 	// how long the list is.
 	if(file_info_offset==0) {
-		de_dbg(c, "end-of-file-list marker found\n");
+		de_dbg(c, "end-of-file-list marker found");
 		retval = 0;
 		goto done;
 	}
 
-	de_dbg(c, "file #%d offset: %d\n", (int)fnum, (int)file_info_offset);
+	de_dbg(c, "file #%d offset: %d", (int)fnum, (int)file_info_offset);
 	de_dbg_indent(c, 1);
 
 	if(file_info_offset < d->dir_header_nbytes) {
-		de_warn(c, "Bad file offset (%d)\n", (int)file_info_offset);
+		de_warn(c, "Bad file offset (%d)", (int)file_info_offset);
 		goto done;
 	}
 
 	if(de_getbyte(pos+4)==0x00) {
-		de_warn(c, "Missing file name\n");
+		de_warn(c, "Missing file name");
 		goto done;
 	}
 
@@ -60,10 +60,10 @@ static int do_extract_file(deark *c, lctx *d, de_int64 fnum)
 	dbuf_read_to_ucstring(c->infile, pos+4, 13, fname, DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_ASCII);
 	de_finfo_set_name_from_ucstring(c, fi, fname);
 	fi->original_filename_flag = 1;
-	de_dbg(c, "file name: %s\n", ucstring_get_printable_sz(fname));
+	de_dbg(c, "file name: %s", ucstring_get_printable_sz(fname));
 
 	file_size = de_getui32le(file_info_offset);
-	de_dbg(c, "file size: %d\n", (int)file_size);
+	de_dbg(c, "file size: %d", (int)file_size);
 
 	file_data_offset = file_info_offset+4;
 	if(file_data_offset > dbuf_get_length(c->infile)) goto done;
@@ -90,11 +90,11 @@ static void de_run_graspgl(deark *c, de_module_params *mparams)
 
 	pos = 0;
 	d->dir_header_nbytes = de_getui16le(pos);
-	de_dbg(c, "header bytes: %d\n", (int)d->dir_header_nbytes);
+	de_dbg(c, "header bytes: %d", (int)d->dir_header_nbytes);
 
 	// 17 bytes per file entry
 	num_files = (d->dir_header_nbytes+16)/17;
-	de_dbg(c, "number of files: %d\n", (int)num_files);
+	de_dbg(c, "number of files: %d", (int)num_files);
 
 	for(i=0; i<num_files; i++) {
 		if(!do_extract_file(c, d, i))
@@ -155,7 +155,7 @@ static void de_run_graspfont_oldfmt(deark *c)
 	font = de_create_bitmap_font(c);
 
 	reported_filesize = de_getui16le(0);
-	de_dbg(c, "reported file size: %d\n", (int)reported_filesize);
+	de_dbg(c, "reported file size: %d", (int)reported_filesize);
 
 	font->has_nonunicode_codepoints = 1;
 	font->has_unicode_codepoints = 1;
@@ -166,15 +166,15 @@ static void de_run_graspfont_oldfmt(deark *c)
 	font->nominal_height = (int)de_getbyte(5);
 	bytes_per_glyph = (de_int64)de_getbyte(6);
 
-	de_dbg(c, "number of glyphs: %d, first codepoint: %d\n", (int)font->num_chars, (int)first_codepoint);
-	de_dbg(c, "glyph dimensions: %dx%d, size in bytes: %d\n", font->nominal_width,
+	de_dbg(c, "number of glyphs: %d, first codepoint: %d", (int)font->num_chars, (int)first_codepoint);
+	de_dbg(c, "glyph dimensions: %d"DE_CHAR_TIMES"%d, size in bytes: %d", font->nominal_width,
 		font->nominal_height, (int)bytes_per_glyph);
 
 	glyph_rowspan = (font->nominal_width+7)/8;
 	if(bytes_per_glyph < glyph_rowspan*font->nominal_height ||
 		font->nominal_width<1 || font->nominal_height<1)
 	{
-		de_err(c, "Bad font metrics\n");
+		de_err(c, "Bad font metrics");
 		goto done;
 	}
 
@@ -215,6 +215,7 @@ done:
 static void de_run_graspfont_newfmt(deark *c)
 {
 	struct de_bitmap_font *font = NULL;
+	de_ucstring *fontname = NULL;
 	de_int64 k;
 	de_int64 glyph_offsets_table_pos;
 	de_int64 widths_table_pos;
@@ -222,25 +223,35 @@ static void de_run_graspfont_newfmt(deark *c)
 	int tmp_width;
 	int ch_max_width = 0;
 
-	font = de_create_bitmap_font(c);
+	de_dbg(c, "header at %d", 0);
+	de_dbg_indent(c, 1);
 
+	font = de_create_bitmap_font(c);
 	font->has_nonunicode_codepoints = 1;
-	font->num_chars = (de_int64)de_getbyte(16) +1;
-	de_dbg(c, "number of glyphs: %d\n", (int)font->num_chars);
+
+	fontname = ucstring_create(c);
+	dbuf_read_to_ucstring(c->infile, 1, 13, fontname, DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_ASCII);
+	de_dbg(c, "name: \"%s\"", ucstring_get_printable_sz(fontname));
+
+	font->num_chars = (de_int64)de_getbyte(16);
+	de_dbg(c, "number of glyphs: %d", (int)font->num_chars);
 
 	tmp_width = (int)de_getbyte(19);
-	de_dbg(c, "font width: %d\n", tmp_width);
+	de_dbg(c, "font width: %d", tmp_width);
 	font->nominal_height = (int)de_getbyte(20);
-	de_dbg(c, "font height: %d\n", font->nominal_height);
+	de_dbg(c, "font height: %d", font->nominal_height);
 
 	glyph_rowspan = (de_int64)de_getbyte(21);
+
+	de_dbg_indent(c, -1);
 
 	glyph_offsets_table_pos = 59;
 	widths_table_pos = glyph_offsets_table_pos +2*font->num_chars;
 	if(widths_table_pos<249)
 		widths_table_pos = 249;
-	de_dbg(c, "glyph offsets table is at %d\n", (int)glyph_offsets_table_pos);
-	de_dbg(c, "width table is at %d\n", (int)widths_table_pos);
+	de_dbg(c, "glyph offsets table at %d, width table at %d", (int)glyph_offsets_table_pos,
+		(int)widths_table_pos);
+	de_dbg_indent(c, 1);
 
 	font->char_array = de_malloc(c, font->num_chars * sizeof(struct de_bitmap_font_char));
 
@@ -249,15 +260,13 @@ static void de_run_graspfont_newfmt(deark *c)
 		de_int64 bitmapsize;
 		struct de_bitmap_font_char *ch = &font->char_array[k];
 
-		ch->codepoint_nonunicode = (de_int32)(32 + k);
+		ch->codepoint_nonunicode = (de_int32)(33 + k);
 
-		if(k==0)
-			ch_offset = 0;
-		else
-			ch_offset = de_getui16le(glyph_offsets_table_pos + 2*k);
+		ch_offset = de_getui16le(glyph_offsets_table_pos + 2 + 2*k);
 
-		ch->width = (int)de_getbyte(widths_table_pos + k);
-		de_dbg(c, "ch[%d]: width=%d, glyph_offs=%d\n", (int)ch->codepoint_nonunicode,
+		ch->width = (int)de_getbyte(widths_table_pos + 1 + k);
+		de_dbg(c, "ch[%d]: codepoint=%d, width=%d, glyph_offs=%d", (int)k,
+			(int)ch->codepoint_nonunicode,
 			(int)ch->width, (int)ch_offset);
 
 		if(ch->width<1) continue;
@@ -267,14 +276,12 @@ static void de_run_graspfont_newfmt(deark *c)
 		ch->rowspan = glyph_rowspan;
 		bitmapsize = ch->rowspan * ch->height;
 		ch->bitmap = de_malloc(c, bitmapsize);
-		if(k!=0) {
-			// The space character's bitmap offset doesn't seem to be reliable.
-			// (Maybe even its width is supposed to be ignored. Dunno.)
-			de_read(ch->bitmap, ch_offset, bitmapsize);
-		}
+		de_read(ch->bitmap, ch_offset, bitmapsize);
 	}
 
-	de_dbg(c, "calculated maximum width: %d\n", (int)ch_max_width);
+	de_dbg_indent(c, -1);
+
+	de_dbg(c, "calculated maximum width: %d", (int)ch_max_width);
 	font->nominal_width = ch_max_width;
 
 	de_font_bitmap_font_to_image(c, font, NULL, 0);
@@ -288,6 +295,8 @@ static void de_run_graspfont_newfmt(deark *c)
 		}
 		de_destroy_bitmap_font(c, font);
 	}
+
+	ucstring_destroy(fontname);
 }
 
 static int gfont_is_new_format(deark *c)

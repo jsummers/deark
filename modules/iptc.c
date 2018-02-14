@@ -150,7 +150,7 @@ static void handle_1_90(deark *c, lctx *d, const struct ds_info *dsi,
 	else
 		csname="unknown";
 
-	de_dbg(c, "charset: %s\n", csname);
+	de_dbg(c, "charset: %s", csname);
 }
 
 // Caption/abstract
@@ -198,7 +198,7 @@ static void handle_2_125(deark *c, lctx *d, const struct ds_info *dsi,
 	de_int64 pos, de_int64 len)
 {
 	dbuf *unc_pixels = NULL;
-	struct deark_bitmap *img = NULL;
+	de_bitmap *img = NULL;
 	de_int64 i, j;
 	de_byte b;
 	de_int64 rowspan;
@@ -271,7 +271,7 @@ static int read_dflen(deark *c, dbuf *f, de_int64 pos,
 			// IPTC seems to support fields up to (2^262136)-1 bytes.
 			// We arbitrarily limit it (2^48)-1.
 			if((*dflen)>=0x1000000000000LL) {
-				de_err(c, "Bad or unsupported IPTC data field length\n");
+				de_err(c, "Bad or unsupported IPTC data field length");
 				return 0;
 			}
 		}
@@ -291,7 +291,7 @@ static void handle_text(deark *c, lctx *d, const struct ds_info *dsi,
 	if(encoding==DE_ENCODING_UNKNOWN)
 		encoding = DE_ENCODING_ASCII;
 	dbuf_read_to_ucstring(c->infile, pos, len, s, 0, encoding);
-	de_dbg(c, "%s: \"%s\"\n", dsi->dsname, ucstring_get_printable_sz_n(s, 300));
+	de_dbg(c, "%s: \"%s\"", dsi->dsname, ucstring_get_printable_sz_d(s));
 	ucstring_destroy(s);
 }
 
@@ -301,7 +301,7 @@ static void handle_uint16(deark *c, lctx *d, const struct ds_info *dsi,
 	de_int64 x;
 	if(len!=2) return;
 	x = de_getui16be(pos);
-	de_dbg(c, "%s: %d\n", dsi->dsname, (int)x);
+	de_dbg(c, "%s: %d", dsi->dsname, (int)x);
 }
 
 static int do_dataset(deark *c, lctx *d, de_int64 ds_idx, de_int64 pos1,
@@ -322,11 +322,11 @@ static int do_dataset(deark *c, lctx *d, de_int64 ds_idx, de_int64 pos1,
 	if(b!=0x1c) {
 		if(b==0x00 && ds_idx>0) {
 			// Extraneous padding at the end of data?
-			de_warn(c, "Expected %d bytes of IPTC data, only found %d\n",
+			de_warn(c, "Expected %d bytes of IPTC data, only found %d",
 				(int)c->infile->len, (int)pos);
 		}
 		else {
-			de_err(c, "Bad IPTC tag marker (0x%02x) at %d\n", (int)b, (int)pos);
+			de_err(c, "Bad IPTC tag marker (0x%02x) at %d", (int)b, (int)pos);
 		}
 		goto done;
 	}
@@ -340,7 +340,7 @@ static int do_dataset(deark *c, lctx *d, de_int64 ds_idx, de_int64 pos1,
 	if(!read_dflen(c, c->infile, pos, &dflen, &dflen_bytes_consumed)) goto done;
 	pos += dflen_bytes_consumed;
 
-	de_dbg(c, "IPTC dataset %d:%02d (%s) dpos=%" INT64_FMT " dlen=%" INT64_FMT "\n",
+	de_dbg(c, "IPTC dataset %d:%02d (%s) dpos=%" INT64_FMT " dlen=%" INT64_FMT "",
 		(int)recnum, (int)dsnum, dsi.dsname, pos, dflen);
 
 	// Decode the value

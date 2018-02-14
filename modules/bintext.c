@@ -135,8 +135,9 @@ static void do_read_palette(deark *c, lctx *d,struct de_char_context *charctx,
 	de_byte cr1, cg1, cb1;
 	de_byte cr2, cg2, cb2;
 	de_int64 cpos;
+	char tmps[64];
 
-	de_dbg(c, "palette at %d\n", (int)pos);
+	de_dbg(c, "palette at %d", (int)pos);
 
 	for(k=0; k<16; k++) {
 		if(adf_style && k>=8)
@@ -150,9 +151,9 @@ static void do_read_palette(deark *c, lctx *d,struct de_char_context *charctx,
 		cg2 = de_scale_63_to_255(cg1);
 		cb2 = de_scale_63_to_255(cb1);
 		charctx->pal[k] = DE_MAKE_RGB(cr2, cg2, cb2);
-		de_dbg2(c, "pal[%2d] = (%2d,%2d,%2d) -> (%3d,%3d,%3d)\n", (int)k,
-			(int)cr1, (int)cg1, (int)cb1,
-			(int)cr2, (int)cg2, (int)cb2);
+		de_snprintf(tmps, sizeof(tmps), "(%2d,%2d,%2d) "DE_CHAR_RIGHTARROW" ",
+			(int)cr1, (int)cg1, (int)cb1);
+		de_dbg_pal_entry2(c, k, charctx->pal[k], tmps, NULL, NULL);
 	}
 }
 
@@ -182,14 +183,14 @@ static void do_read_font_data(deark *c, lctx *d, de_int64 pos)
 {
 	de_uint32 crc;
 
-	de_dbg(c, "font at %d, %d bytes\n", (int)pos, (int)d->font_data_len);
+	de_dbg(c, "font at %d, %d bytes", (int)pos, (int)d->font_data_len);
 	de_dbg_indent(c, 1);
 	d->font_data = de_malloc(c, d->font_data_len);
 	de_read(d->font_data, pos, d->font_data_len);
 
 	crc = de_crc32(d->font_data, d->font_data_len);
 	d->is_standard_font = de_font_is_standard_vga_font(c, crc);
-	de_dbg(c, "font crc: 0x%08x (%s)\n", (unsigned int)crc,
+	de_dbg(c, "font crc: 0x%08x (%s)", (unsigned int)crc,
 		d->is_standard_font?"known CP437 font":"unrecognized");
 
 	if(de_get_ext_option(c, "font:dumpvgafont")) {
@@ -208,11 +209,11 @@ static int do_generate_font(deark *c, lctx *d)
 
 	if(!d->font) return 0;
 	if(d->font->num_chars!=256) {
-		de_err(c, "Only 256-character fonts are supported\n");
+		de_err(c, "Only 256-character fonts are supported");
 		return 0;
 	}
 	if(d->font_data_len!=d->font->num_chars*d->font_height) {
-		de_err(c, "Incorrect font data size\n");
+		de_err(c, "Incorrect font data size");
 		return 0;
 	}
 	d->font->nominal_width = 8;
@@ -275,24 +276,24 @@ static void de_run_xbin(deark *c, de_module_params *mparams)
 	d->height_in_chars = de_getui16le(7);
 	d->font_height = (de_int64)de_getbyte(9);
 	if(d->font_height<1 || d->font_height>32) {
-		de_err(c, "Invalid font height: %d\n", (int)d->font_height);
+		de_err(c, "Invalid font height: %d", (int)d->font_height);
 		goto done;
 	}
 
 	flags = de_getbyte(10);
-	de_dbg(c, "dimensions: %dx%d characters\n", (int)d->width_in_chars, (int)d->height_in_chars);
-	de_dbg(c, "font height: %d\n", (int)d->font_height);
-	de_dbg(c, "flags: 0x%02x\n", (unsigned int)flags);
+	de_dbg(c, "dimensions: %d"DE_CHAR_TIMES"%d characters", (int)d->width_in_chars, (int)d->height_in_chars);
+	de_dbg(c, "font height: %d", (int)d->font_height);
+	de_dbg(c, "flags: 0x%02x", (unsigned int)flags);
 	d->has_palette = (flags&0x01)?1:0;
 	d->has_font = (flags&0x02)?1:0;
 	d->compression = (flags&0x04)?1:0;
 	d->nonblink = (flags&0x08)?1:0;
 	d->has_512chars = (flags&0x10)?1:0;
-	de_dbg(c, " has palette: %d\n", (int)d->has_palette);
-	de_dbg(c, " has font: %d\n", (int)d->has_font);
-	de_dbg(c, " compression: %d\n", (int)d->compression);
-	de_dbg(c, " non-blink mode: %d\n", (int)d->nonblink);
-	de_dbg(c, " 512 character mode: %d\n", (int)d->has_512chars);
+	de_dbg(c, " has palette: %d", (int)d->has_palette);
+	de_dbg(c, " has font: %d", (int)d->has_font);
+	de_dbg(c, " compression: %d", (int)d->compression);
+	de_dbg(c, " non-blink mode: %d", (int)d->nonblink);
+	de_dbg(c, " 512 character mode: %d", (int)d->has_512chars);
 
 	pos = 11;
 
@@ -301,7 +302,7 @@ static void de_run_xbin(deark *c, de_module_params *mparams)
 		pos += 48;
 	}
 	else {
-		de_dbg(c, "using default palette\n");
+		de_dbg(c, "using default palette");
 		do_default_palette(c, d, charctx);
 	}
 
@@ -313,7 +314,7 @@ static void de_run_xbin(deark *c, de_module_params *mparams)
 		d->font->num_chars = d->has_512chars ? 512 : 256;
 		d->font_data_len = d->font->num_chars * d->font_height;
 		if(d->font->num_chars!=256) {
-			de_err(c, "%d-character mode is not supported\n", (int)d->font->num_chars);
+			de_err(c, "%d-character mode is not supported", (int)d->font->num_chars);
 			goto done;
 		}
 
@@ -338,12 +339,12 @@ static void de_run_xbin(deark *c, de_module_params *mparams)
 		// FIXME: We probably shouldn't give up if font_height!=16, at
 		// least if the output format is HTML.
 		if(d->has_512chars || d->font_height!=16) {
-			de_err(c, "This type of XBIN file is not supported.\n");
+			de_err(c, "This type of XBIN file is not supported.");
 			goto done;
 		}
 	}
 
-	de_dbg(c, "image data at %d\n", (int)pos);
+	de_dbg(c, "image data at %d", (int)pos);
 
 	if(d->compression) {
 		unc_data = dbuf_create_membuf(c, d->width_in_chars * d->height_in_chars * 2, 1);
@@ -370,8 +371,8 @@ static int de_identify_xbin(deark *c)
 
 static void de_help_xbin(deark *c)
 {
-	de_msg(c, "-opt char:output=html : Write HTML instead of an image file\n");
-	de_msg(c, "-opt char:charwidth=<8|9> : Width of a character cell\n");
+	de_msg(c, "-opt char:output=html : Write HTML instead of an image file");
+	de_msg(c, "-opt char:charwidth=<8|9> : Width of a character cell");
 }
 
 void de_module_xbin(deark *c, struct deark_module_info *mi)
@@ -451,12 +452,12 @@ static void de_run_bintext(deark *c, de_module_params *mparams)
 	if(d->width_in_chars<1) d->width_in_chars=160;
 	if(effective_file_size%(d->width_in_chars*2)) {
 		de_warn(c, "File does not contain a whole number of rows. The width may "
-			"be wrong. Try \"-opt char:width=...\"\n");
+			"be wrong. Try \"-opt char:width=...\".");
 	}
 	d->height_in_chars = effective_file_size / (d->width_in_chars*2);
 
-	de_dbg(c, "width: %d chars\n", (int)d->width_in_chars);
-	de_dbg(c, "calculated height: %d chars\n", (int)d->height_in_chars);
+	de_dbg(c, "width: %d chars", (int)d->width_in_chars);
+	de_dbg(c, "calculated height: %d chars", (int)d->height_in_chars);
 	d->has_palette = 1;
 	d->has_font = 1;
 	d->compression = 0;
@@ -490,9 +491,9 @@ static int de_identify_bintext(deark *c)
 
 static void de_help_bintext(deark *c)
 {
-	de_msg(c, "-opt char:output=image : Write an image file instead of HTML\n");
-	de_msg(c, " -opt char:charwidth=<8|9> : Width of a character cell\n");
-	de_msg(c, "-opt char:width=<n> : Number of characters per row\n");
+	de_msg(c, "-opt char:output=image : Write an image file instead of HTML");
+	de_msg(c, " -opt char:charwidth=<8|9> : Width of a character cell");
+	de_msg(c, "-opt char:width=<n> : Number of characters per row");
 }
 
 void de_module_bintext(deark *c, struct deark_module_info *mi)
@@ -530,8 +531,8 @@ static void de_run_artworx_adf(deark *c, de_module_params *mparams)
 	d->width_in_chars = 80;
 	d->height_in_chars = data_len / (d->width_in_chars*2);
 
-	de_dbg(c, "guessed width: %d chars\n", (int)d->width_in_chars);
-	de_dbg(c, "calculated height: %d chars\n", (int)d->height_in_chars);
+	de_dbg(c, "guessed width: %d chars", (int)d->width_in_chars);
+	de_dbg(c, "calculated height: %d chars", (int)d->height_in_chars);
 	if(d->height_in_chars<1) goto done;
 	d->has_palette = 0;
 	d->has_font = 1;
@@ -598,9 +599,9 @@ static int de_identify_artworx_adf(deark *c)
 
 static void de_help_artworx_adf(deark *c)
 {
-	de_msg(c, "-opt char:output=html : Write HTML instead of an image file\n");
-	de_msg(c, "-opt char:charwidth=<8|9> : Width of a character cell\n");
-	de_msg(c, "-opt char:width=<n> : Number of characters per row\n");
+	de_msg(c, "-opt char:output=html : Write HTML instead of an image file");
+	de_msg(c, "-opt char:charwidth=<8|9> : Width of a character cell");
+	de_msg(c, "-opt char:width=<n> : Number of characters per row");
 }
 
 void de_module_artworx_adf(deark *c, struct deark_module_info *mi)
@@ -636,7 +637,7 @@ static void de_run_icedraw(deark *c, de_module_params *mparams)
 		de_free_SAUCE(c, si);
 	}
 
-	de_err(c, "iCEDraw format is not supported\n");
+	de_err(c, "iCEDraw format is not supported");
 }
 
 static int de_identify_icedraw(deark *c)

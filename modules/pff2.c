@@ -34,7 +34,7 @@ static void do_char(deark *c, lctx *d, de_int64 char_idx, de_int32 codepoint, de
 	if(ch->height > d->font->nominal_height) d->font->nominal_height = ch->height;
 
 	bitmap_pos = pos+10;
-	de_dbg2(c, "%dx%d, bitmap at %d\n", (int)ch->width, (int)ch->height, (int)bitmap_pos);
+	de_dbg2(c, "%d"DE_CHAR_TIMES"%d, bitmap at %d", (int)ch->width, (int)ch->height, (int)bitmap_pos);
 	ch->rowspan = (ch->width +7)/8;
 
 	srcbitmapsize = (ch->width * ch->height + 7)/8;
@@ -58,12 +58,12 @@ static void do_code_chix(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 	de_int32 codepoint;
 	unsigned int storage_flags;
 
-	de_dbg(c, "CHIX at %d, len %d\n", (int)pos1, (int)len);
+	de_dbg(c, "CHIX at %d, len %d", (int)pos1, (int)len);
 	if(d->found_CHIX_chunk) goto done;
 	d->found_CHIX_chunk = 1;
 
 	d->font->num_chars = len/9;
-	de_dbg(c, "number of characters: %d\n", (int)d->font->num_chars);
+	de_dbg(c, "number of characters: %d", (int)d->font->num_chars);
 
 	d->font->char_array = de_malloc(c, d->font->num_chars * sizeof(struct de_bitmap_font_char));
 
@@ -72,10 +72,10 @@ static void do_code_chix(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 		codepoint = (de_int32)de_getui32be(pos);
 		storage_flags = (unsigned int)de_getbyte(pos+4);
 		defpos = de_getui32be(pos+5);
-		de_dbg2(c, "code point U+%04X, index at %d, definition at %d\n",
+		de_dbg2(c, "code point U+%04X, index at %d, definition at %d",
 			(unsigned int)codepoint, (int)pos, (int)defpos);
 		if((storage_flags&0x07)!=0) {
-			de_err(c, "Compressed PFF2 format is not supported\n");
+			de_err(c, "Compressed PFF2 format is not supported");
 			goto done;
 		}
 		de_dbg_indent(c, 1);
@@ -116,7 +116,7 @@ static void de_run_pff2(deark *c, de_module_params *mparams)
 		}
 
 		if(pos+len > c->infile->len) {
-			de_warn(c, "Chunk goes beyond end of file\n");
+			de_warn(c, "Chunk goes beyond end of file");
 			goto done;
 
 		}

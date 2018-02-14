@@ -532,12 +532,12 @@ static void de_char_output_to_html_file(deark *c, struct de_char_context *charct
 
 	if(charctx->font && !charctx->suppress_custom_font_warning) {
 		de_warn(c, "This file uses a custom font, which is not supported with "
-			"HTML output.\n");
+			"HTML output.");
 	}
 
 	if(ectx->used_24bitcolor) {
 		de_msg(c, "Note: This file uses 24-bit colors, which are supported but "
-			"not optimized. The HTML file may be very large.\n");
+			"not optimized. The HTML file may be very large.");
 	}
 
 	ofile = dbuf_create_output_file(c, "html", NULL, 0);
@@ -552,7 +552,7 @@ static void de_char_output_to_html_file(deark *c, struct de_char_context *charct
 }
 
 static void do_render_character(deark *c, struct de_char_context *charctx,
-	struct charextractx *ectx, struct deark_bitmap *img,
+	struct charextractx *ectx, de_bitmap *img,
 	de_int64 xpos, de_int64 ypos,
 	de_int32 codepoint, int codepoint_is_unicode,
 	de_uint32 fgcol, de_uint32 bgcol,
@@ -588,7 +588,7 @@ static void do_render_character(deark *c, struct de_char_context *charctx,
 }
 
 static void set_density(deark *c, struct de_char_context *charctx,
-	struct charextractx *ectx, struct deark_bitmap *img)
+	struct charextractx *ectx, de_bitmap *img)
 {
 	// FIXME: This is quick and dirty. Need to put more thought into how to
 	// figure out the pixel density.
@@ -613,7 +613,7 @@ static void de_char_output_screen_to_image_file(deark *c, struct de_char_context
 	struct charextractx *ectx, struct de_char_screen *screen)
 {
 	de_int64 screen_width_in_pixels, screen_height_in_pixels;
-	struct deark_bitmap *img = NULL;
+	de_bitmap *img = NULL;
 	int i, j;
 	const struct de_char_cell *cell;
 	unsigned int flags;
@@ -718,7 +718,7 @@ static void do_create_standard_font(deark *c, struct charextractx *ectx)
 	// Add vt100 characters that aren't in CP437
 	for(i=0; i<NUM_EXTRA_FONT_CHARS; i++) {
 		ch = &font->char_array[256+i];
-		ch->codepoint_nonunicode = DE_INVALID_CODEPOINT;
+		ch->codepoint_nonunicode = DE_CODEPOINT_INVALID;
 		ch->codepoint_unicode = extra_font_codepoints[i];
 		ch->bitmap = (de_byte*)&extra_font_data[i*16];
 	}
@@ -732,7 +732,7 @@ static void de_char_output_to_image_files(deark *c, struct de_char_context *char
 
 	if(ectx->used_blink) {
 		de_warn(c, "This file uses blinking characters, which are not supported with "
-			"image output.\n");
+			"image output.");
 	}
 
 	if(charctx->font) {

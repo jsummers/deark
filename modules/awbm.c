@@ -18,7 +18,7 @@ typedef struct localctx_struct {
 static int do_v1_image(deark *c, de_int64 pos,
 	de_int64 w_blocks, de_int64 h_blocks, int special, unsigned int createflags)
 {
-	struct deark_bitmap *img = NULL;
+	de_bitmap *img = NULL;
 	de_int64 w, h;
 	de_int64 i, j, i2, j2;
 	de_int64 colors_start=0, bitmap_start;
@@ -116,7 +116,7 @@ static int detect_palette_at(deark *c, lctx *d, de_int64 pos, de_int64 ncolors)
 
 static void do_v2(deark *c, lctx *d)
 {
-	struct deark_bitmap *img = NULL;
+	de_bitmap *img = NULL;
 	de_int64 rowspan1;
 	de_int64 rowspan;
 	de_int64 bitmap_start;
@@ -134,7 +134,7 @@ static void do_v2(deark *c, lctx *d)
 	de_memset(pal, 0, sizeof(pal));
 	d->w = de_getui16le(4);
 	d->h = de_getui16le(6);
-	de_dbg(c, "dimensions: %dx%d\n", (int)d->w, (int)d->h);
+	de_dbg_dimensions(c, d->w, d->h);
 	if(!de_good_image_dimensions(c, d->w, d->h)) goto done;
 
 	bitmap_start = 8;
@@ -158,7 +158,7 @@ static void do_v2(deark *c, lctx *d)
 	}
 
 	if(!ncolors) {
-		de_err(c, "Can't detect image format\n");
+		de_err(c, "Can't detect image format");
 		goto done;
 	}
 
@@ -241,10 +241,17 @@ static int de_identify_awbm(deark *c)
 	return 0;
 }
 
+static void de_help_awbm(deark *c)
+{
+	de_msg(c, "-opt awbm:rgb=0 : Assume BGR sample order");
+	de_msg(c, "-opt awbm:rgb=1 : Assume RGB sample order");
+}
+
 void de_module_awbm(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "awbm";
 	mi->desc = "Award BIOS logo";
 	mi->run_fn = de_run_awbm;
 	mi->identify_fn = de_identify_awbm;
+	mi->help_fn = de_help_awbm;
 }

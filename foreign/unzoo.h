@@ -216,7 +216,7 @@ static int DescReadArch (struct unzooctx *uz)
 	deark *c = uz->c;
 	int retval = 0;
 
-	de_dbg(c, "header at %d\n", 0);
+	de_dbg(c, "header at %d", 0);
 	de_dbg_indent(c, 1);
 
 	/* read the text at the beginning                                      */
@@ -229,19 +229,19 @@ static int DescReadArch (struct unzooctx *uz)
 
 	/* read the old part of the description                                */
 	uz->posent = WordReadArch(uz);
-	de_dbg(c, "first entry offset: %d\n", (int)uz->posent);
+	de_dbg(c, "first entry offset: %d", (int)uz->posent);
 
 	uz->klhvmh = WordReadArch(uz);
 	uz->majver = ByteReadArch(uz);
 	uz->minver = ByteReadArch(uz);
-	de_dbg(c, "version: %d.%d\n", (int)uz->majver, (int)uz->minver);
+	de_dbg(c, "version: %d.%d", (int)uz->majver, (int)uz->minver);
 
 	/* read the new part of the description if present                     */
 	uz->type   = (34 < uz->posent ? ByteReadArch(uz) : 0);
 
 	uz->poscmt = (34 < uz->posent ? WordReadArch(uz) : 0);
 	uz->sizcmt = (34 < uz->posent ? HalfReadArch(uz) : 0);
-	de_dbg(c, "main file comment size: %d, pos=%d\n", (int)uz->sizcmt, (int)uz->poscmt);
+	de_dbg(c, "main file comment size: %d, pos=%d", (int)uz->sizcmt, (int)uz->poscmt);
 	do_extract_comment(uz, uz->poscmt, uz->sizcmt, 1);
 
 	uz->modgen = (34 < uz->posent ? ByteReadArch(uz) : 0);
@@ -273,35 +273,35 @@ static int EntrReadArch (struct unzooctx *uz, struct entryctx *ze)
 
 	/* try to read the magic words                                         */
 	if ( (ze->magic = WordReadArch(uz)) != (de_uint32)0xfdc4a7dcL ) {
-		de_err(c, "Malformed ZOO file, bad magic number at %d\n", (int)pos1);
+		de_err(c, "Malformed ZOO file, bad magic number at %d", (int)pos1);
 		goto done;
 	}
 
 	/* read the fixed part of the directory entry                          */
 	ze->type   = ByteReadArch(uz);
-	de_dbg(c, "type: %d\n", (int)ze->type);
+	de_dbg(c, "type: %d", (int)ze->type);
 	ze->method = ByteReadArch(uz);
-	de_dbg(c, "compression method: %d\n", (int)ze->method);
+	de_dbg(c, "compression method: %d", (int)ze->method);
 	ze->posnxt = WordReadArch(uz);
-	de_dbg(c, "next entry pos: %d\n", (int)ze->posnxt);
+	de_dbg(c, "next entry pos: %d", (int)ze->posnxt);
 	ze->posdat = WordReadArch(uz);
-	de_dbg(c, "pos of file data: %u\n", (unsigned int)ze->posdat);
+	de_dbg(c, "pos of file data: %u", (unsigned int)ze->posdat);
 	ze->datdos = HalfReadArch(uz);
 	ze->timdos = HalfReadArch(uz);
 	ze->crcdat = HalfReadArch(uz);
-	de_dbg(c, "reported file crc: 0x%04x\n", (unsigned int)ze->crcdat);
+	de_dbg(c, "reported file crc: 0x%04x", (unsigned int)ze->crcdat);
 	ze->sizorg = WordReadArch(uz);
-	de_dbg(c, "original size: %u\n", (unsigned int)ze->sizorg);
+	de_dbg(c, "original size: %u", (unsigned int)ze->sizorg);
 	ze->siznow = WordReadArch(uz);
-	de_dbg(c, "compressed size: %u\n", (unsigned int)ze->siznow);
+	de_dbg(c, "compressed size: %u", (unsigned int)ze->siznow);
 	ze->majver = ByteReadArch(uz);
 	ze->minver = ByteReadArch(uz);
-	de_dbg(c, "version: %d.%d\n", (int)ze->majver, (int)ze->minver);
+	de_dbg(c, "version: %d.%d", (int)ze->majver, (int)ze->minver);
 	ze->delete_ = ByteReadArch(uz);
 	ze->spared = ByteReadArch(uz);
 	ze->poscmt = WordReadArch(uz);
 	ze->sizcmt = HalfReadArch(uz);
-	de_dbg(c, "comment size: %d, pos=%d\n", (int)ze->sizcmt, (int)ze->poscmt);
+	de_dbg(c, "comment size: %d, pos=%d", (int)ze->sizcmt, (int)ze->poscmt);
 	if((ze->posnxt!=0) && (ze->delete_ != 1)) {
 		do_extract_comment(uz, ze->poscmt, ze->sizcmt, 0);
 	}
@@ -310,7 +310,7 @@ static int EntrReadArch (struct unzooctx *uz, struct entryctx *ze)
 	shortname_ucstring = ucstring_create(c);
 	ucstring_append_bytes(shortname_ucstring, (const de_byte*)ze->nams, sizeof(ze->nams),
 		DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_ASCII);
-	de_dbg(c, "short name: \"%s\"\n", ucstring_get_printable_sz(shortname_ucstring));
+	de_dbg(c, "short name: \"%s\"", ucstring_get_printable_sz(shortname_ucstring));
 
 	/* handle the long name and the directory in the variable part         */
 	ze->lvar   = (ze->type == 2  ? HalfReadArch(uz) : 0);
@@ -325,7 +325,7 @@ static int EntrReadArch (struct unzooctx *uz, struct entryctx *ze)
 	if(ze->lnamu>0) {
 		ucstring_append_bytes(longname_ucstring, (const de_byte*)ze->namu, sizeof(ze->namu),
 			DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_ASCII);
-		de_dbg(c, "long name: \"%s\"\n", ucstring_get_printable_sz(longname_ucstring));
+		de_dbg(c, "long name: \"%s\"", ucstring_get_printable_sz(longname_ucstring));
 	}
 
 	BlckReadArch(uz, (de_byte*)ze->diru, (de_uint32)ze->ldiru);
@@ -334,7 +334,7 @@ static int EntrReadArch (struct unzooctx *uz, struct entryctx *ze)
 	if(ze->ldiru>0) {
 		ucstring_append_bytes(dirname_ucstring, (const de_byte*)ze->diru, sizeof(ze->diru),
 			DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_ASCII);
-		de_dbg(c, "dir name: \"%s\"\n", ucstring_get_printable_sz(dirname_ucstring));
+		de_dbg(c, "dir name: \"%s\"", ucstring_get_printable_sz(dirname_ucstring));
 	}
 
 	l = ze->lnamu + ze->ldiru;
@@ -342,9 +342,12 @@ static int EntrReadArch (struct unzooctx *uz, struct entryctx *ze)
 
 	ze->permis = (l+4 < ze->lvar ? TripReadArch(uz) : 0);
 	if(l+4 < ze->lvar) {
-		de_dbg(c, "perms: octal(%o)\n", (unsigned int)ze->permis);
+		de_dbg(c, "perms: octal(%o)", (unsigned int)ze->permis);
 		if((ze->permis & 0111) != 0) {
-			ze->fi->is_executable = 1;
+			ze->fi->mode_flags |= DE_MODEFLAG_EXE;
+		}
+		else {
+			ze->fi->mode_flags |= DE_MODEFLAG_NONEXE;
 		}
 	}
 
@@ -895,10 +898,6 @@ static int DecodeLzh (struct unzooctx *uz, struct entryctx *ze)
 	return 1;
 }
 
-static const de_uint32 BeginMonth [12] = {
-	0,    31,   59,   90,  120,  151,  181,  212,  243,  273,  304,  334
-};
-
 // Process a single member file
 static void ExtrEntry(struct unzooctx *uz, de_int64 pos1, de_int64 *next_entry_pos)
 {
@@ -913,7 +912,7 @@ static void ExtrEntry(struct unzooctx *uz, de_int64 pos1, de_int64 *next_entry_p
 
 	/* read the directory entry for the next member                    */
 	if ( ! GotoReadArch(uz, pos1) || ! EntrReadArch(uz, ze) ) {
-		de_err(c, "Found bad directory entry in archive\n");
+		de_err(c, "Found bad directory entry in archive");
 		goto done;
 	}
 
@@ -922,25 +921,25 @@ static void ExtrEntry(struct unzooctx *uz, de_int64 pos1, de_int64 *next_entry_p
 	// TODO: How does this work, exactly?
 	// One would think the last valid entry would have a NULL "next" pointer.
 	if ( ! ze->posnxt ) {
-		de_dbg(c, "ignoring entry because posnxt=0\n");
+		de_dbg(c, "ignoring entry because posnxt=0");
 		goto done;
 	}
 
 	/* skip members we don't care about                                */
 	if (  ze->delete_ == 1 ) {
-		de_dbg(c, "ignoring deleted entry\n");
+		de_dbg(c, "ignoring deleted entry");
 		goto done;
 	}
 
 	/* check that we can decode this file                              */
 	if ( (2 < ze->majver) || (2 == ze->majver && 1 < ze->minver) ) {
-		de_err(c, "Unsupported format version: %d.%d\n",
+		de_err(c, "Unsupported format version: %d.%d",
 			(int)ze->majver, (int)ze->minver);
 		goto done;
 	}
 
 	if(ze->method!=0 && ze->method!=1 && ze->method!=2) {
-		de_err(c, "Unsupported compression method: %d\n", (int)ze->method);
+		de_err(c, "Unsupported compression method: %d", (int)ze->method);
 		goto done;
 	}
 
@@ -950,7 +949,7 @@ static void ExtrEntry(struct unzooctx *uz, de_int64 pos1, de_int64 *next_entry_p
 
 	de_dos_datetime_to_timestamp(&ze->fi->mod_time, ze->datdos, ze->timdos, timestamp_offset);
 	de_timestamp_to_string(&ze->fi->mod_time, timestamp_buf, sizeof(timestamp_buf), 1);
-	de_dbg(c, "mod time: %s\n", timestamp_buf);
+	de_dbg(c, "mod time: %s", timestamp_buf);
 
 	/* open the file for creation                                      */
 	if ( ! OpenWritFile(uz, ze) ) {
@@ -959,7 +958,7 @@ static void ExtrEntry(struct unzooctx *uz, de_int64 pos1, de_int64 *next_entry_p
 
 	/* decode the file                                                 */
 	if ( ! GotoReadArch(uz,  ze->posdat ) ) {
-		de_err(c, "Cannot find data in archive\n");
+		de_err(c, "Cannot find data in archive");
 		goto done;
 	}
 	res = 0;
@@ -979,14 +978,14 @@ static void ExtrEntry(struct unzooctx *uz, de_int64 pos1, de_int64 *next_entry_p
 		goto done;
 	}
 
-	de_dbg(c, "calculated crc: 0x%04x\n", (unsigned int)ze->Crc);
+	de_dbg(c, "calculated crc: 0x%04x", (unsigned int)ze->Crc);
 
 	/* check that everything went ok                                   */
 	if      ( res == 0 ) {
-		de_err(c, "%s\n", uz->ErrMsg);
+		de_err(c, "%s", uz->ErrMsg);
 	}
 	else if ( ze->Crc != ze->crcdat ) {
-		de_err(c, "CRC failed\n");
+		de_err(c, "CRC failed");
 	}
 
 done:
@@ -1014,7 +1013,7 @@ static int ExtrArch (deark *c, dbuf *inf)
 	InitCrc(uz);
 
 	if(!DescReadArch(uz)) {
-		de_err(uz->c, "Found bad description in archive\n");
+		de_err(uz->c, "Found bad description in archive");
 		goto done;
 	}
 
@@ -1029,11 +1028,11 @@ static int ExtrArch (deark *c, dbuf *inf)
 		if(pos==0) break;
 
 		if(!de_inthashtable_add_item(c, uz->offsets_seen, pos)) {
-			de_err(c, "Loop detected\n");
+			de_err(c, "Loop detected");
 			goto done;
 		}
 
-		de_dbg(c, "entry at %d\n", (int)pos);
+		de_dbg(c, "entry at %d", (int)pos);
 		de_dbg_indent(c, 1);
 
 		next_entry_pos = 0;

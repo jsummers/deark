@@ -42,11 +42,11 @@ static int get_bitmap_info(deark *c, struct srcbitmap *srcbmp, const char *fmt, 
 		flags |= DE_BMPINFO_HAS_HOTSPOT;
 	}
 	if(!de_fmtutil_get_bmpinfo(c, c->infile, &srcbmp->bi, pos, c->infile->len - pos, flags)) {
-		de_err(c, "Unsupported image type (header size %d)\n", (int)srcbmp->bi.infohdrsize);
+		de_err(c, "Unsupported image type (header size %d)", (int)srcbmp->bi.infohdrsize);
 	}
 
 	if(srcbmp->bi.compression_field!=0) {
-		de_err(c, "Unsupported compression type (%d)\n", (int)srcbmp->bi.compression_field);
+		de_err(c, "Unsupported compression type (%d)", (int)srcbmp->bi.compression_field);
 		goto done;
 	}
 
@@ -67,7 +67,7 @@ static struct srcbitmap *do_decode_raw_bitmap_segment(deark *c, const char *fmt,
 	int saved_indent_level;
 
 	de_dbg_indent_save(c, &saved_indent_level);
-	de_dbg(c, "%s bitmap at %d\n", fmt, (int)pos);
+	de_dbg(c, "%s bitmap at %d", fmt, (int)pos);
 	de_dbg_indent(c, 1);
 
 	srcbmp = de_malloc(c, sizeof(struct srcbitmap));
@@ -79,7 +79,7 @@ static struct srcbitmap *do_decode_raw_bitmap_segment(deark *c, const char *fmt,
 	// read palette
 	if (srcbmp->bi.pal_entries > 0) {
 		pal_start = pos+14+srcbmp->bi.infohdrsize;
-		de_dbg(c, "palette at %d\n", (int)pal_start);
+		de_dbg(c, "palette at %d", (int)pal_start);
 		de_dbg_indent(c, 1);
 		de_read_palette_rgb(c->infile, pal_start, srcbmp->bi.pal_entries, srcbmp->bi.bytes_per_pal_entry,
 			srcbmp->pal, 256, DE_GETRGBFLAG_BGR);
@@ -104,7 +104,7 @@ done:
 // srcbmp_main can be NULL.
 static void do_generate_final_image(deark *c, struct srcbitmap *srcbmp_main, struct srcbitmap *srcbmp_mask)
 {
-	struct deark_bitmap *img;
+	de_bitmap *img;
 	de_int64 w, h;
 	de_int64 i, j;
 	de_int64 byte_offset;
@@ -170,7 +170,7 @@ static void do_generate_final_image(deark *c, struct srcbitmap *srcbmp_main, str
 			else  {  // (andbit && xorbit)
 				// Inverse of the background. Not supported by PNG format.
 				if(!inverse_warned) {
-					de_warn(c, "This image contains inverse background pixels, which are not fully supported.\n");
+					de_warn(c, "This image contains inverse background pixels, which are not fully supported.");
 					inverse_warned = 1;
 				}
 				if((i+j)%2) {
@@ -199,7 +199,7 @@ static void do_decode_CI_or_CP_pair(deark *c, const char *fmt, de_int64 pos)
 	int saved_indent_level;
 
 	de_dbg_indent_save(c, &saved_indent_level);
-	de_dbg(c, "%s pair at %d\n", fmt, (int)pos);
+	de_dbg(c, "%s pair at %d", fmt, (int)pos);
 	de_dbg_indent(c, 1);
 
 	for(i=0; i<2; i++) {
@@ -209,7 +209,7 @@ static void do_decode_CI_or_CP_pair(deark *c, const char *fmt, de_int64 pos)
 		}
 
 		if(srcbmp->bi.size_of_headers_and_pal<26) {
-			de_err(c, "Bad CI or CP image\n");
+			de_err(c, "Bad CI or CP image");
 			goto done;
 		}
 		pos += srcbmp->bi.size_of_headers_and_pal;
@@ -218,11 +218,11 @@ static void do_decode_CI_or_CP_pair(deark *c, const char *fmt, de_int64 pos)
 
 		// Try to guess whether this is the image or the mask...
 		if(srcbmp->bi.bitcount==1 && (srcbmp_mask==NULL || srcbmp_main!=NULL)) {
-			de_dbg(c, "bitmap interpreted as: mask\n");
+			de_dbg(c, "bitmap interpreted as: mask");
 			srcbmp_mask = srcbmp;
 		}
 		else {
-			de_dbg(c, "bitmap interpreted as: foreground\n");
+			de_dbg(c, "bitmap interpreted as: foreground");
 			srcbmp_main = srcbmp;
 		}
 
@@ -230,7 +230,7 @@ static void do_decode_CI_or_CP_pair(deark *c, const char *fmt, de_int64 pos)
 	}
 
 	if(srcbmp_mask==NULL || srcbmp_main==NULL) {
-		de_err(c, "Bad CI or CP image\n");
+		de_err(c, "Bad CI or CP image");
 		goto done;
 	}
 
@@ -251,7 +251,7 @@ static void do_decode_IC_or_PT(deark *c, const char *fmt, de_int64 pos)
 		goto done;
 	}
 	if(srcbmp_mask->bi.size_of_headers_and_pal<26) {
-		de_err(c, "Bad %s image\n", fmt);
+		de_err(c, "Bad %s image", fmt);
 		goto done;
 	}
 
@@ -274,7 +274,7 @@ static void do_extract_CI_or_CP_pair(deark *c, const char *fmt, de_int64 pos)
 	int saved_indent_level;
 
 	de_dbg_indent_save(c, &saved_indent_level);
-	de_dbg(c, "%s pair at %d\n", fmt, (int)pos);
+	de_dbg(c, "%s pair at %d", fmt, (int)pos);
 	de_dbg_indent(c, 1);
 
 	bi = de_malloc(c, sizeof(struct de_bmpinfo));
@@ -287,21 +287,21 @@ static void do_extract_CI_or_CP_pair(deark *c, const char *fmt, de_int64 pos)
 	}
 
 	for(i=0; i<2; i++) {
-		de_dbg(c, "bitmap at %d\n", (int)pos);
+		de_dbg(c, "bitmap at %d", (int)pos);
 		de_dbg_indent(c, 1);
 
 		if(!de_fmtutil_get_bmpinfo(c, c->infile, bi, pos, c->infile->len - pos,
 			DE_BMPINFO_HAS_FILEHEADER))
 		{
-			de_err(c, "Unsupported image type\n");
+			de_err(c, "Unsupported image type");
 			goto done;
 		}
 		if(bi->compression_field!=0) {
-			de_err(c, "Unsupported compression type (%d)\n", (int)bi->compression_field);
+			de_err(c, "Unsupported compression type (%d)", (int)bi->compression_field);
 			goto done;
 		}
 
-		de_dbg(c, "bits size: %d\n", (int)bi->foreground_size);
+		de_dbg(c, "bits size: %d", (int)bi->foreground_size);
 
 		hdrpos[i] = pos;
 		hdrsize[i] = bi->size_of_headers_and_pal;
@@ -345,7 +345,7 @@ static void do_extract_one_image(deark *c, de_int64 pos, const char *fmt, const 
 	struct srcbitmap *srcbmp = NULL;
 	dbuf *f = NULL;
 
-	de_dbg(c, "%s image at %d\n", fmt, (int)pos);
+	de_dbg(c, "%s image at %d", fmt, (int)pos);
 	de_dbg_indent(c, 1);
 
 	srcbmp = de_malloc(c, sizeof(struct srcbitmap));
@@ -379,7 +379,7 @@ static void do_BA_segment(deark *c, de_int64 pos, de_int64 *pnextoffset)
 	int saved_indent_level;
 
 	de_dbg_indent_save(c, &saved_indent_level);
-	de_dbg(c,"BA segment at %d\n", (int)pos);
+	de_dbg(c,"BA segment at %d", (int)pos);
 	de_dbg_indent(c, 1);
 
 	*pnextoffset = 0;
@@ -387,12 +387,12 @@ static void do_BA_segment(deark *c, de_int64 pos, de_int64 *pnextoffset)
 	b0 = de_getbyte(pos+0);
 	b1 = de_getbyte(pos+1);
 	if(b0!='B' || b1!='A') {
-		de_err(c, "Not a BA segment\n");
+		de_err(c, "Not a BA segment");
 		goto done;
 	}
 
 	*pnextoffset = de_getui32le(pos+6);
-	de_dbg(c, "offset of next segment: %d\n", (int)*pnextoffset);
+	de_dbg(c, "offset of next segment: %d", (int)*pnextoffset);
 
 	// Peek at the next two bytes
 	b0 = de_getbyte(pos+14+0);
@@ -413,7 +413,7 @@ static void do_BA_segment(deark *c, de_int64 pos, de_int64 *pnextoffset)
 		do_extract_one_image(c, pos+14, "PT", "ptr");
 	}
 	else {
-		de_err(c, "Not BM/IC/PT/CI/CP format. Not supported.\n");
+		de_err(c, "Not BM/IC/PT/CI/CP format. Not supported.");
 		goto done;
 	}
 
@@ -434,7 +434,7 @@ static void do_BA_file(deark *c)
 		do_BA_segment(c, pos, &nextoffset);
 		if(nextoffset==0) break;
 		if(nextoffset<=pos) {
-			de_err(c, "Invalid BA segment offset\n");
+			de_err(c, "Invalid BA segment offset");
 			break;
 		}
 		pos = nextoffset;
@@ -519,7 +519,7 @@ static void de_run_os2bmp(deark *c, de_module_params *mparams)
 		do_BA_file(c);
 		break;
 	default:
-		de_err(c, "Format not supported\n");
+		de_err(c, "Format not supported");
 	}
 }
 

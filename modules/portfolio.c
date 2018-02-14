@@ -42,20 +42,20 @@ static int do_process_frame(deark *c, lctx *d, de_int64 pos1, de_int64 *bytes_co
 	*bytes_consumed = 0;
 	pos = pos1;
 
-	de_dbg(c, "frame at %d\n", (int)pos1);
+	de_dbg(c, "frame at %d", (int)pos1);
 	de_dbg_indent(c, 1);
 
 	// 8-byte frame header
 	frame_type = de_getbyte(pos);
-	de_dbg(c, "type: %d\n", (int)frame_type);
+	de_dbg(c, "type: %d", (int)frame_type);
 
 	frame_payload_size = de_getui16le(pos+1);
-	de_dbg(c, "reported payload size: %d\n", (int)frame_payload_size);
+	de_dbg(c, "reported payload size: %d", (int)frame_payload_size);
 
 	*bytes_consumed += 8;
 	pos += 8;
 	if(pos + frame_payload_size > c->infile->len) {
-		de_err(c, "Frame goes beyond end of file\n");
+		de_err(c, "Frame goes beyond end of file");
 		retval = 0;
 		goto done;
 	}
@@ -67,7 +67,7 @@ static int do_process_frame(deark *c, lctx *d, de_int64 pos1, de_int64 *bytes_co
 		break;
 
 	case 0x01:
-		de_warn(c, "PGT frames (text screen dumps) are not supported\n");
+		de_warn(c, "PGT frames (text screen dumps) are not supported");
 
 		// The spec contradicts itself about how to figure out the frame
 		// payload size of PGT frames. First it says the size field is not
@@ -87,7 +87,7 @@ static int do_process_frame(deark *c, lctx *d, de_int64 pos1, de_int64 *bytes_co
 		break;
 
 	default:
-		de_err(c, "Unknown frame type (%d)\n", (int)frame_type);
+		de_err(c, "Unknown frame type (%d)", (int)frame_type);
 		retval = 0;
 		break;
 	}
@@ -126,7 +126,7 @@ static void de_run_pgx(deark *c, de_module_params *mparams)
 	d = de_malloc(c, sizeof(lctx));
 
 	d->version = de_getbyte(pos+3);
-	de_dbg(c, "Version: %d\n", (int)d->version);
+	de_dbg(c, "Version: %d", (int)d->version);
 
 	pos += 8;
 	while(1) {

@@ -125,7 +125,7 @@ void dbuf_read(dbuf *f, de_byte *buf, de_int64 pos, de_int64 len)
 	switch(f->btype) {
 	case DBUF_TYPE_IFILE:
 		if(!f->fp) {
-			de_err(c, "Internal: File not open\n");
+			de_err(c, "Internal: File not open");
 			de_fatalerror(c);
 			return;
 		}
@@ -156,7 +156,7 @@ void dbuf_read(dbuf *f, de_byte *buf, de_int64 pos, de_int64 len)
 		break;
 
 	default:
-		de_err(c, "Internal: getbytes from this I/O type not implemented\n");
+		de_err(c, "Internal: getbytes from this I/O type not implemented");
 		de_fatalerror(c);
 		return;
 	}
@@ -468,7 +468,7 @@ void dbuf_copy(dbuf *inf, de_int64 input_offset, de_int64 input_len, dbuf *outf)
 
 	// To do: fail if input data goes far beyond the end of the input file.
 	if(input_len > DE_MAX_FILE_SIZE) {
-		de_err(inf->c, "File %s too large (%" INT64_FMT ")\n",outf->name,input_len);
+		de_err(inf->c, "File %s too large (%" INT64_FMT ")",outf->name,input_len);
 		return;
 	}
 
@@ -498,31 +498,122 @@ void dbuf_copy_at(dbuf *inf, de_int64 input_offset, de_int64 input_len,
 	}
 }
 
-void dbuf_copy_all_to_sz(dbuf *f, char *dst, size_t dst_size)
+// An advanced function for reading a string from a file.
+// The issue is that some strings are both human-readable and machine-readable.
+// In such a case, we'd like to read some data from a file into a nice printable
+// ucstring, while also making some or all of the raw bytes available, say for
+// byte-for-byte string comparisons.
+// Plus (for NUL-terminated/padded strings), we may need to know the actual length
+// of the string in the file, so that it can be skipped over, even if we don't
+// care about the whole string.
+// Caller is responsible for calling destroy_stringreader() on the returned value.
+//  max_bytes_to_scan: The maximum number of bytes to read from the file.
+//  max_bytes_to_keep: The maximum (or in some cases the exact) number of bytes,
+//   not counting any NUL terminator, to return in ->sz.
+//   The ->str field is a Unicode version of ->sz, so this also affects ->str.
+// If DE_CONVFLAG_STOP_AT_NUL is not set, it is assumed we are reading a string
+// of known length, that may have internal NUL bytes. The caller must set
+// max_bytes_to_scan and max_bytes_to_keep to the same value. The ->sz field will
+// always be allocated with this many bytes, plus one more for an artificial NUL
+// terminator.
+// If DE_CONVFLAG_WANT_UTF8 is set, then the ->sz_utf8 field will be set to a
+// UTF-8 version of ->str. This is mainly useful if the original string was
+// UTF-16. sz_utf8 is not "printable" -- use ucstring_get_printable_sz_n(str) for
+// that.
+// Recognized flags:
+//   - DE_CONVFLAG_STOP_AT_NUL
+//   - DE_CONVFLAG_WANT_UTF8
+struct de_stringreaderdata *dbuf_read_string(dbuf *f, de_int64 pos,
+	de_int64 max_bytes_to_scan,
+	de_int64 max_bytes_to_keep,
+	unsigned int flags, int encoding)
 {
-	de_int64 amt_to_read;
+	deark *c = f->c;
+	struct de_stringreaderdata *srd;
+	de_int64 foundpos = 0;
+	int ret;
+	de_int64 bytes_avail_to_read;
+	de_int64 bytes_to_malloc;
+	de_int64 x_strlen;
 
-	if(dst_size<1) return;
-	amt_to_read = f->len;
-	if(amt_to_read > (de_int64)(dst_size-1))
-		amt_to_read = (de_int64)(dst_size-1);
-	dbuf_read(f, (de_byte*)dst, 0, amt_to_read);
-	dst[amt_to_read] = '\0';
+	srd = de_malloc(c, sizeof(struct de_stringreaderdata));
+	srd->str = ucstring_create(c);
+
+	bytes_avail_to_read = max_bytes_to_scan;
+	if(bytes_avail_to_read > f->len-pos) {
+		bytes_avail_to_read = f->len-pos;
+	}
+
+	srd->bytes_consumed = bytes_avail_to_read; // default
+
+	// From here on, we can safely bail out ("goto done"). The
+	// de_stringreaderdata struct is sufficiently valid.
+
+	if(!(flags&DE_CONVFLAG_STOP_AT_NUL) &&
+		(max_bytes_to_scan != max_bytes_to_keep))
+	{
+		// To reduce possible confusion, we require that
+		// max_bytes_to_scan==max_bytes_to_keep in this case.
+		srd->sz = de_malloc(c, max_bytes_to_keep);
+		goto done;
+	}
+
+	if(flags&DE_CONVFLAG_STOP_AT_NUL) {
+		ret = dbuf_search_byte(f, 0x00, pos, bytes_avail_to_read, &foundpos);
+		if(ret) {
+			srd->found_nul = 1;
+		}
+		else {
+			// No NUL byte found. Could be an error in some formats, but in
+			// others NUL is used as separator or as padding, not a terminator.
+			foundpos = pos+bytes_avail_to_read;
+		}
+
+		x_strlen = foundpos-pos;
+		srd->bytes_consumed = x_strlen+1;
+	}
+	else {
+		x_strlen = max_bytes_to_keep;
+		srd->bytes_consumed = x_strlen;
+	}
+
+	bytes_to_malloc = x_strlen+1;
+	if(bytes_to_malloc>(max_bytes_to_keep+1)) {
+		bytes_to_malloc = max_bytes_to_keep+1;
+		srd->was_truncated = 1;
+	}
+
+	srd->sz = de_malloc(c, bytes_to_malloc);
+	dbuf_read(f, srd->sz, pos, bytes_to_malloc-1); // The last byte remains NUL
+
+	ucstring_append_bytes(srd->str, srd->sz, bytes_to_malloc-1, 0, encoding);
+
+	if(flags&DE_CONVFLAG_WANT_UTF8) {
+		srd->sz_utf8_strlen = (size_t)ucstring_count_utf8_bytes(srd->str);
+		srd->sz_utf8 = de_malloc(c, srd->sz_utf8_strlen + 1);
+		ucstring_to_sz(srd->str, srd->sz_utf8, srd->sz_utf8_strlen + 1, 0, DE_ENCODING_UTF8);
+	}
+
+done:
+	if(!srd->sz) {
+		// Always return a valid sz, even on failure.
+		srd->sz = de_malloc(c, 1);
+	}
+	if((flags&DE_CONVFLAG_WANT_UTF8) && !srd->sz_utf8) {
+		// Always return a valid sz_utf8 if it was requested, even on failure.
+		srd->sz_utf8 = de_malloc(c, 1);
+		srd->sz_utf8_strlen = 0;
+	}
+	return srd;
 }
 
-void dbuf_read_sz(dbuf *f, de_int64 pos, char *dst, size_t dst_size)
+void de_destroy_stringreaderdata(deark *c, struct de_stringreaderdata *srd)
 {
-	de_int64 i;
-	de_int64 bytes_copied = 0;
-	de_byte b;
-
-	for(i=0; i<(de_int64)dst_size-1; i++) {
-		b = dbuf_getbyte(f, pos+i);
-		if(b==0x00) break;
-		dst[i] = (char)b;
-		bytes_copied++;
-	}
-	dst[bytes_copied] = '\0';
+	if(!srd) return;
+	de_free(c, srd->sz);
+	de_free(c, srd->sz_utf8);
+	ucstring_destroy(srd->str);
+	de_free(c, srd);
 }
 
 // Read (up to) len bytes from f, translate them to characters, and append
@@ -592,14 +683,14 @@ dbuf *dbuf_create_output_file(deark *c, const char *ext, de_finfo *fi,
 
 	if(c->extract_policy==DE_EXTRACTPOLICY_MAINONLY) {
 		if(createflags&DE_CREATEFLAG_IS_AUX) {
-			de_dbg(c, "skipping 'auxiliary' file\n");
+			de_dbg(c, "skipping 'auxiliary' file");
 			f->btype = DBUF_TYPE_NULL;
 			return f;
 		}
 	}
 	else if(c->extract_policy==DE_EXTRACTPOLICY_AUXONLY) {
 		if(!(createflags&DE_CREATEFLAG_IS_AUX)) {
-			de_dbg(c, "skipping 'main' file\n");
+			de_dbg(c, "skipping 'main' file");
 			f->btype = DBUF_TYPE_NULL;
 			return f;
 		}
@@ -643,7 +734,7 @@ dbuf *dbuf_create_output_file(deark *c, const char *ext, de_finfo *fi,
 
 	if(fi) {
 		f->mod_time = fi->mod_time; // struct copy
-		f->is_executable = fi->is_executable;
+		f->mode_flags = fi->mode_flags;
 	}
 
 	if(file_index < c->first_output_file) {
@@ -662,29 +753,29 @@ dbuf *dbuf_create_output_file(deark *c, const char *ext, de_finfo *fi,
 
 	if(c->list_mode) {
 		f->btype = DBUF_TYPE_NULL;
-		de_msg(c, "%s\n", f->name);
+		de_msg(c, "%s", f->name);
 		return f;
 	}
 
 	if(c->output_style==DE_OUTPUTSTYLE_ZIP) {
-		de_msg(c, "Adding %s to ZIP file\n", f->name);
+		de_msg(c, "Adding %s to ZIP file", f->name);
 		f->btype = DBUF_TYPE_MEMBUF;
 		f->membuf_buf = de_malloc(c, 65536);
 		f->membuf_alloc = 65536;
 		f->write_memfile_to_zip_archive = 1;
 	}
 	else if(c->output_style==DE_OUTPUTSTYLE_STDOUT) {
-		de_msg(c, "Writing %s to [stdout]\n", f->name);
+		de_msg(c, "Writing %s to [stdout]", f->name);
 		f->btype = DBUF_TYPE_STDOUT;
 		f->fp = stdout;
 	}
 	else {
-		de_msg(c, "Writing %s\n", f->name);
+		de_msg(c, "Writing %s", f->name);
 		f->btype = DBUF_TYPE_OFILE;
 		f->fp = de_fopen_for_write(c, f->name, msgbuf, sizeof(msgbuf));
 
 		if(!f->fp) {
-			de_err(c, "Failed to write %s: %s\n", f->name, msgbuf);
+			de_err(c, "Failed to write %s: %s", f->name, msgbuf);
 			f->btype = DBUF_TYPE_NULL;
 		}
 	}
@@ -728,7 +819,7 @@ static void membuf_append(dbuf *f, const de_byte *m, de_int64 mlen)
 		new_alloc_size = (f->membuf_alloc + mlen)*2;
 		if(new_alloc_size<1024) new_alloc_size=1024;
 		// TODO: Guard against integer overflows.
-		de_dbg3(f->c, "increasing membuf size %d -> %d\n", (int)f->membuf_alloc, (int)new_alloc_size);
+		de_dbg3(f->c, "increasing membuf size %d -> %d", (int)f->membuf_alloc, (int)new_alloc_size);
 		f->membuf_buf = de_realloc(f->c, f->membuf_buf, f->membuf_alloc, new_alloc_size);
 		f->membuf_alloc = new_alloc_size;
 	}
@@ -750,7 +841,7 @@ void dbuf_write(dbuf *f, const de_byte *m, de_int64 len)
 	else if(f->btype==DBUF_TYPE_OFILE || f->btype==DBUF_TYPE_STDOUT) {
 		if(!f->fp) return;
 		if(f->c->debug_level>=3) {
-			de_dbg3(f->c, "writing %d bytes to %s\n", (int)len, f->name);
+			de_dbg3(f->c, "writing %d bytes to %s", (int)len, f->name);
 		}
 		fwrite(m, 1, (size_t)len, f->fp);
 		f->len += len;
@@ -758,13 +849,13 @@ void dbuf_write(dbuf *f, const de_byte *m, de_int64 len)
 	}
 	else if(f->btype==DBUF_TYPE_MEMBUF) {
 		if(f->c->debug_level>=3 && f->name) {
-			de_dbg3(f->c, "appending %d bytes to membuf %s\n", (int)len, f->name);
+			de_dbg3(f->c, "appending %d bytes to membuf %s", (int)len, f->name);
 		}
 		membuf_append(f, m, len);
 		return;
 	}
 
-	de_err(f->c, "Internal: Invalid output file type (%d)\n", f->btype);
+	de_err(f->c, "Internal: Invalid output file type (%d)", f->btype);
 }
 
 void dbuf_writebyte(dbuf *f, de_byte n)
@@ -906,6 +997,7 @@ dbuf *dbuf_open_input_file(deark *c, const char *fn)
 	unsigned int returned_flags = 0;
 	char msgbuf[200];
 
+	if(!fn) return NULL;
 	f = de_malloc(c, sizeof(dbuf));
 	f->btype = DBUF_TYPE_IFILE;
 	f->c = c;
@@ -914,7 +1006,7 @@ dbuf *dbuf_open_input_file(deark *c, const char *fn)
 	f->fp = de_fopen_for_read(c, fn, &f->len, msgbuf, sizeof(msgbuf), &returned_flags);
 
 	if(!f->fp) {
-		de_err(c, "Can't read %s: %s\n", fn, msgbuf);
+		de_err(c, "Can't read %s: %s", fn, msgbuf);
 		de_free(c, f);
 		return NULL;
 	}
@@ -929,8 +1021,7 @@ dbuf *dbuf_open_input_file(deark *c, const char *fn)
 	return f;
 }
 
-// fn can be (and usually is) NULL.
-dbuf *dbuf_open_input_stdin(deark *c, const char *fn)
+dbuf *dbuf_open_input_stdin(deark *c)
 {
 	dbuf *f;
 
@@ -970,13 +1061,13 @@ void dbuf_close(dbuf *f)
 	if(f->btype==DBUF_TYPE_MEMBUF && f->write_memfile_to_zip_archive) {
 		de_zip_add_file_to_archive(c, f);
 		if(f->name) {
-			de_dbg3(c, "closing memfile %s\n", f->name);
+			de_dbg3(c, "closing memfile %s", f->name);
 		}
 	}
 
 	if(f->btype==DBUF_TYPE_IFILE || f->btype==DBUF_TYPE_OFILE) {
 		if(f->name) {
-			de_dbg3(c, "closing file %s\n", f->name);
+			de_dbg3(c, "closing file %s", f->name);
 		}
 		de_fclose(f->fp);
 		f->fp = NULL;
@@ -995,7 +1086,7 @@ void dbuf_close(dbuf *f)
 	}
 	else if(f->btype==DBUF_TYPE_STDOUT) {
 		if(f->name) {
-			de_dbg3(c, "finished writing %s to stdout\n", f->name);
+			de_dbg3(c, "finished writing %s to stdout", f->name);
 		}
 		f->fp = NULL;
 	}
@@ -1008,7 +1099,7 @@ void dbuf_close(dbuf *f)
 	else if(f->btype==DBUF_TYPE_NULL) {
 	}
 	else {
-		de_err(c, "Internal: Don't know how to close this type of file (%d)\n", f->btype);
+		de_err(c, "Internal: Don't know how to close this type of file (%d)", f->btype);
 	}
 
 	de_free(c, f->membuf_buf);

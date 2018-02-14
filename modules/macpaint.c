@@ -23,9 +23,9 @@ static void do_read_bitmap(deark *c, lctx *d, de_int64 pos)
 	dbuf *unc_pixels = NULL;
 
 	ver_num = de_getui32be(pos);
-	de_dbg(c, "version number: %u\n", (unsigned int)ver_num);
+	de_dbg(c, "version number: %u", (unsigned int)ver_num);
 	if(ver_num!=0 && ver_num!=2 && ver_num!=3) {
-		de_warn(c, "Unrecognized version number: %u\n", (unsigned int)ver_num);
+		de_warn(c, "Unrecognized version number: %u", (unsigned int)ver_num);
 	}
 
 	pos += 512;
@@ -35,7 +35,7 @@ static void do_read_bitmap(deark *c, lctx *d, de_int64 pos)
 	de_fmtutil_uncompress_packbits(c->infile, pos, c->infile->len - pos, unc_pixels, NULL);
 
 	if(unc_pixels->len < MACPAINT_IMAGE_BYTES) {
-		de_warn(c, "Image decompressed to %d bytes, expected %d.\n",
+		de_warn(c, "Image decompressed to %d bytes, expected %d.",
 			(int)unc_pixels->len, (int)MACPAINT_IMAGE_BYTES);
 	}
 
@@ -69,7 +69,7 @@ static int valid_file_at(deark *c, lctx *d, de_int64 pos1)
 	// pos1 + 512 + 2*MACPAINT_HEIGHT. But we want to tolerate truncated
 	// files as well.
 	if(c->infile->len < imgstart + 4) {
-		de_dbg(c, "file too small\n");
+		de_dbg(c, "file too small");
 		return 0;
 	}
 
@@ -93,7 +93,7 @@ static int valid_file_at(deark *c, lctx *d, de_int64 pos1)
 				ypos++;
 			}
 			else if(xpos>MACPAINT_WIDTH) {
-				de_dbg(c, "image at offset %d: literal too long\n", (int)imgstart);
+				de_dbg(c, "image at offset %d: literal too long", (int)imgstart);
 				return 0;
 			}
 		}
@@ -106,18 +106,18 @@ static int valid_file_at(deark *c, lctx *d, de_int64 pos1)
 				ypos++;
 			}
 			else if(xpos>MACPAINT_WIDTH) {
-				de_dbg(c, "image at offset %d: run too long\n", (int)imgstart);
+				de_dbg(c, "image at offset %d: run too long", (int)imgstart);
 				return 0;
 			}
 		}
 	}
 
 	if(xpos==0 && ypos==MACPAINT_HEIGHT) {
-		de_dbg(c, "image at offset %d decodes okay\n", (int)imgstart);
+		de_dbg(c, "image at offset %d decodes okay", (int)imgstart);
 		return 2;
 	}
 
-	de_dbg(c, "image at offset %d: premature end of file (x=%d, y=%d)\n", (int)imgstart, (int)xpos, (int)ypos);
+	de_dbg(c, "image at offset %d: premature end of file (x=%d, y=%d)", (int)imgstart, (int)xpos, (int)ypos);
 	return 1;
 }
 
@@ -157,7 +157,7 @@ static void do_read_patterns(deark *c, lctx *d, de_int64 pos)
 	const de_int64 dispheight = 17;
 	de_int64 xpos, ypos;
 	int is_blank;
-	struct deark_bitmap *pat = NULL;
+	de_bitmap *pat = NULL;
 	de_uint32 patcrc;
 	const char *patsetname;
 
@@ -165,14 +165,14 @@ static void do_read_patterns(deark *c, lctx *d, de_int64 pos)
 
 	patcrc = x_dbuf_crc32(c->infile, pos, 38*8);
 	patsetname = get_pattern_set_info(patcrc, &is_blank);
-	de_dbg(c, "brush patterns crc: 0x%08x (%s)\n", (unsigned int)patcrc, patsetname);
+	de_dbg(c, "brush patterns crc: 0x%08x (%s)", (unsigned int)patcrc, patsetname);
 
 	if(c->extract_level<2) {
 		goto done;
 	}
 
 	if(is_blank) {
-		de_dbg(c, "brush patterns are blank: not extracting\n");
+		de_dbg(c, "brush patterns are blank: not extracting");
 		goto done;
 	}
 
@@ -188,7 +188,7 @@ static void do_read_patterns(deark *c, lctx *d, de_int64 pos)
 				// Some of them may be shifted differently than MacPaint displays them.
 				x = de_get_bits_symbol(c->infile, 1, pos+cell*8+j%8, i%8);
 
-				// 0 = white. Only need to set the white pixels, since deark_bitmap
+				// 0 = white. Only need to set the white pixels, since de_bitmap
 				// pixels default to black.
 				if(x==0) {
 					de_bitmap_setpixel_gray(pat, xpos+i, ypos+j, 255);
@@ -219,34 +219,34 @@ static void de_run_macpaint(deark *c, de_module_params *mparams)
 	if(d->has_macbinary_header == -1) {
 		int v512;
 		int v640;
-		de_dbg(c, "trying to determine if file has a MacBinary header\n");
+		de_dbg(c, "trying to determine if file has a MacBinary header");
 
 		de_dbg_indent(c, 1);
-		de_dbg(c, "checking for image at offset 512\n");
+		de_dbg(c, "checking for image at offset 512");
 		de_dbg_indent(c, 1);
 		v512 = valid_file_at(c, d, 0);
 		de_dbg_indent(c, -1);
-		de_dbg(c, "checking for image at offset 640\n");
+		de_dbg(c, "checking for image at offset 640");
 		de_dbg_indent(c, 1);
 		v640 = valid_file_at(c, d, 128);
 		de_dbg_indent(c, -1);
 		de_dbg_indent(c, -1);
 
 		if(v512 > v640) {
-			de_dbg(c, "assuming it has no MacBinary header\n");
+			de_dbg(c, "assuming it has no MacBinary header");
 			d->has_macbinary_header = 0;
 		}
 		else if(v640 > v512) {
-			de_dbg(c, "assuming it has a MacBinary header\n");
+			de_dbg(c, "assuming it has a MacBinary header");
 			d->has_macbinary_header = 1;
 		}
 		else if(v512 && v640) {
 			de_warn(c, "Can't determine if this file has a MacBinary header. "
-				"Try \"-opt macpaint:macbinary=0\".\n");
+				"Try \"-opt macpaint:macbinary=0\".");
 			d->has_macbinary_header = 1;
 		}
 		else {
-			de_warn(c, "This is probably not a MacPaint file.\n");
+			de_warn(c, "This is probably not a MacPaint file.");
 			d->has_macbinary_header = 1;
 		}
 	}
@@ -282,10 +282,17 @@ static int de_identify_macpaint(deark *c)
 	return 0;
 }
 
+static void de_help_macpaint(deark *c)
+{
+	de_msg(c, "-opt macpaint:macbinary=<0|1> : Assume file doesn't/does have "
+		"a MacBinary header");
+}
+
 void de_module_macpaint(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "macpaint";
 	mi->desc = "MacPaint image";
 	mi->run_fn = de_run_macpaint;
 	mi->identify_fn = de_identify_macpaint;
+	mi->help_fn = de_help_macpaint;
 }

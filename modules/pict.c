@@ -167,7 +167,7 @@ static void pict_read_point(dbuf *f, de_int64 pos,
 	point->x = dbuf_geti16be(f, pos+2);
 
 	if(dbgname) {
-		de_dbg(f->c, "%s: (%d,%d)\n", dbgname, (int)point->x, (int)point->y);
+		de_dbg(f->c, "%s: (%d,%d)", dbgname, (int)point->x, (int)point->y);
 	}
 }
 
@@ -181,7 +181,7 @@ static void pict_read_rect(dbuf *f, de_int64 pos,
 	rect->r = dbuf_geti16be(f, pos+6);
 
 	if(dbgname) {
-		de_dbg(f->c, "%s: (%d,%d)-(%d,%d)\n", dbgname, (int)rect->l, (int)rect->t,
+		de_dbg(f->c, "%s: (%d,%d)-(%d,%d)", dbgname, (int)rect->l, (int)rect->t,
 			(int)rect->r, (int)rect->b);
 	}
 }
@@ -193,13 +193,13 @@ static int handler_11(deark *c, lctx *d, de_int64 opcode, de_int64 data_pos, de_
 
 	*bytes_used = 1;
 	ver = de_getbyte(data_pos);
-	de_dbg(c, "version: %d\n", (int)ver);
+	de_dbg(c, "version: %d", (int)ver);
 
 	if(ver==2) {
 		d->version = 2;
 	}
 	else if(ver!=1) {
-		de_err(c, "Unsupported PICT version: %d\n", (int)ver);
+		de_err(c, "Unsupported PICT version: %d", (int)ver);
 		return 0;
 	}
 	return 1;
@@ -216,7 +216,7 @@ static int handler_28(deark *c, lctx *d, de_int64 opcode, de_int64 data_pos, de_
 	tlen = (de_int64)de_getbyte(data_pos+4);
 	s = ucstring_create(c);
 	dbuf_read_to_ucstring(c->infile, data_pos+5, tlen, s, 0, DE_ENCODING_MACROMAN);
-	de_dbg(c, "text: \"%s\"\n", ucstring_get_printable_sz(s));
+	de_dbg(c, "text: \"%s\"", ucstring_get_printable_sz(s));
 	*bytes_used = 5+tlen;
 	ucstring_destroy(s);
 	return 1;
@@ -230,14 +230,14 @@ static int handler_DxText(deark *c, lctx *d, de_int64 opcode, de_int64 data_pos,
 	de_ucstring *s = NULL;
 
 	dx = (de_int64)de_getbyte(data_pos);
-	de_dbg(c, "%s: %d\n", opcode==0x2a?"dv":"dh", (int)dx);
+	de_dbg(c, "%s: %d", opcode==0x2a?"dv":"dh", (int)dx);
 
 	tlen = (de_int64)de_getbyte(data_pos+1);
 	*bytes_used = 2+tlen;
 
 	s = ucstring_create(c);
 	dbuf_read_to_ucstring(c->infile, data_pos+2, tlen, s, 0, DE_ENCODING_MACROMAN);
-	de_dbg(c, "text: \"%s\"\n", ucstring_get_printable_sz(s));
+	de_dbg(c, "text: \"%s\"", ucstring_get_printable_sz(s));
 
 	ucstring_destroy(s);
 	return 1;
@@ -252,15 +252,15 @@ static int handler_2b(deark *c, lctx *d, de_int64 opcode, de_int64 data_pos, de_
 
 	dh = (de_int64)de_getbyte(data_pos);
 	dv = (de_int64)de_getbyte(data_pos+1);
-	de_dbg(c, "dh,dv: (%d,%d)\n", (int)dh, (int)dv);
+	de_dbg(c, "dh,dv: (%d,%d)", (int)dh, (int)dv);
 
 	tlen = (de_int64)de_getbyte(data_pos+2);
-	de_dbg(c, "text size: %d\n", (int)tlen);
+	de_dbg(c, "text size: %d", (int)tlen);
 	*bytes_used = 3+tlen;
 
 	s = ucstring_create(c);
 	dbuf_read_to_ucstring(c->infile, data_pos+3, tlen, s, 0, DE_ENCODING_MACROMAN);
-	de_dbg(c, "text: \"%s\"\n", ucstring_get_printable_sz(s));
+	de_dbg(c, "text: \"%s\"", ucstring_get_printable_sz(s));
 
 	return 1;
 }
@@ -276,11 +276,11 @@ static int handler_2c(deark *c, lctx *d, de_int64 opcode, de_int64 data_pos, de_
 	n = de_getui16be(data_pos);
 	*bytes_used = 2+n;
 	id = de_getui16be(data_pos+2);
-	de_dbg(c, "old font id: %d\n", (int)id);
+	de_dbg(c, "old font id: %d", (int)id);
 	tlen = (de_int64)de_getbyte(data_pos+4);
 	s = ucstring_create(c);
 	dbuf_read_to_ucstring(c->infile, data_pos+5, tlen, s, 0, DE_ENCODING_MACROMAN);
-	de_dbg(c, "font name: \"%s\"\n", ucstring_get_printable_sz(s));
+	de_dbg(c, "font name: \"%s\"", ucstring_get_printable_sz(s));
 	ucstring_destroy(s);
 	return 1;
 }
@@ -312,10 +312,10 @@ struct bitmapinfo {
 static void read_baseaddr(deark *c, lctx *d, struct bitmapinfo *bi, de_int64 pos)
 {
 	de_int64 n;
-	de_dbg(c, "baseAddr part of PixMap, at %d\n", (int)pos);
+	de_dbg(c, "baseAddr part of PixMap, at %d", (int)pos);
 	de_dbg_indent(c, 1);
 	n = de_getui32be(pos);
-	de_dbg(c, "baseAddr: 0x%08x\n", (unsigned int)n);
+	de_dbg(c, "baseAddr: 0x%08x", (unsigned int)n);
 	de_dbg_indent(c, -1);
 }
 
@@ -325,13 +325,13 @@ static void read_rowbytes_and_bounds(deark *c, lctx *d, struct bitmapinfo *bi,
 	struct pict_rect tmprect;
 	de_int64 rowbytes_code;
 
-	de_dbg(c, "rowBytes/bounds part of bitmap/PixMap header, at %d\n", (int)pos);
+	de_dbg(c, "rowBytes/bounds part of bitmap/PixMap header, at %d", (int)pos);
 	de_dbg_indent(c, 1);
 	rowbytes_code = de_getui16be(pos);
 	bi->rowbytes = rowbytes_code & 0x7fff;
 	bi->pixmap_flag = (rowbytes_code & 0x8000)?1:0;
-	de_dbg(c, "rowBytes: %d\n", (int)bi->rowbytes);
-	de_dbg(c, "pixmap flag: %d\n", bi->pixmap_flag);
+	de_dbg(c, "rowBytes: %d", (int)bi->rowbytes);
+	de_dbg(c, "pixmap flag: %d", bi->pixmap_flag);
 
 	pict_read_rect(c->infile, pos+2, &tmprect, "rect");
 	bi->width = tmprect.r - tmprect.l;
@@ -350,37 +350,37 @@ static int read_pixmap_only_fields(deark *c, lctx *d, struct bitmapinfo *bi,
 	de_int64 plane_bytes;
 	de_int64 n;
 
-	de_dbg(c, "additional PixMap header fields, at %d\n", (int)pos);
+	de_dbg(c, "additional PixMap header fields, at %d", (int)pos);
 	de_dbg_indent(c, 1);
 
 	pixmap_version = de_getui16be(pos+0);
-	de_dbg(c, "pixmap version: %d\n", (int)pixmap_version);
+	de_dbg(c, "pixmap version: %d", (int)pixmap_version);
 
 	bi->packing_type = de_getui16be(pos+2);
-	de_dbg(c, "packing type: %d\n", (int)bi->packing_type);
+	de_dbg(c, "packing type: %d", (int)bi->packing_type);
 
 	pack_size = de_getui32be(pos+4);
-	de_dbg(c, "pixel data length: %d\n", (int)pack_size);
+	de_dbg(c, "pixel data length: %d", (int)pack_size);
 
 	bi->hdpi = pict_read_fixed(c->infile, pos+8);
 	bi->vdpi = pict_read_fixed(c->infile, pos+12);
-	de_dbg(c, "dpi: %.2fx%.2f\n", bi->hdpi, bi->vdpi);
+	de_dbg(c, "dpi: %.2f"DE_CHAR_TIMES"%.2f", bi->hdpi, bi->vdpi);
 
 	bi->pixeltype = de_getui16be(pos+16);
 	bi->pixelsize = de_getui16be(pos+18);
 	bi->cmpcount = de_getui16be(pos+20);
 	bi->cmpsize = de_getui16be(pos+22);
-	de_dbg(c, "pixel type=%d, bits/pixel=%d, components/pixel=%d, bits/comp=%d\n",
+	de_dbg(c, "pixel type=%d, bits/pixel=%d, components/pixel=%d, bits/comp=%d",
 		(int)bi->pixeltype, (int)bi->pixelsize, (int)bi->cmpcount, (int)bi->cmpsize);
 
 	plane_bytes = de_getui32be(pos+24);
-	de_dbg(c, "plane bytes: %d\n", (int)plane_bytes);
+	de_dbg(c, "plane bytes: %d", (int)plane_bytes);
 
 	n = de_getui32be(pos+28);
-	de_dbg(c, "pmTable: 0x%08x\n", (unsigned int)n);
+	de_dbg(c, "pmTable: 0x%08x", (unsigned int)n);
 
 	n = de_getui32be(pos+32);
-	de_dbg(c, "pmReserved: 0x%08x\n", (unsigned int)n);
+	de_dbg(c, "pmReserved: 0x%08x", (unsigned int)n);
 
 	de_dbg_indent(c, -1);
 	return 1;
@@ -394,16 +394,18 @@ static int read_colortable(deark *c, lctx *d, struct bitmapinfo *bi, de_int64 po
 	de_int64 k, z;
 	de_uint32 s[4];
 	de_byte cr, cg, cb;
+	de_uint32 clr;
+	char tmps[64];
 
 	*bytes_used = 0;
-	de_dbg(c, "color table at %d\n", (int)pos);
+	de_dbg(c, "color table at %d", (int)pos);
 	de_dbg_indent(c, 1);
 
 	ct_id = de_getui32be(pos);
 	ct_flags = (de_uint32)de_getui16be(pos+4); // a.k.a. transIndex
 	ct_size = de_getui16be(pos+6);
 	bi->num_pal_entries = ct_size+1;
-	de_dbg(c, "color table id=0x%08x, flags=0x%04x, colors=%d\n", (unsigned int)ct_id,
+	de_dbg(c, "color table id=0x%08x, flags=0x%04x, colors=%d", (unsigned int)ct_id,
 		(unsigned int)ct_flags, (int)bi->num_pal_entries);
 
 	for(k=0; k<bi->num_pal_entries; k++) {
@@ -413,9 +415,10 @@ static int read_colortable(deark *c, lctx *d, struct bitmapinfo *bi, de_int64 po
 		cr = (de_byte)(s[1]>>8);
 		cg = (de_byte)(s[2]>>8);
 		cb = (de_byte)(s[3]>>8);
-		de_dbg2(c, "pal[%3d] = (%5d,%5d,%5d) -> (%3d,%3d,%3d)\n", (int)s[0],
-			(int)s[1], (int)s[2], (int)s[3],
-			(int)cr, (int)cg, (int)cb);
+		clr = DE_MAKE_RGB(cr,cg,cb);
+		de_snprintf(tmps, sizeof(tmps), "(%5d,%5d,%5d,idx=%3d) "DE_CHAR_RIGHTARROW" ",
+			(int)s[1], (int)s[2], (int)s[3], (int)s[0]);
+		de_dbg_pal_entry2(c, k, clr, tmps, NULL, NULL);
 
 		// Some files don't have the palette indices set. Most PICT decoders ignore
 		// the indices if the "device" flag of ct_flags is set, and that seems to
@@ -425,7 +428,7 @@ static int read_colortable(deark *c, lctx *d, struct bitmapinfo *bi, de_int64 po
 		}
 
 		if(s[0]<=255) {
-			bi->pal[s[0]] = DE_MAKE_RGB(cr,cg,cb);
+			bi->pal[s[0]] = clr;
 		}
 	}
 
@@ -440,7 +443,7 @@ static void read_src_dst_mode(deark *c, lctx *d, struct bitmapinfo *bi, de_int64
 	struct pict_rect tmprect;
 	de_int64 n;
 
-	de_dbg(c, "src/dst/mode part of bitmap header, at %d\n", (int)pos);
+	de_dbg(c, "src/dst/mode part of bitmap header, at %d", (int)pos);
 	de_dbg_indent(c, 1);
 
 	pict_read_rect(c->infile, pos, &tmprect, "srcRect");
@@ -449,7 +452,7 @@ static void read_src_dst_mode(deark *c, lctx *d, struct bitmapinfo *bi, de_int64
 	pos += 8;
 
 	n = de_getui16be(pos);
-	de_dbg(c, "transfer mode: %d\n", (int)n);
+	de_dbg(c, "transfer mode: %d", (int)n);
 	pos += 2;
 	de_dbg_indent(c, -1);
 }
@@ -467,17 +470,17 @@ static int get_pixdata_size(deark *c, lctx *d, struct bitmapinfo *bi,
 	int retval = 0;
 
 	pos = pos1;
-	de_dbg(c, "PixData at %d\n", (int)pos);
+	de_dbg(c, "PixData at %d", (int)pos);
 	de_dbg_indent(c, 1);
 
 	if(bi->height<1 || bi->height>65535) {
-		de_err(c, "Invalid bitmap height (%d)\n", (int)bi->height);
+		de_err(c, "Invalid bitmap height (%d)", (int)bi->height);
 		goto done;
 	}
 
 	// Make sure rowbytes is sane. We use it to decide how much memory to allocate.
 	if(bi->rowbytes > (bi->width * bi->pixelsize)/8 + 100) {
-		de_err(c, "Bad rowBytes value (%d)\n", (int)bi->rowbytes);
+		de_err(c, "Bad rowBytes value (%d)", (int)bi->rowbytes);
 		goto done;
 	}
 
@@ -498,12 +501,12 @@ static int get_pixdata_size(deark *c, lctx *d, struct bitmapinfo *bi,
 		pos += bi->rowbytes * bi->height; // uncompressed
 	}
 	else {
-		de_err(c, "Unsupported packing type: %d\n", (int)bi->packing_type);
+		de_err(c, "Unsupported packing type: %d", (int)bi->packing_type);
 		goto done;
 	}
 
 	*pixdata_size = pos - pos1;
-	de_dbg(c, "PixData size: %d\n", (int)*pixdata_size);
+	de_dbg(c, "PixData size: %d", (int)*pixdata_size);
 	retval = 1;
 
 done:
@@ -512,7 +515,7 @@ done:
 }
 
 static void decode_bitmap_rgb24(deark *c, lctx *d, struct bitmapinfo *bi,
-	dbuf *unc_pixels, struct deark_bitmap *img, de_int64 pos)
+	dbuf *unc_pixels, de_bitmap *img, de_int64 pos)
 {
 	de_int64 i, j;
 	de_byte cr, cg, cb;
@@ -528,7 +531,7 @@ static void decode_bitmap_rgb24(deark *c, lctx *d, struct bitmapinfo *bi,
 }
 
 static void decode_bitmap_rgb16(deark *c, lctx *d, struct bitmapinfo *bi,
-	dbuf *unc_pixels, struct deark_bitmap *img, de_int64 pos)
+	dbuf *unc_pixels, de_bitmap *img, de_int64 pos)
 {
 	de_int64 i, j;
 	de_byte c0, c1; //, cg, cb;
@@ -546,7 +549,7 @@ static void decode_bitmap_rgb16(deark *c, lctx *d, struct bitmapinfo *bi,
 }
 
 static void decode_bitmap_paletted(deark *c, lctx *d, struct bitmapinfo *bi,
-	dbuf *unc_pixels, struct deark_bitmap *img, de_int64 pos)
+	dbuf *unc_pixels, de_bitmap *img, de_int64 pos)
 {
 	de_int64 i, j;
 	de_byte b;
@@ -561,52 +564,11 @@ static void decode_bitmap_paletted(deark *c, lctx *d, struct bitmapinfo *bi,
 	}
 }
 
-// 16-bit variant of de_fmtutil_uncompress_packbits()
-static void do_uncompress_packbits16(dbuf *f, de_int64 pos1, de_int64 len,
-	dbuf *unc_pixels)
-{
-	de_int64 pos;
-	de_byte b, b1, b2;
-	de_int64 k;
-	de_int64 count;
-	de_int64 endpos;
-
-	pos = pos1;
-	endpos = pos1+len;
-
-	while(1) {
-		if(unc_pixels->max_len>0 && unc_pixels->len>=unc_pixels->max_len) {
-			break; // Decompressed the requested amount of dst data.
-		}
-
-		if(pos>=endpos) {
-			break; // Reached the end of source data
-		}
-		b = dbuf_getbyte(f, pos++);
-
-		if(b>128) { // A compressed run
-			count = 257 - (de_int64)b;
-			b1 = dbuf_getbyte(f, pos++);
-			b2 = dbuf_getbyte(f, pos++);
-			for(k=0; k<count; k++) {
-				dbuf_writebyte(unc_pixels, b1);
-				dbuf_writebyte(unc_pixels, b2);
-			}
-		}
-		else if(b<128) { // An uncompressed run
-			count = 1 + (de_int64)b;
-			dbuf_copy(f, pos, count*2, unc_pixels);
-			pos += count*2;
-		}
-		// Else b==128. No-op.
-	}
-}
-
 static int decode_bitmap(deark *c, lctx *d, struct bitmapinfo *bi, de_int64 pos)
 {
 	de_int64 j;
 	dbuf *unc_pixels = NULL;
-	struct deark_bitmap *img = NULL;
+	de_bitmap *img = NULL;
 	de_int64 bytecount;
 	de_int64 bitmapsize;
 	int dst_nsamples;
@@ -630,7 +592,7 @@ static int decode_bitmap(deark *c, lctx *d, struct bitmapinfo *bi, de_int64 pos)
 		}
 
 		if(bi->packing_type==3 && bi->pixelsize==16) {
-			do_uncompress_packbits16(c->infile, pos, bytecount, unc_pixels);
+			de_fmtutil_uncompress_packbits16(c->infile, pos, bytecount, unc_pixels, NULL);
 		}
 		else {
 			de_fmtutil_uncompress_packbits(c->infile, pos, bytecount, unc_pixels, NULL);
@@ -686,23 +648,23 @@ static int decode_pixdata(deark *c, lctx *d, struct bitmapinfo *bi, de_int64 pos
 	if(!de_good_image_dimensions(c, bi->width, bi->height)) goto done;
 
 	if(bi->pixelsize!=1 && bi->pixelsize!=8 && bi->pixelsize!=16 && bi->pixelsize!=24 && bi->pixelsize!=32) {
-		de_err(c, "%d bits/pixel images are not supported\n", (int)bi->pixelsize);
+		de_err(c, "%d bits/pixel images are not supported", (int)bi->pixelsize);
 		goto done;
 	}
 	if((bi->uses_pal && bi->pixeltype!=0) || (!bi->uses_pal && bi->pixeltype!=16)) {
-		de_err(c, "Pixel type %d is not supported\n", (int)bi->pixeltype);
+		de_err(c, "Pixel type %d is not supported", (int)bi->pixeltype);
 		goto done;
 	}
 	if(bi->cmpcount!=1 && bi->cmpcount!=3 && bi->cmpcount!=4) {
-		de_err(c, "Component count %d is not supported\n", (int)bi->cmpcount);
+		de_err(c, "Component count %d is not supported", (int)bi->cmpcount);
 		goto done;
 	}
 	if(bi->cmpsize!=1 && bi->cmpsize!=5 && bi->cmpsize!=8) {
-		de_err(c, "%d-bit components are not supported\n", (int)bi->cmpsize);
+		de_err(c, "%d-bit components are not supported", (int)bi->cmpsize);
 		goto done;
 	}
 	if(bi->packing_type!=0 && bi->packing_type!=3 && bi->packing_type!=4) {
-		de_err(c, "Packing type %d is not supported\n", (int)bi->packing_type);
+		de_err(c, "Packing type %d is not supported", (int)bi->packing_type);
 		goto done;
 	}
 	if((bi->uses_pal && bi->packing_type==0 && bi->pixelsize==1 && bi->cmpcount==1 && bi->cmpsize==1) ||
@@ -714,12 +676,12 @@ static int decode_pixdata(deark *c, lctx *d, struct bitmapinfo *bi, de_int64 pos
 		;
 	}
 	else {
-		de_err(c, "This type of image is not supported\n");
+		de_err(c, "This type of image is not supported");
 		goto done;
 	}
 
 	if(bi->cmpcount==4) {
-		de_warn(c, "This image might have transparency, which is not supported.\n");
+		de_warn(c, "This image might have transparency, which is not supported.");
 	}
 
 	decode_bitmap(c, d, bi, pos);
@@ -769,7 +731,7 @@ static int handler_98_9a(deark *c, lctx *d, de_int64 opcode, de_int64 pos1, de_i
 		bi->pal[1] = DE_STOCKCOLOR_BLACK;
 	}
 	else if(opcode==0x9a && !bi->pixmap_flag) {
-		de_err(c, "DirectBitsRect image without PixMap flag is not supported\n");
+		de_err(c, "DirectBitsRect image without PixMap flag is not supported");
 		goto done;
 	}
 
@@ -804,7 +766,7 @@ static void do_iccprofile_item(deark *c, lctx *d, de_int64 pos, de_int64 len)
 	if(len<4) return;
 	selector = de_getui32be(pos);
 	data_len = len-4;
-	de_dbg(c, "ICC profile segment, selector=%d, data len=%d\n", (int)selector,
+	de_dbg(c, "ICC profile segment, selector=%d, data len=%d", (int)selector,
 		(int)data_len);
 
 	if(selector!=1) {
@@ -829,7 +791,7 @@ static int handler_a0(deark *c, lctx *d, de_int64 opcode, de_int64 data_pos, de_
 {
 	de_int64 kind;
 	kind = de_getui16be(data_pos);
-	de_dbg(c, "comment kind: %d\n", (int)kind);
+	de_dbg(c, "comment kind: %d", (int)kind);
 	return 1;
 }
 
@@ -841,14 +803,14 @@ static int handler_a1(deark *c, lctx *d, de_int64 opcode, de_int64 data_pos, de_
 
 	kind = de_getui16be(data_pos);
 	len = de_getui16be(data_pos+2);
-	de_dbg(c, "comment kind: %d, size: %d\n", (int)kind, (int)len);
+	de_dbg(c, "comment kind: %d, size: %d", (int)kind, (int)len);
 	*bytes_used = 4+len;
 
 	if(kind==100 && len>=4) {
 		struct de_fourcc sig4cc;
 
 		dbuf_read_fourcc(c->infile, data_pos+4, &sig4cc, 0);
-		de_dbg(c, "application comment, signature=0x%08x '%s'\n",
+		de_dbg(c, "application comment, signature=0x%08x '%s'",
 			(unsigned int)sig4cc.id, sig4cc.id_printable);
 	}
 	else if(kind==224) {
@@ -868,11 +830,11 @@ static int handler_0c00(deark *c, lctx *d, de_int64 opcode, de_int64 data_pos, d
 	hdrver = de_getui16be(data_pos);
 	d->is_extended_v2 = (hdrver==0xfffe);
 
-	de_dbg(c, "extended v2: %s\n", d->is_extended_v2?"yes":"no");
+	de_dbg(c, "extended v2: %s", d->is_extended_v2?"yes":"no");
 	if(d->is_extended_v2) {
 		hres = pict_read_fixed(c->infile, data_pos+4);
 		vres = pict_read_fixed(c->infile, data_pos+8);
-		de_dbg(c, "dpi: %.2fx%.2f\n", hres, vres);
+		de_dbg(c, "dpi: %.2f"DE_CHAR_TIMES"%.2f", hres, vres);
 		pict_read_rect(c->infile, data_pos+12, &srcrect, "srcRect");
 	}
 
@@ -936,9 +898,9 @@ static int do_handle_item(deark *c, lctx *d, de_int64 opcode_pos, de_int64 opcod
 	else opcode_name = "?";
 
 	if(d->version==2)
-		de_dbg(c, "opcode 0x%04x (%s) at %d\n", (unsigned int)opcode, opcode_name, (int)opcode_pos);
+		de_dbg(c, "opcode 0x%04x (%s) at %d", (unsigned int)opcode, opcode_name, (int)opcode_pos);
 	else
-		de_dbg(c, "opcode 0x%02x (%s) at %d\n", (unsigned int)opcode, opcode_name, (int)opcode_pos);
+		de_dbg(c, "opcode 0x%02x (%s) at %d", (unsigned int)opcode, opcode_name, (int)opcode_pos);
 
 	if(opi && opi->fn) {
 		de_dbg_indent(c, 1);
@@ -953,7 +915,7 @@ static int do_handle_item(deark *c, lctx *d, de_int64 opcode_pos, de_int64 opcod
 	else if(opi && opi->size_code==SZCODE_REGION) {
 		n = de_getui16be(data_pos);
 		de_dbg_indent(c, 1);
-		de_dbg(c, "region size: %d\n", (int)n);
+		de_dbg(c, "region size: %d", (int)n);
 		if(n>=10) {
 			pict_read_rect(c->infile, data_pos+2, &tmprect, "rect");
 		}
@@ -964,7 +926,7 @@ static int do_handle_item(deark *c, lctx *d, de_int64 opcode_pos, de_int64 opcod
 	else if(opi && opi->size_code==SZCODE_POLYGON) {
 		n = de_getui16be(data_pos);
 		de_dbg_indent(c, 1);
-		de_dbg(c, "polygon size: %d\n", (int)n);
+		de_dbg(c, "polygon size: %d", (int)n);
 		de_dbg_indent(c, -1);
 		*data_bytes_used = n;
 		ret = 1;
@@ -982,7 +944,7 @@ static int do_handle_item(deark *c, lctx *d, de_int64 opcode_pos, de_int64 opcod
 		ret = 1;
 	}
 	else {
-		de_err(c, "Unsupported opcode: 0x%04x\n", (unsigned int)opcode);
+		de_err(c, "Unsupported opcode: 0x%04x", (unsigned int)opcode);
 	}
 
 	return ret;
@@ -1049,7 +1011,7 @@ static void de_run_pict(deark *c, de_module_params *mparams)
 	pos = 512;
 
 	picsize = de_getui16be(pos);
-	de_dbg(c, "picSize: %d\n", (int)picsize);
+	de_dbg(c, "picSize: %d", (int)picsize);
 	pos+=2;
 	pict_read_rect(c->infile, pos, &framerect, "picFrame");
 	pos+=8;

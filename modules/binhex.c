@@ -49,7 +49,7 @@ static int do_decode_main(deark *c, lctx *d, de_int64 pos)
 
 		x = get_char_value(b);
 		if(x>=64) {
-			de_err(c, "Invalid BinHex data at %d\n", (int)(pos-1));
+			de_err(c, "Invalid BinHex data at %d", (int)(pos-1));
 			return 0;
 		}
 
@@ -77,7 +77,7 @@ static int do_decode_main(deark *c, lctx *d, de_int64 pos)
 		}
 	}
 
-	de_dbg(c, "size after decoding: %d\n", (int)d->decoded->len);
+	de_dbg(c, "size after decoding: %d", (int)d->decoded->len);
 	return 1;
 }
 
@@ -115,7 +115,7 @@ static int do_decompress(deark *c, lctx *d)
 		dbuf_write_run(d->decompressed, lastbyte, countcode-1);
 	}
 
-	de_dbg(c, "size after decompression: %d\n", (int)d->decompressed->len);
+	de_dbg(c, "size after decompression: %d", (int)d->decompressed->len);
 	return 1;
 }
 
@@ -137,7 +137,7 @@ static void do_extract_files(deark *c, lctx *d)
 
 	name_len = (de_int64)dbuf_getbyte(f, pos);
 	pos+=1;
-	de_dbg(c, "name len: %d\n", (int)name_len);
+	de_dbg(c, "name len: %d", (int)name_len);
 
 	// TODO: What encoding does the name use? Can we convert it?
 	fi_r = de_finfo_create(c);
@@ -159,9 +159,9 @@ static void do_extract_files(deark *c, lctx *d)
 	rlen = dbuf_getui32be(f, pos+14);
 	hc = dbuf_getui16be(f, pos+18);
 
-	de_dbg(c, "data fork len = %d\n", (int)dlen);
-	de_dbg(c, "resource fork len = %d\n", (int)rlen);
-	de_dbg(c, "header checksum = 0x%04x\n", (unsigned int)hc);
+	de_dbg(c, "data fork len = %d", (int)dlen);
+	de_dbg(c, "resource fork len = %d", (int)rlen);
+	de_dbg(c, "header checksum = 0x%04x", (unsigned int)hc);
 
 	// TODO: Verify checksums
 
@@ -170,7 +170,7 @@ static void do_extract_files(deark *c, lctx *d)
 	// Data fork
 
 	if(pos+dlen > f->len) {
-		de_err(c, "Data fork goes beyond end of file\n");
+		de_err(c, "Data fork goes beyond end of file");
 		goto done;
 	}
 
@@ -180,12 +180,12 @@ static void do_extract_files(deark *c, lctx *d)
 
 	dc = dbuf_getui16be(f, pos);
 	pos += 2;
-	de_dbg(c, "data fork checksum = 0x%04x\n", (unsigned int)dc);
+	de_dbg(c, "data fork checksum = 0x%04x", (unsigned int)dc);
 
 	// Resource fork
 
 	if(pos+rlen > f->len) {
-		de_err(c, "Resource fork goes beyond end of file\n");
+		de_err(c, "Resource fork goes beyond end of file");
 		goto done;
 	}
 
@@ -195,7 +195,7 @@ static void do_extract_files(deark *c, lctx *d)
 
 	rc = dbuf_getui16be(f, pos);
 	pos += 2;
-	de_dbg(c, "resource fork checksum = 0x%04x\n", (unsigned int)rc);
+	de_dbg(c, "resource fork checksum = 0x%04x", (unsigned int)rc);
 
 done:
 	de_finfo_destroy(c, fi_r);
@@ -207,7 +207,7 @@ static void do_binhex(deark *c, lctx *d, de_int64 pos)
 {
 	int ret;
 
-	de_dbg(c, "BinHex data starts at %d\n", (int)pos);
+	de_dbg(c, "BinHex data starts at %d", (int)pos);
 
 	d->decoded = dbuf_create_membuf(c, 65536, 0);
 	d->decompressed = dbuf_create_membuf(c, 65536, 0);
@@ -281,7 +281,7 @@ static void de_run_binhex(deark *c, de_module_params *mparams)
 
 	ret = find_start(c, &pos);
 	if(!ret) {
-		de_err(c, "Not a BinHex file\n");
+		de_err(c, "Not a BinHex file");
 		goto done;
 	}
 

@@ -37,7 +37,7 @@ static int read_varint(deark *c, de_int64 pos1, de_int64 *result, de_int64 *byte
 			// (Note that if we were to allow 63 bits, we could have int64
 			// overflow when we convert from a physical value to a logical
 			// value.)
-			de_err(c, "Excessively large varint at %d\n", (int)pos1);
+			de_err(c, "Excessively large varint at %d", (int)pos1);
 			goto done;
 		}
 	}
@@ -61,7 +61,7 @@ static int do_read_header(deark *c, lctx *d, de_int64 pos1,
 	int retval = 0;
 	char tmps[80];
 
-	de_dbg(c, "header at %d\n", (int)pos1);
+	de_dbg(c, "header at %d", (int)pos1);
 	de_dbg_indent(c, 1);
 
 	pos += 4; // Magic
@@ -75,13 +75,13 @@ static int do_read_header(deark *c, lctx *d, de_int64 pos1,
 	case 5: d->is_animated = 1; break;
 	case 6: d->is_interlaced = 1; d->is_animated = 1; break;
 	default:
-		de_warn(c, "Unknown interlace/animation code: %d\n", (int)intl_anim_code);
+		de_warn(c, "Unknown interlace/animation code: %d", (int)intl_anim_code);
 	}
-	de_dbg(c, "interlaced: %d\n", d->is_interlaced);
-	de_dbg(c, "animated: %d\n", d->is_animated);
+	de_dbg(c, "interlaced: %d", d->is_interlaced);
+	de_dbg(c, "animated: %d", d->is_animated);
 
 	d->num_channels = (de_int64)(b&0x0f);
-	de_dbg(c, "number of channels: %d\n", (int)d->num_channels);
+	de_dbg(c, "number of channels: %d", (int)d->num_channels);
 
 	bytes_per_channel_code = de_getbyte(pos++);
 	if(bytes_per_channel_code=='0') {
@@ -94,7 +94,7 @@ static int do_read_header(deark *c, lctx *d, de_int64 pos1,
 	else {
 		de_strlcpy(tmps, "?", sizeof(tmps));
 	}
-	de_dbg(c, "bytes per channel: 0x%02x (%s)\n",
+	de_dbg(c, "bytes per channel: 0x%02x (%s)",
 		(unsigned int)bytes_per_channel_code, tmps);
 
 	if(!read_varint(c, pos, &tmpcode, &bytes_consumed2)) goto done;
@@ -105,13 +105,13 @@ static int do_read_header(deark *c, lctx *d, de_int64 pos1,
 	d->height = tmpcode+1;
 	pos += bytes_consumed2;
 
-	de_dbg(c, "dimensions: %dx%d\n", (int)d->width, (int)d->height);
+	de_dbg_dimensions(c, d->width, d->height);
 
 	if(d->is_animated) {
 		if(!read_varint(c, pos, &tmpcode, &bytes_consumed2)) goto done;
 		d->nb_frames = tmpcode+2;
 		pos += bytes_consumed2;
-		de_dbg(c, "number of frames: %d\n", (int)d->nb_frames);
+		de_dbg(c, "number of frames: %d", (int)d->nb_frames);
 	}
 	else {
 		d->nb_frames = 1;
@@ -138,13 +138,13 @@ static int do_read_metadata(deark *c, lctx *d, de_int64 pos1,
 	// peek at the next byte, to see if there is a metadata segment.
 	b = de_getbyte(pos);
 	if(b<32) {
-		de_dbg(c, "[metadata segment not present]\n");
+		de_dbg(c, "[metadata segment not present]");
 		retval = 1;
 		goto done;
 	}
 
-	de_dbg(c, "metadata segment at %d\n", (int)pos1);
-	de_err(c, "not implemented\n");
+	de_dbg(c, "metadata segment at %d", (int)pos1);
+	de_err(c, "not implemented");
 
 	// TODO (need samples)
 
@@ -159,14 +159,14 @@ static int do_second_header(deark *c, lctx *d, de_int64 pos1,
 	de_byte ct;
 	de_int64 pos = pos1;
 
-	de_dbg(c, "second header segment at %d\n", (int)pos1);
+	de_dbg(c, "second header segment at %d", (int)pos1);
 	de_dbg_indent(c, 1);
 
 	ct = de_getbyte(pos++);
-	de_dbg(c, "chunk type: 0x%02x\n", (unsigned int)ct);
+	de_dbg(c, "chunk type: 0x%02x", (unsigned int)ct);
 
 	if(ct!=0x00) {
-		de_err(c, "unsupported chunk type: 0x%02x\n", (unsigned int)ct);
+		de_err(c, "unsupported chunk type: 0x%02x", (unsigned int)ct);
 		goto done;
 	}
 

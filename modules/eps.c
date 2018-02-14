@@ -35,15 +35,15 @@ static void de_run_eps_binary(deark *c)
 	tiff_len    = de_getui32le(24);
 
 	if(eps_len>0) {
-		de_dbg(c, "Extracting EPS offs=%d len=%d\n", (int)eps_offset, (int)eps_len);
+		de_dbg(c, "Extracting EPS offs=%d len=%d", (int)eps_offset, (int)eps_len);
 		dbuf_create_file_from_slice(c->infile, eps_offset, eps_len, "eps", NULL, 0);
 	}
 	if(wmf_len>0) {
-		de_dbg(c, "Extracting WMF offs=%d len=%d\n", (int)wmf_offset, (int)wmf_len);
+		de_dbg(c, "Extracting WMF offs=%d len=%d", (int)wmf_offset, (int)wmf_len);
 		dbuf_create_file_from_slice(c->infile, wmf_offset, wmf_len, "preview.wmf", NULL, DE_CREATEFLAG_IS_AUX);
 	}
 	if(tiff_len>0) {
-		de_dbg(c, "Extracting TIFF offs=%d len=%d\n", (int)tiff_offset, (int)tiff_len);
+		de_dbg(c, "Extracting TIFF offs=%d len=%d", (int)tiff_offset, (int)tiff_len);
 		dbuf_create_file_from_slice(c->infile, tiff_offset, tiff_len, "preview.tif", NULL, DE_CREATEFLAG_IS_AUX);
 	}
 }
@@ -68,7 +68,7 @@ static void process_hex_digit(deark *c, lctx *d, de_byte hexdigit, dbuf *outf)
 	return;
 }
 
-static void convert_row_gray(dbuf *f, de_int64 fpos, struct deark_bitmap *img,
+static void convert_row_gray(dbuf *f, de_int64 fpos, de_bitmap *img,
 	de_int64 rownum, int depth)
 {
 	de_int64 i;
@@ -85,7 +85,7 @@ static void convert_row_gray(dbuf *f, de_int64 fpos, struct deark_bitmap *img,
 
 static void do_decode_epsi_image(deark *c, lctx *d, de_int64 pos1)
 {
-	struct deark_bitmap *img = NULL;
+	de_bitmap *img = NULL;
 	dbuf *tmpf = NULL;
 	de_int64 content_len, total_len;
 	de_int64 pos;
@@ -136,10 +136,10 @@ static void do_decode_epsi(deark *c, const char *hdrfields, de_int64 pos1)
 
 	ret = de_sscanf(hdrfields, " %d %d %d %d", &width, &height, &depth, &lines);
 	if(ret!=4) {
-		de_err(c, "Failed to parse EPSI header line\n");
+		de_err(c, "Failed to parse EPSI header line");
 		return;
 	}
-	de_dbg(c, "w=%d h=%d d=%d l=%d\n", width, height, depth, lines);
+	de_dbg(c, "w=%d h=%d d=%d l=%d", width, height, depth, lines);
 	d->w = width;
 	d->h = height;
 	d->depth = depth;
@@ -149,11 +149,11 @@ static void do_decode_epsi(deark *c, const char *hdrfields, de_int64 pos1)
 		goto done;
 	}
 	if(d->depth!=1 && d->depth!=2 && d->depth!=4 && d->depth!=8) {
-		de_err(c, "Unsupported EPSI bit depth (%d)\n", (int)d->depth);
+		de_err(c, "Unsupported EPSI bit depth (%d)", (int)d->depth);
 		goto done;
 	}
 	if(d->lines>100000 || d->lines<1) {
-		de_err(c, "Bad EPSI header\n");
+		de_err(c, "Bad EPSI header");
 		goto done;
 	}
 
@@ -173,7 +173,7 @@ static void de_run_eps_normal(deark *c)
 
 	pos = 0;
 	while(dbuf_find_line(c->infile, pos, &content_len, &total_len)) {
-		de_dbg2(c, "line: pos=%d c_len=%d t_len=%d\n", (int)pos, (int)content_len, (int)total_len);
+		de_dbg2(c, "line: pos=%d c_len=%d t_len=%d", (int)pos, (int)content_len, (int)total_len);
 
 		if(content_len > (de_int64)(sizeof(linebuf)-1))
 			content_len = sizeof(linebuf)-1;
@@ -203,7 +203,7 @@ static void de_run_eps(deark *c, de_module_params *mparams)
 		de_run_eps_normal(c);
 	}
 	else {
-		de_err(c, "Not an EPS file\n");
+		de_err(c, "Not an EPS file");
 	}
 }
 

@@ -34,10 +34,10 @@ static int do_read_idsc(deark *c, lctx *d, de_int64 pos, de_int64 len)
 	d->idsc_found = 1;
 
 	d->idsc_size = de_getui32be(pos);
-	de_dbg(c, "idsc size: %d\n", (int)d->idsc_size);
+	de_dbg(c, "idsc size: %d", (int)d->idsc_size);
 
 	dbuf_read_fourcc(c->infile, pos+4, &d->cmpr4cc, 0);
-	de_dbg(c, "compression type: \"%s\"\n", d->cmpr4cc.id_printable);
+	de_dbg(c, "compression type: \"%s\"", d->cmpr4cc.id_printable);
 
 	if(len<86) goto done;
 	if(d->idsc_size<86) goto done;
@@ -46,13 +46,13 @@ static int do_read_idsc(deark *c, lctx *d, de_int64 pos, de_int64 len)
 	d->height = de_getui16be(pos+34);
 	d->hres = dbuf_fmtutil_read_fixed_16_16(c->infile, pos+36);
 	d->vres = dbuf_fmtutil_read_fixed_16_16(c->infile, pos+40);
-	de_dbg(c, "dpi: %.2fx%.2f\n", d->hres, d->vres);
+	de_dbg(c, "dpi: %.2f"DE_CHAR_TIMES"%.2f", d->hres, d->vres);
 	d->idat_data_size = de_getui32be(pos+44);
-	de_dbg(c, "reported data size: %d\n", (int)d->idat_data_size);
+	de_dbg(c, "reported data size: %d", (int)d->idat_data_size);
 	if(d->idat_data_size>c->infile->len) d->idat_data_size=0;
 	d->bitdepth = de_getui16be(pos+82);
 	d->palette_id = de_getui16be(pos+84);
-	de_dbg(c, "dimensions: %dx%d, bitdepth: %d, palette: %d\n", (int)d->width,
+	de_dbg(c, "dimensions: %d"DE_CHAR_TIMES"%d, bitdepth: %d, palette: %d", (int)d->width,
 		(int)d->height, (int)d->bitdepth, (int)d->palette_id);
 	retval = 1;
 done:
@@ -61,13 +61,13 @@ done:
 
 static void do_decode_raw(deark *c, lctx *d)
 {
-	struct deark_bitmap *img = NULL;
+	de_bitmap *img = NULL;
 	de_int64 i, j;
 	de_int64 rowspan;
 	de_uint32 clr;
 
 	if(d->bitdepth != 32) {
-		de_err(c, "Unsupported bit depth for raw image (%d)\n", (int)d->bitdepth);
+		de_err(c, "Unsupported bit depth for raw image (%d)", (int)d->bitdepth);
 		goto done;
 	}
 	if(!de_good_image_dimensions(c, d->width, d->height)) goto done;
@@ -105,7 +105,7 @@ static void do_write_image(deark *c, lctx *d)
 	de_int64 dsize;
 
 	if(!d->idsc_found) {
-		de_err(c, "Missing idsc atom\n");
+		de_err(c, "Missing idsc atom");
 		return;
 	}
 
@@ -131,7 +131,7 @@ static void do_write_image(deark *c, lctx *d)
 		dbuf_create_file_from_slice(c->infile, d->idat_pos, dsize, "pcd", NULL, 0);
 	}
 	else {
-		de_err(c, "Unsupported compression type: \"%s\"\n", d->cmpr4cc.id_printable);
+		de_err(c, "Unsupported compression type: \"%s\"", d->cmpr4cc.id_printable);
 	}
 }
 
@@ -180,7 +180,7 @@ static void do_raw_idsc_data(deark *c, lctx *d)
 {
 	int ret;
 
-	de_dbg(c, "QuickTime 'idsc' data\n");
+	de_dbg(c, "QuickTime 'idsc' data");
 
 	de_dbg_indent(c, 1);
 	ret = do_read_idsc(c, d, 0, c->infile->len);
@@ -195,8 +195,6 @@ static void do_raw_idsc_data(deark *c, lctx *d)
 static void de_run_qtif(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
-
-	if(c->module_nesting_level>1) de_dbg2(c, "in qtif module\n");
 
 	d = de_malloc(c, sizeof(lctx));
 

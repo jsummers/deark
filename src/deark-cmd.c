@@ -23,6 +23,8 @@ struct cmdctx {
 	int error_flag;
 	int show_usage_message;
 	int special_command_flag;
+#define CMD_PRINTMODULES 2
+	int special_command_code;
 	int msgs_to_stderr;
 
 	// Have we set msgs_FILE and have_windows_console, and called _setmode if needed?
@@ -30,8 +32,10 @@ struct cmdctx {
 
 	FILE *msgs_FILE; // Where to print (error, etc.) messages
 #ifdef DE_WINDOWS
+	void *msgs_HANDLE;
 	int have_windows_console; // Is msgs_FILE a console?
 	int use_fwputs;
+	unsigned int orig_console_attribs;
 #endif
 
 	int to_stdout;
@@ -39,6 +43,8 @@ struct cmdctx {
 	int from_stdin;
 	int to_ascii;
 	int to_oem;
+	int use_color_req;
+	int color_method; // 0=no color, 1=ANSI codes, 2=Windows console commands
 	char msgbuf[1000];
 };
 
@@ -50,7 +56,7 @@ static void show_version(deark *c)
 }
 
 static void show_usage_preamble(deark *c) {
-	de_puts(c, DE_MSGTYPE_MESSAGE, "usage: deark [options] <input-file>\n");
+	de_puts(c, DE_MSGTYPE_MESSAGE, "Usage: deark [options] <input-file> [options]\n");
 }
 
 static void show_usage_error(deark *c)
@@ -87,15 +93,8 @@ static void print_modules(deark *c)
 	de_print_module_list(c);
 }
 
-static void our_msgfn(deark *c, int msgtype, const char *s1)
+static void initialize_output_stream(struct cmdctx *cc)
 {
-	struct cmdctx *cc;
-	const char *s;
-
-	cc = de_get_userdata(c);
-
-	if(!cc->have_initialized_output_stream) {
-
 		if(cc->msgs_to_stderr) {
 			cc->msgs_FILE = stderr;
 		}
@@ -104,26 +103,100 @@ static void our_msgfn(deark *c, int msgtype, const char *s1)
 		}
 
 #ifdef DE_WINDOWS
+		// If appropriate, call _setmode so that Unicode output to the console
+		// works correctly (provided we use Unicode functions like fputws()).
 
-		// Call _setmode so that Unicode output to the console works correctly
-		// (provided we use Unicode functions like fputws()).
-		if(cc->msgs_to_stderr) {
-			cc->have_windows_console = de_stderr_is_windows_console();
-			if(cc->have_windows_console && !cc->to_ascii && !cc->to_oem) {
-				cc->use_fwputs = 1;
-				_setmode(_fileno(stderr), _O_U16TEXT);
+		cc->msgs_HANDLE = de_winconsole_get_handle(cc->msgs_to_stderr ? 2 : 1);
+		cc->have_windows_console = de_winconsole_is_console(cc->msgs_HANDLE);
+		if(cc->have_windows_console && !cc->to_ascii && !cc->to_oem) {
+			cc->use_fwputs = 1;
+			_setmode(_fileno(cc->msgs_FILE), _O_U16TEXT);
+		}
+		if(cc->use_color_req) {
+			if(cc->have_windows_console) {
+				if(de_get_current_windows_attributes(cc->msgs_HANDLE, &cc->orig_console_attribs)) {
+					cc->color_method = 2;
+				}
+			}
+			else {
+				cc->color_method = 1;
 			}
 		}
-		else {
-			cc->have_windows_console = de_stdout_is_windows_console();
-			if(cc->have_windows_console && !cc->to_ascii && !cc->to_oem) {
-				cc->use_fwputs = 1;
-				_setmode(_fileno(stdout), _O_U16TEXT);
-			}
-		}
+#else
+		cc->color_method = cc->use_color_req ? 1 : 0;
 #endif
 
+		if(cc->color_method==1) {
+			// If using ANSI codes, start by resetting all attributes
+			fputs("\x1b[0m", cc->msgs_FILE);
+		}
+
 		cc->have_initialized_output_stream = 1;
+}
+
+static void our_specialmsgfn(deark *c, unsigned int flags, unsigned int code,
+	de_uint32 param1)
+{
+	struct cmdctx *cc;
+
+	cc = de_get_userdata(c);
+	if(!cc->color_method) return;
+
+	if(!cc->have_initialized_output_stream) {
+		initialize_output_stream(cc);
+	}
+
+#ifdef DE_WINDOWS
+	if(cc->have_windows_console) {
+		if(code==DE_MSGCODE_HL) {
+			de_windows_highlight(cc->msgs_HANDLE, cc->orig_console_attribs, 1);
+		}
+		else if(code==DE_MSGCODE_UNHL) {
+			de_windows_highlight(cc->msgs_HANDLE, cc->orig_console_attribs, 0);
+		}
+		else if(code==DE_MSGCODE_RGBSAMPLE) {
+			// TODO: Traditional Windows console only supports 16 colors,
+			// so there's no good solution here. We could approximate the
+			// color somehow, I guess. Though that is complicated, as I think
+			// the color palette can be user-defined, and different editions of
+			// Windows have different default color schemes.
+			// As of 2016-10, Microsoft says they've added truecolor console
+			// support to Windows 10, so we should investigate that.
+			;
+		}
+		return;
+	}
+	else if(cc->use_fwputs) {
+		return; // Shouldn't be possible
+	}
+#endif
+
+	// TODO: Maybe move the DE_COLOR_* macros to deark.h.
+#define X_DE_COLOR_R(x)  (unsigned int)(((x)>>16)&0xff)
+#define X_DE_COLOR_G(x)  (unsigned int)(((x)>>8)&0xff)
+#define X_DE_COLOR_B(x)  (unsigned int)((x)&0xff)
+	if(code==DE_MSGCODE_HL) {
+		fputs("\x1b[7m", cc->msgs_FILE);
+	}
+	else if(code==DE_MSGCODE_UNHL) {
+		fputs("\x1b[27m", cc->msgs_FILE);
+	}
+	else if(code==DE_MSGCODE_RGBSAMPLE) {
+		// Print two spaces with their background color set to the requested color.
+		fprintf(cc->msgs_FILE, "\x1b[48;2;%u;%u;%um  \x1b[0m",
+			X_DE_COLOR_R(param1), X_DE_COLOR_G(param1), X_DE_COLOR_B(param1));
+	}
+}
+
+static void our_msgfn(deark *c, unsigned int flags, const char *s1)
+{
+	struct cmdctx *cc;
+	const char *s;
+
+	cc = de_get_userdata(c);
+
+	if(!cc->have_initialized_output_stream) {
+		initialize_output_stream(cc);
 	}
 
 	if(cc->to_ascii) {
@@ -164,7 +237,7 @@ static void our_msgfn(deark *c, int msgtype, const char *s1)
 static void our_fatalerrorfn(deark *c)
 {
 	de_puts(c, DE_MSGTYPE_MESSAGE, "Exiting\n");
-	exit(1);
+	de_exitprocess();
 }
 
 static void set_ext_option(deark *c, struct cmdctx *cc, const char *optionstring)
@@ -212,8 +285,10 @@ enum opt_id_enum {
  DE_OPT_NOMODTIME,
  DE_OPT_Q, DE_OPT_VERSION, DE_OPT_HELP,
  DE_OPT_MAINONLY, DE_OPT_AUXONLY, DE_OPT_EXTRACTALL, DE_OPT_ZIP,
- DE_OPT_TOSTDOUT, DE_OPT_MSGSTOSTDERR, DE_OPT_FROMSTDIN, DE_OPT_ENCODING,
- DE_OPT_EXTOPT, DE_OPT_FILE2, DE_OPT_START, DE_OPT_SIZE, DE_OPT_M, DE_OPT_O,
+ DE_OPT_TOSTDOUT, DE_OPT_MSGSTOSTDERR, DE_OPT_FROMSTDIN, DE_OPT_COLOR,
+ DE_OPT_ENCODING,
+ DE_OPT_EXTOPT, DE_OPT_FILE, DE_OPT_FILE2,
+ DE_OPT_START, DE_OPT_SIZE, DE_OPT_M, DE_OPT_O,
  DE_OPT_ARCFN, DE_OPT_GET, DE_OPT_FIRSTFILE, DE_OPT_MAXFILES, DE_OPT_MAXIMGDIM,
  DE_OPT_PRINTMODULES, DE_OPT_DPREFIX
 };
@@ -251,8 +326,10 @@ struct opt_struct option_array[] = {
 	{ "tostdout",     DE_OPT_TOSTDOUT,     0 },
 	{ "msgstostderr", DE_OPT_MSGSTOSTDERR, 0 },
 	{ "fromstdin",    DE_OPT_FROMSTDIN,    0 },
+	{ "color",        DE_OPT_COLOR,        0 },
 	{ "enc",          DE_OPT_ENCODING,     1 },
 	{ "opt",          DE_OPT_EXTOPT,       1 },
+	{ "file",         DE_OPT_FILE,         1 },
 	{ "file2",        DE_OPT_FILE2,        1 },
 	{ "start",        DE_OPT_START,        1 },
 	{ "size",         DE_OPT_SIZE,         1 },
@@ -306,6 +383,13 @@ static void parse_cmdline(deark *c, struct cmdctx *cc, int argc, char **argv)
 
 			if(!opt) {
 				de_printf(c, DE_MSGTYPE_MESSAGE, "Unrecognized option: %s\n", argv[i]);
+				if(!strcmp(argv[i], "-")) {
+					// I don't want "-" to be an alias for "-fromstdin", because it
+					// would have different syntax rules than it does in most programs.
+					// (Question: Is "-" an *option*, or a kind of *filename*?)
+					de_printf(c, DE_MSGTYPE_MESSAGE,
+						"Note: To use stdin/stdout, use \"-fromstdin\"/\"-tostdout\".\n");
+				}
 				cc->error_flag = 1;
 				cc->show_usage_message = 1;
 				return;
@@ -359,14 +443,16 @@ static void parse_cmdline(deark *c, struct cmdctx *cc, int argc, char **argv)
 				de_set_warnings(c, 0);
 				break;
 			case DE_OPT_VERSION:
+				// TODO: Use ->special_command_code instead of calling show_version() here.
 				show_version(c);
 				cc->special_command_flag = 1;
 				break;
 			case DE_OPT_PRINTMODULES:
-				print_modules(c);
 				cc->special_command_flag = 1;
+				cc->special_command_code = CMD_PRINTMODULES;
 				break;
 			case DE_OPT_HELP:
+				// TODO: Use ->special_command_code instead of help_flag.
 				help_flag = 1;
 				break;
 			case DE_OPT_MAINONLY:
@@ -395,12 +481,19 @@ static void parse_cmdline(deark *c, struct cmdctx *cc, int argc, char **argv)
 				de_set_input_style(c, DE_INPUTSTYLE_STDIN);
 				cc->from_stdin = 1;
 				break;
+			case DE_OPT_COLOR:
+				cc->use_color_req = 1;
+				break;
 			case DE_OPT_ENCODING:
 				set_encoding_option(c, cc, argv[i+1]);
 				if(cc->error_flag) return;
 				break;
 			case DE_OPT_EXTOPT:
 				set_ext_option(c, cc, argv[i+1]);
+				break;
+			case DE_OPT_FILE:
+				cc->input_filename = argv[i+1];
+				de_set_input_filename(c, cc->input_filename);
 				break;
 			case DE_OPT_FILE2:
 				de_set_ext_option(c, "file2", argv[i+1]);
@@ -470,6 +563,7 @@ static void parse_cmdline(deark *c, struct cmdctx *cc, int argc, char **argv)
 	}
 
 	if(!cc->input_filename && !cc->special_command_flag && !cc->from_stdin) {
+		de_puts(c, DE_MSGTYPE_MESSAGE, "Error: Need an input filename\n");
 		cc->error_flag = 1;
 		cc->show_usage_message = 1;
 		return;
@@ -493,6 +587,7 @@ static void main2(int argc, char **argv)
 	de_set_userdata(c, (void*)cc);
 	de_set_fatalerror_callback(c, our_fatalerrorfn);
 	de_set_messages_callback(c, our_msgfn);
+	de_set_special_messages_callback(c, our_specialmsgfn);
 
 	if(argc<2) { // Empty command line
 		show_help(c);
@@ -508,7 +603,14 @@ static void main2(int argc, char **argv)
 		goto done;
 	}
 
-	if(cc->special_command_flag) goto done;
+	if(cc->special_command_flag) {
+		switch(cc->special_command_code) {
+		case CMD_PRINTMODULES:
+			print_modules(c);
+			break;
+		}
+		goto done;
+	}
 
 #ifdef DE_WINDOWS
 	if(cc->to_stdout) {

@@ -32,13 +32,13 @@ static void do_preamble(deark *c, lctx *d, de_int64 pos, de_int64 *bytesused)
 {
 	de_int64 comment_len;
 
-	de_dbg(c, "preamble at %d\n", (int)pos);
+	de_dbg(c, "preamble at %d", (int)pos);
 	de_dbg_indent(c, 1);
 
 	// (identification byte (should be 89) is at pos+1)
 
 	comment_len = (de_int64)de_getbyte(pos+2);
-	de_dbg(c, "comment length: %d\n", (int)comment_len);
+	de_dbg(c, "comment length: %d", (int)comment_len);
 
 	*bytesused = 3+comment_len+16;
 	de_dbg_indent(c, -1);
@@ -86,7 +86,7 @@ static int get_packed_int(dbuf *f, de_int64 raster_pos, de_int64 *nybble_pos,
 		if(v==0) {
 			zero_count++;
 			if(zero_count>16) { // Sanity check
-				de_err(f->c, "Bad packed int at %d\n", (int)raster_pos);
+				de_err(f->c, "Bad packed int at %d", (int)raster_pos);
 				*result = 0;
 				return 0;
 			}
@@ -155,13 +155,13 @@ static void do_read_raster(deark *c, lctx *d, struct page_ctx *pg)
 	de_int64 run_count;
 	de_int64 repeat_count;
 
-	de_dbg(c, "%scompressed character raster at %d, len=%d\n", pg->dyn_f==14?"un":"",
+	de_dbg(c, "%scompressed character raster at %d, len=%d", pg->dyn_f==14?"un":"",
 		(int)pg->raster_pos, (int)pg->raster_len);
 	de_dbg_indent(c, 1);
 
 	expected_num_pixels = pg->w * pg->h;
 	if(expected_num_pixels<1) {
-		de_dbg(c, "ignoring zero-size character (cc=%d) at %d\n",
+		de_dbg(c, "ignoring zero-size character (cc=%d) at %d",
 			(int)pg->cc, (int)pg->raster_pos);
 		goto done;
 	}
@@ -235,12 +235,12 @@ static void do_read_raster(deark *c, lctx *d, struct page_ctx *pg)
 
 		if(v==14) {
 			next_num_is_repeat_count = 1;
-			de_dbg2(c, "[%.1f] n=%d; repeat_count=...\n", initial_abs_nybble_pos,
+			de_dbg2(c, "[%.1f] n=%d; repeat_count=...", initial_abs_nybble_pos,
 				(int)v);
 			continue;
 		}
 		else if(v==15) { // v==15: repeat count = 1
-			de_dbg2(c, "[%.1f] n=%d; repeat_count=1\n", initial_abs_nybble_pos, (int)v);
+			de_dbg2(c, "[%.1f] n=%d; repeat_count=1", initial_abs_nybble_pos, (int)v);
 			repeat_count = 1;
 			continue;
 		}
@@ -260,7 +260,7 @@ static void do_read_raster(deark *c, lctx *d, struct page_ctx *pg)
 		}
 
 		if(next_num_is_repeat_count) {
-			de_dbg2(c, "[%.1f] ...%d\n", initial_abs_nybble_pos, (int)number);
+			de_dbg2(c, "[%.1f] ...%d", initial_abs_nybble_pos, (int)number);
 			repeat_count = number;
 			next_num_is_repeat_count = 0;
 			continue;
@@ -272,7 +272,7 @@ static void do_read_raster(deark *c, lctx *d, struct page_ctx *pg)
 
 		run_count = number;
 
-		de_dbg2(c, "[%.1f] n=%d; run_count=%d %s\n", initial_abs_nybble_pos,
+		de_dbg2(c, "[%.1f] n=%d; run_count=%d %s", initial_abs_nybble_pos,
 			(int)v, (int)run_count, parity?"B":"W");
 
 		for(k=0; k<run_count; k++) {
@@ -299,7 +299,7 @@ static void do_read_raster(deark *c, lctx *d, struct page_ctx *pg)
 	}
 
 	if(pg->pixelcount != expected_num_pixels) {
-		de_warn(c, "Expected %d pixels, got %d (codepoint %d)\n", (int)expected_num_pixels,
+		de_warn(c, "Expected %d pixels, got %d (codepoint %d)", (int)expected_num_pixels,
 			(int)pg->pixelcount, (int)pg->cc);
 	}
 
@@ -322,12 +322,12 @@ static int do_char_descr(deark *c, lctx *d, de_int64 pos, de_int64 *bytesused)
 
 	pg = de_malloc(c, sizeof(struct page_ctx));
 
-	de_dbg(c, "character descriptor at %d\n", (int)pos);
+	de_dbg(c, "character descriptor at %d", (int)pos);
 	de_dbg_indent(c, 1);
 
 	flagbyte = de_getbyte(pos);
 	pg->dyn_f = ((de_int64)flagbyte)>>4;
-	de_dbg(c, "dyn_f: %d\n", (int)pg->dyn_f);
+	de_dbg(c, "dyn_f: %d", (int)pg->dyn_f);
 
 	// Character preamble format: (lsb=...)
 	// 0-3: short format
@@ -369,16 +369,16 @@ static int do_char_descr(deark *c, lctx *d, de_int64 pos, de_int64 *bytesused)
 		pg->dm = de_getui16be(pos+7);
 		pg->w = (int)de_getui16be(pos+9);
 		pg->h = (int)de_getui16be(pos+11);
-		pg->hoff = dbuf_geti16be(c->infile, pos+13);
-		pg->voff = dbuf_geti16be(c->infile, pos+15);
+		pg->hoff = de_geti16be(pos+13);
+		pg->voff = de_geti16be(pos+15);
 		pg->raster_pos = pos + 17;
 	}
 	else {
-		de_err(c, "Unsupported character preamble format (%d)\n", (int)lsb3);
+		de_err(c, "Unsupported character preamble format (%d)", (int)lsb3);
 		goto done;
 	}
 
-	de_dbg(c, "pl=%d cc=%d tfm=%d dm=%d w=%d h=%d hoff=%d voff=%d\n",
+	de_dbg(c, "pl=%d cc=%d tfm=%d dm=%d w=%d h=%d hoff=%d voff=%d",
 		(int)pl, (int)pg->cc, (int)pg->tfm, (int)pg->dm, (int)pg->w, (int)pg->h,
 		(int)pg->hoff, (int)pg->voff);
 
@@ -457,7 +457,7 @@ static void de_run_pkfont(deark *c, de_module_params *mparams)
 	pos = 0;
 	while(pos < c->infile->len) {
 		flagbyte = de_getbyte(pos);
-		de_dbg(c, "flag byte at %d: 0x%02x (%s)\n", (int)pos, (unsigned int)flagbyte,
+		de_dbg(c, "flag byte at %d: 0x%02x (%s)", (int)pos, (unsigned int)flagbyte,
 			get_flagbyte_name(flagbyte));
 		bytesused = 0;
 
@@ -481,7 +481,7 @@ static void de_run_pkfont(deark *c, de_module_params *mparams)
 				do_preamble(c, d, pos, &bytesused);
 				break;
 			default:
-				de_err(c, "Unsupported command: %d at %d\n", (int)flagbyte, (int)pos);
+				de_err(c, "Unsupported command: %d at %d", (int)flagbyte, (int)pos);
 				goto done;
 			}
 		}
@@ -495,7 +495,7 @@ static void de_run_pkfont(deark *c, de_module_params *mparams)
 	}
 
 done_reading:
-	de_dbg(c, "number of characters: %d (%d processed)\n", (int)chars_in_file,
+	de_dbg(c, "number of characters: %d (%d processed)", (int)chars_in_file,
 		(int)d->font->num_chars);
 
 	scan_and_fixup_font(c, d);

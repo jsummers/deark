@@ -92,7 +92,7 @@ static void lzd_push(struct unzooctx *uz, struct lzdctx *lc, de_byte x)
 {
 	lc->stack[lc->stack_pointer++] = x;
 	if (lc->stack_pointer >= LZD_STACKSIZE)
-		lzd_prterror (uz, 'f', "Stack overflow in lzd().\n");
+		lzd_prterror (uz, 'f', "Stack overflow in lzd().");
 }
 
 static int lzd_pop(struct lzdctx *lc)
@@ -154,7 +154,7 @@ goteof: /* special case for CLEAR then Z_EOF, for 0-length files */
 		lzd_debug((printf ("lzd: Z_EOF\n")))
 		if (lc->output_offset != 0) {
 			if (lzd_zoowrite (uz, lc->out_f, lc->out_buf_adr, lc->output_offset) != lc->output_offset)
-				lzd_prterror (uz, 'f', "Output error in lzd().\n");
+				lzd_prterror (uz, 'f', "Output error in lzd().");
 			lzd_addbfcrc(uz, lc, lc->out_buf_adr, lc->output_offset);
 		}
 		retval = 0;
@@ -246,7 +246,7 @@ static unsigned int lzd_rd_dcode(struct unzooctx *uz, struct lzdctx *lc)
 		lzd_assert(ptra - in_buf_adr == ptrb - (in_buf_adr + byte_offset));
 		lzd_assert(space_left == 0);
 		if (lzd_zooread (uz, lc->in_f, ptra, byte_offset) == -1)
-			lzd_prterror (uz, 'f', "I/O error in lzd_rd_dcode.\n");
+			lzd_prterror (uz, 'f', "I/O error in lzd_rd_dcode.");
 		byte_offset = 0;
 	}
 	ptra = byte_offset + lc->in_buf_adr;
@@ -274,7 +274,7 @@ static void lzd_wr_dchar(struct unzooctx *uz, struct lzdctx *lc, int ch)
 {
 	if (lc->output_offset >= LZD_OUTBUFSIZ) {      /* if buffer full */
 		if (lzd_zoowrite (uz, lc->out_f, lc->out_buf_adr, lc->output_offset) != lc->output_offset)
-			lzd_prterror (uz, 'f', "Write error in lzd:wr_dchar.\n");
+			lzd_prterror (uz, 'f', "Write error in lzd:wr_dchar.");
 		lzd_addbfcrc(uz, lc, lc->out_buf_adr, lc->output_offset);     /* update CRC */
 		lc->output_offset = 0;                  /* restore empty buffer */
 	}

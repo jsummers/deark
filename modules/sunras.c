@@ -61,7 +61,7 @@ static void do_read_palette(deark *c, lctx *d, de_int64 pos)
 
 static void do_image(deark *c, lctx *d, dbuf *unc_pixels)
 {
-	struct deark_bitmap *img = NULL;
+	de_bitmap *img = NULL;
 	de_uint32 clr;
 	de_byte b;
 	de_int64 i, j;
@@ -69,7 +69,7 @@ static void do_image(deark *c, lctx *d, dbuf *unc_pixels)
 	unsigned int getrgbflags;
 
 	if(d->depth!=1 && d->depth!=4 && d->depth!=8 && d->depth!=24 && d->depth!=32) {
-		de_err(c, "Bit depth %d not supported\n", (int)d->depth);
+		de_err(c, "Bit depth %d not supported", (int)d->depth);
 		goto done;
 	}
 	if(d->depth==32) {
@@ -79,7 +79,7 @@ static void do_image(deark *c, lctx *d, dbuf *unc_pixels)
 		// unused.
 		// Some apps think the color channels are always in BGR order; others
 		// think the order is RGB for RT_FORMAT_RGB format.
-		de_warn(c, "32-bit Sun Raster files are not portable\n");
+		de_warn(c, "32-bit Sun Raster files are not portable");
 	}
 	if(!de_good_image_dimensions(c, d->width, d->height)) goto done;
 
@@ -126,19 +126,19 @@ done:
 
 static void read_header(deark *c, lctx *d, de_int64 pos)
 {
-	de_dbg(c, "header at %d\n", (int)pos);
+	de_dbg(c, "header at %d", (int)pos);
 	de_dbg_indent(c, 1);
 
 	d->width = de_getui32be(pos+4);
 	d->height = de_getui32be(pos+8);
-	de_dbg(c, "dimensions: %dx%d\n", (int)d->width, (int)d->height);
+	de_dbg_dimensions(c, d->width, d->height);
 
 	d->depth = de_getui32be(pos+12);
-	de_dbg(c, "depth: %d\n", (int)d->depth);
+	de_dbg(c, "depth: %d", (int)d->depth);
 
 	d->imglen = de_getui32be(pos+16);
 	d->imgtype = de_getui32be(pos+20);
-	de_dbg(c, "image type=%d, len=%d\n", (int)d->imgtype, (int)d->imglen);
+	de_dbg(c, "image type=%d, len=%d", (int)d->imgtype, (int)d->imglen);
 	if(d->imgtype==RT_BYTE_ENCODED) {
 		d->is_compressed = 1;
 	}
@@ -148,7 +148,7 @@ static void read_header(deark *c, lctx *d, de_int64 pos)
 
 	d->maptype = de_getui32be(pos+24);
 	d->maplen = de_getui32be(pos+28);
-	de_dbg(c, "map type=%d, len=%d\n", (int)d->maptype, (int)d->maplen);
+	de_dbg(c, "map type=%d, len=%d", (int)d->maptype, (int)d->maplen);
 
 	de_dbg_indent(c, -1);
 }
@@ -198,7 +198,7 @@ static void de_run_sunras(deark *c, de_module_params *mparams)
 	if(pos >= c->infile->len) goto done;
 
 	if(d->maplen > 0)
-		de_dbg(c, "colormap at %d\n", (int)pos);
+		de_dbg(c, "colormap at %d", (int)pos);
 
 	de_dbg_indent(c, 1);
 
@@ -208,7 +208,7 @@ static void de_run_sunras(deark *c, de_module_params *mparams)
 			do_read_palette(c, d, pos);
 		}
 		else {
-			de_err(c, "This type of image is not supported\n");
+			de_err(c, "This type of image is not supported");
 			goto done;
 		}
 	}
@@ -220,26 +220,26 @@ static void de_run_sunras(deark *c, de_module_params *mparams)
 	}
 	else {
 		// TODO: Support RMT_RAW
-		de_err(c, "Colormap type (%d) is not supported\n", (int)d->maptype);
+		de_err(c, "Colormap type (%d) is not supported", (int)d->maptype);
 		goto done;
 	}
 	pos += d->maplen;
 	de_dbg_indent(c, -1);
 
 	if(pos >= c->infile->len) goto done;
-	de_dbg(c, "image data at %d\n", (int)pos);
+	de_dbg(c, "image data at %d", (int)pos);
 	de_dbg_indent(c, 1);
 
 	d->rowspan = (((d->width * d->depth)+15)/16)*2;
 	d->unc_pixels_size = d->rowspan * d->height;
 
 	if(d->imgtype>5) {
-		de_err(c, "This type of image (%d) is not supported\n", (int)d->imgtype);
+		de_err(c, "This type of image (%d) is not supported", (int)d->imgtype);
 		goto done;
 	}
 
 	if((d->imgtype==RT_STANDARD || d->imgtype==RT_FORMAT_RGB) && d->imglen!=d->unc_pixels_size) {
-		de_warn(c, "Inconsistent image length: reported=%d, calculated=%d\n",
+		de_warn(c, "Inconsistent image length: reported=%d, calculated=%d",
 			(int)d->imglen, (int)d->unc_pixels_size);
 	}
 

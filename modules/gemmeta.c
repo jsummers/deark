@@ -91,7 +91,7 @@ static void do_opcode_5(deark *c, lctx *d, struct opcode_data *op)
 		}
 	}
 
-	de_dbg(c, "sub-opcode id: %d (%s)\n", (int)sub_opcode_id, name);
+	de_dbg(c, "sub-opcode id: %d (%s)", (int)sub_opcode_id, name);
 }
 
 static void do_opcode_11(deark *c, lctx *d, struct opcode_data *op)
@@ -112,7 +112,7 @@ static void do_opcode_11(deark *c, lctx *d, struct opcode_data *op)
 	default: name="?"; break;
 	}
 
-	de_dbg(c, "function: %s\n", name);
+	de_dbg(c, "function: %s", name);
 }
 
 static const struct opcode_info *find_opcode_info(de_int64 opcode)
@@ -141,7 +141,7 @@ static int do_record(deark *c, lctx *d, de_int64 pos, de_int64 *bytesused)
 	*bytesused = 0;
 	de_memset(&op, 0, sizeof(struct opcode_data));
 
-	de_dbg(c, "record at %d\n", (int)pos);
+	de_dbg(c, "record at %d", (int)pos);
 	de_dbg_indent(c, 1);
 
 	op.opcode = de_getui16le(pos);
@@ -162,7 +162,7 @@ static int do_record(deark *c, lctx *d, de_int64 pos, de_int64 *bytesused)
 	else
 		opcode_name = "?";
 
-	de_dbg(c, "opcode=%d (%s), func_id=%d, #pts=%d, #int=%d (dlen=%d)\n",
+	de_dbg(c, "opcode=%d (%s), func_id=%d, #pts=%d, #int=%d (dlen=%d)",
 		(int)op.opcode, opcode_name, (int)op.func_id,
 		(int)op.ptsin_count, (int)op.intin_count,
 		(int)data_size_bytes);
@@ -193,16 +193,16 @@ static void de_run_gemmeta(deark *c, de_module_params *mparams)
 	de_int64 bytesused;
 
 	d = de_malloc(c, sizeof(lctx));
-	de_msg(c, "Note: GEM VDI Metafiles can be parsed, but no files can be extracted from them.\n");
+	de_msg(c, "Note: GEM VDI Metafiles can be parsed, but no files can be extracted from them.");
 
 	pos = 0;
 	hdrlen_words = de_getui16le(pos+2);
-	de_dbg(c, "header length: %d words\n", (int)hdrlen_words);
+	de_dbg(c, "header length: %d words", (int)hdrlen_words);
 	version = de_getui16le(pos+4);
-	de_dbg(c, "version number: %d\n", (int)version);
+	de_dbg(c, "version number: %d", (int)version);
 	// TODO: Read more header fields.
 	imgflag = de_getui16le(pos+28);
-	de_dbg(c, "image flag: %d\n", (int)imgflag);
+	de_dbg(c, "image flag: %d", (int)imgflag);
 
 	pos += hdrlen_words*2;
 

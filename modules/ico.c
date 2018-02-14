@@ -34,7 +34,7 @@ static void do_image_data(deark *c, lctx *d, de_int64 img_num, de_int64 pos1, de
 	de_int64 i, j;
 	de_uint32 pal[256];
 	de_int64 p;
-	struct deark_bitmap *img = NULL;
+	de_bitmap *img = NULL;
 	de_byte x;
 	de_byte cr=0, cg=0, cb=0, ca=0;
 	int inverse_warned = 0;
@@ -46,7 +46,7 @@ static void do_image_data(deark *c, lctx *d, de_int64 img_num, de_int64 pos1, de
 	if(pos1+len > c->infile->len) return;
 
 	if(!de_fmtutil_get_bmpinfo(c, c->infile, &bi, pos1, len, DE_BMPINFO_ICO_FORMAT)) {
-		de_err(c, "Invalid bitmap\n");
+		de_err(c, "Invalid bitmap");
 		return;
 	}
 
@@ -59,16 +59,16 @@ static void do_image_data(deark *c, lctx *d, de_int64 img_num, de_int64 pos1, de
 	case 1: case 2: case 4: case 8: case 24: case 32:
 		break;
 	case 16:
-		de_err(c, "(image #%d) Unsupported bit count (%d)\n", (int)img_num, (int)bi.bitcount);
+		de_err(c, "(image #%d) Unsupported bit count (%d)", (int)img_num, (int)bi.bitcount);
 		goto done;
 	default:
-		de_err(c, "(image #%d) Invalid bit count (%d)\n", (int)img_num, (int)bi.bitcount);
+		de_err(c, "(image #%d) Invalid bit count (%d)", (int)img_num, (int)bi.bitcount);
 		goto done;
 	}
 
 	if(bi.compression_field!=0) {
 		// TODO: Support BITFIELDS
-		de_err(c, "Compression / BITFIELDS not supported\n");
+		de_err(c, "Compression / BITFIELDS not supported");
 		goto done;
 	}
 
@@ -109,7 +109,7 @@ static void do_image_data(deark *c, lctx *d, de_int64 img_num, de_int64 pos1, de
 	fg_start = pos1 + bi.size_of_headers_and_pal;
 	bg_start = pos1 + bi.size_of_headers_and_pal + bi.foreground_size;
 
-	de_dbg(c, "foreground at %d, mask at %d\n", (int)fg_start, (int)bg_start);
+	de_dbg(c, "foreground at %d, mask at %d", (int)fg_start, (int)bg_start);
 
 	for(j=0; j<img->height; j++) {
 		for(i=0; i<img->width; i++) {
@@ -152,7 +152,7 @@ static void do_image_data(deark *c, lctx *d, de_int64 img_num, de_int64 pos1, de
 				// TODO: Should we do this only for cursors, and not icons?
 				if(x==1 && (cr || cg || cb)) {
 					if(!inverse_warned) {
-						de_warn(c, "This image contains inverse background pixels, which are not fully supported.\n");
+						de_warn(c, "This image contains inverse background pixels, which are not fully supported.");
 						inverse_warned = 1;
 					}
 					if((i+j)%2) {
@@ -174,7 +174,7 @@ static void do_image_data(deark *c, lctx *d, de_int64 img_num, de_int64 pos1, de
 
 	if(!use_mask && d->extract_unused_masks) {
 		char maskname_token[32];
-		struct deark_bitmap *mask_img = NULL;
+		de_bitmap *mask_img = NULL;
 
 		de_snprintf(maskname_token, sizeof(maskname_token), "%dx%dmask",
 			(int)bi.width, (int)bi.height);
@@ -194,11 +194,11 @@ static void do_image_dir_entry(deark *c, lctx *d, de_int64 img_num, de_int64 pos
 	de_int64 data_size;
 	de_int64 data_offset;
 
-	de_dbg(c, "image #%d, index at %d\n", (int)img_num, (int)pos);
+	de_dbg(c, "image #%d, index at %d", (int)img_num, (int)pos);
 	de_dbg_indent(c, 1);
 	data_size = de_getui32le(pos+8);
 	data_offset = de_getui32le(pos+12);
-	de_dbg(c, "offset=%d, size=%d\n", (int)data_offset, (int)data_size);
+	de_dbg(c, "offset=%d, size=%d", (int)data_offset, (int)data_size);
 
 	do_image_data(c, d, img_num, data_offset, data_size);
 
@@ -225,12 +225,12 @@ static void de_run_ico(deark *c, de_module_params *mparams)
 		de_declare_fmt(c, "Windows Cursor");
 	}
 	else {
-		de_dbg(c, "Not an ICO/CUR file\n");
+		de_dbg(c, "Not an ICO/CUR file");
 		goto done;
 	}
 
 	num_images = de_getui16le(4);
-	de_dbg(c, "images in file: %d\n", (int)num_images);
+	de_dbg(c, "images in file: %d", (int)num_images);
 	if(!de_good_image_count(c, num_images)) {
 		goto done;
 	}

@@ -82,12 +82,12 @@ static lzwFile *lzw_dbufopen(dbuf *inf)
 	unsigned char buf[3];
 
 	if (dbuf_standard_read(inf, buf, 3, &inf_fpos) != 3) {
-		de_err(inf->c, "Not in compress format\n");
+		de_err(inf->c, "Not in compress format");
 		goto err_out;
 	}
 
 	if (buf[0] != LZW_MAGIC_1 || buf[1] != LZW_MAGIC_2 || buf[2] & 0x60) {
-		de_err(inf->c, "Not in compress format\n");
+		de_err(inf->c, "Not in compress format");
 		goto err_out;
 	}
 
@@ -122,7 +122,7 @@ static lzwFile *lzw_dbufopen(dbuf *inf)
 		ret->htab[ret->code] = ret->code;
 
 	if (ret->maxbits > BITS) {
-		de_err(ret->c, "Unsupported number of bits (%d)\n", ret->maxbits);
+		de_err(ret->c, "Unsupported number of bits (%d)", ret->maxbits);
 		goto err_out_free;
 	}
 
@@ -259,7 +259,7 @@ resetbuf:
 			/* Special case for KwKwK string.*/
 			if (lzw->code >= lzw->free_ent) {
 				if (lzw->code > lzw->free_ent) {
-					de_err(lzw->c, "Decompression error\n");
+					de_err(lzw->c, "Decompression error");
 					return -1;
 				}
 

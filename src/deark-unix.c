@@ -39,7 +39,7 @@ char *de_strdup(deark *c, const char *s)
 
 	s2 = strdup(s);
 	if(!s2) {
-		de_err(c, "Memory allocation failed\n");
+		de_err(c, "Memory allocation failed");
 		de_fatalerror(c);
 		return NULL;
 	}
@@ -126,8 +126,8 @@ int de_fclose(FILE *fp)
 	return fclose(fp);
 }
 
-// If f->is_executable is set, try to make the file executable.
-// TODO: Should we unset the executable bits if f->is_executable is NOT set?
+// If, based on f->mode_flags, we know that the file should be executable or
+// non-executable, make it so.
 void de_update_file_perms(dbuf *f)
 {
 	struct stat stbuf;
@@ -135,7 +135,7 @@ void de_update_file_perms(dbuf *f)
 
 	if(f->btype!=DBUF_TYPE_OFILE) return;
 	if(!f->name) return;
-	if(!f->is_executable) return;
+	if(!(f->mode_flags&DE_MODEFLAG_NONEXE) && !(f->mode_flags&DE_MODEFLAG_EXE)) return;
 
 	de_memset(&stbuf, 0, sizeof(struct stat));
 	if(0 != stat(f->name, &stbuf)) {
@@ -144,12 +144,19 @@ void de_update_file_perms(dbuf *f)
 
 	oldmode = stbuf.st_mode;
 	newmode = oldmode;
-	// Set an Executable bit if its corresponding Read bit is set.
-	if(oldmode & S_IRUSR) newmode |= S_IXUSR;
-	if(oldmode & S_IRGRP) newmode |= S_IXGRP;
-	if(oldmode & S_IROTH) newmode |= S_IXOTH;
+
+	// Start by turning off the executable bits in the tentative new mode.
+	newmode &= ~(S_IXUSR|S_IXGRP|S_IXOTH);
+
+	if(f->mode_flags&DE_MODEFLAG_EXE) {
+		// Set an Executable bit if its corresponding Read bit is set.
+		if(oldmode & S_IRUSR) newmode |= S_IXUSR;
+		if(oldmode & S_IRGRP) newmode |= S_IXGRP;
+		if(oldmode & S_IROTH) newmode |= S_IXOTH;
+	}
+
 	if(newmode != oldmode) {
-		de_dbg2(f->c, "changing file mode from %03o to %03o\n",
+		de_dbg2(f->c, "changing file mode from %03o to %03o",
 			(unsigned int)oldmode, (unsigned int)newmode);
 		chmod(f->name, newmode);
 	}
@@ -176,6 +183,7 @@ void de_update_file_time(dbuf *f)
 void de_timestamp_to_string(const struct de_timestamp *ts,
 	char *buf, size_t buf_len, unsigned int flags)
 {
+	de_int64 tmpt_int64;
 	time_t tmpt;
 	struct tm *tm1;
 	const char *tzlabel;
@@ -185,7 +193,18 @@ void de_timestamp_to_string(const struct de_timestamp *ts,
 		return;
 	}
 
-	tmpt = (time_t)de_timestamp_to_unix_time(ts);
+	tmpt_int64 = de_timestamp_to_unix_time(ts);
+
+	if(sizeof(time_t)<=4) {
+		if(tmpt_int64<-0x80000000LL || tmpt_int64>0x7fffffffLL) {
+			// TODO: Support a wider range of timestamps.
+			// See comment in deark-win.c.
+			de_snprintf(buf, buf_len, "[timestamp out of range: %"INT64_FMT"]", tmpt_int64);
+			return;
+		}
+	}
+
+	tmpt = (time_t)tmpt_int64;
 	tm1 = gmtime(&tmpt);
 
 	tzlabel = (flags&0x1)?" UTC":"";
@@ -203,4 +222,9 @@ void de_current_time_to_timestamp(struct de_timestamp *ts)
 	time(&t);
 	ts->unix_time = (de_int64)t;
 	ts->is_valid = 1;
+}
+
+void de_exitprocess(void)
+{
+	exit(1);
 }

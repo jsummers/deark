@@ -60,29 +60,135 @@ void de_snprintf(char *buf, size_t buflen, const char *fmt, ...)
 	va_end(ap);
 }
 
-void de_puts(deark *c, int msgtype, const char *s)
+static void de_puts_advanced(deark *c, unsigned int flags, const char *s)
 {
+	size_t s_len;
+	size_t s_pos = 0;
+	char *tmps = NULL;
+	size_t tmps_pos = 0;
+	int hlmode = 0;
+	unsigned int special_code;
+	de_uint32 param1 = 0;
+
+	s_len = de_strlen(s);
+	tmps = de_malloc(c, s_len+1);
+
+	// Search for characters that enable/disable highlighting,
+	// and split the string at them.
+	while(s_pos < s_len) {
+		if(s[s_pos]=='\x01' || s[s_pos]=='\x02' || s[s_pos]=='\x03') {
+			// Found a special code
+
+			if(s[s_pos]=='\x02' && s[s_pos+1]=='\x01' && hlmode) {
+				// Optimization: UNHL followed immediately by HL is a no-op.
+				special_code = 0;
+			}
+			else if(s[s_pos]=='\x01') {
+				special_code = DE_MSGCODE_HL;
+				hlmode = 1;
+			}
+			else if(s[s_pos]=='\x03') {
+				special_code = DE_MSGCODE_RGBSAMPLE;
+				if(s_pos + 7 <= s_len) {
+					param1 = DE_MAKE_RGB(
+						((s[s_pos+1]&0x0f)<<4) | (s[s_pos+2]&0x0f),
+						((s[s_pos+3]&0x0f)<<4) | (s[s_pos+4]&0x0f),
+						((s[s_pos+5]&0x0f)<<4) | (s[s_pos+6]&0x0f));
+				}
+			}
+			else {
+				special_code = DE_MSGCODE_UNHL;
+				hlmode = 0;
+			}
+
+			// Print what we have of the string before the special code
+			if(tmps_pos>0) {
+				tmps[tmps_pos] = '\0';
+				c->msgfn(c, flags, tmps);
+			}
+			tmps_pos = 0;
+
+			// "Print" the special code
+			if(special_code && c->specialmsgfn) {
+				c->specialmsgfn(c, flags, special_code, param1);
+			}
+
+			// Advance past the special code
+			if(special_code==0)
+				s_pos += 2;
+			else if(special_code==DE_MSGCODE_RGBSAMPLE)
+				s_pos += 7;
+			else
+				s_pos += 1;
+		}
+		else {
+			tmps[tmps_pos++] = s[s_pos++];
+		}
+	}
+
+	// Unset highlight, if it somehow got left on.
+	if(hlmode) {
+		c->specialmsgfn(c, flags, DE_MSGCODE_UNHL, 0);
+	}
+
+	tmps[tmps_pos] = '\0';
+	c->msgfn(c, flags, tmps);
+	de_free(c, tmps);
+}
+
+void de_puts(deark *c, unsigned int flags, const char *s)
+{
+	size_t k;
+
 	if(!c || !c->msgfn) {
 		fputs(s, stderr);
 		return;
 	}
-	c->msgfn(c, msgtype, s);
+
+	// Scan the printable string for "magic" byte sequences that represent
+	// text color changes, etc. It's admittedly a little ugly that we have to
+	// do this.
+	//
+	// We could invent and use any byte sequences we want for this, as long as
+	// they will not otherwise occur in "printable" output.
+	// I.e., if it's valid UTF-8, it must contain a character we classify as
+	// "nonprintable". We could even use actual ANSI escape sequences, since
+	// Esc is a nonprintable character (but that would have little benefit,
+	// and feel kinda wrong, since this part of the code isn't supposed to
+	// know about ANSI escape sequences).
+	// Short sequences are preferable, because they're simpler to detect, and
+	// because these bytes count against some of our size limits.
+	// Valid UTF-8 is probably best, because someday we might want this scheme
+	// to be compatible with something else (such as ucstrings).
+	// So, we're simply using:
+	//   U+0001 : DE_CODEPOINT_HL
+	//   U+0002 : DE_CODEPOINT_UNHL
+	//   U+0003 : DE_CODEPOINT_RGBSAMPLE (followed by 6 bytes for the RGB color)
+
+	for(k=0; s[k]; k++) {
+		if(s[k]=='\x01' || s[k]=='\x02' || s[k]=='\x03') {
+			de_puts_advanced(c, flags, s);
+			return;
+		}
+	}
+
+	c->msgfn(c, flags, s);
 }
 
-static void de_vprintf(deark *c, int msgtype, const char *fmt, va_list ap)
+static void de_vprintf(deark *c, unsigned int flags, const char *fmt, va_list ap)
 {
 	char buf[1024];
 
 	de_vsnprintf(buf, sizeof(buf), fmt, ap);
-	de_puts(c, msgtype, buf);
+	de_puts(c, flags, buf);
 }
 
-void de_printf(deark *c, int msgtype, const char *fmt, ...)
+void de_printf(deark *c, unsigned int flags, const char *fmt, ...)
 {
 	va_list ap;
 
 	va_start(ap, fmt);
-	de_vprintf(c, msgtype, fmt, ap);
+	de_vprintf(c, flags, fmt, ap);
 	va_end(ap);
 }
 
@@ -124,6 +230,7 @@ static void de_vdbg_internal(deark *c, const char *fmt, va_list ap)
 
 	de_printf(c, DE_MSGTYPE_DEBUG, "%s%s", dprefix, bars_and_spaces);
 	de_vprintf(c, DE_MSGTYPE_DEBUG, fmt, ap);
+	de_puts(c, DE_MSGTYPE_DEBUG, "\n");
 }
 
 void de_dbg(deark *c, const char *fmt, ...)
@@ -171,48 +278,130 @@ void de_dbg_indent_restore(deark *c, int saved_indent_level)
 	c->dbg_indent_amount = saved_indent_level;
 }
 
-void de_dbg_hexdump(deark *c, dbuf *f, de_int64 pos1, de_int64 len,
+// flags:
+//  0x1 = Include an ASCII representation
+void de_dbg_hexdump(deark *c, dbuf *f, de_int64 pos1,
+	de_int64 nbytes_avail, de_int64 max_nbytes_to_dump,
 	const char *prefix, unsigned int flags)
 {
 	char linebuf[3*16+32];
+	char asciibuf[32];
 	de_int64 pos = pos1;
 	de_int64 k;
 	de_int64 bytesthisrow;
+	de_int64 asciibufpos;
 	de_byte b;
+	de_int64 len;
+	int was_truncated = 0;
 
-	if(c->debug_level<1) return;
+	if(nbytes_avail > max_nbytes_to_dump) {
+		len = max_nbytes_to_dump;
+		was_truncated = 1;
+	}
+	else {
+		len = nbytes_avail;
+	}
 
 	while(1) {
 		if(pos >= pos1+len) break;
 		bytesthisrow = (pos1+len)-pos;
 		if(bytesthisrow>16) bytesthisrow=16;
+		asciibufpos = 0;
+		asciibuf[asciibufpos++] = '\"';
 		for(k=0; k<bytesthisrow; k++) {
 			b = dbuf_getbyte(f, pos+k);
 			linebuf[k*3] = de_get_hexchar(b/16);
 			linebuf[k*3+1] = de_get_hexchar(b%16);
 			linebuf[k*3+2] = ' ';
 			linebuf[k*3+3] = '\0';
+			asciibuf[asciibufpos++] = (b>=32 && b<=126) ? (char)b : '.';
 		}
-		de_dbg(c, "%s:%d: %s\n", prefix, (int)(pos-pos1), linebuf);
+		if(flags&0x1) {
+			asciibuf[asciibufpos++] = '\"';
+			asciibuf[asciibufpos++] = '\0';
+		}
+		else {
+			asciibuf[0] = '\0';
+		}
+		de_dbg(c, "%s:%d: %s%s", prefix, (int)(pos-pos1), linebuf, asciibuf);
 		pos += bytesthisrow;
+	}
+	if(was_truncated) {
+		de_dbg(c, "%s:%d: ...", prefix, (int)len);
 	}
 }
 
+// This is such a common thing to do, that it's worth having a function for it.
+void de_dbg_dimensions(deark *c, de_int64 w, de_int64 h)
+{
+	de_dbg(c, "dimensions: %"INT64_FMT DE_CHAR_TIMES "%"INT64_FMT, w, h);
+}
+
+// Generates a "magic" code that, when included in the debug output, will
+// (in some circumstances) display a small sample of the given color.
+// Caller supplies csamp[16].
+// Returns a pointer to csamp, for convenience.
+char *de_get_colorsample_code(deark *c, de_uint32 clr, char *csamp,
+	size_t csamplen)
+{
+	unsigned int r, g, b;
+
+	if(csamplen<8) {
+		csamp[0]='\0';
+		return csamp;
+	}
+
+	r = (unsigned int)DE_COLOR_R(clr);
+	g = (unsigned int)DE_COLOR_G(clr);
+	b = (unsigned int)DE_COLOR_B(clr);
+
+	// Only the low 4 bits are significant. We add 16 so that the bits can't
+	// all be 0; since we can't have NUL bytes in this NUL-terminated string.
+	// Also, it's nice if the values are all <= 127, to make them UTF-8
+	// compatible.
+	csamp[0] = '\x03';
+	csamp[1] = 16 + (r>>4)%16;
+	csamp[2] = 16 + r%16;
+	csamp[3] = 16 + (g>>4)%16;
+	csamp[4] = 16 + g%16;
+	csamp[5] = 16 + (b>>4)%16;
+	csamp[6] = 16 + b%16;
+	csamp[7] = '\0';
+	return csamp;
+}
+
 // Print debugging output for an 8-bit RGB palette entry.
-void de_dbg_pal_entry(deark *c, de_int64 idx, de_uint32 clr)
+void de_dbg_pal_entry2(deark *c, de_int64 idx, de_uint32 clr,
+	const char *txt_before, const char *txt_in, const char *txt_after)
 {
 	int r,g,b,a;
+	char astr[32];
+	char csamp[16];
 
 	if(c->debug_level<2) return;
+	if(!txt_before) txt_before="";
+	if(!txt_in) txt_in="";
+	if(!txt_after) txt_after="";
 	r = (int)DE_COLOR_R(clr);
 	g = (int)DE_COLOR_G(clr);
 	b = (int)DE_COLOR_B(clr);
 	a = (int)DE_COLOR_A(clr);
 	if(a!=0xff) {
-		de_dbg2(c, "pal[%3d] = (%3d,%3d,%3d,A=%d)\n", (int)idx, r, g, b, a);
-		return;
+		de_snprintf(astr, sizeof(astr), ",A=%d", a);
 	}
-	de_dbg2(c, "pal[%3d] = (%3d,%3d,%3d)\n", (int)idx, r, g, b);
+	else {
+		astr[0] = '\0';
+	}
+
+	de_get_colorsample_code(c, clr, csamp, sizeof(csamp));
+	de_dbg2(c, "pal[%3d] = %s(%3d,%3d,%3d%s%s)%s%s", (int)idx, txt_before,
+		r, g, b, astr, txt_in, csamp, txt_after);
+}
+
+void de_dbg_pal_entry(deark *c, de_int64 idx, de_uint32 clr)
+{
+	if(c->debug_level<2) return;
+	de_dbg_pal_entry2(c, idx, clr, NULL, NULL, NULL);
 }
 
 // c can be NULL
@@ -228,6 +417,7 @@ void de_err(deark *c, const char *fmt, ...)
 	va_start(ap, fmt);
 	de_vprintf(c, DE_MSGTYPE_ERROR, fmt, ap);
 	va_end(ap);
+	de_puts(c, DE_MSGTYPE_ERROR, "\n");
 }
 
 void de_warn(deark *c, const char *fmt, ...)
@@ -239,6 +429,7 @@ void de_warn(deark *c, const char *fmt, ...)
 	va_start(ap, fmt);
 	de_vprintf(c, DE_MSGTYPE_WARNING, fmt, ap);
 	va_end(ap);
+	de_puts(c, DE_MSGTYPE_WARNING, "\n");
 }
 
 void de_msg(deark *c, const char *fmt, ...)
@@ -249,6 +440,7 @@ void de_msg(deark *c, const char *fmt, ...)
 	va_start(ap, fmt);
 	de_vprintf(c, DE_MSGTYPE_MESSAGE, fmt, ap);
 	va_end(ap);
+	de_puts(c, DE_MSGTYPE_MESSAGE, "\n");
 }
 
 // c can be NULL.
@@ -268,14 +460,14 @@ void *de_malloc(deark *c, de_int64 n)
 	void *m;
 	if(n==0) n=1;
 	if(n<0 || n>500000000) {
-		de_err(c, "Out of memory (%d bytes requested)\n",(int)n);
+		de_err(c, "Out of memory (%d bytes requested)",(int)n);
 		de_fatalerror(c);
 		return NULL;
 	}
 
 	m = calloc((size_t)n,1);
 	if(!m) {
-		de_err(c, "Memory allocation failed (%d bytes)\n",(int)n);
+		de_err(c, "Memory allocation failed (%d bytes)",(int)n);
 		de_fatalerror(c);
 		return NULL;
 	}
@@ -295,7 +487,7 @@ void *de_realloc(deark *c, void *oldmem, de_int64 oldsize, de_int64 newsize)
 
 	newmem = realloc(oldmem, (size_t)newsize);
 	if(!newmem) {
-		de_err(c, "Memory reallocation failed (%d bytes)\n",(int)newsize);
+		de_err(c, "Memory reallocation failed (%d bytes)",(int)newsize);
 		free(oldmem);
 		de_fatalerror(c);
 		return NULL;
@@ -341,7 +533,7 @@ void de_destroy(deark *c)
 		de_free(c, c->ext_option[i].name);
 		de_free(c, c->ext_option[i].val);
 	}
-	if(c->zip_file) { de_zip_close_file(c); }
+	if(c->zip_data) { de_zip_close_file(c); }
 	if(c->base_output_filename) { de_free(c, c->base_output_filename); }
 	if(c->output_archive_filename) { de_free(c, c->output_archive_filename); }
 	de_free(c, c->module_info);
@@ -361,6 +553,11 @@ void *de_get_userdata(deark *c)
 void de_set_messages_callback(deark *c, de_msgfn_type fn)
 {
 	c->msgfn = fn;
+}
+
+void de_set_special_messages_callback(deark *c, de_specialmsgfn_type fn)
+{
+	c->specialmsgfn = fn;
 }
 
 void de_set_fatalerror_callback(deark *c, de_fatalerrorfn_type fn)
@@ -520,13 +717,20 @@ struct deark_module_info *de_get_module_by_id(deark *c, const char *module_id)
 	return NULL;
 }
 
-int de_run_module(deark *c, struct deark_module_info *mi, de_module_params *mparams)
+int de_run_module(deark *c, struct deark_module_info *mi, de_module_params *mparams, int moddisp)
 {
+	int old_moddisp;
 	if(!mi) return 0;
 	if(!mi->run_fn) return 0;
+	old_moddisp = c->module_disposition;
+	c->module_disposition = moddisp;
+	if(c->module_nesting_level>0 && c->debug_level>=3) {
+		de_dbg3(c, "[using %s module]", mi->id);
+	}
 	c->module_nesting_level++;
 	mi->run_fn(c, mparams);
 	c->module_nesting_level--;
+	c->module_disposition = old_moddisp;
 	return 1;
 }
 
@@ -536,11 +740,11 @@ int de_run_module_by_id(deark *c, const char *id, de_module_params *mparams)
 
 	module_to_use = de_get_module_by_id(c, id);
 	if(!module_to_use) {
-		de_err(c, "Unknown or unsupported format \"%s\"\n", id);
+		de_err(c, "Unknown or unsupported format \"%s\"", id);
 		return 0;
 	}
 
-	return de_run_module(c, module_to_use, mparams);
+	return de_run_module(c, module_to_use, mparams, DE_MODDISP_INTERNAL);
 }
 
 void de_run_module_by_id_on_slice(deark *c, const char *id, de_module_params *mparams,
@@ -780,6 +984,11 @@ void de_unix_time_to_timestamp(de_int64 ut, struct de_timestamp *ts)
 	ts->unix_time = ut;
 }
 
+void de_mac_time_to_timestamp(de_int64 mt, struct de_timestamp *ts)
+{
+	de_unix_time_to_timestamp(mt - 2082844800, ts);
+}
+
 // Convert a Windows FILETIME to a Deark timestamp.
 void de_FILETIME_to_timestamp(de_int64 ft, struct de_timestamp *ts)
 {
@@ -854,7 +1063,7 @@ void de_declare_fmt(deark *c, const char *fmtname)
 		return; // Only allowed for the top-level module
 	}
 	if(c->format_declared) return;
-	de_msg(c, "Format: %s\n", fmtname);
+	de_msg(c, "Format: %s", fmtname);
 	c->format_declared = 1;
 }
 

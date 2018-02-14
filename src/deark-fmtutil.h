@@ -41,13 +41,19 @@ int de_fmtutil_get_bmpinfo(deark *c,  dbuf *f, struct de_bmpinfo *bi, de_int64 p
 void de_fmtutil_generate_bmpfileheader(deark *c, dbuf *outf, const struct de_bmpinfo *bi,
 	de_int64 file_size_override);
 
+void de_fmtutil_handle_exif2(deark *c, de_int64 pos, de_int64 len,
+	de_uint32 *returned_flags, de_uint32 *orientation, de_uint32 *exifversion);
 void de_fmtutil_handle_exif(deark *c, de_int64 pos, de_int64 len);
 
 void de_fmtutil_handle_iptc(deark *c, de_int64 pos, de_int64 len);
 
+void de_fmtutil_handle_photoshop_rsrc2(deark *c, de_int64 pos, de_int64 len,
+	de_uint32 *returned_flags);
 void de_fmtutil_handle_photoshop_rsrc(deark *c, de_int64 pos, de_int64 len);
 
 int de_fmtutil_uncompress_packbits(dbuf *f, de_int64 pos1, de_int64 len,
+	dbuf *unc_pixels, de_int64 *cmpr_bytes_consumed);
+int de_fmtutil_uncompress_packbits16(dbuf *f, de_int64 pos1, de_int64 len,
 	dbuf *unc_pixels, de_int64 *cmpr_bytes_consumed);
 
 struct de_SAUCE_info {
@@ -111,7 +117,7 @@ struct atari_img_decode_data {
 	int was_compressed;
 	int is_spectrum512;
 	de_uint32 *pal;
-	struct deark_bitmap *img;
+	de_bitmap *img;
 };
 
 #define DE_FLAG_ATARI_15BIT_PAL 0x2
@@ -183,3 +189,5 @@ void de_fmtutil_read_iff_format(deark *c, struct de_iffctx *ictx,
 	de_int64 pos, de_int64 len);
 int de_fmtutil_is_standard_iff_chunk(deark *c, struct de_iffctx *ictx,
 	de_uint32 ct);
+
+const char *de_fmtutil_tiff_orientation_name(de_int64 n);

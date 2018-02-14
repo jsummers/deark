@@ -32,15 +32,16 @@ OFILES_MODS:=$(addprefix $(OBJDIR)/modules/,fmtutil.o misc.o unsupported.o \
  psd.o tiff.o zoo.o cfb.o atari-img.o jpeg.o pict.o wmf.o \
  ilbm.o exe.o ansiart.o xface.o tga.o bmp.o pcpaint.o zip.o \
  amigaicon.o xfer.o gif.o abk.o bintext.o hlp.o iccprofile.o \
- epocimage.o bsave.o pcx.o pnm.o icns.o insetpix.o os2bmp.o \
- pkfont.o rsc.o shg.o makichan.o wpg.o rosprite.o jbf.o \
+ palmpdb.o palmbitmap.o epocimage.o bsave.o emf.o \
+ pcx.o pnm.o icns.o insetpix.o os2bmp.o \
+ mp3.o pkfont.o rsc.o shg.o makichan.o wpg.o rosprite.o jbf.o \
  iptc.o cpio.o gemras.o boxes.o spectrum512.o tivariable.o riff.o \
  png.o psf.o grasp.o mbk.o compress.o ico.o macpaint.o fnt.o \
- tar.o nokia.o atari.o binhex.o d64.o sunras.o gzip.o gemmeta.o \
- awbm.o rpm.o qtif.o printshop.o mscompress.o jovianvi.o \
- portfolio.o eps.o ar.o gemfont.o psionpic.o flif.o \
- grob.o alphabmp.o bpg.o iff.o cardfile.o pff2.o \
- tim.o t64.o msp.o basic-c64.o psionapp.o)
+ tar.o nokia.o atari.o binhex.o d64.o sunras.o gzip.o gemmeta.o lha.o \
+ awbm.o rpm.o qtif.o printshop.o printptnr.o mscompress.o jovianvi.o drhalo.o \
+ portfolio.o eps.o ar.o gemfont.o psionpic.o flif.o wad.o \
+ autocad.o grob.o alphabmp.o bpg.o iff.o cardfile.o pff2.o \
+ vort.o tim.o t64.o msp.o basic-c64.o psionapp.o)
 OFILES_LIB:=$(addprefix $(OBJDIR)/src/,deark-miniz.o deark-util.o deark-data.o \
  deark-dbuf.o deark-bitmap.o deark-char.o deark-font.o deark-ucstring.o \
  deark-core.o deark-modules.o deark-unix.o)

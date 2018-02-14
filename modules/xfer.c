@@ -81,7 +81,7 @@ static void de_run_base16(deark *c, de_module_params *mparams)
 		}
 		else {
 			if(!bad_warned) {
-				de_warn(c, "Bad hex character(s) found (offset %d)\n", (int)pos);
+				de_warn(c, "Bad hex character(s) found (offset %d)", (int)pos);
 				bad_warned = 1;
 			}
 		}
@@ -93,7 +93,7 @@ static void de_run_base16(deark *c, de_module_params *mparams)
 	}
 
 	if(d->cbuf_count>0) {
-		de_warn(c, "Unexpected end of hex data\n");
+		de_warn(c, "Unexpected end of hex data");
 	}
 
 	dbuf_close(f);
@@ -168,7 +168,7 @@ static void do_base64_internal(deark *c, lctx *d, de_int64 pos, dbuf *outf)
 		}
 		else {
 			if(!bad_warned) {
-				de_warn(c, "Bad Base64 character(s) found (offset %d)\n", (int)pos);
+				de_warn(c, "Bad Base64 character(s) found (offset %d)", (int)pos);
 				bad_warned = 1;
 			}
 		}
@@ -180,7 +180,7 @@ static void do_base64_internal(deark *c, lctx *d, de_int64 pos, dbuf *outf)
 
 	if(d->cbuf_count>0) {
 		if(!found_terminator || d->cbuf_count==1) {
-			de_warn(c, "Unexpected end of Base64 data\n");
+			de_warn(c, "Unexpected end of Base64 data");
 		}
 		do_base64_flush(c, d, outf, 3);
 	}
@@ -243,14 +243,17 @@ static void parse_begin_line(deark *c, lctx *d, const de_byte *buf, de_int64 buf
 	if(nbytes_to_copy>sizeof(tmpbuf)) nbytes_to_copy = sizeof(tmpbuf);
 	de_strlcpy(tmpbuf, (const char*)&buf[beginsize+1], nbytes_to_copy);
 	mode = de_strtoll(tmpbuf, NULL, 8);
-	de_dbg(c, "mode: %03o\n", (unsigned int)mode);
+	de_dbg(c, "mode: %03o", (unsigned int)mode);
 	if((mode & 0111)!=0) {
-		d->fi->is_executable = 1;
+		d->fi->mode_flags |= DE_MODEFLAG_EXE;
+	}
+	else {
+		d->fi->mode_flags |= DE_MODEFLAG_NONEXE;
 	}
 
 	fn = ucstring_create(c);
 	ucstring_append_bytes(fn, &buf[beginsize+5], buf_len-(beginsize+5), 0, DE_ENCODING_ASCII);
-	de_dbg(c, "filename: \"%s\"\n", ucstring_get_printable_sz_n(fn, 300));
+	de_dbg(c, "filename: \"%s\"", ucstring_get_printable_sz_d(fn));
 	de_finfo_set_name_from_ucstring(c, d->fi, fn);
 	d->fi->original_filename_flag = 1;
 
@@ -297,7 +300,7 @@ static int uuencode_read_header(deark *c, lctx *d)
 		line_count++;
 	}
 
-	de_err(c, "Unrecognized file format\n");
+	de_err(c, "Unrecognized file format");
 	d->hdr_line_type = 0;
 	return 0;
 }
@@ -362,7 +365,7 @@ static void do_uudecode_internal(deark *c, lctx *d, dbuf *outf)
 					// Assume this is the "end" footer line.
 					goto done;
 				}
-				de_err(c, "Bad uuencoded data (offset %d)\n", (int)pos);
+				de_err(c, "Bad uuencoded data (offset %d)", (int)pos);
 				goto done;
 			}
 
@@ -379,7 +382,7 @@ static void do_uudecode_internal(deark *c, lctx *d, dbuf *outf)
 				expected_decoded_bytes_this_line-decoded_bytes_this_line);
 
 			if(decoded_bytes_this_line != expected_decoded_bytes_this_line) {
-				de_warn(c, "Expected %d bytes on line, got %d\n",
+				de_warn(c, "Expected %d bytes on line, got %d",
 					(int)expected_decoded_bytes_this_line, (int)decoded_bytes_this_line);
 			}
 
@@ -406,7 +409,7 @@ static void do_uudecode_internal(deark *c, lctx *d, dbuf *outf)
 		}
 		else {
 			if(!bad_warned) {
-				de_warn(c, "Bad uuencode character (offset %d)\n", (int)pos);
+				de_warn(c, "Bad uuencode character (offset %d)", (int)pos);
 				bad_warned = 1;
 			}
 		}
@@ -665,15 +668,15 @@ static int do_ascii85_read_btoa_end_line(deark *c, lctx *d, de_int64 linenum,
 {
 	long filesize1 = 0;
 
-	de_dbg(c, "btoa footer at line %d\n", (int)linenum);
+	de_dbg(c, "btoa footer at line %d", (int)linenum);
 	if(de_sscanf((const char *)linebuf, "xbtoa End N %ld ", &filesize1) != 1) {
-		de_err(c, "Bad btoa End line\n");
+		de_err(c, "Bad btoa End line");
 		return 0;
 	}
 
 	d->output_filesize = (de_int64)filesize1;
 	d->output_filesize_known = 1;
-	de_dbg(c, "reported file size: %d\n", (int)d->output_filesize);
+	de_dbg(c, "reported file size: %d", (int)d->output_filesize);
 	return 1;
 }
 
@@ -691,13 +694,13 @@ static void do_ascii85_btoa(deark *c, lctx *d, dbuf *f)
 
 	while(1) {
 		if(!dbuf_find_line(c->infile, pos, &content_len, &total_len)) {
-			de_err(c, "Bad Ascii85 format at line %d\n", (int)linenum);
+			de_err(c, "Bad Ascii85 format at line %d", (int)linenum);
 			goto done;
 		}
 		linenum++;
 
 		if(content_len > (de_int64)(sizeof(linebuf)-1)) {
-			de_err(c, "Line %d too long\n", (int)linenum);
+			de_err(c, "Line %d too long", (int)linenum);
 			goto done;
 		}
 		de_read(linebuf, pos, content_len);
@@ -708,11 +711,11 @@ static void do_ascii85_btoa(deark *c, lctx *d, dbuf *f)
 
 		if(linebuf[0]=='x') {
 			if(content_len>=7 && !de_memcmp(linebuf, "xbtoa5 ", 7)) {
-				de_dbg(c, "btoa new format header at line %d\n", (int)linenum);
+				de_dbg(c, "btoa new format header at line %d", (int)linenum);
 				d->ascii85_fmt = ASCII85_FMT_BTOA_NEW;
 			}
 			else if(content_len>=11 && !de_memcmp(linebuf, "xbtoa Begin", 11)) {
-				de_dbg(c, "btoa old format header at line %d\n", (int)linenum);
+				de_dbg(c, "btoa old format header at line %d", (int)linenum);
 			}
 			else if(content_len>=9 && !de_memcmp(linebuf, "xbtoa End", 9)) {
 				if(!do_ascii85_read_btoa_end_line(c, d, linenum, linebuf, content_len)) {
@@ -730,7 +733,7 @@ static void do_ascii85_btoa(deark *c, lctx *d, dbuf *f)
 	do_ascii85_flush(c, d, f);
 
 	if(d->output_filesize_known && (d->bytes_written != d->output_filesize)) {
-		de_err(c, "Expected output file size=%d, actual size=%d\n", (int)d->output_filesize,
+		de_err(c, "Expected output file size=%d, actual size=%d", (int)d->output_filesize,
 			(int)d->bytes_written);
 	}
 
@@ -784,7 +787,7 @@ static void de_run_ascii85(deark *c, de_module_params *mparams)
 	d->ascii85_fmt = ascii85_detect_fmt(c);
 	if(d->ascii85_fmt==0) {
 		// TODO: Scan the file to try to detect the format.
-		de_err(c, "Unknown Ascii85 format\n");
+		de_err(c, "Unknown Ascii85 format");
 		goto done;
 	}
 

@@ -15,7 +15,7 @@
 #define de_gnuc_attribute(x)
 #endif
 
-#define DE_VERSION_NUMBER 0x01040300U
+#define DE_VERSION_NUMBER 0x01040500U
 #define DE_VERSION_SUFFIX ""
 
 #ifdef DE_WINDOWS
@@ -43,6 +43,11 @@
 
 #endif
 
+#define DE_CHAR_TIMES "\xc3\x97"
+#define DE_CHAR_RIGHTARROW "\xe2\x86\x92"
+#define DE_CHAR_LEQ "\xe2\x89\xa4"
+#define DE_CHAR_GEQ "\xe2\x89\xa5"
+
 struct deark_struct;
 typedef struct deark_struct deark;
 
@@ -51,6 +56,7 @@ unsigned int de_get_version_int(void);
 
 deark *de_create(void);
 void de_destroy(deark *c);
+void de_exitprocess(void);
 
 void *de_malloc(deark *c, de_int64 n);
 void *de_realloc(deark *c, void *m, de_int64 oldsize, de_int64 newsize);
@@ -113,12 +119,20 @@ void de_set_preserve_file_times(deark *c, int x);
 void de_set_ext_option(deark *c, const char *name, const char *val);
 const char *de_get_ext_option(deark *c, const char *name);
 
-#define DE_MSGTYPE_MESSAGE 0
-#define DE_MSGTYPE_WARNING 1
-#define DE_MSGTYPE_ERROR   2
-#define DE_MSGTYPE_DEBUG   3
-typedef void (*de_msgfn_type)(deark *c, int msgtype, const char *s);
+#define DE_MSGTYPE_MESSAGE 0U
+#define DE_MSGTYPE_WARNING 1U
+#define DE_MSGTYPE_ERROR   2U
+#define DE_MSGTYPE_DEBUG   3U
+// The low bits of 'flags' are the message type.
+typedef void (*de_msgfn_type)(deark *c, unsigned int flags, const char *s);
 void de_set_messages_callback(deark *c, de_msgfn_type fn);
+
+#define DE_MSGCODE_HL      0x1000U
+#define DE_MSGCODE_UNHL    0x1100U
+#define DE_MSGCODE_RGBSAMPLE 0x2000U
+typedef void (*de_specialmsgfn_type)(deark *c, unsigned int flags, unsigned int code,
+	de_uint32 param1);
+void de_set_special_messages_callback(deark *c, de_specialmsgfn_type fn);
 
 typedef void (*de_fatalerrorfn_type)(deark *c);
 // The caller's fatalerror callback is not expected to return.
@@ -131,8 +145,8 @@ void de_set_input_format(deark *c, const char *fmtname);
 #define DE_OUTPUTSTYLE_STDOUT 2
 void de_set_output_style(deark *c, int x);
 
-void de_puts(deark *c, int msgtype, const char *s);
-void de_printf(deark *c, int msgtype, const char *fmt, ...)
+void de_puts(deark *c, unsigned int flags, const char *s);
+void de_printf(deark *c, unsigned int flags, const char *fmt, ...)
 	de_gnuc_attribute ((format (printf, 3, 4)));
 
 void de_utf8_to_ascii(const char *src, char *dst, size_t dstlen, unsigned int flags);
@@ -143,8 +157,10 @@ char **de_convert_args_to_utf8(int argc, wchar_t **argvW);
 void de_free_utf8_args(int argc, char **argv);
 wchar_t *de_utf8_to_utf16_strdup(deark *c, const char *src);
 void de_utf8_to_utf16_to_FILE(deark *c, const char *src, FILE *f);
-int de_stdout_is_windows_console(void);
-int de_stderr_is_windows_console(void);
+void *de_winconsole_get_handle(int n);
+int de_winconsole_is_console(void *h1);
+int de_get_current_windows_attributes(void *handle, unsigned int *attrs);
+void de_windows_highlight(void *handle1, unsigned int orig_attr, int x);
 #endif
 
 void de_set_base_output_filename(deark *c, const char *fn);

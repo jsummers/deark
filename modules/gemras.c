@@ -63,14 +63,14 @@ static void uncompress_line(deark *c, lctx *d, dbuf *unc_line,
 					pos++;
 					tmp_repeat_count = (de_int64)de_getbyte(pos++);
 					if(tmp_repeat_count == 0) {
-						de_dbg(c, "row %d: bad repeat count\n", (int)rownum);
+						de_dbg(c, "row %d: bad repeat count", (int)rownum);
 					}
 					else {
 						*repeat_count = tmp_repeat_count;
 					}
 				}
 				else {
-					de_dbg(c, "row %d: bad scanline run marker: 0x%02x\n",
+					de_dbg(c, "row %d: bad scanline run marker: 0x%02x",
 						(int)rownum, (unsigned int)flagbyte);
 				}
 			}
@@ -132,7 +132,7 @@ done1:
 	d->pattern_buf = NULL;
 }
 
-static void set_density(deark *c, lctx *d, struct deark_bitmap *img)
+static void set_density(deark *c, lctx *d, de_bitmap *img)
 {
 	if(d->pixwidth>0 && d->pixheight>0) {
 		img->density_code = DE_DENSITY_DPI;
@@ -141,7 +141,7 @@ static void set_density(deark *c, lctx *d, struct deark_bitmap *img)
 	}
 }
 
-static void read_paletted_image(deark *c, lctx *d, dbuf *unc_pixels, struct deark_bitmap *img)
+static void read_paletted_image(deark *c, lctx *d, dbuf *unc_pixels, de_bitmap *img)
 {
 	de_int64 i, j, plane;
 	unsigned int n;
@@ -162,7 +162,7 @@ static void read_paletted_image(deark *c, lctx *d, dbuf *unc_pixels, struct dear
 	}
 }
 
-static void read_rgb_image(deark *c, lctx *d, dbuf *unc_pixels, struct deark_bitmap *img)
+static void read_rgb_image(deark *c, lctx *d, dbuf *unc_pixels, de_bitmap *img)
 {
 	// Not implemented
 }
@@ -180,7 +180,7 @@ static const de_uint32 pal4bit[16] = {
 static int do_gem_img(deark *c, lctx *d)
 {
 	dbuf *unc_pixels = NULL;
-	struct deark_bitmap *img = NULL;
+	de_bitmap *img = NULL;
 	int is_color = 0;
 	de_int64 k;
 
@@ -234,6 +234,7 @@ static void read_palette_ximg(deark *c, lctx *d)
 	de_int64 cr1, cg1, cb1;
 	de_byte cr, cg, cb;
 	int range_warned = 0;
+	char tmps[64];
 
 	pal_entries_in_file = (d->header_size_in_bytes-22)/3;
 	if(pal_entries_in_file<1) return;
@@ -248,7 +249,7 @@ static void read_palette_ximg(deark *c, lctx *d)
 
 	if(pal_entries_in_file<1) return;
 
-	de_dbg(c, "palette at %d\n", 22);
+	de_dbg(c, "palette at %d", 22);
 	de_dbg_indent(c, 1);
 	for(i=0; i<pal_entries_to_read; i++) {
 		cr1 = de_getui16be(22 + 6*i);
@@ -259,18 +260,18 @@ static void read_palette_ximg(deark *c, lctx *d)
 		cg = de_scale_1000_to_255(cg1);
 		cb = de_scale_1000_to_255(cb1);
 
-		de_dbg2(c, "pal[%3d] = (%4d,%4d,%4d) -> (%3d,%3d,%3d)\n", (int)i,
-			(int)cr1, (int)cg1, (int)cb1,
-			(int)cr, (int)cg, (int)cb);
+		d->pal[i] = DE_MAKE_RGB(cr, cg, cb);
+
+		de_snprintf(tmps, sizeof(tmps), "(%4d,%4d,%4d) "DE_CHAR_RIGHTARROW" ",
+			(int)cr1, (int)cg1, (int)cb1);
+		de_dbg_pal_entry2(c, (int)i, d->pal[i], tmps, NULL, NULL);
 
 		// TODO: Maybe some out-of-range colors have special meaning?
 		if(!range_warned && (cr1>1000 || cg1>1000 || cb1>1000)) {
-			de_warn(c, "Bad palette color #%d: is (%d,%d,%d), max=(1000,1000,1000).\n",
+			de_warn(c, "Bad palette color #%d: is (%d,%d,%d), max=(1000,1000,1000).",
 				(int)i, (int)cr1, (int)cg1, (int)cb1);
 			range_warned=1;
 		}
-
-		d->pal[i] = DE_MAKE_RGB(cr, cg, cb);
 	}
 	de_dbg_indent(c, -1);
 }
@@ -280,7 +281,7 @@ static void read_palette_ximg(deark *c, lctx *d)
 static int do_gem_ximg(deark *c, lctx *d)
 {
 	dbuf *unc_pixels = NULL;
-	struct deark_bitmap *img = NULL;
+	de_bitmap *img = NULL;
 	int retval = 0;
 
 	if((d->nplanes>=1 && d->nplanes<=8) /* || d->nplanes==24 */) {
@@ -288,9 +289,9 @@ static int do_gem_ximg(deark *c, lctx *d)
 	}
 	else {
 		if(d->is_ximg)
-			de_err(c, "%d-plane XIMG images are not supported\n", (int)d->nplanes);
+			de_err(c, "%d-plane XIMG images are not supported", (int)d->nplanes);
 		else
-			de_err(c, "This type of %d-plane image is not supported\n", (int)d->nplanes);
+			de_err(c, "This type of %d-plane image is not supported", (int)d->nplanes);
 		goto done;
 	}
 
@@ -303,7 +304,7 @@ static int do_gem_ximg(deark *c, lctx *d)
 	}
 
 	if(d->nplanes==1 && d->pal[0]==d->pal[1]) {
-		de_dbg(c, "Palette doesn't seem to be present. Using a default palette.\n");
+		de_dbg(c, "Palette doesn't seem to be present. Using a default palette.");
 		d->pal[0] = DE_STOCKCOLOR_WHITE;
 		d->pal[1] = DE_STOCKCOLOR_BLACK;
 	}
@@ -341,26 +342,26 @@ static void de_run_gemraster(deark *c, de_module_params *mparams)
 
 	d = de_malloc(c, sizeof(lctx));
 	ver = de_getui16be(0);
-	de_dbg(c, "version: %d\n", (int)ver);
+	de_dbg(c, "version: %d", (int)ver);
 	d->header_size_in_words = de_getui16be(2);
 	d->header_size_in_bytes = d->header_size_in_words*2;
-	de_dbg(c, "header size: %d words (%d bytes)\n", (int)d->header_size_in_words,
+	de_dbg(c, "header size: %d words (%d bytes)", (int)d->header_size_in_words,
 		(int)d->header_size_in_bytes);
 	d->nplanes = de_getui16be(4);
-	de_dbg(c, "planes: %d\n", (int)d->nplanes);
+	de_dbg(c, "planes: %d", (int)d->nplanes);
 
 	if(d->header_size_in_words>=11) {
 		d->is_ximg = !dbuf_memcmp(c->infile, 16, "XIMG", 4);
 	}
 
 	d->patlen = de_getui16be(6);
-	de_dbg(c, "pattern def len: %d\n", (int)d->patlen);
+	de_dbg(c, "pattern def len: %d", (int)d->patlen);
 	d->pixwidth = de_getui16be(8);
 	d->pixheight = de_getui16be(10);
-	de_dbg(c, "pixel size: %dx%d microns\n", (int)d->pixwidth, (int)d->pixheight);
+	de_dbg(c, "pixel size: %d"DE_CHAR_TIMES"%d microns", (int)d->pixwidth, (int)d->pixheight);
 	d->w = de_getui16be(12);
 	d->h = de_getui16be(14);
-	de_dbg(c, "dimensions: %dx%d\n", (int)d->w, (int)d->h);
+	de_dbg_dimensions(c, d->w, d->h);
 
 	if(d->header_size_in_words>=9) {
 		// This may help to detect the image format.
@@ -368,7 +369,7 @@ static void de_run_gemraster(deark *c, de_module_params *mparams)
 	}
 
 	if(ver>2) {
-		de_err(c, "This version of GEM Raster (%d) is not supported.\n", (int)ver);
+		de_err(c, "This version of GEM Raster (%d) is not supported.", (int)ver);
 		goto done;
 	}
 
@@ -388,13 +389,13 @@ static void de_run_gemraster(deark *c, de_module_params *mparams)
 		need_format_warning = 1;
 	}
 	else {
-		de_err(c, "This version of GEM Raster is not supported.\n");
+		de_err(c, "This version of GEM Raster is not supported.");
 		goto done;
 	}
 
 	if(need_format_warning) {
 		de_warn(c, "This type of GEM Raster image is not very portable, and might "
-			"not be handled correctly.\n");
+			"not be handled correctly.");
 	}
 
 	if(!de_good_image_dimensions(c, d->w, d->h)) goto done;

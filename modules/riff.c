@@ -51,9 +51,9 @@ static void do_INFO_item(deark *c, lctx *d, struct de_iffctx *ictx, de_int64 pos
 	// TODO: Decode the chunk_id (e.g. ICRD = Creation date).
 
 	// TODO: Support the CSET chunk
-	dbuf_read_to_ucstring_n(c->infile, pos, len, 300, s,
+	dbuf_read_to_ucstring_n(c->infile, pos, len, DE_DBG_MAX_STRLEN, s,
 		DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_LATIN1);
-	de_dbg(c, "value: \"%s\"\n", ucstring_get_printable_sz(s));
+	de_dbg(c, "value: \"%s\"", ucstring_get_printable_sz(s));
 
 	ucstring_destroy(s);
 }
@@ -63,7 +63,7 @@ static void extract_ani_frame(deark *c, lctx *d, struct de_iffctx *ictx, de_int6
 	de_byte buf[4];
 	const char *ext;
 
-	de_dbg(c, "frame at %d, len=%d\n", (int)pos, (int)len);
+	de_dbg(c, "frame at %d, len=%d", (int)pos, (int)len);
 
 	de_read(buf, pos, 4);
 
@@ -93,23 +93,23 @@ static void do_wav_fmt(deark *c, lctx *d, struct de_iffctx *ictx, de_int64 pos, 
 	if(len<14) return;
 
 	n = de_getui16le(pos);
-	de_dbg(c, "FormatTag: 0x%04x\n", (unsigned int)n);
+	de_dbg(c, "FormatTag: 0x%04x", (unsigned int)n);
 	pos += 2;
 
 	n = de_getui16le(pos);
-	de_dbg(c, "Channels: %d\n", (int)n);
+	de_dbg(c, "Channels: %d", (int)n);
 	pos += 2;
 
 	n = de_getui32le(pos);
-	de_dbg(c, "SamplesPerSec: %d\n", (int)n);
+	de_dbg(c, "SamplesPerSec: %d", (int)n);
 	pos += 4;
 
 	n = de_getui32le(pos);
-	de_dbg(c, "AvgBytesPerSec: %d\n", (int)n);
+	de_dbg(c, "AvgBytesPerSec: %d", (int)n);
 	pos += 4;
 
 	n = de_getui16le(pos);
-	de_dbg(c, "BlockAlign: %d\n", (int)n);
+	de_dbg(c, "BlockAlign: %d", (int)n);
 	pos += 2;
 }
 
@@ -120,7 +120,7 @@ static void do_wav_fact(deark *c, lctx *d, struct de_iffctx *ictx, de_int64 pos,
 	if(!ictx->is_le) return;
 	if(len<4) return;
 	n = de_getui32le(pos);
-	de_dbg(c, "number of samples: %u\n", (unsigned int)n);
+	de_dbg(c, "number of samples: %u", (unsigned int)n);
 }
 
 static void do_palette(deark *c, lctx *d, struct de_iffctx *ictx, de_int64 pos, de_int64 len)
@@ -129,19 +129,21 @@ static void do_palette(deark *c, lctx *d, struct de_iffctx *ictx, de_int64 pos, 
 	de_int64 n;
 	de_int64 i;
 	de_byte r,g,b,flags;
+	de_uint32 clr;
+	char tmps[32];
 
 	if(!ictx->is_le) return;
 	ver = de_getui16le(pos);
-	de_dbg(c, "version: 0x%04x\n", (unsigned int)ver);
+	de_dbg(c, "version: 0x%04x", (unsigned int)ver);
 	pos += 2;
 	n = de_getui16le(pos);
-	de_dbg(c, "number of entries: %d\n", (int)n);
+	de_dbg(c, "number of entries: %d", (int)n);
 	pos += 2;
 	if(n>(len-4)/4) n=(len-4)/4;
 	if(n>1024) n=1024;
 	if(n<1) return;
 
-	de_dbg(c, "palette entries at %d\n", (int)pos);
+	de_dbg(c, "palette entries at %d", (int)pos);
 	de_dbg_indent(c, 1);
 	for(i=0; i<n; i++) {
 		r = de_getbyte(pos);
@@ -149,8 +151,9 @@ static void do_palette(deark *c, lctx *d, struct de_iffctx *ictx, de_int64 pos, 
 		b = de_getbyte(pos+2);
 		flags = de_getbyte(pos+3);
 		pos += 4;
-		de_dbg(c, "pal[%d] = (%3d,%3d,%3d) flags=0x%02x\n", (int)i,
-			(int)r, (int)g, (int)b, (unsigned int)flags);
+		clr = DE_MAKE_RGB(r, g, b);
+		de_snprintf(tmps, sizeof(tmps), " flags=0x%02x", (unsigned int)flags);
+		de_dbg_pal_entry2(c, i, clr, NULL, NULL, tmps);
 	}
 	de_dbg_indent(c, -1);
 }
@@ -171,7 +174,7 @@ static void do_DISP_TEXT(deark *c, lctx *d, struct de_iffctx *ictx, de_int64 pos
 	if(dbuf_search_byte(c->infile, 0x00, pos, len1, &foundpos)) {
 		len = foundpos - pos;
 	}
-	de_dbg(c, "text length: %d\n", (int)len);
+	de_dbg(c, "text length: %d", (int)len);
 	if(len<1) return;
 
 	do_extract_raw(c, d, ictx, pos, len, "disp.txt", DE_CREATEFLAG_IS_AUX);
@@ -220,7 +223,7 @@ static void do_DISP(deark *c, lctx *d, struct de_iffctx *ictx, de_int64 pos, de_
 	if(!ictx->is_le) return;
 	if(len<4) return;
 	ty = de_getui32le(pos);
-	de_dbg(c, "data type: %u (%s)\n", (unsigned int)ty,
+	de_dbg(c, "data type: %u (%s)", (unsigned int)ty,
 		get_cb_data_type_name(ty));
 
 	dpos = pos+4;
@@ -252,7 +255,7 @@ static int my_on_std_container_start_fn(deark *c, struct de_iffctx *ictx)
 		// 'cmpr' LISTs in CorelDraw files are not correctly formed.
 		// Tell the parser not to process them.
 		if(ictx->curr_container_contentstype4cc.id==CODE_cmpr) {
-			de_dbg(c, "[not decoding CDR cmpr list]\n");
+			de_dbg(c, "[not decoding CDR cmpr list]");
 			return 0;
 		}
 	}
@@ -366,7 +369,7 @@ static void de_run_riff(deark *c, de_module_params *mparams)
 		ictx->reversed_4cc = 1;
 	}
 	else {
-		de_warn(c, "This is probably not a RIFF file.\n");
+		de_warn(c, "This is probably not a RIFF file.");
 		ictx->is_le = 1;
 		ictx->reversed_4cc = 0;
 	}
