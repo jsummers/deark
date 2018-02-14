@@ -715,7 +715,7 @@ static void de_run_amos_source(deark *c, de_module_params *mparams)
 		dbuf_create_file_from_slice(c->infile, pos, c->infile->len-pos, "AmBs.abk", NULL, 0);
 	}
 	else {
-		de_dbg(c, "not extracting emtpy AmBs segment");
+		de_dbg(c, "not extracting empty AmBs segment");
 	}
 	de_dbg_indent(c, -1);
 

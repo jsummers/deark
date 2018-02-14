@@ -452,7 +452,7 @@ static void ef_infozipmac(deark *c, lctx *d,
 	if(ulen<1 || ulen>1000000) goto done;
 
 	if(!is_compression_method_supported(cmprtype)) {
-		de_warn(c, "Finder attribute data: Unspported compression method: %d", (int)cmprtype);
+		de_warn(c, "Finder attribute data: Unsupported compression method: %d", (int)cmprtype);
 	}
 
 	// Decompress and decode the Finder attribute data
@@ -547,7 +547,7 @@ static const struct extra_item_type_info_struct extra_item_type_info_arr[] = {
 	{ 0x4690 /*    */, "POSZIP 4690", NULL },
 	{ 0x4704 /*    */, "VM/CMS", NULL },
 	{ 0x470f /*    */, "MVS", NULL },
-	{ 0x4854 /* TH */, "Theos, old inofficial port", NULL },
+	{ 0x4854 /* TH */, "Theos, old unofficial port", NULL },
 	{ 0x4b46 /* FK */, "FWKCS MD5", NULL },
 	{ 0x4c41 /* AL */, "OS/2 access control list (text ACL)", NULL },
 	{ 0x4d49 /* IM */, "Info-ZIP OpenVMS", NULL },
