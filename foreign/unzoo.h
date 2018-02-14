@@ -41,7 +41,7 @@
 */
 
 struct lzh_lookuptable {
-	int tablebits;
+	unsigned int tablebits;
 	size_t ncodes;
 	size_t nlengths;
 	de_uint16 *Tab;
@@ -597,8 +597,8 @@ static void SetLookupTblLen(struct lzh_lookuptable *lookuptbl, size_t idx, de_by
 static int MakeTablLzh (struct unzooctx *uz, struct entryctx *ze,
 	struct lzh_lookuptable *lookuptbl)
 {
-	de_uint16           count[17], weight[17], start[18], *p;
-	unsigned int        i, k, len, ch, jutbits, avail, mask;
+	de_uint16           count[17], weight[17], start[18];
+	unsigned int        i, len, ch, jutbits, avail, mask;
 	struct lzh_table *lzhtbl = &ze->lzhtbl;
 
 	de_memset(count, 0, sizeof(count));
@@ -614,8 +614,8 @@ static int MakeTablLzh (struct unzooctx *uz, struct entryctx *ze,
 	if (start[17] != (de_uint16)((unsigned int) 1 << 16))
 		return 0;
 
-	jutbits = 16 - lookuptbl->tablebits;
-	for (i = 1; i <= (unsigned int)lookuptbl->tablebits; i++) {
+	jutbits = 16 - lookuptbl->tablebits; // jutbits = either 4 or 8
+	for (i = 1; i <= lookuptbl->tablebits; i++) {
 		start[i] >>= jutbits;
 		weight[i] = (unsigned int) 1 << (lookuptbl->tablebits - i);
 	}
@@ -626,6 +626,7 @@ static int MakeTablLzh (struct unzooctx *uz, struct entryctx *ze,
 
 	i = start[lookuptbl->tablebits + 1] >> jutbits;
 	if (i != (de_uint16)((unsigned int) 1 << 16)) {
+		unsigned int k;
 		k = 1 << lookuptbl->tablebits;
 		while (i != k) lookuptbl->Tab[i++] = 0;
 	}
@@ -634,27 +635,45 @@ static int MakeTablLzh (struct unzooctx *uz, struct entryctx *ze,
 	mask = (unsigned int) 1 << (15 - lookuptbl->tablebits);
 	for (ch = 0; ch < (unsigned int)lookuptbl->nlengths; ch++) {
 		if ((len = lookuptbl->Len[ch]) == 0) continue;
-		if (len <= (unsigned int)lookuptbl->tablebits) {
+		if (len <= lookuptbl->tablebits) {
 			for ( i = 0; i < weight[len]; i++ ) {
 				if(i+start[len] < lookuptbl->ncodes)
 					lookuptbl->Tab[i+start[len]] = ch;
 			}
 		}
 		else {
+			unsigned int k;
+			// p can point into lookuptbl->Tab [len lookuptbl->ncodes]
+			//    or into lzhtbl->TreeLeft  [2*LZH_MAX_CODE+1]
+			//    or into lzhtbl->TreeRight [2*LZH_MAX_CODE+1]
+			de_uint16 *p;
+
+			if(len>=18) return 0;
 			k = start[len];
+
+			if((k >> jutbits) >= lookuptbl->ncodes) return 0;
 			p = &lookuptbl->Tab[k >> jutbits];
+
+			if(lookuptbl->tablebits > len) return 0;
 			i = len - lookuptbl->tablebits;
+
 			while (i != 0) {
 				if (*p == 0) {
+					if(avail >= (2*LZH_MAX_CODE+1)) return 0;
 					lzhtbl->TreeRight[avail] = lzhtbl->TreeLeft[avail] = 0;
 					*p = avail++;
 				}
+
+				if(*p >= (2*LZH_MAX_CODE+1)) return 0;
 				if (k & mask) p = &lzhtbl->TreeRight[*p];
 				else          p = &lzhtbl->TreeLeft[*p];
-				k <<= 1;  i--;
+
+				k <<= 1;
+				i--;
 			}
 			*p = ch;
 		}
+		if(len>=17) return 0;
 		start[len] += weight[len];
 	}
 
@@ -937,7 +956,7 @@ static int DecodeLzh (struct unzooctx *uz, struct entryctx *ze)
 }
 
 static void init_lzh_lookuptable(deark *c, struct lzh_lookuptable *lookuptbl,
-	int tablebits, size_t nlengths)
+	unsigned int tablebits, size_t nlengths)
 {
 	lookuptbl->tablebits = tablebits;
 	lookuptbl->ncodes = ((size_t)1)<<lookuptbl->tablebits;

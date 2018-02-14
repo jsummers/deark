@@ -561,7 +561,6 @@ Deark -- Information about supported formats
   - Raw zlib files are uncompressed.
 
 * ZOO (module="zoo")
-  - You may have to use "-m zoo".
   - Extract comments (use -a).
 
 == Transfer encoding modules ==

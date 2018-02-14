@@ -30,8 +30,4 @@ void de_module_zoo(deark *c, struct deark_module_info *mi)
 	mi->desc = "ZOO compressed archive format";
 	mi->run_fn = de_run_zoo;
 	mi->identify_fn = de_identify_zoo;
-	// The imported ZOO code is ancient, complex, and has been refactored by
-	// someone (me) who did not understand it fully. I don't have a good
-	// feeling about it.
-	mi->flags |= DE_MODFLAG_SECURITYWARNING;
 }
