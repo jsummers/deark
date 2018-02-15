@@ -273,6 +273,18 @@ void de_dbg_indent_restore(deark *c, int saved_indent_level)
 	c->dbg_indent_amount = saved_indent_level;
 }
 
+static int get_ndigits_for_offset(de_int64 n)
+{
+	int nd;
+
+	if(n<10) nd=1;
+	else if(n<100) nd=2;
+	else if(n<1000) nd=3;
+	else if(n<10000) nd=4;
+	else nd=5;
+	return nd;
+}
+
 // flags:
 //  0x1 = Include an ASCII representation
 void de_dbg_hexdump(deark *c, dbuf *f, de_int64 pos1,
@@ -280,13 +292,16 @@ void de_dbg_hexdump(deark *c, dbuf *f, de_int64 pos1,
 	const char *prefix, unsigned int flags)
 {
 	char linebuf[3*16+32];
-	char asciibuf[32];
+	char asciibuf[64];
+	char offset_fmtstr[32];
 	de_int64 pos = pos1;
 	de_int64 k;
 	de_int64 bytesthisrow;
-	de_int64 asciibufpos;
+	int asciibufpos;
+	int linebufpos;
 	de_byte b;
 	de_int64 len;
+	int ndigits_for_offset;
 	int was_truncated = 0;
 
 	if(nbytes_avail > max_nbytes_to_dump) {
@@ -297,20 +312,58 @@ void de_dbg_hexdump(deark *c, dbuf *f, de_int64 pos1,
 		len = nbytes_avail;
 	}
 
-	while(1) {
+	// Construct a format string to use for byte offsets.
+	if(was_truncated) {
+		// If we're truncating, the highest offset we'll print is the number
+		// of data bytes that we'll dump.
+		ndigits_for_offset = get_ndigits_for_offset(len);
+	}
+	else {
+		if(len<1) return;
+
+		// If we're not truncating, the highest offset we'll print is the
+		// highest byte offset that is a multiple of 16.
+		ndigits_for_offset = get_ndigits_for_offset(((len-1)/16)*16);
+	}
+	de_snprintf(offset_fmtstr, sizeof(offset_fmtstr), "%%%dd", ndigits_for_offset);
+
+	while(1) { // For each row...
+		char offset_formatted[32];
+
 		if(pos >= pos1+len) break;
+
 		bytesthisrow = (pos1+len)-pos;
 		if(bytesthisrow>16) bytesthisrow=16;
+
+		linebufpos = 0;
 		asciibufpos = 0;
 		asciibuf[asciibufpos++] = '\"';
 		for(k=0; k<bytesthisrow; k++) {
 			b = dbuf_getbyte(f, pos+k);
-			linebuf[k*3] = de_get_hexchar(b/16);
-			linebuf[k*3+1] = de_get_hexchar(b%16);
-			linebuf[k*3+2] = ' ';
-			linebuf[k*3+3] = '\0';
-			asciibuf[asciibufpos++] = (b>=32 && b<=126) ? (char)b : '.';
+			linebuf[linebufpos++] = de_get_hexchar(b/16);
+			linebuf[linebufpos++] = de_get_hexchar(b%16);
+			linebuf[linebufpos++] = ' ';
+			if(b>=32 && b<=126) {
+				asciibuf[asciibufpos++] = (char)b;
+			}
+			else {
+				asciibuf[asciibufpos++] = '\x01'; // DE_CODEPOINT_HL
+				asciibuf[asciibufpos++] = '.';
+				// We'll often turn off highlighting only to turn it back on
+				// again for the next character. The OFF+ON sequences will be
+				// optimized out later, though, so there's no reason to worry
+				// about that here.
+				asciibuf[asciibufpos++] = '\x02'; // DE_CODEPOINT_UNHL
+			}
 		}
+
+		// Pad and terminate the hex values
+		while(linebufpos<48) {
+			linebuf[linebufpos++] = ' ';
+		}
+		linebuf[linebufpos] = '\0';
+
+		// Terminate or erase the ASCII representation
 		if(flags&0x1) {
 			asciibuf[asciibufpos++] = '\"';
 			asciibuf[asciibufpos++] = '\0';
@@ -318,7 +371,12 @@ void de_dbg_hexdump(deark *c, dbuf *f, de_int64 pos1,
 		else {
 			asciibuf[0] = '\0';
 		}
-		de_dbg(c, "%s:%d: %s%s", prefix, (int)(pos-pos1), linebuf, asciibuf);
+
+		// Careful: With a variable format string, the compiler won't be able to
+		// detect errors.
+		de_snprintf(offset_formatted, sizeof(offset_formatted), offset_fmtstr, (int)(pos-pos1));
+
+		de_dbg(c, "%s:%s: %s%s", prefix, offset_formatted, linebuf, asciibuf);
 		pos += bytesthisrow;
 	}
 	if(was_truncated) {
@@ -354,7 +412,7 @@ char *de_get_colorsample_code(deark *c, de_uint32 clr, char *csamp,
 	// all be 0; since we can't have NUL bytes in this NUL-terminated string.
 	// Also, it's nice if the values are all <= 127, to make them UTF-8
 	// compatible.
-	csamp[0] = '\x03';
+	csamp[0] = '\x03'; // refer to DE_CODEPOINT_RGBSAMPLE
 	csamp[1] = 16 + (r>>4)%16;
 	csamp[2] = 16 + r%16;
 	csamp[3] = 16 + (g>>4)%16;
