@@ -30,6 +30,8 @@ obj/modules/bpg.o: modules/bpg.c src/deark-config.h src/deark-private.h \
  src/deark.h src/deark-fmtutil.h
 obj/modules/bsave.o: modules/bsave.c src/deark-config.h \
  src/deark-private.h src/deark.h
+obj/modules/cab.o: modules/cab.c src/deark-config.h src/deark-private.h \
+ src/deark.h
 obj/modules/cardfile.o: modules/cardfile.c src/deark-config.h \
  src/deark-private.h src/deark.h
 obj/modules/cfb.o: modules/cfb.c src/deark-config.h src/deark-private.h \
