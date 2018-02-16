@@ -365,9 +365,7 @@ static void do_mpf_segment(deark *c, lctx *d, de_int64 pos, de_int64 data_size)
 {
 	de_dbg(c, "MPF data at %d, size=%d", (int)pos, (int)data_size);
 	de_dbg_indent(c, 1);
-	// TODO: The 3rd param below should probably represent some sort of TIFF
-	// tag "namespace".
-	de_run_module_by_id_on_slice2(c, "tiff", "", c->infile, pos, data_size);
+	de_run_module_by_id_on_slice2(c, "tiff", "M", c->infile, pos, data_size);
 	de_dbg_indent(c, -1);
 }
 
@@ -696,21 +694,14 @@ static void do_ducky_segment(deark *c, lctx *d, struct page_ctx *pg, de_int64 po
 
 static void do_meta_segment(deark *c, lctx *d, struct page_ctx *pg, de_int64 pos1, de_int64 len)
 {
-	de_module_params *mparams = NULL;
-
 	if(len<1) return;
 
 	de_dbg(c, "\"Meta\" data at %d, size=%d", (int)(pos1+1), (int)(len-1));
 	de_dbg_indent(c, 1);
-
-	mparams = de_malloc(c, sizeof(de_module_params));
-	mparams->codes = "M";
-
-	de_run_module_by_id_on_slice(c, "tiff", mparams, c->infile, pos1+1, len-1);
-
-//done:
+	// TODO: The 3rd param below should probably represent some sort of TIFF
+	// tag "namespace".
+	de_run_module_by_id_on_slice2(c, "tiff", NULL, c->infile, pos1+1, len-1);
 	de_dbg_indent(c, -1);
-	de_free(c, mparams);
 }
 
 
