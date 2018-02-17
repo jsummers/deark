@@ -189,6 +189,8 @@ de_int32 de_char_to_unicode(deark *c, de_int32 a, int encoding)
 		return de_palmcs_to_unicode(a);
 	case DE_ENCODING_DEC_SPECIAL_GRAPHICS:
 		return de_decspecialgraphics_to_unicode(a);
+	case DE_ENCODING_PRINTABLEASCII:
+		return (a>=32 && a<=126)?a:DE_CODEPOINT_INVALID;
 	}
 	return a;
 }

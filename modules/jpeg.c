@@ -1352,8 +1352,8 @@ static void handle_comment(deark *c, lctx *d, de_int64 pos, de_int64 comment_siz
 
 	if(encoding==DE_ENCODING_UNKNOWN) {
 		// In this case, we're printing the comment in the debug info.
-		// If we don't know the encoding, pretend it's ASCII.
-		encoding=DE_ENCODING_ASCII;
+		// If we don't know the encoding, pretend it's ASCII-like.
+		encoding=DE_ENCODING_PRINTABLEASCII;
 	}
 
 	s = ucstring_create(c);
