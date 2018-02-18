@@ -17,12 +17,17 @@ static void de_run_autocad_slb(deark *c, de_module_params *mparams)
 		de_int64 pos;
 		de_int64 len;
 	};
+	de_int64 si_numalloc;
 	struct slideinfo *si = NULL;
 	de_ucstring *slidename = NULL;
 
-	de_dbg(c, "[pass 1: counting slides]");
+	de_dbg(c, "[pass 1: recording addresses]");
+	si_numalloc = 64;
+	si = de_malloc(c, si_numalloc*sizeof(struct slideinfo));
 	pos = 32;
 	while(1) {
+		de_int64 k;
+
 		if(pos > (c->infile->len-36)) {
 			de_err(c, "Unterminated directory");
 			goto done;
@@ -30,15 +35,24 @@ static void de_run_autocad_slb(deark *c, de_module_params *mparams)
 		if(de_getbyte(pos)==0) {
 			break;
 		}
-		nslides++;
-		pos += 36;
-	}
-	de_dbg(c, "slides found: %d", (int)nslides);
 
-	de_dbg(c, "[pass 2: recording addresses]");
-	si = de_malloc(c, nslides*sizeof(struct slideinfo));
-	pos = 32;
-	for(k=0; k<nslides; k++) {
+		k = nslides; // Index of the new slide
+		nslides++;
+
+		if(nslides > si_numalloc) {
+			de_int64 old_numalloc, new_numalloc;
+
+			if(!de_good_image_count(c, nslides)) {
+				de_err(c, "Too many slides");
+				goto done;
+			}
+			old_numalloc = si_numalloc;
+			new_numalloc = old_numalloc*2;
+			si = de_realloc(c, si, old_numalloc*sizeof(struct slideinfo),
+				new_numalloc*sizeof(struct slideinfo));
+			si_numalloc *= new_numalloc;
+		}
+
 		si[k].pos = de_getui32le(pos+32);
 
 		if(si[k].pos > c->infile->len) {
@@ -56,15 +70,14 @@ static void de_run_autocad_slb(deark *c, de_module_params *mparams)
 			// Set the previous slide's length.
 			si[k-1].len = si[k].pos - si[k-1].pos;
 		}
-		if(k==(nslides-1)) {
-			// If this is the last slide, assume it goes to end of file.
-			si[k].len = c->infile->len - si[k].pos;
-		}
+		// Start by assuming this slide ends at the end of the file. If this
+		// turns out not to be the last slide, this value will be changed later.
+		si[k].len = c->infile->len - si[k].pos;
 
 		pos += 36;
 	}
 
-	de_dbg(c, "[pass 3: extracting slides]");
+	de_dbg(c, "[pass 2: extracting slides]");
 	pos = 32;
 	slidename = ucstring_create(c);
 	for(k=0; k<nslides; k++) {
