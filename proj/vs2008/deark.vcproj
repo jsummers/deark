@@ -494,6 +494,10 @@
 				>
 			</File>
 			<File
+				RelativePath="..\..\modules\asf.c"
+				>
+			</File>
+			<File
 				RelativePath="..\..\modules\atari-img.c"
 				>
 			</File>
