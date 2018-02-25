@@ -155,6 +155,97 @@ static void handler_CodecList(deark *c, lctx *d, struct handler_params *hp)
 	}
 }
 
+static int do_ECD_entry(deark *c, lctx *d, de_int64 pos1, de_int64 len, de_int64 *bytes_consumed)
+{
+	de_int64 pos = pos1;
+	de_ucstring *name = NULL;
+	de_ucstring *val_str = NULL;
+	de_int64 val_int;
+	de_int64 namelen;
+	de_int64 val_data_type;
+	de_int64 val_len;
+	int retval = 0;
+	int saved_indent_level;
+
+	*bytes_consumed = 0;
+	de_dbg_indent_save(c, &saved_indent_level);
+	de_dbg(c, "ECD object at %"INT64_FMT, pos1);
+	de_dbg_indent(c, 1);
+
+	if(len<6) goto done;
+	namelen = de_getui16le(pos);
+	pos += 2;
+	name = ucstring_create(c);
+	dbuf_read_to_ucstring_n(c->infile, pos, namelen, DE_DBG_MAX_STRLEN*2, name,
+		0, DE_ENCODING_UTF16LE);
+	ucstring_truncate_at_NUL(name);
+	de_dbg(c, "name: \"%s\"", ucstring_get_printable_sz(name));
+	pos += namelen;
+
+	val_data_type = de_getui16le(pos);
+	de_dbg(c, "value data type: %d", (int)val_data_type);
+	pos += 2;
+
+	val_len = de_getui16le(pos);
+	pos += 2;
+
+	de_dbg(c, "value data at %"INT64_FMT", len=%d", pos, (int)val_len);
+
+	if(val_data_type==0) { // Unicode string
+		val_str = ucstring_create(c);
+		dbuf_read_to_ucstring_n(c->infile, pos, val_len, DE_DBG_MAX_STRLEN*2, val_str,
+			0, DE_ENCODING_UTF16LE);
+		ucstring_truncate_at_NUL(val_str);
+		de_dbg(c, "value: \"%s\"", ucstring_get_printable_sz(val_str));
+	}
+	else if((val_data_type==2 || val_data_type==3) &&  val_len>=4) { // BOOL, DWORD
+		val_int = de_getui32le(pos);
+		de_dbg(c, "value: %u", (unsigned int)val_int);
+	}
+	else if(val_data_type==4 && val_len>=8) {
+		// FIXME: This should be unsigned
+		val_int = de_geti64le(pos);
+		de_dbg(c, "value: %"INT64_FMT, val_int);
+	}
+	else if(val_data_type==5 && val_len>=2) { // WORD
+		val_int = de_getui16le(pos);
+		de_dbg(c, "value: %u", (unsigned int)val_int);
+	}
+	pos += val_len;
+
+	*bytes_consumed = pos-pos1;
+	retval = 1;
+done:
+	de_dbg_indent_restore(c, saved_indent_level);
+	ucstring_destroy(name);
+	ucstring_destroy(val_str);
+	return retval;
+}
+
+// Extended Content Description
+static void handler_ECD(deark *c, lctx *d, struct handler_params *hp)
+{
+	de_int64 descr_count;
+	de_int64 k;
+	de_int64 pos;
+
+	descr_count = de_getui16le(hp->dpos);
+	de_dbg(c, "descriptor count: %d", (int)descr_count);
+
+	pos = hp->dpos+2;
+	for(k=0; k<descr_count; k++) {
+		de_int64 bytes_consumed = 0;
+		int ret;
+
+		if(pos >= hp->dpos + hp->dlen) {
+			break;
+		}
+		ret = do_ECD_entry(c, d, pos, hp->dpos+hp->dlen-pos, &bytes_consumed);
+		if(!ret || (bytes_consumed<6)) break;
+		pos += bytes_consumed;
+	}
+}
+
 struct object_info {
 	de_uint32 short_id;
 	de_uint32 flags;
@@ -178,7 +269,7 @@ static const struct object_info object_info_arr[] = {
 	{207, 0, {0xd6,0xe2,0x29,0xdc,0x35,0xda,0x11,0xd1,0x90,0x34,0x00,0xa0,0xc9,0x03,0x49,0xbe}, "Bitrate Mutual Exclusion", NULL},
 	{208, 0, {0x75,0xb2,0x26,0x35,0x66,0x8e,0x11,0xcf,0xa6,0xd9,0x00,0xaa,0x00,0x62,0xce,0x6c}, "Error Correction", NULL},
 	{209, 0, {0x75,0xb2,0x26,0x33,0x66,0x8e,0x11,0xcf,0xa6,0xd9,0x00,0xaa,0x00,0x62,0xce,0x6c}, "Content Description", NULL},
-	{210, 0, {0xd2,0xd0,0xa4,0x40,0xe3,0x07,0x11,0xd2,0x97,0xf0,0x00,0xa0,0xc9,0x5e,0xa8,0x50}, "Extended Content Description", NULL},
+	{210, 0, {0xd2,0xd0,0xa4,0x40,0xe3,0x07,0x11,0xd2,0x97,0xf0,0x00,0xa0,0xc9,0x5e,0xa8,0x50}, "Extended Content Description", handler_ECD},
 	{211, 0, {0x22,0x11,0xb3,0xfa,0xbd,0x23,0x11,0xd2,0xb4,0xb7,0x00,0xa0,0xc9,0x55,0xfc,0x6e}, "Content Branding", NULL},
 	{212, 0, {0x7b,0xf8,0x75,0xce,0x46,0x8d,0x11,0xd1,0x8d,0x82,0x00,0x60,0x97,0xc9,0xa2,0xb2}, "Stream Bitrate Properties", NULL},
 	{213, 0, {0x22,0x11,0xb3,0xfb,0xbd,0x23,0x11,0xd2,0xb4,0xb7,0x00,0xa0,0xc9,0x55,0xfc,0x6e}, "Content Encryption", NULL},
