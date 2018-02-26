@@ -510,31 +510,6 @@ done:
 	ucstring_destroy(digest_str);
 }
 
-// It is uncommon for a U+0000-terminated UTF-16 string to be stored in a file,
-// without any way to determine its length except by scanning for the U+0000
-// character. But FPXR segments do just that.
-// At this time, Deark has no library function for this.
-static int find_utf16_NULterm_len(dbuf *f, de_int64 pos1, de_int64 bytes_avail,
-	de_int64 *bytes_consumed)
-{
-	de_int64 x;
-	de_int64 pos = pos1;
-
-	*bytes_consumed = bytes_avail;
-	while(1) {
-		if(pos1+bytes_avail-pos < 2) {
-			return 0;
-		}
-		// Endianness doesn't matter, because we're only looking for 0x00 0x00.
-		x = dbuf_getui16le(f, pos);
-		pos += 2;
-		if(x==0) {
-			*bytes_consumed = pos - pos1;
-			return 1;
-		}
-	}
-}
-
 static void do_fpxr_segment(deark *c, lctx *d, struct page_ctx *pg, de_int64 pos1, de_int64 len)
 {
 	de_int64 pos = pos1;
@@ -597,7 +572,7 @@ static void do_fpxr_segment(deark *c, lctx *d, struct page_ctx *pg, de_int64 pos
 			de_dbg(c, "default value: 0x%02x", (unsigned int)defval);
 
 			nbytesleft = pos1+len-pos;
-			if(!find_utf16_NULterm_len(c->infile, pos, nbytesleft, &bytes_consumed)) goto done;
+			if(!dbuf_get_utf16_NULterm_len(c->infile, pos, nbytesleft, &bytes_consumed)) goto done;
 			ucstring_empty(s);
 			dbuf_read_to_ucstring_n(c->infile, pos, bytes_consumed-2, DE_DBG_MAX_STRLEN, s,
 				0, DE_ENCODING_UTF16LE);

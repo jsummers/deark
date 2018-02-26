@@ -548,6 +548,9 @@ int dbuf_search_byte(dbuf *f, const de_byte b, de_int64 startpos,
 int dbuf_search(dbuf *f, const de_byte *needle, de_int64 needle_len,
 	de_int64 startpos, de_int64 haystack_len, de_int64 *foundpos);
 
+int dbuf_get_utf16_NULterm_len(dbuf *f, de_int64 pos1, de_int64 bytes_avail,
+	de_int64 *bytes_consumed);
+
 int dbuf_find_line(dbuf *f, de_int64 pos1, de_int64 *pcontent_len, de_int64 *ptotal_len);
 
 struct de_fourcc {

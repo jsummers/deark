@@ -167,20 +167,11 @@ static int read_id3v2_terminated_string(deark *c, id3v2ctx *d, dbuf *f,
 
 	if(id3_encoding==ID3ENC_UTF16 || id3_encoding==ID3ENC_UTF16BE) {
 		// A 2-byte encoding
-		de_int64 k;
 		int foundflag = 0;
 
-		// Search for the aligned pair of 0x00 bytes that marks the end of string.
-		for(k=0; k<=(nbytes_to_scan-2); k+=2) {
-			de_int64 x;
-			x = dbuf_getui16be(f, pos+k);
-			if(x==0) {
-				foundflag = 1;
-				stringlen = k;
-				*bytes_consumed = stringlen + 2;
-			}
-		}
+		foundflag = dbuf_get_utf16_NULterm_len(f, pos, nbytes_to_scan, bytes_consumed);
 		if(!foundflag) goto done;
+		stringlen = (*bytes_consumed)-2;
 	}
 	else {
 		// A 1-byte encoding
