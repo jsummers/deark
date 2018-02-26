@@ -1371,6 +1371,14 @@ static void de_run_mp3(deark *c, de_module_params *mparams)
 	pos = 0;
 	endpos = c->infile->len;
 
+	if(mparams && mparams->codes) {
+		if(de_strchr(mparams->codes, 'I')) { // raw ID3v2
+			de_int64 bytes_consumed_id3v2 = 0;
+			do_id3v2(c, c->infile, 0, c->infile->len, &bytes_consumed_id3v2);
+			goto done;
+		}
+	}
+
 	if(!dbuf_memcmp(c->infile, 0, "ID3", 3)) {
 		de_int64 bytes_consumed_id3v2 = 0;
 
@@ -1405,6 +1413,7 @@ static void de_run_mp3(deark *c, de_module_params *mparams)
 
 	do_mp3_data(c, d, pos, endpos-pos);
 
+done:
 	de_free(c, d);
 }
 
@@ -1434,7 +1443,6 @@ static int de_identify_mp3(deark *c)
 	}
 	return 0;
 }
-
 
 void de_module_mp3(deark *c, struct deark_module_info *mi)
 {

@@ -587,6 +587,10 @@ Deark -- Information about supported formats
 * AMOS source code (module="amos_source")
   - Extract AmBs resource file.
 
+* ASF multimedia (module="asf")
+  - Files can be parsed, but there is usually nothing that can be extracted
+    from them.
+
 * C64 BASIC (module="basic-c64") (experimental)
   - Detokenize C64 BASIC programs
 

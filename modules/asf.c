@@ -155,13 +155,22 @@ static void handler_CodecList(deark *c, lctx *d, struct handler_params *hp)
 	}
 }
 
+static void do_ECD_ID3(deark *c, lctx *d, de_int64 pos, de_int64 len)
+{
+	de_dbg(c, "ID3 data at %"INT64_FMT", len=%"INT64_FMT, pos, len);
+	de_dbg_indent(c, 1);
+	de_run_module_by_id_on_slice2(c, "mp3", "I", c->infile, pos, len);
+	de_dbg_indent(c, -1);
+}
+
 static int do_ECD_entry(deark *c, lctx *d, de_int64 pos1, de_int64 len, de_int64 *bytes_consumed)
 {
 	de_int64 pos = pos1;
-	de_ucstring *name = NULL;
+	struct de_stringreaderdata *name_srd = NULL;
 	de_ucstring *val_str = NULL;
 	de_int64 val_int;
 	de_int64 namelen;
+	de_int64 namelen_to_keep;
 	de_int64 val_data_type;
 	de_int64 val_len;
 	int retval = 0;
@@ -175,11 +184,13 @@ static int do_ECD_entry(deark *c, lctx *d, de_int64 pos1, de_int64 len, de_int64
 	if(len<6) goto done;
 	namelen = de_getui16le(pos);
 	pos += 2;
-	name = ucstring_create(c);
-	dbuf_read_to_ucstring_n(c->infile, pos, namelen, DE_DBG_MAX_STRLEN*2, name,
-		0, DE_ENCODING_UTF16LE);
-	ucstring_truncate_at_NUL(name);
-	de_dbg(c, "name: \"%s\"", ucstring_get_printable_sz(name));
+	namelen_to_keep = namelen;
+	if(namelen_to_keep>256) namelen_to_keep=256;
+	name_srd = dbuf_read_string(c->infile, pos, namelen_to_keep, namelen_to_keep,
+		DE_CONVFLAG_WANT_UTF8, DE_ENCODING_UTF16LE);
+	// TODO: dbuf_read_string should have a way to stop at a UTF-16 NUL.
+	ucstring_truncate_at_NUL(name_srd->str);
+	de_dbg(c, "name: \"%s\"", ucstring_get_printable_sz_d(name_srd->str));
 	pos += namelen;
 
 	val_data_type = de_getui16le(pos);
@@ -211,13 +222,25 @@ static int do_ECD_entry(deark *c, lctx *d, de_int64 pos1, de_int64 len, de_int64
 		val_int = de_getui16le(pos);
 		de_dbg(c, "value: %u", (unsigned int)val_int);
 	}
+	else if(val_data_type==1) { // binary
+		if(!de_strcmp(name_srd->sz_utf8, "ID3")) {
+			do_ECD_ID3(c, d, pos, val_len);
+		}
+		else {
+			de_dbg_indent(c, 1);
+			de_dbg_hexdump(c, c->infile, pos, val_len, 256, "data", 0x1);
+			de_dbg_indent(c, -1);
+		}
+		// TODO: WM/Picture
+	}
+
 	pos += val_len;
 
 	*bytes_consumed = pos-pos1;
 	retval = 1;
 done:
 	de_dbg_indent_restore(c, saved_indent_level);
-	ucstring_destroy(name);
+	de_destroy_stringreaderdata(c, name_srd);
 	ucstring_destroy(val_str);
 	return retval;
 }
@@ -418,8 +441,6 @@ static void de_run_asf(deark *c, de_module_params *mparams)
 
 	d = de_malloc(c, sizeof(lctx));
 
-	de_msg(c, "Note: ASF files can be parsed, but no files can be extracted from them.");
-
 	do_object_sequence(c, d, 0, c->infile->len, 0, 0, 0);
 
 	de_free(c, d);
@@ -438,7 +459,7 @@ static int de_identify_asf(deark *c)
 void de_module_asf(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "asf";
-	mi->desc = "ASF/WMV (Microsoft multimedia format)";
+	mi->desc = "ASF, WMV, WMA";
 	mi->run_fn = de_run_asf;
 	mi->identify_fn = de_identify_asf;
 }
