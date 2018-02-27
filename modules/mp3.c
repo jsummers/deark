@@ -33,6 +33,7 @@ DE_DECLARE_MODULE(de_module_mp3);
 
 typedef struct id3v2ctx_struct {
 	de_byte has_id3v2;
+	de_byte wmpicture_mode;
 
 	de_int64 total_len;
 
@@ -442,6 +443,63 @@ done:
 	ucstring_destroy(comment_text);
 }
 
+static void extract_pic_apic(deark *c, id3v2ctx *d, dbuf *f,
+	 de_int64 pos, de_int64 len)
+{
+	const char *ext;
+	char fullext[32];
+	de_byte sig[2];
+
+	dbuf_read(f, sig, pos, 2);
+	if(sig[0]==0x89 && sig[1]==0x50) ext="png";
+	else if(sig[0]==0xff && sig[1]==0xd8) ext="jpg";
+	else ext="bin";
+	de_snprintf(fullext, sizeof(fullext), "%s.%s",
+		d->wmpicture_mode?"wmpic":"id3pic", ext);
+	dbuf_create_file_from_slice(f, pos, len, fullext, NULL, DE_CREATEFLAG_IS_AUX);
+}
+
+// Similar to decode_id3v2_frame_pic_apic()
+static void decode_id3v2_frame_wmpicture(deark *c, id3v2ctx *d,
+	dbuf *f, de_int64 pos1, de_int64 len)
+{
+	de_byte picture_type;
+	de_int64 pos = pos1;
+	de_int64 pic_data_len;
+	de_int64 stringlen; // includes terminating 0x0000
+	de_ucstring *mimetype = NULL;
+	de_ucstring *description = NULL;
+	int ret;
+
+	picture_type = dbuf_getbyte(f, pos++);
+	de_dbg(c, "picture type: 0x%02x", (unsigned int)picture_type);
+
+	pic_data_len = dbuf_getui32le(f, pos);
+	de_dbg(c, "picture size: %u", (unsigned int)pic_data_len);
+	pos += 4;
+
+	ret = dbuf_get_utf16_NULterm_len(f, pos, pos1+len-pos, &stringlen);
+	if(!ret) goto done;
+	mimetype = ucstring_create(c);
+	dbuf_read_to_ucstring_n(f, pos, stringlen-2, 256, mimetype, 0, DE_ENCODING_UTF16LE);
+	de_dbg(c, "mime type: \"%s\"", ucstring_get_printable_sz_d(mimetype));
+	pos += stringlen;
+
+	ret = dbuf_get_utf16_NULterm_len(f, pos, pos1+len-pos, &stringlen);
+	if(!ret) goto done;
+	mimetype = ucstring_create(c);
+	dbuf_read_to_ucstring_n(f, pos, stringlen-2, 2048, mimetype, 0, DE_ENCODING_UTF16LE);
+	de_dbg(c, "description: \"%s\"", ucstring_get_printable_sz_d(mimetype));
+	pos += stringlen;
+
+	if(pos+pic_data_len > pos1+len) goto done;
+	extract_pic_apic(c, d, f, pos, pic_data_len);
+
+done:
+	ucstring_destroy(mimetype);
+	ucstring_destroy(description);
+}
+
 static void decode_id3v2_frame_pic_apic(deark *c, id3v2ctx *d,
 	dbuf *f, de_int64 pos1, de_int64 len, struct de_fourcc *tag4cc)
 {
@@ -453,8 +511,6 @@ static void decode_id3v2_frame_pic_apic(deark *c, id3v2ctx *d,
 	de_ucstring *description = NULL;
 	de_int64 bytes_consumed = 0;
 	int ret;
-	const char *ext;
-	de_byte sig[2];
 
 	id3_encoding = dbuf_getbyte(f, pos++);
 	de_dbg(c, "text encoding: %d (%s)", (int)id3_encoding,
@@ -486,12 +542,7 @@ static void decode_id3v2_frame_pic_apic(deark *c, id3v2ctx *d,
 	pos += bytes_consumed;
 
 	if(pos >= pos1+len) goto done;
-
-	dbuf_read(f, sig, pos, 2);
-	if(sig[0]==0x89 && sig[1]==0x50) ext="id3pic.png";
-	else if(sig[0]==0xff && sig[1]==0xd8) ext="id3pic.jpg";
-	else ext="id3pic.bin";
-	dbuf_create_file_from_slice(f, pos, pos1+len-pos, ext, NULL, DE_CREATEFLAG_IS_AUX);
+	extract_pic_apic(c, d, f, pos, pos1+len-pos);
 
 done:
 	de_destroy_stringreaderdata(c, fmt_srd);
@@ -857,6 +908,23 @@ static void do_id3v2_frames(deark *c, id3v2ctx *d,
 
 done:
 	de_dbg_indent_restore(c, saved_indent_level);
+}
+
+// WM/Picture a metadata element that occurs in ASF, and maybe other, Microsoft
+// formats. Microsoft says
+//   "This attribute is compatible with the ID3 frame, APIC."
+// That's slightly misleading. It contains the same information, but formatted
+// in an incompatible way.
+// It seems to be a serialization of the WM_PICTURE struct, with the fields in
+// a different order.
+static void do_wmpicture(deark *c, dbuf *f, de_int64 pos, de_int64 len)
+{
+	id3v2ctx *d = NULL;
+
+	d = de_malloc(c, sizeof(id3v2ctx));
+	d->wmpicture_mode = 1;
+	decode_id3v2_frame_wmpicture(c, d, f, pos, len);
+	de_free(c, d);
 }
 
 static void do_id3v2(deark *c, dbuf *f, de_int64 pos, de_int64 bytes_avail,
@@ -1366,6 +1434,10 @@ static void de_run_mp3(deark *c, de_module_params *mparams)
 		if(de_strchr(mparams->codes, 'I')) { // raw ID3v2
 			de_int64 bytes_consumed_id3v2 = 0;
 			do_id3v2(c, c->infile, 0, c->infile->len, &bytes_consumed_id3v2);
+			goto done;
+		}
+		if(de_strchr(mparams->codes, 'P')) { // Windows WM/Picture
+			do_wmpicture(c, c->infile, 0, c->infile->len);
 			goto done;
 		}
 	}

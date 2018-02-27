@@ -163,6 +163,14 @@ static void do_ECD_ID3(deark *c, lctx *d, de_int64 pos, de_int64 len)
 	de_dbg_indent(c, -1);
 }
 
+static void do_ECD_WMPicture(deark *c, lctx *d, de_int64 pos, de_int64 len)
+{
+	de_dbg(c, "WM/Picture data at %"INT64_FMT", len=%"INT64_FMT, pos, len);
+	de_dbg_indent(c, 1);
+	de_run_module_by_id_on_slice2(c, "mp3", "P", c->infile, pos, len);
+	de_dbg_indent(c, -1);
+}
+
 static int do_ECD_entry(deark *c, lctx *d, de_int64 pos1, de_int64 len, de_int64 *bytes_consumed)
 {
 	de_int64 pos = pos1;
@@ -225,6 +233,9 @@ static int do_ECD_entry(deark *c, lctx *d, de_int64 pos1, de_int64 len, de_int64
 	else if(val_data_type==1) { // binary
 		if(!de_strcmp(name_srd->sz_utf8, "ID3")) {
 			do_ECD_ID3(c, d, pos, val_len);
+		}
+		else if(!de_strcmp(name_srd->sz_utf8, "WM/Picture")) {
+			do_ECD_WMPicture(c, d, pos, val_len);
 		}
 		else {
 			de_dbg_indent(c, 1);
