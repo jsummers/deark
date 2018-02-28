@@ -472,6 +472,7 @@ static void decode_id3v2_frame_wmpicture(deark *c, id3v2ctx *d,
 	int ret;
 
 	picture_type = dbuf_getbyte(f, pos++);
+	// TODO: Decode picture types
 	de_dbg(c, "picture type: 0x%02x", (unsigned int)picture_type);
 
 	pic_data_len = dbuf_getui32le(f, pos);
@@ -490,6 +491,7 @@ static void decode_id3v2_frame_wmpicture(deark *c, id3v2ctx *d,
 	mimetype = ucstring_create(c);
 	dbuf_read_to_ucstring_n(f, pos, stringlen-2, 2048, mimetype, 0, DE_ENCODING_UTF16LE);
 	de_dbg(c, "description: \"%s\"", ucstring_get_printable_sz_d(mimetype));
+	// TODO: Maybe the description should be used in the filename?
 	pos += stringlen;
 
 	if(pos+pic_data_len > pos1+len) goto done;

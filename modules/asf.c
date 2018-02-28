@@ -25,6 +25,14 @@ struct handler_params {
 };
 typedef void (*handler_fn_type)(deark *c, lctx *d, struct handler_params *hp);
 
+struct object_info {
+	de_uint32 short_id;
+	de_uint32 flags;
+	const de_byte uuid[16];
+	const char *name;
+	handler_fn_type hfn;
+};
+
 static int do_object_sequence(deark *c, lctx *d, de_int64 pos1, de_int64 len, int level,
 	int known_object_count, de_int64 num_objects_expected);
 
@@ -171,12 +179,71 @@ static void do_ECD_WMPicture(deark *c, lctx *d, de_int64 pos, de_int64 len)
 	de_dbg_indent(c, -1);
 }
 
+static void do_metadata_item(deark *c, lctx *d, de_int64 pos, de_int64 val_len,
+	de_int64 val_data_type, struct de_stringreaderdata *name_srd)
+{
+	de_ucstring *val_str = NULL;
+	de_int64 val_int;
+	int handled = 0;
+
+	de_dbg(c, "value data at %"INT64_FMT", len=%d", pos, (int)val_len);
+
+	if(val_data_type==0 && val_len>=2) { // Unicode string
+		val_str = ucstring_create(c);
+		dbuf_read_to_ucstring_n(c->infile, pos, val_len-2, DE_DBG_MAX_STRLEN*2, val_str,
+			0, DE_ENCODING_UTF16LE);
+		de_dbg(c, "value: \"%s\"", ucstring_get_printable_sz(val_str));
+		handled = 1;
+	}
+	else if((val_data_type==2 || val_data_type==3) &&  val_len>=4) { // BOOL, DWORD
+		val_int = de_getui32le(pos);
+		de_dbg(c, "value: %u", (unsigned int)val_int);
+		handled = 1;
+	}
+	else if(val_data_type==4 && val_len>=8) {
+		// FIXME: This should be unsigned
+		val_int = de_geti64le(pos);
+		de_dbg(c, "value: %"INT64_FMT, val_int);
+		handled = 1;
+	}
+	else if(val_data_type==5 && val_len>=2) { // WORD
+		val_int = de_getui16le(pos);
+		de_dbg(c, "value: %u", (unsigned int)val_int);
+		handled = 1;
+	}
+	else if(val_data_type==6 && val_len>=16) { // GUID
+		de_byte guid_raw[16];
+		char guid_string[50];
+		de_read(guid_raw, pos, 16);
+		de_fmtutil_guid_to_uuid(guid_raw);
+		de_fmtutil_render_uuid(c, guid_raw, guid_string, sizeof(guid_string));
+		de_dbg(c, "value: {%s}", guid_string);
+		handled = 1;
+	}
+	else if(val_data_type==1) { // binary
+		if(!de_strcmp(name_srd->sz_utf8, "ID3")) {
+			do_ECD_ID3(c, d, pos, val_len);
+			handled = 1;
+		}
+		else if(!de_strcmp(name_srd->sz_utf8, "WM/Picture")) {
+			do_ECD_WMPicture(c, d, pos, val_len);
+			handled = 1;
+		}
+	}
+
+	if(!handled) {
+		de_dbg_indent(c, 1);
+		de_dbg_hexdump(c, c->infile, pos, val_len, 256, "data", 0x1);
+		de_dbg_indent(c, -1);
+	}
+
+	ucstring_destroy(val_str);
+}
+
 static int do_ECD_entry(deark *c, lctx *d, de_int64 pos1, de_int64 len, de_int64 *bytes_consumed)
 {
 	de_int64 pos = pos1;
 	struct de_stringreaderdata *name_srd = NULL;
-	de_ucstring *val_str = NULL;
-	de_int64 val_int;
 	de_int64 namelen;
 	de_int64 namelen_to_keep;
 	de_int64 val_data_type;
@@ -190,14 +257,13 @@ static int do_ECD_entry(deark *c, lctx *d, de_int64 pos1, de_int64 len, de_int64
 	de_dbg_indent(c, 1);
 
 	if(len<6) goto done;
-	namelen = de_getui16le(pos);
+	namelen = de_getui16le(pos); // # of bytes, including the expected 0x00 0x00 terminator
 	pos += 2;
-	namelen_to_keep = namelen;
+	namelen_to_keep = namelen-2;
+	if(namelen_to_keep<0) namelen_to_keep=0;
 	if(namelen_to_keep>256) namelen_to_keep=256;
 	name_srd = dbuf_read_string(c->infile, pos, namelen_to_keep, namelen_to_keep,
 		DE_CONVFLAG_WANT_UTF8, DE_ENCODING_UTF16LE);
-	// TODO: dbuf_read_string should have a way to stop at a UTF-16 NUL.
-	ucstring_truncate_at_NUL(name_srd->str);
 	de_dbg(c, "name: \"%s\"", ucstring_get_printable_sz_d(name_srd->str));
 	pos += namelen;
 
@@ -208,42 +274,7 @@ static int do_ECD_entry(deark *c, lctx *d, de_int64 pos1, de_int64 len, de_int64
 	val_len = de_getui16le(pos);
 	pos += 2;
 
-	de_dbg(c, "value data at %"INT64_FMT", len=%d", pos, (int)val_len);
-
-	if(val_data_type==0) { // Unicode string
-		val_str = ucstring_create(c);
-		dbuf_read_to_ucstring_n(c->infile, pos, val_len, DE_DBG_MAX_STRLEN*2, val_str,
-			0, DE_ENCODING_UTF16LE);
-		ucstring_truncate_at_NUL(val_str);
-		de_dbg(c, "value: \"%s\"", ucstring_get_printable_sz(val_str));
-	}
-	else if((val_data_type==2 || val_data_type==3) &&  val_len>=4) { // BOOL, DWORD
-		val_int = de_getui32le(pos);
-		de_dbg(c, "value: %u", (unsigned int)val_int);
-	}
-	else if(val_data_type==4 && val_len>=8) {
-		// FIXME: This should be unsigned
-		val_int = de_geti64le(pos);
-		de_dbg(c, "value: %"INT64_FMT, val_int);
-	}
-	else if(val_data_type==5 && val_len>=2) { // WORD
-		val_int = de_getui16le(pos);
-		de_dbg(c, "value: %u", (unsigned int)val_int);
-	}
-	else if(val_data_type==1) { // binary
-		if(!de_strcmp(name_srd->sz_utf8, "ID3")) {
-			do_ECD_ID3(c, d, pos, val_len);
-		}
-		else if(!de_strcmp(name_srd->sz_utf8, "WM/Picture")) {
-			do_ECD_WMPicture(c, d, pos, val_len);
-		}
-		else {
-			de_dbg_indent(c, 1);
-			de_dbg_hexdump(c, c->infile, pos, val_len, 256, "data", 0x1);
-			de_dbg_indent(c, -1);
-		}
-		// TODO: WM/Picture
-	}
+	do_metadata_item(c, d, pos, val_len, val_data_type, name_srd);
 
 	pos += val_len;
 
@@ -252,12 +283,79 @@ static int do_ECD_entry(deark *c, lctx *d, de_int64 pos1, de_int64 len, de_int64
 done:
 	de_dbg_indent_restore(c, saved_indent_level);
 	de_destroy_stringreaderdata(c, name_srd);
-	ucstring_destroy(val_str);
 	return retval;
 }
 
-// Extended Content Description
-static void handler_ECD(deark *c, lctx *d, struct handler_params *hp)
+// Supports:
+//   Metadata
+//   Metadata Library
+// This is a lot like do_ECD_entry().
+static int do_metadata_entry(deark *c, lctx *d, struct handler_params *hp,
+	de_int64 pos1, de_int64 len, de_int64 *bytes_consumed)
+{
+	de_int64 pos = pos1;
+	struct de_stringreaderdata *name_srd = NULL;
+	de_int64 namelen;
+	de_int64 namelen_to_keep;
+	de_int64 val_data_type;
+	de_int64 val_len;
+	de_int64 stream_number;
+	int retval = 0;
+	int saved_indent_level;
+
+	*bytes_consumed = 0;
+	de_dbg_indent_save(c, &saved_indent_level);
+	de_dbg(c, "metadata object at %"INT64_FMT, pos1);
+	de_dbg_indent(c, 1);
+
+	if(len<14) goto done;
+
+	if(hp->uui->short_id==308) { // Metadata Library
+		de_int64 lang_list_idx;
+		lang_list_idx = de_getui16le(pos);
+		de_dbg(c, "language list index: %d", (int)lang_list_idx);
+	}
+	pos += 2; // Lang list index, or reserved
+
+	stream_number = de_getui16le(pos);
+	de_dbg(c, "stream number: %d", (int)stream_number);
+	pos += 2;
+
+	namelen = de_getui16le(pos); // # of bytes, including the expected 0x00 0x00 terminator
+	pos += 2;
+
+	val_data_type = de_getui16le(pos);
+	de_dbg(c, "value data type: %d", (int)val_data_type);
+	pos += 2;
+
+	val_len = de_getui32le(pos);
+	pos += 4;
+
+	namelen_to_keep = namelen-2;
+	if(namelen_to_keep<0) namelen_to_keep=0;
+	if(namelen_to_keep>256) namelen_to_keep=256;
+	name_srd = dbuf_read_string(c->infile, pos, namelen_to_keep, namelen_to_keep,
+		DE_CONVFLAG_WANT_UTF8, DE_ENCODING_UTF16LE);
+	de_dbg(c, "name: \"%s\"", ucstring_get_printable_sz_d(name_srd->str));
+	pos += namelen;
+
+	do_metadata_item(c, d, pos, val_len, val_data_type, name_srd);
+
+	pos += val_len;
+
+	*bytes_consumed = pos-pos1;
+	retval = 1;
+done:
+	de_dbg_indent_restore(c, saved_indent_level);
+	de_destroy_stringreaderdata(c, name_srd);
+	return retval;
+}
+
+// Supports:
+//   Extended Content Description
+//   Metadata
+//   Metadata Library
+static void handler_ECD_or_metadata(deark *c, lctx *d, struct handler_params *hp)
 {
 	de_int64 descr_count;
 	de_int64 k;
@@ -274,19 +372,20 @@ static void handler_ECD(deark *c, lctx *d, struct handler_params *hp)
 		if(pos >= hp->dpos + hp->dlen) {
 			break;
 		}
-		ret = do_ECD_entry(c, d, pos, hp->dpos+hp->dlen-pos, &bytes_consumed);
+		if(hp->uui->short_id==210) {
+			ret = do_ECD_entry(c, d, pos, hp->dpos+hp->dlen-pos, &bytes_consumed);
+		}
+		else if(hp->uui->short_id==307 || hp->uui->short_id==308) {
+			ret = do_metadata_entry(c, d, hp, pos, hp->dpos+hp->dlen-pos, &bytes_consumed);
+		}
+		else {
+			break;
+		}
 		if(!ret || (bytes_consumed<6)) break;
 		pos += bytes_consumed;
 	}
 }
 
-struct object_info {
-	de_uint32 short_id;
-	de_uint32 flags;
-	const de_byte uuid[16];
-	const char *name;
-	handler_fn_type hfn;
-};
 static const struct object_info object_info_arr[] = {
 	{101, 0, {0x75,0xb2,0x26,0x30,0x66,0x8e,0x11,0xcf,0xa6,0xd9,0x00,0xaa,0x00,0x62,0xce,0x6c}, "Header", handler_Header},
 	{102, 0, {0x75,0xb2,0x26,0x36,0x66,0x8e,0x11,0xcf,0xa6,0xd9,0x00,0xaa,0x00,0x62,0xce,0x6c}, "Data", NULL},
@@ -303,7 +402,7 @@ static const struct object_info object_info_arr[] = {
 	{207, 0, {0xd6,0xe2,0x29,0xdc,0x35,0xda,0x11,0xd1,0x90,0x34,0x00,0xa0,0xc9,0x03,0x49,0xbe}, "Bitrate Mutual Exclusion", NULL},
 	{208, 0, {0x75,0xb2,0x26,0x35,0x66,0x8e,0x11,0xcf,0xa6,0xd9,0x00,0xaa,0x00,0x62,0xce,0x6c}, "Error Correction", NULL},
 	{209, 0, {0x75,0xb2,0x26,0x33,0x66,0x8e,0x11,0xcf,0xa6,0xd9,0x00,0xaa,0x00,0x62,0xce,0x6c}, "Content Description", NULL},
-	{210, 0, {0xd2,0xd0,0xa4,0x40,0xe3,0x07,0x11,0xd2,0x97,0xf0,0x00,0xa0,0xc9,0x5e,0xa8,0x50}, "Extended Content Description", handler_ECD},
+	{210, 0, {0xd2,0xd0,0xa4,0x40,0xe3,0x07,0x11,0xd2,0x97,0xf0,0x00,0xa0,0xc9,0x5e,0xa8,0x50}, "Extended Content Description", handler_ECD_or_metadata},
 	{211, 0, {0x22,0x11,0xb3,0xfa,0xbd,0x23,0x11,0xd2,0xb4,0xb7,0x00,0xa0,0xc9,0x55,0xfc,0x6e}, "Content Branding", NULL},
 	{212, 0, {0x7b,0xf8,0x75,0xce,0x46,0x8d,0x11,0xd1,0x8d,0x82,0x00,0x60,0x97,0xc9,0xa2,0xb2}, "Stream Bitrate Properties", NULL},
 	{213, 0, {0x22,0x11,0xb3,0xfb,0xbd,0x23,0x11,0xd2,0xb4,0xb7,0x00,0xa0,0xc9,0x55,0xfc,0x6e}, "Content Encryption", NULL},
@@ -316,8 +415,8 @@ static const struct object_info object_info_arr[] = {
 	{304, 0, {0xd4,0xfe,0xd1,0x5b,0x88,0xd3,0x45,0x4f,0x81,0xf0,0xed,0x5c,0x45,0x99,0x9e,0x24}, "Stream Prioritization", NULL},
 	{305, 0, {0xa6,0x96,0x09,0xe6,0x51,0x7b,0x11,0xd2,0xb6,0xaf,0x00,0xc0,0x4f,0xd9,0x08,0xe9}, "Bandwidth Sharing", NULL},
 	{306, 0, {0x7c,0x43,0x46,0xa9,0xef,0xe0,0x4b,0xfc,0xb2,0x29,0x39,0x3e,0xde,0x41,0x5c,0x85}, "Language List", NULL},
-	{307, 0, {0xc5,0xf8,0xcb,0xea,0x5b,0xaf,0x48,0x77,0x84,0x67,0xaa,0x8c,0x44,0xfa,0x4c,0xca}, "Metadata", NULL},
-	{308, 0, {0x44,0x23,0x1c,0x94,0x94,0x98,0x49,0xd1,0xa1,0x41,0x1d,0x13,0x4e,0x45,0x70,0x54}, "Metadata Library", NULL},
+	{307, 0, {0xc5,0xf8,0xcb,0xea,0x5b,0xaf,0x48,0x77,0x84,0x67,0xaa,0x8c,0x44,0xfa,0x4c,0xca}, "Metadata", handler_ECD_or_metadata},
+	{308, 0, {0x44,0x23,0x1c,0x94,0x94,0x98,0x49,0xd1,0xa1,0x41,0x1d,0x13,0x4e,0x45,0x70,0x54}, "Metadata Library", handler_ECD_or_metadata},
 	{309, 0, {0xd6,0xe2,0x29,0xdf,0x35,0xda,0x11,0xd1,0x90,0x34,0x00,0xa0,0xc9,0x03,0x49,0xbe}, "Index Parameters", NULL},
 	{310, 0, {0x6b,0x20,0x3b,0xad,0x3f,0x11,0x48,0xe4,0xac,0xa8,0xd7,0x61,0x3d,0xe2,0xcf,0xa7}, "Media Object Index Parameters", NULL},
 	{311, 0, {0xf5,0x5e,0x49,0x6d,0x97,0x97,0x4b,0x5d,0x8c,0x8b,0x60,0x4d,0xfe,0x9b,0xfb,0x24}, "Timecode Index Parameters", NULL},
