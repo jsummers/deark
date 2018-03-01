@@ -1123,6 +1123,7 @@ static void handler_usercomment(deark *c, lctx *d, const struct taginfo *tg, con
 	static de_byte charcode[8];
 	de_ucstring *s = NULL;
 	int enc = DE_ENCODING_UNKNOWN;
+	de_int64 bytes_per_char = 1;
 
 	if(tg->datatype != DATATYPE_UNDEF) goto done;
 	if(tg->total_size < 8) goto done;
@@ -1132,13 +1133,22 @@ static void handler_usercomment(deark *c, lctx *d, const struct taginfo *tg, con
 	if(!de_memcmp(charcode, "ASCII\0\0\0", 8)) {
 		enc = DE_ENCODING_ASCII;
 	}
-	// TODO: Support "UNICODE\0" (need samples)
+	else if(!de_memcmp(charcode, "UNICODE\0", 8)) {
+		enc = d->is_le ? DE_ENCODING_UTF16LE : DE_ENCODING_UTF16BE;
+		bytes_per_char = 2;
+	}
 
 	if(enc == DE_ENCODING_UNKNOWN) goto done;
 
 	s = ucstring_create(c);
 	dbuf_read_to_ucstring_n(c->infile, tg->val_offset + 8, tg->total_size - 8,
-		DE_TIFF_MAX_CHARS_TO_PRINT, s, DE_CONVFLAG_STOP_AT_NUL, enc);
+		DE_TIFF_MAX_CHARS_TO_PRINT*bytes_per_char, s, 0, enc);
+
+	// Should we truncate at NUL, or not? The Exif spec says "NULL termination
+	// is not necessary", but it doesn't say whether it is *allowed*.
+	// In practice, if we don't do this, we sometimes end up printing a lot of
+	// garbage.
+	ucstring_truncate_at_NUL(s);
 
 	// FIXME: This is not quite right, though it's not important. We really
 	// need to read the entire string, not just the first
