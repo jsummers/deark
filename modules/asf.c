@@ -40,6 +40,29 @@ struct object_info {
 static int do_object_sequence(deark *c, lctx *d, de_int64 pos1, de_int64 len, int level,
 	int known_object_count, de_int64 num_objects_expected);
 
+// Returns a copy of the 'buf' param
+static char *format_date(de_int64 t_FILETIME, char *buf, size_t buf_len)
+{
+	struct de_timestamp timestamp;
+
+	if(t_FILETIME==0) {
+		de_strlcpy(buf, "unknown", buf_len);
+	}
+	else {
+		de_FILETIME_to_timestamp(t_FILETIME, &timestamp);
+		de_timestamp_to_string(&timestamp, buf, buf_len, 1);
+	}
+	return buf;
+}
+
+// Returns a copy of the 'buf' param
+static char *format_duration(de_int64 n, char *buf, size_t buf_len)
+{
+	// TODO: Better formatting
+	de_snprintf(buf, buf_len, "%.3f sec", (double)n/10000000.0);
+	return buf;
+}
+
 static void handler_Header(deark *c, lctx *d, struct handler_params *hp)
 {
 	de_int64 numhdrobj;
@@ -50,13 +73,88 @@ static void handler_Header(deark *c, lctx *d, struct handler_params *hp)
 	do_object_sequence(c, d, hp->dpos+6, hp->dlen-6, hp->level+1, 1, numhdrobj);
 }
 
+static void handler_FileProperties(deark *c, lctx *d, struct handler_params *hp)
+{
+	de_int64 pos = hp->dpos;
+	de_int64 create_date;
+	de_int64 x;
+	unsigned int flags;
+	de_byte guid_raw[16];
+	char guid_string[50];
+	char buf[64];
+
+	if(hp->dlen<80) return;
+
+	// Some fields before the 'flags' field depend on it, so look ahead at it.
+	flags = (unsigned int)de_getui32le(pos+64);
+
+	de_read(guid_raw, pos, 16);
+	de_fmtutil_guid_to_uuid(guid_raw);
+	de_fmtutil_render_uuid(c, guid_raw, guid_string, sizeof(guid_string));
+	de_dbg(c, "file id: {%s}", guid_string);
+	pos += 16;
+
+	if(!(flags&0x1)) {
+		x = de_geti64le(pos);
+		de_dbg(c, "file size: %"INT64_FMT, x);
+	}
+	pos += 8;
+
+	create_date = de_geti64le(pos);
+	de_dbg(c, "creation date: %"INT64_FMT" (%s)", create_date,
+		format_date(create_date, buf, sizeof(buf)));
+	pos += 8;
+
+	if(!(flags&0x1)) {
+		x = de_geti64le(pos);
+		de_dbg(c, "data packets count: %"INT64_FMT, x);
+	}
+	pos += 8;
+
+	if(!(flags&0x1)) {
+		x = de_geti64le(pos);
+		de_dbg(c, "play duration: %"INT64_FMT" (%s)", x, format_duration(x, buf, sizeof(buf)));
+	}
+	pos += 8;
+
+	if(!(flags&0x1)) {
+		x = de_geti64le(pos);
+		de_dbg(c, "send duration: %"INT64_FMT" (%s)", x, format_duration(x, buf, sizeof(buf)));
+	}
+	pos += 8;
+
+	x = de_geti64le(pos);
+	de_dbg(c, "preroll: %"INT64_FMT, x);
+	pos += 8;
+
+	// Already read, above.
+	de_dbg(c, "flags: 0x%08x", flags);
+	pos += 4;
+
+	x = de_getui32le(pos);
+	de_dbg(c, "min data packet size: %u", (unsigned int)x);
+	pos += 4;
+
+	x = de_getui32le(pos);
+	de_dbg(c, "max data packet size: %u", (unsigned int)x);
+	pos += 4;
+
+	x = de_getui32le(pos);
+	de_dbg(c, "max bitrate: %u bits/sec", (unsigned int)x);
+	pos += 4;
+}
+
 static void handler_StreamProperties(deark *c, lctx *d, struct handler_params *hp)
 {
 	de_int64 pos = hp->dpos;
+	de_int64 x;
+	de_int64 tsdlen, ecdlen;
+	unsigned int flags;
 	de_byte stream_type[16];
 	de_byte ec_type[16];
 	char stream_type_string[50];
 	char ec_type_string[50];
+	char buf[64];
 
 	if(hp->dlen<54) return;
 
@@ -73,7 +171,39 @@ static void handler_StreamProperties(deark *c, lctx *d, struct handler_params *h
 	de_dbg(c, "error correction type: {%s}", ec_type_string);
 	pos += 16;
 
-	// TODO: There are more fields here
+	x = de_geti64le(pos);
+	de_dbg(c, "time offset: %"INT64_FMT" (%s)", x, format_duration(x, buf, sizeof(buf)));
+	pos += 8;
+
+	tsdlen = de_getui32le(pos);
+	pos += 4;
+
+	ecdlen = de_getui32le(pos);
+	pos += 4;
+
+	flags = (unsigned int)de_getui16le(pos);
+	de_dbg(c, "flags: 0x%08x", flags);
+	de_dbg_indent(c, 1);
+	de_dbg(c, "stream number: %u", (unsigned int)(flags&0x7f));
+	de_dbg_indent(c, -1);
+	pos += 2;
+
+	pos += 4; // reserved
+
+	if(tsdlen) {
+		de_dbg(c, "[%d bytes of type-specific data at %"INT64_FMT"]", (int)tsdlen, pos);
+		de_dbg_indent(c, 1);
+		de_dbg_hexdump(c, c->infile, pos, tsdlen, 256, "data", 0x1);
+		de_dbg_indent(c, -1);
+		pos += tsdlen;
+	}
+	if(ecdlen) {
+		de_dbg(c, "[%d bytes of error correction data at %"INT64_FMT"]", (int)ecdlen, pos);
+		de_dbg_indent(c, 1);
+		de_dbg_hexdump(c, c->infile, pos, ecdlen, 256, "data", 0x1);
+		de_dbg_indent(c, -1);
+		pos += ecdlen;
+	}
 }
 
 static void handler_HeaderExtension(deark *c, lctx *d, struct handler_params *hp)
@@ -159,7 +289,7 @@ static int do_codec_entry(deark *c, lctx *d, de_int64 pos1, de_int64 len, de_int
 	infolen = de_getui16le(pos);
 	pos += 2;
 	if(infolen>0) {
-		de_dbg(c, "codec information (%d bytes)", (int)infolen);
+		de_dbg(c, "[%d bytes of codec information at %"INT64_FMT"]", (int)infolen, pos);
 		de_dbg_indent(c, 1);
 		de_dbg_hexdump(c, c->infile, pos, infolen, 256, "data", 0x1);
 		de_dbg_indent(c, -1);
@@ -213,6 +343,13 @@ static void do_ECD_WMPicture(deark *c, lctx *d, de_int64 pos, de_int64 len)
 	de_dbg_indent(c, -1);
 }
 
+static void do_WMEncodingTime(deark *c, lctx *d, de_int64 t)
+{
+	char buf[64];
+
+	de_dbg(c, "value: %"INT64_FMT" (%s)", t, format_date(t, buf, sizeof(buf)));
+}
+
 static void do_metadata_item(deark *c, lctx *d, de_int64 pos, de_int64 val_len,
 	de_int64 val_data_type, struct de_stringreaderdata *name_srd)
 {
@@ -235,9 +372,13 @@ static void do_metadata_item(deark *c, lctx *d, de_int64 pos, de_int64 val_len,
 		handled = 1;
 	}
 	else if(val_data_type==4 && val_len>=8) {
-		// FIXME: This should be unsigned
 		val_int = de_geti64le(pos);
-		de_dbg(c, "value: %"INT64_FMT, val_int);
+		if(!de_strcmp(name_srd->sz_utf8, "WM/EncodingTime")) {
+			do_WMEncodingTime(c, d, val_int);
+		}
+		else {
+			de_dbg(c, "value: %"INT64_FMT, val_int);
+		}
 		handled = 1;
 	}
 	else if(val_data_type==5 && val_len>=2) { // WORD
@@ -427,7 +568,7 @@ static const struct object_info object_info_arr[] = {
 	{104, 0, {0xd6,0xe2,0x29,0xd3,0x35,0xda,0x11,0xd1,0x90,0x34,0x00,0xa0,0xc9,0x03,0x49,0xbe}, "Index", NULL},
 	{105, 0, {0xfe,0xb1,0x03,0xf8,0x12,0xad,0x4c,0x64,0x84,0x0f,0x2a,0x1d,0x2f,0x7a,0xd4,0x8c}, "Media Object Index", NULL},
 	{106, 0, {0x3c,0xb7,0x3f,0xd0,0x0c,0x4a,0x48,0x03,0x95,0x3d,0xed,0xf7,0xb6,0x22,0x8f,0x0c}, "Timecode Index", NULL},
-	{201, 0, {0x8c,0xab,0xdc,0xa1,0xa9,0x47,0x11,0xcf,0x8e,0xe4,0x00,0xc0,0x0c,0x20,0x53,0x65}, "File Properties", NULL},
+	{201, 0, {0x8c,0xab,0xdc,0xa1,0xa9,0x47,0x11,0xcf,0x8e,0xe4,0x00,0xc0,0x0c,0x20,0x53,0x65}, "File Properties", handler_FileProperties},
 	{202, 0, {0xb7,0xdc,0x07,0x91,0xa9,0xb7,0x11,0xcf,0x8e,0xe6,0x00,0xc0,0x0c,0x20,0x53,0x65}, "Stream Properties", handler_StreamProperties},
 	{203, 0, {0x5f,0xbf,0x03,0xb5,0xa9,0x2e,0x11,0xcf,0x8e,0xe3,0x00,0xc0,0x0c,0x20,0x53,0x65}, "Header Extension", handler_HeaderExtension},
 	{204, 0, {0x86,0xd1,0x52,0x40,0x31,0x1d,0x11,0xd0,0xa3,0xa4,0x00,0xa0,0xc9,0x03,0x48,0xf6}, "Codec List", handler_CodecList},
