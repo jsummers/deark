@@ -443,19 +443,67 @@ done:
 	ucstring_destroy(comment_text);
 }
 
+struct apic_type_info {
+	de_byte picture_type;
+	const char *name;
+	const char *token;
+};
+static const struct apic_type_info apic_type_info_arr[] = {
+	{0x00, "other/unspecified", NULL},
+	{0x01, "standard file icon", "icon"},
+	{0x02, "file icon", "icon"},
+	{0x03, "front cover", "front_cover"},
+	{0x04, "back cover", "back_cover"},
+	{0x05, "leaflet page", NULL},
+	{0x06, "media", "media"},
+	{0x07, "lead artist", NULL},
+	{0x08, "artist", NULL},
+	{0x09, "conductor", NULL},
+	{0x0a, "band", NULL},
+	{0x0b, "composer", NULL},
+	{0x0c, "lyricist", NULL},
+	{0x0d, "recording location", NULL},
+	{0x0e, "picture taken during recording", NULL},
+	{0x0f, "picture taken during performance", NULL},
+	{0x10, "frame from video", NULL},
+	{0x12, "illustration", NULL},
+	{0x13, "logo of artist", NULL},
+	{0x14, "logo of publisher/studio", NULL}
+};
+
+static const struct apic_type_info *get_apic_type_info(de_byte t)
+{
+	size_t k;
+
+	for(k=0; k<DE_ITEMS_IN_ARRAY(apic_type_info_arr); k++) {
+		if(apic_type_info_arr[k].picture_type == t) {
+			return &apic_type_info_arr[k];
+		}
+	}
+	return NULL;
+}
+
 static void extract_pic_apic(deark *c, id3v2ctx *d, dbuf *f,
-	 de_int64 pos, de_int64 len)
+	 de_int64 pos, de_int64 len, const struct apic_type_info *ptinfo)
 {
 	const char *ext;
 	char fullext[32];
 	de_byte sig[2];
+	const char *token = NULL;
 
 	dbuf_read(f, sig, pos, 2);
 	if(sig[0]==0x89 && sig[1]==0x50) ext="png";
 	else if(sig[0]==0xff && sig[1]==0xd8) ext="jpg";
 	else ext="bin";
-	de_snprintf(fullext, sizeof(fullext), "%s.%s",
-		d->wmpicture_mode?"wmpic":"id3pic", ext);
+
+	if(ptinfo && ptinfo->token) token = ptinfo->token;
+	if(!token) {
+		if(d->wmpicture_mode) token = "wmpic";
+	}
+	if(!token) token = "id3pic";
+
+	de_snprintf(fullext, sizeof(fullext), "%s.%s", token, ext);
+
 	dbuf_create_file_from_slice(f, pos, len, fullext, NULL, DE_CREATEFLAG_IS_AUX);
 }
 
@@ -469,11 +517,13 @@ static void decode_id3v2_frame_wmpicture(deark *c, id3v2ctx *d,
 	de_int64 stringlen; // includes terminating 0x0000
 	de_ucstring *mimetype = NULL;
 	de_ucstring *description = NULL;
+	const struct apic_type_info *ptinfo = NULL;
 	int ret;
 
 	picture_type = dbuf_getbyte(f, pos++);
-	// TODO: Decode picture types
-	de_dbg(c, "picture type: 0x%02x", (unsigned int)picture_type);
+	ptinfo = get_apic_type_info(picture_type);
+	de_dbg(c, "picture type: 0x%02x (%s)", (unsigned int)picture_type,
+		ptinfo?ptinfo->name:"?");
 
 	pic_data_len = dbuf_getui32le(f, pos);
 	de_dbg(c, "picture size: %u", (unsigned int)pic_data_len);
@@ -495,7 +545,7 @@ static void decode_id3v2_frame_wmpicture(deark *c, id3v2ctx *d,
 	pos += stringlen;
 
 	if(pos+pic_data_len > pos1+len) goto done;
-	extract_pic_apic(c, d, f, pos, pic_data_len);
+	extract_pic_apic(c, d, f, pos, pic_data_len, ptinfo);
 
 done:
 	ucstring_destroy(mimetype);
@@ -511,6 +561,7 @@ static void decode_id3v2_frame_pic_apic(deark *c, id3v2ctx *d,
 	struct de_stringreaderdata *fmt_srd = NULL;
 	de_ucstring *mimetype = NULL;
 	de_ucstring *description = NULL;
+	const struct apic_type_info *ptinfo = NULL;
 	de_int64 bytes_consumed = 0;
 	int ret;
 
@@ -533,7 +584,9 @@ static void decode_id3v2_frame_pic_apic(deark *c, id3v2ctx *d,
 	}
 
 	picture_type = dbuf_getbyte(f, pos++);
-	de_dbg(c, "picture type: 0x%02x", (unsigned int)picture_type);
+	ptinfo = get_apic_type_info(picture_type);
+	de_dbg(c, "picture type: 0x%02x (%s)", (unsigned int)picture_type,
+		ptinfo?ptinfo->name:"?");
 
 	description = ucstring_create(c);
 	// "The description has a maximum length of 64 characters" [we'll allow more]
@@ -544,7 +597,7 @@ static void decode_id3v2_frame_pic_apic(deark *c, id3v2ctx *d,
 	pos += bytes_consumed;
 
 	if(pos >= pos1+len) goto done;
-	extract_pic_apic(c, d, f, pos, pos1+len-pos);
+	extract_pic_apic(c, d, f, pos, pos1+len-pos, ptinfo);
 
 done:
 	de_destroy_stringreaderdata(c, fmt_srd);
