@@ -327,6 +327,82 @@ static void handler_CodecList(deark *c, lctx *d, struct handler_params *hp)
 	}
 }
 
+static void handler_ScriptCommand(deark *c, lctx *d, struct handler_params *hp)
+{
+	de_int64 cmd_count, cmd_type_count;
+	de_int64 pos = hp->dpos;
+	de_int64 k;
+	de_ucstring *s = NULL;
+	int saved_indent_level;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+	if(hp->dlen<20) goto done;
+	pos += 16; // Reserved GUID
+
+	cmd_count = de_getui16le(pos);
+	de_dbg(c, "commands count: %d", (int)cmd_count);
+	pos += 2;
+
+	cmd_type_count = de_getui16le(pos);
+	de_dbg(c, "command types count: %d", (int)cmd_type_count);
+	pos += 2;
+
+	s = ucstring_create(c);
+
+	for(k=0; k<cmd_type_count; k++) {
+		de_int64 type_name_len;
+
+		if(pos+2 > hp->dpos+hp->dlen) goto done;
+		de_dbg(c, "command type[%d] at %"INT64_FMT, (int)k, pos);
+		de_dbg_indent(c, 1);
+
+		type_name_len = de_getui16le(pos);
+		pos += 2;
+
+		ucstring_empty(s);
+		dbuf_read_to_ucstring_n(c->infile, pos, type_name_len*2, DE_DBG_MAX_STRLEN*2, s,
+			0, DE_ENCODING_UTF16LE);
+		ucstring_truncate_at_NUL(s);
+		de_dbg(c, "name: \"%s\"", ucstring_get_printable_sz_d(s));
+		pos += type_name_len*2;
+
+		de_dbg_indent(c, -1);
+	}
+
+	for(k=0; k<cmd_count; k++) {
+		de_int64 cmd_name_len;
+		de_int64 n;
+
+		if(pos+8 > hp->dpos+hp->dlen) goto done;
+		de_dbg(c, "command[%d] at %"INT64_FMT, (int)k, pos);
+		de_dbg_indent(c, 1);
+
+		n = de_getui32le(pos);
+		de_dbg(c, "presentation time: %u ms", (unsigned int)n);
+		pos += 4; // Presentation time
+
+		n = de_getui16le(pos);
+		de_dbg(c, "type index: %d", (int)n);
+		pos += 2; // type index
+			
+		cmd_name_len = de_getui16le(pos);
+		pos += 2;
+
+		ucstring_empty(s);
+		dbuf_read_to_ucstring_n(c->infile, pos, cmd_name_len*2, DE_DBG_MAX_STRLEN*2, s,
+			0, DE_ENCODING_UTF16LE);
+		ucstring_truncate_at_NUL(s);
+		de_dbg(c, "name: \"%s\"", ucstring_get_printable_sz_d(s));
+		pos += cmd_name_len*2;
+
+		de_dbg_indent(c, -1);
+	}
+
+done:
+	de_dbg_indent_restore(c, saved_indent_level);
+	ucstring_destroy(s);
+}
+
 static void do_ECD_ID3(deark *c, lctx *d, de_int64 pos, de_int64 len)
 {
 	de_dbg(c, "ID3 data at %"INT64_FMT", len=%"INT64_FMT, pos, len);
@@ -572,7 +648,7 @@ static const struct object_info object_info_arr[] = {
 	{202, 0, {0xb7,0xdc,0x07,0x91,0xa9,0xb7,0x11,0xcf,0x8e,0xe6,0x00,0xc0,0x0c,0x20,0x53,0x65}, "Stream Properties", handler_StreamProperties},
 	{203, 0, {0x5f,0xbf,0x03,0xb5,0xa9,0x2e,0x11,0xcf,0x8e,0xe3,0x00,0xc0,0x0c,0x20,0x53,0x65}, "Header Extension", handler_HeaderExtension},
 	{204, 0, {0x86,0xd1,0x52,0x40,0x31,0x1d,0x11,0xd0,0xa3,0xa4,0x00,0xa0,0xc9,0x03,0x48,0xf6}, "Codec List", handler_CodecList},
-	{205, 0, {0x1e,0xfb,0x1a,0x30,0x0b,0x62,0x11,0xd0,0xa3,0x9b,0x00,0xa0,0xc9,0x03,0x48,0xf6}, "Script Command", NULL},
+	{205, 0, {0x1e,0xfb,0x1a,0x30,0x0b,0x62,0x11,0xd0,0xa3,0x9b,0x00,0xa0,0xc9,0x03,0x48,0xf6}, "Script Command", handler_ScriptCommand},
 	{206, 0, {0xf4,0x87,0xcd,0x01,0xa9,0x51,0x11,0xcf,0x8e,0xe6,0x00,0xc0,0x0c,0x20,0x53,0x65}, "Marker", NULL},
 	{207, 0, {0xd6,0xe2,0x29,0xdc,0x35,0xda,0x11,0xd1,0x90,0x34,0x00,0xa0,0xc9,0x03,0x49,0xbe}, "Bitrate Mutual Exclusion", NULL},
 	{208, 0, {0x75,0xb2,0x26,0x35,0x66,0x8e,0x11,0xcf,0xa6,0xd9,0x00,0xaa,0x00,0x62,0xce,0x6c}, "Error Correction", NULL},
