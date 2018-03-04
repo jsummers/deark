@@ -247,6 +247,58 @@ static void handler_ContentDescr(deark *c, lctx *d, struct handler_params *hp)
 	ucstring_destroy(s);
 }
 
+static void handler_ContentEncr(deark *c, lctx *d, struct handler_params *hp)
+{
+	de_int64 pos = hp->dpos;
+	de_int64 xlen;
+	de_ucstring *s = NULL;
+
+	xlen = de_getui32le(pos);
+	pos += 4;
+	if(pos+xlen > hp->dpos+hp->dlen) goto done;
+	if(xlen>0) {
+		de_dbg(c, "[%d bytes of secret data at %"INT64_FMT"]", (int)xlen, pos);
+		de_dbg_indent(c, 1);
+		de_dbg_hexdump(c, c->infile, pos, xlen, 256, "data", 0x0);
+		de_dbg_indent(c, -1);
+	}
+	pos += xlen;
+
+	s = ucstring_create(c);
+	xlen = de_getui32le(pos);
+	pos += 4;
+	if(pos+xlen > hp->dpos+hp->dlen) goto done;
+	dbuf_read_to_ucstring_n(c->infile, pos, xlen, DE_DBG_MAX_STRLEN, s,
+			0, DE_ENCODING_ASCII);
+	ucstring_truncate_at_NUL(s);
+	de_dbg(c, "protection type: \"%s\"", ucstring_get_printable_sz_d(s));
+	// TODO: What should we do if this is not "DRM"?
+	pos += xlen;
+
+	ucstring_empty(s);
+	xlen = de_getui32le(pos);
+	pos += 4;
+	if(pos+xlen > hp->dpos+hp->dlen) goto done;
+	dbuf_read_to_ucstring_n(c->infile, pos, xlen, DE_DBG_MAX_STRLEN, s,
+			0, DE_ENCODING_ASCII);
+	ucstring_truncate_at_NUL(s);
+	de_dbg(c, "key id: \"%s\"", ucstring_get_printable_sz_d(s));
+	pos += xlen;
+
+	ucstring_empty(s);
+	xlen = de_getui32le(pos);
+	pos += 4;
+	if(pos+xlen > hp->dpos+hp->dlen) goto done;
+	dbuf_read_to_ucstring_n(c->infile, pos, xlen, DE_DBG_MAX_STRLEN, s,
+			0, DE_ENCODING_ASCII);
+	ucstring_truncate_at_NUL(s);
+	de_dbg(c, "license url: \"%s\"", ucstring_get_printable_sz_d(s));
+	pos += xlen;
+
+done:
+	ucstring_destroy(s);
+}
+
 static int do_codec_entry(deark *c, lctx *d, de_int64 pos1, de_int64 len, de_int64 *bytes_consumed)
 {
 	de_ucstring *name = NULL;
@@ -657,7 +709,7 @@ static const struct object_info object_info_arr[] = {
 	 "Extended Content Description", handler_ECD_or_metadata},
 	{211, 0, {0x22,0x11,0xb3,0xfa,0xbd,0x23,0x11,0xd2,0xb4,0xb7,0x00,0xa0,0xc9,0x55,0xfc,0x6e}, "Content Branding", NULL},
 	{212, 0, {0x7b,0xf8,0x75,0xce,0x46,0x8d,0x11,0xd1,0x8d,0x82,0x00,0x60,0x97,0xc9,0xa2,0xb2}, "Stream Bitrate Properties", NULL},
-	{213, 0, {0x22,0x11,0xb3,0xfb,0xbd,0x23,0x11,0xd2,0xb4,0xb7,0x00,0xa0,0xc9,0x55,0xfc,0x6e}, "Content Encryption", NULL},
+	{213, 0, {0x22,0x11,0xb3,0xfb,0xbd,0x23,0x11,0xd2,0xb4,0xb7,0x00,0xa0,0xc9,0x55,0xfc,0x6e}, "Content Encryption", handler_ContentEncr},
 	{214, 0, {0x29,0x8a,0xe6,0x14,0x26,0x22,0x4c,0x17,0xb9,0x35,0xda,0xe0,0x7e,0xe9,0x28,0x9c}, "Extended Content Encryption", NULL},
 	{215, 0, {0x22,0x11,0xb3,0xfc,0xbd,0x23,0x11,0xd2,0xb4,0xb7,0x00,0xa0,0xc9,0x55,0xfc,0x6e}, "Digital Signature", NULL},
 	{216, 0, {0x18,0x06,0xd4,0x74,0xca,0xdf,0x45,0x09,0xa4,0xba,0x9a,0xab,0xcb,0x96,0xaa,0xe8}, "Padding", NULL},
