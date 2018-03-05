@@ -310,6 +310,126 @@ done:
 	ucstring_destroy(s);
 }
 
+// Extended Stream Properties
+static void handler_ESP(deark *c, lctx *d, struct handler_params *hp)
+{
+	de_int64 pos = hp->dpos;
+	de_int64 name_count, pes_count;
+	de_int64 k;
+	de_int64 x, xlen;
+	de_int64 bytes_remaining;
+	int saved_indent_level;
+	de_byte guid_raw[16];
+	char guid_string[50];
+
+	de_dbg_indent_save(c, &saved_indent_level);
+	if(hp->dlen<64) goto done;
+
+	x = de_geti64le(pos);
+	de_dbg(c, "start time: %"INT64_FMT, x);
+	pos += 8;
+	x = de_geti64le(pos);
+	de_dbg(c, "end time: %"INT64_FMT, x);
+	pos += 8;
+
+	x = de_getui32le(pos);
+	de_dbg(c, "data bitrate: %u", (unsigned int)x);
+	pos += 4;
+	x = de_getui32le(pos);
+	de_dbg(c, "buffer size: %u", (unsigned int)x);
+	pos += 4;
+	x = de_getui32le(pos);
+	de_dbg(c, "initial buffer fullness: %u", (unsigned int)x);
+	pos += 4;
+	x = de_getui32le(pos);
+	de_dbg(c, "alt data bitrate: %u", (unsigned int)x);
+	pos += 4;
+	x = de_getui32le(pos);
+	de_dbg(c, "alt buffer size: %u", (unsigned int)x);
+	pos += 4;
+	x = de_getui32le(pos);
+	de_dbg(c, "alt initial buffer fullness: %u", (unsigned int)x);
+	pos += 4;
+	x = de_getui32le(pos);
+	de_dbg(c, "max object size: %u", (unsigned int)x);
+	pos += 4;
+	x = de_getui32le(pos);
+	de_dbg(c, "flags: 0x%08x", (unsigned int)x);
+	pos += 4;
+
+	x = de_getui16le(pos);
+	de_dbg(c, "stream number: %d", (int)x);
+	pos += 2;
+	x = de_getui16le(pos);
+	de_dbg(c, "language id index: %d", (int)x);
+	pos += 2;
+	x = de_geti64le(pos);
+	de_dbg(c, "average time per frame: %"INT64_FMT, x);
+	pos += 8;
+
+	name_count = de_getui16le(pos);
+	de_dbg(c, "name count: %d", (int)name_count);
+	pos += 2;
+	pes_count = de_getui16le(pos);
+	de_dbg(c, "payload ext. system count: %d", (int)pes_count);
+	pos += 2;
+
+	// Stream names (TODO)
+	for(k=0; k<name_count; k++) {
+		if(pos+4 > hp->dpos+hp->dlen) goto done;
+		de_dbg(c, "name[%d] at %"INT64_FMT, (int)k, pos);
+		pos += 2; // language id index
+		xlen = de_getui16le(pos);
+		pos += 2;
+		pos += xlen;
+	}
+
+	// Payload extension systems
+	for(k=0; k<pes_count; k++) {
+		if(pos+22 > hp->dpos+hp->dlen) {
+			goto done;
+		}
+		de_dbg(c, "payload ext. system[%d] at %"INT64_FMT, (int)k, pos);
+		de_dbg_indent(c, 1);
+
+		de_read(guid_raw, pos, 16);
+		de_fmtutil_guid_to_uuid(guid_raw);
+		de_fmtutil_render_uuid(c, guid_raw, guid_string, sizeof(guid_string));
+		de_dbg(c, "ext. system id: {%s}", guid_string);
+		pos += 16;
+
+		x = de_getui16le(pos);
+		de_dbg(c, "ext. data size: %d", (int)x);
+		pos += 2;
+
+		xlen = de_getui32le(pos);
+		de_dbg(c, "payload ext. system info length: %d", (int)xlen);
+		pos += 4;
+
+		if(pos+xlen > hp->dpos+hp->dlen) {
+			goto done;
+		}
+		if(xlen>0) {
+			de_dbg(c, "[%d bytes of payload ext. system info at %"INT64_FMT, (int)xlen, pos);
+			de_dbg_indent(c, 1);
+			de_dbg_hexdump(c, c->infile, pos, xlen, 256, "data", 0x1);
+			de_dbg_indent(c, -1);
+		}
+		pos += xlen;
+		de_dbg_indent(c, -1);
+	}
+
+	bytes_remaining = hp->dpos + hp->dlen - pos;
+	// There is an optional Stream Properties object here, but the spec seems
+	// less than clear about how to tell whether it is present.
+	if(bytes_remaining>24+54) {
+		do_object_sequence(c, d, pos, bytes_remaining, hp->level+1, 1, 1);
+	}
+
+done:
+	de_dbg_indent_restore(c, saved_indent_level);
+}
+
 static void handler_LanguageList(deark *c, lctx *d, struct handler_params *hp)
 {
 	de_int64 pos = hp->dpos;
@@ -786,7 +906,7 @@ static const struct object_info object_info_arr[] = {
 	{214, 0, {0x29,0x8a,0xe6,0x14,0x26,0x22,0x4c,0x17,0xb9,0x35,0xda,0xe0,0x7e,0xe9,0x28,0x9c}, "Extended Content Encryption", NULL},
 	{215, 0, {0x22,0x11,0xb3,0xfc,0xbd,0x23,0x11,0xd2,0xb4,0xb7,0x00,0xa0,0xc9,0x55,0xfc,0x6e}, "Digital Signature", NULL},
 	{216, 0, {0x18,0x06,0xd4,0x74,0xca,0xdf,0x45,0x09,0xa4,0xba,0x9a,0xab,0xcb,0x96,0xaa,0xe8}, "Padding", NULL},
-	{301, 0, {0x14,0xe6,0xa5,0xcb,0xc6,0x72,0x43,0x32,0x83,0x99,0xa9,0x69,0x52,0x06,0x5b,0x5a}, "Extended Stream Properties", NULL},
+	{301, 0, {0x14,0xe6,0xa5,0xcb,0xc6,0x72,0x43,0x32,0x83,0x99,0xa9,0x69,0x52,0x06,0x5b,0x5a}, "Extended Stream Properties", handler_ESP},
 	{302, 0, {0xa0,0x86,0x49,0xcf,0x47,0x75,0x46,0x70,0x8a,0x16,0x6e,0x35,0x35,0x75,0x66,0xcd}, "Advanced Mutual Exclusion", NULL},
 	{303, 0, {0xd1,0x46,0x5a,0x40,0x5a,0x79,0x43,0x38,0xb7,0x1b,0xe3,0x6b,0x8f,0xd6,0xc2,0x49}, "Group Mutual Exclusion", NULL},
 	{304, 0, {0xd4,0xfe,0xd1,0x5b,0x88,0xd3,0x45,0x4f,0x81,0xf0,0xed,0x5c,0x45,0x99,0x9e,0x24}, "Stream Prioritization", NULL},
