@@ -63,6 +63,17 @@ static char *format_duration(de_int64 n, char *buf, size_t buf_len)
 	return buf;
 }
 
+static const char *get_metadata_dtype_name(unsigned int t)
+{
+	static const char *names[7] = { "string", "bytes", "BOOL", "DWORD",
+		"QWORD", "WORD", "GUID" };
+
+	if(t<DE_ITEMS_IN_ARRAY(names)) {
+		return names[t];
+	}
+	return "?";
+}
+
 static void handler_Header(deark *c, lctx *d, struct handler_params *hp)
 {
 	de_int64 numhdrobj;
@@ -299,11 +310,60 @@ done:
 	ucstring_destroy(s);
 }
 
+static void handler_LanguageList(deark *c, lctx *d, struct handler_params *hp)
+{
+	de_int64 pos = hp->dpos;
+	de_int64 nlangs;
+	de_int64 k;
+	de_ucstring *s = NULL;
+
+	if(hp->dlen<2) goto done;
+
+	nlangs = de_getui16le(pos);
+	de_dbg(c, "language id record count: %d", (int)nlangs);
+	pos += 2;
+
+	s = ucstring_create(c);
+
+	for(k=0; k<nlangs; k++) {
+		de_int64 id_len;
+
+		if(pos+1 > hp->dpos+hp->dlen) goto done;
+		de_dbg(c, "language id record[%d] at %"INT64_FMT, (int)k, pos);
+		de_dbg_indent(c, 1);
+
+		id_len = (de_int64)de_getbyte(pos++);
+
+		ucstring_empty(s);
+		dbuf_read_to_ucstring_n(c->infile, pos, id_len, DE_DBG_MAX_STRLEN*2, s,
+			0, DE_ENCODING_UTF16LE);
+		ucstring_truncate_at_NUL(s);
+		de_dbg(c, "id: \"%s\"", ucstring_get_printable_sz_d(s));
+		pos += id_len;
+
+		de_dbg_indent(c, -1);
+	}
+
+done:
+	ucstring_destroy(s);
+}
+
+static const char *get_codec_type_name(unsigned int t)
+{
+	const char *name = "?";
+	switch(t) {
+	case 0x0001: name="video"; break;
+	case 0x0002: name="audio"; break;
+	case 0xffff: name="unknown"; break;
+	}
+	return name;
+}
+
 static int do_codec_entry(deark *c, lctx *d, de_int64 pos1, de_int64 len, de_int64 *bytes_consumed)
 {
 	de_ucstring *name = NULL;
 	de_ucstring *descr = NULL;
-	de_int64 type;
+	unsigned int type;
 	de_int64 namelen, descrlen, infolen;
 	de_int64 pos = pos1;
 	int retval = 0;
@@ -315,9 +375,8 @@ static int do_codec_entry(deark *c, lctx *d, de_int64 pos1, de_int64 len, de_int
 	de_dbg_indent(c, 1);
 
 	if(len<8) goto done;
-	type = de_getui16le(pos);
-	// TODO: Decode the type
-	de_dbg(c, "type: %d", (int)type);
+	type = (unsigned int)de_getui16le(pos);
+	de_dbg(c, "type: %u (%s)", type, get_codec_type_name(type));
 	pos += 2;
 
 	namelen = de_getui16le(pos);
@@ -479,13 +538,25 @@ static void do_WMEncodingTime(deark *c, lctx *d, de_int64 t)
 }
 
 static void do_metadata_item(deark *c, lctx *d, de_int64 pos, de_int64 val_len,
-	de_int64 val_data_type, struct de_stringreaderdata *name_srd)
+	unsigned int val_data_type_ori, struct de_stringreaderdata *name_srd,
+	de_uint32 object_sid)
 {
 	de_ucstring *val_str = NULL;
 	de_int64 val_int;
 	int handled = 0;
+	unsigned int val_data_type; // adjusted type
 
 	de_dbg(c, "value data at %"INT64_FMT", len=%d", pos, (int)val_len);
+
+	val_data_type = val_data_type_ori; // default
+	if(val_data_type_ori==2) {
+		if(object_sid==SID_ECD) {
+			val_data_type = 3; // Pretend a 32-bit BOOL is a DWORD
+		}
+		else {
+			val_data_type = 5; // Pretend a 16-bit BOOL is a WORD
+		}
+	}
 
 	if(val_data_type==0 && val_len>=2) { // Unicode string
 		val_str = ucstring_create(c);
@@ -494,7 +565,7 @@ static void do_metadata_item(deark *c, lctx *d, de_int64 pos, de_int64 val_len,
 		de_dbg(c, "value: \"%s\"", ucstring_get_printable_sz(val_str));
 		handled = 1;
 	}
-	else if((val_data_type==2 || val_data_type==3) &&  val_len>=4) { // BOOL, DWORD
+	else if(val_data_type==3 && val_len>=4) { // DWORD
 		val_int = de_getui32le(pos);
 		de_dbg(c, "value: %u", (unsigned int)val_int);
 		handled = 1;
@@ -549,7 +620,7 @@ static int do_ECD_entry(deark *c, lctx *d, de_int64 pos1, de_int64 len, de_int64
 	struct de_stringreaderdata *name_srd = NULL;
 	de_int64 namelen;
 	de_int64 namelen_to_keep;
-	de_int64 val_data_type;
+	unsigned int val_data_type;
 	de_int64 val_len;
 	int retval = 0;
 	int saved_indent_level;
@@ -570,14 +641,15 @@ static int do_ECD_entry(deark *c, lctx *d, de_int64 pos1, de_int64 len, de_int64
 	de_dbg(c, "name: \"%s\"", ucstring_get_printable_sz_d(name_srd->str));
 	pos += namelen;
 
-	val_data_type = de_getui16le(pos);
-	de_dbg(c, "value data type: %d", (int)val_data_type);
+	val_data_type = (unsigned int)de_getui16le(pos);
+	de_dbg(c, "value data type: %u (%s)", val_data_type,
+		get_metadata_dtype_name(val_data_type));
 	pos += 2;
 
 	val_len = de_getui16le(pos);
 	pos += 2;
 
-	do_metadata_item(c, d, pos, val_len, val_data_type, name_srd);
+	do_metadata_item(c, d, pos, val_len, val_data_type, name_srd, SID_ECD);
 
 	pos += val_len;
 
@@ -600,7 +672,7 @@ static int do_metadata_entry(deark *c, lctx *d, struct handler_params *hp,
 	struct de_stringreaderdata *name_srd = NULL;
 	de_int64 namelen;
 	de_int64 namelen_to_keep;
-	de_int64 val_data_type;
+	unsigned int val_data_type;
 	de_int64 val_len;
 	de_int64 stream_number;
 	int retval = 0;
@@ -627,8 +699,9 @@ static int do_metadata_entry(deark *c, lctx *d, struct handler_params *hp,
 	namelen = de_getui16le(pos); // # of bytes, including the expected 0x00 0x00 terminator
 	pos += 2;
 
-	val_data_type = de_getui16le(pos);
-	de_dbg(c, "value data type: %d", (int)val_data_type);
+	val_data_type = (unsigned int)de_getui16le(pos);
+	de_dbg(c, "value data type: %u (%s)", val_data_type,
+		get_metadata_dtype_name(val_data_type));
 	pos += 2;
 
 	val_len = de_getui32le(pos);
@@ -642,7 +715,7 @@ static int do_metadata_entry(deark *c, lctx *d, struct handler_params *hp,
 	de_dbg(c, "name: \"%s\"", ucstring_get_printable_sz_d(name_srd->str));
 	pos += namelen;
 
-	do_metadata_item(c, d, pos, val_len, val_data_type, name_srd);
+	do_metadata_item(c, d, pos, val_len, val_data_type, name_srd, hp->uui->short_id);
 
 	pos += val_len;
 
@@ -718,7 +791,7 @@ static const struct object_info object_info_arr[] = {
 	{303, 0, {0xd1,0x46,0x5a,0x40,0x5a,0x79,0x43,0x38,0xb7,0x1b,0xe3,0x6b,0x8f,0xd6,0xc2,0x49}, "Group Mutual Exclusion", NULL},
 	{304, 0, {0xd4,0xfe,0xd1,0x5b,0x88,0xd3,0x45,0x4f,0x81,0xf0,0xed,0x5c,0x45,0x99,0x9e,0x24}, "Stream Prioritization", NULL},
 	{305, 0, {0xa6,0x96,0x09,0xe6,0x51,0x7b,0x11,0xd2,0xb6,0xaf,0x00,0xc0,0x4f,0xd9,0x08,0xe9}, "Bandwidth Sharing", NULL},
-	{306, 0, {0x7c,0x43,0x46,0xa9,0xef,0xe0,0x4b,0xfc,0xb2,0x29,0x39,0x3e,0xde,0x41,0x5c,0x85}, "Language List", NULL},
+	{306, 0, {0x7c,0x43,0x46,0xa9,0xef,0xe0,0x4b,0xfc,0xb2,0x29,0x39,0x3e,0xde,0x41,0x5c,0x85}, "Language List", handler_LanguageList},
 	{SID_METADATA, 0, {0xc5,0xf8,0xcb,0xea,0x5b,0xaf,0x48,0x77,0x84,0x67,0xaa,0x8c,0x44,0xfa,0x4c,0xca},
 	 "Metadata", handler_ECD_or_metadata},
 	{SID_METADATALIB, 0, {0x44,0x23,0x1c,0x94,0x94,0x98,0x49,0xd1,0xa1,0x41,0x1d,0x13,0x4e,0x45,0x70,0x54},
