@@ -17,7 +17,7 @@ typedef struct localctx_struct {
 	int reserved;
 } lctx;
 
-struct object_info;
+struct uuid_info;
 
 struct handler_params {
 	de_int64 objpos;
@@ -25,17 +25,19 @@ struct handler_params {
 	de_int64 dpos;
 	de_int64 dlen;
 	int level;
-	const struct object_info *uui;
+	const struct uuid_info *uui;
 };
 typedef void (*handler_fn_type)(deark *c, lctx *d, struct handler_params *hp);
 
-struct object_info {
+struct uuid_info {
 	de_uint32 short_id;
 	de_uint32 flags;
 	const de_byte uuid[16];
 	const char *name;
 	handler_fn_type hfn;
 };
+
+static const char *get_uuid_name(const de_byte *uuid);
 
 static int do_object_sequence(deark *c, lctx *d, de_int64 pos1, de_int64 len, int level,
 	int known_object_count, de_int64 num_objects_expected);
@@ -74,6 +76,18 @@ static const char *get_metadata_dtype_name(unsigned int t)
 	return "?";
 }
 
+// Read a GUID into the caller's buf[16], and convert it to UUID-style byte order.
+// Also write a printable form of it to id_string.
+static void read_and_render_guid(dbuf *f, de_byte *id, de_int64 pos,
+	char *id_string, size_t id_string_len)
+{
+	dbuf_read(f, id, pos, 16);
+	de_fmtutil_guid_to_uuid(id);
+	if(id_string) {
+		de_fmtutil_render_uuid(f->c, id, id_string, id_string_len);
+	}
+}
+
 static void handler_Header(deark *c, lctx *d, struct handler_params *hp)
 {
 	de_int64 numhdrobj;
@@ -99,9 +113,7 @@ static void handler_FileProperties(deark *c, lctx *d, struct handler_params *hp)
 	// Some fields before the 'flags' field depend on it, so look ahead at it.
 	flags = (unsigned int)de_getui32le(pos+64);
 
-	de_read(guid_raw, pos, 16);
-	de_fmtutil_guid_to_uuid(guid_raw);
-	de_fmtutil_render_uuid(c, guid_raw, guid_string, sizeof(guid_string));
+	read_and_render_guid(c->infile, guid_raw, pos, guid_string, sizeof(guid_string));
 	de_dbg(c, "file id: {%s}", guid_string);
 	pos += 16;
 
@@ -169,17 +181,13 @@ static void handler_StreamProperties(deark *c, lctx *d, struct handler_params *h
 
 	if(hp->dlen<54) return;
 
-	de_read(stream_type, pos, 16);
-	de_fmtutil_guid_to_uuid(stream_type);
-	de_fmtutil_render_uuid(c, stream_type, stream_type_string, sizeof(stream_type_string));
-	// TODO: Decode the stream type and EC type
-	de_dbg(c, "stream type: {%s}", stream_type_string);
+	read_and_render_guid(c->infile, stream_type, pos,
+		stream_type_string, sizeof(stream_type_string));
+	de_dbg(c, "stream type: {%s} (%s)", stream_type_string, get_uuid_name(stream_type));
 	pos += 16;
 
-	de_read(ec_type, pos, 16);
-	de_fmtutil_guid_to_uuid(ec_type);
-	de_fmtutil_render_uuid(c, ec_type, ec_type_string, sizeof(ec_type_string));
-	de_dbg(c, "error correction type: {%s}", ec_type_string);
+	read_and_render_guid(c->infile, ec_type, pos, ec_type_string, sizeof(ec_type_string));
+	de_dbg(c, "error correction type: {%s} (%s)", ec_type_string, get_uuid_name(ec_type));
 	pos += 16;
 
 	x = de_geti64le(pos);
@@ -392,10 +400,8 @@ static void handler_ESP(deark *c, lctx *d, struct handler_params *hp)
 		de_dbg(c, "payload ext. system[%d] at %"INT64_FMT, (int)k, pos);
 		de_dbg_indent(c, 1);
 
-		de_read(guid_raw, pos, 16);
-		de_fmtutil_guid_to_uuid(guid_raw);
-		de_fmtutil_render_uuid(c, guid_raw, guid_string, sizeof(guid_string));
-		de_dbg(c, "ext. system id: {%s}", guid_string);
+		read_and_render_guid(c->infile, guid_raw, pos, guid_string, sizeof(guid_string));
+		de_dbg(c, "ext. system id: {%s} (%s)", guid_string, get_uuid_name(guid_raw));
 		pos += 16;
 
 		x = de_getui16le(pos);
@@ -708,9 +714,8 @@ static void do_metadata_item(deark *c, lctx *d, de_int64 pos, de_int64 val_len,
 	else if(val_data_type==6 && val_len>=16) { // GUID
 		de_byte guid_raw[16];
 		char guid_string[50];
-		de_read(guid_raw, pos, 16);
-		de_fmtutil_guid_to_uuid(guid_raw);
-		de_fmtutil_render_uuid(c, guid_raw, guid_string, sizeof(guid_string));
+
+		read_and_render_guid(c->infile, guid_raw, pos, guid_string, sizeof(guid_string));
 		de_dbg(c, "value: {%s}", guid_string);
 		handled = 1;
 	}
@@ -882,7 +887,7 @@ static void handler_ECD_or_metadata(deark *c, lctx *d, struct handler_params *hp
 	}
 }
 
-static const struct object_info object_info_arr[] = {
+static const struct uuid_info object_info_arr[] = {
 	{101, 0, {0x75,0xb2,0x26,0x30,0x66,0x8e,0x11,0xcf,0xa6,0xd9,0x00,0xaa,0x00,0x62,0xce,0x6c}, "Header", handler_Header},
 	{102, 0, {0x75,0xb2,0x26,0x36,0x66,0x8e,0x11,0xcf,0xa6,0xd9,0x00,0xaa,0x00,0x62,0xce,0x6c}, "Data", NULL},
 	{103, 0, {0x33,0x00,0x08,0x90,0xe5,0xb1,0x11,0xcf,0x89,0xf4,0x00,0xa0,0xc9,0x03,0x49,0xcb}, "Simple Index", NULL},
@@ -924,7 +929,30 @@ static const struct object_info object_info_arr[] = {
 	{330, 0, {0xd9,0xaa,0xde,0x20,0x7c,0x17,0x4f,0x9c,0xbc,0x28,0x85,0x55,0xdd,0x98,0xe2,0xa2}, "Index Placeholder", NULL}
 };
 
-static const struct object_info *find_object_info(const de_byte *uuid)
+// GUIDs used for things other than objects
+static const struct uuid_info uuid_info_arr[] = {
+	// Stream properties object stream types
+	{0, 0x01, {0xf8,0x69,0x9e,0x40,0x5b,0x4d,0x11,0xcf,0xa8,0xfd,0x00,0x80,0x5f,0x5c,0x44,0x2b}, "Audio", NULL},
+	{0, 0x01, {0xbc,0x19,0xef,0xc0,0x5b,0x4d,0x11,0xcf,0xa8,0xfd,0x00,0x80,0x5f,0x5c,0x44,0x2b}, "Video", NULL},
+	{0, 0x01, {0x59,0xda,0xcf,0xc0,0x59,0xe6,0x11,0xd0,0xa3,0xac,0x00,0xa0,0xc9,0x03,0x48,0xf6}, "Command", NULL},
+	{0, 0x01, {0xb6,0x1b,0xe1,0x00,0x5b,0x4e,0x11,0xcf,0xa8,0xfd,0x00,0x80,0x5f,0x5c,0x44,0x2b}, "JFIF", NULL},
+	{0, 0x01, {0x35,0x90,0x7d,0xe0,0xe4,0x15,0x11,0xcf,0xa9,0x17,0x00,0x80,0x5f,0x5c,0x44,0x2b}, "Degradable JPEG", NULL},
+	{0, 0x01, {0x91,0xbd,0x22,0x2c,0xf2,0x1c,0x49,0x7a,0x8b,0x6d,0x5a,0xa8,0x6b,0xfc,0x01,0x85}, "File transfer", NULL},
+	{0, 0x01, {0x3a,0xfb,0x65,0xe2,0x47,0xef,0x40,0xf2,0xac,0x2c,0x70,0xa9,0x0d,0x71,0xd3,0x43}, "Binary", NULL},
+	// Stream properties object error correction types
+	{0, 0x02, {0x20,0xfb,0x57,0x00,0x5b,0x55,0x11,0xcf,0xa8,0xfd,0x00,0x80,0x5f,0x5c,0x44,0x2b}, "No error correction", NULL},
+	{0, 0x02, {0xbf,0xc3,0xcd,0x50,0x61,0x8f,0x11,0xcf,0x8b,0xb2,0x00,0xaa,0x00,0xb4,0xe2,0x20}, "Audio spread", NULL},
+	// Payload extension system GUIDs
+	{0, 0x03, {0x39,0x95,0x95,0xec,0x86,0x67,0x4e,0x2d,0x8f,0xdb,0x98,0x81,0x4c,0xe7,0x6c,0x1e}, "Timecode", NULL},
+	{0, 0x03, {0xe1,0x65,0xec,0x0e,0x19,0xed,0x45,0xd7,0xb4,0xa7,0x25,0xcb,0xd1,0xe2,0x8e,0x9b}, "File name", NULL},
+	{0, 0x03, {0xd5,0x90,0xdc,0x20,0x07,0xbc,0x43,0x6c,0x9c,0xf7,0xf3,0xbb,0xfb,0xf1,0xa4,0xdc}, "Content type", NULL},
+	{0, 0x03, {0x1b,0x1e,0xe5,0x54,0xf9,0xea,0x4b,0xc8,0x82,0x1a,0x37,0x6b,0x74,0xe4,0xc4,0xb8}, "Pixel aspect ratio", NULL},
+	{0, 0x03, {0xc6,0xbd,0x94,0x50,0x86,0x7f,0x49,0x07,0x83,0xa3,0xc7,0x79,0x21,0xb7,0x33,0xad}, "Sample duration", NULL},
+	{0, 0x03, {0x66,0x98,0xb8,0x4e,0x0a,0xfa,0x43,0x30,0xae,0xb2,0x1c,0x0a,0x98,0xd7,0xa4,0x4d}, "Encryption sample ID", NULL},
+	{0, 0x03, {0x00,0xe1,0xaf,0x06,0x7b,0xec,0x11,0xd1,0xa5,0x82,0x00,0xc0,0x4f,0xc2,0x9c,0xfb}, "Degradable JPEG", NULL}
+};
+
+static const struct uuid_info *find_object_info(const de_byte *uuid)
 {
 	size_t k;
 	for(k=0; k<DE_ITEMS_IN_ARRAY(object_info_arr); k++) {
@@ -933,6 +961,25 @@ static const struct object_info *find_object_info(const de_byte *uuid)
 		}
 	}
 	return NULL;
+}
+
+static const struct uuid_info *find_uuid_info(const de_byte *uuid)
+{
+	size_t k;
+	for(k=0; k<DE_ITEMS_IN_ARRAY(uuid_info_arr); k++) {
+		if(!de_memcmp(uuid, uuid_info_arr[k].uuid, 16)) {
+			return &uuid_info_arr[k];
+		}
+	}
+	return NULL;
+}
+
+static const char *get_uuid_name(const de_byte *uuid)
+{
+	const struct uuid_info *uui;
+	uui = find_uuid_info(uuid);
+	if(uui && uui->name) return uui->name;
+	return "?";
 }
 
 static int do_object(deark *c, lctx *d, de_int64 pos1, de_int64 len,
@@ -956,9 +1003,7 @@ static int do_object(deark *c, lctx *d, de_int64 pos1, de_int64 len,
 	hp->objpos = pos1;
 	hp->level = level;
 
-	de_read(id, pos1, 16);
-	de_fmtutil_guid_to_uuid(id);
-	de_fmtutil_render_uuid(c, id, id_string, sizeof(id_string));
+	read_and_render_guid(c->infile, id, pos1, id_string, sizeof(id_string));
 
 	hp->uui = find_object_info(id);
 	if(hp->uui) id_name = hp->uui->name;
