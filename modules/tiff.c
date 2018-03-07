@@ -13,7 +13,7 @@ DE_DECLARE_MODULE(de_module_tiff);
 #define MAX_IFDS 1000
 
 #define DE_TIFF_MAX_VALUES_TO_PRINT 100
-#define DE_TIFF_MAX_CHARS_TO_PRINT  500
+#define DE_TIFF_MAX_CHARS_TO_PRINT  DE_DBG_MAX_STRLEN
 
 #define DATATYPE_BYTE      1
 #define DATATYPE_ASCII     2
@@ -1932,7 +1932,6 @@ done:
 static void do_dbg_print_text_values(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni,
 	de_ucstring *dbgline)
 {
-	de_ucstring *str = NULL;
 	struct de_stringreaderdata *srd;
 	int is_truncated = 0;
 	int str_count = 0;
@@ -1977,8 +1976,6 @@ static void do_dbg_print_text_values(deark *c, lctx *d, const struct taginfo *tg
 		ucstring_append_sz(dbgline, "...", DE_ENCODING_UTF8);
 	}
 	ucstring_append_sz(dbgline, "}", DE_ENCODING_UTF8);
-
-	ucstring_destroy(str);
 }
 
 static void do_dbg_print_values(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni,
@@ -2160,7 +2157,9 @@ static void process_ifd(deark *c, lctx *d, de_int64 ifd_idx1, de_int64 ifdpos1, 
 
 		do_dbg_print_values(c, d, &tg, tni, dbgline);
 
-		de_dbg(c, "%s", ucstring_get_printable_sz_n(dbgline, 80+DE_DBG_MAX_STRLEN));
+		// do_dbg_print_values() already tried to limit the line length.
+		// The "500+" in the next line is an emergency brake.
+		de_dbg(c, "%s", ucstring_get_printable_sz_n(dbgline, 500+DE_DBG_MAX_STRLEN));
 		de_dbg_indent(c, 1);
 
 		switch(tg.tagnum) {
