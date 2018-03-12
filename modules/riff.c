@@ -12,12 +12,14 @@ DE_DECLARE_MODULE(de_module_riff);
 DE_DECLARE_MODULE(de_module_ani);
 
 #define CODE_ACON  0x41434f4eU
+#define CODE_AVI   0x41564920U
 #define CODE_INFO  0x494e464fU
 #define CODE_PAL   0x50414c20U
 #define CODE_RMID  0x524d4944U
 #define CODE_WAVE  0x57415645U
 #define CODE_WEBP  0x57454250U
 #define CODE_cmpr  0x636d7072U
+#define CODE_movi  0x6d6f7669U
 
 #define CHUNK_DISP 0x44495350U
 #define CHUNK_EXIF 0x45584946U
@@ -259,8 +261,18 @@ static int my_on_std_container_start_fn(deark *c, struct de_iffctx *ictx)
 			return 0;
 		}
 	}
-	return 1;
 
+	if(ictx->main_contentstype4cc.id==CODE_AVI &&
+		ictx->curr_container_contentstype4cc.id==CODE_movi &&
+		c->debug_level<2)
+	{
+		// There are often a huge number of these chunks, and we can't do
+		// anything interesting with them, so skip them by default.
+		de_dbg(c, "[not decoding movi chunks]");
+		return 0;
+	}
+
+	return 1;
 }
 
 static int my_riff_chunk_handler(deark *c, struct de_iffctx *ictx)
