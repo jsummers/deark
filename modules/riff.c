@@ -33,6 +33,7 @@ DE_DECLARE_MODULE(de_module_ani);
 #define CHUNK_fact 0x66616374U
 #define CHUNK_fmt  0x666d7420U
 #define CHUNK_icon 0x69636f6eU
+#define CHUNK_strh 0x73747268U
 
 typedef struct localctx_struct {
 	int is_cdr;
@@ -123,6 +124,19 @@ static void do_wav_fact(deark *c, lctx *d, struct de_iffctx *ictx, de_int64 pos,
 	if(len<4) return;
 	n = de_getui32le(pos);
 	de_dbg(c, "number of samples: %u", (unsigned int)n);
+}
+
+static void do_avi_strh(deark *c, lctx *d, struct de_iffctx *ictx, de_int64 pos, de_int64 len)
+{
+	struct de_fourcc type4cc;
+	struct de_fourcc codec4cc;
+
+	if(len<8) return;
+	dbuf_read_fourcc(ictx->f, pos, &type4cc, 0);
+	de_dbg(c, "stream type: '%s'", type4cc.id_printable);
+	dbuf_read_fourcc(ictx->f, pos+4, &codec4cc, 0);
+	de_dbg(c, "codec: '%s'", codec4cc.id_printable);
+	// TODO: There are more fields here.
 }
 
 static void do_palette(deark *c, lctx *d, struct de_iffctx *ictx, de_int64 pos, de_int64 len)
@@ -344,6 +358,12 @@ static int my_riff_chunk_handler(deark *c, struct de_iffctx *ictx)
 	case CHUNK_fact:
 		if(ictx->main_contentstype4cc.id==CODE_WAVE) {
 			do_wav_fact(c, d, ictx, dpos, dlen);
+		}
+		break;
+
+	case 0x73747268U: // strh
+		if(ictx->main_contentstype4cc.id==CODE_AVI) {
+			do_avi_strh(c, d, ictx, dpos, dlen);
 		}
 		break;
 	}
