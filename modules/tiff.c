@@ -744,7 +744,8 @@ static int valdec_exposureprogram(deark *c, const struct valdec_params *vp, stru
 static int valdec_componentsconfiguration(deark *c, const struct valdec_params *vp, struct valdec_result *vr)
 {
 	static const struct int_and_str name_map[] = {
-		{0, "n/a"}, {1, "Y"}, {2, "Cb"}, {3, "Cr"}, {4, "R"}, {5, "G"}, {6, "B"}
+		{0, "n/a"}, {1, "Y"}, {2, "Cb"}, {3, "Cr"}, {4, "R"}, {5, "G"}, {6, "B"},
+		{48, "n/a?"}, {49, "Y?"}, {50, "Cb?"}, {51, "Cr?"}, {52, "R?"}, {53, "G?"}, {54, "B?"}
 	};
 	lookup_str_and_append_to_ucstring(name_map, ITEMS_IN_ARRAY(name_map), vp->n, vr->s);
 	return 1;
