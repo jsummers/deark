@@ -96,7 +96,30 @@ done:
 }
 
 static const struct ele_id_info ele_id_info_arr[] = {
+	// Note that the Matroska spec may conflate encoded IDs with decoded IDs.
+	// This table lists decoded IDs. Encoded IDs have an extra 1 bit in a
+	// position that makes it more significant than any of the other 1 bits.
+	{0x00, 0x3, "TrackType", NULL},
+	{0x00, 0x6, "CodecID", NULL},
+	{0x00, 0x8, "FlagDefault", NULL},
+	{0x00, 0x1b, "BlockDuration", NULL},
+	{0x00, 0x1c, "FlagLacing", NULL},
+	{0x01, 0x20, "BlockGroup", NULL},
+	{0x00, 0x21, "Block", NULL},
+	{0x00, 0x2a, "CodecDecodeAll", NULL},
+	{0x01, 0x2e, "TrackEntry", NULL},
+	{0x00, 0x33, "CueTime", NULL},
+	{0x01, 0x37, "CueTrackPositions", NULL},
+	{0x00, 0x39, "FlagEnabled", NULL},
+	{0x01, 0x3b, "CuePoint", NULL},
+	{0x00, 0x57, "TrackNumber", NULL},
+	{0x00, 0x60, "Video", NULL},
+	{0x00, 0x61, "Audio", NULL},
+	{0x00, 0x67, "Timecode", NULL},
 	{0x00, 0x6c, "Void", NULL},
+	{0x00, 0x71, "CueClusterPosition", NULL},
+	{0x00, 0x77, "CueTrack", NULL},
+	{0x00, 0x7b, "ReferenceBlock", NULL},
 	{0x00, 0x282, "DocType", NULL},
 	{0x00, 0x285, "DocTypeReadVersion", NULL},
 	{0x00, 0x286, "EBMLVersion", NULL},
@@ -104,13 +127,28 @@ static const struct ele_id_info ele_id_info_arr[] = {
 	{0x00, 0x2f2, "EBMLMaxIDLength", NULL},
 	{0x00, 0x2f3, "EBMLMaxSizeLength", NULL},
 	{0x00, 0x2f7, "EBMLReadVersion", NULL},
+	{0x00, 0x461, "DateUTC", NULL},
+	{0x00, 0x489, "Duration", NULL},
+	{0x00, 0xd80, "MuxingApp", NULL},
+	{0x00, 0x136e, "Name", NULL},
+	{0x00, 0x15aa, "FlagForced", NULL},
+	{0x00, 0x15ee, "MaxBlockAdditionID", NULL},
+	{0x00, 0x1741, "WritingApp", NULL},
+	{0x00, 0x23a2, "CodecPrivate", NULL},
+	{0x00, 0x2de7, "MinCache", NULL},
+	{0x00, 0x33a4, "SegmentUID", NULL},
+	{0x00, 0x33c5, "TrackUID", NULL},
+	{0x00, 0x2b59c, "Language", NULL},
+	{0x00, 0x3314f, "TrackTimecodeScale (deprecated)", NULL},
+	{0x00, 0x3e383, "DefaultDuration", NULL},
+	{0x00, 0xad7b1, "TimecodeScale", NULL},
 	{0x00, 0x14d9b74, "SeekHead", NULL},
-	{0x00, 0x549a966, "Info", NULL},
-	{0x00, 0x654ae6b, "Tracks", NULL},
+	{0x01, 0x549a966, "Info", NULL},
+	{0x01, 0x654ae6b, "Tracks", NULL},
 	{0x01, 0x8538067, "Segment", NULL},
 	{0x01, 0xa45dfa3, "Header", NULL},
-	{0x00, 0xc53bb6b, "Cues", NULL},
-	{0x00, 0xf43b675, "Cluster", NULL}
+	{0x01, 0xc53bb6b, "Cues", NULL},
+	{0x01, 0xf43b675, "Cluster", NULL}
 };
 
 static const struct ele_id_info *find_ele_id_info(de_int64 ele_id)
