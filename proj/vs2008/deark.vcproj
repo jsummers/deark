@@ -682,6 +682,10 @@
 				>
 			</File>
 			<File
+				RelativePath="..\..\modules\matroska.c"
+				>
+			</File>
+			<File
 				RelativePath="..\..\modules\mbk.c"
 				>
 			</File>

@@ -102,6 +102,8 @@ obj/modules/macpaint.o: modules/macpaint.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h
 obj/modules/makichan.o: modules/makichan.c src/deark-config.h \
  src/deark-private.h src/deark.h
+obj/modules/matroska.o: modules/matroska.c src/deark-config.h \
+ src/deark-private.h src/deark.h
 obj/modules/mbk.o: modules/mbk.c src/deark-config.h src/deark-private.h \
  src/deark.h src/deark-fmtutil.h
 obj/modules/misc.o: modules/misc.c src/deark-config.h src/deark-private.h \
