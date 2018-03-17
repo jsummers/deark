@@ -14,8 +14,18 @@ typedef struct localctx_struct {
 
 struct ele_id_info {
 	// flags:
-	//  0x01 = contains other elements
+	// The low byte is a code for the data type:
+#define TY_m 0x01 // Master
+#define TY_u 0x02 // unsigned int
+#define TY_i 0x03 // signed int
+#define TY_s 0x04 // string
+#define TY_8 0x05 // UTF-8 string
+#define TY_b 0x06 // binary
+#define TY_f 0x07 // float
+#define TY_d 0x08 // date
+	// 0x0100 = Don't decode this element by default
 	unsigned int flags;
+
 	de_int64 ele_id;
 	const char *name;
 	void *hfn;
@@ -99,56 +109,81 @@ static const struct ele_id_info ele_id_info_arr[] = {
 	// Note that the Matroska spec may conflate encoded IDs with decoded IDs.
 	// This table lists decoded IDs. Encoded IDs have an extra 1 bit in a
 	// position that makes it more significant than any of the other 1 bits.
-	{0x00, 0x3, "TrackType", NULL},
-	{0x00, 0x6, "CodecID", NULL},
-	{0x00, 0x8, "FlagDefault", NULL},
-	{0x00, 0x1b, "BlockDuration", NULL},
-	{0x00, 0x1c, "FlagLacing", NULL},
-	{0x01, 0x20, "BlockGroup", NULL},
-	{0x00, 0x21, "Block", NULL},
-	{0x00, 0x2a, "CodecDecodeAll", NULL},
-	{0x01, 0x2e, "TrackEntry", NULL},
-	{0x00, 0x33, "CueTime", NULL},
-	{0x01, 0x37, "CueTrackPositions", NULL},
-	{0x00, 0x39, "FlagEnabled", NULL},
-	{0x01, 0x3b, "CuePoint", NULL},
-	{0x00, 0x57, "TrackNumber", NULL},
-	{0x00, 0x60, "Video", NULL},
-	{0x00, 0x61, "Audio", NULL},
-	{0x00, 0x67, "Timecode", NULL},
-	{0x00, 0x6c, "Void", NULL},
-	{0x00, 0x71, "CueClusterPosition", NULL},
-	{0x00, 0x77, "CueTrack", NULL},
-	{0x00, 0x7b, "ReferenceBlock", NULL},
-	{0x00, 0x282, "DocType", NULL},
-	{0x00, 0x285, "DocTypeReadVersion", NULL},
-	{0x00, 0x286, "EBMLVersion", NULL},
-	{0x00, 0x287, "DocTypeVersion", NULL},
-	{0x00, 0x2f2, "EBMLMaxIDLength", NULL},
-	{0x00, 0x2f3, "EBMLMaxSizeLength", NULL},
-	{0x00, 0x2f7, "EBMLReadVersion", NULL},
-	{0x00, 0x461, "DateUTC", NULL},
-	{0x00, 0x489, "Duration", NULL},
-	{0x00, 0xd80, "MuxingApp", NULL},
-	{0x00, 0x136e, "Name", NULL},
-	{0x00, 0x15aa, "FlagForced", NULL},
-	{0x00, 0x15ee, "MaxBlockAdditionID", NULL},
-	{0x00, 0x1741, "WritingApp", NULL},
-	{0x00, 0x23a2, "CodecPrivate", NULL},
-	{0x00, 0x2de7, "MinCache", NULL},
-	{0x00, 0x33a4, "SegmentUID", NULL},
-	{0x00, 0x33c5, "TrackUID", NULL},
-	{0x00, 0x2b59c, "Language", NULL},
-	{0x00, 0x3314f, "TrackTimecodeScale (deprecated)", NULL},
-	{0x00, 0x3e383, "DefaultDuration", NULL},
-	{0x00, 0xad7b1, "TimecodeScale", NULL},
-	{0x00, 0x14d9b74, "SeekHead", NULL},
-	{0x01, 0x549a966, "Info", NULL},
-	{0x01, 0x654ae6b, "Tracks", NULL},
-	{0x01, 0x8538067, "Segment", NULL},
-	{0x01, 0xa45dfa3, "Header", NULL},
-	{0x01, 0xc53bb6b, "Cues", NULL},
-	{0x01, 0xf43b675, "Cluster", NULL}
+	{TY_u, 0x3, "TrackType", NULL},
+	{TY_s, 0x6, "CodecID", NULL},
+	{TY_u, 0x8, "FlagDefault", NULL},
+	{TY_u, 0x1a, "FlagInterlaced", NULL},
+	{TY_u, 0x1b, "BlockDuration", NULL},
+	{TY_u, 0x1c, "FlagLacing", NULL},
+	{TY_u, 0x1f, "Channels", NULL},
+	{TY_m, 0x20, "BlockGroup", NULL},
+	{TY_b, 0x21, "Block", NULL},
+	{TY_b, 0x23, "SimpleBlock", NULL},
+	{TY_u, 0x27, "Position", NULL},
+	{TY_u, 0x2a, "CodecDecodeAll", NULL},
+	{TY_u, 0x2b, "PrevSize", NULL},
+	{TY_m, 0x2e, "TrackEntry", NULL},
+	{TY_u, 0x30, "PixelWidth", NULL},
+	{TY_u, 0x33, "CueTime", NULL},
+	{TY_f, 0x35, "SamplingFrequency", NULL},
+	{TY_m, 0x37, "CueTrackPositions", NULL},
+	{TY_u, 0x39, "FlagEnabled", NULL},
+	{TY_u, 0x3a, "PixelHeight", NULL},
+	{TY_m, 0x3b, "CuePoint", NULL},
+	{TY_b, 0x3f, "CRC-32", NULL},
+	{TY_u, 0x57, "TrackNumber", NULL},
+	{TY_m, 0x60, "Video", NULL},
+	{TY_m, 0x61, "Audio", NULL},
+	{TY_u, 0x67, "Timecode", NULL},
+	{TY_b, 0x6c, "Void", NULL},
+	{TY_u, 0x71, "CueClusterPosition", NULL},
+	{TY_u, 0x77, "CueTrack", NULL},
+	{TY_i, 0x7b, "ReferenceBlock", NULL},
+	{TY_u, 0x254, "ContentCompAlgo", NULL},
+	{TY_b, 0x255, "ContentCompSettings", NULL},
+	{TY_s, 0x282, "DocType", NULL},
+	{TY_u, 0x285, "DocTypeReadVersion", NULL},
+	{TY_u, 0x286, "EBMLVersion", NULL},
+	{TY_u, 0x287, "DocTypeVersion", NULL},
+	{TY_u, 0x2f2, "EBMLMaxIDLength", NULL},
+	{TY_u, 0x2f3, "EBMLMaxSizeLength", NULL},
+	{TY_u, 0x2f7, "EBMLReadVersion", NULL},
+	{TY_d, 0x461, "DateUTC", NULL},
+	{TY_8, 0x487, "TagString", NULL},
+	{TY_f, 0x489, "Duration", NULL},
+	{TY_8, 0x5a3, "TagName", NULL},
+	{TY_8, 0xd80, "MuxingApp", NULL},
+	{TY_m, 0xdbb, "Seek", NULL},
+	{TY_m, 0x1034, "ContentCompression", NULL},
+	{TY_8, 0x136e, "Name", NULL},
+	{TY_b, 0x13ab, "SeekID", NULL},
+	{TY_u, 0x13ac, "SeekPosition", NULL},
+	{TY_u, 0x14b0, "DisplayWidth", NULL},
+	{TY_u, 0x14ba, "DisplayHeight", NULL},
+	{TY_u, 0x15aa, "FlagForced", NULL},
+	{TY_u, 0x15ee, "MaxBlockAdditionID", NULL},
+	{TY_8, 0x1741, "WritingApp", NULL},
+	{TY_m, 0x2240, "ContentEncoding", NULL},
+	{TY_b, 0x23a2, "CodecPrivate", NULL},
+	{TY_m, 0x23c0, "Targets", NULL},
+	{TY_m, 0x27c8, "SimpleTag", NULL},
+	{TY_m, 0x2d80, "ContentEncodings", NULL},
+	{TY_u, 0x2de7, "MinCache", NULL},
+	{TY_m, 0x3373, "Tag", NULL},
+	{TY_b, 0x33a4, "SegmentUID", NULL},
+	{TY_u, 0x33c5, "TrackUID", NULL},
+	{TY_s, 0x2b59c, "Language", NULL},
+	{TY_f, 0x3314f, "TrackTimecodeScale (deprecated)", NULL},
+	{TY_u, 0x3e383, "DefaultDuration", NULL},
+	{TY_u, 0xad7b1, "TimecodeScale", NULL},
+	{TY_m|0x0100, 0x14d9b74, "SeekHead", NULL},
+	{TY_m, 0x254c367, "Tags", NULL},
+	{TY_m, 0x549a966, "Info", NULL},
+	{TY_m, 0x654ae6b, "Tracks", NULL},
+	{TY_m, 0x8538067, "Segment", NULL},
+	{TY_m, 0xa45dfa3, "EBML", NULL},
+	{TY_m, 0xc53bb6b, "Cues", NULL},
+	{TY_m|0x0100, 0xf43b675, "Cluster", NULL}
 };
 
 static const struct ele_id_info *find_ele_id_info(de_int64 ele_id)
@@ -174,6 +209,10 @@ static int do_element(deark *c, lctx *d, de_int64 pos1,
 	const struct ele_id_info *einfo;
 	const char *ele_name;
 	int saved_indent_level;
+	unsigned int dtype = 0;
+	int should_decode;
+	int ret;
+	char tmpbuf[80];
 
 	de_dbg_indent_save(c, &saved_indent_level);
 
@@ -193,17 +232,37 @@ static int do_element(deark *c, lctx *d, de_int64 pos1,
 
 	de_dbg(c, "element id: 0x%"INT64_FMTx" (%s)", ele_id, ele_name);
 
-	if(1!=get_var_size_int(c->infile, &ele_dlen, &pos)) {
+	ret = get_var_size_int(c->infile, &ele_dlen, &pos);
+	if(ret==1) {
+		de_snprintf(tmpbuf, sizeof(tmpbuf), "%"INT64_FMT, ele_dlen);
+	}
+	else if(ret==2) {
+		// TODO: Is this right?
+		ele_dlen = c->infile->len - pos;
+		de_strlcpy(tmpbuf, "implicit", sizeof(tmpbuf));
+	}
+	else {
 		de_err(c, "Failed to read length of element at %"INT64_FMT, pos1);
 		goto done;
 	}
-	de_dbg(c, "element data at %"INT64_FMT", dlen=%"INT64_FMT, pos, ele_dlen);
+	de_dbg(c, "element data at %"INT64_FMT", dlen=%s", pos, tmpbuf);
 	// TODO: Validate ele_len
 
-	if(einfo && (einfo->flags&0x01)) {
-		int ret;
-		ret = do_element_sequence(c, d, pos, ele_dlen);
-		if(!ret) goto done;
+	should_decode = 1;
+	if(einfo) {
+		dtype = einfo->flags & 0xff;
+		if((einfo->flags & 0x0100) && c->debug_level<2) {
+			should_decode = 0;
+		}
+	}
+
+	if(should_decode) {
+		if(dtype==TY_m) {
+			do_element_sequence(c, d, pos, ele_dlen);
+		}
+	}
+	else {
+		de_dbg(c, "[not decoding this element]");
 	}
 
 	pos += ele_dlen;
@@ -224,6 +283,7 @@ static int do_element_sequence(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 	int saved_indent_level;
 
 	de_dbg_indent_save(c, &saved_indent_level);
+	if(len==0) { retval = 1; goto done; }
 	de_dbg(c, "element sequence at %"INT64_FMT", max_len=%"INT64_FMT, pos1, len);
 	de_dbg_indent(c, 1);
 
