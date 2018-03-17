@@ -251,7 +251,7 @@ static int do_element(deark *c, lctx *d, de_int64 pos1,
 	int saved_indent_level;
 	unsigned int dtype = 0;
 	int should_decode;
-	int ret;
+	int len_ret;
 	char tmpbuf[80];
 
 	de_dbg_indent_save(c, &saved_indent_level);
@@ -272,21 +272,43 @@ static int do_element(deark *c, lctx *d, de_int64 pos1,
 
 	de_dbg(c, "element id: 0x%"INT64_FMTx" (%s)", ele_id, ele_name);
 
-	ret = get_var_size_int(c->infile, &ele_dlen, &pos);
-	if(ret==1) {
+	len_ret = get_var_size_int(c->infile, &ele_dlen, &pos);
+	if(len_ret==1) {
 		de_snprintf(tmpbuf, sizeof(tmpbuf), "%"INT64_FMT, ele_dlen);
 	}
-	else if(ret==2) {
-		// TODO: Is this right?
+	else if(len_ret==2) {
 		ele_dlen = c->infile->len - pos;
-		de_strlcpy(tmpbuf, "implicit", sizeof(tmpbuf));
+		de_strlcpy(tmpbuf, "unknown", sizeof(tmpbuf));
 	}
 	else {
 		de_err(c, "Failed to read length of element at %"INT64_FMT, pos1);
 		goto done;
 	}
 	de_dbg(c, "element data at %"INT64_FMT", dlen=%s", pos, tmpbuf);
-	// TODO: Validate ele_len
+
+	if(len_ret==2) {
+		// EBML does not have any sort of end-of-master-element marker, which
+		// presents a problem when a master element has an unknown length.
+		//
+		// EBML's "solution" is this:
+		// "The end of an Unknown-Sized Element is determined by whichever
+		// comes first: the end of the file or the beginning of the next EBML
+		// Element, defined by this document or the corresponding EBML Schema,
+		// that is not independently valid as Descendant Element of the
+		// Unknown-Sized Element."
+		//
+		// This would appear to require a sophisticated, high-level algorithm
+		// with 100% complete knowledge of the latest version of the specific
+		// application format. We do not have such an algorithm.
+
+		de_err(c, "EBML files with unknown-length elements are not supported");
+		goto done;
+	}
+
+	if(pos + ele_dlen > c->infile->len) {
+		de_err(c, "Element at %"INT64_FMT" goes beyond end of file", pos1);
+		goto done;
+	}
 
 	should_decode = 1;
 	if(einfo) {
@@ -332,6 +354,21 @@ static int do_element_sequence(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 	int retval = 0;
 	de_int64 pos = pos1;
 	int saved_indent_level;
+
+	// TODO:
+	// From the EBML spec:
+	// "data that is not part of an EBML Element is permitted to be present
+	// within a Master Element if unknownsizeallowed is enabled within the
+	// definition for that Master Element. In this case, the EBML Reader
+	// should skip data until a valid Element ID of the same EBMLParentPath or
+	// the next upper level Element Path of the Master Element is found."
+	//
+	// We do not support this. We can't even detect it, so our parser will go
+	// off the rails. How do you even support it efficiently? What kind of
+	// psychopath designs a format like this? It's incredibly fragile (a new
+	// format version that defines a new optional element will completely
+	// break backward compatibility), and its abstractions are leaking all
+	// over the place.
 
 	d->level++;
 	de_dbg_indent_save(c, &saved_indent_level);
