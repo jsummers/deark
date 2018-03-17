@@ -9,7 +9,7 @@
 DE_DECLARE_MODULE(de_module_ebml);
 
 typedef struct localctx_struct {
-	int reserved;
+	int level;
 } lctx;
 
 struct ele_id_info {
@@ -149,6 +149,8 @@ static const struct ele_id_info ele_id_info_arr[] = {
 	{TY_u, 0x2f3, "EBMLMaxSizeLength", NULL},
 	{TY_u, 0x2f7, "EBMLReadVersion", NULL},
 	{TY_d, 0x461, "DateUTC", NULL},
+	{TY_s, 0x47a, "TagLanguage", NULL},
+	{TY_u, 0x484, "TagDefault", NULL},
 	{TY_8, 0x487, "TagString", NULL},
 	{TY_f, 0x489, "Duration", NULL},
 	{TY_8, 0x5a3, "TagName", NULL},
@@ -167,11 +169,13 @@ static const struct ele_id_info ele_id_info_arr[] = {
 	{TY_b, 0x23a2, "CodecPrivate", NULL},
 	{TY_m, 0x23c0, "Targets", NULL},
 	{TY_m, 0x27c8, "SimpleTag", NULL},
+	{TY_u, 0x28ca, "TargetTypeValue", NULL},
 	{TY_m, 0x2d80, "ContentEncodings", NULL},
 	{TY_u, 0x2de7, "MinCache", NULL},
 	{TY_m, 0x3373, "Tag", NULL},
 	{TY_b, 0x33a4, "SegmentUID", NULL},
 	{TY_u, 0x33c5, "TrackUID", NULL},
+	{TY_f, 0x38b5, "OutputSamplingFrequency", NULL},
 	{TY_s, 0x2b59c, "Language", NULL},
 	{TY_f, 0x3314f, "TrackTimecodeScale (deprecated)", NULL},
 	{TY_u, 0x3e383, "DefaultDuration", NULL},
@@ -195,6 +199,42 @@ static const struct ele_id_info *find_ele_id_info(de_int64 ele_id)
 		}
 	}
 	return NULL;
+}
+
+static void decode_int(deark *c, lctx *d, const struct ele_id_info *ele_id,
+	  de_int64 pos, de_int64 len)
+{
+	de_int64 v;
+
+	// FIXME: This only covers some common cases. We need to support
+	// arbitrary length integers (1-8 bytes).
+	if(len==1) {
+		de_byte b;
+		b = de_getbyte(pos);
+		de_dbg(c, "value: %u", (unsigned int)b);
+	}
+	else if(len==2) {
+		v = de_getui16be(pos);
+		de_dbg(c, "value: %"INT64_FMT, v);
+	}
+	else if(len==4) {
+		de_int64 v;
+		v = de_getui32be(pos);
+		de_dbg(c, "value: %"INT64_FMT, v);
+	}
+}
+
+static void decode_string(deark *c, lctx *d, const struct ele_id_info *ele_id,
+	  de_int64 pos, de_int64 len, int encoding)
+{
+	de_ucstring *s = NULL;
+
+	s = ucstring_create(c);
+	dbuf_read_to_ucstring_n(c->infile, pos, len, DE_DBG_MAX_STRLEN, s,
+		DE_CONVFLAG_STOP_AT_NUL, encoding);
+	de_dbg(c, "value: \"%s\"", ucstring_get_printable_sz_d(s));
+
+	ucstring_destroy(s);
 }
 
 static int do_element_sequence(deark *c, lctx *d, de_int64 pos1, de_int64 len);
@@ -257,8 +297,19 @@ static int do_element(deark *c, lctx *d, de_int64 pos1,
 	}
 
 	if(should_decode) {
-		if(dtype==TY_m) {
+		switch(dtype) {
+		case TY_m:
 			do_element_sequence(c, d, pos, ele_dlen);
+			break;
+		case TY_u:
+			decode_int(c, d, einfo, pos, ele_dlen);
+			break;
+		case TY_8:
+			decode_string(c, d, einfo, pos, ele_dlen, DE_ENCODING_UTF8);
+			break;
+		case TY_s:
+			decode_string(c, d, einfo, pos, ele_dlen, DE_ENCODING_PRINTABLEASCII);
+			break;
 		}
 	}
 	else {
@@ -282,8 +333,11 @@ static int do_element_sequence(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 	de_int64 pos = pos1;
 	int saved_indent_level;
 
+	d->level++;
 	de_dbg_indent_save(c, &saved_indent_level);
+	if(d->level > 16) goto done;
 	if(len==0) { retval = 1; goto done; }
+
 	de_dbg(c, "element sequence at %"INT64_FMT", max_len=%"INT64_FMT, pos1, len);
 	de_dbg_indent(c, 1);
 
@@ -302,6 +356,7 @@ static int do_element_sequence(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 
 done:
 	de_dbg_indent_restore(c, saved_indent_level);
+	d->level--;
 	return retval;
 }
 
