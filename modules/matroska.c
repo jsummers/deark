@@ -12,6 +12,12 @@ typedef struct localctx_struct {
 	int level;
 } lctx;
 
+struct handler_params {
+	de_int64 dpos;
+	de_int64 dlen;
+};
+typedef void (*handler_fn_type)(deark *c, lctx *d, struct handler_params *hp);
+
 struct ele_id_info {
 	// flags:
 	// The low byte is a code for the data type:
@@ -28,7 +34,7 @@ struct ele_id_info {
 
 	de_int64 ele_id;
 	const char *name;
-	void *hfn;
+	handler_fn_type hfn;
 };
 
 // Read a "Variable Size Integer".
@@ -105,6 +111,16 @@ done:
 	return retval;
 }
 
+static void handler_hexdumpa(deark *c, lctx *d, struct handler_params *hp)
+{
+	de_dbg_hexdump(c, c->infile, hp->dpos, hp->dlen, 256, "data", 0x1);
+}
+
+static void handler_hexdumpb(deark *c, lctx *d, struct handler_params *hp)
+{
+	de_dbg_hexdump(c, c->infile, hp->dpos, hp->dlen, 256, "data", 0x0);
+}
+
 static const struct ele_id_info ele_id_info_arr[] = {
 	// Note that the Matroska spec may conflate encoded IDs with decoded IDs.
 	// This table lists decoded IDs. Encoded IDs have an extra 1 bit in a
@@ -130,17 +146,17 @@ static const struct ele_id_info ele_id_info_arr[] = {
 	{TY_u, 0x39, "FlagEnabled", NULL},
 	{TY_u, 0x3a, "PixelHeight", NULL},
 	{TY_m, 0x3b, "CuePoint", NULL},
-	{TY_b, 0x3f, "CRC-32", NULL},
+	{TY_b, 0x3f, "CRC-32", handler_hexdumpb},
 	{TY_u, 0x57, "TrackNumber", NULL},
 	{TY_m, 0x60, "Video", NULL},
 	{TY_m, 0x61, "Audio", NULL},
 	{TY_u, 0x67, "Timecode", NULL},
-	{TY_b, 0x6c, "Void", NULL},
+	{TY_b|0x0100, 0x6c, "Void", handler_hexdumpb},
 	{TY_u, 0x71, "CueClusterPosition", NULL},
 	{TY_u, 0x77, "CueTrack", NULL},
 	{TY_i, 0x7b, "ReferenceBlock", NULL},
 	{TY_u, 0x254, "ContentCompAlgo", NULL},
-	{TY_b, 0x255, "ContentCompSettings", NULL},
+	{TY_b, 0x255, "ContentCompSettings", handler_hexdumpb},
 	{TY_s, 0x282, "DocType", NULL},
 	{TY_u, 0x285, "DocTypeReadVersion", NULL},
 	{TY_u, 0x286, "EBMLVersion", NULL},
@@ -158,22 +174,24 @@ static const struct ele_id_info ele_id_info_arr[] = {
 	{TY_m, 0xdbb, "Seek", NULL},
 	{TY_m, 0x1034, "ContentCompression", NULL},
 	{TY_8, 0x136e, "Name", NULL},
-	{TY_b, 0x13ab, "SeekID", NULL},
+	{TY_b, 0x13ab, "SeekID", handler_hexdumpb},
 	{TY_u, 0x13ac, "SeekPosition", NULL},
 	{TY_u, 0x14b0, "DisplayWidth", NULL},
+	{TY_u, 0x14b2, "DisplayUnit", NULL},
 	{TY_u, 0x14ba, "DisplayHeight", NULL},
 	{TY_u, 0x15aa, "FlagForced", NULL},
 	{TY_u, 0x15ee, "MaxBlockAdditionID", NULL},
 	{TY_8, 0x1741, "WritingApp", NULL},
 	{TY_m, 0x2240, "ContentEncoding", NULL},
-	{TY_b, 0x23a2, "CodecPrivate", NULL},
+	{TY_u, 0x2264, "BitDepth", NULL},
+	{TY_b, 0x23a2, "CodecPrivate", handler_hexdumpa},
 	{TY_m, 0x23c0, "Targets", NULL},
 	{TY_m, 0x27c8, "SimpleTag", NULL},
 	{TY_u, 0x28ca, "TargetTypeValue", NULL},
 	{TY_m, 0x2d80, "ContentEncodings", NULL},
 	{TY_u, 0x2de7, "MinCache", NULL},
 	{TY_m, 0x3373, "Tag", NULL},
-	{TY_b, 0x33a4, "SegmentUID", NULL},
+	{TY_b, 0x33a4, "SegmentUID", handler_hexdumpb},
 	{TY_u, 0x33c5, "TrackUID", NULL},
 	{TY_f, 0x38b5, "OutputSamplingFrequency", NULL},
 	{TY_s, 0x2b59c, "Language", NULL},
@@ -201,27 +219,75 @@ static const struct ele_id_info *find_ele_id_info(de_int64 ele_id)
 	return NULL;
 }
 
+// This is a variable size integer, but it's different from the one named
+// "Variable Size Integer".
 static void decode_int(deark *c, lctx *d, const struct ele_id_info *ele_id,
+	  de_int64 pos, de_int64 len1)
+{
+	unsigned int k;
+	unsigned int len;
+	de_uint64 v;
+
+	if(len1<1 || len1>8) return;
+	len = (unsigned int)len1;
+
+	v = 0;
+	for(k=0; k<len; k++) {
+		de_uint64 x;
+		x = (de_uint64)de_getbyte(pos+(de_int64)k);
+		v |= x<<((len-1-k)*8);
+	}
+
+	de_dbg(c, "value: %"INT64_FMT, (de_int64)v);
+}
+
+static void decode_float(deark *c, lctx *d, const struct ele_id_info *ele_id,
 	  de_int64 pos, de_int64 len)
 {
-	de_int64 v;
+	double v;
 
-	// FIXME: This only covers some common cases. We need to support
-	// arbitrary length integers (1-8 bytes).
-	if(len==1) {
-		de_byte b;
-		b = de_getbyte(pos);
-		de_dbg(c, "value: %u", (unsigned int)b);
+	if(len==4) {
+		v = dbuf_getfloat32x(c->infile, pos, 0);
 	}
-	else if(len==2) {
-		v = de_getui16be(pos);
-		de_dbg(c, "value: %"INT64_FMT, v);
+	else if(len==8) {
+		v = dbuf_getfloat64x(c->infile, pos, 0);
 	}
-	else if(len==4) {
-		de_int64 v;
-		v = de_getui32be(pos);
-		de_dbg(c, "value: %"INT64_FMT, v);
+	else {
+		return;
 	}
+	de_dbg(c, "value: %f", v);
+}
+
+static void EBMLdate_to_timestamp(de_int64 ed, struct de_timestamp *ts)
+{
+	de_int64 t;
+
+	// ed is the number of nanoseconds since the beginning of 2001.
+	t = ed/1000000000;
+	// Now t is seconds since the beginning of 2001.
+	// (We assume leap seconds are not included. The EBML spec says nothing
+	// about this issue, and there's no reasonable way to deal with it anyway.)
+	// We want seconds since the beginning of 1970.
+	// So, add the number of seconds in the years from 1970 through 2000. This
+	// is 31 years.
+	// There are 86400 seconds in a day.
+	// There are 8 leap days in this range ('72, 76, 80, 84, 88, 92, 96, 00).
+	t += 86400LL * (31*365 + 8);
+	de_unix_time_to_timestamp(t, ts);
+}
+
+static void decode_date(deark *c, lctx *d, const struct ele_id_info *ele_id,
+	  de_int64 pos, de_int64 len)
+{
+	de_int64 dt_int;
+	struct de_timestamp ts;
+	char buf[64];
+
+	if(len!=8) return;
+	dt_int = de_geti64be(pos);
+	EBMLdate_to_timestamp(dt_int, &ts);
+	de_timestamp_to_string(&ts, buf, sizeof(buf), 1);
+	de_dbg(c, "value: %"INT64_FMT" (%s)", dt_int, buf);
 }
 
 static void decode_string(deark *c, lctx *d, const struct ele_id_info *ele_id,
@@ -318,7 +384,13 @@ static int do_element(deark *c, lctx *d, de_int64 pos1,
 		}
 	}
 
-	if(should_decode) {
+	if(should_decode && einfo && einfo->hfn) {
+		struct handler_params hp;
+		hp.dpos = pos;
+		hp.dlen = ele_dlen;
+		einfo->hfn(c, d, &hp);
+	}
+	else if(should_decode) {
 		switch(dtype) {
 		case TY_m:
 			do_element_sequence(c, d, pos, ele_dlen);
@@ -326,11 +398,17 @@ static int do_element(deark *c, lctx *d, de_int64 pos1,
 		case TY_u:
 			decode_int(c, d, einfo, pos, ele_dlen);
 			break;
+		case TY_f:
+			decode_float(c, d, einfo, pos, ele_dlen);
+			break;
 		case TY_8:
 			decode_string(c, d, einfo, pos, ele_dlen, DE_ENCODING_UTF8);
 			break;
 		case TY_s:
 			decode_string(c, d, einfo, pos, ele_dlen, DE_ENCODING_PRINTABLEASCII);
+			break;
+		case TY_d:
+			decode_date(c, d, einfo, pos, ele_dlen);
 			break;
 		}
 	}
@@ -403,6 +481,7 @@ static void de_run_ebml(deark *c, de_module_params *mparams)
 	de_int64 pos;
 
 	d = de_malloc(c, sizeof(lctx));
+	de_msg(c, "Note: EBML files can be parsed, but no files can be extracted from them.");
 
 	pos = 0;
 	do_element_sequence(c, d, pos, c->infile->len);
@@ -423,5 +502,4 @@ void de_module_ebml(deark *c, struct deark_module_info *mi)
 	mi->desc = "EBML";
 	mi->run_fn = de_run_ebml;
 	mi->identify_fn = de_identify_ebml;
-	mi->flags |= DE_MODFLAG_NONWORKING;
 }

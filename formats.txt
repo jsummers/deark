@@ -607,6 +607,8 @@ Deark -- Information about supported formats
 * CRC-32 (module="crc32")
   - Print the IEEE CRC-32 of the file.
 
+* EBML/Matroska/MKV/WebM (module="ebml") (experimental/incomplete)
+
 * EXE/PE/NE/etc. (module="exe")
   EXE format can be complex. Not all varieties are correctly supported.
   - Extract bitmaps, icons, and cursors from NE and PE (Windows .exe) files.
