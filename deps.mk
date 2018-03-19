@@ -46,6 +46,8 @@ obj/modules/d64.o: modules/d64.c src/deark-config.h src/deark-private.h \
  src/deark.h
 obj/modules/drhalo.o: modules/drhalo.c src/deark-config.h \
  src/deark-private.h src/deark.h
+obj/modules/ebml.o: modules/ebml.c src/deark-config.h src/deark-private.h \
+ src/deark.h
 obj/modules/emf.o: modules/emf.c src/deark-config.h src/deark-private.h \
  src/deark.h src/deark-fmtutil.h
 obj/modules/epocimage.o: modules/epocimage.c src/deark-config.h \
@@ -101,8 +103,6 @@ obj/modules/lha.o: modules/lha.c src/deark-config.h src/deark-private.h \
 obj/modules/macpaint.o: modules/macpaint.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h
 obj/modules/makichan.o: modules/makichan.c src/deark-config.h \
- src/deark-private.h src/deark.h
-obj/modules/matroska.o: modules/matroska.c src/deark-config.h \
  src/deark-private.h src/deark.h
 obj/modules/mbk.o: modules/mbk.c src/deark-config.h src/deark-private.h \
  src/deark.h src/deark-fmtutil.h

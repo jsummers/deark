@@ -570,6 +570,10 @@
 				>
 			</File>
 			<File
+				RelativePath="..\..\modules\ebml.c"
+				>
+			</File>
+			<File
 				RelativePath="..\..\modules\emf.c"
 				>
 			</File>
@@ -679,10 +683,6 @@
 			</File>
 			<File
 				RelativePath="..\..\modules\makichan.c"
-				>
-			</File>
-			<File
-				RelativePath="..\..\modules\matroska.c"
 				>
 			</File>
 			<File
