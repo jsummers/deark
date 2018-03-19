@@ -65,7 +65,7 @@ static int do_one_CFDATA(deark *c, lctx *d, struct folder_info *fldi, de_int64 p
 		de_dbg(c, "[%d bytes of abReserve data at %d]", (int)d->cbCFData,
 			(int)pos);
 		de_dbg_indent(c, 1);
-		de_dbg_hexdump(c, c->infile, pos, d->cbCFData, 256, "data", 0x1);
+		de_dbg_hexdump(c, c->infile, pos, d->cbCFData, 256, NULL, 0x1);
 		de_dbg_indent(c, -1);
 		pos += d->cbCFData;
 	}
@@ -138,7 +138,7 @@ static int do_one_CFFOLDER(deark *c, lctx *d, de_int64 folder_idx,
 		de_dbg(c, "[%d bytes of abReserve data at %d]", (int)d->cbCFFolder,
 			(int)pos);
 		de_dbg_indent(c, 1);
-		de_dbg_hexdump(c, c->infile, pos, d->cbCFFolder, 256, "data", 0x1);
+		de_dbg_hexdump(c, c->infile, pos, d->cbCFFolder, 256, NULL, 0x1);
 		de_dbg_indent(c, -1);
 		pos += d->cbCFFolder;
 	}
@@ -351,7 +351,7 @@ static int do_CFHEADER(deark *c, lctx *d)
 			de_dbg(c, "[%d bytes of abReserve data at %d]", (int)d->cbCFHeader,
 				(int)pos);
 			de_dbg_indent(c, 1);
-			de_dbg_hexdump(c, c->infile, pos, d->cbCFHeader, 256, "data", 0x1);
+			de_dbg_hexdump(c, c->infile, pos, d->cbCFHeader, 256, NULL, 0x1);
 			de_dbg_indent(c, -1);
 			pos += d->cbCFHeader;
 		}

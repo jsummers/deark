@@ -285,6 +285,7 @@ static int get_ndigits_for_offset(de_int64 n)
 	return nd;
 }
 
+// If prefix is NULL, a default will be used.
 // flags:
 //  0x1 = Include an ASCII representation
 void de_dbg_hexdump(deark *c, dbuf *f, de_int64 pos1,
@@ -303,6 +304,8 @@ void de_dbg_hexdump(deark *c, dbuf *f, de_int64 pos1,
 	de_int64 len;
 	int ndigits_for_offset;
 	int was_truncated = 0;
+
+	if(!prefix) prefix="data";
 
 	if(nbytes_avail > max_nbytes_to_dump) {
 		len = max_nbytes_to_dump;

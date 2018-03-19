@@ -946,7 +946,7 @@ static int valdec_dngcolorspace(deark *c, const struct valdec_params *vp, struct
 
 static void handler_hexdump(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni)
 {
-	de_dbg_hexdump(c, c->infile, tg->val_offset, tg->total_size, 256, "data", 0x1);
+	de_dbg_hexdump(c, c->infile, tg->val_offset, tg->total_size, 256, NULL, 0x1);
 }
 
 static void handler_imagewidth(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni)

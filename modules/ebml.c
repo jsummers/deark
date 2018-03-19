@@ -113,12 +113,12 @@ done:
 
 static void handler_hexdumpa(deark *c, lctx *d, struct handler_params *hp)
 {
-	de_dbg_hexdump(c, c->infile, hp->dpos, hp->dlen, 256, "data", 0x1);
+	de_dbg_hexdump(c, c->infile, hp->dpos, hp->dlen, 256, NULL, 0x1);
 }
 
 static void handler_hexdumpb(deark *c, lctx *d, struct handler_params *hp)
 {
-	de_dbg_hexdump(c, c->infile, hp->dpos, hp->dlen, 256, "data", 0x0);
+	de_dbg_hexdump(c, c->infile, hp->dpos, hp->dlen, 256, NULL, 0x0);
 }
 
 static const struct ele_id_info ele_id_info_arr[] = {

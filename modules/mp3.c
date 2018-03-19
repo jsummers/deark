@@ -397,7 +397,7 @@ static void decode_id3v2_frame_priv(deark *c, id3v2ctx *d,
 	}
 	else if(c->debug_level>=2) {
 		de_dbg_indent(c, 1);
-		de_dbg_hexdump(c, f, pos, payload_len, 256, "data", 0x1);
+		de_dbg_hexdump(c, f, pos, payload_len, 256, NULL, 0x1);
 		de_dbg_indent(c, -1);
 	}
 
@@ -653,7 +653,7 @@ static void decode_id3v2_frame_geob(deark *c, id3v2ctx *d,
 	}
 	else if(c->debug_level>=2) {
 		de_dbg_indent(c, 1);
-		de_dbg_hexdump(c, f, pos, objlen, 256, "data", 0x1);
+		de_dbg_hexdump(c, f, pos, objlen, 256, NULL, 0x1);
 		de_dbg_indent(c, -1);
 	}
 
@@ -1233,7 +1233,7 @@ static int do_ape_item(deark *c, struct ape_tag_header_footer *ah,
 		do_ape_text_item(c, ah, pos, item_value_len);
 	}
 	else if(c->debug_level>=2) {
-		de_dbg_hexdump(c, c->infile, pos, item_value_len, 256, "data", 0x1);
+		de_dbg_hexdump(c, c->infile, pos, item_value_len, 256, NULL, 0x1);
 	}
 	de_dbg_indent(c, -1);
 

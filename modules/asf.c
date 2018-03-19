@@ -212,14 +212,14 @@ static void handler_StreamProperties(deark *c, lctx *d, struct handler_params *h
 	if(tsdlen) {
 		de_dbg(c, "[%d bytes of type-specific data at %"INT64_FMT"]", (int)tsdlen, pos);
 		de_dbg_indent(c, 1);
-		de_dbg_hexdump(c, c->infile, pos, tsdlen, 256, "data", 0x1);
+		de_dbg_hexdump(c, c->infile, pos, tsdlen, 256, NULL, 0x1);
 		de_dbg_indent(c, -1);
 		pos += tsdlen;
 	}
 	if(ecdlen) {
 		de_dbg(c, "[%d bytes of error correction data at %"INT64_FMT"]", (int)ecdlen, pos);
 		de_dbg_indent(c, 1);
-		de_dbg_hexdump(c, c->infile, pos, ecdlen, 256, "data", 0x1);
+		de_dbg_hexdump(c, c->infile, pos, ecdlen, 256, NULL, 0x1);
 		de_dbg_indent(c, -1);
 		pos += ecdlen;
 	}
@@ -278,7 +278,7 @@ static void handler_ContentEncr(deark *c, lctx *d, struct handler_params *hp)
 	if(xlen>0) {
 		de_dbg(c, "[%d bytes of secret data at %"INT64_FMT"]", (int)xlen, pos);
 		de_dbg_indent(c, 1);
-		de_dbg_hexdump(c, c->infile, pos, xlen, 256, "data", 0x0);
+		de_dbg_hexdump(c, c->infile, pos, xlen, 256, NULL, 0x0);
 		de_dbg_indent(c, -1);
 	}
 	pos += xlen;
@@ -418,7 +418,7 @@ static void handler_ESP(deark *c, lctx *d, struct handler_params *hp)
 		if(xlen>0) {
 			de_dbg(c, "[%d bytes of payload ext. system info at %"INT64_FMT, (int)xlen, pos);
 			de_dbg_indent(c, 1);
-			de_dbg_hexdump(c, c->infile, pos, xlen, 256, "data", 0x1);
+			de_dbg_hexdump(c, c->infile, pos, xlen, 256, NULL, 0x1);
 			de_dbg_indent(c, -1);
 		}
 		pos += xlen;
@@ -528,7 +528,7 @@ static int do_codec_entry(deark *c, lctx *d, de_int64 pos1, de_int64 len, de_int
 	if(infolen>0) {
 		de_dbg(c, "[%d bytes of codec information at %"INT64_FMT"]", (int)infolen, pos);
 		de_dbg_indent(c, 1);
-		de_dbg_hexdump(c, c->infile, pos, infolen, 256, "data", 0x1);
+		de_dbg_hexdump(c, c->infile, pos, infolen, 256, NULL, 0x1);
 		de_dbg_indent(c, -1);
 	}
 	pos += infolen;
@@ -732,7 +732,7 @@ static void do_metadata_item(deark *c, lctx *d, de_int64 pos, de_int64 val_len,
 
 	if(!handled) {
 		de_dbg_indent(c, 1);
-		de_dbg_hexdump(c, c->infile, pos, val_len, 256, "data", 0x1);
+		de_dbg_hexdump(c, c->infile, pos, val_len, 256, NULL, 0x1);
 		de_dbg_indent(c, -1);
 	}
 

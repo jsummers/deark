@@ -792,7 +792,7 @@ static void do_pluginrsrc_mopt(deark *c, lctx *d, zztype *zz)
 		de_dbg(c, "[%d bytes of data at %d]", (int)something_len, (int)zz->pos);
 		if(c->debug_level>=2) {
 			de_dbg_indent(c, 1);
-			de_dbg_hexdump(c, c->infile, zz->pos, something_len, 256, "data", 0x1);
+			de_dbg_hexdump(c, c->infile, zz->pos, something_len, 256, NULL, 0x1);
 			de_dbg_indent(c, -1);
 		}
 		zz->pos += something_len;
@@ -848,7 +848,7 @@ static void hrsrc_pluginresource(deark *c, lctx *d, zztype *zz, const struct rsr
 				(int)zz_avail(&czz), (int)czz.startpos);
 			if(c->debug_level>=2) {
 				de_dbg_indent(c, 1);
-				de_dbg_hexdump(c, c->infile, czz.startpos, zz_avail(&czz), 256, "data", 0x1);
+				de_dbg_hexdump(c, c->infile, czz.startpos, zz_avail(&czz), 256, NULL, 0x1);
 				de_dbg_indent(c, -1);
 			}
 		}
@@ -1925,7 +1925,7 @@ static int do_image_resource(deark *c, lctx *d, zztype *zz)
 		hrsrc_descriptor_with_version(c, d, &czz, &ri);
 	}
 	else if(c->debug_level>=2) {
-		de_dbg_hexdump(c, c->infile, zz->pos, block_data_len, 256, "data", 0x1);
+		de_dbg_hexdump(c, c->infile, zz->pos, block_data_len, 256, NULL, 0x1);
 	}
 	de_dbg_indent(c, -1);
 
@@ -3144,7 +3144,7 @@ static int do_tagged_block(deark *c, lctx *d, zztype *zz, int tbnamespace)
 	default:
 		if(blklen>0) {
 			if(c->debug_level>=2) {
-				de_dbg_hexdump(c, c->infile, czz.startpos, blklen, 256, "data", 0x1);
+				de_dbg_hexdump(c, c->infile, czz.startpos, blklen, 256, NULL, 0x1);
 			}
 			else {
 				de_dbg(c, "[%d bytes of tagged block data at %d]", (int)blklen, (int)czz.startpos);
