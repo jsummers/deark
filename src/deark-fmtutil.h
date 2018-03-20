@@ -34,6 +34,7 @@ struct de_bmpinfo {
 #define DE_BMPINFO_HAS_FILEHEADER 0x1
 #define DE_BMPINFO_ICO_FORMAT     0x2
 #define DE_BMPINFO_HAS_HOTSPOT    0x4
+#define DE_BMPINFO_CMPR_IS_4CC    0x8
 
 void de_fmtutil_get_bmp_compression_name(de_uint32 code, char *s, size_t s_len,
 	int is_os2v2);

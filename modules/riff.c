@@ -28,10 +28,12 @@ DE_DECLARE_MODULE(de_module_riff);
 #define CHUNK_RIFX 0x52494658U
 #define CHUNK_XMP  0x584d5020U
 #define CHUNK__PMX 0x5f504d58U
+#define CHUNK_avih 0x61766968U
 #define CHUNK_data 0x64617461U
 #define CHUNK_fact 0x66616374U
 #define CHUNK_fmt  0x666d7420U
 #define CHUNK_icon 0x69636f6eU
+#define CHUNK_strf 0x73747266U
 #define CHUNK_strh 0x73747268U
 
 typedef struct localctx_struct {
@@ -125,6 +127,25 @@ static void do_wav_fact(deark *c, lctx *d, struct de_iffctx *ictx, de_int64 pos,
 	de_dbg(c, "number of samples: %u", (unsigned int)n);
 }
 
+static void do_avi_avih(deark *c, lctx *d, struct de_iffctx *ictx, de_int64 pos, de_int64 len)
+{
+	de_int64 n, n2;
+
+	if(len<40) return;
+	n = de_getui32le(pos);
+	de_dbg(c, "microseconds/frame: %u", (unsigned int)n);
+	n = de_getui32le(pos+12);
+	de_dbg(c, "flags: 0x%08x", (unsigned int)n);
+	n = de_getui32le(pos+16);
+	de_dbg(c, "number of frames: %u", (unsigned int)n);
+	n = de_getui32le(pos+24);
+	de_dbg(c, "number of streams: %u", (unsigned int)n);
+	n = de_getui32le(pos+32);
+	n2 = de_getui32le(pos+36);
+	de_dbg_dimensions(c, n, n2);
+	// TODO: There are more fields in this chunk.
+}
+
 static void do_avi_strh(deark *c, lctx *d, struct de_iffctx *ictx, de_int64 pos, de_int64 len)
 {
 	struct de_fourcc type4cc;
@@ -136,6 +157,13 @@ static void do_avi_strh(deark *c, lctx *d, struct de_iffctx *ictx, de_int64 pos,
 	dbuf_read_fourcc(ictx->f, pos+4, &codec4cc, 0);
 	de_dbg(c, "codec: '%s'", codec4cc.id_printable);
 	// TODO: There are more fields here.
+}
+
+static void do_avi_strf(deark *c, lctx *d, struct de_iffctx *ictx, de_int64 pos, de_int64 len)
+{
+	struct de_bmpinfo bi;
+	de_fmtutil_get_bmpinfo(c, c->infile, &bi, pos, len, DE_BMPINFO_CMPR_IS_4CC);
+	// This chunk contains only the BITMAPINFOHEADER, so we can't extract a bitmap.
 }
 
 static void do_palette(deark *c, lctx *d, struct de_iffctx *ictx, de_int64 pos, de_int64 len)
@@ -374,9 +402,21 @@ static int my_riff_chunk_handler(deark *c, struct de_iffctx *ictx)
 		}
 		break;
 
-	case 0x73747268U: // strh
+	case CHUNK_avih:
+		if(ictx->main_contentstype4cc.id==CODE_AVI) {
+			do_avi_avih(c, d, ictx, dpos, dlen);
+		}
+		break;
+
+	case CHUNK_strh:
 		if(ictx->main_contentstype4cc.id==CODE_AVI) {
 			do_avi_strh(c, d, ictx, dpos, dlen);
+		}
+		break;
+
+	case CHUNK_strf:
+		if(ictx->main_contentstype4cc.id==CODE_AVI) {
+			do_avi_strf(c, d, ictx, dpos, dlen);
 		}
 		break;
 	}

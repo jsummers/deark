@@ -44,9 +44,11 @@ int de_fmtutil_get_bmpinfo(deark *c, dbuf *f, struct de_bmpinfo *bi, de_int64 po
 {
 	de_int64 fhs; // file header size
 	de_int64 bmih_pos;
+	struct de_fourcc cmpr4cc;
 	char cmprname[80];
 
 	de_memset(bi, 0, sizeof(struct de_bmpinfo));
+	de_memset(&cmpr4cc, 0, sizeof(struct de_fourcc));
 
 	fhs = (flags & DE_BMPINFO_HAS_FILEHEADER) ? 14 : 0;
 
@@ -93,6 +95,9 @@ int de_fmtutil_get_bmpinfo(deark *c, dbuf *f, struct de_bmpinfo *bi, de_int64 po
 		bi->bitcount = dbuf_getui16le(f, bmih_pos+14);
 		if(bi->infohdrsize>=20) {
 			bi->compression_field = (de_uint32)dbuf_getui32le(f, bmih_pos+16);
+			if(flags & DE_BMPINFO_CMPR_IS_4CC) {
+				dbuf_read_fourcc(f, bmih_pos+16, &cmpr4cc, 0);
+			}
 		}
 		if(bi->infohdrsize>=36) {
 			bi->pal_entries = dbuf_getui32le(f, bmih_pos+32);
@@ -120,9 +125,15 @@ int de_fmtutil_get_bmpinfo(deark *c, dbuf *f, struct de_bmpinfo *bi, de_int64 po
 	de_dbg_dimensions(c, bi->width, bi->height);
 	de_dbg(c, "bit count: %d", (int)bi->bitcount);
 
-	de_fmtutil_get_bmp_compression_name(bi->compression_field,
-		cmprname, sizeof(cmprname), 0);
+	if((flags & DE_BMPINFO_CMPR_IS_4CC) && (bi->compression_field>0xffff)) {
+		de_snprintf(cmprname, sizeof(cmprname), "'%s'", cmpr4cc.id_printable);
+	}
+	else {
+		de_fmtutil_get_bmp_compression_name(bi->compression_field,
+			cmprname, sizeof(cmprname), 0);
+	}
 	de_dbg(c, "compression: %u (%s)", (unsigned int)bi->compression_field, cmprname);
+
 	de_dbg(c, "palette entries: %u", (unsigned int)bi->pal_entries);
 	if(bi->pal_entries>256 && bi->bitcount>8) {
 		de_warn(c, "Ignoring bad palette size (%u entries)", (unsigned int)bi->pal_entries);
