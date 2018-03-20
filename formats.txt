@@ -21,7 +21,7 @@ Deark -- Information about supported formats
 
 * AMOS Sprite Bank (AmSp) / AMOS Icon Bank (AmIc) (module="abk")
 
-* ANI (Windows Animated Cursor) (module="ani")
+* ANI (Windows Animated Cursor) (part of module "riff")
   - Extract individual CUR and ICO files.
 
 * Animatic Film (module="animatic")
