@@ -18,7 +18,7 @@ static void register_a_module(deark *c, de_module_getinfo_fn infofunc)
 	infofunc(c, &c->module_info[c->num_modules++]);
 }
 
-void de_register_modules(deark *c)
+static void de_register_modules_internal(deark *c)
 {
 	de_module_getinfo_fn infofunc_list[] = {
 #define DE_MODULE(x)      x,
@@ -39,4 +39,16 @@ void de_register_modules(deark *c)
 	for(i=0; i<num_modules; i++) {
 		register_a_module(c, infofunc_list[i]);
 	}
+}
+
+// A wrapper for the real de_create function (de_create_internal), which also
+// records a pointer to the register_modules function.
+// This allows deark-modules.c, and indirecly deark-cmd.c, to be the only C
+// files for which the symbols in the individual modules have to be visible.
+deark *de_create(void)
+{
+	deark *c;
+	c = de_create_internal();
+	c->module_register_fn = de_register_modules_internal;
+	return c;
 }

@@ -201,6 +201,8 @@ struct deark_ext_option {
 	char *val;
 };
 
+typedef void (*de_module_register_fn_type)(deark *c);
+
 struct deark_struct {
 	int debug_level;
 	void *userdata;
@@ -282,6 +284,8 @@ struct deark_struct {
 
 	struct de_timestamp current_time;
 
+	de_module_register_fn_type module_register_fn;
+
 	int num_modules;
 	struct deark_module_info *module_info; // Pointer to an array
 
@@ -296,6 +300,7 @@ struct deark_struct {
 
 void de_fatalerror(deark *c);
 
+deark *de_create_internal(void);
 int de_run_module(deark *c, struct deark_module_info *mi, de_module_params *mparams, int moddisp);
 int de_run_module_by_id(deark *c, const char *id, de_module_params *mparams);
 void de_run_module_by_id_on_slice(deark *c, const char *id, de_module_params *mparams,

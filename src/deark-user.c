@@ -126,6 +126,18 @@ done:
 	;
 }
 
+void de_register_modules(deark *c)
+{
+	// The real register_modules function (de_register_modules_internal) is
+	// only called indirectly, to help simplify dependencies.
+	if(!c->module_register_fn) {
+		de_err(c, "Internal: module_register_fn not set");
+		de_fatalerror(c);
+		return;
+	}
+	c->module_register_fn(c);
+}
+
 void de_run(deark *c)
 {
 	dbuf *orig_ifile = NULL;
@@ -274,7 +286,7 @@ done:
 	de_free(c, mparams);
 }
 
-deark *de_create(void)
+deark *de_create_internal(void)
 {
 	deark *c;
 	c = de_malloc(NULL,sizeof(deark));
