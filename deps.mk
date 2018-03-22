@@ -58,8 +58,6 @@ obj/modules/exe.o: modules/exe.c src/deark-config.h src/deark-private.h \
  src/deark.h src/deark-fmtutil.h
 obj/modules/flif.o: modules/flif.c src/deark-config.h src/deark-private.h \
  src/deark.h
-obj/modules/fmtutil.o: modules/fmtutil.c src/deark-config.h \
- src/deark-private.h src/deark.h src/deark-fmtutil.h
 obj/modules/fnt.o: modules/fnt.c src/deark-config.h src/deark-private.h \
  src/deark.h
 obj/modules/gemfont.o: modules/gemfont.c src/deark-config.h \
@@ -208,6 +206,8 @@ obj/src/deark-data.o: src/deark-data.c src/deark-config.h \
  src/deark-private.h src/deark.h
 obj/src/deark-dbuf.o: src/deark-dbuf.c src/deark-config.h \
  src/deark-private.h src/deark.h
+obj/src/deark-fmtutil.o: src/deark-fmtutil.c src/deark-config.h \
+ src/deark-private.h src/deark.h src/deark-fmtutil.h
 obj/src/deark-font.o: src/deark-font.c src/deark-config.h \
  src/deark-private.h src/deark.h
 obj/src/deark-miniz.o: src/deark-miniz.c src/deark-config.h \

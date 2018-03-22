@@ -28,7 +28,7 @@ endif
 .PHONY: all clean dep
 
 OBJDIR:=obj
-OFILES_MODS:=$(addprefix $(OBJDIR)/modules/,fmtutil.o misc.o unsupported.o \
+OFILES_MODS:=$(addprefix $(OBJDIR)/modules/,misc.o unsupported.o \
  psd.o tiff.o zoo.o cfb.o atari-img.o jpeg.o pict.o wmf.o \
  ilbm.o exe.o ansiart.o xface.o tga.o bmp.o pcpaint.o zip.o \
  amigaicon.o xfer.o gif.o abk.o bintext.o hlp.o iccprofile.o \
@@ -44,7 +44,7 @@ OFILES_MODS:=$(addprefix $(OBJDIR)/modules/,fmtutil.o misc.o unsupported.o \
  asf.o vort.o tim.o t64.o msp.o basic-c64.o psionapp.o)
 OFILES_LIB:=$(addprefix $(OBJDIR)/src/,deark-miniz.o deark-util.o deark-data.o \
  deark-dbuf.o deark-bitmap.o deark-char.o deark-font.o deark-ucstring.o \
- deark-user.o deark-modules.o deark-unix.o)
+ deark-fmtutil.o deark-user.o deark-modules.o deark-unix.o)
 OFILES_ALL:=$(OBJDIR)/src/deark-cmd.o $(OFILES_LIB) $(OFILES_MODS)
 
 $(DEARK_EXE): $(OFILES_ALL)

@@ -345,6 +345,10 @@
 				>
 			</File>
 			<File
+				RelativePath="..\..\src\deark-fmtutil.c"
+				>
+			</File>
+			<File
 				RelativePath="..\..\src\deark-font.c"
 				>
 			</File>
@@ -591,10 +595,6 @@
 			</File>
 			<File
 				RelativePath="..\..\modules\flif.c"
-				>
-			</File>
-			<File
-				RelativePath="..\..\modules\fmtutil.c"
 				>
 			</File>
 			<File
