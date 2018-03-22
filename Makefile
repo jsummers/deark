@@ -42,19 +42,36 @@ OFILES_MODS:=$(addprefix $(OBJDIR)/modules/,misc.o unsupported.o \
  cab.o ebml.o portfolio.o eps.o ar.o gemfont.o psionpic.o flif.o wad.o \
  autocad.o grob.o alphabmp.o bpg.o iff.o cardfile.o pff2.o \
  asf.o vort.o tim.o t64.o msp.o basic-c64.o psionapp.o)
-OFILES_LIB:=$(addprefix $(OBJDIR)/src/,deark-miniz.o deark-util.o deark-data.o \
+OFILES_DEARK1:=$(addprefix $(OBJDIR)/src/,deark-miniz.o deark-util.o deark-data.o \
  deark-dbuf.o deark-bitmap.o deark-char.o deark-font.o deark-ucstring.o \
- deark-fmtutil.o deark-user.o deark-modules.o deark-unix.o)
-OFILES_ALL:=$(OBJDIR)/src/deark-cmd.o $(OFILES_LIB) $(OFILES_MODS)
+ deark-fmtutil.o deark-user.o deark-unix.o)
+OFILES_DEARK2:=$(addprefix $(OBJDIR)/src/,deark-modules.o)
+OFILES_ALL:=$(OFILES_DEARK1) $(OFILES_DEARK2) $(OFILES_MODS) $(OBJDIR)/src/deark-cmd.o
 
-$(DEARK_EXE): $(OFILES_ALL)
-	$(CC) $(LDFLAGS) -o $@ $(OFILES_ALL)
+DEARK1_A:=$(OBJDIR)/src/deark1.a
+$(DEARK1_A): $(OFILES_DEARK1)
+	ar rcs $@ $^
+
+DEARK2_A:=$(OBJDIR)/src/deark2.a
+$(DEARK2_A): $(OFILES_DEARK2)
+	ar rcs $@ $^
+
+MODS_A:=$(OBJDIR)/modules/mods.a
+$(MODS_A): $(OFILES_MODS)
+	ar rcs $@ $^
+
+# I'm sorry if your linker doesn't like this library order, but the link
+# command was getting so long that I've decided to start using helper
+# libraries. I'll consider adding "-Wl,--start-group" and "-Wl,--end-group"
+# options if that would help.
+$(DEARK_EXE): $(OBJDIR)/src/deark-cmd.o $(DEARK2_A) $(MODS_A) $(DEARK1_A)
+	$(CC) $(LDFLAGS) -o $@ $^
 
 $(OBJDIR)/%.o: %.c
 	$(CC) $(CFLAGS) -c -o $@ $<
 
 clean:
-	rm -f $(OBJDIR)/src/*.[od] $(OBJDIR)/modules/*.[od] $(DEARK_EXE)
+	rm -f $(OBJDIR)/src/*.[oad] $(OBJDIR)/modules/*.[oad] $(DEARK_EXE)
 
 ifeq ($(MAKECMDGOALS),dep)
 
