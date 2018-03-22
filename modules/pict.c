@@ -216,7 +216,7 @@ static int handler_28(deark *c, lctx *d, de_int64 opcode, de_int64 data_pos, de_
 	tlen = (de_int64)de_getbyte(data_pos+4);
 	s = ucstring_create(c);
 	dbuf_read_to_ucstring(c->infile, data_pos+5, tlen, s, 0, DE_ENCODING_MACROMAN);
-	de_dbg(c, "text: \"%s\"", ucstring_get_printable_sz(s));
+	de_dbg(c, "text: \"%s\"", ucstring_getpsz(s));
 	*bytes_used = 5+tlen;
 	ucstring_destroy(s);
 	return 1;
@@ -237,7 +237,7 @@ static int handler_DxText(deark *c, lctx *d, de_int64 opcode, de_int64 data_pos,
 
 	s = ucstring_create(c);
 	dbuf_read_to_ucstring(c->infile, data_pos+2, tlen, s, 0, DE_ENCODING_MACROMAN);
-	de_dbg(c, "text: \"%s\"", ucstring_get_printable_sz(s));
+	de_dbg(c, "text: \"%s\"", ucstring_getpsz(s));
 
 	ucstring_destroy(s);
 	return 1;
@@ -260,7 +260,7 @@ static int handler_2b(deark *c, lctx *d, de_int64 opcode, de_int64 data_pos, de_
 
 	s = ucstring_create(c);
 	dbuf_read_to_ucstring(c->infile, data_pos+3, tlen, s, 0, DE_ENCODING_MACROMAN);
-	de_dbg(c, "text: \"%s\"", ucstring_get_printable_sz(s));
+	de_dbg(c, "text: \"%s\"", ucstring_getpsz(s));
 
 	return 1;
 }
@@ -280,7 +280,7 @@ static int handler_2c(deark *c, lctx *d, de_int64 opcode, de_int64 data_pos, de_
 	tlen = (de_int64)de_getbyte(data_pos+4);
 	s = ucstring_create(c);
 	dbuf_read_to_ucstring(c->infile, data_pos+5, tlen, s, 0, DE_ENCODING_MACROMAN);
-	de_dbg(c, "font name: \"%s\"", ucstring_get_printable_sz(s));
+	de_dbg(c, "font name: \"%s\"", ucstring_getpsz(s));
 	ucstring_destroy(s);
 	return 1;
 }

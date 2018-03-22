@@ -82,7 +82,7 @@ static void do_face_name(deark *c, lctx *d)
 	struct de_stringreaderdata *srd = NULL;
 
 	srd = dbuf_read_string(c->infile, 4, 32, 32, DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_ASCII);
-	de_dbg(c, "face name: \"%s\"", ucstring_get_printable_sz(srd->str));
+	de_dbg(c, "face name: \"%s\"", ucstring_getpsz(srd->str));
 
 	if(!c->filenames_from_file) goto done;
 

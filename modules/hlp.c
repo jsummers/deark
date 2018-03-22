@@ -93,7 +93,7 @@ static void do_display_STRINGZ(deark *c, lctx *d, de_int64 pos1, de_int64 len,
 	dbuf_read_to_ucstring_n(c->infile,
 		pos1, len, DE_DBG_MAX_STRLEN,
 		s, DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_ASCII);
-	de_dbg(c, "%s: \"%s\"", name, ucstring_get_printable_sz(s));
+	de_dbg(c, "%s: \"%s\"", name, ucstring_getpsz(s));
 	ucstring_destroy(s);
 }
 
@@ -400,7 +400,7 @@ static void do_leaf_page(deark *c, lctx *d, de_int64 pos1, de_int64 *pnext_page)
 		de_read((de_byte*)filename_raw, pos, foundpos+1-pos);
 		ucstring_truncate(s, 0);
 		ucstring_append_sz(s, filename_raw, DE_ENCODING_WINDOWS1252);
-		de_dbg(c, "FileName: \"%s\"", ucstring_get_printable_sz_d(s));
+		de_dbg(c, "FileName: \"%s\"", ucstring_getpsz_d(s));
 		pos = foundpos + 1;
 
 		file_offset = de_geti32le(pos);

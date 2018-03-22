@@ -128,7 +128,7 @@ static int do_gzip_read_member(deark *c, lctx *d, de_int64 pos1, de_int64 *membe
 		dbuf_read_to_ucstring_n(c->infile, pos, string_len, DE_GZIP_MAX_FNLEN,
 			member_name, 0, DE_ENCODING_LATIN1);
 		de_dbg(c, "file name at %d, len=%d: \"%s\"", (int)pos, (int)string_len,
-			ucstring_get_printable_sz_d(member_name));
+			ucstring_getpsz_d(member_name));
 		pos = foundpos + 1;
 	}
 

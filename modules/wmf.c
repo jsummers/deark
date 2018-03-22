@@ -54,7 +54,7 @@ static int wmf_handler_TEXTOUT(deark *c, lctx *d, struct decoder_params *dp)
 	s = ucstring_create(c);
 	dbuf_read_to_ucstring_n(c->infile, pos, stringlen, DE_DBG_MAX_STRLEN, s,
 		0, d->input_encoding);
-	de_dbg(c, "text: \"%s\"", ucstring_get_printable_sz(s));
+	de_dbg(c, "text: \"%s\"", ucstring_getpsz(s));
 
 done:
 	ucstring_destroy(s);
@@ -319,7 +319,7 @@ static int wmf_handler_EXTTEXTOUT(deark *c, lctx *d, struct decoder_params *dp)
 	s = ucstring_create(c);
 	dbuf_read_to_ucstring_n(c->infile, pos, stringlen, DE_DBG_MAX_STRLEN, s,
 		0, d->input_encoding);
-	de_dbg(c, "text: \"%s\"", ucstring_get_printable_sz(s));
+	de_dbg(c, "text: \"%s\"", ucstring_getpsz(s));
 
 done:
 	ucstring_destroy(s);

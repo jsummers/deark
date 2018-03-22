@@ -201,7 +201,7 @@ static void typedec_text(deark *c, lctx *d, de_int64 pos, de_int64 len)
 	dbuf_read_to_ucstring_n(c->infile, pos+8, textlen, DE_DBG_MAX_STRLEN,
 		s, 0, DE_ENCODING_ASCII);
 	ucstring_truncate_at_NUL(s);
-	de_dbg(c, "text: \"%s\"", ucstring_get_printable_sz(s));
+	de_dbg(c, "text: \"%s\"", ucstring_getpsz(s));
 
 done:
 	ucstring_destroy(s);
@@ -229,7 +229,7 @@ static void typedec_desc(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 	dbuf_read_to_ucstring_n(c->infile, pos, invdesclen, DE_DBG_MAX_STRLEN,
 		s, 0, DE_ENCODING_ASCII);
 	ucstring_truncate_at_NUL(s);
-	de_dbg(c, "invariant desc.: \"%s\"", ucstring_get_printable_sz(s));
+	de_dbg(c, "invariant desc.: \"%s\"", ucstring_getpsz(s));
 	pos += invdesclen;
 	if(pos >= pos1+len) goto done;
 
@@ -273,7 +273,7 @@ static void typedec_desc(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 		s, 0, encoding);
 	ucstring_truncate_at_NUL(s);
 	if(s->len>0) {
-		de_dbg(c, "localizable desc.: \"%s\"", ucstring_get_printable_sz(s));
+		de_dbg(c, "localizable desc.: \"%s\"", ucstring_getpsz(s));
 	}
 	pos += uloclen*2;
 	if(pos >= pos1+len) goto done;
@@ -295,11 +295,11 @@ static void do_mluc_record(deark *c, lctx *d, de_int64 tagstartpos,
 	s = ucstring_create(c);
 
 	dbuf_read_to_ucstring(c->infile, pos, 2, s, 0, DE_ENCODING_ASCII);
-	de_dbg(c, "language code: '%s'", ucstring_get_printable_sz(s));
+	de_dbg(c, "language code: '%s'", ucstring_getpsz(s));
 	ucstring_empty(s);
 
 	dbuf_read_to_ucstring(c->infile, pos+2, 2, s, 0, DE_ENCODING_ASCII);
-	de_dbg(c, "country code: '%s'", ucstring_get_printable_sz(s));
+	de_dbg(c, "country code: '%s'", ucstring_getpsz(s));
 	ucstring_empty(s);
 
 	string_len = de_getui32be(pos+4);
@@ -310,7 +310,7 @@ static void do_mluc_record(deark *c, lctx *d, de_int64 tagstartpos,
 	dbuf_read_to_ucstring_n(c->infile, tagstartpos+string_offset, string_len, DE_DBG_MAX_STRLEN*2,
 		s, 0, DE_ENCODING_UTF16BE);
 	ucstring_truncate_at_NUL(s);
-	de_dbg(c, "string: \"%s\"", ucstring_get_printable_sz(s));
+	de_dbg(c, "string: \"%s\"", ucstring_getpsz(s));
 
 	ucstring_destroy(s);
 }

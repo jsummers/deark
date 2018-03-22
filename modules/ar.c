@@ -47,7 +47,7 @@ static int do_ar_item(deark *c, lctx *d, de_int64 pos1, de_int64 *p_item_len)
 	rawname_ucstring = ucstring_create(c);
 	ucstring_append_bytes(rawname_ucstring, (const de_byte*)name_orig, name_orig_len, 0, DE_ENCODING_UTF8);
 
-	de_dbg(c, "member raw name: \"%s\"", ucstring_get_printable_sz(rawname_ucstring));
+	de_dbg(c, "member raw name: \"%s\"", ucstring_getpsz(rawname_ucstring));
 
 	(void)dbuf_read_ascii_number(c->infile, pos1+16, 12, 10, &mod_time);
 	de_unix_time_to_timestamp(mod_time, &fi->mod_time);
@@ -111,13 +111,13 @@ static int do_ar_item(deark *c, lctx *d, de_int64 pos1, de_int64 *p_item_len)
 		dbuf_read_to_ucstring(c->infile, d->extended_name_table_pos+name_offset,
 			ext_name_len, filename_ucstring, 0, DE_ENCODING_UTF8);
 
-		de_dbg(c, "extended filename: \"%s\"", ucstring_get_printable_sz(filename_ucstring));
+		de_dbg(c, "extended filename: \"%s\"", ucstring_getpsz(filename_ucstring));
 
 		de_finfo_set_name_from_ucstring(c, fi, filename_ucstring);
 		fi->original_filename_flag = 1;
 	}
 	else if(name_orig[0]=='/') {
-		de_warn(c, "Unsupported extension: \"%s\"", ucstring_get_printable_sz(rawname_ucstring));
+		de_warn(c, "Unsupported extension: \"%s\"", ucstring_getpsz(rawname_ucstring));
 		retval = 1;
 		goto done;
 	}
@@ -135,7 +135,7 @@ static int do_ar_item(deark *c, lctx *d, de_int64 pos1, de_int64 *p_item_len)
 		ucstring_append_bytes(filename_ucstring, (de_byte*)name_orig, adjusted_len,
 			0, DE_ENCODING_UTF8);
 
-		de_dbg(c, "filename: \"%s\"", ucstring_get_printable_sz(filename_ucstring));
+		de_dbg(c, "filename: \"%s\"", ucstring_getpsz(filename_ucstring));
 		de_finfo_set_name_from_ucstring(c, fi, filename_ucstring);
 		fi->original_filename_flag = 1;
 	}

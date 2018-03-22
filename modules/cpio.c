@@ -274,7 +274,7 @@ static void read_member_name(deark *c, lctx *d, struct member_data *md)
 	md->filename_srd = dbuf_read_string(c->infile, md->startpos + md->fixed_header_size,
 		namesize_adjusted, namesize_adjusted, 0, DE_ENCODING_UTF8);
 
-	de_dbg(c, "name: \"%s\"", ucstring_get_printable_sz(md->filename_srd->str));
+	de_dbg(c, "name: \"%s\"", ucstring_getpsz(md->filename_srd->str));
 
 	de_finfo_set_name_from_ucstring(c, md->fi, md->filename_srd->str);
 	md->fi->original_filename_flag = 1;

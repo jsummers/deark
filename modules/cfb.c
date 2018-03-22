@@ -623,7 +623,7 @@ static void extract_stream_to_file(deark *c, lctx *d, de_int64 dir_entry_idx, st
 
 			if(catalog_idx>=0 && c->filenames_from_file) {
 				de_dbg(c, "name from catalog: \"%s\"",
-					ucstring_get_printable_sz(d->thumbsdb_catalog[catalog_idx].fname));
+					ucstring_getpsz(d->thumbsdb_catalog[catalog_idx].fname));
 
 				// Replace the default name with the name from the catalog.
 				ucstring_empty(tmpfn);
@@ -653,7 +653,7 @@ static void extract_stream_to_file(deark *c, lctx *d, de_int64 dir_entry_idx, st
 		}
 		else {
 			de_warn(c, "Unidentified Thumbs.db stream \"%s\"",
-				ucstring_get_printable_sz(dei->fname_srd->str));
+				ucstring_getpsz(dei->fname_srd->str));
 		}
 
 		de_dbg_indent(c, -1);
@@ -742,7 +742,7 @@ static int read_thumbsdb_catalog(deark *c, lctx *d, struct dir_entry_info *dei)
 
 		dbuf_read_to_ucstring(catf, pos+16, item_len-20, d->thumbsdb_catalog[i].fname,
 			0, DE_ENCODING_UTF16LE);
-		de_dbg(c, "name: \"%s\"", ucstring_get_printable_sz(d->thumbsdb_catalog[i].fname));
+		de_dbg(c, "name: \"%s\"", ucstring_getpsz(d->thumbsdb_catalog[i].fname));
 
 		de_dbg_indent(c, -1);
 
@@ -884,7 +884,7 @@ static void do_prop_data(deark *c, lctx *d, struct summaryinfo_struct *si,
 		n = dbuf_geti32le(si->f, si->tbloffset+pinfo->data_offs+4);
 		dbuf_read_to_ucstring_n(si->f, si->tbloffset+pinfo->data_offs+8, n, DE_DBG_MAX_STRLEN, s,
 			DE_CONVFLAG_STOP_AT_NUL, si->encoding);
-		de_dbg(c, "%s: \"%s\"", pinfo->name, ucstring_get_printable_sz(s));
+		de_dbg(c, "%s: \"%s\"", pinfo->name, ucstring_getpsz(s));
 		break;
 	case 0x40:
 		do_prop_FILETIME(c, d, si, pinfo);
@@ -1063,11 +1063,11 @@ static void do_dump_dir_structure(deark *c, lctx *d)
 			(int)d->dir_entry_extra_info[i].sibling_id[1]);
 		if(d->dir_entry_extra_info[i].fname) {
 			de_dbg(c, "  fname: \"%s\"",
-				ucstring_get_printable_sz(d->dir_entry_extra_info[i].fname));
+				ucstring_getpsz(d->dir_entry_extra_info[i].fname));
 		}
 		if(d->dir_entry_extra_info[i].path) {
 			de_dbg(c, "  path: \"%s\"",
-				ucstring_get_printable_sz(d->dir_entry_extra_info[i].path));
+				ucstring_getpsz(d->dir_entry_extra_info[i].path));
 		}
 	}
 }
@@ -1303,7 +1303,7 @@ static void do_dir_entry(deark *c, lctx *d, de_int64 dir_entry_idx, de_int64 dir
 	dei->fname_srd = dbuf_read_string(d->dir, dir_entry_offs, name_len_bytes, name_len_bytes,
 		DE_CONVFLAG_WANT_UTF8, DE_ENCODING_UTF16LE);
 
-	de_dbg(c, "name: \"%s\"", ucstring_get_printable_sz(dei->fname_srd->str));
+	de_dbg(c, "name: \"%s\"", ucstring_getpsz(dei->fname_srd->str));
 	if(pass==1 && dei->entry_type==OBJTYPE_STORAGE &&
 		!d->dir_entry_extra_info[dir_entry_idx].fname)
 	{

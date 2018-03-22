@@ -408,7 +408,7 @@ static void do_read_linked_profile(deark *c, lctx *d)
 		d->profile_size, DE_DBG_MAX_STRLEN, fname,
 		DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_WINDOWS1252);
 	de_dbg_indent(c, 1);
-	de_dbg(c, "profile filename: \"%s\"", ucstring_get_printable_sz(fname));
+	de_dbg(c, "profile filename: \"%s\"", ucstring_getpsz(fname));
 	de_dbg_indent(c, -1);
 	ucstring_destroy(fname);
 }

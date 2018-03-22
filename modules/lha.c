@@ -87,7 +87,7 @@ static void read_filename(deark *c, lctx *d, struct member_data *md,
 	s = ucstring_create(c);
 	dbuf_read_to_ucstring(c->infile, pos, len,
 		s, 0, DE_ENCODING_ASCII);
-	de_dbg(c, "filename: \"%s\"", ucstring_get_printable_sz(s));
+	de_dbg(c, "filename: \"%s\"", ucstring_getpsz(s));
 	ucstring_destroy(s);
 }
 
@@ -132,7 +132,7 @@ static void exthdr_dirname(deark *c, lctx *d, struct member_data *md,
 
 	dbuf_read_to_ucstring(c->infile, pos, dlen,
 		s, 0, DE_ENCODING_ASCII);
-	de_dbg(c, "%s: \"%s\"", e->name, ucstring_get_printable_sz(s));
+	de_dbg(c, "%s: \"%s\"", e->name, ucstring_getpsz(s));
 	ucstring_destroy(s);
 }
 
@@ -461,7 +461,7 @@ static int do_read_member(deark *c, lctx *d, struct member_data *md, de_int64 po
 	}
 
 	// This field was read earlier.
-	de_dbg(c, "cmpr method: \"%s\"", ucstring_get_printable_sz(md->cmpr_method->str));
+	de_dbg(c, "cmpr method: \"%s\"", ucstring_getpsz(md->cmpr_method->str));
 	pos+=5;
 
 	if(!de_strcmp("-lhd-", (const char*)md->cmpr_method->sz)) {

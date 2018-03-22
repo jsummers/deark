@@ -298,7 +298,7 @@ static void decode_string(deark *c, lctx *d, const struct ele_id_info *ele_id,
 	s = ucstring_create(c);
 	dbuf_read_to_ucstring_n(c->infile, pos, len, DE_DBG_MAX_STRLEN, s,
 		DE_CONVFLAG_STOP_AT_NUL, encoding);
-	de_dbg(c, "value: \"%s\"", ucstring_get_printable_sz_d(s));
+	de_dbg(c, "value: \"%s\"", ucstring_getpsz_d(s));
 
 	ucstring_destroy(s);
 }

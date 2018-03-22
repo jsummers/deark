@@ -79,7 +79,7 @@ static void do_card_index(deark *c, lctx *d, de_int64 cardnum, de_int64 pos)
 
 	name = ucstring_create(c);
 	dbuf_read_to_ucstring(c->infile, pos+11, 40, name, DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_ASCII);
-	de_dbg(c, "name: \"%s\"", ucstring_get_printable_sz(name));
+	de_dbg(c, "name: \"%s\"", ucstring_getpsz(name));
 
 	// Text
 

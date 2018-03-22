@@ -613,7 +613,7 @@ static void print_summary(deark *c, lctx *d)
 		ucstring_append_sz(summary, " no-CMAP", DE_ENCODING_UTF8);
 	}
 
-	de_dbg(c, "summary: %s", ucstring_get_printable_sz(summary));
+	de_dbg(c, "summary: %s", ucstring_getpsz(summary));
 
 done:
 	ucstring_destroy(summary);

@@ -172,7 +172,7 @@ static int do_one_image(deark *c, lctx *d, de_int64 pos1, int img_idx, de_int64 
 
 	pg->imgname = ucstring_create(c);
 	dbuf_read_to_ucstring(c->infile, pos, namelen, pg->imgname, 0, DE_ENCODING_ASCII);
-	de_dbg(c, "name: \"%s\"", ucstring_get_printable_sz(pg->imgname));
+	de_dbg(c, "name: \"%s\"", ucstring_getpsz(pg->imgname));
 	pos += 20;
 
 	pg->cmpr_type = (de_int64)de_getbyte(pos++);

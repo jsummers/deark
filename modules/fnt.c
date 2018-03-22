@@ -158,7 +158,7 @@ static void read_face_name(deark *c, lctx *d)
 	// names traditionally have to be quite short.
 	srd = dbuf_read_string(c->infile, d->dfFace, 260, 50,
 		DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_ASCII);
-	de_dbg(c, "face name: \"%s\"", ucstring_get_printable_sz(srd->str));
+	de_dbg(c, "face name: \"%s\"", ucstring_getpsz(srd->str));
 
 	if(!c->filenames_from_file) goto done;
 

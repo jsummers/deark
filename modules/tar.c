@@ -98,7 +98,7 @@ static int read_member(deark *c, lctx *d, de_int64 pos1, de_int64 *bytes_consume
 		pos += 512; // LongPath header record
 		de_dbg(c, "ext. filename at %d", (int)pos);
 		dbuf_read_to_ucstring(c->infile, pos, ext_name_len-1, md->filename, 0, DE_ENCODING_UTF8);
-		de_dbg(c, "ext. filename: \"%s\"", ucstring_get_printable_sz_d(md->filename));
+		de_dbg(c, "ext. filename: \"%s\"", ucstring_getpsz_d(md->filename));
 
 		pos += de_pad_to_n(ext_name_len, 512); // The long filename
 
@@ -118,7 +118,7 @@ static int read_member(deark *c, lctx *d, de_int64 pos1, de_int64 *bytes_consume
 
 	rawname = ucstring_create(c);
 	ucstring_append_bytes(rawname, (const de_byte*)rawname_sz, rawname_sz_len, 0, DE_ENCODING_UTF8);
-	de_dbg(c, "member raw name: \"%s\"", ucstring_get_printable_sz(rawname));
+	de_dbg(c, "member raw name: \"%s\"", ucstring_getpsz(rawname));
 
 	if(md->filename->len==0) {
 		ucstring_append_ucstring(md->filename, rawname);

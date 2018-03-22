@@ -259,7 +259,7 @@ static void handler_ContentDescr(deark *c, lctx *d, struct handler_params *hp)
 		dbuf_read_to_ucstring_n(c->infile, pos, lengths[k], DE_DBG_MAX_STRLEN*2, s,
 			0, DE_ENCODING_UTF16LE);
 		ucstring_truncate_at_NUL(s);
-		de_dbg(c, "%s: \"%s\"", names[k], ucstring_get_printable_sz_d(s));
+		de_dbg(c, "%s: \"%s\"", names[k], ucstring_getpsz_d(s));
 		pos += lengths[k];
 	}
 
@@ -290,7 +290,7 @@ static void handler_ContentEncr(deark *c, lctx *d, struct handler_params *hp)
 	dbuf_read_to_ucstring_n(c->infile, pos, xlen, DE_DBG_MAX_STRLEN, s,
 			0, DE_ENCODING_ASCII);
 	ucstring_truncate_at_NUL(s);
-	de_dbg(c, "protection type: \"%s\"", ucstring_get_printable_sz_d(s));
+	de_dbg(c, "protection type: \"%s\"", ucstring_getpsz_d(s));
 	// TODO: What should we do if this is not "DRM"?
 	pos += xlen;
 
@@ -301,7 +301,7 @@ static void handler_ContentEncr(deark *c, lctx *d, struct handler_params *hp)
 	dbuf_read_to_ucstring_n(c->infile, pos, xlen, DE_DBG_MAX_STRLEN, s,
 			0, DE_ENCODING_ASCII);
 	ucstring_truncate_at_NUL(s);
-	de_dbg(c, "key id: \"%s\"", ucstring_get_printable_sz_d(s));
+	de_dbg(c, "key id: \"%s\"", ucstring_getpsz_d(s));
 	pos += xlen;
 
 	ucstring_empty(s);
@@ -311,7 +311,7 @@ static void handler_ContentEncr(deark *c, lctx *d, struct handler_params *hp)
 	dbuf_read_to_ucstring_n(c->infile, pos, xlen, DE_DBG_MAX_STRLEN, s,
 			0, DE_ENCODING_ASCII);
 	ucstring_truncate_at_NUL(s);
-	de_dbg(c, "license url: \"%s\"", ucstring_get_printable_sz_d(s));
+	de_dbg(c, "license url: \"%s\"", ucstring_getpsz_d(s));
 	pos += xlen;
 
 done:
@@ -464,7 +464,7 @@ static void handler_LanguageList(deark *c, lctx *d, struct handler_params *hp)
 		dbuf_read_to_ucstring_n(c->infile, pos, id_len, DE_DBG_MAX_STRLEN*2, s,
 			0, DE_ENCODING_UTF16LE);
 		ucstring_truncate_at_NUL(s);
-		de_dbg(c, "id: \"%s\"", ucstring_get_printable_sz_d(s));
+		de_dbg(c, "id: \"%s\"", ucstring_getpsz_d(s));
 		pos += id_len;
 
 		de_dbg_indent(c, -1);
@@ -511,7 +511,7 @@ static int do_codec_entry(deark *c, lctx *d, de_int64 pos1, de_int64 len, de_int
 	dbuf_read_to_ucstring_n(c->infile, pos, namelen*2, DE_DBG_MAX_STRLEN*2, name,
 		0, DE_ENCODING_UTF16LE);
 	ucstring_truncate_at_NUL(name);
-	de_dbg(c, "name: \"%s\"", ucstring_get_printable_sz(name));
+	de_dbg(c, "name: \"%s\"", ucstring_getpsz(name));
 	pos += namelen*2;
 
 	descrlen = de_getui16le(pos);
@@ -520,7 +520,7 @@ static int do_codec_entry(deark *c, lctx *d, de_int64 pos1, de_int64 len, de_int
 	dbuf_read_to_ucstring_n(c->infile, pos, descrlen*2, DE_DBG_MAX_STRLEN*2, descr,
 		0, DE_ENCODING_UTF16LE);
 	ucstring_truncate_at_NUL(descr);
-	de_dbg(c, "description: \"%s\"", ucstring_get_printable_sz(descr));
+	de_dbg(c, "description: \"%s\"", ucstring_getpsz(descr));
 	pos += descrlen*2;
 
 	infolen = de_getui16le(pos);
@@ -600,7 +600,7 @@ static void handler_ScriptCommand(deark *c, lctx *d, struct handler_params *hp)
 		dbuf_read_to_ucstring_n(c->infile, pos, type_name_len*2, DE_DBG_MAX_STRLEN*2, s,
 			0, DE_ENCODING_UTF16LE);
 		ucstring_truncate_at_NUL(s);
-		de_dbg(c, "name: \"%s\"", ucstring_get_printable_sz_d(s));
+		de_dbg(c, "name: \"%s\"", ucstring_getpsz_d(s));
 		pos += type_name_len*2;
 
 		de_dbg_indent(c, -1);
@@ -629,7 +629,7 @@ static void handler_ScriptCommand(deark *c, lctx *d, struct handler_params *hp)
 		dbuf_read_to_ucstring_n(c->infile, pos, cmd_name_len*2, DE_DBG_MAX_STRLEN*2, s,
 			0, DE_ENCODING_UTF16LE);
 		ucstring_truncate_at_NUL(s);
-		de_dbg(c, "name: \"%s\"", ucstring_get_printable_sz_d(s));
+		de_dbg(c, "name: \"%s\"", ucstring_getpsz_d(s));
 		pos += cmd_name_len*2;
 
 		de_dbg_indent(c, -1);
@@ -688,7 +688,7 @@ static void do_metadata_item(deark *c, lctx *d, de_int64 pos, de_int64 val_len,
 		val_str = ucstring_create(c);
 		dbuf_read_to_ucstring_n(c->infile, pos, val_len-2, DE_DBG_MAX_STRLEN*2, val_str,
 			0, DE_ENCODING_UTF16LE);
-		de_dbg(c, "value: \"%s\"", ucstring_get_printable_sz(val_str));
+		de_dbg(c, "value: \"%s\"", ucstring_getpsz(val_str));
 		handled = 1;
 	}
 	else if(val_data_type==3 && val_len>=4) { // DWORD
@@ -763,7 +763,7 @@ static int do_ECD_entry(deark *c, lctx *d, de_int64 pos1, de_int64 len, de_int64
 	if(namelen_to_keep>256) namelen_to_keep=256;
 	name_srd = dbuf_read_string(c->infile, pos, namelen_to_keep, namelen_to_keep,
 		DE_CONVFLAG_WANT_UTF8, DE_ENCODING_UTF16LE);
-	de_dbg(c, "name: \"%s\"", ucstring_get_printable_sz_d(name_srd->str));
+	de_dbg(c, "name: \"%s\"", ucstring_getpsz_d(name_srd->str));
 	pos += namelen;
 
 	val_data_type = (unsigned int)de_getui16le(pos);
@@ -837,7 +837,7 @@ static int do_metadata_entry(deark *c, lctx *d, struct handler_params *hp,
 	if(namelen_to_keep>256) namelen_to_keep=256;
 	name_srd = dbuf_read_string(c->infile, pos, namelen_to_keep, namelen_to_keep,
 		DE_CONVFLAG_WANT_UTF8, DE_ENCODING_UTF16LE);
-	de_dbg(c, "name: \"%s\"", ucstring_get_printable_sz_d(name_srd->str));
+	de_dbg(c, "name: \"%s\"", ucstring_getpsz_d(name_srd->str));
 	pos += namelen;
 
 	do_metadata_item(c, d, pos, val_len, val_data_type, name_srd, hp->uui->short_id);

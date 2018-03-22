@@ -315,7 +315,7 @@ static int EntrReadArch (struct unzooctx *uz, struct entryctx *ze)
 	shortname_ucstring = ucstring_create(c);
 	ucstring_append_bytes(shortname_ucstring, (const de_byte*)ze->nams, sizeof(ze->nams),
 		DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_ASCII);
-	de_dbg(c, "short name: \"%s\"", ucstring_get_printable_sz(shortname_ucstring));
+	de_dbg(c, "short name: \"%s\"", ucstring_getpsz(shortname_ucstring));
 
 	/* handle the long name and the directory in the variable part         */
 	ze->lvar   = (ze->type == 2  ? HalfReadArch(uz) : 0);
@@ -330,7 +330,7 @@ static int EntrReadArch (struct unzooctx *uz, struct entryctx *ze)
 	if(ze->lnamu>0) {
 		ucstring_append_bytes(longname_ucstring, (const de_byte*)ze->namu, sizeof(ze->namu),
 			DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_ASCII);
-		de_dbg(c, "long name: \"%s\"", ucstring_get_printable_sz(longname_ucstring));
+		de_dbg(c, "long name: \"%s\"", ucstring_getpsz(longname_ucstring));
 	}
 
 	BlckReadArch(uz, (de_byte*)ze->diru, (de_uint32)ze->ldiru);
@@ -339,7 +339,7 @@ static int EntrReadArch (struct unzooctx *uz, struct entryctx *ze)
 	if(ze->ldiru>0) {
 		ucstring_append_bytes(dirname_ucstring, (const de_byte*)ze->diru, sizeof(ze->diru),
 			DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_ASCII);
-		de_dbg(c, "dir name: \"%s\"", ucstring_get_printable_sz(dirname_ucstring));
+		de_dbg(c, "dir name: \"%s\"", ucstring_getpsz(dirname_ucstring));
 	}
 
 	l = ze->lnamu + ze->ldiru;

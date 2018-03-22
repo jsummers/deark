@@ -63,7 +63,7 @@ static void do_printshop_etc_image(deark *c, lctx *d, de_int64 imgnum,
 		de_ucstring *name = NULL;
 		name = ucstring_create(c);
 		dbuf_read_to_ucstring(d->namefile, imgnum*16, 16, name, DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_ASCII);
-		de_dbg(c, "name: \"%s\"", ucstring_get_printable_sz(name));
+		de_dbg(c, "name: \"%s\"", ucstring_getpsz(name));
 		de_finfo_set_name_from_ucstring(c, fi, name);
 		ucstring_destroy(name);
 	}

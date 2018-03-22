@@ -242,13 +242,13 @@ static int do_one_CFFILE(deark *c, lctx *d, de_int64 pos1, de_int64 *bytes_consu
 	if(attribs&0x20) ucstring_append_flags_item(attribs_str, "ARCH");
 	if(attribs&0x40) ucstring_append_flags_item(attribs_str, "EXEC");
 	if(attribs&0x80) ucstring_append_flags_item(attribs_str, "NAME_IS_UTF8");
-	de_dbg(c, "attribs: 0x%04x (%s)", attribs, ucstring_get_printable_sz(attribs_str));
+	de_dbg(c, "attribs: 0x%04x (%s)", attribs, ucstring_getpsz(attribs_str));
 	pos += 2;
 
 	szName = dbuf_read_string(c->infile, pos, 257, 257,
 		DE_CONVFLAG_STOP_AT_NUL,
 		(attribs&0x80)?DE_ENCODING_UTF8:DE_ENCODING_ASCII);
-	de_dbg(c, "szName: \"%s\"", ucstring_get_printable_sz(szName->str));
+	de_dbg(c, "szName: \"%s\"", ucstring_getpsz(szName->str));
 	if(!szName->found_nul) goto done;
 	pos += szName->bytes_consumed;
 
@@ -332,7 +332,7 @@ static int do_CFHEADER(deark *c, lctx *d)
 	if(d->header_flags&0x0001) ucstring_append_flags_item(flags_str, "PREV_CABINET");
 	if(d->header_flags&0x0002) ucstring_append_flags_item(flags_str, "NEXT_CABINET");
 	if(d->header_flags&0x0004) ucstring_append_flags_item(flags_str, "RESERVE_PRESENT");
-	de_dbg(c, "flags: 0x%04x (%s)", d->header_flags, ucstring_get_printable_sz(flags_str));
+	de_dbg(c, "flags: 0x%04x (%s)", d->header_flags, ucstring_getpsz(flags_str));
 	pos += 2;
 
 	pos += 2; // setID (arbitrary ID for a collection of linked cab files)
@@ -360,13 +360,13 @@ static int do_CFHEADER(deark *c, lctx *d)
 	if(d->header_flags&0x0001) { // PREV_CABINET
 		CabinetPrev = dbuf_read_string(c->infile, pos, 256, 256,
 			DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_ASCII);
-		de_dbg(c, "szCabinetPrev: \"%s\"", ucstring_get_printable_sz(CabinetPrev->str));
+		de_dbg(c, "szCabinetPrev: \"%s\"", ucstring_getpsz(CabinetPrev->str));
 		if(!CabinetPrev->found_nul) goto done;
 		pos += CabinetPrev->bytes_consumed;
 
 		DiskPrev = dbuf_read_string(c->infile, pos, 256, 256,
 			DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_ASCII);
-		de_dbg(c, "szDiskPrev: \"%s\"", ucstring_get_printable_sz(DiskPrev->str));
+		de_dbg(c, "szDiskPrev: \"%s\"", ucstring_getpsz(DiskPrev->str));
 		if(!DiskPrev->found_nul) goto done;
 		pos += DiskPrev->bytes_consumed;
 	}
@@ -374,13 +374,13 @@ static int do_CFHEADER(deark *c, lctx *d)
 	if(d->header_flags&0x0002) { // NEXT_CABINET
 		CabinetNext = dbuf_read_string(c->infile, pos, 256, 256,
 			DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_ASCII);
-		de_dbg(c, "szCabinetNext: \"%s\"", ucstring_get_printable_sz(CabinetNext->str));
+		de_dbg(c, "szCabinetNext: \"%s\"", ucstring_getpsz(CabinetNext->str));
 		if(!CabinetNext->found_nul) goto done;
 		pos += CabinetNext->bytes_consumed;
 
 		DiskNext = dbuf_read_string(c->infile, pos, 256, 256,
 			DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_ASCII);
-		de_dbg(c, "szDiskNext: \"%s\"", ucstring_get_printable_sz(DiskNext->str));
+		de_dbg(c, "szDiskNext: \"%s\"", ucstring_getpsz(DiskNext->str));
 		if(!DiskNext->found_nul) goto done;
 		pos += DiskNext->bytes_consumed;
 	}

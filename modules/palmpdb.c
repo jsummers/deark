@@ -150,13 +150,13 @@ static int do_read_pdb_prc_header(deark *c, lctx *d)
 
 	dname = ucstring_create(c);
 	dbuf_read_to_ucstring(c->infile, pos1, 32, dname, DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_PALM);
-	de_dbg(c, "name: \"%s\"", ucstring_get_printable_sz(dname));
+	de_dbg(c, "name: \"%s\"", ucstring_getpsz(dname));
 
 	attribs = (de_uint32)de_getui16be(pos1+32);
 	attr_descr = ucstring_create(c);
 	get_db_attr_descr(attr_descr, attribs);
 	de_dbg(c, "attributes: 0x%04x (%s)", (unsigned int)attribs,
-		ucstring_get_printable_sz(attr_descr));
+		ucstring_getpsz(attr_descr));
 
 	version = (de_uint32)de_getui16be(pos1+34);
 	de_dbg(c, "version: 0x%04x", (unsigned int)version);
@@ -346,7 +346,7 @@ static void do_imgview_image(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 
 	iname = ucstring_create(c);
 	dbuf_read_to_ucstring(c->infile, pos, 32, iname, DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_PALM);
-	de_dbg(c, "name: \"%s\"", ucstring_get_printable_sz(iname));
+	de_dbg(c, "name: \"%s\"", ucstring_getpsz(iname));
 	if(iname->len>0 && c->filenames_from_file) {
 		de_finfo_set_name_from_ucstring(c, igi->fi, iname);
 	}
@@ -484,7 +484,7 @@ static int do_read_pdb_record(deark *c, lctx *d, de_int64 rec_idx, de_int64 pos1
 		attr_descr = ucstring_create(c);
 		get_rec_attr_descr(attr_descr, attribs);
 		de_dbg(c, "attributes: 0x%02x (%s)", (unsigned int)attribs,
-			ucstring_get_printable_sz(attr_descr));
+			ucstring_getpsz(attr_descr));
 
 		id = (de_getbyte(pos1+5)<<16) |
 			(de_getbyte(pos1+6)<<8) |
@@ -529,7 +529,7 @@ static void do_string_rsrc(deark *c, lctx *d,
 	s = ucstring_create(c);
 	dbuf_read_to_ucstring_n(c->infile, pos, len, DE_DBG_MAX_STRLEN, s,
 		DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_PALM);
-	de_dbg(c, "%s: \"%s\"", rti->descr, ucstring_get_printable_sz(s));
+	de_dbg(c, "%s: \"%s\"", rti->descr, ucstring_getpsz(s));
 
 	if((flags&0x1) & !d->icon_name) {
 		// Also save the string to d->icon_name, to be used later
@@ -811,7 +811,7 @@ static void do_pqa_app_info_block(deark *c, lctx *d, de_int64 pos1, de_int64 len
 	pos += 2;
 	dbuf_read_to_ucstring_n(c->infile, pos, ux*2, DE_DBG_MAX_STRLEN, s,
 		DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_PALM);
-	de_dbg(c, "verStr: \"%s\"", ucstring_get_printable_sz(s));
+	de_dbg(c, "verStr: \"%s\"", ucstring_getpsz(s));
 	ucstring_empty(s);
 	pos += 2*ux;
 
@@ -819,7 +819,7 @@ static void do_pqa_app_info_block(deark *c, lctx *d, de_int64 pos1, de_int64 len
 	pos += 2;
 	dbuf_read_to_ucstring_n(c->infile, pos, ux*2, DE_DBG_MAX_STRLEN, s,
 		DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_PALM);
-	de_dbg(c, "pqaTitle: \"%s\"", ucstring_get_printable_sz(s));
+	de_dbg(c, "pqaTitle: \"%s\"", ucstring_getpsz(s));
 	ucstring_empty(s);
 	pos += 2*ux;
 

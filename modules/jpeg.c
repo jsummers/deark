@@ -412,7 +412,7 @@ static void do_jps_segment(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 	// TODO: SEPARATION
 
 	de_dbg(c, "stereoscopic descriptor: 0x%08x (%s)", (unsigned int)st_descr,
-		ucstring_get_printable_sz(flags_str));
+		ucstring_getpsz(flags_str));
 	pos += blk_len;
 
 	// Comment block
@@ -423,7 +423,7 @@ static void do_jps_segment(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 	comment = ucstring_create(c);
 	dbuf_read_to_ucstring_n(c->infile, pos, blk_len, DE_DBG_MAX_STRLEN, comment,
 				0, DE_ENCODING_ASCII);
-	de_dbg(c, "comment: \"%s\"", ucstring_get_printable_sz(comment));
+	de_dbg(c, "comment: \"%s\"", ucstring_getpsz(comment));
 
 done:
 	ucstring_destroy(flags_str);
@@ -449,7 +449,7 @@ static void do_xmp_extension_segment(deark *c, lctx *d, struct page_ctx *pg,
 	pos += 32;
 	digest_str = ucstring_create(c);
 	ucstring_append_bytes(digest_str, thisseg_digest_raw, 32, 0, DE_ENCODING_ASCII);
-	de_dbg(c, "digest: \"%s\"", ucstring_get_printable_sz(digest_str));
+	de_dbg(c, "digest: \"%s\"", ucstring_getpsz(digest_str));
 
 	if(pg->extxmp_found && de_memcmp(thisseg_digest_raw, pg->extxmp_digest, 32)) {
 		// We only care about the extended XMP segments whose digest matches that
@@ -576,7 +576,7 @@ static void do_fpxr_segment(deark *c, lctx *d, struct page_ctx *pg, de_int64 pos
 			ucstring_empty(s);
 			dbuf_read_to_ucstring_n(c->infile, pos, bytes_consumed-2, DE_DBG_MAX_STRLEN, s,
 				0, DE_ENCODING_UTF16LE);
-			de_dbg(c, "entity name: \"%s\"", ucstring_get_printable_sz_d(s));
+			de_dbg(c, "entity name: \"%s\"", ucstring_getpsz_d(s));
 			pos += bytes_consumed;
 
 			if(is_storage) { // read Entity class ID
@@ -629,7 +629,7 @@ static void do_ducky_stringblock(deark *c, lctx *d, struct page_ctx *pg,
 	s = ucstring_create(c);
 	dbuf_read_to_ucstring_n(c->infile, pos, nchars*2, DE_DBG_MAX_STRLEN, s,
 		0, DE_ENCODING_UTF16BE);
-	de_dbg(c, "%s: \"%s\"", name, ucstring_get_printable_sz(s));
+	de_dbg(c, "%s: \"%s\"", name, ucstring_getpsz(s));
 done:
 	ucstring_destroy(s);
 }
@@ -938,7 +938,7 @@ static void handler_app(deark *c, lctx *d, struct page_ctx *pg,
 	appsegtype = app_id_info.appsegtype;
 	payload_pos = app_id_info.payload_pos;
 	if(app_id_info.app_id_found) {
-		de_dbg(c, "app id: \"%s\", identified as: %s", ucstring_get_printable_sz(app_id_info.app_id_str),
+		de_dbg(c, "app id: \"%s\", identified as: %s", ucstring_getpsz(app_id_info.app_id_str),
 			app_id_info.app_type_name);
 	}
 	else {
@@ -1148,7 +1148,7 @@ static void dump_htable_data(deark *c, lctx *d, const de_byte *codecounts)
 		if(k%8==7) { // end of a debug line
 			de_dbg(c, "number of codes of len[%d-%2d]:%s",
 				(int)(k-7+1), (int)(k+1),
-				ucstring_get_printable_sz(s));
+				ucstring_getpsz(s));
 			ucstring_empty(s);
 		}
 	}
@@ -1247,7 +1247,7 @@ static void dump_qtable_data(deark *c, lctx *d, de_int64 pos, de_byte precision_
 		ucstring_printf(s, DE_ENCODING_LATIN1, " %3u",
 			(unsigned int)qbuf[(unsigned int)zigzag[k]]);
 		if(k%8==7) { // end of a debug line
-			de_dbg(c, "data:%s", ucstring_get_printable_sz(s));
+			de_dbg(c, "data:%s", ucstring_getpsz(s));
 			ucstring_empty(s);
 		}
 	}
@@ -1341,7 +1341,7 @@ static void handle_comment(deark *c, lctx *d, de_int64 pos, de_int64 comment_siz
 		dbuf_close(outf);
 	}
 	else {
-		de_dbg(c, "comment: \"%s\"", ucstring_get_printable_sz_d(s));
+		de_dbg(c, "comment: \"%s\"", ucstring_getpsz_d(s));
 	}
 
 done:
@@ -1614,7 +1614,7 @@ static void print_summary(deark *c, lctx *d, struct page_ctx *pg)
 		// subsampling, but the standard notation is incomprehensible, and doesn't
 		// cover all the possible cases.
 		ucstring_printf(summary, DE_ENCODING_UTF8, " subsampling=%s",
-			ucstring_get_printable_sz(pg->sampling_code));
+			ucstring_getpsz(pg->sampling_code));
 	}
 	ucstring_printf(summary, DE_ENCODING_LATIN1, " bits=%d", (int)pg->precision);
 
@@ -1651,7 +1651,7 @@ static void print_summary(deark *c, lctx *d, struct page_ctx *pg)
 
 	if(pg->scan_count!=1) ucstring_printf(summary, DE_ENCODING_LATIN1, " scans=%d", pg->scan_count);
 
-	de_dbg(c, "summary:%s", ucstring_get_printable_sz(summary));
+	de_dbg(c, "summary:%s", ucstring_getpsz(summary));
 
 done:
 	ucstring_destroy(summary);

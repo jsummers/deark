@@ -752,16 +752,17 @@ de_int64 ucstring_count_utf8_bytes(de_ucstring *s);
 // flags: DE_CONVFLAG_*
 void ucstring_to_sz(de_ucstring *s, char *szbuf, size_t szbuf_len, unsigned int flags, int encoding);
 
+// "get printable string"
 // Returns a pointer to a NUL-terminated string, that is valid until the
 // next ucstring_* function is called on that string.
-const char *ucstring_get_printable_sz(de_ucstring *s);
+const char *ucstring_getpsz(de_ucstring *s);
 // The _n version limits the number of bytes in the result.
 // max_bytes does not count the terminating NUL.
-const char *ucstring_get_printable_sz_n(de_ucstring *s, de_int64 max_bytes);
+const char *ucstring_getpsz_n(de_ucstring *s, de_int64 max_bytes);
 
 #define DE_DBG_MAX_STRLEN 500
 // Same as ..._n, with max_bytes=DE_DBG_MAX_STRLEN
-const char *ucstring_get_printable_sz_d(de_ucstring *s);
+const char *ucstring_getpsz_d(de_ucstring *s);
 
 // Helper function for printing the contents of bit-flags fields
 void ucstring_append_flags_item(de_ucstring *s, const char *str);

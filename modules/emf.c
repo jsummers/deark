@@ -88,7 +88,7 @@ static int emf_handler_01(deark *c, lctx *d, struct decoder_params *dp)
 		dbuf_read_to_ucstring_n(c->infile, dp->recpos+desc_offs, desc_len*2, DE_DBG_MAX_STRLEN*2,
 			desc, 0, DE_ENCODING_UTF16LE);
 		ucstring_strip_trailing_NULs(desc);
-		de_dbg(c, "description: \"%s\"", ucstring_get_printable_sz(desc));
+		de_dbg(c, "description: \"%s\"", ucstring_getpsz(desc));
 	}
 
 	retval = 1;
@@ -296,7 +296,7 @@ static int emfplus_handler_401c(deark *c, lctx *d, de_int64 rectype, de_int64 po
 	s = ucstring_create(c);
 	dbuf_read_to_ucstring_n(c->infile, pos, nchars*2, DE_DBG_MAX_STRLEN*2,
 		s, 0, DE_ENCODING_UTF16LE);
-	de_dbg(c, "text: \"%s\"", ucstring_get_printable_sz(s));
+	de_dbg(c, "text: \"%s\"", ucstring_getpsz(s));
 
 done:
 	ucstring_destroy(s);
@@ -657,7 +657,7 @@ static void do_emf_xEmrText(deark *c, lctx *d, de_int64 recpos, de_int64 pos1, d
 	dbuf_read_to_ucstring_n(c->infile, recpos+offstring, nchars*bytesperchar,
 		DE_DBG_MAX_STRLEN*bytesperchar, s, 0, encoding);
 	ucstring_strip_trailing_NUL(s);
-	de_dbg(c, "text: \"%s\"", ucstring_get_printable_sz(s));
+	de_dbg(c, "text: \"%s\"", ucstring_getpsz(s));
 
 done:
 	ucstring_destroy(s);

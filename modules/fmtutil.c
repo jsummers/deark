@@ -528,7 +528,7 @@ static void sauce_read_comments(deark *c, dbuf *inf, struct de_SAUCE_info *si)
 		}
 		else {
 			de_dbg_indent(c, 1);
-			de_dbg(c, "comment: \"%s\"", ucstring_get_printable_sz(si->comments[k].s));
+			de_dbg(c, "comment: \"%s\"", ucstring_getpsz(si->comments[k].s));
 			de_dbg_indent(c, -1);
 		}
 	}
@@ -643,7 +643,7 @@ int de_read_SAUCE(deark *c, dbuf *f, struct de_SAUCE_info *si)
 
 		}
 		de_dbg(c, "tflags: 0x%02x (%s)", (unsigned int)si->tflags,
-			ucstring_get_printable_sz(tflags_descr));
+			ucstring_getpsz(tflags_descr));
 	}
 
 	if(si->original_file_size==0 || si->original_file_size>f->len-128) {
@@ -1143,7 +1143,7 @@ static void do_iff_text_chunk(deark *c, dbuf *f, de_int64 dpos, de_int64 dlen,
 	dbuf_read_to_ucstring_n(f,
 		dpos, dlen, DE_DBG_MAX_STRLEN,
 		s, DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_ASCII);
-	de_dbg(c, "%s: \"%s\"", name, ucstring_get_printable_sz(s));
+	de_dbg(c, "%s: \"%s\"", name, ucstring_getpsz(s));
 	ucstring_destroy(s);
 }
 
@@ -1166,7 +1166,7 @@ static void do_iff_anno(deark *c, dbuf *f, de_int64 pos, de_int64 len)
 		de_ucstring *s = NULL;
 		s = ucstring_create(c);
 		dbuf_read_to_ucstring_n(c->infile, pos, len, DE_DBG_MAX_STRLEN, s, 0, DE_ENCODING_ASCII);
-		de_dbg(c, "annotation: \"%s\"", ucstring_get_printable_sz(s));
+		de_dbg(c, "annotation: \"%s\"", ucstring_getpsz(s));
 		ucstring_destroy(s);
 	}
 }

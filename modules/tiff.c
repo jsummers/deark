@@ -1157,7 +1157,7 @@ static void handler_usercomment(deark *c, lctx *d, const struct taginfo *tg, con
 	// are trailing spaces.
 	ucstring_strip_trailing_spaces(s);
 
-	de_dbg(c, "%s: \"%s\"", tni->tagname, ucstring_get_printable_sz(s));
+	de_dbg(c, "%s: \"%s\"", tni->tagname, ucstring_getpsz(s));
 
 done:
 	ucstring_destroy(s);
@@ -1251,7 +1251,7 @@ static void handler_mpentry(deark *c, lctx *d, const struct taginfo *tg, const s
 		if(typecode==0x020003U) ucstring_append_flags_item(s, "multi-frame image multi-angle");
 
 		de_dbg(c, "image attribs: 0x%08x (%s)", (unsigned int)attrs,
-			ucstring_get_printable_sz(s));
+			ucstring_getpsz(s));
 
 		n = dbuf_getui32x(c->infile, pos+4, d->is_le);
 		de_dbg(c, "image size: %u", (unsigned int)n);
@@ -1296,7 +1296,7 @@ static void handler_utf16(deark *c, lctx *d, const struct taginfo *tg, const str
 	dbuf_read_to_ucstring_n(c->infile, tg->val_offset, tg->total_size,
 		DE_TIFF_MAX_CHARS_TO_PRINT*2, s, 0, DE_ENCODING_UTF16LE);
 	ucstring_strip_trailing_NUL(s);
-	de_dbg(c, "UTF-16 string: \"%s\"", ucstring_get_printable_sz(s));
+	de_dbg(c, "UTF-16 string: \"%s\"", ucstring_getpsz(s));
 
 done:
 	ucstring_destroy(s);
@@ -2160,7 +2160,7 @@ static void process_ifd(deark *c, lctx *d, de_int64 ifd_idx1, de_int64 ifdpos1, 
 
 		// do_dbg_print_values() already tried to limit the line length.
 		// The "500+" in the next line is an emergency brake.
-		de_dbg(c, "%s", ucstring_get_printable_sz_n(dbgline, 500+DE_DBG_MAX_STRLEN));
+		de_dbg(c, "%s", ucstring_getpsz_n(dbgline, 500+DE_DBG_MAX_STRLEN));
 		de_dbg_indent(c, 1);
 
 		switch(tg.tagnum) {

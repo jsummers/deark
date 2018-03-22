@@ -231,7 +231,7 @@ static void do_pe_characteristics(deark *c, lctx *d, unsigned int v)
 	if(v&0x0200) ucstring_append_flags_item(s, "stripped");
 	if(v&0x2000) ucstring_append_flags_item(s, "DLL");
 	// TODO: There are more flags than this.
-	de_dbg(c, "characteristics: 0x%04x (%s)", v, ucstring_get_printable_sz(s));
+	de_dbg(c, "characteristics: 0x%04x (%s)", v, ucstring_getpsz(s));
 	ucstring_destroy(s);
 }
 
@@ -396,7 +396,7 @@ static void do_ne_program_flags(deark *c, lctx *d, de_byte flags)
 	if(flags&0x80) ucstring_append_flags_item(s, "80x87");
 
 	de_dbg(c, "program flags: 0x%02x (%s)", (unsigned int)flags,
-		ucstring_get_printable_sz(s));
+		ucstring_getpsz(s));
 
 	ucstring_destroy(s);
 }
@@ -416,7 +416,7 @@ static void do_ne_app_flags(deark *c, lctx *d, de_byte flags)
 	if(flags&0x80) ucstring_append_flags_item(s, "DLL");
 
 	de_dbg(c, "application flags: 0x%02x (%s)", (unsigned int)flags,
-		ucstring_get_printable_sz(s));
+		ucstring_getpsz(s));
 
 	ucstring_destroy(s);
 }
@@ -904,7 +904,7 @@ static void do_pe_section_header(deark *c, lctx *d, de_int64 section_index, de_i
 
 	// Section name: "An 8-byte, null-padded UTF-8 encoded string"
 	srd = dbuf_read_string(c->infile, pos, 8, 8, DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_UTF8);
-	de_dbg(c, "section name: \"%s\"", ucstring_get_printable_sz(srd->str));
+	de_dbg(c, "section name: \"%s\"", ucstring_getpsz(srd->str));
 
 	d->pe_cur_section_virt_addr = de_getui32le(pos+12);
 	section_data_size = de_getui32le(pos+16);
@@ -986,7 +986,7 @@ static void do_ne_one_nameinfo(deark *c, lctx *d, de_int64 npos)
 			fi = de_finfo_create(c);
 			rname = ucstring_create(c);
 			dbuf_read_to_ucstring(c->infile, rnNameOffset+1, x, rname, 0, DE_ENCODING_ASCII);
-			de_dbg(c, "resource name: \"%s\"", ucstring_get_printable_sz(rname));
+			de_dbg(c, "resource name: \"%s\"", ucstring_getpsz(rname));
 			if(c->filenames_from_file)
 				de_finfo_set_name_from_ucstring(c, fi, rname);
 			ucstring_destroy(rname);

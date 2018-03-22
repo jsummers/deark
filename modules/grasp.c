@@ -60,7 +60,7 @@ static int do_extract_file(deark *c, lctx *d, de_int64 fnum)
 	dbuf_read_to_ucstring(c->infile, pos+4, 13, fname, DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_ASCII);
 	de_finfo_set_name_from_ucstring(c, fi, fname);
 	fi->original_filename_flag = 1;
-	de_dbg(c, "file name: %s", ucstring_get_printable_sz(fname));
+	de_dbg(c, "file name: %s", ucstring_getpsz(fname));
 
 	file_size = de_getui32le(file_info_offset);
 	de_dbg(c, "file size: %d", (int)file_size);
@@ -231,7 +231,7 @@ static void de_run_graspfont_newfmt(deark *c)
 
 	fontname = ucstring_create(c);
 	dbuf_read_to_ucstring(c->infile, 1, 13, fontname, DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_ASCII);
-	de_dbg(c, "name: \"%s\"", ucstring_get_printable_sz(fontname));
+	de_dbg(c, "name: \"%s\"", ucstring_getpsz(fontname));
 
 	font->num_chars = (de_int64)de_getbyte(16);
 	de_dbg(c, "number of glyphs: %d", (int)font->num_chars);

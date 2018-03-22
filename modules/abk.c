@@ -518,7 +518,7 @@ static int do_read_AmBk(deark *c, lctx *d, struct amosbank *bk)
 		(int)bk->bank_data_len, (int)bk->bank_len);
 
 	srd = dbuf_read_string(bk->f, 12, 8, 8, 0, DE_ENCODING_ASCII);
-	de_dbg(c, "bank name: \"%s\"", ucstring_get_printable_sz(srd->str));
+	de_dbg(c, "bank name: \"%s\"", ucstring_getpsz(srd->str));
 
 	if(bk->bank_data_len<0) goto done;
 

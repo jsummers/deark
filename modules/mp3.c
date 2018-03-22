@@ -318,7 +318,7 @@ static void decode_id3v2_frame_text(deark *c, id3v2ctx *d,
 
 	s = ucstring_create(c);
 	id3v2_read_to_ucstring(c, f, pos, pos1+len-pos, s, id3_encoding);
-	de_dbg(c, "text: \"%s\"", ucstring_get_printable_sz(s));
+	de_dbg(c, "text: \"%s\"", ucstring_getpsz(s));
 
 done:
 	ucstring_destroy(s);
@@ -332,7 +332,7 @@ static void decode_id3v2_frame_urllink(deark *c, id3v2ctx *d,
 
 	s = ucstring_create(c);
 	dbuf_read_to_ucstring(f, pos1, len, s, 0, DE_ENCODING_LATIN1);
-	de_dbg(c, "url: \"%s\"", ucstring_get_printable_sz(s));
+	de_dbg(c, "url: \"%s\"", ucstring_getpsz(s));
 	ucstring_destroy(s);
 }
 
@@ -356,14 +356,14 @@ static void decode_id3v2_frame_txxx_etc(deark *c, id3v2ctx *d,
 	bytes_consumed = 0;
 	ret = read_id3v2_terminated_string(c, d, f, pos, pos1+len-pos, 256, id3_encoding, description, &bytes_consumed);
 	if(!ret) goto done;
-	de_dbg(c, "description: \"%s\"", ucstring_get_printable_sz(description));
+	de_dbg(c, "description: \"%s\"", ucstring_getpsz(description));
 	pos += bytes_consumed;
 
 	value = ucstring_create(c);
 	id3v2_read_to_ucstring(c, f, pos, pos1+len-pos, value, id3_encoding);
 	if(tag4cc->id==CODE_WXX || tag4cc->id==CODE_WXXX) name="url";
 	else name="value";
-	de_dbg(c, "%s: \"%s\"", name, ucstring_get_printable_sz(value));
+	de_dbg(c, "%s: \"%s\"", name, ucstring_getpsz(value));
 
 done:
 	ucstring_destroy(description);
@@ -385,7 +385,7 @@ static void decode_id3v2_frame_priv(deark *c, id3v2ctx *d,
 		DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_LATIN1);
 	if(!owner->found_nul) goto done;
 
-	de_dbg(c, "owner: \"%s\"", ucstring_get_printable_sz(owner->str));
+	de_dbg(c, "owner: \"%s\"", ucstring_getpsz(owner->str));
 	pos += owner->bytes_consumed;
 
 	payload_len = pos1+len-pos;
@@ -422,7 +422,7 @@ static void decode_id3v2_frame_comm(deark *c, id3v2ctx *d,
 
 	lang = ucstring_create(c);
 	dbuf_read_to_ucstring(f, pos, 3, lang, 0, DE_ENCODING_ASCII);
-	de_dbg(c, "language: \"%s\"", ucstring_get_printable_sz(lang));
+	de_dbg(c, "language: \"%s\"", ucstring_getpsz(lang));
 	pos += 3;
 
 	shortdesc = ucstring_create(c);
@@ -430,12 +430,12 @@ static void decode_id3v2_frame_comm(deark *c, id3v2ctx *d,
 	ret = read_id3v2_terminated_string(c, d, f, pos, pos1+len-pos, 256, id3_encoding,
 		shortdesc, &bytes_consumed);
 	if(!ret) goto done;
-	de_dbg(c, "short description: \"%s\"", ucstring_get_printable_sz(shortdesc));
+	de_dbg(c, "short description: \"%s\"", ucstring_getpsz(shortdesc));
 	pos += bytes_consumed;
 
 	comment_text = ucstring_create(c);
 	id3v2_read_to_ucstring(c, f, pos, pos1+len-pos, comment_text, id3_encoding);
-	de_dbg(c, "comment: \"%s\"", ucstring_get_printable_sz(comment_text));
+	de_dbg(c, "comment: \"%s\"", ucstring_getpsz(comment_text));
 
 done:
 	ucstring_destroy(lang);
@@ -533,14 +533,14 @@ static void decode_id3v2_frame_wmpicture(deark *c, id3v2ctx *d,
 	if(!ret) goto done;
 	mimetype = ucstring_create(c);
 	dbuf_read_to_ucstring_n(f, pos, stringlen-2, 256, mimetype, 0, DE_ENCODING_UTF16LE);
-	de_dbg(c, "mime type: \"%s\"", ucstring_get_printable_sz_d(mimetype));
+	de_dbg(c, "mime type: \"%s\"", ucstring_getpsz_d(mimetype));
 	pos += stringlen;
 
 	ret = dbuf_get_utf16_NULterm_len(f, pos, pos1+len-pos, &stringlen);
 	if(!ret) goto done;
 	mimetype = ucstring_create(c);
 	dbuf_read_to_ucstring_n(f, pos, stringlen-2, 2048, mimetype, 0, DE_ENCODING_UTF16LE);
-	de_dbg(c, "description: \"%s\"", ucstring_get_printable_sz_d(mimetype));
+	de_dbg(c, "description: \"%s\"", ucstring_getpsz_d(mimetype));
 	// TODO: Maybe the description should be used in the filename?
 	pos += stringlen;
 
@@ -571,7 +571,7 @@ static void decode_id3v2_frame_pic_apic(deark *c, id3v2ctx *d,
 
 	if(tag4cc->id==CODE_PIC) {
 		fmt_srd = dbuf_read_string(f, pos, 3, 3, 0, DE_ENCODING_ASCII);
-		de_dbg(c, "format: \"%s\"", ucstring_get_printable_sz(fmt_srd->str));
+		de_dbg(c, "format: \"%s\"", ucstring_getpsz(fmt_srd->str));
 		pos += 3;
 	}
 	else {
@@ -579,7 +579,7 @@ static void decode_id3v2_frame_pic_apic(deark *c, id3v2ctx *d,
 		ret = read_id3v2_terminated_string(c, d, f, pos, pos1+len-pos, 256, ID3ENC_ISO_8859_1,
 			mimetype, &bytes_consumed);
 		if(!ret) goto done;
-		de_dbg(c, "mime type: \"%s\"", ucstring_get_printable_sz(mimetype));
+		de_dbg(c, "mime type: \"%s\"", ucstring_getpsz(mimetype));
 		pos += bytes_consumed;
 	}
 
@@ -593,7 +593,7 @@ static void decode_id3v2_frame_pic_apic(deark *c, id3v2ctx *d,
 	ret = read_id3v2_terminated_string(c, d, f, pos, pos1+len-pos, 256, id3_encoding,
 		description, &bytes_consumed);
 	if(!ret) goto done;
-	de_dbg(c, "description: \"%s\"", ucstring_get_printable_sz(description));
+	de_dbg(c, "description: \"%s\"", ucstring_getpsz(description));
 	pos += bytes_consumed;
 
 	if(pos >= pos1+len) goto done;
@@ -625,21 +625,21 @@ static void decode_id3v2_frame_geob(deark *c, id3v2ctx *d,
 	ret = read_id3v2_terminated_string(c, d, f, pos, pos1+len-pos, 256, ID3ENC_ISO_8859_1,
 		mimetype, &bytes_consumed);
 	if(!ret) goto done;
-	de_dbg(c, "mime type: \"%s\"", ucstring_get_printable_sz(mimetype));
+	de_dbg(c, "mime type: \"%s\"", ucstring_getpsz(mimetype));
 	pos += bytes_consumed;
 
 	filename = ucstring_create(c);
 	ret = read_id3v2_terminated_string(c, d, f, pos, pos1+len-pos, 256, id3_encoding,
 		filename, &bytes_consumed);
 	if(!ret) goto done;
-	de_dbg(c, "filename: \"%s\"", ucstring_get_printable_sz(filename));
+	de_dbg(c, "filename: \"%s\"", ucstring_getpsz(filename));
 	pos += bytes_consumed;
 
 	description = ucstring_create(c);
 	ret = read_id3v2_terminated_string(c, d, f, pos, pos1+len-pos, 256, id3_encoding,
 		description, &bytes_consumed);
 	if(!ret) goto done;
-	de_dbg(c, "description: \"%s\"", ucstring_get_printable_sz(description));
+	de_dbg(c, "description: \"%s\"", ucstring_getpsz(description));
 	pos += bytes_consumed;
 
 	objlen = pos1+len-pos;
@@ -677,7 +677,7 @@ static void decode_id3v2_frame_pop_popm(deark *c, id3v2ctx *d,
 	ret = read_id3v2_terminated_string(c, d, f, pos, pos1+len-pos, 256, ID3ENC_ISO_8859_1,
 		email, &bytes_consumed);
 	if(!ret) goto done;
-	de_dbg(c, "email/id: \"%s\"", ucstring_get_printable_sz(email));
+	de_dbg(c, "email/id: \"%s\"", ucstring_getpsz(email));
 	pos += bytes_consumed;
 
 	if(pos1+len-pos < 1) goto done;
@@ -1114,30 +1114,30 @@ static void do_mp3_id3v1(deark *c, de_int64 pos1)
 
 	dbuf_read_to_ucstring(c->infile, pos, 30, s, DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_ASCII);
 	ucstring_strip_trailing_spaces(s);
-	de_dbg(c, "song title: \"%s\"", ucstring_get_printable_sz(s));
+	de_dbg(c, "song title: \"%s\"", ucstring_getpsz(s));
 	pos += 30;
 
 	ucstring_empty(s);
 	dbuf_read_to_ucstring(c->infile, pos, 30, s, DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_ASCII);
 	ucstring_strip_trailing_spaces(s);
-	de_dbg(c, "artist: \"%s\"", ucstring_get_printable_sz(s));
+	de_dbg(c, "artist: \"%s\"", ucstring_getpsz(s));
 	pos += 30;
 
 	ucstring_empty(s);
 	dbuf_read_to_ucstring(c->infile, pos, 30, s, DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_ASCII);
 	ucstring_strip_trailing_spaces(s);
-	de_dbg(c, "album: \"%s\"", ucstring_get_printable_sz(s));
+	de_dbg(c, "album: \"%s\"", ucstring_getpsz(s));
 	pos += 30;
 
 	ucstring_empty(s);
 	dbuf_read_to_ucstring(c->infile, pos, 4, s, DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_ASCII);
-	de_dbg(c, "year: \"%s\"", ucstring_get_printable_sz(s));
+	de_dbg(c, "year: \"%s\"", ucstring_getpsz(s));
 	pos += 4;
 
 	ucstring_empty(s);
 	dbuf_read_to_ucstring(c->infile, pos, 30, s, DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_ASCII);
 	ucstring_strip_trailing_spaces(s);
-	de_dbg(c, "comment: \"%s\"", ucstring_get_printable_sz(s));
+	de_dbg(c, "comment: \"%s\"", ucstring_getpsz(s));
 	pos += 28;
 	if(de_getbyte(pos)==0) {
 		de_byte trknum;
@@ -1188,7 +1188,7 @@ static void do_ape_text_item(deark *c, struct ape_tag_header_footer *ah,
 	s = ucstring_create(c);
 	dbuf_read_to_ucstring_n(c->infile, pos, len, DE_DBG_MAX_STRLEN,
 		s, 0, encoding);
-	de_dbg(c, "value: \"%s\"", ucstring_get_printable_sz(s));
+	de_dbg(c, "value: \"%s\"", ucstring_getpsz(s));
 	ucstring_destroy(s);
 }
 
@@ -1224,7 +1224,7 @@ static int do_ape_item(deark *c, struct ape_tag_header_footer *ah,
 	key = dbuf_read_string(c->infile, pos, 256, 256, DE_CONVFLAG_STOP_AT_NUL,
 		DE_ENCODING_ASCII);
 	if(!key->found_nul) goto done;
-	de_dbg(c, "key: \"%s\"", ucstring_get_printable_sz(key->str));
+	de_dbg(c, "key: \"%s\"", ucstring_getpsz(key->str));
 	pos += key->bytes_consumed;
 
 	de_dbg(c, "item data at %"INT64_FMT", len=%"INT64_FMT, pos, item_value_len);

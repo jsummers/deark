@@ -144,7 +144,7 @@ static int read_filename(deark *c, lctx *d, struct page_ctx *pg, de_int64 pos1, 
 		pos += 13;
 	}
 
-	de_dbg(c, "original filename: \"%s\"", ucstring_get_printable_sz(fname_orig));
+	de_dbg(c, "original filename: \"%s\"", ucstring_getpsz(fname_orig));
 
 	if(c->filenames_from_file) {
 		pg->fname = ucstring_clone(fname_orig);

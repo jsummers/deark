@@ -352,7 +352,7 @@ static int is_printable_uchar(de_int32 ch)
 	return 0;
 }
 
-static const char *ucstring_get_printable_sz_internal(de_ucstring *s,
+static const char *ucstring_getpsz_internal(de_ucstring *s,
 	int has_max, de_int64 max_bytes)
 {
 	de_int64 allocsize;
@@ -380,21 +380,21 @@ static const char *ucstring_get_printable_sz_internal(de_ucstring *s,
 	return s->tmp_string;
 }
 
-const char *ucstring_get_printable_sz(de_ucstring *s)
+const char *ucstring_getpsz(de_ucstring *s)
 {
-	return ucstring_get_printable_sz_internal(s, 0, 0);
+	return ucstring_getpsz_internal(s, 0, 0);
 }
 
 // It might make more sense to limit the number of visible characters, instead
 // of the number of bytes in the encoded string, but that's too difficult.
-const char *ucstring_get_printable_sz_n(de_ucstring *s, de_int64 max_bytes)
+const char *ucstring_getpsz_n(de_ucstring *s, de_int64 max_bytes)
 {
-	return ucstring_get_printable_sz_internal(s, 1, max_bytes);
+	return ucstring_getpsz_internal(s, 1, max_bytes);
 }
 
-const char *ucstring_get_printable_sz_d(de_ucstring *s)
+const char *ucstring_getpsz_d(de_ucstring *s)
 {
-	return ucstring_get_printable_sz_internal(s, 1, DE_DBG_MAX_STRLEN);
+	return ucstring_getpsz_internal(s, 1, DE_DBG_MAX_STRLEN);
 }
 
 void ucstring_append_flags_item(de_ucstring *s, const char *str)

@@ -73,7 +73,7 @@ static void do_extract_file(deark *c, lctx *d, de_int64 dir_entry_pos,
 	de_dbg2(c, "filename length: %d", (int)fname_len);
 	fname = ucstring_create(c);
 	dbuf_read_to_ucstring(c->infile, dir_entry_pos+5, fname_len, fname, 0, DE_ENCODING_PETSCII);
-	de_dbg(c, "filename: \"%s\"", ucstring_get_printable_sz(fname));
+	de_dbg(c, "filename: \"%s\"", ucstring_getpsz(fname));
 
 	switch(file_type) {
 	case FTYPE_SEQ: ext="seq"; break;

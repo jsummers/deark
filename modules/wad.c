@@ -45,7 +45,7 @@ static void do_lump_entry(deark *c, lctx *d, de_int64 lump_idx, de_int64 pos)
 	// the names have special meanings, so someday we might want to run
 	// comparisons against them. But currently we don't do that.
 	srd = dbuf_read_string(c->infile, pos+8, 8, 8, DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_ASCII);
-	de_dbg(c, "name: \"%s\"", ucstring_get_printable_sz_d(srd->str));
+	de_dbg(c, "name: \"%s\"", ucstring_getpsz_d(srd->str));
 
 	do_lump_extract(c, d, lump_pos, lump_size, srd);
 

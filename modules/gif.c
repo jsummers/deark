@@ -464,7 +464,7 @@ static void do_comment_extension(deark *c, lctx *d, de_int64 pos)
 	}
 
 	if(s) {
-		de_dbg(c, "comment: \"%s\"", ucstring_get_printable_sz_d(s));
+		de_dbg(c, "comment: \"%s\"", ucstring_getpsz_d(s));
 	}
 	dbuf_close(f);
 }
@@ -596,7 +596,7 @@ static void do_application_extension(deark *c, lctx *d, de_int64 pos)
 
 	s = ucstring_create(c);
 	ucstring_append_bytes(s, app_id, 11, 0, DE_ENCODING_ASCII);
-	de_dbg(c, "app id: \"%s\"", ucstring_get_printable_sz(s));
+	de_dbg(c, "app id: \"%s\"", ucstring_getpsz(s));
 	ucstring_destroy(s);
 
 	if(!de_memcmp(app_id, "NETSCAPE2.0", 11) ||

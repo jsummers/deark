@@ -449,7 +449,7 @@ static void do_palm_BitmapType_internal(deark *c, lctx *d, de_int64 pos1, de_int
 	if(bitmapflags&PALMBMPFLAG_DIRECTCOLOR) ucstring_append_flags_item(flagsdescr, "directColor");
 	if(bitmapflags==0) ucstring_append_flags_item(flagsdescr, "none");
 	de_dbg(c, "bitmap flags: 0x%04x (%s)", (unsigned int)bitmapflags,
-		ucstring_get_printable_sz(flagsdescr));
+		ucstring_getpsz(flagsdescr));
 	ucstring_destroy(flagsdescr);
 	if((bitmapflags&PALMBMPFLAG_HASCOLORTABLE) && d->ignore_color_table_flag) {
 		bitmapflags -= PALMBMPFLAG_HASCOLORTABLE;

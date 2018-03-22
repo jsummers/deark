@@ -210,7 +210,7 @@ static int do_picture_ole_static_rendition(deark *c, lctx *d, struct para_info *
 	pos += 4;
 	srd_typename = dbuf_read_string(c->infile, pos, stringlen, 260, DE_CONVFLAG_STOP_AT_NUL,
 		DE_ENCODING_ASCII);
-	de_dbg(c, "typename: \"%s\"", ucstring_get_printable_sz(srd_typename->str));
+	de_dbg(c, "typename: \"%s\"", ucstring_getpsz(srd_typename->str));
 	pos += stringlen;
 
 	if(!de_strcmp((const char*)srd_typename->sz, "DIB")) {
@@ -234,7 +234,7 @@ static int do_picture_ole_static_rendition(deark *c, lctx *d, struct para_info *
 	}
 	else {
 		de_warn(c, "Static OLE picture type \"%s\" is not supported",
-			ucstring_get_printable_sz(srd_typename->str));
+			ucstring_getpsz(srd_typename->str));
 	}
 
 	de_destroy_stringreaderdata(c, srd_typename);
@@ -261,21 +261,21 @@ static int do_picture_ole_embedded_rendition(deark *c, lctx *d, struct para_info
 	pos += 4;
 	srd_typename = dbuf_read_string(c->infile, pos, stringlen, 260, DE_CONVFLAG_STOP_AT_NUL,
 		DE_ENCODING_ASCII);
-	de_dbg(c, "typename: \"%s\"", ucstring_get_printable_sz(srd_typename->str));
+	de_dbg(c, "typename: \"%s\"", ucstring_getpsz(srd_typename->str));
 	pos += stringlen;
 
 	stringlen = de_getui32le(pos);
 	pos += 4;
 	srd_filename = dbuf_read_string(c->infile, pos, stringlen, 260, DE_CONVFLAG_STOP_AT_NUL,
 		DE_ENCODING_ASCII);
-	de_dbg(c, "filename: \"%s\"", ucstring_get_printable_sz(srd_filename->str));
+	de_dbg(c, "filename: \"%s\"", ucstring_getpsz(srd_filename->str));
 	pos += stringlen;
 
 	stringlen = de_getui32le(pos);
 	pos += 4;
 	srd_params = dbuf_read_string(c->infile, pos, stringlen, 260, DE_CONVFLAG_STOP_AT_NUL,
 		DE_ENCODING_ASCII);
-	de_dbg(c, "params: \"%s\"", ucstring_get_printable_sz(srd_params->str));
+	de_dbg(c, "params: \"%s\"", ucstring_getpsz(srd_params->str));
 	pos += stringlen;
 
 	data_len = de_getui32le(pos);
@@ -290,7 +290,7 @@ static int do_picture_ole_embedded_rendition(deark *c, lctx *d, struct para_info
 	}
 	else {
 		de_warn(c, "Unknown/unsupported type of OLE object (\"%s\") at %d",
-			ucstring_get_printable_sz(srd_typename->str), (int)pos1);
+			ucstring_getpsz(srd_typename->str), (int)pos1);
 	}
 
 	pos += data_len;

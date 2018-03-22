@@ -113,7 +113,7 @@ static int do_unc_text_field(deark *c, lctx *d,
 	default: name="text";
 	}
 
-	de_dbg(c, "%s: \"%s\"", name, ucstring_get_printable_sz(srd->str));
+	de_dbg(c, "%s: \"%s\"", name, ucstring_getpsz(srd->str));
 	retval = 1;
 
 done:
@@ -300,7 +300,7 @@ static void do_png_sPLT(deark *c, lctx *d,
 	srd = dbuf_read_string(c->infile, pos, nbytes_to_scan, 79, DE_CONVFLAG_STOP_AT_NUL,
 		DE_ENCODING_LATIN1);
 	if(!srd->found_nul) goto done;
-	de_dbg(c, "palette name: \"%s\"", ucstring_get_printable_sz(srd->str));
+	de_dbg(c, "palette name: \"%s\"", ucstring_getpsz(srd->str));
 	pos += srd->bytes_consumed;
 
 	if(pos >= pos1+len) goto done;
