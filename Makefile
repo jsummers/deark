@@ -28,20 +28,27 @@ endif
 .PHONY: all clean dep
 
 OBJDIR:=obj
-OFILES_MODS:=$(addprefix $(OBJDIR)/modules/,misc.o unsupported.o \
- psd.o tiff.o zoo.o cfb.o atari-img.o jpeg.o pict.o wmf.o \
- ilbm.o exe.o ansiart.o xface.o tga.o bmp.o pcpaint.o zip.o \
- amigaicon.o xfer.o gif.o abk.o bintext.o hlp.o iccprofile.o \
- palmpdb.o palmbitmap.o epocimage.o bsave.o emf.o \
- pcx.o pnm.o icns.o insetpix.o os2bmp.o \
- mp3.o pkfont.o rsc.o shg.o makichan.o wpg.o rosprite.o jbf.o \
- iptc.o cpio.o gemras.o boxes.o spectrum512.o tivariable.o riff.o \
- png.o psf.o grasp.o mbk.o compress.o ico.o macpaint.o fnt.o wri.o \
- tar.o nokia.o atari.o binhex.o d64.o sunras.o gzip.o gemmeta.o lha.o \
- awbm.o rpm.o qtif.o printshop.o printptnr.o mscompress.o jovianvi.o drhalo.o \
- cab.o ebml.o portfolio.o eps.o ar.o gemfont.o psionpic.o flif.o wad.o \
- autocad.o grob.o alphabmp.o bpg.o iff.o cardfile.o pff2.o \
- asf.o vort.o tim.o t64.o msp.o basic-c64.o psionapp.o)
+
+OFILES_MODS_AB:=$(addprefix $(OBJDIR)/modules/,abk.o alphabmp.o amigaicon.o \
+ ansiart.o ar.o asf.o atari.o atari-img.o autocad.o awbm.o basic-c64.o \
+ binhex.o bintext.o bmp.o boxes.o bpg.o bsave.o)
+OFILES_MODS_CH:=$(addprefix $(OBJDIR)/modules/,cab.o cardfile.o cfb.o \
+ compress.o cpio.o d64.o drhalo.o ebml.o emf.o epocimage.o eps.o exe.o \
+ flif.o fnt.o gemfont.o gemmeta.o gemras.o gif.o grasp.o grob.o gzip.o \
+ hlp.o)
+OFILES_MODS_IO:=$(addprefix $(OBJDIR)/modules/,misc.o iccprofile.o icns.o \
+ ico.o iff.o ilbm.o insetpix.o iptc.o jbf.o jovianvi.o jpeg.o lha.o \
+ macpaint.o makichan.o mbk.o mp3.o mscompress.o msp.o nokia.o os2bmp.o)
+OFILES_MODS_PQ:=$(addprefix $(OBJDIR)/modules/,psd.o palmbitmap.o palmpdb.o \
+ pcpaint.o pcx.o pff2.o pict.o pkfont.o png.o pnm.o portfolio.o printptnr.o \
+ printshop.o psf.o psionapp.o psionpic.o qtif.o)
+OFILES_MODS_RZ:=$(addprefix $(OBJDIR)/modules/,riff.o rosprite.o rpm.o \
+ rsc.o shg.o spectrum512.o sunras.o t64.o tar.o tga.o tiff.o tim.o \
+ tivariable.o unsupported.o vort.o wad.o wmf.o wpg.o wri.o xface.o \
+ xfer.o zip.o zoo.o)
+OFILES_MODS:=$(OFILES_MODS_AB) $(OFILES_MODS_CH) $(OFILES_MODS_IO) \
+ $(OFILES_MODS_PQ) $(OFILES_MODS_RZ)
+
 OFILES_DEARK1:=$(addprefix $(OBJDIR)/src/,deark-miniz.o deark-util.o deark-data.o \
  deark-dbuf.o deark-bitmap.o deark-char.o deark-font.o deark-ucstring.o \
  deark-fmtutil.o deark-user.o deark-unix.o)
@@ -56,15 +63,28 @@ DEARK2_A:=$(OBJDIR)/src/deark2.a
 $(DEARK2_A): $(OFILES_DEARK2)
 	ar rcs $@ $^
 
-MODS_A:=$(OBJDIR)/modules/mods.a
-$(MODS_A): $(OFILES_MODS)
+MODS_AB_A:=$(OBJDIR)/modules/mods-ab.a
+MODS_CH_A:=$(OBJDIR)/modules/mods-ch.a
+MODS_IO_A:=$(OBJDIR)/modules/mods-io.a
+MODS_PQ_A:=$(OBJDIR)/modules/mods-pq.a
+MODS_RZ_A:=$(OBJDIR)/modules/mods-rz.a
+$(MODS_AB_A): $(OFILES_MODS_AB)
+	ar rcs $@ $^
+$(MODS_CH_A): $(OFILES_MODS_CH)
+	ar rcs $@ $^
+$(MODS_IO_A): $(OFILES_MODS_IO)
+	ar rcs $@ $^
+$(MODS_PQ_A): $(OFILES_MODS_PQ)
+	ar rcs $@ $^
+$(MODS_RZ_A): $(OFILES_MODS_RZ)
 	ar rcs $@ $^
 
 # I'm sorry if your linker doesn't like this library order, but the link
 # command was getting so long that I've decided to start using helper
 # libraries. I'll consider adding "-Wl,--start-group" and "-Wl,--end-group"
 # options if that would help.
-$(DEARK_EXE): $(OBJDIR)/src/deark-cmd.o $(DEARK2_A) $(MODS_A) $(DEARK1_A)
+$(DEARK_EXE): $(OBJDIR)/src/deark-cmd.o $(DEARK2_A) $(MODS_AB_A) \
+ $(MODS_CH_A) $(MODS_IO_A) $(MODS_PQ_A) $(MODS_RZ_A) $(DEARK1_A)
 	$(CC) $(LDFLAGS) -o $@ $^
 
 $(OBJDIR)/%.o: %.c
