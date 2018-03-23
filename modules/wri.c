@@ -570,6 +570,34 @@ static void do_paragraph(deark *c, lctx *d, struct para_info *pinfo)
 	}
 }
 
+static void do_para_fprop(deark *c, lctx *d, struct para_info *pinfo,
+	de_int64 bfprop)
+{
+	de_int64 fprop_dlen = 0;
+
+	// bfprop is a pointer into the 123 bytes of data starting
+	// at pos+4. The maximum sensible value is at most 122.
+	if(bfprop<=122) {
+		// It appears that the length prefix does not include itself,
+		// contrary to what one source says.
+		fprop_dlen = (de_int64)de_getbyte(pinfo->bfprop_offset);
+		de_dbg(c, "fprop dlen: %d", (int)fprop_dlen);
+	}
+	if(fprop_dlen>=17) {
+		de_ucstring *flagstr = ucstring_create(c);
+		pinfo->papflags = de_getbyte(pinfo->bfprop_offset + 1 + 16);
+		if(pinfo->papflags&0x06) {
+			ucstring_append_flags_item(flagstr, (pinfo->papflags&0x01)?"footer":"header");
+			ucstring_append_flags_item(flagstr, (pinfo->papflags&0x08)?"print on first page":
+				"do not print on first page");
+		}
+		if(pinfo->papflags&0x10) ucstring_append_flags_item(flagstr, "picture");
+		de_dbg(c, "paragraph flags: 0x%02x (%s)", (unsigned int)pinfo->papflags,
+			ucstring_getpsz(flagstr));
+		ucstring_destroy(flagstr);
+	}
+}
+
 static void do_para_info_page(deark *c, lctx *d, de_int64 pos)
 {
 	de_int64 fcFirst;
@@ -577,7 +605,9 @@ static void do_para_info_page(deark *c, lctx *d, de_int64 pos)
 	de_int64 i;
 	de_int64 fod_array_startpos;
 	de_int64 prevtextpos;
+	de_byte fprop_seen[128];
 
+	de_memset(fprop_seen, 0, sizeof(fprop_seen));
 	de_dbg(c, "paragraph info page at %d", (int)pos);
 	de_dbg_indent(c, 1);
 
@@ -620,25 +650,21 @@ static void do_para_info_page(deark *c, lctx *d, de_int64 pos)
 			de_dbg(c, "bfprop: %d (none)", (int)bfprop);
 		}
 		else {
-			de_int64 fprop_dlen = 0;
-
 			pinfo->bfprop_offset = fod_array_startpos + bfprop;
 
 			de_dbg(c, "bfprop: %d (+ %d = %d)", (int)bfprop,
 				(int)fod_array_startpos, (int)pinfo->bfprop_offset);
 
 			de_dbg_indent(c, 1);
-			// bfprop is a pointer into the 123 bytes of data starting
-			// at pos+4. The maximum sensible value is at most 122.
-			if(bfprop<=122) {
-				// It appears that the length prefix does not include itself,
-				// contrary to what one source says.
-				fprop_dlen = (de_int64)de_getbyte(pinfo->bfprop_offset);
-				de_dbg(c, "fprop dlen: %d", (int)fprop_dlen);
-			}
-			if(fprop_dlen>=17) {
-				pinfo->papflags = de_getbyte(pinfo->bfprop_offset + 1 + 16);
-				de_dbg(c, "paragraph flags: 0x%02x", (unsigned int)pinfo->papflags);
+			if(bfprop<128) {
+				if(fprop_seen[bfprop]) {
+					// An FPROP can be referenced multiple times. Only decode it once.
+					de_dbg(c, "[already decoded FPROP at %d on this paragraph info page]", (int)bfprop);
+				}
+				else {
+					fprop_seen[bfprop] = 1;
+					do_para_fprop(c, d, pinfo, bfprop);
+				}
 			}
 			de_dbg_indent(c, -1);
 		}
