@@ -12,6 +12,7 @@ struct para_info {
 	de_int64 thisparapos, thisparalen;
 	de_int64 bfprop_offset; // file-level offset
 	de_byte papflags;
+	de_byte justification;
 
 	int in_para;
 	int xpos;
@@ -422,7 +423,13 @@ done:
 static void ensure_in_para(deark *c, lctx *d, struct para_info *pinfo, dbuf *f)
 {
 	if(pinfo->in_para) return;
-	dbuf_puts(f, "<p>");
+	dbuf_puts(f, "<p");
+	switch(pinfo->justification) {
+	case 1: dbuf_puts(f, " style=\"text-align:center\""); break;
+	case 2: dbuf_puts(f, " style=\"text-align:right\""); break;
+	case 3: dbuf_puts(f, " style=\"text-align:justify\""); break;
+	}
+	dbuf_puts(f, ">");
 	pinfo->xpos += 3;
 	pinfo->in_para = 1;
 }
@@ -571,7 +578,7 @@ static void do_paragraph(deark *c, lctx *d, struct para_info *pinfo)
 }
 
 static void do_para_fprop(deark *c, lctx *d, struct para_info *pinfo,
-	de_int64 bfprop)
+	de_int64 bfprop, de_byte is_dup)
 {
 	de_int64 fprop_dlen = 0;
 
@@ -581,20 +588,30 @@ static void do_para_fprop(deark *c, lctx *d, struct para_info *pinfo,
 		// It appears that the length prefix does not include itself,
 		// contrary to what one source says.
 		fprop_dlen = (de_int64)de_getbyte(pinfo->bfprop_offset);
-		de_dbg(c, "fprop dlen: %d", (int)fprop_dlen);
+		if(!is_dup) de_dbg(c, "fprop dlen: %d", (int)fprop_dlen);
 	}
-	if(fprop_dlen>=17) {
-		de_ucstring *flagstr = ucstring_create(c);
-		pinfo->papflags = de_getbyte(pinfo->bfprop_offset + 1 + 16);
-		if(pinfo->papflags&0x06) {
-			ucstring_append_flags_item(flagstr, (pinfo->papflags&0x01)?"footer":"header");
-			ucstring_append_flags_item(flagstr, (pinfo->papflags&0x08)?"print on first page":
-				"do not print on first page");
+
+	if(fprop_dlen>=2) {
+		pinfo->justification = de_getbyte(pinfo->bfprop_offset + 1 + 1) & 0x03;
+		if(!is_dup && pinfo->justification!=0) {
+			de_dbg(c, "justification: %d", (int)pinfo->justification);
 		}
-		if(pinfo->papflags&0x10) ucstring_append_flags_item(flagstr, "picture");
-		de_dbg(c, "paragraph flags: 0x%02x (%s)", (unsigned int)pinfo->papflags,
-			ucstring_getpsz(flagstr));
-		ucstring_destroy(flagstr);
+	}
+
+	if(fprop_dlen>=17) {
+		pinfo->papflags = de_getbyte(pinfo->bfprop_offset + 1 + 16);
+		if(!is_dup) {
+			de_ucstring *flagstr = ucstring_create(c);
+			if(pinfo->papflags&0x06) {
+				ucstring_append_flags_item(flagstr, (pinfo->papflags&0x01)?"footer":"header");
+				ucstring_append_flags_item(flagstr, (pinfo->papflags&0x08)?"print on first page":
+					"do not print on first page");
+			}
+			if(pinfo->papflags&0x10) ucstring_append_flags_item(flagstr, "picture");
+			de_dbg(c, "paragraph flags: 0x%02x (%s)", (unsigned int)pinfo->papflags,
+				ucstring_getpsz(flagstr));
+			ucstring_destroy(flagstr);
+		}
 	}
 }
 
@@ -658,13 +675,12 @@ static void do_para_info_page(deark *c, lctx *d, de_int64 pos)
 			de_dbg_indent(c, 1);
 			if(bfprop<128) {
 				if(fprop_seen[bfprop]) {
-					// An FPROP can be referenced multiple times. Only decode it once.
+					// An FPROP can be referenced multiple times. Only print the
+					// debug info for it once.
 					de_dbg(c, "[already decoded FPROP at %d on this paragraph info page]", (int)bfprop);
 				}
-				else {
-					fprop_seen[bfprop] = 1;
-					do_para_fprop(c, d, pinfo, bfprop);
-				}
+				do_para_fprop(c, d, pinfo, bfprop, fprop_seen[bfprop]);
+				fprop_seen[bfprop] = 1;
 			}
 			de_dbg_indent(c, -1);
 		}
