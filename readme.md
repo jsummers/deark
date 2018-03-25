@@ -160,8 +160,8 @@ Command-line options:
    Allow the use of color and similar features in the debug output. This is
    done using ANSI escape sequences, or Windows console commands.
    This feature is experimental. Currently, it is limited to highlighting
-   unprintable characters, and previewing most color palettes. The latter does
-   not work on a Windows console.
+   unprintable characters, and previewing most color palettes (usually
+   requires -d2). The latter does not work on a Windows console.
 -enc &lt;ascii|oem>
    Set the encoding of the messages that are printed to the console. This does
    not affect the extracted data files.
@@ -169,10 +169,21 @@ Command-line options:
    ascii: Use ASCII characters only.
    oem: [Windows only; has no effect on other platforms] Use the "OEM"
      character set. This may be useful when paging the output with "|more".
+-inenc &lt;ascii|utf8|latin1|cp437|windows1252|macroman>
+   Supply a hint as to the encoding of the text contained in the input file.
+   This option is incompletely implemented, and will be ignored if the encoding
+   can be reliably determined by other means. Admittedly, Deark does not yet
+   know enough encodings for this option to be really useful.
 -msgstostderr
    Print all messages to stderr, instead of stdout. This option should be
    placed early on the command line, as it might not affect messages
    related to options that appear before it.
+-modcodes &lt;codes>
+   Run the module in a non-default "mode".
+   The existence of this option (though not its details) is documented in the
+   interest of transparency, but it is mainly for developers, and to make it
+   possible to do things whose usefulness was not anticipated. For example, it
+   is currently possible to decode raw ID3 data by using "-m mp3 -modcodes I".
 </pre>
  
 ## Terms of use ##
