@@ -12,16 +12,29 @@ typedef struct localctx_struct {
 #define DE_CRDFMT_MGC 1
 #define DE_CRDFMT_RRG 2
 	int fmt;
+	int input_encoding;
 	de_int64 numcards;
 } lctx;
 
-static void do_text_data(deark *c, lctx *d, de_finfo *fi, de_int64 text_pos, de_int64 text_len)
+static void do_extract_text_data(deark *c, lctx *d, de_finfo *fi, de_int64 text_pos, de_int64 text_len)
 {
-	if(c->extract_level<2) return;
 	if(text_len<1) return;
 	if(text_pos + text_len > c->infile->len) return;
 
+	// TODO: Consider trying to convert to UTF-8, especially if the user used the
+	// "inenc" option.
 	dbuf_create_file_from_slice(c->infile, text_pos, text_len, "txt", fi, 0);
+}
+
+static void do_dbg_text_data(deark *c, lctx *d, de_int64 text_pos, de_int64 text_len)
+{
+	de_ucstring *s = NULL;
+
+	s = ucstring_create(c);
+	dbuf_read_to_ucstring_n(c->infile, text_pos, text_len, DE_DBG_MAX_STRLEN, s,
+		0, c->input_encoding);
+	de_dbg(c, "text: \"%s\"", ucstring_getpsz_d(s));
+	ucstring_destroy(s);
 }
 
 static void do_card_index(deark *c, lctx *d, de_int64 cardnum, de_int64 pos)
@@ -54,8 +67,8 @@ static void do_card_index(deark *c, lctx *d, de_int64 cardnum, de_int64 pos)
 		text_pos = datapos+4;
 	}
 	else {
-		text_len = de_getui16le(datapos + bitmap_len + 10);
-		text_pos = datapos + bitmap_len + 10;
+		text_len = de_getui16le(datapos + 10 + bitmap_len);
+		text_pos = datapos + 10 + bitmap_len +2;
 	}
 	de_dbg(c, "text length: %d", (int)text_len);
 
@@ -78,17 +91,23 @@ static void do_card_index(deark *c, lctx *d, de_int64 cardnum, de_int64 pos)
 	}
 
 	name = ucstring_create(c);
-	dbuf_read_to_ucstring(c->infile, pos+11, 40, name, DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_ASCII);
+	dbuf_read_to_ucstring(c->infile, pos+11, 40, name, DE_CONVFLAG_STOP_AT_NUL,
+		d->input_encoding);
 	de_dbg(c, "name: \"%s\"", ucstring_getpsz(name));
 
 	// Text
 
-	if(text_len!=0 && c->extract_level>=2) {
-		fi_text = de_finfo_create(c);
-		if(c->filenames_from_file)
-			de_finfo_set_name_from_ucstring(c, fi_text, name);
+	if(text_len!=0) {
+		if(c->extract_level>=2) {
+			fi_text = de_finfo_create(c);
+			if(c->filenames_from_file)
+				de_finfo_set_name_from_ucstring(c, fi_text, name);
 
-		do_text_data(c, d, fi_text, text_pos, text_len);
+			do_extract_text_data(c, d, fi_text, text_pos, text_len);
+		}
+		else {
+			do_dbg_text_data(c, d, text_pos, text_len);
+		}
 	}
 
 	// Bitmap
@@ -125,6 +144,14 @@ static void de_run_cardfile(deark *c, de_module_params *mparams)
 	de_int64 n;
 
 	d = de_malloc(c, sizeof(lctx));
+
+	// Microsoft's (old) Cardfile format documentation says that text is in "low
+	// ASCII format", but that seems doubtful on the face of it, and indeed I have
+	// seen files where it is not.
+	if(c->input_encoding==DE_ENCODING_UNKNOWN)
+		d->input_encoding = DE_ENCODING_WINDOWS1252;
+	else
+		d->input_encoding = c->input_encoding;
 
 	pos = 0;
 	b = de_getbyte(pos);
