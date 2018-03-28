@@ -192,6 +192,8 @@ static int do_gem_img(deark *c, lctx *d)
 		}
 	}
 
+	de_dbg(c, "image at %d", (int)d->header_size_in_bytes);
+
 	unc_pixels = dbuf_create_membuf(c, d->rowspan_total*d->h, 0);
 
 	uncompress_pixels(c, d, unc_pixels, d->header_size_in_bytes, c->infile->len-d->header_size_in_bytes);
@@ -283,6 +285,12 @@ static int do_gem_ximg(deark *c, lctx *d)
 	dbuf *unc_pixels = NULL;
 	de_bitmap *img = NULL;
 	int retval = 0;
+	int saved_indent_level;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+
+	de_dbg(c, "header (continued) at %d", 8*2);
+	de_dbg_indent(c, 1);
 
 	if((d->nplanes>=1 && d->nplanes<=8) /* || d->nplanes==24 */) {
 		;
@@ -296,8 +304,12 @@ static int do_gem_ximg(deark *c, lctx *d)
 	}
 
 	if(d->header_size_in_words==25 && !d->is_ximg) {
-		de_fmtutil_read_atari_palette(c, c->infile, d->header_size_in_bytes-32,
+		de_int64 pal_pos = d->header_size_in_bytes-32;
+		de_dbg(c, "palette at %d", (int)pal_pos);
+		de_dbg_indent(c, 1);
+		de_fmtutil_read_atari_palette(c, c->infile, pal_pos,
 			d->pal, 16, ((de_int64)1)<<d->nplanes, 0);
+		de_dbg_indent(c, -1);
 	}
 	else {
 		read_palette_ximg(c, d);
@@ -309,8 +321,11 @@ static int do_gem_ximg(deark *c, lctx *d)
 		d->pal[1] = DE_STOCKCOLOR_BLACK;
 	}
 
-	unc_pixels = dbuf_create_membuf(c, d->rowspan_total*d->h, 0);
+	de_dbg_indent(c, -1);
 
+	de_dbg(c, "image at %d", (int)d->header_size_in_bytes);
+
+	unc_pixels = dbuf_create_membuf(c, d->rowspan_total*d->h, 0);
 	uncompress_pixels(c, d, unc_pixels, d->header_size_in_bytes, c->infile->len-d->header_size_in_bytes);
 
 	img = de_bitmap_create(c, d->w, d->h, 3);
@@ -330,6 +345,7 @@ static int do_gem_ximg(deark *c, lctx *d)
 	retval = 1;
 
 done:
+	de_dbg_indent_restore(c, saved_indent_level);
 	return retval;
 }
 
@@ -339,8 +355,13 @@ static void de_run_gemraster(deark *c, de_module_params *mparams)
 	de_int64 ext_word0 = 0;
 	lctx *d = NULL;
 	int need_format_warning = 0;
+	int saved_indent_level;
 
+	de_dbg_indent_save(c, &saved_indent_level);
 	d = de_malloc(c, sizeof(lctx));
+
+	de_dbg(c, "header (base part) at %d", 0);
+	de_dbg_indent(c, 1);
 	ver = de_getui16be(0);
 	de_dbg(c, "version: %d", (int)ver);
 	d->header_size_in_words = de_getui16be(2);
@@ -362,6 +383,7 @@ static void de_run_gemraster(deark *c, de_module_params *mparams)
 	d->w = de_getui16be(12);
 	d->h = de_getui16be(14);
 	de_dbg_dimensions(c, d->w, d->h);
+	de_dbg_indent(c, -1);
 
 	if(d->header_size_in_words>=9) {
 		// This may help to detect the image format.
@@ -374,10 +396,10 @@ static void de_run_gemraster(deark *c, de_module_params *mparams)
 	}
 
 	if(d->is_ximg) {
-		;
+		de_declare_fmt(c, "GEM VDI Bit Image, XIMG extension");
 	}
 	else if(d->header_size_in_words==25 && d->patlen==2 && ext_word0==0x0080) {
-		;
+		de_declare_fmt(c, "GEM VDI Bit Image, Hyperpaint extension");
 	}
 	else if(d->header_size_in_words==8 && d->nplanes==1) {
 		;
@@ -389,6 +411,9 @@ static void de_run_gemraster(deark *c, de_module_params *mparams)
 		need_format_warning = 1;
 	}
 	else {
+		if(d->header_size_in_words==27 && ext_word0==0x5354) {
+			de_declare_fmt(c, "GEM VDI Bit Image, STTT extension");
+		}
 		de_err(c, "This version of GEM Raster is not supported.");
 		goto done;
 	}
@@ -403,12 +428,8 @@ static void de_run_gemraster(deark *c, de_module_params *mparams)
 	d->rowspan_per_plane = (d->w+7)/8;
 	d->rowspan_total = d->rowspan_per_plane * d->nplanes;
 
-	if(d->is_ximg) {
-		de_declare_fmt(c, "GEM VDI Bit Image, XIMG extension");
-	}
-	else {
-		de_declare_fmt(c, "GEM VDI Bit Image");
-	}
+	// If we haven't declared the format yet, do so.
+	de_declare_fmt(c, "GEM VDI Bit Image");
 
 	if(d->is_ximg) {
 		do_gem_ximg(c, d);
@@ -421,6 +442,7 @@ static void de_run_gemraster(deark *c, de_module_params *mparams)
 	}
 
 done:
+	de_dbg_indent_restore(c, saved_indent_level);
 	de_free(c, d);
 }
 
