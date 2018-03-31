@@ -1,8 +1,9 @@
 // This file is part of Deark.
-// Copyright (C) 2016 Jason Summers
+// Copyright (C) 2016-2018 Jason Summers
 // See the file COPYING for terms of use.
 
-// Extract various things from JPEG 2000, MP4, and similar files
+// ISO Base Media File Format, and related formats
+// (JPEG 2000, MP4, QuickTime, etc.)
 
 #include <deark-config.h>
 #include <deark-private.h>
@@ -16,6 +17,18 @@ typedef struct localctx_struct {
 	de_uint32 major_brand;
 	de_byte is_jpx;
 } lctx;
+
+typedef void (*handler_fn_type)(deark *c, lctx *d, struct de_boxesctx *bctx);
+
+struct box_type_info {
+	de_uint32 boxtype;
+	// flags1 is intended to be used to indicate which formats/brands use this box.
+	de_uint32 flags1;
+	// flags2: 0x1=is_superbox
+	de_uint32 flags2;
+	const char *name;
+	handler_fn_type hfn;
+};
 
 #define BRAND_jpx  0x6a707820U
 
@@ -332,43 +345,82 @@ static void do_box_stsd(deark *c, lctx *d, struct de_boxesctx *bctx)
 	}
 }
 
+static const struct box_type_info box_type_info_arr[] = {
+	{BOX_ftyp, 0x0000ffff, 0x00000000, NULL, do_box_ftyp},
+	{BOX_stsd, 0x0000ffff, 0x00000000, NULL, do_box_stsd},
+	{BOX_mdhd, 0x0000ffff, 0x00000000, NULL, do_box_mdhd},
+	{BOX_mvhd, 0x0000ffff, 0x00000000, NULL, do_box_mvhd},
+	{BOX_tkhd, 0x0000ffff, 0x00000000, NULL, do_box_tkhd},
+	{BOX_cinf, 0x0000ffff, 0x00000001, NULL, NULL},
+	{BOX_clip, 0x0000ffff, 0x00000001, NULL, NULL},
+	{BOX_dinf, 0x0000ffff, 0x00000001, NULL, NULL},
+	{BOX_edts, 0x0000ffff, 0x00000001, NULL, NULL},
+	{BOX_fdsa, 0x0000ffff, 0x00000001, NULL, NULL},
+	{BOX_fiin, 0x0000ffff, 0x00000001, NULL, NULL},
+	{BOX_hinf, 0x0000ffff, 0x00000001, NULL, NULL},
+	{BOX_hnti, 0x0000ffff, 0x00000001, NULL, NULL},
+	{BOX_matt, 0x0000ffff, 0x00000001, NULL, NULL},
+	{BOX_mdia, 0x0000ffff, 0x00000001, NULL, NULL},
+	{BOX_meco, 0x0000ffff, 0x00000001, NULL, NULL},
+	{BOX_meta, 0x0000ffff, 0x00000001, NULL, NULL},
+	{BOX_minf, 0x0000ffff, 0x00000001, NULL, NULL},
+	{BOX_mfra, 0x0000ffff, 0x00000001, NULL, NULL},
+	{BOX_moof, 0x0000ffff, 0x00000001, NULL, NULL},
+	{BOX_moov, 0x0000ffff, 0x00000001, NULL, NULL},
+	{BOX_mvex, 0x0000ffff, 0x00000001, NULL, NULL},
+	{BOX_paen, 0x0000ffff, 0x00000001, NULL, NULL},
+	{BOX_rinf, 0x0000ffff, 0x00000001, NULL, NULL},
+	{BOX_schi, 0x0000ffff, 0x00000001, NULL, NULL},
+	{BOX_sinf, 0x0000ffff, 0x00000001, NULL, NULL},
+	{BOX_stbl, 0x0000ffff, 0x00000001, NULL, NULL},
+	{BOX_strd, 0x0000ffff, 0x00000001, NULL, NULL},
+	{BOX_strk, 0x0000ffff, 0x00000001, NULL, NULL},
+	{BOX_traf, 0x0000ffff, 0x00000001, NULL, NULL},
+	{BOX_trak, 0x0000ffff, 0x00000001, NULL, NULL},
+	{BOX_tref, 0x0000ffff, 0x00000001, NULL, NULL},
+	{BOX_udta, 0x0000ffff, 0x00000001, NULL, NULL},
+	{BOX_jp2h, 0x00000000, 0x00000001, NULL, NULL},
+	{BOX_res , 0x00000000, 0x00000001, NULL, NULL},
+	{BOX_uinf, 0x00000000, 0x00000001, NULL, NULL},
+	{BOX_jpch, 0x00000000, 0x00000001, NULL, NULL},
+	{BOX_jplh, 0x00000000, 0x00000001, NULL, NULL},
+	{BOX_cgrp, 0x00000000, 0x00000001, NULL, NULL},
+	{BOX_ftbl, 0x00000000, 0x00000001, NULL, NULL},
+	{BOX_comp, 0x00000000, 0x00000001, NULL, NULL},
+	{BOX_asoc, 0x00000000, 0x00000001, NULL, NULL},
+	{BOX_page, 0x00000000, 0x00000001, NULL, NULL},
+	{BOX_lobj, 0x00000000, 0x00000001, NULL, NULL},
+	{BOX_objc, 0x00000000, 0x00000001, NULL, NULL},
+	{BOX_sdat, 0x00000000, 0x00000001, NULL, NULL}
+};
+
+static const struct box_type_info *find_box_type_info(deark *c, lctx *d, de_uint32 boxtype)
+{
+	size_t k;
+
+	for(k=0; k<DE_ITEMS_IN_ARRAY(box_type_info_arr); k++) {
+		if(box_type_info_arr[k].boxtype == boxtype) {
+			return &box_type_info_arr[k];
+		}
+	}
+	return NULL;
+}
+
 static int my_box_handler(deark *c, struct de_boxesctx *bctx)
 {
-	static const de_uint32 superboxes[] = {
-		BOX_jp2h, BOX_res , BOX_uinf, BOX_jpch, BOX_jplh, BOX_cgrp,
-		BOX_ftbl, BOX_comp, BOX_asoc, BOX_page, BOX_lobj,
-		BOX_objc, BOX_sdat,
-		BOX_cinf, BOX_clip, BOX_dinf, BOX_edts, BOX_fdsa, BOX_fiin,
-		BOX_hinf, BOX_hnti, BOX_matt, BOX_mdia, BOX_meco, BOX_meta,
-		BOX_minf, BOX_mfra, BOX_moof, BOX_moov, BOX_mvex, BOX_paen,
-		BOX_rinf, BOX_schi, BOX_sinf, BOX_stbl, BOX_strd, BOX_strk,
-		BOX_traf, BOX_trak, BOX_tref, BOX_udta,
-		0 };
-	int i;
+	const struct box_type_info *bti;
 	lctx *d = (lctx*)bctx->userdata;
 
 	if(bctx->is_uuid) {
 		return de_fmtutil_default_box_handler(c, bctx);
 	}
+
+	bti = find_box_type_info(c, d, bctx->boxtype);
+
 	switch(bctx->boxtype) {
-	case BOX_ftyp:
-		do_box_ftyp(c, d, bctx);
-		break;
 	case BOX_jp2c: // Contiguous Codestream box
 		de_dbg(c, "JPEG 2000 codestream at %d, len=%d", (int)bctx->payload_pos, (int)bctx->payload_len);
 		dbuf_create_file_from_slice(bctx->f, bctx->payload_pos, bctx->payload_len, "j2c", NULL, 0);
-		break;
-	case BOX_mdhd:
-		do_box_mdhd(c, d, bctx);
-		break;
-	case BOX_mvhd:
-		do_box_mvhd(c, d, bctx);
-		break;
-	case BOX_stsd:
-		do_box_stsd(c, d, bctx);
-		break;
-	case BOX_tkhd:
-		do_box_tkhd(c, d, bctx);
 		break;
 	case BOX_xml:
 		// TODO: Detect the specific XML format, and use it to choose a better
@@ -379,11 +431,8 @@ static int my_box_handler(deark *c, struct de_boxesctx *bctx)
 	default:
 		// Check if this box type is known to contain other boxes that we might
 		// want to recurse into.
-		for(i=0; superboxes[i]; i++) {
-			if(bctx->boxtype == superboxes[i]) {
-				bctx->is_superbox = 1;
-				break;
-			}
+		if(bti && (bti->flags2 & 0x1)) {
+			bctx->is_superbox = 1;
 		}
 
 		if(d->is_jpx) {
@@ -400,6 +449,9 @@ static int my_box_handler(deark *c, struct de_boxesctx *bctx)
 			bctx->has_version_and_flags = 1;
 		}
 
+		if(bti && bti->hfn) {
+			bti->hfn(c, d, bctx);
+		}
 	}
 
 	return 1;
