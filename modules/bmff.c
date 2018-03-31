@@ -49,6 +49,7 @@ struct box_type_info {
 #define BOX_ftyp 0x66747970U
 #define BOX_jP   0x6a502020U
 #define BOX_jp2c 0x6a703263U
+#define BOX_mdat 0x6d646174U
 #define BOX_mdhd 0x6d646864U
 #define BOX_mvhd 0x6d766864U
 #define BOX_stsd 0x73747364U
@@ -78,11 +79,15 @@ struct box_type_info {
 #define BOX_cinf 0x63696e66U
 #define BOX_clip 0x636c6970U
 #define BOX_dinf 0x64696e66U
+#define BOX_dref 0x64726566U
 #define BOX_edts 0x65647473U
 //#define BOX_extr 0x65787472U // Irregular format?
 #define BOX_fdsa 0x66647361U
 #define BOX_fiin 0x6669696eU
+#define BOX_free 0x66726565U
+#define BOX_hdlr 0x68646c72U
 #define BOX_hinf 0x68696e66U
+#define BOX_hmhd 0x686d6864U
 #define BOX_hnti 0x686e7469U
 #define BOX_matt 0x6d617474U
 #define BOX_mdia 0x6d646961U
@@ -93,17 +98,26 @@ struct box_type_info {
 #define BOX_moof 0x6d6f6f66U
 #define BOX_moov 0x6d6f6f76U
 #define BOX_mvex 0x6d766578U
+#define BOX_nmhd 0x6e6d6864U
 #define BOX_paen 0x7061656eU
 #define BOX_rinf 0x72696e66U
 #define BOX_schi 0x73636869U
 #define BOX_sinf 0x73696e66U
+#define BOX_smhd 0x736d6864U
 #define BOX_stbl 0x7374626cU
+#define BOX_stco 0x7374636fU
 #define BOX_strd 0x73747264U
 #define BOX_strk 0x7374726bU
+#define BOX_stsc 0x73747363U
+#define BOX_stss 0x73747373U
+#define BOX_stsz 0x7374737aU
+#define BOX_stts 0x73747473U
+#define BOX_stz2 0x73747a32U
 #define BOX_traf 0x74726166U
 #define BOX_trak 0x7472616bU
 #define BOX_tref 0x74726566U
 #define BOX_udta 0x75647461U
+#define BOX_vmhd 0x766d6864U
 
 // Called for each primary or compatible brand.
 // Brand-specific setup can be done here.
@@ -115,13 +129,16 @@ static void apply_brand(deark *c, lctx *d, de_uint32 brand_id)
 	case BRAND_jpm:
 		d->is_jp2_jpx_jpm = 1;
 		break;
+	case BRAND_mjp2:
+	case BRAND_mj2s:
+		d->is_bmff = 1;
+		d->is_mj2 = 1;
+		break;
 	case BRAND_isom:
 	case BRAND_mp41:
 	case BRAND_mp42:
 	case BRAND_M4A:
 	case BRAND_qt:
-	case BRAND_mjp2:
-	case BRAND_mj2s:
 		d->is_bmff = 1;
 		break;
 	}
@@ -408,41 +425,58 @@ static void do_box_xml(deark *c, lctx *d, struct de_boxesctx *bctx)
 	dbuf_create_file_from_slice(bctx->f, bctx->payload_pos, bctx->payload_len, "xml", NULL, DE_CREATEFLAG_IS_AUX);
 }
 
+// The first line that matches will be used, so items related to more-specific
+// formats/brands should be listed first.
 static const struct box_type_info box_type_info_arr[] = {
 	{BOX_ftyp, 0x0001ffff, 0x00000002, "file type", do_box_ftyp},
 	{BOX_jP  , 0x00010000, 0x00000002, NULL, do_box_jP},
+	{BOX_mdat, 0x00000008, 0x00000001, "media data", NULL},
+	{BOX_mdat, 0x00000001, 0x00000000, "media data", NULL},
 	{BOX_stsd, 0x0000ffff, 0x00000000, "sample description", do_box_stsd},
 	{BOX_mdhd, 0x0000ffff, 0x00000000, "media header", do_box_mdhd},
 	{BOX_mvhd, 0x0000ffff, 0x00000000, "movie header", do_box_mvhd},
 	{BOX_tkhd, 0x0000ffff, 0x00000000, "track header", do_box_tkhd},
 	{BOX_cinf, 0x0000ffff, 0x00000001, NULL, NULL},
 	{BOX_clip, 0x0000ffff, 0x00000001, NULL, NULL},
-	{BOX_dinf, 0x0000ffff, 0x00000001, NULL, NULL},
+	{BOX_dinf, 0x00000001, 0x00000001, "data information", NULL},
+	{BOX_dref, 0x00000001, 0x00000000, "data reference", NULL},
 	{BOX_edts, 0x0000ffff, 0x00000001, NULL, NULL},
 	{BOX_fdsa, 0x0000ffff, 0x00000001, NULL, NULL},
 	{BOX_fiin, 0x0000ffff, 0x00000001, NULL, NULL},
+	{BOX_free, 0x00000001, 0x00000000, "free space", NULL},
+	{BOX_hdlr, 0x00000001, 0x00000000, "handler reference", NULL},
 	{BOX_hinf, 0x0000ffff, 0x00000001, NULL, NULL},
+	{BOX_hmhd, 0x00000001, 0x00000000, "hint media header", NULL},
 	{BOX_hnti, 0x0000ffff, 0x00000001, NULL, NULL},
 	{BOX_matt, 0x0000ffff, 0x00000001, NULL, NULL},
 	{BOX_mdia, 0x0000ffff, 0x00000001, "media", NULL},
 	{BOX_meco, 0x0000ffff, 0x00000001, NULL, NULL},
-	{BOX_meta, 0x0000ffff, 0x00000001, NULL, do_box_meta},
-	{BOX_minf, 0x0000ffff, 0x00000001, NULL, NULL},
+	{BOX_meta, 0x00000001, 0x00000001, "metadata", do_box_meta},
+	{BOX_minf, 0x00000001, 0x00000001, "media information", NULL},
 	{BOX_mfra, 0x0000ffff, 0x00000001, NULL, NULL},
 	{BOX_moof, 0x0000ffff, 0x00000001, NULL, NULL},
 	{BOX_moov, 0x0000ffff, 0x00000001, "movie", NULL},
 	{BOX_mvex, 0x0000ffff, 0x00000001, NULL, NULL},
+	{BOX_nmhd, 0x00000001, 0x00000000, "null media header", NULL},
 	{BOX_paen, 0x0000ffff, 0x00000001, NULL, NULL},
 	{BOX_rinf, 0x0000ffff, 0x00000001, NULL, NULL},
 	{BOX_schi, 0x0000ffff, 0x00000001, NULL, NULL},
 	{BOX_sinf, 0x0000ffff, 0x00000001, NULL, NULL},
-	{BOX_stbl, 0x0000ffff, 0x00000001, NULL, NULL},
+	{BOX_smhd, 0x00000001, 0x00000000, "sound media header", NULL},
+	{BOX_stbl, 0x00000001, 0x00000001, "sample table", NULL},
+	{BOX_stco, 0x00000001, 0x00000000, "chunk offset", NULL},
 	{BOX_strd, 0x0000ffff, 0x00000001, NULL, NULL},
 	{BOX_strk, 0x0000ffff, 0x00000001, NULL, NULL},
+	{BOX_stsc, 0x00000001, 0x00000000, "sample to chunk", NULL},
+	{BOX_stsz, 0x00000001, 0x00000000, "sample sizes", NULL},
+	{BOX_stss, 0x00000001, 0x00000000, "sync sample", NULL},
+	{BOX_stts, 0x00000001, 0x00000000, "decoding time to sample", NULL},
+	{BOX_stz2, 0x00000001, 0x00000000, "compact sample size", NULL},
 	{BOX_traf, 0x0000ffff, 0x00000001, NULL, NULL},
-	{BOX_trak, 0x0000ffff, 0x00000001, "trak", NULL},
-	{BOX_tref, 0x0000ffff, 0x00000001, NULL, NULL},
+	{BOX_trak, 0x00000001, 0x00000001, "track", NULL},
+	{BOX_tref, 0x00000001, 0x00000001, "track reference", NULL},
 	{BOX_udta, 0x0000ffff, 0x00000001, "user data", NULL},
+	{BOX_vmhd, 0x00000001, 0x00000000, "video media header", NULL},
 	{BOX_asoc, 0x00010000, 0x00000001, NULL, NULL},
 	{BOX_cgrp, 0x00010000, 0x00000001, NULL, NULL},
 	{BOX_colr, 0x00010000, 0x00000000, "colour specification", NULL},
@@ -471,7 +505,7 @@ static const struct box_type_info *find_box_type_info(deark *c, lctx *d,
 
 	if(d->is_bmff) mask |= 0x00000001;
 	if(d->is_jp2_jpx_jpm) mask |= 0x00010000;
-	if(d->is_mj2) mask |= 0x000000080;
+	if(d->is_mj2) mask |= 0x000000008;
 
 	for(k=0; k<DE_ITEMS_IN_ARRAY(box_type_info_arr); k++) {
 		if(box_type_info_arr[k].boxtype != boxtype) continue;
@@ -490,6 +524,7 @@ static void my_box_id_fn(deark *c, struct de_boxesctx *bctx)
 	const struct box_type_info *bti;
 	lctx *d = (lctx*)bctx->userdata;
 
+	bctx->box_name = "?";
 	bti = find_box_type_info(c, d, bctx->boxtype, bctx->level);
 	if(bti) {
 		// So that we don't have to run "find" again in my_box_handler(),
