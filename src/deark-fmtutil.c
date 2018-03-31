@@ -723,6 +723,8 @@ static int do_box(deark *c, struct de_boxesctx *bctx, de_int64 pos, de_int64 len
 	}
 
 	bctx->is_uuid = 0;
+	bctx->box_userdata = NULL;
+	bctx->box_name = NULL;
 	size32 = dbuf_getui32be(bctx->f, pos);
 	dbuf_read_fourcc(bctx->f, pos+4, &box4cc, 0);
 	bctx->boxtype = box4cc.id;
@@ -757,27 +759,6 @@ static int do_box(deark *c, struct de_boxesctx *bctx, de_int64 pos, de_int64 len
 		dbuf_read(bctx->f, bctx->uuid, pos+header_len, 16);
 	}
 
-	if(c->debug_level>0) {
-		if(bctx->is_uuid) {
-			de_fmtutil_render_uuid(c, bctx->uuid, uuid_string, sizeof(uuid_string));
-			de_dbg(c, "box '%s'{%s} at %d, len=%" INT64_FMT "",
-				box4cc.id_printable, uuid_string,
-				(int)pos, total_len);
-		}
-		else {
-			de_dbg(c, "box '%s' at %d, len=%" INT64_FMT ", dlen=%d", box4cc.id_printable,
-				(int)pos, total_len, (int)payload_len);
-		}
-	}
-
-	if(total_len > len) {
-		de_err(c, "Invalid oversized box, or unexpected end of file "
-			"(box at %d ends at %" INT64_FMT ", "
-			"parent ends at %" INT64_FMT ")",
-			(int)pos, pos+total_len, pos+len);
-		return 0;
-	}
-
 	bctx->level = level;
 	bctx->is_superbox = 0; // Default value. Client can change it.
 	bctx->has_version_and_flags = 0; // Default value. Client can change it.
@@ -788,6 +769,40 @@ static int do_box(deark *c, struct de_boxesctx *bctx, de_int64 pos, de_int64 len
 	if(bctx->is_uuid) {
 		bctx->payload_pos += 16;
 		bctx->payload_len -= 16;
+	}
+
+	if(bctx->identify_box_fn) {
+		bctx->identify_box_fn(c, bctx);
+	}
+
+	if(c->debug_level>0) {
+		char name_str[80];
+
+		if(bctx->box_name) {
+			de_snprintf(name_str, sizeof(name_str), " (%s)", bctx->box_name);
+		}
+		else {
+			name_str[0] = '\0';
+		}
+
+		if(bctx->is_uuid) {
+			de_fmtutil_render_uuid(c, bctx->uuid, uuid_string, sizeof(uuid_string));
+			de_dbg(c, "box '%s'{%s} at %d, len=%" INT64_FMT "",
+				box4cc.id_printable, uuid_string,
+				(int)pos, total_len);
+		}
+		else {
+			de_dbg(c, "box '%s'%s at %d, len=%" INT64_FMT ", dlen=%d", box4cc.id_printable,
+				name_str, (int)pos, total_len, (int)payload_len);
+		}
+	}
+
+	if(total_len > len) {
+		de_err(c, "Invalid oversized box, or unexpected end of file "
+			"(box at %d ends at %" INT64_FMT ", "
+			"parent ends at %" INT64_FMT ")",
+			(int)pos, pos+total_len, pos+len);
+		return 0;
 	}
 
 	de_dbg_indent(c, 1);

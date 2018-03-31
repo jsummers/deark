@@ -333,7 +333,7 @@ static void do_box_stsd(deark *c, lctx *d, struct de_boxesctx *bctx)
 	while(1) {
 		if(pos + 16 >= bctx->payload_pos + bctx->payload_len) break;
 		entry_size = dbuf_getui32be(bctx->f, pos);
-		de_dbg(c, "sample description at %d, len=%d", (int)pos, (int)entry_size);
+		de_dbg(c, "sample description entry at %d, len=%d", (int)pos, (int)entry_size);
 		if(entry_size<16) break;
 
 		de_dbg_indent(c, 1);
@@ -346,11 +346,11 @@ static void do_box_stsd(deark *c, lctx *d, struct de_boxesctx *bctx)
 }
 
 static const struct box_type_info box_type_info_arr[] = {
-	{BOX_ftyp, 0x0000ffff, 0x00000000, NULL, do_box_ftyp},
-	{BOX_stsd, 0x0000ffff, 0x00000000, NULL, do_box_stsd},
-	{BOX_mdhd, 0x0000ffff, 0x00000000, NULL, do_box_mdhd},
-	{BOX_mvhd, 0x0000ffff, 0x00000000, NULL, do_box_mvhd},
-	{BOX_tkhd, 0x0000ffff, 0x00000000, NULL, do_box_tkhd},
+	{BOX_ftyp, 0x0000ffff, 0x00000000, "file type", do_box_ftyp},
+	{BOX_stsd, 0x0000ffff, 0x00000000, "sample description", do_box_stsd},
+	{BOX_mdhd, 0x0000ffff, 0x00000000, "media header", do_box_mdhd},
+	{BOX_mvhd, 0x0000ffff, 0x00000000, "movie header", do_box_mvhd},
+	{BOX_tkhd, 0x0000ffff, 0x00000000, "track header", do_box_tkhd},
 	{BOX_cinf, 0x0000ffff, 0x00000001, NULL, NULL},
 	{BOX_clip, 0x0000ffff, 0x00000001, NULL, NULL},
 	{BOX_dinf, 0x0000ffff, 0x00000001, NULL, NULL},
@@ -360,13 +360,13 @@ static const struct box_type_info box_type_info_arr[] = {
 	{BOX_hinf, 0x0000ffff, 0x00000001, NULL, NULL},
 	{BOX_hnti, 0x0000ffff, 0x00000001, NULL, NULL},
 	{BOX_matt, 0x0000ffff, 0x00000001, NULL, NULL},
-	{BOX_mdia, 0x0000ffff, 0x00000001, NULL, NULL},
+	{BOX_mdia, 0x0000ffff, 0x00000001, "media", NULL},
 	{BOX_meco, 0x0000ffff, 0x00000001, NULL, NULL},
 	{BOX_meta, 0x0000ffff, 0x00000001, NULL, NULL},
 	{BOX_minf, 0x0000ffff, 0x00000001, NULL, NULL},
 	{BOX_mfra, 0x0000ffff, 0x00000001, NULL, NULL},
 	{BOX_moof, 0x0000ffff, 0x00000001, NULL, NULL},
-	{BOX_moov, 0x0000ffff, 0x00000001, NULL, NULL},
+	{BOX_moov, 0x0000ffff, 0x00000001, "movie", NULL},
 	{BOX_mvex, 0x0000ffff, 0x00000001, NULL, NULL},
 	{BOX_paen, 0x0000ffff, 0x00000001, NULL, NULL},
 	{BOX_rinf, 0x0000ffff, 0x00000001, NULL, NULL},
@@ -376,9 +376,9 @@ static const struct box_type_info box_type_info_arr[] = {
 	{BOX_strd, 0x0000ffff, 0x00000001, NULL, NULL},
 	{BOX_strk, 0x0000ffff, 0x00000001, NULL, NULL},
 	{BOX_traf, 0x0000ffff, 0x00000001, NULL, NULL},
-	{BOX_trak, 0x0000ffff, 0x00000001, NULL, NULL},
+	{BOX_trak, 0x0000ffff, 0x00000001, "trak", NULL},
 	{BOX_tref, 0x0000ffff, 0x00000001, NULL, NULL},
-	{BOX_udta, 0x0000ffff, 0x00000001, NULL, NULL},
+	{BOX_udta, 0x0000ffff, 0x00000001, "user data", NULL},
 	{BOX_jp2h, 0x00000000, 0x00000001, NULL, NULL},
 	{BOX_res , 0x00000000, 0x00000001, NULL, NULL},
 	{BOX_uinf, 0x00000000, 0x00000001, NULL, NULL},
@@ -406,6 +406,23 @@ static const struct box_type_info *find_box_type_info(deark *c, lctx *d, de_uint
 	return NULL;
 }
 
+static void my_box_id_fn(deark *c, struct de_boxesctx *bctx)
+{
+	const struct box_type_info *bti;
+	lctx *d = (lctx*)bctx->userdata;
+
+	bti = find_box_type_info(c, d, bctx->boxtype);
+	if(bti) {
+		// So that we don't have to run "find" again in my_box_handler(),
+		// record it here.
+		bctx->box_userdata = (void*)bti;
+
+		if(bti->name) {
+			bctx->box_name = bti->name;
+		}
+	}
+}
+
 static int my_box_handler(deark *c, struct de_boxesctx *bctx)
 {
 	const struct box_type_info *bti;
@@ -415,7 +432,9 @@ static int my_box_handler(deark *c, struct de_boxesctx *bctx)
 		return de_fmtutil_default_box_handler(c, bctx);
 	}
 
-	bti = find_box_type_info(c, d, bctx->boxtype);
+	// TODO: Don't do this twice for every box.
+	//bti = find_box_type_info(c, d, bctx->boxtype);
+	bti = (const struct box_type_info *)bctx->box_userdata;
 
 	switch(bctx->boxtype) {
 	case BOX_jp2c: // Contiguous Codestream box
@@ -467,6 +486,7 @@ static void de_run_bmff(deark *c, de_module_params *mparams)
 
 	bctx->userdata = (void*)d;
 	bctx->f = c->infile;
+	bctx->identify_box_fn = my_box_id_fn;
 	bctx->handle_box_fn = my_box_handler;
 
 	de_fmtutil_read_boxes_format(c, bctx);

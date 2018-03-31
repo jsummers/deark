@@ -82,10 +82,12 @@ struct de_boxesctx;
 
 // Return 0 to stop reading
 typedef int (*de_handle_box_fn)(deark *c, struct de_boxesctx *bctx);
+typedef void (*de_identify_box_fn)(deark *c, struct de_boxesctx *bctx);
 
 struct de_boxesctx {
 	void *userdata;
 	dbuf *f; // Input file
+	de_identify_box_fn identify_box_fn;
 	de_handle_box_fn handle_box_fn;
 
 	// Per-box info supplied to handle_box_fn:
@@ -98,6 +100,10 @@ struct de_boxesctx {
 	// Note: for UUID boxes, payload does not include the UUID
 	de_int64 payload_pos;
 	de_int64 payload_len;
+
+	// To be filled in by identify_box_fn:
+	void *box_userdata;
+	const char *box_name;
 
 	// To be filled in by handle_box_fn:
 	int handled;
