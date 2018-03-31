@@ -24,10 +24,10 @@ obj/modules/binhex.o: modules/binhex.c src/deark-config.h \
  src/deark-private.h src/deark.h
 obj/modules/bintext.o: modules/bintext.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h
+obj/modules/bmff.o: modules/bmff.c src/deark-config.h src/deark-private.h \
+ src/deark.h src/deark-fmtutil.h
 obj/modules/bmp.o: modules/bmp.c src/deark-config.h src/deark-private.h \
  src/deark.h src/deark-fmtutil.h
-obj/modules/boxes.o: modules/boxes.c src/deark-config.h \
- src/deark-private.h src/deark.h src/deark-fmtutil.h
 obj/modules/bpg.o: modules/bpg.c src/deark-config.h src/deark-private.h \
  src/deark.h src/deark-fmtutil.h
 obj/modules/bsave.o: modules/bsave.c src/deark-config.h \

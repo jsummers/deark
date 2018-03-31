@@ -530,11 +530,11 @@
 				>
 			</File>
 			<File
-				RelativePath="..\..\modules\bmp.c"
+				RelativePath="..\..\modules\bmff.c"
 				>
 			</File>
 			<File
-				RelativePath="..\..\modules\boxes.c"
+				RelativePath="..\..\modules\bmp.c"
 				>
 			</File>
 			<File
