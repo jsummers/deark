@@ -11,11 +11,12 @@
 // TODO: Rethink how to subdivide these formats into modules.
 DE_DECLARE_MODULE(de_module_bmff);
 DE_DECLARE_MODULE(de_module_jpeg2000);
-DE_DECLARE_MODULE(de_module_mp4);
 
 typedef struct localctx_struct {
 	de_uint32 major_brand;
-	de_byte is_jpx;
+	de_byte is_bmff;
+	de_byte is_jp2_jpx_jpm;
+	de_byte is_mj2;
 } lctx;
 
 typedef void (*handler_fn_type)(deark *c, lctx *d, struct de_boxesctx *bctx);
@@ -23,16 +24,30 @@ typedef void (*handler_fn_type)(deark *c, lctx *d, struct de_boxesctx *bctx);
 struct box_type_info {
 	de_uint32 boxtype;
 	// flags1 is intended to be used to indicate which formats/brands use this box.
+	// 0x00000001 = Generic BMFF (isom brand, etc.)
+	// 0x00000008 = MJ2
+	// 0x00010000 = JP2/JPX/JPM
 	de_uint32 flags1;
-	// flags2: 0x1=is_superbox
+	// flags2: 0x1 = is_superbox
+	// flags2: 0x2 = critical top-level box (used for format identification)
 	de_uint32 flags2;
 	const char *name;
 	handler_fn_type hfn;
 };
 
+#define BRAND_isom 0x69736f6dU
+#define BRAND_mp41 0x6d703431U
+#define BRAND_mp42 0x6d703432U
+#define BRAND_M4A  0x4d344120U
+#define BRAND_jp2  0x6a703220U
+#define BRAND_jpm  0x6a706d20U
 #define BRAND_jpx  0x6a707820U
+#define BRAND_mjp2 0x6d6a7032U
+#define BRAND_mj2s 0x6d6a3273U
+#define BRAND_qt   0x71742020U
 
 #define BOX_ftyp 0x66747970U
+#define BOX_jP   0x6a502020U
 #define BOX_jp2c 0x6a703263U
 #define BOX_mdhd 0x6d646864U
 #define BOX_mvhd 0x6d766864U
@@ -40,9 +55,10 @@ struct box_type_info {
 #define BOX_tkhd 0x746b6864U
 #define BOX_xml  0x786d6c20U
 
-// Superboxes:
-//  JP2:
+// JP2:
+#define BOX_colr 0x636f6c72U
 #define BOX_jp2h 0x6a703268U
+#define BOX_ihdr 0x69686472U
 #define BOX_res  0x72657320U
 #define BOX_uinf 0x75696e66U
 // JPX:
@@ -93,8 +109,33 @@ struct box_type_info {
 // Brand-specific setup can be done here.
 static void apply_brand(deark *c, lctx *d, de_uint32 brand_id)
 {
-	if(brand_id==BRAND_jpx) {
-		d->is_jpx = 1;
+	switch(brand_id) {
+	case BRAND_jp2:
+	case BRAND_jpx:
+	case BRAND_jpm:
+		d->is_jp2_jpx_jpm = 1;
+		break;
+	case BRAND_isom:
+	case BRAND_mp41:
+	case BRAND_mp42:
+	case BRAND_M4A:
+	case BRAND_qt:
+	case BRAND_mjp2:
+	case BRAND_mj2s:
+		d->is_bmff = 1;
+		break;
+	}
+}
+
+// JPEG 2000 signature box (presumably)
+static void do_box_jP(deark *c, lctx *d, struct de_boxesctx *bctx)
+{
+	de_uint32 n;
+	if(bctx->level!=0) return;
+	if(bctx->payload_len<4) return;
+	n = (de_uint32)dbuf_getui32be(bctx->f, bctx->payload_pos);
+	if(n==0x0d0a870a) {
+		de_dbg(c, "found JPEG 2000 signature");
 	}
 }
 
@@ -108,7 +149,8 @@ static void do_box_ftyp(deark *c, lctx *d, struct de_boxesctx *bctx)
 	dbuf_read_fourcc(bctx->f, bctx->payload_pos, &brand4cc, 0);
 	d->major_brand = brand4cc.id;
 	de_dbg(c, "major brand: '%s'", brand4cc.id_printable);
-	apply_brand(c, d, d->major_brand);
+	if(bctx->level==0)
+		apply_brand(c, d, d->major_brand);
 
 	if(bctx->payload_len>=12)
 		num_compat_brands = (bctx->payload_len - 8)/4;
@@ -119,7 +161,8 @@ static void do_box_ftyp(deark *c, lctx *d, struct de_boxesctx *bctx)
 		dbuf_read_fourcc(bctx->f, bctx->payload_pos + 8 + i*4, &brand4cc, 0);
 		if(brand4cc.id==0) continue; // Placeholder. Ignore.
 		de_dbg(c, "compatible brand: '%s'", brand4cc.id_printable);
-		apply_brand(c, d, brand4cc.id);
+		if(bctx->level==0)
+			apply_brand(c, d, brand4cc.id);
 	}
 }
 
@@ -345,8 +388,29 @@ static void do_box_stsd(deark *c, lctx *d, struct de_boxesctx *bctx)
 	}
 }
 
+static void do_box_meta(deark *c, lctx *d, struct de_boxesctx *bctx)
+{
+	do_read_version_and_flags(c, d, bctx, NULL, NULL, 1);
+	bctx->has_version_and_flags = 1;
+}
+
+static void do_box_jp2c(deark *c, lctx *d, struct de_boxesctx *bctx)
+{
+	de_dbg(c, "JPEG 2000 codestream at %d, len=%d", (int)bctx->payload_pos, (int)bctx->payload_len);
+	dbuf_create_file_from_slice(bctx->f, bctx->payload_pos, bctx->payload_len, "j2c", NULL, 0);
+}
+
+static void do_box_xml(deark *c, lctx *d, struct de_boxesctx *bctx)
+{
+	// TODO: Detect the specific XML format, and use it to choose a better
+	// filename.
+	de_dbg(c, "XML data at %d, len=%d", (int)bctx->payload_pos, (int)bctx->payload_len);
+	dbuf_create_file_from_slice(bctx->f, bctx->payload_pos, bctx->payload_len, "xml", NULL, DE_CREATEFLAG_IS_AUX);
+}
+
 static const struct box_type_info box_type_info_arr[] = {
-	{BOX_ftyp, 0x0000ffff, 0x00000000, "file type", do_box_ftyp},
+	{BOX_ftyp, 0x0001ffff, 0x00000002, "file type", do_box_ftyp},
+	{BOX_jP  , 0x00010000, 0x00000002, NULL, do_box_jP},
 	{BOX_stsd, 0x0000ffff, 0x00000000, "sample description", do_box_stsd},
 	{BOX_mdhd, 0x0000ffff, 0x00000000, "media header", do_box_mdhd},
 	{BOX_mvhd, 0x0000ffff, 0x00000000, "movie header", do_box_mvhd},
@@ -362,7 +426,7 @@ static const struct box_type_info box_type_info_arr[] = {
 	{BOX_matt, 0x0000ffff, 0x00000001, NULL, NULL},
 	{BOX_mdia, 0x0000ffff, 0x00000001, "media", NULL},
 	{BOX_meco, 0x0000ffff, 0x00000001, NULL, NULL},
-	{BOX_meta, 0x0000ffff, 0x00000001, NULL, NULL},
+	{BOX_meta, 0x0000ffff, 0x00000001, NULL, do_box_meta},
 	{BOX_minf, 0x0000ffff, 0x00000001, NULL, NULL},
 	{BOX_mfra, 0x0000ffff, 0x00000001, NULL, NULL},
 	{BOX_moof, 0x0000ffff, 0x00000001, NULL, NULL},
@@ -379,29 +443,44 @@ static const struct box_type_info box_type_info_arr[] = {
 	{BOX_trak, 0x0000ffff, 0x00000001, "trak", NULL},
 	{BOX_tref, 0x0000ffff, 0x00000001, NULL, NULL},
 	{BOX_udta, 0x0000ffff, 0x00000001, "user data", NULL},
-	{BOX_jp2h, 0x00000000, 0x00000001, NULL, NULL},
-	{BOX_res , 0x00000000, 0x00000001, NULL, NULL},
-	{BOX_uinf, 0x00000000, 0x00000001, NULL, NULL},
-	{BOX_jpch, 0x00000000, 0x00000001, NULL, NULL},
-	{BOX_jplh, 0x00000000, 0x00000001, NULL, NULL},
-	{BOX_cgrp, 0x00000000, 0x00000001, NULL, NULL},
-	{BOX_ftbl, 0x00000000, 0x00000001, NULL, NULL},
-	{BOX_comp, 0x00000000, 0x00000001, NULL, NULL},
-	{BOX_asoc, 0x00000000, 0x00000001, NULL, NULL},
-	{BOX_page, 0x00000000, 0x00000001, NULL, NULL},
-	{BOX_lobj, 0x00000000, 0x00000001, NULL, NULL},
-	{BOX_objc, 0x00000000, 0x00000001, NULL, NULL},
-	{BOX_sdat, 0x00000000, 0x00000001, NULL, NULL}
+	{BOX_asoc, 0x00010000, 0x00000001, NULL, NULL},
+	{BOX_cgrp, 0x00010000, 0x00000001, NULL, NULL},
+	{BOX_colr, 0x00010000, 0x00000000, "colour specification", NULL},
+	{BOX_comp, 0x00010000, 0x00000001, NULL, NULL},
+	{BOX_drep, 0x00010000, 0x00000001, NULL, NULL},
+	{BOX_ftbl, 0x00010000, 0x00000001, NULL, NULL},
+	{BOX_ihdr, 0x00010000, 0x00000000, "image header", NULL},
+	{BOX_jp2c, 0x00010008, 0x00000000, "contiguous codestream", do_box_jp2c},
+	{BOX_jp2h, 0x00010000, 0x00000001, "JP2 header", NULL},
+	{BOX_jpch, 0x00010000, 0x00000001, NULL, NULL},
+	{BOX_jplh, 0x00010000, 0x00000001, NULL, NULL},
+	{BOX_lobj, 0x00010000, 0x00000001, NULL, NULL},
+	{BOX_objc, 0x00010000, 0x00000001, NULL, NULL},
+	{BOX_page, 0x00010000, 0x00000001, NULL, NULL},
+	{BOX_res , 0x00010000, 0x00000001, NULL, NULL},
+	{BOX_sdat, 0x00010000, 0x00000001, NULL, NULL},
+	{BOX_uinf, 0x00010000, 0x00000001, NULL, NULL},
+	{BOX_xml , 0x00010008, 0x00000000, "XML", do_box_xml}
 };
 
-static const struct box_type_info *find_box_type_info(deark *c, lctx *d, de_uint32 boxtype)
+static const struct box_type_info *find_box_type_info(deark *c, lctx *d,
+	de_uint32 boxtype, int level)
 {
 	size_t k;
+	de_uint32 mask = 0;
+
+	if(d->is_bmff) mask |= 0x00000001;
+	if(d->is_jp2_jpx_jpm) mask |= 0x00010000;
+	if(d->is_mj2) mask |= 0x000000080;
 
 	for(k=0; k<DE_ITEMS_IN_ARRAY(box_type_info_arr); k++) {
-		if(box_type_info_arr[k].boxtype == boxtype) {
+		if(box_type_info_arr[k].boxtype != boxtype) continue;
+		if(level==0 && (box_type_info_arr[k].flags2 & 0x2)) {
+			// Critical box. Always match.
 			return &box_type_info_arr[k];
 		}
+		if((box_type_info_arr[k].flags1 & mask)==0) continue;
+		return &box_type_info_arr[k];
 	}
 	return NULL;
 }
@@ -411,7 +490,7 @@ static void my_box_id_fn(deark *c, struct de_boxesctx *bctx)
 	const struct box_type_info *bti;
 	lctx *d = (lctx*)bctx->userdata;
 
-	bti = find_box_type_info(c, d, bctx->boxtype);
+	bti = find_box_type_info(c, d, bctx->boxtype, bctx->level);
 	if(bti) {
 		// So that we don't have to run "find" again in my_box_handler(),
 		// record it here.
@@ -432,45 +511,14 @@ static int my_box_handler(deark *c, struct de_boxesctx *bctx)
 		return de_fmtutil_default_box_handler(c, bctx);
 	}
 
-	// TODO: Don't do this twice for every box.
-	//bti = find_box_type_info(c, d, bctx->boxtype);
 	bti = (const struct box_type_info *)bctx->box_userdata;
 
-	switch(bctx->boxtype) {
-	case BOX_jp2c: // Contiguous Codestream box
-		de_dbg(c, "JPEG 2000 codestream at %d, len=%d", (int)bctx->payload_pos, (int)bctx->payload_len);
-		dbuf_create_file_from_slice(bctx->f, bctx->payload_pos, bctx->payload_len, "j2c", NULL, 0);
-		break;
-	case BOX_xml:
-		// TODO: Detect the specific XML format, and use it to choose a better
-		// filename.
-		de_dbg(c, "XML data at %d, len=%d", (int)bctx->payload_pos, (int)bctx->payload_len);
-		dbuf_create_file_from_slice(bctx->f, bctx->payload_pos, bctx->payload_len, "xml", NULL, DE_CREATEFLAG_IS_AUX);
-		break;
-	default:
-		// Check if this box type is known to contain other boxes that we might
-		// want to recurse into.
-		if(bti && (bti->flags2 & 0x1)) {
-			bctx->is_superbox = 1;
-		}
+	if(bti && (bti->flags2 & 0x1)) {
+		bctx->is_superbox = 1;
+	}
 
-		if(d->is_jpx) {
-			// 'drep' is a superbox in JPX format.
-			// 'drep' exists in BMFF, but is not a superbox.
-			// TODO: Need a more general way to decide if a box is a superbox.
-			if(bctx->boxtype==BOX_drep) {
-				bctx->is_superbox = 1;
-			}
-		}
-
-		if(bctx->boxtype==BOX_meta) {
-			do_read_version_and_flags(c, d, bctx, NULL, NULL, 1);
-			bctx->has_version_and_flags = 1;
-		}
-
-		if(bti && bti->hfn) {
-			bti->hfn(c, d, bctx);
-		}
+	if(bti && bti->hfn) {
+		bti->hfn(c, d, bctx);
 	}
 
 	return 1;
@@ -480,9 +528,18 @@ static void de_run_bmff(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
 	struct de_boxesctx *bctx = NULL;
+	de_byte buf[4];
 
 	d = de_malloc(c, sizeof(lctx));
 	bctx = de_malloc(c, sizeof(struct de_boxesctx));
+
+	// Try to detect old QuickTime files that don't have an ftyp box.
+	de_read(buf, 4, 4);
+	if(!de_memcmp(buf, "mdat", 4) ||
+		!de_memcmp(buf, "moov", 4))
+	{
+		d->is_bmff = 1;
+	}
 
 	bctx->userdata = (void*)d;
 	bctx->f = c->infile;
@@ -511,39 +568,23 @@ void de_module_jpeg2000(deark *c, struct deark_module_info *mi)
 	mi->identify_fn = de_identify_jpeg2000;
 }
 
-static int de_identify_mp4(deark *c)
-{
-	de_byte buf[4];
-
-	de_read(buf, 4, 4);
-	if(!de_memcmp(buf, "ftyp", 4)) return 20;
-	if(!de_memcmp(buf, "mdat", 4)) return 15;
-	if(!de_memcmp(buf, "moov", 4)) return 15;
-	return 0;
-}
-
-void de_module_mp4(deark *c, struct deark_module_info *mi)
-{
-	mi->id = "mp4";
-	mi->desc = "MP4, QuickTime, and similar formats";
-	mi->desc2 = "resources only";
-	mi->run_fn = de_run_bmff;
-	mi->identify_fn = de_identify_mp4;
-}
-
 static int de_identify_bmff(deark *c)
 {
 	de_byte buf[4];
 
 	de_read(buf, 4, 4);
-	if(!de_memcmp(buf, "ftyp", 4)) return 3;
+	if(!de_memcmp(buf, "ftyp", 4)) return 80;
+	if(!de_memcmp(buf, "mdat", 4)) return 15;
+	if(!de_memcmp(buf, "moov", 4)) return 15;
 	return 0;
 }
 
 void de_module_bmff(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "bmff";
-	mi->desc = "Generic Base Media File Format";
+	mi->desc = "ISO Base Media File Format";
+	mi->desc2 = "MP4, QuickTime, etc.";
+	mi->id_alias[0] = "mp4";
 	mi->run_fn = de_run_bmff;
 	mi->identify_fn = de_identify_bmff;
 }

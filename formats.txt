@@ -633,6 +633,9 @@ Deark -- Information about supported formats
   - Extract captions/abstracts (use -a).
   - Extract raster caption bitmaps.
 
+* ISO-BMFF (module="bmff") (experimental/incomplete)
+  - MP4, QuickTime .mov, etc.
+
 * JPEG scan (module="jpegscan")
   - This module tries to find and extract embedded JPEG and JPEG-LS files from
     otherwise-unsupported formats. Use "-m jpegscan".
