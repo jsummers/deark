@@ -718,7 +718,7 @@ static int do_box(deark *c, struct de_boxesctx *bctx, de_int64 pos, de_int64 len
 	int ret;
 
 	if(len<8) {
-		de_dbg(c, "(ignoring %d extra bytes at %d)", (int)len, (int)pos);
+		de_dbg(c, "(ignoring %d extra bytes at %"INT64_FMT")", (int)len, pos);
 		return 0;
 	}
 
@@ -739,7 +739,7 @@ static int do_box(deark *c, struct de_boxesctx *bctx, de_int64 pos, de_int64 len
 	}
 	else if(size32==1) {
 		if(len<16) {
-			de_dbg(c, "(ignoring %d extra bytes at %d)", (int)len, (int)pos);
+			de_dbg(c, "(ignoring %d extra bytes at %"INT64_FMT")", (int)len, pos);
 			return 0;
 		}
 		header_len = 16;
@@ -787,21 +787,22 @@ static int do_box(deark *c, struct de_boxesctx *bctx, de_int64 pos, de_int64 len
 
 		if(bctx->is_uuid) {
 			de_fmtutil_render_uuid(c, bctx->uuid, uuid_string, sizeof(uuid_string));
-			de_dbg(c, "box '%s'{%s} at %d, len=%" INT64_FMT "",
-				box4cc.id_printable, uuid_string,
-				(int)pos, total_len);
+			de_dbg(c, "box '%s'{%s}%s at %"INT64_FMT", len=%"INT64_FMT,
+				box4cc.id_printable, uuid_string, name_str,
+				pos, total_len);
 		}
 		else {
-			de_dbg(c, "box '%s'%s at %d, len=%" INT64_FMT ", dlen=%d", box4cc.id_printable,
-				name_str, (int)pos, total_len, (int)payload_len);
+			de_dbg(c, "box '%s'%s at %"INT64_FMT", len=%"INT64_FMT", dlen=%"INT64_FMT,
+				box4cc.id_printable, name_str, pos,
+				total_len, payload_len);
 		}
 	}
 
 	if(total_len > len) {
 		de_err(c, "Invalid oversized box, or unexpected end of file "
-			"(box at %d ends at %" INT64_FMT ", "
-			"parent ends at %" INT64_FMT ")",
-			(int)pos, pos+total_len, pos+len);
+			"(box at %"INT64_FMT" ends at %"INT64_FMT", "
+			"parent ends at %"INT64_FMT")",
+			pos, pos+total_len, pos+len);
 		return 0;
 	}
 
@@ -854,6 +855,7 @@ static void do_box_sequence(deark *c, struct de_boxesctx *bctx,
 
 // Handle some box types that might be common to multiple formats.
 // This function should be called as needed by the client's box handler function.
+// TODO: A way to identify (name) the boxes that we handle here.
 int de_fmtutil_default_box_handler(deark *c, struct de_boxesctx *bctx)
 {
 	if(bctx->is_uuid) {

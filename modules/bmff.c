@@ -17,6 +17,7 @@ typedef struct localctx_struct {
 	de_byte is_bmff;
 	de_byte is_jp2_jpx_jpm;
 	de_byte is_mj2;
+	de_byte is_heif;
 } lctx;
 
 typedef void (*handler_fn_type)(deark *c, lctx *d, struct de_boxesctx *bctx);
@@ -27,6 +28,7 @@ struct box_type_info {
 	// 0x00000001 = Generic BMFF (isom brand, etc.)
 	// 0x00000008 = MJ2
 	// 0x00010000 = JP2/JPX/JPM
+	// 0x00080000 = HEIF
 	de_uint32 flags1;
 	// flags2: 0x1 = is_superbox
 	// flags2: 0x2 = critical top-level box (used for format identification)
@@ -35,7 +37,9 @@ struct box_type_info {
 	handler_fn_type hfn;
 };
 
+#define BRAND_heic 0x68656963U
 #define BRAND_isom 0x69736f6dU
+#define BRAND_mif1 0x6d696631U
 #define BRAND_mp41 0x6d703431U
 #define BRAND_mp42 0x6d703432U
 #define BRAND_M4A  0x4d344120U
@@ -54,14 +58,20 @@ struct box_type_info {
 #define BOX_mvhd 0x6d766864U
 #define BOX_stsd 0x73747364U
 #define BOX_tkhd 0x746b6864U
+#define BOX_uuid 0x75756964U
 #define BOX_xml  0x786d6c20U
 
 // JP2:
+#define BOX_cdef 0x63646566U
 #define BOX_colr 0x636f6c72U
 #define BOX_jp2h 0x6a703268U
 #define BOX_ihdr 0x69686472U
 #define BOX_res  0x72657320U
+#define BOX_resc 0x72657363U
+#define BOX_resd 0x72657364U
 #define BOX_uinf 0x75696e66U
+#define BOX_ulst 0x756c7374U
+#define BOX_url  0x75726c20U
 // JPX:
 #define BOX_jpch 0x6a706368U
 #define BOX_jplh 0x6a706c68U
@@ -75,6 +85,13 @@ struct box_type_info {
 #define BOX_lobj 0x6c6f626aU
 #define BOX_objc 0x6f626a63U
 #define BOX_sdat 0x73646174U
+#define BOX_mhdr 0x6d686472U
+#define BOX_lhdr 0x6c686472U
+#define BOX_ohdr 0x6f686472U
+#define BOX_pagt 0x70616774U
+#define BOX_pcol 0x70636f6cU
+#define BOX_phdr 0x70686472U
+#define BOX_scal 0x7363616cU
 //  BMFF, QuickTime, MP4, ...:
 #define BOX_cinf 0x63696e66U
 #define BOX_clip 0x636c6970U
@@ -103,6 +120,7 @@ struct box_type_info {
 #define BOX_rinf 0x72696e66U
 #define BOX_schi 0x73636869U
 #define BOX_sinf 0x73696e66U
+#define BOX_skip 0x736b6970U
 #define BOX_smhd 0x736d6864U
 #define BOX_stbl 0x7374626cU
 #define BOX_stco 0x7374636fU
@@ -141,6 +159,10 @@ static void apply_brand(deark *c, lctx *d, de_uint32 brand_id)
 	case BRAND_qt:
 		d->is_bmff = 1;
 		break;
+	case BRAND_mif1:
+	case BRAND_heic:
+		d->is_heif = 1;
+		break;
 	}
 }
 
@@ -159,20 +181,23 @@ static void do_box_jP(deark *c, lctx *d, struct de_boxesctx *bctx)
 static void do_box_ftyp(deark *c, lctx *d, struct de_boxesctx *bctx)
 {
 	de_int64 i;
+	de_int64 mver;
 	de_int64 num_compat_brands;
 	struct de_fourcc brand4cc;
 
-	if(bctx->payload_len<4) return;
+	if(bctx->payload_len<4) goto done;
 	dbuf_read_fourcc(bctx->f, bctx->payload_pos, &brand4cc, 0);
 	d->major_brand = brand4cc.id;
 	de_dbg(c, "major brand: '%s'", brand4cc.id_printable);
 	if(bctx->level==0)
 		apply_brand(c, d, d->major_brand);
 
-	if(bctx->payload_len>=12)
-		num_compat_brands = (bctx->payload_len - 8)/4;
-	else
-		num_compat_brands = 0;
+	if(bctx->payload_len<8) goto done;
+	mver = dbuf_getui32be(bctx->f, bctx->payload_pos+4);
+	de_dbg(c, "minor version: %u", (unsigned int)mver);
+
+	if(bctx->payload_len<12) goto done;
+	num_compat_brands = (bctx->payload_len - 8)/4;
 
 	for(i=0; i<num_compat_brands; i++) {
 		dbuf_read_fourcc(bctx->f, bctx->payload_pos + 8 + i*4, &brand4cc, 0);
@@ -181,6 +206,9 @@ static void do_box_ftyp(deark *c, lctx *d, struct de_boxesctx *bctx)
 		if(bctx->level==0)
 			apply_brand(c, d, brand4cc.id);
 	}
+
+done:
+	;
 }
 
 static void do_read_version_and_flags(deark *c, lctx *d, struct de_boxesctx *bctx,
@@ -431,7 +459,7 @@ static const struct box_type_info box_type_info_arr[] = {
 	{BOX_ftyp, 0x00000000, 0x00000002, "file type", do_box_ftyp},
 	{BOX_jP  , 0x00010008, 0x00000002, "JPEG 2000 signature", do_box_jP},
 	{BOX_mdat, 0x00000008, 0x00000001, "media data", NULL},
-	{BOX_mdat, 0x00000001, 0x00000000, "media data", NULL},
+	{BOX_mdat, 0x00080001, 0x00000000, "media data", NULL},
 	{BOX_cinf, 0x00000001, 0x00000001, "complete track information", NULL},
 	{BOX_clip, 0x00000001, 0x00000001, NULL, NULL},
 	{BOX_dinf, 0x00000001, 0x00000001, "data information", NULL},
@@ -439,7 +467,7 @@ static const struct box_type_info box_type_info_arr[] = {
 	{BOX_edts, 0x00000001, 0x00000001, "edit", NULL},
 	{BOX_fdsa, 0x00000001, 0x00000001, NULL, NULL},
 	{BOX_fiin, 0x00000001, 0x00000001, "FD item information", NULL},
-	{BOX_free, 0x00000001, 0x00000000, "free space", NULL},
+	{BOX_free, 0x00080001, 0x00000000, "free space", NULL},
 	{BOX_hdlr, 0x00000001, 0x00000000, "handler reference", NULL},
 	{BOX_hinf, 0x00000001, 0x00000001, NULL, NULL},
 	{BOX_hmhd, 0x00000001, 0x00000000, "hint media header", NULL},
@@ -448,7 +476,7 @@ static const struct box_type_info box_type_info_arr[] = {
 	{BOX_mdhd, 0x00000001, 0x00000000, "media header", do_box_mdhd},
 	{BOX_mdia, 0x00000001, 0x00000001, "media", NULL},
 	{BOX_meco, 0x00000001, 0x00000001, "additional metadata container", NULL},
-	{BOX_meta, 0x00000001, 0x00000001, "metadata", do_box_meta},
+	{BOX_meta, 0x00080001, 0x00000001, "metadata", do_box_meta},
 	{BOX_minf, 0x00000001, 0x00000001, "media information", NULL},
 	{BOX_mfra, 0x00000001, 0x00000001, "movie fragment random access", NULL},
 	{BOX_moof, 0x00000001, 0x00000001, "movie fragment", NULL},
@@ -460,6 +488,7 @@ static const struct box_type_info box_type_info_arr[] = {
 	{BOX_rinf, 0x00000001, 0x00000001, "restricted scheme information", NULL},
 	{BOX_schi, 0x00000001, 0x00000001, "scheme information", NULL},
 	{BOX_sinf, 0x00000001, 0x00000001, "protection scheme information", NULL},
+	{BOX_skip, 0x00080001, 0x00000000, "user-data", NULL},
 	{BOX_smhd, 0x00000001, 0x00000000, "sound media header", NULL},
 	{BOX_stbl, 0x00000001, 0x00000001, "sample table", NULL},
 	{BOX_stco, 0x00000001, 0x00000000, "chunk offset", NULL},
@@ -479,6 +508,7 @@ static const struct box_type_info box_type_info_arr[] = {
 	{BOX_vmhd, 0x00000001, 0x00000000, "video media header", NULL},
 	{BOX_asoc, 0x00010000, 0x00000001, NULL, NULL},
 	{BOX_cgrp, 0x00010000, 0x00000001, NULL, NULL},
+	{BOX_cdef, 0x00010000, 0x00000000, "component definition", NULL},
 	{BOX_colr, 0x00010000, 0x00000000, "colour specification", NULL},
 	{BOX_comp, 0x00010000, 0x00000001, NULL, NULL},
 	{BOX_drep, 0x00010000, 0x00000001, NULL, NULL},
@@ -488,12 +518,23 @@ static const struct box_type_info box_type_info_arr[] = {
 	{BOX_jp2h, 0x00010000, 0x00000001, "JP2 header", NULL},
 	{BOX_jpch, 0x00010000, 0x00000001, NULL, NULL},
 	{BOX_jplh, 0x00010000, 0x00000001, NULL, NULL},
-	{BOX_lobj, 0x00010000, 0x00000001, NULL, NULL},
-	{BOX_objc, 0x00010000, 0x00000001, NULL, NULL},
-	{BOX_page, 0x00010000, 0x00000001, NULL, NULL},
-	{BOX_res , 0x00010000, 0x00000001, NULL, NULL},
+	{BOX_lhdr, 0x00010000, 0x00000000, "layout object header", NULL},
+	{BOX_lobj, 0x00010000, 0x00000001, "layout object", NULL},
+	{BOX_mhdr, 0x00010000, 0x00000000, "compound image header", NULL},
+	{BOX_objc, 0x00010000, 0x00000001, "object", NULL},
+	{BOX_ohdr, 0x00010000, 0x00000000, "object header", NULL},
+	{BOX_page, 0x00010000, 0x00000001, "page", NULL},
+	{BOX_pagt, 0x00010000, 0x00000000, "page table", NULL},
+	{BOX_pcol, 0x00010000, 0x00000001, "page collection", NULL},
+	{BOX_phdr, 0x00010000, 0x00000000, "page header", NULL},
+	{BOX_res , 0x00010000, 0x00000001, "resolution", NULL},
+	{BOX_resc, 0x00010000, 0x00000000, "capture resolution", NULL},
+	{BOX_resd, 0x00010000, 0x00000000, "default display resolution", NULL},
+	{BOX_scal, 0x00010000, 0x00000000, "object scale", NULL},
 	{BOX_sdat, 0x00010000, 0x00000001, NULL, NULL},
-	{BOX_uinf, 0x00010000, 0x00000001, NULL, NULL},
+	{BOX_uinf, 0x00010000, 0x00000001, "UUID info", NULL},
+	{BOX_ulst, 0x00010000, 0x00000000, "UUID list", NULL},
+	{BOX_url , 0x00010000, 0x00000000, "URL", NULL},
 	{BOX_xml , 0x00010008, 0x00000000, "XML", do_box_xml}
 };
 
@@ -504,8 +545,9 @@ static const struct box_type_info *find_box_type_info(deark *c, lctx *d,
 	de_uint32 mask = 0;
 
 	if(d->is_bmff) mask |= 0x00000001;
-	if(d->is_jp2_jpx_jpm) mask |= 0x00010000;
 	if(d->is_mj2) mask |= 0x000000008;
+	if(d->is_jp2_jpx_jpm) mask |= 0x00010000;
+	if(d->is_heif) mask |= 0x00080000;
 
 	for(k=0; k<DE_ITEMS_IN_ARRAY(box_type_info_arr); k++) {
 		if(box_type_info_arr[k].boxtype != boxtype) continue;
@@ -524,7 +566,10 @@ static void my_box_id_fn(deark *c, struct de_boxesctx *bctx)
 	const struct box_type_info *bti;
 	lctx *d = (lctx*)bctx->userdata;
 
-	bctx->box_name = "?";
+	if(bctx->boxtype != BOX_uuid) {
+		bctx->box_name = "?";
+	}
+
 	bti = find_box_type_info(c, d, bctx->boxtype, bctx->level);
 	if(bti) {
 		// So that we don't have to run "find" again in my_box_handler(),
