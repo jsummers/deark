@@ -15,7 +15,7 @@ DE_DECLARE_MODULE(de_module_jpeg2000);
 typedef struct localctx_struct {
 	de_uint32 major_brand;
 	de_byte is_bmff;
-	de_byte is_jp2_jpx_jpm;
+	de_byte is_jp2_jpx_jpm, is_jpx, is_jpm;
 	de_byte is_mj2;
 	de_byte is_heif;
 } lctx;
@@ -143,8 +143,14 @@ static void apply_brand(deark *c, lctx *d, de_uint32 brand_id)
 {
 	switch(brand_id) {
 	case BRAND_jp2:
+		d->is_jp2_jpx_jpm = 1;
+		break;
 	case BRAND_jpx:
+		d->is_jpx = 1;
+		d->is_jp2_jpx_jpm = 1;
+		break;
 	case BRAND_jpm:
+		d->is_jpm = 1;
 		d->is_jp2_jpx_jpm = 1;
 		break;
 	case BRAND_mjp2:
@@ -445,6 +451,112 @@ static void do_box_jp2c(deark *c, lctx *d, struct de_boxesctx *bctx)
 	dbuf_create_file_from_slice(bctx->f, bctx->payload_pos, bctx->payload_len, "j2c", NULL, 0);
 }
 
+static const char *get_jpeg2000_cmpr_name(deark *c, lctx *d, de_byte ct)
+{
+	const char *name = NULL;
+
+	if(ct==7) { name="JPEG 2000"; goto done; }
+	if(d->is_jpx) {
+		switch(ct) {
+		case 0: name="uncompressed"; break;
+		case 1: name="MH"; break;
+		case 2: name="MR"; break;
+		case 3: name="MMR"; break;
+		case 4: name="JBIG bi-level"; break;
+		case 5: name="JPEG"; break;
+		case 6: name="JPEG-LS"; break;
+		case 8: name="JBIG2"; break;
+		case 9: name="JBIG"; break;
+		}
+	}
+	// TODO: JPM
+done:
+	if(!name) name="?";
+	return name;
+}
+
+static void do_box_ihdr(deark *c, lctx *d, struct de_boxesctx *bctx)
+{
+	de_int64 w, h, n;
+	de_byte b;
+	de_int64 pos = bctx->payload_pos;
+	char tmps[80];
+
+	if(bctx->payload_len<14) return;
+	h = dbuf_getui32be(bctx->f, pos);
+	pos += 4;
+	w = dbuf_getui32be(bctx->f, pos);
+	pos += 4;
+	de_dbg_dimensions(c, w, h);
+
+	n = dbuf_getui16be(bctx->f, pos);
+	pos += 2;
+	de_dbg(c, "number of components: %d", (int)n);
+
+	b = dbuf_getbyte(bctx->f, pos++);
+	if(b==255) {
+		de_strlcpy(tmps, "various", sizeof(tmps));
+	}
+	else {
+		de_snprintf(tmps, sizeof(tmps), "%u bits/comp., %ssigned",
+			(unsigned int)(1+(b&0x7f)), (b&0x80)?"":"un");
+	}
+	de_dbg(c, "bits-per-component code: %u (%s)", (unsigned int)b, tmps);
+
+	b = dbuf_getbyte(bctx->f, pos++);
+	de_dbg(c, "compression type: %u (%s)", (unsigned int)b,
+		get_jpeg2000_cmpr_name(c, d, b));
+
+	b = dbuf_getbyte(bctx->f, pos++);
+	de_dbg(c, "colorspace-is-unknown flag: %d", (int)b);
+	b = dbuf_getbyte(bctx->f, pos++);
+	de_dbg(c, "has-IPR: %d", (int)b);
+}
+
+static void do_box_colr(deark *c, lctx *d, struct de_boxesctx *bctx)
+{
+	de_byte meth;
+	de_int64 pos = bctx->payload_pos;
+	const char *s;
+
+	if(bctx->payload_len<3) goto done;
+	meth = dbuf_getbyte(bctx->f, pos++);
+	switch(meth) {
+	case 1: s="enumerated"; break;
+	case 2: s="ICC profile (restricted)"; break;
+	case 3: s="ICC profile (any)"; break; // JPX only
+	case 4: s="vendor"; break; // JPX only
+	default: s="?";
+	}
+	de_dbg(c, "specification method: %d (%s)", (int)meth, s);
+
+	pos++; // PREC
+	pos++; // APPROX
+
+	if(meth==1) {
+		unsigned int enumcs;
+		if(bctx->payload_len<7) goto done;
+		enumcs = (unsigned int)dbuf_getui32be(bctx->f, pos);
+		pos += 4;
+		switch(enumcs) {
+			// TODO: There are lots more valid values for JPX.
+		case 16: s="sRGB"; break;
+		case 17: s="sRGB-like grayscale"; break;
+		case 18: s="sYCC"; break;
+		default: s="?";
+		}
+		de_dbg(c, "enumerated colourspace: %u (%s)", enumcs, s);
+	}
+	else if(meth==2 || meth==3) {
+		dbuf_create_file_from_slice(bctx->f,
+			bctx->payload_pos+3, bctx->payload_len-3,
+			"icc", NULL, DE_CREATEFLAG_IS_AUX);
+	}
+
+done:
+	;
+}
+
 static void do_box_xml(deark *c, lctx *d, struct de_boxesctx *bctx)
 {
 	// TODO: Detect the specific XML format, and use it to choose a better
@@ -509,11 +621,11 @@ static const struct box_type_info box_type_info_arr[] = {
 	{BOX_asoc, 0x00010000, 0x00000001, NULL, NULL},
 	{BOX_cgrp, 0x00010000, 0x00000001, NULL, NULL},
 	{BOX_cdef, 0x00010000, 0x00000000, "component definition", NULL},
-	{BOX_colr, 0x00010000, 0x00000000, "colour specification", NULL},
+	{BOX_colr, 0x00010000, 0x00000000, "colour specification", do_box_colr},
 	{BOX_comp, 0x00010000, 0x00000001, NULL, NULL},
 	{BOX_drep, 0x00010000, 0x00000001, NULL, NULL},
 	{BOX_ftbl, 0x00010000, 0x00000001, NULL, NULL},
-	{BOX_ihdr, 0x00010000, 0x00000000, "image header", NULL},
+	{BOX_ihdr, 0x00010000, 0x00000000, "image header", do_box_ihdr},
 	{BOX_jp2c, 0x00010008, 0x00000000, "contiguous codestream", do_box_jp2c},
 	{BOX_jp2h, 0x00010000, 0x00000001, "JP2 header", NULL},
 	{BOX_jpch, 0x00010000, 0x00000001, NULL, NULL},
