@@ -18,6 +18,7 @@ typedef struct localctx_struct {
 	de_byte is_jp2_jpx_jpm, is_jpx, is_jpm;
 	de_byte is_mj2;
 	de_byte is_heif;
+	de_byte is_jpegxt;
 } lctx;
 
 typedef void (*handler_fn_type)(deark *c, lctx *d, struct de_boxesctx *bctx);
@@ -28,6 +29,7 @@ struct box_type_info {
 	// 0x00000001 = Generic BMFF (isom brand, etc.)
 	// 0x00000008 = MJ2
 	// 0x00010000 = JP2/JPX/JPM
+	// 0x00040000 = JPEG XT
 	// 0x00080000 = HEIF
 	de_uint32 flags1;
 	// flags2: 0x1 = is_superbox
@@ -136,6 +138,10 @@ struct box_type_info {
 #define BOX_tref 0x74726566U
 #define BOX_udta 0x75647461U
 #define BOX_vmhd 0x766d6864U
+// JPEG XT
+#define BOX_LCHK 0x4c43484bU
+#define BOX_RESI 0x52455349U
+#define BOX_SPEC 0x53504543U
 
 // Called for each primary or compatible brand.
 // Brand-specific setup can be done here.
@@ -647,7 +653,10 @@ static const struct box_type_info box_type_info_arr[] = {
 	{BOX_uinf, 0x00010000, 0x00000001, "UUID info", NULL},
 	{BOX_ulst, 0x00010000, 0x00000000, "UUID list", NULL},
 	{BOX_url , 0x00010000, 0x00000000, "URL", NULL},
-	{BOX_xml , 0x00010008, 0x00000000, "XML", do_box_xml}
+	{BOX_xml , 0x00010008, 0x00000000, "XML", do_box_xml},
+	{BOX_LCHK, 0x00040000, 0x00000000, "checksum", NULL},
+	{BOX_RESI, 0x00040000, 0x00000000, "residual codestream", NULL},
+	{BOX_SPEC, 0x00040000, 0x00000001, NULL, NULL}
 };
 
 static const struct box_type_info *find_box_type_info(deark *c, lctx *d,
@@ -659,6 +668,7 @@ static const struct box_type_info *find_box_type_info(deark *c, lctx *d,
 	if(d->is_bmff) mask |= 0x00000001;
 	if(d->is_mj2) mask |= 0x000000008;
 	if(d->is_jp2_jpx_jpm) mask |= 0x00010000;
+	if(d->is_jpegxt) mask |= 0x00040000;
 	if(d->is_heif) mask |= 0x00080000;
 
 	for(k=0; k<DE_ITEMS_IN_ARRAY(box_type_info_arr); k++) {
@@ -720,17 +730,27 @@ static void de_run_bmff(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
 	struct de_boxesctx *bctx = NULL;
+	int skip_autodetect = 0;
 	de_byte buf[4];
 
 	d = de_malloc(c, sizeof(lctx));
 	bctx = de_malloc(c, sizeof(struct de_boxesctx));
 
-	// Try to detect old QuickTime files that don't have an ftyp box.
-	de_read(buf, 4, 4);
-	if(!de_memcmp(buf, "mdat", 4) ||
-		!de_memcmp(buf, "moov", 4))
-	{
-		d->is_bmff = 1;
+	if(mparams && mparams->codes) {
+		if(de_strchr(mparams->codes, 'T')) {
+			d->is_jpegxt = 1;
+			skip_autodetect = 1;
+		}
+	}
+
+	if(!skip_autodetect) {
+		// Try to detect old QuickTime files that don't have an ftyp box.
+		de_read(buf, 4, 4);
+		if(!de_memcmp(buf, "mdat", 4) ||
+			!de_memcmp(buf, "moov", 4))
+		{
+			d->is_bmff = 1;
+		}
 	}
 
 	bctx->userdata = (void*)d;

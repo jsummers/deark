@@ -201,7 +201,7 @@ static void do_jpegxt_segment(deark *c, lctx *d, struct page_ctx *pg, de_int64 p
 	n = de_getui32be(pos+2);
 	de_dbg(c, "seq number: %u", (unsigned int)n);
 	de_dbg_indent(c, 1);
-	de_run_module_by_id_on_slice(c, "bmff", NULL, c->infile, pos+6, data_size-6);
+	de_run_module_by_id_on_slice2(c, "bmff", "T", c->infile, pos+6, data_size-6);
 	de_dbg_indent(c, -1);
 }
 
