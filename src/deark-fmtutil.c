@@ -1272,13 +1272,19 @@ static int do_iff_chunk(deark *c, struct de_iffctx *ictx, de_int64 pos, de_int64
 
 	hdrsize = 4+ictx->sizeof_len;
 	if(bytes_avail<hdrsize) {
-		de_err(c, "Invalid chunk size (at %d, size=%" INT64_FMT ")",
-			(int)pos, bytes_avail);
+		de_warn(c, "Ignoring %"INT64_FMT" bytes at %"INT64_FMT"; too small "
+			"to be a chunk", bytes_avail, pos);
 		goto done;
 	}
 	data_bytes_avail = bytes_avail-hdrsize;
 
 	dbuf_read_fourcc(ictx->f, pos, &chunkctx.chunk4cc, ictx->reversed_4cc);
+	if(chunkctx.chunk4cc.id==0 && level==0) {
+		de_warn(c, "Chunk ID not found at %"INT64_FMT"; assuming the data ends "
+			"here", pos);
+		goto done;
+	}
+
 	if(ictx->sizeof_len==2) {
 		chunk_dlen = dbuf_getui16x(ictx->f, pos+4, ictx->is_le);
 	}
