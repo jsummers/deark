@@ -13,6 +13,7 @@ DE_DECLARE_MODULE(de_module_emf);
 #define CODE_GDIC 0x47444943U
 
 typedef struct localctx_struct {
+	int input_encoding;
 	int is_emfplus;
 	int emf_found_header;
 	de_int64 emf_version;
@@ -665,7 +666,7 @@ done:
 
 static void do_emf_aEmrText(deark *c, lctx *d, de_int64 recpos, de_int64 pos1, de_int64 len)
 {
-	do_emf_xEmrText(c, d, recpos, pos1, len, 1, DE_ENCODING_WINDOWS1252);
+	do_emf_xEmrText(c, d, recpos, pos1, len, 1, d->input_encoding);
 }
 
 static void do_emf_wEmrText(deark *c, lctx *d, de_int64 recpos, de_int64 pos1, de_int64 len)
@@ -919,6 +920,11 @@ static void de_run_emf(deark *c, de_module_params *mparams)
 	lctx *d = NULL;
 
 	d = de_malloc(c, sizeof(lctx));
+
+	if(c->input_encoding==DE_ENCODING_UNKNOWN)
+		d->input_encoding = DE_ENCODING_WINDOWS1252;
+	else
+		d->input_encoding = c->input_encoding;
 
 	detect_emfplus(c, d);
 
