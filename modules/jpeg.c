@@ -61,20 +61,6 @@ struct marker_info;
 typedef void (*handler_fn_type)(deark *c, lctx *d, struct page_ctx *pg,
 	const struct marker_info *mi, de_int64 pos, de_int64 data_size);
 
-#define DECLARE_HANDLER(x) static void x(deark *c, lctx *d, struct page_ctx *pg, \
-	const struct marker_info *mi, de_int64 pos, de_int64 data_size)
-
-DECLARE_HANDLER(handler_dri);
-DECLARE_HANDLER(handler_dht);
-DECLARE_HANDLER(handler_dqt);
-DECLARE_HANDLER(handler_dac);
-DECLARE_HANDLER(handler_sos);
-DECLARE_HANDLER(handler_com);
-DECLARE_HANDLER(handler_cme);
-DECLARE_HANDLER(handler_app);
-DECLARE_HANDLER(handler_sof);
-DECLARE_HANDLER(handler_jpg8);
-
 #define FLAG_JPEG_COMPAT   0x0001
 #define FLAG_JPEGLS_COMPAT 0x0002
 #define FLAG_J2C_COMPAT    0x0004
@@ -97,44 +83,6 @@ struct marker_info1 {
 	const char *longname;
 	handler_fn_type hfn;
 };
-static const struct marker_info1 marker_info1_arr[] = {
-	{0x01, 0x0101, "TEM", NULL, NULL},
-	{0x4f, 0x0104, "SOC", "Start of codestream", NULL},
-	{0x51, 0x0004, "SIZ", "Image and tile size", NULL},
-	{0x52, 0x0004, "COD", "Coding style default", NULL},
-	{0x53, 0x0004, "COC", "Coding style component", NULL},
-	{0x55, 0x0004, "TLM", "Tile-part lengths, main header", NULL},
-	{0x57, 0x0004, "PLM", "Packet length, main header", NULL},
-	{0x58, 0x0004, "PLT", "Packet length, tile-part header", NULL},
-	{0x5c, 0x0004, "QCD", "Quantization default", NULL},
-	{0x5d, 0x0004, "QCC", "Quantization component", NULL},
-	{0x5e, 0x0004, "RGN", "Region-of-interest", NULL},
-	{0x5f, 0x0004, "POD", "Progression order default", NULL},
-	{0x60, 0x0004, "PPM", "Packed packet headers, main header", NULL},
-	{0x61, 0x0004, "PPT", "Packed packet headers, tile-part header", NULL},
-	{0x64, 0x0004, "CME", "Comment and extension", handler_cme},
-	{0x90, 0x0004, "SOT", "Start of tile-part", NULL},
-	{0x91, 0x0004, "SOP", "Start of packet", NULL},
-	{0x92, 0x0104, "EPH", "End of packet header", NULL},
-	{0x93, 0x0104, "SOD", "Start of data", NULL},
-	{0xc4, 0x0001, "DHT", "Define Huffman table", handler_dht},
-	{0xc8, 0x0201, "JPG", NULL, handler_sof},
-	{0xcc, 0x0001, "DAC", "Define arithmetic coding conditioning", handler_dac},
-	{0xd8, 0x0103, "SOI", "Start of image", NULL},
-	{0xd9, 0x0103, "EOI", "End of image", NULL},
-	{0xd9, 0x0104, "EOC", "End of codestream", NULL},
-	{0xda, 0x0003, "SOS", "Start of scan", handler_sos},
-	{0xdb, 0x0001, "DQT", "Define quantization table", handler_dqt},
-	{0xdc, 0x0001, "DNL", "Define number of lines", NULL},
-	{0xdd, 0x0003, "DRI", "Define restart interval", handler_dri},
-	{0xde, 0x0001, "DHP", "Define hierarchical progression", NULL},
-	{0xdf, 0x0001, "EXP", "Expand reference component", NULL},
-	{0xf7, 0x0202, "SOF55", "JPEG-LS start of frame", handler_sof},
-	{0xf8, 0x0001, "JPG8", NULL, handler_jpg8},
-	{0xf8, 0x0002, "LSE", "JPEG-LS preset parameters", NULL},
-	{0xfe, 0x0003, "COM", "Comment", handler_com}
-};
-
 static void do_icc_profile_segment(deark *c, lctx *d, struct page_ctx *pg, de_int64 pos, de_int64 data_size)
 {
 	de_byte b1, b2;
@@ -1429,6 +1377,44 @@ static void handler_sos(deark *c, lctx *d, struct page_ctx *pg,
 done:
 	de_dbg_indent(c, -1);
 }
+
+static const struct marker_info1 marker_info1_arr[] = {
+	{0x01, 0x0101, "TEM", NULL, NULL},
+	{0x4f, 0x0104, "SOC", "Start of codestream", NULL},
+	{0x51, 0x0004, "SIZ", "Image and tile size", NULL},
+	{0x52, 0x0004, "COD", "Coding style default", NULL},
+	{0x53, 0x0004, "COC", "Coding style component", NULL},
+	{0x55, 0x0004, "TLM", "Tile-part lengths, main header", NULL},
+	{0x57, 0x0004, "PLM", "Packet length, main header", NULL},
+	{0x58, 0x0004, "PLT", "Packet length, tile-part header", NULL},
+	{0x5c, 0x0004, "QCD", "Quantization default", NULL},
+	{0x5d, 0x0004, "QCC", "Quantization component", NULL},
+	{0x5e, 0x0004, "RGN", "Region-of-interest", NULL},
+	{0x5f, 0x0004, "POD", "Progression order default", NULL},
+	{0x60, 0x0004, "PPM", "Packed packet headers, main header", NULL},
+	{0x61, 0x0004, "PPT", "Packed packet headers, tile-part header", NULL},
+	{0x64, 0x0004, "CME", "Comment and extension", handler_cme},
+	{0x90, 0x0004, "SOT", "Start of tile-part", NULL},
+	{0x91, 0x0004, "SOP", "Start of packet", NULL},
+	{0x92, 0x0104, "EPH", "End of packet header", NULL},
+	{0x93, 0x0104, "SOD", "Start of data", NULL},
+	{0xc4, 0x0001, "DHT", "Define Huffman table", handler_dht},
+	{0xc8, 0x0201, "JPG", NULL, handler_sof},
+	{0xcc, 0x0001, "DAC", "Define arithmetic coding conditioning", handler_dac},
+	{0xd8, 0x0103, "SOI", "Start of image", NULL},
+	{0xd9, 0x0103, "EOI", "End of image", NULL},
+	{0xd9, 0x0104, "EOC", "End of codestream", NULL},
+	{0xda, 0x0003, "SOS", "Start of scan", handler_sos},
+	{0xdb, 0x0001, "DQT", "Define quantization table", handler_dqt},
+	{0xdc, 0x0001, "DNL", "Define number of lines", NULL},
+	{0xdd, 0x0003, "DRI", "Define restart interval", handler_dri},
+	{0xde, 0x0001, "DHP", "Define hierarchical progression", NULL},
+	{0xdf, 0x0001, "EXP", "Expand reference component", NULL},
+	{0xf7, 0x0202, "SOF55", "JPEG-LS start of frame", handler_sof},
+	{0xf8, 0x0001, "JPG8", NULL, handler_jpg8},
+	{0xf8, 0x0002, "LSE", "JPEG-LS preset parameters", NULL},
+	{0xfe, 0x0003, "COM", "Comment", handler_com}
+};
 
 // Caller allocates mi
 static int get_marker_info(deark *c, lctx *d, struct page_ctx *pg, de_byte seg_type,
