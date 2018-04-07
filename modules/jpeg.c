@@ -880,8 +880,6 @@ static void handler_app(deark *c, lctx *d, struct page_ctx *pg,
 
 	de_memset(&app_id_info, 0, sizeof(struct app_id_info_struct));
 
-	de_dbg_indent(c, 1);
-
 	detect_app_seg_type(c, d, mi, seg_data_pos, seg_data_size, &app_id_info);
 	appsegtype = app_id_info.appsegtype;
 	payload_pos = app_id_info.payload_pos;
@@ -967,7 +965,6 @@ done:
 	if(app_id_info.app_id_str) {
 		ucstring_destroy(app_id_info.app_id_str);
 	}
-	de_dbg_indent(c, -1);
 }
 
 static void handler_jpg8(deark *c, lctx *d, struct page_ctx *pg,
@@ -977,14 +974,12 @@ static void handler_jpg8(deark *c, lctx *d, struct page_ctx *pg,
 	const char *name = "?";
 
 	if(seg_data_size<1) return;
-	de_dbg_indent(c, 1);
 	id = de_getbyte(seg_data_pos);
 	if(id==0x0d) {
 		pg->has_revcolorxform = 1;
 		name="inverse color transform specification";
 	}
 	de_dbg(c, "id: 0x%02x (%s)", (unsigned int)id, name);
-	de_dbg_indent(c, -1);
 }
 
 static void declare_jpeg_fmt(deark *c, lctx *d, struct page_ctx *pg, de_byte seg_type)
@@ -1020,7 +1015,6 @@ static void handler_sof(deark *c, lctx *d, struct page_ctx *pg,
 	de_byte seg_type = mi->seg_type;
 
 	if(data_size<6) return;
-	de_dbg_indent(c, 1);
 
 	if(seg_type>=0xc1 && seg_type<=0xcf && (seg_type%4)!=0) {
 		if((seg_type%4)==3) { pg->is_lossless=1; attr_lossy="lossless"; }
@@ -1069,17 +1063,15 @@ static void handler_sof(deark *c, lctx *d, struct page_ctx *pg,
 	}
 
 done:
-	de_dbg_indent(c, -1);
+	;
 }
 static void handler_dri(deark *c, lctx *d, struct page_ctx *pg,
 	const struct marker_info *mi, de_int64 pos, de_int64 data_size)
 {
 	de_int64 ri;
 	if(data_size!=2) return;
-	de_dbg_indent(c, 1);
 	ri = de_getui16be(pos);
 	de_dbg(c, "restart interval: %d", (int)ri);
-	de_dbg_indent(c, -1);
 }
 
 static void dump_htable_data(deark *c, lctx *d, const de_byte *codecounts)
@@ -1106,17 +1098,13 @@ static void dump_htable_data(deark *c, lctx *d, const de_byte *codecounts)
 static void handler_dht(deark *c, lctx *d, struct page_ctx *pg,
 	const struct marker_info *mi, de_int64 pos1, de_int64 data_size)
 {
-	de_int64 pos;
+	de_int64 pos = pos1;
 	de_byte b;
 	de_byte table_class;
 	de_byte table_id;
 	de_int64 num_huff_codes;
 	de_int64 k;
 	de_byte codecounts[16];
-
-	de_dbg_indent(c, 1);
-
-	pos = pos1;
 
 	while(1) {
 		if(pos >= pos1+data_size) goto done;
@@ -1140,7 +1128,7 @@ static void handler_dht(deark *c, lctx *d, struct page_ctx *pg,
 	}
 
 done:
-	de_dbg_indent(c, -1);
+	;
 }
 
 // DAC = Define arithmetic coding conditioning
@@ -1154,7 +1142,6 @@ static void handler_dac(deark *c, lctx *d, struct page_ctx *pg,
 	de_byte table_class;
 	de_byte table_id;
 
-	de_dbg_indent(c, 1);
 	ntables = data_size/2;
 	for(i=0; i<ntables; i++) {
 		b = de_getbyte(pos1+i*2);
@@ -1167,7 +1154,6 @@ static void handler_dac(deark *c, lctx *d, struct page_ctx *pg,
 		de_dbg(c, "conditioning value: %d", (int)cs);
 		de_dbg_indent(c, -1);
 	}
-	de_dbg_indent(c, -1);
 }
 
 static void dump_qtable_data(deark *c, lctx *d, de_int64 pos, de_byte precision_code)
@@ -1205,16 +1191,12 @@ static void dump_qtable_data(deark *c, lctx *d, de_int64 pos, de_byte precision_
 static void handler_dqt(deark *c, lctx *d, struct page_ctx *pg,
 	const struct marker_info *mi, de_int64 pos1, de_int64 data_size)
 {
-	de_int64 pos;
+	de_int64 pos = pos1;
 	de_byte b;
 	de_byte precision_code;
 	de_byte table_id;
 	de_int64 qsize;
 	const char *s;
-
-	de_dbg_indent(c, 1);
-
-	pos = pos1;
 
 	while(1) {
 		if(pos >= pos1+data_size) goto done;
@@ -1247,7 +1229,7 @@ static void handler_dqt(deark *c, lctx *d, struct page_ctx *pg,
 	}
 
 done:
-	de_dbg_indent(c, -1);
+	;
 }
 
 static void handle_comment(deark *c, lctx *d, de_int64 pos, de_int64 comment_size,
@@ -1299,23 +1281,19 @@ done:
 static void handler_com(deark *c, lctx *d, struct page_ctx *pg,
 	const struct marker_info *mi, de_int64 pos, de_int64 data_size)
 {
-	de_dbg_indent(c, 1);
 	// Note that a JPEG COM-segment comment is an arbitrary sequence of bytes, so
 	// there's no way to know what text encoding it uses, or even whether it is text.
 	handle_comment(c, d, pos, data_size, DE_ENCODING_UNKNOWN);
-	de_dbg_indent(c, -1);
 }
 
 static void handler_cme(deark *c, lctx *d, struct page_ctx *pg,
 	const struct marker_info *mi, de_int64 pos, de_int64 data_size)
 {
 	de_int64 reg_val;
-	de_byte *buf = NULL;
 	de_int64 comment_pos;
 	de_int64 comment_size;
 	const char *name;
 
-	de_dbg_indent(c, 1);
 	if(data_size<2) goto done;
 
 	reg_val = de_getui16be(pos);
@@ -1332,10 +1310,12 @@ static void handler_cme(deark *c, lctx *d, struct page_ctx *pg,
 	if(reg_val==1) {
 		handle_comment(c, d, comment_pos, comment_size, DE_ENCODING_LATIN1);
 	}
+	else {
+		de_dbg_hexdump(c, c->infile, comment_pos, comment_size, 256, NULL, 0x1);
+	}
 
 done:
-	de_free(c, buf);
-	de_dbg_indent(c, -1);
+	;
 }
 
 static void handler_sos(deark *c, lctx *d, struct page_ctx *pg,
@@ -1348,7 +1328,6 @@ static void handler_sos(deark *c, lctx *d, struct page_ctx *pg,
 	de_byte ss, se, ax;
 	de_byte actable, dctable;
 
-	de_dbg_indent(c, 1);
 	if(data_size<1) goto done;
 
 	pg->scan_count++;
@@ -1375,13 +1354,80 @@ static void handler_sos(deark *c, lctx *d, struct page_ctx *pg,
 		(unsigned int)(ax>>4), (unsigned int)(ax&0x0f));
 
 done:
-	de_dbg_indent(c, -1);
+	;
+}
+
+static void handler_siz(deark *c, lctx *d, struct page_ctx *pg,
+	const struct marker_info *mi, de_int64 pos1, de_int64 len)
+{
+	unsigned int capa;
+	de_int64 w, h;
+	de_int64 pos = pos1;
+	de_int64 ncomp;
+	de_int64 k;
+
+	capa = (unsigned int)de_getui16be(pos); pos += 2;
+	de_dbg(c, "capabilities: 0x%04x", capa);
+
+	w = de_getui32be(pos); pos += 4;
+	h = de_getui32be(pos); pos += 4;
+	de_dbg(c, "dimensions of reference grid: %"INT64_FMT DE_CHAR_TIMES "%"INT64_FMT, w, h);
+
+	w = de_getui32be(pos); pos += 4;
+	h = de_getui32be(pos); pos += 4;
+	de_dbg(c, "offset to image area: %"INT64_FMT",%"INT64_FMT, w, h);
+
+	w = de_getui32be(pos); pos += 4;
+	h = de_getui32be(pos); pos += 4;
+	de_dbg(c, "dimensions of reference tile: %"INT64_FMT DE_CHAR_TIMES "%"INT64_FMT, w, h);
+
+	w = de_getui32be(pos); pos += 4;
+	h = de_getui32be(pos); pos += 4;
+	de_dbg(c, "offset to first tile: %"INT64_FMT",%"INT64_FMT, w, h);
+
+	ncomp = de_getui16be(pos); pos += 2;
+	de_dbg(c, "number of components: %d", (int)ncomp);
+
+	for(k=0; k<ncomp; k++) {
+		de_byte prec, xr, yr;
+
+		if(pos >= pos1+len) goto done;
+		de_dbg(c, "component[%d] info at %"INT64_FMT, (int)k, pos);
+		de_dbg_indent(c, 1);
+		prec = de_getbyte(pos++);
+		de_dbg(c, "precision: %d", (int)prec);
+		xr = de_getbyte(pos++);
+		yr = de_getbyte(pos++);
+		de_dbg(c, "separation: %d,%d", (int)xr, (int)yr);
+		de_dbg_indent(c, -1);
+	}
+
+done:
+	;
+}
+
+static void handler_sot(deark *c, lctx *d, struct page_ctx *pg,
+	const struct marker_info *mi, de_int64 pos1, de_int64 len)
+{
+	de_int64 x;
+	de_int64 b;
+	de_int64 pos = pos1;
+
+	if(len<8) return;
+	x = de_getui16be(pos); pos += 2;
+	de_dbg(c, "tile number: %d", (int)x);
+	x = de_getui32be(pos); pos += 4;
+	de_dbg(c, "length: %u", (unsigned int)x);
+	b = de_getbyte(pos++);
+	de_dbg(c, "tile-part instance: %d", (int)b);
+	b = de_getbyte(pos++);
+	de_dbg(c, "number of tile-parts: %d", (int)b);
 }
 
 static const struct marker_info1 marker_info1_arr[] = {
 	{0x01, 0x0101, "TEM", NULL, NULL},
 	{0x4f, 0x0104, "SOC", "Start of codestream", NULL},
-	{0x51, 0x0004, "SIZ", "Image and tile size", NULL},
+	{0x51, 0x0004, "SIZ", "Image and tile size", handler_siz},
 	{0x52, 0x0004, "COD", "Coding style default", NULL},
 	{0x53, 0x0004, "COC", "Coding style component", NULL},
 	{0x55, 0x0004, "TLM", "Tile-part lengths, main header", NULL},
@@ -1394,7 +1440,7 @@ static const struct marker_info1 marker_info1_arr[] = {
 	{0x60, 0x0004, "PPM", "Packed packet headers, main header", NULL},
 	{0x61, 0x0004, "PPT", "Packed packet headers, tile-part header", NULL},
 	{0x64, 0x0004, "CME", "Comment and extension", handler_cme},
-	{0x90, 0x0004, "SOT", "Start of tile-part", NULL},
+	{0x90, 0x0004, "SOT", "Start of tile-part", handler_sot},
 	{0x91, 0x0004, "SOP", "Start of packet", NULL},
 	{0x92, 0x0104, "EPH", "End of packet header", NULL},
 	{0x93, 0x0104, "SOD", "Start of data", NULL},
@@ -1502,7 +1548,9 @@ static void do_segment(deark *c, lctx *d, struct page_ctx *pg, const struct mark
 
 	if(mi->hfn) {
 		// If a handler function is available, use it.
+		de_dbg_indent(c, 1);
 		mi->hfn(c, d, pg, mi, payload_pos, payload_size);
+		de_dbg_indent(c, -1);
 	}
 }
 
@@ -1675,7 +1723,7 @@ static void do_post_sof_stuff(deark *c, lctx *d, struct page_ctx *pg)
 static int do_jpeg_page(deark *c, lctx *d, de_int64 pos1, de_int64 *bytes_consumed)
 {
 	de_byte b;
-	de_int64 pos;
+	de_int64 pos = pos1;
 	de_int64 seg_size;
 	de_byte seg_type;
 	int found_marker;
@@ -1689,7 +1737,6 @@ static int do_jpeg_page(deark *c, lctx *d, de_int64 pos1, de_int64 *bytes_consum
 	pg->is_j2c = d->is_j2c; // Inherit J2C file format
 	pg->sampling_code = ucstring_create(c);
 
-	pos = pos1;
 	found_marker = 0;
 	while(1) {
 		if(pos>=c->infile->len)
