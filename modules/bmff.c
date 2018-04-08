@@ -457,6 +457,26 @@ static void do_box_jp2c(deark *c, lctx *d, struct de_boxesctx *bctx)
 	dbuf_create_file_from_slice(bctx->f, bctx->payload_pos, bctx->payload_len, "j2c", NULL, 0);
 }
 
+static void do_box_resd(deark *c, lctx *d, struct de_boxesctx *bctx)
+{
+	de_int64 vn, vd, hn, hd;
+	int ve, he;
+	de_int64 pos = bctx->payload_pos;
+
+	if(bctx->payload_len<10) return;
+	vn = dbuf_getui16be(bctx->f, pos); pos += 2;
+	vd = dbuf_getui16be(bctx->f, pos); pos += 2;
+	hn = dbuf_getui16be(bctx->f, pos); pos += 2;
+	hd = dbuf_getui16be(bctx->f, pos); pos += 2;
+	ve = (int)(signed char)dbuf_getbyte(bctx->f, pos++);
+	he = (int)(signed char)dbuf_getbyte(bctx->f, pos++);
+	// TODO: Display this better
+	de_dbg(c, "vertical display grid res.: (%d/%d)"DE_CHAR_TIMES"10^%d points/meter",
+		(int)vn, (int)vd, ve);
+	de_dbg(c, "horizontal display grid res.: (%d/%d)"DE_CHAR_TIMES"10^%d points/meter",
+		(int)hn, (int)hd, he);
+}
+
 static const char *get_jpeg2000_cmpr_name(deark *c, lctx *d, de_byte ct)
 {
 	const char *name = NULL;
@@ -519,6 +539,45 @@ static void do_box_ihdr(deark *c, lctx *d, struct de_boxesctx *bctx)
 	de_dbg(c, "has-IPR: %d", (int)b);
 }
 
+static const char *get_channel_type_name(de_int64 t)
+{
+	const char *name;
+	switch(t) {
+	case 0: name = "colour image data for associated color"; break;
+	case 1: name = "opacity"; break;
+	case 2: name = "premultiplied opacity"; break;
+	case 65535: name = "not specified"; break;
+	default: name = "?";
+	}
+	return name;
+}
+
+static void do_box_cdef(deark *c, lctx *d, struct de_boxesctx *bctx)
+{
+	de_int64 ndescs;
+	de_int64 pos = bctx->payload_pos;
+	de_int64 k;
+
+	ndescs = dbuf_getui16be(bctx->f, pos);
+	de_dbg(c, "number of channel descriptions: %d", (int)ndescs);
+	pos += 2;
+
+	for(k=0; k<ndescs; k++) {
+		de_int64 idx, typ, asoc;
+
+		if(pos+6 > bctx->payload_pos + bctx->payload_len) break;
+		de_dbg(c, "channel description[%d] at %"INT64_FMT, (int)k, pos);
+		de_dbg_indent(c, 1);
+		idx = dbuf_getui16be(bctx->f, pos); pos += 2;
+		de_dbg(c, "channel index: %d", (int)idx);
+		typ = dbuf_getui16be(bctx->f, pos); pos += 2;
+		de_dbg(c, "channel type: %d (%s)", (int)typ, get_channel_type_name(typ));
+		asoc = dbuf_getui16be(bctx->f, pos); pos += 2;
+		de_dbg(c, "index of associated color: %d", (int)asoc);
+		de_dbg_indent(c, -1);
+	}
+}
+
 static void do_box_colr(deark *c, lctx *d, struct de_boxesctx *bctx)
 {
 	de_byte meth;
@@ -561,6 +620,43 @@ static void do_box_colr(deark *c, lctx *d, struct de_boxesctx *bctx)
 
 done:
 	;
+}
+
+static void do_box_ulst(deark *c, lctx *d, struct de_boxesctx *bctx)
+{
+	de_int64 pos = bctx->payload_pos;
+	de_int64 nuuids;
+	de_int64 k;
+	de_byte ubuf[16];
+	char uuid_string[50];
+
+	nuuids = dbuf_getui16be(bctx->f, pos);
+	de_dbg(c, "number of UUIDs: %d", (int)nuuids);
+	pos += 2;
+
+	for(k=0; k<nuuids; k++) {
+		if(pos+16 > bctx->payload_pos + bctx->payload_len) break;
+		dbuf_read(bctx->f, ubuf, pos, 16);
+		de_fmtutil_render_uuid(c, ubuf, uuid_string, sizeof(uuid_string));
+		de_dbg(c, "UUID[%d]: {%s}", (int)k, uuid_string);
+		pos += 16;
+	}
+}
+
+static void do_box_url(deark *c, lctx *d, struct de_boxesctx *bctx)
+{
+	de_ucstring *s = NULL;
+	de_int64 pos = bctx->payload_pos;
+
+	do_read_version_and_flags(c, d, bctx, NULL, NULL, 1);
+	pos += 4;
+
+	s = ucstring_create(c);
+	dbuf_read_to_ucstring_n(bctx->f,
+		pos, bctx->payload_pos + bctx->payload_len - pos, DE_DBG_MAX_STRLEN,
+		s, DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_UTF8);
+	de_dbg(c, "URL: \"%s\"", ucstring_getpsz_d(s));
+	ucstring_destroy(s);
 }
 
 static void do_box_xml(deark *c, lctx *d, struct de_boxesctx *bctx)
@@ -626,7 +722,7 @@ static const struct box_type_info box_type_info_arr[] = {
 	{BOX_vmhd, 0x00000001, 0x00000000, "video media header", NULL},
 	{BOX_asoc, 0x00010000, 0x00000001, NULL, NULL},
 	{BOX_cgrp, 0x00010000, 0x00000001, NULL, NULL},
-	{BOX_cdef, 0x00010000, 0x00000000, "component definition", NULL},
+	{BOX_cdef, 0x00010000, 0x00000000, "channel definition", do_box_cdef},
 	{BOX_colr, 0x00010000, 0x00000000, "colour specification", do_box_colr},
 	{BOX_comp, 0x00010000, 0x00000001, NULL, NULL},
 	{BOX_drep, 0x00010000, 0x00000001, NULL, NULL},
@@ -647,12 +743,12 @@ static const struct box_type_info box_type_info_arr[] = {
 	{BOX_phdr, 0x00010000, 0x00000000, "page header", NULL},
 	{BOX_res , 0x00010000, 0x00000001, "resolution", NULL},
 	{BOX_resc, 0x00010000, 0x00000000, "capture resolution", NULL},
-	{BOX_resd, 0x00010000, 0x00000000, "default display resolution", NULL},
+	{BOX_resd, 0x00010000, 0x00000000, "default display resolution", do_box_resd},
 	{BOX_scal, 0x00010000, 0x00000000, "object scale", NULL},
 	{BOX_sdat, 0x00010000, 0x00000001, NULL, NULL},
 	{BOX_uinf, 0x00010000, 0x00000001, "UUID info", NULL},
-	{BOX_ulst, 0x00010000, 0x00000000, "UUID list", NULL},
-	{BOX_url , 0x00010000, 0x00000000, "URL", NULL},
+	{BOX_ulst, 0x00010000, 0x00000000, "UUID list", do_box_ulst},
+	{BOX_url , 0x00010000, 0x00000000, "URL", do_box_url},
 	{BOX_xml , 0x00010008, 0x00000000, "XML", do_box_xml},
 	{BOX_LCHK, 0x00040000, 0x00000000, "checksum", NULL},
 	{BOX_RESI, 0x00040000, 0x00000000, "residual codestream", NULL},
