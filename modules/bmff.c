@@ -82,6 +82,10 @@ struct box_type_info {
 #define BOX_comp 0x636f6d70U
 #define BOX_asoc 0x61736f63U
 #define BOX_drep 0x64726570U
+#define BOX_dtbl 0x6474626cU
+#define BOX_flst 0x666c7374U
+#define BOX_nlst 0x6e6c7374U
+#define BOX_rreq 0x72726571U
 //  JPM:
 #define BOX_page 0x70616765U
 #define BOX_lobj 0x6c6f626aU
@@ -659,6 +663,24 @@ static void do_box_url(deark *c, lctx *d, struct de_boxesctx *bctx)
 	ucstring_destroy(s);
 }
 
+static void do_box_dtbl(deark *c, lctx *d, struct de_boxesctx *bctx)
+{
+	de_int64 ndr;
+	de_int64 upos, ulen;
+
+	ndr = dbuf_getui16be(bctx->f, bctx->payload_pos);
+	de_dbg(c, "number of data references: %d", (int)ndr);
+	upos = bctx->payload_pos+2;
+	ulen = bctx->payload_len-2;
+
+	if(ndr>0 && ulen>0) {
+		// Ugh. The dtbl box violates the principle that only superboxes shall
+		// contain other boxes.
+		// TODO: Invent a better way to handle this.
+		de_run_module_by_id_on_slice2(c, "bmff", "X", bctx->f, upos, ulen);
+	}
+}
+
 static void do_box_xml(deark *c, lctx *d, struct de_boxesctx *bctx)
 {
 	// TODO: Detect the specific XML format, and use it to choose a better
@@ -681,7 +703,7 @@ static const struct box_type_info box_type_info_arr[] = {
 	{BOX_edts, 0x00000001, 0x00000001, "edit", NULL},
 	{BOX_fdsa, 0x00000001, 0x00000001, NULL, NULL},
 	{BOX_fiin, 0x00000001, 0x00000001, "FD item information", NULL},
-	{BOX_free, 0x00080001, 0x00000000, "free space", NULL},
+	{BOX_free, 0x00090001, 0x00000000, "free space", NULL},
 	{BOX_hdlr, 0x00000001, 0x00000000, "handler reference", NULL},
 	{BOX_hinf, 0x00000001, 0x00000001, NULL, NULL},
 	{BOX_hmhd, 0x00000001, 0x00000000, "hint media header", NULL},
@@ -720,21 +742,24 @@ static const struct box_type_info box_type_info_arr[] = {
 	{BOX_tref, 0x00000001, 0x00000001, "track reference", NULL},
 	{BOX_udta, 0x00000001, 0x00000001, "user data", NULL},
 	{BOX_vmhd, 0x00000001, 0x00000000, "video media header", NULL},
-	{BOX_asoc, 0x00010000, 0x00000001, NULL, NULL},
+	{BOX_asoc, 0x00010000, 0x00000001, "association", NULL},
 	{BOX_cgrp, 0x00010000, 0x00000001, NULL, NULL},
 	{BOX_cdef, 0x00010000, 0x00000000, "channel definition", do_box_cdef},
 	{BOX_colr, 0x00010000, 0x00000000, "colour specification", do_box_colr},
 	{BOX_comp, 0x00010000, 0x00000001, NULL, NULL},
 	{BOX_drep, 0x00010000, 0x00000001, NULL, NULL},
-	{BOX_ftbl, 0x00010000, 0x00000001, NULL, NULL},
+	{BOX_dtbl, 0x00010000, 0x00000000, "data reference", do_box_dtbl},
+	{BOX_flst, 0x00010000, 0x00000000, "fragment list", NULL},
+	{BOX_ftbl, 0x00010000, 0x00000001, "fragment table", NULL},
 	{BOX_ihdr, 0x00010000, 0x00000000, "image header", do_box_ihdr},
 	{BOX_jp2c, 0x00010008, 0x00000000, "contiguous codestream", do_box_jp2c},
 	{BOX_jp2h, 0x00010000, 0x00000001, "JP2 header", NULL},
-	{BOX_jpch, 0x00010000, 0x00000001, NULL, NULL},
-	{BOX_jplh, 0x00010000, 0x00000001, NULL, NULL},
+	{BOX_jpch, 0x00010000, 0x00000001, "codestream header", NULL},
+	{BOX_jplh, 0x00010000, 0x00000001, "image header", NULL},
 	{BOX_lhdr, 0x00010000, 0x00000000, "layout object header", NULL},
 	{BOX_lobj, 0x00010000, 0x00000001, "layout object", NULL},
 	{BOX_mhdr, 0x00010000, 0x00000000, "compound image header", NULL},
+	{BOX_nlst, 0x00010000, 0x00000000, "number list", NULL},
 	{BOX_objc, 0x00010000, 0x00000001, "object", NULL},
 	{BOX_ohdr, 0x00010000, 0x00000000, "object header", NULL},
 	{BOX_page, 0x00010000, 0x00000001, "page", NULL},
@@ -744,6 +769,7 @@ static const struct box_type_info box_type_info_arr[] = {
 	{BOX_res , 0x00010000, 0x00000001, "resolution", NULL},
 	{BOX_resc, 0x00010000, 0x00000000, "capture resolution", NULL},
 	{BOX_resd, 0x00010000, 0x00000000, "default display resolution", do_box_resd},
+	{BOX_rreq, 0x00010000, 0x00000000, "reader requirements", NULL},
 	{BOX_scal, 0x00010000, 0x00000000, "object scale", NULL},
 	{BOX_sdat, 0x00010000, 0x00000001, NULL, NULL},
 	{BOX_uinf, 0x00010000, 0x00000001, "UUID info", NULL},
@@ -835,6 +861,11 @@ static void de_run_bmff(deark *c, de_module_params *mparams)
 	if(mparams && mparams->codes) {
 		if(de_strchr(mparams->codes, 'T')) {
 			d->is_jpegxt = 1;
+			skip_autodetect = 1;
+		}
+		if(de_strchr(mparams->codes, 'X')) {
+			d->is_jpx = 1;
+			d->is_jp2_jpx_jpm = 1;
 			skip_autodetect = 1;
 		}
 	}
