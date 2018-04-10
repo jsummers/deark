@@ -33,6 +33,9 @@ struct page_ctx {
 	de_byte found_sof;
 	de_int64 ncomp;
 
+	de_int64 j2c_sot_pos;
+	de_int64 j2c_sot_length;
+
 	de_byte jfif_ver_h, jfif_ver_l; // valid if(has_jfif_seg)
 	de_uint32 exif_orientation; // valid if != 0, and(has_exif_seg)
 	de_uint32 exif_version_as_uint32; // valid if != 0, and(has_exif_seg)
@@ -1413,11 +1416,15 @@ static void handler_sot(deark *c, lctx *d, struct page_ctx *pg,
 	de_int64 b;
 	de_int64 pos = pos1;
 
+	pg->j2c_sot_pos = 0;
+	pg->j2c_sot_length = 0;
 	if(len<8) return;
+
+	pg->j2c_sot_pos = pos1 - 4;
 	x = de_getui16be(pos); pos += 2;
 	de_dbg(c, "tile number: %d", (int)x);
-	x = de_getui32be(pos); pos += 4;
-	de_dbg(c, "length: %u", (unsigned int)x);
+	pg->j2c_sot_length = de_getui32be(pos); pos += 4;
+	de_dbg(c, "length: %u", (unsigned int)pg->j2c_sot_length);
 	b = de_getbyte(pos++);
 	de_dbg(c, "tile-part instance: %d", (int)b);
 	b = de_getbyte(pos++);
@@ -1567,6 +1574,17 @@ static int do_read_scan_data(deark *c, lctx *d, struct page_ctx *pg,
 	de_dbg(c, "scan data at %d", (int)pos1);
 
 	de_dbg_indent(c, 1);
+
+	if(pg->j2c_sot_length>0) {
+		// The previous SOT segment may have told us where this scan data ends.
+		*bytes_consumed = pg->j2c_sot_pos + pg->j2c_sot_length - pos1;
+		if(*bytes_consumed < 0) *bytes_consumed = 0;
+		de_dbg(c, "[%"INT64_FMT" bytes of scan data at %"INT64_FMT"]",
+			*bytes_consumed, pos1);
+		pg->j2c_sot_pos = 0;
+		pg->j2c_sot_length = 0;
+		goto done;
+	}
 
 	while(1) {
 		if(pos >= c->infile->len) goto done;
