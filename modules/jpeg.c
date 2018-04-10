@@ -1409,6 +1409,69 @@ done:
 	;
 }
 
+static void handler_tlm(deark *c, lctx *d, struct page_ctx *pg,
+	const struct marker_info *mi, de_int64 pos1, de_int64 len)
+{
+	de_byte b;
+	de_byte item_size_code;
+	de_int64 item_size;
+	de_int64 pos = pos1;
+	de_byte t_code, p_code;
+	de_int64 t_size, p_size;
+	de_int64 num_items;
+	de_int64 k;
+
+	if(len<2) goto done;
+	b = de_getbyte(pos++);
+	de_dbg(c, "index: %d", (int)b);
+
+	item_size_code = (de_int64)de_getbyte(pos++);
+	de_dbg(c, "item size code: 0x%02x", (unsigned int)item_size_code);
+	de_dbg_indent(c, 1);
+	t_code = (item_size_code & 0x30)>>4;
+	de_dbg(c, "size code for number field: %d", (int)t_code);
+	p_code = (item_size_code & 0x40)>>6;
+	de_dbg(c, "size code for length field: %d", (int)p_code);
+	de_dbg_indent(c, -1);
+	if(t_code==0) t_size=0;
+	else if(t_code==1) t_size = 1;
+	else if(t_code==2) t_size = 2;
+	else goto done;
+	if(p_code==0) p_size = 2;
+	else p_size = 4;
+	item_size = t_size + p_size;
+
+	num_items = (pos1 + len - pos)/item_size;
+	de_dbg(c, "calculated number of items: %d", (int)num_items);
+
+	for(k=0; k<num_items; k++) {
+		de_int64 x;
+		de_dbg(c, "item[%d] at %"INT64_FMT, (int)k, pos);
+		de_dbg_indent(c, 1);
+		if(t_size>0) {
+			if(t_size==1) {
+				x = (de_int64)de_getbyte(pos++);
+			}
+			else {
+				x = de_getui16be(pos); pos += 2;
+			}
+			de_dbg(c, "tile number: %u", (unsigned int)x);
+		}
+
+		if(p_size==2) {
+			x = de_getui16be(pos); pos += 2;
+		}
+		else {
+			x = de_getui32be(pos); pos += 4;
+		}
+		de_dbg(c, "tile length: %u", (unsigned int)x);
+		de_dbg_indent(c, -1);
+	}
+
+done:
+	;
+}
+
 static void handler_sot(deark *c, lctx *d, struct page_ctx *pg,
 	const struct marker_info *mi, de_int64 pos1, de_int64 len)
 {
@@ -1437,7 +1500,7 @@ static const struct marker_info1 marker_info1_arr[] = {
 	{0x51, 0x0004, "SIZ", "Image and tile size", handler_siz},
 	{0x52, 0x0004, "COD", "Coding style default", NULL},
 	{0x53, 0x0004, "COC", "Coding style component", NULL},
-	{0x55, 0x0004, "TLM", "Tile-part lengths, main header", NULL},
+	{0x55, 0x0004, "TLM", "Tile-part lengths, main header", handler_tlm},
 	{0x57, 0x0004, "PLM", "Packet length, main header", NULL},
 	{0x58, 0x0004, "PLT", "Packet length, tile-part header", NULL},
 	{0x5c, 0x0004, "QCD", "Quantization default", NULL},
