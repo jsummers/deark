@@ -54,14 +54,17 @@ struct box_type_info {
 
 #define BOX_ftyp 0x66747970U
 #define BOX_grpl 0x6772706cU
+#define BOX_hvcC 0x68766343U
 #define BOX_idat 0x69646174U
 #define BOX_iinf 0x69696e66U
 #define BOX_iloc 0x696c6f63U
+#define BOX_infe 0x696e6665U
 #define BOX_ipco 0x6970636fU
 #define BOX_ipma 0x69706d61U
 #define BOX_ipro 0x6970726fU
 #define BOX_iprp 0x69707270U
 #define BOX_iref 0x69726566U
+#define BOX_ispe 0x69737065U
 #define BOX_jP   0x6a502020U
 #define BOX_jp2c 0x6a703263U
 #define BOX_mdat 0x6d646174U
@@ -685,6 +688,30 @@ static void do_box_dtbl(deark *c, lctx *d, struct de_boxesctx *bctx)
 	bctx->extra_bytes_before_children = 2;
 }
 
+static void do_box_iinf(deark *c, lctx *d, struct de_boxesctx *bctx)
+{
+	de_int64 nitems;
+	de_byte version;
+	de_int64 pos = bctx->payload_pos;
+
+	do_read_version_and_flags(c, d, bctx, &version, NULL, 1);
+	pos += 4;
+
+	if(version==0) {
+		nitems = dbuf_getui16be(bctx->f, pos);
+		pos += 2;
+	}
+	else {
+		nitems = dbuf_getui32be(bctx->f, pos);
+		pos += 4;
+	}
+	de_dbg(c, "number of items: %d", (int)nitems);
+
+	bctx->num_children_is_known = 1;
+	bctx->num_children = nitems;
+	bctx->extra_bytes_before_children = pos - bctx->payload_pos;
+}
+
 static void do_box_xml(deark *c, lctx *d, struct de_boxesctx *bctx)
 {
 	// TODO: Detect the specific XML format, and use it to choose a better
@@ -785,13 +812,16 @@ static const struct box_type_info box_type_info_arr[] = {
 	{BOX_SPEC, 0x00040000, 0x00000001, NULL, NULL},
 	{BOX_grpl, 0x00080000, 0x00000000, "groups list", NULL},
 	{BOX_idat, 0x00080000, 0x00000000, "item data", NULL},
-	{BOX_iinf, 0x00080000, 0x00000000, "item info", NULL},
+	{BOX_iinf, 0x00080000, 0x00000001, "item info", do_box_iinf},
 	{BOX_iloc, 0x00080000, 0x00000000, "item location", NULL},
+	{BOX_infe, 0x00080000, 0x00000000, "item info entry", NULL},
 	{BOX_ipco, 0x00080000, 0x00000001, "item property container", NULL},
 	{BOX_ipma, 0x00080000, 0x00000000, "item property association", NULL},
 	{BOX_ipro, 0x00080000, 0x00000000, "item protection", NULL},
 	{BOX_iprp, 0x00080000, 0x00000001, "item properties", NULL},
 	{BOX_iref, 0x00080000, 0x00000000, "item reference", NULL},
+	{BOX_ispe, 0x00080000, 0x00000000, "image spatial extents", NULL},
+	{BOX_hvcC, 0x00080000, 0x00000000, "HEVC configuration", NULL},
 	{BOX_pitm, 0x00080000, 0x00000000, "primary item", NULL}
 };
 

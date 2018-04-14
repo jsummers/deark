@@ -683,7 +683,7 @@ double dbuf_fmtutil_read_fixed_16_16(dbuf *f, de_int64 pos)
 }
 
 static void do_box_sequence(deark *c, struct de_boxesctx *bctx,
-	de_int64 pos1, de_int64 len, int level);
+	de_int64 pos1, de_int64 len, de_int64 max_nboxes, int level);
 
 // Make a printable version of a UUID (or a big-endian GUID).
 // Caller supplies s.
@@ -815,12 +815,13 @@ static int do_box(deark *c, struct de_boxesctx *bctx, de_int64 pos, de_int64 len
 
 	if(bctx->is_superbox) {
 		de_int64 children_pos, children_len;
+		de_int64 max_nchildren;
 
 		de_dbg_indent(c, 1);
 		children_pos = pos+header_len + bctx->extra_bytes_before_children;
 		children_len = payload_len - bctx->extra_bytes_before_children;
-		// TODO: Respect bctx->num_children
-		do_box_sequence(c, bctx, children_pos, children_len, level+1);
+		max_nchildren = (bctx->num_children_is_known) ? bctx->num_children : -1;
+		do_box_sequence(c, bctx, children_pos, children_len, max_nchildren, level+1);
 		de_dbg_indent(c, -1);
 	}
 
@@ -828,13 +829,15 @@ static int do_box(deark *c, struct de_boxesctx *bctx, de_int64 pos, de_int64 len
 	return 1;
 }
 
+// max_nboxes: -1 = no maximum
 static void do_box_sequence(deark *c, struct de_boxesctx *bctx,
-	de_int64 pos1, de_int64 len, int level)
+	de_int64 pos1, de_int64 len, de_int64 max_nboxes, int level)
 {
 	de_int64 pos;
 	de_int64 box_len;
 	de_int64 endpos;
 	int ret;
+	de_int64 box_count = 0;
 
 	if(level >= 32) { // An arbitrary recursion limit.
 		return;
@@ -844,8 +847,10 @@ static void do_box_sequence(deark *c, struct de_boxesctx *bctx,
 	endpos = pos1 + len;
 
 	while(pos < endpos) {
+		if(max_nboxes>=0 && box_count>=max_nboxes) break;
 		ret = do_box(c, bctx, pos, endpos-pos, level, &box_len);
 		if(!ret) break;
+		box_count++;
 		pos += box_len;
 	}
 }
@@ -879,7 +884,7 @@ int de_fmtutil_default_box_handler(deark *c, struct de_boxesctx *bctx)
 void de_fmtutil_read_boxes_format(deark *c, struct de_boxesctx *bctx)
 {
 	if(!bctx->f || !bctx->handle_box_fn) return; // Internal error
-	do_box_sequence(c, bctx, 0, bctx->f->len, 0);
+	do_box_sequence(c, bctx, 0, bctx->f->len, -1, 0);
 }
 
 static de_byte scale_7_to_255(de_byte x)
