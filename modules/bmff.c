@@ -462,7 +462,7 @@ static void do_box_stsd(deark *c, lctx *d, struct de_boxesctx *bctx)
 static void do_box_meta(deark *c, lctx *d, struct de_boxesctx *bctx)
 {
 	do_read_version_and_flags(c, d, bctx, NULL, NULL, 1);
-	bctx->has_version_and_flags = 1;
+	bctx->extra_bytes_before_children = 4;
 }
 
 static void do_box_jp2c(deark *c, lctx *d, struct de_boxesctx *bctx)
@@ -676,19 +676,13 @@ static void do_box_url(deark *c, lctx *d, struct de_boxesctx *bctx)
 static void do_box_dtbl(deark *c, lctx *d, struct de_boxesctx *bctx)
 {
 	de_int64 ndr;
-	de_int64 upos, ulen;
 
 	ndr = dbuf_getui16be(bctx->f, bctx->payload_pos);
 	de_dbg(c, "number of data references: %d", (int)ndr);
-	upos = bctx->payload_pos+2;
-	ulen = bctx->payload_len-2;
 
-	if(ndr>0 && ulen>0) {
-		// Ugh. The dtbl box violates the principle that only superboxes shall
-		// contain other boxes.
-		// TODO: Invent a better way to handle this.
-		de_run_module_by_id_on_slice2(c, "bmff", "X", bctx->f, upos, ulen);
-	}
+	bctx->num_children_is_known = 1;
+	bctx->num_children = ndr;
+	bctx->extra_bytes_before_children = 2;
 }
 
 static void do_box_xml(deark *c, lctx *d, struct de_boxesctx *bctx)
@@ -758,7 +752,7 @@ static const struct box_type_info box_type_info_arr[] = {
 	{BOX_colr, 0x00010000, 0x00000000, "colour specification", do_box_colr},
 	{BOX_comp, 0x00010000, 0x00000001, NULL, NULL},
 	{BOX_drep, 0x00010000, 0x00000001, NULL, NULL},
-	{BOX_dtbl, 0x00010000, 0x00000000, "data reference", do_box_dtbl},
+	{BOX_dtbl, 0x00010000, 0x00000001, "data reference", do_box_dtbl},
 	{BOX_flst, 0x00010000, 0x00000000, "fragment list", NULL},
 	{BOX_ftbl, 0x00010000, 0x00000001, "fragment table", NULL},
 	{BOX_ihdr, 0x00010000, 0x00000000, "image header", do_box_ihdr},

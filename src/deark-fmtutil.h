@@ -108,7 +108,9 @@ struct de_boxesctx {
 	// To be filled in by handle_box_fn:
 	int handled;
 	int is_superbox;
-	int has_version_and_flags;
+	int num_children_is_known;
+	de_int64 num_children; // valid if (is_superbox) && (num_children_is_known)
+	de_int64 extra_bytes_before_children; // valid if (is_superbox)
 };
 
 double dbuf_fmtutil_read_fixed_16_16(dbuf *f, de_int64 pos);
