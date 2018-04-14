@@ -53,11 +53,21 @@ struct box_type_info {
 #define BRAND_qt   0x71742020U
 
 #define BOX_ftyp 0x66747970U
+#define BOX_grpl 0x6772706cU
+#define BOX_idat 0x69646174U
+#define BOX_iinf 0x69696e66U
+#define BOX_iloc 0x696c6f63U
+#define BOX_ipco 0x6970636fU
+#define BOX_ipma 0x69706d61U
+#define BOX_ipro 0x6970726fU
+#define BOX_iprp 0x69707270U
+#define BOX_iref 0x69726566U
 #define BOX_jP   0x6a502020U
 #define BOX_jp2c 0x6a703263U
 #define BOX_mdat 0x6d646174U
 #define BOX_mdhd 0x6d646864U
 #define BOX_mvhd 0x6d766864U
+#define BOX_pitm 0x7069746dU
 #define BOX_stsd 0x73747364U
 #define BOX_tkhd 0x746b6864U
 #define BOX_uuid 0x75756964U
@@ -698,13 +708,13 @@ static const struct box_type_info box_type_info_arr[] = {
 	{BOX_mdat, 0x00080001, 0x00000000, "media data", NULL},
 	{BOX_cinf, 0x00000001, 0x00000001, "complete track information", NULL},
 	{BOX_clip, 0x00000001, 0x00000001, NULL, NULL},
-	{BOX_dinf, 0x00000001, 0x00000001, "data information", NULL},
+	{BOX_dinf, 0x00080001, 0x00000001, "data information", NULL},
 	{BOX_dref, 0x00000001, 0x00000000, "data reference", NULL},
 	{BOX_edts, 0x00000001, 0x00000001, "edit", NULL},
 	{BOX_fdsa, 0x00000001, 0x00000001, NULL, NULL},
 	{BOX_fiin, 0x00000001, 0x00000001, "FD item information", NULL},
 	{BOX_free, 0x00090001, 0x00000000, "free space", NULL},
-	{BOX_hdlr, 0x00000001, 0x00000000, "handler reference", NULL},
+	{BOX_hdlr, 0x00080001, 0x00000000, "handler reference", NULL},
 	{BOX_hinf, 0x00000001, 0x00000001, NULL, NULL},
 	{BOX_hmhd, 0x00000001, 0x00000000, "hint media header", NULL},
 	{BOX_hnti, 0x00000001, 0x00000001, NULL, NULL},
@@ -778,7 +788,17 @@ static const struct box_type_info box_type_info_arr[] = {
 	{BOX_xml , 0x00010008, 0x00000000, "XML", do_box_xml},
 	{BOX_LCHK, 0x00040000, 0x00000000, "checksum", NULL},
 	{BOX_RESI, 0x00040000, 0x00000000, "residual codestream", NULL},
-	{BOX_SPEC, 0x00040000, 0x00000001, NULL, NULL}
+	{BOX_SPEC, 0x00040000, 0x00000001, NULL, NULL},
+	{BOX_grpl, 0x00080000, 0x00000000, "groups list", NULL},
+	{BOX_idat, 0x00080000, 0x00000000, "item data", NULL},
+	{BOX_iinf, 0x00080000, 0x00000000, "item info", NULL},
+	{BOX_iloc, 0x00080000, 0x00000000, "item location", NULL},
+	{BOX_ipco, 0x00080000, 0x00000001, "item property container", NULL},
+	{BOX_ipma, 0x00080000, 0x00000000, "item property association", NULL},
+	{BOX_ipro, 0x00080000, 0x00000000, "item protection", NULL},
+	{BOX_iprp, 0x00080000, 0x00000001, "item properties", NULL},
+	{BOX_iref, 0x00080000, 0x00000000, "item reference", NULL},
+	{BOX_pitm, 0x00080000, 0x00000000, "primary item", NULL}
 };
 
 static const struct box_type_info *find_box_type_info(deark *c, lctx *d,
