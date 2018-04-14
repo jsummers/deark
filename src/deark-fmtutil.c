@@ -816,12 +816,17 @@ static int do_box(deark *c, struct de_boxesctx *bctx, de_int64 pos, de_int64 len
 	if(bctx->is_superbox) {
 		de_int64 children_pos, children_len;
 		de_int64 max_nchildren;
+		de_uint32 old_parent;
 
 		de_dbg_indent(c, 1);
 		children_pos = pos+header_len + bctx->extra_bytes_before_children;
 		children_len = payload_len - bctx->extra_bytes_before_children;
 		max_nchildren = (bctx->num_children_is_known) ? bctx->num_children : -1;
+		// TODO: Make this less of a hack.
+		old_parent = bctx->parent_boxtype;
+		bctx->parent_boxtype = bctx->boxtype;
 		do_box_sequence(c, bctx, children_pos, children_len, max_nchildren, level+1);
+		bctx->parent_boxtype = old_parent;
 		de_dbg_indent(c, -1);
 	}
 

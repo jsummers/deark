@@ -93,6 +93,7 @@ struct de_boxesctx {
 	// Per-box info supplied to handle_box_fn:
 	int level;
 	de_uint32 boxtype;
+	de_uint32 parent_boxtype;
 	int is_uuid;
 	de_byte uuid[16]; // Valid only if is_uuid is set.
 	de_int64 box_pos;

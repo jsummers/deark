@@ -58,6 +58,7 @@ struct box_type_info {
 #define BOX_idat 0x69646174U
 #define BOX_iinf 0x69696e66U
 #define BOX_iloc 0x696c6f63U
+#define BOX_ilst 0x696c7374U
 #define BOX_infe 0x696e6665U
 #define BOX_ipco 0x6970636fU
 #define BOX_ipma 0x69706d61U
@@ -739,6 +740,7 @@ static const struct box_type_info box_type_info_arr[] = {
 	{BOX_hinf, 0x00000001, 0x00000001, NULL, NULL},
 	{BOX_hmhd, 0x00000001, 0x00000000, "hint media header", NULL},
 	{BOX_hnti, 0x00000001, 0x00000001, NULL, NULL},
+	{BOX_ilst, 0x00000001, 0x00000001, "metadata item list", NULL},
 	{BOX_matt, 0x00000001, 0x00000001, NULL, NULL},
 	{BOX_mdhd, 0x00000001, 0x00000000, "media header", do_box_mdhd},
 	{BOX_mdia, 0x00000001, 0x00000001, "media", NULL},
@@ -882,6 +884,9 @@ static int my_box_handler(deark *c, struct de_boxesctx *bctx)
 	bti = (const struct box_type_info *)bctx->box_userdata;
 
 	if(bti && (bti->flags2 & 0x1)) {
+		bctx->is_superbox = 1;
+	}
+	else if(d->is_bmff && bctx->parent_boxtype==BOX_ilst) {
 		bctx->is_superbox = 1;
 	}
 
