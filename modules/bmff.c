@@ -913,7 +913,7 @@ static int my_box_handler(deark *c, struct de_boxesctx *bctx)
 	if(bti && (bti->flags2 & 0x1)) {
 		curbox->is_superbox = 1;
 	}
-	else if(d->is_bmff && curbox->parent_boxtype==BOX_ilst) {
+	else if(d->is_bmff && curbox->parent && (curbox->parent->boxtype==BOX_ilst)) {
 		curbox->is_superbox = 1;
 	}
 

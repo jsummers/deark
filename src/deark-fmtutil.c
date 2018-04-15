@@ -716,16 +716,20 @@ static int do_box(deark *c, struct de_boxesctx *bctx, de_int64 pos, de_int64 len
 	struct de_fourcc box4cc;
 	char uuid_string[50];
 	int ret;
-	struct de_boxdata *curbox = bctx->curbox;
+	int retval = 0;
+	struct de_boxdata *parentbox;
+	struct de_boxdata *curbox;
+
+	parentbox = bctx->curbox;
+	bctx->curbox = de_malloc(c, sizeof(struct de_boxdata));
+	curbox = bctx->curbox;
+	curbox->parent = parentbox;
 
 	if(len<8) {
 		de_dbg(c, "(ignoring %d extra bytes at %"INT64_FMT")", (int)len, pos);
-		return 0;
+		goto done;
 	}
 
-	curbox->is_uuid = 0;
-	curbox->box_userdata = NULL;
-	curbox->box_name = NULL;
 	size32 = dbuf_getui32be(bctx->f, pos);
 	dbuf_read_fourcc(bctx->f, pos+4, &box4cc, 0);
 	curbox->boxtype = box4cc.id;
@@ -741,16 +745,16 @@ static int do_box(deark *c, struct de_boxesctx *bctx, de_int64 pos, de_int64 len
 	else if(size32==1) {
 		if(len<16) {
 			de_dbg(c, "(ignoring %d extra bytes at %"INT64_FMT")", (int)len, pos);
-			return 0;
+			goto done;
 		}
 		header_len = 16;
 		size64 = dbuf_geti64be(bctx->f, pos+8);
-		if(size64<16) return 0;
+		if(size64<16) goto done;
 		payload_len = size64-16;
 	}
 	else {
 		de_err(c, "Invalid or unsupported box format");
-		return 0;
+		goto done;
 	}
 
 	total_len = header_len + payload_len;
@@ -761,10 +765,6 @@ static int do_box(deark *c, struct de_boxesctx *bctx, de_int64 pos, de_int64 len
 	}
 
 	curbox->level = level;
-	curbox->is_superbox = 0; // Default value. Client can change it.
-	curbox->num_children_is_known = 0;
-	curbox->num_children = 0;
-	curbox->extra_bytes_before_children = 0; // Default value. Client can change it.
 	curbox->box_pos = pos;
 	curbox->box_len = total_len;
 	curbox->payload_pos = pos+header_len;
@@ -806,33 +806,33 @@ static int do_box(deark *c, struct de_boxesctx *bctx, de_int64 pos, de_int64 len
 			"(box at %"INT64_FMT" ends at %"INT64_FMT", "
 			"parent ends at %"INT64_FMT")",
 			pos, pos+total_len, pos+len);
-		return 0;
+		goto done;
 	}
 
 	de_dbg_indent(c, 1);
 	ret = bctx->handle_box_fn(c, bctx);
 	de_dbg_indent(c, -1);
-	if(!ret) return 0;
+	if(!ret) goto done;
 
 	if(curbox->is_superbox) {
 		de_int64 children_pos, children_len;
 		de_int64 max_nchildren;
-		de_uint32 old_parent;
 
 		de_dbg_indent(c, 1);
 		children_pos = pos+header_len + curbox->extra_bytes_before_children;
 		children_len = payload_len - curbox->extra_bytes_before_children;
 		max_nchildren = (curbox->num_children_is_known) ? curbox->num_children : -1;
-		// TODO: Make this less of a hack.
-		old_parent = curbox->parent_boxtype;
-		curbox->parent_boxtype = curbox->boxtype;
 		do_box_sequence(c, bctx, children_pos, children_len, max_nchildren, level+1);
-		curbox->parent_boxtype = old_parent;
 		de_dbg_indent(c, -1);
 	}
 
 	*pbytes_consumed = total_len;
-	return 1;
+	retval = 1;
+
+done:
+	de_free(c, bctx->curbox);
+	bctx->curbox = parentbox; // Restore the curbox pointer
+	return retval;
 }
 
 // max_nboxes: -1 = no maximum
@@ -892,10 +892,8 @@ int de_fmtutil_default_box_handler(deark *c, struct de_boxesctx *bctx)
 void de_fmtutil_read_boxes_format(deark *c, struct de_boxesctx *bctx)
 {
 	if(!bctx->f || !bctx->handle_box_fn) return; // Internal error
-	bctx->curbox = de_malloc(c, sizeof(struct de_boxdata));
+	if(bctx->curbox) return; // Internal error
 	do_box_sequence(c, bctx, 0, bctx->f->len, -1, 0);
-	de_free(c, bctx->curbox);
-	bctx->curbox = NULL;
 }
 
 static de_byte scale_7_to_255(de_byte x)

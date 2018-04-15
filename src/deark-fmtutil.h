@@ -86,9 +86,9 @@ typedef void (*de_identify_box_fn)(deark *c, struct de_boxesctx *bctx);
 
 struct de_boxdata {
 	// Per-box info supplied to handle_box_fn:
+	struct de_boxdata *parent;
 	int level;
 	de_uint32 boxtype;
-	de_uint32 parent_boxtype;
 	int is_uuid;
 	de_byte uuid[16]; // Valid only if is_uuid is set.
 	de_int64 box_pos;
