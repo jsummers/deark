@@ -52,6 +52,7 @@ struct box_type_info {
 #define BRAND_mj2s 0x6d6a3273U
 #define BRAND_qt   0x71742020U
 
+#define BOX_auxC 0x61757843U
 #define BOX_ftyp 0x66747970U
 #define BOX_grpl 0x6772706cU
 #define BOX_hvcC 0x68766343U
@@ -260,6 +261,36 @@ static void do_read_version_and_flags(deark *c, lctx *d, struct de_boxesctx *bct
 	}
 	if(version) *version = version1;
 	if(flags) *flags = flags1;
+}
+
+static void do_box_hdlr(deark *c, lctx *d, struct de_boxesctx *bctx)
+{
+	de_ucstring *s = NULL;
+	struct de_boxdata *curbox = bctx->curbox;
+	de_int64 pos = curbox->payload_pos;
+	struct de_fourcc tmp4cc;
+
+	if(curbox->payload_len<4) goto done;
+	do_read_version_and_flags(c, d, bctx, NULL, NULL, 1);
+	pos += 4;
+	if(curbox->payload_len<24) goto done;
+	pos += 4; // "Predefined"
+
+	dbuf_read_fourcc(bctx->f, pos, &tmp4cc, 0);
+	de_dbg(c, "handler type: '%s'", tmp4cc.id_printable);
+	pos += 4;
+
+	pos += 12; // reserved
+	if(curbox->payload_len<25) goto done;
+	if(dbuf_getbyte(bctx->f, pos) == 0x00) goto done;
+
+	s = ucstring_create(c);
+	dbuf_read_to_ucstring_n(bctx->f, pos, curbox->payload_pos + curbox->payload_len - pos,
+		DE_DBG_MAX_STRLEN, s, DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_UTF8);
+	de_dbg(c, "metadata type name: \"%s\"", ucstring_getpsz_d(s));
+
+done:
+	ucstring_destroy(s);
 }
 
 static void do_box_tkhd(deark *c, lctx *d, struct de_boxesctx *bctx)
@@ -735,6 +766,20 @@ static void do_box_iinf(deark *c, lctx *d, struct de_boxesctx *bctx)
 	curbox->extra_bytes_before_children = pos - curbox->payload_pos;
 }
 
+static void do_box_ispe(deark *c, lctx *d, struct de_boxesctx *bctx)
+{
+	struct de_boxdata *curbox = bctx->curbox;
+	de_int64 pos = curbox->payload_pos;
+	de_int64 w, h;
+
+	if(curbox->payload_len<12) return;
+	do_read_version_and_flags(c, d, bctx, NULL, NULL, 1);
+	pos += 4;
+	w = dbuf_getui32be(bctx->f, pos); pos+=4;
+	h = dbuf_getui32be(bctx->f, pos); pos+=4;
+	de_dbg_dimensions(c, w, h);
+}
+
 static void do_box_xml(deark *c, lctx *d, struct de_boxesctx *bctx)
 {
 	struct de_boxdata *curbox = bctx->curbox;
@@ -761,7 +806,7 @@ static const struct box_type_info box_type_info_arr[] = {
 	{BOX_fdsa, 0x00000001, 0x00000001, NULL, NULL},
 	{BOX_fiin, 0x00000001, 0x00000001, "FD item information", NULL},
 	{BOX_free, 0x00090001, 0x00000000, "free space", NULL},
-	{BOX_hdlr, 0x00080001, 0x00000000, "handler reference", NULL},
+	{BOX_hdlr, 0x00080001, 0x00000000, "handler reference", do_box_hdlr},
 	{BOX_hinf, 0x00000001, 0x00000001, NULL, NULL},
 	{BOX_hmhd, 0x00000001, 0x00000000, "hint media header", NULL},
 	{BOX_hnti, 0x00000001, 0x00000001, NULL, NULL},
@@ -837,6 +882,7 @@ static const struct box_type_info box_type_info_arr[] = {
 	{BOX_LCHK, 0x00040000, 0x00000000, "checksum", NULL},
 	{BOX_RESI, 0x00040000, 0x00000000, "residual codestream", NULL},
 	{BOX_SPEC, 0x00040000, 0x00000001, NULL, NULL},
+	{BOX_auxC, 0x00080000, 0x00000000, "auxiliary type property", NULL},
 	{BOX_grpl, 0x00080000, 0x00000000, "groups list", NULL},
 	{BOX_idat, 0x00080000, 0x00000000, "item data", NULL},
 	{BOX_iinf, 0x00080000, 0x00000001, "item info", do_box_iinf},
@@ -847,7 +893,7 @@ static const struct box_type_info box_type_info_arr[] = {
 	{BOX_ipro, 0x00080000, 0x00000000, "item protection", NULL},
 	{BOX_iprp, 0x00080000, 0x00000001, "item properties", NULL},
 	{BOX_iref, 0x00080000, 0x00000000, "item reference", NULL},
-	{BOX_ispe, 0x00080000, 0x00000000, "image spatial extents", NULL},
+	{BOX_ispe, 0x00080000, 0x00000000, "image spatial extents", do_box_ispe},
 	{BOX_hvcC, 0x00080000, 0x00000000, "HEVC configuration", NULL},
 	{BOX_pitm, 0x00080000, 0x00000000, "primary item", NULL}
 };
