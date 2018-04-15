@@ -141,16 +141,17 @@ static void do_write_image(deark *c, lctx *d)
 static int quicktime_box_handler(deark *c, struct de_boxesctx *bctx)
 {
 	lctx *d = (lctx*)bctx->userdata;
+	struct de_boxdata *curbox = bctx->curbox;
 
-	if(bctx->boxtype==BOX_idat) {
+	if(curbox->boxtype==BOX_idat) {
 		d->idat_found = 1;
-		d->idat_pos = bctx->payload_pos;
-		d->idat_size = bctx->payload_len;
+		d->idat_pos = curbox->payload_pos;
+		d->idat_size = curbox->payload_len;
 	}
-	else if(bctx->boxtype==BOX_idsc) {
-		do_read_idsc(c, d, bctx->payload_pos, bctx->payload_len);
+	else if(curbox->boxtype==BOX_idsc) {
+		do_read_idsc(c, d, curbox->payload_pos, curbox->payload_len);
 	}
-	else if(bctx->is_uuid) {
+	else if(curbox->is_uuid) {
 		return de_fmtutil_default_box_handler(c, bctx);
 	}
 

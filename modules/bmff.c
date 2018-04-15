@@ -200,9 +200,11 @@ static void apply_brand(deark *c, lctx *d, de_uint32 brand_id)
 static void do_box_jP(deark *c, lctx *d, struct de_boxesctx *bctx)
 {
 	de_uint32 n;
-	if(bctx->level!=0) return;
-	if(bctx->payload_len<4) return;
-	n = (de_uint32)dbuf_getui32be(bctx->f, bctx->payload_pos);
+	struct de_boxdata *curbox = bctx->curbox;
+
+	if(curbox->level!=0) return;
+	if(curbox->payload_len<4) return;
+	n = (de_uint32)dbuf_getui32be(bctx->f, curbox->payload_pos);
 	if(n==0x0d0a870a) {
 		de_dbg(c, "found JPEG 2000 signature");
 	}
@@ -214,26 +216,27 @@ static void do_box_ftyp(deark *c, lctx *d, struct de_boxesctx *bctx)
 	de_int64 mver;
 	de_int64 num_compat_brands;
 	struct de_fourcc brand4cc;
+	struct de_boxdata *curbox = bctx->curbox;
 
-	if(bctx->payload_len<4) goto done;
-	dbuf_read_fourcc(bctx->f, bctx->payload_pos, &brand4cc, 0);
+	if(curbox->payload_len<4) goto done;
+	dbuf_read_fourcc(bctx->f, curbox->payload_pos, &brand4cc, 0);
 	d->major_brand = brand4cc.id;
 	de_dbg(c, "major brand: '%s'", brand4cc.id_printable);
-	if(bctx->level==0)
+	if(curbox->level==0)
 		apply_brand(c, d, d->major_brand);
 
-	if(bctx->payload_len<8) goto done;
-	mver = dbuf_getui32be(bctx->f, bctx->payload_pos+4);
+	if(curbox->payload_len<8) goto done;
+	mver = dbuf_getui32be(bctx->f, curbox->payload_pos+4);
 	de_dbg(c, "minor version: %u", (unsigned int)mver);
 
-	if(bctx->payload_len<12) goto done;
-	num_compat_brands = (bctx->payload_len - 8)/4;
+	if(curbox->payload_len<12) goto done;
+	num_compat_brands = (curbox->payload_len - 8)/4;
 
 	for(i=0; i<num_compat_brands; i++) {
-		dbuf_read_fourcc(bctx->f, bctx->payload_pos + 8 + i*4, &brand4cc, 0);
+		dbuf_read_fourcc(bctx->f, curbox->payload_pos + 8 + i*4, &brand4cc, 0);
 		if(brand4cc.id==0) continue; // Placeholder. Ignore.
 		de_dbg(c, "compatible brand: '%s'", brand4cc.id_printable);
-		if(bctx->level==0)
+		if(curbox->level==0)
 			apply_brand(c, d, brand4cc.id);
 	}
 
@@ -247,8 +250,9 @@ static void do_read_version_and_flags(deark *c, lctx *d, struct de_boxesctx *bct
 	de_byte version1;
 	de_uint32 flags1;
 	de_uint32 n;
+	struct de_boxdata *curbox = bctx->curbox;
 
-	n = (de_uint32)dbuf_getui32be(bctx->f, bctx->payload_pos);
+	n = (de_uint32)dbuf_getui32be(bctx->f, curbox->payload_pos);
 	version1 = (de_byte)(n>>24);
 	flags1 = n&0x00ffffff;
 	if(dbgflag) {
@@ -265,18 +269,19 @@ static void do_box_tkhd(deark *c, lctx *d, struct de_boxesctx *bctx)
 	de_int64 pos;
 	double w, h;
 	de_int64 n;
+	struct de_boxdata *curbox = bctx->curbox;
 
-	if(bctx->payload_len<4) return;
+	if(curbox->payload_len<4) return;
 
-	pos = bctx->payload_pos;
+	pos = curbox->payload_pos;
 	do_read_version_and_flags(c, d, bctx, &version, &flags, 1);
 	pos+=4;
 
 	if(version==1) {
-		if(bctx->payload_len<96) return;
+		if(curbox->payload_len<96) return;
 	}
 	else {
-		if(bctx->payload_len<84) return;
+		if(curbox->payload_len<84) return;
 	}
 
 	// creation time, mod time
@@ -323,18 +328,19 @@ static void do_box_mvhd(deark *c, lctx *d, struct de_boxesctx *bctx)
 	de_int64 n;
 	de_int64 timescale;
 	double nd;
+	struct de_boxdata *curbox = bctx->curbox;
 
-	if(bctx->payload_len<4) return;
+	if(curbox->payload_len<4) return;
 
-	pos = bctx->payload_pos;
+	pos = curbox->payload_pos;
 	do_read_version_and_flags(c, d, bctx, &version, &flags, 1);
 	pos+=4;
 
 	if(version==1) {
-		if(bctx->payload_len<112) return;
+		if(curbox->payload_len<112) return;
 	}
 	else {
-		if(bctx->payload_len<100) return;
+		if(curbox->payload_len<100) return;
 	}
 
 	// creation time, mod time
@@ -387,19 +393,20 @@ static void do_box_mdhd(deark *c, lctx *d, struct de_boxesctx *bctx)
 	de_int64 n;
 	de_int64 timescale;
 	double nd;
+	struct de_boxdata *curbox = bctx->curbox;
 
 	// TODO: Share code with do_box_mvhd()?
-	if(bctx->payload_len<4) return;
+	if(curbox->payload_len<4) return;
 
-	pos = bctx->payload_pos;
+	pos = curbox->payload_pos;
 	do_read_version_and_flags(c, d, bctx, &version, &flags, 1);
 	pos+=4;
 
 	if(version==1) {
-		if(bctx->payload_len<36) return;
+		if(curbox->payload_len<36) return;
 	}
 	else {
-		if(bctx->payload_len<24) return;
+		if(curbox->payload_len<24) return;
 	}
 
 	// creation time, mod time
@@ -436,10 +443,11 @@ static void do_box_stsd(deark *c, lctx *d, struct de_boxesctx *bctx)
 	de_int64 num_entries;
 	de_int64 entry_size;
 	struct de_fourcc fmt4cc;
+	struct de_boxdata *curbox = bctx->curbox;
 
-	if(bctx->payload_len<8) return;
+	if(curbox->payload_len<8) return;
 
-	pos = bctx->payload_pos;
+	pos = curbox->payload_pos;
 	do_read_version_and_flags(c, d, bctx, &version, &flags, 1);
 	pos += 4;
 	if(version!=0) return;
@@ -449,7 +457,7 @@ static void do_box_stsd(deark *c, lctx *d, struct de_boxesctx *bctx)
 	pos += 4;
 
 	while(1) {
-		if(pos + 16 >= bctx->payload_pos + bctx->payload_len) break;
+		if(pos + 16 >= curbox->payload_pos + curbox->payload_len) break;
 		entry_size = dbuf_getui32be(bctx->f, pos);
 		de_dbg(c, "sample description entry at %d, len=%d", (int)pos, (int)entry_size);
 		if(entry_size<16) break;
@@ -465,23 +473,30 @@ static void do_box_stsd(deark *c, lctx *d, struct de_boxesctx *bctx)
 
 static void do_box_meta(deark *c, lctx *d, struct de_boxesctx *bctx)
 {
+	struct de_boxdata *curbox = bctx->curbox;
+
 	do_read_version_and_flags(c, d, bctx, NULL, NULL, 1);
-	bctx->extra_bytes_before_children = 4;
+	curbox->extra_bytes_before_children = 4;
 }
 
 static void do_box_jp2c(deark *c, lctx *d, struct de_boxesctx *bctx)
 {
-	de_dbg(c, "JPEG 2000 codestream at %d, len=%d", (int)bctx->payload_pos, (int)bctx->payload_len);
-	dbuf_create_file_from_slice(bctx->f, bctx->payload_pos, bctx->payload_len, "j2c", NULL, 0);
+	struct de_boxdata *curbox = bctx->curbox;
+
+	de_dbg(c, "JPEG 2000 codestream at %d, len=%d",
+		(int)curbox->payload_pos, (int)curbox->payload_len);
+	dbuf_create_file_from_slice(bctx->f, curbox->payload_pos, curbox->payload_len,
+		"j2c", NULL, 0);
 }
 
 static void do_box_resd(deark *c, lctx *d, struct de_boxesctx *bctx)
 {
 	de_int64 vn, vd, hn, hd;
 	int ve, he;
-	de_int64 pos = bctx->payload_pos;
+	struct de_boxdata *curbox = bctx->curbox;
+	de_int64 pos = curbox->payload_pos;
 
-	if(bctx->payload_len<10) return;
+	if(curbox->payload_len<10) return;
 	vn = dbuf_getui16be(bctx->f, pos); pos += 2;
 	vd = dbuf_getui16be(bctx->f, pos); pos += 2;
 	hn = dbuf_getui16be(bctx->f, pos); pos += 2;
@@ -523,10 +538,11 @@ static void do_box_ihdr(deark *c, lctx *d, struct de_boxesctx *bctx)
 {
 	de_int64 w, h, n;
 	de_byte b;
-	de_int64 pos = bctx->payload_pos;
+	struct de_boxdata *curbox = bctx->curbox;
+	de_int64 pos = curbox->payload_pos;
 	char tmps[80];
 
-	if(bctx->payload_len<14) return;
+	if(curbox->payload_len<14) return;
 	h = dbuf_getui32be(bctx->f, pos);
 	pos += 4;
 	w = dbuf_getui32be(bctx->f, pos);
@@ -573,7 +589,8 @@ static const char *get_channel_type_name(de_int64 t)
 static void do_box_cdef(deark *c, lctx *d, struct de_boxesctx *bctx)
 {
 	de_int64 ndescs;
-	de_int64 pos = bctx->payload_pos;
+	struct de_boxdata *curbox = bctx->curbox;
+	de_int64 pos = curbox->payload_pos;
 	de_int64 k;
 
 	ndescs = dbuf_getui16be(bctx->f, pos);
@@ -583,7 +600,7 @@ static void do_box_cdef(deark *c, lctx *d, struct de_boxesctx *bctx)
 	for(k=0; k<ndescs; k++) {
 		de_int64 idx, typ, asoc;
 
-		if(pos+6 > bctx->payload_pos + bctx->payload_len) break;
+		if(pos+6 > curbox->payload_pos + curbox->payload_len) break;
 		de_dbg(c, "channel description[%d] at %"INT64_FMT, (int)k, pos);
 		de_dbg_indent(c, 1);
 		idx = dbuf_getui16be(bctx->f, pos); pos += 2;
@@ -599,10 +616,11 @@ static void do_box_cdef(deark *c, lctx *d, struct de_boxesctx *bctx)
 static void do_box_colr(deark *c, lctx *d, struct de_boxesctx *bctx)
 {
 	de_byte meth;
-	de_int64 pos = bctx->payload_pos;
+	struct de_boxdata *curbox = bctx->curbox;
+	de_int64 pos = curbox->payload_pos;
 	const char *s;
 
-	if(bctx->payload_len<3) goto done;
+	if(curbox->payload_len<3) goto done;
 	meth = dbuf_getbyte(bctx->f, pos++);
 	switch(meth) {
 	case 1: s="enumerated"; break;
@@ -618,7 +636,7 @@ static void do_box_colr(deark *c, lctx *d, struct de_boxesctx *bctx)
 
 	if(meth==1) {
 		unsigned int enumcs;
-		if(bctx->payload_len<7) goto done;
+		if(curbox->payload_len<7) goto done;
 		enumcs = (unsigned int)dbuf_getui32be(bctx->f, pos);
 		pos += 4;
 		switch(enumcs) {
@@ -632,7 +650,7 @@ static void do_box_colr(deark *c, lctx *d, struct de_boxesctx *bctx)
 	}
 	else if(meth==2 || meth==3) {
 		dbuf_create_file_from_slice(bctx->f,
-			bctx->payload_pos+3, bctx->payload_len-3,
+			curbox->payload_pos+3, curbox->payload_len-3,
 			"icc", NULL, DE_CREATEFLAG_IS_AUX);
 	}
 
@@ -642,7 +660,8 @@ done:
 
 static void do_box_ulst(deark *c, lctx *d, struct de_boxesctx *bctx)
 {
-	de_int64 pos = bctx->payload_pos;
+	struct de_boxdata *curbox = bctx->curbox;
+	de_int64 pos = curbox->payload_pos;
 	de_int64 nuuids;
 	de_int64 k;
 	de_byte ubuf[16];
@@ -653,7 +672,7 @@ static void do_box_ulst(deark *c, lctx *d, struct de_boxesctx *bctx)
 	pos += 2;
 
 	for(k=0; k<nuuids; k++) {
-		if(pos+16 > bctx->payload_pos + bctx->payload_len) break;
+		if(pos+16 > curbox->payload_pos + curbox->payload_len) break;
 		dbuf_read(bctx->f, ubuf, pos, 16);
 		de_fmtutil_render_uuid(c, ubuf, uuid_string, sizeof(uuid_string));
 		de_dbg(c, "UUID[%d]: {%s}", (int)k, uuid_string);
@@ -664,14 +683,15 @@ static void do_box_ulst(deark *c, lctx *d, struct de_boxesctx *bctx)
 static void do_box_url(deark *c, lctx *d, struct de_boxesctx *bctx)
 {
 	de_ucstring *s = NULL;
-	de_int64 pos = bctx->payload_pos;
+	struct de_boxdata *curbox = bctx->curbox;
+	de_int64 pos = curbox->payload_pos;
 
 	do_read_version_and_flags(c, d, bctx, NULL, NULL, 1);
 	pos += 4;
 
 	s = ucstring_create(c);
 	dbuf_read_to_ucstring_n(bctx->f,
-		pos, bctx->payload_pos + bctx->payload_len - pos, DE_DBG_MAX_STRLEN,
+		pos, curbox->payload_pos + curbox->payload_len - pos, DE_DBG_MAX_STRLEN,
 		s, DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_UTF8);
 	de_dbg(c, "URL: \"%s\"", ucstring_getpsz_d(s));
 	ucstring_destroy(s);
@@ -680,20 +700,22 @@ static void do_box_url(deark *c, lctx *d, struct de_boxesctx *bctx)
 static void do_box_dtbl(deark *c, lctx *d, struct de_boxesctx *bctx)
 {
 	de_int64 ndr;
+	struct de_boxdata *curbox = bctx->curbox;
 
-	ndr = dbuf_getui16be(bctx->f, bctx->payload_pos);
+	ndr = dbuf_getui16be(bctx->f, curbox->payload_pos);
 	de_dbg(c, "number of data references: %d", (int)ndr);
 
-	bctx->num_children_is_known = 1;
-	bctx->num_children = ndr;
-	bctx->extra_bytes_before_children = 2;
+	curbox->num_children_is_known = 1;
+	curbox->num_children = ndr;
+	curbox->extra_bytes_before_children = 2;
 }
 
 static void do_box_iinf(deark *c, lctx *d, struct de_boxesctx *bctx)
 {
 	de_int64 nitems;
 	de_byte version;
-	de_int64 pos = bctx->payload_pos;
+	struct de_boxdata *curbox = bctx->curbox;
+	de_int64 pos = curbox->payload_pos;
 
 	do_read_version_and_flags(c, d, bctx, &version, NULL, 1);
 	pos += 4;
@@ -708,17 +730,20 @@ static void do_box_iinf(deark *c, lctx *d, struct de_boxesctx *bctx)
 	}
 	de_dbg(c, "number of items: %d", (int)nitems);
 
-	bctx->num_children_is_known = 1;
-	bctx->num_children = nitems;
-	bctx->extra_bytes_before_children = pos - bctx->payload_pos;
+	curbox->num_children_is_known = 1;
+	curbox->num_children = nitems;
+	curbox->extra_bytes_before_children = pos - curbox->payload_pos;
 }
 
 static void do_box_xml(deark *c, lctx *d, struct de_boxesctx *bctx)
 {
+	struct de_boxdata *curbox = bctx->curbox;
+
 	// TODO: Detect the specific XML format, and use it to choose a better
 	// filename.
-	de_dbg(c, "XML data at %d, len=%d", (int)bctx->payload_pos, (int)bctx->payload_len);
-	dbuf_create_file_from_slice(bctx->f, bctx->payload_pos, bctx->payload_len, "xml", NULL, DE_CREATEFLAG_IS_AUX);
+	de_dbg(c, "XML data at %d, len=%d", (int)curbox->payload_pos, (int)curbox->payload_len);
+	dbuf_create_file_from_slice(bctx->f, curbox->payload_pos, curbox->payload_len,
+		"xml", NULL, DE_CREATEFLAG_IS_AUX);
 }
 
 // The first line that matches will be used, so items related to more-specific
@@ -855,19 +880,20 @@ static void my_box_id_fn(deark *c, struct de_boxesctx *bctx)
 {
 	const struct box_type_info *bti;
 	lctx *d = (lctx*)bctx->userdata;
+	struct de_boxdata *curbox = bctx->curbox;
 
-	if(bctx->boxtype != BOX_uuid) {
-		bctx->box_name = "?";
+	if(curbox->boxtype != BOX_uuid) {
+		curbox->box_name = "?";
 	}
 
-	bti = find_box_type_info(c, d, bctx->boxtype, bctx->level);
+	bti = find_box_type_info(c, d, curbox->boxtype, curbox->level);
 	if(bti) {
 		// So that we don't have to run "find" again in my_box_handler(),
 		// record it here.
-		bctx->box_userdata = (void*)bti;
+		curbox->box_userdata = (void*)bti;
 
 		if(bti->name) {
-			bctx->box_name = bti->name;
+			curbox->box_name = bti->name;
 		}
 	}
 }
@@ -876,18 +902,19 @@ static int my_box_handler(deark *c, struct de_boxesctx *bctx)
 {
 	const struct box_type_info *bti;
 	lctx *d = (lctx*)bctx->userdata;
+	struct de_boxdata *curbox = bctx->curbox;
 
-	if(bctx->is_uuid) {
+	if(curbox->is_uuid) {
 		return de_fmtutil_default_box_handler(c, bctx);
 	}
 
-	bti = (const struct box_type_info *)bctx->box_userdata;
+	bti = (const struct box_type_info *)curbox->box_userdata;
 
 	if(bti && (bti->flags2 & 0x1)) {
-		bctx->is_superbox = 1;
+		curbox->is_superbox = 1;
 	}
-	else if(d->is_bmff && bctx->parent_boxtype==BOX_ilst) {
-		bctx->is_superbox = 1;
+	else if(d->is_bmff && curbox->parent_boxtype==BOX_ilst) {
+		curbox->is_superbox = 1;
 	}
 
 	if(bti && bti->hfn) {

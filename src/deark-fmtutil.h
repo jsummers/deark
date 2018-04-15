@@ -84,12 +84,7 @@ struct de_boxesctx;
 typedef int (*de_handle_box_fn)(deark *c, struct de_boxesctx *bctx);
 typedef void (*de_identify_box_fn)(deark *c, struct de_boxesctx *bctx);
 
-struct de_boxesctx {
-	void *userdata;
-	dbuf *f; // Input file
-	de_identify_box_fn identify_box_fn;
-	de_handle_box_fn handle_box_fn;
-
+struct de_boxdata {
 	// Per-box info supplied to handle_box_fn:
 	int level;
 	de_uint32 boxtype;
@@ -112,6 +107,15 @@ struct de_boxesctx {
 	int num_children_is_known;
 	de_int64 num_children; // valid if (is_superbox) && (num_children_is_known)
 	de_int64 extra_bytes_before_children; // valid if (is_superbox)
+};
+
+struct de_boxesctx {
+	void *userdata;
+	dbuf *f; // Input file
+	de_identify_box_fn identify_box_fn;
+	de_handle_box_fn handle_box_fn;
+
+	struct de_boxdata *curbox;
 };
 
 double dbuf_fmtutil_read_fixed_16_16(dbuf *f, de_int64 pos);

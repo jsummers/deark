@@ -716,18 +716,19 @@ static int do_box(deark *c, struct de_boxesctx *bctx, de_int64 pos, de_int64 len
 	struct de_fourcc box4cc;
 	char uuid_string[50];
 	int ret;
+	struct de_boxdata *curbox = bctx->curbox;
 
 	if(len<8) {
 		de_dbg(c, "(ignoring %d extra bytes at %"INT64_FMT")", (int)len, pos);
 		return 0;
 	}
 
-	bctx->is_uuid = 0;
-	bctx->box_userdata = NULL;
-	bctx->box_name = NULL;
+	curbox->is_uuid = 0;
+	curbox->box_userdata = NULL;
+	curbox->box_name = NULL;
 	size32 = dbuf_getui32be(bctx->f, pos);
 	dbuf_read_fourcc(bctx->f, pos+4, &box4cc, 0);
-	bctx->boxtype = box4cc.id;
+	curbox->boxtype = box4cc.id;
 
 	if(size32>=8) {
 		header_len = 8;
@@ -754,23 +755,23 @@ static int do_box(deark *c, struct de_boxesctx *bctx, de_int64 pos, de_int64 len
 
 	total_len = header_len + payload_len;
 
-	if(bctx->boxtype==DE_BOX_uuid && payload_len>=16) {
-		bctx->is_uuid = 1;
-		dbuf_read(bctx->f, bctx->uuid, pos+header_len, 16);
+	if(curbox->boxtype==DE_BOX_uuid && payload_len>=16) {
+		curbox->is_uuid = 1;
+		dbuf_read(bctx->f, curbox->uuid, pos+header_len, 16);
 	}
 
-	bctx->level = level;
-	bctx->is_superbox = 0; // Default value. Client can change it.
-	bctx->num_children_is_known = 0;
-	bctx->num_children = 0;
-	bctx->extra_bytes_before_children = 0; // Default value. Client can change it.
-	bctx->box_pos = pos;
-	bctx->box_len = total_len;
-	bctx->payload_pos = pos+header_len;
-	bctx->payload_len = payload_len;
-	if(bctx->is_uuid) {
-		bctx->payload_pos += 16;
-		bctx->payload_len -= 16;
+	curbox->level = level;
+	curbox->is_superbox = 0; // Default value. Client can change it.
+	curbox->num_children_is_known = 0;
+	curbox->num_children = 0;
+	curbox->extra_bytes_before_children = 0; // Default value. Client can change it.
+	curbox->box_pos = pos;
+	curbox->box_len = total_len;
+	curbox->payload_pos = pos+header_len;
+	curbox->payload_len = payload_len;
+	if(curbox->is_uuid) {
+		curbox->payload_pos += 16;
+		curbox->payload_len -= 16;
 	}
 
 	if(bctx->identify_box_fn) {
@@ -780,15 +781,15 @@ static int do_box(deark *c, struct de_boxesctx *bctx, de_int64 pos, de_int64 len
 	if(c->debug_level>0) {
 		char name_str[80];
 
-		if(bctx->box_name) {
-			de_snprintf(name_str, sizeof(name_str), " (%s)", bctx->box_name);
+		if(curbox->box_name) {
+			de_snprintf(name_str, sizeof(name_str), " (%s)", curbox->box_name);
 		}
 		else {
 			name_str[0] = '\0';
 		}
 
-		if(bctx->is_uuid) {
-			de_fmtutil_render_uuid(c, bctx->uuid, uuid_string, sizeof(uuid_string));
+		if(curbox->is_uuid) {
+			de_fmtutil_render_uuid(c, curbox->uuid, uuid_string, sizeof(uuid_string));
 			de_dbg(c, "box '%s'{%s}%s at %"INT64_FMT", len=%"INT64_FMT,
 				box4cc.id_printable, uuid_string, name_str,
 				pos, total_len);
@@ -813,20 +814,20 @@ static int do_box(deark *c, struct de_boxesctx *bctx, de_int64 pos, de_int64 len
 	de_dbg_indent(c, -1);
 	if(!ret) return 0;
 
-	if(bctx->is_superbox) {
+	if(curbox->is_superbox) {
 		de_int64 children_pos, children_len;
 		de_int64 max_nchildren;
 		de_uint32 old_parent;
 
 		de_dbg_indent(c, 1);
-		children_pos = pos+header_len + bctx->extra_bytes_before_children;
-		children_len = payload_len - bctx->extra_bytes_before_children;
-		max_nchildren = (bctx->num_children_is_known) ? bctx->num_children : -1;
+		children_pos = pos+header_len + curbox->extra_bytes_before_children;
+		children_len = payload_len - curbox->extra_bytes_before_children;
+		max_nchildren = (curbox->num_children_is_known) ? curbox->num_children : -1;
 		// TODO: Make this less of a hack.
-		old_parent = bctx->parent_boxtype;
-		bctx->parent_boxtype = bctx->boxtype;
+		old_parent = curbox->parent_boxtype;
+		curbox->parent_boxtype = curbox->boxtype;
 		do_box_sequence(c, bctx, children_pos, children_len, max_nchildren, level+1);
-		bctx->parent_boxtype = old_parent;
+		curbox->parent_boxtype = old_parent;
 		de_dbg_indent(c, -1);
 	}
 
@@ -865,22 +866,24 @@ static void do_box_sequence(deark *c, struct de_boxesctx *bctx,
 // TODO: A way to identify (name) the boxes that we handle here.
 int de_fmtutil_default_box_handler(deark *c, struct de_boxesctx *bctx)
 {
-	if(bctx->is_uuid) {
-		if(!de_memcmp(bctx->uuid, "\xb1\x4b\xf8\xbd\x08\x3d\x4b\x43\xa5\xae\x8c\xd7\xd5\xa6\xce\x03", 16)) {
-			de_dbg(c, "GeoTIFF data at %d, len=%d", (int)bctx->payload_pos, (int)bctx->payload_len);
-			dbuf_create_file_from_slice(bctx->f, bctx->payload_pos, bctx->payload_len, "geo.tif", NULL, DE_CREATEFLAG_IS_AUX);
+	struct de_boxdata *curbox = bctx->curbox;
+
+	if(curbox->is_uuid) {
+		if(!de_memcmp(curbox->uuid, "\xb1\x4b\xf8\xbd\x08\x3d\x4b\x43\xa5\xae\x8c\xd7\xd5\xa6\xce\x03", 16)) {
+			de_dbg(c, "GeoTIFF data at %d, len=%d", (int)curbox->payload_pos, (int)curbox->payload_len);
+			dbuf_create_file_from_slice(bctx->f, curbox->payload_pos, curbox->payload_len, "geo.tif", NULL, DE_CREATEFLAG_IS_AUX);
 		}
-		else if(!de_memcmp(bctx->uuid, "\xbe\x7a\xcf\xcb\x97\xa9\x42\xe8\x9c\x71\x99\x94\x91\xe3\xaf\xac", 16)) {
-			de_dbg(c, "XMP data at %d, len=%d", (int)bctx->payload_pos, (int)bctx->payload_len);
-			dbuf_create_file_from_slice(bctx->f, bctx->payload_pos, bctx->payload_len, "xmp", NULL, DE_CREATEFLAG_IS_AUX);
+		else if(!de_memcmp(curbox->uuid, "\xbe\x7a\xcf\xcb\x97\xa9\x42\xe8\x9c\x71\x99\x94\x91\xe3\xaf\xac", 16)) {
+			de_dbg(c, "XMP data at %d, len=%d", (int)curbox->payload_pos, (int)curbox->payload_len);
+			dbuf_create_file_from_slice(bctx->f, curbox->payload_pos, curbox->payload_len, "xmp", NULL, DE_CREATEFLAG_IS_AUX);
 		}
-		else if(!de_memcmp(bctx->uuid, "\x2c\x4c\x01\x00\x85\x04\x40\xb9\xa0\x3e\x56\x21\x48\xd6\xdf\xeb", 16)) {
-			de_dbg(c, "Photoshop resources at %d, len=%d", (int)bctx->payload_pos, (int)bctx->payload_len);
-			de_fmtutil_handle_photoshop_rsrc(c, bctx->payload_pos, bctx->payload_len);
+		else if(!de_memcmp(curbox->uuid, "\x2c\x4c\x01\x00\x85\x04\x40\xb9\xa0\x3e\x56\x21\x48\xd6\xdf\xeb", 16)) {
+			de_dbg(c, "Photoshop resources at %d, len=%d", (int)curbox->payload_pos, (int)curbox->payload_len);
+			de_fmtutil_handle_photoshop_rsrc(c, curbox->payload_pos, curbox->payload_len);
 		}
-		else if(!de_memcmp(bctx->uuid, "\x05\x37\xcd\xab\x9d\x0c\x44\x31\xa7\x2a\xfa\x56\x1f\x2a\x11\x3e", 16)) {
-			de_dbg(c, "Exif data at %d, len=%d", (int)bctx->payload_pos, (int)bctx->payload_len);
-			de_fmtutil_handle_exif(c, bctx->payload_pos, bctx->payload_len);
+		else if(!de_memcmp(curbox->uuid, "\x05\x37\xcd\xab\x9d\x0c\x44\x31\xa7\x2a\xfa\x56\x1f\x2a\x11\x3e", 16)) {
+			de_dbg(c, "Exif data at %d, len=%d", (int)curbox->payload_pos, (int)curbox->payload_len);
+			de_fmtutil_handle_exif(c, curbox->payload_pos, curbox->payload_len);
 		}
 	}
 	return 1;
@@ -889,7 +892,10 @@ int de_fmtutil_default_box_handler(deark *c, struct de_boxesctx *bctx)
 void de_fmtutil_read_boxes_format(deark *c, struct de_boxesctx *bctx)
 {
 	if(!bctx->f || !bctx->handle_box_fn) return; // Internal error
+	bctx->curbox = de_malloc(c, sizeof(struct de_boxdata));
 	do_box_sequence(c, bctx, 0, bctx->f->len, -1, 0);
+	de_free(c, bctx->curbox);
+	bctx->curbox = NULL;
 }
 
 static de_byte scale_7_to_255(de_byte x)
