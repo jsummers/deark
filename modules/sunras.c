@@ -124,6 +124,36 @@ done:
 	de_bitmap_destroy(img);
 }
 
+static const char *get_image_type_name(de_int64 t)
+{
+	const char *name;
+
+	switch(t) {
+	case RT_OLD: name="old"; break;
+	case RT_STANDARD: name="standard"; break;
+	case RT_BYTE_ENCODED: name="RLE"; break;
+	case RT_FORMAT_RGB: name="RGB"; break;
+	case RT_FORMAT_TIFF: name="TIFF"; break;
+	case RT_FORMAT_IFF: name="IFF"; break;
+	case 0xffff: name="experimental"; break;
+	default: name="?";
+	}
+	return name;
+}
+
+static const char *get_map_type_name(de_int64 t)
+{
+	const char *name;
+
+	switch(t) {
+	case RMT_NONE: name="NONE"; break;
+	case RMT_EQUAL_RGB: name="EQUAL_RGB"; break;
+	case RMT_RAW: name="RAW"; break;
+	default: name="?";
+	}
+	return name;
+}
+
 static void read_header(deark *c, lctx *d, de_int64 pos)
 {
 	de_dbg(c, "header at %d", (int)pos);
@@ -138,7 +168,8 @@ static void read_header(deark *c, lctx *d, de_int64 pos)
 
 	d->imglen = de_getui32be(pos+16);
 	d->imgtype = de_getui32be(pos+20);
-	de_dbg(c, "image type=%d, len=%d", (int)d->imgtype, (int)d->imglen);
+	de_dbg(c, "image type=%d (%s), len=%d", (int)d->imgtype,
+		get_image_type_name(d->imgtype), (int)d->imglen);
 	if(d->imgtype==RT_BYTE_ENCODED) {
 		d->is_compressed = 1;
 	}
@@ -148,7 +179,8 @@ static void read_header(deark *c, lctx *d, de_int64 pos)
 
 	d->maptype = de_getui32be(pos+24);
 	d->maplen = de_getui32be(pos+28);
-	de_dbg(c, "map type=%d, len=%d", (int)d->maptype, (int)d->maplen);
+	de_dbg(c, "map type=%d (%s), len=%d", (int)d->maptype,
+		get_map_type_name(d->maptype), (int)d->maplen);
 
 	de_dbg_indent(c, -1);
 }
