@@ -419,6 +419,7 @@ void de_font_bitmap_font_to_image(deark *c, struct de_bitmap_font *font1, de_fin
 	}
 
 	for(k=0; k<fctx->font->num_chars; k++) {
+		if(fctx->codepoint_tmp[k] == DE_CODEPOINT_INVALID) continue;
 		if(!is_valid_char(&fctx->font->char_array[k])) continue;
 		rownum = fctx->codepoint_tmp[k] / chars_per_row;
 		colnum = fctx->codepoint_tmp[k] % chars_per_row;
@@ -522,6 +523,7 @@ void de_font_bitmap_font_to_image(deark *c, struct de_bitmap_font *font1, de_fin
 
 	// Render the glyphs.
 	for(k=0; k<fctx->font->num_chars; k++) {
+		if(fctx->codepoint_tmp[k] == DE_CODEPOINT_INVALID) continue;
 		rownum = fctx->codepoint_tmp[k] / chars_per_row;
 		colnum = fctx->codepoint_tmp[k] % chars_per_row;
 
