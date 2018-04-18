@@ -51,7 +51,7 @@ Deark -- Information about supported formats
 * AutoCAD Slide Library (.slb) (module="autocad_slb")
   - Extracts the component AutoCAD Slide (.sld) files.
 
-* Award BIOS logo (EPA, AWBM) (module="awbm") (experimental)
+* Award BIOS logo (EPA, AWBM) (module="awbm")
   - Supports version 1
   - Supports 4-bit and 8-bit version 2
   Options
@@ -122,7 +122,7 @@ Deark -- Information about supported formats
 
 * EggPaint (*.trp) (module="eggpaint")
 
-* Enhanced Windows Metafile (module=emf) (experimental)
+* Enhanced Windows Metafile (module=emf)
   - Extract BMP images from some records.
 
 * EPOC MBM/Sketch/AIF (module="epocimage")
@@ -245,7 +245,7 @@ Deark -- Information about supported formats
   Options
    -opt macpaint:macbinary=<0|1>
 
-* MAKIchan graphics (module="makichan") (experimental)
+* MAKIchan graphics (module="makichan")
   - Supports most 16- and 256-color .MAG images
   - Supports most 16-color .MKI images
   - Does not support .MAX
@@ -256,7 +256,7 @@ Deark -- Information about supported formats
 * MSP (Microsoft Paint graphics) (module="msp")
   - Version 1 and 2
 
-* MS Word for DOS Screen Capture (module="mswordscr") (experimental)
+* MS Word for DOS Screen Capture (module="mswordscr")
   Supports the same options as the pcx module.
 
 * NEOchrome (.NEO) (module="neochrome")
@@ -412,7 +412,7 @@ Deark -- Information about supported formats
 
 * Spectrum 512 uncompressed (.spu) (module="spectrum512u")
 
-* STOS Memory Bank (module="stos") (experimental)
+* STOS Memory Bank (module="stos")
   - Decode "sprite bank" images
   - Decode "icon bank" images
 
@@ -449,7 +449,7 @@ Deark -- Information about supported formats
 
 * VORT ray tracer .pix image (module="vort") (experimental/incomplete)
 
-* Windows Metafile (module=wmf) (experimental)
+* Windows Metafile (module=wmf)
   - Extract BMP images from some records.
 
 * Winzle (module=winzle)
@@ -607,7 +607,7 @@ Deark -- Information about supported formats
 * CRC-32 (module="crc32")
   - Print the IEEE CRC-32 of the file.
 
-* EBML/Matroska/MKV/WebM (module="ebml") (experimental/incomplete)
+* EBML/Matroska/MKV/WebM (module="ebml") (incomplete)
 
 * EXE/PE/NE/etc. (module="exe")
   EXE format can be complex. Not all varieties are correctly supported.
@@ -633,8 +633,8 @@ Deark -- Information about supported formats
   - Extract captions/abstracts (use -a).
   - Extract raster caption bitmaps.
 
-* ISO-BMFF (module="bmff") (experimental/incomplete)
-  - MP4, QuickTime .mov, etc.
+* ISO-BMFF (module="bmff") (incomplete)
+  - MP4, QuickTime .mov, HEIF, etc.
 
 * JPEG scan (module="jpegscan")
   - This module tries to find and extract embedded JPEG and JPEG-LS files from
@@ -644,9 +644,9 @@ Deark -- Information about supported formats
   - Extract SHG/MRB graphics
   - Extract icon (rarely present)
 
-* MP3 audio (module="mp3") (experimental)
+* MP3 audio (module="mp3")
   - Not all files can be autodetected.
-  - Mainly for ID3 metadata. The audio data is not converted.
+  - Mainly for ID3 and APE metadata. The audio data is not converted.
 
 * NULL (module="null")
   - Do nothing.
@@ -684,8 +684,7 @@ Deark -- Information about supported formats
   Metaformat used by WAV, AVI, WebP, etc.
   - RIFF can be parsed, but in many cases nothing can be extracted from it.
 
-* WRI - Microsoft Write (module="wri") (experimental/incomplete)
-  - Extract raw text to an HTML file. No formatting, etc. Only Windows-1252
-    encoding is supported.
+* WRI - Microsoft Write (module="wri") (incomplete)
+  - Extract raw text to an HTML file. Very little formatting, etc.
   - Extract most pictures.
 
