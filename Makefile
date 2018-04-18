@@ -63,21 +63,22 @@ DEARK2_A:=$(OBJDIR)/src/deark2.a
 $(DEARK2_A): $(OFILES_DEARK2)
 	ar rcs $@ $^
 
+ARFLAGS:=urcs
 MODS_AB_A:=$(OBJDIR)/modules/mods-ab.a
 MODS_CH_A:=$(OBJDIR)/modules/mods-ch.a
 MODS_IO_A:=$(OBJDIR)/modules/mods-io.a
 MODS_PQ_A:=$(OBJDIR)/modules/mods-pq.a
 MODS_RZ_A:=$(OBJDIR)/modules/mods-rz.a
 $(MODS_AB_A): $(OFILES_MODS_AB)
-	ar rcs $@ $^
+	ar $(ARFLAGS) $@ $^
 $(MODS_CH_A): $(OFILES_MODS_CH)
-	ar rcs $@ $^
+	ar $(ARFLAGS) $@ $^
 $(MODS_IO_A): $(OFILES_MODS_IO)
-	ar rcs $@ $^
+	ar $(ARFLAGS) $@ $^
 $(MODS_PQ_A): $(OFILES_MODS_PQ)
-	ar rcs $@ $^
+	ar $(ARFLAGS) $@ $^
 $(MODS_RZ_A): $(OFILES_MODS_RZ)
-	ar rcs $@ $^
+	ar $(ARFLAGS) $@ $^
 
 # I'm sorry if your linker doesn't like this library order, but the link
 # command was getting so long that I've decided to start using helper
