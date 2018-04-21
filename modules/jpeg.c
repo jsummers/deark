@@ -1494,17 +1494,103 @@ static void handler_sot(deark *c, lctx *d, struct page_ctx *pg,
 	de_dbg(c, "number of tile-parts: %d", (int)b);
 }
 
+static void handler_cod(deark *c, lctx *d, struct page_ctx *pg,
+	const struct marker_info *mi, de_int64 pos1, de_int64 len)
+{
+	de_int64 pos = pos1;
+	de_byte coding_style;
+	de_ucstring *s = NULL;
+	de_byte b;
+	de_int64 n;
+
+	if(len<5) goto done;
+	coding_style = de_getbyte(pos++);
+	s = ucstring_create(c);
+
+	if((coding_style&0xf8)==0) {
+		switch(coding_style&0x01) {
+		case 0x0: ucstring_append_flags_item(s, "entropy coder, without partitions"); break;
+		case 0x1: ucstring_append_flags_item(s, "entropy coder, with partitions"); break;
+		}
+		switch((coding_style&0x02)>>1) {
+		case 0x0: ucstring_append_flags_item(s, "no SOP segments"); break;
+		case 0x1: ucstring_append_flags_item(s, "has SOP segments"); break;
+		}
+		switch((coding_style&0x04)>>2) {
+		case 0x0: ucstring_append_flags_item(s, "no EPH segments"); break;
+		case 0x1: ucstring_append_flags_item(s, "has EPH segments"); break;
+		}
+	}
+	else {
+		ucstring_append_flags_item(s, "?");
+	}
+	de_dbg(c, "coding style: 0x%02x (%s)", (unsigned int)coding_style,
+		ucstring_getpsz(s));
+
+	b = de_getbyte(pos++);
+	de_dbg(c, "progression order: %d", (int)b);
+	n = de_getui16be(pos); pos += 2;
+	de_dbg(c, "number of layers: %d", (int)n);
+	b = de_getbyte(pos++);
+
+	if(pos < pos1+len) {
+		// TODO
+		de_dbg2(c, "[not decoding the rest of this segment]");
+	}
+
+done:
+	ucstring_destroy(s);
+}
+
+static void handler_qcd(deark *c, lctx *d, struct page_ctx *pg,
+	const struct marker_info *mi, de_int64 pos1, de_int64 len)
+{
+	de_int64 pos = pos1;
+	de_byte q_style;
+
+	if(len<1) goto done;
+	q_style = de_getbyte(pos++);
+	de_dbg(c, "quantization style: 0x%02x", (unsigned int)q_style);
+
+	if(pos < pos1+len) {
+		// TODO
+		de_dbg2(c, "[not decoding the rest of this segment]");
+	}
+done:
+	;
+}
+
+static void handler_qcc(deark *c, lctx *d, struct page_ctx *pg,
+	const struct marker_info *mi, de_int64 pos1, de_int64 len)
+{
+	de_int64 pos = pos1;
+	de_int64 compnum;
+
+	if(pg->ncomp<257) {
+		compnum = de_getbyte(pos++);
+	}
+	else {
+		compnum = de_getui16be(pos); pos += 2;
+	}
+	de_dbg(c, "component number: %d", (int)compnum);
+
+	if(pos < pos1+len) {
+		// TODO
+		de_dbg2(c, "[not decoding the rest of this segment]");
+	}
+}
+
 static const struct marker_info1 marker_info1_arr[] = {
 	{0x01, 0x0101, "TEM", NULL, NULL},
 	{0x4f, 0x0104, "SOC", "Start of codestream", NULL},
 	{0x51, 0x0004, "SIZ", "Image and tile size", handler_siz},
-	{0x52, 0x0004, "COD", "Coding style default", NULL},
+	{0x52, 0x0004, "COD", "Coding style default", handler_cod},
 	{0x53, 0x0004, "COC", "Coding style component", NULL},
 	{0x55, 0x0004, "TLM", "Tile-part lengths, main header", handler_tlm},
 	{0x57, 0x0004, "PLM", "Packet length, main header", NULL},
 	{0x58, 0x0004, "PLT", "Packet length, tile-part header", NULL},
-	{0x5c, 0x0004, "QCD", "Quantization default", NULL},
-	{0x5d, 0x0004, "QCC", "Quantization component", NULL},
+	{0x5c, 0x0004, "QCD", "Quantization default", handler_qcd},
+	{0x5d, 0x0004, "QCC", "Quantization component", handler_qcc},
 	{0x5e, 0x0004, "RGN", "Region-of-interest", NULL},
 	{0x5f, 0x0004, "POD", "Progression order default", NULL},
 	{0x60, 0x0004, "PPM", "Packed packet headers, main header", NULL},
