@@ -459,6 +459,40 @@ static void do_box_mdhd(deark *c, lctx *d, struct de_boxesctx *bctx)
 	de_dbg(c, "duration: %d time units (%.2f seconds)", (int)n, nd);
 }
 
+static void do_box_stsc(deark *c, lctx *d, struct de_boxesctx *bctx)
+{
+	de_byte version;
+	de_uint32 flags;
+	struct de_boxdata *curbox = bctx->curbox;
+	de_int64 pos = curbox->payload_pos;
+	de_int64 e_count;
+	de_int64 bytesleft;
+	de_int64 k;
+
+	do_read_version_and_flags(c, d, bctx, &version, &flags, 1);
+	pos += 4;
+	if(version!=0 || flags!=0) return;
+
+	e_count = dbuf_getui32be_p(bctx->f, &pos);
+	de_dbg(c, "entry count: %u", (unsigned int)e_count);
+
+	bytesleft = curbox->payload_pos + curbox->payload_len - pos;
+	if(bytesleft/12 < e_count) return;
+
+	for(k=0; k<e_count; k++) {
+		de_int64 first_chunk, spc, sdi;
+		de_dbg(c, "entry[%d]", (int)k);
+		de_dbg_indent(c, 1);
+		first_chunk = dbuf_getui32be_p(bctx->f, &pos);
+		de_dbg(c, "first chunk: %d", (int)first_chunk);
+		spc = dbuf_getui32be_p(bctx->f, &pos);
+		de_dbg(c, "samples/chunk: %d", (int)spc);
+		sdi = dbuf_getui32be_p(bctx->f, &pos);
+		de_dbg(c, "sample descr. index: %d", (int)sdi);
+		de_dbg_indent(c, -1);
+	}
+}
+
 static void do_box_stsd(deark *c, lctx *d, struct de_boxesctx *bctx)
 {
 	de_byte version;
@@ -491,6 +525,65 @@ static void do_box_stsd(deark *c, lctx *d, struct de_boxesctx *bctx)
 		de_dbg_indent(c, -1);
 
 		pos += entry_size;
+	}
+}
+
+static void do_box_stsz(deark *c, lctx *d, struct de_boxesctx *bctx)
+{
+	de_byte version;
+	de_uint32 flags;
+	struct de_boxdata *curbox = bctx->curbox;
+	de_int64 pos = curbox->payload_pos;
+	de_int64 s_size, s_count;
+	de_int64 bytesleft;
+
+	do_read_version_and_flags(c, d, bctx, &version, &flags, 1);
+	pos += 4;
+	if(version!=0 || flags!=0) return;
+
+	s_size = dbuf_getui32be_p(bctx->f, &pos);
+	de_dbg(c, "sample size: %u", (unsigned int)s_size);
+	s_count = dbuf_getui32be_p(bctx->f, &pos);
+	de_dbg(c, "sample count: %u", (unsigned int)s_count);
+
+	if(s_size==0) {
+		bytesleft = curbox->payload_pos + curbox->payload_len - pos;
+		if(bytesleft/4 > 0) {
+			de_dbg(c, "[%d sample size entries at %"INT64_FMT"]",
+				(int)(bytesleft/4), pos);
+		}
+	}
+}
+
+static void do_box_stts(deark *c, lctx *d, struct de_boxesctx *bctx)
+{
+	de_byte version;
+	de_uint32 flags;
+	struct de_boxdata *curbox = bctx->curbox;
+	de_int64 pos = curbox->payload_pos;
+	de_int64 e_count;
+	de_int64 bytesleft;
+	de_int64 k;
+
+	do_read_version_and_flags(c, d, bctx, &version, &flags, 1);
+	pos += 4;
+	if(version!=0 || flags!=0) return;
+
+	e_count = dbuf_getui32be_p(bctx->f, &pos);
+	de_dbg(c, "entry count: %u", (unsigned int)e_count);
+
+	bytesleft = curbox->payload_pos + curbox->payload_len - pos;
+	if(bytesleft/8 < e_count) return;
+
+	for(k=0; k<e_count; k++) {
+		de_int64 s_count, s_delta;
+		de_dbg(c, "entry[%d]", (int)k);
+		de_dbg_indent(c, 1);
+		s_count = dbuf_getui32be_p(bctx->f, &pos);
+		de_dbg(c, "sample count: %d", (int)s_count);
+		s_delta = dbuf_getui32be_p(bctx->f, &pos);
+		de_dbg(c, "sample delta: %d", (int)s_delta);
+		de_dbg_indent(c, -1);
 	}
 }
 
@@ -817,11 +910,11 @@ static const struct box_type_info box_type_info_arr[] = {
 	{BOX_stco, 0x00000001, 0x00000000, "chunk offset", NULL},
 	{BOX_strd, 0x00000001, 0x00000001, "sub track definition", NULL},
 	{BOX_strk, 0x00000001, 0x00000001, "sub track", NULL},
-	{BOX_stsc, 0x00000001, 0x00000000, "sample to chunk", NULL},
+	{BOX_stsc, 0x00000001, 0x00000000, "sample to chunk", do_box_stsc},
 	{BOX_stsd, 0x00000001, 0x00000000, "sample description", do_box_stsd},
 	{BOX_stss, 0x00000001, 0x00000000, "sync sample", NULL},
-	{BOX_stsz, 0x00000001, 0x00000000, "sample sizes", NULL},
-	{BOX_stts, 0x00000001, 0x00000000, "decoding time to sample", NULL},
+	{BOX_stsz, 0x00000001, 0x00000000, "sample sizes", do_box_stsz},
+	{BOX_stts, 0x00000001, 0x00000000, "decoding time to sample", do_box_stts},
 	{BOX_stz2, 0x00000001, 0x00000000, "compact sample size", NULL},
 	{BOX_tkhd, 0x00000001, 0x00000000, "track header", do_box_tkhd},
 	{BOX_traf, 0x00000001, 0x00000001, "track fragment", NULL},
