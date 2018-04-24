@@ -201,6 +201,14 @@ de_byte dbuf_getbyte(dbuf *f, de_int64 pos)
 	return 0x00;
 }
 
+de_byte dbuf_getbyte_p(dbuf *f, de_int64 *ppos)
+{
+	de_byte b;
+	b = dbuf_getbyte(f, *ppos);
+	(*ppos)++;
+	return b;
+}
+
 de_int64 de_getui16be_direct(const de_byte *m)
 {
 	return (de_int64)(((de_uint32)m[1]) | (((de_uint32)m[0])<<8));
@@ -213,6 +221,14 @@ de_int64 dbuf_getui16be(dbuf *f, de_int64 pos)
 	return de_getui16be_direct(m);
 }
 
+de_int64 dbuf_getui16be_p(dbuf *f, de_int64 *ppos)
+{
+	de_byte m[2];
+	dbuf_read(f, m, *ppos, 2);
+	(*ppos) += 2;
+	return de_getui16be_direct(m);
+}
+
 de_int64 de_getui16le_direct(const de_byte *m)
 {
 	return (de_int64)(((de_uint32)m[0]) | (((de_uint32)m[1])<<8));
@@ -222,6 +238,14 @@ de_int64 dbuf_getui16le(dbuf *f, de_int64 pos)
 {
 	de_byte m[2];
 	dbuf_read(f, m, pos, 2);
+	return de_getui16le_direct(m);
+}
+
+de_int64 dbuf_getui16le_p(dbuf *f, de_int64 *ppos)
+{
+	de_byte m[2];
+	dbuf_read(f, m, *ppos, 2);
+	(*ppos) += 2;
 	return de_getui16le_direct(m);
 }
 
@@ -254,6 +278,14 @@ de_int64 dbuf_getui32be(dbuf *f, de_int64 pos)
 	return de_getui32be_direct(m);
 }
 
+de_int64 dbuf_getui32be_p(dbuf *f, de_int64 *ppos)
+{
+	de_byte m[4];
+	dbuf_read(f, m, *ppos, 4);
+	(*ppos) += 4;
+	return de_getui32be_direct(m);
+}
+
 de_int64 de_getui32le_direct(const de_byte *m)
 {
 	return (de_int64)(((de_uint32)m[0]) | (((de_uint32)m[1])<<8) |
@@ -264,6 +296,14 @@ de_int64 dbuf_getui32le(dbuf *f, de_int64 pos)
 {
 	de_byte m[4];
 	dbuf_read(f, m, pos, 4);
+	return de_getui32le_direct(m);
+}
+
+de_int64 dbuf_getui32le_p(dbuf *f, de_int64 *ppos)
+{
+	de_byte m[4];
+	dbuf_read(f, m, *ppos, 4);
+	(*ppos) += 4;
 	return de_getui32le_direct(m);
 }
 

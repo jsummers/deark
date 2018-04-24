@@ -425,6 +425,13 @@ de_int64 dbuf_geti64be(dbuf *f, de_int64 pos);
 de_int64 dbuf_geti64le(dbuf *f, de_int64 pos);
 de_int64 dbuf_geti64x(dbuf *f, de_int64 pos, int is_le);
 
+// The _p functions update a caller-supplied position.
+de_byte dbuf_getbyte_p(dbuf *f, de_int64 *ppos);
+de_int64 dbuf_getui16be_p(dbuf *f, de_int64 *ppos);
+de_int64 dbuf_getui16le_p(dbuf *f, de_int64 *ppos);
+de_int64 dbuf_getui32le_p(dbuf *f, de_int64 *ppos);
+de_int64 dbuf_getui32be_p(dbuf *f, de_int64 *ppos);
+
 // Only format modules should use these convenience macros.
 // (The DE_WINDOWS condition has no functional purpose; it's a hack to make
 // some development tools work better.)
@@ -441,6 +448,11 @@ de_int64 dbuf_geti64x(dbuf *f, de_int64 pos, int is_le);
 #define de_geti32le(p) dbuf_geti32le(c->infile,p)
 #define de_geti64be(p) dbuf_geti64be(c->infile,p)
 #define de_geti64le(p) dbuf_geti64le(c->infile,p)
+#define de_getbyte_p(p) dbuf_getbyte_p(c->infile,p)
+#define de_getui16be_p(p) dbuf_getui16be_p(c->infile,p)
+#define de_getui16le_p(p) dbuf_getui16le_p(c->infile,p)
+#define de_getui32be_p(p) dbuf_getui32be_p(c->infile,p)
+#define de_getui32le_p(p) dbuf_getui32le_p(c->infile,p)
 #endif
 
 // Read IEEE 754 floating point
