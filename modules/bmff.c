@@ -350,6 +350,47 @@ static void do_box_tkhd(deark *c, lctx *d, struct de_boxesctx *bctx)
 	de_dbg(c, "dimensions: %.1f"DE_CHAR_TIMES"%.1f", w, h);
 }
 
+static void do_box_vmhd(deark *c, lctx *d, struct de_boxesctx *bctx)
+{
+	de_byte version;
+	de_uint32 flags;
+	size_t k;
+	unsigned int clr[3];
+	unsigned int graphicsmode;
+	struct de_boxdata *curbox = bctx->curbox;
+	de_int64 pos = curbox->payload_pos;
+
+	if(curbox->payload_len<12) return;
+	do_read_version_and_flags(c, d, bctx, &version, &flags, 1);
+	pos += 4;
+	if(version!=0 || flags!=0x1) return;
+
+	graphicsmode = (unsigned int)dbuf_getui16be_p(bctx->f, &pos);
+	de_dbg(c, "graphicsmode: %u", graphicsmode);
+
+	for(k=0; k<3; k++) {
+		clr[k] = (unsigned int)dbuf_getui16be_p(bctx->f, &pos);
+	}
+	de_dbg(c, "opcolor: (%d,%d,%d)", (int)clr[0], (int)clr[1], (int)clr[2]);
+}
+
+static void do_box_smhd(deark *c, lctx *d, struct de_boxesctx *bctx)
+{
+	de_byte version;
+	de_uint32 flags;
+	unsigned int n;
+	struct de_boxdata *curbox = bctx->curbox;
+	de_int64 pos = curbox->payload_pos;
+
+	if(curbox->payload_len<8) return;
+	do_read_version_and_flags(c, d, bctx, &version, &flags, 1);
+	pos += 4;
+	if(version!=0 || flags!=0x0) return;
+
+	n = (unsigned int)dbuf_getui16be_p(bctx->f, &pos);
+	de_dbg(c, "balance: %u", n);
+}
+
 static void do_box_mvhd(deark *c, lctx *d, struct de_boxesctx *bctx)
 {
 	de_byte version;
@@ -934,7 +975,7 @@ static const struct box_type_info box_type_info_arr[] = {
 	{BOX_schi, 0x00000001, 0x00000001, "scheme information", NULL},
 	{BOX_sinf, 0x00000001, 0x00000001, "protection scheme information", NULL},
 	{BOX_skip, 0x00080001, 0x00000000, "user-data", NULL},
-	{BOX_smhd, 0x00000001, 0x00000000, "sound media header", NULL},
+	{BOX_smhd, 0x00000001, 0x00000000, "sound media header", do_box_smhd},
 	{BOX_stbl, 0x00000001, 0x00000001, "sample table", NULL},
 	{BOX_stco, 0x00000001, 0x00000000, "chunk offset", NULL},
 	{BOX_strd, 0x00000001, 0x00000001, "sub track definition", NULL},
@@ -950,7 +991,7 @@ static const struct box_type_info box_type_info_arr[] = {
 	{BOX_trak, 0x00000001, 0x00000001, "track", NULL},
 	{BOX_tref, 0x00000001, 0x00000001, "track reference", NULL},
 	{BOX_udta, 0x00000001, 0x00000001, "user data", NULL},
-	{BOX_vmhd, 0x00000001, 0x00000000, "video media header", NULL},
+	{BOX_vmhd, 0x00000001, 0x00000000, "video media header", do_box_vmhd},
 	{BOX_asoc, 0x00010000, 0x00000001, "association", NULL},
 	{BOX_cgrp, 0x00010000, 0x00000001, NULL, NULL},
 	{BOX_cdef, 0x00010000, 0x00000000, "channel definition", do_box_cdef},
