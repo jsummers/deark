@@ -635,6 +635,9 @@ Deark -- Information about supported formats
 
 * ISO-BMFF (module="bmff") (incomplete)
   - MP4, QuickTime .mov, HEIF, etc.
+  Options
+   -opt bmff:maxentries=<n> : Maximum number of sample table entries to print
+     when using -d. This applies to several boxes, such as 'stsz'.
 
 * JPEG scan (module="jpegscan")
   - This module tries to find and extract embedded JPEG and JPEG-LS files from
