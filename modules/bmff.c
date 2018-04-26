@@ -54,6 +54,7 @@ struct box_type_info {
 #define BRAND_qt   0x71742020U
 
 #define BOX_auxC 0x61757843U
+#define BOX_data 0x64617461U
 #define BOX_ftyp 0x66747970U
 #define BOX_grpl 0x6772706cU
 #define BOX_hvcC 0x68766343U
@@ -262,6 +263,61 @@ static void do_read_version_and_flags(deark *c, lctx *d, struct de_boxesctx *bct
 	}
 	if(version) *version = version1;
 	if(flags) *flags = flags1;
+}
+
+static void do_box_data(deark *c, lctx *d, struct de_boxesctx *bctx)
+{
+	unsigned int type_field, type_namespace, wkt;
+	unsigned int cntry, lang;
+	de_int64 vlen;
+	struct de_boxdata *curbox = bctx->curbox;
+	struct de_boxdata *par;
+	struct de_boxdata *gpar;
+	de_int64 pos = curbox->payload_pos;
+	de_ucstring *s = NULL;
+
+	par = curbox->parent;
+	if(!par) goto done;
+	gpar = par->parent;
+	if(!gpar) goto done;
+	if(gpar->boxtype != BOX_ilst) goto done;
+
+	if(curbox->payload_len<8) goto done;
+	type_field = (unsigned int)dbuf_getui32be_p(bctx->f, &pos);
+	type_namespace = type_field>>24;
+	wkt = (type_field & 0x00ffffff); // well-known type (if namespace==0)
+	de_dbg(c, "type: %u, %u", type_namespace, wkt);
+
+	cntry = (unsigned int)dbuf_getui16be_p(bctx->f, &pos);
+	lang = (unsigned int)dbuf_getui16be_p(bctx->f, &pos);
+	de_dbg(c, "locale: %u, %u", cntry, lang);
+
+	if(type_namespace!=0) goto done;
+	vlen = curbox->payload_pos + curbox->payload_len - pos;
+
+	if(wkt==1 || wkt==4) { // UTF-8
+		s = ucstring_create(c);
+		dbuf_read_to_ucstring_n(bctx->f, pos, vlen,
+			DE_DBG_MAX_STRLEN, s, 0, DE_ENCODING_UTF8);
+		de_dbg(c, "value: \"%s\"", ucstring_getpsz_d(s));
+	}
+	else if(wkt==21 && vlen==1) { // 1-byte signed int
+		int n;
+		n = (int)(signed char)dbuf_getbyte(bctx->f, pos);
+		de_dbg(c, "value: %d", n);
+	}
+	else if(wkt==21 && vlen==2) { // 2-byte BE signed int
+		int n;
+		n = (int)dbuf_geti16be(bctx->f, pos);
+		de_dbg(c, "value: %d", n);
+	}
+	else if(wkt==0) {
+		de_dbg_hexdump(c, bctx->f, pos, vlen, 256, "value", 0x1);
+	}
+	// TODO: There are lots more types
+
+done:
+	ucstring_destroy(s);
 }
 
 static void do_box_hdlr(deark *c, lctx *d, struct de_boxesctx *bctx)
@@ -947,6 +1003,7 @@ static const struct box_type_info box_type_info_arr[] = {
 	{BOX_mdat, 0x00080001, 0x00000000, "media data", NULL},
 	{BOX_cinf, 0x00000001, 0x00000001, "complete track information", NULL},
 	{BOX_clip, 0x00000001, 0x00000001, NULL, NULL},
+	{BOX_data, 0x00000001, 0x00000000, "value atom", do_box_data},
 	{BOX_dinf, 0x00080001, 0x00000001, "data information", NULL},
 	{BOX_dref, 0x00000001, 0x00000000, "data reference", NULL},
 	{BOX_edts, 0x00000001, 0x00000001, "edit", NULL},
@@ -1089,6 +1146,8 @@ static void my_box_id_fn(deark *c, struct de_boxesctx *bctx)
 			curbox->box_name = bti->name;
 		}
 	}
+	// TODO: Identify children of 'ilst' boxes?
+	// TODO: Do we need special handling of 'data' boxes?
 }
 
 static int my_box_handler(deark *c, struct de_boxesctx *bctx)
