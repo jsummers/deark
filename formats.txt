@@ -552,6 +552,10 @@ Deark -- Information about supported formats
 * tar (module="tar") (experimental/incomplete)
   - Rare files may need "-m tar", as tar is difficult to autodetect.
 
+* WOZ (module="woz") (incomplete)
+  Apple II disk image format.
+  - Some metadata is parsed, but the disk contents are not extracted or listed.
+
 * ZIP (module="zip")
   - Limited support
   - Extract main ZIP file comment (use -a).

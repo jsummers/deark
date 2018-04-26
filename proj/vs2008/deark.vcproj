@@ -494,6 +494,10 @@
 				>
 			</File>
 			<File
+				RelativePath="..\..\modules\apple2-dsk.c"
+				>
+			</File>
+			<File
 				RelativePath="..\..\modules\ar.c"
 				>
 			</File>

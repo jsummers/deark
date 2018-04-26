@@ -6,6 +6,8 @@ obj/modules/amigaicon.o: modules/amigaicon.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h
 obj/modules/ansiart.o: modules/ansiart.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h
+obj/modules/apple2-dsk.o: modules/apple2-dsk.c src/deark-config.h \
+ src/deark-private.h src/deark.h src/deark-fmtutil.h
 obj/modules/ar.o: modules/ar.c src/deark-config.h src/deark-private.h \
  src/deark.h
 obj/modules/asf.o: modules/asf.c src/deark-config.h src/deark-private.h \
