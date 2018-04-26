@@ -502,11 +502,11 @@
 				>
 			</File>
 			<File
-				RelativePath="..\..\modules\atari-img.c"
+				RelativePath="..\..\modules\atari-dsk.c"
 				>
 			</File>
 			<File
-				RelativePath="..\..\modules\atari.c"
+				RelativePath="..\..\modules\atari-img.c"
 				>
 			</File>
 			<File

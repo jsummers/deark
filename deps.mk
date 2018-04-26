@@ -10,10 +10,10 @@ obj/modules/ar.o: modules/ar.c src/deark-config.h src/deark-private.h \
  src/deark.h
 obj/modules/asf.o: modules/asf.c src/deark-config.h src/deark-private.h \
  src/deark.h src/deark-fmtutil.h
+obj/modules/atari-dsk.o: modules/atari-dsk.c src/deark-config.h \
+ src/deark-private.h src/deark.h
 obj/modules/atari-img.o: modules/atari-img.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h
-obj/modules/atari.o: modules/atari.c src/deark-config.h \
- src/deark-private.h src/deark.h
 obj/modules/autocad.o: modules/autocad.c src/deark-config.h \
  src/deark-private.h src/deark.h
 obj/modules/awbm.o: modules/awbm.c src/deark-config.h src/deark-private.h \
