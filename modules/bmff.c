@@ -54,7 +54,10 @@ struct box_type_info {
 #define BRAND_qt   0x71742020U
 
 #define BOX_auxC 0x61757843U
+#define BOX_co64 0x636f3634U
+#define BOX_ctts 0x63747473U
 #define BOX_data 0x64617461U
+#define BOX_elst 0x656c7374U
 #define BOX_ftyp 0x66747970U
 #define BOX_grpl 0x6772706cU
 #define BOX_hvcC 0x68766343U
@@ -78,6 +81,7 @@ struct box_type_info {
 #define BOX_stsd 0x73747364U
 #define BOX_tkhd 0x746b6864U
 #define BOX_uuid 0x75756964U
+#define BOX_wide 0x77696465U
 #define BOX_xml  0x786d6c20U
 
 // JP2:
@@ -591,7 +595,7 @@ static void do_box_stsc(deark *c, lctx *d, struct de_boxesctx *bctx)
 			(int)k, (int)first_chunk, (int)spc, (int)sdi);
 	}
 	if(e_to_print < e_count) {
-		de_dbg(c, "[%d more entries omitted, starting at %"INT64_FMT"]",
+		de_dbg(c, "[%d more entry(s) omitted, starting at %"INT64_FMT"]",
 			(int)(e_count-e_to_print), pos);
 	}
 }
@@ -631,6 +635,45 @@ static void do_box_stsd(deark *c, lctx *d, struct de_boxesctx *bctx)
 	}
 }
 
+// Decode a table of (4- or 8-byte) integers.
+// Limit to d->max_entries_to_print.
+static void do_simple_int_table(deark *c, lctx *d, struct de_boxesctx *bctx,
+	de_int64 pos1, de_int64 e_count, de_int64 e_size,
+	const char *s1, const char *s2)
+{
+	de_int64 bytesleft;
+	de_int64 e_to_print;
+	de_int64 k;
+	struct de_boxdata *curbox = bctx->curbox;
+	de_int64 pos = pos1;
+
+	if(e_count<=0) return;
+	bytesleft = curbox->payload_pos + curbox->payload_len - pos;
+	if(bytesleft < e_size*e_count) return;
+
+	e_to_print = e_count;
+	if(e_to_print > d->max_entries_to_print) {
+		e_to_print = d->max_entries_to_print;
+	}
+
+	for(k=0; k<e_to_print; k++) {
+		de_int64 n;
+
+		if(e_size==8) {
+			n = dbuf_geti64be(bctx->f, pos); pos += 8;
+		}
+		else {
+			n = dbuf_getui32be_p(bctx->f, &pos);
+		}
+
+		de_dbg(c, "%s[%"INT64_FMT"]: %s=%"INT64_FMT, s1, k, s2, n);
+	}
+	if(e_to_print < e_count) {
+		de_dbg(c, "[%"INT64_FMT" more %s(s) omitted, starting at %"INT64_FMT"]",
+			e_count-e_to_print, s1, pos);
+	}
+}
+
 static void do_box_stsz(deark *c, lctx *d, struct de_boxesctx *bctx)
 {
 	de_byte version;
@@ -638,9 +681,6 @@ static void do_box_stsz(deark *c, lctx *d, struct de_boxesctx *bctx)
 	struct de_boxdata *curbox = bctx->curbox;
 	de_int64 pos = curbox->payload_pos;
 	de_int64 s_size, s_count;
-	de_int64 s_to_print;
-	de_int64 bytesleft;
-	de_int64 k;
 
 	do_read_version_and_flags(c, d, bctx, &version, &flags, 1);
 	pos += 4;
@@ -651,28 +691,51 @@ static void do_box_stsz(deark *c, lctx *d, struct de_boxesctx *bctx)
 	s_count = dbuf_getui32be_p(bctx->f, &pos);
 	de_dbg(c, "sample count: %u", (unsigned int)s_count);
 
-	if(s_size!=0 || s_count==0) goto done;
+	if(s_size!=0) goto done;
 
-	bytesleft = curbox->payload_pos + curbox->payload_len - pos;
-	if(bytesleft/4 < s_count) goto done;
-
-	s_to_print = s_count;
-	if(s_to_print > d->max_entries_to_print) {
-		s_to_print = d->max_entries_to_print;
-	}
-
-	for(k=0; k<s_to_print; k++) {
-		de_int64 entry_size;
-		entry_size = dbuf_getui32be_p(bctx->f, &pos);
-		de_dbg(c, "sample[%d]: entry size=%d", (int)k, (int)entry_size);
-	}
-	if(s_to_print < s_count) {
-		de_dbg(c, "[%d more samples omitted, starting at %"INT64_FMT"]",
-			(int)(s_count-s_to_print), pos);
-	}
+	do_simple_int_table(c, d, bctx, pos, s_count, 4, "sample", "entry size");
 
 done:
 	;
+}
+
+// stco and co64
+static void do_box_stco(deark *c, lctx *d, struct de_boxesctx *bctx)
+{
+	de_byte version;
+	de_uint32 flags;
+	struct de_boxdata *curbox = bctx->curbox;
+	de_int64 pos = curbox->payload_pos;
+	de_int64 e_count;
+	de_int64 e_size;
+
+	do_read_version_and_flags(c, d, bctx, &version, &flags, 1);
+	pos += 4;
+	if(version!=0 || flags!=0) return;
+
+	e_size = (bctx->curbox->boxtype == BOX_co64) ? 8 : 4;
+	e_count = dbuf_getui32be_p(bctx->f, &pos);
+	de_dbg(c, "entry count: %u", (unsigned int)e_count);
+
+	do_simple_int_table(c, d, bctx, pos, e_count, e_size, "entry", "chunk offset");
+}
+
+static void do_box_stss(deark *c, lctx *d, struct de_boxesctx *bctx)
+{
+	de_byte version;
+	de_uint32 flags;
+	struct de_boxdata *curbox = bctx->curbox;
+	de_int64 pos = curbox->payload_pos;
+	de_int64 e_count;
+
+	do_read_version_and_flags(c, d, bctx, &version, &flags, 1);
+	pos += 4;
+	if(version!=0 || flags!=0) return;
+
+	e_count = dbuf_getui32be_p(bctx->f, &pos);
+	de_dbg(c, "entry count: %u", (unsigned int)e_count);
+
+	do_simple_int_table(c, d, bctx, pos, e_count, 4, "entry", "sample number");
 }
 
 static void do_box_stts(deark *c, lctx *d, struct de_boxesctx *bctx)
@@ -708,7 +771,50 @@ static void do_box_stts(deark *c, lctx *d, struct de_boxesctx *bctx)
 			(int)s_count, (int)s_delta);
 	}
 	if(e_to_print < e_count) {
-		de_dbg(c, "[%d more entries omitted, starting at %"INT64_FMT"]",
+		de_dbg(c, "[%d more entry(s) omitted, starting at %"INT64_FMT"]",
+			(int)(e_count-e_to_print), pos);
+	}
+}
+
+static void do_box_ctts(deark *c, lctx *d, struct de_boxesctx *bctx)
+{
+	de_byte version;
+	de_uint32 flags;
+	struct de_boxdata *curbox = bctx->curbox;
+	de_int64 pos = curbox->payload_pos;
+	de_int64 e_count, e_to_print;
+	de_int64 bytesleft;
+	de_int64 k;
+
+	do_read_version_and_flags(c, d, bctx, &version, &flags, 1);
+	pos += 4;
+	if(version>1 || flags!=0) return;
+
+	e_count = dbuf_getui32be_p(bctx->f, &pos);
+	de_dbg(c, "entry count: %u", (unsigned int)e_count);
+
+	bytesleft = curbox->payload_pos + curbox->payload_len - pos;
+	if(bytesleft < e_count*8) return;
+
+	e_to_print = e_count;
+	if(e_to_print > d->max_entries_to_print) {
+		e_to_print = d->max_entries_to_print;
+	}
+
+	for(k=0; k<e_to_print; k++) {
+		de_int64 s_count, s_offset;
+		s_count = dbuf_getui32be_p(bctx->f, &pos);
+		if(version==0) {
+			s_offset = dbuf_getui32be_p(bctx->f, &pos);
+		}
+		else {
+			s_offset = dbuf_geti32be(bctx->f, pos); pos += 4;
+		}
+		de_dbg(c, "entry[%d]: sample count=%"INT64_FMT", offset=%"INT64_FMT,
+			(int)k, s_count, s_offset);
+	}
+	if(e_to_print < e_count) {
+		de_dbg(c, "[%d more entry(s) omitted, starting at %"INT64_FMT"]",
 			(int)(e_count-e_to_print), pos);
 	}
 }
@@ -1003,10 +1109,12 @@ static const struct box_type_info box_type_info_arr[] = {
 	{BOX_mdat, 0x00080001, 0x00000000, "media data", NULL},
 	{BOX_cinf, 0x00000001, 0x00000001, "complete track information", NULL},
 	{BOX_clip, 0x00000001, 0x00000001, NULL, NULL},
+	{BOX_co64, 0x00000001, 0x00000000, "chunk offset", do_box_stco},
 	{BOX_data, 0x00000001, 0x00000000, "value atom", do_box_data},
 	{BOX_dinf, 0x00080001, 0x00000001, "data information", NULL},
 	{BOX_dref, 0x00000001, 0x00000000, "data reference", NULL},
 	{BOX_edts, 0x00000001, 0x00000001, "edit", NULL},
+	{BOX_elst, 0x00000001, 0x00000000, "edit list", NULL},
 	{BOX_fdsa, 0x00000001, 0x00000001, NULL, NULL},
 	{BOX_fiin, 0x00000001, 0x00000001, "FD item information", NULL},
 	{BOX_free, 0x00090001, 0x00000000, "free space", NULL},
@@ -1034,14 +1142,15 @@ static const struct box_type_info box_type_info_arr[] = {
 	{BOX_skip, 0x00080001, 0x00000000, "user-data", NULL},
 	{BOX_smhd, 0x00000001, 0x00000000, "sound media header", do_box_smhd},
 	{BOX_stbl, 0x00000001, 0x00000001, "sample table", NULL},
-	{BOX_stco, 0x00000001, 0x00000000, "chunk offset", NULL},
+	{BOX_stco, 0x00000001, 0x00000000, "chunk offset", do_box_stco},
 	{BOX_strd, 0x00000001, 0x00000001, "sub track definition", NULL},
 	{BOX_strk, 0x00000001, 0x00000001, "sub track", NULL},
 	{BOX_stsc, 0x00000001, 0x00000000, "sample to chunk", do_box_stsc},
 	{BOX_stsd, 0x00000001, 0x00000000, "sample description", do_box_stsd},
-	{BOX_stss, 0x00000001, 0x00000000, "sync sample", NULL},
+	{BOX_stss, 0x00000001, 0x00000000, "sync sample", do_box_stss},
 	{BOX_stsz, 0x00000001, 0x00000000, "sample sizes", do_box_stsz},
 	{BOX_stts, 0x00000001, 0x00000000, "decoding time to sample", do_box_stts},
+	{BOX_ctts, 0x00000001, 0x00000000, "composition time to sample", do_box_ctts},
 	{BOX_stz2, 0x00000001, 0x00000000, "compact sample size", NULL},
 	{BOX_tkhd, 0x00000001, 0x00000000, "track header", do_box_tkhd},
 	{BOX_traf, 0x00000001, 0x00000001, "track fragment", NULL},
@@ -1049,6 +1158,7 @@ static const struct box_type_info box_type_info_arr[] = {
 	{BOX_tref, 0x00000001, 0x00000001, "track reference", NULL},
 	{BOX_udta, 0x00000001, 0x00000001, "user data", NULL},
 	{BOX_vmhd, 0x00000001, 0x00000000, "video media header", do_box_vmhd},
+	{BOX_wide, 0x00000001, 0x00000000, "reserved space", NULL},
 	{BOX_asoc, 0x00010000, 0x00000001, "association", NULL},
 	{BOX_cgrp, 0x00010000, 0x00000001, NULL, NULL},
 	{BOX_cdef, 0x00010000, 0x00000000, "channel definition", do_box_cdef},
@@ -1214,7 +1324,7 @@ static void de_run_bmff(deark *c, de_module_params *mparams)
 		d->max_entries_to_print = de_atoi64(s);
 	}
 	else {
-		d->max_entries_to_print = 100;
+		d->max_entries_to_print = 32;
 	}
 	if(d->max_entries_to_print<0) {
 		d->max_entries_to_print = 0;
