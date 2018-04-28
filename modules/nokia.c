@@ -265,7 +265,7 @@ static int my_nsl_chunk_handler(deark *c, struct de_iffctx *ictx)
 	switch(ictx->chunkctx->chunk4cc.id) {
 	case CODE_NSLD:
 		if(ictx->level==1 && !d->done_flag) {
-			nsl_read_bitmap(c, d, ictx->chunkctx->chunk_dpos, ictx->chunkctx->chunk_dlen);
+			nsl_read_bitmap(c, d, ictx->chunkctx->dpos, ictx->chunkctx->dlen);
 		}
 		break;
 	}

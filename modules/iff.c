@@ -43,7 +43,7 @@ static void do_text_chunk(deark *c, struct de_iffctx *ictx, const char *name)
 	// a file with a "CSET" chunk, and I don't know how else I would know
 	// the character encoding.
 	dbuf_read_to_ucstring_n(c->infile,
-		ictx->chunkctx->chunk_dpos, ictx->chunkctx->chunk_dlen, DE_DBG_MAX_STRLEN,
+		ictx->chunkctx->dpos, ictx->chunkctx->dlen, DE_DBG_MAX_STRLEN,
 		s, DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_ASCII);
 	de_dbg(c, "%s: \"%s\"", name, ucstring_getpsz(s));
 	ucstring_destroy(s);
@@ -180,12 +180,12 @@ static void do_midi_MThd(deark *c, struct de_iffctx *ictx,
 {
 	de_int64 format_field, ntrks_field, division_field;
 
-	if(chunkctx->chunk_dlen<6) return;
-	format_field = dbuf_getui16be(ictx->f, chunkctx->chunk_dpos);
+	if(chunkctx->dlen<6) return;
+	format_field = dbuf_getui16be(ictx->f, chunkctx->dpos);
 	de_dbg(c, "format: %d", (int)format_field);
-	ntrks_field = dbuf_getui16be(ictx->f, chunkctx->chunk_dpos+2);
+	ntrks_field = dbuf_getui16be(ictx->f, chunkctx->dpos+2);
 	de_dbg(c, "ntrks: %d", (int)ntrks_field);
-	division_field = dbuf_getui16be(ictx->f, chunkctx->chunk_dpos+4);
+	division_field = dbuf_getui16be(ictx->f, chunkctx->dpos+4);
 	de_dbg(c, "division: %d", (int)division_field);
 }
 

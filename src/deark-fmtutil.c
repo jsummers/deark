@@ -1249,7 +1249,7 @@ int de_fmtutil_is_standard_iff_chunk(deark *c, struct de_iffctx *ictx,
 static int de_fmtutil_default_iff_chunk_handler(deark *c, struct de_iffctx *ictx)
 {
 	de_fmtutil_handle_standard_iff_chunk(c, ictx->f,
-		ictx->chunkctx->chunk_dpos, ictx->chunkctx->chunk_dlen,
+		ictx->chunkctx->dpos, ictx->chunkctx->dlen,
 		ictx->chunkctx->chunk4cc.id);
 	// Note we do not set ictx->handled. The caller is responsible for that.
 	return 1;
@@ -1276,6 +1276,7 @@ static int do_iff_chunk(deark *c, struct de_iffctx *ictx, de_int64 pos, de_int64
 	struct de_iffchunkctx chunkctx;
 	int saved_indent_level;
 	int retval = 0;
+	char name_str[80];
 
 	de_memset(&chunkctx, 0, sizeof(struct de_iffchunkctx));
 
@@ -1304,7 +1305,24 @@ static int do_iff_chunk(deark *c, struct de_iffctx *ictx, de_int64 pos, de_int64
 	}
 	chunk_dpos = pos+hdrsize;
 
-	de_dbg(c, "chunk '%s' at %d, dpos=%d, dlen=%d", chunkctx.chunk4cc.id_printable, (int)pos,
+	// TODO: Setting these fields (prior to the identify function) is enough
+	// for now, but we should also set the other fields here if we can.
+	ictx->level = level;
+	ictx->chunkctx = &chunkctx;
+
+	if(ictx->identify_chunk_fn) {
+		ictx->identify_chunk_fn(c, ictx);
+	}
+
+	if(chunkctx.chunk_name) {
+		de_snprintf(name_str, sizeof(name_str), " (%s)", chunkctx.chunk_name);
+	}
+	else {
+		name_str[0] = '\0';
+	}
+
+	de_dbg(c, "chunk '%s'%s at %d, dpos=%d, dlen=%d", chunkctx.chunk4cc.id_printable,
+		name_str, (int)pos,
 		(int)chunk_dpos, (int)chunk_dlen);
 	de_dbg_indent(c, 1);
 
@@ -1337,16 +1355,14 @@ static int do_iff_chunk(deark *c, struct de_iffctx *ictx, de_int64 pos, de_int64
 	retval = 1;
 
 	// Set ictx fields, prior to calling the handler
-	ictx->level = level;
-	chunkctx.chunk_pos = pos;
-	chunkctx.chunk_len = bytes_avail;
-	chunkctx.chunk_dpos = chunk_dpos;
-	chunkctx.chunk_dlen = chunk_dlen;
+	chunkctx.pos = pos;
+	chunkctx.len = bytes_avail;
+	chunkctx.dpos = chunk_dpos;
+	chunkctx.dlen = chunk_dlen;
 	ictx->handled = 0;
 	ictx->is_std_container = 0;
 	ictx->is_raw_container = 0;
 
-	ictx->chunkctx = &chunkctx;
 	ret = ictx->handle_chunk_fn(c, ictx);
 	if(!ret) {
 		retval = 0;

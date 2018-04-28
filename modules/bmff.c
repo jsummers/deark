@@ -1236,7 +1236,7 @@ static const struct box_type_info *find_box_type_info(deark *c, lctx *d,
 	return NULL;
 }
 
-static void my_box_id_fn(deark *c, struct de_boxesctx *bctx)
+static void my_box_identify_fn(deark *c, struct de_boxesctx *bctx)
 {
 	const struct box_type_info *bti;
 	lctx *d = (lctx*)bctx->userdata;
@@ -1332,7 +1332,7 @@ static void de_run_bmff(deark *c, de_module_params *mparams)
 
 	bctx->userdata = (void*)d;
 	bctx->f = c->infile;
-	bctx->identify_box_fn = my_box_id_fn;
+	bctx->identify_box_fn = my_box_identify_fn;
 	bctx->handle_box_fn = my_box_handler;
 
 	de_fmtutil_read_boxes_format(c, bctx);

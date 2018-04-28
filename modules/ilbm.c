@@ -858,7 +858,7 @@ static int my_ilbm_chunk_handler(deark *c, struct de_iffctx *ictx)
 	case CODE_BODY:
 	case CODE_ABIT:
 		is_vdat = 0;
-		if(!do_body(c, d, ictx, ictx->chunkctx->chunk_dpos, ictx->chunkctx->chunk_dlen,
+		if(!do_body(c, d, ictx, ictx->chunkctx->dpos, ictx->chunkctx->dlen,
 			ictx->chunkctx->chunk4cc.id, &is_vdat)) {
 			d->errflag = 1;
 		}
@@ -873,34 +873,34 @@ static int my_ilbm_chunk_handler(deark *c, struct de_iffctx *ictx)
 
 	case CODE_VDAT:
 		if(ictx->level!=2) break;
-		do_vdat(c, d, ictx->chunkctx->chunk_dpos, ictx->chunkctx->chunk_dlen);
+		do_vdat(c, d, ictx->chunkctx->dpos, ictx->chunkctx->dlen);
 		break;
 
 	case CODE_TINY:
-		do_tiny(c, d, ictx->chunkctx->chunk_dpos, ictx->chunkctx->chunk_dlen);
+		do_tiny(c, d, ictx->chunkctx->dpos, ictx->chunkctx->dlen);
 		break;
 
 	case CODE_BMHD:
-		if(!do_bmhd(c, d, ictx->chunkctx->chunk_dpos, ictx->chunkctx->chunk_dlen)) {
+		if(!do_bmhd(c, d, ictx->chunkctx->dpos, ictx->chunkctx->dlen)) {
 			d->errflag = 1;
 			goto done;
 		}
 		break;
 
 	case CODE_CMAP:
-		do_cmap(c, d, ictx->chunkctx->chunk_dpos, ictx->chunkctx->chunk_dlen);
+		do_cmap(c, d, ictx->chunkctx->dpos, ictx->chunkctx->dlen);
 		break;
 
 	case CODE_CAMG:
-		do_camg(c, d, ictx->chunkctx->chunk_dpos, ictx->chunkctx->chunk_dlen);
+		do_camg(c, d, ictx->chunkctx->dpos, ictx->chunkctx->dlen);
 		break;
 
 	case CODE_DPI:
-		do_dpi(c, d, ictx->chunkctx->chunk_dpos, ictx->chunkctx->chunk_dlen);
+		do_dpi(c, d, ictx->chunkctx->dpos, ictx->chunkctx->dlen);
 		break;
 
 	case CODE_CCRT: // Graphicraft Color Cycling Range and Timing
-		tmp1 = de_geti16be(ictx->chunkctx->chunk_dpos);
+		tmp1 = de_geti16be(ictx->chunkctx->dpos);
 		de_dbg(c, "cycling direction: %d", (int)tmp1);
 		if(tmp1!=0) {
 			d->uses_color_cycling = 1;
@@ -908,9 +908,9 @@ static int my_ilbm_chunk_handler(deark *c, struct de_iffctx *ictx)
 		break;
 
 	case CODE_CRNG:
-		if(ictx->chunkctx->chunk_dlen<8) break;
-		tmp1 = de_getui16be(ictx->chunkctx->chunk_dpos+2);
-		tmp2 = de_getui16be(ictx->chunkctx->chunk_dpos+4);
+		if(ictx->chunkctx->dlen<8) break;
+		tmp1 = de_getui16be(ictx->chunkctx->dpos+2);
+		tmp2 = de_getui16be(ictx->chunkctx->dpos+4);
 		de_dbg(c, "CRNG flags: 0x%04x", (unsigned int)tmp2);
 		if(tmp2&0x1) {
 			d->uses_color_cycling = 1;
@@ -919,7 +919,7 @@ static int my_ilbm_chunk_handler(deark *c, struct de_iffctx *ictx)
 		break;
 
 	case CODE_DRNG:
-		tmp2 = de_getui16be(ictx->chunkctx->chunk_dpos+4);
+		tmp2 = de_getui16be(ictx->chunkctx->dpos+4);
 		de_dbg(c, "DRNG flags: 0x%04x", (unsigned int)tmp2);
 		if(tmp2&0x1) {
 			d->uses_color_cycling = 1;
@@ -927,9 +927,9 @@ static int my_ilbm_chunk_handler(deark *c, struct de_iffctx *ictx)
 		break;
 
 	case CODE_GRAB:
-		if(ictx->chunkctx->chunk_dlen<4) break;
-		tmp1 = de_getui16be(ictx->chunkctx->chunk_dpos);
-		tmp2 = de_getui16be(ictx->chunkctx->chunk_dpos+2);
+		if(ictx->chunkctx->dlen<4) break;
+		tmp1 = de_getui16be(ictx->chunkctx->dpos);
+		tmp2 = de_getui16be(ictx->chunkctx->dpos+2);
 		de_dbg(c, "hotspot: (%d, %d)", (int)tmp1, (int)tmp2);
 		break;
 
@@ -954,13 +954,8 @@ static int my_on_std_container_start_fn(deark *c, struct de_iffctx *ictx)
 {
 	lctx *d = (lctx*)ictx->userdata;
 
-	de_dbg2(c, "std_container_start(level=%d, type=%08x)", ictx->level,
-		(unsigned int)ictx->curr_container_contentstype4cc.id);
-
 	if(ictx->level==0 && ictx->curr_container_fmt4cc.id==CODE_FORM) {
-
 		d->formtype = ictx->curr_container_contentstype4cc.id;
-		//de_dbg(c, "FORM type: '%s'", ictx->curr_container_contentstype4cc.id_printable);
 
 		switch(ictx->main_contentstype4cc.id) {
 		case CODE_ILBM: de_declare_fmt(c, "IFF-ILBM"); break;
@@ -1011,7 +1006,7 @@ static void de_run_ilbm(deark *c, de_module_params *mparams)
 	ictx->on_container_end_fn = my_on_container_end_fn;
 	ictx->f = c->infile;
 	d->chunks_seen = de_inthashtable_create(c);
-	de_fmtutil_read_iff_format(c, ictx, 0,c->infile->len);
+	de_fmtutil_read_iff_format(c, ictx, 0, c->infile->len);
 	print_summary(c, d);
 
 	dbuf_close(d->vdat_unc_pixels);
@@ -1102,7 +1097,7 @@ static int my_anim_chunk_handler(deark *c, struct de_iffctx *ictx)
 
 	switch(ictx->chunkctx->chunk4cc.id) {
 	case CODE_ANHD:
-		do_anim_anhd(c, d, ictx->chunkctx->chunk_dpos, ictx->chunkctx->chunk_dlen);
+		do_anim_anhd(c, d, ictx->chunkctx->dpos, ictx->chunkctx->dlen);
 		break;
 
 	case CODE_FORM:

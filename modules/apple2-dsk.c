@@ -11,6 +11,8 @@ DE_DECLARE_MODULE(de_module_woz);
 
 #define CODE_INFO 0x494e464fU
 #define CODE_META 0x4d455441U
+#define CODE_TMAP 0x544d4150U
+#define CODE_TRKS 0x54524b53U
 
 typedef struct localctx_struct {
 	int reserved;
@@ -29,10 +31,10 @@ static void do_woz_INFO(deark *c, struct de_iffctx *ictx,
 	const struct de_iffchunkctx *chunkctx)
 {
 	de_byte b;
-	de_int64 pos = chunkctx->chunk_dpos;
+	de_int64 pos = chunkctx->dpos;
 	de_ucstring *s = NULL;
 
-	if(chunkctx->chunk_dlen<37) return;
+	if(chunkctx->dlen<37) return;
 	b = dbuf_getbyte_p(ictx->f, &pos);
 	de_dbg(c, "INFO chunk version: %d", (int)b);
 	b = dbuf_getbyte_p(ictx->f, &pos);
@@ -59,10 +61,25 @@ static void do_woz_META(deark *c, struct de_iffctx *ictx,
 
 	s = ucstring_create(c);
 	// TODO: Parse out the individual items?
-	dbuf_read_to_ucstring_n(ictx->f, chunkctx->chunk_dpos, chunkctx->chunk_dlen,
+	dbuf_read_to_ucstring_n(ictx->f, chunkctx->dpos, chunkctx->dlen,
 		DE_DBG_MAX_STRLEN, s, 0, DE_ENCODING_UTF8);
 	de_dbg(c, "metadata string: \"%s\"", ucstring_getpsz(s));
 	ucstring_destroy(s);
+}
+
+static void my_identify_woz_chunk_fn(deark *c, struct de_iffctx *ictx)
+{
+	const char *name = NULL;
+
+	switch(ictx->chunkctx->chunk4cc.id) {
+	case CODE_TMAP: name = "track map"; break;
+	case CODE_TRKS: name = "data for tracks"; break;
+	case CODE_META: name = "metadata"; break;
+	}
+
+	if(name) {
+		ictx->chunkctx->chunk_name = name;
+	}
 }
 
 static int my_woz_chunk_handler(deark *c, struct de_iffctx *ictx)
@@ -95,6 +112,7 @@ static void de_run_woz(deark *c, de_module_params *mparams)
 	ictx = de_malloc(c, sizeof(struct de_iffctx));
 
 	ictx->userdata = (void*)d;
+	ictx->identify_chunk_fn = my_identify_woz_chunk_fn;
 	ictx->handle_chunk_fn = my_woz_chunk_handler;
 	ictx->f = c->infile;
 	ictx->is_le = 1;

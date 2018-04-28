@@ -340,8 +340,8 @@ static int my_riff_chunk_handler(deark *c, struct de_iffctx *ictx)
 	ictx->handled = 1;
 
 	list_type = ictx->curr_container_contentstype4cc.id;
-	dpos = ictx->chunkctx->chunk_dpos;
-	dlen = ictx->chunkctx->chunk_dlen;
+	dpos = ictx->chunkctx->dpos;
+	dlen = ictx->chunkctx->dlen;
 
 	switch(ictx->chunkctx->chunk4cc.id) {
 	case CHUNK_RIFF:

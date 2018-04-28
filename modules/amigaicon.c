@@ -557,8 +557,8 @@ static int my_iff_chunk_handler(deark *c, struct de_iffctx *ictx)
 		return 1;
 	}
 
-	dpos = ictx->chunkctx->chunk_dpos;
-	dlen = ictx->chunkctx->chunk_dlen;
+	dpos = ictx->chunkctx->dpos;
+	dlen = ictx->chunkctx->dlen;
 
 	switch(ictx->chunkctx->chunk4cc.id) {
 	case CODE_FACE: // FACE (parameters)

@@ -155,6 +155,8 @@ struct de_iffctx;
 // Return value: Normally 1; 0 to immediately stop processing the entire file.
 typedef int (*de_handle_iff_chunk_fn)(deark *c, struct de_iffctx *ictx);
 
+typedef void (*de_identify_iff_chunk_fn)(deark *c, struct de_iffctx *ictx);
+
 // Return value: Normally 1; 0 to immediately stop processing the entire file.
 typedef int (*de_on_iff_container_end_fn)(deark *c, struct de_iffctx *ictx);
 
@@ -164,16 +166,21 @@ typedef int (*de_on_std_iff_container_start_fn)(deark *c, struct de_iffctx *ictx
 
 struct de_iffchunkctx {
 	struct de_fourcc chunk4cc;
-	de_int64 chunk_pos;
-	de_int64 chunk_len;
-	de_int64 chunk_dpos;
-	de_int64 chunk_dlen;
+	de_int64 pos;
+	de_int64 len;
+	de_int64 dpos;
+	de_int64 dlen;
+
+	// To be filled in by identify_chunk_fn:
+	void *chunk_userdata;
+	const char *chunk_name;
 };
 
 struct de_iffctx {
 	void *userdata;
 	dbuf *f; // Input file
 	de_handle_iff_chunk_fn handle_chunk_fn;
+	de_identify_iff_chunk_fn identify_chunk_fn;
 	de_on_std_iff_container_start_fn on_std_container_start_fn;
 	de_on_iff_container_end_fn on_container_end_fn;
 	de_int64 alignment; // 0 = default
@@ -192,7 +199,7 @@ struct de_iffctx {
 	struct de_fourcc curr_container_contentstype4cc;
 
 	// Per-chunk info supplied to handle_chunk_fn:
-	const struct de_iffchunkctx *chunkctx;
+	struct de_iffchunkctx *chunkctx;
 
 	// To be filled in by handle_chunk_fn:
 	int handled;
