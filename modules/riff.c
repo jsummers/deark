@@ -22,7 +22,13 @@ DE_DECLARE_MODULE(de_module_riff);
 
 #define CHUNK_DISP 0x44495350U
 #define CHUNK_EXIF 0x45584946U
+#define CHUNK_IART 0x49415254U
+#define CHUNK_ICOP 0x49434f50U
 #define CHUNK_ICCP 0x49434350U
+#define CHUNK_ICMT 0x49434d54U
+#define CHUNK_IKEY 0x494b4559U
+#define CHUNK_ISBJ 0x4953424aU
+#define CHUNK_JUNK 0x4a554e4bU
 #define CHUNK_LIST 0x4c495354U
 #define CHUNK_RIFF 0x52494646U
 #define CHUNK_RIFX 0x52494658U
@@ -330,6 +336,27 @@ static int my_on_std_container_start_fn(deark *c, struct de_iffctx *ictx)
 	return 1;
 }
 
+static void my_identify_riff_chunk_fn(deark *c, struct de_iffctx *ictx)
+{
+	const char *name = NULL;
+
+	// TODO: Need a better way to do this.
+	switch(ictx->chunkctx->chunk4cc.id) {
+	case CHUNK_DISP: name="display"; break;
+	case CHUNK_IART: name="artist"; break;
+	case CHUNK_ICOP: name="copyright"; break;
+	case CHUNK_ICMT: name="comments"; break;
+	case CHUNK_IKEY: name="keywords"; break;
+	case CHUNK_ISBJ: name="subject"; break;
+	case CHUNK_JUNK: name="filler"; break;
+	case CHUNK_LIST: name="subchunk container"; break;
+	}
+
+	if(name) {
+		ictx->chunkctx->chunk_name = name;
+	}
+}
+
 static int my_riff_chunk_handler(deark *c, struct de_iffctx *ictx)
 {
 	de_int64 dpos, dlen;
@@ -435,6 +462,7 @@ static void de_run_riff(deark *c, de_module_params *mparams)
 	ictx = de_malloc(c, sizeof(struct de_iffctx));
 
 	ictx->userdata = (void*)d;
+	ictx->identify_chunk_fn = my_identify_riff_chunk_fn;
 	ictx->handle_chunk_fn = my_riff_chunk_handler;
 	ictx->on_std_container_start_fn = my_on_std_container_start_fn;
 	ictx->f = c->infile;
