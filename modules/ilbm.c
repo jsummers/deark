@@ -97,7 +97,9 @@ static int do_bmhd(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 	d->found_bmhd = 1;
 	d->main_img.width = de_getui16be(pos1);
 	d->main_img.height = de_getui16be(pos1+2);
+	de_dbg_dimensions(c, d->main_img.width, d->main_img.height);
 	d->planes = (de_int64)de_getbyte(pos1+8);
+	de_dbg(c, "planes: %d", (int)d->planes);
 	d->main_img.masking_code = de_getbyte(pos1+9);
 	switch(d->main_img.masking_code) {
 	case 0: masking_name = "no transparency"; break;
@@ -106,17 +108,19 @@ static int do_bmhd(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 	case 3: masking_name = "lasso"; break;
 	default: masking_name = "unknown"; break;
 	}
+
 	d->compression = de_getbyte(pos1+10);
+	de_dbg(c, "compression: %d", (int)d->compression);
+
 	d->transparent_color = de_getui16be(pos1+12);
-	d->x_aspect = (de_int64)de_getbyte(pos1+14);
-	d->y_aspect = (de_int64)de_getbyte(pos1+15);
-	de_dbg(c, "dimensions: %d"DE_CHAR_TIMES"%d, planes: %d, compression: %d", (int)d->main_img.width,
-		(int)d->main_img.height, (int)d->planes, (int)d->compression);
-	de_dbg(c, "apect ratio: %d, %d", (int)d->x_aspect, (int)d->y_aspect);
 	de_dbg(c, "masking: %d (%s)", (int)d->main_img.masking_code, masking_name);
 	if(d->main_img.masking_code==2 || d->main_img.masking_code==3) {
 		de_dbg(c, " color key: %d", (int)d->transparent_color);
 	}
+
+	d->x_aspect = (de_int64)de_getbyte(pos1+14);
+	d->y_aspect = (de_int64)de_getbyte(pos1+15);
+	de_dbg(c, "apect ratio: %d, %d", (int)d->x_aspect, (int)d->y_aspect);
 
 	retval = 1;
 done:
@@ -829,6 +833,30 @@ static void do_multipalette(deark *c, lctx *d, de_uint32 chunktype)
 	d->errflag = 1;
 }
 
+static void my_identify_ilbm_chunk_fn(deark *c, struct de_iffctx *ictx)
+{
+	const char *name = NULL;
+
+	switch(ictx->chunkctx->chunk4cc.id) {
+	case CODE_BMHD: name="bitmap header"; break;
+	case CODE_BODY: name="image data"; break;
+	case CODE_CAMG: name="Amiga viewport mode"; break;
+	case CODE_CMAP: name="color map"; break;
+	case CODE_CRNG: name="color register range info"; break;
+	case CODE_DPI : name="dots/inch"; break;
+	case CODE_DRNG: name="color cycle"; break;
+	case CODE_GRAB: name="hotspot"; break;
+	case CODE_TINY: name="thumbnail"; break;
+	}
+
+	if(name) {
+		ictx->chunkctx->chunk_name = name;
+	}
+	else {
+		de_fmtutil_default_iff_chunk_identify(c, ictx);
+	}
+}
+
 static int my_ilbm_chunk_handler(deark *c, struct de_iffctx *ictx)
 {
 	int quitflag = 0;
@@ -1001,6 +1029,7 @@ static void de_run_ilbm(deark *c, de_module_params *mparams)
 	if(s) d->opt_fixpal = de_atoi(s);
 
 	ictx->userdata = (void*)d;
+	ictx->identify_chunk_fn = my_identify_ilbm_chunk_fn;
 	ictx->handle_chunk_fn = my_ilbm_chunk_handler;
 	ictx->on_std_container_start_fn = my_on_std_container_start_fn;
 	ictx->on_container_end_fn = my_on_container_end_fn;

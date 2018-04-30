@@ -211,5 +211,6 @@ void de_fmtutil_read_iff_format(deark *c, struct de_iffctx *ictx,
 	de_int64 pos, de_int64 len);
 int de_fmtutil_is_standard_iff_chunk(deark *c, struct de_iffctx *ictx,
 	de_uint32 ct);
+void de_fmtutil_default_iff_chunk_identify(deark *c, struct de_iffctx *ictx);
 
 const char *de_fmtutil_tiff_orientation_name(de_int64 n);

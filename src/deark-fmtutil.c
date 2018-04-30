@@ -1199,6 +1199,21 @@ static void do_iff_anno(deark *c, dbuf *f, de_int64 pos, de_int64 len)
 	}
 }
 
+void de_fmtutil_default_iff_chunk_identify(deark *c, struct de_iffctx *ictx)
+{
+	const char *name = NULL;
+
+	switch(ictx->chunkctx->chunk4cc.id) {
+	case CODE__c_ : name="copyright"; break;
+	case CODE_ANNO: name="annotation"; break;
+	case CODE_AUTH: name="author"; break;
+	}
+
+	if(name) {
+		ictx->chunkctx->chunk_name = name;
+	}
+}
+
 // TODO: This function used to be exported, but it's probably no longer
 // needed for that. It should be refactored to at least have a
 // "struct de_iffctx *ictx" param.
