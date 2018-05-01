@@ -105,6 +105,7 @@ struct box_type_info {
 #define BOX_drep 0x64726570U
 #define BOX_dtbl 0x6474626cU
 #define BOX_flst 0x666c7374U
+#define BOX_lbl  0x6c626c20U
 #define BOX_nlst 0x6e6c7374U
 #define BOX_rreq 0x72726571U
 //  JPM:
@@ -267,6 +268,21 @@ static void do_read_version_and_flags(deark *c, lctx *d, struct de_boxesctx *bct
 	}
 	if(version) *version = version1;
 	if(flags) *flags = flags1;
+}
+
+// For any box whose entire contents are a UTF-8 text string.
+static void do_box_justtext(deark *c, lctx *d, struct de_boxesctx *bctx)
+{
+	struct de_boxdata *curbox = bctx->curbox;
+	de_ucstring *s = NULL;
+	const char *name;
+
+	name = curbox->box_name ? curbox->box_name : "value";
+	s = ucstring_create(c);
+	dbuf_read_to_ucstring_n(bctx->f, curbox->payload_pos, curbox->payload_len,
+		DE_DBG_MAX_STRLEN, s, 0, DE_ENCODING_UTF8);
+	de_dbg(c, "%s: \"%s\"", name, ucstring_getpsz_d(s));
+	ucstring_destroy(s);
 }
 
 static void do_box_data(deark *c, lctx *d, struct de_boxesctx *bctx)
@@ -837,12 +853,27 @@ static void do_box_jp2c(deark *c, lctx *d, struct de_boxesctx *bctx)
 		"j2c", NULL, 0);
 }
 
-static void do_box_resd(deark *c, lctx *d, struct de_boxesctx *bctx)
+static void format_jp2_res(char *buf, size_t buflen,
+	de_int64 num, de_int64 denom, int exponent)
+{
+	// TODO: Format this better
+	de_snprintf(buf, buflen, "(%d/%d)"DE_CHAR_TIMES"10^%d points/meter",
+		(int)num, (int)denom, exponent);
+}
+
+static void do_box_resc_resd(deark *c, lctx *d, struct de_boxesctx *bctx)
 {
 	de_int64 vn, vd, hn, hd;
 	int ve, he;
 	struct de_boxdata *curbox = bctx->curbox;
+	const char *name;
 	de_int64 pos = curbox->payload_pos;
+	char res_buf[160];
+
+	if(curbox->boxtype==BOX_resc)
+		name = "capture";
+	else
+		name = "display";
 
 	if(curbox->payload_len<10) return;
 	vn = dbuf_getui16be_p(bctx->f, &pos);
@@ -851,11 +882,10 @@ static void do_box_resd(deark *c, lctx *d, struct de_boxesctx *bctx)
 	hd = dbuf_getui16be_p(bctx->f, &pos);
 	ve = (int)(signed char)dbuf_getbyte_p(bctx->f, &pos);
 	he = (int)(signed char)dbuf_getbyte_p(bctx->f, &pos);
-	// TODO: Display this better
-	de_dbg(c, "vertical display grid res.: (%d/%d)"DE_CHAR_TIMES"10^%d points/meter",
-		(int)vn, (int)vd, ve);
-	de_dbg(c, "horizontal display grid res.: (%d/%d)"DE_CHAR_TIMES"10^%d points/meter",
-		(int)hn, (int)hd, he);
+	format_jp2_res(res_buf, sizeof(res_buf), vn, vd, ve);
+	de_dbg(c, "vert. %s grid res.: %s", name, res_buf);
+	format_jp2_res(res_buf, sizeof(res_buf), hn, hd, he);
+	de_dbg(c, "horz. %s grid res.: %s", name, res_buf);
 }
 
 static const char *get_jpeg2000_cmpr_name(deark *c, lctx *d, de_byte ct)
@@ -1131,7 +1161,7 @@ static const struct box_type_info box_type_info_arr[] = {
 	{BOX_minf, 0x00000001, 0x00000001, "media information", NULL},
 	{BOX_mfra, 0x00000001, 0x00000001, "movie fragment random access", NULL},
 	{BOX_moof, 0x00000001, 0x00000001, "movie fragment", NULL},
-	{BOX_moov, 0x00000001, 0x00000001, "movie", NULL},
+	{BOX_moov, 0x00000001, 0x00000001, "movie (metadata container)", NULL},
 	{BOX_mvex, 0x00000001, 0x00000001, "movie extends", NULL},
 	{BOX_mvhd, 0x00000001, 0x00000000, "movie header", do_box_mvhd},
 	{BOX_nmhd, 0x00000001, 0x00000000, "null media header", NULL},
@@ -1174,6 +1204,7 @@ static const struct box_type_info box_type_info_arr[] = {
 	{BOX_jpch, 0x00010000, 0x00000001, "codestream header", NULL},
 	{BOX_jplh, 0x00010000, 0x00000001, "image header", NULL},
 	{BOX_lhdr, 0x00010000, 0x00000000, "layout object header", NULL},
+	{BOX_lbl , 0x00010000, 0x00000000, "label", do_box_justtext},
 	{BOX_lobj, 0x00010000, 0x00000001, "layout object", NULL},
 	{BOX_mhdr, 0x00010000, 0x00000000, "compound image header", NULL},
 	{BOX_nlst, 0x00010000, 0x00000000, "number list", NULL},
@@ -1184,8 +1215,8 @@ static const struct box_type_info box_type_info_arr[] = {
 	{BOX_pcol, 0x00010000, 0x00000001, "page collection", NULL},
 	{BOX_phdr, 0x00010000, 0x00000000, "page header", NULL},
 	{BOX_res , 0x00010000, 0x00000001, "resolution", NULL},
-	{BOX_resc, 0x00010000, 0x00000000, "capture resolution", NULL},
-	{BOX_resd, 0x00010000, 0x00000000, "default display resolution", do_box_resd},
+	{BOX_resc, 0x00010000, 0x00000000, "capture resolution", do_box_resc_resd},
+	{BOX_resd, 0x00010000, 0x00000000, "default display resolution", do_box_resc_resd},
 	{BOX_rreq, 0x00010000, 0x00000000, "reader requirements", NULL},
 	{BOX_scal, 0x00010000, 0x00000000, "object scale", NULL},
 	{BOX_sdat, 0x00010000, 0x00000001, NULL, NULL},
