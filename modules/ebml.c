@@ -37,6 +37,23 @@ struct ele_id_info {
 	handler_fn_type hfn;
 };
 
+static const char *get_type_name(unsigned int t)
+{
+	const char *name;
+	switch(t) {
+	case TY_m: name="master"; break;
+	case TY_u: name="unsigned int"; break;
+	case TY_i: name="signed int"; break;
+	case TY_s: name="string"; break;
+	case TY_8: name="UTF-8 string"; break;
+	case TY_b: name="binary"; break;
+	case TY_f: name="float"; break;
+	case TY_d: name="date"; break;
+	default: name="?";
+	}
+	return name;
+}
+
 // Read a "Variable Size Integer".
 // Updates *pos.
 // Returns:
@@ -315,7 +332,7 @@ static int do_element(deark *c, lctx *d, de_int64 pos1,
 	const struct ele_id_info *einfo;
 	const char *ele_name;
 	int saved_indent_level;
-	unsigned int dtype = 0;
+	unsigned int dtype;
 	int should_decode;
 	int len_ret;
 	char tmpbuf[80];
@@ -336,7 +353,12 @@ static int do_element(deark *c, lctx *d, de_int64 pos1,
 	else
 		ele_name = "?";
 
-	de_dbg(c, "element id: 0x%"INT64_FMTx" (%s)", ele_id, ele_name);
+	if(einfo)
+		dtype = einfo->flags & 0xff;
+	else
+		dtype = 0;
+
+	de_dbg(c, "id: 0x%"INT64_FMTx" (%s)", ele_id, ele_name);
 
 	len_ret = get_var_size_int(c->infile, &ele_dlen, &pos);
 	if(len_ret==1) {
@@ -350,7 +372,8 @@ static int do_element(deark *c, lctx *d, de_int64 pos1,
 		de_err(c, "Failed to read length of element at %"INT64_FMT, pos1);
 		goto done;
 	}
-	de_dbg(c, "element data at %"INT64_FMT", dlen=%s", pos, tmpbuf);
+	de_dbg(c, "data at %"INT64_FMT", dlen=%s, type=%s", pos, tmpbuf,
+		get_type_name(dtype));
 
 	if(len_ret==2) {
 		// EBML does not have any sort of end-of-master-element marker, which
@@ -378,7 +401,6 @@ static int do_element(deark *c, lctx *d, de_int64 pos1,
 
 	should_decode = 1;
 	if(einfo) {
-		dtype = einfo->flags & 0xff;
 		if((einfo->flags & 0x0100) && c->debug_level<2) {
 			should_decode = 0;
 		}
