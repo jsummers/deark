@@ -210,8 +210,8 @@ static void do_jfif_segment(deark *c, lctx *d, struct page_ctx *pg,
 	ydens = de_getui16be(pos+5);
 	if(units==1) units_name="dpi";
 	else if(units==2) units_name="dots/cm";
-	else units_name="(unspecified units)";
-	de_dbg(c, "density: %d"DE_CHAR_TIMES"%d %s", (int)xdens, (int)ydens, units_name);
+	else units_name="(unspecified)";
+	de_dbg(c, "density: %d"DE_CHAR_TIMES"%d, units=%s", (int)xdens, (int)ydens, units_name);
 
 	tn_w = (de_int64)de_getbyte(pos+7);
 	tn_h = (de_int64)de_getbyte(pos+8);
@@ -331,8 +331,7 @@ static void do_jps_segment(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 
 	// Descriptor block
 	if(len<8) goto done;
-	blk_len = de_getui16be(pos);
-	pos += 2;
+	blk_len = de_getui16be_p(&pos);
 	if(blk_len<4) goto done;
 	st_descr = (de_uint32)de_getui32be(pos);
 
@@ -368,8 +367,7 @@ static void do_jps_segment(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 
 	// Comment block
 	if(pos1+len-pos<2) goto done;
-	blk_len = de_getui16be(pos);
-	pos += 2;
+	blk_len = de_getui16be_p(&pos);
 	if(pos+blk_len > pos1+len) goto done;
 	comment = ucstring_create(c);
 	dbuf_read_to_ucstring_n(c->infile, pos, blk_len, DE_DBG_MAX_STRLEN, comment,
@@ -420,8 +418,7 @@ static void do_xmp_extension_segment(deark *c, lctx *d, struct page_ctx *pg,
 		de_memcpy(pg->extxmp_digest, thisseg_digest_raw, 32);
 	}
 
-	thisseg_full_extxmp_len = de_getui32be(pos);
-	pos += 4;
+	thisseg_full_extxmp_len = de_getui32be_p(&pos);
 	if(is_first_segment) {
 		pg->extxmp_total_len = thisseg_full_extxmp_len;
 	}
@@ -438,8 +435,7 @@ static void do_xmp_extension_segment(deark *c, lctx *d, struct page_ctx *pg,
 		goto done;
 	}
 
-	segment_offset = de_getui32be(pos);
-	pos += 4;
+	segment_offset = de_getui32be_p(&pos);
 	de_dbg(c, "offset of this segment: %d", (int)segment_offset);
 
 	dlen = data_size - (pos-pos1);
@@ -475,10 +471,10 @@ static void do_fpxr_segment(deark *c, lctx *d, struct page_ctx *pg, de_int64 pos
 
 	de_dbg_indent_save(c, &saved_indent_level);
 	if(len<2) goto done;
-	ver = de_getbyte(pos++);
+	ver = de_getbyte_p(&pos);
 
 	de_dbg(c, "version: %u", (unsigned int)ver);
-	segtype = de_getbyte(pos++);
+	segtype = de_getbyte_p(&pos);
 	switch(segtype) {
 	case 1: name = "contents list"; break;
 	case 2: name = "stream data"; break;
@@ -491,9 +487,8 @@ static void do_fpxr_segment(deark *c, lctx *d, struct page_ctx *pg, de_int64 pos
 
 		if(len<4) goto done;
 
-		i_count = de_getui16be(pos);
+		i_count = de_getui16be_p(&pos);
 		de_dbg(c, "interoperability count: %d", (int)i_count);
-		pos += 2;
 
 		s = ucstring_create(c);
 
@@ -509,7 +504,7 @@ static void do_fpxr_segment(deark *c, lctx *d, struct page_ctx *pg, de_int64 pos
 			de_dbg(c, "entity[%d] at %d", (int)k, (int)pos);
 			de_dbg_indent(c, 1);
 
-			esize = de_getui32be(pos);
+			esize = de_getui32be_p(&pos);
 			if(esize==0xffffffffLL) {
 				is_storage = 1;
 			}
@@ -517,9 +512,8 @@ static void do_fpxr_segment(deark *c, lctx *d, struct page_ctx *pg, de_int64 pos
 			if(!is_storage) {
 				de_dbg(c, "stream size: %u", (unsigned int)esize);
 			}
-			pos += 4;
 
-			defval = de_getbyte(pos++);
+			defval = de_getbyte_p(&pos);
 			de_dbg(c, "default value: 0x%02x", (unsigned int)defval);
 
 			nbytesleft = pos1+len-pos;
@@ -544,15 +538,13 @@ static void do_fpxr_segment(deark *c, lctx *d, struct page_ctx *pg, de_int64 pos
 	else if(segtype==2) {
 		if(len<6) goto done;
 
-		x = de_getui16be(pos);
+		x = de_getui16be_p(&pos);
 		de_dbg(c, "index to contents list: %d", (int)x);
-		pos += 2;
 
 		// The Exif spec (2.31) says this field is at offset 0x0C, but I'm
 		// assuming that's a clerical error that should be 0x0D.
-		x = de_getui32be(pos);
+		x = de_getui32be_p(&pos);
 		de_dbg(c, "offset to flashpix stream: %u", (unsigned int)x);
-		pos += 4;
 
 		nbytesleft = pos1+len-pos;
 		if(nbytesleft>0) {
@@ -573,8 +565,7 @@ static void do_ducky_stringblock(deark *c, lctx *d, struct page_ctx *pg,
 	de_ucstring *s = NULL;
 
 	if(len<4) goto done;
-	nchars = de_getui32be(pos);
-	pos += 4;
+	nchars = de_getui32be_p(&pos);
 	if(nchars*2 > len-4) goto done;
 
 	s = ucstring_create(c);
@@ -593,12 +584,10 @@ static void do_ducky_segment(deark *c, lctx *d, struct page_ctx *pg, de_int64 po
 	de_int64 n;
 
 	while(1) {
-		blktype = (de_uint32)de_getui16be(pos);
-		pos += 2;
+		blktype = (de_uint32)de_getui16be_p(&pos);
 		if(blktype==0) break;
 		if(pos+2 > pos1+len) break;
-		blklen = de_getui16be(pos);
-		pos += 2;
+		blklen = de_getui16be_p(&pos);
 		if(pos+blklen > pos1+len) break;
 		switch(blktype) {
 		case 1:
@@ -1369,26 +1358,26 @@ static void handler_siz(deark *c, lctx *d, struct page_ctx *pg,
 	de_int64 ncomp;
 	de_int64 k;
 
-	capa = (unsigned int)de_getui16be(pos); pos += 2;
+	capa = (unsigned int)de_getui16be_p(&pos);
 	de_dbg(c, "capabilities: 0x%04x", capa);
 
-	w = de_getui32be(pos); pos += 4;
-	h = de_getui32be(pos); pos += 4;
+	w = de_getui32be_p(&pos);
+	h = de_getui32be_p(&pos);
 	de_dbg(c, "dimensions of reference grid: %"INT64_FMT DE_CHAR_TIMES "%"INT64_FMT, w, h);
 
-	w = de_getui32be(pos); pos += 4;
-	h = de_getui32be(pos); pos += 4;
+	w = de_getui32be_p(&pos);
+	h = de_getui32be_p(&pos);
 	de_dbg(c, "offset to image area: %"INT64_FMT",%"INT64_FMT, w, h);
 
-	w = de_getui32be(pos); pos += 4;
-	h = de_getui32be(pos); pos += 4;
+	w = de_getui32be_p(&pos);
+	h = de_getui32be_p(&pos);
 	de_dbg(c, "dimensions of reference tile: %"INT64_FMT DE_CHAR_TIMES "%"INT64_FMT, w, h);
 
-	w = de_getui32be(pos); pos += 4;
-	h = de_getui32be(pos); pos += 4;
+	w = de_getui32be_p(&pos);
+	h = de_getui32be_p(&pos);
 	de_dbg(c, "offset to first tile: %"INT64_FMT",%"INT64_FMT, w, h);
 
-	ncomp = de_getui16be(pos); pos += 2;
+	ncomp = de_getui16be_p(&pos);
 	de_dbg(c, "number of components: %d", (int)ncomp);
 
 	for(k=0; k<ncomp; k++) {
@@ -1397,10 +1386,10 @@ static void handler_siz(deark *c, lctx *d, struct page_ctx *pg,
 		if(pos >= pos1+len) goto done;
 		de_dbg(c, "component[%d] info at %"INT64_FMT, (int)k, pos);
 		de_dbg_indent(c, 1);
-		prec = de_getbyte(pos++);
+		prec = de_getbyte_p(&pos);
 		de_dbg(c, "precision: %d", (int)prec);
-		xr = de_getbyte(pos++);
-		yr = de_getbyte(pos++);
+		xr = de_getbyte_p(&pos);
+		yr = de_getbyte_p(&pos);
 		de_dbg(c, "separation: %d,%d", (int)xr, (int)yr);
 		de_dbg_indent(c, -1);
 	}
@@ -1422,10 +1411,10 @@ static void handler_tlm(deark *c, lctx *d, struct page_ctx *pg,
 	de_int64 k;
 
 	if(len<2) goto done;
-	b = de_getbyte(pos++);
+	b = de_getbyte_p(&pos);
 	de_dbg(c, "index: %d", (int)b);
 
-	item_size_code = (de_int64)de_getbyte(pos++);
+	item_size_code = (de_int64)de_getbyte_p(&pos);
 	de_dbg(c, "item size code: 0x%02x", (unsigned int)item_size_code);
 	de_dbg_indent(c, 1);
 	t_code = (item_size_code & 0x30)>>4;
@@ -1450,19 +1439,19 @@ static void handler_tlm(deark *c, lctx *d, struct page_ctx *pg,
 		de_dbg_indent(c, 1);
 		if(t_size>0) {
 			if(t_size==1) {
-				x = (de_int64)de_getbyte(pos++);
+				x = (de_int64)de_getbyte_p(&pos);
 			}
 			else {
-				x = de_getui16be(pos); pos += 2;
+				x = de_getui16be_p(&pos);
 			}
 			de_dbg(c, "tile number: %u", (unsigned int)x);
 		}
 
 		if(p_size==2) {
-			x = de_getui16be(pos); pos += 2;
+			x = de_getui16be_p(&pos);
 		}
 		else {
-			x = de_getui32be(pos); pos += 4;
+			x = de_getui32be_p(&pos);
 		}
 		de_dbg(c, "tile length: %u", (unsigned int)x);
 		de_dbg_indent(c, -1);
@@ -1484,13 +1473,13 @@ static void handler_sot(deark *c, lctx *d, struct page_ctx *pg,
 	if(len<8) return;
 
 	pg->j2c_sot_pos = pos1 - 4;
-	x = de_getui16be(pos); pos += 2;
+	x = de_getui16be_p(&pos);
 	de_dbg(c, "tile number: %d", (int)x);
-	pg->j2c_sot_length = de_getui32be(pos); pos += 4;
+	pg->j2c_sot_length = de_getui32be_p(&pos);
 	de_dbg(c, "length: %u", (unsigned int)pg->j2c_sot_length);
-	b = de_getbyte(pos++);
+	b = de_getbyte_p(&pos);
 	de_dbg(c, "tile-part instance: %d", (int)b);
-	b = de_getbyte(pos++);
+	b = de_getbyte_p(&pos);
 	de_dbg(c, "number of tile-parts: %d", (int)b);
 }
 
@@ -1504,7 +1493,7 @@ static void handler_cod(deark *c, lctx *d, struct page_ctx *pg,
 	de_int64 n;
 
 	if(len<5) goto done;
-	coding_style = de_getbyte(pos++);
+	coding_style = de_getbyte_p(&pos);
 	s = ucstring_create(c);
 
 	if((coding_style&0xf8)==0) {
@@ -1527,11 +1516,11 @@ static void handler_cod(deark *c, lctx *d, struct page_ctx *pg,
 	de_dbg(c, "coding style: 0x%02x (%s)", (unsigned int)coding_style,
 		ucstring_getpsz(s));
 
-	b = de_getbyte(pos++);
+	b = de_getbyte_p(&pos);
 	de_dbg(c, "progression order: %d", (int)b);
-	n = de_getui16be(pos); pos += 2;
+	n = de_getui16be_p(&pos);
 	de_dbg(c, "number of layers: %d", (int)n);
-	b = de_getbyte(pos++);
+	b = de_getbyte_p(&pos);
 
 	if(pos < pos1+len) {
 		// TODO
@@ -1549,7 +1538,7 @@ static void handler_qcd(deark *c, lctx *d, struct page_ctx *pg,
 	de_byte q_style;
 
 	if(len<1) goto done;
-	q_style = de_getbyte(pos++);
+	q_style = de_getbyte_p(&pos);
 	de_dbg(c, "quantization style: 0x%02x", (unsigned int)q_style);
 
 	if(pos < pos1+len) {
@@ -1567,10 +1556,10 @@ static void handler_qcc(deark *c, lctx *d, struct page_ctx *pg,
 	de_int64 compnum;
 
 	if(pg->ncomp<257) {
-		compnum = de_getbyte(pos++);
+		compnum = de_getbyte_p(&pos);
 	}
 	else {
-		compnum = de_getui16be(pos); pos += 2;
+		compnum = de_getui16be_p(&pos);
 	}
 	de_dbg(c, "component number: %d", (int)compnum);
 
@@ -1737,9 +1726,9 @@ static int do_read_scan_data(deark *c, lctx *d, struct page_ctx *pg,
 
 	while(1) {
 		if(pos >= c->infile->len) goto done;
-		b0 = de_getbyte(pos++);
+		b0 = de_getbyte_p(&pos);
 		if(b0==0xff) {
-			b1 = de_getbyte(pos++);
+			b1 = de_getbyte_p(&pos);
 			if(b1==0x00) {
 				; // an escaped 0xff
 			}
@@ -1908,8 +1897,7 @@ static int do_jpeg_page(deark *c, lctx *d, de_int64 pos1, de_int64 *bytes_consum
 	while(1) {
 		if(pos>=c->infile->len)
 			break;
-		b = de_getbyte(pos);
-		pos++;
+		b = de_getbyte_p(&pos);
 		if(b==0xff) {
 			found_marker = 1;
 			continue;
