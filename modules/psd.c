@@ -191,7 +191,8 @@ typedef void (*rsrc_handler_fn)(deark *c, lctx *d, zztype *zz, const struct rsrc
 struct rsrc_info {
 	de_uint16 id;
 
-	// 0x4 = Item consists of a version number, followed by a "Descriptor structure".
+	// 0x0004 = Item consists of a version number, followed by a "Descriptor structure".
+	// 0x0010 = Do not include ASCII in hexdumps.
 	de_uint32 flags;
 
 	const char *idname;
@@ -241,7 +242,7 @@ static const struct rsrc_info rsrc_info_arr[] = {
 	{ 0x03f5, 0, "Color halftoning info", NULL },
 	{ 0x03f6, 0, "Duotone halftoning information", NULL },
 	{ 0x03f7, 0, "Grayscale and multichannel transfer function", NULL },
-	{ 0x03f8, 0, "Color transfer functions", NULL },
+	{ 0x03f8, 0x0010, "Color transfer functions", NULL },
 	{ 0x03f9, 0, "Duotone transfer functions", NULL },
 	{ 0x03fa, 0, "Duotone image information", NULL },
 	{ 0x03fb, 0, "Effective black and white values", NULL },
@@ -251,12 +252,12 @@ static const struct rsrc_info rsrc_info_arr[] = {
 	//{ 0x03ff, 0, "(Obsolete)", NULL },
 	{ 0x0400, 0, "Layer state information", hrsrc_uint16 },
 	{ 0x0401, 0, "Working path", hrsrc_pathinfo },
-	{ 0x0402, 0, "Layers group information", NULL },
+	{ 0x0402, 0x0010, "Layers group information", NULL },
 	//{ 0x0403, 0, "(Obsolete)", NULL },
 	{ 0x0404, 0, "IPTC-NAA", hrsrc_iptc },
 	{ 0x0405, 0, "Image mode for raw format files", NULL },
-	{ 0x0406, 0, "JPEG quality", NULL },
-	{ 0x0408, 0, "Grid and guides info", NULL },
+	{ 0x0406, 0x0010, "JPEG quality", NULL },
+	{ 0x0408, 0x0010, "Grid and guides info", NULL },
 	{ 0x0409, 0, "Thumbnail - Photoshop 4.0", hrsrc_thumbnail },
 	{ 0x040a, 0, "Copyright flag", hrsrc_byte },
 	{ 0x040b, 0, "URL", hrsrc_plaintext },
@@ -282,7 +283,7 @@ static const struct rsrc_info rsrc_info_arr[] = {
 	{ 0x0422, 0, "EXIF data 1", hrsrc_exif },
 	{ 0x0423, 0, "EXIF data 3", NULL },
 	{ 0x0424, 0, "XMP metadata", hrsrc_xmp },
-	{ 0x0425, 0, "Caption digest", NULL },
+	{ 0x0425, 0x0010, "Caption digest", NULL },
 	{ 0x0426, 0, "Print scale", hrsrc_printscale },
 	{ 0x0428, 0, "Pixel Aspect Ratio", hrsrc_pixelaspectratio },
 	{ 0x0429, 0x0004, "Layer Comps", NULL },
@@ -291,7 +292,7 @@ static const struct rsrc_info rsrc_info_arr[] = {
 	{ 0x042d, 0, "Layer Selection ID(s)", hrsrc_layerselectionids },
 	{ 0x042e, 0, "HDR Toning information", NULL },
 	{ 0x042f, 0, "Auto Save Format", NULL },
-	{ 0x0430, 0, "Layer Group(s) Enabled ID", NULL },
+	{ 0x0430, 0x0010, "Layer Group(s) Enabled ID", NULL },
 	{ 0x0431, 0, "Color samplers resource (Photoshop CS3)", NULL },
 	{ 0x0432, 0x0004, "Measurement Scale", NULL },
 	{ 0x0433, 0x0004, "Timeline Information", NULL },
@@ -1925,7 +1926,8 @@ static int do_image_resource(deark *c, lctx *d, zztype *zz)
 		hrsrc_descriptor_with_version(c, d, &czz, &ri);
 	}
 	else if(c->debug_level>=2) {
-		de_dbg_hexdump(c, c->infile, zz->pos, block_data_len, 256, NULL, 0x1);
+		de_dbg_hexdump(c, c->infile, zz->pos, block_data_len, 256, NULL,
+			(ri.flags&0x0010)?0x0:0x1);
 	}
 	de_dbg_indent(c, -1);
 
