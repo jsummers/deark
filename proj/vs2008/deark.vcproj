@@ -666,6 +666,10 @@
 				>
 			</File>
 			<File
+				RelativePath="..\..\modules\j2c.c"
+				>
+			</File>
+			<File
 				RelativePath="..\..\modules\jbf.c"
 				>
 			</File>

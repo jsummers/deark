@@ -92,6 +92,8 @@ obj/modules/insetpix.o: modules/insetpix.c src/deark-config.h \
  src/deark-private.h src/deark.h
 obj/modules/iptc.o: modules/iptc.c src/deark-config.h src/deark-private.h \
  src/deark.h
+obj/modules/j2c.o: modules/j2c.c src/deark-config.h src/deark-private.h \
+ src/deark.h
 obj/modules/jbf.o: modules/jbf.c src/deark-config.h src/deark-private.h \
  src/deark.h src/deark-fmtutil.h
 obj/modules/jovianvi.o: modules/jovianvi.c src/deark-config.h \
