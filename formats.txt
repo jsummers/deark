@@ -611,7 +611,7 @@ Deark -- Information about supported formats
 * CRC-32 (module="crc32")
   - Print the IEEE CRC-32 of the file.
 
-* EBML/Matroska/MKV/WebM (module="ebml") (incomplete)
+* EBML/Matroska/MKV/WebM (module="ebml")
   Options
    -opt ebml:encodedid : Also print element ID numbers in raw (encoded) form.
 

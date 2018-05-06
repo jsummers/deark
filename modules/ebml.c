@@ -8,14 +8,24 @@
 #include <deark-private.h>
 DE_DECLARE_MODULE(de_module_ebml);
 
+struct attachmentctx_struct {
+	de_ucstring *filename;
+	de_int64 data_pos; // 0 = no info
+	de_int64 data_len; // valid if data_pos!=0
+};
+
 typedef struct localctx_struct {
 	int level;
 	int show_encoded_id;
+	struct attachmentctx_struct *attachmentctx;
 } lctx;
 
 struct handler_params {
 	de_int64 dpos;
 	de_int64 dlen;
+
+	// Set if handler is being called (again) at the *end* of the element
+	de_byte end_flag;
 };
 typedef void (*handler_fn_type)(deark *c, lctx *d, struct handler_params *hp);
 
@@ -30,7 +40,10 @@ struct ele_id_info {
 #define TY_b 0x06 // binary
 #define TY_f 0x07 // float
 #define TY_d 0x08 // date
-	// 0x0100 = Don't decode this element by default
+	// 0x0100 = Don't decode this element by default, because it's too noisy
+	// 0x0200 = Don't decode this element, because it has special handling
+	// 0x0800 = Also call the handler function at the *end* of the element
+	//    (useful for TY_m only)
 	unsigned int flags;
 
 	de_int64 ele_id;
@@ -135,6 +148,82 @@ done:
 	return retval;
 }
 
+static void handler_filename(deark *c, lctx *d, struct handler_params *hp)
+{
+	if(!d->attachmentctx) return;
+	if(d->attachmentctx->filename) return;
+	if(hp->dlen<1) return;
+
+	d->attachmentctx->filename = ucstring_create(c);
+	dbuf_read_to_ucstring_n(c->infile, hp->dpos, hp->dlen, 300,
+		d->attachmentctx->filename,
+		DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_UTF8);
+}
+
+static void handler_filedata(deark *c, lctx *d, struct handler_params *hp)
+{
+	if(!d->attachmentctx) return;
+	d->attachmentctx->data_pos = hp->dpos;
+	d->attachmentctx->data_len = hp->dlen;
+}
+
+static void destroy_attachment_data(deark *c, lctx *d)
+{
+	if(!d->attachmentctx) return;
+	ucstring_destroy(d->attachmentctx->filename);
+	de_free(c, d->attachmentctx);
+	d->attachmentctx = NULL;
+}
+
+static void handler_attachedfile_start(deark *c, lctx *d, struct handler_params *hp)
+{
+	if(d->attachmentctx) {
+		destroy_attachment_data(c, d);
+	}
+
+	d->attachmentctx = de_malloc(c, sizeof(struct attachmentctx_struct));
+}
+
+static void handler_attachedfile_end(deark *c, lctx *d)
+{
+	de_finfo *fi = NULL;
+
+	if(!d->attachmentctx) goto done;
+	if(d->attachmentctx->data_pos==0) goto done;
+
+	fi = de_finfo_create(c);
+
+	// TODO: We could do a better job of constructing filenames in various
+	// situations.
+	if(d->attachmentctx->filename &&
+		(d->attachmentctx->filename->len > 0) &&
+		c->filenames_from_file)
+	{
+		de_finfo_set_name_from_ucstring(c, fi, d->attachmentctx->filename);
+	}
+	else
+	{
+		de_finfo_set_name_from_sz(c, fi, "bin", DE_ENCODING_UTF8);
+	}
+
+	dbuf_create_file_from_slice(c->infile, d->attachmentctx->data_pos,
+		d->attachmentctx->data_len, NULL, fi, DE_CREATEFLAG_IS_AUX);
+
+done:
+	de_finfo_destroy(c, fi);
+	destroy_attachment_data(c, d);
+}
+
+static void handler_attachedfile(deark *c, lctx *d, struct handler_params *hp)
+{
+	if(hp->end_flag) {
+		handler_attachedfile_end(c, d);
+	}
+	else {
+		handler_attachedfile_start(c, d, hp);
+	}
+}
+
 static void handler_hexdumpa(deark *c, lctx *d, struct handler_params *hp)
 {
 	de_dbg_hexdump(c, c->infile, hp->dpos, hp->dlen, 256, NULL, 0x1);
@@ -209,9 +298,9 @@ static const struct ele_id_info ele_id_info_arr[] = {
 	{TY_u, 0x5bd, "EditionFlagHidden", NULL},
 	{TY_u, 0x5db, "EditionFlagDefault", NULL},
 	{TY_u, 0x5dd, "EditionFlagOrdered", NULL},
-	{TY_b, 0x65c, "FileData", NULL},
+	{TY_b, 0x65c, "FileData", handler_filedata},
 	{TY_s, 0x660, "FileMimeType", NULL},
-	{TY_8, 0x66e, "FileName", NULL},
+	{TY_8, 0x66e, "FileName", handler_filename},
 	{TY_u, 0x6ae, "FileUID", NULL},
 	{TY_8, 0xd80, "MuxingApp", NULL},
 	{TY_m, 0xdbb, "Seek", NULL},
@@ -226,7 +315,7 @@ static const struct ele_id_info ele_id_info_arr[] = {
 	{TY_u, 0x15aa, "FlagForced", NULL},
 	{TY_u, 0x15ee, "MaxBlockAdditionID", NULL},
 	{TY_8, 0x1741, "WritingApp", NULL},
-	{TY_m, 0x21a7, "AttachedFile", NULL},
+	{TY_m|0x0800, 0x21a7, "AttachedFile", handler_attachedfile},
 	{TY_m, 0x2240, "ContentEncoding", NULL},
 	{TY_u, 0x2264, "BitDepth", NULL},
 	{TY_b, 0x23a2, "CodecPrivate", handler_hexdumpa},
@@ -382,7 +471,10 @@ static int do_element(deark *c, lctx *d, de_int64 pos1,
 	const char *ele_name;
 	int saved_indent_level;
 	unsigned int dtype;
-	int should_decode;
+	int should_call_start_handler = 0;
+	int should_decode_default = 0;
+	int should_print_NOT_DECODING_msg = 0;
+	int should_call_end_handler = 0;
 	int len_ret;
 	char tmpbuf[80];
 
@@ -451,20 +543,35 @@ static int do_element(deark *c, lctx *d, de_int64 pos1,
 		goto done;
 	}
 
-	should_decode = 1;
 	if(einfo) {
-		if((einfo->flags & 0x0100) && c->debug_level<2) {
-			should_decode = 0;
+		should_decode_default = 1;
+
+		if(einfo->flags & 0x0200) {
+			should_decode_default = 0;
+		}
+		else if((einfo->flags & 0x0100) && c->debug_level<2) {
+			should_decode_default = 0;
+			should_print_NOT_DECODING_msg = 1;
 		}
 	}
 
-	if(should_decode && einfo && einfo->hfn) {
+	if(should_decode_default && einfo && einfo->hfn) {
+		should_call_start_handler = 1;
+	}
+
+	if(should_decode_default && einfo && einfo->hfn && (einfo->flags & 0x0800)) {
+		should_call_end_handler = 1;
+	}
+
+	if(should_call_start_handler) {
 		struct handler_params hp;
+		de_memset(&hp, 0, sizeof(struct handler_params));
 		hp.dpos = pos;
 		hp.dlen = ele_dlen;
 		einfo->hfn(c, d, &hp);
 	}
-	else if(should_decode) {
+
+	if(should_decode_default) {
 		switch(dtype) {
 		case TY_m:
 			do_element_sequence(c, d, pos, ele_dlen);
@@ -487,7 +594,18 @@ static int do_element(deark *c, lctx *d, de_int64 pos1,
 		}
 	}
 	else {
-		de_dbg(c, "[not decoding this element]");
+		if(should_print_NOT_DECODING_msg) {
+			de_dbg(c, "[not decoding this element]");
+		}
+	}
+
+	if(should_call_end_handler) {
+		struct handler_params hp;
+		de_memset(&hp, 0, sizeof(struct handler_params));
+		hp.dpos = pos;
+		hp.dlen = ele_dlen;
+		hp.end_flag = 1;
+		einfo->hfn(c, d, &hp);
 	}
 
 	pos += ele_dlen;
@@ -555,7 +673,6 @@ static void de_run_ebml(deark *c, de_module_params *mparams)
 	de_int64 pos;
 
 	d = de_malloc(c, sizeof(lctx));
-	de_msg(c, "Note: EBML files can be parsed, but no files can be extracted from them.");
 
 	if(de_get_ext_option(c, "ebml:encodedid")) {
 		d->show_encoded_id = 1;
@@ -564,7 +681,10 @@ static void de_run_ebml(deark *c, de_module_params *mparams)
 	pos = 0;
 	do_element_sequence(c, d, pos, c->infile->len);
 
-	de_free(c, d);
+	if(d) {
+		destroy_attachment_data(c, d);
+		de_free(c, d);
+	}
 }
 
 static int de_identify_ebml(deark *c)
