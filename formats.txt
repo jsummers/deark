@@ -612,6 +612,8 @@ Deark -- Information about supported formats
   - Print the IEEE CRC-32 of the file.
 
 * EBML/Matroska/MKV/WebM (module="ebml") (incomplete)
+  Options
+   -opt ebml:encodedid : Also print element ID numbers in raw (encoded) form.
 
 * EXE/PE/NE/etc. (module="exe")
   EXE format can be complex. Not all varieties are correctly supported.

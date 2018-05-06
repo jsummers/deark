@@ -353,6 +353,22 @@ static void decode_string(deark *c, lctx *d, const struct ele_id_info *ele_id,
 	ucstring_destroy(s);
 }
 
+// Print an element ID number, in the format used by the Matroska spec.
+static void print_encoded_id(deark *c, lctx *d, de_int64 pos, de_int64 len)
+{
+	de_ucstring *s = NULL;
+	de_int64 i;
+
+	if(len>8) return;
+	s = ucstring_create(c);
+	for(i=0; i<len; i++) {
+		ucstring_printf(s, DE_ENCODING_UTF8, "[%02x]",
+			(unsigned int)de_getbyte(pos+i));
+	}
+	de_dbg(c, "encoded id: %s", ucstring_getpsz_d(s));
+	ucstring_destroy(s);
+}
+
 static int do_element_sequence(deark *c, lctx *d, de_int64 pos1, de_int64 len);
 
 static int do_element(deark *c, lctx *d, de_int64 pos1,
@@ -393,8 +409,7 @@ static int do_element(deark *c, lctx *d, de_int64 pos1,
 
 	de_dbg(c, "id: 0x%"INT64_FMTx" (%s)", ele_id, ele_name);
 	if(d->show_encoded_id) {
-		// TODO: Format this better, and document it.
-		de_dbg_hexdump(c, c->infile, pos1, pos-pos1, 16, "encoded id", 0);
+		print_encoded_id(c, d, pos1, pos-pos1);
 	}
 
 	len_ret = get_var_size_int(c->infile, &ele_dlen, &pos, pos1+nbytes_avail-pos);
@@ -559,10 +574,16 @@ static int de_identify_ebml(deark *c)
 	return 0;
 }
 
+static void de_help_ebml(deark *c)
+{
+	de_msg(c, "-opt ebml:encodedid : Also print element ID numbers in raw form");
+}
+
 void de_module_ebml(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "ebml";
 	mi->desc = "EBML";
 	mi->run_fn = de_run_ebml;
 	mi->identify_fn = de_identify_ebml;
+	mi->help_fn = de_help_ebml;
 }
