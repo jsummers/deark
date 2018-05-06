@@ -10,6 +10,7 @@ DE_DECLARE_MODULE(de_module_ebml);
 
 typedef struct localctx_struct {
 	int level;
+	int show_encoded_id;
 } lctx;
 
 struct handler_params {
@@ -60,14 +61,19 @@ static const char *get_type_name(unsigned int t)
 //  0 on failure
 //  1 on success
 //  2 for a special "reserved" value
-static int get_var_size_int(dbuf *f, de_int64 *val, de_int64 *pos)
+static int get_var_size_int(dbuf *f, de_int64 *val, de_int64 *pos,
+	de_int64 nbytes_avail)
 {
+	de_int64 pos1;
 	de_byte b;
 	de_byte mask;
 	unsigned int k;
 	int retval = 0;
 	de_byte test_bit;
 	unsigned int initial_zero_bits;
+
+	pos1 = *pos;
+	if(nbytes_avail<1) goto done;
 
 	// This is an unsigned int. In a de_int64, we can support up to 63
 	// bits.
@@ -105,6 +111,7 @@ static int get_var_size_int(dbuf *f, de_int64 *val, de_int64 *pos)
 
 	// Read remaining bytes, if any.
 	for(k=0; k<initial_zero_bits; k++) {
+		if(*pos >= pos1+nbytes_avail) goto done;
 		b = dbuf_getbyte(f, *pos);
 		(*pos)++;
 		if(*val > 0x07ffffffffffffffLL) {
@@ -142,9 +149,14 @@ static const struct ele_id_info ele_id_info_arr[] = {
 	// Note that the Matroska spec may conflate encoded IDs with decoded IDs.
 	// This table lists decoded IDs. Encoded IDs have an extra 1 bit in a
 	// position that makes it more significant than any of the other 1 bits.
+	{TY_m, 0x0, "ChapterDisplay", NULL},
 	{TY_u, 0x3, "TrackType", NULL},
+	{TY_8, 0x5, "ChapString", NULL},
 	{TY_s, 0x6, "CodecID", NULL},
 	{TY_u, 0x8, "FlagDefault", NULL},
+	{TY_u, 0x11, "ChapterTimeStart", NULL},
+	{TY_u, 0x12, "ChapterTimeEnd", NULL},
+	{TY_u, 0x18, "ChapterFlagHidden", NULL},
 	{TY_u, 0x1a, "FlagInterlaced", NULL},
 	{TY_u, 0x1b, "BlockDuration", NULL},
 	{TY_u, 0x1c, "FlagLacing", NULL},
@@ -159,6 +171,7 @@ static const struct ele_id_info ele_id_info_arr[] = {
 	{TY_u, 0x30, "PixelWidth", NULL},
 	{TY_u, 0x33, "CueTime", NULL},
 	{TY_f, 0x35, "SamplingFrequency", NULL},
+	{TY_m, 0x36, "ChapterAtom", NULL},
 	{TY_m, 0x37, "CueTrackPositions", NULL},
 	{TY_u, 0x39, "FlagEnabled", NULL},
 	{TY_u, 0x3a, "PixelHeight", NULL},
@@ -169,6 +182,7 @@ static const struct ele_id_info ele_id_info_arr[] = {
 	{TY_m, 0x61, "Audio", NULL},
 	{TY_u, 0x67, "Timecode", NULL},
 	{TY_b|0x0100, 0x6c, "Void", handler_hexdumpb},
+	{TY_u, 0x70, "CueRelativePosition", NULL},
 	{TY_u, 0x71, "CueClusterPosition", NULL},
 	{TY_u, 0x77, "CueTrack", NULL},
 	{TY_i, 0x7b, "ReferenceBlock", NULL},
@@ -181,45 +195,66 @@ static const struct ele_id_info ele_id_info_arr[] = {
 	{TY_u, 0x2f2, "EBMLMaxIDLength", NULL},
 	{TY_u, 0x2f3, "EBMLMaxSizeLength", NULL},
 	{TY_u, 0x2f7, "EBMLReadVersion", NULL},
+	{TY_s, 0x37c, "ChapLanguage", NULL},
 	{TY_d, 0x461, "DateUTC", NULL},
 	{TY_s, 0x47a, "TagLanguage", NULL},
 	{TY_u, 0x484, "TagDefault", NULL},
 	{TY_8, 0x487, "TagString", NULL},
 	{TY_f, 0x489, "Duration", NULL},
+	//     0x4b4, "TagDefault?" // Some buggy software does this
+	{TY_u, 0x598, "ChapterFlagEnabled", NULL},
 	{TY_8, 0x5a3, "TagName", NULL},
+	{TY_m, 0x5b9, "EditionEntry", NULL},
+	{TY_u, 0x5bc, "EditionUID", NULL},
+	{TY_u, 0x5bd, "EditionFlagHidden", NULL},
+	{TY_u, 0x5db, "EditionFlagDefault", NULL},
+	{TY_u, 0x5dd, "EditionFlagOrdered", NULL},
+	{TY_b, 0x65c, "FileData", NULL},
+	{TY_s, 0x660, "FileMimeType", NULL},
+	{TY_8, 0x66e, "FileName", NULL},
+	{TY_u, 0x6ae, "FileUID", NULL},
 	{TY_8, 0xd80, "MuxingApp", NULL},
 	{TY_m, 0xdbb, "Seek", NULL},
 	{TY_m, 0x1034, "ContentCompression", NULL},
 	{TY_8, 0x136e, "Name", NULL},
 	{TY_b, 0x13ab, "SeekID", handler_hexdumpb},
 	{TY_u, 0x13ac, "SeekPosition", NULL},
+	{TY_u, 0x13b8, "StereoMode", NULL},
 	{TY_u, 0x14b0, "DisplayWidth", NULL},
 	{TY_u, 0x14b2, "DisplayUnit", NULL},
 	{TY_u, 0x14ba, "DisplayHeight", NULL},
 	{TY_u, 0x15aa, "FlagForced", NULL},
 	{TY_u, 0x15ee, "MaxBlockAdditionID", NULL},
 	{TY_8, 0x1741, "WritingApp", NULL},
+	{TY_m, 0x21a7, "AttachedFile", NULL},
 	{TY_m, 0x2240, "ContentEncoding", NULL},
 	{TY_u, 0x2264, "BitDepth", NULL},
 	{TY_b, 0x23a2, "CodecPrivate", handler_hexdumpa},
 	{TY_m, 0x23c0, "Targets", NULL},
+	{TY_u, 0x23c5, "TagTrackUID", NULL},
+	{TY_s, 0x23ca, "TargetType", NULL},
 	{TY_m, 0x27c8, "SimpleTag", NULL},
 	{TY_u, 0x28ca, "TargetTypeValue", NULL},
 	{TY_m, 0x2d80, "ContentEncodings", NULL},
 	{TY_u, 0x2de7, "MinCache", NULL},
+	{TY_u, 0x2df8, "MaxCache", NULL},
 	{TY_m, 0x3373, "Tag", NULL},
 	{TY_b, 0x33a4, "SegmentUID", handler_hexdumpb},
+	{TY_u, 0x33c4, "ChapterUID", NULL},
 	{TY_u, 0x33c5, "TrackUID", NULL},
 	{TY_f, 0x38b5, "OutputSamplingFrequency", NULL},
+	{TY_8, 0x3ba9, "Title", NULL},
 	{TY_s, 0x2b59c, "Language", NULL},
 	{TY_f, 0x3314f, "TrackTimecodeScale (deprecated)", NULL},
 	{TY_u, 0x3e383, "DefaultDuration", NULL},
 	{TY_u, 0xad7b1, "TimecodeScale", NULL},
+	{TY_m, 0x43a770, "Chapters", NULL},
 	{TY_m|0x0100, 0x14d9b74, "SeekHead", NULL},
 	{TY_m, 0x254c367, "Tags", NULL},
 	{TY_m, 0x549a966, "Info", NULL},
 	{TY_m, 0x654ae6b, "Tracks", NULL},
 	{TY_m, 0x8538067, "Segment", NULL},
+	{TY_m, 0x941a469, "Attachments", NULL},
 	{TY_m, 0xa45dfa3, "EBML", NULL},
 	{TY_m, 0xc53bb6b, "Cues", NULL},
 	{TY_m|0x0100, 0xf43b675, "Cluster", NULL}
@@ -282,8 +317,6 @@ static void EBMLdate_to_timestamp(de_int64 ed, struct de_timestamp *ts)
 	// ed is the number of nanoseconds since the beginning of 2001.
 	t = ed/1000000000;
 	// Now t is seconds since the beginning of 2001.
-	// (We assume leap seconds are not included. The EBML spec says nothing
-	// about this issue, and there's no reasonable way to deal with it anyway.)
 	// We want seconds since the beginning of 1970.
 	// So, add the number of seconds in the years from 1970 through 2000. This
 	// is 31 years.
@@ -342,7 +375,7 @@ static int do_element(deark *c, lctx *d, de_int64 pos1,
 	de_dbg(c, "element at %"INT64_FMT", max_len=%"INT64_FMT, pos1, nbytes_avail);
 	de_dbg_indent(c, 1);
 
-	if(1!=get_var_size_int(c->infile, &ele_id, &pos)) {
+	if(1!=get_var_size_int(c->infile, &ele_id, &pos, nbytes_avail)) {
 		de_err(c, "Failed to read ID of element at %"INT64_FMT, pos1);
 		goto done;
 	}
@@ -359,8 +392,12 @@ static int do_element(deark *c, lctx *d, de_int64 pos1,
 		dtype = 0;
 
 	de_dbg(c, "id: 0x%"INT64_FMTx" (%s)", ele_id, ele_name);
+	if(d->show_encoded_id) {
+		// TODO: Format this better, and document it.
+		de_dbg_hexdump(c, c->infile, pos1, pos-pos1, 16, "encoded id", 0);
+	}
 
-	len_ret = get_var_size_int(c->infile, &ele_dlen, &pos);
+	len_ret = get_var_size_int(c->infile, &ele_dlen, &pos, pos1+nbytes_avail-pos);
 	if(len_ret==1) {
 		de_snprintf(tmpbuf, sizeof(tmpbuf), "%"INT64_FMT, ele_dlen);
 	}
@@ -504,6 +541,10 @@ static void de_run_ebml(deark *c, de_module_params *mparams)
 
 	d = de_malloc(c, sizeof(lctx));
 	de_msg(c, "Note: EBML files can be parsed, but no files can be extracted from them.");
+
+	if(de_get_ext_option(c, "ebml:encodedid")) {
+		d->show_encoded_id = 1;
+	}
 
 	pos = 0;
 	do_element_sequence(c, d, pos, c->infile->len);
