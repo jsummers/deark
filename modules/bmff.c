@@ -240,7 +240,7 @@ static void do_box_ftyp(deark *c, lctx *d, struct de_boxesctx *bctx)
 	if(curbox->payload_len<4) goto done;
 	dbuf_read_fourcc(bctx->f, curbox->payload_pos, &brand4cc, 0);
 	d->major_brand = brand4cc.id;
-	de_dbg(c, "major brand: '%s'", brand4cc.id_printable);
+	de_dbg(c, "major brand: '%s'", brand4cc.id_dbgstr);
 	if(curbox->level==0)
 		apply_brand(c, d, d->major_brand);
 
@@ -254,7 +254,7 @@ static void do_box_ftyp(deark *c, lctx *d, struct de_boxesctx *bctx)
 	for(i=0; i<num_compat_brands; i++) {
 		dbuf_read_fourcc(bctx->f, curbox->payload_pos + 8 + i*4, &brand4cc, 0);
 		if(brand4cc.id==0) continue; // Placeholder. Ignore.
-		de_dbg(c, "compatible brand: '%s'", brand4cc.id_printable);
+		de_dbg(c, "compatible brand: '%s'", brand4cc.id_dbgstr);
 		if(curbox->level==0)
 			apply_brand(c, d, brand4cc.id);
 	}
@@ -393,7 +393,7 @@ static void do_box_hdlr(deark *c, lctx *d, struct de_boxesctx *bctx)
 	pos += 4; // "Predefined"
 
 	dbuf_read_fourcc(bctx->f, pos, &tmp4cc, 0);
-	de_dbg(c, "handler type: '%s'", tmp4cc.id_printable);
+	de_dbg(c, "handler type: '%s'", tmp4cc.id_dbgstr);
 	pos += 4;
 
 	pos += 12; // reserved
@@ -683,7 +683,7 @@ static void do_box_stsd(deark *c, lctx *d, struct de_boxesctx *bctx)
 
 		de_dbg_indent(c, 1);
 		dbuf_read_fourcc(bctx->f, pos+4, &fmt4cc, 0);
-		de_dbg(c, "data format: '%s'", fmt4cc.id_printable);
+		de_dbg(c, "data format: '%s'", fmt4cc.id_dbgstr);
 		de_dbg_indent(c, -1);
 
 		pos += entry_size;

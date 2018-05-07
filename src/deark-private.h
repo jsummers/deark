@@ -573,7 +573,8 @@ int dbuf_find_line(dbuf *f, de_int64 pos1, de_int64 *pcontent_len, de_int64 *pto
 struct de_fourcc {
   de_byte bytes[4];
   de_uint32 id;
-  char id_printable[32];
+  char id_printable[8];
+  char id_dbgstr[32]; // Usable only with de_dbg()
 };
 void dbuf_read_fourcc(dbuf *f, de_int64 pos, struct de_fourcc *fcc, int is_reversed);
 
@@ -722,6 +723,7 @@ int de_is_ascii(const de_byte *buf, de_int64 buflen);
 #define DE_CONVFLAG_STOP_AT_NUL 0x1
 #define DE_CONVFLAG_MAKE_PRINTABLE 0x2
 #define DE_CONVFLAG_WANT_UTF8 0x10
+#define DE_CONVFLAG_ALLOW_HL  0x20
 
 char de_byte_to_printable_char(de_byte b);
 

@@ -45,7 +45,7 @@ int de_fmtutil_get_bmpinfo(deark *c, dbuf *f, struct de_bmpinfo *bi, de_int64 po
 	de_int64 fhs; // file header size
 	de_int64 bmih_pos;
 	struct de_fourcc cmpr4cc;
-	char cmprname[80];
+	char cmprname_dbgstr[80];
 
 	de_memset(bi, 0, sizeof(struct de_bmpinfo));
 	de_memset(&cmpr4cc, 0, sizeof(struct de_fourcc));
@@ -126,13 +126,13 @@ int de_fmtutil_get_bmpinfo(deark *c, dbuf *f, struct de_bmpinfo *bi, de_int64 po
 	de_dbg(c, "bit count: %d", (int)bi->bitcount);
 
 	if((flags & DE_BMPINFO_CMPR_IS_4CC) && (bi->compression_field>0xffff)) {
-		de_snprintf(cmprname, sizeof(cmprname), "'%s'", cmpr4cc.id_printable);
+		de_snprintf(cmprname_dbgstr, sizeof(cmprname_dbgstr), "'%s'", cmpr4cc.id_dbgstr);
 	}
 	else {
 		de_fmtutil_get_bmp_compression_name(bi->compression_field,
-			cmprname, sizeof(cmprname), 0);
+			cmprname_dbgstr, sizeof(cmprname_dbgstr), 0);
 	}
-	de_dbg(c, "compression: %u (%s)", (unsigned int)bi->compression_field, cmprname);
+	de_dbg(c, "compression: %u (%s)", (unsigned int)bi->compression_field, cmprname_dbgstr);
 
 	de_dbg(c, "palette entries: %u", (unsigned int)bi->pal_entries);
 	if(bi->pal_entries>256 && bi->bitcount>8) {
@@ -791,12 +791,12 @@ static int do_box(deark *c, struct de_boxesctx *bctx, de_int64 pos, de_int64 len
 		if(curbox->is_uuid) {
 			de_fmtutil_render_uuid(c, curbox->uuid, uuid_string, sizeof(uuid_string));
 			de_dbg(c, "box '%s'{%s}%s at %"INT64_FMT", len=%"INT64_FMT,
-				box4cc.id_printable, uuid_string, name_str,
+				box4cc.id_dbgstr, uuid_string, name_str,
 				pos, total_len);
 		}
 		else {
 			de_dbg(c, "box '%s'%s at %"INT64_FMT", len=%"INT64_FMT", dlen=%"INT64_FMT,
-				box4cc.id_printable, name_str, pos,
+				box4cc.id_dbgstr, name_str, pos,
 				total_len, payload_len);
 		}
 	}
@@ -1336,7 +1336,7 @@ static int do_iff_chunk(deark *c, struct de_iffctx *ictx, de_int64 pos, de_int64
 		name_str[0] = '\0';
 	}
 
-	de_dbg(c, "chunk '%s'%s at %d, dpos=%d, dlen=%d", chunkctx.chunk4cc.id_printable,
+	de_dbg(c, "chunk '%s'%s at %d, dpos=%d, dlen=%d", chunkctx.chunk4cc.id_dbgstr,
 		name_str, (int)pos,
 		(int)chunk_dpos, (int)chunk_dlen);
 	de_dbg_indent(c, 1);
@@ -1402,7 +1402,7 @@ static int do_iff_chunk(deark *c, struct de_iffctx *ictx, de_int64 pos, de_int64
 				ictx->main_fmt4cc = ictx->curr_container_fmt4cc;
 				ictx->main_contentstype4cc = ictx->curr_container_contentstype4cc; // struct copy
 			}
-			de_dbg(c, "contents type: '%s'", ictx->curr_container_contentstype4cc.id_printable);
+			de_dbg(c, "contents type: '%s'", ictx->curr_container_contentstype4cc.id_dbgstr);
 
 			if(ictx->on_std_container_start_fn) {
 				// Call only for standard-format containers.

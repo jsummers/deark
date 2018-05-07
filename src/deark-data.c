@@ -861,6 +861,7 @@ char de_byte_to_printable_char(de_byte b)
 // rarely be used. See the comment in the header file.
 // s1 is not NUL terminated, but s2 will be.
 // s2_size includes the NUL terminator.
+// Supported conv_flags: DE_CONVFLAG_STOP_AT_NUL, DE_CONVFLAG_ALLOW_HL
 // src_encoding: Only DE_ENCODING_ASCII is supported.
 void de_bytes_to_printable_sz(const de_byte *s1, de_int64 s1_len,
 	char *s2, de_int64 s2_size, unsigned int conv_flags, int src_encoding)
@@ -889,18 +890,19 @@ void de_bytes_to_printable_sz(const de_byte *s1, de_int64 s1_len,
 				s2[s2_pos++] = (char)s1[i];
 			}
 		}
-		else {
-			if(s2_pos < s2_size-4) {
-				// TODO: We'd like to highlight unprintable characters, but it
-				// will only work if the string is going to be passed directly to
-				// de_dbg() or something like that. And we don't know if the
-				// caller is going to do that.
-				//s2[s2_pos++] = 0x01; // DE_CODEPOINT_HL
+		else if(conv_flags & DE_CONVFLAG_ALLOW_HL) {
+			if(s2_pos < s2_size-6) {
+				s2[s2_pos++] = 0x01; // DE_CODEPOINT_HL
 				s2[s2_pos++] = '<';
 				s2[s2_pos++] = de_get_hexcharUC((int)(s1[i]/16));
 				s2[s2_pos++] = de_get_hexcharUC((int)(s1[i]%16));
 				s2[s2_pos++] = '>';
-				//s2[s2_pos++] = 0x02; // DE_CODEPOINT_UNHL
+				s2[s2_pos++] = 0x02; // DE_CODEPOINT_UNHL
+			}
+		}
+		else {
+			if(s2_pos < s2_size-1) {
+				s2[s2_pos++] = '_';
 			}
 		}
 	}

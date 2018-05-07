@@ -1354,4 +1354,7 @@ void dbuf_read_fourcc(dbuf *f, de_int64 pos, struct de_fourcc *fcc, int is_rever
 	de_bytes_to_printable_sz(fcc->bytes, 4,
 		fcc->id_printable, sizeof(fcc->id_printable),
 		0, DE_ENCODING_ASCII);
+	de_bytes_to_printable_sz(fcc->bytes, 4,
+		fcc->id_dbgstr, sizeof(fcc->id_dbgstr),
+		DE_CONVFLAG_ALLOW_HL, DE_ENCODING_ASCII);
 }
