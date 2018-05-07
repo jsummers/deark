@@ -32,6 +32,7 @@ struct box_type_info {
 	// 0x00010000 = JP2/JPX/JPM
 	// 0x00040000 = JPEG XT
 	// 0x00080000 = HEIF
+	// 0x01000000 = Used in ilst boxes
 	de_uint32 flags1;
 	// flags2: 0x1 = is_superbox
 	// flags2: 0x2 = critical top-level box (used for format identification)
@@ -77,12 +78,22 @@ struct box_type_info {
 #define BOX_mdat 0x6d646174U
 #define BOX_mdhd 0x6d646864U
 #define BOX_mvhd 0x6d766864U
+#define BOX_name 0x6e616d65U
 #define BOX_pitm 0x7069746dU
 #define BOX_stsd 0x73747364U
 #define BOX_tkhd 0x746b6864U
 #define BOX_uuid 0x75756964U
 #define BOX_wide 0x77696465U
 #define BOX_xml  0x786d6c20U
+
+#define BOX_blank 0x2d2d2d2dU // "----"
+#define BOX_cpil 0x6370696cU
+#define BOX_gnre 0x676e7265U
+#define BOX_tmpo 0x746d706fU
+#define BOX_a9ART 0xa9415254U
+#define BOX_a9cmt 0xa9636d74U
+#define BOX_a9nam 0xa96e616dU
+#define BOX_a9too 0xa9746f6fU
 
 // JP2:
 #define BOX_cdef 0x63646566U
@@ -285,6 +296,33 @@ static void do_box_justtext(deark *c, lctx *d, struct de_boxesctx *bctx)
 	ucstring_destroy(s);
 }
 
+static const char *get_ilst_type_name(unsigned int ns, unsigned int wkt)
+{
+	const char *name = NULL;
+
+	if(ns!=0) goto done;
+
+	switch(wkt) {
+	case 0: name="binary"; break;
+	case 1: name="UTF-8"; break;
+	case 2: name="UTF-16"; break;
+	case 3: name="S/JIS"; break;
+	case 4: name="UTF-8 sort key"; break;
+	case 5: name="UTF-16 sort key"; break;
+	case 13: name="JPEG"; break;
+	case 14: name="PNG"; break;
+	case 21: name="signed int"; break;
+	case 22: name="unsigned int"; break;
+	case 23: name="float32"; break;
+	case 24: name="float64"; break;
+	case 27: name="BMP"; break;
+	case 28: name="metadata atom"; break;
+	}
+done:
+	if(!name) name="?";
+	return name;
+}
+
 static void do_box_data(deark *c, lctx *d, struct de_boxesctx *bctx)
 {
 	unsigned int type_field, type_namespace, wkt;
@@ -306,7 +344,8 @@ static void do_box_data(deark *c, lctx *d, struct de_boxesctx *bctx)
 	type_field = (unsigned int)dbuf_getui32be_p(bctx->f, &pos);
 	type_namespace = type_field>>24;
 	wkt = (type_field & 0x00ffffff); // well-known type (if namespace==0)
-	de_dbg(c, "type: %u, %u", type_namespace, wkt);
+	de_dbg(c, "type: %u, %u (%s)", type_namespace, wkt,
+		get_ilst_type_name(type_namespace, wkt));
 
 	cntry = (unsigned int)dbuf_getui16be_p(bctx->f, &pos);
 	lang = (unsigned int)dbuf_getui16be_p(bctx->f, &pos);
@@ -1140,7 +1179,6 @@ static const struct box_type_info box_type_info_arr[] = {
 	{BOX_cinf, 0x00000001, 0x00000001, "complete track information", NULL},
 	{BOX_clip, 0x00000001, 0x00000001, NULL, NULL},
 	{BOX_co64, 0x00000001, 0x00000000, "chunk offset", do_box_stco},
-	{BOX_data, 0x00000001, 0x00000000, "value atom", do_box_data},
 	{BOX_dinf, 0x00080001, 0x00000001, "data information", NULL},
 	{BOX_dref, 0x00000001, 0x00000000, "data reference", NULL},
 	{BOX_edts, 0x00000001, 0x00000001, "edit", NULL},
@@ -1243,6 +1281,23 @@ static const struct box_type_info box_type_info_arr[] = {
 	{BOX_pitm, 0x00080000, 0x00000000, "primary item", NULL}
 };
 
+// TODO: These ilst (iTunes metadata?) boxes should probably go in the above
+// list, but the logic for finding the right box will be complicated.
+// Superboxes are not flagged in this list, because that determination
+// is based on their location, not their type.
+static const struct box_type_info ilst_box_type_info_arr[] = {
+	{BOX_data,   0x01000000, 0x00000000, "value atom", do_box_data},
+	{BOX_name,   0x01000000, 0x00000000, "name atom", NULL},
+	{BOX_blank,  0x01000000, 0x00000000, "custom metadata item", NULL},
+	{BOX_cpil,   0x01000000, 0x00000000, "compilation", NULL},
+	{BOX_gnre,   0x01000000, 0x00000000, "genre (enumerated)", NULL},
+	{BOX_tmpo,   0x01000000, 0x00000000, "tempo", NULL},
+	{BOX_a9ART,  0x01000000, 0x00000000, "artist", NULL},
+	{BOX_a9cmt,  0x01000000, 0x00000000, "comment", NULL},
+	{BOX_a9nam,  0x01000000, 0x00000000, "name / title", NULL},
+	{BOX_a9too,  0x01000000, 0x00000000, "encoder software", NULL}
+};
+
 static const struct box_type_info *find_box_type_info(deark *c, lctx *d,
 	de_uint32 boxtype, int level)
 {
@@ -1267,17 +1322,48 @@ static const struct box_type_info *find_box_type_info(deark *c, lctx *d,
 	return NULL;
 }
 
+static const struct box_type_info *find_ilst_box_type_info(deark *c, lctx *d,
+	de_uint32 boxtype)
+{
+	size_t k;
+
+	for(k=0; k<DE_ITEMS_IN_ARRAY(ilst_box_type_info_arr); k++) {
+		if(ilst_box_type_info_arr[k].boxtype != boxtype) continue;
+		return &ilst_box_type_info_arr[k];
+	}
+	return NULL;
+}
+
 static void my_box_identify_fn(deark *c, struct de_boxesctx *bctx)
 {
 	const struct box_type_info *bti;
 	lctx *d = (lctx*)bctx->userdata;
 	struct de_boxdata *curbox = bctx->curbox;
+	struct de_boxdata *par = curbox->parent;
+	struct de_boxdata *gpar = NULL;
+	int is_ilst_child = 0;
 
 	if(curbox->boxtype != BOX_uuid) {
 		curbox->box_name = "?";
 	}
 
-	bti = find_box_type_info(c, d, curbox->boxtype, curbox->level);
+	if(par) {
+		gpar = par->parent;
+	}
+
+	if((par && (par->boxtype==BOX_ilst)) ||
+		(gpar && (gpar->boxtype==BOX_ilst)) )
+	{
+		is_ilst_child = 1;
+	}
+
+	if(is_ilst_child) {
+		bti = find_ilst_box_type_info(c, d, curbox->boxtype);
+	}
+	else {
+		bti = find_box_type_info(c, d, curbox->boxtype, curbox->level);
+	}
+
 	if(bti) {
 		// So that we don't have to run "find" again in my_box_handler(),
 		// record it here.
@@ -1287,7 +1373,6 @@ static void my_box_identify_fn(deark *c, struct de_boxesctx *bctx)
 			curbox->box_name = bti->name;
 		}
 	}
-	// TODO: Identify children of 'ilst' boxes?
 	// TODO: Do we need special handling of 'data' boxes?
 }
 

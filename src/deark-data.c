@@ -19,6 +19,13 @@ char de_get_hexchar(int n)
 	return '0';
 }
 
+static char de_get_hexcharUC(int n)
+{
+	static const char *hexcharsUC = "0123456789ABCDEF";
+	if(n>=0 && n<16) return hexcharsUC[n];
+	return '0';
+}
+
 de_byte de_decode_hex_digit(de_byte x, int *errorflag)
 {
 	if(errorflag) *errorflag = 0;
@@ -860,7 +867,6 @@ void de_bytes_to_printable_sz(const de_byte *s1, de_int64 s1_len,
 {
 	de_int64 i;
 	de_int64 s2_pos = 0;
-	char ch;
 
 	if(src_encoding!=DE_ENCODING_ASCII) {
 		s2[0] = '\0';
@@ -868,19 +874,34 @@ void de_bytes_to_printable_sz(const de_byte *s1, de_int64 s1_len,
 	}
 
 	for(i=0; i<s1_len; i++) {
+		int is_printable = 0;
+
 		if(s1[i]=='\0' && (conv_flags & DE_CONVFLAG_STOP_AT_NUL)) {
 			break;
 		}
 
 		if(s1[i]>=32 && s1[i]<=126) {
-			ch = (char)s1[i];
-		}
-		else {
-			ch = '_';
+			is_printable = 1;
 		}
 
-		if(s2_pos < s2_size-1) {
-			s2[s2_pos++] = ch;
+		if(is_printable) {
+			if(s2_pos < s2_size-1) {
+				s2[s2_pos++] = (char)s1[i];
+			}
+		}
+		else {
+			if(s2_pos < s2_size-4) {
+				// TODO: We'd like to highlight unprintable characters, but it
+				// will only work if the string is going to be passed directly to
+				// de_dbg() or something like that. And we don't know if the
+				// caller is going to do that.
+				//s2[s2_pos++] = 0x01; // DE_CODEPOINT_HL
+				s2[s2_pos++] = '<';
+				s2[s2_pos++] = de_get_hexcharUC((int)(s1[i]/16));
+				s2[s2_pos++] = de_get_hexcharUC((int)(s1[i]%16));
+				s2[s2_pos++] = '>';
+				//s2[s2_pos++] = 0x02; // DE_CODEPOINT_UNHL
+			}
 		}
 	}
 
