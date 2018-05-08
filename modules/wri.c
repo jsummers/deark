@@ -161,24 +161,20 @@ static void do_static_bitmap(deark *c, lctx *d, struct para_info *pinfo, de_int6
 	de_int64 rowspan;
 
 	pos += 8; // ??
-	dlen = de_getui32le(pos);
+	dlen = de_getui32le_p(&pos);
 	de_dbg(c, "bitmap size: %d", (int)dlen);
-	pos += 4;
 
 	pos += 2; // bmType
-	bmWidth = de_getui16le(pos);
-	pos += 2;
-	bmHeight = de_getui16le(pos);
-	pos += 2;
+	bmWidth = de_getui16le_p(&pos);
+	bmHeight = de_getui16le_p(&pos);
 	de_dbg_dimensions(c, bmWidth, bmHeight);
 
-	rowspan = de_getui16le(pos);
+	rowspan = de_getui16le_p(&pos);
 	de_dbg(c, "bytes/row: %d", (int)rowspan);
-	pos += 2;
 
 	pos++; // bmPlanes
 
-	bmBitsPixel = (de_int64)de_getbyte(pos++);
+	bmBitsPixel = (de_int64)de_getbyte_p(&pos);
 	de_dbg(c, "bmBitsPixel: %d", (int)bmBitsPixel);
 
 	pos += 4; // bmBits
@@ -207,8 +203,7 @@ static int do_picture_ole_static_rendition(deark *c, lctx *d, struct para_info *
 	pos += 4; // 0x00000501
 	pos += 4; // "type" (probably already read by caller)
 
-	stringlen = de_getui32le(pos);
-	pos += 4;
+	stringlen = de_getui32le_p(&pos);
 	srd_typename = dbuf_read_string(c->infile, pos, stringlen, 260, DE_CONVFLAG_STOP_AT_NUL,
 		DE_ENCODING_ASCII);
 	de_dbg(c, "typename: \"%s\"", ucstring_getpsz(srd_typename->str));
@@ -224,9 +219,8 @@ static int do_picture_ole_static_rendition(deark *c, lctx *d, struct para_info *
 	else if(!de_strcmp((const char*)srd_typename->sz, "METAFILEPICT")) {
 		de_int64 dlen;
 		pos += 8; // ??
-		dlen = de_getui32le(pos);
+		dlen = de_getui32le_p(&pos);
 		de_dbg(c, "metafile size: %d", (int)dlen); // Includes "mfp", apparently
-		pos += 4;
 		pos += 8; // "mfp" struct
 		dbuf_create_file_from_slice(c->infile, pos, dlen-8, "wmf", NULL, 0);
 	}
@@ -258,29 +252,25 @@ static int do_picture_ole_embedded_rendition(deark *c, lctx *d, struct para_info
 	pos += 4; // 0x00000501
 	pos += 4; // "type" (probably already read by caller)
 
-	stringlen = de_getui32le(pos);
-	pos += 4;
+	stringlen = de_getui32le_p(&pos);
 	srd_typename = dbuf_read_string(c->infile, pos, stringlen, 260, DE_CONVFLAG_STOP_AT_NUL,
 		DE_ENCODING_ASCII);
 	de_dbg(c, "typename: \"%s\"", ucstring_getpsz(srd_typename->str));
 	pos += stringlen;
 
-	stringlen = de_getui32le(pos);
-	pos += 4;
+	stringlen = de_getui32le_p(&pos);
 	srd_filename = dbuf_read_string(c->infile, pos, stringlen, 260, DE_CONVFLAG_STOP_AT_NUL,
 		DE_ENCODING_ASCII);
 	de_dbg(c, "filename: \"%s\"", ucstring_getpsz(srd_filename->str));
 	pos += stringlen;
 
-	stringlen = de_getui32le(pos);
-	pos += 4;
+	stringlen = de_getui32le_p(&pos);
 	srd_params = dbuf_read_string(c->infile, pos, stringlen, 260, DE_CONVFLAG_STOP_AT_NUL,
 		DE_ENCODING_ASCII);
 	de_dbg(c, "params: \"%s\"", ucstring_getpsz(srd_params->str));
 	pos += stringlen;
 
-	data_len = de_getui32le(pos);
-	pos += 4;
+	data_len = de_getui32le_p(&pos);
 	de_dbg(c, "embedded ole rendition data: pos=%d, len=%d", (int)pos, (int)data_len);
 
 	// TODO: I don't know if it's better to sniff the data, or rely on the typename.
