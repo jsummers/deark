@@ -478,7 +478,7 @@ static int emf_handler_46(deark *c, lctx *d, struct decoder_params *dp)
 	// Datasize is measured from the beginning of the next field (CommentIdentifier).
 	datasize = de_getui32le(dp->recpos+8);
 
-	dbuf_read_fourcc(c->infile, dp->recpos+12, &id4cc, 0);
+	dbuf_read_fourcc(c->infile, dp->recpos+12, &id4cc, 4, 0x0);
 
 	switch(id4cc.id) {
 	case 0: name="EMR_COMMENT_EMFSPOOL"; break;

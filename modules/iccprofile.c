@@ -365,7 +365,7 @@ static void do_read_header(deark *c, lctx *d, de_int64 pos)
 	x = de_getui32be(pos+0);
 	de_dbg(c, "profile size: %d", (int)x);
 
-	dbuf_read_fourcc(c->infile, pos+4, &tmp4cc, 0);
+	dbuf_read_fourcc(c->infile, pos+4, &tmp4cc, 4, 0x0);
 	de_dbg(c, "preferred CMM type: %s",
 		format_4cc_dbgstr(&tmp4cc, tmpbuf, sizeof(tmpbuf), 0x1));
 
@@ -377,35 +377,35 @@ static void do_read_header(deark *c, lctx *d, de_int64 pos)
 	de_dbg(c, "profile version: %u.%u.%u", d->profile_ver_major,
 		d->profile_ver_minor, d->profile_ver_bugfix);
 
-	dbuf_read_fourcc(c->infile, pos+12, &tmp4cc, 0);
+	dbuf_read_fourcc(c->infile, pos+12, &tmp4cc, 4, 0x0);
 	de_dbg(c, "profile/device class: %s",
 		format_4cc_dbgstr(&tmp4cc, tmpbuf, sizeof(tmpbuf), 0x1));
 
-	dbuf_read_fourcc(c->infile, pos+16, &tmp4cc, 0);
+	dbuf_read_fourcc(c->infile, pos+16, &tmp4cc, 4, 0x0);
 	de_dbg(c, "colour space: %s",
 		format_4cc_dbgstr(&tmp4cc, tmpbuf, sizeof(tmpbuf), 0x1));
 
-	dbuf_read_fourcc(c->infile, pos+20, &tmp4cc, 0);
+	dbuf_read_fourcc(c->infile, pos+20, &tmp4cc, 4, 0x0);
 	de_dbg(c, "PCS: %s",
 		format_4cc_dbgstr(&tmp4cc, tmpbuf, sizeof(tmpbuf), 0x1));
 
 	// TODO: pos=24-35 Date & time
 
-	dbuf_read_fourcc(c->infile, pos+36, &tmp4cc, 0);
+	dbuf_read_fourcc(c->infile, pos+36, &tmp4cc, 4, 0x0);
 	de_dbg(c, "file signature: %s",
 		format_4cc_dbgstr(&tmp4cc, tmpbuf, sizeof(tmpbuf), 0x1));
 
-	dbuf_read_fourcc(c->infile, pos+40, &tmp4cc, 0);
+	dbuf_read_fourcc(c->infile, pos+40, &tmp4cc, 4, 0x0);
 	de_dbg(c, "primary platform: %s",
 		format_4cc_dbgstr(&tmp4cc, tmpbuf, sizeof(tmpbuf), 0x3));
 
 	// TODO: pos=44-47 Profile flags
 
-	dbuf_read_fourcc(c->infile, pos+48, &tmp4cc, 0);
+	dbuf_read_fourcc(c->infile, pos+48, &tmp4cc, 4, 0x0);
 	de_dbg(c, "device manufacturer: %s",
 		format_4cc_dbgstr(&tmp4cc, tmpbuf, sizeof(tmpbuf), 0x3));
 
-	dbuf_read_fourcc(c->infile, pos+52, &tmp4cc, 0);
+	dbuf_read_fourcc(c->infile, pos+52, &tmp4cc, 4, 0x0);
 	de_dbg(c, "device model: %s",
 		format_4cc_dbgstr(&tmp4cc, tmpbuf, sizeof(tmpbuf), 0x3));
 
@@ -423,7 +423,7 @@ static void do_read_header(deark *c, lctx *d, de_int64 pos)
 
 	// TODO: pos=68-79 PCS illuminant
 
-	dbuf_read_fourcc(c->infile, pos+80, &tmp4cc, 0);
+	dbuf_read_fourcc(c->infile, pos+80, &tmp4cc, 4, 0x0);
 	de_dbg(c, "profile creator: %s",
 		format_4cc_dbgstr(&tmp4cc, tmpbuf, sizeof(tmpbuf), 0x3));
 
@@ -495,7 +495,7 @@ static void do_tag_data(deark *c, lctx *d, de_int64 tagindex,
 
 	if(tagdatalen<4) return;
 
-	dbuf_read_fourcc(c->infile, tagdataoffset, &tagtype4cc, 0);
+	dbuf_read_fourcc(c->infile, tagdataoffset, &tagtype4cc, 4, 0x0);
 	dti = lookup_datatypeinfo(tagtype4cc.id);
 	if(dti && dti->name) dtname=dti->name;
 	else dtname="?";
@@ -518,7 +518,7 @@ static void do_tag(deark *c, lctx *d, de_int64 tagindex, de_int64 pos_in_tagtabl
 	de_int64 tagdatalen;
 	char tmpbuf[80];
 
-	dbuf_read_fourcc(c->infile, pos_in_tagtable, &tag4cc, 0);
+	dbuf_read_fourcc(c->infile, pos_in_tagtable, &tag4cc, 4, 0x0);
 	tagdataoffset = de_getui32be(pos_in_tagtable+4);
 	tagdatalen = de_getui32be(pos_in_tagtable+8);
 	ti = lookup_taginfo(tag4cc.id);

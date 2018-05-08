@@ -158,9 +158,9 @@ static void do_avi_strh(deark *c, lctx *d, struct de_iffctx *ictx, de_int64 pos,
 	struct de_fourcc codec4cc;
 
 	if(len<8) return;
-	dbuf_read_fourcc(ictx->f, pos, &type4cc, 0);
+	dbuf_read_fourcc(ictx->f, pos, &type4cc, 4, 0x0);
 	de_dbg(c, "stream type: '%s'", type4cc.id_dbgstr);
-	dbuf_read_fourcc(ictx->f, pos+4, &codec4cc, 0);
+	dbuf_read_fourcc(ictx->f, pos+4, &codec4cc, 4, 0x0);
 	de_dbg(c, "codec: '%s'", codec4cc.id_dbgstr);
 	// TODO: There are more fields here.
 }

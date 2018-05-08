@@ -576,8 +576,9 @@ struct de_fourcc {
   char id_sanitized_sz[8]; // NUL-terminated printable ASCII
   char id_dbgstr[32]; // Usable only with de_dbg()
 };
-void dbuf_read_fourcc(dbuf *f, de_int64 pos, struct de_fourcc *fcc, int is_reversed);
-void dbuf_read_threecc(dbuf *f, de_int64 pos, struct de_fourcc *fcc);
+#define DE_4CCFLAG_REVERSED 0x1
+void dbuf_read_fourcc(dbuf *f, de_int64 pos, struct de_fourcc *fcc, int nbytes,
+	unsigned int flags);
 
 ///////////////////////////////////////////
 

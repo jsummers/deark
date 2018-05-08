@@ -478,7 +478,7 @@ static void dbg_print_compression_method(deark *c, lctx *d, de_int64 cmpr)
 // The PSD module's version of dbuf_read_fourcc()
 static void psd_read_fourcc_zz(deark *c, lctx *d, zztype *zz, struct de_fourcc *fourcc)
 {
-	dbuf_read_fourcc(c->infile, zz->pos, fourcc, d->is_le);
+	dbuf_read_fourcc(c->infile, zz->pos, fourcc, 4, d->is_le ? DE_4CCFLAG_REVERSED : 0);
 	zz->pos += 4;
 }
 
@@ -907,7 +907,7 @@ static void read_flexible_id(deark *c, lctx *d, de_int64 pos,
 	length = psd_getui32(pos);
 	if(length==0) {
 		flid->is_fourcc = 1;
-		dbuf_read_fourcc(c->infile, pos+4, &flid->fourcc, d->is_le);
+		dbuf_read_fourcc(c->infile, pos+4, &flid->fourcc, 4, d->is_le ? DE_4CCFLAG_REVERSED : 0);
 		flid->bytes_consumed = 4 + 4;
 	}
 	else {

@@ -354,13 +354,13 @@ static void ef_zipitmac_2705(deark *c, lctx *d,
 	struct de_fourcc creator;
 
 	if(len<4) goto done;
-	dbuf_read_fourcc(c->infile, pos, &sig, 0);
+	dbuf_read_fourcc(c->infile, pos, &sig, 4, 0x0);
 	de_dbg(c, "signature: '%s'", sig.id_dbgstr);
 	if(sig.id!=0x5a504954U) goto done; // expecting 'ZPIT'
 	if(len<12) goto done;
-	dbuf_read_fourcc(c->infile, pos+4, &filetype, 0);
+	dbuf_read_fourcc(c->infile, pos+4, &filetype, 4, 0x0);
 	de_dbg(c, "filetype: '%s'", filetype.id_dbgstr);
-	dbuf_read_fourcc(c->infile, pos+8, &creator, 0);
+	dbuf_read_fourcc(c->infile, pos+8, &creator, 4, 0x0);
 	de_dbg(c, "creator: '%s'", creator.id_dbgstr);
 
 done:
@@ -423,10 +423,10 @@ static void ef_infozipmac(deark *c, lctx *d,
 	de_dbg(c, "flags: 0x%04x (%s)", flags, ucstring_getpsz(flags_str));
 	pos += 2;
 
-	dbuf_read_fourcc(c->infile, pos, &filetype, 0);
+	dbuf_read_fourcc(c->infile, pos, &filetype, 4, 0x0);
 	de_dbg(c, "filetype: '%s'", filetype.id_dbgstr);
 	pos += 4;
-	dbuf_read_fourcc(c->infile, pos, &creator, 0);
+	dbuf_read_fourcc(c->infile, pos, &creator, 4, 0x0);
 	de_dbg(c, "creator: '%s'", creator.id_dbgstr);
 	pos += 4;
 

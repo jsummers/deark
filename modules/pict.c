@@ -809,7 +809,7 @@ static int handler_a1(deark *c, lctx *d, de_int64 opcode, de_int64 data_pos, de_
 	if(kind==100 && len>=4) {
 		struct de_fourcc sig4cc;
 
-		dbuf_read_fourcc(c->infile, data_pos+4, &sig4cc, 0);
+		dbuf_read_fourcc(c->infile, data_pos+4, &sig4cc, 4, 0x0);
 		de_dbg(c, "application comment, signature=0x%08x '%s'",
 			(unsigned int)sig4cc.id, sig4cc.id_dbgstr);
 	}

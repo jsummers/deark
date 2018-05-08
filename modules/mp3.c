@@ -911,11 +911,12 @@ static void do_id3v2_frames(deark *c, id3v2ctx *d,
 
 		if(d->version_code<=2) {
 			// Version 2.2.x uses a "THREECC".
-			dbuf_read_threecc(f, pos, &tag4cc);
+			dbuf_read_fourcc(f, pos, &tag4cc, 3, 0x0);
+			tag4cc.id <<= 8;
 			pos += 3;
 		}
 		else {
-			dbuf_read_fourcc(f, pos, &tag4cc, 0);
+			dbuf_read_fourcc(f, pos, &tag4cc, 4, 0x0);
 			pos += 4;
 		}
 

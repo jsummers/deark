@@ -409,7 +409,7 @@ static void de_run_icns_pass(deark *c, lctx *d, int pass)
 		pg = de_malloc(c, sizeof(struct page_ctx));
 		pg->image_num = image_count;
 
-		dbuf_read_fourcc(c->infile, segment_pos, &pg->code4cc, 0);
+		dbuf_read_fourcc(c->infile, segment_pos, &pg->code4cc, 4, 0x0);
 
 		segment_len = de_getui32be(segment_pos+4);
 

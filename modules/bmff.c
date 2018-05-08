@@ -238,7 +238,7 @@ static void do_box_ftyp(deark *c, lctx *d, struct de_boxesctx *bctx)
 	struct de_boxdata *curbox = bctx->curbox;
 
 	if(curbox->payload_len<4) goto done;
-	dbuf_read_fourcc(bctx->f, curbox->payload_pos, &brand4cc, 0);
+	dbuf_read_fourcc(bctx->f, curbox->payload_pos, &brand4cc, 4, 0x0);
 	d->major_brand = brand4cc.id;
 	de_dbg(c, "major brand: '%s'", brand4cc.id_dbgstr);
 	if(curbox->level==0)
@@ -252,7 +252,7 @@ static void do_box_ftyp(deark *c, lctx *d, struct de_boxesctx *bctx)
 	num_compat_brands = (curbox->payload_len - 8)/4;
 
 	for(i=0; i<num_compat_brands; i++) {
-		dbuf_read_fourcc(bctx->f, curbox->payload_pos + 8 + i*4, &brand4cc, 0);
+		dbuf_read_fourcc(bctx->f, curbox->payload_pos + 8 + i*4, &brand4cc, 4, 0x0);
 		if(brand4cc.id==0) continue; // Placeholder. Ignore.
 		de_dbg(c, "compatible brand: '%s'", brand4cc.id_dbgstr);
 		if(curbox->level==0)
@@ -392,7 +392,7 @@ static void do_box_hdlr(deark *c, lctx *d, struct de_boxesctx *bctx)
 	if(curbox->payload_len<24) goto done;
 	pos += 4; // "Predefined"
 
-	dbuf_read_fourcc(bctx->f, pos, &tmp4cc, 0);
+	dbuf_read_fourcc(bctx->f, pos, &tmp4cc, 4, 0x0);
 	de_dbg(c, "handler type: '%s'", tmp4cc.id_dbgstr);
 	pos += 4;
 
@@ -682,7 +682,7 @@ static void do_box_stsd(deark *c, lctx *d, struct de_boxesctx *bctx)
 		if(entry_size<16) break;
 
 		de_dbg_indent(c, 1);
-		dbuf_read_fourcc(bctx->f, pos+4, &fmt4cc, 0);
+		dbuf_read_fourcc(bctx->f, pos+4, &fmt4cc, 4, 0x0);
 		de_dbg(c, "data format: '%s'", fmt4cc.id_dbgstr);
 		de_dbg_indent(c, -1);
 

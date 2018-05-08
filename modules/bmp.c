@@ -371,7 +371,7 @@ static int read_infoheader(deark *c, lctx *d, de_int64 pos)
 
 	if(d->version==DE_BMPVER_WINV345 && d->infohdrsize>=108) {
 		char cstype_descr_dbgstr[80];
-		dbuf_read_fourcc(c->infile, pos+56, &d->cstype4cc, 1);
+		dbuf_read_fourcc(c->infile, pos+56, &d->cstype4cc, 4, DE_4CCFLAG_REVERSED);
 		get_cstype_descr_dbgstr(&d->cstype4cc, cstype_descr_dbgstr, sizeof(cstype_descr_dbgstr));
 		de_dbg(c, "CSType: %s", cstype_descr_dbgstr);
 	}

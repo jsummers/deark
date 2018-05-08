@@ -36,7 +36,7 @@ static int do_read_idsc(deark *c, lctx *d, de_int64 pos, de_int64 len)
 	d->idsc_size = de_getui32be(pos);
 	de_dbg(c, "idsc size: %d", (int)d->idsc_size);
 
-	dbuf_read_fourcc(c->infile, pos+4, &d->cmpr4cc, 0);
+	dbuf_read_fourcc(c->infile, pos+4, &d->cmpr4cc, 4, 0x0);
 	de_dbg(c, "compression type: \"%s\"", d->cmpr4cc.id_dbgstr);
 
 	if(len<86) goto done;

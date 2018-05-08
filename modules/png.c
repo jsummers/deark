@@ -653,7 +653,7 @@ static void de_run_png(deark *c, de_module_params *mparams)
 
 		chunk_data_len = de_getui32be(pos);
 		if(pos + 8 + chunk_data_len + 4 > c->infile->len) break;
-		dbuf_read_fourcc(c->infile, pos+4, &chunk4cc, 0);
+		dbuf_read_fourcc(c->infile, pos+4, &chunk4cc, 4, 0x0);
 
 		cti = get_chunk_type_info(chunk4cc.id);
 

@@ -96,7 +96,7 @@ int de_fmtutil_get_bmpinfo(deark *c, dbuf *f, struct de_bmpinfo *bi, de_int64 po
 		if(bi->infohdrsize>=20) {
 			bi->compression_field = (de_uint32)dbuf_getui32le(f, bmih_pos+16);
 			if(flags & DE_BMPINFO_CMPR_IS_4CC) {
-				dbuf_read_fourcc(f, bmih_pos+16, &cmpr4cc, 0);
+				dbuf_read_fourcc(f, bmih_pos+16, &cmpr4cc, 4, 0x0);
 			}
 		}
 		if(bi->infohdrsize>=36) {
@@ -731,7 +731,7 @@ static int do_box(deark *c, struct de_boxesctx *bctx, de_int64 pos, de_int64 len
 	}
 
 	size32 = dbuf_getui32be(bctx->f, pos);
-	dbuf_read_fourcc(bctx->f, pos+4, &box4cc, 0);
+	dbuf_read_fourcc(bctx->f, pos+4, &box4cc, 4, 0x0);
 	curbox->boxtype = box4cc.id;
 
 	if(size32>=8) {
@@ -1305,7 +1305,8 @@ static int do_iff_chunk(deark *c, struct de_iffctx *ictx, de_int64 pos, de_int64
 	}
 	data_bytes_avail = bytes_avail-hdrsize;
 
-	dbuf_read_fourcc(ictx->f, pos, &chunkctx.chunk4cc, ictx->reversed_4cc);
+	dbuf_read_fourcc(ictx->f, pos, &chunkctx.chunk4cc, 4,
+		ictx->reversed_4cc ? DE_4CCFLAG_REVERSED : 0x0);
 	if(chunkctx.chunk4cc.id==0 && level==0) {
 		de_warn(c, "Chunk ID not found at %"INT64_FMT"; assuming the data ends "
 			"here", pos);
@@ -1396,7 +1397,8 @@ static int do_iff_chunk(deark *c, struct de_iffctx *ictx, de_int64 pos, de_int64
 			contents_dlen = chunk_dlen-4;
 
 			// First 4 bytes of payload are the "contents type" or "FORM type"
-			dbuf_read_fourcc(ictx->f, chunk_dpos, &ictx->curr_container_contentstype4cc, ictx->reversed_4cc);
+			dbuf_read_fourcc(ictx->f, chunk_dpos, &ictx->curr_container_contentstype4cc, 4,
+				ictx->reversed_4cc ? DE_4CCFLAG_REVERSED : 0);
 
 			if(level==0) {
 				ictx->main_fmt4cc = ictx->curr_container_fmt4cc;

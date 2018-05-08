@@ -172,10 +172,10 @@ static int do_read_pdb_prc_header(deark *c, lctx *d)
 	d->sortinfo_offs = de_getui32be(pos1+56);
 	de_dbg(c, "sort info pos: %d", (int)d->sortinfo_offs);
 
-	dbuf_read_fourcc(c->infile, pos1+60, &d->dtype4cc, 0);
+	dbuf_read_fourcc(c->infile, pos1+60, &d->dtype4cc, 4, 0x0);
 	de_dbg(c, "type: \"%s\"", d->dtype4cc.id_dbgstr);
 
-	dbuf_read_fourcc(c->infile, pos1+64, &d->creator4cc, 0);
+	dbuf_read_fourcc(c->infile, pos1+64, &d->creator4cc, 4, 0x0);
 	de_dbg(c, "creator: \"%s\"", d->creator4cc.id_dbgstr);
 
 	if(d->file_fmt==FMT_PDB) {
@@ -612,7 +612,7 @@ static int do_read_prc_record(deark *c, lctx *d, de_int64 rec_idx, de_int64 pos1
 	de_dbg(c, "record[%d] at %d", (int)rec_idx, (int)pos1);
 	de_dbg_indent(c, 1);
 
-	dbuf_read_fourcc(c->infile, pos1, &rsrc_type_4cc, 0);
+	dbuf_read_fourcc(c->infile, pos1, &rsrc_type_4cc, 4, 0x0);
 	rti = get_rsrc_type_info(rsrc_type_4cc.id);
 	if(rti && rti->descr) rsrc_type_descr = rti->descr;
 	else rsrc_type_descr = "?";
