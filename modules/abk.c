@@ -569,7 +569,7 @@ static int do_read_bank(deark *c, lctx *d, de_int64 pos, de_int64 *bytesused)
 	bk->f = dbuf_open_input_subfile(c->infile, pos, c->infile->len - pos);
 
 	dbuf_read_fourcc(bk->f, 0, &bk->banktype4cc, 0);
-	de_dbg(c, "bank type '%s'", bk->banktype4cc.id_printable);
+	de_dbg(c, "bank type '%s'", bk->banktype4cc.id_dbgstr);
 
 	switch(bk->banktype4cc.id) {
 	case CODE_AmIc: bk->file_ext = "icon.abk"; break;
@@ -589,7 +589,7 @@ static int do_read_bank(deark *c, lctx *d, de_int64 pos, de_int64 *bytesused)
 		*bytesused = bk->bank_len;
 	}
 	else {
-		de_err(c, "Unsupported bank type: '%s'", bk->banktype4cc.id_printable);
+		de_err(c, "Unsupported bank type: '%s'", bk->banktype4cc.id_sanitized_sz);
 	}
 
 	if(bk) {

@@ -1352,9 +1352,23 @@ void dbuf_read_fourcc(dbuf *f, de_int64 pos, struct de_fourcc *fcc, int is_rever
 	}
 	fcc->id = (de_uint32)de_getui32be_direct(fcc->bytes);
 	de_bytes_to_printable_sz(fcc->bytes, 4,
-		fcc->id_printable, sizeof(fcc->id_printable),
+		fcc->id_sanitized_sz, sizeof(fcc->id_sanitized_sz),
 		0, DE_ENCODING_ASCII);
 	de_bytes_to_printable_sz(fcc->bytes, 4,
+		fcc->id_dbgstr, sizeof(fcc->id_dbgstr),
+		DE_CONVFLAG_ALLOW_HL, DE_ENCODING_ASCII);
+}
+
+// TODO: Combine this with dbuf_read_fourcc()
+void dbuf_read_threecc(dbuf *f, de_int64 pos, struct de_fourcc *fcc)
+{
+	dbuf_read(f, fcc->bytes, pos, 3);
+	fcc->bytes[3] = 0x00;
+	fcc->id = (de_uint32)de_getui32be_direct(fcc->bytes);
+	de_bytes_to_printable_sz(fcc->bytes, 3,
+		fcc->id_sanitized_sz, sizeof(fcc->id_sanitized_sz),
+		0, DE_ENCODING_ASCII);
+	de_bytes_to_printable_sz(fcc->bytes, 3,
 		fcc->id_dbgstr, sizeof(fcc->id_dbgstr),
 		DE_CONVFLAG_ALLOW_HL, DE_ENCODING_ASCII);
 }

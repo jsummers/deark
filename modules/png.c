@@ -673,7 +673,7 @@ static void de_run_png(deark *c, de_module_params *mparams)
 			}
 
 			de_dbg(c, "chunk '%s'%s at %d dpos=%d dlen=%d",
-				chunk4cc.id_printable, nbuf,
+				chunk4cc.id_dbgstr, nbuf,
 				(int)pos, (int)(pos+8), (int)chunk_data_len);
 			if(chunk4cc.id!=PNGID_IDAT) suppress_idat_dbg = 0;
 		}

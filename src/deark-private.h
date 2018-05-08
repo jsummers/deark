@@ -573,10 +573,11 @@ int dbuf_find_line(dbuf *f, de_int64 pos1, de_int64 *pcontent_len, de_int64 *pto
 struct de_fourcc {
   de_byte bytes[4];
   de_uint32 id;
-  char id_printable[8];
+  char id_sanitized_sz[8]; // NUL-terminated printable ASCII
   char id_dbgstr[32]; // Usable only with de_dbg()
 };
 void dbuf_read_fourcc(dbuf *f, de_int64 pos, struct de_fourcc *fcc, int is_reversed);
+void dbuf_read_threecc(dbuf *f, de_int64 pos, struct de_fourcc *fcc);
 
 ///////////////////////////////////////////
 

@@ -911,11 +911,7 @@ static void do_id3v2_frames(deark *c, id3v2ctx *d,
 
 		if(d->version_code<=2) {
 			// Version 2.2.x uses a "THREECC".
-			dbuf_read(f, tag4cc.bytes, pos, 3);
-			tag4cc.id = (tag4cc.bytes[0]<<24)|(tag4cc.bytes[1]<<16)|(tag4cc.bytes[2]<<8);
-			de_bytes_to_printable_sz(tag4cc.bytes, 3,
-				tag4cc.id_printable, sizeof(tag4cc.id_printable),
-				0, DE_ENCODING_ASCII);
+			dbuf_read_threecc(f, pos, &tag4cc);
 			pos += 3;
 		}
 		else {
@@ -923,7 +919,7 @@ static void do_id3v2_frames(deark *c, id3v2ctx *d,
 			pos += 4;
 		}
 
-		de_dbg(c, "tag: '%s' (%s)", tag4cc.id_printable,
+		de_dbg(c, "tag: '%s' (%s)", tag4cc.id_dbgstr,
 			get_id3v2_frame_name(d, tag4cc.id));
 
 		if(d->version_code<=2) {

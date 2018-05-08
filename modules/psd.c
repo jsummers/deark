@@ -746,7 +746,7 @@ static void do_pluginrsrc_mani(deark *c, lctx *d, zztype *zz)
 
 	if(zz_avail(zz)<4) goto done;
 	psd_read_fourcc_zz(c, d, zz, &fourcc);
-	de_dbg(c, "id: '%s'", fourcc.id_printable);
+	de_dbg(c, "id: '%s'", fourcc.id_dbgstr);
 
 	if(fourcc.id==CODE_IRFR) { // Most likely related to Image Ready
 		if(zz_avail(zz)<4) goto done;
@@ -831,7 +831,7 @@ static void hrsrc_pluginresource(deark *c, lctx *d, zztype *zz, const struct rsr
 	// Plug-in resources seem to start with a fourcc.
 	if(zz_avail(zz)<4) return;
 	psd_read_fourcc_zz(c, d, zz, &fourcc);
-	de_dbg(c, "id: '%s'", fourcc.id_printable);
+	de_dbg(c, "id: '%s'", fourcc.id_dbgstr);
 	zz_init(&czz, zz);
 	switch(fourcc.id) {
 	case CODE_mani:
@@ -938,7 +938,7 @@ static void dbg_print_flexible_id(deark *c, lctx *d,
 	const struct flexible_id *flid, const char *name)
 {
 	if(flid->is_fourcc) {
-		de_dbg(c, "%s: fourcc('%s')", name, flid->fourcc.id_printable);
+		de_dbg(c, "%s: fourcc('%s')", name, flid->fourcc.id_dbgstr);
 	}
 	else {
 		de_dbg(c, "%s: string(\"%s\")", name, ucstring_getpsz(flid->s));
@@ -977,7 +977,7 @@ static void do_item_type_UntF(deark *c, lctx *d, zztype *zz)
 	struct de_fourcc unit4cc;
 
 	psd_read_fourcc_zz(c, d, zz, &unit4cc);
-	de_dbg(c, "units code: '%s'", unit4cc.id_printable);
+	de_dbg(c, "units code: '%s'", unit4cc.id_dbgstr);
 
 	v = dbuf_getfloat64x(c->infile, zz->pos, d->is_le);
 	de_dbg(c, "value: %f", v);
@@ -1018,7 +1018,7 @@ static void do_item_type_UnFl(deark *c, lctx *d, zztype *zz)
 	struct de_fourcc unit4cc;
 
 	psd_read_fourcc_zz(c, d, zz, &unit4cc);
-	de_dbg(c, "units code: '%s'", unit4cc.id_printable);
+	de_dbg(c, "units code: '%s'", unit4cc.id_dbgstr);
 
 	count = psd_getui32zz(zz);
 	de_dbg(c, "count: %d", (int)count);
@@ -1284,7 +1284,7 @@ static int do_item_type_obj(deark *c, lctx *d, zztype *zz)
 		itempos = zz->pos;
 		if(itempos >= zz->endpos) goto done;
 		psd_read_fourcc_zz(c, d, zz, &type4cc);
-		de_dbg(c, "reference item[%d] '%s' at %d", (int)i, type4cc.id_printable, (int)itempos);
+		de_dbg(c, "reference item[%d] '%s' at %d", (int)i, type4cc.id_dbgstr, (int)itempos);
 
 		de_dbg_indent(c, 1);
 
@@ -1338,7 +1338,7 @@ static int do_descriptor_item_ostype_and_data(deark *c, lctx *d,
 	zztype czz;
 
 	psd_read_fourcc_zz(c, d, zz, &type4cc);
-	de_dbg(c, "item OSType: '%s'", type4cc.id_printable);
+	de_dbg(c, "item OSType: '%s'", type4cc.id_dbgstr);
 
 	zz_init(&czz, zz);
 
@@ -1785,7 +1785,7 @@ static void hrsrc_urllist(deark *c, lctx *d, zztype *zz, const struct rsrc_info 
 
 		read_unicode_string(c, d, s, zz);
 		de_dbg(c, "URL[%d]: '%s', id=%d, value=\"%s\"", (int)i,
-			url4cc.id_printable, (int)id, ucstring_getpsz(s));
+			url4cc.id_dbgstr, (int)id, ucstring_getpsz(s));
 		ucstring_empty(s);
 	}
 
@@ -1895,7 +1895,7 @@ static int do_image_resource(deark *c, lctx *d, zztype *zz)
 	}
 	else {
 		de_warn(c, "Bad Photoshop resource block signature '%s' at %d",
-			sig4cc.id_printable, (int)zz->startpos);
+			sig4cc.id_sanitized_sz, (int)zz->startpos);
 		goto done;
 	}
 
@@ -2018,7 +2018,7 @@ static int do_layer_record(deark *c, lctx *d, zztype *zz, struct channel_data *c
 	}
 
 	psd_read_fourcc_zz(c, d, zz, &tmp4cc);
-	de_dbg(c, "blend mode: '%s'", tmp4cc.id_printable);
+	de_dbg(c, "blend mode: '%s'", tmp4cc.id_dbgstr);
 
 	b = psd_getbytezz(zz);
 	de_dbg(c, "opacity: %d", (int)b);
@@ -2170,7 +2170,7 @@ static void do_fourcc_block(deark *c, lctx *d, zztype *zz,
 
 	if(zz_avail(zz)!=4) return;
 	psd_read_fourcc_zz(c, d, zz, &fourcc);
-	de_dbg(c, "%s: '%s'", name, fourcc.id_printable);
+	de_dbg(c, "%s: '%s'", name, fourcc.id_dbgstr);
 }
 
 static void do_Layr_block(deark *c, lctx *d, zztype *zz, const struct de_fourcc *blk4cc)
@@ -2237,7 +2237,7 @@ static int do_one_linked_layer(deark *c, lctx *d, zztype *zz, const struct de_fo
 	retval = 1;
 
 	psd_read_fourcc_zz(c, d, &datazz, &type4cc);
-	de_dbg(c, "type: '%s'", type4cc.id_printable);
+	de_dbg(c, "type: '%s'", type4cc.id_dbgstr);
 
 	ver = psd_getui32zz(&datazz);
 	de_dbg(c, "version: %d", (int)ver);
@@ -2251,10 +2251,10 @@ static int do_one_linked_layer(deark *c, lctx *d, zztype *zz, const struct de_fo
 	de_dbg(c, "original file name: \"%s\"", ucstring_getpsz(s));
 
 	psd_read_fourcc_zz(c, d, &datazz, &tmp4cc);
-	de_dbg(c, "file type: '%s'", tmp4cc.id_printable);
+	de_dbg(c, "file type: '%s'", tmp4cc.id_dbgstr);
 
 	psd_read_fourcc_zz(c, d, &datazz, &tmp4cc);
-	de_dbg(c, "file creator: '%s'", tmp4cc.id_printable);
+	de_dbg(c, "file creator: '%s'", tmp4cc.id_dbgstr);
 
 	dlen2 = psd_geti64zz(&datazz);
 	de_dbg(c, "length2: %"INT64_FMT"", dlen2);
@@ -2603,7 +2603,7 @@ static void do_lrFX_block(deark *c, lctx *d, zztype *zz, const struct de_fourcc 
 
 		dlen = psd_getui32zz(zz);
 
-		de_dbg(c, "effects[%d] '%s' at %d, dpos=%d, dlen=%d", (int)i, sig4cc.id_printable,
+		de_dbg(c, "effects[%d] '%s' at %d, dpos=%d, dlen=%d", (int)i, sig4cc.id_dbgstr,
 			(int)epos, (int)zz->pos, (int)dlen);
 		zz->pos += dlen;
 	}
@@ -2637,7 +2637,7 @@ static void do_lsct_block(deark *c, lctx *d, zztype *zz)
 
 	if(zz_avail(zz)<4) return;
 	psd_read_fourcc_zz(c, d, zz, &tmp4cc);
-	de_dbg(c, "blend mode key: '%s'", tmp4cc.id_printable);
+	de_dbg(c, "blend mode key: '%s'", tmp4cc.id_dbgstr);
 
 	if(zz_avail(zz)<4) return;
 	x = psd_getui32zz(zz);
@@ -2676,7 +2676,7 @@ static void do_vscg_block(deark *c, lctx *d, zztype *zz)
 	struct de_fourcc key4cc;
 
 	psd_read_fourcc_zz(c, d, zz, &key4cc);
-	de_dbg(c, "key: '%s'", key4cc.id_printable);
+	de_dbg(c, "key: '%s'", key4cc.id_dbgstr);
 	read_descriptor(c, d, zz, 1, " (for Vector Stroke Content Data)");
 }
 
@@ -2766,7 +2766,7 @@ static void do_SoLd_block(deark *c, lctx *d, zztype *zz)
 	de_int64 ver;
 
 	psd_read_fourcc_zz(c, d, zz, &id4cc);
-	de_dbg(c, "identifier: '%s'", id4cc.id_printable);
+	de_dbg(c, "identifier: '%s'", id4cc.id_dbgstr);
 	ver = psd_getui32zz(zz);
 	de_dbg(c, "version: %d", (int)ver);
 
@@ -2953,7 +2953,7 @@ static void do_shmd_block(deark *c, lctx *d, zztype *zz)
 
 		dpos = zz->pos;
 		de_dbg(c, "metadata item[%d] '%s' at %d, dpos=%d, dlen=%d",
-			(int)i, key4cc.id_printable, (int)itempos, (int)dpos, (int)dlen);
+			(int)i, key4cc.id_dbgstr, (int)itempos, (int)dpos, (int)dlen);
 
 		de_dbg_indent(c, 1);
 
@@ -3009,7 +3009,7 @@ static int do_tagged_block(deark *c, lctx *d, zztype *zz, int tbnamespace)
 
 	zz_init_with_len(&czz, zz, blklen);
 
-	de_dbg(c, "tagged block '%s' at %d, dpos=%d, dlen=%d", blk4cc.id_printable,
+	de_dbg(c, "tagged block '%s' at %d, dpos=%d, dlen=%d", blk4cc.id_dbgstr,
 		(int)zz->startpos, (int)czz.startpos, (int)blklen);
 
 	de_dbg_indent(c, 1);
@@ -3287,7 +3287,7 @@ static int do_action_item(deark *c, lctx *d, zztype *zz)
 	s = ucstring_create(c);
 
 	psd_read_fourcc_zz(c, d, zz, &id4cc);
-	de_dbg(c, "identifier type: '%s'", id4cc.id_printable);
+	de_dbg(c, "identifier type: '%s'", id4cc.id_dbgstr);
 	if(id4cc.id==CODE_TEXT) {
 		read_prefixed_string_to_ucstring(c, d, s, zz);
 		de_dbg(c, "id: \"%s\"", ucstring_getpsz_d(s));
@@ -3298,7 +3298,7 @@ static int do_action_item(deark *c, lctx *d, zztype *zz)
 		de_dbg(c, "itemID: %d", (int)id_long);
 	}
 	else {
-		de_err(c, "Unsupported identifier type: '%s'", id4cc.id_printable);
+		de_err(c, "Unsupported identifier type: '%s'", id4cc.id_sanitized_sz);
 		goto done;
 	}
 

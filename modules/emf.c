@@ -487,7 +487,7 @@ static int emf_handler_46(deark *c, lctx *d, struct decoder_params *dp)
 	default: name="?";
 	}
 
-	de_dbg(c, "type: 0x%08x '%s' (%s) datasize=%d", (unsigned int)id4cc.id, id4cc.id_printable, name,
+	de_dbg(c, "type: 0x%08x '%s' (%s) datasize=%d", (unsigned int)id4cc.id, id4cc.id_dbgstr, name,
 		(int)datasize);
 
 	if(datasize<=4 || 12+datasize > dp->recsize_bytes) goto done; // Bad datasize

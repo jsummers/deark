@@ -37,7 +37,7 @@ static int do_read_idsc(deark *c, lctx *d, de_int64 pos, de_int64 len)
 	de_dbg(c, "idsc size: %d", (int)d->idsc_size);
 
 	dbuf_read_fourcc(c->infile, pos+4, &d->cmpr4cc, 0);
-	de_dbg(c, "compression type: \"%s\"", d->cmpr4cc.id_printable);
+	de_dbg(c, "compression type: \"%s\"", d->cmpr4cc.id_dbgstr);
 
 	if(len<86) goto done;
 	if(d->idsc_size<86) goto done;
@@ -131,7 +131,7 @@ static void do_write_image(deark *c, lctx *d)
 		dbuf_create_file_from_slice(c->infile, d->idat_pos, dsize, "pcd", NULL, 0);
 	}
 	else {
-		de_err(c, "Unsupported compression type: \"%s\"", d->cmpr4cc.id_printable);
+		de_err(c, "Unsupported compression type: \"%s\"", d->cmpr4cc.id_sanitized_sz);
 	}
 }
 

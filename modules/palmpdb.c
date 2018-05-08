@@ -173,10 +173,10 @@ static int do_read_pdb_prc_header(deark *c, lctx *d)
 	de_dbg(c, "sort info pos: %d", (int)d->sortinfo_offs);
 
 	dbuf_read_fourcc(c->infile, pos1+60, &d->dtype4cc, 0);
-	de_dbg(c, "type: \"%s\"", d->dtype4cc.id_printable);
+	de_dbg(c, "type: \"%s\"", d->dtype4cc.id_dbgstr);
 
 	dbuf_read_fourcc(c->infile, pos1+64, &d->creator4cc, 0);
-	de_dbg(c, "creator: \"%s\"", d->creator4cc.id_printable);
+	de_dbg(c, "creator: \"%s\"", d->creator4cc.id_dbgstr);
 
 	if(d->file_fmt==FMT_PDB) {
 		d->fmt_shortname = "PDB";
@@ -616,11 +616,11 @@ static int do_read_prc_record(deark *c, lctx *d, de_int64 rec_idx, de_int64 pos1
 	rti = get_rsrc_type_info(rsrc_type_4cc.id);
 	if(rti && rti->descr) rsrc_type_descr = rti->descr;
 	else rsrc_type_descr = "?";
-	de_dbg(c, "resource type: '%s' (%s)", rsrc_type_4cc.id_printable, rsrc_type_descr);
+	de_dbg(c, "resource type: '%s' (%s)", rsrc_type_4cc.id_dbgstr, rsrc_type_descr);
 
 	ext_ucstring = ucstring_create(c);
 	// The "filename" always starts with the fourcc.
-	ucstring_append_sz(ext_ucstring, rsrc_type_4cc.id_printable, DE_ENCODING_ASCII);
+	ucstring_append_sz(ext_ucstring, rsrc_type_4cc.id_sanitized_sz, DE_ENCODING_ASCII);
 
 	id = (de_uint32)de_getui16be(pos1+4);
 	de_dbg(c, "id: %d", (int)id);

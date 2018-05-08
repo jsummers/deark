@@ -177,19 +177,19 @@ static void set_default_bitfields(deark *c, lctx *d)
 	}
 }
 
-static void get_cstype_descr(struct de_fourcc *cstype4cc, char *s, size_t s_len)
+static void get_cstype_descr_dbgstr(struct de_fourcc *cstype4cc, char *s_dbgstr, size_t s_len)
 {
 	// The ID might be a FOURCC, or not.
 	if(cstype4cc->id>0xffffU) {
-		de_snprintf(s, s_len, "0x%08x ('%s')", (unsigned int)cstype4cc->id,
-			cstype4cc->id_printable);
+		de_snprintf(s_dbgstr, s_len, "0x%08x ('%s')", (unsigned int)cstype4cc->id,
+			cstype4cc->id_dbgstr);
 	}
 	else {
 		const char *name = "?";
 		switch(cstype4cc->id) {
 		case 0: name = "LCS_CALIBRATED_RGB"; break;
 		}
-		de_snprintf(s, s_len, "%u (%s)", (unsigned int)cstype4cc->id, name);
+		de_snprintf(s_dbgstr, s_len, "%u (%s)", (unsigned int)cstype4cc->id, name);
 	}
 }
 
@@ -370,10 +370,10 @@ static int read_infoheader(deark *c, lctx *d, de_int64 pos)
 	}
 
 	if(d->version==DE_BMPVER_WINV345 && d->infohdrsize>=108) {
-		char cstype_descr[80];
+		char cstype_descr_dbgstr[80];
 		dbuf_read_fourcc(c->infile, pos+56, &d->cstype4cc, 1);
-		get_cstype_descr(&d->cstype4cc, cstype_descr, sizeof(cstype_descr));
-		de_dbg(c, "CSType: %s", cstype_descr);
+		get_cstype_descr_dbgstr(&d->cstype4cc, cstype_descr_dbgstr, sizeof(cstype_descr_dbgstr));
+		de_dbg(c, "CSType: %s", cstype_descr_dbgstr);
 	}
 
 	if(d->version==DE_BMPVER_WINV345 && d->infohdrsize>=124) {

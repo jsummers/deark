@@ -386,7 +386,7 @@ static void do_icon(deark *c, lctx *d, struct page_ctx *pg)
 		return;
 	}
 
-	de_warn(c, "(Image #%d) Image type '%s' is not supported", pg->image_num, pg->code4cc.id_printable);
+	de_warn(c, "(Image #%d) Image type '%s' is not supported", pg->image_num, pg->code4cc.id_sanitized_sz);
 }
 
 static void de_run_icns_pass(deark *c, lctx *d, int pass)
@@ -417,12 +417,12 @@ static void de_run_icns_pass(deark *c, lctx *d, int pass)
 		pg->image_len = segment_len - 8;
 
 		if(pass==2) {
-			de_dbg(c, "image #%d, type '%s', at %d, size=%d", pg->image_num, pg->code4cc.id_printable,
+			de_dbg(c, "image #%d, type '%s', at %d, size=%d", pg->image_num, pg->code4cc.id_dbgstr,
 				(int)pg->image_pos, (int)pg->image_len);
 		}
 		if(segment_len<8 || segment_pos+segment_len > d->file_size) {
 			if(pass==2) {
-				de_err(c, "Invalid length for segment '%s' (%u)", pg->code4cc.id_printable,
+				de_err(c, "Invalid length for segment '%s' (%u)", pg->code4cc.id_sanitized_sz,
 					(unsigned int)segment_len);
 			}
 			break;
@@ -438,7 +438,7 @@ static void de_run_icns_pass(deark *c, lctx *d, int pass)
 				}
 			}
 			if(!pg->type_info) {
-				de_warn(c, "(Image #%d) Unknown image type '%s'", pg->image_num, pg->code4cc.id_printable);
+				de_warn(c, "(Image #%d) Unknown image type '%s'", pg->image_num, pg->code4cc.id_sanitized_sz);
 			}
 		}
 

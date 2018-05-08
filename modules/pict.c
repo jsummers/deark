@@ -811,7 +811,7 @@ static int handler_a1(deark *c, lctx *d, de_int64 opcode, de_int64 data_pos, de_
 
 		dbuf_read_fourcc(c->infile, data_pos+4, &sig4cc, 0);
 		de_dbg(c, "application comment, signature=0x%08x '%s'",
-			(unsigned int)sig4cc.id, sig4cc.id_printable);
+			(unsigned int)sig4cc.id, sig4cc.id_dbgstr);
 	}
 	else if(kind==224) {
 		do_iccprofile_item(c, d, data_pos+4, len);
