@@ -13,17 +13,17 @@ DE_DECLARE_MODULE(de_module_mp3);
 // **************************************************************************
 
 #define CODE_APIC 0x41504943U
-#define CODE_COM  0x434f4d00U
+#define CODE_COM  0x434f4dU
 #define CODE_COMM 0x434f4d4dU
-#define CODE_GEO  0x47454f00U
+#define CODE_GEO  0x47454fU
 #define CODE_GEOB 0x47454f42U
-#define CODE_PIC  0x50494300U
-#define CODE_POP  0x504f5000U
+#define CODE_PIC  0x504943U
+#define CODE_POP  0x504f50U
 #define CODE_POPM 0x504f504dU
 #define CODE_PRIV 0x50524956U
-#define CODE_TXX  0x54585800U
+#define CODE_TXX  0x545858U
 #define CODE_TXXX 0x54585858U
-#define CODE_WXX  0x57585800U
+#define CODE_WXX  0x575858U
 #define CODE_WXXX 0x57585858U
 
 #define ID3ENC_ISO_8859_1 0
@@ -813,45 +813,45 @@ static const char *get_id3v2_frame_name(id3v2ctx *d, de_uint32 id)
 	};
 	static const struct frame_list_entry frame_list[] = {
 		// This is a partial list, of some of the common frame types.
-		{0x54414c00U, 0x54414c42U, "Album/Movie/Show title"},
-		{CODE_PIC,    CODE_APIC,   "Attached picture"},
-		{0x54503200U, 0x54504532U, "Band/orchestra/accompaniment"},
-		{0x54425000U, 0x5442504dU, "Beats per minute"},
-		{CODE_COM,    CODE_COMM,   "Comments"},
-		{0x57434d00U, 0x57434f4dU, "Commercial information"},
-		{0x54434d00U, 0x54434f4dU, "Composer"},
-		{0x54503300U, 0x54504533U, "Conductor"},
-		{0x54434f00U, 0x54434f4eU, "Content type"},
-		{0x54435200U, 0x54434f50U, "Copyright message"},
-		{0x54444100U, 0x54444154U, "Date"},
-		{0x54454e00U, 0x54454e43U, "Encoded by"},
-		{CODE_GEO,    CODE_GEOB,   "General encapsulated object"},
-		{0x544b4500U, 0x544b4559U, "Initial key"},
-		{0x544c4100U, 0x544c414eU, "Language"},
-		{0x54503100U, 0,           "Lead artist/Performing group"},
-		{0,           0x54504531U, "Lead performer"},
-		{0x544c4500U, 0x544c454eU, "Length"},
-		{0x54585400U, 0x54455854U, "Lyricist"},
-		{0x4d434900U, 0x4d434449U, "Music CD identifier"},
-		{0x57415200U, 0x574f4152U, "Official artist/performer webpage"},
-		{0x57414600U, 0x574f4146U, "Official audio file webpage"},
-		{0x57415300U, 0x574f4153U, "Official audio source webpage"},
-		{0x544f5400U, 0x544f414cU, "Original album/movie/show title"},
-		{0x544f4100U, 0x544f5045U, "Original artist/performer"},
-		{0x544f4c00U, 0x544f4c59U, "Original lyricist"},
-		{CODE_POP,    CODE_POPM,   "Popularimeter"},
-		{0,           CODE_PRIV,   "Private frame"},
-		{0x54504200U, 0x54505542U, "Publisher"},
-		{0,           0x54445243U, "Recording time"},
-		{0x52564100U, 0x52564144U, "Relative volume adjustment"},
-		{0x54535300U, 0x54535345U, "Software/Hardware and settings used for encoding"},
-		{0x54494d00U, 0x54494d45U, "Time"},
-		{0x54543200U, 0x54495432U, "Title"},
-		{0x54524b00U, 0x5452434bU, "Track number"},
-		{0x554c5400U, 0x55534c54U, "Unsychronized lyric transcription"},
-		{CODE_TXX,    CODE_TXXX,   "User defined text information"},
-		{CODE_WXX,    CODE_WXXX,   "User defined URL link"},
-		{0x54594500U, 0x54594552U, "Year"}
+		{0x54414cU, 0x54414c42U, "Album/Movie/Show title"},
+		{CODE_PIC,  CODE_APIC,   "Attached picture"},
+		{0x545032U, 0x54504532U, "Band/orchestra/accompaniment"},
+		{0x544250U, 0x5442504dU, "Beats per minute"},
+		{CODE_COM,  CODE_COMM,   "Comments"},
+		{0x57434dU, 0x57434f4dU, "Commercial information"},
+		{0x54434dU, 0x54434f4dU, "Composer"},
+		{0x545033U, 0x54504533U, "Conductor"},
+		{0x54434fU, 0x54434f4eU, "Content type"},
+		{0x544352U, 0x54434f50U, "Copyright message"},
+		{0x544441U, 0x54444154U, "Date"},
+		{0x54454eU, 0x54454e43U, "Encoded by"},
+		{CODE_GEO,  CODE_GEOB,   "General encapsulated object"},
+		{0x544b45U, 0x544b4559U, "Initial key"},
+		{0x544c41U, 0x544c414eU, "Language"},
+		{0x545031U, 0,           "Lead artist/Performing group"},
+		{0,         0x54504531U, "Lead performer"},
+		{0x544c45U, 0x544c454eU, "Length"},
+		{0x545854U, 0x54455854U, "Lyricist"},
+		{0x4d4349U, 0x4d434449U, "Music CD identifier"},
+		{0x574152U, 0x574f4152U, "Official artist/performer webpage"},
+		{0x574146U, 0x574f4146U, "Official audio file webpage"},
+		{0x574153U, 0x574f4153U, "Official audio source webpage"},
+		{0x544f54U, 0x544f414cU, "Original album/movie/show title"},
+		{0x544f41U, 0x544f5045U, "Original artist/performer"},
+		{0x544f4cU, 0x544f4c59U, "Original lyricist"},
+		{CODE_POP,  CODE_POPM,   "Popularimeter"},
+		{0,         CODE_PRIV,   "Private frame"},
+		{0x545042U, 0x54505542U, "Publisher"},
+		{0,         0x54445243U, "Recording time"},
+		{0x525641U, 0x52564144U, "Relative volume adjustment"},
+		{0x545353U, 0x54535345U, "Software/Hardware and settings used for encoding"},
+		{0x54494dU, 0x54494d45U, "Time"},
+		{0x545432U, 0x54495432U, "Title"},
+		{0x54524bU, 0x5452434bU, "Track number"},
+		{0x554c54U, 0x55534c54U, "Unsychronized lyric transcription"},
+		{CODE_TXX,  CODE_TXXX,   "User defined text information"},
+		{CODE_WXX,  CODE_WXXX,   "User defined URL link"},
+		{0x545945U, 0x54594552U, "Year"}
 	};
 	size_t k;
 
@@ -912,7 +912,6 @@ static void do_id3v2_frames(deark *c, id3v2ctx *d,
 		if(d->version_code<=2) {
 			// Version 2.2.x uses a "THREECC".
 			dbuf_read_fourcc(f, pos, &tag4cc, 3, 0x0);
-			tag4cc.id <<= 8;
 			pos += 3;
 		}
 		else {

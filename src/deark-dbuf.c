@@ -1337,52 +1337,39 @@ int dbuf_dump_to_file(dbuf *inf, const char *fn)
 	return 1;
 }
 
-static void reverse_fourcc(de_byte *buf)
+static void reverse_fourcc(de_byte *buf, int nbytes)
 {
-	de_byte tmpc;
-	tmpc=buf[0]; buf[0]=buf[3]; buf[3]=tmpc;
-	tmpc=buf[1]; buf[1]=buf[2]; buf[2]=tmpc;
+	size_t k;
+
+	for(k=0; k<((size_t)nbytes)/2; k++) {
+		de_byte tmpc;
+		tmpc = buf[k];
+		buf[k] = buf[nbytes-1-k];
+		buf[nbytes-1-k] = tmpc;
+	}
 }
 
-static void dbuf_read_fourcc_internal(dbuf *f, de_int64 pos, struct de_fourcc *fcc, int is_reversed)
+// Though we call it a "fourcc", we support 'nbytes' from 1 to 4.
+void dbuf_read_fourcc(dbuf *f, de_int64 pos, struct de_fourcc *fcc,
+	int nbytes, unsigned int flags)
 {
-	dbuf_read(f, fcc->bytes, pos, 4);
-	if(is_reversed) {
-		reverse_fourcc(fcc->bytes);
+	if(nbytes<1 || nbytes>4) return;
+
+	de_memset(fcc->bytes, 0, 4);
+	dbuf_read(f, fcc->bytes, pos, (de_int64)nbytes);
+	if(flags&DE_4CCFLAG_REVERSED) {
+		reverse_fourcc(fcc->bytes, nbytes);
 	}
+
 	fcc->id = (de_uint32)de_getui32be_direct(fcc->bytes);
-	de_bytes_to_printable_sz(fcc->bytes, 4,
+	if(nbytes<4) {
+		fcc->id >>= (4-(unsigned int)nbytes)*8;
+	}
+
+	de_bytes_to_printable_sz(fcc->bytes, (de_int64)nbytes,
 		fcc->id_sanitized_sz, sizeof(fcc->id_sanitized_sz),
 		0, DE_ENCODING_ASCII);
-	de_bytes_to_printable_sz(fcc->bytes, 4,
+	de_bytes_to_printable_sz(fcc->bytes, (de_int64)nbytes,
 		fcc->id_dbgstr, sizeof(fcc->id_dbgstr),
 		DE_CONVFLAG_ALLOW_HL, DE_ENCODING_ASCII);
-}
-
-// TODO: Combine this with dbuf_read_fourcc()
-static void dbuf_read_threecc_internal(dbuf *f, de_int64 pos, struct de_fourcc *fcc)
-{
-	dbuf_read(f, fcc->bytes, pos, 3);
-	fcc->bytes[3] = 0x00;
-	fcc->id = ((de_uint32)de_getui32be_direct(fcc->bytes))>>8;
-	de_bytes_to_printable_sz(fcc->bytes, 3,
-		fcc->id_sanitized_sz, sizeof(fcc->id_sanitized_sz),
-		0, DE_ENCODING_ASCII);
-	de_bytes_to_printable_sz(fcc->bytes, 3,
-		fcc->id_dbgstr, sizeof(fcc->id_dbgstr),
-		DE_CONVFLAG_ALLOW_HL, DE_ENCODING_ASCII);
-}
-
-void dbuf_read_fourcc(dbuf *f, de_int64 pos, struct de_fourcc *fcc, int nbytes,
-	unsigned int flags)
-{
-	int is_reversed;
-
-	is_reversed = (flags&DE_4CCFLAG_REVERSED)?1:0;
-	if(nbytes==4) {
-		dbuf_read_fourcc_internal(f, pos, fcc, is_reversed);
-	}
-	else if(nbytes==3) {
-		dbuf_read_threecc_internal(f, pos, fcc);
-	}
 }
