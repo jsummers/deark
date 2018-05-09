@@ -55,8 +55,7 @@ typedef struct localctx_struct {
 } lctx;
 
 typedef void (*extrafield_decoder_fn)(deark *c, lctx *d,
-	struct member_data *md, struct dir_entry_data *dd, de_int64 fieldtype,
-	de_int64 pos, de_int64 len, int is_central);
+	struct extra_item_info_struct *eii);
 
 static int is_compression_method_supported(int cmpr_method)
 {
@@ -169,21 +168,20 @@ static void read_FILETIME(deark *c, lctx *d, de_int64 pos,
 }
 
 // Extra field 0x5455
-static void ef_extended_timestamp(deark *c, lctx *d,
-	struct member_data *md, struct dir_entry_data *dd, de_int64 fieldtype,
-	de_int64 pos, de_int64 len, int is_central)
+static void ef_extended_timestamp(deark *c, lctx *d, struct extra_item_info_struct *eii)
 {
+	de_int64 pos = eii->dpos;
 	de_byte flags;
 	de_int64 endpos;
 	int has_mtime, has_atime, has_ctime;
 	struct de_timestamp timestamp_tmp;
 
-	endpos = pos+len;
+	endpos = pos + eii->dlen;
 	if(pos+1>endpos) return;
 	flags = de_getbyte(pos);
 	pos++;
-	if(is_central) {
-		has_mtime = (len>=5);
+	if(eii->is_central) {
+		has_mtime = (eii->dlen>=5);
 		has_atime = 0;
 		has_ctime = 0;
 	}
@@ -194,7 +192,7 @@ static void ef_extended_timestamp(deark *c, lctx *d,
 	}
 	if(has_mtime) {
 		if(pos+4>endpos) return;
-		read_unix_timestamp(c, d, pos, &dd->mod_time, "mtime");
+		read_unix_timestamp(c, d, pos, &eii->dd->mod_time, "mtime");
 		pos+=4;
 	}
 	if(has_atime) {
@@ -210,35 +208,31 @@ static void ef_extended_timestamp(deark *c, lctx *d,
 }
 
 // Extra field 0x5855
-static void ef_infozip1(deark *c, lctx *d,
-	struct member_data *md, struct dir_entry_data *dd, de_int64 fieldtype,
-	de_int64 pos, de_int64 len, int is_central)
+static void ef_infozip1(deark *c, lctx *d, struct extra_item_info_struct *eii)
 {
 	de_int64 uidnum, gidnum;
 	struct de_timestamp timestamp_tmp;
 
-	if(is_central && len<8) return;
-	if(!is_central && len<12) return;
-	read_unix_timestamp(c, d, pos, &timestamp_tmp, "atime");
-	read_unix_timestamp(c, d, pos+4, &dd->mod_time, "mtime");
-	if(!is_central) {
-		uidnum = de_getui16le(pos+8);
-		gidnum = de_getui16le(pos+10);
+	if(eii->is_central && eii->dlen<8) return;
+	if(!eii->is_central && eii->dlen<12) return;
+	read_unix_timestamp(c, d, eii->dpos, &timestamp_tmp, "atime");
+	read_unix_timestamp(c, d, eii->dpos+4, &eii->dd->mod_time, "mtime");
+	if(!eii->is_central) {
+		uidnum = de_getui16le(eii->dpos+8);
+		gidnum = de_getui16le(eii->dpos+10);
 		de_dbg(c, "uid: %d, gid: %d", (int)uidnum, (int)gidnum);
 	}
 }
 
 // Extra field 0x7855
-static void ef_infozip2(deark *c, lctx *d,
-	struct member_data *md, struct dir_entry_data *dd, de_int64 fieldtype,
-	de_int64 pos, de_int64 len, int is_central)
+static void ef_infozip2(deark *c, lctx *d, struct extra_item_info_struct *eii)
 {
 	de_int64 uidnum, gidnum;
 
-	if(is_central) return;
-	if(len<4) return;
-	uidnum = de_getui16le(pos);
-	gidnum = de_getui16le(pos+2);
+	if(eii->is_central) return;
+	if(eii->dlen<4) return;
+	uidnum = de_getui16le(eii->dpos);
+	gidnum = de_getui16le(eii->dpos+2);
 	de_dbg(c, "uid: %d, gid: %d", (int)uidnum, (int)gidnum);
 }
 
@@ -254,16 +248,15 @@ static de_int64 get_variable_length_uint_le(dbuf *f, de_int64 pos, de_int64 len)
 }
 
 // Extra field 0x7875
-static void ef_infozip3(deark *c, lctx *d,
-	struct member_data *md, struct dir_entry_data *dd, de_int64 fieldtype,
-	de_int64 pos, de_int64 len, int is_central)
+static void ef_infozip3(deark *c, lctx *d, struct extra_item_info_struct *eii)
 {
+	de_int64 pos = eii->dpos;
 	de_int64 uidnum, gidnum;
 	de_byte ver;
 	de_int64 endpos;
 	de_int64 sz;
 
-	endpos = pos+len;
+	endpos = pos+eii->dlen;
 
 	if(pos+1>endpos) return;
 	ver = de_getbyte(pos);
@@ -289,17 +282,16 @@ static void ef_infozip3(deark *c, lctx *d,
 }
 
 // Extra field 0x000a
-static void ef_ntfs(deark *c, lctx *d,
-	struct member_data *md, struct dir_entry_data *dd,
-	de_int64 fieldtype, de_int64 pos, de_int64 len, int is_central)
+static void ef_ntfs(deark *c, lctx *d, struct extra_item_info_struct *eii)
 {
+	de_int64 pos = eii->dpos;
 	de_int64 endpos;
 	de_int64 attr_tag;
 	de_int64 attr_size;
 	const char *name;
 	struct de_timestamp timestamp_tmp;
 
-	endpos = pos+len;
+	endpos = pos+eii->dlen;
 	pos += 4; // skip reserved field
 
 	while(1) {
@@ -315,7 +307,7 @@ static void ef_ntfs(deark *c, lctx *d,
 
 		de_dbg_indent(c, 1);
 		if(attr_tag==0x0001 && attr_size>=24) {
-			read_FILETIME(c, d, pos, &dd->mod_time, "mtime");
+			read_FILETIME(c, d, pos, &eii->dd->mod_time, "mtime");
 			read_FILETIME(c, d, pos+8, &timestamp_tmp, "atime");
 			read_FILETIME(c, d, pos+16, &timestamp_tmp, "ctime");
 		}
@@ -326,21 +318,20 @@ static void ef_ntfs(deark *c, lctx *d,
 }
 
 // Extra field 0x0009
-static void ef_os2(deark *c, lctx *d,
-	struct member_data *md, struct dir_entry_data *dd,
-	de_int64 fieldtype, de_int64 pos, de_int64 len, int is_central)
+static void ef_os2(deark *c, lctx *d, struct extra_item_info_struct *eii)
 {
+	de_int64 pos = eii->dpos;
 	de_int64 endpos;
 	de_int64 unc_size;
 	de_int64 cmpr_type;
 	de_int64 crc;
 
-	endpos = pos+len;
+	endpos = pos+eii->dlen;
 	if(pos+4>endpos) return;
 	unc_size = de_getui32le(pos);
 	pos += 4;
 	de_dbg(c, "uncmpr ext attr data size: %d", (int)unc_size);
-	if(is_central) return;
+	if(eii->is_central) return;
 
 	if(pos+2>endpos) return;
 	cmpr_type = de_getui16le(pos);
@@ -357,22 +348,20 @@ static void ef_os2(deark *c, lctx *d,
 }
 
 // Extra field 0x2705 (ZipIt Macintosh 1.3.5+)
-static void ef_zipitmac_2705(deark *c, lctx *d,
-	struct member_data *md, struct dir_entry_data *dd,
-	de_int64 fieldtype, de_int64 pos, de_int64 len, int is_central)
+static void ef_zipitmac_2705(deark *c, lctx *d, struct extra_item_info_struct *eii)
 {
 	struct de_fourcc sig;
 	struct de_fourcc filetype;
 	struct de_fourcc creator;
 
-	if(len<4) goto done;
-	dbuf_read_fourcc(c->infile, pos, &sig, 4, 0x0);
+	if(eii->dlen<4) goto done;
+	dbuf_read_fourcc(c->infile, eii->dpos, &sig, 4, 0x0);
 	de_dbg(c, "signature: '%s'", sig.id_dbgstr);
 	if(sig.id!=0x5a504954U) goto done; // expecting 'ZPIT'
-	if(len<12) goto done;
-	dbuf_read_fourcc(c->infile, pos+4, &filetype, 4, 0x0);
+	if(eii->dlen<12) goto done;
+	dbuf_read_fourcc(c->infile, eii->dpos+4, &filetype, 4, 0x0);
 	de_dbg(c, "filetype: '%s'", filetype.id_dbgstr);
-	dbuf_read_fourcc(c->infile, pos+8, &creator, 4, 0x0);
+	dbuf_read_fourcc(c->infile, eii->dpos+8, &creator, 4, 0x0);
 	de_dbg(c, "creator: '%s'", creator.id_dbgstr);
 
 done:
@@ -392,11 +381,9 @@ static void handle_mac_time(deark *c, lctx *d,
 }
 
 // Extra field 0x334d (Info-ZIP Macintosh)
-static void ef_infozipmac(deark *c, lctx *d,
-	struct member_data *md, struct dir_entry_data *dd,
-	de_int64 fieldtype, de_int64 pos1, de_int64 len, int is_central)
+static void ef_infozipmac(deark *c, lctx *d, struct extra_item_info_struct *eii)
 {
-	de_int64 pos = pos1;
+	de_int64 pos = eii->dpos;
 	de_int64 dpos;
 	de_int64 ulen;
 	de_int64 cmpr_attr_size;
@@ -418,7 +405,7 @@ static void ef_infozipmac(deark *c, lctx *d,
 	int charset;
 	struct de_stringreaderdata *srd;
 
-	if(len<14) goto done;
+	if(eii->dlen<14) goto done;
 
 	ulen = de_getui32le(pos);
 	de_dbg(c, "uncmpr. finder attr. size: %d", (int)ulen);
@@ -442,7 +429,7 @@ static void ef_infozipmac(deark *c, lctx *d,
 	de_dbg(c, "creator: '%s'", creator.id_dbgstr);
 	pos += 4;
 
-	if(is_central) goto done;
+	if(eii->is_central) goto done;
 
 	if(flags&0x0004) { // Uncompressed attribute data
 		cmprtype = 0;
@@ -459,7 +446,7 @@ static void ef_infozipmac(deark *c, lctx *d,
 	}
 
 	// The rest of the data is Finder attribute data
-	cmpr_attr_size = pos1+len - pos;
+	cmpr_attr_size = eii->dpos+eii->dlen - pos;
 	de_dbg(c, "cmpr. finder attr. size: %d", (int)cmpr_attr_size);
 	if(ulen<1 || ulen>1000000) goto done;
 
@@ -628,7 +615,7 @@ static void do_extra_data(deark *c, lctx *d,
 
 		if(eii.eiti->fn) {
 			de_dbg_indent(c, 1);
-			eii.eiti->fn(c, d, md, dd, eii.id, eii.dpos, eii.dlen, eii.is_central);
+			eii.eiti->fn(c, d, &eii);
 			de_dbg_indent(c, -1);
 		}
 
