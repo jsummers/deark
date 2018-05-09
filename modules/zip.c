@@ -35,6 +35,18 @@ struct member_data {
 	struct dir_entry_data local_dir_entry_data;
 };
 
+struct extra_item_type_info_struct;
+
+struct extra_item_info_struct {
+	de_uint32 id;
+	de_int64 dpos;
+	de_int64 dlen;
+	const struct extra_item_type_info_struct *eiti;
+	struct member_data *md;
+	struct dir_entry_data *dd;
+	int is_central;
+};
+
 typedef struct localctx_struct {
 	de_int64 end_of_central_dir_pos;
 	de_int64 central_dir_num_entries;
@@ -590,32 +602,37 @@ static void do_extra_data(deark *c, lctx *d,
 	de_int64 pos1, de_int64 len, int is_central)
 {
 	de_int64 pos;
-	de_int64 item_id;
-	de_int64 item_len;
-	const struct extra_item_type_info_struct *ei;
 
 	de_dbg(c, "extra data at %d, len=%d", (int)pos1, (int)len);
 	de_dbg_indent(c, 1);
 
 	pos = pos1;
 	while(1) {
+		struct extra_item_info_struct eii;
+
 		if(pos+4 >= pos1+len) break;
-		item_id = de_getui16le(pos);
-		item_len = de_getui16le(pos+2);
+		de_memset(&eii, 0, sizeof(struct extra_item_info_struct));
+		eii.md = md;
+		eii.dd = dd;
+		eii.is_central = is_central;
+		eii.dpos = pos+4;
 
-		ei = get_extra_item_type_info(item_id);
+		eii.id = (de_uint32)de_getui16le(pos);
+		eii.dlen = de_getui16le(pos+2);
 
-		de_dbg(c, "item id=0x%04x (%s), dlen=%d", (unsigned int)item_id, ei->name,
-			(int)item_len);
-		if(pos+4+item_len > pos1+len) break;
+		eii.eiti = get_extra_item_type_info(eii.id);
 
-		if(ei->fn) {
+		de_dbg(c, "item id=0x%04x (%s), dlen=%d", (unsigned int)eii.id, eii.eiti->name,
+			(int)eii.dlen);
+		if(pos+4+eii.dlen > pos1+len) break;
+
+		if(eii.eiti->fn) {
 			de_dbg_indent(c, 1);
-			ei->fn(c, d, md, dd, item_id, pos+4, item_len, is_central);
+			eii.eiti->fn(c, d, md, dd, eii.id, eii.dpos, eii.dlen, eii.is_central);
 			de_dbg_indent(c, -1);
 		}
 
-		pos += 4+item_len;
+		pos += 4+eii.dlen;
 	}
 
 	de_dbg_indent(c, -1);
