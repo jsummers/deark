@@ -178,8 +178,7 @@ static void ef_extended_timestamp(deark *c, lctx *d, struct extra_item_info_stru
 
 	endpos = pos + eii->dlen;
 	if(pos+1>endpos) return;
-	flags = de_getbyte(pos);
-	pos++;
+	flags = de_getbyte_p(&pos);
 	if(eii->is_central) {
 		has_mtime = (eii->dlen>=5);
 		has_atime = 0;
@@ -259,21 +258,18 @@ static void ef_infozip3(deark *c, lctx *d, struct extra_item_info_struct *eii)
 	endpos = pos+eii->dlen;
 
 	if(pos+1>endpos) return;
-	ver = de_getbyte(pos);
-	pos++;
+	ver = de_getbyte_p(&pos);
 	de_dbg(c, "version: %d", (int)ver);
 	if(ver!=1) return;
 
 	if(pos+1>endpos) return;
-	sz = (de_int64)de_getbyte(pos);
-	pos++;
+	sz = (de_int64)de_getbyte_p(&pos);
 	if(pos+sz>endpos) return;
 	uidnum = get_variable_length_uint_le(c->infile, pos, sz);
 	pos += sz;
 
 	if(pos+1>endpos) return;
-	sz = (de_int64)de_getbyte(pos);
-	pos++;
+	sz = (de_int64)de_getbyte_p(&pos);
 	if(pos+sz>endpos) return;
 	gidnum = get_variable_length_uint_le(c->infile, pos, sz);
 	pos += sz;
@@ -296,9 +292,8 @@ static void ef_ntfs(deark *c, lctx *d, struct extra_item_info_struct *eii)
 
 	while(1) {
 		if(pos+4>endpos) break;
-		attr_tag = de_getui16le(pos);
-		attr_size = de_getui16le(pos+2);
-		pos += 4;
+		attr_tag = de_getui16le_p(&pos);
+		attr_size = de_getui16le_p(&pos);
 		if(attr_tag==0x0001) name="NTFS filetimes";
 		else name="?";
 		de_dbg(c, "tag: 0x%04x (%s), dlen: %d", (unsigned int)attr_tag, name,
@@ -328,19 +323,16 @@ static void ef_os2(deark *c, lctx *d, struct extra_item_info_struct *eii)
 
 	endpos = pos+eii->dlen;
 	if(pos+4>endpos) return;
-	unc_size = de_getui32le(pos);
-	pos += 4;
+	unc_size = de_getui32le_p(&pos);
 	de_dbg(c, "uncmpr ext attr data size: %d", (int)unc_size);
 	if(eii->is_central) return;
 
 	if(pos+2>endpos) return;
-	cmpr_type = de_getui16le(pos);
-	pos += 2;
+	cmpr_type = de_getui16le_p(&pos);
 	de_dbg(c, "ext attr cmpr method: %d", (int)cmpr_type);
 
 	if(pos+4>endpos) return;
-	crc = de_getui32le(pos);
-	pos += 4;
+	crc = de_getui32le_p(&pos);
 	de_dbg(c, "ext attr crc: 0x%08x", (unsigned int)crc);
 
 	de_dbg(c, "cmpr ext attr data at %d, len=%d", (int)pos, (int)(endpos-pos));
@@ -407,11 +399,10 @@ static void ef_infozipmac(deark *c, lctx *d, struct extra_item_info_struct *eii)
 
 	if(eii->dlen<14) goto done;
 
-	ulen = de_getui32le(pos);
+	ulen = de_getui32le_p(&pos);
 	de_dbg(c, "uncmpr. finder attr. size: %d", (int)ulen);
-	pos += 4;
 
-	flags = (unsigned int)de_getui16le(pos);
+	flags = (unsigned int)de_getui16le_p(&pos);
 	flags_str = ucstring_create(c);
 	if(flags&0x0001) ucstring_append_flags_item(flags_str, "data_fork");
 	if(flags&0x0002) ucstring_append_flags_item(flags_str, "0x0002"); // something about the filename
@@ -420,7 +411,6 @@ static void ef_infozipmac(deark *c, lctx *d, struct extra_item_info_struct *eii)
 	if(flags&0x0008) ucstring_append_flags_item(flags_str, "64-bit_times");
 	if(flags&0x0010) ucstring_append_flags_item(flags_str, "no_timezone_offsets");
 	de_dbg(c, "flags: 0x%04x (%s)", flags, ucstring_getpsz(flags_str));
-	pos += 2;
 
 	dbuf_read_fourcc(c->infile, pos, &filetype, 4, 0x0);
 	de_dbg(c, "filetype: '%s'", filetype.id_dbgstr);
@@ -436,13 +426,11 @@ static void ef_infozipmac(deark *c, lctx *d, struct extra_item_info_struct *eii)
 		crc_reported = 0;
 	}
 	else {
-		cmprtype = (unsigned int)de_getui16le(pos);
+		cmprtype = (unsigned int)de_getui16le_p(&pos);
 		de_dbg(c, "finder attr. cmpr. method: %d", (int)cmprtype);
-		pos += 2;
 
-		crc_reported = (unsigned int)de_getui32le(pos);
+		crc_reported = (unsigned int)de_getui32le_p(&pos);
 		de_dbg(c, "finder attr. data crc (reported): 0x%08x", crc_reported);
-		pos += 4;
 	}
 
 	// The rest of the data is Finder attribute data
@@ -474,9 +462,9 @@ static void ef_infozipmac(deark *c, lctx *d, struct extra_item_info_struct *eii)
 	if(flags&0x0010) goto done; // We want timezone offsets
 	if(attr_data->len - dpos < 6*4) goto done;
 
-	create_time_raw = dbuf_getui32le(attr_data, dpos); dpos += 4;
-	mod_time_raw    = dbuf_getui32le(attr_data, dpos); dpos += 4;
-	backup_time_raw = dbuf_getui32le(attr_data, dpos); dpos += 4;
+	create_time_raw = dbuf_getui32le_p(attr_data, &dpos);
+	mod_time_raw    = dbuf_getui32le_p(attr_data, &dpos);
+	backup_time_raw = dbuf_getui32le_p(attr_data, &dpos);
 	create_time_offset = dbuf_geti32le(attr_data, dpos); dpos += 4;
 	mod_time_offset    = dbuf_geti32le(attr_data, dpos); dpos += 4;
 	backup_time_offset = dbuf_geti32le(attr_data, dpos); dpos += 4;
@@ -490,8 +478,7 @@ static void ef_infozipmac(deark *c, lctx *d, struct extra_item_info_struct *eii)
 	// strings that follow.
 	if(attr_data->len - dpos < 4) goto done;
 
-	charset = (int)dbuf_getui16le(attr_data, dpos);
-	dpos += 2;
+	charset = (int)dbuf_getui16le_p(attr_data, &dpos);
 	de_dbg(c, "charset for fullpath/comment: %d", (int)charset);
 
 	// TODO: Can we use the correct encoding?
@@ -778,8 +765,7 @@ static int do_file_header(deark *c, lctx *d, struct member_data *md,
 	}
 	de_dbg_indent(c, 1);
 
-	sig = de_getui32le(pos);
-	pos += 4;
+	sig = de_getui32le_p(&pos);
 	if(is_central && sig!=0x02014b50) {
 		de_err(c, "Invalid central file header at %d", (int)pos1);
 		goto done;
@@ -791,8 +777,7 @@ static int do_file_header(deark *c, lctx *d, struct member_data *md,
 
 	if(is_central) {
 		const char *pltf_name;
-		md->ver_made_by = de_getui16le(pos);
-		pos += 2;
+		md->ver_made_by = de_getui16le_p(&pos);
 		md->ver_made_by_hi = (unsigned int)((md->ver_made_by&0xff00)>>8);
 		md->ver_made_by_lo = (unsigned int)(md->ver_made_by&0x00ff);
 		pltf_name = get_platform_name(md->ver_made_by_hi);
@@ -801,49 +786,38 @@ static int do_file_header(deark *c, lctx *d, struct member_data *md,
 			(unsigned int)(md->ver_made_by_lo/10), (unsigned int)(md->ver_made_by_lo%10));
 	}
 
-	dd->ver_needed = (unsigned int)de_getui16le(pos);
-	pos += 2;
+	dd->ver_needed = (unsigned int)de_getui16le_p(&pos);
 	de_dbg(c, "version needed to extract: %u.%u",
 		(unsigned int)(dd->ver_needed/10), (unsigned int)(dd->ver_needed%10));
 
-	dd->bit_flags = (unsigned int)de_getui16le(pos);
-	pos += 2;
+	dd->bit_flags = (unsigned int)de_getui16le_p(&pos);
 	de_dbg(c, "flags: 0x%04x", dd->bit_flags);
 
 	utf8_flag = (dd->bit_flags & 0x800)?1:0;
 
-	dd->cmpr_method = (int)de_getui16le(pos);
-	pos += 2;
+	dd->cmpr_method = (int)de_getui16le_p(&pos);
 	de_dbg(c, "cmpr method: %d (%s)", dd->cmpr_method,
 		get_cmpr_meth_name(dd->cmpr_method));
 
-	mod_time_raw = de_getui16le(pos);
-	pos += 2;
-	mod_date_raw = de_getui16le(pos);
-	pos += 2;
+	mod_time_raw = de_getui16le_p(&pos);
+	mod_date_raw = de_getui16le_p(&pos);
 	de_dos_datetime_to_timestamp(&dd->mod_time, mod_date_raw, mod_time_raw, 0);
 	de_timestamp_to_string(&dd->mod_time, timestamp_buf, sizeof(timestamp_buf), 0);
 	de_dbg(c, "mod time: %s", timestamp_buf);
 
-	dd->crc_reported = (de_uint32)de_getui32le(pos);
-	pos += 4;
+	dd->crc_reported = (de_uint32)de_getui32le_p(&pos);
 	de_dbg(c, "crc (reported): 0x%08x", (unsigned int)dd->crc_reported);
 
-	dd->cmpr_size = de_getui32le(pos);
-	pos += 4;
-	dd->uncmpr_size = de_getui32le(pos);
-	pos += 4;
+	dd->cmpr_size = de_getui32le_p(&pos);
+	dd->uncmpr_size = de_getui32le_p(&pos);
 	de_dbg(c, "cmpr size: %" INT64_FMT ", uncmpr size: %" INT64_FMT "", dd->cmpr_size, dd->uncmpr_size);
 
-	fn_len = de_getui16le(pos);
-	pos += 2;
+	fn_len = de_getui16le_p(&pos);
 
-	extra_len = de_getui16le(pos);
-	pos += 2;
+	extra_len = de_getui16le_p(&pos);
 
 	if(is_central) {
-		comment_len = de_getui16le(pos);
-		pos += 2;
+		comment_len = de_getui16le_p(&pos);
 	}
 	else {
 		comment_len = 0;
@@ -854,19 +828,15 @@ static int do_file_header(deark *c, lctx *d, struct member_data *md,
 	}
 
 	if(is_central) {
-		md->disk_number_start = de_getui16le(pos);
-		pos += 2;
+		md->disk_number_start = de_getui16le_p(&pos);
 
-		md->attr_i = (unsigned int)de_getui16le(pos);
-		pos += 2;
-		md->attr_e = (unsigned int)de_getui32le(pos);
-		pos += 4;
+		md->attr_i = (unsigned int)de_getui16le_p(&pos);
+		md->attr_e = (unsigned int)de_getui32le_p(&pos);
 		de_dbg(c, "file attributes: internal=0x%04x, external=0x%08x",
 			md->attr_i, md->attr_e);
 		process_ext_attr(c, d, md);
 
-		md->offset_of_local_header = de_getui32le(pos);
-		pos += 4;
+		md->offset_of_local_header = de_getui32le_p(&pos);
 		de_dbg(c, "offset of local header: %d, disk: %d", (int)md->offset_of_local_header,
 			(int)md->disk_number_start);
 	}
