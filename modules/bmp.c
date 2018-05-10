@@ -754,9 +754,23 @@ static void de_run_bmp(deark *c, de_module_params *mparams)
 	}
 
 	switch(d->version) {
-	case DE_BMPVER_OS2V1: de_declare_fmt(c, "BMP, OS/2 v1 or Windows v2"); break;
+	case DE_BMPVER_OS2V1:
+		if(d->fsize==26) {
+			de_declare_fmt(c, "BMP, OS/2 v1");
+		}
+		else {
+			de_declare_fmt(c, "BMP, OS/2 v1 or Windows v2");
+		}
+		break;
 	case DE_BMPVER_OS2V2: de_declare_fmt(c, "BMP, OS/2 v2"); break;
-	case DE_BMPVER_WINV345: de_declare_fmt(c, "BMP, Windows v3+"); break;
+	case DE_BMPVER_WINV345:
+		switch(d->infohdrsize) {
+		case 40: de_declare_fmt(c, "BMP, Windows v3"); break;
+		case 108: de_declare_fmt(c, "BMP, Windows v4"); break;
+		case 124: de_declare_fmt(c, "BMP, Windows v5"); break;
+		default: de_declare_fmt(c, "BMP, Windows v3+");
+		}
+		break;
 	}
 
 	pos = 0;
