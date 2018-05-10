@@ -742,7 +742,7 @@ static int do_file_header(deark *c, lctx *d, struct member_data *md,
 	int is_central, de_int64 pos1, de_int64 *p_entry_size)
 {
 	de_int64 pos;
-	de_int64 sig;
+	de_uint32 sig;
 	de_int64 fn_len, extra_len, comment_len;
 	int utf8_flag;
 	int retval = 0;
@@ -765,13 +765,13 @@ static int do_file_header(deark *c, lctx *d, struct member_data *md,
 	}
 	de_dbg_indent(c, 1);
 
-	sig = de_getui32le_p(&pos);
-	if(is_central && sig!=0x02014b50) {
-		de_err(c, "Invalid central file header at %d", (int)pos1);
+	sig = (de_uint32)de_getui32le_p(&pos);
+	if(is_central && sig!=0x02014b50U) {
+		de_err(c, "Central dir file header not found at %d", (int)pos1);
 		goto done;
 	}
-	else if(!is_central && sig!=0x04034b50) {
-		de_err(c, "Invalid local file header at %d", (int)pos1);
+	else if(!is_central && sig!=0x04034b50U) {
+		de_err(c, "Local file header not found at %d", (int)pos1);
 		goto done;
 	}
 
@@ -876,7 +876,9 @@ static int do_central_dir_entry(deark *c, lctx *d,
 	struct member_data *md = NULL;
 	de_int64 tmp_entry_size;
 	int retval = 0;
+	int saved_indent_level;
 
+	de_dbg_indent_save(c, &saved_indent_level);
 	md = de_malloc(c, sizeof(struct member_data));
 	*entry_size = 0;
 
@@ -887,17 +889,23 @@ static int do_central_dir_entry(deark *c, lctx *d,
 	de_dbg(c, "central dir entry #%d", (int)central_index);
 	de_dbg_indent(c, 1);
 
+	// Read the central dir file header
 	if(!do_file_header(c, d, md, 1, pos, entry_size)) {
 		goto done;
 	}
+
+	// If we were able to read the central dir file header, we might be able
+	// to continue and read more files, even if the local file header fails.
+	retval = 1;
+
+	// Read the local file header
 	if(!do_file_header(c, d, md, 0, md->offset_of_local_header, &tmp_entry_size)) {
 		goto done;
 	}
+
 	do_extract_file(c, d, md);
-	retval = 1;
 
 done:
-	de_dbg_indent(c, -1);
 	if(md) {
 		if(md->central_dir_entry_data.fname)
 			ucstring_destroy(md->central_dir_entry_data.fname);
@@ -905,6 +913,7 @@ done:
 			ucstring_destroy(md->local_dir_entry_data.fname);
 		de_free(c, md);
 	}
+	de_dbg_indent_restore(c, saved_indent_level);
 	return retval;
 }
 
@@ -940,6 +949,7 @@ static int do_end_of_central_dir(deark *c, lctx *d)
 	de_int64 num_entries_this_disk;
 	de_int64 disk_num_with_central_dir_start;
 	de_int64 comment_length;
+	de_int64 alt_central_dir_offset;
 	int retval = 0;
 
 	pos = d->end_of_central_dir_pos;
@@ -950,12 +960,13 @@ static int do_end_of_central_dir(deark *c, lctx *d)
 	de_dbg(c, "this disk num: %d", (int)this_disk_num);
 	disk_num_with_central_dir_start = de_getui16le(pos+6);
 	de_dbg(c, "disk with central dir start: %d", (int)disk_num_with_central_dir_start);
+
 	num_entries_this_disk = de_getui16le(pos+8);
+	de_dbg(c, "num entries on this disk: %d", (int)num_entries_this_disk);
 
 	d->central_dir_num_entries = de_getui16le(pos+10);
 	d->central_dir_byte_size  = de_getui32le(pos+12);
 	d->central_dir_offset = de_getui32le(pos+16);
-
 	de_dbg(c, "central dir: num_entries=%d, offset=%d, size=%d",
 		(int)d->central_dir_num_entries,
 		(int)d->central_dir_offset,
@@ -978,6 +989,22 @@ static int do_end_of_central_dir(deark *c, lctx *d)
 		goto done;
 	}
 
+	alt_central_dir_offset = d->end_of_central_dir_pos - d->central_dir_byte_size;
+
+	if(alt_central_dir_offset != d->central_dir_offset) {
+		de_uint32 sig;
+
+		de_warn(c, "Inconsistent central directory offset. Reported to be %"INT64_FMT", "
+			"but based on its reported size, it should be %"INT64_FMT".",
+			d->central_dir_offset, alt_central_dir_offset);
+
+		sig = (de_uint32)de_getui32le(alt_central_dir_offset);
+		if(sig==0x02014b50U) {
+			de_dbg(c, "Assuming central dir actually starts at %"INT64_FMT, alt_central_dir_offset);
+			d->central_dir_offset = alt_central_dir_offset;
+		}
+	}
+
 	retval = 1;
 
 done:
@@ -987,7 +1014,7 @@ done:
 
 static int find_end_of_central_dir(deark *c, lctx *d)
 {
-	de_int64 x;
+	de_uint32 sig;
 	de_byte *buf = NULL;
 	int retval = 0;
 	de_int64 buf_offset;
@@ -997,8 +1024,8 @@ static int find_end_of_central_dir(deark *c, lctx *d)
 	if(c->infile->len < 22) goto done;
 
 	// End-of-central-dir record usually starts 22 bytes from EOF. Try that first.
-	x = de_getui32le(c->infile->len - 22);
-	if(x == 0x06054b50) {
+	sig = (de_uint32)de_getui32le(c->infile->len - 22);
+	if(sig == 0x06054b50U) {
 		d->end_of_central_dir_pos = c->infile->len - 22;
 		retval = 1;
 		goto done;
