@@ -362,13 +362,14 @@ static const struct ele_id_info *find_ele_id_info(de_int64 ele_id)
 
 // This is a variable size integer, but it's different from the one named
 // "Variable Size Integer".
-static void decode_int(deark *c, lctx *d, const struct ele_id_info *ele_id,
+static void decode_uint(deark *c, lctx *d, const struct ele_id_info *ele_id,
 	  de_int64 pos, de_int64 len1)
 {
 	unsigned int k;
 	unsigned int len;
-	de_uint64 v;
+	de_uint64 v = 0;
 
+	if(len1==0) goto done;
 	if(len1<1 || len1>8) return;
 	len = (unsigned int)len1;
 
@@ -379,7 +380,8 @@ static void decode_int(deark *c, lctx *d, const struct ele_id_info *ele_id,
 		v |= x<<((len-1-k)*8);
 	}
 
-	de_dbg(c, "value: %"INT64_FMT, (de_int64)v);
+done:
+	de_dbg(c, "value: %"UINT64_FMT, v);
 }
 
 static void decode_float(deark *c, lctx *d, const struct ele_id_info *ele_id,
@@ -577,7 +579,7 @@ static int do_element(deark *c, lctx *d, de_int64 pos1,
 			do_element_sequence(c, d, pos, ele_dlen);
 			break;
 		case TY_u:
-			decode_int(c, d, einfo, pos, ele_dlen);
+			decode_uint(c, d, einfo, pos, ele_dlen);
 			break;
 		case TY_f:
 			decode_float(c, d, einfo, pos, ele_dlen);
