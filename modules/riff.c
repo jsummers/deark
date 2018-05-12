@@ -17,8 +17,10 @@ DE_DECLARE_MODULE(de_module_riff);
 #define CODE_RMID  0x524d4944U
 #define CODE_WAVE  0x57415645U
 #define CODE_WEBP  0x57454250U
+#define CODE_auds  0x61756473U
 #define CODE_cmpr  0x636d7072U
 #define CODE_movi  0x6d6f7669U
+#define CODE_vids  0x76696473U
 
 #define CHUNK_DISP 0x44495350U
 #define CHUNK_EXIF 0x45584946U
@@ -44,12 +46,13 @@ DE_DECLARE_MODULE(de_module_riff);
 
 typedef struct localctx_struct {
 	int is_cdr;
+	de_uint32 curr_avi_stream_type;
 } lctx;
 
 static void do_extract_raw(deark *c, lctx *d, struct de_iffctx *ictx, de_int64 pos, de_int64 len, const char *ext,
 	unsigned int createflags)
 {
-	dbuf_create_file_from_slice(c->infile, pos, len, ext, NULL, createflags);
+	dbuf_create_file_from_slice(ictx->f, pos, len, ext, NULL, createflags);
 }
 
 static void do_INFO_item(deark *c, lctx *d, struct de_iffctx *ictx, de_int64 pos, de_int64 len, de_uint32 chunk_id)
@@ -61,7 +64,7 @@ static void do_INFO_item(deark *c, lctx *d, struct de_iffctx *ictx, de_int64 pos
 	// TODO: Decode the chunk_id (e.g. ICRD = Creation date).
 
 	// TODO: Support the CSET chunk
-	dbuf_read_to_ucstring_n(c->infile, pos, len, DE_DBG_MAX_STRLEN, s,
+	dbuf_read_to_ucstring_n(ictx->f, pos, len, DE_DBG_MAX_STRLEN, s,
 		DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_LATIN1);
 	de_dbg(c, "value: \"%s\"", ucstring_getpsz(s));
 
@@ -92,35 +95,57 @@ static void extract_ani_frame(deark *c, lctx *d, struct de_iffctx *ictx, de_int6
 	// set. Can we patch that up? Maybe we should even convert ICO files to CUR
 	// files, so that we can give them a hotspot.
 
-	dbuf_create_file_from_slice(c->infile, pos, len, ext, NULL, 0);
+	dbuf_create_file_from_slice(ictx->f, pos, len, ext, NULL, 0);
+}
+
+static const char *get_wav_fmt_name(unsigned int n)
+{
+	const char *name = NULL;
+	switch(n) {
+	case 0x0001: name="PCM"; break;
+	case 0x0002: name="ADPCM"; break;
+	case 0x0050: name="MPEG"; break;
+	case 0x0055: name="MPEGLAYER3"; break;
+	case 0xFFFE: name="EXTENSIBLE"; break;
+		// TODO: There are lots more formats.
+	}
+
+	return name?name:"?";
+}
+
+static void decode_WAVEFORMATEX(deark *c, lctx *d, struct de_iffctx *ictx, de_int64 pos1, de_int64 len)
+{
+	unsigned int formattag;
+	de_int64 n;
+	de_int64 pos = pos1;
+
+	if(!ictx->is_le) goto done;
+	if(len<14) goto done;
+
+	formattag = (unsigned int)dbuf_getui16le_p(ictx->f, &pos);
+	de_dbg(c, "FormatTag: 0x%04x (%s)", formattag, get_wav_fmt_name(formattag));
+	n = dbuf_getui16le_p(ictx->f, &pos);
+	de_dbg(c, "Channels: %u", (unsigned int)n);
+	n = dbuf_getui32le_p(ictx->f, &pos);
+	de_dbg(c, "SamplesPerSec: %u", (unsigned int)n);
+	n = dbuf_getui32le_p(ictx->f, &pos);
+	de_dbg(c, "AvgBytesPerSec: %u", (unsigned int)n);
+	n = dbuf_getui16le_p(ictx->f, &pos);
+	de_dbg(c, "BlockAlign: %u", (unsigned int)n);
+	if(len<16) goto done;
+	n = dbuf_getui16le_p(ictx->f, &pos);
+	de_dbg(c, "BitsPerSample: %u", (unsigned int)n);
+	if(len<18) goto done;
+	n = dbuf_getui16le_p(ictx->f, &pos);
+	de_dbg(c, "cbSize: %u", (unsigned int)n);
+
+done:
+	;
 }
 
 static void do_wav_fmt(deark *c, lctx *d, struct de_iffctx *ictx, de_int64 pos, de_int64 len)
 {
-	de_int64 n;
-
-	if(!ictx->is_le) return;
-	if(len<14) return;
-
-	n = de_getui16le(pos);
-	de_dbg(c, "FormatTag: 0x%04x", (unsigned int)n);
-	pos += 2;
-
-	n = de_getui16le(pos);
-	de_dbg(c, "Channels: %d", (int)n);
-	pos += 2;
-
-	n = de_getui32le(pos);
-	de_dbg(c, "SamplesPerSec: %d", (int)n);
-	pos += 4;
-
-	n = de_getui32le(pos);
-	de_dbg(c, "AvgBytesPerSec: %d", (int)n);
-	pos += 4;
-
-	n = de_getui16le(pos);
-	de_dbg(c, "BlockAlign: %d", (int)n);
-	pos += 2;
+	decode_WAVEFORMATEX(c, d, ictx, pos, len);
 }
 
 static void do_wav_fact(deark *c, lctx *d, struct de_iffctx *ictx, de_int64 pos, de_int64 len)
@@ -158,18 +183,30 @@ static void do_avi_strh(deark *c, lctx *d, struct de_iffctx *ictx, de_int64 pos,
 	struct de_fourcc codec4cc;
 
 	if(len<8) return;
+
 	dbuf_read_fourcc(ictx->f, pos, &type4cc, 4, 0x0);
 	de_dbg(c, "stream type: '%s'", type4cc.id_dbgstr);
+	// Hack. TODO: Need a better way to track state.
+	d->curr_avi_stream_type = type4cc.id;
+
 	dbuf_read_fourcc(ictx->f, pos+4, &codec4cc, 4, 0x0);
 	de_dbg(c, "codec: '%s'", codec4cc.id_dbgstr);
+
 	// TODO: There are more fields here.
 }
 
 static void do_avi_strf(deark *c, lctx *d, struct de_iffctx *ictx, de_int64 pos, de_int64 len)
 {
-	struct de_bmpinfo bi;
-	de_fmtutil_get_bmpinfo(c, c->infile, &bi, pos, len, DE_BMPINFO_CMPR_IS_4CC);
-	// This chunk contains only the BITMAPINFOHEADER, so we can't extract a bitmap.
+	if(d->curr_avi_stream_type==CODE_vids) {
+		struct de_bmpinfo bi;
+		// For video streams, this is a BITMAPINFO.
+		de_fmtutil_get_bmpinfo(c, ictx->f, &bi, pos, len, DE_BMPINFO_CMPR_IS_4CC);
+		// This chunk contains just a bitmap header, so we can't extract a bitmap.
+	}
+	else if(d->curr_avi_stream_type==CODE_auds) {
+		// For audio streams, this is a WAVEFORMATEX.
+		decode_WAVEFORMATEX(c, d, ictx, pos, len);
+	}
 }
 
 static void do_palette(deark *c, lctx *d, struct de_iffctx *ictx, de_int64 pos, de_int64 len)
@@ -211,7 +248,7 @@ static void do_DISP_DIB(deark *c, lctx *d, struct de_iffctx *ictx, de_int64 pos,
 {
 	if(len<12) return;
 	// "X" = Tell the dib module to mark the output file as "auxiliary".
-	de_run_module_by_id_on_slice2(c, "dib", "X", c->infile, pos, len);
+	de_run_module_by_id_on_slice2(c, "dib", "X", ictx->f, pos, len);
 }
 
 static void do_DISP_TEXT(deark *c, lctx *d, struct de_iffctx *ictx, de_int64 pos, de_int64 len1)
@@ -220,7 +257,7 @@ static void do_DISP_TEXT(deark *c, lctx *d, struct de_iffctx *ictx, de_int64 pos
 	de_int64 len = len1;
 
 	// Stop at NUL
-	if(dbuf_search_byte(c->infile, 0x00, pos, len1, &foundpos)) {
+	if(dbuf_search_byte(ictx->f, 0x00, pos, len1, &foundpos)) {
 		len = foundpos - pos;
 	}
 	de_dbg(c, "text length: %d", (int)len);
@@ -231,7 +268,7 @@ static void do_DISP_TEXT(deark *c, lctx *d, struct de_iffctx *ictx, de_int64 pos
 
 static void do_ICCP(deark *c, lctx *d, struct de_iffctx *ictx, de_int64 pos, de_int64 len)
 {
-	dbuf_create_file_from_slice(c->infile, pos, len, "icc", NULL, DE_CREATEFLAG_IS_AUX);
+	dbuf_create_file_from_slice(ictx->f, pos, len, "icc", NULL, DE_CREATEFLAG_IS_AUX);
 }
 
 static void do_EXIF(deark *c, lctx *d, struct de_iffctx *ictx, de_int64 pos, de_int64 len)
@@ -241,7 +278,7 @@ static void do_EXIF(deark *c, lctx *d, struct de_iffctx *ictx, de_int64 pos, de_
 
 static void do_XMP(deark *c, lctx *d, struct de_iffctx *ictx, de_int64 pos, de_int64 len)
 {
-	dbuf_create_file_from_slice(c->infile, pos, len, "xmp", NULL, DE_CREATEFLAG_IS_AUX);
+	dbuf_create_file_from_slice(ictx->f, pos, len, "xmp", NULL, DE_CREATEFLAG_IS_AUX);
 }
 
 static const char *get_cb_data_type_name(de_int64 ty)
@@ -487,7 +524,7 @@ static void de_run_riff(deark *c, de_module_params *mparams)
 		ictx->reversed_4cc = 0;
 	}
 
-	de_fmtutil_read_iff_format(c, ictx, 0, c->infile->len);
+	de_fmtutil_read_iff_format(c, ictx, 0, ictx->f->len);
 
 	de_free(c, ictx);
 	de_free(c, d);
