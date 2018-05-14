@@ -1223,6 +1223,7 @@ static void do_lx_or_le_rsrc_tbl(deark *c, lctx *d)
 static void de_run_exe(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
+	de_int64 eocdpos = 0;
 
 	d = de_malloc(c, sizeof(lctx));
 
@@ -1238,6 +1239,9 @@ static void de_run_exe(deark *c, de_module_params *mparams)
 		do_lx_or_le_rsrc_tbl(c, d);
 	}
 
+	if(de_fmtutil_find_zip_eocd(c, c->infile, &eocdpos)) {
+		de_msg(c, "Note: This might be a self-extracting ZIP file (try \"-m zip\").");
+	}
 	de_free(c, d);
 }
 

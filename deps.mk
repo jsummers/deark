@@ -197,7 +197,7 @@ obj/modules/xface.o: modules/xface.c src/deark-config.h \
 obj/modules/xfer.o: modules/xfer.c src/deark-config.h src/deark-private.h \
  src/deark.h
 obj/modules/zip.o: modules/zip.c src/deark-config.h src/deark-private.h \
- src/deark.h
+ src/deark.h src/deark-fmtutil.h
 obj/modules/zoo.o: modules/zoo.c src/deark-config.h src/deark-private.h \
  src/deark.h modules/../foreign/unzoo.h modules/../foreign/zoo-lzd.h
 obj/src/deark-bitmap.o: src/deark-bitmap.c src/deark-config.h \

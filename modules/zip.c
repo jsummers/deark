@@ -6,6 +6,7 @@
 
 #include <deark-config.h>
 #include <deark-private.h>
+#include <deark-fmtutil.h>
 DE_DECLARE_MODULE(de_module_zip);
 
 struct dir_entry_data {
@@ -1012,50 +1013,6 @@ done:
 	return retval;
 }
 
-static int find_end_of_central_dir(deark *c, lctx *d)
-{
-	de_uint32 sig;
-	de_byte *buf = NULL;
-	int retval = 0;
-	de_int64 buf_offset;
-	de_int64 buf_size;
-	de_int64 i;
-
-	if(c->infile->len < 22) goto done;
-
-	// End-of-central-dir record usually starts 22 bytes from EOF. Try that first.
-	sig = (de_uint32)de_getui32le(c->infile->len - 22);
-	if(sig == 0x06054b50U) {
-		d->end_of_central_dir_pos = c->infile->len - 22;
-		retval = 1;
-		goto done;
-	}
-
-	// Search for the signature.
-	// The end-of-central-directory record could theoretically appear anywhere
-	// in the file. We'll follow Info-Zip/UnZip's lead and search the last 66000
-	// bytes.
-#define MAX_EOCD_SEARCH 66000
-	buf_size = c->infile->len;
-	if(buf_size > MAX_EOCD_SEARCH) buf_size = MAX_EOCD_SEARCH;
-
-	buf = de_malloc(c, buf_size);
-	buf_offset = c->infile->len - buf_size;
-	de_read(buf, buf_offset, buf_size);
-
-	for(i=buf_size-22; i>=0; i--) {
-		if(buf[i]=='P' && buf[i+1]=='K' && buf[i+2]==5 && buf[i+3]==6) {
-			d->end_of_central_dir_pos = buf_offset + i;
-			retval = 1;
-			goto done;
-		}
-	}
-
-done:
-	de_free(c, buf);
-	return retval;
-}
-
 static void de_run_zip(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
@@ -1064,7 +1021,7 @@ static void de_run_zip(deark *c, de_module_params *mparams)
 
 	de_declare_fmt(c, "ZIP");
 
-	if(!find_end_of_central_dir(c, d)) {
+	if(!de_fmtutil_find_zip_eocd(c, c->infile, &d->end_of_central_dir_pos)) {
 		de_err(c, "Not a ZIP file");
 		goto done;
 	}
@@ -1086,18 +1043,21 @@ done:
 static int de_identify_zip(deark *c)
 {
 	de_byte b[4];
+	int has_zip_ext;
+
+	has_zip_ext = de_input_file_has_ext(c, "zip");
 
 	// This will not detect every ZIP file, but there is no cheap way to do that.
 
 	de_read(b, 0, 4);
 	if(!de_memcmp(b, "PK\x03\x04", 4)) {
-		return 90;
+		return has_zip_ext ? 100 : 90;
 	}
 
 	if(c->infile->len >= 22) {
 		de_read(b, c->infile->len - 22, 4);
 		if(!de_memcmp(b, "PK\x05\x06", 4)) {
-			return 90;
+			return has_zip_ext ? 100 : 19;
 		}
 	}
 

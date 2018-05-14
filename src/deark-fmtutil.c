@@ -1512,3 +1512,50 @@ const char *de_fmtutil_tiff_orientation_name(de_int64 n)
 	if(n>=1 && n<=8) return names[n];
 	return names[0];
 }
+
+// Search for the ZIP "end of central directory" object.
+// Also useful for detecting hybrid ZIP files, such as self-extracting EXE.
+int de_fmtutil_find_zip_eocd(deark *c, dbuf *f, de_int64 *foundpos)
+{
+	de_uint32 sig;
+	de_byte *buf = NULL;
+	int retval = 0;
+	de_int64 buf_offset;
+	de_int64 buf_size;
+	de_int64 i;
+
+	*foundpos = 0;
+	if(f->len < 22) goto done;
+
+	// End-of-central-dir record usually starts 22 bytes from EOF. Try that first.
+	sig = (de_uint32)dbuf_getui32le(f, f->len - 22);
+	if(sig == 0x06054b50U) {
+		*foundpos = f->len - 22;
+		retval = 1;
+		goto done;
+	}
+
+	// Search for the signature.
+	// The end-of-central-directory record could theoretically appear anywhere
+	// in the file. We'll follow Info-Zip/UnZip's lead and search the last 66000
+	// bytes.
+#define MAX_ZIP_EOCD_SEARCH 66000
+	buf_size = f->len;
+	if(buf_size > MAX_ZIP_EOCD_SEARCH) buf_size = MAX_ZIP_EOCD_SEARCH;
+
+	buf = de_malloc(c, buf_size);
+	buf_offset = f->len - buf_size;
+	dbuf_read(f, buf, buf_offset, buf_size);
+
+	for(i=buf_size-22; i>=0; i--) {
+		if(buf[i]=='P' && buf[i+1]=='K' && buf[i+2]==5 && buf[i+3]==6) {
+			*foundpos = buf_offset + i;
+			retval = 1;
+			goto done;
+		}
+	}
+
+done:
+	de_free(c, buf);
+	return retval;
+}
