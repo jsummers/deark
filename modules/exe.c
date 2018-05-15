@@ -1114,8 +1114,12 @@ static const char *identify_lx_rsrc(deark *c, lctx *d, de_int64 pos, de_int64 le
 	if(!de_memcmp(buf, "BM", 2)) {
 		return is_ba ? "ba.bmp" : "bmp";
 	}
-	if(!de_memcmp(buf, "CI", 2) || !de_memcmp(buf, "IC", 2)) return "os2.ico";
-	if(!de_memcmp(buf, "CP", 2) || !de_memcmp(buf, "PT", 2)) return "ptr";
+	if(!de_memcmp(buf, "CI", 2) || !de_memcmp(buf, "IC", 2)) {
+		return is_ba ? "ba.os2.ico" : "os2.ico";
+	}
+	if(!de_memcmp(buf, "CP", 2) || !de_memcmp(buf, "PT", 2)) {
+		return is_ba ? "ba.ptr" : "ptr";
+	}
 	return NULL;
 }
 
