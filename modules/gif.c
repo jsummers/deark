@@ -350,7 +350,6 @@ static void do_read_color_table(deark *c, lctx *d, de_int64 pos, de_int64 ncolor
 
 static int do_read_global_color_table(deark *c, lctx *d, de_int64 pos, de_int64 *bytesused)
 {
-
 	if(!d->has_global_color_table) return 1;
 	de_dbg(c, "global color table at %d", (int)pos);
 
@@ -469,6 +468,26 @@ static void do_comment_extension(deark *c, lctx *d, de_int64 pos)
 	dbuf_close(f);
 }
 
+static void decode_text_color(deark *c, lctx *d, const char *name, de_byte clr_idx)
+{
+	de_uint32 clr;
+	const char *alphastr;
+	char csamp[32];
+
+	clr = d->global_ct[(unsigned int)clr_idx];
+	if(d->gce && d->gce->trns_color_idx_valid && d->gce->trns_color_idx==clr_idx) {
+		alphastr = ",A=0";
+	}
+	else {
+		alphastr = "";
+	}
+	de_get_colorsample_code(c, clr, csamp, sizeof(csamp));
+	de_dbg(c, "%s color: idx=%3u (%3u,%3u,%3u%s)%s", name,
+		(unsigned int)clr_idx, (unsigned int)DE_COLOR_R(clr),
+		(unsigned int)DE_COLOR_G(clr), (unsigned int)DE_COLOR_B(clr),
+		alphastr, csamp);
+}
+
 static void do_plaintext_extension(deark *c, lctx *d, de_int64 pos)
 {
 	dbuf *f = NULL;
@@ -479,6 +498,7 @@ static void do_plaintext_extension(deark *c, lctx *d, de_int64 pos)
 	de_int64 char_width;
 	de_int64 char_count;
 	de_int64 k;
+	de_byte fgclr_idx, bgclr_idx;
 	de_byte b;
 
 	// The first sub-block is the header
@@ -502,6 +522,11 @@ static void do_plaintext_extension(deark *c, lctx *d, de_int64 pos)
 		text_width_in_chars = 80;
 	}
 	de_dbg(c, "calculated chars/line: %d", (int)text_width_in_chars);
+
+	fgclr_idx = de_getbyte(pos+10);
+	decode_text_color(c, d, "fg", fgclr_idx);
+	bgclr_idx = de_getbyte(pos+11);
+	decode_text_color(c, d, "bg", bgclr_idx);
 
 	pos += n;
 
