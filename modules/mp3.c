@@ -1374,6 +1374,67 @@ static const char *get_mp3_channel_mode_name(unsigned int n)
 	return name;
 }
 
+// Returns a copy of the buf ptr
+static char *get_bitrate_name(char *buf, size_t buflen,
+	unsigned int bitrate_idx, unsigned int version_id, unsigned int layer_desc)
+{
+	static const de_uint16 tbl[5][16] = {
+		{0, 32, 64, 96, 128, 160, 192, 224, 256, 288, 320, 352, 384, 416, 448, 0},
+		{0, 32, 48, 56,  64,  80,  96, 112, 128, 160, 192, 224, 256, 320, 384, 0},
+		{0, 32, 40, 48,  56,  64,  80,  96, 112, 128, 160, 192, 224, 256, 320, 0},
+		{0, 32, 48, 56,  64,  80,  96, 112, 128, 144, 160, 176, 192, 224, 256, 0},
+		{0,  8, 16, 24,  32,  40,  48,  56,  64,  80,  96, 112, 128, 144, 160, 0}};
+	unsigned int tbl_to_use = 0;
+	unsigned int br;
+
+	if(version_id==0x03) {
+		if(layer_desc==0x03) tbl_to_use=0; // Layer 1
+		else if(layer_desc==0x02) tbl_to_use=1; // Layer 2
+		else if(layer_desc==0x01) tbl_to_use=2; // Layer 3
+	}
+	else if(version_id==0x02 || version_id==0x00) {
+		if(layer_desc==0x03) tbl_to_use=3; // Layer 1
+		else if(layer_desc==0x02 || layer_desc==0x01) tbl_to_use=4; // Layer 2,3
+	}
+
+	if(bitrate_idx>15) bitrate_idx=15;
+	br = (unsigned int)tbl[tbl_to_use][bitrate_idx];
+	if(br>0)
+		de_snprintf(buf, buflen, "%u kbps", br);
+	else
+		de_strlcpy(buf, "?", buflen);
+	return buf;
+}
+
+static char *get_sampling_rate_name(char *buf, size_t buflen,
+	unsigned int sr_idx, unsigned int version_id)
+{
+	static const de_uint32 tbl[3][4] = {
+		{44100, 48000, 32000, 0},
+		{22050, 24000, 16000, 0},
+		{11025, 12000,  8000, 0}};
+	unsigned int tbl_to_use = 0;
+	unsigned int sr;
+
+	if(version_id==0x03) { // v1
+		tbl_to_use = 0;
+	}
+	else if(version_id==0x02) { // v2
+		tbl_to_use = 1;
+	}
+	else if(version_id==0x00) { // v2.5
+		tbl_to_use = 2;
+	}
+
+	if(sr_idx>3) sr_idx=3;
+	sr = (unsigned int)tbl[tbl_to_use][sr_idx];
+	if(sr>0)
+		de_snprintf(buf, buflen, "%u Hz", sr);
+	else
+		de_strlcpy(buf, "?", buflen);
+	return buf;
+}
+
 static int find_mp3_frame_header(deark *c, mp3ctx *d, de_int64 pos1, de_int64 nbytes_avail,
 	de_int64 *skip_this_many_bytes)
 {
@@ -1407,6 +1468,7 @@ static void do_mp3_frame(deark *c, mp3ctx *d, de_int64 pos1, de_int64 len)
 	de_uint32 x;
 	de_int64 pos = pos1;
 	int saved_indent_level;
+	char buf[32];
 
 	de_dbg_indent_save(c, &saved_indent_level);
 	x = (de_uint32)de_getui32be(pos);
@@ -1434,9 +1496,11 @@ static void do_mp3_frame(deark *c, mp3ctx *d, de_int64 pos1, de_int64 len)
 	d->has_crc = (x&0x00010000U)>>16;
 	de_dbg(c, "has crc: %u", d->has_crc);
 	d->bitrate_idx =  (x&0x0000f000U)>>12;
-	de_dbg(c, "bitrate id: %u", d->bitrate_idx); // TODO: Decode this
+	de_dbg(c, "bitrate id: %u (%s)", d->bitrate_idx,
+		get_bitrate_name(buf, sizeof(buf), d->bitrate_idx, d->version_id, d->layer_desc));
 	d->samprate_idx = (x&0x00000c00U)>>10;
-	de_dbg(c, "sampling rate frequency id: %u", d->samprate_idx); // TODO: Decode this
+	de_dbg(c, "sampling rate frequency id: %u (%s)", d->samprate_idx,
+		get_sampling_rate_name(buf, sizeof(buf), d->samprate_idx, d->version_id));
 	d->has_padding =  (x&0x00000200U)>>9;
 	de_dbg(c, "has padding: %u", d->has_padding);
 	d->channel_mode = (x&0x000000c0U)>>6;
