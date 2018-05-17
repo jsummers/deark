@@ -53,6 +53,8 @@ typedef struct localctx_struct {
 	de_int64 central_dir_num_entries;
 	de_int64 central_dir_byte_size;
 	de_int64 central_dir_offset;
+	de_int64 offset_discrepancy;
+	int used_offset_discrepancy;
 } lctx;
 
 typedef void (*extrafield_decoder_fn)(deark *c, lctx *d,
@@ -864,6 +866,30 @@ static int do_file_header(deark *c, lctx *d, struct member_data *md,
 			"member file comment", "fcomment.txt");
 	}
 
+	if(is_central) {
+		if(d->used_offset_discrepancy) {
+			md->offset_of_local_header += d->offset_discrepancy;
+			de_dbg(c, "assuming local header is really at %d", (int)md->offset_of_local_header);
+		}
+		else if(d->offset_discrepancy!=0) {
+			de_uint32 sig1, sig2;
+			de_int64 alt_pos;
+
+			sig1 = (de_uint32)de_getui32le(md->offset_of_local_header);
+			if(sig1!=0x04034b50U) {
+				alt_pos = md->offset_of_local_header + d->offset_discrepancy;
+				sig2 = (de_uint32)de_getui32le(alt_pos);
+				if(sig2==0x04034b50U) {
+					de_warn(c, "Local file header found at %"INT64_FMT" instead of %"INT64_FMT". "
+						"Assuming offsets are wrong by %"INT64_FMT" bytes.",
+						alt_pos, md->offset_of_local_header, d->offset_discrepancy);
+					md->offset_of_local_header += d->offset_discrepancy;
+					d->used_offset_discrepancy = 1;
+				}
+			}
+		}
+	}
+
 	retval = 1;
 
 done:
@@ -1001,7 +1027,8 @@ static int do_end_of_central_dir(deark *c, lctx *d)
 
 		sig = (de_uint32)de_getui32le(alt_central_dir_offset);
 		if(sig==0x02014b50U) {
-			de_dbg(c, "Assuming central dir actually starts at %"INT64_FMT, alt_central_dir_offset);
+			d->offset_discrepancy = alt_central_dir_offset - d->central_dir_offset;
+			de_dbg(c, "likely central dir found at %"INT64_FMT, alt_central_dir_offset);
 			d->central_dir_offset = alt_central_dir_offset;
 		}
 	}
