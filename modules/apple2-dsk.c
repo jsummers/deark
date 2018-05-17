@@ -54,17 +54,59 @@ static void do_woz_INFO(deark *c, struct de_iffctx *ictx,
 	ucstring_destroy(s);
 }
 
+static void do_woz_print_metadata_item(deark *c, de_ucstring *name, de_ucstring *val)
+{
+	if(name->len==0 && val->len==0) return;
+	de_dbg(c, "item: \"%s\" = \"%s\"",
+		ucstring_getpsz_d(name),
+		ucstring_getpsz_d(val));
+}
+
 static void do_woz_META(deark *c, struct de_iffctx *ictx,
 	const struct de_iffchunkctx *chunkctx)
 {
+	de_int64 k;
+	int reading_val;
 	de_ucstring *s = NULL;
+	de_ucstring *name = NULL;
+	de_ucstring *val = NULL;
 
+	// Read the entire metadata string.
 	s = ucstring_create(c);
-	// TODO: Parse out the individual items?
 	dbuf_read_to_ucstring_n(ictx->f, chunkctx->dpos, chunkctx->dlen,
-		DE_DBG_MAX_STRLEN, s, 0, DE_ENCODING_UTF8);
-	de_dbg(c, "metadata string: \"%s\"", ucstring_getpsz(s));
+		65536, s, 0, DE_ENCODING_UTF8);
+
+	// Parse out the individual metadata items
+	name = ucstring_create(c);
+	val = ucstring_create(c);
+	reading_val = 0;
+
+	for(k=0; k<s->len; k++) {
+		de_int32 ch = s->str[k];
+
+		if(ch==0x0a) { // End of item
+			do_woz_print_metadata_item(c, name, val);
+			ucstring_empty(name);
+			ucstring_empty(val);
+			reading_val = 0;
+		}
+		else if(ch==0x09 && !reading_val) { // Name/value separator
+			reading_val = 1;
+		}
+		else { // A non-special character
+			if(reading_val) {
+				ucstring_append_char(val, ch);
+			}
+			else {
+				ucstring_append_char(name, ch);
+			}
+		}
+	}
+	do_woz_print_metadata_item(c, name, val);
+
 	ucstring_destroy(s);
+	ucstring_destroy(name);
+	ucstring_destroy(val);
 }
 
 static void my_identify_woz_chunk_fn(deark *c, struct de_iffctx *ictx)
