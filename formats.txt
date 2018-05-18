@@ -653,7 +653,7 @@ Deark -- Information about supported formats
   - Extract SHG/MRB graphics
   - Extract icon (rarely present)
 
-* MP3 audio (module="mp3")
+* MP3 / MPEG audio (module="mpegaudio" or "mp3")
   - Not all files can be autodetected.
   - Mainly for ID3 and APE metadata. The audio data is not converted.
 

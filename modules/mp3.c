@@ -2,11 +2,11 @@
 // Copyright (C) 2017 Jason Summers
 // See the file COPYING for terms of use.
 
-// MP3 audio
+// MP3 audio and friends
 
 #include <deark-config.h>
 #include <deark-private.h>
-DE_DECLARE_MODULE(de_module_mp3);
+DE_DECLARE_MODULE(de_module_mpegaudio);
 
 // **************************************************************************
 // ID3v2
@@ -1053,6 +1053,7 @@ typedef struct mp3ctx_struct {
 	unsigned int mode_extension;
 	unsigned int copyright_flag, orig_media_flag;
 	unsigned int emphasis;
+	int frame_count;
 } mp3ctx;
 
 static const char *get_id3v1_genre_name(de_byte g)
@@ -1387,12 +1388,12 @@ static char *get_bitrate_name(char *buf, size_t buflen,
 	unsigned int tbl_to_use = 0;
 	unsigned int br;
 
-	if(version_id==0x03) {
+	if(version_id==0x03) { // v1
 		if(layer_desc==0x03) tbl_to_use=0; // Layer 1
 		else if(layer_desc==0x02) tbl_to_use=1; // Layer 2
 		else if(layer_desc==0x01) tbl_to_use=2; // Layer 3
 	}
-	else if(version_id==0x02 || version_id==0x00) {
+	else if(version_id==0x02 || version_id==0x00) { // v2, v2.5
 		if(layer_desc==0x03) tbl_to_use=3; // Layer 1
 		else if(layer_desc==0x02 || layer_desc==0x01) tbl_to_use=4; // Layer 2,3
 	}
@@ -1475,16 +1476,17 @@ static void do_mp3_frame(deark *c, mp3ctx *d, de_int64 pos1, de_int64 len)
 	if((x & 0xffe00000U) != 0xffe00000U) {
 		int ret;
 		de_int64 num_bytes_to_skip = 0;
-		de_msg(c, "Note: MP3 frame header not found at %"INT64_FMT". Scanning for frame header.", pos);
+		de_msg(c, "Note: MP3/MPA frame header not found at %"INT64_FMT". Scanning for frame header.", pos);
 		ret = find_mp3_frame_header(c, d, pos1, len, &num_bytes_to_skip);
 		if(!ret) {
-			de_err(c, "MP3 frame header not found");
+			de_err(c, "MP3/MPA frame header not found");
 			goto done;
 		}
 		pos += num_bytes_to_skip;
 		de_msg(c, "Note: Possible MP3 frame header found at %"INT64_FMT".", pos);
 		x = (de_uint32)de_getui32be(pos);
 	}
+
 	de_dbg(c, "frame at %"INT64_FMT, pos);
 	de_dbg_indent(c, 1);
 	de_dbg(c, "frame header: 0x%08x", (unsigned int)x);
@@ -1493,6 +1495,17 @@ static void do_mp3_frame(deark *c, mp3ctx *d, de_int64 pos1, de_int64 len)
 	de_dbg(c, "audio version id: %u (%s)", d->version_id, get_mp3_ver_id_name(d->version_id));
 	d->layer_desc = (x&0x00060000U)>>17;
 	de_dbg(c, "layer description: %u (%s)", d->layer_desc, get_mp3_layer_desc_name(d->layer_desc));
+	if(d->frame_count==0) {
+		if(d->layer_desc==1) {
+			de_declare_fmt(c, "MP3");
+		}
+		else if(d->layer_desc==2) {
+			de_declare_fmt(c, "MP2 audio");
+		}
+		else if(d->layer_desc==3) {
+			de_declare_fmt(c, "MP1 audio");
+		}
+	}
 	d->has_crc = (x&0x00010000U)>>16;
 	de_dbg(c, "has crc: %u", d->has_crc);
 	d->bitrate_idx =  (x&0x0000f000U)>>12;
@@ -1516,6 +1529,7 @@ static void do_mp3_frame(deark *c, mp3ctx *d, de_int64 pos1, de_int64 len)
 	d->emphasis = (x&0x00000003U);
 	de_dbg(c, "emphasis: %u", d->emphasis);
 	pos += 4;
+	d->frame_count++;
 
 done:
 	de_dbg_indent_restore(c, saved_indent_level);
@@ -1524,7 +1538,7 @@ done:
 static void do_mp3_data(deark *c, mp3ctx *d, de_int64 pos1, de_int64 len)
 {
 
-	de_dbg(c, "MP3 data at %"INT64_FMT", len=%"INT64_FMT, pos1, len);
+	de_dbg(c, "MP3/MPA data at %"INT64_FMT", len=%"INT64_FMT, pos1, len);
 	de_dbg_indent(c, 1);
 	do_mp3_frame(c, d, pos1, len);
 	// TODO: There are probably many frames. Should we look for more frames
@@ -1532,7 +1546,7 @@ static void do_mp3_data(deark *c, mp3ctx *d, de_int64 pos1, de_int64 len)
 	de_dbg_indent(c, -1);
 }
 
-static void de_run_mp3(deark *c, de_module_params *mparams)
+static void de_run_mpegaudio(deark *c, de_module_params *mparams)
 {
 	mp3ctx *d = NULL;
 	de_int64 id3v1pos;
@@ -1595,37 +1609,65 @@ done:
 	de_free(c, d);
 }
 
-static int de_identify_mp3(deark *c)
+static int de_identify_mpegaudio(deark *c)
 {
 	de_byte b[4];
-	int has_ext;
 	unsigned int x;
+	unsigned int ver_id, lyr_id;
+	int has_mp1_ext = 0;
+	int has_mp2_ext = 0;
+	int has_mp3_ext = 0;
+	int has_any_ext;
 
-	has_ext = de_input_file_has_ext(c, "mp3");
+	if(de_input_file_has_ext(c, "mp3")) {
+		has_mp3_ext = 1;
+	}
+	if(de_input_file_has_ext(c, "mp2")) {
+		has_mp2_ext = 1;
+	}
+	if(de_input_file_has_ext(c, "mp1")) {
+		has_mp1_ext = 1;
+	}
+	else if(de_input_file_has_ext(c, "mpa")) {
+		has_mp1_ext = 1;
+		has_mp2_ext = 1;
+		has_mp3_ext = 1;
+	}
+	has_any_ext = has_mp3_ext || has_mp2_ext || has_mp1_ext;
 
 	de_read(b, 0, 4);
 	if(!de_memcmp(b, "ID3", 3)) {
-		if(has_ext) return 100;
+		if(has_any_ext) return 100;
 		else return 85;
 	}
 
 	// TODO: We could try harder to identify MP3.
-	if(!has_ext) return 0;
+	if(!has_any_ext) return 0;
 
 	x = (unsigned int)de_getui16be_direct(b);
-	if(((x&0xfffe) == 0xfffa) ||
-		((x&0xfffe) == 0xfff2) ||
-		((x&0xfffe) == 0xffe2))
-	{
-		return 100;
+	if((x&0xffe0) != 0xffe0) return 0;
+
+	ver_id = (x&0x0018)>>3;
+	lyr_id = (x&0x0006)>>1;
+
+	if(has_mp3_ext) {
+		if((lyr_id==1) && (ver_id!=1)) return 100;
 	}
+	if(has_mp2_ext) {
+		if((lyr_id==2) && (ver_id==2 || ver_id==3)) return 100;
+	}
+	if(has_mp1_ext) {
+		if((lyr_id==3) && (ver_id==2 || ver_id==3)) return 100;
+	}
+
 	return 0;
 }
 
-void de_module_mp3(deark *c, struct deark_module_info *mi)
+void de_module_mpegaudio(deark *c, struct deark_module_info *mi)
 {
-	mi->id = "mp3";
-	mi->desc = "MP3 audio";
-	mi->run_fn = de_run_mp3;
-	mi->identify_fn = de_identify_mp3;
+	mi->id = "mpegaudio";
+	mi->id_alias[0] = "mp3";
+	mi->desc = "MP3 / MPEG audio";
+	mi->run_fn = de_run_mpegaudio;
+	mi->identify_fn = de_identify_mpegaudio;
 }
