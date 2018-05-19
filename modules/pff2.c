@@ -14,8 +14,31 @@ typedef struct localctx_struct {
 	de_byte found_CHIX_chunk;
 } lctx;
 
-#define CODE_CHIX 0x43484958
-#define CODE_DATA 0x44415441
+#define CODE_ASCE 0x41534345U
+#define CODE_CHIX 0x43484958U
+#define CODE_DATA 0x44415441U
+#define CODE_DESC 0x44455343U
+#define CODE_FAMI 0x46414d49U
+#define CODE_FILE 0x46494c45U
+#define CODE_MAXH 0x4d415848U
+#define CODE_MAXW 0x4d415857U
+#define CODE_NAME 0x4e414d45U
+#define CODE_PTSZ 0x5054535aU
+#define CODE_SLAN 0x534c414eU
+#define CODE_WEIG 0x57454947U
+
+struct pff2_sectiontype_info;
+
+typedef void (*pff2_section_handler_fn)(deark *c, lctx *d,
+	const struct pff2_sectiontype_info *si, de_int64 pos, de_int64 len);
+
+struct pff2_sectiontype_info {
+	de_uint32 id;
+	// 0x1=ASCII, 0x2=uint16be
+	de_uint32 flags;
+	const char *name;
+	pff2_section_handler_fn hfn;
+};
 
 static void do_char(deark *c, lctx *d, de_int64 char_idx, de_int32 codepoint, de_int64 pos)
 {
@@ -51,7 +74,8 @@ static void do_char(deark *c, lctx *d, de_int64 char_idx, de_int32 codepoint, de
 	de_free(c, srcbitmap);
 }
 
-static void do_code_chix(deark *c, lctx *d, de_int64 pos1, de_int64 len)
+static void do_code_chix(deark *c, lctx *d, const struct pff2_sectiontype_info *si,
+	de_int64 pos1, de_int64 len)
 {
 	de_int64 i;
 	de_int64 pos;
@@ -59,7 +83,6 @@ static void do_code_chix(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 	de_int32 codepoint;
 	unsigned int storage_flags;
 
-	de_dbg(c, "CHIX at %d, len %d", (int)pos1, (int)len);
 	if(d->found_CHIX_chunk) goto done;
 	d->found_CHIX_chunk = 1;
 
@@ -89,22 +112,76 @@ static void do_code_chix(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 done: ;
 }
 
+static const struct pff2_sectiontype_info pff2_sectiontype_info_arr[] = {
+	{ CODE_ASCE, 0x00000002, "ascent, in pixels", NULL },
+	{ CODE_CHIX, 0x00000000, "character index", do_code_chix },
+	{ CODE_DATA, 0x00000000, "character data", NULL },
+	{ CODE_DESC, 0x00000002, "descent, in pixels", NULL },
+	{ CODE_FAMI, 0x00000001, "font family name", NULL },
+	{ CODE_FILE, 0x00000001, "file type ID", NULL },
+	{ CODE_MAXH, 0x00000002, "max char height, in pixels", NULL },
+	{ CODE_MAXW, 0x00000002, "max char width, in pixels", NULL },
+	{ CODE_NAME, 0x00000001, "font name", NULL },
+	{ CODE_PTSZ, 0x00000002, "font point size", NULL },
+	{ CODE_SLAN, 0x00000001, "font slant", NULL },
+	{ CODE_WEIG, 0x00000001, "font weight", NULL }
+};
+
+static const struct pff2_sectiontype_info *find_pffs_sectiontype_info(de_uint32 id)
+{
+	size_t i;
+
+	for(i=0; i<DE_ITEMS_IN_ARRAY(pff2_sectiontype_info_arr); i++) {
+		if(pff2_sectiontype_info_arr[i].id == id) {
+			return &pff2_sectiontype_info_arr[i];
+		}
+	}
+	return NULL;
+}
+
 static int my_pff2_chunk_handler(deark *c, struct de_iffctx *ictx)
 {
 	lctx *d = (lctx*)ictx->userdata;
+	const struct pff2_sectiontype_info *si;
 
-	switch(ictx->chunkctx->chunk4cc.id) {
-	case CODE_CHIX:
-		do_code_chix(c, d, ictx->chunkctx->dpos, ictx->chunkctx->dlen);
-		break;
+	si = find_pffs_sectiontype_info(ictx->chunkctx->chunk4cc.id);
+
+	if(!si) goto done;
+
+	// Default value decoders:
+	if(si->flags&0x1) {
+		de_ucstring *str;
+		str = ucstring_create(c);
+		dbuf_read_to_ucstring_n(ictx->f,
+			ictx->chunkctx->dpos, ictx->chunkctx->dlen,
+			DE_DBG_MAX_STRLEN, str, 0, DE_ENCODING_ASCII);
+		de_dbg(c, "value: \"%s\"", ucstring_getpsz_d(str));
+		ucstring_destroy(str);
+	}
+	else if(si->flags&0x2) {
+		de_int64 n;
+		n = dbuf_getui16be(ictx->f, ictx->chunkctx->dpos);
+		de_dbg(c, "value: %d", (int)n);
 	}
 
+	if(si->hfn) {
+		si->hfn(c, d, si, ictx->chunkctx->dpos, ictx->chunkctx->dlen);
+	}
+
+done:
 	ictx->handled = 1;
 	return 1;
 }
 
 static int my_preprocess_pff2_chunk_fn(deark *c, struct de_iffctx *ictx)
 {
+	const struct pff2_sectiontype_info *si;
+
+	si = find_pffs_sectiontype_info(ictx->chunkctx->chunk4cc.id);
+	if(si) {
+		ictx->chunkctx->chunk_name = si->name;
+	}
+
 	if(ictx->chunkctx->dlen==0xffffffffU) {
 		// The 'DATA' chunk's length is usually set to the special value 0xffffffff.
 		// We are allowed to adjust ictx->chunkctx->dlen here.
