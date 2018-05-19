@@ -833,7 +833,7 @@ static void do_multipalette(deark *c, lctx *d, de_uint32 chunktype)
 	d->errflag = 1;
 }
 
-static void my_identify_ilbm_chunk_fn(deark *c, struct de_iffctx *ictx)
+static int my_preprocess_ilbm_chunk_fn(deark *c, struct de_iffctx *ictx)
 {
 	const char *name = NULL;
 
@@ -855,6 +855,7 @@ static void my_identify_ilbm_chunk_fn(deark *c, struct de_iffctx *ictx)
 	else {
 		de_fmtutil_default_iff_chunk_identify(c, ictx);
 	}
+	return 1;
 }
 
 static int my_ilbm_chunk_handler(deark *c, struct de_iffctx *ictx)
@@ -1029,7 +1030,7 @@ static void de_run_ilbm(deark *c, de_module_params *mparams)
 	if(s) d->opt_fixpal = de_atoi(s);
 
 	ictx->userdata = (void*)d;
-	ictx->identify_chunk_fn = my_identify_ilbm_chunk_fn;
+	ictx->preprocess_chunk_fn = my_preprocess_ilbm_chunk_fn;
 	ictx->handle_chunk_fn = my_ilbm_chunk_handler;
 	ictx->on_std_container_start_fn = my_on_std_container_start_fn;
 	ictx->on_container_end_fn = my_on_container_end_fn;

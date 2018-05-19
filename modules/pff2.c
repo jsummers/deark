@@ -103,13 +103,14 @@ static int my_pff2_chunk_handler(deark *c, struct de_iffctx *ictx)
 	return 1;
 }
 
-static void my_identify_and_preprocess_pff2_chunk_fn(deark *c, struct de_iffctx *ictx)
+static int my_preprocess_pff2_chunk_fn(deark *c, struct de_iffctx *ictx)
 {
 	if(ictx->chunkctx->dlen==0xffffffffU) {
 		// The 'DATA' chunk's length is usually set to the special value 0xffffffff.
 		// We are allowed to adjust ictx->chunkctx->dlen here.
 		ictx->chunkctx->dlen = ictx->f->len - ictx->chunkctx->dpos;
 	}
+	return 1;
 }
 
 static void de_run_pff2(deark *c, de_module_params *mparams)
@@ -123,7 +124,7 @@ static void de_run_pff2(deark *c, de_module_params *mparams)
 
 	ictx->userdata = (void*)d;
 	ictx->alignment = 1;
-	ictx->identify_chunk_fn = my_identify_and_preprocess_pff2_chunk_fn;
+	ictx->preprocess_chunk_fn = my_preprocess_pff2_chunk_fn;
 	ictx->handle_chunk_fn = my_pff2_chunk_handler;
 	ictx->f = c->infile;
 

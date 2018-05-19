@@ -373,7 +373,7 @@ static int my_on_std_container_start_fn(deark *c, struct de_iffctx *ictx)
 	return 1;
 }
 
-static void my_identify_riff_chunk_fn(deark *c, struct de_iffctx *ictx)
+static int my_preprocess_riff_chunk_fn(deark *c, struct de_iffctx *ictx)
 {
 	const char *name = NULL;
 
@@ -392,6 +392,7 @@ static void my_identify_riff_chunk_fn(deark *c, struct de_iffctx *ictx)
 	if(name) {
 		ictx->chunkctx->chunk_name = name;
 	}
+	return 1;
 }
 
 static int my_riff_chunk_handler(deark *c, struct de_iffctx *ictx)
@@ -499,7 +500,7 @@ static void de_run_riff(deark *c, de_module_params *mparams)
 	ictx = de_malloc(c, sizeof(struct de_iffctx));
 
 	ictx->userdata = (void*)d;
-	ictx->identify_chunk_fn = my_identify_riff_chunk_fn;
+	ictx->preprocess_chunk_fn = my_preprocess_riff_chunk_fn;
 	ictx->handle_chunk_fn = my_riff_chunk_handler;
 	ictx->on_std_container_start_fn = my_on_std_container_start_fn;
 	ictx->f = c->infile;

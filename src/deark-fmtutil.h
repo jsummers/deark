@@ -155,7 +155,10 @@ struct de_iffctx;
 // Return value: Normally 1; 0 to immediately stop processing the entire file.
 typedef int (*de_handle_iff_chunk_fn)(deark *c, struct de_iffctx *ictx);
 
-typedef void (*de_identify_iff_chunk_fn)(deark *c, struct de_iffctx *ictx);
+// Mainly for identifying the chunk.
+// The user can also adjust ictx->chunkctx->dlen.
+// Return value: Normally 1 (reserved)
+typedef int (*de_preprocess_iff_chunk_fn)(deark *c, struct de_iffctx *ictx);
 
 // Return value: Normally 1; 0 to immediately stop processing the entire file.
 typedef int (*de_on_iff_container_end_fn)(deark *c, struct de_iffctx *ictx);
@@ -180,7 +183,7 @@ struct de_iffctx {
 	void *userdata;
 	dbuf *f; // Input file
 	de_handle_iff_chunk_fn handle_chunk_fn;
-	de_identify_iff_chunk_fn identify_chunk_fn;
+	de_preprocess_iff_chunk_fn preprocess_chunk_fn;
 	de_on_std_iff_container_start_fn on_std_container_start_fn;
 	de_on_iff_container_end_fn on_container_end_fn;
 	de_int64 alignment; // 0 = default

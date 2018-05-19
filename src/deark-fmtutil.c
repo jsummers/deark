@@ -1326,8 +1326,8 @@ static int do_iff_chunk(deark *c, struct de_iffctx *ictx, de_int64 pos, de_int64
 	ictx->level = level;
 	ictx->chunkctx = &chunkctx;
 
-	if(ictx->identify_chunk_fn) {
-		ictx->identify_chunk_fn(c, ictx);
+	if(ictx->preprocess_chunk_fn) {
+		ictx->preprocess_chunk_fn(c, ictx);
 	}
 
 	if(chunkctx.chunk_name) {
