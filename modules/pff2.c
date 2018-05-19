@@ -6,6 +6,7 @@
 
 #include <deark-config.h>
 #include <deark-private.h>
+#include <deark-fmtutil.h>
 DE_DECLARE_MODULE(de_module_pff2);
 
 typedef struct localctx_struct {
@@ -88,51 +89,51 @@ static void do_code_chix(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 done: ;
 }
 
+static int my_pff2_chunk_handler(deark *c, struct de_iffctx *ictx)
+{
+	lctx *d = (lctx*)ictx->userdata;
+
+	switch(ictx->chunkctx->chunk4cc.id) {
+	case CODE_CHIX:
+		do_code_chix(c, d, ictx->chunkctx->dpos, ictx->chunkctx->dlen);
+		break;
+	}
+
+	ictx->handled = 1;
+	return 1;
+}
+
+static void my_identify_and_preprocess_pff2_chunk_fn(deark *c, struct de_iffctx *ictx)
+{
+	if(ictx->chunkctx->dlen==0xffffffffU) {
+		// The 'DATA' chunk's length is usually set to the special value 0xffffffff.
+		// We are allowed to adjust ictx->chunkctx->dlen here.
+		ictx->chunkctx->dlen = ictx->f->len - ictx->chunkctx->dpos;
+	}
+}
+
 static void de_run_pff2(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
-	de_int64 pos;
-	de_uint32 ct;
-	de_int64 len;
+	struct de_iffctx *ictx = NULL;
 	de_int64 i;
 
 	d = de_malloc(c, sizeof(lctx));
+	ictx = de_malloc(c, sizeof(struct de_iffctx));
+
+	ictx->userdata = (void*)d;
+	ictx->alignment = 1;
+	ictx->identify_chunk_fn = my_identify_and_preprocess_pff2_chunk_fn;
+	ictx->handle_chunk_fn = my_pff2_chunk_handler;
+	ictx->f = c->infile;
+
 	d->font = de_create_bitmap_font(c);
 	d->font->has_nonunicode_codepoints = 0;
 	d->font->has_unicode_codepoints = 1;
 	d->font->prefer_unicode = 1;
 
-	pos = 0;
-	while(1) {
-		if(pos>=c->infile->len) break;
-		ct = (de_uint32)de_getui32be(pos);
-		pos+=4;
+	de_fmtutil_read_iff_format(c, ictx, 0, c->infile->len);
 
-		len = de_getui32be(pos);
-		pos+=4;
-
-		if(len==0xffffffff) {
-			len = c->infile->len - pos;
-		}
-
-		if(pos+len > c->infile->len) {
-			de_warn(c, "Chunk goes beyond end of file");
-			goto done;
-
-		}
-
-		switch(ct) {
-		case CODE_CHIX:
-			do_code_chix(c, d, pos, len);
-			break;
-		case CODE_DATA:
-			// This is supposed to be the last chunk in the file.
-			goto done;
-		}
-		pos+=len;
-	}
-
-done:
 	if(d->font) {
 		if(d->font->char_array) {
 			for(i=0; i<d->font->num_chars; i++) {
@@ -143,6 +144,7 @@ done:
 		de_destroy_bitmap_font(c, d->font);
 	}
 
+	de_free(c, ictx);
 	de_free(c, d);
 }
 

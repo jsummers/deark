@@ -1283,8 +1283,7 @@ static int do_iff_chunk(deark *c, struct de_iffctx *ictx, de_int64 pos, de_int64
 	int level, de_int64 *pbytes_consumed)
 {
 	int ret;
-	de_int64 chunk_dpos;
-	de_int64 chunk_dlen;
+	de_int64 chunk_dlen_raw;
 	de_int64 chunk_dlen_padded;
 	de_int64 data_bytes_avail;
 	de_int64 hdrsize;
@@ -1314,12 +1313,13 @@ static int do_iff_chunk(deark *c, struct de_iffctx *ictx, de_int64 pos, de_int64
 	}
 
 	if(ictx->sizeof_len==2) {
-		chunk_dlen = dbuf_getui16x(ictx->f, pos+4, ictx->is_le);
+		chunk_dlen_raw = dbuf_getui16x(ictx->f, pos+4, ictx->is_le);
 	}
 	else {
-		chunk_dlen = dbuf_getui32x(ictx->f, pos+4, ictx->is_le);
+		chunk_dlen_raw = dbuf_getui32x(ictx->f, pos+4, ictx->is_le);
 	}
-	chunk_dpos = pos+hdrsize;
+	chunkctx.dlen = chunk_dlen_raw;
+	chunkctx.dpos = pos+hdrsize;
 
 	// TODO: Setting these fields (prior to the identify function) is enough
 	// for now, but we should also set the other fields here if we can.
@@ -1337,12 +1337,12 @@ static int do_iff_chunk(deark *c, struct de_iffctx *ictx, de_int64 pos, de_int64
 		name_str[0] = '\0';
 	}
 
-	de_dbg(c, "chunk '%s'%s at %d, dpos=%d, dlen=%d", chunkctx.chunk4cc.id_dbgstr,
-		name_str, (int)pos,
-		(int)chunk_dpos, (int)chunk_dlen);
+	de_dbg(c, "chunk '%s'%s at %"INT64_FMT", dpos=%"INT64_FMT", dlen=%"INT64_FMT,
+		chunkctx.chunk4cc.id_dbgstr, name_str, pos,
+		chunkctx.dpos, chunkctx.dlen);
 	de_dbg_indent(c, 1);
 
-	if(chunk_dlen > data_bytes_avail) {
+	if(chunkctx.dlen > data_bytes_avail) {
 		int should_warn = 1;
 
 		if(chunkctx.chunk4cc.id==CODE_RIFF && pos==0 && bytes_avail==ictx->f->len) {
@@ -1357,14 +1357,14 @@ static int do_iff_chunk(deark *c, struct de_iffctx *ictx, de_int64 pos, de_int64
 			de_warn(c, "Invalid oversized chunk, or unexpected end of file "
 				"(chunk at %d ends at %" INT64_FMT ", "
 				"parent ends at %" INT64_FMT ")",
-				(int)pos, chunk_dlen+chunk_dpos, pos+bytes_avail);
+				(int)pos, chunkctx.dlen+chunkctx.dpos, pos+bytes_avail);
 		}
 
-		chunk_dlen = data_bytes_avail; // Try to continue
-		de_dbg(c, "adjusting chunk data len to %d", (int)chunk_dlen);
+		chunkctx.dlen = data_bytes_avail; // Try to continue
+		de_dbg(c, "adjusting chunk data len to %"INT64_FMT, chunkctx.dlen);
 	}
 
-	chunk_dlen_padded = de_pad_to_n(chunk_dlen, ictx->alignment);
+	chunk_dlen_padded = de_pad_to_n(chunkctx.dlen, ictx->alignment);
 	*pbytes_consumed = hdrsize + chunk_dlen_padded;
 
 	// We've set *pbytes_consumed, so we can return "success"
@@ -1373,8 +1373,6 @@ static int do_iff_chunk(deark *c, struct de_iffctx *ictx, de_int64 pos, de_int64
 	// Set ictx fields, prior to calling the handler
 	chunkctx.pos = pos;
 	chunkctx.len = bytes_avail;
-	chunkctx.dpos = chunk_dpos;
-	chunkctx.dlen = chunk_dlen;
 	ictx->handled = 0;
 	ictx->is_std_container = 0;
 	ictx->is_raw_container = 0;
@@ -1393,11 +1391,11 @@ static int do_iff_chunk(deark *c, struct de_iffctx *ictx, de_int64 pos, de_int64
 		fourcc_clear(&ictx->curr_container_contentstype4cc);
 
 		if(ictx->is_std_container) {
-			contents_dpos = chunk_dpos+4;
-			contents_dlen = chunk_dlen-4;
+			contents_dpos = chunkctx.dpos+4;
+			contents_dlen = chunkctx.dlen-4;
 
 			// First 4 bytes of payload are the "contents type" or "FORM type"
-			dbuf_read_fourcc(ictx->f, chunk_dpos, &ictx->curr_container_contentstype4cc, 4,
+			dbuf_read_fourcc(ictx->f, chunkctx.dpos, &ictx->curr_container_contentstype4cc, 4,
 				ictx->reversed_4cc ? DE_4CCFLAG_REVERSED : 0);
 
 			if(level==0) {
@@ -1413,8 +1411,8 @@ static int do_iff_chunk(deark *c, struct de_iffctx *ictx, de_int64 pos, de_int64
 			}
 		}
 		else { // ictx->is_raw_container
-			contents_dpos = chunk_dpos;
-			contents_dlen = chunk_dlen;
+			contents_dpos = chunkctx.dpos;
+			contents_dlen = chunkctx.dlen;
 		}
 
 		ret = do_iff_chunk_sequence(c, ictx, contents_dpos, contents_dlen, level+1);

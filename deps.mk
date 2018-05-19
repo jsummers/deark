@@ -129,7 +129,7 @@ obj/modules/pcpaint.o: modules/pcpaint.c src/deark-config.h \
 obj/modules/pcx.o: modules/pcx.c src/deark-config.h src/deark-private.h \
  src/deark.h
 obj/modules/pff2.o: modules/pff2.c src/deark-config.h src/deark-private.h \
- src/deark.h
+ src/deark.h src/deark-fmtutil.h
 obj/modules/pict.o: modules/pict.c src/deark-config.h src/deark-private.h \
  src/deark.h src/deark-fmtutil.h
 obj/modules/pkfont.o: modules/pkfont.c src/deark-config.h \
