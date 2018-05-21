@@ -718,6 +718,10 @@
 				>
 			</File>
 			<File
+				RelativePath="..\..\modules\ogg.c"
+				>
+			</File>
+			<File
 				RelativePath="..\..\modules\os2bmp.c"
 				>
 			</File>

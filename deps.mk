@@ -118,6 +118,8 @@ obj/modules/msp.o: modules/msp.c src/deark-config.h src/deark-private.h \
  src/deark.h
 obj/modules/nokia.o: modules/nokia.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h
+obj/modules/ogg.o: modules/ogg.c src/deark-config.h src/deark-private.h \
+ src/deark.h
 obj/modules/os2bmp.o: modules/os2bmp.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h
 obj/modules/palmbitmap.o: modules/palmbitmap.c src/deark-config.h \
