@@ -1386,20 +1386,27 @@ static char *get_bitrate_name(char *buf, size_t buflen,
 		{0, 32, 48, 56,  64,  80,  96, 112, 128, 144, 160, 176, 192, 224, 256, 0},
 		{0,  8, 16, 24,  32,  40,  48,  56,  64,  80,  96, 112, 128, 144, 160, 0}};
 	unsigned int tbl_to_use = 0;
-	unsigned int br;
+	unsigned int br = 0;
 
 	if(version_id==0x03) { // v1
 		if(layer_desc==0x03) tbl_to_use=0; // Layer 1
 		else if(layer_desc==0x02) tbl_to_use=1; // Layer 2
 		else if(layer_desc==0x01) tbl_to_use=2; // Layer 3
+		else goto done;
 	}
 	else if(version_id==0x02 || version_id==0x00) { // v2, v2.5
 		if(layer_desc==0x03) tbl_to_use=3; // Layer 1
 		else if(layer_desc==0x02 || layer_desc==0x01) tbl_to_use=4; // Layer 2,3
+		else goto done;
+	}
+	else {
+		goto done;
 	}
 
-	if(bitrate_idx>15) bitrate_idx=15;
+	if(bitrate_idx>15) goto done;
 	br = (unsigned int)tbl[tbl_to_use][bitrate_idx];
+
+done:
 	if(br>0)
 		de_snprintf(buf, buflen, "%u kbps", br);
 	else
@@ -1408,14 +1415,16 @@ static char *get_bitrate_name(char *buf, size_t buflen,
 }
 
 static char *get_sampling_rate_name(char *buf, size_t buflen,
-	unsigned int sr_idx, unsigned int version_id)
+	unsigned int sr_idx, unsigned int version_id, unsigned int layer_desc)
 {
 	static const de_uint32 tbl[3][4] = {
 		{44100, 48000, 32000, 0},
 		{22050, 24000, 16000, 0},
 		{11025, 12000,  8000, 0}};
 	unsigned int tbl_to_use = 0;
-	unsigned int sr;
+	unsigned int sr = 0;
+
+	if(layer_desc<1 || layer_desc>3) goto done;
 
 	if(version_id==0x03) { // v1
 		tbl_to_use = 0;
@@ -1426,9 +1435,14 @@ static char *get_sampling_rate_name(char *buf, size_t buflen,
 	else if(version_id==0x00) { // v2.5
 		tbl_to_use = 2;
 	}
+	else {
+		goto done;
+	}
 
-	if(sr_idx>3) sr_idx=3;
+	if(sr_idx>3) goto done;
 	sr = (unsigned int)tbl[tbl_to_use][sr_idx];
+
+done:
 	if(sr>0)
 		de_snprintf(buf, buflen, "%u Hz", sr);
 	else
@@ -1513,7 +1527,7 @@ static void do_mp3_frame(deark *c, mp3ctx *d, de_int64 pos1, de_int64 len)
 		get_bitrate_name(buf, sizeof(buf), d->bitrate_idx, d->version_id, d->layer_desc));
 	d->samprate_idx = (x&0x00000c00U)>>10;
 	de_dbg(c, "sampling rate frequency id: %u (%s)", d->samprate_idx,
-		get_sampling_rate_name(buf, sizeof(buf), d->samprate_idx, d->version_id));
+		get_sampling_rate_name(buf, sizeof(buf), d->samprate_idx, d->version_id, d->layer_desc));
 	d->has_padding =  (x&0x00000200U)>>9;
 	de_dbg(c, "has padding: %u", d->has_padding);
 	d->channel_mode = (x&0x000000c0U)>>6;
