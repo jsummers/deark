@@ -1107,7 +1107,7 @@ static int ExtrArch (deark *c, dbuf *inf)
 
 		if(pos==0) break;
 
-		if(!de_inthashtable_add_item(c, uz->offsets_seen, pos)) {
+		if(!de_inthashtable_add_item(c, uz->offsets_seen, pos, NULL)) {
 			de_err(c, "Loop detected");
 			goto done;
 		}

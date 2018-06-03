@@ -169,7 +169,7 @@ static void push_ifd(deark *c, lctx *d, de_int64 ifdpos, int ifdtype)
 		de_warn(c, "Too many TIFF IFDs");
 		return;
 	}
-	if(!de_inthashtable_add_item(c, d->ifds_seen, ifdpos)) {
+	if(!de_inthashtable_add_item(c, d->ifds_seen, ifdpos, NULL)) {
 		de_err(c, "IFD loop detected");
 		return;
 	}

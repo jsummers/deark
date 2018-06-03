@@ -869,7 +869,7 @@ static int my_ilbm_chunk_handler(deark *c, struct de_iffctx *ictx)
 	de_dbg_indent_save(c, &saved_indent_level);
 
 	// Remember that we've seen at least one chunk of this type
-	de_inthashtable_add_item(c, d->chunks_seen, (de_int64)ictx->chunkctx->chunk4cc.id);
+	de_inthashtable_add_item(c, d->chunks_seen, (de_int64)ictx->chunkctx->chunk4cc.id, NULL);
 
 	// Pretend we can handle all nonstandard chunks
 	if(!de_fmtutil_is_standard_iff_chunk(c, ictx, ictx->chunkctx->chunk4cc.id)) {

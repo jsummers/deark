@@ -947,7 +947,7 @@ void de_copy_bits(const de_byte *src, de_int64 srcbitnum,
 
 struct de_inthashtable_item {
 	de_int64 key;
-	//void *value; // Item data will go here, if we ever need it
+	void *value;
 	struct de_inthashtable_item *next; // Next item in linked list
 };
 
@@ -1026,6 +1026,20 @@ static struct de_inthashtable_item *inthashtable_find_item(struct de_inthashtabl
 	return inthashtable_find_item_in_bucket(ht, bkt, key);
 }
 
+// If key does not exist, sets *pvalue to NULL and returns 0.
+int de_inthashtable_get_item(deark *c, struct de_inthashtable *ht, de_int64 key, void **pvalue)
+{
+	struct de_inthashtable_item *item;
+
+	item = inthashtable_find_item(ht, key);
+	if(item) {
+		*pvalue = item->value;
+		return 1;
+	}
+	*pvalue = NULL;
+	return 0;
+}
+
 int de_inthashtable_item_exists(deark *c, struct de_inthashtable *ht, de_int64 key)
 {
 	return (inthashtable_find_item(ht, key) != NULL);
@@ -1041,7 +1055,7 @@ static void inthashtable_add_item_to_bucket(struct de_inthashtable *ht,
 
 // Returns 1 if the key has been newly-added,
 // or 0 if the key already existed.
-int de_inthashtable_add_item(deark *c, struct de_inthashtable *ht, de_int64 key)
+int de_inthashtable_add_item(deark *c, struct de_inthashtable *ht, de_int64 key, void *value)
 {
 	struct de_inthashtable_bucket *bkt;
 	struct de_inthashtable_item *new_item;
@@ -1056,6 +1070,41 @@ int de_inthashtable_add_item(deark *c, struct de_inthashtable *ht, de_int64 key)
 
 	new_item = de_malloc(c, sizeof(struct de_inthashtable_item));
 	new_item->key = key;
+	new_item->value = value;
 	inthashtable_add_item_to_bucket(ht, bkt, new_item);
 	return 1;
+}
+
+int de_inthashtable_remove_item(deark *c, struct de_inthashtable *ht, de_int64 key, void **pvalue)
+{
+	// TODO
+	return 0;
+}
+
+// Select one item arbitrarily, return its key and value, and delete it from the
+// hashtable.
+int de_inthashtable_remove_any_item(deark *c, struct de_inthashtable *ht, de_int64 *pkey, void **pvalue)
+{
+	de_int64 i;
+
+	for(i=0; i<DE_INTHASHTABLE_NBUCKETS; i++) {
+		struct de_inthashtable_item *item;
+
+		item = ht->buckets[i].first_item;
+		if(!item) continue;
+
+		// Found an item. Copy it, for the caller.
+		if(pkey) *pkey = item->key;
+		if(pvalue) *pvalue = item->value;
+
+		// Delete our copy of it.
+		ht->buckets[i].first_item = item->next;
+		inthashtable_destroy_item(c, item);
+		return 1;
+	}
+
+	// No items in hashtable.
+	if(pkey) *pkey = 0;
+	if(pvalue) *pvalue = NULL;
+	return 0;
 }
