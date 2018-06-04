@@ -31,8 +31,18 @@ struct stream_info {
 typedef struct localctx_struct {
 	int always_hexdump;
 	de_int64 total_page_count;
+	de_int64 bitstream_count;
 	struct de_inthashtable *streamtable;
 } lctx;
+
+static unsigned int getui24be_p(dbuf *f, de_int64 *ppos)
+{
+	unsigned int u;
+	u = ((unsigned int)dbuf_getbyte_p(f, ppos)) << 16;
+	u |= ((unsigned int)dbuf_getbyte_p(f, ppos)) << 8;
+	u |= (unsigned int)dbuf_getbyte_p(f, ppos);
+	return u;
+}
 
 static char *get_hdrtype_descr(deark *c, char *buf, size_t buflen, de_byte hdr_type)
 {
@@ -49,6 +59,67 @@ static char *get_hdrtype_descr(deark *c, char *buf, size_t buflen, de_byte hdr_t
 		ucstring_destroy(s);
 	}
 	return buf;
+}
+
+static void do_vorbis_id_header(deark *c, lctx *d, struct stream_info *si, de_int64 pos1, de_int64 len)
+{
+	de_int64 pos = pos1;
+	unsigned int u1;
+	de_int64 x;
+
+	pos += 7; // Skip signature
+	u1 = (unsigned int)de_getui32le_p(&pos);
+	de_dbg(c, "version: %u", u1);
+	u1 = (unsigned int)de_getbyte_p(&pos);
+	de_dbg(c, "channels: %u", u1);
+	u1 = (unsigned int)de_getui32le_p(&pos);
+	de_dbg(c, "sample rate: %u", u1);
+	x = de_geti32le(pos); pos += 4;
+	de_dbg(c, "max bitrate: %d", (int)x);
+	x = de_geti32le(pos); pos += 4;
+	de_dbg(c, "nominal bitrate: %d", (int)x);
+	x = de_geti32le(pos); pos += 4;
+	de_dbg(c, "min bitrate: %d", (int)x);
+}
+
+static void do_theora_id_header(deark *c, lctx *d, struct stream_info *si, de_int64 pos1, de_int64 len)
+{
+	de_int64 pos = pos1;
+	de_byte vmaj, vmin, vrev;
+	de_int64 x1, x2;
+	unsigned int u1, u2;
+
+	pos += 7; // Skip signature
+	vmaj = de_getbyte_p(&pos);
+	vmin = de_getbyte_p(&pos);
+	vrev = de_getbyte_p(&pos);
+	de_dbg(c, "version: %u.%u.%u", (unsigned int)vmaj, (unsigned int)vmin,
+		(unsigned int)vrev);
+	x1 = de_getui16be_p(&pos);
+	x2 = de_getui16be_p(&pos);
+	de_dbg(c, "frame dimensions: %d"DE_CHAR_TIMES"%d macroblocks", (int)x1, (int)x2);
+
+	u1 = getui24be_p(c->infile, &pos);
+	u2 = getui24be_p(c->infile, &pos);
+	de_dbg(c, "picture dimensions: %u"DE_CHAR_TIMES"%u pixels", u1, u2);
+
+	u1 = (unsigned int)de_getbyte_p(&pos);
+	u2 = (unsigned int)de_getbyte_p(&pos);
+	de_dbg(c, "picture region offset: %u,%u pixels", u1, u2);
+
+	u1 = (unsigned int)de_getui32be_p(&pos);
+	u2 = (unsigned int)de_getui32be_p(&pos);
+	de_dbg(c, "frame rate: %u/%u", u1, u2);
+
+	u1 = getui24be_p(c->infile, &pos);
+	u2 = getui24be_p(c->infile, &pos);
+	de_dbg(c, "aspect ratio: %u/%u", u1, u2);
+
+	u1 = (unsigned int)de_getbyte_p(&pos);
+	de_dbg(c, "color space: %u", u1);
+
+	u1 = getui24be_p(c->infile, &pos);
+	de_dbg(c, "nominal bitrate: %u bits/sec", u1);
 }
 
 static void do_init_new_bitstream(deark *c, lctx *d, struct stream_info *si, const char *name)
@@ -81,10 +152,12 @@ static void do_bitstream_firstpage(deark *c, lctx *d, struct stream_info *si, de
 	if(!de_memcmp(idbuf, "\x01" "vorbis", 7)) {
 		si->stream_type = STREAMTYPE_VORBIS;
 		do_init_new_bitstream(c, d, si, "Vorbis");
+		do_vorbis_id_header(c, d, si, pos, len);
 	}
 	else if(!de_memcmp(idbuf, "\x80" "theora", 7)) {
 		si->stream_type = STREAMTYPE_THEORA;
 		do_init_new_bitstream(c, d, si, "Theora");
+		do_theora_id_header(c, d, si, pos, len);
 	}
 	else if(!de_memcmp(idbuf, "fishead\0", 8)) {
 		do_init_new_bitstream(c, d, si, "Skeleton");
@@ -149,6 +222,7 @@ static int do_ogg_page(deark *c, lctx *d, de_int64 pos1, de_int64 *bytes_consume
 	if(!ret) {
 		si = de_malloc(c, sizeof(struct stream_info));
 		de_inthashtable_add_item(c, d->streamtable, pgi->stream_serialno, (void*)si);
+		d->bitstream_count++;
 	}
 	si->serialno = pgi->stream_serialno;
 
@@ -234,6 +308,8 @@ static void de_run_ogg(deark *c, de_module_params *mparams)
 		pos += bytes_consumed;
 		d->total_page_count++;
 	}
+
+	de_dbg(c, "number of bitstreams: %d", (int)d->bitstream_count);
 
 	if(d && d->streamtable) {
 		destroy_streamtable(c, d);
