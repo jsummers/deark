@@ -15,7 +15,9 @@ DE_DECLARE_MODULE(de_module_png);
 #define PNGID_PLTE 0x504c5445U
 #define PNGID_bKGD 0x624b4744U
 #define PNGID_cHRM 0x6348524dU
+#define PNGID_caNv 0x63614e76U
 #define PNGID_eXIf 0x65584966U
+#define PNGID_exIf 0x65784966U
 #define PNGID_gAMA 0x67414d41U
 #define PNGID_hIST 0x68495354U
 #define PNGID_iCCP 0x69434350U
@@ -584,13 +586,30 @@ static void do_png_eXIf(deark *c, lctx *d,
 	de_fmtutil_handle_exif(c, pos, len);
 }
 
+static void do_png_caNv(deark *c, lctx *d,
+	const struct de_fourcc *chunk4cc, const struct chunk_type_info_struct *cti,
+	de_int64 pos, de_int64 len)
+{
+	de_int64 x0, x1;
+
+	if(len<16) return;
+	x0 = de_geti32be(pos);
+	x1 = de_geti32be(pos+4);
+	de_dbg(c, "caNv dimensions: %dx%d", (int)x0, (int)x1);
+	x0 = de_geti32be(pos+8);
+	x1 = de_geti32be(pos+12);
+	de_dbg(c, "caNv position: %d,%d", (int)x0, (int)x1);
+}
+
 static const struct chunk_type_info_struct chunk_type_info_arr[] = {
 	{ PNGID_CgBI, 0, NULL, do_png_CgBI },
 	{ PNGID_IHDR, 0, NULL, do_png_IHDR },
 	{ PNGID_PLTE, 0, "palette", do_png_PLTE },
 	{ PNGID_bKGD, 0, "background color", do_png_bKGD },
 	{ PNGID_cHRM, 0, "chromaticities", do_png_cHRM },
+	{ PNGID_caNv, 0, "virtual canvas info", do_png_caNv },
 	{ PNGID_eXIf, 0, NULL, do_png_eXIf },
+	{ PNGID_exIf, 0, NULL, do_png_eXIf },
 	{ PNGID_gAMA, 0, "image gamma", do_png_gAMA },
 	{ PNGID_hIST, 0, "histogram", do_png_hIST },
 	{ PNGID_iCCP, 0, "ICC profile", do_png_iccp },
