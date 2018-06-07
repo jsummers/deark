@@ -29,9 +29,11 @@ struct stream_info {
 	// Expected to equal page_info::page_seq_num.
 	de_int64 page_count;
 
+	const char *stream_type_name;
+
 	// Private use data, owned by the stream type.
 
-	// Theora:
+	// Vorbis/Theora:
 	//  0 = Headers have not been processed.
 	//  1 = Headers have been processed.
 	unsigned int stream_state;
@@ -134,7 +136,7 @@ static void do_theora_id_header(deark *c, lctx *d, struct stream_info *si, de_in
 	de_dbg(c, "nominal bitrate: %u bits/sec", u1);
 }
 
-static void do_theora_after_headers(deark *c, lctx *d, struct stream_info *si)
+static void do_theora_vorbis_after_headers(deark *c, lctx *d, struct stream_info *si)
 {
 	de_int64 n;
 	de_int64 pos = 0;
@@ -147,14 +149,26 @@ static void do_theora_after_headers(deark *c, lctx *d, struct stream_info *si)
 	de_dbg_indent_save(c, &saved_indent_level);
 	if(si->stream_state!=0) goto done;
 	if(!si->header_stream) goto done;
+	if(!si->stream_type_name) goto done;
 	f = si->header_stream;
 
-	de_dbg(c, "[decoding theora comment/setup headers, %d bytes]", (int)si->header_stream->len);
+	de_dbg(c, "[decoding %s comment/setup headers, %d bytes]",
+		si->stream_type_name, (int)si->header_stream->len);
 	de_dbg_indent(c, 1);
-	if(dbuf_memcmp(f, 0, "\x81" "theora", 7)) {
-		goto done; // missing signature
+
+	// Make sure the comment header signature is present.
+	if(si->stream_type==STREAMTYPE_VORBIS) {
+		if(dbuf_memcmp(f, 0, "\x03" "vorbis", 7)) {
+			goto done;
+		}
+		pos += 7;
 	}
-	pos += 7;
+	else if(si->stream_type==STREAMTYPE_THEORA) {
+		if(dbuf_memcmp(f, 0, "\x81" "theora", 7)) {
+			goto done;
+		}
+		pos += 7;
+	}
 
 	n = dbuf_getui32le_p(f, &pos);
 	if(pos+n > f->len) goto done;
@@ -184,6 +198,48 @@ done:
 	dbuf_close(si->header_stream);
 	si->header_stream = NULL;
 	de_dbg_indent_restore(c, saved_indent_level);
+}
+
+static void do_vorbis_page(deark *c, lctx *d, struct page_info *pgi, struct stream_info *si)
+{
+	de_byte firstbyte;
+
+	// We want to save a copy of the Comment and Setup header data,
+	// but not the Identification header which is handled elsewhere.
+
+	if(si->stream_state!=0) {
+		// We've already handled the Comment & Setup headers.
+		goto done;
+	}
+
+	if(pgi->dlen<1) goto done;
+
+	firstbyte = de_getbyte(pgi->dpos);
+
+	if(si->page_count==0 || pgi->page_seq_num==0 || (pgi->hdr_type&0x02)) {
+		// This appears to be the Identification header page. Skip it.
+		goto done;
+	}
+
+	if(pgi->page_seq_num>=1 && (firstbyte&0x01)) {
+		// This appears to be one of the pages we care about.
+		// Save its data for later.
+		if(!si->header_stream) {
+			si->header_stream = dbuf_create_membuf(c, 1048576, 1);
+		}
+		dbuf_copy(c->infile, pgi->dpos, pgi->dlen, si->header_stream);
+	}
+	else if((firstbyte&0x01)==0) {
+		// Reached the end of headers (by encountering a non-header page).
+		// (There is required to be an Ogg page break immediately after the
+		// Vorbis headers, so the start of the first data *page* must correspond
+		// to the start of the first data *packet*. A Vorbis data packet always
+		// begins with a byte whose low bit is 0.)
+		do_theora_vorbis_after_headers(c, d, si);
+	}
+
+done:
+	;
 }
 
 static void do_theora_page(deark *c, lctx *d, struct page_info *pgi, struct stream_info *si)
@@ -221,21 +277,21 @@ static void do_theora_page(deark *c, lctx *d, struct page_info *pgi, struct stre
 		// Theora headers, so the start of the first data *page* must correspond
 		// to the start of the first data *packet*. A Theora data packet always
 		// begins with a byte < 0x80.)
-		do_theora_after_headers(c, d, si);
+		do_theora_vorbis_after_headers(c, d, si);
 	}
 
 done:
 	;
 }
 
-static void do_init_new_bitstream(deark *c, lctx *d, struct stream_info *si, const char *name)
+static void do_init_new_bitstream(deark *c, lctx *d, struct stream_info *si)
 {
-	de_dbg(c, "bitstream type: %s", name?name:"unknown");
+	de_dbg(c, "bitstream type: %s", si->stream_type_name?si->stream_type_name:"unknown");
 	if(d->total_page_count==0) {
 		char tmps[80];
 		// This is the first bitstream in the file. We'll consider it to be the
 		// main "file format", though this is not always the best logic.
-		de_snprintf(tmps, sizeof(tmps), "Ogg %s", name?name:"(other)");
+		de_snprintf(tmps, sizeof(tmps), "Ogg %s", si->stream_type_name?si->stream_type_name:"(other)");
 		de_declare_fmt(c, tmps);
 	}
 }
@@ -257,21 +313,26 @@ static void do_bitstream_firstpage(deark *c, lctx *d, struct stream_info *si, de
 
 	if(!de_memcmp(idbuf, "\x01" "vorbis", 7)) {
 		si->stream_type = STREAMTYPE_VORBIS;
-		do_init_new_bitstream(c, d, si, "Vorbis");
+		si->stream_type_name = "Vorbis";
+		do_init_new_bitstream(c, d, si);
 		do_vorbis_id_header(c, d, si, pos, len);
 	}
 	else if(!de_memcmp(idbuf, "\x80" "theora", 7)) {
 		si->stream_type = STREAMTYPE_THEORA;
-		do_init_new_bitstream(c, d, si, "Theora");
+		si->stream_type_name = "Theora";
+		do_init_new_bitstream(c, d, si);
 		do_theora_id_header(c, d, si, pos, len);
 	}
 	else if(!de_memcmp(idbuf, "fishead\0", 8)) {
-		do_init_new_bitstream(c, d, si, "Skeleton");
+		si->stream_type_name = "Skeleton";
+		do_init_new_bitstream(c, d, si);
 	}
 	else if(!de_memcmp(idbuf, "Speex   ", 8)) {
-		do_init_new_bitstream(c, d, si, "Speex");	}
+		si->stream_type_name = "Speex";
+		do_init_new_bitstream(c, d, si);
+	}
 	else {
-		do_init_new_bitstream(c, d, si, NULL);
+		do_init_new_bitstream(c, d, si);
 	}
 }
 
@@ -294,7 +355,10 @@ static void do_bitstream_page(deark *c, lctx *d, struct page_info *pgi,
 		do_bitstream_firstpage(c, d, si, pgi->dpos, pgi->dlen);
 	}
 
-	if(si->stream_type==STREAMTYPE_THEORA) {
+	if(si->stream_type==STREAMTYPE_VORBIS) {
+		do_vorbis_page(c, d, pgi, si);
+	}
+	else if(si->stream_type==STREAMTYPE_THEORA) {
 		do_theora_page(c, d, pgi, si);
 	}
 }
@@ -328,7 +392,15 @@ static int do_ogg_page(deark *c, lctx *d, de_int64 pos1, de_int64 *bytes_consume
 	de_dbg(c, "bitstream serial number: %"INT64_FMT, pgi->stream_serialno);
 
 	ret = de_inthashtable_get_item(c, d->streamtable, pgi->stream_serialno, (void**)&si);
-	if(!ret) {
+	if(ret) {
+		// We've seen this stream before.
+		de_dbg_indent(c, 1);
+		de_dbg(c, "bitstream %"INT64_FMT" type: %s", pgi->stream_serialno,
+			si->stream_type_name?si->stream_type_name:"unknown");
+		de_dbg_indent(c, -1);
+	}
+	else {
+		// This the first page we've encountered of this stream.
 		si = de_malloc(c, sizeof(struct stream_info));
 		de_inthashtable_add_item(c, d->streamtable, pgi->stream_serialno, (void*)si);
 		d->bitstream_count++;
@@ -371,16 +443,19 @@ static int do_ogg_page(deark *c, lctx *d, de_int64 pos1, de_int64 *bytes_consume
 
 static void destroy_bitstream(deark *c, lctx *d, struct stream_info *si)
 {
-	if(si) {
-		if(si->stream_type==STREAMTYPE_THEORA && si->stream_state==0) {
-			do_theora_after_headers(c, d, si);
-		}
+	if(!si) return;
 
-		if(si->header_stream) {
-			dbuf_close(si->header_stream);
-		}
-		de_free(c, si);
+	if((si->stream_type==STREAMTYPE_VORBIS || si->stream_type==STREAMTYPE_THEORA)
+		&& si->stream_state==0)
+	{
+		do_theora_vorbis_after_headers(c, d, si);
 	}
+
+	if(si->header_stream) {
+		dbuf_close(si->header_stream);
+	}
+
+	de_free(c, si);
 }
 
 static void destroy_streamtable(deark *c, lctx *d)
