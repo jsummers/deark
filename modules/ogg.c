@@ -14,6 +14,8 @@ struct page_info {
 	de_int64 granule_pos;
 	de_int64 stream_serialno;
 	de_int64 page_seq_num;
+	de_int64 dpos;
+	de_int64 dlen;
 };
 
 struct stream_info {
@@ -26,6 +28,16 @@ struct stream_info {
 	// Number of pages we've counted for this stream so far.
 	// Expected to equal page_info::page_seq_num.
 	de_int64 page_count;
+
+	// Private use data, owned by the stream type.
+
+	// Theora:
+	//  0 = Headers have not been processed.
+	//  1 = Headers have been processed.
+	unsigned int stream_state;
+
+	// Theora: A copy of the Comment and Setup streams.
+	dbuf *header_stream;
 };
 
 typedef struct localctx_struct {
@@ -122,6 +134,100 @@ static void do_theora_id_header(deark *c, lctx *d, struct stream_info *si, de_in
 	de_dbg(c, "nominal bitrate: %u bits/sec", u1);
 }
 
+static void do_theora_after_headers(deark *c, lctx *d, struct stream_info *si)
+{
+	de_int64 n;
+	de_int64 pos = 0;
+	de_int64 ncomments;
+	de_int64 k;
+	int saved_indent_level;
+	dbuf *f = NULL;
+	de_ucstring *s = NULL;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+	if(si->stream_state!=0) goto done;
+	if(!si->header_stream) goto done;
+	f = si->header_stream;
+
+	de_dbg(c, "[decoding theora comment/setup headers, %d bytes]", (int)si->header_stream->len);
+	de_dbg_indent(c, 1);
+	if(dbuf_memcmp(f, 0, "\x81" "theora", 7)) {
+		goto done; // missing signature
+	}
+	pos += 7;
+
+	n = dbuf_getui32le_p(f, &pos);
+	if(pos+n > f->len) goto done;
+	s = ucstring_create(c);
+	dbuf_read_to_ucstring_n(f, pos, n, DE_DBG_MAX_STRLEN, s, 0, DE_ENCODING_UTF8);
+	de_dbg(c, "vendor: \"%s\"", ucstring_getpsz_d(s));
+	pos += n;
+
+	ncomments = dbuf_getui32le_p(f, &pos);
+	de_dbg(c, "number of comments: %d", (int)ncomments);
+
+	for(k=0; k<ncomments; k++) {
+		if(pos+4 > f->len) goto done;
+		n = dbuf_getui32le_p(f, &pos);
+		if(pos+n > f->len) goto done;
+		ucstring_empty(s);
+		dbuf_read_to_ucstring_n(f, pos, n, DE_DBG_MAX_STRLEN, s, 0, DE_ENCODING_UTF8);
+		de_dbg(c, "comment[%d]: \"%s\"", (int)k, ucstring_getpsz_d(s));
+		pos += n;
+	}
+
+	// TODO: "Setup" header
+
+done:
+	si->stream_state = 1;
+	ucstring_destroy(s);
+	dbuf_close(si->header_stream);
+	si->header_stream = NULL;
+	de_dbg_indent_restore(c, saved_indent_level);
+}
+
+static void do_theora_page(deark *c, lctx *d, struct page_info *pgi, struct stream_info *si)
+{
+	de_byte firstbyte;
+
+	// We want to save a copy of the Comment and Setup header data,
+	// but not the Identification header which is handled elsewhere.
+
+	if(si->stream_state!=0) {
+		// We've already handled the Comment & Setup headers.
+		goto done;
+	}
+
+	if(pgi->dlen<1) goto done;
+
+	firstbyte = de_getbyte(pgi->dpos);
+
+	if(si->page_count==0 || pgi->page_seq_num==0 || (pgi->hdr_type&0x02)) {
+		// This appears to be the Identification header page. Skip it.
+		goto done;
+	}
+
+	if(pgi->page_seq_num>=1 && firstbyte>=0x80) {
+		// This appears to be one of the pages we care about.
+		// Save its data for later.
+		if(!si->header_stream) {
+			si->header_stream = dbuf_create_membuf(c, 1048576, 1);
+		}
+		dbuf_copy(c->infile, pgi->dpos, pgi->dlen, si->header_stream);
+	}
+	else if(firstbyte<0x80) {
+		// Reached the end of headers (by encountering a non-header page).
+		// (There is required to be an Ogg page break immediately after the
+		// Theora headers, so the start of the first data *page* must correspond
+		// to the start of the first data *packet*. A Theora data packet always
+		// begins with a byte < 0x80.)
+		do_theora_after_headers(c, d, si);
+	}
+
+done:
+	;
+}
+
 static void do_init_new_bitstream(deark *c, lctx *d, struct stream_info *si, const char *name)
 {
 	de_dbg(c, "bitstream type: %s", name?name:"unknown");
@@ -172,7 +278,7 @@ static void do_bitstream_firstpage(deark *c, lctx *d, struct stream_info *si, de
 // This function is a continuation of do_ogg_page(). Here we dig
 // a little deeper, and look at the bitstream type and contents.
 static void do_bitstream_page(deark *c, lctx *d, struct page_info *pgi,
-	struct stream_info *si, de_int64 pos, de_int64 len)
+	struct stream_info *si)
 {
 	int is_first_page;
 
@@ -181,11 +287,15 @@ static void do_bitstream_page(deark *c, lctx *d, struct page_info *pgi,
 	is_first_page = (si->page_count==0) && (pgi->page_seq_num==0) && ((pgi->hdr_type&0x02)!=0);
 
 	if(d->always_hexdump || (is_first_page && (c->debug_level>=2))) {
-		de_dbg_hexdump(c, c->infile, pos, len, 256, NULL, 0x1);
+		de_dbg_hexdump(c, c->infile, pgi->dpos, pgi->dlen, 256, NULL, 0x1);
 	}
 
 	if(is_first_page) {
-		do_bitstream_firstpage(c, d, si, pos, len);
+		do_bitstream_firstpage(c, d, si, pgi->dpos, pgi->dlen);
+	}
+
+	if(si->stream_type==STREAMTYPE_THEORA) {
+		do_theora_page(c, d, pgi, si);
 	}
 }
 
@@ -195,7 +305,6 @@ static int do_ogg_page(deark *c, lctx *d, de_int64 pos1, de_int64 *bytes_consume
 	de_int64 x;
 	de_int64 num_page_segments;
 	de_int64 k;
-	de_int64 bytecount;
 	char buf[100];
 	int retval = 0;
 	int ret;
@@ -236,19 +345,21 @@ static int do_ogg_page(deark *c, lctx *d, de_int64 pos1, de_int64 *bytes_consume
 	de_dbg(c, "number of page segments: %d", (int)num_page_segments);
 
 	// Read page table
-	bytecount = 0;
+	pgi->dlen = 0;
 	for(k=0; k<num_page_segments; k++) {
 		x = (de_int64)de_getbyte_p(&pos);
-		bytecount += x;
+		pgi->dlen += x;
 	}
 
+	pgi->dpos = pos;
+
 	// Page data
-	de_dbg(c, "[%"INT64_FMT" total bytes of page data, at %"INT64_FMT"]", bytecount, pos);
+	de_dbg(c, "[%"INT64_FMT" total bytes of page data, at %"INT64_FMT"]", pgi->dlen, pgi->dpos);
 	de_dbg_indent(c, 1);
-	do_bitstream_page(c, d, pgi, si, pos, bytecount);
+	do_bitstream_page(c, d, pgi, si);
 	de_dbg_indent(c, -1);
 
-	pos += bytecount;
+	pos += pgi->dlen;
 	si->page_count++;
 
 	*bytes_consumed = pos - pos1;
@@ -260,7 +371,16 @@ static int do_ogg_page(deark *c, lctx *d, de_int64 pos1, de_int64 *bytes_consume
 
 static void destroy_bitstream(deark *c, lctx *d, struct stream_info *si)
 {
-	de_free(c, si);
+	if(si) {
+		if(si->stream_type==STREAMTYPE_THEORA && si->stream_state==0) {
+			do_theora_after_headers(c, d, si);
+		}
+
+		if(si->header_stream) {
+			dbuf_close(si->header_stream);
+		}
+		de_free(c, si);
+	}
 }
 
 static void destroy_streamtable(deark *c, lctx *d)
