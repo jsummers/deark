@@ -6,6 +6,7 @@
 
 #include <deark-config.h>
 #include <deark-private.h>
+#include <deark-fmtutil.h>
 DE_DECLARE_MODULE(de_module_gif);
 
 #define DISPOSE_LEAVE     1
@@ -377,6 +378,32 @@ static void do_skip_subblocks(deark *c, lctx *d, de_int64 pos1, de_int64 *bytesu
 	return;
 }
 
+static void do_copy_subblocks_to_dbuf(deark *c, lctx *d, dbuf *outf,
+	de_int64 pos1, int has_max, de_int64 maxlen)
+{
+	de_int64 pos = pos1;
+	de_int64 nbytes_copied = 0;
+
+	while(1) {
+		de_int64 n;
+		de_int64 nbytes_to_copy;
+
+		if(pos >= c->infile->len) break;
+		if(has_max && (nbytes_copied >= maxlen)) break;
+		n = (de_int64)de_getbyte_p(&pos);
+		if(n==0) break;
+		nbytes_to_copy = n;
+		if(has_max) {
+			if(nbytes_copied + nbytes_to_copy > maxlen) {
+				nbytes_to_copy = maxlen - nbytes_copied;
+			}
+		}
+		dbuf_copy(c->infile, pos, nbytes_to_copy, outf);
+		nbytes_copied += nbytes_to_copy;
+		pos += n;
+	}
+}
+
 static void discard_current_gce_data(deark *c, lctx *d)
 {
 	if(d->gce) {
@@ -607,6 +634,56 @@ static void do_xmp_extension(deark *c, lctx *d, de_int64 pos)
 	dbuf_create_file_from_slice(c->infile, pos, nbytes_payload, "xmp", NULL, DE_CREATEFLAG_IS_AUX);
 }
 
+static void do_iccprofile_extension(deark *c, lctx *d, de_int64 pos)
+{
+	dbuf *outf = NULL;
+
+	outf = dbuf_create_output_file(c, "icc", NULL, DE_CREATEFLAG_IS_AUX);
+	do_copy_subblocks_to_dbuf(c, d, outf, pos, 0, 0);
+	dbuf_close(outf);
+}
+
+static void do_imagemagick_extension(deark *c, lctx *d, de_int64 pos)
+{
+	de_int64 sub_block_len;
+	de_ucstring *s = NULL;
+
+	sub_block_len = (de_int64)de_getbyte_p(&pos);
+	if(sub_block_len<1) goto done;
+	s = ucstring_create(c);
+	dbuf_read_to_ucstring(c->infile, pos, sub_block_len, s, 0, DE_ENCODING_ASCII);
+	de_dbg(c, "ImageMagick extension data: \"%s\"", ucstring_getpsz_d(s));
+done:
+	ucstring_destroy(s);
+}
+
+static void do_mgk8bim_extension(deark *c, lctx *d, de_int64 pos)
+{
+	dbuf *tmpf = NULL;
+	tmpf = dbuf_create_membuf(c, 0, 0);
+	do_copy_subblocks_to_dbuf(c, d, tmpf, pos, 1, 4*1048576);
+	de_fmtutil_handle_photoshop_rsrc(c, tmpf, 0, tmpf->len);
+	dbuf_close(tmpf);
+}
+
+static void do_mgkiptc_extension(deark *c, lctx *d, de_int64 pos)
+{
+	dbuf *tmpf = NULL;
+	tmpf = dbuf_create_membuf(c, 0, 0);
+	do_copy_subblocks_to_dbuf(c, d, tmpf, pos, 1, 4*1048576);
+	de_fmtutil_handle_iptc(c, tmpf, 0, tmpf->len);
+	dbuf_close(tmpf);
+}
+
+static void do_unknown_extension(deark *c, lctx *d, de_int64 pos)
+{
+	dbuf *tmpf = NULL;
+	tmpf = dbuf_create_membuf(c, 0, 0);
+	do_copy_subblocks_to_dbuf(c, d, tmpf, pos, 1, 256);
+	de_dbg_hexdump(c, tmpf, 0, tmpf->len, 256, NULL, 0x1);
+	dbuf_close(tmpf);
+}
+
 static void do_application_extension(deark *c, lctx *d, de_int64 pos)
 {
 	de_ucstring *s = NULL;
@@ -631,6 +708,21 @@ static void do_application_extension(deark *c, lctx *d, de_int64 pos)
 	}
 	else if(!de_memcmp(app_id, "XMP DataXMP", 11)) {
 		do_xmp_extension(c, d, pos);
+	}
+	else if(!de_memcmp(app_id, "ICCRGBG1012", 11)) {
+		do_iccprofile_extension(c, d, pos);
+	}
+	else if(!de_memcmp(app_id, "ImageMagick", 11)) {
+		do_imagemagick_extension(c, d, pos);
+	}
+	else if(!de_memcmp(app_id, "MGK8BIM0000", 11)) {
+		do_mgk8bim_extension(c, d, pos);
+	}
+	else if(!de_memcmp(app_id, "MGKIPTC0000", 11)) {
+		do_mgkiptc_extension(c, d, pos);
+	}
+	else {
+		do_unknown_extension(c, d, pos);
 	}
 }
 

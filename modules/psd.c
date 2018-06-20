@@ -723,7 +723,7 @@ static void hrsrc_exif(deark *c, lctx *d, zztype *zz, const struct rsrc_info *ri
 static void hrsrc_iptc(deark *c, lctx *d, zztype *zz, const struct rsrc_info *ri)
 {
 	d->has_iptc = 1;
-	de_fmtutil_handle_iptc(c, zz->pos, zz_avail(zz));
+	de_fmtutil_handle_iptc(c, c->infile, zz->pos, zz_avail(zz));
 }
 
 static void hrsrc_xmp(deark *c, lctx *d, zztype *zz, const struct rsrc_info *ri)

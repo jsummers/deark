@@ -241,35 +241,35 @@ void de_fmtutil_handle_exif(deark *c, de_int64 pos, de_int64 len)
 
 // Either extract the IPTC data to a file, or drill down into it,
 // depending on the value of c->extract_level.
-void de_fmtutil_handle_iptc(deark *c, de_int64 pos, de_int64 len)
+void de_fmtutil_handle_iptc(deark *c, dbuf *f, de_int64 pos, de_int64 len)
 {
 	if(len<1) return;
 
 	if(c->extract_level>=2) {
-		dbuf_create_file_from_slice(c->infile, pos, len, "iptc", NULL, DE_CREATEFLAG_IS_AUX);
+		dbuf_create_file_from_slice(f, pos, len, "iptc", NULL, DE_CREATEFLAG_IS_AUX);
 		return;
 	}
 
-	de_run_module_by_id_on_slice(c, "iptc", NULL, c->infile, pos, len);
+	de_run_module_by_id_on_slice(c, "iptc", NULL, f, pos, len);
 }
 
-void de_fmtutil_handle_photoshop_rsrc2(deark *c, de_int64 pos, de_int64 len,
+void de_fmtutil_handle_photoshop_rsrc2(deark *c, dbuf *f, de_int64 pos, de_int64 len,
 	de_uint32 *returned_flags)
 {
 	de_module_params *mparams = NULL;
 
 	mparams = de_malloc(c, sizeof(de_module_params));
 	mparams->codes = "R";
-	de_run_module_by_id_on_slice(c, "psd", mparams, c->infile, pos, len);
+	de_run_module_by_id_on_slice(c, "psd", mparams, f, pos, len);
 	if(returned_flags) {
 		*returned_flags = mparams->returned_flags;
 	}
 	de_free(c, mparams);
 }
 
-void de_fmtutil_handle_photoshop_rsrc(deark *c, de_int64 pos, de_int64 len)
+void de_fmtutil_handle_photoshop_rsrc(deark *c, dbuf *f, de_int64 pos, de_int64 len)
 {
-	de_fmtutil_handle_photoshop_rsrc2(c, pos, len, NULL);
+	de_fmtutil_handle_photoshop_rsrc2(c, f, pos, len, NULL);
 }
 
 // Returns 0 on failure (currently impossible).
@@ -879,7 +879,7 @@ int de_fmtutil_default_box_handler(deark *c, struct de_boxesctx *bctx)
 		}
 		else if(!de_memcmp(curbox->uuid, "\x2c\x4c\x01\x00\x85\x04\x40\xb9\xa0\x3e\x56\x21\x48\xd6\xdf\xeb", 16)) {
 			de_dbg(c, "Photoshop resources at %d, len=%d", (int)curbox->payload_pos, (int)curbox->payload_len);
-			de_fmtutil_handle_photoshop_rsrc(c, curbox->payload_pos, curbox->payload_len);
+			de_fmtutil_handle_photoshop_rsrc(c, bctx->f, curbox->payload_pos, curbox->payload_len);
 		}
 		else if(!de_memcmp(curbox->uuid, "\x05\x37\xcd\xab\x9d\x0c\x44\x31\xa7\x2a\xfa\x56\x1f\x2a\x11\x3e", 16)) {
 			de_dbg(c, "Exif data at %d, len=%d", (int)curbox->payload_pos, (int)curbox->payload_len);
@@ -1188,12 +1188,12 @@ static void do_iff_anno(deark *c, dbuf *f, de_int64 pos, de_int64 len)
 	}
 	if(len<1) return;
 	if(c->extract_level>=2) {
-		dbuf_create_file_from_slice(c->infile, pos, len, "anno.txt", NULL, DE_CREATEFLAG_IS_AUX);
+		dbuf_create_file_from_slice(f, pos, len, "anno.txt", NULL, DE_CREATEFLAG_IS_AUX);
 	}
 	else {
 		de_ucstring *s = NULL;
 		s = ucstring_create(c);
-		dbuf_read_to_ucstring_n(c->infile, pos, len, DE_DBG_MAX_STRLEN, s, 0, DE_ENCODING_ASCII);
+		dbuf_read_to_ucstring_n(f, pos, len, DE_DBG_MAX_STRLEN, s, 0, DE_ENCODING_ASCII);
 		de_dbg(c, "annotation: \"%s\"", ucstring_getpsz(s));
 		ucstring_destroy(s);
 	}

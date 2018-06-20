@@ -69,7 +69,7 @@ obj/modules/gemmeta.o: modules/gemmeta.c src/deark-config.h \
 obj/modules/gemras.o: modules/gemras.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h
 obj/modules/gif.o: modules/gif.c src/deark-config.h src/deark-private.h \
- src/deark.h
+ src/deark.h src/deark-fmtutil.h
 obj/modules/grasp.o: modules/grasp.c src/deark-config.h \
  src/deark-private.h src/deark.h
 obj/modules/grob.o: modules/grob.c src/deark-config.h src/deark-private.h \

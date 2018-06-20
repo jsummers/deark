@@ -299,7 +299,7 @@ static void do_photoshop_segment(deark *c, lctx *d, struct page_ctx *pg,
 	de_dbg(c, "photoshop data at %d, size=%d", (int)pos, (int)data_size);
 	pg->has_psd = 1;
 	de_dbg_indent(c, 1);
-	de_fmtutil_handle_photoshop_rsrc2(c, pos, data_size, &psdflags);
+	de_fmtutil_handle_photoshop_rsrc2(c, c->infile, pos, data_size, &psdflags);
 	if(psdflags&0x02)
 		pg->has_iptc = 1;
 	de_dbg_indent(c, -1);

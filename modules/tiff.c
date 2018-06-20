@@ -1037,7 +1037,7 @@ static void handler_xmp(deark *c, lctx *d, const struct taginfo *tg, const struc
 
 static void handler_iptc(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni)
 {
-	de_fmtutil_handle_iptc(c, tg->val_offset, tg->total_size);
+	de_fmtutil_handle_iptc(c, c->infile, tg->val_offset, tg->total_size);
 }
 
 static void handler_photoshoprsrc(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni)
@@ -1045,7 +1045,7 @@ static void handler_photoshoprsrc(deark *c, lctx *d, const struct taginfo *tg, c
 	de_dbg(c, "Photoshop resources at %d, len=%d",
 		(int)tg->val_offset, (int)tg->total_size);
 	de_dbg_indent(c, 1);
-	de_fmtutil_handle_photoshop_rsrc(c, tg->val_offset, tg->total_size);
+	de_fmtutil_handle_photoshop_rsrc(c, c->infile, tg->val_offset, tg->total_size);
 	de_dbg_indent(c, -1);
 }
 
