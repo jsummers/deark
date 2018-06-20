@@ -145,6 +145,10 @@ int de_write_png(deark *c, de_bitmap *img, dbuf *f)
 		return 0;
 	}
 
+	if(f->btype==DBUF_TYPE_NULL) {
+		return 0;
+	}
+
 	if(img->density_code>0 && c->write_density) {
 		pei.has_phys = 1;
 		if(img->density_code==1) { // unspecified units
