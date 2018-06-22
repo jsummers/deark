@@ -23,6 +23,7 @@ typedef struct localctx_struct {
 	int compose;
 	int bad_screen_flag;
 	int dump_screen;
+	int plaintext_warned;
 
 	de_int64 screen_w, screen_h;
 	int has_global_color_table;
@@ -495,15 +496,19 @@ static void do_comment_extension(deark *c, lctx *d, de_int64 pos)
 	dbuf_close(f);
 }
 
-static void decode_text_color(deark *c, lctx *d, const char *name, de_byte clr_idx)
+static void decode_text_color(deark *c, lctx *d, const char *name, de_byte clr_idx,
+	de_uint32 *pclr)
 {
 	de_uint32 clr;
 	const char *alphastr;
 	char csamp[32];
 
 	clr = d->global_ct[(unsigned int)clr_idx];
+	*pclr = clr;
+
 	if(d->gce && d->gce->trns_color_idx_valid && d->gce->trns_color_idx==clr_idx) {
 		alphastr = ",A=0";
+		*pclr = DE_SET_ALPHA(*pclr, 0);
 	}
 	else {
 		alphastr = "";
@@ -515,6 +520,32 @@ static void decode_text_color(deark *c, lctx *d, const char *name, de_byte clr_i
 		alphastr, csamp);
 }
 
+static void render_plaintext_char(deark *c, lctx *d, de_byte ch,
+	de_int64 pos_x, de_int64 pos_y, de_int64 size_x, de_int64 size_y,
+	de_uint32 fgclr, de_uint32 bgclr)
+{
+	de_int64 i, j;
+
+	for(j=0; j<size_y; j++) {
+		for(i=0; i<size_x; i++) {
+			int isbg;
+			de_uint32 clr;
+
+			// Draw a rectangle as a dummy character (except for spaces).
+			// TODO: Use an actual font here.
+			if(ch==0x20) isbg=1;
+			else if(i==0 || j==0 || i==(size_x-1) || j==(size_y-1)) isbg=1;
+			else if(i==1 || j==1 || i==(size_x-2) || j==(size_y-2)) isbg=0;
+			else isbg=1;
+
+			clr = isbg ? bgclr : fgclr;
+			if(DE_COLOR_A(clr)>0) {
+				de_bitmap_setpixel_rgb(d->screen_img, pos_x+i, pos_y+j, clr);
+			}
+		}
+	}
+}
+
 static void do_plaintext_extension(deark *c, lctx *d, de_int64 pos)
 {
 	dbuf *f = NULL;
@@ -522,24 +553,47 @@ static void do_plaintext_extension(deark *c, lctx *d, de_int64 pos)
 	de_int64 text_pos_x, text_pos_y; // In pixels
 	de_int64 text_size_x, text_size_y; // In pixels
 	de_int64 text_width_in_chars;
-	de_int64 char_width;
+	de_int64 char_width, char_height;
 	de_int64 char_count;
 	de_int64 k;
+	de_uint32 fgclr, bgclr;
 	de_byte fgclr_idx, bgclr_idx;
 	de_byte b;
+	unsigned char disposal_method = 0;
+	int ok_to_render = 1;
+	de_bitmap *prev_img = NULL;
 
 	// The first sub-block is the header
 	n = (de_int64)de_getbyte(pos++);
 	if(n<12) goto done;
+
+	if(d->gce) {
+		disposal_method = d->gce->disposal_method;
+	}
+
+	if(d->compose) {
+		if(!d->plaintext_warned) {
+			de_warn(c, "Plain text extensions are not fully supported");
+			d->plaintext_warned = 1;
+		}
+	}
+	else {
+		ok_to_render = 0;
+	}
 
 	text_pos_x = de_getui16le(pos);
 	text_pos_y = de_getui16le(pos+2);
 	text_size_x = de_getui16le(pos+4);
 	text_size_y = de_getui16le(pos+6);
 	char_width = (de_int64)de_getbyte(pos+8);
+	char_height = (de_int64)de_getbyte(pos+9);
 	de_dbg(c, "text-area pos: %d,%d pixels", (int)text_pos_x, (int)text_pos_y);
 	de_dbg(c, "text-area size: %d"DE_CHAR_TIMES"%d pixels", (int)text_size_x, (int)text_size_y);
-	de_dbg(c, "character width: %d pixels", (int)char_width);
+	de_dbg(c, "character size: %d"DE_CHAR_TIMES"%d pixels", (int)char_width, (int)char_height);
+
+	if(char_width<3 || char_height<3) {
+		ok_to_render = 0;
+	}
 
 	if(char_width>0) {
 		text_width_in_chars = text_size_x / char_width;
@@ -551,13 +605,26 @@ static void do_plaintext_extension(deark *c, lctx *d, de_int64 pos)
 	de_dbg(c, "calculated chars/line: %d", (int)text_width_in_chars);
 
 	fgclr_idx = de_getbyte(pos+10);
-	decode_text_color(c, d, "fg", fgclr_idx);
+	decode_text_color(c, d, "fg", fgclr_idx, &fgclr);
 	bgclr_idx = de_getbyte(pos+11);
-	decode_text_color(c, d, "bg", bgclr_idx);
+	decode_text_color(c, d, "bg", bgclr_idx, &bgclr);
 
 	pos += n;
 
 	f = dbuf_create_output_file(c, "plaintext.txt", NULL, 0);
+
+	if(ok_to_render && (disposal_method==DISPOSE_PREVIOUS)) {
+		de_int64 tmpw, tmph;
+		// We need to save a copy of the pixels that may be overwritten.
+		tmpw = text_size_x;
+		if(tmpw>d->screen_w) tmpw = d->screen_w;
+		tmph = text_size_y;
+		if(tmph>d->screen_h) tmph = d->screen_h;
+		prev_img = de_bitmap_create(c, tmpw, tmph, 4);
+		de_bitmap_copy_rect(d->screen_img, prev_img,
+			text_pos_x, text_pos_y, text_size_x, text_size_y,
+			0, 0, 0);
+	}
 
 	char_count = 0;
 	while(1) {
@@ -568,6 +635,14 @@ static void do_plaintext_extension(deark *c, lctx *d, de_int64 pos)
 		for(k=0; k<n; k++) {
 			b = dbuf_getbyte(c->infile, pos+k);
 			dbuf_writebyte(f, b);
+
+			if(ok_to_render) {
+				render_plaintext_char(c, d, b,
+					text_pos_x + (char_count%text_width_in_chars)*char_width,
+					text_pos_y + (char_count/text_width_in_chars)*char_height,
+					char_width, char_height, fgclr, bgclr);
+			}
+
 			char_count++;
 			// Insert newlines in appropriate places.
 			if(char_count%text_width_in_chars == 0) {
@@ -577,20 +652,24 @@ static void do_plaintext_extension(deark *c, lctx *d, de_int64 pos)
 		pos += n;
 	}
 
-	// We should try to handle disposal of a plain text extension, because this
-	// can affect the images that come after it.
-	// If the disposal method is restore-to-previous, we should do nothing,
-	// since we didn't do anything that we'd have to undo.
-	// We have no way to support leave-in-place at this time (maybe we should
-	// warn about this), and doing nothing is the best we can do.
-	// So, restore-to-background is the only time we'll to do something.
-	if(d->compose && d->gce && d->gce->disposal_method==DISPOSE_BKGD) {
-		de_bitmap_rect(d->screen_img, text_pos_x, text_pos_y, text_size_x, text_size_y,
-			DE_STOCKCOLOR_TRANSPARENT, 0);
+	if(d->compose) {
+		de_bitmap_write_to_file(d->screen_img, NULL, DE_CREATEFLAG_OPT_IMAGE);
+
+		// TODO: Too much code is duplicated with do_image().
+		if(disposal_method==DISPOSE_BKGD) {
+			de_bitmap_rect(d->screen_img, text_pos_x, text_pos_y, text_size_x, text_size_y,
+				DE_STOCKCOLOR_TRANSPARENT, 0);
+		}
+		else if(disposal_method==DISPOSE_PREVIOUS && prev_img) {
+			de_bitmap_copy_rect(prev_img, d->screen_img,
+				0, 0, text_size_x, text_size_y,
+				text_pos_x, text_pos_y, 0);
+		}
 	}
 
 done:
 	dbuf_close(f);
+	de_bitmap_destroy(prev_img);
 	discard_current_gce_data(c, d);
 }
 
