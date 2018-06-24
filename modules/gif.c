@@ -308,10 +308,25 @@ done:
 
 ////////////////////////////////////////////////////////
 
+static int do_read_header(deark *c, lctx *d, de_int64 pos)
+{
+	de_ucstring *ver = NULL;
+
+	de_dbg(c, "header at %d", (int)pos);
+	de_dbg_indent(c, 1);
+	ver = ucstring_create(c);
+	dbuf_read_to_ucstring(c->infile, pos+3, 3, ver, 0, DE_ENCODING_ASCII);
+	de_dbg(c, "version: \"%s\"", ucstring_getpsz(ver));
+	de_dbg_indent(c, -1);
+	ucstring_destroy(ver);
+	return 1;
+}
+
 static int do_read_screen_descriptor(deark *c, lctx *d, de_int64 pos)
 {
 	de_int64 bgcol_index;
 	de_byte packed_fields;
+	unsigned int n;
 	unsigned int global_color_table_size_code;
 
 	de_dbg(c, "screen descriptor at %d", (int)pos);
@@ -322,13 +337,28 @@ static int do_read_screen_descriptor(deark *c, lctx *d, de_int64 pos)
 	de_dbg(c, "screen dimensions: %d"DE_CHAR_TIMES"%d", (int)d->screen_w, (int)d->screen_h);
 
 	packed_fields = de_getbyte(pos+4);
+	de_dbg(c, "packed fields: 0x%02x", (unsigned int)packed_fields);
+	de_dbg_indent(c, 1);
 	d->has_global_color_table = (packed_fields&0x80)?1:0;
 	de_dbg(c, "global color table flag: %d", d->has_global_color_table);
+
+	n = (packed_fields&0x70)>>4;
+	de_dbg(c, "color resolution: %u (%u bit%s)", n, n+1U, n?"s":"");
+
+	if(d->has_global_color_table) {
+		unsigned int sf;
+		sf = (packed_fields&0x08)?1:0;
+		de_dbg(c, "global color table sorted: %u", sf);
+	}
+
 	if(d->has_global_color_table) {
 		global_color_table_size_code = (unsigned int)(packed_fields&0x07);
 		d->global_color_table_size = (de_int64)(1<<(global_color_table_size_code+1));
-		de_dbg(c, "global color table size: %d colors", (int)d->global_color_table_size);
+		de_dbg(c, "global color table size: %u (%d colors)",
+			global_color_table_size_code, (int)d->global_color_table_size);
 	}
+
+	de_dbg_indent(c, -1);
 
 	// We don't care about the background color, because we always assume the
 	// background is transparent.
@@ -434,6 +464,8 @@ static void do_graphic_control_extension(deark *c, lctx *d, de_int64 pos)
 	d->gce = de_malloc(c, sizeof(struct gceinfo));
 
 	packed_fields = de_getbyte(pos+1);
+	de_dbg(c, "packed fields: 0x%02x", (unsigned int)packed_fields);
+	de_dbg_indent(c, 1);
 	d->gce->trns_color_idx_valid = packed_fields&0x01;
 	de_dbg(c, "has transparency: %d", (int)d->gce->trns_color_idx_valid);
 
@@ -449,10 +481,11 @@ static void do_graphic_control_extension(deark *c, lctx *d, de_int64 pos)
 	default: name="?";
 	}
 	de_dbg(c, "disposal method: %d (%s)", (int)d->gce->disposal_method, name);
+	de_dbg_indent(c, -1);
 
 	delay_time_raw = de_getui16le(pos+2);
 	delay_time = ((double)delay_time_raw)/100.0;
-	de_dbg(c, "delay time: %.02f sec", delay_time);
+	de_dbg(c, "delay time: %d (%.02f sec)", (int)delay_time_raw, delay_time);
 
 	if(d->gce->trns_color_idx_valid) {
 		d->gce->trns_color_idx = de_getbyte(pos+4);
@@ -871,15 +904,27 @@ static void do_read_image_descriptor(deark *c, lctx *d, struct gif_image_data *g
 	de_dbg(c, "image dimensions: %d"DE_CHAR_TIMES"%d", (int)gi->width, (int)gi->height);
 
 	packed_fields = de_getbyte(pos+8);
+	de_dbg(c, "packed fields: 0x%02x", (unsigned int)packed_fields);
+	de_dbg_indent(c, 1);
 	gi->has_local_color_table = (packed_fields&0x80)?1:0;
 	de_dbg(c, "local color table flag: %d", (int)gi->has_local_color_table);
+
+	gi->interlaced = (packed_fields&0x40)?1:0;
+	de_dbg(c, "interlaced: %d", (int)gi->interlaced);
+
+	if(gi->has_local_color_table) {
+		unsigned int sf;
+		sf = (packed_fields&0x08)?1:0;
+		de_dbg(c, "local color table sorted: %u", sf);
+	}
+
 	if(gi->has_local_color_table) {
 		local_color_table_size_code = (unsigned int)(packed_fields&0x07);
 		gi->local_color_table_size = (de_int64)(1<<(local_color_table_size_code+1));
-		de_dbg(c, "local color table size: %d colors", (int)gi->local_color_table_size);
+		de_dbg(c, "local color table size: %u (%d colors)",
+			local_color_table_size_code, (int)gi->local_color_table_size);
 	}
-	gi->interlaced = (packed_fields&0x40)?1:0;
-	de_dbg(c, "interlaced: %d", (int)gi->interlaced);
+	de_dbg_indent(c, -1);
 
 	de_dbg_indent(c, -1);
 }
@@ -1113,7 +1158,9 @@ static void de_run_gif(deark *c, de_module_params *mparams)
 		d->dump_screen = 1;
 	}
 
-	pos = 6;
+	pos = 0;
+	if(!do_read_header(c, d, pos)) goto done;
+	pos += 6;
 	if(!do_read_screen_descriptor(c, d, pos)) goto done;
 	pos += 7;
 	if(!do_read_global_color_table(c, d, pos, &bytesused)) goto done;
