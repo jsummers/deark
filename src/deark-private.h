@@ -700,6 +700,7 @@ de_uint32 de_palette_ega64(int index);
 de_uint32 de_palette_pc16(int index);
 de_uint32 de_palette_pcpaint_cga4(int palnum, int index);
 
+const de_byte *de_get_8x8ascii_font_ptr(void);
 const de_byte *de_get_vga_cp437_font_ptr(void);
 
 void de_color_to_css(de_uint32 color, char *buf, int buflen);

@@ -146,12 +146,16 @@ Deark -- Information about supported formats
 
 * GIF (module="gif")
   - Extract the image, or every frame from an animated or mult-image GIF.
-  - Extract text from plaintext extensions, as separate text files. Text only;
-     colors are ignored.
+  - Plain text extensions are supported.
   - Extract comments (use -a).
   Options
    -opt gif:raw - Extract the individual component images, instead of rendering
-     the frame in full.
+     the frame in full. Plain text extensions might be extracted as text files,
+     instead of images of text.
+   -opt gif:dumpplaintext - Extract plain text extensions to text files (in
+     addition to rendering them to the image).
+   -opt gif:dumpscreen - Save a copy of the "screen" after the last image in
+     the file has been disposed of. Incompatible with gif:raw.
 
 * GodPaint (Atari Falcon) (module="godpaint")
 

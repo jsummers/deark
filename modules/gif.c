@@ -23,7 +23,7 @@ typedef struct localctx_struct {
 	int compose;
 	int bad_screen_flag;
 	int dump_screen;
-	int plaintext_warned;
+	int dump_plaintext_ext;
 
 	de_int64 screen_w, screen_h;
 	int has_global_color_table;
@@ -558,19 +558,32 @@ static void render_plaintext_char(deark *c, lctx *d, de_byte ch,
 	de_uint32 fgclr, de_uint32 bgclr)
 {
 	de_int64 i, j;
+	const de_byte *fontdata;
+	const de_byte *chardata;
+
+	fontdata = de_get_8x8ascii_font_ptr();
+
+	if(ch<32 || ch>127) ch=32;
+	chardata = &fontdata[8 * ((unsigned int)ch - 32)];
 
 	for(j=0; j<size_y; j++) {
 		for(i=0; i<size_x; i++) {
+			unsigned int x2, y2;
 			int isbg;
 			de_uint32 clr;
 
-			// Draw a rectangle as a dummy character (except for spaces).
-			// TODO: Use an actual font here.
-			if(ch==0x20) isbg=1;
-			else if(i==0 || j==0 || i==(size_x-1) || j==(size_y-1)) isbg=1;
-			else if(i==1 || j==1 || i==(size_x-2) || j==(size_y-2)) isbg=0;
-			else isbg=1;
+			// TODO: Better character-rendering facilities.
+			// de_font_paint_character_idx() doesn't quite do what we need.
 
+			x2 = (unsigned int)(0.5+(((double)i)*(8.0/(double)size_x)));
+			y2 = (unsigned int)(0.5+(((double)j)*(8.0/(double)size_y)));
+
+			if(x2<8 && y2<8 && (chardata[y2]&(1<<(7-x2)))) {
+				isbg = 0;
+			}
+			else {
+				isbg = 1;
+			}
 			clr = isbg ? bgclr : fgclr;
 			if(DE_COLOR_A(clr)>0) {
 				de_bitmap_setpixel_rgb(d->screen_img, pos_x+i, pos_y+j, clr);
@@ -604,13 +617,7 @@ static void do_plaintext_extension(deark *c, lctx *d, de_int64 pos)
 		disposal_method = d->gce->disposal_method;
 	}
 
-	if(d->compose) {
-		if(!d->plaintext_warned) {
-			de_warn(c, "Plain text extensions are not fully supported");
-			d->plaintext_warned = 1;
-		}
-	}
-	else {
+	if(!d->compose) {
 		ok_to_render = 0;
 	}
 
@@ -644,7 +651,9 @@ static void do_plaintext_extension(deark *c, lctx *d, de_int64 pos)
 
 	pos += n;
 
-	f = dbuf_create_output_file(c, "plaintext.txt", NULL, 0);
+	if(d->dump_plaintext_ext) {
+		f = dbuf_create_output_file(c, "plaintext.txt", NULL, 0);
+	}
 
 	if(ok_to_render && (disposal_method==DISPOSE_PREVIOUS)) {
 		de_int64 tmpw, tmph;
@@ -667,7 +676,7 @@ static void do_plaintext_extension(deark *c, lctx *d, de_int64 pos)
 
 		for(k=0; k<n; k++) {
 			b = dbuf_getbyte(c->infile, pos+k);
-			dbuf_writebyte(f, b);
+			if(f) dbuf_writebyte(f, b);
 
 			if(ok_to_render) {
 				render_plaintext_char(c, d, b,
@@ -677,9 +686,12 @@ static void do_plaintext_extension(deark *c, lctx *d, de_int64 pos)
 			}
 
 			char_count++;
+
 			// Insert newlines in appropriate places.
-			if(char_count%text_width_in_chars == 0) {
-				dbuf_writebyte(f, '\n');
+			if(f) {
+				if(char_count%text_width_in_chars == 0) {
+					dbuf_writebyte(f, '\n');
+				}
 			}
 		}
 		pos += n;
@@ -1150,10 +1162,16 @@ static void de_run_gif(deark *c, de_module_params *mparams)
 
 	if(de_get_ext_option(c, "gif:raw")) {
 		d->compose = 0;
+		// TODO: It would be more consistent to extract an *image* of each
+		// plain text extension, but we don't support that, so extract them
+		// as text files instead.
+		d->dump_plaintext_ext = 1;
+	}
+	if(de_get_ext_option(c, "gif:dumpplaintext")) {
+		d->dump_plaintext_ext = 1;
 	}
 	if(de_get_ext_option(c, "gif:dumpscreen")) {
-		// This is a debugging feature, not intended to be documented.
-		// It lets us see what the screen looks like after the last
+		// This lets the user see what the screen looks like after the last
 		// "graphic rendering block" has been disposed of.
 		d->dump_screen = 1;
 	}
@@ -1240,6 +1258,8 @@ static int de_identify_gif(deark *c)
 static void de_help_gif(deark *c)
 {
 	de_msg(c, "-opt gif:raw : Extract individual component images");
+	de_msg(c, "-opt gif:dumpplaintext : Also extract plain text extensions to text files");
+	de_msg(c, "-opt gif:dumpscreen : Also extact the final \"screen\" contents");
 }
 
 void de_module_gif(deark *c, struct deark_module_info *mi)
