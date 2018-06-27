@@ -664,6 +664,12 @@ Deark -- Information about supported formats
 * NULL (module="null")
   - Do nothing.
 
+* Ogg (Vorbis, Theora, etc.) (module="ogg")
+  - Files can be parsed, but there is usually nothing that can be extracted
+    from them.
+  Options
+   -opt ogg:hexdump : With -d, include a hex dump of more data than usual.
+
 * Photoshop Action format (.atn) (module="ps_action")
   - Files can be parsed, but there is usually nothing that can be extracted
     from them.

@@ -519,11 +519,16 @@ static int de_identify_ogg(deark *c)
 	return 0;
 }
 
+static void de_help_ogg(deark *c)
+{
+	de_msg(c, "-opt ogg:hexdump : Hex dump the first part of all segments");
+}
+
 void de_module_ogg(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "ogg";
 	mi->desc = "Ogg multimedia";
 	mi->run_fn = de_run_ogg;
 	mi->identify_fn = de_identify_ogg;
-	mi->flags |= DE_MODFLAG_NONWORKING;
+	mi->help_fn = de_help_ogg;
 }
