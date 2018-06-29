@@ -307,9 +307,20 @@ static void do_photoshop_segment(deark *c, lctx *d, struct page_ctx *pg,
 
 static void do_mpf_segment(deark *c, lctx *d, de_int64 pos, de_int64 data_size)
 {
+	de_module_params *mparams = NULL;
+
 	de_dbg(c, "MPF data at %d, size=%d", (int)pos, (int)data_size);
 	de_dbg_indent(c, 1);
-	de_run_module_by_id_on_slice2(c, "tiff", "M", c->infile, pos, data_size);
+
+	mparams = de_malloc(c, sizeof(de_module_params));
+
+	mparams->in_params.codes = "M";
+	mparams->in_params.flags |= 0x01;
+	mparams->in_params.offset_in_parent = pos;
+
+	de_run_module_by_id_on_slice(c, "tiff", mparams, c->infile, pos, data_size);
+
+	de_free(c, mparams);
 	de_dbg_indent(c, -1);
 }
 

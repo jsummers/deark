@@ -143,6 +143,8 @@ struct localctx_struct {
 	de_int64 ifditemsize;
 	de_int64 offsetoffset;
 	de_int64 offsetsize; // Number of bytes in a file offset
+
+	const struct de_module_in_params *in_params;
 };
 
 // Returns 0 if stack is empty.
@@ -1231,6 +1233,7 @@ static void handler_mpentry(deark *c, lctx *d, const struct taginfo *tg, const s
 		de_uint32 attrs;
 		de_uint32 dataformat;
 		de_uint32 typecode;
+		char offset_descr[80];
 
 		de_dbg(c, "entry #%d", (int)(k+1));
 		de_dbg_indent(c, 1);
@@ -1257,9 +1260,19 @@ static void handler_mpentry(deark *c, lctx *d, const struct taginfo *tg, const s
 		de_dbg(c, "image size: %u", (unsigned int)n);
 		n = dbuf_getui32x(c->infile, pos+8, d->is_le);
 
-		// This is apparently relative to the offset of the MPF segment in
-		// the parent JPEG file.
-		de_dbg(c, "image offset: %u", (unsigned int)n);
+		// This is relative to beginning of the payload data (the TIFF header)
+		// of the MPF segment, except that 0 is a special case.
+		if(n==0) {
+			de_strlcpy(offset_descr, "refers to the first image", sizeof(offset_descr));
+		}
+		else if(d->in_params && (d->in_params->flags&0x01)) {
+			de_snprintf(offset_descr, sizeof(offset_descr), "absolute offset %"INT64_FMT,
+				d->in_params->offset_in_parent+n);
+		}
+		else {
+			de_strlcpy(offset_descr, "?", sizeof(offset_descr));
+		}
+		de_dbg(c, "image offset: %u (%s)", (unsigned int)n, offset_descr);
 		n = dbuf_getui16x(c->infile, pos+12, d->is_le);
 
 		de_dbg(c, "dep. image #1 entry: %u", (unsigned int)n);
@@ -2304,6 +2317,10 @@ static void de_run_tiff(deark *c, de_module_params *mparams)
 	lctx *d = NULL;
 
 	d = de_malloc(c, sizeof(lctx));
+
+	if(mparams) {
+		d->in_params = &mparams->in_params;
+	}
 
 	d->fmt = de_identify_tiff_internal(c, &d->is_le);
 

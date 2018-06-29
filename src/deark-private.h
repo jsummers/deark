@@ -43,6 +43,9 @@
 
 struct de_module_in_params {
 	const char *codes;
+	//  0x01: offset_in_parent is set
+	de_uint32 flags;
+	de_int64 offset_in_parent;
 };
 
 struct de_module_out_params {
