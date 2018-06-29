@@ -2307,17 +2307,17 @@ static void de_run_tiff(deark *c, de_module_params *mparams)
 
 	d->fmt = de_identify_tiff_internal(c, &d->is_le);
 
-	if(mparams && mparams->codes) {
-		if(de_strchr(mparams->codes, 'N')) {
+	if(mparams && mparams->in_params.codes) {
+		if(de_strchr(mparams->in_params.codes, 'N')) {
 			d->fmt = DE_TIFFFMT_NIKONMN;
 		}
 
-		if(de_strchr(mparams->codes, 'M') && (d->fmt==DE_TIFFFMT_TIFF))
+		if(de_strchr(mparams->in_params.codes, 'M') && (d->fmt==DE_TIFFFMT_TIFF))
 		{
 			d->fmt = DE_TIFFFMT_MPEXT;
 		}
 
-		if(de_strchr(mparams->codes, 'E')) {
+		if(de_strchr(mparams->in_params.codes, 'E')) {
 			d->is_exif_submodule = 1;
 		}
 	}
@@ -2370,18 +2370,18 @@ static void de_run_tiff(deark *c, de_module_params *mparams)
 
 	if(mparams) {
 		if(d->has_exif_gps) {
-			mparams->returned_flags |= 0x08;
+			mparams->out_params.flags |= 0x08;
 		}
 		if(d->first_ifd_cosited) {
-			mparams->returned_flags |= 0x10;
+			mparams->out_params.flags |= 0x10;
 		}
 		if(d->first_ifd_orientation>0) {
-			mparams->returned_flags |= 0x20;
-			mparams->uint1 = d->first_ifd_orientation;
+			mparams->out_params.flags |= 0x20;
+			mparams->out_params.uint1 = d->first_ifd_orientation;
 		}
 		if(d->exif_version_as_uint32>0) {
-			mparams->returned_flags |= 0x40;
-			mparams->uint2 = d->exif_version_as_uint32;
+			mparams->out_params.flags |= 0x40;
+			mparams->out_params.uint2 = d->exif_version_as_uint32;
 		}
 	}
 

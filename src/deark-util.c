@@ -638,7 +638,7 @@ void de_run_module_by_id_on_slice2(deark *c, const char *id, const char *codes,
 	de_module_params *mparams = NULL;
 
 	mparams = de_malloc(c, sizeof(de_module_params));
-	mparams->codes = codes;
+	mparams->in_params.codes = codes;
 	de_run_module_by_id_on_slice(c, id, mparams, f, pos, len);
 	de_free(c, mparams);
 }

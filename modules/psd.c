@@ -3676,22 +3676,22 @@ static void de_run_psd(deark *c, de_module_params *mparams)
 	zz = de_malloc(c, sizeof(zztype));
 	zz_init_absolute(zz, 0, c->infile->len);
 
-	if(mparams && mparams->codes) {
-		if(de_strchr(mparams->codes, 'R')) { // Image resources
+	if(mparams && mparams->in_params.codes) {
+		if(de_strchr(mparams->in_params.codes, 'R')) { // Image resources
 			d->version = 1;
 			init_version_specific_info(c, d);
 			do_image_resource_blocks(c, d, zz);
-			mparams->returned_flags = 0;
-			if(d->has_iptc) mparams->returned_flags |= 0x02;
+			mparams->out_params.flags = 0;
+			if(d->has_iptc) mparams->out_params.flags |= 0x02;
 			goto done;
 		}
-		if(de_strchr(mparams->codes, 'T')) { // Tagged blocks
+		if(de_strchr(mparams->in_params.codes, 'T')) { // Tagged blocks
 			d->version = 1;
 			init_version_specific_info(c, d);
 			do_external_tagged_blocks(c, d, zz);
 			goto done;
 		}
-		if(de_strchr(mparams->codes, 'B')) { // Tagged blocks, PSB-format
+		if(de_strchr(mparams->in_params.codes, 'B')) { // Tagged blocks, PSB-format
 			d->version = 2;
 			init_version_specific_info(c, d);
 			do_external_tagged_blocks(c, d, zz);

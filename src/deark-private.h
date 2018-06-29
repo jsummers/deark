@@ -41,17 +41,26 @@
 
 #define DE_ITEMS_IN_ARRAY(x) (sizeof(x)/sizeof(x[0]))
 
-typedef struct de_module_params_struct {
+struct de_module_in_params {
 	const char *codes;
-	// returned_flags can be module-specific.
+};
+
+struct de_module_out_params {
+	// flags can be module-specific.
 	//  psd: 0x02: has_iptc
 	//  tiff: 0x08: has_exif_gps
 	//  tiff: 0x10: first IFD has subsampling=cosited
 	//  tiff: 0x20: uint1 = first IFD's orientation
 	//  tiff: 0x40: uint2 = Exif version
-	de_uint32 returned_flags;
+	de_uint32 flags;
 	de_uint32 uint1;
 	de_uint32 uint2;
+};
+
+typedef struct de_module_params_struct {
+	struct de_module_in_params in_params;
+	struct de_module_out_params out_params;
+
 } de_module_params;
 
 #define DE_DECLARE_MODULE(x) void x(deark *c, struct deark_module_info *mi)

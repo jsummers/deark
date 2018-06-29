@@ -259,7 +259,7 @@ void de_run(deark *c)
 		// in its "tagged blocks" mode. (If that turns out to be useful, though,
 		// it would be better to make it available via an "-opt" option, or
 		// even a new module.)
-		mparams->codes = c->modcodes_req;
+		mparams->in_params.codes = c->modcodes_req;
 	}
 
 	if(module_was_autodetected)

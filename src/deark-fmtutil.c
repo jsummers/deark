@@ -213,7 +213,7 @@ void de_fmtutil_handle_exif2(deark *c, de_int64 pos, de_int64 len,
 	}
 
 	mparams = de_malloc(c, sizeof(de_module_params));
-	mparams->codes = "E";
+	mparams->in_params.codes = "E";
 
 	de_run_module_by_id_on_slice(c, "tiff", mparams, c->infile, pos, len);
 	if(returned_flags) {
@@ -221,13 +221,13 @@ void de_fmtutil_handle_exif2(deark *c, de_int64 pos, de_int64 len,
 		// extract_level>=2, but for now there's no reasonable way to fix it.
 		// We have to process -- not extract -- the Exif chunk if we want to
 		// know what's in it.
-		*returned_flags = mparams->returned_flags;
-		if((mparams->returned_flags & 0x20) && orientation) {
-			*orientation = mparams->uint1;
+		*returned_flags = mparams->out_params.flags;
+		if((mparams->out_params.flags & 0x20) && orientation) {
+			*orientation = mparams->out_params.uint1;
 		}
 
-		if((mparams->returned_flags & 0x40) && exifversion) {
-			*exifversion = mparams->uint2;
+		if((mparams->out_params.flags & 0x40) && exifversion) {
+			*exifversion = mparams->out_params.uint2;
 		}
 	}
 
@@ -259,10 +259,10 @@ void de_fmtutil_handle_photoshop_rsrc2(deark *c, dbuf *f, de_int64 pos, de_int64
 	de_module_params *mparams = NULL;
 
 	mparams = de_malloc(c, sizeof(de_module_params));
-	mparams->codes = "R";
+	mparams->in_params.codes = "R";
 	de_run_module_by_id_on_slice(c, "psd", mparams, f, pos, len);
 	if(returned_flags) {
-		*returned_flags = mparams->returned_flags;
+		*returned_flags = mparams->out_params.flags;
 	}
 	de_free(c, mparams);
 }
