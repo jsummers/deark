@@ -320,6 +320,14 @@ static void do_mpf_segment(deark *c, lctx *d, de_int64 pos, de_int64 data_size)
 
 	de_run_module_by_id_on_slice(c, "tiff", mparams, c->infile, pos, data_size);
 
+	if(mparams->out_params.flags & 0x80) {
+		if(mparams->out_params.int64_1 > c->infile->len) {
+			de_warn(c, "Invalid MPF multi-picture data. File size should be at "
+				"least %"INT64_FMT", is %"INT64_FMT".",
+				mparams->out_params.int64_1, c->infile->len);
+		}
+	}
+
 	de_free(c, mparams);
 	de_dbg_indent(c, -1);
 }

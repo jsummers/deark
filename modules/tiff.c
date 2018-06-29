@@ -145,6 +145,8 @@ struct localctx_struct {
 	de_int64 offsetsize; // Number of bytes in a file offset
 
 	const struct de_module_in_params *in_params;
+
+	de_int64 mpf_min_file_size;
 };
 
 // Returns 0 if stack is empty.
@@ -1230,6 +1232,8 @@ static void handler_mpentry(deark *c, lctx *d, const struct taginfo *tg, const s
 	s = ucstring_create(c);
 	for(k=0; k<num_entries; k++) {
 		de_int64 n;
+		de_int64 imgoffs_rel, imgoffs_abs;
+		de_int64 imgsize;
 		de_uint32 attrs;
 		de_uint32 dataformat;
 		de_uint32 typecode;
@@ -1256,25 +1260,36 @@ static void handler_mpentry(deark *c, lctx *d, const struct taginfo *tg, const s
 		de_dbg(c, "image attribs: 0x%08x (%s)", (unsigned int)attrs,
 			ucstring_getpsz(s));
 
-		n = dbuf_getui32x(c->infile, pos+4, d->is_le);
-		de_dbg(c, "image size: %u", (unsigned int)n);
-		n = dbuf_getui32x(c->infile, pos+8, d->is_le);
+		imgsize = dbuf_getui32x(c->infile, pos+4, d->is_le);
+		de_dbg(c, "image size: %u", (unsigned int)imgsize);
 
+		imgoffs_rel = dbuf_getui32x(c->infile, pos+8, d->is_le);
 		// This is relative to beginning of the payload data (the TIFF header)
 		// of the MPF segment, except that 0 is a special case.
-		if(n==0) {
+		if(imgoffs_rel==0) {
+			imgoffs_abs = 0;
 			de_strlcpy(offset_descr, "refers to the first image", sizeof(offset_descr));
 		}
 		else if(d->in_params && (d->in_params->flags&0x01)) {
+			imgoffs_abs = d->in_params->offset_in_parent+imgoffs_rel;
 			de_snprintf(offset_descr, sizeof(offset_descr), "absolute offset %"INT64_FMT,
-				d->in_params->offset_in_parent+n);
+				imgoffs_abs);
 		}
 		else {
+			imgoffs_abs = imgoffs_rel;
 			de_strlcpy(offset_descr, "?", sizeof(offset_descr));
 		}
-		de_dbg(c, "image offset: %u (%s)", (unsigned int)n, offset_descr);
-		n = dbuf_getui16x(c->infile, pos+12, d->is_le);
+		de_dbg(c, "image offset: %u (%s)", (unsigned int)imgoffs_rel, offset_descr);
 
+		if(imgoffs_rel>0 && d->in_params && (d->in_params->flags&0x01)) {
+			// Record the minimum parent file size implied by this entry, if it's the
+			// largest we've seen so far.
+			if(imgoffs_abs+imgsize > d->mpf_min_file_size) {
+				d->mpf_min_file_size = imgoffs_abs+imgsize;
+			}
+		}
+
+		n = dbuf_getui16x(c->infile, pos+12, d->is_le);
 		de_dbg(c, "dep. image #1 entry: %u", (unsigned int)n);
 		n = dbuf_getui16x(c->infile, pos+14, d->is_le);
 		de_dbg(c, "dep. image #2 entry: %u", (unsigned int)n);
@@ -2399,6 +2414,10 @@ static void de_run_tiff(deark *c, de_module_params *mparams)
 		if(d->exif_version_as_uint32>0) {
 			mparams->out_params.flags |= 0x40;
 			mparams->out_params.uint2 = d->exif_version_as_uint32;
+		}
+		if(d->fmt==DE_TIFFFMT_MPEXT && d->mpf_min_file_size>0) {
+			mparams->out_params.flags |= 0x80;
+			mparams->out_params.int64_1 = d->mpf_min_file_size;
 		}
 	}
 
