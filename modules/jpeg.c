@@ -13,7 +13,7 @@ DE_DECLARE_MODULE(de_module_jpegscan);
 
 struct fpxr_entity_struct {
 	size_t index;
-	de_ucstring *name;
+	struct de_stringreaderdata *name_srd;
 	dbuf *stream;
 	de_int64 stream_size;
 	int is_storage;
@@ -491,8 +491,11 @@ static void destroy_fpxr_data(deark *c, lctx *d, struct page_ctx *pg)
 	if(!pg->fpxr_data) return;
 
 	for(k=0; k<pg->fpxr_data->num_entities; k++) {
-		ucstring_destroy(pg->fpxr_data->entities[k].name);
-		pg->fpxr_data->entities[k].name = NULL;
+		if(pg->fpxr_data->entities[k].name_srd) {
+			de_destroy_stringreaderdata(c, pg->fpxr_data->entities[k].name_srd);
+			pg->fpxr_data->entities[k].name_srd = NULL;
+		}
+
 		dbuf_close(pg->fpxr_data->entities[k].stream);
 		pg->fpxr_data->entities[k].stream = NULL;
 	}
@@ -500,6 +503,25 @@ static void destroy_fpxr_data(deark *c, lctx *d, struct page_ctx *pg)
 	de_free(c, pg->fpxr_data->entities);
 	de_free(c, pg->fpxr_data);
 	pg->fpxr_data = NULL;
+}
+
+static void do_fpxr_olepropset_stream(deark *c, lctx *d, struct page_ctx *pg, struct fpxr_entity_struct *fe)
+{
+	de_dbg(c, "decoding Flashpix stream %d (OLE property set)", (int)fe->index);
+	de_dbg_indent(c, 1);
+	de_run_module_by_id_on_slice2(c, "cfb", "P", fe->stream, 0, fe->stream->len);
+	de_dbg_indent(c, -1);
+}
+
+static int ucstring_contains_char(de_ucstring *s, de_int32 ch)
+{
+	de_int64 k;
+
+	if(!s) return 0;
+	for(k=0; k<s->len; k++) {
+		if(s->str[k]==ch) return 1;
+	}
+	return 0;
 }
 
 // Called after we've saved all of a stream's data.
@@ -517,14 +539,26 @@ static void finalize_fpxr_stream(deark *c, lctx *d, struct page_ctx *pg, struct 
 			(unsigned int)fe->index, fe->stream_size, fe->stream->len);
 	}
 
-	// TODO: Parse some kinds of streams?
+	// Process some known streams
+	if(fe->name_srd) {
+		// The FlashPix spec says "Names in an IStorage that begin with the
+		// value '\0x05' are reserved exclusively for the storage of property
+		// sets."
+		//
+		// It probably means the last *component* of the name begins with 0x05.
+		// 0x05 shouldn't appear anywhere else, I think, so I'll just search
+		// the whole string for it.
+		if(ucstring_contains_char(fe->name_srd->str, 0x05)) {
+			do_fpxr_olepropset_stream(c, d, pg, fe);
+		}
+	}
 
 	if(c->extract_level<2) goto done;
 
 	fi = de_finfo_create(c);
 
 	name2 = ucstring_create(c);
-	ucstring_append_ucstring(name2, fe->name);
+	ucstring_append_ucstring(name2, fe->name_srd->str);
 	if(name2->len>0) {
 		ucstring_append_char(name2, '.');
 	}
@@ -660,10 +694,9 @@ static void do_fpxr_segment(deark *c, lctx *d, struct page_ctx *pg, de_int64 pos
 
 			nbytesleft = pos1+len-pos;
 			if(!dbuf_get_utf16_NULterm_len(c->infile, pos, nbytesleft, &bytes_consumed)) goto done;
-			fe->name = ucstring_create(c);
-			dbuf_read_to_ucstring_n(c->infile, pos, bytes_consumed-2, DE_DBG_MAX_STRLEN,
-				fe->name, 0, DE_ENCODING_UTF16LE);
-			de_dbg(c, "entity name: \"%s\"", ucstring_getpsz_d(fe->name));
+			fe->name_srd = dbuf_read_string(c->infile, pos, bytes_consumed-2, bytes_consumed-2,
+				DE_CONVFLAG_WANT_UTF8, DE_ENCODING_UTF16LE);
+			de_dbg(c, "entity name: \"%s\"", ucstring_getpsz_d(fe->name_srd->str));
 			pos += bytes_consumed;
 
 			if(fe->is_storage) { // read Entity class ID

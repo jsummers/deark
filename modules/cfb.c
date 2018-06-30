@@ -759,6 +759,11 @@ done:
 	return retval;
 }
 
+/////////////////////////////////////////////////////////////////////
+// OLE Property Sets
+// Refer to the Microsoft document "[MS-OLEPS]".
+// TODO: Should this be moved to its own module, or to fmtutil?
+
 struct ole_prop_set_struct {
 	dbuf *f; // The full data stream
 	de_int64 tbloffset;
@@ -788,6 +793,29 @@ static void get_prop_name(deark *c, struct prop_info_struct *pinfo)
 	}
 	else {
 		pinfo->name = "?";
+	}
+}
+
+static void do_prop_blob(deark *c, struct ole_prop_set_struct *si,
+	struct prop_info_struct *pinfo)
+{
+	de_int64 blob_data_start;
+	de_int64 blob_data_size;
+	de_byte magic[8];
+
+	blob_data_size = dbuf_getui32le(si->f, si->tbloffset+pinfo->data_offs+4);
+	de_dbg(c, "blob data size: %"INT64_FMT, blob_data_size);
+
+	blob_data_start = si->tbloffset+pinfo->data_offs+8;
+	if(blob_data_start + blob_data_size > si->f->len) return;
+	if(blob_data_size<8) return;
+
+	// Minor hack. If a blob looks like a JPEG file, extract it.
+	dbuf_read(si->f, magic, blob_data_start, 8);
+
+	if(magic[0]==0xff && magic[1]==0xd8 && magic[2]==0xff) {
+		dbuf_create_file_from_slice(si->f, blob_data_start, blob_data_size,
+			"oleblob.jpg", NULL, DE_CREATEFLAG_IS_AUX);
 	}
 }
 
@@ -890,6 +918,9 @@ static void do_prop_data(deark *c, struct ole_prop_set_struct *si,
 	case 0x40:
 		do_prop_FILETIME(c, si, pinfo);
 		break;
+	case 0x41:
+		do_prop_blob(c, si, pinfo);
+		break;
 	case 0x47:
 		do_prop_clipboard(c, si, pinfo);
 		break;
@@ -900,7 +931,6 @@ static void do_prop_data(deark *c, struct ole_prop_set_struct *si,
 	ucstring_destroy(s);
 }
 
-// TODO: Move this to fmtutil, or maybe its own module.
 static void do_decode_ole_property_set(deark *c, dbuf *f)
 {
 	de_int64 n;
@@ -912,6 +942,7 @@ static void do_decode_ole_property_set(deark *c, dbuf *f)
 
 	de_dbg_indent_save(c, &saved_indent_level);
 	si = de_malloc(c, sizeof(struct ole_prop_set_struct));
+	// TODO: ASCII may not always be the best default.
 	si->encoding = DE_ENCODING_ASCII;
 	si->f = f;
 
@@ -924,7 +955,9 @@ static void do_decode_ole_property_set(deark *c, dbuf *f)
 	n = dbuf_getui16le(si->f, 6);
 	de_dbg(c, "OS: 0x%04x", (unsigned int)n);
 
-	si->tbloffset = dbuf_getui32le(si->f, 44);
+	// This is supposed to be a DWORD, but I've seen some with only two valid
+	// bytes. And it shouldn't be much bigger than 48.
+	si->tbloffset = dbuf_getui16le(si->f, 44);
 	de_dbg(c, "table offset: %d", (int)si->tbloffset);
 
 	// I think this is the length of the data section
@@ -954,6 +987,8 @@ done:
 	de_free(c, si);
 	de_dbg_indent_restore(c, saved_indent_level);
 }
+
+/////////////////////////////////////////////////////////////////////
 
 static void do_SummaryInformation(deark *c, lctx *d, struct dir_entry_info *dei, int is_root)
 {

@@ -624,9 +624,18 @@ void de_run_module_by_id_on_slice(deark *c, const char *id, de_module_params *mp
 	dbuf *old_ifile;
 
 	old_ifile = c->infile;
-	c->infile = dbuf_open_input_subfile(f, pos, len);
-	de_run_module_by_id(c, id, mparams);
-	dbuf_close(c->infile);
+
+	if(pos==0 && len==f->len) {
+		// Optimization: We don't need a subfile in this case
+		c->infile = f;
+		de_run_module_by_id(c, id, mparams);
+	}
+	else {
+		c->infile = dbuf_open_input_subfile(f, pos, len);
+		de_run_module_by_id(c, id, mparams);
+		dbuf_close(c->infile);
+	}
+
 	c->infile = old_ifile;
 }
 
