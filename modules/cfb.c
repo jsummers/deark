@@ -673,7 +673,7 @@ done:
 	de_finfo_destroy(c, fi);
 }
 
-static void read_timestamp(deark *c, lctx *d, dbuf *f, de_int64 pos,
+static void read_timestamp(deark *c, dbuf *f, de_int64 pos,
 	struct de_timestamp *ts, const char *field_name)
 {
 	de_int64 ts_as_FILETIME;
@@ -736,7 +736,7 @@ static int read_thumbsdb_catalog(deark *c, lctx *d, struct dir_entry_info *dei)
 		d->thumbsdb_catalog[i].id = (de_uint32)dbuf_getui32le(catf, pos+4);
 		de_dbg(c, "id: %u", (unsigned int)d->thumbsdb_catalog[i].id);
 
-		read_timestamp(c, d, catf, pos+8, &d->thumbsdb_catalog[i].mod_time, "timestamp");
+		read_timestamp(c, catf, pos+8, &d->thumbsdb_catalog[i].mod_time, "timestamp");
 
 		d->thumbsdb_catalog[i].fname = ucstring_create(c);
 
@@ -759,7 +759,7 @@ done:
 	return retval;
 }
 
-struct summaryinfo_struct {
+struct ole_prop_set_struct {
 	dbuf *f; // The full data stream
 	de_int64 tbloffset;
 	int encoding;
@@ -773,7 +773,7 @@ struct prop_info_struct {
 };
 
 // Sets pinfo->name based on pinfo->type.
-static void get_prop_name(deark *c, lctx *d, struct prop_info_struct *pinfo)
+static void get_prop_name(deark *c, struct prop_info_struct *pinfo)
 {
 #define PINFO_EDITING_TIME 10
 	static const char *names[20] = {
@@ -791,7 +791,7 @@ static void get_prop_name(deark *c, lctx *d, struct prop_info_struct *pinfo)
 	}
 }
 
-static void do_prop_clipboard(deark *c, lctx *d, struct summaryinfo_struct *si,
+static void do_prop_clipboard(deark *c, struct ole_prop_set_struct *si,
 	struct prop_info_struct *pinfo)
 {
 	de_uint32 cbtype;
@@ -829,7 +829,7 @@ done:
 	;
 }
 
-static int do_prop_FILETIME(deark *c, lctx *d, struct summaryinfo_struct *si,
+static int do_prop_FILETIME(deark *c, struct ole_prop_set_struct *si,
 	struct prop_info_struct *pinfo)
 {
 	struct de_timestamp ts;
@@ -840,18 +840,19 @@ static int do_prop_FILETIME(deark *c, lctx *d, struct summaryinfo_struct *si,
 		return 0;
 	}
 
-	read_timestamp(c, d, si->f, si->tbloffset+pinfo->data_offs+4, &ts, pinfo->name);
+	read_timestamp(c, si->f, si->tbloffset+pinfo->data_offs+4, &ts, pinfo->name);
 	return 1;
 }
 
 // Read the value for one property.
-static void do_prop_data(deark *c, lctx *d, struct summaryinfo_struct *si,
+static void do_prop_data(deark *c, struct ole_prop_set_struct *si,
 	struct prop_info_struct *pinfo)
 {
 	de_int64 n;
 	de_ucstring *s = NULL;
 
 	pinfo->data_type = dbuf_getui32le(si->f, si->tbloffset+pinfo->data_offs);
+	de_dbg(c, "data type: 0x%04x", (unsigned int)pinfo->data_type);
 
 	switch(pinfo->data_type) {
 	case 0x02: // int16
@@ -887,10 +888,10 @@ static void do_prop_data(deark *c, lctx *d, struct summaryinfo_struct *si,
 		de_dbg(c, "%s: \"%s\"", pinfo->name, ucstring_getpsz(s));
 		break;
 	case 0x40:
-		do_prop_FILETIME(c, d, si, pinfo);
+		do_prop_FILETIME(c, si, pinfo);
 		break;
 	case 0x47:
-		do_prop_clipboard(c, d, si, pinfo);
+		do_prop_clipboard(c, si, pinfo);
 		break;
 	default:
 		de_dbg(c, "[data type 0x%04x not supported]", (unsigned int)pinfo->data_type);
@@ -899,64 +900,78 @@ static void do_prop_data(deark *c, lctx *d, struct summaryinfo_struct *si,
 	ucstring_destroy(s);
 }
 
-static void do_SummaryInformation(deark *c, lctx *d, struct dir_entry_info *dei, int is_root)
+// TODO: Move this to fmtutil, or maybe its own module.
+static void do_decode_ole_property_set(deark *c, dbuf *f)
 {
-	struct summaryinfo_struct si;
 	de_int64 n;
 	de_int64 nproperties;
-	int saved_indent_level;
 	struct prop_info_struct pinfo;
 	int i;
-
-	de_memset(&si, 0, sizeof(struct summaryinfo_struct));
-	si.encoding = DE_ENCODING_ASCII;
+	int saved_indent_level;
+	struct ole_prop_set_struct *si = NULL;
 
 	de_dbg_indent_save(c, &saved_indent_level);
-	de_dbg(c, "SummaryInformation (%s)", is_root?"root":"non-root");
-	de_dbg_indent(c, 1);
-	if(dei->stream_size>1000000) goto done;
-
-	si.f = dbuf_create_membuf(c, dei->stream_size, 1);
-	copy_any_stream_to_dbuf(c, d, dei, 0, dei->stream_size, si.f);
+	si = de_malloc(c, sizeof(struct ole_prop_set_struct));
+	si->encoding = DE_ENCODING_ASCII;
+	si->f = f;
 
 	// expecting 48 (or more?) bytes of header info.
-	n = dbuf_getui16le(si.f, 0);
+	n = dbuf_getui16le(si->f, 0);
 	de_dbg(c, "byte order code: 0x%04x", (unsigned int)n);
 	if(n != 0xfffe) goto done;
-	n = dbuf_getui16le(si.f, 4);
+	n = dbuf_getui16le(si->f, 4);
 	de_dbg(c, "OS ver: 0x%04x", (unsigned int)n);
-	n = dbuf_getui16le(si.f, 6);
+	n = dbuf_getui16le(si->f, 6);
 	de_dbg(c, "OS: 0x%04x", (unsigned int)n);
 
-	si.tbloffset = dbuf_getui32le(si.f, 44);
-	de_dbg(c, "table offset: %d", (int)si.tbloffset);
+	si->tbloffset = dbuf_getui32le(si->f, 44);
+	de_dbg(c, "table offset: %d", (int)si->tbloffset);
 
 	// I think this is the length of the data section
-	n = dbuf_getui32le(si.f, si.tbloffset);
+	n = dbuf_getui32le(si->f, si->tbloffset);
 	de_dbg(c, "property data length: %d", (int)n);
 
-	nproperties = dbuf_getui32le(si.f, si.tbloffset+4);
+	nproperties = dbuf_getui32le(si->f, si->tbloffset+4);
 	de_dbg(c, "number of properties: %d", (int)nproperties);
 	if(nproperties>200) goto done;
 
 	for(i=0; i<nproperties; i++) {
 		de_memset(&pinfo, 0, sizeof(struct prop_info_struct));
 
-		pinfo.type = dbuf_getui32le(si.f, si.tbloffset+8 + 8*i);
-		pinfo.data_offs = dbuf_getui32le(si.f, si.tbloffset+8 + 8*i + 4);
-		get_prop_name(c, d, &pinfo);
+		pinfo.type = dbuf_getui32le(si->f, si->tbloffset+8 + 8*i);
+		pinfo.data_offs = dbuf_getui32le(si->f, si->tbloffset+8 + 8*i + 4);
+		get_prop_name(c, &pinfo);
 
 		de_dbg(c, "prop[%d]: type=0x%04x (%s), data_offs=%d", (int)i,
 			(unsigned int)pinfo.type, pinfo.name,
 			(int)pinfo.data_offs);
 		de_dbg_indent(c, 1);
-		do_prop_data(c, d, &si, &pinfo);
+		do_prop_data(c, si, &pinfo);
 		de_dbg_indent(c, -1);
 	}
 
 done:
+	de_free(c, si);
 	de_dbg_indent_restore(c, saved_indent_level);
-	dbuf_close(si.f);
+}
+
+static void do_SummaryInformation(deark *c, lctx *d, struct dir_entry_info *dei, int is_root)
+{
+	dbuf *f = NULL;
+	int saved_indent_level;
+
+	if(dei->stream_size>1000000) goto done;
+	f = dbuf_create_membuf(c, dei->stream_size, 1);
+	copy_any_stream_to_dbuf(c, d, dei, 0, dei->stream_size, f);
+
+	de_dbg_indent_save(c, &saved_indent_level);
+	de_dbg(c, "SummaryInformation (%s)", is_root?"root":"non-root");
+	de_dbg_indent(c, 1);
+	do_decode_ole_property_set(c, f);
+	de_dbg_indent(c, -1);
+
+done:
+	dbuf_close(f);
 }
 
 static void read_mini_sector_stream(deark *c, lctx *d, de_int64 first_sec_id, de_int64 stream_size)
@@ -1351,7 +1366,7 @@ static void do_dir_entry(deark *c, lctx *d, de_int64 dir_entry_idx, de_int64 dir
 			clsid_string, buf);
 	}
 
-	read_timestamp(c, d, d->dir, dir_entry_offs+108, &dei->mod_time, "mod time");
+	read_timestamp(c, d->dir, dir_entry_offs+108, &dei->mod_time, "mod time");
 
 	raw_sec_id = dbuf_geti32le(d->dir, dir_entry_offs+116);
 
@@ -1431,7 +1446,7 @@ static void do_directory(deark *c, lctx *d, int pass)
 	de_dbg_indent(c, -1);
 }
 
-static void de_run_cfb(deark *c, de_module_params *mparams)
+static void de_run_cfb_internal(deark *c)
 {
 	lctx *d = NULL;
 	const char *cfbfmt_opt;
@@ -1498,6 +1513,18 @@ done:
 		}
 		de_free(c, d);
 	}
+}
+
+static void de_run_cfb(deark *c, de_module_params *mparams)
+{
+	if(mparams && mparams->in_params.codes) {
+		if(de_strchr(mparams->in_params.codes, 'P')) { // OLE Property Set
+			do_decode_ole_property_set(c, c->infile);
+			return;
+		}
+	}
+
+	de_run_cfb_internal(c);
 }
 
 static int de_identify_cfb(deark *c)
