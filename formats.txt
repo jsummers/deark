@@ -213,6 +213,7 @@ Deark -- Information about supported formats
 * JPEG and JPEG-LS (module="jpeg")
   - Extract ICC profiles.
   - Extract JFXX JPEG-formatted thumbnails (rare).
+  - Extract JFIF uncompressed thumbnails (rare).
   - Extract XMP data, including "extended XMP".
   - Extract JPEG-HDR residual images.
   - Process Exif data (or extract it: use -a)
@@ -220,6 +221,7 @@ Deark -- Information about supported formats
   - Process Multi-Picture Format (MPF/MPO) data.
   - Extract comments (use -a). Comment bytes are extracted as-is, because there
      is no way to determine the character encoding.
+  - Extract Exif FPXR streams (use -a).
   Options
    -opt jpeg:stopateoi - Stop when the end of the first JPEG "file" has been
      found, instead of looking for additional JPEG data after it (as in MPO

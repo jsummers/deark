@@ -11,6 +11,20 @@
 DE_DECLARE_MODULE(de_module_jpeg);
 DE_DECLARE_MODULE(de_module_jpegscan);
 
+struct fpxr_entity_struct {
+	size_t index;
+	de_ucstring *name;
+	dbuf *stream;
+	de_int64 stream_size;
+	int is_storage;
+	int done_flag;
+};
+
+struct fpxr_data_struct {
+	size_t num_entities;
+	struct fpxr_entity_struct *entities;
+};
+
 struct page_ctx {
 	de_byte is_jpegls;
 
@@ -45,6 +59,8 @@ struct page_ctx {
 
 	int is_subsampled;
 	de_ucstring *sampling_code;
+
+	struct fpxr_data_struct *fpxr_data;
 };
 
 typedef struct localctx_struct {
@@ -469,17 +485,127 @@ done:
 	ucstring_destroy(digest_str);
 }
 
+static void destroy_fpxr_data(deark *c, lctx *d, struct page_ctx *pg)
+{
+	size_t k;
+	if(!pg->fpxr_data) return;
+
+	for(k=0; k<pg->fpxr_data->num_entities; k++) {
+		ucstring_destroy(pg->fpxr_data->entities[k].name);
+		pg->fpxr_data->entities[k].name = NULL;
+		dbuf_close(pg->fpxr_data->entities[k].stream);
+		pg->fpxr_data->entities[k].stream = NULL;
+	}
+
+	de_free(c, pg->fpxr_data->entities);
+	de_free(c, pg->fpxr_data);
+	pg->fpxr_data = NULL;
+}
+
+// Called after we've saved all of a stream's data.
+static void finalize_fpxr_stream(deark *c, lctx *d, struct page_ctx *pg, struct fpxr_entity_struct *fe)
+{
+	de_finfo *fi = NULL;
+	dbuf *outf = NULL;
+	de_ucstring *name2 = NULL;
+
+	if(!fe || !fe->stream) goto done;
+	if(fe->done_flag || fe->is_storage) goto done;
+
+	if(fe->stream->len != fe->stream_size) {
+		de_warn(c, "Expected FPXR stream #%u to have %"INT64_FMT" bytes, found %"INT64_FMT,
+			(unsigned int)fe->index, fe->stream_size, fe->stream->len);
+	}
+
+	// TODO: Parse some kinds of streams?
+
+	if(c->extract_level<2) goto done;
+
+	fi = de_finfo_create(c);
+
+	name2 = ucstring_create(c);
+	ucstring_append_ucstring(name2, fe->name);
+	if(name2->len>0) {
+		ucstring_append_char(name2, '.');
+	}
+	ucstring_append_sz(name2, "fpxr.bin", DE_ENCODING_UTF8);
+	de_finfo_set_name_from_ucstring(c, fi, name2);
+
+	outf = dbuf_create_output_file(c, NULL, fi, DE_CREATEFLAG_IS_AUX);
+	dbuf_copy(fe->stream, 0, fe->stream->len, outf);
+
+done:
+	if(fe && fe->stream) {
+		dbuf_close(fe->stream);
+		fe->stream = NULL;
+	}
+	if(fe) {
+		fe->done_flag = 1;
+	}
+	ucstring_destroy(name2);
+	dbuf_close(outf);
+	de_finfo_destroy(c, fi);
+}
+
+// Clean up incomplete FPXR streams.
+// This function shouldn't be necessary, but I've seen some streams that don't
+// have their full expected length, even though they seem to contain useful data.
+// If we didn't do this, we would never process short streams at all.
+static void finalize_all_fpxr_streams(deark *c, lctx *d, struct page_ctx *pg)
+{
+	size_t k;
+
+	if(!pg->fpxr_data) return;
+
+	for(k=0; k<pg->fpxr_data->num_entities; k++) {
+		struct fpxr_entity_struct *fe = &pg->fpxr_data->entities[k];
+		if(fe->stream) {
+			finalize_fpxr_stream(c, d, pg, fe);
+		}
+	}
+	destroy_fpxr_data(c, d, pg);
+}
+
+static void append_fpxr_stream_data(deark *c, lctx *d, struct page_ctx *pg, size_t stream_idx,
+	de_int64 pos, de_int64 len)
+{
+	struct fpxr_entity_struct *fe = NULL;
+
+	if(!pg->fpxr_data) return;
+	if(stream_idx > pg->fpxr_data->num_entities) return;
+	fe = &pg->fpxr_data->entities[stream_idx];
+	if(fe->done_flag) return;
+
+	// TODO: More validation could be done here.
+	// We're just assuming the FPXR chunks are correctly formed, and in the
+	// right order.
+	// Note that the chunk size (len) is a calculated value, and is constrained
+	// to the size of a JPEG segment (64KB). So it should be okay to trust it.
+
+	// If we haven't done it yet, create a membuf for this stream.
+	if(!fe->stream) {
+		fe->stream = dbuf_create_membuf(c, len, 0);
+	}
+
+	// Save the stream data to the membuf.
+	// We make a copy of the stream, because it could be split up into chunks,
+	// *and* we might want to parse it.
+	dbuf_copy(c->infile, pos, len, fe->stream);
+
+	if(fe->stream->len >= fe->stream_size) {
+		finalize_fpxr_stream(c, d, pg, fe);
+	}
+}
+
 static void do_fpxr_segment(deark *c, lctx *d, struct page_ctx *pg, de_int64 pos1, de_int64 len)
 {
 	de_int64 pos = pos1;
-	de_int64 x;
-	de_int64 k;
+	size_t k;
 	de_int64 nbytesleft;
 	int saved_indent_level;
 	de_byte ver;
 	de_byte segtype;
 	const char *name;
-	de_ucstring *s = NULL;
 
 	de_dbg_indent_save(c, &saved_indent_level);
 	if(len<2) goto done;
@@ -494,35 +620,39 @@ static void do_fpxr_segment(deark *c, lctx *d, struct page_ctx *pg, de_int64 pos
 	}
 	de_dbg(c, "segment type: %u (%s)", (unsigned int)segtype, name);
 
-	if(segtype==1) {
-		de_int64 i_count;
+	if(segtype==1) { // contents list
+		// Initialize our saved fpxr data
+		destroy_fpxr_data(c, d, pg);
+		pg->fpxr_data = de_malloc(c, sizeof(struct fpxr_data_struct));
 
 		if(len<4) goto done;
 
-		i_count = de_getui16be_p(&pos);
-		de_dbg(c, "interoperability count: %d", (int)i_count);
+		pg->fpxr_data->num_entities = (size_t)de_getui16be_p(&pos);
+		de_dbg(c, "interoperability count: %u", (unsigned int)pg->fpxr_data->num_entities);
+		pg->fpxr_data->entities = de_malloc(c, pg->fpxr_data->num_entities * sizeof(struct fpxr_entity_struct));
 
-		s = ucstring_create(c);
-
-		for(k=0; k<i_count; k++) {
+		for(k=0; k<pg->fpxr_data->num_entities; k++) {
 			de_int64 bytes_consumed = 0;
+			struct fpxr_entity_struct *fe;
 			de_int64 esize;
 			de_byte defval;
-			int is_storage = 0;
 			de_byte clsid_buf[16];
 			char clsid_string[50];
 
 			if(pos>=pos1+len) goto done;
+			fe = &pg->fpxr_data->entities[k];
+			fe->index = k;
 			de_dbg(c, "entity[%d] at %d", (int)k, (int)pos);
 			de_dbg_indent(c, 1);
 
 			esize = de_getui32be_p(&pos);
 			if(esize==0xffffffffLL) {
-				is_storage = 1;
+				fe->is_storage = 1;
 			}
-			de_dbg(c, "entity type: %s", is_storage?"storage":"stream");
-			if(!is_storage) {
+			de_dbg(c, "entity type: %s", fe->is_storage?"storage":"stream");
+			if(!fe->is_storage) {
 				de_dbg(c, "stream size: %u", (unsigned int)esize);
+				fe->stream_size = esize;
 			}
 
 			defval = de_getbyte_p(&pos);
@@ -530,13 +660,13 @@ static void do_fpxr_segment(deark *c, lctx *d, struct page_ctx *pg, de_int64 pos
 
 			nbytesleft = pos1+len-pos;
 			if(!dbuf_get_utf16_NULterm_len(c->infile, pos, nbytesleft, &bytes_consumed)) goto done;
-			ucstring_empty(s);
-			dbuf_read_to_ucstring_n(c->infile, pos, bytes_consumed-2, DE_DBG_MAX_STRLEN, s,
-				0, DE_ENCODING_UTF16LE);
-			de_dbg(c, "entity name: \"%s\"", ucstring_getpsz_d(s));
+			fe->name = ucstring_create(c);
+			dbuf_read_to_ucstring_n(c->infile, pos, bytes_consumed-2, DE_DBG_MAX_STRLEN,
+				fe->name, 0, DE_ENCODING_UTF16LE);
+			de_dbg(c, "entity name: \"%s\"", ucstring_getpsz_d(fe->name));
 			pos += bytes_consumed;
 
-			if(is_storage) { // read Entity class ID
+			if(fe->is_storage) { // read Entity class ID
 				de_read(clsid_buf, pos, 16);
 				pos += 16;
 				de_fmtutil_guid_to_uuid(clsid_buf);
@@ -545,27 +675,29 @@ static void do_fpxr_segment(deark *c, lctx *d, struct page_ctx *pg, de_int64 pos
 			}
 			de_dbg_indent(c, -1);
 		}
-
 	}
-	else if(segtype==2) {
+	else if(segtype==2) { // stream data
+		size_t stream_idx;
+		de_int64 stream_offset;
+
 		if(len<6) goto done;
 
-		x = de_getui16be_p(&pos);
-		de_dbg(c, "index to contents list: %d", (int)x);
+		stream_idx = (size_t)de_getui16be_p(&pos);
+		de_dbg(c, "index to contents list: %d", (int)stream_idx);
 
 		// The Exif spec (2.31) says this field is at offset 0x0C, but I'm
 		// assuming that's a clerical error that should be 0x0D.
-		x = de_getui32be_p(&pos);
-		de_dbg(c, "offset to flashpix stream: %u", (unsigned int)x);
+		stream_offset = de_getui32be_p(&pos);
+		de_dbg(c, "offset to flashpix stream: %u", (unsigned int)stream_offset);
 
 		nbytesleft = pos1+len-pos;
 		if(nbytesleft>0) {
 			de_dbg(c, "[%d bytes of flashpix stream data, at %d]", (int)nbytesleft, (int)pos);
 		}
+		append_fpxr_stream_data(c, d, pg, stream_idx, pos, nbytesleft);
 	}
 
 done:
-	ucstring_destroy(s);
 	de_dbg_indent_restore(c, saved_indent_level);
 }
 
@@ -821,7 +953,7 @@ static void detect_app_seg_type(deark *c, lctx *d, const struct marker_info *mi,
 	}
 	else if(seg_type==0xe2 && !de_strcmp(ad.app_id_normalized, "FPXR")) {
 		app_id_info->appsegtype = APPSEGTYPE_FPXR;
-		app_id_info->app_type_name = "FlashPix";
+		app_id_info->app_type_name = "Exif Flashpix Ready";
 	}
 	else if(seg_type==0xe8 && !de_strcmp(ad.app_id_normalized, "SPIFF")) {
 		app_id_info->appsegtype = APPSEGTYPE_SPIFF;
@@ -1018,6 +1150,10 @@ static void handler_sof(deark *c, lctx *d, struct page_ctx *pg,
 	de_byte seg_type = mi->seg_type;
 
 	if(data_size<6) return;
+
+	if(pg->fpxr_data) {
+		finalize_all_fpxr_streams(c, d, pg);
+	}
 
 	if(seg_type>=0xc1 && seg_type<=0xcf && (seg_type%4)!=0) {
 		if((seg_type%4)==3) { pg->is_lossless=1; attr_lossy="lossless"; }
@@ -1689,6 +1825,7 @@ done:
 	if(pg) {
 		dbuf_close(pg->iccprofile_file);
 		dbuf_close(pg->hdr_residual_file);
+		destroy_fpxr_data(c, d, pg);
 
 		if(pg->extxmp_membuf && !pg->extxmp_error_flag) {
 			dbuf *tmpdbuf = NULL;
