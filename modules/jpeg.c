@@ -513,6 +513,14 @@ static void do_fpxr_olepropset_stream(deark *c, lctx *d, struct page_ctx *pg, st
 	de_dbg_indent(c, -1);
 }
 
+static void do_fpxr_fujifilm_preview(deark *c, lctx *d, struct page_ctx *pg, struct fpxr_entity_struct *fe)
+{
+	if(fe->stream->len < 100) return;
+	if(dbuf_memcmp(fe->stream, 47, "\xff\xd8\xff", 3)) return;
+	dbuf_create_file_from_slice(fe->stream, 47, fe->stream->len-47, "fujipreview.jpg",
+		NULL, DE_CREATEFLAG_IS_AUX);
+}
+
 static int ucstring_contains_char(de_ucstring *s, de_int32 ch)
 {
 	de_int64 k;
@@ -541,6 +549,10 @@ static void finalize_fpxr_stream(deark *c, lctx *d, struct page_ctx *pg, struct 
 
 	// Process some known streams
 	if(fe->name_srd) {
+		if(fe->name_srd->sz_utf8 && !de_strcmp(fe->name_srd->sz_utf8, "/FUJIFILM/Preview")) {
+			do_fpxr_fujifilm_preview(c, d, pg, fe);
+		}
+
 		// The FlashPix spec says "Names in an IStorage that begin with the
 		// value '\0x05' are reserved exclusively for the storage of property
 		// sets."
