@@ -768,17 +768,19 @@ struct ole_prop_set_struct {
 	dbuf *f; // The full data stream
 	de_int64 tbloffset;
 	int encoding;
+	int is_summaryinfo; // temporary hack
 };
 
 struct prop_info_struct {
-	de_int64 type;
+	de_uint32 prop_id;
+	de_uint32 data_type;
 	const char *name;
 	de_int64 data_offs;
-	de_int64 data_type;
 };
 
 // Sets pinfo->name based on pinfo->type.
-static void get_prop_name(deark *c, struct prop_info_struct *pinfo)
+// FIXME: Need a real way to handle namespaces.
+static void set_prop_name(deark *c, struct ole_prop_set_struct *si, struct prop_info_struct *pinfo)
 {
 #define PINFO_EDITING_TIME 10
 	static const char *names[20] = {
@@ -788,11 +790,21 @@ static void get_prop_name(deark *c, struct prop_info_struct *pinfo)
 		"Create time", "Saved time", "Number of pages", "Number of words",
 		"Number of chars", "Thumbnail", "App name", "Security" };
 
-	if(pinfo->type>=1 && pinfo->type<=19) {
-		pinfo->name = names[pinfo->type];
+	if(si->is_summaryinfo) {
+		if(pinfo->prop_id>=1 && pinfo->prop_id<=19) {
+			pinfo->name = names[pinfo->prop_id];
+		}
+		else {
+			pinfo->name = "?";
+		}
 	}
 	else {
-		pinfo->name = "?";
+		if(pinfo->prop_id==1) {
+			pinfo->name = names[pinfo->prop_id];
+		}
+		else {
+			pinfo->name = "?";
+		}
 	}
 }
 
@@ -862,7 +874,7 @@ static int do_prop_FILETIME(deark *c, struct ole_prop_set_struct *si,
 {
 	struct de_timestamp ts;
 
-	if(pinfo->type==PINFO_EDITING_TIME) {
+	if(pinfo->prop_id==PINFO_EDITING_TIME) {
 		// The "Editing time" property typically has a data type of FILETIME,
 		// but it is not actually a FILETIME (I assume it's an *amount* of time).
 		return 0;
@@ -872,22 +884,84 @@ static int do_prop_FILETIME(deark *c, struct ole_prop_set_struct *si,
 	return 1;
 }
 
+struct prop_data_type_info_struct {
+	de_uint32 dt;
+	de_uint32 flags;
+	const char *name;
+};
+static const struct prop_data_type_info_struct prop_data_type_info_arr[] = {
+	{0x00, 0, "empty"},
+	{0x02, 0, "int16"},
+	{0x03, 0, "int32"},
+	{0x04, 0, "float32"},
+	{0x05, 0, "float64"},
+	{0x08, 0, "BSTR/CodePageString"},
+	{0x0b, 0, "BOOL"},
+	{0x0c, 0, "VARIANT"},
+	{0x12, 0, "uint16"},
+	{0x13, 0, "uint32"},
+	{0x1e, 0, "CodePageString"},
+	{0x1f, 0, "UnicodeString"},
+	{0x40, 0, "FILETIME"},
+	{0x41, 0, "blob"},
+	{0x47, 0, "ClipboardData"},
+	{0x48, 0, "GUID"}
+};
+
+static char *get_prop_data_type_name(char *buf, size_t buf_len, de_uint32 dt)
+{
+	const char *name = NULL;
+	const char *prefix = "";
+	size_t k;
+
+	if(dt>=0x1000 && dt<0x2000) {
+		prefix = "vector of ";
+		dt -= 0x1000;
+	}
+	else if(dt>=0x2000 && dt<0x3000) {
+		prefix = "array of ";
+		dt -= 0x2000;
+	}
+
+	for(k=0; k<DE_ITEMS_IN_ARRAY(prop_data_type_info_arr); k++) {
+		if(prop_data_type_info_arr[k].dt == dt) {
+			name = prop_data_type_info_arr[k].name;
+			break;
+		}
+	}
+
+	if(name) {
+		de_snprintf(buf, buf_len, "%s%s", prefix, name);
+	}
+	else {
+		de_strlcpy(buf, "?", buf_len);
+	}
+
+	return buf;
+}
+
 // Read the value for one property.
 static void do_prop_data(deark *c, struct ole_prop_set_struct *si,
 	struct prop_info_struct *pinfo)
 {
 	de_int64 n;
 	de_ucstring *s = NULL;
+	char dtname[80];
 
-	pinfo->data_type = dbuf_getui32le(si->f, si->tbloffset+pinfo->data_offs);
-	de_dbg(c, "data type: 0x%04x", (unsigned int)pinfo->data_type);
+	// TODO: There's some confusion about whether this is a 16-bit, or a 32-bit int.
+	pinfo->data_type = (de_uint32)dbuf_getui16le(si->f, si->tbloffset+pinfo->data_offs);
+	de_dbg(c, "data type: 0x%04x (%s)", (unsigned int)pinfo->data_type,
+		get_prop_data_type_name(dtname, sizeof(dtname), pinfo->data_type));
 
 	switch(pinfo->data_type) {
+	case 0x00:
+	case 0x01:
+		break;
 	case 0x02: // int16
 		n = dbuf_geti16le(si->f, si->tbloffset+pinfo->data_offs+4);
 		de_dbg(c, "%s: %d", pinfo->name, (int)n);
 
-		if(pinfo->type==0x01) { // code page
+		if(pinfo->prop_id==0x01) { // code page
 			// I've seen some files in which the Code Page property appears
 			// *after* some string properties. I don't know how to interpret
 			// that, but for now, I'm not going to apply it retroactively.
@@ -905,7 +979,13 @@ static void do_prop_data(deark *c, struct ole_prop_set_struct *si,
 
 		break;
 	case 0x03: // int32
+	case 0x16:
 		n = dbuf_geti32le(si->f, si->tbloffset+pinfo->data_offs+4);
+		de_dbg(c, "%s: %d", pinfo->name, (int)n);
+		break;
+	case 0x13: // uint32
+	case 0x17:
+		n = dbuf_getui32le(si->f, si->tbloffset+pinfo->data_offs+4);
 		de_dbg(c, "%s: %d", pinfo->name, (int)n);
 		break;
 	case 0x1e: // string with length prefix
@@ -931,34 +1011,14 @@ static void do_prop_data(deark *c, struct ole_prop_set_struct *si,
 	ucstring_destroy(s);
 }
 
-static void do_decode_ole_property_set(deark *c, dbuf *f)
+// Caller must set si->tbloffset
+static void do_property_table(deark *c, struct ole_prop_set_struct *si,
+	de_int64 tblindex)
 {
-	de_int64 n;
 	de_int64 nproperties;
+	de_int64 n;
+	de_int64 i;
 	struct prop_info_struct pinfo;
-	int i;
-	int saved_indent_level;
-	struct ole_prop_set_struct *si = NULL;
-
-	de_dbg_indent_save(c, &saved_indent_level);
-	si = de_malloc(c, sizeof(struct ole_prop_set_struct));
-	// TODO: ASCII may not always be the best default.
-	si->encoding = DE_ENCODING_ASCII;
-	si->f = f;
-
-	// expecting 48 (or more?) bytes of header info.
-	n = dbuf_getui16le(si->f, 0);
-	de_dbg(c, "byte order code: 0x%04x", (unsigned int)n);
-	if(n != 0xfffe) goto done;
-	n = dbuf_getui16le(si->f, 4);
-	de_dbg(c, "OS ver: 0x%04x", (unsigned int)n);
-	n = dbuf_getui16le(si->f, 6);
-	de_dbg(c, "OS: 0x%04x", (unsigned int)n);
-
-	// This is supposed to be a DWORD, but I've seen some with only two valid
-	// bytes. And it shouldn't be much bigger than 48.
-	si->tbloffset = dbuf_getui16le(si->f, 44);
-	de_dbg(c, "table offset: %d", (int)si->tbloffset);
 
 	// I think this is the length of the data section
 	n = dbuf_getui32le(si->f, si->tbloffset);
@@ -971,15 +1031,79 @@ static void do_decode_ole_property_set(deark *c, dbuf *f)
 	for(i=0; i<nproperties; i++) {
 		de_memset(&pinfo, 0, sizeof(struct prop_info_struct));
 
-		pinfo.type = dbuf_getui32le(si->f, si->tbloffset+8 + 8*i);
+		pinfo.prop_id = (de_uint32)dbuf_getui32le(si->f, si->tbloffset+8 + 8*i);
 		pinfo.data_offs = dbuf_getui32le(si->f, si->tbloffset+8 + 8*i + 4);
-		get_prop_name(c, &pinfo);
+		set_prop_name(c, si, &pinfo);
 
-		de_dbg(c, "prop[%d]: type=0x%04x (%s), data_offs=%d", (int)i,
-			(unsigned int)pinfo.type, pinfo.name,
+		de_dbg(c, "prop[%d]: type=0x%08x (%s), data_offs=%d", (int)i,
+			(unsigned int)pinfo.prop_id, pinfo.name,
 			(int)pinfo.data_offs);
 		de_dbg_indent(c, 1);
 		do_prop_data(c, si, &pinfo);
+		de_dbg_indent(c, -1);
+	}
+
+done:
+	;
+}
+
+static void do_decode_ole_property_set(deark *c, dbuf *f, int is_summaryinfo)
+{
+	de_int64 n;
+	int saved_indent_level;
+	struct ole_prop_set_struct *si = NULL;
+	de_int64 nsets;
+	de_int64 k;
+	de_int64 pos = 0;
+	de_byte clsid[16];
+	char clsid_string[50];
+
+	de_dbg_indent_save(c, &saved_indent_level);
+	si = de_malloc(c, sizeof(struct ole_prop_set_struct));
+	// TODO: ASCII may not always be the best default.
+	si->encoding = DE_ENCODING_ASCII;
+	si->f = f;
+	si->is_summaryinfo = is_summaryinfo;
+
+	// expecting 48 (or more?) bytes of header info.
+	n = dbuf_getui16le_p(si->f, &pos);
+	de_dbg(c, "byte order code: 0x%04x", (unsigned int)n);
+	if(n != 0xfffe) goto done;
+
+	n = dbuf_getui16le_p(si->f, &pos);
+	de_dbg(c, "property set version: %d", (unsigned int)n);
+
+	n = dbuf_getui16le_p(si->f, &pos);
+	de_dbg(c, "OS ver: 0x%04x", (unsigned int)n);
+	n = dbuf_getui16le_p(si->f, &pos);
+	de_dbg(c, "OS: 0x%04x", (unsigned int)n);
+
+	dbuf_read(si->f, clsid, pos, 16);
+	pos += 16;
+	de_fmtutil_guid_to_uuid(clsid);
+	de_fmtutil_render_uuid(c, clsid, clsid_string, sizeof(clsid_string));
+	de_dbg(c, "clsid: {%s}", clsid_string);
+
+	nsets = dbuf_getui32le_p(si->f, &pos);
+	de_dbg(c, "number of property sets: %d", (int)nsets);
+	if(nsets>2) goto done;
+
+	for(k=0; k<nsets; k++) {
+		dbuf_read(si->f, clsid, pos, 16);
+		pos += 16;
+		de_fmtutil_guid_to_uuid(clsid);
+		de_fmtutil_render_uuid(c, clsid, clsid_string, sizeof(clsid_string));
+		de_dbg(c, "fmtid[%d]: {%s}", (int)k, clsid_string);
+
+		// This is supposed to be a DWORD, but I've seen some with only two valid
+		// bytes. And it shouldn't be much bigger than 48.
+		si->tbloffset = dbuf_getui16le_p(si->f, &pos);
+		pos += 2;
+		de_dbg(c, "table[%d] offset: %d", (int)k, (int)si->tbloffset);
+
+		de_dbg(c, "property table[%d]", (int)k);
+		de_dbg_indent(c, 1);
+		do_property_table(c, si, k);
 		de_dbg_indent(c, -1);
 	}
 
@@ -990,7 +1114,8 @@ done:
 
 /////////////////////////////////////////////////////////////////////
 
-static void do_SummaryInformation(deark *c, lctx *d, struct dir_entry_info *dei, int is_root)
+static void do_cfb_olepropertyset(deark *c, lctx *d, struct dir_entry_info *dei,
+	int is_summaryinfo, int is_root)
 {
 	dbuf *f = NULL;
 	int saved_indent_level;
@@ -1000,9 +1125,14 @@ static void do_SummaryInformation(deark *c, lctx *d, struct dir_entry_info *dei,
 	copy_any_stream_to_dbuf(c, d, dei, 0, dei->stream_size, f);
 
 	de_dbg_indent_save(c, &saved_indent_level);
-	de_dbg(c, "SummaryInformation (%s)", is_root?"root":"non-root");
+	if(is_summaryinfo) {
+		de_dbg(c, "SummaryInformation (%s)", is_root?"root":"non-root");
+	}
+	else {
+		de_dbg(c, "property set");
+	}
 	de_dbg_indent(c, 1);
-	do_decode_ole_property_set(c, f);
+	do_decode_ole_property_set(c, f, is_summaryinfo);
 	de_dbg_indent(c, -1);
 
 done:
@@ -1442,7 +1572,10 @@ static void do_dir_entry(deark *c, lctx *d, de_int64 dir_entry_idx, de_int64 dir
 		// but there's no good alternative in this case.
 
 		if(!de_strcmp(dei->fname_srd->sz_utf8, summaryinformation_streamname)) {
-			do_SummaryInformation(c, d, dei, (d->dir_entry_extra_info[dir_entry_idx].parent_id==0));
+			do_cfb_olepropertyset(c, d, dei, 1, (d->dir_entry_extra_info[dir_entry_idx].parent_id==0));
+		}
+		else if(!de_strncmp(dei->fname_srd->sz_utf8, "\x05", 1)) {
+			do_cfb_olepropertyset(c, d, dei, 0, (d->dir_entry_extra_info[dir_entry_idx].parent_id==0));
 		}
 	}
 	else if(pass==1 && is_thumbsdb_catalog) {
@@ -1554,7 +1687,7 @@ static void de_run_cfb(deark *c, de_module_params *mparams)
 {
 	if(mparams && mparams->in_params.codes) {
 		if(de_strchr(mparams->in_params.codes, 'P')) { // OLE Property Set
-			do_decode_ole_property_set(c, c->infile);
+			do_decode_ole_property_set(c, c->infile, 0);
 			return;
 		}
 	}
