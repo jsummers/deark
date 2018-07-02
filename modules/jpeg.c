@@ -29,7 +29,7 @@ struct page_ctx {
 	de_byte is_jpegls;
 
 	de_byte has_jfif_seg, has_jfif_thumb, has_jfxx_seg;
-	de_byte has_exif_seg, has_exif_gps, has_spiff_seg;
+	de_byte has_exif_seg, has_exif_gps, has_spiff_seg, has_mpf_seg;
 	de_byte has_psd, has_iptc, has_xmp, has_xmp_ext, has_iccprofile, has_flashpix;
 	de_byte is_baseline, is_progressive, is_lossless, is_arithmetic, is_hierarchical;
 	de_byte is_jpeghdr, is_jpegxt, is_mpo, is_jps;
@@ -321,10 +321,12 @@ static void do_photoshop_segment(deark *c, lctx *d, struct page_ctx *pg,
 	de_dbg_indent(c, -1);
 }
 
-static void do_mpf_segment(deark *c, lctx *d, de_int64 pos, de_int64 data_size)
+static void do_mpf_segment(deark *c, lctx *d, struct page_ctx *pg,
+	de_int64 pos, de_int64 data_size)
 {
 	de_module_params *mparams = NULL;
 
+	pg->has_mpf_seg = 1;
 	de_dbg(c, "MPF data at %d, size=%d", (int)pos, (int)data_size);
 	de_dbg_indent(c, 1);
 
@@ -341,6 +343,11 @@ static void do_mpf_segment(deark *c, lctx *d, de_int64 pos, de_int64 data_size)
 			de_warn(c, "Invalid MPF multi-picture data. File size should be at "
 				"least %"INT64_FMT", is %"INT64_FMT".",
 				mparams->out_params.int64_1, c->infile->len);
+		}
+		if(mparams->out_params.uint3 > 1) {
+			// We want to set the is_mpo flag if there is an MPEntry tag which
+			// says there is more than one non-thumbnail image.
+			pg->is_mpo = 1;
 		}
 	}
 
@@ -1133,8 +1140,7 @@ static void handler_app(deark *c, lctx *d, struct page_ctx *pg,
 		do_jpegxt_segment(c, d, pg, payload_pos, payload_size);
 		break;
 	case APPSEGTYPE_MPF:
-		pg->is_mpo = 1;
-		do_mpf_segment(c, d, payload_pos, payload_size);
+		do_mpf_segment(c, d, pg, payload_pos, payload_size);
 		break;
 	case APPSEGTYPE_JPS:
 		pg->is_jps = 1;
@@ -1728,7 +1734,7 @@ static void print_summary(deark *c, lctx *d, struct page_ctx *pg)
 	if(pg->has_flashpix) ucstring_append_sz(summary, " FlashPix", DE_ENCODING_LATIN1);
 	if(pg->is_jpeghdr) ucstring_append_sz(summary, " HDR", DE_ENCODING_LATIN1);
 	if(pg->is_jpegxt) ucstring_append_sz(summary, " XT", DE_ENCODING_LATIN1);
-	if(pg->is_mpo) ucstring_append_sz(summary, " MPO", DE_ENCODING_LATIN1);
+	if(pg->has_mpf_seg) ucstring_append_sz(summary, " MPO", DE_ENCODING_LATIN1);
 	if(pg->is_jps) ucstring_append_sz(summary, " JPS", DE_ENCODING_LATIN1);
 	if(pg->has_iccprofile) ucstring_append_sz(summary, " ICC", DE_ENCODING_LATIN1);
 	if(pg->has_xmp) ucstring_append_sz(summary, " XMP", DE_ENCODING_LATIN1);

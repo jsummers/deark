@@ -55,10 +55,11 @@ struct de_module_out_params {
 	//  tiff: 0x10: first IFD has subsampling=cosited
 	//  tiff: 0x20: uint1 = first IFD's orientation
 	//  tiff: 0x40: uint2 = Exif version
-	//  tiff: 0x80: int64_1 = MPF min expected file size
+	//  tiff: 0x80: int64_1 = MPF min expected file size, uint3 = image count
 	de_uint32 flags;
 	de_uint32 uint1;
 	de_uint32 uint2;
+	de_uint32 uint3;
 	de_int64 int64_1;
 };
 

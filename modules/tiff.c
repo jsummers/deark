@@ -147,6 +147,7 @@ struct localctx_struct {
 	const struct de_module_in_params *in_params;
 
 	de_int64 mpf_min_file_size;
+	unsigned int mpf_main_image_count;
 };
 
 // Returns 0 if stack is empty.
@@ -1225,6 +1226,7 @@ static void handler_mpentry(deark *c, lctx *d, const struct taginfo *tg, const s
 	de_int64 pos = tg->val_offset;
 	de_ucstring *s = NULL;
 
+	d->mpf_main_image_count = 0;
 	// Length is supposed to be 16x{NumberOfImages; tag 45057}. We'll just assume
 	// it's correct.
 	num_entries = tg->total_size/16;
@@ -1256,6 +1258,10 @@ static void handler_mpentry(deark *c, lctx *d, const struct taginfo *tg, const s
 		if(typecode==0x020001U) ucstring_append_flags_item(s, "multi-frame image panorama");
 		if(typecode==0x020002U) ucstring_append_flags_item(s, "multi-frame image disparity");
 		if(typecode==0x020003U) ucstring_append_flags_item(s, "multi-frame image multi-angle");
+		if(typecode!=0x010001U && typecode!=0x010002U) {
+			// Count that number of non-thumbnail images
+			d->mpf_main_image_count++;
+		}
 
 		de_dbg(c, "image attribs: 0x%08x (%s)", (unsigned int)attrs,
 			ucstring_getpsz(s));
@@ -2417,6 +2423,7 @@ static void de_run_tiff(deark *c, de_module_params *mparams)
 		}
 		if(d->fmt==DE_TIFFFMT_MPEXT && d->mpf_min_file_size>0) {
 			mparams->out_params.flags |= 0x80;
+			mparams->out_params.uint3 = d->mpf_main_image_count;
 			mparams->out_params.int64_1 = d->mpf_min_file_size;
 		}
 	}
