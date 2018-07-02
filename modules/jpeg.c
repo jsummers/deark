@@ -121,9 +121,22 @@ static void do_icc_profile_segment(deark *c, lctx *d, struct page_ctx *pg, de_in
 
 // Extract JPEG-HDR residual images.
 // Note: This code is based on reverse engineering, and may not be correct.
-static void do_jpeghdr_segment(deark *c, lctx *d, struct page_ctx *pg, de_int64 pos,
-	de_int64 data_size, int is_ext)
+static void do_jpeghdr_segment(deark *c, lctx *d, struct page_ctx *pg, de_int64 pos1,
+	de_int64 data_size1, int is_ext)
 {
+	int ret;
+	de_int64 pos = 0;
+	de_int64 data_size;
+
+	// Payload should begin after the first NUL byte. Search for it.
+	ret = dbuf_search_byte(c->infile, 0x00, pos1, data_size1, &pos);
+	if(!ret) {
+		de_warn(c, "Bad or unsupported JPEG-HDR data");
+		return;
+	}
+	pos++;
+	data_size = pos1+data_size1 - pos;
+
 	if(is_ext) {
 		de_dbg(c, "JPEG-HDR residual image continuation, pos=%d size=%d",
 			(int)pos, (int)data_size);
@@ -140,7 +153,7 @@ static void do_jpeghdr_segment(deark *c, lctx *d, struct page_ctx *pg, de_int64 
 
 		// Make sure it looks like an embedded JPEG file
 		if(dbuf_memcmp(c->infile, pos, "\xff\xd8", 2)) {
-			de_dbg(c, "unexpected HDR format");
+			de_warn(c, "Bad or unsupported JPEG-HDR format");
 			return;
 		}
 
@@ -925,7 +938,8 @@ static void detect_app_seg_type(deark *c, lctx *d, const struct marker_info *mi,
 	ad.nraw_bytes = (de_int64)sizeof(ad.raw_bytes);
 	if(ad.nraw_bytes>seg_data_size)
 		ad.nraw_bytes = seg_data_size;
-	de_read(ad.raw_bytes, seg_data_pos, ad.nraw_bytes);
+	if(ad.nraw_bytes<2) goto done;
+	de_read(ad.raw_bytes, seg_data_pos, ad.nraw_bytes-1);
 
 	decode_app_id(&ad);
 
@@ -1029,15 +1043,15 @@ static void detect_app_seg_type(deark *c, lctx *d, const struct marker_info *mi,
 		app_id_info->appsegtype = APPSEGTYPE_XMP_EXTENSION;
 		app_id_info->app_type_name = "XMP extension";
 	}
-	else if(seg_type==0xeb && ad.app_id_orig_strlen>=10 && !de_memcmp(ad.app_id_normalized, "HDR_RI VER", 10)) {
+	else if(seg_type==0xeb && ad.nraw_bytes>=10 && !de_strncmp((const char*)ad.raw_bytes, "HDR_RI ver", 10)) {
 		app_id_info->appsegtype = APPSEGTYPE_HDR_RI_VER;
 		app_id_info->app_type_name = "JPEG-HDR Ver";
 	}
-	else if(seg_type==0xeb && ad.app_id_orig_strlen>=10 && !de_memcmp(ad.app_id_normalized, "HDR_RI EXT", 10)) {
+	else if(seg_type==0xeb && ad.nraw_bytes>=10 && !de_strncmp((const char*)ad.raw_bytes, "HDR_RI ext", 10)) {
 		app_id_info->appsegtype = APPSEGTYPE_HDR_RI_EXT;
 		app_id_info->app_type_name = "JPEG-HDR Ext";
 	}
-	else if(seg_type==0xeb && !de_strncmp((const char*)ad.raw_bytes, "JP", 2)) {
+	else if(seg_type==0xeb && ad.nraw_bytes>=2 && !de_strncmp((const char*)ad.raw_bytes, "JP", 2)) {
 		app_id_info->appsegtype = APPSEGTYPE_JPEGXT;
 		app_id_info->app_type_name = "JPEG XT";
 		sig_size = 2;
@@ -1130,10 +1144,10 @@ static void handler_app(deark *c, lctx *d, struct page_ctx *pg,
 		break;
 	case APPSEGTYPE_HDR_RI_VER:
 		pg->is_jpeghdr = 1;
-		do_jpeghdr_segment(c, d, pg, payload_pos, payload_size, 0);
+		do_jpeghdr_segment(c, d, pg, seg_data_pos, seg_data_size, 0);
 		break;
 	case APPSEGTYPE_HDR_RI_EXT:
-		do_jpeghdr_segment(c, d, pg, payload_pos, payload_size, 1);
+		do_jpeghdr_segment(c, d, pg, seg_data_pos, seg_data_size, 1);
 		break;
 	case APPSEGTYPE_JPEGXT:
 		pg->is_jpegxt = 1;
