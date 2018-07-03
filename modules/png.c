@@ -11,6 +11,7 @@ DE_DECLARE_MODULE(de_module_png);
 
 #define PNGID_CgBI 0x43674249U
 #define PNGID_IDAT 0x49444154U
+#define PNGID_IEND 0x49454e44U
 #define PNGID_IHDR 0x49484452U
 #define PNGID_PLTE 0x504c5445U
 #define PNGID_bKGD 0x624b4744U
@@ -61,6 +62,13 @@ struct chunk_type_info_struct {
 	const char *name;
 	chunk_decoder_fn decoder_fn;
 };
+
+static void decoder_hexdump(deark *c, lctx *d,
+	const struct de_fourcc *chunk4cc, const struct chunk_type_info_struct *cti,
+	de_int64 pos, de_int64 len)
+{
+	de_dbg_hexdump(c, c->infile, pos, len, 256, NULL, 0x1);
+}
 
 // An internal function that does the main work of do_text_field().
 static int do_unc_text_field(deark *c, lctx *d,
@@ -603,6 +611,8 @@ static void do_png_caNv(deark *c, lctx *d,
 
 static const struct chunk_type_info_struct chunk_type_info_arr[] = {
 	{ PNGID_CgBI, 0, NULL, do_png_CgBI },
+	{ PNGID_IDAT, 0, NULL, NULL },
+	{ PNGID_IEND, 0, NULL, NULL },
 	{ PNGID_IHDR, 0, NULL, do_png_IHDR },
 	{ PNGID_PLTE, 0, "palette", do_png_PLTE },
 	{ PNGID_bKGD, 0, "background color", do_png_bKGD },
@@ -684,11 +694,16 @@ static void de_run_png(deark *c, de_module_params *mparams)
 			suppress_idat_dbg = 1;
 		}
 		else {
-			if(cti && cti->name) {
-				de_snprintf(nbuf, sizeof(nbuf), " (%s)", cti->name);
+			if(cti) {
+				if(cti->name) {
+					de_snprintf(nbuf, sizeof(nbuf), " (%s)", cti->name);
+				}
+				else {
+					de_strlcpy(nbuf, "", sizeof(nbuf));
+				}
 			}
 			else {
-				de_strlcpy(nbuf, "", sizeof(nbuf));
+				de_strlcpy(nbuf, " (?)", sizeof(nbuf));
 			}
 
 			de_dbg(c, "chunk '%s'%s at %d dpos=%d dlen=%d",
@@ -700,8 +715,15 @@ static void de_run_png(deark *c, de_module_params *mparams)
 		pos += 8;
 
 		de_dbg_indent(c, 1);
-		if(cti && cti->decoder_fn) {
-			cti->decoder_fn(c, d, &chunk4cc, cti, pos, chunk_data_len);
+		if(cti) {
+			if(cti->decoder_fn) {
+				cti->decoder_fn(c, d, &chunk4cc, cti, pos, chunk_data_len);
+			}
+		}
+		else {
+			if(c->debug_level>=2) {
+				decoder_hexdump(c, d, &chunk4cc, cti, pos, chunk_data_len);
+			}
 		}
 		pos += chunk_data_len;
 
