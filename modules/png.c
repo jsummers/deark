@@ -35,6 +35,41 @@ DE_DECLARE_MODULE(de_module_png);
 #define CODE_tRNS 0x74524e53U
 #define CODE_zTXt 0x7a545874U
 
+#define CODE_BACK 0x4241434bU
+#define CODE_BASI 0x42415349U
+#define CODE_CLIP 0x434c4950U
+#define CODE_CLON 0x434c4f4eU
+#define CODE_DBYK 0x4442594bU
+#define CODE_DEFI 0x44454649U
+#define CODE_DHDR 0x44484452U
+#define CODE_DISC 0x44495343U
+#define CODE_DROP 0x44524f50U
+#define CODE_ENDL 0x454e444cU
+#define CODE_FRAM 0x4652414dU
+#define CODE_IJNG 0x494a4e47U
+#define CODE_IPNG 0x49504e47U
+#define CODE_JDAA 0x4a444141U
+#define CODE_JDAT 0x4a444154U
+#define CODE_JHDR 0x4a484452U
+#define CODE_JSEP 0x4a534550U
+#define CODE_LOOP 0x4c4f4f50U
+#define CODE_MAGN 0x4d41474eU
+#define CODE_MEND 0x4d454e44U
+#define CODE_MHDR 0x4d484452U
+#define CODE_MOVE 0x4d4f5645U
+#define CODE_ORDR 0x4f524452U
+#define CODE_PAST 0x50415354U
+#define CODE_PPLT 0x50504c54U
+#define CODE_PROM 0x50524f4dU
+#define CODE_SAVE 0x53415645U
+#define CODE_SEEK 0x5345454bU
+#define CODE_SHOW 0x53484f57U
+#define CODE_TERM 0x5445524dU
+#define CODE_eXPI 0x65585049U
+#define CODE_fPRI 0x66505249U
+#define CODE_nEED 0x6e454544U
+#define CODE_pHYg 0x70485967U
+
 typedef struct localctx_struct {
 #define DE_PNGFMT_PNG 1
 #define DE_PNGFMT_JNG 2
@@ -42,6 +77,7 @@ typedef struct localctx_struct {
 	int fmt;
 	int is_CgBI;
 	de_byte color_type;
+	const char *fmt_name;
 } lctx;
 
 struct text_chunk_ctx {
@@ -680,7 +716,42 @@ static const struct chunk_type_info_struct chunk_type_info_arr[] = {
 	{ CODE_tEXt, 0x00ff, NULL, handler_text },
 	{ CODE_tIME, 0x00ff, "last-modification time", handler_tIME },
 	{ CODE_tRNS, 0x00ff, "transparency info", handler_tRNS },
-	{ CODE_zTXt, 0x00ff, NULL, handler_text }
+	{ CODE_zTXt, 0x00ff, NULL, handler_text },
+
+	{ CODE_BACK, 0x0004, NULL, NULL },
+	{ CODE_BASI, 0x0004, "parent object", NULL },
+	{ CODE_CLIP, 0x0004, NULL, NULL },
+	{ CODE_CLON, 0x0004, NULL, NULL },
+	{ CODE_DBYK, 0x0004, NULL, NULL },
+	{ CODE_DEFI, 0x0004, NULL, NULL },
+	{ CODE_DHDR, 0x0004, "delta-PNG header", NULL },
+	{ CODE_DISC, 0x0004, NULL, NULL },
+	{ CODE_DROP, 0x0004, NULL, NULL },
+	{ CODE_ENDL, 0x0004, NULL, NULL },
+	{ CODE_FRAM, 0x0004, NULL, NULL },
+	{ CODE_IJNG, 0x0004, NULL, NULL },
+	{ CODE_IPNG, 0x0004, NULL, NULL },
+	{ CODE_JDAA, 0x00ff, "JNG JPEG-encoded alpha data", NULL },
+	{ CODE_JDAT, 0x00ff, "JNG image data", NULL },
+	{ CODE_JHDR, 0x00ff, "JNG header", NULL },
+	{ CODE_JSEP, 0x00ff, "8-bit/12-bit image separator", NULL },
+	{ CODE_LOOP, 0x0004, NULL, NULL },
+	{ CODE_MAGN, 0x0004, NULL, NULL },
+	{ CODE_MEND, 0x0004, "end of MNG datastream", NULL },
+	{ CODE_MHDR, 0x0004, "MNG header", NULL },
+	{ CODE_MOVE, 0x0004, NULL, NULL },
+	{ CODE_ORDR, 0x0004, NULL, NULL },
+	{ CODE_PAST, 0x0004, NULL, NULL },
+	{ CODE_PPLT, 0x0004, NULL, NULL },
+	{ CODE_PROM, 0x0004, NULL, NULL },
+	{ CODE_SAVE, 0x0004, NULL, NULL },
+	{ CODE_SEEK, 0x0004, NULL, NULL },
+	{ CODE_SHOW, 0x0004, NULL, NULL },
+	{ CODE_TERM, 0x0004, NULL, NULL },
+	{ CODE_eXPI, 0x0004, NULL, NULL },
+	{ CODE_fPRI, 0x0004, NULL, NULL },
+	{ CODE_nEED, 0x0004, NULL, NULL },
+	{ CODE_pHYg, 0x0004, NULL, NULL }
 };
 
 static const struct chunk_type_info_struct *get_chunk_type_info(de_uint32 id)
@@ -714,12 +785,20 @@ static void de_run_png(deark *c, de_module_params *mparams)
 
 	d = de_malloc(c, sizeof(lctx));
 
+	de_dbg(c, "signature at %d", 0);
+	de_dbg_indent(c, 1);
 	d->fmt = do_identify_png_internal(c);
 	switch(d->fmt) {
-	case DE_PNGFMT_PNG: de_declare_fmt(c, "PNG"); break;
-	case DE_PNGFMT_JNG: de_declare_fmt(c, "JNG"); break;
-	case DE_PNGFMT_MNG: de_declare_fmt(c, "MNG"); break;
+	case DE_PNGFMT_PNG: d->fmt_name = "PNG"; break;
+	case DE_PNGFMT_JNG: d->fmt_name = "JNG"; break;
+	case DE_PNGFMT_MNG: d->fmt_name = "MNG"; break;
+	default: d->fmt_name = "?";
 	}
+	de_dbg(c, "format: %s", d->fmt_name);
+	if(d->fmt>0) {
+		de_declare_fmt(c, d->fmt_name);
+	}
+	de_dbg_indent(c, -1);
 
 	pos = 8;
 	while(pos < c->infile->len) {
