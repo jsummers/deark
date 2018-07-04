@@ -14,11 +14,14 @@ DE_DECLARE_MODULE(de_module_png);
 #define PNGID_IEND 0x49454e44U
 #define PNGID_IHDR 0x49484452U
 #define PNGID_PLTE 0x504c5445U
+#define PNGID_acTL 0x6163544cU
 #define PNGID_bKGD 0x624b4744U
 #define PNGID_cHRM 0x6348524dU
 #define PNGID_caNv 0x63614e76U
 #define PNGID_eXIf 0x65584966U
 #define PNGID_exIf 0x65784966U
+#define PNGID_fcTL 0x6663544cU
+#define PNGID_fdAT 0x66644154U
 #define PNGID_gAMA 0x67414d41U
 #define PNGID_hIST 0x68495354U
 #define PNGID_iCCP 0x69434350U
@@ -609,6 +612,80 @@ static void do_png_caNv(deark *c, lctx *d,
 	de_dbg(c, "caNv position: %d,%d", (int)x0, (int)x1);
 }
 
+static void do_APNG_seqno(deark *c, lctx *d, de_int64 pos)
+{
+	unsigned int n;
+	n = (unsigned int)de_getui32be(pos);
+	de_dbg(c, "seq. number: %u", n);
+}
+
+static void do_png_acTL(deark *c, lctx *d,
+	const struct de_fourcc *chunk4cc, const struct chunk_type_info_struct *cti,
+	de_int64 pos1, de_int64 len)
+{
+	unsigned int n;
+	de_int64 pos = pos1;
+
+	if(len<8) return;
+	n = (unsigned int)de_getui32be_p(&pos);
+	de_dbg(c, "num frames: %u", n);
+	n = (unsigned int)de_getui32be_p(&pos);
+	de_dbg(c, "num plays: %u%s", n, (n==0)?" (infinite)":"");
+}
+
+static const char *get_apng_disp_name(de_byte t)
+{
+	switch(t) {
+	case 0: return "none"; break;
+	case 1: return "background"; break;
+	case 2: return "previous"; break;
+	}
+	return "?";
+}
+
+static const char *get_apng_blend_name(de_byte t)
+{
+	switch(t) {
+	case 0: return "source"; break;
+	case 1: return "over"; break;
+	}
+	return "?";
+}
+
+static void do_png_fcTL(deark *c, lctx *d,
+	const struct de_fourcc *chunk4cc, const struct chunk_type_info_struct *cti,
+	de_int64 pos1, de_int64 len)
+{
+	de_int64 n1, n2;
+	de_int64 pos = pos1;
+	de_byte b;
+
+	if(len<26) return;
+	do_APNG_seqno(c, d, pos);
+	pos += 4;
+	n1 = de_getui32be_p(&pos);
+	n2 = de_getui32be_p(&pos);
+	de_dbg_dimensions(c, n1, n2);
+	n1 = de_getui32be_p(&pos);
+	n2 = de_getui32be_p(&pos);
+	de_dbg(c, "offset: (%u, %u)", (unsigned int)n1, (unsigned int)n2);
+	n1 = de_getui16be_p(&pos);
+	n2 = de_getui16be_p(&pos);
+	de_dbg(c, "delay: %d/%d seconds", (int)n1, (int)n2);
+	b = de_getbyte_p(&pos);
+	de_dbg(c, "disposal type: %u (%s)", (unsigned int)b, get_apng_disp_name(b));
+	b = de_getbyte_p(&pos);
+	de_dbg(c, "blend type: %u (%s)", (unsigned int)b, get_apng_blend_name(b));
+}
+
+static void do_png_fdAT(deark *c, lctx *d,
+	const struct de_fourcc *chunk4cc, const struct chunk_type_info_struct *cti,
+	de_int64 pos, de_int64 len)
+{
+	if(len<4) return;
+	do_APNG_seqno(c, d, pos);
+}
+
 static const struct chunk_type_info_struct chunk_type_info_arr[] = {
 	{ PNGID_CgBI, 0, NULL, do_png_CgBI },
 	{ PNGID_IDAT, 0, NULL, NULL },
@@ -616,10 +693,13 @@ static const struct chunk_type_info_struct chunk_type_info_arr[] = {
 	{ PNGID_IHDR, 0, NULL, do_png_IHDR },
 	{ PNGID_PLTE, 0, "palette", do_png_PLTE },
 	{ PNGID_bKGD, 0, "background color", do_png_bKGD },
+	{ PNGID_acTL, 0, "APNG animation control", do_png_acTL },
 	{ PNGID_cHRM, 0, "chromaticities", do_png_cHRM },
 	{ PNGID_caNv, 0, "virtual canvas info", do_png_caNv },
 	{ PNGID_eXIf, 0, NULL, do_png_eXIf },
 	{ PNGID_exIf, 0, NULL, do_png_eXIf },
+	{ PNGID_fcTL, 0, "APNG frame control", do_png_fcTL },
+	{ PNGID_fdAT, 0, "APNG frame data", do_png_fdAT },
 	{ PNGID_gAMA, 0, "image gamma", do_png_gAMA },
 	{ PNGID_hIST, 0, "histogram", do_png_hIST },
 	{ PNGID_iCCP, 0, "ICC profile", do_png_iccp },
