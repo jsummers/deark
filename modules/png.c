@@ -9,31 +9,31 @@
 #include <deark-fmtutil.h>
 DE_DECLARE_MODULE(de_module_png);
 
-#define PNGID_CgBI 0x43674249U
-#define PNGID_IDAT 0x49444154U
-#define PNGID_IEND 0x49454e44U
-#define PNGID_IHDR 0x49484452U
-#define PNGID_PLTE 0x504c5445U
-#define PNGID_acTL 0x6163544cU
-#define PNGID_bKGD 0x624b4744U
-#define PNGID_cHRM 0x6348524dU
-#define PNGID_caNv 0x63614e76U
-#define PNGID_eXIf 0x65584966U
-#define PNGID_exIf 0x65784966U
-#define PNGID_fcTL 0x6663544cU
-#define PNGID_fdAT 0x66644154U
-#define PNGID_gAMA 0x67414d41U
-#define PNGID_hIST 0x68495354U
-#define PNGID_iCCP 0x69434350U
-#define PNGID_iTXt 0x69545874U
-#define PNGID_pHYs 0x70485973U
-#define PNGID_sBIT 0x73424954U
-#define PNGID_sPLT 0x73504c54U
-#define PNGID_sRGB 0x73524742U
-#define PNGID_tEXt 0x74455874U
-#define PNGID_tIME 0x74494d45U
-#define PNGID_tRNS 0x74524e53U
-#define PNGID_zTXt 0x7a545874U
+#define CODE_CgBI 0x43674249U
+#define CODE_IDAT 0x49444154U
+#define CODE_IEND 0x49454e44U
+#define CODE_IHDR 0x49484452U
+#define CODE_PLTE 0x504c5445U
+#define CODE_acTL 0x6163544cU
+#define CODE_bKGD 0x624b4744U
+#define CODE_cHRM 0x6348524dU
+#define CODE_caNv 0x63614e76U
+#define CODE_eXIf 0x65584966U
+#define CODE_exIf 0x65784966U
+#define CODE_fcTL 0x6663544cU
+#define CODE_fdAT 0x66644154U
+#define CODE_gAMA 0x67414d41U
+#define CODE_hIST 0x68495354U
+#define CODE_iCCP 0x69434350U
+#define CODE_iTXt 0x69545874U
+#define CODE_pHYs 0x70485973U
+#define CODE_sBIT 0x73424954U
+#define CODE_sPLT 0x73504c54U
+#define CODE_sRGB 0x73524742U
+#define CODE_tEXt 0x74455874U
+#define CODE_tIME 0x74494d45U
+#define CODE_tRNS 0x74524e53U
+#define CODE_zTXt 0x7a545874U
 
 typedef struct localctx_struct {
 #define DE_PNGFMT_PNG 1
@@ -54,23 +54,29 @@ struct text_chunk_ctx {
 #define FIELD_MAIN     4
 
 struct chunk_type_info_struct;
+struct handler_params;
 
-typedef void (*chunk_decoder_fn)(deark *c, lctx *d,
-	const struct de_fourcc *chunk4cc, const struct chunk_type_info_struct *cti,
-	de_int64 pos, de_int64 dlen);
+typedef void (*chunk_handler_fn)(deark *c, lctx *d, struct handler_params *hp);
 
 struct chunk_type_info_struct {
 	de_uint32 id;
+	// The low 8 bits of flags are reserved, and should be to 0xff.
+	// They may someday be used to, for example, make MNG-only chunk table entries.
 	de_uint32 flags;
 	const char *name;
-	chunk_decoder_fn decoder_fn;
+	chunk_handler_fn handler_fn;
 };
 
-static void decoder_hexdump(deark *c, lctx *d,
-	const struct de_fourcc *chunk4cc, const struct chunk_type_info_struct *cti,
-	de_int64 pos, de_int64 len)
+struct handler_params {
+	de_int64 dpos;
+	de_int64 dlen;
+	const struct de_fourcc *chunk4cc;
+	const struct chunk_type_info_struct *cti;
+};
+
+static void handler_hexdump(deark *c, lctx *d, struct handler_params *hp)
 {
-	de_dbg_hexdump(c, c->infile, pos, len, 256, NULL, 0x1);
+	de_dbg_hexdump(c, c->infile, hp->dpos, hp->dlen, 256, NULL, 0x1);
 }
 
 // An internal function that does the main work of do_text_field().
@@ -173,9 +179,7 @@ done:
 	return retval;
 }
 
-static void do_png_text(deark *c, lctx *d,
-	const struct de_fourcc *chunk4cc, const struct chunk_type_info_struct *cti,
-	de_int64 pos1, de_int64 len)
+static void handler_text(deark *c, lctx *d, struct handler_params *hp)
 {
 	de_int64 pos;
 	de_int64 endpos;
@@ -187,8 +191,8 @@ static void do_png_text(deark *c, lctx *d,
 
 	de_memset(&tcc, 0, sizeof(struct text_chunk_ctx));
 
-	endpos = pos1+len;
-	pos = pos1;
+	endpos = hp->dpos+hp->dlen;
+	pos = hp->dpos;
 
 	// Keyword
 	ret = do_text_field(c, d, &tcc, FIELD_KEYWORD, pos, endpos-pos,
@@ -198,16 +202,16 @@ static void do_png_text(deark *c, lctx *d,
 	pos += 1;
 
 	// Compression flag
-	if(chunk4cc->id==PNGID_iTXt) {
+	if(hp->chunk4cc->id==CODE_iTXt) {
 		is_compressed = (int)de_getbyte(pos++);
 		de_dbg(c, "compression flag: %d", (int)is_compressed);
 	}
-	else if(chunk4cc->id==PNGID_zTXt) {
+	else if(hp->chunk4cc->id==CODE_zTXt) {
 		is_compressed = 1;
 	}
 
 	// Compression method
-	if(chunk4cc->id==PNGID_zTXt || chunk4cc->id==PNGID_iTXt) {
+	if(hp->chunk4cc->id==CODE_zTXt || hp->chunk4cc->id==CODE_iTXt) {
 		de_byte cmpr_method;
 		cmpr_method = de_getbyte(pos++);
 		if(is_compressed && cmpr_method!=0) {
@@ -216,7 +220,7 @@ static void do_png_text(deark *c, lctx *d,
 		}
 	}
 
-	if(chunk4cc->id==PNGID_iTXt) {
+	if(hp->chunk4cc->id==CODE_iTXt) {
 		// Language tag
 		ret = do_text_field(c, d, &tcc, FIELD_LANG, pos, endpos-pos,
 			1, 0, DE_ENCODING_ASCII, &field_bytes_consumed);
@@ -232,7 +236,7 @@ static void do_png_text(deark *c, lctx *d,
 		pos += 1;
 	}
 
-	if(chunk4cc->id==PNGID_iTXt)
+	if(hp->chunk4cc->id==CODE_iTXt)
 		encoding = DE_ENCODING_UTF8;
 	else
 		encoding = DE_ENCODING_LATIN1;
@@ -244,30 +248,26 @@ done:
 	;
 }
 
-static void do_png_CgBI(deark *c, lctx *d,
-	const struct de_fourcc *chunk4cc, const struct chunk_type_info_struct *cti,
-	de_int64 pos, de_int64 len)
+static void handler_CgBI(deark *c, lctx *d, struct handler_params *hp)
 {
 	d->is_CgBI = 1;
 }
 
-static void do_png_IHDR(deark *c, lctx *d,
-	const struct de_fourcc *chunk4cc, const struct chunk_type_info_struct *cti,
-	de_int64 pos, de_int64 len)
+static void handler_IHDR(deark *c, lctx *d, struct handler_params *hp)
 {
 	de_int64 w, h;
 	de_byte n;
 	const char *name;
 
-	if(len<13) return;
-	w = de_getui32be(pos);
-	h = de_getui32be(pos+4);
+	if(hp->dlen<13) return;
+	w = de_getui32be(hp->dpos);
+	h = de_getui32be(hp->dpos+4);
 	de_dbg_dimensions(c, w, h);
 
-	n = de_getbyte(pos+8);
+	n = de_getbyte(hp->dpos+8);
 	de_dbg(c, "depth: %d bits/sample", (int)n);
 
-	d->color_type = de_getbyte(pos+9);
+	d->color_type = de_getbyte(hp->dpos+9);
 	switch(d->color_type) {
 	case 0: name="grayscale"; break;
 	case 2: name="truecolor"; break;
@@ -278,37 +278,33 @@ static void do_png_IHDR(deark *c, lctx *d,
 	}
 	de_dbg(c, "color type: %d (%s)", (int)d->color_type, name);
 
-	n = de_getbyte(pos+12);
+	n = de_getbyte(hp->dpos+12);
 	de_dbg(c, "interlaced: %d", (int)n);
 }
 
-static void do_png_PLTE(deark *c, lctx *d,
-	const struct de_fourcc *chunk4cc, const struct chunk_type_info_struct *cti,
-	de_int64 pos, de_int64 len)
+static void handler_PLTE(deark *c, lctx *d, struct handler_params *hp)
 {
 	// pal is a dummy variable, since we don't need to keep the palette.
 	// TODO: Maybe de_read_palette_rgb shouldn't require the palette to be returned.
 	de_uint32 pal[256];
 	de_int64 nentries;
 
-	nentries = len/3;
+	nentries = hp->dlen/3;
 	de_dbg(c, "num palette entries: %d", (int)nentries);
-	de_read_palette_rgb(c->infile, pos, nentries, 3, pal, DE_ITEMS_IN_ARRAY(pal), 0);
+	de_read_palette_rgb(c->infile, hp->dpos, nentries, 3, pal, DE_ITEMS_IN_ARRAY(pal), 0);
 }
 
-static void do_png_sPLT(deark *c, lctx *d,
-	const struct de_fourcc *chunk4cc, const struct chunk_type_info_struct *cti,
-	de_int64 pos1, de_int64 len)
+static void handler_sPLT(deark *c, lctx *d, struct handler_params *hp)
 {
 	struct de_stringreaderdata *srd = NULL;
-	de_int64 pos = pos1;
+	de_int64 pos = hp->dpos;
 	de_int64 nbytes_to_scan;
 	de_byte depth;
 	de_int64 nentries;
 	de_int64 stride;
 	de_int64 i;
 
-	nbytes_to_scan = len;
+	nbytes_to_scan = hp->dlen;
 	if(nbytes_to_scan>80) nbytes_to_scan=80;
 	srd = dbuf_read_string(c->infile, pos, nbytes_to_scan, 79, DE_CONVFLAG_STOP_AT_NUL,
 		DE_ENCODING_LATIN1);
@@ -316,13 +312,13 @@ static void do_png_sPLT(deark *c, lctx *d,
 	de_dbg(c, "palette name: \"%s\"", ucstring_getpsz(srd->str));
 	pos += srd->bytes_consumed;
 
-	if(pos >= pos1+len) goto done;
+	if(pos >= hp->dpos+hp->dlen) goto done;
 	depth = de_getbyte(pos++);
 	de_dbg(c, "depth: %d", (int)depth);
 	if(depth!=8 && depth!=16) goto done;
 
 	stride = (depth==8) ? 6 : 10;
-	nentries = (pos1+len-pos)/stride;
+	nentries = (hp->dpos+hp->dlen-pos)/stride;
 	de_dbg(c, "number of entries: %d", (int)nentries);
 
 	if(c->debug_level<2) goto done;
@@ -353,100 +349,90 @@ done:
 	de_destroy_stringreaderdata(c, srd);
 }
 
-static void do_png_tRNS(deark *c, lctx *d,
-	const struct de_fourcc *chunk4cc, const struct chunk_type_info_struct *cti,
-	de_int64 pos, de_int64 len)
+static void handler_tRNS(deark *c, lctx *d, struct handler_params *hp)
 {
 	de_int64 r, g, b;
 
 	if(d->color_type==0) {
-		if(len<2) return;
-		r = de_getui16be(pos);
+		if(hp->dlen<2) return;
+		r = de_getui16be(hp->dpos);
 		de_dbg(c, "transparent color gray shade: %d", (int)r);
 	}
 	else if(d->color_type==2) {
-		if(len<6) return;
-		r = de_getui16be(pos);
-		g = de_getui16be(pos+2);
-		b = de_getui16be(pos+4);
+		if(hp->dlen<6) return;
+		r = de_getui16be(hp->dpos);
+		g = de_getui16be(hp->dpos+2);
+		b = de_getui16be(hp->dpos+4);
 		de_dbg(c, "transparent color: (%d,%d,%d)", (int)r, (int)g, (int)b);
 	}
 	else if(d->color_type==3) {
 		de_int64 i;
 		de_byte a;
 
-		de_dbg(c, "number of alpha values: %d", (int)len);
+		de_dbg(c, "number of alpha values: %d", (int)hp->dlen);
 		if(c->debug_level<2) return;
-		for(i=0; i<len && i<256; i++) {
-			a = de_getbyte(pos+i);
+		for(i=0; i<hp->dlen && i<256; i++) {
+			a = de_getbyte(hp->dpos+i);
 			de_dbg2(c, "alpha[%3d] = %d", (int)i, (int)a);
 		}
 	}
 }
 
-static void do_png_hIST(deark *c, lctx *d,
-	const struct de_fourcc *chunk4cc, const struct chunk_type_info_struct *cti,
-	de_int64 pos, de_int64 len)
+static void handler_hIST(deark *c, lctx *d, struct handler_params *hp)
 {
 	de_int64 i;
 	de_int64 v;
-	de_int64 nentries = len/2;
+	de_int64 nentries = hp->dlen/2;
 
 	de_dbg(c, "number of histogram values: %d", (int)nentries);
 	if(c->debug_level<2) return;
 	for(i=0; i<nentries; i++) {
-		v = de_getui16be(pos+i*2);
+		v = de_getui16be(hp->dpos+i*2);
 		de_dbg2(c, "freq[%3d] = %d", (int)i, (int)v);
 	}
 }
 
-static void do_png_bKGD(deark *c, lctx *d,
-	const struct de_fourcc *chunk4cc, const struct chunk_type_info_struct *cti,
-	de_int64 pos, de_int64 len)
+static void handler_bKGD(deark *c, lctx *d, struct handler_params *hp)
 {
 	de_int64 r, g, b;
 	de_byte idx;
 
 	if(d->color_type==0 || d->color_type==4) {
-		if(len<2) return;
-		r = de_getui16be(pos);
-		de_dbg(c, "%s gray shade: %d", cti->name, (int)r);
+		if(hp->dlen<2) return;
+		r = de_getui16be(hp->dpos);
+		de_dbg(c, "%s gray shade: %d", hp->cti->name, (int)r);
 	}
 	else if(d->color_type==2 || d->color_type==6) {
-		if(len<6) return;
-		r = de_getui16be(pos);
-		g = de_getui16be(pos+2);
-		b = de_getui16be(pos+4);
-		de_dbg(c, "%s: (%d,%d,%d)", cti->name, (int)r, (int)g, (int)b);
+		if(hp->dlen<6) return;
+		r = de_getui16be(hp->dpos);
+		g = de_getui16be(hp->dpos+2);
+		b = de_getui16be(hp->dpos+4);
+		de_dbg(c, "%s: (%d,%d,%d)", hp->cti->name, (int)r, (int)g, (int)b);
 	}
 	else if(d->color_type==3) {
-		if(len<1) return;
-		idx = de_getbyte(pos);
-		de_dbg(c, "%s palette index: %d", cti->name, (int)idx);
+		if(hp->dlen<1) return;
+		idx = de_getbyte(hp->dpos);
+		de_dbg(c, "%s palette index: %d", hp->cti->name, (int)idx);
 	}
 }
 
-static void do_png_gAMA(deark *c, lctx *d,
-	const struct de_fourcc *chunk4cc, const struct chunk_type_info_struct *cti,
-	de_int64 pos, de_int64 len)
+static void handler_gAMA(deark *c, lctx *d, struct handler_params *hp)
 {
 	de_int64 n;
-	n = de_getui32be(pos);
+	n = de_getui32be(hp->dpos);
 	de_dbg(c, "image gamma: %.5f", (double)n / 100000.0);
 }
 
-static void do_png_pHYs(deark *c, lctx *d,
-	const struct de_fourcc *chunk4cc, const struct chunk_type_info_struct *cti,
-	de_int64 pos, de_int64 len)
+static void handler_pHYs(deark *c, lctx *d, struct handler_params *hp)
 {
 	de_int64 dx, dy;
 	de_byte u;
 	const char *name;
 
-	dx = de_getui32be(pos);
-	dy = de_getui32be(pos+4);
+	dx = de_getui32be(hp->dpos);
+	dy = de_getui32be(hp->dpos+4);
 	de_dbg(c, "density: %d"DE_CHAR_TIMES"%d", (int)dx, (int)dy);
-	u = de_getbyte(pos+8);
+	u = de_getbyte(hp->dpos+8);
 	switch(u) {
 	case 0: name="unspecified"; break;
 	case 1: name="per meter"; break;
@@ -455,9 +441,7 @@ static void do_png_pHYs(deark *c, lctx *d,
 	de_dbg(c, "units: %d (%s)", (int)u, name);
 }
 
-static void do_png_sBIT(deark *c, lctx *d,
-	const struct de_fourcc *chunk4cc, const struct chunk_type_info_struct *cti,
-	de_int64 pos, de_int64 len)
+static void handler_sBIT(deark *c, lctx *d, struct handler_params *hp)
 {
 	const char *sbname[4];
 	de_int64 i;
@@ -471,45 +455,41 @@ static void do_png_sBIT(deark *c, lctx *d,
 		sbname[1] = "alpha";
 	}
 
-	for(i=0; i<4 && i<len; i++) {
+	for(i=0; i<4 && i<hp->dlen; i++) {
 		de_byte n;
-		n = de_getbyte(pos+i);
+		n = de_getbyte(hp->dpos+i);
 		de_dbg(c, "significant %s bits: %d", sbname[i], (int)n);
 	}
 }
 
-static void do_png_tIME(deark *c, lctx *d,
-	const struct de_fourcc *chunk4cc, const struct chunk_type_info_struct *cti,
-	de_int64 pos, de_int64 len)
+static void handler_tIME(deark *c, lctx *d, struct handler_params *hp)
 {
 	de_int64 yr;
 	de_byte mo, da, hr, mi, se;
 	struct de_timestamp ts;
 	char timestamp_buf[64];
 
-	yr = de_getui16be(pos);
-	mo = de_getbyte(pos+2);
-	da = de_getbyte(pos+3);
-	hr = de_getbyte(pos+4);
-	mi = de_getbyte(pos+5);
-	se = de_getbyte(pos+6);
+	yr = de_getui16be(hp->dpos);
+	mo = de_getbyte(hp->dpos+2);
+	da = de_getbyte(hp->dpos+3);
+	hr = de_getbyte(hp->dpos+4);
+	mi = de_getbyte(hp->dpos+5);
+	se = de_getbyte(hp->dpos+6);
 
 	de_make_timestamp(&ts, yr, mo, da, hr, mi, (double)se, 0);
 	de_timestamp_to_string(&ts, timestamp_buf, sizeof(timestamp_buf), 1);
 	de_dbg(c, "mod time: %s", timestamp_buf);
 }
 
-static void do_png_cHRM(deark *c, lctx *d,
-	const struct de_fourcc *chunk4cc, const struct chunk_type_info_struct *cti,
-	de_int64 pos, de_int64 len)
+static void handler_cHRM(deark *c, lctx *d, struct handler_params *hp)
 {
 	de_int64 n[8];
 	double nd[8];
 	size_t i;
 
-	if(len<32) return;
+	if(hp->dlen<32) return;
 	for(i=0; i<8; i++) {
-		n[i] = de_getui32be(pos+4*i);
+		n[i] = de_getui32be(hp->dpos+4*i);
 		nd[i] = ((double)n[i])/100000.0;
 	}
 	de_dbg(c, "white point: (%1.5f, %1.5f)", nd[0], nd[1]);
@@ -518,15 +498,13 @@ static void do_png_cHRM(deark *c, lctx *d,
 	de_dbg(c, "blue       : (%1.5f, %1.5f)", nd[6], nd[7]);
 }
 
-static void do_png_sRGB(deark *c, lctx *d,
-	const struct de_fourcc *chunk4cc, const struct chunk_type_info_struct *cti,
-	de_int64 pos, de_int64 len)
+static void handler_sRGB(deark *c, lctx *d, struct handler_params *hp)
 {
 	de_byte intent;
 	const char *name;
 
-	if(len<1) return;
-	intent = de_getbyte(pos);
+	if(hp->dlen<1) return;
+	intent = de_getbyte(hp->dpos);
 	switch(intent) {
 	case 0: name="perceptual"; break;
 	case 1: name="relative"; break;
@@ -537,9 +515,7 @@ static void do_png_sRGB(deark *c, lctx *d,
 	de_dbg(c, "rendering intent: %d (%s)", (int)intent, name);
 }
 
-static void do_png_iccp(deark *c, lctx *d,
-	const struct de_fourcc *chunk4cc, const struct chunk_type_info_struct *cti,
-	de_int64 pos, de_int64 len)
+static void handler_iccp(deark *c, lctx *d, struct handler_params *hp)
 {
 	de_byte prof_name[81];
 	de_int64 prof_name_len;
@@ -547,7 +523,7 @@ static void do_png_iccp(deark *c, lctx *d,
 	dbuf *f = NULL;
 	de_finfo *fi = NULL;
 
-	de_read(prof_name, pos, 80); // One of the next 80 bytes should be a NUL.
+	de_read(prof_name, hp->dpos, 80); // One of the next 80 bytes should be a NUL.
 	prof_name[80] = '\0';
 	prof_name_len = de_strlen((const char*)prof_name);
 	if(prof_name_len > 79) return;
@@ -560,7 +536,7 @@ static void do_png_iccp(deark *c, lctx *d,
 		}
 	}
 
-	cmpr_type = de_getbyte(pos + prof_name_len + 1);
+	cmpr_type = de_getbyte(hp->dpos + prof_name_len + 1);
 	if(cmpr_type!=0) return;
 
 	fi = de_finfo_create(c);
@@ -569,21 +545,22 @@ static void do_png_iccp(deark *c, lctx *d,
 	f = dbuf_create_output_file(c, "icc", fi, DE_CREATEFLAG_IS_AUX);
 	if(d->is_CgBI) {
 		de_int64 bytes_consumed = 0;
-		de_uncompress_deflate(c->infile, pos + prof_name_len + 2,
-			len - (prof_name_len + 2), f, &bytes_consumed);
+		de_uncompress_deflate(c->infile, hp->dpos + prof_name_len + 2,
+			hp->dlen - (prof_name_len + 2), f, &bytes_consumed);
 	}
 	else {
-		de_uncompress_zlib(c->infile, pos + prof_name_len + 2,
-			len - (prof_name_len + 2), f);
+		de_uncompress_zlib(c->infile, hp->dpos + prof_name_len + 2,
+			hp->dlen - (prof_name_len + 2), f);
 	}
 	dbuf_close(f);
 	de_finfo_destroy(c, fi);
 }
 
-static void do_png_eXIf(deark *c, lctx *d,
-	const struct de_fourcc *chunk4cc, const struct chunk_type_info_struct *cti,
-	de_int64 pos, de_int64 len)
+static void handler_eXIf(deark *c, lctx *d, struct handler_params *hp)
 {
+	de_int64 pos = hp->dpos;
+	de_int64 len = hp->dlen;
+
 	if(len>=6 && !dbuf_memcmp(c->infile, pos, "Exif\0", 5)) {
 		// Some versions of the PNG-Exif proposal had the Exif data starting with
 		// an "Exif\0\0" identifier, and some files were created in this format.
@@ -597,18 +574,16 @@ static void do_png_eXIf(deark *c, lctx *d,
 	de_fmtutil_handle_exif(c, pos, len);
 }
 
-static void do_png_caNv(deark *c, lctx *d,
-	const struct de_fourcc *chunk4cc, const struct chunk_type_info_struct *cti,
-	de_int64 pos, de_int64 len)
+static void handler_caNv(deark *c, lctx *d, struct handler_params *hp)
 {
 	de_int64 x0, x1;
 
-	if(len<16) return;
-	x0 = de_geti32be(pos);
-	x1 = de_geti32be(pos+4);
+	if(hp->dlen<16) return;
+	x0 = de_geti32be(hp->dpos);
+	x1 = de_geti32be(hp->dpos+4);
 	de_dbg(c, "caNv dimensions: %dx%d", (int)x0, (int)x1);
-	x0 = de_geti32be(pos+8);
-	x1 = de_geti32be(pos+12);
+	x0 = de_geti32be(hp->dpos+8);
+	x1 = de_geti32be(hp->dpos+12);
 	de_dbg(c, "caNv position: %d,%d", (int)x0, (int)x1);
 }
 
@@ -619,14 +594,12 @@ static void do_APNG_seqno(deark *c, lctx *d, de_int64 pos)
 	de_dbg(c, "seq. number: %u", n);
 }
 
-static void do_png_acTL(deark *c, lctx *d,
-	const struct de_fourcc *chunk4cc, const struct chunk_type_info_struct *cti,
-	de_int64 pos1, de_int64 len)
+static void handler_acTL(deark *c, lctx *d, struct handler_params *hp)
 {
 	unsigned int n;
-	de_int64 pos = pos1;
+	de_int64 pos = hp->dpos;
 
-	if(len<8) return;
+	if(hp->dlen<8) return;
 	n = (unsigned int)de_getui32be_p(&pos);
 	de_dbg(c, "num frames: %u", n);
 	n = (unsigned int)de_getui32be_p(&pos);
@@ -652,15 +625,13 @@ static const char *get_apng_blend_name(de_byte t)
 	return "?";
 }
 
-static void do_png_fcTL(deark *c, lctx *d,
-	const struct de_fourcc *chunk4cc, const struct chunk_type_info_struct *cti,
-	de_int64 pos1, de_int64 len)
+static void handler_fcTL(deark *c, lctx *d, struct handler_params *hp)
 {
 	de_int64 n1, n2;
-	de_int64 pos = pos1;
+	de_int64 pos = hp->dpos;
 	de_byte b;
 
-	if(len<26) return;
+	if(hp->dlen<26) return;
 	do_APNG_seqno(c, d, pos);
 	pos += 4;
 	n1 = de_getui32be_p(&pos);
@@ -678,40 +649,38 @@ static void do_png_fcTL(deark *c, lctx *d,
 	de_dbg(c, "blend type: %u (%s)", (unsigned int)b, get_apng_blend_name(b));
 }
 
-static void do_png_fdAT(deark *c, lctx *d,
-	const struct de_fourcc *chunk4cc, const struct chunk_type_info_struct *cti,
-	de_int64 pos, de_int64 len)
+static void handler_fdAT(deark *c, lctx *d, struct handler_params *hp)
 {
-	if(len<4) return;
-	do_APNG_seqno(c, d, pos);
+	if(hp->dlen<4) return;
+	do_APNG_seqno(c, d, hp->dpos);
 }
 
 static const struct chunk_type_info_struct chunk_type_info_arr[] = {
-	{ PNGID_CgBI, 0, NULL, do_png_CgBI },
-	{ PNGID_IDAT, 0, NULL, NULL },
-	{ PNGID_IEND, 0, NULL, NULL },
-	{ PNGID_IHDR, 0, NULL, do_png_IHDR },
-	{ PNGID_PLTE, 0, "palette", do_png_PLTE },
-	{ PNGID_bKGD, 0, "background color", do_png_bKGD },
-	{ PNGID_acTL, 0, "APNG animation control", do_png_acTL },
-	{ PNGID_cHRM, 0, "chromaticities", do_png_cHRM },
-	{ PNGID_caNv, 0, "virtual canvas info", do_png_caNv },
-	{ PNGID_eXIf, 0, NULL, do_png_eXIf },
-	{ PNGID_exIf, 0, NULL, do_png_eXIf },
-	{ PNGID_fcTL, 0, "APNG frame control", do_png_fcTL },
-	{ PNGID_fdAT, 0, "APNG frame data", do_png_fdAT },
-	{ PNGID_gAMA, 0, "image gamma", do_png_gAMA },
-	{ PNGID_hIST, 0, "histogram", do_png_hIST },
-	{ PNGID_iCCP, 0, "ICC profile", do_png_iccp },
-	{ PNGID_iTXt, 0, NULL, do_png_text },
-	{ PNGID_pHYs, 0, "physical pixel size", do_png_pHYs },
-	{ PNGID_sBIT, 0, "significant bits", do_png_sBIT },
-	{ PNGID_sPLT, 0, "suggested palette", do_png_sPLT },
-	{ PNGID_sRGB, 0, NULL, do_png_sRGB },
-	{ PNGID_tEXt, 0, NULL, do_png_text },
-	{ PNGID_tIME, 0, "last-modification time", do_png_tIME },
-	{ PNGID_tRNS, 0, "transparency info", do_png_tRNS },
-	{ PNGID_zTXt, 0, NULL, do_png_text }
+	{ CODE_CgBI, 0x00ff, NULL, handler_CgBI },
+	{ CODE_IDAT, 0x00ff, NULL, NULL },
+	{ CODE_IEND, 0x00ff, NULL, NULL },
+	{ CODE_IHDR, 0x00ff, NULL, handler_IHDR },
+	{ CODE_PLTE, 0x00ff, "palette", handler_PLTE },
+	{ CODE_bKGD, 0x00ff, "background color", handler_bKGD },
+	{ CODE_acTL, 0x00ff, "APNG animation control", handler_acTL },
+	{ CODE_cHRM, 0x00ff, "chromaticities", handler_cHRM },
+	{ CODE_caNv, 0x00ff, "virtual canvas info", handler_caNv },
+	{ CODE_eXIf, 0x00ff, NULL, handler_eXIf },
+	{ CODE_exIf, 0x00ff, NULL, handler_eXIf },
+	{ CODE_fcTL, 0x00ff, "APNG frame control", handler_fcTL },
+	{ CODE_fdAT, 0x00ff, "APNG frame data", handler_fdAT },
+	{ CODE_gAMA, 0x00ff, "image gamma", handler_gAMA },
+	{ CODE_hIST, 0x00ff, "histogram", handler_hIST },
+	{ CODE_iCCP, 0x00ff, "ICC profile", handler_iccp },
+	{ CODE_iTXt, 0x00ff, NULL, handler_text },
+	{ CODE_pHYs, 0x00ff, "physical pixel size", handler_pHYs },
+	{ CODE_sBIT, 0x00ff, "significant bits", handler_sBIT },
+	{ CODE_sPLT, 0x00ff, "suggested palette", handler_sPLT },
+	{ CODE_sRGB, 0x00ff, NULL, handler_sRGB },
+	{ CODE_tEXt, 0x00ff, NULL, handler_text },
+	{ CODE_tIME, 0x00ff, "last-modification time", handler_tIME },
+	{ CODE_tRNS, 0x00ff, "transparency info", handler_tRNS },
+	{ CODE_zTXt, 0x00ff, NULL, handler_text }
 };
 
 static const struct chunk_type_info_struct *get_chunk_type_info(de_uint32 id)
@@ -740,11 +709,8 @@ static void de_run_png(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
 	de_int64 pos;
-	de_int64 chunk_data_len;
 	de_int32 prev_chunk_id = 0;
 	int suppress_idat_dbg = 0;
-	struct de_fourcc chunk4cc;
-	const struct chunk_type_info_struct *cti;
 
 	d = de_malloc(c, sizeof(lctx));
 
@@ -757,26 +723,30 @@ static void de_run_png(deark *c, de_module_params *mparams)
 
 	pos = 8;
 	while(pos < c->infile->len) {
+		struct de_fourcc chunk4cc;
+		struct handler_params hp;
 		de_uint32 crc;
 		char nbuf[80];
 
-		chunk_data_len = de_getui32be(pos);
-		if(pos + 8 + chunk_data_len + 4 > c->infile->len) break;
+		de_memset(&hp, 0, sizeof(struct handler_params));
+
+		hp.dlen = de_getui32be(pos);
+		if(pos + 8 + hp.dlen + 4 > c->infile->len) break;
 		dbuf_read_fourcc(c->infile, pos+4, &chunk4cc, 4, 0x0);
 
-		cti = get_chunk_type_info(chunk4cc.id);
+		hp.cti = get_chunk_type_info(chunk4cc.id);
 
-		if(chunk4cc.id==PNGID_IDAT && suppress_idat_dbg) {
+		if(chunk4cc.id==CODE_IDAT && suppress_idat_dbg) {
 			;
 		}
-		else if(chunk4cc.id==PNGID_IDAT && prev_chunk_id==PNGID_IDAT && c->debug_level<2) {
+		else if(chunk4cc.id==CODE_IDAT && prev_chunk_id==CODE_IDAT && c->debug_level<2) {
 			de_dbg(c, "(more IDAT chunks follow)");
 			suppress_idat_dbg = 1;
 		}
 		else {
-			if(cti) {
-				if(cti->name) {
-					de_snprintf(nbuf, sizeof(nbuf), " (%s)", cti->name);
+			if(hp.cti) {
+				if(hp.cti->name) {
+					de_snprintf(nbuf, sizeof(nbuf), " (%s)", hp.cti->name);
 				}
 				else {
 					de_strlcpy(nbuf, "", sizeof(nbuf));
@@ -788,24 +758,28 @@ static void de_run_png(deark *c, de_module_params *mparams)
 
 			de_dbg(c, "chunk '%s'%s at %d dpos=%d dlen=%d",
 				chunk4cc.id_dbgstr, nbuf,
-				(int)pos, (int)(pos+8), (int)chunk_data_len);
-			if(chunk4cc.id!=PNGID_IDAT) suppress_idat_dbg = 0;
+				(int)pos, (int)(pos+8), (int)hp.dlen);
+			if(chunk4cc.id!=CODE_IDAT) suppress_idat_dbg = 0;
 		}
 
 		pos += 8;
 
 		de_dbg_indent(c, 1);
-		if(cti) {
-			if(cti->decoder_fn) {
-				cti->decoder_fn(c, d, &chunk4cc, cti, pos, chunk_data_len);
+
+		hp.dpos = pos;
+		hp.chunk4cc = &chunk4cc;
+
+		if(hp.cti) {
+			if(hp.cti->handler_fn) {
+				hp.cti->handler_fn(c, d, &hp);
 			}
 		}
 		else {
 			if(c->debug_level>=2) {
-				decoder_hexdump(c, d, &chunk4cc, cti, pos, chunk_data_len);
+				handler_hexdump(c, d, &hp);
 			}
 		}
-		pos += chunk_data_len;
+		pos += hp.dlen;
 
 		crc = (de_uint32)de_getui32be(pos);
 		de_dbg2(c, "crc32 (reported): 0x%08x", (unsigned int)crc);
