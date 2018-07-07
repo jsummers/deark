@@ -48,6 +48,7 @@ DE_DECLARE_MODULE(de_module_tiff);
 #define IFDTYPE_EXIFINTEROP  3
 #define IFDTYPE_GPS          4
 #define IFDTYPE_GLOBALPARAMS 5 // TIFF-FX
+#define IFDTYPE_NIKONPREVIEW 6
 
 struct localctx_struct;
 typedef struct localctx_struct lctx;
@@ -452,10 +453,28 @@ static void do_oldjpeg(deark *c, lctx *d, de_int64 jpegoffset, de_int64 jpegleng
 		// of the file.
 		jpeglength = c->infile->len - jpegoffset;
 	}
+	if(jpeglength>DE_MAX_FILE_SIZE) {
+		return;
+	}
+
+	if(jpegoffset+jpeglength>c->infile->len) {
+		de_warn(c, "Invalid offset/length of embedded JPEG data (offset=%"INT64_FMT
+			", len=%"INT64_FMT")", jpegoffset, jpeglength);
+		return;
+	}
+
+	if(dbuf_memcmp(c->infile, jpegoffset, "\xff\xd8\xff", 3)) {
+		de_warn(c, "Expected JPEG data at %"INT64_FMT" not found", jpegoffset);
+		return;
+	}
 
 	// Found an embedded JPEG image or thumbnail that we can extract.
 	if(d->is_exif_submodule) {
 		extension = "exifthumb.jpg";
+		createflags = DE_CREATEFLAG_IS_AUX;
+	}
+	else if(d->fmt==DE_TIFFFMT_NIKONMN) {
+		extension = "nikonthumb.jpg";
 		createflags = DE_CREATEFLAG_IS_AUX;
 	}
 	else {
@@ -1013,7 +1032,8 @@ static void handler_subifd(deark *c, lctx *d, const struct taginfo *tg, const st
 	de_int64 tmpoffset;
 	int ifdtype = IFDTYPE_NORMAL;
 
-	if(tg->tagnum==330) ifdtype = IFDTYPE_SUBIFD;
+	if(d->fmt==DE_TIFFFMT_NIKONMN && tg->tagnum==0x11) ifdtype = IFDTYPE_NIKONPREVIEW;
+	else if(tg->tagnum==330) ifdtype = IFDTYPE_SUBIFD;
 	else if(tg->tagnum==400) ifdtype = IFDTYPE_GLOBALPARAMS;
 	else if(tg->tagnum==34665) ifdtype = IFDTYPE_EXIF;
 	else if(tg->tagnum==34853) ifdtype = IFDTYPE_GPS;
@@ -1820,7 +1840,7 @@ static const struct tagnuminfo tagnuminfo_arr[] = {
 	{ 0xe, 0x1001, "ExposureDifference", NULL, NULL },
 	{ 0xf, 0x1001, "ISOSelection", NULL, NULL },
 	{ 0x10, 0x1001, "DataDump", NULL, NULL },
-	{ 0x11, 0x1001, "PreviewIFD", NULL, NULL },
+	{ 0x11, 0x1001, "PreviewIFD", handler_subifd, NULL },
 	{ 0x12, 0x1001, "FlashExposureComp", NULL, NULL },
 	{ 0x13, 0x1001, "ISOSetting", NULL, NULL },
 	{ 0x16, 0x1001, "ImageBoundary", NULL, NULL },
@@ -2122,6 +2142,9 @@ static void process_ifd(deark *c, lctx *d, de_int64 ifd_idx1, de_int64 ifdpos1, 
 	case IFDTYPE_GPS:
 		name=" (GPS IFD)";
 		d->current_textfield_encoding = DE_ENCODING_ASCII;
+		break;
+	case IFDTYPE_NIKONPREVIEW:
+		name=" (Nikon Preview)";
 		break;
 	default:
 		name="";
