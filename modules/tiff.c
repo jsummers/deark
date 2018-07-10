@@ -2150,11 +2150,11 @@ static void process_ifd(deark *c, lctx *d, de_int64 ifd_idx1, de_int64 ifdpos1, 
 		name="";
 	}
 
-	de_dbg(c, "IFD at %d%s", (int)pg->ifdpos, name);
+	de_dbg(c, "IFD at %"INT64_FMT"%s", pg->ifdpos, name);
 	de_dbg_indent(c, 1);
 
 	if(pg->ifdpos >= c->infile->len || pg->ifdpos<8) {
-		de_warn(c, "Invalid IFD offset (%d)", (int)pg->ifdpos);
+		de_warn(c, "Invalid IFD offset (%"INT64_FMT")", pg->ifdpos);
 		goto done;
 	}
 
@@ -2172,8 +2172,8 @@ static void process_ifd(deark *c, lctx *d, de_int64 ifd_idx1, de_int64 ifdpos1, 
 	}
 
 	// Record the next IFD in the main list.
-	tmpoffset = dbuf_getui32x(c->infile, pg->ifdpos+d->ifdhdrsize+num_tags*d->ifditemsize, d->is_le);
-	de_dbg(c, "offset of next IFD: %d%s", (int)tmpoffset, tmpoffset==0?" (none)":"");
+	tmpoffset = getfpos(c, d, pg->ifdpos+d->ifdhdrsize+num_tags*d->ifditemsize);
+	de_dbg(c, "offset of next IFD: %"INT64_FMT"%s", tmpoffset, tmpoffset==0?" (none)":"");
 	push_ifd(c, d, tmpoffset, IFDTYPE_NORMAL);
 
 	dbgline = ucstring_create(c);
