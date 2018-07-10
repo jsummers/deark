@@ -81,7 +81,15 @@ typedef struct localctx_struct {
 } lctx;
 
 struct text_chunk_ctx {
+	int suppress_debugstr;
 	int is_xmp;
+	int is_im_generic_profile; // ImageMagick-style generic "Raw profile type"
+#define PROFILETYPE_8BIM 1
+#define PROFILETYPE_IPTC 2
+#define PROFILETYPE_XMP  3
+#define PROFILETYPE_ICC  4
+	int im_generic_profile_type;
+	const char *im_generic_profile_type_name;
 };
 
 #define FIELD_KEYWORD  1
@@ -115,7 +123,119 @@ static void handler_hexdump(deark *c, lctx *d, struct handler_params *hp)
 	de_dbg_hexdump(c, c->infile, hp->dpos, hp->dlen, 256, NULL, 0x1);
 }
 
+static void on_im_generic_profile_keyword(deark *c, lctx *d,
+	struct text_chunk_ctx *tcc, struct de_stringreaderdata *srd)
+{
+	char typestr[32];
+
+	tcc->is_im_generic_profile = 1;
+	tcc->im_generic_profile_type = 0;
+	tcc->im_generic_profile_type_name = NULL;
+	tcc->suppress_debugstr = 1;
+
+	de_bytes_to_printable_sz(srd->sz+17, de_strlen((const char*)(srd->sz+17)),
+		typestr, sizeof(typestr), 0, DE_ENCODING_ASCII);
+
+	if(!de_strcmp(typestr, "8bim")) {
+		tcc->im_generic_profile_type = PROFILETYPE_8BIM;
+		tcc->im_generic_profile_type_name = "Photoshop";
+	}
+	else if(!de_strcmp(typestr, "iptc")) {
+		tcc->im_generic_profile_type = PROFILETYPE_IPTC;
+		tcc->im_generic_profile_type_name = "IPTC";
+	}
+	else if(!de_strcmp(typestr, "xmp")) {
+		tcc->im_generic_profile_type = PROFILETYPE_XMP;
+		tcc->im_generic_profile_type_name = "XMP";
+	}
+	else if(!de_strcmp(typestr, "icc")) {
+		tcc->im_generic_profile_type = PROFILETYPE_ICC;
+		tcc->im_generic_profile_type_name = "ICC";
+	}
+	else {
+		if(c->extract_level<2) {
+			tcc->suppress_debugstr = 0;
+		}
+	}
+}
+
+// Generic (ImageMagick?) profile. Hex-encoded, with three header lines.
+static void on_im_generic_profile_main(deark *c, lctx *d,
+	struct text_chunk_ctx *tcc, dbuf *inf, de_int64 pos1, de_int64 len)
+{
+	int k;
+	de_int64 pos = pos1;
+	de_int64 dlen;
+	int dump_to_file = 0;
+	int decode_to_membuf = 0;
+	const char *ext = NULL;
+
+	// Skip the first three lines
+	for(k=0; k<3; k++) {
+		int ret;
+		de_int64 foundpos = 0;
+		ret = dbuf_search_byte(inf, 0x0a, pos, pos1+len-pos, &foundpos);
+		if(!ret) goto done;
+		pos = foundpos+1;
+	}
+	dlen = pos1+len-pos;
+
+	if(tcc->im_generic_profile_type==PROFILETYPE_XMP) {
+		dump_to_file = 1;
+		ext = "xmp";
+	}
+	else if(tcc->im_generic_profile_type==PROFILETYPE_8BIM) {
+		decode_to_membuf = 1;
+	}
+	else if(tcc->im_generic_profile_type==PROFILETYPE_IPTC) {
+		if(c->extract_level>=2) {
+			dump_to_file = 1;
+			ext = "iptc";
+		}
+		else {
+			decode_to_membuf = 1;
+		}
+	}
+	else if(tcc->im_generic_profile_type==PROFILETYPE_ICC) {
+		dump_to_file = 1;
+		ext = "icc";
+	}
+	else {
+		if(c->extract_level>=2) {
+			dump_to_file = 1;
+			ext = "profile.bin";
+		}
+	}
+
+	if(dump_to_file) {
+		dbuf *outf;
+		outf = dbuf_create_output_file(c, ext?ext:"bin", NULL, DE_CREATEFLAG_IS_AUX);
+		de_decode_base16(c, inf, pos, dlen, outf, 0);
+		dbuf_close(outf);
+	}
+
+	if(decode_to_membuf) {
+		dbuf *tmpf;
+
+		tmpf = dbuf_create_membuf(c, 0, 0);
+		de_decode_base16(c, inf, pos, dlen, tmpf, 0);
+
+		if(tcc->im_generic_profile_type==PROFILETYPE_8BIM) {
+			de_fmtutil_handle_photoshop_rsrc(c, tmpf, 0, tmpf->len);
+		}
+		else if(tcc->im_generic_profile_type==PROFILETYPE_IPTC) {
+			de_fmtutil_handle_iptc(c, tmpf, 0, tmpf->len);
+		}
+
+		dbuf_close(tmpf);
+	}
+
+done:
+	;
+}
+
 // An internal function that does the main work of do_text_field().
+// TODO: Clean up the text field processing code. It's gotten too messy.
 static int do_unc_text_field(deark *c, lctx *d,
 	struct text_chunk_ctx *tcc, int which_field,
 	dbuf *srcdbuf, de_int64 pos, de_int64 bytes_avail,
@@ -154,8 +274,6 @@ static int do_unc_text_field(deark *c, lctx *d,
 	}
 
 	if(which_field==FIELD_KEYWORD) {
-		// This is a bit of a hack. If there are any other special keywords we need
-		// to look for, we should do something better.
 		if(!de_strcmp((const char*)srd->sz, "XML:com.adobe.xmp")) {
 			tcc->is_xmp = 1;
 		}
@@ -168,8 +286,28 @@ static int do_unc_text_field(deark *c, lctx *d,
 	default: name="text";
 	}
 
-	de_dbg(c, "%s: \"%s\"", name, ucstring_getpsz(srd->str));
+	if(which_field==FIELD_MAIN && tcc->is_im_generic_profile) {
+		de_dbg(c, "generic profile type: %s",
+			tcc->im_generic_profile_type_name?tcc->im_generic_profile_type_name:"?");
+	}
+
+	if(!(which_field==FIELD_MAIN && tcc->suppress_debugstr)) {
+		de_dbg(c, "%s: \"%s\"", name, ucstring_getpsz(srd->str));
+	}
 	retval = 1;
+
+	if(which_field==FIELD_KEYWORD) {
+		if(!de_strncmp((const char*)srd->sz, "Raw profile type ", 17)) {
+			on_im_generic_profile_keyword(c, d, tcc, srd);
+		}
+	}
+
+	if(which_field==FIELD_MAIN && tcc->is_im_generic_profile) {
+		de_dbg_indent(c, 1);
+		on_im_generic_profile_main(c, d, tcc, srcdbuf, pos, bytes_avail);
+		de_dbg_indent(c, -1);
+		goto done;
+	}
 
 done:
 	de_destroy_stringreaderdata(c, srd);

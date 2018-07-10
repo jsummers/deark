@@ -811,6 +811,9 @@ int de_encoding_name_to_code(const char *encname);
 void de_copy_bits(const de_byte *src, de_int64 srcbitnum,
 	de_byte *dst, de_int64 dstbitnum, de_int64 bitstocopy);
 
+void de_decode_base16(deark *c, dbuf *inf, de_int64 pos1, de_int64 len,
+	dbuf *outf, unsigned int flags);
+
 struct de_inthashtable;
 struct de_inthashtable *de_inthashtable_create(deark *c);
 void de_inthashtable_destroy(deark *c, struct de_inthashtable *ht);

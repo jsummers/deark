@@ -53,51 +53,11 @@ static de_int64 bom_length(deark *c)
 
 static void de_run_base16(deark *c, de_module_params *mparams)
 {
-	lctx *d = NULL;
-	de_int64 pos;
 	dbuf *f = NULL;
-	de_byte b;
-	int bad_warned = 0;
-
-	d = de_malloc(c, sizeof(lctx));
 
 	f = dbuf_create_output_file(c, "bin", NULL, 0);
-
-	pos = 0;
-	d->cbuf_count = 0;
-	while(pos<c->infile->len) {
-		b = de_getbyte(pos++);
-		if(b>='0' && b<='9') {
-			d->cbuf[d->cbuf_count++] = b-48;
-		}
-		else if(b>='A' && b<='F') {
-			d->cbuf[d->cbuf_count++] = b-55;
-		}
-		else if(b>='a' && b<='f') {
-			d->cbuf[d->cbuf_count++] = b-87;
-		}
-		else if(b==9 || b==10 || b==13 || b==32) {
-			; // ignore whitespace
-		}
-		else {
-			if(!bad_warned) {
-				de_warn(c, "Bad hex character(s) found (offset %d)", (int)pos);
-				bad_warned = 1;
-			}
-		}
-
-		if(d->cbuf_count>=2) {
-			dbuf_writebyte(f, (d->cbuf[0]<<4)|(d->cbuf[1]));
-			d->cbuf_count=0;
-		}
-	}
-
-	if(d->cbuf_count>0) {
-		de_warn(c, "Unexpected end of hex data");
-	}
-
+	de_decode_base16(c, c->infile, 0, c->infile->len, f, 0);
 	dbuf_close(f);
-	de_free(c, d);
 }
 
 void de_module_base16(deark *c, struct deark_module_info *mi)
