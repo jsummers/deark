@@ -26,6 +26,7 @@ DE_DECLARE_MODULE(de_module_png);
 #define CODE_hIST 0x68495354U
 #define CODE_iCCP 0x69434350U
 #define CODE_iTXt 0x69545874U
+#define CODE_orNT 0x6f724e54U
 #define CODE_pHYs 0x70485973U
 #define CODE_sBIT 0x73424954U
 #define CODE_sPLT 0x73504c54U
@@ -691,43 +692,56 @@ static void handler_sRGB(deark *c, lctx *d, struct handler_params *hp)
 
 static void handler_iccp(deark *c, lctx *d, struct handler_params *hp)
 {
-	de_byte prof_name[81];
-	de_int64 prof_name_len;
 	de_byte cmpr_type;
 	dbuf *f = NULL;
+	struct de_stringreaderdata *prof_name_srd = NULL;
 	de_finfo *fi = NULL;
+	char prof_name2[100];
+	size_t prof_name2_strlen;
+	de_int64 pos = hp->dpos;
 
-	de_read(prof_name, hp->dpos, 80); // One of the next 80 bytes should be a NUL.
-	prof_name[80] = '\0';
-	prof_name_len = de_strlen((const char*)prof_name);
-	if(prof_name_len > 79) return;
+	prof_name_srd = dbuf_read_string(c->infile, pos, 80, 80,
+		DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_LATIN1);
+	if(!prof_name_srd->found_nul) goto done;
+	de_dbg(c, "profile name: \"%s\"", ucstring_getpsz_d(prof_name_srd->str));
+	pos += prof_name_srd->bytes_consumed;
 
-	if(prof_name_len>=5) {
-		// If the name already ends in ".icc", chop it off so that we don't end
-		// up with a double ".icc.icc" file extension.
-		if(de_sz_has_ext((const char*)prof_name, "icc")) {
-			prof_name[prof_name_len-4] = '\0';
+	// Our working copy, to use as part of the filename.
+	de_strlcpy(prof_name2, (const char*)prof_name_srd->sz, sizeof(prof_name2));
+	if(!de_strcasecmp(prof_name2, "icc") ||
+		!de_strcasecmp(prof_name2, "icc profile"))
+	{
+		prof_name2[0] = '\0'; // Ignore generic name.
+	}
+
+	prof_name2_strlen = de_strlen(prof_name2);
+	if(prof_name2_strlen>=5) {
+		if(de_sz_has_ext(prof_name2, "icc")) {
+			// If the name already ends in ".icc", chop it off so that we don't end
+			// up with a double ".icc.icc" file extension.
+			prof_name2[prof_name2_strlen-4] = '\0';
 		}
 	}
 
-	cmpr_type = de_getbyte(hp->dpos + prof_name_len + 1);
+	cmpr_type = de_getbyte_p(&pos);
 	if(cmpr_type!=0) return;
 
 	fi = de_finfo_create(c);
-	if(c->filenames_from_file)
-		de_finfo_set_name_from_sz(c, fi, (const char*)prof_name, DE_ENCODING_LATIN1);
+	if(c->filenames_from_file && prof_name2[0])
+		de_finfo_set_name_from_sz(c, fi, prof_name2, DE_ENCODING_LATIN1);
 	f = dbuf_create_output_file(c, "icc", fi, DE_CREATEFLAG_IS_AUX);
 	if(d->is_CgBI) {
 		de_int64 bytes_consumed = 0;
-		de_uncompress_deflate(c->infile, hp->dpos + prof_name_len + 2,
-			hp->dlen - (prof_name_len + 2), f, &bytes_consumed);
+		de_uncompress_deflate(c->infile, pos, hp->dlen - pos, f, &bytes_consumed);
 	}
 	else {
-		de_uncompress_zlib(c->infile, hp->dpos + prof_name_len + 2,
-			hp->dlen - (prof_name_len + 2), f);
+		de_uncompress_zlib(c->infile, pos, hp->dlen - pos, f);
 	}
+
+done:
 	dbuf_close(f);
 	de_finfo_destroy(c, fi);
+	de_destroy_stringreaderdata(c, prof_name_srd);
 }
 
 static void handler_eXIf(deark *c, lctx *d, struct handler_params *hp)
@@ -759,6 +773,14 @@ static void handler_caNv(deark *c, lctx *d, struct handler_params *hp)
 	x0 = de_geti32be(hp->dpos+8);
 	x1 = de_geti32be(hp->dpos+12);
 	de_dbg(c, "caNv position: %d,%d", (int)x0, (int)x1);
+}
+
+static void handler_orNT(deark *c, lctx *d, struct handler_params *hp)
+{
+	de_byte n;
+	if(hp->dlen!=1) return;
+	n = de_getbyte(hp->dpos);
+	de_dbg(c, "orientation: %d (%s)", (int)n, de_fmtutil_tiff_orientation_name((de_int64)n));
 }
 
 static void do_APNG_seqno(deark *c, lctx *d, de_int64 pos)
@@ -847,6 +869,7 @@ static const struct chunk_type_info_struct chunk_type_info_arr[] = {
 	{ CODE_hIST, 0x00ff, "histogram", handler_hIST },
 	{ CODE_iCCP, 0x00ff, "ICC profile", handler_iccp },
 	{ CODE_iTXt, 0x00ff, NULL, handler_text },
+	{ CODE_orNT, 0x00ff, NULL, handler_orNT },
 	{ CODE_pHYs, 0x00ff, "physical pixel size", handler_pHYs },
 	{ CODE_sBIT, 0x00ff, "significant bits", handler_sBIT },
 	{ CODE_sPLT, 0x00ff, "suggested palette", handler_sPLT },
