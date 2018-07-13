@@ -127,6 +127,8 @@ struct localctx_struct {
 	int is_exif_submodule;
 	int host_is_le;
 	int can_decode_fltpt;
+	const char *errmsgprefix;
+
 	de_uint32 first_ifd_orientation; // Valid if != 0
 	de_uint32 exif_version_as_uint32; // Valid if != 0
 	de_byte has_exif_gps;
@@ -151,6 +153,44 @@ struct localctx_struct {
 	unsigned int mpf_main_image_count;
 };
 
+static void detiff_err(deark *c, lctx *d, const char *fmt, ...)
+	de_gnuc_attribute ((format (printf, 3, 4)));
+
+static void detiff_err(deark *c, lctx *d, const char *fmt, ...)
+{
+	va_list ap;
+
+	va_start(ap, fmt);
+	if(d && d->errmsgprefix) {
+		char buf[256];
+		de_vsnprintf(buf, sizeof(buf), fmt, ap);
+		de_err(c, "%s%s", d->errmsgprefix, buf);
+	}
+	else {
+		de_verr(c, fmt, ap);
+	}
+	va_end(ap);
+}
+
+static void detiff_warn(deark *c, lctx *d, const char *fmt, ...)
+	de_gnuc_attribute ((format (printf, 3, 4)));
+
+static void detiff_warn(deark *c, lctx *d, const char *fmt, ...)
+{
+	va_list ap;
+
+	va_start(ap, fmt);
+	if(d && d->errmsgprefix) {
+		char buf[256];
+		de_vsnprintf(buf, sizeof(buf), fmt, ap);
+		de_warn(c, "%s%s", d->errmsgprefix, buf);
+	}
+	else {
+		de_vwarn(c, fmt, ap);
+	}
+	va_end(ap);
+}
+
 // Returns 0 if stack is empty.
 static de_int64 pop_ifd(deark *c, lctx *d, int *ifdtype)
 {
@@ -172,11 +212,11 @@ static void push_ifd(deark *c, lctx *d, de_int64 ifdpos, int ifdtype)
 		d->ifds_seen = de_inthashtable_create(c);
 	}
 	if(d->ifd_count >= MAX_IFDS) {
-		de_warn(c, "Too many TIFF IFDs");
+		detiff_warn(c, d, "Too many TIFF IFDs");
 		return;
 	}
 	if(!de_inthashtable_add_item(c, d->ifds_seen, ifdpos, NULL)) {
-		de_err(c, "IFD loop detected");
+		detiff_err(c, d, "IFD loop detected");
 		return;
 	}
 	d->ifd_count++;
@@ -188,7 +228,7 @@ static void push_ifd(deark *c, lctx *d, de_int64 ifdpos, int ifdtype)
 		d->ifdstack_numused = 0;
 	}
 	if(d->ifdstack_numused >= d->ifdstack_capacity) {
-		de_warn(c, "Too many TIFF IFDs");
+		detiff_warn(c, d, "Too many TIFF IFDs");
 		return;
 	}
 	d->ifdstack[d->ifdstack_numused].offset = ifdpos;
@@ -458,13 +498,13 @@ static void do_oldjpeg(deark *c, lctx *d, de_int64 jpegoffset, de_int64 jpegleng
 	}
 
 	if(jpegoffset+jpeglength>c->infile->len) {
-		de_warn(c, "Invalid offset/length of embedded JPEG data (offset=%"INT64_FMT
+		detiff_warn(c, d, "Invalid offset/length of embedded JPEG data (offset=%"INT64_FMT
 			", len=%"INT64_FMT")", jpegoffset, jpeglength);
 		return;
 	}
 
 	if(dbuf_memcmp(c->infile, jpegoffset, "\xff\xd8\xff", 3)) {
-		de_warn(c, "Expected JPEG data at %"INT64_FMT" not found", jpegoffset);
+		detiff_warn(c, d, "Expected JPEG data at %"INT64_FMT" not found", jpegoffset);
 		return;
 	}
 
@@ -1207,7 +1247,7 @@ static void handler_37724(deark *c, lctx *d, const struct taginfo *tg, const str
 	}
 
 	if(psdver==0) {
-		de_warn(c, "Bad or unsupported ImageSourceData tag at %d", (int)tg->val_offset);
+		detiff_warn(c, d, "Bad or unsupported ImageSourceData tag at %d", (int)tg->val_offset);
 		goto done;
 	}
 
@@ -2154,7 +2194,7 @@ static void process_ifd(deark *c, lctx *d, de_int64 ifd_idx1, de_int64 ifdpos1, 
 	de_dbg_indent(c, 1);
 
 	if(pg->ifdpos >= c->infile->len || pg->ifdpos<8) {
-		de_warn(c, "Invalid IFD offset (%"INT64_FMT")", pg->ifdpos);
+		detiff_warn(c, d, "Invalid IFD offset (%"INT64_FMT")", pg->ifdpos);
 		goto done;
 	}
 
@@ -2167,7 +2207,7 @@ static void process_ifd(deark *c, lctx *d, de_int64 ifd_idx1, de_int64 ifdpos1, 
 
 	de_dbg(c, "number of tags: %d", num_tags);
 	if(num_tags>200) {
-		de_warn(c, "Invalid or excessive number of TIFF tags (%d)", num_tags);
+		detiff_warn(c, d, "Invalid or excessive number of TIFF tags (%d)", num_tags);
 		goto done;
 	}
 
@@ -2370,6 +2410,7 @@ static void de_run_tiff(deark *c, de_module_params *mparams)
 
 	if(mparams && mparams->in_params.codes) {
 		if(de_strchr(mparams->in_params.codes, 'N')) {
+			d->errmsgprefix = "[Nikon MakerNote] ";
 			d->fmt = DE_TIFFFMT_NIKONMN;
 		}
 
@@ -2380,6 +2421,7 @@ static void de_run_tiff(deark *c, de_module_params *mparams)
 
 		if(de_strchr(mparams->in_params.codes, 'E')) {
 			d->is_exif_submodule = 1;
+			d->errmsgprefix = "[Exif] ";
 		}
 	}
 
@@ -2409,7 +2451,7 @@ static void de_run_tiff(deark *c, de_module_params *mparams)
 	}
 
 	if(d->fmt==0) {
-		de_warn(c, "This is not a known/supported TIFF or TIFF-like format.");
+		detiff_warn(c, d, "This is not a known/supported TIFF or TIFF-like format.");
 	}
 
 	if(d->is_bigtiff) {

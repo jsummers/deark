@@ -358,8 +358,10 @@ void de_dbg3(deark *c, const char *fmt, ...)
   de_gnuc_attribute ((format (printf, 2, 3)));
 void de_msg(deark *c, const char *fmt, ...)
   de_gnuc_attribute ((format (printf, 2, 3)));
+void de_vwarn(deark *c, const char *fmt, va_list ap);
 void de_warn(deark *c, const char *fmt, ...)
   de_gnuc_attribute ((format (printf, 2, 3)));
+void de_verr(deark *c, const char *fmt, va_list ap);
 void de_err(deark *c, const char *fmt, ...)
   de_gnuc_attribute ((format (printf, 2, 3)));
 

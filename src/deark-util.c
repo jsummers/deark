@@ -460,20 +460,33 @@ void de_dbg_pal_entry(deark *c, de_int64 idx, de_uint32 clr)
 	de_dbg_pal_entry2(c, idx, clr, NULL, NULL, NULL);
 }
 
-// c can be NULL
-void de_err(deark *c, const char *fmt, ...)
+void de_verr(deark *c, const char *fmt, va_list ap)
 {
-	va_list ap;
-
 	if(c) {
 		c->error_count++;
 	}
 
 	de_puts(c, DE_MSGTYPE_ERROR, "Error: ");
-	va_start(ap, fmt);
 	de_vprintf(c, DE_MSGTYPE_ERROR, fmt, ap);
-	va_end(ap);
 	de_puts(c, DE_MSGTYPE_ERROR, "\n");
+}
+
+// c can be NULL
+void de_err(deark *c, const char *fmt, ...)
+{
+	va_list ap;
+
+	va_start(ap, fmt);
+	de_verr(c, fmt, ap);
+	va_end(ap);
+}
+
+void de_vwarn(deark *c, const char *fmt, va_list ap)
+{
+	if(!c->show_warnings) return;
+	de_puts(c, DE_MSGTYPE_WARNING, "Warning: ");
+	de_vprintf(c, DE_MSGTYPE_WARNING, fmt, ap);
+	de_puts(c, DE_MSGTYPE_WARNING, "\n");
 }
 
 void de_warn(deark *c, const char *fmt, ...)
@@ -481,11 +494,9 @@ void de_warn(deark *c, const char *fmt, ...)
 	va_list ap;
 
 	if(!c->show_warnings) return;
-	de_puts(c, DE_MSGTYPE_WARNING, "Warning: ");
 	va_start(ap, fmt);
-	de_vprintf(c, DE_MSGTYPE_WARNING, fmt, ap);
+	de_vwarn(c, fmt, ap);
 	va_end(ap);
-	de_puts(c, DE_MSGTYPE_WARNING, "\n");
 }
 
 void de_msg(deark *c, const char *fmt, ...)
