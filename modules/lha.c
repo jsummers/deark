@@ -655,5 +655,4 @@ void de_module_lha(deark *c, struct deark_module_info *mi)
 	mi->desc = "LHA/LZW/PMA archive";
 	mi->run_fn = de_run_lha;
 	mi->identify_fn = de_identify_lha;
-	mi->flags |= DE_MODFLAG_HIDDEN;
 }

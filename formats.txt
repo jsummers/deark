@@ -104,10 +104,6 @@ Deark -- Information about supported formats
   software.
   - Cannot be autodetected. You must use "-m compfacei".
 
-* Dr. Halo .CUT (module="drhalocut")
-  Options
-   -file2 <file.pal> - Read the palette from this file.
-
 * DIB (module="dib")
   - Adds a BMP file header to a raw Windows DIB file.
 
@@ -119,6 +115,10 @@ Deark -- Information about supported formats
 
 * Doodle (Atari) (module="doodle")
   - Supports high resolution (640x400) only
+
+* Dr. Halo .CUT (module="drhalocut")
+  Options
+   -file2 <file.pal> - Read the palette from this file.
 
 * EggPaint (*.trp) (module="eggpaint")
 
@@ -347,6 +347,7 @@ Deark -- Information about supported formats
 * PNG / MNG / JNG (module="png")
   - Extract XMP data.
   - Extract ICC profiles.
+  - Extract or process various other metadata formats.
 
 * PNM/PBM/PGM/PPM/PAM (module="pnm")
 
@@ -354,6 +355,8 @@ Deark -- Information about supported formats
   Options
    -file2 <file.sdr> - Use this "name" file
    -opt namefile=<file.sdr> - Use this "name" file
+
+* PrintPartner .GPH (module="pp_gph")
 
 * Print Shop .DAT format (module="printshop")
   - Not all files can be autodetected. You may need "-m printshop".
@@ -384,10 +387,6 @@ Deark -- Information about supported formats
    -opt psionpic:bw - Do not try to detect grayscale images. Write each bitmap
      as a separate image.
 
-* RSC (GEM resource) (module="rsc") (experimental)
-  - Supports both "old" and "new" formats.
-  - Extracts icons and bitmaps.
-
 * QDV (Giffer) (module="qdv")
 
 * QTIF (QuickTime image) (module="qtif")
@@ -401,6 +400,10 @@ Deark -- Information about supported formats
   - Autodetection may not always work. May need "-m rosprite".
   - "Old" format is pretty well supported.
   - "New" format is mostly supported, but not well-tested.
+
+* RSC (GEM resource) (module="rsc") (experimental)
+  - Supports both "old" and "new" formats.
+  - Extracts icons and bitmaps.
 
 * SHG and MRB (module="shg")
   Segmented Hypergraphics and Multi-Resolution Bitmap formats are used in
@@ -482,7 +485,6 @@ Deark -- Information about supported formats
 
 * YBM (Bennet Yee face format) (module="ybm")
 
-
 === Font formats ===
 
 * FNT (Windows font) (module="fnt")
@@ -515,6 +517,10 @@ Deark -- Information about supported formats
 * BinHex (.hqx) (module="binhex")
   - Extract data and resource forks to separate files.
 
+* CAB (Microsoft Cabinet) (module="cab")
+  - Files can be parsed, but there is usually nothing that can be extracted
+    from them.
+
 * compress (legacy Unix .Z format) (module="compress")
 
 * cpio (module="cpio")
@@ -525,6 +531,10 @@ Deark -- Information about supported formats
   - The extracted files are usually in specialized formats.
 
 * Gzip (module="gzip")
+
+* LHA/LZH/PMA (module="lha")
+  - Files can be parsed, but there is usually nothing that can be extracted
+    from them.
 
 * Microsoft Compound File Binary (module="cfb")
   - Extract the embedded data streams, though many of them may not be in a
@@ -658,6 +668,10 @@ Deark -- Information about supported formats
 * HLP (Windows Help) (module="hlp") (experimental)
   - Extract SHG/MRB graphics
   - Extract icon (rarely present)
+
+* MIDI (module="midi")
+  - Files can be parsed, but there is usually nothing that can be extracted
+    from them.
 
 * MP3 / MPEG audio (module="mpegaudio" or "mp3")
   - Not all files can be autodetected.

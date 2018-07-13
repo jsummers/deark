@@ -229,5 +229,4 @@ void de_module_gemmeta(deark *c, struct deark_module_info *mi)
 	mi->desc = "GEM VDI Metafile";
 	mi->run_fn = de_run_gemmeta;
 	mi->identify_fn = de_identify_gemmeta;
-	mi->flags |= DE_MODFLAG_HIDDEN;
 }
