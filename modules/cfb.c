@@ -775,7 +775,8 @@ struct prop_info_struct {
 	de_uint32 prop_id;
 	de_uint32 data_type;
 	const char *name;
-	de_int64 data_offs;
+	de_int64 data_offs_rel;
+	de_int64 dpos; // = si->tbloffset+pinfo->data_offs+4
 };
 
 // Sets pinfo->name based on pinfo->type.
@@ -815,10 +816,10 @@ static void do_prop_blob(deark *c, struct ole_prop_set_struct *si,
 	de_int64 blob_data_size;
 	de_byte magic[8];
 
-	blob_data_size = dbuf_getui32le(si->f, si->tbloffset+pinfo->data_offs+4);
+	blob_data_size = dbuf_getui32le(si->f, pinfo->dpos);
 	de_dbg(c, "blob data size: %"INT64_FMT, blob_data_size);
 
-	blob_data_start = si->tbloffset+pinfo->data_offs+8;
+	blob_data_start = pinfo->dpos+4;
 	if(blob_data_start + blob_data_size > si->f->len) return;
 	if(blob_data_size<8) return;
 
@@ -839,13 +840,13 @@ static void do_prop_clipboard(deark *c, struct ole_prop_set_struct *si,
 	de_int64 cbsize_payload;
 	de_int64 cbdatapos;
 
-	cbsize_reported = dbuf_getui32le(si->f, si->tbloffset+pinfo->data_offs+4);
+	cbsize_reported = dbuf_getui32le(si->f, pinfo->dpos);
 	de_dbg(c, "clipboard data size: %d", (int)cbsize_reported);
 
-	cbtype = (de_uint32)dbuf_getui32le(si->f, si->tbloffset+pinfo->data_offs+12);
+	cbtype = (de_uint32)dbuf_getui32le(si->f, pinfo->dpos+8);
 	de_dbg(c, "clipboard data type: 0x%08x", (unsigned int)cbtype);
 
-	cbdatapos = si->tbloffset+pinfo->data_offs+16;
+	cbdatapos = pinfo->dpos+12;
 	cbsize_payload = cbsize_reported-8;
 	if(cbdatapos + cbsize_payload > si->f->len) goto done;
 
@@ -880,8 +881,47 @@ static int do_prop_FILETIME(deark *c, struct ole_prop_set_struct *si,
 		return 0;
 	}
 
-	read_timestamp(c, si->f, si->tbloffset+pinfo->data_offs+4, &ts, pinfo->name);
+	read_timestamp(c, si->f, pinfo->dpos, &ts, pinfo->name);
 	return 1;
+}
+
+static void do_prop_int(deark *c, struct ole_prop_set_struct *si,
+	struct prop_info_struct *pinfo, de_int64 n)
+{
+	de_dbg(c, "%s: %d", pinfo->name, (int)n);
+
+	if(pinfo->prop_id==0x01) { // code page
+		de_int64 n2;
+
+		// I've seen some files in which the Code Page property appears
+		// *after* some string properties. I don't know how to interpret
+		// that, but for now, I'm not going to apply it retroactively.
+
+		// Code page is usually a *signed* 16-bit int, which means the maximum
+		// value is 32767, even though code pages can go up to 65535.
+		// Apparently, code pages over 32767 are stored as negative numbers.
+		n2 = n;
+		if(n2<0) n2 += 65536;
+
+		switch(n2) {
+		case 1252: si->encoding = DE_ENCODING_WINDOWS1252; break;
+		case 10000: si->encoding = DE_ENCODING_MACROMAN; break;
+		case 65001: si->encoding = DE_ENCODING_UTF8; break;
+		default: si->encoding = DE_ENCODING_ASCII;
+		}
+	}
+}
+
+static void do_prop_CLSID(deark *c, struct ole_prop_set_struct *si,
+	struct prop_info_struct *pinfo)
+{
+	de_byte clsid[16];
+	char clsid_string[50];
+
+	dbuf_read(si->f, clsid, pinfo->dpos, 16);
+	de_fmtutil_guid_to_uuid(clsid);
+	de_fmtutil_render_uuid(c, clsid, clsid_string, sizeof(clsid_string));
+	de_dbg(c, "clsid: {%s}", clsid_string);
 }
 
 struct prop_data_type_info_struct {
@@ -905,7 +945,7 @@ static const struct prop_data_type_info_struct prop_data_type_info_arr[] = {
 	{0x40, 0, "FILETIME"},
 	{0x41, 0, "blob"},
 	{0x47, 0, "ClipboardData"},
-	{0x48, 0, "GUID"}
+	{0x48, 0, "CLSID/GUID"}
 };
 
 static char *get_prop_data_type_name(char *buf, size_t buf_len, de_uint32 dt)
@@ -945,11 +985,12 @@ static void do_prop_data(deark *c, struct ole_prop_set_struct *si,
 	struct prop_info_struct *pinfo)
 {
 	de_int64 n;
+	double dval;
 	de_ucstring *s = NULL;
 	char dtname[80];
 
 	// TODO: There's some confusion about whether this is a 16-bit, or a 32-bit int.
-	pinfo->data_type = (de_uint32)dbuf_getui16le(si->f, si->tbloffset+pinfo->data_offs);
+	pinfo->data_type = (de_uint32)dbuf_getui16le(si->f, si->tbloffset+pinfo->data_offs_rel);
 	de_dbg(c, "data type: 0x%04x (%s)", (unsigned int)pinfo->data_type,
 		get_prop_data_type_name(dtname, sizeof(dtname), pinfo->data_type));
 
@@ -958,41 +999,45 @@ static void do_prop_data(deark *c, struct ole_prop_set_struct *si,
 	case 0x01:
 		break;
 	case 0x02: // int16
-		n = dbuf_geti16le(si->f, si->tbloffset+pinfo->data_offs+4);
-		de_dbg(c, "%s: %d", pinfo->name, (int)n);
-
-		if(pinfo->prop_id==0x01) { // code page
-			// I've seen some files in which the Code Page property appears
-			// *after* some string properties. I don't know how to interpret
-			// that, but for now, I'm not going to apply it retroactively.
-
-			// AFAICT this is a *signed* 16-bit int, which means the maximum
-			// value is 32767, even though code pages can go up to 65535.
-			// Apparently, code pages over 32767 are stored as negative numbers.
-			switch(n) {
-			case 1252: si->encoding = DE_ENCODING_WINDOWS1252; break;
-			case 10000: si->encoding = DE_ENCODING_MACROMAN; break;
-			case -535: si->encoding = DE_ENCODING_UTF8; break;
-			default: si->encoding = DE_ENCODING_ASCII;
-			}
-		}
-
+		n = dbuf_geti16le(si->f, pinfo->dpos);
+		do_prop_int(c, si, pinfo, n);
 		break;
 	case 0x03: // int32
 	case 0x16:
-		n = dbuf_geti32le(si->f, si->tbloffset+pinfo->data_offs+4);
-		de_dbg(c, "%s: %d", pinfo->name, (int)n);
+		n = dbuf_geti32le(si->f, pinfo->dpos);
+		do_prop_int(c, si, pinfo, n);
+		break;
+	case 0x04: // float32
+		dval = dbuf_getfloat32x(si->f, pinfo->dpos, 1);
+		de_dbg(c, "%s: %f", pinfo->name, dval);
+		break;
+	case 0x05: // float64
+		dval = dbuf_getfloat64x(si->f, pinfo->dpos, 1);
+		de_dbg(c, "%s: %f", pinfo->name, dval);
+		break;
+	case 0x12: // uint16
+		n = dbuf_getui16le(si->f, pinfo->dpos);
+		do_prop_int(c, si, pinfo, n);
 		break;
 	case 0x13: // uint32
 	case 0x17:
-		n = dbuf_getui32le(si->f, si->tbloffset+pinfo->data_offs+4);
-		de_dbg(c, "%s: %d", pinfo->name, (int)n);
+		n = dbuf_getui32le(si->f, pinfo->dpos);
+		do_prop_int(c, si, pinfo, n);
 		break;
 	case 0x1e: // string with length prefix
 		s = ucstring_create(c);
-		n = dbuf_geti32le(si->f, si->tbloffset+pinfo->data_offs+4);
-		dbuf_read_to_ucstring_n(si->f, si->tbloffset+pinfo->data_offs+8, n, DE_DBG_MAX_STRLEN, s,
+		n = dbuf_geti32le(si->f, pinfo->dpos);
+		dbuf_read_to_ucstring_n(si->f, pinfo->dpos+4, n, DE_DBG_MAX_STRLEN, s,
 			DE_CONVFLAG_STOP_AT_NUL, si->encoding);
+		de_dbg(c, "%s: \"%s\"", pinfo->name, ucstring_getpsz(s));
+		break;
+	case 0x1f: // Unicodestring
+		s = ucstring_create(c);
+		n = dbuf_geti32le(si->f, pinfo->dpos);
+		if(n>0) n--; // Ignore the trailing NUL
+		if(n<0) n=0;
+		dbuf_read_to_ucstring_n(si->f, pinfo->dpos+4, n*2, DE_DBG_MAX_STRLEN*2, s,
+			0, DE_ENCODING_UTF16LE);
 		de_dbg(c, "%s: \"%s\"", pinfo->name, ucstring_getpsz(s));
 		break;
 	case 0x40:
@@ -1003,6 +1048,9 @@ static void do_prop_data(deark *c, struct ole_prop_set_struct *si,
 		break;
 	case 0x47:
 		do_prop_clipboard(c, si, pinfo);
+		break;
+	case 0x48:
+		do_prop_CLSID(c, si, pinfo);
 		break;
 	default:
 		de_dbg(c, "[data type 0x%04x not supported]", (unsigned int)pinfo->data_type);
@@ -1032,12 +1080,13 @@ static void do_property_table(deark *c, struct ole_prop_set_struct *si,
 		de_memset(&pinfo, 0, sizeof(struct prop_info_struct));
 
 		pinfo.prop_id = (de_uint32)dbuf_getui32le(si->f, si->tbloffset+8 + 8*i);
-		pinfo.data_offs = dbuf_getui32le(si->f, si->tbloffset+8 + 8*i + 4);
+		pinfo.data_offs_rel = dbuf_getui32le(si->f, si->tbloffset+8 + 8*i + 4);
+		pinfo.dpos = si->tbloffset+pinfo.data_offs_rel+4;
 		set_prop_name(c, si, &pinfo);
 
 		de_dbg(c, "prop[%d]: type=0x%08x (%s), data_offs=%d", (int)i,
 			(unsigned int)pinfo.prop_id, pinfo.name,
-			(int)pinfo.data_offs);
+			(int)pinfo.data_offs_rel);
 		de_dbg_indent(c, 1);
 		do_prop_data(c, si, &pinfo);
 		de_dbg_indent(c, -1);
