@@ -322,8 +322,13 @@ static int do_dataset(deark *c, lctx *d, de_int64 ds_idx, de_int64 pos1,
 	if(b!=0x1c) {
 		if(b==0x00 && ds_idx>0) {
 			// Extraneous padding at the end of data?
-			de_warn(c, "Expected %d bytes of IPTC data, only found %d",
-				(int)c->infile->len, (int)pos);
+			if(pos == c->infile->len-1) {
+				de_dbg(c, "[ignoring extra byte at end of IPTC data]");
+			}
+			else {
+				de_warn(c, "Expected %d bytes of IPTC data, only found %d",
+					(int)c->infile->len, (int)pos);
+			}
 		}
 		else {
 			de_err(c, "Bad IPTC tag marker (0x%02x) at %d", (int)b, (int)pos);
