@@ -41,6 +41,36 @@ struct wmf_func_info {
 	record_decoder_fn fn;
 };
 
+static de_uint32 colorref_to_color(de_uint32 colorref)
+{
+	de_uint32 r,g,b;
+	r = DE_COLOR_B(colorref);
+	g = DE_COLOR_G(colorref);
+	b = DE_COLOR_R(colorref);
+	return DE_MAKE_RGB(r,g,b);
+}
+
+static void do_dbg_colorref(deark *c, lctx *d, struct decoder_params *dp, de_uint32 colorref)
+{
+	de_uint32 clr;
+	char csamp[16];
+
+	clr = colorref_to_color(colorref);
+	de_get_colorsample_code(c, clr, csamp, sizeof(csamp));
+	de_dbg(c, "colorref: 0x%08x%s", (unsigned int)colorref, csamp);
+}
+
+static int handler_colorref(deark *c, lctx *d, struct decoder_params *dp)
+{
+	de_uint32 colorref;
+
+	if(dp->dlen<4) goto done;
+	colorref = (de_uint32)de_getui32le(dp->dpos);
+	do_dbg_colorref(c, d, dp, colorref);
+done:
+	return 1;
+}
+
 static int wmf_handler_TEXTOUT(deark *c, lctx *d, struct decoder_params *dp)
 {
 	de_int64 pos = dp->dpos;
@@ -358,9 +388,104 @@ done:
 	return 1;
 }
 
+static int handler_SELECTOBJECT_DELETEOBJECT(deark *c, lctx *d, struct decoder_params *dp)
+{
+	unsigned int oi;
+	oi = (unsigned int)de_getui16le(dp->dpos);
+	de_dbg(c, "object index: %u", oi);
+	return 1;
+}
+
+static const char* get_brushstyle_name(unsigned int n)
+{
+	static const char *names[7] = { "BS_SOLID", "BS_NULL", "BS_HATCHED", "BS_PATTERN",
+		NULL, "BS_DIBPATTERN", "BS_DIBPATTERNPT"};
+	const char *name = NULL;
+
+	if(n<=6) {
+		name = names[n];
+	}
+	return name?name:"?";
+}
+
+static int handler_CREATEBRUSHINDIRECT(deark *c, lctx *d, struct decoder_params *dp)
+{
+	unsigned int style;
+	de_int64 pos = dp->dpos;
+
+	if(dp->dlen<8) goto done;
+	style = (unsigned int)de_getui16le_p(&pos);
+	de_dbg(c, "style: 0x%04x (%s)", style, get_brushstyle_name(style));
+
+	if(style==0x0 || style==0x2) {
+		de_uint32 colorref;
+		colorref = (de_uint32)de_getui32le(pos);
+		do_dbg_colorref(c, d, dp, colorref);
+	}
+	pos += 4;
+
+	if(style==0x2) {
+		unsigned int h;
+		h = (unsigned int)de_getui16le(pos);
+		de_dbg(c, "hatch: %u", h);
+	}
+
+done:
+	return 1;
+}
+
+static const char *get_penbasestyle_name(unsigned int n)
+{
+	static const char *names[9] = { "PS_SOLID", "PS_DASH", "PS_DOT", "PS_DASHDOT",
+		"PS_DASHDOTDOT", "PS_NULL", "PS_INSIDEFRAME", "PS_USERSTYLE", "PS_ALTERNATE" };
+	const char *name = NULL;
+
+	if(n<=8) {
+		name = names[n];
+	}
+	return name?name:"?";
+}
+
+static int handler_CREATEPENINDIRECT(deark *c, lctx *d, struct decoder_params *dp)
+{
+	de_uint32 colorref;
+	de_int64 pos = dp->dpos;
+	unsigned int width;
+	unsigned int style;
+	unsigned int base_style;
+	de_ucstring *style_descr = NULL;
+
+	if(dp->dlen<10) goto done;
+	style = (unsigned int)de_getui16le_p(&pos);
+	base_style = style&0x0f; // ?
+	style_descr = ucstring_create(c);
+	ucstring_append_flags_item(style_descr, get_penbasestyle_name(base_style));
+	if((style&0x0f00)==0x0100) ucstring_append_flags_item(style_descr, "PS_ENDCAP_SQUARE");
+	if((style&0x0f00)==0x0200) ucstring_append_flags_item(style_descr, "PS_ENDCAP_FLAG");
+	if((style&0xf000)==0x1000) ucstring_append_flags_item(style_descr, "PS_JOIN_BEVEL");
+	if((style&0xf000)==0x2000) ucstring_append_flags_item(style_descr, "PS_JOIN_MITER");
+	de_dbg(c, "style: 0x%04x (%s)", style, ucstring_getpsz(style_descr));
+
+	if(base_style!=0x5) {
+		width = (unsigned int)de_getui32le(pos);
+		width &= 0x0000ffffU;
+		de_dbg(c, "width: %u", width);
+	}
+	pos += 4;
+
+	if(base_style!=0x5) {
+		colorref = (de_uint32)de_getui32le(pos);
+		do_dbg_colorref(c, d, dp, colorref);
+	}
+
+done:
+	ucstring_destroy(style_descr);
+	return 1;
+}
+
 static const struct wmf_func_info wmf_func_info_arr[] = {
 	{ 0x00, 0, "EOF", NULL },
-	{ 0x01, 0, "SETBKCOLOR", NULL },
+	{ 0x01, 0, "SETBKCOLOR",  handler_colorref },
 	{ 0x02, 0, "SETBKMODE", NULL },
 	{ 0x03, 0, "SETMAPMODE", NULL },
 	{ 0x04, 0, "SETROP2", NULL },
@@ -368,7 +493,7 @@ static const struct wmf_func_info wmf_func_info_arr[] = {
 	{ 0x06, 0, "SETPOLYFILLMODE", NULL },
 	{ 0x07, 0, "SETSTRETCHBLTMODE", NULL },
 	{ 0x08, 0, "SETTEXTCHAREXTRA", NULL },
-	{ 0x09, 0, "SETTEXTCOLOR", NULL },
+	{ 0x09, 0, "SETTEXTCOLOR",  handler_colorref },
 	{ 0x0a, 0, "SETTEXTJUSTIFICATION", NULL },
 	{ 0x0b, 0, "SETWINDOWORG", NULL },
 	{ 0x0c, 0, "SETWINDOWEXT", NULL },
@@ -404,7 +529,7 @@ static const struct wmf_func_info wmf_func_info_arr[] = {
 	{ 0x2a, 0, "INVERTREGION", NULL },
 	{ 0x2b, 0, "PAINTREGION", NULL },
 	{ 0x2c, 0, "SELECTCLIPREGION", NULL },
-	{ 0x2d, 0, "SELECTOBJECT", NULL },
+	{ 0x2d, 0, "SELECTOBJECT", handler_SELECTOBJECT_DELETEOBJECT },
 	{ 0x2e, 0, "SETTEXTALIGN", NULL },
 	{ 0x30, 0, "CHORD", NULL },
 	{ 0x31, 0, "SETMAPPERFLAGS", NULL },
@@ -422,12 +547,12 @@ static const struct wmf_func_info wmf_func_info_arr[] = {
 	{ 0x43, 0, "STRETCHDIB", wmf_handler_DIBSTRETCHBLT_STRETCHDIB },
 	{ 0x48, 0, "EXTFLOODFILL", NULL },
 	{ 0x49, 0, "SETLAYOUT", NULL },
-	{ 0xf0, 0, "DELETEOBJECT", NULL },
+	{ 0xf0, 0, "DELETEOBJECT", handler_SELECTOBJECT_DELETEOBJECT },
 	{ 0xf7, 0, "CREATEPALETTE", NULL },
 	{ 0xf9, 0, "CREATEPATTERNBRUSH", NULL },
-	{ 0xfa, 0, "CREATEPENINDIRECT", NULL },
+	{ 0xfa, 0, "CREATEPENINDIRECT", handler_CREATEPENINDIRECT },
 	{ 0xfb, 0, "CREATEFONTINDIRECT", NULL },
-	{ 0xfc, 0, "CREATEBRUSHINDIRECT", NULL },
+	{ 0xfc, 0, "CREATEBRUSHINDIRECT", handler_CREATEBRUSHINDIRECT },
 	{ 0xff, 0, "CREATEREGION", NULL }
 };
 
