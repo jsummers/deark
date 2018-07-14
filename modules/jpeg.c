@@ -1487,7 +1487,8 @@ static void handler_com(deark *c, lctx *d, struct page_ctx *pg,
 {
 	// Note that a JPEG COM-segment comment is an arbitrary sequence of bytes, so
 	// there's no way to know what text encoding it uses, or even whether it is text.
-	handle_comment(c, d, pos, data_size, DE_ENCODING_UNKNOWN);
+	// We'll use the user's "-inenc" encoding, or DE_ENCODING_UNKNOWN by default.
+	handle_comment(c, d, pos, data_size, c->input_encoding);
 }
 
 static void handler_sos(deark *c, lctx *d, struct page_ctx *pg,

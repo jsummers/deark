@@ -219,8 +219,8 @@ Deark -- Information about supported formats
   - Process Exif data (or extract it: use -a)
   - Process Photoshop-related data.
   - Process Multi-Picture Format (MPF/MPO) data.
-  - Extract comments (use -a). Comment bytes are extracted as-is, because there
-     is no way to determine the character encoding.
+  - Extract comments (use -a). Comment bytes are extracted as-is, or
+     interpreted based on the "-inenc" option.
   - Extract Exif FPXR streams (use -a).
   Options
    -opt jpeg:stopateoi - Stop when the end of the first JPEG "file" has been
