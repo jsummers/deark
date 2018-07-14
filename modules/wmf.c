@@ -13,6 +13,8 @@ typedef struct localctx_struct {
 	int input_encoding;
 	de_int64 wmf_file_type;
 	de_int64 wmf_windows_version;
+	unsigned int num_objects;
+	de_byte *object_table;
 } lctx;
 
 struct escape_info {
@@ -36,6 +38,8 @@ typedef int (*record_decoder_fn)(deark *c, lctx *d, struct decoder_params *dp);
 
 struct wmf_func_info {
 	de_byte rectype; // Low byte of the RecordFunction field
+	// Flags:
+	//  0x1: Creates an object
 	de_byte flags;
 	const char *name;
 	record_decoder_fn fn;
@@ -388,11 +392,22 @@ done:
 	return 1;
 }
 
-static int handler_SELECTOBJECT_DELETEOBJECT(deark *c, lctx *d, struct decoder_params *dp)
+static int handler_SELECTOBJECT(deark *c, lctx *d, struct decoder_params *dp)
 {
 	unsigned int oi;
 	oi = (unsigned int)de_getui16le(dp->dpos);
 	de_dbg(c, "object index: %u", oi);
+	return 1;
+}
+
+static int handler_DELETEOBJECT(deark *c, lctx *d, struct decoder_params *dp)
+{
+	unsigned int oi;
+	oi = (unsigned int)de_getui16le(dp->dpos);
+	de_dbg(c, "object index: %u", oi);
+	if(d->object_table && oi<d->num_objects) {
+		d->object_table[oi] = 0; // Mark this index as available
+	}
 	return 1;
 }
 
@@ -529,7 +544,7 @@ static const struct wmf_func_info wmf_func_info_arr[] = {
 	{ 0x2a, 0, "INVERTREGION", NULL },
 	{ 0x2b, 0, "PAINTREGION", NULL },
 	{ 0x2c, 0, "SELECTCLIPREGION", NULL },
-	{ 0x2d, 0, "SELECTOBJECT", handler_SELECTOBJECT_DELETEOBJECT },
+	{ 0x2d, 0, "SELECTOBJECT", handler_SELECTOBJECT },
 	{ 0x2e, 0, "SETTEXTALIGN", NULL },
 	{ 0x30, 0, "CHORD", NULL },
 	{ 0x31, 0, "SETMAPPERFLAGS", NULL },
@@ -543,17 +558,17 @@ static const struct wmf_func_info wmf_func_info_arr[] = {
 	{ 0x39, 0, "RESIZEPALETTE", NULL },
 	{ 0x40, 0, "DIBBITBLT", wmf_handler_BITBLT_STRETCHBLT_DIBBITBLT },
 	{ 0x41, 0, "DIBSTRETCHBLT", wmf_handler_DIBSTRETCHBLT_STRETCHDIB },
-	{ 0x42, 0, "DIBCREATEPATTERNBRUSH", NULL },
+	{ 0x42, 1, "DIBCREATEPATTERNBRUSH", NULL },
 	{ 0x43, 0, "STRETCHDIB", wmf_handler_DIBSTRETCHBLT_STRETCHDIB },
 	{ 0x48, 0, "EXTFLOODFILL", NULL },
 	{ 0x49, 0, "SETLAYOUT", NULL },
-	{ 0xf0, 0, "DELETEOBJECT", handler_SELECTOBJECT_DELETEOBJECT },
-	{ 0xf7, 0, "CREATEPALETTE", NULL },
-	{ 0xf9, 0, "CREATEPATTERNBRUSH", NULL },
-	{ 0xfa, 0, "CREATEPENINDIRECT", handler_CREATEPENINDIRECT },
-	{ 0xfb, 0, "CREATEFONTINDIRECT", NULL },
-	{ 0xfc, 0, "CREATEBRUSHINDIRECT", handler_CREATEBRUSHINDIRECT },
-	{ 0xff, 0, "CREATEREGION", NULL }
+	{ 0xf0, 0, "DELETEOBJECT", handler_DELETEOBJECT },
+	{ 0xf7, 1, "CREATEPALETTE", NULL },
+	{ 0xf9, 1, "CREATEPATTERNBRUSH", NULL },
+	{ 0xfa, 1, "CREATEPENINDIRECT", handler_CREATEPENINDIRECT },
+	{ 0xfb, 1, "CREATEFONTINDIRECT", NULL },
+	{ 0xfc, 1, "CREATEBRUSHINDIRECT", handler_CREATEBRUSHINDIRECT },
+	{ 0xff, 1, "CREATEREGION", NULL }
 };
 
 static void do_read_aldus_header(deark *c, lctx *d)
@@ -577,7 +592,6 @@ static void do_read_aldus_header(deark *c, lctx *d)
 static int do_read_wmf_header(deark *c, lctx *d, de_int64 pos)
 {
 	de_int64 hsize_words, maxrecsize_words, filesize_words;
-	de_int64 num_objects;
 	int retval = 0;
 
 	de_dbg(c, "WMF header at %d", (int)pos);
@@ -600,8 +614,13 @@ static int do_read_wmf_header(deark *c, lctx *d, de_int64 pos)
 		(int)(d->wmf_windows_version&0x00ff));
 	filesize_words = de_getui32le(pos+6);
 	de_dbg(c, "reported file size: %d bytes", (int)(filesize_words*2));
-	num_objects = de_getui16le(pos+10);
-	de_dbg(c, "number of objects: %d", (int)num_objects);
+
+	d->num_objects = (unsigned int)de_getui16le(pos+10);
+	de_dbg(c, "number of objects: %u", d->num_objects);
+	if(d->object_table) de_free(c, d->object_table);
+	// d->num_objects is untrusted, but it can only be from 0 to 65535.
+	d->object_table = de_malloc(c, d->num_objects);
+
 	maxrecsize_words = de_getui32le(pos+12);
 	de_dbg(c, "max record size: %d bytes", (int)(maxrecsize_words*2));
 	retval = 1;
@@ -622,6 +641,26 @@ static const struct wmf_func_info *find_wmf_func_info(de_uint16 recfunc)
 	}
 	return NULL;
 }
+
+static void on_create_object(deark *c, lctx *d, struct decoder_params *dp)
+{
+	unsigned int k;
+
+	if(!d->object_table) return;
+	// The CREATE* opcodes assign an object index to the new object.
+	// Specifically, the first available index in the object table.
+	// The encoder and decoder must be very careful to use exactly the same
+	// algorithm for index assignment, or they could get out of sync.
+	for(k=0; k<d->num_objects; k++) {
+		if(d->object_table[k]==0) {
+			d->object_table[k] = 1; // Mark this index as used
+			de_dbg(c, "assigned object index: %u", k);
+			return;
+		}
+	}
+	de_warn(c, "Out of space in object table");
+}
+
 
 // Returns 0 if EOF record was found.
 static int do_wmf_record(deark *c, lctx *d, de_int64 recnum, de_int64 recpos,
@@ -647,11 +686,14 @@ static int do_wmf_record(deark *c, lctx *d, de_int64 recnum, de_int64 recpos,
 		fnci ? fnci->name : "?",
 		(int)dp.dpos, (int)dp.dlen);
 
-	if(fnci && fnci->fn) {
-		de_dbg_indent(c, 1);
-		fnci->fn(c, d, &dp);
-		de_dbg_indent(c, -1);
+	de_dbg_indent(c, 1);
+	if(fnci && (fnci->flags&0x1)) {
+		on_create_object(c, d, &dp);
 	}
+	if(fnci && fnci->fn) {
+		fnci->fn(c, d, &dp);
+	}
+	de_dbg_indent(c, -1);
 
 	return (dp.rectype==0x00)?0:1;
 }
@@ -719,7 +761,10 @@ static void de_run_wmf(deark *c, de_module_params *mparams)
 	do_wmf_record_list(c, d, pos);
 
 done:
-	de_free(c, d);
+	if(d) {
+		de_free(c, d->object_table);
+		de_free(c, d);
+	}
 }
 
 static int de_identify_wmf(deark *c)
