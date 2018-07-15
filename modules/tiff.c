@@ -1228,6 +1228,15 @@ done:
 	ucstring_destroy(s);
 }
 
+static void handler_olepropset(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni)
+{
+	de_dbg(c, "OLE property set storage dump at %"INT64_FMT", len=%"INT64_FMT,
+		tg->val_offset, tg->total_size);
+	de_dbg_indent(c, 1);
+	de_run_module_by_id_on_slice2(c, "cfb", "T", c->infile, tg->val_offset, tg->total_size);
+	de_dbg_indent(c, -1);
+}
+
 // Photoshop "ImageSourceData"
 static void handler_37724(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni)
 {
@@ -1644,7 +1653,7 @@ static const struct tagnuminfo tagnuminfo_arr[] = {
 	{ 37521, 0x10, "SubSecTimeOriginal", NULL, NULL },
 	{ 37522, 0x10, "SubsecTimeDigitized", NULL, NULL },
 	{ 37679, 0x0000, "OCR Text", NULL, NULL },
-	{ 37680, 0x0000, "OLE Property Set Storage", NULL, NULL },
+	{ 37680, 0x0008, "OLE Property Set Storage", handler_olepropset, NULL },
 	{ 37681, 0x0000, "OCR Text Position Info", NULL, NULL },
 	{ 37724, 0x0008, "Photoshop ImageSourceData", handler_37724, NULL },
 	{ 40091, 0x0408, "XPTitle/Caption", handler_utf16, NULL },

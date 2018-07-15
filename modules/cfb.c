@@ -48,8 +48,10 @@ typedef struct localctx_struct {
 #define SUBFMT_AUTO       0
 #define SUBFMT_RAW        1
 #define SUBFMT_THUMBSDB   2
+#define SUBFMT_TIFF37680  3
 	int subformat_req;
 	int subformat_final;
+	int extract_all_streams;
 	de_int64 minor_ver, major_ver;
 	de_int64 sec_size;
 	//de_int64 num_dir_sectors;
@@ -944,6 +946,8 @@ static const struct prop_data_type_info_struct prop_data_type_info_arr[] = {
 	{0x1f, 0, "UnicodeString"},
 	{0x40, 0, "FILETIME"},
 	{0x41, 0, "blob"},
+	{0x42, 0, "VT_STREAM"},
+	{0x43, 0, "VT_STORAGE"},
 	{0x47, 0, "ClipboardData"},
 	{0x48, 0, "CLSID/GUID"}
 };
@@ -1016,6 +1020,7 @@ static void do_prop_data(deark *c, struct ole_prop_set_struct *si,
 		de_dbg(c, "%s: %f", pinfo->name, dval);
 		break;
 	case 0x12: // uint16
+	case 0x0b: // BOOL (VARIANT_BOOL)
 		n = dbuf_getui16le(si->f, pinfo->dpos);
 		do_prop_int(c, si, pinfo, n);
 		break;
@@ -1615,16 +1620,34 @@ static void do_dir_entry(deark *c, lctx *d, de_int64 dir_entry_idx, de_int64 dir
 	}
 
 	if(pass==2 && dei->entry_type==OBJTYPE_STREAM) {
-		extract_stream_to_file(c, d, dir_entry_idx, dei);
+		int is_summaryinfo = 0;
+		int is_propset = 0;
+		int is_root = (d->dir_entry_extra_info[dir_entry_idx].parent_id==0);
+
+		if(d->extract_all_streams) {
+			extract_stream_to_file(c, d, dir_entry_idx, dei);
+		}
 
 		// It's against our ground rules to both extract a file, and also analyze it,
 		// but there's no good alternative in this case.
 
+		// TODO: Is there a good way to tell whether a stream is a property set?
+
 		if(!de_strcmp(dei->fname_srd->sz_utf8, summaryinformation_streamname)) {
-			do_cfb_olepropertyset(c, d, dei, 1, (d->dir_entry_extra_info[dir_entry_idx].parent_id==0));
+			is_propset = 1;
+			is_summaryinfo = 1;
 		}
 		else if(!de_strncmp(dei->fname_srd->sz_utf8, "\x05", 1)) {
-			do_cfb_olepropertyset(c, d, dei, 0, (d->dir_entry_extra_info[dir_entry_idx].parent_id==0));
+			is_propset = 1;
+		}
+		else if(d->subformat_final==SUBFMT_TIFF37680 &&
+			!de_strcasecmp(dei->fname_srd->sz_utf8, "CONTENTS"))
+		{
+			is_propset = 1;
+		}
+
+		if(is_propset) {
+			do_cfb_olepropertyset(c, d, dei, is_summaryinfo, is_root);
 		}
 	}
 	else if(pass==1 && is_thumbsdb_catalog) {
@@ -1663,24 +1686,10 @@ static void do_directory(deark *c, lctx *d, int pass)
 	de_dbg_indent(c, -1);
 }
 
-static void de_run_cfb_internal(deark *c)
+static void de_run_cfb_internal(deark *c, lctx *d)
 {
-	lctx *d = NULL;
-	const char *cfbfmt_opt;
-
-	d = de_malloc(c, sizeof(lctx));
-
-	cfbfmt_opt = de_get_ext_option(c, "cfb:fmt");
-	if(cfbfmt_opt) {
-		if(!de_strcmp(cfbfmt_opt, "auto")) {
-			d->subformat_req = SUBFMT_AUTO;
-		}
-		else if(!de_strcmp(cfbfmt_opt, "thumbsdb")) {
-			d->subformat_req = SUBFMT_THUMBSDB;
-		}
-		else { // "raw"
-			d->subformat_req = SUBFMT_RAW;
-		}
+	if(d->subformat_req != SUBFMT_TIFF37680) {
+		d->extract_all_streams = 1;
 	}
 
 	do_init_format_detection(c, d);
@@ -1706,34 +1715,34 @@ static void de_run_cfb_internal(deark *c)
 	do_directory(c, d, 2);
 
 done:
-	if(d) {
-		dbuf_close(d->difat);
-		dbuf_close(d->fat);
-		dbuf_close(d->minifat);
-		dbuf_close(d->dir);
-		if(d->dir_entry_extra_info) {
-			de_int64 k;
-			for(k=0; k<d->num_dir_entries; k++) {
-				ucstring_destroy(d->dir_entry_extra_info[k].fname);
-				ucstring_destroy(d->dir_entry_extra_info[k].path);
-			}
-			de_free(c, d->dir_entry_extra_info);
+	dbuf_close(d->difat);
+	dbuf_close(d->fat);
+	dbuf_close(d->minifat);
+	dbuf_close(d->dir);
+	if(d->dir_entry_extra_info) {
+		de_int64 k;
+		for(k=0; k<d->num_dir_entries; k++) {
+			ucstring_destroy(d->dir_entry_extra_info[k].fname);
+			ucstring_destroy(d->dir_entry_extra_info[k].path);
 		}
-		dbuf_close(d->mini_sector_stream);
-		if(d->thumbsdb_catalog) {
-			de_int64 k;
-			for(k=0; k<d->thumbsdb_catalog_num_entries; k++) {
-				ucstring_destroy(d->thumbsdb_catalog[k].fname);
-			}
-			de_free(c, d->thumbsdb_catalog);
-			d->thumbsdb_catalog = NULL;
+		de_free(c, d->dir_entry_extra_info);
+	}
+	dbuf_close(d->mini_sector_stream);
+	if(d->thumbsdb_catalog) {
+		de_int64 k;
+		for(k=0; k<d->thumbsdb_catalog_num_entries; k++) {
+			ucstring_destroy(d->thumbsdb_catalog[k].fname);
 		}
-		de_free(c, d);
+		de_free(c, d->thumbsdb_catalog);
+		d->thumbsdb_catalog = NULL;
 	}
 }
 
 static void de_run_cfb(deark *c, de_module_params *mparams)
 {
+	lctx *d = NULL;
+	const char *cfbfmt_opt;
+
 	if(mparams && mparams->in_params.codes) {
 		if(de_strchr(mparams->in_params.codes, 'P')) { // OLE Property Set
 			do_decode_ole_property_set(c, c->infile, 0);
@@ -1741,7 +1750,35 @@ static void de_run_cfb(deark *c, de_module_params *mparams)
 		}
 	}
 
-	de_run_cfb_internal(c);
+	d = de_malloc(c, sizeof(lctx));
+	d->subformat_req = SUBFMT_AUTO;
+
+	if(mparams && mparams->in_params.codes) {
+		if(de_strchr(mparams->in_params.codes, 'T')) { // TIFF tag 37680 mode
+			d->subformat_req = SUBFMT_TIFF37680;
+		}
+	}
+
+	if(d->subformat_req == SUBFMT_AUTO) {
+		// If we haven't set subformat_req yet, look at the command-line option
+
+		cfbfmt_opt = de_get_ext_option(c, "cfb:fmt");
+		if(cfbfmt_opt) {
+			if(!de_strcmp(cfbfmt_opt, "auto")) {
+				d->subformat_req = SUBFMT_AUTO;
+			}
+			else if(!de_strcmp(cfbfmt_opt, "thumbsdb")) {
+				d->subformat_req = SUBFMT_THUMBSDB;
+			}
+			else { // "raw"
+				d->subformat_req = SUBFMT_RAW;
+			}
+		}
+	}
+
+	de_run_cfb_internal(c, d);
+
+	de_free(c, d);
 }
 
 static int de_identify_cfb(deark *c)
