@@ -1406,6 +1406,22 @@ done:
 	return;
 }
 
+static void handler_dngprivatedata(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni)
+{
+	struct de_stringreaderdata *srd;
+	de_int64 nbytes_to_scan;
+
+	nbytes_to_scan = tg->total_size;
+	if(nbytes_to_scan>128) nbytes_to_scan=128;
+
+	srd = dbuf_read_string(c->infile, tg->val_offset, nbytes_to_scan, nbytes_to_scan,
+		DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_ASCII);
+	if(srd->found_nul) {
+		de_dbg(c, "identifier: \"%s\"", ucstring_getpsz(srd->str));
+	}
+	de_destroy_stringreaderdata(c, srd);
+}
+
 static const struct tagnuminfo tagnuminfo_arr[] = {
 	{ 254, 0x00, "NewSubfileType", NULL, valdec_newsubfiletype },
 	{ 255, 0x00, "OldSubfileType", NULL, valdec_oldsubfiletype },
@@ -1774,7 +1790,7 @@ static const struct tagnuminfo tagnuminfo_arr[] = {
 	{ 50737, 0x80, "ChromaBlurRadius", NULL, NULL},
 	{ 50738, 0x80, "AntiAliasStrength", NULL, NULL},
 	{ 50739, 0x80, "ShadowScale", NULL, NULL},
-	{ 50740, 0x80, "DNGPrivateData", NULL, NULL},
+	{ 50740, 0x0080, "DNGPrivateData", handler_dngprivatedata, NULL},
 	{ 50741, 0x80, "MakerNoteSafety", NULL, NULL},
 	{ 50778, 0x80, "CalibrationIlluminant1", NULL, NULL},
 	{ 50779, 0x80, "CalibrationIlluminant2", NULL, NULL},
