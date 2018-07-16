@@ -1013,6 +1013,12 @@ static void handler_hexdump(deark *c, lctx *d, const struct taginfo *tg, const s
 	de_dbg_hexdump(c, c->infile, tg->val_offset, tg->total_size, 256, NULL, 0x1);
 }
 
+// Hex dump with no ASCII
+static void handler_hexdumpb(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni)
+{
+	de_dbg_hexdump(c, c->infile, tg->val_offset, tg->total_size, 256, NULL, 0);
+}
+
 static void handler_imagewidth(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni)
 {
 	if(tg->valcount!=1) return;
@@ -1795,7 +1801,7 @@ static const struct tagnuminfo tagnuminfo_arr[] = {
 	{ 50778, 0x80, "CalibrationIlluminant1", NULL, NULL},
 	{ 50779, 0x80, "CalibrationIlluminant2", NULL, NULL},
 	{ 50780, 0x80, "BestQualityScale", NULL, NULL},
-	{ 50781, 0x80, "RawDataUniqueID", NULL, NULL},
+	{ 50781, 0x0088, "RawDataUniqueID", handler_hexdumpb, NULL},
 	{ 50784, 0x0000, "Alias Layer Metadata", NULL, NULL },
 	{ 50827, 0x80, "OriginalRawFileName", NULL, NULL},
 	{ 50828, 0x80, "OriginalRawFileData", NULL, NULL},
@@ -1823,11 +1829,11 @@ static const struct tagnuminfo tagnuminfo_arr[] = {
 	{ 50966, 0x80, "PreviewApplicationName", NULL, NULL},
 	{ 50967, 0x80, "PreviewApplicationVersion", NULL, NULL},
 	{ 50968, 0x80, "PreviewSettingsName", NULL, NULL},
-	{ 50969, 0x80, "PreviewSettingsDigest", NULL, NULL},
+	{ 50969, 0x0088, "PreviewSettingsDigest", handler_hexdumpb, NULL},
 	{ 50970, 0x80, "PreviewColorSpace", NULL, valdec_dngcolorspace},
 	{ 50971, 0x80, "PreviewDateTime", NULL, NULL},
-	{ 50972, 0x80, "RawImageDigest", NULL, NULL},
-	{ 50973, 0x80, "OriginalRawFileDigest", NULL, NULL},
+	{ 50972, 0x0088, "RawImageDigest", handler_hexdumpb, NULL},
+	{ 50973, 0x0088, "OriginalRawFileDigest", handler_hexdumpb, NULL},
 	{ 50974, 0x80, "SubTileBlockSize", NULL, NULL},
 	{ 50975, 0x80, "RowInterleaveFactor", NULL, NULL},
 	{ 50981, 0x80, "ProfileLookTableDims", NULL, NULL},
@@ -1843,7 +1849,7 @@ static const struct tagnuminfo tagnuminfo_arr[] = {
 	{ 51108, 0x80, "ProfileLookTableEncoding", NULL, NULL},
 	{ 51109, 0x80, "BaselineExposureOffset", NULL, NULL},
 	{ 51110, 0x80, "DefaultBlackRender", NULL, NULL},
-	{ 51111, 0x80, "NewRawImageDigest", NULL, NULL},
+	{ 51111, 0x0088, "NewRawImageDigest", handler_hexdumpb, NULL},
 	{ 51112, 0x80, "RawToPreviewGain", NULL, NULL},
 	{ 51113, 0x80, "CacheBlob", NULL, NULL},
 	{ 51114, 0x80, "CacheVersion", NULL, NULL},
