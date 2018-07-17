@@ -152,6 +152,7 @@ static void do_prop_int(deark *c, struct ole_prop_set_struct *si,
 		if(n2<0) n2 += 65536;
 
 		switch(n2) {
+		case 1200: si->encoding = DE_ENCODING_UTF16LE; break;
 		case 1252: si->encoding = DE_ENCODING_WINDOWS1252; break;
 		case 10000: si->encoding = DE_ENCODING_MACROMAN; break;
 		case 65001: si->encoding = DE_ENCODING_UTF8; break;
@@ -234,8 +235,16 @@ static void do_prop_CodePageString_lowlevel(deark *c, struct ole_prop_set_struct
 	s = ucstring_create(c);
 	n_raw = dbuf_geti32le(si->f, dpos);
 	n = n_raw;
-	dbuf_read_to_ucstring_n(si->f, dpos+4, n, DE_DBG_MAX_STRLEN, s,
-		DE_CONVFLAG_STOP_AT_NUL, si->encoding);
+
+	if(si->encoding==DE_ENCODING_UTF16LE) {
+		dbuf_read_to_ucstring_n(si->f, dpos+4, n, DE_DBG_MAX_STRLEN*2, s,
+			0, si->encoding);
+		ucstring_truncate_at_NUL(s);
+	}
+	else {
+		dbuf_read_to_ucstring_n(si->f, dpos+4, n, DE_DBG_MAX_STRLEN, s,
+			DE_CONVFLAG_STOP_AT_NUL, si->encoding);
+	}
 	de_dbg(c, "%s: \"%s\"", name, ucstring_getpsz(s));
 
 	ucstring_destroy(s);
