@@ -765,30 +765,26 @@ static void do_cfb_olepropertyset(deark *c, lctx *d, struct dir_entry_info *dei,
 	int is_summaryinfo, int is_root)
 {
 	dbuf *f = NULL;
-	de_module_params *mparams = NULL;
 	int saved_indent_level;
 
 	if(dei->stream_size>1000000) goto done;
-	mparams = de_malloc(c, sizeof(de_module_params));
 	f = dbuf_create_membuf(c, dei->stream_size, 1);
 	copy_any_stream_to_dbuf(c, d, dei, 0, dei->stream_size, f);
 
 	de_dbg_indent_save(c, &saved_indent_level);
 	if(is_summaryinfo) {
 		de_dbg(c, "SummaryInformation (%s)", is_root?"root":"non-root");
-		mparams->in_params.flags |= 0x01;
 	}
 	else {
 		de_dbg(c, "property set");
 	}
 
 	de_dbg_indent(c, 1);
-	de_run_module_by_id_on_slice(c, "olepropset", mparams, f, 0, f->len);
+	de_run_module_by_id_on_slice(c, "olepropset", NULL, f, 0, f->len);
 	de_dbg_indent(c, -1);
 
 done:
 	dbuf_close(f);
-	de_free(c, mparams);
 }
 
 static void read_mini_sector_stream(deark *c, lctx *d, de_int64 first_sec_id, de_int64 stream_size)

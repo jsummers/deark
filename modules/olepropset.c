@@ -13,8 +13,8 @@ DE_DECLARE_MODULE(de_module_olepropset);
 struct ole_prop_set_struct {
 	dbuf *f; // The full data stream
 	de_int64 tbloffset;
+	de_uint32 sfmtid;
 	int encoding;
-	int is_summaryinfo; // temporary hack
 };
 
 struct prop_info_struct {
@@ -44,33 +44,47 @@ static void read_timestamp(deark *c, dbuf *f, de_int64 pos,
 	}
 }
 
-// Sets pinfo->name based on pinfo->type.
-// FIXME: Need a real way to handle namespaces.
-static void set_prop_name(deark *c, struct ole_prop_set_struct *si, struct prop_info_struct *pinfo)
-{
-#define PINFO_EDITING_TIME 10
-	static const char *names[20] = {
-		"", "Code page", "Title", "Subject",
-		"Author", "Keywords", "Comments", "Template",
-		"Last saved by", "Revision number", "Editing time", "Last printed",
-		"Create time", "Saved time", "Number of pages", "Number of words",
-		"Number of chars", "Thumbnail", "App name", "Security" };
+struct fmtid_info_entry {
+	const de_byte guid[16];
+	de_uint32 sfmtid; // short ID
+	const char *name;
+};
 
-	pinfo->name = NULL;
+#define SFMTID_UNKNOWN             0
+#define SFMTID_COMMON              1
+#define SFMTID_SUMMARYINFO         10
+#define SFMTID_DOCSUMMARYINFO      11
+#define SFMTID_USERDEFINEDPROPS    12
+#define SFMTID_IMAGECONTENTS       13
+#define SFMTID_IMAGEINFO           14
+#define SFMTID_GLOBALINFO          15
+#define SFMTID_SRCRESDESCR         30
+#define SFMTID_TRANSFORM           31
+#define SFMTID_OPERATION           32
+#define SFMTID_EXTENSIONLIST       33
 
-	if(si->is_summaryinfo) {
-		if(pinfo->prop_id>=1 && pinfo->prop_id<=19) {
-			pinfo->name = names[pinfo->prop_id];
-		}
-	}
-	else {
-		if(pinfo->prop_id==1) {
-			pinfo->name = names[pinfo->prop_id];
-		}
-	}
+static const struct fmtid_info_entry fmtid_info_arr[] = {
+	{{0x56,0x61,0x60,0x10,0xc1,0x54,0x11,0xce,0x85,0x53,0x00,0xaa,0x00,0xa1,0xf9,0x5b}, SFMTID_EXTENSIONLIST, "Extension List"},
+	{{0x56,0x61,0x60,0x80,0xc1,0x54,0x11,0xce,0x85,0x53,0x00,0xaa,0x00,0xa1,0xf9,0x5b}, SFMTID_SRCRESDESCR, "Source/Result Description"},
+	{{0x56,0x61,0x64,0x00,0xc1,0x54,0x11,0xce,0x85,0x53,0x00,0xaa,0x00,0xa1,0xf9,0x5b}, SFMTID_IMAGECONTENTS, "ImageContents"},
+	{{0x56,0x61,0x65,0x00,0xc1,0x54,0x11,0xce,0x85,0x53,0x00,0xaa,0x00,0xa1,0xf9,0x5b}, SFMTID_IMAGEINFO, "ImageInfo"},
+	{{0x56,0x61,0x6a,0x00,0xc1,0x54,0x11,0xce,0x85,0x53,0x00,0xaa,0x00,0xa1,0xf9,0x5b}, SFMTID_TRANSFORM, "Transform"},
+	{{0x56,0x61,0x6f,0x00,0xc1,0x54,0x11,0xce,0x85,0x53,0x00,0xaa,0x00,0xa1,0xf9,0x5b}, SFMTID_GLOBALINFO, "GlobalInfo"},
+	{{0x56,0x61,0x6e,0x00,0xc1,0x54,0x11,0xce,0x85,0x53,0x00,0xaa,0x00,0xa1,0xf9,0x5b}, SFMTID_OPERATION, "Operation"},
+	{{0xd5,0xcd,0xd5,0x02,0x2e,0x9c,0x10,0x1b,0x93,0x97,0x08,0x00,0x2b,0x2c,0xf9,0xae}, SFMTID_DOCSUMMARYINFO, "DocSummaryInformation"},
+	{{0xd5,0xcd,0xd5,0x05,0x2e,0x9c,0x10,0x1b,0x93,0x97,0x08,0x00,0x2b,0x2c,0xf9,0xae}, SFMTID_USERDEFINEDPROPS, "UserDefinedProperties"},
+	{{0xf2,0x9f,0x85,0xe0,0x4f,0xf9,0x10,0x68,0xab,0x91,0x08,0x00,0x2b,0x27,0xb3,0xd9}, SFMTID_SUMMARYINFO, "SummaryInformation"}
+};
 
-	pinfo->name_dbg = pinfo->name ? pinfo->name : "value";
-}
+struct prop_info_entry {
+	de_uint32 sfmtid;
+	de_uint32 prop_id;
+#define MSK1 0xffffffffU
+	de_uint32 prop_id_mask;
+	de_uint32 flags;
+	const char *name;
+	void *reserved;
+};
 
 static void do_prop_blob(deark *c, struct ole_prop_set_struct *si,
 	struct prop_info_struct *pinfo)
@@ -166,7 +180,7 @@ static int do_prop_FILETIME(deark *c, struct ole_prop_set_struct *si,
 {
 	struct de_timestamp ts;
 
-	if(si->is_summaryinfo && pinfo->prop_id==PINFO_EDITING_TIME) {
+	if(si->sfmtid==SFMTID_SUMMARYINFO && pinfo->prop_id==10) {
 		de_int64 n;
 		// The "Editing time" property typically has a data type of FILETIME,
 		// but it is not actually a FILETIME (I assume it's an *amount* of time).
@@ -420,7 +434,57 @@ static void do_prop_data(deark *c, struct ole_prop_set_struct *si,
 	}
 }
 
-// Caller must set si->tbloffset
+static const struct prop_info_entry prop_info_arr[] = {
+	{SFMTID_COMMON, 0x00000001, MSK1, 0, "Code page", NULL},
+	{SFMTID_SUMMARYINFO, 0x00000002, MSK1, 0, "Title", NULL},
+	{SFMTID_SUMMARYINFO, 0x00000003, MSK1, 0, "Subject", NULL},
+	{SFMTID_SUMMARYINFO, 0x00000004, MSK1, 0, "Author", NULL},
+	{SFMTID_SUMMARYINFO, 0x00000005, MSK1, 0, "Keywords", NULL},
+	{SFMTID_SUMMARYINFO, 0x00000006, MSK1, 0, "Comments", NULL},
+	{SFMTID_SUMMARYINFO, 0x00000007, MSK1, 0, "Template", NULL},
+	{SFMTID_SUMMARYINFO, 0x00000008, MSK1, 0, "Last saved by", NULL},
+	{SFMTID_SUMMARYINFO, 0x00000009, MSK1, 0, "Revision number", NULL},
+	{SFMTID_SUMMARYINFO, 0x0000000a, MSK1, 0, "Editing time", NULL},
+	{SFMTID_SUMMARYINFO, 0x0000000b, MSK1, 0, "Last printed", NULL},
+	{SFMTID_SUMMARYINFO, 0x0000000c, MSK1, 0, "Create time", NULL},
+	{SFMTID_SUMMARYINFO, 0x0000000d, MSK1, 0, "Saved time", NULL},
+	{SFMTID_SUMMARYINFO, 0x0000000e, MSK1, 0, "Number of pages", NULL},
+	{SFMTID_SUMMARYINFO, 0x0000000f, MSK1, 0, "Number of words", NULL},
+	{SFMTID_SUMMARYINFO, 0x00000010, MSK1, 0, "Number of chars", NULL},
+	{SFMTID_SUMMARYINFO, 0x00000011, MSK1, 0, "Thumbnail", NULL},
+	{SFMTID_SUMMARYINFO, 0x00000012, MSK1, 0, "App name", NULL},
+	{SFMTID_SUMMARYINFO, 0x00000013, MSK1, 0, "Security", NULL},
+	{SFMTID_SRCRESDESCR, 0x10000000, MSK1, 0, "Cached image height", NULL},
+	{SFMTID_SRCRESDESCR, 0x10000001, MSK1, 0, "Cached image width", NULL},
+	{SFMTID_EXTENSIONLIST, 0x00000001, 0x0000ffff, 0, "Extension name", NULL}
+};
+
+// Sets pinfo->name based on pinfo->type and si->sfmtid.
+static void set_prop_name(deark *c, struct ole_prop_set_struct *si, struct prop_info_struct *pinfo)
+{
+	const struct prop_info_entry *pi = NULL;
+	size_t k;
+
+	for(k=0; k<DE_ITEMS_IN_ARRAY(prop_info_arr); k++) {
+		if((prop_info_arr[k].sfmtid != si->sfmtid) &&
+			(prop_info_arr[k].sfmtid != SFMTID_COMMON))
+		{
+			continue;
+		}
+		if((prop_info_arr[k].prop_id) != (pinfo->prop_id & prop_info_arr[k].prop_id_mask))
+			continue;
+		pi = &prop_info_arr[k];
+		break;
+	}
+
+	if(pi) {
+		pinfo->name = pi->name;
+	}
+
+	pinfo->name_dbg = pinfo->name ? pinfo->name : "value";
+}
+
+// Caller must set si->tbloffset and si->sfmtid
 static void do_property_table(deark *c, struct ole_prop_set_struct *si,
 	de_int64 tblindex)
 {
@@ -457,7 +521,18 @@ done:
 	;
 }
 
-static void do_decode_ole_property_set(deark *c, dbuf *f, int is_summaryinfo)
+static const struct fmtid_info_entry *find_fmtid_info(const de_byte *b)
+{
+	size_t k;
+	for(k=0; k<DE_ITEMS_IN_ARRAY(fmtid_info_arr); k++) {
+		if(!de_memcmp(fmtid_info_arr[k].guid, b, 16)) {
+			return &fmtid_info_arr[k];
+		}
+	}
+	return NULL;
+}
+
+static void do_decode_ole_property_set(deark *c, dbuf *f)
 {
 	de_int64 n;
 	int saved_indent_level;
@@ -473,7 +548,6 @@ static void do_decode_ole_property_set(deark *c, dbuf *f, int is_summaryinfo)
 	// TODO: ASCII may not always be the best default.
 	si->encoding = DE_ENCODING_ASCII;
 	si->f = f;
-	si->is_summaryinfo = is_summaryinfo;
 
 	// expecting 48 (or more?) bytes of header info.
 	n = dbuf_getui16le_p(si->f, &pos);
@@ -499,11 +573,16 @@ static void do_decode_ole_property_set(deark *c, dbuf *f, int is_summaryinfo)
 	if(nsets>2) goto done;
 
 	for(k=0; k<nsets; k++) {
+		const struct fmtid_info_entry *fmtid_info;
+
 		dbuf_read(si->f, clsid, pos, 16);
 		pos += 16;
 		de_fmtutil_guid_to_uuid(clsid);
+		fmtid_info = find_fmtid_info(clsid);
 		de_fmtutil_render_uuid(c, clsid, clsid_string, sizeof(clsid_string));
-		de_dbg(c, "fmtid[%d]: {%s}", (int)k, clsid_string);
+		de_dbg(c, "fmtid[%d]: {%s} (%s)", (int)k, clsid_string, fmtid_info?fmtid_info->name:"?");
+
+		si->sfmtid = fmtid_info ? fmtid_info->sfmtid : SFMTID_UNKNOWN;
 
 		// This is supposed to be a DWORD, but I've seen some with only two valid
 		// bytes. And it shouldn't be much bigger than 48.
@@ -524,11 +603,7 @@ done:
 
 static void de_run_olepropset(deark *c, de_module_params *mparams)
 {
-	int is_summaryinfo;
-
-	is_summaryinfo = (mparams && (mparams->in_params.flags & 0x01));
-
-	do_decode_ole_property_set(c, c->infile, is_summaryinfo);
+	do_decode_ole_property_set(c, c->infile);
 }
 
 void de_module_olepropset(deark *c, struct deark_module_info *mi)
