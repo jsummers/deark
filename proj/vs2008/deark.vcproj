@@ -722,6 +722,10 @@
 				>
 			</File>
 			<File
+				RelativePath="..\..\modules\olepropset.c"
+				>
+			</File>
+			<File
 				RelativePath="..\..\modules\os2bmp.c"
 				>
 			</File>

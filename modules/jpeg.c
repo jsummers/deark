@@ -529,7 +529,7 @@ static void do_fpxr_olepropset_stream(deark *c, lctx *d, struct page_ctx *pg, st
 {
 	de_dbg(c, "decoding Flashpix stream %d (OLE property set)", (int)fe->index);
 	de_dbg_indent(c, 1);
-	de_run_module_by_id_on_slice2(c, "cfb", "P", fe->stream, 0, fe->stream->len);
+	de_run_module_by_id_on_slice(c, "olepropset", NULL, fe->stream, 0, fe->stream->len);
 	de_dbg_indent(c, -1);
 }
 
