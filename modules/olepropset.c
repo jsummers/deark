@@ -210,6 +210,8 @@ static void do_prop_UnicodeString_lowlevel(deark *c, struct ole_prop_set_struct 
 	de_dbg(c, "%s: \"%s\"", name, ucstring_getpsz(s));
 
 	ucstring_destroy(s);
+	// TODO: This is supposed to be padded to a multiple of 4 bytes, but in the
+	// sample files I have, it is not.
 	*bytes_consumed = 4 + n_raw*2;
 }
 
@@ -247,22 +249,25 @@ static void do_prop_CodePageString_lowlevel(deark *c, struct ole_prop_set_struct
 	de_ucstring *s = NULL;
 
 	s = ucstring_create(c);
-	n_raw = dbuf_geti32le(si->f, dpos);
+	n_raw = dbuf_getui32le(si->f, dpos);
 	n = n_raw;
 
 	if(si->encoding==DE_ENCODING_UTF16LE) {
 		dbuf_read_to_ucstring_n(si->f, dpos+4, n, DE_DBG_MAX_STRLEN*2, s,
 			0, si->encoding);
 		ucstring_truncate_at_NUL(s);
+		*bytes_consumed = 4 + de_pad_to_4(n_raw);
 	}
 	else {
 		dbuf_read_to_ucstring_n(si->f, dpos+4, n, DE_DBG_MAX_STRLEN, s,
 			DE_CONVFLAG_STOP_AT_NUL, si->encoding);
+		// TODO: This is supposed to be padded to a multiple of 4 bytes, but in the
+		// sample files I have, it is not.
+		*bytes_consumed = 4 + n_raw;
 	}
 	de_dbg(c, "%s: \"%s\"", name, ucstring_getpsz(s));
 
 	ucstring_destroy(s);
-	*bytes_consumed = 4 + n_raw;
 }
 
 static void do_prop_CodePageString(deark *c, struct ole_prop_set_struct *si,
