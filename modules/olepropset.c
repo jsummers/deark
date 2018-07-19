@@ -223,6 +223,13 @@ static void do_prop_UnicodeString(deark *c, struct ole_prop_set_struct *si,
 		pinfo->dpos, &bytes_consumed);
 }
 
+static void read_vectorheader(deark *c, struct ole_prop_set_struct *si,
+	struct prop_info_struct *pinfo, de_int64 *numitems)
+{
+	*numitems = dbuf_getui32le(si->f, pinfo->dpos);
+	de_dbg(c, "number of items: %u", (unsigned int)(*numitems));
+}
+
 // a VectorHeader followed by a sequence of UnicodeString packets.
 static void do_prop_UnicodeStringVector(deark *c, struct ole_prop_set_struct *si,
 	struct prop_info_struct *pinfo)
@@ -231,8 +238,9 @@ static void do_prop_UnicodeStringVector(deark *c, struct ole_prop_set_struct *si
 	de_int64 nitems;
 	de_int64 k;
 
-	nitems = dbuf_getui32le_p(si->f, &pos);
-	de_dbg(c, "number of items: %u", (unsigned int)nitems);
+	read_vectorheader(c, si, pinfo, &nitems);
+	pos += 4;
+
 	for(k=0; k<nitems; k++) {
 		de_int64 bytes_consumed = 0;
 		if(pos >= si->f->len) break;
@@ -285,8 +293,9 @@ static void do_prop_CodePageStringVector(deark *c, struct ole_prop_set_struct *s
 	de_int64 k;
 	char name[80];
 
-	nitems = dbuf_getui32le_p(si->f, &pos);
-	de_dbg(c, "number of items: %u", (unsigned int)nitems);
+	read_vectorheader(c, si, pinfo, &nitems);
+	pos += 4;
+
 	for(k=0; k<nitems; k++) {
 		de_int64 bytes_consumed = 0;
 		if(pos >= si->f->len) break;
@@ -442,12 +451,19 @@ static void do_prop_data(deark *c, struct ole_prop_set_struct *si,
 		do_prop_CLSID(c, si, pinfo);
 		break;
 	default:
+		if(pinfo->data_type&0x1000) {
+			read_vectorheader(c, si, pinfo, &n);
+		}
 		de_dbg(c, "[data type 0x%04x not supported]", (unsigned int)pinfo->data_type);
 	}
 }
 
 static const struct prop_info_entry prop_info_arr[] = {
+	{SFMTID_COMMON, 0x00000000, MSK1, 0, "Dictionary", NULL},
 	{SFMTID_COMMON, 0x00000001, MSK1, 0, "Code page", NULL},
+	{SFMTID_COMMON, 0x80000000, MSK1, 0, "Locale", NULL},
+	{SFMTID_COMMON, 0x80000001, MSK1, 0, "Behavior?", NULL},
+	{SFMTID_COMMON, 0x80000003, MSK1, 0, "Behavior?", NULL},
 	{SFMTID_SUMMARYINFO, 0x00000002, MSK1, 0, "Title", NULL},
 	{SFMTID_SUMMARYINFO, 0x00000003, MSK1, 0, "Subject", NULL},
 	{SFMTID_SUMMARYINFO, 0x00000004, MSK1, 0, "Author", NULL},
