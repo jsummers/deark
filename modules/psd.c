@@ -115,6 +115,7 @@ DE_DECLARE_MODULE(de_module_ps_pattern);
 #define CODE_vsms 0x76736d73U
 #define CODE_vstk 0x7673746bU
 
+#define PSD_CM_BITMAP   0
 #define PSD_CM_GRAY     1
 #define PSD_CM_PALETTE  2
 #define PSD_CM_RGB      3
@@ -447,7 +448,7 @@ static const char *get_colormode_name(de_int64 n)
 {
 	const char *name = "?";
 	switch(n) {
-	case 0: name="bitmap"; break;
+	case PSD_CM_BITMAP: name="bitmap"; break;
 	case PSD_CM_GRAY: name="grayscale"; break;
 	case PSD_CM_PALETTE: name="indexed"; break;
 	case PSD_CM_RGB: name="RGB"; break;
@@ -3532,6 +3533,14 @@ static void do_bitmap(deark *c, lctx *d, const struct image_info *iinfo, dbuf *f
 	de_byte b;
 
 	if(!de_good_image_dimensions(c, iinfo->width, iinfo->height)) goto done;
+
+	if(iinfo->color_mode==PSD_CM_BITMAP && iinfo->bits_per_channel==1 &&
+		iinfo->num_channels==1)
+	{
+		de_convert_and_write_image_bilevel(f, 0, iinfo->width, iinfo->height,
+			(iinfo->width+7)/8, DE_CVTF_WHITEISZERO, NULL, 0);
+		goto done;
+	}
 
 	if(iinfo->bits_per_channel!=8 && iinfo->bits_per_channel!=16 &&
 		iinfo->bits_per_channel!=32)
