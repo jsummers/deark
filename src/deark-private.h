@@ -421,6 +421,8 @@ de_int64 de_getui32be_direct(const de_byte *m);
 de_int64 de_getui32le_direct(const de_byte *m);
 de_int64 de_geti64be_direct(const de_byte *m);
 de_int64 de_geti64le_direct(const de_byte *m);
+de_uint64 de_getui64be_direct(const de_byte *m);
+de_uint64 de_getui64le_direct(const de_byte *m);
 
 void dbuf_read(dbuf *f, de_byte *buf, de_int64 pos, de_int64 len);
 de_int64 dbuf_standard_read(dbuf *f, de_byte *buf, de_int64 n, de_int64 *fpos);
@@ -441,6 +443,12 @@ de_int64 dbuf_geti32x(dbuf *f, de_int64 pos, int is_le);
 de_int64 dbuf_geti64be(dbuf *f, de_int64 pos);
 de_int64 dbuf_geti64le(dbuf *f, de_int64 pos);
 de_int64 dbuf_geti64x(dbuf *f, de_int64 pos, int is_le);
+de_uint64 dbuf_getui64be(dbuf *f, de_int64 pos);
+de_uint64 dbuf_getui64le(dbuf *f, de_int64 pos);
+de_uint64 dbuf_getui64x(dbuf *f, de_int64 pos, int is_le);
+
+de_int64 dbuf_getint_ext(dbuf *f, de_int64 pos, unsigned int nbytes,
+	int is_le, int is_signed);
 
 // The _p functions update a caller-supplied position.
 de_byte dbuf_getbyte_p(dbuf *f, de_int64 *ppos);

@@ -321,7 +321,7 @@ de_int64 dbuf_geti32le(dbuf *f, de_int64 pos)
 	return (de_int64)(de_int32)(de_uint32)n;
 }
 
-de_int64 de_geti64be_direct(const de_byte *m)
+de_uint64 de_getui64be_direct(const de_byte *m)
 {
 	unsigned int i;
 	de_uint64 val = 0;
@@ -329,7 +329,12 @@ de_int64 de_geti64be_direct(const de_byte *m)
 	for(i=0; i<8; i++) {
 		val |= ((de_uint64)m[i])<<((7-i)*8);
 	}
-	return (de_int64)val;
+	return val;
+}
+
+de_int64 de_geti64be_direct(const de_byte *m)
+{
+	return (de_int64)de_getui64be_direct(m);
 }
 
 de_int64 dbuf_geti64be(dbuf *f, de_int64 pos)
@@ -339,7 +344,7 @@ de_int64 dbuf_geti64be(dbuf *f, de_int64 pos)
 	return de_geti64be_direct(m);
 }
 
-de_int64 de_geti64le_direct(const de_byte *m)
+de_uint64 de_getui64le_direct(const de_byte *m)
 {
 	unsigned int i;
 	de_uint64 val = 0;
@@ -347,7 +352,12 @@ de_int64 de_geti64le_direct(const de_byte *m)
 	for(i=0; i<8; i++) {
 		val |= ((de_uint64)m[i])<<(i*8);
 	}
-	return (de_int64)val;
+	return val;
+}
+
+de_int64 de_geti64le_direct(const de_byte *m)
+{
+	return (de_int64)de_getui64le_direct(m);
 }
 
 de_int64 dbuf_geti64le(dbuf *f, de_int64 pos)
@@ -385,6 +395,49 @@ de_int64 dbuf_geti64x(dbuf *f, de_int64 pos, int is_le)
 {
 	if(is_le) return dbuf_geti64le(f, pos);
 	return dbuf_geti64be(f, pos);
+}
+
+de_uint64 dbuf_getui64be(dbuf *f, de_int64 pos)
+{
+	de_byte m[8];
+	dbuf_read(f, m, pos, 8);
+	return de_getui64be_direct(m);
+}
+
+de_uint64 dbuf_getui64le(dbuf *f, de_int64 pos)
+{
+	de_byte m[8];
+	dbuf_read(f, m, pos, 8);
+	return de_getui64le_direct(m);
+}
+
+de_uint64 dbuf_getui64x(dbuf *f, de_int64 pos, int is_le)
+{
+	if(is_le) return dbuf_getui64le(f, pos);
+	return dbuf_getui64be(f, pos);
+}
+
+// TODO: Extend this to any number of bytes, 1-8.
+de_int64 dbuf_getint_ext(dbuf *f, de_int64 pos, unsigned int nbytes,
+	int is_le, int is_signed)
+{
+	if(is_signed) {
+		switch(nbytes) {
+		case 1: return (de_int64)(signed char)dbuf_getbyte(f, pos); break;
+		case 2: return dbuf_geti16x(f, pos, is_le); break;
+		case 4: return dbuf_geti32x(f, pos, is_le); break;
+		case 8: return dbuf_geti64x(f, pos, is_le); break;
+		}
+	}
+	else {
+		switch(nbytes) {
+		case 1: return (de_int64)dbuf_getbyte(f, pos); break;
+		case 2: return dbuf_getui16x(f, pos, is_le); break;
+		case 4: return dbuf_getui32x(f, pos, is_le); break;
+		case 8: return dbuf_geti64x(f, pos, is_le); break;
+		}
+	}
+	return 0;
 }
 
 static void init_fltpt_decoder(deark *c)
