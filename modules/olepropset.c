@@ -147,10 +147,10 @@ done:
 	;
 }
 
-static void do_prop_int(deark *c, struct ole_prop_set_struct *si,
-	struct prop_info_struct *pinfo, de_int64 n)
+static void do_prop_process_int(deark *c, struct ole_prop_set_struct *si,
+	struct prop_info_struct *pinfo, const char *name, de_int64 n)
 {
-	de_dbg(c, "%s: %"INT64_FMT, pinfo->name_dbg, n);
+	de_dbg(c, "%s: %"INT64_FMT, name, n);
 
 	if(pinfo->prop_id==0x01) { // code page
 		de_int64 n2;
@@ -175,6 +175,22 @@ static void do_prop_int(deark *c, struct ole_prop_set_struct *si,
 	}
 }
 
+static de_int64 do_prop_read_int_lowlevel(deark *c, struct ole_prop_set_struct *si,
+	de_int64 pos, unsigned int nbytes, int is_signed)
+{
+	return dbuf_getint_ext(si->f, pos, nbytes, 1, is_signed);
+}
+
+static void do_prop_read_and_process_int(deark *c, struct ole_prop_set_struct *si,
+	struct prop_info_struct *pinfo, unsigned int nbytes, int is_signed)
+{
+	de_int64 n;
+
+	// FIXME: This doesn't really support uint64.
+	n = do_prop_read_int_lowlevel(c, si, pinfo->dpos, nbytes, is_signed);
+	do_prop_process_int(c, si, pinfo, pinfo->name_dbg, n);
+}
+
 static int do_prop_FILETIME(deark *c, struct ole_prop_set_struct *si,
 	struct prop_info_struct *pinfo)
 {
@@ -185,14 +201,13 @@ static int do_prop_FILETIME(deark *c, struct ole_prop_set_struct *si,
 		// The "Editing time" property typically has a data type of FILETIME,
 		// but it is not actually a FILETIME (I assume it's an *amount* of time).
 		n = dbuf_geti64le(si->f, pinfo->dpos);
-		do_prop_int(c, si, pinfo, n);
+		do_prop_process_int(c, si, pinfo, pinfo->name_dbg, n);
 		return 1;
 	}
 
 	read_timestamp(c, si->f, pinfo->dpos, &ts, pinfo->name_dbg);
 	return 1;
 }
-
 
 static void do_prop_UnicodeString_lowlevel(deark *c, struct ole_prop_set_struct *si,
 	const char *name, de_int64 dpos, de_int64 *bytes_consumed)
@@ -228,6 +243,28 @@ static void read_vectorheader(deark *c, struct ole_prop_set_struct *si,
 {
 	*numitems = dbuf_getui32le(si->f, pinfo->dpos);
 	de_dbg(c, "number of items: %u", (unsigned int)(*numitems));
+}
+
+static void do_prop_intvector(deark *c, struct ole_prop_set_struct *si,
+	struct prop_info_struct *pinfo, unsigned int nbytes, int is_signed)
+{
+	de_int64 pos = pinfo->dpos;
+	de_int64 nitems;
+	de_int64 k;
+
+	read_vectorheader(c, si, pinfo, &nitems);
+	pos += 4;
+
+	for(k=0; k<nitems; k++) {
+		char name[80];
+		de_int64 n;
+
+		if(pos >= si->f->len) break;
+		de_snprintf(name, sizeof(name), "%s[%u]", pinfo->name_dbg, (unsigned int)k);
+		n = do_prop_read_int_lowlevel(c, si, pos, nbytes, is_signed);
+		do_prop_process_int(c, si, pinfo, name, n);
+		pos += (de_int64)nbytes;
+	}
 }
 
 // a VectorHeader followed by a sequence of UnicodeString packets.
@@ -396,13 +433,11 @@ static void do_prop_data(deark *c, struct ole_prop_set_struct *si,
 	case 0x01:
 		break;
 	case 0x02: // int16
-		n = dbuf_geti16le(si->f, pinfo->dpos);
-		do_prop_int(c, si, pinfo, n);
+		do_prop_read_and_process_int(c, si, pinfo, 2, 1);
 		break;
 	case 0x03: // int32
 	case 0x16:
-		n = dbuf_geti32le(si->f, pinfo->dpos);
-		do_prop_int(c, si, pinfo, n);
+		do_prop_read_and_process_int(c, si, pinfo, 4, 1);
 		break;
 	case 0x04: // float32
 		dval = dbuf_getfloat32x(si->f, pinfo->dpos, 1);
@@ -412,19 +447,28 @@ static void do_prop_data(deark *c, struct ole_prop_set_struct *si,
 		dval = dbuf_getfloat64x(si->f, pinfo->dpos, 1);
 		de_dbg(c, "%s: %f", pinfo->name_dbg, dval);
 		break;
+	case 0x10: // VT_I1
+		do_prop_read_and_process_int(c, si, pinfo, 1, 1);
+		break;
 	case 0x11: // uint8
-		n = (de_int64)dbuf_getbyte(si->f, pinfo->dpos);
-		do_prop_int(c, si, pinfo, n);
+		do_prop_read_and_process_int(c, si, pinfo, 1, 0);
 		break;
 	case 0x12: // uint16
 	case 0x0b: // BOOL (VARIANT_BOOL)
-		n = dbuf_getui16le(si->f, pinfo->dpos);
-		do_prop_int(c, si, pinfo, n);
+		do_prop_read_and_process_int(c, si, pinfo, 2, 0);
 		break;
 	case 0x13: // uint32
 	case 0x17:
-		n = dbuf_getui32le(si->f, pinfo->dpos);
-		do_prop_int(c, si, pinfo, n);
+		do_prop_read_and_process_int(c, si, pinfo, 4, 0);
+		break;
+	case 0x1013:
+		do_prop_intvector(c, si, pinfo, 4, 0);
+		break;
+	case 0x14: // VT_I8
+		do_prop_read_and_process_int(c, si, pinfo, 8, 1);
+		break;
+	case 0x15: // VT_UI8
+		do_prop_read_and_process_int(c, si, pinfo, 8, 0);
 		break;
 	case 0x1e: // string with length prefix
 		do_prop_CodePageString(c, si, pinfo);
@@ -453,6 +497,7 @@ static void do_prop_data(deark *c, struct ole_prop_set_struct *si,
 	default:
 		if(pinfo->data_type&0x1000) {
 			read_vectorheader(c, si, pinfo, &n);
+			if(n==0) break;
 		}
 		de_dbg(c, "[data type 0x%04x not supported]", (unsigned int)pinfo->data_type);
 	}
