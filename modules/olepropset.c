@@ -26,24 +26,6 @@ struct prop_info_struct {
 	de_int64 dpos; // = si->tbloffset+pinfo->data_offs+4
 };
 
-static void read_timestamp(deark *c, dbuf *f, de_int64 pos,
-	struct de_timestamp *ts, const char *field_name)
-{
-	de_int64 ts_as_FILETIME;
-	char timestamp_buf[64];
-
-	de_memset(ts, 0, sizeof(struct de_timestamp));
-	ts_as_FILETIME = dbuf_geti64le(f, pos);
-	if(ts_as_FILETIME==0) {
-		de_dbg(c, "%s: %"INT64_FMT, field_name, ts_as_FILETIME);
-	}
-	else {
-		de_FILETIME_to_timestamp(ts_as_FILETIME, ts);
-		de_timestamp_to_string(ts, timestamp_buf, sizeof(timestamp_buf), 1);
-		de_dbg(c, "%s: %s", field_name, timestamp_buf);
-	}
-}
-
 struct fmtid_info_entry {
 	const de_byte guid[16];
 	de_uint32 sfmtid; // short ID
@@ -87,17 +69,22 @@ struct prop_info_entry {
 };
 
 static void do_prop_blob(deark *c, struct ole_prop_set_struct *si,
-	struct prop_info_struct *pinfo)
+	struct prop_info_struct *pinfo, const char *name,
+	de_int64 pos1, de_int64 *bytes_consumed)
 {
 	de_int64 blob_data_start;
 	de_int64 blob_data_size;
+	de_int64 pos = pos1;
 	de_byte magic[8];
 
-	blob_data_size = dbuf_getui32le(si->f, pinfo->dpos);
-	de_dbg(c, "blob data size: %"INT64_FMT, blob_data_size);
+	blob_data_size = dbuf_getui32le_p(si->f, &pos);
+	de_dbg(c, "%s data size: %"INT64_FMT, name, blob_data_size);
 
-	blob_data_start = pinfo->dpos+4;
+	blob_data_start = pos;
 	if(blob_data_start + blob_data_size > si->f->len) return;
+
+	*bytes_consumed = 4 + de_pad_to_4(blob_data_size);
+
 	if(blob_data_size<8) return;
 
 	// Minor hack. If a blob looks like a JPEG file, extract it.
@@ -110,22 +97,25 @@ static void do_prop_blob(deark *c, struct ole_prop_set_struct *si,
 }
 
 static void do_prop_clipboard(deark *c, struct ole_prop_set_struct *si,
-	struct prop_info_struct *pinfo)
+	struct prop_info_struct *pinfo,
+	de_int64 pos1, de_int64 *bytes_consumed)
 {
 	de_uint32 cbtype;
 	de_int64 cbsize_reported;
 	de_int64 cbsize_payload;
 	de_int64 cbdatapos;
 
-	cbsize_reported = dbuf_getui32le(si->f, pinfo->dpos);
+	cbsize_reported = dbuf_getui32le(si->f, pos1);
 	de_dbg(c, "clipboard data size: %d", (int)cbsize_reported);
 
-	cbtype = (de_uint32)dbuf_getui32le(si->f, pinfo->dpos+8);
+	cbtype = (de_uint32)dbuf_getui32le(si->f, pos1+8);
 	de_dbg(c, "clipboard data type: 0x%08x", (unsigned int)cbtype);
 
-	cbdatapos = pinfo->dpos+12;
+	cbdatapos = pos1+12;
 	cbsize_payload = cbsize_reported-8;
 	if(cbdatapos + cbsize_payload > si->f->len) goto done;
+
+	*bytes_consumed = de_pad_to_4(cbsize_reported);
 
 	if(cbtype==3) { // CF_METAFILEPICT
 		dbuf_create_file_from_slice(si->f, cbdatapos+8, cbsize_payload-8,
@@ -147,69 +137,39 @@ done:
 	;
 }
 
-static void do_prop_process_int(deark *c, struct ole_prop_set_struct *si,
-	struct prop_info_struct *pinfo, const char *name, de_int64 n)
-{
-	de_dbg(c, "%s: %"INT64_FMT, name, n);
-
-	if(pinfo->prop_id==0x01) { // code page
-		de_int64 n2;
-
-		// I've seen some files in which the Code Page property appears
-		// *after* some string properties. I don't know how to interpret
-		// that, but for now, I'm not going to apply it retroactively.
-
-		// Code page is usually a *signed* 16-bit int, which means the maximum
-		// value is 32767, even though code pages can go up to 65535.
-		// Apparently, code pages over 32767 are stored as negative numbers.
-		n2 = n;
-		if(n2<0) n2 += 65536;
-
-		switch(n2) {
-		case 1200: si->encoding = DE_ENCODING_UTF16LE; break;
-		case 1252: si->encoding = DE_ENCODING_WINDOWS1252; break;
-		case 10000: si->encoding = DE_ENCODING_MACROMAN; break;
-		case 65001: si->encoding = DE_ENCODING_UTF8; break;
-		default: si->encoding = DE_ENCODING_ASCII;
-		}
-	}
-}
-
-static de_int64 do_prop_read_int_lowlevel(deark *c, struct ole_prop_set_struct *si,
-	de_int64 pos, unsigned int nbytes, int is_signed)
-{
-	return dbuf_getint_ext(si->f, pos, nbytes, 1, is_signed);
-}
-
-static void do_prop_read_and_process_int(deark *c, struct ole_prop_set_struct *si,
-	struct prop_info_struct *pinfo, unsigned int nbytes, int is_signed)
-{
-	de_int64 n;
-
-	// FIXME: This doesn't really support uint64.
-	n = do_prop_read_int_lowlevel(c, si, pinfo->dpos, nbytes, is_signed);
-	do_prop_process_int(c, si, pinfo, pinfo->name_dbg, n);
-}
-
 static int do_prop_FILETIME(deark *c, struct ole_prop_set_struct *si,
-	struct prop_info_struct *pinfo)
+	struct prop_info_struct *pinfo, const char *name, de_int64 pos)
 {
-	struct de_timestamp ts;
+	de_int64 ts_as_FILETIME;
+	int full_decode = 1;
 
-	if(si->sfmtid==SFMTID_SUMMARYINFO && pinfo->prop_id==10) {
-		de_int64 n;
+	ts_as_FILETIME = dbuf_geti64le(si->f, pos);
+
+	if(ts_as_FILETIME==0) {
+		full_decode = 0;
+	}
+	else if(si->sfmtid==SFMTID_SUMMARYINFO && pinfo->prop_id==10) {
 		// The "Editing time" property typically has a data type of FILETIME,
 		// but it is not actually a FILETIME (I assume it's an *amount* of time).
-		n = dbuf_geti64le(si->f, pinfo->dpos);
-		do_prop_process_int(c, si, pinfo, pinfo->name_dbg, n);
-		return 1;
+		full_decode = 0;
 	}
 
-	read_timestamp(c, si->f, pinfo->dpos, &ts, pinfo->name_dbg);
+	if(!full_decode) {
+		de_dbg(c, "%s: %"INT64_FMT, name, ts_as_FILETIME);
+	}
+	else {
+		struct de_timestamp ts;
+		char timestamp_buf[64];
+
+		de_FILETIME_to_timestamp(ts_as_FILETIME, &ts);
+		de_timestamp_to_string(&ts, timestamp_buf, sizeof(timestamp_buf), 1);
+		de_dbg(c, "%s: %"INT64_FMT" (%s)", name, ts_as_FILETIME, timestamp_buf);
+	}
+
 	return 1;
 }
 
-static void do_prop_UnicodeString_lowlevel(deark *c, struct ole_prop_set_struct *si,
+static void do_prop_UnicodeString(deark *c, struct ole_prop_set_struct *si,
 	const char *name, de_int64 dpos, de_int64 *bytes_consumed)
 {
 	de_int64 n, n_raw;
@@ -230,64 +190,7 @@ static void do_prop_UnicodeString_lowlevel(deark *c, struct ole_prop_set_struct 
 	*bytes_consumed = 4 + n_raw*2;
 }
 
-static void do_prop_UnicodeString(deark *c, struct ole_prop_set_struct *si,
-	struct prop_info_struct *pinfo)
-{
-	de_int64 bytes_consumed = 0;
-	do_prop_UnicodeString_lowlevel(c, si, pinfo->name_dbg,
-		pinfo->dpos, &bytes_consumed);
-}
-
-static void read_vectorheader(deark *c, struct ole_prop_set_struct *si,
-	struct prop_info_struct *pinfo, de_int64 *numitems)
-{
-	*numitems = dbuf_getui32le(si->f, pinfo->dpos);
-	de_dbg(c, "number of items: %u", (unsigned int)(*numitems));
-}
-
-static void do_prop_intvector(deark *c, struct ole_prop_set_struct *si,
-	struct prop_info_struct *pinfo, unsigned int nbytes, int is_signed)
-{
-	de_int64 pos = pinfo->dpos;
-	de_int64 nitems;
-	de_int64 k;
-
-	read_vectorheader(c, si, pinfo, &nitems);
-	pos += 4;
-
-	for(k=0; k<nitems; k++) {
-		char name[80];
-		de_int64 n;
-
-		if(pos >= si->f->len) break;
-		de_snprintf(name, sizeof(name), "%s[%u]", pinfo->name_dbg, (unsigned int)k);
-		n = do_prop_read_int_lowlevel(c, si, pos, nbytes, is_signed);
-		do_prop_process_int(c, si, pinfo, name, n);
-		pos += (de_int64)nbytes;
-	}
-}
-
-// a VectorHeader followed by a sequence of UnicodeString packets.
-static void do_prop_UnicodeStringVector(deark *c, struct ole_prop_set_struct *si,
-	struct prop_info_struct *pinfo)
-{
-	de_int64 pos = pinfo->dpos;
-	de_int64 nitems;
-	de_int64 k;
-
-	read_vectorheader(c, si, pinfo, &nitems);
-	pos += 4;
-
-	for(k=0; k<nitems; k++) {
-		de_int64 bytes_consumed = 0;
-		if(pos >= si->f->len) break;
-		do_prop_UnicodeString_lowlevel(c, si, pinfo->name_dbg,
-			pos, &bytes_consumed);
-		pos += bytes_consumed;
-	}
-}
-
-static void do_prop_CodePageString_lowlevel(deark *c, struct ole_prop_set_struct *si,
+static void do_prop_CodePageString(deark *c, struct ole_prop_set_struct *si,
 	const char *name, de_int64 dpos, de_int64 *bytes_consumed)
 {
 	de_int64 n, n_raw;
@@ -315,43 +218,16 @@ static void do_prop_CodePageString_lowlevel(deark *c, struct ole_prop_set_struct
 	ucstring_destroy(s);
 }
 
-static void do_prop_CodePageString(deark *c, struct ole_prop_set_struct *si,
-	struct prop_info_struct *pinfo)
-{
-	de_int64 bytes_consumed = 0;
-	do_prop_CodePageString_lowlevel(c, si, pinfo->name_dbg, pinfo->dpos, &bytes_consumed);
-}
-
-static void do_prop_CodePageStringVector(deark *c, struct ole_prop_set_struct *si,
-	struct prop_info_struct *pinfo)
-{
-	de_int64 pos = pinfo->dpos;
-	de_int64 nitems;
-	de_int64 k;
-	char name[80];
-
-	read_vectorheader(c, si, pinfo, &nitems);
-	pos += 4;
-
-	for(k=0; k<nitems; k++) {
-		de_int64 bytes_consumed = 0;
-		if(pos >= si->f->len) break;
-		de_snprintf(name, sizeof(name), "%s[%u]", pinfo->name_dbg, (unsigned int)k);
-		do_prop_CodePageString_lowlevel(c, si, name, pos, &bytes_consumed);
-		pos += bytes_consumed;
-	}
-}
-
 static void do_prop_CLSID(deark *c, struct ole_prop_set_struct *si,
-	struct prop_info_struct *pinfo)
+	struct prop_info_struct *pinfo, const char *name, de_int64 pos)
 {
 	de_byte clsid[16];
 	char clsid_string[50];
 
-	dbuf_read(si->f, clsid, pinfo->dpos, 16);
+	dbuf_read(si->f, clsid, pos, 16);
 	de_fmtutil_guid_to_uuid(clsid);
 	de_fmtutil_render_uuid(c, clsid, clsid_string, sizeof(clsid_string));
-	de_dbg(c, "clsid: {%s}", clsid_string);
+	de_dbg(c, "%s: {%s}", name, clsid_string);
 }
 
 struct prop_data_type_info_struct {
@@ -415,90 +291,222 @@ static char *get_prop_data_type_name(char *buf, size_t buf_len, de_uint32 dt)
 	return buf;
 }
 
-// Read the value for one property.
-static void do_prop_data(deark *c, struct ole_prop_set_struct *si,
-	struct prop_info_struct *pinfo)
+static void do_prop_any_int(deark *c, struct ole_prop_set_struct *si,
+	struct prop_info_struct *pinfo, const char *name, de_int64 pos,
+	unsigned int nbytes, int is_signed)
 {
 	de_int64 n;
+
+	// FIXME: This doesn't really support uint64.
+	n = dbuf_getint_ext(si->f, pos, nbytes, 1, is_signed);
+
+	//do_prop_process_int(c, si, pinfo, name, n);
+
+	de_dbg(c, "%s: %"INT64_FMT, name, n);
+
+	if(pinfo->prop_id==0x00000001U) { // code page
+		de_int64 n2;
+
+		// I've seen some files in which the Code Page property appears
+		// *after* some string properties. I don't know how to interpret
+		// that, but for now, I'm not going to apply it retroactively.
+
+		// Code page is usually a *signed* 16-bit int, which means the maximum
+		// value is 32767, even though code pages can go up to 65535.
+		// Apparently, code pages over 32767 are stored as negative numbers.
+		n2 = n;
+		if(n2<0) n2 += 65536;
+
+		switch(n2) {
+		case 1200: si->encoding = DE_ENCODING_UTF16LE; break;
+		case 1252: si->encoding = DE_ENCODING_WINDOWS1252; break;
+		case 10000: si->encoding = DE_ENCODING_MACROMAN; break;
+		case 65001: si->encoding = DE_ENCODING_UTF8; break;
+		default: si->encoding = DE_ENCODING_ASCII;
+		}
+	}
+}
+
+// Caller sets pos to the start of data (not to the 'type' field).
+// Uses the scalar_type param, not the top-level pinfo->data_type.
+// Returns 0 if the type is not supported.
+static int do_prop_simple_type(deark *c, struct ole_prop_set_struct *si,
+	struct prop_info_struct *pinfo, de_uint32 scalar_type, const char *name,
+	de_int64 pos, de_int64 *bytes_consumed)
+{
 	double dval;
+
+	*bytes_consumed = 0;
+
+	switch(scalar_type) {
+	case 0x00: // VT_EMPTY
+	case 0x01: // VT_NULL
+		break;
+
+	case 0x11: // VT_UI1 = uint8
+		do_prop_any_int(c, si, pinfo, name, pos, 1, 0);
+		*bytes_consumed = 1;
+		break;
+	case 0x12: // VT_UI2 = uint16
+	case 0x0b: // VT_BOOL (VARIANT_BOOL)
+		do_prop_any_int(c, si, pinfo, name, pos, 2, 0);
+		*bytes_consumed = 2;
+		break;
+	case 0x13: // VT_UI4 = uint32
+	case 0x17: // VT_UINT
+		do_prop_any_int(c, si, pinfo, name, pos, 4, 0);
+		*bytes_consumed = 4;
+		break;
+	case 0x15: // VT_UI8
+		do_prop_any_int(c, si, pinfo, name, pos, 8, 0);
+		*bytes_consumed = 8;
+		break;
+
+	case 0x10: // VT_I1
+		do_prop_any_int(c, si, pinfo, name, pos, 1, 1);
+		*bytes_consumed = 1;
+		break;
+	case 0x02: // VT_I2 = int16
+		do_prop_any_int(c, si, pinfo, name, pos, 2, 1);
+		*bytes_consumed = 2;
+		break;
+	case 0x03: // VT_I4 = int32
+	case 0x16: // VT_INT
+		do_prop_any_int(c, si, pinfo, name, pos, 4, 1);
+		*bytes_consumed = 4;
+		break;
+	case 0x14: // VT_I8
+		do_prop_any_int(c, si, pinfo, name, pos, 8, 1);
+		*bytes_consumed = 8;
+		break;
+
+	case 0x04: // VT_R4 = float32
+		dval = dbuf_getfloat32x(si->f, pos, 1);
+		de_dbg(c, "%s: %f", name, dval);
+		*bytes_consumed = 4;
+		break;
+	case 0x05: // VT_R8 = float64
+		dval = dbuf_getfloat64x(si->f, pos, 1);
+		de_dbg(c, "%s: %f", name, dval);
+		*bytes_consumed = 8;
+		break;
+
+	case 0x40:
+		do_prop_FILETIME(c, si, pinfo, name, pos);
+		*bytes_consumed = 8;
+		break;
+
+	case 0x48: // VT_CLSID
+		do_prop_CLSID(c, si, pinfo, name, pos);
+		*bytes_consumed = 16;
+		break;
+
+	case 0x1e: // string with length prefix
+		do_prop_CodePageString(c, si, name, pos, bytes_consumed);
+		break;
+
+	case 0x1f: // Unicodestring
+		do_prop_UnicodeString(c, si, name, pos, bytes_consumed);
+		break;
+
+	case 0x47:
+		do_prop_clipboard(c, si, pinfo, pos, bytes_consumed);
+		break;
+
+	case 0x41:
+		do_prop_blob(c, si, pinfo, name, pos, bytes_consumed);
+		break;
+
+	default:
+		return 0;
+	}
+
+	return 1;
+}
+
+static void read_vectorheader(deark *c, struct ole_prop_set_struct *si,
+	struct prop_info_struct *pinfo, de_int64 *numitems)
+{
+	*numitems = dbuf_getui32le(si->f, pinfo->dpos);
+	de_dbg(c, "number of items: %u", (unsigned int)(*numitems));
+}
+
+static int do_prop_vector_of_scalar(deark *c, struct ole_prop_set_struct *si,
+	struct prop_info_struct *pinfo, de_uint32 scalar_type)
+{
+	de_int64 k;
+	de_int64 nitems;
+	de_int64 pos = pinfo->dpos;
+
+	read_vectorheader(c, si, pinfo, &nitems);
+	pos += 4;
+
+	// Note: These are the valid types:
+	//  2,3,4,5,6,7,8,0xa,0xb,
+	//  0x10,0x11,0x12,0x13,0x14,0x15,0x1e,0x1f,
+	//  0x40,0x47,0x48
+	//  (0xc is also a valid vector type, but is not handled here)
+
+	for(k=0; k<nitems; k++) {
+		de_int64 bytes_consumed = 0;
+		int ret;
+		char name[80];
+
+		if(pos >= si->f->len) break;
+		if(k>500) break;
+
+		de_snprintf(name, sizeof(name), "%s[%u]", pinfo->name_dbg, (unsigned int)k);
+		ret = do_prop_simple_type(c, si, pinfo, scalar_type, name, pos, &bytes_consumed);
+		if(!ret || (bytes_consumed<1)) return 0;
+		pos += bytes_consumed;
+	}
+
+	return 1;
+}
+
+static int do_prop_vector_of_variant(deark *c, struct ole_prop_set_struct *si,
+	struct prop_info_struct *pinfo)
+{
+	de_int64 nitems;
+	de_int64 pos = pinfo->dpos;
+
+	read_vectorheader(c, si, pinfo, &nitems);
+	pos += 4;
+	return 0;
+}
+
+// Read the value(s) of any property.
+// The type is pinfo->data_type, which can be a variant or aggregate type.
+static void do_prop_toplevel(deark *c, struct ole_prop_set_struct *si,
+	struct prop_info_struct *pinfo)
+{
 	char dtname[80];
+	de_uint32 scalar_type;
+	int ok = 0;
+	de_int64 bytes_consumed = 0;
 
 	// TODO: There's some confusion about whether this is a 16-bit, or a 32-bit int.
 	pinfo->data_type = (de_uint32)dbuf_getui16le(si->f, si->tbloffset+pinfo->data_offs_rel);
 	de_dbg(c, "data type: 0x%04x (%s)", (unsigned int)pinfo->data_type,
 		get_prop_data_type_name(dtname, sizeof(dtname), pinfo->data_type));
 
-	switch(pinfo->data_type) {
-	case 0x00:
-	case 0x01:
-		break;
-	case 0x02: // int16
-		do_prop_read_and_process_int(c, si, pinfo, 2, 1);
-		break;
-	case 0x03: // int32
-	case 0x16:
-		do_prop_read_and_process_int(c, si, pinfo, 4, 1);
-		break;
-	case 0x04: // float32
-		dval = dbuf_getfloat32x(si->f, pinfo->dpos, 1);
-		de_dbg(c, "%s: %f", pinfo->name_dbg, dval);
-		break;
-	case 0x05: // float64
-		dval = dbuf_getfloat64x(si->f, pinfo->dpos, 1);
-		de_dbg(c, "%s: %f", pinfo->name_dbg, dval);
-		break;
-	case 0x10: // VT_I1
-		do_prop_read_and_process_int(c, si, pinfo, 1, 1);
-		break;
-	case 0x11: // uint8
-		do_prop_read_and_process_int(c, si, pinfo, 1, 0);
-		break;
-	case 0x12: // uint16
-	case 0x0b: // BOOL (VARIANT_BOOL)
-		do_prop_read_and_process_int(c, si, pinfo, 2, 0);
-		break;
-	case 0x13: // uint32
-	case 0x17:
-		do_prop_read_and_process_int(c, si, pinfo, 4, 0);
-		break;
-	case 0x1013:
-		do_prop_intvector(c, si, pinfo, 4, 0);
-		break;
-	case 0x14: // VT_I8
-		do_prop_read_and_process_int(c, si, pinfo, 8, 1);
-		break;
-	case 0x15: // VT_UI8
-		do_prop_read_and_process_int(c, si, pinfo, 8, 0);
-		break;
-	case 0x1e: // string with length prefix
-		do_prop_CodePageString(c, si, pinfo);
-		break;
-	case 0x101e:
-		do_prop_CodePageStringVector(c, si, pinfo);
-		break;
-	case 0x1f: // Unicodestring
-		do_prop_UnicodeString(c, si, pinfo);
-		break;
-	case 0x101f:
-		do_prop_UnicodeStringVector(c, si, pinfo);
-		break;
-	case 0x40:
-		do_prop_FILETIME(c, si, pinfo);
-		break;
-	case 0x41:
-		do_prop_blob(c, si, pinfo);
-		break;
-	case 0x47:
-		do_prop_clipboard(c, si, pinfo);
-		break;
-	case 0x48:
-		do_prop_CLSID(c, si, pinfo);
-		break;
-	default:
-		if(pinfo->data_type&0x1000) {
-			read_vectorheader(c, si, pinfo, &n);
-			if(n==0) break;
+
+	scalar_type = pinfo->data_type&0x00ff;
+
+	if((pinfo->data_type&0xff00)==0x0000) {
+		ok = do_prop_simple_type(c, si, pinfo, scalar_type, pinfo->name_dbg,
+			pinfo->dpos, &bytes_consumed);
+	}
+	else if((pinfo->data_type&0xff00)==0x1000) {
+		if(scalar_type==0x0c) {
+			ok = do_prop_vector_of_variant(c, si, pinfo);
 		}
+		else {
+			ok = do_prop_vector_of_scalar(c, si, pinfo, scalar_type);
+		}
+	}
+
+	if(!ok) {
 		de_dbg(c, "[data type 0x%04x not supported]", (unsigned int)pinfo->data_type);
 	}
 }
@@ -641,7 +649,7 @@ static void do_property_table(deark *c, struct ole_prop_set_struct *si,
 			(unsigned int)pinfo.prop_id, pinfo.name?pinfo.name:"?",
 			(int)pinfo.data_offs_rel);
 		de_dbg_indent(c, 1);
-		do_prop_data(c, si, &pinfo);
+		do_prop_toplevel(c, si, &pinfo);
 		de_dbg_indent(c, -1);
 	}
 
