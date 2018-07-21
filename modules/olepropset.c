@@ -169,6 +169,16 @@ static int do_prop_FILETIME(deark *c, struct ole_prop_set_struct *si,
 	return 1;
 }
 
+static void do_prop_DATE(deark *c, struct ole_prop_set_struct *si,
+	struct prop_info_struct *pinfo, const char *name, de_int64 pos)
+{
+	double dval;
+
+	dval = dbuf_getfloat64x(si->f, pos, 1);
+	// TODO: Decode this better.
+	de_dbg(c, "%s: %f", name, dval);
+}
+
 static void do_prop_UnicodeString(deark *c, struct ole_prop_set_struct *si,
 	const char *name, de_int64 dpos, de_int64 *bytes_consumed)
 {
@@ -390,6 +400,10 @@ static int do_prop_simple_type(deark *c, struct ole_prop_set_struct *si,
 		de_dbg(c, "%s: %f", name, dval);
 		*bytes_consumed = 8;
 		break;
+	case 0x07: // VT_DATE
+		do_prop_DATE(c, si, pinfo, name, pos);
+		*bytes_consumed = 8;
+		break;
 
 	case 0x40:
 		do_prop_FILETIME(c, si, pinfo, name, pos);
@@ -401,7 +415,12 @@ static int do_prop_simple_type(deark *c, struct ole_prop_set_struct *si,
 		*bytes_consumed = 16;
 		break;
 
-	case 0x1e: // string with length prefix
+	case 0x08: // VT_BSTR
+	case 0x1e: // VT_LPSTR
+	case 0x42: // VT_STREAM
+	case 0x43: // VT_STORAGE
+	case 0x44: // VT_STREAMED_OBJECT
+	case 0x45: // VT_STORED_OBJECT
 		do_prop_CodePageString(c, si, name, pos, bytes_consumed);
 		break;
 
@@ -467,12 +486,45 @@ static int do_prop_vector_of_scalar(deark *c, struct ole_prop_set_struct *si,
 static int do_prop_vector_of_variant(deark *c, struct ole_prop_set_struct *si,
 	struct prop_info_struct *pinfo)
 {
+	de_int64 k;
 	de_int64 nitems;
 	de_int64 pos = pinfo->dpos;
+	int saved_indent_level;
+
+	de_dbg_indent_save(c, &saved_indent_level);
 
 	read_vectorheader(c, si, pinfo, &nitems);
 	pos += 4;
-	return 0;
+
+	for(k=0; k<nitems; k++) {
+		de_uint32 data_type;
+		de_int64 bytes_consumed = 0;
+		int ok;
+		char dtname[80];
+
+		if(pos >= si->f->len) break;
+		if(k>500) break;
+
+		de_dbg(c, "item[%u]:", (unsigned int)k);
+		de_dbg_indent(c, 1);
+
+		data_type = (de_uint32)dbuf_getui16le_p(si->f, &pos);
+		de_dbg(c, "data type: 0x%04x (%s)", (unsigned int)data_type,
+			get_prop_data_type_name(dtname, sizeof(dtname), data_type));
+		pos += 2; // padding
+
+		// TODO: Probably need a better way to detect errors here.
+		// Unlike in a vector, bytes_consumed can legitimately be 0.
+		ok = do_prop_simple_type(c, si, pinfo, data_type, "value", pos, &bytes_consumed);
+		if(!ok) goto done;
+		pos += bytes_consumed;
+
+		de_dbg_indent(c, -1);
+	}
+
+done:
+	de_dbg_indent_restore(c, saved_indent_level);
+	return 1;
 }
 
 // Read the value(s) of any property.
@@ -489,7 +541,6 @@ static void do_prop_toplevel(deark *c, struct ole_prop_set_struct *si,
 	pinfo->data_type = (de_uint32)dbuf_getui16le(si->f, si->tbloffset+pinfo->data_offs_rel);
 	de_dbg(c, "data type: 0x%04x (%s)", (unsigned int)pinfo->data_type,
 		get_prop_data_type_name(dtname, sizeof(dtname), pinfo->data_type));
-
 
 	scalar_type = pinfo->data_type&0x00ff;
 
