@@ -20,7 +20,7 @@ struct ole_prop_set_struct {
 	// Fields related to the current property set:
 	de_int64 tbloffset;
 	de_uint32 sfmtid;
-	unsigned int code_page; // value of the Code Page property
+	int code_page; // value of the Code Page property
 	int encoding; // DE_ENCODING_*
 };
 
@@ -343,18 +343,15 @@ static void do_prop_any_int(deark *c, struct ole_prop_set_struct *si,
 		// value is 32767, even though code pages can go up to 65535.
 		// Apparently, code pages over 32767 are stored as negative numbers.
 		if(n<0) {
-			si->code_page = (unsigned int)(n + 65536);
+			si->code_page = (int)(n + 65536);
 		}
 		else {
-			si->code_page = (unsigned int)n;
+			si->code_page = (int)n;
 		}
 
-		switch(si->code_page) {
-		case 1200: si->encoding = DE_ENCODING_UTF16LE; break;
-		case 1252: si->encoding = DE_ENCODING_WINDOWS1252; break;
-		case 10000: si->encoding = DE_ENCODING_MACROMAN; break;
-		case 65001: si->encoding = DE_ENCODING_UTF8; break;
-		default: si->encoding = DE_ENCODING_ASCII;
+		si->encoding = de_windows_codepage_to_encoding(c, si->code_page, NULL, 0);
+		if(si->encoding==DE_ENCODING_UNKNOWN) {
+			si->encoding = DE_ENCODING_ASCII;
 		}
 	}
 }

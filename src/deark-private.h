@@ -23,7 +23,9 @@
 #define DE_ENCODING_PETSCII      8
 #define DE_ENCODING_CP437_G      10
 #define DE_ENCODING_CP437_C      11
-#define DE_ENCODING_WINDOWS1252  20
+#define DE_ENCODING_WINDOWS1250  20
+#define DE_ENCODING_WINDOWS1251  21
+#define DE_ENCODING_WINDOWS1252  22
 #define DE_ENCODING_UTF16LE      30
 #define DE_ENCODING_UTF16BE      31
 #define DE_ENCODING_MACROMAN     40
@@ -817,6 +819,8 @@ void ucstring_append_flags_item(de_ucstring *s, const char *str);
 void de_write_codepoint_to_html(deark *c, dbuf *f, de_int32 ch);
 
 int de_encoding_name_to_code(const char *encname);
+int de_windows_codepage_to_encoding(deark *c, int wincodepage,
+	char *encname, size_t encname_len);
 
 void de_copy_bits(const de_byte *src, de_int64 srcbitnum,
 	de_byte *dst, de_int64 dstbitnum, de_int64 bitstocopy);
