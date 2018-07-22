@@ -11,10 +11,17 @@
 DE_DECLARE_MODULE(de_module_olepropset);
 
 struct ole_prop_set_struct {
+	// Fields related to the whole PropertySetStream:
+	// TODO: This should really be a separate struct.
 	dbuf *f; // The full data stream
+	unsigned int propset_version;
+	int asciipropnames;
+
+	// Fields related to the current property set:
 	de_int64 tbloffset;
 	de_uint32 sfmtid;
-	int encoding;
+	unsigned int code_page; // value of the Code Page property
+	int encoding; // DE_ENCODING_*
 };
 
 struct prop_info_struct {
@@ -201,26 +208,46 @@ static void do_prop_UnicodeString(deark *c, struct ole_prop_set_struct *si,
 }
 
 static void do_prop_CodePageString(deark *c, struct ole_prop_set_struct *si,
-	const char *name, de_int64 dpos, de_int64 *bytes_consumed)
+	const char *name, de_int64 dpos, int is_dict_name, de_int64 *bytes_consumed)
 {
-	de_int64 n, n_raw;
+	de_int64 n_raw;
 	de_ucstring *s = NULL;
+	int is_utf16 = (si->code_page==1200);
+	int encoding = si->encoding;
+
+	if(is_utf16 && is_dict_name && si->asciipropnames) {
+		// A hack that the user can enable. Some dictionaries use an 8-bit
+		// encoding even though they have CodePage=1200, and I don't know
+		// how to detect this.
+		is_utf16 = 0;
+		encoding = DE_ENCODING_ASCII;
+	}
 
 	s = ucstring_create(c);
 	n_raw = dbuf_getui32le(si->f, dpos);
-	n = n_raw;
 
-	if(si->encoding==DE_ENCODING_UTF16LE) {
+	if(is_utf16) {
+		de_int64 n;
+
+		if(is_dict_name) {
+			n = n_raw*2;
+		}
+		else {
+			n = n_raw;
+		}
 		dbuf_read_to_ucstring_n(si->f, dpos+4, n, DE_DBG_MAX_STRLEN*2, s,
-			0, si->encoding);
+			0, encoding);
 		ucstring_truncate_at_NUL(s);
-		*bytes_consumed = 4 + de_pad_to_4(n_raw);
+		if(is_dict_name) {
+			*bytes_consumed = 4 + de_pad_to_4(n_raw*2);
+		}
+		else {
+			*bytes_consumed = 4 + de_pad_to_4(n_raw);
+		}
 	}
 	else {
-		dbuf_read_to_ucstring_n(si->f, dpos+4, n, DE_DBG_MAX_STRLEN, s,
-			DE_CONVFLAG_STOP_AT_NUL, si->encoding);
-		// TODO: This is supposed to be padded to a multiple of 4 bytes, but in the
-		// sample files I have, it is not.
+		dbuf_read_to_ucstring_n(si->f, dpos+4, n_raw, DE_DBG_MAX_STRLEN, s,
+			DE_CONVFLAG_STOP_AT_NUL, encoding);
 		*bytes_consumed = 4 + n_raw;
 	}
 	de_dbg(c, "%s: \"%s\"", name, ucstring_getpsz(s));
@@ -309,25 +336,20 @@ static void do_prop_any_int(deark *c, struct ole_prop_set_struct *si,
 
 	// FIXME: This doesn't really support uint64.
 	n = dbuf_getint_ext(si->f, pos, nbytes, 1, is_signed);
-
-	//do_prop_process_int(c, si, pinfo, name, n);
-
 	de_dbg(c, "%s: %"INT64_FMT, name, n);
 
 	if(pinfo->prop_id==0x00000001U) { // code page
-		de_int64 n2;
-
-		// I've seen some files in which the Code Page property appears
-		// *after* some string properties. I don't know how to interpret
-		// that, but for now, I'm not going to apply it retroactively.
-
 		// Code page is usually a *signed* 16-bit int, which means the maximum
 		// value is 32767, even though code pages can go up to 65535.
 		// Apparently, code pages over 32767 are stored as negative numbers.
-		n2 = n;
-		if(n2<0) n2 += 65536;
+		if(n<0) {
+			si->code_page = (unsigned int)(n + 65536);
+		}
+		else {
+			si->code_page = (unsigned int)n;
+		}
 
-		switch(n2) {
+		switch(si->code_page) {
 		case 1200: si->encoding = DE_ENCODING_UTF16LE; break;
 		case 1252: si->encoding = DE_ENCODING_WINDOWS1252; break;
 		case 10000: si->encoding = DE_ENCODING_MACROMAN; break;
@@ -421,7 +443,7 @@ static int do_prop_simple_type(deark *c, struct ole_prop_set_struct *si,
 	case 0x43: // VT_STORAGE
 	case 0x44: // VT_STREAMED_OBJECT
 	case 0x45: // VT_STORED_OBJECT
-		do_prop_CodePageString(c, si, name, pos, bytes_consumed);
+		do_prop_CodePageString(c, si, name, pos, 0, bytes_consumed);
 		break;
 
 	case 0x1f: // Unicodestring
@@ -562,6 +584,40 @@ static void do_prop_toplevel(deark *c, struct ole_prop_set_struct *si,
 	}
 }
 
+static void do_dictionary(deark *c, struct ole_prop_set_struct *si,
+	struct prop_info_struct *pinfo)
+{
+	de_int64 nentries;
+	de_int64 k;
+	int saved_indent_level;
+	de_int64 pos = si->tbloffset+pinfo->data_offs_rel;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+	nentries = dbuf_getui32le_p(si->f, &pos);
+	de_dbg(c, "number of dictionary entries: %u", (unsigned int)nentries);
+
+	for(k=0; k<nentries; k++) {
+		de_uint32 prop_id;
+		de_int64 bytes_consumed = 0;
+
+		if(pos >= si->f->len) {
+			de_warn(c, "Malformed Property Set dictionary, or unsupported dictionary format");
+			break;
+		}
+		if(k>500) break;
+
+		de_dbg(c, "entry[%u]:", (unsigned int)k);
+		de_dbg_indent(c, 1);
+		prop_id = (de_uint32)dbuf_getui32le_p(si->f, &pos);
+		de_dbg(c, "prop id: 0x%08x", (unsigned int)prop_id);
+		do_prop_CodePageString(c, si, "name", pos, 1, &bytes_consumed);
+		pos += bytes_consumed;
+		de_dbg_indent(c, -1);
+	}
+
+	de_dbg_indent_restore(c, saved_indent_level);
+}
+
 static const struct prop_info_entry prop_info_arr[] = {
 	{SFMTID_COMMON, 0x00000000, MSK1, 0, "Dictionary", NULL},
 	{SFMTID_COMMON, 0x00000001, MSK1, 0, "Code page", NULL},
@@ -647,6 +703,7 @@ static const struct prop_info_entry prop_info_arr[] = {
 };
 
 // Sets pinfo->name based on pinfo->type and si->sfmtid.
+// TODO: Use the Dictionary, when available.
 static void set_prop_name(deark *c, struct ole_prop_set_struct *si, struct prop_info_struct *pinfo)
 {
 	const struct prop_info_entry *pi = NULL;
@@ -672,13 +729,15 @@ static void set_prop_name(deark *c, struct ole_prop_set_struct *si, struct prop_
 }
 
 // Caller must set si->tbloffset and si->sfmtid
-static void do_property_table(deark *c, struct ole_prop_set_struct *si,
+static void do_PropertySet(deark *c, struct ole_prop_set_struct *si,
 	de_int64 tblindex)
 {
 	de_int64 nproperties;
 	de_int64 n;
 	de_int64 i;
 	struct prop_info_struct pinfo;
+	de_byte *whichpass = NULL;
+	de_byte pass;
 
 	// I think this is the length of the data section
 	n = dbuf_getui32le(si->f, si->tbloffset);
@@ -688,24 +747,56 @@ static void do_property_table(deark *c, struct ole_prop_set_struct *si,
 	de_dbg(c, "number of properties: %d", (int)nproperties);
 	if(nproperties>200) goto done;
 
+	// AFAICT it's legal for the interpretation of a property to depend on
+	// properties that appear *after* it in the property table. For example,
+	// a Dictionary really needs to be interpreted after Code Page, and before
+	// any properties whose names are given in it. But it can appear anywhere.
+	whichpass = de_malloc(c, nproperties);
 	for(i=0; i<nproperties; i++) {
-		de_memset(&pinfo, 0, sizeof(struct prop_info_struct));
+		de_uint32 prop_id;
+		prop_id = (de_uint32)dbuf_getui32le(si->f, si->tbloffset+8 + 8*i);
+		if(prop_id==0x00000001U || prop_id==0x80000000U || prop_id==0x80000001U ||
+			prop_id==0x80000003U)
+		{
+			whichpass[i] = 1;
+		}
+		else if(prop_id==0x00000000U) {
+			whichpass[i] = 2;
+		}
+		else {
+			whichpass[i] = 3;
+		}
+	}
 
-		pinfo.prop_id = (de_uint32)dbuf_getui32le(si->f, si->tbloffset+8 + 8*i);
-		pinfo.data_offs_rel = dbuf_getui32le(si->f, si->tbloffset+8 + 8*i + 4);
-		pinfo.dpos = si->tbloffset+pinfo.data_offs_rel+4;
-		set_prop_name(c, si, &pinfo);
+	for(pass=1; pass<=3; pass++) {
+		de_dbg2(c, "pass %u", (unsigned int)pass);
 
-		de_dbg(c, "prop[%d]: type=0x%08x (%s), data_offs=%d", (int)i,
-			(unsigned int)pinfo.prop_id, pinfo.name?pinfo.name:"?",
-			(int)pinfo.data_offs_rel);
-		de_dbg_indent(c, 1);
-		do_prop_toplevel(c, si, &pinfo);
-		de_dbg_indent(c, -1);
+		for(i=0; i<nproperties; i++) {
+			if(whichpass[i] != pass) continue;
+
+			de_memset(&pinfo, 0, sizeof(struct prop_info_struct));
+
+			pinfo.prop_id = (de_uint32)dbuf_getui32le(si->f, si->tbloffset+8 + 8*i);
+			pinfo.data_offs_rel = dbuf_getui32le(si->f, si->tbloffset+8 + 8*i + 4);
+			pinfo.dpos = si->tbloffset+pinfo.data_offs_rel+4;
+			set_prop_name(c, si, &pinfo);
+
+			de_dbg(c, "prop[%d]: id=0x%08x (%s), data_offs=%d", (int)i,
+				(unsigned int)pinfo.prop_id, pinfo.name?pinfo.name:"?",
+				(int)pinfo.data_offs_rel);
+			de_dbg_indent(c, 1);
+			if(pinfo.prop_id==0x00000000U) {
+				do_dictionary(c, si, &pinfo);
+			}
+			else {
+				do_prop_toplevel(c, si, &pinfo);
+			}
+			de_dbg_indent(c, -1);
+		}
 	}
 
 done:
-	;
+	de_free(c, whichpass);
 }
 
 static const struct fmtid_info_entry *find_fmtid_info(const de_byte *b)
@@ -719,11 +810,10 @@ static const struct fmtid_info_entry *find_fmtid_info(const de_byte *b)
 	return NULL;
 }
 
-static void do_decode_ole_property_set(deark *c, dbuf *f)
+static void do_decode_PropertySetStream(deark *c, struct ole_prop_set_struct *si)
 {
 	de_int64 n;
 	int saved_indent_level;
-	struct ole_prop_set_struct *si = NULL;
 	de_int64 nsets;
 	de_int64 k;
 	de_int64 pos = 0;
@@ -731,18 +821,14 @@ static void do_decode_ole_property_set(deark *c, dbuf *f)
 	char clsid_string[50];
 
 	de_dbg_indent_save(c, &saved_indent_level);
-	si = de_malloc(c, sizeof(struct ole_prop_set_struct));
-	// TODO: ASCII may not always be the best default.
-	si->encoding = DE_ENCODING_ASCII;
-	si->f = f;
 
 	// expecting 48 (or more?) bytes of header info.
 	n = dbuf_getui16le_p(si->f, &pos);
 	de_dbg(c, "byte order code: 0x%04x", (unsigned int)n);
 	if(n != 0xfffe) goto done;
 
-	n = dbuf_getui16le_p(si->f, &pos);
-	de_dbg(c, "property set version: %d", (unsigned int)n);
+	si->propset_version = (unsigned int)dbuf_getui16le_p(si->f, &pos);
+	de_dbg(c, "property set version: %u", si->propset_version);
 
 	n = dbuf_getui16le_p(si->f, &pos);
 	de_dbg(c, "OS ver: 0x%04x", (unsigned int)n);
@@ -762,6 +848,12 @@ static void do_decode_ole_property_set(deark *c, dbuf *f)
 	for(k=0; k<nsets; k++) {
 		const struct fmtid_info_entry *fmtid_info;
 
+		// Reset the fields associated with this PropertySet.
+		si->tbloffset = 0;
+		si->sfmtid = 0;
+		si->code_page = 0;
+		si->encoding = DE_ENCODING_ASCII;
+
 		dbuf_read(si->f, clsid, pos, 16);
 		pos += 16;
 		de_fmtutil_guid_to_uuid(clsid);
@@ -775,22 +867,32 @@ static void do_decode_ole_property_set(deark *c, dbuf *f)
 		// bytes. And it shouldn't be much bigger than 48.
 		si->tbloffset = dbuf_getui16le_p(si->f, &pos);
 		pos += 2;
-		de_dbg(c, "table[%d] offset: %d", (int)k, (int)si->tbloffset);
+		de_dbg(c, "PropertySet[%d] offset: %d", (int)k, (int)si->tbloffset);
 
-		de_dbg(c, "property table[%d]", (int)k);
+		de_dbg(c, "PropertySet[%d]", (int)k);
 		de_dbg_indent(c, 1);
-		do_property_table(c, si, k);
+		do_PropertySet(c, si, k);
 		de_dbg_indent(c, -1);
 	}
 
 done:
-	de_free(c, si);
 	de_dbg_indent_restore(c, saved_indent_level);
 }
 
 static void de_run_olepropset(deark *c, de_module_params *mparams)
 {
-	do_decode_ole_property_set(c, c->infile);
+	struct ole_prop_set_struct *si = NULL;
+
+	si = de_malloc(c, sizeof(struct ole_prop_set_struct));
+	si->f = c->infile;
+
+	if(de_get_ext_option(c, "olepropset:asciipropnames")) {
+		si->asciipropnames = 1;
+	}
+
+	do_decode_PropertySetStream(c, si);
+
+	de_free(c, si);
 }
 
 void de_module_olepropset(deark *c, struct deark_module_info *mi)

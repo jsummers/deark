@@ -776,7 +776,7 @@ static void do_cfb_olepropertyset(deark *c, lctx *d, struct dir_entry_info *dei,
 		de_dbg(c, "SummaryInformation (%s)", is_root?"root":"non-root");
 	}
 	else {
-		de_dbg(c, "property set");
+		de_dbg(c, "property set stream");
 	}
 
 	de_dbg_indent(c, 1);
