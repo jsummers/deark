@@ -1110,53 +1110,78 @@ void de_write_codepoint_to_html(deark *c, dbuf *f, de_int32 ch)
 	}
 }
 
+struct de_encmap_item {
+	unsigned int flags;
+	int n;
+	const char *encname;
+};
+
+static const struct de_encmap_item de_encmap_arr[] = {
+	{ 0x01, DE_ENCODING_ASCII, "ascii" },
+	{ 0x01, DE_ENCODING_UTF8, "utf8" },
+	{ 0x01, DE_ENCODING_LATIN1, "latin1" },
+	{ 0x01, DE_ENCODING_CP437_C, "cp437" },
+	{ 0x01, DE_ENCODING_WINDOWS1250, "windows1250" },
+	{ 0x01, DE_ENCODING_WINDOWS1251, "windows1251"},
+	{ 0x01, DE_ENCODING_WINDOWS1252, "windows1252" },
+	{ 0x01, DE_ENCODING_MACROMAN, "macroman" }
+};
+
 int de_encoding_name_to_code(const char *encname)
 {
-	struct encmap { const char *encname; int n; };
-	struct encmap encmap_arr[] = {
-		{ "ascii", DE_ENCODING_ASCII },
-		{ "utf8", DE_ENCODING_UTF8 },
-		{ "latin1", DE_ENCODING_LATIN1 },
-		{ "cp437", DE_ENCODING_CP437_C },
-		{ "windows1250", DE_ENCODING_WINDOWS1250 },
-		{ "windows1251", DE_ENCODING_WINDOWS1251 },
-		{ "windows1252", DE_ENCODING_WINDOWS1252 },
-		{ "macroman", DE_ENCODING_MACROMAN }
-	};
 	size_t k;
 
-	for(k=0; k<DE_ITEMS_IN_ARRAY(encmap_arr); k++) {
-		if(!de_strcasecmp(encname, encmap_arr[k].encname)) {
-			return encmap_arr[k].n;
+	for(k=0; k<DE_ITEMS_IN_ARRAY(de_encmap_arr); k++) {
+		if(!de_strcasecmp(encname, de_encmap_arr[k].encname)) {
+			return de_encmap_arr[k].n;
 		}
 	}
 	return DE_ENCODING_UNKNOWN;
 }
 
+struct de_encmapwin_item {
+	unsigned int flags;
+	int wincodepage;
+	int enc;
+	const char *encname;
+};
+
+static const struct de_encmapwin_item de_encmapwin_arr[] = {
+	{ 0x01, 1200, DE_ENCODING_UTF16LE, "CP_WINUNICODE" },
+	{ 0x01, 1250, DE_ENCODING_WINDOWS1250, "Windows-1250" },
+	{ 0x01, 1251, DE_ENCODING_WINDOWS1251, "Windows-1251" },
+	{ 0x01, 1252, DE_ENCODING_WINDOWS1252, "Windows-1252" },
+	{ 0x01, 10000, DE_ENCODING_MACROMAN, "MacRoman" },
+	{ 0x01, 65001, DE_ENCODING_UTF8, "UTF-8" }
+};
+
 // Returns a DE_ENCODING_* code.
-// Returns DE_ENCODING_UNKNOWN if not found.
+// Returns DE_ENCODING_UNKNOWN if not found, or no equivalent encoding exists.
 // encname can be NULL.
 int de_windows_codepage_to_encoding(deark *c, int wincodepage,
 	char *encname, size_t encname_len)
 {
-	int enc;
+	size_t k;
+	const struct de_encmapwin_item *cpinfo = NULL;
 
-	switch(wincodepage) {
-	case 1200: enc = DE_ENCODING_UTF16LE; break;
-	case 1250: enc = DE_ENCODING_WINDOWS1250; break;
-	case 1251: enc = DE_ENCODING_WINDOWS1251; break;
-	case 1252: enc = DE_ENCODING_WINDOWS1252; break;
-	case 10000: enc = DE_ENCODING_MACROMAN; break;
-	case 65001: enc = DE_ENCODING_UTF8; break;
-	default: enc = DE_ENCODING_UNKNOWN;
+	for(k=0; k<DE_ITEMS_IN_ARRAY(de_encmapwin_arr); k++) {
+		if(de_encmapwin_arr[k].wincodepage == wincodepage) {
+			cpinfo = &de_encmapwin_arr[k];
+			break;
+		}
+	}
+
+	if(cpinfo) {
+		if(encname) {
+			de_strlcpy(encname, cpinfo->encname, encname_len);
+		}
+		return cpinfo->enc;
 	}
 
 	if(encname) {
-		// TODO: Implement this
 		de_strlcpy(encname, "?", encname_len);
 	}
-
-	return enc;
+	return DE_ENCODING_UNKNOWN;
 }
 
 void de_decode_base16(deark *c, dbuf *inf, de_int64 pos1, de_int64 len,

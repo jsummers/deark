@@ -333,10 +333,12 @@ static void do_prop_any_int(deark *c, struct ole_prop_set_struct *si,
 	unsigned int nbytes, int is_signed)
 {
 	de_int64 n;
+	char descr[200];
 
 	// FIXME: This doesn't really support uint64.
 	n = dbuf_getint_ext(si->f, pos, nbytes, 1, is_signed);
-	de_dbg(c, "%s: %"INT64_FMT, name, n);
+
+	descr[0] = '\0';
 
 	if(pinfo->prop_id==0x00000001U) { // code page
 		// Code page is usually a *signed* 16-bit int, which means the maximum
@@ -349,10 +351,17 @@ static void do_prop_any_int(deark *c, struct ole_prop_set_struct *si,
 			si->code_page = (int)n;
 		}
 
-		si->encoding = de_windows_codepage_to_encoding(c, si->code_page, NULL, 0);
+		si->encoding = de_windows_codepage_to_encoding(c, si->code_page, descr, sizeof(descr));
 		if(si->encoding==DE_ENCODING_UNKNOWN) {
 			si->encoding = DE_ENCODING_ASCII;
 		}
+	}
+
+	if(descr[0]) {
+		de_dbg(c, "%s: %"INT64_FMT" (%s)", name, n, descr);
+	}
+	else {
+		de_dbg(c, "%s: %"INT64_FMT, name, n);
 	}
 }
 
