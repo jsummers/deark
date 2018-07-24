@@ -51,7 +51,7 @@ typedef struct localctx_struct {
 #define SUBFMT_TIFF37680  3
 	int subformat_req;
 	int subformat_final;
-	int extract_all_streams;
+	int extract_all_streams; // A hack to allow disabling stream extraction
 	de_int64 minor_ver, major_ver;
 	de_int64 sec_size;
 	//de_int64 num_dir_sectors;
@@ -537,23 +537,126 @@ static de_int64 lookup_catalog_entry(deark *c, lctx *d, struct dir_entry_info *d
 	return -1;
 }
 
-static void extract_stream_to_file(deark *c, lctx *d, de_int64 dir_entry_idx, struct dir_entry_info *dei)
+// Special handling of Thumbs.db files.
+// Caller sets fi and tmpfn to default values. This function may modify them.
+static void do_extract_stream_to_file_thumbsdb(deark *c, lctx *d, struct dir_entry_info *dei,
+	de_finfo *fi, de_ucstring *tmpfn)
 {
-	de_int64 startpos;
-	de_int64 final_streamsize;
+	de_int64 hdrsize;
+	de_int64 catalog_idx;
+	const char *ext;
+	dbuf *tmpdbuf = NULL;
+	dbuf *outf = NULL;
 	de_int64 ver;
 	de_int64 reported_size;
+	de_int64 startpos;
+	de_int64 final_streamsize;
+
+	if(!de_strcmp(dei->fname_srd->sz_utf8, thumbsdb_catalog_streamname)) {
+		// We've already read the catalog.
+		goto done;
+	}
+
+	de_dbg(c, "reading Thumbs.db stream");
+	de_dbg_indent(c, 1);
+
+	startpos = 0;
+	final_streamsize = dei->stream_size;
+
+	// A Thumbs.db stream typically has a header, followed by an embedded JPEG
+	// (or something) file.
+
+	catalog_idx = lookup_catalog_entry(c, d, dei);
+
+	if(catalog_idx>=0) {
+		if(d->thumbsdb_catalog[catalog_idx].mod_time.is_valid) {
+			fi->mod_time = d->thumbsdb_catalog[catalog_idx].mod_time; // struct copy
+		}
+	}
+
+	// Read the first part of the stream. 64 bytes should be enough to get
+	// the header, and enough of the payload to choose a file extension.
+	tmpdbuf = dbuf_create_membuf(c, 64, 0);
+	copy_any_stream_to_dbuf(c, d, dei, 0, 64, tmpdbuf);
+
+	hdrsize = dbuf_getui32le(tmpdbuf, 0);
+	de_dbg(c, "header size: %d", (int)hdrsize);
+
+	ver = dbuf_getui32le(tmpdbuf, 4);
+	de_dbg(c, "version: %d", (int)ver);
+
+	// 0x0c = "Original format" Thumbs.db
+	// 0x18 = "Windows 7 format"
+
+	if((hdrsize==0x0c || hdrsize==0x18) && dei->stream_size>hdrsize) {
+		de_byte sig1[4];
+		de_byte sig2[4];
+
+		reported_size = dbuf_getui32le(tmpdbuf, 8);
+		de_dbg(c, "reported size: %d", (int)reported_size);
+
+		startpos = hdrsize;
+		final_streamsize -= hdrsize;
+		de_dbg(c, "calculated size: %d", (int)final_streamsize);
+
+		if(catalog_idx>=0 && c->filenames_from_file) {
+			de_dbg(c, "name from catalog: \"%s\"",
+				ucstring_getpsz(d->thumbsdb_catalog[catalog_idx].fname));
+
+			// Replace the default name with the name from the catalog.
+			ucstring_empty(tmpfn);
+			ucstring_append_ucstring(tmpfn, d->thumbsdb_catalog[catalog_idx].fname);
+		}
+
+		dbuf_read(tmpdbuf, sig1, hdrsize, 4);
+		dbuf_read(tmpdbuf, sig2, hdrsize+16, 4);
+
+		if(sig1[0]==0xff && sig1[1]==0xd8) ext = "jpg";
+		else if(sig1[0]==0x89 && sig1[1]==0x50) ext = "png";
+		else if(sig1[0]==0x01 && sig1[1]==0x00 &&
+			sig2[0]==0xff && sig2[1]==0xd8)
+		{
+			// Looks like a nonstandard Microsoft RGBA JPEG.
+			// These seem to have an additional 16-byte header, before the
+			// JPEG data starts. I'm not sure if I should keep it, but it
+			// doesn't look like it contains any vital information, so
+			// I'll strip if off.
+			ext = "msrgbajpg";
+			startpos += 16;
+			final_streamsize -= 16;
+		}
+		else ext = "bin";
+
+		ucstring_printf(tmpfn, DE_ENCODING_ASCII, ".thumb.%s", ext);
+	}
+	else {
+		de_warn(c, "Unidentified Thumbs.db stream \"%s\"",
+			ucstring_getpsz(dei->fname_srd->str));
+	}
+
+	de_dbg_indent(c, -1);
+
+	de_finfo_set_name_from_ucstring(c, fi, tmpfn);
+	fi->original_filename_flag = 1;
+
+	outf = dbuf_create_output_file(c, NULL, fi, 0);
+	copy_any_stream_to_dbuf(c, d, dei, startpos, final_streamsize, outf);
+
+done:
+	dbuf_close(tmpdbuf);
+	dbuf_close(outf);
+}
+
+static void extract_stream_to_file(deark *c, lctx *d, de_int64 dir_entry_idx, struct dir_entry_info *dei)
+{
 	int saved_indent_level;
 	dbuf *outf = NULL;
-	dbuf *tmpdbuf = NULL;
 	de_finfo *fi = NULL;
 	de_ucstring *tmpfn = NULL;
 	struct dir_entry_extra_info_struct *de_ei;
 
 	de_dbg_indent_save(c, &saved_indent_level);
-	startpos = 0;
 	de_ei = &d->dir_entry_extra_info[dir_entry_idx];
-	final_streamsize = dei->stream_size;
 
 	// By default, use the "stream name" as the filename.
 	tmpfn = ucstring_create(c);
@@ -573,103 +676,18 @@ static void extract_stream_to_file(deark *c, lctx *d, de_int64 dir_entry_idx, st
 	}
 
 	if(d->subformat_final==SUBFMT_THUMBSDB) {
-		de_int64 hdrsize;
-		de_int64 catalog_idx;
-		const char *ext;
-
-		// Special handling of Thumbs.db files.
-
-		if(!de_strcmp(dei->fname_srd->sz_utf8, thumbsdb_catalog_streamname)) {
-			// We've already read the catalog.
-			goto done;
-		}
-
-		de_dbg(c, "reading Thumbs.db stream");
-		de_dbg_indent(c, 1);
-
-		// A Thumbs.db stream typically has a header, followed by an embedded JPEG
-		// (or something) file.
-
-		catalog_idx = lookup_catalog_entry(c, d, dei);
-
-		if(catalog_idx>=0) {
-			if(d->thumbsdb_catalog[catalog_idx].mod_time.is_valid) {
-				fi->mod_time = d->thumbsdb_catalog[catalog_idx].mod_time; // struct copy
-			}
-		}
-
-		// Read the first part of the stream. 32 bytes should be enough to get
-		// the header, and enough of the payload to choose a file extension.
-		tmpdbuf = dbuf_create_membuf(c, 64, 0);
-		copy_any_stream_to_dbuf(c, d, dei, 0, 64, tmpdbuf);
-
-		hdrsize = dbuf_getui32le(tmpdbuf, 0);
-		de_dbg(c, "header size: %d", (int)hdrsize);
-
-		ver = dbuf_getui32le(tmpdbuf, 4);
-		de_dbg(c, "version: %d", (int)ver);
-
-		// 0x0c = "Original format" Thumbs.db
-		// 0x18 = "Windows 7 format"
-
-		if((hdrsize==0x0c || hdrsize==0x18) && dei->stream_size>hdrsize) {
-			de_byte sig1[4];
-			de_byte sig2[4];
-
-			reported_size = dbuf_getui32le(tmpdbuf, 8);
-			de_dbg(c, "reported size: %d", (int)reported_size);
-
-			startpos = hdrsize;
-			final_streamsize -= hdrsize;
-			de_dbg(c, "calculated size: %d", (int)final_streamsize);
-
-			if(catalog_idx>=0 && c->filenames_from_file) {
-				de_dbg(c, "name from catalog: \"%s\"",
-					ucstring_getpsz(d->thumbsdb_catalog[catalog_idx].fname));
-
-				// Replace the default name with the name from the catalog.
-				ucstring_empty(tmpfn);
-				ucstring_append_ucstring(tmpfn, d->thumbsdb_catalog[catalog_idx].fname);
-			}
-
-			dbuf_read(tmpdbuf, sig1, hdrsize, 4);
-			dbuf_read(tmpdbuf, sig2, hdrsize+16, 4);
-
-			if(sig1[0]==0xff && sig1[1]==0xd8) ext = "jpg";
-			else if(sig1[0]==0x89 && sig1[1]==0x50) ext = "png";
-			else if(sig1[0]==0x01 && sig1[1]==0x00 &&
-				sig2[0]==0xff && sig2[1]==0xd8)
-			{
-				// Looks like a nonstandard Microsoft RGBA JPEG.
-				// These seem to have an additional 16-byte header, before the
-				// JPEG data starts. I'm not sure if I should keep it, but it
-				// doesn't look like it contains any vital information, so
-				// I'll strip if off.
-				ext = "msrgbajpg";
-				startpos += 16;
-				final_streamsize -= 16;
-			}
-			else ext = "bin";
-
-			ucstring_printf(tmpfn, DE_ENCODING_ASCII, ".thumb.%s", ext);
-		}
-		else {
-			de_warn(c, "Unidentified Thumbs.db stream \"%s\"",
-				ucstring_getpsz(dei->fname_srd->str));
-		}
-
-		de_dbg_indent(c, -1);
+		do_extract_stream_to_file_thumbsdb(c, d, dei, fi, tmpfn);
+		goto done;
 	}
 
 	de_finfo_set_name_from_ucstring(c, fi, tmpfn);
 	fi->original_filename_flag = 1;
 
 	outf = dbuf_create_output_file(c, NULL, fi, 0);
-	copy_any_stream_to_dbuf(c, d, dei, startpos, final_streamsize, outf);
+	copy_any_stream_to_dbuf(c, d, dei, 0, dei->stream_size, outf);
 
 done:
 	de_dbg_indent_restore(c, saved_indent_level);
-	dbuf_close(tmpdbuf);
 	dbuf_close(outf);
 	ucstring_destroy(tmpfn);
 	de_finfo_destroy(c, fi);
@@ -1091,6 +1109,39 @@ static void identify_clsid(deark *c, lctx *d, const de_byte *clsid, char *buf, s
 	de_snprintf(buf, buflen, " (%s)", name);
 }
 
+static void do_process_stream(deark *c, lctx *d, de_int64 dir_entry_idx, struct dir_entry_info *dei)
+{
+	int is_summaryinfo = 0;
+	int is_propset = 0;
+	int is_root = (d->dir_entry_extra_info[dir_entry_idx].parent_id==0);
+
+	if(d->extract_all_streams) {
+		extract_stream_to_file(c, d, dir_entry_idx, dei);
+	}
+
+	// It's against our ground rules to both extract a file, and also analyze it,
+	// but there's no good alternative in this case.
+
+	// TODO: Is there a good way to tell whether a stream is a property set?
+
+	if(!de_strcmp(dei->fname_srd->sz_utf8, summaryinformation_streamname)) {
+		is_propset = 1;
+		is_summaryinfo = 1;
+	}
+	else if(!de_strncmp(dei->fname_srd->sz_utf8, "\x05", 1)) {
+		is_propset = 1;
+	}
+	else if(d->subformat_final==SUBFMT_TIFF37680 &&
+		!de_strcasecmp(dei->fname_srd->sz_utf8, "CONTENTS"))
+	{
+		is_propset = 1;
+	}
+
+	if(is_propset) {
+		do_cfb_olepropertyset(c, d, dei, is_summaryinfo, is_root);
+	}
+}
+
 // Read and process a directory entry from the d->dir stream
 static void do_dir_entry(deark *c, lctx *d, de_int64 dir_entry_idx, de_int64 dir_entry_offs,
 	int pass)
@@ -1214,35 +1265,7 @@ static void do_dir_entry(deark *c, lctx *d, de_int64 dir_entry_idx, de_int64 dir
 	}
 
 	if(pass==2 && dei->entry_type==OBJTYPE_STREAM) {
-		int is_summaryinfo = 0;
-		int is_propset = 0;
-		int is_root = (d->dir_entry_extra_info[dir_entry_idx].parent_id==0);
-
-		if(d->extract_all_streams) {
-			extract_stream_to_file(c, d, dir_entry_idx, dei);
-		}
-
-		// It's against our ground rules to both extract a file, and also analyze it,
-		// but there's no good alternative in this case.
-
-		// TODO: Is there a good way to tell whether a stream is a property set?
-
-		if(!de_strcmp(dei->fname_srd->sz_utf8, summaryinformation_streamname)) {
-			is_propset = 1;
-			is_summaryinfo = 1;
-		}
-		else if(!de_strncmp(dei->fname_srd->sz_utf8, "\x05", 1)) {
-			is_propset = 1;
-		}
-		else if(d->subformat_final==SUBFMT_TIFF37680 &&
-			!de_strcasecmp(dei->fname_srd->sz_utf8, "CONTENTS"))
-		{
-			is_propset = 1;
-		}
-
-		if(is_propset) {
-			do_cfb_olepropertyset(c, d, dei, is_summaryinfo, is_root);
-		}
+		do_process_stream(c, d, dir_entry_idx, dei);
 	}
 	else if(pass==1 && is_thumbsdb_catalog) {
 		read_thumbsdb_catalog(c, d, dei);
