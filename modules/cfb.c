@@ -20,6 +20,7 @@ static const char *summaryinformation_streamname = "\x05" "SummaryInformation";
 
 struct dir_entry_info {
 	de_byte entry_type;
+
 	int is_mini_stream;
 	de_int64 stream_size;
 	de_int64 normal_sec_id; // First SecID, valid if is_mini_stream==0
@@ -27,14 +28,10 @@ struct dir_entry_info {
 	struct de_stringreaderdata *fname_srd;
 	de_byte clsid[16];
 	struct de_timestamp mod_time;
-};
 
-struct dir_entry_extra_info_struct {
-	de_byte entry_type;
 	de_int32 child_id;
 	de_int32 sibling_id[2];
 	de_int32 parent_id; // If parent_id==0, entry is in root dir.
-	de_ucstring *fname; // Used by non-root STORAGE objects.
 	de_ucstring *path; // Full dir path. Used by non-root STORAGE objects.
 };
 
@@ -82,7 +79,7 @@ typedef struct localctx_struct {
 
 	dbuf *minifat; // mini sector allocation table
 	dbuf *dir;
-	struct dir_entry_extra_info_struct *dir_entry_extra_info; // array[num_dir_entries]
+	struct dir_entry_info *dir_entry; // array[num_dir_entries]
 	dbuf *mini_sector_stream;
 
 	de_int64 thumbsdb_catalog_num_entries;
@@ -647,22 +644,20 @@ done:
 	dbuf_close(outf);
 }
 
-static void extract_stream_to_file(deark *c, lctx *d, de_int64 dir_entry_idx, struct dir_entry_info *dei)
+static void extract_stream_to_file(deark *c, lctx *d, struct dir_entry_info *dei)
 {
 	int saved_indent_level;
 	dbuf *outf = NULL;
 	de_finfo *fi = NULL;
 	de_ucstring *tmpfn = NULL;
-	struct dir_entry_extra_info_struct *de_ei;
 
 	de_dbg_indent_save(c, &saved_indent_level);
-	de_ei = &d->dir_entry_extra_info[dir_entry_idx];
 
 	// By default, use the "stream name" as the filename.
 	tmpfn = ucstring_create(c);
 
-	if(de_ei->parent_id>0 && d->dir_entry_extra_info[de_ei->parent_id].path) {
-		ucstring_append_ucstring(tmpfn, d->dir_entry_extra_info[de_ei->parent_id].path);
+	if(dei->parent_id>0 && d->dir_entry[dei->parent_id].path) {
+		ucstring_append_ucstring(tmpfn, d->dir_entry[dei->parent_id].path);
 		ucstring_append_sz(tmpfn, "/", DE_ENCODING_ASCII);
 	}
 
@@ -903,18 +898,18 @@ static void do_dump_dir_structure(deark *c, lctx *d)
 	de_int64 i;
 	for(i=0; i<d->num_dir_entries; i++) {
 		de_dbg(c, "[%d] t=%d p=%d c=%d s=%d,%d", (int)i,
-			(int)d->dir_entry_extra_info[i].entry_type,
-			(int)d->dir_entry_extra_info[i].parent_id,
-			(int)d->dir_entry_extra_info[i].child_id,
-			(int)d->dir_entry_extra_info[i].sibling_id[0],
-			(int)d->dir_entry_extra_info[i].sibling_id[1]);
-		if(d->dir_entry_extra_info[i].fname) {
+			(int)d->dir_entry[i].entry_type,
+			(int)d->dir_entry[i].parent_id,
+			(int)d->dir_entry[i].child_id,
+			(int)d->dir_entry[i].sibling_id[0],
+			(int)d->dir_entry[i].sibling_id[1]);
+		if(d->dir_entry[i].fname_srd && d->dir_entry[i].fname_srd->str) {
 			de_dbg(c, "  fname: \"%s\"",
-				ucstring_getpsz(d->dir_entry_extra_info[i].fname));
+				ucstring_getpsz(d->dir_entry[i].fname_srd->str));
 		}
-		if(d->dir_entry_extra_info[i].path) {
+		if(d->dir_entry[i].path) {
 			de_dbg(c, "  path: \"%s\"",
-				ucstring_getpsz(d->dir_entry_extra_info[i].path));
+				ucstring_getpsz(d->dir_entry[i].path));
 		}
 	}
 }
@@ -923,36 +918,36 @@ static void do_dump_dir_structure(deark *c, lctx *d)
 static void do_mark_dir_entries_recursively(deark *c, lctx *d, de_int32 parent_id,
 	de_int32 dir_entry_idx, int level)
 {
-	struct dir_entry_extra_info_struct *e;
+	struct dir_entry_info *dei;
 	int k;
 
 	if(dir_entry_idx<0 || (de_int64)dir_entry_idx>=d->num_dir_entries) return;
 
-	e = &d->dir_entry_extra_info[dir_entry_idx];
+	dei = &d->dir_entry[dir_entry_idx];
 
-	if(e->entry_type!=OBJTYPE_STORAGE && e->entry_type!=OBJTYPE_STREAM) return;
+	if(dei->entry_type!=OBJTYPE_STORAGE && dei->entry_type!=OBJTYPE_STREAM) return;
 
-	e->parent_id = parent_id;
+	dei->parent_id = parent_id;
 
-	if(e->entry_type==OBJTYPE_STORAGE && e->fname && !e->path) {
+	if(dei->entry_type==OBJTYPE_STORAGE && dei->fname_srd && dei->fname_srd->str && !dei->path) {
 		// Set the full pathname
-		e->path = ucstring_create(c);
-		if(parent_id>0 && d->dir_entry_extra_info[parent_id].path) {
-			ucstring_append_ucstring(e->path, d->dir_entry_extra_info[parent_id].path);
-			ucstring_append_sz(e->path, "/", DE_ENCODING_ASCII);
+		dei->path = ucstring_create(c);
+		if(parent_id>0 && d->dir_entry[parent_id].path) {
+			ucstring_append_ucstring(dei->path, d->dir_entry[parent_id].path);
+			ucstring_append_sz(dei->path, "/", DE_ENCODING_ASCII);
 		}
-		ucstring_append_ucstring(e->path, e->fname);
+		ucstring_append_ucstring(dei->path, dei->fname_srd->str);
 	}
 
 	if(level>50) return;
 	for(k=0; k<2; k++) {
-		do_mark_dir_entries_recursively(c, d, parent_id, e->sibling_id[k], level+1);
+		do_mark_dir_entries_recursively(c, d, parent_id, dei->sibling_id[k], level+1);
 	}
 
-	if(e->entry_type==OBJTYPE_STORAGE) {
+	if(dei->entry_type==OBJTYPE_STORAGE) {
 		// This is a "subdirectory" entry, so examine its children (starting with the
 		// one that we know about).
-		do_mark_dir_entries_recursively(c, d, dir_entry_idx, e->child_id, level+1);
+		do_mark_dir_entries_recursively(c, d, dir_entry_idx, dei->child_id, level+1);
 	}
 }
 
@@ -964,10 +959,10 @@ static void do_analyze_dir_structure(deark *c, lctx *d)
 	if(d->num_dir_entries<1) goto done;
 
 	// The first entry should be the root entry.
-	if(d->dir_entry_extra_info[0].entry_type!=OBJTYPE_ROOT_STORAGE) goto done;
+	if(d->dir_entry[0].entry_type!=OBJTYPE_ROOT_STORAGE) goto done;
 
 	// Its child is one of the entries in the root directory. Start with it.
-	do_mark_dir_entries_recursively(c, d, 0, d->dir_entry_extra_info[0].child_id, 0);
+	do_mark_dir_entries_recursively(c, d, 0, d->dir_entry[0].child_id, 0);
 
 	//do_dump_dir_structure(c, d);
 done:
@@ -983,13 +978,13 @@ static void do_before_pass_1(deark *c, lctx *d)
 	// Stores some extra information for each directory entry, and a copy of
 	// some information for convenience.
 	// (The original entry is still available at d->dir[128*n].)
-	d->dir_entry_extra_info = de_malloc(c, d->num_dir_entries * sizeof(struct dir_entry_extra_info_struct));
+	d->dir_entry = de_malloc(c, d->num_dir_entries * sizeof(struct dir_entry_info));
 
 	// Set defaults for each entry
 	for(i=0; i<d->num_dir_entries; i++) {
-		d->dir_entry_extra_info[i].child_id = -1;
-		d->dir_entry_extra_info[i].sibling_id[0] = -1;
-		d->dir_entry_extra_info[i].sibling_id[1] = -1;
+		d->dir_entry[i].child_id = -1;
+		d->dir_entry[i].sibling_id[0] = -1;
+		d->dir_entry[i].sibling_id[1] = -1;
 	}
 }
 
@@ -1110,14 +1105,14 @@ static void identify_clsid(deark *c, lctx *d, const de_byte *clsid, char *buf, s
 	de_snprintf(buf, buflen, " (%s)", name);
 }
 
-static void do_process_stream(deark *c, lctx *d, de_int64 dir_entry_idx, struct dir_entry_info *dei)
+static void do_process_stream(deark *c, lctx *d, struct dir_entry_info *dei)
 {
 	int is_summaryinfo = 0;
 	int is_propset = 0;
-	int is_root = (d->dir_entry_extra_info[dir_entry_idx].parent_id==0);
+	int is_root = (dei->parent_id==0);
 
 	if(d->extract_all_streams) {
-		extract_stream_to_file(c, d, dir_entry_idx, dei);
+		extract_stream_to_file(c, d, dei);
 	}
 
 	// It's against our ground rules to both extract a file, and also analyze it,
@@ -1157,7 +1152,8 @@ static void do_dir_entry(deark *c, lctx *d, de_int64 dir_entry_idx, de_int64 dir
 	char clsid_string[50];
 	char buf[80];
 
-	dei = de_malloc(c, sizeof(struct dir_entry_info));
+	if(!d->dir_entry) return; // error
+	dei = &d->dir_entry[dir_entry_idx];
 
 	dei->entry_type = dbuf_getbyte(d->dir, dir_entry_offs+66);
 	switch(dei->entry_type) {
@@ -1168,8 +1164,6 @@ static void do_dir_entry(deark *c, lctx *d, de_int64 dir_entry_idx, de_int64 dir
 	default: tname="?";
 	}
 	de_dbg(c, "type: 0x%02x (%s)", (unsigned int)dei->entry_type, tname);
-
-	if(pass==1) d->dir_entry_extra_info[dir_entry_idx].entry_type = dei->entry_type;
 
 	if(dei->entry_type==OBJTYPE_EMPTY) goto done;
 
@@ -1184,16 +1178,9 @@ static void do_dir_entry(deark *c, lctx *d, de_int64 dir_entry_idx, de_int64 dir
 		DE_CONVFLAG_WANT_UTF8, DE_ENCODING_UTF16LE);
 
 	de_dbg(c, "name: \"%s\"", ucstring_getpsz(dei->fname_srd->str));
-	if(pass==1 && dei->entry_type==OBJTYPE_STORAGE &&
-		!d->dir_entry_extra_info[dir_entry_idx].fname)
-	{
-		// Save a copy of directory names, so we can construct the path later.
-		d->dir_entry_extra_info[dir_entry_idx].fname = ucstring_clone(dei->fname_srd->str);
-	}
 
 	if(pass==2) {
-		de_dbg(c, "parent: %d",
-			(int)d->dir_entry_extra_info[dir_entry_idx].parent_id);
+		de_dbg(c, "parent: %d", (int)dei->parent_id);
 	}
 
 	node_color = dbuf_getbyte(d->dir, dir_entry_offs+67);
@@ -1205,8 +1192,8 @@ static void do_dir_entry(deark *c, lctx *d, de_int64 dir_entry_idx, de_int64 dir
 		sibling_id[1] = (de_int32)dbuf_geti32le(d->dir, dir_entry_offs+72);
 		de_dbg(c, "sibling StreamIDs: %d, %d", (int)sibling_id[0], (int)sibling_id[1]);
 		if(pass==1) {
-			d->dir_entry_extra_info[dir_entry_idx].sibling_id[0] = sibling_id[0];
-			d->dir_entry_extra_info[dir_entry_idx].sibling_id[1] = sibling_id[1];
+			dei->sibling_id[0] = sibling_id[0];
+			dei->sibling_id[1] = sibling_id[1];
 		}
 	}
 
@@ -1214,7 +1201,7 @@ static void do_dir_entry(deark *c, lctx *d, de_int64 dir_entry_idx, de_int64 dir
 		de_int32 child_id;
 		child_id = (de_int32)dbuf_geti32le(d->dir, dir_entry_offs+76);
 		de_dbg(c, "child StreamID: %d", (int)child_id);
-		if(pass==1) d->dir_entry_extra_info[dir_entry_idx].child_id = child_id;
+		if(pass==1) dei->child_id = child_id;
 	}
 
 	if(dei->entry_type==OBJTYPE_STORAGE || dei->entry_type==OBJTYPE_ROOT_STORAGE) {
@@ -1266,20 +1253,19 @@ static void do_dir_entry(deark *c, lctx *d, de_int64 dir_entry_idx, de_int64 dir
 	}
 
 	if(pass==2 && dei->entry_type==OBJTYPE_STREAM) {
-		do_process_stream(c, d, dir_entry_idx, dei);
+		do_process_stream(c, d, dei);
 	}
 	else if(pass==1 && is_thumbsdb_catalog) {
 		read_thumbsdb_catalog(c, d, dei);
 	}
 	else if(pass==1 && dei->entry_type==OBJTYPE_ROOT_STORAGE) {
+		// Note: The Root Storage object is required to be the first entry, so we
+		// don't need an extra pass to process it.
 		read_mini_sector_stream(c, d, dei->normal_sec_id, dei->stream_size);
 	}
 
 done:
-	if(dei) {
-		de_destroy_stringreaderdata(c, dei->fname_srd);
-		de_free(c, dei);
-	}
+	;
 }
 
 // Pass 1: Detect the file format, and read the mini sector stream.
@@ -1337,13 +1323,13 @@ done:
 	dbuf_close(d->fat);
 	dbuf_close(d->minifat);
 	dbuf_close(d->dir);
-	if(d->dir_entry_extra_info) {
+	if(d->dir_entry) {
 		de_int64 k;
 		for(k=0; k<d->num_dir_entries; k++) {
-			ucstring_destroy(d->dir_entry_extra_info[k].fname);
-			ucstring_destroy(d->dir_entry_extra_info[k].path);
+			de_destroy_stringreaderdata(c, d->dir_entry[k].fname_srd);
+			ucstring_destroy(d->dir_entry[k].path);
 		}
-		de_free(c, d->dir_entry_extra_info);
+		de_free(c, d->dir_entry);
 	}
 	dbuf_close(d->mini_sector_stream);
 	if(d->thumbsdb_catalog) {
