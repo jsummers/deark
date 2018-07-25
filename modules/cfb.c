@@ -38,7 +38,7 @@ struct dir_entry_extra_info_struct {
 	de_ucstring *path; // Full dir path. Used by non-root STORAGE objects.
 };
 
-struct catalog_entry {
+struct thumbsdb_catalog_entry {
 	de_uint32 id;
 	de_ucstring *fname;
 	struct de_timestamp mod_time;
@@ -86,7 +86,7 @@ typedef struct localctx_struct {
 	dbuf *mini_sector_stream;
 
 	de_int64 thumbsdb_catalog_num_entries;
-	struct catalog_entry *thumbsdb_catalog;
+	struct thumbsdb_catalog_entry *thumbsdb_catalog;
 
 	int could_be_thumbsdb;
 	int thumbsdb_old_names_found;
@@ -519,7 +519,7 @@ static de_int64 stream_name_to_catalog_id(deark *c, lctx *d, struct dir_entry_in
 
 // Returns an index into d->thumbsdb_catalog.
 // Returns -1 if not found.
-static de_int64 lookup_catalog_entry(deark *c, lctx *d, struct dir_entry_info *dei)
+static de_int64 lookup_thumbsdb_catalog_entry(deark *c, lctx *d, struct dir_entry_info *dei)
 {
 	de_int64 i;
 	de_int64 id;
@@ -566,7 +566,7 @@ static void do_extract_stream_to_file_thumbsdb(deark *c, lctx *d, struct dir_ent
 	// A Thumbs.db stream typically has a header, followed by an embedded JPEG
 	// (or something) file.
 
-	catalog_idx = lookup_catalog_entry(c, d, dei);
+	catalog_idx = lookup_thumbsdb_catalog_entry(c, d, dei);
 
 	if(catalog_idx>=0) {
 		if(d->thumbsdb_catalog[catalog_idx].mod_time.is_valid) {
@@ -741,7 +741,8 @@ static int read_thumbsdb_catalog(deark *c, lctx *d, struct dir_entry_info *dei)
 	if(d->thumbsdb_catalog_num_entries>2048)
 		d->thumbsdb_catalog_num_entries = 2048;
 
-	d->thumbsdb_catalog = de_malloc(c, d->thumbsdb_catalog_num_entries * sizeof(struct catalog_entry));
+	d->thumbsdb_catalog = de_malloc(c, d->thumbsdb_catalog_num_entries *
+		sizeof(struct thumbsdb_catalog_entry));
 
 	pos = item_len;
 
