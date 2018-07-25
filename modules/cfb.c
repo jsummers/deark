@@ -1152,6 +1152,12 @@ static void do_process_stream(deark *c, lctx *d, struct dir_entry_info *dei)
 }
 
 // Read and process a directory entry from the d->dir stream
+// Pass 1:
+//  Collect information about the streams.
+//  Read the Root Object.
+//  Read the minisec stream.
+//  Process some other special streams (e.g. Thumbsdb Catalog).
+//  Do some things related to format detection.
 static void do_dir_entry_pass1(deark *c, lctx *d, de_int64 dir_entry_idx, de_int64 dir_entry_offs)
 {
 	de_int64 raw_sec_id;
@@ -1259,11 +1265,10 @@ done:
 	;
 }
 
+// Pass 2: Process most of the streams.
 static void do_dir_entry_pass2(deark *c, lctx *d, de_int64 dir_entry_idx)
 {
 	struct dir_entry_info *dei = NULL;
-	char clsid_string[50];
-	char buf[80];
 
 	if(!d->dir_entry) return; // error
 	dei = &d->dir_entry[dir_entry_idx];
@@ -1273,41 +1278,11 @@ static void do_dir_entry_pass2(deark *c, lctx *d, de_int64 dir_entry_idx)
 	if(dei->entry_type==OBJTYPE_EMPTY) goto done;
 	if(dei->entry_type==OBJTYPE_ROOT_STORAGE) goto done;
 
-	de_dbg2(c, "name len: %d bytes", (int)dei->name_len_raw);
-	de_dbg(c, "name: \"%s\"", ucstring_getpsz(dei->fname_srd->str));
+	if(dei->fname_srd)
+		de_dbg(c, "name: \"%s\"", ucstring_getpsz(dei->fname_srd->str));
+
+	// In pass 1, we didn't know the parent yet, so print it now.
 	de_dbg(c, "parent: %d", (int)dei->parent_id);
-	de_dbg(c, "node color: %u", (unsigned int)dei->node_color);
-
-	if(dei->entry_type==OBJTYPE_STORAGE || dei->entry_type==OBJTYPE_STREAM) {
-		de_dbg(c, "sibling StreamIDs: %d, %d", (int)dei->sibling_id[0], (int)dei->sibling_id[1]);
-	}
-
-	if(dei->entry_type==OBJTYPE_STORAGE || dei->entry_type==OBJTYPE_ROOT_STORAGE) {
-		de_dbg(c, "child StreamID: %d", (int)dei->child_id);
-	}
-
-	if(dei->entry_type==OBJTYPE_STORAGE || dei->entry_type==OBJTYPE_ROOT_STORAGE) {
-		buf[0] = '\0';
-		if(dei->entry_type==OBJTYPE_ROOT_STORAGE) {
-			identify_clsid(c, d, dei->clsid, buf, sizeof(buf));
-		}
-
-		de_fmtutil_render_uuid(c, dei->clsid, clsid_string, sizeof(clsid_string));
-		de_dbg(c, "%sclsid: {%s}%s", (dei->entry_type==OBJTYPE_ROOT_STORAGE)?"root ":"",
-			clsid_string, buf);
-	}
-
-	dbg_timestamp(c, &dei->mod_time, "mod time");
-
-	de_dbg(c, "stream size: %"INT64_FMT"", dei->stream_size);
-
-	if(dei->is_mini_stream) {
-		de_dbg(c, "first MiniSecID: %d", (int)dei->minisec_id);
-	}
-	else {
-		describe_sec_id(c, d, dei->normal_sec_id, buf, sizeof(buf));
-		de_dbg(c, "first SecID: %d (%s)", (int)dei->normal_sec_id, buf);
-	}
 
 	if(dei->entry_type==OBJTYPE_STREAM) {
 		do_process_stream(c, d, dei);
