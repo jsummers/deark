@@ -28,6 +28,7 @@ struct dir_entry_info {
 	de_byte clsid[16];
 	struct de_timestamp mod_time;
 
+	const char *entry_type_name;
 	de_int64 name_len_raw;
 	de_byte node_color;
 
@@ -692,18 +693,26 @@ done:
 	de_finfo_destroy(c, fi);
 }
 
-static void read_timestamp(deark *c, dbuf *f, de_int64 pos,
+static void dbg_timestamp(deark *c, struct de_timestamp *ts, const char *field_name)
+{
+	char timestamp_buf[64];
+
+	if(ts->is_valid) {
+		de_timestamp_to_string(ts, timestamp_buf, sizeof(timestamp_buf), 1);
+		de_dbg(c, "%s: %s", field_name, timestamp_buf);
+	}
+}
+
+static void read_and_cvt_and_dbg_timestamp(deark *c, dbuf *f, de_int64 pos,
 	struct de_timestamp *ts, const char *field_name)
 {
 	de_int64 ts_as_FILETIME;
-	char timestamp_buf[64];
 
 	de_memset(ts, 0, sizeof(struct de_timestamp));
 	ts_as_FILETIME = dbuf_geti64le(f, pos);
 	if(ts_as_FILETIME!=0) {
 		de_FILETIME_to_timestamp(ts_as_FILETIME, ts);
-		de_timestamp_to_string(ts, timestamp_buf, sizeof(timestamp_buf), 1);
-		de_dbg(c, "%s: %s", field_name, timestamp_buf);
+		dbg_timestamp(c, ts, field_name);
 	}
 }
 
@@ -756,7 +765,7 @@ static int read_thumbsdb_catalog(deark *c, lctx *d, struct dir_entry_info *dei)
 		d->thumbsdb_catalog[i].id = (de_uint32)dbuf_getui32le(catf, pos+4);
 		de_dbg(c, "id: %u", (unsigned int)d->thumbsdb_catalog[i].id);
 
-		read_timestamp(c, catf, pos+8, &d->thumbsdb_catalog[i].mod_time, "timestamp");
+		read_and_cvt_and_dbg_timestamp(c, catf, pos+8, &d->thumbsdb_catalog[i].mod_time, "timestamp");
 
 		d->thumbsdb_catalog[i].fname = ucstring_create(c);
 
@@ -1143,80 +1152,57 @@ static void do_process_stream(deark *c, lctx *d, struct dir_entry_info *dei)
 }
 
 // Read and process a directory entry from the d->dir stream
-static void do_dir_entry(deark *c, lctx *d, de_int64 dir_entry_idx, de_int64 dir_entry_offs,
-	int pass)
+static void do_dir_entry_pass1(deark *c, lctx *d, de_int64 dir_entry_idx, de_int64 dir_entry_offs)
 {
 	de_int64 raw_sec_id;
+	de_int64 name_len_bytes;
 	struct dir_entry_info *dei = NULL;
-	const char *tname;
 	char clsid_string[50];
 	char buf[80];
 
 	if(!d->dir_entry) return; // error
 	dei = &d->dir_entry[dir_entry_idx];
 
-	if(pass==1) {
-		dei->entry_type = dbuf_getbyte(d->dir, dir_entry_offs+66);
-	}
+	dei->entry_type = dbuf_getbyte(d->dir, dir_entry_offs+66);
 	switch(dei->entry_type) {
-	case OBJTYPE_EMPTY: tname="empty"; break;
-	case OBJTYPE_STORAGE: tname="storage object"; break;
-	case OBJTYPE_STREAM: tname="stream"; break;
-	case OBJTYPE_ROOT_STORAGE: tname="root storage object"; break;
-	default: tname="?";
+	case OBJTYPE_EMPTY: dei->entry_type_name="empty"; break;
+	case OBJTYPE_STORAGE: dei->entry_type_name="storage object"; break;
+	case OBJTYPE_STREAM: dei->entry_type_name="stream"; break;
+	case OBJTYPE_ROOT_STORAGE: dei->entry_type_name="root storage object"; break;
+	default: dei->entry_type_name="?";
 	}
-	de_dbg(c, "type: 0x%02x (%s)", (unsigned int)dei->entry_type, tname);
+	de_dbg(c, "type: 0x%02x (%s)", (unsigned int)dei->entry_type, dei->entry_type_name);
 
 	if(dei->entry_type==OBJTYPE_EMPTY) goto done;
 
-	if(pass>1 && dei->entry_type==OBJTYPE_ROOT_STORAGE) goto done;
-
-
-	if(pass==1) {
-		dei->name_len_raw = dbuf_getui16le(d->dir, dir_entry_offs+64);
-	}
+	dei->name_len_raw = dbuf_getui16le(d->dir, dir_entry_offs+64);
 	de_dbg2(c, "name len: %d bytes", (int)dei->name_len_raw);
 
-	if(pass==1) {
-		de_int64 name_len_bytes;
-		name_len_bytes = dei->name_len_raw-2; // Ignore the trailing U+0000
-		if(name_len_bytes<0) name_len_bytes = 0;
+	name_len_bytes = dei->name_len_raw-2; // Ignore the trailing U+0000
+	if(name_len_bytes<0) name_len_bytes = 0;
 
-		dei->fname_srd = dbuf_read_string(d->dir, dir_entry_offs, name_len_bytes, name_len_bytes,
-			DE_CONVFLAG_WANT_UTF8, DE_ENCODING_UTF16LE);
-	}
+	dei->fname_srd = dbuf_read_string(d->dir, dir_entry_offs, name_len_bytes, name_len_bytes,
+		DE_CONVFLAG_WANT_UTF8, DE_ENCODING_UTF16LE);
 
 	de_dbg(c, "name: \"%s\"", ucstring_getpsz(dei->fname_srd->str));
 
-	if(pass==2) {
-		de_dbg(c, "parent: %d", (int)dei->parent_id);
-	}
-
-	if(pass==1) {
-		dei->node_color = dbuf_getbyte(d->dir, dir_entry_offs+67);
-	}
+	dei->node_color = dbuf_getbyte(d->dir, dir_entry_offs+67);
 	de_dbg(c, "node color: %u", (unsigned int)dei->node_color);
 
 	if(dei->entry_type==OBJTYPE_STORAGE || dei->entry_type==OBJTYPE_STREAM) {
-		if(pass==1) {
-			dei->sibling_id[0] = (de_int32)dbuf_geti32le(d->dir, dir_entry_offs+68);
-			dei->sibling_id[1] = (de_int32)dbuf_geti32le(d->dir, dir_entry_offs+72);
-		}
+		dei->sibling_id[0] = (de_int32)dbuf_geti32le(d->dir, dir_entry_offs+68);
+		dei->sibling_id[1] = (de_int32)dbuf_geti32le(d->dir, dir_entry_offs+72);
 		de_dbg(c, "sibling StreamIDs: %d, %d", (int)dei->sibling_id[0], (int)dei->sibling_id[1]);
 	}
 
 	if(dei->entry_type==OBJTYPE_STORAGE || dei->entry_type==OBJTYPE_ROOT_STORAGE) {
-		if(pass==1) {
-			dei->child_id = (de_int32)dbuf_geti32le(d->dir, dir_entry_offs+76);
-		}
+		dei->child_id = (de_int32)dbuf_geti32le(d->dir, dir_entry_offs+76);
 		de_dbg(c, "child StreamID: %d", (int)dei->child_id);
 	}
 
 	if(dei->entry_type==OBJTYPE_STORAGE || dei->entry_type==OBJTYPE_ROOT_STORAGE) {
-		if(pass==1) {
-			dbuf_read(d->dir, dei->clsid, dir_entry_offs+80, 16);
-			de_fmtutil_guid_to_uuid(dei->clsid);
-		}
+		dbuf_read(d->dir, dei->clsid, dir_entry_offs+80, 16);
+		de_fmtutil_guid_to_uuid(dei->clsid);
 
 		buf[0] = '\0';
 		if(dei->entry_type==OBJTYPE_ROOT_STORAGE) {
@@ -1228,19 +1214,17 @@ static void do_dir_entry(deark *c, lctx *d, de_int64 dir_entry_idx, de_int64 dir
 			clsid_string, buf);
 	}
 
-	read_timestamp(c, d->dir, dir_entry_offs+108, &dei->mod_time, "mod time");
+	read_and_cvt_and_dbg_timestamp(c, d->dir, dir_entry_offs+108, &dei->mod_time, "mod time");
 
 	raw_sec_id = dbuf_geti32le(d->dir, dir_entry_offs+116);
 
-	if(pass==1) {
-		if(d->major_ver<=3) {
-			dei->stream_size = dbuf_getui32le(d->dir, dir_entry_offs+120);
-		}
-		else {
-			dei->stream_size = dbuf_geti64le(d->dir, dir_entry_offs+120);
-		}
+	if(d->major_ver<=3) {
+		dei->stream_size = dbuf_getui32le(d->dir, dir_entry_offs+120);
 	}
-	de_dbg(c, "stream size: %"INT64_FMT"", dei->stream_size);
+	else {
+		dei->stream_size = dbuf_geti64le(d->dir, dir_entry_offs+120);
+	}
+	de_dbg(c, "stream size: %"INT64_FMT, dei->stream_size);
 
 	dei->is_mini_stream = (dei->entry_type==OBJTYPE_STREAM) && (dei->stream_size < d->std_stream_min_size);
 
@@ -1260,20 +1244,73 @@ static void do_dir_entry(deark *c, lctx *d, de_int64 dir_entry_idx, de_int64 dir
 		dei->is_thumbsdb_catalog = 1;
 	}
 
-	if(pass==1) {
-		do_per_dir_entry_format_detection(c, d, dei);
-	}
+	do_per_dir_entry_format_detection(c, d, dei);
 
-	if(pass==2 && dei->entry_type==OBJTYPE_STREAM) {
-		do_process_stream(c, d, dei);
-	}
-	else if(pass==1 && dei->is_thumbsdb_catalog) {
+	if(dei->is_thumbsdb_catalog) {
 		read_thumbsdb_catalog(c, d, dei);
 	}
-	else if(pass==1 && dei->entry_type==OBJTYPE_ROOT_STORAGE) {
+	else if(dei->entry_type==OBJTYPE_ROOT_STORAGE) {
 		// Note: The Root Storage object is required to be the first entry, so we
 		// don't need an extra pass to process it.
 		read_mini_sector_stream(c, d, dei->normal_sec_id, dei->stream_size);
+	}
+
+done:
+	;
+}
+
+static void do_dir_entry_pass2(deark *c, lctx *d, de_int64 dir_entry_idx)
+{
+	struct dir_entry_info *dei = NULL;
+	char clsid_string[50];
+	char buf[80];
+
+	if(!d->dir_entry) return; // error
+	dei = &d->dir_entry[dir_entry_idx];
+
+	de_dbg(c, "type: 0x%02x (%s)", (unsigned int)dei->entry_type, dei->entry_type_name);
+
+	if(dei->entry_type==OBJTYPE_EMPTY) goto done;
+	if(dei->entry_type==OBJTYPE_ROOT_STORAGE) goto done;
+
+	de_dbg2(c, "name len: %d bytes", (int)dei->name_len_raw);
+	de_dbg(c, "name: \"%s\"", ucstring_getpsz(dei->fname_srd->str));
+	de_dbg(c, "parent: %d", (int)dei->parent_id);
+	de_dbg(c, "node color: %u", (unsigned int)dei->node_color);
+
+	if(dei->entry_type==OBJTYPE_STORAGE || dei->entry_type==OBJTYPE_STREAM) {
+		de_dbg(c, "sibling StreamIDs: %d, %d", (int)dei->sibling_id[0], (int)dei->sibling_id[1]);
+	}
+
+	if(dei->entry_type==OBJTYPE_STORAGE || dei->entry_type==OBJTYPE_ROOT_STORAGE) {
+		de_dbg(c, "child StreamID: %d", (int)dei->child_id);
+	}
+
+	if(dei->entry_type==OBJTYPE_STORAGE || dei->entry_type==OBJTYPE_ROOT_STORAGE) {
+		buf[0] = '\0';
+		if(dei->entry_type==OBJTYPE_ROOT_STORAGE) {
+			identify_clsid(c, d, dei->clsid, buf, sizeof(buf));
+		}
+
+		de_fmtutil_render_uuid(c, dei->clsid, clsid_string, sizeof(clsid_string));
+		de_dbg(c, "%sclsid: {%s}%s", (dei->entry_type==OBJTYPE_ROOT_STORAGE)?"root ":"",
+			clsid_string, buf);
+	}
+
+	dbg_timestamp(c, &dei->mod_time, "mod time");
+
+	de_dbg(c, "stream size: %"INT64_FMT"", dei->stream_size);
+
+	if(dei->is_mini_stream) {
+		de_dbg(c, "first MiniSecID: %d", (int)dei->minisec_id);
+	}
+	else {
+		describe_sec_id(c, d, dei->normal_sec_id, buf, sizeof(buf));
+		de_dbg(c, "first SecID: %d (%s)", (int)dei->normal_sec_id, buf);
+	}
+
+	if(dei->entry_type==OBJTYPE_STREAM) {
+		do_process_stream(c, d, dei);
 	}
 
 done:
@@ -1295,7 +1332,12 @@ static void do_directory(deark *c, lctx *d, int pass)
 		de_dbg(c, "directory entry, StreamID=%d", (int)i);
 
 		de_dbg_indent(c, 1);
-		do_dir_entry(c, d, i, dir_entry_offs, pass);
+		if(pass==1) {
+			do_dir_entry_pass1(c, d, i, dir_entry_offs);
+		}
+		else {
+			do_dir_entry_pass2(c, d, i);
+		}
 		de_dbg_indent(c, -1);
 	}
 
