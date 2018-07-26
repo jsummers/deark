@@ -15,8 +15,6 @@ DE_DECLARE_MODULE(de_module_cfb);
 #define OBJTYPE_STREAM       0x02
 #define OBJTYPE_ROOT_STORAGE 0x05
 
-static const char *summaryinformation_streamname = "\x05" "SummaryInformation";
-
 struct dir_entry_info {
 	de_byte entry_type;
 
@@ -42,7 +40,7 @@ struct dir_entry_info {
 
 struct thumbsdb_catalog_entry {
 	de_uint32 id;
-	de_ucstring *fname;
+	struct de_stringreaderdata *fname_srd;
 	struct de_timestamp mod_time;
 };
 
@@ -541,13 +539,13 @@ static de_int64 lookup_thumbsdb_catalog_entry(deark *c, lctx *d, struct dir_entr
 
 // Special handling of Thumbs.db files.
 // Caller sets fi and tmpfn to default values. This function may modify them.
+// firstpart = caller-supplied dbuf containing the first 256 or so bytes of the stream
 static void do_extract_stream_to_file_thumbsdb(deark *c, lctx *d, struct dir_entry_info *dei,
-	de_finfo *fi, de_ucstring *tmpfn)
+	de_finfo *fi, de_ucstring *tmpfn, dbuf *firstpart)
 {
 	de_int64 hdrsize;
 	de_int64 catalog_idx;
 	const char *ext;
-	dbuf *tmpdbuf = NULL;
 	dbuf *outf = NULL;
 	de_int64 ver;
 	de_int64 reported_size;
@@ -576,15 +574,10 @@ static void do_extract_stream_to_file_thumbsdb(deark *c, lctx *d, struct dir_ent
 		}
 	}
 
-	// Read the first part of the stream. 64 bytes should be enough to get
-	// the header, and enough of the payload to choose a file extension.
-	tmpdbuf = dbuf_create_membuf(c, 64, 0);
-	copy_any_stream_to_dbuf(c, d, dei, 0, 64, tmpdbuf);
-
-	hdrsize = dbuf_getui32le(tmpdbuf, 0);
+	hdrsize = dbuf_getui32le(firstpart, 0);
 	de_dbg(c, "header size: %d", (int)hdrsize);
 
-	ver = dbuf_getui32le(tmpdbuf, 4);
+	ver = dbuf_getui32le(firstpart, 4);
 	de_dbg(c, "version: %d", (int)ver);
 
 	// 0x0c = "Original format" Thumbs.db
@@ -594,7 +587,7 @@ static void do_extract_stream_to_file_thumbsdb(deark *c, lctx *d, struct dir_ent
 		de_byte sig1[4];
 		de_byte sig2[4];
 
-		reported_size = dbuf_getui32le(tmpdbuf, 8);
+		reported_size = dbuf_getui32le(firstpart, 8);
 		de_dbg(c, "reported size: %d", (int)reported_size);
 
 		startpos = hdrsize;
@@ -603,15 +596,23 @@ static void do_extract_stream_to_file_thumbsdb(deark *c, lctx *d, struct dir_ent
 
 		if(catalog_idx>=0 && c->filenames_from_file) {
 			de_dbg(c, "name from catalog: \"%s\"",
-				ucstring_getpsz(d->thumbsdb_catalog[catalog_idx].fname));
+				ucstring_getpsz(d->thumbsdb_catalog[catalog_idx].fname_srd->str));
 
 			// Replace the default name with the name from the catalog.
 			ucstring_empty(tmpfn);
-			ucstring_append_ucstring(tmpfn, d->thumbsdb_catalog[catalog_idx].fname);
+
+			if(!de_strcasecmp(d->thumbsdb_catalog[catalog_idx].fname_srd->sz_utf8,
+				"{A42CD7B6-E9B9-4D02-B7A6-288B71AD28BA}"))
+			{
+				ucstring_append_sz(tmpfn, "_folder", DE_ENCODING_LATIN1);
+			}
+			else {
+				ucstring_append_ucstring(tmpfn, d->thumbsdb_catalog[catalog_idx].fname_srd->str);
+			}
 		}
 
-		dbuf_read(tmpdbuf, sig1, hdrsize, 4);
-		dbuf_read(tmpdbuf, sig2, hdrsize+16, 4);
+		dbuf_read(firstpart, sig1, hdrsize, 4);
+		dbuf_read(firstpart, sig2, hdrsize+16, 4);
 
 		if(sig1[0]==0xff && sig1[1]==0xd8) ext = "jpg";
 		else if(sig1[0]==0x89 && sig1[1]==0x50) ext = "png";
@@ -645,7 +646,6 @@ static void do_extract_stream_to_file_thumbsdb(deark *c, lctx *d, struct dir_ent
 	copy_any_stream_to_dbuf(c, d, dei, startpos, final_streamsize, outf);
 
 done:
-	dbuf_close(tmpdbuf);
 	dbuf_close(outf);
 }
 
@@ -655,6 +655,7 @@ static void extract_stream_to_file(deark *c, lctx *d, struct dir_entry_info *dei
 	dbuf *outf = NULL;
 	de_finfo *fi = NULL;
 	de_ucstring *tmpfn = NULL;
+	dbuf *firstpart = NULL;
 
 	de_dbg_indent_save(c, &saved_indent_level);
 
@@ -675,8 +676,13 @@ static void extract_stream_to_file(deark *c, lctx *d, struct dir_entry_info *dei
 		fi->mod_time = dei->mod_time; // struct copy
 	}
 
+	// Read the first part of the stream, to use for format detection.
+	firstpart = dbuf_create_membuf(c, 256, 0x1);
+	copy_any_stream_to_dbuf(c, d, dei, 0,
+		(dei->stream_size>256)?256:dei->stream_size, firstpart);
+
 	if(d->subformat_final==SUBFMT_THUMBSDB) {
-		do_extract_stream_to_file_thumbsdb(c, d, dei, fi, tmpfn);
+		do_extract_stream_to_file_thumbsdb(c, d, dei, fi, tmpfn, firstpart);
 		goto done;
 	}
 
@@ -688,6 +694,7 @@ static void extract_stream_to_file(deark *c, lctx *d, struct dir_entry_info *dei
 
 done:
 	de_dbg_indent_restore(c, saved_indent_level);
+	dbuf_close(firstpart);
 	dbuf_close(outf);
 	ucstring_destroy(tmpfn);
 	de_finfo_destroy(c, fi);
@@ -767,11 +774,9 @@ static int read_thumbsdb_catalog(deark *c, lctx *d, struct dir_entry_info *dei)
 
 		read_and_cvt_and_dbg_timestamp(c, catf, pos+8, &d->thumbsdb_catalog[i].mod_time, "timestamp");
 
-		d->thumbsdb_catalog[i].fname = ucstring_create(c);
-
-		dbuf_read_to_ucstring(catf, pos+16, item_len-20, d->thumbsdb_catalog[i].fname,
-			0, DE_ENCODING_UTF16LE);
-		de_dbg(c, "name: \"%s\"", ucstring_getpsz(d->thumbsdb_catalog[i].fname));
+		d->thumbsdb_catalog[i].fname_srd = dbuf_read_string(catf, pos+16, item_len-20, item_len-20,
+			DE_CONVFLAG_WANT_UTF8, DE_ENCODING_UTF16LE);
+		de_dbg(c, "name: \"%s\"", ucstring_getpsz(d->thumbsdb_catalog[i].fname_srd->str));
 
 		de_dbg_indent(c, -1);
 
@@ -1133,7 +1138,7 @@ static void do_process_stream(deark *c, lctx *d, struct dir_entry_info *dei)
 
 	// TODO: Is there a good way to tell whether a stream is a property set?
 
-	if(!de_strcmp(dei->fname_srd->sz_utf8, summaryinformation_streamname)) {
+	if(!de_strcasecmp(dei->fname_srd->sz_utf8, "\x05" "SummaryInformation")) {
 		is_propset = 1;
 		is_summaryinfo = 1;
 	}
@@ -1364,7 +1369,7 @@ done:
 	if(d->thumbsdb_catalog) {
 		de_int64 k;
 		for(k=0; k<d->thumbsdb_catalog_num_entries; k++) {
-			ucstring_destroy(d->thumbsdb_catalog[k].fname);
+			de_destroy_stringreaderdata(c, d->thumbsdb_catalog[k].fname_srd);
 		}
 		de_free(c, d->thumbsdb_catalog);
 		d->thumbsdb_catalog = NULL;
