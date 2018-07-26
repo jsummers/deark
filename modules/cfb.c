@@ -649,6 +649,97 @@ done:
 	dbuf_close(outf);
 }
 
+// Refer to Microsoft's "[MS-ODRAW]" document.
+static int do_extract_OfficeArtBlip_internal(deark *c, lctx *d, struct dir_entry_info *dei,
+	de_finfo *fi, de_ucstring *tmpfn, de_int64 pos1, de_int64 *bytes_consumed)
+{
+	unsigned int rectype;
+	unsigned int recinstance;
+	unsigned int n;
+	de_int64 reclen;
+	de_int64 pos = 0; // relative to the beginning of firstpart
+	de_int64 nbytes_to_copy;
+	de_int64 extra_bytes = 0;
+	dbuf *firstpart = NULL;
+	dbuf *outf = NULL;
+	const char *ext = "bin";
+	int retval = 0;
+
+	firstpart = dbuf_create_membuf(c, 128, 0x1);
+
+	nbytes_to_copy = 128;
+	if(pos1+128 > dei->stream_size) nbytes_to_copy = dei->stream_size - pos1;
+	copy_any_stream_to_dbuf(c, d, dei, pos1, nbytes_to_copy, firstpart);
+
+	n = (unsigned int)dbuf_getui16le_p(firstpart, &pos);
+	recinstance = n>>4;
+	de_dbg(c, "recInstance: 0x%03x", recinstance);
+
+	rectype = (unsigned int)dbuf_getui16le_p(firstpart, &pos);
+	de_dbg(c, "recType: 0x%04x", rectype);
+
+	reclen = dbuf_getui32le_p(firstpart, &pos);
+	de_dbg(c, "recLen: %"INT64_FMT, reclen);
+
+	if(rectype==0xf01a) {
+		ext = "emf";
+		if(recinstance==0x3d4) extra_bytes=50;
+		else if(recinstance==0x3d5) extra_bytes=66;
+		// TODO: Read the metafileHeader, to see if it is compressed
+	}
+	else if(rectype==0xf01d) {
+		ext = "jpg";
+		if(recinstance==0x46a || recinstance==0x6e2) extra_bytes = 17;
+		else if(recinstance==0x46b || recinstance==0x6e3) extra_bytes = 33;
+	}
+	else if(rectype==0xf01e) {
+		ext = "png";
+		if(recinstance==0x6e0) extra_bytes = 17;
+		else if(recinstance==6e1) extra_bytes = 33;
+	}
+
+	if(extra_bytes==0) {
+		de_warn(c, "Unsupported OfficeArtBlip (recInstance=0x%03x, recType=0x%04x)",
+			recinstance, rectype);
+		goto done;
+	}
+
+	if(pos1 + pos + reclen > dei->stream_size) goto done;
+	*bytes_consumed = pos + reclen;
+	retval = 1;
+
+	pos += extra_bytes;
+
+	outf = dbuf_create_output_file(c, ext, fi, DE_CREATEFLAG_IS_AUX);
+	copy_any_stream_to_dbuf(c, d, dei, pos1+pos, reclen-extra_bytes, outf);
+
+done:
+	dbuf_close(outf);
+	dbuf_close(firstpart);
+	return retval;
+}
+
+static void do_extract_OfficeArtBlip(deark *c, lctx *d, struct dir_entry_info *dei,
+	de_finfo *fi, de_ucstring *tmpfn)
+{
+	de_int64 pos = 0;
+
+	de_dbg(c, "OfficeArtBlip stream");
+
+	while(1) {
+		de_int64 ret;
+		de_int64 bytes_consumed = 0;
+
+		if(pos >= dei->stream_size-25) break;
+		de_dbg(c, "image at stream offset %"INT64_FMT, pos);
+		de_dbg_indent(c, 1);
+		ret = do_extract_OfficeArtBlip_internal(c, d, dei, fi, tmpfn, pos, &bytes_consumed);
+		de_dbg_indent(c, -1);
+		if(!ret || bytes_consumed<=0) break;
+		pos += bytes_consumed;
+	}
+}
+
 static void extract_stream_to_file(deark *c, lctx *d, struct dir_entry_info *dei)
 {
 	int saved_indent_level;
@@ -656,6 +747,7 @@ static void extract_stream_to_file(deark *c, lctx *d, struct dir_entry_info *dei
 	de_finfo *fi = NULL;
 	de_ucstring *tmpfn = NULL;
 	dbuf *firstpart = NULL;
+	int is_OfficeArtBlip = 0;
 
 	de_dbg_indent_save(c, &saved_indent_level);
 
@@ -683,6 +775,22 @@ static void extract_stream_to_file(deark *c, lctx *d, struct dir_entry_info *dei
 
 	if(d->subformat_final==SUBFMT_THUMBSDB) {
 		do_extract_stream_to_file_thumbsdb(c, d, dei, fi, tmpfn, firstpart);
+		goto done;
+	}
+
+	if(!de_strcasecmp(dei->fname_srd->sz_utf8, "Pictures")) {
+		unsigned int rectype;
+		// This stream often appears in PPT documents.
+		rectype = (unsigned int)dbuf_getui16le(firstpart, 2);
+		de_dbg2(c, "first recType: 0x%04x", rectype);
+		// TODO: Support more image types
+		if(rectype==0xf01a || rectype==0xf01d || rectype==0xf01e) {
+			is_OfficeArtBlip = 1;
+		}
+	}
+
+	if(is_OfficeArtBlip) {
+		do_extract_OfficeArtBlip(c, d, dei, fi, tmpfn);
 		goto done;
 	}
 
