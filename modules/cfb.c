@@ -663,6 +663,10 @@ static int do_extract_OfficeArtBlip_internal(deark *c, lctx *d, struct dir_entry
 	dbuf *firstpart = NULL;
 	dbuf *outf = NULL;
 	const char *ext = "bin";
+	int has_metafileHeader = 0;
+	int has_zlib_cmpr = 0;
+	int is_dib = 0;
+	int is_pict = 0;
 	int retval = 0;
 
 	firstpart = dbuf_create_membuf(c, 128, 0x1);
@@ -685,7 +689,20 @@ static int do_extract_OfficeArtBlip_internal(deark *c, lctx *d, struct dir_entry
 		ext = "emf";
 		if(recinstance==0x3d4) extra_bytes=50;
 		else if(recinstance==0x3d5) extra_bytes=66;
-		// TODO: Read the metafileHeader, to see if it is compressed
+		if(extra_bytes) has_metafileHeader=1;
+	}
+	else if(rectype==0xf01b) {
+		ext = "wmf";
+		if(recinstance==0x216) extra_bytes=50;
+		else if(recinstance==0x217) extra_bytes=66;
+		if(extra_bytes) has_metafileHeader=1;
+	}
+	else if(rectype==0xf01c) {
+		ext = "pict";
+		if(recinstance==0x542) extra_bytes=50;
+		else if(recinstance==0x543) extra_bytes=66;
+		if(extra_bytes) has_metafileHeader=1;
+		is_pict = 1;
 	}
 	else if(rectype==0xf01d) {
 		ext = "jpg";
@@ -697,9 +714,15 @@ static int do_extract_OfficeArtBlip_internal(deark *c, lctx *d, struct dir_entry
 		if(recinstance==0x6e0) extra_bytes = 17;
 		else if(recinstance==6e1) extra_bytes = 33;
 	}
+	else if(rectype==0xf01f) {
+		ext = "dib";
+		if(recinstance==0x7a8) extra_bytes = 17;
+		else if(recinstance==0x7a9) extra_bytes = 33;
+		if(extra_bytes) is_dib=1;
+	}
 
 	if(extra_bytes==0) {
-		de_warn(c, "Unsupported OfficeArtBlip (recInstance=0x%03x, recType=0x%04x)",
+		de_warn(c, "Unsupported OfficeArtBlip format (recInstance=0x%03x, recType=0x%04x)",
 			recinstance, rectype);
 		goto done;
 	}
@@ -708,10 +731,40 @@ static int do_extract_OfficeArtBlip_internal(deark *c, lctx *d, struct dir_entry
 	*bytes_consumed = pos + reclen;
 	retval = 1;
 
+	if(has_metafileHeader) {
+		// metafileHeader starts at pos+extra_bytes-34
+		de_byte cmpr = dbuf_getbyte(firstpart, pos+extra_bytes-2);
+		// 0=DEFLATE, 0xfe=NONE
+		de_dbg(c, "compression type: %u", (unsigned int)cmpr);
+		has_zlib_cmpr = (cmpr==0);
+	}
+
 	pos += extra_bytes;
 
+	if(is_dib) {
+		dbuf *raw_stream;
+		raw_stream = dbuf_create_membuf(c, 0, 0);
+		copy_any_stream_to_dbuf(c, d, dei, pos1+pos, reclen-extra_bytes, raw_stream);
+		de_run_module_by_id_on_slice2(c, "dib", "X", raw_stream, 0, raw_stream->len);
+		dbuf_close(raw_stream);
+		goto done;
+	}
+
 	outf = dbuf_create_output_file(c, ext, fi, DE_CREATEFLAG_IS_AUX);
-	copy_any_stream_to_dbuf(c, d, dei, pos1+pos, reclen-extra_bytes, outf);
+	if(is_pict) {
+		dbuf_write_zeroes(outf, 512);
+	}
+
+	if(has_zlib_cmpr) {
+		dbuf *raw_stream;
+		raw_stream = dbuf_create_membuf(c, 0, 0);
+		copy_any_stream_to_dbuf(c, d, dei, pos1+pos, reclen-extra_bytes, raw_stream);
+		de_uncompress_zlib(raw_stream, 0, raw_stream->len, outf);
+		dbuf_close(raw_stream);
+	}
+	else {
+		copy_any_stream_to_dbuf(c, d, dei, pos1+pos, reclen-extra_bytes, outf);
+	}
 
 done:
 	dbuf_close(outf);
@@ -784,7 +837,9 @@ static void extract_stream_to_file(deark *c, lctx *d, struct dir_entry_info *dei
 		rectype = (unsigned int)dbuf_getui16le(firstpart, 2);
 		de_dbg2(c, "first recType: 0x%04x", rectype);
 		// TODO: Support more image types
-		if(rectype==0xf01a || rectype==0xf01d || rectype==0xf01e) {
+		if(rectype==0xf01a || rectype==0xf01b || rectype==0xf01c || rectype==0xf01d ||
+			rectype==0xf01e || rectype==0xf01f)
+		{
 			is_OfficeArtBlip = 1;
 		}
 	}
