@@ -1917,6 +1917,11 @@ static int do_image_resource(deark *c, lctx *d, zztype *zz)
 		signame, (int)resource_id, ri.idname, (int)zz->startpos,
 		ucstring_getpsz(blkname), (int)zz->pos, (int)block_data_len);
 
+	if(zz->pos+block_data_len > zz->endpos) {
+		de_warn(c, "PSD rsrc exceeds its parent's bounds. Ends at %"INT64_FMT
+			", parent ends at %"INT64_FMT".", zz->pos+block_data_len, zz->endpos);
+	}
+
 	de_dbg_indent(c, 1);
 	if(ri.hfn) {
 		zz_init_with_len(&czz, zz, block_data_len);

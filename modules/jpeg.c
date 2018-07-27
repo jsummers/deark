@@ -325,6 +325,8 @@ static void do_photoshop_segment(deark *c, lctx *d, struct page_ctx *pg,
 	de_int64 pos, de_int64 data_size)
 {
 	de_uint32 psdflags = 0;
+	// TODO: Can Photoshop resources span multiple JPEG segments? I have
+	// a file in which that seems to be the case.
 	de_dbg(c, "photoshop data at %d, size=%d", (int)pos, (int)data_size);
 	pg->has_psd = 1;
 	de_dbg_indent(c, 1);
