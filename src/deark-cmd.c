@@ -285,7 +285,7 @@ enum opt_id_enum {
  DE_OPT_EXTOPT, DE_OPT_FILE, DE_OPT_FILE2, DE_OPT_INENC,
  DE_OPT_START, DE_OPT_SIZE, DE_OPT_M, DE_OPT_MODCODES, DE_OPT_O,
  DE_OPT_ARCFN, DE_OPT_GET, DE_OPT_FIRSTFILE, DE_OPT_MAXFILES, DE_OPT_MAXIMGDIM,
- DE_OPT_PRINTMODULES, DE_OPT_DPREFIX
+ DE_OPT_PRINTMODULES, DE_OPT_DPREFIX, DE_OPT_EXTRLIST
 };
 
 struct opt_struct {
@@ -339,6 +339,7 @@ struct opt_struct option_array[] = {
 	{ "maxfiles",     DE_OPT_MAXFILES,     1 },
 	{ "maxdim",       DE_OPT_MAXIMGDIM,    1 },
 	{ "dprefix",      DE_OPT_DPREFIX,      1 },
+	{ "extrlist",     DE_OPT_EXTRLIST,     1 },
 	{ NULL,           DE_OPT_NULL,         0 }
 };
 
@@ -538,6 +539,9 @@ static void parse_cmdline(deark *c, struct cmdctx *cc, int argc, char **argv)
 				break;
 			case DE_OPT_DPREFIX:
 				de_set_dprefix(c, argv[i+1]);
+				break;
+			case DE_OPT_EXTRLIST:
+				de_set_extrlist_filename(c, argv[i+1]);
 				break;
 			default:
 				de_printf(c, DE_MSGTYPE_MESSAGE, "Unrecognized option: %s\n", argv[i]);

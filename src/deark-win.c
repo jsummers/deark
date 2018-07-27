@@ -15,7 +15,7 @@
 #include <windows.h>
 
 // This file is overloaded, in that it contains functions intended to only
-// be used internally, as well as and functions intended only for the
+// be used internally, as well as functions intended only for the
 // command-line utility. That's why we need both deark-user.h and
 // deark-private.h.
 #include "deark-private.h"
@@ -214,10 +214,13 @@ FILE* de_fopen_for_read(deark *c, const char *fn, de_int64 *len,
 	return f;
 }
 
+// flags: 0x1 = append instead of overwriting
 FILE* de_fopen_for_write(deark *c, const char *fn,
-	char *errmsg, size_t errmsg_len)
+	char *errmsg, size_t errmsg_len, unsigned int flags)
 {
-	return de_fopen(c, fn, L"wb", errmsg, errmsg_len);
+	const WCHAR *modeW;
+	modeW = (flags&0x1) ? L"ab" : L"wb";
+	return de_fopen(c, fn, modeW, errmsg, errmsg_len);
 }
 
 int de_fclose(FILE *fp)

@@ -81,6 +81,8 @@ void de_set_base_output_filename(deark *c, const char *fn);
 
 void de_set_output_archive_filename(deark *c, const char *fn);
 
+void de_set_extrlist_filename(deark *c, const char *fn);
+
 #ifdef DE_WINDOWS
 void de_utf8_to_oem(deark *c, const char *src, char *dst, size_t dstlen);
 char **de_convert_args_to_utf8(int argc, wchar_t **argvW);

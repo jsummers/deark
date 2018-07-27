@@ -138,6 +138,23 @@ void de_register_modules(deark *c)
 	c->module_register_fn(c);
 }
 
+static void open_extrlist(deark *c)
+{
+	char msgbuf[200];
+	unsigned int flags = 0;
+
+	if(c->extrlist_file || !c->extrlist_filename) return;
+
+	if(de_get_ext_option(c, "extrlist:append")) {
+		flags |= 0x1;
+	}
+
+	c->extrlist_file = de_fopen_for_write(c, c->extrlist_filename, msgbuf, sizeof(msgbuf), flags);
+	if(!c->extrlist_file) {
+		de_err(c, "Failed to write %s: %s", c->extrlist_filename, msgbuf);
+	}
+}
+
 void de_run(deark *c)
 {
 	dbuf *orig_ifile = NULL;
@@ -152,6 +169,10 @@ void de_run(deark *c)
 	if(c->modhelp_req && c->input_format_req) {
 		do_modhelp(c);
 		goto done;
+	}
+
+	if(c->extrlist_filename) {
+		open_extrlist(c);
 	}
 
 	friendly_infn = ucstring_create(c);
@@ -280,6 +301,7 @@ void de_run(deark *c)
 	}
 
 done:
+	if(c->extrlist_file) { de_fclose(c->extrlist_file); c->extrlist_file=NULL; }
 	ucstring_destroy(friendly_infn);
 	if(subfile) dbuf_close(subfile);
 	if(orig_ifile) dbuf_close(orig_ifile);
@@ -310,6 +332,7 @@ void de_destroy(deark *c)
 	de_int64 i;
 
 	if(!c) return;
+	if(c->extrlist_file) { de_fclose(c->extrlist_file); }
 	for(i=0; i<c->num_ext_options; i++) {
 		de_free(c, c->ext_option[i].name);
 		de_free(c, c->ext_option[i].val);
@@ -317,6 +340,7 @@ void de_destroy(deark *c)
 	if(c->zip_data) { de_zip_close_file(c); }
 	if(c->base_output_filename) { de_free(c, c->base_output_filename); }
 	if(c->output_archive_filename) { de_free(c, c->output_archive_filename); }
+	if(c->extrlist_filename) { de_free(c, c->extrlist_filename); }
 	de_free(c, c->module_info);
 	de_free(NULL,c);
 }
@@ -361,6 +385,15 @@ void de_set_output_archive_filename(deark *c, const char *fn)
 	c->output_archive_filename = NULL;
 	if(fn) {
 		c->output_archive_filename = de_strdup(c, fn);
+	}
+}
+
+void de_set_extrlist_filename(deark *c, const char *fn)
+{
+	if(c->extrlist_filename) de_free(c, c->extrlist_filename);
+	c->extrlist_filename = NULL;
+	if(fn) {
+		c->extrlist_filename = de_strdup(c, fn);
 	}
 }
 

@@ -60,6 +60,10 @@ Command-line options:
    "output.NNN" prefix.
 -arcfn &lt;filename>
    When using -zip, use this name for the .zip file. Default="output.zip".
+-extrlist &lt;filename>
+   Also create a text file containing a list of the names of the extracted
+   files. Format is UTF-8, no BOM, LF terminators. To append to the file
+   instead of overwriting, use with "-opt extrlist:append".
 -tostdout
    Write the output file(s) to the standard output stream (stdout).
    This option is experimental, and might not work in all situations.
@@ -113,7 +117,7 @@ Command-line options:
    formats where files are extracted as-is, and where each member file has a
    last-modified timestamp.
 -opt &lt;module:option>=&lt;value>
-   Module-specific options. See formats.txt.
+   Module-specific and feature-specific options. See formats.txt.
    Caution: Unrecognized or misspelled options will be silently ignored.
    Options not specific to one format:
     -opt font:charsperrow=&lt;n>
@@ -133,6 +137,8 @@ Command-line options:
        times will be set to some arbitrary value. If you use "timestamp", the
        times will be set to the value you supply, in Unix time format (the
        number of seconds since the beginning of 1970).
+    -opt extrlist:append
+       Affects the -extrlist option.
     -opt atari:palbits=&lt;9|12|15>
        For some Atari image formats, the number of significant bits per
        palette color. The default is to autodetect.

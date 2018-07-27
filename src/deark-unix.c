@@ -12,7 +12,7 @@
 #endif
 
 // This file is overloaded, in that it contains functions intended to only
-// be used internally, as well as and functions intended only for the
+// be used internally, as well as functions intended only for the
 // command-line utility. That's why we need both deark-user.h and
 // deark-private.h.
 #include "deark-private.h"
@@ -69,7 +69,7 @@ static FILE* de_fopen(deark *c, const char *fn, const char *mode,
 }
 
 // Test if the file seems suitable for reading, and return its size.
-// returned flags: 0x1 = file si a FIFO (named pipe)
+// returned flags: 0x1 = file is a FIFO (named pipe)
 static int de_examine_file_by_fd(deark *c, int fd, de_int64 *len,
 	char *errmsg, size_t errmsg_len, unsigned int *returned_flags)
 {
@@ -118,10 +118,13 @@ FILE* de_fopen_for_read(deark *c, const char *fn, de_int64 *len,
 	return f;
 }
 
+// flags: 0x1 = append instead of overwriting
 FILE* de_fopen_for_write(deark *c, const char *fn,
-	char *errmsg, size_t errmsg_len)
+	char *errmsg, size_t errmsg_len, unsigned int flags)
 {
-	return de_fopen(c, fn, "wb", errmsg, errmsg_len);
+	const char *mode;
+	mode = (flags&0x1) ? "ab" : "wb";
+	return de_fopen(c, fn, mode, errmsg, errmsg_len);
 }
 
 int de_fclose(FILE *fp)

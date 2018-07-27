@@ -145,7 +145,7 @@ struct dbuf_struct {
 	unsigned int mode_flags;
 
 	int write_memfile_to_zip_archive; // used for DBUF_TYPE_OFILE, at least
-	char *name; // used for DBUF_TYPE_OFILE
+	char *name; // used for DBUF_TYPE_OFILE (utf-8)
 
 	de_int64 membuf_alloc;
 	de_byte *membuf_buf;
@@ -295,9 +295,11 @@ struct deark_struct {
 	const char *dprefix;
 
 	void *zip_data;
+	FILE *extrlist_file;
 
 	char *base_output_filename;
 	char *output_archive_filename;
+	char *extrlist_filename;
 
 	struct de_timestamp current_time;
 
@@ -370,7 +372,7 @@ void de_err(deark *c, const char *fmt, ...)
 FILE* de_fopen_for_read(deark *c, const char *fn, de_int64 *len,
 	char *errmsg, size_t errmsg_len, unsigned int *returned_flags);
 FILE* de_fopen_for_write(deark *c, const char *fn,
-	char *errmsg, size_t errmsg_len);
+	char *errmsg, size_t errmsg_len, unsigned int flags);
 
 int de_fclose(FILE *fp);
 
