@@ -17,21 +17,30 @@ typedef struct localctx_struct {
 	int asciipropnames;
 } lctx;
 
+struct dictionary_entry {
+	de_uint32 prop_id;
+	de_ucstring *str;
+};
+
 // Fields related to the current property set
 struct propset_struct {
 	de_int64 tbloffset;
 	de_uint32 sfmtid;
 	int code_page; // value of the Code Page property
 	int encoding; // DE_ENCODING_*
+
+	size_t num_dict_entries;
+	struct dictionary_entry *dictionary;
 };
 
 struct prop_info_struct {
 	de_uint32 prop_id;
 	de_uint32 data_type;
-	const char *name; // if known, or NULL
-	const char *name_dbg; // name, or "value"
 	de_int64 data_offs_rel;
 	de_int64 dpos; // = si->tbloffset+pinfo->data_offs+4
+
+	int name_disposition; // 0=unknown, 1=standard, 2=from dictionary
+	char name[80];
 };
 
 struct fmtid_info_entry {
@@ -101,7 +110,13 @@ static void do_prop_blob(deark *c, lctx *d, struct propset_struct *si,
 	if(magic[0]==0xff && magic[1]==0xd8 && magic[2]==0xff) {
 		dbuf_create_file_from_slice(d->f, blob_data_start, blob_data_size,
 			"oleblob.jpg", NULL, DE_CREATEFLAG_IS_AUX);
+		goto done;
 	}
+
+	de_dbg_hexdump(c, d->f, blob_data_start, blob_data_size, 256, NULL, 0x1);
+
+done:
+	;
 }
 
 static void do_prop_clipboard(deark *c, lctx *d, struct propset_struct *si,
@@ -208,11 +223,12 @@ static void do_prop_UnicodeString(deark *c, lctx *d, struct propset_struct *si,
 	*bytes_consumed = 4 + n_raw*2;
 }
 
-static void do_prop_CodePageString(deark *c, lctx *d, struct propset_struct *si,
-	const char *name, de_int64 dpos, int is_dict_name, de_int64 *bytes_consumed)
+// Caller creates and supplies s. The decoded string will be written to it.
+static void do_prop_CodePageString2(deark *c, lctx *d, struct propset_struct *si,
+	const char *name, de_int64 dpos, int is_dict_name, de_int64 *bytes_consumed,
+	de_ucstring *s)
 {
 	de_int64 n_raw;
-	de_ucstring *s = NULL;
 	int is_utf16 = (si->code_page==1200);
 	int encoding = si->encoding;
 
@@ -224,7 +240,6 @@ static void do_prop_CodePageString(deark *c, lctx *d, struct propset_struct *si,
 		encoding = DE_ENCODING_ASCII;
 	}
 
-	s = ucstring_create(c);
 	n_raw = dbuf_getui32le(d->f, dpos);
 
 	if(is_utf16) {
@@ -252,7 +267,14 @@ static void do_prop_CodePageString(deark *c, lctx *d, struct propset_struct *si,
 		*bytes_consumed = 4 + n_raw;
 	}
 	de_dbg(c, "%s: \"%s\"", name, ucstring_getpsz(s));
+}
 
+static void do_prop_CodePageString(deark *c, lctx *d, struct propset_struct *si,
+	const char *name, de_int64 dpos, int is_dict_name, de_int64 *bytes_consumed)
+{
+	de_ucstring *s = NULL;
+	s = ucstring_create(c);
+	do_prop_CodePageString2(c, d, si, name, dpos, is_dict_name, bytes_consumed, s);
 	ucstring_destroy(s);
 }
 
@@ -503,7 +525,8 @@ static int do_prop_vector_of_scalar(deark *c, lctx *d, struct propset_struct *si
 		if(pos >= d->f->len) break;
 		if(k>500) break;
 
-		de_snprintf(name, sizeof(name), "%s[%u]", pinfo->name_dbg, (unsigned int)k);
+		de_snprintf(name, sizeof(name), "%s[%u]",
+			(pinfo->name_disposition==1)?pinfo->name:"value", (unsigned int)k);
 		ret = do_prop_simple_type(c, d, si, pinfo, scalar_type, name, pos, &bytes_consumed);
 		if(!ret || (bytes_consumed<1)) return 0;
 		pos += bytes_consumed;
@@ -574,7 +597,8 @@ static void do_prop_toplevel(deark *c, lctx *d, struct propset_struct *si,
 	scalar_type = pinfo->data_type&0x00ff;
 
 	if((pinfo->data_type&0xff00)==0x0000) {
-		ok = do_prop_simple_type(c, d, si, pinfo, scalar_type, pinfo->name_dbg,
+		ok = do_prop_simple_type(c, d, si, pinfo, scalar_type,
+			(pinfo->name_disposition==1)?pinfo->name:"value",
 			pinfo->dpos, &bytes_consumed);
 	}
 	else if((pinfo->data_type&0xff00)==0x1000) {
@@ -594,34 +618,40 @@ static void do_prop_toplevel(deark *c, lctx *d, struct propset_struct *si,
 static void do_dictionary(deark *c, lctx *d, struct propset_struct *si,
 	struct prop_info_struct *pinfo)
 {
-	de_int64 nentries;
-	de_int64 k;
+	size_t k;
 	int saved_indent_level;
 	de_int64 pos = si->tbloffset+pinfo->data_offs_rel;
 
 	de_dbg_indent_save(c, &saved_indent_level);
-	nentries = dbuf_getui32le_p(d->f, &pos);
-	de_dbg(c, "number of dictionary entries: %u", (unsigned int)nentries);
+	if(si->dictionary) goto done;
+	si->num_dict_entries = (size_t)dbuf_getui32le_p(d->f, &pos);
+	de_dbg(c, "number of dictionary entries: %u", (unsigned int)si->num_dict_entries);
+	if(si->num_dict_entries > 500) {
+		si->num_dict_entries = 0;
+		goto done;
+	}
 
-	for(k=0; k<nentries; k++) {
-		de_uint32 prop_id;
+	si->dictionary = de_malloc(c, (de_int64)(sizeof(struct dictionary_entry)*si->num_dict_entries));
+
+	for(k=0; k<si->num_dict_entries; k++) {
 		de_int64 bytes_consumed = 0;
 
 		if(pos >= d->f->len) {
 			de_warn(c, "Malformed Property Set dictionary, or unsupported dictionary format");
 			break;
 		}
-		if(k>500) break;
 
 		de_dbg(c, "entry[%u]:", (unsigned int)k);
 		de_dbg_indent(c, 1);
-		prop_id = (de_uint32)dbuf_getui32le_p(d->f, &pos);
-		de_dbg(c, "prop id: 0x%08x", (unsigned int)prop_id);
-		do_prop_CodePageString(c, d, si, "name", pos, 1, &bytes_consumed);
+		si->dictionary[k].prop_id = (de_uint32)dbuf_getui32le_p(d->f, &pos);
+		de_dbg(c, "prop id: 0x%08x", (unsigned int)si->dictionary[k].prop_id);
+		si->dictionary[k].str = ucstring_create(c);
+		do_prop_CodePageString2(c, d, si, "name", pos, 1, &bytes_consumed, si->dictionary[k].str);
 		pos += bytes_consumed;
 		de_dbg_indent(c, -1);
 	}
 
+done:
 	de_dbg_indent_restore(c, saved_indent_level);
 }
 
@@ -710,12 +740,23 @@ static const struct prop_info_entry prop_info_arr[] = {
 };
 
 // Sets pinfo->name based on pinfo->type and si->sfmtid.
-// TODO: Use the Dictionary, when available.
 static void set_prop_name(deark *c, struct propset_struct *si, struct prop_info_struct *pinfo)
 {
-	const struct prop_info_entry *pi = NULL;
 	size_t k;
 
+	// Check the dictionary
+	if(si->dictionary) {
+		for(k=0; k<si->num_dict_entries; k++) {
+			if(si->dictionary[k].prop_id == pinfo->prop_id) {
+				pinfo->name_disposition = 2;
+				ucstring_to_sz(si->dictionary[k].str, pinfo->name, sizeof(pinfo->name),
+					0, DE_ENCODING_UTF8);
+				return;
+			}
+		}
+	}
+
+	// Check our table of known types
 	for(k=0; k<DE_ITEMS_IN_ARRAY(prop_info_arr); k++) {
 		if((prop_info_arr[k].sfmtid != si->sfmtid) &&
 			(prop_info_arr[k].sfmtid != SFMTID_COMMON))
@@ -724,15 +765,15 @@ static void set_prop_name(deark *c, struct propset_struct *si, struct prop_info_
 		}
 		if((prop_info_arr[k].prop_id) != (pinfo->prop_id & prop_info_arr[k].prop_id_mask))
 			continue;
-		pi = &prop_info_arr[k];
-		break;
+
+		pinfo->name_disposition = 1;
+		de_strlcpy(pinfo->name, prop_info_arr[k].name, sizeof(pinfo->name));
+		return;
 	}
 
-	if(pi) {
-		pinfo->name = pi->name;
-	}
-
-	pinfo->name_dbg = pinfo->name ? pinfo->name : "value";
+	// Not found
+	pinfo->name_disposition = 0;
+	de_strlcpy(pinfo->name, "???", sizeof(pinfo->name));
 }
 
 // Caller must set si->tbloffset and si->sfmtid
@@ -779,6 +820,8 @@ static void do_PropertySet(deark *c, lctx *d, struct propset_struct *si,
 		de_dbg2(c, "pass %u", (unsigned int)pass);
 
 		for(i=0; i<nproperties; i++) {
+			char displayname[100];
+
 			if(whichpass[i] != pass) continue;
 
 			de_memset(&pinfo, 0, sizeof(struct prop_info_struct));
@@ -788,9 +831,18 @@ static void do_PropertySet(deark *c, lctx *d, struct propset_struct *si,
 			pinfo.dpos = si->tbloffset+pinfo.data_offs_rel+4;
 			set_prop_name(c, si, &pinfo);
 
+			if(pinfo.name_disposition==1) {
+				de_strlcpy(displayname, pinfo.name, sizeof(displayname));
+			}
+			else if(pinfo.name_disposition==2) {
+				de_snprintf(displayname, sizeof(displayname), "\"%s\"", pinfo.name);
+			}
+			else {
+				de_strlcpy(displayname, "?", sizeof(displayname));
+			}
+
 			de_dbg(c, "prop[%d]: id=0x%08x (%s), data_offs=%d", (int)i,
-				(unsigned int)pinfo.prop_id, pinfo.name?pinfo.name:"?",
-				(int)pinfo.data_offs_rel);
+				(unsigned int)pinfo.prop_id, displayname, (int)pinfo.data_offs_rel);
 			de_dbg_indent(c, 1);
 			if(pinfo.prop_id==0x00000000U) {
 				do_dictionary(c, d, si, &pinfo);
@@ -815,6 +867,19 @@ static const struct fmtid_info_entry *find_fmtid_info(const de_byte *b)
 		}
 	}
 	return NULL;
+}
+
+static void destroy_propset_struct(deark *c, struct propset_struct *si)
+{
+	if(!si) return;
+	if(si->dictionary) {
+		size_t k;
+		for(k=0; k<si->num_dict_entries; k++) {
+			ucstring_destroy(si->dictionary[k].str);
+		}
+		de_free(c, si->dictionary);
+	}
+	de_free(c, si);
 }
 
 static void do_decode_PropertySetStream(deark *c, lctx *d)
@@ -879,7 +944,7 @@ static void do_decode_PropertySetStream(deark *c, lctx *d)
 		do_PropertySet(c, d, si, k);
 		de_dbg_indent(c, -1);
 
-		de_free(c, si);
+		destroy_propset_struct(c, si);
 	}
 
 done:
