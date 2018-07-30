@@ -173,6 +173,7 @@ struct image_info {
 typedef struct localctx_struct {
 	int version; // 1=PSD, 2=PSB
 	int is_le;
+	int input_encoding;
 	int tagged_blocks_only;
 #define MAX_NESTING_LEVEL 50
 	int nesting_level;
@@ -520,11 +521,7 @@ static void read_pascal_string_to_ucstring(deark *c, lctx *d, de_ucstring *s, zz
 		return;
 	}
 
-	// The PSD spec does not say what encoding these strings use.
-	// Some sources say they use MacRoman, and *some* PSD files do use MacRoman.
-	// But other PSD files use other encodings, and I don't know how to know what
-	// encoding they use.
-	dbuf_read_to_ucstring(c->infile, zz->pos, dlen, s, 0, DE_ENCODING_MACROMAN);
+	dbuf_read_to_ucstring(c->infile, zz->pos, dlen, s, 0, d->input_encoding);
 	zz->pos += dlen;
 }
 
@@ -546,7 +543,7 @@ static void read_prefixed_string_to_ucstring(deark *c, lctx *d, de_ucstring *s, 
 		return;
 	}
 
-	dbuf_read_to_ucstring(c->infile, zz->pos, dlen, s, 0, DE_ENCODING_MACROMAN);
+	dbuf_read_to_ucstring(c->infile, zz->pos, dlen, s, 0, d->input_encoding);
 	zz->pos += dlen;
 }
 
@@ -1759,7 +1756,7 @@ static void hrsrc_plaintext(deark *c, lctx *d, zztype *zz, const struct rsrc_inf
 
 	s = ucstring_create(c);
 	dbuf_read_to_ucstring_n(c->infile, zz->pos, zz_avail(zz), DE_DBG_MAX_STRLEN,
-		s, 0, DE_ENCODING_MACROMAN);
+		s, 0, d->input_encoding);
 	de_dbg(c, "%s: \"%s\"", ri->idname, ucstring_getpsz(s));
 	ucstring_destroy(s);
 }
@@ -3434,6 +3431,15 @@ static void init_version_specific_info(deark *c, lctx *d)
 		d->intsize_2or4 = 2;
 		d->intsize_4or8 = 4;
 	}
+
+	// The PSD spec does not say what encoding these strings use.
+	// Some sources say they use MacRoman, and *some* PSD files do use MacRoman.
+	// But other PSD files use other encodings, and I don't know how to know what
+	// encoding they use.
+	if(c->input_encoding==DE_ENCODING_UNKNOWN)
+		d->input_encoding = DE_ENCODING_MACROMAN;
+	else
+		d->input_encoding = c->input_encoding;
 }
 
 static int do_psd_header(deark *c, lctx *d, de_int64 pos)
