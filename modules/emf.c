@@ -24,6 +24,8 @@ struct decoder_params {
 	de_uint32 rectype;
 	de_int64 recpos;
 	de_int64 recsize_bytes;
+	de_int64 dpos;
+	de_int64 dlen;
 };
 
 // Handler functions return 0 on fatal error, otherwise 1.
@@ -40,6 +42,27 @@ struct emfplus_rec_info {
 	const char *name;
 	void *reserved1;
 };
+
+// Note: This is duplicated in wmf.c
+static de_uint32 colorref_to_color(de_uint32 colorref)
+{
+	de_uint32 r,g,b;
+	r = DE_COLOR_B(colorref);
+	g = DE_COLOR_G(colorref);
+	b = DE_COLOR_R(colorref);
+	return DE_MAKE_RGB(r,g,b);
+}
+
+// Note: This is duplicated in wmf.c
+static void do_dbg_colorref(deark *c, lctx *d, de_uint32 colorref)
+{
+	de_uint32 clr;
+	char csamp[16];
+
+	clr = colorref_to_color(colorref);
+	de_get_colorsample_code(c, clr, csamp, sizeof(csamp));
+	de_dbg(c, "colorref: 0x%08x%s", (unsigned int)colorref, csamp);
+}
 
 static void ucstring_strip_trailing_NULs(de_ucstring *s)
 {
@@ -563,6 +586,98 @@ done:
 	dbuf_close(outf);
 }
 
+static const char *get_stock_obj_name(unsigned int n)
+{
+	const char *names[20] = { "WHITE_BRUSH", "LTGRAY_BRUSH", "GRAY_BRUSH",
+		"DKGRAY_BRUSH", "BLACK_BRUSH", "NULL_BRUSH", "WHITE_PEN", "BLACK_PEN",
+		"NULL_PEN", NULL, "OEM_FIXED_FONT", "ANSI_FIXED_FONT", "ANSI_VAR_FONT",
+		"SYSTEM_FONT", "DEVICE_DEFAULT_FONT", "DEFAULT_PALETTE",
+		"SYSTEM_FIXED_FONT", "DEFAULT_GUI_FONT", "DC_BRUSH", "DC_PEN" };
+	const char *name = NULL;
+
+	if(n & 0x80000000U) {
+		unsigned int idx;
+		idx = n & 0x7fffffff;
+		if(idx<20) name = names[idx];
+	}
+	return name ? name : "?";
+}
+
+static void read_object_index_p(deark *c, lctx *d, de_int64 *ppos)
+{
+	unsigned int n;
+	n = (unsigned int)de_getui32le_p(ppos);
+	if(n & 0x80000000U) {
+		// A stock object
+		de_dbg(c, "object index: 0x%08x (%s)", n, get_stock_obj_name(n));
+	}
+	else {
+		de_dbg(c, "object index: %u", n);
+	}
+}
+
+static void read_LogPen(deark *c, lctx *d, de_int64 pos)
+{
+	unsigned int style;
+	de_int64 n;
+	de_uint32 colorref;
+
+	style = (unsigned int)de_getui32le_p(&pos);
+	de_dbg(c, "style: 0x%08x", style);
+
+	n = de_geti32le(pos); // <PointL>.x = pen width
+	de_dbg(c, "width: %d", (int)n);
+	pos += 4;
+	pos += 4; // <PointL>.y = unused
+
+	colorref = (de_uint32)de_getui32le_p(&pos);
+	do_dbg_colorref(c, d, colorref);
+}
+
+static int handler_CREATEPEN(deark *c, lctx *d, struct decoder_params *dp)
+{
+	de_int64 pos = dp->dpos;
+
+	if(dp->dlen<20) return 1;
+	read_object_index_p(c, d, &pos);
+	read_LogPen(c, d, pos);
+	return 1;
+}
+
+static void read_LogBrushEx(deark *c, lctx *d, de_int64 pos)
+{
+	unsigned int style;
+	de_uint32 colorref;
+
+	style = (unsigned int)de_getui32le_p(&pos);
+	de_dbg(c, "style: 0x%08x", style);
+
+	colorref = (de_uint32)de_getui32le_p(&pos);
+	do_dbg_colorref(c, d, colorref);
+
+	// TODO: BrushHatch
+}
+
+static int handler_CREATEBRUSHINDIRECT(deark *c, lctx *d, struct decoder_params *dp)
+{
+	de_int64 pos = dp->dpos;
+
+	if(dp->dlen<16) return 1;
+	read_object_index_p(c, d, &pos);
+	read_LogBrushEx(c, d, pos);
+	return 1;
+}
+
+// Can handle any record that is, or begins with, and object index.
+static int handler_object_index(deark *c, lctx *d, struct decoder_params *dp)
+{
+	de_int64 pos = dp->dpos;
+
+	if(dp->dlen<4) return 1;
+	read_object_index_p(c, d, &pos);
+	return 1;
+}
+
 // BITBLT
 static int emf_handler_4c(deark *c, lctx *d, struct decoder_params *dp)
 {
@@ -735,10 +850,10 @@ static const struct emf_func_info emf_func_info_arr[] = {
 	{ 0x22, "RESTOREDC", NULL },
 	{ 0x23, "SETWORLDTRANSFORM", NULL },
 	{ 0x24, "MODIFYWORLDTRANSFORM", NULL },
-	{ 0x25, "SELECTOBJECT", NULL },
-	{ 0x26, "CREATEPEN", NULL },
-	{ 0x27, "CREATEBRUSHINDIRECT", NULL },
-	{ 0x28, "DELETEOBJECT", NULL },
+	{ 0x25, "SELECTOBJECT", handler_object_index },
+	{ 0x26, "CREATEPEN", handler_CREATEPEN },
+	{ 0x27, "CREATEBRUSHINDIRECT", handler_CREATEBRUSHINDIRECT },
+	{ 0x28, "DELETEOBJECT", handler_object_index },
 	{ 0x29, "ANGLEARC", NULL },
 	{ 0x2a, "ELLIPSE", NULL },
 	{ 0x2b, "RECTANGLE", NULL },
@@ -746,8 +861,8 @@ static const struct emf_func_info emf_func_info_arr[] = {
 	{ 0x2d, "ARC", NULL },
 	{ 0x2e, "CHORD", NULL },
 	{ 0x2f, "PIE", NULL },
-	{ 0x30, "SELECTPALETTE", NULL },
-	{ 0x31, "CREATEPALETTE", NULL },
+	{ 0x30, "SELECTPALETTE", handler_object_index },
+	{ 0x31, "CREATEPALETTE", handler_object_index }, // TODO: A better handler
 	{ 0x32, "SETPALETTEENTRIES", NULL },
 	{ 0x33, "RESIZEPALETTE", NULL },
 	{ 0x34, "REALIZEPALETTE", NULL },
@@ -779,7 +894,7 @@ static const struct emf_func_info emf_func_info_arr[] = {
 	{ 0x4f, "PLGBLT", NULL },
 	{ 0x50, "SETDIBITSTODEVICE", emf_handler_50_51 },
 	{ 0x51, "STRETCHDIBITS", emf_handler_50_51 },
-	{ 0x52, "EXTCREATEFONTINDIRECTW", NULL },
+	{ 0x52, "EXTCREATEFONTINDIRECTW", handler_object_index }, // TODO: A better handler
 	{ 0x53, "EXTTEXTOUTA", emf_handler_53 },
 	{ 0x54, "EXTTEXTOUTW", emf_handler_54 },
 	{ 0x55, "POLYBEZIER16", NULL },
@@ -790,15 +905,15 @@ static const struct emf_func_info emf_func_info_arr[] = {
 	{ 0x5a, "POLYPOLYLINE16", NULL },
 	{ 0x5b, "POLYPOLYGON16", NULL },
 	{ 0x5c, "POLYDRAW16", NULL },
-	{ 0x5d, "CREATEMONOBRUSH", NULL },
-	{ 0x5e, "CREATEDIBPATTERNBRUSHPT", NULL },
-	{ 0x5f, "EXTCREATEPEN", NULL },
+	{ 0x5d, "CREATEMONOBRUSH", handler_object_index }, // TODO: A better handler
+	{ 0x5e, "CREATEDIBPATTERNBRUSHPT", handler_object_index }, // TODO: A better handler
+	{ 0x5f, "EXTCREATEPEN", handler_object_index }, // TODO: A better handler
 	{ 0x60, "POLYTEXTOUTA", NULL },
 	{ 0x61, "POLYTEXTOUTW", NULL },
 	{ 0x62, "SETICMMODE", NULL },
-	{ 0x63, "CREATECOLORSPACE", NULL },
-	{ 0x64, "SETCOLORSPACE", NULL },
-	{ 0x65, "DELETECOLORSPACE", NULL },
+	{ 0x63, "CREATECOLORSPACE", handler_object_index }, // TODO: A better handler
+	{ 0x64, "SETCOLORSPACE", handler_object_index },
+	{ 0x65, "DELETECOLORSPACE", handler_object_index },
 	{ 0x66, "GLSRECORD", NULL },
 	{ 0x67, "GLSBOUNDEDRECORD", NULL },
 	{ 0x68, "PIXELFORMAT", NULL },
@@ -817,7 +932,7 @@ static const struct emf_func_info emf_func_info_arr[] = {
 	{ 0x77, "SETLINKEDUFIS", NULL },
 	{ 0x78, "ETTEXTJUSTIFICATION", NULL },
 	{ 0x79, "COLORMATCHTOTARGETW", NULL },
-	{ 0x7a, "CREATECOLORSPACEW", NULL }
+	{ 0x7a, "CREATECOLORSPACEW", handler_object_index } // TODO: A better handler
 };
 
 static const struct emf_func_info *find_emf_func_info(de_uint32 rectype)
@@ -842,6 +957,9 @@ static int do_emf_record(deark *c, lctx *d, de_int64 recnum, de_int64 recpos,
 	de_memset(&dp, 0, sizeof(struct decoder_params));
 	dp.recpos = recpos;
 	dp.recsize_bytes = recsize_bytes;
+	dp.dpos = recpos+8;
+	dp.dlen = recsize_bytes-8;
+	if(dp.dlen<0) dp.dlen=0;
 
 	dp.rectype = (de_uint32)de_getui32le(recpos);
 

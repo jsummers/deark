@@ -45,6 +45,7 @@ struct wmf_func_info {
 	record_decoder_fn fn;
 };
 
+// Note: This is duplicated in emf.c
 static de_uint32 colorref_to_color(de_uint32 colorref)
 {
 	de_uint32 r,g,b;
@@ -54,6 +55,7 @@ static de_uint32 colorref_to_color(de_uint32 colorref)
 	return DE_MAKE_RGB(r,g,b);
 }
 
+// Note: This is duplicated in emf.c
 static void do_dbg_colorref(deark *c, lctx *d, struct decoder_params *dp, de_uint32 colorref)
 {
 	de_uint32 clr;
