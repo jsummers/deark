@@ -14,6 +14,7 @@ typedef struct localctx_struct {
 	de_int64 wmf_file_type;
 	de_int64 wmf_windows_version;
 	unsigned int num_objects;
+	dbuf *embedded_emf;
 	de_byte *object_table;
 } lctx;
 
@@ -177,7 +178,7 @@ static const struct escape_info escape_info_arr[] = {
 	{ 0x000c, "GETPHYSPAGESIZE", NULL },
 	{ 0x000d, "GETPRINTINGOFFSET", NULL },
 	{ 0x000e, "GETSCALINGFACTOR", NULL },
-	{ 0x000f, "META_ESCAPE_ENHANCED_METAFILE", NULL },
+	{ 0x000f, "MFCOMMENT", NULL }, // a.k.a. META_ESCAPE_ENHANCED_METAFILE
 	{ 0x0010, "SETPENWIDTH", NULL },
 	{ 0x0011, "SETCOPYCOUNT", NULL },
 	{ 0x0012, "SETPAPERSOURCE", NULL },
@@ -225,61 +226,100 @@ static const struct escape_info escape_info_arr[] = {
 	{ 0x11d8, "SPCLPASSTHROUGH2", NULL }
 };
 
-static void do_ESCAPE_EMF(deark *c, lctx *d, struct decoder_params *dp,
-	de_int64 bytecount)
+static void do_ESCAPE_MFCOMMENT_EMF(deark *c, lctx *d, struct decoder_params *dp,
+	de_int64 pos1, de_int64 bytecount)
 {
-	de_int64 emfpos, emflen;
-	de_uint32 id;
+	de_int64 pos = pos1;
+	de_int64 endpos = dp->dpos + dp->dlen;
+	unsigned int CommentId;
+	de_int64 n;
 	de_int64 CommentRecordCount, CurrentRecordSize;
 	de_int64 RemainingBytes, EnhancedMetafileDataSize;
 
-	// I am clearly missing something here, because of the half dozen
-	// WMF files I have that use this escape, only one of them uses
-	// the format that is in the specification. The others are not
-	// even remotely close to the documented format.
-
-	// dp->dpos points to the beginning of the EscapeFunction field.
-	// There should be 38 more bytes of headers, from this point,
-	// followed by EMF data.
-
-	emfpos = dp->dpos+38;
-	emflen = bytecount-34;
-	if(emflen<=0) {
-		de_dbg(c, "[bad embedded EMF data (too short)]");
-		goto done;
-	}
-	id = (de_uint32)de_getui32le(dp->dpos+4);
-	if(id!=0x43464d57U) {
-		de_dbg(c, "[bad embedded EMF data (bad CommentIdentifier)]");
+	if(pos+34>endpos) {
+		de_dbg(c, "[bad/unsupported embedded EMF data (too short)]");
 		goto done;
 	}
 
-	CommentRecordCount = de_getui32le(dp->dpos+22);
+	CommentId = (unsigned int)de_getui32le_p(&pos);
+	de_dbg(c, "CommentIdentifier: 0x%08x", CommentId);
+	if(CommentId!=0x43464d57U) goto done;
+
+	n = de_getui32le_p(&pos);
+	de_dbg(c, "CommentType: 0x%08x", (unsigned int)n);
+	if(n != 1) {
+		de_dbg(c, "[bad/unsupported embedded EMF data (unsupported CommentType)]");
+		goto done;
+	}
+
+	n = de_getui32le_p(&pos);
+	de_dbg(c, "Version: 0x%08x", (unsigned int)n);
+	n = de_getui16le_p(&pos);
+	de_dbg(c, "CheckSum (reported): 0x%04x", (unsigned int)n);
+	n = de_getui32le_p(&pos);
+	de_dbg(c, "Flags: 0x%08x", (unsigned int)n);
+	CommentRecordCount = de_getui32le_p(&pos);
 	de_dbg(c, "CommentRecordCount: %d", (int)CommentRecordCount);
-	CurrentRecordSize = de_getui32le(dp->dpos+26);
+	CurrentRecordSize = de_getui32le_p(&pos);
 	de_dbg(c, "CurrentRecordSize: %d", (int)CurrentRecordSize);
-	RemainingBytes = de_getui32le(dp->dpos+30);
+	RemainingBytes = de_getui32le_p(&pos);
 	de_dbg(c, "RemainingBytes: %d", (int)RemainingBytes);
 
 	// The spec says that the ByteCount field must be 34 +
 	// EnhancedMetafileDataSize, but that doesn't make sense to me.
 	// Maybe it was supposed to be 34 + CurrentRecordSize?
-	EnhancedMetafileDataSize = de_getui32le(dp->dpos+34);
+	EnhancedMetafileDataSize = de_getui32le_p(&pos);
 	de_dbg(c, "EnhancedMetafileDataSize: %d", (int)EnhancedMetafileDataSize);
 
-	if(CommentRecordCount!=1) {
-		de_dbg(c, "[not decoding EMF data (fragments not supported)]");
-		goto done;
+	if(pos+CurrentRecordSize>endpos) goto done;
+	de_dbg(c, "embedded EMF data at %d, len=%d", (int)pos, (int)CurrentRecordSize);
+
+	if(!d->embedded_emf && (CurrentRecordSize+RemainingBytes==EnhancedMetafileDataSize)) {
+		// Looks like the first record
+		d->embedded_emf = dbuf_create_output_file(c, "emf", NULL, 0);
 	}
 
-	de_dbg(c, "embedded EMF data at %d, len=%d", (int)emfpos, (int)emflen);
-	if(c->extract_level>=2) {
-		dbuf_create_file_from_slice(c->infile, emfpos, emflen, "emf", NULL, 0);
+	if(d->embedded_emf) {
+		dbuf_copy(c->infile, pos, CurrentRecordSize, d->embedded_emf);
+	}
+
+	if(d->embedded_emf && RemainingBytes==0) {
+		// Looks like the last record
+		dbuf_close(d->embedded_emf);
+		d->embedded_emf = NULL;
+	}
+
+done:
+	;
+}
+
+static void do_ESCAPE_MFCOMMENT(deark *c, lctx *d, struct decoder_params *dp,
+	de_int64 bytecount)
+{
+	de_int64 pos;
+	de_int64 endpos;
+	int commenttype = 0;
+	const char *commenttype_name = "?";
+	unsigned int sig;
+
+	endpos = dp->dpos + dp->dlen;
+	pos = dp->dpos+4; // Skip over EscapeFunction & ByteCount.
+	if(pos+bytecount > endpos) goto done;
+
+	if(bytecount>=4) {
+		sig = (unsigned int)de_getui32le(pos);
+		if(sig==0x43464d57U) {
+			commenttype = 1;
+			commenttype_name = "META_ESCAPE_ENHANCED_METAFILE";
+		}
+	}
+
+	de_dbg(c, "identified as: %s", commenttype_name);
+	if(commenttype==1) {
+		do_ESCAPE_MFCOMMENT_EMF(c, d, dp, pos, bytecount);
 	}
 	else {
-		de_dbg_indent(c, 1);
-		de_run_module_by_id_on_slice(c, "emf", NULL, c->infile, emfpos, emflen);
-		de_dbg_indent(c, -1);
+		de_dbg_hexdump(c, c->infile, pos, bytecount, 256, NULL, 0x1);
 	}
 
 done:
@@ -322,7 +362,7 @@ static int wmf_handler_ESCAPE(deark *c, lctx *d, struct decoder_params *dp)
 	}
 
 	if(escfn==0x000f) {
-		do_ESCAPE_EMF(c, d, dp, bytecount);
+		do_ESCAPE_MFCOMMENT(c, d, dp, bytecount);
 	}
 
 done:
@@ -764,6 +804,7 @@ static void de_run_wmf(deark *c, de_module_params *mparams)
 
 done:
 	if(d) {
+		if(d->embedded_emf) dbuf_close(d->embedded_emf);
 		de_free(c, d->object_table);
 		de_free(c, d);
 	}
