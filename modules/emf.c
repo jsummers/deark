@@ -668,6 +668,14 @@ static int handler_CREATEBRUSHINDIRECT(deark *c, lctx *d, struct decoder_params 
 	return 1;
 }
 
+static int handler_colorref(deark *c, lctx *d, struct decoder_params *dp)
+{
+	de_uint32 colorref;
+	colorref = (de_uint32)de_getui32le(dp->dpos);
+	do_dbg_colorref(c, d, colorref);
+	return 1;
+}
+
 // Can handle any record that is, or begins with, and object index.
 static int handler_object_index(deark *c, lctx *d, struct decoder_params *dp)
 {
@@ -837,8 +845,8 @@ static const struct emf_func_info emf_func_info_arr[] = {
 	{ 0x15, "SETSTRETCHBLTMODE", NULL },
 	{ 0x16, "SETTEXTALIGN", NULL },
 	{ 0x17, "SETCOLORADJUSTMENT", NULL },
-	{ 0x18, "SETTEXTCOLOR", NULL },
-	{ 0x19, "SETBKCOLOR", NULL },
+	{ 0x18, "SETTEXTCOLOR", handler_colorref },
+	{ 0x19, "SETBKCOLOR", handler_colorref },
 	{ 0x1a, "OFFSETCLIPRGN", NULL },
 	{ 0x1b, "MOVETOEX", NULL },
 	{ 0x1c, "SETMETARGN", NULL },
@@ -965,10 +973,9 @@ static int do_emf_record(deark *c, lctx *d, de_int64 recnum, de_int64 recpos,
 
 	fnci = find_emf_func_info(dp.rectype);
 
-	de_dbg(c, "record #%d at %d, type=0x%02x (%s), size=%d bytes", (int)recnum,
-		(int)recpos, (unsigned int)dp.rectype,
-		fnci ? fnci->name : "?",
-		(int)recsize_bytes);
+	de_dbg(c, "record #%d at %d, type=0x%02x (%s), dpos=%"INT64_FMT", dlen=%"INT64_FMT,
+		(int)recnum, (int)recpos, (unsigned int)dp.rectype,
+		fnci ? fnci->name : "?", dp.dpos, dp.dlen);
 
 	if(fnci && fnci->fn) {
 		de_dbg_indent(c, 1);
