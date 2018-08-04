@@ -104,6 +104,7 @@ static const struct clsid_id_struct known_clsids[] = {
 	{{0x00,0x02,0x08,0x20,0x00,0x00,0x00,0x00,0xc0,0x00,0x00,0x00,0x00,0x00,0x00,0x46}, "Excel?" },
 	{{0x00,0x02,0x09,0x06,0x00,0x00,0x00,0x00,0xc0,0x00,0x00,0x00,0x00,0x00,0x00,0x46}, "MS Word?"},
 	{{0x00,0x02,0x0d,0x0b,0x00,0x00,0x00,0x00,0xc0,0x00,0x00,0x00,0x00,0x00,0x00,0x46}, "Outlook item?"},
+	{{0x00,0x02,0x12,0x01,0x00,0x00,0x00,0x00,0x00,0xc0,0x00,0x00,0x00,0x00,0x00,0x46}, "MS Publisher?" },
 	{{0x00,0x06,0xf0,0x46,0x00,0x00,0x00,0x00,0xc0,0x00,0x00,0x00,0x00,0x00,0x00,0x46}, "Outlook item?"},
 	{{0x00,0x0c,0x10,0x84,0x00,0x00,0x00,0x00,0xc0,0x00,0x00,0x00,0x00,0x00,0x00,0x46}, "MSI?"},
 	{{0x1c,0xdd,0x8c,0x7b,0x81,0xc0,0x45,0xa0,0x9f,0xed,0x04,0x14,0x31,0x44,0xcc,0x1e}, "3ds Max?"},
@@ -649,12 +650,12 @@ done:
 	dbuf_close(outf);
 }
 
-// Refer to Microsoft's "[MS-ODRAW]" document.
-static int do_extract_OfficeArtBlip_internal(deark *c, lctx *d, struct dir_entry_info *dei,
-	de_finfo *fi, de_ucstring *tmpfn, de_int64 pos1, de_int64 *bytes_consumed)
+static int do_OfficeArtStream_record(deark *c, lctx *d, struct dir_entry_info *dei,
+	de_int64 pos1, de_int64 *bytes_consumed)
 {
 	unsigned int rectype;
 	unsigned int recinstance;
+	unsigned int recver;
 	unsigned int n;
 	de_int64 reclen;
 	de_int64 pos = 0; // relative to the beginning of firstpart
@@ -668,6 +669,11 @@ static int do_extract_OfficeArtBlip_internal(deark *c, lctx *d, struct dir_entry
 	int is_dib = 0;
 	int is_pict = 0;
 	int retval = 0;
+	int is_container = 0;
+	int is_blip = 0;
+	int saved_indent_level;
+
+	de_dbg_indent_save(c, &saved_indent_level);
 
 	firstpart = dbuf_create_membuf(c, 128, 0x1);
 
@@ -676,14 +682,36 @@ static int do_extract_OfficeArtBlip_internal(deark *c, lctx *d, struct dir_entry
 	copy_any_stream_to_dbuf(c, d, dei, pos1, nbytes_to_copy, firstpart);
 
 	n = (unsigned int)dbuf_getui16le_p(firstpart, &pos);
+	recver = n&0x0f;
+	if(recver==0x0f) is_container = 1;
 	recinstance = n>>4;
-	de_dbg(c, "recInstance: 0x%03x", recinstance);
 
 	rectype = (unsigned int)dbuf_getui16le_p(firstpart, &pos);
-	de_dbg(c, "recType: 0x%04x", rectype);
+	if((rectype&0xf000)!=0xf000) {
+		// Assume this is the end of data, not necessarily an error.
+		goto done;
+	}
 
 	reclen = dbuf_getui32le_p(firstpart, &pos);
-	de_dbg(c, "recLen: %"INT64_FMT, reclen);
+
+	de_dbg(c, "record at [%"INT64_FMT"], ver=0x%x, inst=0x%03x, type=0x%04x, dlen=%"INT64_FMT,
+		pos1, recver, recinstance, rectype, reclen);
+	de_dbg_indent(c, 1);
+
+	if(pos1 + pos + reclen > dei->stream_size) goto done;
+	if(is_container) {
+		// A container is described as *being* its header record. It does have
+		// a recLen, but it should be safe to ignore it if all we care about is
+		// reading the records at a low level.
+		*bytes_consumed = 8;
+	}
+	else {
+		*bytes_consumed = pos + reclen;
+	}
+	retval = 1;
+
+	if(rectype>=0xf018 && rectype<=0xf117) is_blip = 1;
+	if(!is_blip) goto done;
 
 	if(rectype==0xf01a) {
 		ext = "emf";
@@ -727,10 +755,6 @@ static int do_extract_OfficeArtBlip_internal(deark *c, lctx *d, struct dir_entry
 		goto done;
 	}
 
-	if(pos1 + pos + reclen > dei->stream_size) goto done;
-	*bytes_consumed = pos + reclen;
-	retval = 1;
-
 	if(has_metafileHeader) {
 		// metafileHeader starts at pos+extra_bytes-34
 		de_byte cmpr = dbuf_getbyte(firstpart, pos+extra_bytes-2);
@@ -750,7 +774,7 @@ static int do_extract_OfficeArtBlip_internal(deark *c, lctx *d, struct dir_entry
 		goto done;
 	}
 
-	outf = dbuf_create_output_file(c, ext, fi, DE_CREATEFLAG_IS_AUX);
+	outf = dbuf_create_output_file(c, ext, NULL, DE_CREATEFLAG_IS_AUX);
 	if(is_pict) {
 		dbuf_write_zeroes(outf, 512);
 	}
@@ -767,27 +791,25 @@ static int do_extract_OfficeArtBlip_internal(deark *c, lctx *d, struct dir_entry
 	}
 
 done:
+	de_dbg_indent_restore(c, saved_indent_level);
 	dbuf_close(outf);
 	dbuf_close(firstpart);
 	return retval;
 }
 
-static void do_extract_OfficeArtBlip(deark *c, lctx *d, struct dir_entry_info *dei,
-	de_finfo *fi, de_ucstring *tmpfn)
+// Refer to Microsoft's "[MS-ODRAW]" document.
+static void do_OfficeArtStream(deark *c, lctx *d, struct dir_entry_info *dei)
 {
 	de_int64 pos = 0;
 
-	de_dbg(c, "OfficeArtBlip stream");
+	de_dbg(c, "OfficeArt stream, len=%"INT64_FMT, dei->stream_size);
 
 	while(1) {
 		de_int64 ret;
 		de_int64 bytes_consumed = 0;
 
-		if(pos >= dei->stream_size-25) break;
-		de_dbg(c, "image at stream offset %"INT64_FMT, pos);
-		de_dbg_indent(c, 1);
-		ret = do_extract_OfficeArtBlip_internal(c, d, dei, fi, tmpfn, pos, &bytes_consumed);
-		de_dbg_indent(c, -1);
+		if(pos >= dei->stream_size-8) break;
+		ret = do_OfficeArtStream_record(c, d, dei, pos, &bytes_consumed);
 		if(!ret || bytes_consumed<=0) break;
 		pos += bytes_consumed;
 	}
@@ -800,7 +822,7 @@ static void extract_stream_to_file(deark *c, lctx *d, struct dir_entry_info *dei
 	de_finfo *fi = NULL;
 	de_ucstring *tmpfn = NULL;
 	dbuf *firstpart = NULL;
-	int is_OfficeArtBlip = 0;
+	int is_OfficeArtStream = 0;
 
 	de_dbg_indent_save(c, &saved_indent_level);
 
@@ -831,22 +853,31 @@ static void extract_stream_to_file(deark *c, lctx *d, struct dir_entry_info *dei
 		goto done;
 	}
 
-	if(!de_strcasecmp(dei->fname_srd->sz_utf8, "Pictures")) {
-		unsigned int rectype;
+	if(d->subformat_req==SUBFMT_RAW) {
+		;
+	}
+	else if(!de_strcasecmp(dei->fname_srd->sz_utf8, "Pictures")) {
 		// This stream often appears in PPT documents.
+		is_OfficeArtStream = 1;
+	}
+	else if(!de_strcasecmp(dei->fname_srd->sz_utf8, "EscherStm")) {
+		is_OfficeArtStream = 1;
+	}
+	else if(!de_strcasecmp(dei->fname_srd->sz_utf8, "EscherDelayStm")) {
+		// Found in MS Publisher, and probably other formats.
+		is_OfficeArtStream = 1;
+	}
+
+	if(is_OfficeArtStream) {
+		unsigned int rectype;
 		rectype = (unsigned int)dbuf_getui16le(firstpart, 2);
-		de_dbg2(c, "first recType: 0x%04x", rectype);
-		// TODO: Support more image types
-		if(rectype==0xf01a || rectype==0xf01b || rectype==0xf01c || rectype==0xf01d ||
-			rectype==0xf01e || rectype==0xf01f)
-		{
-			is_OfficeArtBlip = 1;
+		if((rectype&0xf000)!=0xf000) {
+			is_OfficeArtStream = 0;
 		}
 	}
 
-	if(is_OfficeArtBlip) {
-		do_extract_OfficeArtBlip(c, d, dei, fi, tmpfn);
-		goto done;
+	if(is_OfficeArtStream) {
+		do_OfficeArtStream(c, d, dei);
 	}
 
 	de_finfo_set_name_from_ucstring(c, fi, tmpfn);
@@ -1296,10 +1327,13 @@ static void do_process_stream(deark *c, lctx *d, struct dir_entry_info *dei)
 		extract_stream_to_file(c, d, dei);
 	}
 
+	if(d->subformat_req==SUBFMT_RAW) goto done;
+
 	// It's against our ground rules to both extract a file, and also analyze it,
 	// but there's no good alternative in this case.
 
 	// TODO: Is there a good way to tell whether a stream is a property set?
+	// TODO: Refactor this function and extract_stream_to_file(), for consistency.
 
 	if(!de_strcasecmp(dei->fname_srd->sz_utf8, "\x05" "SummaryInformation")) {
 		is_propset = 1;
@@ -1317,6 +1351,9 @@ static void do_process_stream(deark *c, lctx *d, struct dir_entry_info *dei)
 	if(is_propset) {
 		do_cfb_olepropertyset(c, d, dei, is_summaryinfo, is_root);
 	}
+
+done:
+	;
 }
 
 // Read and process a directory entry from the d->dir stream
