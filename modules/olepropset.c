@@ -694,6 +694,17 @@ static const struct prop_info_entry prop_info_arr[] = {
 	{SFMTID_DOCSUMMARYINFO, 0x0000000e, MSK1, 0, "Manager", NULL},
 	{SFMTID_DOCSUMMARYINFO, 0x0000000f, MSK1, 0, "Company", NULL},
 	{SFMTID_DOCSUMMARYINFO, 0x00000010, MSK1, 0, "LinksUpToDate", NULL},
+	{SFMTID_DOCSUMMARYINFO, 0x00000011, MSK1, 0, "CCHWITHSPACES", NULL},
+	{SFMTID_DOCSUMMARYINFO, 0x00000013, MSK1, 0, "SHAREDDOC", NULL},
+	{SFMTID_DOCSUMMARYINFO, 0x00000014, MSK1, 0, "LINKBASE", NULL},
+	{SFMTID_DOCSUMMARYINFO, 0x00000015, MSK1, 0, "HLINKS", NULL},
+	{SFMTID_DOCSUMMARYINFO, 0x00000016, MSK1, 0, "HYPERLINKSCHANGED", NULL},
+	{SFMTID_DOCSUMMARYINFO, 0x00000017, MSK1, 0, "VERSION", NULL},
+	{SFMTID_DOCSUMMARYINFO, 0x00000018, MSK1, 0, "DIGSIG", NULL},
+	{SFMTID_DOCSUMMARYINFO, 0x0000001a, MSK1, 0, "CONTENTTYPE", NULL},
+	{SFMTID_DOCSUMMARYINFO, 0x0000001b, MSK1, 0, "CONTENTSTATUS", NULL},
+	{SFMTID_DOCSUMMARYINFO, 0x0000001c, MSK1, 0, "LANGUAGE", NULL},
+	{SFMTID_DOCSUMMARYINFO, 0x0000001d, MSK1, 0, "DOCVERSION", NULL},
 	{SFMTID_IMAGECONTENTS, 0x01000000, MSK1, 0, "Number of resolutions", NULL},
 	{SFMTID_IMAGECONTENTS, 0x01000002, MSK1, 0, "Highest resolution width", NULL},
 	{SFMTID_IMAGECONTENTS, 0x01000003, MSK1, 0, "Highest resolution height", NULL},
@@ -937,9 +948,8 @@ static void do_decode_PropertySetStream(deark *c, lctx *d)
 		// bytes. And it shouldn't be much bigger than 48.
 		si->tbloffset = dbuf_getui16le_p(d->f, &pos);
 		pos += 2;
-		de_dbg(c, "PropertySet[%d] offset: %d", (int)k, (int)si->tbloffset);
 
-		de_dbg(c, "PropertySet[%d]", (int)k);
+		de_dbg(c, "PropertySet[%d] table at %d", (int)k, (int)si->tbloffset);
 		de_dbg_indent(c, 1);
 		do_PropertySet(c, d, si, k);
 		de_dbg_indent(c, -1);
