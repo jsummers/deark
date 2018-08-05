@@ -51,7 +51,8 @@ typedef struct localctx_struct {
 #define SUBFMT_TIFF37680  3
 	int subformat_req;
 	int subformat_final;
-	int extract_all_streams; // A hack to allow disabling stream extraction
+	int extract_raw_streams;
+	int decode_streams;
 	de_int64 minor_ver, major_ver;
 	de_int64 sec_size;
 	//de_int64 num_dir_sectors;
@@ -815,85 +816,6 @@ static void do_OfficeArtStream(deark *c, lctx *d, struct dir_entry_info *dei)
 	}
 }
 
-static void extract_stream_to_file(deark *c, lctx *d, struct dir_entry_info *dei)
-{
-	int saved_indent_level;
-	dbuf *outf = NULL;
-	de_finfo *fi = NULL;
-	de_ucstring *tmpfn = NULL;
-	dbuf *firstpart = NULL;
-	int is_OfficeArtStream = 0;
-
-	de_dbg_indent_save(c, &saved_indent_level);
-
-	// By default, use the "stream name" as the filename.
-	tmpfn = ucstring_create(c);
-
-	if(dei->parent_id>0 && d->dir_entry[dei->parent_id].path) {
-		ucstring_append_ucstring(tmpfn, d->dir_entry[dei->parent_id].path);
-		ucstring_append_sz(tmpfn, "/", DE_ENCODING_ASCII);
-	}
-
-	ucstring_append_ucstring(tmpfn, dei->fname_srd->str);
-
-	fi = de_finfo_create(c);
-
-	// By default, use the mod time from the directory entry.
-	if(dei->mod_time.is_valid) {
-		fi->mod_time = dei->mod_time; // struct copy
-	}
-
-	// Read the first part of the stream, to use for format detection.
-	firstpart = dbuf_create_membuf(c, 256, 0x1);
-	copy_any_stream_to_dbuf(c, d, dei, 0,
-		(dei->stream_size>256)?256:dei->stream_size, firstpart);
-
-	if(d->subformat_final==SUBFMT_THUMBSDB) {
-		do_extract_stream_to_file_thumbsdb(c, d, dei, fi, tmpfn, firstpart);
-		goto done;
-	}
-
-	if(d->subformat_req==SUBFMT_RAW) {
-		;
-	}
-	else if(!de_strcasecmp(dei->fname_srd->sz_utf8, "Pictures")) {
-		// This stream often appears in PPT documents.
-		is_OfficeArtStream = 1;
-	}
-	else if(!de_strcasecmp(dei->fname_srd->sz_utf8, "EscherStm")) {
-		is_OfficeArtStream = 1;
-	}
-	else if(!de_strcasecmp(dei->fname_srd->sz_utf8, "EscherDelayStm")) {
-		// Found in MS Publisher, and probably other formats.
-		is_OfficeArtStream = 1;
-	}
-
-	if(is_OfficeArtStream) {
-		unsigned int rectype;
-		rectype = (unsigned int)dbuf_getui16le(firstpart, 2);
-		if((rectype&0xf000)!=0xf000) {
-			is_OfficeArtStream = 0;
-		}
-	}
-
-	if(is_OfficeArtStream) {
-		do_OfficeArtStream(c, d, dei);
-	}
-
-	de_finfo_set_name_from_ucstring(c, fi, tmpfn);
-	fi->original_filename_flag = 1;
-
-	outf = dbuf_create_output_file(c, NULL, fi, 0);
-	copy_any_stream_to_dbuf(c, d, dei, 0, dei->stream_size, outf);
-
-done:
-	de_dbg_indent_restore(c, saved_indent_level);
-	dbuf_close(firstpart);
-	dbuf_close(outf);
-	ucstring_destroy(tmpfn);
-	de_finfo_destroy(c, fi);
-}
-
 static void dbg_timestamp(deark *c, struct de_timestamp *ts, const char *field_name)
 {
 	char timestamp_buf[64];
@@ -1319,41 +1241,120 @@ static void identify_clsid(deark *c, lctx *d, const de_byte *clsid, char *buf, s
 
 static void do_process_stream(deark *c, lctx *d, struct dir_entry_info *dei)
 {
+	int saved_indent_level;
+	de_finfo *fi_raw = NULL; // Use this if we extract the raw stream
+	de_finfo *fi_tmp = NULL; // Can be used by format-specific code
+	de_ucstring *fn_raw = NULL; // Use this if we extract the raw stream
+	de_ucstring *fn_tmp = NULL; // Can be used by format-specific code
+	dbuf *firstpart = NULL;
+	int is_thumbsdb_stream = 0;
+	int is_OfficeArtStream = 0;
 	int is_summaryinfo = 0;
 	int is_propset = 0;
 	int is_root = (dei->parent_id==0);
 
-	if(d->extract_all_streams) {
-		extract_stream_to_file(c, d, dei);
+	de_dbg_indent_save(c, &saved_indent_level);
+
+	// By default, use the "stream name" as the filename.
+	fn_raw = ucstring_create(c);
+
+	if(dei->parent_id>0 && d->dir_entry[dei->parent_id].path) {
+		ucstring_append_ucstring(fn_raw, d->dir_entry[dei->parent_id].path);
+		ucstring_append_sz(fn_raw, "/", DE_ENCODING_ASCII);
 	}
 
-	if(d->subformat_req==SUBFMT_RAW) goto done;
+	ucstring_append_ucstring(fn_raw, dei->fname_srd->str);
+	fn_tmp = ucstring_clone(fn_raw);
 
-	// It's against our ground rules to both extract a file, and also analyze it,
-	// but there's no good alternative in this case.
+	fi_raw = de_finfo_create(c);
+	fi_tmp = de_finfo_create(c);
 
-	// TODO: Is there a good way to tell whether a stream is a property set?
-	// TODO: Refactor this function and extract_stream_to_file(), for consistency.
+	// By default, use the mod time from the directory entry.
+	if(dei->mod_time.is_valid) {
+		fi_raw->mod_time = dei->mod_time; // struct copy
+		fi_tmp->mod_time = dei->mod_time; // struct copy
+	}
+
+	if(d->extract_raw_streams) {
+		dbuf *outf = NULL;
+
+		de_finfo_set_name_from_ucstring(c, fi_raw, fn_raw);
+		fi_raw->original_filename_flag = 1;
+
+		outf = dbuf_create_output_file(c, NULL, fi_raw, 0);
+		copy_any_stream_to_dbuf(c, d, dei, 0, dei->stream_size, outf);
+		dbuf_close(outf);
+	}
+
+	if(!d->decode_streams) goto done;
+
+	// Read the first part of the stream, to use for format detection.
+	firstpart = dbuf_create_membuf(c, 256, 0x1);
+	copy_any_stream_to_dbuf(c, d, dei, 0,
+		(dei->stream_size>256)?256:dei->stream_size, firstpart);
+
+
+	// Stream type detection
+
+	// FIXME? The stream detection happens even if d->subformat_req==SUBFMT_RAW.
+	// We probably should have different detection logic in that case.
 
 	if(!de_strcasecmp(dei->fname_srd->sz_utf8, "\x05" "SummaryInformation")) {
 		is_propset = 1;
 		is_summaryinfo = 1;
 	}
 	else if(!de_strncmp(dei->fname_srd->sz_utf8, "\x05", 1)) {
+		// TODO: Is there a good way to tell whether a stream is a property set?
 		is_propset = 1;
 	}
 	else if(d->subformat_final==SUBFMT_TIFF37680 &&
 		!de_strcasecmp(dei->fname_srd->sz_utf8, "CONTENTS"))
 	{
+		// TODO: This is not the only place to find a "CONTENTS" stream.
 		is_propset = 1;
 	}
+	else if(d->subformat_final==SUBFMT_THUMBSDB) {
+		is_thumbsdb_stream = 1;
+	}
+	else if(!de_strcasecmp(dei->fname_srd->sz_utf8, "Pictures")) {
+		// This stream often appears in PPT documents.
+		is_OfficeArtStream = 1;
+	}
+	else if(!de_strcasecmp(dei->fname_srd->sz_utf8, "EscherStm")) {
+		is_OfficeArtStream = 1;
+	}
+	else if(!de_strcasecmp(dei->fname_srd->sz_utf8, "EscherDelayStm")) {
+		// Found in MS Publisher, and probably other formats.
+		is_OfficeArtStream = 1;
+	}
+
+	if(is_OfficeArtStream) {
+		unsigned int rectype;
+		rectype = (unsigned int)dbuf_getui16le(firstpart, 2);
+		if((rectype&0xf000)!=0xf000) {
+			is_OfficeArtStream = 0;
+		}
+	}
+
+	// End of stream type detection
 
 	if(is_propset) {
 		do_cfb_olepropertyset(c, d, dei, is_summaryinfo, is_root);
 	}
+	else if(is_thumbsdb_stream) {
+		do_extract_stream_to_file_thumbsdb(c, d, dei, fi_tmp, fn_tmp, firstpart);
+	}
+	else if(is_OfficeArtStream) {
+		do_OfficeArtStream(c, d, dei);
+	}
 
 done:
-	;
+	de_dbg_indent_restore(c, saved_indent_level);
+	dbuf_close(firstpart);
+	ucstring_destroy(fn_raw);
+	ucstring_destroy(fn_tmp);
+	de_finfo_destroy(c, fi_raw);
+	de_finfo_destroy(c, fi_tmp);
 }
 
 // Read and process a directory entry from the d->dir stream
@@ -1457,7 +1458,7 @@ static void do_dir_entry_pass1(deark *c, lctx *d, de_int64 dir_entry_idx, de_int
 
 	do_per_dir_entry_format_detection(c, d, dei);
 
-	if(dei->is_thumbsdb_catalog) {
+	if(dei->is_thumbsdb_catalog && d->decode_streams) {
 		read_thumbsdb_catalog(c, d, dei);
 	}
 	else if(dei->entry_type==OBJTYPE_ROOT_STORAGE) {
@@ -1526,10 +1527,6 @@ static void do_directory(deark *c, lctx *d, int pass)
 
 static void de_run_cfb_internal(deark *c, lctx *d)
 {
-	if(d->subformat_req != SUBFMT_TIFF37680) {
-		d->extract_all_streams = 1;
-	}
-
 	do_init_format_detection(c, d);
 
 	if(!do_header(c, d)) {
@@ -1582,7 +1579,13 @@ static void de_run_cfb(deark *c, de_module_params *mparams)
 	const char *cfbfmt_opt;
 
 	d = de_malloc(c, sizeof(lctx));
+	d->decode_streams = 1;
 	d->subformat_req = SUBFMT_AUTO;
+
+	if(de_get_ext_option(c, "cfb:extractstreams")) {
+		d->extract_raw_streams = 1;
+		d->decode_streams = 0;
+	}
 
 	if(mparams && mparams->in_params.codes) {
 		if(de_strchr(mparams->in_params.codes, 'T')) { // TIFF tag 37680 mode
@@ -1598,11 +1601,11 @@ static void de_run_cfb(deark *c, de_module_params *mparams)
 			if(!de_strcmp(cfbfmt_opt, "auto")) {
 				d->subformat_req = SUBFMT_AUTO;
 			}
+			else if(!de_strcmp(cfbfmt_opt, "raw")) {
+				d->subformat_req = SUBFMT_RAW;
+			}
 			else if(!de_strcmp(cfbfmt_opt, "thumbsdb")) {
 				d->subformat_req = SUBFMT_THUMBSDB;
-			}
-			else { // "raw"
-				d->subformat_req = SUBFMT_RAW;
 			}
 		}
 	}
@@ -1621,6 +1624,7 @@ static int de_identify_cfb(deark *c)
 
 static void de_help_cfb(deark *c)
 {
+	de_msg(c, "-opt cfb:extractstreams : Extract raw streams, instead of decoding");
 	de_msg(c, "-opt cfb:fmt=raw : Do not try to detect the document type");
 	de_msg(c, "-opt cfb:fmt=thumbsdb : Assume Thumbs.db format");
 }
