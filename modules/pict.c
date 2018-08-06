@@ -26,18 +26,6 @@ typedef struct localctx_struct {
 typedef int (*item_decoder_fn)(deark *c, lctx *d, de_int64 opcode, de_int64 data_pos,
 	de_int64 *bytes_used);
 
-static int handler_11(deark *c, lctx *d, de_int64 opcode, de_int64 data_pos, de_int64 *bytes_used);
-static int handler_28(deark *c, lctx *d, de_int64 opcode, de_int64 data_pos, de_int64 *bytes_used);
-static int handler_DxText(deark *c, lctx *d, de_int64 opcode, de_int64 data_pos, de_int64 *bytes_used);
-static int handler_Rectangle(deark *c, lctx *d, de_int64 opcode, de_int64 data_pos, de_int64 *bytes_used);
-static int handler_2b(deark *c, lctx *d, de_int64 opcode, de_int64 data_pos, de_int64 *bytes_used);
-static int handler_2c(deark *c, lctx *d, de_int64 opcode, de_int64 data_pos, de_int64 *bytes_used);
-static int handler_98_9a(deark *c, lctx *d, de_int64 opcode, de_int64 data_pos, de_int64 *bytes_used);
-static int handler_a0(deark *c, lctx *d, de_int64 opcode, de_int64 data_pos, de_int64 *bytes_used);
-static int handler_a1(deark *c, lctx *d, de_int64 opcode, de_int64 data_pos, de_int64 *bytes_used);
-static int handler_0c00(deark *c, lctx *d, de_int64 opcode, de_int64 data_pos, de_int64 *bytes_used);
-static int handler_QuickTime(deark *c, lctx *d, de_int64 opcode, de_int64 data_pos, de_int64 *bytes_used);
-
 struct opcode_info {
 	de_uint16 opcode;
 #define SZCODE_SPECIAL 0
@@ -48,105 +36,6 @@ struct opcode_info {
 	de_uint32 size; // Data size, not including opcode. Logic depends on size_code.
 	const char *name;
 	item_decoder_fn fn;
-};
-static const struct opcode_info opcode_info_arr[] = {
-	// This list is not complete.
-	{ 0x0000, SZCODE_EXACT,   0,  "NOP", NULL },
-	{ 0x0001, SZCODE_REGION,  0,  "Clip", NULL },
-	{ 0x0002, SZCODE_EXACT,   8,  "BkPat", NULL },
-	{ 0x0003, SZCODE_EXACT,   2,  "TxFont", NULL },
-	{ 0x0004, SZCODE_EXACT,   1,  "TxFace", NULL },
-	{ 0x0005, SZCODE_EXACT,   2,  "TxMode", NULL },
-	{ 0x0006, SZCODE_EXACT,   4,  "SpExtra", NULL },
-	{ 0x0007, SZCODE_EXACT,   4,  "PnSize", NULL },
-	{ 0x0008, SZCODE_EXACT,   2,  "PnMode", NULL },
-	{ 0x0009, SZCODE_EXACT,   8,  "PnPat", NULL },
-	{ 0x000a, SZCODE_EXACT,   8,  "FillPat", NULL },
-	{ 0x000b, SZCODE_EXACT,   4,  "OvSize", NULL },
-	{ 0x000c, SZCODE_EXACT,   4,  "Origin", NULL },
-	{ 0x000d, SZCODE_EXACT,   2,  "TxSize", NULL },
-	{ 0x000e, SZCODE_EXACT,   4,  "FgColor", NULL },
-	{ 0x000f, SZCODE_EXACT,   4,  "BkColor", NULL },
-	{ 0x0010, SZCODE_EXACT,   8,  "TxRatio", NULL },
-	{ 0x0011, SZCODE_EXACT,   1,  "Version", handler_11 },
-	{ 0x0015, SZCODE_EXACT,   2,  "PnLocHFrac", NULL },
-	{ 0x0016, SZCODE_EXACT,   2,  "ChExtra", NULL },
-	{ 0x001a, SZCODE_EXACT,   6,  "RGBFgCol", NULL },
-	{ 0x001b, SZCODE_EXACT,   6,  "RGBBkCol", NULL },
-	{ 0x001c, SZCODE_EXACT,   0,  "HiliteMode", NULL },
-	{ 0x001d, SZCODE_EXACT,   6,  "HiliteColor", NULL },
-	{ 0x001e, SZCODE_EXACT,   0,  "DefHilite", NULL },
-	{ 0x001f, SZCODE_EXACT,   6,  "OpColor", NULL },
-	{ 0x0020, SZCODE_EXACT,   8,  "Line", NULL },
-	{ 0x0021, SZCODE_EXACT,   4,  "LineFrom", NULL },
-	{ 0x0022, SZCODE_EXACT,   6,  "ShortLine", NULL },
-	{ 0x0023, SZCODE_EXACT,   2,  "ShortLineFrom", NULL },
-	{ 0x0028, SZCODE_SPECIAL, 0,  "LongText", handler_28 },
-	{ 0x0029, SZCODE_SPECIAL, 0,  "DHText", handler_DxText },
-	{ 0x002a, SZCODE_SPECIAL, 0,  "DVText", handler_DxText },
-	{ 0x002b, SZCODE_SPECIAL, 0,  "DHDVText", handler_2b },
-	{ 0x002c, SZCODE_SPECIAL, 0,  "fontName", handler_2c },
-	{ 0x002d, SZCODE_SPECIAL, 0,  "lineJustify", NULL },
-	{ 0x002e, SZCODE_SPECIAL, 0,  "glyphState", NULL },
-	{ 0x0030, SZCODE_EXACT,   8,  "frameRect", handler_Rectangle },
-	{ 0x0031, SZCODE_EXACT,   8,  "paintRect", handler_Rectangle },
-	{ 0x0032, SZCODE_EXACT,   8,  "eraseRect", handler_Rectangle },
-	{ 0x0033, SZCODE_EXACT,   8,  "invertRect", handler_Rectangle },
-	{ 0x0034, SZCODE_EXACT,   8,  "fillRect", handler_Rectangle },
-	{ 0x0038, SZCODE_EXACT,   0,  "frameSameRect", NULL },
-	{ 0x0039, SZCODE_EXACT,   0,  "paintSameRect", NULL },
-	{ 0x003a, SZCODE_EXACT,   0,  "eraseSameRect", NULL },
-	{ 0x003b, SZCODE_EXACT,   0,  "invertSameRect", NULL },
-	{ 0x003c, SZCODE_EXACT,   0,  "fillSameRect", NULL },
-	{ 0x0040, SZCODE_EXACT,   8,  "frameRRect", handler_Rectangle },
-	{ 0x0041, SZCODE_EXACT,   8,  "paintRRect", handler_Rectangle },
-	{ 0x0042, SZCODE_EXACT,   8,  "eraseRRect", handler_Rectangle },
-	{ 0x0043, SZCODE_EXACT,   8,  "invertRRect", handler_Rectangle },
-	{ 0x0044, SZCODE_EXACT,   8,  "fillRRect", handler_Rectangle },
-	{ 0x0048, SZCODE_EXACT,   0,  "frameSameRRect", NULL },
-	{ 0x0049, SZCODE_EXACT,   0,  "paintSameRRect", NULL },
-	{ 0x004a, SZCODE_EXACT,   0,  "eraseSameRRect", NULL },
-	{ 0x004b, SZCODE_EXACT,   0,  "invertSameRRect", NULL },
-	{ 0x004c, SZCODE_EXACT,   0,  "fillSameRRect", NULL },
-	{ 0x0050, SZCODE_EXACT,   8,  "frameOval", handler_Rectangle },
-	{ 0x0051, SZCODE_EXACT,   8,  "paintOval", handler_Rectangle },
-	{ 0x0052, SZCODE_EXACT,   8,  "eraseOval", handler_Rectangle },
-	{ 0x0053, SZCODE_EXACT,   8,  "invertOval", handler_Rectangle },
-	{ 0x0054, SZCODE_EXACT,   8,  "fillOval", handler_Rectangle },
-	{ 0x0058, SZCODE_EXACT,   0,  "frameSameOval", NULL },
-	{ 0x0059, SZCODE_EXACT,   0,  "paintSameOval", NULL },
-	{ 0x005a, SZCODE_EXACT,   0,  "eraseSameOval", NULL },
-	{ 0x005b, SZCODE_EXACT,   0,  "invertSameOval", NULL },
-	{ 0x005c, SZCODE_EXACT,   0,  "fillSameOval", NULL },
-	{ 0x0060, SZCODE_EXACT,   12, "frameArc", NULL },
-	{ 0x0061, SZCODE_EXACT,   12, "paintArc", NULL },
-	{ 0x0062, SZCODE_EXACT,   12, "eraseArc", NULL },
-	{ 0x0063, SZCODE_EXACT,   12, "invertArc", NULL },
-	{ 0x0064, SZCODE_EXACT,   12, "fillArc", NULL },
-	{ 0x0068, SZCODE_EXACT,   4,  "frameSameArc", NULL },
-	{ 0x0069, SZCODE_EXACT,   4,  "paintSameArc", NULL },
-	{ 0x006a, SZCODE_EXACT,   4,  "eraseSameArc", NULL },
-	{ 0x006b, SZCODE_EXACT,   4,  "invertSameArc", NULL },
-	{ 0x006c, SZCODE_EXACT,   4,  "fillSameArc", NULL },
-	{ 0x0080, SZCODE_REGION,  0,  "frameRgn", NULL },
-	{ 0x0081, SZCODE_REGION,  0,  "paintRgn", NULL },
-	{ 0x0082, SZCODE_REGION,  0,  "eraseRgn", NULL },
-	{ 0x0083, SZCODE_REGION,  0,  "invertRgn", NULL },
-	{ 0x0084, SZCODE_REGION,  0,  "fillRgn", NULL },
-	{ 0x0070, SZCODE_POLYGON, 0,  "framePoly", NULL },
-	{ 0x0071, SZCODE_POLYGON, 0,  "paintPoly", NULL },
-	{ 0x0072, SZCODE_POLYGON, 0,  "erasePoly", NULL },
-	{ 0x0073, SZCODE_POLYGON, 0,  "invertPoly", NULL },
-	{ 0x0074, SZCODE_POLYGON, 0,  "fillPoly", NULL },
-	{ 0x0098, SZCODE_SPECIAL, 0,  "PackBitsRect", handler_98_9a },
-	{ 0x009a, SZCODE_SPECIAL, 0,  "DirectBitsRect", handler_98_9a },
-	{ 0x00a0, SZCODE_EXACT,   2,  "ShortComment", handler_a0 },
-	{ 0x00a1, SZCODE_SPECIAL, 0,  "LongComment", handler_a1 },
-	{ 0x00ff, SZCODE_EXACT,   2,  "opEndPic", NULL },
-	{ 0x0c00, SZCODE_EXACT,   24, "HeaderOp", handler_0c00 },
-	{ 0x8200, SZCODE_SPECIAL, 0,  "CompressedQuickTime", handler_QuickTime },
-	{ 0x8201, SZCODE_SPECIAL, 0,  "UncompressedQuickTime", handler_QuickTime },
-	{ 0xffff, SZCODE_SPECIAL, 0,  NULL, NULL }
 };
 
 static double pict_read_fixed(dbuf *f, de_int64 pos)
@@ -874,11 +763,112 @@ static int handler_QuickTime(deark *c, lctx *d, de_int64 opcode, de_int64 data_p
 	return 1;
 }
 
+static const struct opcode_info opcode_info_arr[] = {
+	// TODO: This list might not be complete, and it needs to be complete in
+	// order to parse all PICT files.
+	// Note that some opcode ranges are handled in do_handle_item().
+	{ 0x0000, SZCODE_EXACT,   0,  "NOP", NULL },
+	{ 0x0001, SZCODE_REGION,  0,  "Clip", NULL },
+	{ 0x0002, SZCODE_EXACT,   8,  "BkPat", NULL },
+	{ 0x0003, SZCODE_EXACT,   2,  "TxFont", NULL },
+	{ 0x0004, SZCODE_EXACT,   1,  "TxFace", NULL },
+	{ 0x0005, SZCODE_EXACT,   2,  "TxMode", NULL },
+	{ 0x0006, SZCODE_EXACT,   4,  "SpExtra", NULL },
+	{ 0x0007, SZCODE_EXACT,   4,  "PnSize", NULL },
+	{ 0x0008, SZCODE_EXACT,   2,  "PnMode", NULL },
+	{ 0x0009, SZCODE_EXACT,   8,  "PnPat", NULL },
+	{ 0x000a, SZCODE_EXACT,   8,  "FillPat", NULL },
+	{ 0x000b, SZCODE_EXACT,   4,  "OvSize", NULL },
+	{ 0x000c, SZCODE_EXACT,   4,  "Origin", NULL },
+	{ 0x000d, SZCODE_EXACT,   2,  "TxSize", NULL },
+	{ 0x000e, SZCODE_EXACT,   4,  "FgColor", NULL },
+	{ 0x000f, SZCODE_EXACT,   4,  "BkColor", NULL },
+	{ 0x0010, SZCODE_EXACT,   8,  "TxRatio", NULL },
+	{ 0x0011, SZCODE_EXACT,   1,  "Version", handler_11 },
+	{ 0x0015, SZCODE_EXACT,   2,  "PnLocHFrac", NULL },
+	{ 0x0016, SZCODE_EXACT,   2,  "ChExtra", NULL },
+	{ 0x001a, SZCODE_EXACT,   6,  "RGBFgCol", NULL },
+	{ 0x001b, SZCODE_EXACT,   6,  "RGBBkCol", NULL },
+	{ 0x001c, SZCODE_EXACT,   0,  "HiliteMode", NULL },
+	{ 0x001d, SZCODE_EXACT,   6,  "HiliteColor", NULL },
+	{ 0x001e, SZCODE_EXACT,   0,  "DefHilite", NULL },
+	{ 0x001f, SZCODE_EXACT,   6,  "OpColor", NULL },
+	{ 0x0020, SZCODE_EXACT,   8,  "Line", NULL },
+	{ 0x0021, SZCODE_EXACT,   4,  "LineFrom", NULL },
+	{ 0x0022, SZCODE_EXACT,   6,  "ShortLine", NULL },
+	{ 0x0023, SZCODE_EXACT,   2,  "ShortLineFrom", NULL },
+	{ 0x0028, SZCODE_SPECIAL, 0,  "LongText", handler_28 },
+	{ 0x0029, SZCODE_SPECIAL, 0,  "DHText", handler_DxText },
+	{ 0x002a, SZCODE_SPECIAL, 0,  "DVText", handler_DxText },
+	{ 0x002b, SZCODE_SPECIAL, 0,  "DHDVText", handler_2b },
+	{ 0x002c, SZCODE_SPECIAL, 0,  "fontName", handler_2c },
+	{ 0x002d, SZCODE_SPECIAL, 0,  "lineJustify", NULL },
+	{ 0x002e, SZCODE_SPECIAL, 0,  "glyphState", NULL },
+	{ 0x0030, SZCODE_EXACT,   8,  "frameRect", handler_Rectangle },
+	{ 0x0031, SZCODE_EXACT,   8,  "paintRect", handler_Rectangle },
+	{ 0x0032, SZCODE_EXACT,   8,  "eraseRect", handler_Rectangle },
+	{ 0x0033, SZCODE_EXACT,   8,  "invertRect", handler_Rectangle },
+	{ 0x0034, SZCODE_EXACT,   8,  "fillRect", handler_Rectangle },
+	{ 0x0038, SZCODE_EXACT,   0,  "frameSameRect", NULL },
+	{ 0x0039, SZCODE_EXACT,   0,  "paintSameRect", NULL },
+	{ 0x003a, SZCODE_EXACT,   0,  "eraseSameRect", NULL },
+	{ 0x003b, SZCODE_EXACT,   0,  "invertSameRect", NULL },
+	{ 0x003c, SZCODE_EXACT,   0,  "fillSameRect", NULL },
+	{ 0x0040, SZCODE_EXACT,   8,  "frameRRect", handler_Rectangle },
+	{ 0x0041, SZCODE_EXACT,   8,  "paintRRect", handler_Rectangle },
+	{ 0x0042, SZCODE_EXACT,   8,  "eraseRRect", handler_Rectangle },
+	{ 0x0043, SZCODE_EXACT,   8,  "invertRRect", handler_Rectangle },
+	{ 0x0044, SZCODE_EXACT,   8,  "fillRRect", handler_Rectangle },
+	{ 0x0048, SZCODE_EXACT,   0,  "frameSameRRect", NULL },
+	{ 0x0049, SZCODE_EXACT,   0,  "paintSameRRect", NULL },
+	{ 0x004a, SZCODE_EXACT,   0,  "eraseSameRRect", NULL },
+	{ 0x004b, SZCODE_EXACT,   0,  "invertSameRRect", NULL },
+	{ 0x004c, SZCODE_EXACT,   0,  "fillSameRRect", NULL },
+	{ 0x0050, SZCODE_EXACT,   8,  "frameOval", handler_Rectangle },
+	{ 0x0051, SZCODE_EXACT,   8,  "paintOval", handler_Rectangle },
+	{ 0x0052, SZCODE_EXACT,   8,  "eraseOval", handler_Rectangle },
+	{ 0x0053, SZCODE_EXACT,   8,  "invertOval", handler_Rectangle },
+	{ 0x0054, SZCODE_EXACT,   8,  "fillOval", handler_Rectangle },
+	{ 0x0058, SZCODE_EXACT,   0,  "frameSameOval", NULL },
+	{ 0x0059, SZCODE_EXACT,   0,  "paintSameOval", NULL },
+	{ 0x005a, SZCODE_EXACT,   0,  "eraseSameOval", NULL },
+	{ 0x005b, SZCODE_EXACT,   0,  "invertSameOval", NULL },
+	{ 0x005c, SZCODE_EXACT,   0,  "fillSameOval", NULL },
+	{ 0x0060, SZCODE_EXACT,   12, "frameArc", NULL },
+	{ 0x0061, SZCODE_EXACT,   12, "paintArc", NULL },
+	{ 0x0062, SZCODE_EXACT,   12, "eraseArc", NULL },
+	{ 0x0063, SZCODE_EXACT,   12, "invertArc", NULL },
+	{ 0x0064, SZCODE_EXACT,   12, "fillArc", NULL },
+	{ 0x0068, SZCODE_EXACT,   4,  "frameSameArc", NULL },
+	{ 0x0069, SZCODE_EXACT,   4,  "paintSameArc", NULL },
+	{ 0x006a, SZCODE_EXACT,   4,  "eraseSameArc", NULL },
+	{ 0x006b, SZCODE_EXACT,   4,  "invertSameArc", NULL },
+	{ 0x006c, SZCODE_EXACT,   4,  "fillSameArc", NULL },
+	{ 0x0080, SZCODE_REGION,  0,  "frameRgn", NULL },
+	{ 0x0081, SZCODE_REGION,  0,  "paintRgn", NULL },
+	{ 0x0082, SZCODE_REGION,  0,  "eraseRgn", NULL },
+	{ 0x0083, SZCODE_REGION,  0,  "invertRgn", NULL },
+	{ 0x0084, SZCODE_REGION,  0,  "fillRgn", NULL },
+	{ 0x0070, SZCODE_POLYGON, 0,  "framePoly", NULL },
+	{ 0x0071, SZCODE_POLYGON, 0,  "paintPoly", NULL },
+	{ 0x0072, SZCODE_POLYGON, 0,  "erasePoly", NULL },
+	{ 0x0073, SZCODE_POLYGON, 0,  "invertPoly", NULL },
+	{ 0x0074, SZCODE_POLYGON, 0,  "fillPoly", NULL },
+	{ 0x0098, SZCODE_SPECIAL, 0,  "PackBitsRect", handler_98_9a },
+	{ 0x009a, SZCODE_SPECIAL, 0,  "DirectBitsRect", handler_98_9a },
+	{ 0x00a0, SZCODE_EXACT,   2,  "ShortComment", handler_a0 },
+	{ 0x00a1, SZCODE_SPECIAL, 0,  "LongComment", handler_a1 },
+	{ 0x00ff, SZCODE_EXACT,   2,  "opEndPic", NULL },
+	{ 0x0c00, SZCODE_EXACT,   24, "HeaderOp", handler_0c00 },
+	{ 0x8200, SZCODE_SPECIAL, 0,  "CompressedQuickTime", handler_QuickTime },
+	{ 0x8201, SZCODE_SPECIAL, 0,  "UncompressedQuickTime", handler_QuickTime }
+};
+
 static const struct opcode_info *find_opcode_info(de_int64 opcode)
 {
-	de_int64 i;
+	size_t i;
 
-	for(i=0; opcode_info_arr[i].name; i++) {
+	for(i=0; i<DE_ITEMS_IN_ARRAY(opcode_info_arr); i++) {
 		if(opcode_info_arr[i].opcode == opcode) {
 			return &opcode_info_arr[i];
 		}
