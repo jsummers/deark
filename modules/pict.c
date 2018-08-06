@@ -75,6 +75,25 @@ static void pict_read_rect(dbuf *f, de_int64 pos,
 	}
 }
 
+static int handler_RGBColor(deark *c, lctx *d, de_int64 opcode, de_int64 data_pos, de_int64 *bytes_used)
+{
+	unsigned int clr16[3];
+	de_byte clr8[3];
+	de_uint32 clr;
+	char csamp[16];
+	de_int64 pos = data_pos;
+	de_int64 k;
+
+	for(k=0; k<3; k++) {
+		clr16[k] = (unsigned int)de_getui16be_p(&pos);
+		clr8[k] = (de_byte)(clr16[k]>>8);
+	}
+	clr = DE_MAKE_RGB(clr8[0], clr8[1], clr8[2]);
+	de_get_colorsample_code(c, clr, csamp, sizeof(csamp));
+	de_dbg(c, "color: (0x%04x,0x%04x,0x%04x)%s", clr16[0], clr16[1], clr16[2], csamp);
+	return 1;
+}
+
 // Version
 static int handler_11(deark *c, lctx *d, de_int64 opcode, de_int64 data_pos, de_int64 *bytes_used)
 {
@@ -787,12 +806,12 @@ static const struct opcode_info opcode_info_arr[] = {
 	{ 0x0011, SZCODE_EXACT,   1,  "Version", handler_11 },
 	{ 0x0015, SZCODE_EXACT,   2,  "PnLocHFrac", NULL },
 	{ 0x0016, SZCODE_EXACT,   2,  "ChExtra", NULL },
-	{ 0x001a, SZCODE_EXACT,   6,  "RGBFgCol", NULL },
-	{ 0x001b, SZCODE_EXACT,   6,  "RGBBkCol", NULL },
+	{ 0x001a, SZCODE_EXACT,   6,  "RGBFgCol", handler_RGBColor },
+	{ 0x001b, SZCODE_EXACT,   6,  "RGBBkCol", handler_RGBColor },
 	{ 0x001c, SZCODE_EXACT,   0,  "HiliteMode", NULL },
-	{ 0x001d, SZCODE_EXACT,   6,  "HiliteColor", NULL },
+	{ 0x001d, SZCODE_EXACT,   6,  "HiliteColor", handler_RGBColor },
 	{ 0x001e, SZCODE_EXACT,   0,  "DefHilite", NULL },
-	{ 0x001f, SZCODE_EXACT,   6,  "OpColor", NULL },
+	{ 0x001f, SZCODE_EXACT,   6,  "OpColor", handler_RGBColor },
 	{ 0x0020, SZCODE_EXACT,   8,  "Line", NULL },
 	{ 0x0021, SZCODE_EXACT,   4,  "LineFrom", NULL },
 	{ 0x0022, SZCODE_EXACT,   6,  "ShortLine", NULL },
