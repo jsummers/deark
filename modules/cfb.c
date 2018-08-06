@@ -651,6 +651,44 @@ done:
 	dbuf_close(outf);
 }
 
+struct officeart_rectype {
+	de_uint16 rectype;
+	de_uint16 flags;
+	const char *name;
+	void *reserved;
+};
+
+static const struct officeart_rectype officeart_rectype_arr[] = {
+	{ 0xf000, 0, "DggContainer", NULL },
+	{ 0xf001, 0, "BStoreContainer", NULL },
+	{ 0xf006, 0, "FDGGBlock", NULL },
+	{ 0xf007, 0, "FBSE", NULL },
+	{ 0xf00b, 0, "FOPT", NULL },
+	{ 0xf01a, 0, "BlipEMF", NULL },
+	{ 0xf01b, 0, "BlipWMF", NULL },
+	{ 0xf01c, 0, "BlipPICT", NULL },
+	{ 0xf01d, 0, "BlipJPEG", NULL },
+	{ 0xf01e, 0, "BlipPNG", NULL },
+	{ 0xf01f, 0, "BlipDIB", NULL },
+	{ 0xf029, 0, "BlipTIFF", NULL },
+	{ 0xf02a, 0, "BlipJPEG", NULL },
+	{ 0xf11a, 0, "ColorMRUContainer", NULL },
+	{ 0xf11e, 0, "SplitMenuColorContainer", NULL },
+	{ 0xf122, 0, "TertiaryFOPT", NULL }
+};
+
+static const char *get_officeart_rectype_name(unsigned int t)
+{
+	size_t k;
+
+	for(k=0; k<DE_ITEMS_IN_ARRAY(officeart_rectype_arr); k++) {
+		if((unsigned int)officeart_rectype_arr[k].rectype == t) {
+			return officeart_rectype_arr[k].name;
+		}
+	}
+	return "?";
+}
+
 static int do_OfficeArtStream_record(deark *c, lctx *d, struct dir_entry_info *dei,
 	de_int64 pos1, de_int64 *bytes_consumed)
 {
@@ -695,8 +733,10 @@ static int do_OfficeArtStream_record(deark *c, lctx *d, struct dir_entry_info *d
 
 	reclen = dbuf_getui32le_p(firstpart, &pos);
 
-	de_dbg(c, "record at [%"INT64_FMT"], ver=0x%x, inst=0x%03x, type=0x%04x, dlen=%"INT64_FMT,
-		pos1, recver, recinstance, rectype, reclen);
+	// TODO: Indent according to container nesting level.
+	de_dbg(c, "record at [%"INT64_FMT"], ver=0x%x, inst=0x%03x, type=0x%04x (%s), dlen=%"INT64_FMT,
+		pos1, recver, recinstance,
+		rectype, get_officeart_rectype_name(rectype), reclen);
 	de_dbg_indent(c, 1);
 
 	if(pos1 + pos + reclen > dei->stream_size) goto done;
