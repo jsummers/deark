@@ -540,6 +540,18 @@ done:
 	return 1;
 }
 
+static int handler_FILLREGION(deark *c, lctx *d, struct decoder_params *dp)
+{
+	unsigned int oi;
+	de_int64 pos = dp->dpos;
+
+	oi = (unsigned int)de_getui16le_p(&pos);
+	de_dbg(c, "region object index: %u", oi);
+	oi = (unsigned int)de_getui16le_p(&pos);
+	de_dbg(c, "brush object index: %u", oi);
+	return 1;
+}
+
 static const struct wmf_func_info wmf_func_info_arr[] = {
 	{ 0x00, 0, "EOF", NULL },
 	{ 0x01, 0, "SETBKCOLOR",  handler_colorref },
@@ -581,18 +593,18 @@ static const struct wmf_func_info wmf_func_info_arr[] = {
 	{ 0x25, 0, "POLYLINE", NULL },
 	{ 0x26, 0, "ESCAPE", wmf_handler_ESCAPE },
 	{ 0x27, 0, "RESTOREDC", NULL },
-	{ 0x28, 0, "FILLREGION", NULL },
+	{ 0x28, 0, "FILLREGION", handler_FILLREGION },
 	{ 0x29, 0, "FRAMEREGION", NULL },
 	{ 0x2a, 0, "INVERTREGION", NULL },
 	{ 0x2b, 0, "PAINTREGION", NULL },
-	{ 0x2c, 0, "SELECTCLIPREGION", NULL },
+	{ 0x2c, 0, "SELECTCLIPREGION", handler_SELECTOBJECT },
 	{ 0x2d, 0, "SELECTOBJECT", handler_SELECTOBJECT },
 	{ 0x2e, 0, "SETTEXTALIGN", NULL },
 	{ 0x30, 0, "CHORD", NULL },
 	{ 0x31, 0, "SETMAPPERFLAGS", NULL },
 	{ 0x32, 0, "EXTTEXTOUT", wmf_handler_EXTTEXTOUT },
 	{ 0x33, 0, "SETDIBTODEV", NULL },
-	{ 0x34, 0, "SELECTPALETTE", NULL },
+	{ 0x34, 0, "SELECTPALETTE", handler_SELECTOBJECT },
 	{ 0x35, 0, "REALIZEPALETTE", NULL },
 	{ 0x36, 0, "ANIMATEPALETTE", NULL },
 	{ 0x37, 0, "SETPALENTRIES", NULL },
