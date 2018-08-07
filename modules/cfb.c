@@ -689,8 +689,22 @@ static const char *get_officeart_rectype_name(unsigned int t)
 	return "?";
 }
 
-static int do_OfficeArtStream_record(deark *c, lctx *d, struct dir_entry_info *dei,
-	de_int64 pos1, de_int64 *bytes_consumed)
+struct officeartctx {
+#define OACTX_STACKSIZE 10
+	de_int64 container_end_stack[OACTX_STACKSIZE];
+	size_t container_end_stackptr;
+
+	// Passed to do_OfficeArtStream_record():
+	de_int64 record_pos;
+
+	// Returned from do_OfficeArtStream_record():
+	de_int64 record_bytes_consumed;
+	int is_container;
+	de_int64 container_endpos; // valid if (is_container)
+};
+
+static int do_OfficeArtStream_record(deark *c, lctx *d, struct officeartctx *oactx,
+	struct dir_entry_info *dei)
 {
 	unsigned int rectype;
 	unsigned int recinstance;
@@ -708,9 +722,13 @@ static int do_OfficeArtStream_record(deark *c, lctx *d, struct dir_entry_info *d
 	int is_dib = 0;
 	int is_pict = 0;
 	int retval = 0;
-	int is_container = 0;
 	int is_blip = 0;
 	int saved_indent_level;
+	de_int64 pos1 = oactx->record_pos;
+
+	oactx->record_bytes_consumed = 0;
+	oactx->is_container = 0;
+	oactx->container_endpos = 0;
 
 	de_dbg_indent_save(c, &saved_indent_level);
 
@@ -722,7 +740,7 @@ static int do_OfficeArtStream_record(deark *c, lctx *d, struct dir_entry_info *d
 
 	n = (unsigned int)dbuf_getui16le_p(firstpart, &pos);
 	recver = n&0x0f;
-	if(recver==0x0f) is_container = 1;
+	if(recver==0x0f) oactx->is_container = 1;
 	recinstance = n>>4;
 
 	rectype = (unsigned int)dbuf_getui16le_p(firstpart, &pos);
@@ -733,21 +751,21 @@ static int do_OfficeArtStream_record(deark *c, lctx *d, struct dir_entry_info *d
 
 	reclen = dbuf_getui32le_p(firstpart, &pos);
 
-	// TODO: Indent according to container nesting level.
 	de_dbg(c, "record at [%"INT64_FMT"], ver=0x%x, inst=0x%03x, type=0x%04x (%s), dlen=%"INT64_FMT,
 		pos1, recver, recinstance,
 		rectype, get_officeart_rectype_name(rectype), reclen);
 	de_dbg_indent(c, 1);
 
 	if(pos1 + pos + reclen > dei->stream_size) goto done;
-	if(is_container) {
+	if(oactx->is_container) {
 		// A container is described as *being* its header record. It does have
 		// a recLen, but it should be safe to ignore it if all we care about is
 		// reading the records at a low level.
-		*bytes_consumed = 8;
+		oactx->record_bytes_consumed = 8;
+		oactx->container_endpos = oactx->record_pos + 8 + reclen;
 	}
 	else {
-		*bytes_consumed = pos + reclen;
+		oactx->record_bytes_consumed = pos + reclen;
 	}
 	retval = 1;
 
@@ -841,19 +859,41 @@ done:
 // Refer to Microsoft's "[MS-ODRAW]" document.
 static void do_OfficeArtStream(deark *c, lctx *d, struct dir_entry_info *dei)
 {
-	de_int64 pos = 0;
+	struct officeartctx * oactx = NULL;
+	int saved_indent_level;
 
+	de_dbg_indent_save(c, &saved_indent_level);
+	oactx = de_malloc(c, sizeof(struct officeartctx));
 	de_dbg(c, "OfficeArt stream, len=%"INT64_FMT, dei->stream_size);
 
+	oactx->record_pos = 0;
 	while(1) {
 		de_int64 ret;
-		de_int64 bytes_consumed = 0;
 
-		if(pos >= dei->stream_size-8) break;
-		ret = do_OfficeArtStream_record(c, d, dei, pos, &bytes_consumed);
-		if(!ret || bytes_consumed<=0) break;
-		pos += bytes_consumed;
+		if(oactx->record_pos >= dei->stream_size-8) break;
+
+		// Have we reached the end of any containers?
+		while(oactx->container_end_stackptr>0 &&
+			oactx->record_pos>=oactx->container_end_stack[oactx->container_end_stackptr-1])
+		{
+			oactx->container_end_stackptr--;
+			de_dbg_indent(c, -1);
+		}
+
+		ret = do_OfficeArtStream_record(c, d, oactx, dei);
+		if(!ret || oactx->record_bytes_consumed<=0) break;
+
+		oactx->record_pos += oactx->record_bytes_consumed;
+
+		// Is a new container open?
+		if(oactx->is_container && oactx->container_end_stackptr<OACTX_STACKSIZE) {
+			oactx->container_end_stack[oactx->container_end_stackptr++] = oactx->container_endpos;
+			de_dbg_indent(c, 1);
+		}
 	}
+
+	de_free(c, oactx);
+	de_dbg_indent_restore(c, saved_indent_level);
 }
 
 static void dbg_timestamp(deark *c, struct de_timestamp *ts, const char *field_name)
