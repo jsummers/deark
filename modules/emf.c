@@ -821,6 +821,58 @@ static int emf_handler_54(deark *c, lctx *d, struct decoder_params *dp)
 	return 1;
 }
 
+static void do_LogFont(deark *c, lctx *d, struct decoder_params *dp, de_int64 pos1, de_int64 len)
+{
+	de_ucstring *facename = NULL;
+	de_int64 pos = pos1;
+
+	if(len<92) goto done;
+	pos += 28;
+
+	facename = ucstring_create(c);
+	dbuf_read_to_ucstring(c->infile, pos, 32*2, facename, 0, DE_ENCODING_UTF16LE);
+	ucstring_truncate_at_NUL(facename);
+	de_dbg(c, "Facename: \"%s\"", ucstring_getpsz_d(facename));
+
+done:
+	ucstring_destroy(facename);
+}
+
+static void do_LogFontEx(deark *c, lctx *d, struct decoder_params *dp, de_int64 pos1, de_int64 len)
+{
+	do_LogFont(c, d, dp, pos1, len);
+	// TODO: FullName, Style, Script
+
+}
+
+static void do_LogFontExDv(deark *c, lctx *d, struct decoder_params *dp, de_int64 pos1, de_int64 len)
+{
+	do_LogFontEx(c, d, dp, pos1, len);
+	// TODO: DesignVector
+}
+
+static int handler_EXTCREATEFONTINDIRECTW(deark *c, lctx *d, struct decoder_params *dp)
+{
+	de_int64 pos = dp->dpos;
+	de_int64 elw_size;
+
+	read_object_index_p(c, d, &pos); // ihFonts
+
+	// "If the size of the elw field is equal to or less than the size of a
+	// LogFontPanose object, elw MUST be treated as a fixed-length LogFont object.
+	// [Else LogFontExDv.] The size of a LogFontPanose object is 320 decimal."
+	elw_size = dp->dlen - 4;
+
+	if(elw_size<=320) {
+		do_LogFont(c, d, dp, pos, elw_size);
+	}
+	else {
+		do_LogFontExDv(c, d, dp, pos, elw_size);
+	}
+
+	return 1;
+}
+
 static const struct emf_func_info emf_func_info_arr[] = {
 	{ 0x01, "HEADER", emf_handler_01 },
 	{ 0x02, "POLYBEZIER", NULL },
@@ -902,7 +954,7 @@ static const struct emf_func_info emf_func_info_arr[] = {
 	{ 0x4f, "PLGBLT", NULL },
 	{ 0x50, "SETDIBITSTODEVICE", emf_handler_50_51 },
 	{ 0x51, "STRETCHDIBITS", emf_handler_50_51 },
-	{ 0x52, "EXTCREATEFONTINDIRECTW", handler_object_index }, // TODO: A better handler
+	{ 0x52, "EXTCREATEFONTINDIRECTW", handler_EXTCREATEFONTINDIRECTW },
 	{ 0x53, "EXTTEXTOUTA", emf_handler_53 },
 	{ 0x54, "EXTTEXTOUTW", emf_handler_54 },
 	{ 0x55, "POLYBEZIER16", NULL },

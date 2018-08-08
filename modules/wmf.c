@@ -540,6 +540,23 @@ done:
 	return 1;
 }
 
+static int handler_CREATEFONTINDIRECT(deark *c, lctx *d, struct decoder_params *dp)
+{
+	de_int64 facename_size;
+
+	facename_size = dp->dlen-18;
+	if(facename_size>32) facename_size=32;
+	if(facename_size>=2) {
+		de_ucstring *facename = NULL;
+		facename = ucstring_create(c);
+		dbuf_read_to_ucstring(c->infile, dp->dpos+18, facename_size, facename,
+			DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_WINDOWS1252);
+		de_dbg(c, "Facename: \"%s\"", ucstring_getpsz_d(facename));
+		ucstring_destroy(facename);
+	}
+	return 1;
+}
+
 static int handler_FILLREGION(deark *c, lctx *d, struct decoder_params *dp)
 {
 	unsigned int oi;
@@ -620,7 +637,7 @@ static const struct wmf_func_info wmf_func_info_arr[] = {
 	{ 0xf7, 1, "CREATEPALETTE", NULL },
 	{ 0xf9, 1, "CREATEPATTERNBRUSH", NULL },
 	{ 0xfa, 1, "CREATEPENINDIRECT", handler_CREATEPENINDIRECT },
-	{ 0xfb, 1, "CREATEFONTINDIRECT", NULL },
+	{ 0xfb, 1, "CREATEFONTINDIRECT", handler_CREATEFONTINDIRECT },
 	{ 0xfc, 1, "CREATEBRUSHINDIRECT", handler_CREATEBRUSHINDIRECT },
 	{ 0xff, 1, "CREATEREGION", NULL }
 };
