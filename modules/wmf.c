@@ -6,6 +6,7 @@
 
 #include <deark-config.h>
 #include <deark-private.h>
+#include <deark-fmtutil.h>
 DE_DECLARE_MODULE(de_module_wmf);
 
 typedef struct localctx_struct {
@@ -543,6 +544,17 @@ done:
 static int handler_CREATEFONTINDIRECT(deark *c, lctx *d, struct decoder_params *dp)
 {
 	de_int64 facename_size;
+	de_int64 n, n2;
+	de_byte b;
+	de_int64 pos = dp->dpos;
+
+	n = de_geti16le(pos); pos += 2;
+	n2 = de_geti16le(pos); pos += 2;
+	de_dbg(c, "height,width: %d,%d", (int)n, (int)n2);
+	pos += 9;
+	b = de_getbyte_p(&pos);
+	de_dbg(c, "charset: 0x%02x (%s)", (unsigned int)b,
+		de_fmtutil_get_windows_charset_name(b));
 
 	facename_size = dp->dlen-18;
 	if(facename_size>32) facename_size=32;
@@ -551,7 +563,7 @@ static int handler_CREATEFONTINDIRECT(deark *c, lctx *d, struct decoder_params *
 		facename = ucstring_create(c);
 		dbuf_read_to_ucstring(c->infile, dp->dpos+18, facename_size, facename,
 			DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_WINDOWS1252);
-		de_dbg(c, "Facename: \"%s\"", ucstring_getpsz_d(facename));
+		de_dbg(c, "facename: \"%s\"", ucstring_getpsz_d(facename));
 		ucstring_destroy(facename);
 	}
 	return 1;
@@ -752,8 +764,8 @@ static int do_wmf_record(deark *c, lctx *d, de_int64 recnum, de_int64 recpos,
 
 	fnci = find_wmf_func_info(dp.recfunc);
 
-	de_dbg(c, "record #%d at %d, type=0x%02x (%s), dpos=%d, dlen=%d", (int)recnum,
-		(int)recpos, (unsigned int)dp.rectype,
+	de_dbg(c, "record #%d at %d, func=0x%04x (%s), dpos=%d, dlen=%d", (int)recnum,
+		(int)recpos, (unsigned int)dp.recfunc,
 		fnci ? fnci->name : "?",
 		(int)dp.dpos, (int)dp.dlen);
 

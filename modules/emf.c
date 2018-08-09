@@ -825,14 +825,24 @@ static void do_LogFont(deark *c, lctx *d, struct decoder_params *dp, de_int64 po
 {
 	de_ucstring *facename = NULL;
 	de_int64 pos = pos1;
+	de_int64 n, n2;
+	de_byte b;
 
 	if(len<92) goto done;
-	pos += 28;
 
+	n = de_geti32le(pos); pos += 4;
+	n2 = de_geti32le(pos); pos += 4;
+	de_dbg(c, "height,width: %d,%d", (int)n, (int)n2);
+	pos += 15;
+	b = de_getbyte_p(&pos);
+	de_dbg(c, "charset: 0x%02x (%s)", (unsigned int)b,
+		de_fmtutil_get_windows_charset_name(b));
+
+	pos += 4;
 	facename = ucstring_create(c);
 	dbuf_read_to_ucstring(c->infile, pos, 32*2, facename, 0, DE_ENCODING_UTF16LE);
 	ucstring_truncate_at_NUL(facename);
-	de_dbg(c, "Facename: \"%s\"", ucstring_getpsz_d(facename));
+	de_dbg(c, "facename: \"%s\"", ucstring_getpsz_d(facename));
 
 done:
 	ucstring_destroy(facename);

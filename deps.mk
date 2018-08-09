@@ -61,7 +61,7 @@ obj/modules/exe.o: modules/exe.c src/deark-config.h src/deark-private.h \
 obj/modules/flif.o: modules/flif.c src/deark-config.h src/deark-private.h \
  src/deark.h
 obj/modules/fnt.o: modules/fnt.c src/deark-config.h src/deark-private.h \
- src/deark.h
+ src/deark.h src/deark-fmtutil.h
 obj/modules/gemfont.o: modules/gemfont.c src/deark-config.h \
  src/deark-private.h src/deark.h
 obj/modules/gemmeta.o: modules/gemmeta.c src/deark-config.h \
@@ -191,7 +191,7 @@ obj/modules/vort.o: modules/vort.c src/deark-config.h src/deark-private.h \
 obj/modules/wad.o: modules/wad.c src/deark-config.h src/deark-private.h \
  src/deark.h
 obj/modules/wmf.o: modules/wmf.c src/deark-config.h src/deark-private.h \
- src/deark.h
+ src/deark.h src/deark-fmtutil.h
 obj/modules/wpg.o: modules/wpg.c src/deark-config.h src/deark-private.h \
  src/deark.h
 obj/modules/wri.o: modules/wri.c src/deark-config.h src/deark-private.h \
