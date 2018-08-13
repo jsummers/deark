@@ -538,6 +538,10 @@
 				>
 			</File>
 			<File
+				RelativePath="..\..\modules\bmi.c"
+				>
+			</File>
+			<File
 				RelativePath="..\..\modules\bmp.c"
 				>
 			</File>

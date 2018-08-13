@@ -28,6 +28,8 @@ obj/modules/bintext.o: modules/bintext.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h
 obj/modules/bmff.o: modules/bmff.c src/deark-config.h src/deark-private.h \
  src/deark.h src/deark-fmtutil.h
+obj/modules/bmi.o: modules/bmi.c src/deark-config.h src/deark-private.h \
+ src/deark.h
 obj/modules/bmp.o: modules/bmp.c src/deark-config.h src/deark-private.h \
  src/deark.h src/deark-fmtutil.h
 obj/modules/bpg.o: modules/bpg.c src/deark-config.h src/deark-private.h \

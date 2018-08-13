@@ -63,6 +63,8 @@ Deark -- Information about supported formats
   Options
    -opt char:width=<n> - Number of characters per row
 
+* BMI (Zoner bitmap) (module="bmi") (experimental)
+
 * BMP (Windows bitmap) (module="bmp")
 
 * Bob ray tracer bitmap (module="bob")
