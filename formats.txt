@@ -488,6 +488,9 @@ Deark -- Information about supported formats
 
 * YBM (Bennet Yee face format) (module="ybm")
 
+* ZBR ((Zoner) Zebra Metafile) (module="zbr")
+  - Extract the preview image.
+
 === Font formats ===
 
 * FNT (Windows font) (module="fnt")

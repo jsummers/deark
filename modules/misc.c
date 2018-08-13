@@ -38,6 +38,7 @@ DE_DECLARE_MODULE(de_module_qdv);
 DE_DECLARE_MODULE(de_module_vitec);
 DE_DECLARE_MODULE(de_module_hs2);
 DE_DECLARE_MODULE(de_module_lumena_cel);
+DE_DECLARE_MODULE(de_module_zbr);
 
 // **************************************************************************
 // "copy" module
@@ -1815,4 +1816,48 @@ void de_module_lumena_cel(deark *c, struct deark_module_info *mi)
 	mi->desc = "Lumena CEL";
 	mi->run_fn = de_run_lumena_cel;
 	mi->identify_fn = de_identify_lumena_cel;
+}
+
+// **************************************************************************
+// ZBR (Zoner Zebra Metafile)
+// **************************************************************************
+
+static void de_run_zbr(deark *c, de_module_params *mparams)
+{
+	de_int64 pos = 0;
+	dbuf *outf = NULL;
+	static const de_byte hdrs[54] = {
+		0x42,0x4d,0xc6,0x14,0,0,0,0,0,0,0x76,0,0,0, // FILEHEADER
+		0x28,0,0,0,0x64,0,0,0,0x64,0,0,0,0x01,0,0x04,0, // INFOHEADER...
+		0,0,0,0,0x50,0x14,0,0,0,0,0,0,0,0,0,0,
+		0x10,0,0,0,0,0,0,0 };
+
+	pos += 4; // signature, version
+	pos += 100; // comment
+
+	de_dbg(c, "preview image at %d", (int)pos);
+	// By design, this image is formatted as a headerless BMP/DIB. We'll just
+	// add the 54 bytes of headers needed to make it a BMP, and call it done.
+	outf = dbuf_create_output_file(c, "preview.bmp", NULL, DE_CREATEFLAG_IS_AUX);
+	dbuf_write(outf, hdrs, 54);
+	dbuf_copy(c->infile, pos, 16*4 + 100*52, outf);
+	dbuf_close(outf);
+}
+
+static int de_identify_zbr(deark *c)
+{
+	if(!dbuf_memcmp(c->infile, 0, "\x9a\x02", 2)) {
+		if(de_input_file_has_ext(c, "zbr")) return 100;
+		return 25;
+	}
+	return 0;
+}
+
+void de_module_zbr(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "zbr";
+	mi->desc = "ZBR (Zebra Metafile)";
+	mi->desc2 = "extract preview image";
+	mi->run_fn = de_run_zbr;
+	mi->identify_fn = de_identify_zbr;
 }
