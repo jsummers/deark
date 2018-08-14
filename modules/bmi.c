@@ -25,6 +25,7 @@ struct imageinfo {
 };
 
 typedef struct localctx_struct {
+	int input_encoding;
 	de_int64 fixed_header_size;
 	de_int64 num_table_items;
 	struct table_item *table;
@@ -219,16 +220,47 @@ static void do_bitmaps(deark *c, lctx *d)
 	}
 }
 
+static void do_comment(deark *c, lctx *d, de_int64 idx, de_int64 pos1)
+{
+	de_ucstring *s = NULL;
+	de_int64 cmt_len;
+	de_int64 pos = pos1;
+
+	pos += 2;
+	cmt_len = de_getui32le_p(&pos);
+	pos += 2;
+
+	s = ucstring_create(c);
+	dbuf_read_to_ucstring_n(c->infile, pos, cmt_len, DE_DBG_MAX_STRLEN, s,
+		DE_CONVFLAG_STOP_AT_NUL, d->input_encoding);
+	de_dbg(c, "comment (item[%d]): \"%s\"", (int)idx, ucstring_getpsz_d(s));
+	ucstring_destroy(s);
+}
+
+static void do_comments(deark *c, lctx *d)
+{
+	de_int64 k;
+
+	for(k=0; k<d->num_table_items; k++) {
+		if(d->table[k].tag_num==0x0003) {
+			do_comment(c, d, k, d->table[k].tag_offs);
+		}
+	}
+}
+
 static void de_run_bmi(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
-	de_int64 pos;
+	de_int64 pos = 0;
 
 	d = de_malloc(c, sizeof(lctx));
 
-	pos = 0;
+	if(c->input_encoding==DE_ENCODING_UNKNOWN)
+		d->input_encoding = DE_ENCODING_WINDOWS1252;
+	else
+		d->input_encoding = c->input_encoding;
 
-	if(!do_header(c, d, 0)) goto done;
+	if(!do_header(c, d, pos)) goto done;
 	pos += d->fixed_header_size;
 
 	if(d->globalimg.num_pal_entries>0) {
@@ -237,9 +269,7 @@ static void de_run_bmi(deark *c, de_module_params *mparams)
 	}
 
 	if(!do_read_table(c, d, pos)) goto done;
-
-	// TODO: Read comments
-
+	do_comments(c, d);
 	do_bitmaps(c, d);
 
 done:
