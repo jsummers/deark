@@ -799,13 +799,18 @@ static int do_OfficeArtStream_record(deark *c, lctx *d, struct officeartctx *oac
 	else if(rectype==0xf01e) {
 		ext = "png";
 		if(recinstance==0x6e0) extra_bytes = 17;
-		else if(recinstance==6e1) extra_bytes = 33;
+		else if(recinstance==0x6e1) extra_bytes = 33;
 	}
 	else if(rectype==0xf01f) {
 		ext = "dib";
 		if(recinstance==0x7a8) extra_bytes = 17;
 		else if(recinstance==0x7a9) extra_bytes = 33;
 		if(extra_bytes) is_dib=1;
+	}
+	else if(rectype==0xf029) {
+		ext = "tif";
+		if(recinstance==0x6e4) extra_bytes = 17;
+		else if(recinstance==0x6e5) extra_bytes = 33;
 	}
 
 	if(extra_bytes==0) {
