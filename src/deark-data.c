@@ -1140,26 +1140,39 @@ int de_encoding_name_to_code(const char *encname)
 }
 
 struct de_encmapwin_item {
-	unsigned int flags;
+	unsigned int flags; // 0x1=supported
 	int wincodepage;
 	int enc;
 	const char *encname;
+	const char *encname_note;
 };
 
 static const struct de_encmapwin_item de_encmapwin_arr[] = {
-	{ 0x01, 1200, DE_ENCODING_UTF16LE, "CP_WINUNICODE" },
-	{ 0x01, 1250, DE_ENCODING_WINDOWS1250, "Windows-1250" },
-	{ 0x01, 1251, DE_ENCODING_WINDOWS1251, "Windows-1251" },
-	{ 0x01, 1252, DE_ENCODING_WINDOWS1252, "Windows-1252" },
-	{ 0x01, 10000, DE_ENCODING_MACROMAN, "MacRoman" },
-	{ 0x01, 65001, DE_ENCODING_UTF8, "UTF-8" }
+	{ 0x01, 1200, DE_ENCODING_UTF16LE, "UTF-16LE", NULL },
+	{ 0x01, 1250, DE_ENCODING_WINDOWS1250, "Windows-1250", "Central/Eastern European" },
+	{ 0x01, 1251, DE_ENCODING_WINDOWS1251, "Windows-1251", "Cyrillic" },
+	{ 0x01, 1252, DE_ENCODING_WINDOWS1252, "Windows-1252", NULL },
+	{ 0x01, 10000, DE_ENCODING_MACROMAN, "MacRoman", NULL },
+	{ 0x01, 65001, DE_ENCODING_UTF8, "UTF-8", NULL },
+	{ 0x00, 874, DE_ENCODING_UNKNOWN, "Windows-874", "Thai" },
+	{ 0x00, 932, DE_ENCODING_UNKNOWN, "Windows-932", "Japanese" },
+	{ 0x00, 936, DE_ENCODING_UNKNOWN, "Windows-936", "simplified Chinese" },
+	{ 0x00, 1253, DE_ENCODING_UNKNOWN, "Windows-1253", "Greek" },
+	{ 0x00, 1254, DE_ENCODING_UNKNOWN, "Windows-1254", "Turkish" },
+	{ 0x00, 1255, DE_ENCODING_UNKNOWN, "Windows-1255", "Hebrew" },
+	{ 0x00, 1256, DE_ENCODING_UNKNOWN, "Windows-1256", "Arabic" },
+	{ 0x00, 1257, DE_ENCODING_UNKNOWN, "Windows-1257", "Baltic" },
+	{ 0x00, 1258, DE_ENCODING_UNKNOWN, "Windows-1258", "Vietnamese" }
 };
 
 // Returns a DE_ENCODING_* code.
-// Returns DE_ENCODING_UNKNOWN if not found, or no equivalent encoding exists.
+// Returns DE_ENCODING_UNKNOWN if unsupported or unknown.
 // encname can be NULL.
+// flags:
+//  0x1: If encoding is known but unsupported, append "(unsupported)" to the
+//    description.
 int de_windows_codepage_to_encoding(deark *c, int wincodepage,
-	char *encname, size_t encname_len)
+	char *encname, size_t encname_len, unsigned int flags)
 {
 	size_t k;
 	const struct de_encmapwin_item *cpinfo = NULL;
@@ -1172,10 +1185,19 @@ int de_windows_codepage_to_encoding(deark *c, int wincodepage,
 	}
 
 	if(cpinfo) {
+		// Code page is known, though not necessarily supported.
 		if(encname) {
-			de_strlcpy(encname, cpinfo->encname, encname_len);
+			char note_tmp[80];
+			if(cpinfo->encname_note) {
+				de_snprintf(note_tmp, sizeof(note_tmp), " (%s)", cpinfo->encname_note);
+			}
+			else {
+				note_tmp[0] = '\0';
+			}
+			de_snprintf(encname, encname_len, "%s%s%s", cpinfo->encname, note_tmp,
+				((cpinfo->flags&0x1)==0 && (flags&0x1)!=0)?" (unsupported)":"");
 		}
-		return cpinfo->enc;
+		return (cpinfo->flags&0x1) ? cpinfo->enc : DE_ENCODING_UNKNOWN;
 	}
 
 	if(encname) {

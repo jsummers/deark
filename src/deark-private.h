@@ -822,7 +822,7 @@ void de_write_codepoint_to_html(deark *c, dbuf *f, de_int32 ch);
 
 int de_encoding_name_to_code(const char *encname);
 int de_windows_codepage_to_encoding(deark *c, int wincodepage,
-	char *encname, size_t encname_len);
+	char *encname, size_t encname_len, unsigned int flags);
 
 void de_copy_bits(const de_byte *src, de_int64 srcbitnum,
 	de_byte *dst, de_int64 dstbitnum, de_int64 bitstocopy);

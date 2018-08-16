@@ -374,7 +374,8 @@ static void do_prop_any_int(deark *c, lctx *d, struct propset_struct *si,
 			si->code_page = (int)n;
 		}
 
-		si->encoding = de_windows_codepage_to_encoding(c, si->code_page, descr, sizeof(descr));
+		si->encoding = de_windows_codepage_to_encoding(c, si->code_page,
+			descr, sizeof(descr), 0x1);
 		if(si->encoding==DE_ENCODING_UNKNOWN) {
 			si->encoding = DE_ENCODING_ASCII;
 		}
