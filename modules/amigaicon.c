@@ -233,11 +233,20 @@ static int do_read_main_icon(deark *c, lctx *d,
 	img = de_bitmap_create(c, width, height, 3);
 
 	// Figure out what palette to use
-	for(i=0; i<256; i++) {
-		// Start with a meaningless grayscale palette.
-		pal[i] = 0x010101 * (de_uint32)i;
+
+	// Start with a meaningless grayscale palette.
+	de_make_grayscale_palette(pal, 256, 0x0);
+
+	if(depth==1) {
+		// The only 1-bit images I've seen are dummy images.
+		// I don't know how they're supposed to be handled, but this should do.
+		pal[0] = DE_STOCKCOLOR_BLACK;
+		pal[1] = DE_STOCKCOLOR_WHITE;
+		if(!d->has_newicons && !d->has_glowicons) {
+			de_warn(c, "Don't know how to handle 1-bit images");
+		}
 	}
-	if(d->icon_revision==0 && depth==2) {
+	else if(d->icon_revision==0 && depth==2) {
 		for(i=0; i<4; i++) pal[i] = rev1pal[i];
 	}
 	else if(depth==2) {
