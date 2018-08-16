@@ -118,30 +118,22 @@ static int wmf_handler_BITBLT_STRETCHBLT_DIBBITBLT(deark *c, lctx *d, struct dec
 
 	if(dp->rectype==0x23) { // STRETCHBLT
 		de_int64 SrcWidth, SrcHeight;
-		SrcHeight = de_geti16le(pos);
-		pos += 2;
-		SrcWidth = de_geti16le(pos);
-		pos += 2;
+		SrcHeight = de_geti16le_p(&pos);
+		SrcWidth = de_geti16le_p(&pos);
 		de_dbg(c, "SrcWidth, SrcHeight: %d"DE_CHAR_TIMES"%d",
 			(int)SrcWidth, (int)SrcHeight);
 	}
 
-	YSrc = de_geti16le(pos);
-	pos += 2;
-	XSrc = de_geti16le(pos);
-	pos += 2;
+	YSrc = de_geti16le_p(&pos);
+	XSrc = de_geti16le_p(&pos);
 	de_dbg(c, "XSrc, YSrc: (%d, %d)", (int)XSrc, (int)YSrc);
 
-	Height = de_geti16le(pos);
-	pos += 2;
-	Width = de_geti16le(pos);
-	pos += 2;
+	Height = de_geti16le_p(&pos);
+	Width = de_geti16le_p(&pos);
 	de_dbg_dimensions(c, Width, Height);
 
-	YDest = de_geti16le(pos);
-	pos += 2;
-	XDest = de_geti16le(pos);
-	pos += 2;
+	YDest = de_geti16le_p(&pos);
+	XDest = de_geti16le_p(&pos);
 	de_dbg(c, "XDest, YDest: (%d, %d)", (int)XDest, (int)YDest);
 
 	// TODO: Bitmap16 object (if BITBLT or STRETCHBLT)
@@ -548,8 +540,8 @@ static int handler_CREATEFONTINDIRECT(deark *c, lctx *d, struct decoder_params *
 	de_byte b;
 	de_int64 pos = dp->dpos;
 
-	n = de_geti16le(pos); pos += 2;
-	n2 = de_geti16le(pos); pos += 2;
+	n = de_geti16le_p(&pos);
+	n2 = de_geti16le_p(&pos);
 	de_dbg(c, "height,width: %d,%d", (int)n, (int)n2);
 	pos += 9;
 	b = de_getbyte_p(&pos);

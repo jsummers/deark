@@ -625,9 +625,9 @@ static void read_LogPen(deark *c, lctx *d, de_int64 pos)
 	style = (unsigned int)de_getui32le_p(&pos);
 	de_dbg(c, "style: 0x%08x", style);
 
-	n = de_geti32le(pos); // <PointL>.x = pen width
+	n = de_geti32le_p(&pos); // <PointL>.x = pen width
 	de_dbg(c, "width: %d", (int)n);
-	pos += 4;
+
 	pos += 4; // <PointL>.y = unused
 
 	colorref = (de_uint32)de_getui32le_p(&pos);
@@ -830,8 +830,8 @@ static void do_LogFont(deark *c, lctx *d, struct decoder_params *dp, de_int64 po
 
 	if(len<92) goto done;
 
-	n = de_geti32le(pos); pos += 4;
-	n2 = de_geti32le(pos); pos += 4;
+	n = de_geti32le_p(&pos);
+	n2 = de_geti32le_p(&pos);
 	de_dbg(c, "height,width: %d,%d", (int)n, (int)n2);
 	pos += 15;
 	b = de_getbyte_p(&pos);
