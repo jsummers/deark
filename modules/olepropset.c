@@ -127,12 +127,19 @@ static void do_prop_clipboard(deark *c, lctx *d, struct propset_struct *si,
 	de_int64 cbsize_reported;
 	de_int64 cbsize_payload;
 	de_int64 cbdatapos;
+	const char *cbtype_name;
 
 	cbsize_reported = dbuf_getui32le(d->f, pos1);
 	de_dbg(c, "clipboard data size: %d", (int)cbsize_reported);
 
 	cbtype = (de_uint32)dbuf_getui32le(d->f, pos1+8);
-	de_dbg(c, "clipboard data type: 0x%08x", (unsigned int)cbtype);
+	if(cbtype==0x54434950U) {
+		cbtype_name="PICT";
+	}
+	else {
+		cbtype_name = de_fmtutil_get_windows_cb_data_type_name((unsigned int)cbtype);
+	}
+	de_dbg(c, "clipboard data type: 0x%08x (%s)", (unsigned int)cbtype, cbtype_name);
 
 	cbdatapos = pos1+12;
 	cbsize_payload = cbsize_reported-8;

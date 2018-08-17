@@ -281,36 +281,16 @@ static void do_XMP(deark *c, lctx *d, struct de_iffctx *ictx, de_int64 pos, de_i
 	dbuf_create_file_from_slice(ictx->f, pos, len, "xmp", NULL, DE_CREATEFLAG_IS_AUX);
 }
 
-static const char *get_cb_data_type_name(de_int64 ty)
-{
-	const char *name = "?";
-
-	switch(ty) {
-	case 1: name="CF_TEXT"; break;
-	case 2: name="CF_BITMAP"; break;
-	case 3: name="CF_METAFILEPICT"; break;
-	case 6: name="CF_TIFF"; break;
-	case 7: name="CF_OEMTEXT"; break;
-	case 8: name="CF_DIB"; break;
-	case 11: name="CF_RIFF"; break;
-	case 12: name="CF_WAVE"; break;
-	case 13: name="CF_UNICODETEXT"; break;
-	case 14: name="CF_ENHMETAFILE"; break;
-	case 17: name="CF_DIBV5"; break;
-	}
-	return name;
-}
-
 static void do_DISP(deark *c, lctx *d, struct de_iffctx *ictx, de_int64 pos, de_int64 len)
 {
-	de_int64 ty;
+	unsigned int ty;
 	de_int64 dpos, dlen;
 
 	if(!ictx->is_le) return;
 	if(len<4) return;
-	ty = de_getui32le(pos);
-	de_dbg(c, "data type: %u (%s)", (unsigned int)ty,
-		get_cb_data_type_name(ty));
+	ty = (unsigned int)de_getui32le(pos);
+	de_dbg(c, "data type: %u (%s)", ty,
+		de_fmtutil_get_windows_cb_data_type_name(ty));
 
 	dpos = pos+4;
 	dlen = len-4;
