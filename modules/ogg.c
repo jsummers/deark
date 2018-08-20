@@ -52,9 +52,8 @@ typedef struct localctx_struct {
 static unsigned int getui24be_p(dbuf *f, de_int64 *ppos)
 {
 	unsigned int u;
-	u = ((unsigned int)dbuf_getbyte_p(f, ppos)) << 16;
-	u |= ((unsigned int)dbuf_getbyte_p(f, ppos)) << 8;
-	u |= (unsigned int)dbuf_getbyte_p(f, ppos);
+	u = (unsigned int)dbuf_getint_ext(f, *ppos, 3, 0, 0);
+	*ppos += 3;
 	return u;
 }
 

@@ -54,11 +54,7 @@ static de_int64 do_get_signed_byte(dbuf *f, de_int64 pos)
 
 static de_int64 do_getui24be(dbuf *f, de_int64 pos)
 {
-	de_byte m[4];
-
-	m[0] = 0;
-	dbuf_read(f, &m[1], pos, 3);
-	return de_getui32be_direct(m);
+	return dbuf_getint_ext(f, pos, 3, 0, 0);
 }
 
 static de_byte get_nybble(dbuf *f, de_int64 abs_byte_pos, de_int64 nybble_offs)

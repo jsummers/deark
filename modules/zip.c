@@ -238,17 +238,6 @@ static void ef_infozip2(deark *c, lctx *d, struct extra_item_info_struct *eii)
 	de_dbg(c, "uid: %d, gid: %d", (int)uidnum, (int)gidnum);
 }
 
-static de_int64 get_variable_length_uint_le(dbuf *f, de_int64 pos, de_int64 len)
-{
-	de_int64 val = 0;
-	de_int64 i;
-
-	for(i=0; i<len && i<8; i++) {
-		val |= ((de_int64)dbuf_getbyte(f, pos+i))<<(i*8);
-	}
-	return val;
-}
-
 // Extra field 0x7875
 static void ef_infozip3(deark *c, lctx *d, struct extra_item_info_struct *eii)
 {
@@ -268,13 +257,13 @@ static void ef_infozip3(deark *c, lctx *d, struct extra_item_info_struct *eii)
 	if(pos+1>endpos) return;
 	sz = (de_int64)de_getbyte_p(&pos);
 	if(pos+sz>endpos) return;
-	uidnum = get_variable_length_uint_le(c->infile, pos, sz);
+	uidnum = dbuf_getint_ext(c->infile, pos, (unsigned int)sz, 1, 0);
 	pos += sz;
 
 	if(pos+1>endpos) return;
 	sz = (de_int64)de_getbyte_p(&pos);
 	if(pos+sz>endpos) return;
-	gidnum = get_variable_length_uint_le(c->infile, pos, sz);
+	gidnum = dbuf_getint_ext(c->infile, pos, (unsigned int)sz, 1, 0);
 	pos += sz;
 
 	de_dbg(c, "uid: %d, gid: %d", (int)uidnum, (int)gidnum);

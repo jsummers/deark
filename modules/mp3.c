@@ -65,13 +65,6 @@ typedef struct id3v2ctx_struct {
 	const char *approx_mark;
 } id3v2ctx;
 
-static de_int64 get_ui24be(dbuf *f, de_int64 pos)
-{
-	de_byte buf[3];
-	dbuf_read(f, buf, pos, 3);
-	return (buf[0]<<16)|(buf[1]<<8)|(buf[2]);
-}
-
 static de_int64 get_synchsafe_int(dbuf *f, de_int64 pos)
 {
 	de_byte buf[4];
@@ -923,7 +916,7 @@ static void do_id3v2_frames(deark *c, id3v2ctx *d,
 			get_id3v2_frame_name(d, tag4cc.id));
 
 		if(d->version_code<=2) {
-			frame_dlen = get_ui24be(f, pos);
+			frame_dlen = dbuf_getint_ext(f, pos, 3, 0, 0); // read 24-bit BE uint
 			pos += 3;
 		}
 		else if(d->version_code==3) {

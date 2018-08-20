@@ -209,6 +209,42 @@ de_byte dbuf_getbyte_p(dbuf *f, de_int64 *ppos)
 	return b;
 }
 
+static de_int64 dbuf_getuint_ext_be_direct(const de_byte *m, unsigned int nbytes)
+{
+	unsigned int k;
+	de_uint64 val = 0;
+
+	if(nbytes>8) return 0;
+	for(k=0; k<nbytes; k++) {
+		val = (val<<8) | (de_uint64)m[k];
+	}
+	return (de_int64)val;
+}
+
+static de_int64 dbuf_getuint_ext_le_direct(const de_byte *m, unsigned int nbytes)
+{
+	unsigned int k;
+	de_uint64 val = 0;
+
+	if(nbytes>8) return 0;
+	for(k=0; k<nbytes; k++) {
+		val |= ((de_uint64)m[k])<<k;
+	}
+	return (de_int64)val;
+}
+
+static de_int64 dbuf_getuint_ext_x(dbuf *f, de_int64 pos, unsigned int nbytes,
+	int is_le)
+{
+	de_byte m[8];
+	if(nbytes>8) return 0;
+	dbuf_read(f, m, pos, (de_int64)nbytes);
+	if(is_le) {
+		return dbuf_getuint_ext_le_direct(m, nbytes);
+	}
+	return dbuf_getuint_ext_be_direct(m, nbytes);
+}
+
 de_int64 de_getui16be_direct(const de_byte *m)
 {
 	return (de_int64)(((de_uint32)m[1]) | (((de_uint32)m[0])<<8));
@@ -449,11 +485,11 @@ de_uint64 dbuf_getui64x(dbuf *f, de_int64 pos, int is_le)
 	return dbuf_getui64be(f, pos);
 }
 
-// TODO: Extend this to any number of bytes, 1-8.
 de_int64 dbuf_getint_ext(dbuf *f, de_int64 pos, unsigned int nbytes,
 	int is_le, int is_signed)
 {
 	if(is_signed) {
+		// TODO: Extend this to any number of bytes, 1-8.
 		switch(nbytes) {
 		case 1: return (de_int64)(signed char)dbuf_getbyte(f, pos); break;
 		case 2: return dbuf_geti16x(f, pos, is_le); break;
@@ -467,6 +503,8 @@ de_int64 dbuf_getint_ext(dbuf *f, de_int64 pos, unsigned int nbytes,
 		case 2: return dbuf_getui16x(f, pos, is_le); break;
 		case 4: return dbuf_getui32x(f, pos, is_le); break;
 		case 8: return dbuf_geti64x(f, pos, is_le); break;
+		default:
+			return dbuf_getuint_ext_x(f, pos, nbytes, is_le);
 		}
 	}
 	return 0;
