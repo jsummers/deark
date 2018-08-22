@@ -27,7 +27,7 @@ mkdir $D/foreign
 cp -p foreign/* $D/foreign/
 
 mkdir $D/scripts
-cp -p scripts/*.sh $D/scripts/
+cp -p scripts/*.sh scripts/*.pl $D/scripts/
 
 mkdir $D/proj
 mkdir $D/proj/vs2008
