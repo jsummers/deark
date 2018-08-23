@@ -102,15 +102,15 @@ static void do_prop_blob(deark *c, lctx *d, struct propset_struct *si,
 
 	*bytes_consumed = 4 + de_pad_to_4(blob_data_size);
 
-	if(blob_data_size<8) return;
+	if(blob_data_size>=8) {
+		// Minor hack. If a blob looks like a JPEG file, extract it.
+		dbuf_read(d->f, magic, blob_data_start, 8);
 
-	// Minor hack. If a blob looks like a JPEG file, extract it.
-	dbuf_read(d->f, magic, blob_data_start, 8);
-
-	if(magic[0]==0xff && magic[1]==0xd8 && magic[2]==0xff) {
-		dbuf_create_file_from_slice(d->f, blob_data_start, blob_data_size,
-			"oleblob.jpg", NULL, DE_CREATEFLAG_IS_AUX);
-		goto done;
+		if(magic[0]==0xff && magic[1]==0xd8 && magic[2]==0xff) {
+			dbuf_create_file_from_slice(d->f, blob_data_start, blob_data_size,
+				"oleblob.jpg", NULL, DE_CREATEFLAG_IS_AUX);
+			goto done;
+		}
 	}
 
 	de_dbg_hexdump(c, d->f, blob_data_start, blob_data_size, 256, NULL, 0x1);
