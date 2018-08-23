@@ -16,6 +16,12 @@ DE_DECLARE_MODULE(de_module_cfb);
 #define OBJTYPE_ROOT_STORAGE 0x05
 
 struct dir_entry_info {
+	// Relative order in which to process this entry
+	//  1 = For the root storage object (for the mini sector stream)
+	//  2 = Other high priority streams
+	//  3 = Normal dir entries
+	int pass;
+
 	de_byte entry_type;
 
 	int is_mini_stream;
@@ -51,8 +57,9 @@ typedef struct localctx_struct {
 #define SUBFMT_TIFF37680  3
 	int subformat_req;
 	int subformat_final;
-	int extract_raw_streams;
-	int decode_streams;
+	de_byte extract_raw_streams;
+	de_byte decode_streams;
+	de_byte dump_dir_structure;
 	de_int64 minor_ver, major_ver;
 	de_int64 sec_size;
 	//de_int64 num_dir_sectors;
@@ -911,8 +918,8 @@ static void dbg_timestamp(deark *c, struct de_timestamp *ts, const char *field_n
 	}
 }
 
-static void read_and_cvt_and_dbg_timestamp(deark *c, dbuf *f, de_int64 pos,
-	struct de_timestamp *ts, const char *field_name)
+static void read_and_cvt_timestamp(deark *c, dbuf *f, de_int64 pos,
+	struct de_timestamp *ts)
 {
 	de_int64 ts_as_FILETIME;
 
@@ -920,7 +927,6 @@ static void read_and_cvt_and_dbg_timestamp(deark *c, dbuf *f, de_int64 pos,
 	ts_as_FILETIME = dbuf_geti64le(f, pos);
 	if(ts_as_FILETIME!=0) {
 		de_FILETIME_to_timestamp(ts_as_FILETIME, ts);
-		dbg_timestamp(c, ts, field_name);
 	}
 }
 
@@ -973,7 +979,8 @@ static int read_thumbsdb_catalog(deark *c, lctx *d, struct dir_entry_info *dei)
 		d->thumbsdb_catalog[i].id = (de_uint32)dbuf_getui32le(catf, pos+4);
 		de_dbg(c, "id: %u", (unsigned int)d->thumbsdb_catalog[i].id);
 
-		read_and_cvt_and_dbg_timestamp(c, catf, pos+8, &d->thumbsdb_catalog[i].mod_time, "timestamp");
+		read_and_cvt_timestamp(c, catf, pos+8, &d->thumbsdb_catalog[i].mod_time);
+		dbg_timestamp(c, &d->thumbsdb_catalog[i].mod_time, "timestamp");
 
 		d->thumbsdb_catalog[i].fname_srd = dbuf_read_string(catf, pos+16, item_len-20, item_len-20,
 			DE_CONVFLAG_WANT_UTF8, DE_ENCODING_UTF16LE);
@@ -1111,10 +1118,12 @@ done:
 	}
 }
 
-#if 0
 static void do_dump_dir_structure(deark *c, lctx *d)
 {
 	de_int64 i;
+
+	de_dbg(c, "dir structure:");
+	de_dbg_indent(c, 1);
 	for(i=0; i<d->num_dir_entries; i++) {
 		de_dbg(c, "[%d] t=%d p=%d c=%d s=%d,%d", (int)i,
 			(int)d->dir_entry[i].entry_type,
@@ -1122,17 +1131,19 @@ static void do_dump_dir_structure(deark *c, lctx *d)
 			(int)d->dir_entry[i].child_id,
 			(int)d->dir_entry[i].sibling_id[0],
 			(int)d->dir_entry[i].sibling_id[1]);
+		de_dbg_indent(c, 1);
 		if(d->dir_entry[i].fname_srd && d->dir_entry[i].fname_srd->str) {
-			de_dbg(c, "  fname: \"%s\"",
+			de_dbg(c, "fname: \"%s\"",
 				ucstring_getpsz(d->dir_entry[i].fname_srd->str));
 		}
 		if(d->dir_entry[i].path) {
-			de_dbg(c, "  path: \"%s\"",
+			de_dbg(c, "path: \"%s\"",
 				ucstring_getpsz(d->dir_entry[i].path));
 		}
+		de_dbg_indent(c, -1);
 	}
+	de_dbg_indent(c, -1);
 }
-#endif
 
 static void do_mark_dir_entries_recursively(deark *c, lctx *d, de_int32 parent_id,
 	de_int32 dir_entry_idx, int level)
@@ -1173,7 +1184,9 @@ static void do_mark_dir_entries_recursively(deark *c, lctx *d, de_int32 parent_i
 // Figure out which entries are in the root directory.
 static void do_analyze_dir_structure(deark *c, lctx *d)
 {
-	//do_dump_dir_structure(c, d);
+	de_dbg_indent(c, 1);
+
+	if(d->dump_dir_structure) do_dump_dir_structure(c, d);
 
 	if(d->num_dir_entries<1) goto done;
 
@@ -1183,14 +1196,14 @@ static void do_analyze_dir_structure(deark *c, lctx *d)
 	// Its child is one of the entries in the root directory. Start with it.
 	do_mark_dir_entries_recursively(c, d, 0, d->dir_entry[0].child_id, 0);
 
-	//do_dump_dir_structure(c, d);
+	if(d->dump_dir_structure) do_dump_dir_structure(c, d);
 done:
-	;
+	de_dbg_indent(c, -1);
 }
 
 // Things to do after we've read the directory stream into memory, and
 // know how many entries there are.
-static void do_before_pass_1(deark *c, lctx *d)
+static void do_before_reading_directory_entries(deark *c, lctx *d)
 {
 	de_int64 i;
 
@@ -1205,12 +1218,6 @@ static void do_before_pass_1(deark *c, lctx *d)
 		d->dir_entry[i].sibling_id[0] = -1;
 		d->dir_entry[i].sibling_id[1] = -1;
 	}
-}
-
-static void do_after_pass_1(deark *c, lctx *d)
-{
-	do_analyze_dir_structure(c, d);
-	do_finalize_format_detection(c, d);
 }
 
 static int is_thumbsdb_orig_name(deark *c, lctx *d, const char *name, size_t nlen)
@@ -1266,6 +1273,7 @@ static void do_per_dir_entry_format_detection(deark *c, lctx *d, struct dir_entr
 {
 	size_t nlen;
 
+	if(dei->entry_type==OBJTYPE_EMPTY) return;
 	if(d->subformat_req!=SUBFMT_AUTO) return;
 	if(!d->could_be_thumbsdb) return;
 
@@ -1442,23 +1450,18 @@ done:
 	de_finfo_destroy(c, fi_tmp);
 }
 
-// Read and process a directory entry from the d->dir stream
-// Pass 1:
-//  Collect information about the streams.
-//  Read the Root Object.
-//  Read the minisec stream.
-//  Process some other special streams (e.g. Thumbsdb Catalog).
-//  Do some things related to format detection.
-static void do_dir_entry_pass1(deark *c, lctx *d, de_int64 dir_entry_idx, de_int64 dir_entry_offs)
-{
-	de_int64 raw_sec_id;
-	de_int64 name_len_bytes;
-	struct dir_entry_info *dei = NULL;
-	char clsid_string[50];
-	char buf[80];
 
-	if(!d->dir_entry) return; // error
+// Read information about a directory entry. Do not print anything about it.
+static void do_read_dir_entry(deark *c, lctx *d, de_int64 dir_entry_idx, de_int64 dir_entry_offs)
+{
+	de_int64 name_len_bytes;
+	de_int64 raw_sec_id;
+	struct dir_entry_info *dei = NULL;
+
+	if(!d->dir_entry) goto done; // error
 	dei = &d->dir_entry[dir_entry_idx];
+
+	dei->pass = 3; // Default pass in which to process this entry
 
 	dei->entry_type = dbuf_getbyte(d->dir, dir_entry_offs+66);
 	switch(dei->entry_type) {
@@ -1468,12 +1471,10 @@ static void do_dir_entry_pass1(deark *c, lctx *d, de_int64 dir_entry_idx, de_int
 	case OBJTYPE_ROOT_STORAGE: dei->entry_type_name="root storage object"; break;
 	default: dei->entry_type_name="?";
 	}
-	de_dbg(c, "type: 0x%02x (%s)", (unsigned int)dei->entry_type, dei->entry_type_name);
 
 	if(dei->entry_type==OBJTYPE_EMPTY) goto done;
 
 	dei->name_len_raw = dbuf_getui16le(d->dir, dir_entry_offs+64);
-	de_dbg2(c, "name len: %d bytes", (int)dei->name_len_raw);
 
 	name_len_bytes = dei->name_len_raw-2; // Ignore the trailing U+0000
 	if(name_len_bytes<0) name_len_bytes = 0;
@@ -1481,26 +1482,90 @@ static void do_dir_entry_pass1(deark *c, lctx *d, de_int64 dir_entry_idx, de_int
 	dei->fname_srd = dbuf_read_string(d->dir, dir_entry_offs, name_len_bytes, name_len_bytes,
 		DE_CONVFLAG_WANT_UTF8, DE_ENCODING_UTF16LE);
 
-	de_dbg(c, "name: \"%s\"", ucstring_getpsz(dei->fname_srd->str));
-
 	dei->node_color = dbuf_getbyte(d->dir, dir_entry_offs+67);
-	de_dbg(c, "node color: %u", (unsigned int)dei->node_color);
 
 	if(dei->entry_type==OBJTYPE_STORAGE || dei->entry_type==OBJTYPE_STREAM) {
 		dei->sibling_id[0] = (de_int32)dbuf_geti32le(d->dir, dir_entry_offs+68);
 		dei->sibling_id[1] = (de_int32)dbuf_geti32le(d->dir, dir_entry_offs+72);
-		de_dbg(c, "sibling StreamIDs: %d, %d", (int)dei->sibling_id[0], (int)dei->sibling_id[1]);
 	}
 
 	if(dei->entry_type==OBJTYPE_STORAGE || dei->entry_type==OBJTYPE_ROOT_STORAGE) {
 		dei->child_id = (de_int32)dbuf_geti32le(d->dir, dir_entry_offs+76);
-		de_dbg(c, "child StreamID: %d", (int)dei->child_id);
 	}
 
 	if(dei->entry_type==OBJTYPE_STORAGE || dei->entry_type==OBJTYPE_ROOT_STORAGE) {
 		dbuf_read(d->dir, dei->clsid, dir_entry_offs+80, 16);
 		de_fmtutil_guid_to_uuid(dei->clsid);
+	}
 
+	read_and_cvt_timestamp(c, d->dir, dir_entry_offs+108, &dei->mod_time);
+
+	raw_sec_id = dbuf_geti32le(d->dir, dir_entry_offs+116);
+
+	if(d->major_ver<=3) {
+		dei->stream_size = dbuf_getui32le(d->dir, dir_entry_offs+120);
+	}
+	else {
+		dei->stream_size = dbuf_geti64le(d->dir, dir_entry_offs+120);
+	}
+
+	dei->is_mini_stream = (dei->entry_type==OBJTYPE_STREAM) && (dei->stream_size < d->std_stream_min_size);
+
+	if(dei->is_mini_stream) {
+		dei->minisec_id = raw_sec_id;
+	}
+	else {
+		dei->normal_sec_id = raw_sec_id;
+	}
+
+	if((d->subformat_req==SUBFMT_THUMBSDB || d->subformat_req==SUBFMT_AUTO) &&
+		!de_strcmp(dei->fname_srd->sz_utf8, "Catalog"))
+	{
+		dei->is_thumbsdb_catalog = 1;
+		if(d->decode_streams) dei->pass = 2;
+	}
+
+	if(dei->entry_type==OBJTYPE_ROOT_STORAGE) {
+		dei->pass = 1;
+	}
+
+	do_per_dir_entry_format_detection(c, d, dei);
+
+done:
+	;
+}
+
+// Process an directory entry from the d->dir stream, that has previously been
+// read into the d->dir_entry array.
+static void do_process_dir_entry(deark *c, lctx *d, de_int64 dir_entry_idx)
+{
+	struct dir_entry_info *dei = NULL;
+	char clsid_string[50];
+	char buf[80];
+
+	if(!d->dir_entry) return; // error
+	dei = &d->dir_entry[dir_entry_idx];
+
+	de_dbg(c, "type: 0x%02x (%s)", (unsigned int)dei->entry_type, dei->entry_type_name);
+	if(dei->entry_type==OBJTYPE_EMPTY) goto done;
+
+	de_dbg2(c, "name len: %d bytes", (int)dei->name_len_raw);
+	de_dbg(c, "name: \"%s\"", ucstring_getpsz(dei->fname_srd->str));
+	de_dbg(c, "node color: %u", (unsigned int)dei->node_color);
+
+	if(dei->entry_type==OBJTYPE_STORAGE || dei->entry_type==OBJTYPE_STREAM) {
+		de_dbg(c, "sibling StreamIDs: %d, %d", (int)dei->sibling_id[0], (int)dei->sibling_id[1]);
+	}
+
+	if(dei->entry_type==OBJTYPE_STORAGE || dei->entry_type==OBJTYPE_ROOT_STORAGE) {
+		de_dbg(c, "child StreamID: %d", (int)dei->child_id);
+	}
+
+	if(dei->entry_type==OBJTYPE_STORAGE || dei->entry_type==OBJTYPE_STREAM) {
+		de_dbg(c, "parent: %d", (int)dei->parent_id);
+	}
+
+	if(dei->entry_type==OBJTYPE_STORAGE || dei->entry_type==OBJTYPE_ROOT_STORAGE) {
 		buf[0] = '\0';
 		if(dei->entry_type==OBJTYPE_ROOT_STORAGE) {
 			identify_clsid(c, d, dei->clsid, buf, sizeof(buf));
@@ -1511,71 +1576,26 @@ static void do_dir_entry_pass1(deark *c, lctx *d, de_int64 dir_entry_idx, de_int
 			clsid_string, buf);
 	}
 
-	read_and_cvt_and_dbg_timestamp(c, d->dir, dir_entry_offs+108, &dei->mod_time, "mod time");
+	dbg_timestamp(c, &dei->mod_time, "mod time");
 
-	raw_sec_id = dbuf_geti32le(d->dir, dir_entry_offs+116);
-
-	if(d->major_ver<=3) {
-		dei->stream_size = dbuf_getui32le(d->dir, dir_entry_offs+120);
-	}
-	else {
-		dei->stream_size = dbuf_geti64le(d->dir, dir_entry_offs+120);
-	}
 	de_dbg(c, "stream size: %"INT64_FMT, dei->stream_size);
 
-	dei->is_mini_stream = (dei->entry_type==OBJTYPE_STREAM) && (dei->stream_size < d->std_stream_min_size);
-
 	if(dei->is_mini_stream) {
-		dei->minisec_id = raw_sec_id;
 		de_dbg(c, "first MiniSecID: %d", (int)dei->minisec_id);
 	}
 	else {
-		dei->normal_sec_id = raw_sec_id;
 		describe_sec_id(c, d, dei->normal_sec_id, buf, sizeof(buf));
 		de_dbg(c, "first SecID: %d (%s)", (int)dei->normal_sec_id, buf);
 	}
 
-	if((d->subformat_req==SUBFMT_THUMBSDB || d->subformat_req==SUBFMT_AUTO) &&
-		!de_strcmp(dei->fname_srd->sz_utf8, "Catalog"))
-	{
-		dei->is_thumbsdb_catalog = 1;
-	}
-
-	do_per_dir_entry_format_detection(c, d, dei);
-
-	if(dei->is_thumbsdb_catalog && d->decode_streams) {
-		read_thumbsdb_catalog(c, d, dei);
-	}
-	else if(dei->entry_type==OBJTYPE_ROOT_STORAGE) {
-		// Note: The Root Storage object is required to be the first entry, so we
-		// don't need an extra pass to process it.
+	if(dei->entry_type==OBJTYPE_ROOT_STORAGE) {
 		read_mini_sector_stream(c, d, dei->normal_sec_id, dei->stream_size);
 	}
-
-done:
-	;
-}
-
-// Pass 2: Process most of the streams.
-static void do_dir_entry_pass2(deark *c, lctx *d, de_int64 dir_entry_idx)
-{
-	struct dir_entry_info *dei = NULL;
-
-	if(!d->dir_entry) return; // error
-	dei = &d->dir_entry[dir_entry_idx];
-
-	de_dbg(c, "type: 0x%02x (%s)", (unsigned int)dei->entry_type, dei->entry_type_name);
-
-	if(dei->entry_type==OBJTYPE_EMPTY) goto done;
-	if(dei->entry_type==OBJTYPE_ROOT_STORAGE) goto done;
-
-	if(dei->fname_srd)
-		de_dbg(c, "name: \"%s\"", ucstring_getpsz(dei->fname_srd->str));
-
-	// In pass 1, we didn't know the parent yet, so print it now.
-	de_dbg(c, "parent: %d", (int)dei->parent_id);
-
-	if(dei->entry_type==OBJTYPE_STREAM) {
+	else if(dei->is_thumbsdb_catalog && d->decode_streams) {
+		// TODO: Move this to do_process_stream()?
+		read_thumbsdb_catalog(c, d, dei);
+	}
+	else if(dei->entry_type==OBJTYPE_STREAM) {
 		do_process_stream(c, d, dei);
 	}
 
@@ -1583,31 +1603,42 @@ done:
 	;
 }
 
-// Pass 1: Detect the file format, and read the mini sector stream.
-// Pass 2: Extract files.
-static void do_directory(deark *c, lctx *d, int pass)
+static void do_directory(deark *c, lctx *d)
 {
-	de_int64 dir_entry_offs; // Offset in d->dir
 	de_int64 i;
+	int pass;
+	int saved_indent_level;
 
-	de_dbg(c, "scanning directory, pass %d", pass);
-	de_dbg_indent(c, 1);
+	de_dbg_indent_save(c, &saved_indent_level);
 
+	de_dbg(c, "reading directory entries");
+	do_before_reading_directory_entries(c, d);
 	for(i=0; i<d->num_dir_entries; i++) {
-		dir_entry_offs = 128*i;
-		de_dbg(c, "directory entry, StreamID=%d", (int)i);
-
-		de_dbg_indent(c, 1);
-		if(pass==1) {
-			do_dir_entry_pass1(c, d, i, dir_entry_offs);
-		}
-		else {
-			do_dir_entry_pass2(c, d, i);
-		}
-		de_dbg_indent(c, -1);
+		de_int64 dir_entry_offs = 128*i;
+		do_read_dir_entry(c, d, i, dir_entry_offs);
 	}
 
-	de_dbg_indent(c, -1);
+	de_dbg(c, "decoding directory structure");
+	do_analyze_dir_structure(c, d);
+
+	de_dbg(c, "detecting format");
+	do_finalize_format_detection(c, d);
+
+	de_dbg(c, "processing directory entries");
+	de_dbg_indent(c, 1);
+	for(pass=1; pass<=3; pass++) {
+		de_dbg2(c, "[pass %d]", pass);
+		for(i=0; i<d->num_dir_entries; i++) {
+			if(d->dir_entry[i].pass == pass) {
+				de_dbg(c, "directory entry, StreamID=%d", (int)i);
+				de_dbg_indent(c, 1);
+				do_process_dir_entry(c, d, i);
+				de_dbg_indent(c, -1);
+			}
+		}
+	}
+
+	de_dbg_indent_restore(c, saved_indent_level);
 }
 
 static void de_run_cfb_internal(deark *c, lctx *d)
@@ -1626,13 +1657,7 @@ static void de_run_cfb_internal(deark *c, lctx *d)
 
 	read_directory_stream(c, d);
 
-	do_before_pass_1(c, d);
-
-	do_directory(c, d, 1);
-
-	do_after_pass_1(c, d);
-
-	do_directory(c, d, 2);
+	do_directory(c, d);
 
 done:
 	dbuf_close(d->difat);
@@ -1670,6 +1695,9 @@ static void de_run_cfb(deark *c, de_module_params *mparams)
 	if(de_get_ext_option(c, "cfb:extractstreams")) {
 		d->extract_raw_streams = 1;
 		d->decode_streams = 0;
+	}
+	if(de_get_ext_option(c, "cfb:dumpdir")) {
+		d->dump_dir_structure = 1; // A low-level debugging feature
 	}
 
 	if(mparams && mparams->in_params.codes) {
