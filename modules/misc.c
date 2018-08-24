@@ -39,6 +39,7 @@ DE_DECLARE_MODULE(de_module_vitec);
 DE_DECLARE_MODULE(de_module_hs2);
 DE_DECLARE_MODULE(de_module_lumena_cel);
 DE_DECLARE_MODULE(de_module_zbr);
+DE_DECLARE_MODULE(de_module_cdr_wl);
 
 // **************************************************************************
 // "copy" module
@@ -1860,4 +1861,68 @@ void de_module_zbr(deark *c, struct deark_module_info *mi)
 	mi->desc2 = "extract preview image";
 	mi->run_fn = de_run_zbr;
 	mi->identify_fn = de_identify_zbr;
+}
+
+// **************************************************************************
+// CorelDRAW CDR - old "WL" format
+// **************************************************************************
+
+static void de_run_cdr_wl(deark *c, de_module_params *mparams)
+{
+	de_byte version;
+	de_byte b;
+	de_int64 w, h;
+	de_int64 rowspan;
+	de_int64 pos = 0;
+	de_bitmap *img = NULL;
+	int saved_indent_level;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+	version = de_getbyte(2);
+	de_dbg(c, "version code: 0x%02x", (unsigned int)version);
+	if(version <= (de_byte)'e') goto done;
+
+	pos = de_getui32le(28);
+	de_dbg(c, "preview image at %d", (int)pos);
+	de_dbg_indent(c, 1);
+
+	// Seems to be Windows DDB format, or something like it.
+	pos += 2;
+	pos += 2;
+	w = de_getui16le_p(&pos);
+	h = de_getui16le_p(&pos);
+	de_dbg_dimensions(c, w, h);
+	rowspan = de_getui16le_p(&pos);
+	b = de_getbyte_p(&pos); // planes
+	if(b!=1) goto done;
+	b = de_getbyte_p(&pos); // bits/pixel
+	if(b!=1) goto done;
+	pos += 4; // bmBits
+
+	if(!de_good_image_dimensions(c, w, h)) goto done;
+	img = de_bitmap_create(c, w, h, 1);
+	de_convert_image_bilevel(c->infile, pos, rowspan, img, 0);
+	de_bitmap_write_to_file(img, "preview", DE_CREATEFLAG_IS_AUX);
+
+done:
+	de_bitmap_destroy(img);
+	de_dbg_indent_restore(c, saved_indent_level);
+}
+
+static int de_identify_cdr_wl(deark *c)
+{
+	if(!dbuf_memcmp(c->infile, 0, "WL", 2)) {
+		if(de_input_file_has_ext(c, "cdr")) return 100;
+		return 6;
+	}
+	return 0;
+}
+
+void de_module_cdr_wl(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "cdr_wl";
+	mi->desc = "CorelDRAW (old WL format)";
+	mi->desc2 = "extract preview image";
+	mi->run_fn = de_run_cdr_wl;
+	mi->identify_fn = de_identify_cdr_wl;
 }

@@ -99,6 +99,9 @@ Deark -- Information about supported formats
   - Extracts bitmaps.
   - Extracts text (use -a).
 
+* CorelDRAW CDR, old "WL" format (module="cdr_wl") (experimental)
+  - Extracts preview image.
+
 * COKE (Atari Falcon) (*.tg1) (module="coke")
 
 * Compface intermediate format (module="compfacei")
