@@ -186,7 +186,11 @@ done:
 
 static int de_identify_gemfont(deark *c)
 {
-	if(!de_input_file_has_ext(c, "fnt")) return 0;
+	if(!de_input_file_has_ext(c, "fnt") &&
+		!de_input_file_has_ext(c, "gft"))
+	{
+		return 0;
+	}
 
 	// This is a difficult format to reliably identify.
 	// The following test can fail.
