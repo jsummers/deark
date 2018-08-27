@@ -18,6 +18,7 @@ DE_DECLARE_MODULE(de_module_riff);
 #define CODE_WAVE  0x57415645U
 #define CODE_WEBP  0x57454250U
 #define CODE_auds  0x61756473U
+#define CODE_bmpt  0x626d7074U
 #define CODE_cmpr  0x636d7072U
 #define CODE_movi  0x6d6f7669U
 #define CODE_vids  0x76696473U
@@ -37,6 +38,7 @@ DE_DECLARE_MODULE(de_module_riff);
 #define CHUNK_XMP  0x584d5020U
 #define CHUNK__PMX 0x5f504d58U
 #define CHUNK_avih 0x61766968U
+#define CHUNK_bmp  0x626d7020U
 #define CHUNK_data 0x64617461U
 #define CHUNK_fact 0x66616374U
 #define CHUNK_fmt  0x666d7420U
@@ -207,6 +209,13 @@ static void do_avi_strf(deark *c, lctx *d, struct de_iffctx *ictx, de_int64 pos,
 		// For audio streams, this is a WAVEFORMATEX.
 		decode_WAVEFORMATEX(c, d, ictx, pos, len);
 	}
+}
+
+static void do_cdr_bmp(deark *c, lctx *d, struct de_iffctx *ictx, de_int64 pos, de_int64 len)
+{
+	if(len<20) return;
+	// The first 2 bytes are an index, or something. BMP starts at offset 2.
+	dbuf_create_file_from_slice(ictx->f, pos+2, len-2, "bmp", NULL, 0);
 }
 
 static void do_palette(deark *c, lctx *d, struct de_iffctx *ictx, de_int64 pos, de_int64 len)
@@ -464,6 +473,11 @@ static int my_riff_chunk_handler(deark *c, struct de_iffctx *ictx)
 			do_avi_strf(c, d, ictx, dpos, dlen);
 		}
 		break;
+
+	case CHUNK_bmp:
+		if(d->is_cdr && ictx->curr_container_contentstype4cc.id==CODE_bmpt) {
+			do_cdr_bmp(c, d, ictx, dpos, dlen);
+		}
 	}
 
 chunk_handled:
