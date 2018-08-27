@@ -24,6 +24,11 @@ DE_DECLARE_MODULE(de_module_animatic);
 
 static void fix_dark_pal(deark *c, struct atari_img_decode_data *adata);
 
+static void help_respectpal(deark *c)
+{
+	de_msg(c, "-opt atari:respectpal : Don't ignore a seemingly bad 2-color palette");
+}
+
 // **************************************************************************
 // DEGAS / DEGAS Elite images
 // **************************************************************************
@@ -250,6 +255,7 @@ static int de_identify_degas(deark *c)
 static void de_help_degas(deark *c)
 {
 	de_fmtutil_atari_help_palbits(c);
+	help_respectpal(c);
 }
 
 void de_module_degas(deark *c, struct deark_module_info *mi)
@@ -787,18 +793,26 @@ static void do_tinystuff_image(deark *c, struct atari_img_decode_data *adata)
 }
 
 // Some 1bpp images apparently have the palette set to [001, 000],
-// instead of [777, 000].
+// or other nonsense, instead of [777, 000].
 // Try to handle that.
 static void fix_dark_pal(deark *c, struct atari_img_decode_data *adata)
 {
+	de_uint32 ap[2];
+
 	if(adata->bpp!=1) return;
 
-	if((adata->pal[0]&0xffffff)==0x000024 &&
-		(adata->pal[1]&0xffffff)==0)
-	{
-		de_warn(c, "All colors are very dark. Converting to black & white.");
-		adata->pal[0] = DE_STOCKCOLOR_WHITE;
-	}
+	ap[0] = adata->pal[0]&0xffffff;
+	ap[1] = adata->pal[1]&0xffffff;
+
+	// Always respect white/black and black/white palettes.
+	if(ap[0]==0xffffff && ap[1]==0x000000) return; // The usual palette
+	if(ap[0]==0x000000 && ap[1]==0xffffff) return;
+
+	// Otherwise assume white/black, unless the user told us not to.
+	if(de_get_ext_option(c, "atari:respectpal")) return;
+
+	adata->pal[0] = DE_STOCKCOLOR_WHITE;
+	adata->pal[1] = DE_STOCKCOLOR_BLACK;
 }
 
 static void de_run_tinystuff(deark *c, de_module_params *mparams)
@@ -915,6 +929,7 @@ static int de_identify_tinystuff(deark *c)
 static void de_help_tinystuff(deark *c)
 {
 	de_fmtutil_atari_help_palbits(c);
+	help_respectpal(c);
 }
 
 void de_module_tinystuff(deark *c, struct deark_module_info *mi)
