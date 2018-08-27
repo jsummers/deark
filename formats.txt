@@ -63,6 +63,8 @@ Deark -- Information about supported formats
   Options
    -opt char:width=<n> - Number of characters per row
 
+* BLD (MegaPaint BLD) (module="bld")
+
 * BMI (Zoner bitmap) (module="bmi") (experimental)
 
 * BMP (Windows bitmap) (module="bmp")

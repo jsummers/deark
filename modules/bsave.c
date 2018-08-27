@@ -609,6 +609,7 @@ done:
 static int de_identify_bsave(deark *c)
 {
 	// Note - Make sure XZ has higher confidence.
+	// Note - Make sure BLD has higher confidence.
 	if(de_getbyte(0)==0xfd) return 10;
 	return 0;
 }

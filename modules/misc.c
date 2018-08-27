@@ -40,6 +40,7 @@ DE_DECLARE_MODULE(de_module_hs2);
 DE_DECLARE_MODULE(de_module_lumena_cel);
 DE_DECLARE_MODULE(de_module_zbr);
 DE_DECLARE_MODULE(de_module_cdr_wl);
+DE_DECLARE_MODULE(de_module_bld);
 
 // **************************************************************************
 // "copy" module
@@ -1925,4 +1926,74 @@ void de_module_cdr_wl(deark *c, struct deark_module_info *mi)
 	mi->desc2 = "extract preview image";
 	mi->run_fn = de_run_cdr_wl;
 	mi->identify_fn = de_identify_cdr_wl;
+}
+
+// **************************************************************************
+// MegaPaint BLD image
+// **************************************************************************
+
+static void de_run_bld(deark *c, de_module_params *mparams)
+{
+	de_int64 w_raw, h_raw;
+	de_int64 w, h;
+	de_int64 rowspan;
+	de_int64 pos = 0;
+	int is_compressed;
+	dbuf *unc_pixels = NULL;
+
+	w_raw = de_geti16be_p(&pos);
+	h_raw = de_geti16be_p(&pos);
+	is_compressed = (w_raw<0);
+	w = is_compressed ? ((-w_raw)+1) : (w_raw+1);
+	h = h_raw+1;
+	de_dbg_dimensions(c, w, h);
+	de_dbg(c, "compressed: %d", is_compressed);
+	if(!de_good_image_dimensions(c, w, h)) goto done;
+	rowspan = (w+7)/8;
+
+	if(is_compressed) {
+		unc_pixels = dbuf_create_membuf(c, h*rowspan, 1);
+		while(1) {
+			de_byte b1;
+			de_int64 count;
+
+			if(pos >= c->infile->len) break;
+			if(unc_pixels->len >= h*rowspan) break;
+
+			b1 = de_getbyte_p(&pos);
+			if(b1==0x00 || b1==0xff) {
+				count = 1+(de_int64)de_getbyte_p(&pos);
+				dbuf_write_run(unc_pixels, b1, count);
+			}
+			else {
+				dbuf_writebyte(unc_pixels, b1);
+			}
+		}
+	}
+	else {
+		unc_pixels = dbuf_open_input_subfile(c->infile, pos, c->infile->len-pos);
+	}
+
+	de_convert_and_write_image_bilevel(unc_pixels, 0, w, h, rowspan,
+		DE_CVTF_WHITEISZERO, NULL, 0);
+
+done:
+	dbuf_close(unc_pixels);
+}
+
+static int de_identify_bld(deark *c)
+{
+	if(de_input_file_has_ext(c, "bld")) return 20;
+	// TODO: We could try to test if the dimensions are sane, but we'd risk
+	// getting it wrong, because we probably don't know what every edition of
+	// MegaPaint does.
+	return 0;
+}
+
+void de_module_bld(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "bld";
+	mi->desc = "MegaPaint BLD";
+	mi->run_fn = de_run_bld;
+	mi->identify_fn = de_identify_bld;
 }
