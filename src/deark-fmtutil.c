@@ -1154,6 +1154,12 @@ void de_fmtutil_atari_set_standard_density(deark *c, struct atari_img_decode_dat
 	}
 }
 
+void de_fmtutil_atari_help_palbits(deark *c)
+{
+	de_msg(c, "-opt atari:palbits=<9|12|15> : Numer of significant bits "
+		"per palette color");
+}
+
 #define CODE__c_   0x28632920U // "(c) "
 #define CODE_ANNO  0x414e4e4fU
 #define CODE_AUTH  0x41555448U

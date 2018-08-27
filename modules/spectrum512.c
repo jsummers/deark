@@ -71,12 +71,18 @@ static int de_identify_spectrum512u(deark *c)
 	return 0;
 }
 
+static void de_help_spectrum512u(deark *c)
+{
+	de_fmtutil_atari_help_palbits(c);
+}
+
 void de_module_spectrum512u(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "spectrum512u";
 	mi->desc = "Spectrum 512 Uncompressed";
 	mi->run_fn = de_run_spectrum512u;
 	mi->identify_fn = de_identify_spectrum512u;
+	mi->help_fn = de_help_spectrum512u;
 }
 
 // **************************************************************************
@@ -390,6 +396,7 @@ static int de_identify_spectrum512c(deark *c)
 static void de_help_spectrum512cs(deark *c)
 {
 	de_msg(c, "-opt spectrum512:tospu : Output to an .spu file");
+	de_fmtutil_atari_help_palbits(c);
 }
 
 void de_module_spectrum512c(deark *c, struct deark_module_info *mi)

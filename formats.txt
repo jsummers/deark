@@ -26,6 +26,8 @@ Deark -- Information about supported formats
 
 * Animatic Film (module="animatic")
   - Extract the individual frames.
+  Options
+   -opt atari:palbits=<n> (refer to readme.md)
 
 * ANSI Art (module="ansiart")
   - Autodetection usually works, but not always. You may have to use
@@ -119,6 +121,8 @@ Deark -- Information about supported formats
   - Extracts individual PCX files.
 
 * DEGAS and DEGAS Elite (module="degas")
+  Options
+   -opt atari:palbits=<n> (refer to readme.md)
 
 * Doodle (Atari) (module="doodle")
   - Supports high resolution (640x400) only
@@ -150,6 +154,8 @@ Deark -- Information about supported formats
   - Supports original bilevel format
   - Supports paletted XIMG format
   - Supports some non-XIMG 16-color images
+  Options
+   -opt atari:palbits=<n> (refer to readme.md)
 
 * GIF (module="gif")
   - Extract the image, or every frame from an animated or mult-image GIF.
@@ -273,6 +279,8 @@ Deark -- Information about supported formats
   Supports the same options as the pcx module.
 
 * NEOchrome (.NEO) (module="neochrome")
+  Options
+   -opt atari:palbits=<n> (refer to readme.md)
 
 * NEOchrome Animation (module="neochrome_ani") (experimental)
 
@@ -427,10 +435,14 @@ Deark -- Information about supported formats
    -opt spectrum512:tospu - Output to an .spu file
 
 * Spectrum 512 uncompressed (.spu) (module="spectrum512u")
+  Options
+   -opt atari:palbits=<n> (refer to readme.md)
 
-* STOS Memory Bank (module="stos")
+* STOS Memory Bank (.mbk) (module="stos")
   - Decode "sprite bank" images
   - Decode "icon bank" images
+  Options
+   -opt atari:palbits=<n> (refer to readme.md)
 
 * Sun Raster (module="sunras") (incomplete)
   - Supports most common image types
@@ -457,6 +469,8 @@ Deark -- Information about supported formats
 * TIM (Playstation graphics) (module="tim") (experimental/incomplete)
 
 * Tiny Stuff (.TNY, .TN1, .TN2, .TN3) (module="tinystuff")
+  Options
+   -opt atari:palbits=<n> (refer to readme.md)
 
 * VBM (VDC BitMap) (module="vbm")
   - Version 2 only

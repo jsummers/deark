@@ -341,10 +341,16 @@ static int de_identify_mbk(deark *c)
 	return 0;
 }
 
+static void de_help_mbk(deark *c)
+{
+	de_fmtutil_atari_help_palbits(c);
+}
+
 void de_module_mbk(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "stos";
 	mi->desc = "STOS Memory Bank (.MBK)";
 	mi->run_fn = de_run_mbk_mbs;
 	mi->identify_fn = de_identify_mbk;
+	mi->help_fn = de_help_mbk;
 }

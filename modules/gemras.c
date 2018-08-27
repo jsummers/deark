@@ -473,10 +473,16 @@ static int de_identify_gemraster(deark *c)
 	return 10;
 }
 
+static void de_help_gemraster(deark *c)
+{
+	de_fmtutil_atari_help_palbits(c);
+}
+
 void de_module_gemraster(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "gemraster";
 	mi->desc = "GEM VDI Bit Image, a.k.a. GEM Raster";
 	mi->run_fn = de_run_gemraster;
 	mi->identify_fn = de_identify_gemraster;
+	mi->help_fn = de_help_gemraster;
 }

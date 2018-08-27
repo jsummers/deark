@@ -247,12 +247,18 @@ static int de_identify_degas(deark *c)
 	return 0;
 }
 
+static void de_help_degas(deark *c)
+{
+	de_fmtutil_atari_help_palbits(c);
+}
+
 void de_module_degas(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "degas";
 	mi->desc = "Atari DEGAS or DEGAS Elite image";
 	mi->run_fn = de_run_degas;
 	mi->identify_fn = de_identify_degas;
+	mi->help_fn = de_help_degas;
 }
 
 // **************************************************************************
@@ -906,12 +912,18 @@ static int de_identify_tinystuff(deark *c)
 	return 0;
 }
 
+static void de_help_tinystuff(deark *c)
+{
+	de_fmtutil_atari_help_palbits(c);
+}
+
 void de_module_tinystuff(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "tinystuff";
 	mi->desc = "Atari Tiny Stuff, a.k.a. Tiny image format";
 	mi->run_fn = de_run_tinystuff;
 	mi->identify_fn = de_identify_tinystuff;
+	mi->help_fn = de_help_tinystuff;
 }
 
 // **************************************************************************
@@ -1021,12 +1033,18 @@ static int de_identify_neochrome(deark *c)
 	return 0;
 }
 
+static void de_help_neochrome(deark *c)
+{
+	de_fmtutil_atari_help_palbits(c);
+}
+
 void de_module_neochrome(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "neochrome";
 	mi->desc = "Atari NEOchrome image";
 	mi->run_fn = de_run_neochrome;
 	mi->identify_fn = de_identify_neochrome;
+	mi->help_fn = de_help_neochrome;
 }
 
 // **************************************************************************
@@ -1173,12 +1191,18 @@ static int de_identify_animatic(deark *c)
 	return 0;
 }
 
+static void de_help_animatic(deark *c)
+{
+	de_fmtutil_atari_help_palbits(c);
+}
+
 void de_module_animatic(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "animatic";
 	mi->desc = "Animatic Film";
 	mi->run_fn = de_run_animatic;
 	mi->identify_fn = de_identify_animatic;
+	mi->help_fn = de_help_animatic;
 }
 
 // **************************************************************************
