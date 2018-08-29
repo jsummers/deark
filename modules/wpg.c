@@ -23,6 +23,7 @@ typedef struct localctx_struct {
 	de_int64 bpp_of_first_bitmap;
 	de_int64 width_of_first_bitmap;
 	de_int64 height_of_first_bitmap;
+	de_byte has_eps1, has_eps2;
 } lctx;
 
 static int do_read_header(deark *c, lctx *d, de_int64 pos1)
@@ -340,6 +341,19 @@ static void handler_start_of_wpg_data(deark *c, lctx *d, de_byte rectype, de_int
 	}
 }
 
+static void handler_eps_type_1(deark *c, lctx *d, de_byte rectype, de_int64 dpos1, de_int64 dlen)
+{
+	d->has_eps1 = 1;
+	if(dlen<=8) return;
+	dbuf_create_file_from_slice(c->infile, dpos1+8, dlen-8, "eps", NULL, 0);
+}
+
+static void handler_eps_type_2(deark *c, lctx *d, de_byte rectype, de_int64 dpos1, de_int64 dlen)
+{
+	d->has_eps2 = 1;
+	// TODO
+}
+
 static const struct wpg_rectype_info wpg_rectype_info_arr[] = {
 	{ 0x01, "Fill attributes", NULL },
 	{ 0x02, "Line attributes", NULL },
@@ -356,7 +370,7 @@ static const struct wpg_rectype_info wpg_rectype_info_arr[] = {
 	{ 0x0e, "Color map", handler_colormap },
 	{ 0x0f, "Start of WPG data", handler_start_of_wpg_data },
 	{ 0x10, "End of WPG data", NULL },
-	{ 0x11, "PostScript data, Type 1", NULL },
+	{ 0x11, "PostScript data, Type 1", handler_eps_type_1 },
 	{ 0x12, "Output attributes", NULL },
 	{ 0x13, "Curved polyline", NULL },
 	{ 0x14, "Bitmap, Type 2", handler_bitmap },
@@ -366,7 +380,7 @@ static const struct wpg_rectype_info wpg_rectype_info_arr[] = {
 	{ 0x18, "Graphics text, Type 2", NULL },
 	{ 0x19, "Start of WPG data, Type 2", handler_start_of_wpg_data },
 	{ 0x1a, "Graphics text, Type 3", NULL },
-	{ 0x1b, "PostScript data, Type 2", NULL }
+	{ 0x1b, "PostScript data, Type 2", handler_eps_type_2 }
 };
 
 static const struct wpg_rectype_info *find_wpg_rectype_info(de_byte rectype)
@@ -488,12 +502,13 @@ static void de_run_wpg(deark *c, de_module_params *mparams)
 
 	// This debug line is mainly to help find interesting WPG files.
 	de_dbg(c, "summary: ver=%d.%d dataver=%d pal=%d bitmaps=%d "
-		"bitmapver=%d bpp=%d dimensions=%d"DE_CHAR_TIMES"%d",
+		"bitmapver=%d bpp=%d dimensions=%d"DE_CHAR_TIMES"%d%s%s",
 		(int)d->ver_major, (int)d->ver_minor, d->start_wpg_data_record_ver,
 		(int)d->num_pal_entries,
 		(int)d->bitmap_count, d->bitmap_record_ver,
 		(int)d->bpp_of_first_bitmap,
-		(int)d->width_of_first_bitmap, (int)d->height_of_first_bitmap);
+		(int)d->width_of_first_bitmap, (int)d->height_of_first_bitmap,
+		d->has_eps1?" eps1":"", d->has_eps2?" eps2":"");
 
 done:
 	de_free(c, d);
