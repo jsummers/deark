@@ -81,6 +81,12 @@ static void get_fmt(deark *c, struct fmtinfo_struct *fmti)
 		return;
 	}
 
+	if(!de_memcmp(b, "\xff" "WPC", 4)) {
+		fmti->confidence = 40;
+		fmti->descr = "a WordPerfect document";
+		return;
+	}
+
 	if(!de_memcmp(b, "ICE!", 4) ||
 		!de_memcmp(b, "Ice!", 4))
 	{

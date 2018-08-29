@@ -516,8 +516,13 @@ done:
 
 static int de_identify_wpg(deark *c)
 {
-	if(!dbuf_memcmp(c->infile, 0, "\xff\x57\x50\x43", 4))
+	de_byte buf[10];
+	de_read(buf, 0, 10);
+	if(!de_memcmp(buf, "\xff\x57\x50\x43", 4) &&
+		buf[8]==0x01 && buf[9]==0x16)
+	{
 		return 100;
+	}
 	return 0;
 }
 
