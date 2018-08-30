@@ -15,7 +15,8 @@ struct para_info {
 	de_byte justification;
 
 	int in_para;
-	int xpos;
+	int xpos; // Current length of this line in the source code
+	int has_content; // Have we emitted a non-space char in this paragraph?
 	int space_count;
 };
 
@@ -33,6 +34,8 @@ typedef struct localctx_struct {
 	de_int64 pnMac;
 	dbuf *html_outf;
 } lctx;
+
+static void do_emit_raw_sz(deark *c, lctx *d, struct para_info *pinfo, const char *sz);
 
 static int do_header(deark *c, lctx *d, de_int64 pos)
 {
@@ -384,7 +387,7 @@ static void do_picture(deark *c, lctx *d, struct para_info *pinfo)
 	de_int64 pos = pinfo->thisparapos;
 
 	if(d->html_outf) {
-		dbuf_puts(d->html_outf, "<p class=r>picture</p>\n");
+		do_emit_raw_sz(c, d, pinfo, "<p class=r>picture</p>\n");
 	}
 
 	if(pinfo->thisparalen<2) goto done;
@@ -410,52 +413,76 @@ done:
 	;
 }
 
-static void ensure_in_para(deark *c, lctx *d, struct para_info *pinfo, dbuf *f)
+static void ensure_in_para(deark *c, lctx *d, struct para_info *pinfo)
 {
 	if(pinfo->in_para) return;
-	dbuf_puts(f, "<p");
+	do_emit_raw_sz(c, d, pinfo, "<p");
 	switch(pinfo->justification) {
-	case 1: dbuf_puts(f, " style=\"text-align:center\""); break;
-	case 2: dbuf_puts(f, " style=\"text-align:right\""); break;
-	case 3: dbuf_puts(f, " style=\"text-align:justify\""); break;
+	case 1: do_emit_raw_sz(c, d, pinfo, " style=\"text-align:center\""); break;
+	case 2: do_emit_raw_sz(c, d, pinfo, " style=\"text-align:right\""); break;
+	case 3: do_emit_raw_sz(c, d, pinfo, " style=\"text-align:justify\""); break;
 	}
-	dbuf_puts(f, ">");
-	pinfo->xpos += 3;
+	do_emit_raw_sz(c, d, pinfo, ">");
 	pinfo->in_para = 1;
 }
 
-static void end_para(deark *c, lctx *d, struct para_info *pinfo, dbuf *f)
+// Emit a data codepoint, inside a paragraph.
+static void do_emit_codepoint(deark *c, lctx *d, struct para_info *pinfo, de_int32 outcp)
+{
+	de_write_codepoint_to_html(c, d->html_outf, outcp);
+	pinfo->xpos++;
+	if(outcp!=32) {
+		pinfo->has_content = 1;
+	}
+}
+
+// Emit a raw string. Does not force a paragraph to be open.
+// Updates pinfo->xpos (assumes 1 byte per char).
+// For xpos, handles the case where sz ends with a newline, but does not
+// handle internal newlines.
+static void do_emit_raw_sz(deark *c, lctx *d, struct para_info *pinfo, const char *sz)
+{
+	size_t sz_len = de_strlen(sz);
+	if(sz_len<1) return;
+	dbuf_write(d->html_outf, (const de_byte*)sz, (de_int64)sz_len);
+	if(sz[sz_len-1]=='\n') {
+		pinfo->xpos = 0;
+	}
+	else {
+		pinfo->xpos += (int)sz_len;
+	}
+}
+
+static void end_para(deark *c, lctx *d, struct para_info *pinfo)
 {
 	if(!pinfo->in_para) return;
 
-	if(pinfo->xpos==3) {
+	if(!pinfo->has_content) {
 		// No empty paragraphs allowed. HTML will collapse them, but Write does not.
-		// Testing xpos==3 is a hack (3 is the length of "<p>").
-		de_write_codepoint_to_html(c, f, 0xa0);
+		do_emit_codepoint(c, d, pinfo, 0xa0);
 	}
-	dbuf_puts(f, "</p>\n");
-	pinfo->xpos = 0;
+	do_emit_raw_sz(c, d, pinfo, "</p>\n");
 	pinfo->in_para = 0;
 }
 
 static void do_text_paragraph(deark *c, lctx *d, struct para_info *pinfo)
 {
-	dbuf *f;
 	de_int64 i, k;
 
 	if(!d->html_outf) return;
-	f = d->html_outf;
 
 	if((pinfo->papflags & 0x06)!=0) {
 		// TODO: Decode headers and footers somehow.
-		dbuf_printf(f, "<p class=r>%s definition</p>\n",
-			(pinfo->papflags&0x01)?"footer":"header");
+		do_emit_raw_sz(c, d, pinfo, "<p class=r>");
+		do_emit_raw_sz(c, d, pinfo, (pinfo->papflags&0x01)?"footer":"header");
+		do_emit_raw_sz(c, d, pinfo, " definition</p>\n");
 		return;
 	}
 
 	pinfo->in_para = 0;
 	pinfo->xpos = 0;
 	pinfo->space_count = 0;
+	pinfo->has_content = 0;
 
 	for(i=0; i<pinfo->thisparalen; i++) {
 		de_byte incp;
@@ -465,8 +492,8 @@ static void do_text_paragraph(deark *c, lctx *d, struct para_info *pinfo)
 			if(de_getbyte(pinfo->thisparapos+i+1)==0x0a) {
 				// Found CR-LF combo
 				i++;
-				ensure_in_para(c, d, pinfo, f);
-				end_para(c, d, pinfo, f);
+				ensure_in_para(c, d, pinfo);
+				end_para(c, d, pinfo);
 				continue;
 			}
 		}
@@ -485,23 +512,20 @@ static void do_text_paragraph(deark *c, lctx *d, struct para_info *pinfo)
 				breaking_count = 1;
 			}
 
-			ensure_in_para(c, d, pinfo, f);
+			ensure_in_para(c, d, pinfo);
 
 			for(k=0; k<nonbreaking_count; k++) {
-				de_write_codepoint_to_html(c, f, 0xa0);
-				pinfo->xpos++;
+				do_emit_codepoint(c, d, pinfo, 0xa0);
 			}
 
 			if(breaking_count>0) {
 				if(pinfo->xpos>70) {
 					// We don't do proper word wrapping of the HTML source, but
 					// maybe this is better than nothing.
-					dbuf_writebyte(f, 0x0a);
-					pinfo->xpos = 0;
+					do_emit_raw_sz(c, d, pinfo, "\n");
 				}
 				else {
-					dbuf_writebyte(f, 32);
-					pinfo->xpos++;
+					do_emit_codepoint(c, d, pinfo, 32);
 				}
 			}
 
@@ -510,30 +534,27 @@ static void do_text_paragraph(deark *c, lctx *d, struct para_info *pinfo)
 
 		if(incp>=33) {
 			de_int32 outcp;
-			ensure_in_para(c, d, pinfo, f);
+			ensure_in_para(c, d, pinfo);
 			outcp = de_char_to_unicode(c, (de_int32)incp, d->input_encoding);
-			de_write_codepoint_to_html(c, f, outcp);
-			pinfo->xpos++;
+			do_emit_codepoint(c, d, pinfo, outcp);
 		}
 		else {
 			switch(incp) {
 			case 9: // tab
-				ensure_in_para(c, d, pinfo, f);
-				dbuf_puts(f, "<span class=c>");
-				de_write_codepoint_to_html(c, f, 0x2192);
-				dbuf_puts(f, "</span>");
-				pinfo->xpos += 22;
+				ensure_in_para(c, d, pinfo);
+				do_emit_raw_sz(c, d, pinfo, "<span class=c>");
+				do_emit_codepoint(c, d, pinfo, 0x2192);
+				do_emit_raw_sz(c, d, pinfo, "</span>");
 				break;
 			case 10:
 			case 11:
-				ensure_in_para(c, d, pinfo, f);
-				dbuf_puts(f, "<br>\n");
-				pinfo->xpos = 0;
+				ensure_in_para(c, d, pinfo);
+				do_emit_raw_sz(c, d, pinfo, "<br>\n");
+				pinfo->has_content = 1;
 				break;
 			case 12: // page break
-				end_para(c, d, pinfo, f);
-				dbuf_puts(f, "<hr>\n");
-				pinfo->xpos = 0;
+				end_para(c, d, pinfo);
+				do_emit_raw_sz(c, d, pinfo, "<hr>\n");
 				break;
 			case 31:
 				break;
@@ -541,14 +562,13 @@ static void do_text_paragraph(deark *c, lctx *d, struct para_info *pinfo)
 				pinfo->space_count++;
 				break;
 			default:
-				ensure_in_para(c, d, pinfo, f);
-				de_write_codepoint_to_html(c, f, 0xfffd);
-				pinfo->xpos++;
+				ensure_in_para(c, d, pinfo);
+				do_emit_codepoint(c, d, pinfo, 0xfffd);
 			}
 		}
 	}
 
-	end_para(c, d, pinfo, f);
+	end_para(c, d, pinfo);
 }
 
 static void do_paragraph(deark *c, lctx *d, struct para_info *pinfo)
