@@ -8,6 +8,10 @@
 #include <deark-private.h>
 DE_DECLARE_MODULE(de_module_wri);
 
+struct text_styles_struct {
+	de_byte tab_style;
+};
+
 struct para_info {
 	de_int64 thisparapos, thisparalen;
 	de_int64 bfprop_offset; // file-level offset
@@ -18,6 +22,10 @@ struct para_info {
 	int xpos; // Current length of this line in the source code
 	int has_content; // Have we emitted a non-space char in this paragraph?
 	int space_count;
+
+	int in_span;
+	struct text_styles_struct text_styles_wanted; // Styles for the next char to be emitted
+	struct text_styles_struct text_styles_current; // Effective current styles
 };
 
 typedef struct localctx_struct {
@@ -36,6 +44,18 @@ typedef struct localctx_struct {
 } lctx;
 
 static void do_emit_raw_sz(deark *c, lctx *d, struct para_info *pinfo, const char *sz);
+
+static void default_text_styles(struct text_styles_struct *ts)
+{
+	de_memset(ts, 0, sizeof(struct text_styles_struct));
+}
+
+static int text_styles_differ(const struct text_styles_struct *ts1,
+	const struct text_styles_struct *ts2)
+{
+	if(ts1->tab_style != ts2->tab_style) return 1;
+	return 0;
+}
 
 static int do_header(deark *c, lctx *d, de_int64 pos)
 {
@@ -418,9 +438,9 @@ static void ensure_in_para(deark *c, lctx *d, struct para_info *pinfo)
 	if(pinfo->in_para) return;
 	do_emit_raw_sz(c, d, pinfo, "<p");
 	switch(pinfo->justification) {
-	case 1: do_emit_raw_sz(c, d, pinfo, " style=\"text-align:center\""); break;
-	case 2: do_emit_raw_sz(c, d, pinfo, " style=\"text-align:right\""); break;
-	case 3: do_emit_raw_sz(c, d, pinfo, " style=\"text-align:justify\""); break;
+	case 1: do_emit_raw_sz(c, d, pinfo, " class=tc"); break;
+	case 2: do_emit_raw_sz(c, d, pinfo, " class=tr"); break;
+	case 3: do_emit_raw_sz(c, d, pinfo, " class=tj"); break;
 	}
 	do_emit_raw_sz(c, d, pinfo, ">");
 	pinfo->in_para = 1;
@@ -429,8 +449,33 @@ static void ensure_in_para(deark *c, lctx *d, struct para_info *pinfo)
 // Emit a data codepoint, inside a paragraph.
 static void do_emit_codepoint(deark *c, lctx *d, struct para_info *pinfo, de_int32 outcp)
 {
+	int styles_changed;
+
+	if(!pinfo->in_para) {
+		ensure_in_para(c, d, pinfo);
+	}
+
+	styles_changed = text_styles_differ(&pinfo->text_styles_current, &pinfo->text_styles_wanted);
+
+	if(pinfo->in_span && styles_changed) {
+		do_emit_raw_sz(c, d, pinfo, "</span>");
+		pinfo->in_span = 0;
+	}
+	if(styles_changed) {
+		if(pinfo->text_styles_wanted.tab_style) {
+			do_emit_raw_sz(c, d, pinfo, "<span class=c>");
+			pinfo->in_span = 1;
+		}
+		pinfo->text_styles_current = pinfo->text_styles_wanted; // struct copy
+	}
+
 	de_write_codepoint_to_html(c, d->html_outf, outcp);
+
+	// FIXME: We'd like to know how many characters (not bytes) were written,
+	// but we don't currently have a good way to do that in the case where the
+	// codepoint was written as an HTML entity.
 	pinfo->xpos++;
+
 	if(outcp!=32) {
 		pinfo->has_content = 1;
 	}
@@ -457,12 +502,18 @@ static void end_para(deark *c, lctx *d, struct para_info *pinfo)
 {
 	if(!pinfo->in_para) return;
 
+	if(pinfo->in_span) {
+		do_emit_raw_sz(c, d, pinfo, "</span>");
+		pinfo->in_span = 0;
+	}
+
 	if(!pinfo->has_content) {
 		// No empty paragraphs allowed. HTML will collapse them, but Write does not.
 		do_emit_codepoint(c, d, pinfo, 0xa0);
 	}
 	do_emit_raw_sz(c, d, pinfo, "</p>\n");
 	pinfo->in_para = 0;
+	default_text_styles(&pinfo->text_styles_current);
 }
 
 static void do_text_paragraph(deark *c, lctx *d, struct para_info *pinfo)
@@ -483,6 +534,9 @@ static void do_text_paragraph(deark *c, lctx *d, struct para_info *pinfo)
 	pinfo->xpos = 0;
 	pinfo->space_count = 0;
 	pinfo->has_content = 0;
+	pinfo->in_span = 0;
+	default_text_styles(&pinfo->text_styles_wanted);
+	default_text_styles(&pinfo->text_styles_current);
 
 	for(i=0; i<pinfo->thisparalen; i++) {
 		de_byte incp;
@@ -534,17 +588,15 @@ static void do_text_paragraph(deark *c, lctx *d, struct para_info *pinfo)
 
 		if(incp>=33) {
 			de_int32 outcp;
-			ensure_in_para(c, d, pinfo);
 			outcp = de_char_to_unicode(c, (de_int32)incp, d->input_encoding);
 			do_emit_codepoint(c, d, pinfo, outcp);
 		}
 		else {
 			switch(incp) {
 			case 9: // tab
-				ensure_in_para(c, d, pinfo);
-				do_emit_raw_sz(c, d, pinfo, "<span class=c>");
+				pinfo->text_styles_wanted.tab_style = 1;
 				do_emit_codepoint(c, d, pinfo, 0x2192);
-				do_emit_raw_sz(c, d, pinfo, "</span>");
+				pinfo->text_styles_wanted.tab_style = 0;
 				break;
 			case 10:
 			case 11:
@@ -562,7 +614,6 @@ static void do_text_paragraph(deark *c, lctx *d, struct para_info *pinfo)
 				pinfo->space_count++;
 				break;
 			default:
-				ensure_in_para(c, d, pinfo);
 				do_emit_codepoint(c, d, pinfo, 0xfffd);
 			}
 		}
@@ -741,6 +792,9 @@ static void do_html_begin(deark *c, lctx *d)
 	dbuf_puts(f, " .r { padding: 0.5ex; color: #800; background-color: #eee;\n");
 	dbuf_puts(f, "  font-style: italic; border: 0.34ex dotted #800 }\n");
 
+	dbuf_puts(f, " .tc { text-align: center }\n");
+	dbuf_puts(f, " .tr { text-align: right }\n");
+	dbuf_puts(f, " .tj { text-align: justify }\n");
 	dbuf_puts(f, "</style>\n");
 
 	dbuf_puts(f, "</head>\n");
