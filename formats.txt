@@ -270,6 +270,8 @@ Deark -- Information about supported formats
   - Supports most 16-color .MKI images
   - Does not support .MAX
 
+* MegaPaint Patterns (.pat) (module="megapaint_pat") (experimental)
+
 * MRW (Minolta RAW) (module="mrw")
   - Process Exif data (or extract it: use -a)
 

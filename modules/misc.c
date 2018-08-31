@@ -41,6 +41,7 @@ DE_DECLARE_MODULE(de_module_lumena_cel);
 DE_DECLARE_MODULE(de_module_zbr);
 DE_DECLARE_MODULE(de_module_cdr_wl);
 DE_DECLARE_MODULE(de_module_bld);
+DE_DECLARE_MODULE(de_module_megapaint_pat);
 
 // **************************************************************************
 // "copy" module
@@ -1996,4 +1997,57 @@ void de_module_bld(deark *c, struct deark_module_info *mi)
 	mi->desc = "MegaPaint BLD";
 	mi->run_fn = de_run_bld;
 	mi->identify_fn = de_identify_bld;
+}
+
+// **************************************************************************
+// MegaPaint .PAT
+// **************************************************************************
+
+static void de_run_megapaint_pat(deark *c, de_module_params *mparams)
+{
+	// Note: This module is based on guesswork, and may be incomplete.
+	de_bitmap *mainimg = NULL;
+	de_int64 main_w, main_h;
+	de_int64 pos = 0;
+	de_int64 k;
+
+	pos += 8;
+	main_w = 1+(32+1)*16;
+	main_h = 1+(32+1)*2;
+
+	mainimg = de_bitmap_create(c, main_w, main_h, 1);
+	de_bitmap_rect(mainimg, 0, 0, main_w, main_h, DE_MAKE_GRAY(128), 0);
+
+	for(k=0; k<32; k++) {
+		de_bitmap *img = NULL;
+		de_int64 imgpos_x, imgpos_y;
+
+		img = de_bitmap_create(c, 32, 32, 1);
+		de_convert_image_bilevel(c->infile, pos, 4, img, DE_CVTF_WHITEISZERO);
+		pos += 4*32;
+
+		imgpos_x = 1+(32+1)*(k%16);
+		imgpos_y = 1+(32+1)*(k/16);
+		de_bitmap_copy_rect(img, mainimg, 0, 0, 32, 32, imgpos_x, imgpos_y, 0);
+		de_bitmap_destroy(img);
+	}
+
+	de_bitmap_write_to_file(mainimg, NULL, 0);
+	de_bitmap_destroy(mainimg);
+}
+
+static int de_identify_megapaint_pat(deark *c)
+{
+	if(dbuf_memcmp(c->infile, 0, "\x07" "PAT", 4))
+		return 0;
+	if(c->infile->len==4396) return 100;
+	return 40;
+}
+
+void de_module_megapaint_pat(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "megapaint_pat";
+	mi->desc = "MegaPaint Patterns";
+	mi->run_fn = de_run_megapaint_pat;
+	mi->identify_fn = de_identify_megapaint_pat;
 }
