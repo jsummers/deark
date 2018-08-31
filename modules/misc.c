@@ -42,6 +42,7 @@ DE_DECLARE_MODULE(de_module_zbr);
 DE_DECLARE_MODULE(de_module_cdr_wl);
 DE_DECLARE_MODULE(de_module_bld);
 DE_DECLARE_MODULE(de_module_megapaint_pat);
+DE_DECLARE_MODULE(de_module_megapaint_lib);
 
 // **************************************************************************
 // "copy" module
@@ -2050,4 +2051,53 @@ void de_module_megapaint_pat(deark *c, struct deark_module_info *mi)
 	mi->desc = "MegaPaint Patterns";
 	mi->run_fn = de_run_megapaint_pat;
 	mi->identify_fn = de_identify_megapaint_pat;
+}
+
+// **************************************************************************
+// MegaPaint .LIB
+// **************************************************************************
+
+static void de_run_megapaint_lib(deark *c, de_module_params *mparams)
+{
+	// Note: This module is based on guesswork, and may be incomplete.
+	const de_int64 idxpos = 14;
+	de_int64 k;
+	de_int64 nsyms;
+
+	nsyms = 1+de_getui16be(12);
+	de_dbg(c, "number of symbols: %d", (int)nsyms);
+
+	for(k=0; k<nsyms; k++) {
+		de_int64 sym_offs;
+		de_int64 w, h, rowspan;
+
+		sym_offs = de_getui32be(idxpos+4*k);
+		de_dbg(c, "symbol #%d", (int)(1+k));
+		de_dbg_indent(c, 1);
+		de_dbg(c, "offset: %u", (unsigned int)sym_offs);
+
+		w = 1+de_getui16be(sym_offs);
+		h = 1+de_getui16be(sym_offs+2);
+		de_dbg_dimensions(c, w, h);
+		rowspan = ((w+15)/16)*2;
+		de_convert_and_write_image_bilevel(c->infile, sym_offs+4, w, h, rowspan,
+			DE_CVTF_WHITEISZERO, NULL, 0);
+		de_dbg_indent(c, -1);
+	}
+}
+
+static int de_identify_megapaint_lib(deark *c)
+{
+	if(dbuf_memcmp(c->infile, 0, "\x07" "LIB", 4))
+		return 0;
+	if(de_input_file_has_ext(c, "lib")) return 100;
+	return 40;
+}
+
+void de_module_megapaint_lib(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "megapaint_lib";
+	mi->desc = "MegaPaint Symbol Library";
+	mi->run_fn = de_run_megapaint_lib;
+	mi->identify_fn = de_identify_megapaint_lib;
 }

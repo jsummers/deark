@@ -270,6 +270,8 @@ Deark -- Information about supported formats
   - Supports most 16-color .MKI images
   - Does not support .MAX
 
+* MegaPaint Symbol Library (.lib) (module="megapaint_lib") (experimental)
+
 * MegaPaint Patterns (.pat) (module="megapaint_pat") (experimental)
 
 * MRW (Minolta RAW) (module="mrw")
