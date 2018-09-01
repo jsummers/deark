@@ -14,6 +14,7 @@ struct de_bmpinfo {
 	de_int64 height;
 	de_int64 bitcount;
 	de_uint32 compression_field;
+	de_int64 sizeImage_field;
 
 	de_int64 bytes_per_pal_entry;
 	de_int64 pal_entries;
@@ -28,6 +29,7 @@ struct de_bmpinfo {
 	de_int64 size_of_headers_and_pal; // Relative offset to bitmap (bitsoffset might be absolute)
 	de_int64 total_size;
 
+	int is_compressed;
 	int is_topdown;
 };
 

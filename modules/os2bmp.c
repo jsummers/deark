@@ -45,12 +45,18 @@ static int get_bitmap_info(deark *c, struct srcbitmap *srcbmp, const char *fmt, 
 		de_err(c, "Unsupported image type (header size %d)", (int)srcbmp->bi.infohdrsize);
 	}
 
-	if(srcbmp->bi.compression_field!=0) {
-		de_err(c, "Unsupported compression type (%d)", (int)srcbmp->bi.compression_field);
-		goto done;
+	if(srcbmp->bi.is_compressed) {
+		if(srcbmp->bi.sizeImage_field) {
+			srcbmp->bitssize = srcbmp->bi.sizeImage_field;
+		}
+		else {
+			de_err(c, "Cannot determine bits size");
+			goto done;
+		}
 	}
-
-	srcbmp->bitssize = srcbmp->bi.rowspan * srcbmp->bi.height;
+	else {
+		srcbmp->bitssize = srcbmp->bi.rowspan * srcbmp->bi.height;
+	}
 
 	retval = 1;
 done:
@@ -365,6 +371,7 @@ static void do_extract_one_image(deark *c, de_int64 pos, const char *fmt, const 
 	dbuf_copy(c->infile, pos+14, srcbmp->bi.size_of_headers_and_pal-14, f);
 
 	// Copy the bitmap
+	if(srcbmp->bi.bitsoffset+srcbmp->bitssize > c->infile->len) goto done;
 	dbuf_copy(c->infile, srcbmp->bi.bitsoffset, srcbmp->bitssize, f);
 
 done:

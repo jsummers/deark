@@ -99,6 +99,9 @@ int de_fmtutil_get_bmpinfo(deark *c, dbuf *f, struct de_bmpinfo *bi, de_int64 po
 				dbuf_read_fourcc(f, bmih_pos+16, &cmpr4cc, 4, 0x0);
 			}
 		}
+		if(bi->infohdrsize>=24) {
+			bi->sizeImage_field = dbuf_getui32le(f, bmih_pos+20);
+		}
 		if(bi->infohdrsize>=36) {
 			bi->pal_entries = dbuf_getui32le(f, bmih_pos+32);
 		}
@@ -134,6 +137,10 @@ int de_fmtutil_get_bmpinfo(deark *c, dbuf *f, struct de_bmpinfo *bi, de_int64 po
 	}
 	de_dbg(c, "compression: %u (%s)", (unsigned int)bi->compression_field, cmprname_dbgstr);
 
+	if(bi->sizeImage_field!=0) {
+		de_dbg(c, "sizeImage: %u", (unsigned int)bi->sizeImage_field);
+	}
+
 	de_dbg(c, "palette entries: %u", (unsigned int)bi->pal_entries);
 	if(bi->pal_entries>256 && bi->bitcount>8) {
 		de_warn(c, "Ignoring bad palette size (%u entries)", (unsigned int)bi->pal_entries);
@@ -142,14 +149,21 @@ int de_fmtutil_get_bmpinfo(deark *c, dbuf *f, struct de_bmpinfo *bi, de_int64 po
 
 	bi->pal_bytes = bi->bytes_per_pal_entry*bi->pal_entries;
 	bi->size_of_headers_and_pal = fhs + bi->infohdrsize + bi->pal_bytes;
+
+	// FIXME: cmpr type 3 doesn't always mean BITFIELDS
 	if(bi->compression_field==3) {
 		bi->size_of_headers_and_pal += 12; // BITFIELDS
 	}
+
+	bi->is_compressed = !((bi->compression_field==0) ||
+		(bi->compression_field==3 && bi->bitcount>1));
 
 	if(!de_good_image_dimensions(c, bi->width, bi->height)) {
 		return 0;
 	}
 
+	// TODO: This needs work, to decide how to handle compressed images.
+	// TODO: What about BI_BITFIELDS images?
 	if(bi->compression_field==0) {
 		// Try to figure out the true size of the resource, minus any padding.
 
