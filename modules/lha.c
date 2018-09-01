@@ -16,6 +16,7 @@ struct member_data {
 	de_int64 orig_size;
 	de_uint32 crc16;
 	de_byte os_id;
+	int codepage_encoding; // Encoding based on the "codepage" ext hdr
 };
 
 typedef struct localctx_struct {
@@ -216,6 +217,19 @@ static void exthdr_lev3newattribs2(deark *c, lctx *d, struct member_data *md,
 	read_unix_timestamp(c, d, md, pos+16, "access time   ");
 }
 
+static void exthdr_codepage(deark *c, lctx *d, struct member_data *md,
+	de_byte id, const struct exthdr_type_info_struct *e,
+	de_int64 pos, de_int64 dlen)
+{
+	int n;
+	char descr[100];
+
+	if(dlen!=4) return;
+	n = (int)de_geti32le(pos);
+	md->codepage_encoding = de_windows_codepage_to_encoding(c, n, descr, sizeof(descr), 0);
+	de_dbg(c, "codepage: %d (%s)", n, descr);
+}
+
 static const struct exthdr_type_info_struct exthdr_type_info_arr[] = {
 	{ 0x00, 0, "common", exthdr_common },
 	{ 0x01, 0, "filename", exthdr_filename },
@@ -228,7 +242,7 @@ static const struct exthdr_type_info_struct exthdr_type_info_arr[] = {
 	{ 0x43, 0, "time zone", NULL },
 	{ 0x44, 0, "UTF-16 filename", NULL },
 	{ 0x45, 0, "UTF-16 dir name", NULL },
-	{ 0x46, 0, "codepage", NULL },
+	{ 0x46, 0, "codepage", exthdr_codepage },
 	{ 0x50, 0, "Unix perms", exthdr_unixperms },
 	{ 0x51, 0, "Unix UID/GID", exthdr_unixuidgid },
 	{ 0x52, 0, "Unix group name", NULL },
@@ -281,6 +295,11 @@ static void do_read_ext_header(deark *c, lctx *d, struct member_data *md,
 		de_dbg_indent(c, 1);
 		e->decoder_fn(c, d, md, id, e, pos1+1, dlen-1);
 		de_dbg_indent(c, -1);
+	}
+	else {
+		if(c->debug_level>=2) {
+			de_dbg_hexdump(c, c->infile, pos1+1, dlen-1, 256, NULL, 0x1);
+		}
 	}
 }
 
