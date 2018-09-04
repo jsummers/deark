@@ -854,6 +854,10 @@
 				>
 			</File>
 			<File
+				RelativePath="..\..\modules\unifont.c"
+				>
+			</File>
+			<File
 				RelativePath="..\..\modules\unsupported.c"
 				>
 			</File>

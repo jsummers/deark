@@ -535,6 +535,9 @@ Deark -- Information about supported formats
 
 * PK font (Packed Font) (module="pkfont") (partial support)
 
+* Unifont HEX (module="unifont_hex")
+  - Cannot be autodetected. You must use "-m unifont_hex".
+
 === Compression, archive, installer, disk image modules ===
 
 * AmBs (AMOS "Banks" aggregate format) (module="abk")

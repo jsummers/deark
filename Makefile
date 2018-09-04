@@ -46,7 +46,7 @@ OFILES_MODS_PQ:=$(addprefix $(OBJDIR)/modules/,psd.o palmbitmap.o palmpdb.o \
 OFILES_MODS_RZ:=$(addprefix $(OBJDIR)/modules/,riff.o rosprite.o rpm.o \
  rsc.o shg.o spectrum512.o sunras.o t64.o tar.o tga.o tiff.o tim.o \
  tivariable.o unsupported.o vort.o wad.o wmf.o wpg.o wri.o xface.o \
- xfer.o zip.o zoo.o)
+ xfer.o zip.o zoo.o unifont.o)
 OFILES_MODS:=$(OFILES_MODS_AB) $(OFILES_MODS_CH) $(OFILES_MODS_IO) \
  $(OFILES_MODS_PQ) $(OFILES_MODS_RZ)
 
