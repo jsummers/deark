@@ -281,7 +281,7 @@ static void do_palette_stuff(deark *c, lctx *d)
 			de_msg(c, "Note: This paletted PCX file does not contain a palette. "
 				"If it is not decoded correctly, try \"-opt pcx:pal=1\".");
 		}
-		de_dbg(c, "Using a default EGA palette");
+		de_dbg(c, "using a default EGA palette");
 		for(k=0; k<16; k++) {
 			d->pal[k] = ega16pal[d->default_pal_num][k];
 		}
@@ -303,13 +303,12 @@ static void do_palette_stuff(deark *c, lctx *d)
 		unsigned int fgpal;
 
 		de_warn(c, "4-color PCX images might not be supported correctly");
-		de_dbg(c, "using a CGA palette");
 
 		p0 = de_getbyte(16);
 		p3 = de_getbyte(19);
 		bgcolor = p0>>4;
 		fgpal = p3>>5;
-		de_dbg(c, "palette #%d, background color %d", (int)fgpal, (int)bgcolor);
+		de_dbg(c, "using a CGA palette: palette #%d, bkgd color %d", (int)fgpal, (int)bgcolor);
 
 		// Set first pal entry to background color
 		d->pal[0] = de_palette_pc16(bgcolor);
@@ -353,6 +352,7 @@ static int do_uncompress(deark *c, lctx *d)
 	de_int64 endpos;
 
 	pos = PCX_HDRSIZE;
+	de_dbg(c, "compressed bitmap at %d", (int)pos);
 
 	expected_bytes = d->rowspan * d->height;
 	d->unc_pixels = dbuf_create_membuf(c, expected_bytes, 0);
@@ -384,7 +384,7 @@ static int do_uncompress(deark *c, lctx *d)
 	}
 
 	if(d->unc_pixels->len < expected_bytes) {
-		de_warn(c, "Expected %d bytes of image data, but only found %d",
+		de_warn(c, "Expected %d bytes of image data, only found %d",
 			(int)expected_bytes, (int)d->unc_pixels->len);
 	}
 
@@ -487,7 +487,7 @@ static void de_run_pcx_internal(deark *c, lctx *d, de_module_params *mparams)
 	if(d->encoding==0) {
 		// Uncompressed PCXs are probably not standard, but support for them is not
 		// uncommon. Imagemagick, for example, will create them if you ask it to.
-		de_dbg(c, "assuming pixels are uncompressed (encoding=0)");
+		de_dbg(c, "uncompressed bitmap at %d", (int)PCX_HDRSIZE);
 		d->unc_pixels = dbuf_open_input_subfile(c->infile,
 			PCX_HDRSIZE, c->infile->len-PCX_HDRSIZE);
 	}
@@ -524,7 +524,7 @@ static int de_identify_pcx(deark *c)
 		if(de_input_file_has_ext(c, "pcx"))
 			return 100;
 
-		return 10;
+		return 16;
 	}
 	return 0;
 }
