@@ -87,6 +87,26 @@ static void get_fmt(deark *c, struct fmtinfo_struct *fmti)
 		return;
 	}
 
+	if(!de_memcmp(b, "Rar!\x1a\x07", 6)) {
+		fmti->confidence = 90;
+		fmti->descr = "a RAR archive";
+		return;
+	}
+
+	if(!de_memcmp(b, "SIT!", 4) ||
+		!de_memcmp(b, "StuffIt", 7))
+	{
+		fmti->confidence = 9;
+		fmti->descr = "a StuffIt archive";
+		return;
+	}
+
+	if(!de_memcmp(b, "\x60\xea", 2)) {
+		fmti->confidence = 9;
+		fmti->descr = "an ARJ archive";
+		return;
+	}
+
 	if(!de_memcmp(b, "ICE!", 4) ||
 		!de_memcmp(b, "Ice!", 4))
 	{
