@@ -742,6 +742,10 @@
 				>
 			</File>
 			<File
+				RelativePath="..\..\modules\pcf.c"
+				>
+			</File>
+			<File
 				RelativePath="..\..\modules\pcpaint.c"
 				>
 			</File>
