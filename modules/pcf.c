@@ -26,6 +26,7 @@ struct char_info {
 	unsigned int bitmap_offset;
 	de_int32 codepoint;
 	int width_raw, height_raw; // Dimensions of the bitmap stored in the file
+	int ascent;
 };
 
 struct format_struct {
@@ -67,6 +68,7 @@ struct localctx_struct {
 	struct format_struct bitmaps_fmt;
 
 	de_byte has_encodings_table;
+	de_byte is_unicode;
 };
 
 // Read a 'format' field, populate caller-supplied 'fmt'.
@@ -126,17 +128,64 @@ static int read_and_check_format_field(deark *c, lctx *d, struct table_entry *te
 	return 1;
 }
 
-static void read_prop_string(deark *c, lctx *d, struct table_entry *te,
-	 de_int64 pos, const char *name)
+// Read and return a property name or string value
+static struct de_stringreaderdata *read_prop_string(deark *c, lctx *d,
+	struct table_entry *te, de_int64 pos, const char *name)
 {
-	de_ucstring *str = NULL;
+	struct de_stringreaderdata *srd = NULL;
 
-	str = ucstring_create(c);
-	dbuf_read_to_ucstring_n(c->infile, pos,
-		te->offset+te->size-pos,
-		DE_DBG_MAX_STRLEN, str, DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_ASCII);
-	de_dbg(c, "%s: \"%s\"", name, ucstring_getpsz_d(str));
-	ucstring_destroy(str);
+	srd = dbuf_read_string(c->infile, pos, te->offset+te->size-pos, 256,
+		DE_CONVFLAG_STOP_AT_NUL|DE_CONVFLAG_WANT_UTF8, DE_ENCODING_ASCII);
+	de_dbg(c, "%s: \"%s\"", name, ucstring_getpsz_d(srd->str));
+	return srd;
+}
+
+static void read_one_property(deark *c, lctx *d, struct table_entry *te,
+	de_int64 pos1, de_int64 prop_idx, de_int64 string_data_area_pos)
+{
+	de_int64 pos = pos1;
+	de_byte isstringprop;
+	de_int64 name_offset;
+	struct de_stringreaderdata *srd_name = NULL;
+	struct de_stringreaderdata *srd_strval = NULL;
+
+	de_dbg(c, "property[%d] index entry at %"INT64_FMT, (int)prop_idx, pos);
+	de_dbg_indent(c, 1);
+
+	name_offset = dbuf_getui32x(c->infile, pos, te->fmt.is_le);
+	de_dbg(c, "name offset: %"INT64_FMT" (abs=%"INT64_FMT")", name_offset,
+		string_data_area_pos+name_offset);
+	pos += 4;
+	srd_name = read_prop_string(c, d, te, string_data_area_pos+name_offset, "name");
+
+	isstringprop = de_getbyte_p(&pos);
+	de_dbg(c, "isStringProp: %u", (unsigned int)isstringprop);
+
+	if(isstringprop) {
+		de_int64 value_offset;
+
+		value_offset = dbuf_getui32x(c->infile, pos, te->fmt.is_le);
+		de_dbg(c, "value offset: %"INT64_FMT" (abs=%"INT64_FMT")", value_offset,
+			string_data_area_pos+value_offset);
+		srd_strval = read_prop_string(c, d, te, string_data_area_pos+value_offset, "value");
+
+		if(!de_strcmp(srd_name->sz_utf8, "CHARSET_REGISTRY")) {
+			if(!de_strcmp(srd_strval->sz_utf8, "ISO10646")) {
+				d->is_unicode = 1;
+			}
+		}
+	}
+	else {
+		de_int64 value;
+
+		value = dbuf_geti32x(c->infile, pos, te->fmt.is_le);
+		de_dbg(c, "value: %"INT64_FMT, value);
+	}
+	pos += 4;
+
+	de_dbg_indent(c, -1);
+	de_destroy_stringreaderdata(c, srd_name);
+	de_destroy_stringreaderdata(c, srd_strval);
 }
 
 static void handler_properties(deark *c, lctx *d, struct table_entry *te)
@@ -176,39 +225,9 @@ static void handler_properties(deark *c, lctx *d, struct table_entry *te)
 	// Go back and read the properties table
 	pos = props_idx_pos;
 	for(k=0; k<nprops; k++) {
-		de_byte isstringprop;
-		de_int64 name_offset;
-
 		if(pos+9 > te->offset + te->size) break;
-		de_dbg(c, "property[%d] index entry at %"INT64_FMT, (int)k, pos);
-		de_dbg_indent(c, 1);
-
-		name_offset = dbuf_getui32x(c->infile, pos, te->fmt.is_le);
-		de_dbg(c, "name offset: %"INT64_FMT" (abs=%"INT64_FMT")", name_offset,
-			string_data_area_pos+name_offset);
-		pos += 4;
-		read_prop_string(c, d, te, string_data_area_pos+name_offset, "name");
-
-		isstringprop = de_getbyte_p(&pos);
-		de_dbg(c, "isStringProp: %u", (unsigned int)isstringprop);
-
-		if(isstringprop) {
-			de_int64 value_offset;
-
-			value_offset = dbuf_getui32x(c->infile, pos, te->fmt.is_le);
-			de_dbg(c, "value offset: %"INT64_FMT" (abs=%"INT64_FMT")", value_offset,
-				string_data_area_pos+value_offset);
-			read_prop_string(c, d, te, string_data_area_pos+value_offset, "value");
-		}
-		else {
-			de_int64 value;
-
-			value = dbuf_geti32x(c->infile, pos, te->fmt.is_le);
-			de_dbg(c, "value: %"INT64_FMT, value);
-		}
-		pos += 4;
-
-		de_dbg_indent(c, -1);
+		read_one_property(c, d, te, pos, k, string_data_area_pos);
+		pos += 9;
 	}
 
 done:
@@ -244,7 +263,7 @@ static void handler_metrics(deark *c, lctx *d, struct table_entry *te)
 	for(k=0; k<d->num_chars; k++) {
 		int leftsb, rightsb;
 		int char_width;
-		int char_asc, char_desc;
+		int char_desc;
 		unsigned int char_attr;
 		struct char_info *ci;
 
@@ -256,7 +275,7 @@ static void handler_metrics(deark *c, lctx *d, struct table_entry *te)
 			leftsb = (int)de_getbyte_p(&pos) - 0x80;
 			rightsb = (int)de_getbyte_p(&pos) - 0x80;
 			char_width = (int)de_getbyte_p(&pos) - 0x80;
-			char_asc = (int)de_getbyte_p(&pos) - 0x80;
+			ci->ascent = (int)de_getbyte_p(&pos) - 0x80;
 			char_desc = (int)de_getbyte_p(&pos) - 0x80;
 			char_attr = 0;
 		}
@@ -264,7 +283,7 @@ static void handler_metrics(deark *c, lctx *d, struct table_entry *te)
 			leftsb = (int)dbuf_geti16x(c->infile, pos, te->fmt.is_le); pos += 2;
 			rightsb = (int)dbuf_geti16x(c->infile, pos, te->fmt.is_le); pos += 2;
 			char_width = (int)dbuf_geti16x(c->infile, pos, te->fmt.is_le); pos += 2;
-			char_asc = (int)dbuf_geti16x(c->infile, pos, te->fmt.is_le); pos += 2;
+			ci->ascent = (int)dbuf_geti16x(c->infile, pos, te->fmt.is_le); pos += 2;
 			char_desc = (int)dbuf_geti16x(c->infile, pos, te->fmt.is_le); pos += 2;
 			char_attr = (int)dbuf_getui16x(c->infile, pos, te->fmt.is_le); pos += 2;
 		}
@@ -272,11 +291,11 @@ static void handler_metrics(deark *c, lctx *d, struct table_entry *te)
 		if(c->debug_level>=2) {
 			de_dbg2(c, "bearing (l, r): %d, %d", leftsb, rightsb);
 			de_dbg2(c, "width: %d", char_width);
-			de_dbg2(c, "ascent, descent: %d, %d", char_asc, char_desc);
+			de_dbg2(c, "ascent, descent: %d, %d", ci->ascent, char_desc);
 			de_dbg2(c, "attributes: %u", char_attr);
 		}
 		ci->width_raw = rightsb - leftsb;
-		ci->height_raw = char_asc + char_desc;
+		ci->height_raw = ci->ascent + char_desc;
 		if(c->debug_level>=2) {
 			de_dbg(c, "raw bitmap dimensions: %d"DE_CHAR_TIMES"%d",
 				ci->width_raw,ci->height_raw);
@@ -368,7 +387,7 @@ static void handler_bdf_encodings(deark *c, lctx *d, struct table_entry *te)
 			else {
 				de_snprintf(gstr, sizeof(gstr), "char[%u]", glyph_number);
 			}
-			de_dbg2(c, "[%d]: codepoint[%d] = %s", (int)k, (int)codepoint, gstr);
+			de_dbg2(c, "[%d]: codepoint %d = %s", (int)k, (int)codepoint, gstr);
 		}
 
 		pos += 2;
@@ -519,7 +538,8 @@ static int do_read_table_entry(deark *c, lctx *d, struct table_entry *te, de_int
 	te->offset = de_getui32le_p(&pos);
 	de_dbg(c, "offset: %"INT64_FMT", size: %"INT64_FMT, te->offset, te->size);
 	if(te->offset+te->size > c->infile->len) {
-		de_warn(c, "table entry goes beyond end of file");
+		de_warn(c, "Table entry goes beyond end of file (type=%s, at %"INT64_FMT
+			", size=%"INT64_FMT")", te->type_name, te->offset, te->size);
 	}
 	if(te->offset > c->infile->len) {
 		goto done;
@@ -535,8 +555,9 @@ static void do_make_font_image(deark *c, lctx *d)
 {
 	struct de_bitmap_font *font = NULL;
 	de_int64 k;
-	int max_char_width = 1;
-	int max_char_height = 1;
+	int max_raw_width = 1;
+	int max_ascent = 0;
+	int max_descent = 0;
 
 	if(!d->chars) goto done;
 	if(!d->bitmaps_data) goto done;
@@ -544,23 +565,44 @@ static void do_make_font_image(deark *c, lctx *d)
 	font = de_create_bitmap_font(c);
 
 	font->num_chars = d->num_chars;
+
 	font->has_nonunicode_codepoints = 1;
-	font->has_unicode_codepoints = 0;
-	font->prefer_unicode = 0;
+	if(d->is_unicode) {
+		font->has_unicode_codepoints = 1;
+		font->prefer_unicode = 1;
+	}
 
 	font->char_array = de_malloc(c, d->num_chars * sizeof(struct de_bitmap_font_char));
+
+	// First, scan the characters
+	for(k=0; k<font->num_chars; k++) {
+		struct char_info *ci = &d->chars[k];
+		if(ci->codepoint == DE_CODEPOINT_INVALID) continue;
+
+		if(ci->width_raw > max_raw_width) max_raw_width = ci->width_raw;
+		if(ci->ascent > max_ascent) max_ascent = ci->ascent;
+		if(ci->height_raw - ci->ascent > max_descent) max_descent = ci->height_raw - ci->ascent;
+	}
+
+	font->nominal_width = max_raw_width;
+	font->nominal_height = max_ascent + max_descent;
+	if(font->nominal_height<1) font->nominal_height = 1;
 
 	for(k=0; k<font->num_chars; k++) {
 		struct de_bitmap_font_char *ch = &font->char_array[k];
 		struct char_info *ci = &d->chars[k];
 		de_int64 bitmap_len;
 
+		if(ci->codepoint == DE_CODEPOINT_INVALID) continue;
 		ch->codepoint_nonunicode = (de_int32)ci->codepoint;
+		if(d->is_unicode)
+			ch->codepoint_unicode = (de_int32)ci->codepoint;
 
 		ch->width = ci->width_raw;
 		ch->height = ci->height_raw;
 		if(ch->width<1) ch->width=1;
 		if(ch->height<1) ch->height=1;
+		ch->v_offset = max_ascent - ci->ascent;
 
 		ch->rowspan = de_pad_to_n((de_int64)((ci->width_raw+7)/8), (de_int64)d->bitmaps_fmt.glyph_padding_value);
 		bitmap_len = ch->rowspan * ci->height_raw;
@@ -568,16 +610,9 @@ static void do_make_font_image(deark *c, lctx *d)
 			ch->bitmap = &d->bitmaps_data[ci->bitmap_offset];
 		}
 		else {
-			ch->bitmap = NULL;
 			continue;
 		}
-
-		if(ch->width > max_char_width) max_char_width = ch->width;
-		if(ch->height > max_char_height) max_char_height = ch->height;
 	}
-
-	font->nominal_width = max_char_width;
-	font->nominal_height = max_char_height;
 
 	de_font_bitmap_font_to_image(c, font, NULL, 0);
 

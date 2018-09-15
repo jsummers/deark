@@ -296,6 +296,7 @@ static void fixup_codepoints(deark *c, struct font_render_ctx *fctx)
 	used_codepoint_map = de_malloc(c, 65536/8);
 
 	for(i=0; i<fctx->font->num_chars; i++) {
+		if(!is_valid_char(&fctx->font->char_array[i])) continue;
 		c1 = fctx->font->char_array[i].codepoint_unicode;
 
 		codepoint_already_used = 0;
@@ -430,6 +431,10 @@ void de_font_bitmap_font_to_image(deark *c, struct de_bitmap_font *font1, de_fin
 		if(!is_valid_char(&fctx->font->char_array[k])) continue;
 		rownum = fctx->codepoint_tmp[k] / chars_per_row;
 		colnum = fctx->codepoint_tmp[k] % chars_per_row;
+		if(rownum<0 || rownum>=num_table_rows_total) {
+			de_err(c, "internal: bad rownum");
+			de_fatalerror(c);
+		}
 
 		// Remember that there is at least one valid character in this character's row.
 		row_info[rownum].is_visible = 1;
@@ -531,8 +536,14 @@ void de_font_bitmap_font_to_image(deark *c, struct de_bitmap_font *font1, de_fin
 	// Render the glyphs.
 	for(k=0; k<fctx->font->num_chars; k++) {
 		if(fctx->codepoint_tmp[k] == DE_CODEPOINT_INVALID) continue;
+		if(!is_valid_char(&fctx->font->char_array[k])) continue;
+
 		rownum = fctx->codepoint_tmp[k] / chars_per_row;
 		colnum = fctx->codepoint_tmp[k] % chars_per_row;
+		if(rownum<0 || rownum>=num_table_rows_total) {
+			de_err(c, "internal: bad rownum");
+			de_fatalerror(c);
+		}
 
 		xpos = col_info[colnum].display_pos;
 		ypos = row_info[rownum].display_pos;
