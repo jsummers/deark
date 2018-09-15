@@ -265,6 +265,7 @@ static void get_min_max_codepoint(struct font_render_ctx *fctx)
 
 	for(i=0; i<fctx->font->num_chars; i++) {
 		if(!is_valid_char(&fctx->font->char_array[i])) continue;
+		if(fctx->codepoint_tmp[i] == DE_CODEPOINT_INVALID) continue;
 		fctx->num_valid_chars++;
 		if(fctx->codepoint_tmp[i] < fctx->min_codepoint)
 			fctx->min_codepoint = fctx->codepoint_tmp[i];
@@ -395,20 +396,26 @@ void de_font_bitmap_font_to_image(deark *c, struct de_bitmap_font *font1, de_fin
 
 	dfont = make_digit_font(c);
 
-	if(fctx->render_as_unicode)
-		img_leftmargin = dfont->nominal_width * 5 + 6;
-	else
-		img_leftmargin = dfont->nominal_width * 3 + 6;
-	img_topmargin = dfont->nominal_height + 6;
-	img_rightmargin = 1;
-	img_bottommargin = 1;
-
 	fctx->codepoint_tmp = de_malloc(c, fctx->font->num_chars * sizeof(de_int32));
 	fixup_codepoints(c, fctx);
 
 	get_min_max_codepoint(fctx);
 	if(fctx->num_valid_chars<1) goto done;
 	num_table_rows_total = fctx->max_codepoint/chars_per_row+1;
+
+	// TODO: Clean up these margin calculations, and make it more general.
+	if(fctx->render_as_unicode) {
+		img_leftmargin = dfont->nominal_width * 5 + 6;
+	}
+	else {
+		if(fctx->max_codepoint >= 1000)
+			img_leftmargin = dfont->nominal_width * 5 + 6;
+		else
+			img_leftmargin = dfont->nominal_width * 3 + 6;
+	}
+	img_topmargin = dfont->nominal_height + 6;
+	img_rightmargin = 1;
+	img_bottommargin = 1;
 
 	// Scan the characters, and record relevant information.
 	row_info = de_malloc(c, num_table_rows_total*sizeof(struct row_info_struct));
