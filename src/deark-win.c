@@ -223,6 +223,11 @@ FILE* de_fopen_for_write(deark *c, const char *fn,
 	return de_fopen(c, fn, modeW, errmsg, errmsg_len);
 }
 
+int de_fseek(FILE *fp, de_int64 offs, int whence)
+{
+	return _fseeki64(fp, (__int64)offs, whence);
+}
+
 int de_fclose(FILE *fp)
 {
 	return fclose(fp);

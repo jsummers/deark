@@ -127,6 +127,13 @@ FILE* de_fopen_for_write(deark *c, const char *fn,
 	return de_fopen(c, fn, mode, errmsg, errmsg_len);
 }
 
+int de_fseek(FILE *fp, de_int64 offs, int whence)
+{
+	// TODO: Support 64-bit offsets in more cases.
+	// (E.g., use fseeko/fseeko64 when available.)
+	return fseek(fp, (long)offs, whence);
+}
+
 int de_fclose(FILE *fp)
 {
 	return fclose(fp);

@@ -373,7 +373,7 @@ FILE* de_fopen_for_read(deark *c, const char *fn, de_int64 *len,
 	char *errmsg, size_t errmsg_len, unsigned int *returned_flags);
 FILE* de_fopen_for_write(deark *c, const char *fn,
 	char *errmsg, size_t errmsg_len, unsigned int flags);
-
+int de_fseek(FILE *fp, de_int64 offs, int whence);
 int de_fclose(FILE *fp);
 
 void de_update_file_perms(dbuf *f);

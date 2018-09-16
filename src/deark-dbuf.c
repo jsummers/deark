@@ -15,7 +15,6 @@
 // Fill the cache that remembers the first part of the file.
 // TODO: We should probably use memory-mapped files instead when possible,
 // but this is simple and portable, and does most of what we need.
-// (It is surprising how slow repeatedly calling fseek/fread can be.)
 static void populate_cache(dbuf *f)
 {
 	de_int64 bytes_to_read;
@@ -29,7 +28,7 @@ static void populate_cache(dbuf *f)
 	}
 
 	f->cache = de_malloc(f->c, DE_CACHE_SIZE);
-	fseek(f->fp, 0, SEEK_SET);
+	de_fseek(f->fp, 0, SEEK_SET);
 	bytes_read = fread(f->cache, 1, (size_t)bytes_to_read, f->fp);
 	f->cache_start_pos = 0;
 	f->cache_bytes_used = bytes_read;
@@ -128,7 +127,7 @@ void dbuf_read(dbuf *f, de_byte *buf, de_int64 pos, de_int64 len)
 		// For performance reasons, don't call fseek if we're already at the
 		// right position.
 		if(!f->file_pos_known || f->file_pos!=pos) {
-			fseek(f->fp, (long)(pos), SEEK_SET);
+			de_fseek(f->fp, pos, SEEK_SET);
 		}
 
 		bytes_read = fread(buf, 1, (size_t)bytes_to_read, f->fp);
