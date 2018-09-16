@@ -248,7 +248,7 @@ static void do_psf1_header(deark *c, lctx *d)
 {
 	de_int64 pos = 0;
 
-	de_dbg(c, "PFXv1 header at %d", (int)pos);
+	de_dbg(c, "PSFv1 header at %d", (int)pos);
 	de_dbg_indent(c, 1);
 
 	d->headersize = 4;
@@ -274,7 +274,7 @@ static void do_psf2_header(deark *c, lctx *d)
 {
 	de_int64 pos = 0;
 
-	de_dbg(c, "PFXv2 header at %d", (int)pos);
+	de_dbg(c, "PSFv2 header at %d", (int)pos);
 	de_dbg_indent(c, 1);
 
 	d->psf2_version = (de_uint32)de_getui32le(pos+4);
