@@ -858,6 +858,7 @@ struct de_bitmap_font_char {
 
 	int width, height;
 	int v_offset; // Used if the glyphs do not all have the same height
+	de_int16 extraspace_l, extraspace_r;
 	de_int64 rowspan;
 	de_byte *bitmap;
 };

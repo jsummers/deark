@@ -527,6 +527,8 @@ Deark -- Information about supported formats
 * GRASP font (module="graspfont") (experimental)
   .set/.fnt; may be found inside GRASP .gl files.
 
+* PCF font (module="pcf") (experimental/incomplete)
+
 * PC Screen Font (PSF) (module="psf")
   Options
    -opt font:noaliases - Restrict to one Unicode codepoint per glyph

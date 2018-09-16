@@ -27,6 +27,7 @@ struct char_info {
 	de_int32 codepoint;
 	int width_raw, height_raw; // Dimensions of the bitmap stored in the file
 	int ascent;
+	de_int16 extraspace_l, extraspace_r;
 };
 
 struct format_struct {
@@ -298,8 +299,14 @@ static void handler_metrics(deark *c, lctx *d, struct table_entry *te)
 		ci->height_raw = ci->ascent + char_desc;
 		if(c->debug_level>=2) {
 			de_dbg(c, "raw bitmap dimensions: %d"DE_CHAR_TIMES"%d",
-				ci->width_raw,ci->height_raw);
+				ci->width_raw, ci->height_raw);
 		}
+
+		// TODO: Are these calculations correct?
+		ci->extraspace_l = (de_int16)leftsb;
+		if(ci->extraspace_l<0) ci->extraspace_l=0;
+		ci->extraspace_r = (de_int16)(char_width - ci->width_raw - (int)ci->extraspace_l);
+		if(ci->extraspace_r<0) ci->extraspace_r=0;
 
 		de_dbg_indent(c, -1);
 	}
@@ -555,7 +562,7 @@ static void do_make_font_image(deark *c, lctx *d)
 {
 	struct de_bitmap_font *font = NULL;
 	de_int64 k;
-	int max_raw_width = 1;
+	int max_full_width = 1;
 	int max_ascent = 0;
 	int max_descent = 0;
 
@@ -577,14 +584,17 @@ static void do_make_font_image(deark *c, lctx *d)
 	// First, scan the characters
 	for(k=0; k<font->num_chars; k++) {
 		struct char_info *ci = &d->chars[k];
+		int full_width;
+
 		if(ci->codepoint == DE_CODEPOINT_INVALID) continue;
 
-		if(ci->width_raw > max_raw_width) max_raw_width = ci->width_raw;
+		full_width = (int)ci->extraspace_l + ci->width_raw + (int)ci->extraspace_r;
+		if(full_width > max_full_width) max_full_width = full_width;
 		if(ci->ascent > max_ascent) max_ascent = ci->ascent;
 		if(ci->height_raw - ci->ascent > max_descent) max_descent = ci->height_raw - ci->ascent;
 	}
 
-	font->nominal_width = max_raw_width;
+	font->nominal_width = max_full_width;
 	font->nominal_height = max_ascent + max_descent;
 	if(font->nominal_height<1) font->nominal_height = 1;
 
@@ -603,6 +613,8 @@ static void do_make_font_image(deark *c, lctx *d)
 		if(ch->width<1) ch->width=1;
 		if(ch->height<1) ch->height=1;
 		ch->v_offset = max_ascent - ci->ascent;
+		ch->extraspace_l = ci->extraspace_l;
+		ch->extraspace_r = ci->extraspace_r;
 
 		ch->rowspan = de_pad_to_n((de_int64)((ci->width_raw+7)/8), (de_int64)d->bitmaps_fmt.glyph_padding_value);
 		bitmap_len = ch->rowspan * ci->height_raw;
@@ -720,5 +732,4 @@ void de_module_pcf(deark *c, struct deark_module_info *mi)
 	mi->desc = "PCF font";
 	mi->run_fn = de_run_pcf;
 	mi->identify_fn = de_identify_pcf;
-	mi->flags |= DE_MODFLAG_NONWORKING;
 }

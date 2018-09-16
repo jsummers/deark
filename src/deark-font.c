@@ -53,7 +53,7 @@ void de_font_paint_character_idx(deark *c, de_bitmap *img,
 	if(ch->width > font->nominal_width) return;
 	if(ch->height > font->nominal_height) return;
 
-	num_x_pixels_to_paint = ch->width;
+	num_x_pixels_to_paint = (de_int64)ch->extraspace_l + (de_int64)ch->width + (de_int64)ch->extraspace_r;
 	if((flags&DE_PAINTFLAG_VGA9COL) && ch->width==8) {
 		vga9col_flag = 1;
 		num_x_pixels_to_paint = 9;
@@ -86,6 +86,8 @@ void de_font_paint_character_idx(deark *c, de_bitmap *img,
 					i_src = -1; // Make this pixel a background pixel.
 				}
 			}
+
+			i_src -= (de_int64)ch->extraspace_l;
 
 			if(i_src>=0 && i_src<ch->width) {
 				x = ch->bitmap[j_src*ch->rowspan + i_src/8];
@@ -427,6 +429,8 @@ void de_font_bitmap_font_to_image(deark *c, struct de_bitmap_font *font1, de_fin
 	}
 
 	for(k=0; k<fctx->font->num_chars; k++) {
+		de_int64 char_display_width;
+
 		if(fctx->codepoint_tmp[k] == DE_CODEPOINT_INVALID) continue;
 		if(!is_valid_char(&fctx->font->char_array[k])) continue;
 		rownum = fctx->codepoint_tmp[k] / chars_per_row;
@@ -440,8 +444,11 @@ void de_font_bitmap_font_to_image(deark *c, struct de_bitmap_font *font1, de_fin
 		row_info[rownum].is_visible = 1;
 
 		// Track the maximum width of any character in this character's column.
-		if(fctx->font->char_array[k].width > col_info[colnum].display_width) {
-			col_info[colnum].display_width = fctx->font->char_array[k].width;
+		char_display_width = (de_int64)(fctx->font->char_array[k].width +
+				(int)fctx->font->char_array[k].extraspace_l +
+				(int)fctx->font->char_array[k].extraspace_r);
+		if(char_display_width > col_info[colnum].display_width) {
+			col_info[colnum].display_width = char_display_width;
 		}
 	}
 
