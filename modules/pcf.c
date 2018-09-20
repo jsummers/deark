@@ -70,6 +70,10 @@ struct localctx_struct {
 
 	de_byte has_encodings_table;
 	de_byte is_unicode;
+	de_byte can_translate_to_unicode;
+	int src_encoding; // Used if(can_translate_to_unicode)
+	char charset_registry[40];
+	char charset_encoding[40];
 };
 
 // Read a 'format' field, populate caller-supplied 'fmt'.
@@ -171,9 +175,10 @@ static void read_one_property(deark *c, lctx *d, struct table_entry *te,
 		srd_strval = read_prop_string(c, d, te, string_data_area_pos+value_offset, "value");
 
 		if(!de_strcmp(srd_name->sz_utf8, "CHARSET_REGISTRY")) {
-			if(!de_strcmp(srd_strval->sz_utf8, "ISO10646")) {
-				d->is_unicode = 1;
-			}
+			de_strlcpy(d->charset_registry, srd_strval->sz_utf8, sizeof(d->charset_registry));
+		}
+		else if(!de_strcmp(srd_name->sz_utf8, "CHARSET_ENCODING")) {
+			de_strlcpy(d->charset_encoding, srd_strval->sz_utf8, sizeof(d->charset_encoding));
 		}
 	}
 	else {
@@ -574,7 +579,7 @@ static void do_make_font_image(deark *c, lctx *d)
 	font->num_chars = d->num_chars;
 
 	font->has_nonunicode_codepoints = 1;
-	if(d->is_unicode) {
+	if(d->is_unicode || d->can_translate_to_unicode) {
 		font->has_unicode_codepoints = 1;
 		font->prefer_unicode = 1;
 	}
@@ -604,9 +609,13 @@ static void do_make_font_image(deark *c, lctx *d)
 		de_int64 bitmap_len;
 
 		if(ci->codepoint == DE_CODEPOINT_INVALID) continue;
-		ch->codepoint_nonunicode = (de_int32)ci->codepoint;
-		if(d->is_unicode)
-			ch->codepoint_unicode = (de_int32)ci->codepoint;
+		ch->codepoint_nonunicode = ci->codepoint;
+		if(d->is_unicode) {
+			ch->codepoint_unicode = ci->codepoint;
+		}
+		else if(d->can_translate_to_unicode) {
+			ch->codepoint_unicode = de_char_to_unicode(c, ci->codepoint, d->src_encoding);
+		}
 
 		ch->width = ci->width_raw;
 		ch->height = ci->height_raw;
@@ -689,6 +698,20 @@ static void de_run_pcf(deark *c, de_module_params *mparams)
 	// Now process the tables in the order we choose.
 
 	process_table_by_type(c, d, TBLTYPE_PROPERTIES);
+
+	if(!de_strcmp(d->charset_registry, "ISO10646")) {
+		d->is_unicode = 1;
+	}
+	else if(!de_strcmp(d->charset_registry, "ISO8859")) {
+		if(!de_strcmp(d->charset_encoding, "1")) {
+			d->is_unicode = 1;
+		}
+		else if(!de_strcmp(d->charset_encoding, "2")) {
+			d->can_translate_to_unicode = 1;
+			d->src_encoding = DE_ENCODING_LATIN2;
+		}
+	}
+
 	if(!process_table_by_type(c, d, TBLTYPE_METRICS)) {
 		de_err(c, "Missing metrics table");
 		goto done;
@@ -697,6 +720,8 @@ static void de_run_pcf(deark *c, de_module_params *mparams)
 	process_table_by_type(c, d, TBLTYPE_BDF_ENCODINGS);
 
 	if(!d->has_encodings_table) {
+		d->is_unicode = 0;
+		d->can_translate_to_unicode = 0;
 		for(k=0; k<d->num_chars; k++) {
 			d->chars[k].codepoint = (de_int32)k;
 		}
