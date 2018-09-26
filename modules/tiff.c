@@ -41,6 +41,7 @@ DE_DECLARE_MODULE(de_module_tiff);
 #define DE_TIFFFMT_JPEGXR     7 // JPEG XR
 #define DE_TIFFFMT_MPEXT      8 // "MP Extension" data from MPF format
 #define DE_TIFFFMT_NIKONMN    9 // Nikon MakerNote
+#define DE_TIFFFMT_APPLEMN    10 // Apple iOS MakerNote
 
 #define IFDTYPE_NORMAL       0
 #define IFDTYPE_SUBIFD       1
@@ -48,7 +49,9 @@ DE_DECLARE_MODULE(de_module_tiff);
 #define IFDTYPE_EXIFINTEROP  3
 #define IFDTYPE_GPS          4
 #define IFDTYPE_GLOBALPARAMS 5 // TIFF-FX
-#define IFDTYPE_NIKONPREVIEW 6
+#define IFDTYPE_NIKONMN      6 // First IFD of a Nikon MakerNote
+#define IFDTYPE_NIKONPREVIEW 7
+#define IFDTYPE_APPLEMN      8
 
 struct localctx_struct;
 typedef struct localctx_struct lctx;
@@ -90,6 +93,7 @@ struct tagnuminfo {
 	// 0x0400=tags valid in JPEG XR files (from the spec, and jxrlib)
 	// 0x0800=tags for Multi-Picture Format (.MPO) extensions
 	// 0x1000=tags for Nikon MakerNote
+	// 0x2000=tags for Apple iOS MakerNote
 	unsigned int flags;
 
 	const char *tagname;
@@ -1122,6 +1126,7 @@ static void handler_photoshoprsrc(deark *c, lctx *d, const struct taginfo *tg, c
 
 struct makernote_id_info {
 #define MAKERNOTE_NIKON 1
+#define MAKERNOTE_APPLE_IOS 2
 	int mntype;
 	char name[32];
 };
@@ -1143,6 +1148,11 @@ static void identify_makernote(deark *c, lctx *d, const struct taginfo *tg, stru
 		// This is one Nikon MakerNote format. There are others.
 		mni->mntype = MAKERNOTE_NIKON;
 		de_strlcpy(mni->name, "Nikon type 3", sizeof(mni->name));
+		goto done;
+	}
+	else if(!de_memcmp(buf, "Apple iOS\x00\x00\x01\x4d\x4d", 14)) {
+		mni->mntype = MAKERNOTE_APPLE_IOS;
+		de_strlcpy(mni->name, "Apple iOS", sizeof(mni->name));
 		goto done;
 	}
 
@@ -1169,6 +1179,24 @@ static void do_makernote_nikon(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 	de_dbg_indent(c, -1);
 }
 
+static void do_makernote_apple_ios(deark *c, lctx *d, de_int64 pos1, de_int64 len)
+{
+	unsigned int ver;
+
+	if(len<12) return;
+	ver = (unsigned int)de_getui16be(pos1+10);
+	de_dbg(c, "version: 0x%04x", ver); // This is a guess
+	if(ver!=1) return;
+	if(len<20) return;
+
+	// Apple iOS offsets are relative to the beginning of the "Apple iOS"
+	// signature, so that's the data we'll pass to the submodule.
+	de_dbg(c, "Apple MakerNote tag data at %"INT64_FMT", len=%"INT64_FMT, pos1, len);
+	de_dbg_indent(c, 1);
+	de_run_module_by_id_on_slice2(c, "tiff", "A", c->infile, pos1, len);
+	de_dbg_indent(c, -1);
+}
+
 static void handler_makernote(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni)
 {
 	struct makernote_id_info *mni = NULL;
@@ -1182,6 +1210,9 @@ static void handler_makernote(deark *c, lctx *d, const struct taginfo *tg, const
 
 	if(mni->mntype==MAKERNOTE_NIKON) {
 		do_makernote_nikon(c, d, tg->val_offset, tg->total_size);
+	}
+	else if(mni->mntype==MAKERNOTE_APPLE_IOS) {
+		do_makernote_apple_ios(c, d, tg->val_offset, tg->total_size);
 	}
 	else {
 		handler_hexdump(c, d, tg, tni);
@@ -1993,7 +2024,16 @@ static const struct tagnuminfo tagnuminfo_arr[] = {
 	{ 0xe13, 0x1001, "NikonCaptureEditVersions", NULL, NULL },
 	{ 0xe1d, 0x1001, "NikonICCProfile", NULL, NULL },
 	{ 0xe1e, 0x1001, "NikonCaptureOutput", NULL, NULL },
-	{ 0xe22, 0x1001, "NEFBitDepth", NULL, NULL }
+	{ 0xe22, 0x1001, "NEFBitDepth", NULL, NULL },
+
+	{ 2, 0x2009, "?", handler_hexdump, NULL },
+	{ 3, 0x2009, "RunTime", handler_hexdump, NULL },
+	{ 8, 0x2001, "AccelerationVector", NULL, NULL },
+	{ 0xa, 0x2001, "HDRImageType", NULL, NULL },
+	{ 0xb, 0x2001, "BurstUUID", NULL, NULL },
+	{ 0xe, 0x2001, "Orientation?", NULL, NULL },
+	{ 0x11, 0x2001, "ContentIdentifier", NULL, NULL },
+	{ 0x15, 0x2001, "ImageUniqueID", NULL, NULL }
 };
 
 static void do_dbg_print_numeric_values(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni,
@@ -2137,6 +2177,18 @@ static const struct tagnuminfo *find_tagnuminfo(int tagnum, int filefmt, int ifd
 		else if(ifdtype==IFDTYPE_GPS) {
 			// For GPS IFDs, allow only special tags
 			if(!(tagnuminfo_arr[i].flags&0x40)) {
+				continue;
+			}
+		}
+		else if(ifdtype==IFDTYPE_NIKONMN) {
+			// For this IFD, allow only special tags
+			if(!(tagnuminfo_arr[i].flags&0x1000)) {
+				continue;
+			}
+		}
+		else if(ifdtype==IFDTYPE_APPLEMN) {
+			// For this IFD, allow only special tags
+			if(!(tagnuminfo_arr[i].flags&0x2000)) {
 				continue;
 			}
 		}
@@ -2342,27 +2394,41 @@ static void do_tiff(deark *c, lctx *d)
 	de_int64 pos;
 	de_int64 ifdoffs;
 	de_int64 ifd_idx;
+	int need_to_read_header = 1;
 
 	pos = 0;
-	de_dbg(c, "TIFF file header at %d", (int)pos);
-	de_dbg_indent(c, 1);
 
-	de_dbg(c, "byte order: %s-endian", d->is_le?"little":"big");
-
-	// Skip over the signature
-	if(d->is_bigtiff) {
-		pos += 8;
-	}
-	else {
-		pos += 4;
+	if(d->fmt==DE_TIFFFMT_APPLEMN) {
+		push_ifd(c, d, 14, IFDTYPE_APPLEMN);
+		need_to_read_header = 0;
 	}
 
-	// Read the first IFD offset
-	ifdoffs = getfpos(c, d, pos);
-	de_dbg(c, "offset of first IFD: %d", (int)ifdoffs);
-	push_ifd(c, d, ifdoffs, IFDTYPE_NORMAL);
+	if(need_to_read_header) {
+		de_dbg(c, "TIFF file header at %d", (int)pos);
+		de_dbg_indent(c, 1);
 
-	de_dbg_indent(c, -1);
+		de_dbg(c, "byte order: %s-endian", d->is_le?"little":"big");
+
+		// Skip over the signature
+		if(d->is_bigtiff) {
+			pos += 8;
+		}
+		else {
+			pos += 4;
+		}
+
+		// Read the first IFD offset
+		ifdoffs = getfpos(c, d, pos);
+		de_dbg(c, "offset of first IFD: %d", (int)ifdoffs);
+		if(d->fmt==DE_TIFFFMT_NIKONMN) {
+			push_ifd(c, d, ifdoffs, IFDTYPE_NIKONMN);
+		}
+		else {
+			push_ifd(c, d, ifdoffs, IFDTYPE_NORMAL);
+		}
+
+		de_dbg_indent(c, -1);
+	}
 
 	// Process IFDs until we run out of them.
 	// ifd_idx tracks how many IFDs we have finished processing, but it's not
@@ -2437,7 +2503,14 @@ static void de_run_tiff(deark *c, de_module_params *mparams)
 		d->in_params = &mparams->in_params;
 	}
 
-	d->fmt = de_identify_tiff_internal(c, &d->is_le);
+	if(de_strchr(mparams->in_params.codes, 'A')) {
+		d->fmt = DE_TIFFFMT_APPLEMN;
+		d->is_le = 0;
+		d->errmsgprefix = "[Apple MakerNote] ";
+	}
+	else {
+		d->fmt = de_identify_tiff_internal(c, &d->is_le);
+	}
 
 	if(mparams && mparams->in_params.codes) {
 		if(de_strchr(mparams->in_params.codes, 'N')) {
