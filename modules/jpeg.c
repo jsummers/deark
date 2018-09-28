@@ -1710,10 +1710,6 @@ static void print_summary(deark *c, lctx *d)
 
 	if(d->is_jpegls) goto done;
 	if(!d->found_sof) goto done;
-
-	// This is just to avoid printing a summary line for garbage that sometimes
-	// appears at the end of a file, after the EOI.
-	// TODO: We should probably handle such garbage better.
 	if(!d->found_soi) goto done;
 
 	summary = ucstring_create(c);
@@ -1841,6 +1837,15 @@ static int do_jpeg_page(deark *c, struct file_ctx *fctx, de_int64 pos1, de_int64
 
 		seg_type = b;
 
+		if(!d->found_soi && seg_type!=0xd8 && fctx->image_count>0) {
+			// If this is not the first JPEG sequence in the file, require the
+			// first marker to be SOI. The goal is to handle all of the following:
+			// * Files containing multiple SOI->EOI sequences
+			// * Files without SOI/EOI markers
+			// * Files that have garbage after the EOI
+			goto done;
+		}
+
 		if(seg_type==0xf7 && !d->found_sof) {
 			d->is_jpegls = 1;
 		}
@@ -1860,7 +1865,7 @@ static int do_jpeg_page(deark *c, struct file_ctx *fctx, de_int64 pos1, de_int64
 				goto done;
 			}
 
-			if(seg_type==0xd8) {
+			if(seg_type==0xd8 && !d->found_soi) {
 				d->found_soi = 1;
 				// Count the number of SOI segments
 				fctx->image_count++;
