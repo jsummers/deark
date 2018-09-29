@@ -69,7 +69,6 @@ struct de_module_out_params {
 typedef struct de_module_params_struct {
 	struct de_module_in_params in_params;
 	struct de_module_out_params out_params;
-
 } de_module_params;
 
 #define DE_DECLARE_MODULE(x) void x(deark *c, struct deark_module_info *mi)
@@ -402,6 +401,7 @@ const char *de_get_sz_ext(const char *sz);
 int de_sz_has_ext(const char *sz, const char *ext);
 const char *de_get_input_file_ext(deark *c);
 int de_input_file_has_ext(deark *c, const char *ext);
+int de_havemodcode(deark *c, de_module_params *mparams, int code);
 
 ///////////////////////////////////////////
 

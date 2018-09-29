@@ -2503,7 +2503,7 @@ static void de_run_tiff(deark *c, de_module_params *mparams)
 		d->in_params = &mparams->in_params;
 	}
 
-	if(de_strchr(mparams->in_params.codes, 'A')) {
+	if(de_havemodcode(c, mparams, 'A')) {
 		d->fmt = DE_TIFFFMT_APPLEMN;
 		d->is_le = 0;
 		d->errmsgprefix = "[Apple MakerNote] ";
@@ -2512,21 +2512,18 @@ static void de_run_tiff(deark *c, de_module_params *mparams)
 		d->fmt = de_identify_tiff_internal(c, &d->is_le);
 	}
 
-	if(mparams && mparams->in_params.codes) {
-		if(de_strchr(mparams->in_params.codes, 'N')) {
-			d->errmsgprefix = "[Nikon MakerNote] ";
-			d->fmt = DE_TIFFFMT_NIKONMN;
-		}
+	if(de_havemodcode(c, mparams, 'N')) {
+		d->errmsgprefix = "[Nikon MakerNote] ";
+		d->fmt = DE_TIFFFMT_NIKONMN;
+	}
 
-		if(de_strchr(mparams->in_params.codes, 'M') && (d->fmt==DE_TIFFFMT_TIFF))
-		{
-			d->fmt = DE_TIFFFMT_MPEXT;
-		}
+	if(de_havemodcode(c, mparams, 'M') && (d->fmt==DE_TIFFFMT_TIFF)) {
+		d->fmt = DE_TIFFFMT_MPEXT;
+	}
 
-		if(de_strchr(mparams->in_params.codes, 'E')) {
-			d->is_exif_submodule = 1;
-			d->errmsgprefix = "[Exif] ";
-		}
+	if(de_havemodcode(c, mparams, 'E')) {
+		d->is_exif_submodule = 1;
+		d->errmsgprefix = "[Exif] ";
 	}
 
 	switch(d->fmt) {

@@ -776,6 +776,16 @@ int de_input_file_has_ext(deark *c, const char *ext)
 	return 0;
 }
 
+int de_havemodcode(deark *c, de_module_params *mparams, int code)
+{
+	if(mparams &&
+		mparams->in_params.codes &&
+		de_strchr(mparams->in_params.codes, code))
+	{
+		return 1;
+	}
+	return 0;
+}
 
 de_finfo *de_finfo_create(deark *c)
 {
