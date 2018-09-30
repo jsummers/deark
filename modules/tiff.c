@@ -1023,6 +1023,21 @@ static void handler_hexdumpb(deark *c, lctx *d, const struct taginfo *tg, const 
 	de_dbg_hexdump(c, c->infile, tg->val_offset, tg->total_size, 256, NULL, 0);
 }
 
+static void handler_bplist(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni)
+{
+	if(tg->total_size>=40 &&
+		!dbuf_memcmp(c->infile, tg->val_offset, "bplist", 6))
+	{
+		de_dbg(c, "binary PLIST at %"INT64_FMT", len=%"INT64_FMT, tg->val_offset, tg->total_size);
+		de_dbg_indent(c, 1);
+		de_run_module_by_id_on_slice(c, "plist", NULL, c->infile, tg->val_offset, tg->total_size);
+		de_dbg_indent(c, -1);
+	}
+	else {
+		handler_hexdump(c, d, tg, tni);
+	}
+}
+
 static void handler_imagewidth(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni)
 {
 	if(tg->valcount!=1) return;
@@ -2026,8 +2041,8 @@ static const struct tagnuminfo tagnuminfo_arr[] = {
 	{ 0xe1e, 0x1001, "NikonCaptureOutput", NULL, NULL },
 	{ 0xe22, 0x1001, "NEFBitDepth", NULL, NULL },
 
-	{ 2, 0x2009, "?", handler_hexdump, NULL },
-	{ 3, 0x2009, "RunTime", handler_hexdump, NULL },
+	{ 2, 0x2009, "?", handler_bplist, NULL },
+	{ 3, 0x2009, "RunTime", handler_bplist, NULL },
 	{ 8, 0x2001, "AccelerationVector", NULL, NULL },
 	{ 0xa, 0x2001, "HDRImageType", NULL, NULL },
 	{ 0xb, 0x2001, "BurstUUID", NULL, NULL },

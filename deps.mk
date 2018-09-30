@@ -142,6 +142,8 @@ obj/modules/pict.o: modules/pict.c src/deark-config.h src/deark-private.h \
  src/deark.h src/deark-fmtutil.h
 obj/modules/pkfont.o: modules/pkfont.c src/deark-config.h \
  src/deark-private.h src/deark.h
+obj/modules/plist.o: modules/plist.c src/deark-config.h \
+ src/deark-private.h src/deark.h
 obj/modules/png.o: modules/png.c src/deark-config.h src/deark-private.h \
  src/deark.h src/deark-fmtutil.h
 obj/modules/pnm.o: modules/pnm.c src/deark-config.h src/deark-private.h \

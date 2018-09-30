@@ -766,6 +766,10 @@
 				>
 			</File>
 			<File
+				RelativePath="..\..\modules\plist.c"
+				>
+			</File>
+			<File
 				RelativePath="..\..\modules\png.c"
 				>
 			</File>
