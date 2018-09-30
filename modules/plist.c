@@ -8,11 +8,17 @@
 #include <deark-private.h>
 DE_DECLARE_MODULE(de_module_plist);
 
+#define MAX_PLIST_NESTING_LEVEL 10
+#define MAX_PLIST_OBJECTS       1000000
+
 struct objref_struct {
 	de_uint32 offs;
 };
 
 typedef struct localctx_struct {
+	int nesting_level;
+	de_int64 object_count; // Number of objects we've decoded so far
+
 	unsigned int nbytes_per_objref_table_entry;
 	unsigned int nbytes_per_object_refnum;
 	de_int64 top_object_refnum;
@@ -80,7 +86,7 @@ static int do_trailer(deark *c, lctx *d, de_int64 pos1)
 		goto done;
 	}
 
-	if(d->num_objrefs<0 || d->num_objrefs>1000000) {
+	if(d->num_objrefs<0 || d->num_objrefs>MAX_PLIST_OBJECTS) {
 		de_err(c, "Too many PLIST objects (%"INT64_FMT")", d->num_objrefs);
 		goto done;
 	}
@@ -91,25 +97,238 @@ done:
 	return retval;
 }
 
-static void do_one_object_by_offset(deark *c, lctx *d, de_int64 pos1)
+static int do_one_object_by_refnum(deark *c, lctx *d, de_int64 refnum);
+
+static void do_object_array_or_set(deark *c, lctx *d, const char *tn,
+	de_int64 objpos, de_int64 pos1, de_int64 numitems)
+{
+	de_int64 k;
+	de_int64 pos = pos1;
+	int saved_indent_level;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+	d->nesting_level++;
+	if(d->nesting_level>MAX_PLIST_NESTING_LEVEL) goto done;
+	if(numitems<0 || numitems>MAX_PLIST_OBJECTS) goto done;
+
+	for(k=0; k<numitems; k++) {
+		de_int64 refnum;
+
+		de_dbg(c, "item[%d] (for %s@%"INT64_FMT")", (int)k, tn, objpos);
+		de_dbg_indent(c, 1);
+
+		refnum = dbuf_getint_ext(c->infile, pos, d->nbytes_per_object_refnum, 0, 0);
+		pos += (de_int64)d->nbytes_per_object_refnum;
+
+		de_dbg(c, "refnum: %u", (unsigned int)refnum);
+		if(!do_one_object_by_refnum(c, d, refnum)) goto done;
+
+		de_dbg_indent(c, -1);
+	}
+
+done:
+	d->nesting_level--;
+	de_dbg_indent_restore(c, saved_indent_level);
+}
+
+static void do_object_dict(deark *c, lctx *d, de_int64 objpos, de_int64 pos1,
+	de_int64 dictsize)
+{
+	de_int64 k;
+	int saved_indent_level;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+	d->nesting_level++;
+	if(d->nesting_level>MAX_PLIST_NESTING_LEVEL) goto done;
+	if(dictsize<0 || dictsize>MAX_PLIST_OBJECTS) goto done;
+
+	for(k=0; k<dictsize; k++) {
+		de_int64 keyrefnum;
+		de_int64 valrefnum;
+
+		de_dbg(c, "entry[%d] (for dict@%"INT64_FMT")", (int)k, objpos);
+		de_dbg_indent(c, 1);
+
+		keyrefnum = dbuf_getint_ext(c->infile, pos1+k*(de_int64)d->nbytes_per_object_refnum,
+			d->nbytes_per_object_refnum, 0, 0);
+		de_dbg(c, "key objrefnum: %u", (unsigned int)keyrefnum);
+		de_dbg_indent(c, 1);
+		if(!do_one_object_by_refnum(c, d, keyrefnum)) goto done;
+		de_dbg_indent(c, -1);
+
+		valrefnum = dbuf_getint_ext(c->infile, pos1+(dictsize+k)*(de_int64)d->nbytes_per_object_refnum,
+			d->nbytes_per_object_refnum, 0, 0);
+		de_dbg(c, "val objrefnum: %u", (unsigned int)valrefnum);
+		de_dbg_indent(c, 1);
+		if(!do_one_object_by_refnum(c, d, valrefnum)) goto done;
+		de_dbg_indent(c, -1);
+
+		de_dbg_indent(c, -1);
+	}
+
+done:
+	d->nesting_level--;
+	de_dbg_indent_restore(c, saved_indent_level);
+}
+
+// "ASCII" string
+static void do_object_string(deark *c, lctx *d, de_int64 pos, de_int64 len)
+{
+	de_ucstring *s = NULL;
+
+	s = ucstring_create(c);
+	dbuf_read_to_ucstring_n(c->infile, pos, len, DE_DBG_MAX_STRLEN, s, 0, DE_ENCODING_ASCII);
+	de_dbg(c, "value: \"%s\"", ucstring_getpsz_d(s));
+	ucstring_destroy(s);
+}
+
+static void do_object_int(deark *c, lctx *d, de_int64 pos, de_int64 dlen_raw)
+{
+	unsigned int nbytes;
+	de_int64 n;
+
+	if(dlen_raw<0 || dlen_raw>3) return;
+	nbytes = 1U<<(unsigned int)dlen_raw;
+	n = dbuf_getint_ext(c->infile, pos, nbytes, 0, 1);
+	de_dbg(c, "value: %"INT64_FMT, n);
+}
+
+// Returns 0 if we should stop processing the file
+static int do_one_object_by_offset(deark *c, lctx *d, de_int64 pos1)
 {
 	de_int64 pos = pos1;
 	de_byte marker;
+	de_byte m1, m2;
+	int has_size;
+	de_int64 dlen_raw;
+	const char *tn;
+	int retval = 0;
 
 	de_dbg(c, "object at %"INT64_FMT, pos);
 	de_dbg_indent(c, 1);
+	if(d->object_count>=MAX_PLIST_OBJECTS) goto done;
+	d->object_count++;
+	retval = 1;
+
 	if(pos<8 || pos>=c->infile->len-32) goto done;
 
 	marker = de_getbyte_p(&pos);
 	de_dbg(c, "marker: 0x%02x", (unsigned int)marker);
+
+	m1 = (marker&0xf0)>>4;
+	m2 = marker&0x0f;
+
+	tn = "?";
+	has_size = 0;
+	dlen_raw = 0;
+
+	switch(m1) {
+	case 0x0:
+		if(m2==0x8 || m2==0x9) {
+			tn = "bool";
+		}
+		break;
+	case 0x1:
+		tn = "int";
+		has_size = 1;
+		break;
+	case 0x2: // TODO
+		tn = "real";
+		has_size = 1;
+		break;
+	case 0x3:
+		if(m2==0x3) { // TODO
+			tn = "date";
+		}
+		break;
+	case 0x4:
+		tn = "binary data";
+		has_size = 1;
+		break;
+	case 0x5:
+		tn = "string";
+		has_size = 1;
+		break;
+	case 0x6: // TODO
+		tn = "UTF-16 string";
+		has_size = 1;
+		break;
+	case 0x8: // TODO
+		tn = "uid";
+		has_size = 1;
+		break;
+	case 0xa:
+		tn = "array";
+		has_size = 1;
+		break;
+	case 0xc:
+		tn = "set";
+		has_size = 1;
+		break;
+	case 0xd:
+		tn = "dict";
+		has_size = 1;
+		break;
+	}
+
+	de_dbg(c, "data type: %s", tn);
+
+	if(has_size) {
+		if(m2==0xf) {
+			de_byte x;
+			unsigned int nbytes_in_len;
+			x = de_getbyte_p(&pos);
+			// 0x10 = size is a 1-byte int
+			// 0x11 = 2-byte int, 0x12 = 4-byte int, 0x13 = 8-byte int
+			if(x<0x10 || x>0x13) goto done;
+			nbytes_in_len = 1U<<(unsigned int)(x-0x10);
+			dlen_raw = dbuf_getint_ext(c->infile, pos, nbytes_in_len, 0, 0);
+			pos += (de_int64)nbytes_in_len;
+		}
+		else {
+			dlen_raw = (de_int64)m2;
+		}
+		de_dbg(c, "size (logical): %"INT64_FMT, dlen_raw);
+	}
+
+	if(m1==0x0 && (m2==0x8 || m2==0x9)) {
+		de_dbg(c, "value: %s", (m2==0x8)?"false":"true");
+	}
+	else if(m1==0x1) {
+		do_object_int(c, d, pos, dlen_raw);
+	}
+	else if(m1==0x4) {
+		de_dbg(c, "binary data at %"INT64_FMT", len=%"INT64_FMT, pos, dlen_raw);
+		de_dbg_indent(c, 1);
+		de_dbg_hexdump(c, c->infile, pos, dlen_raw, 256, NULL, 0x1);
+		de_dbg_indent(c, -1);
+	}
+	else if(m1==0x5) {
+		do_object_string(c, d, pos, dlen_raw);
+	}
+	else if(m1==0xa) {
+		do_object_array_or_set(c, d, tn, pos1, pos, dlen_raw);
+	}
+	else if(m1==0xc) {
+		do_object_array_or_set(c, d, tn, pos1, pos, dlen_raw);
+	}
+	else if(m1==0xd) {
+		do_object_dict(c, d, pos1, pos, dlen_raw);
+	}
+	else {
+		de_dbg(c, "[don't know how to decode this data type]");
+	}
+
 done:
 	de_dbg_indent(c, -1);
+	return retval;
 }
 
-static void do_one_object_by_refnum(deark *c, lctx *d, de_int64 refnum)
+// Returns 0 if we should stop processing the file
+static int do_one_object_by_refnum(deark *c, lctx *d, de_int64 refnum)
 {
-	if(refnum<0 || refnum>d->num_objrefs) return;
-	do_one_object_by_offset(c, d, d->objref_table[refnum].offs);
+	if(refnum<0 || refnum>=d->num_objrefs) return 1;
+	return do_one_object_by_offset(c, d, d->objref_table[refnum].offs);
 }
 
 static void read_offset_table(deark *c, lctx *d)
@@ -179,5 +398,4 @@ void de_module_plist(deark *c, struct deark_module_info *mi)
 	mi->desc = "PLIST (binary format)";
 	mi->run_fn = de_run_plist;
 	mi->identify_fn = de_identify_plist;
-	mi->flags |= DE_MODFLAG_NONWORKING;
 }
