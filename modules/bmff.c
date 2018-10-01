@@ -180,6 +180,9 @@ struct box_type_info {
 #define BOX_RESI 0x52455349U
 #define BOX_SPEC 0x53504543U
 
+#define CODE_rICC 0x72494343U
+#define CODE_prof 0x70726f66U
+
 // Called for each primary or compatible brand.
 // Brand-specific setup can be done here.
 static void apply_brand(deark *c, lctx *d, de_uint32 brand_id)
@@ -1026,7 +1029,31 @@ static void do_box_cdef(deark *c, lctx *d, struct de_boxesctx *bctx)
 	}
 }
 
-static void do_box_colr(deark *c, lctx *d, struct de_boxesctx *bctx)
+// BMFF-style 'colr' box
+static void do_box_colr_bmff(deark *c, lctx *d, struct de_boxesctx *bctx)
+{
+	struct de_boxdata *curbox = bctx->curbox;
+	de_int64 pos = curbox->payload_pos;
+	struct de_fourcc ct4cc; // colour_type
+
+	if(curbox->payload_len<4) goto done;
+
+	dbuf_read_fourcc(bctx->f, pos, &ct4cc, 4, 0x0);
+	de_dbg(c, "colour type: '%s'", ct4cc.id_dbgstr);
+	pos += 4;
+
+	if(ct4cc.id==CODE_rICC || ct4cc.id==CODE_prof) {
+		dbuf_create_file_from_slice(bctx->f, pos,
+			curbox->payload_pos+curbox->payload_len-pos,
+			"icc", NULL, DE_CREATEFLAG_IS_AUX);
+	}
+
+done:
+	;
+}
+
+// JP2/JPX-style 'colr' box
+static void do_box_colr_jp2(deark *c, lctx *d, struct de_boxesctx *bctx)
 {
 	de_byte meth;
 	struct de_boxdata *curbox = bctx->curbox;
@@ -1179,6 +1206,7 @@ static const struct box_type_info box_type_info_arr[] = {
 	{BOX_cinf, 0x00000001, 0x00000001, "complete track information", NULL},
 	{BOX_clip, 0x00000001, 0x00000001, NULL, NULL},
 	{BOX_co64, 0x00000001, 0x00000000, "chunk offset", do_box_stco},
+	{BOX_colr, 0x00080001, 0x00000000, "colour information", do_box_colr_bmff},
 	{BOX_dinf, 0x00080001, 0x00000001, "data information", NULL},
 	{BOX_dref, 0x00000001, 0x00000000, "data reference", NULL},
 	{BOX_edts, 0x00000001, 0x00000001, "edit", NULL},
@@ -1230,7 +1258,7 @@ static const struct box_type_info box_type_info_arr[] = {
 	{BOX_asoc, 0x00010000, 0x00000001, "association", NULL},
 	{BOX_cgrp, 0x00010000, 0x00000001, NULL, NULL},
 	{BOX_cdef, 0x00010000, 0x00000000, "channel definition", do_box_cdef},
-	{BOX_colr, 0x00010000, 0x00000000, "colour specification", do_box_colr},
+	{BOX_colr, 0x00010000, 0x00000000, "colour specification", do_box_colr_jp2},
 	{BOX_comp, 0x00010000, 0x00000001, NULL, NULL},
 	{BOX_drep, 0x00010000, 0x00000001, NULL, NULL},
 	{BOX_dtbl, 0x00010000, 0x00000001, "data reference", do_box_dtbl},
