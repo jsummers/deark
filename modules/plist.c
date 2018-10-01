@@ -17,6 +17,7 @@ struct objref_struct {
 
 typedef struct localctx_struct {
 	int nesting_level;
+	int exceeded_max_objects;
 	de_int64 object_count; // Number of objects we've decoded so far
 
 	unsigned int nbytes_per_objref_table_entry;
@@ -99,6 +100,11 @@ done:
 
 static int do_one_object_by_refnum(deark *c, lctx *d, de_int64 refnum);
 
+static void report_nesting_level_exceeded(deark *c, lctx *d)
+{
+	de_err(c, "Maximum nesting level exceeded");
+}
+
 static void do_object_array_or_set(deark *c, lctx *d, const char *tn,
 	de_int64 objpos, de_int64 pos1, de_int64 numitems)
 {
@@ -108,12 +114,15 @@ static void do_object_array_or_set(deark *c, lctx *d, const char *tn,
 
 	de_dbg_indent_save(c, &saved_indent_level);
 	d->nesting_level++;
-	if(d->nesting_level>MAX_PLIST_NESTING_LEVEL) goto done;
-	if(numitems<0 || numitems>MAX_PLIST_OBJECTS) goto done;
+	if(d->nesting_level>MAX_PLIST_NESTING_LEVEL) {
+		report_nesting_level_exceeded(c, d);
+		goto done;
+	}
 
 	for(k=0; k<numitems; k++) {
 		de_int64 refnum;
 
+		if(d->exceeded_max_objects) goto done;
 		de_dbg(c, "item[%d] (for %s@%"INT64_FMT")", (int)k, tn, objpos);
 		de_dbg_indent(c, 1);
 
@@ -139,13 +148,16 @@ static void do_object_dict(deark *c, lctx *d, de_int64 objpos, de_int64 pos1,
 
 	de_dbg_indent_save(c, &saved_indent_level);
 	d->nesting_level++;
-	if(d->nesting_level>MAX_PLIST_NESTING_LEVEL) goto done;
-	if(dictsize<0 || dictsize>MAX_PLIST_OBJECTS) goto done;
+	if(d->nesting_level>MAX_PLIST_NESTING_LEVEL) {
+		report_nesting_level_exceeded(c, d);
+		goto done;
+	}
 
 	for(k=0; k<dictsize; k++) {
 		de_int64 keyrefnum;
 		de_int64 valrefnum;
 
+		if(d->exceeded_max_objects) goto done;
 		de_dbg(c, "entry[%d] (for dict@%"INT64_FMT")", (int)k, objpos);
 		de_dbg_indent(c, 1);
 
@@ -182,6 +194,33 @@ static void do_object_string(deark *c, lctx *d, de_int64 pos, de_int64 len)
 	ucstring_destroy(s);
 }
 
+static void do_object_utf16string(deark *c, lctx *d, de_int64 pos, de_int64 len)
+{
+	de_ucstring *s = NULL;
+
+	s = ucstring_create(c);
+	dbuf_read_to_ucstring_n(c->infile, pos, len*2, DE_DBG_MAX_STRLEN*2, s, 0, DE_ENCODING_UTF16BE);
+	de_dbg(c, "value: \"%s\"", ucstring_getpsz_d(s));
+	ucstring_destroy(s);
+}
+
+static void do_object_real(deark *c, lctx *d, de_int64 pos, de_int64 dlen_raw)
+{
+	double val;
+
+	if(dlen_raw==2) {
+		val = dbuf_getfloat32x(c->infile, pos, 0);
+	}
+	else if(dlen_raw==3) {
+		val = dbuf_getfloat64x(c->infile, pos, 0);
+	}
+	else {
+		return;
+	}
+
+	de_dbg(c, "value: %f", val);
+}
+
 static void do_object_int(deark *c, lctx *d, de_int64 pos, de_int64 dlen_raw)
 {
 	unsigned int nbytes;
@@ -193,6 +232,20 @@ static void do_object_int(deark *c, lctx *d, de_int64 pos, de_int64 dlen_raw)
 	de_dbg(c, "value: %"INT64_FMT, n);
 }
 
+static void do_object_date(deark *c, lctx *d, de_int64 pos)
+{
+	double val_flt;
+	de_int64 val_int;
+	struct de_timestamp ts;
+	char timestamp_buf[64];
+
+	val_flt = dbuf_getfloat64x(c->infile, pos, 0);
+	val_int = (de_int64)val_flt;
+	de_unix_time_to_timestamp(val_int + ((365*31 + 8)*86400), &ts);
+	de_timestamp_to_string(&ts, timestamp_buf, sizeof(timestamp_buf), 1);
+	de_dbg(c, "value: %f (%s)", val_flt, timestamp_buf);
+}
+
 // Returns 0 if we should stop processing the file
 static int do_one_object_by_offset(deark *c, lctx *d, de_int64 pos1)
 {
@@ -202,13 +255,26 @@ static int do_one_object_by_offset(deark *c, lctx *d, de_int64 pos1)
 	int has_size;
 	de_int64 dlen_raw;
 	const char *tn;
-	int retval = 0;
+
+	// In this format, it is easy for an aggregate object to contain itself, or an
+	// ancestor, making the number of objects infinite. We could detect this if we
+	// wanted, but doesn't really solve the problem. Even without recursion, the
+	// number of objects can grow exponentially, and a small file could easily
+	// contain trillions of objects. Instead, we'll enforce an arbitrary limit to
+	// the number of objects we decode.
+	// TODO: If we were to decode each aggregate object only once, would that be a
+	// good solution, or would it make the output less useful?
+	if(d->exceeded_max_objects) return 0;
+	if(d->object_count>=MAX_PLIST_OBJECTS) {
+		d->exceeded_max_objects = 1;
+		de_err(c, "Too many objects encountered (max=%d)", MAX_PLIST_OBJECTS);
+		return 0;
+	}
 
 	de_dbg(c, "object at %"INT64_FMT, pos);
 	de_dbg_indent(c, 1);
-	if(d->object_count>=MAX_PLIST_OBJECTS) goto done;
+
 	d->object_count++;
-	retval = 1;
 
 	if(pos<8 || pos>=c->infile->len-32) goto done;
 
@@ -232,12 +298,12 @@ static int do_one_object_by_offset(deark *c, lctx *d, de_int64 pos1)
 		tn = "int";
 		has_size = 1;
 		break;
-	case 0x2: // TODO
+	case 0x2:
 		tn = "real";
 		has_size = 1;
 		break;
 	case 0x3:
-		if(m2==0x3) { // TODO
+		if(m2==0x3) {
 			tn = "date";
 		}
 		break;
@@ -249,7 +315,7 @@ static int do_one_object_by_offset(deark *c, lctx *d, de_int64 pos1)
 		tn = "string";
 		has_size = 1;
 		break;
-	case 0x6: // TODO
+	case 0x6:
 		tn = "UTF-16 string";
 		has_size = 1;
 		break;
@@ -297,6 +363,12 @@ static int do_one_object_by_offset(deark *c, lctx *d, de_int64 pos1)
 	else if(m1==0x1) {
 		do_object_int(c, d, pos, dlen_raw);
 	}
+	else if(m1==0x2) {
+		do_object_real(c, d, pos, dlen_raw);
+	}
+	else if(m1==0x3 && m2==0x3) {
+		do_object_date(c, d, pos);
+	}
 	else if(m1==0x4) {
 		de_dbg(c, "binary data at %"INT64_FMT", len=%"INT64_FMT, pos, dlen_raw);
 		de_dbg_indent(c, 1);
@@ -305,6 +377,9 @@ static int do_one_object_by_offset(deark *c, lctx *d, de_int64 pos1)
 	}
 	else if(m1==0x5) {
 		do_object_string(c, d, pos, dlen_raw);
+	}
+	else if(m1==0x6) {
+		do_object_utf16string(c, d, pos, dlen_raw);
 	}
 	else if(m1==0xa) {
 		do_object_array_or_set(c, d, tn, pos1, pos, dlen_raw);
@@ -321,7 +396,7 @@ static int do_one_object_by_offset(deark *c, lctx *d, de_int64 pos1)
 
 done:
 	de_dbg_indent(c, -1);
-	return retval;
+	return 1;
 }
 
 // Returns 0 if we should stop processing the file
@@ -395,7 +470,7 @@ static int de_identify_plist(deark *c)
 void de_module_plist(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "plist";
-	mi->desc = "PLIST (binary format)";
+	mi->desc = ".plist property list, binary format";
 	mi->run_fn = de_run_plist;
 	mi->identify_fn = de_identify_plist;
 }

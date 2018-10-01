@@ -748,6 +748,11 @@ Deark -- Information about supported formats
   - Files can be parsed, but there is usually nothing that can be extracted
     from them.
 
+* .plist Property List (module="plist")
+  - Supports binary .plist format only
+  - Files can be parsed, but there is usually nothing that can be extracted
+    from them.
+
 * Psion APP/IMG and OPA/OPO (module="psionapp")
   - Extract Psion PIC icons.
   - Extract other contents (use -a).

@@ -1028,7 +1028,7 @@ static void handler_bplist(deark *c, lctx *d, const struct taginfo *tg, const st
 	if(tg->total_size>=40 &&
 		!dbuf_memcmp(c->infile, tg->val_offset, "bplist", 6))
 	{
-		de_dbg(c, "binary PLIST at %"INT64_FMT", len=%"INT64_FMT, tg->val_offset, tg->total_size);
+		de_dbg(c, "binary .plist at %"INT64_FMT", len=%"INT64_FMT, tg->val_offset, tg->total_size);
 		de_dbg_indent(c, 1);
 		de_run_module_by_id_on_slice(c, "plist", NULL, c->infile, tg->val_offset, tg->total_size);
 		de_dbg_indent(c, -1);
