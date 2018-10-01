@@ -20,6 +20,11 @@ typedef struct localctx_struct {
 	de_byte is_heif;
 	de_byte is_jpegxt;
 	de_int64 max_entries_to_print;
+
+	de_byte exif_item_id_known;
+	unsigned int exif_item_id;
+	de_int64 exif_item_offs;
+	de_int64 exif_item_len;
 } lctx;
 
 typedef void (*handler_fn_type)(deark *c, lctx *d, struct de_boxesctx *bctx);
@@ -180,6 +185,7 @@ struct box_type_info {
 #define BOX_RESI 0x52455349U
 #define BOX_SPEC 0x53504543U
 
+#define CODE_Exif 0x45786966U
 #define CODE_rICC 0x72494343U
 #define CODE_prof 0x70726f66U
 
@@ -1201,6 +1207,29 @@ static void do_box_iinf(deark *c, lctx *d, struct de_boxesctx *bctx)
 	curbox->extra_bytes_before_children = pos - curbox->payload_pos;
 }
 
+static void extract_exif_item(deark *c, lctx *d, dbuf *f)
+{
+	de_int64 dpos, dlen;
+	de_byte b0,b1;
+
+	if(!d->exif_item_id_known) return;
+	if(d->exif_item_offs<=0) return;
+	if(d->exif_item_len<24) return;
+	// I'm just guessing the format of this item. It seems to start with 10
+	// bytes of header info.
+	dpos = d->exif_item_offs+10;
+	dlen = d->exif_item_len-10;
+	b0 = dbuf_getbyte(f, dpos);
+	b1 = dbuf_getbyte(f, dpos+1);
+	if(!((b0=='M' && b1=='M') || (b0=='I' && b1=='I'))) {
+		return;
+	}
+	de_dbg(c, "Exif item segment at %"INT64_FMT", size=%"INT64_FMT, dpos, dlen);
+	de_dbg_indent(c, 1);
+	de_fmtutil_handle_exif(c, dpos, dlen);
+	de_dbg_indent(c, -1);
+}
+
 static void do_box_iloc(deark *c, lctx *d, struct de_boxesctx *bctx)
 {
 	de_byte version;
@@ -1239,7 +1268,7 @@ static void do_box_iloc(deark *c, lctx *d, struct de_boxesctx *bctx)
 	de_dbg(c, "item count: %d", (int)item_count);
 
 	for(k=0; k<item_count; k++) {
-		de_int64 item_id;
+		unsigned int item_id;
 		de_int64 extent_count;
 		de_int64 e;
 		unsigned int cnstr_meth;
@@ -1247,8 +1276,8 @@ static void do_box_iloc(deark *c, lctx *d, struct de_boxesctx *bctx)
 		if(pos >= curbox->payload_pos+curbox->payload_len) goto done;
 		de_dbg(c, "item[%d] at %"INT64_FMT, (int)k, pos);
 		de_dbg_indent(c, 1);
-		item_id = dbuf_getui16be_p(bctx->f, &pos);
-		de_dbg(c, "item id: %u", (unsigned int)item_id);
+		item_id = (unsigned int)dbuf_getui16be_p(bctx->f, &pos);
+		de_dbg(c, "item id: %u", item_id);
 
 		u = (unsigned int)dbuf_getui16be_p(bctx->f, &pos);
 		cnstr_meth = u&0xf;
@@ -1261,7 +1290,9 @@ static void do_box_iloc(deark *c, lctx *d, struct de_boxesctx *bctx)
 		de_dbg(c, "extent count: %d", (int)extent_count);
 
 		for(e=0; e<extent_count; e++) {
-			de_int64 xoffs, xlen;
+			de_int64 xoffs = 0;
+			de_int64 xlen = 0;
+
 			if(pos >= curbox->payload_pos+curbox->payload_len) goto done;
 			de_dbg(c, "extent[%d]", (int)e);
 			de_dbg_indent(c, 1);
@@ -1279,6 +1310,12 @@ static void do_box_iloc(deark *c, lctx *d, struct de_boxesctx *bctx)
 			}
 			pos += length_size;
 
+			if(d->exif_item_id_known && item_id==d->exif_item_id && extent_count==1) {
+				de_dbg(c, "[Exif item]");
+				d->exif_item_offs = xoffs;
+				d->exif_item_len = xlen;
+			}
+
 			de_dbg_indent(c, -1);
 		}
 
@@ -1286,6 +1323,9 @@ static void do_box_iloc(deark *c, lctx *d, struct de_boxesctx *bctx)
 	}
 
 done:
+	if(d->exif_item_id_known) {
+		extract_exif_item(c, d, bctx->f);
+	}
 	de_dbg_indent_restore(c, saved_indent_level);
 }
 
@@ -1295,6 +1335,7 @@ static void do_box_infe(deark *c, lctx *d, struct de_boxesctx *bctx)
 	struct de_boxdata *curbox = bctx->curbox;
 	de_int64 pos = curbox->payload_pos;
 	de_int64 n;
+	unsigned int item_id;
 
 	do_read_version_and_flags(c, d, bctx, &version, NULL, 1);
 	pos += 4;
@@ -1303,18 +1344,24 @@ static void do_box_infe(deark *c, lctx *d, struct de_boxesctx *bctx)
 		struct de_fourcc itemtype4cc;
 
 		if(version==2) {
-			n = dbuf_getui16be_p(bctx->f, &pos);
+			item_id = (unsigned int)dbuf_getui16be_p(bctx->f, &pos);
 		}
 		else if(version==3) {
-			n = dbuf_getui32be_p(bctx->f, &pos);
+			item_id = (unsigned int)dbuf_getui32be_p(bctx->f, &pos);
 		}
-		de_dbg(c, "item id: %u", (unsigned int)n);
+		de_dbg(c, "item id: %u", item_id);
+
 		n = dbuf_getui16be_p(bctx->f, &pos);
 		de_dbg(c, "item protection: %u", (unsigned int)n);
 
 		dbuf_read_fourcc(bctx->f, pos, &itemtype4cc, 4, 0x0);
 		pos += 4;
 		de_dbg(c, "item type: '%s'", itemtype4cc.id_dbgstr);
+
+		if(itemtype4cc.id==CODE_Exif) {
+			d->exif_item_id_known = 1;
+			d->exif_item_id = item_id;
+		}
 
 		// TODO: string item_name
 		// TODO: sometimes there are additional strings after item_name
