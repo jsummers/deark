@@ -1196,6 +1196,38 @@ static void do_box_iinf(deark *c, lctx *d, struct de_boxesctx *bctx)
 	curbox->extra_bytes_before_children = pos - curbox->payload_pos;
 }
 
+static void do_box_infe(deark *c, lctx *d, struct de_boxesctx *bctx)
+{
+	de_byte version;
+	struct de_boxdata *curbox = bctx->curbox;
+	de_int64 pos = curbox->payload_pos;
+	de_int64 n;
+
+	do_read_version_and_flags(c, d, bctx, &version, NULL, 1);
+	pos += 4;
+
+	if(version==2 || version==3) {
+		struct de_fourcc itemtype4cc;
+
+		if(version==2) {
+			n = dbuf_getui16be_p(bctx->f, &pos);
+		}
+		else if(version==3) {
+			n = dbuf_getui32be_p(bctx->f, &pos);
+		}
+		de_dbg(c, "item id: %u", (unsigned int)n);
+		n = dbuf_getui16be_p(bctx->f, &pos);
+		de_dbg(c, "item protection: %u", (unsigned int)n);
+
+		dbuf_read_fourcc(bctx->f, pos, &itemtype4cc, 4, 0x0);
+		pos += 4;
+		de_dbg(c, "item type: '%s'", itemtype4cc.id_dbgstr);
+
+		// TODO: string item_name
+		// TODO: sometimes there are additional strings after item_name
+	}
+}
+
 static void do_box_ispe(deark *c, lctx *d, struct de_boxesctx *bctx)
 {
 	struct de_boxdata *curbox = bctx->curbox;
@@ -1243,7 +1275,11 @@ static const struct box_type_info box_type_info_arr[] = {
 	{BOX_hinf, 0x00000001, 0x00000001, NULL, NULL},
 	{BOX_hmhd, 0x00000001, 0x00000000, "hint media header", NULL},
 	{BOX_hnti, 0x00000001, 0x00000001, NULL, NULL},
+	{BOX_iinf, 0x00080001, 0x00000001, "item info", do_box_iinf},
+	{BOX_iloc, 0x00080001, 0x00000000, "item location", NULL},
 	{BOX_ilst, 0x00000001, 0x00000001, "metadata item list", NULL},
+	{BOX_infe, 0x00080001, 0x00000000, "item info entry", do_box_infe},
+	{BOX_iref, 0x00080001, 0x00000000, "item reference", NULL},
 	{BOX_matt, 0x00000001, 0x00000001, NULL, NULL},
 	{BOX_mdhd, 0x00000001, 0x00000000, "media header", do_box_mdhd},
 	{BOX_mdia, 0x00000001, 0x00000001, "media", NULL},
@@ -1321,14 +1357,10 @@ static const struct box_type_info box_type_info_arr[] = {
 	{BOX_auxC, 0x00080000, 0x00000000, "auxiliary type property", NULL},
 	{BOX_grpl, 0x00080000, 0x00000000, "groups list", NULL},
 	{BOX_idat, 0x00080000, 0x00000000, "item data", NULL},
-	{BOX_iinf, 0x00080000, 0x00000001, "item info", do_box_iinf},
-	{BOX_iloc, 0x00080000, 0x00000000, "item location", NULL},
-	{BOX_infe, 0x00080000, 0x00000000, "item info entry", NULL},
 	{BOX_ipco, 0x00080000, 0x00000001, "item property container", NULL},
 	{BOX_ipma, 0x00080000, 0x00000000, "item property association", NULL},
 	{BOX_ipro, 0x00080000, 0x00000000, "item protection", NULL},
 	{BOX_iprp, 0x00080000, 0x00000001, "item properties", NULL},
-	{BOX_iref, 0x00080000, 0x00000000, "item reference", NULL},
 	{BOX_ispe, 0x00080000, 0x00000000, "image spatial extents", do_box_ispe},
 	{BOX_hvcC, 0x00080000, 0x00000000, "HEVC configuration", NULL},
 	{BOX_pitm, 0x00080000, 0x00000000, "primary item", NULL}
