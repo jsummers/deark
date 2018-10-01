@@ -1123,15 +1123,22 @@ static void do_box_url(deark *c, lctx *d, struct de_boxesctx *bctx)
 	de_ucstring *s = NULL;
 	struct de_boxdata *curbox = bctx->curbox;
 	de_int64 pos = curbox->payload_pos;
+	de_uint32 flags = 0;
 
-	do_read_version_and_flags(c, d, bctx, NULL, NULL, 1);
+	do_read_version_and_flags(c, d, bctx, NULL, &flags, 1);
 	pos += 4;
+
+	// "If the self-contained flag is set, [...] no string is present".
+	// But there is no flag named "self-contained".
+	// I assume it is flag 0x1.
+	if(flags&0x000001) goto done;
 
 	s = ucstring_create(c);
 	dbuf_read_to_ucstring_n(bctx->f,
 		pos, curbox->payload_pos + curbox->payload_len - pos, DE_DBG_MAX_STRLEN,
 		s, DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_UTF8);
 	de_dbg(c, "URL: \"%s\"", ucstring_getpsz_d(s));
+done:
 	ucstring_destroy(s);
 }
 
@@ -1146,6 +1153,24 @@ static void do_box_dtbl(deark *c, lctx *d, struct de_boxesctx *bctx)
 	curbox->num_children_is_known = 1;
 	curbox->num_children = ndr;
 	curbox->extra_bytes_before_children = 2;
+}
+
+static void do_box_dref(deark *c, lctx *d, struct de_boxesctx *bctx)
+{
+	de_int64 nitems;
+	de_byte version;
+	struct de_boxdata *curbox = bctx->curbox;
+	de_int64 pos = curbox->payload_pos;
+
+	do_read_version_and_flags(c, d, bctx, &version, NULL, 1);
+	pos += 4;
+
+	nitems = dbuf_getui32be_p(bctx->f, &pos);
+	de_dbg(c, "number of items: %u", (unsigned int)nitems);
+
+	curbox->num_children_is_known = 1;
+	curbox->num_children = nitems;
+	curbox->extra_bytes_before_children = pos - curbox->payload_pos;
 }
 
 static void do_box_iinf(deark *c, lctx *d, struct de_boxesctx *bctx)
@@ -1208,7 +1233,7 @@ static const struct box_type_info box_type_info_arr[] = {
 	{BOX_co64, 0x00000001, 0x00000000, "chunk offset", do_box_stco},
 	{BOX_colr, 0x00080001, 0x00000000, "colour information", do_box_colr_bmff},
 	{BOX_dinf, 0x00080001, 0x00000001, "data information", NULL},
-	{BOX_dref, 0x00000001, 0x00000000, "data reference", NULL},
+	{BOX_dref, 0x00080001, 0x00000001, "data reference", do_box_dref},
 	{BOX_edts, 0x00000001, 0x00000001, "edit", NULL},
 	{BOX_elst, 0x00000001, 0x00000000, "edit list", NULL},
 	{BOX_fdsa, 0x00000001, 0x00000001, NULL, NULL},
@@ -1253,6 +1278,7 @@ static const struct box_type_info box_type_info_arr[] = {
 	{BOX_trak, 0x00000001, 0x00000001, "track", NULL},
 	{BOX_tref, 0x00000001, 0x00000001, "track reference", NULL},
 	{BOX_udta, 0x00000001, 0x00000001, "user data", NULL},
+	{BOX_url , 0x00090001, 0x00000000, "URL", do_box_url},
 	{BOX_vmhd, 0x00000001, 0x00000000, "video media header", do_box_vmhd},
 	{BOX_wide, 0x00000001, 0x00000000, "reserved space", NULL},
 	{BOX_asoc, 0x00010000, 0x00000001, "association", NULL},
@@ -1288,7 +1314,6 @@ static const struct box_type_info box_type_info_arr[] = {
 	{BOX_sdat, 0x00010000, 0x00000001, NULL, NULL},
 	{BOX_uinf, 0x00010000, 0x00000001, "UUID info", NULL},
 	{BOX_ulst, 0x00010000, 0x00000000, "UUID list", do_box_ulst},
-	{BOX_url , 0x00010000, 0x00000000, "URL", do_box_url},
 	{BOX_xml , 0x00010008, 0x00000000, "XML", do_box_xml},
 	{BOX_LCHK, 0x00040000, 0x00000000, "checksum", NULL},
 	{BOX_RESI, 0x00040000, 0x00000000, "residual codestream", NULL},
