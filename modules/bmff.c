@@ -877,12 +877,17 @@ static void do_box_ctts(deark *c, lctx *d, struct de_boxesctx *bctx)
 	}
 }
 
-static void do_box_meta(deark *c, lctx *d, struct de_boxesctx *bctx)
+static void do_box_full_superbox(deark *c, lctx *d, struct de_boxesctx *bctx)
 {
 	struct de_boxdata *curbox = bctx->curbox;
 
 	do_read_version_and_flags(c, d, bctx, NULL, NULL, 1);
 	curbox->extra_bytes_before_children = 4;
+}
+
+static void do_box_meta(deark *c, lctx *d, struct de_boxesctx *bctx)
+{
+	do_box_full_superbox(c, d, bctx);
 }
 
 static void do_box_jp2c(deark *c, lctx *d, struct de_boxesctx *bctx)
@@ -1196,6 +1201,94 @@ static void do_box_iinf(deark *c, lctx *d, struct de_boxesctx *bctx)
 	curbox->extra_bytes_before_children = pos - curbox->payload_pos;
 }
 
+static void do_box_iloc(deark *c, lctx *d, struct de_boxesctx *bctx)
+{
+	de_byte version;
+	struct de_boxdata *curbox = bctx->curbox;
+	de_int64 pos = curbox->payload_pos;
+	unsigned int u;
+	unsigned int offset_size, length_size, base_offset_size, index_size;
+	de_int64 item_count;
+	de_int64 k;
+	int saved_indent_level;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+	do_read_version_and_flags(c, d, bctx, &version, NULL, 1);
+	pos += 4;
+
+	// TODO: Support more versions
+	if(version!=1) goto done;
+
+	u = (unsigned int)dbuf_getbyte_p(bctx->f, &pos);
+	offset_size = u>>4;
+	de_dbg(c, "offset size: %u", offset_size);
+	if(offset_size!=0 && offset_size!=4 && offset_size!=8) goto done;
+	length_size = u&0xf;
+	de_dbg(c, "length size: %u", length_size);
+	if(length_size!=0 && length_size!=4 && length_size!=8) goto done;
+
+	u = (unsigned int)dbuf_getbyte_p(bctx->f, &pos);
+	base_offset_size = u>>4;
+	de_dbg(c, "base offset size: %u", base_offset_size);
+	if(base_offset_size!=0 && base_offset_size!=4 && base_offset_size!=8) goto done;
+	index_size =  u&0xf;
+	de_dbg(c, "index size: %u", index_size);
+	if(index_size!=0 && index_size!=4 && index_size!=8) goto done;
+
+	item_count = dbuf_getui16be_p(bctx->f, &pos);
+	de_dbg(c, "item count: %d", (int)item_count);
+
+	for(k=0; k<item_count; k++) {
+		de_int64 item_id;
+		de_int64 extent_count;
+		de_int64 e;
+		unsigned int cnstr_meth;
+
+		if(pos >= curbox->payload_pos+curbox->payload_len) goto done;
+		de_dbg(c, "item[%d] at %"INT64_FMT, (int)k, pos);
+		de_dbg_indent(c, 1);
+		item_id = dbuf_getui16be_p(bctx->f, &pos);
+		de_dbg(c, "item id: %u", (unsigned int)item_id);
+
+		u = (unsigned int)dbuf_getui16be_p(bctx->f, &pos);
+		cnstr_meth = u&0xf;
+		de_dbg(c, "construction method: %u", cnstr_meth);
+
+		pos += 2; // data reference index
+		pos += base_offset_size;
+
+		extent_count = dbuf_getui16be_p(bctx->f, &pos);
+		de_dbg(c, "extent count: %d", (int)extent_count);
+
+		for(e=0; e<extent_count; e++) {
+			de_int64 xoffs, xlen;
+			if(pos >= curbox->payload_pos+curbox->payload_len) goto done;
+			de_dbg(c, "extent[%d]", (int)e);
+			de_dbg_indent(c, 1);
+			pos += index_size;
+
+			if(offset_size>0) {
+				xoffs = dbuf_getint_ext(bctx->f, pos, offset_size, 0, 0);
+				de_dbg(c, "offset: %"INT64_FMT, xoffs);
+			}
+			pos += offset_size;
+
+			if(length_size>0) {
+				xlen = dbuf_getint_ext(bctx->f, pos, length_size, 0, 0);
+				de_dbg(c, "length: %"INT64_FMT, xlen);
+			}
+			pos += length_size;
+
+			de_dbg_indent(c, -1);
+		}
+
+		de_dbg_indent(c, -1);
+	}
+
+done:
+	de_dbg_indent_restore(c, saved_indent_level);
+}
+
 static void do_box_infe(deark *c, lctx *d, struct de_boxesctx *bctx)
 {
 	de_byte version;
@@ -1276,10 +1369,10 @@ static const struct box_type_info box_type_info_arr[] = {
 	{BOX_hmhd, 0x00000001, 0x00000000, "hint media header", NULL},
 	{BOX_hnti, 0x00000001, 0x00000001, NULL, NULL},
 	{BOX_iinf, 0x00080001, 0x00000001, "item info", do_box_iinf},
-	{BOX_iloc, 0x00080001, 0x00000000, "item location", NULL},
+	{BOX_iloc, 0x00080001, 0x00000000, "item location", do_box_iloc},
 	{BOX_ilst, 0x00000001, 0x00000001, "metadata item list", NULL},
 	{BOX_infe, 0x00080001, 0x00000000, "item info entry", do_box_infe},
-	{BOX_iref, 0x00080001, 0x00000000, "item reference", NULL},
+	{BOX_iref, 0x00080001, 0x00000001, "item reference", do_box_full_superbox},
 	{BOX_matt, 0x00000001, 0x00000001, NULL, NULL},
 	{BOX_mdhd, 0x00000001, 0x00000000, "media header", do_box_mdhd},
 	{BOX_mdia, 0x00000001, 0x00000001, "media", NULL},
