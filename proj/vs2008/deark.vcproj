@@ -698,6 +698,10 @@
 				>
 			</File>
 			<File
+				RelativePath="..\..\modules\macrsrc.c"
+				>
+			</File>
+			<File
 				RelativePath="..\..\modules\makichan.c"
 				>
 			</File>
