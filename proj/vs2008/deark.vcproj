@@ -498,6 +498,10 @@
 				>
 			</File>
 			<File
+				RelativePath="..\..\modules\applesd.c"
+				>
+			</File>
+			<File
 				RelativePath="..\..\modules\ar.c"
 				>
 			</File>
