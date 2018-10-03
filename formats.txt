@@ -713,6 +713,9 @@ Deark -- Information about supported formats
   - Extract SHG/MRB graphics
   - Extract icon (rarely present)
 
+* Macintosh Resource Manager (module="macrsrc") (experimental/incomplete)
+  This is the format generally used by Mac resource forks.
+
 * MIDI (module="midi")
   - Files can be parsed, but there is usually nothing that can be extracted
     from them.
