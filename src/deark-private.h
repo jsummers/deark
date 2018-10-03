@@ -545,6 +545,7 @@ void dbuf_writebyte_at(dbuf *f, de_int64 pos, de_byte n);
 void dbuf_writeui16le(dbuf *f, de_int64 n);
 void dbuf_writeui16be(dbuf *f, de_int64 n);
 void dbuf_writeui32le(dbuf *f, de_int64 n);
+void dbuf_writeui32be(dbuf *f, de_int64 n);
 
 // Write a NUL-terminated string to a file
 void dbuf_puts(dbuf *f, const char *sz);

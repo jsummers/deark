@@ -1120,6 +1120,13 @@ void de_writeui32be_direct(de_byte *m, de_int64 n)
 	m[3] = (de_byte)(n & 0x000000ff);
 }
 
+void dbuf_writeui32be(dbuf *f, de_int64 n)
+{
+	de_byte buf[4];
+	de_writeui32be_direct(buf, n);
+	dbuf_write(f, buf, 4);
+}
+
 void de_writeui32le_direct(de_byte *m, de_int64 n)
 {
 	m[0] = (de_byte)(n & 0x000000ff);
