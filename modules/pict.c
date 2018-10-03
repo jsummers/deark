@@ -555,7 +555,9 @@ static int decode_pixdata(deark *c, lctx *d, struct bitmapinfo *bi, de_int64 pos
 
 	if(!de_good_image_dimensions(c, bi->width, bi->height)) goto done;
 
-	if(bi->pixelsize!=1 && bi->pixelsize!=8 && bi->pixelsize!=16 && bi->pixelsize!=24 && bi->pixelsize!=32) {
+	if(bi->pixelsize!=1 && bi->pixelsize!=4 && bi->pixelsize!=8 && bi->pixelsize!=16 &&
+		bi->pixelsize!=24 && bi->pixelsize!=32)
+	{
 		de_err(c, "%d bits/pixel images are not supported", (int)bi->pixelsize);
 		goto done;
 	}
@@ -567,7 +569,7 @@ static int decode_pixdata(deark *c, lctx *d, struct bitmapinfo *bi, de_int64 pos
 		de_err(c, "Component count %d is not supported", (int)bi->cmpcount);
 		goto done;
 	}
-	if(bi->cmpsize!=1 && bi->cmpsize!=5 && bi->cmpsize!=8) {
+	if(bi->cmpsize!=1 && bi->cmpsize!=4 && bi->cmpsize!=5 && bi->cmpsize!=8) {
 		de_err(c, "%d-bit components are not supported", (int)bi->cmpsize);
 		goto done;
 	}
@@ -576,6 +578,7 @@ static int decode_pixdata(deark *c, lctx *d, struct bitmapinfo *bi, de_int64 pos
 		goto done;
 	}
 	if((bi->uses_pal && bi->packing_type==0 && bi->pixelsize==1 && bi->cmpcount==1 && bi->cmpsize==1) ||
+		(bi->uses_pal && bi->packing_type==0 && bi->pixelsize==4 && bi->cmpcount==1 && bi->cmpsize==4) ||
 		(bi->uses_pal && bi->packing_type==0 && bi->pixelsize==8 && bi->cmpcount==1 && bi->cmpsize==8) ||
 		(!bi->uses_pal && bi->packing_type==3 && bi->pixelsize==16 && bi->cmpcount==3 && bi->cmpsize==5) ||
 		(!bi->uses_pal && bi->packing_type==4 && bi->pixelsize==32 && bi->cmpcount==3 && bi->cmpsize==8) ||
