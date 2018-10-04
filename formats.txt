@@ -715,6 +715,8 @@ Deark -- Information about supported formats
 
 * Macintosh Resource Manager (module="macrsrc") (experimental/incomplete)
   This is the format generally used by Mac resource forks.
+  Options
+   -opt macrsrc:extractraw : Extract all resources directly to files.
 
 * MIDI (module="midi")
   - Files can be parsed, but there is usually nothing that can be extracted

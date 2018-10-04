@@ -1629,3 +1629,56 @@ done:
 	de_free(c, buf);
 	return retval;
 }
+
+// Quick & dirty encoder that can wrap some formats in a TIFF container.
+void de_fmtutil_wrap_in_tiff(deark *c, dbuf *df, const char *swstring,
+	unsigned int tag, const char *ext)
+{
+	dbuf *outf = NULL;
+	de_int64 ifdoffs;
+	de_int64 sw_len, sw_len_padded;
+	de_int64 data_len_padded;
+
+	sw_len = 1+(de_int64)de_strlen(swstring);
+	if(sw_len<=4) return;
+	sw_len_padded = de_pad_to_2(sw_len);
+
+	if(df->len>4) {
+		data_len_padded = de_pad_to_2(df->len);
+	}
+	else {
+		data_len_padded = 0;
+	}
+
+	outf = dbuf_create_output_file(c, ext, NULL, 0);
+	dbuf_write(outf, (const de_byte*)"\x4d\x4d\x00\x2a", 4);
+	ifdoffs = 8 + sw_len_padded + data_len_padded;
+	dbuf_writeui32be(outf, ifdoffs);
+	dbuf_write(outf, (const de_byte*)swstring, sw_len);
+	if(sw_len%2) dbuf_writebyte(outf, 0);
+	if(df->len>4) {
+		dbuf_copy(df, 0, df->len, outf);
+		if(df->len%2) dbuf_writebyte(outf, 0);
+	}
+
+	dbuf_writeui16be(outf, 2); // number of dir entries;
+
+	dbuf_writeui16be(outf, 305); // Software tag
+	dbuf_writeui16be(outf, 2); // type=ASCII
+	dbuf_writeui32be(outf, sw_len);
+	dbuf_writeui32be(outf, 8); // offset
+
+	dbuf_writeui16be(outf, (de_int64)tag);
+	dbuf_writeui16be(outf, 1);
+	dbuf_writeui32be(outf, df->len);
+	if(df->len>4) {
+		dbuf_writeui32be(outf, 8+sw_len_padded);
+	}
+	else {
+		dbuf_copy(df, 0, df->len, outf);
+		dbuf_write_zeroes(outf, 4-df->len);
+	}
+
+	dbuf_writeui32be(outf, 0); // end of IFD
+	dbuf_close(outf);
+}

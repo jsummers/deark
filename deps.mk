@@ -109,7 +109,7 @@ obj/modules/lha.o: modules/lha.c src/deark-config.h src/deark-private.h \
 obj/modules/macpaint.o: modules/macpaint.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h
 obj/modules/macrsrc.o: modules/macrsrc.c src/deark-config.h \
- src/deark-private.h src/deark.h
+ src/deark-private.h src/deark.h src/deark-fmtutil.h
 obj/modules/makichan.o: modules/makichan.c src/deark-config.h \
  src/deark-private.h src/deark.h
 obj/modules/mbk.o: modules/mbk.c src/deark-config.h src/deark-private.h \

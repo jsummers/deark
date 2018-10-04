@@ -6,31 +6,40 @@
 
 #include <deark-config.h>
 #include <deark-private.h>
+#include <deark-fmtutil.h>
 DE_DECLARE_MODULE(de_module_macrsrc);
 
+#define CODE_8BIM 0x3842494dU
+#define CODE_ANPA 0x414e5041U
+#define CODE_MeSa 0x4d655361U
 #define CODE_PICT 0x50494354U
+#define CODE_icns 0x69636e73U
 
 typedef struct localctx_struct {
+	de_byte extract_raw;
 	de_int64 data_offs, map_offs;
 	de_int64 data_size, map_size;
 
 	de_int64 typeListOffset_abs;
 	de_int64 nameListOffset_abs;
 	dbuf *icns_stream;
+	dbuf *psrc_stream;
 } lctx;
 
 struct rsrctypeinfo {
 	struct de_fourcc fcc;
 	int is_icns_type;
+	int is_psrc_type;
 };
 
 struct rsrcinstanceinfo {
 	unsigned int id;
 	de_byte attribs;
+	de_byte has_name;
 	de_int64 data_offset;
+	de_int64 name_offset;
+	de_int64 name_raw_len;
 };
-
-#define CODE_icns 0x69636e73U
 
 #define CODE_ICN_ 0x49434e23U // ICN#
 #define CODE_ICON 0x49434f4eU
@@ -59,7 +68,6 @@ static int is_icns_icon(deark *c, lctx *d, struct rsrctypeinfo *rti)
 static void open_icns_stream(deark *c, lctx *d)
 {
 	if(d->icns_stream) return;
-
 	d->icns_stream = dbuf_create_membuf(c, 0, 0);
 }
 
@@ -81,6 +89,53 @@ static void finalize_icns_stream(deark *c, lctx *d)
 	d->icns_stream = NULL;
 }
 
+static void open_psrc_stream(deark *c, lctx *d)
+{
+	if(d->psrc_stream) return;
+	d->psrc_stream = dbuf_create_membuf(c, 0, 0);
+}
+
+static void finalize_psrc_stream(deark *c, lctx *d)
+{
+	if(!d->psrc_stream) return;
+	de_fmtutil_wrap_in_tiff(c, d->psrc_stream, "Deark extracted 8BIM",
+		34377, "8bimtiff");
+	dbuf_close(d->psrc_stream);
+	d->psrc_stream = NULL;
+}
+
+static void do_psrc_resource(deark *c, lctx *d, struct rsrctypeinfo *rti,
+	struct rsrcinstanceinfo *rii, de_int64 dpos, de_int64 dlen)
+{
+	if(!d->psrc_stream) {
+		open_psrc_stream(c, d);
+	}
+
+	// Convert this exploded format to the normal Photoshop Resources format,
+	// which we will eventually write to a file.
+	// It would be messy to implement a way to directly use the decoder in the
+	// psd module. And even if we did that, the option to do this conversion
+	// might still be useful.
+
+	de_dbg(c, "[Photoshop resource]");
+	dbuf_write(d->psrc_stream, rti->fcc.bytes, 4);
+	dbuf_writeui16be(d->psrc_stream, rii->id);
+	if(rii->has_name) {
+		dbuf_copy(c->infile, rii->name_offset, rii->name_raw_len, d->psrc_stream);
+		if(rii->name_raw_len%2) {
+			dbuf_writebyte(d->psrc_stream, 0); // padding byte for name
+		}
+	}
+	else {
+		dbuf_write_zeroes(d->psrc_stream, 2);
+	}
+	dbuf_writeui32be(d->psrc_stream, dlen);
+	dbuf_copy(c->infile, dpos, dlen, d->psrc_stream);
+	if(dlen%2) {
+		dbuf_writebyte(d->psrc_stream, 0); // padding byte for data
+	}
+}
+
 static int looks_like_pict(deark *c, lctx *d, struct rsrcinstanceinfo *rii,
 	de_int64 pos, de_int64 len)
 {
@@ -91,6 +146,30 @@ static int looks_like_pict(deark *c, lctx *d, struct rsrcinstanceinfo *rii,
 		return 1; // PICTv2
 	}
 	return 0;
+}
+
+static void extract_raw_rsrc(deark *c, lctx *d, struct rsrctypeinfo *rti,
+	struct rsrcinstanceinfo *rii, de_int64 dpos, de_int64 dlen)
+{
+	de_finfo *fi = NULL;
+	de_ucstring *s = NULL;
+
+	fi = de_finfo_create(c);
+	s = ucstring_create(c);
+
+	ucstring_append_sz(s, rti->fcc.id_sanitized_sz, DE_ENCODING_ASCII);
+	ucstring_strip_trailing_spaces(s);
+	if(rii->attribs&0x01) {
+		ucstring_append_sz(s, ".cmpr", DE_ENCODING_LATIN1);
+	}
+	else {
+		ucstring_append_sz(s, ".bin", DE_ENCODING_LATIN1);
+	}
+	de_finfo_set_name_from_ucstring(c, fi, s);
+	dbuf_create_file_from_slice(c->infile, dpos, dlen, NULL, fi, 0x0);
+
+	de_finfo_destroy(c, fi);
+	ucstring_destroy(s);
 }
 
 static void do_resource_data(deark *c, lctx *d, struct rsrctypeinfo *rti,
@@ -109,11 +188,13 @@ static void do_resource_data(deark *c, lctx *d, struct rsrctypeinfo *rti,
 	de_dbg(c, "dpos: %d, dlen: %d", (int)dpos, (int)dlen);
 	if(dpos+dlen > c->infile->len) goto done;
 
-	if(c->extract_level>=2) {
-		extr_flag = 1;
+	if(d->extract_raw) {
+		extract_raw_rsrc(c, d, rti, rii, dpos, dlen);
+		goto done;
 	}
-	else if(rii->attribs&0x01) {
-		// Compressed. Don't know how to handle this.
+
+	if(rii->attribs&0x01) {
+		; // Compressed. Don't know how to handle this.
 	}
 	else if(rti->fcc.id==CODE_PICT && looks_like_pict(c, d, rii, dpos, dlen)) {
 		ext = "pict";
@@ -124,12 +205,21 @@ static void do_resource_data(deark *c, lctx *d, struct rsrctypeinfo *rti,
 		ext = "icns";
 		extr_flag = 1;
 	}
+	else if(rti->fcc.id==CODE_ANPA && rii->id==10000) {
+		de_dbg(c, "IPTC data at %"INT64_FMT, dpos);
+		de_dbg_indent(c, 1);
+		de_fmtutil_handle_iptc(c, c->infile, dpos, dlen);
+		de_dbg_indent(c, -1);
+	}
 	else if(rti->is_icns_type) {
 		de_dbg(c, "[icns resource]");
 		open_icns_stream(c, d);
 		dbuf_write(d->icns_stream, rti->fcc.bytes, 4);
 		dbuf_writeui32be(d->icns_stream, 8+dlen);
 		dbuf_copy(c->infile, dpos, dlen, d->icns_stream);
+	}
+	else if(rti->is_psrc_type) {
+		do_psrc_resource(c, d, rti, rii, dpos, dlen);
 	}
 
 	if(extr_flag) {
@@ -145,15 +235,16 @@ done:
 	de_dbg_indent(c, -1);
 }
 
-static void read_resource_name(deark *c, lctx *d, struct rsrcinstanceinfo *rii,
-	de_int64 pos)
+// Sets rii->name_raw_len
+static void do_resource_name(deark *c, lctx *d, struct rsrcinstanceinfo *rii)
 {
 	de_int64 nlen;
 	de_ucstring *rname = NULL;
 
-	nlen = (de_int64)de_getbyte(pos);
+	nlen = (de_int64)de_getbyte(rii->name_offset);
+	rii->name_raw_len = 1+nlen;
 	rname = ucstring_create(c);
-	dbuf_read_to_ucstring(c->infile, pos+1, nlen, rname, 0, DE_ENCODING_MACROMAN);
+	dbuf_read_to_ucstring(c->infile, rii->name_offset+1, nlen, rname, 0, DE_ENCODING_MACROMAN);
 	de_dbg(c, "name: \"%s\"", ucstring_getpsz_d(rname));
 	ucstring_destroy(rname);
 }
@@ -171,8 +262,10 @@ static void do_resource_record(deark *c, lctx *d, struct rsrctypeinfo *rti,
 	de_dbg(c, "id: %u", rii.id);
 	nameOffset_rel = de_getui16be_p(&pos);
 	if(nameOffset_rel!=0xffff) {
+		rii.has_name = 1;
 		de_dbg(c, "nameOffset: (%d+)%d", (int)d->nameListOffset_abs, (int)nameOffset_rel);
-		read_resource_name(c, d, &rii, d->nameListOffset_abs+nameOffset_rel);
+		rii.name_offset = d->nameListOffset_abs+nameOffset_rel;
+		do_resource_name(c, d, &rii);
 	}
 	rii.attribs = de_getbyte_p(&pos);
 	de_dbg(c, "attributes: 0x%02x", (unsigned int)rii.attribs);
@@ -215,6 +308,11 @@ static void do_type_item(deark *c, lctx *d, de_int64 type_list_offs,
 	de_dbg(c, "resource type: '%s'", rti.fcc.id_dbgstr);
 	pos += 4;
 	rti.is_icns_type = is_icns_icon(c, d, &rti);
+
+	// TODO: What other signatures should we include?
+	if(rti.fcc.id==CODE_8BIM || rti.fcc.id==CODE_MeSa) {
+		rti.is_psrc_type = 1;
+	}
 
 	count = 1+de_getui16be_p(&pos);
 	de_dbg(c, "count: %d", (int)count);
@@ -295,6 +393,11 @@ static void de_run_macrsrc(deark *c, de_module_params *mparams)
 	de_int64 pos;
 
 	d = de_malloc(c, sizeof(lctx));
+
+	if(de_get_ext_option(c, "macrsrc:extractraw")) {
+		d->extract_raw = 1;
+	}
+
 	pos = 0;
 	d->data_offs = de_getui32be_p(&pos);
 	d->map_offs = de_getui32be_p(&pos);
@@ -304,6 +407,7 @@ static void de_run_macrsrc(deark *c, de_module_params *mparams)
 	de_dbg(c, "map: pos=%"INT64_FMT", len=%"INT64_FMT, d->map_offs, d->map_size);
 	do_map(c, d, d->map_offs, d->map_size);
 	finalize_icns_stream(c, d);
+	finalize_psrc_stream(c, d);
 	de_free(c, d);
 }
 
@@ -323,7 +427,13 @@ static int de_identify_macrsrc(deark *c)
 	if(n[1]+n[3]>c->infile->len) return 0; // map can't go past eof
 	// map should start with a copy of the header
 	if(dbuf_memcmp(c->infile, n[1], (const void*)b, 16)) return 0;
+	if(n[1]+n[3]==c->infile->len) return 100;
 	return 75;
+}
+
+static void de_help_macrsrc(deark *c)
+{
+	de_msg(c, "-opt macrsrc:extractraw : Extract all resources to files");
 }
 
 void de_module_macrsrc(deark *c, struct deark_module_info *mi)
@@ -332,4 +442,5 @@ void de_module_macrsrc(deark *c, struct deark_module_info *mi)
 	mi->desc = "Macintosh Resource Manager";
 	mi->run_fn = de_run_macrsrc;
 	mi->identify_fn = de_identify_macrsrc;
+	mi->help_fn = de_help_macrsrc;
 }

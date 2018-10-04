@@ -224,3 +224,6 @@ const char *de_fmtutil_get_windows_charset_name(de_byte cs);
 const char *de_fmtutil_get_windows_cb_data_type_name(unsigned int ty);
 
 int de_fmtutil_find_zip_eocd(deark *c, dbuf *f, de_int64 *foundpos);
+
+void de_fmtutil_wrap_in_tiff(deark *c, dbuf *df, const char *swstring,
+	unsigned int tag, const char *ext);
