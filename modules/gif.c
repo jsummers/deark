@@ -786,7 +786,7 @@ static void do_mgk8bim_extension(deark *c, lctx *d, de_int64 pos)
 	dbuf *tmpf = NULL;
 	tmpf = dbuf_create_membuf(c, 0, 0);
 	do_copy_subblocks_to_dbuf(c, d, tmpf, pos, 1, 4*1048576);
-	de_fmtutil_handle_photoshop_rsrc(c, tmpf, 0, tmpf->len);
+	de_fmtutil_handle_photoshop_rsrc(c, tmpf, 0, tmpf->len, 0x0);
 	dbuf_close(tmpf);
 }
 
@@ -795,7 +795,7 @@ static void do_mgkiptc_extension(deark *c, lctx *d, de_int64 pos)
 	dbuf *tmpf = NULL;
 	tmpf = dbuf_create_membuf(c, 0, 0);
 	do_copy_subblocks_to_dbuf(c, d, tmpf, pos, 1, 4*1048576);
-	de_fmtutil_handle_iptc(c, tmpf, 0, tmpf->len);
+	de_fmtutil_handle_iptc(c, tmpf, 0, tmpf->len, 0x0);
 	dbuf_close(tmpf);
 }
 

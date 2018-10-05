@@ -328,14 +328,14 @@ static void do_exif_segment(deark *c, lctx *d,
 static void do_photoshop_segment(deark *c, lctx *d,
 	de_int64 pos, de_int64 data_size)
 {
-	de_uint32 psdflags = 0;
+	struct de_module_out_params oparams;
 	// TODO: Can Photoshop resources span multiple JPEG segments? I have
 	// a file in which that seems to be the case.
 	de_dbg(c, "photoshop data at %d, size=%d", (int)pos, (int)data_size);
 	d->has_psd = 1;
 	de_dbg_indent(c, 1);
-	de_fmtutil_handle_photoshop_rsrc2(c, c->infile, pos, data_size, &psdflags);
-	if(psdflags&0x02)
+	de_fmtutil_handle_photoshop_rsrc2(c, c->infile, pos, data_size, 0x0, &oparams);
+	if(oparams.flags&0x02)
 		d->has_iptc = 1;
 	de_dbg_indent(c, -1);
 }

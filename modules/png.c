@@ -222,10 +222,10 @@ static void on_im_generic_profile_main(deark *c, lctx *d,
 		de_decode_base16(c, inf, pos, dlen, tmpf, 0);
 
 		if(tcc->im_generic_profile_type==PROFILETYPE_8BIM) {
-			de_fmtutil_handle_photoshop_rsrc(c, tmpf, 0, tmpf->len);
+			de_fmtutil_handle_photoshop_rsrc(c, tmpf, 0, tmpf->len, 0x0);
 		}
 		else if(tcc->im_generic_profile_type==PROFILETYPE_IPTC) {
-			de_fmtutil_handle_iptc(c, tmpf, 0, tmpf->len);
+			de_fmtutil_handle_iptc(c, tmpf, 0, tmpf->len, 0x0);
 		}
 
 		dbuf_close(tmpf);

@@ -49,11 +49,13 @@ void de_fmtutil_handle_exif2(deark *c, de_int64 pos, de_int64 len,
 	de_uint32 *returned_flags, de_uint32 *orientation, de_uint32 *exifversion);
 void de_fmtutil_handle_exif(deark *c, de_int64 pos, de_int64 len);
 
-void de_fmtutil_handle_iptc(deark *c, dbuf *f, de_int64 pos, de_int64 len);
+void de_fmtutil_handle_iptc(deark *c, dbuf *f, de_int64 pos, de_int64 len,
+	unsigned int flags);
 
 void de_fmtutil_handle_photoshop_rsrc2(deark *c, dbuf *f, de_int64 pos, de_int64 len,
-	de_uint32 *returned_flags);
-void de_fmtutil_handle_photoshop_rsrc(deark *c, dbuf *f, de_int64 pos, de_int64 len);
+	unsigned int flags, struct de_module_out_params *oparams);
+void de_fmtutil_handle_photoshop_rsrc(deark *c, dbuf *f, de_int64 pos, de_int64 len,
+	unsigned int flags);
 
 int de_fmtutil_uncompress_packbits(dbuf *f, de_int64 pos1, de_int64 len,
 	dbuf *unc_pixels, de_int64 *cmpr_bytes_consumed);
@@ -224,6 +226,3 @@ const char *de_fmtutil_get_windows_charset_name(de_byte cs);
 const char *de_fmtutil_get_windows_cb_data_type_name(unsigned int ty);
 
 int de_fmtutil_find_zip_eocd(deark *c, dbuf *f, de_int64 *foundpos);
-
-void de_fmtutil_wrap_in_tiff(deark *c, dbuf *df, const char *swstring,
-	unsigned int tag, const char *ext);
