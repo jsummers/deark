@@ -131,6 +131,7 @@ struct localctx_struct {
 	int is_exif_submodule;
 	int host_is_le;
 	int can_decode_fltpt;
+	de_byte is_deark_iptc, is_deark_8bim;
 	const char *errmsgprefix;
 
 	de_uint32 first_ifd_orientation; // Valid if != 0
@@ -1127,7 +1128,8 @@ static void handler_xmp(deark *c, lctx *d, const struct taginfo *tg, const struc
 
 static void handler_iptc(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni)
 {
-	de_fmtutil_handle_iptc(c, c->infile, tg->val_offset, tg->total_size, 0x0);
+	de_fmtutil_handle_iptc(c, c->infile, tg->val_offset, tg->total_size,
+		d->is_deark_iptc?0x2:0x0);
 }
 
 static void handler_photoshoprsrc(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni)
@@ -2508,6 +2510,21 @@ static int de_identify_tiff_internal(deark *c, int *is_le)
 	return fmt;
 }
 
+// Deark TIFF container formats. See de_fmtutil_handle_iptc() for example.
+static void identify_deark_formats(deark *c, lctx *d)
+{
+	de_byte buf[20];
+	de_read(buf, 8, sizeof(buf));
+	if(de_memcmp(buf, "Deark extracted ", 16)) return;
+	if(!de_memcmp(&buf[16], "IPTC", 4)) {
+		d->is_deark_iptc = 1;
+		return;
+	}
+	if(!de_memcmp(&buf[16], "8BIM", 4)) {
+		d->is_deark_8bim = 1;
+	}
+}
+
 static void de_run_tiff(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
@@ -2539,6 +2556,10 @@ static void de_run_tiff(deark *c, de_module_params *mparams)
 	if(de_havemodcode(c, mparams, 'E')) {
 		d->is_exif_submodule = 1;
 		d->errmsgprefix = "[Exif] ";
+	}
+
+	if(d->fmt==DE_TIFFFMT_TIFF) {
+		identify_deark_formats(c, d);
 	}
 
 	switch(d->fmt) {

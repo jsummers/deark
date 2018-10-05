@@ -254,21 +254,46 @@ void de_fmtutil_handle_exif(deark *c, de_int64 pos, de_int64 len)
 }
 
 static void wrap_in_tiff(deark *c, dbuf *f, de_int64 dpos, de_int64 dlen,
-	const char *swstring, unsigned int tag, const char *ext);
+	const char *swstring, unsigned int tag, const char *ext, unsigned int createflags);
 
-// Either extract the IPTC data to a file, or drill down into it,
-// depending on the value of c->extract_level.
+// Either extract the IPTC data to a file, or drill down into it.
+// flags:
+//  0 = default behavior (currently: depends on c->extract_level)
+//  2 = this came from our TIFF-encapsulated format
 void de_fmtutil_handle_iptc(deark *c, dbuf *f, de_int64 pos, de_int64 len,
 	unsigned int flags)
 {
+	int should_decode;
+	int should_extract;
+	int extract_fmt = 1; // 0=raw, 1=TIFF-wrapped
+
 	if(len<1) return;
 
 	if(c->extract_level>=2) {
-		dbuf_create_file_from_slice(f, pos, len, "iptc", NULL, DE_CREATEFLAG_IS_AUX);
-		return;
+		should_decode = 0;
+		should_extract = 1;
+		if(flags&0x2) {
+			// Avoid "extracting" in a way that would just recreate the exact same file.
+			extract_fmt = 0;
+		}
+
+	}
+	else {
+		should_decode = 1;
+		should_extract = 0;
 	}
 
-	de_run_module_by_id_on_slice(c, "iptc", NULL, f, pos, len);
+	if(should_decode) {
+		de_run_module_by_id_on_slice(c, "iptc", NULL, f, pos, len);
+	}
+
+	if(should_extract && extract_fmt==0) {
+		dbuf_create_file_from_slice(f, pos, len, "iptc", NULL, DE_CREATEFLAG_IS_AUX);
+	}
+	else if(should_extract && extract_fmt==1) {
+		wrap_in_tiff(c, f, pos, len, "Deark extracted IPTC", 33723, "iptctiff",
+			DE_CREATEFLAG_IS_AUX);
+	}
 }
 
 // If oparams is not NULL, and the data is decoded, the submodule's out_params
@@ -286,7 +311,8 @@ void de_fmtutil_handle_photoshop_rsrc2(deark *c, dbuf *f, de_int64 pos, de_int64
 	}
 
 	if(flags&0x1) {
-		wrap_in_tiff(c, f, pos, len, "Deark extracted 8BIM", 34377, "8bimtiff");
+		wrap_in_tiff(c, f, pos, len, "Deark extracted 8BIM", 34377, "8bimtiff",
+			DE_CREATEFLAG_IS_AUX);
 		goto done;
 	}
 
@@ -1651,8 +1677,8 @@ done:
 }
 
 // Quick & dirty encoder that can wrap some formats in a TIFF container.
-void wrap_in_tiff(deark *c, dbuf *f, de_int64 dpos, de_int64 dlen,
-	const char *swstring, unsigned int tag, const char *ext)
+static void wrap_in_tiff(deark *c, dbuf *f, de_int64 dpos, de_int64 dlen,
+	const char *swstring, unsigned int tag, const char *ext, unsigned int createflags)
 {
 	dbuf *outf = NULL;
 	de_int64 ifdoffs;
