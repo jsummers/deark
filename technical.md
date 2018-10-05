@@ -158,6 +158,14 @@ time of the extracted thumbnail file. Currently, Deark *does* do this, but it
 must be acknowledged that there's something not quite right about it, because
 the thumbnail may have been created much later than the original image.
 
+## The .iptctiff and .8bimtiff formats ##
+
+In some cases, Deark saves IPTC metadata, or Photoshop Resources (also
+semi-incorrectly known as "8BIM"), to a file. These data formats don't have a
+good *file* format to use, so Deark wraps them in a minimal TIFF-based
+container. You can reprocess this container file with Deark, and it may decode
+the data (use -d), or extract the raw data to a file.
+
 ## I've never heard of that format! ##
 
 For the identities of the formats supported by Deark, see

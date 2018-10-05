@@ -1137,7 +1137,7 @@ static void handler_photoshoprsrc(deark *c, lctx *d, const struct taginfo *tg, c
 	de_dbg(c, "Photoshop resources at %d, len=%d",
 		(int)tg->val_offset, (int)tg->total_size);
 	de_dbg_indent(c, 1);
-	de_fmtutil_handle_photoshop_rsrc(c, c->infile, tg->val_offset, tg->total_size, 0x0);
+	de_fmtutil_handle_photoshop_rsrc(c, c->infile, tg->val_offset, tg->total_size, 0x2);
 	de_dbg_indent(c, -1);
 }
 

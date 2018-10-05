@@ -139,6 +139,9 @@ Command-line options:
        number of seconds since the beginning of 1970).
     -opt extrlist:append
        Affects the -extrlist option.
+    -opt extract8bim
+       Extract Photoshop resources to a file, instead of decoding. For more
+       information, see "8bimtiff" in the technical.md file.
     -opt atari:palbits=&lt;9|12|15>
        For some Atari image formats, the number of significant bits per
        palette color. The default is to autodetect.
