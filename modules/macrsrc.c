@@ -11,6 +11,7 @@ DE_DECLARE_MODULE(de_module_macrsrc);
 
 #define CODE_8BIM 0x3842494dU
 #define CODE_ANPA 0x414e5041U
+#define CODE_CURS 0x43555253U
 #define CODE_MeSa 0x4d655361U
 #define CODE_PICT 0x50494354U
 #define CODE_icns 0x69636e73U
@@ -33,7 +34,7 @@ struct rsrctypeinfo {
 };
 
 struct rsrcinstanceinfo {
-	unsigned int id;
+	int id;
 	de_byte attribs;
 	de_byte has_name;
 	de_int64 data_offset;
@@ -103,6 +104,16 @@ static void finalize_psrc_stream(deark *c, lctx *d)
 	d->psrc_stream = NULL;
 }
 
+static void writei16be(dbuf *f, de_int64 n)
+{
+	if(n<0) {
+		dbuf_writeui16be(f, n+65536);
+	}
+	else {
+		dbuf_writeui16be(f, n);
+	}
+}
+
 static void do_psrc_resource(deark *c, lctx *d, struct rsrctypeinfo *rti,
 	struct rsrcinstanceinfo *rii, de_int64 dpos, de_int64 dlen)
 {
@@ -118,7 +129,7 @@ static void do_psrc_resource(deark *c, lctx *d, struct rsrctypeinfo *rti,
 
 	de_dbg(c, "[Photoshop resource]");
 	dbuf_write(d->psrc_stream, rti->fcc.bytes, 4);
-	dbuf_writeui16be(d->psrc_stream, rii->id);
+	writei16be(d->psrc_stream, (de_int64)rii->id);
 	if(rii->has_name) {
 		dbuf_copy(c->infile, rii->name_offset, rii->name_raw_len, d->psrc_stream);
 		if(rii->name_raw_len%2) {
@@ -133,6 +144,25 @@ static void do_psrc_resource(deark *c, lctx *d, struct rsrctypeinfo *rti,
 	if(dlen%2) {
 		dbuf_writebyte(d->psrc_stream, 0); // padding byte for data
 	}
+}
+
+// 16x16 cursor
+static void do_CURS_resource(deark *c, lctx *d, struct rsrctypeinfo *rti,
+	struct rsrcinstanceinfo *rii, de_int64 dpos, de_int64 dlen)
+{
+	de_bitmap *fg = NULL;
+	de_bitmap *mask = NULL;
+
+	if(dlen!=68) goto done;
+	fg = de_bitmap_create(c, 16, 16, 2);
+	de_convert_image_bilevel(c->infile, dpos, 2, fg, DE_CVTF_WHITEISZERO);
+	mask = de_bitmap_create(c, 16, 16, 1);
+	de_convert_image_bilevel(c->infile, dpos+32, 2, mask, 0);
+	de_bitmap_apply_mask(fg, mask, 0);
+	de_bitmap_write_to_file(fg, "cursor", 0);
+done:
+	de_bitmap_destroy(fg);
+	de_bitmap_destroy(mask);
 }
 
 static int looks_like_pict(deark *c, lctx *d, struct rsrcinstanceinfo *rii,
@@ -220,6 +250,9 @@ static void do_resource_data(deark *c, lctx *d, struct rsrctypeinfo *rti,
 	else if(rti->is_psrc_type) {
 		do_psrc_resource(c, d, rti, rii, dpos, dlen);
 	}
+	else if(rti->fcc.id==CODE_CURS) {
+		do_CURS_resource(c, d, rti, rii, dpos, dlen);
+	}
 
 	if(extr_flag) {
 		outf = dbuf_create_output_file(c, ext, NULL, 0);
@@ -257,8 +290,8 @@ static void do_resource_record(deark *c, lctx *d, struct rsrctypeinfo *rti,
 	struct rsrcinstanceinfo rii;
 
 	de_memset(&rii, 0, sizeof(struct rsrcinstanceinfo));
-	rii.id = (unsigned int)de_getui16be_p(&pos);
-	de_dbg(c, "id: %u", rii.id);
+	rii.id = (int)de_geti16be_p(&pos);
+	de_dbg(c, "id: %d", rii.id);
 	nameOffset_rel = de_getui16be_p(&pos);
 	if(nameOffset_rel!=0xffff) {
 		rii.has_name = 1;
