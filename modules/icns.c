@@ -126,15 +126,16 @@ static void do_decode_1_4_8bit(deark *c, lctx *d, struct page_ctx *pg)
 	de_int64 i, j;
 	de_byte a, b;
 	de_byte x;
-	de_int32 fgcol;
+	de_uint32 fgcol;
+	int bypp;
 
-	img = de_bitmap_create(c, pg->type_info->width, pg->type_info->height, 4);
+	bypp = (pg->type_info->bpp==1)?2:4;
+	img = de_bitmap_create(c, pg->type_info->width, pg->type_info->height, bypp);
 
 	for(j=0; j<pg->type_info->height; j++) {
 		for(i=0; i<pg->type_info->width; i++) {
 			// Foreground
 			b = de_get_bits_symbol(c->infile, pg->type_info->bpp, pg->image_pos + pg->rowspan*j, i);
-
 			if(pg->type_info->bpp==8) {
 				fgcol = getpal256((int)b);
 			}
@@ -142,7 +143,7 @@ static void do_decode_1_4_8bit(deark *c, lctx *d, struct page_ctx *pg)
 				fgcol = pal16[(unsigned int)b];
 			}
 			else {
-				fgcol = b ? 0x0000000 : 0xffffff;
+				fgcol = b ? DE_STOCKCOLOR_BLACK : DE_STOCKCOLOR_WHITE;
 			}
 
 			// Opacity
@@ -153,6 +154,7 @@ static void do_decode_1_4_8bit(deark *c, lctx *d, struct page_ctx *pg)
 			else {
 				a = 0xff;
 			}
+
 			de_bitmap_setpixel_rgba(img, i, j, DE_SET_ALPHA(fgcol, a));
 		}
 	}
