@@ -205,6 +205,7 @@ struct bitmapinfo {
 	de_int64 rowbytes; // The rowBytes field
 	de_int64 rowspan; // Actual number of bytes/row
 	de_int64 width, height;
+	int is_uncompressed;
 	de_int64 packing_type;
 	de_int64 pixeltype, pixelsize;
 	de_int64 cmpcount, cmpsize;
@@ -490,7 +491,10 @@ static int decode_bitmap(deark *c, lctx *d, struct bitmapinfo *bi, de_int64 pos)
 	unc_pixels = dbuf_create_membuf(c, bitmapsize, 1);
 
 	for(j=0; j<bi->height; j++) {
-		if(bi->rowbytes > 250) {
+		if(bi->packing_type==1 || bi->rowbytes<8) {
+			bytecount = bi->rowbytes;
+		}
+		else if(bi->rowbytes > 250) {
 			bytecount = de_getui16be(pos);
 			pos+=2;
 		}
@@ -499,7 +503,10 @@ static int decode_bitmap(deark *c, lctx *d, struct bitmapinfo *bi, de_int64 pos)
 			pos+=1;
 		}
 
-		if(bi->packing_type==3 && bi->pixelsize==16) {
+		if(bi->packing_type==1 || bi->rowbytes<8) {
+			dbuf_copy(c->infile, pos, bytecount, unc_pixels);
+		}
+		else if(bi->packing_type==3 && bi->pixelsize==16) {
 			de_fmtutil_uncompress_packbits16(c->infile, pos, bytecount, unc_pixels, NULL);
 		}
 		else {
@@ -555,8 +562,8 @@ static int decode_pixdata(deark *c, lctx *d, struct bitmapinfo *bi, de_int64 pos
 
 	if(!de_good_image_dimensions(c, bi->width, bi->height)) goto done;
 
-	if(bi->pixelsize!=1 && bi->pixelsize!=4 && bi->pixelsize!=8 && bi->pixelsize!=16 &&
-		bi->pixelsize!=24 && bi->pixelsize!=32)
+	if(bi->pixelsize!=1 && bi->pixelsize!=2 && bi->pixelsize!=4 && bi->pixelsize!=8 &&
+		bi->pixelsize!=16 && bi->pixelsize!=24 && bi->pixelsize!=32)
 	{
 		de_err(c, "%d bits/pixel images are not supported", (int)bi->pixelsize);
 		goto done;
@@ -569,7 +576,9 @@ static int decode_pixdata(deark *c, lctx *d, struct bitmapinfo *bi, de_int64 pos
 		de_err(c, "Component count %d is not supported", (int)bi->cmpcount);
 		goto done;
 	}
-	if(bi->cmpsize!=1 && bi->cmpsize!=4 && bi->cmpsize!=5 && bi->cmpsize!=8) {
+	if(bi->cmpsize!=1 && bi->cmpsize!=2 && bi->cmpsize!=4 && bi->cmpsize!=5 &&
+		bi->cmpsize!=8)
+	{
 		de_err(c, "%d-bit components are not supported", (int)bi->cmpsize);
 		goto done;
 	}
@@ -578,6 +587,7 @@ static int decode_pixdata(deark *c, lctx *d, struct bitmapinfo *bi, de_int64 pos
 		goto done;
 	}
 	if((bi->uses_pal && bi->packing_type==0 && bi->pixelsize==1 && bi->cmpcount==1 && bi->cmpsize==1) ||
+		(bi->uses_pal && bi->packing_type==0 && bi->pixelsize==2 && bi->cmpcount==1 && bi->cmpsize==2) ||
 		(bi->uses_pal && bi->packing_type==0 && bi->pixelsize==4 && bi->cmpcount==1 && bi->cmpsize==4) ||
 		(bi->uses_pal && bi->packing_type==0 && bi->pixelsize==8 && bi->cmpcount==1 && bi->cmpsize==8) ||
 		(!bi->uses_pal && bi->packing_type==3 && bi->pixelsize==16 && bi->cmpcount==3 && bi->cmpsize==5) ||
@@ -626,12 +636,12 @@ static int handler_98_9a(deark *c, lctx *d, de_int64 opcode, de_int64 pos1, de_i
 		pos += 36;
 	}
 
-	if(opcode==0x98 && bi->pixmap_flag) {
+	if((opcode==0x90 || opcode==0x98) && bi->pixmap_flag) {
 		// Prepare to read the palette
 		bi->uses_pal = 1;
 		bi->has_colortable = 1;
 	}
-	else if(opcode==0x98 && !bi->pixmap_flag) {
+	else if((opcode==0x90 || opcode==0x98) && !bi->pixmap_flag) {
 		// Settings implied by the lack of a PixMap header
 		bi->pixelsize = 1;
 		bi->cmpcount = 1;
@@ -876,6 +886,7 @@ static const struct opcode_info opcode_info_arr[] = {
 	{ 0x0072, SZCODE_POLYGON, 0,  "erasePoly", NULL },
 	{ 0x0073, SZCODE_POLYGON, 0,  "invertPoly", NULL },
 	{ 0x0074, SZCODE_POLYGON, 0,  "fillPoly", NULL },
+	{ 0x0090, SZCODE_SPECIAL, 0,  "BitsRect", handler_98_9a },
 	{ 0x0098, SZCODE_SPECIAL, 0,  "PackBitsRect", handler_98_9a },
 	{ 0x009a, SZCODE_SPECIAL, 0,  "DirectBitsRect", handler_98_9a },
 	{ 0x00a0, SZCODE_EXACT,   2,  "ShortComment", handler_a0 },
