@@ -11,6 +11,7 @@ DE_DECLARE_MODULE(de_module_appledouble);
 
 typedef struct localctx_struct {
 	de_uint32 version;
+	struct de_timestamp modtime;
 } lctx;
 
 struct entry_struct {
@@ -28,17 +29,71 @@ struct entry_id_struct {
 	handler_fn_type hfn;
 };
 
+static void do_one_date(deark *c, lctx *d, de_int64 pos, const char *name,
+	int is_modtime)
+{
+	de_int64 dt;
+	char timestamp_buf[64];
+
+	dt = de_geti32be(pos);
+	if(dt == -0x80000000LL) {
+		de_strlcpy(timestamp_buf, "unknown", sizeof(timestamp_buf));
+	}
+	else {
+		struct de_timestamp ts;
+		// Epoch is Jan 1, 2001. There are 30 years, with 7 leap days, between
+		// that and the Unix time epoch.
+		de_unix_time_to_timestamp(dt + ((365*30 + 7)*86400), &ts);
+		if(is_modtime) {
+			d->modtime = ts; // struct copy
+		}
+		de_timestamp_to_string(&ts, timestamp_buf, sizeof(timestamp_buf), 1);
+	}
+	de_dbg(c, "%s: %"INT64_FMT" (%s)", name, dt, timestamp_buf);
+}
+
+static void handler_dates(deark *c, lctx *d, struct entry_struct *e)
+{
+	if(e->length<16) return;
+	do_one_date(c, d, e->offset, "creation date", 0);
+	do_one_date(c, d, e->offset+4, "mod date", 1);
+	do_one_date(c, d, e->offset+8, "backup date", 0);
+	do_one_date(c, d, e->offset+12, "access date", 0);
+}
+
 static void handler_data(deark *c, lctx *d, struct entry_struct *e)
 {
+	de_finfo *fi = NULL;
+
+	fi = de_finfo_create(c);
+	if(d->modtime.is_valid) {
+		fi->mod_time = d->modtime; // struct copy
+	}
+	de_finfo_set_name_from_sz(c, fi, "data", DE_ENCODING_LATIN1);
+
 	dbuf_create_file_from_slice(c->infile, e->offset, e->length,
-		"data", NULL, 0x0);
+		NULL, fi, 0x0);
+
+	de_finfo_destroy(c, fi);
 }
 
 static void handler_rsrc(deark *c, lctx *d, struct entry_struct *e)
 {
-	if(e->length<1) return;
+	de_finfo *fi = NULL;
+
+	if(e->length<1) goto done;
+
+	fi = de_finfo_create(c);
+	if(d->modtime.is_valid) {
+		fi->mod_time = d->modtime; // struct copy
+	}
+	de_finfo_set_name_from_sz(c, fi, "rsrc", DE_ENCODING_LATIN1);
+
 	dbuf_create_file_from_slice(c->infile, e->offset, e->length,
-		"rsrc", NULL, 0x0);
+		NULL, fi, 0x0);
+
+done:
+	de_finfo_destroy(c, fi);
 }
 
 static const struct entry_id_struct entry_id_arr[] = {
@@ -48,7 +103,7 @@ static const struct entry_id_struct entry_id_arr[] = {
 	{4, "comment", NULL},
 	{5, "b/w icon", NULL},
 	{6, "color icon", NULL},
-	{8, "file dates", NULL},
+	{8, "file dates", handler_dates},
 	{9, "Finder info", NULL},
 	{10, "Macintosh file info", NULL},
 	{11, "ProDOS file info", NULL},
@@ -104,6 +159,9 @@ static void de_run_sd_internal(deark *c, lctx *d)
 	de_int64 pos = 0;
 	de_int64 nentries;
 	de_int64 k;
+	int pass;
+	de_int64 entry_descriptors_pos;
+	int *entry_pass = NULL;
 
 	pos += 4; // signature
 	d->version = (de_uint32)de_getui32be_p(&pos);
@@ -113,14 +171,30 @@ static void de_run_sd_internal(deark *c, lctx *d)
 	nentries = de_getui16be_p(&pos);
 	de_dbg(c, "number of entries: %d", (int)nentries);
 
+	entry_descriptors_pos = pos;
+
+	entry_pass = de_malloc(c, sizeof(int)*nentries);
 	for(k=0; k<nentries; k++) {
-		if(pos+12>c->infile->len) break;
-		de_dbg(c, "entry[%u]", (unsigned int)k);
-		de_dbg_indent(c, 1);
-		do_sd_entry(c, d, (unsigned int)k, pos);
-		pos += 12;
-		de_dbg_indent(c, -1);
+		unsigned int e_id;
+		// Make sure we read the metadata before we extract the files.
+		e_id = (unsigned int)de_getui32be(entry_descriptors_pos+12*k);
+		if(e_id==1 || e_id==2) entry_pass[k] = 2;
+		else entry_pass[k] = 1;
 	}
+
+	for(pass=1; pass<=2; pass++) {
+		for(k=0; k<nentries; k++) {
+			if(entry_pass[k]==pass) {
+				if(pos+12>c->infile->len) break;
+				de_dbg(c, "entry[%u]", (unsigned int)k);
+				de_dbg_indent(c, 1);
+				do_sd_entry(c, d, (unsigned int)k, entry_descriptors_pos+12*k);
+				de_dbg_indent(c, -1);
+			}
+		}
+	}
+
+	de_free(c, entry_pass);
 }
 
 static void de_run_appledouble(deark *c, de_module_params *mparams)
