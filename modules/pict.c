@@ -20,6 +20,7 @@ struct pict_rect {
 typedef struct localctx_struct {
 	int version; // 2 if file is known to be v2, 1 otherwise.
 	int is_extended_v2;
+	int decode_qtif;
 	dbuf *iccprofile_file;
 } lctx;
 
@@ -766,9 +767,47 @@ static int handler_0c00(deark *c, lctx *d, de_int64 opcode, de_int64 data_pos, d
 	return 1;
 }
 
-static void do_handle_qtif_idsc(deark *c, de_int64 pos, de_int64 len)
+static void do_handle_qtif_idsc(deark *c, lctx *d, de_int64 pos, de_int64 len)
 {
-	de_run_module_by_id_on_slice2(c, "qtif", "I", c->infile, pos, len);
+	de_int64 idsc_dpos, idsc_dlen;
+	de_int64 idat_dpos, idat_dlen;
+	dbuf *outf = NULL;
+
+	if(d->decode_qtif) {
+		de_run_module_by_id_on_slice2(c, "qtif", "I", c->infile, pos, len);
+		return;
+	}
+
+	// Try to construct a .qtif file.
+	// This way, we do something potentially useful even if the image has
+	// a compression scheme that our qtif module doesn't support.
+
+	idsc_dpos = pos;
+	de_dbg(c, "idsc dpos: %d", (int)idsc_dpos);
+	idsc_dlen = de_getui32be(idsc_dpos);
+	de_dbg(c, "idsc dlen: %d", (int)idsc_dlen);
+	idat_dpos = idsc_dpos + idsc_dlen;
+	de_dbg(c, "idat dpos: %d", (int)idat_dpos);
+	idat_dlen = de_getui32be(idsc_dpos+44);
+	de_dbg(c, "idat dlen: %d", (int)idat_dlen);
+
+	if(idsc_dpos+idsc_dlen > pos+len) goto done;
+	if(idat_dpos+idat_dlen > pos+len) goto done;
+
+#define CODE_idat 0x69646174U
+#define CODE_idsc 0x69647363U
+	outf = dbuf_create_output_file(c, "qtif", NULL, 0);
+
+	dbuf_writeui32be(outf, 8+idsc_dlen);
+	dbuf_writeui32be(outf, CODE_idsc);
+	dbuf_copy(c->infile, idsc_dpos, idsc_dlen, outf);
+
+	dbuf_writeui32be(outf, 8+idat_dlen);
+	dbuf_writeui32be(outf, CODE_idat);
+	dbuf_copy(c->infile, idat_dpos, idat_dlen, outf);
+
+done:
+	dbuf_close(outf);
 }
 
 // CompressedQuickTime (0x8200) & UncompressedQuickTime (0x8201)
@@ -789,9 +828,7 @@ static int handler_QuickTime(deark *c, lctx *d, de_int64 opcode, de_int64 data_p
 	// followed by QuickTime "idsc" data, followed by image data.
 	idsc_pos = payload_pos + ((opcode==0x8201) ? 50 : 68);
 
-	// The question is, should we try to extract this to QTIF or other QuickTime
-	// file format? Or should we fully decode it (as we're doing now)?
-	do_handle_qtif_idsc(c, idsc_pos, endpos-idsc_pos);
+	do_handle_qtif_idsc(c, d, idsc_pos, endpos-idsc_pos);
 	return 1;
 }
 
