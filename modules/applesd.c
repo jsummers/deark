@@ -12,13 +12,17 @@ DE_DECLARE_MODULE(de_module_appledouble);
 typedef struct localctx_struct {
 	de_uint32 version;
 	struct de_timestamp modtime;
+	de_ucstring *real_name;
 } lctx;
+
+struct entry_id_struct;
 
 struct entry_struct {
 	unsigned int idx;
 	unsigned int id;
 	de_int64 offset;
 	de_int64 length;
+	const struct entry_id_struct *eid;
 };
 
 typedef void (*handler_fn_type)(deark *c, lctx *d, struct entry_struct *e);
@@ -28,6 +32,34 @@ struct entry_id_struct {
 	const char *name;
 	handler_fn_type hfn;
 };
+
+// len = the total number of bytes available
+static void read_pascal_string(deark *c, lctx *d, de_ucstring *s, de_int64 pos, de_int64 len)
+{
+	de_int64 slen;
+
+	if(len<1) goto done;
+	slen = (de_int64)de_getbyte(pos);
+	if(slen<1 || slen > (len-1)) goto done;
+	dbuf_read_to_ucstring(c->infile, pos+1, slen, s, 0, DE_ENCODING_MACROMAN);
+done:
+	;
+}
+
+static void handler_string(deark *c, lctx *d, struct entry_struct *e)
+{
+	de_ucstring *s = NULL;
+
+	s = ucstring_create(c);
+	read_pascal_string(c, d, s, e->offset, e->length);
+	de_dbg(c, "%s: \"%s\"", e->eid->name, ucstring_getpsz_d(s));
+
+	if(e->id==3 && !d->real_name && s->len>0) { // id 3 = real name
+		d->real_name = ucstring_clone(s);
+	}
+
+	ucstring_destroy(s);
+}
 
 static void do_one_date(deark *c, lctx *d, de_int64 pos, const char *name,
 	int is_modtime)
@@ -69,7 +101,14 @@ static void handler_data(deark *c, lctx *d, struct entry_struct *e)
 	if(d->modtime.is_valid) {
 		fi->mod_time = d->modtime; // struct copy
 	}
-	de_finfo_set_name_from_sz(c, fi, "data", DE_ENCODING_LATIN1);
+
+	if(d->real_name) {
+		de_finfo_set_name_from_ucstring(c, fi, d->real_name);
+		fi->original_filename_flag = 1;
+	}
+	else {
+		de_finfo_set_name_from_sz(c, fi, "data", DE_ENCODING_LATIN1);
+	}
 
 	dbuf_create_file_from_slice(c->infile, e->offset, e->length,
 		NULL, fi, 0x0);
@@ -80,6 +119,7 @@ static void handler_data(deark *c, lctx *d, struct entry_struct *e)
 static void handler_rsrc(deark *c, lctx *d, struct entry_struct *e)
 {
 	de_finfo *fi = NULL;
+	de_ucstring *fname = NULL;
 
 	if(e->length<1) goto done;
 
@@ -87,20 +127,29 @@ static void handler_rsrc(deark *c, lctx *d, struct entry_struct *e)
 	if(d->modtime.is_valid) {
 		fi->mod_time = d->modtime; // struct copy
 	}
-	de_finfo_set_name_from_sz(c, fi, "rsrc", DE_ENCODING_LATIN1);
+
+	if(d->real_name) {
+		fname = ucstring_clone(d->real_name);
+		ucstring_append_sz(fname, ".rsrc", DE_ENCODING_LATIN1);
+		de_finfo_set_name_from_ucstring(c, fi, fname);
+	}
+	else {
+		de_finfo_set_name_from_sz(c, fi, "rsrc", DE_ENCODING_LATIN1);
+	}
 
 	dbuf_create_file_from_slice(c->infile, e->offset, e->length,
 		NULL, fi, 0x0);
 
 done:
 	de_finfo_destroy(c, fi);
+	ucstring_destroy(fname);
 }
 
 static const struct entry_id_struct entry_id_arr[] = {
 	{1, "data fork", handler_data},
 	{2, "resource fork", handler_rsrc},
-	{3, "real name", NULL},
-	{4, "comment", NULL},
+	{3, "real name", handler_string},
+	{4, "comment", handler_string},
 	{5, "b/w icon", NULL},
 	{6, "color icon", NULL},
 	{8, "file dates", handler_dates},
@@ -147,6 +196,7 @@ static void do_sd_entry(deark *c, lctx *d, unsigned int idx, de_int64 pos1)
 	}
 
 	if(eid && eid->hfn) {
+		e.eid = eid;
 		eid->hfn(c, d, &e);
 	}
 
@@ -195,6 +245,7 @@ static void de_run_sd_internal(deark *c, lctx *d)
 	}
 
 	de_free(c, entry_pass);
+	de_free(c, d->real_name);
 }
 
 static void de_run_appledouble(deark *c, de_module_params *mparams)
