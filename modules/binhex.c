@@ -128,7 +128,7 @@ static void do_extract_files(deark *c, lctx *d)
 	de_int64 pos;
 	de_int64 dlen, rlen;
 	de_int64 hc, dc, rc; // Checksums
-	char *filename_buf = NULL;
+	de_ucstring *fname = NULL;
 
 	f = d->decompressed;
 	pos = 0;
@@ -142,13 +142,19 @@ static void do_extract_files(deark *c, lctx *d)
 	// TODO: What encoding does the name use? Can we convert it?
 	fi_r = de_finfo_create(c);
 	fi_d = de_finfo_create(c);
-	filename_buf = de_malloc(c, 5 + name_len +1);
-	dbuf_read(f, (de_byte*)(filename_buf+5), pos, name_len);
-	filename_buf[5+name_len] = '\0';
-	de_memcpy(filename_buf, "rsrc.", 5);
-	de_finfo_set_name_from_sz(c, fi_r, filename_buf, DE_ENCODING_ASCII);
-	de_memcpy(filename_buf, "data.", 5);
-	de_finfo_set_name_from_sz(c, fi_d, filename_buf, DE_ENCODING_ASCII);
+	if(name_len > 0) {
+		fname = ucstring_create(c);
+		dbuf_read_to_ucstring(f, pos, name_len, fname, 0, DE_ENCODING_ASCII);
+		de_dbg(c, "name: \"%s\"", ucstring_getpsz(fname));
+		de_finfo_set_name_from_ucstring(c, fi_d, fname);
+		fi_d->original_filename_flag = 1;
+		ucstring_append_sz(fname, ".rsrc", DE_ENCODING_LATIN1);
+		de_finfo_set_name_from_ucstring(c, fi_r, fname);
+	}
+	else {
+		de_finfo_set_name_from_sz(c, fi_r, "rsrc", DE_ENCODING_LATIN1);
+		de_finfo_set_name_from_sz(c, fi_d, "data", DE_ENCODING_LATIN1);
+	}
 
 	pos+=name_len;
 	pos+=1; // Skip the 0x00 byte after the name.
@@ -159,9 +165,9 @@ static void do_extract_files(deark *c, lctx *d)
 	rlen = dbuf_getui32be(f, pos+14);
 	hc = dbuf_getui16be(f, pos+18);
 
-	de_dbg(c, "data fork len = %d", (int)dlen);
-	de_dbg(c, "resource fork len = %d", (int)rlen);
-	de_dbg(c, "header checksum = 0x%04x", (unsigned int)hc);
+	de_dbg(c, "data fork len: %d", (int)dlen);
+	de_dbg(c, "resource fork len: %d", (int)rlen);
+	de_dbg(c, "header checksum: 0x%04x", (unsigned int)hc);
 
 	// TODO: Verify checksums
 
@@ -180,7 +186,7 @@ static void do_extract_files(deark *c, lctx *d)
 
 	dc = dbuf_getui16be(f, pos);
 	pos += 2;
-	de_dbg(c, "data fork checksum = 0x%04x", (unsigned int)dc);
+	de_dbg(c, "data fork checksum: 0x%04x", (unsigned int)dc);
 
 	// Resource fork
 
@@ -195,12 +201,12 @@ static void do_extract_files(deark *c, lctx *d)
 
 	rc = dbuf_getui16be(f, pos);
 	pos += 2;
-	de_dbg(c, "resource fork checksum = 0x%04x", (unsigned int)rc);
+	de_dbg(c, "resource fork checksum: 0x%04x", (unsigned int)rc);
 
 done:
 	de_finfo_destroy(c, fi_r);
 	de_finfo_destroy(c, fi_d);
-	de_free(c, filename_buf);
+	ucstring_destroy(fname);
 }
 
 static void do_binhex(deark *c, lctx *d, de_int64 pos)
