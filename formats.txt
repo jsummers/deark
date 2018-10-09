@@ -232,14 +232,10 @@ Deark -- Information about supported formats
   - Extract JPEG-HDR residual images.
   - Process Exif data (or extract it: use -a)
   - Process Photoshop-related data.
-  - Process Multi-Picture Format (MPF/MPO) data.
+  - Extract Multi-Picture Format (MPF/MPO) thumbnails and other images.
   - Extract comments (use -a). Comment bytes are extracted as-is, or
      interpreted based on the "-inenc" option.
   - Extract Exif FPXR streams (use -a).
-  Options
-   -opt jpeg:stopateoi - Stop when the end of the first JPEG "file" has been
-     found, instead of looking for additional JPEG data after it (as in MPO
-     format, for example)
 
 * JPEG 2000 (module="jpeg2000")
   - Extract JPEG 2000 codestream from JP2/JPX/JPM formats.

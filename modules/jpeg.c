@@ -26,9 +26,13 @@ struct fpxr_data_struct {
 };
 
 // Data associated with the whole file or module instance.
+// Note: This is separate from streamctx_struct because this module used to be
+// able to process multiple independent JPEG streams in a single file. It no
+// longer does that, so the structs could be merged.
 struct file_ctx {
-	int image_count;
-	int stop_at_eoi;
+	int image_count; // Not really used anymore
+	de_byte look_for_multiple_streams;
+	de_byte has_mpf_seg;
 };
 
 // Data associated with a JPEG stream (SOI through EOI).
@@ -354,18 +358,15 @@ static void do_mpf_segment(deark *c, lctx *d,
 	mparams->in_params.codes = "M";
 	mparams->in_params.flags |= 0x01;
 	mparams->in_params.offset_in_parent = pos;
+	mparams->in_params.parent_dbuf = c->infile;
 
 	de_run_module_by_id_on_slice(c, "tiff", mparams, c->infile, pos, data_size);
 
 	if(mparams->out_params.flags & 0x80) {
-		if(mparams->out_params.int64_1 > c->infile->len) {
-			de_warn(c, "Invalid MPF multi-picture data. File size should be at "
-				"least %"INT64_FMT", is %"INT64_FMT".",
-				mparams->out_params.int64_1, c->infile->len);
-		}
 		if(mparams->out_params.uint3 > 1) {
 			// We want to set the is_mpo flag if there is an MPEntry tag which
 			// says there is more than one non-thumbnail image.
+			// This is so we can declare the format to be "JPEG/MPO".
 			d->is_mpo = 1;
 		}
 	}
@@ -1796,7 +1797,8 @@ static void do_post_sof_stuff(deark *c, lctx *d)
 }
 
 // Process a single JPEG image (through the EOI marker).
-// Returns nonzero if we should continue, and look for more images after the EOI.
+// Returns nonzero if we could continue, and look for more images after the EOI.
+// May set fctx->has_mpf_seg.
 static int do_jpeg_page(deark *c, struct file_ctx *fctx, de_int64 pos1, de_int64 *bytes_consumed)
 {
 	de_byte b;
@@ -1901,6 +1903,7 @@ static int do_jpeg_page(deark *c, struct file_ctx *fctx, de_int64 pos1, de_int64
 
 done:
 	if(d) {
+		fctx->has_mpf_seg = d->has_mpf_seg;
 		dbuf_close(d->iccprofile_file);
 		dbuf_close(d->hdr_residual_file);
 		destroy_fpxr_data(c, d);
@@ -1930,23 +1933,29 @@ static void do_jpeg_internal(deark *c, struct file_ctx *fctx)
 	de_int64 pos;
 	de_int64 bytes_consumed;
 	int ret;
+	de_int64 foundpos;
 
 	pos = 0;
-
-	while(1) {
-		if(pos >= c->infile->len) break;
-		bytes_consumed = 0;
-		ret = do_jpeg_page(c, fctx, pos, &bytes_consumed);
-		if(!ret) break;
-		pos += bytes_consumed;
-		if(fctx->stop_at_eoi) break;
+	bytes_consumed = 0;
+	ret = do_jpeg_page(c, fctx, pos, &bytes_consumed);
+	if(!ret) goto done;
+	pos += bytes_consumed;
+	if(bytes_consumed<1) goto done;
+	if(pos >= c->infile->len) goto done;
+	if(!fctx->look_for_multiple_streams) goto done;
+	if(fctx->has_mpf_seg) {
+		// In this case, it is normal for there to be multiple JPEG streams,
+		// and we should have already extracted the extras.
+		goto done;
 	}
 
-	if(fctx->image_count>1) {
-		// For Multi-Picture Format (.mpo) and similar.
-		de_msg(c, "Note: This file seems to contain %d JPEG files. "
-			"Use \"-m jpegscan\" to extract them.", fctx->image_count);
+	if(dbuf_search(c->infile, (const de_byte*)"\xff\xd8\xff", 3, pos, 512, &foundpos)) {
+		de_msg(c, "Note: This file might contain multiple JPEG images. "
+			"Use \"-m jpegscan\" to extract them.");
 	}
+
+done:
+	;
 }
 
 static void de_run_jpeg(deark *c, de_module_params *mparams)
@@ -1955,8 +1964,11 @@ static void de_run_jpeg(deark *c, de_module_params *mparams)
 
 	fctx = de_malloc(c, sizeof(struct file_ctx));
 
+	fctx->look_for_multiple_streams = 1;
+
+	// This option used to do more than it does now.
 	if(de_get_ext_option(c, "jpeg:stopateoi")) {
-		fctx->stop_at_eoi = 1;
+		fctx->look_for_multiple_streams = 0;
 	}
 
 	do_jpeg_internal(c, fctx);
@@ -2091,12 +2103,6 @@ static int de_identify_jpeg(deark *c)
 	return 0;
 }
 
-static void de_help_jpeg(deark *c)
-{
-	de_msg(c, "-opt jpeg:stopateoi : Stop when the end of the first JPEG "
-		"\"file\" has been found");
-}
-
 void de_module_jpeg(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "jpeg";
@@ -2104,7 +2110,6 @@ void de_module_jpeg(deark *c, struct deark_module_info *mi)
 	mi->desc2 = "resources only";
 	mi->run_fn = de_run_jpeg;
 	mi->identify_fn = de_identify_jpeg;
-	mi->help_fn = de_help_jpeg;
 }
 
 void de_module_jpegscan(deark *c, struct deark_module_info *mi)

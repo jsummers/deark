@@ -44,11 +44,15 @@
 
 #define DE_ITEMS_IN_ARRAY(x) (sizeof(x)/sizeof(x[0]))
 
+struct dbuf_struct;
+typedef struct dbuf_struct dbuf;
+
 struct de_module_in_params {
 	const char *codes;
 	//  0x01: offset_in_parent is set
 	de_uint32 flags;
-	de_int64 offset_in_parent;
+	de_int64 offset_in_parent; // optional, rare
+	dbuf *parent_dbuf; // optional, rare
 };
 
 struct de_module_out_params {
@@ -58,7 +62,7 @@ struct de_module_out_params {
 	//  tiff: 0x10: first IFD has subsampling=cosited
 	//  tiff: 0x20: uint1 = first IFD's orientation
 	//  tiff: 0x40: uint2 = Exif version
-	//  tiff: 0x80: int64_1 = MPF min expected file size, uint3 = image count
+	//  tiff: 0x80: uint3 = main image count
 	de_uint32 flags;
 	de_uint32 uint1;
 	de_uint32 uint2;
@@ -111,8 +115,6 @@ struct de_timestamp {
 	de_int64 unix_time; // Unix time_t format
 };
 
-struct dbuf_struct;
-typedef struct dbuf_struct dbuf;
 typedef void (*de_writecallback_fn)(dbuf *f, const de_byte *buf, de_int64 buf_len);
 
 // dbuf is our generalized I/O object. Used for many purposes.
