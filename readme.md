@@ -37,7 +37,7 @@ Command-line options:
    Extract only "auxiliary" files, such as thumbnail images.
 -a, -extractall
    Extract more data than usual, including things that are rarely of interest,
-   such as comments.
+   such as comments. See also the "-opt extract..." options.
    Note that, as a general rule, Deark doesn't extract the same data twice.
    In rare cases, the -a option can actually *prevent* it from extracting
    certain data, because it may now, for example, extract a block of Exif
@@ -139,9 +139,13 @@ Command-line options:
        number of seconds since the beginning of 1970).
     -opt extrlist:append
        Affects the -extrlist option.
+    -opt extractexif
     -opt extract8bim
-       Extract Photoshop resources to a file, instead of decoding. For more
-       information, see "8bimtiff" in the technical.md file.
+    -opt extractiptc
+    -opt extractplist
+       Extract the specified type of data to a file, instead of decoding it.
+       For more about the ".8bimtiff" and ".iptctiff" formats, see the
+       technical.md file.
     -opt atari:palbits=&lt;9|12|15>
        For some Atari image formats, the number of significant bits per
        palette color. The default is to autodetect.

@@ -209,6 +209,8 @@ void de_fmtutil_generate_bmpfileheader(deark *c, dbuf *outf, const struct de_bmp
 	dbuf_writeui32le(outf, 14 + bi->size_of_headers_and_pal);
 }
 
+// Extracts Exif if extract_level>=2, or "extractexif" option is set.
+// Otherwise decodes.
 void de_fmtutil_handle_exif2(deark *c, de_int64 pos, de_int64 len,
 	de_uint32 *returned_flags, de_uint32 *orientation, de_uint32 *exifversion)
 {
@@ -218,7 +220,7 @@ void de_fmtutil_handle_exif2(deark *c, de_int64 pos, de_int64 len,
 		*returned_flags = 0;
 	}
 
-	if(c->extract_level>=2) {
+	if(c->extract_level>=2 || de_get_ext_option(c, "extractexif")) {
 		// Writing raw Exif data isn't very useful, but do so if requested.
 		dbuf_create_file_from_slice(c->infile, pos, len, "exif.tif", NULL, DE_CREATEFLAG_IS_AUX);
 
@@ -258,7 +260,7 @@ static void wrap_in_tiff(deark *c, dbuf *f, de_int64 dpos, de_int64 dlen,
 
 // Either extract the IPTC data to a file, or drill down into it.
 // flags:
-//  0 = default behavior (currently: depends on c->extract_level)
+//  0 = default behavior (currently: depends on c->extract_level and options)
 //  2 = this came from our TIFF-encapsulated format
 void de_fmtutil_handle_iptc(deark *c, dbuf *f, de_int64 pos, de_int64 len,
 	unsigned int flags)
@@ -269,7 +271,7 @@ void de_fmtutil_handle_iptc(deark *c, dbuf *f, de_int64 pos, de_int64 len,
 
 	if(len<1) return;
 
-	if(c->extract_level>=2) {
+	if(c->extract_level>=2 || de_get_ext_option(c, "extractiptc")) {
 		should_decode = 0;
 		should_extract = 1;
 		if(flags&0x2) {
@@ -354,6 +356,19 @@ void de_fmtutil_handle_photoshop_rsrc(deark *c, dbuf *f, de_int64 pos, de_int64 
 	unsigned int flags)
 {
 	de_fmtutil_handle_photoshop_rsrc2(c, f, pos, len, flags, NULL);
+}
+
+// flags:
+//  0 = default behavior (currently: decode unless -opt extractplist was used)
+void de_fmtutil_handle_plist(deark *c, dbuf *f, de_int64 pos, de_int64 len,
+	unsigned int flags)
+{
+	if(de_get_ext_option(c, "extractplist")) {
+		dbuf_create_file_from_slice(f, pos, len, "plist", NULL, DE_CREATEFLAG_IS_AUX);
+		return;
+	}
+
+	de_run_module_by_id_on_slice(c, "plist", NULL, f, pos, len);
 }
 
 // Returns 0 on failure (currently impossible).

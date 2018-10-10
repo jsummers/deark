@@ -407,8 +407,8 @@ static int de_identify_iptc(deark *c)
 	if(b<1 || b>15) return 0;
 
 	// This is not meant to imply that .iptc is an official file extension for
-	// IPTC data. It's just that it's used by Deark when extracting IPTC data
-	// to a file.
+	// IPTC data. It's just that it's sometimes used by Deark when extracting
+	// IPTC data to a file.
 	if(!de_input_file_has_ext(c, "iptc")) return 0;
 
 	return 60;
