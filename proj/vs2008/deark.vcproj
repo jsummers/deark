@@ -586,6 +586,10 @@
 				>
 			</File>
 			<File
+				RelativePath="..\..\modules\dsstore.c"
+				>
+			</File>
+			<File
 				RelativePath="..\..\modules\ebml.c"
 				>
 			</File>

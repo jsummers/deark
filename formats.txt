@@ -667,6 +667,9 @@ Deark -- Information about supported formats
 * CRC-32 (module="crc32")
   - Print the IEEE CRC-32 of the file.
 
+* DS_Store (module="dsstore") (experimental)
+  Metadata format associated with MacOS Finder.
+
 * EBML/Matroska/MKV/WebM (module="ebml")
   Options
    -opt ebml:encodedid : Also print element ID numbers in raw (encoded) form.

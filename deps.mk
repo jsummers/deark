@@ -52,6 +52,8 @@ obj/modules/d64.o: modules/d64.c src/deark-config.h src/deark-private.h \
  src/deark.h
 obj/modules/drhalo.o: modules/drhalo.c src/deark-config.h \
  src/deark-private.h src/deark.h
+obj/modules/dsstore.o: modules/dsstore.c src/deark-config.h \
+ src/deark-private.h src/deark.h src/deark-fmtutil.h
 obj/modules/ebml.o: modules/ebml.c src/deark-config.h src/deark-private.h \
  src/deark.h
 obj/modules/emf.o: modules/emf.c src/deark-config.h src/deark-private.h \
