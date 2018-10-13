@@ -182,6 +182,29 @@ static void do_ustr(deark *c, lctx *d, struct record_info *ri)
 	ucstring_destroy(s);
 }
 
+static void do_record_int(deark *c, lctx *d, struct record_info *ri,
+	de_int64 dpos, de_int64 dlen)
+{
+	de_int64 val;
+
+	val = dbuf_getint_ext(c->infile, dpos, (unsigned int)dlen, 0, 0);
+	de_dbg(c, "value: %"INT64_FMT, val);
+}
+
+static void do_record_date(deark *c, lctx *d, struct record_info *ri)
+{
+	de_uint64 val1;
+	de_int64 val2;
+	struct de_timestamp ts;
+	char timestamp_buf[64];
+
+	val1 = dbuf_getui64be(c->infile, ri->dpos);
+	val2 = (de_int64)(val1>>16);
+	de_mac_time_to_timestamp(val2, &ts);
+	de_timestamp_to_string(&ts, timestamp_buf, sizeof(timestamp_buf), 1);
+	de_dbg(c, "date: %"UINT64_FMT" (%s)", val1, timestamp_buf);
+}
+
 // Returns 1 if we calculated the bytes_consumed.
 static int do_record(deark *c, lctx *d, de_int64 pos1, de_int64 *bytes_consumed)
 {
@@ -210,24 +233,28 @@ static int do_record(deark *c, lctx *d, de_int64 pos1, de_int64 *bytes_consumed)
 	ri.dpos = pos;
 
 	switch(ri.dtype.id) {
-		// TODO: Decode more of these types.
 	case CODE_blob:
 		do_blob(c, d, &ri);
 		break;
 	case CODE_bool:
 		ri.dlen = 1;
+		do_record_int(c, d, &ri, ri.dpos, ri.dlen);
 		break;
 	case CODE_comp:
 		ri.dlen = 8;
+		do_record_int(c, d, &ri, ri.dpos, ri.dlen);
 		break;
 	case CODE_dutc:
 		ri.dlen = 8;
+		do_record_date(c, d, &ri);
 		break;
 	case CODE_long:
 		ri.dlen = 4;
+		do_record_int(c, d, &ri, ri.dpos, ri.dlen);
 		break;
 	case CODE_shor:
 		ri.dlen = 4;
+		do_record_int(c, d, &ri, ri.dpos+2, 2);
 		break;
 	case CODE_type:
 		ri.dlen = 4;
