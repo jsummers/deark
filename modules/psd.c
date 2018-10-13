@@ -1665,6 +1665,7 @@ static void hrsrc_slices(deark *c, lctx *d, zztype *zz, const struct rsrc_info *
 static void hrsrc_thumbnail(deark *c, lctx *d, zztype *zz, const struct rsrc_info *ri)
 {
 	de_int64 fmt;
+	const char *ext;
 
 	if(zz_avail(zz)<=28) return;
 
@@ -1677,11 +1678,19 @@ static void hrsrc_thumbnail(deark *c, lctx *d, zztype *zz, const struct rsrc_inf
 
 	zz->pos += 28;
 
-	if(ri->id==0x0409 && c->extract_policy!=DE_EXTRACTPOLICY_MAINONLY) {
-		de_msg(c, "Note: This Photoshop thumbnail uses nonstandard colors, and may not look right.");
+	if(ri->id==0x0409) {
+		ext = "psdthumb_rbswap.jpg";
+		if(c->extract_policy!=DE_EXTRACTPOLICY_MAINONLY) {
+			de_msg(c, "Note: This Photoshop thumbnail uses nonstandard colors, "
+				"and may not look right.");
+		}
 	}
+	else {
+		ext = "psdthumb.jpg";
+	}
+
 	dbuf_create_file_from_slice(c->infile, zz->pos, zz_avail(zz),
-		"psdthumb.jpg", NULL, DE_CREATEFLAG_IS_AUX);
+		ext, NULL, DE_CREATEFLAG_IS_AUX);
 }
 
 // Handler for any resource that consists of a 1-byte numeric value
