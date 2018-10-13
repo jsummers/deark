@@ -3691,32 +3691,49 @@ static void de_run_psd(deark *c, de_module_params *mparams)
 	de_int64 x;
 	zztype *zz = NULL;
 	zztype czz;
+	int whattodo = 0;
 
 	d = de_malloc(c, sizeof(lctx));
 	zz = de_malloc(c, sizeof(zztype));
 	zz_init_absolute(zz, 0, c->infile->len);
 
-	if(mparams && mparams->in_params.codes) {
-		if(de_strchr(mparams->in_params.codes, 'R')) { // Image resources
-			d->version = 1;
-			init_version_specific_info(c, d);
-			do_image_resource_blocks(c, d, zz);
+	if(de_havemodcode(c, mparams, 'R')) {
+		whattodo = 'R';
+	}
+	else if(de_havemodcode(c, mparams, 'T')) {
+		whattodo = 'T';
+	}
+	else if(de_havemodcode(c, mparams, 'B')) {
+		whattodo = 'B';
+	}
+	else if(!dbuf_memcmp(c->infile, 0, "8BIM", 4)) {
+		// Assume this is a raw resources file (maybe extracted from an
+		// .8bimtiff file)
+		whattodo = 'R';
+	}
+
+	if(whattodo=='R') { // Image resources
+		de_declare_fmt(c, "Photoshop resources");
+		d->version = 1;
+		init_version_specific_info(c, d);
+		do_image_resource_blocks(c, d, zz);
+		if(mparams) {
 			mparams->out_params.flags = 0;
 			if(d->has_iptc) mparams->out_params.flags |= 0x02;
-			goto done;
 		}
-		if(de_strchr(mparams->in_params.codes, 'T')) { // Tagged blocks
-			d->version = 1;
-			init_version_specific_info(c, d);
-			do_external_tagged_blocks(c, d, zz);
-			goto done;
-		}
-		if(de_strchr(mparams->in_params.codes, 'B')) { // Tagged blocks, PSB-format
-			d->version = 2;
-			init_version_specific_info(c, d);
-			do_external_tagged_blocks(c, d, zz);
-			goto done;
-		}
+		goto done;
+	}
+	else if(whattodo=='T') { // Tagged blocks
+		d->version = 1;
+		init_version_specific_info(c, d);
+		do_external_tagged_blocks(c, d, zz);
+		goto done;
+	}
+	else if(whattodo=='B') { // Tagged blocks, PSB-format
+		d->version = 2;
+		init_version_specific_info(c, d);
+		do_external_tagged_blocks(c, d, zz);
+		goto done;
 	}
 
 	d->main_iinfo = de_malloc(c, sizeof(struct image_info));
@@ -4119,7 +4136,16 @@ static void de_run_ps_pattern(deark *c, de_module_params *mparams)
 
 static int de_identify_psd(deark *c)
 {
-	if(!dbuf_memcmp(c->infile, 0, "8BPS", 4)) return 100;
+	de_byte buf[4];
+
+	de_read(buf, 0, 4);
+	if(!de_memcmp(buf, "8BPS", 4)) return 100;
+	if(!de_memcmp(buf, "8BIM", 4)) {
+		// We sometimes write .8bim files, so we want to identify them.
+		// This is not necessarily a standard file format.
+		if(de_input_file_has_ext(c, "8bim")) return 100;
+		return 75;
+	}
 	return 0;
 }
 
