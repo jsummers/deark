@@ -157,10 +157,22 @@ static void do_blob(deark *c, lctx *d, struct record_info *ri)
 	blobpos = ri->dpos+4;
 
 	if(len>=8 && !dbuf_memcmp(c->infile, blobpos, "bplist00", 8)) {
+		de_finfo *fi = NULL;
+		de_ucstring *fn = NULL;
+
 		de_dbg(c, "binary plist at %d", (int)blobpos);
 		de_dbg_indent(c, 1);
-		// TODO: Use a better filename
-		de_fmtutil_handle_plist(c, c->infile, blobpos, len, 0);
+		fn = ucstring_create(c);
+		if(c->filenames_from_file) {
+			ucstring_append_ucstring(fn, ri->filename);
+			ucstring_append_sz(fn, ".", DE_ENCODING_LATIN1);
+		}
+		ucstring_printf(fn, DE_ENCODING_ASCII, "%s.plist", ri->rtype.id_sanitized_sz);
+		fi = de_finfo_create(c);
+		de_finfo_set_name_from_ucstring(c, fi, fn);
+		de_fmtutil_handle_plist(c, c->infile, blobpos, len, fi, 0);
+		ucstring_destroy(fn);
+		de_finfo_destroy(c, fi);
 		de_dbg_indent(c, -1);
 	}
 	else {
@@ -408,10 +420,16 @@ static int de_identify_dsstore(deark *c)
 	return 0;
 }
 
+static void de_help_dsstore(deark *c)
+{
+	de_msg(c, "-opt extractplist : Write plist records to files");
+}
+
 void de_module_dsstore(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "dsstore";
 	mi->desc = "Mac Finder .DS_Store format";
 	mi->run_fn = de_run_dsstore;
 	mi->identify_fn = de_identify_dsstore;
+	mi->help_fn = de_help_dsstore;
 }

@@ -1030,7 +1030,7 @@ static void handler_bplist(deark *c, lctx *d, const struct taginfo *tg, const st
 	{
 		de_dbg(c, "binary .plist at %"INT64_FMT", len=%"INT64_FMT, tg->val_offset, tg->total_size);
 		de_dbg_indent(c, 1);
-		de_fmtutil_handle_plist(c, c->infile, tg->val_offset, tg->total_size, 0x0);
+		de_fmtutil_handle_plist(c, c->infile, tg->val_offset, tg->total_size, NULL, 0x0);
 		de_dbg_indent(c, -1);
 	}
 	else {

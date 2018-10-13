@@ -361,10 +361,11 @@ void de_fmtutil_handle_photoshop_rsrc(deark *c, dbuf *f, de_int64 pos, de_int64 
 // flags:
 //  0 = default behavior (currently: decode unless -opt extractplist was used)
 void de_fmtutil_handle_plist(deark *c, dbuf *f, de_int64 pos, de_int64 len,
-	unsigned int flags)
+	de_finfo *fi, unsigned int flags)
 {
 	if(de_get_ext_option_bool(c, "extractplist", 0)) {
-		dbuf_create_file_from_slice(f, pos, len, "plist", NULL, DE_CREATEFLAG_IS_AUX);
+		dbuf_create_file_from_slice(f, pos, len,
+			fi?NULL:"plist", fi, DE_CREATEFLAG_IS_AUX);
 		return;
 	}
 

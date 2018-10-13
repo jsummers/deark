@@ -58,7 +58,7 @@ void de_fmtutil_handle_photoshop_rsrc(deark *c, dbuf *f, de_int64 pos, de_int64 
 	unsigned int flags);
 
 void de_fmtutil_handle_plist(deark *c, dbuf *f, de_int64 pos, de_int64 len,
-	unsigned int flags);
+	de_finfo *fi, unsigned int flags);
 
 int de_fmtutil_uncompress_packbits(dbuf *f, de_int64 pos1, de_int64 len,
 	dbuf *unc_pixels, de_int64 *cmpr_bytes_consumed);
