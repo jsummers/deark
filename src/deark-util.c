@@ -675,6 +675,29 @@ const char *de_get_ext_option(deark *c, const char *name)
 	return NULL; // Option name not found.
 }
 
+// Returns
+//  0 if false, ("0", "n...", "f...", etc.)
+//  1 if true (empty value, "1", "y...", "t...", etc.)
+//  defaultval (which can be any integer) if not set, or value is malformed.
+int de_get_ext_option_bool(deark *c, const char *name, int defaultval)
+{
+	const char *val;
+
+	val = de_get_ext_option(c, name);
+	if(!val) return defaultval;
+	if(val[0]=='\0' || val[0]=='1' || val[0]=='y' || val[0]=='Y' ||
+		val[0]=='t' || val[0]=='T')
+	{
+		return 1;
+	}
+	if(val[0]=='0' || val[0]=='n' || val[0]=='N' || val[0]=='f' ||
+		val[0]=='F')
+	{
+		return 0;
+	}
+	return defaultval;
+}
+
 int de_atoi(const char *string)
 {
 	return atoi(string);

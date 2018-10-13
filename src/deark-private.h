@@ -397,6 +397,9 @@ char *de_get_colorsample_code(deark *c, de_uint32 clr, char *csamp,
 
 int de_identify_none(deark *c);
 
+const char *de_get_ext_option(deark *c, const char *name);
+int de_get_ext_option_bool(deark *c, const char *name, int defaultval);
+
 ///////////////////////////////////////////
 
 const char *de_get_sz_ext(const char *sz);

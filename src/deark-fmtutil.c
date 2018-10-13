@@ -220,7 +220,7 @@ void de_fmtutil_handle_exif2(deark *c, de_int64 pos, de_int64 len,
 		*returned_flags = 0;
 	}
 
-	if(c->extract_level>=2 || de_get_ext_option(c, "extractexif")) {
+	if(c->extract_level>=2 || de_get_ext_option_bool(c, "extractexif", 0)) {
 		// Writing raw Exif data isn't very useful, but do so if requested.
 		dbuf_create_file_from_slice(c->infile, pos, len, "exif.tif", NULL, DE_CREATEFLAG_IS_AUX);
 
@@ -271,7 +271,7 @@ void de_fmtutil_handle_iptc(deark *c, dbuf *f, de_int64 pos, de_int64 len,
 
 	if(len<1) return;
 
-	if(c->extract_level>=2 || de_get_ext_option(c, "extractiptc")) {
+	if(c->extract_level>=2 || de_get_ext_option_bool(c, "extractiptc", 0)) {
 		should_decode = 0;
 		should_extract = 1;
 		if(flags&0x2) {
@@ -318,7 +318,7 @@ void de_fmtutil_handle_photoshop_rsrc2(deark *c, dbuf *f, de_int64 pos, de_int64
 		should_decode = 0;
 		should_extract = 1;
 	}
-	else if(de_get_ext_option(c, "extract8bim")) {
+	else if(de_get_ext_option_bool(c, "extract8bim", 0)) {
 		should_extract = 1;
 		should_decode = 0;
 		if(flags&0x2) {
@@ -363,7 +363,7 @@ void de_fmtutil_handle_photoshop_rsrc(deark *c, dbuf *f, de_int64 pos, de_int64 
 void de_fmtutil_handle_plist(deark *c, dbuf *f, de_int64 pos, de_int64 len,
 	unsigned int flags)
 {
-	if(de_get_ext_option(c, "extractplist")) {
+	if(de_get_ext_option_bool(c, "extractplist", 0)) {
 		dbuf_create_file_from_slice(f, pos, len, "plist", NULL, DE_CREATEFLAG_IS_AUX);
 		return;
 	}
