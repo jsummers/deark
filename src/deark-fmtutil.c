@@ -214,13 +214,15 @@ void de_fmtutil_generate_bmpfileheader(deark *c, dbuf *outf, const struct de_bmp
 void de_fmtutil_handle_exif2(deark *c, de_int64 pos, de_int64 len,
 	de_uint32 *returned_flags, de_uint32 *orientation, de_uint32 *exifversion)
 {
+	int user_opt;
 	de_module_params *mparams = NULL;
 
 	if(returned_flags) {
 		*returned_flags = 0;
 	}
 
-	if(c->extract_level>=2 || de_get_ext_option_bool(c, "extractexif", 0)) {
+	user_opt = de_get_ext_option_bool(c, "extractexif", -1);
+	if(user_opt==1 || (c->extract_level>=2 && user_opt!=0)) {
 		// Writing raw Exif data isn't very useful, but do so if requested.
 		dbuf_create_file_from_slice(c->infile, pos, len, "exif.tif", NULL, DE_CREATEFLAG_IS_AUX);
 
@@ -267,11 +269,14 @@ void de_fmtutil_handle_iptc(deark *c, dbuf *f, de_int64 pos, de_int64 len,
 {
 	int should_decode;
 	int should_extract;
+	int user_opt;
 	int extract_fmt = 1; // 0=raw, 1=TIFF-wrapped
 
 	if(len<1) return;
 
-	if(c->extract_level>=2 || de_get_ext_option_bool(c, "extractiptc", 0)) {
+	user_opt = de_get_ext_option_bool(c, "extractiptc", -1);
+
+	if(user_opt==1 || (c->extract_level>=2 && user_opt!=0)) {
 		should_decode = 0;
 		should_extract = 1;
 		if(flags&0x2) {

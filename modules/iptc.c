@@ -167,10 +167,11 @@ static void handle_2_120(deark *c, lctx *d, const struct ds_info *dsi,
 		goto done;
 	}
 
-	// FIXME: There is currently no way to extract IPTC captions to files,
-	// except when reading a raw IPTC file. If IPTC is embedded in some other
-	// file (as it usually is), then the -a option will extract the entire
-	// IPTC data, and we will never get here.
+	// Note that this code for extracting captions while decoding IPTC is not
+	// easily reached, because it requires the -a option, and -a usually causes
+	// IPTC to be extracted instead of decoded.
+	// It can be reached when reading a raw IPTC file, or when using
+	// "-a -opt extractiptc=0".
 
 	fntoken = "caption.txt";
 

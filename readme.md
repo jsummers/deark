@@ -139,9 +139,9 @@ Command-line options:
        number of seconds since the beginning of 1970).
     -opt extrlist:append
        Affects the -extrlist option.
-    -opt extractexif
+    -opt extractexif[=0]
     -opt extract8bim
-    -opt extractiptc
+    -opt extractiptc[=0]
     -opt extractplist
        Extract the specified type of data to a file, instead of decoding it.
        For more about the ".8bimtiff" and ".iptctiff" formats, see the
