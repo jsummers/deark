@@ -374,11 +374,8 @@ void de_font_bitmap_font_to_image(deark *c, struct de_bitmap_font *font1, de_fin
 		goto done;
 	}
 
-	unicode_req = -1; // = "no preference"
-	s = de_get_ext_option(c, "font:tounicode");
-	if(s) {
-		unicode_req = de_atoi(s);
-	}
+	// -1 = "no preference"
+	unicode_req = de_get_ext_option_bool(c, "font:tounicode", -1);
 
 	if(unicode_req==0 &&
 		(fctx->font->has_nonunicode_codepoints || !fctx->font->has_unicode_codepoints))

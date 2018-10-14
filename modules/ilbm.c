@@ -1017,17 +1017,15 @@ static void de_run_ilbm(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
 	struct de_iffctx *ictx = NULL;
-	const char *s;
 
 	d = de_malloc(c, sizeof(lctx));
 	ictx = de_malloc(c, sizeof(struct de_iffctx));
 
-	s = de_get_ext_option(c, "ilbm:notrans");
-	if(s) d->opt_notrans = 1;
+	if(de_get_ext_option(c, "ilbm:notrans")) {
+		d->opt_notrans = 1;
+	}
 
-	d->opt_fixpal = 1;
-	s = de_get_ext_option(c, "ilbm:fixpal");
-	if(s) d->opt_fixpal = de_atoi(s);
+	d->opt_fixpal = de_get_ext_option_bool(c, "ilbm:fixpal", 1);
 
 	ictx->userdata = (void*)d;
 	ictx->preprocess_chunk_fn = my_preprocess_ilbm_chunk_fn;

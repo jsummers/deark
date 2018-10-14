@@ -207,14 +207,9 @@ static void de_run_macpaint(deark *c, de_module_params *mparams)
 {
 	lctx *d;
 	de_int64 pos;
-	const char *s;
 
 	d = de_malloc(c, sizeof(lctx));
-
-	d->has_macbinary_header = -1;
-
-	s = de_get_ext_option(c, "macpaint:macbinary");
-	if(s) d->has_macbinary_header = de_atoi(s);
+	d->has_macbinary_header = de_get_ext_option_bool(c, "macpaint:macbinary", -1);
 
 	if(d->has_macbinary_header == -1) {
 		int v512;
