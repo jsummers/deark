@@ -46,6 +46,7 @@ typedef struct streamctx_struct {
 	de_byte has_psd, has_iptc, has_xmp, has_xmp_ext, has_iccprofile, has_flashpix;
 	de_byte is_baseline, is_progressive, is_lossless, is_arithmetic, is_hierarchical;
 	de_byte is_jpeghdr, is_jpegxt, is_mpo, is_jps;
+	de_byte has_restart_markers;
 	de_byte precision;
 	de_byte has_adobeapp14;
 	de_byte color_transform; // valid if(has_adobeapp14)
@@ -1276,6 +1277,7 @@ static void handler_sof(deark *c, lctx *d,
 done:
 	;
 }
+
 static void handler_dri(deark *c, lctx *d,
 	const struct marker_info *mi, de_int64 pos, de_int64 data_size)
 {
@@ -1283,6 +1285,7 @@ static void handler_dri(deark *c, lctx *d,
 	if(data_size!=2) return;
 	ri = de_getui16be(pos);
 	de_dbg(c, "restart interval: %d", (int)ri);
+	if(ri!=0) d->has_restart_markers = 1;
 }
 
 static void dump_htable_data(deark *c, lctx *d, const de_byte *codecounts)
@@ -1730,6 +1733,7 @@ static void print_summary(deark *c, lctx *d)
 	}
 	ucstring_printf(summary, DE_ENCODING_LATIN1, " bits=%d", (int)d->precision);
 
+	if(d->has_restart_markers) ucstring_append_sz(summary, " rst", DE_ENCODING_LATIN1);
 	if(d->has_jfif_seg) {
 		ucstring_printf(summary, DE_ENCODING_LATIN1, " JFIF=%u.%02u",
 			(unsigned int)d->jfif_ver_h, (unsigned int)d->jfif_ver_l);
