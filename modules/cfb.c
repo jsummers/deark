@@ -1701,10 +1701,10 @@ static void de_run_cfb(deark *c, de_module_params *mparams)
 		d->dump_dir_structure = 1; // A low-level debugging feature
 	}
 
-	if(mparams && mparams->in_params.codes) {
-		if(de_strchr(mparams->in_params.codes, 'T')) { // TIFF tag 37680 mode
-			d->subformat_req = SUBFMT_TIFF37680;
-		}
+	if(de_havemodcode(c, mparams, 'T')) {
+		// TIFF tag 37680 mode
+		// TODO: Handle 'OLE Property Set Storage' more generally.
+		d->subformat_req = SUBFMT_TIFF37680;
 	}
 
 	if(d->subformat_req == SUBFMT_AUTO) {

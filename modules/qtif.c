@@ -199,7 +199,7 @@ static void de_run_qtif(deark *c, de_module_params *mparams)
 
 	d = de_malloc(c, sizeof(lctx));
 
-	if(mparams && mparams->in_params.codes && de_strchr(mparams->in_params.codes, 'I')) {
+	if(de_havemodcode(c, mparams, 'I')) {
 		// Raw data from a PICT file
 		do_raw_idsc_data(c, d);
 	}

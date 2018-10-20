@@ -892,7 +892,7 @@ static void de_run_dib(deark *c, de_module_params *mparams)
 		goto done;
 	}
 
-	if(mparams && mparams->in_params.codes && de_strchr(mparams->in_params.codes, 'X')) {
+	if(de_havemodcode(c, mparams, 'X')) {
 		createflags |= DE_CREATEFLAG_IS_AUX;
 	}
 

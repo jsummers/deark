@@ -1566,16 +1566,14 @@ static void de_run_mpegaudio(deark *c, de_module_params *mparams)
 	pos = 0;
 	endpos = c->infile->len;
 
-	if(mparams && mparams->in_params.codes) {
-		if(de_strchr(mparams->in_params.codes, 'I')) { // raw ID3v2
-			de_int64 bytes_consumed_id3v2 = 0;
-			do_id3v2(c, c->infile, 0, c->infile->len, &bytes_consumed_id3v2);
-			goto done;
-		}
-		if(de_strchr(mparams->in_params.codes, 'P')) { // Windows WM/Picture
-			do_wmpicture(c, c->infile, 0, c->infile->len);
-			goto done;
-		}
+	if(de_havemodcode(c, mparams, 'I')) { // raw ID3v2
+		de_int64 bytes_consumed_id3v2 = 0;
+		do_id3v2(c, c->infile, 0, c->infile->len, &bytes_consumed_id3v2);
+		goto done;
+	}
+	if(de_havemodcode(c, mparams, 'P')) { // Windows WM/Picture
+		do_wmpicture(c, c->infile, 0, c->infile->len);
+		goto done;
 	}
 
 	if(!dbuf_memcmp(c->infile, 0, "ID3", 3)) {

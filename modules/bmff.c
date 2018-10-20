@@ -1638,16 +1638,14 @@ static void de_run_bmff(deark *c, de_module_params *mparams)
 	d = de_malloc(c, sizeof(lctx));
 	bctx = de_malloc(c, sizeof(struct de_boxesctx));
 
-	if(mparams && mparams->in_params.codes) {
-		if(de_strchr(mparams->in_params.codes, 'T')) {
-			d->is_jpegxt = 1;
-			skip_autodetect = 1;
-		}
-		if(de_strchr(mparams->in_params.codes, 'X')) {
-			d->is_jpx = 1;
-			d->is_jp2_jpx_jpm = 1;
-			skip_autodetect = 1;
-		}
+	if(de_havemodcode(c, mparams, 'T')) {
+		d->is_jpegxt = 1;
+		skip_autodetect = 1;
+	}
+	if(de_havemodcode(c, mparams, 'X')) {
+		d->is_jpx = 1;
+		d->is_jp2_jpx_jpm = 1;
+		skip_autodetect = 1;
 	}
 
 	if(!skip_autodetect) {
