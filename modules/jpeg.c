@@ -1932,12 +1932,24 @@ done:
 	return retval;
 }
 
+static int is_all_zeroes(dbuf *f, de_int64 pos1, de_int64 len)
+{
+	de_int64 k;
+
+	for(k=0; k<len; k++) {
+		if(dbuf_getbyte(f, pos1+k)!=0) return 0;
+	}
+	return 1;
+}
+
 static void do_jpeg_internal(deark *c, struct file_ctx *fctx)
 {
 	de_int64 pos;
 	de_int64 bytes_consumed;
 	int ret;
 	de_int64 foundpos;
+	de_int64 extra_bytes_at_eof;
+	de_int64 nbytes_to_scan;
 
 	pos = 0;
 	bytes_consumed = 0;
@@ -1953,10 +1965,24 @@ static void do_jpeg_internal(deark *c, struct file_ctx *fctx)
 		goto done;
 	}
 
-	if(dbuf_search(c->infile, (const de_byte*)"\xff\xd8\xff", 3, pos, 512, &foundpos)) {
+	if(c->module_nesting_level>1) goto done;
+	extra_bytes_at_eof = c->infile->len - pos;
+	if(extra_bytes_at_eof<4) goto done;
+
+	nbytes_to_scan = extra_bytes_at_eof;
+	if(nbytes_to_scan>512) nbytes_to_scan=512;
+	if(dbuf_search(c->infile, (const de_byte*)"\xff\xd8\xff", 3, pos,
+		nbytes_to_scan, &foundpos))
+	{
 		de_msg(c, "Note: This file might contain multiple JPEG images. "
 			"Use \"-m jpegscan\" to extract them.");
+		goto done;
 	}
+
+	if(is_all_zeroes(c->infile, pos, extra_bytes_at_eof)) goto done;
+
+	de_msg(c, "Note: %"INT64_FMT" bytes of unidentified data found at end "
+		"of file (starting at %"INT64_FMT").", extra_bytes_at_eof, pos);
 
 done:
 	;
