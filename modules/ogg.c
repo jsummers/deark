@@ -47,6 +47,11 @@ typedef struct localctx_struct {
 	de_int64 total_page_count;
 	de_int64 bitstream_count;
 	struct de_inthashtable *streamtable;
+
+	de_byte format_declared;
+	de_byte found_skeleton, found_ogm;
+	de_byte found_vorbis, found_theora, found_speex;
+
 } lctx;
 
 static unsigned int getui24be_p(dbuf *f, de_int64 *ppos)
@@ -55,6 +60,27 @@ static unsigned int getui24be_p(dbuf *f, de_int64 *ppos)
 	u = (unsigned int)dbuf_getint_ext(f, *ppos, 3, 0, 0);
 	*ppos += 3;
 	return u;
+}
+
+// To be called when we encounter a page that is not the first page of
+// its bitstream (or at EOF).
+static void declare_ogg_format(deark *c, lctx *d)
+{
+	char tmps[80];
+	char *name = NULL;
+
+	if(d->format_declared) return;
+	d->format_declared = 1;
+
+	if(d->found_skeleton) name="Skeleton";
+	else if(d->found_ogm) name="OGM";
+	else if(d->found_theora && d->found_vorbis) name="Theora+Vorbis";
+	else if(d->found_theora) name="Theora";
+	else if(d->found_speex) name="Speex";
+	else if(d->found_vorbis) name="Vorbis";
+
+	de_snprintf(tmps, sizeof(tmps), "Ogg %s", name?name:"(other)");
+	de_declare_fmt(c, tmps);
 }
 
 static char *get_hdrtype_descr(deark *c, char *buf, size_t buflen, de_byte hdr_type)
@@ -286,13 +312,6 @@ done:
 static void do_init_new_bitstream(deark *c, lctx *d, struct stream_info *si)
 {
 	de_dbg(c, "bitstream type: %s", si->stream_type_name?si->stream_type_name:"unknown");
-	if(d->total_page_count==0) {
-		char tmps[80];
-		// This is the first bitstream in the file. We'll consider it to be the
-		// main "file format", though this is not always the best logic.
-		de_snprintf(tmps, sizeof(tmps), "Ogg %s", si->stream_type_name?si->stream_type_name:"(other)");
-		de_declare_fmt(c, tmps);
-	}
 }
 
 static void do_bitstream_firstpage(deark *c, lctx *d, struct stream_info *si, de_int64 pos, de_int64 len)
@@ -313,21 +332,34 @@ static void do_bitstream_firstpage(deark *c, lctx *d, struct stream_info *si, de
 	if(!de_memcmp(idbuf, "\x01" "vorbis", 7)) {
 		si->stream_type = STREAMTYPE_VORBIS;
 		si->stream_type_name = "Vorbis";
+		d->found_vorbis = 1;
 		do_init_new_bitstream(c, d, si);
 		do_vorbis_id_header(c, d, si, pos, len);
 	}
 	else if(!de_memcmp(idbuf, "\x80" "theora", 7)) {
 		si->stream_type = STREAMTYPE_THEORA;
 		si->stream_type_name = "Theora";
+		d->found_theora = 1;
 		do_init_new_bitstream(c, d, si);
 		do_theora_id_header(c, d, si, pos, len);
 	}
 	else if(!de_memcmp(idbuf, "fishead\0", 8)) {
 		si->stream_type_name = "Skeleton";
+		d->found_skeleton = 1;
 		do_init_new_bitstream(c, d, si);
 	}
 	else if(!de_memcmp(idbuf, "Speex   ", 8)) {
 		si->stream_type_name = "Speex";
+		d->found_speex = 1;
+		do_init_new_bitstream(c, d, si);
+	}
+	else if(!de_memcmp(idbuf, "\x01" "video", 6) ||
+		!de_memcmp(idbuf, "\x01" "audio", 6) ||
+		!de_memcmp(idbuf, "\x01" "text", 5) ||
+		!de_memcmp(idbuf, "\x01" "Direct Show Sam", 16))
+	{
+		si->stream_type_name = "OGM-related";
+		d->found_ogm = 1;
 		do_init_new_bitstream(c, d, si);
 	}
 	else {
@@ -352,6 +384,9 @@ static void do_bitstream_page(deark *c, lctx *d, struct page_info *pgi,
 
 	if(is_first_page) {
 		do_bitstream_firstpage(c, d, si, pgi->dpos, pgi->dlen);
+	}
+	else {
+		if(!d->format_declared) declare_ogg_format(c, d);
 	}
 
 	if(si->stream_type==STREAMTYPE_VORBIS) {
@@ -502,6 +537,8 @@ static void de_run_ogg(deark *c, de_module_params *mparams)
 		pos += bytes_consumed;
 		d->total_page_count++;
 	}
+
+	if(!d->format_declared) declare_ogg_format(c, d);
 
 	de_dbg(c, "number of bitstreams: %d", (int)d->bitstream_count);
 
