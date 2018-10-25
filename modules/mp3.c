@@ -1570,6 +1570,13 @@ static void de_run_mpegaudio(deark *c, de_module_params *mparams)
 	if(de_havemodcode(c, mparams, 'I')) { // raw ID3v2
 		de_int64 bytes_consumed_id3v2 = 0;
 		do_id3v2(c, c->infile, 0, c->infile->len, &bytes_consumed_id3v2);
+		if(mparams) {
+			mparams->out_params.int64_1 = bytes_consumed_id3v2;
+		}
+		goto done;
+	}
+	if(de_havemodcode(c, mparams, '1')) { // raw ID3v1
+		do_mp3_id3v1(c, 0);
 		goto done;
 	}
 	if(de_havemodcode(c, mparams, 'P')) { // Windows WM/Picture

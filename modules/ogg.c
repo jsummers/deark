@@ -511,16 +511,46 @@ static void destroy_streamtable(deark *c, lctx *d)
 static void de_run_ogg(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
+	int has_id3v1 = 0;
+	int has_id3v2 = 0;
+	de_int64 id3v1pos = 0;
 	de_int64 pos;
+	de_int64 ogg_end = c->infile->len;
 
 	d = de_malloc(c, sizeof(lctx));
 	d->always_hexdump = de_get_ext_option(c, "ogg:hexdump")?1:0;
 	d->streamtable = de_inthashtable_create(c);
 
 	pos = 0;
-	if(!dbuf_memcmp(c->infile, 0, "ID3", 3)) {
-		de_err(c, "Ogg with ID3v2 not supported");
-		goto done;
+	has_id3v2 = !dbuf_memcmp(c->infile, pos, "ID3", 3);
+	if(has_id3v2) {
+		de_module_params id3v2mparams;
+
+		de_dbg(c, "ID3v2 data at %d", (int)pos);
+		de_dbg_indent(c, 1);
+		de_memset(&id3v2mparams, 0, sizeof(de_module_params));
+		id3v2mparams.in_params.codes = "I";
+		de_run_module_by_id_on_slice(c, "mp3", &id3v2mparams, c->infile, 0, c->infile->len);
+		de_dbg_indent(c, -1);
+		pos += id3v2mparams.out_params.int64_1;
+	}
+
+	if(has_id3v2) {
+		id3v1pos = c->infile->len-128;
+		if(!dbuf_memcmp(c->infile, id3v1pos, "TAG", 3)) {
+			has_id3v1 = 1;
+		}
+	}
+	if(has_id3v1) {
+		de_module_params id3v1mparams;
+
+		de_dbg(c, "ID3v1 data at %"INT64_FMT, id3v1pos);
+		de_dbg_indent(c, 1);
+		de_memset(&id3v1mparams, 0, sizeof(de_module_params));
+		id3v1mparams.in_params.codes = "1";
+		de_run_module_by_id_on_slice(c, "mp3", &id3v1mparams, c->infile, id3v1pos, 128);
+		de_dbg_indent(c, -1);
+		ogg_end = id3v1pos;
 	}
 
 	while(1) {
@@ -528,7 +558,7 @@ static void de_run_ogg(deark *c, de_module_params *mparams)
 		int ret;
 		de_int64 bytes_consumed = 0;
 
-		if(pos >= c->infile->len) break;
+		if(pos >= ogg_end) break;
 		sig = (de_uint32)de_getui32be(pos);
 		if(sig!=0x04f676753U) {
 			de_err(c, "Ogg page signature not found at %"INT64_FMT, pos);
@@ -547,7 +577,6 @@ static void de_run_ogg(deark *c, de_module_params *mparams)
 
 	de_dbg(c, "number of bitstreams: %d", (int)d->bitstream_count);
 
-done:
 	if(d && d->streamtable) {
 		destroy_streamtable(c, d);
 	}
