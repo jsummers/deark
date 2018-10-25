@@ -161,15 +161,43 @@ static void do_theora_id_header(deark *c, lctx *d, struct stream_info *si, de_in
 	de_dbg(c, "nominal bitrate: %u bits/sec", u1);
 }
 
-static void do_theora_vorbis_after_headers(deark *c, lctx *d, struct stream_info *si)
+static void do_vorbis_comment_block(deark *c, lctx *d, dbuf *f, de_int64 pos1)
 {
+	de_int64 pos = pos1;
 	de_int64 n;
-	de_int64 pos = 0;
 	de_int64 ncomments;
 	de_int64 k;
+	de_ucstring *s = NULL;
+
+	n = dbuf_getui32le_p(f, &pos);
+	if(pos+n > f->len) goto done;
+	s = ucstring_create(c);
+	dbuf_read_to_ucstring_n(f, pos, n, DE_DBG_MAX_STRLEN, s, 0, DE_ENCODING_UTF8);
+	de_dbg(c, "vendor: \"%s\"", ucstring_getpsz_d(s));
+	pos += n;
+
+	ncomments = dbuf_getui32le_p(f, &pos);
+	de_dbg(c, "number of comments: %d", (int)ncomments);
+
+	for(k=0; k<ncomments; k++) {
+		if(pos+4 > f->len) goto done;
+		n = dbuf_getui32le_p(f, &pos);
+		if(pos+n > f->len) goto done;
+		ucstring_empty(s);
+		dbuf_read_to_ucstring_n(f, pos, n, DE_DBG_MAX_STRLEN, s, 0, DE_ENCODING_UTF8);
+		de_dbg(c, "comment[%d]: \"%s\"", (int)k, ucstring_getpsz_d(s));
+		pos += n;
+	}
+
+done:
+	ucstring_destroy(s);
+}
+
+static void do_theora_vorbis_after_headers(deark *c, lctx *d, struct stream_info *si)
+{
+	de_int64 pos = 0;
 	int saved_indent_level;
 	dbuf *f = NULL;
-	de_ucstring *s = NULL;
 
 	de_dbg_indent_save(c, &saved_indent_level);
 	if(si->stream_state!=0) goto done;
@@ -195,31 +223,12 @@ static void do_theora_vorbis_after_headers(deark *c, lctx *d, struct stream_info
 		pos += 7;
 	}
 
-	n = dbuf_getui32le_p(f, &pos);
-	if(pos+n > f->len) goto done;
-	s = ucstring_create(c);
-	dbuf_read_to_ucstring_n(f, pos, n, DE_DBG_MAX_STRLEN, s, 0, DE_ENCODING_UTF8);
-	de_dbg(c, "vendor: \"%s\"", ucstring_getpsz_d(s));
-	pos += n;
-
-	ncomments = dbuf_getui32le_p(f, &pos);
-	de_dbg(c, "number of comments: %d", (int)ncomments);
-
-	for(k=0; k<ncomments; k++) {
-		if(pos+4 > f->len) goto done;
-		n = dbuf_getui32le_p(f, &pos);
-		if(pos+n > f->len) goto done;
-		ucstring_empty(s);
-		dbuf_read_to_ucstring_n(f, pos, n, DE_DBG_MAX_STRLEN, s, 0, DE_ENCODING_UTF8);
-		de_dbg(c, "comment[%d]: \"%s\"", (int)k, ucstring_getpsz_d(s));
-		pos += n;
-	}
+	do_vorbis_comment_block(c, d, f, pos);
 
 	// TODO: "Setup" header
 
 done:
 	si->stream_state = 1;
-	ucstring_destroy(s);
 	dbuf_close(si->header_stream);
 	si->header_stream = NULL;
 	de_dbg_indent_restore(c, saved_indent_level);
@@ -508,9 +517,8 @@ static void destroy_streamtable(deark *c, lctx *d)
 	d->streamtable = NULL;
 }
 
-static void de_run_ogg(deark *c, de_module_params *mparams)
+static void run_ogg_internal(deark *c, lctx *d)
 {
-	lctx *d = NULL;
 	int has_id3v1 = 0;
 	int has_id3v2 = 0;
 	de_int64 id3v1pos = 0;
@@ -576,7 +584,20 @@ static void de_run_ogg(deark *c, de_module_params *mparams)
 	if(!d->format_declared) declare_ogg_format(c, d);
 
 	de_dbg(c, "number of bitstreams: %d", (int)d->bitstream_count);
+}
 
+static void de_run_ogg(deark *c, de_module_params *mparams)
+{
+	lctx *d = NULL;
+
+	if(de_havemodcode(c, mparams, 'C')) {
+		do_vorbis_comment_block(c, d, c->infile, 0);
+		goto done;
+	}
+
+	run_ogg_internal(c, d);
+
+done:
 	if(d && d->streamtable) {
 		destroy_streamtable(c, d);
 	}

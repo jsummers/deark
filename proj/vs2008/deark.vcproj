@@ -610,6 +610,10 @@
 				>
 			</File>
 			<File
+				RelativePath="..\..\modules\flac.c"
+				>
+			</File>
+			<File
 				RelativePath="..\..\modules\flif.c"
 				>
 			</File>
