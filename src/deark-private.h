@@ -210,9 +210,15 @@ struct de_SAUCE_detection_data {
 	de_byte file_type;
 };
 
+struct de_ID3_detection_data {
+	de_byte has_id3v2;
+	de_uint32 bytes_at_start;
+};
+
 struct de_detection_data_struct {
-	struct de_SAUCE_detection_data sauce;
 	int has_utf8_bom;
+	struct de_SAUCE_detection_data sauce;
+	struct de_ID3_detection_data id3;
 };
 
 struct deark_ext_option {

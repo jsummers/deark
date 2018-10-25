@@ -518,6 +518,11 @@ static void de_run_ogg(deark *c, de_module_params *mparams)
 	d->streamtable = de_inthashtable_create(c);
 
 	pos = 0;
+	if(!dbuf_memcmp(c->infile, 0, "ID3", 3)) {
+		de_err(c, "Ogg with ID3v2 not supported");
+		goto done;
+	}
+
 	while(1) {
 		de_uint32 sig;
 		int ret;
@@ -542,6 +547,7 @@ static void de_run_ogg(deark *c, de_module_params *mparams)
 
 	de_dbg(c, "number of bitstreams: %d", (int)d->bitstream_count);
 
+done:
 	if(d && d->streamtable) {
 		destroy_streamtable(c, d);
 	}
@@ -550,8 +556,15 @@ static void de_run_ogg(deark *c, de_module_params *mparams)
 
 static int de_identify_ogg(deark *c)
 {
-	if(!dbuf_memcmp(c->infile, 0, "OggS", 4))
+	de_int64 pos = 0;
+
+	if(c->detection_data.id3.has_id3v2) {
+		pos = (de_int64)c->detection_data.id3.bytes_at_start;
+	}
+
+	if(!dbuf_memcmp(c->infile, pos, "OggS", 4))
 		return 100;
+
 	return 0;
 }
 

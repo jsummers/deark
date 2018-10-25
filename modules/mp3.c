@@ -7,6 +7,7 @@
 #include <deark-config.h>
 #include <deark-private.h>
 DE_DECLARE_MODULE(de_module_mpegaudio);
+DE_DECLARE_MODULE(de_module_id3detect);
 
 // **************************************************************************
 // ID3v2
@@ -1616,13 +1617,15 @@ done:
 
 static int de_identify_mpegaudio(deark *c)
 {
-	de_byte b[4];
 	unsigned int x;
 	unsigned int ver_id, lyr_id;
 	int has_mp1_ext = 0;
 	int has_mp2_ext = 0;
 	int has_mp3_ext = 0;
 	int has_any_ext;
+	int looks_valid = 0;
+	de_byte has_id3v2;
+	de_int64 pos;
 
 	if(de_input_file_has_ext(c, "mp3")) {
 		has_mp3_ext = 1;
@@ -1640,29 +1643,51 @@ static int de_identify_mpegaudio(deark *c)
 	}
 	has_any_ext = has_mp3_ext || has_mp2_ext || has_mp1_ext;
 
-	de_read(b, 0, 4);
-	if(!de_memcmp(b, "ID3", 3)) {
+	has_id3v2 = c->detection_data.id3.has_id3v2;
+
+	if(!has_id3v2 && !has_any_ext) {
+		// TODO: We could try harder to identify MP3.
+		return 0;
+	}
+
+	if(has_id3v2) {
 		if(has_any_ext) return 100;
 		else return 85;
 	}
 
-	// TODO: We could try harder to identify MP3.
 	if(!has_any_ext) return 0;
 
-	x = (unsigned int)de_getui16be_direct(b);
-	if((x&0xffe0) != 0xffe0) return 0;
-
-	ver_id = (x&0x0018)>>3;
-	lyr_id = (x&0x0006)>>1;
-
-	if(has_mp3_ext) {
-		if((lyr_id==1) && (ver_id!=1)) return 100;
+	if(has_id3v2) {
+		pos = (de_int64)c->detection_data.id3.bytes_at_start;
 	}
-	if(has_mp2_ext) {
-		if((lyr_id==2) && (ver_id==2 || ver_id==3)) return 100;
+	else {
+		pos = 0;
 	}
-	if(has_mp1_ext) {
-		if((lyr_id==3) && (ver_id==2 || ver_id==3)) return 100;
+
+	x = (unsigned int)de_getui16be(pos);
+	if((x&0xffe0) == 0xffe0) {
+		ver_id = (x&0x0018)>>3;
+		lyr_id = (x&0x0006)>>1;
+
+		if(has_mp3_ext) {
+			if((lyr_id==1) && (ver_id!=1)) looks_valid = 1;
+		}
+		if(has_mp2_ext) {
+			if((lyr_id==2) && (ver_id==2 || ver_id==3)) looks_valid = 1;
+		}
+		if(has_mp1_ext) {
+			if((lyr_id==3) && (ver_id==2 || ver_id==3)) looks_valid = 1;
+		}
+	}
+
+	if(has_id3v2 && looks_valid) return 100;
+	if(has_id3v2 && !looks_valid) {
+		// This must be lower than the corresponding confidence for other
+		// audio formats that might start with ID3v2, like Ogg.
+		return 80;
+	}
+	if(looks_valid) {
+		return 100;
 	}
 
 	return 0;
@@ -1675,4 +1700,63 @@ void de_module_mpegaudio(deark *c, struct deark_module_info *mi)
 	mi->desc = "MP3 / MPEG audio";
 	mi->run_fn = de_run_mpegaudio;
 	mi->identify_fn = de_identify_mpegaudio;
+}
+
+// **************************************************************************
+// Helper module for detecting ID3 (and potentially other kinds of tags)
+// **************************************************************************
+
+
+// Figure out the size of the ID3V2 segment at the beginning of the file.
+// Sets c->detection_data.id3.bytes_at_start.
+// Note code duplication with to_id3v2_header().
+static void do_id3v2_prescan(deark *c)
+{
+	de_int64 pos = 0;
+	de_byte flags;
+	de_byte version_code;
+	de_byte has_footer = 0;
+	de_int64 total_len;
+	dbuf *f = c->infile;
+
+	pos += 3; // ID3v2 file identifier
+	version_code = dbuf_getbyte_p(f, &pos);
+	pos += 1; // ver_revision
+	flags = dbuf_getbyte_p(f, &pos);
+
+	if(version_code >= 4) {
+		has_footer = (flags&0x10)?1:0;
+	}
+
+	total_len = 10;
+	total_len += get_synchsafe_int(f, pos);
+	pos += 4;
+	if(has_footer) total_len += 10;
+
+	de_dbg2(c, "[id3detect] calculated end of ID3v2 data: %u", (unsigned int)total_len);
+	c->detection_data.id3.bytes_at_start = (de_uint32)total_len;
+}
+
+static void de_run_id3detect(deark *c, de_module_params *mparams)
+{
+}
+
+static int de_identify_id3detect(deark *c)
+{
+	if(!dbuf_memcmp(c->infile, 0, "ID3", 3)) {
+		c->detection_data.id3.has_id3v2 = 1;
+		do_id3v2_prescan(c);
+	}
+
+	// This module is never "detected". It's only used for its side effects.
+	return 0;
+}
+
+void de_module_id3detect(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "id3detect";
+	mi->desc = "ID3, etc., detection helper module";
+	mi->run_fn = de_run_id3detect;
+	mi->identify_fn = de_identify_id3detect;
+	mi->flags |= DE_MODFLAG_HIDDEN;
 }
