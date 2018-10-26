@@ -229,3 +229,10 @@ const char *de_fmtutil_get_windows_charset_name(de_byte cs);
 const char *de_fmtutil_get_windows_cb_data_type_name(unsigned int ty);
 
 int de_fmtutil_find_zip_eocd(deark *c, dbuf *f, de_int64 *foundpos);
+
+struct de_id3info {
+	int has_id3v1, has_id3v2;
+	de_int64 main_start, main_end;
+};
+void de_fmtutil_handle_id3(deark *c, dbuf *f, struct de_id3info *id3i,
+	unsigned int flags);

@@ -65,7 +65,7 @@ obj/modules/eps.o: modules/eps.c src/deark-config.h src/deark-private.h \
 obj/modules/exe.o: modules/exe.c src/deark-config.h src/deark-private.h \
  src/deark.h src/deark-fmtutil.h
 obj/modules/flac.o: modules/flac.c src/deark-config.h src/deark-private.h \
- src/deark.h
+ src/deark.h src/deark-fmtutil.h
 obj/modules/flif.o: modules/flif.c src/deark-config.h src/deark-private.h \
  src/deark.h
 obj/modules/fnt.o: modules/fnt.c src/deark-config.h src/deark-private.h \
@@ -129,7 +129,7 @@ obj/modules/msp.o: modules/msp.c src/deark-config.h src/deark-private.h \
 obj/modules/nokia.o: modules/nokia.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h
 obj/modules/ogg.o: modules/ogg.c src/deark-config.h src/deark-private.h \
- src/deark.h
+ src/deark.h src/deark-fmtutil.h
 obj/modules/olepropset.o: modules/olepropset.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h
 obj/modules/os2bmp.o: modules/os2bmp.c src/deark-config.h \

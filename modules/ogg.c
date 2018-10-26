@@ -6,6 +6,7 @@
 
 #include <deark-config.h>
 #include <deark-private.h>
+#include <deark-fmtutil.h>
 DE_DECLARE_MODULE(de_module_ogg);
 
 struct page_info {
@@ -519,47 +520,17 @@ static void destroy_streamtable(deark *c, lctx *d)
 
 static void run_ogg_internal(deark *c, lctx *d)
 {
-	int has_id3v1 = 0;
-	int has_id3v2 = 0;
-	de_int64 id3v1pos = 0;
 	de_int64 pos;
-	de_int64 ogg_end = c->infile->len;
+	de_int64 ogg_end;
+	struct de_id3info id3i;
 
 	d = de_malloc(c, sizeof(lctx));
 	d->always_hexdump = de_get_ext_option(c, "ogg:hexdump")?1:0;
 	d->streamtable = de_inthashtable_create(c);
 
-	pos = 0;
-	has_id3v2 = !dbuf_memcmp(c->infile, pos, "ID3", 3);
-	if(has_id3v2) {
-		de_module_params id3v2mparams;
-
-		de_dbg(c, "ID3v2 data at %d", (int)pos);
-		de_dbg_indent(c, 1);
-		de_memset(&id3v2mparams, 0, sizeof(de_module_params));
-		id3v2mparams.in_params.codes = "I";
-		de_run_module_by_id_on_slice(c, "mp3", &id3v2mparams, c->infile, 0, c->infile->len);
-		de_dbg_indent(c, -1);
-		pos += id3v2mparams.out_params.int64_1;
-	}
-
-	if(has_id3v2) {
-		id3v1pos = c->infile->len-128;
-		if(!dbuf_memcmp(c->infile, id3v1pos, "TAG", 3)) {
-			has_id3v1 = 1;
-		}
-	}
-	if(has_id3v1) {
-		de_module_params id3v1mparams;
-
-		de_dbg(c, "ID3v1 data at %"INT64_FMT, id3v1pos);
-		de_dbg_indent(c, 1);
-		de_memset(&id3v1mparams, 0, sizeof(de_module_params));
-		id3v1mparams.in_params.codes = "1";
-		de_run_module_by_id_on_slice(c, "mp3", &id3v1mparams, c->infile, id3v1pos, 128);
-		de_dbg_indent(c, -1);
-		ogg_end = id3v1pos;
-	}
+	de_fmtutil_handle_id3(c, c->infile, &id3i, 0);
+	pos = id3i.main_start;
+	ogg_end = id3i.main_end;
 
 	while(1) {
 		de_uint32 sig;

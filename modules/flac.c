@@ -6,6 +6,7 @@
 
 #include <deark-config.h>
 #include <deark-private.h>
+#include <deark-fmtutil.h>
 DE_DECLARE_MODULE(de_module_flac);
 
 typedef struct localctx_struct {
@@ -85,17 +86,21 @@ done:
 static void de_run_flac(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
-	de_int64 pos = 0;
+	struct de_id3info id3i;
 
 	d = de_malloc(c, sizeof(lctx));
-	pos = 0;
-	run_flac_internal(c, d, pos, c->infile->len);
+	de_fmtutil_handle_id3(c, c->infile, &id3i, 0);
+	run_flac_internal(c, d, id3i.main_start, id3i.main_end-id3i.main_start);
 	de_free(c, d);
 }
 
 static int de_identify_flac(deark *c)
 {
 	de_int64 pos = 0;
+
+	if(c->detection_data.id3.has_id3v2) {
+		pos = (de_int64)c->detection_data.id3.bytes_at_start;
+	}
 
 	if(!dbuf_memcmp(c->infile, pos, "fLaC", 4))
 		return 100;
