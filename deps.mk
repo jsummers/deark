@@ -121,7 +121,7 @@ obj/modules/mbk.o: modules/mbk.c src/deark-config.h src/deark-private.h \
 obj/modules/misc.o: modules/misc.c src/deark-config.h src/deark-private.h \
  src/deark.h src/deark-fmtutil.h
 obj/modules/mp3.o: modules/mp3.c src/deark-config.h src/deark-private.h \
- src/deark.h
+ src/deark.h src/deark-fmtutil.h
 obj/modules/mscompress.o: modules/mscompress.c src/deark-config.h \
  src/deark-private.h src/deark.h
 obj/modules/msp.o: modules/msp.c src/deark-config.h src/deark-private.h \

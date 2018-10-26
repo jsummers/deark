@@ -6,6 +6,7 @@
 
 #include <deark-config.h>
 #include <deark-private.h>
+#include <deark-fmtutil.h>
 DE_DECLARE_MODULE(de_module_mpegaudio);
 DE_DECLARE_MODULE(de_module_id3detect);
 
@@ -1557,11 +1558,10 @@ static void do_mp3_data(deark *c, mp3ctx *d, de_int64 pos1, de_int64 len)
 static void de_run_mpegaudio(deark *c, de_module_params *mparams)
 {
 	mp3ctx *d = NULL;
-	de_int64 id3v1pos;
 	de_int64 pos;
 	de_int64 endpos;
 	de_int64 ape_tag_len;
-	int found_id3v2 = 0;
+	struct de_id3info id3i;
 
 	d = de_malloc(c, sizeof(mp3ctx));
 	pos = 0;
@@ -1584,29 +1584,11 @@ static void de_run_mpegaudio(deark *c, de_module_params *mparams)
 		goto done;
 	}
 
-	if(!dbuf_memcmp(c->infile, 0, "ID3", 3)) {
-		de_int64 bytes_consumed_id3v2 = 0;
+	de_fmtutil_handle_id3(c, c->infile, &id3i, 0);
+	pos = id3i.main_start;
+	endpos = id3i.main_end;
 
-		de_dbg(c, "ID3v2 tag at %d", 0);
-		de_dbg_indent(c, 1);
-		do_id3v2(c, c->infile, 0, c->infile->len, &bytes_consumed_id3v2);
-		de_dbg_indent(c, -1);
-		if(bytes_consumed_id3v2>0) {
-			found_id3v2 = 1;
-			pos += bytes_consumed_id3v2;
-		}
-	}
-
-	id3v1pos = c->infile->len-128;
-	if(!dbuf_memcmp(c->infile, id3v1pos, "TAG", 3)) {
-		de_dbg(c, "ID3v1 tag at %"INT64_FMT, id3v1pos);
-		endpos -= 128;
-		de_dbg_indent(c, 1);
-		do_mp3_id3v1(c, id3v1pos);
-		de_dbg_indent(c, -1);
-	}
-
-	if(!found_id3v2) {
+	if(!id3i.has_id3v2) {
 		if(!dbuf_memcmp(c->infile, endpos-10, "3DI", 3)) {
 			de_warn(c, "Possible ID3v2 tag found at end of file (footer at %"INT64_FMT"). "
 				"This is not supported.", endpos-10);
