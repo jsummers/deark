@@ -686,7 +686,7 @@ Deark -- Information about supported formats
   - Extract icons and cursors from LX files. Note that these will use OS/2
     format. Reprocess them with Deark to convert to PNG.
 
-* FLAC audio (module="flac") (incomplete)
+* FLAC audio (module="flac")
 
 * ICC profile (module="iccprofile")
   - Debug info only.

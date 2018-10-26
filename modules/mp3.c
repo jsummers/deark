@@ -600,6 +600,55 @@ done:
 	ucstring_destroy(description);
 }
 
+// FLAC "PICTURE" format is, I think it's safe to say, inspired by ID3 PIC/APIC
+// format. But it's quite different in detail.
+// This function probably belongs in the flac module instead of here, but it's
+// a tough call. Putting it here is easier for now, as it makes it easy to
+// reuse some code.
+static void decode_flacpicture(deark *c, id3v2ctx *d, dbuf *f,
+	de_int64 pos1, de_int64 len)
+{
+	de_uint32 picture_type;
+	de_int64 pos = pos1;
+	de_int64 pic_data_len;
+	de_int64 stringlen;
+	de_ucstring *mimetype = NULL;
+	de_ucstring *description = NULL;
+	const struct apic_type_info *ptinfo = NULL;
+
+	picture_type = (de_uint32)dbuf_getui32be_p(f, &pos);
+	if(picture_type<=0xff) {
+		ptinfo = get_apic_type_info((de_byte)picture_type);
+	}
+	de_dbg(c, "picture type: 0x%04x (%s)", (unsigned int)picture_type,
+		ptinfo?ptinfo->name:"?");
+
+	stringlen = dbuf_getui32be_p(f, &pos);
+	mimetype = ucstring_create(c);
+	dbuf_read_to_ucstring_n(f, pos, stringlen, 256, mimetype, 0, DE_ENCODING_UTF8);
+	de_dbg(c, "mime type: \"%s\"", ucstring_getpsz_d(mimetype));
+	pos += stringlen;
+
+	stringlen = dbuf_getui32be_p(f, &pos);
+	description = ucstring_create(c);
+	dbuf_read_to_ucstring_n(f, pos, stringlen, 512, description, 0, DE_ENCODING_UTF8);
+	de_dbg(c, "description: \"%s\"", ucstring_getpsz_d(description));
+	pos += stringlen;
+
+	pos += 4; // width
+	pos += 4; // height
+	pos += 4; // bits/pixel
+	pos += 4; // # palette entries
+	pic_data_len = dbuf_getui32be_p(f, &pos);
+	de_dbg(c, "picture size: %u", (unsigned int)pic_data_len);
+	if(pos+pic_data_len > pos1+len) goto done;
+	extract_pic_apic(c, d, f, pos, pic_data_len, ptinfo);
+
+done:
+	ucstring_destroy(mimetype);
+	ucstring_destroy(description);
+}
+
 static void decode_id3v2_frame_geob(deark *c, id3v2ctx *d,
 	dbuf *f, de_int64 pos1, de_int64 len)
 {
@@ -970,6 +1019,15 @@ static void do_wmpicture(deark *c, dbuf *f, de_int64 pos, de_int64 len)
 	d = de_malloc(c, sizeof(id3v2ctx));
 	d->wmpicture_mode = 1;
 	decode_id3v2_frame_wmpicture(c, d, f, pos, len);
+	de_free(c, d);
+}
+
+static void do_flacpicture(deark *c, dbuf *f, de_int64 pos, de_int64 len)
+{
+	id3v2ctx *d = NULL;
+
+	d = de_malloc(c, sizeof(id3v2ctx));
+	decode_flacpicture(c, d, f, pos, len);
 	de_free(c, d);
 }
 
@@ -1581,6 +1639,10 @@ static void de_run_mpegaudio(deark *c, de_module_params *mparams)
 	}
 	if(de_havemodcode(c, mparams, 'P')) { // Windows WM/Picture
 		do_wmpicture(c, c->infile, 0, c->infile->len);
+		goto done;
+	}
+	if(de_havemodcode(c, mparams, 'F')) { // FLAC PICTURE
+		do_flacpicture(c, c->infile, 0, c->infile->len);
 		goto done;
 	}
 

@@ -36,10 +36,23 @@ static void do_metadata_block_vorbiscomment(deark *c, lctx *d, de_int64 pos1, de
 	de_dbg_indent(c, -1);
 }
 
+static void do_metadata_block_picture(deark *c, lctx *d, de_int64 pos1, de_int64 len)
+{
+	de_dbg(c, "picture at %"INT64_FMT, pos1);
+	de_dbg_indent(c, 1);
+	de_run_module_by_id_on_slice2(c, "mp3", "F", c->infile, pos1, len);
+	de_dbg_indent(c, -1);
+}
+
 static void do_metadata_block(deark *c, lctx *d, de_byte blktype, de_int64 pos1, de_int64 len)
 {
-	if(blktype==4) {
+	switch(blktype) {
+	case 4:
 		do_metadata_block_vorbiscomment(c, d, pos1, len);
+		break;
+	case 6:
+		do_metadata_block_picture(c, d, pos1, len);
+		break;
 	}
 }
 
