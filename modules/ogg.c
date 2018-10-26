@@ -52,7 +52,7 @@ typedef struct localctx_struct {
 	de_byte format_declared;
 	de_byte found_skeleton, found_ogm;
 	de_byte found_vorbis, found_theora, found_speex;
-
+	de_byte found_flac;
 } lctx;
 
 static unsigned int getui24be_p(dbuf *f, de_int64 *ppos)
@@ -78,6 +78,7 @@ static void declare_ogg_format(deark *c, lctx *d)
 	else if(d->found_theora && d->found_vorbis) name="Theora+Vorbis";
 	else if(d->found_theora) name="Theora";
 	else if(d->found_speex) name="Speex";
+	else if(d->found_flac) name="FLAC";
 	else if(d->found_vorbis) name="Vorbis";
 
 	de_snprintf(tmps, sizeof(tmps), "Ogg %s", name?name:"(other)");
@@ -361,6 +362,11 @@ static void do_bitstream_firstpage(deark *c, lctx *d, struct stream_info *si, de
 	else if(!de_memcmp(idbuf, "Speex   ", 8)) {
 		si->stream_type_name = "Speex";
 		d->found_speex = 1;
+		do_init_new_bitstream(c, d, si);
+	}
+	else if(!de_memcmp(idbuf, "\x7f" "FLAC", 5)) {
+		si->stream_type_name = "FLAC";
+		d->found_flac = 1;
 		do_init_new_bitstream(c, d, si);
 	}
 	else if(!de_memcmp(idbuf, "\x01" "video", 6) ||
