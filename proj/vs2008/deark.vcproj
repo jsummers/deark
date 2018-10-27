@@ -702,6 +702,10 @@
 				>
 			</File>
 			<File
+				RelativePath="..\..\modules\macbinary.c"
+				>
+			</File>
+			<File
 				RelativePath="..\..\modules\macpaint.c"
 				>
 			</File>

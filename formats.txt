@@ -575,6 +575,9 @@ Deark -- Information about supported formats
   - Files can be parsed, but there is usually nothing that can be extracted
     from them.
 
+* MacBinary (module="macbinary")
+  - You may have to use "-m macbinary".
+
 * Microsoft Compound File Binary (module="cfb")
   - Streams are not extracted by default, but some streams contain images and
     other objects that can be extracted.

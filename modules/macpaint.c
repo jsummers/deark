@@ -203,6 +203,21 @@ done:
 	de_bitmap_destroy(pat);
 }
 
+static void do_macbinary(deark *c, lctx *d)
+{
+	de_byte b0, b1;
+
+	b0 = de_getbyte(0);
+	b1 = de_getbyte(1);
+	if(b0!=0) return;
+	if(b1<1 || b1>63) return;
+
+	de_dbg(c, "MacBinary header at %d", 0);
+	de_dbg_indent(c, 1);
+	de_run_module_by_id_on_slice2(c, "macbinary", "D", c->infile, 0, 128);
+	de_dbg_indent(c, -1);
+}
+
 static void de_run_macpaint(deark *c, de_module_params *mparams)
 {
 	lctx *d;
@@ -251,7 +266,11 @@ static void de_run_macpaint(deark *c, de_module_params *mparams)
 	else
 		de_declare_fmt(c, "MacPaint without MacBinary header");
 
-	pos = d->has_macbinary_header ? 128 : 0;
+	pos = 0;
+	if(d->has_macbinary_header) {
+		do_macbinary(c, d);
+		pos += 128;
+	}
 
 	do_read_bitmap(c, d, pos);
 
@@ -281,6 +300,8 @@ static void de_help_macpaint(deark *c)
 {
 	de_msg(c, "-opt macpaint:macbinary=<0|1> : Assume file doesn't/does have "
 		"a MacBinary header");
+	de_msg(c, "-m macbinary : Extract from MacBinary container, instead of "
+		"decoding");
 }
 
 void de_module_macpaint(deark *c, struct deark_module_info *mi)
