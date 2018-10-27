@@ -40,7 +40,7 @@ static void do_metadata_block_picture(deark *c, lctx *d, de_int64 pos1, de_int64
 {
 	de_dbg(c, "picture at %"INT64_FMT, pos1);
 	de_dbg_indent(c, 1);
-	de_run_module_by_id_on_slice2(c, "mp3", "F", c->infile, pos1, len);
+	de_run_module_by_id_on_slice2(c, "id3", "F", c->infile, pos1, len);
 	de_dbg_indent(c, -1);
 }
 
@@ -110,6 +110,11 @@ static void de_run_flac(deark *c, de_module_params *mparams)
 static int de_identify_flac(deark *c)
 {
 	de_int64 pos = 0;
+
+	if(!c->detection_data.id3.detection_attempted) {
+		de_err(c, "flac internal");
+		de_fatalerror(c);
+	}
 
 	if(c->detection_data.id3.has_id3v2) {
 		pos = (de_int64)c->detection_data.id3.bytes_at_start;

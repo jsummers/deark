@@ -585,6 +585,11 @@ static int de_identify_ogg(deark *c)
 {
 	de_int64 pos = 0;
 
+	if(!c->detection_data.id3.detection_attempted) {
+		de_err(c, "ogg internal");
+		de_fatalerror(c);
+	}
+
 	if(c->detection_data.id3.has_id3v2) {
 		pos = (de_int64)c->detection_data.id3.bytes_at_start;
 	}

@@ -1795,7 +1795,7 @@ void de_fmtutil_handle_id3(deark *c, dbuf *f, struct de_id3info *id3i,
 		de_dbg_indent(c, 1);
 		de_memset(&id3v2mparams, 0, sizeof(de_module_params));
 		id3v2mparams.in_params.codes = "I";
-		de_run_module_by_id_on_slice(c, "mp3", &id3v2mparams, f, 0, f->len);
+		de_run_module_by_id_on_slice(c, "id3", &id3v2mparams, f, 0, f->len);
 		de_dbg_indent(c, -1);
 		id3i->main_start += id3v2mparams.out_params.int64_1;
 	}
@@ -1815,7 +1815,7 @@ void de_fmtutil_handle_id3(deark *c, dbuf *f, struct de_id3info *id3i,
 		de_dbg_indent(c, 1);
 		de_memset(&id3v1mparams, 0, sizeof(de_module_params));
 		id3v1mparams.in_params.codes = "1";
-		de_run_module_by_id_on_slice(c, "mp3", &id3v1mparams, f, id3v1pos, 128);
+		de_run_module_by_id_on_slice(c, "id3", &id3v1mparams, f, id3v1pos, 128);
 		de_dbg_indent(c, -1);
 		id3i->main_end = id3v1pos;
 	}

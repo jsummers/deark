@@ -8,7 +8,7 @@
 #include <deark-private.h>
 #include <deark-fmtutil.h>
 DE_DECLARE_MODULE(de_module_mpegaudio);
-DE_DECLARE_MODULE(de_module_id3detect);
+DE_DECLARE_MODULE(de_module_id3);
 
 // **************************************************************************
 // ID3v2
@@ -1153,7 +1153,7 @@ static const char *get_id3v1_genre_name(de_byte g)
 	return "unknown";
 }
 
-static void do_mp3_id3v1(deark *c, de_int64 pos1)
+static void do_id3v1(deark *c, de_int64 pos1)
 {
 	de_int64 pos = pos1;
 	de_ucstring *s = NULL;
@@ -1625,27 +1625,6 @@ static void de_run_mpegaudio(deark *c, de_module_params *mparams)
 	pos = 0;
 	endpos = c->infile->len;
 
-	if(de_havemodcode(c, mparams, 'I')) { // raw ID3v2
-		de_int64 bytes_consumed_id3v2 = 0;
-		do_id3v2(c, c->infile, 0, c->infile->len, &bytes_consumed_id3v2);
-		if(mparams) {
-			mparams->out_params.int64_1 = bytes_consumed_id3v2;
-		}
-		goto done;
-	}
-	if(de_havemodcode(c, mparams, '1')) { // raw ID3v1
-		do_mp3_id3v1(c, 0);
-		goto done;
-	}
-	if(de_havemodcode(c, mparams, 'P')) { // Windows WM/Picture
-		do_wmpicture(c, c->infile, 0, c->infile->len);
-		goto done;
-	}
-	if(de_havemodcode(c, mparams, 'F')) { // FLAC PICTURE
-		do_flacpicture(c, c->infile, 0, c->infile->len);
-		goto done;
-	}
-
 	de_fmtutil_handle_id3(c, c->infile, &id3i, 0);
 	pos = id3i.main_start;
 	endpos = id3i.main_end;
@@ -1662,7 +1641,6 @@ static void de_run_mpegaudio(deark *c, de_module_params *mparams)
 
 	do_mp3_data(c, d, pos, endpos-pos);
 
-done:
 	de_free(c, d);
 }
 
@@ -1677,6 +1655,12 @@ static int de_identify_mpegaudio(deark *c)
 	int looks_valid = 0;
 	de_byte has_id3v2;
 	de_int64 pos;
+
+	if(!c->detection_data.id3.detection_attempted) {
+		de_err(c, "mp3 internal");
+		de_fatalerror(c);
+	}
+
 
 	if(de_input_file_has_ext(c, "mp3")) {
 		has_mp3_ext = 1;
@@ -1700,13 +1684,6 @@ static int de_identify_mpegaudio(deark *c)
 		// TODO: We could try harder to identify MP3.
 		return 0;
 	}
-
-	if(has_id3v2) {
-		if(has_any_ext) return 100;
-		else return 85;
-	}
-
-	if(!has_any_ext) return 0;
 
 	if(has_id3v2) {
 		pos = (de_int64)c->detection_data.id3.bytes_at_start;
@@ -1753,61 +1730,71 @@ void de_module_mpegaudio(deark *c, struct deark_module_info *mi)
 	mi->identify_fn = de_identify_mpegaudio;
 }
 
-// **************************************************************************
-// Helper module for detecting ID3 (and potentially other kinds of tags)
-// **************************************************************************
+static void de_run_id3(deark *c, de_module_params *mparams)
+{
+	if(de_havemodcode(c, mparams, 'I')) { // raw ID3v2
+		de_int64 bytes_consumed_id3v2 = 0;
+		do_id3v2(c, c->infile, 0, c->infile->len, &bytes_consumed_id3v2);
+		if(mparams) {
+			mparams->out_params.int64_1 = bytes_consumed_id3v2;
+		}
+		goto done;
+	}
+	if(de_havemodcode(c, mparams, '1')) { // raw ID3v1
+		do_id3v1(c, 0);
+		goto done;
+	}
+	if(de_havemodcode(c, mparams, 'P')) { // Windows WM/Picture
+		do_wmpicture(c, c->infile, 0, c->infile->len);
+		goto done;
+	}
+	if(de_havemodcode(c, mparams, 'F')) { // FLAC PICTURE
+		do_flacpicture(c, c->infile, 0, c->infile->len);
+		goto done;
+	}
 
+done:
+	;
+}
 
 // Figure out the size of the ID3V2 segment at the beginning of the file.
-// Sets c->detection_data.id3.bytes_at_start.
-// Note code duplication with to_id3v2_header().
-static void do_id3v2_prescan(deark *c)
+// Sets c->detection_data.id3.bytes_at_start, etc.
+// Note code duplication with do_id3v2_header().
+// Note code duplication with de_fmtutil_handle_id3().
+static int de_identify_id3(deark *c)
 {
-	de_int64 pos = 0;
 	de_byte flags;
 	de_byte version_code;
 	de_byte has_footer = 0;
 	de_int64 total_len;
-	dbuf *f = c->infile;
 
-	pos += 3; // ID3v2 file identifier
-	version_code = dbuf_getbyte_p(f, &pos);
-	pos += 1; // ver_revision
-	flags = dbuf_getbyte_p(f, &pos);
+	c->detection_data.id3.detection_attempted = 1;
+	if(dbuf_memcmp(c->infile, 0, "ID3", 3)) return 0;
+	c->detection_data.id3.has_id3v2 = 1;
 
+	version_code = dbuf_getbyte(c->infile, 3);
+	flags = dbuf_getbyte(c->infile, 5);
 	if(version_code >= 4) {
 		has_footer = (flags&0x10)?1:0;
 	}
 
 	total_len = 10;
-	total_len += get_synchsafe_int(f, pos);
-	pos += 4;
+	total_len += get_synchsafe_int(c->infile, 6);
 	if(has_footer) total_len += 10;
 
 	de_dbg2(c, "[id3detect] calculated end of ID3v2 data: %u", (unsigned int)total_len);
 	c->detection_data.id3.bytes_at_start = (de_uint32)total_len;
-}
 
-static void de_run_id3detect(deark *c, de_module_params *mparams)
-{
-}
-
-static int de_identify_id3detect(deark *c)
-{
-	if(!dbuf_memcmp(c->infile, 0, "ID3", 3)) {
-		c->detection_data.id3.has_id3v2 = 1;
-		do_id3v2_prescan(c);
-	}
-
-	// This module is never "detected". It's only used for its side effects.
+	// This module is never "detected". It's only used for its side effects,
+	// and as a submodule.
 	return 0;
 }
 
-void de_module_id3detect(deark *c, struct deark_module_info *mi)
+void de_module_id3(deark *c, struct deark_module_info *mi)
 {
-	mi->id = "id3detect";
-	mi->desc = "ID3, etc., detection helper module";
-	mi->run_fn = de_run_id3detect;
-	mi->identify_fn = de_identify_id3detect;
+	mi->id = "id3";
+	mi->desc = "ID3 metadata";
+	mi->run_fn = de_run_id3;
+	mi->identify_fn = de_identify_id3;
 	mi->flags |= DE_MODFLAG_HIDDEN;
 }

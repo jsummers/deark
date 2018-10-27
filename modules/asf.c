@@ -606,7 +606,7 @@ static void do_ECD_ID3(deark *c, lctx *d, de_int64 pos, de_int64 len)
 {
 	de_dbg(c, "ID3 data at %"INT64_FMT", len=%"INT64_FMT, pos, len);
 	de_dbg_indent(c, 1);
-	de_run_module_by_id_on_slice2(c, "mp3", "I", c->infile, pos, len);
+	de_run_module_by_id_on_slice2(c, "id3", "I", c->infile, pos, len);
 	de_dbg_indent(c, -1);
 }
 
@@ -614,7 +614,7 @@ static void do_ECD_WMPicture(deark *c, lctx *d, de_int64 pos, de_int64 len)
 {
 	de_dbg(c, "WM/Picture data at %"INT64_FMT", len=%"INT64_FMT, pos, len);
 	de_dbg_indent(c, 1);
-	de_run_module_by_id_on_slice2(c, "mp3", "P", c->infile, pos, len);
+	de_run_module_by_id_on_slice2(c, "id3", "P", c->infile, pos, len);
 	de_dbg_indent(c, -1);
 }
 

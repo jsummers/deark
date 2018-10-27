@@ -211,6 +211,7 @@ struct de_SAUCE_detection_data {
 };
 
 struct de_ID3_detection_data {
+	de_byte detection_attempted;
 	de_byte has_id3v2;
 	de_uint32 bytes_at_start;
 };

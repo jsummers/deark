@@ -196,8 +196,7 @@ Command-line options:
    Run the module in a non-default "mode".
    The existence of this option (though not its details) is documented in the
    interest of transparency, but it is mainly for developers, and to make it
-   possible to do things whose usefulness was not anticipated. For example, it
-   is currently possible to decode raw ID3 data by using "-m mp3 -modcodes I".
+   possible to do things whose usefulness was not anticipated.
 </pre>
  
 ## Terms of use ##
