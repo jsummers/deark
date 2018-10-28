@@ -207,10 +207,100 @@ static void de_run_macbinary(deark *c, de_module_params *mparams)
 	}
 }
 
+static int is_all_zeroes(const de_byte *b, int n)
+{
+	int k;
+	for(k=0; k<n; k++) {
+		if(b[k]!=0) return 0;
+	}
+	return 1;
+}
+
+// The goal is to identify MacBinary and MacBinary II files that are
+// valid, and not too pathological.
+// Note: This must be coordinated with the macpaint detection routine.
 static int de_identify_macbinary(deark *c)
 {
-	// TODO
-	return 0;
+	int conf = 0;
+	int k;
+	de_byte ver2;
+	de_int64 n;
+	de_int64 dflen, rflen;
+	de_int64 min_expected_len;
+	de_byte b[128];
+
+	// "old" version number is always 0.
+	b[0] = de_getbyte(0);
+	if(b[0]!=0) goto done;
+
+	// filename length
+	b[1] = de_getbyte(1);
+	if(b[1]<1 || b[1]>63) goto done;
+
+	de_read(&b[2], 2, sizeof(b)-2);
+
+	// Extended version number
+	ver2 = b[122];
+	// ?? Do versions over 129 exist?
+	if(ver2!=0 && ver2!=129) goto done;
+
+	// Check if filename characters are sensible
+	for(k=0; k<(int)b[1]; k++) {
+		if(b[2+k]<32) goto done;
+	}
+
+	// File type code. Expect ASCII.
+	for(k=65; k<=68; k++) {
+		if(b[k]<32 || b[k]>127) goto done;
+	}
+
+	if(b[74]!=0) goto done;
+	if(b[82]!=0) goto done;
+
+	dflen = de_getui32be_direct(&b[83]);
+	rflen = de_getui32be_direct(&b[87]);
+
+	if(ver2>=129) {
+		// Most MacBinary II specific checks go here
+
+		if(!is_all_zeroes(&b[102], 14)) goto done;
+
+		// Min. ext. version needed to read file (??)
+		if(b[123]!=0 && b[123]!=129) goto done;
+
+		// Secondary header length.
+		n = de_getui16be_direct(&b[120]);
+		if(n!=0) goto done;
+
+		// TODO: checking the CRC would be the most robust check.
+	}
+	else {
+		// Most Original MacBinary format checks go here
+
+		// An empty file is not illegal, but we need more check that don't
+		// allow all 0 bytes.
+		if(dflen==0 && rflen==0) goto done;
+
+		if(!is_all_zeroes(&b[99], 27)) goto done;
+	}
+
+	// Check the file size.
+	if(rflen>0) {
+		min_expected_len = 128 + de_pad_to_n(dflen, 128) + rflen;
+	}
+	else {
+		min_expected_len = 128 + dflen;
+	}
+	// The file size really should be exactly min_expected_len, or that
+	// number padded to the next multiple of 128. But I'm not bold
+	// enough to require it.
+	if(c->infile->len < min_expected_len) goto done;
+
+	conf = (ver2>=129)?74:49;
+	c->detection_data.is_macbinary = 1;
+
+done:
+	return conf;
 }
 
 void de_module_macbinary(deark *c, struct deark_module_info *mi)

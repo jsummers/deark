@@ -217,7 +217,8 @@ struct de_ID3_detection_data {
 };
 
 struct de_detection_data_struct {
-	int has_utf8_bom;
+	de_byte has_utf8_bom;
+	de_byte is_macbinary;
 	struct de_SAUCE_detection_data sauce;
 	struct de_ID3_detection_data id3;
 };

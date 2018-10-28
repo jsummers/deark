@@ -20,6 +20,7 @@ typedef struct localctx_struct {
 static void do_read_bitmap(deark *c, lctx *d, de_int64 pos)
 {
 	de_int64 ver_num;
+	de_int64 cmpr_bytes_consumed = 0;
 	dbuf *unc_pixels = NULL;
 
 	ver_num = de_getui32be(pos);
@@ -32,7 +33,11 @@ static void do_read_bitmap(deark *c, lctx *d, de_int64 pos)
 
 	unc_pixels = dbuf_create_membuf(c, MACPAINT_IMAGE_BYTES, 1);
 
-	de_fmtutil_uncompress_packbits(c->infile, pos, c->infile->len - pos, unc_pixels, NULL);
+	de_fmtutil_uncompress_packbits(c->infile, pos, c->infile->len - pos,
+		unc_pixels, &cmpr_bytes_consumed);
+
+	de_dbg(c, "decompressed %d to %d bytes", (int)cmpr_bytes_consumed,
+		(int)unc_pixels->len);
 
 	if(unc_pixels->len < MACPAINT_IMAGE_BYTES) {
 		de_warn(c, "Image decompressed to %d bytes, expected %d.",
@@ -279,6 +284,7 @@ static void de_run_macpaint(deark *c, de_module_params *mparams)
 	de_free(c, d);
 }
 
+// Note: This must be coordinated with the macbinary detection routine.
 static int de_identify_macpaint(deark *c)
 {
 	de_byte buf[8];
@@ -287,8 +293,11 @@ static int de_identify_macpaint(deark *c)
 
 	// Not all MacPaint files can be easily identified, but this will work
 	// for some of them.
-	if(!de_memcmp(buf, "PNTGMPNT", 8)) return 80;
-	if(!de_memcmp(buf, "PNTG", 4)) return 70;
+	if(!de_memcmp(buf, "PNTG", 4)) {
+		if(c->detection_data.is_macbinary) return 100;
+		if(!de_memcmp(&buf[4], "MPNT", 8)) return 80;
+		return 70;
+	}
 
 	if(de_input_file_has_ext(c, "mac")) return 10;
 	if(de_input_file_has_ext(c, "macp")) return 15;
