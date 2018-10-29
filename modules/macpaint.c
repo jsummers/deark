@@ -15,6 +15,9 @@ DE_DECLARE_MODULE(de_module_macpaint);
 
 typedef struct localctx_struct {
 	int has_macbinary_header;
+	int df_known;
+	de_int64 expected_dfpos;
+	de_int64 expected_dflen;
 } lctx;
 
 static void do_read_bitmap(deark *c, lctx *d, de_int64 pos)
@@ -38,6 +41,14 @@ static void do_read_bitmap(deark *c, lctx *d, de_int64 pos)
 
 	de_dbg(c, "decompressed %d to %d bytes", (int)cmpr_bytes_consumed,
 		(int)unc_pixels->len);
+
+	if(d->df_known) {
+		if(pos+cmpr_bytes_consumed > d->expected_dfpos+d->expected_dflen) {
+			de_warn(c, "Image (ends at %"INT64_FMT") goes beyond end of "
+				"MacBinary data fork (ends at %"INT64_FMT")",
+				pos+cmpr_bytes_consumed, d->expected_dfpos+d->expected_dflen);
+		}
+	}
 
 	if(unc_pixels->len < MACPAINT_IMAGE_BYTES) {
 		de_warn(c, "Image decompressed to %d bytes, expected %d.",
@@ -211,16 +222,40 @@ done:
 static void do_macbinary(deark *c, lctx *d)
 {
 	de_byte b0, b1;
+	de_module_params *mparams = NULL;
 
 	b0 = de_getbyte(0);
 	b1 = de_getbyte(1);
-	if(b0!=0) return;
-	if(b1<1 || b1>63) return;
+
+	// Instead of a real MacBinary header, a few macpaint files just have
+	// 128 NUL bytes, or something like that. So we'll skip MacBinary parsing
+	// in some cases.
+	if(b0!=0) goto done;
+	if(b1<1 || b1>63) goto done;
 
 	de_dbg(c, "MacBinary header at %d", 0);
 	de_dbg_indent(c, 1);
-	de_run_module_by_id_on_slice2(c, "macbinary", "D", c->infile, 0, 128);
+	mparams = de_malloc(c, sizeof(de_module_params));
+	mparams->in_params.codes = "D"; // = decode only, don't extract
+	de_run_module_by_id_on_slice(c, "macbinary", mparams, c->infile, 0, 128);
 	de_dbg_indent(c, -1);
+	if(mparams->out_params.uint1>0) {
+		d->df_known = 1;
+		d->expected_dfpos = (de_int64)mparams->out_params.uint1;
+		d->expected_dflen = (de_int64)mparams->out_params.uint2;
+	}
+
+	if(d->df_known) {
+		if(d->expected_dfpos+d->expected_dflen>c->infile->len) {
+			de_warn(c, "MacBinary data fork (ends at %"INT64_FMT") "
+				"goes past end of file (%"INT64_FMT")",
+			d->expected_dfpos+d->expected_dflen, c->infile->len);
+			d->df_known = 0;
+		}
+	}
+
+done:
+	de_free(c, mparams);
 }
 
 static void de_run_macpaint(deark *c, de_module_params *mparams)

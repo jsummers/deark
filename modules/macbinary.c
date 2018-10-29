@@ -13,6 +13,7 @@ typedef struct localctx_struct {
 	de_byte oldver;
 	de_byte ver2;
 	de_byte ver2_minneeded;
+	de_int64 dfpos, rfpos;
 	de_int64 dflen, rflen;
 	de_ucstring *filename;
 	struct de_timestamp create_date;
@@ -91,16 +92,26 @@ static void do_header(deark *c, lctx *d)
 	de_dbg(c, "resource fork len: %u", (unsigned int)d->rflen);
 
 	n = de_getui32be_p(&pos);
-	de_mac_time_to_timestamp(n, &d->create_date);
-	de_timestamp_to_string(&d->create_date, timestamp_buf, sizeof(timestamp_buf), 0);
+	if(n==0) {
+		d->create_date.is_valid = 0;
+		de_strlcpy(timestamp_buf, "unknown", sizeof(timestamp_buf));
+	}
+	else {
+		de_mac_time_to_timestamp(n, &d->create_date);
+		de_timestamp_to_string(&d->create_date, timestamp_buf, sizeof(timestamp_buf), 0);
+	}
 	de_dbg(c, "create date: %"INT64_FMT" (%s)", n, timestamp_buf);
-	if(n==0) d->create_date.is_valid = 0;
 
 	n = de_getui32be_p(&pos);
-	de_mac_time_to_timestamp(n, &d->mod_date);
-	de_timestamp_to_string(&d->mod_date, timestamp_buf, sizeof(timestamp_buf), 0);
+	if(n==0) {
+		d->mod_date.is_valid = 0;
+		de_strlcpy(timestamp_buf, "unknown", sizeof(timestamp_buf));
+	}
+	else {
+		de_mac_time_to_timestamp(n, &d->mod_date);
+		de_timestamp_to_string(&d->mod_date, timestamp_buf, sizeof(timestamp_buf), 0);
+	}
 	de_dbg(c, "mod date: %"INT64_FMT" (%s)", n, timestamp_buf);
-	if(n==0) d->mod_date.is_valid = 0;
 
 	pos += 2; // length of Get Info comment
 
@@ -166,25 +177,25 @@ done:
 	de_finfo_destroy(c, fi);
 }
 
-static void do_extract_files(deark *c, lctx *d)
+static void run_macbinary_internal(deark *c, lctx *d)
 {
 	de_int64 pos = 128;
 
+	do_header(c, d);
+
 	if(d->dflen>0) {
-		do_extract_one_file(c, d, pos, d->dflen, 0);
+		d->dfpos = pos;
+		if(d->extract_files) {
+			do_extract_one_file(c, d, d->dfpos, d->dflen, 0);
+		}
 		pos += de_pad_to_n(d->dflen, 128);
 	}
 
 	if(d->rflen>0) {
-		do_extract_one_file(c, d, pos, d->rflen, 1);
-	}
-}
-
-static void run_macbinary_internal(deark *c, lctx *d)
-{
-	do_header(c, d);
-	if(d->extract_files) {
-		do_extract_files(c, d);
+		d->rfpos = pos;
+		if(d->extract_files) {
+			do_extract_one_file(c, d, pos, d->rflen, 1);
+		}
 	}
 }
 
@@ -200,6 +211,11 @@ static void de_run_macbinary(deark *c, de_module_params *mparams)
 	}
 
 	run_macbinary_internal(c, d);
+
+	if(mparams) {
+		mparams->out_params.uint1 = (de_uint32)d->dfpos;
+		mparams->out_params.uint2 = (de_uint32)d->dflen;
+	}
 
 	if(d) {
 		ucstring_destroy(d->filename);
