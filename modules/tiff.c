@@ -2657,6 +2657,12 @@ static void de_run_tiff(deark *c, de_module_params *mparams)
 	do_tiff(c, d);
 
 	if(mparams) {
+		// .out_params.flags:
+		//  0x08: has_exif_gps
+		//  0x10: first IFD has subsampling=cosited
+		//  0x20: uint1 = first IFD's orientation
+		//  0x40: uint2 = Exif version
+		//  0x80: uint3 = main image count
 		if(d->has_exif_gps) {
 			mparams->out_params.flags |= 0x08;
 		}

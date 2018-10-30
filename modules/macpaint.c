@@ -18,6 +18,7 @@ typedef struct localctx_struct {
 	int df_known;
 	de_int64 expected_dfpos;
 	de_int64 expected_dflen;
+	de_ucstring *filename;
 } lctx;
 
 static void do_read_bitmap(deark *c, lctx *d, de_int64 pos)
@@ -25,6 +26,7 @@ static void do_read_bitmap(deark *c, lctx *d, de_int64 pos)
 	de_int64 ver_num;
 	de_int64 cmpr_bytes_consumed = 0;
 	dbuf *unc_pixels = NULL;
+	de_finfo *fi = NULL;
 
 	ver_num = de_getui32be(pos);
 	de_dbg(c, "version number: %u", (unsigned int)ver_num);
@@ -55,11 +57,17 @@ static void do_read_bitmap(deark *c, lctx *d, de_int64 pos)
 			(int)unc_pixels->len, (int)MACPAINT_IMAGE_BYTES);
 	}
 
+	if(d->filename && c->filenames_from_file) {
+		fi = de_finfo_create(c);
+		de_finfo_set_name_from_ucstring(c, fi, d->filename);
+	}
+
 	de_convert_and_write_image_bilevel(unc_pixels, 0,
 		MACPAINT_WIDTH, MACPAINT_HEIGHT, MACPAINT_WIDTH/8,
-		DE_CVTF_WHITEISZERO, NULL, 0);
+		DE_CVTF_WHITEISZERO, fi, 0);
 
 	dbuf_close(unc_pixels);
+	de_finfo_destroy(c, fi);
 }
 
 // A function to help determine if the file has a MacBinary header.
@@ -176,6 +184,8 @@ static void do_read_patterns(deark *c, lctx *d, de_int64 pos)
 	de_bitmap *pat = NULL;
 	de_uint32 patcrc;
 	const char *patsetname;
+	de_finfo *fi = NULL;
+	de_ucstring *tmpname = NULL;
 
 	pos += 4;
 
@@ -213,10 +223,20 @@ static void do_read_patterns(deark *c, lctx *d, de_int64 pos)
 		}
 	}
 
-	de_bitmap_write_to_file(pat, "pat", DE_CREATEFLAG_IS_AUX);
+	tmpname = ucstring_create(c);
+	if(d->filename && c->filenames_from_file) {
+		ucstring_append_ucstring(tmpname, d->filename);
+		ucstring_append_sz(tmpname, ".", DE_ENCODING_LATIN1);
+	}
+	ucstring_append_sz(tmpname, "pat", DE_ENCODING_LATIN1);
+	fi = de_finfo_create(c);
+	de_finfo_set_name_from_ucstring(c, fi, tmpname);
+	de_bitmap_write_to_file_finfo(pat, fi, DE_CREATEFLAG_IS_AUX);
 
 done:
 	de_bitmap_destroy(pat);
+	de_finfo_destroy(c, fi);
+	ucstring_destroy(tmpname);
 }
 
 static void do_macbinary(deark *c, lctx *d)
@@ -237,8 +257,10 @@ static void do_macbinary(deark *c, lctx *d)
 	de_dbg_indent(c, 1);
 	mparams = de_malloc(c, sizeof(de_module_params));
 	mparams->in_params.codes = "D"; // = decode only, don't extract
+	mparams->out_params.string1 = ucstring_create(c);
 	de_run_module_by_id_on_slice(c, "macbinary", mparams, c->infile, 0, 128);
 	de_dbg_indent(c, -1);
+
 	if(mparams->out_params.uint1>0) {
 		d->df_known = 1;
 		d->expected_dfpos = (de_int64)mparams->out_params.uint1;
@@ -254,8 +276,15 @@ static void do_macbinary(deark *c, lctx *d)
 		}
 	}
 
+	if(mparams->out_params.string1->len>0 && !d->filename) {
+		d->filename = ucstring_clone(mparams->out_params.string1);
+	}
+
 done:
-	de_free(c, mparams);
+	if(mparams) {
+		ucstring_destroy(mparams->out_params.string1);
+		de_free(c, mparams);
+	}
 }
 
 static void de_run_macpaint(deark *c, de_module_params *mparams)
@@ -316,7 +345,10 @@ static void de_run_macpaint(deark *c, de_module_params *mparams)
 
 	do_read_patterns(c, d, pos);
 
-	de_free(c, d);
+	if(d) {
+		ucstring_destroy(d->filename);
+		de_free(c, d);
+	}
 }
 
 // Note: This must be coordinated with the macbinary detection routine.

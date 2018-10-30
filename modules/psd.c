@@ -3727,6 +3727,7 @@ static void de_run_psd(deark *c, de_module_params *mparams)
 		init_version_specific_info(c, d);
 		do_image_resource_blocks(c, d, zz);
 		if(mparams) {
+			// .out_params.flags: 0x02: has_iptc
 			mparams->out_params.flags = 0;
 			if(d->has_iptc) mparams->out_params.flags |= 0x02;
 		}

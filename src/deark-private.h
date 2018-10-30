@@ -44,6 +44,8 @@
 
 #define DE_ITEMS_IN_ARRAY(x) (sizeof(x)/sizeof(x[0]))
 
+struct de_ucstring_struct;
+typedef struct de_ucstring_struct de_ucstring;
 struct dbuf_struct;
 typedef struct dbuf_struct dbuf;
 
@@ -56,18 +58,15 @@ struct de_module_in_params {
 };
 
 struct de_module_out_params {
-	// flags can be module-specific.
-	//  psd: 0x02: has_iptc
-	//  tiff: 0x08: has_exif_gps
-	//  tiff: 0x10: first IFD has subsampling=cosited
-	//  tiff: 0x20: uint1 = first IFD's orientation
-	//  tiff: 0x40: uint2 = Exif version
-	//  tiff: 0x80: uint3 = main image count
+	// Fields are module-specific.
 	de_uint32 flags;
 	de_uint32 uint1;
 	de_uint32 uint2;
 	de_uint32 uint3;
 	de_int64 int64_1;
+	// The caller is responsible for freeing pointer fields.
+	// The callee should not use these fields unless requested.
+	de_ucstring *string1;
 };
 
 typedef struct de_module_params_struct {
@@ -108,7 +107,6 @@ struct de_ucstring_struct {
 	de_int64 alloc;
 	char *tmp_string;
 };
-typedef struct de_ucstring_struct de_ucstring;
 
 struct de_timestamp {
 	de_byte is_valid;

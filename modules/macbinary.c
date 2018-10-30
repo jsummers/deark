@@ -215,6 +215,11 @@ static void de_run_macbinary(deark *c, de_module_params *mparams)
 	if(mparams) {
 		mparams->out_params.uint1 = (de_uint32)d->dfpos;
 		mparams->out_params.uint2 = (de_uint32)d->dflen;
+
+		// If caller set out_params.string1, copy the filename to it.
+		if(d->filename && d->filename->len>0 && mparams->out_params.string1) {
+			ucstring_append_ucstring(mparams->out_params.string1, d->filename);
+		}
 	}
 
 	if(d) {
