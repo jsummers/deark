@@ -12,6 +12,7 @@ DE_DECLARE_MODULE(de_module_ogg);
 struct page_info {
 	de_byte version;
 	de_byte hdr_type;
+	int is_first_page; // Is this the first page of some bitstream?
 	de_int64 granule_pos;
 	de_int64 stream_serialno;
 	de_int64 page_seq_num;
@@ -102,9 +103,9 @@ static char *get_hdrtype_descr(deark *c, char *buf, size_t buflen, de_byte hdr_t
 	return buf;
 }
 
-static void do_vorbis_id_header(deark *c, lctx *d, struct stream_info *si, de_int64 pos1, de_int64 len)
+static void do_vorbis_id_header(deark *c, lctx *d, struct page_info *pgi, struct stream_info *si)
 {
-	de_int64 pos = pos1;
+	de_int64 pos = pgi->dpos;
 	unsigned int u1;
 	de_int64 x;
 
@@ -123,9 +124,9 @@ static void do_vorbis_id_header(deark *c, lctx *d, struct stream_info *si, de_in
 	de_dbg(c, "min bitrate: %d", (int)x);
 }
 
-static void do_theora_id_header(deark *c, lctx *d, struct stream_info *si, de_int64 pos1, de_int64 len)
+static void do_theora_id_header(deark *c, lctx *d, struct page_info *pgi, struct stream_info *si)
 {
-	de_int64 pos = pos1;
+	de_int64 pos = pgi->dpos;
 	de_byte vmaj, vmin, vrev;
 	de_int64 x1, x2;
 	unsigned int u1, u2;
@@ -240,6 +241,10 @@ static void do_vorbis_page(deark *c, lctx *d, struct page_info *pgi, struct stre
 {
 	de_byte firstbyte;
 
+	if(pgi->is_first_page) {
+		do_vorbis_id_header(c, d, pgi, si);
+	}
+
 	// We want to save a copy of the Comment and Setup header data,
 	// but not the Identification header which is handled elsewhere.
 
@@ -282,6 +287,10 @@ static void do_theora_page(deark *c, lctx *d, struct page_info *pgi, struct stre
 {
 	de_byte firstbyte;
 
+	if(pgi->is_first_page) {
+		do_theora_id_header(c, d, pgi, si);
+	}
+
 	// We want to save a copy of the Comment and Setup header data,
 	// but not the Identification header which is handled elsewhere.
 
@@ -320,12 +329,7 @@ done:
 	;
 }
 
-static void do_init_new_bitstream(deark *c, lctx *d, struct stream_info *si)
-{
-	de_dbg(c, "bitstream type: %s", si->stream_type_name?si->stream_type_name:"unknown");
-}
-
-static void do_bitstream_firstpage(deark *c, lctx *d, struct stream_info *si, de_int64 pos, de_int64 len)
+static void do_identify_bitstream(deark *c, lctx *d, struct stream_info *si, de_int64 pos, de_int64 len)
 {
 	de_byte idbuf[16];
 	size_t bytes_to_scan;
@@ -344,30 +348,23 @@ static void do_bitstream_firstpage(deark *c, lctx *d, struct stream_info *si, de
 		si->stream_type = STREAMTYPE_VORBIS;
 		si->stream_type_name = "Vorbis";
 		d->found_vorbis = 1;
-		do_init_new_bitstream(c, d, si);
-		do_vorbis_id_header(c, d, si, pos, len);
 	}
 	else if(!de_memcmp(idbuf, "\x80" "theora", 7)) {
 		si->stream_type = STREAMTYPE_THEORA;
 		si->stream_type_name = "Theora";
 		d->found_theora = 1;
-		do_init_new_bitstream(c, d, si);
-		do_theora_id_header(c, d, si, pos, len);
 	}
 	else if(!de_memcmp(idbuf, "fishead\0", 8)) {
 		si->stream_type_name = "Skeleton";
 		d->found_skeleton = 1;
-		do_init_new_bitstream(c, d, si);
 	}
 	else if(!de_memcmp(idbuf, "Speex   ", 8)) {
 		si->stream_type_name = "Speex";
 		d->found_speex = 1;
-		do_init_new_bitstream(c, d, si);
 	}
 	else if(!de_memcmp(idbuf, "\x7f" "FLAC", 5)) {
 		si->stream_type_name = "FLAC";
 		d->found_flac = 1;
-		do_init_new_bitstream(c, d, si);
 	}
 	else if(!de_memcmp(idbuf, "\x01" "video", 6) ||
 		!de_memcmp(idbuf, "\x01" "audio", 6) ||
@@ -376,11 +373,9 @@ static void do_bitstream_firstpage(deark *c, lctx *d, struct stream_info *si, de
 	{
 		si->stream_type_name = "OGM-related";
 		d->found_ogm = 1;
-		do_init_new_bitstream(c, d, si);
 	}
-	else {
-		do_init_new_bitstream(c, d, si);
-	}
+
+	de_dbg(c, "bitstream type: %s", si->stream_type_name?si->stream_type_name:"unknown");
 }
 
 // This function is a continuation of do_ogg_page(). Here we dig
@@ -388,18 +383,12 @@ static void do_bitstream_firstpage(deark *c, lctx *d, struct stream_info *si, de
 static void do_bitstream_page(deark *c, lctx *d, struct page_info *pgi,
 	struct stream_info *si)
 {
-	int is_first_page;
-
-	// Apparently we have 3 ways to identify the first page of a bitstream.
-	// We'll require them all to be consistent.
-	is_first_page = (si->page_count==0) && (pgi->page_seq_num==0) && ((pgi->hdr_type&0x02)!=0);
-
-	if(d->always_hexdump || (is_first_page && (c->debug_level>=2))) {
+	if(d->always_hexdump || (pgi->is_first_page && (c->debug_level>=2))) {
 		de_dbg_hexdump(c, c->infile, pgi->dpos, pgi->dlen, 256, NULL, 0x1);
 	}
 
-	if(is_first_page) {
-		do_bitstream_firstpage(c, d, si, pgi->dpos, pgi->dlen);
+	if(pgi->is_first_page) {
+		do_identify_bitstream(c, d, si, pgi->dpos, pgi->dlen);
 	}
 	else {
 		if(!d->format_declared) declare_ogg_format(c, d);
@@ -474,6 +463,10 @@ static int do_ogg_page(deark *c, lctx *d, de_int64 pos1, de_int64 *bytes_consume
 	}
 
 	pgi->dpos = pos;
+
+	// Apparently we have 3 ways to identify the first page of a bitstream.
+	// We'll require them all to be consistent.
+	pgi->is_first_page = (si->page_count==0) && (pgi->page_seq_num==0) && ((pgi->hdr_type&0x02)!=0);
 
 	// Page data
 	de_dbg(c, "[%"INT64_FMT" total bytes of page data, at %"INT64_FMT"]", pgi->dlen, pgi->dpos);
