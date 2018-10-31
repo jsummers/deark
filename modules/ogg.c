@@ -9,6 +9,33 @@
 #include <deark-fmtutil.h>
 DE_DECLARE_MODULE(de_module_ogg);
 
+struct localctx_struct;
+typedef struct localctx_struct lctx;
+struct page_info;
+struct stream_info;
+
+typedef void (*page_handler_fn_type)(deark *c, lctx *d,
+	struct page_info *pgi, struct stream_info *si);
+
+#define STREAMTYPE_VORBIS   1
+#define STREAMTYPE_THEORA   2
+#define STREAMTYPE_SKELETON 3
+#define STREAMTYPE_FLAC     4
+#define STREAMTYPE_SPEEX    5
+#define STREAMTYPE_OGM_V    20
+#define STREAMTYPE_OGM_A    21
+#define STREAMTYPE_OGM_T    22
+#define STREAMTYPE_OGM_S    23
+
+	struct stream_type_info {
+	int stream_type;
+	unsigned int flags;
+	int magic_len;
+	const de_byte *magic;
+	const char *name;
+	page_handler_fn_type page_fn;
+};
+
 struct page_info {
 	de_byte version;
 	de_byte hdr_type;
@@ -21,17 +48,14 @@ struct page_info {
 };
 
 struct stream_info {
-	de_int64 serialno;
+	int stream_type; // 0 if unknown
+	const struct stream_type_info *sti; // NULL if stream type is unknown
 
-#define STREAMTYPE_VORBIS 1
-#define STREAMTYPE_THEORA 2
-	int stream_type;
+	de_int64 serialno;
 
 	// Number of pages we've counted for this stream so far.
 	// Expected to equal page_info::page_seq_num.
 	de_int64 page_count;
-
-	const char *stream_type_name;
 
 	// Private use data, owned by the stream type.
 
@@ -44,7 +68,7 @@ struct stream_info {
 	dbuf *header_stream;
 };
 
-typedef struct localctx_struct {
+struct localctx_struct {
 	int always_hexdump;
 	de_int64 total_page_count;
 	de_int64 bitstream_count;
@@ -54,7 +78,7 @@ typedef struct localctx_struct {
 	de_byte found_skeleton, found_ogm;
 	de_byte found_vorbis, found_theora, found_speex;
 	de_byte found_flac;
-} lctx;
+};
 
 static unsigned int getui24be_p(dbuf *f, de_int64 *ppos)
 {
@@ -205,11 +229,11 @@ static void do_theora_vorbis_after_headers(deark *c, lctx *d, struct stream_info
 	de_dbg_indent_save(c, &saved_indent_level);
 	if(si->stream_state!=0) goto done;
 	if(!si->header_stream) goto done;
-	if(!si->stream_type_name) goto done;
+	if(!si->sti) goto done;
 	f = si->header_stream;
 
 	de_dbg(c, "[decoding %s comment/setup headers, %d bytes]",
-		si->stream_type_name, (int)si->header_stream->len);
+		si->sti->name, (int)si->header_stream->len);
 	de_dbg_indent(c, 1);
 
 	// Make sure the comment header signature is present.
@@ -242,6 +266,9 @@ static void do_vorbis_page(deark *c, lctx *d, struct page_info *pgi, struct stre
 	de_byte firstbyte;
 
 	if(pgi->is_first_page) {
+		// The first Ogg page of a bitstream usually contains enough data to be
+		// useful. So, we'll try to process it directly, without reconstructing
+		// the codec bitstream.
 		do_vorbis_id_header(c, d, pgi, si);
 	}
 
@@ -329,53 +356,62 @@ done:
 	;
 }
 
+// .flags: 0x1=An OGM stream type
+const struct stream_type_info stream_type_info_arr[] = {
+	{ STREAMTYPE_VORBIS,  0, 7,  (const de_byte*)"\x01" "vorbis", "Vorbis", do_vorbis_page },
+	{ STREAMTYPE_THEORA,  0, 7,  (const de_byte*)"\x80" "theora", "Theora", do_theora_page },
+	{ STREAMTYPE_SKELETON, 0, 8, (const de_byte*)"fishead\0",     "Skeleton", NULL },
+	{ STREAMTYPE_FLAC,    0, 5,  (const de_byte*)"\x7f" "FLAC",   "FLAC", NULL },
+	{ STREAMTYPE_SPEEX,   0, 8,  (const de_byte*)"Speex   ",      "Speex", NULL },
+	{ STREAMTYPE_OGM_V, 0x1, 6,  (const de_byte*)"\x01" "video",  "OGM video", NULL },
+	{ STREAMTYPE_OGM_A, 0x1, 6,  (const de_byte*)"\x01" "audio",  "OGM audio", NULL },
+	{ STREAMTYPE_OGM_T, 0x1, 5,  (const de_byte*)"\x01" "text",   "OGM text", NULL },
+	{ STREAMTYPE_OGM_S, 0x1, 16, (const de_byte*)"\x01" "Direct Show Sam", "OGM DS samples", NULL }
+};
+
 static void do_identify_bitstream(deark *c, lctx *d, struct stream_info *si, de_int64 pos, de_int64 len)
 {
 	de_byte idbuf[16];
 	size_t bytes_to_scan;
+	size_t k;
 
 	bytes_to_scan = (size_t)len;
 	if(bytes_to_scan > sizeof(idbuf)) {
 		bytes_to_scan = sizeof(idbuf);
 	}
 
-	// The first Ogg page of a bitstream usually contains enough data to be
-	// useful. So, we'll try to process it directly, without reconstructing
-	// the codec bitstream.
 	de_read(idbuf, pos, bytes_to_scan);
 
-	if(!de_memcmp(idbuf, "\x01" "vorbis", 7)) {
-		si->stream_type = STREAMTYPE_VORBIS;
-		si->stream_type_name = "Vorbis";
+	for(k=0; k<DE_ITEMS_IN_ARRAY(stream_type_info_arr); k++) {
+		if(!de_memcmp(idbuf, stream_type_info_arr[k].magic,
+			stream_type_info_arr[k].magic_len))
+		{
+			si->sti = &stream_type_info_arr[k];
+			si->stream_type = si->sti->stream_type;
+			break;
+		}
+	}
+
+	if(si->stream_type==STREAMTYPE_VORBIS) {
 		d->found_vorbis = 1;
 	}
-	else if(!de_memcmp(idbuf, "\x80" "theora", 7)) {
-		si->stream_type = STREAMTYPE_THEORA;
-		si->stream_type_name = "Theora";
+	else if(si->stream_type==STREAMTYPE_THEORA) {
 		d->found_theora = 1;
 	}
-	else if(!de_memcmp(idbuf, "fishead\0", 8)) {
-		si->stream_type_name = "Skeleton";
+	else if(si->stream_type==STREAMTYPE_SKELETON) {
 		d->found_skeleton = 1;
 	}
-	else if(!de_memcmp(idbuf, "Speex   ", 8)) {
-		si->stream_type_name = "Speex";
+	else if(si->stream_type==STREAMTYPE_SPEEX) {
 		d->found_speex = 1;
 	}
-	else if(!de_memcmp(idbuf, "\x7f" "FLAC", 5)) {
-		si->stream_type_name = "FLAC";
+	else if(si->stream_type==STREAMTYPE_FLAC) {
 		d->found_flac = 1;
 	}
-	else if(!de_memcmp(idbuf, "\x01" "video", 6) ||
-		!de_memcmp(idbuf, "\x01" "audio", 6) ||
-		!de_memcmp(idbuf, "\x01" "text", 5) ||
-		!de_memcmp(idbuf, "\x01" "Direct Show Sam", 16))
-	{
-		si->stream_type_name = "OGM-related";
+	else if(si->sti && (si->sti->flags&0x1)) {
 		d->found_ogm = 1;
 	}
 
-	de_dbg(c, "bitstream type: %s", si->stream_type_name?si->stream_type_name:"unknown");
+	de_dbg(c, "bitstream type: %s", si->sti?si->sti->name:"unknown");
 }
 
 // This function is a continuation of do_ogg_page(). Here we dig
@@ -394,11 +430,8 @@ static void do_bitstream_page(deark *c, lctx *d, struct page_info *pgi,
 		if(!d->format_declared) declare_ogg_format(c, d);
 	}
 
-	if(si->stream_type==STREAMTYPE_VORBIS) {
-		do_vorbis_page(c, d, pgi, si);
-	}
-	else if(si->stream_type==STREAMTYPE_THEORA) {
-		do_theora_page(c, d, pgi, si);
+	if(si->sti && si->sti->page_fn) {
+		si->sti->page_fn(c, d, pgi, si);
 	}
 }
 
@@ -435,7 +468,7 @@ static int do_ogg_page(deark *c, lctx *d, de_int64 pos1, de_int64 *bytes_consume
 		// We've seen this stream before.
 		de_dbg_indent(c, 1);
 		de_dbg(c, "bitstream %"INT64_FMT" type: %s", pgi->stream_serialno,
-			si->stream_type_name?si->stream_type_name:"unknown");
+			si->sti?si->sti->name:"unknown");
 		de_dbg_indent(c, -1);
 	}
 	else {
