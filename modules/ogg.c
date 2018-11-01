@@ -22,6 +22,12 @@ typedef void (*page_handler_fn_type)(deark *c, lctx *d,
 #define STREAMTYPE_SKELETON 3
 #define STREAMTYPE_FLAC     4
 #define STREAMTYPE_SPEEX    5
+#define STREAMTYPE_OPUS     6
+#define STREAMTYPE_DIRAC    7
+#define STREAMTYPE_KATE     8
+#define STREAMTYPE_MIDI     9
+#define STREAMTYPE_PCM      10
+#define STREAMTYPE_YUV4MPEG 11
 #define STREAMTYPE_OGM_V    20
 #define STREAMTYPE_OGM_A    21
 #define STREAMTYPE_OGM_T    22
@@ -76,8 +82,13 @@ struct localctx_struct {
 
 	de_byte format_declared;
 	de_byte found_skeleton, found_ogm;
-	de_byte found_vorbis, found_theora, found_speex;
-	de_byte found_flac;
+	de_byte found_vorbis, found_theora;
+
+	int first_stream_type_valid;
+	int first_stream_type;
+	int has_unknown_or_multiple_stream_types;
+	int has_non_vorbis_non_theora_stream;
+	const struct stream_type_info *first_stream_sti;
 };
 
 static unsigned int getui24be_p(dbuf *f, de_int64 *ppos)
@@ -93,18 +104,40 @@ static unsigned int getui24be_p(dbuf *f, de_int64 *ppos)
 static void declare_ogg_format(deark *c, lctx *d)
 {
 	char tmps[80];
-	char *name = NULL;
+	const char *name = NULL;
 
 	if(d->format_declared) return;
 	d->format_declared = 1;
 
-	if(d->found_skeleton) name="Skeleton";
-	else if(d->found_ogm) name="OGM";
-	else if(d->found_theora && d->found_vorbis) name="Theora+Vorbis";
-	else if(d->found_theora) name="Theora";
-	else if(d->found_speex) name="Speex";
-	else if(d->found_flac) name="FLAC";
-	else if(d->found_vorbis) name="Vorbis";
+	// There's no nice way, that I know of, to characterize the contents of an Ogg
+	// file. But I think it's worth trying.
+
+	if(d->bitstream_count<1) {
+		// If there are zero streams : "other"
+	}
+	else if(d->found_ogm) {
+		// else if there's an OGM stream of any kind...
+		name="OGM";
+	}
+	else if(d->found_skeleton) {
+		// else If there's a Skeleton stream...
+		name="Skeleton";
+	}
+	else if(d->first_stream_type_valid && d->first_stream_sti &&
+		!d->has_unknown_or_multiple_stream_types)
+	{
+		// else if all streams are the same known type: that stream type
+		name = d->first_stream_sti->name;
+	}
+	else if(d->found_theora && d->found_vorbis && !d->has_non_vorbis_non_theora_stream) {
+		// else if there are Theora and Vorbis streams and nothing else...
+		name="Theora+Vorbis";
+	}
+	else if(d->found_theora) {
+		// else if there's a Theora stream...
+		name="Theora+other";
+	}
+	// (else "other")
 
 	de_snprintf(tmps, sizeof(tmps), "Ogg %s", name?name:"(other)");
 	de_declare_fmt(c, tmps);
@@ -363,6 +396,12 @@ const struct stream_type_info stream_type_info_arr[] = {
 	{ STREAMTYPE_SKELETON, 0, 8, (const de_byte*)"fishead\0",     "Skeleton", NULL },
 	{ STREAMTYPE_FLAC,    0, 5,  (const de_byte*)"\x7f" "FLAC",   "FLAC", NULL },
 	{ STREAMTYPE_SPEEX,   0, 8,  (const de_byte*)"Speex   ",      "Speex", NULL },
+	{ STREAMTYPE_OPUS,    0, 8,  (const de_byte*)"OpusHead",      "Opus", NULL },
+	{ STREAMTYPE_DIRAC,   0, 5,  (const de_byte*)"BBCD\0",        "Dirac", NULL },
+	{ STREAMTYPE_KATE,    0, 8,  (const de_byte*)"\x80" "kate\0\0\0", "Kate", NULL },
+	{ STREAMTYPE_MIDI,    0, 8,  (const de_byte*)"OggMIDI\0",     "MIDI", NULL },
+	{ STREAMTYPE_PCM,     0, 8,  (const de_byte*)"PCM     ",      "PCM", NULL },
+	{ STREAMTYPE_YUV4MPEG, 0, 8, (const de_byte*)"YUV4MPEG",      "YUV4MPEG", NULL },
 	{ STREAMTYPE_OGM_V, 0x1, 6,  (const de_byte*)"\x01" "video",  "OGM video", NULL },
 	{ STREAMTYPE_OGM_A, 0x1, 6,  (const de_byte*)"\x01" "audio",  "OGM audio", NULL },
 	{ STREAMTYPE_OGM_T, 0x1, 5,  (const de_byte*)"\x01" "text",   "OGM text", NULL },
@@ -401,14 +440,12 @@ static void do_identify_bitstream(deark *c, lctx *d, struct stream_info *si, de_
 	else if(si->stream_type==STREAMTYPE_SKELETON) {
 		d->found_skeleton = 1;
 	}
-	else if(si->stream_type==STREAMTYPE_SPEEX) {
-		d->found_speex = 1;
-	}
-	else if(si->stream_type==STREAMTYPE_FLAC) {
-		d->found_flac = 1;
-	}
 	else if(si->sti && (si->sti->flags&0x1)) {
 		d->found_ogm = 1;
+	}
+
+	if(si->stream_type!=STREAMTYPE_VORBIS && si->stream_type!=STREAMTYPE_THEORA) {
+		d->has_non_vorbis_non_theora_stream = 1;
 	}
 
 	de_dbg(c, "bitstream type: %s", si->sti?si->sti->name:"unknown");
@@ -425,6 +462,31 @@ static void do_bitstream_page(deark *c, lctx *d, struct page_info *pgi,
 
 	if(pgi->is_first_page) {
 		do_identify_bitstream(c, d, si, pgi->dpos, pgi->dlen);
+
+		if(d->total_page_count==0) {
+			// This is the first stream in the file.
+			if(si->sti && si->stream_type!=0) {
+				// This stream's type is known. Remember it, for format declaration purpose.
+				d->first_stream_type = si->stream_type;
+				d->first_stream_sti = si->sti;
+				d->first_stream_type_valid = 1;
+			}
+		}
+		else {
+			// Not the first stream in the file
+			if(si->stream_type!=0 && d->first_stream_type_valid &&
+				(si->stream_type==d->first_stream_type))
+			{
+				// This stream is the same type as the first stream. Do nothing.
+			}
+			else {
+				d->has_unknown_or_multiple_stream_types = 1;
+			}
+		}
+
+		if(si->stream_type==0) {
+			d->has_unknown_or_multiple_stream_types = 1;
+		}
 	}
 	else {
 		if(!d->format_declared) declare_ogg_format(c, d);
