@@ -9,6 +9,7 @@
 DE_DECLARE_MODULE(de_module_rsc);
 
 typedef struct localctx_struct {
+	int decode_objects;
 	de_int64 version;
 	de_int64 object_offs, object_num;
 	de_int64 objecttree_num;
@@ -349,6 +350,33 @@ static void do_newformat(deark *c, lctx *d)
 	}
 }
 
+#define OBJTYPE_IMAGE   23
+#define OBJTYPE_ICON    31
+#define OBJTYPE_CLRICON 33
+
+static const char *get_obj_type_name(de_byte t)
+{
+	const char *s = NULL;
+
+	switch(t) {
+	case 20: s="box"; break;
+	case 21: s="formatted text"; break;
+	case 22: s="formatted text in a box"; break;
+	case OBJTYPE_IMAGE: s="image"; break;
+	case 24: s="programmer-defined object"; break;
+	case 25: s="invisible box"; break;
+	case 26: s="push button w/string"; break;
+	case 27: s="character in a box"; break;
+	case 28: s="unformatted text"; break;
+	case 29: s="editable formatted text"; break;
+	case 30: s="editable formatted text in a box"; break;
+	case OBJTYPE_ICON: s="icon"; break;
+	case 32: s="menu title"; break;
+	case OBJTYPE_CLRICON: s="clricon"; break;
+	}
+	return s?s:"?";
+}
+
 // The OBJECT table contains references to the bitmaps and icons in the file.
 // It's not clear if we have to read it, because there are also pointers in
 // the file header.
@@ -357,14 +385,10 @@ static void do_newformat(deark *c, lctx *d)
 static int do_object(deark *c, lctx *d, de_int64 obj_index, de_int64 pos)
 {
 	de_int64 obj_type_orig;
-#define OBJTYPE_IMAGE   23
-#define OBJTYPE_ICON    31
-#define OBJTYPE_CLRICON 33
 	de_byte obj_type;
 	de_int64 next_sibling, first_child, last_child;
 	de_int64 ob_spec;
 	de_int64 width, height;
-	const char *s;
 
 	de_dbg(c, "OBJECT #%d at %d", (int)obj_index, (int)pos);
 	de_dbg_indent(c, 1);
@@ -381,14 +405,8 @@ static int do_object(deark *c, lctx *d, de_int64 obj_index, de_int64 pos)
 	obj_type_orig = de_getui16be(pos+6);
 	obj_type = (de_byte)(obj_type_orig&0xff);
 
-	switch(obj_type) {
-	case OBJTYPE_IMAGE: s = " (image)"; break;
-	case OBJTYPE_ICON: s = " (icon)"; break;
-	case OBJTYPE_CLRICON: s = " (clricon)"; break;
-	default: s = "";
-	}
-
-	de_dbg(c, "type: 0x%04x%s", (unsigned int)obj_type_orig, s);
+	de_dbg(c, "type: 0x%04x (%u; %s)", (unsigned int)obj_type_orig,
+		(unsigned int)obj_type, get_obj_type_name(obj_type));
 
 	ob_spec = de_getui32be(pos+12);
 	de_dbg(c, "ob_spec: %u (0x%08x)", (unsigned int)ob_spec, (unsigned int)ob_spec);
@@ -439,7 +457,7 @@ static void do_oldformat(deark *c, lctx *d)
 	de_dbg(c, "reported resource file size: %d", (int)d->rssize);
 
 	// OBJECT
-	if(c->debug_level>=2) {
+	if(d->decode_objects) {
 		for(i=0; i<d->object_num; i++) {
 			do_object(c, d, i, d->object_offs + 24*i);
 		}
@@ -465,6 +483,7 @@ static void de_run_rsc(deark *c, de_module_params *mparams)
 	de_warn(c, "RSC support is experimental and incomplete. Images may not be decoded correctly.");
 
 	d = de_malloc(c, sizeof(lctx));
+	d->decode_objects = 1;
 
 	d->version = de_getui16be(0);
 	de_dbg(c, "version: 0x%04x", (int)d->version);
