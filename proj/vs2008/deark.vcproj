@@ -850,6 +850,10 @@
 				>
 			</File>
 			<File
+				RelativePath="..\..\modules\sis.c"
+				>
+			</File>
+			<File
 				RelativePath="..\..\modules\spectrum512.c"
 				>
 			</File>

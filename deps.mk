@@ -184,6 +184,8 @@ obj/modules/rsc.o: modules/rsc.c src/deark-config.h src/deark-private.h \
  src/deark.h
 obj/modules/shg.o: modules/shg.c src/deark-config.h src/deark-private.h \
  src/deark.h src/deark-fmtutil.h
+obj/modules/sis.o: modules/sis.c src/deark-config.h src/deark-private.h \
+ src/deark.h
 obj/modules/spectrum512.o: modules/spectrum512.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h
 obj/modules/sunras.o: modules/sunras.c src/deark-config.h \

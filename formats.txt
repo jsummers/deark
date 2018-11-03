@@ -605,6 +605,9 @@ Deark -- Information about supported formats
 * RPM (package manager) (module="rpm)
   - Extract compressed cpio file.
 
+* SIS (EPOC/Symbian archive) (module="sis") (experimental/incomplete)
+  - EPOC release 3/4/5/6
+
 * T64 (Commodore 64 "tape" format) (module="t64")
   - Partial support
 
