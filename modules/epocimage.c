@@ -91,6 +91,10 @@ static de_bitmap *do_create_image(deark *c, lctx *d, struct page_ctx *pg,
 	for(j=0; j<pg->height; j++) {
 		for(i=0; i<pg->width; i++) {
 			switch(pg->bits_per_pixel) {
+			case 1:
+				b = de_get_bits_symbol_lsb(unc_pixels, pg->bits_per_pixel, j*src_rowspan, i);
+				de_bitmap_setpixel_gray(img, i, j, b*255);
+				break;
 			case 2:
 				b = de_get_bits_symbol_lsb(unc_pixels, pg->bits_per_pixel, j*src_rowspan, i);
 				de_bitmap_setpixel_gray(img, i, j, b*85);
@@ -237,7 +241,9 @@ static de_bitmap *do_read_paint_data_section(deark *c, lctx *d,
 	de_dbg(c, "compression type: %d", (int)compression_type);
 
 	if(pg->color_type==0) {
-		if(pg->bits_per_pixel!=2 && pg->bits_per_pixel!=4 && pg->bits_per_pixel!=8) {
+		if(pg->bits_per_pixel!=1 && pg->bits_per_pixel!=2 && pg->bits_per_pixel!=4 &&
+			pg->bits_per_pixel!=8)
+		{
 			de_err(c, "Unsupported bits/pixel (%d) for grayscale image", (int)pg->bits_per_pixel);
 			goto done;
 		}
