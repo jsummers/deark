@@ -83,6 +83,13 @@ static de_bitmap *do_create_image(deark *c, lctx *d, struct page_ctx *pg,
 		// 24-bit images seem to be 12-byte aligned
 		src_rowspan = ((pg->bits_per_pixel*pg->width +95)/96)*12;
 	}
+	else if(pg->bits_per_pixel==12) {
+		// Our decompression algorithm expands RLE12 to an RGB24 format.
+		// Apparently, rows with an odd number of pixels have one pixel of
+		// padding, which at this stage is 3 bytes.
+		src_rowspan = 3*pg->width;
+		if(pg->width%2) src_rowspan += 3;
+	}
 	else {
 		// Rows are 4-byte aligned
 		src_rowspan = ((pg->bits_per_pixel*pg->width +31)/32)*4;
@@ -128,6 +135,7 @@ static de_bitmap *do_create_image(deark *c, lctx *d, struct page_ctx *pg,
 				}
 				de_bitmap_setpixel_rgb(img, i, j, clr);
 				break;
+			case 12:
 			case 24:
 				clr = dbuf_getRGB(unc_pixels, j*src_rowspan + i*3, 0);
 				de_bitmap_setpixel_rgb(img, i, j, clr);
@@ -166,6 +174,30 @@ static void do_rle8(deark *c, lctx *d, dbuf *unc_pixels,
 	}
 }
 
+static void do_rle12(deark *c, lctx *d, dbuf *unc_pixels,
+	de_int64 pos1, de_int64 len)
+{
+	de_int64 pos = pos1;
+	de_int64 count;
+	de_int64 k;
+	unsigned int n;
+	de_byte v[3];
+
+	while(pos<pos1+len) {
+		n = (unsigned int)de_getui16le_p(&pos);
+		count = 1+(de_int64)((n&0xf000)>>12);
+		v[0] = (de_byte)((n&0x0f00)>>8);
+		v[1] = (de_byte)((n&0x00f0)>>4);
+		v[2] = (de_byte)(n&0x000f);
+		v[0] *= 17;
+		v[1] *= 17;
+		v[2] *= 17;
+		for(k=0; k<count; k++) {
+			dbuf_write(unc_pixels, v, 3);
+		}
+	}
+}
+
 static void do_rle16_24(deark *c, lctx *d, dbuf *unc_pixels,
 	de_int64 pos1, de_int64 len, de_int64 bytes_per_pixel)
 {
@@ -198,6 +230,19 @@ static void do_rle16_24(deark *c, lctx *d, dbuf *unc_pixels,
 			pos += count*bytes_per_pixel;
 		}
 	}
+}
+
+static const char *get_cmpr_type_name(de_int64 t)
+{
+	const char *s = NULL;
+	switch(t) {
+	case 0: s="none"; break;
+	case 1: s="RLE8"; break;
+	case 2: s="RLE12"; break;
+	case 3: s="RLE16"; break;
+	case 4: s="RLE24"; break;
+	}
+	return s?s:"?";
 }
 
 // Sets d->paint_data_section_size.
@@ -238,7 +283,8 @@ static de_bitmap *do_read_paint_data_section(deark *c, lctx *d,
 
 	compression_type = de_getui32le(pos+36);
 	// 0=uncompressed  1=8-bit RLE  2=12-bit RLE  3=16-bit RLE  4=24-bit RLE
-	de_dbg(c, "compression type: %d", (int)compression_type);
+	de_dbg(c, "compression type: %d (%s)", (int)compression_type,
+		get_cmpr_type_name(compression_type));
 
 	if(pg->color_type==0) {
 		if(pg->bits_per_pixel!=1 && pg->bits_per_pixel!=2 && pg->bits_per_pixel!=4 &&
@@ -249,11 +295,15 @@ static de_bitmap *do_read_paint_data_section(deark *c, lctx *d,
 		}
 	}
 	else {
-		if(pg->bits_per_pixel!=4 && pg->bits_per_pixel!=8 && pg->bits_per_pixel!=16 &&
-			pg->bits_per_pixel!=24)
+		if(pg->bits_per_pixel!=4 && pg->bits_per_pixel!=8 && pg->bits_per_pixel!=12 &&
+			pg->bits_per_pixel!=16 && pg->bits_per_pixel!=24)
 		{
 			de_err(c, "Unsupported bits/pixel (%d) for color image", (int)pg->bits_per_pixel);
 			goto done;
+		}
+		if(pg->bits_per_pixel==12 && compression_type!=2) {
+			de_err(c, "12 bits/pixel images are not supported with this compression type (%d)",
+				(int)compression_type);
 		}
 		if(pg->bits_per_pixel==16 && !d->warned_exp) {
 			de_warn(c, "Support for this type of 16-bit image is experimental, and may not be correct.");
@@ -273,6 +323,10 @@ static de_bitmap *do_read_paint_data_section(deark *c, lctx *d,
 		unc_pixels = dbuf_create_membuf(c, 16384, 0);
 		do_rle8(c, d, unc_pixels, pos, cmpr_pixels_size);
 		break;
+	case 2: // RLE12
+		unc_pixels = dbuf_create_membuf(c, 16384, 0);
+		do_rle12(c, d, unc_pixels, pos, cmpr_pixels_size);
+		break;
 	case 3: // RLE16
 		unc_pixels = dbuf_create_membuf(c, 16384, 0);
 		do_rle16_24(c, d, unc_pixels, pos, cmpr_pixels_size, 2);
@@ -281,9 +335,6 @@ static de_bitmap *do_read_paint_data_section(deark *c, lctx *d,
 		unc_pixels = dbuf_create_membuf(c, 16384, 0);
 		do_rle16_24(c, d, unc_pixels, pos, cmpr_pixels_size, 3);
 		break;
-
-		// TODO: RLE12 (2)
-
 	default:
 		de_err(c, "Unsupported compression type: %d", (int)compression_type);
 		goto done;
