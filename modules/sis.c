@@ -68,6 +68,12 @@ static int do_file_header(deark *c, lctx *d, de_int64 pos1)
 			}
 		}
 	}
+	if(d->is_rel6) {
+		de_declare_fmt(c, "SIS, EPOC r6");
+	}
+	else {
+		de_declare_fmt(c, "SIS, EPOC r3/4/5");
+	}
 
 	pos += 2; // checksum
 
@@ -77,11 +83,15 @@ static int do_file_header(deark *c, lctx *d, de_int64 pos1)
 	d->nfiles = de_getui16le_p(&pos);
 	de_dbg(c, "num files: %d", (int)d->nfiles);
 
-	pos += 2; // num requisites
+	n = de_getui16le_p(&pos);
+	de_dbg(c, "num requisites: %d", (int)n);
+
 	pos += 2; // installation language
 	pos += 2; // installation files
 	pos += 2; // installation drive
-	pos += 2; // num capabilities
+
+	n = de_getui16le_p(&pos);
+	de_dbg(c, "num capabilities: %d", (int)n);
 
 	d->installer_ver = de_getui32le_p(&pos);
 	de_dbg(c, "installer ver: %d", (int)d->installer_ver);
@@ -93,7 +103,6 @@ static int do_file_header(deark *c, lctx *d, de_int64 pos1)
 	de_dbg(c, "options: 0x%04x", d->options);
 	if(d->is_rel6 && !(d->options&0x0008)) {
 		d->files_are_compressed = 1;
-		de_err(c, "Compression is not supported");
 	}
 
 	pos += 2; // type (TODO)
@@ -106,7 +115,19 @@ static int do_file_header(deark *c, lctx *d, de_int64 pos1)
 	d->files_ptr = de_getui32le_p(&pos);
 	de_dbg(c, "files ptr: %"INT64_FMT, d->files_ptr);
 
-	// TODO: More fields here
+	n = de_getui32le_p(&pos);
+	de_dbg(c, "requisites ptr: %"INT64_FMT, n);
+	n = de_getui32le_p(&pos);
+	de_dbg(c, "certificates ptr: %"INT64_FMT, n);
+	n = de_getui32le_p(&pos);
+	de_dbg(c, "component name ptr: %"INT64_FMT, n);
+
+	if(d->is_rel6) {
+		n = de_getui32le_p(&pos);
+		de_dbg(c, "signature ptr: %"INT64_FMT, n);
+		n = de_getui32le_p(&pos);
+		de_dbg(c, "capabilities ptr: %"INT64_FMT, n);
+	}
 
 	retval = 1;
 	de_dbg_indent(c, -1);
@@ -132,14 +153,11 @@ static void do_extract_file(deark *c, lctx *d, struct file_rec *fr,
 {
 	de_finfo *fi = NULL;
 	de_ucstring *fn = NULL;
+	dbuf *outf = NULL;
 
 	if(fr->ffi[fork_num].ptr<0 ||
 		fr->ffi[fork_num].ptr + fr->ffi[fork_num].len > c->infile->len)
 	{
-		goto done;
-	}
-
-	if(d->files_are_compressed) {
 		goto done;
 	}
 
@@ -157,10 +175,16 @@ static void do_extract_file(deark *c, lctx *d, struct file_rec *fr,
 	ucstring_append_ucstring(fn, fr->name_to_use);
 	de_finfo_set_name_from_ucstring(c, fi, fn);
 
-	dbuf_create_file_from_slice(c->infile, fr->ffi[fork_num].ptr,
-		fr->ffi[fork_num].len, NULL, fi, 0);
+	outf = dbuf_create_output_file(c, NULL, fi, 0);
+	if(d->files_are_compressed) {
+		de_uncompress_zlib(c->infile, fr->ffi[fork_num].ptr, fr->ffi[fork_num].len, outf);
+	}
+	else {
+		dbuf_copy(c->infile, fr->ffi[fork_num].ptr, fr->ffi[fork_num].len, outf);
+	}
 
 done:
+	dbuf_close(outf);
 	de_finfo_destroy(c, fi);
 	ucstring_destroy(fn);
 }
@@ -278,6 +302,7 @@ static int do_file_record_file(deark *c, lctx *d, struct file_rec *fr)
 	if(d->is_rel6) {
 		for(k=0; k<fr->num_forks; k++) {
 			fr->ffi[k].orig_len = de_getui32le_p(&pos);
+			de_dbg(c, "orig_len[%d]: %"INT64_FMT, (int)k, fr->ffi[k].orig_len);
 		}
 		pos += 4; // MIME type len
 		pos += 4; // MIME type ptr
@@ -336,8 +361,17 @@ static int do_file_record(deark *c, lctx *d, de_int64 idx,
 	if(fr->rectype==0x0 || fr->rectype==0x1) {
 		if(!do_file_record_file(c, d, fr)) goto done;
 	}
+	else if(fr->rectype==0x3 || fr->rectype==0x4) { // *if*, *elseif*
+		de_int64 n;
+		n = de_getui32le_p(&pos);
+		de_dbg(c, "size of conditional expression: %d", (int)n);
+		pos += n;
+		fr->rec_len = pos - pos1;
+	}
+	else if(fr->rectype==0x5 || fr->rectype==0x6) { // *else*, *endif*
+		fr->rec_len = 4;
+	}
 	else {
-		// TODO: more record types
 		de_err(c, "Unsupported record type (0x%08x), can't continue", fr->rectype);
 		goto done;
 	}
@@ -431,11 +465,10 @@ done:
 static int de_identify_sis(deark *c)
 {
 	if(!dbuf_memcmp(c->infile, 8, "\x19\x04\x00\x10", 4)) {
-		if(!dbuf_memcmp(c->infile, 4, "\x6d\x00\x00\x10", 8))
+		if(!dbuf_memcmp(c->infile, 4, "\x6d\x00\x00\x10", 4))
 			return 100;
-		if(!dbuf_memcmp(c->infile, 4, "\x12\x3a\x00\x10", 8))
+		if(!dbuf_memcmp(c->infile, 4, "\x12\x3a\x00\x10", 4))
 			return 100;
-		return 10;
 	}
 	return 0;
 }
