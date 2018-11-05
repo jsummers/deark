@@ -149,7 +149,7 @@ static const struct taginfo taginfo_arr[] = {
 static const char *format_4cc_dbgstr(const struct de_fourcc *tmp4cc,
 	char *buf, size_t buflen, unsigned int flags)
 {
-	char str[16];
+	char str[40];
 
 	if((tmp4cc->id==0) && (flags&0x2))
 		de_strlcpy(str, "(none)", sizeof(str));
