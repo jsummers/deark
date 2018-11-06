@@ -138,10 +138,8 @@ Deark -- Information about supported formats
   - Extract BMP and other images from some records.
 
 * EPOC MBM/Sketch/AIF (module="epocimage")
-  - Supports grayscale with 2 or 4 bits/pixel
-  - Supports palette color with 4 or 8 bits/pixel
-  - Supports 16/24 bit full color
-  - Supports uncompressed and RLE8/RLE16/RLE24 compression
+  - Supports most image types
+  - Supports most compression schemes
 
 * EPS (Encapsulated PostScript) (module="eps")
   - Extract EPS, TIFF, and WMF from "EPS DOS Binary" format.
@@ -605,7 +603,7 @@ Deark -- Information about supported formats
 * RPM (package manager) (module="rpm)
   - Extract compressed cpio file.
 
-* SIS (EPOC/Symbian archive) (module="sis") (experimental/incomplete)
+* SIS (EPOC/Symbian archive) (module="sis")
   - EPOC release 3/4/5/6
 
 * T64 (Commodore 64 "tape" format) (module="t64")

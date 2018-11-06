@@ -38,7 +38,9 @@ typedef struct localctx_struct {
 	unsigned int options;
 	de_byte is_rel6;
 	de_byte files_are_compressed;
+	de_int64 nlangs;
 	de_int64 nfiles;
+	de_int64 nrequisites;
 	de_int64 languages_ptr;
 	de_int64 files_ptr;
 	de_int64 requisites_ptr;
@@ -46,7 +48,6 @@ typedef struct localctx_struct {
 	de_int64 component_name_ptr;
 	de_int64 signature_ptr;
 	de_int64 capabilities_ptr;
-	de_int64 nlangs;
 	struct lang_info *langi;
 } lctx;
 
@@ -54,8 +55,9 @@ static int do_file_header(deark *c, lctx *d, de_int64 pos1)
 {
 	de_int64 pos = pos1;
 	de_int64 k;
-	de_int64 n;
+	de_int64 n, n2;
 	int retval = 0;
+	de_ucstring *options_descr = NULL;
 
 	de_dbg(c, "file header at %d", (int)pos);
 	de_dbg_indent(c, 1);
@@ -83,8 +85,8 @@ static int do_file_header(deark *c, lctx *d, de_int64 pos1)
 	d->nfiles = de_getui16le_p(&pos);
 	de_dbg(c, "num files: %d", (int)d->nfiles);
 
-	n = de_getui16le_p(&pos);
-	de_dbg(c, "num requisites: %d", (int)n);
+	d->nrequisites = de_getui16le_p(&pos);
+	de_dbg(c, "num requisites: %d", (int)d->nrequisites);
 
 	pos += 2; // installation language
 	pos += 2; // installation files
@@ -100,14 +102,20 @@ static int do_file_header(deark *c, lctx *d, de_int64 pos1)
 	}
 
 	d->options = (unsigned int)de_getui16le_p(&pos);
-	de_dbg(c, "options: 0x%04x", d->options);
+	options_descr = ucstring_create(c);
+	if(d->options&0x01) ucstring_append_flags_item(options_descr, "IsUnicode");
+	if(d->options&0x02) ucstring_append_flags_item(options_descr, "IsDistributable");
+	if(d->options&0x08) ucstring_append_flags_item(options_descr, "NoCompress");
+	if(d->options&0x10) ucstring_append_flags_item(options_descr, "ShutdownApps");
+	de_dbg(c, "options: 0x%04x (%s)", d->options, ucstring_getpsz(options_descr));
 	if(d->is_rel6 && !(d->options&0x0008)) {
 		d->files_are_compressed = 1;
 	}
 
 	pos += 2; // type (TODO)
-	pos += 2; // major version (of application)
-	pos += 2; // minor version (of application)
+	n = de_getui16le_p(&pos);
+	n2 = de_getui16le_p(&pos);
+	de_dbg(c, "app version: %d,%d", (int)n, (int)n2);
 	pos += 4; // variant
 
 	d->languages_ptr = de_getui32le_p(&pos);
@@ -115,12 +123,12 @@ static int do_file_header(deark *c, lctx *d, de_int64 pos1)
 	d->files_ptr = de_getui32le_p(&pos);
 	de_dbg(c, "files ptr: %"INT64_FMT, d->files_ptr);
 
-	n = de_getui32le_p(&pos);
-	de_dbg(c, "requisites ptr: %"INT64_FMT, n);
-	n = de_getui32le_p(&pos);
-	de_dbg(c, "certificates ptr: %"INT64_FMT, n);
-	n = de_getui32le_p(&pos);
-	de_dbg(c, "component name ptr: %"INT64_FMT, n);
+	d->requisites_ptr = de_getui32le_p(&pos);
+	de_dbg(c, "requisites ptr: %"INT64_FMT, d->requisites_ptr);
+	d->certificates_ptr = de_getui32le_p(&pos);
+	de_dbg(c, "certificates ptr: %"INT64_FMT, d->certificates_ptr);
+	d->component_name_ptr = de_getui32le_p(&pos);
+	de_dbg(c, "component name ptr: %"INT64_FMT, d->component_name_ptr);
 
 	if(d->is_rel6) {
 		n = de_getui32le_p(&pos);
@@ -131,6 +139,7 @@ static int do_file_header(deark *c, lctx *d, de_int64 pos1)
 
 	retval = 1;
 	de_dbg_indent(c, -1);
+	ucstring_destroy(options_descr);
 	return retval;
 }
 
@@ -441,6 +450,94 @@ static void do_language_records(deark *c, lctx *d)
 	de_dbg_indent(c, -1);
 }
 
+static void do_component_name_record(deark *c, lctx *d)
+{
+	de_int64 pos1 = d->component_name_ptr;
+	de_ucstring *s = NULL;
+	de_int64 k;
+
+	if(pos1<1 || pos1>=c->infile->len) return;
+	if(d->nlangs<1) return;
+
+	de_dbg(c, "component name record at %"INT64_FMT, pos1);
+	de_dbg_indent(c, 1);
+	s = ucstring_create(c);
+	for(k=0; k<d->nlangs; k++) {
+		de_int64 npos, nlen;
+		nlen = de_getui32le(pos1+4*k);
+		npos = de_getui32le(pos1+4*d->nlangs+4*k);
+		ucstring_empty(s);
+		read_sis_string(c, d, s, npos, nlen);
+		de_dbg(c, "name[%d]: \"%s\"", (int)k, ucstring_getpsz_d(s));
+	}
+	de_dbg_indent(c, -1);
+	ucstring_destroy(s);
+}
+
+static void do_requisite_records(deark *c, lctx *d)
+{
+	de_int64 pos1 = d->requisites_ptr;
+	de_int64 pos = pos1;
+	de_int64 k, i;
+	de_ucstring *s = NULL;
+
+	if(d->nrequisites<1) return;
+	if(pos1<1 || pos1>=c->infile->len) return;
+	de_dbg(c, "requisite records at %"INT64_FMT, pos1);
+	s = ucstring_create(c);
+	de_dbg_indent(c, 1);
+	for(k=0; k<d->nrequisites; k++) {
+		de_int64 n, n2;
+
+		de_dbg(c, "requisite record[%d] at %"INT64_FMT, (int)k, pos);
+		de_dbg_indent(c, 1);
+		n = de_getui32le_p(&pos);
+		de_dbg(c, "UID: 0x%08x", (unsigned int)n);
+		n = de_getui16le_p(&pos);
+		n2 = de_getui16le_p(&pos);
+		de_dbg(c, "version required: %d,%d", (int)n, (int)n2);
+		n = de_getui32le_p(&pos);
+		de_dbg(c, "variant: 0x%08x", (unsigned int)n);
+
+		for(i=0; i<d->nlangs; i++) {
+			de_int64 npos, nlen;
+			nlen = de_getui32le(pos+4*i);
+			npos = de_getui32le(pos+4*d->nlangs+4*i);
+			ucstring_empty(s);
+			read_sis_string(c, d, s, npos, nlen);
+			de_dbg(c, "name[%d]: \"%s\"", (int)i, ucstring_getpsz_d(s));
+		}
+		pos += 4*d->nlangs; // name lengths
+		pos += 4*d->nlangs; // name pointers
+
+		de_dbg_indent(c, -1);
+	}
+	de_dbg_indent(c, -1);
+	ucstring_destroy(s);
+}
+static void do_certificate_records(deark *c, lctx *d)
+{
+	de_int64 pos1 = d->certificates_ptr;
+	de_int64 pos = pos1;
+	de_int64 k;
+	de_int64 ncerts;
+	int z[6];
+
+	if(pos1<1 || pos1>=c->infile->len) return;
+	de_dbg(c, "certificate records at %"INT64_FMT, pos1);
+	de_dbg_indent(c, 1);
+	for(k=0; k<6; k++) {
+		z[k] = (int)de_getui16le_p(&pos);
+	}
+	// TODO: Is January month #0, or month #1?
+	de_dbg(c, "timestamp: %04d-(%02d or %02d)-%02d %02d:%02d:%02d",
+		z[0], z[1], z[1]+1, z[2],
+		z[3], z[4], z[5]);
+	ncerts = de_getui32le_p(&pos);
+	de_dbg(c, "number of certs: %d", (int)ncerts);
+	de_dbg_indent(c, -1);
+}
+
 static void de_run_sis(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
@@ -452,8 +549,10 @@ static void de_run_sis(deark *c, de_module_params *mparams)
 	if(!do_file_header(c, d, pos)) goto done;
 
 	do_language_records(c, d);
-
+	do_component_name_record(c, d);
+	do_requisite_records(c, d);
 	do_file_records(c, d);
+	do_certificate_records(c, d);
 
 done:
 	if(d) {
