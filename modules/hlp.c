@@ -26,6 +26,7 @@ struct bptree {
 };
 
 typedef struct localctx_struct {
+	int input_encoding;
 	de_int64 internal_dir_FILEHEADER_offs;
 	struct bptree bpt;
 	int found_system_file;
@@ -92,7 +93,7 @@ static void do_display_STRINGZ(deark *c, lctx *d, de_int64 pos1, de_int64 len,
 	s = ucstring_create(c);
 	dbuf_read_to_ucstring_n(c->infile,
 		pos1, len, DE_DBG_MAX_STRLEN,
-		s, DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_ASCII);
+		s, DE_CONVFLAG_STOP_AT_NUL, d->input_encoding);
 	de_dbg(c, "%s: \"%s\"", name, ucstring_getpsz(s));
 	ucstring_destroy(s);
 }
@@ -100,7 +101,6 @@ static void do_display_STRINGZ(deark *c, lctx *d, de_int64 pos1, de_int64 len,
 static void do_SYSTEMREC_STRINGZ(deark *c, lctx *d, unsigned int recordtype,
 	de_int64 pos1, de_int64 len, const struct systemrec_info *sti)
 {
-	// TODO: Can we figure out the encoding?
 	do_display_STRINGZ(c, d, pos1, len, sti->name);
 }
 
@@ -142,20 +142,17 @@ static int do_file_SYSTEM_header(deark *c, lctx *d, de_int64 pos1)
 	char timestamp_buf[64];
 	int retval = 0;
 
-	magic = de_getui16le(pos);
+	magic = de_getui16le_p(&pos);
 	if(magic!=0x036c) {
 		de_err(c, "Expected SYSTEM data at %d not found", (int)pos1);
 		goto done;
 	}
-	pos += 2;
 
 	de_dbg(c, "SYSTEM file data at %d", (int)pos1);
 	de_dbg_indent(c, 1);
 
-	d->ver_minor = (int)de_getui16le(pos);
-	pos += 2;
-	d->ver_major = (int)de_getui16le(pos);
-	pos += 2;
+	d->ver_minor = (int)de_getui16le_p(&pos);
+	d->ver_major = (int)de_getui16le_p(&pos);
 	de_dbg(c, "help format version: %d.%d", d->ver_major, d->ver_minor);
 
 	if(d->ver_major!=1) {
@@ -163,15 +160,13 @@ static int do_file_SYSTEM_header(deark *c, lctx *d, de_int64 pos1)
 		goto done;
 	}
 
-	gen_date = de_geti32le(pos);
+	gen_date = de_geti32le_p(&pos);
 	hlptime_to_timestamp(gen_date, &ts);
 	de_timestamp_to_string(&ts, timestamp_buf, sizeof(timestamp_buf), 0);
 	de_dbg(c, "GenDate: %d (%s)", (int)gen_date, timestamp_buf);
-	pos += 4;
 
-	flags = (unsigned int)de_getui16le(pos);
+	flags = (unsigned int)de_getui16le_p(&pos);
 	de_dbg(c, "flags: 0x%04x", flags);
-	pos += 2;
 
 	if(d->ver_minor>=16) {
 		if(flags==8) {
@@ -212,10 +207,8 @@ static void do_file_SYSTEM_SYSTEMRECS(deark *c, lctx *d, de_int64 pos1, de_int64
 
 		systemrec_startpos = pos;
 
-		recordtype = (unsigned int)de_getui16le(pos);
-		pos += 2;
-		datasize = de_getui16le(pos);
-		pos += 2;
+		recordtype = (unsigned int)de_getui16le_p(&pos);
+		datasize = de_getui16le_p(&pos);
 
 		sti = find_sysrec_info(c, d, recordtype);
 		de_dbg(c, "SYSTEMREC type %u (%s) at %d, dpos=%d, dlen=%d",
@@ -362,33 +355,27 @@ static void do_leaf_page(deark *c, lctx *d, de_int64 pos1, de_int64 *pnext_page)
 	de_int64 foundpos;
 	de_int64 num_entries;
 	de_int64 file_offset;
-	de_ucstring *s = NULL;
-	char filename_raw[300];
 	de_int64 k;
+	struct de_stringreaderdata *fn_srd = NULL;
 	int file_type;
 	int saved_indent_level;
 
 	de_dbg_indent_save(c, &saved_indent_level);
-	n = de_getui16le(pos); // "Unused"
+	n = de_getui16le_p(&pos); // "Unused"
 	de_dbg(c, "free bytes at end of this page: %d", (int)n);
-	pos += 2;
 
-	num_entries = de_geti16le(pos);
+	num_entries = de_geti16le_p(&pos);
 	de_dbg(c, "NEntries: %d", (int)num_entries);
-	pos += 2;
 
-	n = de_geti16le(pos);
+	n = de_geti16le_p(&pos);
 	de_dbg(c, "PreviousPage: %d", (int)n);
-	pos += 2;
 
-	n = de_geti16le(pos);
+	n = de_geti16le_p(&pos);
 	de_dbg(c, "NextPage: %d", (int)n);
 	if(pnext_page) *pnext_page = n;
-	pos += 2;
-
-	s = ucstring_create(c);
 
 	for(k=0; k<num_entries; k++) {
+
 		de_dbg(c, "entry[%d]", (int)k);
 		de_dbg_indent(c, 1);
 
@@ -397,17 +384,17 @@ static void do_leaf_page(deark *c, lctx *d, de_int64 pos1, de_int64 *pnext_page)
 			goto done;
 		}
 
-		de_read((de_byte*)filename_raw, pos, foundpos+1-pos);
-		ucstring_truncate(s, 0);
-		ucstring_append_sz(s, filename_raw, DE_ENCODING_WINDOWS1252);
-		de_dbg(c, "FileName: \"%s\"", ucstring_getpsz_d(s));
+		if(fn_srd) {
+			de_destroy_stringreaderdata(c, fn_srd);
+		}
+		fn_srd = dbuf_read_string(c->infile, pos, foundpos-pos, foundpos-pos, 0, d->input_encoding);
+		de_dbg(c, "FileName: \"%s\"", ucstring_getpsz_d(fn_srd->str));
 		pos = foundpos + 1;
 
-		file_offset = de_geti32le(pos);
+		file_offset = de_geti32le_p(&pos);
 		de_dbg(c, "FileOffset: %d", (int)file_offset);
-		pos += 4;
 
-		file_type = filename_to_filetype(c, d, filename_raw);
+		file_type = filename_to_filetype(c, d, (const char*)fn_srd->sz);
 
 		if((d->pass==1 && file_type==FILETYPE_SYSTEM) ||
 			(d->pass==2 && file_type!=FILETYPE_SYSTEM))
@@ -423,7 +410,7 @@ static void do_leaf_page(deark *c, lctx *d, de_int64 pos1, de_int64 *pnext_page)
 	}
 
 done:
-	ucstring_destroy(s);
+	de_destroy_stringreaderdata(c, fn_srd);
 	de_dbg_indent_restore(c, saved_indent_level);
 }
 
@@ -486,23 +473,20 @@ static void do_bplustree(deark *c, lctx *d, de_int64 pos1, de_int64 len,
 
 	de_dbg_indent_save(c, &saved_indent_level);
 
-	n = de_getui16le(pos);
+	n = de_getui16le_p(&pos);
 	if(n != 0x293b) {
 		de_err(c, "Expected B+ tree structure at %d not found", (int)pos1);
 		goto done;
 	}
-	pos += 2;
 
 	//de_dbg(c, "B+ tree at %d", (int)pos1);
 	de_dbg_indent(c, 1);
 
-	d->bpt.flags = (unsigned int)de_getui16le(pos);
+	d->bpt.flags = (unsigned int)de_getui16le_p(&pos);
 	de_dbg(c, "flags: 0x%04x", d->bpt.flags);
-	pos += 2;
 
-	d->bpt.pagesize = de_getui16le(pos);
+	d->bpt.pagesize = de_getui16le_p(&pos);
 	de_dbg(c, "PageSize: %d", (int)d->bpt.pagesize);
-	pos += 2;
 
 	// TODO: Understand the Structure field
 	pos += 16;
@@ -510,24 +494,20 @@ static void do_bplustree(deark *c, lctx *d, de_int64 pos1, de_int64 len,
 	pos += 2; // MustBeZero
 	pos += 2; // PageSplits
 
-	d->bpt.root_page = de_geti16le(pos);
+	d->bpt.root_page = de_geti16le_p(&pos);
 	de_dbg(c, "RootPage: %d", (int)d->bpt.root_page);
-	pos += 2;
 
 	pos += 2; // MustBeNegOne
 
-	d->bpt.num_pages = de_geti16le(pos);
+	d->bpt.num_pages = de_geti16le_p(&pos);
 	de_dbg(c, "TotalPages: %d", (int)d->bpt.num_pages);
-	pos += 2;
 
-	d->bpt.num_levels = de_geti16le(pos);
+	d->bpt.num_levels = de_geti16le_p(&pos);
 	de_dbg(c, "NLevels: %d", (int)d->bpt.num_levels);
 	if(is_internaldir) d->internal_dir_num_levels = d->bpt.num_levels;
-	pos += 2;
 
-	d->bpt.num_entries = de_geti32le(pos);
+	d->bpt.num_entries = de_geti32le_p(&pos);
 	de_dbg(c, "TotalBtreeEntries: %d", (int)d->bpt.num_entries);
-	pos += 4;
 
 	d->bpt.pagesdata_pos = pos;
 	de_dbg(c, "num pages: %d, %d bytes each, at %d (total size=%d)",
@@ -615,17 +595,14 @@ static void do_file(deark *c, lctx *d, de_int64 pos1, int file_fmt)
 	de_dbg_indent(c, 1);
 
 	// FILEHEADER
-	reserved_space = de_getui32le(pos);
+	reserved_space = de_getui32le_p(&pos);
 	de_dbg(c, "ReservedSpace: %d", (int)reserved_space);
-	pos += 4;
 
-	used_space = de_getui32le(pos);
+	used_space = de_getui32le_p(&pos);
 	de_dbg(c, "UsedSpace: %d", (int)used_space);
-	pos += 4;
 
-	fileflags = (unsigned int)de_getbyte(pos);
+	fileflags = (unsigned int)de_getbyte_p(&pos);
 	de_dbg(c, "FileFlags: 0x%02x", fileflags);
-	pos += 1;
 
 	if(pos+used_space > c->infile->len) {
 		de_err(c, "Bad file size");
@@ -685,6 +662,11 @@ static void de_run_hlp(deark *c, de_module_params *mparams)
 	de_int64 pos;
 
 	d = de_malloc(c, sizeof(lctx));
+
+	if(c->input_encoding==DE_ENCODING_UNKNOWN)
+		d->input_encoding = DE_ENCODING_ASCII;
+	else
+		d->input_encoding = c->input_encoding;
 
 	pos = 0;
 	do_header(c, d, pos);
