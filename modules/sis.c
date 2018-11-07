@@ -205,7 +205,7 @@ static void read_sis_string(deark *c, lctx *d, de_ucstring *s,
 		dbuf_read_to_ucstring_n(c->infile, pos, len, 512*2, s, 0, DE_ENCODING_UTF16LE);
 	}
 	else {
-		dbuf_read_to_ucstring_n(c->infile, pos, len, 512, s, 0, DE_ENCODING_ASCII);
+		dbuf_read_to_ucstring_n(c->infile, pos, len, 512, s, 0, DE_ENCODING_WINDOWS1252);
 	}
 }
 
@@ -529,9 +529,13 @@ static void do_certificate_records(deark *c, lctx *d)
 	for(k=0; k<6; k++) {
 		z[k] = (int)de_getui16le_p(&pos);
 	}
-	// TODO: Is January month #0, or month #1?
-	de_dbg(c, "timestamp: %04d-(%02d or %02d)-%02d %02d:%02d:%02d",
-		z[0], z[1], z[1]+1, z[2],
+
+	// The documentation I have does not explain how the month is encoded.
+	// I.e., is January month #0, or month #1?
+	// I found a file that has the month set to 0, so I assume that must be
+	// January.
+	de_dbg(c, "timestamp: %04d-%02d-%02d %02d:%02d:%02d",
+		z[0], z[1]+1, z[2],
 		z[3], z[4], z[5]);
 	ncerts = de_getui32le_p(&pos);
 	de_dbg(c, "number of certs: %d", (int)ncerts);
