@@ -506,6 +506,10 @@
 				>
 			</File>
 			<File
+				RelativePath="..\..\modules\arcfs.c"
+				>
+			</File>
+			<File
 				RelativePath="..\..\modules\asf.c"
 				>
 			</File>
