@@ -871,9 +871,9 @@ static const char *get_id3v2_frame_name(id3v2ctx *d, de_uint32 id)
 		{0x54454eU, 0x54454e43U, "Encoded by"},
 		{CODE_GEO,  CODE_GEOB,   "General encapsulated object"},
 		{0x544b45U, 0x544b4559U, "Initial key"},
+		{0,         0x54434d50U, "iTunes Compilation Flag"}, // TCMP
 		{0x544c41U, 0x544c414eU, "Language"},
-		{0x545031U, 0,           "Lead artist/Performing group"},
-		{0,         0x54504531U, "Lead performer"},
+		{0x545031U, 0x54504531U, "Lead artist/Performing group"}, // TP1,TPE1
 		{0x544c45U, 0x544c454eU, "Length"},
 		{0x545854U, 0x54455854U, "Lyricist"},
 		{0x4d4349U, 0x4d434449U, "Music CD identifier"},
@@ -883,6 +883,7 @@ static const char *get_id3v2_frame_name(id3v2ctx *d, de_uint32 id)
 		{0x544f54U, 0x544f414cU, "Original album/movie/show title"},
 		{0x544f41U, 0x544f5045U, "Original artist/performer"},
 		{0x544f4cU, 0x544f4c59U, "Original lyricist"},
+		{0,         0x54504f53U, "Part of a set"}, // TPOS
 		{CODE_POP,  CODE_POPM,   "Popularimeter"},
 		{0,         CODE_PRIV,   "Private frame"},
 		{0x545042U, 0x54505542U, "Publisher"},
