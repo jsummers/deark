@@ -57,19 +57,50 @@ static int do_file_header(deark *c, lctx *d, de_int64 pos1)
 	de_int64 k;
 	de_int64 n, n2;
 	int retval = 0;
+	de_uint32 crc_even;
+	de_uint32 crc_odd;
 	de_ucstring *options_descr = NULL;
+	struct de_crcobj *crco = NULL;
+	de_byte tmpbuf[12];
 
 	de_dbg(c, "file header at %d", (int)pos);
+
 	de_dbg_indent(c, 1);
-	for(k=1; k<=4; k++) {
-		n = de_getui32le_p(&pos);
-		de_dbg(c, "UID %d: 0x%08x", (int)k, (unsigned int)n);
-		if(k==2) {
-			if(n==0x10003a12) {
-				d->is_rel6 = 1;
-			}
-		}
+
+	// Pre-read the first 12 bytes, to calculate some CRCs for later.
+	de_read(tmpbuf, pos, 12);
+
+	crco = de_crcobj_create(c, DE_CRCOBJ_CRC16_CCITT);
+	for(k=0; k<12; k+=2) {
+		de_crcobj_addbyte(crco, tmpbuf[k]);
 	}
+	crc_even = de_crcobj_getval(crco);
+	de_crcobj_reset(crco);
+	for(k=1; k<12; k+=2) {
+		de_crcobj_addbyte(crco, tmpbuf[k]);
+	}
+	crc_odd = de_crcobj_getval(crco);
+	de_crcobj_destroy(crco);
+	crco = NULL;
+
+	n = de_getui32le_p(&pos);
+	de_dbg(c, "UID 1: 0x%08x", (unsigned int)n);
+
+	n = de_getui32le_p(&pos);
+	de_dbg(c, "UID 2: 0x%08x", (unsigned int)n);
+	if(n==0x10003a12) {
+		d->is_rel6 = 1;
+	}
+
+	n = de_getui32le_p(&pos);
+	de_dbg(c, "UID 3: 0x%08x", (unsigned int)n);
+
+	n = de_getui32le_p(&pos);
+	de_dbg(c, "UID 4: 0x%08x", (unsigned int)n);
+	// The way UID 4 is calculated is really silly.
+	de_dbg(c, "expected value of UID 4: 0x%04x%04x",
+		(unsigned int)crc_odd, (unsigned int)crc_even);
+
 	if(d->is_rel6) {
 		de_declare_fmt(c, "SIS, EPOC r6");
 	}

@@ -860,6 +860,20 @@ int de_inthashtable_item_exists(deark *c, struct de_inthashtable *ht, de_int64 k
 int de_inthashtable_remove_item(deark *c, struct de_inthashtable *ht, de_int64 key, void **pvalue);
 int de_inthashtable_remove_any_item(deark *c, struct de_inthashtable *ht, de_int64 *pkey, void **pvalue);
 
+#define DE_CRCOBJ_CRC32_IEEE   0x10
+#define DE_CRCOBJ_CRC16_CCITT  0x20
+#define DE_CRCOBJ_CRC16_ZOO    0x21
+
+struct de_crcobj;
+
+struct de_crcobj *de_crcobj_create(deark *c, unsigned int flags);
+void de_crcobj_destroy(struct de_crcobj *crco);
+void de_crcobj_reset(struct de_crcobj *crco);
+de_uint32 de_crcobj_getval(struct de_crcobj *crco);
+void de_crcobj_addbuf(struct de_crcobj *crco, const de_byte *buf, de_int64 buf_len);
+void de_crcobj_addbyte(struct de_crcobj *crco, de_byte b);
+void de_crcobj_addslice(struct de_crcobj *crco, dbuf *f, de_int64 pos, de_int64 len);
+
 ///////////////////////////////////////////
 
 struct de_bitmap_font_char {

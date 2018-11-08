@@ -1161,3 +1161,106 @@ int de_inthashtable_remove_any_item(deark *c, struct de_inthashtable *ht, de_int
 	if(pvalue) *pvalue = NULL;
 	return 0;
 }
+
+// crcobj: Functions for performing CRC calculations, and other checksum-like
+// functions for which the result can fit in a 32-bit int.l
+
+struct de_crcobj {
+	de_uint32 val;
+	unsigned int crctype;
+	deark *c;
+	de_uint16 *table16;
+};
+
+static void de_crc16ccitt_init(struct de_crcobj *crco)
+{
+	const unsigned int polynomial = 0x1021;
+	unsigned int index;
+
+	crco->table16 = de_malloc(crco->c, 256*sizeof(de_uint16));
+	crco->table16[0] = 0;
+	for(index=0; index<128; index++) {
+		unsigned int carry = crco->table16[index] & 0x8000;
+		unsigned int temp = (crco->table16[index] << 1) & 0xffff;
+		crco->table16[index * 2 + (carry ? 0 : 1)] = temp ^ polynomial;
+		crco->table16[index * 2 + (carry ? 1 : 0)] = temp;
+	}
+}
+
+static void de_crc16ccitt_continue(struct de_crcobj *crco, const de_byte *buf, de_int64 buf_len)
+{
+	de_int64 k;
+
+	if(!crco->table16) return;
+	for(k=0; k<buf_len; k++) {
+		crco->val = ((crco->val<<8)&0xffff) ^
+			(de_uint32)crco->table16[((crco->val>>8) ^ (de_uint32)buf[k]) & 0xff];
+	}
+}
+
+// Allocate, initializes, and resets a new object
+struct de_crcobj *de_crcobj_create(deark *c, unsigned int flags)
+{
+	struct de_crcobj *crco;
+
+	crco = de_malloc(c, sizeof(struct de_crcobj));
+	crco->c = c;
+	crco->crctype = flags;
+
+	switch(crco->crctype) {
+	case DE_CRCOBJ_CRC16_CCITT:
+		de_crc16ccitt_init(crco);
+	}
+
+	de_crcobj_reset(crco);
+	return crco;
+}
+
+void de_crcobj_destroy(struct de_crcobj *crco)
+{
+	deark *c;
+
+	if(!crco) return;
+	c = crco->c;
+	de_free(c, crco->table16);
+	de_free(c, crco);
+}
+
+void de_crcobj_reset(struct de_crcobj *crco)
+{
+	crco->val = 0;
+}
+
+de_uint32 de_crcobj_getval(struct de_crcobj *crco)
+{
+	return crco->val;
+}
+
+void de_crcobj_addbuf(struct de_crcobj *crco, const de_byte *buf, de_int64 buf_len)
+{
+	switch(crco->crctype) {
+	case DE_CRCOBJ_CRC16_CCITT:
+		de_crc16ccitt_continue(crco, buf, buf_len);
+	}
+}
+
+void de_crcobj_addbyte(struct de_crcobj *crco, de_byte b)
+{
+	de_crcobj_addbuf(crco, &b, 1);
+}
+
+void de_crcobj_addslice(struct de_crcobj *crco, dbuf *f, de_int64 pos1, de_int64 len)
+{
+	de_int64 pos = pos1;
+#define CRCBUFLEN 128
+	de_byte buf[CRCBUFLEN];
+
+	while(pos<pos1+len) {
+		de_int64 bytestoread;
+		bytestoread = pos1+len-pos;
+		if(bytestoread>CRCBUFLEN) bytestoread = CRCBUFLEN;
+		dbuf_read(f, buf, pos, bytestoread);
+		de_crcobj_addbuf(crco, buf, bytestoread);
+		pos += bytestoread;
+	}
+}

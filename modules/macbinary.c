@@ -134,8 +134,16 @@ static void do_header(deark *c, lctx *d)
 	pos += 1; // version number, already read
 
 	if(d->ver2 >= 129) {
+		struct de_crcobj *crco = NULL;
+		de_uint32 crc_calc;
 		n = de_getui16be(pos);
 		de_dbg(c, "CRC of header (reported): 0x%04x", (unsigned int)n);
+
+		crco = de_crcobj_create(c, DE_CRCOBJ_CRC16_CCITT);
+		de_crcobj_addslice(crco, c->infile, 0, 124);
+		crc_calc = de_crcobj_getval(crco);
+		de_crcobj_destroy(crco);
+		de_dbg(c, "CRC of header (calculated): 0x%04x", (unsigned int)crc_calc);
 	}
 	pos += 2;
 
