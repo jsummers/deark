@@ -463,6 +463,42 @@ int de_fmtutil_uncompress_packbits16(dbuf *f, de_int64 pos1, de_int64 len,
 	return 1;
 }
 
+// I don't know the name of this RLE algorithm, but it's used in multiple formats.
+int de_fmtutil_decompress_binhexrle(dbuf *inf, de_int64 pos1, de_int64 len, dbuf *outf)
+{
+	de_int64 pos = pos1;
+	de_byte b;
+	de_byte lastbyte = 0x00;
+	de_byte countcode;
+
+	while(pos < pos1+len) {
+		b = dbuf_getbyte(inf, pos);
+		pos++;
+		if(b!=0x90) {
+			dbuf_writebyte(outf, b);
+			lastbyte = b;
+			continue;
+		}
+
+		// b = 0x90, which is a special code.
+		countcode = dbuf_getbyte(inf, pos);
+		pos++;
+
+		if(countcode==0x00) {
+			// Not RLE, just an escaped 0x90 byte.
+			dbuf_writebyte(outf, 0x90);
+			lastbyte = 0x90;
+			continue;
+		}
+
+		// RLE. We already emitted one byte (because the byte to repeat
+		// comes before the repeat count), so write countcode-1 bytes.
+		dbuf_write_run(outf, lastbyte, countcode-1);
+	}
+
+	return 1;
+}
+
 static de_int64 sauce_space_padded_length(const de_byte *buf, de_int64 len)
 {
 	de_int64 i;

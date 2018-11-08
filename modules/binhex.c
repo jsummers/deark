@@ -6,6 +6,7 @@
 
 #include <deark-config.h>
 #include <deark-private.h>
+#include <deark-fmtutil.h>
 DE_DECLARE_MODULE(de_module_binhex);
 
 typedef struct localctx_struct {
@@ -78,44 +79,6 @@ static int do_decode_main(deark *c, lctx *d, de_int64 pos)
 	}
 
 	de_dbg(c, "size after decoding: %d", (int)d->decoded->len);
-	return 1;
-}
-
-// Decompress d->decoded, write to d->decompressed
-static int do_decompress(deark *c, lctx *d)
-{
-	de_int64 pos;
-	de_byte b;
-	de_byte lastbyte = 0x00;
-	de_byte countcode;
-
-	pos = 0;
-	while(pos < d->decoded->len) {
-		b = dbuf_getbyte(d->decoded, pos);
-		pos++;
-		if(b!=0x90) {
-			dbuf_writebyte(d->decompressed, b);
-			lastbyte = b;
-			continue;
-		}
-
-		// b = 0x90, which is a special code.
-		countcode = dbuf_getbyte(d->decoded, pos);
-		pos++;
-
-		if(countcode==0x00) {
-			// Not RLE, just an escaped 0x90 byte.
-			dbuf_writebyte(d->decompressed, 0x90);
-			lastbyte = 0x90;
-			continue;
-		}
-
-		// RLE. We already emitted one byte (because the byte to repeat
-		// comes before the repeat count), so write countcode-1 bytes.
-		dbuf_write_run(d->decompressed, lastbyte, countcode-1);
-	}
-
-	de_dbg(c, "size after decompression: %d", (int)d->decompressed->len);
 	return 1;
 }
 
@@ -221,8 +184,9 @@ static void do_binhex(deark *c, lctx *d, de_int64 pos)
 	ret = do_decode_main(c, d, pos);
 	if(!ret) goto done;
 
-	ret = do_decompress(c, d);
+	ret = de_fmtutil_decompress_binhexrle(d->decoded, 0, d->decoded->len, d->decompressed);
 	if(!ret) goto done;
+	de_dbg(c, "size after decompression: %d", (int)d->decompressed->len);
 
 	do_extract_files(c, d);
 

@@ -13,7 +13,7 @@ obj/modules/applesd.o: modules/applesd.c src/deark-config.h \
 obj/modules/ar.o: modules/ar.c src/deark-config.h src/deark-private.h \
  src/deark.h
 obj/modules/arcfs.o: modules/arcfs.c src/deark-config.h \
- src/deark-private.h src/deark.h
+ src/deark-private.h src/deark.h src/deark-fmtutil.h
 obj/modules/asf.o: modules/asf.c src/deark-config.h src/deark-private.h \
  src/deark.h src/deark-fmtutil.h
 obj/modules/atari-dsk.o: modules/atari-dsk.c src/deark-config.h \
@@ -27,7 +27,7 @@ obj/modules/awbm.o: modules/awbm.c src/deark-config.h src/deark-private.h \
 obj/modules/basic-c64.o: modules/basic-c64.c src/deark-config.h \
  src/deark-private.h src/deark.h
 obj/modules/binhex.o: modules/binhex.c src/deark-config.h \
- src/deark-private.h src/deark.h
+ src/deark-private.h src/deark.h src/deark-fmtutil.h
 obj/modules/bintext.o: modules/bintext.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h
 obj/modules/bmff.o: modules/bmff.c src/deark-config.h src/deark-private.h \

@@ -6,14 +6,17 @@
 
 #include <deark-config.h>
 #include <deark-private.h>
+#include <deark-fmtutil.h>
 DE_DECLARE_MODULE(de_module_arcfs);
 
 struct member_data {
 	de_byte cmpr_method;
+	de_uint32 attribs;
 	de_int64 file_data_offs_rel;
 	de_int64 file_data_offs_abs;
 	de_int64 orig_len;
 	de_int64 cmpr_len;
+	const char *cmpr_meth_name;
 	de_ucstring *fn;
 };
 
@@ -74,28 +77,52 @@ static void do_extract_member(deark *c, lctx *d, struct member_data *md)
 	de_dbg(c, "file data at %"INT64_FMT", len=%"INT64_FMT,
 		md->file_data_offs_abs, md->cmpr_len);
 
-	if(md->cmpr_method!=0x82) {
-		de_err(c, "Compression type 0x%02x is not supported.",
-			(unsigned int)md->cmpr_method);
+	if(md->cmpr_method!=0x82 && md->cmpr_method!=0x83) {
+		de_err(c, "Compression type 0x%02x (%s) is not supported.",
+			(unsigned int)md->cmpr_method, md->cmpr_meth_name);
 		goto done;
 	}
 
 	fi = de_finfo_create(c);
 	de_finfo_set_name_from_ucstring(c, fi, md->fn);
 	outf = dbuf_create_output_file(c, NULL, fi, 0x0);
+	dbuf_set_max_length(outf, md->orig_len+256);
+
 	if(md->cmpr_method==0x82) { // stored
 		dbuf_copy(c->infile, md->file_data_offs_abs, md->cmpr_len, outf);
 	}
+	else if(md->cmpr_method==0x83) {
+		de_fmtutil_decompress_binhexrle(c->infile, md->file_data_offs_abs, md->cmpr_len, outf);
+	}
+
+	if(outf->len != md->orig_len) {
+		de_err(c, "Decompression failed, expected size %"INT64_FMT
+			", got %"INT64_FMT, md->orig_len, outf->len);
+	}
 
 done:
+	dbuf_close(outf);
 	de_finfo_destroy(c, fi);
+}
+
+static const char *get_cmpr_meth_name(de_byte t)
+{
+	const char *name = NULL;
+	switch(t) {
+	case 0x00: name="end of dir marker"; break;
+	case 0x01: name="deleted object"; break;
+	case 0x82: name="stored"; break;
+	case 0x83: name="packed (RLE)"; break;
+	case 0x88: name="crunched"; break;
+	case 0xff: name="compressed"; break;
+	}
+	return name?name:"?";
 }
 
 static void do_member(deark *c, lctx *d, de_int64 idx, de_int64 pos1)
 {
 	de_int64 pos = pos1;
 	de_uint32 info_word;
-	de_uint32 attribs;
 	de_byte info_byte;
 	int is_dir;
 	int saved_indent_level;
@@ -107,7 +134,8 @@ static void do_member(deark *c, lctx *d, de_int64 idx, de_int64 pos1)
 	de_dbg_indent(c, 1);
 
 	info_byte = de_getbyte_p(&pos);
-	de_dbg(c, "info byte: 0x%02x", (unsigned int)info_byte);
+	md->cmpr_meth_name = get_cmpr_meth_name(info_byte);
+	de_dbg(c, "info byte: 0x%02x (%s)", (unsigned int)info_byte, md->cmpr_meth_name);
 	if(info_byte==0) goto done; // end of directory marker
 	if(info_byte==1) goto done; // deleted object
 	md->cmpr_method = info_byte;
@@ -131,8 +159,8 @@ static void do_member(deark *c, lctx *d, de_int64 idx, de_int64 pos1)
 	pos += 4; // load addr
 	pos += 4; // exec addr
 
-	attribs = (de_uint32)de_getui32le_p(&pos);
-	de_dbg(c, "attribs: 0x%08x", (unsigned int)attribs);
+	md->attribs = (de_uint32)de_getui32le_p(&pos);
+	de_dbg(c, "attribs: 0x%08x", (unsigned int)md->attribs);
 
 	md->cmpr_len = de_getui32le_p(&pos);
 	if(!is_dir) {
