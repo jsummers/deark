@@ -145,18 +145,6 @@ static int valid_file_at(deark *c, lctx *d, de_int64 pos1)
 	return 1;
 }
 
-static de_uint32 x_dbuf_crc32(dbuf *f, de_int64 pos, de_int64 len)
-{
-	de_uint32 crc;
-	de_byte *buf;
-
-	buf = de_malloc(f->c, len);
-	dbuf_read(f, buf, pos, len);
-	crc = de_crc32(buf, len);
-	de_free(f->c, buf);
-	return crc;
-}
-
 static const char *get_pattern_set_info(de_uint32 patcrc, int *is_blank)
 {
 	*is_blank = 0;
@@ -186,10 +174,14 @@ static void do_read_patterns(deark *c, lctx *d, de_int64 pos)
 	const char *patsetname;
 	de_finfo *fi = NULL;
 	de_ucstring *tmpname = NULL;
+	struct de_crcobj *crc32o;
 
 	pos += 4;
 
-	patcrc = x_dbuf_crc32(c->infile, pos, 38*8);
+	crc32o = de_crcobj_create(c, DE_CRCOBJ_CRC32_IEEE);
+	de_crcobj_addslice(crc32o, c->infile, pos, 38*8);
+	patcrc = de_crcobj_getval(crc32o);
+	de_crcobj_destroy(crc32o);
 	patsetname = get_pattern_set_info(patcrc, &is_blank);
 	de_dbg(c, "brush patterns crc: 0x%08x (%s)", (unsigned int)patcrc, patsetname);
 

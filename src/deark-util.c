@@ -1296,7 +1296,7 @@ void de_crcobj_addbyte(struct de_crcobj *crco, de_byte b)
 void de_crcobj_addslice(struct de_crcobj *crco, dbuf *f, de_int64 pos1, de_int64 len)
 {
 	de_int64 pos = pos1;
-#define CRCBUFLEN 128
+#define CRCBUFLEN 1024
 	de_byte buf[CRCBUFLEN];
 
 	while(pos<pos1+len) {

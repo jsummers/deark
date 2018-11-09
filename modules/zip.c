@@ -30,7 +30,7 @@ struct member_data {
 	int is_executable;
 	int is_dir;
 	int is_symlink;
-	de_uint32 crc_calculated;
+	struct de_crcobj *crco; // copy of lctx::crco
 
 	struct dir_entry_data central_dir_entry_data;
 	struct dir_entry_data local_dir_entry_data;
@@ -55,6 +55,7 @@ typedef struct localctx_struct {
 	de_int64 central_dir_offset;
 	de_int64 offset_discrepancy;
 	int used_offset_discrepancy;
+	struct de_crcobj *crco;
 } lctx;
 
 typedef void (*extrafield_decoder_fn)(deark *c, lctx *d,
@@ -607,7 +608,7 @@ static void do_extra_data(deark *c, lctx *d,
 static void our_writecallback(dbuf *f, const de_byte *buf, de_int64 buf_len)
 {
 	struct member_data *md = (struct member_data *)f->userdata;
-	md->crc_calculated = de_crc32_continue(md->crc_calculated, buf, buf_len);
+	de_crcobj_addbuf(md->crco, buf, buf_len);
 }
 
 static void do_extract_file(deark *c, lctx *d, struct member_data *md)
@@ -615,6 +616,7 @@ static void do_extract_file(deark *c, lctx *d, struct member_data *md)
 	dbuf *outf = NULL;
 	de_finfo *fi = NULL;
 	struct dir_entry_data *ldd = &md->local_dir_entry_data;
+	de_uint32 crc_calculated;
 
 	de_dbg(c, "file data at %d, len=%d", (int)md->file_data_pos,
 		(int)ldd->cmpr_size);
@@ -658,15 +660,17 @@ static void do_extract_file(deark *c, lctx *d, struct member_data *md)
 	outf->writecallback_fn = our_writecallback;
 	outf->userdata = (void*)md;
 
-	md->crc_calculated = de_crc32(NULL, 0);
+	md->crco = d->crco;
+	de_crcobj_reset(md->crco);
 
 	do_decompress_data(c, d, c->infile, md->file_data_pos, ldd->cmpr_size, outf, ldd->cmpr_method);
 
-	de_dbg(c, "crc (calculated): 0x%08x", (unsigned int)md->crc_calculated);
+	crc_calculated = de_crcobj_getval(md->crco);
+	de_dbg(c, "crc (calculated): 0x%08x", (unsigned int)crc_calculated);
 
-	if(md->crc_calculated != ldd->crc_reported) {
+	if(crc_calculated != ldd->crc_reported) {
 		de_warn(c, "CRC check failed: Expected 0x%08x, got 0x%08x",
-			(unsigned int)ldd->crc_reported, (unsigned int)md->crc_calculated);
+			(unsigned int)ldd->crc_reported, (unsigned int)crc_calculated);
 	}
 
 done:
@@ -944,6 +948,10 @@ static int do_central_dir(deark *c, lctx *d)
 	de_dbg(c, "central dir at %d", (int)pos);
 	de_dbg_indent(c, 1);
 
+	if(!d->crco) {
+		d->crco = de_crcobj_create(c, DE_CRCOBJ_CRC32_IEEE);
+	}
+
 	for(i=0; i<d->central_dir_num_entries; i++) {
 		if(!do_central_dir_entry(c, d, i, pos, &entry_size)) {
 			// TODO: Decide exactly what to do if something fails.
@@ -1053,7 +1061,10 @@ static void de_run_zip(deark *c, de_module_params *mparams)
 	}
 
 done:
-	de_free(c, d);
+	if(d) {
+		de_crcobj_destroy(d->crco);
+		de_free(c, d);
+	}
 }
 
 static int de_identify_zip(deark *c)
