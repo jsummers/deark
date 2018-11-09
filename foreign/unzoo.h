@@ -147,7 +147,9 @@ struct unzooctx {
 	*/
 	const char *ErrMsg;
 
-	de_uint16   CrcTab [256];
+	// Shared by all member files, so we don't have to recalculate the CRC table
+	// for each member file.
+	struct de_crcobj *crco;
 };
 
 static int GotoReadArch (struct unzooctx *uz, de_int64 pos)
@@ -406,19 +408,11 @@ done:
 	return retval;
 }
 
-static de_uint32 CRC_BYTE(struct unzooctx *uz, de_uint32 crc, de_byte byte)
-{
-	return (((crc)>>8) ^ (de_uint32)uz->CrcTab[ ((crc)^(byte))&0xff ]);
-}
-
 static void our_writecallback(dbuf *f, const de_byte *buf, de_int64 buf_len)
 {
 	struct entryctx *ze = (struct entryctx *)f->userdata;
-	de_int64 k;
 
-	for(k=0; k<buf_len; k++) {
-		ze->crc_calculated = CRC_BYTE(ze->uz, ze->crc_calculated, buf[k]);
-	}
+	de_crcobj_addbuf(ze->uz->crco, buf, buf_len);
 }
 
 /****************************************************************************
@@ -455,7 +449,7 @@ static int OpenWritFile(struct unzooctx *uz, struct entryctx *ze)
 	ze->WritBinr = dbuf_create_output_file(uz->c, ext, ze->fi, 0);
 	ze->WritBinr->writecallback_fn = our_writecallback;
 	ze->WritBinr->userdata = (void*)ze;
-	ze->crc_calculated = 0;
+	de_crcobj_reset(uz->crco);
 	return 1;
 }
 
@@ -472,17 +466,6 @@ static de_int64 BlckWritFile (struct unzooctx *uz, struct entryctx *ze, const de
 	if(!ze->WritBinr) return 0;
 	dbuf_write(ze->WritBinr, blk, len);
 	return len;
-}
-
-static int InitCrc (struct unzooctx *uz)
-{
-	de_uint32       i, k;           /* loop variables                  */
-	for ( i = 0; i < 256; i++ ) {
-		uz->CrcTab[i] = i;
-		for ( k = 0; k < 8; k++ )
-			uz->CrcTab[i] = (uz->CrcTab[i]>>1) ^ ((uz->CrcTab[i] & 1) ? 0xa001 : 0);
-	}
-	return 1;
 }
 
 /****************************************************************************
@@ -1066,6 +1049,7 @@ static void ExtrEntry(struct unzooctx *uz, de_int64 pos1, de_int64 *next_entry_p
 		goto done;
 	}
 
+	ze->crc_calculated = de_crcobj_getval(uz->crco);
 	de_dbg(c, "calculated crc: 0x%04x", (unsigned int)ze->crc_calculated);
 
 	/* check that everything went ok                                   */
@@ -1106,7 +1090,7 @@ static int ExtrArch (deark *c, dbuf *inf)
 	uz->ReadArch = inf;
 	uz->ReadArch_fpos = 0;
 
-	InitCrc(uz);
+	uz->crco = de_crcobj_create(c, DE_CRCOBJ_CRC16_ZOO);
 
 	if(!DescReadArch(uz)) {
 		de_err(uz->c, "Found bad description in archive");
@@ -1140,6 +1124,7 @@ static int ExtrArch (deark *c, dbuf *inf)
 done:
 	if(uz) {
 		de_inthashtable_destroy(c, uz->offsets_seen);
+		de_crcobj_destroy(uz->crco);
 		de_free(c, uz);
 	}
 	de_dbg_indent_restore(c, saved_indent_level);

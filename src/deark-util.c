@@ -1198,6 +1198,33 @@ static void de_crc16ccitt_continue(struct de_crcobj *crco, const de_byte *buf, d
 	}
 }
 
+static void de_crc16zoo_init(struct de_crcobj *crco)
+{
+	de_uint32 i, k;
+
+	// This is the CRC-16 used in ZOO format. It's probably some form of
+	// CRC-16-IBM (one reference is "PC Tech Journal 4/85"), but I'll name it
+	// after ZOO until I'm sure I know what it should be called.
+
+	crco->table16 = de_malloc(crco->c, 256*sizeof(de_uint16));
+	for(i=0; i<256; i++) {
+		crco->table16[i] = i;
+		for(k=0; k<8; k++)
+			crco->table16[i] = (crco->table16[i]>>1) ^ ((crco->table16[i] & 1) ? 0xa001 : 0);
+	}
+}
+
+static void de_crc16zoo_continue(struct de_crcobj *crco, const de_byte *buf, de_int64 buf_len)
+{
+	de_int64 k;
+
+	if(!crco->table16) return;
+	for(k=0; k<buf_len; k++) {
+		crco->val = ((crco->val>>8) ^
+			(de_uint32)crco->table16[(crco->val ^ buf[k]) & 0xff]);
+	}
+}
+
 // Allocate, initializes, and resets a new object
 struct de_crcobj *de_crcobj_create(deark *c, unsigned int flags)
 {
@@ -1210,6 +1237,10 @@ struct de_crcobj *de_crcobj_create(deark *c, unsigned int flags)
 	switch(crco->crctype) {
 	case DE_CRCOBJ_CRC16_CCITT:
 		de_crc16ccitt_init(crco);
+		break;
+	case DE_CRCOBJ_CRC16_ZOO:
+		de_crc16zoo_init(crco);
+		break;
 	}
 
 	de_crcobj_reset(crco);
@@ -1241,6 +1272,10 @@ void de_crcobj_addbuf(struct de_crcobj *crco, const de_byte *buf, de_int64 buf_l
 	switch(crco->crctype) {
 	case DE_CRCOBJ_CRC16_CCITT:
 		de_crc16ccitt_continue(crco, buf, buf_len);
+		break;
+	case DE_CRCOBJ_CRC16_ZOO:
+		de_crc16zoo_continue(crco, buf, buf_len);
+		break;
 	}
 }
 
