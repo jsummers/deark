@@ -1260,6 +1260,12 @@ void de_crcobj_destroy(struct de_crcobj *crco)
 void de_crcobj_reset(struct de_crcobj *crco)
 {
 	crco->val = 0;
+
+	switch(crco->crctype) {
+	case DE_CRCOBJ_CRC32_IEEE:
+		crco->val = de_crc32(NULL, 0);
+		break;
+	}
 }
 
 de_uint32 de_crcobj_getval(struct de_crcobj *crco)
@@ -1270,6 +1276,9 @@ de_uint32 de_crcobj_getval(struct de_crcobj *crco)
 void de_crcobj_addbuf(struct de_crcobj *crco, const de_byte *buf, de_int64 buf_len)
 {
 	switch(crco->crctype) {
+	case DE_CRCOBJ_CRC32_IEEE:
+		crco->val = de_crc32_continue(crco->val, buf, buf_len);
+		break;
 	case DE_CRCOBJ_CRC16_CCITT:
 		de_crc16ccitt_continue(crco, buf, buf_len);
 		break;

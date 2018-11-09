@@ -426,6 +426,7 @@ void de_zip_close_file(deark *c);
 
 int de_write_png(deark *c, de_bitmap *img, dbuf *f);
 
+// Deprecated. Use de_crcobj_* instead.
 de_uint32 de_crc32(const void *buf, de_int64 buf_len);
 de_uint32 de_crc32_continue(de_uint32 prev_crc, const void *buf, de_int64 buf_len);
 

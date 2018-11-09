@@ -21,11 +21,12 @@ struct member_data {
 	de_int64 isize;
 	struct de_timestamp mod_time_ts;
 
-	de_uint32 crc_calculated;
+	struct de_crcobj *crco; // A copy of lctx->crco
 };
 
 typedef struct lctx_struct {
 	dbuf *output_file;
+	struct de_crcobj *crco;
 } lctx;
 
 static const char *get_os_name(de_byte n)
@@ -44,7 +45,7 @@ static const char *get_os_name(de_byte n)
 static void our_writecallback(dbuf *f, const de_byte *buf, de_int64 buf_len)
 {
 	struct member_data *md = (struct member_data *)f->userdata;
-	md->crc_calculated = de_crc32_continue(md->crc_calculated, buf, buf_len);
+	de_crcobj_addbuf(md->crco, buf, buf_len);
 }
 
 static int do_gzip_read_member(deark *c, lctx *d, de_int64 pos1, de_int64 *member_size)
@@ -56,6 +57,7 @@ static int do_gzip_read_member(deark *c, lctx *d, de_int64 pos1, de_int64 *membe
 	de_int64 string_len;
 	de_int64 cmpr_data_len;
 	de_int64 mod_time_unix;
+	de_uint32 crc_calculated;
 	de_ucstring *member_name = NULL;
 	int saved_indent_level;
 	int ret;
@@ -173,25 +175,27 @@ static int do_gzip_read_member(deark *c, lctx *d, de_int64 pos1, de_int64 *membe
 
 	d->output_file->writecallback_fn = our_writecallback;
 	d->output_file->userdata = (void*)md;
-	md->crc_calculated = de_crc32(NULL, 0);
+	md->crco = d->crco;
+	de_crcobj_reset(md->crco);
 
 	ret = de_uncompress_deflate(c->infile, pos, c->infile->len - pos, d->output_file, &cmpr_data_len);
 
+	crc_calculated = de_crcobj_getval(md->crco);
 	d->output_file->writecallback_fn = NULL;
 	d->output_file->userdata = NULL;
 
 	if(!ret) goto done;
 	pos += cmpr_data_len;
 
-	de_dbg(c, "crc32 (calculated): 0x%08x", (unsigned int)md->crc_calculated);
+	de_dbg(c, "crc32 (calculated): 0x%08x", (unsigned int)crc_calculated);
 
 	md->crc32_reported = (de_uint32)de_getui32le(pos);
 	de_dbg(c, "crc32 (reported)  : 0x%08x", (unsigned int)md->crc32_reported);
 	pos += 4;
 
-	if(md->crc_calculated != md->crc32_reported) {
+	if(crc_calculated != md->crc32_reported) {
 		de_warn(c, "CRC check failed: Expected 0x%08x, got 0x%08x",
-			(unsigned int)md->crc32_reported, (unsigned int)md->crc_calculated);
+			(unsigned int)md->crc32_reported, (unsigned int)crc_calculated);
 	}
 
 	md->isize = de_getui32le(pos);
@@ -218,6 +222,7 @@ static void de_run_gzip(deark *c, de_module_params *mparams)
 	de_int64 member_size;
 
 	d = de_malloc(c, sizeof(lctx));
+	d->crco = de_crcobj_create(c, DE_CRCOBJ_CRC32_IEEE);
 
 	pos = 0;
 	while(1) {
@@ -231,7 +236,10 @@ static void de_run_gzip(deark *c, de_module_params *mparams)
 	}
 	dbuf_close(d->output_file);
 
-	de_free(c, d);
+	if(d) {
+		de_crcobj_destroy(d->crco);
+		de_free(c, d);
+	}
 }
 
 static int de_identify_gzip(deark *c)
