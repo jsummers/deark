@@ -40,6 +40,10 @@
 
 */
 
+#define ZOOCMPR_STORED  0
+#define ZOOCMPR_LZD     1
+#define ZOOCMPR_LZH     2
+
 struct lzh_lookuptable {
 	unsigned int tablebits;
 	size_t ncodes;
@@ -68,11 +72,14 @@ struct lzh_table {
 	struct lzh_lookuptable PreTbl; /* table for fast lookup of pres   */
 };
 
+struct unzooctx;
+
 // Data associated with one ZOO file Entry
 struct entryctx {
+	struct unzooctx *uz;
 	de_finfo *fi;
 	dbuf *WritBinr;
-	de_uint16 Crc;
+	de_uint32 crc_calculated;
 
 	// Original "Entry":
 	de_uint32           magic;          /* magic word 0xfdc4a7dc           */
@@ -82,7 +89,7 @@ struct entryctx {
 	de_uint32           posdat;         /* position of data                */
 	de_uint16           datdos;         /* date (in DOS format)            */
 	de_uint16           timdos;         /* time (in DOS format)            */
-	de_uint16           crcdat;         /* crc value of member             */
+	de_uint32           crcdat;         /* crc value of member             */
 	de_uint32           sizorg;         /* uncompressed size of member     */
 	de_uint32           siznow;         /*   compressed size of member     */
 	de_byte             majver;         /* major version needed to extract */
@@ -264,6 +271,17 @@ done:
 	return retval;
 }
 
+static const char *get_cmpr_meth_name(de_byte t)
+{
+	const char *name = NULL;
+	switch(t) {
+	case 0: name="stored"; break;
+	case 1: name="lzd"; break;
+	case 2: name="lzh"; break;
+	}
+	return name?name:"?";
+}
+
 // Read the header of a single member file.
 static int EntrReadArch (struct unzooctx *uz, struct entryctx *ze)
 {
@@ -286,14 +304,14 @@ static int EntrReadArch (struct unzooctx *uz, struct entryctx *ze)
 	ze->type   = ByteReadArch(uz);
 	de_dbg(c, "type: %d", (int)ze->type);
 	ze->method = ByteReadArch(uz);
-	de_dbg(c, "compression method: %d", (int)ze->method);
+	de_dbg(c, "compression method: %d (%s)", (int)ze->method, get_cmpr_meth_name(ze->method));
 	ze->posnxt = WordReadArch(uz);
 	de_dbg(c, "next entry pos: %d", (int)ze->posnxt);
 	ze->posdat = WordReadArch(uz);
 	de_dbg(c, "pos of file data: %u", (unsigned int)ze->posdat);
 	ze->datdos = HalfReadArch(uz);
 	ze->timdos = HalfReadArch(uz);
-	ze->crcdat = HalfReadArch(uz);
+	ze->crcdat = (de_uint32)HalfReadArch(uz);
 	de_dbg(c, "reported file crc: 0x%04x", (unsigned int)ze->crcdat);
 	ze->sizorg = WordReadArch(uz);
 	de_dbg(c, "original size: %u", (unsigned int)ze->sizorg);
@@ -388,6 +406,21 @@ done:
 	return retval;
 }
 
+static de_uint32 CRC_BYTE(struct unzooctx *uz, de_uint32 crc, de_byte byte)
+{
+	return (((crc)>>8) ^ (de_uint32)uz->CrcTab[ ((crc)^(byte))&0xff ]);
+}
+
+static void our_writecallback(dbuf *f, const de_byte *buf, de_int64 buf_len)
+{
+	struct entryctx *ze = (struct entryctx *)f->userdata;
+	de_int64 k;
+
+	for(k=0; k<buf_len; k++) {
+		ze->crc_calculated = CRC_BYTE(ze->uz, ze->crc_calculated, buf[k]);
+	}
+}
+
 /****************************************************************************
 **
 *F  OpenWritFile(<patl>,<bin>)  . . . . . . . . . . . open a file for writing
@@ -420,6 +453,9 @@ static int OpenWritFile(struct unzooctx *uz, struct entryctx *ze)
 	}
 
 	ze->WritBinr = dbuf_create_output_file(uz->c, ext, ze->fi, 0);
+	ze->WritBinr->writecallback_fn = our_writecallback;
+	ze->WritBinr->userdata = (void*)ze;
+	ze->crc_calculated = 0;
 	return 1;
 }
 
@@ -436,11 +472,6 @@ static de_int64 BlckWritFile (struct unzooctx *uz, struct entryctx *ze, const de
 	if(!ze->WritBinr) return 0;
 	dbuf_write(ze->WritBinr, blk, len);
 	return len;
-}
-
-static de_uint16 CRC_BYTE(struct unzooctx *uz, de_uint16 crc, de_byte byte)
-{
-	return (((crc)>>8) ^ uz->CrcTab[ ((crc)^(byte))&0xff ]);
 }
 
 static int InitCrc (struct unzooctx *uz)
@@ -464,11 +495,6 @@ static int InitCrc (struct unzooctx *uz)
 static int DecodeCopy (struct unzooctx *uz, struct entryctx *ze, de_uint32 size )
 {
 	de_uint32       siz;            /* size of current block           */
-	de_uint32       crc;            /* CRC-16 value                    */
-	de_uint32       i;              /* loop variable                   */
-
-	/* initialize the crc value                                            */
-	crc = 0;
 
 	/* loop until everything has been copied                               */
 	while ( 0 < size ) {
@@ -486,16 +512,11 @@ static int DecodeCopy (struct unzooctx *uz, struct entryctx *ze, de_uint32 size 
 			return 0;
 		}
 
-		/* compute the crc                                                 */
-		for ( i = 0; i < siz; i++ )
-			crc = CRC_BYTE(uz, crc, ze->BufFile[i] );
-
 		/* on to the next block                                            */
 		size -= siz;
 	}
 
-	/* store the crc and indicate success                                  */
-	ze->Crc = crc;
+	/* indicate success                                                    */
 	return 1;
 }
 
@@ -727,7 +748,6 @@ static int DecodeLzh (struct unzooctx *uz, struct entryctx *ze)
 	de_uint32 pre;            /* pre code                        */
 	unsigned int cur_idx;     // current index in BufFile
 	unsigned int end_idx;     // index to the end of BufFile
-	de_uint32 crc;            /* cyclic redundancy check value   */
 	de_uint32 i;              /* loop variable                   */
 	struct lzhctx_struct lzhctx;
 	struct lzh_table *lzhtbl = &ze->lzhtbl;
@@ -740,7 +760,6 @@ static int DecodeLzh (struct unzooctx *uz, struct entryctx *ze)
 	lzhctx.bits = 0;  lzhctx.bitc = 0;  LZH_FLSH_BITS(0);
 	cur_idx = 0;
 	end_idx = LZH_MAX_OFF;
-	crc = 0;
 
 	/* loop until all blocks have been read                                */
 	cnt = LZH_PEEK_BITS( 16 );  LZH_FLSH_BITS( 16 );
@@ -867,7 +886,6 @@ static int DecodeLzh (struct unzooctx *uz, struct entryctx *ze)
 			/* if the code is a literal, stuff it into the buffer          */
 			if ( code <= LZH_MAX_LIT ) {
 				BufFile_setbyte(ze, cur_idx++, code);
-				crc = CRC_BYTE(uz, crc, code );
 				if ( cur_idx == end_idx ) {
 					if ( BlckWritFile(uz, ze, ze->BufFile, cur_idx) != cur_idx ) {
 						uz->ErrMsg = "Cannot write output file";
@@ -914,14 +932,12 @@ static int DecodeLzh (struct unzooctx *uz, struct entryctx *ze)
 					stp_idx = cur_idx + len;
 					do {
 						code = BufFile_getbyte(ze, pos_idx++);
-						crc = CRC_BYTE(uz, crc, code );
 						BufFile_setbyte(ze, cur_idx++, code);
 					} while ( cur_idx < stp_idx );
 				}
 				else {
 					while ( 0 < len-- ) {
 						code = BufFile_getbyte(ze, pos_idx++);
-						crc = CRC_BYTE(uz, crc, code );
 						BufFile_setbyte(ze, cur_idx++, code);
 						if ( pos_idx == end_idx ) {
 							pos_idx = 0;
@@ -951,7 +967,6 @@ static int DecodeLzh (struct unzooctx *uz, struct entryctx *ze)
 	}
 
 	/* indicate success                                                    */
-	ze->Crc = crc;
 	return 1;
 }
 
@@ -975,6 +990,7 @@ static void ExtrEntry(struct unzooctx *uz, de_int64 pos1, de_int64 *next_entry_p
 	char timestamp_buf[64];
 
 	ze = de_malloc(c, sizeof(struct entryctx));
+	ze->uz = uz;
 
 	init_lzh_lookuptable(c, &ze->lzhtbl.CodeTbl, 12, LZH_MAX_CODE+1);
 	init_lzh_lookuptable(c, &ze->lzhtbl.LogTbl, 8, LZH_MAX_LOG+1);
@@ -1010,7 +1026,7 @@ static void ExtrEntry(struct unzooctx *uz, de_int64 pos1, de_int64 *next_entry_p
 		goto done;
 	}
 
-	if(ze->method!=0 && ze->method!=1 && ze->method!=2) {
+	if(ze->method!=ZOOCMPR_STORED && ze->method!=ZOOCMPR_LZD && ze->method!=ZOOCMPR_LZH) {
 		de_err(c, "Unsupported compression method: %d", (int)ze->method);
 		goto done;
 	}
@@ -1037,26 +1053,26 @@ static void ExtrEntry(struct unzooctx *uz, de_int64 pos1, de_int64 *next_entry_p
 	uz->ErrMsg = "Internal error";
 
 	switch(ze->method) {
-	case 0:
+	case ZOOCMPR_STORED:
 		res = DecodeCopy(uz, ze, ze->siznow );
 		break;
-	case 1:
+	case ZOOCMPR_LZD:
 		res = DecodeLzd(uz, ze);
 		break;
-	case 2:
+	case ZOOCMPR_LZH:
 		res = DecodeLzh(uz, ze);
 		break;
 	default:
 		goto done;
 	}
 
-	de_dbg(c, "calculated crc: 0x%04x", (unsigned int)ze->Crc);
+	de_dbg(c, "calculated crc: 0x%04x", (unsigned int)ze->crc_calculated);
 
 	/* check that everything went ok                                   */
 	if      ( res == 0 ) {
 		de_err(c, "%s", uz->ErrMsg);
 	}
-	else if ( ze->Crc != ze->crcdat ) {
+	else if ( ze->crc_calculated != ze->crcdat ) {
 		de_err(c, "CRC failed");
 	}
 

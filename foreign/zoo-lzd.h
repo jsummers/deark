@@ -54,7 +54,6 @@ struct lzdctx {
 	dbuf *in_f;
 	dbuf *out_f;
 	struct lzd_tabentry *table;
-	de_uint16 crccode;
 
 	unsigned int cur_code;
 	unsigned int old_code;
@@ -114,17 +113,6 @@ static de_byte lzd_pop(struct lzdctx *lc)
 	return lc->stack[lc->stack_pointer];
 }
 
-static void lzd_addbfcrc(struct unzooctx *uz, struct lzdctx *lc, const de_byte *buffer, int count)
-{
-	de_uint16 localcrc;
-	localcrc = lc->crccode;
-
-	for (; count--; ) {
-		localcrc = CRC_BYTE(uz, localcrc, (*buffer++));
-	}
-	lc->crccode = localcrc;
-}
-
 static unsigned int lzd_zoowrite (struct unzooctx *uz, dbuf *file, const de_byte *buffer, int count)
 {
 	dbuf_write(file, buffer, count);
@@ -169,7 +157,6 @@ goteof: /* special case for CLEAR then Z_EOF, for 0-length files */
 		if (lc->output_offset != 0) {
 			if (lzd_zoowrite (uz, lc->out_f, lc->out_buf_adr, lc->output_offset) != lc->output_offset)
 				lzd_prterror (uz, 'f', "Output error in lzd().");
-			lzd_addbfcrc(uz, lc, lc->out_buf_adr, lc->output_offset);
 		}
 		retval = 0;
 		goto done;
@@ -215,7 +202,6 @@ goteof: /* special case for CLEAR then Z_EOF, for 0-length files */
 	goto loop;
 
 done:
-	ze->Crc = lc->crccode;
 	if(lc) {
 		de_free(uz->c, lc->table);
 		de_free(uz->c, lc->stack);
@@ -288,7 +274,6 @@ static void lzd_wr_dchar(struct unzooctx *uz, struct lzdctx *lc, de_byte ch)
 	if (lc->output_offset >= LZD_OUTBUFSIZ) {      /* if buffer full */
 		if (lzd_zoowrite (uz, lc->out_f, lc->out_buf_adr, lc->output_offset) != lc->output_offset)
 			lzd_prterror (uz, 'f', "Write error in lzd:wr_dchar.");
-		lzd_addbfcrc(uz, lc, lc->out_buf_adr, lc->output_offset);     /* update CRC */
 		lc->output_offset = 0;                  /* restore empty buffer */
 	}
 	lzd_assert(lc->output_offset < LZD_OUTBUFSIZ);
