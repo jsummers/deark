@@ -10,8 +10,13 @@
 DE_DECLARE_MODULE(de_module_arcfs);
 
 struct member_data {
+	int is_dir;
+	int is_regular_file;
 	de_byte cmpr_method;
 	de_uint32 attribs;
+	de_uint32 crc;
+	de_uint32 load_addr, exec_addr;
+	unsigned int file_type;
 	de_int64 file_data_offs_rel;
 	de_int64 file_data_offs_abs;
 	de_int64 orig_len;
@@ -23,6 +28,7 @@ struct member_data {
 typedef struct localctx_struct {
 	de_int64 nmembers;
 	de_int64 data_offs;
+	struct de_crcobj *crco;
 } lctx;
 
 static int do_file_header(deark *c, lctx *d, de_int64 pos1)
@@ -67,10 +73,17 @@ done:
 	return retval;
 }
 
+static void our_writecallback(dbuf *f, const de_byte *buf, de_int64 buf_len)
+{
+	struct de_crcobj *crco = (struct de_crcobj*)f->userdata;
+	de_crcobj_addbuf(crco, buf, buf_len);
+}
+
 static void do_extract_member(deark *c, lctx *d, struct member_data *md)
 {
 	de_finfo *fi = NULL;
 	dbuf *outf = NULL;
+	de_uint32 crc_calc;
 
 	if(md->file_data_offs_abs + md->cmpr_len > c->infile->len) goto done;
 
@@ -87,6 +100,9 @@ static void do_extract_member(deark *c, lctx *d, struct member_data *md)
 	de_finfo_set_name_from_ucstring(c, fi, md->fn);
 	outf = dbuf_create_output_file(c, NULL, fi, 0x0);
 	dbuf_set_max_length(outf, md->orig_len+256);
+	outf->writecallback_fn = our_writecallback;
+	outf->userdata = (void*)d->crco;
+	de_crcobj_reset(d->crco);
 
 	if(md->cmpr_method==0x82) { // stored
 		dbuf_copy(c->infile, md->file_data_offs_abs, md->cmpr_len, outf);
@@ -96,8 +112,15 @@ static void do_extract_member(deark *c, lctx *d, struct member_data *md)
 	}
 
 	if(outf->len != md->orig_len) {
-		de_err(c, "Decompression failed, expected size %"INT64_FMT
-			", got %"INT64_FMT, md->orig_len, outf->len);
+		de_err(c, "Decompression failed for file %s, expected size %"INT64_FMT
+			", got %"INT64_FMT, ucstring_getpsz_d(md->fn), md->orig_len, outf->len);
+		goto done;
+	}
+
+	crc_calc = de_crcobj_getval(d->crco);
+	de_dbg(c, "crc (calculated): 0x%04x", (unsigned int)crc_calc);
+	if(crc_calc != md->crc) {
+		de_warn(c, "CRC check failed for file %s", ucstring_getpsz_d(md->fn));
 	}
 
 done:
@@ -105,7 +128,7 @@ done:
 	de_finfo_destroy(c, fi);
 }
 
-static const char *get_cmpr_meth_name(de_byte t)
+static const char *get_info_byte_name(de_byte t)
 {
 	const char *name = NULL;
 	switch(t) {
@@ -124,7 +147,6 @@ static void do_member(deark *c, lctx *d, de_int64 idx, de_int64 pos1)
 	de_int64 pos = pos1;
 	de_uint32 info_word;
 	de_byte info_byte;
-	int is_dir;
 	int saved_indent_level;
 	struct member_data *md;
 
@@ -134,15 +156,17 @@ static void do_member(deark *c, lctx *d, de_int64 idx, de_int64 pos1)
 	de_dbg_indent(c, 1);
 
 	info_byte = de_getbyte_p(&pos);
-	md->cmpr_meth_name = get_cmpr_meth_name(info_byte);
+	md->cmpr_meth_name = get_info_byte_name(info_byte);
 	de_dbg(c, "info byte: 0x%02x (%s)", (unsigned int)info_byte, md->cmpr_meth_name);
 	if(info_byte==0) goto done; // end of directory marker
 	if(info_byte==1) goto done; // deleted object
 	md->cmpr_method = info_byte;
 
 	// Look ahead at the "information word".
+	// TODO: Is this the right way to check for a directory?
 	info_word = (de_uint32)de_getui32le(pos1+32);
-	is_dir = (info_word&0x80000000U)?1:0;
+	md->is_dir = (info_word&0x80000000U)?1:0;
+	md->is_regular_file = !md->is_dir;
 
 	md->fn = ucstring_create(c);
 	// TODO: What encoding is this?
@@ -152,25 +176,40 @@ static void do_member(deark *c, lctx *d, de_int64 idx, de_int64 pos1)
 	pos += 11;
 
 	md->orig_len = de_getui32le_p(&pos);
-	if(!is_dir) {
+	if(md->is_regular_file) {
 		de_dbg(c, "orig file length: %"INT64_FMT, md->orig_len);
 	}
 
-	pos += 4; // load addr
-	pos += 4; // exec addr
+	md->load_addr = (de_uint32)de_getui32le_p(&pos);
+	de_dbg(c, "load addr: 0x%08x", (unsigned int)md->load_addr);
+	de_dbg_indent(c, 1);
+	if((md->load_addr&0xfff00000U)==0xfff00000U) {
+		md->file_type = (unsigned int)((md->load_addr&0xfff00)>>8);
+		de_dbg(c, "file type: %03X", md->file_type);
+	}
+	de_dbg_indent(c, -1);
+
+	md->exec_addr = (de_uint32)de_getui32le_p(&pos);
+	de_dbg(c, "exec addr: 0x%08x", (unsigned int)md->exec_addr);
 
 	md->attribs = (de_uint32)de_getui32le_p(&pos);
 	de_dbg(c, "attribs: 0x%08x", (unsigned int)md->attribs);
+	de_dbg_indent(c, 1);
+	md->crc = md->attribs>>16;
+	if(md->is_regular_file) {
+		de_dbg(c, "crc (reported): 0x%04x", (unsigned int)md->crc);
+	}
+	de_dbg_indent(c, -1);
 
 	md->cmpr_len = de_getui32le_p(&pos);
-	if(!is_dir) {
+	if(md->is_regular_file) {
 		de_dbg(c, "compressed length: %"INT64_FMT, md->cmpr_len);
 	}
 
 	de_dbg(c, "info word: 0x%08x", (unsigned int)info_word);
 	de_dbg_indent(c, 1);
-	de_dbg(c, "is directory: %d", is_dir);
-	if(!is_dir) {
+	de_dbg(c, "is directory: %d", md->is_dir);
+	if(md->is_regular_file) {
 		md->file_data_offs_rel = (de_int64)info_word;
 		md->file_data_offs_abs = d->data_offs+md->file_data_offs_rel;
 		de_dbg(c, "file data offset: (%"INT64_FMT"+)%"INT64_FMT,
@@ -180,7 +219,7 @@ static void do_member(deark *c, lctx *d, de_int64 idx, de_int64 pos1)
 
 	de_dbg_indent(c, -1);
 
-	if(!is_dir) {
+	if(md->is_regular_file) {
 		do_extract_member(c, d, md);
 	}
 
@@ -217,10 +256,15 @@ static void de_run_arcfs(deark *c, de_module_params *mparams)
 	pos = 0;
 	if(!do_file_header(c, d, pos)) goto done;
 	pos += 96;
+
+	d->crco = de_crcobj_create(c, DE_CRCOBJ_CRC16_ZOO);
 	do_members(c, d, pos);
 
 done:
-	de_free(c, d);
+	if(d) {
+		de_crcobj_destroy(d->crco);
+		de_free(c, d);
+	}
 }
 
 static int de_identify_arcfs(deark *c)
