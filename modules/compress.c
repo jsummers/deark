@@ -7,7 +7,6 @@
 #include <deark-config.h>
 #include <deark-private.h>
 
-#include "../foreign/liblzw.h"
 DE_DECLARE_MODULE(de_module_compress);
 
 static void de_run_compress(deark *c, de_module_params *mparams)
@@ -15,20 +14,20 @@ static void de_run_compress(deark *c, de_module_params *mparams)
 	dbuf *f = NULL;
 	de_byte buf[1024];
 	de_int64 n;
-	lzwFile *lzw = NULL;
+	struct de_liblzwctx *lzw = NULL;
 
-	lzw = lzw_dbufopen(c->infile);
+	lzw = de_liblzw_dbufopen(c->infile, 0x1, 0);
 	if(!lzw) goto done;
 	f = dbuf_create_output_file(c, "bin", NULL, 0);
 
 	while(1) {
-		n = lzw_read(lzw, buf, sizeof(buf));
+		n = de_liblzw_read(lzw, buf, sizeof(buf));
 		if(n<1) break;
 		dbuf_write(f, buf, n);
 	}
 
 done:
-	if(lzw) lzw_close(lzw);
+	if(lzw) de_liblzw_close(lzw);
 	dbuf_close(f);
 }
 

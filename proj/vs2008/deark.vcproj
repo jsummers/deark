@@ -353,6 +353,10 @@
 				>
 			</File>
 			<File
+				RelativePath="..\..\src\deark-liblzw.c"
+				>
+			</File>
+			<File
 				RelativePath="..\..\src\deark-miniz.c"
 				>
 			</File>

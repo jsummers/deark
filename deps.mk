@@ -47,7 +47,7 @@ obj/modules/cardfile.o: modules/cardfile.c src/deark-config.h \
 obj/modules/cfb.o: modules/cfb.c src/deark-config.h src/deark-private.h \
  src/deark.h src/deark-fmtutil.h
 obj/modules/compress.o: modules/compress.c src/deark-config.h \
- src/deark-private.h src/deark.h modules/../foreign/liblzw.h
+ src/deark-private.h src/deark.h
 obj/modules/cpio.o: modules/cpio.c src/deark-config.h src/deark-private.h \
  src/deark.h
 obj/modules/d64.o: modules/d64.c src/deark-config.h src/deark-private.h \
@@ -240,6 +240,8 @@ obj/src/deark-fmtutil.o: src/deark-fmtutil.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h
 obj/src/deark-font.o: src/deark-font.c src/deark-config.h \
  src/deark-private.h src/deark.h
+obj/src/deark-liblzw.o: src/deark-liblzw.c src/deark-config.h \
+ src/deark-private.h src/deark.h src/../foreign/liblzw.h
 obj/src/deark-miniz.o: src/deark-miniz.c src/deark-config.h \
  src/deark-private.h src/deark.h src/../foreign/miniz.h
 obj/src/deark-modules.o: src/deark-modules.c src/deark-config.h \

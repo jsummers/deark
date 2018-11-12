@@ -33,7 +33,7 @@
 #define HBITS   17			/* 50% occupancy */
 #define HSIZE   (1<<HBITS)
 
-typedef struct lzwFile_struct {
+struct de_liblzwctx {
 	deark *c;
 	dbuf *inf;
 	de_int64 inf_fpos;
@@ -54,7 +54,7 @@ typedef struct lzwFile_struct {
 
 	int n_bits, posbits, inbits, bitmask, finchar;
 	de_int32 maxcode, oldcode, incode, code, free_ent;
-} lzwFile;
+};
 
 /******************************************/
 
@@ -75,20 +75,27 @@ typedef struct lzwFile_struct {
 /*
  * Open LZW file
  */
-static lzwFile *lzw_dbufopen(dbuf *inf)
+struct de_liblzwctx *de_liblzw_dbufopen(dbuf *inf, unsigned int dflags, de_byte lzwmode)
 {
-	lzwFile *ret = NULL;
+	struct de_liblzwctx *ret = NULL;
 	de_int64 inf_fpos = 0;
-	unsigned char buf[3];
+	int has_header;
 
-	if (dbuf_standard_read(inf, buf, 3, &inf_fpos) != 3) {
-		de_err(inf->c, "Not in compress format");
-		goto err_out;
-	}
+	has_header = (dflags&0x1)?1:0;
 
-	if (buf[0] != LZW_MAGIC_1 || buf[1] != LZW_MAGIC_2 || buf[2] & 0x60) {
-		de_err(inf->c, "Not in compress format");
-		goto err_out;
+	if(has_header) {
+		unsigned char buf[3];
+
+		if (dbuf_standard_read(inf, buf, 3, &inf_fpos) != 3) {
+			de_err(inf->c, "Not in compress format");
+			goto err_out;
+		}
+
+		if (buf[0] != LZW_MAGIC_1 || buf[1] != LZW_MAGIC_2 || buf[2] & 0x60) {
+			de_err(inf->c, "Not in compress format");
+			goto err_out;
+		}
+		lzwmode = buf[2];
 	}
 
 	ret = de_malloc(inf->c, sizeof(*ret));
@@ -101,11 +108,16 @@ static lzwFile *lzw_dbufopen(dbuf *inf)
 	ret->inbuf = de_malloc(ret->c, sizeof(unsigned char) * IN_BUFSIZE);
 	ret->outbuf = de_malloc(ret->c, sizeof(unsigned char) * OUT_BUFSIZE);
 	ret->stackp = NULL;
-	ret->insize = 3; /* we read three bytes above */
+	if(has_header) {
+		ret->insize = 3; /* we read three bytes above */
+	}
+	else {
+		ret->insize = 0;
+	}
 	ret->outpos = 0;
 	ret->rsize = 0;
 
-	ret->flags = buf[2];
+	ret->flags = lzwmode;
 	ret->maxbits = ret->flags & 0x1f;    /* Mask for 'number of compresssion bits' */
 	ret->block_mode = ret->flags & 0x80;
 
@@ -144,7 +156,7 @@ err_out_free:
 /*
  * Close LZW file
  */
-static int lzw_close(lzwFile *lzw)
+int de_liblzw_close(struct de_liblzwctx *lzw)
 {
 	int ret;
 	if (lzw == NULL)
@@ -161,7 +173,7 @@ static int lzw_close(lzwFile *lzw)
  * Misc read-specific define cruft
  */
 
-#define input(b,o,c,n,m) \
+#define lzw_input(b,o,c,n,m) \
 	do { \
 		unsigned char *p = &(b)[(o)>>3]; \
 		(c) = ((((de_int32)(p[0]))|((de_int32)(p[1])<<8)| \
@@ -169,12 +181,12 @@ static int lzw_close(lzwFile *lzw)
 		(o) += (n); \
 	} while (0)
 
-#define de_stack				((unsigned char *)&(lzw->htab[HSIZE-1]))
+#define lzw_de_stack				((unsigned char *)&(lzw->htab[HSIZE-1]))
 
 /*
  * Read LZW file
  */
-static de_int64 lzw_read(lzwFile *lzw, de_byte *readbuf, size_t count)
+de_int64 de_liblzw_read(struct de_liblzwctx *lzw, de_byte *readbuf, size_t count)
 {
 	size_t count_left = count;
 	unsigned char *inbuf = lzw->inbuf;
@@ -235,10 +247,12 @@ resetbuf:
 				goto resetbuf;
 			}
 
-			input(inbuf,lzw->posbits,lzw->code,lzw->n_bits,lzw->bitmask);
+			lzw_input(inbuf,lzw->posbits,lzw->code,lzw->n_bits,lzw->bitmask);
 
 			if (lzw->oldcode == -1) {
-				if (lzw->code >= 256) return -1; /* error("corrupt input."); */
+				if (lzw->code >= 256) {
+					return -1; /* error("corrupt input."); */
+				}
 				outbuf[lzw->outpos++] = lzw->finchar = lzw->oldcode = lzw->code;
 				continue;
 			}
@@ -254,7 +268,7 @@ resetbuf:
 			}
 
 			lzw->incode = lzw->code;
-			lzw->stackp = de_stack;
+			lzw->stackp = lzw_de_stack;
 
 			/* Special case for KwKwK string.*/
 			if (lzw->code >= lzw->free_ent) {
@@ -277,7 +291,7 @@ resetbuf:
 
 			/* And put them out in forward order */
 			{
-				lzw->stackp_diff = de_stack - lzw->stackp;
+				lzw->stackp_diff = lzw_de_stack - lzw->stackp;
 
 				if (lzw->outpos+lzw->stackp_diff >= BUFSIZE) {
 					do {
@@ -306,7 +320,7 @@ resume_reading:
 							lzw->outpos = 0;
 						}
 						lzw->stackp += lzw->stackp_diff;
-					} while ((lzw->stackp_diff = (de_stack-lzw->stackp)) > 0);
+					} while ((lzw->stackp_diff = (lzw_de_stack-lzw->stackp)) > 0);
 				} else {
 					memcpy(outbuf+lzw->outpos, lzw->stackp, lzw->stackp_diff);
 					lzw->outpos += lzw->stackp_diff;

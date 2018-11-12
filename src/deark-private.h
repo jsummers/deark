@@ -432,6 +432,13 @@ de_uint32 de_crc32_continue(de_uint32 prev_crc, const void *buf, de_int64 buf_le
 
 ///////////////////////////////////////////
 
+struct de_liblzwctx;
+struct de_liblzwctx *de_liblzw_dbufopen(dbuf *inf, unsigned int dflags, de_byte lzwmode);
+int de_liblzw_close(struct de_liblzwctx *lzw);
+de_int64 de_liblzw_read(struct de_liblzwctx *lzw, de_byte *readbuf, size_t count);
+
+///////////////////////////////////////////
+
 de_int64 de_getui16be_direct(const de_byte *m);
 de_int64 de_getui16le_direct(const de_byte *m);
 de_int64 de_getui32be_direct(const de_byte *m);
