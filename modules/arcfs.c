@@ -13,6 +13,7 @@ struct member_data {
 	int is_dir;
 	int is_regular_file;
 	de_byte cmpr_method;
+	unsigned int lzwmaxbits;
 	de_uint32 attribs;
 	de_uint32 crc;
 	de_uint32 load_addr, exec_addr;
@@ -73,6 +74,44 @@ done:
 	return retval;
 }
 
+static int do_compressed(deark *c, lctx *d, struct member_data *md, dbuf *outf)
+{
+	de_byte buf[1024];
+	de_int64 n;
+	dbuf *inf = NULL;
+	struct de_liblzwctx *lzw = NULL;
+	de_int64 nbytes_still_to_write;
+	de_byte lzwmode;
+
+	inf = dbuf_open_input_subfile(c->infile, md->file_data_offs_abs, md->cmpr_len);
+
+	lzwmode = (de_byte)(md->lzwmaxbits | 0x80);
+	lzw = de_liblzw_dbufopen(inf, 0x0, lzwmode);
+	if(!lzw) goto done;
+
+	nbytes_still_to_write = md->orig_len;
+
+	while(1) {
+		if(nbytes_still_to_write<1) break;
+		n = de_liblzw_read(lzw, buf, sizeof(buf));
+		if(n<1) break;
+
+		if(n > nbytes_still_to_write) {
+			// These files often seem to decompress to have a few extra bytes at
+			// the end. Make sure we don't write more bytes than we should.
+			n = nbytes_still_to_write;
+		}
+
+		dbuf_write(outf, buf, n);
+		nbytes_still_to_write -= n;
+	}
+
+done:
+	if(lzw) de_liblzw_close(lzw);
+	dbuf_close(inf);
+	return 1;
+}
+
 static void our_writecallback(dbuf *f, const de_byte *buf, de_int64 buf_len)
 {
 	struct de_crcobj *crco = (struct de_crcobj*)f->userdata;
@@ -90,7 +129,7 @@ static void do_extract_member(deark *c, lctx *d, struct member_data *md)
 	de_dbg(c, "file data at %"INT64_FMT", len=%"INT64_FMT,
 		md->file_data_offs_abs, md->cmpr_len);
 
-	if(md->cmpr_method!=0x82 && md->cmpr_method!=0x83) {
+	if(md->cmpr_method!=0x82 && md->cmpr_method!=0x83 && md->cmpr_method!=0xff) {
 		de_err(c, "Compression type 0x%02x (%s) is not supported.",
 			(unsigned int)md->cmpr_method, md->cmpr_meth_name);
 		goto done;
@@ -110,6 +149,13 @@ static void do_extract_member(deark *c, lctx *d, struct member_data *md)
 	else if(md->cmpr_method==0x83) {
 		de_fmtutil_decompress_binhexrle(c->infile, md->file_data_offs_abs, md->cmpr_len, outf);
 	}
+	else if(md->cmpr_method==0xff) {
+		int ret;
+		ret = do_compressed(c, d, md, outf);
+		if(!ret) {
+			goto done;
+		}
+	}
 
 	if(outf->len != md->orig_len) {
 		de_err(c, "Decompression failed for file %s, expected size %"INT64_FMT
@@ -120,7 +166,12 @@ static void do_extract_member(deark *c, lctx *d, struct member_data *md)
 	crc_calc = de_crcobj_getval(d->crco);
 	de_dbg(c, "crc (calculated): 0x%04x", (unsigned int)crc_calc);
 	if(crc_calc != md->crc) {
-		de_warn(c, "CRC check failed for file %s", ucstring_getpsz_d(md->fn));
+		if(md->crc==0) {
+			de_warn(c, "CRC check not available for file %s", ucstring_getpsz_d(md->fn));
+		}
+		else {
+			de_err(c, "CRC check failed for file %s", ucstring_getpsz_d(md->fn));
+		}
 	}
 
 done:
@@ -198,6 +249,10 @@ static void do_member(deark *c, lctx *d, de_int64 idx, de_int64 pos1)
 	md->crc = md->attribs>>16;
 	if(md->is_regular_file) {
 		de_dbg(c, "crc (reported): 0x%04x", (unsigned int)md->crc);
+	}
+	if(md->cmpr_method==0xff || md->cmpr_method==0x88) {
+		md->lzwmaxbits = (unsigned int)((md->attribs&0xff00)>>8);
+		de_dbg(c, "lzw maxbits: %u", md->lzwmaxbits);
 	}
 	de_dbg_indent(c, -1);
 
