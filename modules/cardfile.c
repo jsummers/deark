@@ -32,7 +32,7 @@ static void do_dbg_text_data(deark *c, lctx *d, de_int64 text_pos, de_int64 text
 
 	s = ucstring_create(c);
 	dbuf_read_to_ucstring_n(c->infile, text_pos, text_len, DE_DBG_MAX_STRLEN, s,
-		0, c->input_encoding);
+		0, d->input_encoding);
 	de_dbg(c, "text: \"%s\"", ucstring_getpsz_d(s));
 	ucstring_destroy(s);
 }
