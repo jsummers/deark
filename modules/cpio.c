@@ -24,7 +24,7 @@ struct member_data {
 	de_int64 filesize;
 	de_int64 filesize_padded;
 	de_int64 mode;
-	de_int64 checksum_reported;
+	de_uint32 checksum_reported;
 	struct de_stringreaderdata *filename_srd;
 	de_finfo *fi;
 	de_uint32 checksum_calculated;
@@ -33,6 +33,7 @@ struct member_data {
 typedef struct localctx_struct {
 	int first_subfmt;
 	int trailer_found;
+	int input_encoding;
 } lctx;
 
 // Returns a value suitable for format identification.
@@ -183,8 +184,9 @@ static int read_header_ascii_new(deark *c, lctx *d, struct member_data *md)
 	pos += 8;
 
 	if(md->subfmt==SUBFMT_ASCII_NEWCRC) {
-		ret = dbuf_read_ascii_number(c->infile, pos, 8, 16, &md->checksum_reported);
+		ret = dbuf_read_ascii_number(c->infile, pos, 8, 16, &n);
 		if(!ret) goto done;
+		md->checksum_reported = (de_uint32)n;
 		de_dbg(c, "c_check: %u", (unsigned int)md->checksum_reported);
 	}
 	pos += 8; // c_check
@@ -256,31 +258,23 @@ static int read_header_binary(deark *c, lctx *d, struct member_data *md)
 	return retval;
 }
 
-// Allocates md->namesize.
+// Always allocates md->filename_srd.
 static void read_member_name(deark *c, lctx *d, struct member_data *md)
 {
 	de_int64 namesize_adjusted;
 
 	// Filenames end with a NUL byte, which is included in the namesize field.
-	if(md->namesize<1) goto done;
-
 	namesize_adjusted = md->namesize - 1;
+	if(namesize_adjusted<0) namesize_adjusted=0;
 	if(namesize_adjusted>DE_DBG_MAX_STRLEN) namesize_adjusted=DE_DBG_MAX_STRLEN;
 
-	// The encoding is presumably whatever encoding the filenames used on the
-	// system on which the archive was created, and there's no way to tell
-	// what that was.
-	// This should maybe be a command line option.
 	md->filename_srd = dbuf_read_string(c->infile, md->startpos + md->fixed_header_size,
-		namesize_adjusted, namesize_adjusted, 0, DE_ENCODING_UTF8);
+		namesize_adjusted, namesize_adjusted, 0, d->input_encoding);
 
 	de_dbg(c, "name: \"%s\"", ucstring_getpsz(md->filename_srd->str));
 
 	de_finfo_set_name_from_ucstring(c, md->fi, md->filename_srd->str);
 	md->fi->original_filename_flag = 1;
-
-done:
-	;
 }
 
 static void our_writecallback(dbuf *f, const de_byte *buf, de_int64 buf_len)
@@ -340,7 +334,7 @@ static int read_member(deark *c, lctx *d, de_int64 pos1,
 	}
 
 	de_dbg_indent(c, -1);
-	de_dbg(c, "member name at %d", (int)pos);
+	de_dbg(c, "member name at %d", (int)(md->startpos + md->fixed_header_size));
 	de_dbg_indent(c, 1);
 	read_member_name(c, d, md);
 	pos = md->startpos + md->fixed_header_size + md->namesize_padded;
@@ -391,9 +385,11 @@ static int read_member(deark *c, lctx *d, de_int64 pos1,
 		dbuf_close(outf);
 
 		if(md->subfmt==SUBFMT_ASCII_NEWCRC) {
-			if((de_int64)md->checksum_calculated != md->checksum_reported) {
-				de_warn(c, "Checksum failed: Expected %u, got %u",
-				(unsigned int)md->checksum_reported, (unsigned int)md->checksum_calculated);
+			de_dbg(c, "checksum (calculated): %u", (unsigned int)md->checksum_calculated);
+			if(md->checksum_calculated != md->checksum_reported) {
+				de_warn(c, "Checksum failed for file %s: Expected %u, got %u",
+					ucstring_getpsz_d(md->filename_srd->str),
+					(unsigned int)md->checksum_reported, (unsigned int)md->checksum_calculated);
 			}
 		}
 	}
@@ -424,6 +420,12 @@ static void de_run_cpio(deark *c, de_module_params *mparams)
 	int ret;
 
 	d = de_malloc(c, sizeof(lctx));
+
+	if(c->input_encoding==DE_ENCODING_UNKNOWN)
+		d->input_encoding = DE_ENCODING_UTF8;
+	else
+		d->input_encoding = c->input_encoding;
+
 	pos = 0;
 
 	if(identify_cpio_internal(c, pos, &d->first_subfmt)==0) {
