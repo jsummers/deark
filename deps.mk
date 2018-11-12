@@ -92,6 +92,8 @@ obj/modules/icns.o: modules/icns.c src/deark-config.h src/deark-private.h \
  src/deark.h
 obj/modules/ico.o: modules/ico.c src/deark-config.h src/deark-private.h \
  src/deark.h src/deark-fmtutil.h
+obj/modules/id3.o: modules/id3.c src/deark-config.h src/deark-private.h \
+ src/deark.h
 obj/modules/iff.o: modules/iff.c src/deark-config.h src/deark-private.h \
  src/deark.h src/deark-fmtutil.h
 obj/modules/ilbm.o: modules/ilbm.c src/deark-config.h src/deark-private.h \
