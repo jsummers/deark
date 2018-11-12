@@ -74,7 +74,8 @@ done:
 	return retval;
 }
 
-static int do_compressed(deark *c, lctx *d, struct member_data *md, dbuf *outf)
+static int do_compressed(deark *c, lctx *d, struct member_data *md, dbuf *outf,
+	int limit_size_flag)
 {
 	de_byte buf[1024];
 	de_int64 n;
@@ -92,11 +93,11 @@ static int do_compressed(deark *c, lctx *d, struct member_data *md, dbuf *outf)
 	nbytes_still_to_write = md->orig_len;
 
 	while(1) {
-		if(nbytes_still_to_write<1) break;
+		if(limit_size_flag && (nbytes_still_to_write<1)) break;
 		n = de_liblzw_read(lzw, buf, sizeof(buf));
 		if(n<1) break;
 
-		if(n > nbytes_still_to_write) {
+		if(limit_size_flag && (n > nbytes_still_to_write)) {
 			// These files often seem to decompress to have a few extra bytes at
 			// the end. Make sure we don't write more bytes than we should.
 			n = nbytes_still_to_write;
@@ -112,6 +113,31 @@ done:
 	return 1;
 }
 
+static int do_crunched(deark *c, lctx *d, struct member_data *md, dbuf *outf)
+{
+	dbuf *tmpf = NULL;
+	int ret;
+
+	// "Crunched" apparently means "packed", then "compressed".
+	// So we have to "uncompress", then "unpack".
+
+	// TODO: It would be better to unpack the bytes in a streaming fashion, instead
+	// of uncompressing the whole file to a memory buffer.
+	// TODO: We should at least set a size limit on tmpf, but it's not clear what
+	// the limit should be.
+	tmpf = dbuf_create_membuf(c, 0, 0);
+	ret = do_compressed(c, d, md, tmpf, 0);
+	if(!ret) goto done;
+	de_dbg2(c, "size after intermediate decompression: %d", (int)tmpf->len);
+
+	ret = de_fmtutil_decompress_binhexrle(tmpf, 0, tmpf->len, outf, 1, md->orig_len);
+	if(!ret) goto done;
+
+done:
+	dbuf_close(tmpf);
+	return 1;
+}
+
 static void our_writecallback(dbuf *f, const de_byte *buf, de_int64 buf_len)
 {
 	struct de_crcobj *crco = (struct de_crcobj*)f->userdata;
@@ -123,13 +149,16 @@ static void do_extract_member(deark *c, lctx *d, struct member_data *md)
 	de_finfo *fi = NULL;
 	dbuf *outf = NULL;
 	de_uint32 crc_calc;
+	int ret;
 
 	if(md->file_data_offs_abs + md->cmpr_len > c->infile->len) goto done;
 
 	de_dbg(c, "file data at %"INT64_FMT", len=%"INT64_FMT,
 		md->file_data_offs_abs, md->cmpr_len);
 
-	if(md->cmpr_method!=0x82 && md->cmpr_method!=0x83 && md->cmpr_method!=0xff) {
+	if(md->cmpr_method!=0x82 && md->cmpr_method!=0x83 && md->cmpr_method!=0x88 &&
+		md->cmpr_method!=0xff)
+	{
 		de_err(c, "Compression type 0x%02x (%s) is not supported.",
 			(unsigned int)md->cmpr_method, md->cmpr_meth_name);
 		goto done;
@@ -138,7 +167,6 @@ static void do_extract_member(deark *c, lctx *d, struct member_data *md)
 	fi = de_finfo_create(c);
 	de_finfo_set_name_from_ucstring(c, fi, md->fn);
 	outf = dbuf_create_output_file(c, NULL, fi, 0x0);
-	dbuf_set_max_length(outf, md->orig_len+256);
 	outf->writecallback_fn = our_writecallback;
 	outf->userdata = (void*)d->crco;
 	de_crcobj_reset(d->crco);
@@ -147,11 +175,17 @@ static void do_extract_member(deark *c, lctx *d, struct member_data *md)
 		dbuf_copy(c->infile, md->file_data_offs_abs, md->cmpr_len, outf);
 	}
 	else if(md->cmpr_method==0x83) {
-		de_fmtutil_decompress_binhexrle(c->infile, md->file_data_offs_abs, md->cmpr_len, outf);
+		de_fmtutil_decompress_binhexrle(c->infile, md->file_data_offs_abs, md->cmpr_len,
+			outf, 1, md->orig_len);
 	}
 	else if(md->cmpr_method==0xff) {
-		int ret;
-		ret = do_compressed(c, d, md, outf);
+		ret = do_compressed(c, d, md, outf, 1);
+		if(!ret) {
+			goto done;
+		}
+	}
+	else if(md->cmpr_method==0x88) {
+		ret = do_crunched(c, d, md, outf);
 		if(!ret) {
 			goto done;
 		}
@@ -335,5 +369,4 @@ void de_module_arcfs(deark *c, struct deark_module_info *mi)
 	mi->desc = "ArcFS (RISC OS archive)";
 	mi->run_fn = de_run_arcfs;
 	mi->identify_fn = de_identify_arcfs;
-	mi->flags |= DE_MODFLAG_NONWORKING;
 }

@@ -536,6 +536,8 @@ Deark -- Information about supported formats
 
 === Compression, archive, installer, disk image modules ===
 
+* ArcFS (module="arcfs") (experimental)
+
 * AmBs (AMOS "Banks" aggregate format) (module="abk")
   - Extract AmSp, AmIc, AmBk files.
 

@@ -464,18 +464,24 @@ int de_fmtutil_uncompress_packbits16(dbuf *f, de_int64 pos1, de_int64 len,
 }
 
 // I don't know the name of this RLE algorithm, but it's used in multiple formats.
-int de_fmtutil_decompress_binhexrle(dbuf *inf, de_int64 pos1, de_int64 len, dbuf *outf)
+int de_fmtutil_decompress_binhexrle(dbuf *inf, de_int64 pos1, de_int64 len,
+	dbuf *outf, unsigned int has_maxlen, de_int64 max_out_len)
 {
 	de_int64 pos = pos1;
 	de_byte b;
 	de_byte lastbyte = 0x00;
 	de_byte countcode;
+	de_int64 count;
+	de_int64 nbytes_written = 0;
 
 	while(pos < pos1+len) {
+		if(has_maxlen && nbytes_written>=max_out_len) break;
+
 		b = dbuf_getbyte(inf, pos);
 		pos++;
 		if(b!=0x90) {
 			dbuf_writebyte(outf, b);
+			nbytes_written++;
 			lastbyte = b;
 			continue;
 		}
@@ -487,13 +493,20 @@ int de_fmtutil_decompress_binhexrle(dbuf *inf, de_int64 pos1, de_int64 len, dbuf
 		if(countcode==0x00) {
 			// Not RLE, just an escaped 0x90 byte.
 			dbuf_writebyte(outf, 0x90);
+			nbytes_written++;
 			lastbyte = 0x90;
 			continue;
 		}
 
 		// RLE. We already emitted one byte (because the byte to repeat
 		// comes before the repeat count), so write countcode-1 bytes.
-		dbuf_write_run(outf, lastbyte, countcode-1);
+		count = (de_int64)(countcode-1);
+		if(has_maxlen && (nbytes_written+count > max_out_len)) {
+			count = max_out_len - nbytes_written;
+		}
+		dbuf_write_run(outf, lastbyte, count);
+		nbytes_written += count;
+
 	}
 
 	return 1;
