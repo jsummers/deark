@@ -578,10 +578,6 @@
 				>
 			</File>
 			<File
-				RelativePath="..\..\modules\compress.c"
-				>
-			</File>
-			<File
 				RelativePath="..\..\modules\cpio.c"
 				>
 			</File>

@@ -34,7 +34,7 @@ OFILES_MODS_AB:=$(addprefix $(OBJDIR)/modules/,abk.o alphabmp.o amigaicon.o \
  arcfs.o \
  bmff.o apple2-dsk.o applesd.o binhex.o bintext.o bmi.o bmp.o bpg.o bsave.o)
 OFILES_MODS_CH:=$(addprefix $(OBJDIR)/modules/,cab.o cardfile.o cfb.o \
- compress.o cpio.o d64.o drhalo.o ebml.o emf.o epocimage.o eps.o exe.o \
+ cpio.o d64.o drhalo.o ebml.o emf.o epocimage.o eps.o exe.o \
  flif.o fnt.o gemfont.o gemmeta.o gemras.o gif.o grasp.o grob.o gzip.o \
  hlp.o dsstore.o flac.o)
 OFILES_MODS_IO:=$(addprefix $(OBJDIR)/modules/,misc.o iccprofile.o icns.o \

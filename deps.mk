@@ -46,8 +46,6 @@ obj/modules/cardfile.o: modules/cardfile.c src/deark-config.h \
  src/deark-private.h src/deark.h
 obj/modules/cfb.o: modules/cfb.c src/deark-config.h src/deark-private.h \
  src/deark.h src/deark-fmtutil.h
-obj/modules/compress.o: modules/compress.c src/deark-config.h \
- src/deark-private.h src/deark.h
 obj/modules/cpio.o: modules/cpio.c src/deark-config.h src/deark-private.h \
  src/deark.h
 obj/modules/d64.o: modules/d64.c src/deark-config.h src/deark-private.h \
