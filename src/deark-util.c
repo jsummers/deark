@@ -1297,18 +1297,14 @@ void de_crcobj_addbyte(struct de_crcobj *crco, de_byte b)
 	de_crcobj_addbuf(crco, &b, 1);
 }
 
-void de_crcobj_addslice(struct de_crcobj *crco, dbuf *f, de_int64 pos1, de_int64 len)
+static int addslice_cbfn(deark *c, void *userdata, const de_byte *buf,
+	de_int64 buf_len)
 {
-	de_int64 pos = pos1;
-#define CRCBUFLEN 1024
-	de_byte buf[CRCBUFLEN];
+	de_crcobj_addbuf((struct de_crcobj*)userdata, buf, buf_len);
+	return 1;
+}
 
-	while(pos<pos1+len) {
-		de_int64 bytestoread;
-		bytestoread = pos1+len-pos;
-		if(bytestoread>CRCBUFLEN) bytestoread = CRCBUFLEN;
-		dbuf_read(f, buf, pos, bytestoread);
-		de_crcobj_addbuf(crco, buf, bytestoread);
-		pos += bytestoread;
-	}
+void de_crcobj_addslice(struct de_crcobj *crco, dbuf *f, de_int64 pos, de_int64 len)
+{
+	dbuf_buffered_read(f, pos, len, addslice_cbfn, (void*)crco);
 }

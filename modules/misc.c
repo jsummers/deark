@@ -89,21 +89,20 @@ void de_module_null(deark *c, struct deark_module_info *mi)
 // Convert CP437 text files to UTF-8.
 // **************************************************************************
 
-static void de_run_cp437(deark *c, de_module_params *mparams)
+struct cp437ctx_struct {
+	dbuf *outf;
+};
+
+static int cp437_cbfn(deark *c, void *userdata, const de_byte *buf,
+	de_int64 buf_len)
 {
 	de_int32 u;
 	de_int64 i;
 	de_byte ch;
-	dbuf *outf = NULL;
+	struct cp437ctx_struct *cp437ctx = (struct cp437ctx_struct*)userdata;
 
-	outf = dbuf_create_output_file(c, "txt", NULL, 0);
-
-	if(c->write_bom) {
-		dbuf_write_uchar_as_utf8(outf, 0xfeff);
-	}
-
-	for(i=0; i<c->infile->len; i++) {
-		ch = de_getbyte(i);
+	for(i=0; i<buf_len; i++) {
+		ch = buf[i];
 		if(ch==0x09 || ch==0x0a || ch==0x0c || ch==0x0d) {
 			// Leave HT, NL, FF, CR as-is.
 			u = (de_int32)ch;
@@ -118,10 +117,22 @@ static void de_run_cp437(deark *c, de_module_params *mparams)
 		else {
 			u = de_char_to_unicode(c, (de_int32)ch, DE_ENCODING_CP437_G);
 		}
-		dbuf_write_uchar_as_utf8(outf, u);
+		dbuf_write_uchar_as_utf8(cp437ctx->outf, u);
 	}
 
-	dbuf_close(outf);
+	return 1;
+}
+
+static void de_run_cp437(deark *c, de_module_params *mparams)
+{
+	struct cp437ctx_struct cp437ctx;
+
+	cp437ctx.outf = dbuf_create_output_file(c, "txt", NULL, 0);
+	if(c->write_bom) {
+		dbuf_write_uchar_as_utf8(cp437ctx.outf, 0xfeff);
+	}
+	dbuf_buffered_read(c->infile, 0, c->infile->len, cp437_cbfn, (void*)&cp437ctx);
+	dbuf_close(cp437ctx.outf);
 }
 
 void de_module_cp437(deark *c, struct deark_module_info *mi)

@@ -638,6 +638,11 @@ struct de_fourcc {
 void dbuf_read_fourcc(dbuf *f, de_int64 pos, struct de_fourcc *fcc, int nbytes,
 	unsigned int flags);
 
+typedef int (*de_buffered_read_cbfn)(deark *c, void *userdata, const de_byte *buf,
+	de_int64 buf_len);
+int dbuf_buffered_read(dbuf *f, de_int64 pos, de_int64 len,
+	de_buffered_read_cbfn cbfn, void *userdata);
+
 ///////////////////////////////////////////
 
 void de_bitmap_write_to_file(de_bitmap *img, const char *token, unsigned int createflags);

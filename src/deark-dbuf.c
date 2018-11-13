@@ -616,31 +616,23 @@ de_uint32 dbuf_getRGB(dbuf *f, de_int64 pos, unsigned int flags)
 	return DE_MAKE_RGB(buf[0], buf[1], buf[2]);
 }
 
+static int copy_cbfn(deark *c, void *userdata, const de_byte *buf,
+	de_int64 buf_len)
+{
+	dbuf *outf = (dbuf*)userdata;
+	dbuf_write(outf, buf, buf_len);
+	return 1;
+}
+
 void dbuf_copy(dbuf *inf, de_int64 input_offset, de_int64 input_len, dbuf *outf)
 {
-	de_byte buf[16384];
-	de_int64 input_pos;
-	de_int64 bytes_left;
-	de_int64 bytes_to_read;
-
 	// To do: fail if input data goes far beyond the end of the input file.
 	if(input_len > DE_MAX_FILE_SIZE) {
 		de_err(inf->c, "File %s too large (%" INT64_FMT ")",outf->name,input_len);
 		return;
 	}
 
-	bytes_left = input_len;
-	input_pos = input_offset;
-
-	while(bytes_left>0) {
-		bytes_to_read = bytes_left;
-		if(bytes_to_read>(de_int64)sizeof(buf)) bytes_to_read=(de_int64)sizeof(buf);
-
-		dbuf_read(inf, buf, input_pos, bytes_to_read);
-		dbuf_write(outf, buf, bytes_to_read);
-		bytes_left -= bytes_to_read;
-		input_pos += bytes_to_read;
-	}
+	dbuf_buffered_read(inf, input_offset, input_len, copy_cbfn, (void*)outf);
 }
 
 void dbuf_copy_at(dbuf *inf, de_int64 input_offset, de_int64 input_len,
@@ -1506,4 +1498,33 @@ void dbuf_read_fourcc(dbuf *f, de_int64 pos, struct de_fourcc *fcc,
 	de_bytes_to_printable_sz(fcc->bytes, (de_int64)nbytes,
 		fcc->id_dbgstr, sizeof(fcc->id_dbgstr),
 		DE_CONVFLAG_ALLOW_HL, DE_ENCODING_ASCII);
+}
+
+// Read a slice of a dbuf, and pass its data to a callback function, one
+// segment at a time.
+// cbfn: Caller-implemented callback function.
+//   It is required to consume all supplied bytes.
+//   It should return 1 normally, 0 to abort.
+int dbuf_buffered_read(dbuf *f, de_int64 pos1, de_int64 len,
+	de_buffered_read_cbfn cbfn, void *userdata)
+{
+	int retval = 0;
+	de_int64 pos = pos1;
+#define BRBUFLEN 4096
+	de_byte buf[BRBUFLEN];
+
+	while(pos<pos1+len) {
+		de_int64 bytestoread;
+		int ret;
+
+		bytestoread = pos1+len-pos;
+		if(bytestoread>BRBUFLEN) bytestoread = BRBUFLEN;
+		dbuf_read(f, buf, pos, bytestoread);
+		ret = cbfn(f->c, userdata, buf, bytestoread);
+		if(!ret) goto done;
+		pos += bytestoread;
+	}
+	retval = 1;
+done:
+	return retval;
 }
