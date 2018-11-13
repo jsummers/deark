@@ -8,19 +8,28 @@
 #include <deark-private.h>
 DE_DECLARE_MODULE(de_module_lha);
 
+#define CODE_lh0 0x6c6830U
+#define CODE_lhd 0x6c6864U
+
 struct member_data {
 	de_byte hlev; // header level
 	de_int64 total_size;
 	struct de_stringreaderdata *cmpr_method;
+	de_uint32 cmpr_meth_code;
 	int is_dir;
 	de_int64 orig_size;
 	de_uint32 crc16;
 	de_byte os_id;
 	int codepage_encoding; // Encoding based on the "codepage" ext hdr
+	de_int64 compressed_data_pos; // relative to beginning of file
+	de_int64 compressed_data_len;
+	de_ucstring *filename;
 };
 
 typedef struct localctx_struct {
 	int member_count;
+	int try_to_extract;
+	struct de_crcobj *crco;
 } lctx;
 
 struct exthdr_type_info_struct;
@@ -83,13 +92,10 @@ static void read_unix_timestamp(deark *c, lctx *d, struct member_data *md,
 static void read_filename(deark *c, lctx *d, struct member_data *md,
 	de_int64 pos, de_int64 len)
 {
-	de_ucstring *s = NULL;
-
-	s = ucstring_create(c);
+	md->filename = ucstring_create(c);
 	dbuf_read_to_ucstring(c->infile, pos, len,
-		s, 0, DE_ENCODING_ASCII);
-	de_dbg(c, "filename: \"%s\"", ucstring_getpsz(s));
-	ucstring_destroy(s);
+		md->filename, 0, DE_ENCODING_ASCII);
+	de_dbg(c, "filename: \"%s\"", ucstring_getpsz_d(md->filename));
 }
 
 static void exthdr_common(deark *c, lctx *d, struct member_data *md,
@@ -258,6 +264,7 @@ static void destroy_member_data(deark *c, struct member_data *md)
 {
 	if(!md) return;
 	de_destroy_stringreaderdata(c, md->cmpr_method);
+	ucstring_destroy(md->filename);
 	de_free(c, md);
 }
 
@@ -398,6 +405,50 @@ done:
 	return retval;
 }
 
+static void our_writecallback(dbuf *f, const de_byte *buf, de_int64 buf_len)
+{
+	struct de_crcobj *crco = (struct de_crcobj*)f->userdata;
+	de_crcobj_addbuf(crco, buf, buf_len);
+}
+
+static void do_extract_file(deark *c, lctx *d, struct member_data *md)
+{
+	de_finfo *fi = NULL;
+	dbuf *outf = NULL;
+	de_uint32 crc_calc;
+
+	if(!d->try_to_extract) return;
+	if(md->is_dir) return;
+	if(md->cmpr_meth_code!=CODE_lh0) return;
+
+	fi = de_finfo_create(c);
+	if(md->filename && md->filename->len>0) {
+		de_finfo_set_name_from_ucstring(c, fi, md->filename);
+		fi->original_filename_flag = 1;
+	}
+	outf = dbuf_create_output_file(c, NULL, fi, 0x0);
+
+	if(!d->crco) {
+		d->crco = de_crcobj_create(c, DE_CRCOBJ_CRC16_ZOO);
+	}
+	else {
+		de_crcobj_reset(d->crco);
+	}
+	outf->userdata = (void*)d->crco;
+	outf->writecallback_fn = our_writecallback;
+
+	dbuf_copy(c->infile, md->compressed_data_pos, md->compressed_data_len, outf);
+
+	crc_calc = de_crcobj_getval(d->crco);
+	de_dbg(c, "crc (calculated): 0x%04x", (unsigned int)crc_calc);
+	if(crc_calc != md->crc16) {
+		de_err(c, "CRC check failed");
+	}
+
+	dbuf_close(outf);
+	de_finfo_destroy(c, fi);
+}
+
 // This single function parses all the different header formats, using lots of
 // "if" statements. It is messy, but it's a no-win situation.
 // The alternative of four separate functions would be have a lot of redundant
@@ -415,8 +466,7 @@ static int do_read_member(deark *c, lctx *d, struct member_data *md, de_int64 po
 	de_int64 pos = pos1;
 	de_int64 exthdr_bytes_consumed = 0;
 	de_int64 fnlen = 0;
-	de_int64 compressed_data_pos = 0; // relative to beginning of file
-	de_int64 compressed_data_len = 0;
+	int is_compressed;
 	int ret;
 
 	if(c->infile->len - pos1 < 21) {
@@ -439,6 +489,10 @@ static int do_read_member(deark *c, lctx *d, struct member_data *md, de_int64 po
 		}
 	}
 
+	md->cmpr_meth_code = (de_uint32)md->cmpr_method->sz[1] << 16;
+	md->cmpr_meth_code |= (de_uint32)md->cmpr_method->sz[2] << 8;
+	md->cmpr_meth_code |= (de_uint32)md->cmpr_method->sz[3];
+
 	// Look ahead to figure out the header format version.
 	// This byte was originally the high byte of the "MS-DOS file attribute" field,
 	// which happened to always be zero.
@@ -452,27 +506,23 @@ static int do_read_member(deark *c, lctx *d, struct member_data *md, de_int64 po
 	}
 
 	if(md->hlev==0) {
-		lev0_header_size = (de_int64)de_getbyte(pos);
+		lev0_header_size = (de_int64)de_getbyte_p(&pos);
 		de_dbg(c, "header size: (2+)%d", (int)lev0_header_size);
-		pos++;
 		pos++; // Cksum
 	}
 	else if(md->hlev==1) {
-		lev1_base_header_size = (de_int64)de_getbyte(pos);
+		lev1_base_header_size = (de_int64)de_getbyte_p(&pos);
 		de_dbg(c, "base header size: %d", (int)lev1_base_header_size);
-		pos++;
 		pos++; // Cksum
 	}
 	else if(md->hlev==2) {
-		lev2_total_header_size = de_getui16le(pos);
+		lev2_total_header_size = de_getui16le_p(&pos);
 		de_dbg(c, "total header size: %d", (int)lev2_total_header_size);
-		pos += 2;
 	}
 	else if(md->hlev==3) {
 		de_int64 lev3_word_size;
-		lev3_word_size = de_getui16le(pos);
+		lev3_word_size = de_getui16le_p(&pos);
 		de_dbg(c, "word size: %d", (int)lev3_word_size);
-		pos += 2;
 		if(lev3_word_size!=4) {
 			de_err(c, "Unsupported word size: %d", (int)lev3_word_size);
 			goto done;
@@ -483,28 +533,34 @@ static int do_read_member(deark *c, lctx *d, struct member_data *md, de_int64 po
 	de_dbg(c, "cmpr method: \"%s\"", ucstring_getpsz(md->cmpr_method->str));
 	pos+=5;
 
-	if(!de_strcmp("-lhd-", (const char*)md->cmpr_method->sz)) {
+	if(md->cmpr_meth_code==CODE_lhd) {
+		is_compressed = 0;
 		md->is_dir = 1;
+	}
+	else if(md->cmpr_meth_code==CODE_lh0) {
+		is_compressed = 0;
+	}
+	else {
+		is_compressed = 1;
 	}
 
 	if(md->hlev==1) {
 		// lev1_skip_size is the distance from the third byte of the extended
 		// header section, to the end of the compressed data.
-		lev1_skip_size = de_getui32le(pos);
+		lev1_skip_size = de_getui32le_p(&pos);
 		de_dbg(c, "skip size: %u", (unsigned int)lev1_skip_size);
-		pos += 4;
 		md->total_size = 2 + lev1_base_header_size + lev1_skip_size;
 	}
 	else {
-		compressed_data_len = de_getui32le(pos);
-		de_dbg(c, "compressed size: %u", (unsigned int)compressed_data_len);
+		md->compressed_data_len = de_getui32le(pos);
+		de_dbg(c, "compressed size: %"INT64_FMT, md->compressed_data_len);
 		pos += 4;
 
 		if(md->hlev==0) {
-			md->total_size = 2 + lev0_header_size + compressed_data_len;
+			md->total_size = 2 + lev0_header_size + md->compressed_data_len;
 		}
 		else if(md->hlev==2) {
-			md->total_size = lev2_total_header_size + compressed_data_len;
+			md->total_size = lev2_total_header_size + md->compressed_data_len;
 		}
 	}
 
@@ -536,25 +592,23 @@ static int do_read_member(deark *c, lctx *d, struct member_data *md, de_int64 po
 		pos += fnlen;
 	}
 
-	md->crc16 = (de_uint32)de_getui16le(pos);
+	md->crc16 = (de_uint32)de_getui16le_p(&pos);
 	de_dbg(c, "crc16 (reported): 0x%04x", (unsigned int)md->crc16);
-	pos += 2; // CRC16
 
 	if(md->hlev==1 || md->hlev==2 || md->hlev==3) {
-		md->os_id = de_getbyte(pos++);
+		md->os_id = de_getbyte_p(&pos);
 		de_dbg(c, "OS id: %d ('%c')", (int)md->os_id,
 			de_byte_to_printable_char(md->os_id));
 	}
 
 	if(md->hlev==3) {
-		lev3_header_size = de_getui32le(pos);
-		pos += 4;
-		md->total_size = lev3_header_size + compressed_data_len;
+		lev3_header_size = de_getui32le_p(&pos);
+		md->total_size = lev3_header_size + md->compressed_data_len;
 	}
 
 	if(md->hlev==0) {
 		de_int64 ext_headers_size = (2+lev0_header_size) - (pos-pos1);
-		compressed_data_pos = pos1 + 2 + lev0_header_size;
+		md->compressed_data_pos = pos1 + 2 + lev0_header_size;
 		if(ext_headers_size>0) {
 			de_dbg(c, "extended header area at %d, len=%d", (int)pos, (int)ext_headers_size);
 			de_dbg_indent(c, 1);
@@ -568,9 +622,8 @@ static int do_read_member(deark *c, lctx *d, struct member_data *md, de_int64 po
 		// The last two bytes of the base header are the size of the first ext. header.
 		pos = pos1 + 2 + lev1_base_header_size - 2;
 		// TODO: sanitize pos?
-		first_ext_hdr_size = de_getui16le(pos);
+		first_ext_hdr_size = de_getui16le_p(&pos);
 		de_dbg(c, "first ext hdr size: %d", (int)first_ext_hdr_size);
-		pos += 2;
 
 		ret = do_read_ext_headers(c, d, md, pos, lev1_skip_size, first_ext_hdr_size,
 			&exthdr_bytes_consumed);
@@ -583,17 +636,16 @@ static int do_read_member(deark *c, lctx *d, struct member_data *md, de_int64 po
 		}
 
 		pos += exthdr_bytes_consumed;
-		compressed_data_pos = pos;
-		compressed_data_len = lev1_skip_size - exthdr_bytes_consumed;
+		md->compressed_data_pos = pos;
+		md->compressed_data_len = lev1_skip_size - exthdr_bytes_consumed;
 	}
 	else if(md->hlev==2) {
 		de_int64 first_ext_hdr_size;
 
-		compressed_data_pos = pos1+lev2_total_header_size;
+		md->compressed_data_pos = pos1+lev2_total_header_size;
 
-		first_ext_hdr_size = de_getui16le(pos);
+		first_ext_hdr_size = de_getui16le_p(&pos);
 		de_dbg(c, "first ext hdr size: %d", (int)first_ext_hdr_size);
-		pos += 2;
 
 		do_read_ext_headers(c, d, md, pos, pos1+lev2_total_header_size-pos,
 			first_ext_hdr_size, &exthdr_bytes_consumed);
@@ -601,18 +653,20 @@ static int do_read_member(deark *c, lctx *d, struct member_data *md, de_int64 po
 	else if(md->hlev==3) {
 		de_int64 first_ext_hdr_size;
 
-		compressed_data_pos = pos1+lev3_header_size;
+		md->compressed_data_pos = pos1+lev3_header_size;
 
-		first_ext_hdr_size = de_getui32le(pos);
+		first_ext_hdr_size = de_getui32le_p(&pos);
 		de_dbg(c, "first ext hdr size: %d", (int)first_ext_hdr_size);
-		pos += 4;
 
 		do_read_ext_headers(c, d, md, pos, pos1+lev3_header_size-pos,
 			first_ext_hdr_size, &exthdr_bytes_consumed);
 	}
 
-	de_dbg(c, "compressed member data at %d, len=%d",
-		(int)compressed_data_pos, (int)compressed_data_len);
+	de_dbg(c, "%scompressed member data at %"INT64_FMT", len=%"INT64_FMT,
+		is_compressed?"":"un",
+		md->compressed_data_pos, md->compressed_data_len);
+
+	do_extract_file(c, d, md);
 
 	retval = 1;
 done:
@@ -627,7 +681,12 @@ static void de_run_lha(deark *c, de_module_params *mparams)
 	struct member_data *md = NULL;
 
 	d = de_malloc(c, sizeof(lctx));
-	de_msg(c, "Note: LHA files can be parsed, but no files can be extracted from them.");
+
+	d->try_to_extract = de_get_ext_option_bool(c, "lha:extract", -1);
+	if(d->try_to_extract == -1) {
+		de_msg(c, "Note: LHA files can be parsed, but no files can be extracted from them.");
+		d->try_to_extract = 0;
+	}
 
 	pos = 0;
 	while(1) {
@@ -646,7 +705,10 @@ static void de_run_lha(deark *c, de_module_params *mparams)
 
 done:
 	destroy_member_data(c, md);
-	de_free(c, d);
+	if(d) {
+		de_crcobj_destroy(d->crco);
+		de_free(c, d);
+	}
 }
 
 static int de_identify_lha(deark *c)
