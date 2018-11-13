@@ -670,8 +670,9 @@ Deark -- Information about supported formats
   - Note that code points below 0x20 are ambiguous. Deark tries to guess which
     ones are control characters.
 
-* CRC-32 (module="crc32")
-  - Print the IEEE CRC-32 of the file.
+* CRC (module="crc")
+  Print various CRC hashes of the file, including the IEEE CRC-32.
+  - You must use "-m crc".
 
 * DS_Store (module="dsstore") (experimental)
   Metadata format associated with MacOS Finder.

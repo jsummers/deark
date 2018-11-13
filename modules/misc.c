@@ -11,7 +11,7 @@
 DE_DECLARE_MODULE(de_module_copy);
 DE_DECLARE_MODULE(de_module_null);
 DE_DECLARE_MODULE(de_module_cp437);
-DE_DECLARE_MODULE(de_module_crc32);
+DE_DECLARE_MODULE(de_module_crc);
 DE_DECLARE_MODULE(de_module_zlib);
 DE_DECLARE_MODULE(de_module_sauce);
 DE_DECLARE_MODULE(de_module_hpicn);
@@ -148,22 +148,50 @@ void de_module_cp437(deark *c, struct deark_module_info *mi)
 // Prints the CRC-32. Does not create any files.
 // **************************************************************************
 
-static void de_run_crc32(deark *c, de_module_params *mparams)
-{
-	struct de_crcobj *crco = NULL;
+struct crcctx_struct {
+	struct de_crcobj *crco_32ieee;
+	struct de_crcobj *crco_16arc;
+	struct de_crcobj *crco_16ccitt;
+};
 
-	crco = de_crcobj_create(c, DE_CRCOBJ_CRC32_IEEE);
-	de_crcobj_addslice(crco, c->infile, 0, c->infile->len);
-	de_printf(c, DE_MSGTYPE_MESSAGE, "CRC-32: 0x%08x\n",
-		(unsigned int)de_crcobj_getval(crco));
-	de_crcobj_destroy(crco);
+static int crc_cbfn(deark *c, void *userdata, const de_byte *buf,
+	de_int64 buf_len)
+{
+	struct crcctx_struct *crcctx = (struct crcctx_struct*)userdata;
+	de_crcobj_addbuf(crcctx->crco_32ieee, buf, buf_len);
+	de_crcobj_addbuf(crcctx->crco_16arc, buf, buf_len);
+	de_crcobj_addbuf(crcctx->crco_16ccitt, buf, buf_len);
+	return 1;
 }
 
-void de_module_crc32(deark *c, struct deark_module_info *mi)
+static void de_run_crc(deark *c, de_module_params *mparams)
 {
-	mi->id = "crc32";
-	mi->desc = "Calculate the IEEE CRC-32";
-	mi->run_fn = de_run_crc32;
+	struct crcctx_struct crcctx;
+
+	crcctx.crco_32ieee = de_crcobj_create(c, DE_CRCOBJ_CRC32_IEEE);
+	crcctx.crco_16arc = de_crcobj_create(c, DE_CRCOBJ_CRC16_ARC);
+	crcctx.crco_16ccitt = de_crcobj_create(c, DE_CRCOBJ_CRC16_CCITT);
+
+	dbuf_buffered_read(c->infile, 0, c->infile->len, crc_cbfn, (void*)&crcctx);
+
+	de_printf(c, DE_MSGTYPE_MESSAGE, "CRC-32-IEEE: 0x%08x\n",
+		(unsigned int)de_crcobj_getval(crcctx.crco_32ieee));
+	de_printf(c, DE_MSGTYPE_MESSAGE, "CRC-16-IBM/ARC: 0x%04x\n",
+		(unsigned int)de_crcobj_getval(crcctx.crco_16arc));
+	de_printf(c, DE_MSGTYPE_MESSAGE, "CRC-16-CCITT: 0x%04x\n",
+		(unsigned int)de_crcobj_getval(crcctx.crco_16ccitt));
+
+	de_crcobj_destroy(crcctx.crco_32ieee);
+	de_crcobj_destroy(crcctx.crco_16arc);
+	de_crcobj_destroy(crcctx.crco_16ccitt);
+}
+
+void de_module_crc(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "crc";
+	mi->id_alias[0] = "crc32";
+	mi->desc = "Calculate various CRCs";
+	mi->run_fn = de_run_crc;
 	mi->identify_fn = de_identify_none;
 	mi->flags |= DE_MODFLAG_NOEXTRACT;
 }
