@@ -429,7 +429,7 @@ static void do_extract_file(deark *c, lctx *d, struct member_data *md)
 	outf = dbuf_create_output_file(c, NULL, fi, 0x0);
 
 	if(!d->crco) {
-		d->crco = de_crcobj_create(c, DE_CRCOBJ_CRC16_ZOO);
+		d->crco = de_crcobj_create(c, DE_CRCOBJ_CRC16_ARC);
 	}
 	else {
 		de_crcobj_reset(d->crco);

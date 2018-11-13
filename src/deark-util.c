@@ -1172,6 +1172,10 @@ struct de_crcobj {
 	de_uint16 *table16;
 };
 
+// This is the CRC-16 algorithm used in MacBinary.
+// It is in the x^16 + x^12 + x^5 + 1 family.
+// CRC-16-CCITT is probably the best name for it, though I'm not completely
+// sure, and there are several algorithms that have been called "CRC-16-CCITT".
 static void de_crc16ccitt_init(struct de_crcobj *crco)
 {
 	const unsigned int polynomial = 0x1021;
@@ -1198,13 +1202,13 @@ static void de_crc16ccitt_continue(struct de_crcobj *crco, const de_byte *buf, d
 	}
 }
 
-static void de_crc16zoo_init(struct de_crcobj *crco)
+// This is the CRC-16 algorithm used in ARC, LHA, ZOO, etc.
+// It is in the x^16 + x^15 + x^2 + 1 family.
+// It's some variant of CRC-16-IBM, and sometimes simply called "CRC-16". But
+// both these names are more ambiguous than I'd like, so I'm calling it "ARC".
+static void de_crc16arc_init(struct de_crcobj *crco)
 {
 	de_uint32 i, k;
-
-	// This is the CRC-16 used in ZOO format. It's probably some form of
-	// CRC-16-IBM (one reference is "PC Tech Journal 4/85"), but I'll name it
-	// after ZOO until I'm sure I know what it should be called.
 
 	crco->table16 = de_malloc(crco->c, 256*sizeof(de_uint16));
 	for(i=0; i<256; i++) {
@@ -1214,7 +1218,7 @@ static void de_crc16zoo_init(struct de_crcobj *crco)
 	}
 }
 
-static void de_crc16zoo_continue(struct de_crcobj *crco, const de_byte *buf, de_int64 buf_len)
+static void de_crc16arc_continue(struct de_crcobj *crco, const de_byte *buf, de_int64 buf_len)
 {
 	de_int64 k;
 
@@ -1238,8 +1242,8 @@ struct de_crcobj *de_crcobj_create(deark *c, unsigned int flags)
 	case DE_CRCOBJ_CRC16_CCITT:
 		de_crc16ccitt_init(crco);
 		break;
-	case DE_CRCOBJ_CRC16_ZOO:
-		de_crc16zoo_init(crco);
+	case DE_CRCOBJ_CRC16_ARC:
+		de_crc16arc_init(crco);
 		break;
 	}
 
@@ -1282,8 +1286,8 @@ void de_crcobj_addbuf(struct de_crcobj *crco, const de_byte *buf, de_int64 buf_l
 	case DE_CRCOBJ_CRC16_CCITT:
 		de_crc16ccitt_continue(crco, buf, buf_len);
 		break;
-	case DE_CRCOBJ_CRC16_ZOO:
-		de_crc16zoo_continue(crco, buf, buf_len);
+	case DE_CRCOBJ_CRC16_ARC:
+		de_crc16arc_continue(crco, buf, buf_len);
 		break;
 	}
 }

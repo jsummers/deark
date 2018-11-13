@@ -346,7 +346,7 @@ static void de_run_arcfs(deark *c, de_module_params *mparams)
 	if(!do_file_header(c, d, pos)) goto done;
 	pos += 96;
 
-	d->crco = de_crcobj_create(c, DE_CRCOBJ_CRC16_ZOO);
+	d->crco = de_crcobj_create(c, DE_CRCOBJ_CRC16_ARC);
 	do_members(c, d, pos);
 
 done:

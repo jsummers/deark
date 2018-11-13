@@ -1090,7 +1090,7 @@ static int ExtrArch (deark *c, dbuf *inf)
 	uz->ReadArch = inf;
 	uz->ReadArch_fpos = 0;
 
-	uz->crco = de_crcobj_create(c, DE_CRCOBJ_CRC16_ZOO);
+	uz->crco = de_crcobj_create(c, DE_CRCOBJ_CRC16_ARC);
 
 	if(!DescReadArch(uz)) {
 		de_err(uz->c, "Found bad description in archive");
