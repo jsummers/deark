@@ -24,6 +24,7 @@ struct member_data {
 	de_int64 cmpr_len;
 	const char *cmpr_meth_name;
 	de_ucstring *fn;
+	struct de_timestamp mod_time;
 };
 
 typedef struct localctx_struct {
@@ -31,6 +32,32 @@ typedef struct localctx_struct {
 	de_int64 data_offs;
 	struct de_crcobj *crco;
 } lctx;
+
+static void load_and_exec_to_timestamp(deark *c, lctx *d, de_uint32 load_addr,
+	de_uint32 exec_addr, struct de_timestamp *ts)
+{
+	de_int64 t;
+
+	t = (((de_int64)(load_addr&0xff))<<32) | (de_int64)exec_addr;
+	// t now = number of centiseconds since beginning of 1900
+
+	// Convert to seconds, rounding to nearest second.
+	t = (t+50)/100;
+
+	// Convert 1900 epoch to 1970 epoch.
+	// (There were 17 leap days between Jan 1900 and Jan 1970.)
+	t -= (((de_int64)365*86400)*70 + 17*86400);
+
+	de_unix_time_to_timestamp(t, ts);
+}
+
+static void dbg_timestamp(deark *c, struct de_timestamp *ts, const char *name)
+{
+	char timestamp_buf[64];
+
+	de_timestamp_to_string(ts, timestamp_buf, sizeof(timestamp_buf), 0);
+	de_dbg(c, "%s: %s", name, timestamp_buf);
+}
 
 static int do_file_header(deark *c, lctx *d, de_int64 pos1)
 {
@@ -166,7 +193,12 @@ static void do_extract_member(deark *c, lctx *d, struct member_data *md)
 
 	fi = de_finfo_create(c);
 	de_finfo_set_name_from_ucstring(c, fi, md->fn);
+	if(md->mod_time.is_valid) {
+		fi->mod_time = md->mod_time;
+	}
+
 	outf = dbuf_create_output_file(c, NULL, fi, 0x0);
+
 	outf->writecallback_fn = our_writecallback;
 	outf->userdata = (void*)d->crco;
 	de_crcobj_reset(d->crco);
@@ -266,16 +298,17 @@ static void do_member(deark *c, lctx *d, de_int64 idx, de_int64 pos1)
 	}
 
 	md->load_addr = (de_uint32)de_getui32le_p(&pos);
-	de_dbg(c, "load addr: 0x%08x", (unsigned int)md->load_addr);
+	md->exec_addr = (de_uint32)de_getui32le_p(&pos);
+	de_dbg(c, "load/exec addrs: 0x%08x, 0x%08x", (unsigned int)md->load_addr,
+		(unsigned int)md->exec_addr);
 	de_dbg_indent(c, 1);
 	if((md->load_addr&0xfff00000U)==0xfff00000U) {
 		md->file_type = (unsigned int)((md->load_addr&0xfff00)>>8);
 		de_dbg(c, "file type: %03X", md->file_type);
 	}
+	load_and_exec_to_timestamp(c, d, md->load_addr, md->exec_addr, &md->mod_time);
+	dbg_timestamp(c, &md->mod_time, "timestamp");
 	de_dbg_indent(c, -1);
-
-	md->exec_addr = (de_uint32)de_getui32le_p(&pos);
-	de_dbg(c, "exec addr: 0x%08x", (unsigned int)md->exec_addr);
 
 	md->attribs = (de_uint32)de_getui32le_p(&pos);
 	de_dbg(c, "attribs: 0x%08x", (unsigned int)md->attribs);
