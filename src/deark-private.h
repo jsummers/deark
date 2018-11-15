@@ -852,6 +852,13 @@ const char *ucstring_getpsz_d(de_ucstring *s);
 // Helper function for printing the contents of bit-flags fields
 void ucstring_append_flags_item(de_ucstring *s, const char *str);
 
+struct de_strarray;
+struct de_strarray *de_strarray_create(deark *c);
+void de_strarray_destroy(struct de_strarray *sa);
+void de_strarray_push(struct de_strarray *sa, de_ucstring *s);
+void de_strarray_pop(struct de_strarray *sa);
+void de_strarray_make_path(struct de_strarray *sa, de_ucstring *path, unsigned int flags);
+
 void de_write_codepoint_to_html(deark *c, dbuf *f, de_int32 ch);
 
 int de_encoding_name_to_code(const char *encname);

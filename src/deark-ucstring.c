@@ -401,3 +401,69 @@ void ucstring_append_flags_item(de_ucstring *s, const char *str)
 {
 	ucstring_printf(s, DE_ENCODING_UTF8, "%s%s", (s->len>0)?" | ":"", str);
 }
+
+// strarray: A mini library, intended mainly to help manage directory paths.
+
+struct de_strarray {
+	deark *c;
+	size_t count;
+	size_t num_alloc;
+	de_ucstring **ss; // array of 'num_alloc' ucstring pointers
+};
+
+struct de_strarray *de_strarray_create(deark *c)
+{
+	struct de_strarray *sa;
+	sa = de_malloc(c, sizeof(struct de_strarray));
+	sa->c = c;
+	return sa;
+}
+
+void de_strarray_destroy(struct de_strarray *sa)
+{
+	deark *c;
+
+	if(!sa) return;
+	c = sa->c;
+	while(sa->count>0) {
+		de_strarray_pop(sa);
+	}
+	de_free(c, sa->ss);
+	de_free(c, sa);
+}
+
+// This makes a copy of 's'. The caller still owns 's'.
+void de_strarray_push(struct de_strarray *sa, de_ucstring *s)
+{
+	deark *c = sa->c;
+	size_t newidx = sa->count;
+
+	if(newidx >= sa->num_alloc) {
+		size_t old_num_alloc = sa->num_alloc;
+		sa->num_alloc *= 2;
+		if(sa->num_alloc<8) sa->num_alloc=8;
+		sa->ss = de_realloc(c, sa->ss, old_num_alloc*sizeof(de_ucstring*),
+			sa->num_alloc*sizeof(de_ucstring*));
+	}
+	sa->ss[newidx] = ucstring_clone(s);
+	sa->count++;
+}
+
+void de_strarray_pop(struct de_strarray *sa)
+{
+	if(sa->count<1) return;
+	ucstring_destroy(sa->ss[sa->count-1]);
+	sa->ss[sa->count-1] = NULL;
+	sa->count--;
+}
+
+// Caller allocates 'path' to receive the path.
+void de_strarray_make_path(struct de_strarray *sa, de_ucstring *path, unsigned int flags)
+{
+	size_t i;
+
+	for(i=0; i<sa->count; i++) {
+		ucstring_append_ucstring(path, sa->ss[i]);
+		ucstring_append_sz(path, "/", DE_ENCODING_LATIN1);
+	}
+}

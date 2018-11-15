@@ -31,6 +31,7 @@ typedef struct localctx_struct {
 	de_int64 nmembers;
 	de_int64 data_offs;
 	struct de_crcobj *crco;
+	struct de_strarray *curpath;
 } lctx;
 
 static void load_and_exec_to_timestamp(deark *c, lctx *d, de_uint32 load_addr,
@@ -177,11 +178,16 @@ static void do_extract_member(deark *c, lctx *d, struct member_data *md)
 	dbuf *outf = NULL;
 	de_uint32 crc_calc;
 	int ret;
+	de_ucstring *fullfn = NULL;
 
 	if(md->file_data_offs_abs + md->cmpr_len > c->infile->len) goto done;
 
 	de_dbg(c, "file data at %"INT64_FMT", len=%"INT64_FMT,
 		md->file_data_offs_abs, md->cmpr_len);
+
+	fullfn = ucstring_create(c);
+	de_strarray_make_path(d->curpath, fullfn, 0);
+	ucstring_append_ucstring(fullfn, md->fn);
 
 	if(md->cmpr_method!=0x82 && md->cmpr_method!=0x83 && md->cmpr_method!=0x88 &&
 		md->cmpr_method!=0xff)
@@ -192,7 +198,7 @@ static void do_extract_member(deark *c, lctx *d, struct member_data *md)
 	}
 
 	fi = de_finfo_create(c);
-	de_finfo_set_name_from_ucstring(c, fi, md->fn);
+	de_finfo_set_name_from_ucstring(c, fi, fullfn);
 	if(md->mod_time.is_valid) {
 		fi->mod_time = md->mod_time;
 	}
@@ -243,6 +249,7 @@ static void do_extract_member(deark *c, lctx *d, struct member_data *md)
 done:
 	dbuf_close(outf);
 	de_finfo_destroy(c, fi);
+	ucstring_destroy(fullfn);
 }
 
 static const char *get_info_byte_name(de_byte t)
@@ -275,8 +282,11 @@ static void do_member(deark *c, lctx *d, de_int64 idx, de_int64 pos1)
 	info_byte = de_getbyte_p(&pos);
 	md->cmpr_meth_name = get_info_byte_name(info_byte);
 	de_dbg(c, "info byte: 0x%02x (%s)", (unsigned int)info_byte, md->cmpr_meth_name);
-	if(info_byte==0) goto done; // end of directory marker
 	if(info_byte==1) goto done; // deleted object
+	if(info_byte==0) { // end of directory marker
+		de_strarray_pop(d->curpath);
+		goto done;
+	}
 	md->cmpr_method = info_byte;
 
 	// Look ahead at the "information word".
@@ -290,6 +300,9 @@ static void do_member(deark *c, lctx *d, de_int64 idx, de_int64 pos1)
 	dbuf_read_to_ucstring(c->infile, pos, 11, md->fn, DE_CONVFLAG_STOP_AT_NUL,
 		DE_ENCODING_ASCII);
 	de_dbg(c, "filename: \"%s\"", ucstring_getpsz_d(md->fn));
+	if(md->is_dir) {
+		de_strarray_push(d->curpath, md->fn);
+	}
 	pos += 11;
 
 	md->orig_len = de_getui32le_p(&pos);
@@ -379,12 +392,14 @@ static void de_run_arcfs(deark *c, de_module_params *mparams)
 	if(!do_file_header(c, d, pos)) goto done;
 	pos += 96;
 
+	d->curpath = de_strarray_create(c);
 	d->crco = de_crcobj_create(c, DE_CRCOBJ_CRC16_ARC);
 	do_members(c, d, pos);
 
 done:
 	if(d) {
 		de_crcobj_destroy(d->crco);
+		de_strarray_destroy(d->curpath);
 		de_free(c, d);
 	}
 }
