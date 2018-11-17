@@ -251,7 +251,8 @@ resetbuf:
 
 			if (lzw->oldcode == -1) {
 				if (lzw->code >= 256) {
-					return -1; /* error("corrupt input."); */
+					de_err(lzw->c, "LZW decompression error");
+					return -1;
 				}
 				outbuf[lzw->outpos++] = lzw->finchar = lzw->oldcode = lzw->code;
 				continue;
@@ -273,7 +274,7 @@ resetbuf:
 			/* Special case for KwKwK string.*/
 			if (lzw->code >= lzw->free_ent) {
 				if (lzw->code > lzw->free_ent) {
-					de_err(lzw->c, "Decompression error");
+					de_err(lzw->c, "LZW decompression error");
 					return -1;
 				}
 

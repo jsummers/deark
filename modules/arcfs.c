@@ -111,6 +111,7 @@ static int do_compressed(deark *c, lctx *d, struct member_data *md, dbuf *outf,
 	struct de_liblzwctx *lzw = NULL;
 	de_int64 nbytes_still_to_write;
 	de_byte lzwmode;
+	int retval = 0;
 
 	inf = dbuf_open_input_subfile(c->infile, md->file_data_offs_abs, md->cmpr_len);
 
@@ -123,6 +124,9 @@ static int do_compressed(deark *c, lctx *d, struct member_data *md, dbuf *outf,
 	while(1) {
 		if(limit_size_flag && (nbytes_still_to_write<1)) break;
 		n = de_liblzw_read(lzw, buf, sizeof(buf));
+		if(n<0) {
+			goto done;
+		}
 		if(n<1) break;
 
 		if(limit_size_flag && (n > nbytes_still_to_write)) {
@@ -134,17 +138,19 @@ static int do_compressed(deark *c, lctx *d, struct member_data *md, dbuf *outf,
 		dbuf_write(outf, buf, n);
 		nbytes_still_to_write -= n;
 	}
+	retval = 1;
 
 done:
 	if(lzw) de_liblzw_close(lzw);
 	dbuf_close(inf);
-	return 1;
+	return retval;
 }
 
 static int do_crunched(deark *c, lctx *d, struct member_data *md, dbuf *outf)
 {
 	dbuf *tmpf = NULL;
-	int ret;
+	int ret1, ret2;
+	int retval = 0;
 
 	// "Crunched" apparently means "packed", then "compressed".
 	// So we have to "uncompress", then "unpack".
@@ -154,16 +160,17 @@ static int do_crunched(deark *c, lctx *d, struct member_data *md, dbuf *outf)
 	// TODO: We should at least set a size limit on tmpf, but it's not clear what
 	// the limit should be.
 	tmpf = dbuf_create_membuf(c, 0, 0);
-	ret = do_compressed(c, d, md, tmpf, 0);
-	if(!ret) goto done;
+	ret1 = do_compressed(c, d, md, tmpf, 0);
 	de_dbg2(c, "size after intermediate decompression: %d", (int)tmpf->len);
 
-	ret = de_fmtutil_decompress_binhexrle(tmpf, 0, tmpf->len, outf, 1, md->orig_len);
-	if(!ret) goto done;
+	ret2 = de_fmtutil_decompress_binhexrle(tmpf, 0, tmpf->len, outf, 1, md->orig_len);
+	if(!ret1 || !ret2) goto done;
+
+	retval = 1;
 
 done:
 	dbuf_close(tmpf);
-	return 1;
+	return retval;
 }
 
 static void our_writecallback(dbuf *f, const de_byte *buf, de_int64 buf_len)
@@ -319,8 +326,10 @@ static void do_member(deark *c, lctx *d, de_int64 idx, de_int64 pos1)
 		md->file_type = (unsigned int)((md->load_addr&0xfff00)>>8);
 		de_dbg(c, "file type: %03X", md->file_type);
 	}
-	load_and_exec_to_timestamp(c, d, md->load_addr, md->exec_addr, &md->mod_time);
-	dbg_timestamp(c, &md->mod_time, "timestamp");
+	if((md->load_addr & 0xfff00000U)==0xfff00000U) {
+		load_and_exec_to_timestamp(c, d, md->load_addr,	md->exec_addr, &md->mod_time);
+		dbg_timestamp(c, &md->mod_time, "timestamp");
+	}
 	de_dbg_indent(c, -1);
 
 	md->attribs = (de_uint32)de_getui32le_p(&pos);
