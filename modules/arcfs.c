@@ -116,7 +116,7 @@ static int do_compressed(deark *c, lctx *d, struct member_data *md, dbuf *outf,
 	inf = dbuf_open_input_subfile(c->infile, md->file_data_offs_abs, md->cmpr_len);
 
 	lzwmode = (de_byte)(md->lzwmaxbits | 0x80);
-	lzw = de_liblzw_dbufopen(inf, 0x0, lzwmode);
+	lzw = de_liblzw_dbufopen(inf, 0x2, lzwmode);
 	if(!lzw) goto done;
 
 	nbytes_still_to_write = md->orig_len;

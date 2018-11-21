@@ -37,6 +37,7 @@ struct de_liblzwctx {
 	deark *c;
 	dbuf *inf;
 	de_int64 inf_fpos;
+	int arcfs_mode;
 
 	int eof;
 
@@ -103,6 +104,7 @@ struct de_liblzwctx *de_liblzw_dbufopen(dbuf *inf, unsigned int dflags, de_byte 
 	ret->c = inf->c;
 	ret->inf = inf;
 	ret->inf_fpos = inf_fpos;
+	ret->arcfs_mode = (dflags&0x2)?1:0;
 
 	ret->eof = 0;
 	ret->inbuf = de_malloc(ret->c, sizeof(unsigned char) * IN_BUFSIZE);
@@ -273,7 +275,7 @@ resetbuf:
 
 			/* Special case for KwKwK string.*/
 			if (lzw->code >= lzw->free_ent) {
-				if (lzw->code > lzw->free_ent) {
+				if ((lzw->code > lzw->free_ent) && !lzw->arcfs_mode) {
 					de_err(lzw->c, "LZW decompression error");
 					return -1;
 				}
@@ -284,10 +286,18 @@ resetbuf:
 
 			/* Generate output characters in reverse order */
 			while (lzw->code >= 256) {
+				if(lzw->stackp==(unsigned char*)&lzw->htab[0]) {
+					de_err(lzw->c, "LZW decompression error");
+					return -1;
+				}
 				*--lzw->stackp = (unsigned char)lzw->htab[lzw->code];
 				lzw->code = lzw->codetab[lzw->code];
 			}
 
+			if(lzw->stackp==(unsigned char*)&lzw->htab[0]) {
+				de_err(lzw->c, "LZW decompression error");
+				return -1;
+			}
 			*--lzw->stackp = (lzw->finchar = lzw->htab[lzw->code]);
 
 			/* And put them out in forward order */
