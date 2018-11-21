@@ -435,6 +435,18 @@ done:
 	ucstring_destroy(comment);
 }
 
+static void do_arot_segment(deark *c, lctx *d, de_int64 pos, de_int64 len)
+{
+	de_int64 nvals;
+
+	if(len<8) goto done;
+	nvals = de_getui32be(pos);
+	de_dbg(c, "number of values: %u", (unsigned int)nvals);
+
+done:
+	;
+}
+
 static void do_xmp_extension_segment(deark *c, lctx *d,
 	de_int64 pos1, de_int64 data_size)
 {
@@ -879,6 +891,7 @@ static void normalize_app_id(const char *app_id_orig, char *app_id_normalized,
 #define APPSEGTYPE_HDR_RI_VER     24
 #define APPSEGTYPE_HDR_RI_EXT     25
 #define APPSEGTYPE_META           26
+#define APPSEGTYPE_AROT           27
 
 struct app_id_info_struct {
 	int app_id_found;
@@ -1074,6 +1087,12 @@ static void detect_app_seg_type(deark *c, lctx *d, const struct marker_info *mi,
 		app_id_info->app_type_name = "JPS";
 		sig_size = 8;
 	}
+	else if(seg_type==0xea && seg_data_size>=6 && !de_strcmp(ad.app_id_normalized, "AROT")) {
+		app_id_info->appsegtype = APPSEGTYPE_AROT;
+		app_id_info->app_type_name = "Apple absolute rotational angle delta";
+		// Guessing that there's a "padding byte" that's part of the signature.
+		sig_size = 6;
+	}
 
 done:
 	app_id_info->payload_pos = seg_data_pos + sig_size;
@@ -1167,6 +1186,9 @@ static void handler_app(deark *c, lctx *d,
 	case APPSEGTYPE_JPS:
 		d->is_jps = 1;
 		do_jps_segment(c, d, payload_pos, payload_size);
+		break;
+	case APPSEGTYPE_AROT:
+		do_arot_segment(c, d, payload_pos, payload_size);
 		break;
 	}
 
