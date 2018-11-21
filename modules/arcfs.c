@@ -303,9 +303,8 @@ static void do_member(deark *c, lctx *d, de_int64 idx, de_int64 pos1)
 	md->is_regular_file = !md->is_dir;
 
 	md->fn = ucstring_create(c);
-	// TODO: What encoding is this?
 	dbuf_read_to_ucstring(c->infile, pos, 11, md->fn, DE_CONVFLAG_STOP_AT_NUL,
-		DE_ENCODING_ASCII);
+		DE_ENCODING_RISCOS);
 	de_dbg(c, "filename: \"%s\"", ucstring_getpsz_d(md->fn));
 	if(md->is_dir) {
 		de_strarray_push(d->curpath, md->fn);

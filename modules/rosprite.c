@@ -273,7 +273,7 @@ static void read_sprite_name(deark *c, lctx *d, de_finfo *fi, de_int64 pos)
 	if(c->debug_level<1 && !c->filenames_from_file) return;
 
 	s = ucstring_create(c);
-	dbuf_read_to_ucstring(c->infile, pos, 12, s, DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_ASCII);
+	dbuf_read_to_ucstring(c->infile, pos, 12, s, DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_RISCOS);
 	de_dbg(c, "sprite name: \"%s\"", ucstring_getpsz(s));
 
 	if(c->filenames_from_file) {
