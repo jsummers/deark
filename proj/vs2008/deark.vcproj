@@ -842,6 +842,10 @@
 				>
 			</File>
 			<File
+				RelativePath="..\..\modules\rodraw.c"
+				>
+			</File>
+			<File
 				RelativePath="..\..\modules\rosprite.c"
 				>
 			</File>

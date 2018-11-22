@@ -128,6 +128,13 @@ static void get_fmt(deark *c, struct fmtinfo_struct *fmti)
 		return;
 	}
 
+	if(!de_memcmp(b, "Top!", 4)) {
+		// A format often found alongside RISC OS Draw files
+		fmti->confidence = 9;
+		fmti->descr = "an ArtWorks image";
+		return;
+	}
+
 	// We're not trying to detect every HTML file, but we want to make sure
 	// we can detect the ones we generate.
 	if(!de_memcmp(b, "<!DOCTYPE html", 14) ||

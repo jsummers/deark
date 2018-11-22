@@ -415,6 +415,9 @@ Deark -- Information about supported formats
   - "Old" format is pretty well supported.
   - "New" format is mostly supported, but not well-tested.
 
+* RISC OS / Acorn Draw (module="rodraw") (experimental)
+  - Extract sprite image files.
+
 * RSC (GEM resource) (module="rsc") (experimental)
   - Supports both "old" and "new" formats.
   - Extracts icons and bitmaps.
