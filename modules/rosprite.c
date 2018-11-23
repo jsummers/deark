@@ -259,6 +259,9 @@ static void do_setup_palette(deark *c, lctx *d, struct page_ctx *pg)
 		else if(pg->fgbpp==2 && k<4) {
 			pg->pal[k] = getpal4((int)k);
 		}
+		else if(pg->fgbpp==1 && k<2) {
+			pg->pal[k] = (k==0)?DE_STOCKCOLOR_WHITE:DE_STOCKCOLOR_BLACK;
+		}
 		else {
 			pg->pal[k] = getpal256((int)k);
 		}
