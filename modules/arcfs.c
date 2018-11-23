@@ -12,6 +12,7 @@ DE_DECLARE_MODULE(de_module_arcfs);
 struct member_data {
 	int is_dir;
 	int is_regular_file;
+	int file_type_known;
 	de_byte cmpr_method;
 	unsigned int lzwmaxbits;
 	de_uint32 attribs;
@@ -28,6 +29,7 @@ struct member_data {
 };
 
 typedef struct localctx_struct {
+	int append_type;
 	de_int64 nmembers;
 	de_int64 data_offs;
 	struct de_crcobj *crco;
@@ -195,6 +197,10 @@ static void do_extract_member(deark *c, lctx *d, struct member_data *md)
 	fullfn = ucstring_create(c);
 	de_strarray_make_path(d->curpath, fullfn, 0);
 	ucstring_append_ucstring(fullfn, md->fn);
+	if(d->append_type && md->file_type_known) {
+		// Append the file type to the filename, like nspark's -X option.
+		ucstring_printf(fullfn, DE_ENCODING_LATIN1, ",%03X", md->file_type);
+	}
 
 	if(md->cmpr_method!=0x82 && md->cmpr_method!=0x83 && md->cmpr_method!=0x88 &&
 		md->cmpr_method!=0xff)
@@ -206,6 +212,7 @@ static void do_extract_member(deark *c, lctx *d, struct member_data *md)
 
 	fi = de_finfo_create(c);
 	de_finfo_set_name_from_ucstring(c, fi, fullfn);
+	fi->original_filename_flag = 1;
 	if(md->mod_time.is_valid) {
 		fi->mod_time = md->mod_time;
 	}
@@ -323,9 +330,9 @@ static void do_member(deark *c, lctx *d, de_int64 idx, de_int64 pos1)
 	de_dbg_indent(c, 1);
 	if((md->load_addr&0xfff00000U)==0xfff00000U) {
 		md->file_type = (unsigned int)((md->load_addr&0xfff00)>>8);
+		md->file_type_known = 1;
 		de_dbg(c, "file type: %03X", md->file_type);
-	}
-	if((md->load_addr & 0xfff00000U)==0xfff00000U) {
+
 		load_and_exec_to_timestamp(c, d, md->load_addr,	md->exec_addr, &md->mod_time);
 		dbg_timestamp(c, &md->mod_time, "timestamp");
 	}
@@ -396,6 +403,8 @@ static void de_run_arcfs(deark *c, de_module_params *mparams)
 
 	d = de_malloc(c, sizeof(lctx));
 
+	d->append_type = de_get_ext_option_bool(c, "arcfs:appendtype", 0);
+
 	pos = 0;
 	if(!do_file_header(c, d, pos)) goto done;
 	pos += 96;
@@ -419,10 +428,16 @@ static int de_identify_arcfs(deark *c)
 	return 0;
 }
 
+static void de_help_arcfs(deark *c)
+{
+	de_msg(c, "-opt arcfs:appendtype : Append the file type to the filename");
+}
+
 void de_module_arcfs(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "arcfs";
 	mi->desc = "ArcFS (RISC OS archive)";
 	mi->run_fn = de_run_arcfs;
 	mi->identify_fn = de_identify_arcfs;
+	mi->help_fn = de_help_arcfs;
 }
