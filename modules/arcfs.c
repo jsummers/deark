@@ -3,11 +3,13 @@
 // See the file COPYING for terms of use.
 
 // ArcFS
+// Squash
 
 #include <deark-config.h>
 #include <deark-private.h>
 #include <deark-fmtutil.h>
 DE_DECLARE_MODULE(de_module_arcfs);
+DE_DECLARE_MODULE(de_module_squash);
 
 struct member_data {
 	int is_dir;
@@ -36,11 +38,12 @@ typedef struct localctx_struct {
 	struct de_strarray *curpath;
 } lctx;
 
-static void load_and_exec_to_timestamp(deark *c, lctx *d, de_uint32 load_addr,
+static void load_and_exec_to_timestamp(deark *c, de_uint32 load_addr,
 	de_uint32 exec_addr, struct de_timestamp *ts)
 {
 	de_int64 t;
 
+	ts->is_valid = 0; // default
 	t = (((de_int64)(load_addr&0xff))<<32) | (de_int64)exec_addr;
 	// t now = number of centiseconds since beginning of 1900
 
@@ -50,6 +53,8 @@ static void load_and_exec_to_timestamp(deark *c, lctx *d, de_uint32 load_addr,
 	// Convert 1900 epoch to 1970 epoch.
 	// (There were 17 leap days between Jan 1900 and Jan 1970.)
 	t -= (((de_int64)365*86400)*70 + 17*86400);
+
+	if(t<=0 || t>=8000000000LL) return; // sanity check
 
 	de_unix_time_to_timestamp(t, ts);
 }
@@ -280,6 +285,13 @@ static const char *get_info_byte_name(de_byte t)
 	return name?name:"?";
 }
 
+static void destroy_member_data(deark *c, struct member_data *md)
+{
+	if(!md) return;
+	ucstring_destroy(md->fn);
+	de_free(c, md);
+}
+
 static void do_member(deark *c, lctx *d, de_int64 idx, de_int64 pos1)
 {
 	de_int64 pos = pos1;
@@ -333,7 +345,7 @@ static void do_member(deark *c, lctx *d, de_int64 idx, de_int64 pos1)
 		md->file_type_known = 1;
 		de_dbg(c, "file type: %03X", md->file_type);
 
-		load_and_exec_to_timestamp(c, d, md->load_addr,	md->exec_addr, &md->mod_time);
+		load_and_exec_to_timestamp(c, md->load_addr, md->exec_addr, &md->mod_time);
 		dbg_timestamp(c, &md->mod_time, "timestamp");
 	}
 	de_dbg_indent(c, -1);
@@ -374,10 +386,7 @@ static void do_member(deark *c, lctx *d, de_int64 idx, de_int64 pos1)
 	}
 
 done:
-	if(md) {
-		ucstring_destroy(md->fn);
-		de_free(c, md);
-	}
+	destroy_member_data(c, md);
 	de_dbg_indent_restore(c, saved_indent_level);
 }
 
@@ -440,4 +449,145 @@ void de_module_arcfs(deark *c, struct deark_module_info *mi)
 	mi->run_fn = de_run_arcfs;
 	mi->identify_fn = de_identify_arcfs;
 	mi->help_fn = de_help_arcfs;
+}
+
+///////////////////////////////////////////////////////////////////////////
+// Squash
+
+// TODO?: The squash module has a lot of duplicated code with the arcfs and
+// compress modules. This could be consolidated, but it might not be worth the
+// added complexity.
+
+typedef struct sqctx_struct {
+	int reserved;
+} sqctx;
+
+static int do_compressed_sq(deark *c, sqctx *d, struct member_data *md, dbuf *outf)
+{
+	de_byte buf[1024];
+	de_int64 n;
+	dbuf *inf = NULL;
+	struct de_liblzwctx *lzw = NULL;
+	de_int64 nbytes_still_to_write;
+	int retval = 0;
+
+	inf = dbuf_open_input_subfile(c->infile, md->file_data_offs_abs, md->cmpr_len);
+
+	lzw = de_liblzw_dbufopen(inf, 0x1, 0);
+	if(!lzw) goto done;
+
+	nbytes_still_to_write = md->orig_len;
+
+	while(1) {
+		if(nbytes_still_to_write<1) break;
+		n = de_liblzw_read(lzw, buf, sizeof(buf));
+		if(n<0) {
+			goto done;
+		}
+		if(n<1) break;
+
+		if(n > nbytes_still_to_write) {
+			n = nbytes_still_to_write;
+		}
+
+		dbuf_write(outf, buf, n);
+		nbytes_still_to_write -= n;
+	}
+	retval = 1;
+
+done:
+	if(lzw) de_liblzw_close(lzw);
+	dbuf_close(inf);
+	return retval;
+}
+
+static void do_squash_header(deark *c, sqctx *d, struct member_data *md, de_int64 pos1)
+{
+	de_int64 pos = pos1;
+
+	de_dbg(c, "header at %d", (int)pos1);
+
+	de_dbg_indent(c, 1);
+	pos += 4; // signature
+	md->orig_len = de_getui32le_p(&pos);
+	de_dbg(c, "orig file length: %"INT64_FMT, md->orig_len);
+
+	md->load_addr = (de_uint32)de_getui32le_p(&pos);
+	md->exec_addr = (de_uint32)de_getui32le_p(&pos);
+	de_dbg(c, "load/exec addrs: 0x%08x, 0x%08x", (unsigned int)md->load_addr,
+		(unsigned int)md->exec_addr);
+	de_dbg_indent(c, 1);
+	if((md->load_addr&0xfff00000U)==0xfff00000U) {
+		md->file_type = (unsigned int)((md->load_addr&0xfff00)>>8);
+		md->file_type_known = 1;
+		de_dbg(c, "file type: %03X", md->file_type);
+
+		load_and_exec_to_timestamp(c, md->load_addr, md->exec_addr, &md->mod_time);
+		dbg_timestamp(c, &md->mod_time, "timestamp");
+	}
+	de_dbg_indent(c, -1);
+
+	de_dbg_indent(c, -1);
+}
+
+static void de_run_squash(deark *c, de_module_params *mparams)
+{
+	sqctx *d = NULL;
+	struct member_data *md = NULL;
+	dbuf *outf = NULL;
+	de_finfo *fi = NULL;
+	de_ucstring *fn = NULL;
+
+	d = de_malloc(c, sizeof(sqctx));
+	md = de_malloc(c, sizeof(struct member_data));
+
+	do_squash_header(c, d, md, 0);
+
+	md->file_data_offs_abs = 20;
+	md->cmpr_len = c->infile->len - md->file_data_offs_abs;
+	de_dbg(c, "compressed data at %"INT64_FMT, md->file_data_offs_abs);
+
+	fi = de_finfo_create(c);
+
+	fn = ucstring_create(c);
+	ucstring_append_sz(fn, "bin", DE_ENCODING_LATIN1);
+	if(md->file_type_known && c->filenames_from_file) {
+		ucstring_printf(fn, DE_ENCODING_LATIN1, ",%03X", md->file_type);
+	}
+	de_finfo_set_name_from_ucstring(c, fi, fn);
+
+	if(md->mod_time.is_valid) {
+		fi->mod_time = md->mod_time;
+	}
+
+	outf = dbuf_create_output_file(c, NULL, fi, 0);
+	if(!do_compressed_sq(c, d, md, outf)) goto done;
+
+	if(outf->len != md->orig_len) {
+		de_err(c, "Decompression failed, expected size %"INT64_FMT
+			", got %"INT64_FMT, md->orig_len, outf->len);
+		goto done;
+	}
+
+done:
+	dbuf_close(outf);
+	de_finfo_destroy(c, fi);
+	ucstring_destroy(fn);
+	destroy_member_data(c, md);
+	de_free(c, d);
+}
+
+static int de_identify_squash(deark *c)
+{
+	if(!dbuf_memcmp(c->infile, 0, "SQSH", 4))
+		return 100;
+	return 0;
+}
+
+void de_module_squash(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "squash";
+	mi->desc = "Squash (RISC OS compressed file)";
+	mi->run_fn = de_run_squash;
+	mi->identify_fn = de_identify_squash;
 }
