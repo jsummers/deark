@@ -12,6 +12,7 @@ DE_DECLARE_MODULE(de_module_binhex);
 typedef struct localctx_struct {
 	dbuf *decoded;
 	dbuf *decompressed;
+	struct de_crcobj *crco;
 } lctx;
 
 // Returns 0-63 if successful, 255 for invalid character.
@@ -82,6 +83,58 @@ static int do_decode_main(deark *c, lctx *d, de_int64 pos)
 	return 1;
 }
 
+static void our_writecallback(dbuf *f, const de_byte *buf, de_int64 buf_len)
+{
+	struct de_crcobj *crco = (struct de_crcobj*)f->userdata;
+	de_crcobj_addbuf(crco, buf, buf_len);
+}
+
+// Returns 0 on fatal error.
+static int do_extract_one_file(deark *c, lctx *d, dbuf *inf, de_int64 pos,
+	de_int64 len, de_finfo *fi, const char *forkname)
+{
+	de_uint32 crc_reported;
+	de_uint32 crc_calc;
+	dbuf *outf = NULL;
+
+	if(len==0) return 1;
+	if(len<0) return 0;
+	if(pos+len > inf->len) {
+		de_err(c, "%s fork goes beyond end of file", forkname);
+		return 0;
+	}
+
+	outf = dbuf_create_output_file(c, NULL, fi, 0);
+
+	outf->writecallback_fn = our_writecallback;
+	outf->userdata = (void*)d->crco;
+	de_crcobj_reset(d->crco);
+
+	dbuf_copy(inf, pos, len, outf);
+
+	dbuf_close(outf);
+
+	// Here, the BinHex spec says we should feed two 0x00 bytes to the CRC
+	// calculation, to account for the CRC field itself. However, if I do
+	// that, none of files I've tested have the correct CRC. If I don't,
+	// all of them have the correct CRC.
+	//de_crcobj_addbuf(d->crco, (const de_byte*)"\0\0", 2);
+
+	crc_reported = (de_uint32)dbuf_getui16be(inf, pos+len);
+	de_dbg(c, "%s fork crc (reported): 0x%04x", forkname,
+		(unsigned int)crc_reported);
+
+	crc_calc = de_crcobj_getval(d->crco);
+	de_dbg(c, "%s fork crc (calculated): 0x%04x", forkname,
+		(unsigned int)crc_calc);
+
+	if(crc_calc != crc_reported) {
+		de_err(c, "CRC check failed for %s fork", forkname);
+	}
+
+	return 1;
+}
+
 static void do_extract_files(deark *c, lctx *d)
 {
 	de_int64 name_len;
@@ -90,7 +143,7 @@ static void do_extract_files(deark *c, lctx *d)
 	de_finfo *fi_d = NULL;
 	de_int64 pos;
 	de_int64 dlen, rlen;
-	de_int64 hc, dc, rc; // Checksums
+	de_uint32 hc; // Header CRC
 	de_ucstring *fname = NULL;
 
 	f = d->decompressed;
@@ -102,12 +155,11 @@ static void do_extract_files(deark *c, lctx *d)
 	pos+=1;
 	de_dbg(c, "name len: %d", (int)name_len);
 
-	// TODO: What encoding does the name use? Can we convert it?
 	fi_r = de_finfo_create(c);
 	fi_d = de_finfo_create(c);
 	if(name_len > 0) {
 		fname = ucstring_create(c);
-		dbuf_read_to_ucstring(f, pos, name_len, fname, 0, DE_ENCODING_ASCII);
+		dbuf_read_to_ucstring(f, pos, name_len, fname, 0, DE_ENCODING_MACROMAN);
 		de_dbg(c, "name: \"%s\"", ucstring_getpsz(fname));
 		de_finfo_set_name_from_ucstring(c, fi_d, fname);
 		fi_d->original_filename_flag = 1;
@@ -126,45 +178,27 @@ static void do_extract_files(deark *c, lctx *d)
 
 	dlen = dbuf_getui32be(f, pos+10);
 	rlen = dbuf_getui32be(f, pos+14);
-	hc = dbuf_getui16be(f, pos+18);
+	hc = (de_uint32)dbuf_getui16be(f, pos+18);
 
 	de_dbg(c, "data fork len: %d", (int)dlen);
 	de_dbg(c, "resource fork len: %d", (int)rlen);
-	de_dbg(c, "header checksum: 0x%04x", (unsigned int)hc);
+	de_dbg(c, "header crc (reported): 0x%04x", (unsigned int)hc);
 
-	// TODO: Verify checksums
+	// TODO: Verify header CRC
 
 	pos+=20;
 
 	// Data fork
 
-	if(pos+dlen > f->len) {
-		de_err(c, "Data fork goes beyond end of file");
-		goto done;
-	}
-
-	if(dlen>0)
-		dbuf_create_file_from_slice(f, pos, dlen, NULL, fi_d, 0);
+	if(!do_extract_one_file(c, d, f, pos, dlen, fi_d, "data")) goto done;
 	pos += dlen;
-
-	dc = dbuf_getui16be(f, pos);
-	pos += 2;
-	de_dbg(c, "data fork checksum: 0x%04x", (unsigned int)dc);
+	pos += 2; // for the CRC
 
 	// Resource fork
 
-	if(pos+rlen > f->len) {
-		de_err(c, "Resource fork goes beyond end of file");
-		goto done;
-	}
-
-	if(rlen>0)
-		dbuf_create_file_from_slice(f, pos, rlen, NULL, fi_r, 0);
+	if(!do_extract_one_file(c, d, f, pos, rlen, fi_r, "resource")) goto done;
 	pos += rlen;
-
-	rc = dbuf_getui16be(f, pos);
-	pos += 2;
-	de_dbg(c, "resource fork checksum: 0x%04x", (unsigned int)rc);
+	pos += 2; // for the CRC
 
 done:
 	de_finfo_destroy(c, fi_r);
@@ -189,12 +223,17 @@ static void do_binhex(deark *c, lctx *d, de_int64 pos)
 	if(!ret) goto done;
 	de_dbg(c, "size after decompression: %d", (int)d->decompressed->len);
 
+	d->crco = de_crcobj_create(c, DE_CRCOBJ_CRC16_CCITT);
+
 	do_extract_files(c, d);
 
 done:
 	dbuf_close(d->decompressed);
+	d->decompressed = NULL;
 	dbuf_close(d->decoded);
 	d->decoded = NULL;
+	de_crcobj_destroy(d->crco);
+	d->crco = NULL;
 }
 
 static int find_start(deark *c, de_int64 *foundpos)
