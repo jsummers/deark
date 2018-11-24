@@ -463,9 +463,10 @@ int de_fmtutil_uncompress_packbits16(dbuf *f, de_int64 pos1, de_int64 len,
 	return 1;
 }
 
-// I don't know the name of this RLE algorithm, but it's used in multiple formats.
-int de_fmtutil_decompress_binhexrle(dbuf *inf, de_int64 pos1, de_int64 len,
-	dbuf *outf, unsigned int has_maxlen, de_int64 max_out_len)
+// RLE algorithm occasionally called "RLE90". Variants of this are used by
+// BinHex, ARC, StuffIt, and others.
+int de_fmtutil_decompress_rle90(dbuf *inf, de_int64 pos1, de_int64 len,
+	dbuf *outf, unsigned int has_maxlen, de_int64 max_out_len, unsigned int flags)
 {
 	de_int64 pos = pos1;
 	de_byte b;
@@ -494,6 +495,17 @@ int de_fmtutil_decompress_binhexrle(dbuf *inf, de_int64 pos1, de_int64 len,
 			// Not RLE, just an escaped 0x90 byte.
 			dbuf_writebyte(outf, 0x90);
 			nbytes_written++;
+
+			// Here there is an inconsistency between different RLE90
+			// implementations.
+			// Some of them can compress a run of 0x90 bytes, because the byte
+			// to repeat is defined to be the "last byte emitted".
+			// Others do not allow this. If the "0x90 0x00 0x90 0xNN" sequence
+			// (with 0xNN>0) is encountered, they may (by accident?) repeat the
+			// last non-0x90 byte emitted, or do something else.
+			// Hopefully, valid files in such formats never contain this byte
+			// sequence, so it shouldn't matter what we do here. But maybe not.
+			// We might need to add an option to do something else.
 			lastbyte = 0x90;
 			continue;
 		}
@@ -506,7 +518,6 @@ int de_fmtutil_decompress_binhexrle(dbuf *inf, de_int64 pos1, de_int64 len,
 		}
 		dbuf_write_run(outf, lastbyte, count);
 		nbytes_written += count;
-
 	}
 
 	return 1;

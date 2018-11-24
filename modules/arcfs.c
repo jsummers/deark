@@ -170,7 +170,7 @@ static int do_crunched(deark *c, lctx *d, struct member_data *md, dbuf *outf)
 	ret1 = do_compressed(c, d, md, tmpf, 0);
 	de_dbg2(c, "size after intermediate decompression: %d", (int)tmpf->len);
 
-	ret2 = de_fmtutil_decompress_binhexrle(tmpf, 0, tmpf->len, outf, 1, md->orig_len);
+	ret2 = de_fmtutil_decompress_rle90(tmpf, 0, tmpf->len, outf, 1, md->orig_len, 0);
 	if(!ret1 || !ret2) goto done;
 
 	retval = 1;
@@ -232,8 +232,8 @@ static void do_extract_member(deark *c, lctx *d, struct member_data *md)
 		dbuf_copy(c->infile, md->file_data_offs_abs, md->cmpr_len, outf);
 	}
 	else if(md->cmpr_method==0x83) {
-		de_fmtutil_decompress_binhexrle(c->infile, md->file_data_offs_abs, md->cmpr_len,
-			outf, 1, md->orig_len);
+		de_fmtutil_decompress_rle90(c->infile, md->file_data_offs_abs, md->cmpr_len,
+			outf, 1, md->orig_len, 0);
 	}
 	else if(md->cmpr_method==0xff) {
 		ret = do_compressed(c, d, md, outf, 1);

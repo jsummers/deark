@@ -184,7 +184,8 @@ static void do_binhex(deark *c, lctx *d, de_int64 pos)
 	ret = do_decode_main(c, d, pos);
 	if(!ret) goto done;
 
-	ret = de_fmtutil_decompress_binhexrle(d->decoded, 0, d->decoded->len, d->decompressed, 0, 0);
+	ret = de_fmtutil_decompress_rle90(d->decoded, 0, d->decoded->len, d->decompressed,
+		0, 0, 0);
 	if(!ret) goto done;
 	de_dbg(c, "size after decompression: %d", (int)d->decompressed->len);
 

@@ -64,8 +64,8 @@ int de_fmtutil_uncompress_packbits(dbuf *f, de_int64 pos1, de_int64 len,
 	dbuf *unc_pixels, de_int64 *cmpr_bytes_consumed);
 int de_fmtutil_uncompress_packbits16(dbuf *f, de_int64 pos1, de_int64 len,
 	dbuf *unc_pixels, de_int64 *cmpr_bytes_consumed);
-int de_fmtutil_decompress_binhexrle(dbuf *inf, de_int64 pos1, de_int64 len,
-	dbuf *outf, unsigned int has_maxlen, de_int64 max_out_len);
+int de_fmtutil_decompress_rle90(dbuf *inf, de_int64 pos1, de_int64 len,
+	dbuf *outf, unsigned int has_maxlen, de_int64 max_out_len, unsigned int flags);
 
 struct de_SAUCE_info {
 	de_ucstring *title;
