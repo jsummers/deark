@@ -11,6 +11,7 @@ DE_DECLARE_MODULE(de_module_zip);
 
 struct dir_entry_data {
 	unsigned int ver_needed;
+	unsigned int ver_needed_hi, ver_needed_lo;
 	de_int64 cmpr_size, uncmpr_size;
 	int cmpr_method;
 	unsigned int bit_flags;
@@ -20,7 +21,7 @@ struct dir_entry_data {
 };
 
 struct member_data {
-	de_int64 ver_made_by;
+	unsigned int ver_made_by;
 	unsigned int ver_made_by_hi, ver_made_by_lo;
 	unsigned int attr_i, attr_e;
 	de_int64 offset_of_local_header;
@@ -747,7 +748,7 @@ static const char *get_cmpr_meth_name(int n)
 	return s;
 }
 
-// Look at md->attr_e, and set some other fields based on it.
+// Look at the attributes, and set some other fields based on them.
 static void process_ext_attr(deark *c, lctx *d, struct member_data *md)
 {
 	if(md->ver_made_by_hi==3) { // Unix
@@ -767,7 +768,16 @@ static void process_ext_attr(deark *c, lctx *d, struct member_data *md)
 			md->is_nonexecutable = 1;
 		}
 	}
-	// TODO: Support platforms other than Unix.
+
+	if(md->central_dir_entry_data.ver_needed_hi==0) { // MS-DOS, etc.
+		// I think this means the low byte of the external attributes
+		// field is DOS-compatible.
+		if(md->attr_e & 0x10) {
+			md->is_dir = 1;
+		}
+	}
+
+	// TODO: Support more platforms.
 }
 
 // Read either a central directory entry (a.k.a. central directory file header),
@@ -810,19 +820,20 @@ static int do_file_header(deark *c, lctx *d, struct member_data *md,
 	}
 
 	if(is_central) {
-		const char *pltf_name;
-		md->ver_made_by = de_getui16le_p(&pos);
+		md->ver_made_by = (unsigned int)de_getui16le_p(&pos);
 		md->ver_made_by_hi = (unsigned int)((md->ver_made_by&0xff00)>>8);
 		md->ver_made_by_lo = (unsigned int)(md->ver_made_by&0x00ff);
-		pltf_name = get_platform_name(md->ver_made_by_hi);
 		de_dbg(c, "version made by: platform=%u (%s), ZIP spec=%u.%u",
-			md->ver_made_by_hi, pltf_name,
+			md->ver_made_by_hi, get_platform_name(md->ver_made_by_hi),
 			(unsigned int)(md->ver_made_by_lo/10), (unsigned int)(md->ver_made_by_lo%10));
 	}
 
 	dd->ver_needed = (unsigned int)de_getui16le_p(&pos);
-	de_dbg(c, "version needed to extract: %u.%u",
-		(unsigned int)(dd->ver_needed/10), (unsigned int)(dd->ver_needed%10));
+	dd->ver_needed_hi = (unsigned int)((dd->ver_needed&0xff00)>>8);
+	dd->ver_needed_lo = (unsigned int)(dd->ver_needed&0x00ff);
+	de_dbg(c, "version needed to extract: platform=%u (%s), ZIP spec=%u.%u",
+		dd->ver_needed_hi, get_platform_name(dd->ver_needed_hi),
+		(unsigned int)(dd->ver_needed_lo/10), (unsigned int)(dd->ver_needed_lo%10));
 
 	dd->bit_flags = (unsigned int)de_getui16le_p(&pos);
 	de_dbg(c, "flags: 0x%04x", dd->bit_flags);
@@ -865,10 +876,9 @@ static int do_file_header(deark *c, lctx *d, struct member_data *md,
 		md->disk_number_start = de_getui16le_p(&pos);
 
 		md->attr_i = (unsigned int)de_getui16le_p(&pos);
+		de_dbg(c, "internal file attributes: 0x%04x", md->attr_i);
 		md->attr_e = (unsigned int)de_getui32le_p(&pos);
-		de_dbg(c, "file attributes: internal=0x%04x, external=0x%08x",
-			md->attr_i, md->attr_e);
-		process_ext_attr(c, d, md);
+		de_dbg(c, "external file attributes: 0x%08x", md->attr_e);
 
 		md->offset_of_local_header = de_getui32le_p(&pos);
 		de_dbg(c, "offset of local header: %d, disk: %d", (int)md->offset_of_local_header,
@@ -960,6 +970,8 @@ static int do_central_dir_entry(deark *c, lctx *d,
 	if(!do_file_header(c, d, md, 0, md->offset_of_local_header, &tmp_entry_size)) {
 		goto done;
 	}
+
+	process_ext_attr(c, d, md);
 
 	do_extract_file(c, d, md);
 
