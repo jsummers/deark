@@ -918,6 +918,29 @@ void de_dos_datetime_to_timestamp(struct de_timestamp *ts,
 	de_make_timestamp(ts, yr, mo, da, hr, mi, se, offset_seconds);
 }
 
+void de_riscos_loadexec_to_timestamp(de_uint32 load_addr,
+	de_uint32 exec_addr, struct de_timestamp *ts)
+{
+	de_int64 t;
+
+	de_memset(ts, 0, sizeof(struct de_timestamp));
+	if((load_addr&0xfff00000U)!=0xfff00000U) return;
+
+	t = (((de_int64)(load_addr&0xff))<<32) | (de_int64)exec_addr;
+	// t now = number of centiseconds since the beginning of 1900
+
+	// Convert to seconds, rounding to nearest second.
+	t = (t+50)/100;
+
+	// Convert 1900 epoch to 1970 epoch.
+	// (There were 17 leap days between Jan 1900 and Jan 1970.)
+	t -= (365*70 + 17)*(de_int64)86400;
+
+	if(t<=0 || t>=8000000000LL) return; // sanity check
+
+	de_unix_time_to_timestamp(t, ts);
+}
+
 de_int64 de_timestamp_to_unix_time(const struct de_timestamp *ts)
 {
 	if(ts->is_valid)
@@ -991,10 +1014,6 @@ void de_copy_bits(const de_byte *src, de_int64 srcbitnum,
 }
 
 // A very simple hash table implementation, with int64 keys.
-
-// Currently, we are only using it to implement an "unordered set of integers",
-// so there is no need to store any data with the items. It's enough to know
-// whether a key exists.
 
 #define DE_INTHASHTABLE_NBUCKETS 71
 

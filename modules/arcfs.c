@@ -38,27 +38,6 @@ typedef struct localctx_struct {
 	struct de_strarray *curpath;
 } lctx;
 
-static void load_and_exec_to_timestamp(deark *c, de_uint32 load_addr,
-	de_uint32 exec_addr, struct de_timestamp *ts)
-{
-	de_int64 t;
-
-	ts->is_valid = 0; // default
-	t = (((de_int64)(load_addr&0xff))<<32) | (de_int64)exec_addr;
-	// t now = number of centiseconds since beginning of 1900
-
-	// Convert to seconds, rounding to nearest second.
-	t = (t+50)/100;
-
-	// Convert 1900 epoch to 1970 epoch.
-	// (There were 17 leap days between Jan 1900 and Jan 1970.)
-	t -= (((de_int64)365*86400)*70 + 17*86400);
-
-	if(t<=0 || t>=8000000000LL) return; // sanity check
-
-	de_unix_time_to_timestamp(t, ts);
-}
-
 static void dbg_timestamp(deark *c, struct de_timestamp *ts, const char *name)
 {
 	char timestamp_buf[64];
@@ -345,7 +324,7 @@ static void do_member(deark *c, lctx *d, de_int64 idx, de_int64 pos1)
 		md->file_type_known = 1;
 		de_dbg(c, "file type: %03X", md->file_type);
 
-		load_and_exec_to_timestamp(c, md->load_addr, md->exec_addr, &md->mod_time);
+		de_riscos_loadexec_to_timestamp(md->load_addr, md->exec_addr, &md->mod_time);
 		dbg_timestamp(c, &md->mod_time, "timestamp");
 	}
 	de_dbg_indent(c, -1);
@@ -522,7 +501,7 @@ static void do_squash_header(deark *c, sqctx *d, struct member_data *md, de_int6
 		md->file_type_known = 1;
 		de_dbg(c, "file type: %03X", md->file_type);
 
-		load_and_exec_to_timestamp(c, md->load_addr, md->exec_addr, &md->mod_time);
+		de_riscos_loadexec_to_timestamp(md->load_addr, md->exec_addr, &md->mod_time);
 		dbg_timestamp(c, &md->mod_time, "timestamp");
 	}
 	de_dbg_indent(c, -1);

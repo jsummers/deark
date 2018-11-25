@@ -492,6 +492,44 @@ done:
 	dbuf_close(attr_data);
 }
 
+// Acorn / SparkFS / RISC OS
+static void ef_acorn(deark *c, lctx *d, struct extra_item_info_struct *eii)
+{
+	de_int64 pos = eii->dpos;
+	de_uint32 ld, ex;
+	de_uint32 attribs;
+
+	if(eii->dlen<16) return;
+	if(dbuf_memcmp(c->infile, eii->dpos, "ARC0", 4)) {
+		de_dbg(c, "[unsuppoted Acorn extra-field type]");
+		return;
+	}
+	pos += 4;
+	ld = (de_uint32)de_getui32le_p(&pos);
+	ex = (de_uint32)de_getui32le_p(&pos);
+	de_dbg(c, "load/exec addrs: 0x%08x, 0x%08x", (unsigned int)ld,
+		(unsigned int)ex);
+
+	de_dbg_indent(c, 1);
+	if((ld&0xfff00000U)==0xfff00000U) {
+		struct de_timestamp mod_time;
+		unsigned int file_type;
+		char timestamp_buf[64];
+
+		file_type = (unsigned int)((ld&0xfff00)>>8);
+		de_dbg(c, "file type: %03X", file_type);
+
+		de_riscos_loadexec_to_timestamp(ld, ex, &mod_time);
+		de_timestamp_to_string(&mod_time, timestamp_buf, sizeof(timestamp_buf), 0);
+		de_dbg(c, "timestamp: %s", timestamp_buf);
+		// TODO: Maybe use this as the file's official timestamp.
+	}
+	de_dbg_indent(c, -1);
+
+	attribs = (de_uint32)de_getui32le_p(&pos);
+	de_dbg(c, "file perms: 0x%08x", (unsigned int)attribs);
+}
+
 struct extra_item_type_info_struct {
 	de_uint16 id;
 	const char *name;
@@ -521,7 +559,7 @@ static const struct extra_item_type_info_struct extra_item_type_info_arr[] = {
 	{ 0x2805 /*    */, "ZipIt Macintosh 1.3.5+", NULL },
 	{ 0x334d /* M3 */, "Info-ZIP Macintosh", ef_infozipmac },
 	{ 0x4154 /* TA */, "Tandem NSK", NULL },
-	{ 0x4341 /* AC */, "Acorn/SparkFS", NULL },
+	{ 0x4341 /* AC */, "Acorn/SparkFS", ef_acorn },
 	{ 0x4453 /* SE */, "Windows NT security descriptor (binary ACL)", NULL },
 	{ 0x4690 /*    */, "POSZIP 4690", NULL },
 	{ 0x4704 /*    */, "VM/CMS", NULL },
