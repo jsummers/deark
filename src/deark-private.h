@@ -111,6 +111,8 @@ struct de_ucstring_struct {
 
 struct de_timestamp {
 	de_byte is_valid;
+	de_uint16 ms; // milliseconds to add to unix_time
+	de_uint16 prec; // Precision in ms. 0 means default (1000).
 	de_int64 unix_time; // Unix time_t format
 };
 
@@ -1002,6 +1004,7 @@ void de_free_charctx(deark *c, struct de_char_context *charctx);
 ///////////////////////////////////////////
 
 void de_unix_time_to_timestamp(de_int64 ut, struct de_timestamp *ts);
+void de_timestamp_set_ms(struct de_timestamp *ts, de_uint16 ms, de_uint16 prec);
 void de_mac_time_to_timestamp(de_int64 mt, struct de_timestamp *ts);
 void de_FILETIME_to_timestamp(de_int64 ft, struct de_timestamp *ts);
 void de_dos_datetime_to_timestamp(struct de_timestamp *ts,
@@ -1011,7 +1014,7 @@ void de_riscos_loadexec_to_timestamp(de_uint32 load_addr,
 de_int64 de_timestamp_to_unix_time(const struct de_timestamp *ts);
 void de_make_timestamp(struct de_timestamp *ts,
 	de_int64 yr, de_int64 mo, de_int64 da,
-	de_int64 hr, de_int64 mi, double se, de_int64 offset_seconds);
+	de_int64 hr, de_int64 mi, de_int64 se, de_int64 offset_seconds);
 void de_timestamp_to_string(const struct de_timestamp *ts,
 	char *buf, size_t buf_len, unsigned int flags);
 void de_current_time_to_timestamp(struct de_timestamp *ts);

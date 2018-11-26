@@ -251,6 +251,7 @@ void de_update_file_time(dbuf *f)
 
 	fnW = de_utf8_to_utf16_strdup(c, f->name);
 
+	// TODO: Support higher precision timestamps (SetFileTime()?)
 	times.modtime = de_timestamp_to_unix_time(&f->mod_time);
 	times.actime = times.modtime;
 	_wutime64(fnW, &times);
@@ -323,6 +324,7 @@ void de_windows_highlight(void *handle1, unsigned int orig_attr, int x)
 }
 
 // Note: Need to keep this function in sync with the implementation in deark-unix.c.
+// flags: 0x1 = append " UTC"
 void de_timestamp_to_string(const struct de_timestamp *ts,
 	char *buf, size_t buf_len, unsigned int flags)
 {
@@ -331,6 +333,7 @@ void de_timestamp_to_string(const struct de_timestamp *ts,
 	struct tm tm1;
 	const char *tzlabel;
 	errno_t ret;
+	char subsec[16];
 
 	if(!ts->is_valid) {
 		de_strlcpy(buf, "[invalid timestamp]", buf_len);
@@ -358,10 +361,17 @@ void de_timestamp_to_string(const struct de_timestamp *ts,
 		return;
 	}
 
+	if(ts->prec>0 && ts->prec<1000) {
+		de_snprintf(subsec, sizeof(subsec), ".%03u", (unsigned int)ts->ms);
+	}
+	else {
+		subsec[0] = '\0';
+	}
+
 	tzlabel = (flags&0x1)?" UTC":"";
-	de_snprintf(buf, buf_len, "%04d-%02d-%02d %02d:%02d:%02d%s",
+	de_snprintf(buf, buf_len, "%04d-%02d-%02d %02d:%02d:%02d%s%s",
 		1900+tm1.tm_year, 1+tm1.tm_mon, tm1.tm_mday,
-		tm1.tm_hour, tm1.tm_min, tm1.tm_sec, tzlabel);
+		tm1.tm_hour, tm1.tm_min, tm1.tm_sec, subsec, tzlabel);
 }
 
 // Note: Need to keep this function in sync with the implementation in deark-unix.c.

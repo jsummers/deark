@@ -890,6 +890,12 @@ void de_unix_time_to_timestamp(de_int64 ut, struct de_timestamp *ts)
 	ts->unix_time = ut;
 }
 
+void de_timestamp_set_ms(struct de_timestamp *ts, de_uint16 ms, de_uint16 prec)
+{
+	ts->ms = ms;
+	ts->prec = prec;
+}
+
 void de_mac_time_to_timestamp(de_int64 mt, struct de_timestamp *ts)
 {
 	de_unix_time_to_timestamp(mt - 2082844800, ts);
@@ -899,29 +905,33 @@ void de_mac_time_to_timestamp(de_int64 mt, struct de_timestamp *ts)
 void de_FILETIME_to_timestamp(de_int64 ft, struct de_timestamp *ts)
 {
 	de_int64 t;
+	de_int64 ms;
 	t = ft/10000000 - ((de_int64)256)*45486225;
+	ms = (ft%10000000)/10000;
 	de_unix_time_to_timestamp(t, ts);
+	de_timestamp_set_ms(ts, (unsigned short)ms, 1);
 }
 
 void de_dos_datetime_to_timestamp(struct de_timestamp *ts,
    de_int64 ddate, de_int64 dtime, de_int64 offset_seconds)
 {
-	de_int64 yr, mo, da, hr, mi;
-	double se;
+	de_int64 yr, mo, da, hr, mi, se;
 
 	yr = 1980+((ddate&0xfe00)>>9);
 	mo = (ddate&0x01e0)>>5;
 	da = (ddate&0x001f);
 	hr = (dtime&0xf800)>>11;
 	mi = (dtime&0x07e0)>>5;
-	se = (double)(2*(dtime&0x001f));
+	se = 2*(dtime&0x001f);
 	de_make_timestamp(ts, yr, mo, da, hr, mi, se, offset_seconds);
+	de_timestamp_set_ms(ts, 0, 2000); // 2-second precision
 }
 
 void de_riscos_loadexec_to_timestamp(de_uint32 load_addr,
 	de_uint32 exec_addr, struct de_timestamp *ts)
 {
 	de_int64 t;
+	unsigned int centiseconds;
 
 	de_memset(ts, 0, sizeof(struct de_timestamp));
 	if((load_addr&0xfff00000U)!=0xfff00000U) return;
@@ -929,8 +939,10 @@ void de_riscos_loadexec_to_timestamp(de_uint32 load_addr,
 	t = (((de_int64)(load_addr&0xff))<<32) | (de_int64)exec_addr;
 	// t now = number of centiseconds since the beginning of 1900
 
-	// Convert to seconds, rounding to nearest second.
-	t = (t+50)/100;
+	// Remember centiseconds.
+	centiseconds = (unsigned int)(t%100);
+	// Convert t to seconds.
+	t = t/100;
 
 	// Convert 1900 epoch to 1970 epoch.
 	// (There were 17 leap days between Jan 1900 and Jan 1970.)
@@ -939,12 +951,19 @@ void de_riscos_loadexec_to_timestamp(de_uint32 load_addr,
 	if(t<=0 || t>=8000000000LL) return; // sanity check
 
 	de_unix_time_to_timestamp(t, ts);
+	de_timestamp_set_ms(ts, (unsigned short)(centiseconds*10), 10);
 }
 
+// This always truncates down to a whole number of seconds.
+// While an option to round might be useful for *something*, it could
+// cause problems if you're not really careful. It invites double-rounding,
+// and the creation of timestamps that are slightly in the future, both of
+// which can be problematical.
 de_int64 de_timestamp_to_unix_time(const struct de_timestamp *ts)
 {
-	if(ts->is_valid)
+	if(ts->is_valid) {
 		return ts->unix_time;
+	}
 	return 0;
 }
 
@@ -957,7 +976,7 @@ de_int64 de_timestamp_to_unix_time(const struct de_timestamp *ts)
 // da = day of month: 1=1, ... 31=31
 void de_make_timestamp(struct de_timestamp *ts,
 	de_int64 yr, de_int64 mo, de_int64 da,
-	de_int64 hr, de_int64 mi, double se, de_int64 offset_seconds)
+	de_int64 hr, de_int64 mi, de_int64 se, de_int64 offset_seconds)
 {
 	de_int64 result;
 	de_int64 tm_mon;
@@ -980,10 +999,9 @@ void de_make_timestamp(struct de_timestamp *ts,
 	result *= 60;
 	result += mi;
 	result *= 60;
-	result += (de_int64)se;
+	result += se;
 
-	ts->unix_time = result + offset_seconds;
-	ts->is_valid = 1;
+	de_unix_time_to_timestamp(result + offset_seconds, ts);
 }
 
 void de_declare_fmt(deark *c, const char *fmtname)

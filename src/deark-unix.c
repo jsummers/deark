@@ -193,6 +193,7 @@ void de_update_file_time(dbuf *f)
 }
 
 // Note: Need to keep this function in sync with the implementation in deark-win.c.
+// flags: 0x1 = append " UTC"
 void de_timestamp_to_string(const struct de_timestamp *ts,
 	char *buf, size_t buf_len, unsigned int flags)
 {
@@ -200,6 +201,7 @@ void de_timestamp_to_string(const struct de_timestamp *ts,
 	time_t tmpt;
 	struct tm *tm1;
 	const char *tzlabel;
+	char subsec[16];
 
 	if(!ts->is_valid) {
 		de_strlcpy(buf, "[invalid timestamp]", buf_len);
@@ -220,10 +222,17 @@ void de_timestamp_to_string(const struct de_timestamp *ts,
 	tmpt = (time_t)tmpt_int64;
 	tm1 = gmtime(&tmpt);
 
+	if(ts->prec>0 && ts->prec<1000) {
+		de_snprintf(subsec, sizeof(subsec), ".%03u", (unsigned int)ts->ms);
+	}
+	else {
+		subsec[0] = '\0';
+	}
+
 	tzlabel = (flags&0x1)?" UTC":"";
-	de_snprintf(buf, buf_len, "%04d-%02d-%02d %02d:%02d:%02d%s",
+	de_snprintf(buf, buf_len, "%04d-%02d-%02d %02d:%02d:%02d%s%s",
 		1900+tm1->tm_year, 1+tm1->tm_mon, tm1->tm_mday,
-		tm1->tm_hour, tm1->tm_min, tm1->tm_sec, tzlabel);
+		tm1->tm_hour, tm1->tm_min, tm1->tm_sec, subsec, tzlabel);
 }
 
 // Note: Need to keep this function in sync with the implementation in deark-win.c.
