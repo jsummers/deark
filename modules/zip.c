@@ -54,8 +54,10 @@ typedef struct localctx_struct {
 	de_int64 central_dir_num_entries;
 	de_int64 central_dir_byte_size;
 	de_int64 central_dir_offset;
+	de_int64 zip64_eocd_pos;
 	de_int64 offset_discrepancy;
 	int used_offset_discrepancy;
+	int is_zip64;
 	struct de_crcobj *crco;
 } lctx;
 
@@ -170,6 +172,36 @@ static void read_FILETIME(deark *c, lctx *d, de_int64 pos,
 	de_FILETIME_to_timestamp(t_FILETIME, timestamp);
 	de_timestamp_to_string(timestamp, timestamp_buf, sizeof(timestamp_buf), 1);
 	de_dbg(c, "%s: %s", name, timestamp_buf);
+}
+
+static void ef_zip64extinfo(deark *c, lctx *d, struct extra_item_info_struct *eii)
+{
+	de_int64 n;
+	de_int64 pos = eii->dpos;
+
+	if(pos+8 > eii->dpos+eii->dlen) goto done;
+	n = de_geti64le(pos); pos += 8;
+	de_dbg(c, "orig uncmpr file size: %"INT64_FMT, n);
+	if(eii->dd->uncmpr_size==0xffffffffLL) {
+		eii->dd->uncmpr_size = n;
+	}
+
+	if(pos+8 > eii->dpos+eii->dlen) goto done;
+	n = de_geti64le(pos); pos += 8;
+	de_dbg(c, "cmpr data size: %"INT64_FMT, n);
+	if(eii->dd->cmpr_size==0xffffffffLL) {
+		eii->dd->cmpr_size = n;
+	}
+
+	if(pos+8 > eii->dpos+eii->dlen) goto done;
+	n = de_geti64le(pos); pos += 8;
+	de_dbg(c, "offset of local header record: %"INT64_FMT, n);
+
+	if(pos+4 > eii->dpos+eii->dlen) goto done;
+	n = de_getui32le_p(&pos);
+	de_dbg(c, "disk start number: %"INT64_FMT, n);
+done:
+	;
 }
 
 // Extra field 0x5455
@@ -537,7 +569,7 @@ struct extra_item_type_info_struct {
 	extrafield_decoder_fn fn;
 };
 static const struct extra_item_type_info_struct extra_item_type_info_arr[] = {
-	{ 0x0001 /*    */, "Zip64 extended information", NULL },
+	{ 0x0001 /*    */, "Zip64 extended information", ef_zip64extinfo },
 	{ 0x0007 /*    */, "AV Info", NULL },
 	{ 0x0008 /*    */, "extended language encoding data", NULL },
 	{ 0x0009 /*    */, "OS/2", ef_os2 },
@@ -552,6 +584,9 @@ static const struct extra_item_type_info_struct extra_item_type_info_arr[] = {
 	{ 0x0017 /*    */, "Strong Encryption Header", NULL },
 	{ 0x0018 /*    */, "Record Management Controls", NULL },
 	{ 0x0019 /*    */, "PKCS#7 Encryption Recipient Certificate List", NULL },
+	{ 0x0021 /*    */, "Policy Decryption Key", NULL },
+	{ 0x0022 /*    */, "Smartcrypt Key Provider", NULL },
+	{ 0x0023 /*    */, "Smartcrypt Policy Key Data", NULL },
 	{ 0x0065 /*    */, "IBM S/390 (Z390), AS/400 (I400) attributes", NULL },
 	{ 0x0066 /*    */, "IBM S/390 (Z390), AS/400 (I400) attributes - compressed", NULL },
 	{ 0x07c8 /*    */, "Macintosh", NULL },
@@ -657,8 +692,8 @@ static void do_extract_file(deark *c, lctx *d, struct member_data *md)
 	struct dir_entry_data *ldd = &md->local_dir_entry_data;
 	de_uint32 crc_calculated;
 
-	de_dbg(c, "file data at %d, len=%d", (int)md->file_data_pos,
-		(int)ldd->cmpr_size);
+	de_dbg(c, "file data at %"INT64_FMT", len=%"INT64_FMT, md->file_data_pos,
+		ldd->cmpr_size);
 
 	if(!is_compression_method_supported(ldd->cmpr_method)) {
 		de_err(c, "Unsupported compression method: %d",
@@ -669,6 +704,11 @@ static void do_extract_file(deark *c, lctx *d, struct member_data *md)
 	if(md->is_dir && ldd->uncmpr_size==0) {
 		de_msg(c, "Note: \"%s\" is a directory. Ignoring.",
 			ucstring_getpsz_d(ldd->fname));
+		goto done;
+	}
+
+	if(md->file_data_pos+ldd->cmpr_size > c->infile->len) {
+		de_err(c, "Member data goes beyond end of file");
 		goto done;
 	}
 
@@ -780,6 +820,94 @@ static void process_ext_attr(deark *c, lctx *d, struct member_data *md)
 	// TODO: Support more platforms.
 }
 
+static void describe_internal_attr(deark *c, struct member_data *md,
+	de_ucstring *s)
+{
+	unsigned int bf = md->attr_i;
+
+	if(bf & 0x0001) {
+		ucstring_append_flags_item(s, "text file");
+		bf -= 0x0001;
+	}
+
+	if(bf!=0) { // Report any unrecognized flags
+		ucstring_append_flags_itemf(s, "0x%04x", bf);
+	}
+}
+
+// Uses dd->bit_flags, dd->cmpr_method
+static void describe_general_purpose_bit_flags(deark *c, struct dir_entry_data *dd,
+	de_ucstring *s)
+{
+	const char *name;
+	unsigned int bf = dd->bit_flags;
+
+	if(dd->cmpr_method==6) { // implode
+		if(bf & 0x0002) {
+			name = "8K";
+			bf -= 0x0002;
+		}
+		else {
+			name = "4K";
+		}
+		ucstring_append_flags_itemf(s, "%s sliding dictionary", name);
+
+		if(bf & 0x0004) {
+			name = "3";
+			bf -= 0x0004;
+		}
+		else {
+			name = "2";
+		}
+		ucstring_append_flags_itemf(s, "%s trees", name);
+	}
+
+	if(dd->cmpr_method==8 || dd->cmpr_method==9) { // deflate flags
+		unsigned int code;
+
+		code = (bf & 0x0006)>>1;
+		switch(code) {
+		case 1: name="max"; break;
+		case 2: name="fast"; break;
+		case 3: name="super_fast"; break;
+		default: name="normal";
+		}
+		ucstring_append_flags_itemf(s, "cmprlevel=%s", name);
+		bf -= (bf & 0x0006);
+	}
+
+	if(bf & 0x0800) {
+		ucstring_append_flags_item(s, "UTF-8");
+		bf -= 0x0800;
+	}
+
+	if(bf!=0) { // Report any unrecognized flags
+		ucstring_append_flags_itemf(s, "0x%04x", bf);
+	}
+}
+
+static void describe_msdos_attribs(deark *c, unsigned int attr, de_ucstring *s)
+{
+	unsigned int bf = attr;
+
+	if(bf & 0x01) {
+		ucstring_append_flags_item(s, "read-only");
+		bf -= 0x01;
+	}
+	if(bf & 0x10) {
+		ucstring_append_flags_item(s, "directory");
+		bf -= 0x10;
+	}
+	if(bf & 0x20) {
+		ucstring_append_flags_item(s, "archive");
+		bf -= 0x20;
+	}
+
+	if(bf!=0) { // Report any unrecognized flags
+		ucstring_append_flags_itemf(s, "0x%02x", bf);
+	}
+}
+
 // Read either a central directory entry (a.k.a. central directory file header),
 // or a local file header.
 static int do_file_header(deark *c, lctx *d, struct member_data *md,
@@ -793,9 +921,11 @@ static int do_file_header(deark *c, lctx *d, struct member_data *md,
 	de_int64 fixed_header_size;
 	de_int64 mod_time_raw, mod_date_raw;
 	struct dir_entry_data *dd; // Points to either md->central or md->local
+	de_ucstring *descr = NULL;
 	char timestamp_buf[64];
 
 	pos = pos1;
+	descr = ucstring_create(c);
 	if(is_central) {
 		dd = &md->central_dir_entry_data;
 		fixed_header_size = 46;
@@ -836,11 +966,13 @@ static int do_file_header(deark *c, lctx *d, struct member_data *md,
 		(unsigned int)(dd->ver_needed_lo/10), (unsigned int)(dd->ver_needed_lo%10));
 
 	dd->bit_flags = (unsigned int)de_getui16le_p(&pos);
-	de_dbg(c, "flags: 0x%04x", dd->bit_flags);
+	dd->cmpr_method = (int)de_getui16le_p(&pos);
 
 	utf8_flag = (dd->bit_flags & 0x800)?1:0;
+	ucstring_empty(descr);
+	describe_general_purpose_bit_flags(c, dd, descr);
+	de_dbg(c, "flags: 0x%04x (%s)", dd->bit_flags, ucstring_getpsz(descr));
 
-	dd->cmpr_method = (int)de_getui16le_p(&pos);
 	de_dbg(c, "cmpr method: %d (%s)", dd->cmpr_method,
 		get_cmpr_meth_name(dd->cmpr_method));
 
@@ -876,21 +1008,34 @@ static int do_file_header(deark *c, lctx *d, struct member_data *md,
 		md->disk_number_start = de_getui16le_p(&pos);
 
 		md->attr_i = (unsigned int)de_getui16le_p(&pos);
-		de_dbg(c, "internal file attributes: 0x%04x", md->attr_i);
+		ucstring_empty(descr);
+		describe_internal_attr(c, md, descr);
+		de_dbg(c, "internal file attributes: 0x%04x (%s)", md->attr_i,
+			ucstring_getpsz(descr));
+
 		md->attr_e = (unsigned int)de_getui32le_p(&pos);
 		de_dbg(c, "external file attributes: 0x%08x", md->attr_e);
+		de_dbg_indent(c, 1);
+		if(dd->ver_needed_hi==0) {
+			unsigned int dos_attrs = (md->attr_e & 0xff);
+			ucstring_empty(descr);
+			describe_msdos_attribs(c, dos_attrs, descr);
+			de_dbg(c, "MS-DOS attribs: 0x%02x (%s)", dos_attrs, ucstring_getpsz(descr));
+		}
+		// TODO: Describe Unix-style attributes
+		de_dbg_indent(c, -1);
 
 		md->offset_of_local_header = de_getui32le_p(&pos);
-		de_dbg(c, "offset of local header: %d, disk: %d", (int)md->offset_of_local_header,
+		de_dbg(c, "offset of local header: %"INT64_FMT", disk: %d", md->offset_of_local_header,
 			(int)md->disk_number_start);
 	}
 
 	if(is_central) {
-		de_dbg(c, "filename_len=%d, extra_len=%d, comment_len=%d", (int)fn_len,
+		de_dbg(c, "filename_len: %d, extra_len: %d, comment_len: %d", (int)fn_len,
 			(int)extra_len, (int)comment_len);
 	}
 	else {
-		de_dbg(c, "filename_len=%d, extra_len=%d", (int)fn_len,
+		de_dbg(c, "filename_len: %d, extra_len: %d", (int)fn_len,
 			(int)extra_len);
 	}
 
@@ -935,6 +1080,7 @@ static int do_file_header(deark *c, lctx *d, struct member_data *md,
 
 done:
 	de_dbg_indent(c, -1);
+	ucstring_destroy(descr);
 	return retval;
 }
 
@@ -1016,6 +1162,27 @@ done:
 	return retval;
 }
 
+static void do_zip64_eocd_locator(deark *c, lctx *d)
+{
+	de_int64 n, disknum;
+	de_int64 pos = d->end_of_central_dir_pos - 20;
+
+	if(dbuf_memcmp(c->infile, pos, "PK\x06\x07", 4)) {
+		return;
+	}
+	de_dbg(c, "zip64 eocd locator at %"INT64_FMT, pos);
+	pos += 4;
+	d->is_zip64 = 1;
+	de_dbg_indent(c, 1);
+	disknum = de_getui32le_p(&pos);
+	d->zip64_eocd_pos = de_geti64le(pos); pos += 8;
+	de_dbg(c, "relative offset of zip64 eocd: %"INT64_FMT", disk: %u",
+		d->zip64_eocd_pos, (unsigned int)disknum);
+	n = de_getui32le_p(&pos);
+	de_dbg(c, "total number of disks: %u", (unsigned int)n);
+	de_dbg_indent(c, -1);
+}
+
 static int do_end_of_central_dir(deark *c, lctx *d)
 {
 	de_int64 pos;
@@ -1033,7 +1200,6 @@ static int do_end_of_central_dir(deark *c, lctx *d)
 	this_disk_num = de_getui16le(pos+4);
 	de_dbg(c, "this disk num: %d", (int)this_disk_num);
 	disk_num_with_central_dir_start = de_getui16le(pos+6);
-	de_dbg(c, "disk with central dir start: %d", (int)disk_num_with_central_dir_start);
 
 	num_entries_this_disk = de_getui16le(pos+8);
 	de_dbg(c, "num entries on this disk: %d", (int)num_entries_this_disk);
@@ -1041,10 +1207,10 @@ static int do_end_of_central_dir(deark *c, lctx *d)
 	d->central_dir_num_entries = de_getui16le(pos+10);
 	d->central_dir_byte_size  = de_getui32le(pos+12);
 	d->central_dir_offset = de_getui32le(pos+16);
-	de_dbg(c, "central dir: num_entries=%d, offset=%d, size=%d",
-		(int)d->central_dir_num_entries,
-		(int)d->central_dir_offset,
-		(int)d->central_dir_byte_size);
+	de_dbg(c, "central dir num entries: %d", (int)d->central_dir_num_entries);
+	de_dbg(c, "central dir offset: %d, disk: %d", (int)d->central_dir_offset,
+		(int)disk_num_with_central_dir_start);
+	de_dbg(c, "central dir size: %d", (int)d->central_dir_byte_size);
 
 	comment_length = de_getui16le(pos+20);
 	de_dbg(c, "comment length: %d", (int)comment_length);
@@ -1063,7 +1229,9 @@ static int do_end_of_central_dir(deark *c, lctx *d)
 		goto done;
 	}
 
-	alt_central_dir_offset = d->end_of_central_dir_pos - d->central_dir_byte_size;
+	alt_central_dir_offset =
+		(d->is_zip64 ? d->zip64_eocd_pos : d->end_of_central_dir_pos) -
+		d->central_dir_byte_size;
 
 	if(alt_central_dir_offset != d->central_dir_offset) {
 		de_uint32 sig;
@@ -1093,14 +1261,19 @@ static void de_run_zip(deark *c, de_module_params *mparams)
 
 	d = de_malloc(c, sizeof(lctx));
 
-	de_declare_fmt(c, "ZIP");
-
 	if(!de_fmtutil_find_zip_eocd(c, c->infile, &d->end_of_central_dir_pos)) {
 		de_err(c, "Not a ZIP file");
 		goto done;
 	}
 
 	de_dbg(c, "end-of-central-dir record signature found at %d", (int)d->end_of_central_dir_pos);
+
+	do_zip64_eocd_locator(c, d);
+
+	if(d->is_zip64)
+		de_declare_fmt(c, "ZIP-Zip64");
+	else
+		de_declare_fmt(c, "ZIP");
 
 	if(!do_end_of_central_dir(c, d)) {
 		goto done;

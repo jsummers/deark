@@ -852,8 +852,10 @@ const char *ucstring_getpsz_n(de_ucstring *s, de_int64 max_bytes);
 // Same as ..._n, with max_bytes=DE_DBG_MAX_STRLEN
 const char *ucstring_getpsz_d(de_ucstring *s);
 
-// Helper function for printing the contents of bit-flags fields
+// Helper functions for printing the contents of bit-flags fields
 void ucstring_append_flags_item(de_ucstring *s, const char *str);
+void ucstring_append_flags_itemf(de_ucstring *s, const char *fmt, ...)
+	de_gnuc_attribute ((format (printf, 2, 3)));
 
 struct de_strarray;
 struct de_strarray *de_strarray_create(deark *c);

@@ -402,6 +402,17 @@ void ucstring_append_flags_item(de_ucstring *s, const char *str)
 	ucstring_printf(s, DE_ENCODING_UTF8, "%s%s", (s->len>0)?" | ":"", str);
 }
 
+void ucstring_append_flags_itemf(de_ucstring *s, const char *fmt, ...)
+{
+	va_list ap;
+	char buf[1024];
+
+	va_start(ap, fmt);
+	de_vsnprintf(buf, sizeof(buf), fmt, ap);
+	ucstring_append_flags_item(s, buf);
+	va_end(ap);
+}
+
 // strarray: A mini library, intended mainly to help manage directory paths.
 
 struct de_strarray {
