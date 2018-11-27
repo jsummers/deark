@@ -378,6 +378,10 @@ static int do_read_palette(deark *c, lctx *d, de_int64 pos)
 static void do_read_extension_area(deark *c, lctx *d, de_int64 pos)
 {
 	de_int64 ext_area_size;
+	de_int64 k;
+	int has_date;
+	de_ucstring *s = NULL;
+	de_int64 val[6];
 
 	de_dbg(c, "extension area at %d", (int)pos);
 	if(pos > c->infile->len - 2) {
@@ -386,19 +390,78 @@ static void do_read_extension_area(deark *c, lctx *d, de_int64 pos)
 	}
 
 	de_dbg_indent(c, 1);
+
+	s = ucstring_create(c);
+
 	ext_area_size = de_getui16le(pos);
 	de_dbg(c, "extension area size: %d", (int)ext_area_size);
 	if(ext_area_size<495) goto done;
 
 	d->has_extension_area = 1;
 
+	ucstring_empty(s);
+	dbuf_read_to_ucstring(c->infile, pos+2, 41, s, DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_ASCII);
+	ucstring_strip_trailing_spaces(s);
+	de_dbg(c, "author: \"%s\"", ucstring_getpsz_d(s));
+
+	for(k=0; k<4; k++) {
+		ucstring_empty(s);
+		dbuf_read_to_ucstring(c->infile, pos+43+81*k, 81, s, DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_ASCII);
+		ucstring_strip_trailing_spaces(s);
+		de_dbg(c, "comment line %d: \"%s\"", (int)k, ucstring_getpsz_d(s));
+	}
+
+	// date/time: pos=367, size=12
+	has_date = 0;
+	for(k=0; k<6; k++) {
+		val[k] = de_getui16le(pos+367+2*k);
+		if(val[k]!=0) has_date = 1;
+	}
+	if(has_date) {
+		struct de_timestamp ts;
+		char timestamp_buf[64];
+
+		de_make_timestamp(&ts, val[2], val[0], val[1], val[3], val[4], val[5], 0);
+		de_timestamp_to_string(&ts, timestamp_buf, sizeof(timestamp_buf), 0);
+		de_dbg(c, "timestamp: %s", timestamp_buf);
+	}
+
+	// Job name: pos=379, size=41 (not implemented)
+	// Job time: pos=420, size=6 (not implemented)
+
+	ucstring_empty(s);
+	dbuf_read_to_ucstring(c->infile, pos+426, 41, s, DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_ASCII);
+	ucstring_strip_trailing_spaces(s);
+	de_dbg(c, "software id: \"%s\"", ucstring_getpsz_d(s));
+
+	val[0] = de_getui16le(pos+467);
+	val[1] = (de_int64)de_getbyte(pos+469);
+	if(val[0]!=0 || val[1]!=32) {
+		de_dbg(c, "software version: %u,%u,%u",
+			(unsigned int)(val[0]/100), (unsigned int)(val[0]%100),
+			(unsigned int)val[1]);
+	}
+
+	val[0] = de_getui32le(pos+470);
+	if(val[0]!=0) {
+		de_dbg(c, "background color: 0x%08x", (unsigned int)val[0]);
+	}
+
 	// TODO: Retain the aspect ratio. (Need sample files. Nobody seems to use this field.)
 	d->aspect_ratio_num = de_getui16le(pos+474);
 	d->aspect_ratio_den = de_getui16le(pos+476);
-	de_dbg(c, "aspect ratio: %d/%d", (int)d->aspect_ratio_num, (int)d->aspect_ratio_den);
+	if(d->aspect_ratio_den!=0) {
+		de_dbg(c, "aspect ratio: %d/%d", (int)d->aspect_ratio_num, (int)d->aspect_ratio_den);
+	}
+
+	// Gamma: pos=478, size=4 (not implemented)
+	// Color correction table offset: pos=482, size=4 (not implemented)
 
 	d->thumbnail_offset = de_getui32le(pos+486);
 	de_dbg(c, "thumbnail image offset: %d", (int)d->thumbnail_offset);
+
+	val[0] = de_getui32le(pos+490);
+	de_dbg(c, "scan line table offset: %"INT64_FMT, val[0]);
 
 	d->attributes_type = de_getbyte(pos+494);
 	de_dbg(c, "attributes type: %d", (int)d->attributes_type);
@@ -410,6 +473,7 @@ static void do_read_extension_area(deark *c, lctx *d, de_int64 pos)
 
 done:
 	de_dbg_indent(c, -1);
+	ucstring_destroy(s);
 }
 
 static void do_read_developer_area(deark *c, lctx *d, de_int64 pos)
