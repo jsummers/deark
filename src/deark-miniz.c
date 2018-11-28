@@ -27,113 +27,149 @@ struct zip_data_struct {
 	mz_zip_archive *pZip;
 };
 
+#define CODE_IDAT 0x49444154U
+#define CODE_IEND 0x49454e44U
+#define CODE_IHDR 0x49484452U
+#define CODE_pHYs 0x70485973U
+
 struct deark_png_encode_info {
+	int width, height;
+	int num_chans;
+	int flip;
+	int level;
 	int has_phys;
 	mz_uint32 xdens;
 	mz_uint32 ydens;
 	mz_uint8 phys_units;
+	deark *c;
+	dbuf *outf;
 };
 
-// A copy of tdefl_write_image_to_png_file_in_memory_ex from miniz,
-// hacked to support pHYs chunks.
-static void *my_tdefl_write_image_to_png_file_in_memory_ex(const void *pImage, int w, int h, int num_chans,
-	size_t *pLen_out, mz_uint level, mz_bool flip, const struct deark_png_encode_info *pei)
+static void write_png_chunk_raw(dbuf *outf, const de_byte *src, de_int64 src_len,
+	de_uint32 chunktype)
 {
-	tdefl_compressor *pComp = (tdefl_compressor *)MZ_MALLOC(sizeof(tdefl_compressor));
-	tdefl_output_buffer out_buf;
-	int bpl = w * num_chans, y, z;
-	mz_uint32 c;
-	size_t idat_data_offset;
-	size_t size_of_extra_chunks = 0;
-	size_t curpos = 0;
-	static const char nulbyte = '\0';
+	de_uint32 crc;
+	de_byte buf[4];
 
-	*pLen_out = 0;
-	if (!pComp) return NULL;
+	// length field
+	dbuf_writeui32be(outf, src_len);
+
+	// chunk type field
+	de_writeui32be_direct(buf, (de_int64)chunktype);
+	crc = de_crc32(buf, 4);
+	dbuf_write(outf, buf, 4);
+
+	// data field
+	crc = de_crc32_continue(crc, src, src_len);
+	dbuf_write(outf, src, src_len);
+
+	// CRC field
+	dbuf_writeui32be(outf, (de_int64)crc);
+}
+
+static void write_png_chunk_from_cdbuf(dbuf *outf, dbuf *cdbuf, de_uint32 chunktype)
+{
+	// We really shouldn't access ->membuf_buf directly, but we'll allow it
+	// here as a performance optimization.
+	write_png_chunk_raw(outf, cdbuf->membuf_buf, cdbuf->len, chunktype);
+}
+
+static void write_png_chunk_IHDR(struct deark_png_encode_info *pei,
+	dbuf *cdbuf)
+{
+	static const de_byte color_type_code[] = {0x00, 0x00, 0x04, 0x02, 0x06};
+
+	dbuf_writeui32be(cdbuf, (de_int64)pei->width);
+	dbuf_writeui32be(cdbuf, (de_int64)pei->height);
+	dbuf_writebyte(cdbuf, 8); // bit depth
+	dbuf_writebyte(cdbuf, color_type_code[pei->num_chans]);
+	dbuf_truncate(cdbuf, 13); // rest of chunk is zeroes
+	write_png_chunk_from_cdbuf(pei->outf, cdbuf, CODE_IHDR);
+}
+
+static void write_png_chunk_pHYs(struct deark_png_encode_info *pei,
+	dbuf *cdbuf)
+{
+	dbuf_writeui32be(cdbuf, (de_int64)pei->xdens);
+	dbuf_writeui32be(cdbuf, (de_int64)pei->ydens);
+	dbuf_writebyte(cdbuf, pei->phys_units);
+	write_png_chunk_from_cdbuf(pei->outf, cdbuf, CODE_pHYs);
+}
+
+static int write_png_chunk_IDAT(struct deark_png_encode_info *pei, const mz_uint8 *src_pixels)
+{
+	tdefl_compressor *pComp = NULL;
+	tdefl_output_buffer out_buf;
+	int bpl = pei->width * pei->num_chans; // bytes per row in src_pixels
+	int y;
+	static const char nulbyte = '\0';
+	int retval = 0;
+
+	de_memset(&out_buf, 0, sizeof(tdefl_output_buffer));
+
+	pComp = MZ_MALLOC(sizeof(tdefl_compressor));
+	if (!pComp) goto done;
 	de_memset(pComp,0,sizeof(tdefl_compressor));
 
-	if(pei->has_phys) size_of_extra_chunks += 21;
-
-	idat_data_offset = 41 + size_of_extra_chunks;
-
-	MZ_CLEAR_OBJ(out_buf);
 	out_buf.m_expandable = MZ_TRUE;
-	out_buf.m_capacity = 57+MZ_MAX(64, (1+bpl)*h) + size_of_extra_chunks;
-	if (NULL == (out_buf.m_pBuf = (mz_uint8*)MZ_MALLOC(out_buf.m_capacity))) { MZ_FREE(pComp); return NULL; }
-
-	// write dummy header
-	for (z = (int)idat_data_offset; z; --z) tdefl_output_buffer_putter(&nulbyte, 1, &out_buf);
+	out_buf.m_capacity = 16+MZ_MAX(64, (1+bpl)*pei->height);
+	out_buf.m_pBuf = MZ_MALLOC(out_buf.m_capacity);
+	if (!out_buf.m_pBuf) { goto done; }
 
 	// compress image data
-	// TODO: It seems illogical to do this before writing the things that precede IDAT,
-	// though I guess it does ensure that out_buf.m_pBuf has enough bytes allocated.
-	tdefl_init(pComp, tdefl_output_buffer_putter, &out_buf, s_tdefl_num_probes[MZ_MIN(10, level)] | TDEFL_WRITE_ZLIB_HEADER);
+	tdefl_init(pComp, tdefl_output_buffer_putter, &out_buf,
+		s_tdefl_num_probes[MZ_MIN(10, pei->level)] | TDEFL_WRITE_ZLIB_HEADER);
 
-	for (y = 0; y < h; ++y) {
+	for (y = 0; y < pei->height; ++y) {
 		tdefl_compress_buffer(pComp, &nulbyte, 1, TDEFL_NO_FLUSH);
-		tdefl_compress_buffer(pComp, (mz_uint8*)pImage + (flip ? (h - 1 - y) : y) * bpl, bpl, TDEFL_NO_FLUSH);
+		tdefl_compress_buffer(pComp, &src_pixels[(pei->flip ? (pei->height - 1 - y) : y) * bpl],
+			bpl, TDEFL_NO_FLUSH);
 	}
-	if (tdefl_compress_buffer(pComp, NULL, 0, TDEFL_FINISH) != TDEFL_STATUS_DONE) { MZ_FREE(pComp); MZ_FREE(out_buf.m_pBuf); return NULL; }
+	if (tdefl_compress_buffer(pComp, NULL, 0, TDEFL_FINISH) != TDEFL_STATUS_DONE) { goto done; }
 
-	// write real header
-	// (signature, and entire IHDR chunk)
-	*pLen_out = out_buf.m_size-idat_data_offset;
+	write_png_chunk_raw(pei->outf, (const de_byte*)out_buf.m_pBuf, (de_int64)out_buf.m_size, CODE_IDAT);
+	retval = 1;
 
-	{
-		static const mz_uint8 chans[] = {0x00, 0x00, 0x04, 0x02, 0x06};
-		mz_uint8 pnghdr[33]={
-			0x89,0x50,0x4e,0x47,0x0d,0x0a,0x1a,0x0a, // 8-byte signature
-			0x00,0x00,0x00,0x0d,0x49,0x48,0x44,0x52, // IHDR length, type
-			0,0,0,0,0,0,0,0,8,0,0,0,0, // 13 bytes of IHDR data
-			0,0,0,0 // IHDR CRC
-		};
-		de_writeui32be_direct(&pnghdr[8+8+0], w);
-		de_writeui32be_direct(&pnghdr[8+8+4], h);
-		pnghdr[25] = chans[num_chans];
-		c=(mz_uint32)mz_crc32(MZ_CRC32_INIT,pnghdr+12,17);
-		de_writeui32be_direct(&pnghdr[8+8+13], (de_int64)c); // Set IHDR CRC
-		de_memcpy(out_buf.m_pBuf, pnghdr, 33);
-		curpos += 8+8+13+4;
-	}
+done:
+
+	if(pComp) MZ_FREE(pComp);
+	if(out_buf.m_pBuf) MZ_FREE(out_buf.m_pBuf);
+	return retval;
+}
+
+static int do_generate_png(struct deark_png_encode_info *pei, const mz_uint8 *src_pixels)
+{
+	static const de_byte pngsig[8] = { 0x89,0x50,0x4e,0x47,0x0d,0x0a,0x1a,0x0a };
+	dbuf *cdbuf = NULL;
+	int retval = 0;
+
+	// A membuf that we'll use and reuse for each chunk's data...
+	// except for the IDAT chunk. miniz has its own 'tdefl_output_buffer'
+	// resizable memory object, that we have to use with it.
+	cdbuf = dbuf_create_membuf(pei->c, 64, 0);
+
+	dbuf_write(pei->outf, pngsig, 8);
+
+	write_png_chunk_IHDR(pei, cdbuf);
 
 	if(pei->has_phys) {
-		de_writeui32be_direct(out_buf.m_pBuf+curpos+0, 9); // pHYs chunk data length (always 9)
-		de_memcpy(&out_buf.m_pBuf[curpos+4], "pHYs", 4);
-		de_writeui32be_direct(out_buf.m_pBuf+curpos+8, (de_int64)pei->xdens);
-		de_writeui32be_direct(out_buf.m_pBuf+curpos+12, (de_int64)pei->ydens);
-		out_buf.m_pBuf[curpos+16] = pei->phys_units;
-		c=(mz_uint32)mz_crc32(MZ_CRC32_INIT,out_buf.m_pBuf+curpos+4,13);
-		de_writeui32be_direct(out_buf.m_pBuf+curpos+17, (de_int64)c);
-		curpos += 8+9+4;
+		dbuf_truncate(cdbuf, 0);
+		write_png_chunk_pHYs(pei, cdbuf);
 	}
 
-	// Write IDAT header (chunk length and type)
-	{
-		mz_uint8 idathdr[8]={
-			0, 0, 0, 0, // IDAT len,
-			0x49,0x44,0x41,0x54 // IDAT type
-		};
-		de_writeui32be_direct(&idathdr[0], (de_int64)(*pLen_out));
-		de_memcpy(out_buf.m_pBuf+(idat_data_offset-8), idathdr, 8);
-	}
+	if(!write_png_chunk_IDAT(pei, src_pixels)) goto done;
 
-	// write footer (IDAT CRC-32, followed by IEND chunk)
-	if (!tdefl_output_buffer_putter("\0\0\0\0\0\0\0\0\x49\x45\x4e\x44\xae\x42\x60\x82", 16, &out_buf)) {
-		*pLen_out = 0; MZ_FREE(pComp); MZ_FREE(out_buf.m_pBuf); return NULL;
-	}
-	c = (mz_uint32)mz_crc32(MZ_CRC32_INIT,out_buf.m_pBuf+idat_data_offset-4, *pLen_out+4);
-	de_writeui32be_direct(out_buf.m_pBuf+out_buf.m_size-16, (de_int64)c);
+	dbuf_truncate(cdbuf, 0);
+	write_png_chunk_from_cdbuf(pei->outf, cdbuf, CODE_IEND);
+	retval = 1;
 
-	// compute final size of file, grab compressed data buffer and return
-	*pLen_out += 16 + idat_data_offset;
-	MZ_FREE(pComp);
-	return out_buf.m_pBuf;
+done:
+	dbuf_close(cdbuf);
+	return retval;
 }
 
 int de_write_png(deark *c, de_bitmap *img, dbuf *f)
 {
-	size_t len_out = 0;
-	de_byte *memblk = NULL;
 	struct deark_png_encode_info pei;
 
 	de_memset(&pei, 0, sizeof(struct deark_png_encode_info));
@@ -177,18 +213,18 @@ int de_write_png(deark *c, de_bitmap *img, dbuf *f)
 		}
 	}
 
-	memblk = my_tdefl_write_image_to_png_file_in_memory_ex(img->bitmap,
-		(int)img->width, (int)img->height, img->bytes_per_pixel, &len_out, 9, img->flipped,
-		&pei);
-
-	if(!memblk) {
+	pei.c = c;
+	pei.outf = f;
+	pei.width = (int)img->width;
+	pei.height = (int)img->height;
+	pei.flip = img->flipped;
+	pei.num_chans = img->bytes_per_pixel;
+	pei.level = 9;
+	if(!do_generate_png(&pei, img->bitmap)) {
 		de_err(c, "PNG write failed");
 		return 0;
 	}
 
-	dbuf_write(f, memblk, len_out);
-
-	mz_free(memblk);
 	return 1;
 }
 
