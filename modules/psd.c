@@ -3767,10 +3767,15 @@ static void de_run_psd(deark *c, de_module_params *mparams)
 	de_dbg(c, "image resources data at %d, len=%d", (int)zz->pos, (int)x);
 
 	if(x>0) {
-		de_dbg_indent(c, 1);
-		zz_init_with_len(&czz, zz, x);
-		do_image_resource_blocks(c, d, &czz);
-		de_dbg_indent(c, -1);
+		if(de_get_ext_option_bool(c, "extract8bim", 0)) {
+			de_fmtutil_handle_photoshop_rsrc(c, c->infile, zz->pos, x, 0x1);
+		}
+		else {
+			de_dbg_indent(c, 1);
+			zz_init_with_len(&czz, zz, x);
+			do_image_resource_blocks(c, d, &czz);
+			de_dbg_indent(c, -1);
+		}
 	}
 	zz->pos += x;
 	de_dbg_indent(c, -1);
