@@ -31,6 +31,7 @@ struct zip_data_struct {
 #define CODE_IEND 0x49454e44U
 #define CODE_IHDR 0x49484452U
 #define CODE_pHYs 0x70485973U
+#define CODE_tIME 0x74494d45U
 
 struct deark_png_encode_info {
 	int width, height;
@@ -43,6 +44,7 @@ struct deark_png_encode_info {
 	mz_uint8 phys_units;
 	deark *c;
 	dbuf *outf;
+	struct de_timestamp image_mod_time;
 };
 
 static void write_png_chunk_raw(dbuf *outf, const de_byte *src, de_int64 src_len,
@@ -94,6 +96,23 @@ static void write_png_chunk_pHYs(struct deark_png_encode_info *pei,
 	dbuf_writeui32be(cdbuf, (de_int64)pei->ydens);
 	dbuf_writebyte(cdbuf, pei->phys_units);
 	write_png_chunk_from_cdbuf(pei->outf, cdbuf, CODE_pHYs);
+}
+
+static void write_png_chunk_tIME(struct deark_png_encode_info *pei,
+	dbuf *cdbuf)
+{
+	struct de_struct_tm tm2;
+
+	de_gmtime(&pei->image_mod_time, &tm2);
+	if(!tm2.is_valid) return;
+
+	dbuf_writeui16be(cdbuf, (de_int64)tm2.tm_fullyear);
+	dbuf_writebyte(cdbuf, (de_byte)(1+tm2.tm_mon));
+	dbuf_writebyte(cdbuf, (de_byte)tm2.tm_mday);
+	dbuf_writebyte(cdbuf, (de_byte)tm2.tm_hour);
+	dbuf_writebyte(cdbuf, (de_byte)tm2.tm_min);
+	dbuf_writebyte(cdbuf, (de_byte)tm2.tm_sec);
+	write_png_chunk_from_cdbuf(pei->outf, cdbuf, CODE_tIME);
 }
 
 static int write_png_chunk_IDAT(struct deark_png_encode_info *pei, const mz_uint8 *src_pixels)
@@ -155,6 +174,13 @@ static int do_generate_png(struct deark_png_encode_info *pei, const mz_uint8 *sr
 	if(pei->has_phys) {
 		dbuf_truncate(cdbuf, 0);
 		write_png_chunk_pHYs(pei, cdbuf);
+	}
+
+	// TODO: Maybe this should be a separate command-line option, instead
+	// of overloading ->preserve_file_times.
+	if(pei->image_mod_time.is_valid && pei->c->preserve_file_times) {
+		dbuf_truncate(cdbuf, 0);
+		write_png_chunk_tIME(pei, cdbuf);
 	}
 
 	if(!write_png_chunk_IDAT(pei, src_pixels)) goto done;
@@ -220,6 +246,11 @@ int de_write_png(deark *c, de_bitmap *img, dbuf *f)
 	pei.flip = img->flipped;
 	pei.num_chans = img->bytes_per_pixel;
 	pei.level = 9;
+
+	if(f->image_mod_time.is_valid) {
+		pei.image_mod_time = f->image_mod_time;
+	}
+
 	if(!do_generate_png(&pei, img->bitmap)) {
 		de_err(c, "PNG write failed");
 		return 0;
