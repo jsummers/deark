@@ -1009,6 +1009,14 @@ void de_free_charctx(deark *c, struct de_char_context *charctx);
 
 ///////////////////////////////////////////
 
+// Our version of "struct tm".
+// Differences: Year is full year, removed some fields, added milliseconds field.
+struct de_struct_tm {
+	int is_valid;
+	int tm_fullyear, tm_mon, tm_mday;
+	int tm_hour, tm_min, tm_sec, tm_ms;
+};
+
 void de_unix_time_to_timestamp(de_int64 ut, struct de_timestamp *ts);
 void de_timestamp_set_ms(struct de_timestamp *ts, de_uint16 ms, de_uint16 prec);
 void de_mac_time_to_timestamp(de_int64 mt, struct de_timestamp *ts);
@@ -1023,4 +1031,5 @@ void de_make_timestamp(struct de_timestamp *ts,
 	de_int64 hr, de_int64 mi, de_int64 se, de_int64 offset_seconds);
 void de_timestamp_to_string(const struct de_timestamp *ts,
 	char *buf, size_t buf_len, unsigned int flags);
+void de_gmtime(const struct de_timestamp *ts, struct de_struct_tm *tm2);
 void de_current_time_to_timestamp(struct de_timestamp *ts);

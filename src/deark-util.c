@@ -1004,6 +1004,39 @@ void de_make_timestamp(struct de_timestamp *ts,
 	de_unix_time_to_timestamp(result + offset_seconds, ts);
 }
 
+// flags: 0x1 = append " UTC"
+void de_timestamp_to_string(const struct de_timestamp *ts,
+	char *buf, size_t buf_len, unsigned int flags)
+{
+	const char *tzlabel;
+	char subsec[16];
+	struct de_struct_tm tm2;
+
+	if(!ts->is_valid) {
+		de_strlcpy(buf, "[invalid timestamp]", buf_len);
+		return;
+	}
+
+	de_gmtime(ts, &tm2);
+	if(!tm2.is_valid) {
+		de_snprintf(buf, buf_len, "[timestamp out of range: %"INT64_FMT"]",
+			de_timestamp_to_unix_time(ts));
+		return;
+	}
+
+	if(ts->prec>0 && ts->prec<1000) {
+		de_snprintf(subsec, sizeof(subsec), ".%03u", (unsigned int)tm2.tm_ms);
+	}
+	else {
+		subsec[0] = '\0';
+	}
+
+	tzlabel = (flags&0x1)?" UTC":"";
+	de_snprintf(buf, buf_len, "%04d-%02d-%02d %02d:%02d:%02d%s%s",
+		tm2.tm_fullyear, 1+tm2.tm_mon, tm2.tm_mday,
+		tm2.tm_hour, tm2.tm_min, tm2.tm_sec, subsec, tzlabel);
+}
+
 void de_declare_fmt(deark *c, const char *fmtname)
 {
 	if(c->module_nesting_level > 1) {

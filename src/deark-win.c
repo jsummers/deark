@@ -324,19 +324,17 @@ void de_windows_highlight(void *handle1, unsigned int orig_attr, int x)
 }
 
 // Note: Need to keep this function in sync with the implementation in deark-unix.c.
-// flags: 0x1 = append " UTC"
-void de_timestamp_to_string(const struct de_timestamp *ts,
-	char *buf, size_t buf_len, unsigned int flags)
+// Similar to standard gmtime().
+// Populates a caller-allocated de_struct_tm.
+void de_gmtime(const struct de_timestamp *ts, struct de_struct_tm *tm2)
 {
 	de_int64 tmpt_int64;
 	__time64_t tmpt;
 	struct tm tm1;
-	const char *tzlabel;
 	errno_t ret;
-	char subsec[16];
 
+	de_memset(tm2, 0, sizeof(struct de_struct_tm));
 	if(!ts->is_valid) {
-		de_strlcpy(buf, "[invalid timestamp]", buf_len);
 		return;
 	}
 
@@ -347,31 +345,21 @@ void de_timestamp_to_string(const struct de_timestamp *ts,
 	// _gmtime64_s is documented as supporting times in the range:
 	//  1970-01-01 00:00:00 UTC, through
 	//  3000-12-31 23:59:59 UTC.
-	// I tested it, and on my computer it worked from:
-	//  1969-12-31 12:00:00 UTC, through
-	//  3001-01-01 20:59:59 UTC.
-	// [The behavior of _gmtime64_s does not depend on the user's current
-	// timezone settings, right? I hope?]
-	// TODO: At the very least, we need to support the range ~1900 to 2108,
-	// to cover most of the traditional formats. We probably need a custom
-	// gmtime function.
 	ret = _gmtime64_s(&tm1, &tmpt);
 	if(ret!=0) {
-		de_snprintf(buf, buf_len, "[timestamp out of range: %"INT64_FMT"]", tmpt_int64);
 		return;
 	}
 
+	tm2->is_valid = 1;
+	tm2->tm_fullyear = 1900+tm1.tm_year;
+	tm2->tm_mon = tm1.tm_mon;
+	tm2->tm_mday = tm1.tm_mday;
+	tm2->tm_hour = tm1.tm_hour;
+	tm2->tm_min = tm1.tm_min;
+	tm2->tm_sec = tm1.tm_sec;
 	if(ts->prec>0 && ts->prec<1000) {
-		de_snprintf(subsec, sizeof(subsec), ".%03u", (unsigned int)ts->ms);
+		tm2->tm_ms = ts->ms;
 	}
-	else {
-		subsec[0] = '\0';
-	}
-
-	tzlabel = (flags&0x1)?" UTC":"";
-	de_snprintf(buf, buf_len, "%04d-%02d-%02d %02d:%02d:%02d%s%s",
-		1900+tm1.tm_year, 1+tm1.tm_mon, tm1.tm_mday,
-		tm1.tm_hour, tm1.tm_min, tm1.tm_sec, subsec, tzlabel);
 }
 
 // Note: Need to keep this function in sync with the implementation in deark-unix.c.
