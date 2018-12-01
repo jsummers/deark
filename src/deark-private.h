@@ -143,10 +143,6 @@ struct dbuf_struct {
 	struct dbuf_struct *parent_dbuf; // used for DBUF_TYPE_DBUF
 	de_int64 offset_into_parent_dbuf; // used for DBUF_TYPE_DBUF
 
-#define DE_MODEFLAG_NONEXE 0x01 // Make the output file non-executable.
-#define DE_MODEFLAG_EXE    0x02 // Make the output file executable.
-	unsigned int mode_flags;
-
 	int write_memfile_to_zip_archive; // used for DBUF_TYPE_OFILE, at least
 	char *name; // used for DBUF_TYPE_OFILE (utf-8)
 
@@ -168,15 +164,23 @@ struct dbuf_struct {
 	de_int64 cache2_bytes_used;
 	de_byte cache2[1];
 
+	// Things copied from a de_finfo object
+	unsigned int mode_flags;
 	struct de_timestamp mod_time;
+	struct de_timestamp image_mod_time;
 };
 
 // Extended information about a file to be written.
 struct de_finfo_struct {
 	char *file_name; // utf-8 encoded
-	struct de_timestamp mod_time;
 	de_byte original_filename_flag; // Indicates if .file_name is a real file name
+
+#define DE_MODEFLAG_NONEXE 0x01 // Make the output file non-executable.
+#define DE_MODEFLAG_EXE    0x02 // Make the output file executable.
 	unsigned int mode_flags;
+
+	struct de_timestamp mod_time; // Mod time of an archived file
+	struct de_timestamp image_mod_time; // Mod time of an image (for PNG tIME chunk)
 };
 typedef struct de_finfo_struct de_finfo;
 

@@ -816,8 +816,6 @@ int dbuf_create_file_from_slice(dbuf *inf, de_int64 pos, de_int64 data_size,
 	return 1;
 }
 
-// FIXME: If both ext and fi are set, there may be an inconsistency as to the
-// final filename when using the -zip option.
 dbuf *dbuf_create_output_file(deark *c, const char *ext, de_finfo *fi,
 	unsigned int createflags)
 {
@@ -827,6 +825,10 @@ dbuf *dbuf_create_output_file(deark *c, const char *ext, de_finfo *fi,
 	const char *basefn;
 	int file_index;
 	char fn_suffix[256];
+
+	if(ext && fi && fi->original_filename_flag) {
+		de_dbg(c, "[internal warning: Incorrect use of create_output_file]");
+	}
 
 	f = de_malloc(c, sizeof(dbuf));
 
@@ -883,6 +885,7 @@ dbuf *dbuf_create_output_file(deark *c, const char *ext, de_finfo *fi,
 
 	if(fi) {
 		f->mod_time = fi->mod_time; // struct copy
+		f->image_mod_time = fi->image_mod_time;
 		f->mode_flags = fi->mode_flags;
 	}
 

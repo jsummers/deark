@@ -169,24 +169,18 @@ static de_bitmap *get_optimized_image(de_bitmap *img1)
 	return optimg;
 }
 
-void de_bitmap_write_to_file(de_bitmap *img, const char *token,
+// When calling this function, the "name" data associated with fi, if set, should
+// be set to something like a filename, but *without* a final ".png" extension.
+void de_bitmap_write_to_file_finfo(de_bitmap *img, de_finfo *fi,
 	unsigned int createflags)
 {
 	deark *c;
 	dbuf *f;
 	de_bitmap *optimg = NULL;
-	char buf[80];
 
 	if(!img) return;
 	c = img->c;
 	if(img->invalid_image_flag) return;
-
-	if(token==NULL || token[0]=='\0') {
-		de_strlcpy(buf, "png", sizeof(buf));
-	}
-	else {
-		de_snprintf(buf, sizeof(buf), "%s.png", token);
-	}
 
 	if(!img->bitmap) de_bitmap_alloc_pixels(img);
 
@@ -200,7 +194,7 @@ void de_bitmap_write_to_file(de_bitmap *img, const char *token,
 		}
 	}
 
-	f = dbuf_create_output_file(c, buf, NULL, createflags);
+	f = dbuf_create_output_file(c, "png", fi, createflags);
 	if(optimg) {
 		de_write_png(c, optimg, f);
 	}
@@ -212,14 +206,22 @@ void de_bitmap_write_to_file(de_bitmap *img, const char *token,
 	if(optimg) de_bitmap_destroy(optimg);
 }
 
-void de_bitmap_write_to_file_finfo(de_bitmap *img, de_finfo *fi,
+// "token" - A (UTf-8) filename component, like "output.000.<token>.png".
+//   It can be NULL.
+void de_bitmap_write_to_file(de_bitmap *img, const char *token,
 	unsigned int createflags)
 {
-	const char *token = NULL;
-	if(fi && fi->file_name) {
-		token = fi->file_name;
+	deark *c = img->c;
+
+	if(token && token[0]) {
+		de_finfo *tmpfi = de_finfo_create(c);
+		de_finfo_set_name_from_sz(c, tmpfi, token, DE_ENCODING_UTF8);
+		de_bitmap_write_to_file_finfo(img, tmpfi, createflags);
+		de_finfo_destroy(c, tmpfi);
 	}
-	de_bitmap_write_to_file(img, token, createflags);
+	else {
+		de_bitmap_write_to_file_finfo(img, NULL, createflags);
+	}
 }
 
 // samplenum 0=Red, 1=Green, 2=Blue, 3=Alpha
