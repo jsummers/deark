@@ -165,7 +165,7 @@ static void do_decode_image(deark *c, lctx *d, struct tgaimginfo *imginfo, dbuf 
 	fi = de_finfo_create(c);
 
 	if(token) {
-		fi->file_name = de_strdup(c, token);
+		de_finfo_set_name_from_sz(c, fi, token, DE_ENCODING_LATIN1);
 	}
 
 	do_decode_image_default(c, d, imginfo, unc_pixels, fi, createflags);

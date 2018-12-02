@@ -172,7 +172,7 @@ struct dbuf_struct {
 
 // Extended information about a file to be written.
 struct de_finfo_struct {
-	char *file_name; // utf-8 encoded
+	de_ucstring *file_name;
 	de_byte original_filename_flag; // Indicates if .file_name is a real file name
 
 #define DE_MODEFLAG_NONEXE 0x01 // Make the output file non-executable.

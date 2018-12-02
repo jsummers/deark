@@ -820,7 +820,7 @@ de_finfo *de_finfo_create(deark *c)
 void de_finfo_destroy(deark *c, de_finfo *fi)
 {
 	if(!fi) return;
-	if(fi->file_name) de_free(c, fi->file_name);
+	if(fi->file_name) ucstring_destroy(fi->file_name);
 	de_free(c, fi);
 }
 
@@ -832,42 +832,37 @@ void de_finfo_set_name_from_sz(deark *c, de_finfo *fi, const char *name1, int en
 	de_finfo_set_name_from_bytes(c, fi, (const de_byte*)name1, name1_len, 0, encoding);
 }
 
-void de_finfo_set_name_from_ucstring(deark *c, de_finfo *fi, de_ucstring *s)
+// Takes ownership of 's', and may modify it.
+static void de_finfo_set_name_internal(deark *c, de_finfo *fi, de_ucstring *s)
 {
 	de_int64 i;
-	de_int32 ch;
-	de_int64 fnlen;
-	de_int64 utf8len;
 
-	if(!s) return;
 	if(fi->file_name) {
-		de_free(c, fi->file_name);
+		ucstring_destroy(fi->file_name);
 		fi->file_name = NULL;
 	}
-	fi->file_name = de_malloc(c, 4*s->len+10);
-	fnlen = 0;
+	if(!s) return;
+
+	fi->file_name = s;
+
 	for(i=0; i<s->len; i++) {
-		ch = de_char_to_valid_fn_char(c, s->str[i]);
-		if(ch<128) {
-			fi->file_name[fnlen++] = (char)(unsigned char)ch;
-		}
-		else {
-			de_uchar_to_utf8(ch, (de_byte*)&fi->file_name[fnlen], &utf8len);
-			fnlen += utf8len;
-		}
+		s->str[i] = de_char_to_valid_fn_char(c, s->str[i]);
 	}
 
-	// Strip trailing spaces
-	while(fnlen>0 && fi->file_name[fnlen-1]==' ') {
-		fnlen--;
-	}
+	ucstring_strip_trailing_spaces(s);
 
 	// Don't allow empty filenames.
-	if(fnlen<1) {
-		fi->file_name[fnlen++] = '_';
+	if(s->len<1) {
+		ucstring_append_sz(s, "_", DE_ENCODING_LATIN1);
 	}
+}
 
-	fi->file_name[fnlen] = '\0';
+void de_finfo_set_name_from_ucstring(deark *c, de_finfo *fi, de_ucstring *s)
+{
+	de_ucstring *s_copy;
+
+	s_copy = ucstring_clone(s);
+	de_finfo_set_name_internal(c, fi, s_copy);
 }
 
 // Supported encodings: Whatever ucstring_append_bytes() supports
@@ -875,12 +870,11 @@ void de_finfo_set_name_from_bytes(deark *c, de_finfo *fi,
 	const de_byte *name1, de_int64 name1_len,
 	unsigned int conv_flags, int encoding)
 {
-	de_ucstring *fname = NULL;
+	de_ucstring *fname;
 
 	fname = ucstring_create(c);
 	ucstring_append_bytes(fname, name1, name1_len, conv_flags, encoding);
-	de_finfo_set_name_from_ucstring(c, fi, fname);
-	ucstring_destroy(fname);
+	de_finfo_set_name_internal(c, fi, fname);
 }
 
 void de_unix_time_to_timestamp(de_int64 ut, struct de_timestamp *ts)

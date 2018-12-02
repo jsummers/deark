@@ -825,6 +825,8 @@ dbuf *dbuf_create_output_file(deark *c, const char *ext, de_finfo *fi,
 	const char *basefn;
 	int file_index;
 	char fn_suffix[256];
+	char *name_from_finfo = NULL;
+	de_int64 name_from_finfo_len = 0;
 
 	if(ext && fi && fi->original_filename_flag) {
 		de_dbg(c, "[internal warning: Incorrect use of create_output_file]");
@@ -836,14 +838,14 @@ dbuf *dbuf_create_output_file(deark *c, const char *ext, de_finfo *fi,
 		if(createflags&DE_CREATEFLAG_IS_AUX) {
 			de_dbg(c, "skipping 'auxiliary' file");
 			f->btype = DBUF_TYPE_NULL;
-			return f;
+			goto done;
 		}
 	}
 	else if(c->extract_policy==DE_EXTRACTPOLICY_AUXONLY) {
 		if(!(createflags&DE_CREATEFLAG_IS_AUX)) {
 			de_dbg(c, "skipping 'main' file");
 			f->btype = DBUF_TYPE_NULL;
-			return f;
+			goto done;
 		}
 	}
 
@@ -852,14 +854,21 @@ dbuf *dbuf_create_output_file(deark *c, const char *ext, de_finfo *fi,
 
 	basefn = c->base_output_filename ? c->base_output_filename : "output";
 
-	if(ext && fi && fi->file_name) {
-		de_snprintf(fn_suffix, sizeof(fn_suffix), "%s.%s", fi->file_name, ext);
+	if(fi && fi->file_name && fi->file_name->len>0) {
+		name_from_finfo_len = 1 + ucstring_count_utf8_bytes(fi->file_name);
+		name_from_finfo = de_malloc(c, name_from_finfo_len);
+		ucstring_to_sz(fi->file_name, name_from_finfo, name_from_finfo_len, 0,
+			DE_ENCODING_UTF8);
+	}
+
+	if(ext && name_from_finfo) {
+		de_snprintf(fn_suffix, sizeof(fn_suffix), "%s.%s", name_from_finfo, ext);
 	}
 	else if(ext) {
 		de_strlcpy(fn_suffix, ext, sizeof(fn_suffix));
 	}
-	else if(fi && fi->file_name) {
-		de_strlcpy(fn_suffix, fi->file_name, sizeof(fn_suffix));
+	else if(name_from_finfo) {
+		de_strlcpy(fn_suffix, name_from_finfo, sizeof(fn_suffix));
 	}
 	else {
 		de_strlcpy(fn_suffix, "bin", sizeof(fn_suffix));
@@ -868,8 +877,7 @@ dbuf *dbuf_create_output_file(deark *c, const char *ext, de_finfo *fi,
 	de_snprintf(nbuf, sizeof(nbuf), "%s.%03d.%s", basefn, file_index, fn_suffix);
 
 	if(c->output_style==DE_OUTPUTSTYLE_ZIP && !c->base_output_filename &&
-		fi && fi->original_filename_flag &&
-		fi->file_name && fi->file_name[0])
+		fi && fi->original_filename_flag && name_from_finfo)
 	{
 		// TODO: This is a "temporary" hack to allow us to, when both reading from
 		// and writing to an archive format, use some semblance of the correct
@@ -877,7 +885,7 @@ dbuf *dbuf_create_output_file(deark *c, const char *ext, de_finfo *fi,
 		// There are some things that we don't handle optimally, such as
 		// subdirectories.
 		// A major redesign of the file naming logic would be good.
-		de_strlcpy(nbuf, fi->file_name, sizeof(nbuf));
+		de_strlcpy(nbuf, name_from_finfo, sizeof(nbuf));
 	}
 
 	f->name = de_strdup(c, nbuf);
@@ -891,14 +899,14 @@ dbuf *dbuf_create_output_file(deark *c, const char *ext, de_finfo *fi,
 
 	if(file_index < c->first_output_file) {
 		f->btype = DBUF_TYPE_NULL;
-		return f;
+		goto done;
 	}
 
 	if(c->max_output_files>=0 &&
 		file_index >= c->first_output_file + c->max_output_files)
 	{
 		f->btype = DBUF_TYPE_NULL;
-		return f;
+		goto done;
 	}
 
 	c->num_files_extracted++;
@@ -911,7 +919,7 @@ dbuf *dbuf_create_output_file(deark *c, const char *ext, de_finfo *fi,
 	if(c->list_mode) {
 		f->btype = DBUF_TYPE_NULL;
 		de_msg(c, "%s", f->name);
-		return f;
+		goto done;
 	}
 
 	if(c->output_style==DE_OUTPUTSTYLE_ZIP) {
@@ -937,6 +945,8 @@ dbuf *dbuf_create_output_file(deark *c, const char *ext, de_finfo *fi,
 		}
 	}
 
+done:
+	de_free(c, name_from_finfo);
 	return f;
 }
 
