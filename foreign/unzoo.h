@@ -314,7 +314,7 @@ static int EntrReadArch (struct unzooctx *uz, struct entryctx *ze)
 	ze->datdos = HalfReadArch(uz);
 	ze->timdos = HalfReadArch(uz);
 	ze->crcdat = (de_uint32)HalfReadArch(uz);
-	de_dbg(c, "reported file crc: 0x%04x", (unsigned int)ze->crcdat);
+	de_dbg(c, "file data crc (reported): 0x%04x", (unsigned int)ze->crcdat);
 	ze->sizorg = WordReadArch(uz);
 	de_dbg(c, "original size: %u", (unsigned int)ze->sizorg);
 	ze->siznow = WordReadArch(uz);
@@ -338,9 +338,16 @@ static int EntrReadArch (struct unzooctx *uz, struct entryctx *ze)
 	de_dbg(c, "short name: \"%s\"", ucstring_getpsz(shortname_ucstring));
 
 	/* handle the long name and the directory in the variable part         */
+
 	ze->lvar   = (ze->type == 2  ? HalfReadArch(uz) : 0);
 	ze->timzon = (ze->type == 2  ? ByteReadArch(uz) : 127);
 	ze->crcent = (ze->type == 2  ? HalfReadArch(uz) : 0);
+	if(ze->type == 2) {
+		de_dbg(c, "length of variable part: %d", (int)ze->lvar);
+		de_dbg(c, "time zone: %d", (int)ze->timzon);
+		de_dbg(c, "entry crc (reported): 0x%04x", (unsigned int)ze->crcent);
+	}
+
 	ze->lnamu  = (0 < ze->lvar   ? ByteReadArch(uz) : 0);
 	ze->ldiru  = (1 < ze->lvar   ? ByteReadArch(uz) : 0);
 
@@ -1018,9 +1025,14 @@ static void ExtrEntry(struct unzooctx *uz, de_int64 pos1, de_int64 *next_entry_p
 	if      ( ze->timzon < 127 )  timestamp_offset = 15*60*(ze->timzon      );
 	else if ( 127 < ze->timzon )  timestamp_offset = 15*60*(ze->timzon - 256);
 
-	de_dos_datetime_to_timestamp(&ze->fi->mod_time, ze->datdos, ze->timdos, timestamp_offset);
-	de_timestamp_to_string(&ze->fi->mod_time, timestamp_buf, sizeof(timestamp_buf), 1);
+	de_dos_datetime_to_timestamp(&ze->fi->mod_time, ze->datdos, ze->timdos, 0);
+	de_timestamp_to_string(&ze->fi->mod_time, timestamp_buf, sizeof(timestamp_buf), 0);
 	de_dbg(c, "mod time: %s", timestamp_buf);
+	if(ze->timzon != 127) {
+		de_timestamp_cvt_to_utc(&ze->fi->mod_time, timestamp_offset);
+		de_timestamp_to_string(&ze->fi->mod_time, timestamp_buf, sizeof(timestamp_buf), 1);
+		de_dbg(c, "mod time (UTC): %s", timestamp_buf);
+	}
 
 	/* open the file for creation                                      */
 	if ( ! OpenWritFile(uz, ze) ) {
@@ -1050,7 +1062,7 @@ static void ExtrEntry(struct unzooctx *uz, de_int64 pos1, de_int64 *next_entry_p
 	}
 
 	ze->crc_calculated = de_crcobj_getval(uz->crco);
-	de_dbg(c, "calculated crc: 0x%04x", (unsigned int)ze->crc_calculated);
+	de_dbg(c, "file data crc (calculated): 0x%04x", (unsigned int)ze->crc_calculated);
 
 	/* check that everything went ok                                   */
 	if      ( res == 0 ) {
