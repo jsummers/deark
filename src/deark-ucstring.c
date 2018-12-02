@@ -312,7 +312,12 @@ void ucstring_to_sz(de_ucstring *s, char *szbuf, size_t szbuf_len, unsigned int 
 		}
 
 		if(szpos + charcodelen + 1 > (de_int64)szbuf_len) break;
-		de_memcpy(&szbuf[szpos], charcodebuf, (size_t)charcodelen);
+		if(charcodelen==1) {
+			szbuf[szpos] = charcodebuf[0];
+		}
+		else {
+			de_memcpy(&szbuf[szpos], charcodebuf, (size_t)charcodelen);
+		}
 		szpos += charcodelen;
 	}
 

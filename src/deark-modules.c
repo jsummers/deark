@@ -20,7 +20,7 @@ static void register_a_module(deark *c, de_module_getinfo_fn infofunc)
 
 static void de_register_modules_internal(deark *c)
 {
-	de_module_getinfo_fn infofunc_list[] = {
+	static const de_module_getinfo_fn infofunc_list[] = {
 #define DE_MODULE(x)      x,
 #define DE_MODULE_LAST(x) x
 #include "deark-modules.h"
