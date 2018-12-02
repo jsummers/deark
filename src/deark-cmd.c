@@ -282,7 +282,7 @@ enum opt_id_enum {
  DE_OPT_MAINONLY, DE_OPT_AUXONLY, DE_OPT_EXTRACTALL, DE_OPT_ZIP,
  DE_OPT_TOSTDOUT, DE_OPT_MSGSTOSTDERR, DE_OPT_FROMSTDIN, DE_OPT_COLOR,
  DE_OPT_ENCODING,
- DE_OPT_EXTOPT, DE_OPT_FILE, DE_OPT_FILE2, DE_OPT_INENC,
+ DE_OPT_EXTOPT, DE_OPT_FILE, DE_OPT_FILE2, DE_OPT_INENC, DE_OPT_INTZ,
  DE_OPT_START, DE_OPT_SIZE, DE_OPT_M, DE_OPT_MODCODES, DE_OPT_O,
  DE_OPT_ARCFN, DE_OPT_GET, DE_OPT_FIRSTFILE, DE_OPT_MAXFILES, DE_OPT_MAXIMGDIM,
  DE_OPT_PRINTMODULES, DE_OPT_DPREFIX, DE_OPT_EXTRLIST
@@ -327,6 +327,7 @@ struct opt_struct option_array[] = {
 	{ "file",         DE_OPT_FILE,         1 },
 	{ "file2",        DE_OPT_FILE2,        1 },
 	{ "inenc",        DE_OPT_INENC,        1 },
+	{ "intz",         DE_OPT_INTZ,         1 },
 	{ "start",        DE_OPT_START,        1 },
 	{ "size",         DE_OPT_SIZE,         1 },
 	{ "m",            DE_OPT_M,            1 },

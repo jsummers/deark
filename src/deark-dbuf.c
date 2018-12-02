@@ -893,7 +893,21 @@ dbuf *dbuf_create_output_file(deark *c, const char *ext, de_finfo *fi,
 
 	if(fi) {
 		f->mod_time = fi->mod_time; // struct copy
+		// Here's where we respect the -intz option, by using it to convert to
+		// UTC in some cases.
+		if(f->mod_time.is_valid && f->mod_time.tzcode==DE_TZCODE_LOCAL &&
+			c->input_tz_offs_seconds!=0)
+		{
+			de_timestamp_cvt_to_utc(&f->mod_time, -c->input_tz_offs_seconds);
+		}
+
 		f->image_mod_time = fi->image_mod_time;
+		if(f->image_mod_time.is_valid && f->image_mod_time.tzcode==DE_TZCODE_LOCAL &&
+			c->input_tz_offs_seconds!=0)
+		{
+			de_timestamp_cvt_to_utc(&f->image_mod_time, -c->input_tz_offs_seconds);
+		}
+
 		f->mode_flags = fi->mode_flags;
 	}
 

@@ -137,15 +137,12 @@ owner-executable and world-executable, for example.
 ## Modification times ##
 
 In certain cases, Deark tries to maintain the modification time of the original
-file.
+file. This only happens with timestamps contained inside the input file.
 
 If a timestamp does not include a time zone, the time will be assumed to be in
-Universal Time (UTC). This is usually wrong, but since Deark is intended for
-use with ancient files of unknown provenance, there is really nothing else it
-can do (short of asking the user, which would be annoying, and almost always
-useless). The timestamp was presumably intended to be in the original user's
-time zone, but there is no reason to think that the *current* user's time zone
-would be relevant in any way.
+Universal Time (UTC), unless the -intz option was used. Deark is expected to be
+used with files that were created long ago and far away, so it never assumes
+that the Deark user's time zone is relevant.
 
 Note that if you are extracting to a system that does not store file times in
 UTC (often the case on Windows), the timestamps may not be very accurate.

@@ -267,6 +267,7 @@ static void do_macbinary(deark *c, lctx *d)
 	if(mparams->out_params.uint3>0) {
 		de_mac_time_to_timestamp((de_int64)mparams->out_params.uint3,
 			&d->mod_date_from_macbinary);
+		d->mod_date_from_macbinary.tzcode = DE_TZCODE_LOCAL;
 	}
 
 	if(d->df_known) {

@@ -188,6 +188,16 @@ Command-line options:
    This option is incompletely implemented, and will be ignored if the encoding
    can be reliably determined by other means. Admittedly, Deark does not yet
    know enough encodings for this option to be really useful.
+-intz &lt;offset>
+   Supply a hint as to the time zone used by timestamps contained in the input
+   file.
+   Many file formats unfortunately contain timestamps in "local time", with no
+   information about their time zone. In such cases, the supplied -intz offset
+   will be used to convert the timestamp to UTC.
+   The "offset" parameter is in hours west of UTC. For example, New York City
+   is -5.0, or -4.0 when Daylight Saving Time is in effect.
+   This option does not respect Daylight Saving Time. It cannot deal with the
+   case where some of the timestamps in a file are in DST, and others are not.
 -msgstostderr
    Print all messages to stderr, instead of stdout. This option should be
    placed early on the command line, as it might not affect messages
