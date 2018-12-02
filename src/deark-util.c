@@ -907,7 +907,7 @@ void de_FILETIME_to_timestamp(de_int64 ft, struct de_timestamp *ts)
 }
 
 void de_dos_datetime_to_timestamp(struct de_timestamp *ts,
-   de_int64 ddate, de_int64 dtime, de_int64 offset_seconds)
+   de_int64 ddate, de_int64 dtime)
 {
 	de_int64 yr, mo, da, hr, mi, se;
 
@@ -917,7 +917,7 @@ void de_dos_datetime_to_timestamp(struct de_timestamp *ts,
 	hr = (dtime&0xf800)>>11;
 	mi = (dtime&0x07e0)>>5;
 	se = 2*(dtime&0x001f);
-	de_make_timestamp(ts, yr, mo, da, hr, mi, se, offset_seconds);
+	de_make_timestamp(ts, yr, mo, da, hr, mi, se);
 	de_timestamp_set_ms(ts, 0, 2000); // 2-second precision
 }
 
@@ -970,7 +970,7 @@ de_int64 de_timestamp_to_unix_time(const struct de_timestamp *ts)
 // da = day of month: 1=1, ... 31=31
 void de_make_timestamp(struct de_timestamp *ts,
 	de_int64 yr, de_int64 mo, de_int64 da,
-	de_int64 hr, de_int64 mi, de_int64 se, de_int64 offset_seconds)
+	de_int64 hr, de_int64 mi, de_int64 se)
 {
 	de_int64 result;
 	de_int64 tm_mon;
@@ -995,7 +995,7 @@ void de_make_timestamp(struct de_timestamp *ts,
 	result *= 60;
 	result += se;
 
-	de_unix_time_to_timestamp(result + offset_seconds, ts);
+	de_unix_time_to_timestamp(result, ts);
 }
 
 // Adjust the timestamp, presumably to convert it from local time to UTC,

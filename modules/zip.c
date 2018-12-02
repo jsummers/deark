@@ -978,7 +978,7 @@ static int do_file_header(deark *c, lctx *d, struct member_data *md,
 
 	mod_time_raw = de_getui16le_p(&pos);
 	mod_date_raw = de_getui16le_p(&pos);
-	de_dos_datetime_to_timestamp(&dd->mod_time, mod_date_raw, mod_time_raw, 0);
+	de_dos_datetime_to_timestamp(&dd->mod_time, mod_date_raw, mod_time_raw);
 	de_timestamp_to_string(&dd->mod_time, timestamp_buf, sizeof(timestamp_buf), 0);
 	de_dbg(c, "mod time: %s", timestamp_buf);
 

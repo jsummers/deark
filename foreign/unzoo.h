@@ -1025,7 +1025,7 @@ static void ExtrEntry(struct unzooctx *uz, de_int64 pos1, de_int64 *next_entry_p
 	if      ( ze->timzon < 127 )  timestamp_offset = 15*60*(ze->timzon      );
 	else if ( 127 < ze->timzon )  timestamp_offset = 15*60*(ze->timzon - 256);
 
-	de_dos_datetime_to_timestamp(&ze->fi->mod_time, ze->datdos, ze->timdos, 0);
+	de_dos_datetime_to_timestamp(&ze->fi->mod_time, ze->datdos, ze->timdos);
 	de_timestamp_to_string(&ze->fi->mod_time, timestamp_buf, sizeof(timestamp_buf), 0);
 	de_dbg(c, "mod time: %s", timestamp_buf);
 	if(ze->timzon != 127) {

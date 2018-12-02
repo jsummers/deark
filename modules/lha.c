@@ -58,7 +58,7 @@ static void read_msdos_datetime(deark *c, lctx *d, struct member_data *md,
 		de_dbg(c, "%s: (not set)", name);
 		return;
 	}
-	de_dos_datetime_to_timestamp(&tmp_timestamp, mod_date_raw, mod_time_raw, 0);
+	de_dos_datetime_to_timestamp(&tmp_timestamp, mod_date_raw, mod_time_raw);
 	de_timestamp_to_string(&tmp_timestamp, timestamp_buf, sizeof(timestamp_buf), 0);
 	de_dbg(c, "%s: %s", name, timestamp_buf);
 }
