@@ -419,6 +419,13 @@ int de_set_input_encoding(deark *c, const char *encname, int reserved)
 	return 1;
 }
 
+// A hint as to the timezone of local-time timestamps in input files.
+// In hours east of UTC.
+void de_set_input_timezone(deark *c, de_int64 tzoffs_seconds)
+{
+	c->input_tz_offs_seconds = tzoffs_seconds;
+}
+
 void de_set_input_file_slice_start(deark *c, de_int64 n)
 {
 	c->slice_start_req = n;

@@ -998,6 +998,17 @@ void de_make_timestamp(struct de_timestamp *ts,
 	de_unix_time_to_timestamp(result + offset_seconds, ts);
 }
 
+// Adjust the timestamp, presumably to convert it from local time to UTC,
+// and set the UTC flag.
+// offset_seconds is number of seconds to add to the timestamp to get UTC,
+// i.e. number of seconds west of UTC.
+void de_timestamp_cvt_to_utc(struct de_timestamp *ts, de_int64 offset_seconds)
+{
+	if(!ts->is_valid) return;
+	ts->unix_time += offset_seconds;
+	ts->tzcode = DE_TZCODE_UTC;
+}
+
 // flags: 0x1 = append " UTC"
 void de_timestamp_to_string(const struct de_timestamp *ts,
 	char *buf, size_t buf_len, unsigned int flags)

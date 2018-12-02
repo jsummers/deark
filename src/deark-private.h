@@ -111,6 +111,10 @@ struct de_ucstring_struct {
 
 struct de_timestamp {
 	de_byte is_valid;
+#define DE_TZCODE_UNKNOWN 0
+#define DE_TZCODE_UTC     1 // known to be UTC
+#define DE_TZCODE_LOCAL   2 // likely to be some local time
+	de_byte tzcode;
 	de_uint16 ms; // milliseconds to add to unix_time
 	de_uint16 prec; // Precision in ms. 0 means default (1000).
 	de_int64 unix_time; // Unix time_t format
@@ -303,6 +307,7 @@ struct deark_struct {
 	int host_is_le;
 	int modhelp_req;
 	int input_encoding;
+	de_int64 input_tz_offs_seconds;
 
 	de_msgfn_type msgfn; // Caller's message output function
 	de_specialmsgfn_type specialmsgfn;
@@ -1029,6 +1034,7 @@ de_int64 de_timestamp_to_unix_time(const struct de_timestamp *ts);
 void de_make_timestamp(struct de_timestamp *ts,
 	de_int64 yr, de_int64 mo, de_int64 da,
 	de_int64 hr, de_int64 mi, de_int64 se, de_int64 offset_seconds);
+void de_timestamp_cvt_to_utc(struct de_timestamp *ts, de_int64 offset_seconds);
 void de_timestamp_to_string(const struct de_timestamp *ts,
 	char *buf, size_t buf_len, unsigned int flags);
 void de_gmtime(const struct de_timestamp *ts, struct de_struct_tm *tm2);
