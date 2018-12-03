@@ -50,6 +50,7 @@ typedef struct localctx_struct {
 	de_int64 aspect_ratio_num, aspect_ratio_den;
 	de_int64 thumbnail_offset;
 	de_uint32 pal[256];
+	struct de_timestamp mod_time;
 } lctx;
 
 static void do_decode_image_default(deark *c, lctx *d, struct tgaimginfo *imginfo, dbuf *unc_pixels,
@@ -166,6 +167,10 @@ static void do_decode_image(deark *c, lctx *d, struct tgaimginfo *imginfo, dbuf 
 
 	if(token) {
 		de_finfo_set_name_from_sz(c, fi, token, DE_ENCODING_LATIN1);
+	}
+
+	if(d->mod_time.is_valid) {
+		fi->image_mod_time = d->mod_time;
 	}
 
 	do_decode_image_default(c, d, imginfo, unc_pixels, fi, createflags);
@@ -418,12 +423,11 @@ static void do_read_extension_area(deark *c, lctx *d, de_int64 pos)
 		if(val[k]!=0) has_date = 1;
 	}
 	if(has_date) {
-		struct de_timestamp ts;
 		char timestamp_buf[64];
 
-		de_make_timestamp(&ts, val[2], val[0], val[1], val[3], val[4], val[5]);
-		ts.tzcode = DE_TZCODE_LOCAL;
-		de_timestamp_to_string(&ts, timestamp_buf, sizeof(timestamp_buf), 0);
+		de_make_timestamp(&d->mod_time, val[2], val[0], val[1], val[3], val[4], val[5]);
+		d->mod_time.tzcode = DE_TZCODE_LOCAL;
+		de_timestamp_to_string(&d->mod_time, timestamp_buf, sizeof(timestamp_buf), 0);
 		de_dbg(c, "timestamp: %s", timestamp_buf);
 	}
 
