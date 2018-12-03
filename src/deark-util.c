@@ -877,11 +877,13 @@ void de_finfo_set_name_from_bytes(deark *c, de_finfo *fi,
 	de_finfo_set_name_internal(c, fi, fname);
 }
 
-void de_unix_time_to_timestamp(de_int64 ut, struct de_timestamp *ts)
+// flags: 0x1 = set the UTC flag
+void de_unix_time_to_timestamp(de_int64 ut, struct de_timestamp *ts, unsigned int flags)
 {
 	de_memset(ts, 0, sizeof(struct de_timestamp));
 	ts->is_valid = 1;
 	ts->unix_time = ut;
+	if(flags&0x1) ts->tzcode = DE_TZCODE_UTC;
 }
 
 void de_timestamp_set_ms(struct de_timestamp *ts, de_uint16 ms, de_uint16 prec)
@@ -892,17 +894,18 @@ void de_timestamp_set_ms(struct de_timestamp *ts, de_uint16 ms, de_uint16 prec)
 
 void de_mac_time_to_timestamp(de_int64 mt, struct de_timestamp *ts)
 {
-	de_unix_time_to_timestamp(mt - 2082844800, ts);
+	de_unix_time_to_timestamp(mt - 2082844800, ts, 0);
 }
 
 // Convert a Windows FILETIME to a Deark timestamp.
-void de_FILETIME_to_timestamp(de_int64 ft, struct de_timestamp *ts)
+// flags: Same as de_unix_time_to_timestamp()
+void de_FILETIME_to_timestamp(de_int64 ft, struct de_timestamp *ts, unsigned int flags)
 {
 	de_int64 t;
 	de_int64 ms;
 	t = ft/10000000 - ((de_int64)256)*45486225;
 	ms = (ft%10000000)/10000;
-	de_unix_time_to_timestamp(t, ts);
+	de_unix_time_to_timestamp(t, ts, flags);
 	de_timestamp_set_ms(ts, (unsigned short)ms, 1);
 }
 
@@ -944,7 +947,8 @@ void de_riscos_loadexec_to_timestamp(de_uint32 load_addr,
 
 	if(t<=0 || t>=8000000000LL) return; // sanity check
 
-	de_unix_time_to_timestamp(t, ts);
+	// TODO: Are these timestamps always UTC?
+	de_unix_time_to_timestamp(t, ts, 0);
 	de_timestamp_set_ms(ts, (unsigned short)(centiseconds*10), 10);
 }
 
@@ -962,7 +966,7 @@ de_int64 de_timestamp_to_unix_time(const struct de_timestamp *ts)
 }
 
 // [Adapted from Eric Raymond's public domain my_timegm().]
-// Convert a UTC time (as individual fields) to a de_timestamp.
+// Convert a time (as individual fields) to a de_timestamp.
 // Since de_timestamp currently uses time_t format internally,
 // this is basically a UTC version of mktime().
 // yr = full year
@@ -995,7 +999,7 @@ void de_make_timestamp(struct de_timestamp *ts,
 	result *= 60;
 	result += se;
 
-	de_unix_time_to_timestamp(result, ts);
+	de_unix_time_to_timestamp(result, ts, 0);
 }
 
 // Adjust the timestamp, presumably to convert it from local time to UTC,
@@ -1009,7 +1013,8 @@ void de_timestamp_cvt_to_utc(struct de_timestamp *ts, de_int64 offset_seconds)
 	ts->tzcode = DE_TZCODE_UTC;
 }
 
-// flags: 0x1 = append " UTC"
+// Appends " UTC" if ts->tzcode==DE_TZCODE_UTC
+// No flags are currently defined.
 void de_timestamp_to_string(const struct de_timestamp *ts,
 	char *buf, size_t buf_len, unsigned int flags)
 {
@@ -1036,7 +1041,7 @@ void de_timestamp_to_string(const struct de_timestamp *ts,
 		subsec[0] = '\0';
 	}
 
-	tzlabel = (flags&0x1)?" UTC":"";
+	tzlabel = (ts->tzcode==DE_TZCODE_UTC)?" UTC":"";
 	de_snprintf(buf, buf_len, "%04d-%02d-%02d %02d:%02d:%02d%s%s",
 		tm2.tm_fullyear, 1+tm2.tm_mon, tm2.tm_mday,
 		tm2.tm_hour, tm2.tm_min, tm2.tm_sec, subsec, tzlabel);

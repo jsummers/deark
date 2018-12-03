@@ -145,8 +145,8 @@ static int read_member(deark *c, lctx *d, de_int64 pos1, de_int64 *bytes_consume
 
 	ret = dbuf_read_ascii_number(c->infile, pos, 11, 8, &modtime_unix);
 	if(!ret) goto done;
-	de_unix_time_to_timestamp(modtime_unix, &md->fi->mod_time);
-	de_timestamp_to_string(&md->fi->mod_time, timestamp_buf, sizeof(timestamp_buf), 1);
+	de_unix_time_to_timestamp(modtime_unix, &md->fi->mod_time, 0x1);
+	de_timestamp_to_string(&md->fi->mod_time, timestamp_buf, sizeof(timestamp_buf), 0);
 	de_dbg(c, "mtime: %d (%s)", (int)modtime_unix, timestamp_buf);
 	pos += 12;
 

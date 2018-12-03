@@ -99,6 +99,7 @@ static void do_header(deark *c, lctx *d)
 	}
 	else {
 		de_mac_time_to_timestamp(n, &d->create_date);
+		d->create_date.tzcode = DE_TZCODE_LOCAL;
 		de_timestamp_to_string(&d->create_date, timestamp_buf, sizeof(timestamp_buf), 0);
 	}
 	de_dbg(c, "create date: %"INT64_FMT" (%s)", n, timestamp_buf);
@@ -110,6 +111,7 @@ static void do_header(deark *c, lctx *d)
 	}
 	else {
 		de_mac_time_to_timestamp(d->mod_date_raw, &d->mod_date);
+		d->mod_date.tzcode = DE_TZCODE_LOCAL;
 		de_timestamp_to_string(&d->mod_date, timestamp_buf, sizeof(timestamp_buf), 0);
 	}
 	de_dbg(c, "mod date: %"INT64_FMT" (%s)", n, timestamp_buf);

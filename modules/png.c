@@ -652,7 +652,8 @@ static void handler_tIME(deark *c, lctx *d, struct handler_params *hp)
 	se = de_getbyte(hp->dpos+6);
 
 	de_make_timestamp(&ts, yr, mo, da, hr, mi, se);
-	de_timestamp_to_string(&ts, timestamp_buf, sizeof(timestamp_buf), 1);
+	ts.tzcode = DE_TZCODE_UTC;
+	de_timestamp_to_string(&ts, timestamp_buf, sizeof(timestamp_buf), 0);
 	de_dbg(c, "mod time: %s", timestamp_buf);
 }
 

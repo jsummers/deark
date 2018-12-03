@@ -157,8 +157,8 @@ static void read_unix_timestamp(deark *c, lctx *d, de_int64 pos,
 	char timestamp_buf[64];
 
 	t = de_geti32le(pos);
-	de_unix_time_to_timestamp(t, timestamp);
-	de_timestamp_to_string(timestamp, timestamp_buf, sizeof(timestamp_buf), 1);
+	de_unix_time_to_timestamp(t, timestamp, 0x1);
+	de_timestamp_to_string(timestamp, timestamp_buf, sizeof(timestamp_buf), 0);
 	de_dbg(c, "%s: %d (%s)", name, (int)t, timestamp_buf);
 }
 
@@ -169,8 +169,8 @@ static void read_FILETIME(deark *c, lctx *d, de_int64 pos,
 	char timestamp_buf[64];
 
 	t_FILETIME = de_geti64le(pos);
-	de_FILETIME_to_timestamp(t_FILETIME, timestamp);
-	de_timestamp_to_string(timestamp, timestamp_buf, sizeof(timestamp_buf), 1);
+	de_FILETIME_to_timestamp(t_FILETIME, timestamp, 0x1);
+	de_timestamp_to_string(timestamp, timestamp_buf, sizeof(timestamp_buf), 0);
 	de_dbg(c, "%s: %s", name, timestamp_buf);
 }
 
@@ -393,7 +393,8 @@ static void handle_mac_time(deark *c, lctx *d,
 {
 	char timestamp_buf[64];
 	de_mac_time_to_timestamp(mt_raw - mt_offset, ts);
-	de_timestamp_to_string(ts, timestamp_buf, sizeof(timestamp_buf), 1);
+	ts->tzcode = DE_TZCODE_UTC;
+	de_timestamp_to_string(ts, timestamp_buf, sizeof(timestamp_buf), 0);
 	de_dbg(c, "%s: %"INT64_FMT" %+"INT64_FMT" (%s)", name,
 		mt_raw, -mt_offset, timestamp_buf);
 }
@@ -979,6 +980,7 @@ static int do_file_header(deark *c, lctx *d, struct member_data *md,
 	mod_time_raw = de_getui16le_p(&pos);
 	mod_date_raw = de_getui16le_p(&pos);
 	de_dos_datetime_to_timestamp(&dd->mod_time, mod_date_raw, mod_time_raw);
+	dd->mod_time.tzcode = DE_TZCODE_LOCAL;
 	de_timestamp_to_string(&dd->mod_time, timestamp_buf, sizeof(timestamp_buf), 0);
 	de_dbg(c, "mod time: %s", timestamp_buf);
 

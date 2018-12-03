@@ -91,10 +91,10 @@ static int do_gzip_read_member(deark *c, lctx *d, de_int64 pos1, de_int64 *membe
 	pos += 4;
 
 	mod_time_unix = de_getui32le(pos);
-	de_unix_time_to_timestamp(mod_time_unix, &md->mod_time_ts);
+	de_unix_time_to_timestamp(mod_time_unix, &md->mod_time_ts, 0x1);
 	if(md->mod_time_ts.is_valid) {
 		char timestamp_buf[64];
-		de_timestamp_to_string(&md->mod_time_ts, timestamp_buf, sizeof(timestamp_buf), 1);
+		de_timestamp_to_string(&md->mod_time_ts, timestamp_buf, sizeof(timestamp_buf), 0);
 		de_dbg(c, "mod time: %" INT64_FMT " (%s)", mod_time_unix, timestamp_buf);
 	}
 	pos += 4;

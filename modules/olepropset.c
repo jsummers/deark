@@ -191,8 +191,8 @@ static int do_prop_FILETIME(deark *c, lctx *d, struct propset_struct *si,
 		struct de_timestamp ts;
 		char timestamp_buf[64];
 
-		de_FILETIME_to_timestamp(ts_as_FILETIME, &ts);
-		de_timestamp_to_string(&ts, timestamp_buf, sizeof(timestamp_buf), 1);
+		de_FILETIME_to_timestamp(ts_as_FILETIME, &ts, 0x1);
+		de_timestamp_to_string(&ts, timestamp_buf, sizeof(timestamp_buf), 0);
 		de_dbg(c, "%s: %"INT64_FMT" (%s)", name, ts_as_FILETIME, timestamp_buf);
 	}
 

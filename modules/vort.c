@@ -147,8 +147,8 @@ static void decode_date(deark *c, lctx *d,
 	char timestamp_buf[64];
 	struct de_timestamp timestamp;
 
-	de_unix_time_to_timestamp(value_as_vlq, &timestamp);
-	de_timestamp_to_string(&timestamp, timestamp_buf, sizeof(timestamp_buf), 1);
+	de_unix_time_to_timestamp(value_as_vlq, &timestamp, 0x1);
+	de_timestamp_to_string(&timestamp, timestamp_buf, sizeof(timestamp_buf), 0);
 	de_dbg(c, "%s: %"INT64_FMT" (%s)", oti->name, value_as_vlq, timestamp_buf);
 }
 

@@ -1033,7 +1033,7 @@ static void ExtrEntry(struct unzooctx *uz, de_int64 pos1, de_int64 *next_entry_p
 	}
 	else {
 		de_timestamp_cvt_to_utc(&ze->fi->mod_time, timestamp_offset);
-		de_timestamp_to_string(&ze->fi->mod_time, timestamp_buf, sizeof(timestamp_buf), 1);
+		de_timestamp_to_string(&ze->fi->mod_time, timestamp_buf, sizeof(timestamp_buf), 0);
 		de_dbg(c, "mod time (UTC): %s", timestamp_buf);
 	}
 

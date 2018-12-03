@@ -914,7 +914,7 @@ static void dbg_timestamp(deark *c, struct de_timestamp *ts, const char *field_n
 	char timestamp_buf[64];
 
 	if(ts->is_valid) {
-		de_timestamp_to_string(ts, timestamp_buf, sizeof(timestamp_buf), 1);
+		de_timestamp_to_string(ts, timestamp_buf, sizeof(timestamp_buf), 0);
 		de_dbg(c, "%s: %s", field_name, timestamp_buf);
 	}
 }
@@ -927,7 +927,7 @@ static void read_and_cvt_timestamp(deark *c, dbuf *f, de_int64 pos,
 	de_memset(ts, 0, sizeof(struct de_timestamp));
 	ts_as_FILETIME = dbuf_geti64le(f, pos);
 	if(ts_as_FILETIME!=0) {
-		de_FILETIME_to_timestamp(ts_as_FILETIME, ts);
+		de_FILETIME_to_timestamp(ts_as_FILETIME, ts, 0x1);
 	}
 }
 

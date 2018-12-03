@@ -447,7 +447,7 @@ static void init_reproducible_archive_settings(deark *c)
 	s = de_get_ext_option(c, "archive:timestamp");
 	if(s) {
 		c->reproducible_output = 1;
-		de_unix_time_to_timestamp(de_atoi64(s), &c->reproducible_timestamp);
+		de_unix_time_to_timestamp(de_atoi64(s), &c->reproducible_timestamp, 0x1);
 	}
 	else {
 		if(de_get_ext_option(c, "archive:repro")) {

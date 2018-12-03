@@ -243,8 +243,8 @@ static void do_object_date(deark *c, lctx *d, de_int64 pos)
 	val_int = (de_int64)val_flt;
 	// Epoch is Jan 1, 2001. There are 31 years, with 8 leap days, between
 	// that and the Unix time epoch.
-	de_unix_time_to_timestamp(val_int + ((365*31 + 8)*86400), &ts);
-	de_timestamp_to_string(&ts, timestamp_buf, sizeof(timestamp_buf), 1);
+	de_unix_time_to_timestamp(val_int + ((365*31 + 8)*86400), &ts, 0x1);
+	de_timestamp_to_string(&ts, timestamp_buf, sizeof(timestamp_buf), 0);
 	de_dbg(c, "value: %f (%s)", val_flt, timestamp_buf);
 }
 

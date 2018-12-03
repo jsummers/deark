@@ -414,7 +414,7 @@ static void EBMLdate_to_timestamp(de_int64 ed, struct de_timestamp *ts)
 	// There are 86400 seconds in a day.
 	// There are 8 leap days in this range ('72, 76, 80, 84, 88, 92, 96, 00).
 	t += 86400LL * (31*365 + 8);
-	de_unix_time_to_timestamp(t, ts);
+	de_unix_time_to_timestamp(t, ts, 0x1);
 }
 
 static void decode_date(deark *c, lctx *d, const struct ele_id_info *ele_id,
@@ -427,7 +427,7 @@ static void decode_date(deark *c, lctx *d, const struct ele_id_info *ele_id,
 	if(len!=8) return;
 	dt_int = de_geti64be(pos);
 	EBMLdate_to_timestamp(dt_int, &ts);
-	de_timestamp_to_string(&ts, buf, sizeof(buf), 1);
+	de_timestamp_to_string(&ts, buf, sizeof(buf), 0);
 	de_dbg(c, "value: %"INT64_FMT" (%s)", dt_int, buf);
 }
 

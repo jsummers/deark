@@ -220,6 +220,7 @@ static int do_one_CFFILE(deark *c, lctx *d, de_int64 pos1, de_int64 *bytes_consu
 	date_ = de_getui16le_p(&pos);
 	time_ = de_getui16le_p(&pos);
 	de_dos_datetime_to_timestamp(&ts, date_, time_);
+	ts.tzcode = DE_TZCODE_LOCAL;
 	de_timestamp_to_string(&ts, timestamp_buf, sizeof(timestamp_buf), 0);
 	de_dbg(c, "timestamp: %s", timestamp_buf);
 

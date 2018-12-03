@@ -59,6 +59,7 @@ static void read_msdos_datetime(deark *c, lctx *d, struct member_data *md,
 		return;
 	}
 	de_dos_datetime_to_timestamp(&tmp_timestamp, mod_date_raw, mod_time_raw);
+	tmp_timestamp.tzcode = DE_TZCODE_LOCAL;
 	de_timestamp_to_string(&tmp_timestamp, timestamp_buf, sizeof(timestamp_buf), 0);
 	de_dbg(c, "%s: %s", name, timestamp_buf);
 }
@@ -71,8 +72,8 @@ static void read_windows_FILETIME(deark *c, lctx *d, struct member_data *md,
 	struct de_timestamp tmp_timestamp;
 
 	t_FILETIME = de_geti64le(pos);
-	de_FILETIME_to_timestamp(t_FILETIME, &tmp_timestamp);
-	de_timestamp_to_string(&tmp_timestamp, timestamp_buf, sizeof(timestamp_buf), 1);
+	de_FILETIME_to_timestamp(t_FILETIME, &tmp_timestamp, 0x1);
+	de_timestamp_to_string(&tmp_timestamp, timestamp_buf, sizeof(timestamp_buf), 0);
 	de_dbg(c, "%s: %s", name, timestamp_buf);
 }
 
@@ -84,8 +85,8 @@ static void read_unix_timestamp(deark *c, lctx *d, struct member_data *md,
 	struct de_timestamp tmp_timestamp;
 
 	t = de_geti32le(pos);
-	de_unix_time_to_timestamp(t, &tmp_timestamp);
-	de_timestamp_to_string(&tmp_timestamp, timestamp_buf, sizeof(timestamp_buf), 1);
+	de_unix_time_to_timestamp(t, &tmp_timestamp, 0x1);
+	de_timestamp_to_string(&tmp_timestamp, timestamp_buf, sizeof(timestamp_buf), 0);
 	de_dbg(c, "%s: %d (%s)", name, (int)t, timestamp_buf);
 }
 

@@ -422,6 +422,7 @@ static void do_read_extension_area(deark *c, lctx *d, de_int64 pos)
 		char timestamp_buf[64];
 
 		de_make_timestamp(&ts, val[2], val[0], val[1], val[3], val[4], val[5]);
+		ts.tzcode = DE_TZCODE_LOCAL;
 		de_timestamp_to_string(&ts, timestamp_buf, sizeof(timestamp_buf), 0);
 		de_dbg(c, "timestamp: %s", timestamp_buf);
 	}

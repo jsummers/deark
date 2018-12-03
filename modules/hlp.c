@@ -77,7 +77,7 @@ static void hlptime_to_timestamp(de_int64 ht, struct de_timestamp *ts)
 	if(ht!=0) {
 		// This appears to be a Unix-style timestamp, though some documentation
 		// says otherwise.
-		de_unix_time_to_timestamp(ht, ts);
+		de_unix_time_to_timestamp(ht, ts, 0);
 	}
 	else {
 		de_memset(ts, 0, sizeof(struct de_timestamp));

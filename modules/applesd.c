@@ -75,11 +75,11 @@ static void do_one_date(deark *c, lctx *d, de_int64 pos, const char *name,
 		struct de_timestamp ts;
 		// Epoch is Jan 1, 2001. There are 30 years, with 7 leap days, between
 		// that and the Unix time epoch.
-		de_unix_time_to_timestamp(dt + ((365*30 + 7)*86400), &ts);
+		de_unix_time_to_timestamp(dt + ((365*30 + 7)*86400), &ts, 0x1);
 		if(is_modtime) {
 			d->modtime = ts; // struct copy
 		}
-		de_timestamp_to_string(&ts, timestamp_buf, sizeof(timestamp_buf), 1);
+		de_timestamp_to_string(&ts, timestamp_buf, sizeof(timestamp_buf), 0);
 	}
 	de_dbg(c, "%s: %"INT64_FMT" (%s)", name, dt, timestamp_buf);
 }

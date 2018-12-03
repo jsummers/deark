@@ -1022,10 +1022,10 @@ struct de_struct_tm {
 	int tm_hour, tm_min, tm_sec, tm_ms;
 };
 
-void de_unix_time_to_timestamp(de_int64 ut, struct de_timestamp *ts);
+void de_unix_time_to_timestamp(de_int64 ut, struct de_timestamp *ts, unsigned int flags);
 void de_timestamp_set_ms(struct de_timestamp *ts, de_uint16 ms, de_uint16 prec);
 void de_mac_time_to_timestamp(de_int64 mt, struct de_timestamp *ts);
-void de_FILETIME_to_timestamp(de_int64 ft, struct de_timestamp *ts);
+void de_FILETIME_to_timestamp(de_int64 ft, struct de_timestamp *ts, unsigned int flags);
 void de_dos_datetime_to_timestamp(struct de_timestamp *ts,
    de_int64 ddate, de_int64 dtime);
 void de_riscos_loadexec_to_timestamp(de_uint32 load_addr,

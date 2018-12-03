@@ -94,8 +94,8 @@ static void handle_palm_timestamp(deark *c, lctx *d, de_int64 pos, const char *n
 
 	ts_int = de_geti32be(pos);
 	if(ts_int>0) { // Assume dates before 1970 are wrong
-		de_unix_time_to_timestamp(ts_int, &ts);
-		de_timestamp_to_string(&ts, timestamp_buf, sizeof(timestamp_buf), 0x1);
+		de_unix_time_to_timestamp(ts_int, &ts, 0x1);
+		de_timestamp_to_string(&ts, timestamp_buf, sizeof(timestamp_buf), 0);
 		de_dbg(c, "... if Unix-BE: %"INT64_FMT" (%s)", ts_int, timestamp_buf);
 	}
 

@@ -213,7 +213,8 @@ static void do_record_date(deark *c, lctx *d, struct record_info *ri)
 	val1 = dbuf_getui64be(c->infile, ri->dpos);
 	val2 = (de_int64)(val1>>16);
 	de_mac_time_to_timestamp(val2, &ts);
-	de_timestamp_to_string(&ts, timestamp_buf, sizeof(timestamp_buf), 1);
+	ts.tzcode = DE_TZCODE_UTC;
+	de_timestamp_to_string(&ts, timestamp_buf, sizeof(timestamp_buf), 0);
 	de_dbg(c, "date: %"UINT64_FMT" (%s)", val1, timestamp_buf);
 }
 

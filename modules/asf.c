@@ -51,8 +51,8 @@ static char *format_date(de_int64 t_FILETIME, char *buf, size_t buf_len)
 		de_strlcpy(buf, "unknown", buf_len);
 	}
 	else {
-		de_FILETIME_to_timestamp(t_FILETIME, &timestamp);
-		de_timestamp_to_string(&timestamp, buf, buf_len, 1);
+		de_FILETIME_to_timestamp(t_FILETIME, &timestamp, 0x1);
+		de_timestamp_to_string(&timestamp, buf, buf_len, 0);
 	}
 	return buf;
 }
