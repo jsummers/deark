@@ -343,8 +343,27 @@ static int EntrReadArch (struct unzooctx *uz, struct entryctx *ze)
 	ze->timzon = (ze->type == 2  ? ByteReadArch(uz) : 127);
 	ze->crcent = (ze->type == 2  ? HalfReadArch(uz) : 0);
 	if(ze->type == 2) {
+		char namebuf[80];
 		de_dbg(c, "length of variable part: %d", (int)ze->lvar);
-		de_dbg(c, "time zone: %d", (int)ze->timzon);
+
+		// Note: The timezone field is definitely a signed byte that is the
+		// number of 15-minute units from UTC, but it is unknown to me whether
+		// a positive number means west, or east. Under either interpretation,
+		// I have multiple sample files with highly implausible timezones. The
+		// interpretation used here is based on the preponderance of evidence.
+		if(ze->timzon==127) {
+			de_strlcpy(namebuf, "unknown", sizeof(namebuf));
+		}
+		else if(ze->timzon>127) {
+			de_snprintf(namebuf, sizeof(namebuf), "%.2f hours east of UTC",
+				((double)ze->timzon - 256.0)/-4.0);
+		}
+		else {
+			de_snprintf(namebuf, sizeof(namebuf), "%.2f hours west of UTC",
+				((double)ze->timzon)/4.0);
+		}
+		de_dbg(c, "time zone: %d (%s)", (int)ze->timzon, namebuf);
+
 		de_dbg(c, "entry crc (reported): 0x%04x", (unsigned int)ze->crcent);
 	}
 
