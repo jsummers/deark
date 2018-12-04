@@ -50,30 +50,8 @@ typedef struct de_ucstring_struct de_ucstring;
 struct dbuf_struct;
 typedef struct dbuf_struct dbuf;
 
-struct de_module_in_params {
-	const char *codes;
-	//  0x01: offset_in_parent is set
-	de_uint32 flags;
-	de_int64 offset_in_parent; // optional, rare
-	dbuf *parent_dbuf; // optional, rare
-};
-
-struct de_module_out_params {
-	// Fields are module-specific.
-	de_uint32 flags;
-	de_uint32 uint1;
-	de_uint32 uint2;
-	de_uint32 uint3;
-	de_int64 int64_1;
-	// The caller is responsible for freeing pointer fields.
-	// The callee should not use these fields unless requested.
-	de_ucstring *string1;
-};
-
-typedef struct de_module_params_struct {
-	struct de_module_in_params in_params;
-	struct de_module_out_params out_params;
-} de_module_params;
+struct de_module_params_struct;
+typedef struct de_module_params_struct de_module_params;
 
 #define DE_DECLARE_MODULE(x) void x(deark *c, struct deark_module_info *mi)
 
@@ -230,6 +208,32 @@ struct de_detection_data_struct {
 	de_byte is_macbinary;
 	struct de_SAUCE_detection_data sauce;
 	struct de_ID3_detection_data id3;
+};
+
+struct de_module_in_params {
+	const char *codes;
+	//  0x01: offset_in_parent is set
+	de_uint32 flags;
+	de_int64 offset_in_parent; // optional, rare
+	dbuf *parent_dbuf; // optional, rare
+};
+
+struct de_module_out_params {
+	// Fields are module-specific.
+	de_uint32 flags;
+	de_uint32 uint1;
+	de_uint32 uint2;
+	de_uint32 uint3;
+	de_int64 int64_1;
+	struct de_timestamp timestamp1;
+	// The caller is responsible for freeing pointer fields.
+	// The callee should not use these fields unless requested.
+	de_ucstring *string1;
+};
+
+struct de_module_params_struct {
+	struct de_module_in_params in_params;
+	struct de_module_out_params out_params;
 };
 
 struct deark_ext_option {

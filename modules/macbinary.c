@@ -15,7 +15,6 @@ typedef struct localctx_struct {
 	de_byte ver2_minneeded;
 	de_int64 dfpos, rfpos;
 	de_int64 dflen, rflen;
-	de_int64 mod_date_raw;
 	de_ucstring *filename;
 	struct de_timestamp create_date;
 	struct de_timestamp mod_date;
@@ -28,6 +27,7 @@ static void do_header(deark *c, lctx *d)
 	de_int64 namelen;
 	de_int64 pos = 0;
 	de_int64 n, n2;
+	de_int64 mod_date_raw;
 	struct de_fourcc type4cc;
 	struct de_fourcc creator4cc;
 	char timestamp_buf[64];
@@ -104,13 +104,13 @@ static void do_header(deark *c, lctx *d)
 	}
 	de_dbg(c, "create date: %"INT64_FMT" (%s)", n, timestamp_buf);
 
-	d->mod_date_raw = de_getui32be_p(&pos);
-	if(d->mod_date_raw==0) {
+	mod_date_raw = de_getui32be_p(&pos);
+	if(mod_date_raw==0) {
 		d->mod_date.is_valid = 0;
 		de_strlcpy(timestamp_buf, "unknown", sizeof(timestamp_buf));
 	}
 	else {
-		de_mac_time_to_timestamp(d->mod_date_raw, &d->mod_date);
+		de_mac_time_to_timestamp(mod_date_raw, &d->mod_date);
 		d->mod_date.tzcode = DE_TZCODE_LOCAL;
 		de_timestamp_to_string(&d->mod_date, timestamp_buf, sizeof(timestamp_buf), 0);
 	}
@@ -226,7 +226,7 @@ static void de_run_macbinary(deark *c, de_module_params *mparams)
 	if(mparams) {
 		mparams->out_params.uint1 = (de_uint32)d->dfpos;
 		mparams->out_params.uint2 = (de_uint32)d->dflen;
-		mparams->out_params.uint3 = (de_uint32)d->mod_date_raw;
+		mparams->out_params.timestamp1 = d->mod_date;
 
 		// If caller set out_params.string1, copy the filename to it.
 		if(d->filename && d->filename->len>0 && mparams->out_params.string1) {
