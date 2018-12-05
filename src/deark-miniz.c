@@ -211,22 +211,6 @@ int de_write_png(deark *c, de_bitmap *img, dbuf *f)
 		return 0;
 	}
 
-	//////// FIXME: Delete this section /////////
-	if(img->density_fixme.code>0 && c->write_density) {
-		pei.has_phys = 1;
-		if(img->density_fixme.code==1) { // unspecified units
-			pei.phys_units = 0;
-			pei.xdens = (mz_uint32)(img->density_fixme.xdens+0.5);
-			pei.ydens = (mz_uint32)(img->density_fixme.ydens+0.5);
-		}
-		else if(img->density_fixme.code==2) { // dpi
-			pei.phys_units = 1; // pixels/meter
-			pei.xdens = (mz_uint32)(0.5+img->density_fixme.xdens/0.0254);
-			pei.ydens = (mz_uint32)(0.5+img->density_fixme.ydens/0.0254);
-		}
-	}
-	//////////////////////////////////////////////
-
 	if(f->fi_copy && f->fi_copy->density.code>0 && c->write_density) {
 		pei.has_phys = 1;
 		if(f->fi_copy->density.code==1) { // unspecified units

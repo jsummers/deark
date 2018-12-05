@@ -25,6 +25,7 @@ struct localctx_struct {
 	int file_fmt;
 	int ver;
 	de_bitmap *img;
+	de_finfo *fi;
 	de_int64 header_size;
 	de_byte plane_info;
 	de_byte palette_flag;
@@ -39,41 +40,43 @@ struct localctx_struct {
 
 static void set_density(deark *c, lctx *d)
 {
+	if(!d->fi) return;
+
 	switch(d->video_mode) {
 	case 'A': // 320x200
 	case 'B':
 	case 'I':
 	case 'J':
 	case 'L':
-		d->img->density_fixme.code = DE_DENSITY_UNK_UNITS;
-		d->img->density_fixme.xdens = 240.0;
-		d->img->density_fixme.ydens = 200.0;
+		d->fi->density.code = DE_DENSITY_UNK_UNITS;
+		d->fi->density.xdens = 240.0;
+		d->fi->density.ydens = 200.0;
 		break;
 	case 'H': // 720x348 (Hercules)
 	case 'N':
-		d->img->density_fixme.code = DE_DENSITY_UNK_UNITS;
+		d->fi->density.code = DE_DENSITY_UNK_UNITS;
 		// Various sources suggest aspect ratios of 1.46, 1.55, 1.59, ...
-		d->img->density_fixme.xdens = 155.0;
-		d->img->density_fixme.ydens = 100.0;
+		d->fi->density.xdens = 155.0;
+		d->fi->density.ydens = 100.0;
 		break;
 	case 'E': // 640x350
 	case 'F':
 	case 'G':
-		d->img->density_fixme.code = DE_DENSITY_UNK_UNITS;
-		d->img->density_fixme.xdens = 480.0;
-		d->img->density_fixme.ydens = 350.0;
+		d->fi->density.code = DE_DENSITY_UNK_UNITS;
+		d->fi->density.xdens = 480.0;
+		d->fi->density.ydens = 350.0;
 		break;
 	case 'K':
 	case 'R':
-		d->img->density_fixme.code = DE_DENSITY_UNK_UNITS;
-		d->img->density_fixme.xdens = 480.0;
-		d->img->density_fixme.ydens = 400.0;
+		d->fi->density.code = DE_DENSITY_UNK_UNITS;
+		d->fi->density.xdens = 480.0;
+		d->fi->density.ydens = 400.0;
 		break;
 	case 'C':
 	case 'D':
-		d->img->density_fixme.code = DE_DENSITY_UNK_UNITS;
-		d->img->density_fixme.xdens = 480.0;
-		d->img->density_fixme.ydens = 200.0;
+		d->fi->density.code = DE_DENSITY_UNK_UNITS;
+		d->fi->density.xdens = 480.0;
+		d->fi->density.ydens = 200.0;
 		break;
 	}
 }
@@ -251,7 +254,7 @@ static int decode_egavga16(deark *c, lctx *d)
 		}
 	}
 
-	de_bitmap_write_to_file(d->img, NULL, 0);
+	de_bitmap_write_to_file_finfo(d->img, d->fi, 0);
 	return 1;
 }
 
@@ -281,7 +284,7 @@ static int decode_vga256(deark *c, lctx *d)
 	de_convert_image_paletted(d->unc_pixels, 0,
 		8, d->img->width, pal, d->img, 0);
 
-	de_bitmap_write_to_file(d->img, NULL, 0);
+	de_bitmap_write_to_file_finfo(d->img, d->fi, 0);
 	return 1;
 }
 
@@ -324,7 +327,7 @@ static int decode_bilevel(deark *c, lctx *d)
 	de_convert_image_paletted(d->unc_pixels, 0,
 		1, src_rowspan, pal, d->img, 0);
 
-	de_bitmap_write_to_file(d->img, NULL, 0);
+	de_bitmap_write_to_file_finfo(d->img, d->fi, 0);
 	return 1;
 }
 
@@ -373,7 +376,7 @@ static int decode_cga4(deark *c, lctx *d)
 	de_convert_image_paletted(d->unc_pixels, 0,
 		2, src_rowspan, pal, d->img, 0);
 
-	de_bitmap_write_to_file(d->img, NULL, 0);
+	de_bitmap_write_to_file_finfo(d->img, d->fi, 0);
 	return 1;
 }
 
@@ -590,6 +593,8 @@ static void de_run_pcpaint_pic(deark *c, lctx *d, de_module_params *mparams)
 	// graphics, but it's still needed to store the width and height.
 	d->img = de_bitmap_create_noinit(c);
 
+	d->fi = de_finfo_create(c);
+
 	de_dbg(c, "header at %d", 0);
 	de_dbg_indent(c, 1);
 
@@ -796,6 +801,7 @@ static void de_run_pcpaint(deark *c, de_module_params *mparams)
 
 	if(d->unc_pixels) dbuf_close(d->unc_pixels);
 	de_bitmap_destroy(d->img);
+	de_finfo_destroy(c, d->fi);
 	de_free(c, d->pal_info_mainfile.data);
 	de_free(c, d->pal_info_palfile.data);
 	de_free(c, d);

@@ -191,8 +191,6 @@ struct deark_bitmap_struct {
 	de_int64 bitmap_size; // bytes allocated for bitmap
 	int orig_colortype; // Optional; can be used by modules
 	int orig_bitdepth; // Optional; can be used by modules
-
-	struct de_density_info density_fixme;
 };
 typedef struct deark_bitmap_struct de_bitmap;
 

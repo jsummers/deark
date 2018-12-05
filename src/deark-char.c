@@ -588,7 +588,7 @@ static void do_render_character(deark *c, struct de_char_context *charctx,
 }
 
 static void set_density(deark *c, struct de_char_context *charctx,
-	struct charextractx *ectx, de_bitmap *img)
+	struct charextractx *ectx, de_finfo *fi)
 {
 	// FIXME: This is quick and dirty. Need to put more thought into how to
 	// figure out the pixel density.
@@ -597,15 +597,15 @@ static void set_density(deark *c, struct de_char_context *charctx,
 
 	if(ectx->char_height_in_pixels==16 && ectx->char_width_in_pixels==8) {
 		// Assume the intended display is 640x400.
-		img->density_fixme.code = DE_DENSITY_UNK_UNITS;
-		img->density_fixme.xdens = 480.0;
-		img->density_fixme.ydens = 400.0;
+		fi->density.code = DE_DENSITY_UNK_UNITS;
+		fi->density.xdens = 480.0;
+		fi->density.ydens = 400.0;
 	}
 	else if(ectx->char_height_in_pixels==16 && ectx->char_width_in_pixels==9) {
 		// Assume the intended display is 720x400.
-		img->density_fixme.code = DE_DENSITY_UNK_UNITS;
-		img->density_fixme.xdens = 540.0;
-		img->density_fixme.ydens = 400.0;
+		fi->density.code = DE_DENSITY_UNK_UNITS;
+		fi->density.xdens = 540.0;
+		fi->density.ydens = 400.0;
 	}
 }
 
@@ -614,6 +614,7 @@ static void de_char_output_screen_to_image_file(deark *c, struct de_char_context
 {
 	de_int64 screen_width_in_pixels, screen_height_in_pixels;
 	de_bitmap *img = NULL;
+	de_finfo *fi = NULL;
 	int i, j;
 	const struct de_char_cell *cell;
 	unsigned int flags;
@@ -625,7 +626,8 @@ static void de_char_output_screen_to_image_file(deark *c, struct de_char_context
 
 	img = de_bitmap_create(c, screen_width_in_pixels, screen_height_in_pixels, 3);
 
-	set_density(c, charctx, ectx, img);
+	fi = de_finfo_create(c);
+	set_density(c, charctx, ectx, fi);
 
 	for(j=0; j<screen->height; j++) {
 		for(i=0; i<screen->width; i++) {
@@ -654,9 +656,10 @@ static void de_char_output_screen_to_image_file(deark *c, struct de_char_context
 		}
 	}
 
-	de_bitmap_write_to_file(img, NULL, 0);
+	de_bitmap_write_to_file_finfo(img, fi, 0);
 done:
 	de_bitmap_destroy(img);
+	de_finfo_destroy(c, fi);
 }
 
 #define NUM_EXTRA_FONT_CHARS 13
