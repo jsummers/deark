@@ -127,6 +127,7 @@ static void de_run_degas(deark *c, de_module_params *mparams)
 {
 	degasctx *d = NULL;
 	struct atari_img_decode_data *adata = NULL;
+	de_finfo *fi = NULL;
 	de_int64 pos;
 	unsigned int format_code, resolution_code;
 	int is_grayscale;
@@ -207,11 +208,12 @@ static void de_run_degas(deark *c, de_module_params *mparams)
 
 	adata->img = de_bitmap_create(c, adata->w, adata->h, is_grayscale?1:3);
 
-	de_fmtutil_atari_set_standard_density(c, adata);
+	fi = de_finfo_create(c);
+	de_fmtutil_atari_set_standard_density(c, adata, fi);
 
 	de_fmtutil_atari_decode_image(c, adata);
 
-	de_bitmap_write_to_file(adata->img, NULL, 0);
+	de_bitmap_write_to_file_finfo(adata->img, fi, 0);
 
 done:
 	if(adata) {
@@ -219,6 +221,7 @@ done:
 		de_bitmap_destroy(adata->img);
 		de_free(c, adata);
 	}
+	de_finfo_destroy(c, fi);
 	de_free(c, d);
 }
 
@@ -431,6 +434,7 @@ void de_module_prismpaint(deark *c, struct deark_module_info *mi)
 static void de_run_ftc(deark *c, de_module_params *mparams)
 {
 	struct atari_img_decode_data *adata = NULL;
+	de_finfo *fi = NULL;
 
 	adata = de_malloc(c, sizeof(struct atari_img_decode_data));
 	adata->bpp = 16;
@@ -438,12 +442,14 @@ static void de_run_ftc(deark *c, de_module_params *mparams)
 	adata->h = 240;
 	adata->unc_pixels = c->infile;
 	adata->img = de_bitmap_create(c, adata->w, adata->h, 3);
-	adata->img->density_fixme.code = DE_DENSITY_UNK_UNITS;
-	adata->img->density_fixme.xdens = 288;
-	adata->img->density_fixme.ydens = 240;
+	fi = de_finfo_create(c);
+	fi->density.code = DE_DENSITY_UNK_UNITS;
+	fi->density.xdens = 288;
+	fi->density.ydens = 240;
 	de_fmtutil_atari_decode_image(c, adata);
-	de_bitmap_write_to_file(adata->img, NULL, 0);
+	de_bitmap_write_to_file_finfo(adata->img, fi, 0);
 	de_bitmap_destroy(adata->img);
+	de_finfo_destroy(c, fi);
 	de_free(c, adata);
 }
 
@@ -818,6 +824,7 @@ static void fix_dark_pal(deark *c, struct atari_img_decode_data *adata)
 static void de_run_tinystuff(deark *c, de_module_params *mparams)
 {
 	struct atari_img_decode_data *adata = NULL;
+	de_finfo *fi = NULL;
 	tinyctx *d = NULL;
 	de_int64 pos = 0;
 	de_int64 expected_min_file_size;
@@ -897,10 +904,11 @@ static void de_run_tinystuff(deark *c, de_module_params *mparams)
 
 	adata->img = de_bitmap_create(c, adata->w, adata->h, is_grayscale?1:3);
 
-	de_fmtutil_atari_set_standard_density(c, adata);
+	fi = de_finfo_create(c);
+	de_fmtutil_atari_set_standard_density(c, adata, fi);
 
 	do_tinystuff_image(c, adata);
-	de_bitmap_write_to_file(adata->img, NULL, 0);
+	de_bitmap_write_to_file_finfo(adata->img, fi, 0);
 
 done:
 	if(adata) {
@@ -908,6 +916,7 @@ done:
 		dbuf_close(adata->unc_pixels);
 		de_free(c, adata);
 	}
+	de_finfo_destroy(c, fi);
 	de_free(c, d);
 }
 
@@ -948,6 +957,7 @@ void de_module_tinystuff(deark *c, struct deark_module_info *mi)
 static void de_run_doodle(deark *c, de_module_params *mparams)
 {
 	struct atari_img_decode_data *adata = NULL;
+	de_finfo *fi = NULL;
 	de_uint32 pal[2];
 
 	adata = de_malloc(c, sizeof(struct atari_img_decode_data));
@@ -962,14 +972,16 @@ static void de_run_doodle(deark *c, de_module_params *mparams)
 
 	adata->unc_pixels = c->infile;
 	adata->img = de_bitmap_create(c, adata->w, adata->h, 1);
-	de_fmtutil_atari_set_standard_density(c, adata);
+	fi = de_finfo_create(c);
+	de_fmtutil_atari_set_standard_density(c, adata, fi);
 	de_fmtutil_atari_decode_image(c, adata);
-	de_bitmap_write_to_file(adata->img, NULL, 0);
+	de_bitmap_write_to_file_finfo(adata->img, fi, 0);
 
 	if(adata) {
 		de_bitmap_destroy(adata->img);
 		de_free(c, adata);
 	}
+	de_finfo_destroy(c, fi);
 }
 
 static int de_identify_doodle(deark *c)
@@ -996,6 +1008,7 @@ void de_module_doodle(deark *c, struct deark_module_info *mi)
 static void de_run_neochrome(deark *c, de_module_params *mparams)
 {
 	struct atari_img_decode_data *adata = NULL;
+	de_finfo *fi = NULL;
 	unsigned int resolution_code;
 	int is_grayscale;
 	de_uint32 pal[16];
@@ -1023,9 +1036,10 @@ static void de_run_neochrome(deark *c, de_module_params *mparams)
 	adata->unc_pixels = dbuf_open_input_subfile(c->infile, 128, 32000);
 	is_grayscale = de_is_grayscale_palette(adata->pal, adata->ncolors);
 	adata->img = de_bitmap_create(c, adata->w, adata->h, is_grayscale?1:3);
-	de_fmtutil_atari_set_standard_density(c, adata);
+	fi = de_finfo_create(c);
+	de_fmtutil_atari_set_standard_density(c, adata, fi);
 	de_fmtutil_atari_decode_image(c, adata);
-	de_bitmap_write_to_file(adata->img, NULL, 0);
+	de_bitmap_write_to_file_finfo(adata->img, fi, 0);
 
 done:
 	if(adata) {
@@ -1033,6 +1047,7 @@ done:
 		de_bitmap_destroy(adata->img);
 		de_free(c, adata);
 	}
+	de_finfo_destroy(c, fi);
 }
 
 static int de_identify_neochrome(deark *c)
@@ -1229,13 +1244,15 @@ static void decode_falcon_8bit_image(deark *c, struct atari_img_decode_data *ada
 	de_int64 i, j, k;
 	unsigned int v;
 	unsigned int n;
+	de_finfo *fi = NULL;
 
 	adata->img = de_bitmap_create(c, adata->w, adata->h, 3);
 
+	fi = de_finfo_create(c);
 	if(adata->w==320 && adata->h==200) {
-		adata->img->density_fixme.code = DE_DENSITY_UNK_UNITS;
-		adata->img->density_fixme.xdens = 240.0;
-		adata->img->density_fixme.ydens = 200.0;
+		fi->density.code = DE_DENSITY_UNK_UNITS;
+		fi->density.xdens = 240.0;
+		fi->density.ydens = 200.0;
 	}
 
 	for(j=0; j<adata->h; j++) {
@@ -1249,9 +1266,10 @@ static void decode_falcon_8bit_image(deark *c, struct atari_img_decode_data *ada
 		}
 	}
 
-	de_bitmap_write_to_file(adata->img, NULL, 0);
+	de_bitmap_write_to_file_finfo(adata->img, fi, 0);
 	de_bitmap_destroy(adata->img);
 	adata->img = NULL;
+	de_finfo_destroy(c, fi);
 }
 
 static void do_atari_falcon_8bit_img(deark *c, de_int64 width, de_int64 height)
@@ -1388,6 +1406,7 @@ void de_module_atari_pi7(deark *c, struct deark_module_info *mi)
 static void de_run_falcon_xga(deark *c, de_module_params *mparams)
 {
 	struct atari_img_decode_data *adata = NULL;
+	de_finfo *fi = NULL;
 
 	adata = de_malloc(c, sizeof(struct atari_img_decode_data));
 	if(c->infile->len==153600) {
@@ -1403,14 +1422,16 @@ static void de_run_falcon_xga(deark *c, de_module_params *mparams)
 	de_dbg_dimensions(c, adata->w, adata->h);
 	adata->unc_pixels = c->infile;
 	adata->img = de_bitmap_create(c, adata->w, adata->h, 3);
+	fi = de_finfo_create(c);
 	if(adata->w==384 && adata->h == 480) {
-		adata->img->density_fixme.code = DE_DENSITY_UNK_UNITS;
-		adata->img->density_fixme.xdens = 384;
-		adata->img->density_fixme.ydens = 640;
+		fi->density.code = DE_DENSITY_UNK_UNITS;
+		fi->density.xdens = 384;
+		fi->density.ydens = 640;
 	}
 	de_fmtutil_atari_decode_image(c, adata);
-	de_bitmap_write_to_file(adata->img, NULL, 0);
+	de_bitmap_write_to_file_finfo(adata->img, fi, 0);
 	de_bitmap_destroy(adata->img);
+	de_finfo_destroy(c, fi);
 	de_free(c, adata);
 }
 
@@ -1441,6 +1462,7 @@ static void de_run_coke(deark *c, de_module_params *mparams)
 {
 	de_int64 imgdatapos;
 	struct atari_img_decode_data *adata = NULL;
+	de_finfo *fi = NULL;
 
 	adata = de_malloc(c, sizeof(struct atari_img_decode_data));
 	adata->bpp = 16;
@@ -1454,18 +1476,20 @@ static void de_run_coke(deark *c, de_module_params *mparams)
 		imgdatapos, c->infile->len-imgdatapos);
 	adata->img = de_bitmap_create(c, adata->w, adata->h, 3);
 
-	adata->img->density_fixme.code = DE_DENSITY_UNK_UNITS;
-	adata->img->density_fixme.xdens = 288;
-	adata->img->density_fixme.ydens = 240;
+	fi = de_finfo_create(c);
+	fi->density.code = DE_DENSITY_UNK_UNITS;
+	fi->density.xdens = 288;
+	fi->density.ydens = 240;
 
 	de_fmtutil_atari_decode_image(c, adata);
-	de_bitmap_write_to_file(adata->img, NULL, 0);
+	de_bitmap_write_to_file_finfo(adata->img, fi, 0);
 
 	if(adata) {
 		dbuf_close(adata->unc_pixels);
 		de_bitmap_destroy(adata->img);
 		de_free(c, adata);
 	}
+	de_finfo_destroy(c, fi);
 }
 
 static int de_identify_coke(deark *c)

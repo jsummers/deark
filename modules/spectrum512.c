@@ -18,6 +18,7 @@ DE_DECLARE_MODULE(de_module_spectrum512s);
 static void do_spu_internal(deark *c, dbuf *inf, int is_enhanced)
 {
 	struct atari_img_decode_data *adata = NULL;
+	de_finfo *fi = NULL;
 	static const de_int64 num_colors = 199*48;
 
 	adata = de_malloc(c, sizeof(struct atari_img_decode_data));
@@ -33,9 +34,10 @@ static void do_spu_internal(deark *c, dbuf *inf, int is_enhanced)
 
 	adata->unc_pixels = dbuf_open_input_subfile(inf, 160, inf->len-160);
 	adata->img = de_bitmap_create(c, adata->w, adata->h, 3);
-	de_fmtutil_atari_set_standard_density(c, adata);
+	fi = de_finfo_create(c);
+	de_fmtutil_atari_set_standard_density(c, adata, fi);
 	de_fmtutil_atari_decode_image(c, adata);
-	de_bitmap_write_to_file(adata->img, NULL, 0);
+	de_bitmap_write_to_file_finfo(adata->img, fi, 0);
 
 	if(adata) {
 		de_bitmap_destroy(adata->img);
@@ -43,6 +45,7 @@ static void do_spu_internal(deark *c, dbuf *inf, int is_enhanced)
 		dbuf_close(adata->unc_pixels);
 		de_free(c, adata);
 	}
+	de_finfo_destroy(c, fi);
 }
 
 static void de_run_spectrum512u(deark *c, de_module_params *mparams)

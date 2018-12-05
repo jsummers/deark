@@ -1298,23 +1298,24 @@ int de_fmtutil_atari_decode_image(deark *c, struct atari_img_decode_data *adata)
 	return 0;
 }
 
-void de_fmtutil_atari_set_standard_density(deark *c, struct atari_img_decode_data *adata)
+void de_fmtutil_atari_set_standard_density(deark *c, struct atari_img_decode_data *adata,
+	de_finfo *fi)
 {
 	switch(adata->bpp) {
 	case 4:
-		adata->img->density_fixme.code = DE_DENSITY_UNK_UNITS;
-		adata->img->density_fixme.xdens = 240.0;
-		adata->img->density_fixme.ydens = 200.0;
+		fi->density.code = DE_DENSITY_UNK_UNITS;
+		fi->density.xdens = 240.0;
+		fi->density.ydens = 200.0;
 		break;
 	case 2:
-		adata->img->density_fixme.code = DE_DENSITY_UNK_UNITS;
-		adata->img->density_fixme.xdens = 480.0;
-		adata->img->density_fixme.ydens = 200.0;
+		fi->density.code = DE_DENSITY_UNK_UNITS;
+		fi->density.xdens = 480.0;
+		fi->density.ydens = 200.0;
 		break;
 	case 1:
-		adata->img->density_fixme.code = DE_DENSITY_UNK_UNITS;
-		adata->img->density_fixme.xdens = 480.0;
-		adata->img->density_fixme.ydens = 400.0;
+		fi->density.code = DE_DENSITY_UNK_UNITS;
+		fi->density.xdens = 480.0;
+		fi->density.ydens = 400.0;
 		break;
 	}
 }

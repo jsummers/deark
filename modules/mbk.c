@@ -32,6 +32,7 @@ static void do_sprite_param_block(deark *c, lctx *d, de_int64 res,
 	de_int64 fg_size;
 	struct atari_img_decode_data *adata_fg = NULL;
 	struct atari_img_decode_data *adata_mask = NULL;
+	de_finfo *fi = NULL;
 	de_uint32 mask_pal[2] = { DE_STOCKCOLOR_WHITE, DE_STOCKCOLOR_BLACK };
 
 	de_dbg(c, "%s-res sprite #%d param block at %d", sprite_res_name[res],
@@ -77,8 +78,9 @@ static void do_sprite_param_block(deark *c, lctx *d, de_int64 res,
 	de_fmtutil_atari_decode_image(c, adata_mask);
 	de_fmtutil_atari_decode_image(c, adata_fg);
 	de_bitmap_apply_mask(adata_fg->img, adata_mask->img, 0);
-	de_fmtutil_atari_set_standard_density(c, adata_fg);
-	de_bitmap_write_to_file(adata_fg->img, NULL, 0);
+	fi = de_finfo_create(c);
+	de_fmtutil_atari_set_standard_density(c, adata_fg, fi);
+	de_bitmap_write_to_file_finfo(adata_fg->img, fi, 0);
 
 done:
 	if(adata_fg) {
@@ -91,6 +93,7 @@ done:
 		de_bitmap_destroy(adata_mask->img);
 		de_free(c, adata_mask);
 	}
+	de_finfo_destroy(c, fi);
 	de_dbg_indent(c, -1);
 }
 
