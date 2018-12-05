@@ -816,6 +816,14 @@ int dbuf_create_file_from_slice(dbuf *inf, de_int64 pos, de_int64 data_size,
 	return 1;
 }
 
+static void finfo_shallow_copy(deark *c, de_finfo *src, de_finfo *dst)
+{
+	dst->mode_flags = src->mode_flags;
+	dst->mod_time = src->mod_time;
+	dst->image_mod_time = src->image_mod_time;
+	dst->density = src->density;
+}
+
 dbuf *dbuf_create_output_file(deark *c, const char *ext, de_finfo *fi,
 	unsigned int createflags)
 {
@@ -892,23 +900,25 @@ dbuf *dbuf_create_output_file(deark *c, const char *ext, de_finfo *fi,
 	f->c = c;
 
 	if(fi) {
-		f->mod_time = fi->mod_time; // struct copy
+		// The finfo object passed to us at file creation is not required to
+		// remain valid, so make a copy of anything in it that we might need
+		// later.
+		f->fi_copy = de_finfo_create(c);
+		finfo_shallow_copy(c, fi, f->fi_copy);
+
 		// Here's where we respect the -intz option, by using it to convert to
 		// UTC in some cases.
-		if(f->mod_time.is_valid && f->mod_time.tzcode==DE_TZCODE_LOCAL &&
+		if(f->fi_copy->mod_time.is_valid && f->fi_copy->mod_time.tzcode==DE_TZCODE_LOCAL &&
 			c->input_tz_offs_seconds!=0)
 		{
-			de_timestamp_cvt_to_utc(&f->mod_time, -c->input_tz_offs_seconds);
+			de_timestamp_cvt_to_utc(&f->fi_copy->mod_time, -c->input_tz_offs_seconds);
 		}
 
-		f->image_mod_time = fi->image_mod_time;
-		if(f->image_mod_time.is_valid && f->image_mod_time.tzcode==DE_TZCODE_LOCAL &&
+		if(f->fi_copy->image_mod_time.is_valid && f->fi_copy->image_mod_time.tzcode==DE_TZCODE_LOCAL &&
 			c->input_tz_offs_seconds!=0)
 		{
-			de_timestamp_cvt_to_utc(&f->image_mod_time, -c->input_tz_offs_seconds);
+			de_timestamp_cvt_to_utc(&f->fi_copy->image_mod_time, -c->input_tz_offs_seconds);
 		}
-
-		f->mode_flags = fi->mode_flags;
 	}
 
 	if(file_index < c->first_output_file) {
@@ -1293,6 +1303,7 @@ void dbuf_close(dbuf *f)
 	de_free(c, f->membuf_buf);
 	de_free(c, f->name);
 	de_free(c, f->cache);
+	if(f->fi_copy) de_finfo_destroy(c, f->fi_copy);
 	de_free(c, f);
 }
 

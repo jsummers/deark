@@ -1030,9 +1030,9 @@ static int do_image_internal(deark *c, lctx *d,
 	}
 
 	if(d->aspect_ratio_code!=0 && d->aspect_ratio_code!=49) {
-		gi->img->density_code = DE_DENSITY_UNK_UNITS;
-		gi->img->xdens = 64.0;
-		gi->img->ydens = 15.0 + (double)d->aspect_ratio_code;
+		gi->img->density_fixme.code = DE_DENSITY_UNK_UNITS;
+		gi->img->density_fixme.xdens = 64.0;
+		gi->img->density_fixme.ydens = 15.0 + (double)d->aspect_ratio_code;
 	}
 
 	lz = de_malloc(c, sizeof(struct lzwdeccontext));

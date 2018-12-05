@@ -531,9 +531,9 @@ static int decode_bitmap(deark *c, lctx *d, struct bitmapinfo *bi, de_int64 pos)
 
 	img = de_bitmap_create(c, bi->width, bi->height, dst_nsamples);
 	if(bi->hdpi>=1.0 && bi->vdpi>=1.0) {
-		img->density_code = DE_DENSITY_DPI;
-		img->xdens = bi->hdpi;
-		img->ydens = bi->vdpi;
+		img->density_fixme.code = DE_DENSITY_DPI;
+		img->density_fixme.xdens = bi->hdpi;
+		img->density_fixme.ydens = bi->vdpi;
 	}
 
 	if(bi->uses_pal) {

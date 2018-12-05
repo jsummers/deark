@@ -165,8 +165,7 @@ struct image_info {
 	de_int64 color_mode;
 	de_int64 num_channels;
 	de_int64 bits_per_channel;
-	int density_code;
-	double xdens, ydens;
+	struct de_density_info density;
 
 	de_int64 pal_entries;
 	de_uint32 pal[256];
@@ -184,8 +183,7 @@ typedef struct localctx_struct {
 
 	int abr_major_ver, abr_minor_ver;
 	de_byte has_iptc;
-	int density_code;
-	double xdens, ydens;
+	struct de_density_info density;
 
 	struct image_info *main_iinfo;
 } lctx;
@@ -622,9 +620,9 @@ static void hrsrc_resolutioninfo(deark *c, lctx *d, zztype *zz, const struct rsr
 	de_dbg(c, "yres display unit: %d (%s)", (int)yres_unit, units_name(yres_unit));
 	//height_unit = psd_getui16(pos+14);
 
-	d->density_code = DE_DENSITY_DPI;
-	d->xdens = xres;
-	d->ydens = yres;
+	d->density.code = DE_DENSITY_DPI;
+	d->density.xdens = xres;
+	d->density.ydens = yres;
 }
 
 static void hrsrc_namesofalphachannels(deark *c, lctx *d, zztype *zz, const struct rsrc_info *ri)
@@ -3599,10 +3597,8 @@ static void do_bitmap(deark *c, lctx *d, const struct image_info *iinfo, dbuf *f
 	img = de_bitmap_create(c, iinfo->width, iinfo->height,
 		iinfo->color_mode==PSD_CM_GRAY ? 1 : 3);
 
-	if(iinfo->density_code==DE_DENSITY_DPI) {
-		img->density_code = iinfo->density_code;
-		img->xdens = iinfo->xdens;
-		img->ydens = iinfo->ydens;
+	if(iinfo->density.code==DE_DENSITY_DPI) {
+		img->density_fixme = iinfo->density;
 	}
 
 	samplespan = iinfo->bits_per_channel/8;
@@ -3696,9 +3692,7 @@ static void do_image_data(deark *c, lctx *d, zztype *zz)
 	if(c->extract_policy == DE_EXTRACTPOLICY_AUXONLY) goto done;
 
 	// Copy the global density info (from Resources section, presumably) to the image info
-	d->main_iinfo->density_code = d->density_code;
-	d->main_iinfo->xdens = d->xdens;
-	d->main_iinfo->ydens = d->ydens;
+	d->main_iinfo->density = d->density;
 
 	if(cmpr==0) { // Uncompressed
 		do_bitmap(c, d, d->main_iinfo, c->infile, zz->pos, image_data_size);

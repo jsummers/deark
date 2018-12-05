@@ -407,9 +407,9 @@ static void do_create_image(deark *c, lctx *d)
 	img = de_bitmap_create(c, d->width, d->height, 3);
 
 	if(d->aspect_ratio_flag) {
-		img->density_code = DE_DENSITY_UNK_UNITS;
-		img->xdens = 2.0;
-		img->ydens = 1.0;
+		img->density_fixme.code = DE_DENSITY_UNK_UNITS;
+		img->density_fixme.xdens = 2.0;
+		img->density_fixme.ydens = 1.0;
 	}
 
 	de_convert_image_paletted(d->unc_pixels, 0,

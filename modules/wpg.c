@@ -273,9 +273,9 @@ static void handler_bitmap(deark *c, lctx *d, de_byte rectype, de_int64 dpos1, d
 	img = de_bitmap_create(c, w, h, output_bypp);
 
 	if(xdens>0 && ydens>0) {
-		img->density_code = DE_DENSITY_DPI;
-		img->xdens = (double)xdens;
-		img->ydens = (double)ydens;
+		img->density_fixme.code = DE_DENSITY_DPI;
+		img->density_fixme.xdens = (double)xdens;
+		img->density_fixme.ydens = (double)ydens;
 	}
 
 	if(is_bilevel) {

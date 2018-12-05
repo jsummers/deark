@@ -147,8 +147,9 @@ void de_update_file_perms(dbuf *f)
 	mode_t oldmode, newmode;
 
 	if(f->btype!=DBUF_TYPE_OFILE) return;
+	if(!f->fi_copy) return;
 	if(!f->name) return;
-	if(!(f->mode_flags&DE_MODEFLAG_NONEXE) && !(f->mode_flags&DE_MODEFLAG_EXE)) return;
+	if(!(f->fi_copy->mode_flags&DE_MODEFLAG_NONEXE) &&!(f->fi_copy->mode_flags&DE_MODEFLAG_EXE)) return;
 
 	de_memset(&stbuf, 0, sizeof(struct stat));
 	if(0 != stat(f->name, &stbuf)) {
@@ -161,7 +162,7 @@ void de_update_file_perms(dbuf *f)
 	// Start by turning off the executable bits in the tentative new mode.
 	newmode &= ~(S_IXUSR|S_IXGRP|S_IXOTH);
 
-	if(f->mode_flags&DE_MODEFLAG_EXE) {
+	if(f->fi_copy->mode_flags&DE_MODEFLAG_EXE) {
 		// Set an Executable bit if its corresponding Read bit is set.
 		if(oldmode & S_IRUSR) newmode |= S_IXUSR;
 		if(oldmode & S_IRGRP) newmode |= S_IXGRP;
@@ -180,14 +181,15 @@ void de_update_file_time(dbuf *f)
 	struct utimbuf times;
 
 	if(f->btype!=DBUF_TYPE_OFILE) return;
-	if(!f->mod_time.is_valid) return;
+	if(!f->fi_copy) return;
+	if(!f->fi_copy->mod_time.is_valid) return;
 	if(!f->name) return;
 
 	// I know that this code is not Y2038-compliant, if sizeof(time_t)==4.
 	// But it's not likely to be a serious problem, and I'd rather not replace
 	// it with code that's less portable.
 
-	times.modtime = de_timestamp_to_unix_time(&f->mod_time);
+	times.modtime = de_timestamp_to_unix_time(&f->fi_copy->mod_time);
 	times.actime = times.modtime;
 	utime(f->name, &times);
 }

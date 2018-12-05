@@ -24,9 +24,9 @@ static void do_write_image_frombitmap(deark *c, lctx *d, struct page_ctx *pg,
 {
 	de_finfo *fi = NULL;
 
-	img->density_code = DE_DENSITY_UNK_UNITS;
-	img->xdens = 2;
-	img->ydens = 1;
+	img->density_fixme.code = DE_DENSITY_UNK_UNITS;
+	img->density_fixme.xdens = 2;
+	img->density_fixme.ydens = 1;
 
 	fi = de_finfo_create(c);
 	if(c->filenames_from_file && pg->imgname && (pg->imgname->len > 0)) {

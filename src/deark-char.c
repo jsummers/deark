@@ -597,15 +597,15 @@ static void set_density(deark *c, struct de_char_context *charctx,
 
 	if(ectx->char_height_in_pixels==16 && ectx->char_width_in_pixels==8) {
 		// Assume the intended display is 640x400.
-		img->density_code = DE_DENSITY_UNK_UNITS;
-		img->xdens = 480.0;
-		img->ydens = 400.0;
+		img->density_fixme.code = DE_DENSITY_UNK_UNITS;
+		img->density_fixme.xdens = 480.0;
+		img->density_fixme.ydens = 400.0;
 	}
 	else if(ectx->char_height_in_pixels==16 && ectx->char_width_in_pixels==9) {
 		// Assume the intended display is 720x400.
-		img->density_code = DE_DENSITY_UNK_UNITS;
-		img->xdens = 540.0;
-		img->ydens = 400.0;
+		img->density_fixme.code = DE_DENSITY_UNK_UNITS;
+		img->density_fixme.xdens = 540.0;
+		img->density_fixme.ydens = 400.0;
 	}
 }
 

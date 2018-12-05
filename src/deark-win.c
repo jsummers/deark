@@ -245,14 +245,15 @@ void de_update_file_time(dbuf *f)
 	deark *c;
 
 	if(f->btype!=DBUF_TYPE_OFILE) return;
-	if(!f->mod_time.is_valid) return;
+	if(!f->fi_copy) return;
+	if(!f->fi_copy->mod_time.is_valid) return;
 	if(!f->name) return;
 	c = f->c;
 
 	fnW = de_utf8_to_utf16_strdup(c, f->name);
 
 	// TODO: Support higher precision timestamps (SetFileTime()?)
-	times.modtime = de_timestamp_to_unix_time(&f->mod_time);
+	times.modtime = de_timestamp_to_unix_time(&f->fi_copy->mod_time);
 	times.actime = times.modtime;
 	_wutime64(fnW, &times);
 

@@ -505,9 +505,9 @@ static de_bitmap *bmp_bitmap_create(deark *c, lctx *d, int bypp)
 	img = de_bitmap_create(c, d->width, d->height, bypp);
 	img->flipped = !d->top_down;
 	if(d->xpelspermeter>0 && d->ypelspermeter>0) {
-		img->density_code = DE_DENSITY_DPI;
-		img->xdens = (double)d->xpelspermeter * 0.0254;
-		img->ydens = (double)d->ypelspermeter * 0.0254;
+		img->density_fixme.code = DE_DENSITY_DPI;
+		img->density_fixme.xdens = (double)d->xpelspermeter * 0.0254;
+		img->density_fixme.ydens = (double)d->ypelspermeter * 0.0254;
 	}
 	return img;
 }

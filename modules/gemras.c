@@ -135,9 +135,9 @@ done1:
 static void set_density(deark *c, lctx *d, de_bitmap *img)
 {
 	if(d->pixwidth>0 && d->pixheight>0) {
-		img->density_code = DE_DENSITY_DPI;
-		img->xdens = 25400.0/(double)d->pixwidth;
-		img->ydens = 25400.0/(double)d->pixheight;
+		img->density_fixme.code = DE_DENSITY_DPI;
+		img->density_fixme.xdens = 25400.0/(double)d->pixwidth;
+		img->density_fixme.ydens = 25400.0/(double)d->pixheight;
 	}
 }
 

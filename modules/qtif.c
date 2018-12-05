@@ -74,9 +74,9 @@ static void do_decode_raw(deark *c, lctx *d)
 
 	img = de_bitmap_create(c, d->width, d->height, 3);
 
-	img->density_code = DE_DENSITY_DPI;
-	img->xdens = d->hres;
-	img->ydens = d->vres;
+	img->density_fixme.code = DE_DENSITY_DPI;
+	img->density_fixme.xdens = d->hres;
+	img->density_fixme.ydens = d->vres;
 
 	// Warning: This code is based on reverse engineering, and may not be correct.
 	// TODO: Is the first sample for transparency?

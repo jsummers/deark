@@ -716,9 +716,9 @@ static void de_run_hr(deark *c, de_module_params *mparams)
 	de_bitmap *img = NULL;
 
 	img = de_bitmap_create(c, 640, 240, 1);
-	img->density_code = DE_DENSITY_UNK_UNITS;
-	img->xdens = 2;
-	img->ydens = 1;
+	img->density_fixme.code = DE_DENSITY_UNK_UNITS;
+	img->density_fixme.xdens = 2;
+	img->density_fixme.ydens = 1;
 	de_convert_image_bilevel(c->infile, 0, 640/8, img, 0);
 	de_bitmap_write_to_file_finfo(img, NULL, 0);
 	de_bitmap_destroy(img);

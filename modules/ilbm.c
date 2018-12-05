@@ -253,14 +253,14 @@ static void set_density(deark *c, lctx *d, de_bitmap *img)
 	// TODO: Warn about inconsistent aspect ratio vs. DPI?
 
 	if(has_dpi) {
-		img->density_code = DE_DENSITY_DPI;
-		img->xdens = (double)d->x_dpi;
-		img->ydens = (double)d->y_dpi;
+		img->density_fixme.code = DE_DENSITY_DPI;
+		img->density_fixme.xdens = (double)d->x_dpi;
+		img->density_fixme.ydens = (double)d->y_dpi;
 	}
 	else if(has_aspect) {
-		img->density_code = DE_DENSITY_UNK_UNITS;
-		img->ydens = (double)d->x_aspect;
-		img->xdens = (double)d->y_aspect;
+		img->density_fixme.code = DE_DENSITY_UNK_UNITS;
+		img->density_fixme.ydens = (double)d->x_aspect;
+		img->density_fixme.xdens = (double)d->y_aspect;
 	}
 }
 

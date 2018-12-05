@@ -438,9 +438,9 @@ static void de_run_ftc(deark *c, de_module_params *mparams)
 	adata->h = 240;
 	adata->unc_pixels = c->infile;
 	adata->img = de_bitmap_create(c, adata->w, adata->h, 3);
-	adata->img->density_code = DE_DENSITY_UNK_UNITS;
-	adata->img->xdens = 288;
-	adata->img->ydens = 240;
+	adata->img->density_fixme.code = DE_DENSITY_UNK_UNITS;
+	adata->img->density_fixme.xdens = 288;
+	adata->img->density_fixme.ydens = 240;
 	de_fmtutil_atari_decode_image(c, adata);
 	de_bitmap_write_to_file(adata->img, NULL, 0);
 	de_bitmap_destroy(adata->img);
@@ -1233,9 +1233,9 @@ static void decode_falcon_8bit_image(deark *c, struct atari_img_decode_data *ada
 	adata->img = de_bitmap_create(c, adata->w, adata->h, 3);
 
 	if(adata->w==320 && adata->h==200) {
-		adata->img->density_code = DE_DENSITY_UNK_UNITS;
-		adata->img->xdens = 240.0;
-		adata->img->ydens = 200.0;
+		adata->img->density_fixme.code = DE_DENSITY_UNK_UNITS;
+		adata->img->density_fixme.xdens = 240.0;
+		adata->img->density_fixme.ydens = 200.0;
 	}
 
 	for(j=0; j<adata->h; j++) {
@@ -1404,9 +1404,9 @@ static void de_run_falcon_xga(deark *c, de_module_params *mparams)
 	adata->unc_pixels = c->infile;
 	adata->img = de_bitmap_create(c, adata->w, adata->h, 3);
 	if(adata->w==384 && adata->h == 480) {
-		adata->img->density_code = DE_DENSITY_UNK_UNITS;
-		adata->img->xdens = 384;
-		adata->img->ydens = 640;
+		adata->img->density_fixme.code = DE_DENSITY_UNK_UNITS;
+		adata->img->density_fixme.xdens = 384;
+		adata->img->density_fixme.ydens = 640;
 	}
 	de_fmtutil_atari_decode_image(c, adata);
 	de_bitmap_write_to_file(adata->img, NULL, 0);
@@ -1454,9 +1454,9 @@ static void de_run_coke(deark *c, de_module_params *mparams)
 		imgdatapos, c->infile->len-imgdatapos);
 	adata->img = de_bitmap_create(c, adata->w, adata->h, 3);
 
-	adata->img->density_code = DE_DENSITY_UNK_UNITS;
-	adata->img->xdens = 288;
-	adata->img->ydens = 240;
+	adata->img->density_fixme.code = DE_DENSITY_UNK_UNITS;
+	adata->img->density_fixme.xdens = 288;
+	adata->img->density_fixme.ydens = 240;
 
 	de_fmtutil_atari_decode_image(c, adata);
 	de_bitmap_write_to_file(adata->img, NULL, 0);

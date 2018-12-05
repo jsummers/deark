@@ -45,35 +45,35 @@ static void set_density(deark *c, lctx *d)
 	case 'I':
 	case 'J':
 	case 'L':
-		d->img->density_code = DE_DENSITY_UNK_UNITS;
-		d->img->xdens = 240.0;
-		d->img->ydens = 200.0;
+		d->img->density_fixme.code = DE_DENSITY_UNK_UNITS;
+		d->img->density_fixme.xdens = 240.0;
+		d->img->density_fixme.ydens = 200.0;
 		break;
 	case 'H': // 720x348 (Hercules)
 	case 'N':
-		d->img->density_code = DE_DENSITY_UNK_UNITS;
+		d->img->density_fixme.code = DE_DENSITY_UNK_UNITS;
 		// Various sources suggest aspect ratios of 1.46, 1.55, 1.59, ...
-		d->img->xdens = 155.0;
-		d->img->ydens = 100.0;
+		d->img->density_fixme.xdens = 155.0;
+		d->img->density_fixme.ydens = 100.0;
 		break;
 	case 'E': // 640x350
 	case 'F':
 	case 'G':
-		d->img->density_code = DE_DENSITY_UNK_UNITS;
-		d->img->xdens = 480.0;
-		d->img->ydens = 350.0;
+		d->img->density_fixme.code = DE_DENSITY_UNK_UNITS;
+		d->img->density_fixme.xdens = 480.0;
+		d->img->density_fixme.ydens = 350.0;
 		break;
 	case 'K':
 	case 'R':
-		d->img->density_code = DE_DENSITY_UNK_UNITS;
-		d->img->xdens = 480.0;
-		d->img->ydens = 400.0;
+		d->img->density_fixme.code = DE_DENSITY_UNK_UNITS;
+		d->img->density_fixme.xdens = 480.0;
+		d->img->density_fixme.ydens = 400.0;
 		break;
 	case 'C':
 	case 'D':
-		d->img->density_code = DE_DENSITY_UNK_UNITS;
-		d->img->xdens = 480.0;
-		d->img->ydens = 200.0;
+		d->img->density_fixme.code = DE_DENSITY_UNK_UNITS;
+		d->img->density_fixme.xdens = 480.0;
+		d->img->density_fixme.ydens = 200.0;
 		break;
 	}
 }

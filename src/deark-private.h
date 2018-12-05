@@ -49,6 +49,8 @@ struct de_ucstring_struct;
 typedef struct de_ucstring_struct de_ucstring;
 struct dbuf_struct;
 typedef struct dbuf_struct dbuf;
+struct de_finfo_struct;
+typedef struct de_finfo_struct de_finfo;
 
 struct de_module_params_struct;
 typedef struct de_module_params_struct de_module_params;
@@ -146,13 +148,22 @@ struct dbuf_struct {
 	de_int64 cache2_bytes_used;
 	de_byte cache2[1];
 
-	// Things copied from a de_finfo object
-	unsigned int mode_flags;
-	struct de_timestamp mod_time;
-	struct de_timestamp image_mod_time;
+	// Things copied from the de_finfo object at file creation
+	de_finfo *fi_copy;
 };
 
-// Extended information about a file to be written.
+// Image density (resolution) settings
+struct de_density_info {
+#define DE_DENSITY_UNKNOWN   0
+#define DE_DENSITY_UNK_UNITS 1
+#define DE_DENSITY_DPI       2
+	int code;
+	// Note: If units are unknown, xdens and ydens must be integers.
+	double xdens;
+	double ydens;
+};
+
+// Extended information & metadata about a file to be written.
 struct de_finfo_struct {
 	de_ucstring *file_name;
 	de_byte original_filename_flag; // Indicates if .file_name is a real file name
@@ -163,8 +174,9 @@ struct de_finfo_struct {
 
 	struct de_timestamp mod_time; // Mod time of an archived file
 	struct de_timestamp image_mod_time; // Mod time of an image (for PNG tIME chunk)
+
+	struct de_density_info density;
 };
-typedef struct de_finfo_struct de_finfo;
 
 struct deark_bitmap_struct {
 	deark *c;
@@ -180,13 +192,7 @@ struct deark_bitmap_struct {
 	int orig_colortype; // Optional; can be used by modules
 	int orig_bitdepth; // Optional; can be used by modules
 
-#define DE_DENSITY_UNKNOWN   0
-#define DE_DENSITY_UNK_UNITS 1
-#define DE_DENSITY_DPI       2
-	int density_code;
-	// Note: If units are unknown, xdens and ydens must be integers.
-	double xdens;
-	double ydens;
+	struct de_density_info density_fixme;
 };
 typedef struct deark_bitmap_struct de_bitmap;
 

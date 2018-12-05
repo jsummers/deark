@@ -211,21 +211,21 @@ int de_write_png(deark *c, de_bitmap *img, dbuf *f)
 		return 0;
 	}
 
-	if(img->density_code>0 && c->write_density) {
+	if(img->density_fixme.code>0 && c->write_density) {
 		pei.has_phys = 1;
-		if(img->density_code==1) { // unspecified units
+		if(img->density_fixme.code==1) { // unspecified units
 			pei.phys_units = 0;
-			pei.xdens = (mz_uint32)(img->xdens+0.5);
-			pei.ydens = (mz_uint32)(img->ydens+0.5);
+			pei.xdens = (mz_uint32)(img->density_fixme.xdens+0.5);
+			pei.ydens = (mz_uint32)(img->density_fixme.ydens+0.5);
 		}
-		else if(img->density_code==2) { // dpi
+		else if(img->density_fixme.code==2) { // dpi
 			pei.phys_units = 1; // pixels/meter
-			pei.xdens = (mz_uint32)(0.5+img->xdens/0.0254);
-			pei.ydens = (mz_uint32)(0.5+img->ydens/0.0254);
+			pei.xdens = (mz_uint32)(0.5+img->density_fixme.xdens/0.0254);
+			pei.ydens = (mz_uint32)(0.5+img->density_fixme.ydens/0.0254);
 		}
 	}
 
-	if(pei.has_phys && pei.xdens==pei.ydens && img->density_code==1) {
+	if(pei.has_phys && pei.xdens==pei.ydens && img->density_fixme.code==1) {
 		// Useless density information. Don't bother to write it.
 		pei.has_phys = 0;
 	}
@@ -247,8 +247,8 @@ int de_write_png(deark *c, de_bitmap *img, dbuf *f)
 	pei.num_chans = img->bytes_per_pixel;
 	pei.level = 9;
 
-	if(f->image_mod_time.is_valid) {
-		pei.image_mod_time = f->image_mod_time;
+	if(f->fi_copy && f->fi_copy->image_mod_time.is_valid) {
+		pei.image_mod_time = f->fi_copy->image_mod_time;
 	}
 
 	if(!do_generate_png(&pei, img->bitmap)) {
@@ -518,8 +518,8 @@ void de_zip_add_file_to_archive(deark *c, dbuf *f)
 
 	de_dbg(c, "adding to zip: name:%s len:%d", f->name, (int)dbuf_get_length(f));
 
-	if(c->preserve_file_times && f->mod_time.is_valid) {
-		dfa.modtime = de_timestamp_to_unix_time(&f->mod_time);
+	if(c->preserve_file_times && f->fi_copy && f->fi_copy->mod_time.is_valid) {
+		dfa.modtime = de_timestamp_to_unix_time(&f->fi_copy->mod_time);
 		dfa.modtime_valid = 1;
 	}
 	else if(c->reproducible_output) {
@@ -537,7 +537,9 @@ void de_zip_add_file_to_archive(deark *c, dbuf *f)
 		dfa.modtime_valid = 1;
 	}
 
-	dfa.is_executable = (f->mode_flags&DE_MODEFLAG_EXE)?1:0;
+	if(f->fi_copy && (f->fi_copy->mode_flags&DE_MODEFLAG_EXE)) {
+		dfa.is_executable = 1;
+	}
 
 	// Create ZIP "extra data" "Extended Timestamp" fields, containing the
 	// UTC timestamp.
