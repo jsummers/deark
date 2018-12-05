@@ -40,6 +40,7 @@ struct img_info {
 	de_int64 planespan;
 	de_int64 bits_per_row_per_plane;
 	de_byte masking_code;
+	int is_thumb;
 	const char *filename_token;
 };
 
@@ -243,24 +244,28 @@ static void get_row_vdat(deark *c, lctx *d, struct img_info *ii,
 	}
 }
 
-static void set_density(deark *c, lctx *d, de_bitmap *img)
+static void set_density_and_filename(deark *c, lctx *d, struct img_info *ii, de_finfo *fi)
 {
 	int has_aspect, has_dpi;
+
+	if(ii->filename_token) {
+		de_finfo_set_name_from_sz(c, fi, ii->filename_token, DE_ENCODING_UTF8);
+	}
 
 	has_aspect = (d->x_aspect>0 && d->y_aspect>0);
 	has_dpi = (d->x_dpi>0 && d->y_dpi>0);
 
 	// TODO: Warn about inconsistent aspect ratio vs. DPI?
 
-	if(has_dpi) {
-		img->density_fixme.code = DE_DENSITY_DPI;
-		img->density_fixme.xdens = (double)d->x_dpi;
-		img->density_fixme.ydens = (double)d->y_dpi;
+	if(has_dpi && !ii->is_thumb) {
+		fi->density.code = DE_DENSITY_DPI;
+		fi->density.xdens = (double)d->x_dpi;
+		fi->density.ydens = (double)d->y_dpi;
 	}
 	else if(has_aspect) {
-		img->density_fixme.code = DE_DENSITY_UNK_UNITS;
-		img->density_fixme.ydens = (double)d->x_aspect;
-		img->density_fixme.xdens = (double)d->y_aspect;
+		fi->density.code = DE_DENSITY_UNK_UNITS;
+		fi->density.ydens = (double)d->x_aspect;
+		fi->density.xdens = (double)d->y_aspect;
 	}
 }
 
@@ -268,6 +273,7 @@ static void do_image_24(deark *c, lctx *d, struct img_info *ii,
 	dbuf *unc_pixels, unsigned int createflags)
 {
 	de_bitmap *img = NULL;
+	de_finfo *fi = NULL;
 	de_int64 i, j;
 	de_byte *row_orig = NULL;
 	de_byte *row_deplanarized = NULL;
@@ -284,7 +290,8 @@ static void do_image_24(deark *c, lctx *d, struct img_info *ii,
 	row_deplanarized = de_malloc(c, ii->width * 3);
 
 	img = de_bitmap_create(c, ii->width, ii->height, 3);
-	set_density(c, d, img);
+	fi = de_finfo_create(c);
+	set_density_and_filename(c, d, ii, fi);
 
 	for(j=0; j<ii->height; j++) {
 		dbuf_read(unc_pixels, row_orig, j*ii->rowspan, ii->rowspan);
@@ -298,9 +305,10 @@ static void do_image_24(deark *c, lctx *d, struct img_info *ii,
 		}
 	}
 
-	de_bitmap_write_to_file(img, ii->filename_token, createflags);
+	de_bitmap_write_to_file_finfo(img, fi, createflags);
 done:
 	de_bitmap_destroy(img);
+	de_finfo_destroy(c, fi);
 	de_free(c, row_orig);
 	de_free(c, row_deplanarized);
 }
@@ -375,6 +383,7 @@ static int do_image_1to8(deark *c, lctx *d, struct img_info *ii,
 	dbuf *unc_pixels, unsigned int createflags)
 {
 	de_bitmap *img = NULL;
+	de_finfo *fi = NULL;
 	de_int64 i, j;
 	de_byte *row_orig = NULL;
 	de_byte *row_deplanarized = NULL;
@@ -463,7 +472,8 @@ static int do_image_1to8(deark *c, lctx *d, struct img_info *ii,
 		dst_bytes_per_pixel++;
 
 	img = de_bitmap_create(c, ii->width, ii->height, dst_bytes_per_pixel);
-	set_density(c, d, img);
+	fi = de_finfo_create(c);
+	set_density_and_filename(c, d, ii, fi);
 
 	for(j=0; j<ii->height; j++) {
 		if(d->is_ham6 || d->is_ham8) {
@@ -561,11 +571,12 @@ static int do_image_1to8(deark *c, lctx *d, struct img_info *ii,
 			(int)unc_pixels->len);
 	}
 
-	de_bitmap_write_to_file(img, ii->filename_token, createflags);
+	de_bitmap_write_to_file_finfo(img, fi, createflags);
 	retval = 1;
 
 done:
 	de_bitmap_destroy(img);
+	de_finfo_destroy(c, fi);
 	de_free(c, row_orig);
 	de_free(c, row_deplanarized);
 	return retval;
@@ -703,6 +714,7 @@ static void do_tiny(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 	}
 	ii = de_malloc(c, sizeof(struct img_info));
 	*ii = d->main_img; // structure copy
+	ii->is_thumb = 1;
 	ii->width = de_getui16be(pos1);
 	if(len<=4) goto done;
 	ii->height = de_getui16be(pos1+2);

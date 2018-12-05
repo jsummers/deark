@@ -810,6 +810,10 @@ int de_havemodcode(deark *c, de_module_params *mparams, int code)
 	return 0;
 }
 
+// An finfo object holds metadata to be used when writing an output file.
+// It is passed to dbuf_create_output_file(), and related functions.
+// It does not have to remain valid after that function returns.
+// It is allowed to be reused.
 de_finfo *de_finfo_create(deark *c)
 {
 	de_finfo *fi;
@@ -828,6 +832,10 @@ void de_finfo_set_name_from_sz(deark *c, de_finfo *fi, const char *name1, int en
 {
 	de_int64 name1_len;
 
+	if(!name1) {
+		de_finfo_set_name_from_ucstring(c, fi, NULL);
+		return;
+	}
 	name1_len = (de_int64)de_strlen(name1);
 	de_finfo_set_name_from_bytes(c, fi, (const de_byte*)name1, name1_len, 0, encoding);
 }

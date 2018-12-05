@@ -3556,6 +3556,7 @@ static void do_bitmap(deark *c, lctx *d, const struct image_info *iinfo, dbuf *f
 	de_int64 pos, de_int64 len)
 {
 	de_bitmap *img = NULL;
+	de_finfo *fi = NULL;
 	de_int64 i, j, plane;
 	de_int64 nplanes = 0; // Number of planes to read. May be less than d->num_channels.
 	de_int64 planespan, rowspan, samplespan;
@@ -3597,8 +3598,10 @@ static void do_bitmap(deark *c, lctx *d, const struct image_info *iinfo, dbuf *f
 	img = de_bitmap_create(c, iinfo->width, iinfo->height,
 		iinfo->color_mode==PSD_CM_GRAY ? 1 : 3);
 
-	if(iinfo->density.code==DE_DENSITY_DPI) {
-		img->density_fixme = iinfo->density;
+	fi = de_finfo_create(c);
+
+	if(iinfo->density.code!=DE_DENSITY_UNKNOWN) {
+		fi->density = iinfo->density;
 	}
 
 	samplespan = iinfo->bits_per_channel/8;
@@ -3631,9 +3634,10 @@ static void do_bitmap(deark *c, lctx *d, const struct image_info *iinfo, dbuf *f
 		}
 	}
 
-	de_bitmap_write_to_file(img, NULL, 0);
+	de_bitmap_write_to_file_finfo(img, fi, 0);
 done:
 	de_bitmap_destroy(img);
+	de_finfo_destroy(c, fi);
 }
 
 static void do_bitmap_packbits(deark *c, lctx *d, zztype *zz, const struct image_info *iinfo)

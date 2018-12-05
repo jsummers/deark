@@ -27,12 +27,12 @@ typedef struct localctx_struct {
 
 	de_int64 screen_w, screen_h;
 	int has_global_color_table;
-	de_byte aspect_ratio_code;
 	de_int64 global_color_table_size; // Number of colors stored in the file
 	de_uint32 global_ct[256];
 
 	de_bitmap *screen_img;
 	struct gceinfo *gce; // The Graphic Control Ext. in effect for the next image
+	de_finfo *fi; // Reused for each image
 } lctx;
 
 // Data about a single image
@@ -326,6 +326,7 @@ static int do_read_screen_descriptor(deark *c, lctx *d, de_int64 pos)
 {
 	de_int64 bgcol_index;
 	de_byte packed_fields;
+	de_byte aspect_ratio_code;
 	unsigned int n;
 	unsigned int global_color_table_size_code;
 
@@ -367,8 +368,13 @@ static int do_read_screen_descriptor(deark *c, lctx *d, de_int64 pos)
 	bgcol_index = (de_int64)de_getbyte(pos+5);
 	de_dbg(c, "background color index: %d", (int)bgcol_index);
 
-	d->aspect_ratio_code = de_getbyte(pos+6);
-	de_dbg(c, "aspect ratio code: %d", (int)d->aspect_ratio_code);
+	aspect_ratio_code = de_getbyte(pos+6);
+	de_dbg(c, "aspect ratio code: %d", (int)aspect_ratio_code);
+	if(aspect_ratio_code!=0 && aspect_ratio_code!=49) {
+		d->fi->density.code = DE_DENSITY_UNK_UNITS;
+		d->fi->density.xdens = 64.0;
+		d->fi->density.ydens = 15.0 + (double)aspect_ratio_code;
+	}
 
 	de_dbg_indent(c, -1);
 	return 1;
@@ -698,7 +704,7 @@ static void do_plaintext_extension(deark *c, lctx *d, de_int64 pos)
 	}
 
 	if(d->compose) {
-		de_bitmap_write_to_file(d->screen_img, NULL, DE_CREATEFLAG_OPT_IMAGE);
+		de_bitmap_write_to_file_finfo(d->screen_img, d->fi, DE_CREATEFLAG_OPT_IMAGE);
 
 		// TODO: Too much code is duplicated with do_image().
 		if(disposal_method==DISPOSE_BKGD) {
@@ -1029,12 +1035,6 @@ static int do_image_internal(deark *c, lctx *d,
 		gi->img = de_bitmap_create(c, gi->width, gi->height, bypp);
 	}
 
-	if(d->aspect_ratio_code!=0 && d->aspect_ratio_code!=49) {
-		gi->img->density_fixme.code = DE_DENSITY_UNK_UNITS;
-		gi->img->density_fixme.xdens = 64.0;
-		gi->img->density_fixme.ydens = 15.0 + (double)d->aspect_ratio_code;
-	}
-
 	lz = de_malloc(c, sizeof(struct lzwdeccontext));
 	if(!lzw_init(c, lz, lzw_min_code_size)) {
 		failure_flag = 1;
@@ -1117,7 +1117,7 @@ static int do_image(deark *c, lctx *d, de_int64 pos1, de_int64 *bytesused)
 			0, 0, d->screen_img->width, d->screen_img->height,
 			gi->xpos, gi->ypos, DE_BITMAPFLAG_MERGE);
 
-		de_bitmap_write_to_file(d->screen_img, NULL, DE_CREATEFLAG_OPT_IMAGE);
+		de_bitmap_write_to_file_finfo(d->screen_img, d->fi, DE_CREATEFLAG_OPT_IMAGE);
 
 		if(disposal_method == DISPOSE_BKGD) {
 			de_bitmap_rect(d->screen_img, gi->xpos, gi->ypos, gi->width, gi->height,
@@ -1130,7 +1130,7 @@ static int do_image(deark *c, lctx *d, de_int64 pos1, de_int64 *bytesused)
 		}
 	}
 	else {
-		de_bitmap_write_to_file(gi->img, NULL, 0);
+		de_bitmap_write_to_file_finfo(gi->img, d->fi, 0);
 	}
 
 done:
@@ -1159,6 +1159,7 @@ static void de_run_gif(deark *c, de_module_params *mparams)
 
 	d = de_malloc(c, sizeof(lctx));
 	d->compose = 1;
+	d->fi = de_finfo_create(c);
 
 	if(de_get_ext_option(c, "gif:raw")) {
 		d->compose = 0;
@@ -1236,11 +1237,14 @@ done:
 	if(d) {
 		if(d->screen_img) {
 			if(d->dump_screen) {
-				de_bitmap_write_to_file(d->screen_img, "screen", DE_CREATEFLAG_OPT_IMAGE);
+				de_finfo_set_name_from_sz(c, d->fi, "screen", DE_ENCODING_LATIN1);
+				de_bitmap_write_to_file_finfo(d->screen_img, d->fi, DE_CREATEFLAG_OPT_IMAGE);
+				de_finfo_set_name_from_sz(c, d->fi, NULL, DE_ENCODING_LATIN1);
 			}
 			de_bitmap_destroy(d->screen_img);
 		}
 		discard_current_gce_data(c, d);
+		de_finfo_destroy(c, d->fi);
 		de_free(c, d);
 	}
 }

@@ -27,6 +27,7 @@ typedef struct localctx_struct {
 #define DE_BMPVER_WINV345  3 // Windows v3+
 	int version;
 
+	de_finfo *fi;
 	de_int64 fsize; // The "file size" field in the file header
 	de_int64 bits_offset; // The bfOffBits field in the file header
 	de_int64 infohdrsize;
@@ -343,6 +344,11 @@ static int read_infoheader(deark *c, lctx *d, de_int64 pos)
 		d->xpelspermeter = de_geti32le(pos+24);
 		d->ypelspermeter = de_geti32le(pos+28);
 		de_dbg(c, "density: %d"DE_CHAR_TIMES"%d pixels/meter", (int)d->xpelspermeter, (int)d->ypelspermeter);
+		if(d->xpelspermeter>0 && d->ypelspermeter>0) {
+			d->fi->density.code = DE_DENSITY_DPI;
+			d->fi->density.xdens = (double)d->xpelspermeter * 0.0254;
+			d->fi->density.ydens = (double)d->ypelspermeter * 0.0254;
+		}
 	}
 
 	if(d->infohdrsize>=36)
@@ -504,11 +510,6 @@ static de_bitmap *bmp_bitmap_create(deark *c, lctx *d, int bypp)
 
 	img = de_bitmap_create(c, d->width, d->height, bypp);
 	img->flipped = !d->top_down;
-	if(d->xpelspermeter>0 && d->ypelspermeter>0) {
-		img->density_fixme.code = DE_DENSITY_DPI;
-		img->density_fixme.xdens = (double)d->xpelspermeter * 0.0254;
-		img->density_fixme.ydens = (double)d->ypelspermeter * 0.0254;
-	}
 	return img;
 }
 
@@ -519,7 +520,7 @@ static void do_image_paletted(deark *c, lctx *d, dbuf *bits, de_int64 bits_offse
 	img = bmp_bitmap_create(c, d, d->pal_is_grayscale?1:3);
 	de_convert_image_paletted(bits, bits_offset,
 		d->bitcount, d->rowspan, d->pal, img, 0);
-	de_bitmap_write_to_file(img, NULL, 0);
+	de_bitmap_write_to_file_finfo(img, d->fi, 0);
 	de_bitmap_destroy(img);
 }
 
@@ -536,7 +537,7 @@ static void do_image_24bit(deark *c, lctx *d, dbuf *bits, de_int64 bits_offset)
 			de_bitmap_setpixel_rgb(img, i, j, clr);
 		}
 	}
-	de_bitmap_write_to_file(img, NULL, 0);
+	de_bitmap_write_to_file_finfo(img, d->fi, 0);
 	de_bitmap_destroy(img);
 }
 
@@ -583,7 +584,7 @@ static void do_image_16_32bit(deark *c, lctx *d, dbuf *bits, de_int64 bits_offse
 			de_bitmap_setpixel_rgba(img, i, j, DE_MAKE_RGBA(sm[0], sm[1], sm[2], sm[3]));
 		}
 	}
-	de_bitmap_write_to_file(img, NULL, 0);
+	de_bitmap_write_to_file_finfo(img, d->fi, 0);
 	de_bitmap_destroy(img);
 }
 
@@ -708,7 +709,7 @@ static void do_image_rle_4_8_24(deark *c, lctx *d, dbuf *bits, de_int64 bits_off
 		}
 	}
 
-	de_bitmap_write_to_file(img, NULL, DE_CREATEFLAG_OPT_IMAGE);
+	de_bitmap_write_to_file_finfo(img, d->fi, DE_CREATEFLAG_OPT_IMAGE);
 	de_bitmap_destroy(img);
 }
 
@@ -775,6 +776,7 @@ static void de_run_bmp(deark *c, de_module_params *mparams)
 	de_int64 pos;
 
 	d = de_malloc(c, sizeof(lctx));
+	d->fi = de_finfo_create(c);
 
 	if(dbuf_memcmp(c->infile, 0, "BM", 2)) {
 		de_err(c, "Not a BMP file.");
@@ -828,7 +830,10 @@ static void de_run_bmp(deark *c, de_module_params *mparams)
 	do_read_profile(c, d);
 
 done:
-	de_free(c, d);
+	if(d) {
+		de_finfo_destroy(c, d->fi);
+		de_free(c, d);
+	}
 }
 
 // Note that this function must work together with de_identify_vbm().
