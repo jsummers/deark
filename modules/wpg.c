@@ -200,6 +200,7 @@ static void handler_bitmap(deark *c, lctx *d, de_byte rectype, de_int64 dpos1, d
 	int record_version;
 	dbuf *unc_pixels = NULL;
 	de_bitmap *img = NULL;
+	de_finfo *fi = NULL;
 	de_uint32 finalpal[256];
 
 	d->bitmap_count++;
@@ -272,10 +273,12 @@ static void handler_bitmap(deark *c, lctx *d, de_byte rectype, de_int64 dpos1, d
 
 	img = de_bitmap_create(c, w, h, output_bypp);
 
+	fi = de_finfo_create(c);
+
 	if(xdens>0 && ydens>0) {
-		img->density_fixme.code = DE_DENSITY_DPI;
-		img->density_fixme.xdens = (double)xdens;
-		img->density_fixme.ydens = (double)ydens;
+		fi->density.code = DE_DENSITY_DPI;
+		fi->density.xdens = (double)xdens;
+		fi->density.ydens = (double)ydens;
 	}
 
 	if(is_bilevel) {
@@ -291,10 +294,11 @@ static void handler_bitmap(deark *c, lctx *d, de_byte rectype, de_int64 dpos1, d
 		de_convert_image_paletted(unc_pixels, 0, bpp, rowspan, finalpal, img, 0);
 	}
 
-	de_bitmap_write_to_file(img, NULL, 0);
+	de_bitmap_write_to_file_finfo(img, fi, 0);
 
 done:
 	de_bitmap_destroy(img);
+	de_finfo_destroy(c, fi);
 	dbuf_close(unc_pixels);
 }
 

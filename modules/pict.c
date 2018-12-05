@@ -479,6 +479,7 @@ static int decode_bitmap(deark *c, lctx *d, struct bitmapinfo *bi, de_int64 pos)
 	de_int64 j;
 	dbuf *unc_pixels = NULL;
 	de_bitmap *img = NULL;
+	de_finfo *fi = NULL;
 	de_int64 bytecount;
 	de_int64 bitmapsize;
 	int dst_nsamples;
@@ -530,10 +531,13 @@ static int decode_bitmap(deark *c, lctx *d, struct bitmapinfo *bi, de_int64 pos)
 	}
 
 	img = de_bitmap_create(c, bi->width, bi->height, dst_nsamples);
+
+	fi = de_finfo_create(c);
+
 	if(bi->hdpi>=1.0 && bi->vdpi>=1.0) {
-		img->density_fixme.code = DE_DENSITY_DPI;
-		img->density_fixme.xdens = bi->hdpi;
-		img->density_fixme.ydens = bi->vdpi;
+		fi->density.code = DE_DENSITY_DPI;
+		fi->density.xdens = bi->hdpi;
+		fi->density.ydens = bi->vdpi;
 	}
 
 	if(bi->uses_pal) {
@@ -548,9 +552,10 @@ static int decode_bitmap(deark *c, lctx *d, struct bitmapinfo *bi, de_int64 pos)
 		}
 	}
 
-	de_bitmap_write_to_file(img, NULL, 0);
+	de_bitmap_write_to_file_finfo(img, fi, 0);
 
 	de_bitmap_destroy(img);
+	de_finfo_destroy(c, fi);
 	dbuf_close(unc_pixels);
 	return 1;
 }

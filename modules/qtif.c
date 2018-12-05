@@ -62,6 +62,7 @@ done:
 static void do_decode_raw(deark *c, lctx *d)
 {
 	de_bitmap *img = NULL;
+	de_finfo *fi = NULL;
 	de_int64 i, j;
 	de_int64 rowspan;
 	de_uint32 clr;
@@ -74,9 +75,10 @@ static void do_decode_raw(deark *c, lctx *d)
 
 	img = de_bitmap_create(c, d->width, d->height, 3);
 
-	img->density_fixme.code = DE_DENSITY_DPI;
-	img->density_fixme.xdens = d->hres;
-	img->density_fixme.ydens = d->vres;
+	fi = de_finfo_create(c);
+	fi->density.code = DE_DENSITY_DPI;
+	fi->density.xdens = d->hres;
+	fi->density.ydens = d->vres;
 
 	// Warning: This code is based on reverse engineering, and may not be correct.
 	// TODO: Is the first sample for transparency?
@@ -95,9 +97,10 @@ static void do_decode_raw(deark *c, lctx *d)
 		}
 	}
 
-	de_bitmap_write_to_file(img, NULL, 0);
+	de_bitmap_write_to_file_finfo(img, fi, 0);
 done:
 	de_bitmap_destroy(img);
+	de_finfo_destroy(c, fi);
 }
 
 static void do_write_image(deark *c, lctx *d)

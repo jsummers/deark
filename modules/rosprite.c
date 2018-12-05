@@ -153,9 +153,12 @@ static void do_image(deark *c, lctx *d, struct page_ctx *pg, de_finfo *fi)
 	if(pg->has_mask) bypp++;
 
 	img = de_bitmap_create(c, pg->width, pg->height, bypp);
-	img->density_fixme.code = DE_DENSITY_DPI;
-	img->density_fixme.xdens = (double)pg->xdpi;
-	img->density_fixme.ydens = (double)pg->ydpi;
+
+	if(pg->xdpi>0) {
+		fi->density.code = DE_DENSITY_DPI;
+		fi->density.xdens = (double)pg->xdpi;
+		fi->density.ydens = (double)pg->ydpi;
+	}
 
 	de_dbg(c, "image data at %d", (int)pg->image_offset);
 	if(pg->has_mask) {

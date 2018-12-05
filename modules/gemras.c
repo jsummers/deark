@@ -132,12 +132,12 @@ done1:
 	d->pattern_buf = NULL;
 }
 
-static void set_density(deark *c, lctx *d, de_bitmap *img)
+static void set_density(deark *c, lctx *d, de_finfo *fi)
 {
 	if(d->pixwidth>0 && d->pixheight>0) {
-		img->density_fixme.code = DE_DENSITY_DPI;
-		img->density_fixme.xdens = 25400.0/(double)d->pixwidth;
-		img->density_fixme.ydens = 25400.0/(double)d->pixheight;
+		fi->density.code = DE_DENSITY_DPI;
+		fi->density.xdens = 25400.0/(double)d->pixwidth;
+		fi->density.ydens = 25400.0/(double)d->pixheight;
 	}
 }
 
@@ -181,6 +181,7 @@ static int do_gem_img(deark *c, lctx *d)
 {
 	dbuf *unc_pixels = NULL;
 	de_bitmap *img = NULL;
+	de_finfo *fi = NULL;
 	int is_color = 0;
 	de_int64 k;
 
@@ -199,7 +200,9 @@ static int do_gem_img(deark *c, lctx *d)
 	uncompress_pixels(c, d, unc_pixels, d->header_size_in_bytes, c->infile->len-d->header_size_in_bytes);
 
 	img = de_bitmap_create(c, d->w, d->h, is_color?3:1);
-	set_density(c, d, img);
+
+	fi = de_finfo_create(c);
+	set_density(c, d, fi);
 
 	if(d->nplanes==1) {
 		de_convert_image_bilevel(unc_pixels, 0, d->rowspan_per_plane, img, DE_CVTF_WHITEISZERO);
@@ -221,9 +224,10 @@ static int do_gem_img(deark *c, lctx *d)
 		read_paletted_image(c, d, unc_pixels, img);
 	}
 
-	de_bitmap_write_to_file_finfo(img, NULL, 0);
+	de_bitmap_write_to_file_finfo(img, fi, 0);
 
 	de_bitmap_destroy(img);
+	de_finfo_destroy(c, fi);
 	dbuf_close(unc_pixels);
 	return 1;
 }
@@ -284,6 +288,7 @@ static int do_gem_ximg(deark *c, lctx *d)
 {
 	dbuf *unc_pixels = NULL;
 	de_bitmap *img = NULL;
+	de_finfo *fi = NULL;
 	int retval = 0;
 	int saved_indent_level;
 
@@ -329,7 +334,9 @@ static int do_gem_ximg(deark *c, lctx *d)
 	uncompress_pixels(c, d, unc_pixels, d->header_size_in_bytes, c->infile->len-d->header_size_in_bytes);
 
 	img = de_bitmap_create(c, d->w, d->h, 3);
-	set_density(c, d, img);
+
+	fi = de_finfo_create(c);
+	set_density(c, d, fi);
 
 	if(d->nplanes>8) {
 		read_rgb_image(c, d, unc_pixels, img);
@@ -338,13 +345,14 @@ static int do_gem_ximg(deark *c, lctx *d)
 		read_paletted_image(c, d, unc_pixels, img);
 	}
 
-	de_bitmap_write_to_file_finfo(img, NULL, 0);
+	de_bitmap_write_to_file_finfo(img, fi, 0);
 
-	de_bitmap_destroy(img);
-	dbuf_close(unc_pixels);
 	retval = 1;
 
 done:
+	de_bitmap_destroy(img);
+	de_finfo_destroy(c, fi);
+	dbuf_close(unc_pixels);
 	de_dbg_indent_restore(c, saved_indent_level);
 	return retval;
 }

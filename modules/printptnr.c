@@ -24,11 +24,11 @@ static void do_write_image_frombitmap(deark *c, lctx *d, struct page_ctx *pg,
 {
 	de_finfo *fi = NULL;
 
-	img->density_fixme.code = DE_DENSITY_UNK_UNITS;
-	img->density_fixme.xdens = 2;
-	img->density_fixme.ydens = 1;
-
 	fi = de_finfo_create(c);
+	fi->density.code = DE_DENSITY_UNK_UNITS;
+	fi->density.xdens = 2;
+	fi->density.ydens = 1;
+
 	if(c->filenames_from_file && pg->imgname && (pg->imgname->len > 0)) {
 		de_finfo_set_name_from_ucstring(c, fi, pg->imgname);
 	}

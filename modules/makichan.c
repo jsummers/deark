@@ -403,20 +403,24 @@ static int do_mag_decompress(deark *c, lctx *d)
 static void do_create_image(deark *c, lctx *d)
 {
 	de_bitmap *img = NULL;
+	de_finfo *fi = NULL;
 
 	img = de_bitmap_create(c, d->width, d->height, 3);
 
+	fi = de_finfo_create(c);
+
 	if(d->aspect_ratio_flag) {
-		img->density_fixme.code = DE_DENSITY_UNK_UNITS;
-		img->density_fixme.xdens = 2.0;
-		img->density_fixme.ydens = 1.0;
+		fi->density.code = DE_DENSITY_UNK_UNITS;
+		fi->density.xdens = 2.0;
+		fi->density.ydens = 1.0;
 	}
 
 	de_convert_image_paletted(d->unc_pixels, 0,
 		d->bits_per_pixel, d->rowspan, d->pal, img, 0);
 
-	de_bitmap_write_to_file(img, NULL, 0);
+	de_bitmap_write_to_file_finfo(img, fi, 0);
 	de_bitmap_destroy(img);
+	de_finfo_destroy(c, fi);
 }
 
 // Sets d->header_pos
