@@ -226,12 +226,8 @@ algorithms, tables, color palettes, etc. The author(s) of Deark make no
 intellectual property claims to this essential knowledge, but they cannot
 guarantee that no one else will attempt to do so.
 
-Deark contains at least one bitmapped font, which has been reported to be in
-the public domain.
-
-Prior to version 1.4.x, Deark was released as public domain software. This
-means that much of this code may be in the public domain, assuming that is
-legally permissible in your jurisdiction.
+Deark contains VGA and CGA bitmapped fonts, which have no known copyright
+claims.
 
 Be particularly wary of relying on Deark to decode archive and compression
 formats (tar, ar, gzip, cpio, ...). For example, to decode tar format, you
@@ -260,5 +256,5 @@ Thanks to countless others who have documented the supported file formats.
 
 Written by Jason Summers, 2014-2018.<br>
 Copyright &copy; 2016-2018 Jason Summers<br>
-[http://entropymine.com/deark/](http://entropymine.com/deark/)<br>
+[https://entropymine.com/deark/](https://entropymine.com/deark/)<br>
 [https://github.com/jsummers/deark](https://github.com/jsummers/deark)

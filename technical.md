@@ -5,24 +5,31 @@ file.
 
 ## Mission statement ##
 
+Deark has several related purposes:
+
+* To find interesting things that are stored in files, but usually ignored,
+such as thumbnail images and comments.
+
+* To rescue data from uncommon file formats, and to be a convenient way to
+decode many different formats.
+
+* The "-d" option is a core feature, and can help to learn about a file and its
+format, whether or not anything is extracted from it.
+
+* Digital preservation of information about file formats. Its source code
+encapsulates information about some formats that might otherwise be hard to
+find.
+
 There's not much rhyme or reason to the formats Deark supports, or to its
 features. It exists mainly because I've written too many one-off programs to
 decode file formats, and wanted to put everything in one place. Part of the
 goal is to support (mainly old) formats that are under-served by other
-open-source software. Most of the formats it currently supports are related to
+open-source software. Many of the formats it currently supports are related to
 graphics, but it is not limited to graphics formats.
 
-One of Deark's purposes is as a tool to find interesting things that are stored
-in files, but usually ignored, such as thumbnail images and comments. The "-d"
-option is a core feature, and can often be used to learn a lot about the file
-in question, whether or not anything is extracted from it.
-
-Another purpose is digital preservation. It is meant to encapsulate information
-about old formats that might otherwise be hard to find.
-
-One guideline is that any image format supported by XnView, and not by any
-well-maintained open source software, is a candidate for being supported, no
-matter how obscure it may be.
+One guideline is that any image format supported by the XnView image viewer,
+and not by any well-maintained open source software, is a candidate for being
+supported, no matter how obscure it may be.
 
 ## Security ##
 
