@@ -663,6 +663,9 @@ typedef int (*de_buffered_read_cbfn)(deark *c, void *userdata, const de_byte *bu
 int dbuf_buffered_read(dbuf *f, de_int64 pos, de_int64 len,
 	de_buffered_read_cbfn cbfn, void *userdata);
 
+int de_is_all_zeroes(const de_byte *b, de_int64 n);
+int dbuf_is_all_zeroes(dbuf *f, de_int64 pos, de_int64 len);
+
 ///////////////////////////////////////////
 
 void de_bitmap_write_to_file(de_bitmap *img, const char *token, unsigned int createflags);

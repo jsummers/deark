@@ -1543,6 +1543,7 @@ void dbuf_read_fourcc(dbuf *f, de_int64 pos, struct de_fourcc *fcc,
 // cbfn: Caller-implemented callback function.
 //   It is required to consume all supplied bytes.
 //   It should return 1 normally, 0 to abort.
+// Return value: 1 normally, 0 if the callback function ever returned 0.
 int dbuf_buffered_read(dbuf *f, de_int64 pos1, de_int64 len,
 	de_buffered_read_cbfn cbfn, void *userdata)
 {
@@ -1565,4 +1566,25 @@ int dbuf_buffered_read(dbuf *f, de_int64 pos1, de_int64 len,
 	retval = 1;
 done:
 	return retval;
+}
+
+int de_is_all_zeroes(const de_byte *b, de_int64 n)
+{
+	de_int64 k;
+	for(k=0; k<n; k++) {
+		if(b[k]!=0) return 0;
+	}
+	return 1;
+}
+
+static int is_all_zeroes_cbfn(deark *c, void *userdata, const de_byte *buf,
+	de_int64 buf_len)
+{
+	return de_is_all_zeroes(buf, buf_len);
+}
+
+// Returns 1 if the given slice has only bytes with value 0.
+int dbuf_is_all_zeroes(dbuf *f, de_int64 pos, de_int64 len)
+{
+	return dbuf_buffered_read(f, pos, len, is_all_zeroes_cbfn, NULL);
 }

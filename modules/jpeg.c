@@ -1954,16 +1954,6 @@ done:
 	return retval;
 }
 
-static int is_all_zeroes(dbuf *f, de_int64 pos1, de_int64 len)
-{
-	de_int64 k;
-
-	for(k=0; k<len; k++) {
-		if(dbuf_getbyte(f, pos1+k)!=0) return 0;
-	}
-	return 1;
-}
-
 static void do_jpeg_internal(deark *c, struct file_ctx *fctx)
 {
 	de_int64 pos;
@@ -2001,7 +1991,7 @@ static void do_jpeg_internal(deark *c, struct file_ctx *fctx)
 		goto done;
 	}
 
-	if(is_all_zeroes(c->infile, pos, extra_bytes_at_eof)) goto done;
+	if(dbuf_is_all_zeroes(c->infile, pos, extra_bytes_at_eof)) goto done;
 
 	de_msg(c, "Note: %"INT64_FMT" bytes of unidentified data found at end "
 		"of file (starting at %"INT64_FMT").", extra_bytes_at_eof, pos);

@@ -1336,9 +1336,7 @@ static void de_run_fpaint_pi9(deark *c, de_module_params *mparams)
 static int de_identify_fpaint_pi9(deark *c)
 {
 	int pi4_ext, pi9_ext;
-	de_byte *buf;
-	de_int64 i;
-	int flag;
+
 	if(c->infile->len!=77824 && c->infile->len!=65024) return 0;
 
 	pi4_ext = de_input_file_has_ext(c, "pi4");
@@ -1350,16 +1348,10 @@ static int de_identify_fpaint_pi9(deark *c)
 	// If file size is 77824, we need to distinguish between PI4 (320x240) and
 	// PI9 (320x200) format.
 	// Best guess is that if the last 12800 bytes are all 0, we should assume PI9.
-
-	buf = de_malloc(c, 12800);
-	de_read(buf, 65024, 12800);
-	flag = 0;
-	for(i=0; i<12800; i++) {
-		if(buf[i]) { flag=1; break; }
+	if(!dbuf_is_all_zeroes(c->infile, 65024, 12800)) {
+		return 0; // Will be identified elsewhere as PI4.
 	}
-	de_free(c, buf);
 
-	if(flag) return 0; // Will be identified elsewhere as PI4.
 	return 60; // PI9. Must be higher than the value PI4 uses.
 }
 

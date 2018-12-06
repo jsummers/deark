@@ -240,15 +240,6 @@ static void de_run_macbinary(deark *c, de_module_params *mparams)
 	}
 }
 
-static int is_all_zeroes(const de_byte *b, int n)
-{
-	int k;
-	for(k=0; k<n; k++) {
-		if(b[k]!=0) return 0;
-	}
-	return 1;
-}
-
 // The goal is to identify MacBinary and MacBinary II files that are
 // valid, and not too pathological.
 // Note: This must be coordinated with the macpaint detection routine.
@@ -296,7 +287,7 @@ static int de_identify_macbinary(deark *c)
 	if(ver2>=129) {
 		// Most MacBinary II specific checks go here
 
-		if(!is_all_zeroes(&b[102], 14)) goto done;
+		if(!de_is_all_zeroes(&b[102], 14)) goto done;
 
 		// Min. ext. version needed to read file (??)
 		if(b[123]!=0 && b[123]!=129) goto done;
@@ -310,11 +301,11 @@ static int de_identify_macbinary(deark *c)
 	else {
 		// Most Original MacBinary format checks go here
 
-		// An empty file is not illegal, but we need more check that don't
+		// An empty file is not illegal, but we need more checks that don't
 		// allow all 0 bytes.
 		if(dflen==0 && rflen==0) goto done;
 
-		if(!is_all_zeroes(&b[99], 27)) goto done;
+		if(!de_is_all_zeroes(&b[99], 27)) goto done;
 	}
 
 	// Check the file size.
