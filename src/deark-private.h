@@ -825,8 +825,6 @@ de_finfo *de_finfo_create(deark *c);
 void de_finfo_destroy(deark *c, de_finfo *fi);
 
 void de_finfo_set_name_from_ucstring(deark *c, de_finfo *fi, de_ucstring *s);
-void de_finfo_set_name_from_bytes(deark *c, de_finfo *fi, const de_byte *name1,
-	de_int64 name1_len, unsigned int conv_flags, int encoding);
 void de_finfo_set_name_from_sz(deark *c, de_finfo *fi, const char *name1,
 	int encoding);
 

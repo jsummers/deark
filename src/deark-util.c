@@ -828,18 +828,6 @@ void de_finfo_destroy(deark *c, de_finfo *fi)
 	de_free(c, fi);
 }
 
-void de_finfo_set_name_from_sz(deark *c, de_finfo *fi, const char *name1, int encoding)
-{
-	de_int64 name1_len;
-
-	if(!name1) {
-		de_finfo_set_name_from_ucstring(c, fi, NULL);
-		return;
-	}
-	name1_len = (de_int64)de_strlen(name1);
-	de_finfo_set_name_from_bytes(c, fi, (const de_byte*)name1, name1_len, 0, encoding);
-}
-
 // Takes ownership of 's', and may modify it.
 static void de_finfo_set_name_internal(deark *c, de_finfo *fi, de_ucstring *s)
 {
@@ -873,15 +861,16 @@ void de_finfo_set_name_from_ucstring(deark *c, de_finfo *fi, de_ucstring *s)
 	de_finfo_set_name_internal(c, fi, s_copy);
 }
 
-// Supported encodings: Whatever ucstring_append_bytes() supports
-void de_finfo_set_name_from_bytes(deark *c, de_finfo *fi,
-	const de_byte *name1, de_int64 name1_len,
-	unsigned int conv_flags, int encoding)
+void de_finfo_set_name_from_sz(deark *c, de_finfo *fi, const char *name1, int encoding)
 {
 	de_ucstring *fname;
 
+	if(!name1) {
+		de_finfo_set_name_from_ucstring(c, fi, NULL);
+		return;
+	}
 	fname = ucstring_create(c);
-	ucstring_append_bytes(fname, name1, name1_len, conv_flags, encoding);
+	ucstring_append_sz(fname, name1, encoding);
 	de_finfo_set_name_internal(c, fi, fname);
 }
 
