@@ -236,7 +236,7 @@ void de_run(deark *c)
 		if(c->slice_size_req_valid)
 			subfile_size = c->slice_size_req;
 		else
-			subfile_size = dbuf_get_length(c->infile) - c->slice_start_req;
+			subfile_size = c->infile->len - c->slice_start_req;
 		subfile = dbuf_open_input_subfile(c->infile, c->slice_start_req, subfile_size);
 		c->infile = subfile;
 	}

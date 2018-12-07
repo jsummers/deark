@@ -632,8 +632,6 @@ int dbuf_dump_to_file(dbuf *inf, const char *fn);
 // May be valid only for memory buffers.
 void dbuf_empty(dbuf *f);
 
-de_int64 dbuf_get_length(dbuf *f);
-
 // Enforce a maximum size when writing to a dbuf.
 // May be valid only for memory buffers.
 void dbuf_set_max_length(dbuf *f, de_int64 max_len);

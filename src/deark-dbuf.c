@@ -1463,11 +1463,6 @@ int dbuf_find_line(dbuf *f, de_int64 pos1, de_int64 *pcontent_len, de_int64 *pto
 	return (*ptotal_len > 0);
 }
 
-de_int64 dbuf_get_length(dbuf *f)
-{
-	return f->len;
-}
-
 void dbuf_set_max_length(dbuf *f, de_int64 max_len)
 {
 	f->has_max_len = 1;

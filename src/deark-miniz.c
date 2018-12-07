@@ -516,7 +516,7 @@ void de_zip_add_file_to_archive(deark *c, dbuf *f)
 	zzz = (struct zip_data_struct*)c->zip_data;
 	if(!zzz) { de_err(c, "asdf"); de_fatalerror(c); }
 
-	de_dbg(c, "adding to zip: name:%s len:%d", f->name, (int)dbuf_get_length(f));
+	de_dbg(c, "adding to zip: name=%s len=%"INT64_FMT, f->name, f->len);
 
 	if(c->preserve_file_times && f->fi_copy && f->fi_copy->mod_time.is_valid) {
 		dfa.modtime = de_timestamp_to_unix_time(&f->fi_copy->mod_time);
@@ -560,7 +560,7 @@ void de_zip_add_file_to_archive(deark *c, dbuf *f)
 	dfa.extra_data_central[4] = dfa.extra_data_local[4];
 	de_writeui32le_direct(&dfa.extra_data_central[5], dfa.modtime);
 
-	mz_zip_writer_add_mem(zzz->pZip, f->name, f->membuf_buf, (size_t)dbuf_get_length(f),
+	mz_zip_writer_add_mem(zzz->pZip, f->name, f->membuf_buf, (size_t)f->len,
 		MZ_BEST_COMPRESSION, &dfa);
 
 	de_free(c, dfa.extra_data_local);
