@@ -19,7 +19,7 @@ typedef struct localctx_struct {
 	de_int64 expected_dfpos;
 	de_int64 expected_dflen;
 	de_ucstring *filename;
-	struct de_timestamp mod_date_from_macbinary;
+	struct de_timestamp mod_time_from_macbinary;
 } lctx;
 
 static void do_read_bitmap(deark *c, lctx *d, de_int64 pos)
@@ -63,8 +63,8 @@ static void do_read_bitmap(deark *c, lctx *d, de_int64 pos)
 		de_finfo_set_name_from_ucstring(c, fi, d->filename);
 	}
 
-	if(d->mod_date_from_macbinary.is_valid) {
-		fi->image_mod_time = d->mod_date_from_macbinary;
+	if(d->mod_time_from_macbinary.is_valid) {
+		fi->image_mod_time = d->mod_time_from_macbinary;
 	}
 
 	de_convert_and_write_image_bilevel(unc_pixels, 0,
@@ -265,7 +265,7 @@ static void do_macbinary(deark *c, lctx *d)
 	}
 
 	if(mparams->out_params.timestamp1.is_valid) {
-		d->mod_date_from_macbinary = mparams->out_params.timestamp1;
+		d->mod_time_from_macbinary = mparams->out_params.timestamp1;
 	}
 
 	if(d->df_known) {

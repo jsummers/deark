@@ -16,8 +16,8 @@ typedef struct localctx_struct {
 	de_int64 dfpos, rfpos;
 	de_int64 dflen, rflen;
 	de_ucstring *filename;
-	struct de_timestamp create_date;
-	struct de_timestamp mod_date;
+	struct de_timestamp create_time;
+	struct de_timestamp mod_time;
 } lctx;
 
 static void do_header(deark *c, lctx *d)
@@ -27,7 +27,7 @@ static void do_header(deark *c, lctx *d)
 	de_int64 namelen;
 	de_int64 pos = 0;
 	de_int64 n, n2;
-	de_int64 mod_date_raw;
+	de_int64 mod_time_raw;
 	struct de_fourcc type4cc;
 	struct de_fourcc creator4cc;
 	char timestamp_buf[64];
@@ -94,25 +94,25 @@ static void do_header(deark *c, lctx *d)
 
 	n = de_getui32be_p(&pos);
 	if(n==0) {
-		d->create_date.is_valid = 0;
+		d->create_time.is_valid = 0;
 		de_strlcpy(timestamp_buf, "unknown", sizeof(timestamp_buf));
 	}
 	else {
-		de_mac_time_to_timestamp(n, &d->create_date);
-		d->create_date.tzcode = DE_TZCODE_LOCAL;
-		de_timestamp_to_string(&d->create_date, timestamp_buf, sizeof(timestamp_buf), 0);
+		de_mac_time_to_timestamp(n, &d->create_time);
+		d->create_time.tzcode = DE_TZCODE_LOCAL;
+		de_timestamp_to_string(&d->create_time, timestamp_buf, sizeof(timestamp_buf), 0);
 	}
 	de_dbg(c, "create date: %"INT64_FMT" (%s)", n, timestamp_buf);
 
-	mod_date_raw = de_getui32be_p(&pos);
-	if(mod_date_raw==0) {
-		d->mod_date.is_valid = 0;
+	mod_time_raw = de_getui32be_p(&pos);
+	if(mod_time_raw==0) {
+		d->mod_time.is_valid = 0;
 		de_strlcpy(timestamp_buf, "unknown", sizeof(timestamp_buf));
 	}
 	else {
-		de_mac_time_to_timestamp(mod_date_raw, &d->mod_date);
-		d->mod_date.tzcode = DE_TZCODE_LOCAL;
-		de_timestamp_to_string(&d->mod_date, timestamp_buf, sizeof(timestamp_buf), 0);
+		de_mac_time_to_timestamp(mod_time_raw, &d->mod_time);
+		d->mod_time.tzcode = DE_TZCODE_LOCAL;
+		de_timestamp_to_string(&d->mod_time, timestamp_buf, sizeof(timestamp_buf), 0);
 	}
 	de_dbg(c, "mod date: %"INT64_FMT" (%s)", n, timestamp_buf);
 
@@ -164,8 +164,8 @@ static void do_extract_one_file(deark *c, lctx *d, de_int64 pos, de_int64 len,
 	if(pos+len>c->infile->len) goto done;
 	fi = de_finfo_create(c);
 
-	if(d->mod_date.is_valid) {
-		fi->mod_time = d->mod_date; // struct copy
+	if(d->mod_time.is_valid) {
+		fi->mod_time = d->mod_time; // struct copy
 	}
 
 	if(is_rsrc) {
@@ -226,7 +226,7 @@ static void de_run_macbinary(deark *c, de_module_params *mparams)
 	if(mparams) {
 		mparams->out_params.uint1 = (de_uint32)d->dfpos;
 		mparams->out_params.uint2 = (de_uint32)d->dflen;
-		mparams->out_params.timestamp1 = d->mod_date;
+		mparams->out_params.timestamp1 = d->mod_time;
 
 		// If caller set out_params.string1, copy the filename to it.
 		if(d->filename && d->filename->len>0 && mparams->out_params.string1) {
