@@ -708,6 +708,16 @@ de_int64 de_atoi64(const char *string)
 	return de_strtoll(string, NULL, 10);
 }
 
+de_int64 de_min_int(de_int64 n1, de_int64 n2)
+{
+	return (n1<n2) ? n1 : n2;
+}
+
+de_int64 de_max_int(de_int64 n1, de_int64 n2)
+{
+	return (n1>n2) ? n1 : n2;
+}
+
 de_int64 de_pad_to_2(de_int64 x)
 {
 	return (x&0x1) ? x+1 : x;

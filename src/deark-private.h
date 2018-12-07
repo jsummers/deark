@@ -738,6 +738,9 @@ void de_convert_image_paletted(dbuf *f, de_int64 fpos,
 	de_int64 bpp, de_int64 rowspan, const de_uint32 *pal,
 	de_bitmap *img, unsigned int flags);
 
+de_int64 de_min_int(de_int64 n1, de_int64 n2);
+de_int64 de_max_int(de_int64 n1, de_int64 n2);
+
 de_int64 de_pad_to_2(de_int64 x);
 de_int64 de_pad_to_4(de_int64 x);
 de_int64 de_pad_to_n(de_int64 x, de_int64 n);

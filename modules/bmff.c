@@ -645,10 +645,7 @@ static void do_box_stsc(deark *c, lctx *d, struct de_boxesctx *bctx)
 	bytesleft = curbox->payload_pos + curbox->payload_len - pos;
 	if(bytesleft/12 < e_count) return;
 
-	e_to_print = e_count;
-	if(e_to_print > d->max_entries_to_print) {
-		e_to_print = d->max_entries_to_print;
-	}
+	e_to_print = de_min_int(e_count, d->max_entries_to_print);
 
 	for(k=0; k<e_to_print; k++) {
 		de_int64 first_chunk, spc, sdi;
@@ -715,10 +712,7 @@ static void do_simple_int_table(deark *c, lctx *d, struct de_boxesctx *bctx,
 	bytesleft = curbox->payload_pos + curbox->payload_len - pos;
 	if(bytesleft < e_size*e_count) return;
 
-	e_to_print = e_count;
-	if(e_to_print > d->max_entries_to_print) {
-		e_to_print = d->max_entries_to_print;
-	}
+	e_to_print = de_min_int(e_count, d->max_entries_to_print);
 
 	for(k=0; k<e_to_print; k++) {
 		de_int64 n;
@@ -822,10 +816,7 @@ static void do_box_stts(deark *c, lctx *d, struct de_boxesctx *bctx)
 	bytesleft = curbox->payload_pos + curbox->payload_len - pos;
 	if(bytesleft/8 < e_count) return;
 
-	e_to_print = e_count;
-	if(e_to_print > d->max_entries_to_print) {
-		e_to_print = d->max_entries_to_print;
-	}
+	e_to_print = de_min_int(e_count, d->max_entries_to_print);
 
 	for(k=0; k<e_to_print; k++) {
 		de_int64 s_count, s_delta;
