@@ -131,7 +131,7 @@ static void do_v2(deark *c, lctx *d)
 	de_int64 ncolors = 0; // 16 or 256
 	de_uint32 pal[256];
 
-	de_memset(pal, 0, sizeof(pal));
+	de_zeromem(pal, sizeof(pal));
 	d->w = de_getui16le(4);
 	d->h = de_getui16le(6);
 	de_dbg_dimensions(c, d->w, d->h);

@@ -948,7 +948,7 @@ static void detect_app_seg_type(deark *c, lctx *d, const struct marker_info *mi,
 	de_byte seg_type = mi->seg_type;
 	struct app_id_decode_struct ad;
 
-	de_memset(&ad, 0, sizeof(struct app_id_decode_struct));
+	de_zeromem(&ad, sizeof(struct app_id_decode_struct));
 
 	// defaults:
 	payload_size = seg_data_size;
@@ -976,7 +976,7 @@ static void detect_app_seg_type(deark *c, lctx *d, const struct marker_info *mi,
 		// been corrupted, and replaced with "XMP\0".
 		struct app_id_decode_struct ad2;
 
-		de_memset(&ad2, 0, sizeof(struct app_id_decode_struct));
+		de_zeromem(&ad2, sizeof(struct app_id_decode_struct));
 		de_memcpy(ad2.raw_bytes, ad.raw_bytes, (size_t)ad.nraw_bytes);
 		ad2.nraw_bytes = ad.nraw_bytes;
 		// Try to patch the app ID, decode it, and see what happens.
@@ -1107,7 +1107,7 @@ static void handler_app(deark *c, lctx *d,
 	de_int64 payload_size;
 	struct app_id_info_struct app_id_info;
 
-	de_memset(&app_id_info, 0, sizeof(struct app_id_info_struct));
+	de_zeromem(&app_id_info, sizeof(struct app_id_info_struct));
 
 	detect_app_seg_type(c, d, mi, seg_data_pos, seg_data_size, &app_id_info);
 	appsegtype = app_id_info.appsegtype;
@@ -1587,7 +1587,7 @@ static int get_marker_info(deark *c, lctx *d, de_byte seg_type,
 {
 	de_int64 k;
 
-	de_memset(mi, 0, sizeof(struct marker_info));
+	de_zeromem(mi, sizeof(struct marker_info));
 	mi->seg_type = seg_type;
 
 	// First, try to find the segment type in the static marker info.

@@ -920,7 +920,7 @@ static void do_id3v2_frames(deark *c, id3v2ctx *d,
 	de_int64 frame_idx = 0;
 	de_int64 frame_header_len;
 
-	de_memset(&tag4cc, 0, sizeof(struct de_fourcc));
+	de_zeromem(&tag4cc, sizeof(struct de_fourcc));
 	if(d->version_code<=2) frame_header_len = 6;
 	else frame_header_len = 10;
 

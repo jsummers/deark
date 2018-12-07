@@ -924,7 +924,7 @@ static void read_and_cvt_timestamp(deark *c, dbuf *f, de_int64 pos,
 {
 	de_int64 ts_as_FILETIME;
 
-	de_memset(ts, 0, sizeof(struct de_timestamp));
+	de_zeromem(ts, sizeof(struct de_timestamp));
 	ts_as_FILETIME = dbuf_geti64le(f, pos);
 	if(ts_as_FILETIME!=0) {
 		de_FILETIME_to_timestamp(ts_as_FILETIME, ts, 0x1);

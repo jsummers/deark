@@ -124,11 +124,11 @@ static int write_png_chunk_IDAT(struct deark_png_encode_info *pei, const mz_uint
 	static const char nulbyte = '\0';
 	int retval = 0;
 
-	de_memset(&out_buf, 0, sizeof(tdefl_output_buffer));
+	de_zeromem(&out_buf, sizeof(tdefl_output_buffer));
 
 	pComp = MZ_MALLOC(sizeof(tdefl_compressor));
 	if (!pComp) goto done;
-	de_memset(pComp,0,sizeof(tdefl_compressor));
+	de_zeromem(pComp, sizeof(tdefl_compressor));
 
 	out_buf.m_expandable = MZ_TRUE;
 	out_buf.m_capacity = 16+MZ_MAX(64, (1+bpl)*pei->height);
@@ -198,7 +198,7 @@ int de_write_png(deark *c, de_bitmap *img, dbuf *f)
 {
 	struct deark_png_encode_info pei;
 
-	de_memset(&pei, 0, sizeof(struct deark_png_encode_info));
+	de_zeromem(&pei, sizeof(struct deark_png_encode_info));
 
 	if(img->invalid_image_flag) {
 		return 0;
@@ -290,7 +290,7 @@ static int de_inflate_internal(dbuf *inf, de_int64 inputstart, de_int64 inputsiz
 	inbuf = de_malloc(c, DE_DFL_INBUF_SIZE);
 	outbuf = de_malloc(c, DE_DFL_OUTBUF_SIZE);
 
-	de_memset(&strm,0,sizeof(strm));
+	de_zeromem(&strm, sizeof(strm));
 	if(is_zlib) {
 		ret = mz_inflateInit(&strm);
 	}
@@ -503,7 +503,7 @@ void de_zip_add_file_to_archive(deark *c, dbuf *f)
 	struct zip_data_struct *zzz;
 	struct deark_file_attribs dfa;
 
-	de_memset(&dfa, 0, sizeof(struct deark_file_attribs));
+	de_zeromem(&dfa, sizeof(struct deark_file_attribs));
 
 	if(!c->zip_data) {
 		// ZIP file hasn't been created yet

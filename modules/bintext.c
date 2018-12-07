@@ -263,7 +263,7 @@ static void de_run_xbin(deark *c, de_module_params *mparams)
 	charctx = de_malloc(c, sizeof(struct de_char_context));
 	charctx->prefer_image_output = 1;
 
-	de_memset(&sdd, 0, sizeof(struct de_SAUCE_detection_data));
+	de_zeromem(&sdd, sizeof(struct de_SAUCE_detection_data));
 	de_detect_SAUCE(c, c->infile, &sdd);
 
 	if(sdd.has_SAUCE) {
@@ -413,7 +413,7 @@ static void de_run_bintext(deark *c, de_module_params *mparams)
 		width_req = de_atoi(s);
 	}
 
-	de_memset(&sdd, 0, sizeof(struct de_SAUCE_detection_data));
+	de_zeromem(&sdd, sizeof(struct de_SAUCE_detection_data));
 	de_detect_SAUCE(c, c->infile, &sdd);
 
 	if(sdd.has_SAUCE) {
@@ -632,7 +632,7 @@ static void de_run_icedraw(deark *c, de_module_params *mparams)
 {
 	struct de_SAUCE_detection_data sdd;
 
-	de_memset(&sdd, 0, sizeof(struct de_SAUCE_detection_data));
+	de_zeromem(&sdd, sizeof(struct de_SAUCE_detection_data));
 	de_detect_SAUCE(c, c->infile, &sdd);
 	if(sdd.has_SAUCE) {
 		// Read the SAUCE record if present, just for the debugging info.

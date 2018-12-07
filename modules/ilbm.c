@@ -181,7 +181,7 @@ static void do_deplanarize(deark *c, lctx *d, struct img_info *ii,
 	de_byte b;
 
 	if(d->planes>=1 && d->planes<=8) {
-		de_memset(row_deplanarized, 0, (size_t)ii->width);
+		de_zeromem(row_deplanarized, (size_t)ii->width);
 		for(i=0; i<ii->width; i++) {
 			for(bit=0; bit<d->planes; bit++) {
 				b = getbit(row_orig, bit*ii->bits_per_row_per_plane +i);
@@ -190,7 +190,7 @@ static void do_deplanarize(deark *c, lctx *d, struct img_info *ii,
 		}
 	}
 	else if(d->planes==24) {
-		de_memset(row_deplanarized, 0, (size_t)(ii->width*3));
+		de_zeromem(row_deplanarized, (size_t)(ii->width*3));
 		for(i=0; i<ii->width; i++) {
 			for(sample=0; sample<3; sample++) {
 				for(bit=0; bit<8; bit++) {
@@ -209,7 +209,7 @@ static void get_row_acbm(deark *c, lctx *d, struct img_info *ii,
 	de_int64 bit;
 	de_byte b;
 
-	de_memset(row, 0, (size_t)ii->width);
+	de_zeromem(row, (size_t)ii->width);
 	for(i=0; i<ii->width; i++) {
 		for(bit=0; bit<d->planes; bit++) {
 			b = de_get_bits_symbol(unc_pixels, 1, bit*ii->planespan + j*ii->rowspan, i);
@@ -228,7 +228,7 @@ static void get_row_vdat(deark *c, lctx *d, struct img_info *ii,
 	de_int64 columns_per_set;
 	de_byte b;
 
-	de_memset(row, 0, (size_t)ii->width);
+	de_zeromem(row, (size_t)ii->width);
 
 	bytes_per_column = 2*ii->height;
 	columns_per_set = ((ii->width + 15)/16);

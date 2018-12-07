@@ -173,7 +173,7 @@ static int de_examine_file_by_fd(deark *c, int fd, de_int64 *len,
 
 	*returned_flags = 0;
 
-	de_memset(&stbuf, 0, sizeof(struct __stat64));
+	de_zeromem(&stbuf, sizeof(struct __stat64));
 
 	if(0 != _fstat64(fd, &stbuf)) {
 		strerror_s(errmsg, (size_t)errmsg_len, errno);
@@ -334,12 +334,12 @@ void de_gmtime(const struct de_timestamp *ts, struct de_struct_tm *tm2)
 	struct tm tm1;
 	errno_t ret;
 
-	de_memset(tm2, 0, sizeof(struct de_struct_tm));
+	de_zeromem(tm2, sizeof(struct de_struct_tm));
 	if(!ts->is_valid) {
 		return;
 	}
 
-	de_memset(&tm1, 0, sizeof(struct tm));
+	de_zeromem(&tm1, sizeof(struct tm));
 	tmpt_int64 = de_timestamp_to_unix_time(ts);
 	tmpt = (__time64_t)tmpt_int64;
 
@@ -368,7 +368,7 @@ void de_current_time_to_timestamp(struct de_timestamp *ts)
 {
 	__time64_t t;
 
-	de_memset(ts, 0, sizeof(struct de_timestamp));
+	de_zeromem(ts, sizeof(struct de_timestamp));
 	_time64(&t);
 	ts->unix_time = (de_int64)t;
 	ts->is_valid = 1;

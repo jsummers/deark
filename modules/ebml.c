@@ -567,7 +567,7 @@ static int do_element(deark *c, lctx *d, de_int64 pos1,
 
 	if(should_call_start_handler) {
 		struct handler_params hp;
-		de_memset(&hp, 0, sizeof(struct handler_params));
+		de_zeromem(&hp, sizeof(struct handler_params));
 		hp.dpos = pos;
 		hp.dlen = ele_dlen;
 		einfo->hfn(c, d, &hp);
@@ -603,7 +603,7 @@ static int do_element(deark *c, lctx *d, de_int64 pos1,
 
 	if(should_call_end_handler) {
 		struct handler_params hp;
-		de_memset(&hp, 0, sizeof(struct handler_params));
+		de_zeromem(&hp, sizeof(struct handler_params));
 		hp.dpos = pos;
 		hp.dlen = ele_dlen;
 		hp.end_flag = 1;

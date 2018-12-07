@@ -306,7 +306,7 @@ static void do_prism_read_palette(deark *c, prismctx *d, struct atari_img_decode
 	de_uint32 clr;
 	char tmps[32];
 
-	de_memset(pal1, 0, sizeof(pal1));
+	de_zeromem(pal1, sizeof(pal1));
 
 	for(i=0; i<d->pal_size; i++) {
 		r1 = de_getui16be(128+6*i+0);
@@ -1271,7 +1271,7 @@ static void do_atari_falcon_8bit_img(deark *c, de_int64 width, de_int64 height)
 	de_uint32 pal[256];
 
 	adata = de_malloc(c, sizeof(struct atari_img_decode_data));
-	de_memset(pal, 0, sizeof(pal));
+	de_zeromem(pal, sizeof(pal));
 	adata->pal = pal;
 	adata->bpp = 8;
 	adata->ncolors = 256;

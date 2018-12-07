@@ -289,7 +289,7 @@ static void do_resource_record(deark *c, lctx *d, struct rsrctypeinfo *rti,
 	de_int64 pos = pos1;
 	struct rsrcinstanceinfo rii;
 
-	de_memset(&rii, 0, sizeof(struct rsrcinstanceinfo));
+	de_zeromem(&rii, sizeof(struct rsrcinstanceinfo));
 	rii.id = (int)de_geti16be_p(&pos);
 	de_dbg(c, "id: %d", rii.id);
 	nameOffset_rel = de_getui16be_p(&pos);
@@ -335,7 +335,7 @@ static void do_type_item(deark *c, lctx *d, de_int64 type_list_offs,
 	de_int64 list_offs_rel;
 	struct rsrctypeinfo rti;
 
-	de_memset(&rti, 0, sizeof(struct rsrctypeinfo));
+	de_zeromem(&rti, sizeof(struct rsrctypeinfo));
 	dbuf_read_fourcc(c->infile, pos, &rti.fcc, 4, 0x0);
 	de_dbg(c, "resource type: '%s'", rti.fcc.id_dbgstr);
 	pos += 4;

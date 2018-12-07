@@ -631,9 +631,9 @@ static int MakeTablLzh (struct unzooctx *uz, struct entryctx *ze,
 	unsigned int        i, len, ch, jutbits, avail, mask;
 	struct lzh_table *lzhtbl = &ze->lzhtbl;
 
-	de_memset(count, 0, sizeof(count));
-	de_memset(weight, 0, sizeof(weight));
-	de_memset(start, 0, sizeof(start));
+	de_zeromem(count, sizeof(count));
+	de_zeromem(weight, sizeof(weight));
+	de_zeromem(start, sizeof(start));
 	for (i = 0; i < (unsigned int)lookuptbl->nlengths; i++) {
 		if(lookuptbl->Len[i]<17) count[lookuptbl->Len[i]]++;
 	}

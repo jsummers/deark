@@ -261,7 +261,7 @@ resetbuf:
 			}
 
 			if (lzw->code == CLEAR && lzw->block_mode) {
-				memset(lzw->codetab, 0x00, sizeof(lzw->codetab));
+				de_zeromem(lzw->codetab, sizeof(lzw->codetab));
 				lzw->free_ent = FIRST - 1;
 				lzw->posbits = ((lzw->posbits-1) + ((lzw->n_bits<<3) -
 				                (lzw->posbits-1 + (lzw->n_bits<<3)) % (lzw->n_bits<<3)));

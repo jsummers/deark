@@ -178,7 +178,7 @@ static void do_sd_entry(deark *c, lctx *d, unsigned int idx, de_int64 pos1)
 	const struct entry_id_struct *eid;
 	de_int64 pos = pos1;
 
-	de_memset(&e, 0, sizeof(struct entry_struct));
+	de_zeromem(&e, sizeof(struct entry_struct));
 	e.idx = idx;
 	e.id = (unsigned int)de_getui32be_p(&pos);
 	eid =  find_entry_id_info(e.id);

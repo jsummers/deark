@@ -344,7 +344,7 @@ static void de_run_xpuzzle(deark *c, de_module_params *mparams)
 	img = de_bitmap_create(c, d->w, d->h, 3);
 
 	// Read the palette
-	de_memset(pal, 0, sizeof(pal));
+	de_zeromem(pal, sizeof(pal));
 	p = 9;
 	de_read_palette_rgb(c->infile, p, d->palentries, 3, pal, 256, 0);
 	p += 3*d->palentries;
@@ -497,7 +497,7 @@ static void de_run_bob(deark *c, de_module_params *mparams)
 	img = de_bitmap_create(c, w, h, 3);
 
 	// Read the palette
-	de_memset(pal, 0, sizeof(pal));
+	de_zeromem(pal, sizeof(pal));
 	p = 4;
 	de_read_palette_rgb(c->infile, p, 256, 3, pal, 256, 0);
 	p += 256*3;
@@ -1534,7 +1534,7 @@ static void de_run_hsiraw(deark *c, de_module_params *mparams)
 	if(!de_good_image_dimensions(c, w, h)) goto done;
 
 	pos = 32;
-	de_memset(pal, 0, sizeof(pal));
+	de_zeromem(pal, sizeof(pal));
 	if(num_pal_colors==0) { // 24-bit RGB
 		is_grayscale = 0;
 	}
@@ -1598,7 +1598,7 @@ static void de_run_qdv(deark *c, de_module_params *mparams)
 	de_dbg(c, "number of palette colors: %d", (int)num_pal_colors);
 
 	pos = 5;
-	de_memset(pal, 0, sizeof(pal));
+	de_zeromem(pal, sizeof(pal));
 	de_read_palette_rgb(c->infile, pos, num_pal_colors, 3, pal, 256, 0);
 	pos += 3*num_pal_colors;
 

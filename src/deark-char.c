@@ -247,13 +247,13 @@ static void do_output_html_screen(deark *c, struct de_char_context *charctx,
 	struct span_info default_span;
 	struct span_info cur_span;
 
-	de_memset(&default_span, 0, sizeof(struct span_info));
-	de_memset(&cur_span, 0, sizeof(struct span_info));
+	de_zeromem(&default_span, sizeof(struct span_info));
+	de_zeromem(&cur_span, sizeof(struct span_info));
 
 	screen = charctx->screens[screen_idx];
 
 	// In case a cell is missing, we'll use this one:
-	de_memset(&blank_cell, 0, sizeof(struct de_char_cell));
+	de_zeromem(&blank_cell, sizeof(struct de_char_cell));
 	blank_cell.codepoint = 32;
 	blank_cell.codepoint_unicode = 32;
 

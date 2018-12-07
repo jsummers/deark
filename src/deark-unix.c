@@ -76,7 +76,7 @@ static int de_examine_file_by_fd(deark *c, int fd, de_int64 *len,
 	struct stat stbuf;
 
 	*returned_flags = 0;
-	de_memset(&stbuf, 0, sizeof(struct stat));
+	de_zeromem(&stbuf, sizeof(struct stat));
 
 	if(0 != fstat(fd, &stbuf)) {
 		de_strlcpy(errmsg, strerror(errno), errmsg_len);
@@ -151,7 +151,7 @@ void de_update_file_perms(dbuf *f)
 	if(!f->name) return;
 	if(!(f->fi_copy->mode_flags&DE_MODEFLAG_NONEXE) &&!(f->fi_copy->mode_flags&DE_MODEFLAG_EXE)) return;
 
-	de_memset(&stbuf, 0, sizeof(struct stat));
+	de_zeromem(&stbuf, sizeof(struct stat));
 	if(0 != stat(f->name, &stbuf)) {
 		return;
 	}
@@ -203,7 +203,7 @@ void de_gmtime(const struct de_timestamp *ts, struct de_struct_tm *tm2)
 	time_t tmpt;
 	struct tm *tm1;
 
-	de_memset(tm2, 0, sizeof(struct de_struct_tm));
+	de_zeromem(tm2, sizeof(struct de_struct_tm));
 	if(!ts->is_valid) {
 		return;
 	}
@@ -238,7 +238,7 @@ void de_current_time_to_timestamp(struct de_timestamp *ts)
 {
 	time_t t;
 
-	de_memset(ts, 0, sizeof(struct de_timestamp));
+	de_zeromem(ts, sizeof(struct de_timestamp));
 	time(&t);
 	ts->unix_time = (de_int64)t;
 	ts->is_valid = 1;

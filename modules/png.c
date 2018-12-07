@@ -364,7 +364,7 @@ static void handler_text(deark *c, lctx *d, struct handler_params *hp)
 	int ret;
 	struct text_chunk_ctx tcc;
 
-	de_memset(&tcc, 0, sizeof(struct text_chunk_ctx));
+	de_zeromem(&tcc, sizeof(struct text_chunk_ctx));
 
 	endpos = hp->dpos+hp->dlen;
 	pos = hp->dpos;
@@ -969,7 +969,7 @@ static void de_run_png(deark *c, de_module_params *mparams)
 		de_uint32 crc;
 		char nbuf[80];
 
-		de_memset(&hp, 0, sizeof(struct handler_params));
+		de_zeromem(&hp, sizeof(struct handler_params));
 
 		hp.dlen = de_getui32be(pos);
 		if(pos + 8 + hp.dlen + 4 > c->infile->len) break;

@@ -555,7 +555,7 @@ static int lookup_rsrc(de_uint32 sig_id, de_uint16 n, struct rsrc_info *ri_dst)
 	de_int64 i;
 	int found = 0;
 
-	de_memset(ri_dst, 0, sizeof(struct rsrc_info));
+	de_zeromem(ri_dst, sizeof(struct rsrc_info));
 
 	if(sig_id==CODE_PHUT) { // PhotoDeluxe resources seem to use incompatible formats.
 		ri_dst->id = n;
@@ -909,7 +909,7 @@ static void read_flexible_id(deark *c, lctx *d, de_int64 pos,
 {
 	de_int64 length;
 
-	de_memset(flid, 0, sizeof(struct flexible_id));
+	de_zeromem(flid, sizeof(struct flexible_id));
 
 	length = psd_getui32(pos);
 	if(length==0) {

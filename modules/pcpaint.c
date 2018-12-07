@@ -202,7 +202,7 @@ static int decode_egavga16(deark *c, lctx *d)
 	char tmps[32];
 
 	de_dbg(c, "image type: 16-color EGA/VGA");
-	de_memset(pal, 0, sizeof(pal));
+	de_zeromem(pal, sizeof(pal));
 
 	// Read the palette
 	if(d->pal_info_to_use->edesc==0) {
@@ -264,7 +264,7 @@ static int decode_vga256(deark *c, lctx *d)
 	de_int64 k;
 
 	de_dbg(c, "image type: 256-color");
-	de_memset(pal, 0, sizeof(pal));
+	de_zeromem(pal, sizeof(pal));
 
 	// Read the palette
 	if(d->pal_info_to_use->edesc==0) {

@@ -139,7 +139,7 @@ static int do_record(deark *c, lctx *d, de_int64 pos, de_int64 *bytesused)
 	const char *opcode_name;
 
 	*bytesused = 0;
-	de_memset(&op, 0, sizeof(struct opcode_data));
+	de_zeromem(&op, sizeof(struct opcode_data));
 
 	de_dbg(c, "record at %d", (int)pos);
 	de_dbg_indent(c, 1);

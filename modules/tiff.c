@@ -1153,7 +1153,7 @@ static void identify_makernote(deark *c, lctx *d, const struct taginfo *tg, stru
 	de_byte buf[32];
 	de_int64 amt_to_read;
 
-	de_memset(buf, 0, sizeof(buf));
+	de_zeromem(buf, sizeof(buf));
 	amt_to_read = sizeof(buf);
 	if(amt_to_read > tg->total_size) amt_to_read = tg->total_size;
 	de_read(buf, tg->val_offset, amt_to_read);
@@ -1393,7 +1393,7 @@ static void handler_mpentry(deark *c, lctx *d, const struct taginfo *tg, const s
 	de_ucstring *s = NULL;
 	struct mpfctx_struct mpfctx;
 
-	de_memset(&mpfctx, 0, sizeof(struct mpfctx_struct));
+	de_zeromem(&mpfctx, sizeof(struct mpfctx_struct));
 	d->mpf_main_image_count = 0;
 	// Length is supposed to be 16x{NumberOfImages; tag 45057}. We'll just assume
 	// it's correct.
@@ -2118,7 +2118,7 @@ static void do_dbg_print_numeric_values(deark *c, lctx *d, const struct taginfo 
 	struct valdec_result vr;
 	struct numeric_value nv;
 
-	de_memset(&vr, 0, sizeof(struct valdec_result));
+	de_zeromem(&vr, sizeof(struct valdec_result));
 
 	switch(tg->datatype) {
 	case DATATYPE_BYTE: case DATATYPE_SBYTE:
@@ -2378,7 +2378,7 @@ static void process_ifd(deark *c, lctx *d, de_int64 ifd_idx1, de_int64 ifdpos1, 
 	for(i=0; i<num_tags; i++) {
 		const struct tagnuminfo *tni;
 
-		de_memset(&tg, 0, sizeof(struct taginfo));
+		de_zeromem(&tg, sizeof(struct taginfo));
 		tg.pg = pg;
 
 		tg.tagnum = (int)dbuf_getui16x(c->infile, pg->ifdpos+d->ifdhdrsize+i*d->ifditemsize, d->is_le);

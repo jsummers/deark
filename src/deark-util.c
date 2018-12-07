@@ -590,7 +590,7 @@ void *de_realloc(deark *c, void *oldmem, de_int64 oldsize, de_int64 newsize)
 
 	if(oldsize<newsize) {
 		// zero out any newly-allocated bytes
-		de_memset(&((de_byte*)newmem)[oldsize], 0, (size_t)(newsize-oldsize));
+		de_zeromem(&((de_byte*)newmem)[oldsize], (size_t)(newsize-oldsize));
 	}
 
 	return newmem;
@@ -911,7 +911,7 @@ void de_finfo_set_name_from_sz(deark *c, de_finfo *fi, const char *name1, int en
 // flags: 0x1 = set the UTC flag
 void de_unix_time_to_timestamp(de_int64 ut, struct de_timestamp *ts, unsigned int flags)
 {
-	de_memset(ts, 0, sizeof(struct de_timestamp));
+	de_zeromem(ts, sizeof(struct de_timestamp));
 	ts->is_valid = 1;
 	ts->unix_time = ut;
 	if(flags&0x1) ts->tzcode = DE_TZCODE_UTC;
@@ -961,7 +961,7 @@ void de_riscos_loadexec_to_timestamp(de_uint32 load_addr,
 	de_int64 t;
 	unsigned int centiseconds;
 
-	de_memset(ts, 0, sizeof(struct de_timestamp));
+	de_zeromem(ts, sizeof(struct de_timestamp));
 	if((load_addr&0xfff00000U)!=0xfff00000U) return;
 
 	t = (((de_int64)(load_addr&0xff))<<32) | (de_int64)exec_addr;
@@ -1012,7 +1012,7 @@ void de_make_timestamp(struct de_timestamp *ts,
 	static const int cumulative_days[12] =
 		{ 0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334 };
 
-	de_memset(ts, 0, sizeof(struct de_timestamp));
+	de_zeromem(ts, sizeof(struct de_timestamp));
 	tm_mon = mo-1;
 	if(tm_mon<0 || tm_mon>11) tm_mon=0;
 	result = (yr - 1970) * 365 + cumulative_days[tm_mon];

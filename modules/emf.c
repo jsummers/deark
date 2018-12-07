@@ -1024,7 +1024,7 @@ static int do_emf_record(deark *c, lctx *d, de_int64 recnum, de_int64 recpos,
 	const struct emf_func_info *fnci;
 	struct decoder_params dp;
 
-	de_memset(&dp, 0, sizeof(struct decoder_params));
+	de_zeromem(&dp, sizeof(struct decoder_params));
 	dp.recpos = recpos;
 	dp.recsize_bytes = recsize_bytes;
 	dp.dpos = recpos+8;

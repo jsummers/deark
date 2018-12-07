@@ -744,7 +744,7 @@ static int do_wmf_record(deark *c, lctx *d, de_int64 recnum, de_int64 recpos,
 	const struct wmf_func_info *fnci;
 	struct decoder_params dp;
 
-	de_memset(&dp, 0, sizeof(struct decoder_params));
+	de_zeromem(&dp, sizeof(struct decoder_params));
 	dp.recpos = recpos;
 	dp.recsize_words = recsize_bytes*2;
 	dp.recsize_bytes = recsize_bytes;

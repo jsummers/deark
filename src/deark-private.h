@@ -364,6 +364,7 @@ char *de_strchr(const char *s, int c);
 #define de_memcpy   memcpy
 #define de_memmove  memmove
 #define de_memset   memset
+#define de_zeromem(a,b) memset((a),0,(b))
 #define de_memchr   memchr
 #ifdef DE_WINDOWS
 #define de_sscanf   sscanf_s
@@ -372,7 +373,6 @@ char *de_strchr(const char *s, int c);
 #endif
 
 void de_vsnprintf(char *buf, size_t buflen, const char *fmt, va_list ap);
-
 void de_snprintf(char *buf, size_t buflen, const char *fmt, ...)
   de_gnuc_attribute ((format (printf, 3, 4)));
 

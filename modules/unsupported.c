@@ -24,7 +24,7 @@ static void get_fmt(deark *c, struct fmtinfo_struct *fmti)
 {
 	de_byte b[32];
 
-	de_memset(fmti, 0, sizeof(struct fmtinfo_struct));
+	de_zeromem(fmti, sizeof(struct fmtinfo_struct));
 
 	de_read(b, 0, sizeof(b));
 

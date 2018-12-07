@@ -96,7 +96,7 @@ static void scan_image(de_bitmap *img, struct image_scan_results *isres)
 	de_uint32 clr;
 	de_byte a, r, g, b;
 
-	de_memset(isres, 0, sizeof(struct image_scan_results));
+	de_zeromem(isres, sizeof(struct image_scan_results));
 	if(img->bytes_per_pixel==1) {
 		// No reason to scan opaque grayscale images.
 		isres->has_visible_pixels = 1;

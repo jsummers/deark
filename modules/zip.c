@@ -653,7 +653,7 @@ static void do_extra_data(deark *c, lctx *d,
 		struct extra_item_info_struct eii;
 
 		if(pos+4 >= pos1+len) break;
-		de_memset(&eii, 0, sizeof(struct extra_item_info_struct));
+		de_zeromem(&eii, sizeof(struct extra_item_info_struct));
 		eii.md = md;
 		eii.dd = dd;
 		eii.is_central = is_central;

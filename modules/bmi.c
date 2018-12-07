@@ -117,7 +117,7 @@ static void do_bitmap(deark *c, lctx *d, de_int64 pos1)
 	struct imageinfo ii;
 	const de_uint32 *pal_to_use = d->globalimg.pal;
 
-	de_memset(&ii, 0, sizeof(struct imageinfo));
+	de_zeromem(&ii, sizeof(struct imageinfo));
 
 	de_dbg_indent_save(c, &saved_indent_level);
 

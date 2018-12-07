@@ -88,7 +88,7 @@ static void init_cell(deark *c, struct de_char_cell *cell)
 static void erase_cell(deark *c, struct de_char_cell *cell)
 {
 	if(!cell) return;
-	de_memset(cell, 0, sizeof(struct de_char_cell));
+	de_zeromem(cell, sizeof(struct de_char_cell));
 	init_cell(c, cell);
 }
 

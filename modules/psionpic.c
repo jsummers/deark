@@ -25,7 +25,7 @@ static void do_read_plane_info(deark *c, lctx *d, struct plane_info_struct *pi, 
 	de_int64 image_relative_pos;
 	de_int64 image_size_in_bytes;
 
-	de_memset(pi, 0, sizeof(struct plane_info_struct));
+	de_zeromem(pi, sizeof(struct plane_info_struct));
 	pi->width = de_getui16le(pos+2);
 	pi->height = de_getui16le(pos+4);
 	image_size_in_bytes = de_getui16le(pos+6);

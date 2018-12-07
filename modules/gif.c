@@ -121,7 +121,7 @@ static int lzw_init(deark *c, struct lzwdeccontext *lz, unsigned int root_codesi
 {
 	unsigned int i;
 
-	de_memset(lz, 0, sizeof(struct lzwdeccontext));
+	de_zeromem(lz, sizeof(struct lzwdeccontext));
 
 	if(root_codesize<2 || root_codesize>11) {
 		de_err(c, "Invalid LZW root codesize (%u)", root_codesize);

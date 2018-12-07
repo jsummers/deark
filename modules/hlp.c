@@ -80,7 +80,7 @@ static void hlptime_to_timestamp(de_int64 ht, struct de_timestamp *ts)
 		de_unix_time_to_timestamp(ht, ts, 0);
 	}
 	else {
-		de_memset(ts, 0, sizeof(struct de_timestamp));
+		de_zeromem(ts, sizeof(struct de_timestamp));
 	}
 }
 
@@ -521,7 +521,7 @@ static void do_bplustree(deark *c, lctx *d, de_int64 pos1, de_int64 len,
 	for(d->pass=1; d->pass<=2; d->pass++) {
 		de_int64 curr_page;
 
-		de_memset(page_seen, 0, (size_t)d->bpt.num_pages);
+		de_zeromem(page_seen, (size_t)d->bpt.num_pages);
 
 		de_dbg(c, "pass %d", d->pass);
 		de_dbg_indent(c, 1);

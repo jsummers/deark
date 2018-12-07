@@ -226,7 +226,7 @@ static int do_record(deark *c, lctx *d, de_int64 pos1, de_int64 *bytes_consumed)
 	struct record_info ri;
 	int retval = 0;
 
-	de_memset(&ri, 0, sizeof(struct record_info));
+	de_zeromem(&ri, sizeof(struct record_info));
 
 	nlen = de_getui32be_p(&pos);
 	if(nlen>2048) goto done;

@@ -113,7 +113,7 @@ static int do_object_sequence(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 	while(1) {
 		struct objinfo oi;
 
-		de_memset(&oi, 0, sizeof(struct objinfo));
+		de_zeromem(&oi, sizeof(struct objinfo));
 		oi.objpos = pos;
 		if((oi.objpos+24) > (pos1+len)) break;
 		oi.objtype = (de_uint32)de_getui32le_p(&pos);

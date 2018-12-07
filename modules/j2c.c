@@ -368,7 +368,7 @@ static int get_marker_info(deark *c, lctx *d, struct page_ctx *pg, de_byte seg_t
 {
 	de_int64 k;
 
-	de_memset(mi, 0, sizeof(struct marker_info));
+	de_zeromem(mi, sizeof(struct marker_info));
 	mi->seg_type = seg_type;
 
 	// First, try to find the segment type in the static marker info.

@@ -315,7 +315,7 @@ static int do_dib(deark *c, lctx *d, de_int64 pos1)
 	outf = dbuf_create_output_file(c, "bmp", NULL, 0);
 
 	// Write fileheader
-	de_memset(&bi, 0, sizeof(struct de_bmpinfo));
+	de_zeromem(&bi, sizeof(struct de_bmpinfo));
 	bi.size_of_headers_and_pal = 40 + pal_size_in_bytes;
 	bi.total_size = bi.size_of_headers_and_pal + final_image_size;
 	de_fmtutil_generate_bmpfileheader(c, outf, &bi, 0);

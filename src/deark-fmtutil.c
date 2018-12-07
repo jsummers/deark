@@ -47,8 +47,8 @@ int de_fmtutil_get_bmpinfo(deark *c, dbuf *f, struct de_bmpinfo *bi, de_int64 po
 	struct de_fourcc cmpr4cc;
 	char cmprname_dbgstr[80];
 
-	de_memset(bi, 0, sizeof(struct de_bmpinfo));
-	de_memset(&cmpr4cc, 0, sizeof(struct de_fourcc));
+	de_zeromem(bi, sizeof(struct de_bmpinfo));
+	de_zeromem(&cmpr4cc, sizeof(struct de_fourcc));
 
 	fhs = (flags & DE_BMPINFO_HAS_FILEHEADER) ? 14 : 0;
 
@@ -317,7 +317,7 @@ void de_fmtutil_handle_photoshop_rsrc2(deark *c, dbuf *f, de_int64 pos, de_int64
 	int extract_fmt = 1; // 0=raw, 1=TIFF-wrapped
 
 	if(oparams) {
-		de_memset(oparams, 0, sizeof(struct de_module_out_params));
+		de_zeromem(oparams, sizeof(struct de_module_out_params));
 	}
 
 	if(flags&0x1) {
@@ -717,7 +717,7 @@ int de_read_SAUCE(deark *c, dbuf *f, struct de_SAUCE_info *si)
 	de_ucstring *tflags_descr = NULL;
 
 	if(!si) return 0;
-	de_memset(si, 0, sizeof(struct de_SAUCE_info));
+	de_zeromem(si, sizeof(struct de_SAUCE_info));
 
 	pos = f->len - 128;
 	if(dbuf_memcmp(f, pos+0, "SAUCE00", 7)) {
@@ -1445,7 +1445,7 @@ static int de_fmtutil_default_iff_chunk_handler(deark *c, struct de_iffctx *ictx
 
 static void fourcc_clear(struct de_fourcc *fourcc)
 {
-	de_memset(fourcc, 0, sizeof(struct de_fourcc));
+	de_zeromem(fourcc, sizeof(struct de_fourcc));
 }
 
 static int do_iff_chunk_sequence(deark *c, struct de_iffctx *ictx,
@@ -1465,7 +1465,7 @@ static int do_iff_chunk(deark *c, struct de_iffctx *ictx, de_int64 pos, de_int64
 	int retval = 0;
 	char name_str[80];
 
-	de_memset(&chunkctx, 0, sizeof(struct de_iffchunkctx));
+	de_zeromem(&chunkctx, sizeof(struct de_iffchunkctx));
 
 	de_dbg_indent_save(c, &saved_indent_level);
 
@@ -1845,7 +1845,7 @@ void de_fmtutil_handle_id3(deark *c, dbuf *f, struct de_id3info *id3i,
 	de_int64 id3v1pos = 0;
 	int look_for_id3v1;
 
-	de_memset(id3i, 0, sizeof(struct de_id3info));
+	de_zeromem(id3i, sizeof(struct de_id3info));
 	id3i->main_start = 0;
 	id3i->main_end = f->len;
 
@@ -1855,7 +1855,7 @@ void de_fmtutil_handle_id3(deark *c, dbuf *f, struct de_id3info *id3i,
 
 		de_dbg(c, "ID3v2 data at %d", 0);
 		de_dbg_indent(c, 1);
-		de_memset(&id3v2mparams, 0, sizeof(de_module_params));
+		de_zeromem(&id3v2mparams, sizeof(de_module_params));
 		id3v2mparams.in_params.codes = "I";
 		de_run_module_by_id_on_slice(c, "id3", &id3v2mparams, f, 0, f->len);
 		de_dbg_indent(c, -1);
@@ -1875,7 +1875,7 @@ void de_fmtutil_handle_id3(deark *c, dbuf *f, struct de_id3info *id3i,
 
 		de_dbg(c, "ID3v1 data at %"INT64_FMT, id3v1pos);
 		de_dbg_indent(c, 1);
-		de_memset(&id3v1mparams, 0, sizeof(de_module_params));
+		de_zeromem(&id3v1mparams, sizeof(de_module_params));
 		id3v1mparams.in_params.codes = "1";
 		de_run_module_by_id_on_slice(c, "id3", &id3v1mparams, f, id3v1pos, 128);
 		de_dbg_indent(c, -1);

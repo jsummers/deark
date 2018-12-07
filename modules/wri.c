@@ -47,7 +47,7 @@ static void do_emit_raw_sz(deark *c, lctx *d, struct para_info *pinfo, const cha
 
 static void default_text_styles(struct text_styles_struct *ts)
 {
-	de_memset(ts, 0, sizeof(struct text_styles_struct));
+	de_zeromem(ts, sizeof(struct text_styles_struct));
 }
 
 static int text_styles_differ(const struct text_styles_struct *ts1,
@@ -685,7 +685,7 @@ static void do_para_info_page(deark *c, lctx *d, de_int64 pos)
 	de_int64 prevtextpos;
 	de_byte fprop_seen[128];
 
-	de_memset(fprop_seen, 0, sizeof(fprop_seen));
+	de_zeromem(fprop_seen, sizeof(fprop_seen));
 	de_dbg(c, "paragraph info page at %d", (int)pos);
 	de_dbg_indent(c, 1);
 

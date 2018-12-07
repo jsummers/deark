@@ -843,7 +843,7 @@ static void do_PropertySet(deark *c, lctx *d, struct propset_struct *si,
 
 			if(whichpass[i] != pass) continue;
 
-			de_memset(&pinfo, 0, sizeof(struct prop_info_struct));
+			de_zeromem(&pinfo, sizeof(struct prop_info_struct));
 
 			pinfo.prop_id = (de_uint32)dbuf_getui32le(d->f, si->tbloffset+8 + 8*i);
 			pinfo.data_offs_rel = dbuf_getui32le(d->f, si->tbloffset+8 + 8*i + 4);

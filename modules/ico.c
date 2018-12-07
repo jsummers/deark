@@ -97,7 +97,7 @@ static void do_image_data(deark *c, lctx *d, de_int64 img_num, de_int64 pos1, de
 	img->flipped = 1;
 
 	// Read palette
-	de_memset(pal, 0, sizeof(pal));
+	de_zeromem(pal, sizeof(pal));
 	if (bi.pal_entries > 0) {
 		if(bi.pal_entries>256) goto done;
 

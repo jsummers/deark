@@ -158,7 +158,7 @@ void dbuf_read(dbuf *f, de_byte *buf, de_int64 pos, de_int64 len)
 done_read:
 	// Zero out any requested bytes that were not read.
 	if(bytes_read < len) {
-		de_memset(buf+bytes_read, 0, (size_t)(len - bytes_read));
+		de_zeromem(buf+bytes_read, (size_t)(len - bytes_read));
 	}
 }
 
@@ -1514,7 +1514,7 @@ void dbuf_read_fourcc(dbuf *f, de_int64 pos, struct de_fourcc *fcc,
 {
 	if(nbytes<1 || nbytes>4) return;
 
-	de_memset(fcc->bytes, 0, 4);
+	de_zeromem(fcc->bytes, 4);
 	dbuf_read(f, fcc->bytes, pos, (de_int64)nbytes);
 	if(flags&DE_4CCFLAG_REVERSED) {
 		reverse_fourcc(fcc->bytes, nbytes);

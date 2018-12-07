@@ -232,7 +232,7 @@ static int lookup_ds_info(de_byte recnum, de_byte dsnum, struct ds_info *dsi)
 {
 	size_t i;
 
-	de_memset(dsi, 0, sizeof(struct ds_info));
+	de_zeromem(dsi, sizeof(struct ds_info));
 
 	for(i=0; i<DE_ITEMS_IN_ARRAY(ds_info_arr); i++) {
 		if(ds_info_arr[i].recnum==recnum && ds_info_arr[i].dsnum==dsnum) {
