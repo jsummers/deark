@@ -1055,6 +1055,17 @@ void de_declare_fmt(deark *c, const char *fmtname)
 	c->format_declared = 1;
 }
 
+void de_declare_fmtf(deark *c, const char *fmt, ...)
+{
+	va_list ap;
+	char buf[128];
+
+	va_start(ap, fmt);
+	de_vsnprintf(buf, sizeof(buf), fmt, ap);
+	de_declare_fmt(c, buf);
+	va_end(ap);
+}
+
 // Assumes dst starts out with only '0' bits
 void de_copy_bits(const de_byte *src, de_int64 srcbitnum,
 	de_byte *dst, de_int64 dstbitnum, de_int64 bitstocopy)

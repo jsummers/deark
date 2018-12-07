@@ -111,18 +111,6 @@ static int is_degas_elite(deark *c, degasctx *d)
 	return 1;
 }
 
-static void declare_degas_fmt(deark *c, degasctx *d, struct atari_img_decode_data *adata)
-{
-	char txtbuf[100];
-
-	de_snprintf(txtbuf, sizeof(txtbuf), "DEGAS%s %d-color %scompressed",
-		d->degas_elite_flag?" Elite":"",
-		(int)adata->ncolors,
-		d->compression_code?"":"un");
-
-	de_declare_fmt(c, txtbuf);
-}
-
 static void de_run_degas(deark *c, de_module_params *mparams)
 {
 	degasctx *d = NULL;
@@ -174,7 +162,10 @@ static void de_run_degas(deark *c, de_module_params *mparams)
 	de_dbg(c, "dimensions: %d"DE_CHAR_TIMES"%d, colors: %d", (int)adata->w, (int)adata->h, (int)adata->ncolors);
 
 	d->degas_elite_flag = is_degas_elite(c, d);
-	declare_degas_fmt(c, d, adata);
+	de_declare_fmtf(c, "DEGAS%s %d-color %scompressed",
+		d->degas_elite_flag?" Elite":"",
+		(int)adata->ncolors,
+		d->compression_code?"":"un");
 
 	de_fmtutil_read_atari_palette(c, c->infile, pos, adata->pal, 16, adata->ncolors, 0);
 	pos += 2*16;

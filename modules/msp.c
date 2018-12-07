@@ -113,18 +113,17 @@ static void de_run_msp(deark *c, de_module_params *mparams)
 	d = de_malloc(c, sizeof(lctx));
 
 	d->ver = de_getbyte(0) == 0x4c ? 2 : 1;
-	de_dbg(c, "MSP version %d", (int)d->ver);
+	de_dbg(c, "version: %d", d->ver);
+	de_declare_fmtf(c, "MS Paint v%d", d->ver);
 
 	d->width = de_getui16le(4);
 	d->height = de_getui16le(6);
 	de_dbg_dimensions(c, d->width, d->height);
 
 	if(d->ver==1) {
-		de_declare_fmt(c, "MS Paint v1");
 		do_ver1(c, d);
 	}
 	else {
-		de_declare_fmt(c, "MS Paint v2");
 		do_ver2(c, d);
 	}
 

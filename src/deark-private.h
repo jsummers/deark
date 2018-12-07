@@ -407,6 +407,8 @@ void de_update_file_perms(dbuf *f);
 void de_update_file_time(dbuf *f);
 
 void de_declare_fmt(deark *c, const char *fmtname);
+void de_declare_fmtf(deark *c, const char *fmt, ...)
+  de_gnuc_attribute ((format (printf, 2, 3)));
 
 void de_dbg_indent(deark *c, int n);
 void de_dbg_indent_save(deark *c, int *saved_indent_level);

@@ -1912,6 +1912,7 @@ static void de_run_cdr_wl(deark *c, de_module_params *mparams)
 	int saved_indent_level;
 
 	de_dbg_indent_save(c, &saved_indent_level);
+	de_declare_fmt(c, "CorelDRAW (WL format)");
 	version = de_getbyte(2);
 	de_dbg(c, "version code: 0x%02x", (unsigned int)version);
 	if(version <= (de_byte)'e') goto done;
