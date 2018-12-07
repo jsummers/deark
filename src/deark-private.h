@@ -165,8 +165,8 @@ struct de_density_info {
 
 // Extended information & metadata about a file to be written.
 struct de_finfo_struct {
-	de_ucstring *file_name;
-	de_byte original_filename_flag; // Indicates if .file_name is a real file name
+	de_ucstring *file_name_internal; // Modules should avoid using this field directly.
+	de_byte original_filename_flag; // Indicates if .file_name_internal is a real file name
 
 #define DE_MODEFLAG_NONEXE 0x01 // Make the output file non-executable.
 #define DE_MODEFLAG_EXE    0x02 // Make the output file executable.
@@ -174,8 +174,8 @@ struct de_finfo_struct {
 
 	struct de_timestamp mod_time; // Mod time of an archived file
 	struct de_timestamp image_mod_time; // Mod time of an image (for PNG tIME chunk)
-
 	struct de_density_info density;
+	de_ucstring *name_other; // Modules can use this field as needed.
 };
 
 struct deark_bitmap_struct {
@@ -229,10 +229,9 @@ struct de_module_out_params {
 	de_uint32 uint2;
 	de_uint32 uint3;
 	de_int64 int64_1;
-	struct de_timestamp timestamp1;
 	// The caller is responsible for freeing pointer fields.
 	// The callee should not use these fields unless requested.
-	de_ucstring *string1;
+	de_finfo *fi;
 };
 
 struct de_module_params_struct {
@@ -845,6 +844,7 @@ void ucstring_append_char(de_ucstring *s, de_int32 ch);
 void ucstring_append_ucstring(de_ucstring *s1, const de_ucstring *s2);
 void ucstring_printf(de_ucstring *s, int encoding, const char *fmt, ...)
   de_gnuc_attribute ((format (printf, 3, 4)));
+int ucstring_isnonempty(de_ucstring *s);
 
 // Convert and append an encoded array of bytes to the string.
 void ucstring_append_bytes(de_ucstring *s, const de_byte *buf, de_int64 buflen, unsigned int conv_flags, int encoding);

@@ -254,7 +254,8 @@ static void do_macbinary(deark *c, lctx *d)
 	de_dbg_indent(c, 1);
 	mparams = de_malloc(c, sizeof(de_module_params));
 	mparams->in_params.codes = "D"; // = decode only, don't extract
-	mparams->out_params.string1 = ucstring_create(c);
+	mparams->out_params.fi = de_finfo_create(c); // A temporary finfo object
+	mparams->out_params.fi->name_other = ucstring_create(c);
 	de_run_module_by_id_on_slice(c, "macbinary", mparams, c->infile, 0, 128);
 	de_dbg_indent(c, -1);
 
@@ -264,8 +265,8 @@ static void do_macbinary(deark *c, lctx *d)
 		d->expected_dflen = (de_int64)mparams->out_params.uint2;
 	}
 
-	if(mparams->out_params.timestamp1.is_valid) {
-		d->mod_time_from_macbinary = mparams->out_params.timestamp1;
+	if(mparams->out_params.fi->mod_time.is_valid) {
+		d->mod_time_from_macbinary = mparams->out_params.fi->mod_time;
 	}
 
 	if(d->df_known) {
@@ -277,13 +278,13 @@ static void do_macbinary(deark *c, lctx *d)
 		}
 	}
 
-	if(mparams->out_params.string1->len>0 && !d->filename) {
-		d->filename = ucstring_clone(mparams->out_params.string1);
+	if(ucstring_isnonempty(mparams->out_params.fi->name_other) && !d->filename) {
+		d->filename = ucstring_clone(mparams->out_params.fi->name_other);
 	}
 
 done:
 	if(mparams) {
-		ucstring_destroy(mparams->out_params.string1);
+		de_finfo_destroy(c, mparams->out_params.fi);
 		de_free(c, mparams);
 	}
 }

@@ -302,6 +302,7 @@ void de_fmtutil_handle_iptc(deark *c, dbuf *f, de_int64 pos, de_int64 len,
 	}
 }
 
+// TODO: Re-think 'oparams', now that it can have caller-owned pointer fields.
 // If oparams is not NULL, and the data is decoded, the submodule's out_params
 // will be copied to it.
 // flags:

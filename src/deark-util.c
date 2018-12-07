@@ -824,7 +824,8 @@ de_finfo *de_finfo_create(deark *c)
 void de_finfo_destroy(deark *c, de_finfo *fi)
 {
 	if(!fi) return;
-	if(fi->file_name) ucstring_destroy(fi->file_name);
+	if(fi->file_name_internal) ucstring_destroy(fi->file_name_internal);
+	if(fi->name_other) ucstring_destroy(fi->name_other);
 	de_free(c, fi);
 }
 
@@ -833,13 +834,13 @@ static void de_finfo_set_name_internal(deark *c, de_finfo *fi, de_ucstring *s)
 {
 	de_int64 i;
 
-	if(fi->file_name) {
-		ucstring_destroy(fi->file_name);
-		fi->file_name = NULL;
+	if(fi->file_name_internal) {
+		ucstring_destroy(fi->file_name_internal);
+		fi->file_name_internal = NULL;
 	}
 	if(!s) return;
 
-	fi->file_name = s;
+	fi->file_name_internal = s;
 
 	for(i=0; i<s->len; i++) {
 		s->str[i] = de_char_to_valid_fn_char(c, s->str[i]);

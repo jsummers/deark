@@ -226,11 +226,15 @@ static void de_run_macbinary(deark *c, de_module_params *mparams)
 	if(mparams) {
 		mparams->out_params.uint1 = (de_uint32)d->dfpos;
 		mparams->out_params.uint2 = (de_uint32)d->dflen;
-		mparams->out_params.timestamp1 = d->mod_time;
 
-		// If caller set out_params.string1, copy the filename to it.
-		if(d->filename && d->filename->len>0 && mparams->out_params.string1) {
-			ucstring_append_ucstring(mparams->out_params.string1, d->filename);
+		if(mparams->out_params.fi) {
+			// If caller created out_params.fi for us, save the mod time to it.
+			mparams->out_params.fi->mod_time = d->mod_time;
+
+			// If caller created .fi->name_other, copy the filename to it.
+			if(d->filename && d->filename->len>0 && mparams->out_params.fi->name_other) {
+				ucstring_append_ucstring(mparams->out_params.fi->name_other, d->filename);
+			}
 		}
 	}
 

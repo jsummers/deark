@@ -121,6 +121,11 @@ void ucstring_destroy(de_ucstring *s)
 	}
 }
 
+int ucstring_isnonempty(de_ucstring *s)
+{
+	return (s && (s->len > 0));
+}
+
 void ucstring_append_char(de_ucstring *s, de_int32 ch)
 {
 	de_int64 new_len;
