@@ -217,5 +217,4 @@ void de_module_compfacei(deark *c, struct deark_module_info *mi)
 	mi->id = "compfacei";
 	mi->desc = "Compface intermediate format";
 	mi->run_fn = de_run_compfacei;
-	mi->identify_fn = de_identify_none;
 }

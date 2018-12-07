@@ -422,8 +422,6 @@ void de_dbg_pal_entry2(deark *c, de_int64 idx, de_uint32 clr,
 char *de_get_colorsample_code(deark *c, de_uint32 clr, char *csamp,
 	size_t csamplen);
 
-int de_identify_none(deark *c);
-
 const char *de_get_ext_option(deark *c, const char *name);
 int de_get_ext_option_bool(deark *c, const char *name, int defaultval);
 

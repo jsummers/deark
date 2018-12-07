@@ -573,11 +573,6 @@ void de_free(deark *c, void *m)
 	free(m);
 }
 
-int de_identify_none(deark *c)
-{
-	return 0;
-}
-
 struct deark_module_info *de_get_module_by_id(deark *c, const char *module_id)
 {
 	int i;

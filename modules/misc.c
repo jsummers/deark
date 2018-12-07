@@ -61,7 +61,6 @@ void de_module_copy(deark *c, struct deark_module_info *mi)
 	mi->id = "copy";
 	mi->desc = "Copy the file unchanged";
 	mi->run_fn = de_run_copy;
-	mi->identify_fn = de_identify_none;
 }
 
 // **************************************************************************
@@ -80,7 +79,6 @@ void de_module_null(deark *c, struct deark_module_info *mi)
 	mi->id = "null";
 	mi->desc = "Do nothing";
 	mi->run_fn = de_run_null;
-	mi->identify_fn = de_identify_none;
 	mi->flags |= DE_MODFLAG_NOEXTRACT;
 }
 
@@ -140,7 +138,6 @@ void de_module_cp437(deark *c, struct deark_module_info *mi)
 	mi->id = "cp437";
 	mi->desc = "Code Page 437 text";
 	mi->run_fn = de_run_cp437;
-	mi->identify_fn = de_identify_none;
 }
 
 // **************************************************************************
@@ -192,7 +189,6 @@ void de_module_crc(deark *c, struct deark_module_info *mi)
 	mi->id_alias[0] = "crc32";
 	mi->desc = "Calculate various CRCs";
 	mi->run_fn = de_run_crc;
-	mi->identify_fn = de_identify_none;
 	mi->flags |= DE_MODFLAG_NOEXTRACT;
 }
 
@@ -1469,7 +1465,6 @@ void de_module_vgafont(deark *c, struct deark_module_info *mi)
 	mi->id = "vgafont";
 	mi->desc = "Raw 8x16 or 8x14 VGA font";
 	mi->run_fn = de_run_vgafont;
-	mi->identify_fn = de_identify_none;
 	mi->help_fn = de_help_vgafont;
 	mi->flags |= DE_MODFLAG_HIDDEN;
 }

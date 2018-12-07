@@ -990,6 +990,5 @@ void de_module_olepropset(deark *c, struct deark_module_info *mi)
 	mi->id = "olepropset";
 	mi->desc = "OLE Property Set";
 	mi->run_fn = de_run_olepropset;
-	mi->identify_fn = de_identify_none;
 	mi->flags |= DE_MODFLAG_HIDDEN;
 }

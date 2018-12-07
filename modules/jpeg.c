@@ -2159,5 +2159,4 @@ void de_module_jpegscan(deark *c, struct deark_module_info *mi)
 	mi->id = "jpegscan";
 	mi->desc = "Extract embedded JPEG images from arbitrary files";
 	mi->run_fn = de_run_jpegscan;
-	mi->identify_fn = de_identify_none;
 }

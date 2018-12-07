@@ -161,5 +161,4 @@ void de_module_unifont_hex(deark *c, struct deark_module_info *mi)
 	mi->id = "unifont_hex";
 	mi->desc = "GNU Unifont HEX font";
 	mi->run_fn = de_run_unifont_hex;
-	mi->identify_fn = de_identify_none;
 }

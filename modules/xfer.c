@@ -66,7 +66,6 @@ void de_module_base16(deark *c, struct deark_module_info *mi)
 	mi->id_alias[0] = "hex";
 	mi->desc = "Base16";
 	mi->run_fn = de_run_base16;
-	mi->identify_fn = de_identify_none;
 }
 
 // **************************************************************************
@@ -165,7 +164,6 @@ void de_module_base64(deark *c, struct deark_module_info *mi)
 	mi->id = "base64";
 	mi->desc = "Base64";
 	mi->run_fn = de_run_base64;
-	mi->identify_fn = de_identify_none;
 }
 
 // **************************************************************************
