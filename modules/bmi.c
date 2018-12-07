@@ -89,7 +89,7 @@ static int do_read_table(deark *c, lctx *d, de_int64 pos1)
 	de_int64 k;
 
 	de_dbg(c, "table at %d, %d items", (int)pos1, (int)d->num_table_items);
-	d->table = de_malloc(c, d->num_table_items*sizeof(struct table_item));
+	d->table = de_mallocarray(c, d->num_table_items, sizeof(struct table_item));
 
 	de_dbg_indent(c, 1);
 

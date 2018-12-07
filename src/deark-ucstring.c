@@ -463,8 +463,8 @@ void de_strarray_push(struct de_strarray *sa, de_ucstring *s)
 		size_t old_num_alloc = sa->num_alloc;
 		sa->num_alloc *= 2;
 		if(sa->num_alloc<8) sa->num_alloc=8;
-		sa->ss = de_realloc(c, sa->ss, old_num_alloc*sizeof(de_ucstring*),
-			sa->num_alloc*sizeof(de_ucstring*));
+		sa->ss = de_reallocarray(c, sa->ss, old_num_alloc, sizeof(de_ucstring*),
+			sa->num_alloc);
 	}
 	sa->ss[newidx] = ucstring_clone(s);
 	sa->count++;

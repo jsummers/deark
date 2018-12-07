@@ -519,6 +519,18 @@ void de_fatalerror(deark *c)
 	exit(1);
 }
 
+// TODO: Make de_malloc use de_mallocarray internally, instead of vice versa.
+void *de_mallocarray(deark *c, de_int64 nmemb, size_t membsize)
+{
+	if(nmemb>500000000 || nmemb<0 || membsize>500000000) {
+		de_err(c, "Out of memory");
+		de_fatalerror(c);
+		return NULL;
+	}
+
+	return de_malloc(c, nmemb*(de_int64)membsize);
+}
+
 // Memory returned is always zeroed.
 // c can be NULL.
 // Always succeeds; never returns NULL.
@@ -539,6 +551,22 @@ void *de_malloc(deark *c, de_int64 n)
 		return NULL;
 	}
 	return m;
+}
+
+// TODO: Make de_realloc use de_reallocarray internally, instead of vice versa.
+void *de_reallocarray(deark *c, void *m, de_int64 oldnmemb, size_t membsize,
+	de_int64 newnmemb)
+{
+
+	if(newnmemb>500000000 || newnmemb<0 || oldnmemb<0 || membsize>500000000) {
+		de_err(c, "Out of memory");
+		de_fatalerror(c);
+		return NULL;
+	}
+
+	return de_realloc(c, m,
+		oldnmemb*(de_int64)membsize,
+		newnmemb*(de_int64)membsize);
 }
 
 // If you know oldsize, you can provide it, and newly-allocated bytes will be zeroed.
