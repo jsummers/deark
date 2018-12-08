@@ -28,7 +28,7 @@ static const char *get_mdblk_name(de_byte blktype)
 	return name?name:"?";
 }
 
-static void do_metadata_block_vorbiscomment(deark *c, lctx *d, de_int64 pos1, de_int64 len)
+static void do_metadata_block_vorbiscomment(deark *c, lctx *d, i64 pos1, i64 len)
 {
 	de_dbg(c, "vorbis comment block at %"INT64_FMT, pos1);
 	de_dbg_indent(c, 1);
@@ -36,7 +36,7 @@ static void do_metadata_block_vorbiscomment(deark *c, lctx *d, de_int64 pos1, de
 	de_dbg_indent(c, -1);
 }
 
-static void do_metadata_block_picture(deark *c, lctx *d, de_int64 pos1, de_int64 len)
+static void do_metadata_block_picture(deark *c, lctx *d, i64 pos1, i64 len)
 {
 	de_dbg(c, "picture at %"INT64_FMT, pos1);
 	de_dbg_indent(c, 1);
@@ -44,7 +44,7 @@ static void do_metadata_block_picture(deark *c, lctx *d, de_int64 pos1, de_int64
 	de_dbg_indent(c, -1);
 }
 
-static void do_metadata_block(deark *c, lctx *d, de_byte blktype, de_int64 pos1, de_int64 len)
+static void do_metadata_block(deark *c, lctx *d, de_byte blktype, i64 pos1, i64 len)
 {
 	switch(blktype) {
 	case 4:
@@ -56,9 +56,9 @@ static void do_metadata_block(deark *c, lctx *d, de_byte blktype, de_int64 pos1,
 	}
 }
 
-static void run_flac_internal(deark *c, lctx *d, de_int64 pos1, de_int64 len)
+static void run_flac_internal(deark *c, lctx *d, i64 pos1, i64 len)
 {
-	de_int64 pos = pos1;
+	i64 pos = pos1;
 	int saved_indent_level;
 
 	de_dbg(c, "signature at %"INT64_FMT, pos);
@@ -67,7 +67,7 @@ static void run_flac_internal(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 	de_dbg_indent_save(c, &saved_indent_level);
 	while(1) {
 		de_byte b;
-		de_int64 blklen;
+		i64 blklen;
 		de_byte blktype;
 		const char *blkname;
 		de_byte is_last;
@@ -109,7 +109,7 @@ static void de_run_flac(deark *c, de_module_params *mparams)
 
 static int de_identify_flac(deark *c)
 {
-	de_int64 pos = 0;
+	i64 pos = 0;
 
 	if(!c->detection_data.id3.detection_attempted) {
 		de_err(c, "flac internal");
@@ -117,7 +117,7 @@ static int de_identify_flac(deark *c)
 	}
 
 	if(c->detection_data.id3.has_id3v2) {
-		pos = (de_int64)c->detection_data.id3.bytes_at_start;
+		pos = (i64)c->detection_data.id3.bytes_at_start;
 	}
 
 	if(!dbuf_memcmp(c->infile, pos, "fLaC", 4))

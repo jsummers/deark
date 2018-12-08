@@ -11,21 +11,21 @@ DE_DECLARE_MODULE(de_module_qtif);
 
 typedef struct localctx_struct {
 	int idat_found;
-	de_int64 idat_pos;
-	de_int64 idat_size;
+	i64 idat_pos;
+	i64 idat_size;
 
 	int idsc_found;
-	de_int64 idsc_size;
-	de_int64 idat_data_size; // "Data size" reported in idsc (0=unknown)
+	i64 idsc_size;
+	i64 idat_data_size; // "Data size" reported in idsc (0=unknown)
 	struct de_fourcc cmpr4cc;
 
-	de_int64 width, height;
-	de_int64 bitdepth;
-	de_int64 palette_id;
+	i64 width, height;
+	i64 bitdepth;
+	i64 palette_id;
 	double hres, vres;
 } lctx;
 
-static int do_read_idsc(deark *c, lctx *d, de_int64 pos, de_int64 len)
+static int do_read_idsc(deark *c, lctx *d, i64 pos, i64 len)
 {
 	int retval = 0;
 
@@ -63,8 +63,8 @@ static void do_decode_raw(deark *c, lctx *d)
 {
 	de_bitmap *img = NULL;
 	de_finfo *fi = NULL;
-	de_int64 i, j;
-	de_int64 rowspan;
+	i64 i, j;
+	i64 rowspan;
 	de_uint32 clr;
 
 	if(d->bitdepth != 32) {
@@ -105,7 +105,7 @@ done:
 
 static void do_write_image(deark *c, lctx *d)
 {
-	de_int64 dsize;
+	i64 dsize;
 
 	if(!d->idsc_found) {
 		de_err(c, "Missing idsc atom");

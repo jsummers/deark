@@ -21,7 +21,7 @@ static const de_uint32 ansi_palette[16] = {
 struct parse_results_struct {
 	int num_params;
 #define MAX_ESC_PARAMS 16
-	de_int64 params[MAX_ESC_PARAMS];
+	i64 params[MAX_ESC_PARAMS];
 };
 
 struct row_data_struct {
@@ -41,9 +41,9 @@ typedef struct localctx_struct {
 	struct de_char_screen *screen;
 	struct row_data_struct *row_data;
 
-	de_int64 effective_file_size;
-	de_int64 xpos, ypos; // 0-based
-	de_int64 saved_xpos, saved_ypos;
+	i64 effective_file_size;
+	i64 xpos, ypos; // 0-based
+	i64 saved_xpos, saved_ypos;
 
 	de_uint32 curr_fgcol;
 	de_uint32 curr_bgcol;
@@ -64,7 +64,7 @@ typedef struct localctx_struct {
 	int curr_charset_index; // 0=use g0, 1=use g1
 
 #define ANSIART_MAX_WARNINGS 10
-	de_int64 num_warnings;
+	i64 num_warnings;
 	de_byte disable_blink_attr;
 	de_byte support_9b_csi;
 	de_byte vt100_mode;
@@ -93,9 +93,9 @@ static void erase_cell(deark *c, struct de_char_cell *cell)
 }
 
 static struct de_char_cell *get_cell_at(deark *c, struct de_char_screen *screen,
-	de_int64 xpos, de_int64 ypos)
+	i64 xpos, i64 ypos)
 {
-	de_int64 i;
+	i64 i;
 	struct de_char_cell *cell;
 
 	if(xpos<0 || ypos<0) return NULL;
@@ -155,7 +155,7 @@ static void do_ctrl_char(deark *c, lctx *d, de_byte ch)
 	else if(ch==0x0f) d->curr_charset_index = 0;
 }
 
-static void do_normal_char(deark *c, lctx *d, de_int64 pos, de_byte ch)
+static void do_normal_char(deark *c, lctx *d, i64 pos, de_byte ch)
 {
 	struct de_char_cell *cell;
 	de_int32 u;
@@ -226,11 +226,11 @@ static void do_normal_char(deark *c, lctx *d, de_int64 pos, de_byte ch)
 }
 
 // Convert d->param_string_buf to d->params and d->num_params.
-static void parse_params(deark *c, lctx *d, de_int64 default_val, de_int64 offset)
+static void parse_params(deark *c, lctx *d, i64 default_val, i64 offset)
 {
-	de_int64 buf_len;
-	de_int64 ppos;
-	de_int64 param_len;
+	i64 buf_len;
+	i64 ppos;
+	i64 param_len;
 	char *p_ptr;
 	int last_param = 0;
 
@@ -271,7 +271,7 @@ static void parse_params(deark *c, lctx *d, de_int64 default_val, de_int64 offse
 }
 
 static void read_one_int(deark *c, lctx *d, const de_byte *buf,
-	de_int64 *a, de_int64 a_default)
+	i64 *a, i64 a_default)
 {
 	parse_params(c, d, a_default, 0);
 
@@ -329,8 +329,8 @@ static void do_ext_color(deark *c, lctx *d)
 // m - Select Graphic Rendition
 static void do_code_m(deark *c, lctx *d)
 {
-	de_int64 i;
-	de_int64 sgr_code;
+	i64 i;
+	i64 sgr_code;
 
 	parse_params(c, d, 0, 0);
 
@@ -419,7 +419,7 @@ static void do_code_m(deark *c, lctx *d)
 // H: Set cursor position
 static void do_code_H(deark *c, lctx *d)
 {
-	de_int64 row, col;
+	i64 row, col;
 
 	parse_params(c, d, 1, 0);
 
@@ -434,7 +434,7 @@ static void do_code_H(deark *c, lctx *d)
 }
 
 // h: Mode settings
-static void do_code_h(deark *c, lctx *d, de_int64 param_start)
+static void do_code_h(deark *c, lctx *d, i64 param_start)
 {
 	int ok=0;
 	int is_DEC = 0;
@@ -485,7 +485,7 @@ static void do_code_h(deark *c, lctx *d, de_int64 param_start)
 }
 
 // l: Turn off mode
-static void do_code_l(deark *c, lctx *d, de_int64 param_start)
+static void do_code_l(deark *c, lctx *d, i64 param_start)
 {
 	int ok=0;
 	int is_DEC = 0;
@@ -536,7 +536,7 @@ static void do_code_l(deark *c, lctx *d, de_int64 param_start)
 	}
 }
 
-static void do_code_t(deark *c, lctx *d, de_int64 param_start)
+static void do_code_t(deark *c, lctx *d, i64 param_start)
 {
 	parse_params(c, d, 0, 0);
 
@@ -568,8 +568,8 @@ static void do_code_t(deark *c, lctx *d, de_int64 param_start)
 // J: Clear screen
 static void do_code_J(deark *c, lctx *d)
 {
-	de_int64 n;
-	de_int64 i, j;
+	i64 n;
+	i64 i, j;
 
 	read_one_int(c, d, d->param_string_buf, &n, 0);
 	// 0 = clear from cursor to end of screen
@@ -599,8 +599,8 @@ static void do_code_J(deark *c, lctx *d)
 // K: Clear line
 static void do_code_K(deark *c, lctx *d)
 {
-	de_int64 n;
-	de_int64 i;
+	i64 n;
+	i64 i;
 
 	read_one_int(c, d, d->param_string_buf, &n, 0);
 	// 0 = clear cursor to end of line
@@ -623,7 +623,7 @@ static void do_code_K(deark *c, lctx *d)
 // A: Up
 static void do_code_A(deark *c, lctx *d)
 {
-	de_int64 n;
+	i64 n;
 	read_one_int(c, d, d->param_string_buf, &n, 1);
 	d->ypos -= n;
 }
@@ -631,7 +631,7 @@ static void do_code_A(deark *c, lctx *d)
 // B: Down
 static void do_code_B(deark *c, lctx *d)
 {
-	de_int64 n;
+	i64 n;
 	read_one_int(c, d, d->param_string_buf, &n, 1);
 	d->ypos += n;
 }
@@ -639,7 +639,7 @@ static void do_code_B(deark *c, lctx *d)
 // C: Forward
 static void do_code_C(deark *c, lctx *d)
 {
-	de_int64 n;
+	i64 n;
 	read_one_int(c, d, d->param_string_buf, &n, 1);
 	d->xpos += n;
 }
@@ -647,7 +647,7 @@ static void do_code_C(deark *c, lctx *d)
 // D: Back
 static void do_code_D(deark *c, lctx *d)
 {
-	de_int64 n;
+	i64 n;
 	read_one_int(c, d, d->param_string_buf, &n, 1);
 	d->xpos -= n;
 	// Some files begin with a code to move the cursor left by a large amount.
@@ -663,7 +663,7 @@ static de_byte make_printable_char(de_byte x)
 }
 
 static void do_control_sequence(deark *c, lctx *d, de_byte code,
-	de_int64 param_start, de_int64 param_len)
+	i64 param_start, i64 param_len)
 {
 	if(code>=128) return;
 
@@ -672,7 +672,7 @@ static void do_control_sequence(deark *c, lctx *d, de_byte code,
 			(char)code, (int)param_start, (int)param_len);
 	}
 
-	if(param_len > (de_int64)(sizeof(d->param_string_buf)-1)) {
+	if(param_len > (i64)(sizeof(d->param_string_buf)-1)) {
 		de_warn(c, "Ignoring long control sequence (len %d at %d)",
 			(int)param_len, (int)param_start);
 		goto done;
@@ -731,7 +731,7 @@ done:
 	d->control_seq_seen[(unsigned int)code] = 1;
 }
 
-static void do_2char_code(deark *c, lctx *d, de_byte ch1, de_byte ch2, de_int64 pos)
+static void do_2char_code(deark *c, lctx *d, de_byte ch1, de_byte ch2, i64 pos)
 {
 	int ok = 0;
 
@@ -785,13 +785,13 @@ static void do_2char_code(deark *c, lctx *d, de_byte ch1, de_byte ch2, de_int64 
 	}
 }
 
-static void do_escape_code(deark *c, lctx *d, de_byte code, de_int64 pos,
-	de_int64 *extra_bytes_to_skip)
+static void do_escape_code(deark *c, lctx *d, de_byte code, i64 pos,
+	i64 *extra_bytes_to_skip)
 {
 	if(code>=96) return;
 
 	if(code=='P') { // DCS
-		de_int64 pos2;
+		i64 pos2;
 		de_byte b0, b1;
 
 		// A DCS sequence ends with 1b 5c, or maybe 9c.
@@ -828,8 +828,8 @@ static void do_escape_code(deark *c, lctx *d, de_byte code, de_int64 pos,
 
 static void do_main(deark *c, lctx *d)
 {
-	de_int64 pos, nextpos;
-	de_int64 params_start_pos = 0;
+	i64 pos, nextpos;
+	i64 params_start_pos = 0;
 #define STATE_NORMAL 0
 #define STATE_GOT_ESC 1
 #define STATE_READING_PARAM 2
@@ -879,7 +879,7 @@ static void do_main(deark *c, lctx *d)
 			}
 			else if(ch>=64 && ch<=95) {
 				// A 2-character escape sequence
-				de_int64 extra_bytes_to_skip;
+				i64 extra_bytes_to_skip;
 				extra_bytes_to_skip = 0;
 				do_escape_code(c, d, ch, pos, &extra_bytes_to_skip);
 				nextpos += extra_bytes_to_skip;
@@ -919,7 +919,7 @@ static void do_main(deark *c, lctx *d)
 // Consistency is not its strong point.)
 static void fixup_doublesize_rows(deark *c, lctx *d)
 {
-	de_int64 i, j;
+	i64 i, j;
 	struct de_char_cell *r;
 	de_byte size_mode;
 
@@ -951,11 +951,11 @@ static void de_run_ansiart(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
 	struct de_char_context *charctx = NULL;
-	de_int64 k;
+	i64 k;
 	struct de_SAUCE_info *si = NULL;
 	int valid_sauce = 0;
 	const char *s;
-	de_int64 width_req = 0;
+	i64 width_req = 0;
 
 	d = de_malloc(c, sizeof(lctx));
 

@@ -10,7 +10,7 @@
 #include "deark-config.h"
 #include "deark-private.h"
 
-int de_good_image_dimensions_noerr(deark *c, de_int64 w, de_int64 h)
+int de_good_image_dimensions_noerr(deark *c, i64 w, i64 h)
 {
 	if(w<1 || h<1 || w>c->max_image_dimension || h>c->max_image_dimension) {
 		return 0;
@@ -18,7 +18,7 @@ int de_good_image_dimensions_noerr(deark *c, de_int64 w, de_int64 h)
 	return 1;
 }
 
-int de_good_image_dimensions(deark *c, de_int64 w, de_int64 h)
+int de_good_image_dimensions(deark *c, i64 w, i64 h)
 {
 	if(!de_good_image_dimensions_noerr(c, w, h)) {
 		de_err(c, "Bad or unsupported image dimensions (%d"DE_CHAR_TIMES"%d)",
@@ -34,9 +34,9 @@ int de_good_image_dimensions(deark *c, de_int64 w, de_int64 h)
 // are in a file.
 // TODO: It is not used very consistently, and should probably be re-thought
 // or removed.
-int de_good_image_count(deark *c, de_int64 n)
+int de_good_image_count(deark *c, i64 n)
 {
-	de_int64 maximages;
+	i64 maximages;
 
 	maximages = DE_MAX_IMAGES_PER_FILE;
 	if(c->max_output_files>DE_MAX_IMAGES_PER_FILE) {
@@ -50,9 +50,9 @@ int de_good_image_count(deark *c, de_int64 n)
 	return 1;
 }
 
-int de_is_grayscale_palette(const de_uint32 *pal, de_int64 num_entries)
+int de_is_grayscale_palette(const de_uint32 *pal, i64 num_entries)
 {
-	de_int64 k;
+	i64 k;
 	de_byte cr;
 
 	for(k=0; k<num_entries; k++) {
@@ -92,7 +92,7 @@ struct image_scan_results {
 // Scan the image's pixels, and report whether any are transparent, etc.
 static void scan_image(de_bitmap *img, struct image_scan_results *isres)
 {
-	de_int64 i, j;
+	i64 i, j;
 	de_uint32 clr;
 	de_byte a, r, g, b;
 
@@ -225,10 +225,10 @@ void de_bitmap_write_to_file(de_bitmap *img, const char *token,
 }
 
 // samplenum 0=Red, 1=Green, 2=Blue, 3=Alpha
-void de_bitmap_setsample(de_bitmap *img, de_int64 x, de_int64 y,
-	de_int64 samplenum, de_byte v)
+void de_bitmap_setsample(de_bitmap *img, i64 x, i64 y,
+	i64 samplenum, de_byte v)
 {
-	de_int64 pos;
+	i64 pos;
 
 	if(!img->bitmap) de_bitmap_alloc_pixels(img);
 	if(x<0 || y<0 || x>=img->width || y>=img->height) return;
@@ -260,9 +260,9 @@ void de_bitmap_setsample(de_bitmap *img, de_int64 x, de_int64 y,
 	}
 }
 
-void de_bitmap_setpixel_gray(de_bitmap *img, de_int64 x, de_int64 y, de_byte v)
+void de_bitmap_setpixel_gray(de_bitmap *img, i64 x, i64 y, de_byte v)
 {
-	de_int64 pos;
+	i64 pos;
 
 	if(!img->bitmap) de_bitmap_alloc_pixels(img);
 	if(x<0 || y<0 || x>=img->width || y>=img->height) return;
@@ -287,16 +287,16 @@ void de_bitmap_setpixel_gray(de_bitmap *img, de_int64 x, de_int64 y, de_byte v)
 
 // TODO: Decide if this should just be an alias of setpixel_rgba, or if it will
 // force colors to be opaque.
-void de_bitmap_setpixel_rgb(de_bitmap *img, de_int64 x, de_int64 y,
+void de_bitmap_setpixel_rgb(de_bitmap *img, i64 x, i64 y,
 	de_uint32 color)
 {
 	de_bitmap_setpixel_rgba(img, x, y, color);
 }
 
-void de_bitmap_setpixel_rgba(de_bitmap *img, de_int64 x, de_int64 y,
+void de_bitmap_setpixel_rgba(de_bitmap *img, i64 x, i64 y,
 	de_uint32 color)
 {
-	de_int64 pos;
+	i64 pos;
 
 	if(!img->bitmap) de_bitmap_alloc_pixels(img);
 	if(x<0 || y<0 || x>=img->width || y>=img->height) return;
@@ -327,9 +327,9 @@ void de_bitmap_setpixel_rgba(de_bitmap *img, de_int64 x, de_int64 y,
 	}
 }
 
-de_uint32 de_bitmap_getpixel(de_bitmap *img, de_int64 x, de_int64 y)
+de_uint32 de_bitmap_getpixel(de_bitmap *img, i64 x, i64 y)
 {
-	de_int64 pos;
+	i64 pos;
 
 	if(!img) return 0;
 	if(!img->bitmap) return 0;
@@ -364,7 +364,7 @@ de_bitmap *de_bitmap_create_noinit(deark *c)
 	return img;
 }
 
-de_bitmap *de_bitmap_create(deark *c, de_int64 width, de_int64 height, int bypp)
+de_bitmap *de_bitmap_create(deark *c, i64 width, i64 height, int bypp)
 {
 	de_bitmap *img;
 	img = de_bitmap_create_noinit(c);
@@ -384,9 +384,9 @@ void de_bitmap_destroy(de_bitmap *b)
 	}
 }
 
-de_byte de_get_bits_symbol(dbuf *f, de_int64 bps, de_int64 rowstart, de_int64 index)
+de_byte de_get_bits_symbol(dbuf *f, i64 bps, i64 rowstart, i64 index)
 {
-	de_int64 byte_offset;
+	i64 byte_offset;
 	de_byte b;
 	de_byte x = 0;
 
@@ -414,9 +414,9 @@ de_byte de_get_bits_symbol(dbuf *f, de_int64 bps, de_int64 rowstart, de_int64 in
 }
 
 // Like de_get_bits_symbol, but with LSB-first bit order
-de_byte de_get_bits_symbol_lsb(dbuf *f, de_int64 bps, de_int64 rowstart, de_int64 index)
+de_byte de_get_bits_symbol_lsb(dbuf *f, i64 bps, i64 rowstart, i64 index)
 {
-	de_int64 byte_offset;
+	i64 byte_offset;
 	de_byte b;
 	de_byte x = 0;
 
@@ -445,7 +445,7 @@ de_byte de_get_bits_symbol_lsb(dbuf *f, de_int64 bps, de_int64 rowstart, de_int6
 
 // Read a symbol (up to 8 bits) that starts at an arbitrary bit position.
 // It may span (two) bytes.
-de_byte de_get_bits_symbol2(dbuf *f, int nbits, de_int64 bytepos, de_int64 bitpos)
+de_byte de_get_bits_symbol2(dbuf *f, int nbits, i64 bytepos, i64 bitpos)
 {
 	de_byte b0, b1;
 	int bits_in_first_byte;
@@ -474,10 +474,10 @@ de_byte de_get_bits_symbol2(dbuf *f, int nbits, de_int64 bytepos, de_int64 bitpo
 	return (b0<<bits_in_second_byte) | (b1>>(8-bits_in_second_byte));
 }
 
-void de_convert_row_bilevel(dbuf *f, de_int64 fpos, de_bitmap *img,
-	de_int64 rownum, unsigned int flags)
+void de_convert_row_bilevel(dbuf *f, i64 fpos, de_bitmap *img,
+	i64 rownum, unsigned int flags)
 {
-	de_int64 i;
+	i64 i;
 	de_byte x;
 	de_byte b;
 	de_byte black, white;
@@ -499,18 +499,18 @@ void de_convert_row_bilevel(dbuf *f, de_int64 fpos, de_bitmap *img,
 	}
 }
 
-void de_convert_image_bilevel(dbuf *f, de_int64 fpos, de_int64 rowspan,
+void de_convert_image_bilevel(dbuf *f, i64 fpos, i64 rowspan,
 	de_bitmap *img, unsigned int flags)
 {
-	de_int64 j;
+	i64 j;
 
 	for(j=0; j<img->height; j++) {
 		de_convert_row_bilevel(f, fpos+j*rowspan, img, j, flags);
 	}
 }
 
-void de_convert_and_write_image_bilevel(dbuf *f, de_int64 fpos,
-	de_int64 width, de_int64 height, de_int64 rowspan, unsigned int cvtflags,
+void de_convert_and_write_image_bilevel(dbuf *f, i64 fpos,
+	i64 width, i64 height, i64 rowspan, unsigned int cvtflags,
 	de_finfo *fi, unsigned int createflags)
 {
 	de_bitmap *img = NULL;
@@ -527,11 +527,11 @@ void de_convert_and_write_image_bilevel(dbuf *f, de_int64 fpos,
 // Read a palette of 24-bit RGB colors.
 // flags = flags used by dbuf_getRGB()
 void de_read_palette_rgb(dbuf *f,
-	de_int64 fpos, de_int64 num_entries, de_int64 entryspan,
-	de_uint32 *pal, de_int64 ncolors_in_pal,
+	i64 fpos, i64 num_entries, i64 entryspan,
+	de_uint32 *pal, i64 ncolors_in_pal,
 	unsigned int flags)
 {
-	de_int64 k;
+	i64 k;
 
 	if(num_entries > ncolors_in_pal) num_entries = ncolors_in_pal;
 	for(k=0; k<num_entries; k++) {
@@ -540,11 +540,11 @@ void de_read_palette_rgb(dbuf *f,
 	}
 }
 
-void de_convert_image_paletted(dbuf *f, de_int64 fpos,
-	de_int64 bpp, de_int64 rowspan, const de_uint32 *pal,
+void de_convert_image_paletted(dbuf *f, i64 fpos,
+	i64 bpp, i64 rowspan, const de_uint32 *pal,
 	de_bitmap *img, unsigned int flags)
 {
-	de_int64 i, j;
+	i64 i, j;
 	unsigned int palent;
 
 	if(bpp!=1 && bpp!=2 && bpp!=4 && bpp!=8) return;
@@ -561,10 +561,10 @@ void de_convert_image_paletted(dbuf *f, de_int64 fpos,
 // Paint a solid, solid-color rectangle onto an image.
 // (Pixels will be replaced, not merged.)
 void de_bitmap_rect(de_bitmap *img,
-	de_int64 xpos, de_int64 ypos, de_int64 width, de_int64 height,
+	i64 xpos, i64 ypos, i64 width, i64 height,
 	de_uint32 clr, unsigned int flags)
 {
-	de_int64 i, j;
+	i64 i, j;
 
 	for(j=0; j<height; j++) {
 		for(i=0; i<width; i++) {
@@ -579,10 +579,10 @@ void de_bitmap_rect(de_bitmap *img,
 // Flags supported:
 //   DE_BITMAPFLAG_MERGE - Merge transparent pixels (partially supported)
 void de_bitmap_copy_rect(de_bitmap *srcimg, de_bitmap *dstimg,
-	de_int64 srcxpos, de_int64 srcypos, de_int64 width, de_int64 height,
-	de_int64 dstxpos, de_int64 dstypos, unsigned int flags)
+	i64 srcxpos, i64 srcypos, i64 width, i64 height,
+	i64 dstxpos, i64 dstypos, unsigned int flags)
 {
-	de_int64 i, j;
+	i64 i, j;
 	de_uint32 dst_clr, src_clr, clr;
 	de_byte src_a;
 
@@ -612,7 +612,7 @@ void de_bitmap_copy_rect(de_bitmap *srcimg, de_bitmap *dstimg,
 void de_bitmap_apply_mask(de_bitmap *fg, de_bitmap *mask,
 	unsigned int flags)
 {
-	de_int64 i, j;
+	i64 i, j;
 	de_uint32 clr;
 	de_byte a;
 
@@ -636,8 +636,8 @@ void de_bitmap_apply_mask(de_bitmap *fg, de_bitmap *mask,
 //  0x2: Warn if an invisible image was made opaque
 void de_optimize_image_alpha(de_bitmap *img, unsigned int flags)
 {
-	de_int64 i, j;
-	de_int64 k;
+	i64 i, j;
+	i64 k;
 	struct image_scan_results isres;
 
 	if(img->bytes_per_pixel!=2 && img->bytes_per_pixel!=4) return;
@@ -671,9 +671,9 @@ void de_optimize_image_alpha(de_bitmap *img, unsigned int flags)
 }
 
 // flag 0x1: white-is-min
-void de_make_grayscale_palette(de_uint32 *pal, de_int64 num_entries, unsigned int flags)
+void de_make_grayscale_palette(de_uint32 *pal, i64 num_entries, unsigned int flags)
 {
-	de_int64 k;
+	i64 k;
 	de_byte b;
 
 	for(k=0; k<num_entries; k++) {

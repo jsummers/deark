@@ -51,13 +51,13 @@ typedef struct localctx_struct {
 	de_uint32 curr_avi_stream_type;
 } lctx;
 
-static void do_extract_raw(deark *c, lctx *d, struct de_iffctx *ictx, de_int64 pos, de_int64 len, const char *ext,
+static void do_extract_raw(deark *c, lctx *d, struct de_iffctx *ictx, i64 pos, i64 len, const char *ext,
 	unsigned int createflags)
 {
 	dbuf_create_file_from_slice(ictx->f, pos, len, ext, NULL, createflags);
 }
 
-static void do_INFO_item(deark *c, lctx *d, struct de_iffctx *ictx, de_int64 pos, de_int64 len, de_uint32 chunk_id)
+static void do_INFO_item(deark *c, lctx *d, struct de_iffctx *ictx, i64 pos, i64 len, de_uint32 chunk_id)
 {
 	de_ucstring *s = NULL;
 
@@ -73,7 +73,7 @@ static void do_INFO_item(deark *c, lctx *d, struct de_iffctx *ictx, de_int64 pos
 	ucstring_destroy(s);
 }
 
-static void extract_ani_frame(deark *c, lctx *d, struct de_iffctx *ictx, de_int64 pos, de_int64 len)
+static void extract_ani_frame(deark *c, lctx *d, struct de_iffctx *ictx, i64 pos, i64 len)
 {
 	de_byte buf[4];
 	const char *ext;
@@ -115,11 +115,11 @@ static const char *get_wav_fmt_name(unsigned int n)
 	return name?name:"?";
 }
 
-static void decode_WAVEFORMATEX(deark *c, lctx *d, struct de_iffctx *ictx, de_int64 pos1, de_int64 len)
+static void decode_WAVEFORMATEX(deark *c, lctx *d, struct de_iffctx *ictx, i64 pos1, i64 len)
 {
 	unsigned int formattag;
-	de_int64 n;
-	de_int64 pos = pos1;
+	i64 n;
+	i64 pos = pos1;
 
 	if(!ictx->is_le) goto done;
 	if(len<14) goto done;
@@ -145,14 +145,14 @@ done:
 	;
 }
 
-static void do_wav_fmt(deark *c, lctx *d, struct de_iffctx *ictx, de_int64 pos, de_int64 len)
+static void do_wav_fmt(deark *c, lctx *d, struct de_iffctx *ictx, i64 pos, i64 len)
 {
 	decode_WAVEFORMATEX(c, d, ictx, pos, len);
 }
 
-static void do_wav_fact(deark *c, lctx *d, struct de_iffctx *ictx, de_int64 pos, de_int64 len)
+static void do_wav_fact(deark *c, lctx *d, struct de_iffctx *ictx, i64 pos, i64 len)
 {
-	de_int64 n;
+	i64 n;
 
 	if(!ictx->is_le) return;
 	if(len<4) return;
@@ -160,9 +160,9 @@ static void do_wav_fact(deark *c, lctx *d, struct de_iffctx *ictx, de_int64 pos,
 	de_dbg(c, "number of samples: %u", (unsigned int)n);
 }
 
-static void do_avi_avih(deark *c, lctx *d, struct de_iffctx *ictx, de_int64 pos, de_int64 len)
+static void do_avi_avih(deark *c, lctx *d, struct de_iffctx *ictx, i64 pos, i64 len)
 {
-	de_int64 n, n2;
+	i64 n, n2;
 
 	if(len<40) return;
 	n = de_getui32le(pos);
@@ -179,7 +179,7 @@ static void do_avi_avih(deark *c, lctx *d, struct de_iffctx *ictx, de_int64 pos,
 	// TODO: There are more fields in this chunk.
 }
 
-static void do_avi_strh(deark *c, lctx *d, struct de_iffctx *ictx, de_int64 pos, de_int64 len)
+static void do_avi_strh(deark *c, lctx *d, struct de_iffctx *ictx, i64 pos, i64 len)
 {
 	struct de_fourcc type4cc;
 	struct de_fourcc codec4cc;
@@ -197,7 +197,7 @@ static void do_avi_strh(deark *c, lctx *d, struct de_iffctx *ictx, de_int64 pos,
 	// TODO: There are more fields here.
 }
 
-static void do_avi_strf(deark *c, lctx *d, struct de_iffctx *ictx, de_int64 pos, de_int64 len)
+static void do_avi_strf(deark *c, lctx *d, struct de_iffctx *ictx, i64 pos, i64 len)
 {
 	if(d->curr_avi_stream_type==CODE_vids) {
 		struct de_bmpinfo bi;
@@ -211,18 +211,18 @@ static void do_avi_strf(deark *c, lctx *d, struct de_iffctx *ictx, de_int64 pos,
 	}
 }
 
-static void do_cdr_bmp(deark *c, lctx *d, struct de_iffctx *ictx, de_int64 pos, de_int64 len)
+static void do_cdr_bmp(deark *c, lctx *d, struct de_iffctx *ictx, i64 pos, i64 len)
 {
 	if(len<20) return;
 	// The first 2 bytes are an index, or something. BMP starts at offset 2.
 	dbuf_create_file_from_slice(ictx->f, pos+2, len-2, "bmp", NULL, 0);
 }
 
-static void do_palette(deark *c, lctx *d, struct de_iffctx *ictx, de_int64 pos, de_int64 len)
+static void do_palette(deark *c, lctx *d, struct de_iffctx *ictx, i64 pos, i64 len)
 {
-	de_int64 ver;
-	de_int64 n;
-	de_int64 i;
+	i64 ver;
+	i64 n;
+	i64 i;
 	de_byte r,g,b,flags;
 	de_uint32 clr;
 	char tmps[32];
@@ -253,17 +253,17 @@ static void do_palette(deark *c, lctx *d, struct de_iffctx *ictx, de_int64 pos, 
 	de_dbg_indent(c, -1);
 }
 
-static void do_DISP_DIB(deark *c, lctx *d, struct de_iffctx *ictx, de_int64 pos, de_int64 len)
+static void do_DISP_DIB(deark *c, lctx *d, struct de_iffctx *ictx, i64 pos, i64 len)
 {
 	if(len<12) return;
 	// "X" = Tell the dib module to mark the output file as "auxiliary".
 	de_run_module_by_id_on_slice2(c, "dib", "X", ictx->f, pos, len);
 }
 
-static void do_DISP_TEXT(deark *c, lctx *d, struct de_iffctx *ictx, de_int64 pos, de_int64 len1)
+static void do_DISP_TEXT(deark *c, lctx *d, struct de_iffctx *ictx, i64 pos, i64 len1)
 {
-	de_int64 foundpos;
-	de_int64 len = len1;
+	i64 foundpos;
+	i64 len = len1;
 
 	// Stop at NUL
 	if(dbuf_search_byte(ictx->f, 0x00, pos, len1, &foundpos)) {
@@ -275,25 +275,25 @@ static void do_DISP_TEXT(deark *c, lctx *d, struct de_iffctx *ictx, de_int64 pos
 	do_extract_raw(c, d, ictx, pos, len, "disp.txt", DE_CREATEFLAG_IS_AUX);
 }
 
-static void do_ICCP(deark *c, lctx *d, struct de_iffctx *ictx, de_int64 pos, de_int64 len)
+static void do_ICCP(deark *c, lctx *d, struct de_iffctx *ictx, i64 pos, i64 len)
 {
 	dbuf_create_file_from_slice(ictx->f, pos, len, "icc", NULL, DE_CREATEFLAG_IS_AUX);
 }
 
-static void do_EXIF(deark *c, lctx *d, struct de_iffctx *ictx, de_int64 pos, de_int64 len)
+static void do_EXIF(deark *c, lctx *d, struct de_iffctx *ictx, i64 pos, i64 len)
 {
 	de_fmtutil_handle_exif(c, pos, len);
 }
 
-static void do_XMP(deark *c, lctx *d, struct de_iffctx *ictx, de_int64 pos, de_int64 len)
+static void do_XMP(deark *c, lctx *d, struct de_iffctx *ictx, i64 pos, i64 len)
 {
 	dbuf_create_file_from_slice(ictx->f, pos, len, "xmp", NULL, DE_CREATEFLAG_IS_AUX);
 }
 
-static void do_DISP(deark *c, lctx *d, struct de_iffctx *ictx, de_int64 pos, de_int64 len)
+static void do_DISP(deark *c, lctx *d, struct de_iffctx *ictx, i64 pos, i64 len)
 {
 	unsigned int ty;
-	de_int64 dpos, dlen;
+	i64 dpos, dlen;
 
 	if(!ictx->is_le) return;
 	if(len<4) return;
@@ -386,7 +386,7 @@ static int my_preprocess_riff_chunk_fn(deark *c, struct de_iffctx *ictx)
 
 static int my_riff_chunk_handler(deark *c, struct de_iffctx *ictx)
 {
-	de_int64 dpos, dlen;
+	i64 dpos, dlen;
 	de_uint32 list_type;
 	lctx *d = (lctx*)ictx->userdata;
 

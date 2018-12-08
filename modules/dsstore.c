@@ -22,8 +22,8 @@ DE_DECLARE_MODULE(de_module_dsstore);
 #define CODE_ustr 0x75737472U
 
 struct record_info {
-	de_int64 dpos;
-	de_int64 dlen;
+	i64 dpos;
+	i64 dlen;
 	de_ucstring *filename;
 	struct de_fourcc rtype;
 	struct de_fourcc dtype;
@@ -35,27 +35,27 @@ struct addr_table_entry {
 };
 
 typedef struct localctx_struct {
-	de_int64 infoblk_offs;
-	de_int64 infoblk_size;
+	i64 infoblk_offs;
+	i64 infoblk_size;
 
 	int found_dsdb;
 	de_uint32 dsdb_block_id;
 
 	de_uint32 root_node_block_id;
 
-	de_int64 blkcount;
+	i64 blkcount;
 	struct addr_table_entry *block_addr_table; // 'blkcount' entries
 	int depth;
 } lctx;
 
-static void do_dir_entry(deark *c, lctx *d, de_int64 pos1, de_int64 *bytes_consumed)
+static void do_dir_entry(deark *c, lctx *d, i64 pos1, i64 *bytes_consumed)
 {
 	de_uint32 blk_id;
-	de_int64 pos = pos1;
-	de_int64 nlen;
+	i64 pos = pos1;
+	i64 nlen;
 	struct de_stringreaderdata *name_srd = NULL;
 
-	nlen = (de_int64)de_getbyte_p(&pos);
+	nlen = (i64)de_getbyte_p(&pos);
 	*bytes_consumed = 1 + nlen + 4;
 	name_srd = dbuf_read_string(c->infile, pos, nlen, nlen, 0, DE_ENCODING_MACROMAN);
 	pos += nlen;
@@ -73,11 +73,11 @@ static void do_dir_entry(deark *c, lctx *d, de_int64 pos1, de_int64 *bytes_consu
 
 static void do_info_block(deark *c, lctx *d)
 {
-	de_int64 pos = d->infoblk_offs;
-	de_int64 dircount;
-	de_int64 blk_addr_array_start;
-	de_int64 blk_addr_array_size_padded;
-	de_int64 k;
+	i64 pos = d->infoblk_offs;
+	i64 dircount;
+	i64 blk_addr_array_start;
+	i64 blk_addr_array_size_padded;
+	i64 k;
 	int saved_indent_level;
 
 	de_dbg_indent_save(c, &saved_indent_level);
@@ -108,7 +108,7 @@ static void do_info_block(deark *c, lctx *d)
 	de_dbg(c, "dir count: %u", (unsigned int)dircount);
 	if(dircount>1000000) goto done;
 	for(k=0; k<dircount; k++) {
-		de_int64 bytes_consumed;
+		i64 bytes_consumed;
 
 		de_dbg(c, "dir entry[%d] at %"INT64_FMT, (int)k, pos);
 		de_dbg_indent(c, 1);
@@ -122,20 +122,20 @@ done:
 }
 
 static int block_id_to_offset_and_size(deark *c, lctx *d, de_uint32 blk_id,
-	de_int64 *poffs, de_int64 *psize)
+	i64 *poffs, i64 *psize)
 {
 	int retval = 0;
 	de_uint32 addr_code;
 	unsigned int size_indicator;
 
-	if((de_int64)blk_id>=d->blkcount) {
+	if((i64)blk_id>=d->blkcount) {
 		goto done;
 	}
 
 	addr_code = d->block_addr_table[blk_id].addr_code;
 	size_indicator = addr_code&0x1f;
-	*psize = (de_int64)(1U<<size_indicator);
-	*poffs = HDRSIZE+(de_int64)(addr_code-size_indicator);
+	*psize = (i64)(1U<<size_indicator);
+	*poffs = HDRSIZE+(i64)(addr_code-size_indicator);
 
 	retval = 1;
 done:
@@ -148,8 +148,8 @@ done:
 
 static void do_blob(deark *c, lctx *d, struct record_info *ri)
 {
-	de_int64 len;
-	de_int64 blobpos;
+	i64 len;
+	i64 blobpos;
 
 	len = de_getui32be(ri->dpos);
 	de_dbg(c, "blob len: %d", (int)len);
@@ -182,7 +182,7 @@ static void do_blob(deark *c, lctx *d, struct record_info *ri)
 
 static void do_ustr(deark *c, lctx *d, struct record_info *ri)
 {
-	de_int64 len;
+	i64 len;
 	de_ucstring *s = NULL;
 
 	len = de_getui32be(ri->dpos);
@@ -195,9 +195,9 @@ static void do_ustr(deark *c, lctx *d, struct record_info *ri)
 }
 
 static void do_record_int(deark *c, lctx *d, struct record_info *ri,
-	de_int64 dpos, de_int64 dlen)
+	i64 dpos, i64 dlen)
 {
-	de_int64 val;
+	i64 val;
 
 	val = dbuf_getint_ext(c->infile, dpos, (unsigned int)dlen, 0, 0);
 	de_dbg(c, "value: %"INT64_FMT, val);
@@ -205,13 +205,13 @@ static void do_record_int(deark *c, lctx *d, struct record_info *ri,
 
 static void do_record_date(deark *c, lctx *d, struct record_info *ri)
 {
-	de_uint64 val1;
-	de_int64 val2;
+	u64 val1;
+	i64 val2;
 	struct de_timestamp ts;
 	char timestamp_buf[64];
 
 	val1 = dbuf_getui64be(c->infile, ri->dpos);
-	val2 = (de_int64)(val1>>16);
+	val2 = (i64)(val1>>16);
 	de_mac_time_to_timestamp(val2, &ts);
 	ts.tzcode = DE_TZCODE_UTC;
 	de_timestamp_to_string(&ts, timestamp_buf, sizeof(timestamp_buf), 0);
@@ -219,10 +219,10 @@ static void do_record_date(deark *c, lctx *d, struct record_info *ri)
 }
 
 // Returns 1 if we calculated the bytes_consumed.
-static int do_record(deark *c, lctx *d, de_int64 pos1, de_int64 *bytes_consumed)
+static int do_record(deark *c, lctx *d, i64 pos1, i64 *bytes_consumed)
 {
-	de_int64 nlen;
-	de_int64 pos = pos1;
+	i64 nlen;
+	i64 pos = pos1;
 	struct record_info ri;
 	int retval = 0;
 
@@ -292,11 +292,11 @@ done:
 
 static void do_one_node(deark *c, lctx *d, de_uint32 blk_id)
 {
-	de_int64 node_offs, node_size;
+	i64 node_offs, node_size;
 	unsigned int mode;
-	de_int64 count;
-	de_int64 pos;
-	de_int64 k;
+	i64 count;
+	i64 pos;
+	i64 k;
 	int saved_indent_level;
 
 	de_dbg_indent_save(c, &saved_indent_level);
@@ -324,7 +324,7 @@ static void do_one_node(deark *c, lctx *d, de_uint32 blk_id)
 
 	{
 		// If 'mode' is 0, there are 'count' records here.
-		de_int64 bytes_consumed = 0;
+		i64 bytes_consumed = 0;
 
 		if(mode!=0) {
 			de_uint32 next_blk_id;
@@ -349,9 +349,9 @@ done:
 
 static int do_dsdb(deark *c, lctx *d)
 {
-	de_int64 dsdb_offs, dsdb_size;
-	de_int64 pos;
-	de_int64 n;
+	i64 dsdb_offs, dsdb_size;
+	i64 pos;
+	i64 n;
 	int retval = 0;
 
 	if(!d->found_dsdb) goto done;
@@ -385,7 +385,7 @@ done:
 static void de_run_dsstore(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
-	de_int64 pos;
+	i64 pos;
 
 	d = de_malloc(c, sizeof(lctx));
 

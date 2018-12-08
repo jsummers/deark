@@ -273,7 +273,7 @@ void de_dbg_indent_restore(deark *c, int saved_indent_level)
 	c->dbg_indent_amount = saved_indent_level;
 }
 
-static int get_ndigits_for_offset(de_int64 n)
+static int get_ndigits_for_offset(i64 n)
 {
 	int nd;
 
@@ -288,20 +288,20 @@ static int get_ndigits_for_offset(de_int64 n)
 // If prefix is NULL, a default will be used.
 // flags:
 //  0x1 = Include an ASCII representation
-void de_dbg_hexdump(deark *c, dbuf *f, de_int64 pos1,
-	de_int64 nbytes_avail, de_int64 max_nbytes_to_dump,
+void de_dbg_hexdump(deark *c, dbuf *f, i64 pos1,
+	i64 nbytes_avail, i64 max_nbytes_to_dump,
 	const char *prefix, unsigned int flags)
 {
 	char linebuf[3*16+32];
 	char asciibuf[64];
 	char offset_fmtstr[32];
-	de_int64 pos = pos1;
-	de_int64 k;
-	de_int64 bytesthisrow;
+	i64 pos = pos1;
+	i64 k;
+	i64 bytesthisrow;
 	int asciibufpos;
 	int linebufpos;
 	de_byte b;
-	de_int64 len;
+	i64 len;
 	int ndigits_for_offset;
 	int was_truncated = 0;
 
@@ -388,7 +388,7 @@ void de_dbg_hexdump(deark *c, dbuf *f, de_int64 pos1,
 }
 
 // This is such a common thing to do, that it's worth having a function for it.
-void de_dbg_dimensions(deark *c, de_int64 w, de_int64 h)
+void de_dbg_dimensions(deark *c, i64 w, i64 h)
 {
 	de_dbg(c, "dimensions: %"INT64_FMT DE_CHAR_TIMES "%"INT64_FMT, w, h);
 }
@@ -427,7 +427,7 @@ char *de_get_colorsample_code(deark *c, de_uint32 clr, char *csamp,
 }
 
 // Print debugging output for an 8-bit RGB palette entry.
-void de_dbg_pal_entry2(deark *c, de_int64 idx, de_uint32 clr,
+void de_dbg_pal_entry2(deark *c, i64 idx, de_uint32 clr,
 	const char *txt_before, const char *txt_in, const char *txt_after)
 {
 	int r,g,b,a;
@@ -454,7 +454,7 @@ void de_dbg_pal_entry2(deark *c, de_int64 idx, de_uint32 clr,
 		r, g, b, astr, txt_in, csamp, txt_after);
 }
 
-void de_dbg_pal_entry(deark *c, de_int64 idx, de_uint32 clr)
+void de_dbg_pal_entry(deark *c, i64 idx, de_uint32 clr)
 {
 	if(c->debug_level<2) return;
 	de_dbg_pal_entry2(c, idx, clr, NULL, NULL, NULL);
@@ -520,7 +520,7 @@ void de_fatalerror(deark *c)
 }
 
 // TODO: Make de_malloc use de_mallocarray internally, instead of vice versa.
-void *de_mallocarray(deark *c, de_int64 nmemb, size_t membsize)
+void *de_mallocarray(deark *c, i64 nmemb, size_t membsize)
 {
 	if(nmemb>500000000 || nmemb<0 || membsize>500000000) {
 		de_err(c, "Out of memory");
@@ -528,13 +528,13 @@ void *de_mallocarray(deark *c, de_int64 nmemb, size_t membsize)
 		return NULL;
 	}
 
-	return de_malloc(c, nmemb*(de_int64)membsize);
+	return de_malloc(c, nmemb*(i64)membsize);
 }
 
 // Memory returned is always zeroed.
 // c can be NULL.
 // Always succeeds; never returns NULL.
-void *de_malloc(deark *c, de_int64 n)
+void *de_malloc(deark *c, i64 n)
 {
 	void *m;
 	if(n==0) n=1;
@@ -554,8 +554,8 @@ void *de_malloc(deark *c, de_int64 n)
 }
 
 // TODO: Make de_realloc use de_reallocarray internally, instead of vice versa.
-void *de_reallocarray(deark *c, void *m, de_int64 oldnmemb, size_t membsize,
-	de_int64 newnmemb)
+void *de_reallocarray(deark *c, void *m, i64 oldnmemb, size_t membsize,
+	i64 newnmemb)
 {
 
 	if(newnmemb>500000000 || newnmemb<0 || oldnmemb<0 || membsize>500000000) {
@@ -565,14 +565,14 @@ void *de_reallocarray(deark *c, void *m, de_int64 oldnmemb, size_t membsize,
 	}
 
 	return de_realloc(c, m,
-		oldnmemb*(de_int64)membsize,
-		newnmemb*(de_int64)membsize);
+		oldnmemb*(i64)membsize,
+		newnmemb*(i64)membsize);
 }
 
 // If you know oldsize, you can provide it, and newly-allocated bytes will be zeroed.
 // Otherwise, set oldsize==newsize, and newly-allocated bytes won't be zeroed.
 // If oldmem is NULL, this behaves the same as de_malloc, and all bytes are zeroed.
-void *de_realloc(deark *c, void *oldmem, de_int64 oldsize, de_int64 newsize)
+void *de_realloc(deark *c, void *oldmem, i64 oldsize, i64 newsize)
 {
 	void *newmem;
 
@@ -653,7 +653,7 @@ int de_run_module_by_id(deark *c, const char *id, de_module_params *mparams)
 }
 
 void de_run_module_by_id_on_slice(deark *c, const char *id, de_module_params *mparams,
-	dbuf *f, de_int64 pos, de_int64 len)
+	dbuf *f, i64 pos, i64 len)
 {
 	dbuf *old_ifile;
 
@@ -676,7 +676,7 @@ void de_run_module_by_id_on_slice(deark *c, const char *id, de_module_params *mp
 // Same as de_run_module_by_id_on_slice(), but takes just ->codes
 // as a parameter, instead of a full de_module_params struct.
 void de_run_module_by_id_on_slice2(deark *c, const char *id, const char *codes,
-	dbuf *f, de_int64 pos, de_int64 len)
+	dbuf *f, i64 pos, i64 len)
 {
 	de_module_params *mparams = NULL;
 
@@ -726,34 +726,34 @@ int de_atoi(const char *string)
 	return atoi(string);
 }
 
-de_int64 de_atoi64(const char *string)
+i64 de_atoi64(const char *string)
 {
 	return de_strtoll(string, NULL, 10);
 }
 
-de_int64 de_min_int(de_int64 n1, de_int64 n2)
+i64 de_min_int(i64 n1, i64 n2)
 {
 	return (n1<n2) ? n1 : n2;
 }
 
-de_int64 de_max_int(de_int64 n1, de_int64 n2)
+i64 de_max_int(i64 n1, i64 n2)
 {
 	return (n1>n2) ? n1 : n2;
 }
 
-de_int64 de_pad_to_2(de_int64 x)
+i64 de_pad_to_2(i64 x)
 {
 	return (x&0x1) ? x+1 : x;
 }
 
-de_int64 de_pad_to_4(de_int64 x)
+i64 de_pad_to_4(i64 x)
 {
 	return ((x+3)/4)*4;
 }
 
-de_int64 de_pad_to_n(de_int64 x, de_int64 n)
+i64 de_pad_to_n(i64 x, i64 n)
 {
-	de_int64 r;
+	i64 r;
 	if(n<2)
 		return x;
 	r = x%n;
@@ -762,13 +762,13 @@ de_int64 de_pad_to_n(de_int64 x, de_int64 n)
 	return x - r + n;
 }
 
-de_int64 de_log2_rounded_up(de_int64 n)
+i64 de_log2_rounded_up(i64 n)
 {
-	de_int64 i;
+	i64 i;
 
 	if(n<=2) return 1;
 	for(i=2; i<32; i++) {
-		if(n <= (((de_int64)1)<<i)) return i;
+		if(n <= (((i64)1)<<i)) return i;
 	}
 	return 32;
 }
@@ -865,7 +865,7 @@ void de_finfo_destroy(deark *c, de_finfo *fi)
 // Takes ownership of 's', and may modify it.
 static void de_finfo_set_name_internal(deark *c, de_finfo *fi, de_ucstring *s)
 {
-	de_int64 i;
+	i64 i;
 
 	if(fi->file_name_internal) {
 		ucstring_destroy(fi->file_name_internal);
@@ -909,7 +909,7 @@ void de_finfo_set_name_from_sz(deark *c, de_finfo *fi, const char *name1, int en
 }
 
 // flags: 0x1 = set the UTC flag
-void de_unix_time_to_timestamp(de_int64 ut, struct de_timestamp *ts, unsigned int flags)
+void de_unix_time_to_timestamp(i64 ut, struct de_timestamp *ts, unsigned int flags)
 {
 	de_zeromem(ts, sizeof(struct de_timestamp));
 	ts->is_valid = 1;
@@ -923,27 +923,27 @@ void de_timestamp_set_ms(struct de_timestamp *ts, de_uint16 ms, de_uint16 prec)
 	ts->prec = prec;
 }
 
-void de_mac_time_to_timestamp(de_int64 mt, struct de_timestamp *ts)
+void de_mac_time_to_timestamp(i64 mt, struct de_timestamp *ts)
 {
 	de_unix_time_to_timestamp(mt - 2082844800, ts, 0);
 }
 
 // Convert a Windows FILETIME to a Deark timestamp.
 // flags: Same as de_unix_time_to_timestamp()
-void de_FILETIME_to_timestamp(de_int64 ft, struct de_timestamp *ts, unsigned int flags)
+void de_FILETIME_to_timestamp(i64 ft, struct de_timestamp *ts, unsigned int flags)
 {
-	de_int64 t;
-	de_int64 ms;
-	t = ft/10000000 - ((de_int64)256)*45486225;
+	i64 t;
+	i64 ms;
+	t = ft/10000000 - ((i64)256)*45486225;
 	ms = (ft%10000000)/10000;
 	de_unix_time_to_timestamp(t, ts, flags);
 	de_timestamp_set_ms(ts, (unsigned short)ms, 1);
 }
 
 void de_dos_datetime_to_timestamp(struct de_timestamp *ts,
-   de_int64 ddate, de_int64 dtime)
+   i64 ddate, i64 dtime)
 {
-	de_int64 yr, mo, da, hr, mi, se;
+	i64 yr, mo, da, hr, mi, se;
 
 	yr = 1980+((ddate&0xfe00)>>9);
 	mo = (ddate&0x01e0)>>5;
@@ -958,13 +958,13 @@ void de_dos_datetime_to_timestamp(struct de_timestamp *ts,
 void de_riscos_loadexec_to_timestamp(de_uint32 load_addr,
 	de_uint32 exec_addr, struct de_timestamp *ts)
 {
-	de_int64 t;
+	i64 t;
 	unsigned int centiseconds;
 
 	de_zeromem(ts, sizeof(struct de_timestamp));
 	if((load_addr&0xfff00000U)!=0xfff00000U) return;
 
-	t = (((de_int64)(load_addr&0xff))<<32) | (de_int64)exec_addr;
+	t = (((i64)(load_addr&0xff))<<32) | (i64)exec_addr;
 	// t now = number of centiseconds since the beginning of 1900
 
 	// Remember centiseconds.
@@ -974,7 +974,7 @@ void de_riscos_loadexec_to_timestamp(de_uint32 load_addr,
 
 	// Convert 1900 epoch to 1970 epoch.
 	// (There were 17 leap days between Jan 1900 and Jan 1970.)
-	t -= (365*70 + 17)*(de_int64)86400;
+	t -= (365*70 + 17)*(i64)86400;
 
 	if(t<=0 || t>=8000000000LL) return; // sanity check
 
@@ -988,7 +988,7 @@ void de_riscos_loadexec_to_timestamp(de_uint32 load_addr,
 // cause problems if you're not really careful. It invites double-rounding,
 // and the creation of timestamps that are slightly in the future, both of
 // which can be problematical.
-de_int64 de_timestamp_to_unix_time(const struct de_timestamp *ts)
+i64 de_timestamp_to_unix_time(const struct de_timestamp *ts)
 {
 	if(ts->is_valid) {
 		return ts->unix_time;
@@ -1004,11 +1004,11 @@ de_int64 de_timestamp_to_unix_time(const struct de_timestamp *ts)
 // mo = month: 1=Jan, ... 12=Dec
 // da = day of month: 1=1, ... 31=31
 void de_make_timestamp(struct de_timestamp *ts,
-	de_int64 yr, de_int64 mo, de_int64 da,
-	de_int64 hr, de_int64 mi, de_int64 se)
+	i64 yr, i64 mo, i64 da,
+	i64 hr, i64 mi, i64 se)
 {
-	de_int64 result;
-	de_int64 tm_mon;
+	i64 result;
+	i64 tm_mon;
 	static const int cumulative_days[12] =
 		{ 0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334 };
 
@@ -1037,7 +1037,7 @@ void de_make_timestamp(struct de_timestamp *ts,
 // and set the UTC flag.
 // offset_seconds is number of seconds to add to the timestamp to get UTC,
 // i.e. number of seconds west of UTC.
-void de_timestamp_cvt_to_utc(struct de_timestamp *ts, de_int64 offset_seconds)
+void de_timestamp_cvt_to_utc(struct de_timestamp *ts, i64 offset_seconds)
 {
 	if(!ts->is_valid) return;
 	ts->unix_time += offset_seconds;
@@ -1100,10 +1100,10 @@ void de_declare_fmtf(deark *c, const char *fmt, ...)
 }
 
 // Assumes dst starts out with only '0' bits
-void de_copy_bits(const de_byte *src, de_int64 srcbitnum,
-	de_byte *dst, de_int64 dstbitnum, de_int64 bitstocopy)
+void de_copy_bits(const de_byte *src, i64 srcbitnum,
+	de_byte *dst, i64 dstbitnum, i64 bitstocopy)
 {
-	de_int64 i;
+	i64 i;
 	de_byte b;
 
 	for(i=0; i<bitstocopy; i++) {
@@ -1121,7 +1121,7 @@ void de_copy_bits(const de_byte *src, de_int64 srcbitnum,
 #define DE_INTHASHTABLE_NBUCKETS 71
 
 struct de_inthashtable_item {
-	de_int64 key;
+	i64 key;
 	void *value;
 	struct de_inthashtable_item *next; // Next item in linked list
 };
@@ -1135,9 +1135,9 @@ struct de_inthashtable {
 };
 
 static struct de_inthashtable_bucket *inthashtable_find_bucket(struct de_inthashtable *ht,
-	de_int64 key)
+	i64 key)
 {
-	de_int64 bkt_num;
+	i64 bkt_num;
 
 	if(key>=0) bkt_num = key%DE_INTHASHTABLE_NBUCKETS;
 	else bkt_num = (-key)%DE_INTHASHTABLE_NBUCKETS;
@@ -1168,7 +1168,7 @@ static void inthashtable_destroy_items_in_bucket(deark *c, struct de_inthashtabl
 
 void de_inthashtable_destroy(deark *c, struct de_inthashtable *ht)
 {
-	de_int64 i;
+	i64 i;
 
 	if(!ht) return;
 	for(i=0; i<DE_INTHASHTABLE_NBUCKETS; i++) {
@@ -1180,7 +1180,7 @@ void de_inthashtable_destroy(deark *c, struct de_inthashtable *ht)
 
 // Returns NULL if item does not exist in the given bucket
 static struct de_inthashtable_item *inthashtable_find_item_in_bucket(struct de_inthashtable *ht,
-	struct de_inthashtable_bucket *bkt, de_int64 key)
+	struct de_inthashtable_bucket *bkt, i64 key)
 {
 	struct de_inthashtable_item *p;
 
@@ -1192,7 +1192,7 @@ static struct de_inthashtable_item *inthashtable_find_item_in_bucket(struct de_i
 }
 
 // Returns NULL if item does not exist
-static struct de_inthashtable_item *inthashtable_find_item(struct de_inthashtable *ht, de_int64 key)
+static struct de_inthashtable_item *inthashtable_find_item(struct de_inthashtable *ht, i64 key)
 {
 	struct de_inthashtable_bucket *bkt;
 
@@ -1202,7 +1202,7 @@ static struct de_inthashtable_item *inthashtable_find_item(struct de_inthashtabl
 }
 
 // If key does not exist, sets *pvalue to NULL and returns 0.
-int de_inthashtable_get_item(deark *c, struct de_inthashtable *ht, de_int64 key, void **pvalue)
+int de_inthashtable_get_item(deark *c, struct de_inthashtable *ht, i64 key, void **pvalue)
 {
 	struct de_inthashtable_item *item;
 
@@ -1215,7 +1215,7 @@ int de_inthashtable_get_item(deark *c, struct de_inthashtable *ht, de_int64 key,
 	return 0;
 }
 
-int de_inthashtable_item_exists(deark *c, struct de_inthashtable *ht, de_int64 key)
+int de_inthashtable_item_exists(deark *c, struct de_inthashtable *ht, i64 key)
 {
 	return (inthashtable_find_item(ht, key) != NULL);
 }
@@ -1230,7 +1230,7 @@ static void inthashtable_add_item_to_bucket(struct de_inthashtable *ht,
 
 // Returns 1 if the key has been newly-added,
 // or 0 if the key already existed.
-int de_inthashtable_add_item(deark *c, struct de_inthashtable *ht, de_int64 key, void *value)
+int de_inthashtable_add_item(deark *c, struct de_inthashtable *ht, i64 key, void *value)
 {
 	struct de_inthashtable_bucket *bkt;
 	struct de_inthashtable_item *new_item;
@@ -1250,7 +1250,7 @@ int de_inthashtable_add_item(deark *c, struct de_inthashtable *ht, de_int64 key,
 	return 1;
 }
 
-int de_inthashtable_remove_item(deark *c, struct de_inthashtable *ht, de_int64 key, void **pvalue)
+int de_inthashtable_remove_item(deark *c, struct de_inthashtable *ht, i64 key, void **pvalue)
 {
 	// TODO
 	return 0;
@@ -1258,9 +1258,9 @@ int de_inthashtable_remove_item(deark *c, struct de_inthashtable *ht, de_int64 k
 
 // Select one item arbitrarily, return its key and value, and delete it from the
 // hashtable.
-int de_inthashtable_remove_any_item(deark *c, struct de_inthashtable *ht, de_int64 *pkey, void **pvalue)
+int de_inthashtable_remove_any_item(deark *c, struct de_inthashtable *ht, i64 *pkey, void **pvalue)
 {
-	de_int64 i;
+	i64 i;
 
 	for(i=0; i<DE_INTHASHTABLE_NBUCKETS; i++) {
 		struct de_inthashtable_item *item;
@@ -1313,9 +1313,9 @@ static void de_crc16ccitt_init(struct de_crcobj *crco)
 	}
 }
 
-static void de_crc16ccitt_continue(struct de_crcobj *crco, const de_byte *buf, de_int64 buf_len)
+static void de_crc16ccitt_continue(struct de_crcobj *crco, const de_byte *buf, i64 buf_len)
 {
-	de_int64 k;
+	i64 k;
 
 	if(!crco->table16) return;
 	for(k=0; k<buf_len; k++) {
@@ -1340,9 +1340,9 @@ static void de_crc16arc_init(struct de_crcobj *crco)
 	}
 }
 
-static void de_crc16arc_continue(struct de_crcobj *crco, const de_byte *buf, de_int64 buf_len)
+static void de_crc16arc_continue(struct de_crcobj *crco, const de_byte *buf, i64 buf_len)
 {
-	de_int64 k;
+	i64 k;
 
 	if(!crco->table16) return;
 	for(k=0; k<buf_len; k++) {
@@ -1399,7 +1399,7 @@ de_uint32 de_crcobj_getval(struct de_crcobj *crco)
 	return crco->val;
 }
 
-void de_crcobj_addbuf(struct de_crcobj *crco, const de_byte *buf, de_int64 buf_len)
+void de_crcobj_addbuf(struct de_crcobj *crco, const de_byte *buf, i64 buf_len)
 {
 	switch(crco->crctype) {
 	case DE_CRCOBJ_CRC32_IEEE:
@@ -1420,13 +1420,13 @@ void de_crcobj_addbyte(struct de_crcobj *crco, de_byte b)
 }
 
 static int addslice_cbfn(deark *c, void *userdata, const de_byte *buf,
-	de_int64 buf_len)
+	i64 buf_len)
 {
 	de_crcobj_addbuf((struct de_crcobj*)userdata, buf, buf_len);
 	return 1;
 }
 
-void de_crcobj_addslice(struct de_crcobj *crco, dbuf *f, de_int64 pos, de_int64 len)
+void de_crcobj_addslice(struct de_crcobj *crco, dbuf *f, i64 pos, i64 len)
 {
 	dbuf_buffered_read(f, pos, len, addslice_cbfn, (void*)crco);
 }

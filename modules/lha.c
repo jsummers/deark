@@ -13,16 +13,16 @@ DE_DECLARE_MODULE(de_module_lha);
 
 struct member_data {
 	de_byte hlev; // header level
-	de_int64 total_size;
+	i64 total_size;
 	struct de_stringreaderdata *cmpr_method;
 	de_uint32 cmpr_meth_code;
 	int is_dir;
-	de_int64 orig_size;
+	i64 orig_size;
 	de_uint32 crc16;
 	de_byte os_id;
 	int codepage_encoding; // Encoding based on the "codepage" ext hdr
-	de_int64 compressed_data_pos; // relative to beginning of file
-	de_int64 compressed_data_len;
+	i64 compressed_data_pos; // relative to beginning of file
+	i64 compressed_data_len;
 	de_ucstring *filename;
 };
 
@@ -36,7 +36,7 @@ struct exthdr_type_info_struct;
 
 typedef void (*exthdr_decoder_fn)(deark *c, lctx *d, struct member_data *md,
 	de_byte id, const struct exthdr_type_info_struct *e,
-	de_int64 pos, de_int64 dlen);
+	i64 pos, i64 dlen);
 
 struct exthdr_type_info_struct {
 	de_byte id;
@@ -46,9 +46,9 @@ struct exthdr_type_info_struct {
 };
 
 static void read_msdos_datetime(deark *c, lctx *d, struct member_data *md,
-	de_int64 pos, const char *name)
+	i64 pos, const char *name)
 {
-	de_int64 mod_time_raw, mod_date_raw;
+	i64 mod_time_raw, mod_date_raw;
 	char timestamp_buf[64];
 	struct de_timestamp tmp_timestamp;
 
@@ -65,9 +65,9 @@ static void read_msdos_datetime(deark *c, lctx *d, struct member_data *md,
 }
 
 static void read_windows_FILETIME(deark *c, lctx *d, struct member_data *md,
-	de_int64 pos, const char *name)
+	i64 pos, const char *name)
 {
-	de_int64 t_FILETIME;
+	i64 t_FILETIME;
 	char timestamp_buf[64];
 	struct de_timestamp tmp_timestamp;
 
@@ -78,9 +78,9 @@ static void read_windows_FILETIME(deark *c, lctx *d, struct member_data *md,
 }
 
 static void read_unix_timestamp(deark *c, lctx *d, struct member_data *md,
-	de_int64 pos, const char *name)
+	i64 pos, const char *name)
 {
-	de_int64 t;
+	i64 t;
 	char timestamp_buf[64];
 	struct de_timestamp tmp_timestamp;
 
@@ -91,7 +91,7 @@ static void read_unix_timestamp(deark *c, lctx *d, struct member_data *md,
 }
 
 static void read_filename(deark *c, lctx *d, struct member_data *md,
-	de_int64 pos, de_int64 len)
+	i64 pos, i64 len)
 {
 	md->filename = ucstring_create(c);
 	dbuf_read_to_ucstring(c->infile, pos, len,
@@ -101,7 +101,7 @@ static void read_filename(deark *c, lctx *d, struct member_data *md,
 
 static void exthdr_common(deark *c, lctx *d, struct member_data *md,
 	de_byte id, const struct exthdr_type_info_struct *e,
-	de_int64 pos, de_int64 dlen)
+	i64 pos, i64 dlen)
 {
 	de_uint32 crchdr;
 
@@ -113,14 +113,14 @@ static void exthdr_common(deark *c, lctx *d, struct member_data *md,
 
 static void exthdr_filename(deark *c, lctx *d, struct member_data *md,
 	de_byte id, const struct exthdr_type_info_struct *e,
-	de_int64 pos, de_int64 dlen)
+	i64 pos, i64 dlen)
 {
 	read_filename(c, d, md, pos, dlen);
 }
 
 static void exthdr_dirname(deark *c, lctx *d, struct member_data *md,
 	de_byte id, const struct exthdr_type_info_struct *e,
-	de_int64 pos, de_int64 dlen)
+	i64 pos, i64 dlen)
 {
 	de_ucstring *s = NULL;
 
@@ -146,7 +146,7 @@ static void exthdr_dirname(deark *c, lctx *d, struct member_data *md,
 
 static void exthdr_msdosattribs(deark *c, lctx *d, struct member_data *md,
 	de_byte id, const struct exthdr_type_info_struct *e,
-	de_int64 pos, de_int64 dlen)
+	i64 pos, i64 dlen)
 {
 	de_uint32 attribs;
 
@@ -157,7 +157,7 @@ static void exthdr_msdosattribs(deark *c, lctx *d, struct member_data *md,
 
 static void exthdr_filesize(deark *c, lctx *d, struct member_data *md,
 	de_byte id, const struct exthdr_type_info_struct *e,
-	de_int64 pos, de_int64 dlen)
+	i64 pos, i64 dlen)
 {
 	// TODO: Support this
 	de_warn(c, "Unsupported \"file size\" extended header found. This may prevent "
@@ -166,7 +166,7 @@ static void exthdr_filesize(deark *c, lctx *d, struct member_data *md,
 
 static void exthdr_windowstimestamp(deark *c, lctx *d, struct member_data *md,
 	de_byte id, const struct exthdr_type_info_struct *e,
-	de_int64 pos, de_int64 dlen)
+	i64 pos, i64 dlen)
 {
 	if(dlen<24) return;
 	read_windows_FILETIME(c, d, md, pos,    "create time");
@@ -176,9 +176,9 @@ static void exthdr_windowstimestamp(deark *c, lctx *d, struct member_data *md,
 
 static void exthdr_unixperms(deark *c, lctx *d, struct member_data *md,
 	de_byte id, const struct exthdr_type_info_struct *e,
-	de_int64 pos, de_int64 dlen)
+	i64 pos, i64 dlen)
 {
-	de_int64 mode;
+	i64 mode;
 
 	if(dlen<2) return;
 	mode = de_getui16le(pos);
@@ -187,9 +187,9 @@ static void exthdr_unixperms(deark *c, lctx *d, struct member_data *md,
 
 static void exthdr_unixuidgid(deark *c, lctx *d, struct member_data *md,
 	de_byte id, const struct exthdr_type_info_struct *e,
-	de_int64 pos, de_int64 dlen)
+	i64 pos, i64 dlen)
 {
-	de_int64 uid, gid;
+	i64 uid, gid;
 	if(dlen<4) return;
 
 	// It's strange that the GID comes first, while the UID comes first in the
@@ -202,7 +202,7 @@ static void exthdr_unixuidgid(deark *c, lctx *d, struct member_data *md,
 
 static void exthdr_unixtimestamp(deark *c, lctx *d, struct member_data *md,
 	de_byte id, const struct exthdr_type_info_struct *e,
-	de_int64 pos, de_int64 dlen)
+	i64 pos, i64 dlen)
 {
 	if(dlen<4) return;
 	read_unix_timestamp(c, d, md, pos, "last-modified");
@@ -210,7 +210,7 @@ static void exthdr_unixtimestamp(deark *c, lctx *d, struct member_data *md,
 
 static void exthdr_lev3newattribs2(deark *c, lctx *d, struct member_data *md,
 	de_byte id, const struct exthdr_type_info_struct *e,
-	de_int64 pos, de_int64 dlen)
+	i64 pos, i64 dlen)
 {
 	if(dlen<20) return;
 
@@ -226,7 +226,7 @@ static void exthdr_lev3newattribs2(deark *c, lctx *d, struct member_data *md,
 
 static void exthdr_codepage(deark *c, lctx *d, struct member_data *md,
 	de_byte id, const struct exthdr_type_info_struct *e,
-	de_int64 pos, de_int64 dlen)
+	i64 pos, i64 dlen)
 {
 	int n;
 	char descr[100];
@@ -282,7 +282,7 @@ static const struct exthdr_type_info_struct *get_exthdr_type_info(de_byte id)
 }
 
 static void do_read_ext_header(deark *c, lctx *d, struct member_data *md,
-	de_int64 pos1, de_int64 len, de_int64 dlen)
+	i64 pos1, i64 len, i64 dlen)
 {
 	de_byte id = 0;
 	const char *name;
@@ -312,7 +312,7 @@ static void do_read_ext_header(deark *c, lctx *d, struct member_data *md,
 }
 
 static void do_lev0_ext_area(deark *c, lctx *d, struct member_data *md,
-	de_int64 pos1, de_int64 len)
+	i64 pos1, i64 len)
 {
 	if(len<1) return;
 	md->os_id = de_getbyte(pos1);
@@ -321,8 +321,8 @@ static void do_lev0_ext_area(deark *c, lctx *d, struct member_data *md,
 
 	// TODO: Finish this
 	if(md->os_id=='U') {
-		de_int64 mode;
-		de_int64 uid, gid;
+		i64 mode;
+		i64 uid, gid;
 
 		if(len<12) goto done;
 
@@ -355,12 +355,12 @@ done: ;
 // A return value of 0 means we failed to calculate the size of the
 // extended headers segment.
 static int do_read_ext_headers(deark *c, lctx *d, struct member_data *md,
-	de_int64 pos1, de_int64 len, de_int64 first_ext_hdr_size, de_int64 *tot_bytes_consumed)
+	i64 pos1, i64 len, i64 first_ext_hdr_size, i64 *tot_bytes_consumed)
 {
-	de_int64 pos = pos1;
-	de_int64 this_ext_hdr_size, next_ext_hdr_size;
+	i64 pos = pos1;
+	i64 this_ext_hdr_size, next_ext_hdr_size;
 	int retval = 0;
-	de_int64 size_of_size_field;
+	i64 size_of_size_field;
 
 	*tot_bytes_consumed = 0;
 
@@ -406,7 +406,7 @@ done:
 	return retval;
 }
 
-static void our_writecallback(dbuf *f, const de_byte *buf, de_int64 buf_len)
+static void our_writecallback(dbuf *f, const de_byte *buf, i64 buf_len)
 {
 	struct de_crcobj *crco = (struct de_crcobj*)f->userdata;
 	de_crcobj_addbuf(crco, buf, buf_len);
@@ -456,17 +456,17 @@ static void do_extract_file(deark *c, lctx *d, struct member_data *md)
 // code, and be harder to maintain.
 //
 // Caller allocates and initializes md.
-static int do_read_member(deark *c, lctx *d, struct member_data *md, de_int64 pos1)
+static int do_read_member(deark *c, lctx *d, struct member_data *md, i64 pos1)
 {
 	int retval = 0;
-	de_int64 lev0_header_size = 0;
-	de_int64 lev1_base_header_size = 0;
-	de_int64 lev1_skip_size = 0;
-	de_int64 lev2_total_header_size = 0;
-	de_int64 lev3_header_size = 0;
-	de_int64 pos = pos1;
-	de_int64 exthdr_bytes_consumed = 0;
-	de_int64 fnlen = 0;
+	i64 lev0_header_size = 0;
+	i64 lev1_base_header_size = 0;
+	i64 lev1_skip_size = 0;
+	i64 lev2_total_header_size = 0;
+	i64 lev3_header_size = 0;
+	i64 pos = pos1;
+	i64 exthdr_bytes_consumed = 0;
+	i64 fnlen = 0;
 	int is_compressed;
 	int ret;
 
@@ -507,12 +507,12 @@ static int do_read_member(deark *c, lctx *d, struct member_data *md, de_int64 po
 	}
 
 	if(md->hlev==0) {
-		lev0_header_size = (de_int64)de_getbyte_p(&pos);
+		lev0_header_size = (i64)de_getbyte_p(&pos);
 		de_dbg(c, "header size: (2+)%d", (int)lev0_header_size);
 		pos++; // Cksum
 	}
 	else if(md->hlev==1) {
-		lev1_base_header_size = (de_int64)de_getbyte_p(&pos);
+		lev1_base_header_size = (i64)de_getbyte_p(&pos);
 		de_dbg(c, "base header size: %d", (int)lev1_base_header_size);
 		pos++; // Cksum
 	}
@@ -521,7 +521,7 @@ static int do_read_member(deark *c, lctx *d, struct member_data *md, de_int64 po
 		de_dbg(c, "total header size: %d", (int)lev2_total_header_size);
 	}
 	else if(md->hlev==3) {
-		de_int64 lev3_word_size;
+		i64 lev3_word_size;
 		lev3_word_size = de_getui16le_p(&pos);
 		de_dbg(c, "word size: %d", (int)lev3_word_size);
 		if(lev3_word_size!=4) {
@@ -608,7 +608,7 @@ static int do_read_member(deark *c, lctx *d, struct member_data *md, de_int64 po
 	}
 
 	if(md->hlev==0) {
-		de_int64 ext_headers_size = (2+lev0_header_size) - (pos-pos1);
+		i64 ext_headers_size = (2+lev0_header_size) - (pos-pos1);
 		md->compressed_data_pos = pos1 + 2 + lev0_header_size;
 		if(ext_headers_size>0) {
 			de_dbg(c, "extended header area at %d, len=%d", (int)pos, (int)ext_headers_size);
@@ -618,7 +618,7 @@ static int do_read_member(deark *c, lctx *d, struct member_data *md, de_int64 po
 		}
 	}
 	else if(md->hlev==1) {
-		de_int64 first_ext_hdr_size;
+		i64 first_ext_hdr_size;
 
 		// The last two bytes of the base header are the size of the first ext. header.
 		pos = pos1 + 2 + lev1_base_header_size - 2;
@@ -641,7 +641,7 @@ static int do_read_member(deark *c, lctx *d, struct member_data *md, de_int64 po
 		md->compressed_data_len = lev1_skip_size - exthdr_bytes_consumed;
 	}
 	else if(md->hlev==2) {
-		de_int64 first_ext_hdr_size;
+		i64 first_ext_hdr_size;
 
 		md->compressed_data_pos = pos1+lev2_total_header_size;
 
@@ -652,7 +652,7 @@ static int do_read_member(deark *c, lctx *d, struct member_data *md, de_int64 po
 			first_ext_hdr_size, &exthdr_bytes_consumed);
 	}
 	else if(md->hlev==3) {
-		de_int64 first_ext_hdr_size;
+		i64 first_ext_hdr_size;
 
 		md->compressed_data_pos = pos1+lev3_header_size;
 
@@ -678,7 +678,7 @@ done:
 static void de_run_lha(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
-	de_int64 pos;
+	i64 pos;
 	struct member_data *md = NULL;
 
 	d = de_malloc(c, sizeof(lctx));

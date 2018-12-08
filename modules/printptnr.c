@@ -9,8 +9,8 @@
 DE_DECLARE_MODULE(de_module_pp_gph);
 
 struct page_ctx {
-	de_int64 width, height;
-	de_int64 width_raw;
+	i64 width, height;
+	i64 width_raw;
 	de_byte cmpr_type;
 	de_ucstring *imgname;
 };
@@ -48,8 +48,8 @@ static void do_write_image_fromuncpixels(deark *c, lctx *d, struct page_ctx *pg,
 }
 
 // Decode the pixels of an uncompressed image
-static void do_image_cmpr1(deark *c, lctx *d, struct page_ctx *pg, de_int64 pos1,
-	de_int64 *bytes_consumed)
+static void do_image_cmpr1(deark *c, lctx *d, struct page_ctx *pg, i64 pos1,
+	i64 *bytes_consumed)
 {
 	dbuf *unc_pixels = NULL;
 
@@ -61,11 +61,11 @@ static void do_image_cmpr1(deark *c, lctx *d, struct page_ctx *pg, de_int64 pos1
 }
 
 // A simple byte-oriented RLE scheme.
-static void do_image_cmpr2(deark *c, lctx *d, struct page_ctx *pg, de_int64 pos1,
-	de_int64 *bytes_consumed)
+static void do_image_cmpr2(deark *c, lctx *d, struct page_ctx *pg, i64 pos1,
+	i64 *bytes_consumed)
 {
-	de_int64 cmpr_len;
-	de_int64 pos = pos1;
+	i64 cmpr_len;
+	i64 pos = pos1;
 	dbuf *unc_pixels = NULL;
 
 	cmpr_len = de_getui16le(pos);
@@ -76,12 +76,12 @@ static void do_image_cmpr2(deark *c, lctx *d, struct page_ctx *pg, de_int64 pos1
 	unc_pixels = dbuf_create_membuf(c, pg->width_raw*pg->height, 0x1);
 
 	while(1) {
-		de_int64 count;
+		i64 count;
 		de_byte b, b2;
 
 		if(pos >= pos1+2+cmpr_len) break;
 		b = de_getbyte(pos++);
-		count = (de_int64)(b & 0x7f);
+		count = (i64)(b & 0x7f);
 		if(b & 0x80) { // compressed run
 			b2 = de_getbyte(pos);
 			pos++;
@@ -100,14 +100,14 @@ static void do_image_cmpr2(deark *c, lctx *d, struct page_ctx *pg, de_int64 pos1
 // A simple pixel-oriented RLE scheme. Each nibble represents a run of 1 to 7
 // white or black pixels.
 // It is unknown how run lengths of 0 are handled.
-static void do_image_cmpr3(deark *c, lctx *d, struct page_ctx *pg, de_int64 pos1,
-	de_int64 *bytes_consumed)
+static void do_image_cmpr3(deark *c, lctx *d, struct page_ctx *pg, i64 pos1,
+	i64 *bytes_consumed)
 {
 	de_bitmap *img = NULL;
-	de_int64 pos = pos1;
-	de_int64 nibble_count;
-	de_int64 nibble_idx;
-	de_int64 pixel_idx;
+	i64 pos = pos1;
+	i64 nibble_count;
+	i64 nibble_idx;
+	i64 pixel_idx;
 	de_byte b;
 
 	img = de_bitmap_create(c, pg->width, pg->height, 1);
@@ -124,10 +124,10 @@ static void do_image_cmpr3(deark *c, lctx *d, struct page_ctx *pg, de_int64 pos1
 	b = 0;
 	pixel_idx = 0;
 	for(nibble_idx=0; nibble_idx<nibble_count; nibble_idx++) {
-		de_int64 count;
+		i64 count;
 		int isblack;
 		de_byte nibble_val;
-		de_int64 k;
+		i64 k;
 
 		if((nibble_idx&0x1) == 0) {
 			b = de_getbyte(pos++);
@@ -137,7 +137,7 @@ static void do_image_cmpr3(deark *c, lctx *d, struct page_ctx *pg, de_int64 pos1
 			nibble_val = b&0x0f;
 		}
 
-		count = (de_int64)(nibble_val&0x7);
+		count = (i64)(nibble_val&0x7);
 		isblack = (nibble_val>=8);
 
 		for(k=0; k<count; k++) {
@@ -151,11 +151,11 @@ static void do_image_cmpr3(deark *c, lctx *d, struct page_ctx *pg, de_int64 pos1
 	de_bitmap_destroy(img);
 }
 
-static int do_one_image(deark *c, lctx *d, de_int64 pos1, int img_idx, de_int64 *bytes_consumed)
+static int do_one_image(deark *c, lctx *d, i64 pos1, int img_idx, i64 *bytes_consumed)
 {
-	de_int64 namelen;
-	de_int64 pos = pos1;
-	de_int64 bytes_consumed2 = 0;
+	i64 namelen;
+	i64 pos = pos1;
+	i64 bytes_consumed2 = 0;
 	int retval = 0;
 
 	struct page_ctx *pg = NULL;
@@ -164,7 +164,7 @@ static int do_one_image(deark *c, lctx *d, de_int64 pos1, int img_idx, de_int64 
 
 	de_dbg(c, "image #%d at %d", img_idx, (int)pos1);
 	de_dbg_indent(c, 1);
-	namelen = (de_int64)de_getbyte(pos++);
+	namelen = (i64)de_getbyte(pos++);
 	if(namelen>20) {
 		de_err(c, "Invalid image");
 		goto done;
@@ -175,10 +175,10 @@ static int do_one_image(deark *c, lctx *d, de_int64 pos1, int img_idx, de_int64 
 	de_dbg(c, "name: \"%s\"", ucstring_getpsz(pg->imgname));
 	pos += 20;
 
-	pg->cmpr_type = (de_int64)de_getbyte(pos++);
+	pg->cmpr_type = (i64)de_getbyte(pos++);
 	de_dbg(c, "cmpr type: %d", (int)pg->cmpr_type);
-	pg->height = (de_int64)de_getbyte(pos++);
-	pg->width_raw = (de_int64)de_getbyte(pos++);
+	pg->height = (i64)de_getbyte(pos++);
+	pg->width_raw = (i64)de_getbyte(pos++);
 	pg->width = pg->width_raw*8;
 	de_dbg_dimensions(c, pg->width, pg->height);
 
@@ -213,8 +213,8 @@ done:
 static void de_run_pp_gph(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
-	de_int64 pos;
-	de_int64 bytes_consumed;
+	i64 pos;
+	i64 bytes_consumed;
 	int img_idx = 0;
 	de_byte *bufptr;
 	de_byte buf[256];

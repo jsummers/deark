@@ -10,21 +10,21 @@
 DE_DECLARE_MODULE(de_module_fnt);
 
 typedef struct localctx_struct {
-	de_int64 fnt_version;
-	de_int64 nominal_char_width;
-	de_int64 char_height;
-	de_int64 hdrsize;
-	de_int64 char_table_size;
+	i64 fnt_version;
+	i64 nominal_char_width;
+	i64 char_height;
+	i64 hdrsize;
+	i64 char_table_size;
 
 	de_byte first_char;
 	de_byte last_char;
-	de_int64 num_chars_stored;
+	i64 num_chars_stored;
 
-	de_int64 char_entry_size;
-	de_int64 detected_max_width;
+	i64 char_entry_size;
+	i64 detected_max_width;
 
-	de_int64 dfPoints;
-	de_int64 dfFace; // Offset of font face name
+	i64 dfPoints;
+	i64 dfFace; // Offset of font face name
 	de_byte dfCharSet;
 
 	int is_vector;
@@ -36,9 +36,9 @@ typedef struct localctx_struct {
 // Find the widest character.
 static void do_prescan_chars(deark *c, lctx *d)
 {
-	de_int64 i;
-	de_int64 pos;
-	de_int64 char_width;
+	i64 i;
+	i64 pos;
+	i64 char_width;
 
 	for(i=0; i<d->num_chars_stored; i++) {
 		pos = d->hdrsize + d->char_entry_size*i;
@@ -55,8 +55,8 @@ static void do_prescan_chars(deark *c, lctx *d)
 static void do_make_image(deark *c, lctx *d)
 {
 	struct de_bitmap_font *font = NULL;
-	de_int64 i;
-	de_int64 pos;
+	i64 i;
+	i64 pos;
 
 	de_dbg(c, "reading characters and bitmaps");
 	de_dbg_indent(c, 1);
@@ -74,12 +74,12 @@ static void do_make_image(deark *c, lctx *d)
 	font->char_array = de_malloc(c, font->num_chars * sizeof(struct de_bitmap_font_char));
 
 	for(i=0; i<d->num_chars_stored; i++) {
-		de_int64 char_width;
-		de_int64 char_offset;
+		i64 char_width;
+		i64 char_offset;
 		de_int32 char_index;
-		de_int64 num_tiles;
-		de_int64 tile;
-		de_int64 row;
+		i64 num_tiles;
+		i64 tile;
+		i64 row;
 
 		pos = d->hdrsize + d->char_entry_size*i;
 		char_width = de_getui16le(pos);
@@ -174,10 +174,10 @@ done:
 
 static int do_read_header(deark *c, lctx *d)
 {
-	de_int64 dfType;
-	de_int64 dfPixWidth;
-	de_int64 dfPixHeight;
-	de_int64 dfMaxWidth;
+	i64 dfType;
+	i64 dfPixWidth;
+	i64 dfPixHeight;
+	i64 dfMaxWidth;
 	int retval = 0;
 	int saved_indent_level;
 
@@ -251,7 +251,7 @@ static int do_read_header(deark *c, lctx *d)
 
 	// There is an extra character at the end of the table that is an
 	// "absolute-space" character, and is guaranteed to be blank.
-	d->num_chars_stored = (de_int64)d->last_char - d->first_char + 1 + 1;
+	d->num_chars_stored = (i64)d->last_char - d->first_char + 1 + 1;
 
 	if(d->fnt_version==0x0300) {
 		d->char_entry_size = 6;
@@ -301,7 +301,7 @@ done:
 
 static int de_identify_fnt(deark *c)
 {
-	de_int64 ver;
+	i64 ver;
 
 	// TODO: Better format detection.
 	if(de_input_file_has_ext(c, "fnt")) {

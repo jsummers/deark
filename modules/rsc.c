@@ -10,27 +10,27 @@ DE_DECLARE_MODULE(de_module_rsc);
 
 typedef struct localctx_struct {
 	int decode_objects;
-	de_int64 version;
-	de_int64 object_offs, object_num;
-	de_int64 objecttree_num;
-	de_int64 iconblk_offs, iconblk_num;
-	de_int64 bitblk_offs, bitblk_num;
-	de_int64 imagedata_offs;
-	de_int64 imagepointertable_offs;
-	de_int64 rssize;
+	i64 version;
+	i64 object_offs, object_num;
+	i64 objecttree_num;
+	i64 iconblk_offs, iconblk_num;
+	i64 bitblk_offs, bitblk_num;
+	i64 imagedata_offs;
+	i64 imagepointertable_offs;
+	i64 rssize;
 
-	de_int64 num_ciconblk;
+	i64 num_ciconblk;
 } lctx;
 
 struct iconinfo {
-	de_int64 width, height;
-	de_int64 mono_rowspan;
-	de_int64 nplanes;
+	i64 width, height;
+	i64 mono_rowspan;
+	i64 nplanes;
 };
 
-static int do_scan_iconblk(deark *c, lctx *d, de_int64 pos1, struct iconinfo *ii)
+static int do_scan_iconblk(deark *c, lctx *d, i64 pos1, struct iconinfo *ii)
 {
-	de_int64 pos;
+	i64 pos;
 
 	// TODO: Refactor this code to better share it with old- and new-style RSC.
 
@@ -45,10 +45,10 @@ static int do_scan_iconblk(deark *c, lctx *d, de_int64 pos1, struct iconinfo *ii
 	return 1;
 }
 
-static void do_bilevel_icon(deark *c, lctx *d, struct iconinfo *ii, de_int64 fg_pos,
-	de_int64 mask_pos, const char *token)
+static void do_bilevel_icon(deark *c, lctx *d, struct iconinfo *ii, i64 fg_pos,
+	i64 mask_pos, const char *token)
 {
-	de_int64 i, j;
+	i64 i, j;
 	de_byte n, a;
 	de_bitmap *img = NULL;
 
@@ -68,9 +68,9 @@ static void do_bilevel_icon(deark *c, lctx *d, struct iconinfo *ii, de_int64 fg_
 	de_bitmap_destroy(img);
 }
 
-static int do_old_iconblk(deark *c, lctx *d, de_int64 pos)
+static int do_old_iconblk(deark *c, lctx *d, i64 pos)
 {
-	de_int64 mask_pos, fg_pos;
+	i64 mask_pos, fg_pos;
 	int retval = 0;
 	struct iconinfo *ii = NULL;
 
@@ -140,14 +140,14 @@ static de_uint32 getpal256(unsigned int k)
 	return 0;
 }
 
-static void do_color_icon(deark *c, lctx *d, struct iconinfo *ii, de_int64 fg_pos,
-	de_int64 mask_pos, const char *token)
+static void do_color_icon(deark *c, lctx *d, struct iconinfo *ii, i64 fg_pos,
+	i64 mask_pos, const char *token)
 {
-	de_int64 i, j;
+	i64 i, j;
 	de_byte a;
 	de_bitmap *img = NULL;
-	de_int64 plane;
-	de_int64 planespan;
+	i64 plane;
+	i64 planespan;
 	de_byte b;
 	unsigned int v;
 	de_uint32 clr;
@@ -185,18 +185,18 @@ static void do_color_icon(deark *c, lctx *d, struct iconinfo *ii, de_int64 fg_po
 	de_bitmap_destroy(img);
 }
 
-static int do_ciconblk_struct(deark *c, lctx *d, de_int64 icon_idx, de_int64 pos1,
-	de_int64 *bytes_consumed)
+static int do_ciconblk_struct(deark *c, lctx *d, i64 icon_idx, i64 pos1,
+	i64 *bytes_consumed)
 {
 	struct iconinfo *ii = NULL;
-	de_int64 pos;
-	de_int64 n_cicons;
-	de_int64 mono_bitmapsize;
-	de_int64 color_bitmapsize;
-	de_int64 next_res;
-	de_int64 sel_data_flag;
+	i64 pos;
+	i64 n_cicons;
+	i64 mono_bitmapsize;
+	i64 color_bitmapsize;
+	i64 next_res;
+	i64 sel_data_flag;
 	int retval = 0;
-	de_int64 i;
+	i64 i;
 	char token[16];
 
 	de_dbg(c, "-- icon #%d --", (int)icon_idx);
@@ -280,11 +280,11 @@ done:
 	return retval;
 }
 
-static int do_cicon_ptr_table(deark *c, lctx *d, de_int64 pos1, de_int64 *bytes_consumed)
+static int do_cicon_ptr_table(deark *c, lctx *d, i64 pos1, i64 *bytes_consumed)
 {
-	de_int64 n;
-	de_int64 count = 0;
-	de_int64 pos;
+	i64 n;
+	i64 count = 0;
+	i64 pos;
 
 	pos = pos1;
 	*bytes_consumed = 0;
@@ -310,12 +310,12 @@ static int do_cicon_ptr_table(deark *c, lctx *d, de_int64 pos1, de_int64 *bytes_
 	return 1;
 }
 
-static int do_cicon(deark *c, lctx *d, de_int64 pos1)
+static int do_cicon(deark *c, lctx *d, i64 pos1)
 {
-	de_int64 bytes_consumed;
+	i64 bytes_consumed;
 	int ret;
-	de_int64 pos;
-	de_int64 i;
+	i64 pos;
+	i64 i;
 
 	pos = pos1;
 	ret = do_cicon_ptr_table(c, d, pos, &bytes_consumed);
@@ -332,9 +332,9 @@ static int do_cicon(deark *c, lctx *d, de_int64 pos1)
 
 static void do_newformat(deark *c, lctx *d)
 {
-	de_int64 pos;
-	de_int64 rsc_file_size;
-	de_int64 cicon_offs;
+	i64 pos;
+	i64 rsc_file_size;
+	i64 cicon_offs;
 
 	de_dbg(c, "extension array offset: %d", (int)d->rssize);
 
@@ -382,13 +382,13 @@ static const char *get_obj_type_name(de_byte t)
 // the file header.
 // TODO: Do we need to read it to get the true width of BITBLK images?
 // TODO: We may need to read it to identify color icons in old-style RSC.
-static int do_object(deark *c, lctx *d, de_int64 obj_index, de_int64 pos)
+static int do_object(deark *c, lctx *d, i64 obj_index, i64 pos)
 {
-	de_int64 obj_type_orig;
+	i64 obj_type_orig;
 	de_byte obj_type;
-	de_int64 next_sibling, first_child, last_child;
-	de_int64 ob_spec;
-	de_int64 width, height;
+	i64 next_sibling, first_child, last_child;
+	i64 ob_spec;
+	i64 width, height;
 
 	de_dbg(c, "OBJECT #%d at %d", (int)obj_index, (int)pos);
 	de_dbg_indent(c, 1);
@@ -422,12 +422,12 @@ static int do_object(deark *c, lctx *d, de_int64 obj_index, de_int64 pos)
 	return 1;
 }
 
-static int do_bitblk(deark *c, lctx *d, de_int64 pos)
+static int do_bitblk(deark *c, lctx *d, i64 pos)
 {
-	de_int64 bits_pos;
-	de_int64 width_in_bytes;
-	de_int64 width, height;
-	de_int64 fgcol;
+	i64 bits_pos;
+	i64 width_in_bytes;
+	i64 width, height;
+	i64 fgcol;
 
 	de_dbg(c, "BITBLK struct at %d", (int)pos);
 	de_dbg_indent(c, 1);
@@ -452,7 +452,7 @@ static int do_bitblk(deark *c, lctx *d, de_int64 pos)
 
 static void do_oldformat(deark *c, lctx *d)
 {
-	de_int64 i;
+	i64 i;
 
 	de_dbg(c, "reported resource file size: %d", (int)d->rssize);
 
@@ -517,7 +517,7 @@ static void de_run_rsc(deark *c, de_module_params *mparams)
 
 static int de_identify_rsc(deark *c)
 {
-	de_int64 ver;
+	i64 ver;
 
 	if(!de_input_file_has_ext(c, "rsc")) return 0;
 	ver = de_getui16be(0);

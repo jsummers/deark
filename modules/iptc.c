@@ -17,7 +17,7 @@ typedef struct localctx_struct {
 struct ds_info;
 
 typedef void (*ds_handler_fn)(deark *c, lctx *d, const struct ds_info *dsi,
-	de_int64 pos, de_int64 len);
+	i64 pos, i64 len);
 
 struct ds_info {
 	de_byte recnum;
@@ -32,15 +32,15 @@ struct ds_info {
 };
 
 static void handle_text(deark *c, lctx *d, const struct ds_info *dsi,
-	de_int64 pos, de_int64 len);
+	i64 pos, i64 len);
 static void handle_uint16(deark *c, lctx *d, const struct ds_info *dsi,
-	de_int64 pos, de_int64 len);
+	i64 pos, i64 len);
 static void handle_1_90(deark *c, lctx *d, const struct ds_info *dsi,
-	de_int64 pos, de_int64 len);
+	i64 pos, i64 len);
 static void handle_2_120(deark *c, lctx *d, const struct ds_info *dsi,
-	de_int64 pos, de_int64 len);
+	i64 pos, i64 len);
 static void handle_2_125(deark *c, lctx *d, const struct ds_info *dsi,
-	de_int64 pos, de_int64 len);
+	i64 pos, i64 len);
 
 static const struct ds_info ds_info_arr[] = {
 	{ 1, 0,   0,      "Model Version", handle_uint16 },
@@ -133,7 +133,7 @@ static int get_ds_encoding(deark *c, lctx *d, de_byte recnum)
 }
 
 static void handle_1_90(deark *c, lctx *d, const struct ds_info *dsi,
-	de_int64 pos, de_int64 len)
+	i64 pos, i64 len)
 {
 	const char *csname;
 
@@ -155,7 +155,7 @@ static void handle_1_90(deark *c, lctx *d, const struct ds_info *dsi,
 
 // Caption/abstract
 static void handle_2_120(deark *c, lctx *d, const struct ds_info *dsi,
-	de_int64 pos, de_int64 len)
+	i64 pos, i64 len)
 {
 	de_ucstring *s = NULL;
 	dbuf *outf = NULL;
@@ -196,14 +196,14 @@ done:
 
 // Rasterized caption
 static void handle_2_125(deark *c, lctx *d, const struct ds_info *dsi,
-	de_int64 pos, de_int64 len)
+	i64 pos, i64 len)
 {
 	dbuf *unc_pixels = NULL;
 	de_bitmap *img = NULL;
-	de_int64 i, j;
+	i64 i, j;
 	de_byte b;
-	de_int64 rowspan;
-	de_int64 width, height;
+	i64 rowspan;
+	i64 width, height;
 
 	// I can't find any examples of this field, so this may not be correct.
 	// The format seems to be well-documented, though the pixels are in an
@@ -248,10 +248,10 @@ static int lookup_ds_info(de_byte recnum, de_byte dsnum, struct ds_info *dsi)
 	return 0;
 }
 
-static int read_dflen(deark *c, dbuf *f, de_int64 pos,
-	de_int64 *dflen, de_int64 *bytes_consumed)
+static int read_dflen(deark *c, dbuf *f, i64 pos,
+	i64 *dflen, i64 *bytes_consumed)
 {
-	de_int64 x;
+	i64 x;
 
 	x = dbuf_getui16be(f, pos);
 	if(x<32768) { // "Standard DataSet" format
@@ -259,8 +259,8 @@ static int read_dflen(deark *c, dbuf *f, de_int64 pos,
 		*bytes_consumed = 2;
 	}
 	else { // "Extended DataSet" format
-		de_int64 length_of_length;
-		de_int64 i;
+		i64 length_of_length;
+		i64 i;
 
 		length_of_length = x - 32768;
 		*dflen = 0;
@@ -282,7 +282,7 @@ static int read_dflen(deark *c, dbuf *f, de_int64 pos,
 }
 
 static void handle_text(deark *c, lctx *d, const struct ds_info *dsi,
-	de_int64 pos, de_int64 len)
+	i64 pos, i64 len)
 {
 	int encoding;
 	de_ucstring *s = NULL;
@@ -297,23 +297,23 @@ static void handle_text(deark *c, lctx *d, const struct ds_info *dsi,
 }
 
 static void handle_uint16(deark *c, lctx *d, const struct ds_info *dsi,
-	de_int64 pos, de_int64 len)
+	i64 pos, i64 len)
 {
-	de_int64 x;
+	i64 x;
 	if(len!=2) return;
 	x = de_getui16be(pos);
 	de_dbg(c, "%s: %d", dsi->dsname, (int)x);
 }
 
-static int do_dataset(deark *c, lctx *d, de_int64 ds_idx, de_int64 pos1,
-	de_int64 *bytes_consumed)
+static int do_dataset(deark *c, lctx *d, i64 ds_idx, i64 pos1,
+	i64 *bytes_consumed)
 {
 	de_byte b;
 	de_byte recnum, dsnum;
 	int retval = 0;
-	de_int64 pos = pos1;
-	de_int64 dflen;
-	de_int64 dflen_bytes_consumed;
+	i64 pos = pos1;
+	i64 dflen;
+	i64 dflen_bytes_consumed;
 	struct ds_info dsi;
 	int ds_known;
 
@@ -376,9 +376,9 @@ done:
 static void de_run_iptc(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
-	de_int64 pos;
-	de_int64 bytes_consumed;
-	de_int64 ds_count;
+	i64 pos;
+	i64 bytes_consumed;
+	i64 ds_count;
 
 	d = de_malloc(c, sizeof(lctx));
 	d->charset = DE_ENCODING_UNKNOWN;

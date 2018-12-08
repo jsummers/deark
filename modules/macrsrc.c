@@ -18,11 +18,11 @@ DE_DECLARE_MODULE(de_module_macrsrc);
 
 typedef struct localctx_struct {
 	de_byte extract_raw;
-	de_int64 data_offs, map_offs;
-	de_int64 data_size, map_size;
+	i64 data_offs, map_offs;
+	i64 data_size, map_size;
 
-	de_int64 typeListOffset_abs;
-	de_int64 nameListOffset_abs;
+	i64 typeListOffset_abs;
+	i64 nameListOffset_abs;
 	dbuf *icns_stream;
 	dbuf *psrc_stream;
 } lctx;
@@ -37,9 +37,9 @@ struct rsrcinstanceinfo {
 	int id;
 	de_byte attribs;
 	de_byte has_name;
-	de_int64 data_offset;
-	de_int64 name_offset;
-	de_int64 name_raw_len;
+	i64 data_offset;
+	i64 name_offset;
+	i64 name_raw_len;
 };
 
 #define CODE_ICN_ 0x49434e23U // ICN#
@@ -104,7 +104,7 @@ static void finalize_psrc_stream(deark *c, lctx *d)
 	d->psrc_stream = NULL;
 }
 
-static void writei16be(dbuf *f, de_int64 n)
+static void writei16be(dbuf *f, i64 n)
 {
 	if(n<0) {
 		dbuf_writeui16be(f, n+65536);
@@ -115,7 +115,7 @@ static void writei16be(dbuf *f, de_int64 n)
 }
 
 static void do_psrc_resource(deark *c, lctx *d, struct rsrctypeinfo *rti,
-	struct rsrcinstanceinfo *rii, de_int64 dpos, de_int64 dlen)
+	struct rsrcinstanceinfo *rii, i64 dpos, i64 dlen)
 {
 	if(!d->psrc_stream) {
 		open_psrc_stream(c, d);
@@ -129,7 +129,7 @@ static void do_psrc_resource(deark *c, lctx *d, struct rsrctypeinfo *rti,
 
 	de_dbg(c, "[Photoshop resource]");
 	dbuf_write(d->psrc_stream, rti->fcc.bytes, 4);
-	writei16be(d->psrc_stream, (de_int64)rii->id);
+	writei16be(d->psrc_stream, (i64)rii->id);
 	if(rii->has_name) {
 		dbuf_copy(c->infile, rii->name_offset, rii->name_raw_len, d->psrc_stream);
 		if(rii->name_raw_len%2) {
@@ -148,7 +148,7 @@ static void do_psrc_resource(deark *c, lctx *d, struct rsrctypeinfo *rti,
 
 // 16x16 cursor
 static void do_CURS_resource(deark *c, lctx *d, struct rsrctypeinfo *rti,
-	struct rsrcinstanceinfo *rii, de_int64 dpos, de_int64 dlen)
+	struct rsrcinstanceinfo *rii, i64 dpos, i64 dlen)
 {
 	de_bitmap *fg = NULL;
 	de_bitmap *mask = NULL;
@@ -166,7 +166,7 @@ done:
 }
 
 static int looks_like_pict(deark *c, lctx *d, struct rsrcinstanceinfo *rii,
-	de_int64 pos, de_int64 len)
+	i64 pos, i64 len)
 {
 	if(len>=12 && !dbuf_memcmp(c->infile, pos+10, "\x11\x01", 2)) {
 		return 1; // PICTv1
@@ -178,7 +178,7 @@ static int looks_like_pict(deark *c, lctx *d, struct rsrcinstanceinfo *rii,
 }
 
 static void extract_raw_rsrc(deark *c, lctx *d, struct rsrctypeinfo *rti,
-	struct rsrcinstanceinfo *rii, de_int64 dpos, de_int64 dlen)
+	struct rsrcinstanceinfo *rii, i64 dpos, i64 dlen)
 {
 	de_finfo *fi = NULL;
 	de_ucstring *s = NULL;
@@ -204,7 +204,7 @@ static void extract_raw_rsrc(deark *c, lctx *d, struct rsrctypeinfo *rti,
 static void do_resource_data(deark *c, lctx *d, struct rsrctypeinfo *rti,
 	struct rsrcinstanceinfo *rii)
 {
-	de_int64 dpos, dlen;
+	i64 dpos, dlen;
 	const char *ext = "bin";
 	int extr_flag = 0;
 	int is_pict = 0;
@@ -270,10 +270,10 @@ done:
 // Sets rii->name_raw_len
 static void do_resource_name(deark *c, lctx *d, struct rsrcinstanceinfo *rii)
 {
-	de_int64 nlen;
+	i64 nlen;
 	de_ucstring *rname = NULL;
 
-	nlen = (de_int64)de_getbyte(rii->name_offset);
+	nlen = (i64)de_getbyte(rii->name_offset);
 	rii->name_raw_len = 1+nlen;
 	rname = ucstring_create(c);
 	dbuf_read_to_ucstring(c->infile, rii->name_offset+1, nlen, rname, 0, DE_ENCODING_MACROMAN);
@@ -282,11 +282,11 @@ static void do_resource_name(deark *c, lctx *d, struct rsrcinstanceinfo *rii)
 }
 
 static void do_resource_record(deark *c, lctx *d, struct rsrctypeinfo *rti,
-	de_int64 pos1)
+	i64 pos1)
 {
-	de_int64 dataOffset_rel;
-	de_int64 nameOffset_rel;
-	de_int64 pos = pos1;
+	i64 dataOffset_rel;
+	i64 nameOffset_rel;
+	i64 pos = pos1;
 	struct rsrcinstanceinfo rii;
 
 	de_zeromem(&rii, sizeof(struct rsrcinstanceinfo));
@@ -310,10 +310,10 @@ static void do_resource_record(deark *c, lctx *d, struct rsrctypeinfo *rti,
 }
 
 static void do_resource_list(deark *c, lctx *d, struct rsrctypeinfo *rti,
-	de_int64 rsrc_list_offs, de_int64 count)
+	i64 rsrc_list_offs, i64 count)
 {
-	de_int64 k;
-	de_int64 pos = rsrc_list_offs;
+	i64 k;
+	i64 pos = rsrc_list_offs;
 
 	de_dbg(c, "resource list at %d", (int)rsrc_list_offs);
 	de_dbg_indent(c, 1);
@@ -327,12 +327,12 @@ static void do_resource_list(deark *c, lctx *d, struct rsrctypeinfo *rti,
 	de_dbg_indent(c, -1);
 }
 
-static void do_type_item(deark *c, lctx *d, de_int64 type_list_offs,
-	de_int64 idx, de_int64 pos1)
+static void do_type_item(deark *c, lctx *d, i64 type_list_offs,
+	i64 idx, i64 pos1)
 {
-	de_int64 pos = pos1;
-	de_int64 count;
-	de_int64 list_offs_rel;
+	i64 pos = pos1;
+	i64 count;
+	i64 list_offs_rel;
 	struct rsrctypeinfo rti;
 
 	de_zeromem(&rti, sizeof(struct rsrctypeinfo));
@@ -356,11 +356,11 @@ static void do_type_item(deark *c, lctx *d, de_int64 type_list_offs,
 
 static void do_type_list(deark *c, lctx *d)
 {
-	de_int64 pos1 = d->typeListOffset_abs;
-	de_int64 pos = pos1;
-	de_int64 type_count_raw;
-	de_int64 type_count;
-	de_int64 k;
+	i64 pos1 = d->typeListOffset_abs;
+	i64 pos = pos1;
+	i64 type_count_raw;
+	i64 type_count;
+	i64 k;
 
 	de_dbg(c, "type list at %d", (int)pos1);
 	de_dbg_indent(c, 1);
@@ -378,11 +378,11 @@ static void do_type_list(deark *c, lctx *d)
 	de_dbg_indent(c, -1);
 }
 
-static void do_map(deark *c, lctx *d, de_int64 map_offs, de_int64 map_size)
+static void do_map(deark *c, lctx *d, i64 map_offs, i64 map_size)
 {
-	de_int64 pos = map_offs;
-	de_int64 typeListOffset_rel, nameListOffset_rel;
-	de_int64 n;
+	i64 pos = map_offs;
+	i64 typeListOffset_rel, nameListOffset_rel;
+	i64 n;
 
 	n = de_getui32be(map_offs+4);
 	if(n!=map_offs) {
@@ -422,7 +422,7 @@ done:
 static void de_run_macrsrc(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
-	de_int64 pos;
+	i64 pos;
 
 	d = de_malloc(c, sizeof(lctx));
 
@@ -446,7 +446,7 @@ static void de_run_macrsrc(deark *c, de_module_params *mparams)
 static int de_identify_macrsrc(deark *c)
 {
 	de_byte b[16];
-	de_int64 n[4];
+	i64 n[4];
 	size_t k;
 
 	if(de_getui32be(0)!=256) return 0;

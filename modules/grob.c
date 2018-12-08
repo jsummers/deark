@@ -9,18 +9,18 @@
 DE_DECLARE_MODULE(de_module_grob);
 
 typedef struct localctx_struct {
-	de_int64 w, h_phys;
-	de_int64 bytes_consumed;
-	de_int64 num_planes;
+	i64 w, h_phys;
+	i64 bytes_consumed;
+	i64 num_planes;
 	int grayscale_lsb; // Does the plane of least-significant bits come first?
 } lctx;
 
-static void grob_read_binary_bitmap(deark *c, lctx *d, dbuf *inf, de_int64 pos)
+static void grob_read_binary_bitmap(deark *c, lctx *d, dbuf *inf, i64 pos)
 {
-	de_int64 h_logical;
-	de_int64 i, j;
-	de_int64 plane;
-	de_int64 rowspan;
+	i64 h_logical;
+	i64 i, j;
+	i64 plane;
+	i64 rowspan;
 	de_byte b;
 	unsigned int v;
 	de_byte v2;
@@ -51,7 +51,7 @@ static void grob_read_binary_bitmap(deark *c, lctx *d, dbuf *inf, de_int64 pos)
 			v = 0;
 			for(plane=0; plane<d->num_planes; plane++) {
 				b = de_get_bits_symbol_lsb(inf, 1,
-					pos+rowspan*(h_logical*(de_int64)plane+j), i);
+					pos+rowspan*(h_logical*(i64)plane+j), i);
 				if(d->grayscale_lsb)
 					v |= b<<(unsigned int)plane;
 				else
@@ -70,8 +70,8 @@ done:
 static void de_run_grob_binary(deark *c, lctx *d)
 {
 	de_byte hdr[18];
-	de_int64 obj_id;
-	de_int64 length;
+	i64 obj_id;
+	i64 length;
 
 	de_declare_fmt(c, "HP GROB, binary encoded");
 
@@ -96,12 +96,12 @@ static void de_run_grob_binary(deark *c, lctx *d)
 }
 
 // On return, sets d->bytes_consumed
-static void grob_text_1_image(deark *c, lctx *d, de_int64 pos1)
+static void grob_text_1_image(deark *c, lctx *d, i64 pos1)
 {
-	de_int64 data_start;
+	i64 data_start;
 	de_byte x;
 	de_byte b0, b1;
-	de_int64 pos;
+	i64 pos;
 	dbuf *bin_bmp = NULL; // Binary version of the bitmap
 
 	pos = pos1;
@@ -173,8 +173,8 @@ done:
 
 static void de_run_grob_text(deark *c, lctx *d)
 {
-	de_int64 pos;
-	de_int64 img_pos = 0;
+	i64 pos;
+	i64 img_pos = 0;
 	int ret;
 	int img_count = 0;
 

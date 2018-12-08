@@ -11,17 +11,17 @@ DE_DECLARE_MODULE(de_module_flif);
 typedef struct localctx_struct {
 	int is_interlaced;
 	int is_animated;
-	de_int64 num_channels;
-	de_int64 bytes_per_channel;
-	de_int64 width, height;
-	de_int64 nb_frames;
+	i64 num_channels;
+	i64 bytes_per_channel;
+	i64 width, height;
+	i64 nb_frames;
 } lctx;
 
-static int read_varint(deark *c, de_int64 pos1, de_int64 *result, de_int64 *bytes_consumed)
+static int read_varint(deark *c, i64 pos1, i64 *result, i64 *bytes_consumed)
 {
-	de_int64 val = 0;
+	i64 val = 0;
 	de_byte b;
-	de_int64 pos = pos1;
+	i64 pos = pos1;
 	int retval = 0;
 
 	*result = 0;
@@ -49,15 +49,15 @@ done:
 	return retval;
 }
 
-static int do_read_header(deark *c, lctx *d, de_int64 pos1,
-	de_int64 *bytes_consumed)
+static int do_read_header(deark *c, lctx *d, i64 pos1,
+	i64 *bytes_consumed)
 {
-	de_int64 pos = pos1;
+	i64 pos = pos1;
 	de_byte b;
 	de_byte intl_anim_code;
 	de_byte bytes_per_channel_code;
-	de_int64 tmpcode;
-	de_int64 bytes_consumed2;
+	i64 tmpcode;
+	i64 bytes_consumed2;
 	int retval = 0;
 	char tmps[80];
 
@@ -80,7 +80,7 @@ static int do_read_header(deark *c, lctx *d, de_int64 pos1,
 	de_dbg(c, "interlaced: %d", d->is_interlaced);
 	de_dbg(c, "animated: %d", d->is_animated);
 
-	d->num_channels = (de_int64)(b&0x0f);
+	d->num_channels = (i64)(b&0x0f);
 	de_dbg(c, "number of channels: %d", (int)d->num_channels);
 
 	bytes_per_channel_code = de_getbyte(pos++);
@@ -88,7 +88,7 @@ static int do_read_header(deark *c, lctx *d, de_int64 pos1,
 		de_strlcpy(tmps, "custom", sizeof(tmps));
 	}
 	else if(bytes_per_channel_code=='1' || bytes_per_channel_code=='2') {
-		d->bytes_per_channel = (de_int64)(bytes_per_channel_code-'0');
+		d->bytes_per_channel = (i64)(bytes_per_channel_code-'0');
 		de_snprintf(tmps, sizeof(tmps), "%d", (int)(d->bytes_per_channel));
 	}
 	else {
@@ -124,11 +124,11 @@ done:
 	return retval;
 }
 
-static int do_read_metadata(deark *c, lctx *d, de_int64 pos1,
-	de_int64 *bytes_consumed)
+static int do_read_metadata(deark *c, lctx *d, i64 pos1,
+	i64 *bytes_consumed)
 {
 	de_byte b;
-	de_int64 pos = pos1;
+	i64 pos = pos1;
 	int saved_indent_level;
 	int retval = 0;
 
@@ -153,11 +153,11 @@ done:
 	return retval;
 }
 
-static int do_second_header(deark *c, lctx *d, de_int64 pos1,
-	de_int64 *bytes_consumed)
+static int do_second_header(deark *c, lctx *d, i64 pos1,
+	i64 *bytes_consumed)
 {
 	de_byte ct;
-	de_int64 pos = pos1;
+	i64 pos = pos1;
 
 	de_dbg(c, "second header segment at %d", (int)pos1);
 	de_dbg_indent(c, 1);
@@ -178,8 +178,8 @@ done:
 static void de_run_flif(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
-	de_int64 pos;
-	de_int64 bytes_consumed;
+	i64 pos;
+	i64 bytes_consumed;
 
 	d = de_malloc(c, sizeof(lctx));
 

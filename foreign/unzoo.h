@@ -119,7 +119,7 @@ struct entryctx {
 struct unzooctx {
 	deark *c;
 	dbuf *ReadArch; // Input file, owned by the caller
-	de_int64 ReadArch_fpos;
+	i64 ReadArch_fpos;
 	struct de_inthashtable *offsets_seen;
 
 	// Original "Descript":
@@ -152,7 +152,7 @@ struct unzooctx {
 	struct de_crcobj *crco;
 };
 
-static int GotoReadArch (struct unzooctx *uz, de_int64 pos)
+static int GotoReadArch (struct unzooctx *uz, i64 pos)
 {
 	uz->ReadArch_fpos = pos;
 	return 1;
@@ -201,12 +201,12 @@ static de_uint32 WordReadArch (struct unzooctx *uz)
 
 static de_uint32 BlckReadArch (struct unzooctx *uz, de_byte *blk, de_uint32 len )
 {
-	de_int64 amt_to_read = (de_int64)len;
+	i64 amt_to_read = (i64)len;
 
 	if(uz->ReadArch_fpos + amt_to_read > uz->ReadArch->len) {
 		// This read would go past EOF
 		amt_to_read = uz->ReadArch->len - uz->ReadArch_fpos;
-		if(amt_to_read > (de_int64)len) amt_to_read = (de_int64)len;
+		if(amt_to_read > (i64)len) amt_to_read = (i64)len;
 	}
 
 	dbuf_read(uz->ReadArch, blk, uz->ReadArch_fpos, amt_to_read);
@@ -214,7 +214,7 @@ static de_uint32 BlckReadArch (struct unzooctx *uz, de_byte *blk, de_uint32 len 
 	return (de_uint32)amt_to_read;
 }
 
-static void do_extract_comment(struct unzooctx *uz, de_int64 pos, de_int64 len, int is_main)
+static void do_extract_comment(struct unzooctx *uz, i64 pos, i64 len, int is_main)
 {
 	if(len<1) return;
 	if(uz->c->extract_level<2) return;
@@ -294,7 +294,7 @@ static int EntrReadArch (struct unzooctx *uz, struct entryctx *ze)
 	de_ucstring *dirname_ucstring = NULL;
 	de_ucstring *fullname_ucstring = NULL;
 	int retval = 0;
-	de_int64 pos1 = uz->ReadArch_fpos;
+	i64 pos1 = uz->ReadArch_fpos;
 
 	/* try to read the magic words                                         */
 	if ( (ze->magic = WordReadArch(uz)) != (de_uint32)0xfdc4a7dcL ) {
@@ -434,7 +434,7 @@ done:
 	return retval;
 }
 
-static void our_writecallback(dbuf *f, const de_byte *buf, de_int64 buf_len)
+static void our_writecallback(dbuf *f, const de_byte *buf, i64 buf_len)
 {
 	struct entryctx *ze = (struct entryctx *)f->userdata;
 
@@ -487,7 +487,7 @@ static int ClosWritFile (struct unzooctx *uz, struct entryctx *ze)
 	return 1;
 }
 
-static de_int64 BlckWritFile (struct unzooctx *uz, struct entryctx *ze, const de_byte *blk, de_int64 len )
+static i64 BlckWritFile (struct unzooctx *uz, struct entryctx *ze, const de_byte *blk, i64 len )
 {
 	if(!ze->WritBinr) return 0;
 	dbuf_write(ze->WritBinr, blk, len);
@@ -990,12 +990,12 @@ static void init_lzh_lookuptable(deark *c, struct lzh_lookuptable *lookuptbl,
 }
 
 // Process a single member file
-static void ExtrEntry(struct unzooctx *uz, de_int64 pos1, de_int64 *next_entry_pos)
+static void ExtrEntry(struct unzooctx *uz, i64 pos1, i64 *next_entry_pos)
 {
 	de_uint32       res;            /* status of decoding              */
 	struct entryctx *ze = NULL;
 	deark *c = uz->c;
-	de_int64 timestamp_offset;
+	i64 timestamp_offset;
 	char timestamp_buf[64];
 
 	ze = de_malloc(c, sizeof(struct entryctx));
@@ -1115,7 +1115,7 @@ static int ExtrArch (deark *c, dbuf *inf)
 {
 	int retval = 0;
 	struct unzooctx *uz = NULL;
-	de_int64 pos;
+	i64 pos;
 	int saved_indent_level;
 
 	de_dbg_indent_save(c, &saved_indent_level);
@@ -1135,7 +1135,7 @@ static int ExtrArch (deark *c, dbuf *inf)
 	uz->offsets_seen = de_inthashtable_create(c); // For protection against infinite loops
 	pos = uz->posent;
 	while ( 1 ) {
-		de_int64 next_entry_pos;
+		i64 next_entry_pos;
 
 		de_dbg_indent_restore(c, saved_indent_level);
 

@@ -28,17 +28,17 @@ typedef struct localctx_struct {
 	int version;
 
 	de_finfo *fi;
-	de_int64 fsize; // The "file size" field in the file header
-	de_int64 bits_offset; // The bfOffBits field in the file header
-	de_int64 infohdrsize;
-	de_int64 bitcount;
+	i64 fsize; // The "file size" field in the file header
+	i64 bits_offset; // The bfOffBits field in the file header
+	i64 infohdrsize;
+	i64 bitcount;
 	de_uint32 compression_field;
-	de_int64 size_image; // biSizeImage
-	de_int64 width, height;
+	i64 size_image; // biSizeImage
+	i64 width, height;
 	int top_down;
-	de_int64 pal_entries; // Actual number stored in file. 0 means no palette.
-	de_int64 pal_pos;
-	de_int64 bytes_per_pal_entry;
+	i64 pal_entries; // Actual number stored in file. 0 means no palette.
+	i64 pal_pos;
+	i64 bytes_per_pal_entry;
 	int pal_is_grayscale;
 
 #define BF_NONE       0 // Bitfields are not applicable
@@ -46,9 +46,9 @@ typedef struct localctx_struct {
 #define BF_SEGMENT    2 // Use the bitfields segment in the file
 #define BF_IN_HEADER  3 // Use the bitfields fields in the infoheader
 	int bitfields_type;
-	de_int64 bitfields_segment_len; // Used if bitfields_type==BF_SEGMENT
+	i64 bitfields_segment_len; // Used if bitfields_type==BF_SEGMENT
 
-	de_int64 xpelspermeter, ypelspermeter;
+	i64 xpelspermeter, ypelspermeter;
 
 #define CMPR_NONE       0
 #define CMPR_RLE4       11
@@ -60,11 +60,11 @@ typedef struct localctx_struct {
 	int compression_type;
 
 	struct de_fourcc cstype4cc;
-	de_int64 profile_offset_raw;
-	de_int64 profile_offset;
-	de_int64 profile_size;
+	i64 profile_offset_raw;
+	i64 profile_offset;
+	i64 profile_size;
 
-	de_int64 rowspan;
+	i64 rowspan;
 	struct bitfieldsinfo bitfield[4];
 	de_uint32 pal[256];
 } lctx;
@@ -72,7 +72,7 @@ typedef struct localctx_struct {
 // Sets d->version, and certain header fields.
 static int detect_bmp_version(deark *c, lctx *d)
 {
-	de_int64 pos;
+	i64 pos;
 
 	pos = 0;
 	d->fsize = de_getui32le(pos+2);
@@ -122,7 +122,7 @@ static int detect_bmp_version(deark *c, lctx *d)
 	return 1;
 }
 
-static int read_fileheader(deark *c, lctx *d, de_int64 pos)
+static int read_fileheader(deark *c, lctx *d, i64 pos)
 {
 	de_dbg(c, "file header at %d", (int)pos);
 	de_dbg_indent(c, 1);
@@ -136,7 +136,7 @@ static int read_fileheader(deark *c, lctx *d, de_int64 pos)
 // Calculate .shift and .scale
 static void update_bitfields_info(deark *c, lctx *d)
 {
-	de_int64 k;
+	i64 k;
 	de_uint32 tmpmask;
 
 	for(k=0; k<4; k++) {
@@ -150,9 +150,9 @@ static void update_bitfields_info(deark *c, lctx *d)
 	}
 }
 
-static void do_read_bitfields(deark *c, lctx *d, de_int64 pos, de_int64 len)
+static void do_read_bitfields(deark *c, lctx *d, i64 pos, i64 len)
 {
-	de_int64 k;
+	i64 k;
 
 	if(len>16) len=16;
 	for(k=0; 4*k<len; k++) {
@@ -200,13 +200,13 @@ static void get_cstype_descr_dbgstr(struct de_fourcc *cstype4cc, char *s_dbgstr,
 // de_fmtutil_get_bmpinfo() library function. The BMP module's needs are
 // not quite aligned with what that function is intended for, and it
 // would be too messy to try to add the necessary features to it.
-static int read_infoheader(deark *c, lctx *d, de_int64 pos)
+static int read_infoheader(deark *c, lctx *d, i64 pos)
 {
-	de_int64 height_raw;
-	de_int64 clr_used_raw;
+	i64 height_raw;
+	i64 clr_used_raw;
 	int cmpr_ok;
 	int retval = 0;
-	de_int64 nplanes;
+	i64 nplanes;
 
 	de_dbg(c, "info header at %d", (int)pos);
 	de_dbg_indent(c, 1);
@@ -357,7 +357,7 @@ static int read_infoheader(deark *c, lctx *d, de_int64 pos)
 		clr_used_raw = 0;
 
 	if(d->bitcount>=1 && d->bitcount<=8 && clr_used_raw==0) {
-		d->pal_entries = ((de_int64)1)<<d->bitcount;
+		d->pal_entries = ((i64)1)<<d->bitcount;
 	}
 	else {
 		d->pal_entries = clr_used_raw;
@@ -448,9 +448,9 @@ static void do_read_profile(deark *c, lctx *d)
 // Try to detect them.
 static void do_os2v2_bad_palette(deark *c, lctx *d)
 {
-	de_int64 pal_space_avail;
-	de_int64 pal_bytes_if_3bpc;
-	de_int64 pal_bytes_if_4bpc;
+	i64 pal_space_avail;
+	i64 pal_bytes_if_3bpc;
+	i64 pal_bytes_if_4bpc;
 	int nonzero_rsvd;
 	int i;
 
@@ -480,7 +480,7 @@ static void do_os2v2_bad_palette(deark *c, lctx *d)
 
 static void do_read_palette(deark *c, lctx *d)
 {
-	de_int64 pal_size_in_bytes;
+	i64 pal_size_in_bytes;
 
 	if(d->pal_entries<1) return;
 
@@ -513,7 +513,7 @@ static de_bitmap *bmp_bitmap_create(deark *c, lctx *d, int bypp)
 	return img;
 }
 
-static void do_image_paletted(deark *c, lctx *d, dbuf *bits, de_int64 bits_offset)
+static void do_image_paletted(deark *c, lctx *d, dbuf *bits, i64 bits_offset)
 {
 	de_bitmap *img = NULL;
 
@@ -524,10 +524,10 @@ static void do_image_paletted(deark *c, lctx *d, dbuf *bits, de_int64 bits_offse
 	de_bitmap_destroy(img);
 }
 
-static void do_image_24bit(deark *c, lctx *d, dbuf *bits, de_int64 bits_offset)
+static void do_image_24bit(deark *c, lctx *d, dbuf *bits, i64 bits_offset)
 {
 	de_bitmap *img = NULL;
-	de_int64 i, j;
+	i64 i, j;
 	de_uint32 clr;
 
 	img = bmp_bitmap_create(c, d, 3);
@@ -541,13 +541,13 @@ static void do_image_24bit(deark *c, lctx *d, dbuf *bits, de_int64 bits_offset)
 	de_bitmap_destroy(img);
 }
 
-static void do_image_16_32bit(deark *c, lctx *d, dbuf *bits, de_int64 bits_offset)
+static void do_image_16_32bit(deark *c, lctx *d, dbuf *bits, i64 bits_offset)
 {
 	de_bitmap *img = NULL;
-	de_int64 i, j;
+	i64 i, j;
 	int has_transparency;
 	de_uint32 v;
-	de_int64 k;
+	i64 k;
 	de_byte sm[4];
 
 	if(d->bitfields_type==BF_SEGMENT) {
@@ -588,18 +588,18 @@ static void do_image_16_32bit(deark *c, lctx *d, dbuf *bits, de_int64 bits_offse
 	de_bitmap_destroy(img);
 }
 
-static void do_image_rle_4_8_24(deark *c, lctx *d, dbuf *bits, de_int64 bits_offset)
+static void do_image_rle_4_8_24(deark *c, lctx *d, dbuf *bits, i64 bits_offset)
 {
-	de_int64 pos;
-	de_int64 xpos, ypos;
+	i64 pos;
+	i64 xpos, ypos;
 	de_byte b1, b2;
 	de_byte b;
 	de_byte cr, cg, cb;
 	de_bitmap *img = NULL;
 	de_uint32 clr1, clr2;
-	de_int64 num_bytes;
-	de_int64 num_pixels;
-	de_int64 k;
+	i64 num_bytes;
+	i64 num_pixels;
+	i64 k;
 	int bypp;
 
 	if(d->pal_is_grayscale && d->compression_type!=CMPR_RLE24) {
@@ -635,14 +635,14 @@ static void do_image_rle_4_8_24(deark *c, lctx *d, dbuf *bits, de_int64 bits_off
 		}
 		else if(b1==0 && b2==2) { // Delta
 			b = dbuf_getbyte(bits, pos++);
-			xpos += (de_int64)b;
+			xpos += (i64)b;
 			b = dbuf_getbyte(bits, pos++);
-			ypos += (de_int64)b;
+			ypos += (i64)b;
 		}
 		else if(b1==0) { // b2 uncompressed pixels follow
-			num_pixels = (de_int64)b2;
+			num_pixels = (i64)b2;
 			if(d->compression_type==CMPR_RLE4) {
-				de_int64 pixels_copied = 0;
+				i64 pixels_copied = 0;
 				// There are 4 bits per pixel, but padded to a multiple of 16 bits.
 				num_bytes = ((num_pixels+3)/4)*2;
 				for(k=0; k<num_bytes; k++) {
@@ -681,7 +681,7 @@ static void do_image_rle_4_8_24(deark *c, lctx *d, dbuf *bits, de_int64 bits_off
 			}
 		}
 		else { // Compressed pixels
-			num_pixels = (de_int64)b1;
+			num_pixels = (i64)b1;
 			if(d->compression_type==CMPR_RLE4) {
 				// b1 pixels alternating between the colors in b2
 				clr1 = d->pal[((unsigned int)b2)>>4];
@@ -715,7 +715,7 @@ static void do_image_rle_4_8_24(deark *c, lctx *d, dbuf *bits, de_int64 bits_off
 
 static void extract_embedded_image(deark *c, lctx *d, const char *ext)
 {
-	de_int64 nbytes;
+	i64 nbytes;
 
 	nbytes = d->size_image;
 
@@ -773,7 +773,7 @@ done:
 static void de_run_bmp(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
-	de_int64 pos;
+	i64 pos;
 
 	d = de_malloc(c, sizeof(lctx));
 	d->fi = de_finfo_create(c);
@@ -839,9 +839,9 @@ done:
 // Note that this function must work together with de_identify_vbm().
 static int de_identify_bmp(deark *c)
 {
-	de_int64 fsize;
-	de_int64 bits_offset;
-	de_int64 infohdrsize;
+	i64 fsize;
+	i64 bits_offset;
+	i64 infohdrsize;
 	int bmp_ext;
 	de_byte buf[6];
 
@@ -915,7 +915,7 @@ done:
 
 static int de_identify_dib(deark *c)
 {
-	de_int64 n;
+	i64 n;
 
 	n = de_getui32le(0); // biSize
 	if(n!=40) return 0;

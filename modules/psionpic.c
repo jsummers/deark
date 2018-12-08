@@ -9,21 +9,21 @@
 DE_DECLARE_MODULE(de_module_psionpic);
 
 struct plane_info_struct {
-	de_int64 width, height;
-	de_int64 image_pos; // absolute position in file
-	de_int64 rowspan;
+	i64 width, height;
+	i64 image_pos; // absolute position in file
+	i64 rowspan;
 };
 
 typedef struct localctx_struct {
-	de_int64 num_planes;
+	i64 num_planes;
 	int bw;
 	struct plane_info_struct *plane_info; // Array of plane_info_structs
 } lctx;
 
-static void do_read_plane_info(deark *c, lctx *d, struct plane_info_struct *pi, de_int64 pos)
+static void do_read_plane_info(deark *c, lctx *d, struct plane_info_struct *pi, i64 pos)
 {
-	de_int64 image_relative_pos;
-	de_int64 image_size_in_bytes;
+	i64 image_relative_pos;
+	i64 image_size_in_bytes;
 
 	de_zeromem(pi, sizeof(struct plane_info_struct));
 	pi->width = de_getui16le(pos+2);
@@ -38,7 +38,7 @@ static void do_read_plane_info(deark *c, lctx *d, struct plane_info_struct *pi, 
 	de_dbg_dimensions(c, pi->width, pi->height);
 }
 
-static void do_bitmap_1plane(deark *c, lctx *d, de_int64 plane_num)
+static void do_bitmap_1plane(deark *c, lctx *d, i64 plane_num)
 {
 	struct plane_info_struct *pi = &d->plane_info[plane_num];
 
@@ -48,10 +48,10 @@ static void do_bitmap_1plane(deark *c, lctx *d, de_int64 plane_num)
 		pi->rowspan, DE_CVTF_WHITEISZERO|DE_CVTF_LSBFIRST, NULL, 0);
 }
 
-static void do_bitmap_2planes(deark *c, lctx *d, de_int64 pn1, de_int64 pn2)
+static void do_bitmap_2planes(deark *c, lctx *d, i64 pn1, i64 pn2)
 {
 	de_bitmap *img = NULL;
-	de_int64 i, j;
+	i64 i, j;
 	de_byte n0, n1;
 
 	de_dbg(c, "making a grayscale image from planes %d and %d", (int)pn1, (int)pn2);
@@ -72,7 +72,7 @@ static void do_bitmap_2planes(deark *c, lctx *d, de_int64 pn1, de_int64 pn2)
 
 static int could_be_2bit(lctx *d, int startpos)
 {
-	de_int64 i;
+	i64 i;
 	if( (d->num_planes - startpos)%2 != 0) {
 		// Not an even number of bitmaps.
 		return 0;
@@ -122,7 +122,7 @@ static int detect_format(deark *c, lctx *d)
 static void de_run_psionpic(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
-	de_int64 i;
+	i64 i;
 	int format;
 	const char *s;
 

@@ -44,15 +44,15 @@ struct format_struct {
 struct table_entry {
 	struct format_struct fmt;
 	de_uint32 type;
-	de_int64 size;
-	de_int64 offset;
+	i64 size;
+	i64 offset;
 
 	const char *type_name;
 	table_entry_handler_fn handler_fn;
 };
 
 struct localctx_struct {
-	de_int64 table_count;
+	i64 table_count;
 	struct table_entry *tables;
 
 	// AFAICT: In a PCF file, each "character" has a natural index, implicitly
@@ -60,10 +60,10 @@ struct localctx_struct {
 	// This chars[] array is indexed in the same way. It is allocated when we
 	// read the metrics table.
 	// (The encodings table is different: It maps codepoints to these indices.)
-	de_int64 num_chars;
+	i64 num_chars;
 	struct char_info *chars;
 
-	de_int64 bitmaps_data_len;
+	i64 bitmaps_data_len;
 	de_byte *bitmaps_data;
 
 	struct format_struct bitmaps_fmt;
@@ -78,7 +78,7 @@ struct localctx_struct {
 
 // Read a 'format' field, populate caller-supplied 'fmt'.
 static void read_format_field(deark *c, lctx *d, struct table_entry *te,
-	de_int64 pos, struct format_struct *fmt)
+	i64 pos, struct format_struct *fmt)
 {
 	const char *name;
 
@@ -120,7 +120,7 @@ static void read_format_field(deark *c, lctx *d, struct table_entry *te,
 	de_dbg_indent(c, -1);
 }
 
-static int read_and_check_format_field(deark *c, lctx *d, struct table_entry *te, de_int64 pos)
+static int read_and_check_format_field(deark *c, lctx *d, struct table_entry *te, i64 pos)
 {
 	de_uint32 format;
 
@@ -135,7 +135,7 @@ static int read_and_check_format_field(deark *c, lctx *d, struct table_entry *te
 
 // Read and return a property name or string value
 static struct de_stringreaderdata *read_prop_string(deark *c, lctx *d,
-	struct table_entry *te, de_int64 pos, const char *name)
+	struct table_entry *te, i64 pos, const char *name)
 {
 	struct de_stringreaderdata *srd = NULL;
 
@@ -146,11 +146,11 @@ static struct de_stringreaderdata *read_prop_string(deark *c, lctx *d,
 }
 
 static void read_one_property(deark *c, lctx *d, struct table_entry *te,
-	de_int64 pos1, de_int64 prop_idx, de_int64 string_data_area_pos)
+	i64 pos1, i64 prop_idx, i64 string_data_area_pos)
 {
-	de_int64 pos = pos1;
+	i64 pos = pos1;
 	de_byte isstringprop;
-	de_int64 name_offset;
+	i64 name_offset;
 	struct de_stringreaderdata *srd_name = NULL;
 	struct de_stringreaderdata *srd_strval = NULL;
 
@@ -167,7 +167,7 @@ static void read_one_property(deark *c, lctx *d, struct table_entry *te,
 	de_dbg(c, "isStringProp: %u", (unsigned int)isstringprop);
 
 	if(isstringprop) {
-		de_int64 value_offset;
+		i64 value_offset;
 
 		value_offset = dbuf_getui32x(c->infile, pos, te->fmt.is_le);
 		de_dbg(c, "value offset: %"INT64_FMT" (abs=%"INT64_FMT")", value_offset,
@@ -182,7 +182,7 @@ static void read_one_property(deark *c, lctx *d, struct table_entry *te,
 		}
 	}
 	else {
-		de_int64 value;
+		i64 value;
 
 		value = dbuf_geti32x(c->infile, pos, te->fmt.is_le);
 		de_dbg(c, "value: %"INT64_FMT, value);
@@ -196,14 +196,14 @@ static void read_one_property(deark *c, lctx *d, struct table_entry *te,
 
 static void handler_properties(deark *c, lctx *d, struct table_entry *te)
 {
-	de_int64 pos = te->offset;
-	de_int64 nprops;
+	i64 pos = te->offset;
+	i64 nprops;
 	int saved_indent_level;
-	de_int64 props_idx_pos;
-	de_int64 props_idx_size_padded;
-	de_int64 string_data_area_pos;
-	de_int64 string_data_area_size;
-	de_int64 k;
+	i64 props_idx_pos;
+	i64 props_idx_size_padded;
+	i64 string_data_area_pos;
+	i64 string_data_area_size;
+	i64 k;
 
 	de_dbg(c, "properties table at %"INT64_FMT, pos);
 	de_dbg_indent_save(c, &saved_indent_level);
@@ -242,10 +242,10 @@ done:
 
 static void handler_metrics(deark *c, lctx *d, struct table_entry *te)
 {
-	de_int64 pos = te->offset;
+	i64 pos = te->offset;
 	int saved_indent_level;
-	de_int64 nmetrics;
-	de_int64 k;
+	i64 nmetrics;
+	i64 k;
 
 	de_dbg_indent_save(c, &saved_indent_level);
 	de_dbg(c, "metrics table at %"INT64_FMT, pos);
@@ -322,15 +322,15 @@ done:
 
 static void handler_bdf_encodings(deark *c, lctx *d, struct table_entry *te)
 {
-	de_int64 pos = te->offset;
+	i64 pos = te->offset;
 	int saved_indent_level;
 	unsigned int min_char_or_byte2, max_char_or_byte2;
 	unsigned int min_byte1, max_byte1;
 	unsigned int default_char;
 	unsigned int byte1_count, byte2_count;
 	int is_singlebyte_encoding;
-	de_int64 ncodepoints;
-	de_int64 k;
+	i64 ncodepoints;
+	i64 k;
 
 	de_dbg_indent_save(c, &saved_indent_level);
 	de_dbg(c, "BDF encodings table at %"INT64_FMT, pos);
@@ -409,9 +409,9 @@ done:
 	de_dbg_indent_restore(c, saved_indent_level);
 }
 
-static void reverse_bit_order(de_byte *m, de_int64 m_len)
+static void reverse_bit_order(de_byte *m, i64 m_len)
 {
-	de_int64 k;
+	i64 k;
 	static const de_byte tbl[16] = {
 		0x0, 0x8, 0x4, 0xc, 0x2, 0xa, 0x6, 0xe,
 		0x1, 0x9, 0x5, 0xd, 0x3, 0xb, 0x7, 0xf };
@@ -423,9 +423,9 @@ static void reverse_bit_order(de_byte *m, de_int64 m_len)
 
 static void handler_bitmaps(deark *c, lctx *d, struct table_entry *te)
 {
-	de_int64 pos = te->offset;
-	de_int64 nglyphs;
-	de_int64 k;
+	i64 pos = te->offset;
+	i64 nglyphs;
+	i64 k;
 	int saved_indent_level;
 
 	de_dbg_indent_save(c, &saved_indent_level);
@@ -455,7 +455,7 @@ static void handler_bitmaps(deark *c, lctx *d, struct table_entry *te)
 	}
 
 	for(k=0; k<4; k++) {
-		de_int64 bitmapsize;
+		i64 bitmapsize;
 		int use_this_one;
 
 		bitmapsize = dbuf_getui32x(c->infile, pos, te->fmt.is_le);
@@ -532,10 +532,10 @@ static void lookup_table_entry_type_info(deark *c, lctx *d, struct table_entry *
 	}
 }
 
-static int do_read_table_entry(deark *c, lctx *d, struct table_entry *te, de_int64 pos1)
+static int do_read_table_entry(deark *c, lctx *d, struct table_entry *te, i64 pos1)
 {
 	int retval = 0;
-	de_int64 pos = pos1;
+	i64 pos = pos1;
 
 	if(pos1+16 > c->infile->len) goto done;
 
@@ -566,7 +566,7 @@ done:
 static void do_make_font_image(deark *c, lctx *d)
 {
 	struct de_bitmap_font *font = NULL;
-	de_int64 k;
+	i64 k;
 	int max_full_width = 1;
 	int max_ascent = 0;
 	int max_descent = 0;
@@ -606,7 +606,7 @@ static void do_make_font_image(deark *c, lctx *d)
 	for(k=0; k<font->num_chars; k++) {
 		struct de_bitmap_font_char *ch = &font->char_array[k];
 		struct char_info *ci = &d->chars[k];
-		de_int64 bitmap_len;
+		i64 bitmap_len;
 
 		if(ci->codepoint == DE_CODEPOINT_INVALID) continue;
 		ch->codepoint_nonunicode = ci->codepoint;
@@ -625,7 +625,7 @@ static void do_make_font_image(deark *c, lctx *d)
 		ch->extraspace_l = ci->extraspace_l;
 		ch->extraspace_r = ci->extraspace_r;
 
-		ch->rowspan = de_pad_to_n((de_int64)((ci->width_raw+7)/8), (de_int64)d->bitmaps_fmt.glyph_padding_value);
+		ch->rowspan = de_pad_to_n((i64)((ci->width_raw+7)/8), (i64)d->bitmaps_fmt.glyph_padding_value);
 		bitmap_len = ch->rowspan * ci->height_raw;
 		if(ci->bitmap_offset + bitmap_len <= d->bitmaps_data_len) {
 			ch->bitmap = &d->bitmaps_data[ci->bitmap_offset];
@@ -648,7 +648,7 @@ done:
 // Processes at most one table.
 static int process_table_by_type(deark *c, lctx *d, de_uint32 tbltype)
 {
-	de_int64 k;
+	i64 k;
 	struct table_entry *te;
 
 	for(k=0; k<d->table_count; k++) {
@@ -666,8 +666,8 @@ static int process_table_by_type(deark *c, lctx *d, de_uint32 tbltype)
 static void de_run_pcf(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
-	de_int64 pos;
-	de_int64 k;
+	i64 pos;
+	i64 k;
 	int saved_indent_level;
 
 	de_dbg_indent_save(c, &saved_indent_level);

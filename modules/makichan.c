@@ -11,17 +11,17 @@
 DE_DECLARE_MODULE(de_module_makichan);
 
 typedef struct localctx_struct {
-	de_int64 width, height;
-	de_int64 header_pos;
-	de_int64 flag_a_offset;
-	de_int64 flag_b_offset;
-	de_int64 flag_b_size;
-	de_int64 pixels_offset;
-	de_int64 pixels_size;
-	de_int64 num_colors;
-	de_int64 bits_per_pixel;
-	de_int64 rowspan;
-	de_int64 width_adj, height_adj;
+	i64 width, height;
+	i64 header_pos;
+	i64 flag_a_offset;
+	i64 flag_b_offset;
+	i64 flag_b_size;
+	i64 pixels_offset;
+	i64 pixels_size;
+	i64 num_colors;
+	i64 bits_per_pixel;
+	i64 rowspan;
+	i64 width_adj, height_adj;
 
 	de_byte aspect_ratio_flag;
 	int is_max;
@@ -32,14 +32,14 @@ typedef struct localctx_struct {
 	de_uint32 pal[256];
 } lctx;
 
-static de_int64 de_int_round_up(de_int64 n, de_int64 m)
+static i64 de_int_round_up(i64 n, i64 m)
 {
 	return ((n+(m-1))/m)*m;
 }
 
-static void read_palette(deark *c, lctx *d, de_int64 pos)
+static void read_palette(deark *c, lctx *d, i64 pos)
 {
-	de_int64 k;
+	i64 k;
 	de_byte cr, cg, cb;
 
 	de_dbg(c, "palette at %d", (int)pos);
@@ -58,13 +58,13 @@ static void read_palette(deark *c, lctx *d, de_int64 pos)
 
 static int read_mki_header(deark *c, lctx *d)
 {
-	de_int64 xoffset, yoffset;
-	de_int64 width_raw, height_raw;
-	de_int64 pos;
-	de_int64 flag_a_size;
-	de_int64 pix_data_a_size;
-	de_int64 pix_data_b_size;
-	de_int64 expected_file_size;
+	i64 xoffset, yoffset;
+	i64 width_raw, height_raw;
+	i64 pos;
+	i64 flag_a_size;
+	i64 pix_data_a_size;
+	i64 pix_data_b_size;
+	i64 expected_file_size;
 	unsigned int extension_flags;
 	int retval = 0;
 
@@ -140,10 +140,10 @@ done:
 
 static void mki_decompress_virtual_screen(deark *c, lctx *d)
 {
-	de_int64 i, j;
-	de_int64 a_pos, b_pos;
-	de_int64 vs_rowspan;
-	de_int64 k;
+	i64 i, j;
+	i64 a_pos, b_pos;
+	i64 vs_rowspan;
+	i64 k;
 	de_byte tmpn[4];
 	de_byte v;
 	de_byte a_byte = 0x00;
@@ -178,7 +178,7 @@ static void mki_decompress_virtual_screen(deark *c, lctx *d)
 			tmpn[2] >>= 4;
 
 			for(k=0; k<4; k++) {
-				de_int64 vs_pos;
+				i64 vs_pos;
 
 				vs_pos = (4*j+k)*vs_rowspan + i/2;
 				if(i%2==0) {
@@ -195,10 +195,10 @@ static void mki_decompress_virtual_screen(deark *c, lctx *d)
 
 static void mki_decompress_pixels(deark *c, lctx *d)
 {
-	de_int64 i, j;
-	de_int64 p_pos;
-	de_int64 delta_y;
-	de_int64 vs_pos;
+	i64 i, j;
+	i64 p_pos;
+	i64 delta_y;
+	i64 vs_pos;
 	int vs_bitnum;
 	de_byte vs_byte = 0x00;
 
@@ -238,9 +238,9 @@ static void mki_decompress_pixels(deark *c, lctx *d)
 
 static int read_mag_header(deark *c, lctx *d)
 {
-	de_int64 xoffset, yoffset;
-	de_int64 width_raw, height_raw;
-	de_int64 pos;
+	i64 xoffset, yoffset;
+	i64 width_raw, height_raw;
+	i64 pos;
 	de_byte model_code;
 	de_byte model_flags;
 	de_byte screen_mode;
@@ -320,14 +320,14 @@ static int do_mag_decompress(deark *c, lctx *d)
 {
 	static const de_byte delta_x[16] = { 0,1,2,4,0,1,0,1,2,0,1,2,0,1,2, 0 };
 	static const de_byte delta_y[16] = { 0,0,0,0,1,1,2,2,2,4,4,4,8,8,8,16 };
-	de_int64 x, y;
-	de_int64 a_pos, b_pos;
-	de_int64 p_pos;
+	i64 x, y;
+	i64 a_pos, b_pos;
+	i64 p_pos;
 	int a_bitnum; // Index of next bit to read. -1 = no more bits in a_byte.
 	de_byte a_byte = 0x00;
 	de_byte b_byte;
 	int k;
-	de_int64 dpos;
+	i64 dpos;
 	de_byte *action_byte_buf = NULL;
 	de_byte wordbuf[2];
 
@@ -387,8 +387,8 @@ static int do_mag_decompress(deark *c, lctx *d)
 				else {
 					// Copy the data word from an earlier location in the image.
 					dpos = d->unc_pixels->len -
-						d->rowspan*(de_int64)delta_y[dcode] -
-						2*(de_int64)delta_x[dcode];
+						d->rowspan*(i64)delta_y[dcode] -
+						2*(i64)delta_x[dcode];
 					dbuf_read(d->unc_pixels, wordbuf, dpos, 2);
 				}
 				dbuf_write(d->unc_pixels, wordbuf, 2);
@@ -426,7 +426,7 @@ static void do_create_image(deark *c, lctx *d)
 // Sets d->header_pos
 static int find_mag_header(deark *c, lctx *d)
 {
-	de_int64 pos_1a = 0;
+	i64 pos_1a = 0;
 	int ret;
 
 	// Find the first 0x1a byte.

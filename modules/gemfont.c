@@ -10,26 +10,26 @@ DE_DECLARE_MODULE(de_module_gemfont);
 
 typedef struct localctx_struct {
 	struct de_bitmap_font *font;
-	de_int64 face_size;
-	de_int64 first_index, last_index;
-	de_int64 max_char_cell_width;
-	de_int64 char_offset_table_pos;
-	de_int64 font_data_pos;
-	de_int64 form_width_bytes;
-	de_int64 form_height_pixels;
+	i64 face_size;
+	i64 first_index, last_index;
+	i64 max_char_cell_width;
+	i64 char_offset_table_pos;
+	i64 font_data_pos;
+	i64 form_width_bytes;
+	i64 form_height_pixels;
 	de_byte byte_swap_flag;
 	de_finfo *fi;
 } lctx;
 
 static int do_characters(deark *c, lctx *d)
 {
-	de_int64 i;
-	de_int64 row;
-	de_int64 n;
+	i64 i;
+	i64 row;
+	i64 n;
 	struct de_bitmap_font_char *ch;
-	de_int64 char_startpos;
+	i64 char_startpos;
 	de_byte *font_data = NULL;
-	de_int64 form_nbytes;
+	i64 form_nbytes;
 	int retval = 0;
 
 	de_dbg(c, "reading characters");
@@ -59,7 +59,7 @@ static int do_characters(deark *c, lctx *d)
 
 		for(row=0; row<ch->height; row++) {
 			de_copy_bits(font_data + row*d->form_width_bytes, char_startpos,
-				ch->bitmap + row*ch->rowspan, 0, (de_int64)ch->width);
+				ch->bitmap + row*ch->rowspan, 0, (i64)ch->width);
 		}
 
 		if(ch->width > d->font->nominal_width) {
@@ -105,10 +105,10 @@ done:
 static void de_run_gemfont(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
-	de_int64 i;
-	de_int64 n;
+	i64 i;
+	i64 n;
 	unsigned int font_flags;
-	de_int64 max_char_width;
+	i64 max_char_width;
 	int saved_indent_level;
 
 	de_dbg_indent_save(c, &saved_indent_level);

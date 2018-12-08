@@ -14,8 +14,8 @@ struct member_data {
 #define TARFMT_GNU      2
 	int fmt;
 	de_byte linkflag;
-	de_int64 mode;
-	de_int64 filesize;
+	i64 mode;
+	i64 filesize;
 	de_ucstring *filename;
 	de_finfo *fi;
 };
@@ -34,21 +34,21 @@ static const char* get_fmt_name(int fmt)
 	return n;
 }
 
-static int read_member(deark *c, lctx *d, de_int64 pos1, de_int64 *bytes_consumed_member)
+static int read_member(deark *c, lctx *d, i64 pos1, i64 *bytes_consumed_member)
 {
 	struct member_data *md = NULL;
 	char rawname_sz[100];
 	char magic[8];
 	char timestamp_buf[64];
-	de_int64 ext_name_len;
+	i64 ext_name_len;
 	size_t rawname_sz_len;
 	de_byte linkflag1;
 	de_ucstring *rawname = NULL;
-	de_int64 modtime_unix;
+	i64 modtime_unix;
 	int is_dir, is_regular_file;
 	int ret;
-	de_int64 longpath_data_len = 0;
-	de_int64 pos = pos1;
+	i64 longpath_data_len = 0;
+	i64 pos = pos1;
 	int saved_indent_level;
 	int retval = 0;
 
@@ -237,8 +237,8 @@ done:
 static void de_run_tar(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
-	de_int64 pos;
-	de_int64 item_len;
+	i64 pos;
+	i64 item_len;
 	int ret;
 
 	d = de_malloc(c, sizeof(lctx));
@@ -264,8 +264,8 @@ static int de_identify_tar(deark *c)
 {
 	int has_ext;
 	de_byte buf[8];
-	de_int64 k;
-	de_int64 digit_count;
+	i64 k;
+	i64 digit_count;
 
 	has_ext = de_input_file_has_ext(c, "tar");;
 	if(!dbuf_memcmp(c->infile, 257, "ustar", 5)) {

@@ -506,7 +506,7 @@ static void parse_cmdline(deark *c, struct cmdctx *cc, int argc, char **argv)
 				}
 				break;
 			case DE_OPT_INTZ:
-				de_set_input_timezone(c, (de_int64)(3600.0*atof(argv[i+1])));
+				de_set_input_timezone(c, (i64)(3600.0*atof(argv[i+1])));
 				break;
 			case DE_OPT_START:
 				de_set_input_file_slice_start(c, de_atoi64(argv[i+1]));

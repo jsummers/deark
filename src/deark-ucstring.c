@@ -26,7 +26,7 @@ void ucstring_empty(de_ucstring *s)
 // Reduce the string's length to newlen, by deleting the characters after
 // that point.
 // 'newlen' is expected to be no larger than the string's current length.
-void ucstring_truncate(de_ucstring *s, de_int64 newlen)
+void ucstring_truncate(de_ucstring *s, i64 newlen)
 {
 	if(!s) return;
 	if(newlen<0) newlen=0;
@@ -43,7 +43,7 @@ void ucstring_truncate(de_ucstring *s, de_int64 newlen)
 // Delete the first U+0000 character, and everything after it.
 void ucstring_truncate_at_NUL(de_ucstring *s)
 {
-	de_int64 i;
+	i64 i;
 
 	for(i=0; i<s->len; i++) {
 		if(s->str[i]==0x0000) {
@@ -72,7 +72,7 @@ void ucstring_strip_trailing_spaces(de_ucstring *s)
 // Append s2 to s1
 void ucstring_append_ucstring(de_ucstring *s1, const de_ucstring *s2)
 {
-	de_int64 i;
+	i64 i;
 
 	if(!s2) return;
 	// TODO: This could be done more efficiently.
@@ -128,8 +128,8 @@ int ucstring_isnonempty(de_ucstring *s)
 
 void ucstring_append_char(de_ucstring *s, de_int32 ch)
 {
-	de_int64 new_len;
-	de_int64 new_alloc;
+	i64 new_len;
+	i64 new_alloc;
 
 	if(s->len >= 100000000) {
 		return;
@@ -147,13 +147,13 @@ void ucstring_append_char(de_ucstring *s, de_int32 ch)
 	s->len++;
 }
 
-void ucstring_append_bytes(de_ucstring *s, const de_byte *buf, de_int64 buflen,
+void ucstring_append_bytes(de_ucstring *s, const de_byte *buf, i64 buflen,
 	unsigned int conv_flags, int encoding)
 {
 	int ret;
-	de_int64 pos = 0;
+	i64 pos = 0;
 	de_int32 ch;
-	de_int64 code_len;
+	i64 code_len;
 
 	// Adjust buflen if necessary.
 	if(conv_flags & DE_CONVFLAG_STOP_AT_NUL) {
@@ -202,14 +202,14 @@ void ucstring_append_bytes(de_ucstring *s, const de_byte *buf, de_int64 buflen,
 
 void ucstring_append_sz(de_ucstring *s, const char *sz, int encoding)
 {
-	de_int64 len;
-	len = (de_int64)de_strlen(sz);
+	i64 len;
+	len = (i64)de_strlen(sz);
 	ucstring_append_bytes(s, (const de_byte*)sz, len, 0, encoding);
 }
 
 static int ucstring_is_ascii(const de_ucstring *s)
 {
-	de_int64 i;
+	i64 i;
 	for(i=0; i<s->len; i++) {
 		if(s->str[i]<0 || s->str[i]>=0x80)
 			return 0;
@@ -217,10 +217,10 @@ static int ucstring_is_ascii(const de_ucstring *s)
 	return 1;
 }
 
-de_int64 ucstring_count_utf8_bytes(de_ucstring *s)
+i64 ucstring_count_utf8_bytes(de_ucstring *s)
 {
-	de_int64 i;
-	de_int64 n = 0;
+	i64 i;
+	i64 n = 0;
 	if(!s) return n;
 	for(i=0; i<s->len; i++) {
 		if(s->str[i]<0 || s->str[i]>0xffff) n+=4;
@@ -236,7 +236,7 @@ de_int64 ucstring_count_utf8_bytes(de_ucstring *s)
 // start with a BOM.
 void ucstring_write_as_utf8(deark *c, de_ucstring *s, dbuf *outf, int add_bom_if_needed)
 {
-	de_int64 i;
+	i64 i;
 
 	if(add_bom_if_needed &&
 		c->write_bom &&
@@ -259,10 +259,10 @@ static int is_printable_uchar(de_int32 ch);
 // TODO: Should we remove the 'encoding' param, and always assume UTF-8?
 void ucstring_to_sz(de_ucstring *s, char *szbuf, size_t szbuf_len, unsigned int flags, int encoding)
 {
-	de_int64 i;
-	de_int64 szpos = 0;
+	i64 i;
+	i64 szpos = 0;
 	de_int32 ch;
-	de_int64 charcodelen;
+	i64 charcodelen;
 	static const char *sc1 = "\x01<"; // DE_CODEPOINT_HL in UTF-8
 	static const char *sc2 = ">\x02"; // DE_CODEPOINT_UNHL
 	de_byte charcodebuf[32];
@@ -312,11 +312,11 @@ void ucstring_to_sz(de_ucstring *s, char *szbuf, size_t szbuf_len, unsigned int 
 					de_snprintf((char*)charcodebuf, sizeof(charcodebuf),
 						"%sU+%04X%s", sc1, (unsigned int)ch, sc2);
 				}
-				charcodelen = (de_int64)de_strlen((const char*)charcodebuf);
+				charcodelen = (i64)de_strlen((const char*)charcodebuf);
 			}
 		}
 
-		if(szpos + charcodelen + 1 > (de_int64)szbuf_len) break;
+		if(szpos + charcodelen + 1 > (i64)szbuf_len) break;
 		if(charcodelen==1) {
 			szbuf[szpos] = charcodebuf[0];
 		}
@@ -363,9 +363,9 @@ static int is_printable_uchar(de_int32 ch)
 }
 
 static const char *ucstring_getpsz_internal(de_ucstring *s,
-	int has_max, de_int64 max_bytes)
+	int has_max, i64 max_bytes)
 {
-	de_int64 allocsize;
+	i64 allocsize;
 
 	if(!s) {
 		if(has_max && max_bytes<6) return "";
@@ -397,7 +397,7 @@ const char *ucstring_getpsz(de_ucstring *s)
 
 // It might make more sense to limit the number of visible characters, instead
 // of the number of bytes in the encoded string, but that's too difficult.
-const char *ucstring_getpsz_n(de_ucstring *s, de_int64 max_bytes)
+const char *ucstring_getpsz_n(de_ucstring *s, i64 max_bytes)
 {
 	return ucstring_getpsz_internal(s, 1, max_bytes);
 }

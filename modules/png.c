@@ -113,8 +113,8 @@ struct chunk_type_info_struct {
 };
 
 struct handler_params {
-	de_int64 dpos;
-	de_int64 dlen;
+	i64 dpos;
+	i64 dlen;
 	const struct de_fourcc *chunk4cc;
 	const struct chunk_type_info_struct *cti;
 };
@@ -162,11 +162,11 @@ static void on_im_generic_profile_keyword(deark *c, lctx *d,
 
 // Generic (ImageMagick?) profile. Hex-encoded, with three header lines.
 static void on_im_generic_profile_main(deark *c, lctx *d,
-	struct text_chunk_ctx *tcc, dbuf *inf, de_int64 pos1, de_int64 len)
+	struct text_chunk_ctx *tcc, dbuf *inf, i64 pos1, i64 len)
 {
 	int k;
-	de_int64 pos = pos1;
-	de_int64 dlen;
+	i64 pos = pos1;
+	i64 dlen;
 	int dump_to_file = 0;
 	int decode_to_membuf = 0;
 	const char *ext = NULL;
@@ -174,7 +174,7 @@ static void on_im_generic_profile_main(deark *c, lctx *d,
 	// Skip the first three lines
 	for(k=0; k<3; k++) {
 		int ret;
-		de_int64 foundpos = 0;
+		i64 foundpos = 0;
 		ret = dbuf_search_byte(inf, 0x0a, pos, pos1+len-pos, &foundpos);
 		if(!ret) goto done;
 		pos = foundpos+1;
@@ -239,8 +239,8 @@ done:
 // TODO: Clean up the text field processing code. It's gotten too messy.
 static int do_unc_text_field(deark *c, lctx *d,
 	struct text_chunk_ctx *tcc, int which_field,
-	dbuf *srcdbuf, de_int64 pos, de_int64 bytes_avail,
-	int is_nul_terminated, int encoding, de_int64 *bytes_consumed)
+	dbuf *srcdbuf, i64 pos, i64 bytes_avail,
+	int is_nul_terminated, int encoding, i64 *bytes_consumed)
 {
 	const char *name;
 	int retval = 0;
@@ -265,7 +265,7 @@ static int do_unc_text_field(deark *c, lctx *d,
 		*bytes_consumed = srd->bytes_consumed - 1;
 	}
 	else {
-		de_int64 bytes_to_scan;
+		i64 bytes_to_scan;
 
 		*bytes_consumed = bytes_avail;
 
@@ -321,13 +321,13 @@ done:
 // This is a wrapper that first decompresses the field if necessary.
 static int do_text_field(deark *c, lctx *d,
 	struct text_chunk_ctx *tcc, int which_field,
-	de_int64 pos, de_int64 bytes_avail,
+	i64 pos, i64 bytes_avail,
 	int is_nul_terminated, int is_compressed, int encoding,
-	de_int64 *bytes_consumed)
+	i64 *bytes_consumed)
 {
 	dbuf *tmpdbuf = NULL;
 	int retval = 0;
-	de_int64 bytes_consumed2;
+	i64 bytes_consumed2;
 
 	if(!is_compressed) {
 		retval = do_unc_text_field(c, d, tcc,
@@ -356,9 +356,9 @@ done:
 
 static void handler_text(deark *c, lctx *d, struct handler_params *hp)
 {
-	de_int64 pos;
-	de_int64 endpos;
-	de_int64 field_bytes_consumed;
+	i64 pos;
+	i64 endpos;
+	i64 field_bytes_consumed;
 	int is_compressed = 0;
 	int encoding;
 	int ret;
@@ -430,7 +430,7 @@ static void handler_CgBI(deark *c, lctx *d, struct handler_params *hp)
 
 static void handler_IHDR(deark *c, lctx *d, struct handler_params *hp)
 {
-	de_int64 w, h;
+	i64 w, h;
 	de_byte n;
 	const char *name;
 
@@ -462,7 +462,7 @@ static void handler_PLTE(deark *c, lctx *d, struct handler_params *hp)
 	// pal is a dummy variable, since we don't need to keep the palette.
 	// TODO: Maybe de_read_palette_rgb shouldn't require the palette to be returned.
 	de_uint32 pal[256];
-	de_int64 nentries;
+	i64 nentries;
 
 	nentries = hp->dlen/3;
 	de_dbg(c, "num palette entries: %d", (int)nentries);
@@ -472,12 +472,12 @@ static void handler_PLTE(deark *c, lctx *d, struct handler_params *hp)
 static void handler_sPLT(deark *c, lctx *d, struct handler_params *hp)
 {
 	struct de_stringreaderdata *srd = NULL;
-	de_int64 pos = hp->dpos;
-	de_int64 nbytes_to_scan;
+	i64 pos = hp->dpos;
+	i64 nbytes_to_scan;
 	de_byte depth;
-	de_int64 nentries;
-	de_int64 stride;
-	de_int64 i;
+	i64 nentries;
+	i64 stride;
+	i64 i;
 
 	nbytes_to_scan = hp->dlen;
 	if(nbytes_to_scan>80) nbytes_to_scan=80;
@@ -526,7 +526,7 @@ done:
 
 static void handler_tRNS(deark *c, lctx *d, struct handler_params *hp)
 {
-	de_int64 r, g, b;
+	i64 r, g, b;
 
 	if(d->color_type==0) {
 		if(hp->dlen<2) return;
@@ -541,7 +541,7 @@ static void handler_tRNS(deark *c, lctx *d, struct handler_params *hp)
 		de_dbg(c, "transparent color: (%d,%d,%d)", (int)r, (int)g, (int)b);
 	}
 	else if(d->color_type==3) {
-		de_int64 i;
+		i64 i;
 		de_byte a;
 
 		de_dbg(c, "number of alpha values: %d", (int)hp->dlen);
@@ -555,9 +555,9 @@ static void handler_tRNS(deark *c, lctx *d, struct handler_params *hp)
 
 static void handler_hIST(deark *c, lctx *d, struct handler_params *hp)
 {
-	de_int64 i;
-	de_int64 v;
-	de_int64 nentries = hp->dlen/2;
+	i64 i;
+	i64 v;
+	i64 nentries = hp->dlen/2;
 
 	de_dbg(c, "number of histogram values: %d", (int)nentries);
 	if(c->debug_level<2) return;
@@ -569,7 +569,7 @@ static void handler_hIST(deark *c, lctx *d, struct handler_params *hp)
 
 static void handler_bKGD(deark *c, lctx *d, struct handler_params *hp)
 {
-	de_int64 r, g, b;
+	i64 r, g, b;
 	de_byte idx;
 
 	if(d->color_type==0 || d->color_type==4) {
@@ -593,14 +593,14 @@ static void handler_bKGD(deark *c, lctx *d, struct handler_params *hp)
 
 static void handler_gAMA(deark *c, lctx *d, struct handler_params *hp)
 {
-	de_int64 n;
+	i64 n;
 	n = de_getui32be(hp->dpos);
 	de_dbg(c, "image gamma: %.5f", (double)n / 100000.0);
 }
 
 static void handler_pHYs(deark *c, lctx *d, struct handler_params *hp)
 {
-	de_int64 dx, dy;
+	i64 dx, dy;
 	de_byte u;
 	const char *name;
 
@@ -619,7 +619,7 @@ static void handler_pHYs(deark *c, lctx *d, struct handler_params *hp)
 static void handler_sBIT(deark *c, lctx *d, struct handler_params *hp)
 {
 	const char *sbname[4];
-	de_int64 i;
+	i64 i;
 
 	sbname[0] = "red";
 	sbname[1] = "green";
@@ -639,7 +639,7 @@ static void handler_sBIT(deark *c, lctx *d, struct handler_params *hp)
 
 static void handler_tIME(deark *c, lctx *d, struct handler_params *hp)
 {
-	de_int64 yr;
+	i64 yr;
 	de_byte mo, da, hr, mi, se;
 	struct de_timestamp ts;
 	char timestamp_buf[64];
@@ -659,7 +659,7 @@ static void handler_tIME(deark *c, lctx *d, struct handler_params *hp)
 
 static void handler_cHRM(deark *c, lctx *d, struct handler_params *hp)
 {
-	de_int64 n[8];
+	i64 n[8];
 	double nd[8];
 	size_t i;
 
@@ -699,7 +699,7 @@ static void handler_iccp(deark *c, lctx *d, struct handler_params *hp)
 	de_finfo *fi = NULL;
 	char prof_name2[100];
 	size_t prof_name2_strlen;
-	de_int64 pos = hp->dpos;
+	i64 pos = hp->dpos;
 
 	prof_name_srd = dbuf_read_string(c->infile, pos, 80, 80,
 		DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_LATIN1);
@@ -732,7 +732,7 @@ static void handler_iccp(deark *c, lctx *d, struct handler_params *hp)
 		de_finfo_set_name_from_sz(c, fi, prof_name2, DE_ENCODING_LATIN1);
 	f = dbuf_create_output_file(c, "icc", fi, DE_CREATEFLAG_IS_AUX);
 	if(d->is_CgBI) {
-		de_int64 bytes_consumed = 0;
+		i64 bytes_consumed = 0;
 		de_uncompress_deflate(c->infile, pos, hp->dlen - pos, f, &bytes_consumed);
 	}
 	else {
@@ -747,8 +747,8 @@ done:
 
 static void handler_eXIf(deark *c, lctx *d, struct handler_params *hp)
 {
-	de_int64 pos = hp->dpos;
-	de_int64 len = hp->dlen;
+	i64 pos = hp->dpos;
+	i64 len = hp->dlen;
 
 	if(len>=6 && !dbuf_memcmp(c->infile, pos, "Exif\0", 5)) {
 		// Some versions of the PNG-Exif proposal had the Exif data starting with
@@ -765,7 +765,7 @@ static void handler_eXIf(deark *c, lctx *d, struct handler_params *hp)
 
 static void handler_caNv(deark *c, lctx *d, struct handler_params *hp)
 {
-	de_int64 x0, x1;
+	i64 x0, x1;
 
 	if(hp->dlen<16) return;
 	x0 = de_geti32be(hp->dpos);
@@ -781,10 +781,10 @@ static void handler_orNT(deark *c, lctx *d, struct handler_params *hp)
 	de_byte n;
 	if(hp->dlen!=1) return;
 	n = de_getbyte(hp->dpos);
-	de_dbg(c, "orientation: %d (%s)", (int)n, de_fmtutil_tiff_orientation_name((de_int64)n));
+	de_dbg(c, "orientation: %d (%s)", (int)n, de_fmtutil_tiff_orientation_name((i64)n));
 }
 
-static void do_APNG_seqno(deark *c, lctx *d, de_int64 pos)
+static void do_APNG_seqno(deark *c, lctx *d, i64 pos)
 {
 	unsigned int n;
 	n = (unsigned int)de_getui32be(pos);
@@ -794,7 +794,7 @@ static void do_APNG_seqno(deark *c, lctx *d, de_int64 pos)
 static void handler_acTL(deark *c, lctx *d, struct handler_params *hp)
 {
 	unsigned int n;
-	de_int64 pos = hp->dpos;
+	i64 pos = hp->dpos;
 
 	if(hp->dlen<8) return;
 	n = (unsigned int)de_getui32be_p(&pos);
@@ -824,8 +824,8 @@ static const char *get_apng_blend_name(de_byte t)
 
 static void handler_fcTL(deark *c, lctx *d, struct handler_params *hp)
 {
-	de_int64 n1, n2;
-	de_int64 pos = hp->dpos;
+	i64 n1, n2;
+	i64 pos = hp->dpos;
 	de_byte b;
 
 	if(hp->dlen<26) return;
@@ -941,7 +941,7 @@ static int do_identify_png_internal(deark *c)
 static void de_run_png(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
-	de_int64 pos;
+	i64 pos;
 	de_int32 prev_chunk_id = 0;
 	int suppress_idat_dbg = 0;
 

@@ -13,8 +13,8 @@ typedef struct localctx_struct {
 	de_byte oldver;
 	de_byte ver2;
 	de_byte ver2_minneeded;
-	de_int64 dfpos, rfpos;
-	de_int64 dflen, rflen;
+	i64 dfpos, rfpos;
+	i64 dflen, rflen;
 	de_ucstring *filename;
 	struct de_timestamp create_time;
 	struct de_timestamp mod_time;
@@ -24,10 +24,10 @@ static void do_header(deark *c, lctx *d)
 {
 	de_byte b;
 	de_byte fflags;
-	de_int64 namelen;
-	de_int64 pos = 0;
-	de_int64 n, n2;
-	de_int64 mod_time_raw;
+	i64 namelen;
+	i64 pos = 0;
+	i64 n, n2;
+	i64 mod_time_raw;
 	struct de_fourcc type4cc;
 	struct de_fourcc creator4cc;
 	char timestamp_buf[64];
@@ -46,7 +46,7 @@ static void do_header(deark *c, lctx *d)
 		de_dbg(c, "MacBinary II version, min needed: %u", (unsigned int)d->ver2_minneeded);
 	}
 
-	namelen = (de_int64)de_getbyte_p(&pos);
+	namelen = (i64)de_getbyte_p(&pos);
 	if(namelen>=1 && namelen<=63) {
 		// Required to be 1-63 by MacBinary II spec.
 		// Original spec has no written requirements.
@@ -155,7 +155,7 @@ done:
 	;
 }
 
-static void do_extract_one_file(deark *c, lctx *d, de_int64 pos, de_int64 len,
+static void do_extract_one_file(deark *c, lctx *d, i64 pos, i64 len,
 	int is_rsrc)
 {
 	de_finfo *fi = NULL;
@@ -190,7 +190,7 @@ done:
 
 static void run_macbinary_internal(deark *c, lctx *d)
 {
-	de_int64 pos = 128;
+	i64 pos = 128;
 
 	do_header(c, d);
 
@@ -252,9 +252,9 @@ static int de_identify_macbinary(deark *c)
 	int conf = 0;
 	int k;
 	de_byte ver2;
-	de_int64 n;
-	de_int64 dflen, rflen;
-	de_int64 min_expected_len;
+	i64 n;
+	i64 dflen, rflen;
+	i64 min_expected_len;
 	de_byte b[128];
 
 	// "old" version number is always 0.

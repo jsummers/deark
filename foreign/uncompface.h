@@ -238,7 +238,7 @@ struct xfacectx {
 	int errflag;
 
 	dbuf *inf;
-	de_int64 inf_fpos;
+	i64 inf_fpos;
 
 	BigInt gg_B;
 
@@ -290,7 +290,7 @@ BigRead(struct xfacectx *ctx, const char *fbuf)
 static void
 WriteFace(struct xfacectx *ctx)
 {
-	de_int64 i, j;
+	i64 i, j;
 	de_bitmap *img = NULL;
 
 	img = de_bitmap_create(ctx->c, XFACE_WIDTH, XFACE_HEIGHT, 1);
@@ -682,8 +682,8 @@ uncompface_main(deark *c)
 static void
 ReadBuf(struct xfacectx *ctx)
 {
-	de_int64 amt_to_read;
-	de_int64 startpos;
+	i64 amt_to_read;
+	i64 startpos;
 
 	startpos = 0;
 	amt_to_read = ctx->inf->len;

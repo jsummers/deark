@@ -9,26 +9,26 @@
 DE_DECLARE_MODULE(de_module_wpg);
 
 typedef struct localctx_struct {
-	de_int64 start_of_data;
+	i64 start_of_data;
 	de_byte ver_major, ver_minor;
 	int opt_fixpal;
 	int has_pal;
 	de_uint32 pal[256];
 
 	// Fields used only by the "summary" debug line:
-	de_int64 num_pal_entries; // 0 if no palette
+	i64 num_pal_entries; // 0 if no palette
 	int start_wpg_data_record_ver; // Highest "Start of WPG data" record type
 	int bitmap_record_ver; // Highest "Bitmap" record type
-	de_int64 bitmap_count;
-	de_int64 bpp_of_first_bitmap;
-	de_int64 width_of_first_bitmap;
-	de_int64 height_of_first_bitmap;
+	i64 bitmap_count;
+	i64 bpp_of_first_bitmap;
+	i64 width_of_first_bitmap;
+	i64 height_of_first_bitmap;
 	de_byte has_eps1, has_eps2;
 } lctx;
 
-static int do_read_header(deark *c, lctx *d, de_int64 pos1)
+static int do_read_header(deark *c, lctx *d, i64 pos1)
 {
-	de_int64 pos = pos1;
+	i64 pos = pos1;
 
 	de_dbg(c, "header at %d", (int)pos);
 	de_dbg_indent(c, 1);
@@ -50,8 +50,8 @@ static int do_read_header(deark *c, lctx *d, de_int64 pos1)
 	return 1;
 }
 
-typedef void (*record_handler_fn)(deark *c, lctx *d, de_byte rectype, de_int64 dpos,
-	de_int64 dlen);
+typedef void (*record_handler_fn)(deark *c, lctx *d, de_byte rectype, i64 dpos,
+	i64 dlen);
 
 struct wpg_rectype_info {
 	de_byte rectype;
@@ -59,14 +59,14 @@ struct wpg_rectype_info {
 	record_handler_fn fn;
 };
 
-static int do_uncompress_rle(deark *c, lctx *d, dbuf *f, de_int64 pos1, de_int64 len,
-	de_int64 rowspan, dbuf *unc_pixels)
+static int do_uncompress_rle(deark *c, lctx *d, dbuf *f, i64 pos1, i64 len,
+	i64 rowspan, dbuf *unc_pixels)
 {
-	de_int64 pos;
+	i64 pos;
 	de_byte b, b2;
-	de_int64 count;
-	de_int64 endpos;
-	de_int64 k;
+	i64 count;
+	i64 endpos;
+	i64 k;
 
 	pos = pos1;
 	endpos = pos1+len;
@@ -78,7 +78,7 @@ static int do_uncompress_rle(deark *c, lctx *d, dbuf *f, de_int64 pos1, de_int64
 		b = dbuf_getbyte(f, pos++);
 
 		if(b==0x00) { // repeat scanline
-			de_int64 src_line_pos;
+			i64 src_line_pos;
 
 			count = dbuf_getbyte(f, pos++);
 
@@ -90,16 +90,16 @@ static int do_uncompress_rle(deark *c, lctx *d, dbuf *f, de_int64 pos1, de_int64
 			}
 		}
 		else if(b<=0x7f) { // uncompressed run
-			count = (de_int64)b;
+			count = (i64)b;
 			dbuf_copy(f, pos, count, unc_pixels);
 			pos += count;
 		}
 		else if(b==0x80) { // Special 0xff compression
-			count = (de_int64)dbuf_getbyte(f, pos++);
+			count = (i64)dbuf_getbyte(f, pos++);
 			dbuf_write_run(unc_pixels, 0xff, count);
 		}
 		else { // byte RLE compression
-			count = (de_int64)(b&0x7f);
+			count = (i64)(b&0x7f);
 			b2 = dbuf_getbyte(f, pos++);
 			dbuf_write_run(unc_pixels, b2, count);
 		}
@@ -110,9 +110,9 @@ static int do_uncompress_rle(deark *c, lctx *d, dbuf *f, de_int64 pos1, de_int64
 
 // Make a copy of the global palette, possibly adjusting it in some way.
 // Caller supplies finalpal[256].
-static void get_final_palette(deark *c, lctx *d, de_uint32 *finalpal, de_int64 bpp)
+static void get_final_palette(deark *c, lctx *d, de_uint32 *finalpal, i64 bpp)
 {
-	de_int64 k;
+	i64 k;
 	de_byte cr, cg, cb;
 	int has_3plusbitpal = 0;
 	int has_5plusbitpal = 0;
@@ -187,13 +187,13 @@ static void get_final_palette(deark *c, lctx *d, de_uint32 *finalpal, de_int64 b
 	}
 }
 
-static void handler_bitmap(deark *c, lctx *d, de_byte rectype, de_int64 dpos1, de_int64 dlen)
+static void handler_bitmap(deark *c, lctx *d, de_byte rectype, i64 dpos1, i64 dlen)
 {
-	de_int64 w, h;
-	de_int64 xdens, ydens;
-	de_int64 bpp;
-	de_int64 pos = dpos1;
-	de_int64 rowspan;
+	i64 w, h;
+	i64 xdens, ydens;
+	i64 bpp;
+	i64 pos = dpos1;
+	i64 rowspan;
 	int is_bilevel;
 	int is_grayscale;
 	int output_bypp;
@@ -255,7 +255,7 @@ static void handler_bitmap(deark *c, lctx *d, de_byte rectype, de_int64 dpos1, d
 	}
 	else {
 		get_final_palette(c, d, finalpal, bpp);
-		is_grayscale = de_is_grayscale_palette(finalpal, (de_int64)1<<bpp);
+		is_grayscale = de_is_grayscale_palette(finalpal, (i64)1<<bpp);
 	}
 
 	if(is_bilevel || is_grayscale)
@@ -302,11 +302,11 @@ done:
 	dbuf_close(unc_pixels);
 }
 
-static void handler_colormap(deark *c, lctx *d, de_byte rectype, de_int64 dpos1, de_int64 dlen)
+static void handler_colormap(deark *c, lctx *d, de_byte rectype, i64 dpos1, i64 dlen)
 {
-	de_int64 start_index;
-	de_int64 num_entries;
-	de_int64 pos = dpos1;
+	i64 start_index;
+	i64 num_entries;
+	i64 pos = dpos1;
 
 	d->has_pal = 1;
 	start_index = de_getui16le(pos);
@@ -328,7 +328,7 @@ static void handler_colormap(deark *c, lctx *d, de_byte rectype, de_int64 dpos1,
 		256-start_index, 0);
 }
 
-static void handler_start_of_wpg_data(deark *c, lctx *d, de_byte rectype, de_int64 dpos1, de_int64 dlen)
+static void handler_start_of_wpg_data(deark *c, lctx *d, de_byte rectype, i64 dpos1, i64 dlen)
 {
 	int record_version;
 
@@ -345,14 +345,14 @@ static void handler_start_of_wpg_data(deark *c, lctx *d, de_byte rectype, de_int
 	}
 }
 
-static void handler_eps_type_1(deark *c, lctx *d, de_byte rectype, de_int64 dpos1, de_int64 dlen)
+static void handler_eps_type_1(deark *c, lctx *d, de_byte rectype, i64 dpos1, i64 dlen)
 {
 	d->has_eps1 = 1;
 	if(dlen<=8) return;
 	dbuf_create_file_from_slice(c->infile, dpos1+8, dlen-8, "eps", NULL, 0);
 }
 
-static void handler_eps_type_2(deark *c, lctx *d, de_byte rectype, de_int64 dpos1, de_int64 dlen)
+static void handler_eps_type_2(deark *c, lctx *d, de_byte rectype, i64 dpos1, i64 dlen)
 {
 	d->has_eps2 = 1;
 	// TODO
@@ -389,8 +389,8 @@ static const struct wpg_rectype_info wpg_rectype_info_arr[] = {
 
 static const struct wpg_rectype_info *find_wpg_rectype_info(de_byte rectype)
 {
-	de_int64 i;
-	for(i=0; i<(de_int64)DE_ITEMS_IN_ARRAY(wpg_rectype_info_arr); i++) {
+	i64 i;
+	for(i=0; i<(i64)DE_ITEMS_IN_ARRAY(wpg_rectype_info_arr); i++) {
 		if(wpg_rectype_info_arr[i].rectype == rectype) {
 			return &wpg_rectype_info_arr[i];
 		}
@@ -398,11 +398,11 @@ static const struct wpg_rectype_info *find_wpg_rectype_info(de_byte rectype)
 	return NULL;
 }
 
-static int do_record(deark *c, lctx *d, de_int64 pos1, de_int64 *bytes_consumed)
+static int do_record(deark *c, lctx *d, i64 pos1, i64 *bytes_consumed)
 {
-	de_int64 pos = pos1;
+	i64 pos = pos1;
 	de_byte rectype;
-	de_int64 rec_dlen;
+	i64 rec_dlen;
 	int retval = 0;
 	const char *name;
 	const struct wpg_rectype_info *wri;
@@ -414,7 +414,7 @@ static int do_record(deark *c, lctx *d, de_int64 pos1, de_int64 *bytes_consumed)
 	de_dbg(c, "record type 0x%02x (%s) at %d", (unsigned int)rectype, name, (int)pos1);
 	de_dbg_indent(c, 1);
 
-	rec_dlen = (de_int64)de_getbyte(pos++);
+	rec_dlen = (i64)de_getbyte(pos++);
 
 	// As far as I can tell, the variable-length integer works as follows.
 	// An integer uses either 1, 3, or 5 bytes.
@@ -432,7 +432,7 @@ static int do_record(deark *c, lctx *d, de_int64 pos1, de_int64 *bytes_consumed)
 		pos += 2;
 
 		if(rec_dlen & 0x8000) { // A 32-bit value
-			de_int64 n;
+			i64 n;
 
 			n = de_getui16le(pos);
 			pos += 2;
@@ -453,12 +453,12 @@ static int do_record(deark *c, lctx *d, de_int64 pos1, de_int64 *bytes_consumed)
 	return retval;
 }
 
-static int do_record_area(deark *c, lctx *d, de_int64 pos)
+static int do_record_area(deark *c, lctx *d, i64 pos)
 {
 	de_dbg(c, "record area at %d", (int)pos);
 	de_dbg_indent(c, 1);
 	while(1) {
-		de_int64 bytes_consumed = 0;
+		i64 bytes_consumed = 0;
 		int ret;
 
 		if(pos >= c->infile->len) break;
@@ -488,7 +488,7 @@ static void de_run_wpg(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
 	const char *s;
-	de_int64 pos;
+	i64 pos;
 
 	d = de_malloc(c, sizeof(lctx));
 

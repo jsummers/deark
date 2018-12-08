@@ -20,8 +20,8 @@ struct entry_id_struct;
 struct entry_struct {
 	unsigned int idx;
 	unsigned int id;
-	de_int64 offset;
-	de_int64 length;
+	i64 offset;
+	i64 length;
 	const struct entry_id_struct *eid;
 };
 
@@ -34,12 +34,12 @@ struct entry_id_struct {
 };
 
 // len = the total number of bytes available
-static void read_pascal_string(deark *c, lctx *d, de_ucstring *s, de_int64 pos, de_int64 len)
+static void read_pascal_string(deark *c, lctx *d, de_ucstring *s, i64 pos, i64 len)
 {
-	de_int64 slen;
+	i64 slen;
 
 	if(len<1) goto done;
-	slen = (de_int64)de_getbyte(pos);
+	slen = (i64)de_getbyte(pos);
 	if(slen<1 || slen > (len-1)) goto done;
 	dbuf_read_to_ucstring(c->infile, pos+1, slen, s, 0, DE_ENCODING_MACROMAN);
 done:
@@ -61,10 +61,10 @@ static void handler_string(deark *c, lctx *d, struct entry_struct *e)
 	ucstring_destroy(s);
 }
 
-static void do_one_date(deark *c, lctx *d, de_int64 pos, const char *name,
+static void do_one_date(deark *c, lctx *d, i64 pos, const char *name,
 	int is_modtime)
 {
-	de_int64 dt;
+	i64 dt;
 	char timestamp_buf[64];
 
 	dt = de_geti32be(pos);
@@ -172,11 +172,11 @@ static const struct entry_id_struct *find_entry_id_info(unsigned int id)
 	return NULL;
 }
 
-static void do_sd_entry(deark *c, lctx *d, unsigned int idx, de_int64 pos1)
+static void do_sd_entry(deark *c, lctx *d, unsigned int idx, i64 pos1)
 {
 	struct entry_struct e;
 	const struct entry_id_struct *eid;
-	de_int64 pos = pos1;
+	i64 pos = pos1;
 
 	de_zeromem(&e, sizeof(struct entry_struct));
 	e.idx = idx;
@@ -206,11 +206,11 @@ done:
 
 static void de_run_sd_internal(deark *c, lctx *d)
 {
-	de_int64 pos = 0;
-	de_int64 nentries;
-	de_int64 k;
+	i64 pos = 0;
+	i64 nentries;
+	i64 k;
 	int pass;
-	de_int64 entry_descriptors_pos;
+	i64 entry_descriptors_pos;
 	int *entry_pass = NULL;
 
 	pos += 4; // signature

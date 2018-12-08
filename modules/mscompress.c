@@ -13,15 +13,15 @@ DE_DECLARE_MODULE(de_module_mscompress);
 
 typedef struct localctx_struct {
 	int fmt;
-	de_int64 header_len;
-	de_int64 uncmpr_len;
+	i64 header_len;
+	i64 uncmpr_len;
 } lctx;
 
-static int do_header_SZDD(deark *c, lctx *d, de_int64 pos1)
+static int do_header_SZDD(deark *c, lctx *d, i64 pos1)
 {
 	de_byte cmpr_mode;
 	de_byte fnchar;
-	de_int64 pos = pos1;
+	i64 pos = pos1;
 	char tmps[80];
 	int retval = 0;
 
@@ -61,12 +61,12 @@ done:
 	return retval;
 }
 
-static int do_header_KWAJ(deark *c, lctx *d, de_int64 pos1)
+static int do_header_KWAJ(deark *c, lctx *d, i64 pos1)
 {
 	int cmpr_method;
-	de_int64 data_offs;
+	i64 data_offs;
 	unsigned int flags;
-	de_int64 pos = pos1;
+	i64 pos = pos1;
 
 	de_dbg(c, "header at %d", (int)pos);
 	de_dbg_indent(c, 1);
@@ -99,13 +99,13 @@ static int do_header_KWAJ(deark *c, lctx *d, de_int64 pos1)
 // Based on the libmspack's format documentation at
 // <https://www.cabextract.org.uk/libmspack/doc/szdd_kwaj_format.html>
 static void do_uncompress_SZDD(deark *c,
-	dbuf *inf, de_int64 pos1, de_int64 input_len,
-	dbuf *outf, de_int64 expected_output_len)
+	dbuf *inf, i64 pos1, i64 input_len,
+	dbuf *outf, i64 expected_output_len)
 {
-	de_int64 pos = pos1;
+	i64 pos = pos1;
 	de_byte *window = NULL;
 	unsigned int wpos;
-	de_int64 nbytes_read;
+	i64 nbytes_read;
 
 	window = de_malloc(c, 4096);
 	wpos = 4096 - 16;
@@ -176,7 +176,7 @@ static int detect_fmt_internal(deark *c)
 static void de_run_mscompress(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
-	de_int64 pos = 0;
+	i64 pos = 0;
 	dbuf *outf = NULL;
 
 	d = de_malloc(c, sizeof(lctx));

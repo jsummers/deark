@@ -22,10 +22,10 @@ typedef struct localctx_struct {
 // sector numbers.
 // Sectors range from 0 to 20
 // Tracks range from 1 to (usually) 35
-static de_int64 sector_offset(de_int64 track, de_int64 sector)
+static i64 sector_offset(i64 track, i64 sector)
 {
-	de_int64 global_sector_index;
-	de_int64 t;
+	i64 global_sector_index;
+	i64 t;
 
 	global_sector_index = 0;
 	for(t=1; t<track; t++) {
@@ -39,18 +39,18 @@ static de_int64 sector_offset(de_int64 track, de_int64 sector)
 	return 256*(global_sector_index);
 }
 
-static void do_extract_file(deark *c, lctx *d, de_int64 dir_entry_pos,
-	de_byte file_type, de_int64 ftrack, de_int64 fsector, de_int64 nsectors)
+static void do_extract_file(deark *c, lctx *d, i64 dir_entry_pos,
+	de_byte file_type, i64 ftrack, i64 fsector, i64 nsectors)
 {
-	de_int64 nsectors_written = 0;
-	de_int64 curtrack, cursector;
-	de_int64 nexttrack, nextsector;
+	i64 nsectors_written = 0;
+	i64 curtrack, cursector;
+	i64 nexttrack, nextsector;
 	const char *ext;
 	dbuf *f = NULL;
 	de_finfo *fi = NULL;
 	de_ucstring *fname = NULL;
-	de_int64 fname_len;
-	de_int64 i;
+	i64 fname_len;
+	i64 i;
 	de_byte z;
 
 	de_dbg(c, "extracting file: t=%d,s=%d,sectors=%d", (int)ftrack, (int)fsector,
@@ -94,18 +94,18 @@ static void do_extract_file(deark *c, lctx *d, de_int64 dir_entry_pos,
 	curtrack = ftrack;
 	cursector = fsector;
 	while(1) {
-		de_int64 pos;
-		de_int64 amt_to_copy;
+		i64 pos;
+		i64 amt_to_copy;
 
 		if(nsectors_written>=nsectors) break;
 
 		pos = sector_offset(curtrack, cursector);
 
-		nexttrack = (de_int64)de_getbyte(pos+0);
-		nextsector = (de_int64)de_getbyte(pos+1);
+		nexttrack = (i64)de_getbyte(pos+0);
+		nextsector = (i64)de_getbyte(pos+1);
 		de_dbg2(c, "next sector: t=%d,s=%d", (int)nexttrack, (int)nextsector);
 
-		if(nexttrack==0 && nextsector>=1) amt_to_copy = (de_int64)nextsector-1;
+		if(nexttrack==0 && nextsector>=1) amt_to_copy = (i64)nextsector-1;
 		else amt_to_copy = 254;
 
 		dbuf_copy(c->infile, pos+2, amt_to_copy, f);
@@ -121,11 +121,11 @@ static void do_extract_file(deark *c, lctx *d, de_int64 dir_entry_pos,
 	ucstring_destroy(fname);
 }
 
-static void do_dir_entry(deark *c, lctx *d, de_int64 pos)
+static void do_dir_entry(deark *c, lctx *d, i64 pos)
 {
 	de_byte file_type1, file_type;
-	de_int64 ftrack, fsector;
-	de_int64 nsectors;
+	i64 ftrack, fsector;
+	i64 nsectors;
 	const char *file_type_str;
 	char tmps[100];
 
@@ -160,8 +160,8 @@ static void do_dir_entry(deark *c, lctx *d, de_int64 pos)
 		goto done;
 	}
 
-	ftrack = (de_int64)de_getbyte(pos+3);
-	fsector = (de_int64)de_getbyte(pos+4);
+	ftrack = (i64)de_getbyte(pos+3);
+	fsector = (i64)de_getbyte(pos+4);
 	de_dbg(c, "file starts at t=%d,s=%d", (int)ftrack, (int)fsector);
 
 	nsectors = de_getui16le(pos+30);
@@ -182,19 +182,19 @@ done:
 	de_dbg_indent(c, -1);
 }
 
-static void do_directory_sector(deark *c, lctx *d, de_int64 track, de_int64 sector,
-	de_int64 *nexttrack, de_int64 *nextsector)
+static void do_directory_sector(deark *c, lctx *d, i64 track, i64 sector,
+	i64 *nexttrack, i64 *nextsector)
 {
-	de_int64 pos;
-	de_int64 i;
+	i64 pos;
+	i64 i;
 
 	pos = sector_offset(track, sector);
 	de_dbg(c, "directory sector at t=%d,s=%d pos=%d", (int)track, (int)sector,
 		(int)pos);
 	de_dbg_indent(c, 1);
 
-	*nexttrack = (de_int64)de_getbyte(pos);
-	*nextsector = (de_int64)de_getbyte(pos+1);
+	*nexttrack = (i64)de_getbyte(pos);
+	*nextsector = (i64)de_getbyte(pos+1);
 	de_dbg(c, "next dir sector: t=%d,s=%d", (int)*nexttrack, (int)*nextsector);
 
 	for(i=0; i<8; i++) {
@@ -204,12 +204,12 @@ static void do_directory_sector(deark *c, lctx *d, de_int64 track, de_int64 sect
 	de_dbg_indent(c, -1);
 }
 
-static void do_directory(deark *c, lctx *d, de_int64 track, de_int64 sector)
+static void do_directory(deark *c, lctx *d, i64 track, i64 sector)
 {
-	de_int64 pos;
-	de_int64 sectorcount;
-	de_int64 nexttrack, nextsector;
-	de_int64 curtrack, cursector;
+	i64 pos;
+	i64 sectorcount;
+	i64 nexttrack, nextsector;
+	i64 curtrack, cursector;
 
 	pos = sector_offset(track, sector);
 	de_dbg(c, "directory at t=%d,s=%d pos=%d", (int)track, (int)sector,

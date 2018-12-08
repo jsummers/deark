@@ -21,10 +21,10 @@ struct member_data {
 	de_uint32 crc;
 	de_uint32 load_addr, exec_addr;
 	unsigned int file_type;
-	de_int64 file_data_offs_rel;
-	de_int64 file_data_offs_abs;
-	de_int64 orig_len;
-	de_int64 cmpr_len;
+	i64 file_data_offs_rel;
+	i64 file_data_offs_abs;
+	i64 orig_len;
+	i64 cmpr_len;
 	const char *cmpr_meth_name;
 	de_ucstring *fn;
 	struct de_timestamp mod_time;
@@ -32,8 +32,8 @@ struct member_data {
 
 typedef struct localctx_struct {
 	int append_type;
-	de_int64 nmembers;
-	de_int64 data_offs;
+	i64 nmembers;
+	i64 data_offs;
 	struct de_crcobj *crco;
 	struct de_strarray *curpath;
 } lctx;
@@ -46,10 +46,10 @@ static void dbg_timestamp(deark *c, struct de_timestamp *ts, const char *name)
 	de_dbg(c, "%s: %s", name, timestamp_buf);
 }
 
-static int do_file_header(deark *c, lctx *d, de_int64 pos1)
+static int do_file_header(deark *c, lctx *d, i64 pos1)
 {
-	de_int64 pos = pos1;
-	de_int64 hlen;
+	i64 pos = pos1;
+	i64 hlen;
 	de_uint32 ver_r, ver_rw;
 	de_uint32 format_ver;
 	int retval = 0;
@@ -92,10 +92,10 @@ static int do_compressed(deark *c, lctx *d, struct member_data *md, dbuf *outf,
 	int limit_size_flag)
 {
 	de_byte buf[1024];
-	de_int64 n;
+	i64 n;
 	dbuf *inf = NULL;
 	struct de_liblzwctx *lzw = NULL;
-	de_int64 nbytes_still_to_write;
+	i64 nbytes_still_to_write;
 	de_byte lzwmode;
 	int retval = 0;
 
@@ -159,7 +159,7 @@ done:
 	return retval;
 }
 
-static void our_writecallback(dbuf *f, const de_byte *buf, de_int64 buf_len)
+static void our_writecallback(dbuf *f, const de_byte *buf, i64 buf_len)
 {
 	struct de_crcobj *crco = (struct de_crcobj*)f->userdata;
 	de_crcobj_addbuf(crco, buf, buf_len);
@@ -271,9 +271,9 @@ static void destroy_member_data(deark *c, struct member_data *md)
 	de_free(c, md);
 }
 
-static void do_member(deark *c, lctx *d, de_int64 idx, de_int64 pos1)
+static void do_member(deark *c, lctx *d, i64 idx, i64 pos1)
 {
-	de_int64 pos = pos1;
+	i64 pos = pos1;
 	de_uint32 info_word;
 	de_byte info_byte;
 	int saved_indent_level;
@@ -351,7 +351,7 @@ static void do_member(deark *c, lctx *d, de_int64 idx, de_int64 pos1)
 	de_dbg_indent(c, 1);
 	de_dbg(c, "is directory: %d", md->is_dir);
 	if(md->is_regular_file) {
-		md->file_data_offs_rel = (de_int64)info_word;
+		md->file_data_offs_rel = (i64)info_word;
 		md->file_data_offs_abs = d->data_offs+md->file_data_offs_rel;
 		de_dbg(c, "file data offset: (%"INT64_FMT"+)%"INT64_FMT,
 			d->data_offs, md->file_data_offs_rel);
@@ -369,10 +369,10 @@ done:
 	de_dbg_indent_restore(c, saved_indent_level);
 }
 
-static void do_members(deark *c, lctx *d, de_int64 pos1)
+static void do_members(deark *c, lctx *d, i64 pos1)
 {
-	de_int64 k;
-	de_int64 pos = pos1;
+	i64 k;
+	i64 pos = pos1;
 
 	for(k=0; k<d->nmembers; k++) {
 		if(pos>=c->infile->len) break;
@@ -387,7 +387,7 @@ static void do_members(deark *c, lctx *d, de_int64 pos1)
 static void de_run_arcfs(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
-	de_int64 pos;
+	i64 pos;
 
 	d = de_malloc(c, sizeof(lctx));
 
@@ -444,10 +444,10 @@ typedef struct sqctx_struct {
 static int do_compressed_sq(deark *c, sqctx *d, struct member_data *md, dbuf *outf)
 {
 	de_byte buf[1024];
-	de_int64 n;
+	i64 n;
 	dbuf *inf = NULL;
 	struct de_liblzwctx *lzw = NULL;
-	de_int64 nbytes_still_to_write;
+	i64 nbytes_still_to_write;
 	int retval = 0;
 
 	inf = dbuf_open_input_subfile(c->infile, md->file_data_offs_abs, md->cmpr_len);
@@ -480,9 +480,9 @@ done:
 	return retval;
 }
 
-static void do_squash_header(deark *c, sqctx *d, struct member_data *md, de_int64 pos1)
+static void do_squash_header(deark *c, sqctx *d, struct member_data *md, i64 pos1)
 {
-	de_int64 pos = pos1;
+	i64 pos = pos1;
 
 	de_dbg(c, "header at %d", (int)pos1);
 

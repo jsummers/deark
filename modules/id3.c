@@ -35,15 +35,15 @@ typedef struct id3v2ctx_struct {
 	de_byte has_id3v2;
 	de_byte wmpicture_mode;
 
-	de_int64 total_len;
+	i64 total_len;
 
 	// "data" is the extended header, the frames, and the padding, in the
 	// original file.
-	de_int64 data_start;
-	de_int64 data_len;
+	i64 data_start;
+	i64 data_len;
 
 	int has_padding;
-	de_int64 approx_padding_pos;
+	i64 approx_padding_pos;
 
 	// Sigh. One would think that the "major version" of ID3v2 would
 	// necessarily always be 2. One would be wrong. It depends on context.
@@ -65,7 +65,7 @@ typedef struct id3v2ctx_struct {
 	const char *approx_mark;
 } id3v2ctx;
 
-static de_int64 get_synchsafe_int(dbuf *f, de_int64 pos)
+static i64 get_synchsafe_int(dbuf *f, i64 pos)
 {
 	de_byte buf[4];
 	dbuf_read(f, buf, pos, 4);
@@ -90,10 +90,10 @@ static const char *get_id3v2_textenc_name(id3v2ctx *d, de_byte id3_encoding)
 	return encname;
 }
 
-static void id3v2_read_to_ucstring(deark *c, dbuf *f, de_int64 pos1, de_int64 len,
+static void id3v2_read_to_ucstring(deark *c, dbuf *f, i64 pos1, i64 len,
 	de_ucstring *s, de_byte id3_encoding)
 {
-	de_int64 pos = pos1;
+	i64 pos = pos1;
 	const char *bomdesc = "none";
 	int encoding_to_use = DE_ENCODING_UNKNOWN;
 
@@ -146,11 +146,11 @@ done:
 }
 
 static int read_id3v2_terminated_string(deark *c, id3v2ctx *d, dbuf *f,
-	de_int64 pos, de_int64 nbytes_avail, de_int64 nbytes_to_scan, de_byte id3_encoding,
-	de_ucstring *s, de_int64 *bytes_consumed)
+	i64 pos, i64 nbytes_avail, i64 nbytes_to_scan, de_byte id3_encoding,
+	de_ucstring *s, i64 *bytes_consumed)
 {
-	de_int64 foundpos = 0;
-	de_int64 stringlen;
+	i64 foundpos = 0;
+	i64 stringlen;
 	int ret;
 	int retval = 0;
 
@@ -185,7 +185,7 @@ done:
 // Read 10-byte main ID3v2 header
 static int do_id3v2_header(deark *c, dbuf *f, id3v2ctx *d)
 {
-	de_int64 pos;
+	i64 pos;
 	de_byte flags;
 	int retval = 0;
 	int has_global_compression = 0;
@@ -276,10 +276,10 @@ done:
 // Also, the process of undoing unsynchronisation does not seem to have a
 // name. Calling it "synchronisation" would be confusing, and not really
 // accurate; and "ununsynchronisation" would be a word crime.
-static void unescape_id3v2_data(deark *c, dbuf *inf, de_int64 inf_start,
-	de_int64 inf_len, dbuf *outf)
+static void unescape_id3v2_data(deark *c, dbuf *inf, i64 inf_start,
+	i64 inf_len, dbuf *outf)
 {
-	de_int64 srcpos = inf_start;
+	i64 srcpos = inf_start;
 	de_byte b0;
 
 	de_dbg(c, "unescaping \"unsynchronised\" ID3v2 data");
@@ -298,11 +298,11 @@ static void unescape_id3v2_data(deark *c, dbuf *inf, de_int64 inf_start,
 }
 
 static void decode_id3v2_frame_text(deark *c, id3v2ctx *d,
-	dbuf *f, de_int64 pos1, de_int64 len, struct de_fourcc *tag4cc)
+	dbuf *f, i64 pos1, i64 len, struct de_fourcc *tag4cc)
 {
 	de_byte id3_encoding;
 	de_ucstring *s = NULL;
-	de_int64 pos = pos1;
+	i64 pos = pos1;
 
 	if(len<1) goto done;
 	id3_encoding = dbuf_getbyte(f, pos++);
@@ -319,7 +319,7 @@ done:
 
 // From frames starting with "W", except WXXX
 static void decode_id3v2_frame_urllink(deark *c, id3v2ctx *d,
-	dbuf *f, de_int64 pos1, de_int64 len, struct de_fourcc *tag4cc)
+	dbuf *f, i64 pos1, i64 len, struct de_fourcc *tag4cc)
 {
 	de_ucstring *s = NULL;
 
@@ -331,13 +331,13 @@ static void decode_id3v2_frame_urllink(deark *c, id3v2ctx *d,
 
 // TXX, TXXX, WXX, WXXX
 static void decode_id3v2_frame_txxx_etc(deark *c, id3v2ctx *d,
-	dbuf *f, de_int64 pos1, de_int64 len, struct de_fourcc *tag4cc)
+	dbuf *f, i64 pos1, i64 len, struct de_fourcc *tag4cc)
 {
-	de_int64 pos = pos1;
+	i64 pos = pos1;
 	de_byte id3_encoding;
 	de_ucstring *description = NULL;
 	de_ucstring *value = NULL;
-	de_int64 bytes_consumed;
+	i64 bytes_consumed;
 	const char *name;
 	int ret;
 
@@ -364,12 +364,12 @@ done:
 }
 
 static void decode_id3v2_frame_priv(deark *c, id3v2ctx *d,
-	dbuf *f, de_int64 pos1, de_int64 len)
+	dbuf *f, i64 pos1, i64 len)
 {
 	struct de_stringreaderdata *owner = NULL;
-	de_int64 pos = pos1;
-	de_int64 nbytes_to_scan;
-	de_int64 payload_len;
+	i64 pos = pos1;
+	i64 nbytes_to_scan;
+	i64 payload_len;
 
 	nbytes_to_scan = pos1+len-pos;
 	if(nbytes_to_scan>256) nbytes_to_scan=256;
@@ -399,14 +399,14 @@ done:
 }
 
 static void decode_id3v2_frame_comm(deark *c, id3v2ctx *d,
-	dbuf *f, de_int64 pos1, de_int64 len)
+	dbuf *f, i64 pos1, i64 len)
 {
 	de_byte id3_encoding;
-	de_int64 pos = pos1;
+	i64 pos = pos1;
 	de_ucstring *lang = NULL;
 	de_ucstring *shortdesc = NULL;
 	de_ucstring *comment_text = NULL;
-	de_int64 bytes_consumed;
+	i64 bytes_consumed;
 	int ret;
 
 	id3_encoding = dbuf_getbyte(f, pos++);
@@ -477,7 +477,7 @@ static const struct apic_type_info *get_apic_type_info(de_byte t)
 }
 
 static void extract_pic_apic(deark *c, id3v2ctx *d, dbuf *f,
-	 de_int64 pos, de_int64 len, const struct apic_type_info *ptinfo)
+	 i64 pos, i64 len, const struct apic_type_info *ptinfo)
 {
 	const char *ext;
 	char fullext[32];
@@ -502,12 +502,12 @@ static void extract_pic_apic(deark *c, id3v2ctx *d, dbuf *f,
 
 // Similar to decode_id3v2_frame_pic_apic()
 static void decode_id3v2_frame_wmpicture(deark *c, id3v2ctx *d,
-	dbuf *f, de_int64 pos1, de_int64 len)
+	dbuf *f, i64 pos1, i64 len)
 {
 	de_byte picture_type;
-	de_int64 pos = pos1;
-	de_int64 pic_data_len;
-	de_int64 stringlen; // includes terminating 0x0000
+	i64 pos = pos1;
+	i64 pic_data_len;
+	i64 stringlen; // includes terminating 0x0000
 	de_ucstring *mimetype = NULL;
 	de_ucstring *description = NULL;
 	const struct apic_type_info *ptinfo = NULL;
@@ -546,16 +546,16 @@ done:
 }
 
 static void decode_id3v2_frame_pic_apic(deark *c, id3v2ctx *d,
-	dbuf *f, de_int64 pos1, de_int64 len, struct de_fourcc *tag4cc)
+	dbuf *f, i64 pos1, i64 len, struct de_fourcc *tag4cc)
 {
 	de_byte id3_encoding;
 	de_byte picture_type;
-	de_int64 pos = pos1;
+	i64 pos = pos1;
 	struct de_stringreaderdata *fmt_srd = NULL;
 	de_ucstring *mimetype = NULL;
 	de_ucstring *description = NULL;
 	const struct apic_type_info *ptinfo = NULL;
-	de_int64 bytes_consumed = 0;
+	i64 bytes_consumed = 0;
 	int ret;
 
 	id3_encoding = dbuf_getbyte(f, pos++);
@@ -604,12 +604,12 @@ done:
 // a tough call. Putting it here is easier for now, as it makes it easy to
 // reuse some code.
 static void decode_flacpicture(deark *c, id3v2ctx *d, dbuf *f,
-	de_int64 pos1, de_int64 len)
+	i64 pos1, i64 len)
 {
 	de_uint32 picture_type;
-	de_int64 pos = pos1;
-	de_int64 pic_data_len;
-	de_int64 stringlen;
+	i64 pos = pos1;
+	i64 pic_data_len;
+	i64 stringlen;
 	de_ucstring *mimetype = NULL;
 	de_ucstring *description = NULL;
 	const struct apic_type_info *ptinfo = NULL;
@@ -648,16 +648,16 @@ done:
 }
 
 static void decode_id3v2_frame_geob(deark *c, id3v2ctx *d,
-	dbuf *f, de_int64 pos1, de_int64 len)
+	dbuf *f, i64 pos1, i64 len)
 {
 	de_byte id3_encoding;
-	de_int64 pos = pos1;
+	i64 pos = pos1;
 	de_ucstring *mimetype = NULL;
 	de_ucstring *filename = NULL;
 	de_ucstring *description = NULL;
-	de_int64 bytes_consumed = 0;
+	i64 bytes_consumed = 0;
 	int ret;
-	de_int64 objlen;
+	i64 objlen;
 
 	id3_encoding = dbuf_getbyte(f, pos++);
 	de_dbg(c, "text encoding: %d (%s)", (int)id3_encoding,
@@ -707,11 +707,11 @@ done:
 
 // Popularimeter
 static void decode_id3v2_frame_pop_popm(deark *c, id3v2ctx *d,
-	dbuf *f, de_int64 pos1, de_int64 len)
+	dbuf *f, i64 pos1, i64 len)
 {
-	de_int64 bytes_consumed = 0;
+	i64 bytes_consumed = 0;
 	de_ucstring *email = NULL;
-	de_int64 pos = pos1;
+	i64 pos = pos1;
 	int rating;
 	int ret;
 
@@ -733,7 +733,7 @@ done:
 }
 
 static void decode_id3v2_frame_internal(deark *c, id3v2ctx *d, dbuf *f,
-	de_int64 pos1, de_int64 len, struct de_fourcc *tag4cc)
+	i64 pos1, i64 len, struct de_fourcc *tag4cc)
 {
 	if(d->version_code==2) {
 		if(tag4cc->id==CODE_TXX || tag4cc->id==CODE_WXX) {
@@ -789,7 +789,7 @@ static void decode_id3v2_frame_internal(deark *c, id3v2ctx *d, dbuf *f,
 }
 
 static void decode_id3v2_frame(deark *c, id3v2ctx *d, dbuf *f,
-	de_int64 pos1, de_int64 len,
+	i64 pos1, i64 len,
 	struct de_fourcc *tag4cc, unsigned int flags1, unsigned int flags2)
 {
 	de_byte frame_level_unsynch = d->global_frame_level_unsync;
@@ -912,13 +912,13 @@ static const char *get_id3v2_frame_name(id3v2ctx *d, de_uint32 id)
 }
 
 static void do_id3v2_frames(deark *c, id3v2ctx *d,
-	dbuf *f, de_int64 pos1, de_int64 len, de_int64 orig_pos)
+	dbuf *f, i64 pos1, i64 len, i64 orig_pos)
 {
-	de_int64 pos = pos1;
+	i64 pos = pos1;
 	struct de_fourcc tag4cc;
 	int saved_indent_level;
-	de_int64 frame_idx = 0;
-	de_int64 frame_header_len;
+	i64 frame_idx = 0;
+	i64 frame_header_len;
 
 	de_zeromem(&tag4cc, sizeof(struct de_fourcc));
 	if(d->version_code<=2) frame_header_len = 6;
@@ -930,7 +930,7 @@ static void do_id3v2_frames(deark *c, id3v2ctx *d,
 	de_dbg_indent(c, 1);
 
 	while(1) {
-		de_int64 frame_dlen;
+		i64 frame_dlen;
 		de_byte flags1, flags2;
 		de_byte b;
 		char *flg2name;
@@ -1011,7 +1011,7 @@ done:
 // in an incompatible way.
 // It seems to be a serialization of the WM_PICTURE struct, with the fields in
 // a different order.
-static void do_wmpicture(deark *c, dbuf *f, de_int64 pos, de_int64 len)
+static void do_wmpicture(deark *c, dbuf *f, i64 pos, i64 len)
 {
 	id3v2ctx *d = NULL;
 
@@ -1021,7 +1021,7 @@ static void do_wmpicture(deark *c, dbuf *f, de_int64 pos, de_int64 len)
 	de_free(c, d);
 }
 
-static void do_flacpicture(deark *c, dbuf *f, de_int64 pos, de_int64 len)
+static void do_flacpicture(deark *c, dbuf *f, i64 pos, i64 len)
 {
 	id3v2ctx *d = NULL;
 
@@ -1030,12 +1030,12 @@ static void do_flacpicture(deark *c, dbuf *f, de_int64 pos, de_int64 len)
 	de_free(c, d);
 }
 
-static void do_id3v2(deark *c, dbuf *f, de_int64 pos, de_int64 bytes_avail,
-	 de_int64 *bytes_consumed)
+static void do_id3v2(deark *c, dbuf *f, i64 pos, i64 bytes_avail,
+	 i64 *bytes_consumed)
 {
 	id3v2ctx *d = NULL;
 	dbuf *unescaped_data = NULL;
-	de_int64 ext_header_size = 0;
+	i64 ext_header_size = 0;
 	int saved_indent_level;
 
 	de_dbg_indent_save(c, &saved_indent_level);
@@ -1143,9 +1143,9 @@ static const char *get_id3v1_genre_name(de_byte g)
 	return "unknown";
 }
 
-static void do_id3v1(deark *c, de_int64 pos1)
+static void do_id3v1(deark *c, i64 pos1)
 {
-	de_int64 pos = pos1;
+	i64 pos = pos1;
 	de_ucstring *s = NULL;
 	de_byte genre;
 
@@ -1200,7 +1200,7 @@ static void do_id3v1(deark *c, de_int64 pos1)
 static void de_run_id3(deark *c, de_module_params *mparams)
 {
 	if(de_havemodcode(c, mparams, 'I')) { // raw ID3v2
-		de_int64 bytes_consumed_id3v2 = 0;
+		i64 bytes_consumed_id3v2 = 0;
 		do_id3v2(c, c->infile, 0, c->infile->len, &bytes_consumed_id3v2);
 		if(mparams) {
 			mparams->out_params.int64_1 = bytes_consumed_id3v2;
@@ -1233,7 +1233,7 @@ static int de_identify_id3(deark *c)
 	de_byte flags;
 	de_byte version_code;
 	de_byte has_footer = 0;
-	de_int64 total_len;
+	i64 total_len;
 
 	c->detection_data.id3.detection_attempted = 1;
 	if(dbuf_memcmp(c->infile, 0, "ID3", 3)) return 0;

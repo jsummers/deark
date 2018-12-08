@@ -9,21 +9,21 @@
 DE_DECLARE_MODULE(de_module_eps);
 
 typedef struct localctx_struct {
-	de_int64 w, h;
-	de_int64 depth;
-	de_int64 lines;
+	i64 w, h;
+	i64 depth;
+	i64 lines;
 
-	de_int64 hex_digit_count;
-	de_int64 xpos, ypos;
+	i64 hex_digit_count;
+	i64 xpos, ypos;
 	de_byte pending_byte;
 } lctx;
 
 
 static void de_run_eps_binary(deark *c)
 {
-	de_int64 eps_offset, eps_len;
-	de_int64 wmf_offset, wmf_len;
-	de_int64 tiff_offset, tiff_len;
+	i64 eps_offset, eps_len;
+	i64 wmf_offset, wmf_len;
+	i64 tiff_offset, tiff_len;
 
 	de_declare_fmt(c, "EPS binary");
 
@@ -68,10 +68,10 @@ static void process_hex_digit(deark *c, lctx *d, de_byte hexdigit, dbuf *outf)
 	return;
 }
 
-static void convert_row_gray(dbuf *f, de_int64 fpos, de_bitmap *img,
-	de_int64 rownum, int depth)
+static void convert_row_gray(dbuf *f, i64 fpos, de_bitmap *img,
+	i64 rownum, int depth)
 {
-	de_int64 i;
+	i64 i;
 	de_byte b;
 
 	for(i=0; i<img->width; i++) {
@@ -83,14 +83,14 @@ static void convert_row_gray(dbuf *f, de_int64 fpos, de_bitmap *img,
 	}
 }
 
-static void do_decode_epsi_image(deark *c, lctx *d, de_int64 pos1)
+static void do_decode_epsi_image(deark *c, lctx *d, i64 pos1)
 {
 	de_bitmap *img = NULL;
 	dbuf *tmpf = NULL;
-	de_int64 content_len, total_len;
-	de_int64 pos;
-	de_int64 i, j, k;
-	de_int64 src_rowspan;
+	i64 content_len, total_len;
+	i64 pos;
+	i64 i, j, k;
+	i64 src_rowspan;
 
 
 	pos = pos1;
@@ -123,7 +123,7 @@ static void do_decode_epsi_image(deark *c, lctx *d, de_int64 pos1)
 	dbuf_close(tmpf);
 }
 
-static void do_decode_epsi(deark *c, const char *hdrfields, de_int64 pos1)
+static void do_decode_epsi(deark *c, const char *hdrfields, i64 pos1)
 {
 	int width, height, depth, lines;
 	int ret;
@@ -165,9 +165,9 @@ done:
 
 static void de_run_eps_normal(deark *c)
 {
-	de_int64 pos;
+	i64 pos;
 	de_byte linebuf[1024];
-	de_int64 content_len, total_len;
+	i64 content_len, total_len;
 
 	de_declare_fmt(c, "Encapsulated PostScript");
 
@@ -175,7 +175,7 @@ static void de_run_eps_normal(deark *c)
 	while(dbuf_find_line(c->infile, pos, &content_len, &total_len)) {
 		de_dbg2(c, "line: pos=%d c_len=%d t_len=%d", (int)pos, (int)content_len, (int)total_len);
 
-		if(content_len > (de_int64)(sizeof(linebuf)-1))
+		if(content_len > (i64)(sizeof(linebuf)-1))
 			content_len = sizeof(linebuf)-1;
 
 		de_read(linebuf, pos, content_len);
@@ -194,7 +194,7 @@ static void de_run_eps(deark *c, de_module_params *mparams)
 {
 	de_byte b[2];
 
-	de_read(b, 0, (de_int64)sizeof(b));
+	de_read(b, 0, (i64)sizeof(b));
 
 	if(b[0]==0xc5 && b[1]==0xd0) {
 		de_run_eps_binary(c);
@@ -210,7 +210,7 @@ static void de_run_eps(deark *c, de_module_params *mparams)
 static int de_identify_eps(deark *c)
 {
 	de_byte b[20];
-	de_read(b, 0, (de_int64)sizeof(b));
+	de_read(b, 0, (i64)sizeof(b));
 
 	if(b[0]==0xc5 && b[1]==0xd0 && b[2]==0xd3 && b[3]==0xc6)
 		return 100;

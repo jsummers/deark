@@ -17,13 +17,13 @@ DE_DECLARE_MODULE(de_module_cpio);
 struct member_data {
 	int subfmt;
 	int is_le;
-	de_int64 startpos;
-	de_int64 fixed_header_size; // Not including the filename
-	de_int64 namesize;
-	de_int64 namesize_padded;
-	de_int64 filesize;
-	de_int64 filesize_padded;
-	de_int64 mode;
+	i64 startpos;
+	i64 fixed_header_size; // Not including the filename
+	i64 namesize;
+	i64 namesize_padded;
+	i64 filesize;
+	i64 filesize_padded;
+	i64 mode;
 	de_uint32 checksum_reported;
 	struct de_stringreaderdata *filename_srd;
 	de_finfo *fi;
@@ -38,7 +38,7 @@ typedef struct localctx_struct {
 
 // Returns a value suitable for format identification.
 // If format is unidentified, subfmt=0
-static int identify_cpio_internal(deark *c, de_int64 pos, int *subfmt)
+static int identify_cpio_internal(deark *c, i64 pos, int *subfmt)
 {
 	de_byte b[6];
 
@@ -79,10 +79,10 @@ static int identify_cpio_internal(deark *c, de_int64 pos, int *subfmt)
 
 static int read_header_ascii_portable(deark *c, lctx *d, struct member_data *md)
 {
-	de_int64 pos;
+	i64 pos;
 	int ret;
-	de_int64 n;
-	de_int64 modtime_unix;
+	i64 n;
+	i64 modtime_unix;
 	int retval = 0;
 	char timestamp_buf[64];
 
@@ -135,11 +135,11 @@ done:
 
 static int read_header_ascii_new(deark *c, lctx *d, struct member_data *md)
 {
-	de_int64 pos;
+	i64 pos;
 	int ret;
-	de_int64 n;
-	de_int64 modtime_unix;
-	de_int64 header_and_namesize_padded;
+	i64 n;
+	i64 modtime_unix;
+	i64 header_and_namesize_padded;
 	int retval = 0;
 	char timestamp_buf[64];
 
@@ -206,11 +206,11 @@ done:
 
 static int read_header_binary(deark *c, lctx *d, struct member_data *md)
 {
-	de_int64 pos;
-	de_int64 n;
-	de_int64 modtime_msw, modtime_lsw;
-	de_int64 modtime_unix;
-	de_int64 filesize_msw, filesize_lsw;
+	i64 pos;
+	i64 n;
+	i64 modtime_msw, modtime_lsw;
+	i64 modtime_unix;
+	i64 filesize_msw, filesize_lsw;
 	int retval = 0;
 	char timestamp_buf[64];
 
@@ -261,7 +261,7 @@ static int read_header_binary(deark *c, lctx *d, struct member_data *md)
 // Always allocates md->filename_srd.
 static void read_member_name(deark *c, lctx *d, struct member_data *md)
 {
-	de_int64 namesize_adjusted;
+	i64 namesize_adjusted;
 
 	// Filenames end with a NUL byte, which is included in the namesize field.
 	namesize_adjusted = md->namesize - 1;
@@ -277,9 +277,9 @@ static void read_member_name(deark *c, lctx *d, struct member_data *md)
 	md->fi->original_filename_flag = 1;
 }
 
-static void our_writecallback(dbuf *f, const de_byte *buf, de_int64 buf_len)
+static void our_writecallback(dbuf *f, const de_byte *buf, i64 buf_len)
 {
-	de_int64 k;
+	i64 k;
 	struct member_data *md = (struct member_data *)f->userdata;
 
 	for(k=0; k<buf_len; k++) {
@@ -288,12 +288,12 @@ static void our_writecallback(dbuf *f, const de_byte *buf, de_int64 buf_len)
 	}
 }
 
-static int read_member(deark *c, lctx *d, de_int64 pos1,
-	de_int64 *bytes_consumed_member)
+static int read_member(deark *c, lctx *d, i64 pos1,
+	i64 *bytes_consumed_member)
 {
 	int retval = 0;
 	struct member_data *md = NULL;
-	de_int64 pos = pos1;
+	i64 pos = pos1;
 	int saved_indent_level;
 
 	de_dbg_indent_save(c, &saved_indent_level);
@@ -415,8 +415,8 @@ done:
 static void de_run_cpio(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
-	de_int64 bytes_consumed;
-	de_int64 pos;
+	i64 bytes_consumed;
+	i64 pos;
 	int ret;
 
 	d = de_malloc(c, sizeof(lctx));

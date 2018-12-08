@@ -19,7 +19,7 @@ static void do_spu_internal(deark *c, dbuf *inf, int is_enhanced)
 {
 	struct atari_img_decode_data *adata = NULL;
 	de_finfo *fi = NULL;
-	static const de_int64 num_colors = 199*48;
+	static const i64 num_colors = 199*48;
 
 	adata = de_malloc(c, sizeof(struct atari_img_decode_data));
 	adata->is_spectrum512 = 1;
@@ -91,13 +91,13 @@ void de_module_spectrum512u(deark *c, struct deark_module_info *mi)
 // **************************************************************************
 
 // This is almost PackBits, but not quite.
-static void spc_uncompress_pixels(dbuf *f, de_int64 pos1, de_int64 len,
+static void spc_uncompress_pixels(dbuf *f, i64 pos1, i64 len,
 	dbuf *unc_pixels)
 {
-	de_int64 pos;
+	i64 pos;
 	de_byte b, b2;
-	de_int64 count;
-	de_int64 endpos;
+	i64 count;
+	i64 endpos;
 
 	pos = pos1;
 	endpos = pos1+len;
@@ -113,25 +113,25 @@ static void spc_uncompress_pixels(dbuf *f, de_int64 pos1, de_int64 len,
 		b = dbuf_getbyte(f, pos++);
 
 		if(b>=128) { // A compressed run
-			count = 258 - (de_int64)b;
+			count = 258 - (i64)b;
 			b2 = dbuf_getbyte(f, pos++);
 			dbuf_write_run(unc_pixels, b2, count);
 		}
 		else { // An uncompressed run
-			count = 1 + (de_int64)b;
+			count = 1 + (i64)b;
 			dbuf_copy(f, pos, count, unc_pixels);
 			pos += count;
 		}
 	}
 }
 
-static void sps_uncompress_pixels(dbuf *f, de_int64 pos1, de_int64 len,
+static void sps_uncompress_pixels(dbuf *f, i64 pos1, i64 len,
 	dbuf *unc_pixels)
 {
-	de_int64 pos;
+	i64 pos;
 	de_byte b, b2;
-	de_int64 count;
-	de_int64 endpos;
+	i64 count;
+	i64 endpos;
 
 	pos = pos1;
 	endpos = pos1+len;
@@ -147,12 +147,12 @@ static void sps_uncompress_pixels(dbuf *f, de_int64 pos1, de_int64 len,
 		b = dbuf_getbyte(f, pos++);
 
 		if(b<=127) { // A compressed run
-			count = (de_int64)b +3;
+			count = (i64)b +3;
 			b2 = dbuf_getbyte(f, pos++);
 			dbuf_write_run(unc_pixels, b2, count);
 		}
 		else { // An uncompressed run
-			count = (de_int64)b - 127;
+			count = (i64)b - 127;
 			dbuf_copy(f, pos, count, unc_pixels);
 			pos += count;
 		}
@@ -164,9 +164,9 @@ static void sps_uncompress_pixels(dbuf *f, de_int64 pos1, de_int64 len,
 // bytes in an inconvenient order, different from SPU format.
 // This converts an SPC after-decompression byte offset (from 0 to 31839)
 // to the corresponding SPU file offset (from 160 to 31999).
-static de_int64 reorderfn_spc(de_int64 a)
+static i64 reorderfn_spc(i64 a)
 {
-	de_int64 b;
+	i64 b;
 
 	if(a%2)
 		b = 160 + (a-1)*4 + 1; // if odd
@@ -180,18 +180,18 @@ static de_int64 reorderfn_spc(de_int64 a)
 }
 
 // For SPS type 0. See reorderfn_spc() comments for details.
-static de_int64 reorderfn_sps0(de_int64 a)
+static i64 reorderfn_sps0(i64 a)
 {
-	de_int64 b;
+	i64 b;
 	b = 160 + (a%199)*160 + ((a%7960)/398)*8 + (a/7960)*2 + (a%398)/199;
 	return b;
 }
 
-typedef de_int64 (*reorder_fn)(de_int64 a);
+typedef i64 (*reorder_fn)(i64 a);
 
 static void reorder_img_bytes(deark *c, dbuf *src, dbuf *dst, reorder_fn rfn)
 {
-	de_int64 i;
+	i64 i;
 	de_byte b;
 
 	for(i=0; i<src->len; i++) {
@@ -201,11 +201,11 @@ static void reorder_img_bytes(deark *c, dbuf *src, dbuf *dst, reorder_fn rfn)
 }
 
 // Read from c->infile at offset pos1, append to uncmpr_pal
-static void spc_uncompress_pal(deark *c, de_int64 pos1, dbuf *uncmpr_pal)
+static void spc_uncompress_pal(deark *c, i64 pos1, dbuf *uncmpr_pal)
 {
-	static const de_int64 num_pals = 199*3;
-	de_int64 pos = pos1;
-	de_int64 i, k;
+	static const i64 num_pals = 199*3;
+	i64 pos = pos1;
+	i64 i, k;
 	unsigned int code;
 
 	for(i=0; i<num_pals; i++) {
@@ -226,7 +226,7 @@ static void spc_uncompress_pal(deark *c, de_int64 pos1, dbuf *uncmpr_pal)
 }
 
 struct bit_reader {
-	de_int64 nextbytepos;
+	i64 nextbytepos;
 	de_byte cur_byte;
 	unsigned int bits_left;
 };
@@ -252,10 +252,10 @@ static unsigned int bit_reader_getint(dbuf *f, struct bit_reader *br, unsigned i
 }
 
 // Read from c->infile at offset pos1, append to uncmpr_pal
-static void sps_uncompress_pal(deark *c, de_int64 pos1, dbuf *uncmpr_pal)
+static void sps_uncompress_pal(deark *c, i64 pos1, dbuf *uncmpr_pal)
 {
-	static const de_int64 num_pals = 199*3;
-	de_int64 i;
+	static const i64 num_pals = 199*3;
+	i64 i;
 	unsigned int k;
 	unsigned int code;
 	struct bit_reader br;
@@ -287,10 +287,10 @@ static void sps_uncompress_pal(deark *c, de_int64 pos1, dbuf *uncmpr_pal)
 
 static void do_run_spectrum512c_s_internal(deark *c, de_module_params *mparams, int is_sps)
 {
-	de_int64 pixels_cmpr_len;
-	de_int64 pal_cmpr_len;
-	de_int64 pal_pos;
-	de_int64 pos;
+	i64 pixels_cmpr_len;
+	i64 pal_cmpr_len;
+	i64 pal_pos;
+	i64 pos;
 	dbuf *unc_pixels_planar = NULL;
 	dbuf *spufile = NULL;
 	int to_spu = 0;

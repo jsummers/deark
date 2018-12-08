@@ -12,7 +12,7 @@ DE_DECLARE_MODULE(de_module_zip);
 struct dir_entry_data {
 	unsigned int ver_needed;
 	unsigned int ver_needed_hi, ver_needed_lo;
-	de_int64 cmpr_size, uncmpr_size;
+	i64 cmpr_size, uncmpr_size;
 	int cmpr_method;
 	unsigned int bit_flags;
 	de_uint32 crc_reported;
@@ -24,9 +24,9 @@ struct member_data {
 	unsigned int ver_made_by;
 	unsigned int ver_made_by_hi, ver_made_by_lo;
 	unsigned int attr_i, attr_e;
-	de_int64 offset_of_local_header;
-	de_int64 disk_number_start;
-	de_int64 file_data_pos;
+	i64 offset_of_local_header;
+	i64 disk_number_start;
+	i64 file_data_pos;
 	int is_nonexecutable;
 	int is_executable;
 	int is_dir;
@@ -41,8 +41,8 @@ struct extra_item_type_info_struct;
 
 struct extra_item_info_struct {
 	de_uint32 id;
-	de_int64 dpos;
-	de_int64 dlen;
+	i64 dpos;
+	i64 dlen;
 	const struct extra_item_type_info_struct *eiti;
 	struct member_data *md;
 	struct dir_entry_data *dd;
@@ -50,12 +50,12 @@ struct extra_item_info_struct {
 };
 
 typedef struct localctx_struct {
-	de_int64 end_of_central_dir_pos;
-	de_int64 central_dir_num_entries;
-	de_int64 central_dir_byte_size;
-	de_int64 central_dir_offset;
-	de_int64 zip64_eocd_pos;
-	de_int64 offset_discrepancy;
+	i64 end_of_central_dir_pos;
+	i64 central_dir_num_entries;
+	i64 central_dir_byte_size;
+	i64 central_dir_offset;
+	i64 zip64_eocd_pos;
+	i64 offset_discrepancy;
 	int used_offset_discrepancy;
 	int is_zip64;
 	struct de_crcobj *crco;
@@ -73,12 +73,12 @@ static int is_compression_method_supported(int cmpr_method)
 // Decompress some data from inf, using the given ZIP compression method,
 // and append it to outf.
 static int do_decompress_data(deark *c, lctx *d,
-	dbuf *inf, de_int64 inf_pos, de_int64 inf_size,
+	dbuf *inf, i64 inf_pos, i64 inf_size,
 	dbuf *outf, int cmpr_method)
 {
 	int retval = 0;
 	int ret;
-	de_int64 bytes_consumed = 0;
+	i64 bytes_consumed = 0;
 
 	switch(cmpr_method) {
 	case 0: // uncompressed
@@ -98,7 +98,7 @@ done:
 
 static void do_read_filename(deark *c, lctx *d,
 	struct member_data *md, struct dir_entry_data *dd,
-	de_int64 pos, de_int64 len, int utf8_flag)
+	i64 pos, i64 len, int utf8_flag)
 {
 	int from_encoding;
 
@@ -111,7 +111,7 @@ static void do_read_filename(deark *c, lctx *d,
 }
 
 
-static void do_comment_display(deark *c, lctx *d, de_int64 pos, de_int64 len, int encoding,
+static void do_comment_display(deark *c, lctx *d, i64 pos, i64 len, int encoding,
 	const char *name)
 {
 	de_ucstring *s = NULL;
@@ -122,7 +122,7 @@ static void do_comment_display(deark *c, lctx *d, de_int64 pos, de_int64 len, in
 	ucstring_destroy(s);
 }
 
-static void do_comment_extract(deark *c, lctx *d, de_int64 pos, de_int64 len, int encoding,
+static void do_comment_extract(deark *c, lctx *d, i64 pos, i64 len, int encoding,
 	const char *ext)
 {
 	dbuf *f = NULL;
@@ -135,7 +135,7 @@ static void do_comment_extract(deark *c, lctx *d, de_int64 pos, de_int64 len, in
 	ucstring_destroy(s);
 }
 
-static void do_comment(deark *c, lctx *d, de_int64 pos, de_int64 len, int utf8_flag,
+static void do_comment(deark *c, lctx *d, i64 pos, i64 len, int utf8_flag,
 	const char *name, const char *ext)
 {
 	int encoding;
@@ -150,10 +150,10 @@ static void do_comment(deark *c, lctx *d, de_int64 pos, de_int64 len, int utf8_f
 	}
 }
 
-static void read_unix_timestamp(deark *c, lctx *d, de_int64 pos,
+static void read_unix_timestamp(deark *c, lctx *d, i64 pos,
 	struct de_timestamp *timestamp, const char *name)
 {
-	de_int64 t;
+	i64 t;
 	char timestamp_buf[64];
 
 	t = de_geti32le(pos);
@@ -162,10 +162,10 @@ static void read_unix_timestamp(deark *c, lctx *d, de_int64 pos,
 	de_dbg(c, "%s: %d (%s)", name, (int)t, timestamp_buf);
 }
 
-static void read_FILETIME(deark *c, lctx *d, de_int64 pos,
+static void read_FILETIME(deark *c, lctx *d, i64 pos,
 	struct de_timestamp *timestamp, const char *name)
 {
-	de_int64 t_FILETIME;
+	i64 t_FILETIME;
 	char timestamp_buf[64];
 
 	t_FILETIME = de_geti64le(pos);
@@ -176,8 +176,8 @@ static void read_FILETIME(deark *c, lctx *d, de_int64 pos,
 
 static void ef_zip64extinfo(deark *c, lctx *d, struct extra_item_info_struct *eii)
 {
-	de_int64 n;
-	de_int64 pos = eii->dpos;
+	i64 n;
+	i64 pos = eii->dpos;
 
 	if(pos+8 > eii->dpos+eii->dlen) goto done;
 	n = de_geti64le(pos); pos += 8;
@@ -207,9 +207,9 @@ done:
 // Extra field 0x5455
 static void ef_extended_timestamp(deark *c, lctx *d, struct extra_item_info_struct *eii)
 {
-	de_int64 pos = eii->dpos;
+	i64 pos = eii->dpos;
 	de_byte flags;
-	de_int64 endpos;
+	i64 endpos;
 	int has_mtime, has_atime, has_ctime;
 	struct de_timestamp timestamp_tmp;
 
@@ -246,7 +246,7 @@ static void ef_extended_timestamp(deark *c, lctx *d, struct extra_item_info_stru
 // Extra field 0x5855
 static void ef_infozip1(deark *c, lctx *d, struct extra_item_info_struct *eii)
 {
-	de_int64 uidnum, gidnum;
+	i64 uidnum, gidnum;
 	struct de_timestamp timestamp_tmp;
 
 	if(eii->is_central && eii->dlen<8) return;
@@ -263,7 +263,7 @@ static void ef_infozip1(deark *c, lctx *d, struct extra_item_info_struct *eii)
 // Extra field 0x7855
 static void ef_infozip2(deark *c, lctx *d, struct extra_item_info_struct *eii)
 {
-	de_int64 uidnum, gidnum;
+	i64 uidnum, gidnum;
 
 	if(eii->is_central) return;
 	if(eii->dlen<4) return;
@@ -275,11 +275,11 @@ static void ef_infozip2(deark *c, lctx *d, struct extra_item_info_struct *eii)
 // Extra field 0x7875
 static void ef_infozip3(deark *c, lctx *d, struct extra_item_info_struct *eii)
 {
-	de_int64 pos = eii->dpos;
-	de_int64 uidnum, gidnum;
+	i64 pos = eii->dpos;
+	i64 uidnum, gidnum;
 	de_byte ver;
-	de_int64 endpos;
-	de_int64 sz;
+	i64 endpos;
+	i64 sz;
 
 	endpos = pos+eii->dlen;
 
@@ -289,13 +289,13 @@ static void ef_infozip3(deark *c, lctx *d, struct extra_item_info_struct *eii)
 	if(ver!=1) return;
 
 	if(pos+1>endpos) return;
-	sz = (de_int64)de_getbyte_p(&pos);
+	sz = (i64)de_getbyte_p(&pos);
 	if(pos+sz>endpos) return;
 	uidnum = dbuf_getint_ext(c->infile, pos, (unsigned int)sz, 1, 0);
 	pos += sz;
 
 	if(pos+1>endpos) return;
-	sz = (de_int64)de_getbyte_p(&pos);
+	sz = (i64)de_getbyte_p(&pos);
 	if(pos+sz>endpos) return;
 	gidnum = dbuf_getint_ext(c->infile, pos, (unsigned int)sz, 1, 0);
 	pos += sz;
@@ -306,10 +306,10 @@ static void ef_infozip3(deark *c, lctx *d, struct extra_item_info_struct *eii)
 // Extra field 0x000a
 static void ef_ntfs(deark *c, lctx *d, struct extra_item_info_struct *eii)
 {
-	de_int64 pos = eii->dpos;
-	de_int64 endpos;
-	de_int64 attr_tag;
-	de_int64 attr_size;
+	i64 pos = eii->dpos;
+	i64 endpos;
+	i64 attr_tag;
+	i64 attr_size;
 	const char *name;
 	struct de_timestamp timestamp_tmp;
 
@@ -341,11 +341,11 @@ static void ef_ntfs(deark *c, lctx *d, struct extra_item_info_struct *eii)
 // Extra field 0x0009
 static void ef_os2(deark *c, lctx *d, struct extra_item_info_struct *eii)
 {
-	de_int64 pos = eii->dpos;
-	de_int64 endpos;
-	de_int64 unc_size;
-	de_int64 cmpr_type;
-	de_int64 crc;
+	i64 pos = eii->dpos;
+	i64 endpos;
+	i64 unc_size;
+	i64 cmpr_type;
+	i64 crc;
 
 	endpos = pos+eii->dlen;
 	if(pos+4>endpos) return;
@@ -388,7 +388,7 @@ done:
 
 // The time will be returned in the caller-supplied 'ts'
 static void handle_mac_time(deark *c, lctx *d,
-	de_int64 mt_raw, de_int64 mt_offset,
+	i64 mt_raw, i64 mt_offset,
 	struct de_timestamp *ts, const char *name)
 {
 	char timestamp_buf[64];
@@ -402,10 +402,10 @@ static void handle_mac_time(deark *c, lctx *d,
 // Extra field 0x334d (Info-ZIP Macintosh)
 static void ef_infozipmac(deark *c, lctx *d, struct extra_item_info_struct *eii)
 {
-	de_int64 pos = eii->dpos;
-	de_int64 dpos;
-	de_int64 ulen;
-	de_int64 cmpr_attr_size;
+	i64 pos = eii->dpos;
+	i64 dpos;
+	i64 ulen;
+	i64 cmpr_attr_size;
 	unsigned int flags;
 	unsigned int cmprtype;
 	unsigned int crc_reported;
@@ -414,12 +414,12 @@ static void ef_infozipmac(deark *c, lctx *d, struct extra_item_info_struct *eii)
 	de_ucstring *flags_str = NULL;
 	dbuf *attr_data = NULL;
 	int ret;
-	de_int64 create_time_raw;
-	de_int64 create_time_offset;
-	de_int64 mod_time_raw;
-	de_int64 mod_time_offset;
-	de_int64 backup_time_raw;
-	de_int64 backup_time_offset;
+	i64 create_time_raw;
+	i64 create_time_offset;
+	i64 mod_time_raw;
+	i64 mod_time_offset;
+	i64 backup_time_raw;
+	i64 backup_time_offset;
 	struct de_timestamp tmp_timestamp;
 	int charset;
 	struct de_stringreaderdata *srd;
@@ -529,7 +529,7 @@ done:
 // Acorn / SparkFS / RISC OS
 static void ef_acorn(deark *c, lctx *d, struct extra_item_info_struct *eii)
 {
-	de_int64 pos = eii->dpos;
+	i64 pos = eii->dpos;
 	de_uint32 ld, ex;
 	de_uint32 attribs;
 
@@ -625,14 +625,14 @@ static const struct extra_item_type_info_struct extra_item_type_info_arr[] = {
 	{ 0xfd4a /*    */, "SMS/QDOS", NULL }  // according to ZIP v6.3.4 APPNOTE
 };
 
-static const struct extra_item_type_info_struct *get_extra_item_type_info(de_int64 id)
+static const struct extra_item_type_info_struct *get_extra_item_type_info(i64 id)
 {
 	static const struct extra_item_type_info_struct default_ei =
 		{ 0, "?", NULL };
 	size_t i;
 
 	for(i=0; i<DE_ITEMS_IN_ARRAY(extra_item_type_info_arr); i++) {
-		if(id == (de_int64)extra_item_type_info_arr[i].id) {
+		if(id == (i64)extra_item_type_info_arr[i].id) {
 			return &extra_item_type_info_arr[i];
 		}
 	}
@@ -641,9 +641,9 @@ static const struct extra_item_type_info_struct *get_extra_item_type_info(de_int
 
 static void do_extra_data(deark *c, lctx *d,
 	struct member_data *md, struct dir_entry_data *dd,
-	de_int64 pos1, de_int64 len, int is_central)
+	i64 pos1, i64 len, int is_central)
 {
-	de_int64 pos;
+	i64 pos;
 
 	de_dbg(c, "extra data at %d, len=%d", (int)pos1, (int)len);
 	de_dbg_indent(c, 1);
@@ -680,7 +680,7 @@ static void do_extra_data(deark *c, lctx *d,
 	de_dbg_indent(c, -1);
 }
 
-static void our_writecallback(dbuf *f, const de_byte *buf, de_int64 buf_len)
+static void our_writecallback(dbuf *f, const de_byte *buf, i64 buf_len)
 {
 	struct member_data *md = (struct member_data *)f->userdata;
 	de_crcobj_addbuf(md->crco, buf, buf_len);
@@ -912,15 +912,15 @@ static void describe_msdos_attribs(deark *c, unsigned int attr, de_ucstring *s)
 // Read either a central directory entry (a.k.a. central directory file header),
 // or a local file header.
 static int do_file_header(deark *c, lctx *d, struct member_data *md,
-	int is_central, de_int64 pos1, de_int64 *p_entry_size)
+	int is_central, i64 pos1, i64 *p_entry_size)
 {
-	de_int64 pos;
+	i64 pos;
 	de_uint32 sig;
-	de_int64 fn_len, extra_len, comment_len;
+	i64 fn_len, extra_len, comment_len;
 	int utf8_flag;
 	int retval = 0;
-	de_int64 fixed_header_size;
-	de_int64 mod_time_raw, mod_date_raw;
+	i64 fixed_header_size;
+	i64 mod_time_raw, mod_date_raw;
 	struct dir_entry_data *dd; // Points to either md->central or md->local
 	de_ucstring *descr = NULL;
 	char timestamp_buf[64];
@@ -1061,7 +1061,7 @@ static int do_file_header(deark *c, lctx *d, struct member_data *md,
 		}
 		else if(d->offset_discrepancy!=0) {
 			de_uint32 sig1, sig2;
-			de_int64 alt_pos;
+			i64 alt_pos;
 
 			sig1 = (de_uint32)de_getui32le(md->offset_of_local_header);
 			if(sig1!=0x04034b50U) {
@@ -1087,10 +1087,10 @@ done:
 }
 
 static int do_central_dir_entry(deark *c, lctx *d,
-	de_int64 central_index, de_int64 pos, de_int64 *entry_size)
+	i64 central_index, i64 pos, i64 *entry_size)
 {
 	struct member_data *md = NULL;
-	de_int64 tmp_entry_size;
+	i64 tmp_entry_size;
 	int retval = 0;
 	int saved_indent_level;
 
@@ -1137,9 +1137,9 @@ done:
 
 static int do_central_dir(deark *c, lctx *d)
 {
-	de_int64 i;
-	de_int64 pos;
-	de_int64 entry_size;
+	i64 i;
+	i64 pos;
+	i64 entry_size;
 	int retval = 0;
 
 	pos = d->central_dir_offset;
@@ -1166,8 +1166,8 @@ done:
 
 static void do_zip64_eocd_locator(deark *c, lctx *d)
 {
-	de_int64 n, disknum;
-	de_int64 pos = d->end_of_central_dir_pos - 20;
+	i64 n, disknum;
+	i64 pos = d->end_of_central_dir_pos - 20;
 
 	if(dbuf_memcmp(c->infile, pos, "PK\x06\x07", 4)) {
 		return;
@@ -1187,12 +1187,12 @@ static void do_zip64_eocd_locator(deark *c, lctx *d)
 
 static int do_end_of_central_dir(deark *c, lctx *d)
 {
-	de_int64 pos;
-	de_int64 this_disk_num;
-	de_int64 num_entries_this_disk;
-	de_int64 disk_num_with_central_dir_start;
-	de_int64 comment_length;
-	de_int64 alt_central_dir_offset;
+	i64 pos;
+	i64 this_disk_num;
+	i64 num_entries_this_disk;
+	i64 disk_num_with_central_dir_start;
+	i64 comment_length;
+	i64 alt_central_dir_offset;
 	int retval = 0;
 
 	pos = d->end_of_central_dir_pos;

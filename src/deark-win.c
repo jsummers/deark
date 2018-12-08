@@ -49,7 +49,7 @@ char *de_strdup(deark *c, const char *s)
 	return s2;
 }
 
-de_int64 de_strtoll(const char *string, char **endptr, int base)
+i64 de_strtoll(const char *string, char **endptr, int base)
 {
 	return _strtoi64(string, endptr, base);
 }
@@ -165,7 +165,7 @@ static FILE* de_fopen(deark *c, const char *fn, const WCHAR *modeW,
 	return f;
 }
 
-static int de_examine_file_by_fd(deark *c, int fd, de_int64 *len,
+static int de_examine_file_by_fd(deark *c, int fd, i64 *len,
 	char *errmsg, size_t errmsg_len, unsigned int *returned_flags)
 {
 	struct __stat64 stbuf;
@@ -185,7 +185,7 @@ static int de_examine_file_by_fd(deark *c, int fd, de_int64 *len,
 		return 0;
 	}
 
-	*len = (de_int64)stbuf.st_size;
+	*len = (i64)stbuf.st_size;
 
 	retval = 1;
 
@@ -193,7 +193,7 @@ done:
 	return retval;
 }
 
-FILE* de_fopen_for_read(deark *c, const char *fn, de_int64 *len,
+FILE* de_fopen_for_read(deark *c, const char *fn, i64 *len,
 	char *errmsg, size_t errmsg_len, unsigned int *returned_flags)
 {
 	int ret;
@@ -223,7 +223,7 @@ FILE* de_fopen_for_write(deark *c, const char *fn,
 	return de_fopen(c, fn, modeW, errmsg, errmsg_len);
 }
 
-int de_fseek(FILE *fp, de_int64 offs, int whence)
+int de_fseek(FILE *fp, i64 offs, int whence)
 {
 	return _fseeki64(fp, (__int64)offs, whence);
 }
@@ -329,7 +329,7 @@ void de_windows_highlight(void *handle1, unsigned int orig_attr, int x)
 // Populates a caller-allocated de_struct_tm.
 void de_gmtime(const struct de_timestamp *ts, struct de_struct_tm *tm2)
 {
-	de_int64 tmpt_int64;
+	i64 tmpt_int64;
 	__time64_t tmpt;
 	struct tm tm1;
 	errno_t ret;
@@ -370,7 +370,7 @@ void de_current_time_to_timestamp(struct de_timestamp *ts)
 
 	de_zeromem(ts, sizeof(struct de_timestamp));
 	_time64(&t);
-	ts->unix_time = (de_int64)t;
+	ts->unix_time = (i64)t;
 	ts->is_valid = 1;
 }
 

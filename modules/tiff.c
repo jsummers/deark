@@ -59,7 +59,7 @@ struct taginfo;
 struct tagnuminfo;
 
 struct ifdstack_item {
-	de_int64 offset;
+	i64 offset;
 	int ifdtype;
 };
 
@@ -69,8 +69,8 @@ typedef void (*handler_fn_type)(deark *c, lctx *d, const struct taginfo *tg,
 struct valdec_params {
 	lctx *d;
 	const struct taginfo *tg;
-	de_int64 idx;
-	de_int64 n;
+	i64 idx;
+	i64 n;
 };
 struct valdec_result {
 	// Value decoders will be called with a valid, empty ucstring 's'.
@@ -102,12 +102,12 @@ struct tagnuminfo {
 };
 
 struct page_ctx {
-	de_int64 ifd_idx;
-	de_int64 ifdpos;
+	i64 ifd_idx;
+	i64 ifdpos;
 	int ifdtype;
 	de_uint32 orientation;
 	de_uint32 ycbcrpositioning;
-	de_int64 imagewidth, imagelength; // Raw tag values, before considering Orientation
+	i64 imagewidth, imagelength; // Raw tag values, before considering Orientation
 };
 
 // Data associated with an actual tag in an IFD in the file
@@ -115,10 +115,10 @@ struct taginfo {
 	int tagnum;
 	int datatype;
 	int tag_known;
-	de_int64 valcount;
-	de_int64 val_offset;
-	de_int64 unit_size;
-	de_int64 total_size;
+	i64 valcount;
+	i64 val_offset;
+	i64 unit_size;
+	i64 total_size;
 	// Might be more logical for us to have a separate struct for page_ctx, but
 	// I don't want to add a param to every "handler" function
 	struct page_ctx *pg;
@@ -145,12 +145,12 @@ struct localctx_struct {
 	int current_textfield_encoding;
 
 	struct de_inthashtable *ifds_seen;
-	de_int64 ifd_count; // Number of IFDs that we currently know of
+	i64 ifd_count; // Number of IFDs that we currently know of
 
-	de_int64 ifdhdrsize;
-	de_int64 ifditemsize;
-	de_int64 offsetoffset;
-	de_int64 offsetsize; // Number of bytes in a file offset
+	i64 ifdhdrsize;
+	i64 ifditemsize;
+	i64 offsetoffset;
+	i64 offsetsize; // Number of bytes in a file offset
 
 	const struct de_module_in_params *in_params;
 
@@ -196,9 +196,9 @@ static void detiff_warn(deark *c, lctx *d, const char *fmt, ...)
 }
 
 // Returns 0 if stack is empty.
-static de_int64 pop_ifd(deark *c, lctx *d, int *ifdtype)
+static i64 pop_ifd(deark *c, lctx *d, int *ifdtype)
 {
-	de_int64 ifdpos;
+	i64 ifdpos;
 	if(!d->ifdstack) return 0;
 	if(d->ifdstack_numused<1) return 0;
 	ifdpos = d->ifdstack[d->ifdstack_numused-1].offset;
@@ -207,7 +207,7 @@ static de_int64 pop_ifd(deark *c, lctx *d, int *ifdtype)
 	return ifdpos;
 }
 
-static void push_ifd(deark *c, lctx *d, de_int64 ifdpos, int ifdtype)
+static void push_ifd(deark *c, lctx *d, i64 ifdpos, int ifdtype)
 {
 	if(ifdpos==0) return;
 
@@ -262,9 +262,9 @@ static int size_of_data_type(int tt)
 	return 0;
 }
 
-static int read_rational_as_double(deark *c, lctx *d, de_int64 pos, double *n)
+static int read_rational_as_double(deark *c, lctx *d, i64 pos, double *n)
 {
-	de_int64 num, den;
+	i64 num, den;
 
 	*n = 0.0;
 	num = dbuf_getui32x(c->infile, pos, d->is_le);
@@ -274,9 +274,9 @@ static int read_rational_as_double(deark *c, lctx *d, de_int64 pos, double *n)
 	return 1;
 }
 
-static int read_srational_as_double(deark *c, lctx *d, de_int64 pos, double *n)
+static int read_srational_as_double(deark *c, lctx *d, i64 pos, double *n)
 {
-	de_int64 num, den;
+	i64 num, den;
 
 	*n = 0.0;
 	num = dbuf_geti32x(c->infile, pos, d->is_le);
@@ -289,9 +289,9 @@ static int read_srational_as_double(deark *c, lctx *d, de_int64 pos, double *n)
 // FIXME: This function seems superfluous.
 // It should somehow be consolidated with read_numeric_value().
 static int read_tag_value_as_double(deark *c, lctx *d, const struct taginfo *tg,
-	de_int64 value_index, double *n)
+	i64 value_index, double *n)
 {
-	de_int64 offs;
+	i64 offs;
 
 	*n = 0.0;
 	if(value_index<0 || value_index>=tg->valcount) return 0;
@@ -317,10 +317,10 @@ static int read_tag_value_as_double(deark *c, lctx *d, const struct taginfo *tg,
 }
 
 static int read_tag_value_as_int64(deark *c, lctx *d, const struct taginfo *tg,
-	de_int64 value_index, de_int64 *n)
+	i64 value_index, i64 *n)
 {
 	double v_dbl;
-	de_int64 offs;
+	i64 offs;
 
 	*n = 0;
 	if(value_index<0 || value_index>=tg->valcount) return 0;
@@ -337,12 +337,12 @@ static int read_tag_value_as_int64(deark *c, lctx *d, const struct taginfo *tg,
 	case DATATYPE_BYTE:
 	case DATATYPE_UNDEF:
 	case DATATYPE_ASCII:
-		*n = (de_int64)de_getbyte(offs);
+		*n = (i64)de_getbyte(offs);
 		return 1;
 	case DATATYPE_UINT64:
 	case DATATYPE_IFD64:
 		// TODO: Somehow support unsigned 64-bit ints that don't fit into
-		// a de_int64?
+		// a i64?
 		*n = dbuf_geti64x(c->infile, offs, d->is_le);
 		if(*n < 0) return 0;
 		return 1;
@@ -356,7 +356,7 @@ static int read_tag_value_as_int64(deark *c, lctx *d, const struct taginfo *tg,
 		*n = dbuf_geti64x(c->infile, offs, d->is_le);
 		return 1;
 	case DATATYPE_SBYTE:
-		*n = (de_int64)de_getbyte(offs);
+		*n = (i64)de_getbyte(offs);
 		if(*n > 127) *n -= 256;
 		return 1;
 	case DATATYPE_RATIONAL:
@@ -364,7 +364,7 @@ static int read_tag_value_as_int64(deark *c, lctx *d, const struct taginfo *tg,
 	case DATATYPE_FLOAT32:
 	case DATATYPE_FLOAT64:
 		if(read_tag_value_as_double(c, d, tg, value_index, &v_dbl)) {
-			*n = (de_int64)v_dbl;
+			*n = (i64)v_dbl;
 			return 1;
 		}
 		return 0;
@@ -380,17 +380,17 @@ static void format_double(de_ucstring *s, double val)
 
 struct numeric_value {
 	int isvalid;
-	de_int64 val_int64;
+	i64 val_int64;
 	double val_double;
 };
 
 // Do-it-all function for reading numeric values.
 // If dbglinebuf!=NULL, print a string representation of the value to it.
 static void read_numeric_value(deark *c, lctx *d, const struct taginfo *tg,
-	de_int64 value_index, struct numeric_value *nv, de_ucstring *dbgline)
+	i64 value_index, struct numeric_value *nv, de_ucstring *dbgline)
 {
 	int ret;
-	de_int64 offs;
+	i64 offs;
 
 	nv->isvalid = 0;
 	nv->val_int64 = 0;
@@ -426,7 +426,7 @@ static void read_numeric_value(deark *c, lctx *d, const struct taginfo *tg,
 	case DATATYPE_RATIONAL:
 	case DATATYPE_SRATIONAL:
 		{
-			de_int64 num, den;
+			i64 num, den;
 
 			if(tg->datatype==DATATYPE_SRATIONAL) {
 				num = dbuf_geti32x(c->infile, offs, d->is_le);
@@ -449,7 +449,7 @@ static void read_numeric_value(deark *c, lctx *d, const struct taginfo *tg,
 			else {
 				nv->isvalid = 1;
 				nv->val_double = (double)num/(double)den;
-				nv->val_int64 = (de_int64)nv->val_double;
+				nv->val_int64 = (i64)nv->val_double;
 				if(dbgline) {
 					format_double(dbgline, nv->val_double);
 				}
@@ -465,7 +465,7 @@ static void read_numeric_value(deark *c, lctx *d, const struct taginfo *tg,
 		else {
 			nv->val_double = dbuf_getfloat32x(c->infile, offs, d->is_le);
 		}
-		nv->val_int64 = (de_int64)nv->val_double;
+		nv->val_int64 = (i64)nv->val_double;
 		nv->isvalid = 1;
 		if(dbgline) {
 			format_double(dbgline, nv->val_double);
@@ -479,7 +479,7 @@ static void read_numeric_value(deark *c, lctx *d, const struct taginfo *tg,
 	}
 }
 
-static de_int64 getfpos(deark *c, lctx *d, de_int64 pos)
+static i64 getfpos(deark *c, lctx *d, i64 pos)
 {
 	if(d->is_bigtiff) {
 		return dbuf_geti64x(c->infile, pos, d->is_le);
@@ -487,7 +487,7 @@ static de_int64 getfpos(deark *c, lctx *d, de_int64 pos)
 	return dbuf_getui32x(c->infile, pos, d->is_le);
 }
 
-static void do_oldjpeg(deark *c, lctx *d, de_int64 jpegoffset, de_int64 jpeglength)
+static void do_oldjpeg(deark *c, lctx *d, i64 jpegoffset, i64 jpeglength)
 {
 	const char *extension;
 	unsigned int createflags;
@@ -529,12 +529,12 @@ static void do_oldjpeg(deark *c, lctx *d, de_int64 jpegoffset, de_int64 jpegleng
 	dbuf_create_file_from_slice(c->infile, jpegoffset, jpeglength, extension, NULL, createflags);
 }
 
-static void do_leaf_metadata(deark *c, lctx *d, de_int64 pos1, de_int64 len)
+static void do_leaf_metadata(deark *c, lctx *d, i64 pos1, i64 len)
 {
-	de_int64 pos;
+	i64 pos;
 	de_byte buf[4];
 	de_byte segtype[40];
-	de_int64 data_len;
+	i64 data_len;
 
 	if(len<1) return;
 	if(pos1+len > c->infile->len) return;
@@ -569,16 +569,16 @@ static void do_leaf_metadata(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 }
 
 struct int_and_str {
-	de_int64 n;
+	i64 n;
 	const char *s;
 };
 
 static int lookup_str_and_append_to_ucstring(const struct int_and_str *items, size_t num_items,
-	de_int64 n, de_ucstring *s)
+	i64 n, de_ucstring *s)
 {
-	de_int64 i;
+	i64 i;
 
-	for(i=0; i<(de_int64)num_items; i++) {
+	for(i=0; i<(i64)num_items; i++) {
 		if(items[i].n==n) {
 			ucstring_append_sz(s, items[i].s, DE_ENCODING_UTF8);
 			return 1;
@@ -847,7 +847,7 @@ static int valdec_lightsource(deark *c, const struct valdec_params *vp, struct v
 
 static int valdec_flash(deark *c, const struct valdec_params *vp, struct valdec_result *vr)
 {
-	de_int64 v;
+	i64 v;
 
 	ucstring_append_flags_item(vr->s, (vp->n&0x01)?"flash fired":"flash did not fire");
 
@@ -1052,7 +1052,7 @@ static void handler_imagelength(deark *c, lctx *d, const struct taginfo *tg, con
 
 static void handler_orientation(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni)
 {
-	de_int64 tmpval;
+	i64 tmpval;
 
 	if(tg->valcount!=1) return;
 	read_tag_value_as_int64(c, d, tg, 0, &tmpval);
@@ -1066,14 +1066,14 @@ static void handler_orientation(deark *c, lctx *d, const struct taginfo *tg, con
 
 static void handler_colormap(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni)
 {
-	de_int64 num_entries;
-	de_int64 i;
+	i64 num_entries;
+	i64 i;
 
 	num_entries = tg->valcount / 3;
 	de_dbg(c, "ColorMap with %d entries", (int)num_entries);
 	if(c->debug_level<2) return;
 	for(i=0; i<num_entries; i++) {
-		de_int64 r1, g1, b1;
+		i64 r1, g1, b1;
 		de_byte r2, g2, b2;
 		de_uint32 clr;
 		char tmps[80];
@@ -1093,8 +1093,8 @@ static void handler_colormap(deark *c, lctx *d, const struct taginfo *tg, const 
 
 static void handler_subifd(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni)
 {
-	de_int64 j;
-	de_int64 tmpoffset;
+	i64 j;
+	i64 tmpoffset;
 	int ifdtype = IFDTYPE_NORMAL;
 
 	if(d->fmt==DE_TIFFFMT_NIKONMN && tg->tagnum==0x11) ifdtype = IFDTYPE_NIKONPREVIEW;
@@ -1113,7 +1113,7 @@ static void handler_subifd(deark *c, lctx *d, const struct taginfo *tg, const st
 
 static void handler_ycbcrpositioning(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni)
 {
-	de_int64 tmpval;
+	i64 tmpval;
 
 	if(tg->valcount!=1) return;
 	read_tag_value_as_int64(c, d, tg, 0, &tmpval);
@@ -1151,7 +1151,7 @@ struct makernote_id_info {
 static void identify_makernote(deark *c, lctx *d, const struct taginfo *tg, struct makernote_id_info *mni)
 {
 	de_byte buf[32];
-	de_int64 amt_to_read;
+	i64 amt_to_read;
 
 	de_zeromem(buf, sizeof(buf));
 	amt_to_read = sizeof(buf);
@@ -1177,10 +1177,10 @@ done:
 	;
 }
 
-static void do_makernote_nikon(deark *c, lctx *d, de_int64 pos1, de_int64 len)
+static void do_makernote_nikon(deark *c, lctx *d, i64 pos1, i64 len)
 {
-	de_int64 dpos;
-	de_int64 dlen;
+	i64 dpos;
+	i64 dlen;
 	unsigned int ver;
 
 	if(len<10) return;
@@ -1196,7 +1196,7 @@ static void do_makernote_nikon(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 	de_dbg_indent(c, -1);
 }
 
-static void do_makernote_apple_ios(deark *c, lctx *d, de_int64 pos1, de_int64 len)
+static void do_makernote_apple_ios(deark *c, lctx *d, i64 pos1, i64 len)
 {
 	unsigned int ver;
 
@@ -1243,7 +1243,7 @@ static void handler_usercomment(deark *c, lctx *d, const struct taginfo *tg, con
 	static de_byte charcode[8];
 	de_ucstring *s = NULL;
 	int enc = DE_ENCODING_UNKNOWN;
-	de_int64 bytes_per_char = 1;
+	i64 bytes_per_char = 1;
 
 	if(tg->datatype != DATATYPE_UNDEF) goto done;
 	if(tg->total_size < 8) goto done;
@@ -1295,8 +1295,8 @@ static void handler_olepropset(deark *c, lctx *d, const struct taginfo *tg, cons
 static void handler_37724(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni)
 {
 	const char *codes;
-	static const de_int64 siglen = 36;
-	de_int64 dpos, dlen;
+	static const i64 siglen = 36;
+	i64 dpos, dlen;
 	int psdver = 0;
 
 	if(tg->total_size<siglen) {
@@ -1346,8 +1346,8 @@ struct mpfctx_struct {
 	int warned;
 	// per image:
 	int is_thumb;
-	de_int64 imgoffs_abs;
-	de_int64 imgsize;
+	i64 imgoffs_abs;
+	i64 imgsize;
 };
 
 static void try_to_extract_mpf_image(deark *c, lctx *d, struct mpfctx_struct *mpfctx)
@@ -1387,9 +1387,9 @@ done:
 
 static void handler_mpentry(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni)
 {
-	de_int64 num_entries;
-	de_int64 k;
-	de_int64 pos = tg->val_offset;
+	i64 num_entries;
+	i64 k;
+	i64 pos = tg->val_offset;
 	de_ucstring *s = NULL;
 	struct mpfctx_struct mpfctx;
 
@@ -1401,9 +1401,9 @@ static void handler_mpentry(deark *c, lctx *d, const struct taginfo *tg, const s
 
 	s = ucstring_create(c);
 	for(k=0; k<num_entries; k++) {
-		de_int64 n;
-		de_int64 imgoffs_rel, imgoffs_abs;
-		de_int64 imgsize;
+		i64 n;
+		i64 imgoffs_rel, imgoffs_abs;
+		i64 imgsize;
 		de_uint32 attrs;
 		de_uint32 dataformat;
 		de_uint32 typecode;
@@ -1511,7 +1511,7 @@ done:
 static void handler_dngprivatedata(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni)
 {
 	struct de_stringreaderdata *srd;
-	de_int64 nbytes_to_scan;
+	i64 nbytes_to_scan;
 
 	nbytes_to_scan = tg->total_size;
 	if(nbytes_to_scan>128) nbytes_to_scan=128;
@@ -2113,7 +2113,7 @@ static const struct tagnuminfo tagnuminfo_arr[] = {
 static void do_dbg_print_numeric_values(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni,
 	de_ucstring *dbgline)
 {
-	de_int64 i;
+	i64 i;
 	struct valdec_params vp;
 	struct valdec_result vr;
 	struct numeric_value nv;
@@ -2175,8 +2175,8 @@ static void do_dbg_print_text_values(deark *c, lctx *d, const struct taginfo *tg
 	struct de_stringreaderdata *srd;
 	int is_truncated = 0;
 	int str_count = 0;
-	de_int64 pos, endpos;
-	de_int64 adj_totalsize;
+	i64 pos, endpos;
+	i64 adj_totalsize;
 
 	// An ASCII field is a sequence of NUL-terminated strings.
 	// The spec does not say what to do if an ASCII field does not end in a NUL.
@@ -2293,14 +2293,14 @@ static const struct tagnuminfo *find_tagnuminfo(int tagnum, int filefmt, int ifd
 	return NULL;
 }
 
-static void process_ifd(deark *c, lctx *d, de_int64 ifd_idx1, de_int64 ifdpos1, int ifdtype1)
+static void process_ifd(deark *c, lctx *d, i64 ifd_idx1, i64 ifdpos1, int ifdtype1)
 {
 	struct page_ctx *pg = NULL;
 	int num_tags;
 	int i;
-	de_int64 jpegoffset = 0;
-	de_int64 jpeglength = -1;
-	de_int64 tmpoffset;
+	i64 jpegoffset = 0;
+	i64 jpeglength = -1;
+	i64 tmpoffset;
 	de_ucstring *dbgline = NULL;
 	struct taginfo tg;
 	const char *name;
@@ -2465,9 +2465,9 @@ done:
 
 static void do_tiff(deark *c, lctx *d)
 {
-	de_int64 pos;
-	de_int64 ifdoffs;
-	de_int64 ifd_idx;
+	i64 pos;
+	i64 ifdoffs;
+	i64 ifd_idx;
 	int need_to_read_header = 1;
 
 	pos = 0;
@@ -2520,8 +2520,8 @@ static void do_tiff(deark *c, lctx *d)
 
 static int de_identify_tiff_internal(deark *c, int *is_le)
 {
-	de_int64 byte_order_sig;
-	de_int64 magic;
+	i64 byte_order_sig;
+	i64 magic;
 	int fmt = 0;
 
 	byte_order_sig = de_getui16be(0);

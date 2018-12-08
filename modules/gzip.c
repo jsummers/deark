@@ -18,7 +18,7 @@ struct member_data {
 	de_byte cmpr_code;
 	de_uint32 crc16_reported;
 	de_uint32 crc32_reported;
-	de_int64 isize;
+	i64 isize;
 	struct de_timestamp mod_time_ts;
 
 	struct de_crcobj *crco; // A copy of lctx->crco
@@ -42,21 +42,21 @@ static const char *get_os_name(de_byte n)
 	return name;
 }
 
-static void our_writecallback(dbuf *f, const de_byte *buf, de_int64 buf_len)
+static void our_writecallback(dbuf *f, const de_byte *buf, i64 buf_len)
 {
 	struct member_data *md = (struct member_data *)f->userdata;
 	de_crcobj_addbuf(md->crco, buf, buf_len);
 }
 
-static int do_gzip_read_member(deark *c, lctx *d, de_int64 pos1, de_int64 *member_size)
+static int do_gzip_read_member(deark *c, lctx *d, i64 pos1, i64 *member_size)
 {
 	de_byte b0, b1;
-	de_int64 pos;
-	de_int64 n;
-	de_int64 foundpos;
-	de_int64 string_len;
-	de_int64 cmpr_data_len;
-	de_int64 mod_time_unix;
+	i64 pos;
+	i64 n;
+	i64 foundpos;
+	i64 string_len;
+	i64 cmpr_data_len;
+	i64 mod_time_unix;
 	de_uint32 crc_calculated;
 	de_ucstring *member_name = NULL;
 	int saved_indent_level;
@@ -218,8 +218,8 @@ done:
 static void de_run_gzip(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
-	de_int64 pos;
-	de_int64 member_size;
+	i64 pos;
+	i64 member_size;
 
 	d = de_malloc(c, sizeof(lctx));
 	d->crco = de_crcobj_create(c, DE_CRCOBJ_CRC32_IEEE);

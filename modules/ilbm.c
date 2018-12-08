@@ -34,11 +34,11 @@ DE_DECLARE_MODULE(de_module_anim);
 #define CODE_ACBM  0x4143424d
 
 struct img_info {
-	de_int64 width, height;
-	de_int64 planes_total;
-	de_int64 rowspan;
-	de_int64 planespan;
-	de_int64 bits_per_row_per_plane;
+	i64 width, height;
+	i64 planes_total;
+	i64 rowspan;
+	i64 planespan;
+	i64 bits_per_row_per_plane;
 	de_byte masking_code;
 	int is_thumb;
 	const char *filename_token;
@@ -51,7 +51,7 @@ typedef struct localctx_struct {
 	// thumbnail images vs. the main image.
 	struct img_info main_img;
 
-	de_int64 planes;
+	i64 planes;
 	de_byte found_bmhd;
 	de_byte found_cmap;
 	de_byte compression;
@@ -65,10 +65,10 @@ typedef struct localctx_struct {
 	de_byte is_sham, is_pchg, is_ctbl;
 	de_byte uses_color_cycling;
 	de_byte errflag; // Set if image(s) format is not supported.
-	de_int64 transparent_color;
+	i64 transparent_color;
 
-	de_int64 x_aspect, y_aspect;
-	de_int64 x_dpi, y_dpi;
+	i64 x_aspect, y_aspect;
+	i64 x_dpi, y_dpi;
 	de_int32 camg_mode;
 
 	int opt_notrans;
@@ -80,12 +80,12 @@ typedef struct localctx_struct {
 	struct de_inthashtable *chunks_seen;
 
 	// Our palette always has 256 colors. This is how many we read from the file.
-	de_int64 pal_ncolors;
+	i64 pal_ncolors;
 
 	de_uint32 pal[256];
 } lctx;
 
-static int do_bmhd(deark *c, lctx *d, de_int64 pos1, de_int64 len)
+static int do_bmhd(deark *c, lctx *d, i64 pos1, i64 len)
 {
 	int retval = 0;
 	const char *masking_name;
@@ -99,7 +99,7 @@ static int do_bmhd(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 	d->main_img.width = de_getui16be(pos1);
 	d->main_img.height = de_getui16be(pos1+2);
 	de_dbg_dimensions(c, d->main_img.width, d->main_img.height);
-	d->planes = (de_int64)de_getbyte(pos1+8);
+	d->planes = (i64)de_getbyte(pos1+8);
 	de_dbg(c, "planes: %d", (int)d->planes);
 	d->main_img.masking_code = de_getbyte(pos1+9);
 	switch(d->main_img.masking_code) {
@@ -119,8 +119,8 @@ static int do_bmhd(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 		de_dbg(c, " color key: %d", (int)d->transparent_color);
 	}
 
-	d->x_aspect = (de_int64)de_getbyte(pos1+14);
-	d->y_aspect = (de_int64)de_getbyte(pos1+15);
+	d->x_aspect = (i64)de_getbyte(pos1+14);
+	d->y_aspect = (i64)de_getbyte(pos1+15);
 	de_dbg(c, "apect ratio: %d, %d", (int)d->x_aspect, (int)d->y_aspect);
 
 	retval = 1;
@@ -128,7 +128,7 @@ done:
 	return retval;
 }
 
-static void do_cmap(deark *c, lctx *d, de_int64 pos, de_int64 len)
+static void do_cmap(deark *c, lctx *d, i64 pos, i64 len)
 {
 	d->found_cmap = 1;
 	d->pal_ncolors = len/3;
@@ -138,7 +138,7 @@ static void do_cmap(deark *c, lctx *d, de_int64 pos, de_int64 len)
 	de_read_palette_rgb(c->infile, pos, d->pal_ncolors, 3, d->pal, 256, 0);
 }
 
-static void do_camg(deark *c, lctx *d, de_int64 pos, de_int64 len)
+static void do_camg(deark *c, lctx *d, i64 pos, i64 len)
 {
 	if(len<4) return;
 	d->has_camg = 1;
@@ -156,7 +156,7 @@ static void do_camg(deark *c, lctx *d, de_int64 pos, de_int64 len)
 	de_dbg_indent(c, -1);
 }
 
-static void do_dpi(deark *c, lctx *d, de_int64 pos, de_int64 len)
+static void do_dpi(deark *c, lctx *d, i64 pos, i64 len)
 {
 	if(len<4) return;
 	d->x_dpi = de_getui16be(pos);
@@ -164,7 +164,7 @@ static void do_dpi(deark *c, lctx *d, de_int64 pos, de_int64 len)
 	de_dbg(c, "dpi: %d"DE_CHAR_TIMES"%d", (int)d->x_dpi, (int)d->y_dpi);
 }
 
-static de_byte getbit(const de_byte *m, de_int64 bitnum)
+static de_byte getbit(const de_byte *m, i64 bitnum)
 {
 	de_byte b;
 	b = m[bitnum/8];
@@ -175,9 +175,9 @@ static de_byte getbit(const de_byte *m, de_int64 bitnum)
 static void do_deplanarize(deark *c, lctx *d, struct img_info *ii,
 	const de_byte *row_orig, de_byte *row_deplanarized)
 {
-	de_int64 i;
-	de_int64 sample;
-	de_int64 bit;
+	i64 i;
+	i64 sample;
+	i64 bit;
 	de_byte b;
 
 	if(d->planes>=1 && d->planes<=8) {
@@ -203,10 +203,10 @@ static void do_deplanarize(deark *c, lctx *d, struct img_info *ii,
 }
 
 static void get_row_acbm(deark *c, lctx *d, struct img_info *ii,
-	dbuf *unc_pixels, de_int64 j, de_byte *row)
+	dbuf *unc_pixels, i64 j, de_byte *row)
 {
-	de_int64 i;
-	de_int64 bit;
+	i64 i;
+	i64 bit;
 	de_byte b;
 
 	de_zeromem(row, (size_t)ii->width);
@@ -219,13 +219,13 @@ static void get_row_acbm(deark *c, lctx *d, struct img_info *ii,
 }
 
 static void get_row_vdat(deark *c, lctx *d, struct img_info *ii,
-	dbuf *unc_pixels, de_int64 j, de_byte *row)
+	dbuf *unc_pixels, i64 j, de_byte *row)
 {
-	de_int64 i;
-	de_int64 set;
-	de_int64 bytes_per_column;
-	de_int64 bytes_per_set;
-	de_int64 columns_per_set;
+	i64 i;
+	i64 set;
+	i64 bytes_per_column;
+	i64 bytes_per_set;
+	i64 columns_per_set;
 	de_byte b;
 
 	de_zeromem(row, (size_t)ii->width);
@@ -274,7 +274,7 @@ static void do_image_24(deark *c, lctx *d, struct img_info *ii,
 {
 	de_bitmap *img = NULL;
 	de_finfo *fi = NULL;
-	de_int64 i, j;
+	i64 i, j;
 	de_byte *row_orig = NULL;
 	de_byte *row_deplanarized = NULL;
 	de_byte cr, cg, cb;
@@ -315,7 +315,7 @@ done:
 
 static void make_ehb_palette(deark *c, lctx *d)
 {
-	de_int64 k;
+	i64 k;
 	de_byte cr, cg, cb;
 
 	for(k=0; k<32; k++) {
@@ -339,7 +339,7 @@ static void make_ehb_palette(deark *c, lctx *d)
 // more research is needed.
 static void fixup_palette(deark *c, lctx *d)
 {
-	de_int64 k;
+	i64 k;
 	de_byte cr, cg, cb;
 
 	if(d->is_ham8) {
@@ -384,7 +384,7 @@ static int do_image_1to8(deark *c, lctx *d, struct img_info *ii,
 {
 	de_bitmap *img = NULL;
 	de_finfo *fi = NULL;
-	de_int64 i, j;
+	i64 i, j;
 	de_byte *row_orig = NULL;
 	de_byte *row_deplanarized = NULL;
 	de_byte val;
@@ -396,7 +396,7 @@ static int do_image_1to8(deark *c, lctx *d, struct img_info *ii,
 	de_uint32 clr;
 	int dst_bytes_per_pixel;
 	int retval = 0;
-	de_int64 bytes_expected = 0;
+	i64 bytes_expected = 0;
 	int bytes_expected_valid = 0;
 
 	if(!d->found_cmap) {
@@ -620,7 +620,7 @@ static void print_summary(deark *c, lctx *d)
 	if(d->uses_color_cycling)
 		ucstring_append_sz(summary, " color-cycling", DE_ENCODING_UTF8);
 
-	if(de_inthashtable_item_exists(c, d->chunks_seen, (de_int64)CODE_CLUT)) {
+	if(de_inthashtable_item_exists(c, d->chunks_seen, (i64)CODE_CLUT)) {
 		ucstring_append_sz(summary, " CLUT", DE_ENCODING_UTF8);
 	}
 
@@ -635,7 +635,7 @@ done:
 }
 
 static int do_image(deark *c, lctx *d, struct img_info *ii,
-	de_int64 pos1, de_int64 len, unsigned int createflags)
+	i64 pos1, i64 len, unsigned int createflags)
 {
 	dbuf *unc_pixels = NULL;
 	dbuf *unc_pixels_toclose = NULL;
@@ -704,7 +704,7 @@ done:
 }
 
 // Thumbnail chunk
-static void do_tiny(deark *c, lctx *d, de_int64 pos1, de_int64 len)
+static void do_tiny(deark *c, lctx *d, i64 pos1, i64 len)
 {
 	struct img_info *ii = NULL;
 
@@ -731,17 +731,17 @@ done:
 	de_free(c, ii);
 }
 
-static void do_vdat(deark *c, lctx *d, de_int64 pos1, de_int64 len)
+static void do_vdat(deark *c, lctx *d, i64 pos1, i64 len)
 {
-	de_int64 pos;
-	de_int64 endpos;
+	i64 pos;
+	i64 endpos;
 	de_byte b0, b1;
-	de_int64 count;
-	de_int64 cmd_cnt;
-	de_int64 i, k;
+	i64 count;
+	i64 cmd_cnt;
+	i64 i, k;
 	de_byte cmd;
 	de_byte *cmds = NULL;
-	de_int64 prev_unc_len;
+	i64 prev_unc_len;
 
 	d->is_vdat = 1;
 
@@ -796,14 +796,14 @@ static void do_vdat(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 			}
 		}
 		else if(cmd>=0x80) {
-			count = 2*(128-(de_int64)(cmd&0x7f));
+			count = 2*(128-(i64)(cmd&0x7f));
 			dbuf_copy(c->infile, pos, count, d->vdat_unc_pixels);
 			pos += count;
 		}
 		else { // cmd is from 0x02 to 0x7f
 			b0 = de_getbyte(pos++);
 			b1 = de_getbyte(pos++);
-			count = (de_int64)cmd;
+			count = (i64)cmd;
 			for(k=0; k<count; k++) {
 				dbuf_writebyte(d->vdat_unc_pixels, b0);
 				dbuf_writebyte(d->vdat_unc_pixels, b1);
@@ -817,7 +817,7 @@ done:
 }
 
 // A BODY or ABIT chunk
-static int do_body(deark *c, lctx *d, struct de_iffctx *ictx, de_int64 pos, de_int64 len,
+static int do_body(deark *c, lctx *d, struct de_iffctx *ictx, i64 pos, i64 len,
 	de_uint32 ct, int *is_vdat)
 {
 	if(d->uses_color_cycling) {
@@ -874,14 +874,14 @@ static int my_ilbm_chunk_handler(deark *c, struct de_iffctx *ictx)
 {
 	int quitflag = 0;
 	int is_vdat;
-	de_int64 tmp1, tmp2;
+	i64 tmp1, tmp2;
 	int saved_indent_level;
 	lctx *d = (lctx*)ictx->userdata;
 
 	de_dbg_indent_save(c, &saved_indent_level);
 
 	// Remember that we've seen at least one chunk of this type
-	de_inthashtable_add_item(c, d->chunks_seen, (de_int64)ictx->chunkctx->chunk4cc.id, NULL);
+	de_inthashtable_add_item(c, d->chunks_seen, (i64)ictx->chunkctx->chunk4cc.id, NULL);
 
 	// Pretend we can handle all nonstandard chunks
 	if(!de_fmtutil_is_standard_iff_chunk(c, ictx, ictx->chunkctx->chunk4cc.id)) {
@@ -1090,10 +1090,10 @@ typedef struct animctx_struct {
 	int reserved;
 } animctx;
 
-static void do_anim_anhd(deark *c, animctx *d, de_int64 pos, de_int64 len)
+static void do_anim_anhd(deark *c, animctx *d, i64 pos, i64 len)
 {
 	de_byte op;
-	de_int64 tmp;
+	i64 tmp;
 
 	if(len<24) return;
 

@@ -13,20 +13,20 @@ struct lang_info {
 };
 
 struct file_fork_info {
-	de_int64 ptr;
-	de_int64 len;
-	de_int64 orig_len;
+	i64 ptr;
+	i64 len;
+	i64 orig_len;
 };
 
 // A "file rec" is a kind of record, which may or may not actually represent
 // a file.
 struct file_rec {
-	de_int64 rec_pos; // points to the "File record type" field
-	de_int64 rec_len;
+	i64 rec_pos; // points to the "File record type" field
+	i64 rec_len;
 	unsigned int rectype;
 	unsigned int file_type;
 
-	de_int64 num_forks;
+	i64 num_forks;
 	struct file_fork_info *ffi; // has [num_forks] elements
 	de_ucstring *name_src;
 	de_ucstring *name_dest;
@@ -34,28 +34,28 @@ struct file_rec {
 };
 
 typedef struct localctx_struct {
-	de_int64 installer_ver;
+	i64 installer_ver;
 	unsigned int options;
 	de_byte is_rel6;
 	de_byte files_are_compressed;
-	de_int64 nlangs;
-	de_int64 nfiles;
-	de_int64 nrequisites;
-	de_int64 languages_ptr;
-	de_int64 files_ptr;
-	de_int64 requisites_ptr;
-	de_int64 certificates_ptr;
-	de_int64 component_name_ptr;
-	de_int64 signature_ptr;
-	de_int64 capabilities_ptr;
+	i64 nlangs;
+	i64 nfiles;
+	i64 nrequisites;
+	i64 languages_ptr;
+	i64 files_ptr;
+	i64 requisites_ptr;
+	i64 certificates_ptr;
+	i64 component_name_ptr;
+	i64 signature_ptr;
+	i64 capabilities_ptr;
 	struct lang_info *langi;
 } lctx;
 
-static int do_file_header(deark *c, lctx *d, de_int64 pos1)
+static int do_file_header(deark *c, lctx *d, i64 pos1)
 {
-	de_int64 pos = pos1;
-	de_int64 k;
-	de_int64 n, n2;
+	i64 pos = pos1;
+	i64 k;
+	i64 n, n2;
 	int retval = 0;
 	de_uint32 crc_even;
 	de_uint32 crc_odd;
@@ -189,7 +189,7 @@ static const char *get_file_type_name(unsigned int t)
 }
 
 static void do_extract_file(deark *c, lctx *d, struct file_rec *fr,
-	de_int64 fork_num)
+	i64 fork_num)
 {
 	de_finfo *fi = NULL;
 	de_ucstring *fn = NULL;
@@ -230,7 +230,7 @@ done:
 }
 
 static void read_sis_string(deark *c, lctx *d, de_ucstring *s,
-	de_int64 pos, de_int64 len)
+	i64 pos, i64 len)
 {
 	if(d->options & 0x0001) {
 		dbuf_read_to_ucstring_n(c->infile, pos, len, 512*2, s, 0, DE_ENCODING_UTF16LE);
@@ -242,9 +242,9 @@ static void read_sis_string(deark *c, lctx *d, de_ucstring *s,
 
 // Append a substring of s2 to s1
 static void ucstring_append_substring(de_ucstring *s1, const de_ucstring *s2,
-	de_int64 pos, de_int64 len)
+	i64 pos, i64 len)
 {
-	de_int64 i;
+	i64 i;
 
 	if(!s2) return;
 	if(pos<0) return;
@@ -257,9 +257,9 @@ static void ucstring_append_substring(de_ucstring *s1, const de_ucstring *s2,
 // Sets fr->name_to_use
 static void make_output_filename(deark *c, lctx *d, struct file_rec *fr)
 {
-	de_int64 k;
-	de_int64 pathlen = 0;
-	de_int64 basenamelen;
+	i64 k;
+	i64 pathlen = 0;
+	i64 basenamelen;
 	de_ucstring *s;
 
 	if(fr->name_to_use) return;
@@ -300,9 +300,9 @@ static void make_output_filename(deark *c, lctx *d, struct file_rec *fr)
 // Returns 0 if fr->rec_len was not set
 static int do_file_record_file(deark *c, lctx *d, struct file_rec *fr)
 {
-	de_int64 pos = fr->rec_pos;
-	de_int64 k;
-	de_int64 nlen, nptr;
+	i64 pos = fr->rec_pos;
+	i64 k;
+	i64 nlen, nptr;
 	int should_extract;
 
 	pos += 4; // File record type, already read
@@ -381,10 +381,10 @@ static const char *get_file_rec_type_name(unsigned int t)
 	return s?s:"?";
 }
 
-static int do_file_record(deark *c, lctx *d, de_int64 idx,
-	de_int64 pos1, de_int64 *bytes_consumed)
+static int do_file_record(deark *c, lctx *d, i64 idx,
+	i64 pos1, i64 *bytes_consumed)
 {
-	de_int64 pos = pos1;
+	i64 pos = pos1;
 	int retval = 0;
 	struct file_rec *fr = NULL;
 	int saved_indent_level;
@@ -402,7 +402,7 @@ static int do_file_record(deark *c, lctx *d, de_int64 idx,
 		if(!do_file_record_file(c, d, fr)) goto done;
 	}
 	else if(fr->rectype==0x3 || fr->rectype==0x4) { // *if*, *elseif*
-		de_int64 n;
+		i64 n;
 		n = de_getui32le_p(&pos);
 		de_dbg(c, "size of conditional expression: %d", (int)n);
 		pos += n;
@@ -432,14 +432,14 @@ done:
 
 static void do_file_records(deark *c, lctx *d)
 {
-	de_int64 k;
-	de_int64 pos1 = d->files_ptr;
-	de_int64 pos = pos1;
+	i64 k;
+	i64 pos1 = d->files_ptr;
+	i64 pos = pos1;
 
 	de_dbg(c, "file records at %"INT64_FMT, pos1);
 	de_dbg_indent(c, 1);
 	for(k=0; k<d->nfiles; k++) {
-		de_int64 bytes_consumed = 0;
+		i64 bytes_consumed = 0;
 
 		if(pos >= c->infile->len) break;
 		if(!do_file_record(c, d, k, pos, &bytes_consumed)) break;
@@ -464,9 +464,9 @@ static void lookup_lang_namecode(unsigned int lc, char *nc, size_t nc_len)
 
 static void do_language_records(deark *c, lctx *d)
 {
-	de_int64 k;
-	de_int64 pos1 = d->languages_ptr;
-	de_int64 pos = pos1;
+	i64 k;
+	i64 pos1 = d->languages_ptr;
+	i64 pos = pos1;
 
 	if(d->nlangs<1) return;
 	de_dbg(c, "language records at %"INT64_FMT, pos1);
@@ -483,9 +483,9 @@ static void do_language_records(deark *c, lctx *d)
 
 static void do_component_name_record(deark *c, lctx *d)
 {
-	de_int64 pos1 = d->component_name_ptr;
+	i64 pos1 = d->component_name_ptr;
 	de_ucstring *s = NULL;
-	de_int64 k;
+	i64 k;
 
 	if(pos1<1 || pos1>=c->infile->len) return;
 	if(d->nlangs<1) return;
@@ -494,7 +494,7 @@ static void do_component_name_record(deark *c, lctx *d)
 	de_dbg_indent(c, 1);
 	s = ucstring_create(c);
 	for(k=0; k<d->nlangs; k++) {
-		de_int64 npos, nlen;
+		i64 npos, nlen;
 		nlen = de_getui32le(pos1+4*k);
 		npos = de_getui32le(pos1+4*d->nlangs+4*k);
 		ucstring_empty(s);
@@ -507,9 +507,9 @@ static void do_component_name_record(deark *c, lctx *d)
 
 static void do_requisite_records(deark *c, lctx *d)
 {
-	de_int64 pos1 = d->requisites_ptr;
-	de_int64 pos = pos1;
-	de_int64 k, i;
+	i64 pos1 = d->requisites_ptr;
+	i64 pos = pos1;
+	i64 k, i;
 	de_ucstring *s = NULL;
 
 	if(d->nrequisites<1) return;
@@ -518,7 +518,7 @@ static void do_requisite_records(deark *c, lctx *d)
 	s = ucstring_create(c);
 	de_dbg_indent(c, 1);
 	for(k=0; k<d->nrequisites; k++) {
-		de_int64 n, n2;
+		i64 n, n2;
 
 		de_dbg(c, "requisite record[%d] at %"INT64_FMT, (int)k, pos);
 		de_dbg_indent(c, 1);
@@ -531,7 +531,7 @@ static void do_requisite_records(deark *c, lctx *d)
 		de_dbg(c, "variant: 0x%08x", (unsigned int)n);
 
 		for(i=0; i<d->nlangs; i++) {
-			de_int64 npos, nlen;
+			i64 npos, nlen;
 			nlen = de_getui32le(pos+4*i);
 			npos = de_getui32le(pos+4*d->nlangs+4*i);
 			ucstring_empty(s);
@@ -548,10 +548,10 @@ static void do_requisite_records(deark *c, lctx *d)
 }
 static void do_certificate_records(deark *c, lctx *d)
 {
-	de_int64 pos1 = d->certificates_ptr;
-	de_int64 pos = pos1;
-	de_int64 k;
-	de_int64 ncerts;
+	i64 pos1 = d->certificates_ptr;
+	i64 pos = pos1;
+	i64 k;
+	i64 ncerts;
 	int z[6];
 
 	if(pos1<1 || pos1>=c->infile->len) return;
@@ -576,7 +576,7 @@ static void do_certificate_records(deark *c, lctx *d)
 static void de_run_sis(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
-	de_int64 pos;
+	i64 pos;
 
 	d = de_malloc(c, sizeof(lctx));
 

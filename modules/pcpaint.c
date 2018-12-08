@@ -9,8 +9,8 @@
 DE_DECLARE_MODULE(de_module_pcpaint);
 
 struct pal_info {
-	de_int64 edesc;
-	de_int64 esize;
+	i64 edesc;
+	i64 esize;
 	de_byte *data;
 };
 
@@ -26,14 +26,14 @@ struct localctx_struct {
 	int ver;
 	de_bitmap *img;
 	de_finfo *fi;
-	de_int64 header_size;
+	i64 header_size;
 	de_byte plane_info;
 	de_byte palette_flag;
 	de_byte video_mode; // 0 = unknown
 	struct pal_info pal_info_mainfile;
 	struct pal_info pal_info_palfile;
 	struct pal_info *pal_info_to_use; // Points to _mainfile or _palfile
-	de_int64 num_rle_blocks;
+	i64 num_rle_blocks;
 	dbuf *unc_pixels;
 	decoder_fn_type decoder_fn;
 };
@@ -83,10 +83,10 @@ static void set_density(deark *c, lctx *d)
 
 static int decode_text(deark *c, lctx *d)
 {
-	de_int64 width_in_chars;
+	i64 width_in_chars;
 	struct de_char_context *charctx = NULL;
 	struct de_char_screen *screen;
-	de_int64 i, j, k;
+	i64 i, j, k;
 	de_byte ch, attr;
 	int retval = 0;
 
@@ -111,7 +111,7 @@ static int decode_text(deark *c, lctx *d)
 	screen->cell_rows = de_malloc(c, screen->height * sizeof(struct de_char_cell*));
 
 	for(j=0; j<screen->height; j++) {
-		de_int64 j2;
+		i64 j2;
 
 		j2 = screen->height-1-j;
 		screen->cell_rows[j2] = de_malloc(c, screen->width * sizeof(struct de_char_cell));
@@ -140,9 +140,9 @@ done:
 }
 
 // Create a standard RGB palette from raw RGB palette data
-static void make_rgb_palette(deark *c, lctx *d, de_uint32 *pal, de_int64 num_entries)
+static void make_rgb_palette(deark *c, lctx *d, de_uint32 *pal, i64 num_entries)
 {
-	de_int64 k;
+	i64 k;
 	de_byte cr1, cg1, cb1;
 	de_byte cr2, cg2, cb2;
 	int has_8bit_samples = 0;
@@ -192,12 +192,12 @@ static void make_rgb_palette(deark *c, lctx *d, de_uint32 *pal, de_int64 num_ent
 static int decode_egavga16(deark *c, lctx *d)
 {
 	de_uint32 pal[16];
-	de_int64 i, j;
-	de_int64 k;
-	de_int64 plane;
+	i64 i, j;
+	i64 k;
+	i64 plane;
 	de_byte z[4];
-	de_int64 src_rowspan;
-	de_int64 src_planespan;
+	i64 src_rowspan;
+	i64 src_planespan;
 	int palent;
 	char tmps[32];
 
@@ -261,7 +261,7 @@ static int decode_egavga16(deark *c, lctx *d)
 static int decode_vga256(deark *c, lctx *d)
 {
 	de_uint32 pal[256];
-	de_int64 k;
+	i64 k;
 
 	de_dbg(c, "image type: 256-color");
 	de_zeromem(pal, sizeof(pal));
@@ -290,10 +290,10 @@ static int decode_vga256(deark *c, lctx *d)
 
 static int decode_bilevel(deark *c, lctx *d)
 {
-	de_int64 src_rowspan;
+	i64 src_rowspan;
 	de_uint32 pal[2];
 	int is_grayscale;
-	de_int64 edesc = d->pal_info_to_use->edesc;
+	i64 edesc = d->pal_info_to_use->edesc;
 
 	de_dbg(c, "image type: bilevel");
 
@@ -333,8 +333,8 @@ static int decode_bilevel(deark *c, lctx *d)
 
 static int decode_cga4(deark *c, lctx *d)
 {
-	de_int64 k;
-	de_int64 src_rowspan;
+	i64 k;
+	i64 src_rowspan;
 	de_uint32 pal[4];
 	de_byte pal_id = 0;
 	de_byte border_col = 0;
@@ -385,11 +385,11 @@ static int decode_cga4(deark *c, lctx *d)
 // packed_data_size does not include header size.
 // Returns 0 on error.
 static int uncompress_block(deark *c, lctx *d,
-	de_int64 pos, de_int64 packed_data_size, de_byte run_marker)
+	i64 pos, i64 packed_data_size, de_byte run_marker)
 {
-	de_int64 end_of_this_block;
+	i64 end_of_this_block;
 	de_byte x;
-	de_int64 run_length;
+	i64 run_length;
 
 	end_of_this_block = pos + packed_data_size;
 
@@ -407,7 +407,7 @@ static int uncompress_block(deark *c, lctx *d,
 		pos++;
 		if(x!=0) {
 			// If nonzero, this byte is the run length.
-			run_length = (de_int64)x;
+			run_length = (i64)x;
 		}
 		else {
 			// If zero, it is followed by a 16-bit run length
@@ -429,13 +429,13 @@ static int uncompress_block(deark *c, lctx *d,
 // This is for PIC format only.
 static int uncompress_pixels(deark *c, lctx *d)
 {
-	de_int64 pos;
-	de_int64 n;
-	de_int64 packed_block_size;
-	de_int64 unpacked_block_size;
+	i64 pos;
+	i64 n;
+	i64 packed_block_size;
+	i64 unpacked_block_size;
 	de_byte run_marker;
 	int retval = 1;
-	de_int64 end_of_this_block;
+	i64 end_of_this_block;
 
 	if(d->num_rle_blocks<1) {
 		// Not compressed
@@ -495,7 +495,7 @@ static int do_read_alt_palette_file(deark *c, lctx *d)
 	const char *palfn;
 	dbuf *palfile = NULL;
 	int retval = 0;
-	de_int64 magic;
+	i64 magic;
 
 	palfn = de_get_ext_option(c, "palfile");
 	if(!palfn) palfn = de_get_ext_option(c, "file2");
@@ -538,7 +538,7 @@ done:
 // If image can't be decoded, prints an error and returns 0.
 static int do_set_up_decoder(deark *c, lctx *d)
 {
-	de_int64 edesc;
+	i64 edesc;
 
 	edesc = d->pal_info_to_use->edesc; // For brevity
 
@@ -662,7 +662,7 @@ done:
 
 static void de_run_pcpaint_clp(deark *c, lctx *d, de_module_params *mparams)
 {
-	de_int64 file_size;
+	i64 file_size;
 	de_byte run_marker;
 	int is_compressed;
 	int saved_indent_level;
@@ -811,7 +811,7 @@ static int de_identify_pcpaint(deark *c)
 {
 	de_byte buf[12];
 	int pic_ext, clp_ext;
-	de_int64 x;
+	i64 x;
 
 	pic_ext = de_input_file_has_ext(c, "pic");
 

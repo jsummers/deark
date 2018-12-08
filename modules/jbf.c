@@ -23,7 +23,7 @@ typedef struct localctx_struct {
 	unsigned int ver_major;
 	unsigned int ver_minor;
 	unsigned int ver_combined;
-	de_int64 image_count;
+	i64 image_count;
 } lctx;
 
 static const de_uint32 v1pal[256] = {
@@ -61,7 +61,7 @@ static const de_uint32 v1pal[256] = {
 	0x7f00f0,0x78f000,0xf18000,0xf00080,0xc10037,0xa89080,0x606848,0x887860
 };
 
-static int do_read_header(deark *c, lctx *d, de_int64 pos)
+static int do_read_header(deark *c, lctx *d, i64 pos)
 {
 	int retval = 0;
 
@@ -114,16 +114,16 @@ static const char *get_type_name(unsigned int filetype_code)
 	return nm;
 }
 
-static int read_filename(deark *c, lctx *d, struct page_ctx *pg, de_int64 pos1, de_int64 *bytes_consumed)
+static int read_filename(deark *c, lctx *d, struct page_ctx *pg, i64 pos1, i64 *bytes_consumed)
 {
 	int retval = 0;
-	de_int64 pos = pos1;
+	i64 pos = pos1;
 	de_ucstring *fname_orig = NULL;
 
 	fname_orig = ucstring_create(c);
 
 	if(d->ver_combined>=0x010001) { // v1.1+
-		de_int64 fnlen;
+		i64 fnlen;
 		fnlen = de_getui32le(pos);
 		de_dbg(c, "original filename len: %d", (int)fnlen);
 		pos += 4;
@@ -170,9 +170,9 @@ done:
 	return retval;
 }
 
-static void read_FILETIME(deark *c, lctx *d, struct page_ctx *pg, de_int64 pos)
+static void read_FILETIME(deark *c, lctx *d, struct page_ctx *pg, i64 pos)
 {
-	de_int64 ft;
+	i64 ft;
 	char timestamp_buf[64];
 
 	ft = de_geti64le(pos);
@@ -181,9 +181,9 @@ static void read_FILETIME(deark *c, lctx *d, struct page_ctx *pg, de_int64 pos)
 	de_dbg(c, "mod time: %s", timestamp_buf);
 }
 
-static void read_unix_time(deark *c, lctx *d, struct page_ctx *pg, de_int64 pos)
+static void read_unix_time(deark *c, lctx *d, struct page_ctx *pg, i64 pos)
 {
-	de_int64 ut;
+	i64 ut;
 	char timestamp_buf[64];
 
 	ut = de_geti32le(pos);
@@ -192,15 +192,15 @@ static void read_unix_time(deark *c, lctx *d, struct page_ctx *pg, de_int64 pos)
 	de_dbg(c, "mod time: %s", timestamp_buf);
 }
 
-static int read_bitmap_v1(deark *c, lctx *d, struct page_ctx *pg, de_int64 pos1, de_int64 *bytes_consumed)
+static int read_bitmap_v1(deark *c, lctx *d, struct page_ctx *pg, i64 pos1, i64 *bytes_consumed)
 {
 	struct de_bmpinfo bi;
 	int retval = 0;
 	dbuf *outf = NULL;
-	de_int64 pos = pos1;
-	de_int64 k;
-	de_int64 count;
-	de_int64 dec_bytes = 0;
+	i64 pos = pos1;
+	i64 k;
+	i64 count;
+	i64 dec_bytes = 0;
 
 	de_dbg(c, "bitmap at %d", (int)pos);
 	de_dbg_indent(c, 1);
@@ -246,13 +246,13 @@ static int read_bitmap_v1(deark *c, lctx *d, struct page_ctx *pg, de_int64 pos1,
 
 		if(d->ver_minor>=3) {
 			if(b0>0x80) { // a compressed run
-				count = (de_int64)(b0-0x80);
+				count = (i64)(b0-0x80);
 				b1 = de_getbyte(pos++);
 				dbuf_write_run(outf, b1, count);
 				dec_bytes += count;
 			}
 			else { // uncompressed run
-				count = (de_int64)b0;
+				count = (i64)b0;
 				dbuf_copy(c->infile, pos, count, outf);
 				pos += count;
 				dec_bytes += count;
@@ -260,7 +260,7 @@ static int read_bitmap_v1(deark *c, lctx *d, struct page_ctx *pg, de_int64 pos1,
 		}
 		else {
 			if(b0>0xc0) { // a compressed run
-				count = (de_int64)(b0-0xc0);
+				count = (i64)(b0-0xc0);
 				b1 = de_getbyte(pos++);
 				dbuf_write_run(outf, b1, count);
 				dec_bytes += count;
@@ -281,17 +281,17 @@ done:
 	return retval;
 }
 
-static int do_one_thumbnail(deark *c, lctx *d, de_int64 pos1, de_int64 imgidx, de_int64 *bytes_consumed)
+static int do_one_thumbnail(deark *c, lctx *d, i64 pos1, i64 imgidx, i64 *bytes_consumed)
 {
-	de_int64 payload_len;
+	i64 payload_len;
 	int retval = 0;
-	de_int64 pos = pos1;
+	i64 pos = pos1;
 	unsigned int filetype_code;
-	de_int64 file_size;
-	de_int64 x;
-	de_int64 tn_w, tn_h;
+	i64 file_size;
+	i64 x;
+	i64 tn_w, tn_h;
 	struct page_ctx *pg = NULL;
-	de_int64 fn_field_size = 0;
+	i64 fn_field_size = 0;
 
 	de_dbg(c, "image #%d at %d", (int)imgidx, (int)pos1);
 	de_dbg_indent(c, 1);
@@ -368,7 +368,7 @@ static int do_one_thumbnail(deark *c, lctx *d, de_int64 pos1, de_int64 imgidx, d
 		pos += payload_len;
 	}
 	else { // ver_major==1
-		de_int64 thumbnail_size;
+		i64 thumbnail_size;
 		if(!read_bitmap_v1(c, d, pg, pos, &thumbnail_size)) {
 			goto done;
 		}
@@ -388,9 +388,9 @@ done:
 static void de_run_jbf(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
-	de_int64 pos = 0;
-	de_int64 bytes_consumed;
-	de_int64 count = 0;
+	i64 pos = 0;
+	i64 bytes_consumed;
+	i64 count = 0;
 
 	d = de_malloc(c, sizeof(lctx));
 	if(!do_read_header(c, d, pos)) goto done;

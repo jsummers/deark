@@ -21,9 +21,9 @@ void de_set_input_style(deark *c, int x);
 
 void de_set_input_filename(deark *c, const char *fn);
 int de_set_input_encoding(deark *c, const char *encname, int reserved);
-void de_set_input_timezone(deark *c, de_int64 tzoffs_seconds);
-void de_set_input_file_slice_start(deark *c, de_int64 n);
-void de_set_input_file_slice_size(deark *c, de_int64 n);
+void de_set_input_timezone(deark *c, i64 tzoffs_seconds);
+void de_set_input_file_slice_start(deark *c, i64 n);
+void de_set_input_file_slice_size(deark *c, i64 n);
 
 void de_run(deark *c);
 
@@ -46,7 +46,7 @@ void de_set_listmode(deark *c, int x);
 void de_set_want_modhelp(deark *c, int x);
 void de_set_first_output_file(deark *c, int x);
 void de_set_max_output_files(deark *c, int n);
-void de_set_max_image_dimension(deark *c, de_int64 n);
+void de_set_max_image_dimension(deark *c, i64 n);
 void de_set_messages(deark *c, int x);
 void de_set_warnings(deark *c, int x);
 

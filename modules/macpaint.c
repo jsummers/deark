@@ -16,16 +16,16 @@ DE_DECLARE_MODULE(de_module_macpaint);
 typedef struct localctx_struct {
 	int has_macbinary_header;
 	int df_known;
-	de_int64 expected_dfpos;
-	de_int64 expected_dflen;
+	i64 expected_dfpos;
+	i64 expected_dflen;
 	de_ucstring *filename;
 	struct de_timestamp mod_time_from_macbinary;
 } lctx;
 
-static void do_read_bitmap(deark *c, lctx *d, de_int64 pos)
+static void do_read_bitmap(deark *c, lctx *d, i64 pos)
 {
-	de_int64 ver_num;
-	de_int64 cmpr_bytes_consumed = 0;
+	i64 ver_num;
+	i64 cmpr_bytes_consumed = 0;
 	dbuf *unc_pixels = NULL;
 	de_finfo *fi = NULL;
 
@@ -83,13 +83,13 @@ static void do_read_bitmap(deark *c, lctx *d, de_int64 pos)
 // figure this out, but hopefully it's pretty reliable.
 // Returns an integer (0, 1, 2) reflecting the likelihood that this is the
 // correct position.
-static int valid_file_at(deark *c, lctx *d, de_int64 pos1)
+static int valid_file_at(deark *c, lctx *d, i64 pos1)
 {
 	de_byte b;
-	de_int64 x;
-	de_int64 xpos, ypos;
-	de_int64 pos;
-	de_int64 imgstart;
+	i64 x;
+	i64 xpos, ypos;
+	i64 pos;
+	i64 imgstart;
 
 	imgstart = pos1+512;
 
@@ -114,7 +114,7 @@ static int valid_file_at(deark *c, lctx *d, de_int64 pos1)
 		pos++;
 
 		if(b<=127) {
-			x = 1+(de_int64)b;
+			x = 1+(i64)b;
 			pos+=x;
 			xpos+=8*x;
 			if(xpos==MACPAINT_WIDTH) {
@@ -127,7 +127,7 @@ static int valid_file_at(deark *c, lctx *d, de_int64 pos1)
 			}
 		}
 		else if(b>=129) {
-			x = 257 - (de_int64)b;
+			x = 257 - (i64)b;
 			pos++;
 			xpos+=8*x;
 			if(xpos==MACPAINT_WIDTH) {
@@ -165,14 +165,14 @@ static const char *get_pattern_set_info(de_uint32 patcrc, int *is_blank)
 // Some MacPaint files contain a collection of brush patterns.
 // Essentially, MacPaint saves workspace settings inside image files.
 // (But these patterns are the only setting.)
-static void do_read_patterns(deark *c, lctx *d, de_int64 pos)
+static void do_read_patterns(deark *c, lctx *d, i64 pos)
 {
-	de_int64 cell;
-	de_int64 i, j;
+	i64 cell;
+	i64 i, j;
 	de_byte x;
-	const de_int64 dispwidth = 19;
-	const de_int64 dispheight = 17;
-	de_int64 xpos, ypos;
+	const i64 dispwidth = 19;
+	const i64 dispheight = 17;
+	i64 xpos, ypos;
 	int is_blank;
 	de_bitmap *pat = NULL;
 	de_uint32 patcrc;
@@ -261,8 +261,8 @@ static void do_macbinary(deark *c, lctx *d)
 
 	if(mparams->out_params.uint1>0) {
 		d->df_known = 1;
-		d->expected_dfpos = (de_int64)mparams->out_params.uint1;
-		d->expected_dflen = (de_int64)mparams->out_params.uint2;
+		d->expected_dfpos = (i64)mparams->out_params.uint1;
+		d->expected_dflen = (i64)mparams->out_params.uint2;
 	}
 
 	if(mparams->out_params.fi->mod_time.is_valid) {
@@ -292,7 +292,7 @@ done:
 static void de_run_macpaint(deark *c, de_module_params *mparams)
 {
 	lctx *d;
-	de_int64 pos;
+	i64 pos;
 
 	d = de_malloc(c, sizeof(lctx));
 	d->has_macbinary_header = de_get_ext_option_bool(c, "macpaint:macbinary", -1);

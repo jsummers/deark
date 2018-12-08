@@ -11,30 +11,30 @@ DE_DECLARE_MODULE(de_module_gemraster);
 
 typedef struct localctx_struct {
 	int is_ximg;
-	de_int64 w, h;
-	de_int64 nplanes;
-	de_int64 patlen;
-	de_int64 rowspan_per_plane;
-	de_int64 rowspan_total;
-	de_int64 pixwidth, pixheight;
-	de_int64 header_size_in_words;
-	de_int64 header_size_in_bytes;
+	i64 w, h;
+	i64 nplanes;
+	i64 patlen;
+	i64 rowspan_per_plane;
+	i64 rowspan_total;
+	i64 pixwidth, pixheight;
+	i64 header_size_in_words;
+	i64 header_size_in_bytes;
 	de_byte *pattern_buf;
 	de_uint32 pal[256];
 } lctx;
 
 // Caller must initialize *repeat_count.
 static void uncompress_line(deark *c, lctx *d, dbuf *unc_line,
-	de_int64 pos1, de_int64 rownum,
-	de_int64 *bytes_consumed, de_int64 *repeat_count)
+	i64 pos1, i64 rownum,
+	i64 *bytes_consumed, i64 *repeat_count)
 {
-	de_int64 pos;
+	i64 pos;
 	de_byte b0, b1;
 	de_byte val;
-	de_int64 count;
-	de_int64 k;
-	de_int64 tmp_repeat_count;
-	de_int64 unc_line_len_orig;
+	i64 count;
+	i64 k;
+	i64 tmp_repeat_count;
+	i64 unc_line_len_orig;
 
 	*bytes_consumed = 0;
 	pos = pos1;
@@ -51,7 +51,7 @@ static void uncompress_line(deark *c, lctx *d, dbuf *unc_line,
 			if(b1>0) { // pattern run
 				de_read(d->pattern_buf, pos, d->patlen);
 				pos += d->patlen;
-				count = (de_int64)b1;
+				count = (i64)b1;
 				for(k=0; k<count; k++) {
 					dbuf_write(unc_line, d->pattern_buf, d->patlen);
 				}
@@ -61,7 +61,7 @@ static void uncompress_line(deark *c, lctx *d, dbuf *unc_line,
 				flagbyte = de_getbyte(pos);
 				if(flagbyte==0xff) {
 					pos++;
-					tmp_repeat_count = (de_int64)de_getbyte(pos++);
+					tmp_repeat_count = (i64)de_getbyte(pos++);
 					if(tmp_repeat_count == 0) {
 						de_dbg(c, "row %d: bad repeat count", (int)rownum);
 					}
@@ -76,13 +76,13 @@ static void uncompress_line(deark *c, lctx *d, dbuf *unc_line,
 			}
 		}
 		else if(b0==0x80) { // "Uncompressed bit string"
-			count = (de_int64)de_getbyte(pos++);
+			count = (i64)de_getbyte(pos++);
 			dbuf_copy(c->infile, pos, count, unc_line);
 			pos += count;
 		}
 		else { // "solid run"
 			val = (b0&0x80) ? 0xff : 0x00;
-			count = (de_int64)(b0 & 0x7f);
+			count = (i64)(b0 & 0x7f);
 			dbuf_write_run(unc_line, val, count);
 		}
 	}
@@ -91,14 +91,14 @@ static void uncompress_line(deark *c, lctx *d, dbuf *unc_line,
 }
 
 static void uncompress_pixels(deark *c, lctx *d, dbuf *unc_pixels,
-	de_int64 pos1, de_int64 len)
+	i64 pos1, i64 len)
 {
-	de_int64 bytes_consumed;
-	de_int64 pos;
-	de_int64 ypos;
-	de_int64 repeat_count;
-	de_int64 k;
-	de_int64 plane;
+	i64 bytes_consumed;
+	i64 pos;
+	i64 ypos;
+	i64 repeat_count;
+	i64 k;
+	i64 plane;
 	dbuf *unc_line = NULL;
 
 	d->pattern_buf = de_malloc(c, d->patlen);
@@ -143,7 +143,7 @@ static void set_density(deark *c, lctx *d, de_finfo *fi)
 
 static void read_paletted_image(deark *c, lctx *d, dbuf *unc_pixels, de_bitmap *img)
 {
-	de_int64 i, j, plane;
+	i64 i, j, plane;
 	unsigned int n;
 	de_byte x;
 
@@ -183,10 +183,10 @@ static int do_gem_img(deark *c, lctx *d)
 	de_bitmap *img = NULL;
 	de_finfo *fi = NULL;
 	int is_color = 0;
-	de_int64 k;
+	i64 k;
 
 	if(d->header_size_in_words==9 && (d->nplanes==3 || d->nplanes==4)) {
-		de_int64 x;
+		i64 x;
 		x = de_getui16be(8*2);
 		if(x==0) {
 			is_color = 1;
@@ -220,7 +220,7 @@ static int do_gem_img(deark *c, lctx *d)
 		read_paletted_image(c, d, unc_pixels, img);
 	}
 	else {
-		de_make_grayscale_palette(d->pal, ((de_int64)1)<<((unsigned int)d->nplanes), 1);
+		de_make_grayscale_palette(d->pal, ((i64)1)<<((unsigned int)d->nplanes), 1);
 		read_paletted_image(c, d, unc_pixels, img);
 	}
 
@@ -234,10 +234,10 @@ static int do_gem_img(deark *c, lctx *d)
 
 static void read_palette_ximg(deark *c, lctx *d)
 {
-	de_int64 pal_entries_in_file;
-	de_int64 pal_entries_to_read;
-	de_int64 i;
-	de_int64 cr1, cg1, cb1;
+	i64 pal_entries_in_file;
+	i64 pal_entries_to_read;
+	i64 i;
+	i64 cr1, cg1, cb1;
 	de_byte cr, cg, cb;
 	int range_warned = 0;
 	char tmps[64];
@@ -245,7 +245,7 @@ static void read_palette_ximg(deark *c, lctx *d)
 	pal_entries_in_file = (d->header_size_in_bytes-22)/3;
 	if(pal_entries_in_file<1) return;
 	if(d->nplanes<=8)
-		pal_entries_to_read = (de_int64)(1<<((unsigned int)d->nplanes));
+		pal_entries_to_read = (i64)(1<<((unsigned int)d->nplanes));
 	else
 		pal_entries_to_read = 0;
 	if(pal_entries_to_read>pal_entries_in_file)
@@ -309,11 +309,11 @@ static int do_gem_ximg(deark *c, lctx *d)
 	}
 
 	if(d->header_size_in_words==25 && !d->is_ximg) {
-		de_int64 pal_pos = d->header_size_in_bytes-32;
+		i64 pal_pos = d->header_size_in_bytes-32;
 		de_dbg(c, "palette at %d", (int)pal_pos);
 		de_dbg_indent(c, 1);
 		de_fmtutil_read_atari_palette(c, c->infile, pal_pos,
-			d->pal, 16, ((de_int64)1)<<d->nplanes, 0);
+			d->pal, 16, ((i64)1)<<d->nplanes, 0);
 		de_dbg_indent(c, -1);
 	}
 	else {
@@ -359,8 +359,8 @@ done:
 
 static void de_run_gemraster(deark *c, de_module_params *mparams)
 {
-	de_int64 ver;
-	de_int64 ext_word0 = 0;
+	i64 ver;
+	i64 ext_word0 = 0;
 	lctx *d = NULL;
 	int need_format_warning = 0;
 	int saved_indent_level;
@@ -456,8 +456,8 @@ done:
 
 static int de_identify_gemraster(deark *c)
 {
-	de_int64 ver, x2;
-	de_int64 nplanes;
+	i64 ver, x2;
+	i64 nplanes;
 
 	if(!de_input_file_has_ext(c, "img") &&
 		!de_input_file_has_ext(c, "ximg"))

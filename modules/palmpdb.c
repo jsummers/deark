@@ -28,12 +28,12 @@ struct rec_data_struct {
 };
 
 struct rec_list_struct {
-	de_int64 num_recs;
+	i64 num_recs;
 	// The rec_data items are in the order they appear in the file
 	struct rec_data_struct *rec_data;
 	// A list of all the rec_data indices, in the order we should read them
 	size_t *order_to_read;
-	de_int64 icon_name_count;
+	i64 icon_name_count;
 };
 
 struct rsrc_type_info_struct {
@@ -44,9 +44,9 @@ struct rsrc_type_info_struct {
 };
 
 struct img_gen_info {
-	de_int64 w, h;
-	de_int64 bitsperpixel;
-	de_int64 rowbytes;
+	i64 w, h;
+	i64 bitsperpixel;
+	i64 rowbytes;
 	de_finfo *fi;
 	unsigned int createflags;
 };
@@ -61,20 +61,20 @@ typedef struct localctx_struct {
 	int file_subfmt;
 	int has_nonzero_ids;
 	const char *fmt_shortname;
-	de_int64 rec_size; // bytes per record
+	i64 rec_size; // bytes per record
 	struct de_fourcc dtype4cc;
 	struct de_fourcc creator4cc;
-	de_int64 appinfo_offs;
-	de_int64 sortinfo_offs;
+	i64 appinfo_offs;
+	i64 sortinfo_offs;
 	struct rec_list_struct rec_list;
 	de_ucstring *icon_name;
 } lctx;
 
-static void handle_palm_timestamp(deark *c, lctx *d, de_int64 pos, const char *name)
+static void handle_palm_timestamp(deark *c, lctx *d, i64 pos, const char *name)
 {
 	struct de_timestamp ts;
 	char timestamp_buf[64];
-	de_int64 ts_int;
+	i64 ts_int;
 
 	ts_int = de_getui32be(pos);
 	if(ts_int==0) {
@@ -137,12 +137,12 @@ static void get_db_attr_descr(de_ucstring *s, de_uint32 attribs)
 
 static int do_read_pdb_prc_header(deark *c, lctx *d)
 {
-	de_int64 pos1 = 0;
+	i64 pos1 = 0;
 	de_ucstring *dname = NULL;
 	de_ucstring *attr_descr = NULL;
 	de_uint32 attribs;
 	de_uint32 version;
-	de_int64 x;
+	i64 x;
 	int retval = 0;
 
 	de_dbg(c, "header at %d", (int)pos1);
@@ -210,20 +210,20 @@ done:
 	return retval;
 }
 
-static de_int64 calc_rec_len(deark *c, lctx *d, de_int64 rec_idx)
+static i64 calc_rec_len(deark *c, lctx *d, i64 rec_idx)
 {
-	de_int64 len;
+	i64 len;
 	if(rec_idx+1 < d->rec_list.num_recs) {
-		len = (de_int64)(d->rec_list.rec_data[rec_idx+1].offset - d->rec_list.rec_data[rec_idx].offset);
+		len = (i64)(d->rec_list.rec_data[rec_idx+1].offset - d->rec_list.rec_data[rec_idx].offset);
 	}
 	else {
-		len = c->infile->len - (de_int64)d->rec_list.rec_data[rec_idx].offset;
+		len = c->infile->len - (i64)d->rec_list.rec_data[rec_idx].offset;
 	}
 	return len;
 }
 
 // ext_ucstring will be used if ext_sz is NULL
-static void extract_item(deark *c, lctx *d, de_int64 data_offs, de_int64 data_len,
+static void extract_item(deark *c, lctx *d, i64 data_offs, i64 data_len,
 	const char *ext_sz, de_ucstring *ext_ucstring,
 	unsigned int createflags, int always_extract)
 {
@@ -245,21 +245,21 @@ done:
 }
 
 static int do_decompress_imgview_image(deark *c, lctx *d, dbuf *inf,
-	de_int64 pos1, de_int64 len, dbuf *unc_pixels)
+	i64 pos1, i64 len, dbuf *unc_pixels)
 {
-	de_int64 pos = pos1;
+	i64 pos = pos1;
 	de_byte b1, b2;
-	de_int64 count;
+	i64 count;
 
 	while(pos < pos1+len) {
 		b1 = dbuf_getbyte(inf, pos++);
 		if(b1>128) {
-			count = (de_int64)b1-127;
+			count = (i64)b1-127;
 			b2 = dbuf_getbyte(inf, pos++);
 			dbuf_write_run(unc_pixels, b2, count);
 		}
 		else {
-			count = (de_int64)b1+1;
+			count = (i64)b1+1;
 			dbuf_copy(inf, pos, count, unc_pixels);
 			pos += count;
 		}
@@ -270,7 +270,7 @@ static int do_decompress_imgview_image(deark *c, lctx *d, dbuf *inf,
 static void do_generate_unc_image(deark *c, lctx *d, dbuf *unc_pixels,
 	struct img_gen_info *igi)
 {
-	de_int64 i, j;
+	i64 i, j;
 	de_byte b;
 	de_byte b_adj;
 	de_bitmap *img = NULL;
@@ -299,11 +299,11 @@ done:
 
 // A wrapper that decompresses the image if necessary, then calls do_generate_unc_image().
 static void do_generate_image(deark *c, lctx *d,
-	dbuf *inf, de_int64 pos, de_int64 len, unsigned int cmpr_meth,
+	dbuf *inf, i64 pos, i64 len, unsigned int cmpr_meth,
 	struct img_gen_info *igi)
 {
 	dbuf *unc_pixels = NULL;
-	de_int64 expected_num_uncmpr_image_bytes;
+	i64 expected_num_uncmpr_image_bytes;
 
 	expected_num_uncmpr_image_bytes = igi->rowbytes*igi->h;
 
@@ -327,14 +327,14 @@ static void do_generate_image(deark *c, lctx *d,
 	dbuf_close(unc_pixels);
 }
 
-static void do_imgview_image(deark *c, lctx *d, de_int64 pos1, de_int64 len)
+static void do_imgview_image(deark *c, lctx *d, i64 pos1, i64 len)
 {
 	de_byte imgver;
 	de_byte imgtype;
 	unsigned int cmpr_meth;
-	de_int64 x0, x1;
-	de_int64 pos = pos1;
-	de_int64 num_raw_image_bytes;
+	i64 x0, x1;
+	i64 pos = pos1;
+	i64 num_raw_image_bytes;
 	de_ucstring *iname = NULL;
 	struct img_gen_info *igi = NULL;
 
@@ -424,7 +424,7 @@ done:
 	}
 }
 
-static void do_imgview_text(deark *c, lctx *d, de_int64 pos, de_int64 len)
+static void do_imgview_text(deark *c, lctx *d, i64 pos, i64 len)
 {
 	de_ucstring *s = NULL;
 
@@ -456,12 +456,12 @@ static void get_rec_attr_descr(de_ucstring *s, de_byte attribs)
 }
 
 // For PDB or PQA format
-static int do_read_pdb_record(deark *c, lctx *d, de_int64 rec_idx, de_int64 pos1)
+static int do_read_pdb_record(deark *c, lctx *d, i64 rec_idx, i64 pos1)
 {
-	de_int64 data_offs;
+	i64 data_offs;
 	de_byte attribs;
 	de_uint32 id;
-	de_int64 data_len;
+	i64 data_len;
 	de_ucstring *attr_descr = NULL;
 	char extfull[80];
 
@@ -520,7 +520,7 @@ static int do_read_pdb_record(deark *c, lctx *d, de_int64 rec_idx, de_int64 pos1
 }
 
 static void do_string_rsrc(deark *c, lctx *d,
-	de_int64 pos, de_int64 len,
+	i64 pos, i64 len,
 	const struct rsrc_type_info_struct *rti, unsigned int flags)
 {
 	de_ucstring *s = NULL;
@@ -597,12 +597,12 @@ static const struct rsrc_type_info_struct *get_rsrc_type_info(de_uint32 id)
 	return NULL;
 }
 
-static int do_read_prc_record(deark *c, lctx *d, de_int64 rec_idx, de_int64 pos1)
+static int do_read_prc_record(deark *c, lctx *d, i64 rec_idx, i64 pos1)
 {
 	de_uint32 id;
 	struct de_fourcc rsrc_type_4cc;
-	de_int64 data_offs;
-	de_int64 data_len;
+	i64 data_offs;
+	i64 data_len;
 	int always_extract = 0;
 	de_ucstring *ext_ucstring = NULL;
 	int ext_set = 0;
@@ -625,7 +625,7 @@ static int do_read_prc_record(deark *c, lctx *d, de_int64 rec_idx, de_int64 pos1
 	id = (de_uint32)de_getui16be(pos1+4);
 	de_dbg(c, "id: %d", (int)id);
 
-	data_offs = (de_int64)d->rec_list.rec_data[rec_idx].offset;
+	data_offs = (i64)d->rec_list.rec_data[rec_idx].offset;
 	de_dbg(c, "data pos: %d", (int)data_offs);
 	data_len = calc_rec_len(c, d, rec_idx);
 	de_dbg(c, "calculated len: %d", (int)data_len);
@@ -669,9 +669,9 @@ static int do_read_prc_record(deark *c, lctx *d, de_int64 rec_idx, de_int64 pos1
 
 // Put idx at the beginning of the order_to_read array, shifting everything else
 // over. Assumes items [0] through [idx-1] are valid.
-static void rec_list_insert_at_start(struct rec_list_struct *rl, de_int64 idx)
+static void rec_list_insert_at_start(struct rec_list_struct *rl, i64 idx)
 {
-	de_int64 i;
+	i64 i;
 	// Move [idx-1] to [idx],
 	//      [idx-2] to [idx-1], ...
 	for(i=idx; i>0; i--) {
@@ -683,9 +683,9 @@ static void rec_list_insert_at_start(struct rec_list_struct *rl, de_int64 idx)
 
 // Allocates and populates the d->rec_data array.
 // Tests for sanity, and returns 0 if there is a problem.
-static int do_prescan_records(deark *c, lctx *d, de_int64 pos1)
+static int do_prescan_records(deark *c, lctx *d, i64 pos1)
 {
-	de_int64 i;
+	i64 i;
 
 	if(d->rec_list.num_recs<1) return 1;
 	// num_recs is untrusted, but it is a 16-bit int that can be at most 65535.
@@ -718,7 +718,7 @@ static int do_prescan_records(deark *c, lctx *d, de_int64 pos1)
 		}
 
 		// Record data must not start beyond the end of file.
-		if((de_int64)d->rec_list.rec_data[i].offset > c->infile->len) {
+		if((i64)d->rec_list.rec_data[i].offset > c->infile->len) {
 			de_err(c, "Record %d (at %d) starts after end of file (%d)",
 				(int)i, (int)d->rec_list.rec_data[i].offset, (int)c->infile->len);
 			return 0;
@@ -737,10 +737,10 @@ static int do_prescan_records(deark *c, lctx *d, de_int64 pos1)
 }
 
 // Read "Palm Database record list" or PRC records, and the data it refers to
-static int do_read_pdb_prc_records(deark *c, lctx *d, de_int64 pos1)
+static int do_read_pdb_prc_records(deark *c, lctx *d, i64 pos1)
 {
-	de_int64 i;
-	de_int64 x;
+	i64 i;
+	i64 x;
 	int retval = 0;
 
 	de_dbg(c, "%s record list at %d", d->fmt_shortname, (int)pos1);
@@ -769,8 +769,8 @@ static int do_read_pdb_prc_records(deark *c, lctx *d, de_int64 pos1)
 	// i is the index in rec_list.order_to_read
 	// n is the index in rec_list.rec_data
 	for(i=0; i<d->rec_list.num_recs; i++) {
-		de_int64 n;
-		n = (de_int64)d->rec_list.order_to_read[i];
+		i64 n;
+		n = (i64)d->rec_list.order_to_read[i];
 		if(d->file_fmt==FMT_PRC) {
 			if(!do_read_prc_record(c, d, n, pos1+6+d->rec_size*n))
 				goto done;
@@ -786,12 +786,12 @@ done:
 	return retval;
 }
 
-static void do_pqa_app_info_block(deark *c, lctx *d, de_int64 pos1, de_int64 len)
+static void do_pqa_app_info_block(deark *c, lctx *d, i64 pos1, i64 len)
 {
 	de_uint32 sig;
 	de_uint32 ux;
 	de_ucstring *s = NULL;
-	de_int64 pos = pos1;
+	i64 pos = pos1;
 
 	sig = (de_uint32)de_getui32be(pos);
 	if(sig!=CODE_lnch) return; // Apparently not a PQA appinfo block
@@ -844,7 +844,7 @@ static void do_pqa_app_info_block(deark *c, lctx *d, de_int64 pos1, de_int64 len
 
 static void do_app_info_block(deark *c, lctx *d)
 {
-	de_int64 len;
+	i64 len;
 
 	if(d->appinfo_offs==0) return;
 	de_dbg(c, "app info block at %d", (int)d->appinfo_offs);
@@ -854,7 +854,7 @@ static void do_app_info_block(deark *c, lctx *d)
 		len = d->sortinfo_offs - d->appinfo_offs;
 	}
 	else if(d->rec_list.num_recs>0) {
-		len = (de_int64)d->rec_list.rec_data[0].offset - d->appinfo_offs;
+		len = (i64)d->rec_list.rec_data[0].offset - d->appinfo_offs;
 	}
 	else {
 		len = c->infile->len - d->appinfo_offs;
@@ -877,14 +877,14 @@ static void do_app_info_block(deark *c, lctx *d)
 
 static void do_sort_info_block(deark *c, lctx *d)
 {
-	de_int64 len;
+	i64 len;
 
 	if(d->sortinfo_offs==0) return;
 	de_dbg(c, "sort info block at %d", (int)d->sortinfo_offs);
 
 	de_dbg_indent(c, 1);
 	if(d->rec_list.num_recs>0) {
-		len = (de_int64)d->rec_list.rec_data[0].offset - d->sortinfo_offs;
+		len = (i64)d->rec_list.rec_data[0].offset - d->sortinfo_offs;
 	}
 	else {
 		len = c->infile->len - d->sortinfo_offs;
@@ -943,12 +943,12 @@ static int de_identify_palmdb(deark *c)
 	de_byte id[8];
 	de_byte buf[32];
 	de_uint32 attribs;
-	de_int64 appinfo_offs;
-	de_int64 sortinfo_offs;
-	de_int64 n;
-	de_int64 num_recs;
-	de_int64 recdata_offs;
-	de_int64 curpos;
+	i64 appinfo_offs;
+	i64 sortinfo_offs;
+	i64 n;
+	i64 num_recs;
+	i64 recdata_offs;
+	i64 curpos;
 
 	static const char *exts[] = {"pdb", "prc", "pqa", "mobi"};
 	static const char *ids[] = {"vIMGView", "TEXtREAd", "pqa clpr", "BOOKMOBI"};
@@ -1024,9 +1024,9 @@ static int de_identify_palmdb(deark *c)
 	return 25;
 }
 
-static int looks_like_a_4cc(dbuf *f, de_int64 pos)
+static int looks_like_a_4cc(dbuf *f, i64 pos)
 {
-	de_int64 i;
+	i64 i;
 	de_byte buf[4];
 	dbuf_read(f, buf, pos, 4);
 	for(i=0; i<4; i++) {
@@ -1040,7 +1040,7 @@ static int looks_like_a_4cc(dbuf *f, de_int64 pos)
 // TODO: Improve this ID algorithm
 static int identify_pdb_prc_internal(deark *c, dbuf *f)
 {
-	de_int64 nrecs;
+	i64 nrecs;
 	de_uint32 attribs;
 	attribs = (de_uint32)dbuf_getui16be(f, 32);
 	if(!looks_like_a_4cc(f, 60)) return 0;

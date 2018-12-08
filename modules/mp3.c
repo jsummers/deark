@@ -22,11 +22,11 @@ typedef struct mp3ctx_struct {
 
 struct ape_tag_header_footer {
 	de_uint32 ape_ver, ape_flags;
-	de_int64 tag_size_raw, item_count;
-	de_int64 tag_startpos;
-	de_int64 tag_size_total;
-	de_int64 items_startpos;
-	de_int64 items_size;
+	i64 tag_size_raw, item_count;
+	i64 tag_startpos;
+	i64 tag_size_total;
+	i64 items_startpos;
+	i64 items_size;
 	int has_header;
 };
 
@@ -44,7 +44,7 @@ static const char *get_ape_item_type_name(unsigned int t)
 }
 
 static void do_ape_text_item(deark *c, struct ape_tag_header_footer *ah,
-   de_int64 pos, de_int64 len)
+   i64 pos, i64 len)
 {
 	int encoding;
 	de_ucstring *s = NULL;
@@ -58,10 +58,10 @@ static void do_ape_text_item(deark *c, struct ape_tag_header_footer *ah,
 }
 
 static int do_ape_item(deark *c, struct ape_tag_header_footer *ah,
-   de_int64 pos1, de_int64 bytes_avail, de_int64 *bytes_consumed)
+   i64 pos1, i64 bytes_avail, i64 *bytes_consumed)
 {
-	de_int64 item_value_len;
-	de_int64 pos = pos1;
+	i64 item_value_len;
+	i64 pos = pos1;
 	de_uint32 flags;
 	unsigned int item_type;
 	struct de_stringreaderdata *key = NULL;
@@ -112,14 +112,14 @@ done:
 	return retval;
 }
 static void do_ape_item_list(deark *c, struct ape_tag_header_footer *ah,
-	de_int64 pos1, de_int64 len)
+	i64 pos1, i64 len)
 {
-	de_int64 pos = pos1;
+	i64 pos = pos1;
 
 	de_dbg(c, "APE items at %"INT64_FMT", len=%"INT64_FMT, pos1, len);
 	de_dbg_indent(c, 1);
 	while(1) {
-		de_int64 bytes_consumed = 0;
+		i64 bytes_consumed = 0;
 
 		if(pos >= pos1+len) break;
 		if(!do_ape_item(c, ah, pos, pos1+len-pos, &bytes_consumed)) {
@@ -134,7 +134,7 @@ done:
 }
 
 static int do_ape_tag_header_or_footer(deark *c, struct ape_tag_header_footer *ah,
-	de_int64 pos1, int is_footer)
+	i64 pos1, int is_footer)
 {
 	int retval = 0;
 
@@ -172,13 +172,13 @@ done:
 	return retval;
 }
 
-static int do_ape_tag(deark *c, de_int64 endpos, de_int64 *ape_tag_bytes_consumed)
+static int do_ape_tag(deark *c, i64 endpos, i64 *ape_tag_bytes_consumed)
 {
 	struct ape_tag_header_footer *af = NULL;
 	int saved_indent_level;
 	int retval = 0;
 
-	de_int64 footer_startpos;
+	i64 footer_startpos;
 
 	de_dbg_indent_save(c, &saved_indent_level);
 	*ape_tag_bytes_consumed = 0;
@@ -318,12 +318,12 @@ done:
 	return buf;
 }
 
-static int find_mp3_frame_header(deark *c, mp3ctx *d, de_int64 pos1, de_int64 nbytes_avail,
-	de_int64 *skip_this_many_bytes)
+static int find_mp3_frame_header(deark *c, mp3ctx *d, i64 pos1, i64 nbytes_avail,
+	i64 *skip_this_many_bytes)
 {
 	de_byte *buf = NULL;
-	de_int64 nbytes_in_buf;
-	de_int64 bpos = 0;
+	i64 nbytes_in_buf;
+	i64 bpos = 0;
 	int retval = 0;
 
 	*skip_this_many_bytes = 0;
@@ -346,10 +346,10 @@ done:
 	return retval;
 }
 
-static void do_mp3_frame(deark *c, mp3ctx *d, de_int64 pos1, de_int64 len)
+static void do_mp3_frame(deark *c, mp3ctx *d, i64 pos1, i64 len)
 {
 	de_uint32 x;
-	de_int64 pos = pos1;
+	i64 pos = pos1;
 	int saved_indent_level;
 	char buf[32];
 
@@ -357,7 +357,7 @@ static void do_mp3_frame(deark *c, mp3ctx *d, de_int64 pos1, de_int64 len)
 	x = (de_uint32)de_getui32be(pos);
 	if((x & 0xffe00000U) != 0xffe00000U) {
 		int ret;
-		de_int64 num_bytes_to_skip = 0;
+		i64 num_bytes_to_skip = 0;
 		de_msg(c, "Note: MP3/MPA frame header not found at %"INT64_FMT". Scanning for frame header.", pos);
 		ret = find_mp3_frame_header(c, d, pos1, len, &num_bytes_to_skip);
 		if(!ret) {
@@ -417,7 +417,7 @@ done:
 	de_dbg_indent_restore(c, saved_indent_level);
 }
 
-static void do_mp3_data(deark *c, mp3ctx *d, de_int64 pos1, de_int64 len)
+static void do_mp3_data(deark *c, mp3ctx *d, i64 pos1, i64 len)
 {
 
 	de_dbg(c, "MP3/MPA data at %"INT64_FMT", len=%"INT64_FMT, pos1, len);
@@ -431,9 +431,9 @@ static void do_mp3_data(deark *c, mp3ctx *d, de_int64 pos1, de_int64 len)
 static void de_run_mpegaudio(deark *c, de_module_params *mparams)
 {
 	mp3ctx *d = NULL;
-	de_int64 pos;
-	de_int64 endpos;
-	de_int64 ape_tag_len;
+	i64 pos;
+	i64 endpos;
+	i64 ape_tag_len;
 	struct de_id3info id3i;
 
 	d = de_malloc(c, sizeof(mp3ctx));
@@ -469,7 +469,7 @@ static int de_identify_mpegaudio(deark *c)
 	int has_any_ext;
 	int looks_valid = 0;
 	de_byte has_id3v2;
-	de_int64 pos;
+	i64 pos;
 
 	if(!c->detection_data.id3.detection_attempted) {
 		de_err(c, "mp3 internal");
@@ -501,7 +501,7 @@ static int de_identify_mpegaudio(deark *c)
 	}
 
 	if(has_id3v2) {
-		pos = (de_int64)c->detection_data.id3.bytes_at_start;
+		pos = (i64)c->detection_data.id3.bytes_at_start;
 	}
 	else {
 		pos = 0;

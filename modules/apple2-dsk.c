@@ -31,7 +31,7 @@ static void do_woz_INFO(deark *c, struct de_iffctx *ictx,
 	const struct de_iffchunkctx *chunkctx)
 {
 	de_byte b;
-	de_int64 pos = chunkctx->dpos;
+	i64 pos = chunkctx->dpos;
 	de_ucstring *s = NULL;
 
 	if(chunkctx->dlen<37) return;
@@ -65,7 +65,7 @@ static void do_woz_print_metadata_item(deark *c, de_ucstring *name, de_ucstring 
 static void do_woz_META(deark *c, struct de_iffctx *ictx,
 	const struct de_iffchunkctx *chunkctx)
 {
-	de_int64 k;
+	i64 k;
 	int reading_val;
 	de_ucstring *s = NULL;
 	de_ucstring *name = NULL;
@@ -147,7 +147,7 @@ static void de_run_woz(deark *c, de_module_params *mparams)
 	lctx *d = NULL;
 	struct de_iffctx *ictx = NULL;
 	de_uint32 crc;
-	de_int64 pos = 0;
+	i64 pos = 0;
 
 	// WOZ has a 12-byte header, then sequence of chunks that are basically the
 	// same format as RIFF.

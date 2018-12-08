@@ -36,7 +36,7 @@
 struct de_liblzwctx {
 	deark *c;
 	dbuf *inf;
-	de_int64 inf_fpos;
+	i64 inf_fpos;
 	int arcfs_mode;
 
 	int eof;
@@ -45,7 +45,7 @@ struct de_liblzwctx {
 	unsigned char *unreadbuf;
 	size_t stackp_diff;
 	size_t insize, outpos;
-	de_int64 rsize;
+	i64 rsize;
 
 	unsigned char flags;
 	int maxbits, block_mode;
@@ -79,7 +79,7 @@ struct de_liblzwctx {
 struct de_liblzwctx *de_liblzw_dbufopen(dbuf *inf, unsigned int dflags, de_byte lzwmode)
 {
 	struct de_liblzwctx *ret = NULL;
-	de_int64 inf_fpos = 0;
+	i64 inf_fpos = 0;
 	int has_header;
 
 	has_header = (dflags&0x1)?1:0;
@@ -188,7 +188,7 @@ int de_liblzw_close(struct de_liblzwctx *lzw)
 /*
  * Read LZW file
  */
-de_int64 de_liblzw_read(struct de_liblzwctx *lzw, de_byte *readbuf, size_t count)
+i64 de_liblzw_read(struct de_liblzwctx *lzw, de_byte *readbuf, size_t count)
 {
 	size_t count_left = count;
 	unsigned char *inbuf = lzw->inbuf;

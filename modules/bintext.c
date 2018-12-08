@@ -15,11 +15,11 @@ DE_DECLARE_MODULE(de_module_artworx_adf);
 DE_DECLARE_MODULE(de_module_icedraw);
 
 typedef struct localctx_struct {
-	de_int64 width_in_chars, height_in_chars;
-	de_int64 font_height;
+	i64 width_in_chars, height_in_chars;
+	i64 font_height;
 	de_byte has_palette, has_font, compression, nonblink, has_512chars;
 
-	de_int64 font_data_len;
+	i64 font_data_len;
 	de_byte *font_data;
 	int is_standard_font;
 	struct de_bitmap_font *font;
@@ -27,7 +27,7 @@ typedef struct localctx_struct {
 
 static void do_bin_main(deark *c, lctx *d, dbuf *unc_data, struct de_char_context *charctx)
 {
-	de_int64 i, j;
+	i64 i, j;
 	de_byte ccode, acode;
 	de_byte fgcol, bgcol;
 	struct de_char_screen *screen;
@@ -65,15 +65,15 @@ static void do_bin_main(deark *c, lctx *d, dbuf *unc_data, struct de_char_contex
 	de_char_output_to_file(c, charctx);
 }
 
-static void do_uncompress_data(deark *c, lctx *d, de_int64 pos1, dbuf *unc_data)
+static void do_uncompress_data(deark *c, lctx *d, i64 pos1, dbuf *unc_data)
 {
-	de_int64 pos;
+	i64 pos;
 	de_byte cmprtype;
-	de_int64 count;
-	de_int64 xpos, ypos;
+	i64 count;
+	i64 xpos, ypos;
 	de_byte b;
 	de_byte b1, b2;
-	de_int64 k;
+	i64 k;
 
 	pos = pos1;
 
@@ -91,7 +91,7 @@ static void do_uncompress_data(deark *c, lctx *d, de_int64 pos1, dbuf *unc_data)
 		b = de_getbyte(pos);
 		pos++;
 		cmprtype = b>>6;
-		count = (de_int64)(b&0x3f) +1;
+		count = (i64)(b&0x3f) +1;
 
 		switch(cmprtype) {
 		case 0: // Uncompressed
@@ -129,12 +129,12 @@ static void do_uncompress_data(deark *c, lctx *d, de_int64 pos1, dbuf *unc_data)
 }
 
 static void do_read_palette(deark *c, lctx *d,struct de_char_context *charctx,
-	de_int64 pos, int adf_style)
+	i64 pos, int adf_style)
 {
-	de_int64 k;
+	i64 k;
 	de_byte cr1, cg1, cb1;
 	de_byte cr2, cg2, cb2;
-	de_int64 cpos;
+	i64 cpos;
 	char tmps[64];
 
 	de_dbg(c, "palette at %d", (int)pos);
@@ -179,7 +179,7 @@ static void do_extract_font(deark *c, lctx *d)
 	de_finfo_destroy(c, fi);
 }
 
-static void do_read_font_data(deark *c, lctx *d, de_int64 pos)
+static void do_read_font_data(deark *c, lctx *d, i64 pos)
 {
 	de_uint32 crc;
 	struct de_crcobj *crco;
@@ -210,7 +210,7 @@ static void do_read_font_data(deark *c, lctx *d, de_int64 pos)
 // Finish populating the d->font struct.
 static int do_generate_font(deark *c, lctx *d)
 {
-	de_int64 i;
+	i64 i;
 
 	if(!d->font) return 0;
 	if(d->font->num_chars!=256) {
@@ -254,7 +254,7 @@ static void de_run_xbin(deark *c, de_module_params *mparams)
 	struct de_char_context *charctx = NULL;
 	struct de_SAUCE_detection_data sdd;
 	struct de_SAUCE_info *si = NULL;
-	de_int64 pos = 0;
+	i64 pos = 0;
 	de_byte flags;
 	dbuf *unc_data = NULL;
 
@@ -279,7 +279,7 @@ static void de_run_xbin(deark *c, de_module_params *mparams)
 
 	d->width_in_chars = de_getui16le(5);
 	d->height_in_chars = de_getui16le(7);
-	d->font_height = (de_int64)de_getbyte(9);
+	d->font_height = (i64)de_getbyte(9);
 	if(d->font_height<1 || d->font_height>32) {
 		de_err(c, "Invalid font height: %d", (int)d->font_height);
 		goto done;
@@ -398,10 +398,10 @@ static void de_run_bintext(deark *c, de_module_params *mparams)
 	struct de_SAUCE_detection_data sdd;
 	struct de_SAUCE_info *si = NULL;
 	dbuf *unc_data = NULL;
-	de_int64 effective_file_size = 0;
+	i64 effective_file_size = 0;
 	int valid_sauce = 0;
 	const char *s;
-	de_int64 width_req = 0;
+	i64 width_req = 0;
 
 	d = de_malloc(c, sizeof(lctx));
 
@@ -432,7 +432,7 @@ static void de_run_bintext(deark *c, de_module_params *mparams)
 			valid_sauce = 1;
 
 			// For BinText, the FileType field is inexplicably used for the width.
-			d->width_in_chars = 2*(de_int64)sdd.file_type;
+			d->width_in_chars = 2*(i64)sdd.file_type;
 
 			if(si->tflags & 0x01) {
 				d->nonblink = 1;
@@ -517,8 +517,8 @@ static void de_run_artworx_adf(deark *c, de_module_params *mparams)
 	lctx *d = NULL;
 	struct de_char_context *charctx = NULL;
 	dbuf *unc_data = NULL;
-	de_int64 data_start;
-	de_int64 data_len;
+	i64 data_start;
+	i64 data_len;
 
 	d = de_malloc(c, sizeof(lctx));
 

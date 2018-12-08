@@ -30,7 +30,7 @@ static de_byte get_char_value(de_byte b)
 
 // Decode the base-64 data, and write to d->decoded.
 // Returns 0 if there was an error.
-static int do_decode_main(deark *c, lctx *d, de_int64 pos)
+static int do_decode_main(deark *c, lctx *d, i64 pos)
 {
 	de_byte b;
 	de_byte x;
@@ -83,15 +83,15 @@ static int do_decode_main(deark *c, lctx *d, de_int64 pos)
 	return 1;
 }
 
-static void our_writecallback(dbuf *f, const de_byte *buf, de_int64 buf_len)
+static void our_writecallback(dbuf *f, const de_byte *buf, i64 buf_len)
 {
 	struct de_crcobj *crco = (struct de_crcobj*)f->userdata;
 	de_crcobj_addbuf(crco, buf, buf_len);
 }
 
 // Returns 0 on fatal error.
-static int do_extract_one_file(deark *c, lctx *d, dbuf *inf, de_int64 pos,
-	de_int64 len, de_finfo *fi, const char *forkname)
+static int do_extract_one_file(deark *c, lctx *d, dbuf *inf, i64 pos,
+	i64 len, de_finfo *fi, const char *forkname)
 {
 	de_uint32 crc_reported;
 	de_uint32 crc_calc;
@@ -137,12 +137,12 @@ static int do_extract_one_file(deark *c, lctx *d, dbuf *inf, de_int64 pos,
 
 static void do_extract_files(deark *c, lctx *d)
 {
-	de_int64 name_len;
+	i64 name_len;
 	dbuf *f;
 	de_finfo *fi_r = NULL;
 	de_finfo *fi_d = NULL;
-	de_int64 pos;
-	de_int64 dlen, rlen;
+	i64 pos;
+	i64 dlen, rlen;
 	de_uint32 hc; // Header CRC
 	de_ucstring *fname = NULL;
 
@@ -151,7 +151,7 @@ static void do_extract_files(deark *c, lctx *d)
 
 	// Read the header
 
-	name_len = (de_int64)dbuf_getbyte(f, pos);
+	name_len = (i64)dbuf_getbyte(f, pos);
 	pos+=1;
 	de_dbg(c, "name len: %d", (int)name_len);
 
@@ -206,7 +206,7 @@ done:
 	ucstring_destroy(fname);
 }
 
-static void do_binhex(deark *c, lctx *d, de_int64 pos)
+static void do_binhex(deark *c, lctx *d, i64 pos)
 {
 	int ret;
 
@@ -236,9 +236,9 @@ done:
 	d->crco = NULL;
 }
 
-static int find_start(deark *c, de_int64 *foundpos)
+static int find_start(deark *c, i64 *foundpos)
 {
-	de_int64 pos;
+	i64 pos;
 	de_byte b;
 	int ret;
 
@@ -284,7 +284,7 @@ static int find_start(deark *c, de_int64 *foundpos)
 static void de_run_binhex(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
-	de_int64 pos;
+	i64 pos;
 	int ret;
 
 	d = de_malloc(c, sizeof(lctx));
@@ -304,7 +304,7 @@ done:
 static int de_identify_binhex(deark *c)
 {
 	int ret;
-	de_int64 foundpos;
+	i64 foundpos;
 
 	if(!dbuf_memcmp(c->infile, 0,
 		"(This file must be converted with BinHex", 40))

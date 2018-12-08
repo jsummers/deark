@@ -72,31 +72,31 @@ static const struct old_mode_info old_mode_info_arr[] = {
 };
 
 struct page_ctx {
-	de_int64 fgbpp;
-	de_int64 maskbpp;
-	de_int64 width_in_words;
-	de_int64 first_bit, last_bit;
-	de_int64 width, height;
-	de_int64 xdpi, ydpi;
-	de_int64 pixels_to_ignore_at_start_of_row;
+	i64 fgbpp;
+	i64 maskbpp;
+	i64 width_in_words;
+	i64 first_bit, last_bit;
+	i64 width, height;
+	i64 xdpi, ydpi;
+	i64 pixels_to_ignore_at_start_of_row;
 	de_uint32 mode;
 	int has_mask;
 #define MASK_TYPE_OLD    1 // Binary transparency, fgbpp bits/pixel
 #define MASK_TYPE_NEW_1  2 // Binary transparency, 8 bits/pixel
 #define MASK_TYPE_NEW_8  3 // Alpha transparency, 8 bits/pixel
 	int mask_type;
-	de_int64 mask_rowspan;
-	de_int64 image_offset;
-	de_int64 mask_offset;
+	i64 mask_rowspan;
+	i64 image_offset;
+	i64 mask_offset;
 
 	int has_custom_palette;
-	de_int64 custom_palette_pos;
-	de_int64 custom_palette_ncolors;
+	i64 custom_palette_pos;
+	i64 custom_palette_ncolors;
 	de_uint32 pal[256];
 };
 
 typedef struct localctx_struct {
-	de_int64 num_images;
+	i64 num_images;
 } lctx;
 
 static const de_uint32 pal4[4] = {
@@ -136,14 +136,14 @@ static de_uint32 getpal256(int k)
 static void do_image(deark *c, lctx *d, struct page_ctx *pg, de_finfo *fi)
 {
 	de_bitmap *img = NULL;
-	de_int64 i, j;
+	i64 i, j;
 	de_byte n;
 	de_uint32 clr;
 	int is_grayscale;
 	int bypp;
 
 	if(pg->fgbpp<=8) {
-		is_grayscale = de_is_grayscale_palette(pg->pal, ((de_int64)1)<<pg->fgbpp);
+		is_grayscale = de_is_grayscale_palette(pg->pal, ((i64)1)<<pg->fgbpp);
 	}
 	else {
 		is_grayscale = 0;
@@ -215,7 +215,7 @@ static de_uint32 average_color(de_uint32 c1, de_uint32 c2)
 
 static void do_setup_palette(deark *c, lctx *d, struct page_ctx *pg)
 {
-	de_int64 k;
+	i64 k;
 	de_uint32 clr1, clr2, clr3;
 
 	if(pg->fgbpp>8) {
@@ -273,7 +273,7 @@ static void do_setup_palette(deark *c, lctx *d, struct page_ctx *pg)
 	de_dbg_indent(c, -1);
 }
 
-static void read_sprite_name(deark *c, lctx *d, de_finfo *fi, de_int64 pos)
+static void read_sprite_name(deark *c, lctx *d, de_finfo *fi, i64 pos)
 {
 	de_ucstring *s = NULL;
 	if(c->debug_level<1 && !c->filenames_from_file) return;
@@ -289,10 +289,10 @@ static void read_sprite_name(deark *c, lctx *d, de_finfo *fi, de_int64 pos)
 	ucstring_destroy(s);
 }
 
-static void do_sprite(deark *c, lctx *d, de_int64 index,
-	de_int64 pos1, de_int64 len)
+static void do_sprite(deark *c, lctx *d, i64 index,
+	i64 pos1, i64 len)
 {
-	de_int64 new_img_type;
+	i64 new_img_type;
 	de_finfo *fi = NULL;
 	int saved_indent_level;
 	struct page_ctx *pg = NULL;
@@ -339,9 +339,9 @@ static void do_sprite(deark *c, lctx *d, de_int64 index,
 
 		for(x=0; old_mode_info_arr[x].mode<1000; x++) {
 			if(pg->mode == old_mode_info_arr[x].mode) {
-				pg->fgbpp = (de_int64)old_mode_info_arr[x].fgbpp;
-				pg->xdpi = (de_int64)old_mode_info_arr[x].xdpi;
-				pg->ydpi = (de_int64)old_mode_info_arr[x].ydpi;
+				pg->fgbpp = (i64)old_mode_info_arr[x].fgbpp;
+				pg->xdpi = (i64)old_mode_info_arr[x].xdpi;
+				pg->ydpi = (i64)old_mode_info_arr[x].ydpi;
 				break;
 			}
 		}
@@ -441,11 +441,11 @@ done:
 static void de_run_rosprite(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
-	de_int64 pos;
-	de_int64 sprite_size;
-	de_int64 first_sprite_offset;
-	de_int64 implied_file_size;
-	de_int64 k;
+	i64 pos;
+	i64 sprite_size;
+	i64 first_sprite_offset;
+	i64 implied_file_size;
+	i64 k;
 
 	d = de_malloc(c, sizeof(lctx));
 
@@ -480,7 +480,7 @@ static void de_run_rosprite(deark *c, de_module_params *mparams)
 
 static int de_identify_rosprite(deark *c)
 {
-	de_int64 h0, h1, h2;
+	i64 h0, h1, h2;
 	h0 = de_getui32le(0);
 	h1 = de_getui32le(4);
 	h2 = de_getui32le(8);

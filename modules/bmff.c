@@ -19,12 +19,12 @@ typedef struct localctx_struct {
 	de_byte is_mj2;
 	de_byte is_heif;
 	de_byte is_jpegxt;
-	de_int64 max_entries_to_print;
+	i64 max_entries_to_print;
 
 	de_byte exif_item_id_known;
 	unsigned int exif_item_id;
-	de_int64 exif_item_offs;
-	de_int64 exif_item_len;
+	i64 exif_item_offs;
+	i64 exif_item_len;
 } lctx;
 
 typedef void (*handler_fn_type)(deark *c, lctx *d, struct de_boxesctx *bctx);
@@ -240,9 +240,9 @@ static void do_box_jP(deark *c, lctx *d, struct de_boxesctx *bctx)
 
 static void do_box_ftyp(deark *c, lctx *d, struct de_boxesctx *bctx)
 {
-	de_int64 i;
-	de_int64 mver;
-	de_int64 num_compat_brands;
+	i64 i;
+	i64 mver;
+	i64 num_compat_brands;
 	struct de_fourcc brand4cc;
 	struct de_boxdata *curbox = bctx->curbox;
 
@@ -336,11 +336,11 @@ static void do_box_data(deark *c, lctx *d, struct de_boxesctx *bctx)
 {
 	unsigned int type_field, type_namespace, wkt;
 	unsigned int cntry, lang;
-	de_int64 vlen;
+	i64 vlen;
 	struct de_boxdata *curbox = bctx->curbox;
 	struct de_boxdata *par;
 	struct de_boxdata *gpar;
-	de_int64 pos = curbox->payload_pos;
+	i64 pos = curbox->payload_pos;
 	de_ucstring *s = NULL;
 
 	par = curbox->parent;
@@ -392,7 +392,7 @@ static void do_box_hdlr(deark *c, lctx *d, struct de_boxesctx *bctx)
 {
 	de_ucstring *s = NULL;
 	struct de_boxdata *curbox = bctx->curbox;
-	de_int64 pos = curbox->payload_pos;
+	i64 pos = curbox->payload_pos;
 	struct de_fourcc tmp4cc;
 
 	if(curbox->payload_len<4) goto done;
@@ -422,9 +422,9 @@ static void do_box_tkhd(deark *c, lctx *d, struct de_boxesctx *bctx)
 {
 	de_byte version;
 	de_uint32 flags;
-	de_int64 pos;
+	i64 pos;
 	double w, h;
-	de_int64 n;
+	i64 n;
 	struct de_boxdata *curbox = bctx->curbox;
 
 	if(curbox->payload_len<4) return;
@@ -482,7 +482,7 @@ static void do_box_vmhd(deark *c, lctx *d, struct de_boxesctx *bctx)
 	unsigned int clr[3];
 	unsigned int graphicsmode;
 	struct de_boxdata *curbox = bctx->curbox;
-	de_int64 pos = curbox->payload_pos;
+	i64 pos = curbox->payload_pos;
 
 	if(curbox->payload_len<12) return;
 	do_read_version_and_flags(c, d, bctx, &version, &flags, 1);
@@ -504,7 +504,7 @@ static void do_box_smhd(deark *c, lctx *d, struct de_boxesctx *bctx)
 	de_uint32 flags;
 	unsigned int n;
 	struct de_boxdata *curbox = bctx->curbox;
-	de_int64 pos = curbox->payload_pos;
+	i64 pos = curbox->payload_pos;
 
 	if(curbox->payload_len<8) return;
 	do_read_version_and_flags(c, d, bctx, &version, &flags, 1);
@@ -519,9 +519,9 @@ static void do_box_mvhd(deark *c, lctx *d, struct de_boxesctx *bctx)
 {
 	de_byte version;
 	de_uint32 flags;
-	de_int64 pos;
-	de_int64 n;
-	de_int64 timescale;
+	i64 pos;
+	i64 n;
+	i64 timescale;
 	double nd;
 	struct de_boxdata *curbox = bctx->curbox;
 
@@ -581,9 +581,9 @@ static void do_box_mdhd(deark *c, lctx *d, struct de_boxesctx *bctx)
 {
 	de_byte version;
 	de_uint32 flags;
-	de_int64 pos;
-	de_int64 n;
-	de_int64 timescale;
+	i64 pos;
+	i64 n;
+	i64 timescale;
 	double nd;
 	struct de_boxdata *curbox = bctx->curbox;
 
@@ -630,10 +630,10 @@ static void do_box_stsc(deark *c, lctx *d, struct de_boxesctx *bctx)
 	de_byte version;
 	de_uint32 flags;
 	struct de_boxdata *curbox = bctx->curbox;
-	de_int64 pos = curbox->payload_pos;
-	de_int64 e_count, e_to_print;
-	de_int64 bytesleft;
-	de_int64 k;
+	i64 pos = curbox->payload_pos;
+	i64 e_count, e_to_print;
+	i64 bytesleft;
+	i64 k;
 
 	do_read_version_and_flags(c, d, bctx, &version, &flags, 1);
 	pos += 4;
@@ -648,7 +648,7 @@ static void do_box_stsc(deark *c, lctx *d, struct de_boxesctx *bctx)
 	e_to_print = de_min_int(e_count, d->max_entries_to_print);
 
 	for(k=0; k<e_to_print; k++) {
-		de_int64 first_chunk, spc, sdi;
+		i64 first_chunk, spc, sdi;
 		first_chunk = dbuf_getui32be_p(bctx->f, &pos);
 		spc = dbuf_getui32be_p(bctx->f, &pos);
 		sdi = dbuf_getui32be_p(bctx->f, &pos);
@@ -665,9 +665,9 @@ static void do_box_stsd(deark *c, lctx *d, struct de_boxesctx *bctx)
 {
 	de_byte version;
 	de_uint32 flags;
-	de_int64 pos;
-	de_int64 num_entries;
-	de_int64 entry_size;
+	i64 pos;
+	i64 num_entries;
+	i64 entry_size;
 	struct de_fourcc fmt4cc;
 	struct de_boxdata *curbox = bctx->curbox;
 
@@ -699,14 +699,14 @@ static void do_box_stsd(deark *c, lctx *d, struct de_boxesctx *bctx)
 // Decode a table of (4- or 8-byte) integers.
 // Limit to d->max_entries_to_print.
 static void do_simple_int_table(deark *c, lctx *d, struct de_boxesctx *bctx,
-	de_int64 pos1, de_int64 e_count, de_int64 e_size,
+	i64 pos1, i64 e_count, i64 e_size,
 	const char *s1, const char *s2)
 {
-	de_int64 bytesleft;
-	de_int64 e_to_print;
-	de_int64 k;
+	i64 bytesleft;
+	i64 e_to_print;
+	i64 k;
 	struct de_boxdata *curbox = bctx->curbox;
-	de_int64 pos = pos1;
+	i64 pos = pos1;
 
 	if(e_count<=0) return;
 	bytesleft = curbox->payload_pos + curbox->payload_len - pos;
@@ -715,7 +715,7 @@ static void do_simple_int_table(deark *c, lctx *d, struct de_boxesctx *bctx,
 	e_to_print = de_min_int(e_count, d->max_entries_to_print);
 
 	for(k=0; k<e_to_print; k++) {
-		de_int64 n;
+		i64 n;
 
 		if(e_size==8) {
 			n = dbuf_geti64be(bctx->f, pos); pos += 8;
@@ -737,8 +737,8 @@ static void do_box_stsz(deark *c, lctx *d, struct de_boxesctx *bctx)
 	de_byte version;
 	de_uint32 flags;
 	struct de_boxdata *curbox = bctx->curbox;
-	de_int64 pos = curbox->payload_pos;
-	de_int64 s_size, s_count;
+	i64 pos = curbox->payload_pos;
+	i64 s_size, s_count;
 
 	do_read_version_and_flags(c, d, bctx, &version, &flags, 1);
 	pos += 4;
@@ -763,9 +763,9 @@ static void do_box_stco(deark *c, lctx *d, struct de_boxesctx *bctx)
 	de_byte version;
 	de_uint32 flags;
 	struct de_boxdata *curbox = bctx->curbox;
-	de_int64 pos = curbox->payload_pos;
-	de_int64 e_count;
-	de_int64 e_size;
+	i64 pos = curbox->payload_pos;
+	i64 e_count;
+	i64 e_size;
 
 	do_read_version_and_flags(c, d, bctx, &version, &flags, 1);
 	pos += 4;
@@ -783,8 +783,8 @@ static void do_box_stss(deark *c, lctx *d, struct de_boxesctx *bctx)
 	de_byte version;
 	de_uint32 flags;
 	struct de_boxdata *curbox = bctx->curbox;
-	de_int64 pos = curbox->payload_pos;
-	de_int64 e_count;
+	i64 pos = curbox->payload_pos;
+	i64 e_count;
 
 	do_read_version_and_flags(c, d, bctx, &version, &flags, 1);
 	pos += 4;
@@ -801,10 +801,10 @@ static void do_box_stts(deark *c, lctx *d, struct de_boxesctx *bctx)
 	de_byte version;
 	de_uint32 flags;
 	struct de_boxdata *curbox = bctx->curbox;
-	de_int64 pos = curbox->payload_pos;
-	de_int64 e_count, e_to_print;
-	de_int64 bytesleft;
-	de_int64 k;
+	i64 pos = curbox->payload_pos;
+	i64 e_count, e_to_print;
+	i64 bytesleft;
+	i64 k;
 
 	do_read_version_and_flags(c, d, bctx, &version, &flags, 1);
 	pos += 4;
@@ -819,7 +819,7 @@ static void do_box_stts(deark *c, lctx *d, struct de_boxesctx *bctx)
 	e_to_print = de_min_int(e_count, d->max_entries_to_print);
 
 	for(k=0; k<e_to_print; k++) {
-		de_int64 s_count, s_delta;
+		i64 s_count, s_delta;
 		s_count = dbuf_getui32be_p(bctx->f, &pos);
 		s_delta = dbuf_getui32be_p(bctx->f, &pos);
 		de_dbg(c, "entry[%d]: sample count=%d, delta=%d", (int)k,
@@ -836,10 +836,10 @@ static void do_box_ctts(deark *c, lctx *d, struct de_boxesctx *bctx)
 	de_byte version;
 	de_uint32 flags;
 	struct de_boxdata *curbox = bctx->curbox;
-	de_int64 pos = curbox->payload_pos;
-	de_int64 e_count, e_to_print;
-	de_int64 bytesleft;
-	de_int64 k;
+	i64 pos = curbox->payload_pos;
+	i64 e_count, e_to_print;
+	i64 bytesleft;
+	i64 k;
 
 	do_read_version_and_flags(c, d, bctx, &version, &flags, 1);
 	pos += 4;
@@ -857,7 +857,7 @@ static void do_box_ctts(deark *c, lctx *d, struct de_boxesctx *bctx)
 	}
 
 	for(k=0; k<e_to_print; k++) {
-		de_int64 s_count, s_offset;
+		i64 s_count, s_offset;
 		s_count = dbuf_getui32be_p(bctx->f, &pos);
 		if(version==0) {
 			s_offset = dbuf_getui32be_p(bctx->f, &pos);
@@ -898,7 +898,7 @@ static void do_box_jp2c(deark *c, lctx *d, struct de_boxesctx *bctx)
 }
 
 static void format_jp2_res(char *buf, size_t buflen,
-	de_int64 num, de_int64 denom, int exponent)
+	i64 num, i64 denom, int exponent)
 {
 	// TODO: Format this better
 	de_snprintf(buf, buflen, "(%d/%d)"DE_CHAR_TIMES"10^%d points/meter",
@@ -907,11 +907,11 @@ static void format_jp2_res(char *buf, size_t buflen,
 
 static void do_box_resc_resd(deark *c, lctx *d, struct de_boxesctx *bctx)
 {
-	de_int64 vn, vd, hn, hd;
+	i64 vn, vd, hn, hd;
 	int ve, he;
 	struct de_boxdata *curbox = bctx->curbox;
 	const char *name;
-	de_int64 pos = curbox->payload_pos;
+	i64 pos = curbox->payload_pos;
 	char res_buf[160];
 
 	if(curbox->boxtype==BOX_resc)
@@ -958,10 +958,10 @@ done:
 
 static void do_box_ihdr(deark *c, lctx *d, struct de_boxesctx *bctx)
 {
-	de_int64 w, h, n;
+	i64 w, h, n;
 	de_byte b;
 	struct de_boxdata *curbox = bctx->curbox;
-	de_int64 pos = curbox->payload_pos;
+	i64 pos = curbox->payload_pos;
 	char tmps[80];
 
 	if(curbox->payload_len<14) return;
@@ -992,7 +992,7 @@ static void do_box_ihdr(deark *c, lctx *d, struct de_boxesctx *bctx)
 	de_dbg(c, "has-IPR: %d", (int)b);
 }
 
-static const char *get_channel_type_name(de_int64 t)
+static const char *get_channel_type_name(i64 t)
 {
 	const char *name;
 	switch(t) {
@@ -1007,16 +1007,16 @@ static const char *get_channel_type_name(de_int64 t)
 
 static void do_box_cdef(deark *c, lctx *d, struct de_boxesctx *bctx)
 {
-	de_int64 ndescs;
+	i64 ndescs;
 	struct de_boxdata *curbox = bctx->curbox;
-	de_int64 pos = curbox->payload_pos;
-	de_int64 k;
+	i64 pos = curbox->payload_pos;
+	i64 k;
 
 	ndescs = dbuf_getui16be_p(bctx->f, &pos);
 	de_dbg(c, "number of channel descriptions: %d", (int)ndescs);
 
 	for(k=0; k<ndescs; k++) {
-		de_int64 idx, typ, asoc;
+		i64 idx, typ, asoc;
 
 		if(pos+6 > curbox->payload_pos + curbox->payload_len) break;
 		de_dbg(c, "channel description[%d] at %"INT64_FMT, (int)k, pos);
@@ -1035,7 +1035,7 @@ static void do_box_cdef(deark *c, lctx *d, struct de_boxesctx *bctx)
 static void do_box_colr_bmff(deark *c, lctx *d, struct de_boxesctx *bctx)
 {
 	struct de_boxdata *curbox = bctx->curbox;
-	de_int64 pos = curbox->payload_pos;
+	i64 pos = curbox->payload_pos;
 	struct de_fourcc ct4cc; // colour_type
 
 	if(curbox->payload_len<4) goto done;
@@ -1059,7 +1059,7 @@ static void do_box_colr_jp2(deark *c, lctx *d, struct de_boxesctx *bctx)
 {
 	de_byte meth;
 	struct de_boxdata *curbox = bctx->curbox;
-	de_int64 pos = curbox->payload_pos;
+	i64 pos = curbox->payload_pos;
 	const char *s;
 
 	if(curbox->payload_len<3) goto done;
@@ -1102,9 +1102,9 @@ done:
 static void do_box_ulst(deark *c, lctx *d, struct de_boxesctx *bctx)
 {
 	struct de_boxdata *curbox = bctx->curbox;
-	de_int64 pos = curbox->payload_pos;
-	de_int64 nuuids;
-	de_int64 k;
+	i64 pos = curbox->payload_pos;
+	i64 nuuids;
+	i64 k;
 	de_byte ubuf[16];
 	char uuid_string[50];
 
@@ -1124,7 +1124,7 @@ static void do_box_url(deark *c, lctx *d, struct de_boxesctx *bctx)
 {
 	de_ucstring *s = NULL;
 	struct de_boxdata *curbox = bctx->curbox;
-	de_int64 pos = curbox->payload_pos;
+	i64 pos = curbox->payload_pos;
 	de_uint32 flags = 0;
 
 	do_read_version_and_flags(c, d, bctx, NULL, &flags, 1);
@@ -1146,7 +1146,7 @@ done:
 
 static void do_box_dtbl(deark *c, lctx *d, struct de_boxesctx *bctx)
 {
-	de_int64 ndr;
+	i64 ndr;
 	struct de_boxdata *curbox = bctx->curbox;
 
 	ndr = dbuf_getui16be(bctx->f, curbox->payload_pos);
@@ -1159,10 +1159,10 @@ static void do_box_dtbl(deark *c, lctx *d, struct de_boxesctx *bctx)
 
 static void do_box_dref(deark *c, lctx *d, struct de_boxesctx *bctx)
 {
-	de_int64 nitems;
+	i64 nitems;
 	de_byte version;
 	struct de_boxdata *curbox = bctx->curbox;
-	de_int64 pos = curbox->payload_pos;
+	i64 pos = curbox->payload_pos;
 
 	do_read_version_and_flags(c, d, bctx, &version, NULL, 1);
 	pos += 4;
@@ -1177,10 +1177,10 @@ static void do_box_dref(deark *c, lctx *d, struct de_boxesctx *bctx)
 
 static void do_box_iinf(deark *c, lctx *d, struct de_boxesctx *bctx)
 {
-	de_int64 nitems;
+	i64 nitems;
 	de_byte version;
 	struct de_boxdata *curbox = bctx->curbox;
-	de_int64 pos = curbox->payload_pos;
+	i64 pos = curbox->payload_pos;
 
 	do_read_version_and_flags(c, d, bctx, &version, NULL, 1);
 	pos += 4;
@@ -1200,7 +1200,7 @@ static void do_box_iinf(deark *c, lctx *d, struct de_boxesctx *bctx)
 
 static void extract_exif_item(deark *c, lctx *d, dbuf *f)
 {
-	de_int64 dpos, dlen;
+	i64 dpos, dlen;
 	de_byte b0,b1;
 
 	if(!d->exif_item_id_known) return;
@@ -1225,11 +1225,11 @@ static void do_box_iloc(deark *c, lctx *d, struct de_boxesctx *bctx)
 {
 	de_byte version;
 	struct de_boxdata *curbox = bctx->curbox;
-	de_int64 pos = curbox->payload_pos;
+	i64 pos = curbox->payload_pos;
 	unsigned int u;
 	unsigned int offset_size, length_size, base_offset_size, index_size;
-	de_int64 item_count;
-	de_int64 k;
+	i64 item_count;
+	i64 k;
 	int saved_indent_level;
 
 	de_dbg_indent_save(c, &saved_indent_level);
@@ -1260,8 +1260,8 @@ static void do_box_iloc(deark *c, lctx *d, struct de_boxesctx *bctx)
 
 	for(k=0; k<item_count; k++) {
 		unsigned int item_id;
-		de_int64 extent_count;
-		de_int64 e;
+		i64 extent_count;
+		i64 e;
 		unsigned int cnstr_meth;
 
 		if(pos >= curbox->payload_pos+curbox->payload_len) goto done;
@@ -1281,8 +1281,8 @@ static void do_box_iloc(deark *c, lctx *d, struct de_boxesctx *bctx)
 		de_dbg(c, "extent count: %d", (int)extent_count);
 
 		for(e=0; e<extent_count; e++) {
-			de_int64 xoffs = 0;
-			de_int64 xlen = 0;
+			i64 xoffs = 0;
+			i64 xlen = 0;
 
 			if(pos >= curbox->payload_pos+curbox->payload_len) goto done;
 			de_dbg(c, "extent[%d]", (int)e);
@@ -1324,8 +1324,8 @@ static void do_box_infe(deark *c, lctx *d, struct de_boxesctx *bctx)
 {
 	de_byte version;
 	struct de_boxdata *curbox = bctx->curbox;
-	de_int64 pos = curbox->payload_pos;
-	de_int64 n;
+	i64 pos = curbox->payload_pos;
+	i64 n;
 	unsigned int item_id;
 
 	do_read_version_and_flags(c, d, bctx, &version, NULL, 1);
@@ -1362,8 +1362,8 @@ static void do_box_infe(deark *c, lctx *d, struct de_boxesctx *bctx)
 static void do_box_ispe(deark *c, lctx *d, struct de_boxesctx *bctx)
 {
 	struct de_boxdata *curbox = bctx->curbox;
-	de_int64 pos = curbox->payload_pos;
-	de_int64 w, h;
+	i64 pos = curbox->payload_pos;
+	i64 w, h;
 
 	if(curbox->payload_len<12) return;
 	do_read_version_and_flags(c, d, bctx, NULL, NULL, 1);

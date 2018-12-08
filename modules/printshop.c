@@ -23,13 +23,13 @@ typedef struct localctx_struct {
 	dbuf *namefile;
 } lctx;
 
-static void do_printshop_etc_image(deark *c, lctx *d, de_int64 imgnum,
-	de_int64 pos, de_int64 *bytes_consumed)
+static void do_printshop_etc_image(deark *c, lctx *d, i64 imgnum,
+	i64 pos, i64 *bytes_consumed)
 {
-	de_int64 width, height;
-	de_int64 rowspan;
-	de_int64 imgspan;
-	de_int64 imgoffset = 0;
+	i64 width, height;
+	i64 rowspan;
+	i64 imgspan;
+	i64 imgoffset = 0;
 	de_finfo *fi = NULL;
 	de_byte x;
 
@@ -38,8 +38,8 @@ static void do_printshop_etc_image(deark *c, lctx *d, de_int64 imgnum,
 	if(d->fmt==PRINTSHOP_FMT_SHP) {
 		x = de_getbyte(pos);
 		if(x!=0x0b) goto done; // No more images?
-		height = (de_int64)de_getbyte(pos+1);
-		width = (de_int64)de_getbyte(pos+2);
+		height = (i64)de_getbyte(pos+1);
+		width = (i64)de_getbyte(pos+2);
 		if(width==0 || height==0) goto done;
 		rowspan = (width+7)/8; // This is just a guess.
 		imgoffset = 4;
@@ -80,12 +80,12 @@ done:
 
 static void do_printshop_etc(deark *c, lctx *d)
 {
-	de_int64 headersize = 0;
+	i64 headersize = 0;
 	const char *namefile_fn = NULL;
-	de_int64 bytes_consumed;
-	de_int64 pos;
-	de_int64 img_count;
-	de_int64 num_images = 0;
+	i64 bytes_consumed;
+	i64 pos;
+	i64 img_count;
+	i64 num_images = 0;
 	int num_images_is_known = 0;
 
 	namefile_fn = de_get_ext_option(c, "namefile");

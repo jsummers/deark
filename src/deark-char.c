@@ -29,8 +29,8 @@ struct charextractx {
 	struct de_bitmap_font *standard_font;
 	struct de_bitmap_font *font_to_use;
 
-	de_int64 char_width_in_pixels;
-	de_int64 char_height_in_pixels;
+	i64 char_width_in_pixels;
+	i64 char_height_in_pixels;
 
 	struct screen_stats *scrstats; // pointer to array of struct screen_stats
 };
@@ -40,8 +40,8 @@ struct charextractx {
 // Does not free the ucstring fields.
 void de_free_charctx(deark *c, struct de_char_context *charctx)
 {
-	de_int64 pgnum;
-	de_int64 j;
+	i64 pgnum;
+	i64 j;
 
 	if(charctx) {
 		if(charctx->screens) {
@@ -63,7 +63,7 @@ void de_free_charctx(deark *c, struct de_char_context *charctx)
 }
 
 static void do_prescan_screen(deark *c, struct de_char_context *charctx,
-	struct charextractx *ectx, de_int64 screen_idx)
+	struct charextractx *ectx, i64 screen_idx)
 {
 	const struct de_char_cell *cell;
 	int i, j;
@@ -229,7 +229,7 @@ static void span_close(deark *c, dbuf *ofile, struct span_info *sp)
 }
 
 static void do_output_html_screen(deark *c, struct de_char_context *charctx,
-	struct charextractx *ectx, de_int64 screen_idx, dbuf *ofile)
+	struct charextractx *ectx, i64 screen_idx, dbuf *ofile)
 {
 	const struct de_char_cell *cell;
 	struct de_char_cell blank_cell;
@@ -366,7 +366,7 @@ static void output_css_color_block(deark *c, dbuf *ofile, de_uint32 *pal,
 
 static void write_ucstring_to_html(deark *c, const de_ucstring *s, dbuf *f)
 {
-	de_int64 i;
+	i64 i;
 	int prev_space = 0;
 	de_int32 ch;
 
@@ -527,7 +527,7 @@ static void do_output_html_footer(deark *c, struct de_char_context *charctx,
 static void de_char_output_to_html_file(deark *c, struct de_char_context *charctx,
 	struct charextractx *ectx)
 {
-	de_int64 i;
+	i64 i;
 	dbuf *ofile = NULL;
 
 	if(charctx->font && !charctx->suppress_custom_font_warning) {
@@ -553,12 +553,12 @@ static void de_char_output_to_html_file(deark *c, struct de_char_context *charct
 
 static void do_render_character(deark *c, struct de_char_context *charctx,
 	struct charextractx *ectx, de_bitmap *img,
-	de_int64 xpos, de_int64 ypos,
+	i64 xpos, i64 ypos,
 	de_int32 codepoint, int codepoint_is_unicode,
 	de_uint32 fgcol, de_uint32 bgcol,
 	unsigned int extra_flags)
 {
-	de_int64 xpos_in_pix, ypos_in_pix;
+	i64 xpos_in_pix, ypos_in_pix;
 	de_uint32 fgcol_rgb, bgcol_rgb;
 	unsigned int flags;
 
@@ -582,7 +582,7 @@ static void do_render_character(deark *c, struct de_char_context *charctx,
 			xpos_in_pix, ypos_in_pix, fgcol_rgb, bgcol_rgb, flags);
 	}
 	else {
-		de_font_paint_character_idx(c, img, ectx->font_to_use, (de_int64)codepoint,
+		de_font_paint_character_idx(c, img, ectx->font_to_use, (i64)codepoint,
 			xpos_in_pix, ypos_in_pix, fgcol_rgb, bgcol_rgb, flags);
 	}
 }
@@ -612,7 +612,7 @@ static void set_density(deark *c, struct de_char_context *charctx,
 static void de_char_output_screen_to_image_file(deark *c, struct de_char_context *charctx,
 	struct charextractx *ectx, struct de_char_screen *screen)
 {
-	de_int64 screen_width_in_pixels, screen_height_in_pixels;
+	i64 screen_width_in_pixels, screen_height_in_pixels;
 	de_bitmap *img = NULL;
 	de_finfo *fi = NULL;
 	int i, j;
@@ -685,7 +685,7 @@ static const de_int32 extra_font_codepoints[NUM_EXTRA_FONT_CHARS] = {
 
 static void do_create_standard_font(deark *c, struct charextractx *ectx)
 {
-	de_int64 i;
+	i64 i;
 	struct de_bitmap_font *font;
 	const de_byte *vga_cp437_font_data;
 	struct de_bitmap_font_char *ch;
@@ -731,7 +731,7 @@ static void do_create_standard_font(deark *c, struct charextractx *ectx)
 static void de_char_output_to_image_files(deark *c, struct de_char_context *charctx,
 	struct charextractx *ectx)
 {
-	de_int64 i;
+	i64 i;
 
 	if(ectx->used_blink) {
 		de_warn(c, "This file uses blinking characters, which are not supported with "
@@ -767,7 +767,7 @@ static void de_char_output_to_image_files(deark *c, struct de_char_context *char
 
 void de_char_output_to_file(deark *c, struct de_char_context *charctx)
 {
-	de_int64 i;
+	i64 i;
 	int outfmt = 0;
 	const char *s;
 	int n;

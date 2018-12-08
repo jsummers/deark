@@ -9,19 +9,19 @@
 DE_DECLARE_MODULE(de_module_awbm);
 
 typedef struct localctx_struct {
-	de_int64 w, h;
+	i64 w, h;
 	int rgb_order;
 } lctx;
 
 #define EPA_CH 14 // "character" height (width must be 8)
 
-static int do_v1_image(deark *c, de_int64 pos,
-	de_int64 w_blocks, de_int64 h_blocks, int special, unsigned int createflags)
+static int do_v1_image(deark *c, i64 pos,
+	i64 w_blocks, i64 h_blocks, int special, unsigned int createflags)
 {
 	de_bitmap *img = NULL;
-	de_int64 w, h;
-	de_int64 i, j, i2, j2;
-	de_int64 colors_start=0, bitmap_start;
+	i64 w, h;
+	i64 i, j, i2, j2;
+	i64 colors_start=0, bitmap_start;
 	de_byte b;
 	de_uint32 clr1, clr2;
 	int retval = 0;
@@ -88,13 +88,13 @@ done:
 
 static void do_v1(deark *c, lctx *d)
 {
-	de_int64 w_blocks, h_blocks;
-	de_int64 after_bitmap;
+	i64 w_blocks, h_blocks;
+	i64 after_bitmap;
 
 	de_declare_fmt(c, "Award BIOS logo v1");
 
-	w_blocks = (de_int64)de_getbyte(0);
-	h_blocks = (de_int64)de_getbyte(1);
+	w_blocks = (i64)de_getbyte(0);
+	h_blocks = (i64)de_getbyte(1);
 	if(!do_v1_image(c, 2, w_blocks, h_blocks, 0, 0)) goto done;
 
 	after_bitmap = 2 + w_blocks*h_blocks + h_blocks*EPA_CH*w_blocks;
@@ -106,7 +106,7 @@ done:
 	;
 }
 
-static int detect_palette_at(deark *c, lctx *d, de_int64 pos, de_int64 ncolors)
+static int detect_palette_at(deark *c, lctx *d, i64 pos, i64 ncolors)
 {
 	if(pos + 4 + 3*ncolors > c->infile->len) return 0;
 	if(!dbuf_memcmp(c->infile, pos, "RGB ", 4)) return 1;
@@ -117,18 +117,18 @@ static int detect_palette_at(deark *c, lctx *d, de_int64 pos, de_int64 ncolors)
 static void do_v2(deark *c, lctx *d)
 {
 	de_bitmap *img = NULL;
-	de_int64 rowspan1;
-	de_int64 rowspan;
-	de_int64 bitmap_start;
-	de_int64 bitmap_size;
-	de_int64 palette_start;
-	de_int64 i, j;
-	de_int64 k;
+	i64 rowspan1;
+	i64 rowspan;
+	i64 bitmap_start;
+	i64 bitmap_size;
+	i64 palette_start;
+	i64 i, j;
+	i64 k;
 	de_byte cr, cg, cb;
 	de_byte b;
 	de_byte b1;
 	const char *s;
-	de_int64 ncolors = 0; // 16 or 256
+	i64 ncolors = 0; // 16 or 256
 	de_uint32 pal[256];
 
 	de_zeromem(pal, sizeof(pal));
@@ -225,13 +225,13 @@ static void de_run_awbm(deark *c, de_module_params *mparams)
 static int de_identify_awbm(deark *c)
 {
 	de_byte buf[4];
-	de_int64 nblocks;
+	i64 nblocks;
 	int epa_ext;
 
 	de_read(buf, 0, 4);
 	if(!de_memcmp(buf, "AWBM", 4)) return 100;
 
-	nblocks = (de_int64)buf[0] * (de_int64)buf[1];
+	nblocks = (i64)buf[0] * (i64)buf[1];
 	if(nblocks<1 || nblocks>256) return 0;
 	if(c->infile->len == 2 + nblocks*15 + 70) {
 		epa_ext = de_input_file_has_ext(c, "epa");

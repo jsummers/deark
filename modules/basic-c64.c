@@ -37,11 +37,11 @@ static const char *get_token(de_byte b)
 	return NULL;
 }
 
-static void process_line(deark *c, lctx *d, de_int64 file_pos, de_int64 mem_pos,
-	de_int64 line_size)
+static void process_line(deark *c, lctx *d, i64 file_pos, i64 mem_pos,
+	i64 line_size)
 {
-	de_int64 line_num;
-	de_int64 pos;
+	i64 line_num;
+	i64 pos;
 	de_byte b;
 	const char *token;
 	int in_quote = 0;
@@ -92,11 +92,11 @@ static void process_line(deark *c, lctx *d, de_int64 file_pos, de_int64 mem_pos,
 static void de_run_basic_c64(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
-	de_int64 file_pos;
-	de_int64 mem_start;
-	de_int64 mem_pos;
-	de_int64 next_line_ptr;
-	de_int64 line_size;
+	i64 file_pos;
+	i64 mem_start;
+	i64 mem_pos;
+	i64 next_line_ptr;
+	i64 line_size;
 
 	d = de_malloc(c, sizeof(lctx));
 

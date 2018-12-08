@@ -9,7 +9,7 @@
 #include "deark-private.h"
 
 struct deark_file_attribs {
-	de_int64 modtime; // Unix time_t format
+	i64 modtime; // Unix time_t format
 	int modtime_valid;
 	de_byte is_executable;
 	de_uint16 extra_data_central_size;
@@ -47,7 +47,7 @@ struct deark_png_encode_info {
 	struct de_timestamp image_mod_time;
 };
 
-static void write_png_chunk_raw(dbuf *outf, const de_byte *src, de_int64 src_len,
+static void write_png_chunk_raw(dbuf *outf, const de_byte *src, i64 src_len,
 	de_uint32 chunktype)
 {
 	de_uint32 crc;
@@ -57,7 +57,7 @@ static void write_png_chunk_raw(dbuf *outf, const de_byte *src, de_int64 src_len
 	dbuf_writeui32be(outf, src_len);
 
 	// chunk type field
-	de_writeui32be_direct(buf, (de_int64)chunktype);
+	de_writeui32be_direct(buf, (i64)chunktype);
 	crc = de_crc32(buf, 4);
 	dbuf_write(outf, buf, 4);
 
@@ -66,7 +66,7 @@ static void write_png_chunk_raw(dbuf *outf, const de_byte *src, de_int64 src_len
 	dbuf_write(outf, src, src_len);
 
 	// CRC field
-	dbuf_writeui32be(outf, (de_int64)crc);
+	dbuf_writeui32be(outf, (i64)crc);
 }
 
 static void write_png_chunk_from_cdbuf(dbuf *outf, dbuf *cdbuf, de_uint32 chunktype)
@@ -81,8 +81,8 @@ static void write_png_chunk_IHDR(struct deark_png_encode_info *pei,
 {
 	static const de_byte color_type_code[] = {0x00, 0x00, 0x04, 0x02, 0x06};
 
-	dbuf_writeui32be(cdbuf, (de_int64)pei->width);
-	dbuf_writeui32be(cdbuf, (de_int64)pei->height);
+	dbuf_writeui32be(cdbuf, (i64)pei->width);
+	dbuf_writeui32be(cdbuf, (i64)pei->height);
 	dbuf_writebyte(cdbuf, 8); // bit depth
 	dbuf_writebyte(cdbuf, color_type_code[pei->num_chans]);
 	dbuf_truncate(cdbuf, 13); // rest of chunk is zeroes
@@ -92,8 +92,8 @@ static void write_png_chunk_IHDR(struct deark_png_encode_info *pei,
 static void write_png_chunk_pHYs(struct deark_png_encode_info *pei,
 	dbuf *cdbuf)
 {
-	dbuf_writeui32be(cdbuf, (de_int64)pei->xdens);
-	dbuf_writeui32be(cdbuf, (de_int64)pei->ydens);
+	dbuf_writeui32be(cdbuf, (i64)pei->xdens);
+	dbuf_writeui32be(cdbuf, (i64)pei->ydens);
 	dbuf_writebyte(cdbuf, pei->phys_units);
 	write_png_chunk_from_cdbuf(pei->outf, cdbuf, CODE_pHYs);
 }
@@ -106,7 +106,7 @@ static void write_png_chunk_tIME(struct deark_png_encode_info *pei,
 	de_gmtime(&pei->image_mod_time, &tm2);
 	if(!tm2.is_valid) return;
 
-	dbuf_writeui16be(cdbuf, (de_int64)tm2.tm_fullyear);
+	dbuf_writeui16be(cdbuf, (i64)tm2.tm_fullyear);
 	dbuf_writebyte(cdbuf, (de_byte)(1+tm2.tm_mon));
 	dbuf_writebyte(cdbuf, (de_byte)tm2.tm_mday);
 	dbuf_writebyte(cdbuf, (de_byte)tm2.tm_hour);
@@ -146,7 +146,7 @@ static int write_png_chunk_IDAT(struct deark_png_encode_info *pei, const mz_uint
 	}
 	if (tdefl_compress_buffer(pComp, NULL, 0, TDEFL_FINISH) != TDEFL_STATUS_DONE) { goto done; }
 
-	write_png_chunk_raw(pei->outf, (const de_byte*)out_buf.m_pBuf, (de_int64)out_buf.m_size, CODE_IDAT);
+	write_png_chunk_raw(pei->outf, (const de_byte*)out_buf.m_pBuf, (i64)out_buf.m_size, CODE_IDAT);
 	retval = 1;
 
 done:
@@ -259,8 +259,8 @@ int de_write_png(deark *c, de_bitmap *img, dbuf *f)
 	return 1;
 }
 
-static int de_inflate_internal(dbuf *inf, de_int64 inputstart, de_int64 inputsize, dbuf *outf,
-	int is_zlib, de_int64 *bytes_consumed)
+static int de_inflate_internal(dbuf *inf, i64 inputstart, i64 inputsize, dbuf *outf,
+	int is_zlib, i64 *bytes_consumed)
 {
 	mz_stream strm;
 	int ret;
@@ -269,14 +269,14 @@ static int de_inflate_internal(dbuf *inf, de_int64 inputstart, de_int64 inputsiz
 #define DE_DFL_OUTBUF_SIZE  (DE_DFL_INBUF_SIZE*4)
 	de_byte *inbuf = NULL;
 	de_byte *outbuf = NULL;
-	de_int64 inbuf_num_valid_bytes; // Number of valid bytes in inbuf, starting with [0].
-	de_int64 inbuf_num_consumed_bytes; // Of inbuf_num_valid_bytes, the number that have been consumed.
-	de_int64 inbuf_num_consumed_bytes_this_time;
+	i64 inbuf_num_valid_bytes; // Number of valid bytes in inbuf, starting with [0].
+	i64 inbuf_num_consumed_bytes; // Of inbuf_num_valid_bytes, the number that have been consumed.
+	i64 inbuf_num_consumed_bytes_this_time;
 
 	unsigned int orig_avail_in;
-	de_int64 input_cur_pos;
-	de_int64 output_bytes_this_time;
-	de_int64 nbytes_to_read;
+	i64 input_cur_pos;
+	i64 output_bytes_this_time;
+	i64 nbytes_to_read;
 	deark *c;
 	int stream_open_flag = 0;
 
@@ -365,7 +365,7 @@ static int de_inflate_internal(dbuf *inf, de_int64 inputstart, de_int64 inputsiz
 			goto done;
 		}
 
-		inbuf_num_consumed_bytes_this_time = (de_int64)(orig_avail_in - strm.avail_in);
+		inbuf_num_consumed_bytes_this_time = (i64)(orig_avail_in - strm.avail_in);
 		if(inbuf_num_consumed_bytes_this_time<1 && output_bytes_this_time<1) {
 			de_err(c, "Inflate error");
 			goto done;
@@ -377,7 +377,7 @@ static int de_inflate_internal(dbuf *inf, de_int64 inputstart, de_int64 inputsiz
 
 done:
 	if(retval) {
-		*bytes_consumed = (de_int64)strm.total_in;
+		*bytes_consumed = (i64)strm.total_in;
 		de_dbg2(c, "inflated %u to %u bytes", (unsigned int)strm.total_in,
 			(unsigned int)strm.total_out);
 	}
@@ -389,14 +389,14 @@ done:
 	return retval;
 }
 
-int de_uncompress_zlib(dbuf *inf, de_int64 inputstart, de_int64 inputsize, dbuf *outf)
+int de_uncompress_zlib(dbuf *inf, i64 inputstart, i64 inputsize, dbuf *outf)
 {
-	de_int64 bytes_consumed;
+	i64 bytes_consumed;
 	return de_inflate_internal(inf, inputstart, inputsize, outf, 1, &bytes_consumed);
 }
 
-int de_uncompress_deflate(dbuf *inf, de_int64 inputstart, de_int64 inputsize, dbuf *outf,
-	de_int64 *bytes_consumed)
+int de_uncompress_deflate(dbuf *inf, i64 inputstart, i64 inputsize, dbuf *outf,
+	i64 *bytes_consumed)
 {
 	return de_inflate_internal(inf, inputstart, inputsize, outf, 0, bytes_consumed);
 }
@@ -487,7 +487,7 @@ int de_zip_create_file(deark *c)
 	return 1;
 }
 
-static de_int64 de_get_reproducible_unix_timestamp(deark *c)
+static i64 de_get_reproducible_unix_timestamp(deark *c)
 {
 	if(c->reproducible_timestamp.is_valid) {
 		return de_timestamp_to_unix_time(&c->reproducible_timestamp);
@@ -547,13 +547,13 @@ void de_zip_add_file_to_archive(deark *c, dbuf *f)
 	// identical, that is not usually the case for tag 0x5455.
 	dfa.extra_data_local_size = 4 + 5;
 	dfa.extra_data_central_size = 4 + 5;
-	dfa.extra_data_local = de_malloc(c, (de_int64)dfa.extra_data_local_size);
-	dfa.extra_data_central = de_malloc(c, (de_int64)dfa.extra_data_central_size);
+	dfa.extra_data_local = de_malloc(c, (i64)dfa.extra_data_local_size);
+	dfa.extra_data_central = de_malloc(c, (i64)dfa.extra_data_central_size);
 
 	de_writeui16le_direct(&dfa.extra_data_local[0], 0x5455);
-	de_writeui16le_direct(&dfa.extra_data_local[2], (de_int64)(dfa.extra_data_local_size-4));
+	de_writeui16le_direct(&dfa.extra_data_local[2], (i64)(dfa.extra_data_local_size-4));
 	de_writeui16le_direct(&dfa.extra_data_central[0], 0x5455);
-	de_writeui16le_direct(&dfa.extra_data_central[2], (de_int64)(dfa.extra_data_central_size-4));
+	de_writeui16le_direct(&dfa.extra_data_central[2], (i64)(dfa.extra_data_central_size-4));
 
 	dfa.extra_data_local[4] = 0x01; // has-modtime flag
 	de_writeui32le_direct(&dfa.extra_data_local[5], dfa.modtime);
@@ -588,12 +588,12 @@ void de_zip_close_file(deark *c)
 // For a one-shot CRC calculations, or the first part of a multi-part
 // calculation.
 // buf can be NULL (in which case buf_len should be 0, but is ignored)
-de_uint32 de_crc32(const void *buf, de_int64 buf_len)
+de_uint32 de_crc32(const void *buf, i64 buf_len)
 {
 	return (de_uint32)mz_crc32(MZ_CRC32_INIT, (const mz_uint8*)buf, (size_t)buf_len);
 }
 
-de_uint32 de_crc32_continue(de_uint32 prev_crc, const void *buf, de_int64 buf_len)
+de_uint32 de_crc32_continue(de_uint32 prev_crc, const void *buf, i64 buf_len)
 {
 	return (de_uint32)mz_crc32(prev_crc, (const mz_uint8*)buf, (size_t)buf_len);
 }

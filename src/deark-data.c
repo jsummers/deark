@@ -286,7 +286,7 @@ de_int32 de_char_to_unicode(deark *c, de_int32 a, int encoding)
 // Encode a Unicode char in UTF-8.
 // Caller supplies utf8buf[4].
 // Sets *p_utf8len to the number of bytes used (1-4).
-void de_uchar_to_utf8(de_int32 u1, de_byte *utf8buf, de_int64 *p_utf8len)
+void de_uchar_to_utf8(de_int32 u1, de_byte *utf8buf, i64 *p_utf8len)
 {
 	de_uint32 u = (de_uint32)u1;
 
@@ -324,7 +324,7 @@ void de_uchar_to_utf8(de_int32 u1, de_byte *utf8buf, de_int64 *p_utf8len)
 void dbuf_write_uchar_as_utf8(dbuf *outf, de_int32 u)
 {
 	de_byte utf8buf[4];
-	de_int64 utf8len;
+	i64 utf8len;
 
 	de_uchar_to_utf8(u, utf8buf, &utf8len);
 	dbuf_write(outf, utf8buf, utf8len);
@@ -334,8 +334,8 @@ void dbuf_write_uchar_as_utf8(dbuf *outf, de_int32 u)
 // Returns 1 if a valid character was converted, 0 otherwise.
 // buflen = the max number of bytes to read (but regardless of buflen, this
 // will not read past a byte whose value is < 0x80).
-int de_utf8_to_uchar(const de_byte *utf8buf, de_int64 buflen,
-	de_int32 *p_uchar, de_int64 *p_utf8len)
+int de_utf8_to_uchar(const de_byte *utf8buf, i64 buflen,
+	de_int32 *p_uchar, i64 *p_utf8len)
 {
 	de_int32 u0=0;
 	de_int32 u1=0;
@@ -384,7 +384,7 @@ void de_utf8_to_ascii(const char *src, char *dst, size_t dstlen, unsigned int fl
 	size_t dstpos = 0;
 	unsigned char ch;
 	de_int32 uchar;
-	de_int64 code_len;
+	i64 code_len;
 	int ret;
 
 	while(1) {
@@ -428,7 +428,7 @@ void de_utf8_to_ascii(const char *src, char *dst, size_t dstlen, unsigned int fl
 	}
 }
 
-static de_int64 getui16x_direct(const de_byte *m, int is_le)
+static i64 getui16x_direct(const de_byte *m, int is_le)
 {
 	if(is_le)
 		return de_getui16le_direct(m);
@@ -438,8 +438,8 @@ static de_int64 getui16x_direct(const de_byte *m, int is_le)
 // Convert a UTF-16LE or UTF-16BE character to UTF-32.
 // Similar to de_utf8_to_uchar().
 // Returns 1 if a valid character was converted, 0 otherwise.
-int de_utf16x_to_uchar(const de_byte *utf16buf, de_int64 buflen,
-	de_int32 *p_uchar, de_int64 *p_utf16len, int is_le)
+int de_utf16x_to_uchar(const de_byte *utf16buf, i64 buflen,
+	de_int32 *p_uchar, i64 *p_utf16len, int is_le)
 {
 	de_int32 u0, u1;
 
@@ -469,9 +469,9 @@ int de_utf16x_to_uchar(const de_byte *utf16buf, de_int64 buflen,
 }
 
 // Given a buffer, return 1 if it has no bytes 0x80 or higher.
-int de_is_ascii(const de_byte *buf, de_int64 buflen)
+int de_is_ascii(const de_byte *buf, i64 buflen)
 {
-	de_int64 i;
+	i64 i;
 
 	for(i=0; i<buflen; i++) {
 		if(buf[i]>=128) return 0;
@@ -970,7 +970,7 @@ void de_color_to_css(de_uint32 color, char *buf, int buflen)
 	buf[7] = '\0';
 }
 
-de_byte de_sample_nbit_to_8bit(de_int64 n, unsigned int x)
+de_byte de_sample_nbit_to_8bit(i64 n, unsigned int x)
 {
 	unsigned int maxval;
 
@@ -987,14 +987,14 @@ de_byte de_scale_63_to_255(de_byte x)
 	return (de_byte)(0.5+(((double)x)*(255.0/63.0)));
 }
 
-de_byte de_scale_1000_to_255(de_int64 x)
+de_byte de_scale_1000_to_255(i64 x)
 {
 	if(x>=1000) return 255;
 	if(x<=0) return 0;
 	return (de_byte)(0.5+(((double)x)*(255.0/1000.0)));
 }
 
-de_byte de_scale_n_to_255(de_int64 n, de_int64 x)
+de_byte de_scale_n_to_255(i64 n, i64 x)
 {
 	if(x>=n) return 255;
 	if(x<=0) return 0;
@@ -1049,11 +1049,11 @@ char de_byte_to_printable_char(de_byte b)
 // s2_size includes the NUL terminator.
 // Supported conv_flags: DE_CONVFLAG_STOP_AT_NUL, DE_CONVFLAG_ALLOW_HL
 // src_encoding: Only DE_ENCODING_ASCII is supported.
-void de_bytes_to_printable_sz(const de_byte *s1, de_int64 s1_len,
-	char *s2, de_int64 s2_size, unsigned int conv_flags, int src_encoding)
+void de_bytes_to_printable_sz(const de_byte *s1, i64 s1_len,
+	char *s2, i64 s2_size, unsigned int conv_flags, int src_encoding)
 {
-	de_int64 i;
-	de_int64 s2_pos = 0;
+	i64 i;
+	i64 s2_pos = 0;
 
 	if(src_encoding!=DE_ENCODING_ASCII) {
 		s2[0] = '\0';
@@ -1241,10 +1241,10 @@ int de_windows_codepage_to_encoding(deark *c, int wincodepage,
 	return DE_ENCODING_UNKNOWN;
 }
 
-void de_decode_base16(deark *c, dbuf *inf, de_int64 pos1, de_int64 len,
+void de_decode_base16(deark *c, dbuf *inf, i64 pos1, i64 len,
 	dbuf *outf, unsigned int flags)
 {
-	de_int64 pos = pos1;
+	i64 pos = pos1;
 	de_byte b;
 	int bad_warned = 0;
 	struct base16_ctx {

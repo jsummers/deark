@@ -12,14 +12,14 @@ DE_DECLARE_MODULE(de_module_tim);
 typedef struct localctx_struct {
 	unsigned int bpp_code;
 	unsigned int palette_flag;
-	de_int64 bpp;
-	de_int64 width, height;
+	i64 bpp;
+	i64 width, height;
 	de_uint32 pal[256];
 } lctx;
 
-static void do_read_palette(deark *c, lctx *d, de_int64 pos, de_int64 ncolors)
+static void do_read_palette(deark *c, lctx *d, i64 pos, i64 ncolors)
 {
-	de_int64 k;
+	i64 k;
 	de_uint32 n1, n2;
 	char tmps[32];
 
@@ -40,14 +40,14 @@ static void do_read_palette(deark *c, lctx *d, de_int64 pos, de_int64 ncolors)
 static void do_pal8(deark *c, lctx *d)
 {
 	de_bitmap *img = NULL;
-	de_int64 clut_size;
-	de_int64 ncolors_per_clut;
-	de_int64 num_cluts;
-	de_int64 second_header_blk_pos;
-	de_int64 img_data_size_field;
-	de_int64 width_field;
-	de_int64 rowspan;
-	de_int64 pos;
+	i64 clut_size;
+	i64 ncolors_per_clut;
+	i64 num_cluts;
+	i64 second_header_blk_pos;
+	i64 img_data_size_field;
+	i64 width_field;
+	i64 rowspan;
+	i64 pos;
 	int saved_indent_level;
 
 	de_dbg_indent_save(c, &saved_indent_level);
@@ -154,7 +154,7 @@ done:
 
 static int de_identify_tim(deark *c)
 {
-	de_int64 x;
+	i64 x;
 
 	if(dbuf_memcmp(c->infile, 0, "\x10\x00\x00\x00", 4))
 		return 0;

@@ -52,7 +52,7 @@ done:
 	return retval;
 }
 
-static void read_compression_type(deark *c, lctx *d, de_int64 pos)
+static void read_compression_type(deark *c, lctx *d, i64 pos)
 {
 	de_byte buf[16];
 
@@ -69,17 +69,17 @@ static void read_compression_type(deark *c, lctx *d, de_int64 pos)
 
 // Note that a header *structure* is distinct from the header *section*.
 // Both the signature section and the header section use a header structure.
-static int do_header_structure(deark *c, lctx *d, int is_sig, de_int64 pos1,
-	de_int64 *section_size)
+static int do_header_structure(deark *c, lctx *d, int is_sig, i64 pos1,
+	i64 *section_size)
 {
-	de_int64 pos;
-	de_int64 indexcount;
-	de_int64 storesize;
+	i64 pos;
+	i64 indexcount;
+	i64 storesize;
 	de_byte buf[4];
 	de_byte header_ver;
-	de_int64 i;
-	de_int64 tag_id, tag_type, tag_offset, tag_count;
-	de_int64 data_store_pos;
+	i64 i;
+	i64 tag_id, tag_type, tag_offset, tag_count;
+	i64 data_store_pos;
 	const char *hdrname;
 	int retval = 0;
 
@@ -170,10 +170,10 @@ done:
 static void de_run_rpm(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
-	de_int64 pos;
+	i64 pos;
 	de_byte buf[8];
 	const char *ext;
-	de_int64 section_size = 0;
+	i64 section_size = 0;
 	de_finfo *fi = NULL;
 	char filename[128];
 

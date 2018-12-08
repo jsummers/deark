@@ -13,16 +13,16 @@ typedef struct localctx_struct {
 } lctx;
 
 struct opcode_data {
-	de_int64 pos;
-	de_int64 ptsin_pos;
-	de_int64 intin_pos;
-	de_int64 opcode;
+	i64 pos;
+	i64 ptsin_pos;
+	i64 intin_pos;
+	i64 opcode;
 
 	// "Function sub-ID". This is also confusingly called "sub-opcode", but
 	// "sub-opcode" means something entirely different with respect to opcode 5.
-	de_int64 func_id;
+	i64 func_id;
 
-	de_int64 ptsin_count, intin_count;
+	i64 ptsin_count, intin_count;
 };
 
 typedef void (*record_decoder_fn)(deark *c, lctx *d, struct opcode_data *op);
@@ -67,7 +67,7 @@ static const struct opcode_info opcode_info_arr[] = {
 
 static void do_opcode_5(deark *c, lctx *d, struct opcode_data *op)
 {
-	de_int64 sub_opcode_id;
+	i64 sub_opcode_id;
 	const char *name;
 
 	if(op->func_id!=99) return;
@@ -115,9 +115,9 @@ static void do_opcode_11(deark *c, lctx *d, struct opcode_data *op)
 	de_dbg(c, "function: %s", name);
 }
 
-static const struct opcode_info *find_opcode_info(de_int64 opcode)
+static const struct opcode_info *find_opcode_info(i64 opcode)
 {
-	de_int64 i;
+	i64 i;
 
 	for(i=0; opcode_info_arr[i].name!=NULL; i++) {
 		if(opcode_info_arr[i].opcode == opcode) {
@@ -128,13 +128,13 @@ static const struct opcode_info *find_opcode_info(de_int64 opcode)
 }
 
 // Returns 0 if we should stop reading the file.
-static int do_record(deark *c, lctx *d, de_int64 pos, de_int64 *bytesused)
+static int do_record(deark *c, lctx *d, i64 pos, i64 *bytesused)
 {
 	int retval = 0;
 	struct opcode_data op;
-	de_int64 ptsin_size_bytes;
-	de_int64 intin_size_bytes;
-	de_int64 data_size_bytes;
+	i64 ptsin_size_bytes;
+	i64 intin_size_bytes;
+	i64 data_size_bytes;
 	const struct opcode_info *opinfo;
 	const char *opcode_name;
 
@@ -186,11 +186,11 @@ done:
 static void de_run_gemmeta(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
-	de_int64 pos;
-	de_int64 hdrlen_words;
-	de_int64 version;
-	de_int64 imgflag;
-	de_int64 bytesused;
+	i64 pos;
+	i64 hdrlen_words;
+	i64 version;
+	i64 imgflag;
+	i64 bytesused;
 
 	d = de_malloc(c, sizeof(lctx));
 	de_msg(c, "Note: GEM VDI Metafiles can be parsed, but no files can be extracted from them.");

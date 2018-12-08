@@ -9,8 +9,8 @@
 DE_DECLARE_MODULE(de_module_sunras);
 
 typedef struct localctx_struct {
-	de_int64 width, height;
-	de_int64 depth;
+	i64 width, height;
+	i64 depth;
 
 #define RT_OLD          0
 #define RT_STANDARD     1
@@ -18,32 +18,32 @@ typedef struct localctx_struct {
 #define RT_FORMAT_RGB   3
 #define RT_FORMAT_TIFF  4
 #define RT_FORMAT_IFF   5
-	de_int64 imgtype;
+	i64 imgtype;
 	int is_compressed;
 	int is_rgb_order;
 
-	de_int64 imglen;
+	i64 imglen;
 
 #define RMT_NONE        0
 #define RMT_EQUAL_RGB   1
 #define RMT_RAW         2
-	de_int64 maptype;
+	i64 maptype;
 
-	de_int64 maplen;
+	i64 maplen;
 
-	de_int64 rowspan;
-	de_int64 unc_pixels_size;
+	i64 rowspan;
+	i64 unc_pixels_size;
 	int is_paletted;
 	int is_grayscale;
 
 	de_uint32 pal[256];
 } lctx;
 
-static void do_read_palette(deark *c, lctx *d, de_int64 pos)
+static void do_read_palette(deark *c, lctx *d, i64 pos)
 {
-	de_int64 num_entries;
-	de_int64 num_entries_to_read;
-	de_int64 k;
+	i64 num_entries;
+	i64 num_entries_to_read;
+	i64 k;
 	de_byte r, g, b;
 
 	num_entries = d->maplen/3;
@@ -64,8 +64,8 @@ static void do_image(deark *c, lctx *d, dbuf *unc_pixels)
 	de_bitmap *img = NULL;
 	de_uint32 clr;
 	de_byte b;
-	de_int64 i, j;
-	de_int64 src_bypp, dst_bypp;
+	i64 i, j;
+	i64 src_bypp, dst_bypp;
 	unsigned int getrgbflags;
 
 	if(d->depth!=1 && d->depth!=4 && d->depth!=8 && d->depth!=24 && d->depth!=32) {
@@ -124,7 +124,7 @@ done:
 	de_bitmap_destroy(img);
 }
 
-static const char *get_image_type_name(de_int64 t)
+static const char *get_image_type_name(i64 t)
 {
 	const char *name;
 
@@ -141,7 +141,7 @@ static const char *get_image_type_name(de_int64 t)
 	return name;
 }
 
-static const char *get_map_type_name(de_int64 t)
+static const char *get_map_type_name(i64 t)
 {
 	const char *name;
 
@@ -154,7 +154,7 @@ static const char *get_map_type_name(de_int64 t)
 	return name;
 }
 
-static void read_header(deark *c, lctx *d, de_int64 pos)
+static void read_header(deark *c, lctx *d, i64 pos)
 {
 	de_dbg(c, "header at %d", (int)pos);
 	de_dbg_indent(c, 1);
@@ -185,9 +185,9 @@ static void read_header(deark *c, lctx *d, de_int64 pos)
 	de_dbg_indent(c, -1);
 }
 
-static void do_uncompress_image(deark *c, lctx *d, de_int64 pos1, de_int64 len, dbuf *unc_pixels)
+static void do_uncompress_image(deark *c, lctx *d, i64 pos1, i64 len, dbuf *unc_pixels)
 {
-	de_int64 pos = pos1;
+	i64 pos = pos1;
 
 	while(1) {
 		de_byte b0, b1, b2;
@@ -203,7 +203,7 @@ static void do_uncompress_image(deark *c, lctx *d, de_int64 pos1, de_int64 len, 
 			}
 			else { // A compressed run
 				b2 = de_getbyte(pos++);
-				dbuf_write_run(unc_pixels, b2, (de_int64)b1+1);
+				dbuf_write_run(unc_pixels, b2, (i64)b1+1);
 			}
 		}
 		else { // An uncompressed byte
@@ -216,7 +216,7 @@ static void de_run_sunras(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
 	dbuf *unc_pixels = NULL;
-	de_int64 pos;
+	i64 pos;
 	int saved_indent_level;
 
 	de_dbg_indent_save(c, &saved_indent_level);
@@ -247,7 +247,7 @@ static void de_run_sunras(deark *c, de_module_params *mparams)
 	else if(d->maptype==RMT_NONE) {
 		if(d->depth<=8) {
 			d->is_grayscale = 1;
-			de_make_grayscale_palette(d->pal, ((de_int64)1)<<d->depth, d->depth==1 ? 1 : 0);
+			de_make_grayscale_palette(d->pal, ((i64)1)<<d->depth, d->depth==1 ? 1 : 0);
 		}
 	}
 	else {

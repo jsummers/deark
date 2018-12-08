@@ -12,7 +12,7 @@ typedef struct localctx_struct {
 	int convert_images; // 0=extract PIC, 1=convert PIC
 } lctx;
 
-static void handle_embedded_file(deark *c, lctx *d, de_int64 offset, de_int64 len)
+static void handle_embedded_file(deark *c, lctx *d, i64 offset, i64 len)
 {
 	de_byte buf[16];
 	const char *ext;
@@ -60,10 +60,10 @@ static void handle_embedded_file(deark *c, lctx *d, de_int64 offset, de_int64 le
 
 static void do_opo_opa(deark *c, lctx *d)
 {
-	de_int64 offset_2ndheader;
-	de_int64 pos;
-	de_int64 n;
-	de_int64 len;
+	i64 offset_2ndheader;
+	i64 pos;
+	i64 n;
+	i64 len;
 
 	de_declare_fmt(c, "Psion OPO/OPA");
 
@@ -73,7 +73,7 @@ static void do_opo_opa(deark *c, lctx *d)
 	pos = 20;
 
 	// Read length of source filename
-	n = (de_int64)de_getbyte(pos);
+	n = (i64)de_getbyte(pos);
 	pos++;
 	pos+=n;
 	while(pos<offset_2ndheader) {
@@ -87,9 +87,9 @@ static void do_opo_opa(deark *c, lctx *d)
 
 static void do_img_app(deark *c, lctx *d)
 {
-	de_int64 i;
-	de_int64 offset;
-	de_int64 len;
+	i64 i;
+	i64 offset;
+	i64 len;
 
 	de_declare_fmt(c, "Psion IMG/APP");
 

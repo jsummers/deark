@@ -22,22 +22,22 @@ DE_DECLARE_MODULE(de_module_pnm);
 struct page_ctx {
 	int fmt;
 	const char *fmt_name;
-	de_int64 width, height;
-	de_int64 maxval;
+	i64 width, height;
+	i64 maxval;
 
-	de_int64 pam_num_samples;
+	i64 pam_num_samples;
 #define PAMSUBTYPE_GRAY         1
 #define PAMSUBTYPE_RGB          2
 	int pam_subtype;
 	int has_alpha;
 
-	de_int64 hdr_parse_pos;
-	de_int64 image_data_len;
+	i64 hdr_parse_pos;
+	i64 image_data_len;
 };
 
 typedef struct localctx_struct {
 	int last_fmt;
-	de_int64 last_bytesused;
+	i64 last_bytesused;
 } lctx;
 
 static int fmt_is_pbm(int fmt)
@@ -108,7 +108,7 @@ static int read_next_token(deark *c, lctx *d, struct page_ctx *pg,
 	return 0;
 }
 
-static int read_pnm_header(deark *c, lctx *d, struct page_ctx *pg, de_int64 pos1)
+static int read_pnm_header(deark *c, lctx *d, struct page_ctx *pg, i64 pos1)
 {
 	char tokenbuf[100];
 	int retval = 0;
@@ -143,22 +143,22 @@ done:
 // Read a token from a NUL-terminated string.
 static int read_next_pam_token(deark *c, lctx *d, struct page_ctx *pg,
 	const char *linebuf, size_t linebuflen,
-	char *tokenbuf, size_t tokenbuflen, de_int64 *curpos)
+	char *tokenbuf, size_t tokenbuflen, i64 *curpos)
 {
 	de_byte b;
-	de_int64 token_len = 0;
-	de_int64 linepos;
+	i64 token_len = 0;
+	i64 linepos;
 
 	token_len = 0;
 
 	linepos = *curpos;
 	while(1) {
-		if(token_len >= (de_int64)tokenbuflen) {
+		if(token_len >= (i64)tokenbuflen) {
 			// Token too long.
 			return 0;
 		}
 
-		if(linepos >= (de_int64)linebuflen) {
+		if(linepos >= (i64)linebuflen) {
 			return 0;
 		}
 		b = linebuf[linepos++];
@@ -183,12 +183,12 @@ static int read_next_pam_token(deark *c, lctx *d, struct page_ctx *pg,
 	return 1;
 }
 
-static int read_pam_header_line(deark *c, lctx *d, struct page_ctx *pg, de_int64 pos,
-	de_int64 *content_len, de_int64 *total_len,
+static int read_pam_header_line(deark *c, lctx *d, struct page_ctx *pg, i64 pos,
+	i64 *content_len, i64 *total_len,
 	char *linebuf, size_t linebuf_len)
 {
 	int ret;
-	de_int64 amt_to_read;
+	i64 amt_to_read;
 
 	linebuf[0]='\0';
 
@@ -198,7 +198,7 @@ static int read_pam_header_line(deark *c, lctx *d, struct page_ctx *pg, de_int64
 	if(!ret) return 0;
 
 	amt_to_read = *content_len;
-	if(amt_to_read > (de_int64)(linebuf_len-1)) amt_to_read = (de_int64)(linebuf_len-1);
+	if(amt_to_read > (i64)(linebuf_len-1)) amt_to_read = (i64)(linebuf_len-1);
 
 	de_read((de_byte*)linebuf, pos, amt_to_read);
 
@@ -207,10 +207,10 @@ static int read_pam_header_line(deark *c, lctx *d, struct page_ctx *pg, de_int64
 	return 1;
 }
 
-static int read_pam_header(deark *c, lctx *d, struct page_ctx *pg, de_int64 pos1)
+static int read_pam_header(deark *c, lctx *d, struct page_ctx *pg, i64 pos1)
 {
 	int ret;
-	de_int64 pos = pos1;
+	i64 pos = pos1;
 	int retval = 0;
 	int tupltype_line_count = 0;
 	char linebuf[200];
@@ -223,9 +223,9 @@ static int read_pam_header(deark *c, lctx *d, struct page_ctx *pg, de_int64 pos1
 	pos += 3; // Skip "P7\n"
 
 	while(1) {
-		de_int64 content_len;
-		de_int64 total_len;
-		de_int64 curpos;
+		i64 content_len;
+		i64 total_len;
+		i64 curpos;
 
 		ret = read_pam_header_line(c, d, pg, pos, &content_len, &total_len,
 			linebuf, sizeof(linebuf));
@@ -345,11 +345,11 @@ done:
 	return retval;
 }
 
-static int do_image_pbm_ascii(deark *c, lctx *d, struct page_ctx *pg, de_int64 pos1)
+static int do_image_pbm_ascii(deark *c, lctx *d, struct page_ctx *pg, i64 pos1)
 {
 	de_bitmap *img = NULL;
-	de_int64 xpos, ypos;
-	de_int64 pos = pos1;
+	i64 xpos, ypos;
+	i64 pos = pos1;
 	de_byte b;
 	de_byte v;
 
@@ -379,12 +379,12 @@ static int do_image_pbm_ascii(deark *c, lctx *d, struct page_ctx *pg, de_int64 p
 	return 1;
 }
 
-static int do_image_pgm_ppm_ascii(deark *c, lctx *d, struct page_ctx *pg, de_int64 pos1)
+static int do_image_pgm_ppm_ascii(deark *c, lctx *d, struct page_ctx *pg, i64 pos1)
 {
 	de_bitmap *img = NULL;
-	de_int64 nsamples; // For both input and output
-	de_int64 pos = pos1;
-	de_int64 xpos, ypos, sampidx;
+	i64 nsamples; // For both input and output
+	i64 pos = pos1;
+	i64 xpos, ypos, sampidx;
 	char samplebuf[32];
 	size_t samplebuf_used;
 	de_byte b;
@@ -406,7 +406,7 @@ static int do_image_pgm_ppm_ascii(deark *c, lctx *d, struct page_ctx *pg, de_int
 		b = de_getbyte(pos++);
 		if(is_pnm_whitespace(b)) {
 			if(samplebuf_used>0) {
-				de_int64 v;
+				i64 v;
 				de_byte v_adj;
 
 				// Completed a sample
@@ -450,9 +450,9 @@ static int do_image_pgm_ppm_ascii(deark *c, lctx *d, struct page_ctx *pg, de_int
 	return 1;
 }
 
-static int do_image_pbm_binary(deark *c, lctx *d, struct page_ctx *pg, de_int64 pos1)
+static int do_image_pbm_binary(deark *c, lctx *d, struct page_ctx *pg, i64 pos1)
 {
-	de_int64 rowspan;
+	i64 rowspan;
 
 	rowspan = (pg->width+7)/8;
 	pg->image_data_len = rowspan * pg->height;
@@ -462,14 +462,14 @@ static int do_image_pbm_binary(deark *c, lctx *d, struct page_ctx *pg, de_int64 
 	return 1;
 }
 
-static int do_image_pgm_ppm_pam_binary(deark *c, lctx *d, struct page_ctx *pg, de_int64 pos1)
+static int do_image_pgm_ppm_pam_binary(deark *c, lctx *d, struct page_ctx *pg, i64 pos1)
 {
 	de_bitmap *img = NULL;
-	de_int64 rowspan;
-	de_int64 nsamples; // For both input and output
-	de_int64 bytes_per_sample;
-	de_int64 i, j, k;
-	de_int64 pos = pos1;
+	i64 rowspan;
+	i64 nsamples; // For both input and output
+	i64 bytes_per_sample;
+	i64 i, j, k;
+	i64 pos = pos1;
 	unsigned int samp_ori[4];
 	de_byte samp_adj[4];
 	de_uint32 clr;
@@ -550,7 +550,7 @@ done:
 	return retval;
 }
 
-static int do_image(deark *c, lctx *d, struct page_ctx *pg, de_int64 pos1)
+static int do_image(deark *c, lctx *d, struct page_ctx *pg, i64 pos1)
 {
 	int retval = 0;
 
@@ -591,7 +591,7 @@ done:
 	return retval;
 }
 
-static int identify_fmt(deark *c, de_int64 pos)
+static int identify_fmt(deark *c, i64 pos)
 {
 	de_byte buf[3];
 
@@ -620,7 +620,7 @@ static const char *get_fmt_name(int fmt)
 	return name;
 }
 
-static int do_page(deark *c, lctx *d, int pagenum, de_int64 pos1)
+static int do_page(deark *c, lctx *d, int pagenum, i64 pos1)
 {
 	struct page_ctx *pg = NULL;
 	int retval = 0;
@@ -665,7 +665,7 @@ done:
 static void de_run_pnm(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
-	de_int64 pos;
+	i64 pos;
 	int ret;
 	int pagenum = 0;
 

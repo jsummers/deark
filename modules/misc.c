@@ -92,10 +92,10 @@ struct cp437ctx_struct {
 };
 
 static int cp437_cbfn(deark *c, void *userdata, const de_byte *buf,
-	de_int64 buf_len)
+	i64 buf_len)
 {
 	de_int32 u;
-	de_int64 i;
+	i64 i;
 	de_byte ch;
 	struct cp437ctx_struct *cp437ctx = (struct cp437ctx_struct*)userdata;
 
@@ -152,7 +152,7 @@ struct crcctx_struct {
 };
 
 static int crc_cbfn(deark *c, void *userdata, const de_byte *buf,
-	de_int64 buf_len)
+	i64 buf_len)
 {
 	struct crcctx_struct *crcctx = (struct crcctx_struct*)userdata;
 	de_crcobj_addbuf(crcctx->crco_32ieee, buf, buf_len);
@@ -282,7 +282,7 @@ void de_module_sauce(deark *c, struct deark_module_info *mi)
 
 static void de_run_hpicn(deark *c, de_module_params *mparams)
 {
-	de_int64 width, height;
+	i64 width, height;
 
 	width = de_getui16le(4);
 	height = de_getui16le(6);
@@ -316,15 +316,15 @@ void de_module_hpicn(deark *c, struct deark_module_info *mi)
 // **************************************************************************
 
 struct xpuzzctx {
-	de_int64 w, h;
-	de_int64 palentries;
+	i64 w, h;
+	i64 palentries;
 };
 
 static int xpuzz_read_header(deark *c, struct xpuzzctx *d)
 {
 	d->w = de_getui32be(0);
 	d->h = de_getui32be(4);
-	d->palentries = (de_int64)de_getbyte(8);
+	d->palentries = (i64)de_getbyte(8);
 	if(!de_good_image_dimensions_noerr(c, d->w, d->h)) return 0;
 	if(d->palentries==0) d->palentries = 256;
 	return 1;
@@ -335,7 +335,7 @@ static void de_run_xpuzzle(deark *c, de_module_params *mparams)
 	struct xpuzzctx *d = NULL;
 	de_bitmap *img = NULL;
 	de_uint32 pal[256];
-	de_int64 p;
+	i64 p;
 
 	d = de_malloc(c, sizeof(struct xpuzzctx));
 	if(!xpuzz_read_header(c, d)) goto done;
@@ -392,8 +392,8 @@ void de_module_xpuzzle(deark *c, struct deark_module_info *mi)
 static void de_run_winzle(deark *c, de_module_params *mparams)
 {
 	de_byte buf[256];
-	de_int64 xorsize;
-	de_int64 i;
+	i64 xorsize;
+	i64 i;
 	dbuf *f = NULL;
 
 	xorsize = c->infile->len >= 256 ? 256 : c->infile->len;
@@ -436,11 +436,11 @@ void de_module_winzle(deark *c, struct deark_module_info *mi)
 // Minolta RAW (MRW)
 // **************************************************************************
 
-static void do_mrw_seg_list(deark *c, de_int64 pos1, de_int64 len)
+static void do_mrw_seg_list(deark *c, i64 pos1, i64 len)
 {
-	de_int64 pos;
+	i64 pos;
 	de_byte seg_id[4];
-	de_int64 data_len;
+	i64 data_len;
 
 	pos = pos1;
 	while(pos < pos1+len) {
@@ -457,7 +457,7 @@ static void do_mrw_seg_list(deark *c, de_int64 pos1, de_int64 len)
 
 static void de_run_mrw(deark *c, de_module_params *mparams)
 {
-	de_int64 mrw_seg_size;
+	i64 mrw_seg_size;
 
 	mrw_seg_size = de_getui32be(4);
 	do_mrw_seg_list(c, 8, mrw_seg_size);
@@ -487,9 +487,9 @@ void de_module_mrw(deark *c, struct deark_module_info *mi)
 static void de_run_bob(deark *c, de_module_params *mparams)
 {
 	de_bitmap *img = NULL;
-	de_int64 w, h;
+	i64 w, h;
 	de_uint32 pal[256];
-	de_int64 p;
+	i64 p;
 
 	w = de_getui16le(0);
 	h = de_getui16le(2);
@@ -513,7 +513,7 @@ done:
 
 static int de_identify_bob(deark *c)
 {
-	de_int64 w, h;
+	i64 w, h;
 
 	if(!de_input_file_has_ext(c, "bob")) return 0;
 
@@ -541,13 +541,13 @@ void de_module_bob(deark *c, struct deark_module_info *mi)
 static void de_run_alias_pix(deark *c, de_module_params *mparams)
 {
 	de_bitmap *img = NULL;
-	de_int64 w, h;
-	de_int64 i;
-	de_int64 pos;
-	de_int64 firstline;
-	de_int64 depth;
-	de_int64 xpos, ypos;
-	de_int64 runlen;
+	i64 w, h;
+	i64 i;
+	i64 pos;
+	i64 firstline;
+	i64 depth;
+	i64 xpos, ypos;
+	i64 runlen;
 	de_uint32 clr;
 
 	w = de_getui16be(0);
@@ -573,7 +573,7 @@ static void de_run_alias_pix(deark *c, de_module_params *mparams)
 		if(pos+4 > c->infile->len) {
 			break; // EOF
 		}
-		runlen = (de_int64)de_getbyte(pos);
+		runlen = (i64)de_getbyte(pos);
 		clr = dbuf_getRGB(c->infile, pos+1, DE_GETRGBFLAG_BGR);
 		pos+=4;
 
@@ -595,7 +595,7 @@ done:
 
 static int de_identify_alias_pix(deark *c)
 {
-	de_int64 w, h, firstline, lastline, depth;
+	i64 w, h, firstline, lastline, depth;
 
 	if(!de_input_file_has_ext(c, "img") &&
 		!de_input_file_has_ext(c, "als") &&
@@ -660,9 +660,9 @@ static de_byte applevol_get_gray_shade(de_byte clr)
 static void de_run_applevol(deark *c, de_module_params *mparams)
 {
 	de_bitmap *img = NULL;
-	de_int64 w, h;
-	de_int64 i, j;
-	de_int64 p;
+	i64 w, h;
+	i64 i, j;
+	i64 p;
 	de_byte palent;
 
 	w = de_getui16be(1);
@@ -747,10 +747,10 @@ void de_module_hr(deark *c, struct deark_module_info *mi)
 static void de_run_ripicon(deark *c, de_module_params *mparams)
 {
 	de_bitmap *img = NULL;
-	de_int64 width, height;
-	de_int64 chunk_span;
-	de_int64 src_rowspan;
-	de_int64 i, j, k;
+	i64 width, height;
+	i64 chunk_span;
+	i64 src_rowspan;
+	i64 i, j, k;
 	de_byte x;
 	de_uint32 palent;
 
@@ -782,8 +782,8 @@ done:
 static int de_identify_ripicon(deark *c)
 {
 	de_byte buf[4];
-	de_int64 expected_size;
-	de_int64 width, height;
+	i64 expected_size;
+	i64 width, height;
 
 	if(!de_input_file_has_ext(c, "icn")) return 0;
 	de_read(buf, 0, sizeof(buf));
@@ -809,7 +809,7 @@ void de_module_ripicon(deark *c, struct deark_module_info *mi)
 // **************************************************************************
 
 struct lss16ctx {
-	de_int64 pos;
+	i64 pos;
 	int nextnibble_valid;
 	de_byte nextnibble;
 };
@@ -834,12 +834,12 @@ static void de_run_lss16(deark *c, de_module_params *mparams)
 {
 	struct lss16ctx *d = NULL;
 	de_bitmap *img = NULL;
-	de_int64 width, height;
-	de_int64 i;
-	de_int64 xpos, ypos;
+	i64 width, height;
+	i64 i;
+	i64 xpos, ypos;
 	de_byte n;
 	de_byte prev;
-	de_int64 run_len;
+	i64 run_len;
 	de_byte cr1, cg1, cb1;
 	de_byte cr2, cg2, cb2;
 	de_uint32 pal[16];
@@ -878,7 +878,7 @@ static void de_run_lss16(deark *c, de_module_params *mparams)
 
 		if(n == prev) {
 			// A run of pixels
-			run_len = (de_int64)lss16_get_nibble(c, d);
+			run_len = (i64)lss16_get_nibble(c, d);
 			if(run_len==0) {
 				run_len = lss16_get_nibble(c, d) | (lss16_get_nibble(c, d)<<4);
 				run_len += 16;
@@ -931,7 +931,7 @@ void de_module_lss16(deark *c, struct deark_module_info *mi)
 
 static void de_run_vbm(deark *c, de_module_params *mparams)
 {
-	de_int64 width, height;
+	i64 width, height;
 	de_byte ver;
 
 	ver = de_getbyte(3);
@@ -971,8 +971,8 @@ void de_module_vbm(deark *c, struct deark_module_info *mi)
 
 static void de_run_fp_art(deark *c, de_module_params *mparams)
 {
-	de_int64 width, height;
-	de_int64 rowspan;
+	i64 width, height;
+	i64 rowspan;
 
 	width = de_getui16le(2);
 	height = de_getui16le(6);
@@ -982,8 +982,8 @@ static void de_run_fp_art(deark *c, de_module_params *mparams)
 
 static int de_identify_fp_art(deark *c)
 {
-	de_int64 width, height;
-	de_int64 rowspan;
+	i64 width, height;
+	i64 rowspan;
 
 	if(!de_input_file_has_ext(c, "art")) return 0;
 
@@ -1012,9 +1012,9 @@ void de_module_fp_art(deark *c, struct deark_module_info *mi)
 static void de_run_ybm(deark *c, de_module_params *mparams)
 {
 	de_bitmap *img = NULL;
-	de_int64 width, height;
-	de_int64 i, j;
-	de_int64 rowspan;
+	i64 width, height;
+	i64 i, j;
+	i64 rowspan;
 	de_byte x;
 
 	width = de_getui16be(2);
@@ -1040,8 +1040,8 @@ done:
 
 static int de_identify_ybm(deark *c)
 {
-	de_int64 width, height;
-	de_int64 rowspan;
+	i64 width, height;
+	i64 rowspan;
 
 	if(dbuf_memcmp(c->infile, 0, "!!", 2))
 		return 0;
@@ -1068,9 +1068,9 @@ void de_module_ybm(deark *c, struct deark_module_info *mi)
 static void de_run_olpc565(deark *c, de_module_params *mparams)
 {
 	de_bitmap *img = NULL;
-	de_int64 width, height;
-	de_int64 i, j;
-	de_int64 rowspan;
+	i64 width, height;
+	i64 i, j;
+	i64 rowspan;
 	de_byte b0, b1;
 	de_uint32 clr;
 
@@ -1118,10 +1118,10 @@ void de_module_olpc565(deark *c, struct deark_module_info *mi)
 static void de_run_iim(deark *c, de_module_params *mparams)
 {
 	de_bitmap *img = NULL;
-	de_int64 width, height;
-	de_int64 i, j;
-	de_int64 n, bpp;
-	de_int64 rowspan;
+	i64 width, height;
+	i64 i, j;
+	i64 n, bpp;
+	i64 rowspan;
 	de_uint32 clr;
 
 	// This code is based on reverse engineering, and may be incorrect.
@@ -1174,16 +1174,16 @@ static void de_run_pm_xv(deark *c, de_module_params *mparams)
 {
 	de_bitmap *img = NULL;
 	int is_le;
-	de_int64 width, height;
-	de_int64 nplanes;
-	de_int64 nbands;
-	de_int64 pixelformat;
-	de_int64 commentsize;
-	de_int64 i, j;
-	de_int64 plane;
-	de_int64 rowspan;
-	de_int64 planespan;
-	de_int64 pos;
+	i64 width, height;
+	i64 nplanes;
+	i64 nbands;
+	i64 pixelformat;
+	i64 commentsize;
+	i64 i, j;
+	i64 plane;
+	i64 rowspan;
+	i64 planespan;
+	i64 pos;
 	de_byte b;
 
 	if(!dbuf_memcmp(c->infile, 0, "WEIV", 4))
@@ -1272,13 +1272,13 @@ void de_module_pm_xv(deark *c, struct deark_module_info *mi)
 
 static void de_run_crg(deark *c, de_module_params *mparams)
 {
-	de_int64 width, height;
-	de_int64 rowspan;
-	de_int64 pos;
+	i64 width, height;
+	i64 rowspan;
+	i64 pos;
 	de_byte b1, b2;
-	de_int64 count;
-	de_int64 cmpr_img_start;
-	de_int64 num_cmpr_bytes;
+	i64 count;
+	i64 cmpr_img_start;
+	i64 num_cmpr_bytes;
 	dbuf *unc_pixels = NULL;
 
 	width = de_getui32be(20);
@@ -1308,13 +1308,13 @@ static void de_run_crg(deark *c, de_module_params *mparams)
 	while(pos < cmpr_img_start + num_cmpr_bytes) {
 		b1 = de_getbyte(pos++);
 		if(b1<=0x7f) { // Uncompressed bytes
-			count = 1+(de_int64)b1;
+			count = 1+(i64)b1;
 			dbuf_copy(c->infile, pos, count, unc_pixels);
 			pos += count;
 		}
 		else { // A compressed run
 			b2 = de_getbyte(pos++);
-			count = (de_int64)(b1-127);
+			count = (i64)(b1-127);
 			dbuf_write_run(unc_pixels, b2, count);
 		}
 	}
@@ -1349,9 +1349,9 @@ void de_module_crg(deark *c, struct deark_module_info *mi)
 static void de_run_farbfeld(deark *c, de_module_params *mparams)
 {
 	de_bitmap *img = NULL;
-	de_int64 width, height;
-	de_int64 i, j, k;
-	de_int64 ppos;
+	i64 width, height;
+	i64 i, j, k;
+	i64 ppos;
 	de_byte s[4];
 
 	width = de_getui32be(8);
@@ -1398,8 +1398,8 @@ static void de_run_vgafont(deark *c, de_module_params *mparams)
 {
 	de_byte *fontdata = NULL;
 	struct de_bitmap_font *font = NULL;
-	de_int64 i;
-	de_int64 height;
+	i64 i;
+	i64 height;
 
 	if(c->infile->len==16*256) {
 		height = 16;
@@ -1473,11 +1473,11 @@ void de_module_vgafont(deark *c, struct deark_module_info *mi)
 // HSI Raw image format (from Image Alchemy / Handmade Software)
 // **************************************************************************
 
-static void convert_image_rgb(dbuf *f, de_int64 fpos,
-	de_int64 rowspan, de_int64 pixelspan,
+static void convert_image_rgb(dbuf *f, i64 fpos,
+	i64 rowspan, i64 pixelspan,
 	de_bitmap *img, unsigned int flags)
 {
-	de_int64 i, j;
+	i64 i, j;
 	de_int32 clr;
 
 	for(j=0; j<img->height; j++) {
@@ -1490,13 +1490,13 @@ static void convert_image_rgb(dbuf *f, de_int64 fpos,
 
 static void de_run_hsiraw(deark *c, de_module_params *mparams)
 {
-	de_int64 w, h;
-	de_int64 num_pal_colors;
-	de_int64 pos;
-	de_int64 ver;
-	de_int64 hdpi, vdpi;
-	de_int64 cmpr;
-	de_int64 alpha_info;
+	i64 w, h;
+	i64 num_pal_colors;
+	i64 pos;
+	i64 ver;
+	i64 hdpi, vdpi;
+	i64 cmpr;
+	i64 alpha_info;
 	de_bitmap *img = NULL;
 	de_uint32 pal[256];
 	int is_grayscale;
@@ -1580,9 +1580,9 @@ void de_module_hsiraw(deark *c, struct deark_module_info *mi)
 
 static void de_run_qdv(deark *c, de_module_params *mparams)
 {
-	de_int64 w, h;
-	de_int64 num_pal_colors;
-	de_int64 pos;
+	i64 w, h;
+	i64 num_pal_colors;
+	i64 pos;
 	de_bitmap *img = NULL;
 	de_uint32 pal[256];
 
@@ -1594,7 +1594,7 @@ static void de_run_qdv(deark *c, de_module_params *mparams)
 	de_dbg_dimensions(c, w, h);
 	if(!de_good_image_dimensions(c, w, h)) goto done;
 
-	num_pal_colors = 1 + (de_int64)de_getbyte(4);
+	num_pal_colors = 1 + (i64)de_getbyte(4);
 	de_dbg(c, "number of palette colors: %d", (int)num_pal_colors);
 
 	pos = 5;
@@ -1612,12 +1612,12 @@ done:
 
 static int de_identify_qdv(deark *c)
 {
-	de_int64 w, h;
-	de_int64 num_pal_colors;
+	i64 w, h;
+	i64 num_pal_colors;
 
 	w = de_getui16be(0);
 	h = de_getui16be(2);
-	num_pal_colors = 1 + (de_int64)de_getbyte(4);
+	num_pal_colors = 1 + (i64)de_getbyte(4);
 	if(5+num_pal_colors*3+w*h != c->infile->len)
 		return 0;
 	if(de_input_file_has_ext(c, "qdv"))
@@ -1639,14 +1639,14 @@ void de_module_qdv(deark *c, struct deark_module_info *mi)
 
 static void de_run_vitec(deark *c, de_module_params *mparams)
 {
-	de_int64 w, h;
-	de_int64 i, j, plane;
+	i64 w, h;
+	i64 i, j, plane;
 	de_bitmap *img = NULL;
-	de_int64 samplesperpixel;
-	de_int64 rowspan, planespan;
-	de_int64 pos;
+	i64 samplesperpixel;
+	i64 rowspan, planespan;
+	i64 pos;
 	de_byte b;
-	de_int64 h1size, h2size;
+	i64 h1size, h2size;
 	int saved_indent_level;
 
 	// This code is based on reverse engineering, and may be incorrect.
@@ -1735,8 +1735,8 @@ void de_module_vitec(deark *c, struct deark_module_info *mi)
 
 static void de_run_hs2(deark *c, de_module_params *mparams)
 {
-	de_int64 width, height;
-	de_int64 rowspan;
+	i64 width, height;
+	i64 rowspan;
 
 	rowspan = 105;
 	width = rowspan*8;
@@ -1768,16 +1768,16 @@ void de_module_hs2(deark *c, struct deark_module_info *mi)
 
 static void de_run_lumena_cel(deark *c, de_module_params *mparams)
 {
-	de_int64 width, height;
-	de_int64 rowspan;
-	de_int64 i, j;
+	i64 width, height;
+	i64 rowspan;
+	i64 i, j;
 	de_uint32 clr;
 	de_byte a;
 	int is_16bit = 0;
 	int is_32bit = 0;
 	de_bitmap *img = NULL;
-	const de_int64 headersize = 4;
-	de_int64 bypp;
+	const i64 headersize = 4;
+	i64 bypp;
 
 	width = de_getui16le(0);
 	height = de_getui16le(2);
@@ -1800,7 +1800,7 @@ static void de_run_lumena_cel(deark *c, de_module_params *mparams)
 
 	for(j=0; j<height; j++) {
 		for(i=0; i<width; i++) {
-			de_int64 pos = headersize + j*rowspan + i*bypp;
+			i64 pos = headersize + j*rowspan + i*bypp;
 			if(is_32bit) {
 				clr = dbuf_getRGB(c->infile, pos, 0);
 				a = de_getbyte(pos + 3);
@@ -1823,7 +1823,7 @@ done:
 
 static int de_identify_lumena_cel(deark *c)
 {
-	de_int64 width, height;
+	i64 width, height;
 	int is_16bit = 0;
 	int is_32bit = 0;
 
@@ -1854,7 +1854,7 @@ void de_module_lumena_cel(deark *c, struct deark_module_info *mi)
 
 static void de_run_zbr(deark *c, de_module_params *mparams)
 {
-	de_int64 pos = 0;
+	i64 pos = 0;
 	dbuf *outf = NULL;
 	static const de_byte hdrs[54] = {
 		0x42,0x4d,0xc6,0x14,0,0,0,0,0,0,0x76,0,0,0, // FILEHEADER
@@ -1900,9 +1900,9 @@ static void de_run_cdr_wl(deark *c, de_module_params *mparams)
 {
 	de_byte version;
 	de_byte b;
-	de_int64 w, h;
-	de_int64 rowspan;
-	de_int64 pos = 0;
+	i64 w, h;
+	i64 rowspan;
+	i64 pos = 0;
 	de_bitmap *img = NULL;
 	int saved_indent_level;
 
@@ -1963,10 +1963,10 @@ void de_module_cdr_wl(deark *c, struct deark_module_info *mi)
 
 static void de_run_bld(deark *c, de_module_params *mparams)
 {
-	de_int64 w_raw, h_raw;
-	de_int64 w, h;
-	de_int64 rowspan;
-	de_int64 pos = 0;
+	i64 w_raw, h_raw;
+	i64 w, h;
+	i64 rowspan;
+	i64 pos = 0;
 	int is_compressed;
 	dbuf *unc_pixels = NULL;
 
@@ -1984,14 +1984,14 @@ static void de_run_bld(deark *c, de_module_params *mparams)
 		unc_pixels = dbuf_create_membuf(c, h*rowspan, 1);
 		while(1) {
 			de_byte b1;
-			de_int64 count;
+			i64 count;
 
 			if(pos >= c->infile->len) break;
 			if(unc_pixels->len >= h*rowspan) break;
 
 			b1 = de_getbyte_p(&pos);
 			if(b1==0x00 || b1==0xff) {
-				count = 1+(de_int64)de_getbyte_p(&pos);
+				count = 1+(i64)de_getbyte_p(&pos);
 				dbuf_write_run(unc_pixels, b1, count);
 			}
 			else {
@@ -2035,9 +2035,9 @@ static void de_run_megapaint_pat(deark *c, de_module_params *mparams)
 {
 	// Note: This module is based on guesswork, and may be incomplete.
 	de_bitmap *mainimg = NULL;
-	de_int64 main_w, main_h;
-	de_int64 pos = 0;
-	de_int64 k;
+	i64 main_w, main_h;
+	i64 pos = 0;
+	i64 k;
 
 	pos += 8;
 	main_w = 1+(32+1)*16;
@@ -2048,7 +2048,7 @@ static void de_run_megapaint_pat(deark *c, de_module_params *mparams)
 
 	for(k=0; k<32; k++) {
 		de_bitmap *img = NULL;
-		de_int64 imgpos_x, imgpos_y;
+		i64 imgpos_x, imgpos_y;
 
 		img = de_bitmap_create(c, 32, 32, 1);
 		de_convert_image_bilevel(c->infile, pos, 4, img, DE_CVTF_WHITEISZERO);
@@ -2087,16 +2087,16 @@ void de_module_megapaint_pat(deark *c, struct deark_module_info *mi)
 static void de_run_megapaint_lib(deark *c, de_module_params *mparams)
 {
 	// Note: This module is based on guesswork, and may be incomplete.
-	const de_int64 idxpos = 14;
-	de_int64 k;
-	de_int64 nsyms;
+	const i64 idxpos = 14;
+	i64 k;
+	i64 nsyms;
 
 	nsyms = 1+de_getui16be(12);
 	de_dbg(c, "number of symbols: %d", (int)nsyms);
 
 	for(k=0; k<nsyms; k++) {
-		de_int64 sym_offs;
-		de_int64 w, h, rowspan;
+		i64 sym_offs;
+		i64 w, h, rowspan;
 
 		sym_offs = de_getui32be(idxpos+4*k);
 		de_dbg(c, "symbol #%d", (int)(1+k));
@@ -2133,7 +2133,7 @@ static void de_run_compress(deark *c, de_module_params *mparams)
 {
 	dbuf *f = NULL;
 	de_byte buf[1024];
-	de_int64 n;
+	i64 n;
 	struct de_liblzwctx *lzw = NULL;
 
 	lzw = de_liblzw_dbufopen(c->infile, 0x1, 0);

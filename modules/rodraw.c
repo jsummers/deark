@@ -11,10 +11,10 @@ DE_DECLARE_MODULE(de_module_rodraw);
 struct objinfo {
 	de_uint32 objtype;
 	int hasbbox;
-	de_int64 objsize;
-	de_int64 objpos;
-	de_int64 dpos;
-	de_int64 dlen;
+	i64 objsize;
+	i64 objpos;
+	i64 dpos;
+	i64 dlen;
 	const char *tyname;
 };
 
@@ -25,7 +25,7 @@ typedef struct localctx_struct {
 
 static void do_object_sprite(deark *c, lctx *d, struct objinfo *oi)
 {
-	de_int64 dpos, dlen;
+	i64 dpos, dlen;
 	dbuf *outf = NULL;
 	de_finfo *fi = NULL;
 
@@ -84,7 +84,7 @@ static void get_objtype_info(struct objinfo *oi)
 	if(!oi->tyname) oi->tyname="?";
 }
 
-static int do_object_sequence(deark *c, lctx *d, de_int64 pos1, de_int64 len);
+static int do_object_sequence(deark *c, lctx *d, i64 pos1, i64 len);
 
 static int do_object(deark *c, lctx *d, struct objinfo *oi)
 {
@@ -103,9 +103,9 @@ static int do_object(deark *c, lctx *d, struct objinfo *oi)
 	return 1;
 }
 
-static int do_object_sequence(deark *c, lctx *d, de_int64 pos1, de_int64 len)
+static int do_object_sequence(deark *c, lctx *d, i64 pos1, i64 len)
 {
-	de_int64 pos = pos1;
+	i64 pos = pos1;
 
 	d->nesting_level++;
 	if(d->nesting_level>16) goto done;
@@ -148,9 +148,9 @@ done:
 	return 1;
 }
 
-static int do_header(deark *c, lctx *d, de_int64 pos1)
+static int do_header(deark *c, lctx *d, i64 pos1)
 {
-	de_int64 pos = pos1;
+	i64 pos = pos1;
 
 	de_dbg(c, "header at %d", (int)pos1);
 	de_dbg_indent(c, 1);
@@ -167,7 +167,7 @@ static int do_header(deark *c, lctx *d, de_int64 pos1)
 static void de_run_rodraw(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
-	de_int64 pos;
+	i64 pos;
 
 	d = de_malloc(c, sizeof(lctx));
 

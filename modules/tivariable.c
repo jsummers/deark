@@ -7,7 +7,7 @@
 DE_DECLARE_MODULE(de_module_tivariable);
 
 typedef struct localctx_struct {
-	de_int64 w, h;
+	i64 w, h;
 	int fmt;
 } lctx;
 
@@ -66,9 +66,9 @@ static int identify_internal(deark *c)
 	return DE_FMT_UNKNOWN_TI;
 }
 
-static int do_bitmap(deark *c, lctx *d, de_int64 pos)
+static int do_bitmap(deark *c, lctx *d, i64 pos)
 {
-	de_int64 rowspan;
+	i64 rowspan;
 	int retval = 0;
 
 	de_dbg_dimensions(c, d->w, d->h);
@@ -86,12 +86,12 @@ done:
 	return retval;
 }
 
-static int do_bitmap_8ca(deark *c, lctx *d, de_int64 pos)
+static int do_bitmap_8ca(deark *c, lctx *d, i64 pos)
 {
 	de_bitmap *img = NULL;
-	de_int64 i;
-	de_int64 j;
-	de_int64 rowspan;
+	i64 i;
+	i64 j;
+	i64 rowspan;
 	int retval = 0;
 	de_byte b0, b1;
 	de_uint32 clr;
@@ -127,12 +127,12 @@ done:
 	return retval;
 }
 
-static int do_bitmap_8ci(deark *c, lctx *d, de_int64 pos)
+static int do_bitmap_8ci(deark *c, lctx *d, i64 pos)
 {
 	de_bitmap *img = NULL;
-	de_int64 i;
-	de_int64 j;
-	de_int64 rowspan;
+	i64 i;
+	i64 j;
+	i64 rowspan;
 	int retval = 0;
 	de_byte b0;
 
@@ -169,9 +169,9 @@ done:
 	return retval;
 }
 
-static int do_ti83_picture_var(deark *c, lctx *d, de_int64 pos)
+static int do_ti83_picture_var(deark *c, lctx *d, i64 pos)
 {
-	de_int64 picture_size;
+	i64 picture_size;
 
 	de_dbg(c, "picture at %d", (int)pos);
 	picture_size = de_getui16le(pos);
@@ -188,7 +188,7 @@ static int do_ti83_picture_var(deark *c, lctx *d, de_int64 pos)
 	return do_bitmap(c, d, pos+2);
 }
 
-static int do_ti83c_picture_var(deark *c, lctx *d, de_int64 pos)
+static int do_ti83c_picture_var(deark *c, lctx *d, i64 pos)
 {
 	// Try to support a type of color image (.8ca).
 	// This code may not be correct.
@@ -198,9 +198,9 @@ static int do_ti83c_picture_var(deark *c, lctx *d, de_int64 pos)
 	return do_bitmap_8ca(c, d, pos+3);
 }
 
-static int do_ti85_picture_var(deark *c, lctx *d, de_int64 pos)
+static int do_ti85_picture_var(deark *c, lctx *d, i64 pos)
 {
-	de_int64 x;
+	i64 x;
 
 	de_dbg(c, "picture at %d", (int)pos);
 	x = de_getui16le(pos);
@@ -210,9 +210,9 @@ static int do_ti85_picture_var(deark *c, lctx *d, de_int64 pos)
 	return do_bitmap(c, d, pos+2);
 }
 
-static int do_ti92_picture_var(deark *c, lctx *d, de_int64 pos)
+static int do_ti92_picture_var(deark *c, lctx *d, i64 pos)
 {
-	de_int64 x;
+	i64 x;
 
 	de_dbg(c, "picture at %d", (int)pos);
 	pos+=4;
@@ -224,9 +224,9 @@ static int do_ti92_picture_var(deark *c, lctx *d, de_int64 pos)
 	return do_bitmap(c, d, pos+6);
 }
 
-static void do_ti92_var_table_entry(deark *c, lctx *d, de_int64 pos)
+static void do_ti92_var_table_entry(deark *c, lctx *d, i64 pos)
 {
-	de_int64 data_offset;
+	i64 data_offset;
 	de_byte type_id;
 
 	de_dbg(c, "var table entry at %d", (int)pos);
@@ -244,10 +244,10 @@ static void do_ti92_var_table_entry(deark *c, lctx *d, de_int64 pos)
 
 static void do_ti83(deark *c, lctx *d)
 {
-	de_int64 pos;
-	de_int64 data_section_size;
-	de_int64 data_section_end;
-	de_int64 var_data_size;
+	i64 pos;
+	i64 data_section_size;
+	i64 data_section_end;
+	i64 var_data_size;
 	de_byte type_id;
 
 	// 0-7: signature
@@ -289,14 +289,14 @@ done:
 
 static void do_ti85(deark *c, lctx *d)
 {
-	de_int64 pos;
-	de_int64 data_section_size;
-	de_int64 data_section_end;
-	de_int64 var_data_size;
-	de_int64 name_len_reported;
-	de_int64 name_field_len;
+	i64 pos;
+	i64 data_section_size;
+	i64 data_section_end;
+	i64 var_data_size;
+	i64 name_len_reported;
+	i64 name_field_len;
 	de_byte type_id;
-	de_int64 x1, x2;
+	i64 x1, x2;
 	int warned = 0;
 
 	// 0-7: signature
@@ -321,7 +321,7 @@ static void do_ti85(deark *c, lctx *d)
 
 		var_data_size = de_getui16le(pos+2);
 		type_id = de_getbyte(pos+4);
-		name_len_reported = (de_int64)de_getbyte(pos+5);
+		name_len_reported = (i64)de_getbyte(pos+5);
 		de_dbg(c, "reported var name length: %d", (int)name_len_reported);
 		if(d->fmt==DE_FMT_TI86) {
 			name_field_len = 8; // Initial default
@@ -375,10 +375,10 @@ done:
 
 static void do_ti92(deark *c, lctx *d)
 {
-	de_int64 pos;
-	de_int64 numvars;
-	de_int64 x;
-	de_int64 i;
+	i64 pos;
+	i64 numvars;
+	i64 x;
+	i64 i;
 
 	// 0-7: signature
 	// 8-9: 0x01 0x00

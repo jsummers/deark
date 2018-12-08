@@ -9,9 +9,9 @@
 DE_DECLARE_MODULE(de_module_drhalocut);
 
 typedef struct localctx_struct {
-	de_int64 w, h;
+	i64 w, h;
 	int have_pal;
-	de_int64 pal_entries;
+	i64 pal_entries;
 	de_uint32 pal[256];
 } lctx;
 
@@ -24,13 +24,13 @@ static int do_read_header(deark *c, lctx *d)
 	return 1;
 }
 
-static int do_decompress_scanline(deark *c, lctx *d, de_int64 line_idx,
-	de_int64 pos1, de_int64 len, dbuf *unc_pixels)
+static int do_decompress_scanline(deark *c, lctx *d, i64 line_idx,
+	i64 pos1, i64 len, dbuf *unc_pixels)
 {
 	de_byte b, b2;
-	de_int64 count;
-	de_int64 pos = pos1;
-	de_int64 opos1 = unc_pixels->len;
+	i64 count;
+	i64 pos = pos1;
+	i64 opos1 = unc_pixels->len;
 
 	while(1) {
 		if((pos-pos1) >= len) break;
@@ -41,12 +41,12 @@ static int do_decompress_scanline(deark *c, lctx *d, de_int64 line_idx,
 			break;
 		}
 		else if(b & 0x80) { // RLE block
-			count = (de_int64)(b - 0x80);
+			count = (i64)(b - 0x80);
 			b2 = dbuf_getbyte(c->infile, pos++);
 			dbuf_write_run(unc_pixels, b2, count);
 		}
 		else { // uncompressed block
-			count = (de_int64)b;
+			count = (i64)b;
 			dbuf_copy(c->infile, pos, count, unc_pixels);
 			pos += count;
 		}
@@ -58,13 +58,13 @@ static int do_decompress_scanline(deark *c, lctx *d, de_int64 line_idx,
 	return 1;
 }
 
-static int do_decompress(deark *c, lctx *d, de_int64 pos1, dbuf *unc_pixels)
+static int do_decompress(deark *c, lctx *d, i64 pos1, dbuf *unc_pixels)
 {
-	de_int64 j;
-	de_int64 pos = pos1;
+	i64 j;
+	i64 pos = pos1;
 
 	for(j=0; j<d->h; j++) {
-		de_int64 linebytecount;
+		i64 linebytecount;
 
 		// Make sure we're at the right place in the uncompressed pixels.
 		dbuf_truncate(unc_pixels, j*d->w);
@@ -85,9 +85,9 @@ static int do_decompress(deark *c, lctx *d, de_int64 pos1, dbuf *unc_pixels)
 static void do_write_image_gray(deark *c, lctx *d, dbuf *unc_pixels)
 {
 	de_bitmap *img = NULL;
-	de_int64 i, j;
+	i64 i, j;
 	de_byte b;
-	de_int64 k;
+	i64 k;
 	de_byte max_val;
 
 	max_val = 0;
@@ -104,7 +104,7 @@ static void do_write_image_gray(deark *c, lctx *d, dbuf *unc_pixels)
 	for(j=0; j<d->h; j++) {
 		for(i=0; i<d->w; i++) {
 			b = dbuf_getbyte(unc_pixels, j*d->w + i);
-			b = de_scale_n_to_255(max_val, (de_int64)b);
+			b = de_scale_n_to_255(max_val, (i64)b);
 			de_bitmap_setpixel_gray(img, i, j, b);
 		}
 	}
@@ -116,7 +116,7 @@ static void do_write_image_gray(deark *c, lctx *d, dbuf *unc_pixels)
 static void do_write_image_pal(deark *c, lctx *d, dbuf *unc_pixels)
 {
 	de_bitmap *img = NULL;
-	de_int64 i, j;
+	i64 i, j;
 	de_byte b;
 
 	img = de_bitmap_create(c, d->w, d->h, 3);
@@ -135,19 +135,19 @@ static void do_write_image_pal(deark *c, lctx *d, dbuf *unc_pixels)
 static int do_read_pal_file(deark *c, lctx *d, const char *palfn)
 {
 	dbuf *palfile = NULL;
-	de_int64 pos;
-	de_int64 sig;
-	de_int64 filever;
-	de_int64 datasize;
-	de_int64 k, z;
-	de_int64 num_entries;
-	de_int64 maxidx;
-	de_int64 maxsamp[3];
+	i64 pos;
+	i64 sig;
+	i64 filever;
+	i64 datasize;
+	i64 k, z;
+	i64 num_entries;
+	i64 maxidx;
+	i64 maxsamp[3];
 	unsigned int board_id;
 	unsigned int graphics_mode;
 	de_byte filetype;
 	de_byte filesubtype;
-	de_int64 osamp[3];
+	i64 osamp[3];
 	de_byte samp[3];
 	int retval = 0;
 	char tmps[64];
@@ -235,7 +235,7 @@ done:
 static void de_run_drhalocut(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
-	de_int64 pos;
+	i64 pos;
 	dbuf *unc_pixels = NULL;
 	const char *palfn;
 

@@ -49,7 +49,7 @@ char *de_strdup(deark *c, const char *s)
 	return s2;
 }
 
-de_int64 de_strtoll(const char *string, char **endptr, int base)
+i64 de_strtoll(const char *string, char **endptr, int base)
 {
 	return strtoll(string, endptr, base);
 }
@@ -70,7 +70,7 @@ static FILE* de_fopen(deark *c, const char *fn, const char *mode,
 
 // Test if the file seems suitable for reading, and return its size.
 // returned flags: 0x1 = file is a FIFO (named pipe)
-static int de_examine_file_by_fd(deark *c, int fd, de_int64 *len,
+static int de_examine_file_by_fd(deark *c, int fd, i64 *len,
 	char *errmsg, size_t errmsg_len, unsigned int *returned_flags)
 {
 	struct stat stbuf;
@@ -93,11 +93,11 @@ static int de_examine_file_by_fd(deark *c, int fd, de_int64 *len,
 		return 0;
 	}
 
-	*len = (de_int64)stbuf.st_size;
+	*len = (i64)stbuf.st_size;
 	return 1;
 }
 
-FILE* de_fopen_for_read(deark *c, const char *fn, de_int64 *len,
+FILE* de_fopen_for_read(deark *c, const char *fn, i64 *len,
 	char *errmsg, size_t errmsg_len, unsigned int *returned_flags)
 {
 	int ret;
@@ -127,7 +127,7 @@ FILE* de_fopen_for_write(deark *c, const char *fn,
 	return de_fopen(c, fn, mode, errmsg, errmsg_len);
 }
 
-int de_fseek(FILE *fp, de_int64 offs, int whence)
+int de_fseek(FILE *fp, i64 offs, int whence)
 {
 	// TODO: Support 64-bit offsets in more cases.
 	// (E.g., use fseeko/fseeko64 when available.)
@@ -199,7 +199,7 @@ void de_update_file_time(dbuf *f)
 // Populates a caller-allocated de_struct_tm.
 void de_gmtime(const struct de_timestamp *ts, struct de_struct_tm *tm2)
 {
-	de_int64 tmpt_int64;
+	i64 tmpt_int64;
 	time_t tmpt;
 	struct tm *tm1;
 
@@ -240,7 +240,7 @@ void de_current_time_to_timestamp(struct de_timestamp *ts)
 
 	de_zeromem(ts, sizeof(struct de_timestamp));
 	time(&t);
-	ts->unix_time = (de_int64)t;
+	ts->unix_time = (i64)t;
 	ts->is_valid = 1;
 }
 

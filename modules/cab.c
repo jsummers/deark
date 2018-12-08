@@ -9,9 +9,9 @@
 DE_DECLARE_MODULE(de_module_cab);
 
 struct folder_info {
-	de_int64 folder_idx;
-	de_int64 coffCabStart;
-	de_int64 cCFData;
+	i64 folder_idx;
+	i64 coffCabStart;
+	i64 cCFData;
 	unsigned int typeCompress_raw;
 	unsigned int cmpr_type;
 };
@@ -19,12 +19,12 @@ struct folder_info {
 typedef struct localctx_struct {
 	de_byte versionMinor, versionMajor;
 	unsigned int header_flags;
-	de_int64 cbCabinet;
-	de_int64 coffFiles;
-	de_int64 cFolders;
-	de_int64 cFiles;
-	de_int64 cbCFHeader, cbCFFolder, cbCFData;
-	de_int64 CFHEADER_len;
+	i64 cbCabinet;
+	i64 coffFiles;
+	i64 cFolders;
+	i64 cFiles;
+	i64 cbCFHeader, cbCFFolder, cbCFData;
+	i64 CFHEADER_len;
 } lctx;
 
 static const char *get_cmpr_type_name(unsigned int n)
@@ -41,13 +41,13 @@ static const char *get_cmpr_type_name(unsigned int n)
 	return name;
 }
 
-static int do_one_CFDATA(deark *c, lctx *d, struct folder_info *fldi, de_int64 pos1,
-	de_int64 *bytes_consumed)
+static int do_one_CFDATA(deark *c, lctx *d, struct folder_info *fldi, i64 pos1,
+	i64 *bytes_consumed)
 {
 	de_uint32 csum;
-	de_int64 cbData;
-	de_int64 cbUncomp;
-	de_int64 pos = pos1;
+	i64 cbData;
+	i64 cbUncomp;
+	i64 pos = pos1;
 
 	csum = (de_uint32)de_getui32le_p(&pos);
 	de_dbg(c, "csum: 0x%08x", (unsigned int)csum);
@@ -77,9 +77,9 @@ static int do_one_CFDATA(deark *c, lctx *d, struct folder_info *fldi, de_int64 p
 
 static void do_CFDATA_for_one_CFFOLDER(deark *c, lctx *d, struct folder_info *fldi)
 {
-	de_int64 i;
+	i64 i;
 	int saved_indent_level;
-	de_int64 pos = fldi->coffCabStart;
+	i64 pos = fldi->coffCabStart;
 
 	de_dbg_indent_save(c, &saved_indent_level);
 	if(fldi->cCFData<1) goto done;
@@ -88,7 +88,7 @@ static void do_CFDATA_for_one_CFFOLDER(deark *c, lctx *d, struct folder_info *fl
 	de_dbg_indent(c, 1);
 
 	for(i=0; i<fldi->cCFData; i++) {
-		de_int64 bytes_consumed = 0;
+		i64 bytes_consumed = 0;
 
 		if(pos>=c->infile->len) goto done;
 		de_dbg(c, "CFDATA[%d] for CFFOLDER[%d], at %d", (int)i,
@@ -105,10 +105,10 @@ done:
 	de_dbg_indent_restore(c, saved_indent_level);
 }
 
-static int do_one_CFFOLDER(deark *c, lctx *d, de_int64 folder_idx,
-	de_int64 pos1, de_int64 *bytes_consumed)
+static int do_one_CFFOLDER(deark *c, lctx *d, i64 folder_idx,
+	i64 pos1, i64 *bytes_consumed)
 {
-	de_int64 pos = pos1;
+	i64 pos = pos1;
 	struct folder_info *fldi = NULL;
 
 	fldi = de_malloc(c, sizeof(struct folder_info));
@@ -147,8 +147,8 @@ static int do_one_CFFOLDER(deark *c, lctx *d, de_int64 folder_idx,
 
 static void do_CFFOLDERs(deark *c, lctx *d)
 {
-	de_int64 pos = d->CFHEADER_len;
-	de_int64 i;
+	i64 pos = d->CFHEADER_len;
+	i64 i;
 	int saved_indent_level;
 
 	de_dbg_indent_save(c, &saved_indent_level);
@@ -157,7 +157,7 @@ static void do_CFFOLDERs(deark *c, lctx *d)
 
 	de_dbg_indent(c, 1);
 	for(i=0; i<d->cFolders; i++) {
-		de_int64 bytes_consumed = 0;
+		i64 bytes_consumed = 0;
 
 		if(pos>=c->infile->len) break;
 		de_dbg(c, "CFFOLDER[%d] at %d", (int)i, (int)pos);
@@ -173,7 +173,7 @@ done:
 	de_dbg_indent_restore(c, saved_indent_level);
 }
 
-static const char *get_special_folder_name(de_int64 n)
+static const char *get_special_folder_name(i64 n)
 {
 	const char *name;
 	switch(n) {
@@ -185,14 +185,14 @@ static const char *get_special_folder_name(de_int64 n)
 	return name;
 }
 
-static int do_one_CFFILE(deark *c, lctx *d, de_int64 pos1, de_int64 *bytes_consumed)
+static int do_one_CFFILE(deark *c, lctx *d, i64 pos1, i64 *bytes_consumed)
 {
-	de_int64 cbFile;
-	de_int64 uoffFolderStart;
-	de_int64 iFolder;
-	de_int64 pos = pos1;
-	de_int64 date_;
-	de_int64 time_;
+	i64 cbFile;
+	i64 uoffFolderStart;
+	i64 iFolder;
+	i64 pos = pos1;
+	i64 date_;
+	i64 time_;
 	unsigned int attribs;
 	int retval = 0;
 	struct de_stringreaderdata *szName = NULL;
@@ -251,8 +251,8 @@ done:
 
 static void do_CFFILEs(deark *c, lctx *d)
 {
-	de_int64 pos = d->coffFiles;
-	de_int64 i;
+	i64 pos = d->coffFiles;
+	i64 i;
 	int saved_indent_level;
 
 	de_dbg_indent_save(c, &saved_indent_level);
@@ -260,7 +260,7 @@ static void do_CFFILEs(deark *c, lctx *d)
 	de_dbg(c, "CFFILE section at %d, nfiles=%d", (int)pos, (int)d->cFiles);
 	de_dbg_indent(c, 1);
 	for(i=0; i<d->cFiles; i++) {
-		de_int64 bytes_consumed = 0;
+		i64 bytes_consumed = 0;
 
 		if(pos>=c->infile->len) break;
 		de_dbg(c, "CFFILE[%d] at %d", (int)i, (int)pos);
@@ -280,7 +280,7 @@ done:
 static int do_CFHEADER(deark *c, lctx *d)
 {
 	int retval = 0;
-	de_int64 pos = 0;
+	i64 pos = 0;
 	de_ucstring *flags_str = NULL;
 	struct de_stringreaderdata *CabinetPrev = NULL;
 	struct de_stringreaderdata *DiskPrev = NULL;
@@ -325,9 +325,9 @@ static int do_CFHEADER(deark *c, lctx *d)
 	if(d->header_flags&0x0004) { // RESERVE_PRESENT
 		d->cbCFHeader = de_getui16le_p(&pos);
 		de_dbg(c, "cbCFHeader: %d", (int)d->cbCFHeader);
-		d->cbCFFolder = (de_int64)de_getbyte_p(&pos);
+		d->cbCFFolder = (i64)de_getbyte_p(&pos);
 		de_dbg(c, "cbCFFolder: %d", (int)d->cbCFFolder);
-		d->cbCFData = (de_int64)de_getbyte_p(&pos);
+		d->cbCFData = (i64)de_getbyte_p(&pos);
 		de_dbg(c, "cbCFData: %d", (int)d->cbCFData);
 
 		if(d->cbCFHeader!=0) {

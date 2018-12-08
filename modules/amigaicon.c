@@ -10,15 +10,15 @@
 DE_DECLARE_MODULE(de_module_amigaicon);
 
 typedef struct localctx_struct {
-	de_int64 icon_revision;
+	i64 icon_revision;
 	de_byte icon_type;
 	int has_drawerdata;
 	int has_toolwindow;
 	int has_defaulttool;
 	int has_tooltypes;
 
-	de_int64 num_main_icons;
-	de_int64 main_icon_pos[2];
+	i64 num_main_icons;
+	i64 main_icon_pos[2];
 
 	// Newicons-specific data
 	int has_newicons;
@@ -30,8 +30,8 @@ typedef struct localctx_struct {
 
 	// Glowicons-specific data
 	int has_glowicons;
-	de_int64 glowicons_pos;
-	de_int64 glowicons_width, glowicons_height;
+	i64 glowicons_pos;
+	i64 glowicons_width, glowicons_height;
 	de_uint32 glowicons_palette[256];
 } lctx;
 
@@ -79,12 +79,12 @@ static void do_decode_newicons(deark *c, lctx *d,
 	de_byte b0, b1, tmpb;
 	de_bitmap *img = NULL;
 	int has_trns;
-	de_int64 ncolors;
+	i64 ncolors;
 	dbuf *decoded = NULL;
-	de_int64 srcpos;
-	de_int64 bitmap_start_pos = 0;
-	de_int64 i;
-	de_int64 rle_len;
+	i64 srcpos;
+	i64 bitmap_start_pos = 0;
+	i64 i;
+	i64 rle_len;
 	de_uint32 pal[256];
 
 	de_dbg(c, "decoding NewIcons[%d], size=%d", newicons_num,
@@ -98,13 +98,13 @@ static void do_decode_newicons(deark *c, lctx *d,
 
 	b0 = dbuf_getbyte(f, 3);
 	b1 = dbuf_getbyte(f, 4);
-	ncolors = ((((de_int64)b0)-0x21)<<6) + (((de_int64)b1)-0x21);
+	ncolors = ((((i64)b0)-0x21)<<6) + (((i64)b1)-0x21);
 	if(ncolors<1) ncolors=1;
 	if(ncolors>256) ncolors=256;
 
 	img = de_bitmap_create_noinit(c);
-	img->width = (de_int64)width_code - 0x21;
-	img->height = (de_int64)height_code - 0x21;
+	img->width = (i64)width_code - 0x21;
+	img->height = (i64)height_code - 0x21;
 	img->bytes_per_pixel = 4;
 
 	de_dbg(c, "dimensions=%d"DE_CHAR_TIMES"%d, transparency=%d, colors=%d",
@@ -138,7 +138,7 @@ static void do_decode_newicons(deark *c, lctx *d,
 		else if(b0>=0xd1) {
 			// RLE compression for "0" bits
 			tmpb = 0;
-			rle_len = 7*(de_int64)(b0-0xd0);
+			rle_len = 7*(i64)(b0-0xd0);
 			for(i=0; i<rle_len; i++) {
 				do_newicons_append_bit(c, d, decoded, tmpb);
 			}
@@ -185,11 +185,11 @@ static void do_decode_newicons(deark *c, lctx *d,
 }
 
 // Read enough of a main icon's header to determine how many bytes it uses.
-static void get_main_icon_size(deark *c, lctx *d, de_int64 pos, de_int64 *pbytesused)
+static void get_main_icon_size(deark *c, lctx *d, i64 pos, i64 *pbytesused)
 {
-	de_int64 width, height;
-	de_int64 depth;
-	de_int64 src_rowspan, src_planespan;
+	i64 width, height;
+	i64 depth;
+	i64 src_rowspan, src_planespan;
 
 	width = de_getui16be(pos+4);
 	height = de_getui16be(pos+6);
@@ -201,12 +201,12 @@ static void get_main_icon_size(deark *c, lctx *d, de_int64 pos, de_int64 *pbytes
 }
 
 static int do_read_main_icon(deark *c, lctx *d,
-	de_int64 pos, de_int64 icon_index)
+	i64 pos, i64 icon_index)
 {
-	de_int64 width, height;
-	de_int64 depth;
-	de_int64 src_rowspan, src_planespan;
-	de_int64 i, j, plane;
+	i64 width, height;
+	i64 depth;
+	i64 src_rowspan, src_planespan;
+	i64 i, j, plane;
 	int retval = 0;
 	de_bitmap *img = NULL;
 	de_byte b, b1;
@@ -291,16 +291,16 @@ done:
 }
 
 static int do_read_tooltypes_table(deark *c, lctx *d,
-	de_int64 orig_pos, de_int64 *pbytesused)
+	i64 orig_pos, i64 *pbytesused)
 {
-	de_int64 num_entries_raw;
-	de_int64 num_entries;
+	i64 num_entries_raw;
+	i64 num_entries;
 	int retval = 0;
-	de_int64 i;
-	de_int64 len;
+	i64 i;
+	i64 len;
 	de_byte buf[4];
 	int newicons_num;
-	de_int64 pos, tpos;
+	i64 pos, tpos;
 
 	pos = orig_pos;
 
@@ -362,13 +362,13 @@ done:
 // Uncompress a slice of f, and append to outf.
 // The algorithm is the same as PackBits, except that the data elements may
 // be less than 8 bits.
-static void glowdata_uncompress(dbuf *f, de_int64 pos, de_int64 len,
+static void glowdata_uncompress(dbuf *f, i64 pos, i64 len,
 	dbuf *outf, int bits_per_pixel)
 {
-	de_int64 x;
-	de_int64 i;
+	i64 x;
+	i64 i;
 	de_byte b, b2;
-	de_int64 bitpos;
+	i64 bitpos;
 
 	bitpos = 0;
 
@@ -379,7 +379,7 @@ static void glowdata_uncompress(dbuf *f, de_int64 pos, de_int64 len,
 
 		if(b<=127) {
 			// 1+b literal pixels
-			x = 1+(de_int64)b;
+			x = 1+(i64)b;
 			for(i=0; i<x; i++) {
 				b2 = de_get_bits_symbol2(f, bits_per_pixel, pos, bitpos);
 				bitpos += bits_per_pixel;
@@ -388,7 +388,7 @@ static void glowdata_uncompress(dbuf *f, de_int64 pos, de_int64 len,
 		}
 		else if(b>=129) {
 			// 257-b repeated pixels
-			x = 257 - (de_int64)b;
+			x = 257 - (i64)b;
 			b2 = de_get_bits_symbol2(f, bits_per_pixel, pos, bitpos);
 			bitpos += bits_per_pixel;
 			for(i=0; i<x; i++) {
@@ -399,22 +399,22 @@ static void glowdata_uncompress(dbuf *f, de_int64 pos, de_int64 len,
 }
 
 static void do_glowicons_IMAG(deark *c, lctx *d,
-	de_int64 pos, de_int64 len)
+	i64 pos, i64 len)
 {
 	de_bitmap *img = NULL;
 	de_byte trns_color;
-	de_int64 num_colors;
+	i64 num_colors;
 	de_byte flags;
 	int has_trns;
 	int has_palette;
 	de_byte cmpr_type;
 	de_byte pal_cmpr_type = 0;
-	de_int64 bits_per_pixel;
-	de_int64 image_size_in_bytes;
-	de_int64 pal_size_in_bytes;
-	de_int64 image_pos;
-	de_int64 pal_pos;
-	de_int64 k;
+	i64 bits_per_pixel;
+	i64 image_size_in_bytes;
+	i64 pal_size_in_bytes;
+	i64 image_pos;
+	i64 pal_pos;
+	i64 k;
 	dbuf *tmpbuf = NULL;
 
 	if(d->glowicons_width<1) {
@@ -456,7 +456,7 @@ static void do_glowicons_IMAG(deark *c, lctx *d,
 		}
 	}
 
-	bits_per_pixel = (de_int64)de_getbyte(pos+5);
+	bits_per_pixel = (i64)de_getbyte(pos+5);
 	de_dbg(c, "bits per pixel: %d", (int)bits_per_pixel);
 
 	if(bits_per_pixel<1 || bits_per_pixel>8) {
@@ -488,7 +488,7 @@ static void do_glowicons_IMAG(deark *c, lctx *d,
 		for(k=0; k<256; k++) {
 			if(k<num_colors) {
 				d->glowicons_palette[k] = dbuf_getRGB(tmpbuf, k*3, 0);
-				if(has_trns && k==(de_int64)trns_color) {
+				if(has_trns && k==(i64)trns_color) {
 					d->glowicons_palette[k] = DE_SET_ALPHA(d->glowicons_palette[k], 0x00);
 				}
 				de_dbg_pal_entry(c, k, d->glowicons_palette[k]);
@@ -524,9 +524,9 @@ done:
 // FORM types:
 #define CODE_ICON 0x49434f4eU
 
-static int do_detect_glowicons(deark *c, lctx *d, de_int64 pos)
+static int do_detect_glowicons(deark *c, lctx *d, i64 pos)
 {
-	de_int64 gsize;
+	i64 gsize;
 	de_uint32 chunk_id;
 	de_uint32 form_type;
 
@@ -549,7 +549,7 @@ static int do_detect_glowicons(deark *c, lctx *d, de_int64 pos)
 static int my_iff_chunk_handler(deark *c, struct de_iffctx *ictx)
 {
 	lctx *d = (lctx*)ictx->userdata;
-	de_int64 dpos, dlen;
+	i64 dpos, dlen;
 
 	if(ictx->chunkctx->chunk4cc.id == CODE_FORM) {
 		ictx->is_std_container = 1;
@@ -571,8 +571,8 @@ static int my_iff_chunk_handler(deark *c, struct de_iffctx *ictx)
 
 	switch(ictx->chunkctx->chunk4cc.id) {
 	case CODE_FACE: // FACE (parameters)
-		d->glowicons_width = 1+(de_int64)de_getbyte(dpos);
-		d->glowicons_height = 1+(de_int64)de_getbyte(dpos+1);
+		d->glowicons_width = 1+(i64)de_getbyte(dpos);
+		d->glowicons_height = 1+(i64)de_getbyte(dpos+1);
 		de_dbg_dimensions(c, d->glowicons_width, d->glowicons_height);
 		break;
 	case CODE_IMAG: // IMAG (one of the images that make up this icon)
@@ -583,7 +583,7 @@ static int my_iff_chunk_handler(deark *c, struct de_iffctx *ictx)
 	return 1;
 }
 
-static void do_glowicons(deark *c, lctx *d, de_int64 pos1)
+static void do_glowicons(deark *c, lctx *d, i64 pos1)
 {
 	struct de_iffctx *ictx = NULL;
 	int saved_indent_level;
@@ -605,13 +605,13 @@ static void do_glowicons(deark *c, lctx *d, de_int64 pos1)
 
 static void do_scan_file(deark *c, lctx *d)
 {
-	de_int64 main_width;
-	de_int64 main_height;
-	de_int64 pos;
-	de_int64 i;
-	de_int64 x;
-	de_int64 bytesused;
-	de_int64 version;
+	i64 main_width;
+	i64 main_height;
+	i64 pos;
+	i64 i;
+	i64 x;
+	i64 bytesused;
+	i64 version;
 	const char *tn = "?";
 	int saved_indent_level;
 
@@ -721,7 +721,7 @@ done:
 static void de_run_amigaicon(deark *c, de_module_params *mparams)
 {
 	lctx *d;
-	de_int64 i;
+	i64 i;
 
 	d = de_malloc(c, sizeof(lctx));
 

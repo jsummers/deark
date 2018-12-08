@@ -10,8 +10,8 @@ DE_DECLARE_MODULE(de_module_ebml);
 
 struct attachmentctx_struct {
 	de_ucstring *filename;
-	de_int64 data_pos; // 0 = no info
-	de_int64 data_len; // valid if data_pos!=0
+	i64 data_pos; // 0 = no info
+	i64 data_len; // valid if data_pos!=0
 };
 
 typedef struct localctx_struct {
@@ -21,8 +21,8 @@ typedef struct localctx_struct {
 } lctx;
 
 struct handler_params {
-	de_int64 dpos;
-	de_int64 dlen;
+	i64 dpos;
+	i64 dlen;
 
 	// Set if handler is being called (again) at the *end* of the element
 	de_byte end_flag;
@@ -46,7 +46,7 @@ struct ele_id_info {
 	//    (useful for TY_m only)
 	unsigned int flags;
 
-	de_int64 ele_id;
+	i64 ele_id;
 	const char *name;
 	handler_fn_type hfn;
 };
@@ -74,10 +74,10 @@ static const char *get_type_name(unsigned int t)
 //  0 on failure
 //  1 on success
 //  2 for a special "reserved" value
-static int get_var_size_int(dbuf *f, de_int64 *val, de_int64 *pos,
-	de_int64 nbytes_avail)
+static int get_var_size_int(dbuf *f, i64 *val, i64 *pos,
+	i64 nbytes_avail)
 {
-	de_int64 pos1;
+	i64 pos1;
 	de_byte b;
 	de_byte mask;
 	unsigned int k;
@@ -88,7 +88,7 @@ static int get_var_size_int(dbuf *f, de_int64 *val, de_int64 *pos,
 	pos1 = *pos;
 	if(nbytes_avail<1) goto done;
 
-	// This is an unsigned int. In a de_int64, we can support up to 63
+	// This is an unsigned int. In a i64, we can support up to 63
 	// bits.
 	// For now we'll hope that 8 octets is the most we'll have to support,
 	// but it's possible we'll have to support 9 or even more, which will
@@ -120,7 +120,7 @@ static int get_var_size_int(dbuf *f, de_int64 *val, de_int64 *pos,
 
 	mask = 0x7f >> initial_zero_bits;
 
-	*val = (de_int64)(b & mask);
+	*val = (i64)(b & mask);
 
 	// Read remaining bytes, if any.
 	for(k=0; k<initial_zero_bits; k++) {
@@ -130,7 +130,7 @@ static int get_var_size_int(dbuf *f, de_int64 *val, de_int64 *pos,
 		if(*val > 0x07ffffffffffffffLL) {
 			goto done;
 		}
-		*val = ((*val)<<8) | ((de_int64)b);
+		*val = ((*val)<<8) | ((i64)b);
 	}
 
 	if(initial_zero_bits==0 && (*val)==0x7f) {
@@ -349,7 +349,7 @@ static const struct ele_id_info ele_id_info_arr[] = {
 	{TY_m|0x0100, 0xf43b675, "Cluster", NULL}
 };
 
-static const struct ele_id_info *find_ele_id_info(de_int64 ele_id)
+static const struct ele_id_info *find_ele_id_info(i64 ele_id)
 {
 	size_t k;
 	for(k=0; k<DE_ITEMS_IN_ARRAY(ele_id_info_arr); k++) {
@@ -363,11 +363,11 @@ static const struct ele_id_info *find_ele_id_info(de_int64 ele_id)
 // This is a variable size integer, but it's different from the one named
 // "Variable Size Integer".
 static void decode_uint(deark *c, lctx *d, const struct ele_id_info *ele_id,
-	  de_int64 pos, de_int64 len1)
+	  i64 pos, i64 len1)
 {
 	unsigned int k;
 	unsigned int len;
-	de_uint64 v = 0;
+	u64 v = 0;
 
 	if(len1==0) goto done;
 	if(len1<1 || len1>8) return;
@@ -375,8 +375,8 @@ static void decode_uint(deark *c, lctx *d, const struct ele_id_info *ele_id,
 
 	v = 0;
 	for(k=0; k<len; k++) {
-		de_uint64 x;
-		x = (de_uint64)de_getbyte(pos+(de_int64)k);
+		u64 x;
+		x = (u64)de_getbyte(pos+(i64)k);
 		v |= x<<((len-1-k)*8);
 	}
 
@@ -385,7 +385,7 @@ done:
 }
 
 static void decode_float(deark *c, lctx *d, const struct ele_id_info *ele_id,
-	  de_int64 pos, de_int64 len)
+	  i64 pos, i64 len)
 {
 	double v;
 
@@ -401,9 +401,9 @@ static void decode_float(deark *c, lctx *d, const struct ele_id_info *ele_id,
 	de_dbg(c, "value: %f", v);
 }
 
-static void EBMLdate_to_timestamp(de_int64 ed, struct de_timestamp *ts)
+static void EBMLdate_to_timestamp(i64 ed, struct de_timestamp *ts)
 {
-	de_int64 t;
+	i64 t;
 
 	// ed is the number of nanoseconds since the beginning of 2001.
 	t = ed/1000000000;
@@ -418,9 +418,9 @@ static void EBMLdate_to_timestamp(de_int64 ed, struct de_timestamp *ts)
 }
 
 static void decode_date(deark *c, lctx *d, const struct ele_id_info *ele_id,
-	  de_int64 pos, de_int64 len)
+	  i64 pos, i64 len)
 {
-	de_int64 dt_int;
+	i64 dt_int;
 	struct de_timestamp ts;
 	char buf[64];
 
@@ -432,7 +432,7 @@ static void decode_date(deark *c, lctx *d, const struct ele_id_info *ele_id,
 }
 
 static void decode_string(deark *c, lctx *d, const struct ele_id_info *ele_id,
-	  de_int64 pos, de_int64 len, int encoding)
+	  i64 pos, i64 len, int encoding)
 {
 	de_ucstring *s = NULL;
 
@@ -445,10 +445,10 @@ static void decode_string(deark *c, lctx *d, const struct ele_id_info *ele_id,
 }
 
 // Print an element ID number, in the format used by the Matroska spec.
-static void print_encoded_id(deark *c, lctx *d, de_int64 pos, de_int64 len)
+static void print_encoded_id(deark *c, lctx *d, i64 pos, i64 len)
 {
 	de_ucstring *s = NULL;
-	de_int64 i;
+	i64 i;
 
 	if(len>8) return;
 	s = ucstring_create(c);
@@ -460,14 +460,14 @@ static void print_encoded_id(deark *c, lctx *d, de_int64 pos, de_int64 len)
 	ucstring_destroy(s);
 }
 
-static int do_element_sequence(deark *c, lctx *d, de_int64 pos1, de_int64 len);
+static int do_element_sequence(deark *c, lctx *d, i64 pos1, i64 len);
 
-static int do_element(deark *c, lctx *d, de_int64 pos1,
-	de_int64 nbytes_avail, de_int64 *bytes_used)
+static int do_element(deark *c, lctx *d, i64 pos1,
+	i64 nbytes_avail, i64 *bytes_used)
 {
-	de_int64 ele_id;
-	de_int64 ele_dlen;
-	de_int64 pos = pos1;
+	i64 ele_id;
+	i64 ele_dlen;
+	i64 pos = pos1;
 	int retval = 0;
 	const struct ele_id_info *einfo;
 	const char *ele_name;
@@ -620,11 +620,11 @@ done:
 	return retval;
 }
 
-static int do_element_sequence(deark *c, lctx *d, de_int64 pos1, de_int64 len)
+static int do_element_sequence(deark *c, lctx *d, i64 pos1, i64 len)
 {
 	int ret;
 	int retval = 0;
-	de_int64 pos = pos1;
+	i64 pos = pos1;
 	int saved_indent_level;
 
 	// TODO:
@@ -651,7 +651,7 @@ static int do_element_sequence(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 	de_dbg_indent(c, 1);
 
 	while(1) {
-		de_int64 ele_len = 0;
+		i64 ele_len = 0;
 		if(pos >= pos1+len) {
 			break;
 		}
@@ -672,7 +672,7 @@ done:
 static void de_run_ebml(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
-	de_int64 pos;
+	i64 pos;
 
 	d = de_malloc(c, sizeof(lctx));
 

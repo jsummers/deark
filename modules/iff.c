@@ -109,7 +109,7 @@ static void de_run_iff(deark *c, de_module_params *mparams)
 	lctx *d = NULL;
 	struct de_iffctx *ictx = NULL;
 	const char *s;
-	de_int64 pos;
+	i64 pos;
 
 
 	d = de_malloc(c, sizeof(lctx));
@@ -178,7 +178,7 @@ void de_module_iff(deark *c, struct deark_module_info *mi)
 static void do_midi_MThd(deark *c, struct de_iffctx *ictx,
 	const struct de_iffchunkctx *chunkctx)
 {
-	de_int64 format_field, ntrks_field, division_field;
+	i64 format_field, ntrks_field, division_field;
 
 	if(chunkctx->dlen<6) return;
 	format_field = dbuf_getui16be(ictx->f, chunkctx->dpos);

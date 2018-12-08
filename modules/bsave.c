@@ -11,7 +11,7 @@ DE_DECLARE_MODULE(de_module_bsave);
 #define BSAVE_HDRSIZE 7
 
 typedef struct localctx_struct {
-	de_int64 base_addr, offset_from_base, data_size;
+	i64 base_addr, offset_from_base, data_size;
 
 	int has_pcpaint_sig;
 	de_byte pcpaint_pal_num;
@@ -25,7 +25,7 @@ typedef struct localctx_struct {
 } lctx;
 
 // Return a width that might be overridden by user request.
-static de_int64 get_width(deark *c, lctx *d, de_int64 default_width)
+static i64 get_width(deark *c, lctx *d, i64 default_width)
 {
 	const char *s;
 	s = de_get_ext_option(c, "bsave:width");
@@ -33,7 +33,7 @@ static de_int64 get_width(deark *c, lctx *d, de_int64 default_width)
 	return default_width;
 }
 
-static de_int64 get_height(deark *c, lctx *d, de_int64 default_height)
+static i64 get_height(deark *c, lctx *d, i64 default_height)
 {
 	const char *s;
 	s = de_get_ext_option(c, "bsave:height");
@@ -46,11 +46,11 @@ static de_int64 get_height(deark *c, lctx *d, de_int64 default_height)
 static int do_cga16(deark *c, lctx *d)
 {
 	de_bitmap *img = NULL;
-	de_int64 max_possible_height;
-	de_int64 i, j;
+	i64 max_possible_height;
+	i64 i, j;
 	int retval = 0;
 	de_byte charcode, colorcode;
-	de_int64 src_rowspan;
+	i64 src_rowspan;
 	de_byte color0, color1;
 	int charwarning = 0;
 
@@ -117,9 +117,9 @@ static int do_4color(deark *c, lctx *d)
 	static const de_uint32 default_palette[4] = { 0x000000, 0x55ffff, 0xff55ff, 0xffffff };
 	de_uint32 palette[4];
 	int palent;
-	de_int64 i,j;
-	de_int64 pos;
-	de_int64 src_rowspan;
+	i64 i,j;
+	i64 pos;
+	i64 src_rowspan;
 	de_bitmap *img = NULL;
 
 	if(d->has_dimension_fields) {
@@ -191,9 +191,9 @@ static int do_4color(deark *c, lctx *d)
 // "wh2": http://cd.textfiles.com/bthevhell/200/112/
 static int do_2color(deark *c, lctx *d)
 {
-	de_int64 j;
-	de_int64 src_rowspan;
-	de_int64 pos;
+	i64 j;
+	i64 src_rowspan;
+	i64 pos;
 	de_bitmap *img = NULL;
 
 	img = de_bitmap_create_noinit(c);
@@ -246,7 +246,7 @@ static int do_2color(deark *c, lctx *d)
 // http://cd.textfiles.com/advheaven2/PUZZLES/DRCODE12/
 static int do_256color(deark *c, lctx *d)
 {
-	de_int64 i, j;
+	i64 i, j;
 	de_byte palent;
 	de_uint32 clr;
 	de_bitmap *img = NULL;
@@ -282,11 +282,11 @@ static int do_256color(deark *c, lctx *d)
 // http://cd.textfiles.com/advheaven2/SOLITAIR/SP107/
 static int do_wh16(deark *c, lctx *d)
 {
-	de_int64 i, j;
+	i64 i, j;
 	de_bitmap *img = NULL;
-	de_int64 src_rowspan1;
-	de_int64 src_rowspan;
-	de_int64 pos;
+	i64 src_rowspan1;
+	i64 src_rowspan;
+	i64 pos;
 	de_byte palent;
 	de_byte b0, b1, b2, b3;
 
@@ -329,10 +329,10 @@ static int do_b265(deark *c, lctx *d)
 	static const de_uint32 palette1[4] = { 0xffffff, 0x55ffff, 0x000000, 0xffffff };
 	static const de_uint32 palette2[4] = { 0xffffff, 0x000000, 0x000000, 0x000000 };
 	int palent;
-	de_int64 i,j;
-	de_int64 bits_per_scanline;
+	i64 i,j;
+	i64 bits_per_scanline;
 	de_bitmap *img = NULL;
-	de_int64 fakewidth;
+	i64 fakewidth;
 	int retval = 0;
 
 	de_declare_fmt(c, "BSAVE-PC special");
@@ -362,13 +362,13 @@ static int do_b265(deark *c, lctx *d)
 	return retval;
 }
 
-static void do_char_1screen(deark *c, lctx *d, struct de_char_screen *screen, de_int64 pgnum,
-	de_int64 pg_offset_in_data, de_int64 width, de_int64 height)
+static void do_char_1screen(deark *c, lctx *d, struct de_char_screen *screen, i64 pgnum,
+	i64 pg_offset_in_data, i64 width, i64 height)
 {
-	de_int64 i, j;
+	i64 i, j;
 	unsigned int ch;
 	de_byte fgcol, bgcol;
-	de_int64 offset;
+	i64 offset;
 	de_byte b0, b1;
 
 	screen->width = width;
@@ -403,14 +403,14 @@ static int do_char(deark *c, lctx *d)
 {
 	struct de_char_context *charctx = NULL;
 	int retval = 0;
-	de_int64 k;
-	de_int64 numpages;
-	de_int64 pgnum;
-	de_int64 width, height;
-	de_int64 height_for_this_page;
-	de_int64 bytes_per_page;
-	de_int64 bytes_for_this_page;
-	de_int64 pg_offset_in_data;
+	i64 k;
+	i64 numpages;
+	i64 pgnum;
+	i64 width, height;
+	i64 height_for_this_page;
+	i64 bytes_per_page;
+	i64 bytes_for_this_page;
+	i64 pg_offset_in_data;
 
 	de_declare_fmt(c, "BSAVE-PC character graphics");
 
@@ -476,7 +476,7 @@ static int do_read_palette_file(deark *c, lctx *d, const char *palfn)
 {
 	dbuf *f = NULL;
 	int retval = 0;
-	de_int64 i;
+	i64 i;
 	de_byte buf[3];
 
 	de_dbg(c, "reading palette file %s", palfn);

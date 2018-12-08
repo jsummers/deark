@@ -18,20 +18,20 @@ struct objref_struct {
 typedef struct localctx_struct {
 	int nesting_level;
 	int exceeded_max_objects;
-	de_int64 object_count; // Number of objects we've decoded so far
+	i64 object_count; // Number of objects we've decoded so far
 
 	unsigned int nbytes_per_objref_table_entry;
 	unsigned int nbytes_per_object_refnum;
-	de_int64 top_object_refnum;
-	de_int64 objref_table_start;
+	i64 top_object_refnum;
+	i64 objref_table_start;
 
 	// objref_table maps object refnums to file offsets.
 	// It has .num_objrefs elements.
-	de_int64 num_objrefs;
+	i64 num_objrefs;
 	struct objref_struct *objref_table;
 } lctx;
 
-static int do_header(deark *c, lctx *d, de_int64 pos)
+static int do_header(deark *c, lctx *d, i64 pos)
 {
 	int retval = 0;
 
@@ -52,10 +52,10 @@ done:
 	return retval;
 }
 
-static int do_trailer(deark *c, lctx *d, de_int64 pos1)
+static int do_trailer(deark *c, lctx *d, i64 pos1)
 {
 	int retval = 0;
-	de_int64 pos = pos1;
+	i64 pos = pos1;
 
 	de_dbg(c, "trailer at %d", (int)pos);
 	de_dbg_indent(c, 1);
@@ -98,7 +98,7 @@ done:
 	return retval;
 }
 
-static int do_one_object_by_refnum(deark *c, lctx *d, de_int64 refnum);
+static int do_one_object_by_refnum(deark *c, lctx *d, i64 refnum);
 
 static void report_nesting_level_exceeded(deark *c, lctx *d)
 {
@@ -106,10 +106,10 @@ static void report_nesting_level_exceeded(deark *c, lctx *d)
 }
 
 static void do_object_array_or_set(deark *c, lctx *d, const char *tn,
-	de_int64 objpos, de_int64 pos1, de_int64 numitems)
+	i64 objpos, i64 pos1, i64 numitems)
 {
-	de_int64 k;
-	de_int64 pos = pos1;
+	i64 k;
+	i64 pos = pos1;
 	int saved_indent_level;
 
 	de_dbg_indent_save(c, &saved_indent_level);
@@ -120,14 +120,14 @@ static void do_object_array_or_set(deark *c, lctx *d, const char *tn,
 	}
 
 	for(k=0; k<numitems; k++) {
-		de_int64 refnum;
+		i64 refnum;
 
 		if(d->exceeded_max_objects) goto done;
 		de_dbg(c, "item[%d] (for %s@%"INT64_FMT")", (int)k, tn, objpos);
 		de_dbg_indent(c, 1);
 
 		refnum = dbuf_getint_ext(c->infile, pos, d->nbytes_per_object_refnum, 0, 0);
-		pos += (de_int64)d->nbytes_per_object_refnum;
+		pos += (i64)d->nbytes_per_object_refnum;
 
 		de_dbg(c, "refnum: %u", (unsigned int)refnum);
 		if(!do_one_object_by_refnum(c, d, refnum)) goto done;
@@ -140,10 +140,10 @@ done:
 	de_dbg_indent_restore(c, saved_indent_level);
 }
 
-static void do_object_dict(deark *c, lctx *d, de_int64 objpos, de_int64 pos1,
-	de_int64 dictsize)
+static void do_object_dict(deark *c, lctx *d, i64 objpos, i64 pos1,
+	i64 dictsize)
 {
-	de_int64 k;
+	i64 k;
 	int saved_indent_level;
 
 	de_dbg_indent_save(c, &saved_indent_level);
@@ -154,21 +154,21 @@ static void do_object_dict(deark *c, lctx *d, de_int64 objpos, de_int64 pos1,
 	}
 
 	for(k=0; k<dictsize; k++) {
-		de_int64 keyrefnum;
-		de_int64 valrefnum;
+		i64 keyrefnum;
+		i64 valrefnum;
 
 		if(d->exceeded_max_objects) goto done;
 		de_dbg(c, "entry[%d] (for dict@%"INT64_FMT")", (int)k, objpos);
 		de_dbg_indent(c, 1);
 
-		keyrefnum = dbuf_getint_ext(c->infile, pos1+k*(de_int64)d->nbytes_per_object_refnum,
+		keyrefnum = dbuf_getint_ext(c->infile, pos1+k*(i64)d->nbytes_per_object_refnum,
 			d->nbytes_per_object_refnum, 0, 0);
 		de_dbg(c, "key objrefnum: %u", (unsigned int)keyrefnum);
 		de_dbg_indent(c, 1);
 		if(!do_one_object_by_refnum(c, d, keyrefnum)) goto done;
 		de_dbg_indent(c, -1);
 
-		valrefnum = dbuf_getint_ext(c->infile, pos1+(dictsize+k)*(de_int64)d->nbytes_per_object_refnum,
+		valrefnum = dbuf_getint_ext(c->infile, pos1+(dictsize+k)*(i64)d->nbytes_per_object_refnum,
 			d->nbytes_per_object_refnum, 0, 0);
 		de_dbg(c, "val objrefnum: %u", (unsigned int)valrefnum);
 		de_dbg_indent(c, 1);
@@ -184,7 +184,7 @@ done:
 }
 
 // "ASCII" string
-static void do_object_string(deark *c, lctx *d, de_int64 pos, de_int64 len)
+static void do_object_string(deark *c, lctx *d, i64 pos, i64 len)
 {
 	de_ucstring *s = NULL;
 
@@ -194,7 +194,7 @@ static void do_object_string(deark *c, lctx *d, de_int64 pos, de_int64 len)
 	ucstring_destroy(s);
 }
 
-static void do_object_utf16string(deark *c, lctx *d, de_int64 pos, de_int64 len)
+static void do_object_utf16string(deark *c, lctx *d, i64 pos, i64 len)
 {
 	de_ucstring *s = NULL;
 
@@ -204,7 +204,7 @@ static void do_object_utf16string(deark *c, lctx *d, de_int64 pos, de_int64 len)
 	ucstring_destroy(s);
 }
 
-static void do_object_real(deark *c, lctx *d, de_int64 pos, de_int64 dlen_raw)
+static void do_object_real(deark *c, lctx *d, i64 pos, i64 dlen_raw)
 {
 	double val;
 
@@ -221,10 +221,10 @@ static void do_object_real(deark *c, lctx *d, de_int64 pos, de_int64 dlen_raw)
 	de_dbg(c, "value: %f", val);
 }
 
-static void do_object_int(deark *c, lctx *d, de_int64 pos, de_int64 dlen_raw)
+static void do_object_int(deark *c, lctx *d, i64 pos, i64 dlen_raw)
 {
 	unsigned int nbytes;
-	de_int64 n;
+	i64 n;
 
 	if(dlen_raw<0 || dlen_raw>3) return;
 	nbytes = 1U<<(unsigned int)dlen_raw;
@@ -232,15 +232,15 @@ static void do_object_int(deark *c, lctx *d, de_int64 pos, de_int64 dlen_raw)
 	de_dbg(c, "value: %"INT64_FMT, n);
 }
 
-static void do_object_date(deark *c, lctx *d, de_int64 pos)
+static void do_object_date(deark *c, lctx *d, i64 pos)
 {
 	double val_flt;
-	de_int64 val_int;
+	i64 val_int;
 	struct de_timestamp ts;
 	char timestamp_buf[64];
 
 	val_flt = dbuf_getfloat64x(c->infile, pos, 0);
-	val_int = (de_int64)val_flt;
+	val_int = (i64)val_flt;
 	// Epoch is Jan 1, 2001. There are 31 years, with 8 leap days, between
 	// that and the Unix time epoch.
 	de_unix_time_to_timestamp(val_int + ((365*31 + 8)*86400), &ts, 0x1);
@@ -249,13 +249,13 @@ static void do_object_date(deark *c, lctx *d, de_int64 pos)
 }
 
 // Returns 0 if we should stop processing the file
-static int do_one_object_by_offset(deark *c, lctx *d, de_int64 pos1)
+static int do_one_object_by_offset(deark *c, lctx *d, i64 pos1)
 {
-	de_int64 pos = pos1;
+	i64 pos = pos1;
 	de_byte marker;
 	de_byte m1, m2;
 	int has_size;
-	de_int64 dlen_raw;
+	i64 dlen_raw;
 	const char *tn;
 
 	// In this format, it is easy for an aggregate object to contain itself, or an
@@ -351,10 +351,10 @@ static int do_one_object_by_offset(deark *c, lctx *d, de_int64 pos1)
 			if(x<0x10 || x>0x13) goto done;
 			nbytes_in_len = 1U<<(unsigned int)(x-0x10);
 			dlen_raw = dbuf_getint_ext(c->infile, pos, nbytes_in_len, 0, 0);
-			pos += (de_int64)nbytes_in_len;
+			pos += (i64)nbytes_in_len;
 		}
 		else {
-			dlen_raw = (de_int64)m2;
+			dlen_raw = (i64)m2;
 		}
 		de_dbg(c, "size (logical): %"INT64_FMT, dlen_raw);
 	}
@@ -402,7 +402,7 @@ done:
 }
 
 // Returns 0 if we should stop processing the file
-static int do_one_object_by_refnum(deark *c, lctx *d, de_int64 refnum)
+static int do_one_object_by_refnum(deark *c, lctx *d, i64 refnum)
 {
 	if(refnum<0 || refnum>=d->num_objrefs) return 1;
 	return do_one_object_by_offset(c, d, d->objref_table[refnum].offs);
@@ -410,8 +410,8 @@ static int do_one_object_by_refnum(deark *c, lctx *d, de_int64 refnum)
 
 static void read_offset_table(deark *c, lctx *d)
 {
-	de_int64 k;
-	de_int64 pos = d->objref_table_start;
+	i64 k;
+	i64 pos = d->objref_table_start;
 
 	de_dbg(c, "objref table at %"INT64_FMT, pos);
 	de_dbg_indent(c, 1);
@@ -419,14 +419,14 @@ static void read_offset_table(deark *c, lctx *d)
 	d->objref_table = de_malloc(c, d->num_objrefs * sizeof(struct objref_struct));
 
 	for(k=0; k<d->num_objrefs; k++) {
-		de_int64 offs;
+		i64 offs;
 
-		if(pos+(de_int64)d->nbytes_per_objref_table_entry > c->infile->len-32) break;
+		if(pos+(i64)d->nbytes_per_objref_table_entry > c->infile->len-32) break;
 		offs = dbuf_getint_ext(c->infile, pos, d->nbytes_per_objref_table_entry, 0, 0);
 		if(c->debug_level>=2)
 			de_dbg(c, "objref[%"INT64_FMT"] offset: %"INT64_FMT, k, offs);
 		d->objref_table[k].offs = (de_uint32)offs;
-		pos += (de_int64)d->nbytes_per_objref_table_entry;
+		pos += (i64)d->nbytes_per_objref_table_entry;
 	}
 
 	de_dbg_indent(c, -1);
@@ -435,7 +435,7 @@ static void read_offset_table(deark *c, lctx *d)
 static void de_run_plist(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
-	de_int64 pos = 0;
+	i64 pos = 0;
 
 	d = de_malloc(c, sizeof(lctx));
 

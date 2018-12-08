@@ -7,28 +7,28 @@
 DE_DECLARE_MODULE(de_module_ar);
 
 typedef struct localctx_struct {
-	de_int64 extended_name_table_pos; // 0=none
-	de_int64 extended_name_table_size;
+	i64 extended_name_table_pos; // 0=none
+	i64 extended_name_table_size;
 } lctx;
 
-static int do_ar_item(deark *c, lctx *d, de_int64 pos1, de_int64 *p_item_len)
+static int do_ar_item(deark *c, lctx *d, i64 pos1, i64 *p_item_len)
 {
 	char name_orig[17];
 	size_t name_orig_len;
 	de_ucstring *rawname_ucstring = NULL;
 	de_ucstring *filename_ucstring = NULL;
 	char timestamp_buf[64];
-	de_int64 mod_time;
-	de_int64 file_mode;
-	de_int64 file_offset;
-	de_int64 file_size = 0;
-	de_int64 name_offset;
+	i64 mod_time;
+	i64 file_mode;
+	i64 file_offset;
+	i64 file_size = 0;
+	i64 name_offset;
 	de_finfo *fi = NULL;
-	de_int64 k;
+	i64 k;
 	int retval = 0;
 	int ret;
-	de_int64 foundpos;
-	de_int64 ext_name_len;
+	i64 foundpos;
+	i64 ext_name_len;
 
 	de_dbg(c, "archive member at %d", (int)pos1);
 	de_dbg_indent(c, 1);
@@ -122,7 +122,7 @@ static int do_ar_item(deark *c, lctx *d, de_int64 pos1, de_int64 *p_item_len)
 		goto done;
 	}
 	else {
-		de_int64 adjusted_len;
+		i64 adjusted_len;
 
 		filename_ucstring = ucstring_create(c);
 
@@ -156,8 +156,8 @@ done:
 static void de_run_ar(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
-	de_int64 pos;
-	de_int64 item_len;
+	i64 pos;
+	i64 item_len;
 	int ret;
 
 	d = de_malloc(c, sizeof(lctx));

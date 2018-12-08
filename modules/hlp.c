@@ -16,30 +16,30 @@ DE_DECLARE_MODULE(de_module_hlp);
 
 struct bptree {
 	unsigned int flags;
-	de_int64 pagesize;
-	de_int64 root_page;
-	de_int64 num_levels;
-	de_int64 num_pages;
-	de_int64 num_entries;
-	de_int64 pagesdata_pos;
-	de_int64 first_leaf_page;
+	i64 pagesize;
+	i64 root_page;
+	i64 num_levels;
+	i64 num_pages;
+	i64 num_entries;
+	i64 pagesdata_pos;
+	i64 first_leaf_page;
 };
 
 typedef struct localctx_struct {
 	int input_encoding;
-	de_int64 internal_dir_FILEHEADER_offs;
+	i64 internal_dir_FILEHEADER_offs;
 	struct bptree bpt;
 	int found_system_file;
 	int ver_major;
 	int ver_minor;
-	de_int64 topic_block_size;
+	i64 topic_block_size;
 	int is_compressed;
 	int pass;
 	int has_shg, has_ico, has_bmp;
-	de_int64 internal_dir_num_levels;
+	i64 internal_dir_num_levels;
 } lctx;
 
-static void do_file(deark *c, lctx *d, de_int64 pos1, int file_fmt);
+static void do_file(deark *c, lctx *d, i64 pos1, int file_fmt);
 
 struct systemrec_info {
 	unsigned int rectype;
@@ -72,7 +72,7 @@ static const struct systemrec_info systemrec_info_arr[] = {
 static const struct systemrec_info systemrec_info_default =
 	{ 0, 0x0000, "?", NULL };
 
-static void hlptime_to_timestamp(de_int64 ht, struct de_timestamp *ts)
+static void hlptime_to_timestamp(i64 ht, struct de_timestamp *ts)
 {
 	if(ht!=0) {
 		// This appears to be a Unix-style timestamp, though some documentation
@@ -84,7 +84,7 @@ static void hlptime_to_timestamp(de_int64 ht, struct de_timestamp *ts)
 	}
 }
 
-static void do_display_STRINGZ(deark *c, lctx *d, de_int64 pos1, de_int64 len,
+static void do_display_STRINGZ(deark *c, lctx *d, i64 pos1, i64 len,
 	const char *name)
 {
 	de_ucstring *s = NULL;
@@ -99,13 +99,13 @@ static void do_display_STRINGZ(deark *c, lctx *d, de_int64 pos1, de_int64 len,
 }
 
 static void do_SYSTEMREC_STRINGZ(deark *c, lctx *d, unsigned int recordtype,
-	de_int64 pos1, de_int64 len, const struct systemrec_info *sti)
+	i64 pos1, i64 len, const struct systemrec_info *sti)
 {
 	do_display_STRINGZ(c, d, pos1, len, sti->name);
 }
 
 static void do_SYSTEMREC(deark *c, lctx *d, unsigned int recordtype,
-	de_int64 pos1, de_int64 len, const struct systemrec_info *sti)
+	i64 pos1, i64 len, const struct systemrec_info *sti)
 {
 	if(recordtype==5) { // Icon
 		d->has_ico = 1;
@@ -132,11 +132,11 @@ static const struct systemrec_info *find_sysrec_info(deark *c, lctx *d, unsigned
 	return &systemrec_info_default;
 }
 
-static int do_file_SYSTEM_header(deark *c, lctx *d, de_int64 pos1)
+static int do_file_SYSTEM_header(deark *c, lctx *d, i64 pos1)
 {
-	de_int64 pos = pos1;
-	de_int64 magic;
-	de_int64 gen_date;
+	i64 pos = pos1;
+	i64 magic;
+	i64 gen_date;
 	unsigned int flags;
 	struct de_timestamp ts;
 	char timestamp_buf[64];
@@ -194,15 +194,15 @@ done:
 	return retval;
 }
 
-static void do_file_SYSTEM_SYSTEMRECS(deark *c, lctx *d, de_int64 pos1, de_int64 len,
+static void do_file_SYSTEM_SYSTEMRECS(deark *c, lctx *d, i64 pos1, i64 len,
 	int systemrecs_pass)
 {
-	de_int64 pos = pos1;
+	i64 pos = pos1;
 
 	while((pos1+len)-pos >=4) {
 		unsigned int recordtype;
-		de_int64 datasize;
-		de_int64 systemrec_startpos;
+		i64 datasize;
+		i64 systemrec_startpos;
 		const struct systemrec_info *sti;
 
 		systemrec_startpos = pos;
@@ -223,9 +223,9 @@ static void do_file_SYSTEM_SYSTEMRECS(deark *c, lctx *d, de_int64 pos1, de_int64
 	}
 }
 
-static void do_file_SYSTEM(deark *c, lctx *d, de_int64 pos1, de_int64 len)
+static void do_file_SYSTEM(deark *c, lctx *d, i64 pos1, i64 len)
 {
-	de_int64 pos = pos1;
+	i64 pos = pos1;
 	int saved_indent_level;
 
 	de_dbg_indent_save(c, &saved_indent_level);
@@ -258,10 +258,10 @@ done:
 	de_dbg_indent_restore(c, saved_indent_level);
 }
 
-static void do_file_SHG(deark *c, lctx *d, de_int64 pos1, de_int64 used_space)
+static void do_file_SHG(deark *c, lctx *d, i64 pos1, i64 used_space)
 {
-	de_int64 num_images;
-	de_int64 sig;
+	i64 num_images;
+	i64 sig;
 	const char *ext;
 	dbuf *outf = NULL;
 
@@ -283,9 +283,9 @@ static void do_file_SHG(deark *c, lctx *d, de_int64 pos1, de_int64 used_space)
 	dbuf_close(outf);
 }
 
-static void do_file_TOPIC(deark *c, lctx *d, de_int64 pos1, de_int64 len)
+static void do_file_TOPIC(deark *c, lctx *d, i64 pos1, i64 len)
 {
-	de_int64 pos = pos1;
+	i64 pos = pos1;
 	int saved_indent_level;
 
 	de_dbg_indent_save(c, &saved_indent_level);
@@ -299,10 +299,10 @@ static void do_file_TOPIC(deark *c, lctx *d, de_int64 pos1, de_int64 len)
 
 	// A series of blocks, each with a 12-byte header
 	while(1) {
-		de_int64 lastlink, firstlink, lastheader;
-		de_int64 blklen;
-		de_int64 blk_dpos;
-		de_int64 blk_dlen;
+		i64 lastlink, firstlink, lastheader;
+		i64 blklen;
+		i64 blk_dpos;
+		i64 blk_dlen;
 
 		blklen = (pos1+len)-pos;
 		if(blklen<12) break;
@@ -327,7 +327,7 @@ done:
 	de_dbg_indent_restore(c, saved_indent_level);
 
 }
-static void do_index_page(deark *c, lctx *d, de_int64 pos1, de_int64 *prev_page)
+static void do_index_page(deark *c, lctx *d, i64 pos1, i64 *prev_page)
 {
 	*prev_page = de_geti16le(pos1+4);
 	de_dbg(c, "PreviousPage: %d", (int)*prev_page);
@@ -348,14 +348,14 @@ static int filename_to_filetype(deark *c, lctx *d, const char *fn)
 	return 0;
 }
 
-static void do_leaf_page(deark *c, lctx *d, de_int64 pos1, de_int64 *pnext_page)
+static void do_leaf_page(deark *c, lctx *d, i64 pos1, i64 *pnext_page)
 {
-	de_int64 n;
-	de_int64 pos = pos1;
-	de_int64 foundpos;
-	de_int64 num_entries;
-	de_int64 file_offset;
-	de_int64 k;
+	i64 n;
+	i64 pos = pos1;
+	i64 foundpos;
+	i64 num_entries;
+	i64 file_offset;
+	i64 k;
 	struct de_stringreaderdata *fn_srd = NULL;
 	int file_type;
 	int saved_indent_level;
@@ -417,8 +417,8 @@ done:
 // Sets d->bpt.first_leaf_page
 static int find_first_leaf_page(deark *c, lctx *d)
 {
-	de_int64 curr_page;
-	de_int64 curr_level;
+	i64 curr_page;
+	i64 curr_level;
 	int saved_indent_level;
 	int retval = 0;
 
@@ -430,8 +430,8 @@ static int find_first_leaf_page(deark *c, lctx *d)
 	de_dbg_indent(c, 1);
 
 	while(curr_level>1) {
-		de_int64 prev_page;
-		de_int64 page_pos;
+		i64 prev_page;
+		i64 page_pos;
 
 		if(curr_page<0) goto done;
 		page_pos = d->bpt.pagesdata_pos + curr_page*d->bpt.pagesize;
@@ -461,11 +461,11 @@ done:
 // There are other data objects in HLP files that use the same kind of data
 // structure. If we ever want to parse them, this function will have to be
 // genericized.
-static void do_bplustree(deark *c, lctx *d, de_int64 pos1, de_int64 len,
+static void do_bplustree(deark *c, lctx *d, i64 pos1, i64 len,
 	int is_internaldir)
 {
-	de_int64 pos = pos1;
-	de_int64 n;
+	i64 pos = pos1;
+	i64 n;
 	int saved_indent_level;
 	de_byte *page_seen = NULL;
 
@@ -519,7 +519,7 @@ static void do_bplustree(deark *c, lctx *d, de_int64 pos1, de_int64 len,
 	page_seen = de_malloc(c, d->bpt.num_pages); // For loop detection
 
 	for(d->pass=1; d->pass<=2; d->pass++) {
-		de_int64 curr_page;
+		i64 curr_page;
 
 		de_zeromem(page_seen, (size_t)d->bpt.num_pages);
 
@@ -529,8 +529,8 @@ static void do_bplustree(deark *c, lctx *d, de_int64 pos1, de_int64 len,
 		curr_page = d->bpt.first_leaf_page;
 
 		while(1) {
-			de_int64 page_pos;
-			de_int64 next_page;
+			i64 page_pos;
+			i64 next_page;
 
 			if(curr_page<0) break;
 			if(curr_page>d->bpt.num_pages) goto done;
@@ -566,7 +566,7 @@ done:
 	de_dbg_indent_restore(c, saved_indent_level);
 }
 
-static void do_file_INTERNALDIR(deark *c, lctx *d, de_int64 pos1, de_int64 len)
+static void do_file_INTERNALDIR(deark *c, lctx *d, i64 pos1, i64 len)
 {
 	de_dbg(c, "internal dir data at %d", (int)pos1);
 	do_bplustree(c, d, pos1, len, 1);
@@ -584,11 +584,11 @@ static const char* file_type_to_type_name(int file_fmt)
 	return name;
 }
 
-static void do_file(deark *c, lctx *d, de_int64 pos1, int file_fmt)
+static void do_file(deark *c, lctx *d, i64 pos1, int file_fmt)
 {
-	de_int64 reserved_space;
-	de_int64 used_space;
-	de_int64 pos = pos1;
+	i64 reserved_space;
+	i64 used_space;
+	i64 pos = pos1;
 	unsigned int fileflags;
 
 	de_dbg(c, "file at %d, type=%s", (int)pos1, file_type_to_type_name(file_fmt));
@@ -637,9 +637,9 @@ done:
 	de_dbg_indent(c, -1);
 }
 
-static void do_header(deark *c, lctx *d, de_int64 pos)
+static void do_header(deark *c, lctx *d, i64 pos)
 {
-	de_int64 n;
+	i64 n;
 
 	de_dbg(c, "header at %d", (int)pos);
 	de_dbg_indent(c, 1);
@@ -659,7 +659,7 @@ static void do_header(deark *c, lctx *d, de_int64 pos)
 static void de_run_hlp(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
-	de_int64 pos;
+	i64 pos;
 
 	d = de_malloc(c, sizeof(lctx));
 

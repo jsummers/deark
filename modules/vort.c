@@ -66,11 +66,11 @@ typedef struct localctx_struct {
 
 	// A file can potentially contain multiple images and/or multiple colormaps.
 	// But I'm just going to cross my fingers and hope it doesn't.
-	de_int64 image_data_pos;
-	de_int64 image_width, image_height;
-	de_int64 image_depth;
-	de_int64 colormap_pos;
-	de_int64 colormap_size;
+	i64 image_data_pos;
+	i64 image_width, image_height;
+	i64 image_depth;
+	i64 colormap_pos;
+	i64 colormap_size;
 	de_byte rle_flag;
 
 	de_uint32 pal[256];
@@ -80,7 +80,7 @@ struct obj_type_info_struct;
 
 typedef void (*obj_decoder_fn)(deark *c, lctx *d,
 	const struct obj_type_info_struct *oti,
-	de_int64 pos, de_int64 dlen, de_int64 value_as_vlq);
+	i64 pos, i64 dlen, i64 value_as_vlq);
 
 struct obj_type_info_struct {
 	// 0x01: is a VLQ
@@ -108,14 +108,14 @@ static const char *get_fulltype_name(de_byte t)
 
 // Variable length integer/quantity (VLQ)
 // fpos will be read and updated.
-static de_int64 read_vlq(deark *c, de_int64 *fpos)
+static i64 read_vlq(deark *c, i64 *fpos)
 {
-	de_int64 nlen;
-	de_int64 k;
-	de_int64 val;
-	de_int64 pos = *fpos;
+	i64 nlen;
+	i64 k;
+	i64 val;
+	i64 pos = *fpos;
 
-	nlen = (de_int64)de_getbyte(pos++);
+	nlen = (i64)de_getbyte(pos++);
 	*fpos += 1+nlen;
 	if(nlen>7) {
 		return 0;
@@ -123,26 +123,26 @@ static de_int64 read_vlq(deark *c, de_int64 *fpos)
 
 	val = 0;
 	for(k=0; k<nlen; k++) {
-		val = (val<<8) | (de_int64)de_getbyte(pos++);
+		val = (val<<8) | (i64)de_getbyte(pos++);
 	}
 	if(val<0) return 0;
 	return val;
 }
 
-static int do_full_object(deark *c, lctx *d, de_int64 pos1,
-	de_int64 *bytes_consumed);
+static int do_full_object(deark *c, lctx *d, i64 pos1,
+	i64 *bytes_consumed);
 
 static void decode_object_addr(deark *c, lctx *d,
 	const struct obj_type_info_struct *oti,
-	de_int64 pos, de_int64 dlen, de_int64 value_as_vlq)
+	i64 pos, i64 dlen, i64 value_as_vlq)
 {
-	de_int64 bytes_consumed = 0;
+	i64 bytes_consumed = 0;
 	do_full_object(c, d, value_as_vlq, &bytes_consumed);
 }
 
 static void decode_date(deark *c, lctx *d,
 	const struct obj_type_info_struct *oti,
-	de_int64 pos, de_int64 dlen, de_int64 value_as_vlq)
+	i64 pos, i64 dlen, i64 value_as_vlq)
 {
 	char timestamp_buf[64];
 	struct de_timestamp timestamp;
@@ -154,7 +154,7 @@ static void decode_date(deark *c, lctx *d,
 
 static void decode_simple_item(deark *c, lctx *d,
 	const struct obj_type_info_struct *oti,
-	de_int64 pos, de_int64 dlen, de_int64 val)
+	i64 pos, i64 dlen, i64 val)
 {
 	if(oti->full_type==VORT_V_IMAGE) {
 		switch(oti->primitive_type) {
@@ -216,16 +216,16 @@ static const struct obj_type_info_struct *find_obj_type_info(de_byte full_type, 
 	return NULL;
 }
 
-static int do_primitive_object(deark *c, lctx *d, de_int64 pos1,
-	de_byte obj_fulltype, de_int64 *bytes_consumed)
+static int do_primitive_object(deark *c, lctx *d, i64 pos1,
+	de_byte obj_fulltype, i64 *bytes_consumed)
 {
 	de_byte obj_type;
-	de_int64 obj_dlen;
-	de_int64 pos = pos1;
+	i64 obj_dlen;
+	i64 pos = pos1;
 	const struct obj_type_info_struct *oti;
 	const char *name;
 
-	de_int64 value_as_vlq = 0;
+	i64 value_as_vlq = 0;
 
 	de_dbg(c, "primitive object at %d", (int)pos1);
 	de_dbg_indent(c, 1);
@@ -237,10 +237,10 @@ static int do_primitive_object(deark *c, lctx *d, de_int64 pos1,
 
 	// The data is usually a VLQ, but sometimes it's not. For convenience,
 	// we'll read the length byte, then go back and read the whole thing as a VLQ.
-	obj_dlen = (de_int64)de_getbyte(pos);
+	obj_dlen = (i64)de_getbyte(pos);
 
 	if(obj_dlen>=1 && obj_dlen<=8) {
-		de_int64 tmppos = pos;
+		i64 tmppos = pos;
 		value_as_vlq = read_vlq(c, &tmppos);
 	}
 	pos++; // For the length byte
@@ -265,17 +265,17 @@ static int do_primitive_object(deark *c, lctx *d, de_int64 pos1,
 	return 1;
 }
 
-static int do_object_list(deark *c, lctx *d, de_int64 pos1, de_int64 len,
-	de_byte object_fulltype, de_int64 *bytes_consumed)
+static int do_object_list(deark *c, lctx *d, i64 pos1, i64 len,
+	de_byte object_fulltype, i64 *bytes_consumed)
 {
-	de_int64 pos = pos1;
+	i64 pos = pos1;
 	int saved_indent_level;
 	int retval = 0;
 
 	de_dbg_indent_save(c, &saved_indent_level);
 	de_dbg(c, "object list at %d, len=%d", (int)pos, (int)len);
 	while(1) {
-		de_int64 objsize;
+		i64 objsize;
 		if(pos>=pos1+len) break;
 		if(pos>=c->infile->len) goto done;
 
@@ -291,13 +291,13 @@ done:
 }
 
 // Process one "full object", given its address
-static int do_full_object(deark *c, lctx *d, de_int64 pos1,
-	de_int64 *bytes_consumed)
+static int do_full_object(deark *c, lctx *d, i64 pos1,
+	i64 *bytes_consumed)
 {
 	de_byte obj_type;
-	de_int64 obj_dlen;
-	de_int64 pos = pos1;
-	de_int64 bytes_consumed2 = 0;
+	i64 obj_dlen;
+	i64 pos = pos1;
+	i64 bytes_consumed2 = 0;
 	int retval = 0;
 
 	d->nesting_level++;
@@ -327,7 +327,7 @@ done:
 
 static void do_colormap(deark *c, lctx *d)
 {
-	de_int64 k;
+	i64 k;
 
 	if(d->colormap_pos==0 || d->colormap_size==0) return;
 	de_dbg(c, "colormap at %d, %d entries", (int)d->colormap_pos, (int)d->colormap_size);
@@ -344,15 +344,15 @@ static void do_colormap(deark *c, lctx *d)
 	de_dbg_indent(c, -1);
 }
 
-static void do_decompress(deark *c, lctx *d, de_int64 pos1, dbuf *unc_pixels,
-	de_int64 num_pixels, de_int64 bytes_per_pixel)
+static void do_decompress(deark *c, lctx *d, i64 pos1, dbuf *unc_pixels,
+	i64 num_pixels, i64 bytes_per_pixel)
 {
-	de_int64 pos = pos1;
-	de_int64 pixel_count = 0;
+	i64 pos = pos1;
+	i64 pixel_count = 0;
 
 	while(1) {
 		de_byte b;
-		de_int64 count;
+		i64 count;
 
 		if(pos>c->infile->len) break;
 		if(pixel_count>=num_pixels) break;
@@ -360,16 +360,16 @@ static void do_decompress(deark *c, lctx *d, de_int64 pos1, dbuf *unc_pixels,
 		b = de_getbyte(pos);
 		pos++;
 		if(b>=128) { // uncompressed run
-			count = (de_int64)(b-128);
+			count = (i64)(b-128);
 			dbuf_copy(c->infile, pos, count*bytes_per_pixel, unc_pixels);
 			pos += count*bytes_per_pixel;
 			pixel_count += count;
 		}
 		else { // compressed run
-			de_int64 k;
+			i64 k;
 			de_byte pixel_buf[4];
 
-			count = 1+(de_int64)b;
+			count = 1+(i64)b;
 			de_read(pixel_buf, pos, bytes_per_pixel);
 			pos += bytes_per_pixel;
 			for(k=0; k<count; k++) {
@@ -384,8 +384,8 @@ static void do_image(deark *c, lctx *d)
 {
 	de_bitmap *img = NULL;
 	dbuf *unc_pixels = NULL;
-	de_int64 i, j;
-	de_int64 bytes_per_pixel;
+	i64 i, j;
+	i64 bytes_per_pixel;
 
 	if(d->image_data_pos==0) return;
 
@@ -442,9 +442,9 @@ done:
 
 static void de_run_vort(deark *c, de_module_params *mparams)
 {
-	de_int64 pos;
-	de_int64 root_obj_offs;
-	de_int64 bytes_consumed = 0;
+	i64 pos;
+	i64 root_obj_offs;
+	i64 bytes_consumed = 0;
 	lctx *d = NULL;
 
 	d = de_malloc(c, sizeof(lctx));

@@ -84,8 +84,8 @@ typedef void (*de_module_getinfo_fn)(deark *c, struct deark_module_info *mi);
 struct de_ucstring_struct {
 	deark *c;
 	de_int32 *str;
-	de_int64 len; // len and alloc are measured in characters, not bytes
-	de_int64 alloc;
+	i64 len; // len and alloc are measured in characters, not bytes
+	i64 alloc;
 	char *tmp_string;
 };
 
@@ -97,10 +97,10 @@ struct de_timestamp {
 	de_byte tzcode;
 	de_uint16 ms; // milliseconds to add to unix_time
 	de_uint16 prec; // Precision in ms. 0 means default (1000).
-	de_int64 unix_time; // Unix time_t format
+	i64 unix_time; // Unix time_t format
 };
 
-typedef void (*de_writecallback_fn)(dbuf *f, const de_byte *buf, de_int64 buf_len);
+typedef void (*de_writecallback_fn)(dbuf *f, const de_byte *buf, i64 buf_len);
 
 // dbuf is our generalized I/O object. Used for many purposes.
 struct dbuf_struct {
@@ -116,21 +116,21 @@ struct dbuf_struct {
 
 	deark *c;
 	FILE *fp;
-	de_int64 len;
+	i64 len;
 
-	de_int64 max_len; // Valid if has_max_len is set. May only work for type MEMBUF.
+	i64 max_len; // Valid if has_max_len is set. May only work for type MEMBUF.
 	int has_max_len;
 
 	int file_pos_known;
-	de_int64 file_pos;
+	i64 file_pos;
 
 	struct dbuf_struct *parent_dbuf; // used for DBUF_TYPE_DBUF
-	de_int64 offset_into_parent_dbuf; // used for DBUF_TYPE_DBUF
+	i64 offset_into_parent_dbuf; // used for DBUF_TYPE_DBUF
 
 	int write_memfile_to_zip_archive; // used for DBUF_TYPE_OFILE, at least
 	char *name; // used for DBUF_TYPE_OFILE (utf-8)
 
-	de_int64 membuf_alloc;
+	i64 membuf_alloc;
 	de_byte *membuf_buf;
 
 	void *userdata;
@@ -139,13 +139,13 @@ struct dbuf_struct {
 #define DE_CACHE_POLICY_NONE    0
 #define DE_CACHE_POLICY_ENABLED 1
 	int cache_policy;
-	de_int64 cache_start_pos;
-	de_int64 cache_bytes_used;
+	i64 cache_start_pos;
+	i64 cache_bytes_used;
 	de_byte *cache;
 
 	// cache2 is a simple 1-byte cache, mainly to speed up de_convert_row_bilevel().
-	de_int64 cache2_start_pos;
-	de_int64 cache2_bytes_used;
+	i64 cache2_start_pos;
+	i64 cache2_bytes_used;
 	de_byte cache2[1];
 
 	// Things copied from the de_finfo object at file creation
@@ -180,15 +180,15 @@ struct de_finfo_struct {
 
 struct deark_bitmap_struct {
 	deark *c;
-	de_int64 width;
-	de_int64 height;
+	i64 width;
+	i64 height;
 	int invalid_image_flag;
 	int bytes_per_pixel;
 	// 'flipped' changes the coordinate system when writing the bitmap to a file.
 	// It is ignored by most other functions.
 	int flipped;
 	de_byte *bitmap;
-	de_int64 bitmap_size; // bytes allocated for bitmap
+	i64 bitmap_size; // bytes allocated for bitmap
 	int orig_colortype; // Optional; can be used by modules
 	int orig_bitdepth; // Optional; can be used by modules
 };
@@ -218,7 +218,7 @@ struct de_module_in_params {
 	const char *codes;
 	//  0x01: offset_in_parent is set
 	de_uint32 flags;
-	de_int64 offset_in_parent; // optional, rare
+	i64 offset_in_parent; // optional, rare
 	dbuf *parent_dbuf; // optional, rare
 };
 
@@ -228,7 +228,7 @@ struct de_module_out_params {
 	de_uint32 uint1;
 	de_uint32 uint2;
 	de_uint32 uint3;
-	de_int64 int64_1;
+	i64 int64_1;
 	// The caller is responsible for freeing pointer fields.
 	// The callee should not use these fields unless requested.
 	de_finfo *fi;
@@ -286,8 +286,8 @@ struct deark_struct {
 	const char *input_filename;
 	const char *input_format_req; // Format requested
 	const char *modcodes_req;
-	de_int64 slice_start_req; // Used if we're only to look at part of the file.
-	de_int64 slice_size_req;
+	i64 slice_start_req; // Used if we're only to look at part of the file.
+	i64 slice_size_req;
 	int slice_size_req_valid;
 	int suppress_detection_by_filename;
 
@@ -299,7 +299,7 @@ struct deark_struct {
 	int list_mode;
 	int first_output_file; // first file = 0
 	int max_output_files; // -1 = no limit
-	de_int64 max_image_dimension;
+	i64 max_image_dimension;
 	int show_messages;
 	int show_warnings;
 	int dbg_indent_amount;
@@ -314,7 +314,7 @@ struct deark_struct {
 	int host_is_le;
 	int modhelp_req;
 	int input_encoding;
-	de_int64 input_tz_offs_seconds;
+	i64 input_tz_offs_seconds;
 
 	de_msgfn_type msgfn; // Caller's message output function
 	de_specialmsgfn_type specialmsgfn;
@@ -350,9 +350,9 @@ deark *de_create_internal(void);
 int de_run_module(deark *c, struct deark_module_info *mi, de_module_params *mparams, int moddisp);
 int de_run_module_by_id(deark *c, const char *id, de_module_params *mparams);
 void de_run_module_by_id_on_slice(deark *c, const char *id, de_module_params *mparams,
-	dbuf *f, de_int64 pos, de_int64 len);
+	dbuf *f, i64 pos, i64 len);
 void de_run_module_by_id_on_slice2(deark *c, const char *id, const char *codes,
-	dbuf *f, de_int64 pos, de_int64 len);
+	dbuf *f, i64 pos, i64 len);
 struct deark_module_info *de_get_module_by_id(deark *c, const char *module_id);
 
 void de_strlcpy(char *dst, const char *src, size_t dstlen);
@@ -396,11 +396,11 @@ void de_verr(deark *c, const char *fmt, va_list ap);
 void de_err(deark *c, const char *fmt, ...)
   de_gnuc_attribute ((format (printf, 2, 3)));
 
-FILE* de_fopen_for_read(deark *c, const char *fn, de_int64 *len,
+FILE* de_fopen_for_read(deark *c, const char *fn, i64 *len,
 	char *errmsg, size_t errmsg_len, unsigned int *returned_flags);
 FILE* de_fopen_for_write(deark *c, const char *fn,
 	char *errmsg, size_t errmsg_len, unsigned int flags);
-int de_fseek(FILE *fp, de_int64 offs, int whence);
+int de_fseek(FILE *fp, i64 offs, int whence);
 int de_fclose(FILE *fp);
 
 void de_update_file_perms(dbuf *f);
@@ -413,11 +413,11 @@ void de_declare_fmtf(deark *c, const char *fmt, ...)
 void de_dbg_indent(deark *c, int n);
 void de_dbg_indent_save(deark *c, int *saved_indent_level);
 void de_dbg_indent_restore(deark *c, int saved_indent_level);
-void de_dbg_hexdump(deark *c, dbuf *f, de_int64 pos1, de_int64 nbytes_avail,
-	de_int64 max_nbytes_to_dump, const char *prefix, unsigned int flags);
-void de_dbg_dimensions(deark *c, de_int64 w, de_int64 h);
-void de_dbg_pal_entry(deark *c, de_int64 idx, de_uint32 clr);
-void de_dbg_pal_entry2(deark *c, de_int64 idx, de_uint32 clr,
+void de_dbg_hexdump(deark *c, dbuf *f, i64 pos1, i64 nbytes_avail,
+	i64 max_nbytes_to_dump, const char *prefix, unsigned int flags);
+void de_dbg_dimensions(deark *c, i64 w, i64 h);
+void de_dbg_pal_entry(deark *c, i64 idx, de_uint32 clr);
+void de_dbg_pal_entry2(deark *c, i64 idx, de_uint32 clr,
 	const char *txt_before, const char *txt_in, const char *txt_after);
 char *de_get_colorsample_code(deark *c, de_uint32 clr, char *csamp,
 	size_t csamplen);
@@ -435,9 +435,9 @@ int de_havemodcode(deark *c, de_module_params *mparams, int code);
 
 ///////////////////////////////////////////
 
-int de_uncompress_zlib(dbuf *inf, de_int64 inputstart, de_int64 inputsize, dbuf *outf);
-int de_uncompress_deflate(dbuf *inf, de_int64 inputstart, de_int64 inputsize, dbuf *outf,
-	de_int64 *bytes_consumed);
+int de_uncompress_zlib(dbuf *inf, i64 inputstart, i64 inputsize, dbuf *outf);
+int de_uncompress_deflate(dbuf *inf, i64 inputstart, i64 inputsize, dbuf *outf,
+	i64 *bytes_consumed);
 
 int de_zip_create_file(deark *c);
 void de_zip_add_file_to_archive(deark *c, dbuf *f);
@@ -446,63 +446,63 @@ void de_zip_close_file(deark *c);
 int de_write_png(deark *c, de_bitmap *img, dbuf *f);
 
 // Deprecated. Use de_crcobj_* instead.
-de_uint32 de_crc32(const void *buf, de_int64 buf_len);
-de_uint32 de_crc32_continue(de_uint32 prev_crc, const void *buf, de_int64 buf_len);
+de_uint32 de_crc32(const void *buf, i64 buf_len);
+de_uint32 de_crc32_continue(de_uint32 prev_crc, const void *buf, i64 buf_len);
 
 ///////////////////////////////////////////
 
 struct de_liblzwctx;
 struct de_liblzwctx *de_liblzw_dbufopen(dbuf *inf, unsigned int dflags, de_byte lzwmode);
 int de_liblzw_close(struct de_liblzwctx *lzw);
-de_int64 de_liblzw_read(struct de_liblzwctx *lzw, de_byte *readbuf, size_t count);
+i64 de_liblzw_read(struct de_liblzwctx *lzw, de_byte *readbuf, size_t count);
 
 ///////////////////////////////////////////
 
-de_int64 de_getui16be_direct(const de_byte *m);
-de_int64 de_getui16le_direct(const de_byte *m);
-de_int64 de_getui32be_direct(const de_byte *m);
-de_int64 de_getui32le_direct(const de_byte *m);
-de_int64 de_geti64be_direct(const de_byte *m);
-de_int64 de_geti64le_direct(const de_byte *m);
-de_uint64 de_getui64be_direct(const de_byte *m);
-de_uint64 de_getui64le_direct(const de_byte *m);
+i64 de_getui16be_direct(const de_byte *m);
+i64 de_getui16le_direct(const de_byte *m);
+i64 de_getui32be_direct(const de_byte *m);
+i64 de_getui32le_direct(const de_byte *m);
+i64 de_geti64be_direct(const de_byte *m);
+i64 de_geti64le_direct(const de_byte *m);
+u64 de_getui64be_direct(const de_byte *m);
+u64 de_getui64le_direct(const de_byte *m);
 
-void dbuf_read(dbuf *f, de_byte *buf, de_int64 pos, de_int64 len);
-de_int64 dbuf_standard_read(dbuf *f, de_byte *buf, de_int64 n, de_int64 *fpos);
-de_byte dbuf_getbyte(dbuf *f, de_int64 pos);
+void dbuf_read(dbuf *f, de_byte *buf, i64 pos, i64 len);
+i64 dbuf_standard_read(dbuf *f, de_byte *buf, i64 n, i64 *fpos);
+de_byte dbuf_getbyte(dbuf *f, i64 pos);
 
-de_int64 dbuf_getui16be(dbuf *f, de_int64 pos);
-de_int64 dbuf_getui16le(dbuf *f, de_int64 pos);
-de_int64 dbuf_getui16x(dbuf *f, de_int64 pos, int is_le);
-de_int64 dbuf_geti16be(dbuf *f, de_int64 pos);
-de_int64 dbuf_geti16le(dbuf *f, de_int64 pos);
-de_int64 dbuf_geti16x(dbuf *f, de_int64 pos, int is_le);
-de_int64 dbuf_getui32be(dbuf *f, de_int64 pos);
-de_int64 dbuf_getui32le(dbuf *f, de_int64 pos);
-de_int64 dbuf_getui32x(dbuf *f, de_int64 pos, int is_le);
-de_int64 dbuf_geti32be(dbuf *f, de_int64 pos);
-de_int64 dbuf_geti32le(dbuf *f, de_int64 pos);
-de_int64 dbuf_geti32x(dbuf *f, de_int64 pos, int is_le);
-de_int64 dbuf_geti64be(dbuf *f, de_int64 pos);
-de_int64 dbuf_geti64le(dbuf *f, de_int64 pos);
-de_int64 dbuf_geti64x(dbuf *f, de_int64 pos, int is_le);
-de_uint64 dbuf_getui64be(dbuf *f, de_int64 pos);
-de_uint64 dbuf_getui64le(dbuf *f, de_int64 pos);
-de_uint64 dbuf_getui64x(dbuf *f, de_int64 pos, int is_le);
+i64 dbuf_getui16be(dbuf *f, i64 pos);
+i64 dbuf_getui16le(dbuf *f, i64 pos);
+i64 dbuf_getui16x(dbuf *f, i64 pos, int is_le);
+i64 dbuf_geti16be(dbuf *f, i64 pos);
+i64 dbuf_geti16le(dbuf *f, i64 pos);
+i64 dbuf_geti16x(dbuf *f, i64 pos, int is_le);
+i64 dbuf_getui32be(dbuf *f, i64 pos);
+i64 dbuf_getui32le(dbuf *f, i64 pos);
+i64 dbuf_getui32x(dbuf *f, i64 pos, int is_le);
+i64 dbuf_geti32be(dbuf *f, i64 pos);
+i64 dbuf_geti32le(dbuf *f, i64 pos);
+i64 dbuf_geti32x(dbuf *f, i64 pos, int is_le);
+i64 dbuf_geti64be(dbuf *f, i64 pos);
+i64 dbuf_geti64le(dbuf *f, i64 pos);
+i64 dbuf_geti64x(dbuf *f, i64 pos, int is_le);
+u64 dbuf_getui64be(dbuf *f, i64 pos);
+u64 dbuf_getui64le(dbuf *f, i64 pos);
+u64 dbuf_getui64x(dbuf *f, i64 pos, int is_le);
 
-de_int64 dbuf_getint_ext(dbuf *f, de_int64 pos, unsigned int nbytes,
+i64 dbuf_getint_ext(dbuf *f, i64 pos, unsigned int nbytes,
 	int is_le, int is_signed);
 
 // The _p functions update a caller-supplied position.
-de_byte dbuf_getbyte_p(dbuf *f, de_int64 *ppos);
-de_int64 dbuf_getui16be_p(dbuf *f, de_int64 *ppos);
-de_int64 dbuf_getui16le_p(dbuf *f, de_int64 *ppos);
-de_int64 dbuf_getui32le_p(dbuf *f, de_int64 *ppos);
-de_int64 dbuf_getui32be_p(dbuf *f, de_int64 *ppos);
-de_int64 dbuf_geti16be_p(dbuf *f, de_int64 *ppos);
-de_int64 dbuf_geti16le_p(dbuf *f, de_int64 *ppos);
-de_int64 dbuf_geti32be_p(dbuf *f, de_int64 *ppos);
-de_int64 dbuf_geti32le_p(dbuf *f, de_int64 *ppos);
+de_byte dbuf_getbyte_p(dbuf *f, i64 *ppos);
+i64 dbuf_getui16be_p(dbuf *f, i64 *ppos);
+i64 dbuf_getui16le_p(dbuf *f, i64 *ppos);
+i64 dbuf_getui32le_p(dbuf *f, i64 *ppos);
+i64 dbuf_getui32be_p(dbuf *f, i64 *ppos);
+i64 dbuf_geti16be_p(dbuf *f, i64 *ppos);
+i64 dbuf_geti16le_p(dbuf *f, i64 *ppos);
+i64 dbuf_geti32be_p(dbuf *f, i64 *ppos);
+i64 dbuf_geti32le_p(dbuf *f, i64 *ppos);
 
 // Only format modules should use these convenience macros.
 // (The DE_WINDOWS condition has no functional purpose; it's a hack to make
@@ -533,22 +533,22 @@ de_int64 dbuf_geti32le_p(dbuf *f, de_int64 *ppos);
 
 // Read IEEE 754 floating point
 double de_getfloat32x_direct(deark *c, const de_byte *m, int is_le);
-double dbuf_getfloat32x(dbuf *f, de_int64 pos, int is_le);
+double dbuf_getfloat32x(dbuf *f, i64 pos, int is_le);
 double de_getfloat64x_direct(deark *c, const de_byte *m, int is_le);
-double dbuf_getfloat64x(dbuf *f, de_int64 pos, int is_le);
+double dbuf_getfloat64x(dbuf *f, i64 pos, int is_le);
 
-int dbuf_read_ascii_number(dbuf *f, de_int64 pos, de_int64 fieldsize,
-	int base, de_int64 *value);
+int dbuf_read_ascii_number(dbuf *f, i64 pos, i64 fieldsize,
+	int base, i64 *value);
 
 #define DE_GETRGBFLAG_BGR 0x1 // Assume BGR order instead of RGB
-de_uint32 dbuf_getRGB(dbuf *f, de_int64 pos, unsigned int flags);
+de_uint32 dbuf_getRGB(dbuf *f, i64 pos, unsigned int flags);
 
 // Convert and append encoded bytes from a dbuf to a ucstring.
 // (see also ucstring_append_*)
-void dbuf_read_to_ucstring(dbuf *f, de_int64 pos, de_int64 len,
+void dbuf_read_to_ucstring(dbuf *f, i64 pos, i64 len,
 	de_ucstring *s, unsigned int conv_flags, int encoding);
 // The _n version has an extra max_len field, for convenience.
-void dbuf_read_to_ucstring_n(dbuf *f, de_int64 pos, de_int64 len, de_int64 max_len,
+void dbuf_read_to_ucstring_n(dbuf *f, i64 pos, i64 len, i64 max_len,
 	de_ucstring *s, unsigned int conv_flags, int encoding);
 
 // At least one of 'ext' or 'fi' should be non-NULL.
@@ -559,31 +559,31 @@ dbuf *dbuf_create_output_file(deark *c, const char *ext, de_finfo *fi, unsigned 
 dbuf *dbuf_open_input_file(deark *c, const char *fn);
 dbuf *dbuf_open_input_stdin(deark *c);
 
-dbuf *dbuf_open_input_subfile(dbuf *parent, de_int64 offset, de_int64 size);
+dbuf *dbuf_open_input_subfile(dbuf *parent, i64 offset, i64 size);
 
 // Flag:
 //  0x1: Set the maximum size to the 'initialsize'
-dbuf *dbuf_create_membuf(deark *c, de_int64 initialsize, unsigned int flags);
+dbuf *dbuf_create_membuf(deark *c, i64 initialsize, unsigned int flags);
 
 // If f is NULL, this is a no-op.
 void dbuf_close(dbuf *f);
 
-void dbuf_write(dbuf *f, const de_byte *m, de_int64 len);
-void dbuf_write_at(dbuf *f, de_int64 pos, const de_byte *m, de_int64 len);
-void dbuf_write_zeroes(dbuf *f, de_int64 len);
-void dbuf_truncate(dbuf *f, de_int64 len);
-void dbuf_write_run(dbuf *f, de_byte n, de_int64 len);
+void dbuf_write(dbuf *f, const de_byte *m, i64 len);
+void dbuf_write_at(dbuf *f, i64 pos, const de_byte *m, i64 len);
+void dbuf_write_zeroes(dbuf *f, i64 len);
+void dbuf_truncate(dbuf *f, i64 len);
+void dbuf_write_run(dbuf *f, de_byte n, i64 len);
 
-void de_writeui16le_direct(de_byte *m, de_int64 n);
-void de_writeui16be_direct(de_byte *m, de_int64 n);
-void de_writeui32le_direct(de_byte *m, de_int64 n);
-void de_writeui32be_direct(de_byte *m, de_int64 n);
+void de_writeui16le_direct(de_byte *m, i64 n);
+void de_writeui16be_direct(de_byte *m, i64 n);
+void de_writeui32le_direct(de_byte *m, i64 n);
+void de_writeui32be_direct(de_byte *m, i64 n);
 void dbuf_writebyte(dbuf *f, de_byte n);
-void dbuf_writebyte_at(dbuf *f, de_int64 pos, de_byte n);
-void dbuf_writeui16le(dbuf *f, de_int64 n);
-void dbuf_writeui16be(dbuf *f, de_int64 n);
-void dbuf_writeui32le(dbuf *f, de_int64 n);
-void dbuf_writeui32be(dbuf *f, de_int64 n);
+void dbuf_writebyte_at(dbuf *f, i64 pos, de_byte n);
+void dbuf_writeui16le(dbuf *f, i64 n);
+void dbuf_writeui16be(dbuf *f, i64 n);
+void dbuf_writeui32le(dbuf *f, i64 n);
+void dbuf_writeui32be(dbuf *f, i64 n);
 
 // Write a NUL-terminated string to a file
 void dbuf_puts(dbuf *f, const char *sz);
@@ -592,13 +592,13 @@ void dbuf_printf(dbuf *f, const char *fmt, ...)
   de_gnuc_attribute ((format (printf, 2, 3)));
 
 // Read a slice of one dbuf, and append it to another dbuf.
-void dbuf_copy(dbuf *inf, de_int64 input_offset, de_int64 input_len, dbuf *outf);
-void dbuf_copy_at(dbuf *inf, de_int64 input_offset, de_int64 input_len, dbuf *outf, de_int64 outpos);
+void dbuf_copy(dbuf *inf, i64 input_offset, i64 input_len, dbuf *outf);
+void dbuf_copy_at(dbuf *inf, i64 input_offset, i64 input_len, dbuf *outf, i64 outpos);
 
 struct de_stringreaderdata {
    // The number of bytes used by the string in the file (ie includes trailing NUL),
    // even if they aren't all stored in ->sz.
-   de_int64 bytes_consumed;
+   i64 bytes_consumed;
 
    de_byte *sz; // Stores some or all of the bytes read. Always NUL terminated.
    de_ucstring *str; // Unicode version of ->sz
@@ -608,21 +608,21 @@ struct de_stringreaderdata {
    int found_nul;
 };
 
-struct de_stringreaderdata *dbuf_read_string(dbuf *f, de_int64 pos,
-	de_int64 max_bytes_to_scan,	de_int64 max_bytes_to_keep,
+struct de_stringreaderdata *dbuf_read_string(dbuf *f, i64 pos,
+	i64 max_bytes_to_scan,	i64 max_bytes_to_keep,
 	unsigned int flags, int encoding);
 void de_destroy_stringreaderdata(deark *c, struct de_stringreaderdata *srd);
 
 // Compare bytes in a dbuf to s.
 // Note that repeatedly comparing the same dbuf bytes might be inefficient.
-int dbuf_memcmp(dbuf *f, de_int64 pos, const void *s, size_t n);
+int dbuf_memcmp(dbuf *f, i64 pos, const void *s, size_t n);
 
 // Read a slice of a dbuf, and create a new file containing only that.
 // At least one of 'ext' or 'fi' should be non-NULL.
-int dbuf_create_file_from_slice(dbuf *inf, de_int64 pos, de_int64 data_size,
+int dbuf_create_file_from_slice(dbuf *inf, i64 pos, i64 data_size,
 	const char *ext, de_finfo *fi, unsigned int createflags);
 
-int dbuf_has_utf8_bom(dbuf *f, de_int64 pos);
+int dbuf_has_utf8_bom(dbuf *f, i64 pos);
 
 int dbuf_dump_to_file(dbuf *inf, const char *fn);
 
@@ -632,18 +632,18 @@ void dbuf_empty(dbuf *f);
 
 // Enforce a maximum size when writing to a dbuf.
 // May be valid only for memory buffers.
-void dbuf_set_max_length(dbuf *f, de_int64 max_len);
+void dbuf_set_max_length(dbuf *f, i64 max_len);
 
-int dbuf_search_byte(dbuf *f, const de_byte b, de_int64 startpos,
-	de_int64 haystack_len, de_int64 *foundpos);
+int dbuf_search_byte(dbuf *f, const de_byte b, i64 startpos,
+	i64 haystack_len, i64 *foundpos);
 
-int dbuf_search(dbuf *f, const de_byte *needle, de_int64 needle_len,
-	de_int64 startpos, de_int64 haystack_len, de_int64 *foundpos);
+int dbuf_search(dbuf *f, const de_byte *needle, i64 needle_len,
+	i64 startpos, i64 haystack_len, i64 *foundpos);
 
-int dbuf_get_utf16_NULterm_len(dbuf *f, de_int64 pos1, de_int64 bytes_avail,
-	de_int64 *bytes_consumed);
+int dbuf_get_utf16_NULterm_len(dbuf *f, i64 pos1, i64 bytes_avail,
+	i64 *bytes_consumed);
 
-int dbuf_find_line(dbuf *f, de_int64 pos1, de_int64 *pcontent_len, de_int64 *ptotal_len);
+int dbuf_find_line(dbuf *f, i64 pos1, i64 *pcontent_len, i64 *ptotal_len);
 
 struct de_fourcc {
   de_byte bytes[4];
@@ -652,37 +652,37 @@ struct de_fourcc {
   char id_dbgstr[32]; // Usable only with de_dbg()
 };
 #define DE_4CCFLAG_REVERSED 0x1
-void dbuf_read_fourcc(dbuf *f, de_int64 pos, struct de_fourcc *fcc, int nbytes,
+void dbuf_read_fourcc(dbuf *f, i64 pos, struct de_fourcc *fcc, int nbytes,
 	unsigned int flags);
 
 typedef int (*de_buffered_read_cbfn)(deark *c, void *userdata, const de_byte *buf,
-	de_int64 buf_len);
-int dbuf_buffered_read(dbuf *f, de_int64 pos, de_int64 len,
+	i64 buf_len);
+int dbuf_buffered_read(dbuf *f, i64 pos, i64 len,
 	de_buffered_read_cbfn cbfn, void *userdata);
 
-int de_is_all_zeroes(const de_byte *b, de_int64 n);
-int dbuf_is_all_zeroes(dbuf *f, de_int64 pos, de_int64 len);
+int de_is_all_zeroes(const de_byte *b, i64 n);
+int dbuf_is_all_zeroes(dbuf *f, i64 pos, i64 len);
 
 ///////////////////////////////////////////
 
 void de_bitmap_write_to_file(de_bitmap *img, const char *token, unsigned int createflags);
 void de_bitmap_write_to_file_finfo(de_bitmap *img, de_finfo *fi, unsigned int createflags);
 
-void de_bitmap_setsample(de_bitmap *img, de_int64 x, de_int64 y,
-	de_int64 samplenum, de_byte v);
+void de_bitmap_setsample(de_bitmap *img, i64 x, i64 y,
+	i64 samplenum, de_byte v);
 
-void de_bitmap_setpixel_gray(de_bitmap *img, de_int64 x, de_int64 y, de_byte v);
+void de_bitmap_setpixel_gray(de_bitmap *img, i64 x, i64 y, de_byte v);
 
-void de_bitmap_setpixel_rgb(de_bitmap *img, de_int64 x, de_int64 y,
+void de_bitmap_setpixel_rgb(de_bitmap *img, i64 x, i64 y,
 	de_uint32 color);
 
-void de_bitmap_setpixel_rgba(de_bitmap *img, de_int64 x, de_int64 y,
+void de_bitmap_setpixel_rgba(de_bitmap *img, i64 x, i64 y,
 	de_uint32 color);
 
-de_uint32 de_bitmap_getpixel(de_bitmap *img, de_int64 x, de_int64 y);
+de_uint32 de_bitmap_getpixel(de_bitmap *img, i64 x, i64 y);
 
 de_bitmap *de_bitmap_create_noinit(deark *c);
-de_bitmap *de_bitmap_create(deark *c, de_int64 width, de_int64 height, int bypp);
+de_bitmap *de_bitmap_create(deark *c, i64 width, i64 height, int bypp);
 
 void de_bitmap_destroy(de_bitmap *b);
 
@@ -704,11 +704,11 @@ void de_bitmap_destroy(de_bitmap *b);
 
 // Return the index'th symbol in the bitmap row beginning at file position rowstart.
 // A symbol has bps bits. bps must be 1, 2, 4, or 8.
-de_byte de_get_bits_symbol(dbuf *f, de_int64 bps, de_int64 rowstart, de_int64 index);
+de_byte de_get_bits_symbol(dbuf *f, i64 bps, i64 rowstart, i64 index);
 
-de_byte de_get_bits_symbol_lsb(dbuf *f, de_int64 bps, de_int64 rowstart, de_int64 index);
+de_byte de_get_bits_symbol_lsb(dbuf *f, i64 bps, i64 rowstart, i64 index);
 
-de_byte de_get_bits_symbol2(dbuf *f, int nbits, de_int64 bytepos, de_int64 bitpos);
+de_byte de_get_bits_symbol2(dbuf *f, int nbits, i64 bytepos, i64 bitpos);
 
 // Conversion flags used by some functions.
 #define DE_CVTF_WHITEISZERO 0x1
@@ -716,65 +716,65 @@ de_byte de_get_bits_symbol2(dbuf *f, int nbits, de_int64 bytepos, de_int64 bitpo
 
 // Utility function for the common case of reading a packed bi-level row, and
 // writing to a bitmap.
-void de_convert_row_bilevel(dbuf *f, de_int64 fpos, de_bitmap *img,
-	de_int64 rownum, unsigned int flags);
+void de_convert_row_bilevel(dbuf *f, i64 fpos, de_bitmap *img,
+	i64 rownum, unsigned int flags);
 
-void de_convert_image_bilevel(dbuf *f, de_int64 fpos, de_int64 rowspan,
+void de_convert_image_bilevel(dbuf *f, i64 fpos, i64 rowspan,
 	de_bitmap *img, unsigned int flags);
 
-void de_convert_and_write_image_bilevel(dbuf *f, de_int64 fpos,
-	de_int64 w, de_int64 h, de_int64 rowspan, unsigned int cvtflags,
+void de_convert_and_write_image_bilevel(dbuf *f, i64 fpos,
+	i64 w, i64 h, i64 rowspan, unsigned int cvtflags,
 	de_finfo *fi, unsigned int createflags);
 
 void de_read_palette_rgb(dbuf *f,
-	de_int64 fpos, de_int64 num_entries, de_int64 entryspan,
-	de_uint32 *pal, de_int64 ncolors_in_pal,
+	i64 fpos, i64 num_entries, i64 entryspan,
+	de_uint32 *pal, i64 ncolors_in_pal,
 	unsigned int flags);
 
 // Utility function that will work for many of the common kinds of paletted images.
-void de_convert_image_paletted(dbuf *f, de_int64 fpos,
-	de_int64 bpp, de_int64 rowspan, const de_uint32 *pal,
+void de_convert_image_paletted(dbuf *f, i64 fpos,
+	i64 bpp, i64 rowspan, const de_uint32 *pal,
 	de_bitmap *img, unsigned int flags);
 
-de_int64 de_min_int(de_int64 n1, de_int64 n2);
-de_int64 de_max_int(de_int64 n1, de_int64 n2);
+i64 de_min_int(i64 n1, i64 n2);
+i64 de_max_int(i64 n1, i64 n2);
 
-de_int64 de_pad_to_2(de_int64 x);
-de_int64 de_pad_to_4(de_int64 x);
-de_int64 de_pad_to_n(de_int64 x, de_int64 n);
+i64 de_pad_to_2(i64 x);
+i64 de_pad_to_4(i64 x);
+i64 de_pad_to_n(i64 x, i64 n);
 
 // Calculate the number of bits required to store n symbols.
 // Intended to be used with bitmap graphics.
 // Returns a minimum of 1, maximum of 32.
-de_int64 de_log2_rounded_up(de_int64 n);
+i64 de_log2_rounded_up(i64 n);
 
 // Test if the image dimensions are valid and supported.
-int de_good_image_dimensions_noerr(deark *c, de_int64 w, de_int64 h);
+int de_good_image_dimensions_noerr(deark *c, i64 w, i64 h);
 
 // Test if the image dimensions are valid and supported. Report an error if not.
-int de_good_image_dimensions(deark *c, de_int64 w, de_int64 h);
+int de_good_image_dimensions(deark *c, i64 w, i64 h);
 
 // Test if the number of images is sane. Report an error if not.
-int de_good_image_count(deark *c, de_int64 n);
+int de_good_image_count(deark *c, i64 n);
 
-int de_is_grayscale_palette(const de_uint32 *pal, de_int64 num_entries);
+int de_is_grayscale_palette(const de_uint32 *pal, i64 num_entries);
 
 #define DE_BITMAPFLAG_WHITEISTRNS 0x1
 #define DE_BITMAPFLAG_MERGE       0x2
 
 void de_bitmap_rect(de_bitmap *img,
-	de_int64 xpos, de_int64 ypos, de_int64 width, de_int64 height,
+	i64 xpos, i64 ypos, i64 width, i64 height,
 	de_uint32 clr, unsigned int flags);
 void de_bitmap_copy_rect(de_bitmap *srcimg, de_bitmap *dstimg,
-	de_int64 srcxpos, de_int64 srcypos, de_int64 width, de_int64 height,
-	de_int64 dstxpos, de_int64 dstypos, unsigned int flags);
+	i64 srcxpos, i64 srcypos, i64 width, i64 height,
+	i64 dstxpos, i64 dstypos, unsigned int flags);
 
 void de_bitmap_apply_mask(de_bitmap *fg, de_bitmap *mask,
 	unsigned int flags);
 
 void de_optimize_image_alpha(de_bitmap *img, unsigned int flags);
 
-void de_make_grayscale_palette(de_uint32 *pal, de_int64 num_entries, unsigned int flags);
+void de_make_grayscale_palette(de_uint32 *pal, i64 num_entries, unsigned int flags);
 
 ///////////////////////////////////////////
 
@@ -791,23 +791,23 @@ const de_byte *de_get_vga_cp437_font_ptr(void);
 
 void de_color_to_css(de_uint32 color, char *buf, int buflen);
 
-de_byte de_sample_nbit_to_8bit(de_int64 n, unsigned int x);
+de_byte de_sample_nbit_to_8bit(i64 n, unsigned int x);
 de_byte de_scale_63_to_255(de_byte x);
-de_byte de_scale_1000_to_255(de_int64 x);
-de_byte de_scale_n_to_255(de_int64 n, de_int64 x);
+de_byte de_scale_1000_to_255(i64 x);
+de_byte de_scale_n_to_255(i64 n, i64 x);
 de_uint32 de_rgb565_to_888(de_uint32 x);
 de_uint32 de_bgr555_to_888(de_uint32 x);
 de_uint32 de_rgb555_to_888(de_uint32 x);
 
 de_int32 de_char_to_unicode(deark *c, de_int32 a, int encoding);
-void de_uchar_to_utf8(de_int32 u1, de_byte *utf8buf, de_int64 *p_utf8len);
+void de_uchar_to_utf8(de_int32 u1, de_byte *utf8buf, i64 *p_utf8len);
 void dbuf_write_uchar_as_utf8(dbuf *outf, de_int32 u);
-int de_utf8_to_uchar(const de_byte *utf8buf, de_int64 buflen,
-	de_int32 *p_uchar, de_int64 *p_utf8len);
-int de_utf16x_to_uchar(const de_byte *utf16buf, de_int64 buflen,
-	de_int32 *p_uchar, de_int64 *p_utf16len, int is_le);
+int de_utf8_to_uchar(const de_byte *utf8buf, i64 buflen,
+	de_int32 *p_uchar, i64 *p_utf8len);
+int de_utf16x_to_uchar(const de_byte *utf16buf, i64 buflen,
+	de_int32 *p_uchar, i64 *p_utf16len, int is_le);
 
-int de_is_ascii(const de_byte *buf, de_int64 buflen);
+int de_is_ascii(const de_byte *buf, i64 buflen);
 
 #define DE_CONVFLAG_STOP_AT_NUL 0x1
 #define DE_CONVFLAG_MAKE_PRINTABLE 0x2
@@ -821,8 +821,8 @@ char de_byte_to_printable_char(de_byte b);
 // Consider using {dbuf_read_to_ucstring or dbuf_read_string or
 // ucstring_append_bytes} followed by
 // {ucstring_get_printable_sz or ucstring_to_printable_sz} instead.
-void de_bytes_to_printable_sz(const de_byte *src, de_int64 src_len,
-	char *dst, de_int64 dst_len, unsigned int conv_flags, int src_encoding);
+void de_bytes_to_printable_sz(const de_byte *src, i64 src_len,
+	char *dst, i64 dst_len, unsigned int conv_flags, int src_encoding);
 
 de_finfo *de_finfo_create(deark *c);
 void de_finfo_destroy(deark *c, de_finfo *fi);
@@ -837,7 +837,7 @@ de_ucstring *ucstring_create(deark *c);
 de_ucstring *ucstring_clone(de_ucstring *src);
 void ucstring_destroy(de_ucstring *s);
 void ucstring_empty(de_ucstring *s);
-void ucstring_truncate(de_ucstring *s, de_int64 newlen);
+void ucstring_truncate(de_ucstring *s, i64 newlen);
 void ucstring_truncate_at_NUL(de_ucstring *s);
 void ucstring_strip_trailing_NUL(de_ucstring *s);
 void ucstring_strip_trailing_spaces(de_ucstring *s);
@@ -848,12 +848,12 @@ void ucstring_printf(de_ucstring *s, int encoding, const char *fmt, ...)
 int ucstring_isnonempty(de_ucstring *s);
 
 // Convert and append an encoded array of bytes to the string.
-void ucstring_append_bytes(de_ucstring *s, const de_byte *buf, de_int64 buflen, unsigned int conv_flags, int encoding);
+void ucstring_append_bytes(de_ucstring *s, const de_byte *buf, i64 buflen, unsigned int conv_flags, int encoding);
 
 void ucstring_append_sz(de_ucstring *s, const char *sz, int encoding);
 
 void ucstring_write_as_utf8(deark *c, de_ucstring *s, dbuf *outf, int add_bom_if_needed);
-de_int64 ucstring_count_utf8_bytes(de_ucstring *s);
+i64 ucstring_count_utf8_bytes(de_ucstring *s);
 
 // Supported encodings are DE_ENCODING_UTF8, DE_ENCODING_ASCII, DE_ENCODING_LATIN1.
 // flags: DE_CONVFLAG_*
@@ -865,7 +865,7 @@ void ucstring_to_sz(de_ucstring *s, char *szbuf, size_t szbuf_len, unsigned int 
 const char *ucstring_getpsz(de_ucstring *s);
 // The _n version limits the number of bytes in the result.
 // max_bytes does not count the terminating NUL.
-const char *ucstring_getpsz_n(de_ucstring *s, de_int64 max_bytes);
+const char *ucstring_getpsz_n(de_ucstring *s, i64 max_bytes);
 
 #define DE_DBG_MAX_STRLEN 500
 // Same as ..._n, with max_bytes=DE_DBG_MAX_STRLEN
@@ -889,20 +889,20 @@ int de_encoding_name_to_code(const char *encname);
 int de_windows_codepage_to_encoding(deark *c, int wincodepage,
 	char *encname, size_t encname_len, unsigned int flags);
 
-void de_copy_bits(const de_byte *src, de_int64 srcbitnum,
-	de_byte *dst, de_int64 dstbitnum, de_int64 bitstocopy);
+void de_copy_bits(const de_byte *src, i64 srcbitnum,
+	de_byte *dst, i64 dstbitnum, i64 bitstocopy);
 
-void de_decode_base16(deark *c, dbuf *inf, de_int64 pos1, de_int64 len,
+void de_decode_base16(deark *c, dbuf *inf, i64 pos1, i64 len,
 	dbuf *outf, unsigned int flags);
 
 struct de_inthashtable;
 struct de_inthashtable *de_inthashtable_create(deark *c);
 void de_inthashtable_destroy(deark *c, struct de_inthashtable *ht);
-int de_inthashtable_add_item(deark *c, struct de_inthashtable *ht, de_int64 key, void *value);
-int de_inthashtable_get_item(deark *c, struct de_inthashtable *ht, de_int64 key, void **pvalue);
-int de_inthashtable_item_exists(deark *c, struct de_inthashtable *ht, de_int64 key);
-int de_inthashtable_remove_item(deark *c, struct de_inthashtable *ht, de_int64 key, void **pvalue);
-int de_inthashtable_remove_any_item(deark *c, struct de_inthashtable *ht, de_int64 *pkey, void **pvalue);
+int de_inthashtable_add_item(deark *c, struct de_inthashtable *ht, i64 key, void *value);
+int de_inthashtable_get_item(deark *c, struct de_inthashtable *ht, i64 key, void **pvalue);
+int de_inthashtable_item_exists(deark *c, struct de_inthashtable *ht, i64 key);
+int de_inthashtable_remove_item(deark *c, struct de_inthashtable *ht, i64 key, void **pvalue);
+int de_inthashtable_remove_any_item(deark *c, struct de_inthashtable *ht, i64 *pkey, void **pvalue);
 
 #define DE_CRCOBJ_CRC32_IEEE   0x10
 #define DE_CRCOBJ_CRC16_CCITT  0x20
@@ -914,9 +914,9 @@ struct de_crcobj *de_crcobj_create(deark *c, unsigned int flags);
 void de_crcobj_destroy(struct de_crcobj *crco);
 void de_crcobj_reset(struct de_crcobj *crco);
 de_uint32 de_crcobj_getval(struct de_crcobj *crco);
-void de_crcobj_addbuf(struct de_crcobj *crco, const de_byte *buf, de_int64 buf_len);
+void de_crcobj_addbuf(struct de_crcobj *crco, const de_byte *buf, i64 buf_len);
 void de_crcobj_addbyte(struct de_crcobj *crco, de_byte b);
-void de_crcobj_addslice(struct de_crcobj *crco, dbuf *f, de_int64 pos, de_int64 len);
+void de_crcobj_addslice(struct de_crcobj *crco, dbuf *f, i64 pos, i64 len);
 
 ///////////////////////////////////////////
 
@@ -930,13 +930,13 @@ struct de_bitmap_font_char {
 	int width, height;
 	int v_offset; // Used if the glyphs do not all have the same height
 	de_int16 extraspace_l, extraspace_r;
-	de_int64 rowspan;
+	i64 rowspan;
 	de_byte *bitmap;
 };
 
 struct de_bitmap_font {
 	int nominal_width, nominal_height;
-	de_int64 index_of_replacement_char; // -1 if none
+	i64 index_of_replacement_char; // -1 if none
 
 	// Flag: Are the char_array[]->codepoint_nonunicode codes set?
 	// (This should be ignored if has_unicode_codepoints is not set.)
@@ -949,7 +949,7 @@ struct de_bitmap_font {
 	// to prefer when displaying the font.
 	de_byte prefer_unicode;
 
-	de_int64 num_chars;
+	i64 num_chars;
 	struct de_bitmap_font_char *char_array;
 };
 
@@ -963,11 +963,11 @@ void de_destroy_bitmap_font(deark *c, struct de_bitmap_font *font);
 #define DE_PAINTFLAG_TOPHALF    0x10
 #define DE_PAINTFLAG_BOTTOMHALF 0x20
 void de_font_paint_character_idx(deark *c, de_bitmap *img,
-	struct de_bitmap_font *font, de_int64 char_idx,
-	de_int64 xpos, de_int64 ypos, de_uint32 fgcol, de_uint32 bgcol, unsigned int flags);
+	struct de_bitmap_font *font, i64 char_idx,
+	i64 xpos, i64 ypos, de_uint32 fgcol, de_uint32 bgcol, unsigned int flags);
 void de_font_paint_character_cp(deark *c, de_bitmap *img,
 	struct de_bitmap_font *font, de_int32 codepoint,
-	de_int64 xpos, de_int64 ypos, de_uint32 fgcol, de_uint32 bgcol, unsigned int flags);
+	i64 xpos, i64 ypos, de_uint32 fgcol, de_uint32 bgcol, unsigned int flags);
 
 void de_font_bitmap_font_to_image(deark *c, struct de_bitmap_font *font, de_finfo *fi, unsigned int createflags);
 int de_font_is_standard_vga_font(deark *c, de_uint32 crc);
@@ -992,8 +992,8 @@ struct de_char_cell {
 };
 
 struct de_char_screen {
-	de_int64 width;
-	de_int64 height;
+	i64 width;
+	i64 height;
 	struct de_char_cell **cell_rows; // Array of [height] row pointers
 };
 
@@ -1006,7 +1006,7 @@ struct de_char_context {
 	de_byte prefer_9col_mode;
 	de_byte no_density;
 	de_byte suppress_custom_font_warning;
-	de_int64 nscreens;
+	i64 nscreens;
 	struct de_char_screen **screens; // Array of [nscreens] screens
 	de_uint32 pal[16];
 	struct de_bitmap_font *font; // Optional
@@ -1014,7 +1014,7 @@ struct de_char_context {
 	de_ucstring *artist;
 	de_ucstring *organization;
 	de_ucstring *creation_date;
-	de_int64 num_comments;
+	i64 num_comments;
 	struct de_char_comment *comments; // Array of [num_comments] comments
 };
 
@@ -1032,19 +1032,19 @@ struct de_struct_tm {
 	int tm_hour, tm_min, tm_sec, tm_ms;
 };
 
-void de_unix_time_to_timestamp(de_int64 ut, struct de_timestamp *ts, unsigned int flags);
+void de_unix_time_to_timestamp(i64 ut, struct de_timestamp *ts, unsigned int flags);
 void de_timestamp_set_ms(struct de_timestamp *ts, de_uint16 ms, de_uint16 prec);
-void de_mac_time_to_timestamp(de_int64 mt, struct de_timestamp *ts);
-void de_FILETIME_to_timestamp(de_int64 ft, struct de_timestamp *ts, unsigned int flags);
+void de_mac_time_to_timestamp(i64 mt, struct de_timestamp *ts);
+void de_FILETIME_to_timestamp(i64 ft, struct de_timestamp *ts, unsigned int flags);
 void de_dos_datetime_to_timestamp(struct de_timestamp *ts,
-   de_int64 ddate, de_int64 dtime);
+   i64 ddate, i64 dtime);
 void de_riscos_loadexec_to_timestamp(de_uint32 load_addr,
 	de_uint32 exec_addr, struct de_timestamp *ts);
-de_int64 de_timestamp_to_unix_time(const struct de_timestamp *ts);
+i64 de_timestamp_to_unix_time(const struct de_timestamp *ts);
 void de_make_timestamp(struct de_timestamp *ts,
-	de_int64 yr, de_int64 mo, de_int64 da,
-	de_int64 hr, de_int64 mi, de_int64 se);
-void de_timestamp_cvt_to_utc(struct de_timestamp *ts, de_int64 offset_seconds);
+	i64 yr, i64 mo, i64 da,
+	i64 hr, i64 mi, i64 se);
+void de_timestamp_cvt_to_utc(struct de_timestamp *ts, i64 offset_seconds);
 void de_timestamp_to_string(const struct de_timestamp *ts,
 	char *buf, size_t buf_len, unsigned int flags);
 void de_gmtime(const struct de_timestamp *ts, struct de_struct_tm *tm2);

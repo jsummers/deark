@@ -46,22 +46,22 @@ struct page_info {
 	de_byte version;
 	de_byte hdr_type;
 	int is_first_page; // Is this the first page of some bitstream?
-	de_int64 granule_pos;
-	de_int64 stream_serialno;
-	de_int64 page_seq_num;
-	de_int64 dpos;
-	de_int64 dlen;
+	i64 granule_pos;
+	i64 stream_serialno;
+	i64 page_seq_num;
+	i64 dpos;
+	i64 dlen;
 };
 
 struct stream_info {
 	int stream_type; // 0 if unknown
 	const struct stream_type_info *sti; // NULL if stream type is unknown
 
-	de_int64 serialno;
+	i64 serialno;
 
 	// Number of pages we've counted for this stream so far.
 	// Expected to equal page_info::page_seq_num.
-	de_int64 page_count;
+	i64 page_count;
 
 	// Private use data, owned by the stream type.
 
@@ -76,8 +76,8 @@ struct stream_info {
 
 struct localctx_struct {
 	int always_hexdump;
-	de_int64 total_page_count;
-	de_int64 bitstream_count;
+	i64 total_page_count;
+	i64 bitstream_count;
 	struct de_inthashtable *streamtable;
 
 	de_byte format_declared;
@@ -91,7 +91,7 @@ struct localctx_struct {
 	const struct stream_type_info *first_stream_sti;
 };
 
-static unsigned int getui24be_p(dbuf *f, de_int64 *ppos)
+static unsigned int getui24be_p(dbuf *f, i64 *ppos)
 {
 	unsigned int u;
 	u = (unsigned int)dbuf_getint_ext(f, *ppos, 3, 0, 0);
@@ -162,9 +162,9 @@ static char *get_hdrtype_descr(deark *c, char *buf, size_t buflen, de_byte hdr_t
 
 static void do_vorbis_id_header(deark *c, lctx *d, struct page_info *pgi, struct stream_info *si)
 {
-	de_int64 pos = pgi->dpos;
+	i64 pos = pgi->dpos;
 	unsigned int u1;
-	de_int64 x;
+	i64 x;
 
 	pos += 7; // Skip signature
 	u1 = (unsigned int)de_getui32le_p(&pos);
@@ -183,9 +183,9 @@ static void do_vorbis_id_header(deark *c, lctx *d, struct page_info *pgi, struct
 
 static void do_theora_id_header(deark *c, lctx *d, struct page_info *pgi, struct stream_info *si)
 {
-	de_int64 pos = pgi->dpos;
+	i64 pos = pgi->dpos;
 	de_byte vmaj, vmin, vrev;
-	de_int64 x1, x2;
+	i64 x1, x2;
 	unsigned int u1, u2;
 
 	pos += 7; // Skip signature
@@ -221,12 +221,12 @@ static void do_theora_id_header(deark *c, lctx *d, struct page_info *pgi, struct
 	de_dbg(c, "nominal bitrate: %u bits/sec", u1);
 }
 
-static void do_vorbis_comment_block(deark *c, lctx *d, dbuf *f, de_int64 pos1)
+static void do_vorbis_comment_block(deark *c, lctx *d, dbuf *f, i64 pos1)
 {
-	de_int64 pos = pos1;
-	de_int64 n;
-	de_int64 ncomments;
-	de_int64 k;
+	i64 pos = pos1;
+	i64 n;
+	i64 ncomments;
+	i64 k;
 	de_ucstring *s = NULL;
 
 	n = dbuf_getui32le_p(f, &pos);
@@ -255,7 +255,7 @@ done:
 
 static void do_theora_vorbis_after_headers(deark *c, lctx *d, struct stream_info *si)
 {
-	de_int64 pos = 0;
+	i64 pos = 0;
 	int saved_indent_level;
 	dbuf *f = NULL;
 
@@ -408,7 +408,7 @@ const struct stream_type_info stream_type_info_arr[] = {
 	{ STREAMTYPE_OGM_S, 0x1, 16, (const de_byte*)"\x01" "Direct Show Sam", "OGM DS samples", NULL }
 };
 
-static void do_identify_bitstream(deark *c, lctx *d, struct stream_info *si, de_int64 pos, de_int64 len)
+static void do_identify_bitstream(deark *c, lctx *d, struct stream_info *si, i64 pos, i64 len)
 {
 	de_byte idbuf[16];
 	size_t bytes_to_scan;
@@ -497,12 +497,12 @@ static void do_bitstream_page(deark *c, lctx *d, struct page_info *pgi,
 	}
 }
 
-static int do_ogg_page(deark *c, lctx *d, de_int64 pos1, de_int64 *bytes_consumed)
+static int do_ogg_page(deark *c, lctx *d, i64 pos1, i64 *bytes_consumed)
 {
-	de_int64 pos = pos1;
-	de_int64 x;
-	de_int64 num_page_segments;
-	de_int64 k;
+	i64 pos = pos1;
+	i64 x;
+	i64 num_page_segments;
+	i64 k;
 	char buf[100];
 	int retval = 0;
 	int ret;
@@ -547,13 +547,13 @@ static int do_ogg_page(deark *c, lctx *d, de_int64 pos1, de_int64 *bytes_consume
 	x = de_getui32le_p(&pos);
 	de_dbg(c, "crc (reported): 0x%08x", (unsigned int)x);
 
-	num_page_segments = (de_int64)de_getbyte_p(&pos);
+	num_page_segments = (i64)de_getbyte_p(&pos);
 	de_dbg(c, "number of page segments: %d", (int)num_page_segments);
 
 	// Read page table
 	pgi->dlen = 0;
 	for(k=0; k<num_page_segments; k++) {
-		x = (de_int64)de_getbyte_p(&pos);
+		x = (i64)de_getbyte_p(&pos);
 		pgi->dlen += x;
 	}
 
@@ -599,7 +599,7 @@ static void destroy_bitstream(deark *c, lctx *d, struct stream_info *si)
 static void destroy_streamtable(deark *c, lctx *d)
 {
 	while(1) {
-		de_int64 key;
+		i64 key;
 		struct stream_info *si;
 
 		if(!de_inthashtable_remove_any_item(c, d->streamtable, &key, (void**)&si)) {
@@ -614,8 +614,8 @@ static void destroy_streamtable(deark *c, lctx *d)
 
 static void run_ogg_internal(deark *c, lctx *d)
 {
-	de_int64 pos;
-	de_int64 ogg_end;
+	i64 pos;
+	i64 ogg_end;
 	struct de_id3info id3i;
 
 	d = de_malloc(c, sizeof(lctx));
@@ -629,7 +629,7 @@ static void run_ogg_internal(deark *c, lctx *d)
 	while(1) {
 		de_uint32 sig;
 		int ret;
-		de_int64 bytes_consumed = 0;
+		i64 bytes_consumed = 0;
 
 		if(pos >= ogg_end) break;
 		sig = (de_uint32)de_getui32be(pos);
@@ -671,7 +671,7 @@ done:
 
 static int de_identify_ogg(deark *c)
 {
-	de_int64 pos = 0;
+	i64 pos = 0;
 
 	if(!c->detection_data.id3.detection_attempted) {
 		de_err(c, "ogg internal");
@@ -679,7 +679,7 @@ static int de_identify_ogg(deark *c)
 	}
 
 	if(c->detection_data.id3.has_id3v2) {
-		pos = (de_int64)c->detection_data.id3.bytes_at_start;
+		pos = (i64)c->detection_data.id3.bytes_at_start;
 	}
 
 	if(!dbuf_memcmp(c->infile, pos, "OggS", 4))

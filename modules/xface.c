@@ -67,9 +67,9 @@ void de_module_xface(deark *c, struct deark_module_info *mi)
 
 struct compfacei_ctx {
 	de_bitmap *img;
-	de_int64 imgpos_x, imgpos_y;
+	i64 imgpos_x, imgpos_y;
 
-	de_int64 input_parse_pos;
+	i64 input_parse_pos;
 	size_t tokenbuf_strlen;
 	int token_numdigits;
 	unsigned int token_val;
@@ -173,7 +173,7 @@ static void cfi_set_image_byte(deark *c, struct compfacei_ctx *cfictx, de_byte c
 	for(k=0; k<8; k++) {
 		if(((ch>>(7-k))&0x1)==0) {
 			de_bitmap_setpixel_gray(cfictx->img,
-				cfictx->imgpos_x+(de_int64)k, cfictx->imgpos_y, 255);
+				cfictx->imgpos_x+(i64)k, cfictx->imgpos_y, 255);
 		}
 	}
 	cfictx->imgpos_x += 8;
@@ -185,7 +185,7 @@ static void cfi_set_image_byte(deark *c, struct compfacei_ctx *cfictx, de_byte c
 
 static void de_run_compfacei(deark *c, de_module_params *mparams)
 {
-	de_int64 image_bytes_processed = 0;
+	i64 image_bytes_processed = 0;
 	struct compfacei_ctx *cfictx = NULL;
 
 	cfictx = de_malloc(c, sizeof(struct compfacei_ctx));

@@ -13,10 +13,10 @@ typedef struct localctx_struct {
 #define DE_CRDFMT_RRG 2
 	int fmt;
 	int input_encoding;
-	de_int64 numcards;
+	i64 numcards;
 } lctx;
 
-static void do_extract_text_data(deark *c, lctx *d, de_finfo *fi, de_int64 text_pos, de_int64 text_len)
+static void do_extract_text_data(deark *c, lctx *d, de_finfo *fi, i64 text_pos, i64 text_len)
 {
 	if(text_len<1) return;
 	if(text_pos + text_len > c->infile->len) return;
@@ -26,7 +26,7 @@ static void do_extract_text_data(deark *c, lctx *d, de_finfo *fi, de_int64 text_
 	dbuf_create_file_from_slice(c->infile, text_pos, text_len, "txt", fi, 0);
 }
 
-static void do_dbg_text_data(deark *c, lctx *d, de_int64 text_pos, de_int64 text_len)
+static void do_dbg_text_data(deark *c, lctx *d, i64 text_pos, i64 text_len)
 {
 	de_ucstring *s = NULL;
 
@@ -37,14 +37,14 @@ static void do_dbg_text_data(deark *c, lctx *d, de_int64 text_pos, de_int64 text
 	ucstring_destroy(s);
 }
 
-static void do_card_index(deark *c, lctx *d, de_int64 cardnum, de_int64 pos)
+static void do_card_index(deark *c, lctx *d, i64 cardnum, i64 pos)
 {
-	de_int64 datapos;
-	de_int64 bitmap_len;
-	de_int64 w, h;
-	de_int64 src_rowspan;
-	de_int64 text_len;
-	de_int64 text_pos;
+	i64 datapos;
+	i64 bitmap_len;
+	i64 w, h;
+	i64 src_rowspan;
+	i64 text_len;
+	i64 text_pos;
 	de_bitmap *img = NULL;
 	de_finfo *fi_bitmap = NULL;
 	de_finfo *fi_text = NULL;
@@ -140,8 +140,8 @@ static void de_run_cardfile(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
 	de_byte b;
-	de_int64 pos;
-	de_int64 n;
+	i64 pos;
+	i64 n;
 
 	d = de_malloc(c, sizeof(lctx));
 

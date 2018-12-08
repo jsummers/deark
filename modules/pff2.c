@@ -30,7 +30,7 @@ typedef struct localctx_struct {
 struct pff2_sectiontype_info;
 
 typedef void (*pff2_section_handler_fn)(deark *c, lctx *d,
-	const struct pff2_sectiontype_info *si, de_int64 pos, de_int64 len);
+	const struct pff2_sectiontype_info *si, i64 pos, i64 len);
 
 struct pff2_sectiontype_info {
 	de_uint32 id;
@@ -40,13 +40,13 @@ struct pff2_sectiontype_info {
 	pff2_section_handler_fn hfn;
 };
 
-static void do_char(deark *c, lctx *d, de_int64 char_idx, de_int32 codepoint, de_int64 pos)
+static void do_char(deark *c, lctx *d, i64 char_idx, de_int32 codepoint, i64 pos)
 {
 	struct de_bitmap_font_char *ch;
-	de_int64 bitmap_pos;
+	i64 bitmap_pos;
 	de_byte *srcbitmap = NULL;
-	de_int64 srcbitmapsize;
-	de_int64 j;
+	i64 srcbitmapsize;
+	i64 j;
 
 	ch = &d->font->char_array[char_idx];
 
@@ -75,11 +75,11 @@ static void do_char(deark *c, lctx *d, de_int64 char_idx, de_int32 codepoint, de
 }
 
 static void do_code_chix(deark *c, lctx *d, const struct pff2_sectiontype_info *si,
-	de_int64 pos1, de_int64 len)
+	i64 pos1, i64 len)
 {
-	de_int64 i;
-	de_int64 pos;
-	de_int64 defpos;
+	i64 i;
+	i64 pos;
+	i64 defpos;
 	de_int32 codepoint;
 	unsigned int storage_flags;
 
@@ -159,7 +159,7 @@ static int my_pff2_chunk_handler(deark *c, struct de_iffctx *ictx)
 		ucstring_destroy(str);
 	}
 	else if(si->flags&0x2) {
-		de_int64 n;
+		i64 n;
 		n = dbuf_getui16be(ictx->f, ictx->chunkctx->dpos);
 		de_dbg(c, "value: %d", (int)n);
 	}
@@ -194,7 +194,7 @@ static void de_run_pff2(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
 	struct de_iffctx *ictx = NULL;
-	de_int64 i;
+	i64 i;
 
 	d = de_malloc(c, sizeof(lctx));
 	ictx = de_malloc(c, sizeof(struct de_iffctx));

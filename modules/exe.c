@@ -33,44 +33,44 @@ struct rsrc_type_info_struct;
 
 typedef struct localctx_struct {
 	int fmt;
-	de_int64 ext_header_offset;
+	i64 ext_header_offset;
 
-	de_int64 ne_rsrc_tbl_offset;
+	i64 ne_rsrc_tbl_offset;
 	unsigned int ne_align_shift;
 	int ne_have_type;
 	de_uint32 ne_rsrc_type_id;
 	const struct rsrc_type_info_struct *ne_rsrc_type_info;
 
-	de_int64 lx_page_offset_shift;
-	de_int64 lx_object_tbl_offset;
-	de_int64 lx_object_tbl_entries;
-	de_int64 lx_object_page_tbl_offset;
-	de_int64 lx_rsrc_tbl_offset;
-	de_int64 lx_rsrc_tbl_entries;
-	de_int64 lx_data_pages_offset;
+	i64 lx_page_offset_shift;
+	i64 lx_object_tbl_offset;
+	i64 lx_object_tbl_entries;
+	i64 lx_object_page_tbl_offset;
+	i64 lx_rsrc_tbl_offset;
+	i64 lx_rsrc_tbl_entries;
+	i64 lx_data_pages_offset;
 
-	de_int64 pe_opt_hdr_size;
-	de_int64 pe_sections_offset;
-	de_int64 pe_number_of_sections;
+	i64 pe_opt_hdr_size;
+	i64 pe_sections_offset;
+	i64 pe_number_of_sections;
 
 	// File offset where the resources start. Some addresses are relative
 	// to this.
-	de_int64 pe_cur_base_addr;
+	i64 pe_cur_base_addr;
 
-	de_int64 pe_cur_section_virt_addr;
-	de_int64 pe_cur_section_data_offset;
+	i64 pe_cur_section_virt_addr;
+	i64 pe_cur_section_data_offset;
 
-	de_int64 pe_cur_name_offset; // 0 if no name
+	i64 pe_cur_name_offset; // 0 if no name
 
 	de_uint32 cur_rsrc_type;
 	const struct rsrc_type_info_struct *cur_rsrc_type_info;
 
-	de_int64 rsrc_item_count;
+	i64 rsrc_item_count;
 } lctx;
 
 struct rsrc_type_info_struct;
 
-typedef void (*rsrc_decoder_fn)(deark *c, lctx *d, de_int64 pos, de_int64 len, de_finfo *fi);
+typedef void (*rsrc_decoder_fn)(deark *c, lctx *d, i64 pos, i64 len, de_finfo *fi);
 
 struct rsrc_type_info_struct {
 	de_uint32 id;
@@ -79,11 +79,11 @@ struct rsrc_type_info_struct {
 	rsrc_decoder_fn decoder_fn;
 };
 
-static void do_certificate(deark *c, lctx *d, de_int64 pos1, de_int64 len)
+static void do_certificate(deark *c, lctx *d, i64 pos1, i64 len)
 {
-	de_int64 dlen;
-	de_int64 revision;
-	de_int64 certtype;
+	i64 dlen;
+	i64 revision;
+	i64 certtype;
 
 	// This is a WIN_CERTIFICATE structure.
 	if(pos1<1 || len<=8 || (pos1+len > c->infile->len)) return;
@@ -108,12 +108,12 @@ done:
 
 }
 
-static void do_opt_coff_data_dirs(deark *c, lctx *d, de_int64 pos)
+static void do_opt_coff_data_dirs(deark *c, lctx *d, i64 pos)
 {
-	de_int64 rsrc_tbl_rva;
-	de_int64 rsrc_tbl_size;
-	de_int64 pe_security_pos;
-	de_int64 pe_security_size;
+	i64 rsrc_tbl_rva;
+	i64 rsrc_tbl_size;
+	i64 pe_security_pos;
+	i64 pe_security_size;
 
 	de_dbg(c, "COFF/PE optional header (data directories) at %d", (int)pos);
 	de_dbg_indent(c, 1);
@@ -136,7 +136,7 @@ static void do_opt_coff_data_dirs(deark *c, lctx *d, de_int64 pos)
 	de_dbg_indent(c, -1);
 }
 
-static const char *get_subsys_desc(de_int64 subsystem)
+static const char *get_subsys_desc(i64 subsystem)
 {
 	switch(subsystem) {
 	case 2: return " (Windows GUI)";
@@ -145,10 +145,10 @@ static const char *get_subsys_desc(de_int64 subsystem)
 	return "";
 }
 
-static void do_opt_coff_nt_header(deark *c, lctx *d, de_int64 pos)
+static void do_opt_coff_nt_header(deark *c, lctx *d, i64 pos)
 {
-	de_int64 x;
-	de_int64 subsystem;
+	i64 x;
+	i64 subsystem;
 
 	de_dbg(c, "COFF/PE optional header (Windows NT) at %d", (int)pos);
 	de_dbg_indent(c, 1);
@@ -162,10 +162,10 @@ static void do_opt_coff_nt_header(deark *c, lctx *d, de_int64 pos)
 	de_dbg_indent(c, -1);
 }
 
-static void do_opt_coff_nt_header_64(deark *c, lctx *d, de_int64 pos)
+static void do_opt_coff_nt_header_64(deark *c, lctx *d, i64 pos)
 {
-	de_int64 base_offset;
-	de_int64 subsystem;
+	i64 base_offset;
+	i64 subsystem;
 
 	de_dbg(c, "COFF/PE32+ optional header (Windows NT) at %d", (int)pos);
 	de_dbg_indent(c, 1);
@@ -179,10 +179,10 @@ static void do_opt_coff_nt_header_64(deark *c, lctx *d, de_int64 pos)
 	de_dbg_indent(c, -1);
 }
 
-static void do_opt_coff_header(deark *c, lctx *d, de_int64 pos, de_int64 len)
+static void do_opt_coff_header(deark *c, lctx *d, i64 pos, i64 len)
 {
-	de_int64 sig;
-	de_int64 coff_opt_hdr_size;
+	i64 sig;
+	i64 coff_opt_hdr_size;
 
 	de_dbg(c, "COFF/PE optional header at %d, size=%d", (int)pos, (int)len);
 	de_dbg_indent(c, 1);
@@ -274,15 +274,15 @@ static const char *get_machine_type_name(unsigned int n)
 
 static void do_Rich_segment(deark *c, lctx *d)
 {
-	de_int64 segment_start;
-	de_int64 segment_end;
-	de_int64 sig_pos;
-	de_int64 pos;
-	de_int64 p;
-	de_int64 k;
+	i64 segment_start;
+	i64 segment_end;
+	i64 sig_pos;
+	i64 pos;
+	i64 p;
+	i64 k;
 	de_uint32 n;
 	de_uint32 key;
-	de_int64 num_entries;
+	i64 num_entries;
 
 	segment_start = 128;
 	segment_end = d->ext_header_offset;
@@ -346,10 +346,10 @@ static void do_Rich_segment(deark *c, lctx *d)
 
 // 'pos' is the start of the 4-byte PE signature.
 // Following it is a 20-byte COFF header.
-static void do_pe_coff_header(deark *c, lctx *d, de_int64 pos)
+static void do_pe_coff_header(deark *c, lctx *d, i64 pos)
 {
 	unsigned int arch;
-	de_int64 n;
+	i64 n;
 
 	de_dbg(c, "PE header at %d", (int)d->ext_header_offset);
 	de_dbg_indent(c, 1);
@@ -421,7 +421,7 @@ static void do_ne_app_flags(deark *c, lctx *d, de_byte flags)
 	ucstring_destroy(s);
 }
 
-static void do_ne_ext_header(deark *c, lctx *d, de_int64 pos)
+static void do_ne_ext_header(deark *c, lctx *d, i64 pos)
 {
 	de_byte target_os;
 	const char *desc;
@@ -460,9 +460,9 @@ static void do_ne_ext_header(deark *c, lctx *d, de_int64 pos)
 	de_dbg_indent(c, -1);
 }
 
-static void do_lx_or_le_ext_header(deark *c, lctx *d, de_int64 pos)
+static void do_lx_or_le_ext_header(deark *c, lctx *d, i64 pos)
 {
-	de_int64 x1, x2;
+	i64 x1, x2;
 
 	de_dbg(c, "%s header at %d", d->fmt==EXE_FMT_LE?"LE":"LX", (int)pos);
 	x1 = (de_byte)de_getbyte(pos+2);
@@ -540,7 +540,7 @@ done:
 
 static void do_fileheader(deark *c, lctx *d)
 {
-	de_int64 reloc_tbl_offset;
+	i64 reloc_tbl_offset;
 
 	reloc_tbl_offset = de_getui16le(24);
 	de_dbg(c, "relocation table offset: %d", (int)reloc_tbl_offset);
@@ -557,7 +557,7 @@ static void do_fileheader(deark *c, lctx *d)
 }
 
 // Extract a raw DIB, and write it to a file as a BMP.
-static void do_extract_BITMAP(deark *c, lctx *d, de_int64 pos, de_int64 len, de_finfo *fi)
+static void do_extract_BITMAP(deark *c, lctx *d, i64 pos, i64 len, de_finfo *fi)
 {
 	if(len<12) return;
 	de_dbg_indent(c, 1);
@@ -565,12 +565,12 @@ static void do_extract_BITMAP(deark *c, lctx *d, de_int64 pos, de_int64 len, de_
 	de_dbg_indent(c, -1);
 }
 
-static void do_extract_ico_cur(deark *c, lctx *d, de_int64 pos, de_int64 len,
-	int is_cur, de_int64 hotspot_x, de_int64 hotspot_y, de_finfo *fi)
+static void do_extract_ico_cur(deark *c, lctx *d, i64 pos, i64 len,
+	int is_cur, i64 hotspot_x, i64 hotspot_y, de_finfo *fi)
 {
 	dbuf *f;
-	de_int64 w, h;
-	de_int64 ncolors;
+	i64 w, h;
+	i64 ncolors;
 	struct de_bmpinfo bi;
 
 	// I guess we have to manufacture an ICO/CUR header?
@@ -626,9 +626,9 @@ static void do_extract_ico_cur(deark *c, lctx *d, de_int64 pos, de_int64 len,
 	dbuf_close(f);
 }
 
-static void do_extract_CURSOR(deark *c, lctx *d, de_int64 pos, de_int64 len, de_finfo *fi)
+static void do_extract_CURSOR(deark *c, lctx *d, i64 pos, i64 len, de_finfo *fi)
 {
-	de_int64 hotspot_x, hotspot_y;
+	i64 hotspot_x, hotspot_y;
 
 	if(len<4) return;
 	hotspot_x = de_getui16le(pos);
@@ -636,14 +636,14 @@ static void do_extract_CURSOR(deark *c, lctx *d, de_int64 pos, de_int64 len, de_
 	do_extract_ico_cur(c, d, pos+4, len-4, 1, hotspot_x, hotspot_y, fi);
 }
 
-static void do_extract_ICON(deark *c, lctx *d, de_int64 pos, de_int64 len, de_finfo *fi)
+static void do_extract_ICON(deark *c, lctx *d, i64 pos, i64 len, de_finfo *fi)
 {
 	do_extract_ico_cur(c, d, pos, len, 0, 0, 0, fi);
 }
 
-static void do_extract_FONT(deark *c, lctx *d, de_int64 pos, de_int64 len, de_finfo *fi)
+static void do_extract_FONT(deark *c, lctx *d, i64 pos, i64 len, de_finfo *fi)
 {
-	de_int64 fntlen;
+	i64 fntlen;
 
 	if(len<6) return;
 	// The "file size" is stored at offset 2. Respect it if possible.
@@ -654,7 +654,7 @@ static void do_extract_FONT(deark *c, lctx *d, de_int64 pos, de_int64 len, de_fi
 	dbuf_create_file_from_slice(c->infile, pos, fntlen, "fnt", fi, 0);
 }
 
-static void do_extract_MANIFEST(deark *c, lctx *d, de_int64 pos, de_int64 len, de_finfo *fi)
+static void do_extract_MANIFEST(deark *c, lctx *d, i64 pos, i64 len, de_finfo *fi)
 {
 	if(c->extract_level>=2) {
 		dbuf_create_file_from_slice(c->infile, pos, len, "manifest", fi, DE_CREATEFLAG_IS_AUX);
@@ -708,7 +708,7 @@ static int ne_pe_resource_type_is_supported(deark *c, lctx *d, de_uint32 type_id
 
 static void do_ne_pe_extract_resource(deark *c, lctx *d,
 	de_uint32 type_id, const struct rsrc_type_info_struct *rsrci,
-	de_int64 pos, de_int64 len, de_finfo *fi)
+	i64 pos, i64 len, de_finfo *fi)
 {
 	if(len<1 || len>DE_MAX_FILE_SIZE) return;
 
@@ -719,9 +719,9 @@ static void do_ne_pe_extract_resource(deark *c, lctx *d,
 }
 
 static void de_finfo_set_name_from_pe_string(deark *c, de_finfo *fi, dbuf *f,
-	de_int64 pos)
+	i64 pos)
 {
-	de_int64 nlen; // in UTF-16 code units (2 bytes each)
+	i64 nlen; // in UTF-16 code units (2 bytes each)
 	de_ucstring *fname = NULL;
 
 	if(!c->filenames_from_file) goto done;
@@ -738,11 +738,11 @@ done:
 	ucstring_destroy(fname);
 }
 
-static void do_pe_resource_data_entry(deark *c, lctx *d, de_int64 rel_pos)
+static void do_pe_resource_data_entry(deark *c, lctx *d, i64 rel_pos)
 {
-	de_int64 data_size;
-	de_int64 data_virt_addr;
-	de_int64 data_real_offset;
+	i64 data_size;
+	i64 data_virt_addr;
+	i64 data_real_offset;
 	de_uint32 type_id;
 	de_finfo *fi = NULL;
 	const char *rsrcname;
@@ -777,12 +777,12 @@ static void do_pe_resource_data_entry(deark *c, lctx *d, de_int64 rel_pos)
 	de_dbg_indent(c, -1);
 }
 
-static void do_pe_resource_dir_table(deark *c, lctx *d, de_int64 rel_pos, int level);
+static void do_pe_resource_dir_table(deark *c, lctx *d, i64 rel_pos, int level);
 
-static void do_pe_resource_node(deark *c, lctx *d, de_int64 rel_pos, int level)
+static void do_pe_resource_node(deark *c, lctx *d, i64 rel_pos, int level)
 {
 	de_uint32 name_or_id;
-	de_int64 next_offset;
+	i64 next_offset;
 	int has_name, is_branch_node;
 	int orig_indent;
 
@@ -857,12 +857,12 @@ done:
 	c->dbg_indent_amount = orig_indent;
 }
 
-static void do_pe_resource_dir_table(deark *c, lctx *d, de_int64 rel_pos, int level)
+static void do_pe_resource_dir_table(deark *c, lctx *d, i64 rel_pos, int level)
 {
-	de_int64 named_node_count;
-	de_int64 unnamed_node_count;
-	de_int64 node_count;
-	de_int64 i;
+	i64 named_node_count;
+	i64 unnamed_node_count;
+	i64 node_count;
+	i64 i;
 
 	// 16-byte "Resource node header" a.k.a "Resource directory table"
 
@@ -887,16 +887,16 @@ static void do_pe_resource_dir_table(deark *c, lctx *d, de_int64 rel_pos, int le
 	}
 }
 
-static void do_pe_resource_section(deark *c, lctx *d, de_int64 pos, de_int64 len)
+static void do_pe_resource_section(deark *c, lctx *d, i64 pos, i64 len)
 {
 	d->pe_cur_base_addr = pos;
 	d->rsrc_item_count = 0;
 	do_pe_resource_dir_table(c, d, 0, 1);
 }
 
-static void do_pe_section_header(deark *c, lctx *d, de_int64 section_index, de_int64 pos)
+static void do_pe_section_header(deark *c, lctx *d, i64 section_index, i64 pos)
 {
-	de_int64 section_data_size;
+	i64 section_data_size;
 	struct de_stringreaderdata *srd = NULL;
 
 	de_dbg(c, "section[%d] header at %d", (int)section_index, (unsigned int)pos);
@@ -923,8 +923,8 @@ static void do_pe_section_header(deark *c, lctx *d, de_int64 section_index, de_i
 
 static void do_pe_section_table(deark *c, lctx *d)
 {
-	de_int64 pos;
-	de_int64 i;
+	i64 pos;
+	i64 i;
 
 	pos = d->pe_sections_offset;
 	de_dbg(c, "section table at %d", (int)pos);
@@ -935,14 +935,14 @@ static void do_pe_section_table(deark *c, lctx *d)
 	de_dbg_indent(c, -1);
 }
 
-static void do_ne_one_nameinfo(deark *c, lctx *d, de_int64 npos)
+static void do_ne_one_nameinfo(deark *c, lctx *d, i64 npos)
 {
-	de_int64 rsrc_offset;
-	de_int64 rsrc_size;
-	de_int64 is_named;
-	de_int64 rnID;
-	de_int64 rnNameOffset;
-	de_int64 x;
+	i64 rsrc_offset;
+	i64 rsrc_size;
+	i64 is_named;
+	i64 rnID;
+	i64 rnNameOffset;
+	i64 x;
 	de_finfo *fi = NULL;
 	int saved_indent_level;
 
@@ -979,7 +979,7 @@ static void do_ne_one_nameinfo(deark *c, lctx *d, de_int64 npos)
 
 	if(is_named) {
 		// Names are prefixed with a single-byte length.
-		x = (de_int64)de_getbyte(rnNameOffset);
+		x = (i64)de_getbyte(rnNameOffset);
 		if(x>0) {
 			de_ucstring *rname = NULL;
 
@@ -1016,13 +1016,13 @@ done:
 
 static void do_ne_rsrc_tbl(deark *c, lctx *d)
 {
-	de_int64 pos;
-	de_int64 npos;
-	de_int64 x;
-	de_int64 i;
-	de_int64 j;
-	de_int64 rsrc_count;
-	de_int64 tot_resources = 0;
+	i64 pos;
+	i64 npos;
+	i64 x;
+	i64 i;
+	i64 j;
+	i64 rsrc_count;
+	i64 tot_resources = 0;
 	int saved_indent_level;
 
 	de_dbg_indent_save(c, &saved_indent_level);
@@ -1098,7 +1098,7 @@ done:
 
 // Sniff the resource data, and return a suitable filename extension.
 // Or NULL, if unidentified.
-static const char *identify_lx_rsrc(deark *c, lctx *d, de_int64 pos, de_int64 len)
+static const char *identify_lx_rsrc(deark *c, lctx *d, i64 pos, i64 len)
 {
 	de_byte buf[2];
 	int is_ba = 0;
@@ -1126,18 +1126,18 @@ static const char *identify_lx_rsrc(deark *c, lctx *d, de_int64 pos, de_int64 le
 // Extract a resource from an LX file, given the information from an Object Table
 // entry.
 static void do_lx_rsrc(deark *c, lctx *d,
-	de_int64 obj_num, de_int64 rsrc_offset, de_int64 rsrc_size, de_int64 rsrc_type)
+	i64 obj_num, i64 rsrc_offset, i64 rsrc_size, i64 rsrc_type)
 {
-	de_int64 lpos;
-	de_int64 vsize;
-	de_int64 reloc_base_addr;
-	de_int64 flags;
-	de_int64 page_table_index;
-	de_int64 page_table_entries;
-	de_int64 rsrc_offset_real;
-	de_int64 pg_data_offset_raw;
+	i64 lpos;
+	i64 vsize;
+	i64 reloc_base_addr;
+	i64 flags;
+	i64 page_table_index;
+	i64 page_table_entries;
+	i64 rsrc_offset_real;
+	i64 pg_data_offset_raw;
 	const char *ext;
-	//de_int64 data_size;
+	//i64 data_size;
 
 	if(obj_num<1 || obj_num>d->lx_object_tbl_entries) {
 		de_err(c, "Invalid object number (%d).", (int)obj_num);
@@ -1192,13 +1192,13 @@ static void do_lx_rsrc(deark *c, lctx *d,
 
 static void do_lx_or_le_rsrc_tbl(deark *c, lctx *d)
 {
-	de_int64 i;
-	de_int64 lpos;
-	de_int64 type_id;
-	de_int64 name_id;
-	de_int64 rsrc_size;
-	de_int64 rsrc_object;
-	de_int64 rsrc_offset;
+	i64 i;
+	i64 lpos;
+	i64 type_id;
+	i64 name_id;
+	i64 rsrc_size;
+	i64 rsrc_object;
+	i64 rsrc_offset;
 
 	de_dbg(c, "%s resource table at %d", d->fmt==EXE_FMT_LE?"LE":"LX", (int)d->lx_rsrc_tbl_offset);
 	if(d->lx_rsrc_tbl_entries>MAX_RESOURCES) {
@@ -1227,7 +1227,7 @@ static void do_lx_or_le_rsrc_tbl(deark *c, lctx *d)
 static void de_run_exe(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
-	de_int64 eocdpos = 0;
+	i64 eocdpos = 0;
 
 	d = de_malloc(c, sizeof(lctx));
 

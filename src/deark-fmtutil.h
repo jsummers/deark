@@ -7,27 +7,27 @@ struct de_bmpinfo {
 #define DE_BMPINFO_FMT_PNG 1
 	int file_format;
 
-	de_int64 hotspot_x, hotspot_y;
-	de_int64 bitsoffset; // Literal value from FILEHEADER
-	de_int64 infohdrsize;
-	de_int64 width;
-	de_int64 height;
-	de_int64 bitcount;
+	i64 hotspot_x, hotspot_y;
+	i64 bitsoffset; // Literal value from FILEHEADER
+	i64 infohdrsize;
+	i64 width;
+	i64 height;
+	i64 bitcount;
 	de_uint32 compression_field;
-	de_int64 sizeImage_field;
+	i64 sizeImage_field;
 
-	de_int64 bytes_per_pal_entry;
-	de_int64 pal_entries;
-	de_int64 num_colors; // For use in ICO/CUR file headers.
-	de_int64 rowspan;
+	i64 bytes_per_pal_entry;
+	i64 pal_entries;
+	i64 num_colors; // For use in ICO/CUR file headers.
+	i64 rowspan;
 
-	de_int64 foreground_size;
-	de_int64 mask_rowspan;
-	de_int64 mask_size;
+	i64 foreground_size;
+	i64 mask_rowspan;
+	i64 mask_size;
 
-	de_int64 pal_bytes; // Size of palette in bytes
-	de_int64 size_of_headers_and_pal; // Relative offset to bitmap (bitsoffset might be absolute)
-	de_int64 total_size;
+	i64 pal_bytes; // Size of palette in bytes
+	i64 size_of_headers_and_pal; // Relative offset to bitmap (bitsoffset might be absolute)
+	i64 total_size;
 
 	int is_compressed;
 	int is_topdown;
@@ -40,46 +40,46 @@ struct de_bmpinfo {
 
 void de_fmtutil_get_bmp_compression_name(de_uint32 code, char *s, size_t s_len,
 	int is_os2v2);
-int de_fmtutil_get_bmpinfo(deark *c,  dbuf *f, struct de_bmpinfo *bi, de_int64 pos,
-	de_int64 len, unsigned int flags);
+int de_fmtutil_get_bmpinfo(deark *c,  dbuf *f, struct de_bmpinfo *bi, i64 pos,
+	i64 len, unsigned int flags);
 void de_fmtutil_generate_bmpfileheader(deark *c, dbuf *outf, const struct de_bmpinfo *bi,
-	de_int64 file_size_override);
+	i64 file_size_override);
 
-void de_fmtutil_handle_exif2(deark *c, de_int64 pos, de_int64 len,
+void de_fmtutil_handle_exif2(deark *c, i64 pos, i64 len,
 	de_uint32 *returned_flags, de_uint32 *orientation, de_uint32 *exifversion);
-void de_fmtutil_handle_exif(deark *c, de_int64 pos, de_int64 len);
+void de_fmtutil_handle_exif(deark *c, i64 pos, i64 len);
 
-void de_fmtutil_handle_iptc(deark *c, dbuf *f, de_int64 pos, de_int64 len,
+void de_fmtutil_handle_iptc(deark *c, dbuf *f, i64 pos, i64 len,
 	unsigned int flags);
 
-void de_fmtutil_handle_photoshop_rsrc2(deark *c, dbuf *f, de_int64 pos, de_int64 len,
+void de_fmtutil_handle_photoshop_rsrc2(deark *c, dbuf *f, i64 pos, i64 len,
 	unsigned int flags, struct de_module_out_params *oparams);
-void de_fmtutil_handle_photoshop_rsrc(deark *c, dbuf *f, de_int64 pos, de_int64 len,
+void de_fmtutil_handle_photoshop_rsrc(deark *c, dbuf *f, i64 pos, i64 len,
 	unsigned int flags);
 
-void de_fmtutil_handle_plist(deark *c, dbuf *f, de_int64 pos, de_int64 len,
+void de_fmtutil_handle_plist(deark *c, dbuf *f, i64 pos, i64 len,
 	de_finfo *fi, unsigned int flags);
 
-int de_fmtutil_uncompress_packbits(dbuf *f, de_int64 pos1, de_int64 len,
-	dbuf *unc_pixels, de_int64 *cmpr_bytes_consumed);
-int de_fmtutil_uncompress_packbits16(dbuf *f, de_int64 pos1, de_int64 len,
-	dbuf *unc_pixels, de_int64 *cmpr_bytes_consumed);
-int de_fmtutil_decompress_rle90(dbuf *inf, de_int64 pos1, de_int64 len,
-	dbuf *outf, unsigned int has_maxlen, de_int64 max_out_len, unsigned int flags);
+int de_fmtutil_uncompress_packbits(dbuf *f, i64 pos1, i64 len,
+	dbuf *unc_pixels, i64 *cmpr_bytes_consumed);
+int de_fmtutil_uncompress_packbits16(dbuf *f, i64 pos1, i64 len,
+	dbuf *unc_pixels, i64 *cmpr_bytes_consumed);
+int de_fmtutil_decompress_rle90(dbuf *inf, i64 pos1, i64 len,
+	dbuf *outf, unsigned int has_maxlen, i64 max_out_len, unsigned int flags);
 
 struct de_SAUCE_info {
 	de_ucstring *title;
 	de_ucstring *artist;
 	de_ucstring *organization;
 	de_ucstring *creation_date;
-	de_int64 original_file_size;
+	i64 original_file_size;
 	de_byte data_type;
 	de_byte file_type;
 	de_byte tflags;
-	de_int64 width_in_chars; // 0 if unknown
-	de_int64 number_of_lines; // Reported value. May be incorrect.
-	de_int64 comment_block_pos; // Valid if num_comments>0.
-	de_int64 num_comments;
+	i64 width_in_chars; // 0 if unknown
+	i64 number_of_lines; // Reported value. May be incorrect.
+	i64 comment_block_pos; // Valid if num_comments>0.
+	i64 num_comments;
 	struct de_char_comment *comments; // arrays of [num_comments]
 };
 
@@ -100,11 +100,11 @@ struct de_boxdata {
 	de_uint32 boxtype;
 	int is_uuid;
 	de_byte uuid[16]; // Valid only if is_uuid is set.
-	de_int64 box_pos;
-	de_int64 box_len;
+	i64 box_pos;
+	i64 box_len;
 	// Note: for UUID boxes, payload does not include the UUID
-	de_int64 payload_pos;
-	de_int64 payload_len;
+	i64 payload_pos;
+	i64 payload_len;
 
 	// To be filled in by identify_box_fn:
 	void *box_userdata;
@@ -114,8 +114,8 @@ struct de_boxdata {
 	int handled;
 	int is_superbox;
 	int num_children_is_known;
-	de_int64 num_children; // valid if (is_superbox) && (num_children_is_known)
-	de_int64 extra_bytes_before_children; // valid if (is_superbox)
+	i64 num_children; // valid if (is_superbox) && (num_children_is_known)
+	i64 extra_bytes_before_children; // valid if (is_superbox)
 };
 
 struct de_boxesctx {
@@ -127,16 +127,16 @@ struct de_boxesctx {
 	struct de_boxdata *curbox;
 };
 
-double dbuf_fmtutil_read_fixed_16_16(dbuf *f, de_int64 pos);
+double dbuf_fmtutil_read_fixed_16_16(dbuf *f, i64 pos);
 int de_fmtutil_default_box_handler(deark *c, struct de_boxesctx *bctx);
 void de_fmtutil_read_boxes_format(deark *c, struct de_boxesctx *bctx);
 void de_fmtutil_render_uuid(deark *c, const de_byte *uuid, char *s, size_t s_len);
 void de_fmtutil_guid_to_uuid(de_byte *id);
 
 struct atari_img_decode_data {
-	de_int64 bpp;
-	de_int64 ncolors;
-	de_int64 w, h;
+	i64 bpp;
+	i64 ncolors;
+	i64 w, h;
 	dbuf *unc_pixels;
 	int was_compressed;
 	int is_spectrum512;
@@ -145,8 +145,8 @@ struct atari_img_decode_data {
 };
 
 #define DE_FLAG_ATARI_15BIT_PAL 0x2
-void de_fmtutil_read_atari_palette(deark *c, dbuf *f, de_int64 pos,
-	de_uint32 *dstpal, de_int64 ncolors_to_read, de_int64 ncolors_used, unsigned int flags);
+void de_fmtutil_read_atari_palette(deark *c, dbuf *f, i64 pos,
+	de_uint32 *dstpal, i64 ncolors_to_read, i64 ncolors_used, unsigned int flags);
 
 int de_fmtutil_atari_decode_image(deark *c, struct atari_img_decode_data *adata);
 void de_fmtutil_atari_set_standard_density(deark *c, struct atari_img_decode_data *adata,
@@ -180,10 +180,10 @@ typedef int (*de_on_std_iff_container_start_fn)(deark *c, struct de_iffctx *ictx
 
 struct de_iffchunkctx {
 	struct de_fourcc chunk4cc;
-	de_int64 pos;
-	de_int64 len;
-	de_int64 dpos;
-	de_int64 dlen;
+	i64 pos;
+	i64 len;
+	i64 dpos;
+	i64 dlen;
 
 	// To be filled in by identify_chunk_fn:
 	void *chunk_userdata;
@@ -197,8 +197,8 @@ struct de_iffctx {
 	de_preprocess_iff_chunk_fn preprocess_chunk_fn;
 	de_on_std_iff_container_start_fn on_std_container_start_fn;
 	de_on_iff_container_end_fn on_container_end_fn;
-	de_int64 alignment; // 0 = default
-	de_int64 sizeof_len; // 0 = default
+	i64 alignment; // 0 = default
+	i64 sizeof_len; // 0 = default
 	int is_le; // For RIFF format
 	int reversed_4cc;
 
@@ -222,20 +222,20 @@ struct de_iffctx {
 };
 
 void de_fmtutil_read_iff_format(deark *c, struct de_iffctx *ictx,
-	de_int64 pos, de_int64 len);
+	i64 pos, i64 len);
 int de_fmtutil_is_standard_iff_chunk(deark *c, struct de_iffctx *ictx,
 	de_uint32 ct);
 void de_fmtutil_default_iff_chunk_identify(deark *c, struct de_iffctx *ictx);
 
-const char *de_fmtutil_tiff_orientation_name(de_int64 n);
+const char *de_fmtutil_tiff_orientation_name(i64 n);
 const char *de_fmtutil_get_windows_charset_name(de_byte cs);
 const char *de_fmtutil_get_windows_cb_data_type_name(unsigned int ty);
 
-int de_fmtutil_find_zip_eocd(deark *c, dbuf *f, de_int64 *foundpos);
+int de_fmtutil_find_zip_eocd(deark *c, dbuf *f, i64 *foundpos);
 
 struct de_id3info {
 	int has_id3v1, has_id3v2;
-	de_int64 main_start, main_end;
+	i64 main_start, main_end;
 };
 void de_fmtutil_handle_id3(deark *c, dbuf *f, struct de_id3info *id3i,
 	unsigned int flags);

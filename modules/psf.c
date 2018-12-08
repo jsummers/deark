@@ -13,25 +13,25 @@ typedef struct localctx_struct {
 	de_uint32 psf2_version;
 	de_uint32 flags;
 	de_byte mode;
-	de_int64 headersize;
-	de_int64 num_glyphs;
-	de_int64 glyph_width, glyph_height;
-	de_int64 bytes_per_glyph;
-	de_int64 font_data_size;
+	i64 headersize;
+	i64 num_glyphs;
+	i64 glyph_width, glyph_height;
+	i64 bytes_per_glyph;
+	i64 font_data_size;
 	int has_unicode_table;
-	de_int64 unicode_table_pos;
+	i64 unicode_table_pos;
 
 #define MAX_EXTRA_CODEPOINTS 2000
 	int read_extra_codepoints;
-	de_int64 num_chars_alloc;
-	de_int64 index_of_first_extra_codepoint;
-	de_int64 num_extra_codepoints;
+	i64 num_chars_alloc;
+	i64 index_of_first_extra_codepoint;
+	i64 num_extra_codepoints;
 } lctx;
 
 static void do_extra_codepoint(deark *c, lctx *d, struct de_bitmap_font *font,
-	de_int64 cur_idx, de_int32 n)
+	i64 cur_idx, de_int32 n)
 {
-	de_int64 extra_idx;
+	i64 extra_idx;
 
 	if(!d->read_extra_codepoints) return;
 	if(d->num_extra_codepoints >= MAX_EXTRA_CODEPOINTS) return;
@@ -50,8 +50,8 @@ static void do_extra_codepoint(deark *c, lctx *d, struct de_bitmap_font *font,
 
 static void do_psf1_unicode_table(deark *c, lctx *d, struct de_bitmap_font *font)
 {
-	de_int64 cur_idx;
-	de_int64 pos;
+	i64 cur_idx;
+	i64 pos;
 	int got_cp;
 	int found_fffe;
 	de_int32 n;
@@ -108,14 +108,14 @@ static void do_psf1_unicode_table(deark *c, lctx *d, struct de_bitmap_font *font
 
 static void do_psf2_unicode_table(deark *c, lctx *d, struct de_bitmap_font *font)
 {
-	de_int64 cur_idx;
-	de_int64 pos;
+	i64 cur_idx;
+	i64 pos;
 	int ret;
-	de_int64 foundpos;
-	de_int64 char_data_len;
+	i64 foundpos;
+	i64 char_data_len;
 	de_byte char_data_buf[200];
 	de_int32 ch;
-	de_int64 utf8len;
+	i64 utf8len;
 
 	de_dbg(c, "Unicode table at %d", (int)d->unicode_table_pos);
 	de_dbg_indent(c, 1);
@@ -123,8 +123,8 @@ static void do_psf2_unicode_table(deark *c, lctx *d, struct de_bitmap_font *font
 	pos = d->unicode_table_pos;
 	cur_idx = 0;
 	while(1) {
-		de_int64 pos_in_char_data;
-		de_int64 cp_idx;
+		i64 pos_in_char_data;
+		i64 cp_idx;
 
 		if(cur_idx >= d->num_glyphs) break;
 		if(pos >= c->infile->len) break;
@@ -135,7 +135,7 @@ static void do_psf2_unicode_table(deark *c, lctx *d, struct de_bitmap_font *font
 		if(!ret) break;
 		char_data_len = foundpos - pos;
 		if(char_data_len<0) char_data_len=0;
-		else if(char_data_len>(de_int64)sizeof(char_data_buf)) char_data_len=(de_int64)sizeof(char_data_buf);
+		else if(char_data_len>(i64)sizeof(char_data_buf)) char_data_len=(i64)sizeof(char_data_buf);
 
 		// Read all the data for this glyph
 		de_read(char_data_buf, pos, char_data_len);
@@ -187,8 +187,8 @@ static void do_glyphs(deark *c, lctx *d)
 {
 	struct de_bitmap_font *font = NULL;
 	de_byte *font_data = NULL;
-	de_int64 i;
-	de_int64 glyph_rowspan;
+	i64 i;
+	i64 glyph_rowspan;
 
 	font = de_create_bitmap_font(c);
 	font->has_nonunicode_codepoints = 1;
@@ -246,7 +246,7 @@ static void do_glyphs(deark *c, lctx *d)
 
 static void do_psf1_header(deark *c, lctx *d)
 {
-	de_int64 pos = 0;
+	i64 pos = 0;
 
 	de_dbg(c, "PSFv1 header at %d", (int)pos);
 	de_dbg_indent(c, 1);
@@ -262,7 +262,7 @@ static void do_psf1_header(deark *c, lctx *d)
 	de_dbg(c, "has Unicode table: %s", d->has_unicode_table?"yes":"no");
 	de_dbg_indent(c, -1);
 
-	d->bytes_per_glyph = (de_int64)de_getbyte(3);
+	d->bytes_per_glyph = (i64)de_getbyte(3);
 	d->glyph_height = d->bytes_per_glyph;
 	d->glyph_width = 8;
 	de_dbg(c, "glyph dimensions: %d"DE_CHAR_TIMES"%d", (int)d->glyph_width, (int)d->glyph_height);
@@ -272,7 +272,7 @@ static void do_psf1_header(deark *c, lctx *d)
 
 static void do_psf2_header(deark *c, lctx *d)
 {
-	de_int64 pos = 0;
+	i64 pos = 0;
 
 	de_dbg(c, "PSFv2 header at %d", (int)pos);
 	de_dbg_indent(c, 1);

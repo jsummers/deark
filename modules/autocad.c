@@ -10,14 +10,14 @@ DE_DECLARE_MODULE(de_module_autocad_slb);
 
 static void de_run_autocad_slb(deark *c, de_module_params *mparams)
 {
-	de_int64 pos;
-	de_int64 nslides = 0;
-	de_int64 k;
+	i64 pos;
+	i64 nslides = 0;
+	i64 k;
 	struct slideinfo {
-		de_int64 pos;
-		de_int64 len;
+		i64 pos;
+		i64 len;
 	};
-	de_int64 si_numalloc;
+	i64 si_numalloc;
 	struct slideinfo *si = NULL;
 	de_ucstring *slidename = NULL;
 
@@ -26,7 +26,7 @@ static void de_run_autocad_slb(deark *c, de_module_params *mparams)
 	si = de_malloc(c, si_numalloc*sizeof(struct slideinfo));
 	pos = 32;
 	while(1) {
-		de_int64 k;
+		i64 k;
 
 		if(pos > (c->infile->len-36)) {
 			de_err(c, "Unterminated directory");
@@ -40,7 +40,7 @@ static void de_run_autocad_slb(deark *c, de_module_params *mparams)
 		nslides++;
 
 		if(nslides > si_numalloc) {
-			de_int64 old_numalloc, new_numalloc;
+			i64 old_numalloc, new_numalloc;
 
 			if(!de_good_image_count(c, nslides)) {
 				de_err(c, "Too many slides");

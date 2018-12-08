@@ -13,8 +13,8 @@ struct text_styles_struct {
 };
 
 struct para_info {
-	de_int64 thisparapos, thisparalen;
-	de_int64 bfprop_offset; // file-level offset
+	i64 thisparapos, thisparalen;
+	i64 bfprop_offset; // file-level offset
 	de_byte papflags;
 	de_byte justification;
 
@@ -32,14 +32,14 @@ typedef struct localctx_struct {
 	int extract_text;
 	int input_encoding;
 	int ddbhack;
-	de_int64 fcMac;
-	de_int64 pnChar;
-	de_int64 pnChar_offs;
-	de_int64 pnPara;
-	de_int64 pnPara_offs;
-	de_int64 pnPara_npages;
-	de_int64 pnFntb, pnSep, pnSetb, pnPgtb, pnFfntb;
-	de_int64 pnMac;
+	i64 fcMac;
+	i64 pnChar;
+	i64 pnChar_offs;
+	i64 pnPara;
+	i64 pnPara_offs;
+	i64 pnPara_npages;
+	i64 pnFntb, pnSep, pnSetb, pnPgtb, pnFfntb;
+	i64 pnMac;
 	dbuf *html_outf;
 } lctx;
 
@@ -57,7 +57,7 @@ static int text_styles_differ(const struct text_styles_struct *ts1,
 	return 0;
 }
 
-static int do_header(deark *c, lctx *d, de_int64 pos)
+static int do_header(deark *c, lctx *d, i64 pos)
 {
 	de_dbg(c, "header at %d", (int)pos);
 	de_dbg_indent(c, 1);
@@ -98,8 +98,8 @@ static int do_header(deark *c, lctx *d, de_int64 pos)
 
 static void do_picture_metafile(deark *c, lctx *d, struct para_info *pinfo)
 {
-	de_int64 pos = pinfo->thisparapos;
-	de_int64 cbHeader, cbSize;
+	i64 pos = pinfo->thisparapos;
+	i64 cbHeader, cbSize;
 
 	cbHeader = de_getui16le(pos+30);
 	de_dbg(c, "cbHeader: %d", (int)cbHeader);
@@ -114,16 +114,16 @@ static void do_picture_metafile(deark *c, lctx *d, struct para_info *pinfo)
 
 static void do_picture_bitmap(deark *c, lctx *d, struct para_info *pinfo)
 {
-	de_int64 pos = pinfo->thisparapos;
-	de_int64 cbHeader, cbSize;
-	de_int64 bmWidth, bmHeight;
-	de_int64 bmBitsPixel;
-	de_int64 rowspan;
+	i64 pos = pinfo->thisparapos;
+	i64 cbHeader, cbSize;
+	i64 bmWidth, bmHeight;
+	i64 bmBitsPixel;
+	i64 rowspan;
 
 	bmWidth = de_getui16le(pos+16+2);
 	bmHeight = de_getui16le(pos+16+4);
 	de_dbg_dimensions(c, bmWidth, bmHeight);
-	bmBitsPixel = (de_int64)de_getbyte(pos+16+9);
+	bmBitsPixel = (i64)de_getbyte(pos+16+9);
 	de_dbg(c, "bmBitsPixel: %d", (int)bmBitsPixel);
 
 	rowspan = de_getui16le(pos+16+6);
@@ -175,13 +175,13 @@ static const char *get_picture_storage_type_name(unsigned int t)
 
 // TODO: This does not really work, and is disabled by default.
 // TODO: Can this be merged with do_picture_bitmap()?
-static void do_static_bitmap(deark *c, lctx *d, struct para_info *pinfo, de_int64 pos1)
+static void do_static_bitmap(deark *c, lctx *d, struct para_info *pinfo, i64 pos1)
 {
-	de_int64 dlen;
-	de_int64 pos = pos1;
-	de_int64 bmWidth, bmHeight;
-	de_int64 bmBitsPixel;
-	de_int64 rowspan;
+	i64 dlen;
+	i64 pos = pos1;
+	i64 bmWidth, bmHeight;
+	i64 bmBitsPixel;
+	i64 rowspan;
 
 	pos += 8; // ??
 	dlen = de_getui32le_p(&pos);
@@ -197,7 +197,7 @@ static void do_static_bitmap(deark *c, lctx *d, struct para_info *pinfo, de_int6
 
 	pos++; // bmPlanes
 
-	bmBitsPixel = (de_int64)de_getbyte_p(&pos);
+	bmBitsPixel = (i64)de_getbyte_p(&pos);
 	de_dbg(c, "bmBitsPixel: %d", (int)bmBitsPixel);
 
 	pos += 4; // bmBits
@@ -217,10 +217,10 @@ done:
 }
 
 static int do_picture_ole_static_rendition(deark *c, lctx *d, struct para_info *pinfo,
-	int rendition_idx, de_int64 pos1, de_int64 *bytes_consumed)
+	int rendition_idx, i64 pos1, i64 *bytes_consumed)
 {
-	de_int64 pos = pos1;
-	de_int64 stringlen;
+	i64 pos = pos1;
+	i64 stringlen;
 	struct de_stringreaderdata *srd_typename = NULL;
 
 	pos += 4; // 0x00000501
@@ -240,7 +240,7 @@ static int do_picture_ole_static_rendition(deark *c, lctx *d, struct para_info *
 		de_dbg_indent(c, -1);
 	}
 	else if(!de_strcmp((const char*)srd_typename->sz, "METAFILEPICT")) {
-		de_int64 dlen;
+		i64 dlen;
 		pos += 8; // ??
 		dlen = de_getui32le_p(&pos);
 		de_dbg(c, "metafile size: %d", (int)dlen); // Includes "mfp", apparently
@@ -262,11 +262,11 @@ static int do_picture_ole_static_rendition(deark *c, lctx *d, struct para_info *
 // pos1 points to the ole_id field (should be 0x00000501).
 // Caller must have looked ahead to check the type.
 static int do_picture_ole_embedded_rendition(deark *c, lctx *d, struct para_info *pinfo,
-	int rendition_idx, de_int64 pos1, de_int64 *bytes_consumed)
+	int rendition_idx, i64 pos1, i64 *bytes_consumed)
 {
-	de_int64 pos = pos1;
-	de_int64 stringlen;
-	de_int64 data_len;
+	i64 pos = pos1;
+	i64 stringlen;
+	i64 data_len;
 	de_byte buf[2];
 	struct de_stringreaderdata *srd_typename = NULL;
 	struct de_stringreaderdata *srd_filename = NULL;
@@ -320,7 +320,7 @@ static int do_picture_ole_embedded_rendition(deark *c, lctx *d, struct para_info
 // Returns nonzero if there may be additional renditions.
 static int do_picture_ole_rendition(deark *c, lctx *d, struct para_info *pinfo,
 	unsigned int objectType,
-	int rendition_idx, de_int64 pos1, de_int64 *bytes_consumed)
+	int rendition_idx, i64 pos1, i64 *bytes_consumed)
 {
 	unsigned int ole_id;
 	unsigned int objectType2;
@@ -365,10 +365,10 @@ done:
 static void do_picture_ole(deark *c, lctx *d, struct para_info *pinfo)
 {
 	unsigned int objectType;
-	de_int64 cbHeader, dwDataSize;
-	de_int64 pos = pinfo->thisparapos;
-	de_int64 nbytes_left;
-	de_int64 bytes_consumed = 0;
+	i64 cbHeader, dwDataSize;
+	i64 pos = pinfo->thisparapos;
+	i64 nbytes_left;
+	i64 bytes_consumed = 0;
 	int rendition_idx = 0;
 
 	objectType = (unsigned int)de_getui16le(pos+6);
@@ -404,7 +404,7 @@ static void do_picture_ole(deark *c, lctx *d, struct para_info *pinfo)
 static void do_picture(deark *c, lctx *d, struct para_info *pinfo)
 {
 	unsigned int mm;
-	de_int64 pos = pinfo->thisparapos;
+	i64 pos = pinfo->thisparapos;
 
 	if(d->html_outf) {
 		do_emit_raw_sz(c, d, pinfo, "<p class=r>picture</p>\n");
@@ -489,7 +489,7 @@ static void do_emit_raw_sz(deark *c, lctx *d, struct para_info *pinfo, const cha
 {
 	size_t sz_len = de_strlen(sz);
 	if(sz_len<1) return;
-	dbuf_write(d->html_outf, (const de_byte*)sz, (de_int64)sz_len);
+	dbuf_write(d->html_outf, (const de_byte*)sz, (i64)sz_len);
 	if(sz[sz_len-1]=='\n') {
 		pinfo->xpos = 0;
 	}
@@ -518,7 +518,7 @@ static void end_para(deark *c, lctx *d, struct para_info *pinfo)
 
 static void do_text_paragraph(deark *c, lctx *d, struct para_info *pinfo)
 {
-	de_int64 i, k;
+	i64 i, k;
 
 	if(!d->html_outf) return;
 
@@ -639,16 +639,16 @@ static void do_paragraph(deark *c, lctx *d, struct para_info *pinfo)
 }
 
 static void do_para_fprop(deark *c, lctx *d, struct para_info *pinfo,
-	de_int64 bfprop, de_byte is_dup)
+	i64 bfprop, de_byte is_dup)
 {
-	de_int64 fprop_dlen = 0;
+	i64 fprop_dlen = 0;
 
 	// bfprop is a pointer into the 123 bytes of data starting
 	// at pos+4. The maximum sensible value is at most 122.
 	if(bfprop<=122) {
 		// It appears that the length prefix does not include itself,
 		// contrary to what one source says.
-		fprop_dlen = (de_int64)de_getbyte(pinfo->bfprop_offset);
+		fprop_dlen = (i64)de_getbyte(pinfo->bfprop_offset);
 		if(!is_dup) de_dbg(c, "fprop dlen: %d", (int)fprop_dlen);
 	}
 
@@ -676,20 +676,20 @@ static void do_para_fprop(deark *c, lctx *d, struct para_info *pinfo,
 	}
 }
 
-static void do_para_info_page(deark *c, lctx *d, de_int64 pos)
+static void do_para_info_page(deark *c, lctx *d, i64 pos)
 {
-	de_int64 fcFirst;
-	de_int64 cfod;
-	de_int64 i;
-	de_int64 fod_array_startpos;
-	de_int64 prevtextpos;
+	i64 fcFirst;
+	i64 cfod;
+	i64 i;
+	i64 fod_array_startpos;
+	i64 prevtextpos;
 	de_byte fprop_seen[128];
 
 	de_zeromem(fprop_seen, sizeof(fprop_seen));
 	de_dbg(c, "paragraph info page at %d", (int)pos);
 	de_dbg_indent(c, 1);
 
-	cfod = (de_int64)de_getbyte(pos+127);
+	cfod = (i64)de_getbyte(pos+127);
 	de_dbg(c, "number of FODs on this page: %d", (int)cfod);
 
 	// There are up to 123 bytes available for the FOD array, and each FOD is
@@ -705,9 +705,9 @@ static void do_para_info_page(deark *c, lctx *d, de_int64 pos)
 
 	for(i=0; i<cfod; i++) {
 		struct para_info *pinfo = NULL;
-		de_int64 fcLim_orig, fcLim_adj;
-		de_int64 bfprop;
-		de_int64 fodpos = fod_array_startpos + 6*i;
+		i64 fcLim_orig, fcLim_adj;
+		i64 bfprop;
+		i64 fodpos = fod_array_startpos + 6*i;
 
 		pinfo = de_malloc(c, sizeof(struct para_info));
 
@@ -758,7 +758,7 @@ static void do_para_info_page(deark *c, lctx *d, de_int64 pos)
 
 static void do_para_info(deark *c, lctx *d)
 {
-	de_int64 i;
+	i64 i;
 
 	if(d->pnPara_npages<1) return;
 	de_dbg(c, "paragraph info at %d, len=%d page(s)", (int)d->pnPara_offs, (int)d->pnPara_npages);
@@ -812,7 +812,7 @@ static void do_html_end(deark *c, lctx *d)
 static void de_run_wri(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
-	de_int64 pos;
+	i64 pos;
 
 	d = de_malloc(c, sizeof(lctx));
 
@@ -847,7 +847,7 @@ static int de_identify_wri(deark *c)
 	if((buf[0]==0x31 || buf[0]==0x32) &&
 		!de_memcmp(&buf[1], "\xbe\x00\x00\x00\xab", 5))
 	{
-		de_int64 pnMac;
+		i64 pnMac;
 		pnMac = de_getui16le(48*2);
 		if(pnMac==0) return 0; // Apparently MSWord, not Write
 		return 100;

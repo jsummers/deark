@@ -10,11 +10,11 @@
 DE_DECLARE_MODULE(de_module_pict);
 
 struct pict_point {
-	de_int64 y, x;
+	i64 y, x;
 };
 
 struct pict_rect {
-	de_int64 t, l, b, r;
+	i64 t, l, b, r;
 };
 
 typedef struct localctx_struct {
@@ -24,8 +24,8 @@ typedef struct localctx_struct {
 	dbuf *iccprofile_file;
 } lctx;
 
-typedef int (*item_decoder_fn)(deark *c, lctx *d, de_int64 opcode, de_int64 data_pos,
-	de_int64 *bytes_used);
+typedef int (*item_decoder_fn)(deark *c, lctx *d, i64 opcode, i64 data_pos,
+	i64 *bytes_used);
 
 struct opcode_info {
 	de_uint16 opcode;
@@ -39,9 +39,9 @@ struct opcode_info {
 	item_decoder_fn fn;
 };
 
-static double pict_read_fixed(dbuf *f, de_int64 pos)
+static double pict_read_fixed(dbuf *f, i64 pos)
 {
-	de_int64 n;
+	i64 n;
 
 	// I think QuickDraw's "Fixed point" numbers are signed, but I don't know
 	// how negative numbers are handled.
@@ -50,7 +50,7 @@ static double pict_read_fixed(dbuf *f, de_int64 pos)
 }
 
 // Read a QuickDraw Point. Caller supplies point struct.
-static void pict_read_point(dbuf *f, de_int64 pos,
+static void pict_read_point(dbuf *f, i64 pos,
 	struct pict_point *point, const char *dbgname)
 {
 	point->y = dbuf_geti16be(f, pos);
@@ -62,7 +62,7 @@ static void pict_read_point(dbuf *f, de_int64 pos,
 }
 
 // Read a QuickDraw Rectangle. Caller supplies rect struct.
-static void pict_read_rect(dbuf *f, de_int64 pos,
+static void pict_read_rect(dbuf *f, i64 pos,
 	struct pict_rect *rect, const char *dbgname)
 {
 	rect->t = dbuf_geti16be(f, pos);
@@ -76,14 +76,14 @@ static void pict_read_rect(dbuf *f, de_int64 pos,
 	}
 }
 
-static int handler_RGBColor(deark *c, lctx *d, de_int64 opcode, de_int64 data_pos, de_int64 *bytes_used)
+static int handler_RGBColor(deark *c, lctx *d, i64 opcode, i64 data_pos, i64 *bytes_used)
 {
 	unsigned int clr16[3];
 	de_byte clr8[3];
 	de_uint32 clr;
 	char csamp[16];
-	de_int64 pos = data_pos;
-	de_int64 k;
+	i64 pos = data_pos;
+	i64 k;
 
 	for(k=0; k<3; k++) {
 		clr16[k] = (unsigned int)de_getui16be_p(&pos);
@@ -96,9 +96,9 @@ static int handler_RGBColor(deark *c, lctx *d, de_int64 opcode, de_int64 data_po
 }
 
 // Version
-static int handler_11(deark *c, lctx *d, de_int64 opcode, de_int64 data_pos, de_int64 *bytes_used)
+static int handler_11(deark *c, lctx *d, i64 opcode, i64 data_pos, i64 *bytes_used)
 {
-	de_int64 ver;
+	i64 ver;
 
 	*bytes_used = 1;
 	ver = de_getbyte(data_pos);
@@ -115,14 +115,14 @@ static int handler_11(deark *c, lctx *d, de_int64 opcode, de_int64 data_pos, de_
 }
 
 // LongText
-static int handler_28(deark *c, lctx *d, de_int64 opcode, de_int64 data_pos, de_int64 *bytes_used)
+static int handler_28(deark *c, lctx *d, i64 opcode, i64 data_pos, i64 *bytes_used)
 {
-	de_int64 tlen;
+	i64 tlen;
 	de_ucstring *s = NULL;
 	struct pict_point pt;
 
 	pict_read_point(c->infile, data_pos, &pt, "txLoc");
-	tlen = (de_int64)de_getbyte(data_pos+4);
+	tlen = (i64)de_getbyte(data_pos+4);
 	s = ucstring_create(c);
 	dbuf_read_to_ucstring(c->infile, data_pos+5, tlen, s, 0, DE_ENCODING_MACROMAN);
 	de_dbg(c, "text: \"%s\"", ucstring_getpsz(s));
@@ -132,16 +132,16 @@ static int handler_28(deark *c, lctx *d, de_int64 opcode, de_int64 data_pos, de_
 }
 
 // DVText
-static int handler_DxText(deark *c, lctx *d, de_int64 opcode, de_int64 data_pos, de_int64 *bytes_used)
+static int handler_DxText(deark *c, lctx *d, i64 opcode, i64 data_pos, i64 *bytes_used)
 {
-	de_int64 tlen;
-	de_int64 dx;
+	i64 tlen;
+	i64 dx;
 	de_ucstring *s = NULL;
 
-	dx = (de_int64)de_getbyte(data_pos);
+	dx = (i64)de_getbyte(data_pos);
 	de_dbg(c, "%s: %d", opcode==0x2a?"dv":"dh", (int)dx);
 
-	tlen = (de_int64)de_getbyte(data_pos+1);
+	tlen = (i64)de_getbyte(data_pos+1);
 	*bytes_used = 2+tlen;
 
 	s = ucstring_create(c);
@@ -153,17 +153,17 @@ static int handler_DxText(deark *c, lctx *d, de_int64 opcode, de_int64 data_pos,
 }
 
 // DHDVText
-static int handler_2b(deark *c, lctx *d, de_int64 opcode, de_int64 data_pos, de_int64 *bytes_used)
+static int handler_2b(deark *c, lctx *d, i64 opcode, i64 data_pos, i64 *bytes_used)
 {
-	de_int64 tlen;
-	de_int64 dh, dv;
+	i64 tlen;
+	i64 dh, dv;
 	de_ucstring *s = NULL;
 
-	dh = (de_int64)de_getbyte(data_pos);
-	dv = (de_int64)de_getbyte(data_pos+1);
+	dh = (i64)de_getbyte(data_pos);
+	dv = (i64)de_getbyte(data_pos+1);
 	de_dbg(c, "dh,dv: (%d,%d)", (int)dh, (int)dv);
 
-	tlen = (de_int64)de_getbyte(data_pos+2);
+	tlen = (i64)de_getbyte(data_pos+2);
 	de_dbg(c, "text size: %d", (int)tlen);
 	*bytes_used = 3+tlen;
 
@@ -175,18 +175,18 @@ static int handler_2b(deark *c, lctx *d, de_int64 opcode, de_int64 data_pos, de_
 }
 
 // fontName
-static int handler_2c(deark *c, lctx *d, de_int64 opcode, de_int64 data_pos, de_int64 *bytes_used)
+static int handler_2c(deark *c, lctx *d, i64 opcode, i64 data_pos, i64 *bytes_used)
 {
-	de_int64 n;
-	de_int64 tlen;
-	de_int64 id;
+	i64 n;
+	i64 tlen;
+	i64 id;
 	de_ucstring *s = NULL;
 
 	n = de_getui16be(data_pos);
 	*bytes_used = 2+n;
 	id = de_getui16be(data_pos+2);
 	de_dbg(c, "old font id: %d", (int)id);
-	tlen = (de_int64)de_getbyte(data_pos+4);
+	tlen = (i64)de_getbyte(data_pos+4);
 	s = ucstring_create(c);
 	dbuf_read_to_ucstring(c->infile, data_pos+5, tlen, s, 0, DE_ENCODING_MACROMAN);
 	de_dbg(c, "font name: \"%s\"", ucstring_getpsz(s));
@@ -194,7 +194,7 @@ static int handler_2c(deark *c, lctx *d, de_int64 opcode, de_int64 data_pos, de_
 	return 1;
 }
 
-static int handler_Rectangle(deark *c, lctx *d, de_int64 opcode, de_int64 data_pos, de_int64 *bytes_used)
+static int handler_Rectangle(deark *c, lctx *d, i64 opcode, i64 data_pos, i64 *bytes_used)
 {
 	struct pict_rect rect;
 
@@ -203,25 +203,25 @@ static int handler_Rectangle(deark *c, lctx *d, de_int64 opcode, de_int64 data_p
 }
 
 struct bitmapinfo {
-	de_int64 rowbytes; // The rowBytes field
-	de_int64 rowspan; // Actual number of bytes/row
-	de_int64 width, height;
+	i64 rowbytes; // The rowBytes field
+	i64 rowspan; // Actual number of bytes/row
+	i64 width, height;
 	int is_uncompressed;
-	de_int64 packing_type;
-	de_int64 pixeltype, pixelsize;
-	de_int64 cmpcount, cmpsize;
+	i64 packing_type;
+	i64 pixeltype, pixelsize;
+	i64 cmpcount, cmpsize;
 	double hdpi, vdpi;
 	int pixmap_flag;
 	int has_colortable; // Does the file contain a colortable for this bitmap?
 	int uses_pal; // Are we using the palette below?
-	de_int64 num_pal_entries;
+	i64 num_pal_entries;
 	de_uint32 pal[256];
 };
 
 // Sometimes-present baseAddr field (4 bytes)
-static void read_baseaddr(deark *c, lctx *d, struct bitmapinfo *bi, de_int64 pos)
+static void read_baseaddr(deark *c, lctx *d, struct bitmapinfo *bi, i64 pos)
 {
-	de_int64 n;
+	i64 n;
 	de_dbg(c, "baseAddr part of PixMap, at %d", (int)pos);
 	de_dbg_indent(c, 1);
 	n = de_getui32be(pos);
@@ -230,10 +230,10 @@ static void read_baseaddr(deark *c, lctx *d, struct bitmapinfo *bi, de_int64 pos
 }
 
 static void read_rowbytes_and_bounds(deark *c, lctx *d, struct bitmapinfo *bi,
-	de_int64 pos)
+	i64 pos)
 {
 	struct pict_rect tmprect;
-	de_int64 rowbytes_code;
+	i64 rowbytes_code;
 
 	de_dbg(c, "rowBytes/bounds part of bitmap/PixMap header, at %d", (int)pos);
 	de_dbg_indent(c, 1);
@@ -253,12 +253,12 @@ static void read_rowbytes_and_bounds(deark *c, lctx *d, struct bitmapinfo *bi,
 // Pixmap fields that aren't read by read_baseaddr or read_rowbytes_and_bounds
 // (36 bytes)
 static int read_pixmap_only_fields(deark *c, lctx *d, struct bitmapinfo *bi,
-	de_int64 pos)
+	i64 pos)
 {
-	de_int64 pixmap_version;
-	de_int64 pack_size;
-	de_int64 plane_bytes;
-	de_int64 n;
+	i64 pixmap_version;
+	i64 pack_size;
+	i64 plane_bytes;
+	i64 n;
 
 	de_dbg(c, "additional PixMap header fields, at %d", (int)pos);
 	de_dbg_indent(c, 1);
@@ -296,12 +296,12 @@ static int read_pixmap_only_fields(deark *c, lctx *d, struct bitmapinfo *bi,
 	return 1;
 }
 
-static int read_colortable(deark *c, lctx *d, struct bitmapinfo *bi, de_int64 pos, de_int64 *bytes_used)
+static int read_colortable(deark *c, lctx *d, struct bitmapinfo *bi, i64 pos, i64 *bytes_used)
 {
-	de_int64 ct_id;
+	i64 ct_id;
 	de_uint32 ct_flags;
-	de_int64 ct_size;
-	de_int64 k, z;
+	i64 ct_size;
+	i64 k, z;
 	de_uint32 s[4];
 	de_byte cr, cg, cb;
 	de_uint32 clr;
@@ -348,10 +348,10 @@ static int read_colortable(deark *c, lctx *d, struct bitmapinfo *bi, de_int64 po
 }
 
 // final few bitmap header fields (18 bytes)
-static void read_src_dst_mode(deark *c, lctx *d, struct bitmapinfo *bi, de_int64 pos)
+static void read_src_dst_mode(deark *c, lctx *d, struct bitmapinfo *bi, i64 pos)
 {
 	struct pict_rect tmprect;
-	de_int64 n;
+	i64 n;
 
 	de_dbg(c, "src/dst/mode part of bitmap header, at %d", (int)pos);
 	de_dbg_indent(c, 1);
@@ -372,11 +372,11 @@ static void read_src_dst_mode(deark *c, lctx *d, struct bitmapinfo *bi, de_int64
 // would get really messy.)
 // Returns 0 on fatal error (if we could not even parse the data).
 static int get_pixdata_size(deark *c, lctx *d, struct bitmapinfo *bi,
-	de_int64 pos1, de_int64 *pixdata_size)
+	i64 pos1, i64 *pixdata_size)
 {
-	de_int64 pos;
-	de_int64 j;
-	de_int64 bytecount;
+	i64 pos;
+	i64 j;
+	i64 bytecount;
 	int retval = 0;
 
 	pos = pos1;
@@ -401,7 +401,7 @@ static int get_pixdata_size(deark *c, lctx *d, struct bitmapinfo *bi,
 				pos+=2;
 			}
 			else {
-				bytecount = (de_int64)de_getbyte(pos);
+				bytecount = (i64)de_getbyte(pos);
 				pos+=1;
 			}
 			pos += bytecount;
@@ -425,9 +425,9 @@ done:
 }
 
 static void decode_bitmap_rgb24(deark *c, lctx *d, struct bitmapinfo *bi,
-	dbuf *unc_pixels, de_bitmap *img, de_int64 pos)
+	dbuf *unc_pixels, de_bitmap *img, i64 pos)
 {
-	de_int64 i, j;
+	i64 i, j;
 	de_byte cr, cg, cb;
 
 	for(j=0; j<bi->height; j++) {
@@ -441,9 +441,9 @@ static void decode_bitmap_rgb24(deark *c, lctx *d, struct bitmapinfo *bi,
 }
 
 static void decode_bitmap_rgb16(deark *c, lctx *d, struct bitmapinfo *bi,
-	dbuf *unc_pixels, de_bitmap *img, de_int64 pos)
+	dbuf *unc_pixels, de_bitmap *img, i64 pos)
 {
-	de_int64 i, j;
+	i64 i, j;
 	de_byte c0, c1; //, cg, cb;
 	de_uint32 clr;
 
@@ -459,9 +459,9 @@ static void decode_bitmap_rgb16(deark *c, lctx *d, struct bitmapinfo *bi,
 }
 
 static void decode_bitmap_paletted(deark *c, lctx *d, struct bitmapinfo *bi,
-	dbuf *unc_pixels, de_bitmap *img, de_int64 pos)
+	dbuf *unc_pixels, de_bitmap *img, i64 pos)
 {
-	de_int64 i, j;
+	i64 i, j;
 	de_byte b;
 	de_uint32 clr;
 
@@ -474,14 +474,14 @@ static void decode_bitmap_paletted(deark *c, lctx *d, struct bitmapinfo *bi,
 	}
 }
 
-static int decode_bitmap(deark *c, lctx *d, struct bitmapinfo *bi, de_int64 pos)
+static int decode_bitmap(deark *c, lctx *d, struct bitmapinfo *bi, i64 pos)
 {
-	de_int64 j;
+	i64 j;
 	dbuf *unc_pixels = NULL;
 	de_bitmap *img = NULL;
 	de_finfo *fi = NULL;
-	de_int64 bytecount;
-	de_int64 bitmapsize;
+	i64 bytecount;
+	i64 bitmapsize;
 	int dst_nsamples;
 
 	bi->rowspan = bi->rowbytes;
@@ -501,7 +501,7 @@ static int decode_bitmap(deark *c, lctx *d, struct bitmapinfo *bi, de_int64 pos)
 			pos+=2;
 		}
 		else {
-			bytecount = (de_int64)de_getbyte(pos);
+			bytecount = (i64)de_getbyte(pos);
 			pos+=1;
 		}
 
@@ -560,7 +560,7 @@ static int decode_bitmap(deark *c, lctx *d, struct bitmapinfo *bi, de_int64 pos)
 	return 1;
 }
 
-static int decode_pixdata(deark *c, lctx *d, struct bitmapinfo *bi, de_int64 pos)
+static int decode_pixdata(deark *c, lctx *d, struct bitmapinfo *bi, i64 pos)
 {
 	int retval = 0;
 
@@ -618,13 +618,13 @@ done:
 	return retval;
 }
 
-static int handler_98_9a(deark *c, lctx *d, de_int64 opcode, de_int64 pos1, de_int64 *bytes_used)
+static int handler_98_9a(deark *c, lctx *d, i64 opcode, i64 pos1, i64 *bytes_used)
 {
 	struct bitmapinfo *bi = NULL;
-	de_int64 pixdata_size = 0;
-	de_int64 colortable_size = 0;
+	i64 pixdata_size = 0;
+	i64 colortable_size = 0;
 	int retval = 0;
-	de_int64 pos;
+	i64 pos;
 
 	bi = de_malloc(c, sizeof(struct bitmapinfo));
 	pos = pos1;
@@ -685,10 +685,10 @@ done:
 	return retval;
 }
 
-static void do_iccprofile_item(deark *c, lctx *d, de_int64 pos, de_int64 len)
+static void do_iccprofile_item(deark *c, lctx *d, i64 pos, i64 len)
 {
-	de_int64 selector;
-	de_int64 data_len;
+	i64 selector;
+	i64 data_len;
 
 	if(len<4) return;
 	selector = de_getui32be(pos);
@@ -714,19 +714,19 @@ static void do_iccprofile_item(deark *c, lctx *d, de_int64 pos, de_int64 len)
 }
 
 // ShortComment
-static int handler_a0(deark *c, lctx *d, de_int64 opcode, de_int64 data_pos, de_int64 *bytes_used)
+static int handler_a0(deark *c, lctx *d, i64 opcode, i64 data_pos, i64 *bytes_used)
 {
-	de_int64 kind;
+	i64 kind;
 	kind = de_getui16be(data_pos);
 	de_dbg(c, "comment kind: %d", (int)kind);
 	return 1;
 }
 
 // LongComment
-static int handler_a1(deark *c, lctx *d, de_int64 opcode, de_int64 data_pos, de_int64 *bytes_used)
+static int handler_a1(deark *c, lctx *d, i64 opcode, i64 data_pos, i64 *bytes_used)
 {
-	de_int64 kind;
-	de_int64 len;
+	i64 kind;
+	i64 len;
 
 	kind = de_getui16be(data_pos);
 	len = de_getui16be(data_pos+2);
@@ -752,9 +752,9 @@ static int handler_a1(deark *c, lctx *d, de_int64 opcode, de_int64 data_pos, de_
 }
 
 // HeaderOp
-static int handler_0c00(deark *c, lctx *d, de_int64 opcode, de_int64 data_pos, de_int64 *bytes_used)
+static int handler_0c00(deark *c, lctx *d, i64 opcode, i64 data_pos, i64 *bytes_used)
 {
-	de_int64 hdrver;
+	i64 hdrver;
 	double hres, vres;
 	struct pict_rect srcrect;
 
@@ -772,10 +772,10 @@ static int handler_0c00(deark *c, lctx *d, de_int64 opcode, de_int64 data_pos, d
 	return 1;
 }
 
-static void do_handle_qtif_idsc(deark *c, lctx *d, de_int64 pos, de_int64 len)
+static void do_handle_qtif_idsc(deark *c, lctx *d, i64 pos, i64 len)
 {
-	de_int64 idsc_dpos, idsc_dlen;
-	de_int64 idat_dpos, idat_dlen;
+	i64 idsc_dpos, idsc_dlen;
+	i64 idat_dpos, idat_dlen;
 	dbuf *outf = NULL;
 
 	if(d->decode_qtif) {
@@ -816,12 +816,12 @@ done:
 }
 
 // CompressedQuickTime (0x8200) & UncompressedQuickTime (0x8201)
-static int handler_QuickTime(deark *c, lctx *d, de_int64 opcode, de_int64 data_pos, de_int64 *bytes_used)
+static int handler_QuickTime(deark *c, lctx *d, i64 opcode, i64 data_pos, i64 *bytes_used)
 {
-	de_int64 payload_pos;
-	de_int64 payload_len;
-	de_int64 endpos;
-	de_int64 idsc_pos;
+	i64 payload_pos;
+	i64 payload_len;
+	i64 endpos;
+	i64 idsc_pos;
 
 	payload_len = de_getui32be(data_pos);
 	payload_pos = data_pos+4;
@@ -939,7 +939,7 @@ static const struct opcode_info opcode_info_arr[] = {
 	{ 0x8201, SZCODE_SPECIAL, 0,  "UncompressedQuickTime", handler_QuickTime }
 };
 
-static const struct opcode_info *find_opcode_info(de_int64 opcode)
+static const struct opcode_info *find_opcode_info(i64 opcode)
 {
 	size_t i;
 
@@ -951,12 +951,12 @@ static const struct opcode_info *find_opcode_info(de_int64 opcode)
 	return NULL;
 }
 
-static int do_handle_item(deark *c, lctx *d, de_int64 opcode_pos, de_int64 opcode,
-						   de_int64 data_pos, de_int64 *data_bytes_used)
+static int do_handle_item(deark *c, lctx *d, i64 opcode_pos, i64 opcode,
+						   i64 data_pos, i64 *data_bytes_used)
 {
 	const char *opcode_name;
 	const struct opcode_info *opi;
-	de_int64 n;
+	i64 n;
 	struct pict_rect tmprect;
 	int ret = 0;
 
@@ -1019,11 +1019,11 @@ static int do_handle_item(deark *c, lctx *d, de_int64 opcode_pos, de_int64 opcod
 	return ret;
 }
 
-static void do_read_items(deark *c, lctx *d, de_int64 pos)
+static void do_read_items(deark *c, lctx *d, i64 pos)
 {
-	de_int64 opcode;
-	de_int64 opcode_pos;
-	de_int64 bytes_used;
+	i64 opcode;
+	i64 opcode_pos;
+	i64 bytes_used;
 	int ret;
 
 	while(1) {
@@ -1040,7 +1040,7 @@ static void do_read_items(deark *c, lctx *d, de_int64 pos)
 			pos+=2;
 		}
 		else {
-			opcode = (de_int64)de_getbyte(pos);
+			opcode = (i64)de_getbyte(pos);
 			pos+=1;
 		}
 
@@ -1067,8 +1067,8 @@ static void do_report_version(deark *c, lctx *d)
 static void de_run_pict(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
-	de_int64 pos;
-	de_int64 picsize;
+	i64 pos;
+	i64 picsize;
 	struct pict_rect framerect;
 
 	d = de_malloc(c, sizeof(lctx));

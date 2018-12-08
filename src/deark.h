@@ -28,8 +28,8 @@
 
 #ifdef DE_WINDOWS
 
-#define de_int64 __int64
-#define de_uint64 unsigned __int64
+#define i64 __int64
+#define u64 unsigned __int64
 #define de_int32 int
 #define de_uint32 unsigned int
 #define de_int16 short
@@ -41,8 +41,8 @@
 
 #else
 
-#define de_int64 int64_t
-#define de_uint64 uint64_t
+#define i64 int64_t
+#define u64 uint64_t
 #define de_int32 int32_t
 #define de_uint32 uint32_t
 #define de_int16 int16_t
@@ -65,16 +65,16 @@ typedef struct deark_struct deark;
 char *de_get_version_string(char *buf, size_t bufsize);
 unsigned int de_get_version_int(void);
 
-void *de_malloc(deark *c, de_int64 n);
-void *de_mallocarray(deark *c, de_int64 nmemb, size_t membsize);
-void *de_realloc(deark *c, void *m, de_int64 oldsize, de_int64 newsize);
-void *de_reallocarray(deark *c, void *m, de_int64 oldnmemb, size_t membsize,
-	de_int64 newnmemb);
+void *de_malloc(deark *c, i64 n);
+void *de_mallocarray(deark *c, i64 nmemb, size_t membsize);
+void *de_realloc(deark *c, void *m, i64 oldsize, i64 newsize);
+void *de_reallocarray(deark *c, void *m, i64 oldnmemb, size_t membsize,
+	i64 newnmemb);
 void de_free(deark *c, void *m);
 char *de_strdup(deark *c, const char *s);
 int de_atoi(const char *string);
-de_int64 de_strtoll(const char *string, char **endptr, int base);
-de_int64 de_atoi64(const char *string);
+i64 de_strtoll(const char *string, char **endptr, int base);
+i64 de_atoi64(const char *string);
 int de_strcasecmp(const char *a, const char *b);
 
 // Used by de_set_extract_policy()

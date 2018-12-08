@@ -14,10 +14,10 @@ typedef struct localctx_struct {
 	int extract_unused_masks;
 } lctx;
 
-static void do_extract_png(deark *c, lctx *d, de_int64 pos, de_int64 len)
+static void do_extract_png(deark *c, lctx *d, i64 pos, i64 len)
 {
 	char ext[64];
-	de_int64 w, h;
+	i64 w, h;
 
 	// Peek at the PNG data, to figure out the dimensions.
 	w = de_getui32be(pos+16);
@@ -27,20 +27,20 @@ static void do_extract_png(deark *c, lctx *d, de_int64 pos, de_int64 len)
 	dbuf_create_file_from_slice(c->infile, pos, len, ext, NULL, 0);
 }
 
-static void do_image_data(deark *c, lctx *d, de_int64 img_num, de_int64 pos1, de_int64 len)
+static void do_image_data(deark *c, lctx *d, i64 img_num, i64 pos1, i64 len)
 {
 	struct de_bmpinfo bi;
-	de_int64 fg_start, bg_start;
-	de_int64 i, j;
+	i64 fg_start, bg_start;
+	i64 i, j;
 	de_uint32 pal[256];
-	de_int64 p;
+	i64 p;
 	de_bitmap *img = NULL;
 	de_byte x;
 	de_byte cr=0, cg=0, cb=0, ca=0;
 	int inverse_warned = 0;
 	int use_mask;
 	int has_alpha_channel = 0;
-	de_int64 bitcount_color;
+	i64 bitcount_color;
 	char filename_token[32];
 
 	if(pos1+len > c->infile->len) return;
@@ -189,10 +189,10 @@ done:
 	de_bitmap_destroy(img);
 }
 
-static void do_image_dir_entry(deark *c, lctx *d, de_int64 img_num, de_int64 pos)
+static void do_image_dir_entry(deark *c, lctx *d, i64 img_num, i64 pos)
 {
-	de_int64 data_size;
-	de_int64 data_offset;
+	i64 data_size;
+	i64 data_offset;
 
 	de_dbg(c, "image #%d, index at %d", (int)img_num, (int)pos);
 	de_dbg_indent(c, 1);
@@ -208,9 +208,9 @@ static void do_image_dir_entry(deark *c, lctx *d, de_int64 img_num, de_int64 pos
 static void de_run_ico(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
-	de_int64 x;
-	de_int64 num_images;
-	de_int64 i;
+	i64 x;
+	i64 num_images;
+	i64 i;
 
 	d = de_malloc(c, sizeof(lctx));
 	d->extract_unused_masks = (c->extract_level>=2);
@@ -247,9 +247,9 @@ done:
 // function tries to screen out other formats.
 static int is_windows_ico_or_cur(deark *c)
 {
-	de_int64 numicons;
-	de_int64 i;
-	de_int64 size, offset;
+	i64 numicons;
+	i64 i;
+	i64 size, offset;
 	de_byte buf[4];
 
 	de_read(buf, 0, 4);

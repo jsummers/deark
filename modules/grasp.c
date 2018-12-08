@@ -11,16 +11,16 @@ DE_DECLARE_MODULE(de_module_graspgl);
 DE_DECLARE_MODULE(de_module_graspfont);
 
 typedef struct localctx_struct {
-	de_int64 dir_header_nbytes;
+	i64 dir_header_nbytes;
 } lctx;
 
 // Returns 0 if there are no more files.
-static int do_extract_file(deark *c, lctx *d, de_int64 fnum)
+static int do_extract_file(deark *c, lctx *d, i64 fnum)
 {
-	de_int64 pos;
-	de_int64 file_info_offset;
-	de_int64 file_data_offset;
-	de_int64 file_size;
+	i64 pos;
+	i64 file_info_offset;
+	i64 file_data_offset;
+	i64 file_size;
 	de_finfo *fi = NULL;
 	de_ucstring *fname = NULL;
 	int saved_indent_level;
@@ -82,9 +82,9 @@ done:
 static void de_run_graspgl(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
-	de_int64 num_files;
-	de_int64 pos;
-	de_int64 i;
+	i64 num_files;
+	i64 pos;
+	i64 i;
 
 	d = de_malloc(c, sizeof(lctx));
 
@@ -106,8 +106,8 @@ static void de_run_graspgl(deark *c, de_module_params *mparams)
 
 static int de_identify_graspgl(deark *c)
 {
-	de_int64 dir_header_nbytes;
-	de_int64 first_offset;
+	i64 dir_header_nbytes;
+	i64 first_offset;
 	int gl_ext;
 
 	dir_header_nbytes = de_getui16le(0);
@@ -143,14 +143,14 @@ void de_module_graspgl(deark *c, struct deark_module_info *mi)
 
 static void de_run_graspfont_oldfmt(deark *c)
 {
-	de_int64 reported_filesize;
+	i64 reported_filesize;
 	de_int32 first_codepoint;
 	struct de_bitmap_font *font = NULL;
-	de_int64 bytes_per_glyph;
-	de_int64 i;
-	de_int64 font_data_size;
+	i64 bytes_per_glyph;
+	i64 i;
+	i64 font_data_size;
 	de_byte *font_data = NULL;
-	de_int64 glyph_rowspan;
+	i64 glyph_rowspan;
 
 	font = de_create_bitmap_font(c);
 
@@ -159,12 +159,12 @@ static void de_run_graspfont_oldfmt(deark *c)
 
 	font->has_nonunicode_codepoints = 1;
 	font->has_unicode_codepoints = 1;
-	font->num_chars = (de_int64)de_getbyte(2);
+	font->num_chars = (i64)de_getbyte(2);
 	if(font->num_chars==0) font->num_chars=256;
 	first_codepoint = (de_int32)de_getbyte(3);
 	font->nominal_width = (int)de_getbyte(4);
 	font->nominal_height = (int)de_getbyte(5);
-	bytes_per_glyph = (de_int64)de_getbyte(6);
+	bytes_per_glyph = (i64)de_getbyte(6);
 
 	de_dbg(c, "number of glyphs: %d, first codepoint: %d", (int)font->num_chars, (int)first_codepoint);
 	de_dbg(c, "glyph dimensions: %d"DE_CHAR_TIMES"%d, size in bytes: %d", font->nominal_width,
@@ -216,10 +216,10 @@ static void de_run_graspfont_newfmt(deark *c)
 {
 	struct de_bitmap_font *font = NULL;
 	de_ucstring *fontname = NULL;
-	de_int64 k;
-	de_int64 glyph_offsets_table_pos;
-	de_int64 widths_table_pos;
-	de_int64 glyph_rowspan;
+	i64 k;
+	i64 glyph_offsets_table_pos;
+	i64 widths_table_pos;
+	i64 glyph_rowspan;
 	int tmp_width;
 	int ch_max_width = 0;
 
@@ -233,7 +233,7 @@ static void de_run_graspfont_newfmt(deark *c)
 	dbuf_read_to_ucstring(c->infile, 1, 13, fontname, DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_ASCII);
 	de_dbg(c, "name: \"%s\"", ucstring_getpsz(fontname));
 
-	font->num_chars = (de_int64)de_getbyte(16);
+	font->num_chars = (i64)de_getbyte(16);
 	de_dbg(c, "number of glyphs: %d", (int)font->num_chars);
 
 	tmp_width = (int)de_getbyte(19);
@@ -241,7 +241,7 @@ static void de_run_graspfont_newfmt(deark *c)
 	font->nominal_height = (int)de_getbyte(20);
 	de_dbg(c, "font height: %d", font->nominal_height);
 
-	glyph_rowspan = (de_int64)de_getbyte(21);
+	glyph_rowspan = (i64)de_getbyte(21);
 
 	de_dbg_indent(c, -1);
 
@@ -256,8 +256,8 @@ static void de_run_graspfont_newfmt(deark *c)
 	font->char_array = de_malloc(c, font->num_chars * sizeof(struct de_bitmap_font_char));
 
 	for(k=0; k<font->num_chars; k++) {
-		de_int64 ch_offset;
-		de_int64 bitmapsize;
+		i64 ch_offset;
+		i64 bitmapsize;
 		struct de_bitmap_font_char *ch = &font->char_array[k];
 
 		ch->codepoint_nonunicode = (de_int32)(33 + k);
@@ -301,7 +301,7 @@ static void de_run_graspfont_newfmt(deark *c)
 
 static int gfont_is_new_format(deark *c)
 {
-	de_int64 reported_filesize;
+	i64 reported_filesize;
 
 	if(de_getbyte(0)==0x10) {
 		reported_filesize = de_getui16le(25);
@@ -326,9 +326,9 @@ static void de_run_graspfont(deark *c, de_module_params *mparams)
 
 static int de_identify_graspfont(deark *c)
 {
-	de_int64 reported_filesize;
-	de_int64 num_chars;
-	de_int64 bytes_per_glyph;
+	i64 reported_filesize;
+	i64 num_chars;
+	i64 bytes_per_glyph;
 
 	if(!de_input_file_has_ext(c, "set") && !de_input_file_has_ext(c, "fnt"))
 		return 0;
@@ -339,9 +339,9 @@ static int de_identify_graspfont(deark *c)
 
 	reported_filesize = de_getui16le(0);
 	if(reported_filesize != c->infile->len) return 0;
-	num_chars = (de_int64)de_getbyte(2);
+	num_chars = (i64)de_getbyte(2);
 	if(num_chars==0) num_chars=256;
-	bytes_per_glyph = (de_int64)de_getbyte(6);
+	bytes_per_glyph = (i64)de_getbyte(6);
 	if(7+num_chars*bytes_per_glyph == reported_filesize)
 		return 100;
 	return 0;

@@ -15,16 +15,16 @@ DE_DECLARE_MODULE(de_module_dcx);
 typedef struct localctx_struct {
 	de_byte version;
 	de_byte encoding;
-	de_int64 bits;
-	de_int64 bits_per_pixel;
-	de_int64 margin_L, margin_T, margin_R, margin_B;
-	de_int64 planes;
-	de_int64 rowspan_raw;
-	de_int64 rowspan;
-	de_int64 ncolors;
+	i64 bits;
+	i64 bits_per_pixel;
+	i64 margin_L, margin_T, margin_R, margin_B;
+	i64 planes;
+	i64 rowspan_raw;
+	i64 rowspan;
+	i64 ncolors;
 	de_byte palette_info;
 	de_byte reserved1;
-	de_int64 width, height;
+	i64 width, height;
 	int is_mswordscr;
 	int has_vga_pal;
 	int has_transparency;
@@ -40,7 +40,7 @@ typedef struct localctx_struct {
 static int do_read_header(deark *c, lctx *d)
 {
 	int retval = 0;
-	de_int64 hres, vres;
+	i64 hres, vres;
 	const char *imgtypename = "";
 
 	de_dbg(c, "header at %d", 0);
@@ -48,7 +48,7 @@ static int do_read_header(deark *c, lctx *d)
 
 	d->version = de_getbyte(1);
 	d->encoding = de_getbyte(2);
-	d->bits = (de_int64)de_getbyte(3); // Bits per pixel per plane
+	d->bits = (i64)de_getbyte(3); // Bits per pixel per plane
 	d->margin_L = de_getui16le(4);
 	d->margin_T = de_getui16le(6);
 	d->margin_R = de_getui16le(8);
@@ -63,7 +63,7 @@ static int do_read_header(deark *c, lctx *d)
 	// the intended video mode. Documentation is lacking, though.
 	d->reserved1 = de_getbyte(64);
 
-	d->planes = (de_int64)de_getbyte(65);
+	d->planes = (i64)de_getbyte(65);
 	d->rowspan_raw = de_getui16le(66);
 	d->palette_info = de_getbyte(68);
 
@@ -163,7 +163,7 @@ done:
 
 static int do_read_vga_palette(deark *c, lctx *d)
 {
-	de_int64 pos;
+	i64 pos;
 
 	if(d->version<5) return 0;
 	if(d->ncolors!=256) return 0;
@@ -191,7 +191,7 @@ static int do_read_alt_palette_file(deark *c, lctx *d)
 	const char *palfn;
 	dbuf *palfile = NULL;
 	int retval = 0;
-	de_int64 k,z;
+	i64 k,z;
 	de_byte b1[3];
 	de_byte b2[3];
 	int badflag = 0;
@@ -250,7 +250,7 @@ static const de_uint32 ega16pal[2][16] = {
 
 static void do_palette_stuff(deark *c, lctx *d)
 {
-	de_int64 k;
+	i64 k;
 
 	if(d->ncolors>256) {
 		return;
@@ -345,11 +345,11 @@ static void do_palette_stuff(deark *c, lctx *d)
 
 static int do_uncompress(deark *c, lctx *d)
 {
-	de_int64 pos;
+	i64 pos;
 	de_byte b, b2;
-	de_int64 count;
-	de_int64 expected_bytes;
-	de_int64 endpos;
+	i64 count;
+	i64 expected_bytes;
+	i64 endpos;
 
 	pos = PCX_HDRSIZE;
 	de_dbg(c, "compressed bitmap at %d", (int)pos);
@@ -374,7 +374,7 @@ static int do_uncompress(deark *c, lctx *d)
 		b = de_getbyte(pos++);
 
 		if(b>=0xc0) {
-			count = (de_int64)(b&0x3f);
+			count = (i64)(b&0x3f);
 			b2 = de_getbyte(pos++);
 			dbuf_write_run(d->unc_pixels, b2, count);
 		}
@@ -402,8 +402,8 @@ static void do_bitmap_1bpp(deark *c, lctx *d)
 static void do_bitmap_paletted(deark *c, lctx *d)
 {
 	de_bitmap *img = NULL;
-	de_int64 i, j;
-	de_int64 plane;
+	i64 i, j;
+	i64 plane;
 	de_byte b;
 	unsigned int palent;
 
@@ -429,8 +429,8 @@ static void do_bitmap_paletted(deark *c, lctx *d)
 static void do_bitmap_24bpp(deark *c, lctx *d)
 {
 	de_bitmap *img = NULL;
-	de_int64 i, j;
-	de_int64 plane;
+	i64 i, j;
+	i64 plane;
 	de_byte s[4];
 
 	de_memset(s, 0xff, sizeof(s));
@@ -591,9 +591,9 @@ void de_module_mswordscr(deark *c, struct deark_module_info *mi)
 static void de_run_dcx(deark *c, de_module_params *mparams)
 {
 	de_uint32 *page_offset;
-	de_int64 num_pages;
-	de_int64 page;
-	de_int64 page_size;
+	i64 num_pages;
+	i64 page;
+	i64 page_size;
 
 	page_offset = de_malloc(c, 1023 * sizeof(de_uint32));
 	num_pages = 0;

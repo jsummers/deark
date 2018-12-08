@@ -25,15 +25,15 @@ struct dir_entry_info {
 	de_byte entry_type;
 
 	int is_mini_stream;
-	de_int64 stream_size;
-	de_int64 normal_sec_id; // First SecID, valid if is_mini_stream==0
-	de_int64 minisec_id; // First MiniSecID, valid if is_mini_stream==1
+	i64 stream_size;
+	i64 normal_sec_id; // First SecID, valid if is_mini_stream==0
+	i64 minisec_id; // First MiniSecID, valid if is_mini_stream==1
 	struct de_stringreaderdata *fname_srd;
 	de_byte clsid[16];
 	struct de_timestamp mod_time;
 
 	const char *entry_type_name;
-	de_int64 name_len_raw;
+	i64 name_len_raw;
 	de_byte node_color;
 
 	de_int32 child_id;
@@ -60,19 +60,19 @@ typedef struct localctx_struct {
 	de_byte extract_raw_streams;
 	de_byte decode_streams;
 	de_byte dump_dir_structure;
-	de_int64 minor_ver, major_ver;
-	de_int64 sec_size;
-	//de_int64 num_dir_sectors;
-	de_int64 num_fat_sectors;
-	de_int64 first_dir_sec_id;
-	de_int64 std_stream_min_size;
-	de_int64 first_minifat_sec_id;
-	de_int64 num_minifat_sectors;
-	de_int64 mini_sector_size;
-	de_int64 first_difat_sec_id;
-	de_int64 num_difat_sectors;
-	de_int64 num_fat_entries;
-	de_int64 num_dir_entries;
+	i64 minor_ver, major_ver;
+	i64 sec_size;
+	//i64 num_dir_sectors;
+	i64 num_fat_sectors;
+	i64 first_dir_sec_id;
+	i64 std_stream_min_size;
+	i64 first_minifat_sec_id;
+	i64 num_minifat_sectors;
+	i64 mini_sector_size;
+	i64 first_difat_sec_id;
+	i64 num_difat_sectors;
+	i64 num_fat_entries;
+	i64 num_dir_entries;
 
 	// The DIFAT is an array of the secIDs that contain the FAT.
 	// It is stored in a linked list of sectors, except that the first
@@ -93,7 +93,7 @@ typedef struct localctx_struct {
 	struct dir_entry_info *dir_entry; // array[num_dir_entries]
 	dbuf *mini_sector_stream;
 
-	de_int64 thumbsdb_catalog_num_entries;
+	i64 thumbsdb_catalog_num_entries;
 	struct thumbsdb_catalog_entry *thumbsdb_catalog;
 
 	int could_be_thumbsdb;
@@ -122,15 +122,15 @@ static const struct clsid_id_struct known_clsids[] = {
 };
 #define EMPTY_CLSID (known_clsids[0].clsid)
 
-static de_int64 sec_id_to_offset(deark *c, lctx *d, de_int64 sec_id)
+static i64 sec_id_to_offset(deark *c, lctx *d, i64 sec_id)
 {
 	if(sec_id<0) return 0;
 	return d->sec_size + sec_id * d->sec_size;
 }
 
-static de_int64 get_next_sec_id(deark *c, lctx *d, de_int64 cur_sec_id)
+static i64 get_next_sec_id(deark *c, lctx *d, i64 cur_sec_id)
 {
-	de_int64 next_sec_id;
+	i64 next_sec_id;
 
 	if(cur_sec_id < 0) return -2;
 	if(!d->fat) return -2;
@@ -138,9 +138,9 @@ static de_int64 get_next_sec_id(deark *c, lctx *d, de_int64 cur_sec_id)
 	return next_sec_id;
 }
 
-static de_int64 get_next_minisec_id(deark *c, lctx *d, de_int64 cur_minisec_id)
+static i64 get_next_minisec_id(deark *c, lctx *d, i64 cur_minisec_id)
 {
-	de_int64 next_minisec_id;
+	i64 next_minisec_id;
 
 	if(cur_minisec_id < 0) return -2;
 	if(!d->minifat) return -2;
@@ -148,10 +148,10 @@ static de_int64 get_next_minisec_id(deark *c, lctx *d, de_int64 cur_minisec_id)
 	return next_minisec_id;
 }
 
-static void describe_sec_id(deark *c, lctx *d, de_int64 sec_id,
+static void describe_sec_id(deark *c, lctx *d, i64 sec_id,
 	char *buf, size_t buf_len)
 {
-	de_int64 sec_offset;
+	i64 sec_offset;
 
 	if(sec_id >= 0) {
 		sec_offset = sec_id_to_offset(c, d, sec_id);
@@ -175,13 +175,13 @@ static void describe_sec_id(deark *c, lctx *d, de_int64 sec_id,
 }
 
 // Copy a stream (with a known byte size) to a dbuf.
-static void copy_normal_stream_to_dbuf(deark *c, lctx *d, de_int64 first_sec_id,
-	de_int64 stream_startpos, de_int64 stream_size,
+static void copy_normal_stream_to_dbuf(deark *c, lctx *d, i64 first_sec_id,
+	i64 stream_startpos, i64 stream_size,
 	dbuf *outf)
 {
-	de_int64 sec_id;
-	de_int64 bytes_left_to_copy;
-	de_int64 bytes_left_to_skip;
+	i64 sec_id;
+	i64 bytes_left_to_copy;
+	i64 bytes_left_to_skip;
 
 	if(stream_size<=0 || stream_size>c->infile->len) return;
 
@@ -189,9 +189,9 @@ static void copy_normal_stream_to_dbuf(deark *c, lctx *d, de_int64 first_sec_id,
 	bytes_left_to_skip = stream_startpos;
 	sec_id = first_sec_id;
 	while(bytes_left_to_copy > 0) {
-		de_int64 sec_offs;
-		de_int64 bytes_to_copy;
-		de_int64 bytes_to_skip;
+		i64 sec_offs;
+		i64 bytes_to_copy;
+		i64 bytes_to_skip;
 
 		if(sec_id<0) break;
 		sec_offs = sec_id_to_offset(c, d, sec_id);
@@ -211,13 +211,13 @@ static void copy_normal_stream_to_dbuf(deark *c, lctx *d, de_int64 first_sec_id,
 }
 
 // Same as copy_normal_stream_to_dbuf(), but for mini streams.
-static void copy_mini_stream_to_dbuf(deark *c, lctx *d, de_int64 first_minisec_id,
-	de_int64 stream_startpos, de_int64 stream_size,
+static void copy_mini_stream_to_dbuf(deark *c, lctx *d, i64 first_minisec_id,
+	i64 stream_startpos, i64 stream_size,
 	dbuf *outf)
 {
-	de_int64 minisec_id;
-	de_int64 bytes_left_to_copy;
-	de_int64 bytes_left_to_skip;
+	i64 minisec_id;
+	i64 bytes_left_to_copy;
+	i64 bytes_left_to_skip;
 
 	if(!d->mini_sector_stream) return;
 	if(stream_size<=0 || stream_size>c->infile->len ||
@@ -230,9 +230,9 @@ static void copy_mini_stream_to_dbuf(deark *c, lctx *d, de_int64 first_minisec_i
 	bytes_left_to_skip = stream_startpos;
 	minisec_id = first_minisec_id;
 	while(bytes_left_to_copy > 0) {
-		de_int64 minisec_offs;
-		de_int64 bytes_to_copy;
-		de_int64 bytes_to_skip;
+		i64 minisec_offs;
+		i64 bytes_to_copy;
+		i64 bytes_to_skip;
 
 		if(minisec_id<0) break;
 		minisec_offs = minisec_id * d->mini_sector_size;
@@ -252,7 +252,7 @@ static void copy_mini_stream_to_dbuf(deark *c, lctx *d, de_int64 first_minisec_i
 }
 
 static void copy_any_stream_to_dbuf(deark *c, lctx *d, struct dir_entry_info *dei,
-	de_int64 stream_startpos, de_int64 stream_size,
+	i64 stream_startpos, i64 stream_size,
 	dbuf *outf)
 {
 	if(dei->is_mini_stream) {
@@ -265,10 +265,10 @@ static void copy_any_stream_to_dbuf(deark *c, lctx *d, struct dir_entry_info *de
 
 static int do_header(deark *c, lctx *d)
 {
-	de_int64 pos = 0;
-	de_int64 byte_order_code;
-	de_int64 sector_shift;
-	de_int64 mini_sector_shift;
+	i64 pos = 0;
+	i64 byte_order_code;
+	i64 sector_shift;
+	i64 mini_sector_shift;
 	char buf[80];
 	int retval = 0;
 
@@ -293,7 +293,7 @@ static int do_header(deark *c, lctx *d)
 	}
 
 	sector_shift = de_getui16le(pos+30); // aka ssz
-	d->sec_size = (de_int64)(1<<(unsigned int)sector_shift);
+	d->sec_size = (i64)(1<<(unsigned int)sector_shift);
 	de_dbg(c, "sector size: 2^%d (%d bytes)", (int)sector_shift,
 		(int)d->sec_size);
 	if(d->sec_size!=512 && d->sec_size!=4096) {
@@ -302,7 +302,7 @@ static int do_header(deark *c, lctx *d)
 	}
 
 	mini_sector_shift = de_getui16le(pos+32); // aka sssz
-	d->mini_sector_size = (de_int64)(1<<(unsigned int)mini_sector_shift);
+	d->mini_sector_size = (i64)(1<<(unsigned int)mini_sector_shift);
 	de_dbg(c, "mini sector size: 2^%d (%d bytes)", (int)mini_sector_shift,
 		(int)d->mini_sector_size);
 	if(d->mini_sector_size!=64) {
@@ -359,10 +359,10 @@ done:
 // Read the locations of the FAT sectors
 static void read_difat(deark *c, lctx *d)
 {
-	de_int64 num_to_read;
-	de_int64 still_to_read;
-	de_int64 difat_sec_id;
-	de_int64 difat_sec_offs;
+	i64 num_to_read;
+	i64 still_to_read;
+	i64 difat_sec_id;
+	i64 difat_sec_offs;
 
 
 	de_dbg(c, "reading DIFAT (total number of entries=%d)", (int)d->num_fat_sectors);
@@ -403,8 +403,8 @@ static void read_difat(deark *c, lctx *d)
 
 static void dump_fat(deark *c, lctx *d)
 {
-	de_int64 i;
-	de_int64 sec_id;
+	i64 i;
+	i64 sec_id;
 	char buf[80];
 
 	if(c->debug_level<2) return;
@@ -423,9 +423,9 @@ static void dump_fat(deark *c, lctx *d)
 // Read the contents of the FAT sectors
 static void read_fat(deark *c, lctx *d)
 {
-	de_int64 i;
-	de_int64 sec_id;
-	de_int64 sec_offset;
+	i64 i;
+	i64 sec_id;
+	i64 sec_offset;
 	char buf[80];
 
 	d->fat = dbuf_create_membuf(c, d->num_fat_sectors * d->sec_size, 1);
@@ -448,9 +448,9 @@ static void read_fat(deark *c, lctx *d)
 
 static void dump_minifat(deark *c, lctx *d)
 {
-	de_int64 i;
-	de_int64 sec_id;
-	de_int64 num_minifat_entries;
+	i64 i;
+	i64 sec_id;
+	i64 num_minifat_entries;
 
 	if(c->debug_level<2) return;
 	if(!d->minifat) return;
@@ -469,9 +469,9 @@ static void dump_minifat(deark *c, lctx *d)
 // Read the contents of the MiniFAT sectors into d->minifat
 static void read_minifat(deark *c, lctx *d)
 {
-	de_int64 i;
-	de_int64 sec_id;
-	de_int64 sec_offset;
+	i64 i;
+	i64 sec_id;
+	i64 sec_offset;
 	char buf[80];
 
 	if(d->num_minifat_sectors > 1000000) {
@@ -505,7 +505,7 @@ static void read_minifat(deark *c, lctx *d)
 }
 
 // Returns -1 if not a valid name
-static de_int64 stream_name_to_catalog_id(deark *c, lctx *d, struct dir_entry_info *dei)
+static i64 stream_name_to_catalog_id(deark *c, lctx *d, struct dir_entry_info *dei)
 {
 	char buf[16];
 	size_t nlen;
@@ -529,10 +529,10 @@ static de_int64 stream_name_to_catalog_id(deark *c, lctx *d, struct dir_entry_in
 
 // Returns an index into d->thumbsdb_catalog.
 // Returns -1 if not found.
-static de_int64 lookup_thumbsdb_catalog_entry(deark *c, lctx *d, struct dir_entry_info *dei)
+static i64 lookup_thumbsdb_catalog_entry(deark *c, lctx *d, struct dir_entry_info *dei)
 {
-	de_int64 i;
-	de_int64 id;
+	i64 i;
+	i64 id;
 
 	if(d->thumbsdb_catalog_num_entries<1 || !d->thumbsdb_catalog) return -1;
 	if(!dei->fname_srd || !dei->fname_srd->str) return -1;
@@ -553,14 +553,14 @@ static de_int64 lookup_thumbsdb_catalog_entry(deark *c, lctx *d, struct dir_entr
 static void do_extract_stream_to_file_thumbsdb(deark *c, lctx *d, struct dir_entry_info *dei,
 	de_finfo *fi, de_ucstring *tmpfn, dbuf *firstpart)
 {
-	de_int64 hdrsize;
-	de_int64 catalog_idx;
+	i64 hdrsize;
+	i64 catalog_idx;
 	const char *ext;
 	dbuf *outf = NULL;
-	de_int64 ver;
-	de_int64 reported_size;
-	de_int64 startpos;
-	de_int64 final_streamsize;
+	i64 ver;
+	i64 reported_size;
+	i64 startpos;
+	i64 final_streamsize;
 
 	if(dei->is_thumbsdb_catalog) {
 		// We've already read the catalog.
@@ -699,16 +699,16 @@ static const char *get_officeart_rectype_name(unsigned int t)
 
 struct officeartctx {
 #define OACTX_STACKSIZE 10
-	de_int64 container_end_stack[OACTX_STACKSIZE];
+	i64 container_end_stack[OACTX_STACKSIZE];
 	size_t container_end_stackptr;
 
 	// Passed to do_OfficeArtStream_record():
-	de_int64 record_pos;
+	i64 record_pos;
 
 	// Returned from do_OfficeArtStream_record():
-	de_int64 record_bytes_consumed;
+	i64 record_bytes_consumed;
 	int is_container;
-	de_int64 container_endpos; // valid if (is_container)
+	i64 container_endpos; // valid if (is_container)
 };
 
 static int do_OfficeArtStream_record(deark *c, lctx *d, struct officeartctx *oactx,
@@ -718,10 +718,10 @@ static int do_OfficeArtStream_record(deark *c, lctx *d, struct officeartctx *oac
 	unsigned int recinstance;
 	unsigned int recver;
 	unsigned int n;
-	de_int64 reclen;
-	de_int64 pos = 0; // relative to the beginning of firstpart
-	de_int64 nbytes_to_copy;
-	de_int64 extra_bytes = 0;
+	i64 reclen;
+	i64 pos = 0; // relative to the beginning of firstpart
+	i64 nbytes_to_copy;
+	i64 extra_bytes = 0;
 	dbuf *firstpart = NULL;
 	dbuf *outf = NULL;
 	const char *ext = "bin";
@@ -732,7 +732,7 @@ static int do_OfficeArtStream_record(deark *c, lctx *d, struct officeartctx *oac
 	int retval = 0;
 	int is_blip = 0;
 	int saved_indent_level;
-	de_int64 pos1 = oactx->record_pos;
+	i64 pos1 = oactx->record_pos;
 
 	oactx->record_bytes_consumed = 0;
 	oactx->is_container = 0;
@@ -881,7 +881,7 @@ static void do_OfficeArtStream(deark *c, lctx *d, struct dir_entry_info *dei)
 
 	oactx->record_pos = 0;
 	while(1) {
-		de_int64 ret;
+		i64 ret;
 
 		if(oactx->record_pos >= dei->stream_size-8) break;
 
@@ -919,10 +919,10 @@ static void dbg_timestamp(deark *c, struct de_timestamp *ts, const char *field_n
 	}
 }
 
-static void read_and_cvt_timestamp(deark *c, dbuf *f, de_int64 pos,
+static void read_and_cvt_timestamp(deark *c, dbuf *f, i64 pos,
 	struct de_timestamp *ts)
 {
-	de_int64 ts_as_FILETIME;
+	i64 ts_as_FILETIME;
 
 	de_zeromem(ts, sizeof(struct de_timestamp));
 	ts_as_FILETIME = dbuf_geti64le(f, pos);
@@ -933,10 +933,10 @@ static void read_and_cvt_timestamp(deark *c, dbuf *f, de_int64 pos,
 
 static int read_thumbsdb_catalog(deark *c, lctx *d, struct dir_entry_info *dei)
 {
-	de_int64 item_len;
-	de_int64 n;
-	de_int64 i;
-	de_int64 pos;
+	i64 item_len;
+	i64 n;
+	i64 i;
+	i64 pos;
 	int retval = 0;
 	dbuf *catf = NULL;
 
@@ -1028,7 +1028,7 @@ done:
 	dbuf_close(f);
 }
 
-static void read_mini_sector_stream(deark *c, lctx *d, de_int64 first_sec_id, de_int64 stream_size)
+static void read_mini_sector_stream(deark *c, lctx *d, i64 first_sec_id, i64 stream_size)
 {
 	if(d->mini_sector_stream) return; // Already done
 
@@ -1040,10 +1040,10 @@ static void read_mini_sector_stream(deark *c, lctx *d, de_int64 first_sec_id, de
 // Reads the directory stream into d->dir, and sets d->num_dir_entries.
 static void read_directory_stream(deark *c, lctx *d)
 {
-	de_int64 dir_sec_id;
-	de_int64 dir_sector_offs;
-	de_int64 num_entries_per_sector;
-	de_int64 dir_sector_count = 0;
+	i64 dir_sec_id;
+	i64 dir_sector_offs;
+	i64 num_entries_per_sector;
+	i64 dir_sector_count = 0;
 
 	de_dbg(c, "reading directory stream");
 	de_dbg_indent(c, 1);
@@ -1121,7 +1121,7 @@ done:
 
 static void do_dump_dir_structure(deark *c, lctx *d)
 {
-	de_int64 i;
+	i64 i;
 
 	de_dbg(c, "dir structure:");
 	de_dbg_indent(c, 1);
@@ -1152,7 +1152,7 @@ static void do_mark_dir_entries_recursively(deark *c, lctx *d, de_int32 parent_i
 	struct dir_entry_info *dei;
 	int k;
 
-	if(dir_entry_idx<0 || (de_int64)dir_entry_idx>=d->num_dir_entries) return;
+	if(dir_entry_idx<0 || (i64)dir_entry_idx>=d->num_dir_entries) return;
 
 	dei = &d->dir_entry[dir_entry_idx];
 
@@ -1206,7 +1206,7 @@ done:
 // know how many entries there are.
 static void do_before_reading_directory_entries(deark *c, lctx *d)
 {
-	de_int64 i;
+	i64 i;
 
 	// Stores some extra information for each directory entry, and a copy of
 	// some information for convenience.
@@ -1453,10 +1453,10 @@ done:
 
 
 // Read information about a directory entry. Do not print anything about it.
-static void do_read_dir_entry(deark *c, lctx *d, de_int64 dir_entry_idx, de_int64 dir_entry_offs)
+static void do_read_dir_entry(deark *c, lctx *d, i64 dir_entry_idx, i64 dir_entry_offs)
 {
-	de_int64 name_len_bytes;
-	de_int64 raw_sec_id;
+	i64 name_len_bytes;
+	i64 raw_sec_id;
 	struct dir_entry_info *dei = NULL;
 
 	if(!d->dir_entry) goto done; // error
@@ -1538,7 +1538,7 @@ done:
 
 // Process an directory entry from the d->dir stream, that has previously been
 // read into the d->dir_entry array.
-static void do_process_dir_entry(deark *c, lctx *d, de_int64 dir_entry_idx)
+static void do_process_dir_entry(deark *c, lctx *d, i64 dir_entry_idx)
 {
 	struct dir_entry_info *dei = NULL;
 	char clsid_string[50];
@@ -1606,7 +1606,7 @@ done:
 
 static void do_directory(deark *c, lctx *d)
 {
-	de_int64 i;
+	i64 i;
 	int pass;
 	int saved_indent_level;
 
@@ -1615,7 +1615,7 @@ static void do_directory(deark *c, lctx *d)
 	de_dbg(c, "reading directory entries");
 	do_before_reading_directory_entries(c, d);
 	for(i=0; i<d->num_dir_entries; i++) {
-		de_int64 dir_entry_offs = 128*i;
+		i64 dir_entry_offs = 128*i;
 		do_read_dir_entry(c, d, i, dir_entry_offs);
 	}
 
@@ -1666,7 +1666,7 @@ done:
 	dbuf_close(d->minifat);
 	dbuf_close(d->dir);
 	if(d->dir_entry) {
-		de_int64 k;
+		i64 k;
 		for(k=0; k<d->num_dir_entries; k++) {
 			de_destroy_stringreaderdata(c, d->dir_entry[k].fname_srd);
 			ucstring_destroy(d->dir_entry[k].path);
@@ -1675,7 +1675,7 @@ done:
 	}
 	dbuf_close(d->mini_sector_stream);
 	if(d->thumbsdb_catalog) {
-		de_int64 k;
+		i64 k;
 		for(k=0; k<d->thumbsdb_catalog_num_entries; k++) {
 			de_destroy_stringreaderdata(c, d->thumbsdb_catalog[k].fname_srd);
 		}

@@ -11,21 +11,21 @@ DE_DECLARE_MODULE(de_module_jovianvi);
 typedef struct localctx_struct {
 	de_byte imgtype;
 	de_byte pal_code;
-	de_int64 w, h;
-	de_int64 bitdepth;
-	de_int64 bits_alloc;
-	de_int64 rowspan;
-	de_int64 palpos;
-	de_int64 bitspos;
-	de_int64 pal_first_entry_idx;
-	de_int64 num_pal_colors;
+	i64 w, h;
+	i64 bitdepth;
+	i64 bits_alloc;
+	i64 rowspan;
+	i64 palpos;
+	i64 bitspos;
+	i64 pal_first_entry_idx;
+	i64 num_pal_colors;
 	de_uint32 pal[256];
 } lctx;
 
 static void do_read_palette(deark *c, lctx *d)
 {
-	de_int64 k, z;
-	de_int64 idx;
+	i64 k, z;
+	i64 idx;
 	de_byte b1[3];
 	de_byte b2[3];
 
@@ -189,8 +189,8 @@ static void de_run_jovianvi(deark *c, de_module_params *mparams)
 		d->pal_code = de_getbyte(9);
 		de_dbg(c, "palette code: 0x%02x", (unsigned int)d->pal_code);
 
-		d->pal_first_entry_idx = (de_int64)de_getbyte(10);
-		d->num_pal_colors =  (de_int64)de_getbyte(11);
+		d->pal_first_entry_idx = (i64)de_getbyte(10);
+		d->num_pal_colors =  (i64)de_getbyte(11);
 		if(d->num_pal_colors==0)
 			d->num_pal_colors = 256;
 		de_dbg(c, "index of first palette color: %d", (int)d->pal_first_entry_idx);

@@ -20,10 +20,10 @@ typedef struct localctx_struct {
 struct uuid_info;
 
 struct handler_params {
-	de_int64 objpos;
-	de_int64 objlen;
-	de_int64 dpos;
-	de_int64 dlen;
+	i64 objpos;
+	i64 objlen;
+	i64 dpos;
+	i64 dlen;
 	int level;
 	const struct uuid_info *uui;
 };
@@ -39,11 +39,11 @@ struct uuid_info {
 
 static const char *get_uuid_name(const de_byte *uuid);
 
-static int do_object_sequence(deark *c, lctx *d, de_int64 pos1, de_int64 len, int level,
-	int known_object_count, de_int64 num_objects_expected);
+static int do_object_sequence(deark *c, lctx *d, i64 pos1, i64 len, int level,
+	int known_object_count, i64 num_objects_expected);
 
 // Returns a copy of the 'buf' param
-static char *format_date(de_int64 t_FILETIME, char *buf, size_t buf_len)
+static char *format_date(i64 t_FILETIME, char *buf, size_t buf_len)
 {
 	struct de_timestamp timestamp;
 
@@ -58,7 +58,7 @@ static char *format_date(de_int64 t_FILETIME, char *buf, size_t buf_len)
 }
 
 // Returns a copy of the 'buf' param
-static char *format_duration(de_int64 n, char *buf, size_t buf_len)
+static char *format_duration(i64 n, char *buf, size_t buf_len)
 {
 	// TODO: Better formatting
 	de_snprintf(buf, buf_len, "%.3f sec", (double)n/10000000.0);
@@ -78,7 +78,7 @@ static const char *get_metadata_dtype_name(unsigned int t)
 
 // Read a GUID into the caller's buf[16], and convert it to UUID-style byte order.
 // Also write a printable form of it to id_string.
-static void read_and_render_guid(dbuf *f, de_byte *id, de_int64 pos,
+static void read_and_render_guid(dbuf *f, de_byte *id, i64 pos,
 	char *id_string, size_t id_string_len)
 {
 	dbuf_read(f, id, pos, 16);
@@ -90,7 +90,7 @@ static void read_and_render_guid(dbuf *f, de_byte *id, de_int64 pos,
 
 static void handler_Header(deark *c, lctx *d, struct handler_params *hp)
 {
-	de_int64 numhdrobj;
+	i64 numhdrobj;
 
 	if(hp->dlen<6) return;
 	numhdrobj = de_getui32le(hp->dpos);
@@ -100,9 +100,9 @@ static void handler_Header(deark *c, lctx *d, struct handler_params *hp)
 
 static void handler_FileProperties(deark *c, lctx *d, struct handler_params *hp)
 {
-	de_int64 pos = hp->dpos;
-	de_int64 create_date;
-	de_int64 x;
+	i64 pos = hp->dpos;
+	i64 create_date;
+	i64 x;
 	unsigned int flags;
 	de_byte guid_raw[16];
 	char guid_string[50];
@@ -166,9 +166,9 @@ static void handler_FileProperties(deark *c, lctx *d, struct handler_params *hp)
 
 static void handler_StreamProperties(deark *c, lctx *d, struct handler_params *hp)
 {
-	de_int64 pos = hp->dpos;
-	de_int64 x;
-	de_int64 tsdlen, ecdlen;
+	i64 pos = hp->dpos;
+	i64 x;
+	i64 tsdlen, ecdlen;
 	unsigned int flags;
 	de_byte stream_type[16];
 	de_byte ec_type[16];
@@ -220,7 +220,7 @@ static void handler_StreamProperties(deark *c, lctx *d, struct handler_params *h
 
 static void handler_HeaderExtension(deark *c, lctx *d, struct handler_params *hp)
 {
-	de_int64 datasize;
+	i64 datasize;
 
 	if(hp->dlen<22) return;
 	datasize = de_getui32le(hp->dpos+18);
@@ -231,11 +231,11 @@ static void handler_HeaderExtension(deark *c, lctx *d, struct handler_params *hp
 
 static void handler_ContentDescr(deark *c, lctx *d, struct handler_params *hp)
 {
-	de_int64 lengths[5];
+	i64 lengths[5];
 	const char *names[5] = { "title", "author", "copyright",
 		"description", "rating" };
 	de_ucstring *s = NULL;
-	de_int64 pos = hp->dpos;
+	i64 pos = hp->dpos;
 	size_t k;
 
 	if(hp->dlen<10) return;
@@ -260,8 +260,8 @@ static void handler_ContentDescr(deark *c, lctx *d, struct handler_params *hp)
 
 static void handler_ContentEncr(deark *c, lctx *d, struct handler_params *hp)
 {
-	de_int64 pos = hp->dpos;
-	de_int64 xlen;
+	i64 pos = hp->dpos;
+	i64 xlen;
 	de_ucstring *s = NULL;
 
 	xlen = de_getui32le_p(&pos);
@@ -309,11 +309,11 @@ done:
 // Extended Stream Properties
 static void handler_ESP(deark *c, lctx *d, struct handler_params *hp)
 {
-	de_int64 pos = hp->dpos;
-	de_int64 name_count, pes_count;
-	de_int64 k;
-	de_int64 x, xlen;
-	de_int64 bytes_remaining;
+	i64 pos = hp->dpos;
+	i64 name_count, pes_count;
+	i64 k;
+	i64 x, xlen;
+	i64 bytes_remaining;
 	int saved_indent_level;
 	de_byte guid_raw[16];
 	char guid_string[50];
@@ -411,9 +411,9 @@ done:
 
 static void handler_LanguageList(deark *c, lctx *d, struct handler_params *hp)
 {
-	de_int64 pos = hp->dpos;
-	de_int64 nlangs;
-	de_int64 k;
+	i64 pos = hp->dpos;
+	i64 nlangs;
+	i64 k;
 	de_ucstring *s = NULL;
 
 	if(hp->dlen<2) goto done;
@@ -424,13 +424,13 @@ static void handler_LanguageList(deark *c, lctx *d, struct handler_params *hp)
 	s = ucstring_create(c);
 
 	for(k=0; k<nlangs; k++) {
-		de_int64 id_len;
+		i64 id_len;
 
 		if(pos+1 > hp->dpos+hp->dlen) goto done;
 		de_dbg(c, "language id record[%d] at %"INT64_FMT, (int)k, pos);
 		de_dbg_indent(c, 1);
 
-		id_len = (de_int64)de_getbyte_p(&pos);
+		id_len = (i64)de_getbyte_p(&pos);
 
 		ucstring_empty(s);
 		dbuf_read_to_ucstring_n(c->infile, pos, id_len, DE_DBG_MAX_STRLEN*2, s,
@@ -457,13 +457,13 @@ static const char *get_codec_type_name(unsigned int t)
 	return name;
 }
 
-static int do_codec_entry(deark *c, lctx *d, de_int64 pos1, de_int64 len, de_int64 *bytes_consumed)
+static int do_codec_entry(deark *c, lctx *d, i64 pos1, i64 len, i64 *bytes_consumed)
 {
 	de_ucstring *name = NULL;
 	de_ucstring *descr = NULL;
 	unsigned int type;
-	de_int64 namelen, descrlen, infolen;
-	de_int64 pos = pos1;
+	i64 namelen, descrlen, infolen;
+	i64 pos = pos1;
 	int retval = 0;
 	int saved_indent_level;
 
@@ -512,9 +512,9 @@ done:
 
 static void handler_CodecList(deark *c, lctx *d, struct handler_params *hp)
 {
-	de_int64 numentries;
-	de_int64 k;
-	de_int64 pos;
+	i64 numentries;
+	i64 k;
+	i64 pos;
 
 	if(hp->dlen<20) return;
 	numentries = de_getui32le(hp->dpos+16);
@@ -522,7 +522,7 @@ static void handler_CodecList(deark *c, lctx *d, struct handler_params *hp)
 
 	pos = hp->dpos+20;
 	for(k=0; k<numentries; k++) {
-		de_int64 bytes_consumed = 0;
+		i64 bytes_consumed = 0;
 		int ret;
 
 		if(pos >= hp->dpos + hp->dlen) break;
@@ -534,9 +534,9 @@ static void handler_CodecList(deark *c, lctx *d, struct handler_params *hp)
 
 static void handler_ScriptCommand(deark *c, lctx *d, struct handler_params *hp)
 {
-	de_int64 cmd_count, cmd_type_count;
-	de_int64 pos = hp->dpos;
-	de_int64 k;
+	i64 cmd_count, cmd_type_count;
+	i64 pos = hp->dpos;
+	i64 k;
 	de_ucstring *s = NULL;
 	int saved_indent_level;
 
@@ -553,7 +553,7 @@ static void handler_ScriptCommand(deark *c, lctx *d, struct handler_params *hp)
 	s = ucstring_create(c);
 
 	for(k=0; k<cmd_type_count; k++) {
-		de_int64 type_name_len;
+		i64 type_name_len;
 
 		if(pos+2 > hp->dpos+hp->dlen) goto done;
 		de_dbg(c, "command type[%d] at %"INT64_FMT, (int)k, pos);
@@ -572,8 +572,8 @@ static void handler_ScriptCommand(deark *c, lctx *d, struct handler_params *hp)
 	}
 
 	for(k=0; k<cmd_count; k++) {
-		de_int64 cmd_name_len;
-		de_int64 n;
+		i64 cmd_name_len;
+		i64 n;
 
 		if(pos+8 > hp->dpos+hp->dlen) goto done;
 		de_dbg(c, "command[%d] at %"INT64_FMT, (int)k, pos);
@@ -602,7 +602,7 @@ done:
 	ucstring_destroy(s);
 }
 
-static void do_ECD_ID3(deark *c, lctx *d, de_int64 pos, de_int64 len)
+static void do_ECD_ID3(deark *c, lctx *d, i64 pos, i64 len)
 {
 	de_dbg(c, "ID3 data at %"INT64_FMT", len=%"INT64_FMT, pos, len);
 	de_dbg_indent(c, 1);
@@ -610,7 +610,7 @@ static void do_ECD_ID3(deark *c, lctx *d, de_int64 pos, de_int64 len)
 	de_dbg_indent(c, -1);
 }
 
-static void do_ECD_WMPicture(deark *c, lctx *d, de_int64 pos, de_int64 len)
+static void do_ECD_WMPicture(deark *c, lctx *d, i64 pos, i64 len)
 {
 	de_dbg(c, "WM/Picture data at %"INT64_FMT", len=%"INT64_FMT, pos, len);
 	de_dbg_indent(c, 1);
@@ -618,19 +618,19 @@ static void do_ECD_WMPicture(deark *c, lctx *d, de_int64 pos, de_int64 len)
 	de_dbg_indent(c, -1);
 }
 
-static void do_WMEncodingTime(deark *c, lctx *d, de_int64 t)
+static void do_WMEncodingTime(deark *c, lctx *d, i64 t)
 {
 	char buf[64];
 
 	de_dbg(c, "value: %"INT64_FMT" (%s)", t, format_date(t, buf, sizeof(buf)));
 }
 
-static void do_metadata_item(deark *c, lctx *d, de_int64 pos, de_int64 val_len,
+static void do_metadata_item(deark *c, lctx *d, i64 pos, i64 val_len,
 	unsigned int val_data_type_ori, struct de_stringreaderdata *name_srd,
 	de_uint32 object_sid)
 {
 	de_ucstring *val_str = NULL;
-	de_int64 val_int;
+	i64 val_int;
 	int handled = 0;
 	unsigned int val_data_type; // adjusted type
 
@@ -701,14 +701,14 @@ static void do_metadata_item(deark *c, lctx *d, de_int64 pos, de_int64 val_len,
 	ucstring_destroy(val_str);
 }
 
-static int do_ECD_entry(deark *c, lctx *d, de_int64 pos1, de_int64 len, de_int64 *bytes_consumed)
+static int do_ECD_entry(deark *c, lctx *d, i64 pos1, i64 len, i64 *bytes_consumed)
 {
-	de_int64 pos = pos1;
+	i64 pos = pos1;
 	struct de_stringreaderdata *name_srd = NULL;
-	de_int64 namelen;
-	de_int64 namelen_to_keep;
+	i64 namelen;
+	i64 namelen_to_keep;
 	unsigned int val_data_type;
-	de_int64 val_len;
+	i64 val_len;
 	int retval = 0;
 	int saved_indent_level;
 
@@ -750,15 +750,15 @@ done:
 //   Metadata Library
 // This is a lot like do_ECD_entry().
 static int do_metadata_entry(deark *c, lctx *d, struct handler_params *hp,
-	de_int64 pos1, de_int64 len, de_int64 *bytes_consumed)
+	i64 pos1, i64 len, i64 *bytes_consumed)
 {
-	de_int64 pos = pos1;
+	i64 pos = pos1;
 	struct de_stringreaderdata *name_srd = NULL;
-	de_int64 namelen;
-	de_int64 namelen_to_keep;
+	i64 namelen;
+	i64 namelen_to_keep;
 	unsigned int val_data_type;
-	de_int64 val_len;
-	de_int64 stream_number;
+	i64 val_len;
+	i64 stream_number;
 	int retval = 0;
 	int saved_indent_level;
 
@@ -770,7 +770,7 @@ static int do_metadata_entry(deark *c, lctx *d, struct handler_params *hp,
 	if(len<14) goto done;
 
 	if(hp->uui->short_id==SID_METADATALIB) {
-		de_int64 lang_list_idx;
+		i64 lang_list_idx;
 		lang_list_idx = de_getui16le(pos);
 		de_dbg(c, "language list index: %d", (int)lang_list_idx);
 	}
@@ -813,15 +813,15 @@ done:
 //   Metadata Library
 static void handler_ECD_or_metadata(deark *c, lctx *d, struct handler_params *hp)
 {
-	de_int64 descr_count;
-	de_int64 k;
-	de_int64 pos = hp->dpos;
+	i64 descr_count;
+	i64 k;
+	i64 pos = hp->dpos;
 
 	descr_count = de_getui16le_p(&pos);
 	de_dbg(c, "descriptor count: %d", (int)descr_count);
 
 	for(k=0; k<descr_count; k++) {
-		de_int64 bytes_consumed = 0;
+		i64 bytes_consumed = 0;
 		int ret;
 
 		if(pos >= hp->dpos + hp->dlen) {
@@ -936,8 +936,8 @@ static const char *get_uuid_name(const de_byte *uuid)
 	return "?";
 }
 
-static int do_object(deark *c, lctx *d, de_int64 pos1, de_int64 len,
-	int level, de_int64 *pbytes_consumed)
+static int do_object(deark *c, lctx *d, i64 pos1, i64 len,
+	int level, i64 *pbytes_consumed)
 {
 	de_byte id[16];
 	char id_string[50];
@@ -992,14 +992,14 @@ done:
 	return retval;
 }
 
-static int do_object_sequence(deark *c, lctx *d, de_int64 pos1, de_int64 len, int level,
-	int known_object_count, de_int64 num_objects_expected)
+static int do_object_sequence(deark *c, lctx *d, i64 pos1, i64 len, int level,
+	int known_object_count, i64 num_objects_expected)
 {
 	int retval = 0;
-	de_int64 pos = pos1;
+	i64 pos = pos1;
 	int saved_indent_level;
-	de_int64 bytes_remaining;
-	de_int64 objects_found = 0;
+	i64 bytes_remaining;
+	i64 objects_found = 0;
 
 	de_dbg_indent_save(c, &saved_indent_level);
 
@@ -1009,7 +1009,7 @@ static int do_object_sequence(deark *c, lctx *d, de_int64 pos1, de_int64 len, in
 
 	while(1) {
 		int ret;
-		de_int64 bytes_consumed = 0;
+		i64 bytes_consumed = 0;
 
 		bytes_remaining = pos1+len-pos;
 		if(known_object_count && objects_found>=num_objects_expected) {

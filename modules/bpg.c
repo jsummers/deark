@@ -10,26 +10,26 @@
 DE_DECLARE_MODULE(de_module_bpg);
 
 typedef struct localctx_struct {
-	de_int64 width, height;
+	i64 width, height;
 
 	de_byte pixel_format;
 	de_byte alpha_flag;
-	de_int64 bit_depth;
+	i64 bit_depth;
 
 	de_byte color_space;
 	de_byte extension_present_flag;
 	de_byte alpha2_flag;
 	de_byte limited_range_flag;
 
-	de_int64 picture_data_len;
-	de_int64 extension_data_len;
+	i64 picture_data_len;
+	i64 extension_data_len;
 
 } lctx;
 
-static de_int64 get_ue7(deark *c, de_int64 *pos)
+static i64 get_ue7(deark *c, i64 *pos)
 {
 	de_byte b;
-	de_int64 val = 0;
+	i64 val = 0;
 	int bytecount = 0;
 
 	// TODO: Better error handling
@@ -51,11 +51,11 @@ static de_int64 get_ue7(deark *c, de_int64 *pos)
 	return val;
 }
 
-static void do_exif(deark *c, lctx *d, de_int64 pos1, de_int64 len1)
+static void do_exif(deark *c, lctx *d, i64 pos1, i64 len1)
 {
 	de_byte buf[3];
-	de_int64 pos = pos1;
-	de_int64 len = len1;
+	i64 pos = pos1;
+	i64 len = len1;
 
 	if(len1<8) return;
 	de_read(buf, pos1, 3);
@@ -67,11 +67,11 @@ static void do_exif(deark *c, lctx *d, de_int64 pos1, de_int64 len1)
 	de_fmtutil_handle_exif(c, pos, len);
 }
 
-static void do_extensions(deark *c, lctx *d, de_int64 pos)
+static void do_extensions(deark *c, lctx *d, i64 pos)
 {
-	de_int64 endpos;
-	de_int64 tag;
-	de_int64 payload_len;
+	i64 endpos;
+	i64 tag;
+	i64 payload_len;
 
 	endpos = pos + d->extension_data_len;
 
@@ -103,7 +103,7 @@ static void do_extensions(deark *c, lctx *d, de_int64 pos)
 
 static void do_hevc_file(deark *c, lctx *d)
 {
-	de_int64 pos;
+	i64 pos;
 	de_byte b;
 
 	pos = 4;
@@ -111,7 +111,7 @@ static void do_hevc_file(deark *c, lctx *d)
 	pos++;
 	d->pixel_format = b>>5;
 	d->alpha_flag = (b>>4)&0x01;
-	d->bit_depth = (de_int64)(b&0x0f) +8;
+	d->bit_depth = (i64)(b&0x0f) +8;
 	de_dbg(c, "pixel format: %d", (int)d->pixel_format);
 	de_dbg(c, "alpha flag: %d", (int)d->alpha_flag);
 	de_dbg(c, "bit depth: %d", (int)d->bit_depth);

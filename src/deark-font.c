@@ -33,18 +33,18 @@ void de_destroy_bitmap_font(deark *c, struct de_bitmap_font *font)
 
 // Paint a character at the given index in the given font, to the given bitmap.
 void de_font_paint_character_idx(deark *c, de_bitmap *img,
-	struct de_bitmap_font *font, de_int64 char_idx,
-	de_int64 xpos, de_int64 ypos, de_uint32 fgcol, de_uint32 bgcol,
+	struct de_bitmap_font *font, i64 char_idx,
+	i64 xpos, i64 ypos, de_uint32 fgcol, de_uint32 bgcol,
 	unsigned int flags)
 {
-	de_int64 i, j;
-	de_int64 i_src; // -1 = No source position
-	de_int64 j_src;
+	i64 i, j;
+	i64 i_src; // -1 = No source position
+	i64 j_src;
 	de_byte x;
 	int fg;
 	de_uint32 clr;
 	struct de_bitmap_font_char *ch;
-	de_int64 num_x_pixels_to_paint;
+	i64 num_x_pixels_to_paint;
 	int vga9col_flag = 0;
 
 	if(char_idx<0 || char_idx>=font->num_chars) return;
@@ -53,7 +53,7 @@ void de_font_paint_character_idx(deark *c, de_bitmap *img,
 	if(ch->width > font->nominal_width) return;
 	if(ch->height > font->nominal_height) return;
 
-	num_x_pixels_to_paint = (de_int64)ch->extraspace_l + (de_int64)ch->width + (de_int64)ch->extraspace_r;
+	num_x_pixels_to_paint = (i64)ch->extraspace_l + (i64)ch->width + (i64)ch->extraspace_r;
 	if((flags&DE_PAINTFLAG_VGA9COL) && ch->width==8) {
 		vga9col_flag = 1;
 		num_x_pixels_to_paint = 9;
@@ -87,7 +87,7 @@ void de_font_paint_character_idx(deark *c, de_bitmap *img,
 				}
 			}
 
-			i_src -= (de_int64)ch->extraspace_l;
+			i_src -= (i64)ch->extraspace_l;
 
 			if(i_src>=0 && i_src<ch->width) {
 				x = ch->bitmap[j_src*ch->rowspan + i_src/8];
@@ -109,9 +109,9 @@ void de_font_paint_character_idx(deark *c, de_bitmap *img,
 // 'codepoint' is expected to be a Unicode codepoint. If the font does not
 // have Unicode codepoints, the non-Unicode codepoint will be used instead.
 // Returns -1 if not found.
-static de_int64 get_char_idx_by_cp(deark *c, struct de_bitmap_font *font, de_int32 codepoint)
+static i64 get_char_idx_by_cp(deark *c, struct de_bitmap_font *font, de_int32 codepoint)
 {
-	de_int64 i;
+	i64 i;
 
 	// TODO: Sometimes, a font has multiple characters that map to the same
 	// codepoint. We should have a way to find the *best* such character,
@@ -134,9 +134,9 @@ static de_int64 get_char_idx_by_cp(deark *c, struct de_bitmap_font *font, de_int
 // have Unicode codepoints, the non-Unicode codepoint will be used instead.
 void de_font_paint_character_cp(deark *c, de_bitmap *img,
 	struct de_bitmap_font *font, de_int32 codepoint,
-	de_int64 xpos, de_int64 ypos, de_uint32 fgcol, de_uint32 bgcol, unsigned int flags)
+	i64 xpos, i64 ypos, de_uint32 fgcol, de_uint32 bgcol, unsigned int flags)
 {
-	de_int64 char_idx;
+	i64 char_idx;
 
 	char_idx = get_char_idx_by_cp(c, font, codepoint);
 	if(char_idx<0) {
@@ -180,7 +180,7 @@ static const struct dfont_char_data dfont_data[16] = {
 static struct de_bitmap_font *make_digit_font(deark *c)
 {
 	struct de_bitmap_font *dfont = NULL;
-	de_int64 i;
+	i64 i;
 
 	dfont = de_create_bitmap_font(c);
 	dfont->num_chars = 16;
@@ -204,7 +204,7 @@ struct font_render_ctx {
 	struct de_bitmap_font *font;
 	de_int32 min_codepoint; // currently unused
 	de_int32 max_codepoint;
-	de_int64 num_valid_chars;
+	i64 num_valid_chars;
 	int render_as_unicode;
 
 	// Array of the actual codepoints we will use when dumping the font
@@ -219,14 +219,14 @@ struct font_render_ctx {
 // (xpos,ypos) is the lower-right corner
 //   (or the bottom-center, if hcenter==1).
 static void draw_number(deark *c, de_bitmap *img,
-	struct de_bitmap_font *dfont, de_int64 n, de_int64 xpos1, de_int64 ypos1,
+	struct de_bitmap_font *dfont, i64 n, i64 xpos1, i64 ypos1,
 	unsigned int flags)
 {
 	char buf[32];
-	de_int64 len;
-	de_int64 i;
-	de_int64 xpos_start;
-	de_int64 xpos, ypos;
+	i64 len;
+	i64 i;
+	i64 xpos_start;
+	i64 xpos, ypos;
 
 	if(flags & DNFLAG_HEX) {
 		if(flags & DNFLAG_LEADING_ZEROES)
@@ -237,7 +237,7 @@ static void draw_number(deark *c, de_bitmap *img,
 	else {
 		de_snprintf(buf, sizeof(buf), "%u", (unsigned int)n);
 	}
-	len = (de_int64)de_strlen(buf);
+	len = (i64)de_strlen(buf);
 
 	if(flags & DNFLAG_HCENTER)
 		xpos_start = xpos1-(dfont->nominal_width*len)/2;
@@ -259,7 +259,7 @@ static void draw_number(deark *c, de_bitmap *img,
 
 static void get_min_max_codepoint(struct font_render_ctx *fctx)
 {
-	de_int64 i;
+	i64 i;
 
 	fctx->min_codepoint = 0x10ffff;
 	fctx->max_codepoint = 0;
@@ -279,9 +279,9 @@ static void get_min_max_codepoint(struct font_render_ctx *fctx)
 // Put the actual codepont to use in the font->char_array[].codepoint_tmp field.
 static void fixup_codepoints(deark *c, struct font_render_ctx *fctx)
 {
-	de_int64 i;
+	i64 i;
 	de_int32 c1;
-	de_int64 num_uncoded_chars = 0;
+	i64 num_uncoded_chars = 0;
 	de_byte *used_codepoint_map = NULL;
 	de_byte codepoint_already_used;
 
@@ -331,37 +331,37 @@ done:
 
 struct row_info_struct {
 	de_byte is_visible;
-	de_int64 display_pos;
+	i64 display_pos;
 };
 
 struct col_info_struct {
-	de_int64 display_width;
-	de_int64 display_pos;
+	i64 display_width;
+	i64 display_pos;
 };
 
 void de_font_bitmap_font_to_image(deark *c, struct de_bitmap_font *font1, de_finfo *fi,
 	unsigned int createflags)
 {
 	struct font_render_ctx *fctx = NULL;
-	de_int64 i, j, k;
+	i64 i, j, k;
 	de_bitmap *img = NULL;
-	de_int64 xpos, ypos;
-	de_int64 img_leftmargin, img_topmargin;
-	de_int64 img_rightmargin, img_bottommargin;
-	de_int64 img_vpixelsperchar;
-	de_int64 img_width, img_height;
-	de_int64 num_table_rows_to_display;
-	de_int64 num_table_rows_total;
-	de_int64 last_valid_row;
+	i64 xpos, ypos;
+	i64 img_leftmargin, img_topmargin;
+	i64 img_rightmargin, img_bottommargin;
+	i64 img_vpixelsperchar;
+	i64 img_width, img_height;
+	i64 num_table_rows_to_display;
+	i64 num_table_rows_total;
+	i64 last_valid_row;
 	struct de_bitmap_font *dfont = NULL;
-	de_int64 chars_per_row = 32;
+	i64 chars_per_row = 32;
 	const char *s;
 	struct row_info_struct *row_info = NULL;
 	struct col_info_struct *col_info = NULL;
 	int unicode_req = 0;
-	de_int64 label_stride;
-	de_int64 rownum, colnum;
-	de_int64 curpos;
+	i64 label_stride;
+	i64 rownum, colnum;
+	i64 curpos;
 	unsigned int dnflags;
 
 	fctx = de_malloc(c, sizeof(struct font_render_ctx));
@@ -426,7 +426,7 @@ void de_font_bitmap_font_to_image(deark *c, struct de_bitmap_font *font1, de_fin
 	}
 
 	for(k=0; k<fctx->font->num_chars; k++) {
-		de_int64 char_display_width;
+		i64 char_display_width;
 
 		if(fctx->codepoint_tmp[k] == DE_CODEPOINT_INVALID) continue;
 		if(!is_valid_char(&fctx->font->char_array[k])) continue;
@@ -441,7 +441,7 @@ void de_font_bitmap_font_to_image(deark *c, struct de_bitmap_font *font1, de_fin
 		row_info[rownum].is_visible = 1;
 
 		// Track the maximum width of any character in this character's column.
-		char_display_width = (de_int64)(fctx->font->char_array[k].width +
+		char_display_width = (i64)(fctx->font->char_array[k].width +
 				(int)fctx->font->char_array[k].extraspace_l +
 				(int)fctx->font->char_array[k].extraspace_r);
 		if(char_display_width > col_info[colnum].display_width) {
@@ -495,7 +495,7 @@ void de_font_bitmap_font_to_image(deark *c, struct de_bitmap_font *font1, de_fin
 		ypos = row_info[j].display_pos;
 
 		for(i=0; i<chars_per_row; i++) {
-			de_int64 ii, jj;
+			i64 ii, jj;
 
 			xpos = col_info[i].display_pos;
 			for(jj=0; jj<img_vpixelsperchar-1; jj++) {

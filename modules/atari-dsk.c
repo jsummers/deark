@@ -8,15 +8,15 @@ DE_DECLARE_MODULE(de_module_atari_cas);
 DE_DECLARE_MODULE(de_module_atr);
 
 typedef struct localctx_struct {
-	de_int64 sector_size;
+	i64 sector_size;
 } lctx;
 
 static void do_cas(deark *c)
 {
-	de_int64 pos;
+	i64 pos;
 	de_byte chunk_id[4];
-	de_int64 chunk_len;
-	de_int64 chunk_extra;
+	i64 chunk_len;
+	i64 chunk_extra;
 
 	pos = 0;
 	while(1) {
@@ -64,10 +64,10 @@ void de_module_atari_cas(deark *c, struct deark_module_info *mi)
 
 
 // --------------------------------------------
-static de_int64 space_padded_length(const de_byte *buf, de_int64 len)
+static i64 space_padded_length(const de_byte *buf, i64 len)
 {
-	de_int64 i;
-	de_int64 last_nonspace = -1;
+	i64 i;
+	i64 last_nonspace = -1;
 
 	for(i=len-1; i>=0; i--) {
 		if(buf[i]!=0x20) {
@@ -79,7 +79,7 @@ static de_int64 space_padded_length(const de_byte *buf, de_int64 len)
 }
 
 static int get_sector_offset_and_size(deark *c, lctx *d,
-	de_int64 sector_num, de_int64 *sector_offset, de_int64 *sector_size)
+	i64 sector_num, i64 *sector_offset, i64 *sector_size)
 {
 	if(sector_num<1) return 0;
 
@@ -101,15 +101,15 @@ static int get_sector_offset_and_size(deark *c, lctx *d,
 }
 
 static void do_extract_file_contents(deark *c, lctx *d, dbuf *inf, dbuf *outf,
-	de_int64 starting_sector, de_int64 sector_count)
+	i64 starting_sector, i64 sector_count)
 {
-	de_int64 sectors_extracted = 0;
-	de_int64 sector_pos = 0;
-	de_int64 sector_size = 0;
-	de_int64 cur_sector;
-	de_int64 next_sector;
+	i64 sectors_extracted = 0;
+	i64 sector_pos = 0;
+	i64 sector_size = 0;
+	i64 cur_sector;
+	i64 next_sector;
 	de_byte mdata[3];
-	de_int64 nbytes;
+	i64 nbytes;
 
 	cur_sector = starting_sector;
 	while(sectors_extracted < sector_count) {
@@ -123,7 +123,7 @@ static void do_extract_file_contents(deark *c, lctx *d, dbuf *inf, dbuf *outf,
 		// TODO: Some documentation says the high bit of mdata[2] is a
 		// "short flag" that indicates that the other bits are valid. But I haven't
 		// found any files that use it. And it can't work with sectors > 128 bytes.
-		nbytes = (de_int64)mdata[2];
+		nbytes = (i64)mdata[2];
 		if(sector_size<=128)
 			nbytes = nbytes & 0x7f;
 
@@ -138,14 +138,14 @@ static void do_extract_file_contents(deark *c, lctx *d, dbuf *inf, dbuf *outf,
 	}
 }
 
-static void do_directory_entry(deark *c, lctx *d, dbuf *f, de_int64 pos)
+static void do_directory_entry(deark *c, lctx *d, dbuf *f, i64 pos)
 {
 	de_byte flags;
-	de_int64 sector_count;
-	de_int64 starting_sector;
-	de_int64 i;
+	i64 sector_count;
+	i64 starting_sector;
+	i64 i;
 	de_byte fn_raw[11];
-	de_int64 fnbase_len, fnext_len;
+	i64 fnbase_len, fnext_len;
 	de_ucstring *fn_u = NULL;
 	de_finfo *fi = NULL;
 	dbuf *outf = NULL;
@@ -215,12 +215,12 @@ done:
 
 static void do_disk_image(deark *c, lctx *d, dbuf *f)
 {
-	de_int64 sector_pos;
-	de_int64 entrypos;
-	de_int64 sector_size;
-	de_int64 sector_index;
-	de_int64 entry_index;
-	de_int64 entries_per_sector;
+	i64 sector_pos;
+	i64 entrypos;
+	i64 sector_size;
+	i64 sector_index;
+	i64 entry_index;
+	i64 entries_per_sector;
 	de_byte flags;
 
 	if(d->sector_size!=128 && d->sector_size!=256) {
@@ -254,9 +254,9 @@ static void do_disk_image(deark *c, lctx *d, dbuf *f)
 
 static void do_atr(deark *c, lctx *d)
 {
-	de_int64 pos;
-	de_int64 image_size_hi, image_size_lo; // In 16-byte "paragraphs"
-	de_int64 image_size_bytes;
+	i64 pos;
+	i64 image_size_hi, image_size_lo; // In 16-byte "paragraphs"
+	i64 image_size_bytes;
 	dbuf *diskimg = NULL;
 
 	pos = 0;

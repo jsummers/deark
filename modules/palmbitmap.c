@@ -55,9 +55,9 @@ static const de_uint32 palm256pal[256] = {
 };
 
 struct page_ctx {
-	de_int64 w, h;
-	de_int64 bitsperpixel;
-	de_int64 rowbytes;
+	i64 w, h;
+	i64 bitsperpixel;
+	i64 rowbytes;
 	int has_trns;
 	de_uint32 trns_value;
 	int is_rgb;
@@ -71,10 +71,10 @@ typedef struct localctx_struct {
 	int ignore_color_table_flag;
 } lctx;
 
-static int de_identify_palmbitmap_internal(deark *c, dbuf *f, de_int64 pos, de_int64 len)
+static int de_identify_palmbitmap_internal(deark *c, dbuf *f, i64 pos, i64 len)
 {
-	de_int64 w, h;
-	de_int64 rowbytes;
+	i64 w, h;
+	i64 rowbytes;
 	de_byte ver;
 	de_byte pixelsize;
 
@@ -104,12 +104,12 @@ static int de_identify_palmbitmap_internal(deark *c, dbuf *f, de_int64 pos, de_i
 }
 
 static int do_decompress_scanline_compression(deark *c, lctx *d, struct page_ctx *pg,
-	dbuf *inf, de_int64 pos1, de_int64 len, dbuf *unc_pixels)
+	dbuf *inf, i64 pos1, i64 len, dbuf *unc_pixels)
 {
-	de_int64 srcpos = pos1;
-	de_int64 j;
-	de_int64 blocknum;
-	de_int64 blocksperrow;
+	i64 srcpos = pos1;
+	i64 j;
+	i64 blocknum;
+	i64 blocksperrow;
 	de_byte bf;
 	de_byte dstb;
 	unsigned int k;
@@ -117,7 +117,7 @@ static int do_decompress_scanline_compression(deark *c, lctx *d, struct page_ctx
 	blocksperrow = (pg->rowbytes+7)/8;
 
 	for(j=0; j<pg->h; j++) {
-		de_int64 bytes_written_this_row = 0;
+		i64 bytes_written_this_row = 0;
 
 		for(blocknum=0; blocknum<blocksperrow; blocknum++) {
 			// For each byte-per-row, we expect a lead byte, which is a
@@ -147,16 +147,16 @@ static int do_decompress_scanline_compression(deark *c, lctx *d, struct page_ctx
 
 // Note that this is distinct from ImageViewer RLE compression.
 static int do_decompress_rle_compression(deark *c, lctx *d, struct page_ctx *pg,
-	dbuf *inf, de_int64 pos1, de_int64 len, dbuf *unc_pixels)
+	dbuf *inf, i64 pos1, i64 len, dbuf *unc_pixels)
 {
-	de_int64 srcpos = pos1;
+	i64 srcpos = pos1;
 
 	while(srcpos <= (pos1+len-2)) {
-		de_int64 count;
+		i64 count;
 		de_byte val;
 
-		count = (de_int64)de_getbyte(srcpos++);
-		val = (de_int64)de_getbyte(srcpos++);
+		count = (i64)de_getbyte(srcpos++);
+		val = (i64)de_getbyte(srcpos++);
 		dbuf_write_run(unc_pixels, val, count);
 	}
 
@@ -164,7 +164,7 @@ static int do_decompress_rle_compression(deark *c, lctx *d, struct page_ctx *pg,
 }
 
 static int do_decompress_packbits_compression(deark *c, lctx *d, struct page_ctx *pg,
-	dbuf *inf, de_int64 pos1, de_int64 len, dbuf *unc_pixels)
+	dbuf *inf, i64 pos1, i64 len, dbuf *unc_pixels)
 {
 	int ret;
 
@@ -180,7 +180,7 @@ static int do_decompress_packbits_compression(deark *c, lctx *d, struct page_ctx
 static void do_generate_unc_image(deark *c, lctx *d, struct page_ctx *pg,
 	dbuf *unc_pixels)
 {
-	de_int64 i, j;
+	i64 i, j;
 	de_byte b;
 	de_byte b_adj;
 	de_uint32 clr;
@@ -240,10 +240,10 @@ done:
 
 // A wrapper that decompresses the image if necessary, then calls do_generate_unc_image().
 static void do_generate_image(deark *c, lctx *d, struct page_ctx *pg,
-	dbuf *inf, de_int64 pos, de_int64 len, unsigned int cmpr_type)
+	dbuf *inf, i64 pos, i64 len, unsigned int cmpr_type)
 {
 	dbuf *unc_pixels = NULL;
-	de_int64 expected_num_uncmpr_image_bytes;
+	i64 expected_num_uncmpr_image_bytes;
 
 	expected_num_uncmpr_image_bytes = pg->rowbytes*pg->h;
 
@@ -254,8 +254,8 @@ static void do_generate_image(deark *c, lctx *d, struct page_ctx *pg,
 		unc_pixels = dbuf_open_input_subfile(inf, pos, len);
 	}
 	else {
-		de_int64 cmpr_len;
-		de_int64 hdr_len;
+		i64 cmpr_len;
+		i64 hdr_len;
 
 		if(pg->bitmapversion >= 3) {
 			hdr_len = 4;
@@ -317,11 +317,11 @@ static const char *get_cmpr_type_name(unsigned int cmpr_type)
 }
 
 static int read_BitmapType_colortable(deark *c, lctx *d, struct page_ctx *pg,
-	de_int64 pos1, de_int64 *bytes_consumed)
+	i64 pos1, i64 *bytes_consumed)
 {
-	de_int64 num_entries;
-	de_int64 k;
-	de_int64 pos = pos1;
+	i64 num_entries;
+	i64 k;
+	i64 pos = pos1;
 	unsigned int idx;
 	char tmps[32];
 
@@ -363,7 +363,7 @@ static int read_BitmapType_colortable(deark *c, lctx *d, struct page_ctx *pg,
 }
 
 static void do_BitmapDirectInfoType(deark *c, lctx *d, struct page_ctx *pg,
-	de_int64 pos)
+	i64 pos)
 {
 	de_byte cbits[3];
 	de_byte t[4];
@@ -395,18 +395,18 @@ static void do_BitmapDirectInfoType(deark *c, lctx *d, struct page_ctx *pg,
 	de_dbg_indent(c, -1);
 }
 
-static void do_palm_BitmapType_internal(deark *c, lctx *d, de_int64 pos1, de_int64 len,
-	de_int64 *pnextbitmapoffset)
+static void do_palm_BitmapType_internal(deark *c, lctx *d, i64 pos1, i64 len,
+	i64 *pnextbitmapoffset)
 {
-	de_int64 x;
-	de_int64 pos;
+	i64 x;
+	i64 pos;
 	de_uint32 bitmapflags;
 	de_byte pixelsize_raw;
 	de_byte pixelformat = 0; // V3 only
-	de_int64 headersize;
-	de_int64 needed_rowbytes;
-	de_int64 bytes_consumed;
-	de_int64 nextbitmapoffs_in_bytes = 0;
+	i64 headersize;
+	i64 needed_rowbytes;
+	i64 bytes_consumed;
+	i64 nextbitmapoffs_in_bytes = 0;
 	unsigned int cmpr_type;
 	const char *cmpr_type_src_name = "";
 	const char *bpp_src_name = "";
@@ -474,7 +474,7 @@ static void do_palm_BitmapType_internal(deark *c, lctx *d, de_int64 pos1, de_int
 		pg->bitsperpixel = 1;
 		bpp_src_name = "default";
 	}
-	else pg->bitsperpixel = (de_int64)pixelsize_raw;
+	else pg->bitsperpixel = (i64)pixelsize_raw;
 	de_dbg(c, "bits/pixel: %d (%s)", (int)pg->bitsperpixel, bpp_src_name);
 
 	if(pg->bitmapversion==1 || pg->bitmapversion==2) {
@@ -493,7 +493,7 @@ static void do_palm_BitmapType_internal(deark *c, lctx *d, de_int64 pos1, de_int
 		headersize = 16;
 	}
 	else {
-		headersize = (de_int64)de_getbyte(pos1+10);
+		headersize = (i64)de_getbyte(pos1+10);
 		de_dbg(c, "header size: %d", (int)headersize);
 	}
 
@@ -527,7 +527,7 @@ static void do_palm_BitmapType_internal(deark *c, lctx *d, de_int64 pos1, de_int
 	de_dbg(c, "compression type: %s (based on %s)", get_cmpr_type_name(cmpr_type), cmpr_type_src_name);
 
 	if(pg->bitmapversion==3) {
-		de_int64 densitycode;
+		i64 densitycode;
 		densitycode = dbuf_getui16x(c->infile, pos1+14, d->is_le);
 		de_dbg(c, "density: %d", (int)densitycode);
 		// The density is an indication of the target screen density.
@@ -653,10 +653,10 @@ done:
 	}
 }
 
-static void do_palm_BitmapType(deark *c, lctx *d, de_int64 pos1, de_int64 len)
+static void do_palm_BitmapType(deark *c, lctx *d, i64 pos1, i64 len)
 {
-	de_int64 nextbitmapoffs = 0;
-	de_int64 pos = pos1;
+	i64 nextbitmapoffs = 0;
+	i64 pos = pos1;
 
 	while(1) {
 		if(de_getbyte(pos+8) == 0xff) {

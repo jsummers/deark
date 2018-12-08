@@ -10,13 +10,13 @@ DE_DECLARE_MODULE(de_module_msp);
 
 typedef struct localctx_struct {
 	int ver; // 1 or 2
-	de_int64 width, height;
+	i64 width, height;
 	dbuf *rowbuf;
 } lctx;
 
 static void do_ver1(deark *c, lctx *d)
 {
-	de_int64 src_rowspan;
+	i64 src_rowspan;
 
 	// TODO: Are version-1 MSP files padded this way?
 	// (Maybe the width is always a multiple of 8, so it doesn't matter.)
@@ -27,11 +27,11 @@ static void do_ver1(deark *c, lctx *d)
 }
 
 static void do_decompress_scanline(deark *c, lctx *d, de_bitmap *img,
-	de_int64 rownum, de_int64 rowoffset, de_int64 bytes_in_row)
+	i64 rownum, i64 rowoffset, i64 bytes_in_row)
 {
-	de_int64 i;
+	i64 i;
 	de_byte runtype;
-	de_int64 runcount;
+	i64 runcount;
 	de_byte value;
 
 	de_dbg2(c, "decompressing row %d", (int)rownum);
@@ -48,7 +48,7 @@ static void do_decompress_scanline(deark *c, lctx *d, de_bitmap *img,
 		runtype = de_getbyte(rowoffset+i);
 		i++;
 		if(runtype==0x00) {
-			runcount = (de_int64)de_getbyte(rowoffset+i);
+			runcount = (i64)de_getbyte(rowoffset+i);
 			i++;
 			value = de_getbyte(rowoffset+i);
 			i++;
@@ -57,7 +57,7 @@ static void do_decompress_scanline(deark *c, lctx *d, de_bitmap *img,
 			dbuf_write_run(d->rowbuf, value, runcount);
 		}
 		else {
-			runcount = (de_int64)runtype;
+			runcount = (i64)runtype;
 			de_dbg2(c, "%d bytes uncompressed", (int)runcount);
 			dbuf_copy(c->infile, rowoffset+i, runcount, d->rowbuf);
 			i+=runcount;
@@ -69,13 +69,13 @@ static void do_decompress_scanline(deark *c, lctx *d, de_bitmap *img,
 
 static void do_ver2(deark *c, lctx *d)
 {
-	de_int64 j;
-	de_int64 *rowoffset;
-	de_int64 *rowsize;
+	i64 j;
+	i64 *rowoffset;
+	i64 *rowsize;
 	de_bitmap *img = NULL;
 
-	rowoffset = de_malloc(c, d->height * sizeof(de_int64));
-	rowsize = de_malloc(c, d->height * sizeof(de_int64));
+	rowoffset = de_malloc(c, d->height * sizeof(i64));
+	rowsize = de_malloc(c, d->height * sizeof(i64));
 
 	// Read the scanline map, and record the row sizes.
 	for(j=0; j<d->height; j++) {

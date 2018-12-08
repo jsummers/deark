@@ -159,7 +159,7 @@ void de_run(deark *c)
 {
 	dbuf *orig_ifile = NULL;
 	dbuf *subfile = NULL;
-	de_int64 subfile_size;
+	i64 subfile_size;
 	struct deark_module_info *module_to_use = NULL;
 	int module_was_autodetected = 0;
 	int moddisp;
@@ -329,7 +329,7 @@ deark *de_create_internal(void)
 
 void de_destroy(deark *c)
 {
-	de_int64 i;
+	i64 i;
 
 	if(!c) return;
 	if(c->extrlist_file) { de_fclose(c->extrlist_file); }
@@ -421,17 +421,17 @@ int de_set_input_encoding(deark *c, const char *encname, int reserved)
 
 // A hint as to the timezone of local-time timestamps in input files.
 // In hours east of UTC.
-void de_set_input_timezone(deark *c, de_int64 tzoffs_seconds)
+void de_set_input_timezone(deark *c, i64 tzoffs_seconds)
 {
 	c->input_tz_offs_seconds = tzoffs_seconds;
 }
 
-void de_set_input_file_slice_start(deark *c, de_int64 n)
+void de_set_input_file_slice_start(deark *c, i64 n)
 {
 	c->slice_start_req = n;
 }
 
-void de_set_input_file_slice_size(deark *c, de_int64 n)
+void de_set_input_file_slice_size(deark *c, i64 n)
 {
 	c->slice_size_req = n;
 	c->slice_size_req_valid = 1;
@@ -482,7 +482,7 @@ void de_set_max_output_files(deark *c, int n)
 	c->max_output_files = n;
 }
 
-void de_set_max_image_dimension(deark *c, de_int64 n)
+void de_set_max_image_dimension(deark *c, i64 n)
 {
 	if(n<0) n=0;
 	else if (n>0x7fffffff) n=0x7fffffff;

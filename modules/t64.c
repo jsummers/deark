@@ -9,23 +9,23 @@
 DE_DECLARE_MODULE(de_module_t64);
 
 typedef struct localctx_struct {
-	de_int64 version;
-	de_int64 max_dir_entries;
-	de_int64 used_dir_entries;
+	i64 version;
+	i64 max_dir_entries;
+	i64 used_dir_entries;
 } lctx;
 
-static void do_extract_file(deark *c, lctx *d, de_int64 dir_pos,
+static void do_extract_file(deark *c, lctx *d, i64 dir_pos,
 	de_byte filetype_c64s, de_byte filetype)
 {
-	de_int64 load_addr;
-	de_int64 end_addr;
-	de_int64 offset;
+	i64 load_addr;
+	i64 end_addr;
+	i64 offset;
 	dbuf *f = NULL;
-	de_int64 payload_size; // = file_size-2
+	i64 payload_size; // = file_size-2
 	de_ucstring *fname = NULL;
-	de_int64 fname_len;
-	de_int64 i;
-	de_int64 fnpos;
+	i64 fname_len;
+	i64 i;
+	i64 fnpos;
 	de_finfo *fi = NULL;
 
 	load_addr = de_getui16le(dir_pos+2);
@@ -75,7 +75,7 @@ done:
 	ucstring_destroy(fname);
 }
 
-static void do_dir_entry(deark *c, lctx *d, de_int64 entry_num, de_int64 pos)
+static void do_dir_entry(deark *c, lctx *d, i64 entry_num, i64 pos)
 {
 	de_byte filetype_c64s;
 	de_byte filetype;
@@ -105,8 +105,8 @@ static void do_dir_entry(deark *c, lctx *d, de_int64 entry_num, de_int64 pos)
 static void de_run_t64(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
-	de_int64 pos;
-	de_int64 i;
+	i64 pos;
+	i64 i;
 
 	d = de_malloc(c, sizeof(lctx));
 

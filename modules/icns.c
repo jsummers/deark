@@ -69,28 +69,28 @@ static const struct image_type_info image_type_info_arr[] = {
 
 struct page_ctx {
 	int image_num;
-	de_int64 image_pos;
-	de_int64 image_len;
-	de_int64 mask_pos; //  (0 = not found)
-	de_int64 mask_rowspan;
-	de_int64 rowspan;
+	i64 image_pos;
+	i64 image_len;
+	i64 mask_pos; //  (0 = not found)
+	i64 mask_rowspan;
+	i64 rowspan;
 	const struct image_type_info *type_info;
 	struct de_fourcc code4cc;
 	char filename_token[32];
 };
 
 typedef struct localctx_struct {
-	de_int64 file_size;
+	i64 file_size;
 
 	// File offsets of mask images (0 = not present)
-	de_int64 mkpos_16_12_1;
-	de_int64 mkpos_16_16_1;
-	de_int64 mkpos_32_32_1;
-	de_int64 mkpos_48_48_1;
-	de_int64 mkpos_16_16_8;
-	de_int64 mkpos_32_32_8;
-	de_int64 mkpos_48_48_8;
-	de_int64 mkpos_128_128_8;
+	i64 mkpos_16_12_1;
+	i64 mkpos_16_16_1;
+	i64 mkpos_32_32_1;
+	i64 mkpos_48_48_1;
+	i64 mkpos_16_16_8;
+	i64 mkpos_32_32_8;
+	i64 mkpos_48_48_8;
+	i64 mkpos_128_128_8;
 } lctx;
 
 static const de_uint32 supplpal256[41] = {
@@ -123,7 +123,7 @@ static de_uint32 getpal256(int k)
 static void do_decode_1_4_8bit(deark *c, lctx *d, struct page_ctx *pg)
 {
 	de_bitmap *img = NULL;
-	de_int64 i, j;
+	i64 i, j;
 	de_byte a, b;
 	de_byte x;
 	de_uint32 fgcol;
@@ -164,11 +164,11 @@ static void do_decode_1_4_8bit(deark *c, lctx *d, struct page_ctx *pg)
 }
 
 static void do_uncompress_24(deark *c, lctx *d, struct page_ctx *pg, dbuf *unc_pixels,
-	de_int64 skip)
+	i64 skip)
 {
-	de_int64 pos;
+	i64 pos;
 	de_byte b;
-	de_int64 count;
+	i64 count;
 	de_byte n;
 
 	pos = pg->image_pos;
@@ -181,14 +181,14 @@ static void do_uncompress_24(deark *c, lctx *d, struct page_ctx *pg, dbuf *unc_p
 		pos++;
 		if(b>=128) {
 			// Compressed run
-			count = (de_int64)b - 125;
+			count = (i64)b - 125;
 			n = de_getbyte(pos);
 			pos++;
 			dbuf_write_run(unc_pixels, n, count);
 		}
 		else {
 			// An uncompressed run
-			count = 1 + (de_int64)b;
+			count = 1 + (i64)b;
 			dbuf_copy(c->infile, pos, count, unc_pixels);
 			pos += count;
 		}
@@ -199,10 +199,10 @@ static void do_decode_24bit(deark *c, lctx *d, struct page_ctx *pg)
 {
 	dbuf *unc_pixels = NULL;
 	de_bitmap *img = NULL;
-	de_int64 i, j;
+	i64 i, j;
 	de_byte cr, cg, cb, ca;
-	de_int64 w, h;
-	de_int64 skip;
+	i64 w, h;
+	i64 skip;
 
 	w = pg->type_info->width;
 	h = pg->type_info->height;
@@ -321,7 +321,7 @@ static void find_mask(deark *c, lctx *d, struct page_ctx *pg)
 
 static void do_icon(deark *c, lctx *d, struct page_ctx *pg)
 {
-	de_int64 expected_image_size;
+	i64 expected_image_size;
 	int is_compressed;
 
 	if(!pg->type_info) return; // Shouldn't happen.
@@ -393,8 +393,8 @@ static void do_icon(deark *c, lctx *d, struct page_ctx *pg)
 
 static void de_run_icns_pass(deark *c, lctx *d, int pass)
 {
-	de_int64 i;
-	de_int64 segment_pos;
+	i64 i;
+	i64 segment_pos;
 	struct page_ctx *pg = NULL;
 	int image_count;
 
@@ -402,7 +402,7 @@ static void de_run_icns_pass(deark *c, lctx *d, int pass)
 	image_count = 0;
 
 	while(1) {
-		de_int64 segment_len;
+		i64 segment_len;
 
 		if(pg) { de_free(c, pg); pg=NULL; }
 
@@ -505,7 +505,7 @@ static void de_run_icns(deark *c, de_module_params *mparams)
 
 static int de_identify_icns(deark *c)
 {
-	de_int64 fsize;
+	i64 fsize;
 
 	if(dbuf_memcmp(c->infile, 0, "icns", 4)) return 0;
 

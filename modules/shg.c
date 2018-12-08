@@ -10,10 +10,10 @@
 DE_DECLARE_MODULE(de_module_shg);
 
 typedef struct localctx_struct {
-	de_int64 signature;
+	i64 signature;
 
-	de_int64 shg_startpos;
-	de_int64 num_pictures;
+	i64 shg_startpos;
+	i64 num_pictures;
 
 	de_byte picture_type;
 	de_byte packing_method;
@@ -23,13 +23,13 @@ typedef struct localctx_struct {
 // gratuitously different.
 // If expected_output_len is 0, it will be ignored.
 static void do_uncompress_lz77(deark *c,
-	dbuf *inf, de_int64 pos1, de_int64 input_len,
-	dbuf *outf, de_int64 expected_output_len)
+	dbuf *inf, i64 pos1, i64 input_len,
+	dbuf *outf, i64 expected_output_len)
 {
-	de_int64 pos = pos1;
+	i64 pos = pos1;
 	de_byte *window = NULL;
 	unsigned int wpos;
-	de_int64 nbytes_read;
+	i64 nbytes_read;
 
 	window = de_malloc(c, 4096);
 	wpos = 4096 - 16;
@@ -85,10 +85,10 @@ unc_done:
 }
 
 // "compressed unsigned short" - a variable-length integer format
-static de_int64 get_cus(dbuf *f, de_int64 *pos)
+static i64 get_cus(dbuf *f, i64 *pos)
 {
-	de_int64 x1, x2;
-	x1 = (de_int64)dbuf_getbyte(f, *pos);
+	i64 x1, x2;
+	x1 = (i64)dbuf_getbyte(f, *pos);
 	*pos += 1;
 	if(x1%2 == 0) {
 		// If it's even, divide by two.
@@ -96,15 +96,15 @@ static de_int64 get_cus(dbuf *f, de_int64 *pos)
 	}
 	// If it's odd, divide by two, and add 128 times the value of
 	// the next byte.
-	x2 = (de_int64)dbuf_getbyte(f, *pos);
+	x2 = (i64)dbuf_getbyte(f, *pos);
 	*pos += 1;
 	return (x1>>1) | (x2<<7);
 }
 
 // "compressed unsigned long" - a variable-length integer format
-static de_int64 get_cul(dbuf *f, de_int64 *pos)
+static i64 get_cul(dbuf *f, i64 *pos)
 {
-	de_int64 x1, x2;
+	i64 x1, x2;
 	x1 = dbuf_getui16le(f, *pos);
 	*pos += 2;
 	if(x1%2 == 0) {
@@ -119,13 +119,13 @@ static de_int64 get_cul(dbuf *f, de_int64 *pos)
 }
 
 static void do_uncompress_rle(deark *c, lctx *d,
-	dbuf *inf, de_int64 pos1, de_int64 len,
+	dbuf *inf, i64 pos1, i64 len,
 	dbuf *unc_pixels)
 {
-	de_int64 pos;
-	de_int64 endpos;
+	i64 pos;
+	i64 endpos;
 	de_byte b;
-	de_int64 count;
+	i64 count;
 
 	de_dbg(c, "uncompressing RLE data");
 	endpos = pos1 + len;
@@ -135,13 +135,13 @@ static void do_uncompress_rle(deark *c, lctx *d,
 		pos++;
 		if(b&0x80) {
 			// uncompressed run
-			count = (de_int64)(b&0x7f);
+			count = (i64)(b&0x7f);
 			dbuf_copy(inf, pos, count, unc_pixels);
 			pos += count;
 		}
 		else {
 			// compressed run
-			count = (de_int64)b;
+			count = (i64)b;
 			b = dbuf_getbyte(inf, pos);
 			pos++;
 			dbuf_write_run(unc_pixels, b, count);
@@ -150,8 +150,8 @@ static void do_uncompress_rle(deark *c, lctx *d,
 }
 
 static int do_uncompress_picture_data(deark *c, lctx *d,
-	de_int64 compressed_offset, de_int64 compressed_size,
-	dbuf *pixels_final, de_int64 final_image_size)
+	i64 compressed_offset, i64 compressed_size,
+	dbuf *pixels_final, i64 final_image_size)
 {
 	dbuf *pixels_tmp = NULL;
 	int retval = 0;
@@ -200,28 +200,28 @@ done:
 	return retval;
 }
 
-static de_int64 per_inch_to_per_meter(de_int64 dpi)
+static i64 per_inch_to_per_meter(i64 dpi)
 {
-	return (de_int64)(0.5 + (100.0/2.54)*(double)dpi);
+	return (i64)(0.5 + (100.0/2.54)*(double)dpi);
 }
 
-static int do_dib(deark *c, lctx *d, de_int64 pos1)
+static int do_dib(deark *c, lctx *d, i64 pos1)
 {
-	de_int64 xdpi, ydpi;
-	de_int64 planes;
-	de_int64 bitcount;
-	de_int64 width, height;
-	de_int64 colors_used;
-	de_int64 colors_important;
-	de_int64 compressed_size;
-	de_int64 hotspot_size;
-	de_int64 compressed_offset;
-	de_int64 hotspot_offset;
-	de_int64 pos;
-	de_int64 pal_offset;
-	de_int64 pal_size_in_colors;
-	de_int64 pal_size_in_bytes;
-	de_int64 final_image_size;
+	i64 xdpi, ydpi;
+	i64 planes;
+	i64 bitcount;
+	i64 width, height;
+	i64 colors_used;
+	i64 colors_important;
+	i64 compressed_size;
+	i64 hotspot_size;
+	i64 compressed_offset;
+	i64 hotspot_offset;
+	i64 pos;
+	i64 pal_offset;
+	i64 pal_size_in_colors;
+	i64 pal_size_in_bytes;
+	i64 final_image_size;
 	dbuf *pixels_final = NULL;
 	struct de_bmpinfo bi;
 	dbuf *outf = NULL;
@@ -291,11 +291,11 @@ static int do_dib(deark *c, lctx *d, de_int64 pos1)
 		pal_size_in_colors = 0;
 	}
 	else if(colors_used==0) {
-		pal_size_in_colors = ((de_int64)1)<<bitcount;
+		pal_size_in_colors = ((i64)1)<<bitcount;
 	}
 	else {
 		pal_size_in_colors = colors_used;
-		if(pal_size_in_colors<1 || pal_size_in_colors>(((de_int64)1)<<bitcount)) {
+		if(pal_size_in_colors<1 || pal_size_in_colors>(((i64)1)<<bitcount)) {
 			goto done;
 		}
 	}
@@ -346,16 +346,16 @@ done:
 	return retval;
 }
 
-static int do_wmf(deark *c, lctx *d, de_int64 pos1)
+static int do_wmf(deark *c, lctx *d, i64 pos1)
 {
-	de_int64 pos;
-	de_int64 mapping_mode;
-	de_int64 width, height;
-	de_int64 decompressed_size;
-	de_int64 compressed_size;
-	de_int64 hotspot_size;
-	de_int64 compressed_offset;
-	de_int64 hotspot_offset;
+	i64 pos;
+	i64 mapping_mode;
+	i64 width, height;
+	i64 decompressed_size;
+	i64 compressed_size;
+	i64 hotspot_size;
+	i64 compressed_offset;
+	i64 hotspot_offset;
 	dbuf *pixels_final = NULL;
 	dbuf *outf = NULL;
 	int retval = 0;
@@ -410,9 +410,9 @@ done:
 	return retval;
 }
 
-static int do_picture(deark *c, lctx *d, de_int64 pic_index)
+static int do_picture(deark *c, lctx *d, i64 pic_index)
 {
-	de_int64 pic_offset;
+	i64 pic_offset;
 	const char *ptname;
 
 	int retval = 0;
@@ -457,7 +457,7 @@ done:
 
 static void do_shg(deark *c, lctx *d)
 {
-	de_int64 k;
+	i64 k;
 
 	d->num_pictures = de_getui16le(d->shg_startpos+2);
 	de_dbg(c, "number of pictures in file: %d", (int)d->num_pictures);
