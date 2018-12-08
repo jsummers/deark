@@ -53,14 +53,14 @@ static int do_header(deark *c, lctx *d, i64 pos1)
 
 	pos += 9; // signature
 
-	d->globalimg.w = de_getui16le_p(&pos);
-	d->globalimg.h = de_getui16le_p(&pos);
+	d->globalimg.w = de_getu16le_p(&pos);
+	d->globalimg.h = de_getu16le_p(&pos);
 	de_dbg_dimensions(c, d->globalimg.w, d->globalimg.h);
 
-	d->globalimg.palmode = (unsigned int)de_getui16le_p(&pos);
+	d->globalimg.palmode = (unsigned int)de_getu16le_p(&pos);
 	de_dbg(c, "palette mode: %u", d->globalimg.palmode);
 
-	d->globalimg.bpp = de_getui16le_p(&pos);
+	d->globalimg.bpp = de_getu16le_p(&pos);
 	de_dbg(c, "bits/pixel: %d", (int)d->globalimg.bpp);
 
 	if(d->globalimg.palmode && d->globalimg.bpp>=1 && d->globalimg.bpp<=8) {
@@ -69,7 +69,7 @@ static int do_header(deark *c, lctx *d, i64 pos1)
 
 	pos += 2;
 
-	d->num_table_items = de_getui16le_p(&pos);
+	d->num_table_items = de_getu16le_p(&pos);
 	if(d->num_table_items>100) goto done;
 
 	d->fixed_header_size = pos - pos1;
@@ -94,8 +94,8 @@ static int do_read_table(deark *c, lctx *d, i64 pos1)
 	de_dbg_indent(c, 1);
 
 	for(k=0; k<d->num_table_items; k++) {
-		d->table[k].tag_num = (unsigned int)de_getui16le_p(&pos);
-		d->table[k].tag_offs = de_getui32le_p(&pos);
+		d->table[k].tag_num = (unsigned int)de_getu16le_p(&pos);
+		d->table[k].tag_offs = de_getu32le_p(&pos);
 		de_dbg(c, "item[%d]: tag=0x%x, offset=%"I64_FMT, (int)k,
 			d->table[k].tag_num, d->table[k].tag_offs);
 	}
@@ -123,14 +123,14 @@ static void do_bitmap(deark *c, lctx *d, i64 pos1)
 
 	de_dbg(c, "bitmap at %"I64_FMT, pos1);
 	de_dbg_indent(c, 1);
-	ii.w = de_getui16le_p(&pos);
-	ii.h = de_getui16le_p(&pos);
+	ii.w = de_getu16le_p(&pos);
+	ii.h = de_getu16le_p(&pos);
 	de_dbg_dimensions(c, ii.w, ii.h);
 
-	ii.bpp = de_getui16le_p(&pos);
+	ii.bpp = de_getu16le_p(&pos);
 	de_dbg(c, "bits/pixel: %d", (int)ii.bpp);
 
-	ii.palmode = (unsigned int)de_getui16le_p(&pos);
+	ii.palmode = (unsigned int)de_getu16le_p(&pos);
 	de_dbg(c, "palette mode: %u", ii.palmode);
 
 	if(ii.palmode) {
@@ -143,11 +143,11 @@ static void do_bitmap(deark *c, lctx *d, i64 pos1)
 
 	pos += 2;
 
-	unc_data_size = de_getui32le_p(&pos);
+	unc_data_size = de_getu32le_p(&pos);
 	de_dbg(c, "uncmpr data size: %"I64_FMT, unc_data_size);
 	if(unc_data_size>DE_MAX_FILE_SIZE) goto done;
 
-	max_uncmpr_block_size = de_getui16le_p(&pos);
+	max_uncmpr_block_size = de_getu16le_p(&pos);
 	de_dbg(c, "max uncmpr block size: %d", (int)max_uncmpr_block_size);
 
 	if(ii.num_pal_entries>0) {
@@ -171,7 +171,7 @@ static void do_bitmap(deark *c, lctx *d, i64 pos1)
 
 		de_dbg(c, "block at %d", (int)pos);
 		de_dbg_indent(c, 1);
-		blen = de_getui16le_p(&pos);
+		blen = de_getu16le_p(&pos);
 		de_dbg(c, "block len: %d", (int)blen);
 		pos++;
 		if(pos+blen > c->infile->len) goto done;
@@ -227,7 +227,7 @@ static void do_comment(deark *c, lctx *d, i64 idx, i64 pos1)
 	i64 pos = pos1;
 
 	pos += 2;
-	cmt_len = de_getui32le_p(&pos);
+	cmt_len = de_getu32le_p(&pos);
 	pos += 2;
 
 	s = ucstring_create(c);

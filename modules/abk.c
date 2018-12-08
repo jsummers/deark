@@ -465,7 +465,7 @@ static void do_picture_bank(deark *c, lctx *d, struct amosbank *bk)
 
 	pos += 20; // Advance past AmBk header
 
-	segtype = (u32)de_getui32be(pos);
+	segtype = (u32)de_getu32be(pos);
 	if(segtype==0x12031990) {
 		found_screen_header = 1;
 		picture_bank_screen_header(c, d, bk, pos);
@@ -476,7 +476,7 @@ static void do_picture_bank(deark *c, lctx *d, struct amosbank *bk)
 			goto done;
 		}
 
-		segtype = (u32)de_getui32be(pos);
+		segtype = (u32)de_getu32be(pos);
 	}
 
 	if(segtype!=0x06071963) {
@@ -607,7 +607,7 @@ static void do_read_AmBs(deark *c, lctx *d)
 	i64 pos;
 	int ret;
 
-	nbanks = de_getui16be(4);
+	nbanks = de_getu16be(4);
 	de_dbg(c, "number of banks: %d", (int)nbanks);
 
 	pos = 6;
@@ -630,7 +630,7 @@ static void de_run_abk(deark *c, de_module_params *mparams)
 
 	d = de_malloc(c, sizeof(lctx));
 
-	d->fmt = (u32)de_getui32be(0);
+	d->fmt = (u32)de_getu32be(0);
 
 	if(d->fmt==CODE_AmBk) {
 		de_declare_fmt(c, "AMOS Memory Bank");
@@ -697,7 +697,7 @@ static void de_run_amos_source(deark *c, de_module_params *mparams)
 	d = de_malloc(c, sizeof(lctx));
 
 	pos = 16;
-	basic_len = de_getui32be(pos);
+	basic_len = de_getu32be(pos);
 	pos += 4;
 	de_dbg(c, "BASIC code at %d, len=%d", (int)pos, (int)basic_len);
 	pos += basic_len;
@@ -708,7 +708,7 @@ static void de_run_amos_source(deark *c, de_module_params *mparams)
 	}
 
 	de_dbg(c, "AmBs segment at %d", (int)pos);
-	nbanks = de_getui16be(pos+4);
+	nbanks = de_getu16be(pos+4);
 	de_dbg_indent(c, 1);
 	de_dbg(c, "number of banks: %d", (int)nbanks);
 	if(nbanks>0 || c->extract_level>=2) {

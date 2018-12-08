@@ -278,21 +278,21 @@ static int do_header(deark *c, lctx *d)
 	// offset 0-7: signature
 	// offset 8-23: CLSID
 
-	d->minor_ver = de_getui16le(pos+24);
-	d->major_ver = de_getui16le(pos+26);
+	d->minor_ver = de_getu16le(pos+24);
+	d->major_ver = de_getu16le(pos+26);
 	de_dbg(c, "format version: %d.%d", (int)d->major_ver, (int)d->minor_ver);
 	if(d->major_ver!=3 && d->major_ver!=4) {
 		de_err(c, "Unsupported format version: %d", (int)d->major_ver);
 		goto done;
 	}
 
-	byte_order_code = de_getui16le(pos+28);
+	byte_order_code = de_getu16le(pos+28);
 	if(byte_order_code != 0xfffe) {
 		de_err(c, "Unsupported byte order code: 0x%04x", (unsigned int)byte_order_code);
 		goto done;
 	}
 
-	sector_shift = de_getui16le(pos+30); // aka ssz
+	sector_shift = de_getu16le(pos+30); // aka ssz
 	d->sec_size = (i64)(1<<(unsigned int)sector_shift);
 	de_dbg(c, "sector size: 2^%d (%d bytes)", (int)sector_shift,
 		(int)d->sec_size);
@@ -301,7 +301,7 @@ static int do_header(deark *c, lctx *d)
 		goto done;
 	}
 
-	mini_sector_shift = de_getui16le(pos+32); // aka sssz
+	mini_sector_shift = de_getu16le(pos+32); // aka sssz
 	d->mini_sector_size = (i64)(1<<(unsigned int)mini_sector_shift);
 	de_dbg(c, "mini sector size: 2^%d (%d bytes)", (int)mini_sector_shift,
 		(int)d->mini_sector_size);
@@ -312,12 +312,12 @@ static int do_header(deark *c, lctx *d)
 
 	// offset 34: 6 reserved bytes
 
-	//d->num_dir_sectors = de_getui32le(pos+40);
+	//d->num_dir_sectors = de_getu32le(pos+40);
 	//de_dbg(c, "number of directory sectors: %u", (unsigned int)d->num_dir_sectors);
 	// Should be 0 if major_ver==3
 
 	// Number of sectors used by sector allocation table (FAT)
-	d->num_fat_sectors = de_getui32le(pos+44);
+	d->num_fat_sectors = de_getu32le(pos+44);
 	de_dbg(c, "number of FAT sectors: %d", (int)d->num_fat_sectors);
 
 	d->first_dir_sec_id = de_geti32le(pos+48);
@@ -326,7 +326,7 @@ static int do_header(deark *c, lctx *d)
 
 	// offset 52, transaction signature number
 
-	d->std_stream_min_size = de_getui32le(pos+56);
+	d->std_stream_min_size = de_getu32le(pos+56);
 	de_dbg(c, "min size of a standard stream: %d", (int)d->std_stream_min_size);
 
 	// First sector of mini sector allocation table (MiniFAT)
@@ -335,7 +335,7 @@ static int do_header(deark *c, lctx *d)
 	de_dbg(c, "first MiniFAT sector: %d (%s)", (int)d->first_minifat_sec_id, buf);
 
 	// Number of sectors used by MiniFAT
-	d->num_minifat_sectors = de_getui32le(pos+64);
+	d->num_minifat_sectors = de_getu32le(pos+64);
 	de_dbg(c, "number of MiniFAT sectors: %d", (int)d->num_minifat_sectors);
 
 	// SecID of first (extra??) sector of the DIFAT
@@ -345,7 +345,7 @@ static int do_header(deark *c, lctx *d)
 	de_dbg(c, "first extended DIFAT sector: %d (%s)", (int)d->first_difat_sec_id, buf);
 
 	// Number of (extra??) sectors used by the DIFAT
-	d->num_difat_sectors = de_getui32le(pos+72);
+	d->num_difat_sectors = de_getu32le(pos+72);
 	de_dbg(c, "number of extended DIFAT sectors: %d", (int)d->num_difat_sectors);
 
 	// offset 76: 436 bytes of DIFAT data

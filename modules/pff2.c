@@ -52,8 +52,8 @@ static void do_char(deark *c, lctx *d, i64 char_idx, i32 codepoint, i64 pos)
 
 	ch->codepoint_unicode = codepoint;
 
-	ch->width = (int)de_getui16be(pos);
-	ch->height = (int)de_getui16be(pos+2);
+	ch->width = (int)de_getu16be(pos);
+	ch->height = (int)de_getu16be(pos+2);
 	if(ch->width > d->font->nominal_width) d->font->nominal_width = ch->width;
 	if(ch->height > d->font->nominal_height) d->font->nominal_height = ch->height;
 
@@ -93,9 +93,9 @@ static void do_code_chix(deark *c, lctx *d, const struct pff2_sectiontype_info *
 
 	for(i=0; i<d->font->num_chars; i++) {
 		pos = pos1 + 9*i;
-		codepoint = (i32)de_getui32be(pos);
+		codepoint = (i32)de_getu32be(pos);
 		storage_flags = (unsigned int)de_getbyte(pos+4);
-		defpos = de_getui32be(pos+5);
+		defpos = de_getu32be(pos+5);
 		de_dbg2(c, "code point U+%04X, index at %d, definition at %d",
 			(unsigned int)codepoint, (int)pos, (int)defpos);
 		if((storage_flags&0x07)!=0) {

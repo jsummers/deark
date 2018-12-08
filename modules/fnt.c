@@ -42,7 +42,7 @@ static void do_prescan_chars(deark *c, lctx *d)
 
 	for(i=0; i<d->num_chars_stored; i++) {
 		pos = d->hdrsize + d->char_entry_size*i;
-		char_width = de_getui16le(pos);
+		char_width = de_getu16le(pos);
 
 		if(char_width > d->detected_max_width) {
 			d->detected_max_width = char_width;
@@ -82,11 +82,11 @@ static void do_make_image(deark *c, lctx *d)
 		i64 row;
 
 		pos = d->hdrsize + d->char_entry_size*i;
-		char_width = de_getui16le(pos);
+		char_width = de_getu16le(pos);
 		if(d->char_entry_size==6)
-			char_offset = de_getui32le(pos+2);
+			char_offset = de_getu32le(pos+2);
 		else
-			char_offset = de_getui16le(pos+2);
+			char_offset = de_getu16le(pos+2);
 		de_dbg2(c, "char[%d] width=%d offset=%d", (int)(d->first_char + i), (int)char_width, (int)char_offset);
 
 		num_tiles = (char_width+7)/8;
@@ -186,7 +186,7 @@ static int do_read_header(deark *c, lctx *d)
 	de_dbg(c, "fixed header at %d", (int)0);
 	de_dbg_indent(c, 1);
 
-	d->fnt_version = de_getui16le(0);
+	d->fnt_version = de_getu16le(0);
 	de_dbg(c, "dfVersion: 0x%04x", (int)d->fnt_version);
 
 	if(d->fnt_version==0x0300)
@@ -194,16 +194,16 @@ static int do_read_header(deark *c, lctx *d)
 	else
 		d->hdrsize = 118;
 
-	dfType = de_getui16le(66);
+	dfType = de_getu16le(66);
 	d->is_vector = (dfType&0x1)?1:0;
 	de_dbg(c, "dfType: 0x%04x (%s)", (int)dfType, d->is_vector?"vector":"bitmap");
 
-	d->dfPoints = de_getui16le(68);
+	d->dfPoints = de_getu16le(68);
 	de_dbg(c, "dfPoints: %d", (int)d->dfPoints);
 
-	dfPixWidth = de_getui16le(86);
+	dfPixWidth = de_getu16le(86);
 	de_dbg(c, "dfPixWidth: %d", (int)dfPixWidth);
-	dfPixHeight = de_getui16le(88);
+	dfPixHeight = de_getu16le(88);
 	de_dbg(c, "dfPixHeight: %d", (int)dfPixHeight);
 
 	d->dfCharSet = de_getbyte(85);
@@ -219,7 +219,7 @@ static int do_read_header(deark *c, lctx *d)
 		d->encoding = DE_ENCODING_UNKNOWN;
 	}
 
-	dfMaxWidth = de_getui16le(93);
+	dfMaxWidth = de_getu16le(93);
 	de_dbg(c, "dfMaxWidth: %d", (int)dfMaxWidth);
 
 	if(dfPixWidth!=dfMaxWidth && dfPixWidth!=0) {
@@ -233,7 +233,7 @@ static int do_read_header(deark *c, lctx *d)
 	de_dbg(c, "last char: %d", (int)d->last_char);
 
 	if(d->fnt_version >= 0x0200) {
-		d->dfFace = de_getui32le(105);
+		d->dfFace = de_getu32le(105);
 	}
 	de_dbg_indent(c, -1);
 
@@ -305,7 +305,7 @@ static int de_identify_fnt(deark *c)
 
 	// TODO: Better format detection.
 	if(de_input_file_has_ext(c, "fnt")) {
-		ver = de_getui16le(0);
+		ver = de_getu16le(0);
 		if(ver==0x0100 || ver==0x0200 || ver==0x0300)
 			return 10;
 	}

@@ -46,7 +46,7 @@ static void do_sprite_param_block(deark *c, lctx *d, i64 res,
 	adata_mask->bpp = 1;
 	adata_mask->ncolors = 2;
 
-	sprite_data_offs_raw = de_getui32be(pos);
+	sprite_data_offs_raw = de_getu32be(pos);
 
 	//de_dbg(c, "sprite data offset: %d (->%d)", (int)sprite_data_offs_raw, (int)mask_offs);
 	width_raw = (i64)de_getbyte(pos+4);
@@ -118,7 +118,7 @@ static void read_sprite_palette(deark *c, lctx *d, i64 pos)
 
 	if(pos>=c->infile->len) return;
 
-	n = de_getui32be(pos);
+	n = de_getu32be(pos);
 	if(n!=0x50414c54) {
 		de_warn(c, "Sprite palette not found (expected at %d)", (int)pos);
 		d->pal[0] = DE_STOCKCOLOR_WHITE;
@@ -140,10 +140,10 @@ static void do_sprite_bank(deark *c, lctx *d, i64 pos)
 	i64 pal_pos;
 
 	for(res=0; res<3; res++) {
-		paramoffs_raw[res] = de_getui32be(pos+4+4*res);
+		paramoffs_raw[res] = de_getu32be(pos+4+4*res);
 		// paramoffs is relative to the first position after the ID.
 		paramoffs[res] = pos + 4 + paramoffs_raw[res];
-		nsprites[res] = de_getui16be(pos+16+2*res);
+		nsprites[res] = de_getu16be(pos+16+2*res);
 		de_dbg(c, "%s-res sprites: %d, param blk offset: %d ("DE_CHAR_RIGHTARROW" %d)", sprite_res_name[res],
 			(int)nsprites[res], (int)paramoffs_raw[res], (int)paramoffs[res]);
 		nsprites_total += nsprites[res];
@@ -175,10 +175,10 @@ static void do_icon(deark *c, lctx *d, i64 idx, i64 pos)
 	de_dbg(c, "icon #%d, at %d", (int)idx, (int)pos);
 	de_dbg_indent(c, 1);
 
-	format_flag = de_getui16be(pos+4);
+	format_flag = de_getu16be(pos+4);
 	de_dbg(c, "format flag: 0x%04x", (unsigned int)format_flag);
-	bgcol = de_getui16be(pos+6);
-	fgcol = de_getui16be(pos+8);
+	bgcol = de_getu16be(pos+6);
+	fgcol = de_getu16be(pos+8);
 	de_dbg(c, "bgcol: 0x%04x, fgcol: 0x%04x", (unsigned int)bgcol, (unsigned int)fgcol);
 
 	// TODO: I don't know how to figure out what colors to use.
@@ -219,7 +219,7 @@ static void do_icon_bank(deark *c, lctx *d, i64 pos)
 	i64 num_icons;
 	i64 k;
 
-	num_icons = de_getui16be(pos+4);
+	num_icons = de_getu16be(pos+4);
 	de_dbg(c, "number of icons: %d", (int)num_icons);
 	for(k=0; k<num_icons; k++) {
 		do_icon(c, d, k, pos+6+84*k);
@@ -232,7 +232,7 @@ static void do_mbk_data_bank(deark *c, lctx *d, i64 pos)
 
 	de_dbg(c, "STOS data bank at %d", (int)pos);
 	de_dbg_indent(c, 1);
-	d->data_bank_id = (u32)de_getui32be(pos);
+	d->data_bank_id = (u32)de_getu32be(pos);
 
 	switch(d->data_bank_id) {
 	case 0x06071963U: bn = "packed screen"; break;
@@ -265,7 +265,7 @@ static void do_mbk(deark *c, lctx *d)
 
 	de_dbg(c, "bank number: %d", (int)d->banknum);
 
-	d->banksize = de_getui32be(14);
+	d->banksize = de_getu32be(14);
 	d->banktype = (u8)(d->banksize>>24);
 	d->banksize &= (i64)0x00ffffff;
 
@@ -306,7 +306,7 @@ static void de_run_mbk_mbs(deark *c, de_module_params *mparams)
 
 	de_read(buf, 0, sizeof(buf));
 	if(!de_memcmp(buf, "Lionpoubnk", 10)) {
-		d->banknum = de_getui32be(10);
+		d->banknum = de_getu32be(10);
 		if(d->banknum==0) {
 			de_declare_fmt(c, "STOS MBS");
 			do_mbs(c, d);

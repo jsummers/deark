@@ -68,7 +68,7 @@ static void do_opo_opa(deark *c, lctx *d)
 	de_declare_fmt(c, "Psion OPO/OPA");
 
 	// The second header marks the end of the embedded files section, I guess.
-	offset_2ndheader = de_getui16le(18);
+	offset_2ndheader = de_getu16le(18);
 	de_dbg(c, "offset of second header: %d", (int)offset_2ndheader);
 	pos = 20;
 
@@ -78,7 +78,7 @@ static void do_opo_opa(deark *c, lctx *d)
 	pos+=n;
 	while(pos<offset_2ndheader) {
 		// Read length of this embedded file
-		len = de_getui16le(pos);
+		len = de_getu16le(pos);
 		pos+=2;
 		handle_embedded_file(c, d, pos, len);
 		pos+=len;
@@ -94,8 +94,8 @@ static void do_img_app(deark *c, lctx *d)
 	de_declare_fmt(c, "Psion IMG/APP");
 
 	for(i=0; i<4; i++) {
-		offset = de_getui16le(40 + 4*i);
-		len = de_getui16le(40 + 4*i + 2);
+		offset = de_getu16le(40 + 4*i);
+		len = de_getu16le(40 + 4*i + 2);
 		if(offset==0) break;
 		handle_embedded_file(c, d, offset, len);
 	}

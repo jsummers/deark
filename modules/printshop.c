@@ -99,7 +99,7 @@ static void do_printshop_etc(deark *c, lctx *d)
 	}
 
 	if(d->fmt == PRINTSHOP_FMT_POG) {
-		num_images = de_getui16le(8);
+		num_images = de_getu16le(8);
 		de_dbg(c, "number of images: %d", (int)num_images);
 		num_images_is_known = 1;
 		headersize = 10;

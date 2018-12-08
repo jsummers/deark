@@ -70,10 +70,10 @@ static int do_ape_item(deark *c, struct ape_tag_header_footer *ah,
 	de_dbg(c, "APE item at %"I64_FMT, pos1);
 	de_dbg_indent(c, 1);
 
-	item_value_len = de_getui32le(pos);
+	item_value_len = de_getu32le(pos);
 	pos += 4;
 
-	flags = (u32)de_getui32le(pos);
+	flags = (u32)de_getu32le(pos);
 	de_dbg(c, "flags: 0x%08x", (unsigned int)flags);
 	if(ah->ape_ver>=2000) {
 		de_dbg_indent(c, 1);
@@ -138,17 +138,17 @@ static int do_ape_tag_header_or_footer(deark *c, struct ape_tag_header_footer *a
 {
 	int retval = 0;
 
-	ah->ape_ver = (u32)de_getui32le(pos1+8);
+	ah->ape_ver = (u32)de_getu32le(pos1+8);
 	de_dbg(c, "version: %u", (unsigned int)ah->ape_ver);
-	ah->tag_size_raw = de_getui32le(pos1+12);
+	ah->tag_size_raw = de_getu32le(pos1+12);
 	de_dbg(c, "tag size: %d", (int)ah->tag_size_raw);
 	if(is_footer) {
 		ah->items_startpos = pos1 + 32 - ah->tag_size_raw;
 		ah->items_size = pos1 - ah->items_startpos;
 	}
-	ah->item_count = de_getui32le(pos1+16);
+	ah->item_count = de_getu32le(pos1+16);
 	de_dbg(c, "item count: %d", (int)ah->item_count);
-	ah->ape_flags = (u32)de_getui32le(pos1+20);
+	ah->ape_flags = (u32)de_getu32le(pos1+20);
 	de_dbg(c, "flags: 0x%08x", (unsigned int)ah->ape_flags);
 	if(ah->ape_ver>=2000) {
 		ah->has_header = (ah->ape_flags&0x80000000U) ? 1 : 0;
@@ -354,7 +354,7 @@ static void do_mp3_frame(deark *c, mp3ctx *d, i64 pos1, i64 len)
 	char buf[32];
 
 	de_dbg_indent_save(c, &saved_indent_level);
-	x = (u32)de_getui32be(pos);
+	x = (u32)de_getu32be(pos);
 	if((x & 0xffe00000U) != 0xffe00000U) {
 		int ret;
 		i64 num_bytes_to_skip = 0;
@@ -366,7 +366,7 @@ static void do_mp3_frame(deark *c, mp3ctx *d, i64 pos1, i64 len)
 		}
 		pos += num_bytes_to_skip;
 		de_msg(c, "Note: Possible MP3 frame header found at %"I64_FMT".", pos);
-		x = (u32)de_getui32be(pos);
+		x = (u32)de_getu32be(pos);
 	}
 
 	de_dbg(c, "frame at %"I64_FMT, pos);
@@ -507,7 +507,7 @@ static int de_identify_mpegaudio(deark *c)
 		pos = 0;
 	}
 
-	x = (unsigned int)de_getui16be(pos);
+	x = (unsigned int)de_getu16be(pos);
 	if((x&0xffe0) == 0xffe0) {
 		ver_id = (x&0x0018)>>3;
 		lyr_id = (x&0x0006)>>1;

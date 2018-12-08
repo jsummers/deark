@@ -116,8 +116,8 @@ static int do_object_sequence(deark *c, lctx *d, i64 pos1, i64 len)
 		de_zeromem(&oi, sizeof(struct objinfo));
 		oi.objpos = pos;
 		if((oi.objpos+24) > (pos1+len)) break;
-		oi.objtype = (u32)de_getui32le_p(&pos);
-		oi.objsize = de_getui32le_p(&pos);
+		oi.objtype = (u32)de_getu32le_p(&pos);
+		oi.objsize = de_getu32le_p(&pos);
 		if(oi.objsize<8 || (oi.objpos+oi.objsize)>(pos1+len)) {
 			de_err(c, "Bad object size (%u) at %"I64_FMT, (unsigned int)oi.objsize, oi.objpos);
 			goto done;
@@ -155,8 +155,8 @@ static int do_header(deark *c, lctx *d, i64 pos1)
 	de_dbg(c, "header at %d", (int)pos1);
 	de_dbg_indent(c, 1);
 	pos += 4; // file signature
-	d->majver = (unsigned int)de_getui32le_p(&pos);
-	d->minver = (unsigned int)de_getui32le_p(&pos);
+	d->majver = (unsigned int)de_getu32le_p(&pos);
+	d->minver = (unsigned int)de_getu32le_p(&pos);
 	de_dbg(c, "format version: %u,%u", d->majver, d->minver);
 	pos += 12; // app name
 	pos += 16; // bounding box

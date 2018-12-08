@@ -100,8 +100,8 @@ static int do_header_structure(deark *c, lctx *d, int is_sig, i64 pos1,
 	}
 	pos += 8;
 
-	indexcount = de_getui32be(pos);
-	storesize = de_getui32be(pos+4);
+	indexcount = de_getu32be(pos);
+	storesize = de_getu32be(pos+4);
 	de_dbg(c, "%s: pos=%d indexcount=%d storesize=%d", hdrname,
 		(int)pos, (int)indexcount, (int)storesize);
 	pos += 8;
@@ -114,10 +114,10 @@ static int do_header_structure(deark *c, lctx *d, int is_sig, i64 pos1,
 	de_dbg_indent(c, 1);
 
 	for(i=0; i<indexcount; i++) {
-		tag_id = de_getui32be(pos);
-		tag_type = de_getui32be(pos+4);
-		tag_offset = de_getui32be(pos+8);
-		tag_count = de_getui32be(pos+12);
+		tag_id = de_getu32be(pos);
+		tag_type = de_getu32be(pos+4);
+		tag_offset = de_getu32be(pos+8);
+		tag_count = de_getu32be(pos+12);
 
 		de_dbg2(c, "tag #%d type=%d offset=%d count=%d", (int)tag_id,
 			(int)tag_type, (int)tag_offset, (int)tag_count);

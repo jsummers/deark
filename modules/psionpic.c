@@ -26,10 +26,10 @@ static void do_read_plane_info(deark *c, lctx *d, struct plane_info_struct *pi, 
 	i64 image_size_in_bytes;
 
 	de_zeromem(pi, sizeof(struct plane_info_struct));
-	pi->width = de_getui16le(pos+2);
-	pi->height = de_getui16le(pos+4);
-	image_size_in_bytes = de_getui16le(pos+6);
-	image_relative_pos = de_getui32le(pos+8);
+	pi->width = de_getu16le(pos+2);
+	pi->height = de_getu16le(pos+4);
+	image_size_in_bytes = de_getu16le(pos+6);
+	image_relative_pos = de_getu32le(pos+8);
 	pi->image_pos = pos + 12 + image_relative_pos;
 	pi->rowspan = ((pi->width+15)/16)*2; // 2-byte alignment
 
@@ -133,7 +133,7 @@ static void de_run_psionpic(deark *c, de_module_params *mparams)
 		d->bw = 1;
 	}
 
-	d->num_planes = de_getui16le(6);
+	d->num_planes = de_getu16le(6);
 	de_dbg(c, "number of planes/bitmaps: %d", (int)d->num_planes);
 
 	// After the 8-byte header are [num_images] 12-byte bitmap descriptors.

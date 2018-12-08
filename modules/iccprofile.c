@@ -223,7 +223,7 @@ static void typedec_desc(deark *c, lctx *d, i64 pos1, i64 len)
 	pos += 8;
 
 	// ASCII invariant description
-	invdesclen = de_getui32be(pos); // invariant desc. len, including NUL byte
+	invdesclen = de_getu32be(pos); // invariant desc. len, including NUL byte
 	pos += 4;
 	s = ucstring_create(c);
 	dbuf_read_to_ucstring_n(c->infile, pos, invdesclen, DE_DBG_MAX_STRLEN,
@@ -236,10 +236,10 @@ static void typedec_desc(deark *c, lctx *d, i64 pos1, i64 len)
 	// Unicode localizable description
 	ucstring_empty(s);
 
-	langcode = de_getui32be(pos);
+	langcode = de_getu32be(pos);
 	pos += 4;
 
-	uloclen = de_getui32be(pos);
+	uloclen = de_getu32be(pos);
 	pos += 4;
 
 	if(uloclen>0) {
@@ -257,7 +257,7 @@ static void typedec_desc(deark *c, lctx *d, i64 pos1, i64 len)
 		// Unicode text in 'desc' tags. It does say that "All profile data must
 		// be encoded as big-endian", so maybe that means UTF-16LE is not
 		// allowed. In practice, some strings begin with a BOM.
-		firstchar = (i32)de_getui16be(lstrstartpos);
+		firstchar = (i32)de_getu16be(lstrstartpos);
 		if(firstchar==0xfeff) { // UTF-16BE BOM
 			lstrstartpos += 2;
 			bytes_to_read -= 2;
@@ -302,8 +302,8 @@ static void do_mluc_record(deark *c, lctx *d, i64 tagstartpos,
 	de_dbg(c, "country code: '%s'", ucstring_getpsz(s));
 	ucstring_empty(s);
 
-	string_len = de_getui32be(pos+4);
-	string_offset = de_getui32be(pos+8);
+	string_len = de_getu32be(pos+4);
+	string_offset = de_getu32be(pos+8);
 	de_dbg(c, "string offset=%d+%d, len=%d bytes", (int)tagstartpos,
 		(int)string_offset, (int)string_len);
 
@@ -326,11 +326,11 @@ static void typedec_mluc(deark *c, lctx *d, i64 pos1, i64 len)
 	if(len<12) goto done;
 	pos += 8;
 
-	num_recs = de_getui32be(pos);
+	num_recs = de_getu32be(pos);
 	de_dbg(c, "number of records: %d", (int)num_recs);
 	pos += 4;
 
-	recsize = de_getui32be(pos);
+	recsize = de_getu32be(pos);
 	de_dbg(c, "record size: %d", (int)recsize);
 	if(recsize<12) goto done;
 	pos += 4;
@@ -362,14 +362,14 @@ static void do_read_header(deark *c, lctx *d, i64 pos)
 	de_dbg(c, "header at %d", (int)pos);
 	de_dbg_indent(c, 1);
 
-	x = de_getui32be(pos+0);
+	x = de_getu32be(pos+0);
 	de_dbg(c, "profile size: %d", (int)x);
 
 	dbuf_read_fourcc(c->infile, pos+4, &tmp4cc, 4, 0x0);
 	de_dbg(c, "preferred CMM type: %s",
 		format_4cc_dbgstr(&tmp4cc, tmpbuf, sizeof(tmpbuf), 0x1));
 
-	profile_ver_raw = (u32)de_getui32be(pos+8);
+	profile_ver_raw = (u32)de_getu32be(pos+8);
 	d->profile_ver_major = 10*((profile_ver_raw&0xf0000000U)>>28) +
 		((profile_ver_raw&0x0f000000U)>>24);
 	d->profile_ver_minor = (profile_ver_raw&0x00f00000U)>>20;
@@ -411,7 +411,7 @@ static void do_read_header(deark *c, lctx *d, i64 pos)
 
 	// TODO: pos=56-63 Device attributes
 
-	x = de_getui32be(pos+64);
+	x = de_getu32be(pos+64);
 	switch(x) {
 	case 0: name="perceptual"; break;
 	case 1: name="relative colorimetric"; break;
@@ -519,8 +519,8 @@ static void do_tag(deark *c, lctx *d, i64 tagindex, i64 pos_in_tagtable)
 	char tmpbuf[80];
 
 	dbuf_read_fourcc(c->infile, pos_in_tagtable, &tag4cc, 4, 0x0);
-	tagdataoffset = de_getui32be(pos_in_tagtable+4);
-	tagdatalen = de_getui32be(pos_in_tagtable+8);
+	tagdataoffset = de_getu32be(pos_in_tagtable+4);
+	tagdatalen = de_getu32be(pos_in_tagtable+8);
 	ti = lookup_taginfo(tag4cc.id);
 	if(ti && ti->name)
 		tname = ti->name;
@@ -545,7 +545,7 @@ static void do_read_tags(deark *c, lctx *d, i64 pos1)
 	de_dbg(c, "tag table at %d", (int)pos1);
 	de_dbg_indent(c, 1);
 
-	d->num_tags = de_getui32be(pos1);
+	d->num_tags = de_getu32be(pos1);
 	de_dbg(c, "number of tags: %d", (int)d->num_tags);
 	if(d->num_tags>500) {
 		de_err(c, "Invalid or excessive number of tags: %d", (int)d->num_tags);

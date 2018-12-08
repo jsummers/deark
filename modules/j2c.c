@@ -98,7 +98,7 @@ static void handler_cme(deark *c, lctx *d, struct page_ctx *pg,
 
 	if(data_size<2) goto done;
 
-	reg_val = de_getui16be(pos);
+	reg_val = de_getu16be(pos);
 	switch(reg_val) {
 	case 0: name="binary"; break;
 	case 1: name="text"; break;
@@ -129,26 +129,26 @@ static void handler_siz(deark *c, lctx *d, struct page_ctx *pg,
 	i64 ncomp;
 	i64 k;
 
-	capa = (unsigned int)de_getui16be_p(&pos);
+	capa = (unsigned int)de_getu16be_p(&pos);
 	de_dbg(c, "capabilities: 0x%04x", capa);
 
-	w = de_getui32be_p(&pos);
-	h = de_getui32be_p(&pos);
+	w = de_getu32be_p(&pos);
+	h = de_getu32be_p(&pos);
 	de_dbg(c, "dimensions of reference grid: %"I64_FMT DE_CHAR_TIMES "%"I64_FMT, w, h);
 
-	w = de_getui32be_p(&pos);
-	h = de_getui32be_p(&pos);
+	w = de_getu32be_p(&pos);
+	h = de_getu32be_p(&pos);
 	de_dbg(c, "offset to image area: %"I64_FMT",%"I64_FMT, w, h);
 
-	w = de_getui32be_p(&pos);
-	h = de_getui32be_p(&pos);
+	w = de_getu32be_p(&pos);
+	h = de_getu32be_p(&pos);
 	de_dbg(c, "dimensions of reference tile: %"I64_FMT DE_CHAR_TIMES "%"I64_FMT, w, h);
 
-	w = de_getui32be_p(&pos);
-	h = de_getui32be_p(&pos);
+	w = de_getu32be_p(&pos);
+	h = de_getu32be_p(&pos);
 	de_dbg(c, "offset to first tile: %"I64_FMT",%"I64_FMT, w, h);
 
-	ncomp = de_getui16be_p(&pos);
+	ncomp = de_getu16be_p(&pos);
 	de_dbg(c, "number of components: %d", (int)ncomp);
 
 	for(k=0; k<ncomp; k++) {
@@ -213,16 +213,16 @@ static void handler_tlm(deark *c, lctx *d, struct page_ctx *pg,
 				x = (i64)de_getbyte_p(&pos);
 			}
 			else {
-				x = de_getui16be_p(&pos);
+				x = de_getu16be_p(&pos);
 			}
 			de_dbg(c, "tile number: %u", (unsigned int)x);
 		}
 
 		if(p_size==2) {
-			x = de_getui16be_p(&pos);
+			x = de_getu16be_p(&pos);
 		}
 		else {
-			x = de_getui32be_p(&pos);
+			x = de_getu32be_p(&pos);
 		}
 		de_dbg(c, "tile length: %u", (unsigned int)x);
 		de_dbg_indent(c, -1);
@@ -244,9 +244,9 @@ static void handler_sot(deark *c, lctx *d, struct page_ctx *pg,
 	if(len<8) return;
 
 	pg->j2c_sot_pos = pos1 - 4;
-	x = de_getui16be_p(&pos);
+	x = de_getu16be_p(&pos);
 	de_dbg(c, "tile number: %d", (int)x);
-	pg->j2c_sot_length = de_getui32be_p(&pos);
+	pg->j2c_sot_length = de_getu32be_p(&pos);
 	de_dbg(c, "length: %u", (unsigned int)pg->j2c_sot_length);
 	b = de_getbyte_p(&pos);
 	de_dbg(c, "tile-part instance: %d", (int)b);
@@ -289,7 +289,7 @@ static void handler_cod(deark *c, lctx *d, struct page_ctx *pg,
 
 	b = de_getbyte_p(&pos);
 	de_dbg(c, "progression order: %d", (int)b);
-	n = de_getui16be_p(&pos);
+	n = de_getu16be_p(&pos);
 	de_dbg(c, "number of layers: %d", (int)n);
 	b = de_getbyte_p(&pos);
 
@@ -330,7 +330,7 @@ static void handler_qcc(deark *c, lctx *d, struct page_ctx *pg,
 		compnum = de_getbyte_p(&pos);
 	}
 	else {
-		compnum = de_getui16be_p(&pos);
+		compnum = de_getu16be_p(&pos);
 	}
 	de_dbg(c, "component number: %d", (int)compnum);
 
@@ -540,7 +540,7 @@ static int do_j2c_page(deark *c, lctx *d, i64 pos1, i64 *bytes_consumed)
 		}
 
 		// If we get here, we're reading a segment that has a size field.
-		seg_size = de_getui16be(pos);
+		seg_size = de_getu16be(pos);
 		if(pos<2) break; // bogus size
 
 		do_segment(c, d, pg, &mi, pos+2, seg_size-2);

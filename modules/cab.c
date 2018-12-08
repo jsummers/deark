@@ -49,13 +49,13 @@ static int do_one_CFDATA(deark *c, lctx *d, struct folder_info *fldi, i64 pos1,
 	i64 cbUncomp;
 	i64 pos = pos1;
 
-	csum = (u32)de_getui32le_p(&pos);
+	csum = (u32)de_getu32le_p(&pos);
 	de_dbg(c, "csum: 0x%08x", (unsigned int)csum);
 
-	cbData = de_getui16le_p(&pos);
+	cbData = de_getu16le_p(&pos);
 	de_dbg(c, "cbData: %d", (int)cbData);
 
-	cbUncomp = de_getui16le_p(&pos);
+	cbUncomp = de_getu16le_p(&pos);
 	de_dbg(c, "cbUncomp: %d", (int)cbUncomp);
 
 	if((d->header_flags&0x0004) && (d->cbCFData>0)) {
@@ -114,13 +114,13 @@ static int do_one_CFFOLDER(deark *c, lctx *d, i64 folder_idx,
 	fldi = de_malloc(c, sizeof(struct folder_info));
 	fldi->folder_idx = folder_idx;
 
-	fldi->coffCabStart = de_getui32le_p(&pos);
+	fldi->coffCabStart = de_getu32le_p(&pos);
 	de_dbg(c, "first CFDATA blk offset (coffCabStart): %"I64_FMT, fldi->coffCabStart);
 
-	fldi->cCFData = de_getui16le_p(&pos);
+	fldi->cCFData = de_getu16le_p(&pos);
 	de_dbg(c, "no. of CFDATA blks for this folder (cCFData): %d", (int)fldi->cCFData);
 
-	fldi->typeCompress_raw = (unsigned int)de_getui16le_p(&pos);
+	fldi->typeCompress_raw = (unsigned int)de_getu16le_p(&pos);
 	fldi->cmpr_type = fldi->typeCompress_raw & 0x000f;
 	de_dbg(c, "typeCompress field: 0x%04x", fldi->typeCompress_raw);
 	de_dbg_indent(c, 1);
@@ -201,13 +201,13 @@ static int do_one_CFFILE(deark *c, lctx *d, i64 pos1, i64 *bytes_consumed)
 	char timestamp_buf[64];
 	char tmps[80];
 
-	cbFile = de_getui32le_p(&pos);
+	cbFile = de_getu32le_p(&pos);
 	de_dbg(c, "uncompressed file size (cbFile): %"I64_FMT, cbFile);
 
-	uoffFolderStart = de_getui32le_p(&pos);
+	uoffFolderStart = de_getu32le_p(&pos);
 	de_dbg(c, "offset in folder (uoffFolderStart): %"I64_FMT, uoffFolderStart);
 
-	iFolder = de_getui16le_p(&pos);
+	iFolder = de_getu16le_p(&pos);
 	if(iFolder>=0xfffd) {
 		de_snprintf(tmps, sizeof(tmps), "0x%04x (%s)", (unsigned int)iFolder,
 			get_special_folder_name(iFolder));
@@ -217,14 +217,14 @@ static int do_one_CFFILE(deark *c, lctx *d, i64 pos1, i64 *bytes_consumed)
 	}
 	de_dbg(c, "folder index (iFolder): %s", tmps);
 
-	date_ = de_getui16le_p(&pos);
-	time_ = de_getui16le_p(&pos);
+	date_ = de_getu16le_p(&pos);
+	time_ = de_getu16le_p(&pos);
 	de_dos_datetime_to_timestamp(&ts, date_, time_);
 	ts.tzcode = DE_TZCODE_LOCAL;
 	de_timestamp_to_string(&ts, timestamp_buf, sizeof(timestamp_buf), 0);
 	de_dbg(c, "timestamp: %s", timestamp_buf);
 
-	attribs = (unsigned int)de_getui16le_p(&pos);
+	attribs = (unsigned int)de_getu16le_p(&pos);
 	attribs_str = ucstring_create(c);
 	if(attribs&0x1) ucstring_append_flags_item(attribs_str, "RDONLY");
 	if(attribs&0x2) ucstring_append_flags_item(attribs_str, "HIDDEN");
@@ -292,10 +292,10 @@ static int do_CFHEADER(deark *c, lctx *d)
 	de_dbg(c, "CFHEADER at %d", (int)pos);
 	de_dbg_indent(c, 1);
 	pos += 8; // signature, reserved1
-	d->cbCabinet = de_getui32le_p(&pos);
+	d->cbCabinet = de_getu32le_p(&pos);
 	de_dbg(c, "cbCabinet: %"I64_FMT, d->cbCabinet);
 	pos += 4; // reserved2
-	d->coffFiles = de_getui32le_p(&pos);
+	d->coffFiles = de_getu32le_p(&pos);
 	de_dbg(c, "coffFiles: %"I64_FMT, d->coffFiles);
 	pos += 4; // reserved3
 	d->versionMinor = de_getbyte_p(&pos);
@@ -303,13 +303,13 @@ static int do_CFHEADER(deark *c, lctx *d)
 	de_dbg(c, "file format version: %u.%u", (unsigned int)d->versionMajor,
 		(unsigned int)d->versionMinor);
 
-	d->cFolders = de_getui16le_p(&pos);
+	d->cFolders = de_getu16le_p(&pos);
 	de_dbg(c, "cFolders: %d", (int)d->cFolders);
 
-	d->cFiles = de_getui16le_p(&pos);
+	d->cFiles = de_getu16le_p(&pos);
 	de_dbg(c, "cFiles: %d", (int)d->cFiles);
 
-	d->header_flags = (unsigned int)de_getui16le_p(&pos);
+	d->header_flags = (unsigned int)de_getu16le_p(&pos);
 	flags_str = ucstring_create(c);
 	// The specification has a diagram showing that PREV_CABINET is 0x2,
 	// NEXT_CABINET is 0x04, etc. But the text below it says that PREV_CABINET
@@ -323,7 +323,7 @@ static int do_CFHEADER(deark *c, lctx *d)
 	pos += 2; // iCabinet (sequence number in a mult-cab file)
 
 	if(d->header_flags&0x0004) { // RESERVE_PRESENT
-		d->cbCFHeader = de_getui16le_p(&pos);
+		d->cbCFHeader = de_getu16le_p(&pos);
 		de_dbg(c, "cbCFHeader: %d", (int)d->cbCFHeader);
 		d->cbCFFolder = (i64)de_getbyte_p(&pos);
 		de_dbg(c, "cbCFFolder: %d", (int)d->cbCFFolder);

@@ -411,7 +411,7 @@ static int uncompress_block(deark *c, lctx *d,
 		}
 		else {
 			// If zero, it is followed by a 16-bit run length
-			run_length = de_getui16le(pos);
+			run_length = de_getu16le(pos);
 			pos+=2;
 		}
 
@@ -451,11 +451,11 @@ static int uncompress_pixels(deark *c, lctx *d)
 	for(n=0; n<d->num_rle_blocks; n++) {
 		de_dbg3(c, "-- block %d --", (int)n);
 		// start_of_this_block = pos;
-		packed_block_size = de_getui16le(pos);
+		packed_block_size = de_getu16le(pos);
 		// block size includes the 5-byte header, so it can't be < 5.
 		if(packed_block_size<5) packed_block_size=5;
 		end_of_this_block = pos + packed_block_size; // Remember where this block ends
-		unpacked_block_size = de_getui16le(pos+2);
+		unpacked_block_size = de_getu16le(pos+2);
 		run_marker = de_getbyte(pos+4);
 		pos+=5;
 
@@ -598,8 +598,8 @@ static void de_run_pcpaint_pic(deark *c, lctx *d, de_module_params *mparams)
 	de_dbg(c, "header at %d", 0);
 	de_dbg_indent(c, 1);
 
-	d->img->width = de_getui16le(2);
-	d->img->height = de_getui16le(4);
+	d->img->width = de_getu16le(2);
+	d->img->height = de_getu16le(4);
 	de_dbg_dimensions(c, d->img->width, d->img->height);
 
 	d->plane_info = de_getbyte(10);
@@ -633,7 +633,7 @@ static void de_run_pcpaint_pic(deark *c, lctx *d, de_module_params *mparams)
 	d->pal_info_to_use = &d->pal_info_mainfile; // tentative
 	if(!do_read_alt_palette_file(c, d)) goto done;
 
-	d->num_rle_blocks = de_getui16le(17+d->pal_info_mainfile.esize);
+	d->num_rle_blocks = de_getu16le(17+d->pal_info_mainfile.esize);
 
 	d->header_size = 17 + d->pal_info_mainfile.esize + 2;
 
@@ -678,7 +678,7 @@ static void de_run_pcpaint_clp(deark *c, lctx *d, de_module_params *mparams)
 	de_dbg(c, "header at %d", 0);
 	de_dbg_indent(c, 1);
 
-	file_size = de_getui16le(0);
+	file_size = de_getu16le(0);
 	de_dbg(c, "reported file size: %d", (int)file_size);
 	if(file_size != c->infile->len) {
 		if(file_size==0x1234) {
@@ -690,8 +690,8 @@ static void de_run_pcpaint_clp(deark *c, lctx *d, de_module_params *mparams)
 		}
 	}
 
-	d->img->width = de_getui16le(2);
-	d->img->height = de_getui16le(4);
+	d->img->width = de_getu16le(2);
+	d->img->height = de_getu16le(4);
 	de_dbg_dimensions(c, d->img->width, d->img->height);
 
 	d->plane_info = de_getbyte(10);

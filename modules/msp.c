@@ -79,7 +79,7 @@ static void do_ver2(deark *c, lctx *d)
 
 	// Read the scanline map, and record the row sizes.
 	for(j=0; j<d->height; j++) {
-		rowsize[j] = de_getui16le(32+2*j);
+		rowsize[j] = de_getu16le(32+2*j);
 	}
 
 	// Calculate the position, in the file, of each row.
@@ -116,8 +116,8 @@ static void de_run_msp(deark *c, de_module_params *mparams)
 	de_dbg(c, "version: %d", d->ver);
 	de_declare_fmtf(c, "MS Paint v%d", d->ver);
 
-	d->width = de_getui16le(4);
-	d->height = de_getui16le(6);
+	d->width = de_getu16le(4);
+	d->height = de_getu16le(6);
 	de_dbg_dimensions(c, d->width, d->height);
 
 	if(d->ver==1) {

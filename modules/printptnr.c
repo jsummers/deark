@@ -68,7 +68,7 @@ static void do_image_cmpr2(deark *c, lctx *d, struct page_ctx *pg, i64 pos1,
 	i64 pos = pos1;
 	dbuf *unc_pixels = NULL;
 
-	cmpr_len = de_getui16le(pos);
+	cmpr_len = de_getu16le(pos);
 	de_dbg(c, "cmpr data len: %d bytes", (int)cmpr_len);
 	pos += 2;
 	*bytes_consumed = 2 + cmpr_len;
@@ -115,7 +115,7 @@ static void do_image_cmpr3(deark *c, lctx *d, struct page_ctx *pg, i64 pos1,
 	// Start with an all-white image:
 	de_bitmap_rect(img, 0, 0, pg->width, pg->height, DE_STOCKCOLOR_WHITE, 0);
 
-	nibble_count = de_getui16le(pos);
+	nibble_count = de_getu16le(pos);
 	de_dbg(c, "cmpr data len: %d nibbles", (int)nibble_count);
 	pos += 2;
 

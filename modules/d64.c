@@ -164,7 +164,7 @@ static void do_dir_entry(deark *c, lctx *d, i64 pos)
 	fsector = (i64)de_getbyte(pos+4);
 	de_dbg(c, "file starts at t=%d,s=%d", (int)ftrack, (int)fsector);
 
-	nsectors = de_getui16le(pos+30);
+	nsectors = de_getu16le(pos+30);
 	if(nsectors>0) {
 		de_snprintf(tmps, sizeof(tmps), "%d to %d",
 			(int)((nsectors-1)*254+1),

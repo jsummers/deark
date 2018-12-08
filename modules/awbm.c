@@ -132,8 +132,8 @@ static void do_v2(deark *c, lctx *d)
 	u32 pal[256];
 
 	de_zeromem(pal, sizeof(pal));
-	d->w = de_getui16le(4);
-	d->h = de_getui16le(6);
+	d->w = de_getu16le(4);
+	d->h = de_getu16le(6);
 	de_dbg_dimensions(c, d->w, d->h);
 	if(!de_good_image_dimensions(c, d->w, d->h)) goto done;
 

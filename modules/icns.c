@@ -413,7 +413,7 @@ static void de_run_icns_pass(deark *c, lctx *d, int pass)
 
 		dbuf_read_fourcc(c->infile, segment_pos, &pg->code4cc, 4, 0x0);
 
-		segment_len = de_getui32be(segment_pos+4);
+		segment_len = de_getu32be(segment_pos+4);
 
 		pg->image_pos = segment_pos + 8;
 		pg->image_len = segment_len - 8;
@@ -491,7 +491,7 @@ static void de_run_icns(deark *c, de_module_params *mparams)
 
 	d = de_malloc(c, sizeof(lctx));
 
-	d->file_size = de_getui32be(4);
+	d->file_size = de_getu32be(4);
 	de_dbg(c, "reported file size: %d", (int)d->file_size);
 	if(d->file_size > c->infile->len) d->file_size = c->infile->len;
 
@@ -509,7 +509,7 @@ static int de_identify_icns(deark *c)
 
 	if(dbuf_memcmp(c->infile, 0, "icns", 4)) return 0;
 
-	fsize = de_getui32be(4);
+	fsize = de_getu32be(4);
 	if(fsize == c->infile->len) return 100;
 	return 20;
 }

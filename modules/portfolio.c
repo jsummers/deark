@@ -49,7 +49,7 @@ static int do_process_frame(deark *c, lctx *d, i64 pos1, i64 *bytes_consumed)
 	frame_type = de_getbyte(pos);
 	de_dbg(c, "type: %d", (int)frame_type);
 
-	frame_payload_size = de_getui16le(pos+1);
+	frame_payload_size = de_getu16le(pos+1);
 	de_dbg(c, "reported payload size: %d", (int)frame_payload_size);
 
 	*bytes_consumed += 8;

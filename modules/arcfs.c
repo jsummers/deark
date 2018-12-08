@@ -58,22 +58,22 @@ static int do_file_header(deark *c, lctx *d, i64 pos1)
 	de_dbg_indent(c, 1);
 	pos += 8; // Signature
 
-	hlen = de_getui32le_p(&pos);
+	hlen = de_getu32le_p(&pos);
 	d->nmembers = hlen/36;
 	de_dbg(c, "header len: %d (%d members)", (int)hlen, (int)d->nmembers);
 
-	d->data_offs = de_getui32le_p(&pos);
+	d->data_offs = de_getu32le_p(&pos);
 	de_dbg(c, "data offset: %d", (int)d->data_offs);
 
-	ver_r = (u32)de_getui32le_p(&pos);
+	ver_r = (u32)de_getu32le_p(&pos);
 	de_dbg(c, "version req'd for read: %u.%02u", (unsigned int)(ver_r/100),
 		(unsigned int)(ver_r%100));
-	ver_rw = (u32)de_getui32le_p(&pos);
+	ver_rw = (u32)de_getu32le_p(&pos);
 	de_dbg(c, "version req'd for read/write: %u.%02u", (unsigned int)(ver_rw/100),
 		(unsigned int)(ver_rw%100));
 
 	// ??
-	format_ver = (u32)de_getui32le_p(&pos);
+	format_ver = (u32)de_getu32le_p(&pos);
 	de_dbg(c, "format version: %u", (unsigned int)format_ver);
 	if(format_ver!=0) {
 		de_err(c, "Unsupported format version: %u", (unsigned int)format_ver);
@@ -296,7 +296,7 @@ static void do_member(deark *c, lctx *d, i64 idx, i64 pos1)
 
 	// Look ahead at the "information word".
 	// TODO: Is this the right way to check for a directory?
-	info_word = (u32)de_getui32le(pos1+32);
+	info_word = (u32)de_getu32le(pos1+32);
 	md->is_dir = (info_word&0x80000000U)?1:0;
 	md->is_regular_file = !md->is_dir;
 
@@ -309,13 +309,13 @@ static void do_member(deark *c, lctx *d, i64 idx, i64 pos1)
 	}
 	pos += 11;
 
-	md->orig_len = de_getui32le_p(&pos);
+	md->orig_len = de_getu32le_p(&pos);
 	if(md->is_regular_file) {
 		de_dbg(c, "orig file length: %"I64_FMT, md->orig_len);
 	}
 
-	md->load_addr = (u32)de_getui32le_p(&pos);
-	md->exec_addr = (u32)de_getui32le_p(&pos);
+	md->load_addr = (u32)de_getu32le_p(&pos);
+	md->exec_addr = (u32)de_getu32le_p(&pos);
 	de_dbg(c, "load/exec addrs: 0x%08x, 0x%08x", (unsigned int)md->load_addr,
 		(unsigned int)md->exec_addr);
 	de_dbg_indent(c, 1);
@@ -329,7 +329,7 @@ static void do_member(deark *c, lctx *d, i64 idx, i64 pos1)
 	}
 	de_dbg_indent(c, -1);
 
-	md->attribs = (u32)de_getui32le_p(&pos);
+	md->attribs = (u32)de_getu32le_p(&pos);
 	de_dbg(c, "attribs: 0x%08x", (unsigned int)md->attribs);
 	de_dbg_indent(c, 1);
 	md->crc = md->attribs>>16;
@@ -342,7 +342,7 @@ static void do_member(deark *c, lctx *d, i64 idx, i64 pos1)
 	}
 	de_dbg_indent(c, -1);
 
-	md->cmpr_len = de_getui32le_p(&pos);
+	md->cmpr_len = de_getu32le_p(&pos);
 	if(md->is_regular_file) {
 		de_dbg(c, "compressed length: %"I64_FMT, md->cmpr_len);
 	}
@@ -488,11 +488,11 @@ static void do_squash_header(deark *c, sqctx *d, struct member_data *md, i64 pos
 
 	de_dbg_indent(c, 1);
 	pos += 4; // signature
-	md->orig_len = de_getui32le_p(&pos);
+	md->orig_len = de_getu32le_p(&pos);
 	de_dbg(c, "orig file length: %"I64_FMT, md->orig_len);
 
-	md->load_addr = (u32)de_getui32le_p(&pos);
-	md->exec_addr = (u32)de_getui32le_p(&pos);
+	md->load_addr = (u32)de_getu32le_p(&pos);
+	md->exec_addr = (u32)de_getu32le_p(&pos);
 	de_dbg(c, "load/exec addrs: 0x%08x, 0x%08x", (unsigned int)md->load_addr,
 		(unsigned int)md->exec_addr);
 	de_dbg_indent(c, 1);

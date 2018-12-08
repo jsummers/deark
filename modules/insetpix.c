@@ -136,8 +136,8 @@ static int do_image_info(deark *c, lctx *d, i64 pos, i64 len)
 		d->graphics_type?"bitmap":"character");
 	de_dbg(c, "board type: %d", (int)d->board_type);
 
-	d->width = de_getui16le(pos+18);
-	d->height = de_getui16le(pos+20);
+	d->width = de_getu16le(pos+18);
+	d->height = de_getu16le(pos+20);
 	de_dbg_dimensions(c, d->width, d->height);
 
 	d->gfore = (i64)de_getbyte(pos+22);
@@ -173,10 +173,10 @@ static int do_tileinfo(deark *c, lctx *d, i64 pos, i64 len)
 		goto done;
 	}
 
-	d->page_rows = de_getui16le(pos+0);
-	d->page_cols = de_getui16le(pos+2);
-	d->stp_rows = de_getui16le(pos+4);
-	d->stp_cols = de_getui16le(pos+6);
+	d->page_rows = de_getu16le(pos+0);
+	d->page_cols = de_getu16le(pos+2);
+	d->stp_rows = de_getu16le(pos+4);
+	d->stp_cols = de_getu16le(pos+6);
 
 	de_dbg(c, "page_rows=%d, page_cols=%d", (int)d->page_rows, (int)d->page_cols);
 	de_dbg(c, "strip_rows=%d, strip_cols=%d", (int)d->stp_rows, (int)d->stp_cols);
@@ -350,11 +350,11 @@ static void do_bitmap(deark *c, lctx *d)
 		pos = 4 + 8*item;
 		if(pos+8 > c->infile->len) break;
 
-		item_id = de_getui16le(pos);
+		item_id = de_getu16le(pos);
 		if(item_id<0x8000 || item_id==0xffff) continue;
 
-		tile_len = de_getui16le(pos+2);
-		tile_loc = de_getui32le(pos+4);
+		tile_len = de_getu16le(pos+2);
+		tile_loc = de_getu32le(pos+4);
 
 		tile_num = item_id-0x8000;
 		de_dbg(c, "item #%d: tile #%d: loc=%d, len=%d", (int)item, (int)tile_num,
@@ -387,8 +387,8 @@ static void de_run_insetpix(deark *c, de_module_params *mparams)
 
 	de_warn(c, "The Inset PIX module is experimental, and may not work correctly.");
 
-	pix_version = de_getui16le(0);
-	d->item_count = de_getui16le(2);
+	pix_version = de_getu16le(0);
+	d->item_count = de_getu16le(2);
 	de_dbg(c, "version: %d", (int)pix_version);
 	de_dbg(c, "index at 4, %d items", (int)d->item_count);
 
@@ -400,11 +400,11 @@ static void de_run_insetpix(deark *c, de_module_params *mparams)
 		pos = 4 + 8*item;
 		if(pos+8 > c->infile->len) break;
 
-		item_id = de_getui16le(pos);
+		item_id = de_getu16le(pos);
 		if(item_id>=0x8000) continue; // Skip "tile" items for now
 
-		item_len = de_getui16le(pos+2);
-		item_loc = de_getui32le(pos+4);
+		item_len = de_getu16le(pos+2);
+		item_loc = de_getu32le(pos+4);
 		de_dbg(c, "item #%d: id=%d, loc=%d, len=%d", (int)item,
 			(int)item_id, (int)item_loc, (int)item_len);
 
@@ -493,20 +493,20 @@ static int de_identify_insetpix(deark *c)
 
 	if(!de_input_file_has_ext(c, "pix")) return 0;
 
-	pix_version = de_getui16le(0);
+	pix_version = de_getu16le(0);
 	// The only version number I know of is 3, but I don't know what other
 	// versions may exist.
 	if(pix_version<1 || pix_version>4) return 0;
 
-	item_count = de_getui16le(2);
+	item_count = de_getu16le(2);
 	// Need at least 4 items (image info, palette info, tile info, and 1 tile).
 	if(item_count<4) return 0;
 
 	if(4 + 8*item_count >= c->infile->len) return 0;
 
 	for(item=0; item<item_count && item<16; item++) {
-		item_len = de_getui16le(4+8*item+2);
-		item_loc = de_getui32le(4+8*item+4);
+		item_len = de_getu16le(4+8*item+2);
+		item_loc = de_getu32le(4+8*item+4);
 		if(item_loc < 4 + 8*item_count) return 0;
 		if(item_loc+item_len > c->infile->len) return 0;
 	}

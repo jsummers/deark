@@ -171,7 +171,7 @@ static void do_image(deark *c, lctx *d, struct page_ctx *pg, de_finfo *fi)
 				clr = dbuf_getRGB(c->infile, pg->image_offset + 4*pg->width_in_words*j + 4*i, 0);
 			}
 			else if(pg->fgbpp==16) {
-				clr = (u32)de_getui16le(pg->image_offset + 4*pg->width_in_words*j + i*2);
+				clr = (u32)de_getu16le(pg->image_offset + 4*pg->width_in_words*j + i*2);
 				clr = de_bgr555_to_888(clr);
 			}
 			else {
@@ -308,21 +308,21 @@ static void do_sprite(deark *c, lctx *d, i64 index,
 
 	read_sprite_name(c, d, fi, pos1+4);
 
-	pg->width_in_words = de_getui32le(pos1+16) +1;
-	pg->height = de_getui32le(pos1+20) +1;
+	pg->width_in_words = de_getu32le(pos1+16) +1;
+	pg->height = de_getu32le(pos1+20) +1;
 	de_dbg(c, "width-in-words: %d, height: %d", (int)pg->width_in_words, (int)pg->height);
 
-	pg->first_bit = de_getui32le(pos1+24);
+	pg->first_bit = de_getu32le(pos1+24);
 	if(pg->first_bit>31) pg->first_bit=31;
-	pg->last_bit = de_getui32le(pos1+28);
+	pg->last_bit = de_getu32le(pos1+28);
 	if(pg->last_bit>31) pg->last_bit=31;
-	pg->image_offset = de_getui32le(pos1+32) + pos1;
-	pg->mask_offset = de_getui32le(pos1+36) + pos1;
+	pg->image_offset = de_getu32le(pos1+32) + pos1;
+	pg->mask_offset = de_getu32le(pos1+36) + pos1;
 	pg->has_mask = (pg->mask_offset != pg->image_offset);
 	de_dbg(c, "first bit: %d, last bit: %d", (int)pg->first_bit, (int)pg->last_bit);
 	de_dbg(c, "image offset: %d, mask_offset: %d", (int)pg->image_offset, (int)pg->mask_offset);
 
-	pg->mode = (u32)de_getui32le(pos1+40);
+	pg->mode = (u32)de_getu32le(pos1+40);
 	de_dbg(c, "mode: 0x%08x", (unsigned int)pg->mode);
 
 	de_dbg_indent(c, 1);
@@ -451,11 +451,11 @@ static void de_run_rosprite(deark *c, de_module_params *mparams)
 
 	pos = 0;
 
-	d->num_images = de_getui32le(0);
+	d->num_images = de_getu32le(0);
 	de_dbg(c, "number of images: %d", (int)d->num_images);
-	first_sprite_offset = de_getui32le(4) - 4;
+	first_sprite_offset = de_getu32le(4) - 4;
 	de_dbg(c, "first sprite offset: %d", (int)first_sprite_offset);
-	implied_file_size = de_getui32le(8) - 4;
+	implied_file_size = de_getu32le(8) - 4;
 	de_dbg(c, "reported file size: %d", (int)implied_file_size);
 	if(implied_file_size != c->infile->len) {
 		de_warn(c, "The \"first free word\" field implies the file size is %d, but it "
@@ -466,7 +466,7 @@ static void de_run_rosprite(deark *c, de_module_params *mparams)
 	pos = 12;
 	for(k=0; k<d->num_images; k++) {
 		if(pos>=c->infile->len) break;
-		sprite_size = de_getui32le(pos);
+		sprite_size = de_getu32le(pos);
 		de_dbg(c, "image #%d at %d, size=%d", (int)k, (int)pos, (int)sprite_size);
 		if(sprite_size<1) break;
 		de_dbg_indent(c, 1);
@@ -481,9 +481,9 @@ static void de_run_rosprite(deark *c, de_module_params *mparams)
 static int de_identify_rosprite(deark *c)
 {
 	i64 h0, h1, h2;
-	h0 = de_getui32le(0);
-	h1 = de_getui32le(4);
-	h2 = de_getui32le(8);
+	h0 = de_getu32le(0);
+	h1 = de_getu32le(4);
+	h2 = de_getu32le(8);
 
 	if(h0<1 || h0>10000) return 0;
 	if(h1-4<12) return 0;

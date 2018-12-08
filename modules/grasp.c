@@ -28,7 +28,7 @@ static int do_extract_file(deark *c, lctx *d, i64 fnum)
 
 	de_dbg_indent_save(c, &saved_indent_level);
 	pos = 2+17*fnum;
-	file_info_offset = de_getui32le(pos);
+	file_info_offset = de_getu32le(pos);
 
 	// The last "file" is usually not a file, but a "NULL terminator" with
 	// an offset of 0. This is worse than useless, since we already know
@@ -62,7 +62,7 @@ static int do_extract_file(deark *c, lctx *d, i64 fnum)
 	fi->original_filename_flag = 1;
 	de_dbg(c, "file name: %s", ucstring_getpsz(fname));
 
-	file_size = de_getui32le(file_info_offset);
+	file_size = de_getu32le(file_info_offset);
 	de_dbg(c, "file size: %d", (int)file_size);
 
 	file_data_offset = file_info_offset+4;
@@ -89,7 +89,7 @@ static void de_run_graspgl(deark *c, de_module_params *mparams)
 	d = de_malloc(c, sizeof(lctx));
 
 	pos = 0;
-	d->dir_header_nbytes = de_getui16le(pos);
+	d->dir_header_nbytes = de_getu16le(pos);
 	de_dbg(c, "header bytes: %d", (int)d->dir_header_nbytes);
 
 	// 17 bytes per file entry
@@ -110,7 +110,7 @@ static int de_identify_graspgl(deark *c)
 	i64 first_offset;
 	int gl_ext;
 
-	dir_header_nbytes = de_getui16le(0);
+	dir_header_nbytes = de_getu16le(0);
 
 	// Header should be a nonzero multiple of 17 bytes.
 	if(dir_header_nbytes==0 || (dir_header_nbytes%17 != 0)) return 0;
@@ -120,7 +120,7 @@ static int de_identify_graspgl(deark *c)
 	// Most likely, the first embedded file immediately follows
 	// the header. If so, it's pretty good evidence this is a
 	// grasp_gl file.
-	first_offset = de_getui32le(2);
+	first_offset = de_getu32le(2);
 	if(first_offset == dir_header_nbytes + 2)
 		return gl_ext ? 100 : 70;
 
@@ -154,7 +154,7 @@ static void de_run_graspfont_oldfmt(deark *c)
 
 	font = de_create_bitmap_font(c);
 
-	reported_filesize = de_getui16le(0);
+	reported_filesize = de_getu16le(0);
 	de_dbg(c, "reported file size: %d", (int)reported_filesize);
 
 	font->has_nonunicode_codepoints = 1;
@@ -262,7 +262,7 @@ static void de_run_graspfont_newfmt(deark *c)
 
 		ch->codepoint_nonunicode = (i32)(33 + k);
 
-		ch_offset = de_getui16le(glyph_offsets_table_pos + 2 + 2*k);
+		ch_offset = de_getu16le(glyph_offsets_table_pos + 2 + 2*k);
 
 		ch->width = (int)de_getbyte(widths_table_pos + 1 + k);
 		de_dbg(c, "ch[%d]: codepoint=%d, width=%d, glyph_offs=%d", (int)k,
@@ -304,7 +304,7 @@ static int gfont_is_new_format(deark *c)
 	i64 reported_filesize;
 
 	if(de_getbyte(0)==0x10) {
-		reported_filesize = de_getui16le(25);
+		reported_filesize = de_getu16le(25);
 		if(reported_filesize == c->infile->len) {
 			return 1;
 		}
@@ -337,7 +337,7 @@ static int de_identify_graspfont(deark *c)
 		return 30;
 	}
 
-	reported_filesize = de_getui16le(0);
+	reported_filesize = de_getu16le(0);
 	if(reported_filesize != c->infile->len) return 0;
 	num_chars = (i64)de_getbyte(2);
 	if(num_chars==0) num_chars=256;

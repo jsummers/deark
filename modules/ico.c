@@ -20,8 +20,8 @@ static void do_extract_png(deark *c, lctx *d, i64 pos, i64 len)
 	i64 w, h;
 
 	// Peek at the PNG data, to figure out the dimensions.
-	w = de_getui32be(pos+16);
-	h = de_getui32be(pos+20);
+	w = de_getu32be(pos+16);
+	h = de_getu32be(pos+20);
 
 	de_snprintf(ext, sizeof(ext), "%dx%d.png", (int)w, (int)h);
 	dbuf_create_file_from_slice(c->infile, pos, len, ext, NULL, 0);
@@ -196,8 +196,8 @@ static void do_image_dir_entry(deark *c, lctx *d, i64 img_num, i64 pos)
 
 	de_dbg(c, "image #%d, index at %d", (int)img_num, (int)pos);
 	de_dbg_indent(c, 1);
-	data_size = de_getui32le(pos+8);
-	data_offset = de_getui32le(pos+12);
+	data_size = de_getu32le(pos+8);
+	data_offset = de_getu32le(pos+12);
 	de_dbg(c, "offset=%d, size=%d", (int)data_offset, (int)data_size);
 
 	do_image_data(c, d, img_num, data_offset, data_size);
@@ -215,7 +215,7 @@ static void de_run_ico(deark *c, de_module_params *mparams)
 	d = de_malloc(c, sizeof(lctx));
 	d->extract_unused_masks = (c->extract_level>=2);
 
-	x = de_getui16le(2);
+	x = de_getu16le(2);
 	if(x==1) {
 		d->is_cur=0;
 		de_declare_fmt(c, "Windows Icon");
@@ -229,7 +229,7 @@ static void de_run_ico(deark *c, de_module_params *mparams)
 		goto done;
 	}
 
-	num_images = de_getui16le(4);
+	num_images = de_getu16le(4);
 	de_dbg(c, "images in file: %d", (int)num_images);
 	if(!de_good_image_count(c, num_images)) {
 		goto done;
@@ -259,7 +259,7 @@ static int is_windows_ico_or_cur(deark *c)
 		return 0;
 	}
 
-	numicons = de_getui16le(4);
+	numicons = de_getu16le(4);
 
 	// Each icon must use at least 16 bytes for the directory, 40 for the
 	// info header, 4 for the foreground, and 4 for the mask.
@@ -267,8 +267,8 @@ static int is_windows_ico_or_cur(deark *c)
 
 	// Examine the first few icon index entries.
 	for(i=0; i<numicons && i<8; i++) {
-		size = de_getui32le(6+16*i+8);
-		offset = de_getui32le(6+16*i+12);
+		size = de_getu32le(6+16*i+8);
+		offset = de_getu32le(6+16*i+12);
 		if(size<48) return 0;
 		if(offset < 6+numicons*16) return 0;
 		if(offset+size > c->infile->len) return 0;

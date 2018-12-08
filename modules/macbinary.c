@@ -78,7 +78,7 @@ static void do_header(deark *c, lctx *d)
 	n2 = de_geti16be_p(&pos);
 	de_dbg(c, "position in window: %d,%d", (int)n2, (int)n);
 
-	n = de_getui16be_p(&pos);
+	n = de_getu16be_p(&pos);
 	de_dbg(c, "window/folder id: %d", (int)n);
 	de_dbg_indent(c, -1);
 
@@ -87,12 +87,12 @@ static void do_header(deark *c, lctx *d)
 
 	pos++;
 
-	d->dflen = de_getui32be_p(&pos);
+	d->dflen = de_getu32be_p(&pos);
 	de_dbg(c, "data fork len: %u", (unsigned int)d->dflen);
-	d->rflen = de_getui32be_p(&pos);
+	d->rflen = de_getu32be_p(&pos);
 	de_dbg(c, "resource fork len: %u", (unsigned int)d->rflen);
 
-	n = de_getui32be_p(&pos);
+	n = de_getu32be_p(&pos);
 	if(n==0) {
 		d->create_time.is_valid = 0;
 		de_strlcpy(timestamp_buf, "unknown", sizeof(timestamp_buf));
@@ -104,7 +104,7 @@ static void do_header(deark *c, lctx *d)
 	}
 	de_dbg(c, "create date: %"I64_FMT" (%s)", n, timestamp_buf);
 
-	mod_time_raw = de_getui32be_p(&pos);
+	mod_time_raw = de_getu32be_p(&pos);
 	if(mod_time_raw==0) {
 		d->mod_time.is_valid = 0;
 		de_strlcpy(timestamp_buf, "unknown", sizeof(timestamp_buf));
@@ -128,7 +128,7 @@ static void do_header(deark *c, lctx *d)
 	pos += 4; // unpacked total length
 
 	if(d->ver2 >= 129) {
-		n = de_getui16be(pos);
+		n = de_getu16be(pos);
 		de_dbg(c, "length of secondary header: %u", (unsigned int)n);
 	}
 	pos += 2;
@@ -139,7 +139,7 @@ static void do_header(deark *c, lctx *d)
 	if(d->ver2 >= 129) {
 		struct de_crcobj *crco = NULL;
 		u32 crc_calc;
-		n = de_getui16be(pos);
+		n = de_getu16be(pos);
 		de_dbg(c, "CRC of header (reported): 0x%04x", (unsigned int)n);
 
 		crco = de_crcobj_create(c, DE_CRCOBJ_CRC16_CCITT);

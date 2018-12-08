@@ -90,7 +90,7 @@ static int do_gzip_read_member(deark *c, lctx *d, i64 pos1, i64 *member_size)
 	de_dbg(c, "flags: 0x%02x", (unsigned int)md->flags);
 	pos += 4;
 
-	mod_time_unix = de_getui32le(pos);
+	mod_time_unix = de_getu32le(pos);
 	de_unix_time_to_timestamp(mod_time_unix, &md->mod_time_ts, 0x1);
 	if(md->mod_time_ts.is_valid) {
 		char timestamp_buf[64];
@@ -106,7 +106,7 @@ static int do_gzip_read_member(deark *c, lctx *d, i64 pos1, i64 *member_size)
 	de_dbg(c, "OS or filesystem: %d (%s)", (int)b0, get_os_name(b0));
 
 	if(md->flags & GZIPFLAG_FEXTRA) {
-		n = de_getui16le(pos); // XLEN
+		n = de_getu16le(pos); // XLEN
 		// TODO: It might be interesting to dissect these extra fields, but it's
 		// hard to find even a single file that uses them.
 		de_dbg(c, "[extra fields at %d, dpos=%d, dlen=%d]",
@@ -145,7 +145,7 @@ static int do_gzip_read_member(deark *c, lctx *d, i64 pos1, i64 *member_size)
 	}
 
 	if(md->flags & GZIPFLAG_FHCRC) {
-		md->crc16_reported = (u32)de_getui16le(pos);
+		md->crc16_reported = (u32)de_getu16le(pos);
 		de_dbg(c, "crc16 (reported): 0x%04x", (unsigned int)md->crc16_reported);
 		pos += 2;
 	}
@@ -189,7 +189,7 @@ static int do_gzip_read_member(deark *c, lctx *d, i64 pos1, i64 *member_size)
 
 	de_dbg(c, "crc32 (calculated): 0x%08x", (unsigned int)crc_calculated);
 
-	md->crc32_reported = (u32)de_getui32le(pos);
+	md->crc32_reported = (u32)de_getu32le(pos);
 	de_dbg(c, "crc32 (reported)  : 0x%08x", (unsigned int)md->crc32_reported);
 	pos += 4;
 
@@ -198,7 +198,7 @@ static int do_gzip_read_member(deark *c, lctx *d, i64 pos1, i64 *member_size)
 			(unsigned int)md->crc32_reported, (unsigned int)crc_calculated);
 	}
 
-	md->isize = de_getui32le(pos);
+	md->isize = de_getu32le(pos);
 	de_dbg(c, "uncompressed size (mod 2^32): %u", (unsigned int)md->isize);
 	pos += 4;
 

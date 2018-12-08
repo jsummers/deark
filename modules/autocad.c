@@ -53,7 +53,7 @@ static void de_run_autocad_slb(deark *c, de_module_params *mparams)
 			si_numalloc *= new_numalloc;
 		}
 
-		si[k].pos = de_getui32le(pos+32);
+		si[k].pos = de_getu32le(pos+32);
 
 		if(si[k].pos > c->infile->len) {
 				de_err(c, "Invalid directory");

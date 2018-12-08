@@ -209,7 +209,7 @@ static void spc_uncompress_pal(deark *c, i64 pos1, dbuf *uncmpr_pal)
 	unsigned int code;
 
 	for(i=0; i<num_pals; i++) {
-		code = (unsigned int)de_getui16be(pos);
+		code = (unsigned int)de_getu16be(pos);
 		pos += 2;
 		for(k=0; k<16; k++) {
 			// Bit 15 is ignored. The corresponding pal entry will always be black.
@@ -301,10 +301,10 @@ static void do_run_spectrum512c_s_internal(deark *c, de_module_params *mparams, 
 	}
 
 	pos = 4;
-	pixels_cmpr_len = de_getui32be(pos);
+	pixels_cmpr_len = de_getu32be(pos);
 	de_dbg(c, "pixels compressed len: %d", (int)pixels_cmpr_len);
 	pos += 4;
-	pal_cmpr_len = de_getui32be(pos);
+	pal_cmpr_len = de_getu32be(pos);
 	de_dbg(c, "palette compressed len: %d", (int)pal_cmpr_len);
 	pos += 4;
 

@@ -60,7 +60,7 @@ static void do_dir_entry(deark *c, lctx *d, i64 pos1, i64 *bytes_consumed)
 	name_srd = dbuf_read_string(c->infile, pos, nlen, nlen, 0, DE_ENCODING_MACROMAN);
 	pos += nlen;
 	de_dbg(c, "name: \"%s\"", ucstring_getpsz(name_srd->str));
-	blk_id = (u32)de_getui32be_p(&pos);
+	blk_id = (u32)de_getu32be_p(&pos);
 	de_dbg(c, "block id: %u", (unsigned int)blk_id);
 
 	if(!de_strcmp((const char*)name_srd->sz, "DSDB")) {
@@ -83,7 +83,7 @@ static void do_info_block(deark *c, lctx *d)
 	de_dbg_indent_save(c, &saved_indent_level);
 	de_dbg(c, "info block at %"I64_FMT, d->infoblk_offs);
 	de_dbg_indent(c, 1);
-	d->blkcount = de_getui32be_p(&pos);
+	d->blkcount = de_getu32be_p(&pos);
 	de_dbg(c, "block count: %u", (unsigned int)d->blkcount);
 	if(d->blkcount>1000000) goto done;
 	pos += 4; // unknown
@@ -95,7 +95,7 @@ static void do_info_block(deark *c, lctx *d)
 	d->block_addr_table = de_malloc(c, d->blkcount * sizeof(struct addr_table_entry));
 	de_dbg_indent(c, 1);
 	for(k=0; k<d->blkcount; k++) {
-		d->block_addr_table[k].addr_code = (u32)de_getui32be_p(&pos);
+		d->block_addr_table[k].addr_code = (u32)de_getu32be_p(&pos);
 		if(d->block_addr_table[k].addr_code!=0) {
 			de_dbg(c, "addr[%d] = 0x%08x", (int)k,
 				(unsigned int)d->block_addr_table[k].addr_code);
@@ -104,7 +104,7 @@ static void do_info_block(deark *c, lctx *d)
 	de_dbg_indent(c, -1);
 
 	pos = blk_addr_array_start + blk_addr_array_size_padded;
-	dircount = de_getui32be_p(&pos);
+	dircount = de_getu32be_p(&pos);
 	de_dbg(c, "dir count: %u", (unsigned int)dircount);
 	if(dircount>1000000) goto done;
 	for(k=0; k<dircount; k++) {
@@ -151,7 +151,7 @@ static void do_blob(deark *c, lctx *d, struct record_info *ri)
 	i64 len;
 	i64 blobpos;
 
-	len = de_getui32be(ri->dpos);
+	len = de_getu32be(ri->dpos);
 	de_dbg(c, "blob len: %d", (int)len);
 	ri->dlen = 4+len;
 	blobpos = ri->dpos+4;
@@ -185,7 +185,7 @@ static void do_ustr(deark *c, lctx *d, struct record_info *ri)
 	i64 len;
 	de_ucstring *s = NULL;
 
-	len = de_getui32be(ri->dpos);
+	len = de_getu32be(ri->dpos);
 	ri->dlen = 4+len;
 	s = ucstring_create(c);
 	dbuf_read_to_ucstring_n(c->infile, ri->dpos+4, len*2, DE_DBG_MAX_STRLEN*2, s, 0,
@@ -228,7 +228,7 @@ static int do_record(deark *c, lctx *d, i64 pos1, i64 *bytes_consumed)
 
 	de_zeromem(&ri, sizeof(struct record_info));
 
-	nlen = de_getui32be_p(&pos);
+	nlen = de_getu32be_p(&pos);
 	if(nlen>2048) goto done;
 	ri.filename = ucstring_create(c);
 	dbuf_read_to_ucstring(c->infile, pos, nlen*2, ri.filename, 0, DE_ENCODING_UTF16BE);
@@ -317,9 +317,9 @@ static void do_one_node(deark *c, lctx *d, u32 blk_id)
 		(int)node_offs, (int)node_size);
 	de_dbg_indent(c, 1);
 	pos = node_offs;
-	mode = (unsigned int)de_getui32be_p(&pos);
+	mode = (unsigned int)de_getu32be_p(&pos);
 	de_dbg(c, "mode: %u", mode);
-	count = de_getui32be_p(&pos);
+	count = de_getu32be_p(&pos);
 	de_dbg(c, "count: %d", (int)count);
 
 	{
@@ -328,7 +328,7 @@ static void do_one_node(deark *c, lctx *d, u32 blk_id)
 
 		if(mode!=0) {
 			u32 next_blk_id;
-			next_blk_id = (u32)de_getui32be_p(&pos);
+			next_blk_id = (u32)de_getu32be_p(&pos);
 			de_dbg(c, "next block id: %u", (unsigned int)next_blk_id);
 			do_one_node(c, d, next_blk_id);
 		}
@@ -366,14 +366,14 @@ static int do_dsdb(deark *c, lctx *d)
 
 	de_dbg_indent(c, 1);
 	pos = dsdb_offs;
-	d->root_node_block_id = (u32)de_getui32be_p(&pos);
+	d->root_node_block_id = (u32)de_getu32be_p(&pos);
 	de_dbg(c, "root node block id: %u", (unsigned int)d->root_node_block_id);
 
-	n = de_getui32be_p(&pos);
+	n = de_getu32be_p(&pos);
 	de_dbg(c, "num levels: %d", (int)n);
-	n = de_getui32be_p(&pos);
+	n = de_getu32be_p(&pos);
 	de_dbg(c, "num records in tree: %d", (int)n);
-	n = de_getui32be_p(&pos);
+	n = de_getu32be_p(&pos);
 	de_dbg(c, "num blocks in tree: %d", (int)n);
 	de_dbg_indent(c, -1);
 
@@ -390,10 +390,10 @@ static void de_run_dsstore(deark *c, de_module_params *mparams)
 	d = de_malloc(c, sizeof(lctx));
 
 	pos = 8;
-	d->infoblk_offs = de_getui32be_p(&pos);
+	d->infoblk_offs = de_getu32be_p(&pos);
 	de_dbg(c, "info block offset: (%d+)%"I64_FMT, HDRSIZE, d->infoblk_offs);
 	d->infoblk_offs += HDRSIZE;
-	d->infoblk_size = de_getui32be_p(&pos);
+	d->infoblk_size = de_getu32be_p(&pos);
 	de_dbg(c, "info block size: %"I64_FMT, d->infoblk_size);
 
 	do_info_block(c, d);

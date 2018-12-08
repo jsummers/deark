@@ -23,8 +23,8 @@ static void do_cas(deark *c)
 		if(pos >= c->infile->len-8) break; // Reached end of file
 
 		de_read(chunk_id, pos, 4);
-		chunk_len = de_getui16le(pos+4);
-		chunk_extra = de_getui16le(pos+6);
+		chunk_len = de_getu16le(pos+4);
+		chunk_extra = de_getu16le(pos+6);
 
 		de_dbg(c, "chunk at %d, data_len=%d, extra=%d", (int)pos, (int)chunk_len,
 			(int)chunk_extra);
@@ -261,9 +261,9 @@ static void do_atr(deark *c, lctx *d)
 
 	pos = 0;
 
-	image_size_lo = de_getui16le(pos+2);
-	d->sector_size = de_getui16le(pos+4);
-	image_size_hi = de_getui16le(pos+6);
+	image_size_lo = de_getu16le(pos+2);
+	d->sector_size = de_getu16le(pos+4);
+	image_size_hi = de_getu16le(pos+6);
 	image_size_bytes = 16*(image_size_lo + 65536*image_size_hi);
 
 	de_dbg(c, "image size=%d bytes, sector size=%d", (int)image_size_bytes, (int)d->sector_size);

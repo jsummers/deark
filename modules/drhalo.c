@@ -17,8 +17,8 @@ typedef struct localctx_struct {
 
 static int do_read_header(deark *c, lctx *d)
 {
-	d->w = de_getui16le(0);
-	d->h = de_getui16le(2);
+	d->w = de_getu16le(0);
+	d->h = de_getu16le(2);
 	de_dbg_dimensions(c, d->w, d->h);
 	if(!de_good_image_dimensions(c, d->w, d->h)) return 0;
 	return 1;
@@ -70,7 +70,7 @@ static int do_decompress(deark *c, lctx *d, i64 pos1, dbuf *unc_pixels)
 		dbuf_truncate(unc_pixels, j*d->w);
 
 		if(pos > c->infile->len-2) break;
-		linebytecount = de_getui16le(pos);
+		linebytecount = de_getu16le(pos);
 		pos += 2;
 		do_decompress_scanline(c, d, j, pos, linebytecount, unc_pixels);
 		pos += linebytecount;

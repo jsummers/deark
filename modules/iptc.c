@@ -301,7 +301,7 @@ static void handle_uint16(deark *c, lctx *d, const struct ds_info *dsi,
 {
 	i64 x;
 	if(len!=2) return;
-	x = de_getui16be(pos);
+	x = de_getu16be(pos);
 	de_dbg(c, "%s: %d", dsi->dsname, (int)x);
 }
 

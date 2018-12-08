@@ -73,12 +73,12 @@ static int read_mki_header(deark *c, lctx *d)
 
 	pos = d->header_pos;
 
-	d->flag_b_size = de_getui16be(pos+0);
-	pix_data_a_size = de_getui16be(pos+2);
-	pix_data_b_size = de_getui16be(pos+4);
+	d->flag_b_size = de_getu16be(pos+0);
+	pix_data_a_size = de_getu16be(pos+2);
+	pix_data_b_size = de_getu16be(pos+4);
 	d->pixels_size = pix_data_a_size + pix_data_b_size;
 
-	extension_flags = (unsigned int)de_getui16be(pos+6);
+	extension_flags = (unsigned int)de_getu16be(pos+6);
 	de_dbg(c, "extension flags: 0x%04x", extension_flags);
 	de_dbg_indent(c, 1);
 	d->aspect_ratio_flag = extension_flags&0x0001;
@@ -92,13 +92,13 @@ static int read_mki_header(deark *c, lctx *d)
 	de_dbg(c, "number of colors: %d", (int)d->num_colors);
 	de_dbg_indent(c, -1);
 
-	xoffset = de_getui16be(pos+8);
-	yoffset = de_getui16be(pos+10);
+	xoffset = de_getu16be(pos+8);
+	yoffset = de_getu16be(pos+10);
 	de_dbg(c, "image offset: (%d,%d)", (int)xoffset, (int)yoffset);
 
-	width_raw = de_getui16be(pos+12);
+	width_raw = de_getu16be(pos+12);
 	d->width = width_raw - xoffset;
-	height_raw = de_getui16be(pos+14);
+	height_raw = de_getu16be(pos+14);
 	d->height = height_raw - yoffset;
 	de_dbg_dimensions(c, d->width, d->height);
 	if(d->width%64 != 0) {
@@ -281,28 +281,28 @@ static int read_mag_header(deark *c, lctx *d)
 	de_dbg(c, "number of colors: %d", (int)d->num_colors);
 	de_dbg_indent(c, -1);
 
-	xoffset = de_getui16le(pos+4);
-	yoffset = de_getui16le(pos+6);
+	xoffset = de_getu16le(pos+4);
+	yoffset = de_getu16le(pos+6);
 	de_dbg(c, "image offset: (%d,%d)", (int)xoffset, (int)yoffset);
 
-	width_raw = de_getui16le(pos+8);
-	height_raw = de_getui16le(pos+10);
+	width_raw = de_getu16le(pos+8);
+	height_raw = de_getu16le(pos+10);
 	d->width = width_raw - xoffset + 1;
 	d->height = height_raw - yoffset + 1;
 	de_dbg_dimensions(c, d->width, d->height);
 
-	d->flag_a_offset = de_getui32le(pos+12);
+	d->flag_a_offset = de_getu32le(pos+12);
 	d->flag_a_offset += d->header_pos;
 	de_dbg(c, "flag A offset: %d", (int)d->flag_a_offset);
 
-	d->flag_b_offset = de_getui32le(pos+16);
+	d->flag_b_offset = de_getu32le(pos+16);
 	d->flag_b_offset += d->header_pos;
-	d->flag_b_size = de_getui32le(pos+20);
+	d->flag_b_size = de_getu32le(pos+20);
 	de_dbg(c, "flag B offset: %d, size=%d", (int)d->flag_b_offset, (int)d->flag_b_size);
 
-	d->pixels_offset = de_getui32le(pos+24);
+	d->pixels_offset = de_getu32le(pos+24);
 	d->pixels_offset += d->header_pos;
-	d->pixels_size = de_getui32le(pos+28);
+	d->pixels_size = de_getu32le(pos+28);
 	de_dbg(c, "pixels offset: %d, size=%d", (int)d->pixels_offset, (int)d->pixels_size);
 
 	if(d->bits_per_pixel!=4 && d->bits_per_pixel!=8) {

@@ -50,7 +50,7 @@ static int do_header_SZDD(deark *c, lctx *d, i64 pos1)
 	}
 	de_dbg(c, "missing filename char: 0x%02x%s", (unsigned int)fnchar, tmps);
 
-	d->uncmpr_len = de_getui32le(pos);
+	d->uncmpr_len = de_getu32le(pos);
 	de_dbg(c, "uncompressed len: %"I64_FMT"", d->uncmpr_len);
 	pos += 4;
 
@@ -73,20 +73,20 @@ static int do_header_KWAJ(deark *c, lctx *d, i64 pos1)
 
 	pos += 8; // signature
 
-	cmpr_method = (int)de_getui16le(pos);
+	cmpr_method = (int)de_getu16le(pos);
 	de_dbg(c, "compression method: %d", cmpr_method);
 	pos+=2;
 
-	data_offs = de_getui16le(pos);
+	data_offs = de_getu16le(pos);
 	de_dbg(c, "compressed data offset: %d", (int)data_offs);
 	pos+=2;
 
-	flags = (unsigned int)de_getui16le(pos);
+	flags = (unsigned int)de_getu16le(pos);
 	de_dbg(c, "header extension flags: 0x%04x", flags);
 	pos+=2;
 
 	if(flags&0x01) {
-		d->uncmpr_len = de_getui32le(pos);
+		d->uncmpr_len = de_getu32le(pos);
 		de_dbg(c, "uncompressed len: %"I64_FMT"", d->uncmpr_len);
 		pos += 4;
 	}

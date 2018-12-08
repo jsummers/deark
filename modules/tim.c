@@ -27,7 +27,7 @@ static void do_read_palette(deark *c, lctx *d, i64 pos, i64 ncolors)
 	de_dbg_indent(c, 1);
 
 	for(k=0; k<ncolors && k<256; k++) {
-		n1 = (u32)de_getui16le(pos + 2*k);
+		n1 = (u32)de_getu16le(pos + 2*k);
 		n2 = de_bgr555_to_888(n1);
 		de_snprintf(tmps, sizeof(tmps), "0x%04x "DE_CHAR_RIGHTARROW" ", (unsigned int)n1);
 		de_dbg_pal_entry2(c, k, n2, tmps, NULL, NULL);
@@ -58,10 +58,10 @@ static void do_pal8(deark *c, lctx *d)
 		goto done;
 	}
 
-	clut_size = de_getui32le(8);
+	clut_size = de_getu32le(8);
 
-	ncolors_per_clut = de_getui16le(16);
-	num_cluts = de_getui16le(18);
+	ncolors_per_clut = de_getu16le(16);
+	num_cluts = de_getu16le(18);
 
 	de_dbg(c, "clut 'size': %d", (int)clut_size);
 	de_dbg(c, "colors per clut: %d", (int)ncolors_per_clut);
@@ -73,11 +73,11 @@ static void do_pal8(deark *c, lctx *d)
 	second_header_blk_pos = 20 + num_cluts*ncolors_per_clut*2;
 	de_dbg(c, "second header block at %d", (int)second_header_blk_pos);
 	de_dbg_indent(c, 1);
-	img_data_size_field = de_getui32le(second_header_blk_pos);
+	img_data_size_field = de_getu32le(second_header_blk_pos);
 	de_dbg(c, "image data size field: %d", (int)img_data_size_field);
-	width_field = de_getui16le(second_header_blk_pos+8);
+	width_field = de_getu16le(second_header_blk_pos+8);
 	d->width = 2*width_field;
-	d->height = de_getui16le(second_header_blk_pos+10);
+	d->height = de_getu16le(second_header_blk_pos+10);
 	de_dbg(c, "width field: %d (width=%d)", (int)width_field, (int)d->width);
 	de_dbg(c, "height: %d", (int)d->height);
 	if(!de_good_image_dimensions(c, d->width, d->height)) goto done;
@@ -110,7 +110,7 @@ static void de_run_tim(deark *c, de_module_params *mparams)
 	de_dbg(c, "first header block at %d", 0);
 	de_dbg_indent(c, 1);
 
-	tim_type = (unsigned int)de_getui32le(4);
+	tim_type = (unsigned int)de_getu32le(4);
 	d->bpp_code = tim_type & 0x07;
 	d->palette_flag = (tim_type>>3)&0x01;
 
@@ -159,7 +159,7 @@ static int de_identify_tim(deark *c)
 	if(dbuf_memcmp(c->infile, 0, "\x10\x00\x00\x00", 4))
 		return 0;
 
-	x = de_getui32le(4);
+	x = de_getu32le(4);
 	if(x<=3 || x==8 || x==9) {
 		if(de_input_file_has_ext(c, "tim")) return 100;
 		return 15;

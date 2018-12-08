@@ -330,8 +330,8 @@ static void do_decode_thumbnail(deark *c, lctx *d)
 	if(d->thumbnail_image.width!=0 && d->thumbnail_image.height==0) {
 		de_warn(c, "Thumbnail image height is 0. Assuming the file incorrectly uses "
 			"16-bit thumbnail dimensions, instead of 8.");
-		d->thumbnail_image.width = de_getui16le(d->thumbnail_offset);
-		d->thumbnail_image.height = de_getui16le(d->thumbnail_offset+2);
+		d->thumbnail_image.width = de_getu16le(d->thumbnail_offset);
+		d->thumbnail_image.height = de_getu16le(d->thumbnail_offset+2);
 		de_dbg(c, "revised thumbnail dimensions: %d"DE_CHAR_TIMES"%d", (int)d->thumbnail_image.width, (int)d->thumbnail_image.height);
 		hdrsize = 4;
 	}
@@ -398,7 +398,7 @@ static void do_read_extension_area(deark *c, lctx *d, i64 pos)
 
 	s = ucstring_create(c);
 
-	ext_area_size = de_getui16le(pos);
+	ext_area_size = de_getu16le(pos);
 	de_dbg(c, "extension area size: %d", (int)ext_area_size);
 	if(ext_area_size<495) goto done;
 
@@ -419,7 +419,7 @@ static void do_read_extension_area(deark *c, lctx *d, i64 pos)
 	// date/time: pos=367, size=12
 	has_date = 0;
 	for(k=0; k<6; k++) {
-		val[k] = de_getui16le(pos+367+2*k);
+		val[k] = de_getu16le(pos+367+2*k);
 		if(val[k]!=0) has_date = 1;
 	}
 	if(has_date) {
@@ -439,7 +439,7 @@ static void do_read_extension_area(deark *c, lctx *d, i64 pos)
 	ucstring_strip_trailing_spaces(s);
 	de_dbg(c, "software id: \"%s\"", ucstring_getpsz_d(s));
 
-	val[0] = de_getui16le(pos+467);
+	val[0] = de_getu16le(pos+467);
 	val[1] = (i64)de_getbyte(pos+469);
 	if(val[0]!=0 || val[1]!=32) {
 		de_dbg(c, "software version: %u,%u,%u",
@@ -447,14 +447,14 @@ static void do_read_extension_area(deark *c, lctx *d, i64 pos)
 			(unsigned int)val[1]);
 	}
 
-	val[0] = de_getui32le(pos+470);
+	val[0] = de_getu32le(pos+470);
 	if(val[0]!=0) {
 		de_dbg(c, "background color: 0x%08x", (unsigned int)val[0]);
 	}
 
 	// TODO: Retain the aspect ratio. (Need sample files. Nobody seems to use this field.)
-	d->aspect_ratio_num = de_getui16le(pos+474);
-	d->aspect_ratio_den = de_getui16le(pos+476);
+	d->aspect_ratio_num = de_getu16le(pos+474);
+	d->aspect_ratio_den = de_getu16le(pos+476);
 	if(d->aspect_ratio_den!=0) {
 		de_dbg(c, "aspect ratio: %d/%d", (int)d->aspect_ratio_num, (int)d->aspect_ratio_den);
 	}
@@ -462,10 +462,10 @@ static void do_read_extension_area(deark *c, lctx *d, i64 pos)
 	// Gamma: pos=478, size=4 (not implemented)
 	// Color correction table offset: pos=482, size=4 (not implemented)
 
-	d->thumbnail_offset = de_getui32le(pos+486);
+	d->thumbnail_offset = de_getu32le(pos+486);
 	de_dbg(c, "thumbnail image offset: %d", (int)d->thumbnail_offset);
 
-	val[0] = de_getui32le(pos+490);
+	val[0] = de_getu32le(pos+490);
 	de_dbg(c, "scan line table offset: %"I64_FMT, val[0]);
 
 	d->attributes_type = de_getbyte(pos+494);
@@ -494,13 +494,13 @@ static void do_read_developer_area(deark *c, lctx *d, i64 pos)
 	}
 
 	de_dbg_indent(c, 1);
-	num_tags = de_getui16le(pos);
+	num_tags = de_getu16le(pos);
 	de_dbg(c, "number of tags: %d", (int)num_tags);
 	for(i=0; i<num_tags; i++) {
 		if(i>=200) break;
-		tag_id = de_getui16le(pos + 2 + 10*i);
-		tag_data_pos = de_getui32le(pos + 2 + 10*i + 2);
-		tag_data_size = de_getui32le(pos + 2 + 10*i + 6);
+		tag_id = de_getu16le(pos + 2 + 10*i);
+		tag_data_pos = de_getu32le(pos + 2 + 10*i + 2);
+		tag_data_size = de_getu32le(pos + 2 + 10*i + 6);
 		de_dbg(c, "tag #%d: id=%d, pos=%d, size=%d", (int)i, (int)tag_id,
 			(int)tag_data_pos, (int)tag_data_size);
 
@@ -524,9 +524,9 @@ static void do_read_footer(deark *c, lctx *d)
 	footerpos = c->infile->len - 26;
 	de_dbg(c, "v2 footer at %d", (int)footerpos);
 	de_dbg_indent(c, 1);
-	ext_offset = de_getui32le(footerpos);
+	ext_offset = de_getu32le(footerpos);
 	de_dbg(c, "extension area offset: %d", (int)ext_offset);
-	dev_offset = de_getui32le(footerpos+4);
+	dev_offset = de_getu32le(footerpos+4);
 	de_dbg(c, "developer area offset: %d", (int)dev_offset);
 	de_dbg_indent(c, -1);
 
@@ -614,15 +614,15 @@ static int do_read_tga_headers(deark *c, lctx *d)
 	de_dbg_indent(c, -1);
 
 	if(d->color_map_type != 0) {
-		d->cmap_start = de_getui16le(3);
-		d->cmap_length = de_getui16le(5);
+		d->cmap_start = de_getu16le(3);
+		d->cmap_length = de_getu16le(5);
 		d->cmap_depth = (i64)de_getbyte(7);
 		de_dbg(c, "color map start: %d, len: %d, depth: %d", (int)d->cmap_start,
 			(int)d->cmap_length, (int)d->cmap_depth);
 	}
 
-	d->main_image.width = de_getui16le(12);
-	d->main_image.height = de_getui16le(14);
+	d->main_image.width = de_getu16le(12);
+	d->main_image.height = de_getu16le(14);
 	de_dbg_dimensions(c, d->main_image.width, d->main_image.height);
 
 	d->pixel_depth = (i64)de_getbyte(16);
@@ -662,8 +662,8 @@ static int do_read_vst_headers(deark *c, lctx *d)
 	d->cmpr_type = TGA_CMPR_NONE;
 	d->cmpr_name = "none";
 
-	d->main_image.width = de_getui16le(12);
-	d->main_image.height = de_getui16le(14);
+	d->main_image.width = de_getu16le(12);
+	d->main_image.height = de_getu16le(14);
 	de_dbg_dimensions(c, d->main_image.width, d->main_image.height);
 
 	d->pixel_depth = (i64)de_getbyte(16);

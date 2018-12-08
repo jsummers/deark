@@ -82,7 +82,7 @@ static void read_format_field(deark *c, lctx *d, struct table_entry *te,
 {
 	const char *name;
 
-	fmt->raw_format = (unsigned int)de_getui32le(pos);
+	fmt->raw_format = (unsigned int)de_getu32le(pos);
 	de_dbg(c, "format: 0x%08x", fmt->raw_format);
 	de_dbg_indent(c, 1);
 
@@ -124,7 +124,7 @@ static int read_and_check_format_field(deark *c, lctx *d, struct table_entry *te
 {
 	u32 format;
 
-	format = (u32)de_getui32le_p(&pos);
+	format = (u32)de_getu32le_p(&pos);
 	de_dbg(c, "format: 0x%08x", (unsigned int)format);
 	if(format != te->fmt.raw_format) {
 		de_err(c, "Can't handle conflicting \"format\" fields");
@@ -539,15 +539,15 @@ static int do_read_table_entry(deark *c, lctx *d, struct table_entry *te, i64 po
 
 	if(pos1+16 > c->infile->len) goto done;
 
-	te->type = (unsigned int)de_getui32le_p(&pos);
+	te->type = (unsigned int)de_getu32le_p(&pos);
 	lookup_table_entry_type_info(c, d, te);
 	de_dbg(c, "type: 0x%08x (%s)", te->type, te->type_name);
 
 	read_format_field(c, d, te, pos, &te->fmt);
 	pos += 4;
 
-	te->size = de_getui32le_p(&pos);
-	te->offset = de_getui32le_p(&pos);
+	te->size = de_getu32le_p(&pos);
+	te->offset = de_getu32le_p(&pos);
 	de_dbg(c, "offset: %"I64_FMT", size: %"I64_FMT, te->offset, te->size);
 	if(te->offset+te->size > c->infile->len) {
 		de_warn(c, "Table entry goes beyond end of file (type=%s, at %"I64_FMT
@@ -679,7 +679,7 @@ static void de_run_pcf(deark *c, de_module_params *mparams)
 
 	pos += 4; // signature
 
-	d->table_count = de_getui32le_p(&pos);
+	d->table_count = de_getu32le_p(&pos);
 	de_dbg(c, "table count: %u", (unsigned int)d->table_count);
 	if(d->table_count>256) goto done;
 

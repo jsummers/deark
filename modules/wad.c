@@ -36,9 +36,9 @@ static void do_lump_entry(deark *c, lctx *d, i64 lump_idx, i64 pos)
 
 	de_dbg(c, "lump[%d] dir entry at %d", (int)lump_idx, (int)pos);
 	de_dbg_indent(c, 1);
-	lump_pos = de_getui32le(pos);
+	lump_pos = de_getu32le(pos);
 	de_dbg(c, "data pos: %d", (int)lump_pos);
-	lump_size = de_getui32le(pos+4);
+	lump_size = de_getu32le(pos+4);
 	de_dbg(c, "data size: %d", (int)lump_size);
 
 	// dbuf_read_string is used (instead of dbuf_read_to_ucstring) because
@@ -76,9 +76,9 @@ static int do_header(deark *c, lctx *d, i64 pos)
 {
 	de_dbg(c, "header at %d", (int)pos);
 	de_dbg_indent(c, 1);
-	d->nlumps = de_getui32le(pos+4);
+	d->nlumps = de_getu32le(pos+4);
 	de_dbg(c, "#lumps: %d", (int)d->nlumps);
-	d->dir_pos = de_getui32le(pos+8);
+	d->dir_pos = de_getu32le(pos+8);
 	de_dbg(c, "dir pos: %d", (int)d->dir_pos);
 	de_dbg_indent(c, -1);
 	return 1;

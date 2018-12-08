@@ -142,8 +142,8 @@ static int do_4color(deark *c, lctx *d)
 
 	if(d->has_dimension_fields) {
 		// 11-byte header that includes width & height
-		img->width = (de_getui16le(pos) + 1)/2; // width = number of bits??
-		img->height = de_getui16le(pos+2);
+		img->width = (de_getu16le(pos) + 1)/2; // width = number of bits??
+		img->height = de_getu16le(pos+2);
 		pos+=4;
 	}
 	else {
@@ -215,8 +215,8 @@ static int do_2color(deark *c, lctx *d)
 
 	if(d->has_dimension_fields) {
 		// 11-byte header that includes width & height
-		img->width = de_getui16le(pos);
-		img->height = de_getui16le(pos+2);
+		img->width = de_getu16le(pos);
+		img->height = de_getu16le(pos+2);
 		pos+=4;
 	}
 	else {
@@ -296,8 +296,8 @@ static int do_wh16(deark *c, lctx *d)
 	img = de_bitmap_create_noinit(c);
 	img->bytes_per_pixel = 3;
 
-	img->width = de_getui16le(pos);
-	img->height = de_getui16le(pos+2);
+	img->width = de_getu16le(pos);
+	img->height = de_getu16le(pos+2);
 	pos+=4;
 
 	de_dbg_dimensions(c, img->width, img->height);
@@ -513,9 +513,9 @@ static void de_run_bsave(deark *c, de_module_params *mparams)
 
 	d = de_malloc(c, sizeof(lctx));
 
-	d->base_addr = de_getui16le(1);
-	d->offset_from_base = de_getui16le(3);
-	d->data_size = de_getui16le(5);
+	d->base_addr = de_getu16le(1);
+	d->offset_from_base = de_getu16le(3);
+	d->data_size = de_getu16le(5);
 
 	de_dbg(c, "base_addr: 0x%04x", (int)d->base_addr);
 	de_dbg(c, "offset_from_base: 0x%04x", (int)d->offset_from_base);

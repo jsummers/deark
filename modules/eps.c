@@ -27,12 +27,12 @@ static void de_run_eps_binary(deark *c)
 
 	de_declare_fmt(c, "EPS binary");
 
-	eps_offset  = de_getui32le(4);
-	eps_len     = de_getui32le(8);
-	wmf_offset  = de_getui32le(12);
-	wmf_len     = de_getui32le(16);
-	tiff_offset = de_getui32le(20);
-	tiff_len    = de_getui32le(24);
+	eps_offset  = de_getu32le(4);
+	eps_len     = de_getu32le(8);
+	wmf_offset  = de_getu32le(12);
+	wmf_len     = de_getu32le(16);
+	tiff_offset = de_getu32le(20);
+	tiff_len    = de_getu32le(24);
 
 	if(eps_len>0) {
 		de_dbg(c, "Extracting EPS offs=%d len=%d", (int)eps_offset, (int)eps_len);

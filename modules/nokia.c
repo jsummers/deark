@@ -50,8 +50,8 @@ static void de_run_nol(deark *c, de_module_params *mparams)
 
 	d = de_malloc(c, sizeof(lctx));
 
-	d->w = de_getui16le(10);
-	d->h = de_getui16le(12);
+	d->w = de_getu16le(10);
+	d->h = de_getu16le(12);
 	if(!de_good_image_dimensions(c, d->w, d->h)) goto done;
 
 	nol_ngg_read_bitmap(c, d, 20);
@@ -85,8 +85,8 @@ static void de_run_ngg(deark *c, de_module_params *mparams)
 
 	d = de_malloc(c, sizeof(lctx));
 
-	d->w = de_getui16le(6);
-	d->h = de_getui16le(8);
+	d->w = de_getu16le(6);
+	d->h = de_getu16le(8);
 	if(!de_good_image_dimensions(c, d->w, d->h)) goto done;
 
 	nol_ngg_read_bitmap(c, d, 16);
@@ -302,7 +302,7 @@ static int de_identify_nsl(deark *c)
 
 	if(dbuf_memcmp(c->infile, 0, "FORM", 4)) return 0;
 
-	x = de_getui16be(4);
+	x = de_getu16be(4);
 	if(x+6 != c->infile->len) return 0;
 
 	if(de_input_file_has_ext(c, "nsl")) {

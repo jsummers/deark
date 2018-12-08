@@ -156,7 +156,7 @@ static void do_wav_fact(deark *c, lctx *d, struct de_iffctx *ictx, i64 pos, i64 
 
 	if(!ictx->is_le) return;
 	if(len<4) return;
-	n = de_getui32le(pos);
+	n = de_getu32le(pos);
 	de_dbg(c, "number of samples: %u", (unsigned int)n);
 }
 
@@ -165,16 +165,16 @@ static void do_avi_avih(deark *c, lctx *d, struct de_iffctx *ictx, i64 pos, i64 
 	i64 n, n2;
 
 	if(len<40) return;
-	n = de_getui32le(pos);
+	n = de_getu32le(pos);
 	de_dbg(c, "microseconds/frame: %u", (unsigned int)n);
-	n = de_getui32le(pos+12);
+	n = de_getu32le(pos+12);
 	de_dbg(c, "flags: 0x%08x", (unsigned int)n);
-	n = de_getui32le(pos+16);
+	n = de_getu32le(pos+16);
 	de_dbg(c, "number of frames: %u", (unsigned int)n);
-	n = de_getui32le(pos+24);
+	n = de_getu32le(pos+24);
 	de_dbg(c, "number of streams: %u", (unsigned int)n);
-	n = de_getui32le(pos+32);
-	n2 = de_getui32le(pos+36);
+	n = de_getu32le(pos+32);
+	n2 = de_getu32le(pos+36);
 	de_dbg_dimensions(c, n, n2);
 	// TODO: There are more fields in this chunk.
 }
@@ -228,10 +228,10 @@ static void do_palette(deark *c, lctx *d, struct de_iffctx *ictx, i64 pos, i64 l
 	char tmps[32];
 
 	if(!ictx->is_le) return;
-	ver = de_getui16le(pos);
+	ver = de_getu16le(pos);
 	de_dbg(c, "version: 0x%04x", (unsigned int)ver);
 	pos += 2;
-	n = de_getui16le(pos);
+	n = de_getu16le(pos);
 	de_dbg(c, "number of entries: %d", (int)n);
 	pos += 2;
 	if(n>(len-4)/4) n=(len-4)/4;
@@ -297,7 +297,7 @@ static void do_DISP(deark *c, lctx *d, struct de_iffctx *ictx, i64 pos, i64 len)
 
 	if(!ictx->is_le) return;
 	if(len<4) return;
-	ty = (unsigned int)de_getui32le(pos);
+	ty = (unsigned int)de_getu32le(pos);
 	de_dbg(c, "data type: %u (%s)", ty,
 		de_fmtutil_get_windows_cb_data_type_name(ty));
 

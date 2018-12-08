@@ -191,9 +191,9 @@ static void get_main_icon_size(deark *c, lctx *d, i64 pos, i64 *pbytesused)
 	i64 depth;
 	i64 src_rowspan, src_planespan;
 
-	width = de_getui16be(pos+4);
-	height = de_getui16be(pos+6);
-	depth = de_getui16be(pos+8);
+	width = de_getu16be(pos+4);
+	height = de_getu16be(pos+6);
+	depth = de_getu16be(pos+8);
 	src_rowspan = ((width+15)/16)*2;
 	src_planespan = src_rowspan * height;
 
@@ -216,9 +216,9 @@ static int do_read_main_icon(deark *c, lctx *d,
 	de_dbg_indent(c, 1);
 
 	// 20-byte header, followed by one or more bitmap "planes".
-	width = de_getui16be(pos+4);
-	height = de_getui16be(pos+6);
-	depth = de_getui16be(pos+8);
+	width = de_getu16be(pos+4);
+	height = de_getu16be(pos+6);
+	depth = de_getu16be(pos+8);
 	de_dbg(c, "dimensions=%d"DE_CHAR_TIMES"%d, depth=%d", (int)width, (int)height,
 		(int)depth);
 
@@ -307,7 +307,7 @@ static int do_read_tooltypes_table(deark *c, lctx *d,
 	de_dbg(c, "tool types table at %d", (int)pos);
 	de_dbg_indent(c, 1);
 
-	num_entries_raw = de_getui32be(pos);
+	num_entries_raw = de_getu32be(pos);
 	num_entries = num_entries_raw/4 - 1;
 	de_dbg(c, "number of tool types: %d", (int)num_entries);
 	pos+=4;
@@ -316,7 +316,7 @@ static int do_read_tooltypes_table(deark *c, lctx *d,
 	}
 
 	for(i=0; i<num_entries; i++) {
-		len = de_getui32be(pos);
+		len = de_getu32be(pos);
 		pos+=4;
 		if(len>10000) {
 			de_err(c, "Bad ToolTypes data");
@@ -464,8 +464,8 @@ static void do_glowicons_IMAG(deark *c, lctx *d,
 		goto done;
 	}
 
-	image_size_in_bytes = 1+de_getui16be(pos+6);
-	pal_size_in_bytes = 1+de_getui16be(pos+8);
+	image_size_in_bytes = 1+de_getu16be(pos+6);
+	pal_size_in_bytes = 1+de_getu16be(pos+8);
 	pos+=10;
 
 	tmpbuf = dbuf_create_membuf(c, 10240, 0);
@@ -534,8 +534,8 @@ static int do_detect_glowicons(deark *c, lctx *d, i64 pos)
 	if(gsize<=0) return 0;
 
 	if(gsize>=24) {
-		chunk_id = (u32)de_getui32be(pos);
-		form_type = (u32)de_getui32be(pos+8);
+		chunk_id = (u32)de_getu32be(pos);
+		form_type = (u32)de_getu32be(pos+8);
 		if(chunk_id==CODE_FORM && form_type==CODE_ICON) {
 			de_dbg(c, "GlowIcons data found at %d", (int)pos);
 			return 1;
@@ -619,20 +619,20 @@ static void do_scan_file(deark *c, lctx *d)
 	de_dbg(c, "DiskObject at %d, len=%d", 0, 78);
 	de_dbg_indent(c, 1);
 
-	version = de_getui16be(2);
+	version = de_getu16be(2);
 	de_dbg(c, "version: %d", (int)version);
 
 	de_dbg(c, "Gadget at %d, len=%d", 4, 44);
 	de_dbg_indent(c, 1);
 
-	main_width = de_getui16be(12);
-	main_height = de_getui16be(14);
+	main_width = de_getu16be(12);
+	main_height = de_getu16be(14);
 	de_dbg(c, "main canvas size: %d"DE_CHAR_TIMES"%d", (int)main_width, (int)main_height);
 
-	d->num_main_icons = (de_getui32be(26)==0) ? 1 : 2; // "SelectRender" field
+	d->num_main_icons = (de_getu32be(26)==0) ? 1 : 2; // "SelectRender" field
 	de_dbg(c, "number of (original) icons: %d", (int)d->num_main_icons);
 
-	d->icon_revision = de_getui32be(44) & 0xff;
+	d->icon_revision = de_getu32be(44) & 0xff;
 	de_dbg(c, "icon revision: %d", (int)d->icon_revision);
 
 	de_dbg_indent(c, -1); // end of embedded "Gadget" object
@@ -648,19 +648,19 @@ static void do_scan_file(deark *c, lctx *d)
 	}
 	de_dbg(c, "icon type: %d (%s)", (int)d->icon_type, tn);
 
-	x = de_getui32be(50);
+	x = de_getu32be(50);
 	d->has_defaulttool = (x!=0);
 	de_dbg(c, "defaulttool: 0x%08x", (unsigned int)x);
 
-	x = de_getui32be(54);
+	x = de_getu32be(54);
 	d->has_tooltypes = (x!=0);
 	de_dbg(c, "tooltypes: 0x%08x", (unsigned int)x);
 
-	x = de_getui32be(66);
+	x = de_getu32be(66);
 	d->has_drawerdata = (x!=0);
 	de_dbg(c, "drawerdata: 0x%08x", (unsigned int)x);
 
-	x = de_getui32be(70);
+	x = de_getu32be(70);
 	d->has_toolwindow = (x!=0);
 	de_dbg(c, "toolwindow: 0x%08x", (unsigned int)x);
 
@@ -684,7 +684,7 @@ static void do_scan_file(deark *c, lctx *d)
 
 	// Skip the DefaultTool segment
 	if(d->has_defaulttool) {
-		x = de_getui32be(pos);
+		x = de_getu32be(pos);
 		de_dbg(c, "DefaultTool: %d bytes at %d", (int)(4+x), (int)pos);
 		pos += 4+x;
 	}
@@ -698,7 +698,7 @@ static void do_scan_file(deark *c, lctx *d)
 
 	// Skip the ToolWindow segment (untested)
 	if(d->has_toolwindow) {
-		x = de_getui32be(pos);
+		x = de_getu32be(pos);
 		de_dbg(c, "ToolWindow: %d bytes at %d", (int)(4+x), (int)pos);
 		pos += 4+x;
 	}

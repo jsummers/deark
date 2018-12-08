@@ -284,8 +284,8 @@ static void de_run_hpicn(deark *c, de_module_params *mparams)
 {
 	i64 width, height;
 
-	width = de_getui16le(4);
-	height = de_getui16le(6);
+	width = de_getu16le(4);
+	height = de_getu16le(6);
 	de_convert_and_write_image_bilevel(c->infile, 8, width, height, (width+7)/8,
 		DE_CVTF_WHITEISZERO, NULL, 0);
 }
@@ -322,8 +322,8 @@ struct xpuzzctx {
 
 static int xpuzz_read_header(deark *c, struct xpuzzctx *d)
 {
-	d->w = de_getui32be(0);
-	d->h = de_getui32be(4);
+	d->w = de_getu32be(0);
+	d->h = de_getu32be(4);
 	d->palentries = (i64)de_getbyte(8);
 	if(!de_good_image_dimensions_noerr(c, d->w, d->h)) return 0;
 	if(d->palentries==0) d->palentries = 256;
@@ -445,7 +445,7 @@ static void do_mrw_seg_list(deark *c, i64 pos1, i64 len)
 	pos = pos1;
 	while(pos < pos1+len) {
 		de_read(seg_id, pos, 4);
-		data_len = de_getui32be(pos+4);
+		data_len = de_getu32be(pos+4);
 		pos+=8;
 		if(pos+data_len > pos1+len) break;
 		if(!de_memcmp(seg_id, "\0TTW", 4)) { // Exif
@@ -459,7 +459,7 @@ static void de_run_mrw(deark *c, de_module_params *mparams)
 {
 	i64 mrw_seg_size;
 
-	mrw_seg_size = de_getui32be(4);
+	mrw_seg_size = de_getu32be(4);
 	do_mrw_seg_list(c, 8, mrw_seg_size);
 }
 
@@ -491,8 +491,8 @@ static void de_run_bob(deark *c, de_module_params *mparams)
 	u32 pal[256];
 	i64 p;
 
-	w = de_getui16le(0);
-	h = de_getui16le(2);
+	w = de_getu16le(0);
+	h = de_getu16le(2);
 	if(!de_good_image_dimensions(c, w, h)) goto done;
 	img = de_bitmap_create(c, w, h, 3);
 
@@ -517,8 +517,8 @@ static int de_identify_bob(deark *c)
 
 	if(!de_input_file_has_ext(c, "bob")) return 0;
 
-	w = de_getui16le(0);
-	h = de_getui16le(2);
+	w = de_getu16le(0);
+	h = de_getu16le(2);
 	if(c->infile->len == 4 + 768 + w*h) {
 		return 100;
 	}
@@ -550,10 +550,10 @@ static void de_run_alias_pix(deark *c, de_module_params *mparams)
 	i64 runlen;
 	u32 clr;
 
-	w = de_getui16be(0);
-	h = de_getui16be(2);
-	firstline = de_getui16be(4);
-	depth = de_getui16be(8);
+	w = de_getu16be(0);
+	h = de_getu16be(2);
+	firstline = de_getu16be(4);
+	depth = de_getu16be(8);
 
 	if(!de_good_image_dimensions(c, w, h)) goto done;
 	if(firstline >= h) goto done;
@@ -604,11 +604,11 @@ static int de_identify_alias_pix(deark *c)
 		return 0;
 	}
 
-	w = de_getui16be(0);
-	h = de_getui16be(2);
-	firstline = de_getui16be(4);
-	lastline = de_getui16be(6);
-	depth = de_getui16be(8);
+	w = de_getu16be(0);
+	h = de_getu16be(2);
+	firstline = de_getu16be(4);
+	lastline = de_getu16be(6);
+	depth = de_getu16be(8);
 
 	if(depth!=24) return 0;
 	if(firstline>lastline) return 0;
@@ -665,8 +665,8 @@ static void de_run_applevol(deark *c, de_module_params *mparams)
 	i64 p;
 	u8 palent;
 
-	w = de_getui16be(1);
-	h = de_getui16be(3);
+	w = de_getu16be(1);
+	h = de_getu16be(3);
 	if(!de_good_image_dimensions(c, w, h)) goto done;
 	img = de_bitmap_create(c, w, h, 1);
 
@@ -754,8 +754,8 @@ static void de_run_ripicon(deark *c, de_module_params *mparams)
 	u8 x;
 	u32 palent;
 
-	width = 1 + de_getui16le(0);
-	height = 1 + de_getui16le(2);
+	width = 1 + de_getu16le(0);
+	height = 1 + de_getu16le(2);
 	de_dbg_dimensions(c, width, height);
 	if(!de_good_image_dimensions(c, width, height)) goto done;
 
@@ -787,8 +787,8 @@ static int de_identify_ripicon(deark *c)
 
 	if(!de_input_file_has_ext(c, "icn")) return 0;
 	de_read(buf, 0, sizeof(buf));
-	width = 1 + de_getui16le(0);
-	height = 1 + de_getui16le(2);
+	width = 1 + de_getu16le(0);
+	height = 1 + de_getu16le(2);
 	expected_size = 4 + height*(4*((width+7)/8)) + 1;
 	if(c->infile->len >= expected_size && c->infile->len <= expected_size+1) {
 		return 50;
@@ -848,8 +848,8 @@ static void de_run_lss16(deark *c, de_module_params *mparams)
 	d = de_malloc(c, sizeof(struct lss16ctx));
 
 	d->pos = 4;
-	width = de_getui16le(d->pos);
-	height = de_getui16le(d->pos+2);
+	width = de_getu16le(d->pos);
+	height = de_getu16le(d->pos+2);
 	de_dbg_dimensions(c, width, height);
 	if(!de_good_image_dimensions(c, width, height)) goto done;
 
@@ -940,8 +940,8 @@ static void de_run_vbm(deark *c, de_module_params *mparams)
 		de_err(c, "Unsupported VBM version (%d)", (int)ver);
 		return;
 	}
-	width = de_getui16be(4);
-	height = de_getui16be(6);
+	width = de_getu16be(4);
+	height = de_getu16be(6);
 	de_convert_and_write_image_bilevel(c->infile, 8, width, height, (width+7)/8,
 		DE_CVTF_WHITEISZERO, NULL, 0);
 }
@@ -974,8 +974,8 @@ static void de_run_fp_art(deark *c, de_module_params *mparams)
 	i64 width, height;
 	i64 rowspan;
 
-	width = de_getui16le(2);
-	height = de_getui16le(6);
+	width = de_getu16le(2);
+	height = de_getu16le(6);
 	rowspan = ((width+15)/16)*2;
 	de_convert_and_write_image_bilevel(c->infile, 8, width, height, rowspan, 0, NULL, 0);
 }
@@ -987,8 +987,8 @@ static int de_identify_fp_art(deark *c)
 
 	if(!de_input_file_has_ext(c, "art")) return 0;
 
-	width = de_getui16le(2);
-	height = de_getui16le(6);
+	width = de_getu16le(2);
+	height = de_getu16le(6);
 	rowspan = ((width+15)/16)*2;
 	if(8 + rowspan*height == c->infile->len) {
 		return 100;
@@ -1017,8 +1017,8 @@ static void de_run_ybm(deark *c, de_module_params *mparams)
 	i64 rowspan;
 	u8 x;
 
-	width = de_getui16be(2);
-	height = de_getui16be(4);
+	width = de_getu16be(2);
+	height = de_getu16be(4);
 	if(!de_good_image_dimensions(c, width, height)) goto done;;
 	rowspan = ((width+15)/16)*2;
 
@@ -1045,8 +1045,8 @@ static int de_identify_ybm(deark *c)
 
 	if(dbuf_memcmp(c->infile, 0, "!!", 2))
 		return 0;
-	width = de_getui16be(2);
-	height = de_getui16be(4);
+	width = de_getu16be(2);
+	height = de_getu16be(4);
 	rowspan = ((width+15)/16)*2;
 	if(6+height*rowspan == c->infile->len)
 		return 100;
@@ -1074,8 +1074,8 @@ static void de_run_olpc565(deark *c, de_module_params *mparams)
 	u8 b0, b1;
 	u32 clr;
 
-	width = de_getui16le(4);
-	height = de_getui16le(6);
+	width = de_getu16le(4);
+	height = de_getu16le(6);
 	if(!de_good_image_dimensions(c, width, height)) goto done;
 	rowspan = width*2;
 
@@ -1126,14 +1126,14 @@ static void de_run_iim(deark *c, de_module_params *mparams)
 
 	// This code is based on reverse engineering, and may be incorrect.
 
-	n = de_getui16be(8); // Unknown field
-	bpp = de_getui16be(10);
+	n = de_getu16be(8); // Unknown field
+	bpp = de_getu16be(10);
 	if(n!=4 || bpp!=24) {
 		de_dbg(c, "This type of IIM image is not supported");
 		goto done;
 	}
-	width = de_getui16be(12);
-	height = de_getui16be(14);
+	width = de_getu16be(12);
+	height = de_getu16be(14);
 	if(!de_good_image_dimensions(c, width, height)) goto done;
 	rowspan = width*3;
 
@@ -1281,8 +1281,8 @@ static void de_run_crg(deark *c, de_module_params *mparams)
 	i64 num_cmpr_bytes;
 	dbuf *unc_pixels = NULL;
 
-	width = de_getui32be(20);
-	height = de_getui32be(24);
+	width = de_getu32be(20);
+	height = de_getu32be(24);
 	de_dbg_dimensions(c, width, height);
 	if(!de_good_image_dimensions(c, width, height)) goto done;
 
@@ -1292,7 +1292,7 @@ static void de_run_crg(deark *c, de_module_params *mparams)
 		goto done;
 	}
 
-	num_cmpr_bytes = de_getui32be(38);
+	num_cmpr_bytes = de_getu32be(38);
 	de_dbg(c, "compressed data size: %d", (int)num_cmpr_bytes);
 	cmpr_img_start = 42;
 
@@ -1354,8 +1354,8 @@ static void de_run_farbfeld(deark *c, de_module_params *mparams)
 	i64 ppos;
 	u8 s[4];
 
-	width = de_getui32be(8);
-	height = de_getui32be(12);
+	width = de_getu32be(8);
+	height = de_getu32be(12);
 	de_dbg_dimensions(c, width, height);
 	if(!de_good_image_dimensions(c, width, height)) return;
 
@@ -1501,30 +1501,30 @@ static void de_run_hsiraw(deark *c, de_module_params *mparams)
 	u32 pal[256];
 	int is_grayscale;
 
-	ver = de_getui16be(6);
+	ver = de_getu16be(6);
 	de_dbg(c, "version: %d", (int)ver);
 	if(ver!=4) {
 		de_warn(c, "HSI Raw version %d might not be supported correctly", (int)ver);
 	}
 
-	w = de_getui16be(8);
+	w = de_getu16be(8);
 	if(w==0) {
 		// MPlayer extension?
 		de_dbg2(c, "reading 32-bit width");
-		w = de_getui32be(28);
+		w = de_getu32be(28);
 	}
-	h = de_getui16be(10);
+	h = de_getu16be(10);
 	de_dbg_dimensions(c, w, h);
-	num_pal_colors = de_getui16be(12);
+	num_pal_colors = de_getu16be(12);
 	de_dbg(c, "number of palette colors: %d", (int)num_pal_colors);
 
 	hdpi = de_geti16be(14);
 	vdpi = de_geti16be(16);
 	de_dbg(c, "density: %d"DE_CHAR_TIMES"%d", (int)hdpi, (int)vdpi);
 	// [18: Gamma]
-	cmpr = de_getui16be(20);
+	cmpr = de_getu16be(20);
 	de_dbg(c, "compression: %d", (int)cmpr);
-	alpha_info = de_getui16be(22);
+	alpha_info = de_getu16be(22);
 	de_dbg(c, "alpha: %d", (int)alpha_info);
 
 	if(num_pal_colors>256 || cmpr!=0 || alpha_info!=0) {
@@ -1589,8 +1589,8 @@ static void de_run_qdv(deark *c, de_module_params *mparams)
 	// Warning: This decoder is based on reverse engineering, and may be
 	// incorrect or incomplete.
 
-	w = de_getui16be(0);
-	h = de_getui16be(2);
+	w = de_getu16be(0);
+	h = de_getu16be(2);
 	de_dbg_dimensions(c, w, h);
 	if(!de_good_image_dimensions(c, w, h)) goto done;
 
@@ -1615,8 +1615,8 @@ static int de_identify_qdv(deark *c)
 	i64 w, h;
 	i64 num_pal_colors;
 
-	w = de_getui16be(0);
-	h = de_getui16be(2);
+	w = de_getu16be(0);
+	h = de_getu16be(2);
 	num_pal_colors = 1 + (i64)de_getbyte(4);
 	if(5+num_pal_colors*3+w*h != c->infile->len)
 		return 0;
@@ -1655,27 +1655,27 @@ static void de_run_vitec(deark *c, de_module_params *mparams)
 	de_warn(c, "VITec image support is experimental, and may not work correctly.");
 
 	pos = 4;
-	h1size = de_getui32be(pos);
+	h1size = de_getu32be(pos);
 	de_dbg(c, "header 1 at %d, len=%d", (int)pos, (int)h1size);
 	// Don't know what's in this part of the header. Just ignore it.
 	pos += h1size;
 	if(pos>=c->infile->len) goto done;
 
-	h2size = de_getui32be(pos);
+	h2size = de_getu32be(pos);
 	de_dbg(c, "header 2 at %d, len=%d", (int)pos, (int)h2size);
 	de_dbg_indent(c, 1);
 
 	// pos+4: Bits size?
 	// pos+24: Unknown field, usually 7
 
-	w = de_getui32be(pos+36);
-	h = de_getui32be(pos+40);
+	w = de_getu32be(pos+36);
+	h = de_getu32be(pos+40);
 	de_dbg_dimensions(c, w, h);
 	if(!de_good_image_dimensions(c, w, h)) goto done;
 
 	// pos+52: Unknown field, 1 in grayscale images
 
-	samplesperpixel = de_getui32be(pos+56);
+	samplesperpixel = de_getu32be(pos+56);
 	de_dbg(c, "samples/pixel: %d", (int)samplesperpixel);
 	if(samplesperpixel!=1 && samplesperpixel!=3) {
 		de_err(c, "Unsupported samples/pixel: %d", (int)samplesperpixel);
@@ -1779,8 +1779,8 @@ static void de_run_lumena_cel(deark *c, de_module_params *mparams)
 	const i64 headersize = 4;
 	i64 bypp;
 
-	width = de_getui16le(0);
-	height = de_getui16le(2);
+	width = de_getu16le(0);
+	height = de_getu16le(2);
 	if(!de_good_image_dimensions_noerr(c, width, height)) goto done;
 
 	// TODO: Support multi-image files
@@ -1807,7 +1807,7 @@ static void de_run_lumena_cel(deark *c, de_module_params *mparams)
 				clr = DE_SET_ALPHA(clr, a);
 			}
 			else {
-				clr = (u32)de_getui16le(pos);
+				clr = (u32)de_getu16le(pos);
 				clr = de_rgb555_to_888(clr);
 			}
 			de_bitmap_setpixel_rgba(img, i, j, clr);
@@ -1828,8 +1828,8 @@ static int de_identify_lumena_cel(deark *c)
 	int is_32bit = 0;
 
 	if(!de_input_file_has_ext(c, "cel")) return 0;
-	width = de_getui16le(0);
-	height = de_getui16le(2);
+	width = de_getu16le(0);
+	height = de_getu16le(2);
 
 	is_16bit = (c->infile->len == 4 + width*height*2);
 	is_32bit = (c->infile->len == 4 + width*height*4);
@@ -1912,17 +1912,17 @@ static void de_run_cdr_wl(deark *c, de_module_params *mparams)
 	de_dbg(c, "version code: 0x%02x", (unsigned int)version);
 	if(version <= (u8)'e') goto done;
 
-	pos = de_getui32le(28);
+	pos = de_getu32le(28);
 	de_dbg(c, "preview image at %d", (int)pos);
 	de_dbg_indent(c, 1);
 
 	// Seems to be Windows DDB format, or something like it.
 	pos += 2;
 	pos += 2;
-	w = de_getui16le_p(&pos);
-	h = de_getui16le_p(&pos);
+	w = de_getu16le_p(&pos);
+	h = de_getu16le_p(&pos);
 	de_dbg_dimensions(c, w, h);
-	rowspan = de_getui16le_p(&pos);
+	rowspan = de_getu16le_p(&pos);
 	b = de_getbyte_p(&pos); // planes
 	if(b!=1) goto done;
 	b = de_getbyte_p(&pos); // bits/pixel
@@ -2091,20 +2091,20 @@ static void de_run_megapaint_lib(deark *c, de_module_params *mparams)
 	i64 k;
 	i64 nsyms;
 
-	nsyms = 1+de_getui16be(12);
+	nsyms = 1+de_getu16be(12);
 	de_dbg(c, "number of symbols: %d", (int)nsyms);
 
 	for(k=0; k<nsyms; k++) {
 		i64 sym_offs;
 		i64 w, h, rowspan;
 
-		sym_offs = de_getui32be(idxpos+4*k);
+		sym_offs = de_getu32be(idxpos+4*k);
 		de_dbg(c, "symbol #%d", (int)(1+k));
 		de_dbg_indent(c, 1);
 		de_dbg(c, "offset: %u", (unsigned int)sym_offs);
 
-		w = 1+de_getui16be(sym_offs);
-		h = 1+de_getui16be(sym_offs+2);
+		w = 1+de_getu16be(sym_offs);
+		h = 1+de_getu16be(sym_offs+2);
 		de_dbg_dimensions(c, w, h);
 		rowspan = ((w+15)/16)*2;
 		de_convert_and_write_image_bilevel(c->infile, sym_offs+4, w, h, rowspan,

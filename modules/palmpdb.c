@@ -76,7 +76,7 @@ static void handle_palm_timestamp(deark *c, lctx *d, i64 pos, const char *name)
 	char timestamp_buf[64];
 	i64 ts_int;
 
-	ts_int = de_getui32be(pos);
+	ts_int = de_getu32be(pos);
 	if(ts_int==0) {
 		de_dbg(c, "%s: 0 (not set)", name);
 		return;
@@ -99,7 +99,7 @@ static void handle_palm_timestamp(deark *c, lctx *d, i64 pos, const char *name)
 		de_dbg(c, "... if Unix-BE: %"I64_FMT" (%s)", ts_int, timestamp_buf);
 	}
 
-	ts_int = de_getui32le(pos);
+	ts_int = de_getu32le(pos);
 	if(ts_int>2082844800) {
 		de_mac_time_to_timestamp(ts_int, &ts);
 		de_timestamp_to_string(&ts, timestamp_buf, sizeof(timestamp_buf), 0);
@@ -152,24 +152,24 @@ static int do_read_pdb_prc_header(deark *c, lctx *d)
 	dbuf_read_to_ucstring(c->infile, pos1, 32, dname, DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_PALM);
 	de_dbg(c, "name: \"%s\"", ucstring_getpsz(dname));
 
-	attribs = (u32)de_getui16be(pos1+32);
+	attribs = (u32)de_getu16be(pos1+32);
 	attr_descr = ucstring_create(c);
 	get_db_attr_descr(attr_descr, attribs);
 	de_dbg(c, "attributes: 0x%04x (%s)", (unsigned int)attribs,
 		ucstring_getpsz(attr_descr));
 
-	version = (u32)de_getui16be(pos1+34);
+	version = (u32)de_getu16be(pos1+34);
 	de_dbg(c, "version: 0x%04x", (unsigned int)version);
 
 	handle_palm_timestamp(c, d, pos1+36, "create date");
 	handle_palm_timestamp(c, d, pos1+40, "mod date");
 	handle_palm_timestamp(c, d, pos1+44, "backup date");
 
-	x = de_getui32be(pos1+48);
+	x = de_getu32be(pos1+48);
 	de_dbg(c, "mod number: %d", (int)x);
-	d->appinfo_offs = de_getui32be(pos1+52);
+	d->appinfo_offs = de_getu32be(pos1+52);
 	de_dbg(c, "app info pos: %d", (int)d->appinfo_offs);
-	d->sortinfo_offs = de_getui32be(pos1+56);
+	d->sortinfo_offs = de_getu32be(pos1+56);
 	de_dbg(c, "sort info pos: %d", (int)d->sortinfo_offs);
 
 	dbuf_read_fourcc(c->infile, pos1+60, &d->dtype4cc, 4, 0x0);
@@ -199,7 +199,7 @@ static int do_read_pdb_prc_header(deark *c, lctx *d)
 		goto done;
 	}
 
-	x = de_getui32be(68);
+	x = de_getu32be(68);
 	de_dbg(c, "uniqueIDseed: %u", (unsigned int)x);
 
 	retval = 1;
@@ -374,34 +374,34 @@ static void do_imgview_image(deark *c, lctx *d, i64 pos1, i64 len)
 	de_dbg(c, "bits/pixel: %d", (int)igi->bitsperpixel);
 	de_dbg_indent(c, -1);
 
-	x0 = de_getui32be(pos);
+	x0 = de_getu32be(pos);
 	de_dbg(c, "reserved1: 0x%08x", (unsigned int)x0);
 	pos += 4;
 
-	x0 = de_getui32be(pos);
+	x0 = de_getu32be(pos);
 	de_dbg(c, "note: 0x%08x", (unsigned int)x0);
 	pos += 4;
 
-	x0 = de_getui16be(pos);
+	x0 = de_getu16be(pos);
 	pos += 2;
-	x1 = de_getui16be(pos);
+	x1 = de_getu16be(pos);
 	pos += 2;
 	de_dbg(c, "last: (%d,%d)", (int)x0, (int)x1);
 
-	x0 = de_getui32be(pos);
+	x0 = de_getu32be(pos);
 	de_dbg(c, "reserved2: 0x%08x", (unsigned int)x0);
 	pos += 4;
 
 	// TODO: Is the anchor signed or unsigned?
-	x0 = de_getui16be(pos);
+	x0 = de_getu16be(pos);
 	pos += 2;
-	x1 = de_getui16be(pos);
+	x1 = de_getu16be(pos);
 	pos += 2;
 	de_dbg(c, "anchor: (%d,%d)", (int)x0, (int)x1);
 
-	igi->w = de_getui16be(pos);
+	igi->w = de_getu16be(pos);
 	pos += 2;
-	igi->h = de_getui16be(pos);
+	igi->h = de_getu16be(pos);
 	pos += 2;
 	de_dbg_dimensions(c, igi->w, igi->h);
 	if(!de_good_image_dimensions(c, igi->w, igi->h)) goto done;
@@ -622,7 +622,7 @@ static int do_read_prc_record(deark *c, lctx *d, i64 rec_idx, i64 pos1)
 	// The "filename" always starts with the fourcc.
 	ucstring_append_sz(ext_ucstring, rsrc_type_4cc.id_sanitized_sz, DE_ENCODING_ASCII);
 
-	id = (u32)de_getui16be(pos1+4);
+	id = (u32)de_getu16be(pos1+4);
 	de_dbg(c, "id: %d", (int)id);
 
 	data_offs = (i64)d->rec_list.rec_data[rec_idx].offset;
@@ -697,18 +697,18 @@ static int do_prescan_records(deark *c, lctx *d, i64 pos1)
 
 		if(d->file_fmt==FMT_PRC) {
 			u32 rsrc_type;
-			rsrc_type = (u32)de_getui32be(pos1 + d->rec_size*i);
+			rsrc_type = (u32)de_getu32be(pos1 + d->rec_size*i);
 			if(rsrc_type==CODE_tAIN && d->rec_list.icon_name_count==0) {
 				// "Move" the tAIN record to the beginning, so we will read it
 				// before any tAIB resources.
 				rec_list_insert_at_start(&d->rec_list, i);
 				d->rec_list.icon_name_count++;
 			}
-			d->rec_list.rec_data[i].offset = (u32)de_getui32be(pos1 + d->rec_size*i + 6);
+			d->rec_list.rec_data[i].offset = (u32)de_getu32be(pos1 + d->rec_size*i + 6);
 		}
 		else {
 			u32 id;
-			d->rec_list.rec_data[i].offset = (u32)de_getui32be(pos1 + d->rec_size*i);
+			d->rec_list.rec_data[i].offset = (u32)de_getu32be(pos1 + d->rec_size*i);
 			if(!d->has_nonzero_ids) {
 				id = (de_getbyte(pos1+d->rec_size*i+5)<<16) |
 					(de_getbyte(pos1+d->rec_size*i+6)<<8) |
@@ -748,13 +748,13 @@ static int do_read_pdb_prc_records(deark *c, lctx *d, i64 pos1)
 
 	// 6-byte header
 
-	x = de_getui32be(pos1);
+	x = de_getu32be(pos1);
 	de_dbg(c, "nextRecordListID: %d", (int)x);
 	if(x!=0) {
 		de_warn(c, "This file contains multiple record lists, which is not supported.");
 	}
 
-	d->rec_list.num_recs = de_getui16be(pos1+4);
+	d->rec_list.num_recs = de_getu16be(pos1+4);
 	de_dbg(c, "number of records: %d", (int)d->rec_list.num_recs);
 
 	/////
@@ -793,21 +793,21 @@ static void do_pqa_app_info_block(deark *c, lctx *d, i64 pos1, i64 len)
 	de_ucstring *s = NULL;
 	i64 pos = pos1;
 
-	sig = (u32)de_getui32be(pos);
+	sig = (u32)de_getu32be(pos);
 	if(sig!=CODE_lnch) return; // Apparently not a PQA appinfo block
 	de_dbg(c, "PQA sig: 0x%08x", (unsigned int)sig);
 	pos += 4;
 
-	ux = (u32)de_getui16be(pos);
+	ux = (u32)de_getu16be(pos);
 	de_dbg(c, "hdrVersion: 0x%04x", (unsigned int)ux);
 	pos += 2;
-	ux = (u32)de_getui16be(pos);
+	ux = (u32)de_getu16be(pos);
 	de_dbg(c, "encVersion: 0x%04x", (unsigned int)ux);
 	pos += 2;
 
 	s = ucstring_create(c);
 
-	ux = (u32)de_getui16be(pos);
+	ux = (u32)de_getu16be(pos);
 	pos += 2;
 	dbuf_read_to_ucstring_n(c->infile, pos, ux*2, DE_DBG_MAX_STRLEN, s,
 		DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_PALM);
@@ -815,7 +815,7 @@ static void do_pqa_app_info_block(deark *c, lctx *d, i64 pos1, i64 len)
 	ucstring_empty(s);
 	pos += 2*ux;
 
-	ux = (u32)de_getui16be(pos);
+	ux = (u32)de_getu16be(pos);
 	pos += 2;
 	dbuf_read_to_ucstring_n(c->infile, pos, ux*2, DE_DBG_MAX_STRLEN, s,
 		DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_PALM);
@@ -825,7 +825,7 @@ static void do_pqa_app_info_block(deark *c, lctx *d, i64 pos1, i64 len)
 
 	de_dbg(c, "icon");
 	de_dbg_indent(c, 1);
-	ux = (u32)de_getui16be(pos); // iconWords (length prefix)
+	ux = (u32)de_getu16be(pos); // iconWords (length prefix)
 	pos += 2;
 	extract_item(c, d, pos, 2*ux, "icon.palm", NULL, DE_CREATEFLAG_IS_AUX, 1);
 	pos += 2*ux;
@@ -833,7 +833,7 @@ static void do_pqa_app_info_block(deark *c, lctx *d, i64 pos1, i64 len)
 
 	de_dbg(c, "smIcon");
 	de_dbg_indent(c, 1);
-	ux = (u32)de_getui16be(pos); // smIconWords
+	ux = (u32)de_getu16be(pos); // smIconWords
 	pos += 2;
 	extract_item(c, d, pos, 2*ux, "smicon.palm", NULL, DE_CREATEFLAG_IS_AUX, 1);
 	pos += 2*ux;
@@ -962,7 +962,7 @@ static int de_identify_palmdb(deark *c)
 	}
 	if(!has_ext) return 0;
 
-	attribs = (u32)de_getui16be(32);
+	attribs = (u32)de_getu16be(32);
 	if(attribs & 0x0001) return 0; // Might be PRC, but is not PDB
 
 	// It is not easy to identify PDB format from its contents.
@@ -993,9 +993,9 @@ static int de_identify_palmdb(deark *c)
 	}
 	if(n==0) return 0;
 
-	appinfo_offs = de_getui32be(52);
-	sortinfo_offs = de_getui32be(56);
-	num_recs = de_getui16be(72+4);
+	appinfo_offs = de_getu32be(52);
+	sortinfo_offs = de_getu32be(56);
+	num_recs = de_getu16be(72+4);
 
 	curpos = 72 + 6 + num_recs*8;
 	if(curpos>c->infile->len) return 0;
@@ -1015,7 +1015,7 @@ static int de_identify_palmdb(deark *c)
 	if(num_recs>0) {
 		// Sanity-check the first record.
 		// TODO? We could check more than one record.
-		recdata_offs = de_getui32be(72+6+0);
+		recdata_offs = de_getu32be(72+6+0);
 		if(recdata_offs<curpos) return 0;
 		curpos = recdata_offs;
 		if(curpos>c->infile->len) return 0;

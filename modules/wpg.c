@@ -35,7 +35,7 @@ static int do_read_header(deark *c, lctx *d, i64 pos1)
 
 	pos += 4; // FileId
 
-	d->start_of_data = de_getui32le(pos);
+	d->start_of_data = de_getu32le(pos);
 	de_dbg(c, "start of data: %u", (unsigned int)d->start_of_data);
 	pos += 4;
 
@@ -218,19 +218,19 @@ static void handler_bitmap(deark *c, lctx *d, u8 rectype, i64 dpos1, i64 dlen)
 		d->bitmap_record_ver = record_version;
 	}
 
-	w = de_getui16le(pos);
+	w = de_getu16le(pos);
 	pos += 2;
-	h = de_getui16le(pos);
+	h = de_getu16le(pos);
 	pos += 2;
 	de_dbg_dimensions(c, w, h);
 
-	bpp = de_getui16le(pos);
+	bpp = de_getu16le(pos);
 	de_dbg(c, "bits/pixel: %d", (int)bpp);
 	pos += 2;
 
-	xdens = de_getui16le(pos);
+	xdens = de_getu16le(pos);
 	pos += 2;
-	ydens = de_getui16le(pos);
+	ydens = de_getu16le(pos);
 	pos += 2;
 	de_dbg(c, "density: %d"DE_CHAR_TIMES"%d dpi", (int)xdens, (int)ydens);
 
@@ -309,11 +309,11 @@ static void handler_colormap(deark *c, lctx *d, u8 rectype, i64 dpos1, i64 dlen)
 	i64 pos = dpos1;
 
 	d->has_pal = 1;
-	start_index = de_getui16le(pos);
+	start_index = de_getu16le(pos);
 	de_dbg(c, "start index: %d", (int)start_index);
 	pos += 2;
 
-	num_entries = de_getui16le(pos);
+	num_entries = de_getu16le(pos);
 	de_dbg(c, "num entries: %d", (int)num_entries);
 	pos += 2;
 
@@ -428,13 +428,13 @@ static int do_record(deark *c, lctx *d, i64 pos1, i64 *bytes_consumed)
 
 	if(rec_dlen==0xff) {
 		// Not an 8-bit value. Could be 16-bit or 32-bit.
-		rec_dlen = de_getui16le(pos);
+		rec_dlen = de_getu16le(pos);
 		pos += 2;
 
 		if(rec_dlen & 0x8000) { // A 32-bit value
 			i64 n;
 
-			n = de_getui16le(pos);
+			n = de_getu16le(pos);
 			pos += 2;
 			rec_dlen = ((rec_dlen&0x7fff)<<16) | n;
 		}

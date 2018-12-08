@@ -167,11 +167,11 @@ static void do_vorbis_id_header(deark *c, lctx *d, struct page_info *pgi, struct
 	i64 x;
 
 	pos += 7; // Skip signature
-	u1 = (unsigned int)de_getui32le_p(&pos);
+	u1 = (unsigned int)de_getu32le_p(&pos);
 	de_dbg(c, "version: %u", u1);
 	u1 = (unsigned int)de_getbyte_p(&pos);
 	de_dbg(c, "channels: %u", u1);
-	u1 = (unsigned int)de_getui32le_p(&pos);
+	u1 = (unsigned int)de_getu32le_p(&pos);
 	de_dbg(c, "sample rate: %u", u1);
 	x = de_geti32le(pos); pos += 4;
 	de_dbg(c, "max bitrate: %d", (int)x);
@@ -194,8 +194,8 @@ static void do_theora_id_header(deark *c, lctx *d, struct page_info *pgi, struct
 	vrev = de_getbyte_p(&pos);
 	de_dbg(c, "version: %u.%u.%u", (unsigned int)vmaj, (unsigned int)vmin,
 		(unsigned int)vrev);
-	x1 = de_getui16be_p(&pos);
-	x2 = de_getui16be_p(&pos);
+	x1 = de_getu16be_p(&pos);
+	x2 = de_getu16be_p(&pos);
 	de_dbg(c, "frame dimensions: %d"DE_CHAR_TIMES"%d macroblocks", (int)x1, (int)x2);
 
 	u1 = getui24be_p(c->infile, &pos);
@@ -206,8 +206,8 @@ static void do_theora_id_header(deark *c, lctx *d, struct page_info *pgi, struct
 	u2 = (unsigned int)de_getbyte_p(&pos);
 	de_dbg(c, "picture region offset: %u,%u pixels", u1, u2);
 
-	u1 = (unsigned int)de_getui32be_p(&pos);
-	u2 = (unsigned int)de_getui32be_p(&pos);
+	u1 = (unsigned int)de_getu32be_p(&pos);
+	u2 = (unsigned int)de_getu32be_p(&pos);
 	de_dbg(c, "frame rate: %u/%u", u1, u2);
 
 	u1 = getui24be_p(c->infile, &pos);
@@ -522,7 +522,7 @@ static int do_ogg_page(deark *c, lctx *d, i64 pos1, i64 *bytes_consumed)
 	pgi->granule_pos = de_geti64le(pos); pos += 8;
 	de_dbg(c, "granule position: %"I64_FMT, pgi->granule_pos);
 
-	pgi->stream_serialno = de_getui32le_p(&pos);
+	pgi->stream_serialno = de_getu32le_p(&pos);
 	de_dbg(c, "bitstream serial number: %"I64_FMT, pgi->stream_serialno);
 
 	ret = de_inthashtable_get_item(c, d->streamtable, pgi->stream_serialno, (void**)&si);
@@ -541,10 +541,10 @@ static int do_ogg_page(deark *c, lctx *d, i64 pos1, i64 *bytes_consumed)
 	}
 	si->serialno = pgi->stream_serialno;
 
-	pgi->page_seq_num = de_getui32le_p(&pos);
+	pgi->page_seq_num = de_getu32le_p(&pos);
 	de_dbg(c, "page sequence number: %"I64_FMT, pgi->page_seq_num);
 
-	x = de_getui32le_p(&pos);
+	x = de_getu32le_p(&pos);
 	de_dbg(c, "crc (reported): 0x%08x", (unsigned int)x);
 
 	num_page_segments = (i64)de_getbyte_p(&pos);
@@ -632,7 +632,7 @@ static void run_ogg_internal(deark *c, lctx *d)
 		i64 bytes_consumed = 0;
 
 		if(pos >= ogg_end) break;
-		sig = (u32)de_getui32be(pos);
+		sig = (u32)de_getu32be(pos);
 		if(sig!=0x04f676753U) {
 			de_err(c, "Ogg page signature not found at %"I64_FMT, pos);
 			break;

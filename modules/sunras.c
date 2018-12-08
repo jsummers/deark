@@ -159,15 +159,15 @@ static void read_header(deark *c, lctx *d, i64 pos)
 	de_dbg(c, "header at %d", (int)pos);
 	de_dbg_indent(c, 1);
 
-	d->width = de_getui32be(pos+4);
-	d->height = de_getui32be(pos+8);
+	d->width = de_getu32be(pos+4);
+	d->height = de_getu32be(pos+8);
 	de_dbg_dimensions(c, d->width, d->height);
 
-	d->depth = de_getui32be(pos+12);
+	d->depth = de_getu32be(pos+12);
 	de_dbg(c, "depth: %d", (int)d->depth);
 
-	d->imglen = de_getui32be(pos+16);
-	d->imgtype = de_getui32be(pos+20);
+	d->imglen = de_getu32be(pos+16);
+	d->imgtype = de_getu32be(pos+20);
 	de_dbg(c, "image type=%d (%s), len=%d", (int)d->imgtype,
 		get_image_type_name(d->imgtype), (int)d->imglen);
 	if(d->imgtype==RT_BYTE_ENCODED) {
@@ -177,8 +177,8 @@ static void read_header(deark *c, lctx *d, i64 pos)
 		d->is_rgb_order = 1;
 	}
 
-	d->maptype = de_getui32be(pos+24);
-	d->maplen = de_getui32be(pos+28);
+	d->maptype = de_getu32be(pos+24);
+	d->maplen = de_getu32be(pos+28);
 	de_dbg(c, "map type=%d (%s), len=%d", (int)d->maptype,
 		get_map_type_name(d->maptype), (int)d->maplen);
 

@@ -83,19 +83,19 @@ static int do_file_header(deark *c, lctx *d, i64 pos1)
 	de_crcobj_destroy(crco);
 	crco = NULL;
 
-	n = de_getui32le_p(&pos);
+	n = de_getu32le_p(&pos);
 	de_dbg(c, "UID 1: 0x%08x", (unsigned int)n);
 
-	n = de_getui32le_p(&pos);
+	n = de_getu32le_p(&pos);
 	de_dbg(c, "UID 2: 0x%08x", (unsigned int)n);
 	if(n==0x10003a12) {
 		d->is_rel6 = 1;
 	}
 
-	n = de_getui32le_p(&pos);
+	n = de_getu32le_p(&pos);
 	de_dbg(c, "UID 3: 0x%08x", (unsigned int)n);
 
-	n = de_getui32le_p(&pos);
+	n = de_getu32le_p(&pos);
 	de_dbg(c, "UID 4: 0x%08x", (unsigned int)n);
 	// The way UID 4 is calculated is really silly.
 	de_dbg(c, "expected value of UID 4: 0x%04x%04x",
@@ -110,29 +110,29 @@ static int do_file_header(deark *c, lctx *d, i64 pos1)
 
 	pos += 2; // checksum
 
-	d->nlangs = de_getui16le_p(&pos);
+	d->nlangs = de_getu16le_p(&pos);
 	de_dbg(c, "num languages: %d", (int)d->nlangs);
 
-	d->nfiles = de_getui16le_p(&pos);
+	d->nfiles = de_getu16le_p(&pos);
 	de_dbg(c, "num files: %d", (int)d->nfiles);
 
-	d->nrequisites = de_getui16le_p(&pos);
+	d->nrequisites = de_getu16le_p(&pos);
 	de_dbg(c, "num requisites: %d", (int)d->nrequisites);
 
 	pos += 2; // installation language
 	pos += 2; // installation files
 	pos += 2; // installation drive
 
-	n = de_getui16le_p(&pos);
+	n = de_getu16le_p(&pos);
 	de_dbg(c, "num capabilities: %d", (int)n);
 
-	d->installer_ver = de_getui32le_p(&pos);
+	d->installer_ver = de_getu32le_p(&pos);
 	de_dbg(c, "installer ver: %d", (int)d->installer_ver);
 	if(d->installer_ver<68) {
 		de_warn(c, "Unknown version: %d", (int)d->installer_ver);
 	}
 
-	d->options = (unsigned int)de_getui16le_p(&pos);
+	d->options = (unsigned int)de_getu16le_p(&pos);
 	options_descr = ucstring_create(c);
 	if(d->options&0x01) ucstring_append_flags_item(options_descr, "IsUnicode");
 	if(d->options&0x02) ucstring_append_flags_item(options_descr, "IsDistributable");
@@ -144,27 +144,27 @@ static int do_file_header(deark *c, lctx *d, i64 pos1)
 	}
 
 	pos += 2; // type (TODO)
-	n = de_getui16le_p(&pos);
-	n2 = de_getui16le_p(&pos);
+	n = de_getu16le_p(&pos);
+	n2 = de_getu16le_p(&pos);
 	de_dbg(c, "app version: %d,%d", (int)n, (int)n2);
 	pos += 4; // variant
 
-	d->languages_ptr = de_getui32le_p(&pos);
+	d->languages_ptr = de_getu32le_p(&pos);
 	de_dbg(c, "languages ptr: %"I64_FMT, d->languages_ptr);
-	d->files_ptr = de_getui32le_p(&pos);
+	d->files_ptr = de_getu32le_p(&pos);
 	de_dbg(c, "files ptr: %"I64_FMT, d->files_ptr);
 
-	d->requisites_ptr = de_getui32le_p(&pos);
+	d->requisites_ptr = de_getu32le_p(&pos);
 	de_dbg(c, "requisites ptr: %"I64_FMT, d->requisites_ptr);
-	d->certificates_ptr = de_getui32le_p(&pos);
+	d->certificates_ptr = de_getu32le_p(&pos);
 	de_dbg(c, "certificates ptr: %"I64_FMT, d->certificates_ptr);
-	d->component_name_ptr = de_getui32le_p(&pos);
+	d->component_name_ptr = de_getu32le_p(&pos);
 	de_dbg(c, "component name ptr: %"I64_FMT, d->component_name_ptr);
 
 	if(d->is_rel6) {
-		n = de_getui32le_p(&pos);
+		n = de_getu32le_p(&pos);
 		de_dbg(c, "signature ptr: %"I64_FMT, n);
-		n = de_getui32le_p(&pos);
+		n = de_getu32le_p(&pos);
 		de_dbg(c, "capabilities ptr: %"I64_FMT, n);
 	}
 
@@ -306,19 +306,19 @@ static int do_file_record_file(deark *c, lctx *d, struct file_rec *fr)
 	int should_extract;
 
 	pos += 4; // File record type, already read
-	fr->file_type = (unsigned int)de_getui32le_p(&pos);
+	fr->file_type = (unsigned int)de_getu32le_p(&pos);
 	de_dbg(c, "file type: %u (%s)", fr->file_type, get_file_type_name(fr->file_type));
 
 	pos += 4; // file details
 
-	nlen = de_getui32le_p(&pos);
-	nptr = de_getui32le_p(&pos);
+	nlen = de_getu32le_p(&pos);
+	nptr = de_getu32le_p(&pos);
 	fr->name_src = ucstring_create(c);
 	read_sis_string(c, d, fr->name_src, nptr, nlen);
 	de_dbg(c, "src name: \"%s\"", ucstring_getpsz_d(fr->name_src));
 
-	nlen = de_getui32le_p(&pos);
-	nptr = de_getui32le_p(&pos);
+	nlen = de_getu32le_p(&pos);
+	nptr = de_getu32le_p(&pos);
 	fr->name_dest = ucstring_create(c);
 	read_sis_string(c, d, fr->name_dest, nptr, nlen);
 	de_dbg(c, "dest name: \"%s\"", ucstring_getpsz_d(fr->name_dest));
@@ -331,17 +331,17 @@ static int do_file_record_file(deark *c, lctx *d, struct file_rec *fr)
 	fr->ffi = de_malloc(c, fr->num_forks * sizeof(struct file_fork_info));
 
 	for(k=0; k<fr->num_forks; k++) {
-		fr->ffi[k].len = de_getui32le_p(&pos);
+		fr->ffi[k].len = de_getu32le_p(&pos);
 		de_dbg(c, "len[%d]: %"I64_FMT, (int)k, fr->ffi[k].len);
 	}
 	for(k=0; k<fr->num_forks; k++) {
-		fr->ffi[k].ptr = de_getui32le_p(&pos);
+		fr->ffi[k].ptr = de_getu32le_p(&pos);
 		de_dbg(c, "ptr[%d]: %"I64_FMT, (int)k, fr->ffi[k].ptr);
 	}
 
 	if(d->is_rel6) {
 		for(k=0; k<fr->num_forks; k++) {
-			fr->ffi[k].orig_len = de_getui32le_p(&pos);
+			fr->ffi[k].orig_len = de_getu32le_p(&pos);
 			de_dbg(c, "orig_len[%d]: %"I64_FMT, (int)k, fr->ffi[k].orig_len);
 		}
 		pos += 4; // MIME type len
@@ -395,7 +395,7 @@ static int do_file_record(deark *c, lctx *d, i64 idx,
 	de_dbg(c, "file record[%d] at %"I64_FMT, (int)idx, fr->rec_pos);
 	de_dbg_indent(c, 1);
 
-	fr->rectype = (unsigned int)de_getui32le_p(&pos);
+	fr->rectype = (unsigned int)de_getu32le_p(&pos);
 	de_dbg(c, "record type: 0x%08x (%s)", fr->rectype, get_file_rec_type_name(fr->rectype));
 
 	if(fr->rectype==0x0 || fr->rectype==0x1) {
@@ -403,7 +403,7 @@ static int do_file_record(deark *c, lctx *d, i64 idx,
 	}
 	else if(fr->rectype==0x3 || fr->rectype==0x4) { // *if*, *elseif*
 		i64 n;
-		n = de_getui32le_p(&pos);
+		n = de_getu32le_p(&pos);
 		de_dbg(c, "size of conditional expression: %d", (int)n);
 		pos += n;
 		fr->rec_len = pos - pos1;
@@ -474,7 +474,7 @@ static void do_language_records(deark *c, lctx *d)
 	de_dbg_indent(c, 1);
 	for(k=0; k<d->nlangs; k++) {
 		unsigned int lc;
-		lc = (unsigned int)de_getui16le_p(&pos);
+		lc = (unsigned int)de_getu16le_p(&pos);
 		lookup_lang_namecode(lc, d->langi[k].sz, sizeof(d->langi[k].sz));
 		de_dbg(c, "lang[%d] = %u (%s)", (int)k, lc, d->langi[k].sz);
 	}
@@ -495,8 +495,8 @@ static void do_component_name_record(deark *c, lctx *d)
 	s = ucstring_create(c);
 	for(k=0; k<d->nlangs; k++) {
 		i64 npos, nlen;
-		nlen = de_getui32le(pos1+4*k);
-		npos = de_getui32le(pos1+4*d->nlangs+4*k);
+		nlen = de_getu32le(pos1+4*k);
+		npos = de_getu32le(pos1+4*d->nlangs+4*k);
 		ucstring_empty(s);
 		read_sis_string(c, d, s, npos, nlen);
 		de_dbg(c, "name[%d]: \"%s\"", (int)k, ucstring_getpsz_d(s));
@@ -522,18 +522,18 @@ static void do_requisite_records(deark *c, lctx *d)
 
 		de_dbg(c, "requisite record[%d] at %"I64_FMT, (int)k, pos);
 		de_dbg_indent(c, 1);
-		n = de_getui32le_p(&pos);
+		n = de_getu32le_p(&pos);
 		de_dbg(c, "UID: 0x%08x", (unsigned int)n);
-		n = de_getui16le_p(&pos);
-		n2 = de_getui16le_p(&pos);
+		n = de_getu16le_p(&pos);
+		n2 = de_getu16le_p(&pos);
 		de_dbg(c, "version required: %d,%d", (int)n, (int)n2);
-		n = de_getui32le_p(&pos);
+		n = de_getu32le_p(&pos);
 		de_dbg(c, "variant: 0x%08x", (unsigned int)n);
 
 		for(i=0; i<d->nlangs; i++) {
 			i64 npos, nlen;
-			nlen = de_getui32le(pos+4*i);
-			npos = de_getui32le(pos+4*d->nlangs+4*i);
+			nlen = de_getu32le(pos+4*i);
+			npos = de_getu32le(pos+4*d->nlangs+4*i);
 			ucstring_empty(s);
 			read_sis_string(c, d, s, npos, nlen);
 			de_dbg(c, "name[%d]: \"%s\"", (int)i, ucstring_getpsz_d(s));
@@ -558,7 +558,7 @@ static void do_certificate_records(deark *c, lctx *d)
 	de_dbg(c, "certificate records at %"I64_FMT, pos1);
 	de_dbg_indent(c, 1);
 	for(k=0; k<6; k++) {
-		z[k] = (int)de_getui16le_p(&pos);
+		z[k] = (int)de_getu16le_p(&pos);
 	}
 
 	// The documentation I have does not explain how the month is encoded.
@@ -568,7 +568,7 @@ static void do_certificate_records(deark *c, lctx *d)
 	de_dbg(c, "timestamp: %04d-%02d-%02d %02d:%02d:%02d",
 		z[0], z[1]+1, z[2],
 		z[3], z[4], z[5]);
-	ncerts = de_getui32le_p(&pos);
+	ncerts = de_getu32le_p(&pos);
 	de_dbg(c, "number of certs: %d", (int)ncerts);
 	de_dbg_indent(c, -1);
 }

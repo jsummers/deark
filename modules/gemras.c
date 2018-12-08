@@ -187,7 +187,7 @@ static int do_gem_img(deark *c, lctx *d)
 
 	if(d->header_size_in_words==9 && (d->nplanes==3 || d->nplanes==4)) {
 		i64 x;
-		x = de_getui16be(8*2);
+		x = de_getu16be(8*2);
 		if(x==0) {
 			is_color = 1;
 		}
@@ -258,9 +258,9 @@ static void read_palette_ximg(deark *c, lctx *d)
 	de_dbg(c, "palette at %d", 22);
 	de_dbg_indent(c, 1);
 	for(i=0; i<pal_entries_to_read; i++) {
-		cr1 = de_getui16be(22 + 6*i);
-		cg1 = de_getui16be(22 + 6*i + 2);
-		cb1 = de_getui16be(22 + 6*i + 4);
+		cr1 = de_getu16be(22 + 6*i);
+		cg1 = de_getu16be(22 + 6*i + 2);
+		cb1 = de_getu16be(22 + 6*i + 4);
 
 		cr = de_scale_1000_to_255(cr1);
 		cg = de_scale_1000_to_255(cg1);
@@ -370,32 +370,32 @@ static void de_run_gemraster(deark *c, de_module_params *mparams)
 
 	de_dbg(c, "header (base part) at %d", 0);
 	de_dbg_indent(c, 1);
-	ver = de_getui16be(0);
+	ver = de_getu16be(0);
 	de_dbg(c, "version: %d", (int)ver);
-	d->header_size_in_words = de_getui16be(2);
+	d->header_size_in_words = de_getu16be(2);
 	d->header_size_in_bytes = d->header_size_in_words*2;
 	de_dbg(c, "header size: %d words (%d bytes)", (int)d->header_size_in_words,
 		(int)d->header_size_in_bytes);
-	d->nplanes = de_getui16be(4);
+	d->nplanes = de_getu16be(4);
 	de_dbg(c, "planes: %d", (int)d->nplanes);
 
 	if(d->header_size_in_words>=11) {
 		d->is_ximg = !dbuf_memcmp(c->infile, 16, "XIMG", 4);
 	}
 
-	d->patlen = de_getui16be(6);
+	d->patlen = de_getu16be(6);
 	de_dbg(c, "pattern def len: %d", (int)d->patlen);
-	d->pixwidth = de_getui16be(8);
-	d->pixheight = de_getui16be(10);
+	d->pixwidth = de_getu16be(8);
+	d->pixheight = de_getu16be(10);
 	de_dbg(c, "pixel size: %d"DE_CHAR_TIMES"%d microns", (int)d->pixwidth, (int)d->pixheight);
-	d->w = de_getui16be(12);
-	d->h = de_getui16be(14);
+	d->w = de_getu16be(12);
+	d->h = de_getu16be(14);
 	de_dbg_dimensions(c, d->w, d->h);
 	de_dbg_indent(c, -1);
 
 	if(d->header_size_in_words>=9) {
 		// This may help to detect the image format.
-		ext_word0 = de_getui16be(16);
+		ext_word0 = de_getu16be(16);
 	}
 
 	if(ver>2) {
@@ -464,11 +464,11 @@ static int de_identify_gemraster(deark *c)
 	{
 		return 0;
 	}
-	ver = de_getui16be(0);
+	ver = de_getu16be(0);
 	if(ver!=1 && ver!=2 && ver!=3) return 0;
-	x2 = de_getui16be(2);
+	x2 = de_getu16be(2);
 	if(x2<0x0008 || x2>0x0800) return 0;
-	nplanes = de_getui16be(4);
+	nplanes = de_getu16be(4);
 	if(!(nplanes>=1 && nplanes<=8) && nplanes!=15 && nplanes!=16 && nplanes!=24 &&
 		nplanes!=32)
 	{

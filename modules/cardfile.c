@@ -54,20 +54,20 @@ static void do_card_index(deark *c, lctx *d, i64 cardnum, i64 pos)
 
 	de_dbg_indent_save(c, &saved_indent_level);
 
-	datapos = de_getui32le(pos+6);
+	datapos = de_getu32le(pos+6);
 	de_dbg(c, "card #%d at %d, dpos=%d", (int)cardnum, (int)pos, (int)datapos);
 	de_dbg_indent(c, 1);
 
 	if(datapos>=c->infile->len) goto done;
-	bitmap_len = de_getui16le(datapos);
+	bitmap_len = de_getu16le(datapos);
 	de_dbg(c, "bitmap length: %d", (int)bitmap_len);
 
 	if(bitmap_len==0) {
-		text_len = de_getui16le(datapos+2);
+		text_len = de_getu16le(datapos+2);
 		text_pos = datapos+4;
 	}
 	else {
-		text_len = de_getui16le(datapos + 10 + bitmap_len);
+		text_len = de_getu16le(datapos + 10 + bitmap_len);
 		text_pos = datapos + 10 + bitmap_len +2;
 	}
 	de_dbg(c, "text length: %d", (int)text_len);
@@ -118,8 +118,8 @@ static void do_card_index(deark *c, lctx *d, i64 cardnum, i64 pos)
 	if(c->filenames_from_file)
 		de_finfo_set_name_from_ucstring(c, fi_bitmap, name);
 
-	w = de_getui16le(datapos+2);
-	h = de_getui16le(datapos+4);
+	w = de_getu16le(datapos+2);
+	h = de_getu16le(datapos+4);
 	de_dbg(c, "bitmap dimensions: %d"DE_CHAR_TIMES"%d", (int)w, (int)h);
 
 	img = de_bitmap_create(c, w, h, 1);
@@ -165,7 +165,7 @@ static void de_run_cardfile(deark *c, de_module_params *mparams)
 
 	pos+=3;
 
-	d->numcards = de_getui16le(pos);
+	d->numcards = de_getu16le(pos);
 	de_dbg(c, "number of cards: %d", (int)d->numcards);
 	pos+=2;
 

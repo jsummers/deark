@@ -93,7 +93,7 @@ static void handler_Header(deark *c, lctx *d, struct handler_params *hp)
 	i64 numhdrobj;
 
 	if(hp->dlen<6) return;
-	numhdrobj = de_getui32le(hp->dpos);
+	numhdrobj = de_getu32le(hp->dpos);
 	de_dbg(c, "number of header objects: %u", (unsigned int)numhdrobj);
 	do_object_sequence(c, d, hp->dpos+6, hp->dlen-6, hp->level+1, 1, numhdrobj);
 }
@@ -111,7 +111,7 @@ static void handler_FileProperties(deark *c, lctx *d, struct handler_params *hp)
 	if(hp->dlen<80) return;
 
 	// Some fields before the 'flags' field depend on it, so look ahead at it.
-	flags = (unsigned int)de_getui32le(pos+64);
+	flags = (unsigned int)de_getu32le(pos+64);
 
 	read_and_render_guid(c->infile, guid_raw, pos, guid_string, sizeof(guid_string));
 	de_dbg(c, "file id: {%s}", guid_string);
@@ -154,13 +154,13 @@ static void handler_FileProperties(deark *c, lctx *d, struct handler_params *hp)
 	de_dbg(c, "flags: 0x%08x", flags);
 	pos += 4;
 
-	x = de_getui32le_p(&pos);
+	x = de_getu32le_p(&pos);
 	de_dbg(c, "min data packet size: %u", (unsigned int)x);
 
-	x = de_getui32le_p(&pos);
+	x = de_getu32le_p(&pos);
 	de_dbg(c, "max data packet size: %u", (unsigned int)x);
 
-	x = de_getui32le_p(&pos);
+	x = de_getu32le_p(&pos);
 	de_dbg(c, "max bitrate: %u bits/sec", (unsigned int)x);
 }
 
@@ -191,10 +191,10 @@ static void handler_StreamProperties(deark *c, lctx *d, struct handler_params *h
 	de_dbg(c, "time offset: %"I64_FMT" (%s)", x, format_duration(x, buf, sizeof(buf)));
 	pos += 8;
 
-	tsdlen = de_getui32le_p(&pos);
-	ecdlen = de_getui32le_p(&pos);
+	tsdlen = de_getu32le_p(&pos);
+	ecdlen = de_getu32le_p(&pos);
 
-	flags = (unsigned int)de_getui16le_p(&pos);
+	flags = (unsigned int)de_getu16le_p(&pos);
 	de_dbg(c, "flags: 0x%08x", flags);
 	de_dbg_indent(c, 1);
 	de_dbg(c, "stream number: %u", (unsigned int)(flags&0x7f));
@@ -223,7 +223,7 @@ static void handler_HeaderExtension(deark *c, lctx *d, struct handler_params *hp
 	i64 datasize;
 
 	if(hp->dlen<22) return;
-	datasize = de_getui32le(hp->dpos+18);
+	datasize = de_getu32le(hp->dpos+18);
 	de_dbg(c, "extension data size: %u", (unsigned int)datasize);
 	if(datasize > hp->dlen-22) datasize = hp->dlen-22;
 	do_object_sequence(c, d, hp->dpos+22, datasize, hp->level+1, 0, 0);
@@ -241,7 +241,7 @@ static void handler_ContentDescr(deark *c, lctx *d, struct handler_params *hp)
 	if(hp->dlen<10) return;
 
 	for(k=0; k<5; k++) {
-		lengths[k] = de_getui16le_p(&pos);
+		lengths[k] = de_getu16le_p(&pos);
 	}
 
 	s = ucstring_create(c);
@@ -264,7 +264,7 @@ static void handler_ContentEncr(deark *c, lctx *d, struct handler_params *hp)
 	i64 xlen;
 	de_ucstring *s = NULL;
 
-	xlen = de_getui32le_p(&pos);
+	xlen = de_getu32le_p(&pos);
 	if(pos+xlen > hp->dpos+hp->dlen) goto done;
 	if(xlen>0) {
 		de_dbg(c, "[%d bytes of secret data at %"I64_FMT"]", (int)xlen, pos);
@@ -275,7 +275,7 @@ static void handler_ContentEncr(deark *c, lctx *d, struct handler_params *hp)
 	pos += xlen;
 
 	s = ucstring_create(c);
-	xlen = de_getui32le_p(&pos);
+	xlen = de_getu32le_p(&pos);
 	if(pos+xlen > hp->dpos+hp->dlen) goto done;
 	dbuf_read_to_ucstring_n(c->infile, pos, xlen, DE_DBG_MAX_STRLEN, s,
 			0, DE_ENCODING_ASCII);
@@ -285,7 +285,7 @@ static void handler_ContentEncr(deark *c, lctx *d, struct handler_params *hp)
 	pos += xlen;
 
 	ucstring_empty(s);
-	xlen = de_getui32le_p(&pos);
+	xlen = de_getu32le_p(&pos);
 	if(pos+xlen > hp->dpos+hp->dlen) goto done;
 	dbuf_read_to_ucstring_n(c->infile, pos, xlen, DE_DBG_MAX_STRLEN, s,
 			0, DE_ENCODING_ASCII);
@@ -294,7 +294,7 @@ static void handler_ContentEncr(deark *c, lctx *d, struct handler_params *hp)
 	pos += xlen;
 
 	ucstring_empty(s);
-	xlen = de_getui32le_p(&pos);
+	xlen = de_getu32le_p(&pos);
 	if(pos+xlen > hp->dpos+hp->dlen) goto done;
 	dbuf_read_to_ucstring_n(c->infile, pos, xlen, DE_DBG_MAX_STRLEN, s,
 			0, DE_ENCODING_ASCII);
@@ -328,34 +328,34 @@ static void handler_ESP(deark *c, lctx *d, struct handler_params *hp)
 	de_dbg(c, "end time: %"I64_FMT, x);
 	pos += 8;
 
-	x = de_getui32le_p(&pos);
+	x = de_getu32le_p(&pos);
 	de_dbg(c, "data bitrate: %u", (unsigned int)x);
-	x = de_getui32le_p(&pos);
+	x = de_getu32le_p(&pos);
 	de_dbg(c, "buffer size: %u", (unsigned int)x);
-	x = de_getui32le_p(&pos);
+	x = de_getu32le_p(&pos);
 	de_dbg(c, "initial buffer fullness: %u", (unsigned int)x);
-	x = de_getui32le_p(&pos);
+	x = de_getu32le_p(&pos);
 	de_dbg(c, "alt data bitrate: %u", (unsigned int)x);
-	x = de_getui32le_p(&pos);
+	x = de_getu32le_p(&pos);
 	de_dbg(c, "alt buffer size: %u", (unsigned int)x);
-	x = de_getui32le_p(&pos);
+	x = de_getu32le_p(&pos);
 	de_dbg(c, "alt initial buffer fullness: %u", (unsigned int)x);
-	x = de_getui32le_p(&pos);
+	x = de_getu32le_p(&pos);
 	de_dbg(c, "max object size: %u", (unsigned int)x);
-	x = de_getui32le_p(&pos);
+	x = de_getu32le_p(&pos);
 	de_dbg(c, "flags: 0x%08x", (unsigned int)x);
 
-	x = de_getui16le_p(&pos);
+	x = de_getu16le_p(&pos);
 	de_dbg(c, "stream number: %d", (int)x);
-	x = de_getui16le_p(&pos);
+	x = de_getu16le_p(&pos);
 	de_dbg(c, "language id index: %d", (int)x);
 	x = de_geti64le(pos);
 	de_dbg(c, "average time per frame: %"I64_FMT, x);
 	pos += 8;
 
-	name_count = de_getui16le_p(&pos);
+	name_count = de_getu16le_p(&pos);
 	de_dbg(c, "name count: %d", (int)name_count);
-	pes_count = de_getui16le_p(&pos);
+	pes_count = de_getu16le_p(&pos);
 	de_dbg(c, "payload ext. system count: %d", (int)pes_count);
 
 	// Stream names (TODO)
@@ -363,7 +363,7 @@ static void handler_ESP(deark *c, lctx *d, struct handler_params *hp)
 		if(pos+4 > hp->dpos+hp->dlen) goto done;
 		de_dbg(c, "name[%d] at %"I64_FMT, (int)k, pos);
 		pos += 2; // language id index
-		xlen = de_getui16le_p(&pos);
+		xlen = de_getu16le_p(&pos);
 		pos += xlen;
 	}
 
@@ -379,10 +379,10 @@ static void handler_ESP(deark *c, lctx *d, struct handler_params *hp)
 		de_dbg(c, "ext. system id: {%s} (%s)", guid_string, get_uuid_name(guid_raw));
 		pos += 16;
 
-		x = de_getui16le_p(&pos);
+		x = de_getu16le_p(&pos);
 		de_dbg(c, "ext. data size: %d", (int)x);
 
-		xlen = de_getui32le_p(&pos);
+		xlen = de_getu32le_p(&pos);
 		de_dbg(c, "payload ext. system info length: %d", (int)xlen);
 
 		if(pos+xlen > hp->dpos+hp->dlen) {
@@ -418,7 +418,7 @@ static void handler_LanguageList(deark *c, lctx *d, struct handler_params *hp)
 
 	if(hp->dlen<2) goto done;
 
-	nlangs = de_getui16le_p(&pos);
+	nlangs = de_getu16le_p(&pos);
 	de_dbg(c, "language id record count: %d", (int)nlangs);
 
 	s = ucstring_create(c);
@@ -473,10 +473,10 @@ static int do_codec_entry(deark *c, lctx *d, i64 pos1, i64 len, i64 *bytes_consu
 	de_dbg_indent(c, 1);
 
 	if(len<8) goto done;
-	type = (unsigned int)de_getui16le_p(&pos);
+	type = (unsigned int)de_getu16le_p(&pos);
 	de_dbg(c, "type: %u (%s)", type, get_codec_type_name(type));
 
-	namelen = de_getui16le_p(&pos);
+	namelen = de_getu16le_p(&pos);
 	name = ucstring_create(c);
 	dbuf_read_to_ucstring_n(c->infile, pos, namelen*2, DE_DBG_MAX_STRLEN*2, name,
 		0, DE_ENCODING_UTF16LE);
@@ -484,7 +484,7 @@ static int do_codec_entry(deark *c, lctx *d, i64 pos1, i64 len, i64 *bytes_consu
 	de_dbg(c, "name: \"%s\"", ucstring_getpsz(name));
 	pos += namelen*2;
 
-	descrlen = de_getui16le_p(&pos);
+	descrlen = de_getu16le_p(&pos);
 	descr = ucstring_create(c);
 	dbuf_read_to_ucstring_n(c->infile, pos, descrlen*2, DE_DBG_MAX_STRLEN*2, descr,
 		0, DE_ENCODING_UTF16LE);
@@ -492,7 +492,7 @@ static int do_codec_entry(deark *c, lctx *d, i64 pos1, i64 len, i64 *bytes_consu
 	de_dbg(c, "description: \"%s\"", ucstring_getpsz(descr));
 	pos += descrlen*2;
 
-	infolen = de_getui16le_p(&pos);
+	infolen = de_getu16le_p(&pos);
 	if(infolen>0) {
 		de_dbg(c, "[%d bytes of codec information at %"I64_FMT"]", (int)infolen, pos);
 		de_dbg_indent(c, 1);
@@ -517,7 +517,7 @@ static void handler_CodecList(deark *c, lctx *d, struct handler_params *hp)
 	i64 pos;
 
 	if(hp->dlen<20) return;
-	numentries = de_getui32le(hp->dpos+16);
+	numentries = de_getu32le(hp->dpos+16);
 	de_dbg(c, "number of codec entries: %d", (int)numentries);
 
 	pos = hp->dpos+20;
@@ -544,10 +544,10 @@ static void handler_ScriptCommand(deark *c, lctx *d, struct handler_params *hp)
 	if(hp->dlen<20) goto done;
 	pos += 16; // Reserved GUID
 
-	cmd_count = de_getui16le_p(&pos);
+	cmd_count = de_getu16le_p(&pos);
 	de_dbg(c, "commands count: %d", (int)cmd_count);
 
-	cmd_type_count = de_getui16le_p(&pos);
+	cmd_type_count = de_getu16le_p(&pos);
 	de_dbg(c, "command types count: %d", (int)cmd_type_count);
 
 	s = ucstring_create(c);
@@ -559,7 +559,7 @@ static void handler_ScriptCommand(deark *c, lctx *d, struct handler_params *hp)
 		de_dbg(c, "command type[%d] at %"I64_FMT, (int)k, pos);
 		de_dbg_indent(c, 1);
 
-		type_name_len = de_getui16le_p(&pos);
+		type_name_len = de_getu16le_p(&pos);
 
 		ucstring_empty(s);
 		dbuf_read_to_ucstring_n(c->infile, pos, type_name_len*2, DE_DBG_MAX_STRLEN*2, s,
@@ -579,13 +579,13 @@ static void handler_ScriptCommand(deark *c, lctx *d, struct handler_params *hp)
 		de_dbg(c, "command[%d] at %"I64_FMT, (int)k, pos);
 		de_dbg_indent(c, 1);
 
-		n = de_getui32le_p(&pos);
+		n = de_getu32le_p(&pos);
 		de_dbg(c, "presentation time: %u ms", (unsigned int)n);
 
-		n = de_getui16le_p(&pos);
+		n = de_getu16le_p(&pos);
 		de_dbg(c, "type index: %d", (int)n);
 			
-		cmd_name_len = de_getui16le_p(&pos);
+		cmd_name_len = de_getu16le_p(&pos);
 
 		ucstring_empty(s);
 		dbuf_read_to_ucstring_n(c->infile, pos, cmd_name_len*2, DE_DBG_MAX_STRLEN*2, s,
@@ -654,7 +654,7 @@ static void do_metadata_item(deark *c, lctx *d, i64 pos, i64 val_len,
 		handled = 1;
 	}
 	else if(val_data_type==3 && val_len>=4) { // DWORD
-		val_int = de_getui32le(pos);
+		val_int = de_getu32le(pos);
 		de_dbg(c, "value: %u", (unsigned int)val_int);
 		handled = 1;
 	}
@@ -669,7 +669,7 @@ static void do_metadata_item(deark *c, lctx *d, i64 pos, i64 val_len,
 		handled = 1;
 	}
 	else if(val_data_type==5 && val_len>=2) { // WORD
-		val_int = de_getui16le(pos);
+		val_int = de_getu16le(pos);
 		de_dbg(c, "value: %u", (unsigned int)val_int);
 		handled = 1;
 	}
@@ -718,7 +718,7 @@ static int do_ECD_entry(deark *c, lctx *d, i64 pos1, i64 len, i64 *bytes_consume
 	de_dbg_indent(c, 1);
 
 	if(len<6) goto done;
-	namelen = de_getui16le_p(&pos); // # of bytes, including the expected 0x00 0x00 terminator
+	namelen = de_getu16le_p(&pos); // # of bytes, including the expected 0x00 0x00 terminator
 	namelen_to_keep = namelen-2;
 	if(namelen_to_keep<0) namelen_to_keep=0;
 	if(namelen_to_keep>256) namelen_to_keep=256;
@@ -727,11 +727,11 @@ static int do_ECD_entry(deark *c, lctx *d, i64 pos1, i64 len, i64 *bytes_consume
 	de_dbg(c, "name: \"%s\"", ucstring_getpsz_d(name_srd->str));
 	pos += namelen;
 
-	val_data_type = (unsigned int)de_getui16le_p(&pos);
+	val_data_type = (unsigned int)de_getu16le_p(&pos);
 	de_dbg(c, "value data type: %u (%s)", val_data_type,
 		get_metadata_dtype_name(val_data_type));
 
-	val_len = de_getui16le_p(&pos);
+	val_len = de_getu16le_p(&pos);
 
 	do_metadata_item(c, d, pos, val_len, val_data_type, name_srd, SID_ECD);
 
@@ -771,21 +771,21 @@ static int do_metadata_entry(deark *c, lctx *d, struct handler_params *hp,
 
 	if(hp->uui->short_id==SID_METADATALIB) {
 		i64 lang_list_idx;
-		lang_list_idx = de_getui16le(pos);
+		lang_list_idx = de_getu16le(pos);
 		de_dbg(c, "language list index: %d", (int)lang_list_idx);
 	}
 	pos += 2; // Lang list index, or reserved
 
-	stream_number = de_getui16le_p(&pos);
+	stream_number = de_getu16le_p(&pos);
 	de_dbg(c, "stream number: %d", (int)stream_number);
 
-	namelen = de_getui16le_p(&pos); // # of bytes, including the expected 0x00 0x00 terminator
+	namelen = de_getu16le_p(&pos); // # of bytes, including the expected 0x00 0x00 terminator
 
-	val_data_type = (unsigned int)de_getui16le_p(&pos);
+	val_data_type = (unsigned int)de_getu16le_p(&pos);
 	de_dbg(c, "value data type: %u (%s)", val_data_type,
 		get_metadata_dtype_name(val_data_type));
 
-	val_len = de_getui32le_p(&pos);
+	val_len = de_getu32le_p(&pos);
 
 	namelen_to_keep = namelen-2;
 	if(namelen_to_keep<0) namelen_to_keep=0;
@@ -817,7 +817,7 @@ static void handler_ECD_or_metadata(deark *c, lctx *d, struct handler_params *hp
 	i64 k;
 	i64 pos = hp->dpos;
 
-	descr_count = de_getui16le_p(&pos);
+	descr_count = de_getu16le_p(&pos);
 	de_dbg(c, "descriptor count: %d", (int)descr_count);
 
 	for(k=0; k<descr_count; k++) {

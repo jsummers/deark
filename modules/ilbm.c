@@ -96,8 +96,8 @@ static int do_bmhd(deark *c, lctx *d, i64 pos1, i64 len)
 	}
 
 	d->found_bmhd = 1;
-	d->main_img.width = de_getui16be(pos1);
-	d->main_img.height = de_getui16be(pos1+2);
+	d->main_img.width = de_getu16be(pos1);
+	d->main_img.height = de_getu16be(pos1+2);
 	de_dbg_dimensions(c, d->main_img.width, d->main_img.height);
 	d->planes = (i64)de_getbyte(pos1+8);
 	de_dbg(c, "planes: %d", (int)d->planes);
@@ -113,7 +113,7 @@ static int do_bmhd(deark *c, lctx *d, i64 pos1, i64 len)
 	d->compression = de_getbyte(pos1+10);
 	de_dbg(c, "compression: %d", (int)d->compression);
 
-	d->transparent_color = de_getui16be(pos1+12);
+	d->transparent_color = de_getu16be(pos1+12);
 	de_dbg(c, "masking: %d (%s)", (int)d->main_img.masking_code, masking_name);
 	if(d->main_img.masking_code==2 || d->main_img.masking_code==3) {
 		de_dbg(c, " color key: %d", (int)d->transparent_color);
@@ -143,7 +143,7 @@ static void do_camg(deark *c, lctx *d, i64 pos, i64 len)
 	if(len<4) return;
 	d->has_camg = 1;
 
-	d->camg_mode = (u32)de_getui32be(pos);
+	d->camg_mode = (u32)de_getu32be(pos);
 	de_dbg(c, "CAMG mode: 0x%x", (unsigned int)d->camg_mode);
 
 	if(d->camg_mode & 0x0800)
@@ -159,8 +159,8 @@ static void do_camg(deark *c, lctx *d, i64 pos, i64 len)
 static void do_dpi(deark *c, lctx *d, i64 pos, i64 len)
 {
 	if(len<4) return;
-	d->x_dpi = de_getui16be(pos);
-	d->y_dpi = de_getui16be(pos+2);
+	d->x_dpi = de_getu16be(pos);
+	d->y_dpi = de_getu16be(pos+2);
 	de_dbg(c, "dpi: %d"DE_CHAR_TIMES"%d", (int)d->x_dpi, (int)d->y_dpi);
 }
 
@@ -715,9 +715,9 @@ static void do_tiny(deark *c, lctx *d, i64 pos1, i64 len)
 	ii = de_malloc(c, sizeof(struct img_info));
 	*ii = d->main_img; // structure copy
 	ii->is_thumb = 1;
-	ii->width = de_getui16be(pos1);
+	ii->width = de_getu16be(pos1);
 	if(len<=4) goto done;
-	ii->height = de_getui16be(pos1+2);
+	ii->height = de_getu16be(pos1+2);
 	de_dbg(c, "thumbnail image, dimensions: %d"DE_CHAR_TIMES"%d", (int)ii->width, (int)ii->height);
 
 	// Based on what little data I have, it seems that TINY images do not have
@@ -756,7 +756,7 @@ static void do_vdat(deark *c, lctx *d, i64 pos1, i64 len)
 	pos = pos1;
 	endpos = pos1+len;
 
-	cmd_cnt = de_getui16be(pos); // command count + 2
+	cmd_cnt = de_getu16be(pos); // command count + 2
 	pos+=2;
 	cmd_cnt -= 2;
 	de_dbg(c, "number of command bytes: %d", (int)cmd_cnt);
@@ -779,14 +779,14 @@ static void do_vdat(deark *c, lctx *d, i64 pos1, i64 len)
 		cmd = cmds[i];
 
 		if(cmd==0x00) {
-			count = de_getui16be(pos);
+			count = de_getu16be(pos);
 			pos+=2;
 			count *= 2;
 			dbuf_copy(c->infile, pos, count, d->vdat_unc_pixels);
 			pos += count;
 		}
 		else if(cmd==0x01) {
-			count = de_getui16be(pos);
+			count = de_getu16be(pos);
 			pos+=2;
 			b0 = de_getbyte(pos++);
 			b1 = de_getbyte(pos++);
@@ -950,8 +950,8 @@ static int my_ilbm_chunk_handler(deark *c, struct de_iffctx *ictx)
 
 	case CODE_CRNG:
 		if(ictx->chunkctx->dlen<8) break;
-		tmp1 = de_getui16be(ictx->chunkctx->dpos+2);
-		tmp2 = de_getui16be(ictx->chunkctx->dpos+4);
+		tmp1 = de_getu16be(ictx->chunkctx->dpos+2);
+		tmp2 = de_getu16be(ictx->chunkctx->dpos+4);
 		de_dbg(c, "CRNG flags: 0x%04x", (unsigned int)tmp2);
 		if(tmp2&0x1) {
 			d->uses_color_cycling = 1;
@@ -960,7 +960,7 @@ static int my_ilbm_chunk_handler(deark *c, struct de_iffctx *ictx)
 		break;
 
 	case CODE_DRNG:
-		tmp2 = de_getui16be(ictx->chunkctx->dpos+4);
+		tmp2 = de_getu16be(ictx->chunkctx->dpos+4);
 		de_dbg(c, "DRNG flags: 0x%04x", (unsigned int)tmp2);
 		if(tmp2&0x1) {
 			d->uses_color_cycling = 1;
@@ -969,8 +969,8 @@ static int my_ilbm_chunk_handler(deark *c, struct de_iffctx *ictx)
 
 	case CODE_GRAB:
 		if(ictx->chunkctx->dlen<4) break;
-		tmp1 = de_getui16be(ictx->chunkctx->dpos);
-		tmp2 = de_getui16be(ictx->chunkctx->dpos+2);
+		tmp1 = de_getu16be(ictx->chunkctx->dpos);
+		tmp2 = de_getu16be(ictx->chunkctx->dpos+2);
 		de_dbg(c, "hotspot: (%d, %d)", (int)tmp1, (int)tmp2);
 		break;
 
@@ -1107,7 +1107,7 @@ static void do_anim_anhd(deark *c, animctx *d, i64 pos, i64 len)
 	pos+=2; // y
 	pos+=4; // abstime
 
-	tmp = de_getui32be(pos); // reltime
+	tmp = de_getu32be(pos); // reltime
 	de_dbg(c, "reltime: %.5f sec", ((double)tmp)/60.0);
 	pos+=4;
 
@@ -1116,7 +1116,7 @@ static void do_anim_anhd(deark *c, animctx *d, i64 pos, i64 len)
 
 	// bits
 	if(op==4 || op==5) {
-		tmp = de_getui32be(pos);
+		tmp = de_getu32be(pos);
 		de_dbg(c, "flags: 0x%08u", (unsigned int)tmp);
 	}
 	pos+=4;

@@ -212,7 +212,7 @@ static void do_resource_data(deark *c, lctx *d, struct rsrctypeinfo *rti,
 
 	de_dbg(c, "resource data at %d", (int)rii->data_offset);
 	de_dbg_indent(c, 1);
-	dlen = de_getui32be(rii->data_offset);
+	dlen = de_getu32be(rii->data_offset);
 	dpos = rii->data_offset+4;
 	de_dbg(c, "dpos: %d, dlen: %d", (int)dpos, (int)dlen);
 	if(dpos+dlen > c->infile->len) goto done;
@@ -292,7 +292,7 @@ static void do_resource_record(deark *c, lctx *d, struct rsrctypeinfo *rti,
 	de_zeromem(&rii, sizeof(struct rsrcinstanceinfo));
 	rii.id = (int)de_geti16be_p(&pos);
 	de_dbg(c, "id: %d", rii.id);
-	nameOffset_rel = de_getui16be_p(&pos);
+	nameOffset_rel = de_getu16be_p(&pos);
 	if(nameOffset_rel!=0xffff) {
 		rii.has_name = 1;
 		de_dbg(c, "nameOffset: (%d+)%d", (int)d->nameListOffset_abs, (int)nameOffset_rel);
@@ -346,9 +346,9 @@ static void do_type_item(deark *c, lctx *d, i64 type_list_offs,
 		rti.is_psrc_type = 1;
 	}
 
-	count = 1+de_getui16be_p(&pos);
+	count = 1+de_getu16be_p(&pos);
 	de_dbg(c, "count: %d", (int)count);
-	list_offs_rel = de_getui16be_p(&pos);
+	list_offs_rel = de_getu16be_p(&pos);
 	de_dbg(c, "list offset: (%d+)%d", (int)type_list_offs, (int)list_offs_rel);
 
 	do_resource_list(c, d, &rti, type_list_offs+list_offs_rel, count);
@@ -364,7 +364,7 @@ static void do_type_list(deark *c, lctx *d)
 
 	de_dbg(c, "type list at %d", (int)pos1);
 	de_dbg_indent(c, 1);
-	type_count_raw = de_getui16be_p(&pos);
+	type_count_raw = de_getu16be_p(&pos);
 	type_count = (type_count_raw==0xffff)?0:(type_count_raw+1);
 	de_dbg(c, "count: %d", (int)type_count);
 
@@ -384,7 +384,7 @@ static void do_map(deark *c, lctx *d, i64 map_offs, i64 map_size)
 	i64 typeListOffset_rel, nameListOffset_rel;
 	i64 n;
 
-	n = de_getui32be(map_offs+4);
+	n = de_getu32be(map_offs+4);
 	if(n!=map_offs) {
 		de_err(c, "Resource map section not found, expected to be at %d", (int)map_offs);
 		return;
@@ -398,12 +398,12 @@ static void do_map(deark *c, lctx *d, i64 map_offs, i64 map_size)
 	pos += 2; // fileRef
 	pos += 2; // attributes
 
-	typeListOffset_rel = de_getui16be_p(&pos);
+	typeListOffset_rel = de_getu16be_p(&pos);
 	de_dbg(c, "type list offset: (%d+)%d", (int)map_offs,
 		(int)typeListOffset_rel);
 	d->typeListOffset_abs = map_offs + typeListOffset_rel;
 
-	nameListOffset_rel = de_getui16be_p(&pos);
+	nameListOffset_rel = de_getu16be_p(&pos);
 	de_dbg(c, "name list offset: (%d+)%d", (int)map_offs,
 		(int)nameListOffset_rel);
 	d->nameListOffset_abs = map_offs + nameListOffset_rel;
@@ -431,10 +431,10 @@ static void de_run_macrsrc(deark *c, de_module_params *mparams)
 	}
 
 	pos = 0;
-	d->data_offs = de_getui32be_p(&pos);
-	d->map_offs = de_getui32be_p(&pos);
-	d->data_size = de_getui32be_p(&pos);
-	d->map_size = de_getui32be_p(&pos);
+	d->data_offs = de_getu32be_p(&pos);
+	d->map_offs = de_getu32be_p(&pos);
+	d->data_size = de_getu32be_p(&pos);
+	d->map_size = de_getu32be_p(&pos);
 	de_dbg(c, "data: pos=%"I64_FMT", len=%"I64_FMT, d->data_offs, d->data_size);
 	de_dbg(c, "map: pos=%"I64_FMT", len=%"I64_FMT, d->map_offs, d->map_size);
 	do_map(c, d, d->map_offs, d->map_size);
@@ -449,7 +449,7 @@ static int de_identify_macrsrc(deark *c)
 	i64 n[4];
 	size_t k;
 
-	if(de_getui32be(0)!=256) return 0;
+	if(de_getu32be(0)!=256) return 0;
 	de_read(b, 0, 16);
 	for(k=0; k<4; k++) {
 		n[k] = de_getu32be_direct(&b[4*k]);

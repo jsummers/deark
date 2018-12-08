@@ -357,14 +357,14 @@ static int do_char_descr(deark *c, lctx *d, i64 pos, i64 *bytesused)
 		pg->raster_pos = pos + 11;
 	}
 	else if(char_preamble_format==CHAR_PREAMBLE_FORMAT_EXT_SHORT) {
-		pl = de_getui16be(pos+1);
+		pl = de_getu16be(pos+1);
 		pl |= (flagbyte&0x03)<<16;
 		pg->cc = (i32)de_getbyte(pos+3);
 		tfm_offs = 4;
 		pg->tfm = do_getui24be(c->infile, pos+tfm_offs);
-		pg->dm = de_getui16be(pos+7);
-		pg->w = (int)de_getui16be(pos+9);
-		pg->h = (int)de_getui16be(pos+11);
+		pg->dm = de_getu16be(pos+7);
+		pg->w = (int)de_getu16be(pos+9);
+		pg->h = (int)de_getu16be(pos+11);
 		pg->hoff = de_geti16be(pos+13);
 		pg->voff = de_geti16be(pos+15);
 		pg->raster_pos = pos + 17;

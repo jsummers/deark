@@ -28,9 +28,9 @@ static void do_extract_file(deark *c, lctx *d, i64 dir_pos,
 	i64 fnpos;
 	de_finfo *fi = NULL;
 
-	load_addr = de_getui16le(dir_pos+2);
-	end_addr = de_getui16le(dir_pos+4);
-	offset = de_getui32le(dir_pos+8);
+	load_addr = de_getu16le(dir_pos+2);
+	end_addr = de_getu16le(dir_pos+4);
+	offset = de_getu32le(dir_pos+8);
 	de_dbg(c, "load_addr=%d end_addr=%d offset=%d", (int)load_addr,
 		(int)end_addr, (int)offset);
 
@@ -111,14 +111,14 @@ static void de_run_t64(deark *c, de_module_params *mparams)
 	d = de_malloc(c, sizeof(lctx));
 
 	pos = 32;
-	d->version = de_getui16le(pos);
+	d->version = de_getu16le(pos);
 	de_dbg(c, "version: 0x%04x", (int)d->version);
 	if(d->version!=0x100 && d->version!=0x101) {
 		de_warn(c, "Unexpected version number. This might not be a T64 file.");
 	}
 
-	d->max_dir_entries = de_getui16le(pos+2);
-	d->used_dir_entries = de_getui16le(pos+4);
+	d->max_dir_entries = de_getu16le(pos+2);
+	d->used_dir_entries = de_getu16le(pos+4);
 	de_dbg(c, "max dir entries = %d, files = %d", (int)d->max_dir_entries, (int)d->used_dir_entries);
 
 	pos += 32;

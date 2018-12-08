@@ -67,7 +67,7 @@ static void do_psf1_unicode_table(deark *c, lctx *d, struct de_bitmap_font *font
 	while(1) {
 		if(cur_idx >= d->num_glyphs) break;
 		if(pos+1 >= c->infile->len) break;
-		n = (i32)de_getui16le(pos);
+		n = (i32)de_getu16le(pos);
 		pos+=2;
 
 		if(n==0xffff) {
@@ -277,30 +277,30 @@ static void do_psf2_header(deark *c, lctx *d)
 	de_dbg(c, "PSFv2 header at %d", (int)pos);
 	de_dbg_indent(c, 1);
 
-	d->psf2_version = (u32)de_getui32le(pos+4);
+	d->psf2_version = (u32)de_getu32le(pos+4);
 	de_dbg(c, "PSFv2 version number: %d", (int)d->psf2_version);
 	if(d->psf2_version!=0) {
 		de_warn(c, "Unknown PSFv2 version number: %d", (int)d->psf2_version);
 	}
 
-	d->headersize = de_getui32le(pos+8);
+	d->headersize = de_getu32le(pos+8);
 	de_dbg(c, "header size: %d", (int)d->headersize);
 
-	d->flags = (u32)de_getui32le(pos+12);
+	d->flags = (u32)de_getu32le(pos+12);
 	de_dbg(c, "flags: 0x%08x", (unsigned int)d->flags);
 	de_dbg_indent(c, 1);
 	d->has_unicode_table = (d->flags & 0x01) ? 1 : 0;
 	de_dbg(c, "has Unicode table: %s", d->has_unicode_table?"yes":"no");
 	de_dbg_indent(c, -1);
 
-	d->num_glyphs = de_getui32le(pos+16);
+	d->num_glyphs = de_getu32le(pos+16);
 	de_dbg(c, "number of glyphs: %d", (int)d->num_glyphs);
 
-	d->bytes_per_glyph = de_getui32le(pos+20);
+	d->bytes_per_glyph = de_getu32le(pos+20);
 	de_dbg(c, "bytes per glyph: %d", (int)d->bytes_per_glyph);
 
-	d->glyph_height = de_getui32le(pos+24);
-	d->glyph_width = de_getui32le(pos+28);
+	d->glyph_height = de_getu32le(pos+24);
+	d->glyph_width = de_getu32le(pos+28);
 	de_dbg(c, "glyph dimensions: %d"DE_CHAR_TIMES"%d", (int)d->glyph_width, (int)d->glyph_height);
 
 	de_dbg_indent(c, -1);

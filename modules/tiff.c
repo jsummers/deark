@@ -557,7 +557,7 @@ static void do_leaf_metadata(deark *c, lctx *d, i64 pos1, i64 len)
 		pos+=40;
 
 		// TODO: Is this always big-endian?
-		data_len = de_getui32be(pos);
+		data_len = de_getu32be(pos);
 		pos+=4;
 
 		if(!de_memcmp(segtype, "JPEG_preview_data\0", 18)) {
@@ -1184,7 +1184,7 @@ static void do_makernote_nikon(deark *c, lctx *d, i64 pos1, i64 len)
 	unsigned int ver;
 
 	if(len<10) return;
-	ver = (unsigned int)de_getui16be(pos1+6);
+	ver = (unsigned int)de_getu16be(pos1+6);
 	de_dbg(c, "version: 0x%04x", ver); // This is a guess
 
 	dpos = pos1+10;
@@ -1201,7 +1201,7 @@ static void do_makernote_apple_ios(deark *c, lctx *d, i64 pos1, i64 len)
 	unsigned int ver;
 
 	if(len<12) return;
-	ver = (unsigned int)de_getui16be(pos1+10);
+	ver = (unsigned int)de_getu16be(pos1+10);
 	de_dbg(c, "version: 0x%04x", ver); // This is a guess
 	if(ver!=1) return;
 	if(len<20) return;
@@ -1339,7 +1339,7 @@ static void handler_exifversion(deark *c, lctx *d, const struct taginfo *tg, con
 	// for later use.
 	if(tg->valcount!=4) return;
 	if(tg->datatype!=DATATYPE_UNDEF) return;
-	d->exif_version_as_uint32 = (u32)de_getui32be(tg->val_offset);
+	d->exif_version_as_uint32 = (u32)de_getu32be(tg->val_offset);
 }
 
 struct mpfctx_struct {
@@ -2524,13 +2524,13 @@ static int de_identify_tiff_internal(deark *c, int *is_le)
 	i64 magic;
 	int fmt = 0;
 
-	byte_order_sig = de_getui16be(0);
+	byte_order_sig = de_getu16be(0);
 	*is_le = (byte_order_sig == 0x4d4d) ? 0 : 1;
 
 	if(*is_le)
-		magic = de_getui16le(2);
+		magic = de_getu16le(2);
 	else
-		magic = de_getui16be(2);
+		magic = de_getu16be(2);
 
 	if(byte_order_sig==0x4550 && magic==0x002a) {
 		fmt = DE_TIFFFMT_MDI;

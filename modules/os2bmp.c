@@ -398,7 +398,7 @@ static void do_BA_segment(deark *c, i64 pos, i64 *pnextoffset)
 		goto done;
 	}
 
-	*pnextoffset = de_getui32le(pos+6);
+	*pnextoffset = de_getu32le(pos+6);
 	de_dbg(c, "offset of next segment: %d", (int)*pnextoffset);
 
 	// Peek at the next two bytes

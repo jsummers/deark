@@ -72,7 +72,7 @@ static void do_opcode_5(deark *c, lctx *d, struct opcode_data *op)
 
 	if(op->func_id!=99) return;
 	if(op->intin_count<1) return;
-	sub_opcode_id = de_getui16le(op->intin_pos);
+	sub_opcode_id = de_getu16le(op->intin_pos);
 
 	switch(sub_opcode_id) {
 	case 10: name="Start Group"; break;
@@ -144,10 +144,10 @@ static int do_record(deark *c, lctx *d, i64 pos, i64 *bytesused)
 	de_dbg(c, "record at %d", (int)pos);
 	de_dbg_indent(c, 1);
 
-	op.opcode = de_getui16le(pos);
-	op.ptsin_count = de_getui16le(pos+2);
-	op.intin_count = de_getui16le(pos+4);
-	op.func_id = de_getui16le(pos+6);
+	op.opcode = de_getu16le(pos);
+	op.ptsin_count = de_getu16le(pos+2);
+	op.intin_count = de_getu16le(pos+4);
+	op.func_id = de_getu16le(pos+6);
 
 	ptsin_size_bytes = 4*op.ptsin_count;
 	intin_size_bytes = 2*op.intin_count;
@@ -196,12 +196,12 @@ static void de_run_gemmeta(deark *c, de_module_params *mparams)
 	de_msg(c, "Note: GEM VDI Metafiles can be parsed, but no files can be extracted from them.");
 
 	pos = 0;
-	hdrlen_words = de_getui16le(pos+2);
+	hdrlen_words = de_getu16le(pos+2);
 	de_dbg(c, "header length: %d words", (int)hdrlen_words);
-	version = de_getui16le(pos+4);
+	version = de_getu16le(pos+4);
 	de_dbg(c, "version number: %d", (int)version);
 	// TODO: Read more header fields.
-	imgflag = de_getui16le(pos+28);
+	imgflag = de_getu16le(pos+28);
 	de_dbg(c, "image flag: %d", (int)imgflag);
 
 	pos += hdrlen_words*2;

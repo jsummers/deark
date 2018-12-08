@@ -69,8 +69,8 @@ static int do_read_header(deark *c, lctx *d, i64 pos)
 	de_dbg_indent(c, 1);
 
 	pos += 15;
-	d->ver_major = (unsigned int)de_getui16be(pos);
-	d->ver_minor = (unsigned int)de_getui16be(pos+2);
+	d->ver_major = (unsigned int)de_getu16be(pos);
+	d->ver_minor = (unsigned int)de_getu16be(pos+2);
 	d->ver_combined = (d->ver_major<<16) | d->ver_minor;
 	de_dbg(c, "format version: %u.%u", d->ver_major, d->ver_minor);
 	pos+=4;
@@ -84,7 +84,7 @@ static int do_read_header(deark *c, lctx *d, i64 pos)
 			"decoded correctly.", d->ver_major, d->ver_minor);
 	}
 
-	d->image_count = de_getui32le(pos);
+	d->image_count = de_getu32le(pos);
 	de_dbg(c, "image count: %d", (int)d->image_count);
 	pos+=4;
 	if(!de_good_image_count(c, d->image_count)) goto done;
@@ -124,7 +124,7 @@ static int read_filename(deark *c, lctx *d, struct page_ctx *pg, i64 pos1, i64 *
 
 	if(d->ver_combined>=0x010001) { // v1.1+
 		i64 fnlen;
-		fnlen = de_getui32le(pos);
+		fnlen = de_getu32le(pos);
 		de_dbg(c, "original filename len: %d", (int)fnlen);
 		pos += 4;
 		if(fnlen>1000) {
@@ -312,7 +312,7 @@ static int do_one_thumbnail(deark *c, lctx *d, i64 pos1, i64 imgidx, i64 *bytes_
 
 	if(d->ver_major==2) {
 		// The original file type (not the format of the thumbnail)
-		filetype_code = (unsigned int)de_getui32le(pos);
+		filetype_code = (unsigned int)de_getu32le(pos);
 		de_dbg(c, "original file type: 0x%02x (%s)", filetype_code, get_type_name(filetype_code));
 		pos += 4; // filetype code
 	}
@@ -320,9 +320,9 @@ static int do_one_thumbnail(deark *c, lctx *d, i64 pos1, i64 imgidx, i64 *bytes_
 		pos += 4; // TODO: FOURCC
 	}
 
-	tn_w = de_getui16le(pos);
+	tn_w = de_getu16le(pos);
 	pos += 4;
-	tn_h = de_getui16le(pos);
+	tn_h = de_getu16le(pos);
 	pos += 4;
 	de_dbg(c, "original dimensions: %d"DE_CHAR_TIMES"%d", (int)tn_w, (int)tn_h);
 
@@ -332,7 +332,7 @@ static int do_one_thumbnail(deark *c, lctx *d, i64 pos1, i64 imgidx, i64 *bytes_
 		pos += 4; // (uncompressed size?)
 	}
 
-	file_size = de_getui32le(pos);
+	file_size = de_getu32le(pos);
 	de_dbg(c, "original file size: %u", (unsigned int)file_size);
 	pos += 4;
 
@@ -345,7 +345,7 @@ static int do_one_thumbnail(deark *c, lctx *d, i64 pos1, i64 imgidx, i64 *bytes_
 
 	if(d->ver_major==2) {
 		// first 4 bytes of 12-byte "thumbnail signature"
-		x = de_getui32le(pos);
+		x = de_getu32le(pos);
 		pos += 4;
 		if(x==0) { // truncated entry
 			de_dbg(c, "thumbnail not present");
@@ -355,7 +355,7 @@ static int do_one_thumbnail(deark *c, lctx *d, i64 pos1, i64 imgidx, i64 *bytes_
 
 		pos += 8; // remaining 8 byte of signature
 
-		payload_len = de_getui32le(pos);
+		payload_len = de_getu32le(pos);
 		de_dbg(c, "payload len: %u", (unsigned int)payload_len);
 		pos += 4;
 

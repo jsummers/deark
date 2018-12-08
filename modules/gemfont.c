@@ -45,8 +45,8 @@ static int do_characters(deark *c, lctx *d)
 
 	for(i=0; i<d->font->num_chars; i++) {
 		ch = &d->font->char_array[i];
-		char_startpos = de_getui16le(d->char_offset_table_pos + 2*i);
-		n = de_getui16le(d->char_offset_table_pos + 2*(i+1));
+		char_startpos = de_getu16le(d->char_offset_table_pos + 2*i);
+		n = de_getu16le(d->char_offset_table_pos + 2*(i+1));
 		ch->width = (int)(n - char_startpos);
 		ch->height = d->font->nominal_height;
 		ch->codepoint_nonunicode = (i32)(d->first_index+i);
@@ -119,25 +119,25 @@ static void de_run_gemfont(deark *c, de_module_params *mparams)
 	de_dbg(c, "header at %d", 0);
 	de_dbg_indent(c, 1);
 
-	n = de_getui16le(0);
+	n = de_getu16le(0);
 	de_dbg(c, "face ID: %d", (int)n);
 
-	d->face_size = de_getui16le(2);
+	d->face_size = de_getu16le(2);
 	de_dbg(c, "point size: %d", (int)d->face_size);
 
 	do_face_name(c, d); // Offset 4-35
 
-	d->first_index = de_getui16le(36);
-	d->last_index = de_getui16le(38);
+	d->first_index = de_getu16le(36);
+	d->last_index = de_getu16le(38);
 	de_dbg(c, "first char: %d, last char: %d", (int)d->first_index, (int)d->last_index);
 	d->font->num_chars = d->last_index - d->first_index + 1;
 
-	max_char_width = de_getui16le(50);
-	d->max_char_cell_width = de_getui16le(52);
+	max_char_width = de_getu16le(50);
+	d->max_char_cell_width = de_getu16le(52);
 	de_dbg(c, "max char width: %d, max char cell width: %d", (int)max_char_width,
 		(int)d->max_char_cell_width);
 
-	font_flags = (unsigned int)de_getui16le(66);
+	font_flags = (unsigned int)de_getu16le(66);
 	d->byte_swap_flag = (font_flags & 0x04) ? 1 : 0;
 
 	de_dbg(c, "byte swap flag: %d", (int)d->byte_swap_flag);
@@ -146,13 +146,13 @@ static void de_run_gemfont(deark *c, de_module_params *mparams)
 			"decoded correctly.");
 	}
 
-	d->char_offset_table_pos = de_getui32le(72);
-	d->font_data_pos = de_getui32le(76);
+	d->char_offset_table_pos = de_getu32le(72);
+	d->font_data_pos = de_getu32le(76);
 	de_dbg(c, "char. offset table offset: %d", (int)d->char_offset_table_pos);
 	de_dbg(c, "font data offset: %d", (int)d->font_data_pos);
 
-	d->form_width_bytes = de_getui16le(80);
-	d->form_height_pixels = de_getui16le(82);
+	d->form_width_bytes = de_getu16le(80);
+	d->form_height_pixels = de_getu16le(82);
 	de_dbg(c, "form width: %d bytes", (int)d->form_width_bytes);
 	de_dbg(c, "form height: %d pixels", (int)d->form_height_pixels);
 

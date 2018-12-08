@@ -36,8 +36,8 @@ static int do_scan_iconblk(deark *c, lctx *d, i64 pos1, struct iconinfo *ii)
 
 	de_dbg(c, "ICONBLK at %d", (int)pos1);
 	pos = pos1;
-	ii->width = de_getui16be(pos+22);
-	ii->height = de_getui16be(pos+24);
+	ii->width = de_getu16be(pos+22);
+	ii->height = de_getu16be(pos+24);
 	de_dbg_dimensions(c, ii->width, ii->height);
 	if(!de_good_image_dimensions(c, ii->width, ii->height)) {
 		return 0;
@@ -78,8 +78,8 @@ static int do_old_iconblk(deark *c, lctx *d, i64 pos)
 
 	if(!do_scan_iconblk(c, d, pos, ii)) goto done;
 
-	mask_pos = de_getui32be(pos);
-	fg_pos = de_getui32be(pos+4);
+	mask_pos = de_getu32be(pos);
+	fg_pos = de_getu32be(pos+4);
 	de_dbg(c, "bitmap at %d, mask at %d", (int)fg_pos, (int)mask_pos);
 
 	ii->mono_rowspan = ((ii->width+15)/16)*2;
@@ -210,7 +210,7 @@ static int do_ciconblk_struct(deark *c, lctx *d, i64 icon_idx, i64 pos1,
 	}
 	pos+=34;
 
-	n_cicons = de_getui32be(pos);
+	n_cicons = de_getu32be(pos);
 	de_dbg(c, "number of color depths for this icon: %d", (int)n_cicons);
 	pos += 4;
 
@@ -231,20 +231,20 @@ static int do_ciconblk_struct(deark *c, lctx *d, i64 icon_idx, i64 pos1,
 		de_dbg(c, "-- color depth %d of %d --", (int)(i+1), (int)n_cicons);
 		de_dbg_indent(c, 1);
 
-		ii->nplanes = de_getui16be(pos);
+		ii->nplanes = de_getu16be(pos);
 		de_dbg(c, "planes: %d", (int)ii->nplanes);
 		pos += 2;
 
 		pos += 4; // col_data (placeholder)
 		pos += 4; // col_mask (placeholder)
 
-		sel_data_flag = de_getui32be(pos);
+		sel_data_flag = de_getu32be(pos);
 		de_dbg(c, "sel_data flag: %d", (int)sel_data_flag);
 		pos += 4; // sel_data
 
 		pos += 4; // sel_mask (placeholder)
 
-		next_res = de_getui32be(pos);
+		next_res = de_getu32be(pos);
 		de_dbg(c, "next_res_flag: %d", (int)next_res);
 		pos += 4;
 
@@ -295,7 +295,7 @@ static int do_cicon_ptr_table(deark *c, lctx *d, i64 pos1, i64 *bytes_consumed)
 			return 0;
 		}
 
-		n = de_getui32be(pos);
+		n = de_getu32be(pos);
 		pos+=4;
 
 		if(n==0xffffffffU) {
@@ -340,10 +340,10 @@ static void do_newformat(deark *c, lctx *d)
 
 	pos = d->rssize;
 
-	rsc_file_size = de_getui32be(pos);
+	rsc_file_size = de_getu32be(pos);
 	de_dbg(c, "reported rsc file size: %d", (int)rsc_file_size);
 
-	cicon_offs = de_getui32be(pos+4);
+	cicon_offs = de_getu32be(pos+4);
 	if(cicon_offs!=0 && cicon_offs!=0xffffffffU) {
 		de_dbg(c, "CICON offset: %d", (int)cicon_offs);
 		do_cicon(c, d, cicon_offs);
@@ -393,29 +393,29 @@ static int do_object(deark *c, lctx *d, i64 obj_index, i64 pos)
 	de_dbg(c, "OBJECT #%d at %d", (int)obj_index, (int)pos);
 	de_dbg_indent(c, 1);
 
-	next_sibling = de_getui16be(pos);
+	next_sibling = de_getu16be(pos);
 	if(next_sibling==0xffff) next_sibling = -1;
-	first_child = de_getui16be(pos+2);
+	first_child = de_getu16be(pos+2);
 	if(first_child==0xffff) first_child = -1;
-	last_child = de_getui16be(pos+4);
+	last_child = de_getu16be(pos+4);
 	if(last_child==0xffff) last_child = -1;
 	de_dbg(c, "next sibling: %d, first child: %d, last child: %d",
 		(int)next_sibling, (int)first_child, (int)last_child);
 
-	obj_type_orig = de_getui16be(pos+6);
+	obj_type_orig = de_getu16be(pos+6);
 	obj_type = (u8)(obj_type_orig&0xff);
 
 	de_dbg(c, "type: 0x%04x (%u; %s)", (unsigned int)obj_type_orig,
 		(unsigned int)obj_type, get_obj_type_name(obj_type));
 
-	ob_spec = de_getui32be(pos+12);
+	ob_spec = de_getu32be(pos+12);
 	de_dbg(c, "ob_spec: %u (0x%08x)", (unsigned int)ob_spec, (unsigned int)ob_spec);
 
 	// Note: This does not seem to read the width and height fields correctly.
 	// Don't know what I'm doing wrong.
 	// (Fortunately, we don't necessarily need them.)
-	width = de_getui16be(pos+20);
-	height = de_getui16be(pos+22);
+	width = de_getu16be(pos+20);
+	height = de_getu16be(pos+22);
 	de_dbg_dimensions(c, width, height);
 
 	de_dbg_indent(c, -1);
@@ -432,14 +432,14 @@ static int do_bitblk(deark *c, lctx *d, i64 pos)
 	de_dbg(c, "BITBLK struct at %d", (int)pos);
 	de_dbg_indent(c, 1);
 
-	bits_pos = de_getui32be(pos);
+	bits_pos = de_getu32be(pos);
 	de_dbg(c, "bitmap pos: %d", (int)bits_pos);
-	width_in_bytes = de_getui16be(pos+4);
+	width_in_bytes = de_getu16be(pos+4);
 	width = width_in_bytes*8;
 	de_dbg(c, "width in bytes: %d", (int)width_in_bytes);
-	height = de_getui16be(pos+6);
+	height = de_getu16be(pos+6);
 	de_dbg_dimensions(c, width, height);
-	fgcol = de_getui16be(pos+12);
+	fgcol = de_getu16be(pos+12);
 	de_dbg(c, "foreground color: 0x%04x", (unsigned int)fgcol);
 	// TODO: Can we do anything with the foreground color?
 
@@ -485,19 +485,19 @@ static void de_run_rsc(deark *c, de_module_params *mparams)
 	d = de_malloc(c, sizeof(lctx));
 	d->decode_objects = 1;
 
-	d->version = de_getui16be(0);
+	d->version = de_getu16be(0);
 	de_dbg(c, "version: 0x%04x", (int)d->version);
 
-	d->object_offs = de_getui16be(2);
-	d->iconblk_offs = de_getui16be(6);
-	d->bitblk_offs = de_getui16be(8);
-	d->imagedata_offs = de_getui16be(14);
-	d->imagepointertable_offs = de_getui16be(16);
-	d->object_num = de_getui16be(20);
-	d->objecttree_num = de_getui16be(22);
-	d->iconblk_num = de_getui16be(26);
-	d->bitblk_num = de_getui16be(28);
-	d->rssize = de_getui16be(34);
+	d->object_offs = de_getu16be(2);
+	d->iconblk_offs = de_getu16be(6);
+	d->bitblk_offs = de_getu16be(8);
+	d->imagedata_offs = de_getu16be(14);
+	d->imagepointertable_offs = de_getu16be(16);
+	d->object_num = de_getu16be(20);
+	d->objecttree_num = de_getu16be(22);
+	d->iconblk_num = de_getu16be(26);
+	d->bitblk_num = de_getu16be(28);
+	d->rssize = de_getu16be(34);
 
 	de_dbg(c, "OBJECT: %d at %d", (int)d->object_num, (int)d->object_offs);
 	de_dbg(c, "ojbecttree num: %d", (int)d->objecttree_num);
@@ -520,7 +520,7 @@ static int de_identify_rsc(deark *c)
 	i64 ver;
 
 	if(!de_input_file_has_ext(c, "rsc")) return 0;
-	ver = de_getui16be(0);
+	ver = de_getu16be(0);
 	if(ver==0 || ver==1 || ver==4) return 100;
 	return 0;
 }

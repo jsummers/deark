@@ -45,19 +45,19 @@ static void do_degas_anim_fields(deark *c, degasctx *d, i64 pos)
 	i64 n;
 
 	for(i=0; i<4; i++) {
-		n = de_getui16be(pos + 2*i);
+		n = de_getu16be(pos + 2*i);
 		de_dbg2(c, "left_color_anim[%d] = %d", (int)i, (int)n);
 	}
 	for(i=0; i<4; i++) {
-		n = de_getui16be(pos + 8 + 2*i);
+		n = de_getu16be(pos + 8 + 2*i);
 		de_dbg2(c, "right_color_anim[%d] = %d", (int)i, (int)n);
 	}
 	for(i=0; i<4; i++) {
-		n = de_getui16be(pos + 16 + 2*i);
+		n = de_getu16be(pos + 16 + 2*i);
 		de_dbg2(c, "channel_direction[%d] = %d", (int)i, (int)n);
 	}
 	for(i=0; i<4; i++) {
-		n = de_getui16be(pos + 24 + 2*i);
+		n = de_getu16be(pos + 24 + 2*i);
 		de_dbg2(c, "channel_delay_code[%d] = %d", (int)i, (int)n);
 	}
 
@@ -83,21 +83,21 @@ static int is_degas_elite(deark *c, degasctx *d)
 	for(n=0; n<8; n++) {
 		// The first 8 fields are "color numbers".
 		// Guessing that they should be 0-15.
-		x = de_getui16be(pos+n*2);
+		x = de_getu16be(pos+n*2);
 		if(x>0x0f) return 0;
 		if(x) all_zero = 0;
 	}
 	pos += 8*2;
 	for(n=0; n<4; n++) {
 		// The next 4 fields (channel direction) should be 0, 1, or 2.
-		x = de_getui16be(pos+n*2);
+		x = de_getu16be(pos+n*2);
 		if(x>2) return 0;
 		if(x) all_zero = 0;
 	}
 	pos += 4*2;
 	for(n=0; n<4; n++) {
 		// The next 4 fields (delay) must be from 0 to 128.
-		x = de_getui16be(pos+n*2);
+		x = de_getu16be(pos+n*2);
 		if(x>128) return 0;
 		if(x) all_zero = 0;
 	}
@@ -127,7 +127,7 @@ static void de_run_degas(deark *c, de_module_params *mparams)
 	adata->pal = d->pal;
 
 	pos = 0;
-	format_code = (unsigned int)de_getui16be(pos);
+	format_code = (unsigned int)de_getu16be(pos);
 	de_dbg(c, "format code: 0x%04x", format_code);
 	resolution_code = format_code & 0x0003;
 	d->compression_code = (format_code & 0x8000)>>15;
@@ -232,7 +232,7 @@ static int de_identify_degas(deark *c)
 	}
 	if(!flag) return 0;
 
-	sig = de_getui16be(0);
+	sig = de_getu16be(0);
 	if(sig==0x0000 || sig==0x0001 || sig==0x0002) {
 		if(c->infile->len==32034) return 100; // DEGAS
 		if(c->infile->len==32066) return 100; // DEGAS Elite
@@ -309,9 +309,9 @@ static void do_prism_read_palette(deark *c, prismctx *d, struct atari_img_decode
 	de_zeromem(pal1, sizeof(pal1));
 
 	for(i=0; i<d->pal_size; i++) {
-		r1 = de_getui16be(128+6*i+0);
-		g1 = de_getui16be(128+6*i+2);
-		b1 = de_getui16be(128+6*i+4);
+		r1 = de_getu16be(128+6*i+0);
+		g1 = de_getu16be(128+6*i+2);
+		b1 = de_getu16be(128+6*i+4);
 		r = de_scale_1000_to_255(r1);
 		g = de_scale_1000_to_255(g1);
 		b = de_scale_1000_to_255(b1);
@@ -340,19 +340,19 @@ static void de_run_prismpaint(deark *c, de_module_params *mparams)
 	adata = de_malloc(c, sizeof(struct atari_img_decode_data));
 
 	adata->pal = d->pal;
-	d->pal_size = de_getui16be(6);
-	adata->w = de_getui16be(8);
-	adata->h = de_getui16be(10);
+	d->pal_size = de_getu16be(6);
+	adata->w = de_getu16be(8);
+	adata->h = de_getu16be(10);
 	de_dbg(c, "pal_size: %d, dimensions: %d"DE_CHAR_TIMES"%d", (int)d->pal_size,
 		(int)adata->w, (int)adata->h);
 	if(!de_good_image_dimensions(c, adata->w, adata->h)) goto done;
 
-	adata->bpp = de_getui16be(12);
-	d->compression_code = de_getui16be(14);
+	adata->bpp = de_getu16be(12);
+	d->compression_code = de_getu16be(14);
 	de_dbg(c, "bits/pixel: %d, compression: %d", (int)adata->bpp,
 		(int)d->compression_code);
 
-	d->pic_data_size = de_getui32be(16);
+	d->pic_data_size = de_getu32be(16);
 	de_dbg(c, "reported (uncompressed) picture data size: %d", (int)d->pic_data_size);
 
 	do_prism_read_palette(c, d, adata);
@@ -477,8 +477,8 @@ static void de_run_eggpaint(deark *c, de_module_params *mparams)
 	}
 
 	adata->bpp = 16;
-	adata->w = de_getui16be(4);
-	adata->h = de_getui16be(6);
+	adata->w = de_getu16be(4);
+	adata->h = de_getu16be(6);
 	de_dbg_dimensions(c, adata->w, adata->h);
 	adata->unc_pixels = dbuf_open_input_subfile(c->infile, 8, c->infile->len-8);
 	adata->img = de_bitmap_create(c, adata->w, adata->h, 3);
@@ -519,8 +519,8 @@ static void de_run_indypaint(deark *c, de_module_params *mparams)
 
 	adata = de_malloc(c, sizeof(struct atari_img_decode_data));
 	adata->bpp = 16;
-	adata->w = de_getui16be(4);
-	adata->h = de_getui16be(6);
+	adata->w = de_getu16be(4);
+	adata->h = de_getu16be(6);
 	de_dbg_dimensions(c, adata->w, adata->h);
 	adata->unc_pixels = dbuf_open_input_subfile(c->infile, 256, c->infile->len-256);
 	adata->img = de_bitmap_create(c, adata->w, adata->h, 3);
@@ -558,8 +558,8 @@ static void de_run_godpaint(deark *c, de_module_params *mparams)
 
 	adata = de_malloc(c, sizeof(struct atari_img_decode_data));
 	adata->bpp = 16;
-	adata->w = de_getui16be(2);
-	adata->h = de_getui16be(4);
+	adata->w = de_getu16be(2);
+	adata->h = de_getu16be(4);
 	de_dbg_dimensions(c, adata->w, adata->h);
 	adata->unc_pixels = dbuf_open_input_subfile(c->infile, 6, c->infile->len-6);
 	adata->img = de_bitmap_create(c, adata->w, adata->h, 3);
@@ -575,7 +575,7 @@ static int de_identify_godpaint(deark *c)
 {
 	i64 sig;
 
-	sig = de_getui16be(0);
+	sig = de_getu16be(0);
 	if(sig!=0x4734 && sig!=0x0400) return 0;
 	if(de_input_file_has_ext(c, "god")) return 100;
 	if(sig==0x4734) return 5;
@@ -867,11 +867,11 @@ static void de_run_tinystuff(deark *c, de_module_params *mparams)
 	fix_dark_pal(c, adata);
 	pos += 16*2;
 
-	d->num_control_bytes = de_getui16be(pos);
+	d->num_control_bytes = de_getu16be(pos);
 	pos += 2;
 	de_dbg(c, "number of RLE control bytes: %d", (int)d->num_control_bytes);
 
-	d->num_data_words = de_getui16be(pos);
+	d->num_data_words = de_getu16be(pos);
 	pos += 2;
 	de_dbg(c, "number of RLE data words: %d (%d bytes)", (int)d->num_data_words,
 		2*(int)(d->num_data_words));
@@ -1007,7 +1007,7 @@ static void de_run_neochrome(deark *c, de_module_params *mparams)
 	adata = de_malloc(c, sizeof(struct atari_img_decode_data));
 	adata->pal = pal;
 
-	resolution_code = (unsigned int)de_getui16be(2);
+	resolution_code = (unsigned int)de_getu16be(2);
 	de_dbg(c, "resolution code: %u", resolution_code);
 	if(resolution_code!=0) {
 		de_err(c, "Invalid or unsupported NEOchrome image (resolution=%d)", (int)resolution_code);
@@ -1096,18 +1096,18 @@ static void de_run_neochrome_ani(deark *c, de_module_params *mparams)
 	adata->bpp = 4;
 	adata->ncolors = 16;
 
-	width_in_bytes = de_getui16be(4); // Always a multiple of 8
+	width_in_bytes = de_getu16be(4); // Always a multiple of 8
 	adata->w = ((width_in_bytes+7)/8)*16;
-	adata->h = de_getui16be(6);
+	adata->h = de_getu16be(6);
 	de_dbg_dimensions(c, adata->w, adata->h);
 	if(!de_good_image_dimensions(c, adata->w, adata->h)) goto done;
 
-	bytes_per_frame = de_getui16be(8);
+	bytes_per_frame = de_getu16be(8);
 	bytes_per_frame -= 10;
 	de_dbg(c, "bytes/frame: %d", (int)bytes_per_frame);
 	if(bytes_per_frame<1) goto done;
 
-	nframes = de_getui16be(14);
+	nframes = de_getu16be(14);
 	de_dbg(c, "number of frames: %d", (int)nframes);
 	if(!de_good_image_count(c, nframes)) goto done;
 
@@ -1163,7 +1163,7 @@ static void de_run_animatic(deark *c, de_module_params *mparams)
 
 	adata = de_malloc(c, sizeof(struct atari_img_decode_data));
 
-	nframes = de_getui16be(0);
+	nframes = de_getu16be(0);
 	de_dbg(c, "number of frames: %d", (int)nframes);
 	if(!de_good_image_count(c, nframes)) goto done;
 
@@ -1174,8 +1174,8 @@ static void de_run_animatic(deark *c, de_module_params *mparams)
 	de_fmtutil_read_atari_palette(c, c->infile, 2, adata->pal, 16, adata->ncolors, 0);
 	de_dbg_indent(c, -1);
 
-	adata->w = de_getui16be(40);
-	adata->h = de_getui16be(42);
+	adata->w = de_getu16be(40);
+	adata->h = de_getu16be(42);
 	de_dbg_dimensions(c, adata->w, adata->h);
 	if(!de_good_image_dimensions(c, adata->w, adata->h)) goto done;
 
@@ -1250,7 +1250,7 @@ static void decode_falcon_8bit_image(deark *c, struct atari_img_decode_data *ada
 		for(i=0; i<adata->w; i++) {
 			v = 0;
 			for(k=0; k<8; k++) {
-				n = (u32)de_getui16be(pos+j*adata->w + (i-i%16) +2*k);
+				n = (u32)de_getu16be(pos+j*adata->w + (i-i%16) +2*k);
 				if(n&(1<<(15-i%16))) v |= 1<<k;
 			}
 			de_bitmap_setpixel_rgb(adata->img, i, j, adata->pal[v]);
@@ -1449,10 +1449,10 @@ static void de_run_coke(deark *c, de_module_params *mparams)
 
 	adata = de_malloc(c, sizeof(struct atari_img_decode_data));
 	adata->bpp = 16;
-	adata->w = de_getui16be(12);
-	adata->h = de_getui16be(14);
+	adata->w = de_getu16be(12);
+	adata->h = de_getu16be(14);
 	de_dbg_dimensions(c, adata->w, adata->h);
-	imgdatapos = de_getui16be(16);
+	imgdatapos = de_getu16be(16);
 	de_dbg(c, "image data pos: %d", (int)imgdatapos);
 
 	adata->unc_pixels = dbuf_open_input_subfile(c->infile,

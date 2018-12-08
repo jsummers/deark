@@ -75,16 +75,16 @@ static int detect_bmp_version(deark *c, lctx *d)
 	i64 pos;
 
 	pos = 0;
-	d->fsize = de_getui32le(pos+2);
+	d->fsize = de_getu32le(pos+2);
 
 	pos += FILEHEADER_SIZE;
-	d->infohdrsize = de_getui32le(pos);
+	d->infohdrsize = de_getu32le(pos);
 
 	if(d->infohdrsize<=12) {
-		d->bitcount = de_getui16le(pos+10);
+		d->bitcount = de_getu16le(pos+10);
 	}
 	else {
-		d->bitcount = de_getui16le(pos+14);
+		d->bitcount = de_getu16le(pos+14);
 	}
 
 	if(d->infohdrsize==12) {
@@ -96,7 +96,7 @@ static int detect_bmp_version(deark *c, lctx *d)
 	}
 
 	if(d->infohdrsize>=20) {
-		d->compression_field = (u32)de_getui32le(pos+16);
+		d->compression_field = (u32)de_getu32le(pos+16);
 	}
 
 	if(d->infohdrsize>=16 && d->infohdrsize<=64) {
@@ -127,7 +127,7 @@ static int read_fileheader(deark *c, lctx *d, i64 pos)
 	de_dbg(c, "file header at %d", (int)pos);
 	de_dbg_indent(c, 1);
 	de_dbg(c, "bfSize: %d", (int)d->fsize);
-	d->bits_offset = de_getui32le(pos+10);
+	d->bits_offset = de_getu32le(pos+10);
 	de_dbg(c, "bfOffBits: %d", (int)d->bits_offset);
 	de_dbg_indent(c, -1);
 	return 1;
@@ -156,7 +156,7 @@ static void do_read_bitfields(deark *c, lctx *d, i64 pos, i64 len)
 
 	if(len>16) len=16;
 	for(k=0; 4*k<len; k++) {
-		d->bitfield[k].mask = (u32)de_getui32le(pos+4*k);
+		d->bitfield[k].mask = (u32)de_getu32le(pos+4*k);
 		de_dbg(c, "mask[%d]: 0x%08x", (int)k, (unsigned int)d->bitfield[k].mask);
 	}
 	update_bitfields_info(c, d);
@@ -213,9 +213,9 @@ static int read_infoheader(deark *c, lctx *d, i64 pos)
 	de_dbg(c, "info header size: %d", (int)d->infohdrsize);
 
 	if(d->version==DE_BMPVER_OS2V1) {
-		d->width = de_getui16le(pos+4);
-		d->height = de_getui16le(pos+6);
-		nplanes = de_getui16le(pos+8);
+		d->width = de_getu16le(pos+4);
+		d->height = de_getu16le(pos+6);
+		nplanes = de_getu16le(pos+8);
 	}
 	else {
 		d->width = de_geti32le(pos+4);
@@ -227,7 +227,7 @@ static int read_infoheader(deark *c, lctx *d, i64 pos)
 		else {
 			d->height = height_raw;
 		}
-		nplanes = de_getui16le(pos+12);
+		nplanes = de_getu16le(pos+12);
 	}
 	de_dbg_dimensions(c, d->width, d->height);
 	if(!de_good_image_dimensions(c, d->width, d->height)) {
@@ -336,7 +336,7 @@ static int read_infoheader(deark *c, lctx *d, i64 pos)
 	}
 
 	if(d->infohdrsize>=24) {
-		d->size_image = de_getui32le(pos+20);
+		d->size_image = de_getu32le(pos+20);
 		de_dbg(c, "biSizeImage: %d", (int)d->size_image);
 	}
 
@@ -352,7 +352,7 @@ static int read_infoheader(deark *c, lctx *d, i64 pos)
 	}
 
 	if(d->infohdrsize>=36)
-		clr_used_raw = de_getui32le(pos+32);
+		clr_used_raw = de_getu32le(pos+32);
 	else
 		clr_used_raw = 0;
 
@@ -384,17 +384,17 @@ static int read_infoheader(deark *c, lctx *d, i64 pos)
 
 	if(d->version==DE_BMPVER_WINV345 && d->infohdrsize>=124) {
 		u32 intent;
-		intent = (u32)de_getui32le(pos+108);
+		intent = (u32)de_getu32le(pos+108);
 		de_dbg(c, "intent: %u", (unsigned int)intent);
 	}
 
 	if(d->version==DE_BMPVER_WINV345 && d->infohdrsize>=124 &&
 		(d->cstype4cc.id==CODE_MBED || d->cstype4cc.id==CODE_LINK))
 	{
-		d->profile_offset_raw = de_getui32le(pos+112);
+		d->profile_offset_raw = de_getu32le(pos+112);
 		de_dbg(c, "profile offset: %d+%d", FILEHEADER_SIZE,
 			(int)d->profile_offset_raw);
-		d->profile_size = de_getui32le(pos+116);
+		d->profile_size = de_getu32le(pos+116);
 		de_dbg(c, "profile size: %d", (int)d->profile_size);
 	}
 
@@ -852,8 +852,8 @@ static int de_identify_bmp(deark *c)
 
 	bmp_ext = de_input_file_has_ext(c, "bmp");
 	fsize = de_getu32le_direct(&buf[2]);
-	bits_offset = de_getui32le(10);
-	infohdrsize = de_getui32le(14);
+	bits_offset = de_getu32le(10);
+	infohdrsize = de_getu32le(14);
 
 	if(infohdrsize<12) return 0;
 	if(infohdrsize>256) return 0;
@@ -917,11 +917,11 @@ static int de_identify_dib(deark *c)
 {
 	i64 n;
 
-	n = de_getui32le(0); // biSize
+	n = de_getu32le(0); // biSize
 	if(n!=40) return 0;
-	n = de_getui16le(12); // biPlanes
+	n = de_getu16le(12); // biPlanes
 	if(n!=1) return 0;
-	n = de_getui16le(14); // biBitCount
+	n = de_getu16le(14); // biBitCount
 	if(n==1 || n==4 || n==8 || n==16 || n==24 || n==32) return 15;
 	return 0;
 }

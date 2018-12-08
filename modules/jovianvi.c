@@ -179,8 +179,8 @@ static void de_run_jovianvi(deark *c, de_module_params *mparams)
 		goto done;
 	}
 
-	d->w = de_getui16le(3);
-	d->h = de_getui16le(5);
+	d->w = de_getu16le(3);
+	d->h = de_getu16le(5);
 	de_dbg_dimensions(c, d->w, d->h);
 	if(!de_good_image_dimensions(c, d->w, d->h)) goto done;
 
@@ -197,8 +197,8 @@ static void de_run_jovianvi(deark *c, de_module_params *mparams)
 		de_dbg(c, "number of palette colors: %d", (int)d->num_pal_colors);
 	}
 
-	d->palpos = de_getui16le(12);
-	d->bitspos = de_getui16le(14);
+	d->palpos = de_getu16le(12);
+	d->bitspos = de_getu16le(14);
 
 	// Read palette, if applicable
 	if(has_palette) {

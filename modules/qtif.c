@@ -33,7 +33,7 @@ static int do_read_idsc(deark *c, lctx *d, i64 pos, i64 len)
 
 	d->idsc_found = 1;
 
-	d->idsc_size = de_getui32be(pos);
+	d->idsc_size = de_getu32be(pos);
 	de_dbg(c, "idsc size: %d", (int)d->idsc_size);
 
 	dbuf_read_fourcc(c->infile, pos+4, &d->cmpr4cc, 4, 0x0);
@@ -42,16 +42,16 @@ static int do_read_idsc(deark *c, lctx *d, i64 pos, i64 len)
 	if(len<86) goto done;
 	if(d->idsc_size<86) goto done;
 
-	d->width = de_getui16be(pos+32);
-	d->height = de_getui16be(pos+34);
+	d->width = de_getu16be(pos+32);
+	d->height = de_getu16be(pos+34);
 	d->hres = dbuf_fmtutil_read_fixed_16_16(c->infile, pos+36);
 	d->vres = dbuf_fmtutil_read_fixed_16_16(c->infile, pos+40);
 	de_dbg(c, "dpi: %.2f"DE_CHAR_TIMES"%.2f", d->hres, d->vres);
-	d->idat_data_size = de_getui32be(pos+44);
+	d->idat_data_size = de_getu32be(pos+44);
 	de_dbg(c, "reported data size: %d", (int)d->idat_data_size);
 	if(d->idat_data_size>c->infile->len) d->idat_data_size=0;
-	d->bitdepth = de_getui16be(pos+82);
-	d->palette_id = de_getui16be(pos+84);
+	d->bitdepth = de_getu16be(pos+82);
+	d->palette_id = de_getu16be(pos+84);
 	de_dbg(c, "dimensions: %d"DE_CHAR_TIMES"%d, bitdepth: %d, palette: %d", (int)d->width,
 		(int)d->height, (int)d->bitdepth, (int)d->palette_id);
 	retval = 1;

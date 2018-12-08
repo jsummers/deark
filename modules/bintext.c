@@ -277,8 +277,8 @@ static void de_run_xbin(deark *c, de_module_params *mparams)
 		charctx->comments = si->comments;
 	}
 
-	d->width_in_chars = de_getui16le(5);
-	d->height_in_chars = de_getui16le(7);
+	d->width_in_chars = de_getu16le(5);
+	d->height_in_chars = de_getu16le(7);
 	d->font_height = (i64)de_getbyte(9);
 	if(d->font_height<1 || d->font_height>32) {
 		de_err(c, "Invalid font height: %d", (int)d->font_height);

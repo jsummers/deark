@@ -257,10 +257,10 @@ static int do_dib(deark *c, lctx *d, i64 pos1)
 
 	compressed_size = get_cul(c->infile, &pos);
 	hotspot_size = get_cul(c->infile, &pos);
-	compressed_offset = de_getui32le(pos);
+	compressed_offset = de_getu32le(pos);
 	pos+=4;
 	compressed_offset += pos1;
-	hotspot_offset = de_getui32le(pos);
+	hotspot_offset = de_getu32le(pos);
 	pos+=4;
 	hotspot_offset += pos1;
 	de_dbg(c, "bits offset=%d, size=%d", (int)compressed_offset,
@@ -363,19 +363,19 @@ static int do_wmf(deark *c, lctx *d, i64 pos1)
 	pos = pos1 + 2;
 
 	mapping_mode = get_cus(c->infile, &pos);
-	width = de_getui16le(pos);
+	width = de_getu16le(pos);
 	pos+=2;
-	height = de_getui16le(pos);
+	height = de_getu16le(pos);
 	pos+=2;
 	de_dbg(c, "mapping mode: %d, nominal dimensions: %d"DE_CHAR_TIMES"%d",
 		(int)mapping_mode, (int)width, (int)height);
 	decompressed_size = get_cul(c->infile, &pos);
 	compressed_size = get_cul(c->infile, &pos);
 	hotspot_size = get_cul(c->infile, &pos);
-	compressed_offset = de_getui32le(pos);
+	compressed_offset = de_getu32le(pos);
 	pos+=4;
 	compressed_offset += pos1;
-	hotspot_offset = de_getui32le(pos);
+	hotspot_offset = de_getu32le(pos);
 	pos+=4;
 	hotspot_offset += pos1;
 
@@ -420,7 +420,7 @@ static int do_picture(deark *c, lctx *d, i64 pic_index)
 	de_dbg(c, "picture #%d", (int)pic_index);
 	de_dbg_indent(c, 1);
 
-	pic_offset = de_getui32le(d->shg_startpos + 4 + 4*pic_index);
+	pic_offset = de_getu32le(d->shg_startpos + 4 + 4*pic_index);
 	pic_offset += d->shg_startpos;
 	de_dbg(c, "picture data at %d", (int)pic_offset);
 	if(pic_offset >= c->infile->len) {
@@ -459,7 +459,7 @@ static void do_shg(deark *c, lctx *d)
 {
 	i64 k;
 
-	d->num_pictures = de_getui16le(d->shg_startpos+2);
+	d->num_pictures = de_getu16le(d->shg_startpos+2);
 	de_dbg(c, "number of pictures in file: %d", (int)d->num_pictures);
 	if(!de_good_image_count(c, d->num_pictures)) {
 		goto done;
@@ -482,7 +482,7 @@ static void de_run_shg(deark *c, de_module_params *mparams)
 	d = de_malloc(c, sizeof(lctx));
 
 	d->shg_startpos = 0;
-	d->signature = de_getui16le(d->shg_startpos);
+	d->signature = de_getu16le(d->shg_startpos);
 	if(d->signature==0x506c) {
 		de_declare_fmt(c, "SHG");
 	}

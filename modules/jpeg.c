@@ -178,9 +178,9 @@ static void do_jpegxt_segment(deark *c, lctx *d, i64 pos,
 {
 	i64 n;
 	if(data_size<14) return;
-	n = de_getui16be(pos);
+	n = de_getu16be(pos);
 	de_dbg(c, "enumerator: %u", (unsigned int)n);
-	n = de_getui32be(pos+2);
+	n = de_getu32be(pos+2);
 	de_dbg(c, "seq number: %u", (unsigned int)n);
 	de_dbg_indent(c, 1);
 	de_run_module_by_id_on_slice2(c, "bmff", "T", c->infile, pos+6, data_size-6);
@@ -237,8 +237,8 @@ static void do_jfif_segment(deark *c, lctx *d,
 	d->jfif_ver_l = de_getbyte(pos+1);
 	de_dbg(c, "JFIF version: %d.%02d", (int)d->jfif_ver_h, (int)d->jfif_ver_l);
 	units = de_getbyte(pos+2);
-	xdens = de_getui16be(pos+3);
-	ydens = de_getui16be(pos+5);
+	xdens = de_getu16be(pos+3);
+	ydens = de_getu16be(pos+5);
 	if(units==1) units_name="dpi";
 	else if(units==2) units_name="dots/cm";
 	else units_name="(unspecified)";
@@ -387,9 +387,9 @@ static void do_jps_segment(deark *c, lctx *d, i64 pos1, i64 len)
 
 	// Descriptor block
 	if(len<8) goto done;
-	blk_len = de_getui16be_p(&pos);
+	blk_len = de_getu16be_p(&pos);
 	if(blk_len<4) goto done;
-	st_descr = (u32)de_getui32be(pos);
+	st_descr = (u32)de_getu32be(pos);
 
 	flags_str = ucstring_create(c);
 	mtype = (unsigned int)(st_descr&0x000000ff);
@@ -423,7 +423,7 @@ static void do_jps_segment(deark *c, lctx *d, i64 pos1, i64 len)
 
 	// Comment block
 	if(pos1+len-pos<2) goto done;
-	blk_len = de_getui16be_p(&pos);
+	blk_len = de_getu16be_p(&pos);
 	if(pos+blk_len > pos1+len) goto done;
 	comment = ucstring_create(c);
 	dbuf_read_to_ucstring_n(c->infile, pos, blk_len, DE_DBG_MAX_STRLEN, comment,
@@ -440,7 +440,7 @@ static void do_arot_segment(deark *c, lctx *d, i64 pos, i64 len)
 	i64 nvals;
 
 	if(len<8) goto done;
-	nvals = de_getui32be(pos);
+	nvals = de_getu32be(pos);
 	de_dbg(c, "number of values: %u", (unsigned int)nvals);
 
 done:
@@ -486,7 +486,7 @@ static void do_xmp_extension_segment(deark *c, lctx *d,
 		de_memcpy(d->extxmp_digest, thisseg_digest_raw, 32);
 	}
 
-	thisseg_full_extxmp_len = de_getui32be_p(&pos);
+	thisseg_full_extxmp_len = de_getu32be_p(&pos);
 	if(is_first_segment) {
 		d->extxmp_total_len = thisseg_full_extxmp_len;
 	}
@@ -503,7 +503,7 @@ static void do_xmp_extension_segment(deark *c, lctx *d,
 		goto done;
 	}
 
-	segment_offset = de_getui32be_p(&pos);
+	segment_offset = de_getu32be_p(&pos);
 	de_dbg(c, "offset of this segment: %d", (int)segment_offset);
 
 	dlen = data_size - (pos-pos1);
@@ -713,7 +713,7 @@ static void do_fpxr_segment(deark *c, lctx *d, i64 pos1, i64 len)
 
 		if(len<4) goto done;
 
-		d->fpxr_data->num_entities = (size_t)de_getui16be_p(&pos);
+		d->fpxr_data->num_entities = (size_t)de_getu16be_p(&pos);
 		de_dbg(c, "interoperability count: %u", (unsigned int)d->fpxr_data->num_entities);
 		d->fpxr_data->entities = de_malloc(c, d->fpxr_data->num_entities * sizeof(struct fpxr_entity_struct));
 
@@ -731,7 +731,7 @@ static void do_fpxr_segment(deark *c, lctx *d, i64 pos1, i64 len)
 			de_dbg(c, "entity[%d] at %d", (int)k, (int)pos);
 			de_dbg_indent(c, 1);
 
-			esize = de_getui32be_p(&pos);
+			esize = de_getu32be_p(&pos);
 			if(esize==0xffffffffLL) {
 				fe->is_storage = 1;
 			}
@@ -767,12 +767,12 @@ static void do_fpxr_segment(deark *c, lctx *d, i64 pos1, i64 len)
 
 		if(len<6) goto done;
 
-		stream_idx = (size_t)de_getui16be_p(&pos);
+		stream_idx = (size_t)de_getu16be_p(&pos);
 		de_dbg(c, "index to contents list: %d", (int)stream_idx);
 
 		// The Exif spec (2.31) says this field is at offset 0x0C, but I'm
 		// assuming that's a clerical error that should be 0x0D.
-		stream_offset = de_getui32be_p(&pos);
+		stream_offset = de_getu32be_p(&pos);
 		de_dbg(c, "offset to flashpix stream: %u", (unsigned int)stream_offset);
 
 		nbytesleft = pos1+len-pos;
@@ -794,7 +794,7 @@ static void do_ducky_stringblock(deark *c, lctx *d,
 	de_ucstring *s = NULL;
 
 	if(len<4) goto done;
-	nchars = de_getui32be_p(&pos);
+	nchars = de_getu32be_p(&pos);
 	if(nchars*2 > len-4) goto done;
 
 	s = ucstring_create(c);
@@ -813,15 +813,15 @@ static void do_ducky_segment(deark *c, lctx *d, i64 pos1, i64 len)
 	i64 n;
 
 	while(1) {
-		blktype = (u32)de_getui16be_p(&pos);
+		blktype = (u32)de_getu16be_p(&pos);
 		if(blktype==0) break;
 		if(pos+2 > pos1+len) break;
-		blklen = de_getui16be_p(&pos);
+		blklen = de_getu16be_p(&pos);
 		if(pos+blklen > pos1+len) break;
 		switch(blktype) {
 		case 1:
 			if(blklen==4) {
-				n = de_getui32be(pos);
+				n = de_getu32be(pos);
 				de_dbg(c, "quality: %d", (int)n);
 			}
 			break;
@@ -1273,8 +1273,8 @@ static void handler_sof(deark *c, lctx *d,
 
 	d->precision = de_getbyte(pos);
 	de_dbg(c, "precision: %d", (int)d->precision);
-	h = de_getui16be(pos+1);
-	w = de_getui16be(pos+3);
+	h = de_getu16be(pos+1);
+	w = de_getu16be(pos+3);
 	de_dbg_dimensions(c, w, h);
 	d->ncomp = (i64)de_getbyte(pos+5);
 	de_dbg(c, "number of components: %d", (int)d->ncomp);
@@ -1305,7 +1305,7 @@ static void handler_dri(deark *c, lctx *d,
 {
 	i64 ri;
 	if(data_size!=2) return;
-	ri = de_getui16be(pos);
+	ri = de_getu16be(pos);
 	de_dbg(c, "restart interval: %d", (int)ri);
 	if(ri!=0) d->has_restart_markers = 1;
 }
@@ -1903,7 +1903,7 @@ static int do_jpeg_page(deark *c, struct file_ctx *fctx, i64 pos1, i64 *bytes_co
 		}
 
 		// If we get here, we're reading a segment that has a size field.
-		seg_size = de_getui16be(pos);
+		seg_size = de_getu16be(pos);
 		if(pos<2) break; // bogus size
 
 		do_segment(c, d, &mi, pos+2, seg_size-2);
@@ -2093,7 +2093,7 @@ static int detect_jpeg_len(deark *c, scanctx *d, i64 pos1, i64 len)
 		}
 
 		// Everything else should be a marker segment, with a length field.
-		seg_size = de_getui16be(pos+2);
+		seg_size = de_getu16be(pos+2);
 		if(seg_size<2) break; // bogus size
 
 		pos += seg_size+2;

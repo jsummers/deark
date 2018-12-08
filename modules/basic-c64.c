@@ -47,7 +47,7 @@ static void process_line(deark *c, lctx *d, i64 file_pos, i64 mem_pos,
 	int in_quote = 0;
 
 	pos = file_pos;
-	line_num = de_getui16le(pos);
+	line_num = de_getu16le(pos);
 	de_dbg(c, "line %d at %d, mem pos=%d, size=%d", (int)line_num, (int)file_pos,
 		(int)mem_pos, (int)line_size);
 	pos += 2;
@@ -110,7 +110,7 @@ static void de_run_basic_c64(deark *c, de_module_params *mparams)
 	while(file_pos < c->infile->len) {
 		mem_pos = file_pos - 2 + mem_start;
 
-		next_line_ptr = de_getui16le(file_pos);
+		next_line_ptr = de_getu16le(file_pos);
 		if(next_line_ptr==0x0000) {
 			break;
 		}

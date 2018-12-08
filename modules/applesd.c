@@ -180,12 +180,12 @@ static void do_sd_entry(deark *c, lctx *d, unsigned int idx, i64 pos1)
 
 	de_zeromem(&e, sizeof(struct entry_struct));
 	e.idx = idx;
-	e.id = (unsigned int)de_getui32be_p(&pos);
+	e.id = (unsigned int)de_getu32be_p(&pos);
 	eid =  find_entry_id_info(e.id);
 	de_dbg(c, "id: %u (%s)", e.id, eid?eid->name:"?");
-	e.offset = de_getui32be_p(&pos);
+	e.offset = de_getu32be_p(&pos);
 	de_dbg(c, "offset: %"I64_FMT, e.offset);
-	e.length = de_getui32be_p(&pos);
+	e.length = de_getu32be_p(&pos);
 	de_dbg(c, "length: %"I64_FMT, e.length);
 
 	if(e.offset > c->infile->len) goto done;
@@ -214,11 +214,11 @@ static void de_run_sd_internal(deark *c, lctx *d)
 	int *entry_pass = NULL;
 
 	pos += 4; // signature
-	d->version = (u32)de_getui32be_p(&pos);
+	d->version = (u32)de_getu32be_p(&pos);
 	de_dbg(c, "version: 0x%08x", (unsigned int)d->version);
 	pos += 16; // filler
 
-	nentries = de_getui16be_p(&pos);
+	nentries = de_getu16be_p(&pos);
 	de_dbg(c, "number of entries: %d", (int)nentries);
 
 	entry_descriptors_pos = pos;
@@ -227,7 +227,7 @@ static void de_run_sd_internal(deark *c, lctx *d)
 	for(k=0; k<nentries; k++) {
 		unsigned int e_id;
 		// Make sure we read the metadata before we extract the files.
-		e_id = (unsigned int)de_getui32be(entry_descriptors_pos+12*k);
+		e_id = (unsigned int)de_getu32be(entry_descriptors_pos+12*k);
 		if(e_id==1 || e_id==2) entry_pass[k] = 2;
 		else entry_pass[k] = 1;
 	}

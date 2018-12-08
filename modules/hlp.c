@@ -142,7 +142,7 @@ static int do_file_SYSTEM_header(deark *c, lctx *d, i64 pos1)
 	char timestamp_buf[64];
 	int retval = 0;
 
-	magic = de_getui16le_p(&pos);
+	magic = de_getu16le_p(&pos);
 	if(magic!=0x036c) {
 		de_err(c, "Expected SYSTEM data at %d not found", (int)pos1);
 		goto done;
@@ -151,8 +151,8 @@ static int do_file_SYSTEM_header(deark *c, lctx *d, i64 pos1)
 	de_dbg(c, "SYSTEM file data at %d", (int)pos1);
 	de_dbg_indent(c, 1);
 
-	d->ver_minor = (int)de_getui16le_p(&pos);
-	d->ver_major = (int)de_getui16le_p(&pos);
+	d->ver_minor = (int)de_getu16le_p(&pos);
+	d->ver_major = (int)de_getu16le_p(&pos);
 	de_dbg(c, "help format version: %d.%d", d->ver_major, d->ver_minor);
 
 	if(d->ver_major!=1) {
@@ -165,7 +165,7 @@ static int do_file_SYSTEM_header(deark *c, lctx *d, i64 pos1)
 	de_timestamp_to_string(&ts, timestamp_buf, sizeof(timestamp_buf), 0);
 	de_dbg(c, "GenDate: %d (%s)", (int)gen_date, timestamp_buf);
 
-	flags = (unsigned int)de_getui16le_p(&pos);
+	flags = (unsigned int)de_getu16le_p(&pos);
 	de_dbg(c, "flags: 0x%04x", flags);
 
 	if(d->ver_minor>=16) {
@@ -207,8 +207,8 @@ static void do_file_SYSTEM_SYSTEMRECS(deark *c, lctx *d, i64 pos1, i64 len,
 
 		systemrec_startpos = pos;
 
-		recordtype = (unsigned int)de_getui16le_p(&pos);
-		datasize = de_getui16le_p(&pos);
+		recordtype = (unsigned int)de_getu16le_p(&pos);
+		datasize = de_getu16le_p(&pos);
 
 		sti = find_sysrec_info(c, d, recordtype);
 		de_dbg(c, "SYSTEMREC type %u (%s) at %d, dpos=%d, dlen=%d",
@@ -267,7 +267,7 @@ static void do_file_SHG(deark *c, lctx *d, i64 pos1, i64 used_space)
 
 	// Ignore the file SHG vs. MRB file type signature, and replace it with
 	// the correct one based on the number of images in the file.
-	num_images = de_getui16le(pos1+2);
+	num_images = de_getu16le(pos1+2);
 	if(num_images>1) {
 		ext="mrb";
 		sig = 0x706c;
@@ -361,7 +361,7 @@ static void do_leaf_page(deark *c, lctx *d, i64 pos1, i64 *pnext_page)
 	int saved_indent_level;
 
 	de_dbg_indent_save(c, &saved_indent_level);
-	n = de_getui16le_p(&pos); // "Unused"
+	n = de_getu16le_p(&pos); // "Unused"
 	de_dbg(c, "free bytes at end of this page: %d", (int)n);
 
 	num_entries = de_geti16le_p(&pos);
@@ -473,7 +473,7 @@ static void do_bplustree(deark *c, lctx *d, i64 pos1, i64 len,
 
 	de_dbg_indent_save(c, &saved_indent_level);
 
-	n = de_getui16le_p(&pos);
+	n = de_getu16le_p(&pos);
 	if(n != 0x293b) {
 		de_err(c, "Expected B+ tree structure at %d not found", (int)pos1);
 		goto done;
@@ -482,10 +482,10 @@ static void do_bplustree(deark *c, lctx *d, i64 pos1, i64 len,
 	//de_dbg(c, "B+ tree at %d", (int)pos1);
 	de_dbg_indent(c, 1);
 
-	d->bpt.flags = (unsigned int)de_getui16le_p(&pos);
+	d->bpt.flags = (unsigned int)de_getu16le_p(&pos);
 	de_dbg(c, "flags: 0x%04x", d->bpt.flags);
 
-	d->bpt.pagesize = de_getui16le_p(&pos);
+	d->bpt.pagesize = de_getu16le_p(&pos);
 	de_dbg(c, "PageSize: %d", (int)d->bpt.pagesize);
 
 	// TODO: Understand the Structure field
@@ -595,10 +595,10 @@ static void do_file(deark *c, lctx *d, i64 pos1, int file_fmt)
 	de_dbg_indent(c, 1);
 
 	// FILEHEADER
-	reserved_space = de_getui32le_p(&pos);
+	reserved_space = de_getu32le_p(&pos);
 	de_dbg(c, "ReservedSpace: %d", (int)reserved_space);
 
-	used_space = de_getui32le_p(&pos);
+	used_space = de_getu32le_p(&pos);
 	de_dbg(c, "UsedSpace: %d", (int)used_space);
 
 	fileflags = (unsigned int)de_getbyte_p(&pos);

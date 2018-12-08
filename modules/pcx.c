@@ -49,13 +49,13 @@ static int do_read_header(deark *c, lctx *d)
 	d->version = de_getbyte(1);
 	d->encoding = de_getbyte(2);
 	d->bits = (i64)de_getbyte(3); // Bits per pixel per plane
-	d->margin_L = de_getui16le(4);
-	d->margin_T = de_getui16le(6);
-	d->margin_R = de_getui16le(8);
-	d->margin_B = de_getui16le(10);
+	d->margin_L = de_getu16le(4);
+	d->margin_T = de_getu16le(6);
+	d->margin_R = de_getu16le(8);
+	d->margin_B = de_getu16le(10);
 
-	hres = de_getui16le(12);
-	vres = de_getui16le(14);
+	hres = de_getu16le(12);
+	vres = de_getu16le(14);
 
 	// The palette (offset 16-63) will be read later.
 
@@ -64,7 +64,7 @@ static int do_read_header(deark *c, lctx *d)
 	d->reserved1 = de_getbyte(64);
 
 	d->planes = (i64)de_getbyte(65);
-	d->rowspan_raw = de_getui16le(66);
+	d->rowspan_raw = de_getu16le(66);
 	d->palette_info = de_getbyte(68);
 
 	de_dbg(c, "format version: %d, encoding: %d, planes: %d, bits: %d", (int)d->version,
@@ -598,7 +598,7 @@ static void de_run_dcx(deark *c, de_module_params *mparams)
 	page_offset = de_malloc(c, 1023 * sizeof(u32));
 	num_pages = 0;
 	while(num_pages < 1023) {
-		page_offset[num_pages] = (u32)de_getui32le(4 + 4*num_pages);
+		page_offset[num_pages] = (u32)de_getu32le(4 + 4*num_pages);
 		if(page_offset[num_pages]==0)
 			break;
 		num_pages++;

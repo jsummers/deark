@@ -3512,7 +3512,7 @@ static void do_external_tagged_blocks(deark *c, lctx *d, zztype *zz)
 	// Evidently, it is possible for this to use little-endian byte order. Weird.
 
 	// Peek at the first 4 bytes
-	code = (u32)de_getui32le(0);
+	code = (u32)de_getu32le(0);
 	if(code==CODE_8BIM || code==CODE_8B64) {
 		d->is_le = 1;
 	}
@@ -4254,7 +4254,7 @@ static int de_identify_ps_brush(deark *c)
 {
 	i64 ver;
 
-	ver = de_getui16be(0);
+	ver = de_getu16be(0);
 	if(ver==1 || ver==2 || ver==6 || ver==7) {
 		if(de_input_file_has_ext(c, "abr")) return 80;
 	}

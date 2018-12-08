@@ -333,8 +333,8 @@ static int do_read_screen_descriptor(deark *c, lctx *d, i64 pos)
 	de_dbg(c, "screen descriptor at %d", (int)pos);
 	de_dbg_indent(c, 1);
 
-	d->screen_w = de_getui16le(pos);
-	d->screen_h = de_getui16le(pos+2);
+	d->screen_w = de_getu16le(pos);
+	d->screen_h = de_getu16le(pos+2);
 	de_dbg(c, "screen dimensions: %d"DE_CHAR_TIMES"%d", (int)d->screen_w, (int)d->screen_h);
 
 	packed_fields = de_getbyte(pos+4);
@@ -489,7 +489,7 @@ static void do_graphic_control_extension(deark *c, lctx *d, i64 pos)
 	de_dbg(c, "disposal method: %d (%s)", (int)d->gce->disposal_method, name);
 	de_dbg_indent(c, -1);
 
-	delay_time_raw = de_getui16le(pos+2);
+	delay_time_raw = de_getu16le(pos+2);
 	delay_time = ((double)delay_time_raw)/100.0;
 	de_dbg(c, "delay time: %d (%.02f sec)", (int)delay_time_raw, delay_time);
 
@@ -627,10 +627,10 @@ static void do_plaintext_extension(deark *c, lctx *d, i64 pos)
 		ok_to_render = 0;
 	}
 
-	text_pos_x = de_getui16le(pos);
-	text_pos_y = de_getui16le(pos+2);
-	text_size_x = de_getui16le(pos+4);
-	text_size_y = de_getui16le(pos+6);
+	text_pos_x = de_getu16le(pos);
+	text_pos_y = de_getu16le(pos+2);
+	text_size_x = de_getu16le(pos+4);
+	text_size_y = de_getu16le(pos+6);
 	char_width = (i64)de_getbyte(pos+8);
 	char_height = (i64)de_getbyte(pos+9);
 	de_dbg(c, "text-area pos: %d,%d pixels", (int)text_pos_x, (int)text_pos_y);
@@ -743,7 +743,7 @@ static void do_animation_extension(deark *c, lctx *d, i64 pos)
 
 	if(sub_block_id==1 && sub_block_len>=3) {
 		i64 loop_count;
-		loop_count = de_getui16le(pos);
+		loop_count = de_getu16le(pos);
 		de_dbg(c, "loop count: %d%s", (int)loop_count,
 			(loop_count==0)?" (infinite)":"");
 	}
@@ -914,11 +914,11 @@ static void do_read_image_descriptor(deark *c, lctx *d, struct gif_image_data *g
 	de_dbg(c, "image descriptor at %d", (int)pos);
 	de_dbg_indent(c, 1);
 
-	gi->xpos = de_getui16le(pos);
-	gi->ypos = de_getui16le(pos+2);
+	gi->xpos = de_getu16le(pos);
+	gi->ypos = de_getu16le(pos+2);
 	de_dbg(c, "image position: (%d,%d)", (int)gi->xpos, (int)gi->ypos);
-	gi->width = de_getui16le(pos+4);
-	gi->height = de_getui16le(pos+6);
+	gi->width = de_getu16le(pos+4);
+	gi->height = de_getu16le(pos+6);
 	de_dbg(c, "image dimensions: %d"DE_CHAR_TIMES"%d", (int)gi->width, (int)gi->height);
 
 	packed_fields = de_getbyte(pos+8);

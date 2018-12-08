@@ -62,32 +62,32 @@ static int do_header(deark *c, lctx *d, i64 pos)
 	de_dbg(c, "header at %d", (int)pos);
 	de_dbg_indent(c, 1);
 
-	d->fcMac = de_getui32le(pos+7*2);
+	d->fcMac = de_getu32le(pos+7*2);
 	de_dbg(c, "fcMac: %d", (int)d->fcMac);
 	d->pnChar = (d->fcMac + 127) / 128;
 	d->pnChar_offs = d->pnChar * 128;
 	de_dbg(c, "pnChar: page %d (offset %d)", (int)d->pnChar, (int)d->pnChar_offs);
 
-	d->pnPara = de_getui16le(pos+9*2);
+	d->pnPara = de_getu16le(pos+9*2);
 	d->pnPara_offs = d->pnPara * 128;
 	de_dbg(c, "pnPara: page %d (offset %d)", (int)d->pnPara, (int)d->pnPara_offs);
 
-	d->pnFntb = de_getui16le(pos+10*2);
+	d->pnFntb = de_getu16le(pos+10*2);
 	de_dbg(c, "pnFntb: page %d", (int)d->pnFntb);
 
-	d->pnSep = de_getui16le(pos+11*2);
+	d->pnSep = de_getu16le(pos+11*2);
 	de_dbg(c, "pnSep: page %d", (int)d->pnSep);
 
-	d->pnSetb = de_getui16le(pos+12*2);
+	d->pnSetb = de_getu16le(pos+12*2);
 	de_dbg(c, "pnSetb: page %d", (int)d->pnSetb);
 
-	d->pnPgtb = de_getui16le(pos+13*2);
+	d->pnPgtb = de_getu16le(pos+13*2);
 	de_dbg(c, "pnPgtb: page %d", (int)d->pnPgtb);
 
-	d->pnFfntb = de_getui16le(pos+14*2);
+	d->pnFfntb = de_getu16le(pos+14*2);
 	de_dbg(c, "pnFfntb: page %d", (int)d->pnFfntb);
 
-	d->pnMac = de_getui16le(pos+48*2);
+	d->pnMac = de_getu16le(pos+48*2);
 	de_dbg(c, "pnMac: %d pages", (int)d->pnMac);
 
 	d->pnPara_npages = d->pnFntb - d->pnPara;
@@ -101,10 +101,10 @@ static void do_picture_metafile(deark *c, lctx *d, struct para_info *pinfo)
 	i64 pos = pinfo->thisparapos;
 	i64 cbHeader, cbSize;
 
-	cbHeader = de_getui16le(pos+30);
+	cbHeader = de_getu16le(pos+30);
 	de_dbg(c, "cbHeader: %d", (int)cbHeader);
 
-	cbSize = de_getui32le(pos+32);
+	cbSize = de_getu32le(pos+32);
 	de_dbg(c, "cbSize: %d", (int)cbSize);
 
 	if(cbHeader+cbSize <= pinfo->thisparalen) {
@@ -120,19 +120,19 @@ static void do_picture_bitmap(deark *c, lctx *d, struct para_info *pinfo)
 	i64 bmBitsPixel;
 	i64 rowspan;
 
-	bmWidth = de_getui16le(pos+16+2);
-	bmHeight = de_getui16le(pos+16+4);
+	bmWidth = de_getu16le(pos+16+2);
+	bmHeight = de_getu16le(pos+16+4);
 	de_dbg_dimensions(c, bmWidth, bmHeight);
 	bmBitsPixel = (i64)de_getbyte(pos+16+9);
 	de_dbg(c, "bmBitsPixel: %d", (int)bmBitsPixel);
 
-	rowspan = de_getui16le(pos+16+6);
+	rowspan = de_getu16le(pos+16+6);
 	de_dbg(c, "bytes/row: %d", (int)rowspan);
 
-	cbHeader = de_getui16le(pos+30);
+	cbHeader = de_getu16le(pos+30);
 	de_dbg(c, "cbHeader: %d", (int)cbHeader);
 
-	cbSize = de_getui32le(pos+32);
+	cbSize = de_getu32le(pos+32);
 	de_dbg(c, "cbSize: %d", (int)cbSize);
 
 	if(bmBitsPixel!=1) {
@@ -184,15 +184,15 @@ static void do_static_bitmap(deark *c, lctx *d, struct para_info *pinfo, i64 pos
 	i64 rowspan;
 
 	pos += 8; // ??
-	dlen = de_getui32le_p(&pos);
+	dlen = de_getu32le_p(&pos);
 	de_dbg(c, "bitmap size: %d", (int)dlen);
 
 	pos += 2; // bmType
-	bmWidth = de_getui16le_p(&pos);
-	bmHeight = de_getui16le_p(&pos);
+	bmWidth = de_getu16le_p(&pos);
+	bmHeight = de_getu16le_p(&pos);
 	de_dbg_dimensions(c, bmWidth, bmHeight);
 
-	rowspan = de_getui16le_p(&pos);
+	rowspan = de_getu16le_p(&pos);
 	de_dbg(c, "bytes/row: %d", (int)rowspan);
 
 	pos++; // bmPlanes
@@ -226,7 +226,7 @@ static int do_picture_ole_static_rendition(deark *c, lctx *d, struct para_info *
 	pos += 4; // 0x00000501
 	pos += 4; // "type" (probably already read by caller)
 
-	stringlen = de_getui32le_p(&pos);
+	stringlen = de_getu32le_p(&pos);
 	srd_typename = dbuf_read_string(c->infile, pos, stringlen, 260, DE_CONVFLAG_STOP_AT_NUL,
 		DE_ENCODING_ASCII);
 	de_dbg(c, "typename: \"%s\"", ucstring_getpsz(srd_typename->str));
@@ -242,7 +242,7 @@ static int do_picture_ole_static_rendition(deark *c, lctx *d, struct para_info *
 	else if(!de_strcmp((const char*)srd_typename->sz, "METAFILEPICT")) {
 		i64 dlen;
 		pos += 8; // ??
-		dlen = de_getui32le_p(&pos);
+		dlen = de_getu32le_p(&pos);
 		de_dbg(c, "metafile size: %d", (int)dlen); // Includes "mfp", apparently
 		pos += 8; // "mfp" struct
 		dbuf_create_file_from_slice(c->infile, pos, dlen-8, "wmf", NULL, 0);
@@ -275,25 +275,25 @@ static int do_picture_ole_embedded_rendition(deark *c, lctx *d, struct para_info
 	pos += 4; // 0x00000501
 	pos += 4; // "type" (probably already read by caller)
 
-	stringlen = de_getui32le_p(&pos);
+	stringlen = de_getu32le_p(&pos);
 	srd_typename = dbuf_read_string(c->infile, pos, stringlen, 260, DE_CONVFLAG_STOP_AT_NUL,
 		DE_ENCODING_ASCII);
 	de_dbg(c, "typename: \"%s\"", ucstring_getpsz(srd_typename->str));
 	pos += stringlen;
 
-	stringlen = de_getui32le_p(&pos);
+	stringlen = de_getu32le_p(&pos);
 	srd_filename = dbuf_read_string(c->infile, pos, stringlen, 260, DE_CONVFLAG_STOP_AT_NUL,
 		DE_ENCODING_ASCII);
 	de_dbg(c, "filename: \"%s\"", ucstring_getpsz(srd_filename->str));
 	pos += stringlen;
 
-	stringlen = de_getui32le_p(&pos);
+	stringlen = de_getu32le_p(&pos);
 	srd_params = dbuf_read_string(c->infile, pos, stringlen, 260, DE_CONVFLAG_STOP_AT_NUL,
 		DE_ENCODING_ASCII);
 	de_dbg(c, "params: \"%s\"", ucstring_getpsz(srd_params->str));
 	pos += stringlen;
 
-	data_len = de_getui32le_p(&pos);
+	data_len = de_getu32le_p(&pos);
 	de_dbg(c, "embedded ole rendition data: pos=%d, len=%d", (int)pos, (int)data_len);
 
 	// TODO: I don't know if it's better to sniff the data, or rely on the typename.
@@ -329,14 +329,14 @@ static int do_picture_ole_rendition(deark *c, lctx *d, struct para_info *pinfo,
 	de_dbg(c, "OLE rendition[%d] at %d", rendition_idx, (int)pos1);
 	de_dbg_indent(c, 1);
 
-	ole_id = (unsigned int)de_getui32le(pos1);
+	ole_id = (unsigned int)de_getu32le(pos1);
 	de_dbg(c, "ole id: 0x%08x", ole_id);
 	if(ole_id!=0x00000501U) {
 		de_err(c, "Unexpected ole_id: 0x%08x", ole_id);
 		goto done;
 	}
 
-	objectType2 = (unsigned int)de_getui32le(pos1+4);
+	objectType2 = (unsigned int)de_getu32le(pos1+4);
 	de_dbg(c, "type: %u", objectType2);
 
 	if(objectType==1) {
@@ -371,13 +371,13 @@ static void do_picture_ole(deark *c, lctx *d, struct para_info *pinfo)
 	i64 bytes_consumed = 0;
 	int rendition_idx = 0;
 
-	objectType = (unsigned int)de_getui16le(pos+6);
+	objectType = (unsigned int)de_getu16le(pos+6);
 	de_dbg(c, "objectType: %u (%s)", objectType, get_objecttype1_name(objectType));
 
-	dwDataSize = de_getui32le(pos+16);
+	dwDataSize = de_getu32le(pos+16);
 	de_dbg(c, "dwDataSize: %d", (int)dwDataSize);
 
-	cbHeader = de_getui16le(pos+30);
+	cbHeader = de_getu16le(pos+30);
 	de_dbg(c, "cbHeader: %d", (int)cbHeader);
 
 	pos += cbHeader;
@@ -411,7 +411,7 @@ static void do_picture(deark *c, lctx *d, struct para_info *pinfo)
 	}
 
 	if(pinfo->thisparalen<2) goto done;
-	mm = (unsigned int)de_getui16le(pos);
+	mm = (unsigned int)de_getu16le(pos);
 	de_dbg(c, "picture storage type: 0x%04x (%s)", mm,
 		get_picture_storage_type_name(mm));
 
@@ -696,7 +696,7 @@ static void do_para_info_page(deark *c, lctx *d, i64 pos)
 	// 6 bytes. So I assume the maximum possible is 20.
 	if(cfod>20) cfod=20;
 
-	fcFirst = de_getui32le(pos);
+	fcFirst = de_getu32le(pos);
 	de_dbg(c, "fcFirst: %d", (int)fcFirst);
 
 	fod_array_startpos = pos + 4;
@@ -714,7 +714,7 @@ static void do_para_info_page(deark *c, lctx *d, i64 pos)
 		de_dbg(c, "FOD[%d] at %d", (int)i, (int)fodpos);
 		de_dbg_indent(c, 1);
 
-		fcLim_orig = de_getui32le(fodpos);
+		fcLim_orig = de_getu32le(fodpos);
 		fcLim_adj = fcLim_orig;
 		if(fcLim_adj > d->fcMac) fcLim_adj = d->fcMac;
 		pinfo->thisparapos = prevtextpos;
@@ -723,7 +723,7 @@ static void do_para_info_page(deark *c, lctx *d, i64 pos)
 			(int)pinfo->thisparapos, (int)(fcLim_adj-1));
 		prevtextpos = fcLim_adj;
 
-		bfprop = de_getui16le(fodpos+4);
+		bfprop = de_getu16le(fodpos+4);
 		if(bfprop==0xffff) {
 			de_dbg(c, "bfprop: %d (none)", (int)bfprop);
 		}
@@ -848,7 +848,7 @@ static int de_identify_wri(deark *c)
 		!de_memcmp(&buf[1], "\xbe\x00\x00\x00\xab", 5))
 	{
 		i64 pnMac;
-		pnMac = de_getui16le(48*2);
+		pnMac = de_getu16le(48*2);
 		if(pnMac==0) return 0; // Apparently MSWord, not Write
 		return 100;
 	}

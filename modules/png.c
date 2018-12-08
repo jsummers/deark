@@ -435,8 +435,8 @@ static void handler_IHDR(deark *c, lctx *d, struct handler_params *hp)
 	const char *name;
 
 	if(hp->dlen<13) return;
-	w = de_getui32be(hp->dpos);
-	h = de_getui32be(hp->dpos+4);
+	w = de_getu32be(hp->dpos);
+	h = de_getu32be(hp->dpos+4);
 	de_dbg_dimensions(c, w, h);
 
 	n = de_getbyte(hp->dpos+8);
@@ -504,16 +504,16 @@ static void handler_sPLT(deark *c, lctx *d, struct handler_params *hp)
 			cg = (unsigned int)de_getbyte(pos+1);
 			cb = (unsigned int)de_getbyte(pos+2);
 			ca = (unsigned int)de_getbyte(pos+3);
-			cf = (unsigned int)de_getui16be(pos+4);
+			cf = (unsigned int)de_getu16be(pos+4);
 			de_dbg2(c, "pal[%3d] = (%3u,%3u,%3u,A=%u) F=%u",
 				(int)i, cr, cg, cb, ca, cf);
 		}
 		else {
-			cr = (unsigned int)de_getui16be(pos);
-			cg = (unsigned int)de_getui16be(pos+2);
-			cb = (unsigned int)de_getui16be(pos+4);
-			ca = (unsigned int)de_getui16be(pos+6);
-			cf = (unsigned int)de_getui16be(pos+8);
+			cr = (unsigned int)de_getu16be(pos);
+			cg = (unsigned int)de_getu16be(pos+2);
+			cb = (unsigned int)de_getu16be(pos+4);
+			ca = (unsigned int)de_getu16be(pos+6);
+			cf = (unsigned int)de_getu16be(pos+8);
 			de_dbg2(c, "pal[%3d] = (%5u,%5u,%5u,A=%u) F=%u",
 				(int)i, cr, cg, cb, ca, cf);
 		}
@@ -530,14 +530,14 @@ static void handler_tRNS(deark *c, lctx *d, struct handler_params *hp)
 
 	if(d->color_type==0) {
 		if(hp->dlen<2) return;
-		r = de_getui16be(hp->dpos);
+		r = de_getu16be(hp->dpos);
 		de_dbg(c, "transparent color gray shade: %d", (int)r);
 	}
 	else if(d->color_type==2) {
 		if(hp->dlen<6) return;
-		r = de_getui16be(hp->dpos);
-		g = de_getui16be(hp->dpos+2);
-		b = de_getui16be(hp->dpos+4);
+		r = de_getu16be(hp->dpos);
+		g = de_getu16be(hp->dpos+2);
+		b = de_getu16be(hp->dpos+4);
 		de_dbg(c, "transparent color: (%d,%d,%d)", (int)r, (int)g, (int)b);
 	}
 	else if(d->color_type==3) {
@@ -562,7 +562,7 @@ static void handler_hIST(deark *c, lctx *d, struct handler_params *hp)
 	de_dbg(c, "number of histogram values: %d", (int)nentries);
 	if(c->debug_level<2) return;
 	for(i=0; i<nentries; i++) {
-		v = de_getui16be(hp->dpos+i*2);
+		v = de_getu16be(hp->dpos+i*2);
 		de_dbg2(c, "freq[%3d] = %d", (int)i, (int)v);
 	}
 }
@@ -574,14 +574,14 @@ static void handler_bKGD(deark *c, lctx *d, struct handler_params *hp)
 
 	if(d->color_type==0 || d->color_type==4) {
 		if(hp->dlen<2) return;
-		r = de_getui16be(hp->dpos);
+		r = de_getu16be(hp->dpos);
 		de_dbg(c, "%s gray shade: %d", hp->cti->name, (int)r);
 	}
 	else if(d->color_type==2 || d->color_type==6) {
 		if(hp->dlen<6) return;
-		r = de_getui16be(hp->dpos);
-		g = de_getui16be(hp->dpos+2);
-		b = de_getui16be(hp->dpos+4);
+		r = de_getu16be(hp->dpos);
+		g = de_getu16be(hp->dpos+2);
+		b = de_getu16be(hp->dpos+4);
 		de_dbg(c, "%s: (%d,%d,%d)", hp->cti->name, (int)r, (int)g, (int)b);
 	}
 	else if(d->color_type==3) {
@@ -594,7 +594,7 @@ static void handler_bKGD(deark *c, lctx *d, struct handler_params *hp)
 static void handler_gAMA(deark *c, lctx *d, struct handler_params *hp)
 {
 	i64 n;
-	n = de_getui32be(hp->dpos);
+	n = de_getu32be(hp->dpos);
 	de_dbg(c, "image gamma: %.5f", (double)n / 100000.0);
 }
 
@@ -604,8 +604,8 @@ static void handler_pHYs(deark *c, lctx *d, struct handler_params *hp)
 	u8 u;
 	const char *name;
 
-	dx = de_getui32be(hp->dpos);
-	dy = de_getui32be(hp->dpos+4);
+	dx = de_getu32be(hp->dpos);
+	dy = de_getu32be(hp->dpos+4);
 	de_dbg(c, "density: %d"DE_CHAR_TIMES"%d", (int)dx, (int)dy);
 	u = de_getbyte(hp->dpos+8);
 	switch(u) {
@@ -644,7 +644,7 @@ static void handler_tIME(deark *c, lctx *d, struct handler_params *hp)
 	struct de_timestamp ts;
 	char timestamp_buf[64];
 
-	yr = de_getui16be(hp->dpos);
+	yr = de_getu16be(hp->dpos);
 	mo = de_getbyte(hp->dpos+2);
 	da = de_getbyte(hp->dpos+3);
 	hr = de_getbyte(hp->dpos+4);
@@ -665,7 +665,7 @@ static void handler_cHRM(deark *c, lctx *d, struct handler_params *hp)
 
 	if(hp->dlen<32) return;
 	for(i=0; i<8; i++) {
-		n[i] = de_getui32be(hp->dpos+4*i);
+		n[i] = de_getu32be(hp->dpos+4*i);
 		nd[i] = ((double)n[i])/100000.0;
 	}
 	de_dbg(c, "white point: (%1.5f, %1.5f)", nd[0], nd[1]);
@@ -787,7 +787,7 @@ static void handler_orNT(deark *c, lctx *d, struct handler_params *hp)
 static void do_APNG_seqno(deark *c, lctx *d, i64 pos)
 {
 	unsigned int n;
-	n = (unsigned int)de_getui32be(pos);
+	n = (unsigned int)de_getu32be(pos);
 	de_dbg(c, "seq. number: %u", n);
 }
 
@@ -797,9 +797,9 @@ static void handler_acTL(deark *c, lctx *d, struct handler_params *hp)
 	i64 pos = hp->dpos;
 
 	if(hp->dlen<8) return;
-	n = (unsigned int)de_getui32be_p(&pos);
+	n = (unsigned int)de_getu32be_p(&pos);
 	de_dbg(c, "num frames: %u", n);
-	n = (unsigned int)de_getui32be_p(&pos);
+	n = (unsigned int)de_getu32be_p(&pos);
 	de_dbg(c, "num plays: %u%s", n, (n==0)?" (infinite)":"");
 }
 
@@ -831,14 +831,14 @@ static void handler_fcTL(deark *c, lctx *d, struct handler_params *hp)
 	if(hp->dlen<26) return;
 	do_APNG_seqno(c, d, pos);
 	pos += 4;
-	n1 = de_getui32be_p(&pos);
-	n2 = de_getui32be_p(&pos);
+	n1 = de_getu32be_p(&pos);
+	n2 = de_getu32be_p(&pos);
 	de_dbg_dimensions(c, n1, n2);
-	n1 = de_getui32be_p(&pos);
-	n2 = de_getui32be_p(&pos);
+	n1 = de_getu32be_p(&pos);
+	n2 = de_getu32be_p(&pos);
 	de_dbg(c, "offset: (%u, %u)", (unsigned int)n1, (unsigned int)n2);
-	n1 = de_getui16be_p(&pos);
-	n2 = de_getui16be_p(&pos);
+	n1 = de_getu16be_p(&pos);
+	n2 = de_getu16be_p(&pos);
 	de_dbg(c, "delay: %d/%d seconds", (int)n1, (int)n2);
 	b = de_getbyte_p(&pos);
 	de_dbg(c, "disposal type: %u (%s)", (unsigned int)b, get_apng_disp_name(b));
@@ -971,7 +971,7 @@ static void de_run_png(deark *c, de_module_params *mparams)
 
 		de_zeromem(&hp, sizeof(struct handler_params));
 
-		hp.dlen = de_getui32be(pos);
+		hp.dlen = de_getu32be(pos);
 		if(pos + 8 + hp.dlen + 4 > c->infile->len) break;
 		dbuf_read_fourcc(c->infile, pos+4, &chunk4cc, 4, 0x0);
 
@@ -1022,7 +1022,7 @@ static void de_run_png(deark *c, de_module_params *mparams)
 		}
 		pos += hp.dlen;
 
-		crc = (u32)de_getui32be(pos);
+		crc = (u32)de_getu32be(pos);
 		de_dbg2(c, "crc32 (reported): 0x%08x", (unsigned int)crc);
 		pos += 4;
 

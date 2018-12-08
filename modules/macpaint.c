@@ -29,7 +29,7 @@ static void do_read_bitmap(deark *c, lctx *d, i64 pos)
 	dbuf *unc_pixels = NULL;
 	de_finfo *fi = NULL;
 
-	ver_num = de_getui32be(pos);
+	ver_num = de_getu32be(pos);
 	de_dbg(c, "version number: %u", (unsigned int)ver_num);
 	if(ver_num!=0 && ver_num!=2 && ver_num!=3) {
 		de_warn(c, "Unrecognized version number: %u", (unsigned int)ver_num);
