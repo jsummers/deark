@@ -267,8 +267,8 @@ static int read_rational_as_double(deark *c, lctx *d, i64 pos, double *n)
 	i64 num, den;
 
 	*n = 0.0;
-	num = dbuf_getui32x(c->infile, pos, d->is_le);
-	den = dbuf_getui32x(c->infile, pos+4, d->is_le);
+	num = dbuf_getu32x(c->infile, pos, d->is_le);
+	den = dbuf_getu32x(c->infile, pos+4, d->is_le);
 	if(den==0) return 0;
 	*n = (double)num/(double)den;
 	return 1;
@@ -328,11 +328,11 @@ static int read_tag_value_as_int64(deark *c, lctx *d, const struct taginfo *tg,
 
 	switch(tg->datatype) {
 	case DATATYPE_UINT16:
-		*n = dbuf_getui16x(c->infile, offs, d->is_le);
+		*n = dbuf_getu16x(c->infile, offs, d->is_le);
 		return 1;
 	case DATATYPE_UINT32:
 	case DATATYPE_IFD32:
-		*n = dbuf_getui32x(c->infile, offs, d->is_le);
+		*n = dbuf_getu32x(c->infile, offs, d->is_le);
 		return 1;
 	case DATATYPE_BYTE:
 	case DATATYPE_UNDEF:
@@ -433,8 +433,8 @@ static void read_numeric_value(deark *c, lctx *d, const struct taginfo *tg,
 				den = dbuf_geti32x(c->infile, offs+4, d->is_le);
 			}
 			else {
-				num = dbuf_getui32x(c->infile, offs, d->is_le);
-				den = dbuf_getui32x(c->infile, offs+4, d->is_le);
+				num = dbuf_getu32x(c->infile, offs, d->is_le);
+				den = dbuf_getu32x(c->infile, offs+4, d->is_le);
 			}
 
 			if(den==0) {
@@ -484,7 +484,7 @@ static i64 getfpos(deark *c, lctx *d, i64 pos)
 	if(d->is_bigtiff) {
 		return dbuf_geti64x(c->infile, pos, d->is_le);
 	}
-	return dbuf_getui32x(c->infile, pos, d->is_le);
+	return dbuf_getu32x(c->infile, pos, d->is_le);
 }
 
 static void do_oldjpeg(deark *c, lctx *d, i64 jpegoffset, i64 jpeglength)
@@ -1412,7 +1412,7 @@ static void handler_mpentry(deark *c, lctx *d, const struct taginfo *tg, const s
 		de_dbg(c, "entry #%d", (int)(k+1));
 		de_dbg_indent(c, 1);
 
-		attrs = (u32)dbuf_getui32x(c->infile, pos, d->is_le);
+		attrs = (u32)dbuf_getu32x(c->infile, pos, d->is_le);
 		dataformat = (attrs&0x07000000)>>24;
 		typecode = attrs&0x00ffffff;
 		ucstring_empty(s);
@@ -1439,10 +1439,10 @@ static void handler_mpentry(deark *c, lctx *d, const struct taginfo *tg, const s
 		de_dbg(c, "image attribs: 0x%08x (%s)", (unsigned int)attrs,
 			ucstring_getpsz(s));
 
-		imgsize = dbuf_getui32x(c->infile, pos+4, d->is_le);
+		imgsize = dbuf_getu32x(c->infile, pos+4, d->is_le);
 		de_dbg(c, "image size: %u", (unsigned int)imgsize);
 
-		imgoffs_rel = dbuf_getui32x(c->infile, pos+8, d->is_le);
+		imgoffs_rel = dbuf_getu32x(c->infile, pos+8, d->is_le);
 		// This is relative to beginning of the payload data (the TIFF header)
 		// of the MPF segment, except that 0 is a special case.
 		if(imgoffs_rel==0) {
@@ -1466,9 +1466,9 @@ static void handler_mpentry(deark *c, lctx *d, const struct taginfo *tg, const s
 			try_to_extract_mpf_image(c, d, &mpfctx);
 		}
 
-		n = dbuf_getui16x(c->infile, pos+12, d->is_le);
+		n = dbuf_getu16x(c->infile, pos+12, d->is_le);
 		de_dbg(c, "dep. image #1 entry: %u", (unsigned int)n);
-		n = dbuf_getui16x(c->infile, pos+14, d->is_le);
+		n = dbuf_getu16x(c->infile, pos+14, d->is_le);
 		de_dbg(c, "dep. image #2 entry: %u", (unsigned int)n);
 		de_dbg_indent(c, -1);
 		pos += 16;
@@ -2359,7 +2359,7 @@ static void process_ifd(deark *c, lctx *d, i64 ifd_idx1, i64 ifdpos1, int ifdtyp
 		num_tags = (int)dbuf_geti64x(c->infile, pg->ifdpos, d->is_le);
 	}
 	else {
-		num_tags = (int)dbuf_getui16x(c->infile, pg->ifdpos, d->is_le);
+		num_tags = (int)dbuf_getu16x(c->infile, pg->ifdpos, d->is_le);
 	}
 
 	de_dbg(c, "number of tags: %d", num_tags);
@@ -2381,8 +2381,8 @@ static void process_ifd(deark *c, lctx *d, i64 ifd_idx1, i64 ifdpos1, int ifdtyp
 		de_zeromem(&tg, sizeof(struct taginfo));
 		tg.pg = pg;
 
-		tg.tagnum = (int)dbuf_getui16x(c->infile, pg->ifdpos+d->ifdhdrsize+i*d->ifditemsize, d->is_le);
-		tg.datatype = (int)dbuf_getui16x(c->infile, pg->ifdpos+d->ifdhdrsize+i*d->ifditemsize+2, d->is_le);
+		tg.tagnum = (int)dbuf_getu16x(c->infile, pg->ifdpos+d->ifdhdrsize+i*d->ifditemsize, d->is_le);
+		tg.datatype = (int)dbuf_getu16x(c->infile, pg->ifdpos+d->ifdhdrsize+i*d->ifditemsize+2, d->is_le);
 		// Not a file pos, but getfpos() does the right thing.
 		tg.valcount = getfpos(c, d, pg->ifdpos+d->ifdhdrsize+i*d->ifditemsize+4);
 

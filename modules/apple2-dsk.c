@@ -165,7 +165,7 @@ static void de_run_woz(deark *c, de_module_params *mparams)
 	de_dbg(c, "header at %d", (int)pos);
 	de_dbg_indent(c, 1);
 	pos += 8; // signature
-	crc = (u32)dbuf_getui32le_p(ictx->f, &pos);
+	crc = (u32)dbuf_getu32le_p(ictx->f, &pos);
 	de_dbg(c, "crc: 0x%08x", (unsigned int)crc);
 	de_dbg_indent(c, -1);
 

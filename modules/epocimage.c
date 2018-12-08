@@ -125,7 +125,7 @@ static de_bitmap *do_create_image(deark *c, lctx *d, struct page_ctx *pg,
 				}
 				break;
 			case 16:
-				n = (u32)dbuf_getui16le(unc_pixels, j*src_rowspan + i*2);
+				n = (u32)dbuf_getu16le(unc_pixels, j*src_rowspan + i*2);
 				if(is_mask) {
 					cr = (u8)(n>>8);
 					clr = DE_MAKE_RGB(cr, cr, cr);

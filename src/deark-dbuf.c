@@ -244,50 +244,50 @@ static i64 dbuf_getuint_ext_x(dbuf *f, i64 pos, unsigned int nbytes,
 	return dbuf_getuint_ext_be_direct(m, nbytes);
 }
 
-i64 de_getui16be_direct(const u8 *m)
+i64 de_getu16be_direct(const u8 *m)
 {
 	return (i64)(((u32)m[1]) | (((u32)m[0])<<8));
 }
 
-i64 dbuf_getui16be(dbuf *f, i64 pos)
+i64 dbuf_getu16be(dbuf *f, i64 pos)
 {
 	u8 m[2];
 	dbuf_read(f, m, pos, 2);
-	return de_getui16be_direct(m);
+	return de_getu16be_direct(m);
 }
 
-i64 dbuf_getui16be_p(dbuf *f, i64 *ppos)
+i64 dbuf_getu16be_p(dbuf *f, i64 *ppos)
 {
 	u8 m[2];
 	dbuf_read(f, m, *ppos, 2);
 	(*ppos) += 2;
-	return de_getui16be_direct(m);
+	return de_getu16be_direct(m);
 }
 
-i64 de_getui16le_direct(const u8 *m)
+i64 de_getu16le_direct(const u8 *m)
 {
 	return (i64)(((u32)m[0]) | (((u32)m[1])<<8));
 }
 
-i64 dbuf_getui16le(dbuf *f, i64 pos)
+i64 dbuf_getu16le(dbuf *f, i64 pos)
 {
 	u8 m[2];
 	dbuf_read(f, m, pos, 2);
-	return de_getui16le_direct(m);
+	return de_getu16le_direct(m);
 }
 
-i64 dbuf_getui16le_p(dbuf *f, i64 *ppos)
+i64 dbuf_getu16le_p(dbuf *f, i64 *ppos)
 {
 	u8 m[2];
 	dbuf_read(f, m, *ppos, 2);
 	(*ppos) += 2;
-	return de_getui16le_direct(m);
+	return de_getu16le_direct(m);
 }
 
 i64 dbuf_geti16be(dbuf *f, i64 pos)
 {
 	i64 n;
-	n = dbuf_getui16be(f, pos);
+	n = dbuf_getu16be(f, pos);
 	if(n>=32768) n -= 65536;
 	return n;
 }
@@ -295,7 +295,7 @@ i64 dbuf_geti16be(dbuf *f, i64 pos)
 i64 dbuf_geti16le(dbuf *f, i64 pos)
 {
 	i64 n;
-	n = dbuf_getui16le(f, pos);
+	n = dbuf_getu16le(f, pos);
 	if(n>=32768) n -= 65536;
 	return n;
 }
@@ -316,59 +316,59 @@ i64 dbuf_geti16le_p(dbuf *f, i64 *ppos)
 	return n;
 }
 
-i64 de_getui32be_direct(const u8 *m)
+i64 de_getu32be_direct(const u8 *m)
 {
 	return (i64)(((u32)m[3]) | (((u32)m[2])<<8) |
 		(((u32)m[1])<<16) | (((u32)m[0])<<24));
 }
 
-i64 dbuf_getui32be(dbuf *f, i64 pos)
+i64 dbuf_getu32be(dbuf *f, i64 pos)
 {
 	u8 m[4];
 	dbuf_read(f, m, pos, 4);
-	return de_getui32be_direct(m);
+	return de_getu32be_direct(m);
 }
 
-i64 dbuf_getui32be_p(dbuf *f, i64 *ppos)
+i64 dbuf_getu32be_p(dbuf *f, i64 *ppos)
 {
 	u8 m[4];
 	dbuf_read(f, m, *ppos, 4);
 	(*ppos) += 4;
-	return de_getui32be_direct(m);
+	return de_getu32be_direct(m);
 }
 
-i64 de_getui32le_direct(const u8 *m)
+i64 de_getu32le_direct(const u8 *m)
 {
 	return (i64)(((u32)m[0]) | (((u32)m[1])<<8) |
 		(((u32)m[2])<<16) | (((u32)m[3])<<24));
 }
 
-i64 dbuf_getui32le(dbuf *f, i64 pos)
+i64 dbuf_getu32le(dbuf *f, i64 pos)
 {
 	u8 m[4];
 	dbuf_read(f, m, pos, 4);
-	return de_getui32le_direct(m);
+	return de_getu32le_direct(m);
 }
 
-i64 dbuf_getui32le_p(dbuf *f, i64 *ppos)
+i64 dbuf_getu32le_p(dbuf *f, i64 *ppos)
 {
 	u8 m[4];
 	dbuf_read(f, m, *ppos, 4);
 	(*ppos) += 4;
-	return de_getui32le_direct(m);
+	return de_getu32le_direct(m);
 }
 
 i64 dbuf_geti32be(dbuf *f, i64 pos)
 {
 	i64 n;
-	n = dbuf_getui32be(f, pos);
+	n = dbuf_getu32be(f, pos);
 	return (i64)(i32)(u32)n;
 }
 
 i64 dbuf_geti32le(dbuf *f, i64 pos)
 {
 	i64 n;
-	n = dbuf_getui32le(f, pos);
+	n = dbuf_getu32le(f, pos);
 	return (i64)(i32)(u32)n;
 }
 
@@ -388,7 +388,7 @@ i64 dbuf_geti32le_p(dbuf *f, i64 *ppos)
 	return n;
 }
 
-u64 de_getui64be_direct(const u8 *m)
+u64 de_getu64be_direct(const u8 *m)
 {
 	unsigned int i;
 	u64 val = 0;
@@ -401,7 +401,7 @@ u64 de_getui64be_direct(const u8 *m)
 
 i64 de_geti64be_direct(const u8 *m)
 {
-	return (i64)de_getui64be_direct(m);
+	return (i64)de_getu64be_direct(m);
 }
 
 i64 dbuf_geti64be(dbuf *f, i64 pos)
@@ -411,7 +411,7 @@ i64 dbuf_geti64be(dbuf *f, i64 pos)
 	return de_geti64be_direct(m);
 }
 
-u64 de_getui64le_direct(const u8 *m)
+u64 de_getu64le_direct(const u8 *m)
 {
 	unsigned int i;
 	u64 val = 0;
@@ -424,7 +424,7 @@ u64 de_getui64le_direct(const u8 *m)
 
 i64 de_geti64le_direct(const u8 *m)
 {
-	return (i64)de_getui64le_direct(m);
+	return (i64)de_getu64le_direct(m);
 }
 
 i64 dbuf_geti64le(dbuf *f, i64 pos)
@@ -434,10 +434,10 @@ i64 dbuf_geti64le(dbuf *f, i64 pos)
 	return de_geti64le_direct(m);
 }
 
-i64 dbuf_getui16x(dbuf *f, i64 pos, int is_le)
+i64 dbuf_getu16x(dbuf *f, i64 pos, int is_le)
 {
-	if(is_le) return dbuf_getui16le(f, pos);
-	return dbuf_getui16be(f, pos);
+	if(is_le) return dbuf_getu16le(f, pos);
+	return dbuf_getu16be(f, pos);
 }
 
 i64 dbuf_geti16x(dbuf *f, i64 pos, int is_le)
@@ -446,10 +446,10 @@ i64 dbuf_geti16x(dbuf *f, i64 pos, int is_le)
 	return dbuf_geti16be(f, pos);
 }
 
-i64 dbuf_getui32x(dbuf *f, i64 pos, int is_le)
+i64 dbuf_getu32x(dbuf *f, i64 pos, int is_le)
 {
-	if(is_le) return dbuf_getui32le(f, pos);
-	return dbuf_getui32be(f, pos);
+	if(is_le) return dbuf_getu32le(f, pos);
+	return dbuf_getu32be(f, pos);
 }
 
 i64 dbuf_geti32x(dbuf *f, i64 pos, int is_le)
@@ -464,24 +464,24 @@ i64 dbuf_geti64x(dbuf *f, i64 pos, int is_le)
 	return dbuf_geti64be(f, pos);
 }
 
-u64 dbuf_getui64be(dbuf *f, i64 pos)
+u64 dbuf_getu64be(dbuf *f, i64 pos)
 {
 	u8 m[8];
 	dbuf_read(f, m, pos, 8);
-	return de_getui64be_direct(m);
+	return de_getu64be_direct(m);
 }
 
-u64 dbuf_getui64le(dbuf *f, i64 pos)
+u64 dbuf_getu64le(dbuf *f, i64 pos)
 {
 	u8 m[8];
 	dbuf_read(f, m, pos, 8);
-	return de_getui64le_direct(m);
+	return de_getu64le_direct(m);
 }
 
-u64 dbuf_getui64x(dbuf *f, i64 pos, int is_le)
+u64 dbuf_getu64x(dbuf *f, i64 pos, int is_le)
 {
-	if(is_le) return dbuf_getui64le(f, pos);
-	return dbuf_getui64be(f, pos);
+	if(is_le) return dbuf_getu64le(f, pos);
+	return dbuf_getu64be(f, pos);
 }
 
 i64 dbuf_getint_ext(dbuf *f, i64 pos, unsigned int nbytes,
@@ -499,8 +499,8 @@ i64 dbuf_getint_ext(dbuf *f, i64 pos, unsigned int nbytes,
 	else {
 		switch(nbytes) {
 		case 1: return (i64)dbuf_getbyte(f, pos); break;
-		case 2: return dbuf_getui16x(f, pos, is_le); break;
-		case 4: return dbuf_getui32x(f, pos, is_le); break;
+		case 2: return dbuf_getu16x(f, pos, is_le); break;
+		case 4: return dbuf_getu32x(f, pos, is_le); break;
 		case 8: return dbuf_geti64x(f, pos, is_le); break;
 		default:
 			return dbuf_getuint_ext_x(f, pos, nbytes, is_le);
@@ -1399,7 +1399,7 @@ int dbuf_get_utf16_NULterm_len(dbuf *f, i64 pos1, i64 bytes_avail,
 		if(pos1+bytes_avail-pos < 2) {
 			break;
 		}
-		x = dbuf_getui16le(f, pos);
+		x = dbuf_getu16le(f, pos);
 		pos += 2;
 		if(x==0) {
 			*bytes_consumed = pos - pos1;
@@ -1520,7 +1520,7 @@ void dbuf_read_fourcc(dbuf *f, i64 pos, struct de_fourcc *fcc,
 		reverse_fourcc(fcc->bytes, nbytes);
 	}
 
-	fcc->id = (u32)de_getui32be_direct(fcc->bytes);
+	fcc->id = (u32)de_getu32be_direct(fcc->bytes);
 	if(nbytes<4) {
 		fcc->id >>= (4-(unsigned int)nbytes)*8;
 	}

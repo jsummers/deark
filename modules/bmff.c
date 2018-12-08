@@ -232,7 +232,7 @@ static void do_box_jP(deark *c, lctx *d, struct de_boxesctx *bctx)
 
 	if(curbox->level!=0) return;
 	if(curbox->payload_len<4) return;
-	n = (u32)dbuf_getui32be(bctx->f, curbox->payload_pos);
+	n = (u32)dbuf_getu32be(bctx->f, curbox->payload_pos);
 	if(n==0x0d0a870a) {
 		de_dbg(c, "found JPEG 2000 signature");
 	}
@@ -254,7 +254,7 @@ static void do_box_ftyp(deark *c, lctx *d, struct de_boxesctx *bctx)
 		apply_brand(c, d, d->major_brand);
 
 	if(curbox->payload_len<8) goto done;
-	mver = dbuf_getui32be(bctx->f, curbox->payload_pos+4);
+	mver = dbuf_getu32be(bctx->f, curbox->payload_pos+4);
 	de_dbg(c, "minor version: %u", (unsigned int)mver);
 
 	if(curbox->payload_len<12) goto done;
@@ -280,7 +280,7 @@ static void do_read_version_and_flags(deark *c, lctx *d, struct de_boxesctx *bct
 	u32 n;
 	struct de_boxdata *curbox = bctx->curbox;
 
-	n = (u32)dbuf_getui32be(bctx->f, curbox->payload_pos);
+	n = (u32)dbuf_getu32be(bctx->f, curbox->payload_pos);
 	version1 = (u8)(n>>24);
 	flags1 = n&0x00ffffff;
 	if(dbgflag) {
@@ -350,14 +350,14 @@ static void do_box_data(deark *c, lctx *d, struct de_boxesctx *bctx)
 	if(gpar->boxtype != BOX_ilst) goto done;
 
 	if(curbox->payload_len<8) goto done;
-	type_field = (unsigned int)dbuf_getui32be_p(bctx->f, &pos);
+	type_field = (unsigned int)dbuf_getu32be_p(bctx->f, &pos);
 	type_namespace = type_field>>24;
 	wkt = (type_field & 0x00ffffff); // well-known type (if namespace==0)
 	de_dbg(c, "type: %u, %u (%s)", type_namespace, wkt,
 		get_ilst_type_name(type_namespace, wkt));
 
-	cntry = (unsigned int)dbuf_getui16be_p(bctx->f, &pos);
-	lang = (unsigned int)dbuf_getui16be_p(bctx->f, &pos);
+	cntry = (unsigned int)dbuf_getu16be_p(bctx->f, &pos);
+	lang = (unsigned int)dbuf_getu16be_p(bctx->f, &pos);
 	de_dbg(c, "locale: %u, %u", cntry, lang);
 
 	if(type_namespace!=0) goto done;
@@ -446,7 +446,7 @@ static void do_box_tkhd(deark *c, lctx *d, struct de_boxesctx *bctx)
 	else
 		pos += 4 + 4;
 
-	n = dbuf_getui32be_p(bctx->f, &pos);
+	n = dbuf_getu32be_p(bctx->f, &pos);
 	de_dbg(c, "track id: %d", (int)n);
 
 	pos += 4; // reserved
@@ -461,7 +461,7 @@ static void do_box_tkhd(deark *c, lctx *d, struct de_boxesctx *bctx)
 	pos += 2; // layer
 	pos += 2; // alternate group
 
-	n = dbuf_getui16be_p(bctx->f, &pos);
+	n = dbuf_getu16be_p(bctx->f, &pos);
 	de_dbg(c, "volume: %.3f", ((double)n)/256.0);
 
 	pos += 2; // reserved
@@ -489,11 +489,11 @@ static void do_box_vmhd(deark *c, lctx *d, struct de_boxesctx *bctx)
 	pos += 4;
 	if(version!=0 || flags!=0x1) return;
 
-	graphicsmode = (unsigned int)dbuf_getui16be_p(bctx->f, &pos);
+	graphicsmode = (unsigned int)dbuf_getu16be_p(bctx->f, &pos);
 	de_dbg(c, "graphicsmode: %u", graphicsmode);
 
 	for(k=0; k<3; k++) {
-		clr[k] = (unsigned int)dbuf_getui16be_p(bctx->f, &pos);
+		clr[k] = (unsigned int)dbuf_getu16be_p(bctx->f, &pos);
 	}
 	de_dbg(c, "opcolor: (%d,%d,%d)", (int)clr[0], (int)clr[1], (int)clr[2]);
 }
@@ -511,7 +511,7 @@ static void do_box_smhd(deark *c, lctx *d, struct de_boxesctx *bctx)
 	pos += 4;
 	if(version!=0 || flags!=0x0) return;
 
-	n = (unsigned int)dbuf_getui16be_p(bctx->f, &pos);
+	n = (unsigned int)dbuf_getu16be_p(bctx->f, &pos);
 	de_dbg(c, "balance: %u", n);
 }
 
@@ -544,7 +544,7 @@ static void do_box_mvhd(deark *c, lctx *d, struct de_boxesctx *bctx)
 	else
 		pos += 4 + 4;
 
-	timescale = dbuf_getui32be_p(bctx->f, &pos);
+	timescale = dbuf_getu32be_p(bctx->f, &pos);
 	de_dbg(c, "timescale: %d time units per second", (int)timescale);
 
 	// duration
@@ -553,7 +553,7 @@ static void do_box_mvhd(deark *c, lctx *d, struct de_boxesctx *bctx)
 		pos += 8;
 	}
 	else {
-		n = dbuf_getui32be_p(bctx->f, &pos);
+		n = dbuf_getu32be_p(bctx->f, &pos);
 	}
 	if(timescale>0)
 		nd = (double)n / (double)timescale;
@@ -565,7 +565,7 @@ static void do_box_mvhd(deark *c, lctx *d, struct de_boxesctx *bctx)
 	pos += 4; // rate
 	de_dbg(c, "rate: %.3f", nd);
 
-	n = dbuf_getui16be_p(bctx->f, &pos);
+	n = dbuf_getu16be_p(bctx->f, &pos);
 	de_dbg(c, "volume: %.3f", ((double)n)/256.0);
 
 	pos += 2; // reserved
@@ -573,7 +573,7 @@ static void do_box_mvhd(deark *c, lctx *d, struct de_boxesctx *bctx)
 	pos += 4*9; // matrix
 	pos += 4*6; // pre_defined
 
-	n = dbuf_getui32be(bctx->f, pos);
+	n = dbuf_getu32be(bctx->f, pos);
 	de_dbg(c, "next track id: %d", (int)n);
 }
 
@@ -607,7 +607,7 @@ static void do_box_mdhd(deark *c, lctx *d, struct de_boxesctx *bctx)
 	else
 		pos += 4 + 4;
 
-	timescale = dbuf_getui32be_p(bctx->f, &pos);
+	timescale = dbuf_getu32be_p(bctx->f, &pos);
 	de_dbg(c, "timescale: %d time units per second", (int)timescale);
 
 	// duration
@@ -616,7 +616,7 @@ static void do_box_mdhd(deark *c, lctx *d, struct de_boxesctx *bctx)
 		pos += 8;
 	}
 	else {
-		n = dbuf_getui32be_p(bctx->f, &pos);
+		n = dbuf_getu32be_p(bctx->f, &pos);
 	}
 	if(timescale>0)
 		nd = (double)n / (double)timescale;
@@ -639,7 +639,7 @@ static void do_box_stsc(deark *c, lctx *d, struct de_boxesctx *bctx)
 	pos += 4;
 	if(version!=0 || flags!=0) return;
 
-	e_count = dbuf_getui32be_p(bctx->f, &pos);
+	e_count = dbuf_getu32be_p(bctx->f, &pos);
 	de_dbg(c, "entry count: %u", (unsigned int)e_count);
 
 	bytesleft = curbox->payload_pos + curbox->payload_len - pos;
@@ -649,9 +649,9 @@ static void do_box_stsc(deark *c, lctx *d, struct de_boxesctx *bctx)
 
 	for(k=0; k<e_to_print; k++) {
 		i64 first_chunk, spc, sdi;
-		first_chunk = dbuf_getui32be_p(bctx->f, &pos);
-		spc = dbuf_getui32be_p(bctx->f, &pos);
-		sdi = dbuf_getui32be_p(bctx->f, &pos);
+		first_chunk = dbuf_getu32be_p(bctx->f, &pos);
+		spc = dbuf_getu32be_p(bctx->f, &pos);
+		sdi = dbuf_getu32be_p(bctx->f, &pos);
 		de_dbg(c, "entry[%d]: first chunk=%d, samples/chunk=%d, descr. index=%d",
 			(int)k, (int)first_chunk, (int)spc, (int)sdi);
 	}
@@ -678,12 +678,12 @@ static void do_box_stsd(deark *c, lctx *d, struct de_boxesctx *bctx)
 	pos += 4;
 	if(version!=0) return;
 
-	num_entries = dbuf_getui32be_p(bctx->f, &pos);
+	num_entries = dbuf_getu32be_p(bctx->f, &pos);
 	de_dbg(c, "number of sample description entries: %d", (int)num_entries);
 
 	while(1) {
 		if(pos + 16 >= curbox->payload_pos + curbox->payload_len) break;
-		entry_size = dbuf_getui32be(bctx->f, pos);
+		entry_size = dbuf_getu32be(bctx->f, pos);
 		de_dbg(c, "sample description entry at %d, len=%d", (int)pos, (int)entry_size);
 		if(entry_size<16) break;
 
@@ -721,7 +721,7 @@ static void do_simple_int_table(deark *c, lctx *d, struct de_boxesctx *bctx,
 			n = dbuf_geti64be(bctx->f, pos); pos += 8;
 		}
 		else {
-			n = dbuf_getui32be_p(bctx->f, &pos);
+			n = dbuf_getu32be_p(bctx->f, &pos);
 		}
 
 		de_dbg(c, "%s[%"I64_FMT"]: %s=%"I64_FMT, s1, k, s2, n);
@@ -744,9 +744,9 @@ static void do_box_stsz(deark *c, lctx *d, struct de_boxesctx *bctx)
 	pos += 4;
 	if(version!=0 || flags!=0) return;
 
-	s_size = dbuf_getui32be_p(bctx->f, &pos);
+	s_size = dbuf_getu32be_p(bctx->f, &pos);
 	de_dbg(c, "sample size: %u", (unsigned int)s_size);
-	s_count = dbuf_getui32be_p(bctx->f, &pos);
+	s_count = dbuf_getu32be_p(bctx->f, &pos);
 	de_dbg(c, "sample count: %u", (unsigned int)s_count);
 
 	if(s_size!=0) goto done;
@@ -772,7 +772,7 @@ static void do_box_stco(deark *c, lctx *d, struct de_boxesctx *bctx)
 	if(version!=0 || flags!=0) return;
 
 	e_size = (bctx->curbox->boxtype == BOX_co64) ? 8 : 4;
-	e_count = dbuf_getui32be_p(bctx->f, &pos);
+	e_count = dbuf_getu32be_p(bctx->f, &pos);
 	de_dbg(c, "entry count: %u", (unsigned int)e_count);
 
 	do_simple_int_table(c, d, bctx, pos, e_count, e_size, "entry", "chunk offset");
@@ -790,7 +790,7 @@ static void do_box_stss(deark *c, lctx *d, struct de_boxesctx *bctx)
 	pos += 4;
 	if(version!=0 || flags!=0) return;
 
-	e_count = dbuf_getui32be_p(bctx->f, &pos);
+	e_count = dbuf_getu32be_p(bctx->f, &pos);
 	de_dbg(c, "entry count: %u", (unsigned int)e_count);
 
 	do_simple_int_table(c, d, bctx, pos, e_count, 4, "entry", "sample number");
@@ -810,7 +810,7 @@ static void do_box_stts(deark *c, lctx *d, struct de_boxesctx *bctx)
 	pos += 4;
 	if(version!=0 || flags!=0) return;
 
-	e_count = dbuf_getui32be_p(bctx->f, &pos);
+	e_count = dbuf_getu32be_p(bctx->f, &pos);
 	de_dbg(c, "entry count: %u", (unsigned int)e_count);
 
 	bytesleft = curbox->payload_pos + curbox->payload_len - pos;
@@ -820,8 +820,8 @@ static void do_box_stts(deark *c, lctx *d, struct de_boxesctx *bctx)
 
 	for(k=0; k<e_to_print; k++) {
 		i64 s_count, s_delta;
-		s_count = dbuf_getui32be_p(bctx->f, &pos);
-		s_delta = dbuf_getui32be_p(bctx->f, &pos);
+		s_count = dbuf_getu32be_p(bctx->f, &pos);
+		s_delta = dbuf_getu32be_p(bctx->f, &pos);
 		de_dbg(c, "entry[%d]: sample count=%d, delta=%d", (int)k,
 			(int)s_count, (int)s_delta);
 	}
@@ -845,7 +845,7 @@ static void do_box_ctts(deark *c, lctx *d, struct de_boxesctx *bctx)
 	pos += 4;
 	if(version>1 || flags!=0) return;
 
-	e_count = dbuf_getui32be_p(bctx->f, &pos);
+	e_count = dbuf_getu32be_p(bctx->f, &pos);
 	de_dbg(c, "entry count: %u", (unsigned int)e_count);
 
 	bytesleft = curbox->payload_pos + curbox->payload_len - pos;
@@ -858,9 +858,9 @@ static void do_box_ctts(deark *c, lctx *d, struct de_boxesctx *bctx)
 
 	for(k=0; k<e_to_print; k++) {
 		i64 s_count, s_offset;
-		s_count = dbuf_getui32be_p(bctx->f, &pos);
+		s_count = dbuf_getu32be_p(bctx->f, &pos);
 		if(version==0) {
-			s_offset = dbuf_getui32be_p(bctx->f, &pos);
+			s_offset = dbuf_getu32be_p(bctx->f, &pos);
 		}
 		else {
 			s_offset = dbuf_geti32be(bctx->f, pos); pos += 4;
@@ -920,10 +920,10 @@ static void do_box_resc_resd(deark *c, lctx *d, struct de_boxesctx *bctx)
 		name = "display";
 
 	if(curbox->payload_len<10) return;
-	vn = dbuf_getui16be_p(bctx->f, &pos);
-	vd = dbuf_getui16be_p(bctx->f, &pos);
-	hn = dbuf_getui16be_p(bctx->f, &pos);
-	hd = dbuf_getui16be_p(bctx->f, &pos);
+	vn = dbuf_getu16be_p(bctx->f, &pos);
+	vd = dbuf_getu16be_p(bctx->f, &pos);
+	hn = dbuf_getu16be_p(bctx->f, &pos);
+	hd = dbuf_getu16be_p(bctx->f, &pos);
 	ve = (int)(signed char)dbuf_getbyte_p(bctx->f, &pos);
 	he = (int)(signed char)dbuf_getbyte_p(bctx->f, &pos);
 	format_jp2_res(res_buf, sizeof(res_buf), vn, vd, ve);
@@ -965,11 +965,11 @@ static void do_box_ihdr(deark *c, lctx *d, struct de_boxesctx *bctx)
 	char tmps[80];
 
 	if(curbox->payload_len<14) return;
-	h = dbuf_getui32be_p(bctx->f, &pos);
-	w = dbuf_getui32be_p(bctx->f, &pos);
+	h = dbuf_getu32be_p(bctx->f, &pos);
+	w = dbuf_getu32be_p(bctx->f, &pos);
 	de_dbg_dimensions(c, w, h);
 
-	n = dbuf_getui16be_p(bctx->f, &pos);
+	n = dbuf_getu16be_p(bctx->f, &pos);
 	de_dbg(c, "number of components: %d", (int)n);
 
 	b = dbuf_getbyte_p(bctx->f, &pos);
@@ -1012,7 +1012,7 @@ static void do_box_cdef(deark *c, lctx *d, struct de_boxesctx *bctx)
 	i64 pos = curbox->payload_pos;
 	i64 k;
 
-	ndescs = dbuf_getui16be_p(bctx->f, &pos);
+	ndescs = dbuf_getu16be_p(bctx->f, &pos);
 	de_dbg(c, "number of channel descriptions: %d", (int)ndescs);
 
 	for(k=0; k<ndescs; k++) {
@@ -1021,11 +1021,11 @@ static void do_box_cdef(deark *c, lctx *d, struct de_boxesctx *bctx)
 		if(pos+6 > curbox->payload_pos + curbox->payload_len) break;
 		de_dbg(c, "channel description[%d] at %"I64_FMT, (int)k, pos);
 		de_dbg_indent(c, 1);
-		idx = dbuf_getui16be_p(bctx->f, &pos);
+		idx = dbuf_getu16be_p(bctx->f, &pos);
 		de_dbg(c, "channel index: %d", (int)idx);
-		typ = dbuf_getui16be_p(bctx->f, &pos);
+		typ = dbuf_getu16be_p(bctx->f, &pos);
 		de_dbg(c, "channel type: %d (%s)", (int)typ, get_channel_type_name(typ));
-		asoc = dbuf_getui16be_p(bctx->f, &pos);
+		asoc = dbuf_getu16be_p(bctx->f, &pos);
 		de_dbg(c, "index of associated color: %d", (int)asoc);
 		de_dbg_indent(c, -1);
 	}
@@ -1079,7 +1079,7 @@ static void do_box_colr_jp2(deark *c, lctx *d, struct de_boxesctx *bctx)
 	if(meth==1) {
 		unsigned int enumcs;
 		if(curbox->payload_len<7) goto done;
-		enumcs = (unsigned int)dbuf_getui32be_p(bctx->f, &pos);
+		enumcs = (unsigned int)dbuf_getu32be_p(bctx->f, &pos);
 		switch(enumcs) {
 			// TODO: There are lots more valid values for JPX.
 		case 16: s="sRGB"; break;
@@ -1108,7 +1108,7 @@ static void do_box_ulst(deark *c, lctx *d, struct de_boxesctx *bctx)
 	u8 ubuf[16];
 	char uuid_string[50];
 
-	nuuids = dbuf_getui16be_p(bctx->f, &pos);
+	nuuids = dbuf_getu16be_p(bctx->f, &pos);
 	de_dbg(c, "number of UUIDs: %d", (int)nuuids);
 
 	for(k=0; k<nuuids; k++) {
@@ -1149,7 +1149,7 @@ static void do_box_dtbl(deark *c, lctx *d, struct de_boxesctx *bctx)
 	i64 ndr;
 	struct de_boxdata *curbox = bctx->curbox;
 
-	ndr = dbuf_getui16be(bctx->f, curbox->payload_pos);
+	ndr = dbuf_getu16be(bctx->f, curbox->payload_pos);
 	de_dbg(c, "number of data references: %d", (int)ndr);
 
 	curbox->num_children_is_known = 1;
@@ -1167,7 +1167,7 @@ static void do_box_dref(deark *c, lctx *d, struct de_boxesctx *bctx)
 	do_read_version_and_flags(c, d, bctx, &version, NULL, 1);
 	pos += 4;
 
-	nitems = dbuf_getui32be_p(bctx->f, &pos);
+	nitems = dbuf_getu32be_p(bctx->f, &pos);
 	de_dbg(c, "number of items: %u", (unsigned int)nitems);
 
 	curbox->num_children_is_known = 1;
@@ -1186,10 +1186,10 @@ static void do_box_iinf(deark *c, lctx *d, struct de_boxesctx *bctx)
 	pos += 4;
 
 	if(version==0) {
-		nitems = dbuf_getui16be_p(bctx->f, &pos);
+		nitems = dbuf_getu16be_p(bctx->f, &pos);
 	}
 	else {
-		nitems = dbuf_getui32be_p(bctx->f, &pos);
+		nitems = dbuf_getu32be_p(bctx->f, &pos);
 	}
 	de_dbg(c, "number of items: %d", (int)nitems);
 
@@ -1255,7 +1255,7 @@ static void do_box_iloc(deark *c, lctx *d, struct de_boxesctx *bctx)
 	de_dbg(c, "index size: %u", index_size);
 	if(index_size!=0 && index_size!=4 && index_size!=8) goto done;
 
-	item_count = dbuf_getui16be_p(bctx->f, &pos);
+	item_count = dbuf_getu16be_p(bctx->f, &pos);
 	de_dbg(c, "item count: %d", (int)item_count);
 
 	for(k=0; k<item_count; k++) {
@@ -1267,17 +1267,17 @@ static void do_box_iloc(deark *c, lctx *d, struct de_boxesctx *bctx)
 		if(pos >= curbox->payload_pos+curbox->payload_len) goto done;
 		de_dbg(c, "item[%d] at %"I64_FMT, (int)k, pos);
 		de_dbg_indent(c, 1);
-		item_id = (unsigned int)dbuf_getui16be_p(bctx->f, &pos);
+		item_id = (unsigned int)dbuf_getu16be_p(bctx->f, &pos);
 		de_dbg(c, "item id: %u", item_id);
 
-		u = (unsigned int)dbuf_getui16be_p(bctx->f, &pos);
+		u = (unsigned int)dbuf_getu16be_p(bctx->f, &pos);
 		cnstr_meth = u&0xf;
 		de_dbg(c, "construction method: %u", cnstr_meth);
 
 		pos += 2; // data reference index
 		pos += base_offset_size;
 
-		extent_count = dbuf_getui16be_p(bctx->f, &pos);
+		extent_count = dbuf_getu16be_p(bctx->f, &pos);
 		de_dbg(c, "extent count: %d", (int)extent_count);
 
 		for(e=0; e<extent_count; e++) {
@@ -1335,14 +1335,14 @@ static void do_box_infe(deark *c, lctx *d, struct de_boxesctx *bctx)
 		struct de_fourcc itemtype4cc;
 
 		if(version==2) {
-			item_id = (unsigned int)dbuf_getui16be_p(bctx->f, &pos);
+			item_id = (unsigned int)dbuf_getu16be_p(bctx->f, &pos);
 		}
 		else if(version==3) {
-			item_id = (unsigned int)dbuf_getui32be_p(bctx->f, &pos);
+			item_id = (unsigned int)dbuf_getu32be_p(bctx->f, &pos);
 		}
 		de_dbg(c, "item id: %u", item_id);
 
-		n = dbuf_getui16be_p(bctx->f, &pos);
+		n = dbuf_getu16be_p(bctx->f, &pos);
 		de_dbg(c, "item protection: %u", (unsigned int)n);
 
 		dbuf_read_fourcc(bctx->f, pos, &itemtype4cc, 4, 0x0);
@@ -1368,8 +1368,8 @@ static void do_box_ispe(deark *c, lctx *d, struct de_boxesctx *bctx)
 	if(curbox->payload_len<12) return;
 	do_read_version_and_flags(c, d, bctx, NULL, NULL, 1);
 	pos += 4;
-	w = dbuf_getui32be_p(bctx->f, &pos);
-	h = dbuf_getui32be_p(bctx->f, &pos);
+	w = dbuf_getu32be_p(bctx->f, &pos);
+	h = dbuf_getu32be_p(bctx->f, &pos);
 	de_dbg_dimensions(c, w, h);
 }
 

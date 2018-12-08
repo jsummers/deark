@@ -229,19 +229,19 @@ static void do_vorbis_comment_block(deark *c, lctx *d, dbuf *f, i64 pos1)
 	i64 k;
 	de_ucstring *s = NULL;
 
-	n = dbuf_getui32le_p(f, &pos);
+	n = dbuf_getu32le_p(f, &pos);
 	if(pos+n > f->len) goto done;
 	s = ucstring_create(c);
 	dbuf_read_to_ucstring_n(f, pos, n, DE_DBG_MAX_STRLEN, s, 0, DE_ENCODING_UTF8);
 	de_dbg(c, "vendor: \"%s\"", ucstring_getpsz_d(s));
 	pos += n;
 
-	ncomments = dbuf_getui32le_p(f, &pos);
+	ncomments = dbuf_getu32le_p(f, &pos);
 	de_dbg(c, "number of comments: %d", (int)ncomments);
 
 	for(k=0; k<ncomments; k++) {
 		if(pos+4 > f->len) goto done;
-		n = dbuf_getui32le_p(f, &pos);
+		n = dbuf_getu32le_p(f, &pos);
 		if(pos+n > f->len) goto done;
 		ucstring_empty(s);
 		dbuf_read_to_ucstring_n(f, pos, n, DE_DBG_MAX_STRLEN, s, 0, DE_ENCODING_UTF8);

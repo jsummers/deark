@@ -632,7 +632,7 @@ static int tiny_uncompress(deark *c, tinyctx *d, struct atari_img_decode_data *a
 			pos += 2*count;
 		}
 		else if(ctrl == 0) { // RLE, 16-bit count in next 2 control bytes
-			count = de_getui16be_direct(&control_bytes[cpos]);
+			count = de_getu16be_direct(&control_bytes[cpos]);
 			cpos += 2;
 			b0 = de_getbyte(pos++);
 			b1 = de_getbyte(pos++);
@@ -643,7 +643,7 @@ static int tiny_uncompress(deark *c, tinyctx *d, struct atari_img_decode_data *a
 			dcmpr_word_count += count;
 		}
 		else if(ctrl == 1) { // Uncompressed run, 16-bit count in next 2 control bytes
-			count = de_getui16be_direct(&control_bytes[cpos]);
+			count = de_getu16be_direct(&control_bytes[cpos]);
 			cpos += 2;
 
 			dbuf_copy(c->infile, pos, 2*count, adata->unc_pixels);
@@ -685,7 +685,7 @@ static void do_tinystuff_1bpp(deark *c, struct atari_img_decode_data *adata)
 
 	for(col=0; col<80; col++) {
 		for(scanline=0; scanline<200; scanline++) {
-			w = (unsigned int)dbuf_getui16be(adata->unc_pixels, upos);
+			w = (unsigned int)dbuf_getu16be(adata->unc_pixels, upos);
 			upos+=2;
 
 			for(k=0; k<16; k++) {
@@ -722,7 +722,7 @@ static void do_tinystuff_2bpp(deark *c, struct atari_img_decode_data *adata)
 	for(col=0; col<40; col++) {
 		for(scanline=0; scanline<200; scanline++) {
 			for(z=0; z<2; z++) {
-				w[z] = (unsigned int)dbuf_getui16be(adata->unc_pixels, upos +z*8000 +(col/20)*8000);
+				w[z] = (unsigned int)dbuf_getu16be(adata->unc_pixels, upos +z*8000 +(col/20)*8000);
 			}
 			upos+=2;
 
@@ -755,7 +755,7 @@ static void do_tinystuff_4bpp(deark *c, struct atari_img_decode_data *adata)
 	for(col=0; col<20; col++) {
 		for(scanline=0; scanline<200; scanline++) {
 			for(z=0; z<4; z++) {
-				w[z] = (unsigned int)dbuf_getui16be(adata->unc_pixels, upos + z*8000);
+				w[z] = (unsigned int)dbuf_getu16be(adata->unc_pixels, upos + z*8000);
 			}
 			upos+=2;
 

@@ -157,7 +157,7 @@ static void read_one_property(deark *c, lctx *d, struct table_entry *te,
 	de_dbg(c, "property[%d] index entry at %"I64_FMT, (int)prop_idx, pos);
 	de_dbg_indent(c, 1);
 
-	name_offset = dbuf_getui32x(c->infile, pos, te->fmt.is_le);
+	name_offset = dbuf_getu32x(c->infile, pos, te->fmt.is_le);
 	de_dbg(c, "name offset: %"I64_FMT" (abs=%"I64_FMT")", name_offset,
 		string_data_area_pos+name_offset);
 	pos += 4;
@@ -169,7 +169,7 @@ static void read_one_property(deark *c, lctx *d, struct table_entry *te,
 	if(isstringprop) {
 		i64 value_offset;
 
-		value_offset = dbuf_getui32x(c->infile, pos, te->fmt.is_le);
+		value_offset = dbuf_getu32x(c->infile, pos, te->fmt.is_le);
 		de_dbg(c, "value offset: %"I64_FMT" (abs=%"I64_FMT")", value_offset,
 			string_data_area_pos+value_offset);
 		srd_strval = read_prop_string(c, d, te, string_data_area_pos+value_offset, "value");
@@ -212,7 +212,7 @@ static void handler_properties(deark *c, lctx *d, struct table_entry *te)
 	if(!read_and_check_format_field(c, d, te, pos)) goto done;
 	pos += 4;
 
-	nprops = dbuf_getui32x(c->infile, pos, te->fmt.is_le);
+	nprops = dbuf_getu32x(c->infile, pos, te->fmt.is_le);
 	pos += 4;
 	de_dbg(c, "nprops: %d", (int)nprops);
 
@@ -222,7 +222,7 @@ static void handler_properties(deark *c, lctx *d, struct table_entry *te)
 
 	pos += props_idx_size_padded;
 
-	string_data_area_size = dbuf_getui32x(c->infile, pos, te->fmt.is_le);
+	string_data_area_size = dbuf_getu32x(c->infile, pos, te->fmt.is_le);
 	pos += 4;
 	string_data_area_pos = pos;
 	de_dbg(c, "string data area at %"I64_FMT", len=%d", string_data_area_pos,
@@ -254,7 +254,7 @@ static void handler_metrics(deark *c, lctx *d, struct table_entry *te)
 	if(!read_and_check_format_field(c, d, te, pos)) goto done;
 	pos += 4;
 
-	nmetrics = dbuf_getui16x(c->infile, pos, te->fmt.is_le);
+	nmetrics = dbuf_getu16x(c->infile, pos, te->fmt.is_le);
 	pos += 2;
 	de_dbg(c, "number of metrics: %d", (int)nmetrics);
 
@@ -291,7 +291,7 @@ static void handler_metrics(deark *c, lctx *d, struct table_entry *te)
 			char_width = (int)dbuf_geti16x(c->infile, pos, te->fmt.is_le); pos += 2;
 			ci->ascent = (int)dbuf_geti16x(c->infile, pos, te->fmt.is_le); pos += 2;
 			char_desc = (int)dbuf_geti16x(c->infile, pos, te->fmt.is_le); pos += 2;
-			char_attr = (int)dbuf_getui16x(c->infile, pos, te->fmt.is_le); pos += 2;
+			char_attr = (int)dbuf_getu16x(c->infile, pos, te->fmt.is_le); pos += 2;
 		}
 
 		if(c->debug_level>=2) {
@@ -340,19 +340,19 @@ static void handler_bdf_encodings(deark *c, lctx *d, struct table_entry *te)
 	pos += 4;
 	if(te->fmt.gross_format != GFMT_DEFAULT) goto done;
 
-	min_char_or_byte2 = (unsigned int)dbuf_getui16x(c->infile, pos, te->fmt.is_le);
+	min_char_or_byte2 = (unsigned int)dbuf_getu16x(c->infile, pos, te->fmt.is_le);
 	de_dbg(c, "min_char_or_byte2: %u", min_char_or_byte2);
 	pos += 2;
-	max_char_or_byte2 = (unsigned int)dbuf_getui16x(c->infile, pos, te->fmt.is_le);
+	max_char_or_byte2 = (unsigned int)dbuf_getu16x(c->infile, pos, te->fmt.is_le);
 	de_dbg(c, "max_char_or_byte2: %u", max_char_or_byte2);
 	pos += 2;
-	min_byte1 = (unsigned int)dbuf_getui16x(c->infile, pos, te->fmt.is_le);
+	min_byte1 = (unsigned int)dbuf_getu16x(c->infile, pos, te->fmt.is_le);
 	de_dbg(c, "min_byte1: %u", min_byte1);
 	pos += 2;
-	max_byte1 = (unsigned int)dbuf_getui16x(c->infile, pos, te->fmt.is_le);
+	max_byte1 = (unsigned int)dbuf_getu16x(c->infile, pos, te->fmt.is_le);
 	de_dbg(c, "max_byte1: %u", max_byte1);
 	pos += 2;
-	default_char = (unsigned int)dbuf_getui16x(c->infile, pos, te->fmt.is_le);
+	default_char = (unsigned int)dbuf_getu16x(c->infile, pos, te->fmt.is_le);
 	de_dbg(c, "default_char: %u", default_char);
 	pos += 2;
 
@@ -374,7 +374,7 @@ static void handler_bdf_encodings(deark *c, lctx *d, struct table_entry *te)
 		i32 codepoint;
 
 		if(pos+2 > te->offset+te->size) break;
-		glyph_number = (unsigned int)dbuf_getui16x(c->infile, pos, te->fmt.is_le);
+		glyph_number = (unsigned int)dbuf_getu16x(c->infile, pos, te->fmt.is_le);
 
 		if(is_singlebyte_encoding) {
 			codepoint = (i32)k + (i32)min_char_or_byte2;
@@ -436,7 +436,7 @@ static void handler_bitmaps(deark *c, lctx *d, struct table_entry *te)
 	pos += 4;
 	d->bitmaps_fmt = te->fmt; // struct copy
 
-	nglyphs = dbuf_getui32x(c->infile, pos, te->fmt.is_le);
+	nglyphs = dbuf_getu32x(c->infile, pos, te->fmt.is_le);
 	pos += 4;
 	de_dbg(c, "glyph count: %d", (int)nglyphs);
 
@@ -448,7 +448,7 @@ static void handler_bitmaps(deark *c, lctx *d, struct table_entry *te)
 	}
 
 	for(k=0; k<d->num_chars; k++) {
-		d->chars[k].bitmap_offset = (unsigned int)dbuf_getui32x(c->infile, pos, te->fmt.is_le);
+		d->chars[k].bitmap_offset = (unsigned int)dbuf_getu32x(c->infile, pos, te->fmt.is_le);
 		pos += 4;
 		if(c->debug_level>=2)
 			de_dbg2(c, "char[%d] glyph offset: %u", (int)k, d->chars[k].bitmap_offset);
@@ -458,7 +458,7 @@ static void handler_bitmaps(deark *c, lctx *d, struct table_entry *te)
 		i64 bitmapsize;
 		int use_this_one;
 
-		bitmapsize = dbuf_getui32x(c->infile, pos, te->fmt.is_le);
+		bitmapsize = dbuf_getu32x(c->infile, pos, te->fmt.is_le);
 		pos += 4;
 		use_this_one = (((unsigned int)k)==te->fmt.glyph_padding_code);
 		de_dbg(c, "bitmapsize[if padding=%d]: %u%s", (int)k, (unsigned int)bitmapsize,

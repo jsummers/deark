@@ -124,21 +124,21 @@ static void decode_WAVEFORMATEX(deark *c, lctx *d, struct de_iffctx *ictx, i64 p
 	if(!ictx->is_le) goto done;
 	if(len<14) goto done;
 
-	formattag = (unsigned int)dbuf_getui16le_p(ictx->f, &pos);
+	formattag = (unsigned int)dbuf_getu16le_p(ictx->f, &pos);
 	de_dbg(c, "FormatTag: 0x%04x (%s)", formattag, get_wav_fmt_name(formattag));
-	n = dbuf_getui16le_p(ictx->f, &pos);
+	n = dbuf_getu16le_p(ictx->f, &pos);
 	de_dbg(c, "Channels: %u", (unsigned int)n);
-	n = dbuf_getui32le_p(ictx->f, &pos);
+	n = dbuf_getu32le_p(ictx->f, &pos);
 	de_dbg(c, "SamplesPerSec: %u", (unsigned int)n);
-	n = dbuf_getui32le_p(ictx->f, &pos);
+	n = dbuf_getu32le_p(ictx->f, &pos);
 	de_dbg(c, "AvgBytesPerSec: %u", (unsigned int)n);
-	n = dbuf_getui16le_p(ictx->f, &pos);
+	n = dbuf_getu16le_p(ictx->f, &pos);
 	de_dbg(c, "BlockAlign: %u", (unsigned int)n);
 	if(len<16) goto done;
-	n = dbuf_getui16le_p(ictx->f, &pos);
+	n = dbuf_getu16le_p(ictx->f, &pos);
 	de_dbg(c, "BitsPerSample: %u", (unsigned int)n);
 	if(len<18) goto done;
-	n = dbuf_getui16le_p(ictx->f, &pos);
+	n = dbuf_getu16le_p(ictx->f, &pos);
 	de_dbg(c, "cbSize: %u", (unsigned int)n);
 
 done:

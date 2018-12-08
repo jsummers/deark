@@ -210,7 +210,7 @@ static void do_record_date(deark *c, lctx *d, struct record_info *ri)
 	struct de_timestamp ts;
 	char timestamp_buf[64];
 
-	val1 = dbuf_getui64be(c->infile, ri->dpos);
+	val1 = dbuf_getu64be(c->infile, ri->dpos);
 	val2 = (i64)(val1>>16);
 	de_mac_time_to_timestamp(val2, &ts);
 	ts.tzcode = DE_TZCODE_UTC;

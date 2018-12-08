@@ -106,7 +106,7 @@ static void id3v2_read_to_ucstring(deark *c, dbuf *f, i64 pos1, i64 len,
 		u32 bom_id;
 
 		if(len<2) goto done;
-		bom_id = (u32)dbuf_getui16be(f, pos);
+		bom_id = (u32)dbuf_getu16be(f, pos);
 
 		if(bom_id==0xfeff) {
 			encoding_to_use = DE_ENCODING_UTF16BE;
@@ -518,7 +518,7 @@ static void decode_id3v2_frame_wmpicture(deark *c, id3v2ctx *d,
 	de_dbg(c, "picture type: 0x%02x (%s)", (unsigned int)picture_type,
 		ptinfo?ptinfo->name:"?");
 
-	pic_data_len = dbuf_getui32le(f, pos);
+	pic_data_len = dbuf_getu32le(f, pos);
 	de_dbg(c, "picture size: %u", (unsigned int)pic_data_len);
 	pos += 4;
 
@@ -614,20 +614,20 @@ static void decode_flacpicture(deark *c, id3v2ctx *d, dbuf *f,
 	de_ucstring *description = NULL;
 	const struct apic_type_info *ptinfo = NULL;
 
-	picture_type = (u32)dbuf_getui32be_p(f, &pos);
+	picture_type = (u32)dbuf_getu32be_p(f, &pos);
 	if(picture_type<=0xff) {
 		ptinfo = get_apic_type_info((u8)picture_type);
 	}
 	de_dbg(c, "picture type: 0x%04x (%s)", (unsigned int)picture_type,
 		ptinfo?ptinfo->name:"?");
 
-	stringlen = dbuf_getui32be_p(f, &pos);
+	stringlen = dbuf_getu32be_p(f, &pos);
 	mimetype = ucstring_create(c);
 	dbuf_read_to_ucstring_n(f, pos, stringlen, 256, mimetype, 0, DE_ENCODING_UTF8);
 	de_dbg(c, "mime type: \"%s\"", ucstring_getpsz_d(mimetype));
 	pos += stringlen;
 
-	stringlen = dbuf_getui32be_p(f, &pos);
+	stringlen = dbuf_getu32be_p(f, &pos);
 	description = ucstring_create(c);
 	dbuf_read_to_ucstring_n(f, pos, stringlen, 512, description, 0, DE_ENCODING_UTF8);
 	de_dbg(c, "description: \"%s\"", ucstring_getpsz_d(description));
@@ -637,7 +637,7 @@ static void decode_flacpicture(deark *c, id3v2ctx *d, dbuf *f,
 	pos += 4; // height
 	pos += 4; // bits/pixel
 	pos += 4; // # palette entries
-	pic_data_len = dbuf_getui32be_p(f, &pos);
+	pic_data_len = dbuf_getu32be_p(f, &pos);
 	de_dbg(c, "picture size: %u", (unsigned int)pic_data_len);
 	if(pos+pic_data_len > pos1+len) goto done;
 	extract_pic_apic(c, d, f, pos, pic_data_len, ptinfo);
@@ -970,7 +970,7 @@ static void do_id3v2_frames(deark *c, id3v2ctx *d,
 			pos += 3;
 		}
 		else if(d->version_code==3) {
-			frame_dlen = dbuf_getui32be(f, pos);
+			frame_dlen = dbuf_getu32be(f, pos);
 			pos += 4;
 		}
 		else {
@@ -1048,7 +1048,7 @@ static void do_id3v2(deark *c, dbuf *f, i64 pos, i64 bytes_avail,
 		de_dbg(c, "ID3v2 extended header at %d", (int)d->data_start);
 		de_dbg_indent(c, 1);
 		if(d->version_code==3 && !d->global_level_unsync) {
-			ext_header_size = 4 + dbuf_getui32be(f, d->data_start);
+			ext_header_size = 4 + dbuf_getu32be(f, d->data_start);
 			de_dbg(c, "extended header size: %d", (int)ext_header_size);
 			// TODO: Decode the rest of the extended header
 		}

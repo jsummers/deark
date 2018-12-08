@@ -1042,10 +1042,10 @@ static int identify_pdb_prc_internal(deark *c, dbuf *f)
 {
 	i64 nrecs;
 	u32 attribs;
-	attribs = (u32)dbuf_getui16be(f, 32);
+	attribs = (u32)dbuf_getu16be(f, 32);
 	if(!looks_like_a_4cc(f, 60)) return 0;
 	if(!looks_like_a_4cc(f, 64)) return 0;
-	nrecs = dbuf_getui16be(f, 72+4);
+	nrecs = dbuf_getu16be(f, 72+4);
 	if(nrecs<1) return 0;
 	if(!(attribs&0x0001)) return 0;
 	if(!looks_like_a_4cc(f, 72+6+0)) return 0;

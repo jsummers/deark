@@ -158,8 +158,8 @@ static void do_directory_entry(deark *c, lctx *d, dbuf *f, i64 pos)
 		return;
 	}
 
-	sector_count = dbuf_getui16le(f, pos+1);
-	starting_sector = dbuf_getui16le(f, pos+3);
+	sector_count = dbuf_getu16le(f, pos+1);
+	starting_sector = dbuf_getu16le(f, pos+3);
 	de_dbg(c, "sector start: %d, count: %d", (int)starting_sector, (int)sector_count);
 
 	if(starting_sector<1) goto done;

@@ -85,10 +85,10 @@ static int de_identify_palmbitmap_internal(deark *c, dbuf *f, i64 pos, i64 len)
 
 	ver = de_getbyte(pos+9);
 	if(ver>3) return 0;
-	w = dbuf_getui16be(f, pos+0);
-	h = dbuf_getui16be(f, pos+2);
+	w = dbuf_getu16be(f, pos+0);
+	h = dbuf_getu16be(f, pos+2);
 	if(w==0 || h==0) return 0;
-	rowbytes = dbuf_getui16be(f, pos+4);
+	rowbytes = dbuf_getu16be(f, pos+4);
 	pixelsize = de_getbyte(pos+8);
 	if((pixelsize==0 && ver==0) || pixelsize==1 || pixelsize==2 ||
 		pixelsize==4 || pixelsize==8 || pixelsize==16)
@@ -202,7 +202,7 @@ static void do_generate_unc_image(deark *c, lctx *d, struct page_ctx *pg,
 		for(i=0; i<pg->w; i++) {
 			if(pg->bitsperpixel==16) {
 				u32 clr1;
-				clr1 = (u32)dbuf_getui16be(unc_pixels, pg->rowbytes*j + 2*i);
+				clr1 = (u32)dbuf_getu16be(unc_pixels, pg->rowbytes*j + 2*i);
 				clr = de_rgb565_to_888(clr1);
 				de_bitmap_setpixel_rgb(img, i, j, clr);
 				if(pg->has_trns && clr1==pg->trns_value) {
@@ -259,11 +259,11 @@ static void do_generate_image(deark *c, lctx *d, struct page_ctx *pg,
 
 		if(pg->bitmapversion >= 3) {
 			hdr_len = 4;
-			cmpr_len = dbuf_getui32x(inf, pos, d->is_le);
+			cmpr_len = dbuf_getu32x(inf, pos, d->is_le);
 		}
 		else {
 			hdr_len = 2;
-			cmpr_len = dbuf_getui16x(inf, pos, d->is_le);
+			cmpr_len = dbuf_getu16x(inf, pos, d->is_le);
 		}
 		de_dbg(c, "cmpr len: %d", (int)cmpr_len);
 		if(cmpr_len < len) {
@@ -328,7 +328,7 @@ static int read_BitmapType_colortable(deark *c, lctx *d, struct page_ctx *pg,
 	de_dbg(c, "color table at %d", (int)pos1);
 	de_dbg_indent(c, 1);
 
-	num_entries = dbuf_getui16x(c->infile, pos1, d->is_le);
+	num_entries = dbuf_getu16x(c->infile, pos1, d->is_le);
 	de_dbg(c, "number of entries: %d", (int)num_entries);
 	// TODO: Documentation says "High bits (numEntries > 256) reserved."
 	// What exactly does that mean?
@@ -438,10 +438,10 @@ static void do_palm_BitmapType_internal(deark *c, lctx *d, i64 pos1, i64 len,
 	pg->h =  dbuf_geti16x(c->infile, pos1+2, d->is_le);
 	de_dbg_dimensions(c, pg->w, pg->h);
 
-	pg->rowbytes = dbuf_getui16x(c->infile, pos1+4, d->is_le);
+	pg->rowbytes = dbuf_getu16x(c->infile, pos1+4, d->is_le);
 	de_dbg(c, "rowBytes: %d", (int)pg->rowbytes);
 
-	bitmapflags = (u32)dbuf_getui16x(c->infile, pos1+6, d->is_le);
+	bitmapflags = (u32)dbuf_getu16x(c->infile, pos1+6, d->is_le);
 	flagsdescr = ucstring_create(c);
 	if(bitmapflags&PALMBMPFLAG_COMPRESSED) ucstring_append_flags_item(flagsdescr, "compressed");
 	if(bitmapflags&PALMBMPFLAG_HASCOLORTABLE) ucstring_append_flags_item(flagsdescr, "hasColorTable");
@@ -478,7 +478,7 @@ static void do_palm_BitmapType_internal(deark *c, lctx *d, i64 pos1, i64 len,
 	de_dbg(c, "bits/pixel: %d (%s)", (int)pg->bitsperpixel, bpp_src_name);
 
 	if(pg->bitmapversion==1 || pg->bitmapversion==2) {
-		x = dbuf_getui16x(c->infile, pos1+10, d->is_le);
+		x = dbuf_getu16x(c->infile, pos1+10, d->is_le);
 		nextbitmapoffs_in_bytes = 4*x;
 		if(x==0) {
 			de_snprintf(tmps, sizeof(tmps), "none");
@@ -528,7 +528,7 @@ static void do_palm_BitmapType_internal(deark *c, lctx *d, i64 pos1, i64 len,
 
 	if(pg->bitmapversion==3) {
 		i64 densitycode;
-		densitycode = dbuf_getui16x(c->infile, pos1+14, d->is_le);
+		densitycode = dbuf_getu16x(c->infile, pos1+14, d->is_le);
 		de_dbg(c, "density: %d", (int)densitycode);
 		// The density is an indication of the target screen density.
 		// It's tempting to interpet it as pixels per inch, and copy it to the
@@ -539,7 +539,7 @@ static void do_palm_BitmapType_internal(deark *c, lctx *d, i64 pos1, i64 len,
 	if(pg->bitmapversion==3 && (bitmapflags&PALMBMPFLAG_HASTRNS) && headersize>=20) {
 		// I'm assuming the flag affects this field. The spec is ambiguous.
 		pg->has_trns = 1;
-		pg->trns_value = (u32)dbuf_getui32x(c->infile, pos1+16, d->is_le);
+		pg->trns_value = (u32)dbuf_getu32x(c->infile, pos1+16, d->is_le);
 		de_dbg(c, "transparent color: 0x%08x", (unsigned int)pg->trns_value);
 	}
 
@@ -547,7 +547,7 @@ static void do_palm_BitmapType_internal(deark *c, lctx *d, i64 pos1, i64 len,
 		// Documented as the "number of bytes to the next bitmap", but it doesn't
 		// say where it is measured *from*. I'll assume it's the same logic as
 		// the "nextDepthOffset" field.
-		nextbitmapoffs_in_bytes = dbuf_getui32x(c->infile, pos1+20, d->is_le);
+		nextbitmapoffs_in_bytes = dbuf_getu32x(c->infile, pos1+20, d->is_le);
 		if(nextbitmapoffs_in_bytes==0) {
 			de_snprintf(tmps, sizeof(tmps), "none");
 		}

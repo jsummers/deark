@@ -160,10 +160,10 @@ static int do_read_pal_file(deark *c, lctx *d, const char *palfn)
 		goto done;
 	}
 
-	sig = dbuf_getui16le(palfile, 0);
-	filever = dbuf_getui16le(palfile, 2);
+	sig = dbuf_getu16le(palfile, 0);
+	filever = dbuf_getu16le(palfile, 2);
 	de_dbg(c, "file version: %d", (int)filever);
-	datasize = dbuf_getui16le(palfile, 4);
+	datasize = dbuf_getu16le(palfile, 4);
 	de_dbg(c, "data size: %d", (int)datasize);
 	filetype = dbuf_getbyte(palfile, 6);
 	de_dbg(c, "file type: 0x%02x", (unsigned int)filever);
@@ -175,9 +175,9 @@ static int do_read_pal_file(deark *c, lctx *d, const char *palfn)
 		goto done;
 	}
 
-	board_id = (unsigned int)dbuf_getui16le(palfile, 8);
+	board_id = (unsigned int)dbuf_getu16le(palfile, 8);
 	de_dbg(c, "board id: 0x%04x", board_id);
-	graphics_mode = (unsigned int)dbuf_getui16le(palfile, 10);
+	graphics_mode = (unsigned int)dbuf_getu16le(palfile, 10);
 	de_dbg(c, "graphics mode: 0x%04x", graphics_mode);
 
 	if(filesubtype!=0) {
@@ -186,11 +186,11 @@ static int do_read_pal_file(deark *c, lctx *d, const char *palfn)
 		goto done;
 	}
 
-	maxidx = dbuf_getui16le(palfile, 0x0c);
+	maxidx = dbuf_getu16le(palfile, 0x0c);
 	de_dbg(c, "maxidx: %u", (unsigned int)maxidx);
 
 	for(k=0; k<3; k++) {
-		maxsamp[k] = dbuf_getui16le(palfile, 0x0e + 2*k);
+		maxsamp[k] = dbuf_getu16le(palfile, 0x0e + 2*k);
 		de_dbg(c, "maxsamp[%d]: %u", (int)k, (unsigned int)maxsamp[k]);
 		if(maxsamp[k]<1) maxsamp[k]=1;
 	}
@@ -213,7 +213,7 @@ static int do_read_pal_file(deark *c, lctx *d, const char *palfn)
 		}
 
 		for(z=0; z<3; z++) {
-			osamp[z] = dbuf_getui16le(palfile, pos);
+			osamp[z] = dbuf_getu16le(palfile, pos);
 			pos += 2;
 			samp[z] = de_scale_n_to_255(maxsamp[z], osamp[z]);
 		}

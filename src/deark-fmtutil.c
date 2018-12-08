@@ -56,18 +56,18 @@ int de_fmtutil_get_bmpinfo(deark *c, dbuf *f, struct de_bmpinfo *bi, i64 pos,
 
 	if(fhs) {
 		if(flags & DE_BMPINFO_HAS_HOTSPOT) {
-			bi->hotspot_x = dbuf_getui16le(f, pos+6);
-			bi->hotspot_y = dbuf_getui16le(f, pos+8);
+			bi->hotspot_x = dbuf_getu16le(f, pos+6);
+			bi->hotspot_y = dbuf_getu16le(f, pos+8);
 			de_dbg(c, "hotspot: (%d,%d)", (int)bi->hotspot_x, (int)bi->hotspot_y);
 		}
 
-		bi->bitsoffset = dbuf_getui32le(f, pos+10);
+		bi->bitsoffset = dbuf_getu32le(f, pos+10);
 		de_dbg(c, "bits offset: %d", (int)bi->bitsoffset);
 	}
 
 	bmih_pos = pos + fhs;
 
-	bi->infohdrsize = dbuf_getui32le(f, bmih_pos);
+	bi->infohdrsize = dbuf_getu32le(f, bmih_pos);
 
 	if(bi->infohdrsize==0x474e5089 && (flags & DE_BMPINFO_ICO_FORMAT)) {
 		// We don't examine PNG-formatted icons, but we can identify them.
@@ -80,30 +80,30 @@ int de_fmtutil_get_bmpinfo(deark *c, dbuf *f, struct de_bmpinfo *bi, i64 pos,
 
 	if(bi->infohdrsize==12) {
 		bi->bytes_per_pal_entry = 3;
-		bi->width = dbuf_getui16le(f, bmih_pos+4);
-		bi->height = dbuf_getui16le(f, bmih_pos+6);
-		bi->bitcount = dbuf_getui16le(f, bmih_pos+10);
+		bi->width = dbuf_getu16le(f, bmih_pos+4);
+		bi->height = dbuf_getu16le(f, bmih_pos+6);
+		bi->bitcount = dbuf_getu16le(f, bmih_pos+10);
 	}
 	else if(bi->infohdrsize>=16 && bi->infohdrsize<=124) {
 		bi->bytes_per_pal_entry = 4;
-		bi->width = dbuf_getui32le(f, bmih_pos+4);
+		bi->width = dbuf_getu32le(f, bmih_pos+4);
 		bi->height = dbuf_geti32le(f, bmih_pos+8);
 		if(bi->height<0) {
 			bi->is_topdown = 1;
 			bi->height = -bi->height;
 		}
-		bi->bitcount = dbuf_getui16le(f, bmih_pos+14);
+		bi->bitcount = dbuf_getu16le(f, bmih_pos+14);
 		if(bi->infohdrsize>=20) {
-			bi->compression_field = (u32)dbuf_getui32le(f, bmih_pos+16);
+			bi->compression_field = (u32)dbuf_getu32le(f, bmih_pos+16);
 			if(flags & DE_BMPINFO_CMPR_IS_4CC) {
 				dbuf_read_fourcc(f, bmih_pos+16, &cmpr4cc, 4, 0x0);
 			}
 		}
 		if(bi->infohdrsize>=24) {
-			bi->sizeImage_field = dbuf_getui32le(f, bmih_pos+20);
+			bi->sizeImage_field = dbuf_getu32le(f, bmih_pos+20);
 		}
 		if(bi->infohdrsize>=36) {
-			bi->pal_entries = dbuf_getui32le(f, bmih_pos+32);
+			bi->pal_entries = dbuf_getu32le(f, bmih_pos+32);
 		}
 	}
 	else {
@@ -759,7 +759,7 @@ int de_read_SAUCE(deark *c, dbuf *f, struct de_SAUCE_info *si)
 		sauce_bytes_to_ucstring(c, tmpbuf, tmpbuf_len, si->creation_date, DE_ENCODING_CP437_G, 0x01);
 	}
 
-	si->original_file_size = dbuf_getui32le(f, pos+90);
+	si->original_file_size = dbuf_getu32le(f, pos+90);
 	de_dbg(c, "original file size: %d", (int)si->original_file_size);
 
 	si->data_type = dbuf_getbyte(f, pos+94);
@@ -772,11 +772,11 @@ int de_read_SAUCE(deark *c, dbuf *f, struct de_SAUCE_info *si)
 	de_dbg(c, "file type: %d (%s)", (int)si->file_type, name);
 
 	if(t==0x0100 || t==0x0101 || t==0x0102 || t==0x0104 || t==0x0105 || t==0x0108 || t==0x0600) {
-		si->width_in_chars = dbuf_getui16le(f, pos+96);
+		si->width_in_chars = dbuf_getu16le(f, pos+96);
 		de_dbg(c, "width in chars: %d", (int)si->width_in_chars);
 	}
 	if(t==0x0100 || t==0x0101 || t==0x0104 || t==0x0105 || t==0x0108 || t==0x0600) {
-		si->number_of_lines = dbuf_getui16le(f, pos+98);
+		si->number_of_lines = dbuf_getu16le(f, pos+98);
 		de_dbg(c, "number of lines: %d", (int)si->number_of_lines);
 	}
 
@@ -896,7 +896,7 @@ static int do_box(deark *c, struct de_boxesctx *bctx, i64 pos, i64 len,
 		goto done;
 	}
 
-	size32 = dbuf_getui32be(bctx->f, pos);
+	size32 = dbuf_getu32be(bctx->f, pos);
 	dbuf_read_fourcc(bctx->f, pos+4, &box4cc, 4, 0x0);
 	curbox->boxtype = box4cc.id;
 
@@ -1104,7 +1104,7 @@ void de_fmtutil_read_atari_palette(deark *c, dbuf *f, i64 pos,
 		int nibble_3_used = 0;
 
 		for(i=0; i<ncolors_to_read; i++) {
-			n = (unsigned int)dbuf_getui16be(f, pos + i*2);
+			n = (unsigned int)dbuf_getu16be(f, pos + i*2);
 			if(n&0xf000) {
 				nibble_3_used = 1;
 			}
@@ -1130,7 +1130,7 @@ void de_fmtutil_read_atari_palette(deark *c, dbuf *f, i64 pos,
 	}
 
 	for(i=0; i<ncolors_to_read; i++) {
-		n = (unsigned int)dbuf_getui16be(f, pos + 2*i);
+		n = (unsigned int)dbuf_getu16be(f, pos + 2*i);
 
 		if(pal_bits==15) {
 			cr1 = (u8)((n>>6)&0x1c);
@@ -1278,7 +1278,7 @@ static int decode_atari_image_16(deark *c, struct atari_img_decode_data *adata)
 
 	for(j=0; j<adata->h; j++) {
 		for(i=0; i<adata->w; i++) {
-			v = (u32)dbuf_getui16be(adata->unc_pixels, j*rowspan + 2*i);
+			v = (u32)dbuf_getu16be(adata->unc_pixels, j*rowspan + 2*i);
 			v = de_rgb565_to_888(v);
 			de_bitmap_setpixel_rgb(adata->img, i, j,v);
 		}
@@ -1486,10 +1486,10 @@ static int do_iff_chunk(deark *c, struct de_iffctx *ictx, i64 pos, i64 bytes_ava
 	}
 
 	if(ictx->sizeof_len==2) {
-		chunk_dlen_raw = dbuf_getui16x(ictx->f, pos+4, ictx->is_le);
+		chunk_dlen_raw = dbuf_getu16x(ictx->f, pos+4, ictx->is_le);
 	}
 	else {
-		chunk_dlen_raw = dbuf_getui32x(ictx->f, pos+4, ictx->is_le);
+		chunk_dlen_raw = dbuf_getu32x(ictx->f, pos+4, ictx->is_le);
 	}
 	chunkctx.dlen = chunk_dlen_raw;
 	chunkctx.dpos = pos+hdrsize;
@@ -1751,7 +1751,7 @@ int de_fmtutil_find_zip_eocd(deark *c, dbuf *f, i64 *foundpos)
 	if(f->len < 22) goto done;
 
 	// End-of-central-dir record usually starts 22 bytes from EOF. Try that first.
-	sig = (u32)dbuf_getui32le(f, f->len - 22);
+	sig = (u32)dbuf_getu32le(f, f->len - 22);
 	if(sig == 0x06054b50U) {
 		*foundpos = f->len - 22;
 		retval = 1;

@@ -452,7 +452,7 @@ static int de_identify_macrsrc(deark *c)
 	if(de_getui32be(0)!=256) return 0;
 	de_read(b, 0, 16);
 	for(k=0; k<4; k++) {
-		n[k] = de_getui32be_direct(&b[4*k]);
+		n[k] = de_getu32be_direct(&b[4*k]);
 	}
 	if(n[0]+n[2]>n[1]) return 0; // data can't go past map start
 	if(n[3]<30) return 0; // minimum map len

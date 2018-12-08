@@ -253,7 +253,7 @@ static int read_dflen(deark *c, dbuf *f, i64 pos,
 {
 	i64 x;
 
-	x = dbuf_getui16be(f, pos);
+	x = dbuf_getu16be(f, pos);
 	if(x<32768) { // "Standard DataSet" format
 		*dflen = x;
 		*bytes_consumed = 2;

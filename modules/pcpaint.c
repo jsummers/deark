@@ -479,8 +479,8 @@ done:
 
 static int do_read_palette_data(deark *c, lctx *d, dbuf *f, struct pal_info *palinfo)
 {
-	palinfo->edesc = dbuf_getui16le(f, 13);
-	palinfo->esize = dbuf_getui16le(f, 15);
+	palinfo->edesc = dbuf_getu16le(f, 13);
+	palinfo->esize = dbuf_getu16le(f, 15);
 	palinfo->data = de_malloc(c, palinfo->esize);
 	dbuf_read(f, palinfo->data, 17, palinfo->esize);
 	return 1;
@@ -511,7 +511,7 @@ static int do_read_alt_palette_file(deark *c, lctx *d)
 		goto done;
 	}
 
-	magic = dbuf_getui16le(palfile, 0);
+	magic = dbuf_getu16le(palfile, 0);
 	if(magic!=0x1234) {
 		de_err(c, "Palette file is not in PIC format.");
 		goto done;
@@ -822,7 +822,7 @@ static int de_identify_pcpaint(deark *c)
 
 	clp_ext = de_input_file_has_ext(c, "clp");
 	if(clp_ext) {
-		x = de_getui16le_direct(&buf[0]);
+		x = de_getu16le_direct(&buf[0]);
 		if(x==c->infile->len) {
 			return 50;
 		}

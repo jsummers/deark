@@ -285,8 +285,8 @@ static int de_identify_macbinary(deark *c)
 	if(b[74]!=0) goto done;
 	if(b[82]!=0) goto done;
 
-	dflen = de_getui32be_direct(&b[83]);
-	rflen = de_getui32be_direct(&b[87]);
+	dflen = de_getu32be_direct(&b[83]);
+	rflen = de_getu32be_direct(&b[87]);
 
 	if(ver2>=129) {
 		// Most MacBinary II specific checks go here
@@ -297,7 +297,7 @@ static int de_identify_macbinary(deark *c)
 		if(b[123]!=0 && b[123]!=129) goto done;
 
 		// Secondary header length.
-		n = de_getui16be_direct(&b[120]);
+		n = de_getu16be_direct(&b[120]);
 		if(n!=0) goto done;
 
 		// TODO: checking the CRC would be the most robust check.

@@ -219,11 +219,11 @@ static int read_header_binary(deark *c, lctx *d, struct member_data *md)
 	pos += 2; // c_magic
 	pos += 2; // c_dev
 
-	n = dbuf_getui16x(c->infile, pos, md->is_le);
+	n = dbuf_getu16x(c->infile, pos, md->is_le);
 	de_dbg(c, "c_ino: %d", (int)n);
 	pos += 2;
 
-	md->mode = dbuf_getui16x(c->infile, pos, md->is_le);
+	md->mode = dbuf_getu16x(c->infile, pos, md->is_le);
 	de_dbg(c, "c_mode: octal(%06o)", (unsigned int)md->mode);
 	pos += 2;
 
@@ -232,20 +232,20 @@ static int read_header_binary(deark *c, lctx *d, struct member_data *md)
 	pos += 2; // c_nlink
 	pos += 2; // c_rdev
 
-	modtime_msw = dbuf_getui16x(c->infile, pos, md->is_le);
-	modtime_lsw = dbuf_getui16x(c->infile, pos+2, md->is_le);
+	modtime_msw = dbuf_getu16x(c->infile, pos, md->is_le);
+	modtime_lsw = dbuf_getu16x(c->infile, pos+2, md->is_le);
 	modtime_unix = (modtime_msw<<16) | modtime_lsw;
 	de_unix_time_to_timestamp(modtime_unix, &md->fi->mod_time, 0x1);
 	de_timestamp_to_string(&md->fi->mod_time, timestamp_buf, sizeof(timestamp_buf), 0);
 	de_dbg(c, "c_mtime: %d (%s)", (int)modtime_unix, timestamp_buf);
 	pos += 4;
 
-	md->namesize = dbuf_getui16x(c->infile, pos, md->is_le);
+	md->namesize = dbuf_getu16x(c->infile, pos, md->is_le);
 	de_dbg(c, "c_namesize: %d", (int)md->namesize);
 	pos += 2;
 
-	filesize_msw = dbuf_getui16x(c->infile, pos, md->is_le);
-	filesize_lsw = dbuf_getui16x(c->infile, pos+2, md->is_le);
+	filesize_msw = dbuf_getu16x(c->infile, pos, md->is_le);
+	filesize_lsw = dbuf_getu16x(c->infile, pos+2, md->is_le);
 	md->filesize = (filesize_msw<<16) | filesize_lsw;
 	de_dbg(c, "c_filesize: %d", (int)md->filesize);
 	pos += 4;

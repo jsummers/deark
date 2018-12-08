@@ -584,10 +584,10 @@ static void do_extract_stream_to_file_thumbsdb(deark *c, lctx *d, struct dir_ent
 		}
 	}
 
-	hdrsize = dbuf_getui32le(firstpart, 0);
+	hdrsize = dbuf_getu32le(firstpart, 0);
 	de_dbg(c, "header size: %d", (int)hdrsize);
 
-	ver = dbuf_getui32le(firstpart, 4);
+	ver = dbuf_getu32le(firstpart, 4);
 	de_dbg(c, "version: %d", (int)ver);
 
 	// 0x0c = "Original format" Thumbs.db
@@ -597,7 +597,7 @@ static void do_extract_stream_to_file_thumbsdb(deark *c, lctx *d, struct dir_ent
 		u8 sig1[4];
 		u8 sig2[4];
 
-		reported_size = dbuf_getui32le(firstpart, 8);
+		reported_size = dbuf_getu32le(firstpart, 8);
 		de_dbg(c, "reported size: %d", (int)reported_size);
 
 		startpos = hdrsize;
@@ -746,18 +746,18 @@ static int do_OfficeArtStream_record(deark *c, lctx *d, struct officeartctx *oac
 	if(pos1+128 > dei->stream_size) nbytes_to_copy = dei->stream_size - pos1;
 	copy_any_stream_to_dbuf(c, d, dei, pos1, nbytes_to_copy, firstpart);
 
-	n = (unsigned int)dbuf_getui16le_p(firstpart, &pos);
+	n = (unsigned int)dbuf_getu16le_p(firstpart, &pos);
 	recver = n&0x0f;
 	if(recver==0x0f) oactx->is_container = 1;
 	recinstance = n>>4;
 
-	rectype = (unsigned int)dbuf_getui16le_p(firstpart, &pos);
+	rectype = (unsigned int)dbuf_getu16le_p(firstpart, &pos);
 	if((rectype&0xf000)!=0xf000) {
 		// Assume this is the end of data, not necessarily an error.
 		goto done;
 	}
 
-	reclen = dbuf_getui32le_p(firstpart, &pos);
+	reclen = dbuf_getu32le_p(firstpart, &pos);
 
 	de_dbg(c, "record at [%"I64_FMT"], ver=0x%x, inst=0x%03x, type=0x%04x (%s), dlen=%"I64_FMT,
 		pos1, recver, recinstance,
@@ -948,18 +948,18 @@ static int read_thumbsdb_catalog(deark *c, lctx *d, struct dir_entry_info *dei)
 	catf = dbuf_create_membuf(c, dei->stream_size, 0);
 	copy_any_stream_to_dbuf(c, d, dei, 0, dei->stream_size, catf);
 
-	item_len = dbuf_getui16le(catf, 0);
+	item_len = dbuf_getu16le(catf, 0);
 	de_dbg(c, "header size: %d", (int)item_len); // (?)
 	if(item_len!=16) goto done;
 
-	n = dbuf_getui16le(catf, 2);
+	n = dbuf_getu16le(catf, 2);
 	de_dbg(c, "catalog version: %d", (int)n); // (?)
 	if(n!=5 && n!=6 && n!=7) {
 		de_warn(c, "Unsupported Catalog version: %d", (int)n);
 		goto done;
 	}
 
-	d->thumbsdb_catalog_num_entries = dbuf_getui16le(catf, 4); // This might really be a 4 byte int.
+	d->thumbsdb_catalog_num_entries = dbuf_getu16le(catf, 4); // This might really be a 4 byte int.
 	de_dbg(c, "num entries: %d", (int)d->thumbsdb_catalog_num_entries);
 	if(d->thumbsdb_catalog_num_entries>2048)
 		d->thumbsdb_catalog_num_entries = 2048;
@@ -971,13 +971,13 @@ static int read_thumbsdb_catalog(deark *c, lctx *d, struct dir_entry_info *dei)
 
 	for(i=0; i<d->thumbsdb_catalog_num_entries; i++) {
 		if(pos >= catf->len) goto done;
-		item_len = dbuf_getui32le(catf, pos);
+		item_len = dbuf_getu32le(catf, pos);
 		de_dbg(c, "catalog entry #%d, len=%d", (int)i, (int)item_len);
 		if(item_len<20) goto done;
 
 		de_dbg_indent(c, 1);
 
-		d->thumbsdb_catalog[i].id = (u32)dbuf_getui32le(catf, pos+4);
+		d->thumbsdb_catalog[i].id = (u32)dbuf_getu32le(catf, pos+4);
 		de_dbg(c, "id: %u", (unsigned int)d->thumbsdb_catalog[i].id);
 
 		read_and_cvt_timestamp(c, catf, pos+8, &d->thumbsdb_catalog[i].mod_time);
@@ -1424,7 +1424,7 @@ static void do_process_stream(deark *c, lctx *d, struct dir_entry_info *dei)
 
 	if(is_OfficeArtStream) {
 		unsigned int rectype;
-		rectype = (unsigned int)dbuf_getui16le(firstpart, 2);
+		rectype = (unsigned int)dbuf_getu16le(firstpart, 2);
 		if((rectype&0xf000)!=0xf000) {
 			is_OfficeArtStream = 0;
 		}
@@ -1475,7 +1475,7 @@ static void do_read_dir_entry(deark *c, lctx *d, i64 dir_entry_idx, i64 dir_entr
 
 	if(dei->entry_type==OBJTYPE_EMPTY) goto done;
 
-	dei->name_len_raw = dbuf_getui16le(d->dir, dir_entry_offs+64);
+	dei->name_len_raw = dbuf_getu16le(d->dir, dir_entry_offs+64);
 
 	name_len_bytes = dei->name_len_raw-2; // Ignore the trailing U+0000
 	if(name_len_bytes<0) name_len_bytes = 0;
@@ -1504,7 +1504,7 @@ static void do_read_dir_entry(deark *c, lctx *d, i64 dir_entry_idx, i64 dir_entr
 	raw_sec_id = dbuf_geti32le(d->dir, dir_entry_offs+116);
 
 	if(d->major_ver<=3) {
-		dei->stream_size = dbuf_getui32le(d->dir, dir_entry_offs+120);
+		dei->stream_size = dbuf_getu32le(d->dir, dir_entry_offs+120);
 	}
 	else {
 		dei->stream_size = dbuf_geti64le(d->dir, dir_entry_offs+120);

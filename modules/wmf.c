@@ -854,8 +854,8 @@ static int de_identify_wmf(deark *c)
 
 	if(de_input_file_has_ext(c, "wmf")) {
 		i64 ftype, hsize;
-		ftype = de_getui16le_direct(&buf[0]);
-		hsize = de_getui16le_direct(&buf[2]);
+		ftype = de_getu16le_direct(&buf[0]);
+		hsize = de_getu16le_direct(&buf[2]);
 		if(hsize==9 && (ftype==1 || ftype==2)) {
 			return 80;
 		}

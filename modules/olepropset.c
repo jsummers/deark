@@ -94,7 +94,7 @@ static void do_prop_blob(deark *c, lctx *d, struct propset_struct *si,
 	i64 pos = pos1;
 	u8 magic[8];
 
-	blob_data_size = dbuf_getui32le_p(d->f, &pos);
+	blob_data_size = dbuf_getu32le_p(d->f, &pos);
 	de_dbg(c, "%s data size: %"I64_FMT, name, blob_data_size);
 
 	blob_data_start = pos;
@@ -129,10 +129,10 @@ static void do_prop_clipboard(deark *c, lctx *d, struct propset_struct *si,
 	i64 cbdatapos;
 	const char *cbtype_name;
 
-	cbsize_reported = dbuf_getui32le(d->f, pos1);
+	cbsize_reported = dbuf_getu32le(d->f, pos1);
 	de_dbg(c, "clipboard data size: %d", (int)cbsize_reported);
 
-	cbtype = (u32)dbuf_getui32le(d->f, pos1+8);
+	cbtype = (u32)dbuf_getu32le(d->f, pos1+8);
 	if(cbtype==0x54434950U) {
 		cbtype_name="PICT";
 	}
@@ -247,7 +247,7 @@ static void do_prop_CodePageString2(deark *c, lctx *d, struct propset_struct *si
 		encoding = DE_ENCODING_ASCII;
 	}
 
-	n_raw = dbuf_getui32le(d->f, dpos);
+	n_raw = dbuf_getu32le(d->f, dpos);
 
 	if(is_utf16) {
 		i64 n;
@@ -505,7 +505,7 @@ static int do_prop_simple_type(deark *c, lctx *d, struct propset_struct *si,
 static void read_vectorheader(deark *c, lctx *d, struct propset_struct *si,
 	struct prop_info_struct *pinfo, i64 *numitems)
 {
-	*numitems = dbuf_getui32le(d->f, pinfo->dpos);
+	*numitems = dbuf_getu32le(d->f, pinfo->dpos);
 	de_dbg(c, "number of items: %u", (unsigned int)(*numitems));
 }
 
@@ -568,7 +568,7 @@ static int do_prop_vector_of_variant(deark *c, lctx *d, struct propset_struct *s
 		de_dbg(c, "item[%u]:", (unsigned int)k);
 		de_dbg_indent(c, 1);
 
-		data_type = (u32)dbuf_getui16le_p(d->f, &pos);
+		data_type = (u32)dbuf_getu16le_p(d->f, &pos);
 		de_dbg(c, "data type: 0x%04x (%s)", (unsigned int)data_type,
 			get_prop_data_type_name(dtname, sizeof(dtname), data_type));
 		pos += 2; // padding
@@ -598,7 +598,7 @@ static void do_prop_toplevel(deark *c, lctx *d, struct propset_struct *si,
 	i64 bytes_consumed = 0;
 
 	// TODO: There's some confusion about whether this is a 16-bit, or a 32-bit int.
-	pinfo->data_type = (u32)dbuf_getui16le(d->f, si->tbloffset+pinfo->data_offs_rel);
+	pinfo->data_type = (u32)dbuf_getu16le(d->f, si->tbloffset+pinfo->data_offs_rel);
 	de_dbg(c, "data type: 0x%04x (%s)", (unsigned int)pinfo->data_type,
 		get_prop_data_type_name(dtname, sizeof(dtname), pinfo->data_type));
 
@@ -632,7 +632,7 @@ static void do_dictionary(deark *c, lctx *d, struct propset_struct *si,
 
 	de_dbg_indent_save(c, &saved_indent_level);
 	if(si->dictionary) goto done;
-	si->num_dict_entries = (size_t)dbuf_getui32le_p(d->f, &pos);
+	si->num_dict_entries = (size_t)dbuf_getu32le_p(d->f, &pos);
 	de_dbg(c, "number of dictionary entries: %u", (unsigned int)si->num_dict_entries);
 	if(si->num_dict_entries > 500) {
 		si->num_dict_entries = 0;
@@ -651,7 +651,7 @@ static void do_dictionary(deark *c, lctx *d, struct propset_struct *si,
 
 		de_dbg(c, "entry[%u]:", (unsigned int)k);
 		de_dbg_indent(c, 1);
-		si->dictionary[k].prop_id = (u32)dbuf_getui32le_p(d->f, &pos);
+		si->dictionary[k].prop_id = (u32)dbuf_getu32le_p(d->f, &pos);
 		de_dbg(c, "prop id: 0x%08x", (unsigned int)si->dictionary[k].prop_id);
 		si->dictionary[k].str = ucstring_create(c);
 		do_prop_CodePageString2(c, d, si, "name", pos, 1, &bytes_consumed, si->dictionary[k].str);
@@ -807,10 +807,10 @@ static void do_PropertySet(deark *c, lctx *d, struct propset_struct *si,
 	u8 pass;
 
 	// I think this is the length of the data section
-	n = dbuf_getui32le(d->f, si->tbloffset);
+	n = dbuf_getu32le(d->f, si->tbloffset);
 	de_dbg(c, "property data length: %d", (int)n);
 
-	nproperties = dbuf_getui32le(d->f, si->tbloffset+4);
+	nproperties = dbuf_getu32le(d->f, si->tbloffset+4);
 	de_dbg(c, "number of properties: %d", (int)nproperties);
 	if(nproperties>200) goto done;
 
@@ -821,7 +821,7 @@ static void do_PropertySet(deark *c, lctx *d, struct propset_struct *si,
 	whichpass = de_malloc(c, nproperties);
 	for(i=0; i<nproperties; i++) {
 		u32 prop_id;
-		prop_id = (u32)dbuf_getui32le(d->f, si->tbloffset+8 + 8*i);
+		prop_id = (u32)dbuf_getu32le(d->f, si->tbloffset+8 + 8*i);
 		if(prop_id==0x00000001U || prop_id==0x80000000U || prop_id==0x80000001U ||
 			prop_id==0x80000003U)
 		{
@@ -845,8 +845,8 @@ static void do_PropertySet(deark *c, lctx *d, struct propset_struct *si,
 
 			de_zeromem(&pinfo, sizeof(struct prop_info_struct));
 
-			pinfo.prop_id = (u32)dbuf_getui32le(d->f, si->tbloffset+8 + 8*i);
-			pinfo.data_offs_rel = dbuf_getui32le(d->f, si->tbloffset+8 + 8*i + 4);
+			pinfo.prop_id = (u32)dbuf_getu32le(d->f, si->tbloffset+8 + 8*i);
+			pinfo.data_offs_rel = dbuf_getu32le(d->f, si->tbloffset+8 + 8*i + 4);
 			pinfo.dpos = si->tbloffset+pinfo.data_offs_rel+4;
 			set_prop_name(c, si, &pinfo);
 
@@ -914,16 +914,16 @@ static void do_decode_PropertySetStream(deark *c, lctx *d)
 	de_dbg_indent_save(c, &saved_indent_level);
 
 	// expecting 48 (or more?) bytes of header info.
-	n = dbuf_getui16le_p(d->f, &pos);
+	n = dbuf_getu16le_p(d->f, &pos);
 	de_dbg(c, "byte order code: 0x%04x", (unsigned int)n);
 	if(n != 0xfffe) goto done;
 
-	d->propset_version = (unsigned int)dbuf_getui16le_p(d->f, &pos);
+	d->propset_version = (unsigned int)dbuf_getu16le_p(d->f, &pos);
 	de_dbg(c, "property set version: %u", d->propset_version);
 
-	n = dbuf_getui16le_p(d->f, &pos);
+	n = dbuf_getu16le_p(d->f, &pos);
 	de_dbg(c, "OS ver: 0x%04x", (unsigned int)n);
-	n = dbuf_getui16le_p(d->f, &pos);
+	n = dbuf_getu16le_p(d->f, &pos);
 	de_dbg(c, "OS: 0x%04x", (unsigned int)n);
 
 	dbuf_read(d->f, clsid, pos, 16);
@@ -932,7 +932,7 @@ static void do_decode_PropertySetStream(deark *c, lctx *d)
 	de_fmtutil_render_uuid(c, clsid, clsid_string, sizeof(clsid_string));
 	de_dbg(c, "clsid: {%s}", clsid_string);
 
-	nsets = dbuf_getui32le_p(d->f, &pos);
+	nsets = dbuf_getu32le_p(d->f, &pos);
 	de_dbg(c, "number of property sets: %d", (int)nsets);
 	if(nsets>2) goto done;
 
@@ -954,7 +954,7 @@ static void do_decode_PropertySetStream(deark *c, lctx *d)
 
 		// This is supposed to be a DWORD, but I've seen some with only two valid
 		// bytes. And it shouldn't be much bigger than 48.
-		si->tbloffset = dbuf_getui16le_p(d->f, &pos);
+		si->tbloffset = dbuf_getu16le_p(d->f, &pos);
 		pos += 2;
 
 		de_dbg(c, "PropertySet[%d] table at %d", (int)k, (int)si->tbloffset);

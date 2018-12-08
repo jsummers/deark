@@ -317,7 +317,7 @@ static void de_run_mbk_mbs(deark *c, de_module_params *mparams)
 		}
 	}
 	else {
-		id = (u32)de_getui32be_direct(buf);
+		id = (u32)de_getu32be_direct(buf);
 
 		if(id==0x19861987U) {
 			de_declare_fmt(c, "STOS Sprite Bank");

@@ -564,10 +564,10 @@ static void do_image_16_32bit(deark *c, lctx *d, dbuf *bits, i64 bits_offset)
 	for(j=0; j<d->height; j++) {
 		for(i=0; i<d->width; i++) {
 			if(d->bitcount==16) {
-				v = (u32)dbuf_getui16le(bits, bits_offset + j*d->rowspan + 2*i);
+				v = (u32)dbuf_getu16le(bits, bits_offset + j*d->rowspan + 2*i);
 			}
 			else {
-				v = (u32)dbuf_getui32le(bits, bits_offset + j*d->rowspan + 4*i);
+				v = (u32)dbuf_getu32le(bits, bits_offset + j*d->rowspan + 4*i);
 			}
 
 			for(k=0; k<4; k++) {
@@ -851,7 +851,7 @@ static int de_identify_bmp(deark *c)
 	}
 
 	bmp_ext = de_input_file_has_ext(c, "bmp");
-	fsize = de_getui32le_direct(&buf[2]);
+	fsize = de_getu32le_direct(&buf[2]);
 	bits_offset = de_getui32le(10);
 	infohdrsize = de_getui32le(14);
 

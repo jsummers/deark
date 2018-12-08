@@ -332,9 +332,9 @@ static void do_tagged_blocks(deark *c, lctx *d, zztype *zz, int tbnamespace);
 static int do_descriptor_item_ostype_and_data(deark *c, lctx *d,
 	const struct flexible_id *key_flid, zztype *zz, i64 itempos);
 
-#define psd_getui16(p) dbuf_getui16x(c->infile,p,d->is_le)
+#define psd_getui16(p) dbuf_getu16x(c->infile,p,d->is_le)
 #define psd_geti16(p) dbuf_geti16x(c->infile,p,d->is_le)
-#define psd_getui32(p) dbuf_getui32x(c->infile,p,d->is_le)
+#define psd_getui32(p) dbuf_getu32x(c->infile,p,d->is_le)
 #define psd_geti32(p) dbuf_geti32x(c->infile,p,d->is_le)
 #define psd_geti64(p) dbuf_geti64x(c->infile,p,d->is_le)
 
@@ -398,7 +398,7 @@ static u8 psd_dbuf_getbyte_zz(dbuf *f, zztype *zz)
 
 static i64 psd_dbuf_getui16_zz(dbuf *f, zztype *zz, int is_le)
 {
-	i64 val = dbuf_getui16x(f, zz->pos, is_le);
+	i64 val = dbuf_getu16x(f, zz->pos, is_le);
 	zz->pos += 2;
 	return val;
 }
@@ -412,7 +412,7 @@ static i64 psd_dbuf_geti16_zz(dbuf *f, zztype *zz, int is_le)
 
 static i64 psd_dbuf_getui32_zz(dbuf *f, zztype *zz, int is_le)
 {
-	i64 val = dbuf_getui32x(f, zz->pos, is_le);
+	i64 val = dbuf_getu32x(f, zz->pos, is_le);
 	zz->pos += 4;
 	return val;
 }

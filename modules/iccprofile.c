@@ -169,7 +169,7 @@ static double read_s15Fixed16Number(dbuf *f, i64 pos)
 	i64 n, frac;
 
 	n = dbuf_geti16be(f, pos);
-	frac = dbuf_getui16be(f, pos+2);
+	frac = dbuf_getu16be(f, pos+2);
 	return (double)n + ((double)frac)/65536.0;
 }
 

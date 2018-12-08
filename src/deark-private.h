@@ -458,47 +458,47 @@ i64 de_liblzw_read(struct de_liblzwctx *lzw, u8 *readbuf, size_t count);
 
 ///////////////////////////////////////////
 
-i64 de_getui16be_direct(const u8 *m);
-i64 de_getui16le_direct(const u8 *m);
-i64 de_getui32be_direct(const u8 *m);
-i64 de_getui32le_direct(const u8 *m);
+i64 de_getu16be_direct(const u8 *m);
+i64 de_getu16le_direct(const u8 *m);
+i64 de_getu32be_direct(const u8 *m);
+i64 de_getu32le_direct(const u8 *m);
 i64 de_geti64be_direct(const u8 *m);
 i64 de_geti64le_direct(const u8 *m);
-u64 de_getui64be_direct(const u8 *m);
-u64 de_getui64le_direct(const u8 *m);
+u64 de_getu64be_direct(const u8 *m);
+u64 de_getu64le_direct(const u8 *m);
 
 void dbuf_read(dbuf *f, u8 *buf, i64 pos, i64 len);
 i64 dbuf_standard_read(dbuf *f, u8 *buf, i64 n, i64 *fpos);
 u8 dbuf_getbyte(dbuf *f, i64 pos);
 
-i64 dbuf_getui16be(dbuf *f, i64 pos);
-i64 dbuf_getui16le(dbuf *f, i64 pos);
-i64 dbuf_getui16x(dbuf *f, i64 pos, int is_le);
+i64 dbuf_getu16be(dbuf *f, i64 pos);
+i64 dbuf_getu16le(dbuf *f, i64 pos);
+i64 dbuf_getu16x(dbuf *f, i64 pos, int is_le);
 i64 dbuf_geti16be(dbuf *f, i64 pos);
 i64 dbuf_geti16le(dbuf *f, i64 pos);
 i64 dbuf_geti16x(dbuf *f, i64 pos, int is_le);
-i64 dbuf_getui32be(dbuf *f, i64 pos);
-i64 dbuf_getui32le(dbuf *f, i64 pos);
-i64 dbuf_getui32x(dbuf *f, i64 pos, int is_le);
+i64 dbuf_getu32be(dbuf *f, i64 pos);
+i64 dbuf_getu32le(dbuf *f, i64 pos);
+i64 dbuf_getu32x(dbuf *f, i64 pos, int is_le);
 i64 dbuf_geti32be(dbuf *f, i64 pos);
 i64 dbuf_geti32le(dbuf *f, i64 pos);
 i64 dbuf_geti32x(dbuf *f, i64 pos, int is_le);
 i64 dbuf_geti64be(dbuf *f, i64 pos);
 i64 dbuf_geti64le(dbuf *f, i64 pos);
 i64 dbuf_geti64x(dbuf *f, i64 pos, int is_le);
-u64 dbuf_getui64be(dbuf *f, i64 pos);
-u64 dbuf_getui64le(dbuf *f, i64 pos);
-u64 dbuf_getui64x(dbuf *f, i64 pos, int is_le);
+u64 dbuf_getu64be(dbuf *f, i64 pos);
+u64 dbuf_getu64le(dbuf *f, i64 pos);
+u64 dbuf_getu64x(dbuf *f, i64 pos, int is_le);
 
 i64 dbuf_getint_ext(dbuf *f, i64 pos, unsigned int nbytes,
 	int is_le, int is_signed);
 
 // The _p functions update a caller-supplied position.
 u8 dbuf_getbyte_p(dbuf *f, i64 *ppos);
-i64 dbuf_getui16be_p(dbuf *f, i64 *ppos);
-i64 dbuf_getui16le_p(dbuf *f, i64 *ppos);
-i64 dbuf_getui32le_p(dbuf *f, i64 *ppos);
-i64 dbuf_getui32be_p(dbuf *f, i64 *ppos);
+i64 dbuf_getu16be_p(dbuf *f, i64 *ppos);
+i64 dbuf_getu16le_p(dbuf *f, i64 *ppos);
+i64 dbuf_getu32le_p(dbuf *f, i64 *ppos);
+i64 dbuf_getu32be_p(dbuf *f, i64 *ppos);
 i64 dbuf_geti16be_p(dbuf *f, i64 *ppos);
 i64 dbuf_geti16le_p(dbuf *f, i64 *ppos);
 i64 dbuf_geti32be_p(dbuf *f, i64 *ppos);
@@ -510,21 +510,21 @@ i64 dbuf_geti32le_p(dbuf *f, i64 *ppos);
 #if !defined(DE_NOT_IN_MODULE) || defined(DE_WINDOWS)
 #define de_read(b,p,l) dbuf_read(c->infile,b,p,l);
 #define de_getbyte(p) dbuf_getbyte(c->infile,p)
-#define de_getui16be(p) dbuf_getui16be(c->infile,p)
-#define de_getui16le(p) dbuf_getui16le(c->infile,p)
+#define de_getui16be(p) dbuf_getu16be(c->infile,p)
+#define de_getui16le(p) dbuf_getu16le(c->infile,p)
 #define de_geti16be(p) dbuf_geti16be(c->infile,p)
 #define de_geti16le(p) dbuf_geti16le(c->infile,p)
-#define de_getui32be(p) dbuf_getui32be(c->infile,p)
-#define de_getui32le(p) dbuf_getui32le(c->infile,p)
+#define de_getui32be(p) dbuf_getu32be(c->infile,p)
+#define de_getui32le(p) dbuf_getu32le(c->infile,p)
 #define de_geti32be(p) dbuf_geti32be(c->infile,p)
 #define de_geti32le(p) dbuf_geti32le(c->infile,p)
 #define de_geti64be(p) dbuf_geti64be(c->infile,p)
 #define de_geti64le(p) dbuf_geti64le(c->infile,p)
 #define de_getbyte_p(p) dbuf_getbyte_p(c->infile,p)
-#define de_getui16be_p(p) dbuf_getui16be_p(c->infile,p)
-#define de_getui16le_p(p) dbuf_getui16le_p(c->infile,p)
-#define de_getui32be_p(p) dbuf_getui32be_p(c->infile,p)
-#define de_getui32le_p(p) dbuf_getui32le_p(c->infile,p)
+#define de_getui16be_p(p) dbuf_getu16be_p(c->infile,p)
+#define de_getui16le_p(p) dbuf_getu16le_p(c->infile,p)
+#define de_getui32be_p(p) dbuf_getu32be_p(c->infile,p)
+#define de_getui32le_p(p) dbuf_getu32le_p(c->infile,p)
 #define de_geti16be_p(p) dbuf_geti16be_p(c->infile,p)
 #define de_geti16le_p(p) dbuf_geti16le_p(c->infile,p)
 #define de_geti32be_p(p) dbuf_geti32be_p(c->infile,p)

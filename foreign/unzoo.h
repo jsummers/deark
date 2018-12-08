@@ -169,7 +169,7 @@ static int ByteReadArch(struct unzooctx *uz)
 static u32 HalfReadArch (struct unzooctx *uz)
 {
 	u32 result;
-	result = (u32)dbuf_getui16le(uz->ReadArch, uz->ReadArch_fpos);
+	result = (u32)dbuf_getu16le(uz->ReadArch, uz->ReadArch_fpos);
 	uz->ReadArch_fpos += 2;
 	return result;
 }
@@ -177,7 +177,7 @@ static u32 HalfReadArch (struct unzooctx *uz)
 static u32 FlahReadArch (struct unzooctx *uz)
 {
 	u32 result;
-	result = (u32)dbuf_getui16be(uz->ReadArch, uz->ReadArch_fpos);
+	result = (u32)dbuf_getu16be(uz->ReadArch, uz->ReadArch_fpos);
 	uz->ReadArch_fpos += 2;
 	return result;
 }
@@ -194,7 +194,7 @@ static u32 TripReadArch (struct unzooctx *uz)
 static u32 WordReadArch (struct unzooctx *uz)
 {
 	u32 result;
-	result = (u32)dbuf_getui32le(uz->ReadArch, uz->ReadArch_fpos);
+	result = (u32)dbuf_getu32le(uz->ReadArch, uz->ReadArch_fpos);
 	uz->ReadArch_fpos += 4;
 	return result;
 }

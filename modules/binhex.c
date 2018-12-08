@@ -120,7 +120,7 @@ static int do_extract_one_file(deark *c, lctx *d, dbuf *inf, i64 pos,
 	// all of them have the correct CRC.
 	//de_crcobj_addbuf(d->crco, (const u8*)"\0\0", 2);
 
-	crc_reported = (u32)dbuf_getui16be(inf, pos+len);
+	crc_reported = (u32)dbuf_getu16be(inf, pos+len);
 	de_dbg(c, "%s fork crc (reported): 0x%04x", forkname,
 		(unsigned int)crc_reported);
 
@@ -176,9 +176,9 @@ static void do_extract_files(deark *c, lctx *d)
 
 	// The next (& last) 20 bytes of the header have predictable positions.
 
-	dlen = dbuf_getui32be(f, pos+10);
-	rlen = dbuf_getui32be(f, pos+14);
-	hc = (u32)dbuf_getui16be(f, pos+18);
+	dlen = dbuf_getu32be(f, pos+10);
+	rlen = dbuf_getu32be(f, pos+14);
+	hc = (u32)dbuf_getu16be(f, pos+18);
 
 	de_dbg(c, "data fork len: %d", (int)dlen);
 	de_dbg(c, "resource fork len: %d", (int)rlen);

@@ -489,9 +489,9 @@ static void ef_infozipmac(deark *c, lctx *d, struct extra_item_info_struct *eii)
 	if(flags&0x0010) goto done; // We want timezone offsets
 	if(attr_data->len - dpos < 6*4) goto done;
 
-	create_time_raw = dbuf_getui32le_p(attr_data, &dpos);
-	mod_time_raw    = dbuf_getui32le_p(attr_data, &dpos);
-	backup_time_raw = dbuf_getui32le_p(attr_data, &dpos);
+	create_time_raw = dbuf_getu32le_p(attr_data, &dpos);
+	mod_time_raw    = dbuf_getu32le_p(attr_data, &dpos);
+	backup_time_raw = dbuf_getu32le_p(attr_data, &dpos);
 	create_time_offset = dbuf_geti32le(attr_data, dpos); dpos += 4;
 	mod_time_offset    = dbuf_geti32le(attr_data, dpos); dpos += 4;
 	backup_time_offset = dbuf_geti32le(attr_data, dpos); dpos += 4;
@@ -505,7 +505,7 @@ static void ef_infozipmac(deark *c, lctx *d, struct extra_item_info_struct *eii)
 	// strings that follow.
 	if(attr_data->len - dpos < 4) goto done;
 
-	charset = (int)dbuf_getui16le_p(attr_data, &dpos);
+	charset = (int)dbuf_getu16le_p(attr_data, &dpos);
 	de_dbg(c, "charset for fullpath/comment: %d", (int)charset);
 
 	// TODO: Can we use the correct encoding?

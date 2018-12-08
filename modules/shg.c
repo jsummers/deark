@@ -55,7 +55,7 @@ static void do_uncompress_lz77(deark *c,
 			else { // match
 				unsigned int matchpos;
 				unsigned int matchlen;
-				matchpos = (unsigned int)dbuf_getui16le(inf, pos);
+				matchpos = (unsigned int)dbuf_getu16le(inf, pos);
 				pos+=2;
 				matchlen = ((matchpos>>12) & 0x0f) + 3;
 				matchpos = wpos-(matchpos&4095)-1;
@@ -105,7 +105,7 @@ static i64 get_cus(dbuf *f, i64 *pos)
 static i64 get_cul(dbuf *f, i64 *pos)
 {
 	i64 x1, x2;
-	x1 = dbuf_getui16le(f, *pos);
+	x1 = dbuf_getu16le(f, *pos);
 	*pos += 2;
 	if(x1%2 == 0) {
 		// If it's even, divide by two.
@@ -113,7 +113,7 @@ static i64 get_cul(dbuf *f, i64 *pos)
 	}
 	// If it's odd, divide by two, and add 32768 times the value of
 	// the next two bytes.
-	x2 = dbuf_getui16le(f, *pos);
+	x2 = dbuf_getu16le(f, *pos);
 	*pos += 2;
 	return (x1>>1) | (x2<<15);
 }

@@ -181,11 +181,11 @@ static void do_midi_MThd(deark *c, struct de_iffctx *ictx,
 	i64 format_field, ntrks_field, division_field;
 
 	if(chunkctx->dlen<6) return;
-	format_field = dbuf_getui16be(ictx->f, chunkctx->dpos);
+	format_field = dbuf_getu16be(ictx->f, chunkctx->dpos);
 	de_dbg(c, "format: %d", (int)format_field);
-	ntrks_field = dbuf_getui16be(ictx->f, chunkctx->dpos+2);
+	ntrks_field = dbuf_getu16be(ictx->f, chunkctx->dpos+2);
 	de_dbg(c, "ntrks: %d", (int)ntrks_field);
-	division_field = dbuf_getui16be(ictx->f, chunkctx->dpos+4);
+	division_field = dbuf_getu16be(ictx->f, chunkctx->dpos+4);
 	de_dbg(c, "division: %d", (int)division_field);
 }
 

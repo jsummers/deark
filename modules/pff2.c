@@ -160,7 +160,7 @@ static int my_pff2_chunk_handler(deark *c, struct de_iffctx *ictx)
 	}
 	else if(si->flags&0x2) {
 		i64 n;
-		n = dbuf_getui16be(ictx->f, ictx->chunkctx->dpos);
+		n = dbuf_getu16be(ictx->f, ictx->chunkctx->dpos);
 		de_dbg(c, "value: %d", (int)n);
 	}
 

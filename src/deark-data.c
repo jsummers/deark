@@ -431,8 +431,8 @@ void de_utf8_to_ascii(const char *src, char *dst, size_t dstlen, unsigned int fl
 static i64 getui16x_direct(const u8 *m, int is_le)
 {
 	if(is_le)
-		return de_getui16le_direct(m);
-	return de_getui16be_direct(m);
+		return de_getu16le_direct(m);
+	return de_getu16be_direct(m);
 }
 
 // Convert a UTF-16LE or UTF-16BE character to UTF-32.
