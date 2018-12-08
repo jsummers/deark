@@ -21,7 +21,7 @@ typedef struct localctx_struct {
 	dbuf *outf;
 } lctx;
 
-static const char *get_token(de_byte b)
+static const char *get_token(u8 b)
 {
 	static const char *t[] = {"END","FOR","NEXT","DATA","INPUT#","INPUT","DIM",
 		"READ","LET","GOTO","RUN","IF","RESTORE","GOSUB","RETURN","REM","STOP",
@@ -42,7 +42,7 @@ static void process_line(deark *c, lctx *d, i64 file_pos, i64 mem_pos,
 {
 	i64 line_num;
 	i64 pos;
-	de_byte b;
+	u8 b;
 	const char *token;
 	int in_quote = 0;
 
@@ -129,7 +129,7 @@ static void de_run_basic_c64(deark *c, de_module_params *mparams)
 
 static int de_identify_basic_c64(deark *c)
 {
-	de_byte buf[8];
+	u8 buf[8];
 
 	if(de_input_file_has_ext(c, "prg")) {
 		de_read(buf, 0, 2);

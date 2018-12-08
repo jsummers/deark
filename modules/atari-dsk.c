@@ -14,7 +14,7 @@ typedef struct localctx_struct {
 static void do_cas(deark *c)
 {
 	i64 pos;
-	de_byte chunk_id[4];
+	u8 chunk_id[4];
 	i64 chunk_len;
 	i64 chunk_extra;
 
@@ -43,7 +43,7 @@ static void de_run_cas(deark *c, de_module_params *mparams)
 
 static int de_identify_cas(deark *c)
 {
-	de_byte buf[16];
+	u8 buf[16];
 	de_read(buf, 0, 16);
 
 	if(!de_memcmp(buf, "FUJI", 4)) {
@@ -64,7 +64,7 @@ void de_module_atari_cas(deark *c, struct deark_module_info *mi)
 
 
 // --------------------------------------------
-static i64 space_padded_length(const de_byte *buf, i64 len)
+static i64 space_padded_length(const u8 *buf, i64 len)
 {
 	i64 i;
 	i64 last_nonspace = -1;
@@ -108,7 +108,7 @@ static void do_extract_file_contents(deark *c, lctx *d, dbuf *inf, dbuf *outf,
 	i64 sector_size = 0;
 	i64 cur_sector;
 	i64 next_sector;
-	de_byte mdata[3];
+	u8 mdata[3];
 	i64 nbytes;
 
 	cur_sector = starting_sector;
@@ -140,16 +140,16 @@ static void do_extract_file_contents(deark *c, lctx *d, dbuf *inf, dbuf *outf,
 
 static void do_directory_entry(deark *c, lctx *d, dbuf *f, i64 pos)
 {
-	de_byte flags;
+	u8 flags;
 	i64 sector_count;
 	i64 starting_sector;
 	i64 i;
-	de_byte fn_raw[11];
+	u8 fn_raw[11];
 	i64 fnbase_len, fnext_len;
 	de_ucstring *fn_u = NULL;
 	de_finfo *fi = NULL;
 	dbuf *outf = NULL;
-	de_int32 ch;
+	i32 ch;
 
 	flags = dbuf_getbyte(f, pos);
 	de_dbg(c, "flags: 0x%02x", (unsigned int)flags);
@@ -192,7 +192,7 @@ static void do_directory_entry(deark *c, lctx *d, dbuf *f, i64 pos)
 		}
 
 		// TODO: Use correct Atari encoding.
-		ch = (de_int32)fn_raw[i];
+		ch = (i32)fn_raw[i];
 
 		if(ch<32 || ch>126) ch='_';
 		ch = de_char_to_valid_fn_char(c, ch);
@@ -221,7 +221,7 @@ static void do_disk_image(deark *c, lctx *d, dbuf *f)
 	i64 sector_index;
 	i64 entry_index;
 	i64 entries_per_sector;
-	de_byte flags;
+	u8 flags;
 
 	if(d->sector_size!=128 && d->sector_size!=256) {
 		de_err(c, "Unsupported sector size: %d", (int)d->sector_size);
@@ -288,7 +288,7 @@ static void de_run_atr(deark *c, de_module_params *mparams)
 
 static int de_identify_atr(deark *c)
 {
-	de_byte buf[16];
+	u8 buf[16];
 	de_read(buf, 0, 16);
 
 	if(buf[0]==0x96 && buf[1]==0x02) {

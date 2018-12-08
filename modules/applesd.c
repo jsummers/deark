@@ -10,7 +10,7 @@ DE_DECLARE_MODULE(de_module_applesingle);
 DE_DECLARE_MODULE(de_module_appledouble);
 
 typedef struct localctx_struct {
-	de_uint32 version;
+	u32 version;
 	struct de_timestamp modtime;
 	de_ucstring *real_name;
 } lctx;
@@ -214,7 +214,7 @@ static void de_run_sd_internal(deark *c, lctx *d)
 	int *entry_pass = NULL;
 
 	pos += 4; // signature
-	d->version = (de_uint32)de_getui32be_p(&pos);
+	d->version = (u32)de_getui32be_p(&pos);
 	de_dbg(c, "version: 0x%08x", (unsigned int)d->version);
 	pos += 16; // filler
 

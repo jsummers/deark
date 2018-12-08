@@ -105,8 +105,8 @@ struct page_ctx {
 	i64 ifd_idx;
 	i64 ifdpos;
 	int ifdtype;
-	de_uint32 orientation;
-	de_uint32 ycbcrpositioning;
+	u32 orientation;
+	u32 ycbcrpositioning;
 	i64 imagewidth, imagelength; // Raw tag values, before considering Orientation
 };
 
@@ -131,13 +131,13 @@ struct localctx_struct {
 	int is_exif_submodule;
 	int host_is_le;
 	int can_decode_fltpt;
-	de_byte is_deark_iptc, is_deark_8bim;
+	u8 is_deark_iptc, is_deark_8bim;
 	const char *errmsgprefix;
 
-	de_uint32 first_ifd_orientation; // Valid if != 0
-	de_uint32 exif_version_as_uint32; // Valid if != 0
-	de_byte has_exif_gps;
-	de_byte first_ifd_cosited;
+	u32 first_ifd_orientation; // Valid if != 0
+	u32 exif_version_as_uint32; // Valid if != 0
+	u8 has_exif_gps;
+	u8 first_ifd_cosited;
 
 	struct ifdstack_item *ifdstack;
 	int ifdstack_capacity;
@@ -532,8 +532,8 @@ static void do_oldjpeg(deark *c, lctx *d, i64 jpegoffset, i64 jpeglength)
 static void do_leaf_metadata(deark *c, lctx *d, i64 pos1, i64 len)
 {
 	i64 pos;
-	de_byte buf[4];
-	de_byte segtype[40];
+	u8 buf[4];
+	u8 segtype[40];
 	i64 data_len;
 
 	if(len<1) return;
@@ -1057,7 +1057,7 @@ static void handler_orientation(deark *c, lctx *d, const struct taginfo *tg, con
 	if(tg->valcount!=1) return;
 	read_tag_value_as_int64(c, d, tg, 0, &tmpval);
 	if(tmpval>=1 && tmpval<=8) {
-		tg->pg->orientation = (de_uint32)tmpval;
+		tg->pg->orientation = (u32)tmpval;
 		if(tg->pg->ifd_idx==0) { // FIXME: Don't do this here.
 			d->first_ifd_orientation = tg->pg->orientation;
 		}
@@ -1074,16 +1074,16 @@ static void handler_colormap(deark *c, lctx *d, const struct taginfo *tg, const 
 	if(c->debug_level<2) return;
 	for(i=0; i<num_entries; i++) {
 		i64 r1, g1, b1;
-		de_byte r2, g2, b2;
-		de_uint32 clr;
+		u8 r2, g2, b2;
+		u32 clr;
 		char tmps[80];
 
 		read_tag_value_as_int64(c, d, tg, num_entries*0 + i, &r1);
 		read_tag_value_as_int64(c, d, tg, num_entries*1 + i, &g1);
 		read_tag_value_as_int64(c, d, tg, num_entries*2 + i, &b1);
-		r2 = (de_byte)(r1>>8);
-		g2 = (de_byte)(g1>>8);
-		b2 = (de_byte)(b1>>8);
+		r2 = (u8)(r1>>8);
+		g2 = (u8)(g1>>8);
+		b2 = (u8)(b1>>8);
 		clr = DE_MAKE_RGB(r2, g2, b2);
 		de_snprintf(tmps, sizeof(tmps), "(%5d,%5d,%5d) "DE_CHAR_RIGHTARROW" ",
 			(int)r1, (int)g1, (int)b1);
@@ -1117,7 +1117,7 @@ static void handler_ycbcrpositioning(deark *c, lctx *d, const struct taginfo *tg
 
 	if(tg->valcount!=1) return;
 	read_tag_value_as_int64(c, d, tg, 0, &tmpval);
-	tg->pg->ycbcrpositioning = (de_uint32)tmpval;
+	tg->pg->ycbcrpositioning = (u32)tmpval;
 }
 
 static void handler_xmp(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni)
@@ -1150,7 +1150,7 @@ struct makernote_id_info {
 
 static void identify_makernote(deark *c, lctx *d, const struct taginfo *tg, struct makernote_id_info *mni)
 {
-	de_byte buf[32];
+	u8 buf[32];
 	i64 amt_to_read;
 
 	de_zeromem(buf, sizeof(buf));
@@ -1240,7 +1240,7 @@ static void handler_makernote(deark *c, lctx *d, const struct taginfo *tg, const
 
 static void handler_usercomment(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni)
 {
-	static de_byte charcode[8];
+	static u8 charcode[8];
 	de_ucstring *s = NULL;
 	int enc = DE_ENCODING_UNKNOWN;
 	i64 bytes_per_char = 1;
@@ -1339,7 +1339,7 @@ static void handler_exifversion(deark *c, lctx *d, const struct taginfo *tg, con
 	// for later use.
 	if(tg->valcount!=4) return;
 	if(tg->datatype!=DATATYPE_UNDEF) return;
-	d->exif_version_as_uint32 = (de_uint32)de_getui32be(tg->val_offset);
+	d->exif_version_as_uint32 = (u32)de_getui32be(tg->val_offset);
 }
 
 struct mpfctx_struct {
@@ -1404,15 +1404,15 @@ static void handler_mpentry(deark *c, lctx *d, const struct taginfo *tg, const s
 		i64 n;
 		i64 imgoffs_rel, imgoffs_abs;
 		i64 imgsize;
-		de_uint32 attrs;
-		de_uint32 dataformat;
-		de_uint32 typecode;
+		u32 attrs;
+		u32 dataformat;
+		u32 typecode;
 		char offset_descr[80];
 
 		de_dbg(c, "entry #%d", (int)(k+1));
 		de_dbg_indent(c, 1);
 
-		attrs = (de_uint32)dbuf_getui32x(c->infile, pos, d->is_le);
+		attrs = (u32)dbuf_getui32x(c->infile, pos, d->is_le);
 		dataformat = (attrs&0x07000000)>>24;
 		typecode = attrs&0x00ffffff;
 		ucstring_empty(s);
@@ -2570,7 +2570,7 @@ static int de_identify_tiff_internal(deark *c, int *is_le)
 // Deark TIFF container formats. See de_fmtutil_handle_iptc() for example.
 static void identify_deark_formats(deark *c, lctx *d)
 {
-	de_byte buf[20];
+	u8 buf[20];
 	de_read(buf, 8, sizeof(buf));
 	if(de_memcmp(buf, "Deark extracted ", 16)) return;
 	if(!de_memcmp(&buf[16], "IPTC", 4)) {

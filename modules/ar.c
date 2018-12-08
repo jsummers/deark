@@ -35,7 +35,7 @@ static int do_ar_item(deark *c, lctx *d, i64 pos1, i64 *p_item_len)
 
 	fi = de_finfo_create(c);
 
-	de_read((de_byte*)name_orig, pos1, 16);
+	de_read((u8*)name_orig, pos1, 16);
 	// Strip trailing spaces
 	name_orig[16] = '\0';
 	for(k=15; k>=0; k--) {
@@ -45,7 +45,7 @@ static int do_ar_item(deark *c, lctx *d, i64 pos1, i64 *p_item_len)
 	name_orig_len = de_strlen(name_orig);
 
 	rawname_ucstring = ucstring_create(c);
-	ucstring_append_bytes(rawname_ucstring, (const de_byte*)name_orig, name_orig_len, 0, DE_ENCODING_UTF8);
+	ucstring_append_bytes(rawname_ucstring, (const u8*)name_orig, name_orig_len, 0, DE_ENCODING_UTF8);
 
 	de_dbg(c, "member raw name: \"%s\"", ucstring_getpsz(rawname_ucstring));
 
@@ -132,7 +132,7 @@ static int do_ar_item(deark *c, lctx *d, i64 pos1, i64 *p_item_len)
 			// trailing spaces. Strip off the '/'.
 			adjusted_len--;
 		}
-		ucstring_append_bytes(filename_ucstring, (de_byte*)name_orig, adjusted_len,
+		ucstring_append_bytes(filename_ucstring, (u8*)name_orig, adjusted_len,
 			0, DE_ENCODING_UTF8);
 
 		de_dbg(c, "filename: \"%s\"", ucstring_getpsz(filename_ucstring));

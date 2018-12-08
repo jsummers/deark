@@ -24,14 +24,14 @@ typedef void (*table_entry_handler_fn)(deark *c, lctx *d, struct table_entry *te
 
 struct char_info {
 	unsigned int bitmap_offset;
-	de_int32 codepoint;
+	i32 codepoint;
 	int width_raw, height_raw; // Dimensions of the bitmap stored in the file
 	int ascent;
-	de_int16 extraspace_l, extraspace_r;
+	i16 extraspace_l, extraspace_r;
 };
 
 struct format_struct {
-	de_uint32 raw_format;
+	u32 raw_format;
 	unsigned int gross_format; // GFMT_*
 	unsigned int glyph_padding_code;
 	unsigned int glyph_padding_value;
@@ -43,7 +43,7 @@ struct format_struct {
 
 struct table_entry {
 	struct format_struct fmt;
-	de_uint32 type;
+	u32 type;
 	i64 size;
 	i64 offset;
 
@@ -64,13 +64,13 @@ struct localctx_struct {
 	struct char_info *chars;
 
 	i64 bitmaps_data_len;
-	de_byte *bitmaps_data;
+	u8 *bitmaps_data;
 
 	struct format_struct bitmaps_fmt;
 
-	de_byte has_encodings_table;
-	de_byte is_unicode;
-	de_byte can_translate_to_unicode;
+	u8 has_encodings_table;
+	u8 is_unicode;
+	u8 can_translate_to_unicode;
 	int src_encoding; // Used if(can_translate_to_unicode)
 	char charset_registry[40];
 	char charset_encoding[40];
@@ -122,9 +122,9 @@ static void read_format_field(deark *c, lctx *d, struct table_entry *te,
 
 static int read_and_check_format_field(deark *c, lctx *d, struct table_entry *te, i64 pos)
 {
-	de_uint32 format;
+	u32 format;
 
-	format = (de_uint32)de_getui32le_p(&pos);
+	format = (u32)de_getui32le_p(&pos);
 	de_dbg(c, "format: 0x%08x", (unsigned int)format);
 	if(format != te->fmt.raw_format) {
 		de_err(c, "Can't handle conflicting \"format\" fields");
@@ -149,7 +149,7 @@ static void read_one_property(deark *c, lctx *d, struct table_entry *te,
 	i64 pos1, i64 prop_idx, i64 string_data_area_pos)
 {
 	i64 pos = pos1;
-	de_byte isstringprop;
+	u8 isstringprop;
 	i64 name_offset;
 	struct de_stringreaderdata *srd_name = NULL;
 	struct de_stringreaderdata *srd_strval = NULL;
@@ -308,9 +308,9 @@ static void handler_metrics(deark *c, lctx *d, struct table_entry *te)
 		}
 
 		// TODO: Are these calculations correct?
-		ci->extraspace_l = (de_int16)leftsb;
+		ci->extraspace_l = (i16)leftsb;
 		if(ci->extraspace_l<0) ci->extraspace_l=0;
-		ci->extraspace_r = (de_int16)(char_width - ci->width_raw - (int)ci->extraspace_l);
+		ci->extraspace_r = (i16)(char_width - ci->width_raw - (int)ci->extraspace_l);
 		if(ci->extraspace_r<0) ci->extraspace_r=0;
 
 		de_dbg_indent(c, -1);
@@ -371,19 +371,19 @@ static void handler_bdf_encodings(deark *c, lctx *d, struct table_entry *te)
 
 	for(k=0; k<ncodepoints; k++) {
 		unsigned int glyph_number;
-		de_int32 codepoint;
+		i32 codepoint;
 
 		if(pos+2 > te->offset+te->size) break;
 		glyph_number = (unsigned int)dbuf_getui16x(c->infile, pos, te->fmt.is_le);
 
 		if(is_singlebyte_encoding) {
-			codepoint = (de_int32)k + (de_int32)min_char_or_byte2;
+			codepoint = (i32)k + (i32)min_char_or_byte2;
 		}
 		else {
 			unsigned int tmp_hi, tmp_lo;
 			tmp_hi = ((unsigned int)k)/byte2_count;
 			tmp_lo = ((unsigned int)k)%byte2_count;
-			codepoint = (de_int32)(((min_char_or_byte2+tmp_hi)<<8) |
+			codepoint = (i32)(((min_char_or_byte2+tmp_hi)<<8) |
 				(min_byte1+tmp_lo));
 		}
 
@@ -409,10 +409,10 @@ done:
 	de_dbg_indent_restore(c, saved_indent_level);
 }
 
-static void reverse_bit_order(de_byte *m, i64 m_len)
+static void reverse_bit_order(u8 *m, i64 m_len)
 {
 	i64 k;
-	static const de_byte tbl[16] = {
+	static const u8 tbl[16] = {
 		0x0, 0x8, 0x4, 0xc, 0x2, 0xa, 0x6, 0xe,
 		0x1, 0x9, 0x5, 0xd, 0x3, 0xb, 0x7, 0xf };
 
@@ -646,7 +646,7 @@ done:
 
 // If a table of type tbltype exists in d->tables[], process it.
 // Processes at most one table.
-static int process_table_by_type(deark *c, lctx *d, de_uint32 tbltype)
+static int process_table_by_type(deark *c, lctx *d, u32 tbltype)
 {
 	i64 k;
 	struct table_entry *te;
@@ -723,7 +723,7 @@ static void de_run_pcf(deark *c, de_module_params *mparams)
 		d->is_unicode = 0;
 		d->can_translate_to_unicode = 0;
 		for(k=0; k<d->num_chars; k++) {
-			d->chars[k].codepoint = (de_int32)k;
+			d->chars[k].codepoint = (i32)k;
 		}
 	}
 

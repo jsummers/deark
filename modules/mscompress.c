@@ -19,8 +19,8 @@ typedef struct localctx_struct {
 
 static int do_header_SZDD(deark *c, lctx *d, i64 pos1)
 {
-	de_byte cmpr_mode;
-	de_byte fnchar;
+	u8 cmpr_mode;
+	u8 fnchar;
 	i64 pos = pos1;
 	char tmps[80];
 	int retval = 0;
@@ -103,7 +103,7 @@ static void do_uncompress_SZDD(deark *c,
 	dbuf *outf, i64 expected_output_len)
 {
 	i64 pos = pos1;
-	de_byte *window = NULL;
+	u8 *window = NULL;
 	unsigned int wpos;
 	i64 nbytes_read;
 
@@ -121,7 +121,7 @@ static void do_uncompress_SZDD(deark *c,
 
 		for(cbit=0x01; cbit&0xff; cbit<<=1) {
 			if(control & cbit) { // literal
-				de_byte b;
+				u8 b;
 				b = dbuf_getbyte(inf, pos++);
 				dbuf_writebyte(outf, b);
 				if(outf->len >= expected_output_len) goto unc_done;
@@ -162,7 +162,7 @@ unc_done:
 
 static int detect_fmt_internal(deark *c)
 {
-	de_byte buf[8];
+	u8 buf[8];
 
 	de_read(buf, 0, sizeof(buf));
 	if(!de_memcmp(buf, "\x53\x5a\x44\x44\x88\xf0\x27\x33", 8))

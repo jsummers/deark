@@ -26,7 +26,7 @@ typedef struct localctx_struct {
 	i64 image_count;
 } lctx;
 
-static const de_uint32 v1pal[256] = {
+static const u32 v1pal[256] = {
 	0x000000,0xffffff,0xff0000,0x00fe00,0x0000fe,0xffff00,0xff00ff,0x00ffff,
 	0x0f0f0f,0x171717,0x1f1f1f,0x272727,0x383838,0x404040,0x484848,0x4f4f4f,
 	0x606060,0x686868,0x707070,0x808080,0x979797,0xa0a0a0,0xb0b0b0,0xb8b8b8,
@@ -224,9 +224,9 @@ static int read_bitmap_v1(deark *c, lctx *d, struct page_ctx *pg, i64 pos1, i64 
 
 	// Write the standard palette
 	for(k=0; k<256; k++) {
-		dbuf_writebyte(outf, (de_byte)DE_COLOR_B(v1pal[k]));
-		dbuf_writebyte(outf, (de_byte)DE_COLOR_G(v1pal[k]));
-		dbuf_writebyte(outf, (de_byte)DE_COLOR_R(v1pal[k]));
+		dbuf_writebyte(outf, (u8)DE_COLOR_B(v1pal[k]));
+		dbuf_writebyte(outf, (u8)DE_COLOR_G(v1pal[k]));
+		dbuf_writebyte(outf, (u8)DE_COLOR_R(v1pal[k]));
 		dbuf_writebyte(outf, 0);
 	}
 
@@ -234,7 +234,7 @@ static int read_bitmap_v1(deark *c, lctx *d, struct page_ctx *pg, i64 pos1, i64 
 
 	// Decompress the image
 	while(1) {
-		de_byte b0, b1;
+		u8 b0, b1;
 
 		// Stop if we reach the end of the input file.
 		if(pos >= c->infile->len) break;

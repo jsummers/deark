@@ -9,7 +9,7 @@
 DE_DECLARE_MODULE(de_module_rodraw);
 
 struct objinfo {
-	de_uint32 objtype;
+	u32 objtype;
 	int hasbbox;
 	i64 objsize;
 	i64 objpos;
@@ -116,7 +116,7 @@ static int do_object_sequence(deark *c, lctx *d, i64 pos1, i64 len)
 		de_zeromem(&oi, sizeof(struct objinfo));
 		oi.objpos = pos;
 		if((oi.objpos+24) > (pos1+len)) break;
-		oi.objtype = (de_uint32)de_getui32le_p(&pos);
+		oi.objtype = (u32)de_getui32le_p(&pos);
 		oi.objsize = de_getui32le_p(&pos);
 		if(oi.objsize<8 || (oi.objpos+oi.objsize)>(pos1+len)) {
 			de_err(c, "Bad object size (%u) at %"INT64_FMT, (unsigned int)oi.objsize, oi.objpos);

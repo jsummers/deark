@@ -36,8 +36,8 @@ struct file_rec {
 typedef struct localctx_struct {
 	i64 installer_ver;
 	unsigned int options;
-	de_byte is_rel6;
-	de_byte files_are_compressed;
+	u8 is_rel6;
+	u8 files_are_compressed;
 	i64 nlangs;
 	i64 nfiles;
 	i64 nrequisites;
@@ -57,11 +57,11 @@ static int do_file_header(deark *c, lctx *d, i64 pos1)
 	i64 k;
 	i64 n, n2;
 	int retval = 0;
-	de_uint32 crc_even;
-	de_uint32 crc_odd;
+	u32 crc_even;
+	u32 crc_odd;
 	de_ucstring *options_descr = NULL;
 	struct de_crcobj *crco = NULL;
-	de_byte tmpbuf[12];
+	u8 tmpbuf[12];
 
 	de_dbg(c, "file header at %d", (int)pos);
 

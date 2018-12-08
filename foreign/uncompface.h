@@ -43,7 +43,7 @@
  * Implementation uses arrays of WORDs.  COMPs must have at least
  * twice as many bits as WORDs to handle intermediate results */
 #define XFACE_WORD unsigned char
-#define XFACE_COMP de_uint32
+#define XFACE_COMP u32
 #define BITSPERWORD 8
 #define WORDCARRY (1 << BITSPERWORD)
 #define WORDMASK (WORDCARRY - 1)
@@ -60,27 +60,27 @@ typedef struct bigint
  * numbers of neighbours are available, leading to 6231 different guesses */
 typedef struct guesses
 {
-	const de_byte g_00[/*1<<12*/ 1<<9];
-	const de_byte g_01[/*1<<7 */ 1<<4];
-	const de_byte g_02[/*1<<2 */ 1   ];
-	const de_byte g_10[/*1<<9 */ 1<<6];
-	const de_byte g_20[/*1<<6 */ 1<<3];
+	const u8 g_00[/*1<<12*/ 1<<9];
+	const u8 g_01[/*1<<7 */ 1<<4];
+	const u8 g_02[/*1<<2 */ 1   ];
+	const u8 g_10[/*1<<9 */ 1<<6];
+	const u8 g_20[/*1<<6 */ 1<<3];
 #if 0 // See comment for Gen(), below.
-	const de_byte g_30[/*1<<8 */ 1<<5];
+	const u8 g_30[/*1<<8 */ 1<<5];
 #endif
-	const de_byte g_40[/*1<<10*/ 1<<7];
-	const de_byte g_11[/*1<<5 */ 1<<2];
-	const de_byte g_21[/*1<<3 */ 1<<0];
+	const u8 g_40[/*1<<10*/ 1<<7];
+	const u8 g_11[/*1<<5 */ 1<<2];
+	const u8 g_21[/*1<<3 */ 1<<0];
 #if 0
-	const de_byte g_31[/*1<<5 */ 1<<2];
+	const u8 g_31[/*1<<5 */ 1<<2];
 #endif
-	const de_byte g_41[/*1<<6 */ 1<<3];
-	const de_byte g_12[/*1<<1 */ 1   ];
-	const de_byte g_22[/*1<<0 */ 1   ];
+	const u8 g_41[/*1<<6 */ 1<<3];
+	const u8 g_12[/*1<<1 */ 1   ];
+	const u8 g_22[/*1<<0 */ 1   ];
 #if 0
-	const de_byte g_32[/*1<<2 */ 1   ];
+	const u8 g_32[/*1<<2 */ 1   ];
 #endif
-	const de_byte g_42[/*1<<2 */ 1   ];
+	const u8 g_42[/*1<<2 */ 1   ];
 } Guesses;
 
 /* Data of varying probabilities are encoded by a value in the range 0 - 255.
@@ -450,7 +450,7 @@ BigClear(struct xfacectx *ctx)
 
 //========================= gen.c begin =========================
 
-static void gen_helper(struct xfacectx *ctx, const de_byte *arr, size_t arr_len,
+static void gen_helper(struct xfacectx *ctx, const u8 *arr, size_t arr_len,
 	int h, int k)
 {
 	size_t arr_idx = 0;
@@ -697,7 +697,7 @@ ReadBuf(struct xfacectx *ctx)
 		amt_to_read -= 8;
 	}
 
-	dbuf_read(ctx->inf, (de_byte*)ctx->gg_fbuf, startpos, amt_to_read);
+	dbuf_read(ctx->inf, (u8*)ctx->gg_fbuf, startpos, amt_to_read);
 
 	ctx->gg_fbuf[amt_to_read] = '\0';
 }

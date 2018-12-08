@@ -11,7 +11,7 @@ DE_DECLARE_MODULE(de_module_pcpaint);
 struct pal_info {
 	i64 edesc;
 	i64 esize;
-	de_byte *data;
+	u8 *data;
 };
 
 struct localctx_struct;
@@ -27,9 +27,9 @@ struct localctx_struct {
 	de_bitmap *img;
 	de_finfo *fi;
 	i64 header_size;
-	de_byte plane_info;
-	de_byte palette_flag;
-	de_byte video_mode; // 0 = unknown
+	u8 plane_info;
+	u8 palette_flag;
+	u8 video_mode; // 0 = unknown
 	struct pal_info pal_info_mainfile;
 	struct pal_info pal_info_palfile;
 	struct pal_info *pal_info_to_use; // Points to _mainfile or _palfile
@@ -87,7 +87,7 @@ static int decode_text(deark *c, lctx *d)
 	struct de_char_context *charctx = NULL;
 	struct de_char_screen *screen;
 	i64 i, j, k;
-	de_byte ch, attr;
+	u8 ch, attr;
 	int retval = 0;
 
 	// TODO: This might not work for monochrome text mode (d->video_mode==0x32).
@@ -120,10 +120,10 @@ static int decode_text(deark *c, lctx *d)
 			ch = dbuf_getbyte(d->unc_pixels, j*d->img->width + i*2);
 			attr = dbuf_getbyte(d->unc_pixels, j*d->img->width + i*2 + 1);
 
-			screen->cell_rows[j2][i].fgcol = (de_uint32)(attr & 0x0f);
-			screen->cell_rows[j2][i].bgcol = (de_uint32)((attr & 0xf0) >> 4);
-			screen->cell_rows[j2][i].codepoint = (de_int32)ch;
-			screen->cell_rows[j2][i].codepoint_unicode = de_char_to_unicode(c, (de_int32)ch, DE_ENCODING_CP437_G);
+			screen->cell_rows[j2][i].fgcol = (u32)(attr & 0x0f);
+			screen->cell_rows[j2][i].bgcol = (u32)((attr & 0xf0) >> 4);
+			screen->cell_rows[j2][i].codepoint = (i32)ch;
+			screen->cell_rows[j2][i].codepoint_unicode = de_char_to_unicode(c, (i32)ch, DE_ENCODING_CP437_G);
 		}
 	}
 
@@ -140,11 +140,11 @@ done:
 }
 
 // Create a standard RGB palette from raw RGB palette data
-static void make_rgb_palette(deark *c, lctx *d, de_uint32 *pal, i64 num_entries)
+static void make_rgb_palette(deark *c, lctx *d, u32 *pal, i64 num_entries)
 {
 	i64 k;
-	de_byte cr1, cg1, cb1;
-	de_byte cr2, cg2, cb2;
+	u8 cr1, cg1, cb1;
+	u8 cr2, cg2, cb2;
 	int has_8bit_samples = 0;
 	char tmps[64];
 
@@ -191,11 +191,11 @@ static void make_rgb_palette(deark *c, lctx *d, de_uint32 *pal, i64 num_entries)
 
 static int decode_egavga16(deark *c, lctx *d)
 {
-	de_uint32 pal[16];
+	u32 pal[16];
 	i64 i, j;
 	i64 k;
 	i64 plane;
-	de_byte z[4];
+	u8 z[4];
 	i64 src_rowspan;
 	i64 src_planespan;
 	int palent;
@@ -260,7 +260,7 @@ static int decode_egavga16(deark *c, lctx *d)
 
 static int decode_vga256(deark *c, lctx *d)
 {
-	de_uint32 pal[256];
+	u32 pal[256];
 	i64 k;
 
 	de_dbg(c, "image type: 256-color");
@@ -291,7 +291,7 @@ static int decode_vga256(deark *c, lctx *d)
 static int decode_bilevel(deark *c, lctx *d)
 {
 	i64 src_rowspan;
-	de_uint32 pal[2];
+	u32 pal[2];
 	int is_grayscale;
 	i64 edesc = d->pal_info_to_use->edesc;
 
@@ -335,9 +335,9 @@ static int decode_cga4(deark *c, lctx *d)
 {
 	i64 k;
 	i64 src_rowspan;
-	de_uint32 pal[4];
-	de_byte pal_id = 0;
-	de_byte border_col = 0;
+	u32 pal[4];
+	u8 pal_id = 0;
+	u8 border_col = 0;
 
 	de_dbg(c, "image type: CGA 4-color");
 
@@ -385,10 +385,10 @@ static int decode_cga4(deark *c, lctx *d)
 // packed_data_size does not include header size.
 // Returns 0 on error.
 static int uncompress_block(deark *c, lctx *d,
-	i64 pos, i64 packed_data_size, de_byte run_marker)
+	i64 pos, i64 packed_data_size, u8 run_marker)
 {
 	i64 end_of_this_block;
-	de_byte x;
+	u8 x;
 	i64 run_length;
 
 	end_of_this_block = pos + packed_data_size;
@@ -433,7 +433,7 @@ static int uncompress_pixels(deark *c, lctx *d)
 	i64 n;
 	i64 packed_block_size;
 	i64 unpacked_block_size;
-	de_byte run_marker;
+	u8 run_marker;
 	int retval = 1;
 	i64 end_of_this_block;
 
@@ -663,7 +663,7 @@ done:
 static void de_run_pcpaint_clp(deark *c, lctx *d, de_module_params *mparams)
 {
 	i64 file_size;
-	de_byte run_marker;
+	u8 run_marker;
 	int is_compressed;
 	int saved_indent_level;
 
@@ -751,7 +751,7 @@ static void de_run_pcpaint(deark *c, de_module_params *mparams)
 {
 	// 0=unknown, 1=pic, 2=clp
 	const char *pcpaintfmt;
-	de_byte buf[16];
+	u8 buf[16];
 	lctx *d;
 
 	d = de_malloc(c, sizeof(lctx));
@@ -809,7 +809,7 @@ static void de_run_pcpaint(deark *c, de_module_params *mparams)
 
 static int de_identify_pcpaint(deark *c)
 {
-	de_byte buf[12];
+	u8 buf[12];
 	int pic_ext, clp_ext;
 	i64 x;
 

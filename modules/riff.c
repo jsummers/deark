@@ -48,7 +48,7 @@ DE_DECLARE_MODULE(de_module_riff);
 
 typedef struct localctx_struct {
 	int is_cdr;
-	de_uint32 curr_avi_stream_type;
+	u32 curr_avi_stream_type;
 } lctx;
 
 static void do_extract_raw(deark *c, lctx *d, struct de_iffctx *ictx, i64 pos, i64 len, const char *ext,
@@ -57,7 +57,7 @@ static void do_extract_raw(deark *c, lctx *d, struct de_iffctx *ictx, i64 pos, i
 	dbuf_create_file_from_slice(ictx->f, pos, len, ext, NULL, createflags);
 }
 
-static void do_INFO_item(deark *c, lctx *d, struct de_iffctx *ictx, i64 pos, i64 len, de_uint32 chunk_id)
+static void do_INFO_item(deark *c, lctx *d, struct de_iffctx *ictx, i64 pos, i64 len, u32 chunk_id)
 {
 	de_ucstring *s = NULL;
 
@@ -75,7 +75,7 @@ static void do_INFO_item(deark *c, lctx *d, struct de_iffctx *ictx, i64 pos, i64
 
 static void extract_ani_frame(deark *c, lctx *d, struct de_iffctx *ictx, i64 pos, i64 len)
 {
-	de_byte buf[4];
+	u8 buf[4];
 	const char *ext;
 
 	de_dbg(c, "frame at %d, len=%d", (int)pos, (int)len);
@@ -223,8 +223,8 @@ static void do_palette(deark *c, lctx *d, struct de_iffctx *ictx, i64 pos, i64 l
 	i64 ver;
 	i64 n;
 	i64 i;
-	de_byte r,g,b,flags;
-	de_uint32 clr;
+	u8 r,g,b,flags;
+	u32 clr;
 	char tmps[32];
 
 	if(!ictx->is_le) return;
@@ -387,7 +387,7 @@ static int my_preprocess_riff_chunk_fn(deark *c, struct de_iffctx *ictx)
 static int my_riff_chunk_handler(deark *c, struct de_iffctx *ictx)
 {
 	i64 dpos, dlen;
-	de_uint32 list_type;
+	u32 list_type;
 	lctx *d = (lctx*)ictx->userdata;
 
 	// We should always set this flag for formats (like RIFF) that aren't standard IFF.
@@ -488,7 +488,7 @@ static void de_run_riff(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
 	struct de_iffctx *ictx = NULL;
-	de_byte buf[4];
+	u8 buf[4];
 
 	d = de_malloc(c, sizeof(lctx));
 	ictx = de_malloc(c, sizeof(struct de_iffctx));

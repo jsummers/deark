@@ -104,7 +104,7 @@ done:
 static int de_identify_wad(deark *c)
 {
 	if(!dbuf_memcmp(c->infile, 1, "WAD", 3)) {
-		de_byte b0;
+		u8 b0;
 		b0 = de_getbyte(0);
 		if(b0=='I' || b0=='P') return 80;
 	}

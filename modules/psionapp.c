@@ -14,7 +14,7 @@ typedef struct localctx_struct {
 
 static void handle_embedded_file(deark *c, lctx *d, i64 offset, i64 len)
 {
-	de_byte buf[16];
+	u8 buf[16];
 	const char *ext;
 	int extract_this_file;
 	int is_pic;
@@ -103,7 +103,7 @@ static void do_img_app(deark *c, lctx *d)
 
 static void de_run_psionapp(deark *c, de_module_params *mparams)
 {
-	de_byte b;
+	u8 b;
 	const char *s;
 	lctx *d = NULL;
 
@@ -127,7 +127,7 @@ static void de_run_psionapp(deark *c, de_module_params *mparams)
 
 static int de_identify_psionapp(deark *c)
 {
-	de_byte b[16];
+	u8 b[16];
 	de_read(b, 0, 16);
 	if(!de_memcmp(b, "ImageFileType**\0", 16))
 		return 100;

@@ -32,8 +32,8 @@ DE_DECLARE_MODULE(de_module_id3);
 #define ID3ENC_UTF8       3
 
 typedef struct id3v2ctx_struct {
-	de_byte has_id3v2;
-	de_byte wmpicture_mode;
+	u8 has_id3v2;
+	u8 wmpicture_mode;
 
 	i64 total_len;
 
@@ -50,29 +50,29 @@ typedef struct id3v2ctx_struct {
 	// The "2" is not stored in the file, which is fine. But the spec calls the
 	// first number that *is* stored the "major version", and the second number
 	// the "revision number".
-	de_byte version_code, ver_revision;
+	u8 version_code, ver_revision;
 
 	// If set, the data is unsynched as a single blob, 2.3.x-style.
-	de_byte global_level_unsync;
+	u8 global_level_unsync;
 
 	// If set, 2.4.x-style frame-level unsynch is used for all frames.
-	de_byte global_frame_level_unsync;
+	u8 global_frame_level_unsync;
 
-	de_byte has_ext_header;
-	de_byte is_experimental;
-	de_byte has_footer;
+	u8 has_ext_header;
+	u8 is_experimental;
+	u8 has_footer;
 
 	const char *approx_mark;
 } id3v2ctx;
 
 static i64 get_synchsafe_int(dbuf *f, i64 pos)
 {
-	de_byte buf[4];
+	u8 buf[4];
 	dbuf_read(f, buf, pos, 4);
 	return (buf[0]<<21)|(buf[1]<<14)|(buf[2]<<7)|(buf[3]);
 }
 
-static const char *get_id3v2_textenc_name(id3v2ctx *d, de_byte id3_encoding)
+static const char *get_id3v2_textenc_name(id3v2ctx *d, u8 id3_encoding)
 {
 	const char *encname;
 
@@ -91,7 +91,7 @@ static const char *get_id3v2_textenc_name(id3v2ctx *d, de_byte id3_encoding)
 }
 
 static void id3v2_read_to_ucstring(deark *c, dbuf *f, i64 pos1, i64 len,
-	de_ucstring *s, de_byte id3_encoding)
+	de_ucstring *s, u8 id3_encoding)
 {
 	i64 pos = pos1;
 	const char *bomdesc = "none";
@@ -103,10 +103,10 @@ static void id3v2_read_to_ucstring(deark *c, dbuf *f, i64 pos1, i64 len,
 		encoding_to_use = DE_ENCODING_LATIN1;
 	}
 	else if(id3_encoding==ID3ENC_UTF16) {
-		de_uint32 bom_id;
+		u32 bom_id;
 
 		if(len<2) goto done;
-		bom_id = (de_uint32)dbuf_getui16be(f, pos);
+		bom_id = (u32)dbuf_getui16be(f, pos);
 
 		if(bom_id==0xfeff) {
 			encoding_to_use = DE_ENCODING_UTF16BE;
@@ -146,7 +146,7 @@ done:
 }
 
 static int read_id3v2_terminated_string(deark *c, id3v2ctx *d, dbuf *f,
-	i64 pos, i64 nbytes_avail, i64 nbytes_to_scan, de_byte id3_encoding,
+	i64 pos, i64 nbytes_avail, i64 nbytes_to_scan, u8 id3_encoding,
 	de_ucstring *s, i64 *bytes_consumed)
 {
 	i64 foundpos = 0;
@@ -186,7 +186,7 @@ done:
 static int do_id3v2_header(deark *c, dbuf *f, id3v2ctx *d)
 {
 	i64 pos;
-	de_byte flags;
+	u8 flags;
 	int retval = 0;
 	int has_global_compression = 0;
 
@@ -280,7 +280,7 @@ static void unescape_id3v2_data(deark *c, dbuf *inf, i64 inf_start,
 	i64 inf_len, dbuf *outf)
 {
 	i64 srcpos = inf_start;
-	de_byte b0;
+	u8 b0;
 
 	de_dbg(c, "unescaping \"unsynchronised\" ID3v2 data");
 	de_dbg_indent(c, 1);
@@ -300,7 +300,7 @@ static void unescape_id3v2_data(deark *c, dbuf *inf, i64 inf_start,
 static void decode_id3v2_frame_text(deark *c, id3v2ctx *d,
 	dbuf *f, i64 pos1, i64 len, struct de_fourcc *tag4cc)
 {
-	de_byte id3_encoding;
+	u8 id3_encoding;
 	de_ucstring *s = NULL;
 	i64 pos = pos1;
 
@@ -334,7 +334,7 @@ static void decode_id3v2_frame_txxx_etc(deark *c, id3v2ctx *d,
 	dbuf *f, i64 pos1, i64 len, struct de_fourcc *tag4cc)
 {
 	i64 pos = pos1;
-	de_byte id3_encoding;
+	u8 id3_encoding;
 	de_ucstring *description = NULL;
 	de_ucstring *value = NULL;
 	i64 bytes_consumed;
@@ -401,7 +401,7 @@ done:
 static void decode_id3v2_frame_comm(deark *c, id3v2ctx *d,
 	dbuf *f, i64 pos1, i64 len)
 {
-	de_byte id3_encoding;
+	u8 id3_encoding;
 	i64 pos = pos1;
 	de_ucstring *lang = NULL;
 	de_ucstring *shortdesc = NULL;
@@ -437,7 +437,7 @@ done:
 }
 
 struct apic_type_info {
-	de_byte picture_type;
+	u8 picture_type;
 	const char *name;
 	const char *token;
 };
@@ -464,7 +464,7 @@ static const struct apic_type_info apic_type_info_arr[] = {
 	{0x14, "logo of publisher/studio", NULL}
 };
 
-static const struct apic_type_info *get_apic_type_info(de_byte t)
+static const struct apic_type_info *get_apic_type_info(u8 t)
 {
 	size_t k;
 
@@ -481,7 +481,7 @@ static void extract_pic_apic(deark *c, id3v2ctx *d, dbuf *f,
 {
 	const char *ext;
 	char fullext[32];
-	de_byte sig[2];
+	u8 sig[2];
 	const char *token = NULL;
 
 	dbuf_read(f, sig, pos, 2);
@@ -504,7 +504,7 @@ static void extract_pic_apic(deark *c, id3v2ctx *d, dbuf *f,
 static void decode_id3v2_frame_wmpicture(deark *c, id3v2ctx *d,
 	dbuf *f, i64 pos1, i64 len)
 {
-	de_byte picture_type;
+	u8 picture_type;
 	i64 pos = pos1;
 	i64 pic_data_len;
 	i64 stringlen; // includes terminating 0x0000
@@ -548,8 +548,8 @@ done:
 static void decode_id3v2_frame_pic_apic(deark *c, id3v2ctx *d,
 	dbuf *f, i64 pos1, i64 len, struct de_fourcc *tag4cc)
 {
-	de_byte id3_encoding;
-	de_byte picture_type;
+	u8 id3_encoding;
+	u8 picture_type;
 	i64 pos = pos1;
 	struct de_stringreaderdata *fmt_srd = NULL;
 	de_ucstring *mimetype = NULL;
@@ -606,7 +606,7 @@ done:
 static void decode_flacpicture(deark *c, id3v2ctx *d, dbuf *f,
 	i64 pos1, i64 len)
 {
-	de_uint32 picture_type;
+	u32 picture_type;
 	i64 pos = pos1;
 	i64 pic_data_len;
 	i64 stringlen;
@@ -614,9 +614,9 @@ static void decode_flacpicture(deark *c, id3v2ctx *d, dbuf *f,
 	de_ucstring *description = NULL;
 	const struct apic_type_info *ptinfo = NULL;
 
-	picture_type = (de_uint32)dbuf_getui32be_p(f, &pos);
+	picture_type = (u32)dbuf_getui32be_p(f, &pos);
 	if(picture_type<=0xff) {
-		ptinfo = get_apic_type_info((de_byte)picture_type);
+		ptinfo = get_apic_type_info((u8)picture_type);
 	}
 	de_dbg(c, "picture type: 0x%04x (%s)", (unsigned int)picture_type,
 		ptinfo?ptinfo->name:"?");
@@ -650,7 +650,7 @@ done:
 static void decode_id3v2_frame_geob(deark *c, id3v2ctx *d,
 	dbuf *f, i64 pos1, i64 len)
 {
-	de_byte id3_encoding;
+	u8 id3_encoding;
 	i64 pos = pos1;
 	de_ucstring *mimetype = NULL;
 	de_ucstring *filename = NULL;
@@ -792,7 +792,7 @@ static void decode_id3v2_frame(deark *c, id3v2ctx *d, dbuf *f,
 	i64 pos1, i64 len,
 	struct de_fourcc *tag4cc, unsigned int flags1, unsigned int flags2)
 {
-	de_byte frame_level_unsynch = d->global_frame_level_unsync;
+	u8 frame_level_unsynch = d->global_frame_level_unsync;
 	dbuf *unescaped_frame = NULL;
 
 	if(d->version_code==3) {
@@ -847,10 +847,10 @@ done:
 	dbuf_close(unescaped_frame);
 }
 
-static const char *get_id3v2_frame_name(id3v2ctx *d, de_uint32 id)
+static const char *get_id3v2_frame_name(id3v2ctx *d, u32 id)
 {
 	struct frame_list_entry {
-		de_uint32 threecc, fourcc;
+		u32 threecc, fourcc;
 		const char *name;
 	};
 	static const struct frame_list_entry frame_list[] = {
@@ -931,8 +931,8 @@ static void do_id3v2_frames(deark *c, id3v2ctx *d,
 
 	while(1) {
 		i64 frame_dlen;
-		de_byte flags1, flags2;
-		de_byte b;
+		u8 flags1, flags2;
+		u8 b;
 		char *flg2name;
 
 		if(pos+frame_header_len > pos1+len) break;
@@ -1053,7 +1053,7 @@ static void do_id3v2(deark *c, dbuf *f, i64 pos, i64 bytes_avail,
 			// TODO: Decode the rest of the extended header
 		}
 		else if(d->version_code==4) {
-			de_byte ext_flags;
+			u8 ext_flags;
 			ext_header_size = get_synchsafe_int(f, d->data_start);
 			de_dbg(c, "extended header size: %d", (int)ext_header_size);
 			// [d->data_start+5] = flag byte count that should always be 1
@@ -1099,10 +1099,10 @@ done:
 // ID3v1
 // **************************************************************************
 
-static const char *get_id3v1_genre_name(de_byte g)
+static const char *get_id3v1_genre_name(u8 g)
 {
 	struct genre_list_entry {
-		de_byte id;
+		u8 id;
 		const char *name;
 	};
 	static const struct genre_list_entry genre_list[] = {
@@ -1147,7 +1147,7 @@ static void do_id3v1(deark *c, i64 pos1)
 {
 	i64 pos = pos1;
 	de_ucstring *s = NULL;
-	de_byte genre;
+	u8 genre;
 
 	s = ucstring_create(c);
 	pos += 3;
@@ -1180,7 +1180,7 @@ static void do_id3v1(deark *c, i64 pos1)
 	de_dbg(c, "comment: \"%s\"", ucstring_getpsz(s));
 	pos += 28;
 	if(de_getbyte(pos)==0) {
-		de_byte trknum;
+		u8 trknum;
 		trknum = de_getbyte(pos+1);
 		if(trknum!=0) {
 			// Looks like ID3v1.1
@@ -1230,9 +1230,9 @@ done:
 // Note code duplication with de_fmtutil_handle_id3().
 static int de_identify_id3(deark *c)
 {
-	de_byte flags;
-	de_byte version_code;
-	de_byte has_footer = 0;
+	u8 flags;
+	u8 version_code;
+	u8 has_footer = 0;
 	i64 total_len;
 
 	c->detection_data.id3.detection_attempted = 1;
@@ -1250,7 +1250,7 @@ static int de_identify_id3(deark *c)
 	if(has_footer) total_len += 10;
 
 	de_dbg2(c, "[id3detect] calculated end of ID3v2 data: %u", (unsigned int)total_len);
-	c->detection_data.id3.bytes_at_start = (de_uint32)total_len;
+	c->detection_data.id3.bytes_at_start = (u32)total_len;
 
 	// This module is never "detected". It's only used for its side effects,
 	// and as a submodule.

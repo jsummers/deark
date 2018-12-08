@@ -20,7 +20,7 @@ typedef struct localctx_struct {
 static int read_varint(deark *c, i64 pos1, i64 *result, i64 *bytes_consumed)
 {
 	i64 val = 0;
-	de_byte b;
+	u8 b;
 	i64 pos = pos1;
 	int retval = 0;
 
@@ -53,9 +53,9 @@ static int do_read_header(deark *c, lctx *d, i64 pos1,
 	i64 *bytes_consumed)
 {
 	i64 pos = pos1;
-	de_byte b;
-	de_byte intl_anim_code;
-	de_byte bytes_per_channel_code;
+	u8 b;
+	u8 intl_anim_code;
+	u8 bytes_per_channel_code;
 	i64 tmpcode;
 	i64 bytes_consumed2;
 	int retval = 0;
@@ -127,7 +127,7 @@ done:
 static int do_read_metadata(deark *c, lctx *d, i64 pos1,
 	i64 *bytes_consumed)
 {
-	de_byte b;
+	u8 b;
 	i64 pos = pos1;
 	int saved_indent_level;
 	int retval = 0;
@@ -156,7 +156,7 @@ done:
 static int do_second_header(deark *c, lctx *d, i64 pos1,
 	i64 *bytes_consumed)
 {
-	de_byte ct;
+	u8 ct;
 	i64 pos = pos1;
 
 	de_dbg(c, "second header segment at %d", (int)pos1);

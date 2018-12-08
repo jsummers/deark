@@ -13,7 +13,7 @@ struct de_bmpinfo {
 	i64 width;
 	i64 height;
 	i64 bitcount;
-	de_uint32 compression_field;
+	u32 compression_field;
 	i64 sizeImage_field;
 
 	i64 bytes_per_pal_entry;
@@ -38,7 +38,7 @@ struct de_bmpinfo {
 #define DE_BMPINFO_HAS_HOTSPOT    0x4
 #define DE_BMPINFO_CMPR_IS_4CC    0x8
 
-void de_fmtutil_get_bmp_compression_name(de_uint32 code, char *s, size_t s_len,
+void de_fmtutil_get_bmp_compression_name(u32 code, char *s, size_t s_len,
 	int is_os2v2);
 int de_fmtutil_get_bmpinfo(deark *c,  dbuf *f, struct de_bmpinfo *bi, i64 pos,
 	i64 len, unsigned int flags);
@@ -46,7 +46,7 @@ void de_fmtutil_generate_bmpfileheader(deark *c, dbuf *outf, const struct de_bmp
 	i64 file_size_override);
 
 void de_fmtutil_handle_exif2(deark *c, i64 pos, i64 len,
-	de_uint32 *returned_flags, de_uint32 *orientation, de_uint32 *exifversion);
+	u32 *returned_flags, u32 *orientation, u32 *exifversion);
 void de_fmtutil_handle_exif(deark *c, i64 pos, i64 len);
 
 void de_fmtutil_handle_iptc(deark *c, dbuf *f, i64 pos, i64 len,
@@ -73,9 +73,9 @@ struct de_SAUCE_info {
 	de_ucstring *organization;
 	de_ucstring *creation_date;
 	i64 original_file_size;
-	de_byte data_type;
-	de_byte file_type;
-	de_byte tflags;
+	u8 data_type;
+	u8 file_type;
+	u8 tflags;
 	i64 width_in_chars; // 0 if unknown
 	i64 number_of_lines; // Reported value. May be incorrect.
 	i64 comment_block_pos; // Valid if num_comments>0.
@@ -97,9 +97,9 @@ struct de_boxdata {
 	// Per-box info supplied to handle_box_fn:
 	struct de_boxdata *parent;
 	int level;
-	de_uint32 boxtype;
+	u32 boxtype;
 	int is_uuid;
-	de_byte uuid[16]; // Valid only if is_uuid is set.
+	u8 uuid[16]; // Valid only if is_uuid is set.
 	i64 box_pos;
 	i64 box_len;
 	// Note: for UUID boxes, payload does not include the UUID
@@ -130,8 +130,8 @@ struct de_boxesctx {
 double dbuf_fmtutil_read_fixed_16_16(dbuf *f, i64 pos);
 int de_fmtutil_default_box_handler(deark *c, struct de_boxesctx *bctx);
 void de_fmtutil_read_boxes_format(deark *c, struct de_boxesctx *bctx);
-void de_fmtutil_render_uuid(deark *c, const de_byte *uuid, char *s, size_t s_len);
-void de_fmtutil_guid_to_uuid(de_byte *id);
+void de_fmtutil_render_uuid(deark *c, const u8 *uuid, char *s, size_t s_len);
+void de_fmtutil_guid_to_uuid(u8 *id);
 
 struct atari_img_decode_data {
 	i64 bpp;
@@ -140,13 +140,13 @@ struct atari_img_decode_data {
 	dbuf *unc_pixels;
 	int was_compressed;
 	int is_spectrum512;
-	de_uint32 *pal;
+	u32 *pal;
 	de_bitmap *img;
 };
 
 #define DE_FLAG_ATARI_15BIT_PAL 0x2
 void de_fmtutil_read_atari_palette(deark *c, dbuf *f, i64 pos,
-	de_uint32 *dstpal, i64 ncolors_to_read, i64 ncolors_used, unsigned int flags);
+	u32 *dstpal, i64 ncolors_to_read, i64 ncolors_used, unsigned int flags);
 
 int de_fmtutil_atari_decode_image(deark *c, struct atari_img_decode_data *adata);
 void de_fmtutil_atari_set_standard_density(deark *c, struct atari_img_decode_data *adata,
@@ -224,11 +224,11 @@ struct de_iffctx {
 void de_fmtutil_read_iff_format(deark *c, struct de_iffctx *ictx,
 	i64 pos, i64 len);
 int de_fmtutil_is_standard_iff_chunk(deark *c, struct de_iffctx *ictx,
-	de_uint32 ct);
+	u32 ct);
 void de_fmtutil_default_iff_chunk_identify(deark *c, struct de_iffctx *ictx);
 
 const char *de_fmtutil_tiff_orientation_name(i64 n);
-const char *de_fmtutil_get_windows_charset_name(de_byte cs);
+const char *de_fmtutil_get_windows_charset_name(u8 cs);
 const char *de_fmtutil_get_windows_cb_data_type_name(unsigned int ty);
 
 int de_fmtutil_find_zip_eocd(deark *c, dbuf *f, i64 *foundpos);

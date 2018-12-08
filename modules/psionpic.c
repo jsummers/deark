@@ -52,7 +52,7 @@ static void do_bitmap_2planes(deark *c, lctx *d, i64 pn1, i64 pn2)
 {
 	de_bitmap *img = NULL;
 	i64 i, j;
-	de_byte n0, n1;
+	u8 n0, n1;
 
 	de_dbg(c, "making a grayscale image from planes %d and %d", (int)pn1, (int)pn2);
 

@@ -23,7 +23,7 @@ static void do_spu_internal(deark *c, dbuf *inf, int is_enhanced)
 
 	adata = de_malloc(c, sizeof(struct atari_img_decode_data));
 	adata->is_spectrum512 = 1;
-	adata->pal = de_malloc(c, num_colors*sizeof(de_uint32));
+	adata->pal = de_malloc(c, num_colors*sizeof(u32));
 	adata->bpp = 4;
 	adata->w = 320;
 	adata->h = 199;
@@ -95,7 +95,7 @@ static void spc_uncompress_pixels(dbuf *f, i64 pos1, i64 len,
 	dbuf *unc_pixels)
 {
 	i64 pos;
-	de_byte b, b2;
+	u8 b, b2;
 	i64 count;
 	i64 endpos;
 
@@ -129,7 +129,7 @@ static void sps_uncompress_pixels(dbuf *f, i64 pos1, i64 len,
 	dbuf *unc_pixels)
 {
 	i64 pos;
-	de_byte b, b2;
+	u8 b, b2;
 	i64 count;
 	i64 endpos;
 
@@ -192,7 +192,7 @@ typedef i64 (*reorder_fn)(i64 a);
 static void reorder_img_bytes(deark *c, dbuf *src, dbuf *dst, reorder_fn rfn)
 {
 	i64 i;
-	de_byte b;
+	u8 b;
 
 	for(i=0; i<src->len; i++) {
 		b = dbuf_getbyte(src, i);
@@ -227,7 +227,7 @@ static void spc_uncompress_pal(deark *c, i64 pos1, dbuf *uncmpr_pal)
 
 struct bit_reader {
 	i64 nextbytepos;
-	de_byte cur_byte;
+	u8 cur_byte;
 	unsigned int bits_left;
 };
 

@@ -26,7 +26,7 @@ static char de_get_hexcharUC(int n)
 	return '0';
 }
 
-de_byte de_decode_hex_digit(de_byte x, int *errorflag)
+u8 de_decode_hex_digit(u8 x, int *errorflag)
 {
 	if(errorflag) *errorflag = 0;
 	if(x>='0' && x<='9') return x-48;
@@ -36,7 +36,7 @@ de_byte de_decode_hex_digit(de_byte x, int *errorflag)
 	return 0;
 }
 
-static const de_uint16 cp437table[256] = {
+static const u16 cp437table[256] = {
 	0x00a0,0x263a,0x263b,0x2665,0x2666,0x2663,0x2660,0x2022,0x25d8,0x25cb,0x25d9,0x2642,0x2640,0x266a,0x266b,0x263c,
 	0x25ba,0x25c4,0x2195,0x203c,0x00b6,0x00a7,0x25ac,0x21a8,0x2191,0x2193,0x2192,0x2190,0x221f,0x2194,0x25b2,0x25bc,
 	0x0020,0x0021,0x0022,0x0023,0x0024,0x0025,0x0026,0x0027,0x0028,0x0029,0x002a,0x002b,0x002c,0x002d,0x002e,0x002f,
@@ -55,12 +55,12 @@ static const de_uint16 cp437table[256] = {
 	0x2261,0x00b1,0x2265,0x2264,0x2320,0x2321,0x00f7,0x2248,0x00b0,0x2219,0x00b7,0x221a,0x207f,0x00b2,0x25a0,0x00a0
 };
 
-static const de_uint16 latin2table[32] = { // 0xa0 to 0xbf
+static const u16 latin2table[32] = { // 0xa0 to 0xbf
 	0x00a0,0x0104,0x02d8,0x0141,0x00a4,0x013d,0x015a,0x00a7,0x00a8,0x0160,0x015e,0x0164,0x0179,0x00ad,0x017d,0x017b,
 	0x00b0,0x0105,0x02db,0x0142,0x00b4,0x013e,0x015b,0x02c7,0x00b8,0x0161,0x015f,0x0165,0x017a,0x02dd,0x017e,0x017c
 };
 
-static const de_uint16 windows1250table[128] = {
+static const u16 windows1250table[128] = {
 	0x20ac,0xffff,0x201a,0xffff,0x201e,0x2026,0x2020,0x2021,0xffff,0x2030,0x0160,0x2039,0x015a,0x0164,0x017d,0x0179,
 	0xffff,0x2018,0x2019,0x201c,0x201d,0x2022,0x2013,0x2014,0xffff,0x2122,0x0161,0x203a,0x015b,0x0165,0x017e,0x017a,
 	0x00a0,0x02c7,0x02d8,0x0141,0x00a4,0x0104,0x00a6,0x00a7,0x00a8,0x00a9,0x015e,0x00ab,0x00ac,0x00ad,0x00ae,0x017b,
@@ -71,7 +71,7 @@ static const de_uint16 windows1250table[128] = {
 	0x0111,0x0144,0x0148,0x00f3,0x00f4,0x0151,0x00f6,0x00f7,0x0159,0x016f,0x00fa,0x0171,0x00fc,0x00fd,0x0163,0x02d9
 };
 
-static const de_uint16 windows1251table[128] = {
+static const u16 windows1251table[128] = {
 	0x0402,0x0403,0x201a,0x0453,0x201e,0x2026,0x2020,0x2021,0x20ac,0x2030,0x0409,0x2039,0x040a,0x040c,0x040b,0x040f,
 	0x0452,0x2018,0x2019,0x201c,0x201d,0x2022,0x2013,0x2014,0xffff,0x2122,0x0459,0x203a,0x045a,0x045c,0x045b,0x045f,
 	0x00a0,0x040e,0x045e,0x0408,0x00a4,0x0490,0x00a6,0x00a7,0x0401,0x00a9,0x0404,0x00ab,0x00ac,0x00ad,0x00ae,0x0407,
@@ -82,23 +82,23 @@ static const de_uint16 windows1251table[128] = {
 	0x0440,0x0441,0x0442,0x0443,0x0444,0x0445,0x0446,0x0447,0x0448,0x0449,0x044a,0x044b,0x044c,0x044d,0x044e,0x044f
 };
 
-static const de_uint16 windows1252table[32] = {
+static const u16 windows1252table[32] = {
 	0x20ac,0xffff,0x201a,0x0192,0x201e,0x2026,0x2020,0x2021,0x02c6,0x2030,0x0160,0x2039,0x0152,0xffff,0x017d,0xffff,
 	0xffff,0x2018,0x2019,0x201c,0x201d,0x2022,0x2013,0x2014,0x02dc,0x2122,0x0161,0x203a,0x0153,0xffff,0x017e,0x0178
 };
 
 // Trivia: This table maps the heart and diamond suits to the BLACK Unicode
 // characters. Some sources map them to the WHITE characters instead.
-static const de_uint16 palmcstable[4] = {
+static const u16 palmcstable[4] = {
 	0x2666,0x2663,0x2665,0x2660
 };
 
-static const de_uint16 riscostable[32] = {
+static const u16 riscostable[32] = {
 	0x20ac,0x0174,0x0175,0xffff,0xffff,0x0176,0x0177,0xffff,0xffff,0xffff,0xffff,0xffff,0x2026,0x2122,0x2030,0x2022,
 	0x2018,0x2019,0x2039,0x203a,0x201c,0x201d,0x201e,0x2013,0x2014,0x2212,0x0152,0x0153,0x2020,0x2021,0xfb01,0xfb02
 };
 
-static const de_uint16 macromantable[128] = {
+static const u16 macromantable[128] = {
 	0x00c4,0x00c5,0x00c7,0x00c9,0x00d1,0x00d6,0x00dc,0x00e1,0x00e0,0x00e2,0x00e4,0x00e3,0x00e5,0x00e7,0x00e9,0x00e8,
 	0x00ea,0x00eb,0x00ed,0x00ec,0x00ee,0x00ef,0x00f1,0x00f3,0x00f2,0x00f4,0x00f6,0x00f5,0x00fa,0x00f9,0x00fb,0x00fc,
 	0x2020,0x00b0,0x00a2,0x00a3,0x00a7,0x2022,0x00b6,0x00df,0x00ae,0x00a9,0x2122,0x00b4,0x00a8,0x2260,0x00c6,0x00d8,
@@ -109,7 +109,7 @@ static const de_uint16 macromantable[128] = {
 	0xf8ff,0x00d2,0x00da,0x00db,0x00d9,0x0131,0x02c6,0x02dc,0x00af,0x02d8,0x02d9,0x02da,0x00b8,0x02dd,0x02db,0x02c7
 };
 
-static const de_uint16 petscii1table[256] = {
+static const u16 petscii1table[256] = {
 	0xffff,0xffff,0xffff,0xffff,0xffff,0xffff,0xffff,0xffff,0xffff,0xffff,0xffff,0xffff,0xffff,0x000d,0x000e,0xffff,
 	0xffff,0xffff,0xffff,0xffff,0x007f,0xffff,0xffff,0xffff,0xffff,0xffff,0xffff,0xffff,0xffff,0xffff,0xffff,0xffff,
 	0x0020,0x0021,0x0022,0x0023,0x0024,0x0025,0x0026,0x0027,0x0028,0x0029,0x002a,0x002b,0x002c,0x002d,0x002e,0x002f,
@@ -129,88 +129,88 @@ static const de_uint16 petscii1table[256] = {
 };
 
 // Derived from VT100 Series Technical manual, Table A-9: Special Graphics Characters (p. A-12)
-static const de_uint16 decspecialgraphicstable[32] = {
+static const u16 decspecialgraphicstable[32] = {
 	0x00a0,0x25c6,0x2592,0x2409,0x240c,0x240d,0x240a,0x00b0,0x00b1,0x2424,0x240b,0x2518,0x2510,0x250c,0x2514,0x253c,
 	0x23ba,0x23bb,0x2500,0x23bc,0x23bd,0x251c,0x2524,0x2534,0x252c,0x2502,0x2264,0x2265,0x03c0,0x2260,0x00a3,0x00b7
 };
 
 // Code page 437, with screen code graphics characters.
-static de_int32 de_cp437g_to_unicode(de_int32 a)
+static i32 de_cp437g_to_unicode(i32 a)
 {
-	de_int32 n;
-	if(a<=0xff) n = (de_int32)cp437table[a];
+	i32 n;
+	if(a<=0xff) n = (i32)cp437table[a];
 	else n = DE_CODEPOINT_INVALID;
 	if(n==0xffff) n = DE_CODEPOINT_INVALID;
 	return n;
 }
 
 // Code page 437, with control characters.
-static de_int32 de_cp437c_to_unicode(de_int32 a)
+static i32 de_cp437c_to_unicode(i32 a)
 {
-	de_int32 n;
+	i32 n;
 	if(a<=0x7f) n = a;
-	else if(a>=0x080 && a<=0xff) n = (de_int32)cp437table[a];
+	else if(a>=0x080 && a<=0xff) n = (i32)cp437table[a];
 	else n = DE_CODEPOINT_INVALID;
 	if(n==0xffff) n = DE_CODEPOINT_INVALID;
 	return n;
 }
 
-static de_int32 de_latin2_to_unicode(de_int32 a)
+static i32 de_latin2_to_unicode(i32 a)
 {
-	de_int32 n;
+	i32 n;
 	if(a<=0x9f) n = a;
-	else if(a>=0xa0 && a<=0xbf) n = (de_int32)latin2table[a-0xa0];
-	else if(a>=0x0c0 && a<=0xff) n = (de_int32)windows1250table[a-0x80];
+	else if(a>=0xa0 && a<=0xbf) n = (i32)latin2table[a-0xa0];
+	else if(a>=0x0c0 && a<=0xff) n = (i32)windows1250table[a-0x80];
 	else n = DE_CODEPOINT_INVALID;
 	if(n==0xffff) n = DE_CODEPOINT_INVALID;
 	return n;
 }
 
-static de_int32 de_windows1250_to_unicode(de_int32 a)
+static i32 de_windows1250_to_unicode(i32 a)
 {
-	de_int32 n;
+	i32 n;
 	if(a<=0x7f) n = a;
-	else if(a>=0x080 && a<=0xff) n = (de_int32)windows1250table[a-0x80];
+	else if(a>=0x080 && a<=0xff) n = (i32)windows1250table[a-0x80];
 	else n = DE_CODEPOINT_INVALID;
 	if(n==0xffff) n = DE_CODEPOINT_INVALID;
 	return n;
 }
 
-static de_int32 de_windows1251_to_unicode(de_int32 a)
+static i32 de_windows1251_to_unicode(i32 a)
 {
-	de_int32 n;
+	i32 n;
 	if(a<=0x7f) n = a;
-	else if(a>=0x080 && a<=0xff) n = (de_int32)windows1251table[a-0x80];
+	else if(a>=0x080 && a<=0xff) n = (i32)windows1251table[a-0x80];
 	else n = DE_CODEPOINT_INVALID;
 	if(n==0xffff) n = DE_CODEPOINT_INVALID;
 	return n;
 }
 
-static de_int32 de_windows1252_to_unicode(de_int32 a)
+static i32 de_windows1252_to_unicode(i32 a)
 {
-	de_int32 n;
-	if(a>=0x80 && a<=0x9f) n = (de_int32)windows1252table[a-0x80];
+	i32 n;
+	if(a>=0x80 && a<=0x9f) n = (i32)windows1252table[a-0x80];
 	else if(a<=0xff) n = a;
 	else n = DE_CODEPOINT_INVALID;
 	if(n==0xffff) n = DE_CODEPOINT_INVALID;
 	return n;
 }
 
-static de_int32 de_palmcs_to_unicode(de_int32 a)
+static i32 de_palmcs_to_unicode(i32 a)
 {
-	de_int32 n;
+	i32 n;
 	// This is not perfect, but the diamond/club/heart/spade characters seem to
 	// be about the only printable characters common to all versions of this
 	// encoding, that differ from Windows-1252.
-	if(a>=0x8d && a<=0x90) n = (de_int32)palmcstable[a-0x8d];
+	if(a>=0x8d && a<=0x90) n = (i32)palmcstable[a-0x8d];
 	else n = de_windows1252_to_unicode(a);
 	return n;
 }
 
-static de_int32 de_riscos_to_unicode(de_int32 a)
+static i32 de_riscos_to_unicode(i32 a)
 {
-	de_int32 n;
-	if(a>=0x80 && a<=0x9f) n = (de_int32)riscostable[a-0x80];
+	i32 n;
+	if(a>=0x80 && a<=0x9f) n = (i32)riscostable[a-0x80];
 	else if(a<=0xff) n = a;
 	else n = DE_CODEPOINT_INVALID;
 	if(n==0xffff) n = DE_CODEPOINT_INVALID;
@@ -218,35 +218,35 @@ static de_int32 de_riscos_to_unicode(de_int32 a)
 }
 
 // MacRoman, a.k.a "Mac OS Roman", "Macintosh"
-static de_int32 de_macroman_to_unicode(de_int32 a)
+static i32 de_macroman_to_unicode(i32 a)
 {
-	de_int32 n;
+	i32 n;
 	if(a<=0x7f) n = a;
-	else if(a>=0x080 && a<=0xff) n = (de_int32)macromantable[a-0x80];
+	else if(a>=0x080 && a<=0xff) n = (i32)macromantable[a-0x80];
 	else n = DE_CODEPOINT_INVALID;
 	if(n==0xffff) n = DE_CODEPOINT_INVALID;
 	return n;
 }
 
-static de_int32 de_petscii_to_unicode(de_int32 a)
+static i32 de_petscii_to_unicode(i32 a)
 {
-	de_int32 n;
-	if(a<=0xff) n = (de_int32)petscii1table[a];
+	i32 n;
+	if(a<=0xff) n = (i32)petscii1table[a];
 	else n = DE_CODEPOINT_INVALID;
 	if(n==0xffff) n = DE_CODEPOINT_INVALID;
 	return n;
 }
 
-static de_int32 de_decspecialgraphics_to_unicode(de_int32 a)
+static i32 de_decspecialgraphics_to_unicode(i32 a)
 {
-	de_int32 n;
-	if(a>=95 && a<=126) n = (de_int32)decspecialgraphicstable[a-95];
+	i32 n;
+	if(a>=95 && a<=126) n = (i32)decspecialgraphicstable[a-95];
 	else n = DE_CODEPOINT_INVALID;
 	if(n==0xffff) n = DE_CODEPOINT_INVALID;
 	return n;
 }
 
-de_int32 de_char_to_unicode(deark *c, de_int32 a, int encoding)
+i32 de_char_to_unicode(deark *c, i32 a, int encoding)
 {
 	if(a<0) return DE_CODEPOINT_INVALID;
 
@@ -286,9 +286,9 @@ de_int32 de_char_to_unicode(deark *c, de_int32 a, int encoding)
 // Encode a Unicode char in UTF-8.
 // Caller supplies utf8buf[4].
 // Sets *p_utf8len to the number of bytes used (1-4).
-void de_uchar_to_utf8(de_int32 u1, de_byte *utf8buf, i64 *p_utf8len)
+void de_uchar_to_utf8(i32 u1, u8 *utf8buf, i64 *p_utf8len)
 {
-	de_uint32 u = (de_uint32)u1;
+	u32 u = (u32)u1;
 
 	// TODO: Maybe there should be a flag to tell what to do with
 	// our special codepoints (DE_CODEPOINT_BYTE00, ...).
@@ -298,22 +298,22 @@ void de_uchar_to_utf8(de_int32 u1, de_byte *utf8buf, i64 *p_utf8len)
 
 	if(u<=0x7f) {
 		*p_utf8len = 1;
-		utf8buf[0] = (de_byte)u;
+		utf8buf[0] = (u8)u;
 	}
 	else if(u>=0x80 && u<=0x7ff) {
 		*p_utf8len = 2;
-		utf8buf[0] = 0xc0 | (de_byte)(u>>6);
+		utf8buf[0] = 0xc0 | (u8)(u>>6);
 		utf8buf[1] = 0x80 | (u&0x3f);
 	}
 	else if(u>=0x800 && u<=0xffff) {
 		*p_utf8len = 3;
-		utf8buf[0] = 0xe0 | (de_byte)(u>>12);
+		utf8buf[0] = 0xe0 | (u8)(u>>12);
 		utf8buf[1] = 0x80 | ((u>>6)&0x3f);
 		utf8buf[2] = 0x80 | (u&0x3f);
 	}
 	else {
 		*p_utf8len = 4;
-		utf8buf[0] = 0xf0 | (de_byte)(u>>18);
+		utf8buf[0] = 0xf0 | (u8)(u>>18);
 		utf8buf[1] = 0x80 | ((u>>12)&0x3f);
 		utf8buf[2] = 0x80 | ((u>>6)&0x3f);
 		utf8buf[3] = 0x80 | (u&0x3f);
@@ -321,9 +321,9 @@ void de_uchar_to_utf8(de_int32 u1, de_byte *utf8buf, i64 *p_utf8len)
 }
 
 // Write a unicode code point to a file, encoded as UTF-8.
-void dbuf_write_uchar_as_utf8(dbuf *outf, de_int32 u)
+void dbuf_write_uchar_as_utf8(dbuf *outf, i32 u)
 {
-	de_byte utf8buf[4];
+	u8 utf8buf[4];
 	i64 utf8len;
 
 	de_uchar_to_utf8(u, utf8buf, &utf8len);
@@ -334,16 +334,16 @@ void dbuf_write_uchar_as_utf8(dbuf *outf, de_int32 u)
 // Returns 1 if a valid character was converted, 0 otherwise.
 // buflen = the max number of bytes to read (but regardless of buflen, this
 // will not read past a byte whose value is < 0x80).
-int de_utf8_to_uchar(const de_byte *utf8buf, i64 buflen,
-	de_int32 *p_uchar, i64 *p_utf8len)
+int de_utf8_to_uchar(const u8 *utf8buf, i64 buflen,
+	i32 *p_uchar, i64 *p_utf8len)
 {
-	de_int32 u0=0;
-	de_int32 u1=0;
-	de_int32 u2=0;
-	de_int32 u3=0;
+	i32 u0=0;
+	i32 u1=0;
+	i32 u2=0;
+	i32 u3=0;
 
 	if(buflen<1) return 0;
-	u0 = (de_int32)utf8buf[0];
+	u0 = (i32)utf8buf[0];
 	if(u0<=0x7f) { // 1-byte UTF-8 char
 		*p_utf8len = 1;
 		*p_uchar = u0;
@@ -351,7 +351,7 @@ int de_utf8_to_uchar(const de_byte *utf8buf, i64 buflen,
 	}
 	if(buflen<2) return 0;
 	if((utf8buf[1]&0xc0)!=0x80) return 0;
-	u1 = (de_int32)utf8buf[1];
+	u1 = (i32)utf8buf[1];
 	if(u0<=0xdf) { // 2-byte UTF-8 char
 		*p_utf8len = 2;
 		*p_uchar = ((u0&0x1f)<<6) | (u1&0x3f);
@@ -359,7 +359,7 @@ int de_utf8_to_uchar(const de_byte *utf8buf, i64 buflen,
 	}
 	if(buflen<3) return 0;
 	if((utf8buf[2]&0xc0)!=0x80) return 0;
-	u2 = (de_int32)utf8buf[2];
+	u2 = (i32)utf8buf[2];
 	if(u0<=0xef) { // 3-byte UTF-8 char
 		*p_utf8len = 3;
 		*p_uchar = ((u0&0x0f)<<12) | ((u1&0x3f)<<6) | (u2&0x3f);
@@ -367,7 +367,7 @@ int de_utf8_to_uchar(const de_byte *utf8buf, i64 buflen,
 	}
 	if(buflen<4) return 0;
 	if((utf8buf[3]&0xc0)!=0x80) return 0;
-	u3 = (de_int32)utf8buf[3];
+	u3 = (i32)utf8buf[3];
 	if(u0<=0xf7) { // 4-byte UTF-8 char
 		*p_utf8len = 4;
 		*p_uchar = ((u0&0x07)<<18) | ((u1&0x3f)<<12) | ((u2&0x3f)<<6) | (u3&0x3f);
@@ -383,7 +383,7 @@ void de_utf8_to_ascii(const char *src, char *dst, size_t dstlen, unsigned int fl
 	size_t srcpos = 0;
 	size_t dstpos = 0;
 	unsigned char ch;
-	de_int32 uchar;
+	i32 uchar;
 	i64 code_len;
 	int ret;
 
@@ -404,7 +404,7 @@ void de_utf8_to_ascii(const char *src, char *dst, size_t dstlen, unsigned int fl
 		}
 		else { // Start of a multi-byte UTF8 char
 
-			ret = de_utf8_to_uchar((const de_byte*)&src[srcpos], 4, &uchar, &code_len);
+			ret = de_utf8_to_uchar((const u8*)&src[srcpos], 4, &uchar, &code_len);
 			if(ret) {
 				srcpos += (size_t)code_len;
 				switch(uchar) {
@@ -428,7 +428,7 @@ void de_utf8_to_ascii(const char *src, char *dst, size_t dstlen, unsigned int fl
 	}
 }
 
-static i64 getui16x_direct(const de_byte *m, int is_le)
+static i64 getui16x_direct(const u8 *m, int is_le)
 {
 	if(is_le)
 		return de_getui16le_direct(m);
@@ -438,19 +438,19 @@ static i64 getui16x_direct(const de_byte *m, int is_le)
 // Convert a UTF-16LE or UTF-16BE character to UTF-32.
 // Similar to de_utf8_to_uchar().
 // Returns 1 if a valid character was converted, 0 otherwise.
-int de_utf16x_to_uchar(const de_byte *utf16buf, i64 buflen,
-	de_int32 *p_uchar, i64 *p_utf16len, int is_le)
+int de_utf16x_to_uchar(const u8 *utf16buf, i64 buflen,
+	i32 *p_uchar, i64 *p_utf16len, int is_le)
 {
-	de_int32 u0, u1;
+	i32 u0, u1;
 
 	// Read the first code unit
 	if(buflen<2) return 0;
-	u0 = (de_int32)getui16x_direct(&utf16buf[0], is_le);
+	u0 = (i32)getui16x_direct(&utf16buf[0], is_le);
 
 	if(u0>=0xd800 && u0<=0xdbff) { // It's a lead surrogate
 		// Read the trail surrogate
 		if(buflen<4) return 0;
-		u1 = (de_int32)getui16x_direct(&utf16buf[2], is_le);
+		u1 = (i32)getui16x_direct(&utf16buf[2], is_le);
 		if(u1>=0xdc00 && u1<=0xdfff) { // valid trail surrogate
 			*p_uchar = 0x10000 + (((u0-0xd800)<<10) | (u1-0xdc00));
 			*p_utf16len = 4;
@@ -469,7 +469,7 @@ int de_utf16x_to_uchar(const de_byte *utf16buf, i64 buflen,
 }
 
 // Given a buffer, return 1 if it has no bytes 0x80 or higher.
-int de_is_ascii(const de_byte *buf, i64 buflen)
+int de_is_ascii(const u8 *buf, i64 buflen)
 {
 	i64 i;
 
@@ -479,7 +479,7 @@ int de_is_ascii(const de_byte *buf, i64 buflen)
 	return 1;
 }
 
-static const de_uint32 vga256pal[256] = {
+static const u32 vga256pal[256] = {
 	0x000000,0x0000aa,0x00aa00,0x00aaaa,0xaa0000,0xaa00aa,0xaa5500,0xaaaaaa,
 	0x555555,0x5555ff,0x55ff55,0x55ffff,0xff5555,0xff55ff,0xffff55,0xffffff,
 	0x000000,0x141414,0x202020,0x2d2d2d,0x393939,0x454545,0x515151,0x616161,
@@ -514,7 +514,7 @@ static const de_uint32 vga256pal[256] = {
 	0x000000,0x000000,0x000000,0x000000,0x000000,0x000000,0x000000,0x000000
 };
 
-static const de_uint32 ega64pal[64] = {
+static const u32 ega64pal[64] = {
 	0x000000,0x0000aa,0x00aa00,0x00aaaa,0xaa0000,0xaa00aa,0xaaaa00,0xaaaaaa,
 	0x000055,0x0000ff,0x00aa55,0x00aaff,0xaa0055,0xaa00ff,0xaaaa55,0xaaaaff,
 	0x005500,0x0055aa,0x00ff00,0x00ffaa,0xaa5500,0xaa55aa,0xaaff00,0xaaffaa,
@@ -525,13 +525,13 @@ static const de_uint32 ega64pal[64] = {
 	0x555555,0x5555ff,0x55ff55,0x55ffff,0xff5555,0xff55ff,0xffff55,0xffffff
 };
 
-static const de_uint32 pc16pal[16] = {
+static const u32 pc16pal[16] = {
 	0x000000,0x0000aa,0x00aa00,0x00aaaa,0xaa0000,0xaa00aa,0xaa5500,0xaaaaaa,
 	0x555555,0x5555ff,0x55ff55,0x55ffff,0xff5555,0xff55ff,0xffff55,0xffffff
 };
 
 
-de_uint32 de_palette_vga256(int index)
+u32 de_palette_vga256(int index)
 {
 	if(index>=0 && index<256) {
 		return vga256pal[index];
@@ -539,7 +539,7 @@ de_uint32 de_palette_vga256(int index)
 	return 0;
 }
 
-de_uint32 de_palette_ega64(int index)
+u32 de_palette_ega64(int index)
 {
 
 	if(index>=0 && index<64) {
@@ -548,7 +548,7 @@ de_uint32 de_palette_ega64(int index)
 	return 0;
 }
 
-de_uint32 de_palette_pc16(int index)
+u32 de_palette_pc16(int index)
 {
 	if(index>=0 && index<16) {
 		return pc16pal[index];
@@ -556,7 +556,7 @@ de_uint32 de_palette_pc16(int index)
 	return 0;
 }
 
-static const de_uint32 pcpaint_cga_pals[6][4] = {
+static const u32 pcpaint_cga_pals[6][4] = {
 	{ 0x000000, 0x00aaaa, 0xaa00aa, 0xaaaaaa }, // palette 1 low
 	{ 0x000000, 0x00aa00, 0xaa0000, 0xaa5500 }, // palette 0 low
 	{ 0x000000, 0x00aaaa, 0xaa0000, 0xaaaaaa }, // 3rd palette low
@@ -565,7 +565,7 @@ static const de_uint32 pcpaint_cga_pals[6][4] = {
 	{ 0x000000, 0x55ffff, 0xff5555, 0xffffff }  // 3rd palette high
 };
 
-de_uint32 de_palette_pcpaint_cga4(int palnum, int index)
+u32 de_palette_pcpaint_cga4(int palnum, int index)
 {
 	if(palnum<0 || palnum>5) palnum=2;
 	if(index>=0 && index<4) {
@@ -575,7 +575,7 @@ de_uint32 de_palette_pcpaint_cga4(int palnum, int index)
 }
 
 // Only codepoints 32-127 are included here.
-static const de_byte cga_8x8_font_data[96*8] = {
+static const u8 cga_8x8_font_data[96*8] = {
 	0,0,0,0,0,0,0,0,
 	48,120,120,48,48,0,48,0,
 	108,108,108,0,0,0,0,0,
@@ -674,12 +674,12 @@ static const de_byte cga_8x8_font_data[96*8] = {
 	0,16,56,108,198,198,254,0
 };
 
-const de_byte *de_get_8x8ascii_font_ptr(void)
+const u8 *de_get_8x8ascii_font_ptr(void)
 {
 	return cga_8x8_font_data;
 }
 
-static const de_byte vga_cp437_font_data[256*16] = {
+static const u8 vga_cp437_font_data[256*16] = {
 	0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
 	0,0,126,129,165,129,129,189,153,129,129,126,0,0,0,0,
 	0,0,126,255,219,255,255,195,231,255,255,126,0,0,0,0,
@@ -938,14 +938,14 @@ static const de_byte vga_cp437_font_data[256*16] = {
 	0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
 };
 
-const de_byte *de_get_vga_cp437_font_ptr(void)
+const u8 *de_get_vga_cp437_font_ptr(void)
 {
 	return vga_cp437_font_data;
 }
 
-void de_color_to_css(de_uint32 color, char *buf, int buflen)
+void de_color_to_css(u32 color, char *buf, int buflen)
 {
-	de_byte r, g, b;
+	u8 r, g, b;
 
 	buf[0] = '#';
 	r = DE_COLOR_R(color);
@@ -970,7 +970,7 @@ void de_color_to_css(de_uint32 color, char *buf, int buflen)
 	buf[7] = '\0';
 }
 
-de_byte de_sample_nbit_to_8bit(i64 n, unsigned int x)
+u8 de_sample_nbit_to_8bit(i64 n, unsigned int x)
 {
 	unsigned int maxval;
 
@@ -978,66 +978,66 @@ de_byte de_sample_nbit_to_8bit(i64 n, unsigned int x)
 	if(n<1 || n>16) return 0;
 	maxval = (1<<n)-1;
 	if(x>=maxval) return 255;
-	return (de_byte)(0.5+((((double)x)/(double)maxval)*255.0));
+	return (u8)(0.5+((((double)x)/(double)maxval)*255.0));
 }
 
-de_byte de_scale_63_to_255(de_byte x)
+u8 de_scale_63_to_255(u8 x)
 {
 	if(x>=63) return 255;
-	return (de_byte)(0.5+(((double)x)*(255.0/63.0)));
+	return (u8)(0.5+(((double)x)*(255.0/63.0)));
 }
 
-de_byte de_scale_1000_to_255(i64 x)
+u8 de_scale_1000_to_255(i64 x)
 {
 	if(x>=1000) return 255;
 	if(x<=0) return 0;
-	return (de_byte)(0.5+(((double)x)*(255.0/1000.0)));
+	return (u8)(0.5+(((double)x)*(255.0/1000.0)));
 }
 
-de_byte de_scale_n_to_255(i64 n, i64 x)
+u8 de_scale_n_to_255(i64 n, i64 x)
 {
 	if(x>=n) return 255;
 	if(x<=0) return 0;
-	return (de_byte)(0.5+(((double)x)*(255.0/(double)n)));
+	return (u8)(0.5+(((double)x)*(255.0/(double)n)));
 }
 
-de_uint32 de_rgb565_to_888(de_uint32 x)
+u32 de_rgb565_to_888(u32 x)
 {
-	de_byte cr, cg, cb;
-	cr = (de_byte)(x>>11);
-	cg = (de_byte)((x>>5)&0x3f);
-	cb = (de_byte)(x&0x1f);
-	cr = (de_byte)(0.5+((double)cr)*(255.0/31.0));
-	cg = (de_byte)(0.5+((double)cg)*(255.0/63.0));
-	cb = (de_byte)(0.5+((double)cb)*(255.0/31.0));
+	u8 cr, cg, cb;
+	cr = (u8)(x>>11);
+	cg = (u8)((x>>5)&0x3f);
+	cb = (u8)(x&0x1f);
+	cr = (u8)(0.5+((double)cr)*(255.0/31.0));
+	cg = (u8)(0.5+((double)cg)*(255.0/63.0));
+	cb = (u8)(0.5+((double)cb)*(255.0/31.0));
 	return DE_MAKE_RGB(cr, cg, cb);
 }
 
-de_uint32 de_bgr555_to_888(de_uint32 x)
+u32 de_bgr555_to_888(u32 x)
 {
-	de_byte cr, cg, cb;
-	cb = (de_byte)((x>>10)&0x1f);
-	cg = (de_byte)((x>>5)&0x1f);
-	cr = (de_byte)(x&0x1f);
-	cb = (de_byte)(0.5+((double)cb)*(255.0/31.0));
-	cg = (de_byte)(0.5+((double)cg)*(255.0/31.0));
-	cr = (de_byte)(0.5+((double)cr)*(255.0/31.0));
+	u8 cr, cg, cb;
+	cb = (u8)((x>>10)&0x1f);
+	cg = (u8)((x>>5)&0x1f);
+	cr = (u8)(x&0x1f);
+	cb = (u8)(0.5+((double)cb)*(255.0/31.0));
+	cg = (u8)(0.5+((double)cg)*(255.0/31.0));
+	cr = (u8)(0.5+((double)cr)*(255.0/31.0));
 	return DE_MAKE_RGB(cr, cg, cb);
 }
 
-de_uint32 de_rgb555_to_888(de_uint32 x)
+u32 de_rgb555_to_888(u32 x)
 {
-	de_byte cr, cg, cb;
-	cr = (de_byte)((x>>10)&0x1f);
-	cg = (de_byte)((x>>5)&0x1f);
-	cb = (de_byte)(x&0x1f);
-	cr = (de_byte)(0.5+((double)cr)*(255.0/31.0));
-	cg = (de_byte)(0.5+((double)cg)*(255.0/31.0));
-	cb = (de_byte)(0.5+((double)cb)*(255.0/31.0));
+	u8 cr, cg, cb;
+	cr = (u8)((x>>10)&0x1f);
+	cg = (u8)((x>>5)&0x1f);
+	cb = (u8)(x&0x1f);
+	cr = (u8)(0.5+((double)cr)*(255.0/31.0));
+	cg = (u8)(0.5+((double)cg)*(255.0/31.0));
+	cb = (u8)(0.5+((double)cb)*(255.0/31.0));
 	return DE_MAKE_RGB(cr, cg, cb);
 }
 
-char de_byte_to_printable_char(de_byte b)
+char de_byte_to_printable_char(u8 b)
 {
 	if(b>=32 && b<=126) return (char)b;
 	return '_';
@@ -1049,7 +1049,7 @@ char de_byte_to_printable_char(de_byte b)
 // s2_size includes the NUL terminator.
 // Supported conv_flags: DE_CONVFLAG_STOP_AT_NUL, DE_CONVFLAG_ALLOW_HL
 // src_encoding: Only DE_ENCODING_ASCII is supported.
-void de_bytes_to_printable_sz(const de_byte *s1, i64 s1_len,
+void de_bytes_to_printable_sz(const u8 *s1, i64 s1_len,
 	char *s2, i64 s2_size, unsigned int conv_flags, int src_encoding)
 {
 	i64 i;
@@ -1096,7 +1096,7 @@ void de_bytes_to_printable_sz(const de_byte *s1, i64 s1_len,
 	s2[s2_pos] = '\0';
 }
 
-de_int32 de_char_to_valid_fn_char(deark *c, de_int32 ch)
+i32 de_char_to_valid_fn_char(deark *c, i32 ch)
 {
 	if(ch>=32 && ch<=126 && ch!='/' && ch!='\\' && ch!=':'
 		&& ch!='*' && ch!='?' && ch!='\"' && ch!='<' &&
@@ -1115,7 +1115,7 @@ de_int32 de_char_to_valid_fn_char(deark *c, de_int32 ch)
 	return '_';
 }
 
-void de_write_codepoint_to_html(deark *c, dbuf *f, de_int32 ch)
+void de_write_codepoint_to_html(deark *c, dbuf *f, i32 ch)
 {
 	int e; // How to encode this codepoint
 
@@ -1135,7 +1135,7 @@ void de_write_codepoint_to_html(deark *c, dbuf *f, de_int32 ch)
 	}
 
 	if(e==2) {
-		dbuf_writebyte(f, (de_byte)ch);
+		dbuf_writebyte(f, (u8)ch);
 	}
 	else if(e==3) {
 		dbuf_write_uchar_as_utf8(f, ch);
@@ -1245,11 +1245,11 @@ void de_decode_base16(deark *c, dbuf *inf, i64 pos1, i64 len,
 	dbuf *outf, unsigned int flags)
 {
 	i64 pos = pos1;
-	de_byte b;
+	u8 b;
 	int bad_warned = 0;
 	struct base16_ctx {
 		int cbuf_count;
-		de_byte cbuf[5];
+		u8 cbuf[5];
 	};
 	struct base16_ctx *d = NULL;
 

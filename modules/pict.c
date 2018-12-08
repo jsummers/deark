@@ -28,13 +28,13 @@ typedef int (*item_decoder_fn)(deark *c, lctx *d, i64 opcode, i64 data_pos,
 	i64 *bytes_used);
 
 struct opcode_info {
-	de_uint16 opcode;
+	u16 opcode;
 #define SZCODE_SPECIAL 0
 #define SZCODE_EXACT   1
 #define SZCODE_REGION  2
 #define SZCODE_POLYGON 3
-	de_uint16 size_code;
-	de_uint32 size; // Data size, not including opcode. Logic depends on size_code.
+	u16 size_code;
+	u32 size; // Data size, not including opcode. Logic depends on size_code.
 	const char *name;
 	item_decoder_fn fn;
 };
@@ -79,15 +79,15 @@ static void pict_read_rect(dbuf *f, i64 pos,
 static int handler_RGBColor(deark *c, lctx *d, i64 opcode, i64 data_pos, i64 *bytes_used)
 {
 	unsigned int clr16[3];
-	de_byte clr8[3];
-	de_uint32 clr;
+	u8 clr8[3];
+	u32 clr;
 	char csamp[16];
 	i64 pos = data_pos;
 	i64 k;
 
 	for(k=0; k<3; k++) {
 		clr16[k] = (unsigned int)de_getui16be_p(&pos);
-		clr8[k] = (de_byte)(clr16[k]>>8);
+		clr8[k] = (u8)(clr16[k]>>8);
 	}
 	clr = DE_MAKE_RGB(clr8[0], clr8[1], clr8[2]);
 	de_get_colorsample_code(c, clr, csamp, sizeof(csamp));
@@ -215,7 +215,7 @@ struct bitmapinfo {
 	int has_colortable; // Does the file contain a colortable for this bitmap?
 	int uses_pal; // Are we using the palette below?
 	i64 num_pal_entries;
-	de_uint32 pal[256];
+	u32 pal[256];
 };
 
 // Sometimes-present baseAddr field (4 bytes)
@@ -299,12 +299,12 @@ static int read_pixmap_only_fields(deark *c, lctx *d, struct bitmapinfo *bi,
 static int read_colortable(deark *c, lctx *d, struct bitmapinfo *bi, i64 pos, i64 *bytes_used)
 {
 	i64 ct_id;
-	de_uint32 ct_flags;
+	u32 ct_flags;
 	i64 ct_size;
 	i64 k, z;
-	de_uint32 s[4];
-	de_byte cr, cg, cb;
-	de_uint32 clr;
+	u32 s[4];
+	u8 cr, cg, cb;
+	u32 clr;
 	char tmps[64];
 
 	*bytes_used = 0;
@@ -312,7 +312,7 @@ static int read_colortable(deark *c, lctx *d, struct bitmapinfo *bi, i64 pos, i6
 	de_dbg_indent(c, 1);
 
 	ct_id = de_getui32be(pos);
-	ct_flags = (de_uint32)de_getui16be(pos+4); // a.k.a. transIndex
+	ct_flags = (u32)de_getui16be(pos+4); // a.k.a. transIndex
 	ct_size = de_getui16be(pos+6);
 	bi->num_pal_entries = ct_size+1;
 	de_dbg(c, "color table id=0x%08x, flags=0x%04x, colors=%d", (unsigned int)ct_id,
@@ -320,11 +320,11 @@ static int read_colortable(deark *c, lctx *d, struct bitmapinfo *bi, i64 pos, i6
 
 	for(k=0; k<bi->num_pal_entries; k++) {
 		for(z=0; z<4; z++) {
-			s[z] = (de_uint32)de_getui16be(pos+8+8*k+2*z);
+			s[z] = (u32)de_getui16be(pos+8+8*k+2*z);
 		}
-		cr = (de_byte)(s[1]>>8);
-		cg = (de_byte)(s[2]>>8);
-		cb = (de_byte)(s[3]>>8);
+		cr = (u8)(s[1]>>8);
+		cg = (u8)(s[2]>>8);
+		cb = (u8)(s[3]>>8);
 		clr = DE_MAKE_RGB(cr,cg,cb);
 		de_snprintf(tmps, sizeof(tmps), "(%5d,%5d,%5d,idx=%3d) "DE_CHAR_RIGHTARROW" ",
 			(int)s[1], (int)s[2], (int)s[3], (int)s[0]);
@@ -334,7 +334,7 @@ static int read_colortable(deark *c, lctx *d, struct bitmapinfo *bi, i64 pos, i6
 		// the indices if the "device" flag of ct_flags is set, and that seems to
 		// work (though it's not clearly documented).
 		if(ct_flags & 0x8000U) {
-			s[0] = (de_uint32)k;
+			s[0] = (u32)k;
 		}
 
 		if(s[0]<=255) {
@@ -428,7 +428,7 @@ static void decode_bitmap_rgb24(deark *c, lctx *d, struct bitmapinfo *bi,
 	dbuf *unc_pixels, de_bitmap *img, i64 pos)
 {
 	i64 i, j;
-	de_byte cr, cg, cb;
+	u8 cr, cg, cb;
 
 	for(j=0; j<bi->height; j++) {
 		for(i=0; i<bi->width; i++) {
@@ -444,14 +444,14 @@ static void decode_bitmap_rgb16(deark *c, lctx *d, struct bitmapinfo *bi,
 	dbuf *unc_pixels, de_bitmap *img, i64 pos)
 {
 	i64 i, j;
-	de_byte c0, c1; //, cg, cb;
-	de_uint32 clr;
+	u8 c0, c1; //, cg, cb;
+	u32 clr;
 
 	for(j=0; j<bi->height; j++) {
 		for(i=0; i<bi->width; i++) {
 			c0 = dbuf_getbyte(unc_pixels, j*bi->rowspan + i*2);
 			c1 = dbuf_getbyte(unc_pixels, j*bi->rowspan + i*2+1);
-			clr = ((de_uint32)c0 << 8)|c1;
+			clr = ((u32)c0 << 8)|c1;
 			clr = de_rgb555_to_888(clr);
 			de_bitmap_setpixel_rgb(img, i, j, clr);
 		}
@@ -462,8 +462,8 @@ static void decode_bitmap_paletted(deark *c, lctx *d, struct bitmapinfo *bi,
 	dbuf *unc_pixels, de_bitmap *img, i64 pos)
 {
 	i64 i, j;
-	de_byte b;
-	de_uint32 clr;
+	u8 b;
+	u32 clr;
 
 	for(j=0; j<bi->height; j++) {
 		for(i=0; i<bi->width; i++) {
@@ -1093,7 +1093,7 @@ static void de_run_pict(deark *c, de_module_params *mparams)
 
 static int de_identify_pict(deark *c)
 {
-	de_byte buf[6];
+	u8 buf[6];
 
 	if(c->infile->len<528) return 0;
 	de_read(buf, 522, sizeof(buf));

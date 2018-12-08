@@ -71,9 +71,9 @@ typedef struct localctx_struct {
 	i64 image_depth;
 	i64 colormap_pos;
 	i64 colormap_size;
-	de_byte rle_flag;
+	u8 rle_flag;
 
-	de_uint32 pal[256];
+	u32 pal[256];
 } lctx;
 
 struct obj_type_info_struct;
@@ -85,15 +85,15 @@ typedef void (*obj_decoder_fn)(deark *c, lctx *d,
 struct obj_type_info_struct {
 	// 0x01: is a VLQ
 	// 0x02: Print decoded value, even if decoder_fn exists
-	de_uint32 flags;
+	u32 flags;
 
-	de_byte full_type;
-	de_byte primitive_type;
+	u8 full_type;
+	u8 primitive_type;
 	const char *name;
 	obj_decoder_fn decoder_fn;
 };
 
-static const char *get_fulltype_name(de_byte t)
+static const char *get_fulltype_name(u8 t)
 {
 	const char *name;
 	switch(t) {
@@ -202,7 +202,7 @@ static const struct obj_type_info_struct obj_type_info_arr[] = {
 	{ 0x03, VORT_V_COLORMAP, 4 /* C_BLUE */, "blue channel flag", NULL }
 };
 
-static const struct obj_type_info_struct *find_obj_type_info(de_byte full_type, de_byte primitive_type)
+static const struct obj_type_info_struct *find_obj_type_info(u8 full_type, u8 primitive_type)
 {
 	size_t i;
 
@@ -217,9 +217,9 @@ static const struct obj_type_info_struct *find_obj_type_info(de_byte full_type, 
 }
 
 static int do_primitive_object(deark *c, lctx *d, i64 pos1,
-	de_byte obj_fulltype, i64 *bytes_consumed)
+	u8 obj_fulltype, i64 *bytes_consumed)
 {
-	de_byte obj_type;
+	u8 obj_type;
 	i64 obj_dlen;
 	i64 pos = pos1;
 	const struct obj_type_info_struct *oti;
@@ -266,7 +266,7 @@ static int do_primitive_object(deark *c, lctx *d, i64 pos1,
 }
 
 static int do_object_list(deark *c, lctx *d, i64 pos1, i64 len,
-	de_byte object_fulltype, i64 *bytes_consumed)
+	u8 object_fulltype, i64 *bytes_consumed)
 {
 	i64 pos = pos1;
 	int saved_indent_level;
@@ -294,7 +294,7 @@ done:
 static int do_full_object(deark *c, lctx *d, i64 pos1,
 	i64 *bytes_consumed)
 {
-	de_byte obj_type;
+	u8 obj_type;
 	i64 obj_dlen;
 	i64 pos = pos1;
 	i64 bytes_consumed2 = 0;
@@ -334,7 +334,7 @@ static void do_colormap(deark *c, lctx *d)
 
 	de_dbg_indent(c, 1);
 	for(k=0; k<d->colormap_size && k<256; k++) {
-		de_byte cr, cg, cb;
+		u8 cr, cg, cb;
 		cr = de_getbyte(d->colormap_pos + k);
 		cg = de_getbyte(d->colormap_pos + d->colormap_size + k);
 		cb = de_getbyte(d->colormap_pos + d->colormap_size*2 + k);
@@ -351,7 +351,7 @@ static void do_decompress(deark *c, lctx *d, i64 pos1, dbuf *unc_pixels,
 	i64 pixel_count = 0;
 
 	while(1) {
-		de_byte b;
+		u8 b;
 		i64 count;
 
 		if(pos>c->infile->len) break;
@@ -367,7 +367,7 @@ static void do_decompress(deark *c, lctx *d, i64 pos1, dbuf *unc_pixels,
 		}
 		else { // compressed run
 			i64 k;
-			de_byte pixel_buf[4];
+			u8 pixel_buf[4];
 
 			count = 1+(i64)b;
 			de_read(pixel_buf, pos, bytes_per_pixel);
@@ -420,12 +420,12 @@ static void do_image(deark *c, lctx *d)
 	for(j=0; j<d->image_height; j++) {
 		for(i=0; i<d->image_width; i++) {
 			if(d->image_depth==8) {
-				de_byte b;
+				u8 b;
 				b = dbuf_getbyte(unc_pixels, j*d->image_width + i);
 				de_bitmap_setpixel_rgb(img, i, j, d->pal[(unsigned int)b]);
 			}
 			else if(d->image_depth==24) {
-				de_uint32 clr;
+				u32 clr;
 				clr = dbuf_getRGB(unc_pixels, (j*d->image_width + i)*bytes_per_pixel, 0);
 				de_bitmap_setpixel_rgb(img, i, j, clr);
 			}

@@ -12,14 +12,14 @@ DE_DECLARE_MODULE(de_module_bpg);
 typedef struct localctx_struct {
 	i64 width, height;
 
-	de_byte pixel_format;
-	de_byte alpha_flag;
+	u8 pixel_format;
+	u8 alpha_flag;
 	i64 bit_depth;
 
-	de_byte color_space;
-	de_byte extension_present_flag;
-	de_byte alpha2_flag;
-	de_byte limited_range_flag;
+	u8 color_space;
+	u8 extension_present_flag;
+	u8 alpha2_flag;
+	u8 limited_range_flag;
 
 	i64 picture_data_len;
 	i64 extension_data_len;
@@ -28,7 +28,7 @@ typedef struct localctx_struct {
 
 static i64 get_ue7(deark *c, i64 *pos)
 {
-	de_byte b;
+	u8 b;
 	i64 val = 0;
 	int bytecount = 0;
 
@@ -53,7 +53,7 @@ static i64 get_ue7(deark *c, i64 *pos)
 
 static void do_exif(deark *c, lctx *d, i64 pos1, i64 len1)
 {
-	de_byte buf[3];
+	u8 buf[3];
 	i64 pos = pos1;
 	i64 len = len1;
 
@@ -104,7 +104,7 @@ static void do_extensions(deark *c, lctx *d, i64 pos)
 static void do_hevc_file(deark *c, lctx *d)
 {
 	i64 pos;
-	de_byte b;
+	u8 b;
 
 	pos = 4;
 	b = de_getbyte(pos);

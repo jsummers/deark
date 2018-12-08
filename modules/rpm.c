@@ -23,7 +23,7 @@ DE_DECLARE_MODULE(de_module_rpm);
 #define DE_RPM_CMPR_XZ      4
 
 typedef struct localctx_struct {
-	de_byte ver_major, ver_minor;
+	u8 ver_major, ver_minor;
 	int cmpr_type;
 
 	struct de_stringreaderdata *name_srd;
@@ -54,7 +54,7 @@ done:
 
 static void read_compression_type(deark *c, lctx *d, i64 pos)
 {
-	de_byte buf[16];
+	u8 buf[16];
 
 	de_dbg(c, "compression type at %d", (int)pos);
 
@@ -75,8 +75,8 @@ static int do_header_structure(deark *c, lctx *d, int is_sig, i64 pos1,
 	i64 pos;
 	i64 indexcount;
 	i64 storesize;
-	de_byte buf[4];
-	de_byte header_ver;
+	u8 buf[4];
+	u8 header_ver;
 	i64 i;
 	i64 tag_id, tag_type, tag_offset, tag_count;
 	i64 data_store_pos;
@@ -171,7 +171,7 @@ static void de_run_rpm(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
 	i64 pos;
-	de_byte buf[8];
+	u8 buf[8];
 	const char *ext;
 	i64 section_size = 0;
 	de_finfo *fi = NULL;

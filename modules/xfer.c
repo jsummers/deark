@@ -15,7 +15,7 @@ DE_DECLARE_MODULE(de_module_ascii85);
 
 typedef struct localctx_struct {
 	int cbuf_count;
-	de_byte cbuf[5];
+	u8 cbuf[5];
 
 #define FMT_BASE64    1
 #define FMT_UUENCODE  2
@@ -96,7 +96,7 @@ static i64 do_base64_flush(deark *c, lctx *d, dbuf *f, i64 max_to_write)
 // Read base64 from c->infile starting at offset 'pos'.
 static void do_base64_internal(deark *c, lctx *d, i64 pos, dbuf *outf)
 {
-	de_byte b;
+	u8 b;
 	int found_terminator = 0;
 	int bad_warned = 0;
 
@@ -172,7 +172,7 @@ void de_module_base64(deark *c, struct deark_module_info *mi)
 // **************************************************************************
 
 // Caller passes buf (not NUL terminated) to us.
-static void parse_begin_line(deark *c, lctx *d, const de_byte *buf, i64 buf_len)
+static void parse_begin_line(deark *c, lctx *d, const u8 *buf, i64 buf_len)
 {
 	i64 beginsize;
 	de_ucstring *fn = NULL;
@@ -224,7 +224,7 @@ static int uuencode_read_header(deark *c, lctx *d)
 	int ret;
 	i64 total_len;
 	i64 line_count;
-	de_byte linebuf[500];
+	u8 linebuf[500];
 	i64 nbytes_in_linebuf;
 
 	d->hdr_line_startpos = bom_length(c);
@@ -263,7 +263,7 @@ static int uuencode_read_header(deark *c, lctx *d)
 	return 0;
 }
 
-static int get_uu_byte_value(deark *c, lctx *d, de_byte b, de_byte *val)
+static int get_uu_byte_value(deark *c, lctx *d, u8 b, u8 *val)
 {
 	if(d->data_fmt==FMT_XXENCODE) {
 		if(b>='0' && b<='9') *val = b-46;
@@ -292,8 +292,8 @@ static void do_uudecode_internal(deark *c, lctx *d, dbuf *outf)
 {
 	i64 pos;
 	int ret;
-	de_byte b;
-	de_byte x;
+	u8 b;
+	u8 x;
 	int bad_warned = 0;
 	int start_of_line_flag;
 	i64 decoded_bytes_this_line;
@@ -408,12 +408,12 @@ done:
 	de_free(c, d);
 }
 
-static int de_is_digit(de_byte x)
+static int de_is_digit(u8 x)
 {
 	return (x>='0' && x<='9');
 }
 
-static int de_is_digit_string(const de_byte *s, i64 len)
+static int de_is_digit_string(const u8 *s, i64 len)
 {
 	i64 i;
 	for(i=0; i<len; i++) {
@@ -424,7 +424,7 @@ static int de_is_digit_string(const de_byte *s, i64 len)
 
 static int de_identify_uuencode(deark *c)
 {
-	de_byte b[17];
+	u8 b[17];
 	i64 pos;
 
 	pos = c->detection_data.has_utf8_bom?3:0;
@@ -480,7 +480,7 @@ done:
 
 static int de_identify_xxencode(deark *c)
 {
-	de_byte b[10];
+	u8 b[10];
 	i64 pos;
 
 	// XXEncode is hard to distinguish from UUEncode, so we rely on the
@@ -522,36 +522,36 @@ void de_module_xxencode(deark *c, struct deark_module_info *mi)
 static void do_ascii85_flush(deark *c, lctx *d, dbuf *f)
 {
 	i64 i;
-	de_uint32 code;
+	u32 code;
 
 	if(d->cbuf_count<1) return;
 
-	code = (de_uint32)d->cbuf[0];
+	code = (u32)d->cbuf[0];
 	for(i=1; i<5; i++) {
 		if(i<d->cbuf_count)
-			code = code*85 + (de_uint32)d->cbuf[i];
+			code = code*85 + (u32)d->cbuf[i];
 		else
 			code = code*85 + 84; // (This shouldn't happen with btoa format)
 	}
 
 	// TODO: Simplify this code
 	if(d->cbuf_count>=2) {
-		dbuf_writebyte(f, (de_byte)((code>>24)&0xff));
+		dbuf_writebyte(f, (u8)((code>>24)&0xff));
 		d->bytes_written++;
 		if(d->output_filesize_known && d->bytes_written>=d->output_filesize) goto done;
 	}
 	if(d->cbuf_count>=3) {
-		dbuf_writebyte(f, (de_byte)((code>>16)&0xff));
+		dbuf_writebyte(f, (u8)((code>>16)&0xff));
 		d->bytes_written++;
 		if(d->output_filesize_known && d->bytes_written>=d->output_filesize) goto done;
 	}
 	if(d->cbuf_count>=4) {
-		dbuf_writebyte(f, (de_byte)((code>>8)&0xff));
+		dbuf_writebyte(f, (u8)((code>>8)&0xff));
 		d->bytes_written++;
 		if(d->output_filesize_known && d->bytes_written>=d->output_filesize) goto done;
 	}
 	if(d->cbuf_count>=5) {
-		dbuf_writebyte(f, (de_byte)(code&0xff));
+		dbuf_writebyte(f, (u8)(code&0xff));
 		d->bytes_written++;
 		if(d->output_filesize_known && d->bytes_written>=d->output_filesize) goto done;
 	}
@@ -561,7 +561,7 @@ done:
 }
 
 static void do_ascii85_data_char_processed(deark *c, lctx *d, dbuf *f, i64 linenum,
-	 de_byte x)
+	 u8 x)
 {
 	// Write to the output file immediately before we empty cbuf, instead of
 	// immediately after we fill it.
@@ -578,7 +578,7 @@ static void do_ascii85_data_char_processed(deark *c, lctx *d, dbuf *f, i64 linen
 }
 
 static void do_ascii85_data_char_raw(deark *c, lctx *d, dbuf *f, i64 linenum,
-	 const de_byte x)
+	 const u8 x)
 {
 	i64 k;
 
@@ -602,7 +602,7 @@ static void do_ascii85_data_char_raw(deark *c, lctx *d, dbuf *f, i64 linenum,
 }
 
 static void do_ascii85_data_line(deark *c, lctx *d, dbuf *f, i64 linenum,
-	 const de_byte *linebuf, i64 line_len)
+	 const u8 *linebuf, i64 line_len)
 {
 	i64 i;
 	i64 num_data_chars;
@@ -622,7 +622,7 @@ static void do_ascii85_data_line(deark *c, lctx *d, dbuf *f, i64 linenum,
 }
 
 static int do_ascii85_read_btoa_end_line(deark *c, lctx *d, i64 linenum,
-	const de_byte *linebuf, i64 line_len)
+	const u8 *linebuf, i64 line_len)
 {
 	long filesize1 = 0;
 
@@ -643,7 +643,7 @@ static void do_ascii85_btoa(deark *c, lctx *d, dbuf *f)
 	i64 pos;
 	i64 content_len;
 	i64 total_len;
-	de_byte linebuf[1024];
+	u8 linebuf[1024];
 	i64 linenum;
 
 	pos = 0;
@@ -701,7 +701,7 @@ done:
 
 static void do_ascii85_standard(deark *c, lctx *d, dbuf *f, i64 pos)
 {
-	de_byte x;
+	u8 x;
 
 	d->cbuf_count = 0;
 
@@ -719,7 +719,7 @@ static void do_ascii85_standard(deark *c, lctx *d, dbuf *f, i64 pos)
 
 static int ascii85_detect_fmt(deark *c)
 {
-	de_byte buf[11];
+	u8 buf[11];
 
 	de_read(buf, 0, 11);
 

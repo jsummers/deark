@@ -17,7 +17,7 @@ struct folder_info {
 };
 
 typedef struct localctx_struct {
-	de_byte versionMinor, versionMajor;
+	u8 versionMinor, versionMajor;
 	unsigned int header_flags;
 	i64 cbCabinet;
 	i64 coffFiles;
@@ -44,12 +44,12 @@ static const char *get_cmpr_type_name(unsigned int n)
 static int do_one_CFDATA(deark *c, lctx *d, struct folder_info *fldi, i64 pos1,
 	i64 *bytes_consumed)
 {
-	de_uint32 csum;
+	u32 csum;
 	i64 cbData;
 	i64 cbUncomp;
 	i64 pos = pos1;
 
-	csum = (de_uint32)de_getui32le_p(&pos);
+	csum = (u32)de_getui32le_p(&pos);
 	de_dbg(c, "csum: 0x%08x", (unsigned int)csum);
 
 	cbData = de_getui16le_p(&pos);

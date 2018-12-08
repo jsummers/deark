@@ -10,9 +10,9 @@ DE_DECLARE_MODULE(de_module_psf);
 
 typedef struct localctx_struct {
 	int version;
-	de_uint32 psf2_version;
-	de_uint32 flags;
-	de_byte mode;
+	u32 psf2_version;
+	u32 flags;
+	u8 mode;
 	i64 headersize;
 	i64 num_glyphs;
 	i64 glyph_width, glyph_height;
@@ -29,7 +29,7 @@ typedef struct localctx_struct {
 } lctx;
 
 static void do_extra_codepoint(deark *c, lctx *d, struct de_bitmap_font *font,
-	i64 cur_idx, de_int32 n)
+	i64 cur_idx, i32 n)
 {
 	i64 extra_idx;
 
@@ -54,7 +54,7 @@ static void do_psf1_unicode_table(deark *c, lctx *d, struct de_bitmap_font *font
 	i64 pos;
 	int got_cp;
 	int found_fffe;
-	de_int32 n;
+	i32 n;
 
 	de_dbg(c, "Unicode table at %d", (int)d->unicode_table_pos);
 	de_dbg_indent(c, 1);
@@ -67,7 +67,7 @@ static void do_psf1_unicode_table(deark *c, lctx *d, struct de_bitmap_font *font
 	while(1) {
 		if(cur_idx >= d->num_glyphs) break;
 		if(pos+1 >= c->infile->len) break;
-		n = (de_int32)de_getui16le(pos);
+		n = (i32)de_getui16le(pos);
 		pos+=2;
 
 		if(n==0xffff) {
@@ -113,8 +113,8 @@ static void do_psf2_unicode_table(deark *c, lctx *d, struct de_bitmap_font *font
 	int ret;
 	i64 foundpos;
 	i64 char_data_len;
-	de_byte char_data_buf[200];
-	de_int32 ch;
+	u8 char_data_buf[200];
+	i32 ch;
 	i64 utf8len;
 
 	de_dbg(c, "Unicode table at %d", (int)d->unicode_table_pos);
@@ -186,7 +186,7 @@ static void do_psf2_unicode_table(deark *c, lctx *d, struct de_bitmap_font *font
 static void do_glyphs(deark *c, lctx *d)
 {
 	struct de_bitmap_font *font = NULL;
-	de_byte *font_data = NULL;
+	u8 *font_data = NULL;
 	i64 i;
 	i64 glyph_rowspan;
 
@@ -214,7 +214,7 @@ static void do_glyphs(deark *c, lctx *d)
 		font->char_array[i].height = font->nominal_height;
 		font->char_array[i].rowspan = glyph_rowspan;
 		if(i<d->num_glyphs)
-			font->char_array[i].codepoint_nonunicode = (de_int32)i;
+			font->char_array[i].codepoint_nonunicode = (i32)i;
 		else
 			font->char_array[i].codepoint_nonunicode = DE_CODEPOINT_INVALID;
 		font->char_array[i].codepoint_unicode = DE_CODEPOINT_INVALID;
@@ -277,7 +277,7 @@ static void do_psf2_header(deark *c, lctx *d)
 	de_dbg(c, "PSFv2 header at %d", (int)pos);
 	de_dbg_indent(c, 1);
 
-	d->psf2_version = (de_uint32)de_getui32le(pos+4);
+	d->psf2_version = (u32)de_getui32le(pos+4);
 	de_dbg(c, "PSFv2 version number: %d", (int)d->psf2_version);
 	if(d->psf2_version!=0) {
 		de_warn(c, "Unknown PSFv2 version number: %d", (int)d->psf2_version);
@@ -286,7 +286,7 @@ static void do_psf2_header(deark *c, lctx *d)
 	d->headersize = de_getui32le(pos+8);
 	de_dbg(c, "header size: %d", (int)d->headersize);
 
-	d->flags = (de_uint32)de_getui32le(pos+12);
+	d->flags = (u32)de_getui32le(pos+12);
 	de_dbg(c, "flags: 0x%08x", (unsigned int)d->flags);
 	de_dbg_indent(c, 1);
 	d->has_unicode_table = (d->flags & 0x01) ? 1 : 0;
@@ -309,7 +309,7 @@ static void do_psf2_header(deark *c, lctx *d)
 static void de_run_psf(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
-	de_byte b;
+	u8 b;
 	const char *s;
 
 	d = de_malloc(c, sizeof(lctx));

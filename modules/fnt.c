@@ -16,8 +16,8 @@ typedef struct localctx_struct {
 	i64 hdrsize;
 	i64 char_table_size;
 
-	de_byte first_char;
-	de_byte last_char;
+	u8 first_char;
+	u8 last_char;
 	i64 num_chars_stored;
 
 	i64 char_entry_size;
@@ -25,7 +25,7 @@ typedef struct localctx_struct {
 
 	i64 dfPoints;
 	i64 dfFace; // Offset of font face name
-	de_byte dfCharSet;
+	u8 dfCharSet;
 
 	int is_vector;
 	int encoding;
@@ -76,7 +76,7 @@ static void do_make_image(deark *c, lctx *d)
 	for(i=0; i<d->num_chars_stored; i++) {
 		i64 char_width;
 		i64 char_offset;
-		de_int32 char_index;
+		i32 char_index;
 		i64 num_tiles;
 		i64 tile;
 		i64 row;
@@ -98,7 +98,7 @@ static void do_make_image(deark *c, lctx *d)
 			font->char_array[i].codepoint_unicode = 0x2002;
 		}
 		else {
-			char_index = (de_int32)d->first_char + (de_int32)i;
+			char_index = (i32)d->first_char + (i32)i;
 
 			font->char_array[i].codepoint_nonunicode = char_index;
 

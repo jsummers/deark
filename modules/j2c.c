@@ -26,7 +26,7 @@ typedef void (*handler_fn_type)(deark *c, lctx *d, struct page_ctx *pg,
 #define FLAG_NO_DATA       0x0100
 
 struct marker_info {
-	de_byte seg_type;
+	u8 seg_type;
 	unsigned int flags;
 	char shortname[12];
 	char longname[80];
@@ -35,7 +35,7 @@ struct marker_info {
 
 // Static info about markers/segments.
 struct marker_info1 {
-	de_byte seg_type;
+	u8 seg_type;
 	unsigned int flags;
 	const char *shortname;
 	const char *longname;
@@ -152,7 +152,7 @@ static void handler_siz(deark *c, lctx *d, struct page_ctx *pg,
 	de_dbg(c, "number of components: %d", (int)ncomp);
 
 	for(k=0; k<ncomp; k++) {
-		de_byte prec, xr, yr;
+		u8 prec, xr, yr;
 
 		if(pos >= pos1+len) goto done;
 		de_dbg(c, "component[%d] info at %"INT64_FMT, (int)k, pos);
@@ -172,11 +172,11 @@ done:
 static void handler_tlm(deark *c, lctx *d, struct page_ctx *pg,
 	const struct marker_info *mi, i64 pos1, i64 len)
 {
-	de_byte b;
-	de_byte item_size_code;
+	u8 b;
+	u8 item_size_code;
 	i64 item_size;
 	i64 pos = pos1;
-	de_byte t_code, p_code;
+	u8 t_code, p_code;
 	i64 t_size, p_size;
 	i64 num_items;
 	i64 k;
@@ -258,9 +258,9 @@ static void handler_cod(deark *c, lctx *d, struct page_ctx *pg,
 	const struct marker_info *mi, i64 pos1, i64 len)
 {
 	i64 pos = pos1;
-	de_byte coding_style;
+	u8 coding_style;
 	de_ucstring *s = NULL;
-	de_byte b;
+	u8 b;
 	i64 n;
 
 	if(len<5) goto done;
@@ -306,7 +306,7 @@ static void handler_qcd(deark *c, lctx *d, struct page_ctx *pg,
 	const struct marker_info *mi, i64 pos1, i64 len)
 {
 	i64 pos = pos1;
-	de_byte q_style;
+	u8 q_style;
 
 	if(len<1) goto done;
 	q_style = de_getbyte_p(&pos);
@@ -363,7 +363,7 @@ static const struct marker_info1 marker_info1_arr[] = {
 };
 
 // Caller allocates mi
-static int get_marker_info(deark *c, lctx *d, struct page_ctx *pg, de_byte seg_type,
+static int get_marker_info(deark *c, lctx *d, struct page_ctx *pg, u8 seg_type,
 	struct marker_info *mi)
 {
 	i64 k;
@@ -426,7 +426,7 @@ static int do_read_scan_data(deark *c, lctx *d, struct page_ctx *pg,
 	i64 pos1, i64 *bytes_consumed)
 {
 	i64 pos = pos1;
-	de_byte b0, b1;
+	u8 b0, b1;
 
 	*bytes_consumed = c->infile->len - pos1; // default
 	de_dbg(c, "scan data at %d", (int)pos1);
@@ -482,10 +482,10 @@ done:
 // might never need to be implemented.)
 static int do_j2c_page(deark *c, lctx *d, i64 pos1, i64 *bytes_consumed)
 {
-	de_byte b;
+	u8 b;
 	i64 pos = pos1;
 	i64 seg_size;
-	de_byte seg_type;
+	u8 seg_type;
 	int found_marker;
 	struct marker_info mi;
 	i64 scan_byte_count;

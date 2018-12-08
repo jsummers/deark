@@ -65,7 +65,7 @@ static void do_decode_raw(deark *c, lctx *d)
 	de_finfo *fi = NULL;
 	i64 i, j;
 	i64 rowspan;
-	de_uint32 clr;
+	u32 clr;
 
 	if(d->bitdepth != 32) {
 		de_err(c, "Unsupported bit depth for raw image (%d)", (int)d->bitdepth);

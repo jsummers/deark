@@ -11,7 +11,7 @@ DE_DECLARE_MODULE(de_module_pff2);
 
 typedef struct localctx_struct {
 	struct de_bitmap_font *font;
-	de_byte found_CHIX_chunk;
+	u8 found_CHIX_chunk;
 } lctx;
 
 #define CODE_ASCE 0x41534345U
@@ -33,18 +33,18 @@ typedef void (*pff2_section_handler_fn)(deark *c, lctx *d,
 	const struct pff2_sectiontype_info *si, i64 pos, i64 len);
 
 struct pff2_sectiontype_info {
-	de_uint32 id;
+	u32 id;
 	// 0x1=ASCII, 0x2=uint16be
-	de_uint32 flags;
+	u32 flags;
 	const char *name;
 	pff2_section_handler_fn hfn;
 };
 
-static void do_char(deark *c, lctx *d, i64 char_idx, de_int32 codepoint, i64 pos)
+static void do_char(deark *c, lctx *d, i64 char_idx, i32 codepoint, i64 pos)
 {
 	struct de_bitmap_font_char *ch;
 	i64 bitmap_pos;
-	de_byte *srcbitmap = NULL;
+	u8 *srcbitmap = NULL;
 	i64 srcbitmapsize;
 	i64 j;
 
@@ -80,7 +80,7 @@ static void do_code_chix(deark *c, lctx *d, const struct pff2_sectiontype_info *
 	i64 i;
 	i64 pos;
 	i64 defpos;
-	de_int32 codepoint;
+	i32 codepoint;
 	unsigned int storage_flags;
 
 	if(d->found_CHIX_chunk) goto done;
@@ -93,7 +93,7 @@ static void do_code_chix(deark *c, lctx *d, const struct pff2_sectiontype_info *
 
 	for(i=0; i<d->font->num_chars; i++) {
 		pos = pos1 + 9*i;
-		codepoint = (de_int32)de_getui32be(pos);
+		codepoint = (i32)de_getui32be(pos);
 		storage_flags = (unsigned int)de_getbyte(pos+4);
 		defpos = de_getui32be(pos+5);
 		de_dbg2(c, "code point U+%04X, index at %d, definition at %d",
@@ -127,7 +127,7 @@ static const struct pff2_sectiontype_info pff2_sectiontype_info_arr[] = {
 	{ CODE_WEIG, 0x00000001, "font weight", NULL }
 };
 
-static const struct pff2_sectiontype_info *find_pffs_sectiontype_info(de_uint32 id)
+static const struct pff2_sectiontype_info *find_pffs_sectiontype_info(u32 id)
 {
 	size_t i;
 

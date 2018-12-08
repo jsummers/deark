@@ -36,7 +36,7 @@ static void help_respectpal(deark *c)
 typedef struct degasctx_struct {
 	unsigned int compression_code;
 	int degas_elite_flag;
-	de_uint32 pal[16];
+	u32 pal[16];
 } degasctx;
 
 static void do_degas_anim_fields(deark *c, degasctx *d, i64 pos)
@@ -269,7 +269,7 @@ typedef struct prismctx_struct {
 	i64 pal_size;
 	i64 compression_code;
 	i64 pic_data_size;
-	de_uint32 pal[256];
+	u32 pal[256];
 } prismctx;
 
 // A color value of N does not necessarily refer to Nth color in the palette.
@@ -301,9 +301,9 @@ static void do_prism_read_palette(deark *c, prismctx *d, struct atari_img_decode
 {
 	i64 i;
 	i64 r1, g1, b1;
-	de_byte r, g, b;
-	de_uint32 pal1[256];
-	de_uint32 clr;
+	u8 r, g, b;
+	u32 pal1[256];
+	u32 clr;
 	char tmps[32];
 
 	de_zeromem(pal1, sizeof(pal1));
@@ -595,22 +595,22 @@ void de_module_godpaint(deark *c, struct deark_module_info *mi)
 // **************************************************************************
 
 typedef struct tinyctx_struct {
-	de_byte res_code;
+	u8 res_code;
 	i64 num_control_bytes;
 	i64 num_data_words;
-	de_uint32 pal[16];
+	u32 pal[16];
 } tinyctx;
 
 // Uncompress to adata->unc_pixels.
 static int tiny_uncompress(deark *c, tinyctx *d, struct atari_img_decode_data *adata, i64 pos)
 {
-	de_byte *control_bytes = NULL;
+	u8 *control_bytes = NULL;
 	i64 k;
 	i64 count;
-	de_byte b0, b1;
+	u8 b0, b1;
 	i64 dcmpr_word_count = 0;
 	i64 cpos;
-	de_byte ctrl;
+	u8 ctrl;
 
 	de_dbg(c, "RLE control bytes at %d", (int)pos);
 	control_bytes = de_malloc(c, d->num_control_bytes +2);
@@ -681,7 +681,7 @@ static void do_tinystuff_1bpp(deark *c, struct atari_img_decode_data *adata)
 	unsigned int w;
 	i64 k;
 	unsigned int b;
-	de_uint32 clr;
+	u32 clr;
 
 	for(col=0; col<80; col++) {
 		for(scanline=0; scanline<200; scanline++) {
@@ -717,7 +717,7 @@ static void do_tinystuff_2bpp(deark *c, struct atari_img_decode_data *adata)
 	i64 k;
 	i64 z;
 	unsigned int b[2];
-	de_uint32 clr;
+	u32 clr;
 
 	for(col=0; col<40; col++) {
 		for(scanline=0; scanline<200; scanline++) {
@@ -750,7 +750,7 @@ static void do_tinystuff_4bpp(deark *c, struct atari_img_decode_data *adata)
 	i64 k;
 	i64 z;
 	unsigned int b[4];
-	de_uint32 clr;
+	u32 clr;
 
 	for(col=0; col<20; col++) {
 		for(scanline=0; scanline<200; scanline++) {
@@ -794,7 +794,7 @@ static void do_tinystuff_image(deark *c, struct atari_img_decode_data *adata)
 // Try to handle that.
 static void fix_dark_pal(deark *c, struct atari_img_decode_data *adata)
 {
-	de_uint32 ap[2];
+	u32 ap[2];
 
 	if(adata->bpp!=1) return;
 
@@ -949,7 +949,7 @@ static void de_run_doodle(deark *c, de_module_params *mparams)
 {
 	struct atari_img_decode_data *adata = NULL;
 	de_finfo *fi = NULL;
-	de_uint32 pal[2];
+	u32 pal[2];
 
 	adata = de_malloc(c, sizeof(struct atari_img_decode_data));
 	adata->pal = pal;
@@ -1002,7 +1002,7 @@ static void de_run_neochrome(deark *c, de_module_params *mparams)
 	de_finfo *fi = NULL;
 	unsigned int resolution_code;
 	int is_grayscale;
-	de_uint32 pal[16];
+	u32 pal[16];
 
 	adata = de_malloc(c, sizeof(struct atari_img_decode_data));
 	adata->pal = pal;
@@ -1080,7 +1080,7 @@ static void de_run_neochrome_ani(deark *c, de_module_params *mparams)
 	i64 bytes_per_frame;
 	i64 frame;
 	i64 k;
-	de_uint32 pal[16];
+	u32 pal[16];
 
 	de_declare_fmt(c, "NEOchrome Animation");
 
@@ -1157,7 +1157,7 @@ static void de_run_animatic(deark *c, de_module_params *mparams)
 	i64 frame;
 	i64 planespan, rowspan, framespan;
 	i64 frame_bitmap_pos;
-	de_uint32 pal[16];
+	u32 pal[16];
 
 	de_declare_fmt(c, "Animatic Film");
 
@@ -1250,7 +1250,7 @@ static void decode_falcon_8bit_image(deark *c, struct atari_img_decode_data *ada
 		for(i=0; i<adata->w; i++) {
 			v = 0;
 			for(k=0; k<8; k++) {
-				n = (de_uint32)de_getui16be(pos+j*adata->w + (i-i%16) +2*k);
+				n = (u32)de_getui16be(pos+j*adata->w + (i-i%16) +2*k);
 				if(n&(1<<(15-i%16))) v |= 1<<k;
 			}
 			de_bitmap_setpixel_rgb(adata->img, i, j, adata->pal[v]);
@@ -1267,8 +1267,8 @@ static void do_atari_falcon_8bit_img(deark *c, i64 width, i64 height)
 {
 	struct atari_img_decode_data *adata = NULL;
 	i64 k;
-	de_byte cr, cg, cb;
-	de_uint32 pal[256];
+	u8 cr, cg, cb;
+	u32 pal[256];
 
 	adata = de_malloc(c, sizeof(struct atari_img_decode_data));
 	de_zeromem(pal, sizeof(pal));

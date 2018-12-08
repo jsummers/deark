@@ -28,7 +28,7 @@ static void nol_ngg_read_bitmap(deark *c, lctx *d, i64 pos)
 {
 	de_bitmap *img = NULL;
 	i64 i, j;
-	de_byte n;
+	u8 n;
 
 	img = de_bitmap_create(c, d->w, d->h, 1);
 
@@ -171,7 +171,7 @@ void de_module_npm(deark *c, struct deark_module_info *mi)
 static void de_run_nlm(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
-	de_byte imgtype;
+	u8 imgtype;
 	const char *s;
 
 	d = de_malloc(c, sizeof(lctx));
@@ -220,7 +220,7 @@ static void nsl_read_bitmap(deark *c, lctx *d, i64 pos, i64 len)
 {
 	de_bitmap *img = NULL;
 	i64 i, j;
-	de_byte x;
+	u8 x;
 
 	de_dbg(c, "bitmap at %d, len=%d", (int)pos, (int)len);
 	d->done_flag = 1;

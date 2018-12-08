@@ -17,7 +17,7 @@ typedef struct localctx_struct {
 	i64 font_data_pos;
 	i64 form_width_bytes;
 	i64 form_height_pixels;
-	de_byte byte_swap_flag;
+	u8 byte_swap_flag;
 	de_finfo *fi;
 } lctx;
 
@@ -28,7 +28,7 @@ static int do_characters(deark *c, lctx *d)
 	i64 n;
 	struct de_bitmap_font_char *ch;
 	i64 char_startpos;
-	de_byte *font_data = NULL;
+	u8 *font_data = NULL;
 	i64 form_nbytes;
 	int retval = 0;
 
@@ -49,7 +49,7 @@ static int do_characters(deark *c, lctx *d)
 		n = de_getui16le(d->char_offset_table_pos + 2*(i+1));
 		ch->width = (int)(n - char_startpos);
 		ch->height = d->font->nominal_height;
-		ch->codepoint_nonunicode = (de_int32)(d->first_index+i);
+		ch->codepoint_nonunicode = (i32)(d->first_index+i);
 		de_dbg2(c, "char[%d] #%d offset=%d width=%d", (int)i, (int)ch->codepoint_nonunicode,
 			 (int)char_startpos, ch->width);
 		if(ch->width<1 || ch->width>d->max_char_cell_width) continue;

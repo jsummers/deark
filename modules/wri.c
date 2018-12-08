@@ -9,14 +9,14 @@
 DE_DECLARE_MODULE(de_module_wri);
 
 struct text_styles_struct {
-	de_byte tab_style;
+	u8 tab_style;
 };
 
 struct para_info {
 	i64 thisparapos, thisparalen;
 	i64 bfprop_offset; // file-level offset
-	de_byte papflags;
-	de_byte justification;
+	u8 papflags;
+	u8 justification;
 
 	int in_para;
 	int xpos; // Current length of this line in the source code
@@ -267,7 +267,7 @@ static int do_picture_ole_embedded_rendition(deark *c, lctx *d, struct para_info
 	i64 pos = pos1;
 	i64 stringlen;
 	i64 data_len;
-	de_byte buf[2];
+	u8 buf[2];
 	struct de_stringreaderdata *srd_typename = NULL;
 	struct de_stringreaderdata *srd_filename = NULL;
 	struct de_stringreaderdata *srd_params = NULL;
@@ -447,7 +447,7 @@ static void ensure_in_para(deark *c, lctx *d, struct para_info *pinfo)
 }
 
 // Emit a data codepoint, inside a paragraph.
-static void do_emit_codepoint(deark *c, lctx *d, struct para_info *pinfo, de_int32 outcp)
+static void do_emit_codepoint(deark *c, lctx *d, struct para_info *pinfo, i32 outcp)
 {
 	int styles_changed;
 
@@ -489,7 +489,7 @@ static void do_emit_raw_sz(deark *c, lctx *d, struct para_info *pinfo, const cha
 {
 	size_t sz_len = de_strlen(sz);
 	if(sz_len<1) return;
-	dbuf_write(d->html_outf, (const de_byte*)sz, (i64)sz_len);
+	dbuf_write(d->html_outf, (const u8*)sz, (i64)sz_len);
 	if(sz[sz_len-1]=='\n') {
 		pinfo->xpos = 0;
 	}
@@ -539,7 +539,7 @@ static void do_text_paragraph(deark *c, lctx *d, struct para_info *pinfo)
 	default_text_styles(&pinfo->text_styles_current);
 
 	for(i=0; i<pinfo->thisparalen; i++) {
-		de_byte incp;
+		u8 incp;
 
 		incp = de_getbyte(pinfo->thisparapos+i);
 		if(incp==0x0d && i<pinfo->thisparalen-1) {
@@ -587,8 +587,8 @@ static void do_text_paragraph(deark *c, lctx *d, struct para_info *pinfo)
 		}
 
 		if(incp>=33) {
-			de_int32 outcp;
-			outcp = de_char_to_unicode(c, (de_int32)incp, d->input_encoding);
+			i32 outcp;
+			outcp = de_char_to_unicode(c, (i32)incp, d->input_encoding);
 			do_emit_codepoint(c, d, pinfo, outcp);
 		}
 		else {
@@ -639,7 +639,7 @@ static void do_paragraph(deark *c, lctx *d, struct para_info *pinfo)
 }
 
 static void do_para_fprop(deark *c, lctx *d, struct para_info *pinfo,
-	i64 bfprop, de_byte is_dup)
+	i64 bfprop, u8 is_dup)
 {
 	i64 fprop_dlen = 0;
 
@@ -683,7 +683,7 @@ static void do_para_info_page(deark *c, lctx *d, i64 pos)
 	i64 i;
 	i64 fod_array_startpos;
 	i64 prevtextpos;
-	de_byte fprop_seen[128];
+	u8 fprop_seen[128];
 
 	de_zeromem(fprop_seen, sizeof(fprop_seen));
 	de_dbg(c, "paragraph info page at %d", (int)pos);
@@ -841,7 +841,7 @@ done:
 
 static int de_identify_wri(deark *c)
 {
-	de_byte buf[6];
+	u8 buf[6];
 	de_read(buf, 0, 6);
 
 	if((buf[0]==0x31 || buf[0]==0x32) &&

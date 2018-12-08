@@ -14,7 +14,7 @@ DE_DECLARE_MODULE(de_module_pf_pgf);
 DE_DECLARE_MODULE(de_module_pgc);
 
 typedef struct localctx_struct {
-	de_byte version;
+	u8 version;
 } lctx;
 
 static void do_pgc_in_pgx(deark *c, lctx *d, i64 pos, i64 len)
@@ -35,7 +35,7 @@ static void do_pgc_in_pgx(deark *c, lctx *d, i64 pos, i64 len)
 static int do_process_frame(deark *c, lctx *d, i64 pos1, i64 *bytes_consumed)
 {
 	i64 pos;
-	de_byte frame_type;
+	u8 frame_type;
 	i64 frame_payload_size;
 	int retval = 1;
 
@@ -189,7 +189,7 @@ static void de_run_pgc(deark *c, de_module_params *mparams)
 	dbuf *unc_pixels = NULL;
 	i64 pos;
 	i64 count;
-	de_byte b, b2;
+	u8 b, b2;
 
 	de_declare_fmt(c, "PGC (Portfolio graphics compressed)");
 	unc_pixels = dbuf_create_membuf(c, 1920, 1);

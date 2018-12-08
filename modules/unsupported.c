@@ -22,7 +22,7 @@ struct fmtinfo_struct {
 // it sets ->confidence to 0.
 static void get_fmt(deark *c, struct fmtinfo_struct *fmti)
 {
-	de_byte b[32];
+	u8 b[32];
 
 	de_zeromem(fmti, sizeof(struct fmtinfo_struct));
 

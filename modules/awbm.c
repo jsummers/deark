@@ -22,8 +22,8 @@ static int do_v1_image(deark *c, i64 pos,
 	i64 w, h;
 	i64 i, j, i2, j2;
 	i64 colors_start=0, bitmap_start;
-	de_byte b;
-	de_uint32 clr1, clr2;
+	u8 b;
+	u32 clr1, clr2;
 	int retval = 0;
 
 	w = 8 * w_blocks;
@@ -124,12 +124,12 @@ static void do_v2(deark *c, lctx *d)
 	i64 palette_start;
 	i64 i, j;
 	i64 k;
-	de_byte cr, cg, cb;
-	de_byte b;
-	de_byte b1;
+	u8 cr, cg, cb;
+	u8 b;
+	u8 b1;
 	const char *s;
 	i64 ncolors = 0; // 16 or 256
-	de_uint32 pal[256];
+	u32 pal[256];
 
 	de_zeromem(pal, sizeof(pal));
 	d->w = de_getui16le(4);
@@ -224,7 +224,7 @@ static void de_run_awbm(deark *c, de_module_params *mparams)
 
 static int de_identify_awbm(deark *c)
 {
-	de_byte buf[4];
+	u8 buf[4];
 	i64 nblocks;
 	int epa_ext;
 

@@ -30,14 +30,14 @@ struct handler_params {
 typedef void (*handler_fn_type)(deark *c, lctx *d, struct handler_params *hp);
 
 struct uuid_info {
-	de_uint32 short_id;
-	de_uint32 flags;
-	const de_byte uuid[16];
+	u32 short_id;
+	u32 flags;
+	const u8 uuid[16];
 	const char *name;
 	handler_fn_type hfn;
 };
 
-static const char *get_uuid_name(const de_byte *uuid);
+static const char *get_uuid_name(const u8 *uuid);
 
 static int do_object_sequence(deark *c, lctx *d, i64 pos1, i64 len, int level,
 	int known_object_count, i64 num_objects_expected);
@@ -78,7 +78,7 @@ static const char *get_metadata_dtype_name(unsigned int t)
 
 // Read a GUID into the caller's buf[16], and convert it to UUID-style byte order.
 // Also write a printable form of it to id_string.
-static void read_and_render_guid(dbuf *f, de_byte *id, i64 pos,
+static void read_and_render_guid(dbuf *f, u8 *id, i64 pos,
 	char *id_string, size_t id_string_len)
 {
 	dbuf_read(f, id, pos, 16);
@@ -104,7 +104,7 @@ static void handler_FileProperties(deark *c, lctx *d, struct handler_params *hp)
 	i64 create_date;
 	i64 x;
 	unsigned int flags;
-	de_byte guid_raw[16];
+	u8 guid_raw[16];
 	char guid_string[50];
 	char buf[64];
 
@@ -170,8 +170,8 @@ static void handler_StreamProperties(deark *c, lctx *d, struct handler_params *h
 	i64 x;
 	i64 tsdlen, ecdlen;
 	unsigned int flags;
-	de_byte stream_type[16];
-	de_byte ec_type[16];
+	u8 stream_type[16];
+	u8 ec_type[16];
 	char stream_type_string[50];
 	char ec_type_string[50];
 	char buf[64];
@@ -315,7 +315,7 @@ static void handler_ESP(deark *c, lctx *d, struct handler_params *hp)
 	i64 x, xlen;
 	i64 bytes_remaining;
 	int saved_indent_level;
-	de_byte guid_raw[16];
+	u8 guid_raw[16];
 	char guid_string[50];
 
 	de_dbg_indent_save(c, &saved_indent_level);
@@ -627,7 +627,7 @@ static void do_WMEncodingTime(deark *c, lctx *d, i64 t)
 
 static void do_metadata_item(deark *c, lctx *d, i64 pos, i64 val_len,
 	unsigned int val_data_type_ori, struct de_stringreaderdata *name_srd,
-	de_uint32 object_sid)
+	u32 object_sid)
 {
 	de_ucstring *val_str = NULL;
 	i64 val_int;
@@ -674,7 +674,7 @@ static void do_metadata_item(deark *c, lctx *d, i64 pos, i64 val_len,
 		handled = 1;
 	}
 	else if(val_data_type==6 && val_len>=16) { // GUID
-		de_byte guid_raw[16];
+		u8 guid_raw[16];
 		char guid_string[50];
 
 		read_and_render_guid(c->infile, guid_raw, pos, guid_string, sizeof(guid_string));
@@ -906,7 +906,7 @@ static const struct uuid_info uuid_info_arr[] = {
 	{0, 0x03, {0x00,0xe1,0xaf,0x06,0x7b,0xec,0x11,0xd1,0xa5,0x82,0x00,0xc0,0x4f,0xc2,0x9c,0xfb}, "Degradable JPEG", NULL}
 };
 
-static const struct uuid_info *find_object_info(const de_byte *uuid)
+static const struct uuid_info *find_object_info(const u8 *uuid)
 {
 	size_t k;
 	for(k=0; k<DE_ITEMS_IN_ARRAY(object_info_arr); k++) {
@@ -917,7 +917,7 @@ static const struct uuid_info *find_object_info(const de_byte *uuid)
 	return NULL;
 }
 
-static const struct uuid_info *find_uuid_info(const de_byte *uuid)
+static const struct uuid_info *find_uuid_info(const u8 *uuid)
 {
 	size_t k;
 	for(k=0; k<DE_ITEMS_IN_ARRAY(uuid_info_arr); k++) {
@@ -928,7 +928,7 @@ static const struct uuid_info *find_uuid_info(const de_byte *uuid)
 	return NULL;
 }
 
-static const char *get_uuid_name(const de_byte *uuid)
+static const char *get_uuid_name(const u8 *uuid)
 {
 	const struct uuid_info *uui;
 	uui = find_uuid_info(uuid);
@@ -939,7 +939,7 @@ static const char *get_uuid_name(const de_byte *uuid)
 static int do_object(deark *c, lctx *d, i64 pos1, i64 len,
 	int level, i64 *pbytes_consumed)
 {
-	de_byte id[16];
+	u8 id[16];
 	char id_string[50];
 	const char *id_name = NULL;
 	int retval = 0;

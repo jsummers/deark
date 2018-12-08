@@ -18,7 +18,7 @@ typedef struct localctx_struct {
 	int reserved;
 } lctx;
 
-static const char *get_woz_disk_type_name(de_byte t)
+static const char *get_woz_disk_type_name(u8 t)
 {
 	switch(t) {
 	case 1: return "5.25";
@@ -30,7 +30,7 @@ static const char *get_woz_disk_type_name(de_byte t)
 static void do_woz_INFO(deark *c, struct de_iffctx *ictx,
 	const struct de_iffchunkctx *chunkctx)
 {
-	de_byte b;
+	u8 b;
 	i64 pos = chunkctx->dpos;
 	de_ucstring *s = NULL;
 
@@ -82,7 +82,7 @@ static void do_woz_META(deark *c, struct de_iffctx *ictx,
 	reading_val = 0;
 
 	for(k=0; k<s->len; k++) {
-		de_int32 ch = s->str[k];
+		i32 ch = s->str[k];
 
 		if(ch==0x0a) { // End of item
 			do_woz_print_metadata_item(c, name, val);
@@ -146,7 +146,7 @@ static void de_run_woz(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
 	struct de_iffctx *ictx = NULL;
-	de_uint32 crc;
+	u32 crc;
 	i64 pos = 0;
 
 	// WOZ has a 12-byte header, then sequence of chunks that are basically the
@@ -165,7 +165,7 @@ static void de_run_woz(deark *c, de_module_params *mparams)
 	de_dbg(c, "header at %d", (int)pos);
 	de_dbg_indent(c, 1);
 	pos += 8; // signature
-	crc = (de_uint32)dbuf_getui32le_p(ictx->f, &pos);
+	crc = (u32)dbuf_getui32le_p(ictx->f, &pos);
 	de_dbg(c, "crc: 0x%08x", (unsigned int)crc);
 	de_dbg_indent(c, -1);
 

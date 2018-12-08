@@ -39,37 +39,37 @@ struct img_info {
 	i64 rowspan;
 	i64 planespan;
 	i64 bits_per_row_per_plane;
-	de_byte masking_code;
+	u8 masking_code;
 	int is_thumb;
 	const char *filename_token;
 };
 
 typedef struct localctx_struct {
-	de_uint32 formtype; // TODO: Maybe use ictx->main_contentstype instead.
+	u32 formtype; // TODO: Maybe use ictx->main_contentstype instead.
 
 	// This struct is for image attributes that might be different in
 	// thumbnail images vs. the main image.
 	struct img_info main_img;
 
 	i64 planes;
-	de_byte found_bmhd;
-	de_byte found_cmap;
-	de_byte compression;
-	de_byte has_camg;
-	de_byte ham_flag; // "hold and modify"
-	de_byte ehb_flag; // "extra halfbrite"
-	de_byte is_ham6;
-	de_byte is_ham8;
-	de_byte in_vdat_image;
-	de_byte is_vdat;
-	de_byte is_sham, is_pchg, is_ctbl;
-	de_byte uses_color_cycling;
-	de_byte errflag; // Set if image(s) format is not supported.
+	u8 found_bmhd;
+	u8 found_cmap;
+	u8 compression;
+	u8 has_camg;
+	u8 ham_flag; // "hold and modify"
+	u8 ehb_flag; // "extra halfbrite"
+	u8 is_ham6;
+	u8 is_ham8;
+	u8 in_vdat_image;
+	u8 is_vdat;
+	u8 is_sham, is_pchg, is_ctbl;
+	u8 uses_color_cycling;
+	u8 errflag; // Set if image(s) format is not supported.
 	i64 transparent_color;
 
 	i64 x_aspect, y_aspect;
 	i64 x_dpi, y_dpi;
-	de_int32 camg_mode;
+	i32 camg_mode;
 
 	int opt_notrans;
 	int opt_fixpal;
@@ -82,7 +82,7 @@ typedef struct localctx_struct {
 	// Our palette always has 256 colors. This is how many we read from the file.
 	i64 pal_ncolors;
 
-	de_uint32 pal[256];
+	u32 pal[256];
 } lctx;
 
 static int do_bmhd(deark *c, lctx *d, i64 pos1, i64 len)
@@ -143,7 +143,7 @@ static void do_camg(deark *c, lctx *d, i64 pos, i64 len)
 	if(len<4) return;
 	d->has_camg = 1;
 
-	d->camg_mode = (de_uint32)de_getui32be(pos);
+	d->camg_mode = (u32)de_getui32be(pos);
 	de_dbg(c, "CAMG mode: 0x%x", (unsigned int)d->camg_mode);
 
 	if(d->camg_mode & 0x0800)
@@ -164,21 +164,21 @@ static void do_dpi(deark *c, lctx *d, i64 pos, i64 len)
 	de_dbg(c, "dpi: %d"DE_CHAR_TIMES"%d", (int)d->x_dpi, (int)d->y_dpi);
 }
 
-static de_byte getbit(const de_byte *m, i64 bitnum)
+static u8 getbit(const u8 *m, i64 bitnum)
 {
-	de_byte b;
+	u8 b;
 	b = m[bitnum/8];
 	b = (b>>(7-bitnum%8)) & 0x1;
 	return b;
 }
 
 static void do_deplanarize(deark *c, lctx *d, struct img_info *ii,
-	const de_byte *row_orig, de_byte *row_deplanarized)
+	const u8 *row_orig, u8 *row_deplanarized)
 {
 	i64 i;
 	i64 sample;
 	i64 bit;
-	de_byte b;
+	u8 b;
 
 	if(d->planes>=1 && d->planes<=8) {
 		de_zeromem(row_deplanarized, (size_t)ii->width);
@@ -203,11 +203,11 @@ static void do_deplanarize(deark *c, lctx *d, struct img_info *ii,
 }
 
 static void get_row_acbm(deark *c, lctx *d, struct img_info *ii,
-	dbuf *unc_pixels, i64 j, de_byte *row)
+	dbuf *unc_pixels, i64 j, u8 *row)
 {
 	i64 i;
 	i64 bit;
-	de_byte b;
+	u8 b;
 
 	de_zeromem(row, (size_t)ii->width);
 	for(i=0; i<ii->width; i++) {
@@ -219,14 +219,14 @@ static void get_row_acbm(deark *c, lctx *d, struct img_info *ii,
 }
 
 static void get_row_vdat(deark *c, lctx *d, struct img_info *ii,
-	dbuf *unc_pixels, i64 j, de_byte *row)
+	dbuf *unc_pixels, i64 j, u8 *row)
 {
 	i64 i;
 	i64 set;
 	i64 bytes_per_column;
 	i64 bytes_per_set;
 	i64 columns_per_set;
-	de_byte b;
+	u8 b;
 
 	de_zeromem(row, (size_t)ii->width);
 
@@ -275,9 +275,9 @@ static void do_image_24(deark *c, lctx *d, struct img_info *ii,
 	de_bitmap *img = NULL;
 	de_finfo *fi = NULL;
 	i64 i, j;
-	de_byte *row_orig = NULL;
-	de_byte *row_deplanarized = NULL;
-	de_byte cr, cg, cb;
+	u8 *row_orig = NULL;
+	u8 *row_deplanarized = NULL;
+	u8 cr, cg, cb;
 
 	if(d->formtype!=CODE_ILBM) {
 		de_err(c, "This image type is not supported");
@@ -316,7 +316,7 @@ done:
 static void make_ehb_palette(deark *c, lctx *d)
 {
 	i64 k;
-	de_byte cr, cg, cb;
+	u8 cr, cg, cb;
 
 	for(k=0; k<32; k++) {
 		cr = DE_COLOR_R(d->pal[k]);
@@ -340,7 +340,7 @@ static void make_ehb_palette(deark *c, lctx *d)
 static void fixup_palette(deark *c, lctx *d)
 {
 	i64 k;
-	de_byte cr, cg, cb;
+	u8 cr, cg, cb;
 
 	if(d->is_ham8) {
 		// Assume HAM8 palette entries have 6 bits of precision
@@ -385,15 +385,15 @@ static int do_image_1to8(deark *c, lctx *d, struct img_info *ii,
 	de_bitmap *img = NULL;
 	de_finfo *fi = NULL;
 	i64 i, j;
-	de_byte *row_orig = NULL;
-	de_byte *row_deplanarized = NULL;
-	de_byte val;
-	de_byte cr = 0;
-	de_byte cg = 0;
-	de_byte cb = 0;
-	de_byte ca = 255;
-	de_byte b;
-	de_uint32 clr;
+	u8 *row_orig = NULL;
+	u8 *row_deplanarized = NULL;
+	u8 val;
+	u8 cr = 0;
+	u8 cg = 0;
+	u8 cb = 0;
+	u8 ca = 255;
+	u8 b;
+	u32 clr;
 	int dst_bytes_per_pixel;
 	int retval = 0;
 	i64 bytes_expected = 0;
@@ -735,12 +735,12 @@ static void do_vdat(deark *c, lctx *d, i64 pos1, i64 len)
 {
 	i64 pos;
 	i64 endpos;
-	de_byte b0, b1;
+	u8 b0, b1;
 	i64 count;
 	i64 cmd_cnt;
 	i64 i, k;
-	de_byte cmd;
-	de_byte *cmds = NULL;
+	u8 cmd;
+	u8 *cmds = NULL;
 	i64 prev_unc_len;
 
 	d->is_vdat = 1;
@@ -762,7 +762,7 @@ static void do_vdat(deark *c, lctx *d, i64 pos1, i64 len)
 	de_dbg(c, "number of command bytes: %d", (int)cmd_cnt);
 	if(cmd_cnt<1) goto done;
 
-	cmds = de_malloc(c, cmd_cnt * sizeof(de_byte));
+	cmds = de_malloc(c, cmd_cnt * sizeof(u8));
 
 	// Read commands
 	de_read(cmds, pos, cmd_cnt);
@@ -818,7 +818,7 @@ done:
 
 // A BODY or ABIT chunk
 static int do_body(deark *c, lctx *d, struct de_iffctx *ictx, i64 pos, i64 len,
-	de_uint32 ct, int *is_vdat)
+	u32 ct, int *is_vdat)
 {
 	if(d->uses_color_cycling) {
 		de_warn(c, "This image uses color cycling animation, which is not supported.");
@@ -835,7 +835,7 @@ static int do_body(deark *c, lctx *d, struct de_iffctx *ictx, i64 pos, i64 len,
 	return do_image(c, d, &d->main_img, pos, len, 0);
 }
 
-static void do_multipalette(deark *c, lctx *d, de_uint32 chunktype)
+static void do_multipalette(deark *c, lctx *d, u32 chunktype)
 {
 	if(chunktype==CODE_SHAM) { d->is_sham = 1; }
 	else if(chunktype==CODE_PCHG) { d->is_pchg = 1; }
@@ -1057,7 +1057,7 @@ static void de_run_ilbm(deark *c, de_module_params *mparams)
 
 static int de_identify_ilbm(deark *c)
 {
-	de_byte buf[12];
+	u8 buf[12];
 	de_read(buf, 0, 12);
 
 	if(!de_memcmp(buf, "FORM", 4)) {
@@ -1092,7 +1092,7 @@ typedef struct animctx_struct {
 
 static void do_anim_anhd(deark *c, animctx *d, i64 pos, i64 len)
 {
-	de_byte op;
+	u8 op;
 	i64 tmp;
 
 	if(len<24) return;
@@ -1169,7 +1169,7 @@ static void de_run_anim(deark *c, de_module_params *mparams)
 
 static int de_identify_anim(deark *c)
 {
-	de_byte buf[12];
+	u8 buf[12];
 	de_read(buf, 0, 12);
 
 	if(!de_memcmp(buf, "FORM", 4)) {

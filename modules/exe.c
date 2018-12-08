@@ -38,7 +38,7 @@ typedef struct localctx_struct {
 	i64 ne_rsrc_tbl_offset;
 	unsigned int ne_align_shift;
 	int ne_have_type;
-	de_uint32 ne_rsrc_type_id;
+	u32 ne_rsrc_type_id;
 	const struct rsrc_type_info_struct *ne_rsrc_type_info;
 
 	i64 lx_page_offset_shift;
@@ -62,7 +62,7 @@ typedef struct localctx_struct {
 
 	i64 pe_cur_name_offset; // 0 if no name
 
-	de_uint32 cur_rsrc_type;
+	u32 cur_rsrc_type;
 	const struct rsrc_type_info_struct *cur_rsrc_type_info;
 
 	i64 rsrc_item_count;
@@ -73,8 +73,8 @@ struct rsrc_type_info_struct;
 typedef void (*rsrc_decoder_fn)(deark *c, lctx *d, i64 pos, i64 len, de_finfo *fi);
 
 struct rsrc_type_info_struct {
-	de_uint32 id;
-	de_byte flags;
+	u32 id;
+	u8 flags;
 	const char *name;
 	rsrc_decoder_fn decoder_fn;
 };
@@ -280,8 +280,8 @@ static void do_Rich_segment(deark *c, lctx *d)
 	i64 pos;
 	i64 p;
 	i64 k;
-	de_uint32 n;
-	de_uint32 key;
+	u32 n;
+	u32 key;
 	i64 num_entries;
 
 	segment_start = 128;
@@ -295,7 +295,7 @@ static void do_Rich_segment(deark *c, lctx *d)
 	// bytes before the "PE" signature.
 	sig_pos = 0;
 	for(p = segment_end-8; p >= segment_start+16; p -= 8 ) {
-		n = (de_uint32)de_getui32le(p);
+		n = (u32)de_getui32le(p);
 		if(n==0x68636952U) { // "Rich"
 			sig_pos = p;
 			break;
@@ -307,10 +307,10 @@ static void do_Rich_segment(deark *c, lctx *d)
 
 	// Likely "Rich" signature found at sig_pos
 
-	key = (de_uint32)de_getui32le(sig_pos+4);
+	key = (u32)de_getui32le(sig_pos+4);
 
 	// Decode and verify the "start" signature
-	n = (de_uint32)de_getui32le(segment_start);
+	n = (u32)de_getui32le(segment_start);
 	if((n ^ key) != 0x536e6144U) { // "Dans"
 		// False positive? Or maybe our detection logic isn't perfect?
 		return;
@@ -325,13 +325,13 @@ static void do_Rich_segment(deark *c, lctx *d)
 	pos = segment_start + 16;
 	num_entries  = (sig_pos - pos)/8;
 	for(k=0; k<num_entries; k++) {
-		de_uint32 id_and_value;
-		de_uint32 id;
-		de_uint32 value;
-		de_uint32 use_count;
+		u32 id_and_value;
+		u32 id;
+		u32 value;
+		u32 use_count;
 
-		id_and_value = (de_uint32)de_getui32le(pos+8*k);
-		use_count = (de_uint32)de_getui32le(pos+8*k+4);
+		id_and_value = (u32)de_getui32le(pos+8*k);
+		use_count = (u32)de_getui32le(pos+8*k+4);
 		id_and_value ^= key;
 		use_count ^= key;
 		id = (id_and_value&0xffff0000U)>>16;
@@ -377,7 +377,7 @@ static void do_pe_coff_header(deark *c, lctx *d, i64 pos)
 	de_dbg_indent(c, -1);
 }
 
-static void do_ne_program_flags(deark *c, lctx *d, de_byte flags)
+static void do_ne_program_flags(deark *c, lctx *d, u8 flags)
 {
 	de_ucstring *s = NULL;
 	s = ucstring_create(c);
@@ -401,7 +401,7 @@ static void do_ne_program_flags(deark *c, lctx *d, de_byte flags)
 	ucstring_destroy(s);
 }
 
-static void do_ne_app_flags(deark *c, lctx *d, de_byte flags)
+static void do_ne_app_flags(deark *c, lctx *d, u8 flags)
 {
 	de_ucstring *s = NULL;
 	s = ucstring_create(c);
@@ -423,9 +423,9 @@ static void do_ne_app_flags(deark *c, lctx *d, de_byte flags)
 
 static void do_ne_ext_header(deark *c, lctx *d, i64 pos)
 {
-	de_byte target_os;
+	u8 target_os;
 	const char *desc;
-	de_byte b1, b2;
+	u8 b1, b2;
 
 	de_dbg(c, "NE extended header at %d", (int)pos);
 	de_dbg_indent(c, 1);
@@ -465,8 +465,8 @@ static void do_lx_or_le_ext_header(deark *c, lctx *d, i64 pos)
 	i64 x1, x2;
 
 	de_dbg(c, "%s header at %d", d->fmt==EXE_FMT_LE?"LE":"LX", (int)pos);
-	x1 = (de_byte)de_getbyte(pos+2);
-	x2 = (de_byte)de_getbyte(pos+3);
+	x1 = (u8)de_getbyte(pos+2);
+	x2 = (u8)de_getbyte(pos+3);
 	de_dbg(c, "byte order, word order: %d, %d", (int)x1, (int)x2);
 	if(x1!=0 || x2!=0) {
 		de_err(c, "Unsupported byte order.");
@@ -502,7 +502,7 @@ static void do_lx_or_le_ext_header(deark *c, lctx *d, i64 pos)
 
 static void do_ext_header(deark *c, lctx *d)
 {
-	de_byte buf[4];
+	u8 buf[4];
 
 	if(d->ext_header_offset == 0 || d->ext_header_offset >= c->infile->len) {
 		// Give up if ext_header_offset is obviously bad.
@@ -607,9 +607,9 @@ static void do_extract_ico_cur(deark *c, lctx *d, i64 pos, i64 len,
 	}
 
 	// Write the 16-byte index entry for the one icon/cursor.
-	dbuf_writebyte(f, (de_byte)w);
-	dbuf_writebyte(f, (de_byte)h);
-	dbuf_writebyte(f, (de_byte)ncolors);
+	dbuf_writebyte(f, (u8)w);
+	dbuf_writebyte(f, (u8)h);
+	dbuf_writebyte(f, (u8)ncolors);
 	if(is_cur) {
 		dbuf_writebyte(f, 0);
 		dbuf_writeui16le(f, hotspot_x);
@@ -681,7 +681,7 @@ static const struct rsrc_type_info_struct rsrc_type_info_arr[] = {
 	{ DE_RT_MANIFEST,     0, "RT_MANIFEST",     do_extract_MANIFEST }
 };
 
-static const struct rsrc_type_info_struct *get_rsrc_type_info(de_uint32 id)
+static const struct rsrc_type_info_struct *get_rsrc_type_info(u32 id)
 {
 	size_t i;
 
@@ -693,7 +693,7 @@ static const struct rsrc_type_info_struct *get_rsrc_type_info(de_uint32 id)
 	return NULL;
 }
 
-static int ne_pe_resource_type_is_supported(deark *c, lctx *d, de_uint32 type_id)
+static int ne_pe_resource_type_is_supported(deark *c, lctx *d, u32 type_id)
 {
 	switch(type_id) {
 	case DE_RT_CURSOR:
@@ -707,7 +707,7 @@ static int ne_pe_resource_type_is_supported(deark *c, lctx *d, de_uint32 type_id
 }
 
 static void do_ne_pe_extract_resource(deark *c, lctx *d,
-	de_uint32 type_id, const struct rsrc_type_info_struct *rsrci,
+	u32 type_id, const struct rsrc_type_info_struct *rsrci,
 	i64 pos, i64 len, de_finfo *fi)
 {
 	if(len<1 || len>DE_MAX_FILE_SIZE) return;
@@ -743,7 +743,7 @@ static void do_pe_resource_data_entry(deark *c, lctx *d, i64 rel_pos)
 	i64 data_size;
 	i64 data_virt_addr;
 	i64 data_real_offset;
-	de_uint32 type_id;
+	u32 type_id;
 	de_finfo *fi = NULL;
 	const char *rsrcname;
 
@@ -781,7 +781,7 @@ static void do_pe_resource_dir_table(deark *c, lctx *d, i64 rel_pos, int level);
 
 static void do_pe_resource_node(deark *c, lctx *d, i64 rel_pos, int level)
 {
-	de_uint32 name_or_id;
+	u32 name_or_id;
 	i64 next_offset;
 	int has_name, is_branch_node;
 	int orig_indent;
@@ -797,7 +797,7 @@ static void do_pe_resource_node(deark *c, lctx *d, i64 rel_pos, int level)
 	has_name = 0;
 	is_branch_node = 0;
 
-	name_or_id = (de_uint32)de_getui32le(d->pe_cur_base_addr+rel_pos);
+	name_or_id = (u32)de_getui32le(d->pe_cur_base_addr+rel_pos);
 	if(name_or_id & 0x80000000U) {
 		has_name = 1;
 		name_or_id -= 0x80000000U;
@@ -810,7 +810,7 @@ static void do_pe_resource_node(deark *c, lctx *d, i64 rel_pos, int level)
 
 	if(level==1) {
 		d->cur_rsrc_type = name_or_id;
-		d->cur_rsrc_type_info = get_rsrc_type_info((de_uint32)d->cur_rsrc_type);
+		d->cur_rsrc_type_info = get_rsrc_type_info((u32)d->cur_rsrc_type);
 	}
 
 	de_dbg(c, "level %d node at %d(%d) id=%d next-offset=%d is-named=%d is-branch=%d",
@@ -1051,7 +1051,7 @@ static void do_ne_rsrc_tbl(deark *c, lctx *d)
 		de_dbg_indent(c, 1);
 
 		if(x & 0x8000) {
-			d->ne_rsrc_type_id = (de_uint32)(x-0x8000);
+			d->ne_rsrc_type_id = (u32)(x-0x8000);
 			d->ne_rsrc_type_info = get_rsrc_type_info(d->ne_rsrc_type_id);
 			d->ne_have_type = 1;
 		}
@@ -1100,7 +1100,7 @@ done:
 // Or NULL, if unidentified.
 static const char *identify_lx_rsrc(deark *c, lctx *d, i64 pos, i64 len)
 {
-	de_byte buf[2];
+	u8 buf[2];
 	int is_ba = 0;
 
 	if(len<16) return NULL;
@@ -1251,7 +1251,7 @@ static void de_run_exe(deark *c, de_module_params *mparams)
 
 static int de_identify_exe(deark *c)
 {
-	de_byte buf[2];
+	u8 buf[2];
 	de_read(buf, 0, 2);
 
 	if(buf[0]=='M' && buf[1]=='Z') return 80;

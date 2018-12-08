@@ -12,7 +12,7 @@ DE_DECLARE_MODULE(de_module_plist);
 #define MAX_PLIST_OBJECTS       1000000
 
 struct objref_struct {
-	de_uint32 offs;
+	u32 offs;
 };
 
 typedef struct localctx_struct {
@@ -252,8 +252,8 @@ static void do_object_date(deark *c, lctx *d, i64 pos)
 static int do_one_object_by_offset(deark *c, lctx *d, i64 pos1)
 {
 	i64 pos = pos1;
-	de_byte marker;
-	de_byte m1, m2;
+	u8 marker;
+	u8 m1, m2;
 	int has_size;
 	i64 dlen_raw;
 	const char *tn;
@@ -343,7 +343,7 @@ static int do_one_object_by_offset(deark *c, lctx *d, i64 pos1)
 
 	if(has_size) {
 		if(m2==0xf) {
-			de_byte x;
+			u8 x;
 			unsigned int nbytes_in_len;
 			x = de_getbyte_p(&pos);
 			// 0x10 = size is a 1-byte int
@@ -425,7 +425,7 @@ static void read_offset_table(deark *c, lctx *d)
 		offs = dbuf_getint_ext(c->infile, pos, d->nbytes_per_objref_table_entry, 0, 0);
 		if(c->debug_level>=2)
 			de_dbg(c, "objref[%"INT64_FMT"] offset: %"INT64_FMT, k, offs);
-		d->objref_table[k].offs = (de_uint32)offs;
+		d->objref_table[k].offs = (u32)offs;
 		pos += (i64)d->nbytes_per_objref_table_entry;
 	}
 

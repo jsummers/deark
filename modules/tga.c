@@ -17,19 +17,19 @@ typedef struct localctx_struct {
 #define FMT_TGA 0
 #define FMT_VST 1
 	int file_format;
-	de_byte color_map_type;
-	de_byte img_type;
+	u8 color_map_type;
+	u8 img_type;
 	struct tgaimginfo main_image;
 	struct tgaimginfo thumbnail_image;
 	i64 cmap_start;
 	i64 cmap_length;
 	i64 cmap_depth;
 	i64 pixel_depth;
-	de_byte image_descriptor;
+	u8 image_descriptor;
 	i64 num_attribute_bits;
-	de_byte attributes_type;
-	de_byte top_down, right_to_left;
-	de_byte interleave_mode;
+	u8 attributes_type;
+	u8 top_down, right_to_left;
+	u8 interleave_mode;
 	int has_signature;
 	int has_extension_area;
 	int has_alpha_channel; // Our guess as to whether the image has transparency.
@@ -49,7 +49,7 @@ typedef struct localctx_struct {
 	i64 pal_size_in_bytes;
 	i64 aspect_ratio_num, aspect_ratio_den;
 	i64 thumbnail_offset;
-	de_uint32 pal[256];
+	u32 pal[256];
 	struct de_timestamp mod_time;
 } lctx;
 
@@ -58,9 +58,9 @@ static void do_decode_image_default(deark *c, lctx *d, struct tgaimginfo *imginf
 {
 	de_bitmap *img = NULL;
 	i64 i, j;
-	de_byte b;
-	de_uint32 clr;
-	de_byte a;
+	u8 b;
+	u32 clr;
+	u8 a;
 	i64 rowspan;
 	int output_bypp;
 	unsigned int getrgbflags;
@@ -128,7 +128,7 @@ static void do_decode_image_default(deark *c, lctx *d, struct tgaimginfo *imginf
 				de_convert_row_bilevel(unc_pixels, j*rowspan, img, j_adj, 0);
 			}
 			else if(d->color_type==TGA_CLRTYPE_TRUECOLOR && (d->pixel_depth==15 || d->pixel_depth==16)) {
-				clr = (de_uint32)dbuf_getui16le(unc_pixels, j*rowspan + i*d->bytes_per_pixel);
+				clr = (u32)dbuf_getui16le(unc_pixels, j*rowspan + i*d->bytes_per_pixel);
 				clr = de_rgb555_to_888(clr);
 				de_bitmap_setpixel_rgb(img, i_adj, j_adj, clr);
 			}
@@ -185,7 +185,7 @@ static void do_prescan_image(deark *c, lctx *d, dbuf *unc_pixels)
 {
 	i64 num_pixels;
 	i64 i;
-	de_byte b[4];
+	u8 b[4];
 	int has_alpha_0 = 0;
 	int has_alpha_partial = 0;
 	int has_alpha_255 = 0;
@@ -276,10 +276,10 @@ static void do_prescan_image(deark *c, lctx *d, dbuf *unc_pixels)
 
 static int do_decode_rle(deark *c, lctx *d, i64 pos1, dbuf *unc_pixels)
 {
-	de_byte b;
+	u8 b;
 	i64 count;
 	i64 k;
-	de_byte buf[8];
+	u8 buf[8];
 	i64 pos = pos1;
 
 	while(1) {
@@ -708,7 +708,7 @@ static int has_signature(deark *c)
 static void detect_file_format(deark *c, lctx *d)
 {
 	int has_igch;
-	de_byte img_type;
+	u8 img_type;
 
 	d->has_signature = has_signature(c);
 	de_dbg(c, "has v2 signature: %s", d->has_signature?"yes":"no");
@@ -855,8 +855,8 @@ done:
 
 static int de_identify_tga(deark *c)
 {
-	de_byte b[18];
-	de_byte x;
+	u8 b[18];
+	u8 x;
 	int has_tga_ext;
 
 	if(has_signature(c)) {

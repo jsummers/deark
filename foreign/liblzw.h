@@ -50,11 +50,11 @@ struct de_liblzwctx {
 	unsigned char flags;
 	int maxbits, block_mode;
 
-	de_uint32 htab[HSIZE];
-	de_uint16 codetab[HSIZE];
+	u32 htab[HSIZE];
+	u16 codetab[HSIZE];
 
 	int n_bits, posbits, inbits, bitmask, finchar;
-	de_int32 maxcode, oldcode, incode, code, free_ent;
+	i32 maxcode, oldcode, incode, code, free_ent;
 };
 
 /******************************************/
@@ -76,7 +76,7 @@ struct de_liblzwctx {
 /*
  * Open LZW file
  */
-struct de_liblzwctx *de_liblzw_dbufopen(dbuf *inf, unsigned int dflags, de_byte lzwmode)
+struct de_liblzwctx *de_liblzw_dbufopen(dbuf *inf, unsigned int dflags, u8 lzwmode)
 {
 	struct de_liblzwctx *ret = NULL;
 	i64 inf_fpos = 0;
@@ -178,8 +178,8 @@ int de_liblzw_close(struct de_liblzwctx *lzw)
 #define lzw_input(b,o,c,n,m) \
 	do { \
 		unsigned char *p = &(b)[(o)>>3]; \
-		(c) = ((((de_int32)(p[0]))|((de_int32)(p[1])<<8)| \
-		       ((de_int32)(p[2])<<16))>>((o)&0x7))&(m); \
+		(c) = ((((i32)(p[0]))|((i32)(p[1])<<8)| \
+		       ((i32)(p[2])<<16))>>((o)&0x7))&(m); \
 		(o) += (n); \
 	} while (0)
 
@@ -188,13 +188,13 @@ int de_liblzw_close(struct de_liblzwctx *lzw)
 /*
  * Read LZW file
  */
-i64 de_liblzw_read(struct de_liblzwctx *lzw, de_byte *readbuf, size_t count)
+i64 de_liblzw_read(struct de_liblzwctx *lzw, u8 *readbuf, size_t count)
 {
 	size_t count_left = count;
 	unsigned char *inbuf = lzw->inbuf;
 	unsigned char *outbuf = lzw->outbuf;
 
-	de_int32 maxmaxcode = MAXCODE(lzw->maxbits);
+	i32 maxmaxcode = MAXCODE(lzw->maxbits);
 
 	if (!count || lzw->eof)
 		return 0;

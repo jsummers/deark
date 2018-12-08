@@ -11,11 +11,11 @@
 struct deark_file_attribs {
 	i64 modtime; // Unix time_t format
 	int modtime_valid;
-	de_byte is_executable;
-	de_uint16 extra_data_central_size;
-	de_uint16 extra_data_local_size;
-	de_byte *extra_data_central;
-	de_byte *extra_data_local;
+	u8 is_executable;
+	u16 extra_data_central_size;
+	u16 extra_data_local_size;
+	u8 *extra_data_central;
+	u8 *extra_data_local;
 };
 
 #define MINIZ_NO_ZLIB_COMPATIBLE_NAMES
@@ -47,11 +47,11 @@ struct deark_png_encode_info {
 	struct de_timestamp image_mod_time;
 };
 
-static void write_png_chunk_raw(dbuf *outf, const de_byte *src, i64 src_len,
-	de_uint32 chunktype)
+static void write_png_chunk_raw(dbuf *outf, const u8 *src, i64 src_len,
+	u32 chunktype)
 {
-	de_uint32 crc;
-	de_byte buf[4];
+	u32 crc;
+	u8 buf[4];
 
 	// length field
 	dbuf_writeui32be(outf, src_len);
@@ -69,7 +69,7 @@ static void write_png_chunk_raw(dbuf *outf, const de_byte *src, i64 src_len,
 	dbuf_writeui32be(outf, (i64)crc);
 }
 
-static void write_png_chunk_from_cdbuf(dbuf *outf, dbuf *cdbuf, de_uint32 chunktype)
+static void write_png_chunk_from_cdbuf(dbuf *outf, dbuf *cdbuf, u32 chunktype)
 {
 	// We really shouldn't access ->membuf_buf directly, but we'll allow it
 	// here as a performance optimization.
@@ -79,7 +79,7 @@ static void write_png_chunk_from_cdbuf(dbuf *outf, dbuf *cdbuf, de_uint32 chunkt
 static void write_png_chunk_IHDR(struct deark_png_encode_info *pei,
 	dbuf *cdbuf)
 {
-	static const de_byte color_type_code[] = {0x00, 0x00, 0x04, 0x02, 0x06};
+	static const u8 color_type_code[] = {0x00, 0x00, 0x04, 0x02, 0x06};
 
 	dbuf_writeui32be(cdbuf, (i64)pei->width);
 	dbuf_writeui32be(cdbuf, (i64)pei->height);
@@ -107,11 +107,11 @@ static void write_png_chunk_tIME(struct deark_png_encode_info *pei,
 	if(!tm2.is_valid) return;
 
 	dbuf_writeui16be(cdbuf, (i64)tm2.tm_fullyear);
-	dbuf_writebyte(cdbuf, (de_byte)(1+tm2.tm_mon));
-	dbuf_writebyte(cdbuf, (de_byte)tm2.tm_mday);
-	dbuf_writebyte(cdbuf, (de_byte)tm2.tm_hour);
-	dbuf_writebyte(cdbuf, (de_byte)tm2.tm_min);
-	dbuf_writebyte(cdbuf, (de_byte)tm2.tm_sec);
+	dbuf_writebyte(cdbuf, (u8)(1+tm2.tm_mon));
+	dbuf_writebyte(cdbuf, (u8)tm2.tm_mday);
+	dbuf_writebyte(cdbuf, (u8)tm2.tm_hour);
+	dbuf_writebyte(cdbuf, (u8)tm2.tm_min);
+	dbuf_writebyte(cdbuf, (u8)tm2.tm_sec);
 	write_png_chunk_from_cdbuf(pei->outf, cdbuf, CODE_tIME);
 }
 
@@ -146,7 +146,7 @@ static int write_png_chunk_IDAT(struct deark_png_encode_info *pei, const mz_uint
 	}
 	if (tdefl_compress_buffer(pComp, NULL, 0, TDEFL_FINISH) != TDEFL_STATUS_DONE) { goto done; }
 
-	write_png_chunk_raw(pei->outf, (const de_byte*)out_buf.m_pBuf, (i64)out_buf.m_size, CODE_IDAT);
+	write_png_chunk_raw(pei->outf, (const u8*)out_buf.m_pBuf, (i64)out_buf.m_size, CODE_IDAT);
 	retval = 1;
 
 done:
@@ -158,7 +158,7 @@ done:
 
 static int do_generate_png(struct deark_png_encode_info *pei, const mz_uint8 *src_pixels)
 {
-	static const de_byte pngsig[8] = { 0x89,0x50,0x4e,0x47,0x0d,0x0a,0x1a,0x0a };
+	static const u8 pngsig[8] = { 0x89,0x50,0x4e,0x47,0x0d,0x0a,0x1a,0x0a };
 	dbuf *cdbuf = NULL;
 	int retval = 0;
 
@@ -267,8 +267,8 @@ static int de_inflate_internal(dbuf *inf, i64 inputstart, i64 inputsize, dbuf *o
 	int retval = 0;
 #define DE_DFL_INBUF_SIZE   32768
 #define DE_DFL_OUTBUF_SIZE  (DE_DFL_INBUF_SIZE*4)
-	de_byte *inbuf = NULL;
-	de_byte *outbuf = NULL;
+	u8 *inbuf = NULL;
+	u8 *outbuf = NULL;
 	i64 inbuf_num_valid_bytes; // Number of valid bytes in inbuf, starting with [0].
 	i64 inbuf_num_consumed_bytes; // Of inbuf_num_valid_bytes, the number that have been consumed.
 	i64 inbuf_num_consumed_bytes_this_time;
@@ -588,12 +588,12 @@ void de_zip_close_file(deark *c)
 // For a one-shot CRC calculations, or the first part of a multi-part
 // calculation.
 // buf can be NULL (in which case buf_len should be 0, but is ignored)
-de_uint32 de_crc32(const void *buf, i64 buf_len)
+u32 de_crc32(const void *buf, i64 buf_len)
 {
-	return (de_uint32)mz_crc32(MZ_CRC32_INIT, (const mz_uint8*)buf, (size_t)buf_len);
+	return (u32)mz_crc32(MZ_CRC32_INIT, (const mz_uint8*)buf, (size_t)buf_len);
 }
 
-de_uint32 de_crc32_continue(de_uint32 prev_crc, const void *buf, i64 buf_len)
+u32 de_crc32_continue(u32 prev_crc, const void *buf, i64 buf_len)
 {
-	return (de_uint32)mz_crc32(prev_crc, (const mz_uint8*)buf, (size_t)buf_len);
+	return (u32)mz_crc32(prev_crc, (const mz_uint8*)buf, (size_t)buf_len);
 }

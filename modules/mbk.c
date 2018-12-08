@@ -11,14 +11,14 @@ DE_DECLARE_MODULE(de_module_mbk);
 
 typedef struct localctx_struct {
 	i64 banknum;
-	de_byte banktype;
+	u8 banktype;
 	i64 banksize;
-	de_uint32 data_bank_id;
-	de_uint32 pal[256];
+	u32 data_bank_id;
+	u32 pal[256];
 } lctx;
 
 static const char* sprite_res_name[3] = { "low", "med", "high" };
-static const de_byte sprite_res_bpp[3] = { 4, 2, 1 };
+static const u8 sprite_res_bpp[3] = { 4, 2, 1 };
 
 // Decode one sprite
 static void do_sprite_param_block(deark *c, lctx *d, i64 res,
@@ -33,7 +33,7 @@ static void do_sprite_param_block(deark *c, lctx *d, i64 res,
 	struct atari_img_decode_data *adata_fg = NULL;
 	struct atari_img_decode_data *adata_mask = NULL;
 	de_finfo *fi = NULL;
-	de_uint32 mask_pal[2] = { DE_STOCKCOLOR_WHITE, DE_STOCKCOLOR_BLACK };
+	u32 mask_pal[2] = { DE_STOCKCOLOR_WHITE, DE_STOCKCOLOR_BLACK };
 
 	de_dbg(c, "%s-res sprite #%d param block at %d", sprite_res_name[res],
 		(int)sprite_index, (int)pos);
@@ -168,9 +168,9 @@ static void do_icon(deark *c, lctx *d, i64 idx, i64 pos)
 	i64 i, j;
 	i64 w, h;
 	i64 rowspan;
-	de_byte mskbit, fgbit;
+	u8 mskbit, fgbit;
 	i64 bitsstart;
-	de_uint32 clr;
+	u32 clr;
 
 	de_dbg(c, "icon #%d, at %d", (int)idx, (int)pos);
 	de_dbg_indent(c, 1);
@@ -232,7 +232,7 @@ static void do_mbk_data_bank(deark *c, lctx *d, i64 pos)
 
 	de_dbg(c, "STOS data bank at %d", (int)pos);
 	de_dbg_indent(c, 1);
-	d->data_bank_id = (de_uint32)de_getui32be(pos);
+	d->data_bank_id = (u32)de_getui32be(pos);
 
 	switch(d->data_bank_id) {
 	case 0x06071963U: bn = "packed screen"; break;
@@ -266,7 +266,7 @@ static void do_mbk(deark *c, lctx *d)
 	de_dbg(c, "bank number: %d", (int)d->banknum);
 
 	d->banksize = de_getui32be(14);
-	d->banktype = (de_byte)(d->banksize>>24);
+	d->banktype = (u8)(d->banksize>>24);
 	d->banksize &= (i64)0x00ffffff;
 
 	switch(d->banktype) {
@@ -299,8 +299,8 @@ static void do_mbs(deark *c, lctx *d)
 static void de_run_mbk_mbs(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
-	de_uint32 id;
-	de_byte buf[10];
+	u32 id;
+	u8 buf[10];
 
 	d = de_malloc(c, sizeof(lctx));
 
@@ -317,7 +317,7 @@ static void de_run_mbk_mbs(deark *c, de_module_params *mparams)
 		}
 	}
 	else {
-		id = (de_uint32)de_getui32be_direct(buf);
+		id = (u32)de_getui32be_direct(buf);
 
 		if(id==0x19861987U) {
 			de_declare_fmt(c, "STOS Sprite Bank");
@@ -333,7 +333,7 @@ static void de_run_mbk_mbs(deark *c, de_module_params *mparams)
 
 static int de_identify_mbk(deark *c)
 {
-	de_byte buf[10];
+	u8 buf[10];
 
 	de_read(buf, 0, sizeof(buf));
 	if(!de_memcmp(buf, "Lionpoubnk", 10))

@@ -49,7 +49,7 @@ static void do_bilevel_icon(deark *c, lctx *d, struct iconinfo *ii, i64 fg_pos,
 	i64 mask_pos, const char *token)
 {
 	i64 i, j;
-	de_byte n, a;
+	u8 n, a;
 	de_bitmap *img = NULL;
 
 	img = de_bitmap_create(c, ii->width, ii->height, 2);
@@ -92,34 +92,34 @@ done:
 }
 
 // TODO: This palette may not be correct.
-static const de_uint32 pal16[16] = {
+static const u32 pal16[16] = {
 	0xffffff,0xff0000,0x00ff00,0xffff00,0x0000ff,0xff00ff,0x00ffff,0xc0c0c0,
 	0x808080,0xff8080,0x80ff80,0xffff80,0x8080ff,0xff80ff,0x80ffff,0x000000
 };
 
 // FIXME: This palette is incomplete, and probably inaccurate.
-static const de_uint32 supplpal1[16] = {
+static const u32 supplpal1[16] = {
 	0xffffff,0xef0000,0x00e700,0xffff00,0x0000ef,0xcd05cd,0xcd06cd,0xd6d6d6, // 00-07
 	0x808080,0x7b0000,0x008000,0xb5a531,0x000080,0x7f007f,0x007b7b,0x101810  // 08-ff
 };
 
-static const de_uint32 supplpal2[26] = {
+static const u32 supplpal2[26] = {
 	                                                      0xef0000,0xe70000, // e6-e7
 	0xbd0000,0xad0000,0x7b0000,0x4a0000,0x100000,0xcdedcd,0xcdeecd,0x00bd00, // e8-ef
 	0x00b500,0xcdf1cd,0x004a00,0x001800,0x000010,0x00004f,0xcdf6cd,0x0000af, // f0-f7
 	0x293194,0x0000e0,0xeff7ef,0xe7e7e7,0xc0c0c0,0xadb5ad,0x4a4a4a,0x000000  // f8-ff
 };
 
-static de_uint32 getpal16(unsigned int k)
+static u32 getpal16(unsigned int k)
 {
 	if(k>=16) return 0;
 	return pal16[k];
 }
 
-static de_uint32 getpal256(unsigned int k)
+static u32 getpal256(unsigned int k)
 {
 	unsigned int x;
-	de_byte r, g, b;
+	u8 r, g, b;
 
 	if(k<=15) {
 		// first 16 entries
@@ -128,7 +128,7 @@ static de_uint32 getpal256(unsigned int k)
 	else if(k<=229) {
 		// next 214 entries
 		x = k-15;
-		r = (de_byte)((x/36)*0x33);
+		r = (u8)((x/36)*0x33);
 		g = ((x%36)/6)*0x33;
 		b = (x%6)*0x33;
 		return DE_MAKE_RGB(r,g,b);
@@ -144,13 +144,13 @@ static void do_color_icon(deark *c, lctx *d, struct iconinfo *ii, i64 fg_pos,
 	i64 mask_pos, const char *token)
 {
 	i64 i, j;
-	de_byte a;
+	u8 a;
 	de_bitmap *img = NULL;
 	i64 plane;
 	i64 planespan;
-	de_byte b;
+	u8 b;
 	unsigned int v;
-	de_uint32 clr;
+	u32 clr;
 
 	if(ii->nplanes!=4 && ii->nplanes!=8) {
 		de_warn(c, "%d-plane icons not supported", (int)ii->nplanes);
@@ -354,7 +354,7 @@ static void do_newformat(deark *c, lctx *d)
 #define OBJTYPE_ICON    31
 #define OBJTYPE_CLRICON 33
 
-static const char *get_obj_type_name(de_byte t)
+static const char *get_obj_type_name(u8 t)
 {
 	const char *s = NULL;
 
@@ -385,7 +385,7 @@ static const char *get_obj_type_name(de_byte t)
 static int do_object(deark *c, lctx *d, i64 obj_index, i64 pos)
 {
 	i64 obj_type_orig;
-	de_byte obj_type;
+	u8 obj_type;
 	i64 next_sibling, first_child, last_child;
 	i64 ob_spec;
 	i64 width, height;
@@ -403,7 +403,7 @@ static int do_object(deark *c, lctx *d, i64 obj_index, i64 pos)
 		(int)next_sibling, (int)first_child, (int)last_child);
 
 	obj_type_orig = de_getui16be(pos+6);
-	obj_type = (de_byte)(obj_type_orig&0xff);
+	obj_type = (u8)(obj_type_orig&0xff);
 
 	de_dbg(c, "type: 0x%04x (%u; %s)", (unsigned int)obj_type_orig,
 		(unsigned int)obj_type, get_obj_type_name(obj_type));

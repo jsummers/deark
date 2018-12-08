@@ -12,7 +12,7 @@ typedef struct localctx_struct {
 	i64 w, h;
 	int have_pal;
 	i64 pal_entries;
-	de_uint32 pal[256];
+	u32 pal[256];
 } lctx;
 
 static int do_read_header(deark *c, lctx *d)
@@ -27,7 +27,7 @@ static int do_read_header(deark *c, lctx *d)
 static int do_decompress_scanline(deark *c, lctx *d, i64 line_idx,
 	i64 pos1, i64 len, dbuf *unc_pixels)
 {
-	de_byte b, b2;
+	u8 b, b2;
 	i64 count;
 	i64 pos = pos1;
 	i64 opos1 = unc_pixels->len;
@@ -86,9 +86,9 @@ static void do_write_image_gray(deark *c, lctx *d, dbuf *unc_pixels)
 {
 	de_bitmap *img = NULL;
 	i64 i, j;
-	de_byte b;
+	u8 b;
 	i64 k;
-	de_byte max_val;
+	u8 max_val;
 
 	max_val = 0;
 	for(k=0; k<unc_pixels->len; k++) {
@@ -117,7 +117,7 @@ static void do_write_image_pal(deark *c, lctx *d, dbuf *unc_pixels)
 {
 	de_bitmap *img = NULL;
 	i64 i, j;
-	de_byte b;
+	u8 b;
 
 	img = de_bitmap_create(c, d->w, d->h, 3);
 
@@ -145,10 +145,10 @@ static int do_read_pal_file(deark *c, lctx *d, const char *palfn)
 	i64 maxsamp[3];
 	unsigned int board_id;
 	unsigned int graphics_mode;
-	de_byte filetype;
-	de_byte filesubtype;
+	u8 filetype;
+	u8 filesubtype;
 	i64 osamp[3];
-	de_byte samp[3];
+	u8 samp[3];
 	int retval = 0;
 	char tmps[64];
 

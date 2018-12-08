@@ -15,7 +15,7 @@ typedef struct localctx_struct {
 } lctx;
 
 static void do_extract_file(deark *c, lctx *d, i64 dir_pos,
-	de_byte filetype_c64s, de_byte filetype)
+	u8 filetype_c64s, u8 filetype)
 {
 	i64 load_addr;
 	i64 end_addr;
@@ -77,8 +77,8 @@ done:
 
 static void do_dir_entry(deark *c, lctx *d, i64 entry_num, i64 pos)
 {
-	de_byte filetype_c64s;
-	de_byte filetype;
+	u8 filetype_c64s;
+	u8 filetype;
 
 	filetype_c64s = de_getbyte(pos);
 	if(filetype_c64s==0) {

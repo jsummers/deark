@@ -25,7 +25,7 @@ struct handler_params {
 	i64 dlen;
 
 	// Set if handler is being called (again) at the *end* of the element
-	de_byte end_flag;
+	u8 end_flag;
 };
 typedef void (*handler_fn_type)(deark *c, lctx *d, struct handler_params *hp);
 
@@ -78,11 +78,11 @@ static int get_var_size_int(dbuf *f, i64 *val, i64 *pos,
 	i64 nbytes_avail)
 {
 	i64 pos1;
-	de_byte b;
-	de_byte mask;
+	u8 b;
+	u8 mask;
 	unsigned int k;
 	int retval = 0;
-	de_byte test_bit;
+	u8 test_bit;
 	unsigned int initial_zero_bits;
 
 	pos1 = *pos;

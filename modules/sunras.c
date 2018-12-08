@@ -36,7 +36,7 @@ typedef struct localctx_struct {
 	int is_paletted;
 	int is_grayscale;
 
-	de_uint32 pal[256];
+	u32 pal[256];
 } lctx;
 
 static void do_read_palette(deark *c, lctx *d, i64 pos)
@@ -44,7 +44,7 @@ static void do_read_palette(deark *c, lctx *d, i64 pos)
 	i64 num_entries;
 	i64 num_entries_to_read;
 	i64 k;
-	de_byte r, g, b;
+	u8 r, g, b;
 
 	num_entries = d->maplen/3;
 	num_entries_to_read = num_entries;
@@ -62,8 +62,8 @@ static void do_read_palette(deark *c, lctx *d, i64 pos)
 static void do_image(deark *c, lctx *d, dbuf *unc_pixels)
 {
 	de_bitmap *img = NULL;
-	de_uint32 clr;
-	de_byte b;
+	u32 clr;
+	u8 b;
 	i64 i, j;
 	i64 src_bypp, dst_bypp;
 	unsigned int getrgbflags;
@@ -190,7 +190,7 @@ static void do_uncompress_image(deark *c, lctx *d, i64 pos1, i64 len, dbuf *unc_
 	i64 pos = pos1;
 
 	while(1) {
-		de_byte b0, b1, b2;
+		u8 b0, b1, b2;
 
 		// Stop if we reach the end of the input file.
 		if(pos >= c->infile->len) break;

@@ -63,7 +63,7 @@ static void de_puts_advanced(deark *c, unsigned int flags, const char *s)
 	size_t tmps_pos = 0;
 	int hlmode = 0;
 	unsigned int special_code;
-	de_uint32 param1 = 0;
+	u32 param1 = 0;
 
 	s_len = de_strlen(s);
 	tmps = de_malloc(c, s_len+1);
@@ -300,7 +300,7 @@ void de_dbg_hexdump(deark *c, dbuf *f, i64 pos1,
 	i64 bytesthisrow;
 	int asciibufpos;
 	int linebufpos;
-	de_byte b;
+	u8 b;
 	i64 len;
 	int ndigits_for_offset;
 	int was_truncated = 0;
@@ -397,7 +397,7 @@ void de_dbg_dimensions(deark *c, i64 w, i64 h)
 // (in some circumstances) display a small sample of the given color.
 // Caller supplies csamp[16].
 // Returns a pointer to csamp, for convenience.
-char *de_get_colorsample_code(deark *c, de_uint32 clr, char *csamp,
+char *de_get_colorsample_code(deark *c, u32 clr, char *csamp,
 	size_t csamplen)
 {
 	unsigned int r, g, b;
@@ -427,7 +427,7 @@ char *de_get_colorsample_code(deark *c, de_uint32 clr, char *csamp,
 }
 
 // Print debugging output for an 8-bit RGB palette entry.
-void de_dbg_pal_entry2(deark *c, i64 idx, de_uint32 clr,
+void de_dbg_pal_entry2(deark *c, i64 idx, u32 clr,
 	const char *txt_before, const char *txt_in, const char *txt_after)
 {
 	int r,g,b,a;
@@ -454,7 +454,7 @@ void de_dbg_pal_entry2(deark *c, i64 idx, de_uint32 clr,
 		r, g, b, astr, txt_in, csamp, txt_after);
 }
 
-void de_dbg_pal_entry(deark *c, i64 idx, de_uint32 clr)
+void de_dbg_pal_entry(deark *c, i64 idx, u32 clr)
 {
 	if(c->debug_level<2) return;
 	de_dbg_pal_entry2(c, idx, clr, NULL, NULL, NULL);
@@ -590,7 +590,7 @@ void *de_realloc(deark *c, void *oldmem, i64 oldsize, i64 newsize)
 
 	if(oldsize<newsize) {
 		// zero out any newly-allocated bytes
-		de_zeromem(&((de_byte*)newmem)[oldsize], (size_t)(newsize-oldsize));
+		de_zeromem(&((u8*)newmem)[oldsize], (size_t)(newsize-oldsize));
 	}
 
 	return newmem;
@@ -917,7 +917,7 @@ void de_unix_time_to_timestamp(i64 ut, struct de_timestamp *ts, unsigned int fla
 	if(flags&0x1) ts->tzcode = DE_TZCODE_UTC;
 }
 
-void de_timestamp_set_ms(struct de_timestamp *ts, de_uint16 ms, de_uint16 prec)
+void de_timestamp_set_ms(struct de_timestamp *ts, u16 ms, u16 prec)
 {
 	ts->ms = ms;
 	ts->prec = prec;
@@ -955,8 +955,8 @@ void de_dos_datetime_to_timestamp(struct de_timestamp *ts,
 	de_timestamp_set_ms(ts, 0, 2000); // 2-second precision
 }
 
-void de_riscos_loadexec_to_timestamp(de_uint32 load_addr,
-	de_uint32 exec_addr, struct de_timestamp *ts)
+void de_riscos_loadexec_to_timestamp(u32 load_addr,
+	u32 exec_addr, struct de_timestamp *ts)
 {
 	i64 t;
 	unsigned int centiseconds;
@@ -1100,11 +1100,11 @@ void de_declare_fmtf(deark *c, const char *fmt, ...)
 }
 
 // Assumes dst starts out with only '0' bits
-void de_copy_bits(const de_byte *src, i64 srcbitnum,
-	de_byte *dst, i64 dstbitnum, i64 bitstocopy)
+void de_copy_bits(const u8 *src, i64 srcbitnum,
+	u8 *dst, i64 dstbitnum, i64 bitstocopy)
 {
 	i64 i;
-	de_byte b;
+	u8 b;
 
 	for(i=0; i<bitstocopy; i++) {
 		b = src[(srcbitnum+i)/8];
@@ -1288,10 +1288,10 @@ int de_inthashtable_remove_any_item(deark *c, struct de_inthashtable *ht, i64 *p
 // functions for which the result can fit in a 32-bit int.l
 
 struct de_crcobj {
-	de_uint32 val;
+	u32 val;
 	unsigned int crctype;
 	deark *c;
-	de_uint16 *table16;
+	u16 *table16;
 };
 
 // This is the CRC-16 algorithm used in MacBinary.
@@ -1303,7 +1303,7 @@ static void de_crc16ccitt_init(struct de_crcobj *crco)
 	const unsigned int polynomial = 0x1021;
 	unsigned int index;
 
-	crco->table16 = de_malloc(crco->c, 256*sizeof(de_uint16));
+	crco->table16 = de_malloc(crco->c, 256*sizeof(u16));
 	crco->table16[0] = 0;
 	for(index=0; index<128; index++) {
 		unsigned int carry = crco->table16[index] & 0x8000;
@@ -1313,14 +1313,14 @@ static void de_crc16ccitt_init(struct de_crcobj *crco)
 	}
 }
 
-static void de_crc16ccitt_continue(struct de_crcobj *crco, const de_byte *buf, i64 buf_len)
+static void de_crc16ccitt_continue(struct de_crcobj *crco, const u8 *buf, i64 buf_len)
 {
 	i64 k;
 
 	if(!crco->table16) return;
 	for(k=0; k<buf_len; k++) {
 		crco->val = ((crco->val<<8)&0xffff) ^
-			(de_uint32)crco->table16[((crco->val>>8) ^ (de_uint32)buf[k]) & 0xff];
+			(u32)crco->table16[((crco->val>>8) ^ (u32)buf[k]) & 0xff];
 	}
 }
 
@@ -1330,9 +1330,9 @@ static void de_crc16ccitt_continue(struct de_crcobj *crco, const de_byte *buf, i
 // both these names are more ambiguous than I'd like, so I'm calling it "ARC".
 static void de_crc16arc_init(struct de_crcobj *crco)
 {
-	de_uint32 i, k;
+	u32 i, k;
 
-	crco->table16 = de_malloc(crco->c, 256*sizeof(de_uint16));
+	crco->table16 = de_malloc(crco->c, 256*sizeof(u16));
 	for(i=0; i<256; i++) {
 		crco->table16[i] = i;
 		for(k=0; k<8; k++)
@@ -1340,14 +1340,14 @@ static void de_crc16arc_init(struct de_crcobj *crco)
 	}
 }
 
-static void de_crc16arc_continue(struct de_crcobj *crco, const de_byte *buf, i64 buf_len)
+static void de_crc16arc_continue(struct de_crcobj *crco, const u8 *buf, i64 buf_len)
 {
 	i64 k;
 
 	if(!crco->table16) return;
 	for(k=0; k<buf_len; k++) {
 		crco->val = ((crco->val>>8) ^
-			(de_uint32)crco->table16[(crco->val ^ buf[k]) & 0xff]);
+			(u32)crco->table16[(crco->val ^ buf[k]) & 0xff]);
 	}
 }
 
@@ -1394,12 +1394,12 @@ void de_crcobj_reset(struct de_crcobj *crco)
 	}
 }
 
-de_uint32 de_crcobj_getval(struct de_crcobj *crco)
+u32 de_crcobj_getval(struct de_crcobj *crco)
 {
 	return crco->val;
 }
 
-void de_crcobj_addbuf(struct de_crcobj *crco, const de_byte *buf, i64 buf_len)
+void de_crcobj_addbuf(struct de_crcobj *crco, const u8 *buf, i64 buf_len)
 {
 	switch(crco->crctype) {
 	case DE_CRCOBJ_CRC32_IEEE:
@@ -1414,12 +1414,12 @@ void de_crcobj_addbuf(struct de_crcobj *crco, const de_byte *buf, i64 buf_len)
 	}
 }
 
-void de_crcobj_addbyte(struct de_crcobj *crco, de_byte b)
+void de_crcobj_addbyte(struct de_crcobj *crco, u8 b)
 {
 	de_crcobj_addbuf(crco, &b, 1);
 }
 
-static int addslice_cbfn(deark *c, void *userdata, const de_byte *buf,
+static int addslice_cbfn(deark *c, void *userdata, const u8 *buf,
 	i64 buf_len)
 {
 	de_crcobj_addbuf((struct de_crcobj*)userdata, buf, buf_len);

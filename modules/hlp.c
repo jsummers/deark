@@ -467,7 +467,7 @@ static void do_bplustree(deark *c, lctx *d, i64 pos1, i64 len,
 	i64 pos = pos1;
 	i64 n;
 	int saved_indent_level;
-	de_byte *page_seen = NULL;
+	u8 *page_seen = NULL;
 
 	if(!is_internaldir) return;
 

@@ -9,7 +9,7 @@
 DE_DECLARE_MODULE(de_module_pkfont);
 
 struct page_ctx {
-	de_int32 cc;
+	i32 cc;
 	int w, h;
 	i64 tfm;
 	i64 dm;
@@ -57,9 +57,9 @@ static i64 do_getui24be(dbuf *f, i64 pos)
 	return dbuf_getint_ext(f, pos, 3, 0, 0);
 }
 
-static de_byte get_nybble(dbuf *f, i64 abs_byte_pos, i64 nybble_offs)
+static u8 get_nybble(dbuf *f, i64 abs_byte_pos, i64 nybble_offs)
 {
-	de_byte b;
+	u8 b;
 	b = dbuf_getbyte(f, abs_byte_pos + nybble_offs/2);
 	if(nybble_offs%2) {
 		return b&0x0f;
@@ -70,7 +70,7 @@ static de_byte get_nybble(dbuf *f, i64 abs_byte_pos, i64 nybble_offs)
 static int get_packed_int(dbuf *f, i64 raster_pos, i64 *nybble_pos,
 	i64 initial_zero_count, i64 *result)
 {
-	de_byte v = 0;
+	u8 v = 0;
 	i64 zero_count = initial_zero_count;
 	i64 val;
 	i64 i;
@@ -140,7 +140,7 @@ static void do_read_raster(deark *c, lctx *d, struct page_ctx *pg)
 {
 	i64 char_idx;
 	struct de_bitmap_font_char *ch;
-	de_byte v, v1;
+	u8 v, v1;
 	i64 nybble_pos;
 	i64 expected_num_pixels;
 	i64 j;
@@ -190,7 +190,7 @@ static void do_read_raster(deark *c, lctx *d, struct page_ctx *pg)
 	ch->codepoint_nonunicode = pg->cc;
 
 	if(pg->dyn_f==14) {
-		de_byte *srcbitmap;
+		u8 *srcbitmap;
 		i64 srcbitmap_size;
 
 		srcbitmap_size = (pg->w*pg->h+7)/8;
@@ -305,8 +305,8 @@ done:
 
 static int do_char_descr(deark *c, lctx *d, i64 pos, i64 *bytesused)
 {
-	de_byte flagbyte;
-	de_byte lsb3;
+	u8 flagbyte;
+	u8 lsb3;
 #define CHAR_PREAMBLE_FORMAT_SHORT      1
 #define CHAR_PREAMBLE_FORMAT_EXT_SHORT  2
 #define CHAR_PREAMBLE_FORMAT_LONG       3
@@ -346,7 +346,7 @@ static int do_char_descr(deark *c, lctx *d, i64 pos, i64 *bytesused)
 	if(char_preamble_format==CHAR_PREAMBLE_FORMAT_SHORT) {
 		pl = (i64)de_getbyte(pos+1);
 		pl |= (flagbyte&0x03)<<8;
-		pg->cc = (de_int32)de_getbyte(pos+2);
+		pg->cc = (i32)de_getbyte(pos+2);
 		tfm_offs = 3;
 		pg->tfm = do_getui24be(c->infile, pos+tfm_offs);
 		pg->dm = (i64)de_getbyte(pos+6);
@@ -359,7 +359,7 @@ static int do_char_descr(deark *c, lctx *d, i64 pos, i64 *bytesused)
 	else if(char_preamble_format==CHAR_PREAMBLE_FORMAT_EXT_SHORT) {
 		pl = de_getui16be(pos+1);
 		pl |= (flagbyte&0x03)<<16;
-		pg->cc = (de_int32)de_getbyte(pos+3);
+		pg->cc = (i32)de_getbyte(pos+3);
 		tfm_offs = 4;
 		pg->tfm = do_getui24be(c->infile, pos+tfm_offs);
 		pg->dm = de_getui16be(pos+7);
@@ -390,7 +390,7 @@ done:
 	return retval;
 }
 
-static const char *get_flagbyte_name(de_byte flagbyte)
+static const char *get_flagbyte_name(u8 flagbyte)
 {
 	if(flagbyte<240) return "character descriptor";
 	switch(flagbyte) {
@@ -443,7 +443,7 @@ static void de_run_pkfont(deark *c, de_module_params *mparams)
 	i64 pos;
 	i64 bytesused;
 	i64 i;
-	de_byte flagbyte;
+	u8 flagbyte;
 	i64 chars_in_file = 0;
 
 	d = de_malloc(c, sizeof(lctx));

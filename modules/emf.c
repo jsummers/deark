@@ -21,7 +21,7 @@ typedef struct localctx_struct {
 } lctx;
 
 struct decoder_params {
-	de_uint32 rectype;
+	u32 rectype;
 	i64 recpos;
 	i64 recsize_bytes;
 	i64 dpos;
@@ -32,21 +32,21 @@ struct decoder_params {
 typedef int (*record_decoder_fn)(deark *c, lctx *d, struct decoder_params *dp);
 
 struct emf_func_info {
-	de_uint32 rectype;
+	u32 rectype;
 	const char *name;
 	record_decoder_fn fn;
 };
 
 struct emfplus_rec_info {
-	de_uint32 rectype;
+	u32 rectype;
 	const char *name;
 	void *reserved1;
 };
 
 // Note: This is duplicated in wmf.c
-static de_uint32 colorref_to_color(de_uint32 colorref)
+static u32 colorref_to_color(u32 colorref)
 {
-	de_uint32 r,g,b;
+	u32 r,g,b;
 	r = DE_COLOR_B(colorref);
 	g = DE_COLOR_G(colorref);
 	b = DE_COLOR_R(colorref);
@@ -54,9 +54,9 @@ static de_uint32 colorref_to_color(de_uint32 colorref)
 }
 
 // Note: This is duplicated in wmf.c
-static void do_dbg_colorref(deark *c, lctx *d, de_uint32 colorref)
+static void do_dbg_colorref(deark *c, lctx *d, u32 colorref)
 {
-	de_uint32 clr;
+	u32 clr;
 	char csamp[16];
 
 	clr = colorref_to_color(colorref);
@@ -125,7 +125,7 @@ static void do_identify_and_extract_compressed_bitmap(deark *c, lctx *d,
 	i64 pos, i64 len)
 {
 	const char *ext = NULL;
-	de_byte buf[4];
+	u8 buf[4];
 	i64 nbytes_to_extract;
 	i64 foundpos;
 
@@ -266,10 +266,10 @@ static void do_emfplus_object_image(deark *c, lctx *d, i64 pos1, i64 len)
 // pos is the beginning of the 'ObjectData' field
 // len is the DataSize field.
 static void do_emfplus_object(deark *c, lctx *d, i64 pos, i64 len,
-	de_uint32 flags)
+	u32 flags)
 {
-	de_uint32 object_id;
-	de_uint32 object_type;
+	u32 object_id;
+	u32 object_type;
 	const char *name;
 	static const char *names[10] = { "Invalid", "Brush", "Pen", "Path",
 		"Region", "Image", "Font", "StringFormat", "ImageAttributes",
@@ -376,8 +376,8 @@ static const struct emfplus_rec_info emfplus_rec_info_arr[] = {
 static void do_one_emfplus_record(deark *c, lctx *d, i64 pos, i64 len,
 	i64 *bytes_consumed, int *continuation_flag)
 {
-	de_uint32 rectype;
-	de_uint32 flags;
+	u32 rectype;
+	u32 flags;
 	i64 size, datasize;
 	i64 payload_pos;
 	const struct emfplus_rec_info *epinfo = NULL;
@@ -390,8 +390,8 @@ static void do_one_emfplus_record(deark *c, lctx *d, i64 pos, i64 len,
 		return;
 	}
 
-	rectype = (de_uint32)de_getui16le(pos);
-	flags = (de_uint32)de_getui16le(pos+2);
+	rectype = (u32)de_getui16le(pos);
+	flags = (u32)de_getui16le(pos+2);
 	size = de_getui32le(pos+4);
 
 	is_continued = (rectype==0x4008) && (flags&0x8000);
@@ -473,9 +473,9 @@ static void do_comment_emfplus(deark *c, lctx *d, i64 pos1, i64 len)
 // Series of EMF+ records (from a single EMF comment)
 static void do_comment_public(deark *c, lctx *d, i64 pos1, i64 len)
 {
-	de_uint32 ty;
+	u32 ty;
 	const char *name;
-	ty = (de_uint32)de_getui32le(pos1);
+	ty = (u32)de_getui32le(pos1);
 	switch(ty) {
 	case 0x80000001U: name = "WINDOWS_METAFILE"; break;
 	case 0x00000002U: name = "BEGINGROUP"; break;
@@ -563,7 +563,7 @@ static void extract_dib(deark *c, lctx *d, i64 bmi_pos, i64 bmi_len,
 		dbuf_copy(c->infile, bmi_pos, bmi_len, outf);
 	}
 	else {
-		de_byte *tmp_bmi;
+		u8 *tmp_bmi;
 
 		// Make a copy of the BITMAPINFO data, for us to modify.
 		tmp_bmi = de_malloc(c, bmi_len);
@@ -620,7 +620,7 @@ static void read_LogPen(deark *c, lctx *d, i64 pos)
 {
 	unsigned int style;
 	i64 n;
-	de_uint32 colorref;
+	u32 colorref;
 
 	style = (unsigned int)de_getui32le_p(&pos);
 	de_dbg(c, "style: 0x%08x", style);
@@ -630,7 +630,7 @@ static void read_LogPen(deark *c, lctx *d, i64 pos)
 
 	pos += 4; // <PointL>.y = unused
 
-	colorref = (de_uint32)de_getui32le_p(&pos);
+	colorref = (u32)de_getui32le_p(&pos);
 	do_dbg_colorref(c, d, colorref);
 }
 
@@ -647,12 +647,12 @@ static int handler_CREATEPEN(deark *c, lctx *d, struct decoder_params *dp)
 static void read_LogBrushEx(deark *c, lctx *d, i64 pos)
 {
 	unsigned int style;
-	de_uint32 colorref;
+	u32 colorref;
 
 	style = (unsigned int)de_getui32le_p(&pos);
 	de_dbg(c, "style: 0x%08x", style);
 
-	colorref = (de_uint32)de_getui32le_p(&pos);
+	colorref = (u32)de_getui32le_p(&pos);
 	do_dbg_colorref(c, d, colorref);
 
 	// TODO: BrushHatch
@@ -670,8 +670,8 @@ static int handler_CREATEBRUSHINDIRECT(deark *c, lctx *d, struct decoder_params 
 
 static int handler_colorref(deark *c, lctx *d, struct decoder_params *dp)
 {
-	de_uint32 colorref;
-	colorref = (de_uint32)de_getui32le(dp->dpos);
+	u32 colorref;
+	colorref = (u32)de_getui32le(dp->dpos);
 	do_dbg_colorref(c, d, colorref);
 	return 1;
 }
@@ -826,7 +826,7 @@ static void do_LogFont(deark *c, lctx *d, struct decoder_params *dp, i64 pos1, i
 	de_ucstring *facename = NULL;
 	i64 pos = pos1;
 	i64 n, n2;
-	de_byte b;
+	u8 b;
 
 	if(len<92) goto done;
 
@@ -1005,7 +1005,7 @@ static const struct emf_func_info emf_func_info_arr[] = {
 	{ 0x7a, "CREATECOLORSPACEW", handler_object_index } // TODO: A better handler
 };
 
-static const struct emf_func_info *find_emf_func_info(de_uint32 rectype)
+static const struct emf_func_info *find_emf_func_info(u32 rectype)
 {
 	size_t i;
 
@@ -1031,7 +1031,7 @@ static int do_emf_record(deark *c, lctx *d, i64 recnum, i64 recpos,
 	dp.dlen = recsize_bytes-8;
 	if(dp.dlen<0) dp.dlen=0;
 
-	dp.rectype = (de_uint32)de_getui32le(recpos);
+	dp.rectype = (u32)de_getui32le(recpos);
 
 	fnci = find_emf_func_info(dp.rectype);
 

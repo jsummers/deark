@@ -31,36 +31,36 @@ struct fpxr_data_struct {
 // longer does that, so the structs could be merged.
 struct file_ctx {
 	int image_count; // Not really used anymore
-	de_byte look_for_multiple_streams;
-	de_byte has_mpf_seg;
+	u8 look_for_multiple_streams;
+	u8 has_mpf_seg;
 };
 
 // Data associated with a JPEG stream (SOI through EOI).
 // It is possible for there to be multiple streams in a file.
 typedef struct streamctx_struct {
 	struct file_ctx *fctx;
-	de_byte is_jpegls;
+	u8 is_jpegls;
 
-	de_byte has_jfif_seg, has_jfif_thumb, has_jfxx_seg;
-	de_byte has_exif_seg, has_exif_gps, has_spiff_seg, has_mpf_seg;
-	de_byte has_psd, has_iptc, has_xmp, has_xmp_ext, has_iccprofile, has_flashpix;
-	de_byte is_baseline, is_progressive, is_lossless, is_arithmetic, is_hierarchical;
-	de_byte is_jpeghdr, is_jpegxt, is_mpo, is_jps;
-	de_byte has_restart_markers;
-	de_byte precision;
-	de_byte has_adobeapp14;
-	de_byte color_transform; // valid if(has_adobeapp14)
-	de_byte has_revcolorxform;
-	de_byte exif_cosited;
+	u8 has_jfif_seg, has_jfif_thumb, has_jfxx_seg;
+	u8 has_exif_seg, has_exif_gps, has_spiff_seg, has_mpf_seg;
+	u8 has_psd, has_iptc, has_xmp, has_xmp_ext, has_iccprofile, has_flashpix;
+	u8 is_baseline, is_progressive, is_lossless, is_arithmetic, is_hierarchical;
+	u8 is_jpeghdr, is_jpegxt, is_mpo, is_jps;
+	u8 has_restart_markers;
+	u8 precision;
+	u8 has_adobeapp14;
+	u8 color_transform; // valid if(has_adobeapp14)
+	u8 has_revcolorxform;
+	u8 exif_cosited;
 	int scan_count;
 
-	de_byte found_soi;
-	de_byte found_sof;
+	u8 found_soi;
+	u8 found_sof;
 	i64 ncomp;
 
-	de_byte jfif_ver_h, jfif_ver_l; // valid if(has_jfif_seg)
-	de_uint32 exif_orientation; // valid if != 0, and(has_exif_seg)
-	de_uint32 exif_version_as_uint32; // valid if != 0, and(has_exif_seg)
+	u8 jfif_ver_h, jfif_ver_l; // valid if(has_jfif_seg)
+	u32 exif_orientation; // valid if != 0, and(has_exif_seg)
+	u32 exif_version_as_uint32; // valid if != 0, and(has_exif_seg)
 	dbuf *iccprofile_file;
 	dbuf *hdr_residual_file;
 
@@ -68,7 +68,7 @@ typedef struct streamctx_struct {
 	int extxmp_warned_flag; // Have we warned about multiple extxmp digests?
 	int extxmp_error_flag;
 	dbuf *extxmp_membuf;
-	de_byte extxmp_digest[32];
+	u8 extxmp_digest[32];
 	i64 extxmp_total_len;
 
 	int is_subsampled;
@@ -88,7 +88,7 @@ typedef void (*handler_fn_type)(deark *c, lctx *d,
 #define FLAG_IS_SOF        0x0200
 
 struct marker_info {
-	de_byte seg_type;
+	u8 seg_type;
 	unsigned int flags;
 	char shortname[12];
 	char longname[80];
@@ -97,7 +97,7 @@ struct marker_info {
 
 // Static info about markers/segments.
 struct marker_info1 {
-	de_byte seg_type;
+	u8 seg_type;
 	unsigned int flags;
 	const char *shortname;
 	const char *longname;
@@ -106,7 +106,7 @@ struct marker_info1 {
 
 static void do_icc_profile_segment(deark *c, lctx *d, i64 pos, i64 data_size)
 {
-	de_byte b1, b2;
+	u8 b1, b2;
 
 	if(data_size<2) return; // bogus data
 	b1 = de_getbyte(pos);
@@ -197,13 +197,13 @@ static void extract_unc_jfif_thumbnail(deark *c, lctx *d,
 	i64 i, j;
 	i64 pos = pos1;
 	de_bitmap *img = NULL;
-	de_uint32 clr;
+	u32 clr;
 	i64 rowspan;
 
 	img = de_bitmap_create(c, w, h, 3);
 
 	if(has_pal) {
-		de_uint32 pal[256];
+		u32 pal[256];
 		de_read_palette_rgb(c->infile, pos, 256, 3, pal, 256, 0);
 		pos += 768;
 		de_convert_image_paletted(c->infile, pos, 8, w, pal, img, 0);
@@ -226,7 +226,7 @@ static void extract_unc_jfif_thumbnail(deark *c, lctx *d,
 static void do_jfif_segment(deark *c, lctx *d,
 	i64 pos, i64 data_size)
 {
-	de_byte units;
+	u8 units;
 	const char *units_name;
 	i64 xdens, ydens;
 	i64 tn_w, tn_h;
@@ -261,7 +261,7 @@ static void do_jfif_segment(deark *c, lctx *d,
 static void do_jfxx_segment(deark *c, lctx *d,
 	i64 pos, i64 data_size)
 {
-	de_byte t;
+	u8 t;
 
 	d->has_jfxx_seg = 1;
 	de_dbg(c, "JFXX segment at %d datasize=%d", (int)pos, (int)data_size);
@@ -308,9 +308,9 @@ static void do_adobeapp14_segment(deark *c, lctx *d,
 static void do_exif_segment(deark *c, lctx *d,
 	i64 pos, i64 data_size)
 {
-	de_uint32 exifflags = 0;
-	de_uint32 exiforientation = 0;
-	de_uint32 exifversion = 0;
+	u32 exifflags = 0;
+	u32 exiforientation = 0;
+	u32 exifversion = 0;
 
 	if(data_size<8) return;
 	// Note that Exif has an additional padding byte after the APP ID NUL terminator.
@@ -380,7 +380,7 @@ static void do_jps_segment(deark *c, lctx *d, i64 pos1, i64 len)
 {
 	i64 pos = pos1;
 	i64 blk_len;
-	de_uint32 st_descr;
+	u32 st_descr;
 	de_ucstring *flags_str = NULL;
 	de_ucstring *comment = NULL;
 	unsigned int mtype;
@@ -389,7 +389,7 @@ static void do_jps_segment(deark *c, lctx *d, i64 pos1, i64 len)
 	if(len<8) goto done;
 	blk_len = de_getui16be_p(&pos);
 	if(blk_len<4) goto done;
-	st_descr = (de_uint32)de_getui32be(pos);
+	st_descr = (u32)de_getui32be(pos);
 
 	flags_str = ucstring_create(c);
 	mtype = (unsigned int)(st_descr&0x000000ff);
@@ -452,7 +452,7 @@ static void do_xmp_extension_segment(deark *c, lctx *d,
 {
 	i64 thisseg_full_extxmp_len;
 	i64 segment_offset;
-	de_byte thisseg_digest_raw[32];
+	u8 thisseg_digest_raw[32];
 	de_ucstring *digest_str = NULL;
 	i64 pos = pos1;
 	i64 dlen;
@@ -561,7 +561,7 @@ static void do_fpxr_fujifilm_preview(deark *c, lctx *d, struct fpxr_entity_struc
 		NULL, DE_CREATEFLAG_IS_AUX);
 }
 
-static int ucstring_contains_char(de_ucstring *s, de_int32 ch)
+static int ucstring_contains_char(de_ucstring *s, i32 ch)
 {
 	i64 k;
 
@@ -689,8 +689,8 @@ static void do_fpxr_segment(deark *c, lctx *d, i64 pos1, i64 len)
 	size_t k;
 	i64 nbytesleft;
 	int saved_indent_level;
-	de_byte ver;
-	de_byte segtype;
+	u8 ver;
+	u8 segtype;
 	const char *name;
 
 	de_dbg_indent_save(c, &saved_indent_level);
@@ -721,8 +721,8 @@ static void do_fpxr_segment(deark *c, lctx *d, i64 pos1, i64 len)
 			i64 bytes_consumed = 0;
 			struct fpxr_entity_struct *fe;
 			i64 esize;
-			de_byte defval;
-			de_byte clsid_buf[16];
+			u8 defval;
+			u8 clsid_buf[16];
 			char clsid_string[50];
 
 			if(pos>=pos1+len) goto done;
@@ -808,12 +808,12 @@ done:
 static void do_ducky_segment(deark *c, lctx *d, i64 pos1, i64 len)
 {
 	i64 pos = pos1;
-	de_uint32 blktype;
+	u32 blktype;
 	i64 blklen;
 	i64 n;
 
 	while(1) {
-		blktype = (de_uint32)de_getui16be_p(&pos);
+		blktype = (u32)de_getui16be_p(&pos);
 		if(blktype==0) break;
 		if(pos+2 > pos1+len) break;
 		blklen = de_getui16be_p(&pos);
@@ -904,7 +904,7 @@ struct app_id_info_struct {
 #define MAX_APP_ID_LEN 80
 struct app_id_decode_struct {
 	// In:
-	de_byte raw_bytes[MAX_APP_ID_LEN];
+	u8 raw_bytes[MAX_APP_ID_LEN];
 	i64 nraw_bytes;
 
 	// Out:
@@ -945,7 +945,7 @@ static void detect_app_seg_type(deark *c, lctx *d, const struct marker_info *mi,
 {
 	i64 sig_size = 0;
 	i64 payload_size;
-	de_byte seg_type = mi->seg_type;
+	u8 seg_type = mi->seg_type;
 	struct app_id_decode_struct ad;
 
 	de_zeromem(&ad, sizeof(struct app_id_decode_struct));
@@ -966,7 +966,7 @@ static void detect_app_seg_type(deark *c, lctx *d, const struct marker_info *mi,
 
 	if(ad.has_app_id) {
 		app_id_info->app_id_str = ucstring_create(c);
-		ucstring_append_bytes(app_id_info->app_id_str, (const de_byte*)ad.app_id_orig, ad.app_id_orig_strlen, 0,
+		ucstring_append_bytes(app_id_info->app_id_str, (const u8*)ad.app_id_orig, ad.app_id_orig_strlen, 0,
 			DE_ENCODING_ASCII);
 	}
 
@@ -980,7 +980,7 @@ static void detect_app_seg_type(deark *c, lctx *d, const struct marker_info *mi,
 		de_memcpy(ad2.raw_bytes, ad.raw_bytes, (size_t)ad.nraw_bytes);
 		ad2.nraw_bytes = ad.nraw_bytes;
 		// Try to patch the app ID, decode it, and see what happens.
-		de_memcpy(ad2.raw_bytes, (const de_byte*)"http", 4);
+		de_memcpy(ad2.raw_bytes, (const u8*)"http", 4);
 
 		decode_app_id(&ad2);
 
@@ -1201,7 +1201,7 @@ done:
 static void handler_jpg8(deark *c, lctx *d,
 	const struct marker_info *mi, i64 seg_data_pos, i64 seg_data_size)
 {
-	de_byte id;
+	u8 id;
 	const char *name = "?";
 
 	if(seg_data_size<1) return;
@@ -1213,7 +1213,7 @@ static void handler_jpg8(deark *c, lctx *d,
 	de_dbg(c, "id: 0x%02x (%s)", (unsigned int)id, name);
 }
 
-static void declare_jpeg_fmt(deark *c, lctx *d, de_byte seg_type)
+static void declare_jpeg_fmt(deark *c, lctx *d, u8 seg_type)
 {
 	const char *name = "JPEG (other)";
 
@@ -1236,13 +1236,13 @@ static void handler_sof(deark *c, lctx *d,
 	const struct marker_info *mi, i64 pos, i64 data_size)
 {
 	i64 w, h;
-	de_byte b;
+	u8 b;
 	i64 i;
 	const char *attr_lossy = "DCT";
 	const char *attr_cmpr = "huffman";
 	const char *attr_progr = "non-progr.";
 	const char *attr_hier = "non-hier.";
-	de_byte seg_type = mi->seg_type;
+	u8 seg_type = mi->seg_type;
 
 	if(data_size<6) return;
 
@@ -1282,9 +1282,9 @@ static void handler_sof(deark *c, lctx *d,
 	// per-component data
 	if(data_size<6+3*d->ncomp) goto done;
 	for(i=0; i<d->ncomp; i++) {
-		de_byte comp_id;
+		u8 comp_id;
 		i64 sf1, sf2;
-		de_byte qtid;
+		u8 qtid;
 		comp_id = de_getbyte(pos+6+3*i+0);
 		b = de_getbyte(pos+6+3*i+1);
 		sf1 = (i64)(b>>4);
@@ -1310,7 +1310,7 @@ static void handler_dri(deark *c, lctx *d,
 	if(ri!=0) d->has_restart_markers = 1;
 }
 
-static void dump_htable_data(deark *c, lctx *d, const de_byte *codecounts)
+static void dump_htable_data(deark *c, lctx *d, const u8 *codecounts)
 {
 	i64 k;
 	de_ucstring *s = NULL;
@@ -1335,12 +1335,12 @@ static void handler_dht(deark *c, lctx *d,
 	const struct marker_info *mi, i64 pos1, i64 data_size)
 {
 	i64 pos = pos1;
-	de_byte b;
-	de_byte table_class;
-	de_byte table_id;
+	u8 b;
+	u8 table_class;
+	u8 table_id;
 	i64 num_huff_codes;
 	i64 k;
-	de_byte codecounts[16];
+	u8 codecounts[16];
 
 	while(1) {
 		if(pos >= pos1+data_size) goto done;
@@ -1373,10 +1373,10 @@ static void handler_dac(deark *c, lctx *d,
 {
 	i64 ntables;
 	i64 i;
-	de_byte b;
-	de_byte cs;
-	de_byte table_class;
-	de_byte table_id;
+	u8 b;
+	u8 cs;
+	u8 table_class;
+	u8 table_id;
 
 	ntables = data_size/2;
 	for(i=0; i<ntables; i++) {
@@ -1392,12 +1392,12 @@ static void handler_dac(deark *c, lctx *d,
 	}
 }
 
-static void dump_qtable_data(deark *c, lctx *d, i64 pos, de_byte precision_code)
+static void dump_qtable_data(deark *c, lctx *d, i64 pos, u8 precision_code)
 {
-	de_byte qbuf[64];
+	u8 qbuf[64];
 	i64 k;
 	de_ucstring *s = NULL;
-	static const de_byte zigzag[64] = {
+	static const u8 zigzag[64] = {
 		 0, 1, 5, 6,14,15,27,28,
 		 2, 4, 7,13,16,26,29,42,
 		 3, 8,12,17,25,30,41,43,
@@ -1428,9 +1428,9 @@ static void handler_dqt(deark *c, lctx *d,
 	const struct marker_info *mi, i64 pos1, i64 data_size)
 {
 	i64 pos = pos1;
-	de_byte b;
-	de_byte precision_code;
-	de_byte table_id;
+	u8 b;
+	u8 precision_code;
+	u8 table_id;
 	i64 qsize;
 	const char *s;
 
@@ -1528,10 +1528,10 @@ static void handler_sos(deark *c, lctx *d,
 {
 	i64 ncomp;
 	i64 i;
-	de_byte cs;
-	de_byte b;
-	de_byte ss, se, ax;
-	de_byte actable, dctable;
+	u8 cs;
+	u8 b;
+	u8 ss, se, ax;
+	u8 actable, dctable;
 
 	if(data_size<1) goto done;
 
@@ -1582,7 +1582,7 @@ static const struct marker_info1 marker_info1_arr[] = {
 };
 
 // Caller allocates mi
-static int get_marker_info(deark *c, lctx *d, de_byte seg_type,
+static int get_marker_info(deark *c, lctx *d, u8 seg_type,
 	struct marker_info *mi)
 {
 	i64 k;
@@ -1672,7 +1672,7 @@ static int do_read_scan_data(deark *c, lctx *d,
 	i64 pos1, i64 *bytes_consumed)
 {
 	i64 pos = pos1;
-	de_byte b0, b1;
+	u8 b0, b1;
 	struct marker_info mi;
 
 	*bytes_consumed = c->infile->len - pos1; // default
@@ -1720,12 +1720,12 @@ done:
 }
 
 // Caller supplies s[5].
-static void exif_version_to_string(de_uint32 v, char *s)
+static void exif_version_to_string(u32 v, char *s)
 {
-	s[0] = de_byte_to_printable_char((de_byte)((v>>24)&0xff));
-	s[1] = de_byte_to_printable_char((de_byte)((v>>16)&0xff));
-	s[2] = de_byte_to_printable_char((de_byte)((v>>8)&0xff));
-	s[3] = de_byte_to_printable_char((de_byte)(v&0xff));
+	s[0] = de_byte_to_printable_char((u8)((v>>24)&0xff));
+	s[1] = de_byte_to_printable_char((u8)((v>>16)&0xff));
+	s[2] = de_byte_to_printable_char((u8)((v>>8)&0xff));
+	s[3] = de_byte_to_printable_char((u8)(v&0xff));
 	s[4] = '\0';
 }
 
@@ -1827,10 +1827,10 @@ static void do_post_sof_stuff(deark *c, lctx *d)
 // May set fctx->has_mpf_seg.
 static int do_jpeg_page(deark *c, struct file_ctx *fctx, i64 pos1, i64 *bytes_consumed)
 {
-	de_byte b;
+	u8 b;
 	i64 pos = pos1;
 	i64 seg_size;
-	de_byte seg_type;
+	u8 seg_type;
 	int found_marker;
 	struct marker_info mi;
 	i64 scan_byte_count;
@@ -1983,7 +1983,7 @@ static void do_jpeg_internal(deark *c, struct file_ctx *fctx)
 
 	nbytes_to_scan = extra_bytes_at_eof;
 	if(nbytes_to_scan>512) nbytes_to_scan=512;
-	if(dbuf_search(c->infile, (const de_byte*)"\xff\xd8\xff", 3, pos,
+	if(dbuf_search(c->infile, (const u8*)"\xff\xd8\xff", 3, pos,
 		nbytes_to_scan, &foundpos))
 	{
 		de_msg(c, "Note: This file might contain multiple JPEG images. "
@@ -2019,12 +2019,12 @@ static void de_run_jpeg(deark *c, de_module_params *mparams)
 
 typedef struct scanctx_struct {
 	i64 len;
-	de_byte is_jpegls;
+	u8 is_jpegls;
 } scanctx;
 
 static int detect_jpeg_len(deark *c, scanctx *d, i64 pos1, i64 len)
 {
-	de_byte b0, b1;
+	u8 b0, b1;
 	i64 pos;
 	i64 seg_size;
 	int in_scan = 0;
@@ -2114,7 +2114,7 @@ static void de_run_jpegscan(deark *c, de_module_params *mparams)
 	while(1) {
 		if(pos >= c->infile->len) break;
 
-		ret = dbuf_search(c->infile, (const de_byte*)"\xff\xd8\xff", 3,
+		ret = dbuf_search(c->infile, (const u8*)"\xff\xd8\xff", 3,
 			pos, c->infile->len-pos, &foundpos);
 		if(!ret) break; // No more JPEGs in file.
 

@@ -130,7 +130,7 @@ static void initialize_output_stream(struct cmdctx *cc)
 }
 
 static void our_specialmsgfn(deark *c, unsigned int flags, unsigned int code,
-	de_uint32 param1)
+	u32 param1)
 {
 	struct cmdctx *cc;
 

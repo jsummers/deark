@@ -14,10 +14,10 @@ struct member_data {
 #define GZIPFLAG_FEXTRA   0x04
 #define GZIPFLAG_FNAME    0x08
 #define GZIPFLAG_FCOMMENT 0x10
-	de_byte flags;
-	de_byte cmpr_code;
-	de_uint32 crc16_reported;
-	de_uint32 crc32_reported;
+	u8 flags;
+	u8 cmpr_code;
+	u32 crc16_reported;
+	u32 crc32_reported;
 	i64 isize;
 	struct de_timestamp mod_time_ts;
 
@@ -29,7 +29,7 @@ typedef struct lctx_struct {
 	struct de_crcobj *crco;
 } lctx;
 
-static const char *get_os_name(de_byte n)
+static const char *get_os_name(u8 n)
 {
 	const char *names[14] = { "FAT", "Amiga", "VMS", "Unix",
 		"VM/CMS", "Atari", "HPFS", "Mac", "Z-System", "CP/M",
@@ -42,7 +42,7 @@ static const char *get_os_name(de_byte n)
 	return name;
 }
 
-static void our_writecallback(dbuf *f, const de_byte *buf, i64 buf_len)
+static void our_writecallback(dbuf *f, const u8 *buf, i64 buf_len)
 {
 	struct member_data *md = (struct member_data *)f->userdata;
 	de_crcobj_addbuf(md->crco, buf, buf_len);
@@ -50,14 +50,14 @@ static void our_writecallback(dbuf *f, const de_byte *buf, i64 buf_len)
 
 static int do_gzip_read_member(deark *c, lctx *d, i64 pos1, i64 *member_size)
 {
-	de_byte b0, b1;
+	u8 b0, b1;
 	i64 pos;
 	i64 n;
 	i64 foundpos;
 	i64 string_len;
 	i64 cmpr_data_len;
 	i64 mod_time_unix;
-	de_uint32 crc_calculated;
+	u32 crc_calculated;
 	de_ucstring *member_name = NULL;
 	int saved_indent_level;
 	int ret;
@@ -145,7 +145,7 @@ static int do_gzip_read_member(deark *c, lctx *d, i64 pos1, i64 *member_size)
 	}
 
 	if(md->flags & GZIPFLAG_FHCRC) {
-		md->crc16_reported = (de_uint32)de_getui16le(pos);
+		md->crc16_reported = (u32)de_getui16le(pos);
 		de_dbg(c, "crc16 (reported): 0x%04x", (unsigned int)md->crc16_reported);
 		pos += 2;
 	}
@@ -189,7 +189,7 @@ static int do_gzip_read_member(deark *c, lctx *d, i64 pos1, i64 *member_size)
 
 	de_dbg(c, "crc32 (calculated): 0x%08x", (unsigned int)crc_calculated);
 
-	md->crc32_reported = (de_uint32)de_getui32le(pos);
+	md->crc32_reported = (u32)de_getui32le(pos);
 	de_dbg(c, "crc32 (reported)  : 0x%08x", (unsigned int)md->crc32_reported);
 	pos += 4;
 
@@ -244,7 +244,7 @@ static void de_run_gzip(deark *c, de_module_params *mparams)
 
 static int de_identify_gzip(deark *c)
 {
-	de_byte buf[3];
+	u8 buf[3];
 
 	de_read(buf, 0, 3);
 	if(buf[0]==0x1f && buf[1]==0x8b) {

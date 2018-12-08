@@ -14,9 +14,9 @@ DE_DECLARE_MODULE(de_module_gif);
 #define DISPOSE_PREVIOUS  3
 
 struct gceinfo {
-	de_byte disposal_method;
-	de_byte trns_color_idx_valid;
-	de_byte trns_color_idx;
+	u8 disposal_method;
+	u8 trns_color_idx_valid;
+	u8 trns_color_idx;
 };
 
 typedef struct localctx_struct {
@@ -28,7 +28,7 @@ typedef struct localctx_struct {
 	i64 screen_w, screen_h;
 	int has_global_color_table;
 	i64 global_color_table_size; // Number of colors stored in the file
-	de_uint32 global_ct[256];
+	u32 global_ct[256];
 
 	de_bitmap *screen_img;
 	struct gceinfo *gce; // The Graphic Control Ext. in effect for the next image
@@ -44,8 +44,8 @@ struct gif_image_data {
 	int interlaced;
 	int has_local_color_table;
 	i64 local_color_table_size;
-	de_uint16 *interlace_map;
-	de_uint32 local_ct[256];
+	u16 *interlace_map;
+	u32 local_ct[256];
 };
 
 static void do_record_pixel(deark *c, lctx *d, struct gif_image_data *gi, unsigned int coloridx,
@@ -54,7 +54,7 @@ static void do_record_pixel(deark *c, lctx *d, struct gif_image_data *gi, unsign
 	i64 pixnum;
 	i64 xi, yi;
 	i64 yi1;
-	de_uint32 clr;
+	u32 clr;
 
 	if(coloridx>255) return;
 
@@ -93,10 +93,10 @@ static void do_record_pixel(deark *c, lctx *d, struct gif_image_data *gi, unsign
 ////////////////////////////////////////////////////////
 
 struct lzw_tableentry {
-	de_uint16 parent; // pointer to previous table entry (if not a root code)
-	de_uint16 length;
-	de_byte firstchar;
-	de_byte lastchar;
+	u16 parent; // pointer to previous table entry (if not a root code)
+	u16 length;
+	u8 firstchar;
+	u8 lastchar;
 };
 
 struct lzwdeccontext {
@@ -135,8 +135,8 @@ static int lzw_init(deark *c, struct lzwdeccontext *lz, unsigned int root_codesi
 	for(i=0; i<lz->num_root_codes; i++) {
 		lz->ct[i].parent = 0;
 		lz->ct[i].length = 1;
-		lz->ct[i].lastchar = (de_byte)i;
-		lz->ct[i].firstchar = (de_byte)i;
+		lz->ct[i].lastchar = (u8)i;
+		lz->ct[i].firstchar = (u8)i;
 	}
 
 	return 1;
@@ -175,7 +175,7 @@ static void lzw_emit_code(deark *c, lctx *d, struct gif_image_data *gi, struct l
 // Add a code to the dictionary.
 // Sets d->last_code_added to the position where it was added.
 // Returns 1 if successful, 2 if table is full, 0 on error.
-static int lzw_add_to_dict(deark *c, struct lzwdeccontext *lz, unsigned int oldcode, de_byte val)
+static int lzw_add_to_dict(deark *c, struct lzwdeccontext *lz, unsigned int oldcode, u8 val)
 {
 	static const unsigned int last_code_of_size[] = {
 		// The first 3 values are unused.
@@ -197,7 +197,7 @@ static int lzw_add_to_dict(deark *c, struct lzwdeccontext *lz, unsigned int oldc
 
 	lz->ct_used++;
 
-	lz->ct[newpos].parent = (de_uint16)oldcode;
+	lz->ct[newpos].parent = (u16)oldcode;
 	lz->ct[newpos].length = lz->ct[oldcode].length + 1;
 	lz->ct[newpos].firstchar = lz->ct[oldcode].firstchar;
 	lz->ct[newpos].lastchar = val;
@@ -274,7 +274,7 @@ static int lzw_process_code(deark *c, lctx *d, struct gif_image_data *gi, struct
 // Any unfinished business is recorded, to be continued the next time
 // this function is called.
 static int lzw_process_bytes(deark *c, lctx *d, struct gif_image_data *gi, struct lzwdeccontext *lz,
-	de_byte *data, i64 data_size)
+	u8 *data, i64 data_size)
 {
 	i64 i;
 	int b;
@@ -325,8 +325,8 @@ static int do_read_header(deark *c, lctx *d, i64 pos)
 static int do_read_screen_descriptor(deark *c, lctx *d, i64 pos)
 {
 	i64 bgcol_index;
-	de_byte packed_fields;
-	de_byte aspect_ratio_code;
+	u8 packed_fields;
+	u8 aspect_ratio_code;
 	unsigned int n;
 	unsigned int global_color_table_size_code;
 
@@ -381,7 +381,7 @@ static int do_read_screen_descriptor(deark *c, lctx *d, i64 pos)
 }
 
 static void do_read_color_table(deark *c, lctx *d, i64 pos, i64 ncolors,
-	de_uint32 *ct)
+	u32 *ct)
 {
 	de_read_palette_rgb(c->infile, pos, ncolors, 3, ct, 256, 0);
 }
@@ -452,8 +452,8 @@ static void discard_current_gce_data(deark *c, lctx *d)
 static void do_graphic_control_extension(deark *c, lctx *d, i64 pos)
 {
 	i64 n;
-	de_byte packed_fields;
-	de_byte user_input_flag;
+	u8 packed_fields;
+	u8 user_input_flag;
 	i64 delay_time_raw;
 	double delay_time;
 	const char *name;
@@ -535,10 +535,10 @@ static void do_comment_extension(deark *c, lctx *d, i64 pos)
 	dbuf_close(f);
 }
 
-static void decode_text_color(deark *c, lctx *d, const char *name, de_byte clr_idx,
-	de_uint32 *pclr)
+static void decode_text_color(deark *c, lctx *d, const char *name, u8 clr_idx,
+	u32 *pclr)
 {
-	de_uint32 clr;
+	u32 clr;
 	const char *alphastr;
 	char csamp[32];
 
@@ -559,13 +559,13 @@ static void decode_text_color(deark *c, lctx *d, const char *name, de_byte clr_i
 		alphastr, csamp);
 }
 
-static void render_plaintext_char(deark *c, lctx *d, de_byte ch,
+static void render_plaintext_char(deark *c, lctx *d, u8 ch,
 	i64 pos_x, i64 pos_y, i64 size_x, i64 size_y,
-	de_uint32 fgclr, de_uint32 bgclr)
+	u32 fgclr, u32 bgclr)
 {
 	i64 i, j;
-	const de_byte *fontdata;
-	const de_byte *chardata;
+	const u8 *fontdata;
+	const u8 *chardata;
 
 	fontdata = de_get_8x8ascii_font_ptr();
 
@@ -576,7 +576,7 @@ static void render_plaintext_char(deark *c, lctx *d, de_byte ch,
 		for(i=0; i<size_x; i++) {
 			unsigned int x2, y2;
 			int isbg;
-			de_uint32 clr;
+			u32 clr;
 
 			// TODO: Better character-rendering facilities.
 			// de_font_paint_character_idx() doesn't quite do what we need.
@@ -608,9 +608,9 @@ static void do_plaintext_extension(deark *c, lctx *d, i64 pos)
 	i64 char_width, char_height;
 	i64 char_count;
 	i64 k;
-	de_uint32 fgclr, bgclr;
-	de_byte fgclr_idx, bgclr_idx;
-	de_byte b;
+	u32 fgclr, bgclr;
+	u8 fgclr_idx, bgclr_idx;
+	u8 b;
 	unsigned char disposal_method = 0;
 	int ok_to_render = 1;
 	de_bitmap *prev_img = NULL;
@@ -727,7 +727,7 @@ done:
 static void do_animation_extension(deark *c, lctx *d, i64 pos)
 {
 	i64 sub_block_len;
-	de_byte sub_block_id;
+	u8 sub_block_id;
 	const char *name;
 
 	sub_block_len = (i64)de_getbyte(pos++);
@@ -817,7 +817,7 @@ static void do_unknown_extension(deark *c, lctx *d, i64 pos)
 static void do_application_extension(deark *c, lctx *d, i64 pos)
 {
 	de_ucstring *s = NULL;
-	de_byte app_id[11];
+	u8 app_id[11];
 	i64 n;
 
 	n = (i64)de_getbyte(pos++);
@@ -859,7 +859,7 @@ static void do_application_extension(deark *c, lctx *d, i64 pos)
 static int do_read_extension(deark *c, lctx *d, i64 pos1, i64 *bytesused)
 {
 	i64 bytesused2 = 0;
-	de_byte ext_type;
+	u8 ext_type;
 	i64 pos;
 	const char *ext_name;
 
@@ -908,7 +908,7 @@ static int do_read_extension(deark *c, lctx *d, i64 pos1, i64 *bytesused)
 // Read 9-byte image header
 static void do_read_image_descriptor(deark *c, lctx *d, struct gif_image_data *gi, i64 pos)
 {
-	de_byte packed_fields;
+	u8 packed_fields;
 	unsigned int local_color_table_size_code;
 
 	de_dbg(c, "image descriptor at %d", (int)pos);
@@ -955,7 +955,7 @@ static void do_create_interlace_map(deark *c, lctx *d, struct gif_image_data *gi
 	i64 rowcount = 0;
 
 	if(!gi->interlaced) return;
-	gi->interlace_map = de_malloc(c, gi->height * sizeof(de_uint16));
+	gi->interlace_map = de_malloc(c, gi->height * sizeof(u16));
 
 	for(pass=1; pass<=4; pass++) {
 		if(pass==1) { startrow=0; rowskip=8; }
@@ -964,7 +964,7 @@ static void do_create_interlace_map(deark *c, lctx *d, struct gif_image_data *gi
 		else { startrow=1; rowskip=2; }
 
 		for(row=startrow; row<gi->height; row+=rowskip) {
-			gi->interlace_map[rowcount] = (de_uint16)row;
+			gi->interlace_map[rowcount] = (u16)row;
 			rowcount++;
 		}
 	}
@@ -983,7 +983,7 @@ static int do_image_internal(deark *c, lctx *d,
 	int saved_indent_level;
 	unsigned int lzw_min_code_size;
 	struct lzwdeccontext *lz = NULL;
-	de_byte buf[256];
+	u8 buf[256];
 
 	de_dbg_indent_save(c, &saved_indent_level);
 	pos = pos1;
@@ -1087,7 +1087,7 @@ static int do_image(deark *c, lctx *d, i64 pos1, i64 *bytesused)
 	int retval = 0;
 	struct gif_image_data *gi = NULL;
 	de_bitmap *prev_img = NULL;
-	de_byte disposal_method = 0;
+	u8 disposal_method = 0;
 
 	de_dbg_indent(c, 1);
 	gi = de_malloc(c, sizeof(struct gif_image_data));
@@ -1154,7 +1154,7 @@ static void de_run_gif(deark *c, de_module_params *mparams)
 	lctx *d = NULL;
 	i64 pos;
 	i64 bytesused = 0;
-	de_byte block_type;
+	u8 block_type;
 	const char *blk_name;
 
 	d = de_malloc(c, sizeof(lctx));
@@ -1251,7 +1251,7 @@ done:
 
 static int de_identify_gif(deark *c)
 {
-	de_byte buf[6];
+	u8 buf[6];
 
 	de_read(buf, 0, 6);
 	if(!de_memcmp(buf, "GIF87a", 6)) return 100;

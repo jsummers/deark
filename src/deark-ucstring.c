@@ -126,7 +126,7 @@ int ucstring_isnonempty(de_ucstring *s)
 	return (s && (s->len > 0));
 }
 
-void ucstring_append_char(de_ucstring *s, de_int32 ch)
+void ucstring_append_char(de_ucstring *s, i32 ch)
 {
 	i64 new_len;
 	i64 new_alloc;
@@ -139,7 +139,7 @@ void ucstring_append_char(de_ucstring *s, de_int32 ch)
 		new_alloc = s->alloc * 2;
 		if(new_alloc<32) new_alloc=32;
 
-		s->str = de_realloc(s->c, s->str, s->alloc * sizeof(de_int32), new_alloc * sizeof(de_int32));
+		s->str = de_realloc(s->c, s->str, s->alloc * sizeof(i32), new_alloc * sizeof(i32));
 		s->alloc = new_alloc;
 	}
 
@@ -147,12 +147,12 @@ void ucstring_append_char(de_ucstring *s, de_int32 ch)
 	s->len++;
 }
 
-void ucstring_append_bytes(de_ucstring *s, const de_byte *buf, i64 buflen,
+void ucstring_append_bytes(de_ucstring *s, const u8 *buf, i64 buflen,
 	unsigned int conv_flags, int encoding)
 {
 	int ret;
 	i64 pos = 0;
-	de_int32 ch;
+	i32 ch;
 	i64 code_len;
 
 	// Adjust buflen if necessary.
@@ -160,7 +160,7 @@ void ucstring_append_bytes(de_ucstring *s, const de_byte *buf, i64 buflen,
 		char *tmpp;
 		tmpp = de_memchr(buf, 0, (size_t)buflen);
 		if(tmpp) {
-			buflen = (const de_byte*)tmpp - buf;
+			buflen = (const u8*)tmpp - buf;
 		}
 	}
 
@@ -168,7 +168,7 @@ void ucstring_append_bytes(de_ucstring *s, const de_byte *buf, i64 buflen,
 		if(encoding==DE_ENCODING_UTF8) {
 			ret = de_utf8_to_uchar(&buf[pos], buflen-pos, &ch, &code_len);
 			if(!ret) { // Invalid UTF8
-				ch = DE_CODEPOINT_BYTE00 + (de_int32)buf[pos];
+				ch = DE_CODEPOINT_BYTE00 + (i32)buf[pos];
 				code_len = 1;
 			}
 		}
@@ -191,7 +191,7 @@ void ucstring_append_bytes(de_ucstring *s, const de_byte *buf, i64 buflen,
 			ch = de_char_to_unicode(s->c, buf[pos], encoding);
 			if(ch==DE_CODEPOINT_INVALID) {
 				// Map unconvertible bytes to a special range.
-				ch = DE_CODEPOINT_BYTE00 + (de_int32)buf[pos];
+				ch = DE_CODEPOINT_BYTE00 + (i32)buf[pos];
 			}
 			code_len = 1;
 		}
@@ -204,7 +204,7 @@ void ucstring_append_sz(de_ucstring *s, const char *sz, int encoding)
 {
 	i64 len;
 	len = (i64)de_strlen(sz);
-	ucstring_append_bytes(s, (const de_byte*)sz, len, 0, encoding);
+	ucstring_append_bytes(s, (const u8*)sz, len, 0, encoding);
 }
 
 static int ucstring_is_ascii(const de_ucstring *s)
@@ -252,7 +252,7 @@ void ucstring_write_as_utf8(deark *c, de_ucstring *s, dbuf *outf, int add_bom_if
 	}
 }
 
-static int is_printable_uchar(de_int32 ch);
+static int is_printable_uchar(i32 ch);
 
 // Note: This function is similar to de_finfo_set_name_from_ucstring().
 // Maybe they should be consolidated.
@@ -261,11 +261,11 @@ void ucstring_to_sz(de_ucstring *s, char *szbuf, size_t szbuf_len, unsigned int 
 {
 	i64 i;
 	i64 szpos = 0;
-	de_int32 ch;
+	i32 ch;
 	i64 charcodelen;
 	static const char *sc1 = "\x01<"; // DE_CODEPOINT_HL in UTF-8
 	static const char *sc2 = ">\x02"; // DE_CODEPOINT_UNHL
-	de_byte charcodebuf[32];
+	u8 charcodebuf[32];
 
 	if(szbuf_len<1) return;
 
@@ -278,7 +278,7 @@ void ucstring_to_sz(de_ucstring *s, char *szbuf, size_t szbuf_len, unsigned int 
 			// TODO: This may not work right if DE_CONVFLAG_MAKE_PRINTABLE is used,
 			// but currently that never happens.
 			if(ch>=0 && ch<=(encoding==DE_ENCODING_LATIN1?255:127))
-				charcodebuf[0] = (de_byte)ch;
+				charcodebuf[0] = (u8)ch;
 			else
 				charcodebuf[0] = '_';
 			charcodelen = 1;
@@ -335,9 +335,9 @@ void ucstring_to_sz(de_ucstring *s, char *szbuf, size_t szbuf_len, unsigned int 
 // and noncharacters.
 // It would be good to also ban incorrectly-used "combining" and other context-
 // sensitive characters, but that's too difficult.
-static int is_printable_uchar(de_int32 ch)
+static int is_printable_uchar(i32 ch)
 {
-	struct pr_range { de_int32 n1, n2; };
+	struct pr_range { i32 n1, n2; };
 	static const struct pr_range ranges[] = {
 		{ 0x0020, 0x007e },
 		{ 0x00a0, 0x200d },

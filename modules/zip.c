@@ -15,7 +15,7 @@ struct dir_entry_data {
 	i64 cmpr_size, uncmpr_size;
 	int cmpr_method;
 	unsigned int bit_flags;
-	de_uint32 crc_reported;
+	u32 crc_reported;
 	struct de_timestamp mod_time;
 	de_ucstring *fname;
 };
@@ -40,7 +40,7 @@ struct member_data {
 struct extra_item_type_info_struct;
 
 struct extra_item_info_struct {
-	de_uint32 id;
+	u32 id;
 	i64 dpos;
 	i64 dlen;
 	const struct extra_item_type_info_struct *eiti;
@@ -208,7 +208,7 @@ done:
 static void ef_extended_timestamp(deark *c, lctx *d, struct extra_item_info_struct *eii)
 {
 	i64 pos = eii->dpos;
-	de_byte flags;
+	u8 flags;
 	i64 endpos;
 	int has_mtime, has_atime, has_ctime;
 	struct de_timestamp timestamp_tmp;
@@ -277,7 +277,7 @@ static void ef_infozip3(deark *c, lctx *d, struct extra_item_info_struct *eii)
 {
 	i64 pos = eii->dpos;
 	i64 uidnum, gidnum;
-	de_byte ver;
+	u8 ver;
 	i64 endpos;
 	i64 sz;
 
@@ -530,8 +530,8 @@ done:
 static void ef_acorn(deark *c, lctx *d, struct extra_item_info_struct *eii)
 {
 	i64 pos = eii->dpos;
-	de_uint32 ld, ex;
-	de_uint32 attribs;
+	u32 ld, ex;
+	u32 attribs;
 
 	if(eii->dlen<16) return;
 	if(dbuf_memcmp(c->infile, eii->dpos, "ARC0", 4)) {
@@ -539,8 +539,8 @@ static void ef_acorn(deark *c, lctx *d, struct extra_item_info_struct *eii)
 		return;
 	}
 	pos += 4;
-	ld = (de_uint32)de_getui32le_p(&pos);
-	ex = (de_uint32)de_getui32le_p(&pos);
+	ld = (u32)de_getui32le_p(&pos);
+	ex = (u32)de_getui32le_p(&pos);
 	de_dbg(c, "load/exec addrs: 0x%08x, 0x%08x", (unsigned int)ld,
 		(unsigned int)ex);
 
@@ -560,12 +560,12 @@ static void ef_acorn(deark *c, lctx *d, struct extra_item_info_struct *eii)
 	}
 	de_dbg_indent(c, -1);
 
-	attribs = (de_uint32)de_getui32le_p(&pos);
+	attribs = (u32)de_getui32le_p(&pos);
 	de_dbg(c, "file perms: 0x%08x", (unsigned int)attribs);
 }
 
 struct extra_item_type_info_struct {
-	de_uint16 id;
+	u16 id;
 	const char *name;
 	extrafield_decoder_fn fn;
 };
@@ -659,7 +659,7 @@ static void do_extra_data(deark *c, lctx *d,
 		eii.is_central = is_central;
 		eii.dpos = pos+4;
 
-		eii.id = (de_uint32)de_getui16le(pos);
+		eii.id = (u32)de_getui16le(pos);
 		eii.dlen = de_getui16le(pos+2);
 
 		eii.eiti = get_extra_item_type_info(eii.id);
@@ -680,7 +680,7 @@ static void do_extra_data(deark *c, lctx *d,
 	de_dbg_indent(c, -1);
 }
 
-static void our_writecallback(dbuf *f, const de_byte *buf, i64 buf_len)
+static void our_writecallback(dbuf *f, const u8 *buf, i64 buf_len)
 {
 	struct member_data *md = (struct member_data *)f->userdata;
 	de_crcobj_addbuf(md->crco, buf, buf_len);
@@ -691,7 +691,7 @@ static void do_extract_file(deark *c, lctx *d, struct member_data *md)
 	dbuf *outf = NULL;
 	de_finfo *fi = NULL;
 	struct dir_entry_data *ldd = &md->local_dir_entry_data;
-	de_uint32 crc_calculated;
+	u32 crc_calculated;
 
 	de_dbg(c, "file data at %"INT64_FMT", len=%"INT64_FMT, md->file_data_pos,
 		ldd->cmpr_size);
@@ -915,7 +915,7 @@ static int do_file_header(deark *c, lctx *d, struct member_data *md,
 	int is_central, i64 pos1, i64 *p_entry_size)
 {
 	i64 pos;
-	de_uint32 sig;
+	u32 sig;
 	i64 fn_len, extra_len, comment_len;
 	int utf8_flag;
 	int retval = 0;
@@ -940,7 +940,7 @@ static int do_file_header(deark *c, lctx *d, struct member_data *md,
 	}
 	de_dbg_indent(c, 1);
 
-	sig = (de_uint32)de_getui32le_p(&pos);
+	sig = (u32)de_getui32le_p(&pos);
 	if(is_central && sig!=0x02014b50U) {
 		de_err(c, "Central dir file header not found at %d", (int)pos1);
 		goto done;
@@ -984,7 +984,7 @@ static int do_file_header(deark *c, lctx *d, struct member_data *md,
 	de_timestamp_to_string(&dd->mod_time, timestamp_buf, sizeof(timestamp_buf), 0);
 	de_dbg(c, "mod time: %s", timestamp_buf);
 
-	dd->crc_reported = (de_uint32)de_getui32le_p(&pos);
+	dd->crc_reported = (u32)de_getui32le_p(&pos);
 	de_dbg(c, "crc (reported): 0x%08x", (unsigned int)dd->crc_reported);
 
 	dd->cmpr_size = de_getui32le_p(&pos);
@@ -1060,13 +1060,13 @@ static int do_file_header(deark *c, lctx *d, struct member_data *md,
 			de_dbg(c, "assuming local header is really at %d", (int)md->offset_of_local_header);
 		}
 		else if(d->offset_discrepancy!=0) {
-			de_uint32 sig1, sig2;
+			u32 sig1, sig2;
 			i64 alt_pos;
 
-			sig1 = (de_uint32)de_getui32le(md->offset_of_local_header);
+			sig1 = (u32)de_getui32le(md->offset_of_local_header);
 			if(sig1!=0x04034b50U) {
 				alt_pos = md->offset_of_local_header + d->offset_discrepancy;
-				sig2 = (de_uint32)de_getui32le(alt_pos);
+				sig2 = (u32)de_getui32le(alt_pos);
 				if(sig2==0x04034b50U) {
 					de_warn(c, "Local file header found at %"INT64_FMT" instead of %"INT64_FMT". "
 						"Assuming offsets are wrong by %"INT64_FMT" bytes.",
@@ -1236,13 +1236,13 @@ static int do_end_of_central_dir(deark *c, lctx *d)
 		d->central_dir_byte_size;
 
 	if(alt_central_dir_offset != d->central_dir_offset) {
-		de_uint32 sig;
+		u32 sig;
 
 		de_warn(c, "Inconsistent central directory offset. Reported to be %"INT64_FMT", "
 			"but based on its reported size, it should be %"INT64_FMT".",
 			d->central_dir_offset, alt_central_dir_offset);
 
-		sig = (de_uint32)de_getui32le(alt_central_dir_offset);
+		sig = (u32)de_getui32le(alt_central_dir_offset);
 		if(sig==0x02014b50U) {
 			d->offset_discrepancy = alt_central_dir_offset - d->central_dir_offset;
 			de_dbg(c, "likely central dir found at %"INT64_FMT, alt_central_dir_offset);
@@ -1294,7 +1294,7 @@ done:
 
 static int de_identify_zip(deark *c)
 {
-	de_byte b[4];
+	u8 b[4];
 	int has_zip_ext;
 
 	has_zip_ext = de_input_file_has_ext(c, "zip");

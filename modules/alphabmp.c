@@ -16,7 +16,7 @@ typedef struct localctx_struct {
 	unsigned int palette_is_hls;
 	i64 compression;
 	i64 num_pal_entries;
-	de_uint32 pal[256];
+	u32 pal[256];
 } lctx;
 
 static int do_read_palette(deark *c, lctx *d, i64 pos, i64 *pal_nbytes)
@@ -42,9 +42,9 @@ static void do_bitmap(deark *c, lctx *d, dbuf *unc_pixels)
 {
 	i64 i, j;
 	i64 rowspan;
-	de_uint32 clr;
+	u32 clr;
 	de_bitmap *img = NULL;
-	de_byte b;
+	u8 b;
 
 	rowspan = (d->w * d->bpp +7)/8;
 

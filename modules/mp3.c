@@ -21,7 +21,7 @@ typedef struct mp3ctx_struct {
 } mp3ctx;
 
 struct ape_tag_header_footer {
-	de_uint32 ape_ver, ape_flags;
+	u32 ape_ver, ape_flags;
 	i64 tag_size_raw, item_count;
 	i64 tag_startpos;
 	i64 tag_size_total;
@@ -62,7 +62,7 @@ static int do_ape_item(deark *c, struct ape_tag_header_footer *ah,
 {
 	i64 item_value_len;
 	i64 pos = pos1;
-	de_uint32 flags;
+	u32 flags;
 	unsigned int item_type;
 	struct de_stringreaderdata *key = NULL;
 	int retval = 0;
@@ -73,7 +73,7 @@ static int do_ape_item(deark *c, struct ape_tag_header_footer *ah,
 	item_value_len = de_getui32le(pos);
 	pos += 4;
 
-	flags = (de_uint32)de_getui32le(pos);
+	flags = (u32)de_getui32le(pos);
 	de_dbg(c, "flags: 0x%08x", (unsigned int)flags);
 	if(ah->ape_ver>=2000) {
 		de_dbg_indent(c, 1);
@@ -138,7 +138,7 @@ static int do_ape_tag_header_or_footer(deark *c, struct ape_tag_header_footer *a
 {
 	int retval = 0;
 
-	ah->ape_ver = (de_uint32)de_getui32le(pos1+8);
+	ah->ape_ver = (u32)de_getui32le(pos1+8);
 	de_dbg(c, "version: %u", (unsigned int)ah->ape_ver);
 	ah->tag_size_raw = de_getui32le(pos1+12);
 	de_dbg(c, "tag size: %d", (int)ah->tag_size_raw);
@@ -148,7 +148,7 @@ static int do_ape_tag_header_or_footer(deark *c, struct ape_tag_header_footer *a
 	}
 	ah->item_count = de_getui32le(pos1+16);
 	de_dbg(c, "item count: %d", (int)ah->item_count);
-	ah->ape_flags = (de_uint32)de_getui32le(pos1+20);
+	ah->ape_flags = (u32)de_getui32le(pos1+20);
 	de_dbg(c, "flags: 0x%08x", (unsigned int)ah->ape_flags);
 	if(ah->ape_ver>=2000) {
 		ah->has_header = (ah->ape_flags&0x80000000U) ? 1 : 0;
@@ -247,7 +247,7 @@ static const char *get_mp3_channel_mode_name(unsigned int n)
 static char *get_bitrate_name(char *buf, size_t buflen,
 	unsigned int bitrate_idx, unsigned int version_id, unsigned int layer_desc)
 {
-	static const de_uint16 tbl[5][16] = {
+	static const u16 tbl[5][16] = {
 		{0, 32, 64, 96, 128, 160, 192, 224, 256, 288, 320, 352, 384, 416, 448, 0},
 		{0, 32, 48, 56,  64,  80,  96, 112, 128, 160, 192, 224, 256, 320, 384, 0},
 		{0, 32, 40, 48,  56,  64,  80,  96, 112, 128, 160, 192, 224, 256, 320, 0},
@@ -285,7 +285,7 @@ done:
 static char *get_sampling_rate_name(char *buf, size_t buflen,
 	unsigned int sr_idx, unsigned int version_id, unsigned int layer_desc)
 {
-	static const de_uint32 tbl[3][4] = {
+	static const u32 tbl[3][4] = {
 		{44100, 48000, 32000, 0},
 		{22050, 24000, 16000, 0},
 		{11025, 12000,  8000, 0}};
@@ -321,7 +321,7 @@ done:
 static int find_mp3_frame_header(deark *c, mp3ctx *d, i64 pos1, i64 nbytes_avail,
 	i64 *skip_this_many_bytes)
 {
-	de_byte *buf = NULL;
+	u8 *buf = NULL;
 	i64 nbytes_in_buf;
 	i64 bpos = 0;
 	int retval = 0;
@@ -348,13 +348,13 @@ done:
 
 static void do_mp3_frame(deark *c, mp3ctx *d, i64 pos1, i64 len)
 {
-	de_uint32 x;
+	u32 x;
 	i64 pos = pos1;
 	int saved_indent_level;
 	char buf[32];
 
 	de_dbg_indent_save(c, &saved_indent_level);
-	x = (de_uint32)de_getui32be(pos);
+	x = (u32)de_getui32be(pos);
 	if((x & 0xffe00000U) != 0xffe00000U) {
 		int ret;
 		i64 num_bytes_to_skip = 0;
@@ -366,7 +366,7 @@ static void do_mp3_frame(deark *c, mp3ctx *d, i64 pos1, i64 len)
 		}
 		pos += num_bytes_to_skip;
 		de_msg(c, "Note: Possible MP3 frame header found at %"INT64_FMT".", pos);
-		x = (de_uint32)de_getui32be(pos);
+		x = (u32)de_getui32be(pos);
 	}
 
 	de_dbg(c, "frame at %"INT64_FMT, pos);
@@ -468,7 +468,7 @@ static int de_identify_mpegaudio(deark *c)
 	int has_mp3_ext = 0;
 	int has_any_ext;
 	int looks_valid = 0;
-	de_byte has_id3v2;
+	u8 has_id3v2;
 	i64 pos;
 
 	if(!c->detection_data.id3.detection_attempted) {

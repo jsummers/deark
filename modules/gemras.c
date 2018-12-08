@@ -19,8 +19,8 @@ typedef struct localctx_struct {
 	i64 pixwidth, pixheight;
 	i64 header_size_in_words;
 	i64 header_size_in_bytes;
-	de_byte *pattern_buf;
-	de_uint32 pal[256];
+	u8 *pattern_buf;
+	u32 pal[256];
 } lctx;
 
 // Caller must initialize *repeat_count.
@@ -29,8 +29,8 @@ static void uncompress_line(deark *c, lctx *d, dbuf *unc_line,
 	i64 *bytes_consumed, i64 *repeat_count)
 {
 	i64 pos;
-	de_byte b0, b1;
-	de_byte val;
+	u8 b0, b1;
+	u8 val;
 	i64 count;
 	i64 k;
 	i64 tmp_repeat_count;
@@ -57,7 +57,7 @@ static void uncompress_line(deark *c, lctx *d, dbuf *unc_line,
 				}
 			}
 			else { // (b1==0) scanline run
-				de_byte flagbyte;
+				u8 flagbyte;
 				flagbyte = de_getbyte(pos);
 				if(flagbyte==0xff) {
 					pos++;
@@ -145,7 +145,7 @@ static void read_paletted_image(deark *c, lctx *d, dbuf *unc_pixels, de_bitmap *
 {
 	i64 i, j, plane;
 	unsigned int n;
-	de_byte x;
+	u8 x;
 
 	if(d->nplanes<1 || d->nplanes>8) return;
 
@@ -168,11 +168,11 @@ static void read_rgb_image(deark *c, lctx *d, dbuf *unc_pixels, de_bitmap *img)
 }
 
 // These palettes are based on Image Alchemy's interpretation of GEM raster files.
-static const de_uint32 pal3bit[8] = {
+static const u32 pal3bit[8] = {
 	0xffffff,0x00ffff,0xff00ff,0xffff00,0x0000ff,0x00ff00,0xff0000,0x000000
 };
 
-static const de_uint32 pal4bit[16] = {
+static const u32 pal4bit[16] = {
 	0xffffff,0x00ffff,0xff00ff,0xffff00,0x0000ff,0x00ff00,0xff0000,0xc0c0c0,
 	0x808080,0x008080,0x800080,0x808000,0x000080,0x008000,0x800000,0x000000
 };
@@ -238,7 +238,7 @@ static void read_palette_ximg(deark *c, lctx *d)
 	i64 pal_entries_to_read;
 	i64 i;
 	i64 cr1, cg1, cb1;
-	de_byte cr, cg, cb;
+	u8 cr, cg, cb;
 	int range_warned = 0;
 	char tmps[64];
 

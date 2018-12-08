@@ -27,7 +27,7 @@ DE_DECLARE_MODULE(de_module_os2bmp);
 struct srcbitmap {
 	struct de_bmpinfo bi;
 	i64 bitssize;
-	de_uint32 pal[256];
+	u32 pal[256];
 };
 
 // Populates srcbmp with information about a bitmap.
@@ -114,9 +114,9 @@ static void do_generate_final_image(deark *c, struct srcbitmap *srcbmp_main, str
 	i64 w, h;
 	i64 i, j;
 	i64 byte_offset;
-	de_byte x;
-	de_byte cr, cg, cb, ca;
-	de_byte xorbit, andbit;
+	u8 x;
+	u8 cr, cg, cb, ca;
+	u8 xorbit, andbit;
 	int inverse_warned = 0;
 
 	if(srcbmp_main) {
@@ -382,7 +382,7 @@ done:
 
 static void do_BA_segment(deark *c, i64 pos, i64 *pnextoffset)
 {
-	de_byte b0, b1;
+	u8 b0, b1;
 	int saved_indent_level;
 
 	de_dbg_indent_save(c, &saved_indent_level);
@@ -450,7 +450,7 @@ static void do_BA_file(deark *c)
 
 static int de_identify_os2bmp_internal(deark *c)
 {
-	de_byte b[16];
+	u8 b[16];
 	de_read(b, 0, 16);
 
 	if(b[0]=='B' && b[1]=='A') {

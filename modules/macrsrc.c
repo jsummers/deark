@@ -17,7 +17,7 @@ DE_DECLARE_MODULE(de_module_macrsrc);
 #define CODE_icns 0x69636e73U
 
 typedef struct localctx_struct {
-	de_byte extract_raw;
+	u8 extract_raw;
 	i64 data_offs, map_offs;
 	i64 data_size, map_size;
 
@@ -35,8 +35,8 @@ struct rsrctypeinfo {
 
 struct rsrcinstanceinfo {
 	int id;
-	de_byte attribs;
-	de_byte has_name;
+	u8 attribs;
+	u8 has_name;
 	i64 data_offset;
 	i64 name_offset;
 	i64 name_raw_len;
@@ -445,7 +445,7 @@ static void de_run_macrsrc(deark *c, de_module_params *mparams)
 
 static int de_identify_macrsrc(deark *c)
 {
-	de_byte b[16];
+	u8 b[16];
 	i64 n[4];
 	size_t k;
 

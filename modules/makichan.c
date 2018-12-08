@@ -23,13 +23,13 @@ typedef struct localctx_struct {
 	i64 rowspan;
 	i64 width_adj, height_adj;
 
-	de_byte aspect_ratio_flag;
+	u8 aspect_ratio_flag;
 	int is_max;
 	int is_mki;
 	int is_mki_b;
 	dbuf *virtual_screen;
 	dbuf *unc_pixels;
-	de_uint32 pal[256];
+	u32 pal[256];
 } lctx;
 
 static i64 de_int_round_up(i64 n, i64 m)
@@ -40,7 +40,7 @@ static i64 de_int_round_up(i64 n, i64 m)
 static void read_palette(deark *c, lctx *d, i64 pos)
 {
 	i64 k;
-	de_byte cr, cg, cb;
+	u8 cr, cg, cb;
 
 	de_dbg(c, "palette at %d", (int)pos);
 	de_dbg_indent(c, 1);
@@ -144,9 +144,9 @@ static void mki_decompress_virtual_screen(deark *c, lctx *d)
 	i64 a_pos, b_pos;
 	i64 vs_rowspan;
 	i64 k;
-	de_byte tmpn[4];
-	de_byte v;
-	de_byte a_byte = 0x00;
+	u8 tmpn[4];
+	u8 v;
+	u8 a_byte = 0x00;
 	int a_bitnum;
 
 	vs_rowspan = d->width_adj/16;
@@ -157,7 +157,7 @@ static void mki_decompress_virtual_screen(deark *c, lctx *d)
 
 	for(j=0; j<d->height_adj/4; j++) {
 		for(i=0; i<d->width_adj/8; i++) {
-			de_byte flag_a_bit;
+			u8 flag_a_bit;
 
 			// Read next flag A bit
 			if(a_bitnum<0) {
@@ -200,7 +200,7 @@ static void mki_decompress_pixels(deark *c, lctx *d)
 	i64 delta_y;
 	i64 vs_pos;
 	int vs_bitnum;
-	de_byte vs_byte = 0x00;
+	u8 vs_byte = 0x00;
 
 	d->rowspan = d->width_adj/2;
 	vs_pos = 0;
@@ -211,8 +211,8 @@ static void mki_decompress_pixels(deark *c, lctx *d)
 
 	for(j=0; j<d->height; j++) {
 		for(i=0; i<d->rowspan; i++) {
-			de_byte vs_bit;
-			de_byte v;
+			u8 vs_bit;
+			u8 v;
 
 			// Read the next virtual-screen bit
 			if(vs_bitnum<0) {
@@ -241,10 +241,10 @@ static int read_mag_header(deark *c, lctx *d)
 	i64 xoffset, yoffset;
 	i64 width_raw, height_raw;
 	i64 pos;
-	de_byte model_code;
-	de_byte model_flags;
-	de_byte screen_mode;
-	de_byte colors_code;
+	u8 model_code;
+	u8 model_flags;
+	u8 screen_mode;
+	u8 colors_code;
 	int retval = 0;
 
 	de_dbg(c, "header at %d", (int)d->header_pos);
@@ -318,18 +318,18 @@ done:
 
 static int do_mag_decompress(deark *c, lctx *d)
 {
-	static const de_byte delta_x[16] = { 0,1,2,4,0,1,0,1,2,0,1,2,0,1,2, 0 };
-	static const de_byte delta_y[16] = { 0,0,0,0,1,1,2,2,2,4,4,4,8,8,8,16 };
+	static const u8 delta_x[16] = { 0,1,2,4,0,1,0,1,2,0,1,2,0,1,2, 0 };
+	static const u8 delta_y[16] = { 0,0,0,0,1,1,2,2,2,4,4,4,8,8,8,16 };
 	i64 x, y;
 	i64 a_pos, b_pos;
 	i64 p_pos;
 	int a_bitnum; // Index of next bit to read. -1 = no more bits in a_byte.
-	de_byte a_byte = 0x00;
-	de_byte b_byte;
+	u8 a_byte = 0x00;
+	u8 b_byte;
 	int k;
 	i64 dpos;
-	de_byte *action_byte_buf = NULL;
-	de_byte wordbuf[2];
+	u8 *action_byte_buf = NULL;
+	u8 wordbuf[2];
 
 	de_dbg(c, "decompressing pixels");
 
@@ -348,8 +348,8 @@ static int do_mag_decompress(deark *c, lctx *d)
 
 	for(y=0; y<d->height; y++) {
 		for(x=0; x<d->rowspan/4; x++) {
-			de_byte action_byte;
-			de_byte flag_a_bit;
+			u8 action_byte;
+			u8 flag_a_bit;
 
 			// Read next flag A bit
 			if(a_bitnum<0) {

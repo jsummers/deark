@@ -30,9 +30,9 @@ static void do_decompress_scanline(deark *c, lctx *d, de_bitmap *img,
 	i64 rownum, i64 rowoffset, i64 bytes_in_row)
 {
 	i64 i;
-	de_byte runtype;
+	u8 runtype;
 	i64 runcount;
-	de_byte value;
+	u8 value;
 
 	de_dbg2(c, "decompressing row %d", (int)rownum);
 
@@ -132,7 +132,7 @@ static void de_run_msp(deark *c, de_module_params *mparams)
 
 static int de_identify_msp(deark *c)
 {
-	de_byte b[4];
+	u8 b[4];
 	de_read(b, 0, 4);
 
 	if(b[0]==0x44 && b[1]==0x61 && b[2]==0x6e && b[3]==0x4d)

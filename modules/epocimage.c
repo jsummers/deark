@@ -8,7 +8,7 @@
 #include <deark-private.h>
 DE_DECLARE_MODULE(de_module_epocimage);
 
-static const de_uint32 supplpal[40] = {
+static const u32 supplpal[40] = {
 	0x111111,0x222222,0x444444,0x555555,0x777777,
 	0x110000,0x220000,0x440000,0x550000,0x770000,
 	0x001100,0x002200,0x004400,0x005500,0x007700,
@@ -19,10 +19,10 @@ static const de_uint32 supplpal[40] = {
 	0x888888,0xaaaaaa,0xbbbbbb,0xdddddd,0xeeeeee
 };
 
-static de_uint32 getpal256(int k)
+static u32 getpal256(int k)
 {
 	int x;
-	de_byte r, g, b;
+	u8 r, g, b;
 
 	if(k<0 || k>255) return 0;
 
@@ -37,14 +37,14 @@ static de_uint32 getpal256(int k)
 	x = k<108 ? k : k-40;
 	r = (x%6)*0x33;
 	g = ((x%36)/6)*0x33;
-	b = (de_byte)((x/36)*0x33);
+	b = (u8)((x/36)*0x33);
 
 	return DE_MAKE_RGB(r,g,b);
 }
 
 // I believe this is the correct palette (or at least *a* correct palette),
 // though it has some differences from the one in the Psiconv documentation.
-static const de_uint32 pal16[16] = {
+static const u32 pal16[16] = {
 	0x000000,0x555555,0x800000,0x808000,0x008000,0xff0000,0xffff00,0x00ff00,
 	0xff00ff,0x0000ff,0x00ffff,0x800080,0x000080,0x008080,0xaaaaaa,0xffffff
 };
@@ -69,10 +69,10 @@ static de_bitmap *do_create_image(deark *c, lctx *d, struct page_ctx *pg,
 	de_bitmap *img = NULL;
 	i64 i, j;
 	i64 src_rowspan;
-	de_byte b;
-	de_byte cr;
-	de_uint32 n;
-	de_uint32 clr;
+	u8 b;
+	u8 cr;
+	u32 n;
+	u32 clr;
 
 	img = de_bitmap_create(c, pg->width, pg->height, pg->color_type ? 3 : 1);
 
@@ -125,9 +125,9 @@ static de_bitmap *do_create_image(deark *c, lctx *d, struct page_ctx *pg,
 				}
 				break;
 			case 16:
-				n = (de_uint32)dbuf_getui16le(unc_pixels, j*src_rowspan + i*2);
+				n = (u32)dbuf_getui16le(unc_pixels, j*src_rowspan + i*2);
 				if(is_mask) {
-					cr = (de_byte)(n>>8);
+					cr = (u8)(n>>8);
 					clr = DE_MAKE_RGB(cr, cr, cr);
 				}
 				else {
@@ -149,7 +149,7 @@ static de_bitmap *do_create_image(deark *c, lctx *d, struct page_ctx *pg,
 static void do_rle8(deark *c, lctx *d, dbuf *unc_pixels,
 	i64 pos1, i64 len)
 {
-	de_byte b0, b1;
+	u8 b0, b1;
 	i64 pos;
 	i64 count;
 
@@ -181,14 +181,14 @@ static void do_rle12(deark *c, lctx *d, dbuf *unc_pixels,
 	i64 count;
 	i64 k;
 	unsigned int n;
-	de_byte v[3];
+	u8 v[3];
 
 	while(pos<pos1+len) {
 		n = (unsigned int)de_getui16le_p(&pos);
 		count = 1+(i64)((n&0xf000)>>12);
-		v[0] = (de_byte)((n&0x0f00)>>8);
-		v[1] = (de_byte)((n&0x00f0)>>4);
-		v[2] = (de_byte)(n&0x000f);
+		v[0] = (u8)((n&0x0f00)>>8);
+		v[1] = (u8)((n&0x00f0)>>4);
+		v[2] = (u8)(n&0x000f);
 		v[0] *= 17;
 		v[1] *= 17;
 		v[2] *= 17;
@@ -203,10 +203,10 @@ static void do_rle16_24(deark *c, lctx *d, dbuf *unc_pixels,
 {
 	i64 i;
 	i64 k;
-	de_byte b0;
+	u8 b0;
 	i64 pos;
 	i64 count;
-	de_byte v[3];
+	u8 v[3];
 
 	pos = pos1;
 	while(pos<pos1+len) {
@@ -365,8 +365,8 @@ static void do_combine_and_write_images(deark *c, lctx *d,
 {
 	de_bitmap *img = NULL; // The combined image
 	i64 i, j;
-	de_uint32 clr;
-	de_byte a;
+	u32 clr;
+	u8 a;
 
 	if(!fg_img) goto done;
 	if(!mask_img) {
@@ -470,7 +470,7 @@ static void do_epocsketch_section_table_entry(deark *c, lctx *d,
 
 static void do_epocsketch_section_table(deark *c, lctx *d, i64 pos)
 {
-	de_byte section_table_size_code;
+	u8 section_table_size_code;
 	int num_sections;
 	i64 i;
 
@@ -647,7 +647,7 @@ static void de_run_epocmbm(deark *c, lctx *d)
 
 static int de_identify_epocimage_internal(deark *c)
 {
-	de_byte b[12];
+	u8 b[12];
 	de_read(b, 0, 12);
 
 	if(!de_memcmp(b, "\x37\x00\x00\x10\x42\x00\x00\x10", 8)) {

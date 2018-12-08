@@ -51,7 +51,7 @@ static const struct ti_ver_info ti_ver_info_arr[] = {
 
 static int identify_internal(deark *c)
 {
-	de_byte buf[8];
+	u8 buf[8];
 	int i;
 
 	de_read(buf, 0, 8);
@@ -93,8 +93,8 @@ static int do_bitmap_8ca(deark *c, lctx *d, i64 pos)
 	i64 j;
 	i64 rowspan;
 	int retval = 0;
-	de_byte b0, b1;
-	de_uint32 clr;
+	u8 b0, b1;
+	u32 clr;
 
 	de_dbg_dimensions(c, d->w, d->h);
 
@@ -113,7 +113,7 @@ static int do_bitmap_8ca(deark *c, lctx *d, i64 pos)
 		for(i=0; i<d->w; i++) {
 			b0 = de_getbyte(pos + j*rowspan + i*2);
 			b1 = de_getbyte(pos + j*rowspan + i*2 + 1);
-			clr = (((de_uint32)b1)<<8) | b0;
+			clr = (((u32)b1)<<8) | b0;
 			clr = de_rgb565_to_888(clr);
 			de_bitmap_setpixel_rgb(img, i, j, clr);
 		}
@@ -134,7 +134,7 @@ static int do_bitmap_8ci(deark *c, lctx *d, i64 pos)
 	i64 j;
 	i64 rowspan;
 	int retval = 0;
-	de_byte b0;
+	u8 b0;
 
 	de_dbg_dimensions(c, d->w, d->h);
 
@@ -227,7 +227,7 @@ static int do_ti92_picture_var(deark *c, lctx *d, i64 pos)
 static void do_ti92_var_table_entry(deark *c, lctx *d, i64 pos)
 {
 	i64 data_offset;
-	de_byte type_id;
+	u8 type_id;
 
 	de_dbg(c, "var table entry at %d", (int)pos);
 	data_offset = de_getui32le(pos);
@@ -248,7 +248,7 @@ static void do_ti83(deark *c, lctx *d)
 	i64 data_section_size;
 	i64 data_section_end;
 	i64 var_data_size;
-	de_byte type_id;
+	u8 type_id;
 
 	// 0-7: signature
 	// 8-10: 0x1a 0x0a 0x00
@@ -295,7 +295,7 @@ static void do_ti85(deark *c, lctx *d)
 	i64 var_data_size;
 	i64 name_len_reported;
 	i64 name_field_len;
-	de_byte type_id;
+	u8 type_id;
 	i64 x1, x2;
 	int warned = 0;
 

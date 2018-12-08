@@ -82,7 +82,7 @@ static void populate_cache_from_pipe(dbuf *f)
 
 // Read len bytes, starting at file position pos, into buf.
 // Unread bytes will be set to 0.
-void dbuf_read(dbuf *f, de_byte *buf, i64 pos, i64 len)
+void dbuf_read(dbuf *f, u8 *buf, i64 pos, i64 len)
 {
 	i64 bytes_read = 0;
 	i64 bytes_to_read;
@@ -165,7 +165,7 @@ done_read:
 // A function that works a little more like a standard read/fread function than
 // does dbuf_read. It returns the number of bytes read, won't read past end of
 // file, and helps track the file position.
-i64 dbuf_standard_read(dbuf *f, de_byte *buf, i64 n, i64 *fpos)
+i64 dbuf_standard_read(dbuf *f, u8 *buf, i64 n, i64 *fpos)
 {
 	i64 amt_to_read;
 
@@ -178,7 +178,7 @@ i64 dbuf_standard_read(dbuf *f, de_byte *buf, i64 n, i64 *fpos)
 	return amt_to_read;
 }
 
-de_byte dbuf_getbyte(dbuf *f, i64 pos)
+u8 dbuf_getbyte(dbuf *f, i64 pos)
 {
 	switch(f->btype) {
 	case DBUF_TYPE_MEMBUF:
@@ -200,15 +200,15 @@ de_byte dbuf_getbyte(dbuf *f, i64 pos)
 	return 0x00;
 }
 
-de_byte dbuf_getbyte_p(dbuf *f, i64 *ppos)
+u8 dbuf_getbyte_p(dbuf *f, i64 *ppos)
 {
-	de_byte b;
+	u8 b;
 	b = dbuf_getbyte(f, *ppos);
 	(*ppos)++;
 	return b;
 }
 
-static i64 dbuf_getuint_ext_be_direct(const de_byte *m, unsigned int nbytes)
+static i64 dbuf_getuint_ext_be_direct(const u8 *m, unsigned int nbytes)
 {
 	unsigned int k;
 	u64 val = 0;
@@ -220,7 +220,7 @@ static i64 dbuf_getuint_ext_be_direct(const de_byte *m, unsigned int nbytes)
 	return (i64)val;
 }
 
-static i64 dbuf_getuint_ext_le_direct(const de_byte *m, unsigned int nbytes)
+static i64 dbuf_getuint_ext_le_direct(const u8 *m, unsigned int nbytes)
 {
 	unsigned int k;
 	u64 val = 0;
@@ -235,7 +235,7 @@ static i64 dbuf_getuint_ext_le_direct(const de_byte *m, unsigned int nbytes)
 static i64 dbuf_getuint_ext_x(dbuf *f, i64 pos, unsigned int nbytes,
 	int is_le)
 {
-	de_byte m[8];
+	u8 m[8];
 	if(nbytes>8) return 0;
 	dbuf_read(f, m, pos, (i64)nbytes);
 	if(is_le) {
@@ -244,41 +244,41 @@ static i64 dbuf_getuint_ext_x(dbuf *f, i64 pos, unsigned int nbytes,
 	return dbuf_getuint_ext_be_direct(m, nbytes);
 }
 
-i64 de_getui16be_direct(const de_byte *m)
+i64 de_getui16be_direct(const u8 *m)
 {
-	return (i64)(((de_uint32)m[1]) | (((de_uint32)m[0])<<8));
+	return (i64)(((u32)m[1]) | (((u32)m[0])<<8));
 }
 
 i64 dbuf_getui16be(dbuf *f, i64 pos)
 {
-	de_byte m[2];
+	u8 m[2];
 	dbuf_read(f, m, pos, 2);
 	return de_getui16be_direct(m);
 }
 
 i64 dbuf_getui16be_p(dbuf *f, i64 *ppos)
 {
-	de_byte m[2];
+	u8 m[2];
 	dbuf_read(f, m, *ppos, 2);
 	(*ppos) += 2;
 	return de_getui16be_direct(m);
 }
 
-i64 de_getui16le_direct(const de_byte *m)
+i64 de_getui16le_direct(const u8 *m)
 {
-	return (i64)(((de_uint32)m[0]) | (((de_uint32)m[1])<<8));
+	return (i64)(((u32)m[0]) | (((u32)m[1])<<8));
 }
 
 i64 dbuf_getui16le(dbuf *f, i64 pos)
 {
-	de_byte m[2];
+	u8 m[2];
 	dbuf_read(f, m, pos, 2);
 	return de_getui16le_direct(m);
 }
 
 i64 dbuf_getui16le_p(dbuf *f, i64 *ppos)
 {
-	de_byte m[2];
+	u8 m[2];
 	dbuf_read(f, m, *ppos, 2);
 	(*ppos) += 2;
 	return de_getui16le_direct(m);
@@ -316,43 +316,43 @@ i64 dbuf_geti16le_p(dbuf *f, i64 *ppos)
 	return n;
 }
 
-i64 de_getui32be_direct(const de_byte *m)
+i64 de_getui32be_direct(const u8 *m)
 {
-	return (i64)(((de_uint32)m[3]) | (((de_uint32)m[2])<<8) |
-		(((de_uint32)m[1])<<16) | (((de_uint32)m[0])<<24));
+	return (i64)(((u32)m[3]) | (((u32)m[2])<<8) |
+		(((u32)m[1])<<16) | (((u32)m[0])<<24));
 }
 
 i64 dbuf_getui32be(dbuf *f, i64 pos)
 {
-	de_byte m[4];
+	u8 m[4];
 	dbuf_read(f, m, pos, 4);
 	return de_getui32be_direct(m);
 }
 
 i64 dbuf_getui32be_p(dbuf *f, i64 *ppos)
 {
-	de_byte m[4];
+	u8 m[4];
 	dbuf_read(f, m, *ppos, 4);
 	(*ppos) += 4;
 	return de_getui32be_direct(m);
 }
 
-i64 de_getui32le_direct(const de_byte *m)
+i64 de_getui32le_direct(const u8 *m)
 {
-	return (i64)(((de_uint32)m[0]) | (((de_uint32)m[1])<<8) |
-		(((de_uint32)m[2])<<16) | (((de_uint32)m[3])<<24));
+	return (i64)(((u32)m[0]) | (((u32)m[1])<<8) |
+		(((u32)m[2])<<16) | (((u32)m[3])<<24));
 }
 
 i64 dbuf_getui32le(dbuf *f, i64 pos)
 {
-	de_byte m[4];
+	u8 m[4];
 	dbuf_read(f, m, pos, 4);
 	return de_getui32le_direct(m);
 }
 
 i64 dbuf_getui32le_p(dbuf *f, i64 *ppos)
 {
-	de_byte m[4];
+	u8 m[4];
 	dbuf_read(f, m, *ppos, 4);
 	(*ppos) += 4;
 	return de_getui32le_direct(m);
@@ -362,14 +362,14 @@ i64 dbuf_geti32be(dbuf *f, i64 pos)
 {
 	i64 n;
 	n = dbuf_getui32be(f, pos);
-	return (i64)(de_int32)(de_uint32)n;
+	return (i64)(i32)(u32)n;
 }
 
 i64 dbuf_geti32le(dbuf *f, i64 pos)
 {
 	i64 n;
 	n = dbuf_getui32le(f, pos);
-	return (i64)(de_int32)(de_uint32)n;
+	return (i64)(i32)(u32)n;
 }
 
 i64 dbuf_geti32be_p(dbuf *f, i64 *ppos)
@@ -388,7 +388,7 @@ i64 dbuf_geti32le_p(dbuf *f, i64 *ppos)
 	return n;
 }
 
-u64 de_getui64be_direct(const de_byte *m)
+u64 de_getui64be_direct(const u8 *m)
 {
 	unsigned int i;
 	u64 val = 0;
@@ -399,19 +399,19 @@ u64 de_getui64be_direct(const de_byte *m)
 	return val;
 }
 
-i64 de_geti64be_direct(const de_byte *m)
+i64 de_geti64be_direct(const u8 *m)
 {
 	return (i64)de_getui64be_direct(m);
 }
 
 i64 dbuf_geti64be(dbuf *f, i64 pos)
 {
-	de_byte m[8];
+	u8 m[8];
 	dbuf_read(f, m, pos, 8);
 	return de_geti64be_direct(m);
 }
 
-u64 de_getui64le_direct(const de_byte *m)
+u64 de_getui64le_direct(const u8 *m)
 {
 	unsigned int i;
 	u64 val = 0;
@@ -422,14 +422,14 @@ u64 de_getui64le_direct(const de_byte *m)
 	return val;
 }
 
-i64 de_geti64le_direct(const de_byte *m)
+i64 de_geti64le_direct(const u8 *m)
 {
 	return (i64)de_getui64le_direct(m);
 }
 
 i64 dbuf_geti64le(dbuf *f, i64 pos)
 {
-	de_byte m[8];
+	u8 m[8];
 	dbuf_read(f, m, pos, 8);
 	return de_geti64le_direct(m);
 }
@@ -466,14 +466,14 @@ i64 dbuf_geti64x(dbuf *f, i64 pos, int is_le)
 
 u64 dbuf_getui64be(dbuf *f, i64 pos)
 {
-	de_byte m[8];
+	u8 m[8];
 	dbuf_read(f, m, pos, 8);
 	return de_getui64be_direct(m);
 }
 
 u64 dbuf_getui64le(dbuf *f, i64 pos)
 {
-	de_byte m[8];
+	u8 m[8];
 	dbuf_read(f, m, pos, 8);
 	return de_getui64le_direct(m);
 }
@@ -525,7 +525,7 @@ static void init_fltpt_decoder(deark *c)
 		c->host_is_le = 1;
 }
 
-double de_getfloat32x_direct(deark *c, const de_byte *m, int is_le)
+double de_getfloat32x_direct(deark *c, const u8 *m, int is_le)
 {
 	char buf[4];
 	float val = 0.0;
@@ -555,12 +555,12 @@ double de_getfloat32x_direct(deark *c, const de_byte *m, int is_le)
 
 double dbuf_getfloat32x(dbuf *f, i64 pos, int is_le)
 {
-	de_byte buf[4];
+	u8 buf[4];
 	dbuf_read(f, buf, pos, 4);
 	return de_getfloat32x_direct(f->c, buf, is_le);
 }
 
-double de_getfloat64x_direct(deark *c, const de_byte *m, int is_le)
+double de_getfloat64x_direct(deark *c, const u8 *m, int is_le)
 {
 	char buf[8];
 	double val = 0.0;
@@ -587,7 +587,7 @@ double de_getfloat64x_direct(deark *c, const de_byte *m, int is_le)
 
 double dbuf_getfloat64x(dbuf *f, i64 pos, int is_le)
 {
-	de_byte buf[8];
+	u8 buf[8];
 	dbuf_read(f, buf, pos, 8);
 	return de_getfloat64x_direct(f->c, buf, is_le);
 }
@@ -600,23 +600,23 @@ int dbuf_read_ascii_number(dbuf *f, i64 pos, i64 fieldsize,
 	*value = 0;
 	if(fieldsize>(i64)(sizeof(buf)-1)) return 0;
 
-	dbuf_read(f, (de_byte*)buf, pos, fieldsize);
+	dbuf_read(f, (u8*)buf, pos, fieldsize);
 	buf[fieldsize] = '\0';
 
 	*value = de_strtoll(buf, NULL, base);
 	return 1;
 }
 
-de_uint32 dbuf_getRGB(dbuf *f, i64 pos, unsigned int flags)
+u32 dbuf_getRGB(dbuf *f, i64 pos, unsigned int flags)
 {
-	de_byte buf[3];
+	u8 buf[3];
 	dbuf_read(f, buf, pos, 3);
 	if(flags&DE_GETRGBFLAG_BGR)
 		return DE_MAKE_RGB(buf[2], buf[1], buf[0]);
 	return DE_MAKE_RGB(buf[0], buf[1], buf[2]);
 }
 
-static int copy_cbfn(deark *c, void *userdata, const de_byte *buf,
+static int copy_cbfn(deark *c, void *userdata, const u8 *buf,
 	i64 buf_len)
 {
 	dbuf *outf = (dbuf*)userdata;
@@ -638,7 +638,7 @@ void dbuf_copy(dbuf *inf, i64 input_offset, i64 input_len, dbuf *outf)
 void dbuf_copy_at(dbuf *inf, i64 input_offset, i64 input_len,
 	dbuf *outf, i64 output_offset)
 {
-	de_byte b;
+	u8 b;
 	i64 i;
 	// TODO: Make this more efficient
 	for(i=0; i<input_len; i++) {
@@ -770,7 +770,7 @@ void de_destroy_stringreaderdata(deark *c, struct de_stringreaderdata *srd)
 void dbuf_read_to_ucstring(dbuf *f, i64 pos, i64 len,
 	de_ucstring *s, unsigned int conv_flags, int encoding)
 {
-	de_byte *buf = NULL;
+	u8 *buf = NULL;
 	deark *c = f->c;
 
 	if(conv_flags & DE_CONVFLAG_STOP_AT_NUL) {
@@ -795,7 +795,7 @@ void dbuf_read_to_ucstring_n(dbuf *f, i64 pos, i64 len, i64 max_len,
 
 int dbuf_memcmp(dbuf *f, i64 pos, const void *s, size_t n)
 {
-	de_byte *buf;
+	u8 *buf;
 	int ret;
 
 	buf = de_malloc(f->c, n);
@@ -993,7 +993,7 @@ dbuf *dbuf_create_membuf(deark *c, i64 initialsize, unsigned int flags)
 	return f;
 }
 
-static void membuf_append(dbuf *f, const de_byte *m, i64 mlen)
+static void membuf_append(dbuf *f, const u8 *m, i64 mlen)
 {
 	i64 new_alloc_size;
 
@@ -1019,7 +1019,7 @@ static void membuf_append(dbuf *f, const de_byte *m, i64 mlen)
 	f->len += mlen;
 }
 
-void dbuf_write(dbuf *f, const de_byte *m, i64 len)
+void dbuf_write(dbuf *f, const u8 *m, i64 len)
 {
 	if(f->writecallback_fn) {
 		f->writecallback_fn(f, m, len);
@@ -1049,12 +1049,12 @@ void dbuf_write(dbuf *f, const de_byte *m, i64 len)
 	de_err(f->c, "Internal: Invalid output file type (%d)", f->btype);
 }
 
-void dbuf_writebyte(dbuf *f, de_byte n)
+void dbuf_writebyte(dbuf *f, u8 n)
 {
 	dbuf_write(f, &n, 1);
 }
 
-void dbuf_writebyte_at(dbuf *f, i64 pos, de_byte n)
+void dbuf_writebyte_at(dbuf *f, i64 pos, u8 n)
 {
 	if(f->btype!=DBUF_TYPE_MEMBUF) return;
 	if(pos<0) return;
@@ -1067,7 +1067,7 @@ void dbuf_writebyte_at(dbuf *f, i64 pos, de_byte n)
 	f->membuf_buf[pos] = n;
 }
 
-void dbuf_write_at(dbuf *f, i64 pos, const de_byte *m, i64 len)
+void dbuf_write_at(dbuf *f, i64 pos, const u8 *m, i64 len)
 {
 	i64 i;
 
@@ -1078,9 +1078,9 @@ void dbuf_write_at(dbuf *f, i64 pos, const de_byte *m, i64 len)
 	}
 }
 
-void dbuf_write_run(dbuf *f, de_byte n, i64 len)
+void dbuf_write_run(dbuf *f, u8 n, i64 len)
 {
-	de_byte buf[1024];
+	u8 buf[1024];
 	i64 amt_left;
 	i64 amt_to_write;
 
@@ -1115,65 +1115,65 @@ void dbuf_truncate(dbuf *f, i64 desired_len)
 	}
 }
 
-void de_writeui16le_direct(de_byte *m, i64 n)
+void de_writeui16le_direct(u8 *m, i64 n)
 {
-	m[0] = (de_byte)(n & 0x00ff);
-	m[1] = (de_byte)((n & 0xff00)>>8);
+	m[0] = (u8)(n & 0x00ff);
+	m[1] = (u8)((n & 0xff00)>>8);
 }
 
-void de_writeui16be_direct(de_byte *m, i64 n)
+void de_writeui16be_direct(u8 *m, i64 n)
 {
-	m[0] = (de_byte)((n & 0xff00)>>8);
-	m[1] = (de_byte)(n & 0x00ff);
+	m[0] = (u8)((n & 0xff00)>>8);
+	m[1] = (u8)(n & 0x00ff);
 }
 
 void dbuf_writeui16le(dbuf *f, i64 n)
 {
-	de_byte buf[2];
+	u8 buf[2];
 	de_writeui16le_direct(buf, n);
 	dbuf_write(f, buf, 2);
 }
 
 void dbuf_writeui16be(dbuf *f, i64 n)
 {
-	de_byte buf[2];
+	u8 buf[2];
 	de_writeui16be_direct(buf, n);
 	dbuf_write(f, buf, 2);
 }
 
-void de_writeui32be_direct(de_byte *m, i64 n)
+void de_writeui32be_direct(u8 *m, i64 n)
 {
-	m[0] = (de_byte)((n & 0xff000000)>>24);
-	m[1] = (de_byte)((n & 0x00ff0000)>>16);
-	m[2] = (de_byte)((n & 0x0000ff00)>>8);
-	m[3] = (de_byte)(n & 0x000000ff);
+	m[0] = (u8)((n & 0xff000000)>>24);
+	m[1] = (u8)((n & 0x00ff0000)>>16);
+	m[2] = (u8)((n & 0x0000ff00)>>8);
+	m[3] = (u8)(n & 0x000000ff);
 }
 
 void dbuf_writeui32be(dbuf *f, i64 n)
 {
-	de_byte buf[4];
+	u8 buf[4];
 	de_writeui32be_direct(buf, n);
 	dbuf_write(f, buf, 4);
 }
 
-void de_writeui32le_direct(de_byte *m, i64 n)
+void de_writeui32le_direct(u8 *m, i64 n)
 {
-	m[0] = (de_byte)(n & 0x000000ff);
-	m[1] = (de_byte)((n & 0x0000ff00)>>8);
-	m[2] = (de_byte)((n & 0x00ff0000)>>16);
-	m[3] = (de_byte)((n & 0xff000000)>>24);
+	m[0] = (u8)(n & 0x000000ff);
+	m[1] = (u8)((n & 0x0000ff00)>>8);
+	m[2] = (u8)((n & 0x00ff0000)>>16);
+	m[3] = (u8)((n & 0xff000000)>>24);
 }
 
 void dbuf_writeui32le(dbuf *f, i64 n)
 {
-	de_byte buf[4];
+	u8 buf[4];
 	de_writeui32le_direct(buf, n);
 	dbuf_write(f, buf, 4);
 }
 
 void dbuf_puts(dbuf *f, const char *sz)
 {
-	dbuf_write(f, (const de_byte*)sz, (i64)de_strlen(sz));
+	dbuf_write(f, (const u8*)sz, (i64)de_strlen(sz));
 }
 
 // TODO: Remove the buffer size limitation?
@@ -1319,7 +1319,7 @@ void dbuf_empty(dbuf *f)
 // Returns 0 if not found.
 // If found, sets *foundpos to the position in the file where it was found
 // (not relative to startpos).
-int dbuf_search_byte(dbuf *f, const de_byte b, i64 startpos,
+int dbuf_search_byte(dbuf *f, const u8 b, i64 startpos,
 	i64 haystack_len, i64 *foundpos)
 {
 	i64 i;
@@ -1339,10 +1339,10 @@ int dbuf_search_byte(dbuf *f, const de_byte b, i64 startpos,
 // Returns 0 if not found.
 // If found, sets *foundpos to the position in the file where it was found
 // (not relative to startpos).
-int dbuf_search(dbuf *f, const de_byte *needle, i64 needle_len,
+int dbuf_search(dbuf *f, const u8 *needle, i64 needle_len,
 	i64 startpos, i64 haystack_len, i64 *foundpos)
 {
-	de_byte *buf = NULL;
+	u8 *buf = NULL;
 	int retval = 0;
 	i64 i;
 
@@ -1411,7 +1411,7 @@ int dbuf_get_utf16_NULterm_len(dbuf *f, i64 pos1, i64 bytes_avail,
 
 int dbuf_find_line(dbuf *f, i64 pos1, i64 *pcontent_len, i64 *ptotal_len)
 {
-	de_byte b0, b1;
+	u8 b0, b1;
 	i64 pos;
 	i64 eol_pos = 0;
 	i64 eol_size = 0;
@@ -1496,12 +1496,12 @@ int dbuf_dump_to_file(dbuf *inf, const char *fn)
 	return 1;
 }
 
-static void reverse_fourcc(de_byte *buf, int nbytes)
+static void reverse_fourcc(u8 *buf, int nbytes)
 {
 	size_t k;
 
 	for(k=0; k<((size_t)nbytes)/2; k++) {
-		de_byte tmpc;
+		u8 tmpc;
 		tmpc = buf[k];
 		buf[k] = buf[nbytes-1-k];
 		buf[nbytes-1-k] = tmpc;
@@ -1520,7 +1520,7 @@ void dbuf_read_fourcc(dbuf *f, i64 pos, struct de_fourcc *fcc,
 		reverse_fourcc(fcc->bytes, nbytes);
 	}
 
-	fcc->id = (de_uint32)de_getui32be_direct(fcc->bytes);
+	fcc->id = (u32)de_getui32be_direct(fcc->bytes);
 	if(nbytes<4) {
 		fcc->id >>= (4-(unsigned int)nbytes)*8;
 	}
@@ -1545,7 +1545,7 @@ int dbuf_buffered_read(dbuf *f, i64 pos1, i64 len,
 	int retval = 0;
 	i64 pos = pos1;
 #define BRBUFLEN 4096
-	de_byte buf[BRBUFLEN];
+	u8 buf[BRBUFLEN];
 
 	while(pos<pos1+len) {
 		i64 bytestoread;
@@ -1563,7 +1563,7 @@ done:
 	return retval;
 }
 
-int de_is_all_zeroes(const de_byte *b, i64 n)
+int de_is_all_zeroes(const u8 *b, i64 n)
 {
 	i64 k;
 	for(k=0; k<n; k++) {
@@ -1572,7 +1572,7 @@ int de_is_all_zeroes(const de_byte *b, i64 n)
 	return 1;
 }
 
-static int is_all_zeroes_cbfn(deark *c, void *userdata, const de_byte *buf,
+static int is_all_zeroes_cbfn(deark *c, void *userdata, const u8 *buf,
 	i64 buf_len)
 {
 	return de_is_all_zeroes(buf, buf_len);

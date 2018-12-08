@@ -49,7 +49,7 @@ static void do_text_chunk(deark *c, struct de_iffctx *ictx, const char *name)
 	ucstring_destroy(s);
 }
 
-static int is_container_chunk(deark *c, lctx *d, de_uint32 ct)
+static int is_container_chunk(deark *c, lctx *d, u32 ct)
 {
 	if(d->fmt==FMT_FOR4) {
 		if(ct==CODE_FOR4 || ct==CODE_LIS4 || ct==CODE_CAT4) return 1;
@@ -83,19 +83,19 @@ done:
 
 static int identify_internal(deark *c, int *confidence)
 {
-	de_byte buf[8];
+	u8 buf[8];
 
 	de_read(buf, 0, sizeof(buf));
 
-	if(!de_memcmp(buf, (const de_byte*)"FORM", 4)) {
+	if(!de_memcmp(buf, (const u8*)"FORM", 4)) {
 		if(confidence) *confidence = 9;
 		return FMT_FORM;
 	}
-	if(!de_memcmp(buf, (const de_byte*)"FOR4", 4)) {
+	if(!de_memcmp(buf, (const u8*)"FOR4", 4)) {
 		if(confidence) *confidence = 25;
 		return FMT_FOR4;
 	}
-	if(!de_memcmp(buf, (const de_byte*)"AT&TFORM", 8)) {
+	if(!de_memcmp(buf, (const u8*)"AT&TFORM", 8)) {
 		if(confidence) *confidence = 100;
 		return FMT_DJVU;
 	}

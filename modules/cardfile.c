@@ -139,7 +139,7 @@ done:
 static void de_run_cardfile(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
-	de_byte b;
+	u8 b;
 	i64 pos;
 	i64 n;
 
@@ -180,7 +180,7 @@ done:
 
 static int de_identify_cardfile(deark *c)
 {
-	de_byte buf[4];
+	u8 buf[4];
 	de_read(buf, 0, 4);
 
 	if(!de_memcmp(buf, "MGC", 3)) return 80;

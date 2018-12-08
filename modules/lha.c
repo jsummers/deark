@@ -12,14 +12,14 @@ DE_DECLARE_MODULE(de_module_lha);
 #define CODE_lhd 0x6c6864U
 
 struct member_data {
-	de_byte hlev; // header level
+	u8 hlev; // header level
 	i64 total_size;
 	struct de_stringreaderdata *cmpr_method;
-	de_uint32 cmpr_meth_code;
+	u32 cmpr_meth_code;
 	int is_dir;
 	i64 orig_size;
-	de_uint32 crc16;
-	de_byte os_id;
+	u32 crc16;
+	u8 os_id;
 	int codepage_encoding; // Encoding based on the "codepage" ext hdr
 	i64 compressed_data_pos; // relative to beginning of file
 	i64 compressed_data_len;
@@ -35,12 +35,12 @@ typedef struct localctx_struct {
 struct exthdr_type_info_struct;
 
 typedef void (*exthdr_decoder_fn)(deark *c, lctx *d, struct member_data *md,
-	de_byte id, const struct exthdr_type_info_struct *e,
+	u8 id, const struct exthdr_type_info_struct *e,
 	i64 pos, i64 dlen);
 
 struct exthdr_type_info_struct {
-	de_byte id;
-	de_byte flags;
+	u8 id;
+	u8 flags;
 	const char *name;
 	exthdr_decoder_fn decoder_fn;
 };
@@ -100,26 +100,26 @@ static void read_filename(deark *c, lctx *d, struct member_data *md,
 }
 
 static void exthdr_common(deark *c, lctx *d, struct member_data *md,
-	de_byte id, const struct exthdr_type_info_struct *e,
+	u8 id, const struct exthdr_type_info_struct *e,
 	i64 pos, i64 dlen)
 {
-	de_uint32 crchdr;
+	u32 crchdr;
 
 	if(dlen<2) return;
-	crchdr = (de_uint32)de_getui16le(pos);
+	crchdr = (u32)de_getui16le(pos);
 	de_dbg(c, "crc16 of header (reported): 0x%04x", (unsigned int)crchdr);
 	// TODO: Additional information
 }
 
 static void exthdr_filename(deark *c, lctx *d, struct member_data *md,
-	de_byte id, const struct exthdr_type_info_struct *e,
+	u8 id, const struct exthdr_type_info_struct *e,
 	i64 pos, i64 dlen)
 {
 	read_filename(c, d, md, pos, dlen);
 }
 
 static void exthdr_dirname(deark *c, lctx *d, struct member_data *md,
-	de_byte id, const struct exthdr_type_info_struct *e,
+	u8 id, const struct exthdr_type_info_struct *e,
 	i64 pos, i64 dlen)
 {
 	de_ucstring *s = NULL;
@@ -131,7 +131,7 @@ static void exthdr_dirname(deark *c, lctx *d, struct member_data *md,
 	if(dlen>=1) {
 		// This field is expected to end with 0xff. If that is the case, we'll
 		// ignore the last byte.
-		de_byte lastbyte;
+		u8 lastbyte;
 		lastbyte = de_getbyte(pos+dlen-1);
 		if(lastbyte==0xff) {
 			dlen--;
@@ -145,18 +145,18 @@ static void exthdr_dirname(deark *c, lctx *d, struct member_data *md,
 }
 
 static void exthdr_msdosattribs(deark *c, lctx *d, struct member_data *md,
-	de_byte id, const struct exthdr_type_info_struct *e,
+	u8 id, const struct exthdr_type_info_struct *e,
 	i64 pos, i64 dlen)
 {
-	de_uint32 attribs;
+	u32 attribs;
 
 	if(dlen<2) return;
-	attribs = (de_uint32)de_getui16le(pos);
+	attribs = (u32)de_getui16le(pos);
 	de_dbg(c, "%s: 0x%04x", e->name, (unsigned int)attribs);
 }
 
 static void exthdr_filesize(deark *c, lctx *d, struct member_data *md,
-	de_byte id, const struct exthdr_type_info_struct *e,
+	u8 id, const struct exthdr_type_info_struct *e,
 	i64 pos, i64 dlen)
 {
 	// TODO: Support this
@@ -165,7 +165,7 @@ static void exthdr_filesize(deark *c, lctx *d, struct member_data *md,
 }
 
 static void exthdr_windowstimestamp(deark *c, lctx *d, struct member_data *md,
-	de_byte id, const struct exthdr_type_info_struct *e,
+	u8 id, const struct exthdr_type_info_struct *e,
 	i64 pos, i64 dlen)
 {
 	if(dlen<24) return;
@@ -175,7 +175,7 @@ static void exthdr_windowstimestamp(deark *c, lctx *d, struct member_data *md,
 }
 
 static void exthdr_unixperms(deark *c, lctx *d, struct member_data *md,
-	de_byte id, const struct exthdr_type_info_struct *e,
+	u8 id, const struct exthdr_type_info_struct *e,
 	i64 pos, i64 dlen)
 {
 	i64 mode;
@@ -186,7 +186,7 @@ static void exthdr_unixperms(deark *c, lctx *d, struct member_data *md,
 }
 
 static void exthdr_unixuidgid(deark *c, lctx *d, struct member_data *md,
-	de_byte id, const struct exthdr_type_info_struct *e,
+	u8 id, const struct exthdr_type_info_struct *e,
 	i64 pos, i64 dlen)
 {
 	i64 uid, gid;
@@ -201,7 +201,7 @@ static void exthdr_unixuidgid(deark *c, lctx *d, struct member_data *md,
 }
 
 static void exthdr_unixtimestamp(deark *c, lctx *d, struct member_data *md,
-	de_byte id, const struct exthdr_type_info_struct *e,
+	u8 id, const struct exthdr_type_info_struct *e,
 	i64 pos, i64 dlen)
 {
 	if(dlen<4) return;
@@ -209,7 +209,7 @@ static void exthdr_unixtimestamp(deark *c, lctx *d, struct member_data *md,
 }
 
 static void exthdr_lev3newattribs2(deark *c, lctx *d, struct member_data *md,
-	de_byte id, const struct exthdr_type_info_struct *e,
+	u8 id, const struct exthdr_type_info_struct *e,
 	i64 pos, i64 dlen)
 {
 	if(dlen<20) return;
@@ -225,7 +225,7 @@ static void exthdr_lev3newattribs2(deark *c, lctx *d, struct member_data *md,
 }
 
 static void exthdr_codepage(deark *c, lctx *d, struct member_data *md,
-	de_byte id, const struct exthdr_type_info_struct *e,
+	u8 id, const struct exthdr_type_info_struct *e,
 	i64 pos, i64 dlen)
 {
 	int n;
@@ -269,7 +269,7 @@ static void destroy_member_data(deark *c, struct member_data *md)
 	de_free(c, md);
 }
 
-static const struct exthdr_type_info_struct *get_exthdr_type_info(de_byte id)
+static const struct exthdr_type_info_struct *get_exthdr_type_info(u8 id)
 {
 	size_t i;
 
@@ -284,7 +284,7 @@ static const struct exthdr_type_info_struct *get_exthdr_type_info(de_byte id)
 static void do_read_ext_header(deark *c, lctx *d, struct member_data *md,
 	i64 pos1, i64 len, i64 dlen)
 {
-	de_byte id = 0;
+	u8 id = 0;
 	const char *name;
 	const struct exthdr_type_info_struct *e = NULL;
 
@@ -406,7 +406,7 @@ done:
 	return retval;
 }
 
-static void our_writecallback(dbuf *f, const de_byte *buf, i64 buf_len)
+static void our_writecallback(dbuf *f, const u8 *buf, i64 buf_len)
 {
 	struct de_crcobj *crco = (struct de_crcobj*)f->userdata;
 	de_crcobj_addbuf(crco, buf, buf_len);
@@ -416,7 +416,7 @@ static void do_extract_file(deark *c, lctx *d, struct member_data *md)
 {
 	de_finfo *fi = NULL;
 	dbuf *outf = NULL;
-	de_uint32 crc_calc;
+	u32 crc_calc;
 
 	if(!d->try_to_extract) return;
 	if(md->is_dir) return;
@@ -490,9 +490,9 @@ static int do_read_member(deark *c, lctx *d, struct member_data *md, i64 pos1)
 		}
 	}
 
-	md->cmpr_meth_code = (de_uint32)md->cmpr_method->sz[1] << 16;
-	md->cmpr_meth_code |= (de_uint32)md->cmpr_method->sz[2] << 8;
-	md->cmpr_meth_code |= (de_uint32)md->cmpr_method->sz[3];
+	md->cmpr_meth_code = (u32)md->cmpr_method->sz[1] << 16;
+	md->cmpr_meth_code |= (u32)md->cmpr_method->sz[2] << 8;
+	md->cmpr_meth_code |= (u32)md->cmpr_method->sz[3];
 
 	// Look ahead to figure out the header format version.
 	// This byte was originally the high byte of the "MS-DOS file attribute" field,
@@ -593,7 +593,7 @@ static int do_read_member(deark *c, lctx *d, struct member_data *md, i64 pos1)
 		pos += fnlen;
 	}
 
-	md->crc16 = (de_uint32)de_getui16le_p(&pos);
+	md->crc16 = (u32)de_getui16le_p(&pos);
 	de_dbg(c, "crc16 (reported): 0x%04x", (unsigned int)md->crc16);
 
 	if(md->hlev==1 || md->hlev==2 || md->hlev==3) {
@@ -714,7 +714,7 @@ done:
 
 static int de_identify_lha(deark *c)
 {
-	de_byte b[7];
+	u8 b[7];
 
 	de_read(b, 0, 7);
 	if(b[2]!='-' || b[6]!='-') return 0;

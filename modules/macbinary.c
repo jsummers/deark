@@ -9,10 +9,10 @@
 DE_DECLARE_MODULE(de_module_macbinary);
 
 typedef struct localctx_struct {
-	de_byte extract_files;
-	de_byte oldver;
-	de_byte ver2;
-	de_byte ver2_minneeded;
+	u8 extract_files;
+	u8 oldver;
+	u8 ver2;
+	u8 ver2_minneeded;
 	i64 dfpos, rfpos;
 	i64 dflen, rflen;
 	de_ucstring *filename;
@@ -22,8 +22,8 @@ typedef struct localctx_struct {
 
 static void do_header(deark *c, lctx *d)
 {
-	de_byte b;
-	de_byte fflags;
+	u8 b;
+	u8 fflags;
 	i64 namelen;
 	i64 pos = 0;
 	i64 n, n2;
@@ -138,7 +138,7 @@ static void do_header(deark *c, lctx *d)
 
 	if(d->ver2 >= 129) {
 		struct de_crcobj *crco = NULL;
-		de_uint32 crc_calc;
+		u32 crc_calc;
 		n = de_getui16be(pos);
 		de_dbg(c, "CRC of header (reported): 0x%04x", (unsigned int)n);
 
@@ -224,8 +224,8 @@ static void de_run_macbinary(deark *c, de_module_params *mparams)
 	run_macbinary_internal(c, d);
 
 	if(mparams) {
-		mparams->out_params.uint1 = (de_uint32)d->dfpos;
-		mparams->out_params.uint2 = (de_uint32)d->dflen;
+		mparams->out_params.uint1 = (u32)d->dfpos;
+		mparams->out_params.uint2 = (u32)d->dflen;
 
 		if(mparams->out_params.fi) {
 			// If caller created out_params.fi for us, save the mod time to it.
@@ -251,11 +251,11 @@ static int de_identify_macbinary(deark *c)
 {
 	int conf = 0;
 	int k;
-	de_byte ver2;
+	u8 ver2;
 	i64 n;
 	i64 dflen, rflen;
 	i64 min_expected_len;
-	de_byte b[128];
+	u8 b[128];
 
 	// "old" version number is always 0.
 	b[0] = de_getbyte(0);

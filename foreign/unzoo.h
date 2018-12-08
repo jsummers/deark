@@ -48,8 +48,8 @@ struct lzh_lookuptable {
 	unsigned int tablebits;
 	size_t ncodes;
 	size_t nlengths;
-	de_uint16 *Tab;
-	de_byte *Len;
+	u16 *Tab;
+	u8 *Len;
 };
 
 struct lzh_table {
@@ -64,8 +64,8 @@ struct lzh_table {
 #define LZH_MAX_PRE     18      /* maximal pre code                */
 #define LZH_BITS_PRE    5       /* 2^LZH_BITS_PRE > LZH_MAX_PRE (+1?)      */
 
-	de_uint16       TreeLeft [2*LZH_MAX_CODE+1];/* tree for codes   (upper half)   */
-	de_uint16       TreeRight[2*LZH_MAX_CODE+1];/* and  for offsets (lower half)   */
+	u16       TreeLeft [2*LZH_MAX_CODE+1];/* tree for codes   (upper half)   */
+	u16       TreeRight[2*LZH_MAX_CODE+1];/* and  for offsets (lower half)   */
 
 	struct lzh_lookuptable CodeTbl; /* table for fast lookup of codes  */
 	struct lzh_lookuptable LogTbl; /* table for fast lookup of logs   */
@@ -79,41 +79,41 @@ struct entryctx {
 	struct unzooctx *uz;
 	de_finfo *fi;
 	dbuf *WritBinr;
-	de_uint32 crc_calculated;
+	u32 crc_calculated;
 
 	// Original "Entry":
-	de_uint32           magic;          /* magic word 0xfdc4a7dc           */
-	de_byte             type;           /* type of current member (1)      */
-	de_byte             method;         /* packing method of member (0..2) */
-	de_uint32           posnxt;         /* position of next member         */
-	de_uint32           posdat;         /* position of data                */
-	de_uint16           datdos;         /* date (in DOS format)            */
-	de_uint16           timdos;         /* time (in DOS format)            */
-	de_uint32           crcdat;         /* crc value of member             */
-	de_uint32           sizorg;         /* uncompressed size of member     */
-	de_uint32           siznow;         /*   compressed size of member     */
-	de_byte             majver;         /* major version needed to extract */
-	de_byte             minver;         /* minor version needed to extract */
-	de_byte             delete_;        /* 1 if member is deleted, 0 else  */
-	de_byte             spared;         /* spare entry to pad entry        */
-	de_uint32           poscmt;         /* position of comment, 0 if none  */
-	de_uint16           sizcmt;         /* length   of comment, 0 if none  */
+	u32           magic;          /* magic word 0xfdc4a7dc           */
+	u8             type;           /* type of current member (1)      */
+	u8             method;         /* packing method of member (0..2) */
+	u32           posnxt;         /* position of next member         */
+	u32           posdat;         /* position of data                */
+	u16           datdos;         /* date (in DOS format)            */
+	u16           timdos;         /* time (in DOS format)            */
+	u32           crcdat;         /* crc value of member             */
+	u32           sizorg;         /* uncompressed size of member     */
+	u32           siznow;         /*   compressed size of member     */
+	u8             majver;         /* major version needed to extract */
+	u8             minver;         /* minor version needed to extract */
+	u8             delete_;        /* 1 if member is deleted, 0 else  */
+	u8             spared;         /* spare entry to pad entry        */
+	u32           poscmt;         /* position of comment, 0 if none  */
+	u16           sizcmt;         /* length   of comment, 0 if none  */
 	char                nams [14];      /* short name of member or archive */
-	de_uint16           lvar;           /* length of variable part         */
-	de_byte             timzon;         /* time zone                       */
-	de_uint16           crcent;         /* crc value of entry              */
-	de_byte             lnamu;          /* length of long name             */
-	de_byte             ldiru;          /* length of directory             */
+	u16           lvar;           /* length of variable part         */
+	u8             timzon;         /* time zone                       */
+	u16           crcent;         /* crc value of entry              */
+	u8             lnamu;          /* length of long name             */
+	u8             ldiru;          /* length of directory             */
 	char                namu [256];     /* univ. name of member of archive */
 	char                diru [256];     /* univ. name of directory         */
-	de_uint16           system;         /* system identifier               */
-	de_uint32           permis;         /* file permissions                */
-	de_byte             modgen;         /* gens. on, last gen., gen. limit */
-	de_uint16           ver;            /* version number of member        */
+	u16           system;         /* system identifier               */
+	u32           permis;         /* file permissions                */
+	u8             modgen;         /* gens. on, last gen., gen. limit */
+	u16           ver;            /* version number of member        */
 
 	struct lzh_table lzhtbl;
 
-	de_byte             BufFile [8192];         /* at least LZH_MAX_OFF   */
+	u8             BufFile [8192];         /* at least LZH_MAX_OFF   */
 };
 
 struct unzooctx {
@@ -124,19 +124,19 @@ struct unzooctx {
 
 	// Original "Descript":
 	char                text[21];       /* "ZOO 2.10 Archive.<ctr>Z"       */
-	de_uint32           magic;          /* magic word 0xfdc4a7dc           */
-	de_uint32           posent;         /* position of first directory ent.*/
-	de_uint32           klhvmh;         /* two's complement of posent      */
-	de_byte             majver;         /* major version needed to extract */
-	de_byte             minver;         /* minor version needed to extract */
-	de_byte             type;           /* type of current member (0,1)    */
-	de_uint32           poscmt;         /* position of comment, 0 if none  */
-	de_uint16           sizcmt;         /* length   of comment, 0 if none  */
-	de_byte             modgen;         /* gens. on, gen. limit            */
+	u32           magic;          /* magic word 0xfdc4a7dc           */
+	u32           posent;         /* position of first directory ent.*/
+	u32           klhvmh;         /* two's complement of posent      */
+	u8             majver;         /* major version needed to extract */
+	u8             minver;         /* minor version needed to extract */
+	u8             type;           /* type of current member (0,1)    */
+	u32           poscmt;         /* position of comment, 0 if none  */
+	u16           sizcmt;         /* length   of comment, 0 if none  */
+	u8             modgen;         /* gens. on, gen. limit            */
 	/* the following are not in the archive file and are computed          */
-	de_uint32           sizorg;         /* uncompressed size of members    */
-	de_uint32           siznow;         /*   compressed size of members    */
-	de_uint32           number;         /* number of members               */
+	u32           sizorg;         /* uncompressed size of members    */
+	u32           siznow;         /*   compressed size of members    */
+	u32           number;         /* number of members               */
 
 	/****************************************************************************
 	**
@@ -160,46 +160,46 @@ static int GotoReadArch (struct unzooctx *uz, i64 pos)
 
 static int ByteReadArch(struct unzooctx *uz)
 {
-	de_byte ch;
+	u8 ch;
 	ch = dbuf_getbyte(uz->ReadArch, uz->ReadArch_fpos);
 	uz->ReadArch_fpos++;
 	return (int)ch;
 }
 
-static de_uint32 HalfReadArch (struct unzooctx *uz)
+static u32 HalfReadArch (struct unzooctx *uz)
 {
-	de_uint32 result;
-	result = (de_uint32)dbuf_getui16le(uz->ReadArch, uz->ReadArch_fpos);
+	u32 result;
+	result = (u32)dbuf_getui16le(uz->ReadArch, uz->ReadArch_fpos);
 	uz->ReadArch_fpos += 2;
 	return result;
 }
 
-static de_uint32 FlahReadArch (struct unzooctx *uz)
+static u32 FlahReadArch (struct unzooctx *uz)
 {
-	de_uint32 result;
-	result = (de_uint32)dbuf_getui16be(uz->ReadArch, uz->ReadArch_fpos);
+	u32 result;
+	result = (u32)dbuf_getui16be(uz->ReadArch, uz->ReadArch_fpos);
 	uz->ReadArch_fpos += 2;
 	return result;
 }
 
-static de_uint32 TripReadArch (struct unzooctx *uz)
+static u32 TripReadArch (struct unzooctx *uz)
 {
-	de_uint32       result;
-	result  = ((de_uint32)ByteReadArch(uz));
-	result += ((de_uint32)ByteReadArch(uz)) << 8;
-	result += ((de_uint32)ByteReadArch(uz)) << 16;
+	u32       result;
+	result  = ((u32)ByteReadArch(uz));
+	result += ((u32)ByteReadArch(uz)) << 8;
+	result += ((u32)ByteReadArch(uz)) << 16;
 	return result;
 }
 
-static de_uint32 WordReadArch (struct unzooctx *uz)
+static u32 WordReadArch (struct unzooctx *uz)
 {
-	de_uint32 result;
-	result = (de_uint32)dbuf_getui32le(uz->ReadArch, uz->ReadArch_fpos);
+	u32 result;
+	result = (u32)dbuf_getui32le(uz->ReadArch, uz->ReadArch_fpos);
 	uz->ReadArch_fpos += 4;
 	return result;
 }
 
-static de_uint32 BlckReadArch (struct unzooctx *uz, de_byte *blk, de_uint32 len )
+static u32 BlckReadArch (struct unzooctx *uz, u8 *blk, u32 len )
 {
 	i64 amt_to_read = (i64)len;
 
@@ -211,7 +211,7 @@ static de_uint32 BlckReadArch (struct unzooctx *uz, de_byte *blk, de_uint32 len 
 
 	dbuf_read(uz->ReadArch, blk, uz->ReadArch_fpos, amt_to_read);
 	uz->ReadArch_fpos += amt_to_read;
-	return (de_uint32)amt_to_read;
+	return (u32)amt_to_read;
 }
 
 static void do_extract_comment(struct unzooctx *uz, i64 pos, i64 len, int is_main)
@@ -234,10 +234,10 @@ static int DescReadArch (struct unzooctx *uz)
 	de_dbg_indent(c, 1);
 
 	/* read the text at the beginning                                      */
-	BlckReadArch(uz, (de_byte*)uz->text, 20L);  uz->text[20] = '\0';
+	BlckReadArch(uz, (u8*)uz->text, 20L);  uz->text[20] = '\0';
 
 	/* try to read the magic words                                         */
-	if ( (uz->magic = WordReadArch(uz)) != (de_uint32)0xfdc4a7dcL ) {
+	if ( (uz->magic = WordReadArch(uz)) != (u32)0xfdc4a7dcL ) {
 		goto done;
 	}
 
@@ -273,7 +273,7 @@ done:
 	return retval;
 }
 
-static const char *get_cmpr_meth_name(de_byte t)
+static const char *get_cmpr_meth_name(u8 t)
 {
 	const char *name = NULL;
 	switch(t) {
@@ -287,7 +287,7 @@ static const char *get_cmpr_meth_name(de_byte t)
 // Read the header of a single member file.
 static int EntrReadArch (struct unzooctx *uz, struct entryctx *ze)
 {
-	de_uint32           l;              /* 'Entry.lnamu+Entry.ldiru'       */
+	u32           l;              /* 'Entry.lnamu+Entry.ldiru'       */
 	deark *c = uz->c;
 	de_ucstring *shortname_ucstring = NULL;
 	de_ucstring *longname_ucstring = NULL;
@@ -297,7 +297,7 @@ static int EntrReadArch (struct unzooctx *uz, struct entryctx *ze)
 	i64 pos1 = uz->ReadArch_fpos;
 
 	/* try to read the magic words                                         */
-	if ( (ze->magic = WordReadArch(uz)) != (de_uint32)0xfdc4a7dcL ) {
+	if ( (ze->magic = WordReadArch(uz)) != (u32)0xfdc4a7dcL ) {
 		de_err(c, "Malformed ZOO file, bad magic number at %d", (int)pos1);
 		goto done;
 	}
@@ -313,7 +313,7 @@ static int EntrReadArch (struct unzooctx *uz, struct entryctx *ze)
 	de_dbg(c, "pos of file data: %u", (unsigned int)ze->posdat);
 	ze->datdos = HalfReadArch(uz);
 	ze->timdos = HalfReadArch(uz);
-	ze->crcdat = (de_uint32)HalfReadArch(uz);
+	ze->crcdat = (u32)HalfReadArch(uz);
 	de_dbg(c, "file data crc (reported): 0x%04x", (unsigned int)ze->crcdat);
 	ze->sizorg = WordReadArch(uz);
 	de_dbg(c, "original size: %u", (unsigned int)ze->sizorg);
@@ -331,9 +331,9 @@ static int EntrReadArch (struct unzooctx *uz, struct entryctx *ze)
 		do_extract_comment(uz, ze->poscmt, ze->sizcmt, 0);
 	}
 
-	BlckReadArch(uz, (de_byte*)ze->nams, 13L);  ze->nams[13] = '\0';
+	BlckReadArch(uz, (u8*)ze->nams, 13L);  ze->nams[13] = '\0';
 	shortname_ucstring = ucstring_create(c);
-	ucstring_append_bytes(shortname_ucstring, (const de_byte*)ze->nams, sizeof(ze->nams),
+	ucstring_append_bytes(shortname_ucstring, (const u8*)ze->nams, sizeof(ze->nams),
 		DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_ASCII);
 	de_dbg(c, "short name: \"%s\"", ucstring_getpsz(shortname_ucstring));
 
@@ -370,20 +370,20 @@ static int EntrReadArch (struct unzooctx *uz, struct entryctx *ze)
 	ze->lnamu  = (0 < ze->lvar   ? ByteReadArch(uz) : 0);
 	ze->ldiru  = (1 < ze->lvar   ? ByteReadArch(uz) : 0);
 
-	BlckReadArch(uz, (de_byte*)ze->namu, (de_uint32)ze->lnamu);
+	BlckReadArch(uz, (u8*)ze->namu, (u32)ze->lnamu);
 	ze->namu[ze->lnamu] = '\0';
 	longname_ucstring = ucstring_create(c);
 	if(ze->lnamu>0) {
-		ucstring_append_bytes(longname_ucstring, (const de_byte*)ze->namu, sizeof(ze->namu),
+		ucstring_append_bytes(longname_ucstring, (const u8*)ze->namu, sizeof(ze->namu),
 			DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_ASCII);
 		de_dbg(c, "long name: \"%s\"", ucstring_getpsz(longname_ucstring));
 	}
 
-	BlckReadArch(uz, (de_byte*)ze->diru, (de_uint32)ze->ldiru);
+	BlckReadArch(uz, (u8*)ze->diru, (u32)ze->ldiru);
 	ze->diru[ze->ldiru] = '\0';
 	dirname_ucstring = ucstring_create(c);
 	if(ze->ldiru>0) {
-		ucstring_append_bytes(dirname_ucstring, (const de_byte*)ze->diru, sizeof(ze->diru),
+		ucstring_append_bytes(dirname_ucstring, (const u8*)ze->diru, sizeof(ze->diru),
 			DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_ASCII);
 		de_dbg(c, "dir name: \"%s\"", ucstring_getpsz(dirname_ucstring));
 	}
@@ -434,7 +434,7 @@ done:
 	return retval;
 }
 
-static void our_writecallback(dbuf *f, const de_byte *buf, i64 buf_len)
+static void our_writecallback(dbuf *f, const u8 *buf, i64 buf_len)
 {
 	struct entryctx *ze = (struct entryctx *)f->userdata;
 
@@ -487,7 +487,7 @@ static int ClosWritFile (struct unzooctx *uz, struct entryctx *ze)
 	return 1;
 }
 
-static i64 BlckWritFile (struct unzooctx *uz, struct entryctx *ze, const de_byte *blk, i64 len )
+static i64 BlckWritFile (struct unzooctx *uz, struct entryctx *ze, const u8 *blk, i64 len )
 {
 	if(!ze->WritBinr) return 0;
 	dbuf_write(ze->WritBinr, blk, len);
@@ -501,9 +501,9 @@ static i64 BlckWritFile (struct unzooctx *uz, struct entryctx *ze, const de_byte
 **  'DecodeCopy' simply  copies <size> bytes  from the  archive to the output
 **  file.
 */
-static int DecodeCopy (struct unzooctx *uz, struct entryctx *ze, de_uint32 size )
+static int DecodeCopy (struct unzooctx *uz, struct entryctx *ze, u32 size )
 {
-	de_uint32       siz;            /* size of current block           */
+	u32       siz;            /* size of current block           */
 
 	/* loop until everything has been copied                               */
 	while ( 0 < size ) {
@@ -542,7 +542,7 @@ static int DecodeLzd (struct unzooctx *uz, struct entryctx *ze)
 	return !lzd(uz, ze);
 }
 
-static void SetLookupTblLen(struct lzh_lookuptable *lookuptbl, size_t idx, de_byte val)
+static void SetLookupTblLen(struct lzh_lookuptable *lookuptbl, size_t idx, u8 val)
 {
 	if(idx < lookuptbl->nlengths) {
 		lookuptbl->Len[idx] = val;
@@ -627,7 +627,7 @@ static void SetLookupTblLen(struct lzh_lookuptable *lookuptbl, size_t idx, de_by
 static int MakeTablLzh (struct unzooctx *uz, struct entryctx *ze,
 	struct lzh_lookuptable *lookuptbl)
 {
-	de_uint16           count[17], weight[17], start[18];
+	u16           count[17], weight[17], start[18];
 	unsigned int        i, len, ch, jutbits, avail, mask;
 	struct lzh_table *lzhtbl = &ze->lzhtbl;
 
@@ -641,7 +641,7 @@ static int MakeTablLzh (struct unzooctx *uz, struct entryctx *ze,
 	start[1] = 0;
 	for (i = 1; i <= 16; i++)
 		start[i + 1] = start[i] + (count[i] << (16 - i));
-	if (start[17] != (de_uint16)((unsigned int) 1 << 16))
+	if (start[17] != (u16)((unsigned int) 1 << 16))
 		return 0;
 
 	jutbits = 16 - lookuptbl->tablebits; // jutbits = either 4 or 8
@@ -655,7 +655,7 @@ static int MakeTablLzh (struct unzooctx *uz, struct entryctx *ze,
 	}
 
 	i = start[lookuptbl->tablebits + 1] >> jutbits;
-	if (i != (de_uint16)((unsigned int) 1 << 16)) {
+	if (i != (u16)((unsigned int) 1 << 16)) {
 		unsigned int k;
 		k = 1 << lookuptbl->tablebits;
 		while (i != k) lookuptbl->Tab[i++] = 0;
@@ -676,7 +676,7 @@ static int MakeTablLzh (struct unzooctx *uz, struct entryctx *ze,
 			// p can point into lookuptbl->Tab [len lookuptbl->ncodes]
 			//    or into lzhtbl->TreeLeft  [2*LZH_MAX_CODE+1]
 			//    or into lzhtbl->TreeRight [2*LZH_MAX_CODE+1]
-			de_uint16 *p;
+			u16 *p;
 
 			if(len>=18) return 0;
 			k = start[len];
@@ -713,17 +713,17 @@ static int MakeTablLzh (struct unzooctx *uz, struct entryctx *ze,
 
 struct lzhctx_struct {
 	struct unzooctx *uz;
-	de_uint32 bits;           /* the bits we are looking at      */
-	de_uint32 bitc;           /* number of bits that are valid   */
+	u32 bits;           /* the bits we are looking at      */
+	u32 bitc;           /* number of bits that are valid   */
 };
 
-static de_uint32 lzh_peek_bits_(struct lzhctx_struct *lzhctx, de_uint32 n)
+static u32 lzh_peek_bits_(struct lzhctx_struct *lzhctx, u32 n)
 {
 	if(n<1 || n>31 || n>lzhctx->bitc) return 0;
 	return ((lzhctx->bits >> (lzhctx->bitc-n)) & ((1U<<n)-1));
 }
 
-static void lzh_flsh_bits_(struct lzhctx_struct *lzhctx, de_uint32 n)
+static void lzh_flsh_bits_(struct lzhctx_struct *lzhctx, u32 n)
 {
 	if(n>lzhctx->bitc) return;
 	lzhctx->bitc -= n;
@@ -733,13 +733,13 @@ static void lzh_flsh_bits_(struct lzhctx_struct *lzhctx, de_uint32 n)
 	}
 }
 
-static de_byte BufFile_getbyte(struct entryctx *ze, unsigned int idx)
+static u8 BufFile_getbyte(struct entryctx *ze, unsigned int idx)
 {
 	if(idx<LZH_MAX_OFF) return ze->BufFile[idx];
 	return 0;
 }
 
-static void BufFile_setbyte(struct entryctx *ze, unsigned int idx, de_byte n)
+static void BufFile_setbyte(struct entryctx *ze, unsigned int idx, u8 n)
 {
 	if(idx<LZH_MAX_OFF) {
 		ze->BufFile[idx] = n;
@@ -748,16 +748,16 @@ static void BufFile_setbyte(struct entryctx *ze, unsigned int idx, de_byte n)
 
 static int DecodeLzh (struct unzooctx *uz, struct entryctx *ze)
 {
-	de_uint32 cnt;            /* number of codes in block        */
-	de_uint32 cnt2;           /* number of stuff in pre code     */
-	de_uint32 code;           /* code from the Archive           */
-	de_uint32 len;            /* length of match                 */
-	de_uint32 log_;           /* log_2 of offset of match        */
-	de_uint32 off;            /* offset of match                 */
-	de_uint32 pre;            /* pre code                        */
+	u32 cnt;            /* number of codes in block        */
+	u32 cnt2;           /* number of stuff in pre code     */
+	u32 code;           /* code from the Archive           */
+	u32 len;            /* length of match                 */
+	u32 log_;           /* log_2 of offset of match        */
+	u32 off;            /* offset of match                 */
+	u32 pre;            /* pre code                        */
 	unsigned int cur_idx;     // current index in BufFile
 	unsigned int end_idx;     // index to the end of BufFile
-	de_uint32 i;              /* loop variable                   */
+	u32 i;              /* loop variable                   */
 	struct lzhctx_struct lzhctx;
 	struct lzh_table *lzhtbl = &ze->lzhtbl;
 
@@ -985,14 +985,14 @@ static void init_lzh_lookuptable(deark *c, struct lzh_lookuptable *lookuptbl,
 	lookuptbl->tablebits = tablebits;
 	lookuptbl->ncodes = ((size_t)1)<<lookuptbl->tablebits;
 	lookuptbl->nlengths = nlengths;
-	lookuptbl->Tab = de_malloc(c, lookuptbl->ncodes * sizeof(de_uint16));
+	lookuptbl->Tab = de_malloc(c, lookuptbl->ncodes * sizeof(u16));
 	lookuptbl->Len = de_malloc(c, lookuptbl->nlengths);
 }
 
 // Process a single member file
 static void ExtrEntry(struct unzooctx *uz, i64 pos1, i64 *next_entry_pos)
 {
-	de_uint32       res;            /* status of decoding              */
+	u32       res;            /* status of decoding              */
 	struct entryctx *ze = NULL;
 	deark *c = uz->c;
 	i64 timestamp_offset;

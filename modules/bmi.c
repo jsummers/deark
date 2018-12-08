@@ -21,7 +21,7 @@ struct imageinfo {
 	unsigned int palmode;
 	i64 bpp;
 	i64 num_pal_entries;
-	de_uint32 pal[256];
+	u32 pal[256];
 };
 
 typedef struct localctx_struct {
@@ -115,7 +115,7 @@ static void do_bitmap(deark *c, lctx *d, i64 pos1)
 	de_bitmap *img = NULL;
 	dbuf *unc_pixels = NULL;
 	struct imageinfo ii;
-	const de_uint32 *pal_to_use = d->globalimg.pal;
+	const u32 *pal_to_use = d->globalimg.pal;
 
 	de_zeromem(&ii, sizeof(struct imageinfo));
 
@@ -189,12 +189,12 @@ static void do_bitmap(deark *c, lctx *d, i64 pos1)
 	for(j=0; j<ii.h; j++) {
 		for(i=0; i<ii.w; i++) {
 			if(ii.bpp==24) {
-				de_uint32 clr;
+				u32 clr;
 				clr = dbuf_getRGB(unc_pixels, j*rowspan+i*3, DE_GETRGBFLAG_BGR);
 				de_bitmap_setpixel_rgb(img, i, j, clr);
 			}
 			else {
-				de_byte b;
+				u8 b;
 				b = de_get_bits_symbol(unc_pixels, ii.bpp, j*rowspan, i);
 				de_bitmap_setpixel_rgb(img, i, j, pal_to_use[(unsigned int)b]);
 			}

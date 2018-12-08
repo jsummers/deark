@@ -77,7 +77,7 @@ typedef struct localctx_struct {
 #define DE_PNGFMT_MNG 3
 	int fmt;
 	int is_CgBI;
-	de_byte color_type;
+	u8 color_type;
 	const char *fmt_name;
 } lctx;
 
@@ -104,10 +104,10 @@ struct handler_params;
 typedef void (*chunk_handler_fn)(deark *c, lctx *d, struct handler_params *hp);
 
 struct chunk_type_info_struct {
-	de_uint32 id;
+	u32 id;
 	// The low 8 bits of flags are reserved, and should be to 0xff.
 	// They may someday be used to, for example, make MNG-only chunk table entries.
-	de_uint32 flags;
+	u32 flags;
 	const char *name;
 	chunk_handler_fn handler_fn;
 };
@@ -387,7 +387,7 @@ static void handler_text(deark *c, lctx *d, struct handler_params *hp)
 
 	// Compression method
 	if(hp->chunk4cc->id==CODE_zTXt || hp->chunk4cc->id==CODE_iTXt) {
-		de_byte cmpr_method;
+		u8 cmpr_method;
 		cmpr_method = de_getbyte(pos++);
 		if(is_compressed && cmpr_method!=0) {
 			de_warn(c, "Unsupported text compression type: %d", (int)cmpr_method);
@@ -431,7 +431,7 @@ static void handler_CgBI(deark *c, lctx *d, struct handler_params *hp)
 static void handler_IHDR(deark *c, lctx *d, struct handler_params *hp)
 {
 	i64 w, h;
-	de_byte n;
+	u8 n;
 	const char *name;
 
 	if(hp->dlen<13) return;
@@ -461,7 +461,7 @@ static void handler_PLTE(deark *c, lctx *d, struct handler_params *hp)
 {
 	// pal is a dummy variable, since we don't need to keep the palette.
 	// TODO: Maybe de_read_palette_rgb shouldn't require the palette to be returned.
-	de_uint32 pal[256];
+	u32 pal[256];
 	i64 nentries;
 
 	nentries = hp->dlen/3;
@@ -474,7 +474,7 @@ static void handler_sPLT(deark *c, lctx *d, struct handler_params *hp)
 	struct de_stringreaderdata *srd = NULL;
 	i64 pos = hp->dpos;
 	i64 nbytes_to_scan;
-	de_byte depth;
+	u8 depth;
 	i64 nentries;
 	i64 stride;
 	i64 i;
@@ -542,7 +542,7 @@ static void handler_tRNS(deark *c, lctx *d, struct handler_params *hp)
 	}
 	else if(d->color_type==3) {
 		i64 i;
-		de_byte a;
+		u8 a;
 
 		de_dbg(c, "number of alpha values: %d", (int)hp->dlen);
 		if(c->debug_level<2) return;
@@ -570,7 +570,7 @@ static void handler_hIST(deark *c, lctx *d, struct handler_params *hp)
 static void handler_bKGD(deark *c, lctx *d, struct handler_params *hp)
 {
 	i64 r, g, b;
-	de_byte idx;
+	u8 idx;
 
 	if(d->color_type==0 || d->color_type==4) {
 		if(hp->dlen<2) return;
@@ -601,7 +601,7 @@ static void handler_gAMA(deark *c, lctx *d, struct handler_params *hp)
 static void handler_pHYs(deark *c, lctx *d, struct handler_params *hp)
 {
 	i64 dx, dy;
-	de_byte u;
+	u8 u;
 	const char *name;
 
 	dx = de_getui32be(hp->dpos);
@@ -631,7 +631,7 @@ static void handler_sBIT(deark *c, lctx *d, struct handler_params *hp)
 	}
 
 	for(i=0; i<4 && i<hp->dlen; i++) {
-		de_byte n;
+		u8 n;
 		n = de_getbyte(hp->dpos+i);
 		de_dbg(c, "significant %s bits: %d", sbname[i], (int)n);
 	}
@@ -640,7 +640,7 @@ static void handler_sBIT(deark *c, lctx *d, struct handler_params *hp)
 static void handler_tIME(deark *c, lctx *d, struct handler_params *hp)
 {
 	i64 yr;
-	de_byte mo, da, hr, mi, se;
+	u8 mo, da, hr, mi, se;
 	struct de_timestamp ts;
 	char timestamp_buf[64];
 
@@ -676,7 +676,7 @@ static void handler_cHRM(deark *c, lctx *d, struct handler_params *hp)
 
 static void handler_sRGB(deark *c, lctx *d, struct handler_params *hp)
 {
-	de_byte intent;
+	u8 intent;
 	const char *name;
 
 	if(hp->dlen<1) return;
@@ -693,7 +693,7 @@ static void handler_sRGB(deark *c, lctx *d, struct handler_params *hp)
 
 static void handler_iccp(deark *c, lctx *d, struct handler_params *hp)
 {
-	de_byte cmpr_type;
+	u8 cmpr_type;
 	dbuf *f = NULL;
 	struct de_stringreaderdata *prof_name_srd = NULL;
 	de_finfo *fi = NULL;
@@ -778,7 +778,7 @@ static void handler_caNv(deark *c, lctx *d, struct handler_params *hp)
 
 static void handler_orNT(deark *c, lctx *d, struct handler_params *hp)
 {
-	de_byte n;
+	u8 n;
 	if(hp->dlen!=1) return;
 	n = de_getbyte(hp->dpos);
 	de_dbg(c, "orientation: %d (%s)", (int)n, de_fmtutil_tiff_orientation_name((i64)n));
@@ -803,7 +803,7 @@ static void handler_acTL(deark *c, lctx *d, struct handler_params *hp)
 	de_dbg(c, "num plays: %u%s", n, (n==0)?" (infinite)":"");
 }
 
-static const char *get_apng_disp_name(de_byte t)
+static const char *get_apng_disp_name(u8 t)
 {
 	switch(t) {
 	case 0: return "none"; break;
@@ -813,7 +813,7 @@ static const char *get_apng_disp_name(de_byte t)
 	return "?";
 }
 
-static const char *get_apng_blend_name(de_byte t)
+static const char *get_apng_blend_name(u8 t)
 {
 	switch(t) {
 	case 0: return "source"; break;
@@ -826,7 +826,7 @@ static void handler_fcTL(deark *c, lctx *d, struct handler_params *hp)
 {
 	i64 n1, n2;
 	i64 pos = hp->dpos;
-	de_byte b;
+	u8 b;
 
 	if(hp->dlen<26) return;
 	do_APNG_seqno(c, d, pos);
@@ -916,7 +916,7 @@ static const struct chunk_type_info_struct chunk_type_info_arr[] = {
 	{ CODE_pHYg, 0x0004, NULL, NULL }
 };
 
-static const struct chunk_type_info_struct *get_chunk_type_info(de_uint32 id)
+static const struct chunk_type_info_struct *get_chunk_type_info(u32 id)
 {
 	size_t i;
 
@@ -930,7 +930,7 @@ static const struct chunk_type_info_struct *get_chunk_type_info(de_uint32 id)
 
 static int do_identify_png_internal(deark *c)
 {
-	de_byte buf[8];
+	u8 buf[8];
 	de_read(buf, 0, sizeof(buf));
 	if(!de_memcmp(buf, "\x89\x50\x4e\x47\x0d\x0a\x1a\x0a", 8)) return DE_PNGFMT_PNG;
 	if(!de_memcmp(buf, "\x8b\x4a\x4e\x47\x0d\x0a\x1a\x0a", 8)) return DE_PNGFMT_JNG;
@@ -942,7 +942,7 @@ static void de_run_png(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
 	i64 pos;
-	de_int32 prev_chunk_id = 0;
+	i32 prev_chunk_id = 0;
 	int suppress_idat_dbg = 0;
 
 	d = de_malloc(c, sizeof(lctx));
@@ -966,7 +966,7 @@ static void de_run_png(deark *c, de_module_params *mparams)
 	while(pos < c->infile->len) {
 		struct de_fourcc chunk4cc;
 		struct handler_params hp;
-		de_uint32 crc;
+		u32 crc;
 		char nbuf[80];
 
 		de_zeromem(&hp, sizeof(struct handler_params));
@@ -1022,7 +1022,7 @@ static void de_run_png(deark *c, de_module_params *mparams)
 		}
 		pos += hp.dlen;
 
-		crc = (de_uint32)de_getui32be(pos);
+		crc = (u32)de_getui32be(pos);
 		de_dbg2(c, "crc32 (reported): 0x%08x", (unsigned int)crc);
 		pos += 4;
 

@@ -16,7 +16,7 @@ DE_DECLARE_MODULE(de_module_amos_source);
 
 // Data related to the whole file.
 typedef struct localctx_struct {
-	de_uint32 fmt;
+	u32 fmt;
 } lctx;
 
 // Data related to a "bank". Most files consist of one bank, but some have
@@ -30,7 +30,7 @@ struct amosbank {
 
 	i64 num_objects;
 	i64 pal_pos;
-	de_uint32 pal[256];
+	u32 pal[256];
 
 	// per-image settings
 	i64 xsize; // 16-bit words per row per plane
@@ -43,7 +43,7 @@ struct amosbank {
 	i64 pic_points_offset;
 	i64 pic_picdata_offset;
 	i64 picdata_expected_unc_bytes;
-	de_uint32 amiga_mode;
+	u32 amiga_mode;
 };
 
 static void do_read_sprite_image(deark *c, lctx *d, struct amosbank *bk, i64 pos)
@@ -52,9 +52,9 @@ static void do_read_sprite_image(deark *c, lctx *d, struct amosbank *bk, i64 pos
 	i64 i, j;
 	i64 plane;
 	unsigned int palent;
-	de_byte b;
+	u8 b;
 	i64 rowspan, planespan;
-	de_uint32 clr;
+	u32 clr;
 	de_bitmap *img = NULL;
 
 	width = bk->xsize * 16;
@@ -155,8 +155,8 @@ static void do_read_sprite_palette(deark *c, lctx *d, struct amosbank *bk)
 {
 	i64 k;
 	unsigned int n;
-	de_byte cr, cg, cb;
-	de_byte cr1, cg1, cb1;
+	u8 cr, cg, cb;
+	u8 cr1, cg1, cb1;
 	i64 pos;
 	i64 colors_used;
 	char tmps[64];
@@ -169,9 +169,9 @@ static void do_read_sprite_palette(deark *c, lctx *d, struct amosbank *bk)
 
 	for(k=0; k<32; k++) {
 		n = (unsigned int)dbuf_getui16be(bk->f, pos+k*2);
-		cr1 = (de_byte)((n>>8)&0xf);
-		cg1 = (de_byte)((n>>4)&0xf);
-		cb1 = (de_byte)(n&0xf);
+		cr1 = (u8)((n>>8)&0xf);
+		cg1 = (u8)((n>>4)&0xf);
+		cb1 = (u8)(n&0xf);
 		cr = cr1*17;
 		cg = cg1*17;
 		cb = cb1*17;
@@ -221,7 +221,7 @@ static int do_read_sprite(deark *c, lctx *d, struct amosbank *bk)
 
 struct membankinfo {
 	int type;
-	const de_byte name[8];
+	const u8 name[8];
 	const char *file_ext;
 };
 static const struct membankinfo membankinfo_arr[] = {
@@ -250,7 +250,7 @@ static void picture_bank_screen_header(deark *c, lctx *d, struct amosbank *bk, i
 	screen_height = dbuf_getui16be(bk->f, pos+6);
 	de_dbg(c, "screen dimensions: %d"DE_CHAR_TIMES"%d", (int)screen_width, (int)screen_height);
 
-	bk->amiga_mode = (de_uint32)dbuf_getui16be(bk->f, pos+20);
+	bk->amiga_mode = (u32)dbuf_getui16be(bk->f, pos+20);
 	ncolors = dbuf_getui16be(bk->f, pos+22);
 	nplanes = dbuf_getui16be(bk->f, pos+24);
 
@@ -277,9 +277,9 @@ static void picture_bank_uncompress(deark *c, lctx *d, struct amosbank *bk,
 	i64 picdatapos; // file offset of next unread byte
 	i64 rledatapos;
 	i64 pointspos;
-	de_byte picbyte;
-	de_byte rlebyte;
-	de_byte pointsbyte;
+	u8 picbyte;
+	u8 rlebyte;
+	u8 pointsbyte;
 	int rbitnum, pbitnum;
 
 	de_dbg(c, "uncompressing picture");
@@ -352,7 +352,7 @@ static void picture_bank_read_picture(deark *c, lctx *d, struct amosbank *bk, i6
 	i64 strip;
 	i64 plane;
 	unsigned int palent;
-	de_byte x;
+	u8 x;
 	i64 planespan;
 	i64 lumpspan;
 	i64 pos_in_picdata;
@@ -445,11 +445,11 @@ done:
 static void picture_bank_make_palette(deark *c, lctx *d, struct amosbank *bk)
 {
 	i64 k;
-	de_byte v;
+	u8 v;
 
 	de_warn(c, "No palette found. Using grayscale palette.");
 	for(k=0; k<32; k++) {
-		v = (de_byte)(0.5+ ((double)k)*(255.0/31.0));
+		v = (u8)(0.5+ ((double)k)*(255.0/31.0));
 		bk->pal[k] = DE_MAKE_GRAY(v);
 		bk->pal[k+32] = DE_MAKE_GRAY(v/2);
 	}
@@ -458,14 +458,14 @@ static void picture_bank_make_palette(deark *c, lctx *d, struct amosbank *bk)
 static void do_picture_bank(deark *c, lctx *d, struct amosbank *bk)
 {
 	i64 pos = 0;
-	de_uint32 segtype;
+	u32 segtype;
 	int found_screen_header = 0;
 
 	de_dbg(c, "picture bank");
 
 	pos += 20; // Advance past AmBk header
 
-	segtype = (de_uint32)de_getui32be(pos);
+	segtype = (u32)de_getui32be(pos);
 	if(segtype==0x12031990) {
 		found_screen_header = 1;
 		picture_bank_screen_header(c, d, bk, pos);
@@ -476,7 +476,7 @@ static void do_picture_bank(deark *c, lctx *d, struct amosbank *bk)
 			goto done;
 		}
 
-		segtype = (de_uint32)de_getui32be(pos);
+		segtype = (u32)de_getui32be(pos);
 	}
 
 	if(segtype!=0x06071963) {
@@ -630,7 +630,7 @@ static void de_run_abk(deark *c, de_module_params *mparams)
 
 	d = de_malloc(c, sizeof(lctx));
 
-	d->fmt = (de_uint32)de_getui32be(0);
+	d->fmt = (u32)de_getui32be(0);
 
 	if(d->fmt==CODE_AmBk) {
 		de_declare_fmt(c, "AMOS Memory Bank");
@@ -662,7 +662,7 @@ done:
 
 static int de_identify_abk(deark *c)
 {
-	de_byte b[4];
+	u8 b[4];
 	int ext_bonus = 0;
 
 	if(de_input_file_has_ext(c, "abk")) ext_bonus=40;
@@ -726,7 +726,7 @@ done:
 
 static int de_identify_amos_source(deark *c)
 {
-	de_byte b[10];
+	u8 b[10];
 	int ext_bonus = 0;
 
 	if(de_input_file_has_ext(c, "amos")) ext_bonus=20;

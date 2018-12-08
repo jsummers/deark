@@ -30,7 +30,7 @@ static void typedec_desc(deark *c, lctx *d, i64 pos, i64 len);
 static void typedec_mluc(deark *c, lctx *d, i64 pos, i64 len);
 
 struct datatypeinfo {
-	de_uint32 id;
+	u32 id;
 	const char *name;
 	datatype_decoder_fn_type dtdfn;
 };
@@ -73,7 +73,7 @@ static const struct datatypeinfo datatypeinfo_arr[] = {
 };
 
 struct taginfo {
-	de_uint32 id;
+	u32 id;
 	const char *name;
 	void *reserved;
 };
@@ -252,12 +252,12 @@ static void typedec_desc(deark *c, lctx *d, i64 pos1, i64 len)
 
 	encoding = DE_ENCODING_UTF16BE;
 	if(uloclen>=1) {
-		de_int32 firstchar;
+		i32 firstchar;
 		// Check for a BOM. The spec doesn't say much about the format of
 		// Unicode text in 'desc' tags. It does say that "All profile data must
 		// be encoded as big-endian", so maybe that means UTF-16LE is not
 		// allowed. In practice, some strings begin with a BOM.
-		firstchar = (de_int32)de_getui16be(lstrstartpos);
+		firstchar = (i32)de_getui16be(lstrstartpos);
 		if(firstchar==0xfeff) { // UTF-16BE BOM
 			lstrstartpos += 2;
 			bytes_to_read -= 2;
@@ -353,7 +353,7 @@ done:
 
 static void do_read_header(deark *c, lctx *d, i64 pos)
 {
-	de_uint32 profile_ver_raw;
+	u32 profile_ver_raw;
 	i64 x;
 	struct de_fourcc tmp4cc;
 	char tmpbuf[80];
@@ -369,7 +369,7 @@ static void do_read_header(deark *c, lctx *d, i64 pos)
 	de_dbg(c, "preferred CMM type: %s",
 		format_4cc_dbgstr(&tmp4cc, tmpbuf, sizeof(tmpbuf), 0x1));
 
-	profile_ver_raw = (de_uint32)de_getui32be(pos+8);
+	profile_ver_raw = (u32)de_getui32be(pos+8);
 	d->profile_ver_major = 10*((profile_ver_raw&0xf0000000U)>>28) +
 		((profile_ver_raw&0x0f000000U)>>24);
 	d->profile_ver_minor = (profile_ver_raw&0x00f00000U)>>20;
@@ -432,7 +432,7 @@ static void do_read_header(deark *c, lctx *d, i64 pos)
 	de_dbg_indent(c, -1);
 }
 
-static const struct datatypeinfo *lookup_datatypeinfo(de_uint32 id)
+static const struct datatypeinfo *lookup_datatypeinfo(u32 id)
 {
 	size_t k;
 	for(k=0; k<DE_ITEMS_IN_ARRAY(datatypeinfo_arr); k++) {
@@ -443,7 +443,7 @@ static const struct datatypeinfo *lookup_datatypeinfo(de_uint32 id)
 	return NULL;
 }
 
-static const struct taginfo *lookup_taginfo(de_uint32 id)
+static const struct taginfo *lookup_taginfo(u32 id)
 {
 	size_t k;
 	for(k=0; k<DE_ITEMS_IN_ARRAY(taginfo_arr); k++) {

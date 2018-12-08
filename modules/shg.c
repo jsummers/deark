@@ -15,8 +15,8 @@ typedef struct localctx_struct {
 	i64 shg_startpos;
 	i64 num_pictures;
 
-	de_byte picture_type;
-	de_byte packing_method;
+	u8 picture_type;
+	u8 packing_method;
 } lctx;
 
 // This is very similar to the mscompress SZDD algorithm, but
@@ -27,7 +27,7 @@ static void do_uncompress_lz77(deark *c,
 	dbuf *outf, i64 expected_output_len)
 {
 	i64 pos = pos1;
-	de_byte *window = NULL;
+	u8 *window = NULL;
 	unsigned int wpos;
 	i64 nbytes_read;
 
@@ -45,7 +45,7 @@ static void do_uncompress_lz77(deark *c,
 
 		for(cbit=0x01; cbit&0xff; cbit<<=1) {
 			if(!(control & cbit)) { // literal
-				de_byte b;
+				u8 b;
 				b = dbuf_getbyte(inf, pos++);
 				dbuf_writebyte(outf, b);
 				if(expected_output_len>0 && outf->len>=expected_output_len) goto unc_done;
@@ -124,7 +124,7 @@ static void do_uncompress_rle(deark *c, lctx *d,
 {
 	i64 pos;
 	i64 endpos;
-	de_byte b;
+	u8 b;
 	i64 count;
 
 	de_dbg(c, "uncompressing RLE data");
@@ -500,7 +500,7 @@ static void de_run_shg(deark *c, de_module_params *mparams)
 
 static int de_identify_shg(deark *c)
 {
-	de_byte buf[2];
+	u8 buf[2];
 	de_read(buf, 0, 2);
 	if(buf[0]==0x6c && (buf[1]==0x50 || buf[1]==0x70)) {
 		return 50;

@@ -15,7 +15,7 @@ typedef struct localctx_struct {
 
 	i64 hex_digit_count;
 	i64 xpos, ypos;
-	de_byte pending_byte;
+	u8 pending_byte;
 } lctx;
 
 
@@ -48,9 +48,9 @@ static void de_run_eps_binary(deark *c)
 	}
 }
 
-static void process_hex_digit(deark *c, lctx *d, de_byte hexdigit, dbuf *outf)
+static void process_hex_digit(deark *c, lctx *d, u8 hexdigit, dbuf *outf)
 {
-	de_byte x;
+	u8 x;
 	int errorflag;
 
 	x = de_decode_hex_digit(hexdigit, &errorflag);
@@ -72,7 +72,7 @@ static void convert_row_gray(dbuf *f, i64 fpos, de_bitmap *img,
 	i64 rownum, int depth)
 {
 	i64 i;
-	de_byte b;
+	u8 b;
 
 	for(i=0; i<img->width; i++) {
 		b = de_get_bits_symbol(f, depth, fpos, i);
@@ -166,7 +166,7 @@ done:
 static void de_run_eps_normal(deark *c)
 {
 	i64 pos;
-	de_byte linebuf[1024];
+	u8 linebuf[1024];
 	i64 content_len, total_len;
 
 	de_declare_fmt(c, "Encapsulated PostScript");
@@ -192,7 +192,7 @@ static void de_run_eps_normal(deark *c)
 
 static void de_run_eps(deark *c, de_module_params *mparams)
 {
-	de_byte b[2];
+	u8 b[2];
 
 	de_read(b, 0, (i64)sizeof(b));
 
@@ -209,7 +209,7 @@ static void de_run_eps(deark *c, de_module_params *mparams)
 
 static int de_identify_eps(deark *c)
 {
-	de_byte b[20];
+	u8 b[20];
 	de_read(b, 0, (i64)sizeof(b));
 
 	if(b[0]==0xc5 && b[1]==0xd0 && b[2]==0xd3 && b[3]==0xc6)

@@ -32,11 +32,11 @@ static void do_image_data(deark *c, lctx *d, i64 img_num, i64 pos1, i64 len)
 	struct de_bmpinfo bi;
 	i64 fg_start, bg_start;
 	i64 i, j;
-	de_uint32 pal[256];
+	u32 pal[256];
 	i64 p;
 	de_bitmap *img = NULL;
-	de_byte x;
-	de_byte cr=0, cg=0, cb=0, ca=0;
+	u8 x;
+	u8 cr=0, cg=0, cb=0, ca=0;
 	int inverse_warned = 0;
 	int use_mask;
 	int has_alpha_channel = 0;
@@ -250,7 +250,7 @@ static int is_windows_ico_or_cur(deark *c)
 	i64 numicons;
 	i64 i;
 	i64 size, offset;
-	de_byte buf[4];
+	u8 buf[4];
 
 	de_read(buf, 0, 4);
 	if(de_memcmp(buf, "\x00\x00\x01\x00", 4) &&

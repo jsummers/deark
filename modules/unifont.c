@@ -44,7 +44,7 @@ static int de_linereader_readnextline(deark *c, struct de_linereader *lr,
 		lr->f_pos += total_len;
 		return 0;
 	}
-	dbuf_read(lr->f, (de_byte*)buf, lr->f_pos, content_len);
+	dbuf_read(lr->f, (u8*)buf, lr->f_pos, content_len);
 	buf[content_len] = '\0';
 	lr->f_pos += total_len;
 	return 1;
@@ -60,7 +60,7 @@ static void decode_fontdata(deark *c, const char *hexdata,
 	ndstbytes = ch->rowspan*ch->height;
 	while(1) {
 		int errorflag;
-		de_byte h0, h1;
+		u8 h0, h1;
 
 		h0 = de_decode_hex_digit((unsigned char)hexdata[srcpos++], &errorflag);
 		if(errorflag) break;
@@ -112,7 +112,7 @@ static void de_run_unifont_hex(deark *c, de_module_params *mparams)
 		dptr++;
 
 		fdata_len = (i64)de_strlen(dptr);
-		ch->codepoint_unicode = (de_int32)de_strtoll(linebuf, NULL, 16);
+		ch->codepoint_unicode = (i32)de_strtoll(linebuf, NULL, 16);
 		if(ch->codepoint_unicode<0 || ch->codepoint_unicode>=17*65536) goto done;
 
 		ch->width = (int)((fdata_len/32)*8);

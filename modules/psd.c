@@ -168,7 +168,7 @@ struct image_info {
 	struct de_density_info density;
 
 	i64 pal_entries;
-	de_uint32 pal[256];
+	u32 pal[256];
 };
 
 typedef struct localctx_struct {
@@ -182,7 +182,7 @@ typedef struct localctx_struct {
 	i64 intsize_4or8;
 
 	int abr_major_ver, abr_minor_ver;
-	de_byte has_iptc;
+	u8 has_iptc;
 	struct de_density_info density;
 
 	struct image_info *main_iinfo;
@@ -193,11 +193,11 @@ struct rsrc_info;
 typedef void (*rsrc_handler_fn)(deark *c, lctx *d, zztype *zz, const struct rsrc_info *ri);
 
 struct rsrc_info {
-	de_uint16 id;
+	u16 id;
 
 	// 0x0004 = Item consists of a version number, followed by a "Descriptor structure".
 	// 0x0010 = Do not include ASCII in hexdumps.
-	de_uint32 flags;
+	u32 flags;
 
 	const char *idname;
 	rsrc_handler_fn hfn;
@@ -389,9 +389,9 @@ static i64 zz_avail(zztype *zz)
 // in many cases.
 // May as well go all the way, and even do it for simple get_int functions.
 
-static de_byte psd_dbuf_getbyte_zz(dbuf *f, zztype *zz)
+static u8 psd_dbuf_getbyte_zz(dbuf *f, zztype *zz)
 {
-	de_byte val = dbuf_getbyte(f, zz->pos);
+	u8 val = dbuf_getbyte(f, zz->pos);
 	zz->pos++;
 	return val;
 }
@@ -550,7 +550,7 @@ static void read_prefixed_string_to_ucstring(deark *c, lctx *d, de_ucstring *s, 
 }
 
 // Caller supplies ri_dst. This function will set its fields.
-static int lookup_rsrc(de_uint32 sig_id, de_uint16 n, struct rsrc_info *ri_dst)
+static int lookup_rsrc(u32 sig_id, u16 n, struct rsrc_info *ri_dst)
 {
 	i64 i;
 	int found = 0;
@@ -644,7 +644,7 @@ static void hrsrc_namesofalphachannels(deark *c, lctx *d, zztype *zz, const stru
 
 static void hrsrc_printflags(deark *c, lctx *d, zztype *zz, const struct rsrc_info *ri)
 {
-	de_byte fl[9];
+	u8 fl[9];
 	if(zz_avail(zz)!=9) return;
 	de_read(fl, zz->pos, 9);
 	de_dbg(c, "%s: labels=%d, crop marks=%d, color bars=%d, registration marks=%d, "
@@ -709,7 +709,7 @@ static void hrsrc_pathinfo(deark *c, lctx *d, zztype *zz, const struct rsrc_info
 static void hrsrc_printflagsinfo(deark *c, lctx *d, zztype *zz, const struct rsrc_info *ri)
 {
 	i64 version, bleed_width_value, bleed_width_scale;
-	de_byte crop_marks;
+	u8 crop_marks;
 
 	if(zz_avail(zz)!=10) return;
 	version = psd_getui16zz(zz);
@@ -954,7 +954,7 @@ static void dbg_print_flexible_id(deark *c, lctx *d,
 // The PSD spec calls this type "Boolean" (or "Boolean structure").
 static void do_item_type_bool(deark *c, lctx *d, zztype *zz)
 {
-	de_byte b;
+	u8 b;
 	b = psd_getbytezz(zz);
 	de_dbg(c, "value: %d", (int)b);
 }
@@ -1705,7 +1705,7 @@ static void hrsrc_thumbnail(deark *c, lctx *d, zztype *zz, const struct rsrc_inf
 // Handler for any resource that consists of a 1-byte numeric value
 static void hrsrc_byte(deark *c, lctx *d, zztype *zz, const struct rsrc_info *ri)
 {
-	de_byte b;
+	u8 b;
 	if(zz_avail(zz)!=1) return;
 	b = psd_getbytezz(zz);
 	de_dbg(c, "%s: %d", ri->idname, (int)b);
@@ -1811,7 +1811,7 @@ static void hrsrc_urllist(deark *c, lctx *d, zztype *zz, const struct rsrc_info 
 static void hrsrc_versioninfo(deark *c, lctx *d, zztype *zz, const struct rsrc_info *ri)
 {
 	i64 ver, file_ver;
-	de_byte b;
+	u8 b;
 	de_ucstring *s = NULL;
 
 	ver = psd_getui32zz(zz);
@@ -1926,7 +1926,7 @@ static int do_image_resource(deark *c, lctx *d, zztype *zz)
 	block_data_len = psd_getui32zz(zz);
 
 	// TODO: Are resource_ids "namespaced" based on the block signature?
-	lookup_rsrc(sig4cc.id, (de_uint16)resource_id, &ri);
+	lookup_rsrc(sig4cc.id, (u16)resource_id, &ri);
 
 	de_dbg(c, "%s rsrc 0x%04x (%s) pos=%d blkname=\"%s\" dpos=%d dlen=%d",
 		signame, (int)resource_id, ri.idname, (int)zz->startpos,
@@ -2013,7 +2013,7 @@ static int do_layer_record(deark *c, lctx *d, zztype *zz, struct channel_data *c
 	i64 extra_data_len;
 	struct de_fourcc tmp4cc;
 	i64 ch_id, ch_dlen;
-	de_byte b;
+	u8 b;
 	int i;
 	zztype czz;
 	zztype extradatazz;
@@ -2175,7 +2175,7 @@ static void do_uint32_block(deark *c, lctx *d, zztype *zz,
 static void do_boolean_block(deark *c, lctx *d, zztype *zz,
 	const struct de_fourcc *blk4cc, const char *name)
 {
-	de_byte value;
+	u8 value;
 	i64 len;
 
 	len = zz_avail(zz);
@@ -2203,7 +2203,7 @@ static void do_Layr_block(deark *c, lctx *d, zztype *zz, const struct de_fourcc 
 static void extract_linked_layer_blob(deark *c, lctx *d, i64 pos, i64 len)
 {
 	const char *ext = "layer.bin";
-	de_byte buf[8];
+	u8 buf[8];
 
 	if(len<1) return;
 
@@ -2237,7 +2237,7 @@ static int do_one_linked_layer(deark *c, lctx *d, zztype *zz, const struct de_fo
 	int retval = 0;
 	i64 dlen, dlen2=0;
 	i64 ver;
-	de_byte file_open_descr_flag;
+	u8 file_open_descr_flag;
 	struct de_fourcc type4cc;
 	struct de_fourcc tmp4cc;
 	de_ucstring *s = NULL;
@@ -2598,7 +2598,7 @@ static void do_lrFX_block(deark *c, lctx *d, zztype *zz, const struct de_fourcc 
 	i64 ver;
 	i64 count;
 	i64 i;
-	de_uint32 sig;
+	u32 sig;
 	struct de_fourcc sig4cc;
 
 	ver = psd_getui16zz(zz);
@@ -2614,7 +2614,7 @@ static void do_lrFX_block(deark *c, lctx *d, zztype *zz, const struct de_fourcc 
 		if(zz->pos>=zz->endpos) goto done;
 		epos = zz->pos;
 
-		sig = (de_uint32)psd_getui32zz(zz);
+		sig = (u32)psd_getui32zz(zz);
 		if(sig!=CODE_8BIM) {
 			de_warn(c, "Bad 'effects' block signature at %d", (int)zz->pos);
 			goto done;
@@ -2824,7 +2824,7 @@ static void do_filter_effect(deark *c, lctx *d, zztype *zz)
 	i64 x;
 	i64 ch;
 	i64 max_channels;
-	de_byte b;
+	u8 b;
 	zztype czz;
 	int saved_indent_level;
 	i64 filter_effects_savedpos;
@@ -2997,12 +2997,12 @@ static int do_tagged_block(deark *c, lctx *d, zztype *zz, int tbnamespace)
 	i64 blklen;
 	i64 blklen_len = 4; // Length of the block length field
 	struct de_fourcc blk4cc;
-	de_uint32 sig;
+	u32 sig;
 	zztype czz;
 
 	if(zz_avail(zz)<12) return 0;
 
-	sig = (de_uint32)psd_getui32zz(zz);
+	sig = (u32)psd_getui32zz(zz);
 	if(sig!=CODE_8BIM && sig!=CODE_8B64) {
 		de_warn(c, "Expected tagged block signature not found at %d", (int)zz->pos);
 		return 0;
@@ -3403,7 +3403,7 @@ static void do_action_set(deark *c, lctx *d, zztype *zz)
 	de_ucstring *s = NULL;
 	zztype czz;
 	int saved_indent_level;
-	de_byte b;
+	u8 b;
 
 	de_dbg_indent_save(c, &saved_indent_level);
 	ver = psd_getui32zz(zz);
@@ -3504,7 +3504,7 @@ done:
 
 static void do_external_tagged_blocks(deark *c, lctx *d, zztype *zz)
 {
-	de_uint32 code;
+	u32 code;
 
 	d->tagged_blocks_only = 1;
 	if(zz_avail(zz)<4) return;
@@ -3512,7 +3512,7 @@ static void do_external_tagged_blocks(deark *c, lctx *d, zztype *zz)
 	// Evidently, it is possible for this to use little-endian byte order. Weird.
 
 	// Peek at the first 4 bytes
-	code = (de_uint32)de_getui32le(0);
+	code = (u32)de_getui32le(0);
 	if(code==CODE_8BIM || code==CODE_8B64) {
 		d->is_le = 1;
 	}
@@ -3524,7 +3524,7 @@ static void do_psd_color_mode_data(deark *c, lctx *d, zztype *zz)
 {
 	i64 len;
 	i64 k;
-	de_byte r, g, b;
+	u8 r, g, b;
 	struct image_info *iinfo = d->main_iinfo;
 
 	len = zz_avail(zz);
@@ -3544,11 +3544,11 @@ static void do_psd_color_mode_data(deark *c, lctx *d, zztype *zz)
 	de_dbg_indent(c, -1);
 }
 
-static de_byte scale_float_to_255(double x)
+static u8 scale_float_to_255(double x)
 {
 	if(x<=0.0) return 0;
 	if(x>=1.0) return 255;
-	return (de_byte)(0.5+x*255.0);
+	return (u8)(0.5+x*255.0);
 }
 
 // Extract the primary image
@@ -3560,7 +3560,7 @@ static void do_bitmap(deark *c, lctx *d, const struct image_info *iinfo, dbuf *f
 	i64 i, j, plane;
 	i64 nplanes = 0; // Number of planes to read. May be less than d->num_channels.
 	i64 planespan, rowspan, samplespan;
-	de_byte b;
+	u8 b;
 
 	if(!de_good_image_dimensions(c, iinfo->width, iinfo->height)) goto done;
 
@@ -3990,11 +3990,11 @@ static void do_abr_v1(deark *c, lctx *d, zztype *zz)
 
 static void do_abr_v6(deark *c, lctx *d, zztype *zz)
 {
-	de_uint32 sig;
+	u32 sig;
 	zztype czz;
 
 	zz->pos += 4; // Version numbers(?), already read
-	sig = (de_uint32)psd_getui32(zz->pos);
+	sig = (u32)psd_getui32(zz->pos);
 	if(sig!=CODE_8BIM) {
 		de_err(c, "Bad signature or unsupported Brush format");
 		goto done;
@@ -4171,7 +4171,7 @@ static void de_run_ps_pattern(deark *c, de_module_params *mparams)
 
 static int de_identify_psd(deark *c)
 {
-	de_byte buf[4];
+	u8 buf[4];
 
 	de_read(buf, 0, 4);
 	if(!de_memcmp(buf, "8BPS", 4)) return 100;

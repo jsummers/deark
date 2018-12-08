@@ -9,8 +9,8 @@
 DE_DECLARE_MODULE(de_module_jovianvi);
 
 typedef struct localctx_struct {
-	de_byte imgtype;
-	de_byte pal_code;
+	u8 imgtype;
+	u8 pal_code;
 	i64 w, h;
 	i64 bitdepth;
 	i64 bits_alloc;
@@ -19,15 +19,15 @@ typedef struct localctx_struct {
 	i64 bitspos;
 	i64 pal_first_entry_idx;
 	i64 num_pal_colors;
-	de_uint32 pal[256];
+	u32 pal[256];
 } lctx;
 
 static void do_read_palette(deark *c, lctx *d)
 {
 	i64 k, z;
 	i64 idx;
-	de_byte b1[3];
-	de_byte b2[3];
+	u8 b1[3];
+	u8 b2[3];
 
 	de_dbg(c, "palette at %d", (int)d->palpos);
 	de_dbg_indent(c, 1);
@@ -65,7 +65,7 @@ static void do_read_palette(deark *c, lctx *d)
 static void do_convert_grayscale(deark *c, lctx *d, de_bitmap *img)
 {
 	int i, j;
-	de_byte v;
+	u8 v;
 
 	if(d->bitdepth==1) {
 		de_convert_image_bilevel(c->infile, d->bitspos, d->rowspan, img, 0);
@@ -91,15 +91,15 @@ done:
 static void do_convert_rgb(deark *c, lctx *d, de_bitmap *img)
 {
 	int i, j;
-	de_uint32 clr;
-	de_byte b0, b1;
+	u32 clr;
+	u8 b0, b1;
 
 	for(j=0; j<d->h; j++) {
 		for(i=0; i<d->w; i++) {
 			if(d->bitdepth==16) {
 				b0 = de_getbyte(d->bitspos + j*d->rowspan + i*2);
 				b1 = de_getbyte(d->bitspos + j*d->rowspan + i*2 + 1);
-				clr = (((de_uint32)b1)<<8) | b0;
+				clr = (((u32)b1)<<8) | b0;
 				clr = de_rgb565_to_888(clr);
 			}
 			else {
@@ -227,7 +227,7 @@ done:
 
 static int de_identify_jovianvi(deark *c)
 {
-	de_byte t;
+	u8 t;
 
 	if(dbuf_memcmp(c->infile, 0, "VI", 2)) return 0;
 	t = de_getbyte(2);

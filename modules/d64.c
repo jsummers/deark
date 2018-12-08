@@ -40,7 +40,7 @@ static i64 sector_offset(i64 track, i64 sector)
 }
 
 static void do_extract_file(deark *c, lctx *d, i64 dir_entry_pos,
-	de_byte file_type, i64 ftrack, i64 fsector, i64 nsectors)
+	u8 file_type, i64 ftrack, i64 fsector, i64 nsectors)
 {
 	i64 nsectors_written = 0;
 	i64 curtrack, cursector;
@@ -51,7 +51,7 @@ static void do_extract_file(deark *c, lctx *d, i64 dir_entry_pos,
 	de_ucstring *fname = NULL;
 	i64 fname_len;
 	i64 i;
-	de_byte z;
+	u8 z;
 
 	de_dbg(c, "extracting file: t=%d,s=%d,sectors=%d", (int)ftrack, (int)fsector,
 		(int)nsectors);
@@ -123,7 +123,7 @@ static void do_extract_file(deark *c, lctx *d, i64 dir_entry_pos,
 
 static void do_dir_entry(deark *c, lctx *d, i64 pos)
 {
-	de_byte file_type1, file_type;
+	u8 file_type1, file_type;
 	i64 ftrack, fsector;
 	i64 nsectors;
 	const char *file_type_str;

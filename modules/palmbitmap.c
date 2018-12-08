@@ -19,7 +19,7 @@ DE_DECLARE_MODULE(de_module_palmbitmap);
 #define CMPR_PACKBITS 2
 #define CMPR_NONE     0xff
 
-static const de_uint32 palm256pal[256] = {
+static const u32 palm256pal[256] = {
 	0xffffff,0xffccff,0xff99ff,0xff66ff,0xff33ff,0xff00ff,0xffffcc,0xffcccc,
 	0xff99cc,0xff66cc,0xff33cc,0xff00cc,0xffff99,0xffcc99,0xff9999,0xff6699,
 	0xff3399,0xff0099,0xccffff,0xccccff,0xcc99ff,0xcc66ff,0xcc33ff,0xcc00ff,
@@ -59,11 +59,11 @@ struct page_ctx {
 	i64 bitsperpixel;
 	i64 rowbytes;
 	int has_trns;
-	de_uint32 trns_value;
+	u32 trns_value;
 	int is_rgb;
-	de_byte bitmapversion;
+	u8 bitmapversion;
 	int has_custom_pal;
-	de_uint32 custom_pal[256];
+	u32 custom_pal[256];
 };
 
 typedef struct localctx_struct {
@@ -75,8 +75,8 @@ static int de_identify_palmbitmap_internal(deark *c, dbuf *f, i64 pos, i64 len)
 {
 	i64 w, h;
 	i64 rowbytes;
-	de_byte ver;
-	de_byte pixelsize;
+	u8 ver;
+	u8 pixelsize;
 
 	pixelsize = de_getbyte(pos+8);
 	if(pixelsize==0xff) {
@@ -110,8 +110,8 @@ static int do_decompress_scanline_compression(deark *c, lctx *d, struct page_ctx
 	i64 j;
 	i64 blocknum;
 	i64 blocksperrow;
-	de_byte bf;
-	de_byte dstb;
+	u8 bf;
+	u8 dstb;
 	unsigned int k;
 
 	blocksperrow = (pg->rowbytes+7)/8;
@@ -153,7 +153,7 @@ static int do_decompress_rle_compression(deark *c, lctx *d, struct page_ctx *pg,
 
 	while(srcpos <= (pos1+len-2)) {
 		i64 count;
-		de_byte val;
+		u8 val;
 
 		count = (i64)de_getbyte(srcpos++);
 		val = (i64)de_getbyte(srcpos++);
@@ -181,9 +181,9 @@ static void do_generate_unc_image(deark *c, lctx *d, struct page_ctx *pg,
 	dbuf *unc_pixels)
 {
 	i64 i, j;
-	de_byte b;
-	de_byte b_adj;
-	de_uint32 clr;
+	u8 b;
+	u8 b_adj;
+	u32 clr;
 	int has_color;
 	de_bitmap *img = NULL;
 
@@ -201,8 +201,8 @@ static void do_generate_unc_image(deark *c, lctx *d, struct page_ctx *pg,
 	for(j=0; j<pg->h; j++) {
 		for(i=0; i<pg->w; i++) {
 			if(pg->bitsperpixel==16) {
-				de_uint32 clr1;
-				clr1 = (de_uint32)dbuf_getui16be(unc_pixels, pg->rowbytes*j + 2*i);
+				u32 clr1;
+				clr1 = (u32)dbuf_getui16be(unc_pixels, pg->rowbytes*j + 2*i);
 				clr = de_rgb565_to_888(clr1);
 				de_bitmap_setpixel_rgb(img, i, j, clr);
 				if(pg->has_trns && clr1==pg->trns_value) {
@@ -225,7 +225,7 @@ static void do_generate_unc_image(deark *c, lctx *d, struct page_ctx *pg,
 
 				de_bitmap_setpixel_rgb(img, i, j, clr);
 
-				if(pg->has_trns && (de_uint32)b==pg->trns_value) {
+				if(pg->has_trns && (u32)b==pg->trns_value) {
 					de_bitmap_setsample(img, i, j, 3, 0);
 				}
 			}
@@ -365,8 +365,8 @@ static int read_BitmapType_colortable(deark *c, lctx *d, struct page_ctx *pg,
 static void do_BitmapDirectInfoType(deark *c, lctx *d, struct page_ctx *pg,
 	i64 pos)
 {
-	de_byte cbits[3];
-	de_byte t[4];
+	u8 cbits[3];
+	u8 t[4];
 
 	de_dbg(c, "BitmapDirectInfoType structure at %d", (int)pos);
 	de_dbg_indent(c, 1);
@@ -388,9 +388,9 @@ static void do_BitmapDirectInfoType(deark *c, lctx *d, struct page_ctx *pg,
 		// This appears to work (though it's quick & dirty, and only supports
 		// RGB565).
 		pg->trns_value =
-			((((de_uint32)t[1])&0xf8)<<8) |
-			((((de_uint32)t[2])&0xfc)<<3) |
-			((((de_uint32)t[3])&0xf8)>>3);
+			((((u32)t[1])&0xf8)<<8) |
+			((((u32)t[2])&0xfc)<<3) |
+			((((u32)t[3])&0xf8)>>3);
 	}
 	de_dbg_indent(c, -1);
 }
@@ -400,9 +400,9 @@ static void do_palm_BitmapType_internal(deark *c, lctx *d, i64 pos1, i64 len,
 {
 	i64 x;
 	i64 pos;
-	de_uint32 bitmapflags;
-	de_byte pixelsize_raw;
-	de_byte pixelformat = 0; // V3 only
+	u32 bitmapflags;
+	u8 pixelsize_raw;
+	u8 pixelformat = 0; // V3 only
 	i64 headersize;
 	i64 needed_rowbytes;
 	i64 bytes_consumed;
@@ -441,7 +441,7 @@ static void do_palm_BitmapType_internal(deark *c, lctx *d, i64 pos1, i64 len,
 	pg->rowbytes = dbuf_getui16x(c->infile, pos1+4, d->is_le);
 	de_dbg(c, "rowBytes: %d", (int)pg->rowbytes);
 
-	bitmapflags = (de_uint32)dbuf_getui16x(c->infile, pos1+6, d->is_le);
+	bitmapflags = (u32)dbuf_getui16x(c->infile, pos1+6, d->is_le);
 	flagsdescr = ucstring_create(c);
 	if(bitmapflags&PALMBMPFLAG_COMPRESSED) ucstring_append_flags_item(flagsdescr, "compressed");
 	if(bitmapflags&PALMBMPFLAG_HASCOLORTABLE) ucstring_append_flags_item(flagsdescr, "hasColorTable");
@@ -504,7 +504,7 @@ static void do_palm_BitmapType_internal(deark *c, lctx *d, i64 pos1, i64 len,
 
 	if(pg->bitmapversion==2 && (bitmapflags&PALMBMPFLAG_HASTRNS)) {
 		pg->has_trns = 1;
-		pg->trns_value = (de_uint32)de_getbyte(pos1+12);
+		pg->trns_value = (u32)de_getbyte(pos1+12);
 		de_dbg(c, "transparent color: %u", (unsigned int)pg->trns_value);
 	}
 
@@ -539,7 +539,7 @@ static void do_palm_BitmapType_internal(deark *c, lctx *d, i64 pos1, i64 len,
 	if(pg->bitmapversion==3 && (bitmapflags&PALMBMPFLAG_HASTRNS) && headersize>=20) {
 		// I'm assuming the flag affects this field. The spec is ambiguous.
 		pg->has_trns = 1;
-		pg->trns_value = (de_uint32)dbuf_getui32x(c->infile, pos1+16, d->is_le);
+		pg->trns_value = (u32)dbuf_getui32x(c->infile, pos1+16, d->is_le);
 		de_dbg(c, "transparent color: 0x%08x", (unsigned int)pg->trns_value);
 	}
 

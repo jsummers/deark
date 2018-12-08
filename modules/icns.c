@@ -8,7 +8,7 @@
 #include <deark-private.h>
 DE_DECLARE_MODULE(de_module_icns);
 
-static const de_uint32 pal16[16] = {
+static const u32 pal16[16] = {
 	0xffffff,0xfcf305,0xff6402,0xdd0806,0xf20884,0x4600a5,0x0000d4,0x02abea,
 	0x1fb714,0x006411,0x562c05,0x90713a,0xc0c0c0,0x808080,0x404040,0x000000
 };
@@ -19,7 +19,7 @@ static const de_uint32 pal16[16] = {
 #define IMGTYPE_IMAGE_AND_MASK  4
 
 struct image_type_info {
-	de_uint32 code;
+	u32 code;
 	int width;
 	int height;
 	int bpp; // bits per pixel. 0 = unspecified
@@ -93,7 +93,7 @@ typedef struct localctx_struct {
 	i64 mkpos_128_128_8;
 } lctx;
 
-static const de_uint32 supplpal256[41] = {
+static const u32 supplpal256[41] = {
 	0xee0000,0xdd0000,0xbb0000,0xaa0000,0x880000,
 	0x770000,0x550000,0x440000,0x220000,0x110000,
 	0x00ee00,0x00dd00,0x00bb00,0x00aa00,0x008800,
@@ -104,14 +104,14 @@ static const de_uint32 supplpal256[41] = {
 	0x777777,0x555555,0x444444,0x222222,0x111111,0x000000
 };
 
-static de_uint32 getpal256(int k)
+static u32 getpal256(int k)
 {
-	de_byte r, g, b;
+	u8 r, g, b;
 
 	if(k<0 || k>255) return 0;
 	if(k<=214) {
 		// The first 215 palette entries follow a simple pattern.
-		r = (de_byte)((5-k/36)*0x33);
+		r = (u8)((5-k/36)*0x33);
 		g = (5-(k%36)/6)*0x33;
 		b = (5-k%6)*0x33;
 		return DE_MAKE_RGB(r,g,b);
@@ -124,9 +124,9 @@ static void do_decode_1_4_8bit(deark *c, lctx *d, struct page_ctx *pg)
 {
 	de_bitmap *img = NULL;
 	i64 i, j;
-	de_byte a, b;
-	de_byte x;
-	de_uint32 fgcol;
+	u8 a, b;
+	u8 x;
+	u32 fgcol;
 	int bypp;
 
 	bypp = (pg->type_info->bpp==1)?2:4;
@@ -167,9 +167,9 @@ static void do_uncompress_24(deark *c, lctx *d, struct page_ctx *pg, dbuf *unc_p
 	i64 skip)
 {
 	i64 pos;
-	de_byte b;
+	u8 b;
 	i64 count;
-	de_byte n;
+	u8 n;
 
 	pos = pg->image_pos;
 	if(skip) pos+=4;
@@ -200,7 +200,7 @@ static void do_decode_24bit(deark *c, lctx *d, struct page_ctx *pg)
 	dbuf *unc_pixels = NULL;
 	de_bitmap *img = NULL;
 	i64 i, j;
-	de_byte cr, cg, cb, ca;
+	u8 cr, cg, cb, ca;
 	i64 w, h;
 	i64 skip;
 
@@ -245,7 +245,7 @@ static void do_decode_24bit(deark *c, lctx *d, struct page_ctx *pg)
 
 static void do_extract_png_or_jp2(deark *c, lctx *d, struct page_ctx *pg)
 {
-	de_byte buf[8];
+	u8 buf[8];
 	de_finfo *fi = NULL;
 
 	de_dbg(c, "Trying to extract file at %d", (int)pg->image_pos);

@@ -9,7 +9,7 @@
 DE_DECLARE_MODULE(de_module_rosprite);
 
 struct old_mode_info {
-	de_uint32 mode;
+	u32 mode;
 	int fgbpp;
 	int xdpi;
 	int ydpi;
@@ -79,7 +79,7 @@ struct page_ctx {
 	i64 width, height;
 	i64 xdpi, ydpi;
 	i64 pixels_to_ignore_at_start_of_row;
-	de_uint32 mode;
+	u32 mode;
 	int has_mask;
 #define MASK_TYPE_OLD    1 // Binary transparency, fgbpp bits/pixel
 #define MASK_TYPE_NEW_1  2 // Binary transparency, 8 bits/pixel
@@ -92,41 +92,41 @@ struct page_ctx {
 	int has_custom_palette;
 	i64 custom_palette_pos;
 	i64 custom_palette_ncolors;
-	de_uint32 pal[256];
+	u32 pal[256];
 };
 
 typedef struct localctx_struct {
 	i64 num_images;
 } lctx;
 
-static const de_uint32 pal4[4] = {
+static const u32 pal4[4] = {
 	0xffffff,0xbbbbbb,0x777777,0x000000
 };
 
-static de_uint32 getpal4(int k)
+static u32 getpal4(int k)
 {
 	if(k<0 || k>3) return 0;
 	return pal4[k];
 }
 
-static const de_uint32 pal16[16] = {
+static const u32 pal16[16] = {
 	0xffffff,0xdddddd,0xbbbbbb,0x999999,0x777777,0x555555,0x333333,0x000000,
 	0x4499ff,0xeeee00,0x00cc00,0xdd0000,0xeeeebb,0x558800,0xffbb00,0x00bbff
 };
 
-static de_uint32 getpal16(int k)
+static u32 getpal16(int k)
 {
 	if(k<0 || k>15) return 0;
 	return pal16[k];
 }
 
-static de_uint32 getpal256(int k)
+static u32 getpal256(int k)
 {
-	de_byte r, g, b;
+	u8 r, g, b;
 	if(k<0 || k>255) return 0;
 	r = k%8 + ((k%32)/16)*8;
 	g = k%4 + ((k%128)/32)*4;
-	b = (de_byte)(k%4 + ((k%16)/8)*4 + (k/128)*8);
+	b = (u8)(k%4 + ((k%16)/8)*4 + (k/128)*8);
 	r = (r<<4)|r;
 	g = (g<<4)|g;
 	b = (b<<4)|b;
@@ -137,8 +137,8 @@ static void do_image(deark *c, lctx *d, struct page_ctx *pg, de_finfo *fi)
 {
 	de_bitmap *img = NULL;
 	i64 i, j;
-	de_byte n;
-	de_uint32 clr;
+	u8 n;
+	u32 clr;
 	int is_grayscale;
 	int bypp;
 
@@ -171,7 +171,7 @@ static void do_image(deark *c, lctx *d, struct page_ctx *pg, de_finfo *fi)
 				clr = dbuf_getRGB(c->infile, pg->image_offset + 4*pg->width_in_words*j + 4*i, 0);
 			}
 			else if(pg->fgbpp==16) {
-				clr = (de_uint32)de_getui16le(pg->image_offset + 4*pg->width_in_words*j + i*2);
+				clr = (u32)de_getui16le(pg->image_offset + 4*pg->width_in_words*j + i*2);
 				clr = de_bgr555_to_888(clr);
 			}
 			else {
@@ -203,20 +203,20 @@ static void do_image(deark *c, lctx *d, struct page_ctx *pg, de_finfo *fi)
 	de_bitmap_destroy(img);
 }
 
-static de_uint32 average_color(de_uint32 c1, de_uint32 c2)
+static u32 average_color(u32 c1, u32 c2)
 {
-	de_byte a, r, g, b;
-	a = ((de_uint32)DE_COLOR_A(c1) + DE_COLOR_A(c2))/2;
-	r = ((de_uint32)DE_COLOR_R(c1) + DE_COLOR_R(c2))/2;
-	g = ((de_uint32)DE_COLOR_G(c1) + DE_COLOR_G(c2))/2;
-	b = ((de_uint32)DE_COLOR_B(c1) + DE_COLOR_B(c2))/2;
+	u8 a, r, g, b;
+	a = ((u32)DE_COLOR_A(c1) + DE_COLOR_A(c2))/2;
+	r = ((u32)DE_COLOR_R(c1) + DE_COLOR_R(c2))/2;
+	g = ((u32)DE_COLOR_G(c1) + DE_COLOR_G(c2))/2;
+	b = ((u32)DE_COLOR_B(c1) + DE_COLOR_B(c2))/2;
 	return DE_MAKE_RGBA(r,g,b,a);
 }
 
 static void do_setup_palette(deark *c, lctx *d, struct page_ctx *pg)
 {
 	i64 k;
-	de_uint32 clr1, clr2, clr3;
+	u32 clr1, clr2, clr3;
 
 	if(pg->fgbpp>8) {
 		return;
@@ -322,7 +322,7 @@ static void do_sprite(deark *c, lctx *d, i64 index,
 	de_dbg(c, "first bit: %d, last bit: %d", (int)pg->first_bit, (int)pg->last_bit);
 	de_dbg(c, "image offset: %d, mask_offset: %d", (int)pg->image_offset, (int)pg->mask_offset);
 
-	pg->mode = (de_uint32)de_getui32le(pos1+40);
+	pg->mode = (u32)de_getui32le(pos1+40);
 	de_dbg(c, "mode: 0x%08x", (unsigned int)pg->mode);
 
 	de_dbg_indent(c, 1);

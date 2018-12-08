@@ -13,7 +13,7 @@ struct member_data {
 #define TARFMT_POSIX    1
 #define TARFMT_GNU      2
 	int fmt;
-	de_byte linkflag;
+	u8 linkflag;
 	i64 mode;
 	i64 filesize;
 	de_ucstring *filename;
@@ -42,7 +42,7 @@ static int read_member(deark *c, lctx *d, i64 pos1, i64 *bytes_consumed_member)
 	char timestamp_buf[64];
 	i64 ext_name_len;
 	size_t rawname_sz_len;
-	de_byte linkflag1;
+	u8 linkflag1;
 	de_ucstring *rawname = NULL;
 	i64 modtime_unix;
 	int is_dir, is_regular_file;
@@ -75,7 +75,7 @@ static int read_member(deark *c, lctx *d, i64 pos1, i64 *bytes_consumed_member)
 
 	linkflag1 = de_getbyte(pos1+156);
 
-	de_read((de_byte*)magic, 257, 8);
+	de_read((u8*)magic, 257, 8);
 	if(!de_memcmp(magic, (const void*)"ustar  \0", 8)) {
 		md->fmt = TARFMT_GNU;
 	}
@@ -109,7 +109,7 @@ static int read_member(deark *c, lctx *d, i64 pos1, i64 *bytes_consumed_member)
 	de_dbg(c, "header at %d", (int)pos);
 	de_dbg_indent(c, 1);
 
-	de_read((de_byte*)rawname_sz, pos, 99);
+	de_read((u8*)rawname_sz, pos, 99);
 	rawname_sz[99] = '\0';
 	pos += 100;
 	rawname_sz_len = de_strlen(rawname_sz);
@@ -117,7 +117,7 @@ static int read_member(deark *c, lctx *d, i64 pos1, i64 *bytes_consumed_member)
 	md->fi = de_finfo_create(c);
 
 	rawname = ucstring_create(c);
-	ucstring_append_bytes(rawname, (const de_byte*)rawname_sz, rawname_sz_len, 0, DE_ENCODING_UTF8);
+	ucstring_append_bytes(rawname, (const u8*)rawname_sz, rawname_sz_len, 0, DE_ENCODING_UTF8);
 	de_dbg(c, "member raw name: \"%s\"", ucstring_getpsz(rawname));
 
 	if(md->filename->len==0) {
@@ -263,7 +263,7 @@ static void de_run_tar(deark *c, de_module_params *mparams)
 static int de_identify_tar(deark *c)
 {
 	int has_ext;
-	de_byte buf[8];
+	u8 buf[8];
 	i64 k;
 	i64 digit_count;
 

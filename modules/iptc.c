@@ -20,12 +20,12 @@ typedef void (*ds_handler_fn)(deark *c, lctx *d, const struct ds_info *dsi,
 	i64 pos, i64 len);
 
 struct ds_info {
-	de_byte recnum;
-	de_byte dsnum;
+	u8 recnum;
+	u8 dsnum;
 
 	// 0x1 = A field consisting entirely of text ("graphic characters",
 	//       "alphabetic characters", "numeric characters, "spaces", etc.)
-	de_uint32 flags;
+	u32 flags;
 
 	const char *dsname;
 	ds_handler_fn hfn;
@@ -124,7 +124,7 @@ static const struct ds_info ds_info_arr[] = {
 	{ 9, 10,  0,      "Confirmed ObjectData Size", NULL }
 };
 
-static int get_ds_encoding(deark *c, lctx *d, de_byte recnum)
+static int get_ds_encoding(deark *c, lctx *d, u8 recnum)
 {
 	if(recnum>=2 && recnum<=6) {
 		return d->charset;
@@ -201,7 +201,7 @@ static void handle_2_125(deark *c, lctx *d, const struct ds_info *dsi,
 	dbuf *unc_pixels = NULL;
 	de_bitmap *img = NULL;
 	i64 i, j;
-	de_byte b;
+	u8 b;
 	i64 rowspan;
 	i64 width, height;
 
@@ -228,7 +228,7 @@ static void handle_2_125(deark *c, lctx *d, const struct ds_info *dsi,
 }
 
 // Caller supplies dsi. This function will set its fields.
-static int lookup_ds_info(de_byte recnum, de_byte dsnum, struct ds_info *dsi)
+static int lookup_ds_info(u8 recnum, u8 dsnum, struct ds_info *dsi)
 {
 	size_t i;
 
@@ -308,8 +308,8 @@ static void handle_uint16(deark *c, lctx *d, const struct ds_info *dsi,
 static int do_dataset(deark *c, lctx *d, i64 ds_idx, i64 pos1,
 	i64 *bytes_consumed)
 {
-	de_byte b;
-	de_byte recnum, dsnum;
+	u8 b;
+	u8 recnum, dsnum;
 	int retval = 0;
 	i64 pos = pos1;
 	i64 dflen;
@@ -398,7 +398,7 @@ static void de_run_iptc(deark *c, de_module_params *mparams)
 
 static int de_identify_iptc(deark *c)
 {
-	de_byte b;
+	u8 b;
 
 	// First byte of each dataset is 0x1c.
 	if(de_getbyte(0)!=0x1c) return 0;

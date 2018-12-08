@@ -14,14 +14,14 @@ typedef struct localctx_struct {
 	i64 base_addr, offset_from_base, data_size;
 
 	int has_pcpaint_sig;
-	de_byte pcpaint_pal_num;
-	de_byte pcpaint_border_col;
+	u8 pcpaint_pal_num;
+	u8 pcpaint_border_col;
 
 	int interlaced;
 	int has_dimension_fields;
 
 	int pal_valid;
-	de_uint32 pal[256];
+	u32 pal[256];
 } lctx;
 
 // Return a width that might be overridden by user request.
@@ -49,9 +49,9 @@ static int do_cga16(deark *c, lctx *d)
 	i64 max_possible_height;
 	i64 i, j;
 	int retval = 0;
-	de_byte charcode, colorcode;
+	u8 charcode, colorcode;
 	i64 src_rowspan;
-	de_byte color0, color1;
+	u8 color0, color1;
 	int charwarning = 0;
 
 	de_declare_fmt(c, "BSAVE-PC 16-color CGA pseudo-graphics");
@@ -114,8 +114,8 @@ done:
 static int do_4color(deark *c, lctx *d)
 {
 	// TODO: This may not be the right palette.
-	static const de_uint32 default_palette[4] = { 0x000000, 0x55ffff, 0xff55ff, 0xffffff };
-	de_uint32 palette[4];
+	static const u32 default_palette[4] = { 0x000000, 0x55ffff, 0xff55ff, 0xffffff };
+	u32 palette[4];
 	int palent;
 	i64 i,j;
 	i64 pos;
@@ -247,8 +247,8 @@ static int do_2color(deark *c, lctx *d)
 static int do_256color(deark *c, lctx *d)
 {
 	i64 i, j;
-	de_byte palent;
-	de_uint32 clr;
+	u8 palent;
+	u32 clr;
 	de_bitmap *img = NULL;
 
 	de_declare_fmt(c, "BSAVE-PC 256-color");
@@ -287,8 +287,8 @@ static int do_wh16(deark *c, lctx *d)
 	i64 src_rowspan1;
 	i64 src_rowspan;
 	i64 pos;
-	de_byte palent;
-	de_byte b0, b1, b2, b3;
+	u8 palent;
+	u8 b0, b1, b2, b3;
 
 	de_declare_fmt(c, "BSAVE-PC 16-color, interlaced, 11-byte header");
 
@@ -326,8 +326,8 @@ static int do_wh16(deark *c, lctx *d)
 // A strange 2-bits/2-pixel color format.
 static int do_b265(deark *c, lctx *d)
 {
-	static const de_uint32 palette1[4] = { 0xffffff, 0x55ffff, 0x000000, 0xffffff };
-	static const de_uint32 palette2[4] = { 0xffffff, 0x000000, 0x000000, 0x000000 };
+	static const u32 palette1[4] = { 0xffffff, 0x55ffff, 0x000000, 0xffffff };
+	static const u32 palette2[4] = { 0xffffff, 0x000000, 0x000000, 0x000000 };
 	int palent;
 	i64 i,j;
 	i64 bits_per_scanline;
@@ -367,9 +367,9 @@ static void do_char_1screen(deark *c, lctx *d, struct de_char_screen *screen, i6
 {
 	i64 i, j;
 	unsigned int ch;
-	de_byte fgcol, bgcol;
+	u8 fgcol, bgcol;
 	i64 offset;
-	de_byte b0, b1;
+	u8 b0, b1;
 
 	screen->width = width;
 	screen->height = height;
@@ -391,10 +391,10 @@ static void do_char_1screen(deark *c, lctx *d, struct de_char_screen *screen, i6
 			fgcol = (b1 & 0x0f);
 			bgcol = (b1 & 0xf0) >> 4;
 
-			screen->cell_rows[j][i].fgcol = (de_uint32)fgcol;
-			screen->cell_rows[j][i].bgcol = (de_uint32)bgcol;
-			screen->cell_rows[j][i].codepoint = (de_int32)ch;
-			screen->cell_rows[j][i].codepoint_unicode = de_char_to_unicode(c, (de_int32)ch, DE_ENCODING_CP437_G);
+			screen->cell_rows[j][i].fgcol = (u32)fgcol;
+			screen->cell_rows[j][i].bgcol = (u32)bgcol;
+			screen->cell_rows[j][i].codepoint = (i32)ch;
+			screen->cell_rows[j][i].codepoint_unicode = de_char_to_unicode(c, (i32)ch, DE_ENCODING_CP437_G);
 		}
 	}
 }
@@ -477,7 +477,7 @@ static int do_read_palette_file(deark *c, lctx *d, const char *palfn)
 	dbuf *f = NULL;
 	int retval = 0;
 	i64 i;
-	de_byte buf[3];
+	u8 buf[3];
 
 	de_dbg(c, "reading palette file %s", palfn);
 
@@ -508,7 +508,7 @@ static void de_run_bsave(deark *c, de_module_params *mparams)
 	const char *bsavefmt;
 	const char *s;
 	lctx *d;
-	de_byte sig[14];
+	u8 sig[14];
 	decoder_fn_type decoder_fn = NULL;
 
 	d = de_malloc(c, sizeof(lctx));

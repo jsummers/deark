@@ -16,14 +16,14 @@ typedef struct localctx_struct {
 } lctx;
 
 // Returns 0-63 if successful, 255 for invalid character.
-static de_byte get_char_value(de_byte b)
+static u8 get_char_value(u8 b)
 {
 	int k;
-	static const de_byte binhexchars[] =
+	static const u8 binhexchars[] =
 		"!\"#$%&'()*+,-012345689@ABCDEFGHIJKLMNPQRSTUVXYZ[`abcdefhijklmpqr";
 
 	for(k=0; k<64; k++) {
-		if(b==binhexchars[k]) return (de_byte)k;
+		if(b==binhexchars[k]) return (u8)k;
 	}
 	return 255;
 }
@@ -32,9 +32,9 @@ static de_byte get_char_value(de_byte b)
 // Returns 0 if there was an error.
 static int do_decode_main(deark *c, lctx *d, i64 pos)
 {
-	de_byte b;
-	de_byte x;
-	de_byte pending_byte = 0;
+	u8 b;
+	u8 x;
+	u8 pending_byte = 0;
 	unsigned int pending_bits_used = 0;
 
 	while(1) {
@@ -83,7 +83,7 @@ static int do_decode_main(deark *c, lctx *d, i64 pos)
 	return 1;
 }
 
-static void our_writecallback(dbuf *f, const de_byte *buf, i64 buf_len)
+static void our_writecallback(dbuf *f, const u8 *buf, i64 buf_len)
 {
 	struct de_crcobj *crco = (struct de_crcobj*)f->userdata;
 	de_crcobj_addbuf(crco, buf, buf_len);
@@ -93,8 +93,8 @@ static void our_writecallback(dbuf *f, const de_byte *buf, i64 buf_len)
 static int do_extract_one_file(deark *c, lctx *d, dbuf *inf, i64 pos,
 	i64 len, de_finfo *fi, const char *forkname)
 {
-	de_uint32 crc_reported;
-	de_uint32 crc_calc;
+	u32 crc_reported;
+	u32 crc_calc;
 	dbuf *outf = NULL;
 
 	if(len==0) return 1;
@@ -118,9 +118,9 @@ static int do_extract_one_file(deark *c, lctx *d, dbuf *inf, i64 pos,
 	// calculation, to account for the CRC field itself. However, if I do
 	// that, none of files I've tested have the correct CRC. If I don't,
 	// all of them have the correct CRC.
-	//de_crcobj_addbuf(d->crco, (const de_byte*)"\0\0", 2);
+	//de_crcobj_addbuf(d->crco, (const u8*)"\0\0", 2);
 
-	crc_reported = (de_uint32)dbuf_getui16be(inf, pos+len);
+	crc_reported = (u32)dbuf_getui16be(inf, pos+len);
 	de_dbg(c, "%s fork crc (reported): 0x%04x", forkname,
 		(unsigned int)crc_reported);
 
@@ -143,7 +143,7 @@ static void do_extract_files(deark *c, lctx *d)
 	de_finfo *fi_d = NULL;
 	i64 pos;
 	i64 dlen, rlen;
-	de_uint32 hc; // Header CRC
+	u32 hc; // Header CRC
 	de_ucstring *fname = NULL;
 
 	f = d->decompressed;
@@ -178,7 +178,7 @@ static void do_extract_files(deark *c, lctx *d)
 
 	dlen = dbuf_getui32be(f, pos+10);
 	rlen = dbuf_getui32be(f, pos+14);
-	hc = (de_uint32)dbuf_getui16be(f, pos+18);
+	hc = (u32)dbuf_getui16be(f, pos+18);
 
 	de_dbg(c, "data fork len: %d", (int)dlen);
 	de_dbg(c, "resource fork len: %d", (int)rlen);
@@ -239,13 +239,13 @@ done:
 static int find_start(deark *c, i64 *foundpos)
 {
 	i64 pos;
-	de_byte b;
+	u8 b;
 	int ret;
 
 	*foundpos = 0;
 
 	ret = dbuf_search(c->infile,
-		(const de_byte*)"(This file must be converted with BinHex", 40,
+		(const u8*)"(This file must be converted with BinHex", 40,
 		0, 8192, &pos);
 	if(!ret) return 0;
 

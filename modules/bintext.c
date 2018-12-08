@@ -17,10 +17,10 @@ DE_DECLARE_MODULE(de_module_icedraw);
 typedef struct localctx_struct {
 	i64 width_in_chars, height_in_chars;
 	i64 font_height;
-	de_byte has_palette, has_font, compression, nonblink, has_512chars;
+	u8 has_palette, has_font, compression, nonblink, has_512chars;
 
 	i64 font_data_len;
-	de_byte *font_data;
+	u8 *font_data;
 	int is_standard_font;
 	struct de_bitmap_font *font;
 } lctx;
@@ -28,8 +28,8 @@ typedef struct localctx_struct {
 static void do_bin_main(deark *c, lctx *d, dbuf *unc_data, struct de_char_context *charctx)
 {
 	i64 i, j;
-	de_byte ccode, acode;
-	de_byte fgcol, bgcol;
+	u8 ccode, acode;
+	u8 fgcol, bgcol;
 	struct de_char_screen *screen;
 
 	charctx->nscreens = 1;
@@ -55,10 +55,10 @@ static void do_bin_main(deark *c, lctx *d, dbuf *unc_data, struct de_char_contex
 			fgcol = (acode & 0x0f);
 			bgcol = (acode & 0xf0) >> 4;
 
-			screen->cell_rows[j][i].fgcol = (de_uint32)fgcol;
-			screen->cell_rows[j][i].bgcol = (de_uint32)bgcol;
-			screen->cell_rows[j][i].codepoint = (de_int32)ccode;
-			screen->cell_rows[j][i].codepoint_unicode = de_char_to_unicode(c, (de_int32)ccode, DE_ENCODING_CP437_G);
+			screen->cell_rows[j][i].fgcol = (u32)fgcol;
+			screen->cell_rows[j][i].bgcol = (u32)bgcol;
+			screen->cell_rows[j][i].codepoint = (i32)ccode;
+			screen->cell_rows[j][i].codepoint_unicode = de_char_to_unicode(c, (i32)ccode, DE_ENCODING_CP437_G);
 		}
 	}
 
@@ -68,11 +68,11 @@ static void do_bin_main(deark *c, lctx *d, dbuf *unc_data, struct de_char_contex
 static void do_uncompress_data(deark *c, lctx *d, i64 pos1, dbuf *unc_data)
 {
 	i64 pos;
-	de_byte cmprtype;
+	u8 cmprtype;
 	i64 count;
 	i64 xpos, ypos;
-	de_byte b;
-	de_byte b1, b2;
+	u8 b;
+	u8 b1, b2;
 	i64 k;
 
 	pos = pos1;
@@ -132,8 +132,8 @@ static void do_read_palette(deark *c, lctx *d,struct de_char_context *charctx,
 	i64 pos, int adf_style)
 {
 	i64 k;
-	de_byte cr1, cg1, cb1;
-	de_byte cr2, cg2, cb2;
+	u8 cr1, cg1, cb1;
+	u8 cr2, cg2, cb2;
 	i64 cpos;
 	char tmps[64];
 
@@ -181,7 +181,7 @@ static void do_extract_font(deark *c, lctx *d)
 
 static void do_read_font_data(deark *c, lctx *d, i64 pos)
 {
-	de_uint32 crc;
+	u32 crc;
 	struct de_crcobj *crco;
 
 	de_dbg(c, "font at %d, %d bytes", (int)pos, (int)d->font_data_len);
@@ -226,9 +226,9 @@ static int do_generate_font(deark *c, lctx *d)
 	d->font->char_array = de_malloc(c, d->font->num_chars * sizeof(struct de_bitmap_font_char));
 
 	for(i=0; i<d->font->num_chars; i++) {
-		d->font->char_array[i].codepoint_nonunicode = (de_int32)i;
+		d->font->char_array[i].codepoint_nonunicode = (i32)i;
 		d->font->char_array[i].codepoint_unicode =
-			de_char_to_unicode(c, (de_int32)i, DE_ENCODING_CP437_G);
+			de_char_to_unicode(c, (i32)i, DE_ENCODING_CP437_G);
 		d->font->char_array[i].width = d->font->nominal_width;
 		d->font->char_array[i].height = d->font->nominal_height;
 		d->font->char_array[i].rowspan = 1;
@@ -255,7 +255,7 @@ static void de_run_xbin(deark *c, de_module_params *mparams)
 	struct de_SAUCE_detection_data sdd;
 	struct de_SAUCE_info *si = NULL;
 	i64 pos = 0;
-	de_byte flags;
+	u8 flags;
 	dbuf *unc_data = NULL;
 
 	d = de_malloc(c, sizeof(lctx));
@@ -584,7 +584,7 @@ done:
 
 static int de_identify_artworx_adf(deark *c)
 {
-	de_byte ver;
+	u8 ver;
 
 	// TODO: This detection algorithm will fail if there is a SAUCE record.
 

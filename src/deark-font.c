@@ -34,15 +34,15 @@ void de_destroy_bitmap_font(deark *c, struct de_bitmap_font *font)
 // Paint a character at the given index in the given font, to the given bitmap.
 void de_font_paint_character_idx(deark *c, de_bitmap *img,
 	struct de_bitmap_font *font, i64 char_idx,
-	i64 xpos, i64 ypos, de_uint32 fgcol, de_uint32 bgcol,
+	i64 xpos, i64 ypos, u32 fgcol, u32 bgcol,
 	unsigned int flags)
 {
 	i64 i, j;
 	i64 i_src; // -1 = No source position
 	i64 j_src;
-	de_byte x;
+	u8 x;
 	int fg;
-	de_uint32 clr;
+	u32 clr;
 	struct de_bitmap_font_char *ch;
 	i64 num_x_pixels_to_paint;
 	int vga9col_flag = 0;
@@ -109,7 +109,7 @@ void de_font_paint_character_idx(deark *c, de_bitmap *img,
 // 'codepoint' is expected to be a Unicode codepoint. If the font does not
 // have Unicode codepoints, the non-Unicode codepoint will be used instead.
 // Returns -1 if not found.
-static i64 get_char_idx_by_cp(deark *c, struct de_bitmap_font *font, de_int32 codepoint)
+static i64 get_char_idx_by_cp(deark *c, struct de_bitmap_font *font, i32 codepoint)
 {
 	i64 i;
 
@@ -133,8 +133,8 @@ static i64 get_char_idx_by_cp(deark *c, struct de_bitmap_font *font, de_int32 co
 // 'codepoint' is expected to be a Unicode codepoint. If the font does not
 // have Unicode codepoints, the non-Unicode codepoint will be used instead.
 void de_font_paint_character_cp(deark *c, de_bitmap *img,
-	struct de_bitmap_font *font, de_int32 codepoint,
-	i64 xpos, i64 ypos, de_uint32 fgcol, de_uint32 bgcol, unsigned int flags)
+	struct de_bitmap_font *font, i32 codepoint,
+	i64 xpos, i64 ypos, u32 fgcol, u32 bgcol, unsigned int flags)
 {
 	i64 char_idx;
 
@@ -154,8 +154,8 @@ void de_font_paint_character_cp(deark *c, de_bitmap *img,
 }
 
 struct dfont_char_data {
-	de_int32 codepoint_unicode;
-	de_byte bitmap[7];
+	i32 codepoint_unicode;
+	u8 bitmap[7];
 };
 
 static const struct dfont_char_data dfont_data[16] = {
@@ -194,7 +194,7 @@ static struct de_bitmap_font *make_digit_font(deark *c)
 		dfont->char_array[i].width = dfont->nominal_width;
 		dfont->char_array[i].height = dfont->nominal_height;
 		dfont->char_array[i].rowspan = 1;
-		dfont->char_array[i].bitmap = (de_byte*)dfont_data[i].bitmap;
+		dfont->char_array[i].bitmap = (u8*)dfont_data[i].bitmap;
 	}
 
 	return dfont;
@@ -202,14 +202,14 @@ static struct de_bitmap_font *make_digit_font(deark *c)
 
 struct font_render_ctx {
 	struct de_bitmap_font *font;
-	de_int32 min_codepoint; // currently unused
-	de_int32 max_codepoint;
+	i32 min_codepoint; // currently unused
+	i32 max_codepoint;
 	i64 num_valid_chars;
 	int render_as_unicode;
 
 	// Array of the actual codepoints we will use when dumping the font
 	// to an image. Size is font->num_chars.
-	de_int32 *codepoint_tmp;
+	i32 *codepoint_tmp;
 };
 
 #define DNFLAG_HEX            0x1
@@ -280,10 +280,10 @@ static void get_min_max_codepoint(struct font_render_ctx *fctx)
 static void fixup_codepoints(deark *c, struct font_render_ctx *fctx)
 {
 	i64 i;
-	de_int32 c1;
+	i32 c1;
 	i64 num_uncoded_chars = 0;
-	de_byte *used_codepoint_map = NULL;
-	de_byte codepoint_already_used;
+	u8 *used_codepoint_map = NULL;
+	u8 codepoint_already_used;
 
 	if(!fctx->render_as_unicode) {
 		for(i=0; i<fctx->font->num_chars; i++) {
@@ -317,7 +317,7 @@ static void fixup_codepoints(deark *c, struct font_render_ctx *fctx)
 			}
 			// Move uncoded characters to a Private Use area.
 			// (Supplementary Private Use Area-A = U+F0000 - U+FFFFD)
-			fctx->codepoint_tmp[i] = (de_int32)(DE_CODEPOINT_MOVED + num_uncoded_chars);
+			fctx->codepoint_tmp[i] = (i32)(DE_CODEPOINT_MOVED + num_uncoded_chars);
 			num_uncoded_chars++;
 		}
 		else {
@@ -330,7 +330,7 @@ done:
 }
 
 struct row_info_struct {
-	de_byte is_visible;
+	u8 is_visible;
 	i64 display_pos;
 };
 
@@ -396,7 +396,7 @@ void de_font_bitmap_font_to_image(deark *c, struct de_bitmap_font *font1, de_fin
 
 	dfont = make_digit_font(c);
 
-	fctx->codepoint_tmp = de_malloc(c, fctx->font->num_chars * sizeof(de_int32));
+	fctx->codepoint_tmp = de_malloc(c, fctx->font->num_chars * sizeof(i32));
 	fixup_codepoints(c, fctx);
 
 	get_min_max_codepoint(fctx);
@@ -576,7 +576,7 @@ done:
 // This function is quick and dirty. Ideally we would:
 // * look at each character, instead or requiring the whole font to be identical
 // * recognize fonts with other character sets
-int de_font_is_standard_vga_font(deark *c, de_uint32 crc)
+int de_font_is_standard_vga_font(deark *c, u32 crc)
 {
 	switch(crc) {
 	case 0x2c3cf7d2U: // e.g.: ndh - Ada.xb

@@ -14,20 +14,20 @@ typedef struct localctx_struct {
 	unsigned int palette_flag;
 	i64 bpp;
 	i64 width, height;
-	de_uint32 pal[256];
+	u32 pal[256];
 } lctx;
 
 static void do_read_palette(deark *c, lctx *d, i64 pos, i64 ncolors)
 {
 	i64 k;
-	de_uint32 n1, n2;
+	u32 n1, n2;
 	char tmps[32];
 
 	de_dbg(c, "CLUT block at %d", (int)pos);
 	de_dbg_indent(c, 1);
 
 	for(k=0; k<ncolors && k<256; k++) {
-		n1 = (de_uint32)de_getui16le(pos + 2*k);
+		n1 = (u32)de_getui16le(pos + 2*k);
 		n2 = de_bgr555_to_888(n1);
 		de_snprintf(tmps, sizeof(tmps), "0x%04x "DE_CHAR_RIGHTARROW" ", (unsigned int)n1);
 		de_dbg_pal_entry2(c, k, n2, tmps, NULL, NULL);

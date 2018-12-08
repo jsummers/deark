@@ -16,18 +16,18 @@ typedef struct localctx_struct {
 	i64 wmf_windows_version;
 	unsigned int num_objects;
 	dbuf *embedded_emf;
-	de_byte *object_table;
+	u8 *object_table;
 } lctx;
 
 struct escape_info {
-	de_uint16 escfn;
+	u16 escfn;
 	const char *name;
 	void *reserved1;
 };
 
 struct decoder_params {
-	de_uint16 recfunc;
-	de_byte rectype; // low byte of recfunc
+	u16 recfunc;
+	u8 rectype; // low byte of recfunc
 	i64 recpos;
 	i64 recsize_words; // total record size in 16-bit units
 	i64 recsize_bytes; // total record size in bytes
@@ -39,18 +39,18 @@ struct decoder_params {
 typedef int (*record_decoder_fn)(deark *c, lctx *d, struct decoder_params *dp);
 
 struct wmf_func_info {
-	de_byte rectype; // Low byte of the RecordFunction field
+	u8 rectype; // Low byte of the RecordFunction field
 	// Flags:
 	//  0x1: Creates an object
-	de_byte flags;
+	u8 flags;
 	const char *name;
 	record_decoder_fn fn;
 };
 
 // Note: This is duplicated in emf.c
-static de_uint32 colorref_to_color(de_uint32 colorref)
+static u32 colorref_to_color(u32 colorref)
 {
-	de_uint32 r,g,b;
+	u32 r,g,b;
 	r = DE_COLOR_B(colorref);
 	g = DE_COLOR_G(colorref);
 	b = DE_COLOR_R(colorref);
@@ -58,9 +58,9 @@ static de_uint32 colorref_to_color(de_uint32 colorref)
 }
 
 // Note: This is duplicated in emf.c
-static void do_dbg_colorref(deark *c, lctx *d, struct decoder_params *dp, de_uint32 colorref)
+static void do_dbg_colorref(deark *c, lctx *d, struct decoder_params *dp, u32 colorref)
 {
-	de_uint32 clr;
+	u32 clr;
 	char csamp[16];
 
 	clr = colorref_to_color(colorref);
@@ -70,10 +70,10 @@ static void do_dbg_colorref(deark *c, lctx *d, struct decoder_params *dp, de_uin
 
 static int handler_colorref(deark *c, lctx *d, struct decoder_params *dp)
 {
-	de_uint32 colorref;
+	u32 colorref;
 
 	if(dp->dlen<4) goto done;
-	colorref = (de_uint32)de_getui32le(dp->dpos);
+	colorref = (u32)de_getui32le(dp->dpos);
 	do_dbg_colorref(c, d, dp, colorref);
 done:
 	return 1;
@@ -321,13 +321,13 @@ done:
 
 static int wmf_handler_ESCAPE(deark *c, lctx *d, struct decoder_params *dp)
 {
-	de_uint16 escfn;
+	u16 escfn;
 	i64 bytecount = 0;
 	const struct escape_info *einfo = NULL;
 	const char *name;
 	size_t k;
 
-	escfn = (de_uint16)de_getui16le(dp->dpos);
+	escfn = (u16)de_getui16le(dp->dpos);
 
 	// Find the name, etc. of this record type
 	for(k=0; k<DE_ITEMS_IN_ARRAY(escape_info_arr); k++) {
@@ -367,14 +367,14 @@ static int wmf_handler_EXTTEXTOUT(deark *c, lctx *d, struct decoder_params *dp)
 	i64 pos = dp->dpos;
 	i64 stringlen;
 	de_ucstring *s = NULL;
-	de_uint32 fwOpts;
+	u32 fwOpts;
 
 	pos += 4; // Y, X
 
 	stringlen = de_getui16le(pos);
 	pos += 2;
 
-	fwOpts = (de_uint32)de_getui16le(pos);
+	fwOpts = (u32)de_getui16le(pos);
 	pos += 2;
 
 	if(fwOpts & 0x0004) {
@@ -468,8 +468,8 @@ static int handler_CREATEBRUSHINDIRECT(deark *c, lctx *d, struct decoder_params 
 	de_dbg(c, "style: 0x%04x (%s)", style, get_brushstyle_name(style));
 
 	if(style==0x0 || style==0x2) {
-		de_uint32 colorref;
-		colorref = (de_uint32)de_getui32le(pos);
+		u32 colorref;
+		colorref = (u32)de_getui32le(pos);
 		do_dbg_colorref(c, d, dp, colorref);
 	}
 	pos += 4;
@@ -498,7 +498,7 @@ static const char *get_penbasestyle_name(unsigned int n)
 
 static int handler_CREATEPENINDIRECT(deark *c, lctx *d, struct decoder_params *dp)
 {
-	de_uint32 colorref;
+	u32 colorref;
 	i64 pos = dp->dpos;
 	unsigned int width;
 	unsigned int style;
@@ -524,7 +524,7 @@ static int handler_CREATEPENINDIRECT(deark *c, lctx *d, struct decoder_params *d
 	pos += 4;
 
 	if(base_style!=0x5) {
-		colorref = (de_uint32)de_getui32le(pos);
+		colorref = (u32)de_getui32le(pos);
 		do_dbg_colorref(c, d, dp, colorref);
 	}
 
@@ -537,7 +537,7 @@ static int handler_CREATEFONTINDIRECT(deark *c, lctx *d, struct decoder_params *
 {
 	i64 facename_size;
 	i64 n, n2;
-	de_byte b;
+	u8 b;
 	i64 pos = dp->dpos;
 
 	n = de_geti16le_p(&pos);
@@ -704,10 +704,10 @@ done:
 	return retval;
 }
 
-static const struct wmf_func_info *find_wmf_func_info(de_uint16 recfunc)
+static const struct wmf_func_info *find_wmf_func_info(u16 recfunc)
 {
 	size_t i;
-	de_byte rectype_wanted = (de_byte)(recfunc&0xff);
+	u8 rectype_wanted = (u8)(recfunc&0xff);
 
 	for(i=0; i<DE_ITEMS_IN_ARRAY(wmf_func_info_arr); i++) {
 		if(wmf_func_info_arr[i].rectype == rectype_wanted) {
@@ -751,8 +751,8 @@ static int do_wmf_record(deark *c, lctx *d, i64 recnum, i64 recpos,
 	dp.dpos = recpos + 6;
 	dp.dlen = recsize_bytes - 6;
 
-	dp.recfunc = (de_uint16)de_getui16le(recpos+4);
-	dp.rectype = (de_byte)(dp.recfunc&0xff);
+	dp.recfunc = (u16)de_getui16le(recpos+4);
+	dp.rectype = (u8)(dp.recfunc&0xff);
 
 	fnci = find_wmf_func_info(dp.recfunc);
 
@@ -845,7 +845,7 @@ done:
 
 static int de_identify_wmf(deark *c)
 {
-	de_byte buf[4];
+	u8 buf[4];
 
 	de_read(buf, 0, 4);
 

@@ -31,7 +31,7 @@ static void do_printshop_etc_image(deark *c, lctx *d, i64 imgnum,
 	i64 imgspan;
 	i64 imgoffset = 0;
 	de_finfo *fi = NULL;
-	de_byte x;
+	u8 x;
 
 	*bytes_consumed = 0;
 
@@ -214,7 +214,7 @@ static void de_run_printmaster(deark *c, de_module_params *mparams)
 
 static int de_identify_printmaster(deark *c)
 {
-	de_byte b[4];
+	u8 b[4];
 	int sdr_ext;
 
 	sdr_ext = de_input_file_has_ext(c, "sdr");

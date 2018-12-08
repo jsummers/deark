@@ -28,7 +28,7 @@ struct opcode_data {
 typedef void (*record_decoder_fn)(deark *c, lctx *d, struct opcode_data *op);
 
 struct opcode_info {
-	de_uint16 opcode;
+	u16 opcode;
 	const char *name;
 	record_decoder_fn fn;
 };

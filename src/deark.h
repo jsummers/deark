@@ -30,11 +30,11 @@
 
 #define i64 __int64
 #define u64 unsigned __int64
-#define de_int32 int
-#define de_uint32 unsigned int
-#define de_int16 short
-#define de_uint16 unsigned short
-#define de_byte unsigned char
+#define i32 int
+#define u32 unsigned int
+#define i16 short
+#define u16 unsigned short
+#define u8 unsigned char
 #define INT64_FMT "I64d"
 #define UINT64_FMT "I64u"
 #define INT64_FMTx "I64x"
@@ -43,11 +43,11 @@
 
 #define i64 int64_t
 #define u64 uint64_t
-#define de_int32 int32_t
-#define de_uint32 uint32_t
-#define de_int16 int16_t
-#define de_uint16 uint16_t
-#define de_byte unsigned char
+#define i32 int32_t
+#define u32 uint32_t
+#define i16 int16_t
+#define u16 uint16_t
+#define u8 unsigned char
 #define INT64_FMT PRId64
 #define UINT64_FMT PRIu64
 #define INT64_FMTx PRIx64
@@ -93,7 +93,7 @@ typedef void (*de_msgfn_type)(deark *c, unsigned int flags, const char *s);
 #define DE_MSGCODE_UNHL    0x1100U
 #define DE_MSGCODE_RGBSAMPLE 0x2000U
 typedef void (*de_specialmsgfn_type)(deark *c, unsigned int flags, unsigned int code,
-	de_uint32 param1);
+	u32 param1);
 
 typedef void (*de_fatalerrorfn_type)(deark *c);
 

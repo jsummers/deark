@@ -24,10 +24,10 @@ struct member_data {
 	i64 filesize;
 	i64 filesize_padded;
 	i64 mode;
-	de_uint32 checksum_reported;
+	u32 checksum_reported;
 	struct de_stringreaderdata *filename_srd;
 	de_finfo *fi;
-	de_uint32 checksum_calculated;
+	u32 checksum_calculated;
 };
 
 typedef struct localctx_struct {
@@ -40,7 +40,7 @@ typedef struct localctx_struct {
 // If format is unidentified, subfmt=0
 static int identify_cpio_internal(deark *c, i64 pos, int *subfmt)
 {
-	de_byte b[6];
+	u8 b[6];
 
 	*subfmt = 0;
 	de_read(b, pos, sizeof(b));
@@ -186,7 +186,7 @@ static int read_header_ascii_new(deark *c, lctx *d, struct member_data *md)
 	if(md->subfmt==SUBFMT_ASCII_NEWCRC) {
 		ret = dbuf_read_ascii_number(c->infile, pos, 8, 16, &n);
 		if(!ret) goto done;
-		md->checksum_reported = (de_uint32)n;
+		md->checksum_reported = (u32)n;
 		de_dbg(c, "c_check: %u", (unsigned int)md->checksum_reported);
 	}
 	pos += 8; // c_check
@@ -277,14 +277,14 @@ static void read_member_name(deark *c, lctx *d, struct member_data *md)
 	md->fi->original_filename_flag = 1;
 }
 
-static void our_writecallback(dbuf *f, const de_byte *buf, i64 buf_len)
+static void our_writecallback(dbuf *f, const u8 *buf, i64 buf_len)
 {
 	i64 k;
 	struct member_data *md = (struct member_data *)f->userdata;
 
 	for(k=0; k<buf_len; k++) {
 		// The 32-bit unsigned integer overflow is by design.
-		md->checksum_calculated += (de_uint32)buf[k];
+		md->checksum_calculated += (u32)buf[k];
 	}
 }
 

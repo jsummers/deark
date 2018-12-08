@@ -11,7 +11,7 @@ DE_DECLARE_MODULE(de_module_pp_gph);
 struct page_ctx {
 	i64 width, height;
 	i64 width_raw;
-	de_byte cmpr_type;
+	u8 cmpr_type;
 	de_ucstring *imgname;
 };
 
@@ -77,7 +77,7 @@ static void do_image_cmpr2(deark *c, lctx *d, struct page_ctx *pg, i64 pos1,
 
 	while(1) {
 		i64 count;
-		de_byte b, b2;
+		u8 b, b2;
 
 		if(pos >= pos1+2+cmpr_len) break;
 		b = de_getbyte(pos++);
@@ -108,7 +108,7 @@ static void do_image_cmpr3(deark *c, lctx *d, struct page_ctx *pg, i64 pos1,
 	i64 nibble_count;
 	i64 nibble_idx;
 	i64 pixel_idx;
-	de_byte b;
+	u8 b;
 
 	img = de_bitmap_create(c, pg->width, pg->height, 1);
 
@@ -126,7 +126,7 @@ static void do_image_cmpr3(deark *c, lctx *d, struct page_ctx *pg, i64 pos1,
 	for(nibble_idx=0; nibble_idx<nibble_count; nibble_idx++) {
 		i64 count;
 		int isblack;
-		de_byte nibble_val;
+		u8 nibble_val;
 		i64 k;
 
 		if((nibble_idx&0x1) == 0) {
@@ -216,14 +216,14 @@ static void de_run_pp_gph(deark *c, de_module_params *mparams)
 	i64 pos;
 	i64 bytes_consumed;
 	int img_idx = 0;
-	de_byte *bufptr;
-	de_byte buf[256];
+	u8 *bufptr;
+	u8 buf[256];
 
 	d = de_malloc(c, sizeof(lctx));
 
 	de_read(buf, 0, sizeof(buf)-1);
 	buf[sizeof(buf)-1] = '\0';
-	bufptr = (de_byte*)de_strchr((const char*)buf, 0x1a);
+	bufptr = (u8*)de_strchr((const char*)buf, 0x1a);
 	if(!bufptr) {
 		de_err(c, "This doesn't look like a valid .GPH file");
 		goto done;

@@ -18,7 +18,7 @@ static int has_x_header(dbuf *f)
 {
 	char b[8];
 
-	dbuf_read(f, (de_byte*)b, 0, 8);
+	dbuf_read(f, (u8*)b, 0, 8);
 	if((b[0]=='X' || b[0]=='x') &&
 		(b[1]=='-') &&
 		(b[2]=='F' || b[2]=='f') &&
@@ -74,14 +74,14 @@ struct compfacei_ctx {
 	int token_numdigits;
 	unsigned int token_val;
 #define CFI_TOKENBUFLEN 32
-	de_byte tokenbuf[CFI_TOKENBUFLEN];
+	u8 tokenbuf[CFI_TOKENBUFLEN];
 };
 
-static int cfi_is_whitespace(de_byte ch)
+static int cfi_is_whitespace(u8 ch)
 {
 	return (ch==9 || ch==10 || ch==13 || ch==' ');
 }
-static int cfi_is_alnum(de_byte ch)
+static int cfi_is_alnum(u8 ch)
 {
 	return ((ch>='0' && ch<='9') ||
 		(ch>='A' && ch<='Z') ||
@@ -95,7 +95,7 @@ static int cfi_is_alnum(de_byte ch)
 static int cfi_get_next_token_lowlevel(deark *c, struct compfacei_ctx *cfictx)
 {
 	int retval = 0;
-	de_byte ch;
+	u8 ch;
 
 	cfictx->tokenbuf_strlen = 0;
 
@@ -167,7 +167,7 @@ static int cfi_get_next_token(deark *c, struct compfacei_ctx *cfictx)
 	return 1;
 }
 
-static void cfi_set_image_byte(deark *c, struct compfacei_ctx *cfictx, de_byte ch)
+static void cfi_set_image_byte(deark *c, struct compfacei_ctx *cfictx, u8 ch)
 {
 	unsigned int k;
 	for(k=0; k<8; k++) {
@@ -197,11 +197,11 @@ static void de_run_compfacei(deark *c, de_module_params *mparams)
 			goto done;
 		}
 		if(cfictx->token_numdigits==2) {
-			cfi_set_image_byte(c, cfictx, (de_byte)cfictx->token_val);
+			cfi_set_image_byte(c, cfictx, (u8)cfictx->token_val);
 		}
 		else { // Assume numdigits==4
-			cfi_set_image_byte(c, cfictx, (de_byte)(cfictx->token_val>>8));
-			cfi_set_image_byte(c, cfictx, (de_byte)(cfictx->token_val&0xff));
+			cfi_set_image_byte(c, cfictx, (u8)(cfictx->token_val>>8));
+			cfi_set_image_byte(c, cfictx, (u8)(cfictx->token_val&0xff));
 		}
 		image_bytes_processed += cfictx->token_numdigits/2;
 	}

@@ -16,7 +16,7 @@ DE_DECLARE_MODULE(de_module_dib);
 #define CODE_MBED 0x4d424544U
 
 struct bitfieldsinfo {
-	de_uint32 mask;
+	u32 mask;
 	unsigned int shift;
 	double scale; // Amount to multiply the sample value by, to scale it to [0..255]
 };
@@ -32,7 +32,7 @@ typedef struct localctx_struct {
 	i64 bits_offset; // The bfOffBits field in the file header
 	i64 infohdrsize;
 	i64 bitcount;
-	de_uint32 compression_field;
+	u32 compression_field;
 	i64 size_image; // biSizeImage
 	i64 width, height;
 	int top_down;
@@ -66,7 +66,7 @@ typedef struct localctx_struct {
 
 	i64 rowspan;
 	struct bitfieldsinfo bitfield[4];
-	de_uint32 pal[256];
+	u32 pal[256];
 } lctx;
 
 // Sets d->version, and certain header fields.
@@ -96,7 +96,7 @@ static int detect_bmp_version(deark *c, lctx *d)
 	}
 
 	if(d->infohdrsize>=20) {
-		d->compression_field = (de_uint32)de_getui32le(pos+16);
+		d->compression_field = (u32)de_getui32le(pos+16);
 	}
 
 	if(d->infohdrsize>=16 && d->infohdrsize<=64) {
@@ -137,7 +137,7 @@ static int read_fileheader(deark *c, lctx *d, i64 pos)
 static void update_bitfields_info(deark *c, lctx *d)
 {
 	i64 k;
-	de_uint32 tmpmask;
+	u32 tmpmask;
 
 	for(k=0; k<4; k++) {
 		tmpmask = d->bitfield[k].mask;
@@ -156,7 +156,7 @@ static void do_read_bitfields(deark *c, lctx *d, i64 pos, i64 len)
 
 	if(len>16) len=16;
 	for(k=0; 4*k<len; k++) {
-		d->bitfield[k].mask = (de_uint32)de_getui32le(pos+4*k);
+		d->bitfield[k].mask = (u32)de_getui32le(pos+4*k);
 		de_dbg(c, "mask[%d]: 0x%08x", (int)k, (unsigned int)d->bitfield[k].mask);
 	}
 	update_bitfields_info(c, d);
@@ -383,8 +383,8 @@ static int read_infoheader(deark *c, lctx *d, i64 pos)
 	}
 
 	if(d->version==DE_BMPVER_WINV345 && d->infohdrsize>=124) {
-		de_uint32 intent;
-		intent = (de_uint32)de_getui32le(pos+108);
+		u32 intent;
+		intent = (u32)de_getui32le(pos+108);
 		de_dbg(c, "intent: %u", (unsigned int)intent);
 	}
 
@@ -528,7 +528,7 @@ static void do_image_24bit(deark *c, lctx *d, dbuf *bits, i64 bits_offset)
 {
 	de_bitmap *img = NULL;
 	i64 i, j;
-	de_uint32 clr;
+	u32 clr;
 
 	img = bmp_bitmap_create(c, d, 3);
 	for(j=0; j<d->height; j++) {
@@ -546,9 +546,9 @@ static void do_image_16_32bit(deark *c, lctx *d, dbuf *bits, i64 bits_offset)
 	de_bitmap *img = NULL;
 	i64 i, j;
 	int has_transparency;
-	de_uint32 v;
+	u32 v;
 	i64 k;
-	de_byte sm[4];
+	u8 sm[4];
 
 	if(d->bitfields_type==BF_SEGMENT) {
 		has_transparency = (d->bitfields_segment_len>=16 && d->bitfield[3].mask!=0);
@@ -564,15 +564,15 @@ static void do_image_16_32bit(deark *c, lctx *d, dbuf *bits, i64 bits_offset)
 	for(j=0; j<d->height; j++) {
 		for(i=0; i<d->width; i++) {
 			if(d->bitcount==16) {
-				v = (de_uint32)dbuf_getui16le(bits, bits_offset + j*d->rowspan + 2*i);
+				v = (u32)dbuf_getui16le(bits, bits_offset + j*d->rowspan + 2*i);
 			}
 			else {
-				v = (de_uint32)dbuf_getui32le(bits, bits_offset + j*d->rowspan + 4*i);
+				v = (u32)dbuf_getui32le(bits, bits_offset + j*d->rowspan + 4*i);
 			}
 
 			for(k=0; k<4; k++) {
 				if(d->bitfield[k].mask!=0) {
-					sm[k] = (de_byte)(0.5 + d->bitfield[k].scale * (double)((v&d->bitfield[k].mask) >> d->bitfield[k].shift));
+					sm[k] = (u8)(0.5 + d->bitfield[k].scale * (double)((v&d->bitfield[k].mask) >> d->bitfield[k].shift));
 				}
 				else {
 					if(k==3)
@@ -592,11 +592,11 @@ static void do_image_rle_4_8_24(deark *c, lctx *d, dbuf *bits, i64 bits_offset)
 {
 	i64 pos;
 	i64 xpos, ypos;
-	de_byte b1, b2;
-	de_byte b;
-	de_byte cr, cg, cb;
+	u8 b1, b2;
+	u8 b;
+	u8 cr, cg, cb;
 	de_bitmap *img = NULL;
-	de_uint32 clr1, clr2;
+	u32 clr1, clr2;
 	i64 num_bytes;
 	i64 num_pixels;
 	i64 k;
@@ -843,7 +843,7 @@ static int de_identify_bmp(deark *c)
 	i64 bits_offset;
 	i64 infohdrsize;
 	int bmp_ext;
-	de_byte buf[6];
+	u8 buf[6];
 
 	de_read(buf, 0, sizeof(buf));
 	if(de_memcmp(buf, "BM", 2)) {

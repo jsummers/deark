@@ -10,10 +10,10 @@ DE_DECLARE_MODULE(de_module_wpg);
 
 typedef struct localctx_struct {
 	i64 start_of_data;
-	de_byte ver_major, ver_minor;
+	u8 ver_major, ver_minor;
 	int opt_fixpal;
 	int has_pal;
-	de_uint32 pal[256];
+	u32 pal[256];
 
 	// Fields used only by the "summary" debug line:
 	i64 num_pal_entries; // 0 if no palette
@@ -23,7 +23,7 @@ typedef struct localctx_struct {
 	i64 bpp_of_first_bitmap;
 	i64 width_of_first_bitmap;
 	i64 height_of_first_bitmap;
-	de_byte has_eps1, has_eps2;
+	u8 has_eps1, has_eps2;
 } lctx;
 
 static int do_read_header(deark *c, lctx *d, i64 pos1)
@@ -50,11 +50,11 @@ static int do_read_header(deark *c, lctx *d, i64 pos1)
 	return 1;
 }
 
-typedef void (*record_handler_fn)(deark *c, lctx *d, de_byte rectype, i64 dpos,
+typedef void (*record_handler_fn)(deark *c, lctx *d, u8 rectype, i64 dpos,
 	i64 dlen);
 
 struct wpg_rectype_info {
-	de_byte rectype;
+	u8 rectype;
 	const char *name;
 	record_handler_fn fn;
 };
@@ -63,7 +63,7 @@ static int do_uncompress_rle(deark *c, lctx *d, dbuf *f, i64 pos1, i64 len,
 	i64 rowspan, dbuf *unc_pixels)
 {
 	i64 pos;
-	de_byte b, b2;
+	u8 b, b2;
 	i64 count;
 	i64 endpos;
 	i64 k;
@@ -110,10 +110,10 @@ static int do_uncompress_rle(deark *c, lctx *d, dbuf *f, i64 pos1, i64 len,
 
 // Make a copy of the global palette, possibly adjusting it in some way.
 // Caller supplies finalpal[256].
-static void get_final_palette(deark *c, lctx *d, de_uint32 *finalpal, i64 bpp)
+static void get_final_palette(deark *c, lctx *d, u32 *finalpal, i64 bpp)
 {
 	i64 k;
-	de_byte cr, cg, cb;
+	u8 cr, cg, cb;
 	int has_3plusbitpal = 0;
 	int has_5plusbitpal = 0;
 	int has_nonblack_color = 0;
@@ -187,7 +187,7 @@ static void get_final_palette(deark *c, lctx *d, de_uint32 *finalpal, i64 bpp)
 	}
 }
 
-static void handler_bitmap(deark *c, lctx *d, de_byte rectype, i64 dpos1, i64 dlen)
+static void handler_bitmap(deark *c, lctx *d, u8 rectype, i64 dpos1, i64 dlen)
 {
 	i64 w, h;
 	i64 xdens, ydens;
@@ -201,7 +201,7 @@ static void handler_bitmap(deark *c, lctx *d, de_byte rectype, i64 dpos1, i64 dl
 	dbuf *unc_pixels = NULL;
 	de_bitmap *img = NULL;
 	de_finfo *fi = NULL;
-	de_uint32 finalpal[256];
+	u32 finalpal[256];
 
 	d->bitmap_count++;
 
@@ -302,7 +302,7 @@ done:
 	dbuf_close(unc_pixels);
 }
 
-static void handler_colormap(deark *c, lctx *d, de_byte rectype, i64 dpos1, i64 dlen)
+static void handler_colormap(deark *c, lctx *d, u8 rectype, i64 dpos1, i64 dlen)
 {
 	i64 start_index;
 	i64 num_entries;
@@ -328,7 +328,7 @@ static void handler_colormap(deark *c, lctx *d, de_byte rectype, i64 dpos1, i64 
 		256-start_index, 0);
 }
 
-static void handler_start_of_wpg_data(deark *c, lctx *d, de_byte rectype, i64 dpos1, i64 dlen)
+static void handler_start_of_wpg_data(deark *c, lctx *d, u8 rectype, i64 dpos1, i64 dlen)
 {
 	int record_version;
 
@@ -345,14 +345,14 @@ static void handler_start_of_wpg_data(deark *c, lctx *d, de_byte rectype, i64 dp
 	}
 }
 
-static void handler_eps_type_1(deark *c, lctx *d, de_byte rectype, i64 dpos1, i64 dlen)
+static void handler_eps_type_1(deark *c, lctx *d, u8 rectype, i64 dpos1, i64 dlen)
 {
 	d->has_eps1 = 1;
 	if(dlen<=8) return;
 	dbuf_create_file_from_slice(c->infile, dpos1+8, dlen-8, "eps", NULL, 0);
 }
 
-static void handler_eps_type_2(deark *c, lctx *d, de_byte rectype, i64 dpos1, i64 dlen)
+static void handler_eps_type_2(deark *c, lctx *d, u8 rectype, i64 dpos1, i64 dlen)
 {
 	d->has_eps2 = 1;
 	// TODO
@@ -387,7 +387,7 @@ static const struct wpg_rectype_info wpg_rectype_info_arr[] = {
 	{ 0x1b, "PostScript data, Type 2", handler_eps_type_2 }
 };
 
-static const struct wpg_rectype_info *find_wpg_rectype_info(de_byte rectype)
+static const struct wpg_rectype_info *find_wpg_rectype_info(u8 rectype)
 {
 	i64 i;
 	for(i=0; i<(i64)DE_ITEMS_IN_ARRAY(wpg_rectype_info_arr); i++) {
@@ -401,7 +401,7 @@ static const struct wpg_rectype_info *find_wpg_rectype_info(de_byte rectype)
 static int do_record(deark *c, lctx *d, i64 pos1, i64 *bytes_consumed)
 {
 	i64 pos = pos1;
-	de_byte rectype;
+	u8 rectype;
 	i64 rec_dlen;
 	int retval = 0;
 	const char *name;
@@ -520,7 +520,7 @@ done:
 
 static int de_identify_wpg(deark *c)
 {
-	de_byte buf[10];
+	u8 buf[10];
 	de_read(buf, 0, 10);
 	if(!de_memcmp(buf, "\xff\x57\x50\x43", 4) &&
 		buf[8]==0x01 && buf[9]==0x16)

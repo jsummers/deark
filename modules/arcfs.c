@@ -15,11 +15,11 @@ struct member_data {
 	int is_dir;
 	int is_regular_file;
 	int file_type_known;
-	de_byte cmpr_method;
+	u8 cmpr_method;
 	unsigned int lzwmaxbits;
-	de_uint32 attribs;
-	de_uint32 crc;
-	de_uint32 load_addr, exec_addr;
+	u32 attribs;
+	u32 crc;
+	u32 load_addr, exec_addr;
 	unsigned int file_type;
 	i64 file_data_offs_rel;
 	i64 file_data_offs_abs;
@@ -50,8 +50,8 @@ static int do_file_header(deark *c, lctx *d, i64 pos1)
 {
 	i64 pos = pos1;
 	i64 hlen;
-	de_uint32 ver_r, ver_rw;
-	de_uint32 format_ver;
+	u32 ver_r, ver_rw;
+	u32 format_ver;
 	int retval = 0;
 
 	de_dbg(c, "file header at %d", (int)pos1);
@@ -65,15 +65,15 @@ static int do_file_header(deark *c, lctx *d, i64 pos1)
 	d->data_offs = de_getui32le_p(&pos);
 	de_dbg(c, "data offset: %d", (int)d->data_offs);
 
-	ver_r = (de_uint32)de_getui32le_p(&pos);
+	ver_r = (u32)de_getui32le_p(&pos);
 	de_dbg(c, "version req'd for read: %u.%02u", (unsigned int)(ver_r/100),
 		(unsigned int)(ver_r%100));
-	ver_rw = (de_uint32)de_getui32le_p(&pos);
+	ver_rw = (u32)de_getui32le_p(&pos);
 	de_dbg(c, "version req'd for read/write: %u.%02u", (unsigned int)(ver_rw/100),
 		(unsigned int)(ver_rw%100));
 
 	// ??
-	format_ver = (de_uint32)de_getui32le_p(&pos);
+	format_ver = (u32)de_getui32le_p(&pos);
 	de_dbg(c, "format version: %u", (unsigned int)format_ver);
 	if(format_ver!=0) {
 		de_err(c, "Unsupported format version: %u", (unsigned int)format_ver);
@@ -91,17 +91,17 @@ done:
 static int do_compressed(deark *c, lctx *d, struct member_data *md, dbuf *outf,
 	int limit_size_flag)
 {
-	de_byte buf[1024];
+	u8 buf[1024];
 	i64 n;
 	dbuf *inf = NULL;
 	struct de_liblzwctx *lzw = NULL;
 	i64 nbytes_still_to_write;
-	de_byte lzwmode;
+	u8 lzwmode;
 	int retval = 0;
 
 	inf = dbuf_open_input_subfile(c->infile, md->file_data_offs_abs, md->cmpr_len);
 
-	lzwmode = (de_byte)(md->lzwmaxbits | 0x80);
+	lzwmode = (u8)(md->lzwmaxbits | 0x80);
 	lzw = de_liblzw_dbufopen(inf, 0x2, lzwmode);
 	if(!lzw) goto done;
 
@@ -159,7 +159,7 @@ done:
 	return retval;
 }
 
-static void our_writecallback(dbuf *f, const de_byte *buf, i64 buf_len)
+static void our_writecallback(dbuf *f, const u8 *buf, i64 buf_len)
 {
 	struct de_crcobj *crco = (struct de_crcobj*)f->userdata;
 	de_crcobj_addbuf(crco, buf, buf_len);
@@ -169,7 +169,7 @@ static void do_extract_member(deark *c, lctx *d, struct member_data *md)
 {
 	de_finfo *fi = NULL;
 	dbuf *outf = NULL;
-	de_uint32 crc_calc;
+	u32 crc_calc;
 	int ret;
 	de_ucstring *fullfn = NULL;
 
@@ -250,7 +250,7 @@ done:
 	ucstring_destroy(fullfn);
 }
 
-static const char *get_info_byte_name(de_byte t)
+static const char *get_info_byte_name(u8 t)
 {
 	const char *name = NULL;
 	switch(t) {
@@ -274,8 +274,8 @@ static void destroy_member_data(deark *c, struct member_data *md)
 static void do_member(deark *c, lctx *d, i64 idx, i64 pos1)
 {
 	i64 pos = pos1;
-	de_uint32 info_word;
-	de_byte info_byte;
+	u32 info_word;
+	u8 info_byte;
 	int saved_indent_level;
 	struct member_data *md;
 
@@ -296,7 +296,7 @@ static void do_member(deark *c, lctx *d, i64 idx, i64 pos1)
 
 	// Look ahead at the "information word".
 	// TODO: Is this the right way to check for a directory?
-	info_word = (de_uint32)de_getui32le(pos1+32);
+	info_word = (u32)de_getui32le(pos1+32);
 	md->is_dir = (info_word&0x80000000U)?1:0;
 	md->is_regular_file = !md->is_dir;
 
@@ -314,8 +314,8 @@ static void do_member(deark *c, lctx *d, i64 idx, i64 pos1)
 		de_dbg(c, "orig file length: %"INT64_FMT, md->orig_len);
 	}
 
-	md->load_addr = (de_uint32)de_getui32le_p(&pos);
-	md->exec_addr = (de_uint32)de_getui32le_p(&pos);
+	md->load_addr = (u32)de_getui32le_p(&pos);
+	md->exec_addr = (u32)de_getui32le_p(&pos);
 	de_dbg(c, "load/exec addrs: 0x%08x, 0x%08x", (unsigned int)md->load_addr,
 		(unsigned int)md->exec_addr);
 	de_dbg_indent(c, 1);
@@ -329,7 +329,7 @@ static void do_member(deark *c, lctx *d, i64 idx, i64 pos1)
 	}
 	de_dbg_indent(c, -1);
 
-	md->attribs = (de_uint32)de_getui32le_p(&pos);
+	md->attribs = (u32)de_getui32le_p(&pos);
 	de_dbg(c, "attribs: 0x%08x", (unsigned int)md->attribs);
 	de_dbg_indent(c, 1);
 	md->crc = md->attribs>>16;
@@ -443,7 +443,7 @@ typedef struct sqctx_struct {
 
 static int do_compressed_sq(deark *c, sqctx *d, struct member_data *md, dbuf *outf)
 {
-	de_byte buf[1024];
+	u8 buf[1024];
 	i64 n;
 	dbuf *inf = NULL;
 	struct de_liblzwctx *lzw = NULL;
@@ -491,8 +491,8 @@ static void do_squash_header(deark *c, sqctx *d, struct member_data *md, i64 pos
 	md->orig_len = de_getui32le_p(&pos);
 	de_dbg(c, "orig file length: %"INT64_FMT, md->orig_len);
 
-	md->load_addr = (de_uint32)de_getui32le_p(&pos);
-	md->exec_addr = (de_uint32)de_getui32le_p(&pos);
+	md->load_addr = (u32)de_getui32le_p(&pos);
+	md->exec_addr = (u32)de_getui32le_p(&pos);
 	de_dbg(c, "load/exec addrs: 0x%08x, 0x%08x", (unsigned int)md->load_addr,
 		(unsigned int)md->exec_addr);
 	de_dbg_indent(c, 1);

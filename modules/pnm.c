@@ -56,7 +56,7 @@ static int fmt_is_binary(int fmt)
 		fmt==FMT_PPM_BINARY || fmt==FMT_PAM);
 }
 
-static int is_pnm_whitespace(de_byte b)
+static int is_pnm_whitespace(u8 b)
 {
 	// Whitspace = space, CR, LF, TAB, VT, or FF
 	return (b==9 || b==10 || b==11 || b==12 || b==13 || b==32);
@@ -65,7 +65,7 @@ static int is_pnm_whitespace(de_byte b)
 static int read_next_token(deark *c, lctx *d, struct page_ctx *pg,
 	char *tokenbuf, size_t tokenbuflen)
 {
-	de_byte b;
+	u8 b;
 	size_t token_len = 0;
 	int in_comment = 0;
 
@@ -145,7 +145,7 @@ static int read_next_pam_token(deark *c, lctx *d, struct page_ctx *pg,
 	const char *linebuf, size_t linebuflen,
 	char *tokenbuf, size_t tokenbuflen, i64 *curpos)
 {
-	de_byte b;
+	u8 b;
 	i64 token_len = 0;
 	i64 linepos;
 
@@ -200,7 +200,7 @@ static int read_pam_header_line(deark *c, lctx *d, struct page_ctx *pg, i64 pos,
 	amt_to_read = *content_len;
 	if(amt_to_read > (i64)(linebuf_len-1)) amt_to_read = (i64)(linebuf_len-1);
 
-	de_read((de_byte*)linebuf, pos, amt_to_read);
+	de_read((u8*)linebuf, pos, amt_to_read);
 
 	*content_len = amt_to_read;
 	linebuf[amt_to_read] = '\0';
@@ -350,8 +350,8 @@ static int do_image_pbm_ascii(deark *c, lctx *d, struct page_ctx *pg, i64 pos1)
 	de_bitmap *img = NULL;
 	i64 xpos, ypos;
 	i64 pos = pos1;
-	de_byte b;
-	de_byte v;
+	u8 b;
+	u8 v;
 
 	img = de_bitmap_create(c, pg->width, pg->height, 1);
 
@@ -387,7 +387,7 @@ static int do_image_pgm_ppm_ascii(deark *c, lctx *d, struct page_ctx *pg, i64 po
 	i64 xpos, ypos, sampidx;
 	char samplebuf[32];
 	size_t samplebuf_used;
-	de_byte b;
+	u8 b;
 
 	if(fmt_is_ppm(pg->fmt)) nsamples=3;
 	else nsamples=1;
@@ -407,7 +407,7 @@ static int do_image_pgm_ppm_ascii(deark *c, lctx *d, struct page_ctx *pg, i64 po
 		if(is_pnm_whitespace(b)) {
 			if(samplebuf_used>0) {
 				i64 v;
-				de_byte v_adj;
+				u8 v_adj;
 
 				// Completed a sample
 				samplebuf[samplebuf_used] = '\0'; // NUL terminate for de_atoi64()
@@ -471,8 +471,8 @@ static int do_image_pgm_ppm_pam_binary(deark *c, lctx *d, struct page_ctx *pg, i
 	i64 i, j, k;
 	i64 pos = pos1;
 	unsigned int samp_ori[4];
-	de_byte samp_adj[4];
-	de_uint32 clr;
+	u8 samp_adj[4];
+	u32 clr;
 	int retval = 0;
 
 	if(pg->fmt==FMT_PAM) {
@@ -593,7 +593,7 @@ done:
 
 static int identify_fmt(deark *c, i64 pos)
 {
-	de_byte buf[3];
+	u8 buf[3];
 
 	de_read(buf, pos, 3);
 	if(buf[0]!='P') return 0;

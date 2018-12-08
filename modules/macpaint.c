@@ -85,7 +85,7 @@ static void do_read_bitmap(deark *c, lctx *d, i64 pos)
 // correct position.
 static int valid_file_at(deark *c, lctx *d, i64 pos1)
 {
-	de_byte b;
+	u8 b;
 	i64 x;
 	i64 xpos, ypos;
 	i64 pos;
@@ -150,7 +150,7 @@ static int valid_file_at(deark *c, lctx *d, i64 pos1)
 	return 1;
 }
 
-static const char *get_pattern_set_info(de_uint32 patcrc, int *is_blank)
+static const char *get_pattern_set_info(u32 patcrc, int *is_blank)
 {
 	*is_blank = 0;
 	switch(patcrc) {
@@ -169,13 +169,13 @@ static void do_read_patterns(deark *c, lctx *d, i64 pos)
 {
 	i64 cell;
 	i64 i, j;
-	de_byte x;
+	u8 x;
 	const i64 dispwidth = 19;
 	const i64 dispheight = 17;
 	i64 xpos, ypos;
 	int is_blank;
 	de_bitmap *pat = NULL;
-	de_uint32 patcrc;
+	u32 patcrc;
 	const char *patsetname;
 	de_finfo *fi = NULL;
 	de_ucstring *tmpname = NULL;
@@ -238,7 +238,7 @@ done:
 
 static void do_macbinary(deark *c, lctx *d)
 {
-	de_byte b0, b1;
+	u8 b0, b1;
 	de_module_params *mparams = NULL;
 
 	b0 = de_getbyte(0);
@@ -356,7 +356,7 @@ static void de_run_macpaint(deark *c, de_module_params *mparams)
 // Note: This must be coordinated with the macbinary detection routine.
 static int de_identify_macpaint(deark *c)
 {
-	de_byte buf[8];
+	u8 buf[8];
 
 	de_read(buf, 65, 8);
 

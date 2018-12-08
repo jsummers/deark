@@ -13,8 +13,8 @@ DE_DECLARE_MODULE(de_module_dcx);
 #define PCX_HDRSIZE 128
 
 typedef struct localctx_struct {
-	de_byte version;
-	de_byte encoding;
+	u8 version;
+	u8 encoding;
 	i64 bits;
 	i64 bits_per_pixel;
 	i64 margin_L, margin_T, margin_R, margin_B;
@@ -22,8 +22,8 @@ typedef struct localctx_struct {
 	i64 rowspan_raw;
 	i64 rowspan;
 	i64 ncolors;
-	de_byte palette_info;
-	de_byte reserved1;
+	u8 palette_info;
+	u8 reserved1;
 	i64 width, height;
 	int is_mswordscr;
 	int has_vga_pal;
@@ -34,7 +34,7 @@ typedef struct localctx_struct {
 	int default_pal_set;
 
 	dbuf *unc_pixels;
-	de_uint32 pal[256];
+	u32 pal[256];
 } lctx;
 
 static int do_read_header(deark *c, lctx *d)
@@ -192,8 +192,8 @@ static int do_read_alt_palette_file(deark *c, lctx *d)
 	dbuf *palfile = NULL;
 	int retval = 0;
 	i64 k,z;
-	de_byte b1[3];
-	de_byte b2[3];
+	u8 b1[3];
+	u8 b2[3];
 	int badflag = 0;
 	char tmps[64];
 
@@ -237,7 +237,7 @@ done:
 // 16-color palettes to use, if there is no palette in the file.
 // (8-color version-3 PCXs apparently use only the first 8 colors of the
 // palette.)
-static const de_uint32 ega16pal[2][16] = {
+static const u32 ega16pal[2][16] = {
 	// This palette seems to be correct for at least some files.
 	{0x000000,0x000080,0x008000,0x008080,0x800000,0x800080,0x808000,0x808080,
 	 0xc0c0c0,0x0000ff,0x00ff00,0x00ffff,0xff0000,0xff00ff,0xffff00,0xffffff},
@@ -298,7 +298,7 @@ static void do_palette_stuff(deark *c, lctx *d)
 	}
 
 	if(d->ncolors==4) {
-		de_byte p0, p3;
+		u8 p0, p3;
 		unsigned int bgcolor;
 		unsigned int fgpal;
 
@@ -346,7 +346,7 @@ static void do_palette_stuff(deark *c, lctx *d)
 static int do_uncompress(deark *c, lctx *d)
 {
 	i64 pos;
-	de_byte b, b2;
+	u8 b, b2;
 	i64 count;
 	i64 expected_bytes;
 	i64 endpos;
@@ -404,7 +404,7 @@ static void do_bitmap_paletted(deark *c, lctx *d)
 	de_bitmap *img = NULL;
 	i64 i, j;
 	i64 plane;
-	de_byte b;
+	u8 b;
 	unsigned int palent;
 
 	img = de_bitmap_create(c, d->width, d->height, 3);
@@ -431,7 +431,7 @@ static void do_bitmap_24bpp(deark *c, lctx *d)
 	de_bitmap *img = NULL;
 	i64 i, j;
 	i64 plane;
-	de_byte s[4];
+	u8 s[4];
 
 	de_memset(s, 0xff, sizeof(s));
 	img = de_bitmap_create(c, d->width, d->height, d->has_transparency?4:3);
@@ -514,7 +514,7 @@ static void de_run_pcx(deark *c, de_module_params *mparams)
 
 static int de_identify_pcx(deark *c)
 {
-	de_byte buf[8];
+	u8 buf[8];
 
 	de_read(buf, 0, 8);
 	if(buf[0]==0x0a && (buf[1]==0 || buf[1]==2 || buf[1]==3
@@ -561,7 +561,7 @@ static void de_run_mswordscr(deark *c, de_module_params *mparams)
 
 static int de_identify_mswordscr(deark *c)
 {
-	de_byte buf[8];
+	u8 buf[8];
 
 	de_read(buf, 0, 8);
 	if(buf[0]==0xcd && (buf[1]==0 || buf[1]==2 || buf[1]==3
@@ -590,15 +590,15 @@ void de_module_mswordscr(deark *c, struct deark_module_info *mi)
 
 static void de_run_dcx(deark *c, de_module_params *mparams)
 {
-	de_uint32 *page_offset;
+	u32 *page_offset;
 	i64 num_pages;
 	i64 page;
 	i64 page_size;
 
-	page_offset = de_malloc(c, 1023 * sizeof(de_uint32));
+	page_offset = de_malloc(c, 1023 * sizeof(u32));
 	num_pages = 0;
 	while(num_pages < 1023) {
-		page_offset[num_pages] = (de_uint32)de_getui32le(4 + 4*num_pages);
+		page_offset[num_pages] = (u32)de_getui32le(4 + 4*num_pages);
 		if(page_offset[num_pages]==0)
 			break;
 		num_pages++;

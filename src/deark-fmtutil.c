@@ -9,7 +9,7 @@
 #include <deark-private.h>
 #include <deark-fmtutil.h>
 
-void de_fmtutil_get_bmp_compression_name(de_uint32 code, char *s, size_t s_len,
+void de_fmtutil_get_bmp_compression_name(u32 code, char *s, size_t s_len,
 	int is_os2v2)
 {
 	const char *name1 = "?";
@@ -94,7 +94,7 @@ int de_fmtutil_get_bmpinfo(deark *c, dbuf *f, struct de_bmpinfo *bi, i64 pos,
 		}
 		bi->bitcount = dbuf_getui16le(f, bmih_pos+14);
 		if(bi->infohdrsize>=20) {
-			bi->compression_field = (de_uint32)dbuf_getui32le(f, bmih_pos+16);
+			bi->compression_field = (u32)dbuf_getui32le(f, bmih_pos+16);
 			if(flags & DE_BMPINFO_CMPR_IS_4CC) {
 				dbuf_read_fourcc(f, bmih_pos+16, &cmpr4cc, 4, 0x0);
 			}
@@ -197,7 +197,7 @@ void de_fmtutil_generate_bmpfileheader(deark *c, dbuf *outf, const struct de_bmp
 {
 	i64 file_size_to_write;
 
-	dbuf_write(outf, (const de_byte*)"BM", 2);
+	dbuf_write(outf, (const u8*)"BM", 2);
 
 	if(file_size_override)
 		file_size_to_write = file_size_override;
@@ -212,7 +212,7 @@ void de_fmtutil_generate_bmpfileheader(deark *c, dbuf *outf, const struct de_bmp
 // Extracts Exif if extract_level>=2, or "extractexif" option is set.
 // Otherwise decodes.
 void de_fmtutil_handle_exif2(deark *c, i64 pos, i64 len,
-	de_uint32 *returned_flags, de_uint32 *orientation, de_uint32 *exifversion)
+	u32 *returned_flags, u32 *orientation, u32 *exifversion)
 {
 	int user_opt;
 	de_module_params *mparams = NULL;
@@ -383,7 +383,7 @@ int de_fmtutil_uncompress_packbits(dbuf *f, i64 pos1, i64 len,
 	dbuf *unc_pixels, i64 *cmpr_bytes_consumed)
 {
 	i64 pos;
-	de_byte b, b2;
+	u8 b, b2;
 	i64 count;
 	i64 endpos;
 
@@ -425,7 +425,7 @@ int de_fmtutil_uncompress_packbits16(dbuf *f, i64 pos1, i64 len,
 	dbuf *unc_pixels, i64 *cmpr_bytes_consumed)
 {
 	i64 pos;
-	de_byte b, b1, b2;
+	u8 b, b1, b2;
 	i64 k;
 	i64 count;
 	i64 endpos;
@@ -470,9 +470,9 @@ int de_fmtutil_decompress_rle90(dbuf *inf, i64 pos1, i64 len,
 	dbuf *outf, unsigned int has_maxlen, i64 max_out_len, unsigned int flags)
 {
 	i64 pos = pos1;
-	de_byte b;
-	de_byte lastbyte = 0x00;
-	de_byte countcode;
+	u8 b;
+	u8 lastbyte = 0x00;
+	u8 countcode;
 	i64 count;
 	i64 nbytes_written = 0;
 
@@ -524,7 +524,7 @@ int de_fmtutil_decompress_rle90(dbuf *inf, i64 pos1, i64 len,
 	return 1;
 }
 
-static i64 sauce_space_padded_length(const de_byte *buf, i64 len)
+static i64 sauce_space_padded_length(const u8 *buf, i64 len)
 {
 	i64 i;
 	i64 last_nonspace = -1;
@@ -545,10 +545,10 @@ static i64 sauce_space_padded_length(const de_byte *buf, i64 len)
 
 // flags: 0x01: Interpret string as a date
 // flags: 0x02: Interpret 0x0a as newline, regardless of encoding
-static void sauce_bytes_to_ucstring(deark *c, const de_byte *buf, i64 len,
+static void sauce_bytes_to_ucstring(deark *c, const u8 *buf, i64 len,
 	de_ucstring *s, int encoding, unsigned int flags)
 {
-	de_int32 u;
+	i32 u;
 	i64 i;
 
 	for(i=0; i<len; i++) {
@@ -559,14 +559,14 @@ static void sauce_bytes_to_ucstring(deark *c, const de_byte *buf, i64 len,
 			u = 0x000a;
 		}
 		else {
-			u = de_char_to_unicode(c, (de_int32)buf[i], encoding);
+			u = de_char_to_unicode(c, (i32)buf[i], encoding);
 		}
 		if((flags&0x01) && u==32) u=48; // Change space to 0 in dates.
 		ucstring_append_char(s, u);
 	}
 }
 
-static int sauce_is_valid_date_string(const de_byte *buf, i64 len)
+static int sauce_is_valid_date_string(const u8 *buf, i64 len)
 {
 	i64 i;
 
@@ -592,7 +592,7 @@ int de_detect_SAUCE(deark *c, dbuf *f, struct de_SAUCE_detection_data *sdd)
 	return (int)sdd->has_SAUCE;
 }
 
-static const char *get_sauce_datatype_name(de_byte dt)
+static const char *get_sauce_datatype_name(u8 dt)
 {
 	const char *n = "?";
 
@@ -610,7 +610,7 @@ static const char *get_sauce_datatype_name(de_byte dt)
 	return n;
 }
 
-static const char *get_sauce_filetype_name(de_byte dt, unsigned int t)
+static const char *get_sauce_filetype_name(u8 dt, unsigned int t)
 {
 	const char *n = "?";
 
@@ -638,14 +638,14 @@ static const char *get_sauce_filetype_name(de_byte dt, unsigned int t)
 }
 
 // Write a buffer to a file, converting the encoding to UTF-8.
-static void write_buffer_as_utf8(deark *c, const de_byte *buf, i64 len,
+static void write_buffer_as_utf8(deark *c, const u8 *buf, i64 len,
 	dbuf *outf, int from_encoding)
 {
-	de_int32 u;
+	i32 u;
 	i64 i;
 
 	for(i=0; i<len; i++) {
-		u = de_char_to_unicode(c, (de_int32)buf[i], from_encoding);
+		u = de_char_to_unicode(c, (i32)buf[i], from_encoding);
 		dbuf_write_uchar_as_utf8(outf, u);
 	}
 }
@@ -657,7 +657,7 @@ static void sauce_read_comments(deark *c, dbuf *inf, struct de_SAUCE_info *si)
 	i64 k;
 	i64 cmnt_pos;
 	i64 cmnt_len;
-	de_byte buf[64];
+	u8 buf[64];
 
 	if(si->num_comments<1) goto done;
 	cmnt_blk_start = inf->len - 128 - (5 + si->num_comments*64);
@@ -710,7 +710,7 @@ done:
 int de_read_SAUCE(deark *c, dbuf *f, struct de_SAUCE_info *si)
 {
 	unsigned int t;
-	de_byte tmpbuf[40];
+	u8 tmpbuf[40];
 	i64 tmpbuf_len;
 	i64 pos;
 	const char *name;
@@ -853,7 +853,7 @@ static void do_box_sequence(deark *c, struct de_boxesctx *bctx,
 
 // Make a printable version of a UUID (or a big-endian GUID).
 // Caller supplies s.
-void de_fmtutil_render_uuid(deark *c, const de_byte *uuid, char *s, size_t s_len)
+void de_fmtutil_render_uuid(deark *c, const u8 *uuid, char *s, size_t s_len)
 {
 	de_snprintf(s, s_len, "%02x%02x%02x%02x-%02x%02x-%02x%02x-%02x%02x-%02x%02x%02x%02x%02x%02x",
 		uuid[0], uuid[1], uuid[2], uuid[3], uuid[4], uuid[5], uuid[6], uuid[7],
@@ -861,9 +861,9 @@ void de_fmtutil_render_uuid(deark *c, const de_byte *uuid, char *s, size_t s_len
 }
 
 // Swap some bytes to convert a (little-endian) GUID to a UUID, in-place
-void de_fmtutil_guid_to_uuid(de_byte *id)
+void de_fmtutil_guid_to_uuid(u8 *id)
 {
-	de_byte tmp[16];
+	u8 tmp[16];
 	de_memcpy(tmp, id, 16);
 	id[0] = tmp[3]; id[1] = tmp[2]; id[2] = tmp[1]; id[3] = tmp[0];
 	id[4] = tmp[5]; id[5] = tmp[4];
@@ -1062,24 +1062,24 @@ void de_fmtutil_read_boxes_format(deark *c, struct de_boxesctx *bctx)
 	do_box_sequence(c, bctx, 0, bctx->f->len, -1, 0);
 }
 
-static de_byte scale_7_to_255(de_byte x)
+static u8 scale_7_to_255(u8 x)
 {
-	return (de_byte)(0.5+(((double)x)*(255.0/7.0)));
+	return (u8)(0.5+(((double)x)*(255.0/7.0)));
 }
 
-static de_byte scale_15_to_255(de_byte x)
+static u8 scale_15_to_255(u8 x)
 {
 	return x*17;
 }
 
 void de_fmtutil_read_atari_palette(deark *c, dbuf *f, i64 pos,
-	de_uint32 *dstpal, i64 ncolors_to_read, i64 ncolors_used, unsigned int flags)
+	u32 *dstpal, i64 ncolors_to_read, i64 ncolors_used, unsigned int flags)
 {
 	i64 i;
 	unsigned int n;
 	int pal_bits = 0; // 9, 12, or 15. 0 = not yet determined
-	de_byte cr, cg, cb;
-	de_byte cr1, cg1, cb1;
+	u8 cr, cg, cb;
+	u8 cr1, cg1, cb1;
 	char cbuf[32];
 	char tmps[64];
 	const char *s;
@@ -1133,13 +1133,13 @@ void de_fmtutil_read_atari_palette(deark *c, dbuf *f, i64 pos,
 		n = (unsigned int)dbuf_getui16be(f, pos + 2*i);
 
 		if(pal_bits==15) {
-			cr1 = (de_byte)((n>>6)&0x1c);
+			cr1 = (u8)((n>>6)&0x1c);
 			if(n&0x0800) cr1+=2;
 			if(n&0x8000) cr1++;
-			cg1 = (de_byte)((n>>2)&0x1c);
+			cg1 = (u8)((n>>2)&0x1c);
 			if(n&0x0080) cg1+=2;
 			if(n&0x4000) cg1++;
-			cb1 = (de_byte)((n<<2)&0x1c);
+			cb1 = (u8)((n<<2)&0x1c);
 			if(n&0x0008) cb1+=2;
 			if(n&0x2000) cb1++;
 			cr = de_scale_n_to_255(31, cr1);
@@ -1149,11 +1149,11 @@ void de_fmtutil_read_atari_palette(deark *c, dbuf *f, i64 pos,
 				(int)cr1, (int)cg1, (int)cb1);
 		}
 		else if(pal_bits==12) {
-			cr1 = (de_byte)((n>>7)&0x0e);
+			cr1 = (u8)((n>>7)&0x0e);
 			if(n&0x800) cr1++;
-			cg1 = (de_byte)((n>>3)&0x0e);
+			cg1 = (u8)((n>>3)&0x0e);
 			if(n&0x080) cg1++;
-			cb1 = (de_byte)((n<<1)&0x0e);
+			cb1 = (u8)((n<<1)&0x0e);
 			if(n&0x008) cb1++;
 			cr = scale_15_to_255(cr1);
 			cg = scale_15_to_255(cg1);
@@ -1162,9 +1162,9 @@ void de_fmtutil_read_atari_palette(deark *c, dbuf *f, i64 pos,
 				(int)cr1, (int)cg1, (int)cb1);
 		}
 		else {
-			cr1 = (de_byte)((n>>8)&0x07);
-			cg1 = (de_byte)((n>>4)&0x07);
-			cb1 = (de_byte)(n&0x07);
+			cr1 = (u8)((n>>8)&0x07);
+			cg1 = (u8)((n>>4)&0x07);
+			cb1 = (u8)(n&0x07);
 			cr = scale_7_to_255(cr1);
 			cg = scale_7_to_255(cg1);
 			cb = scale_7_to_255(cb1);
@@ -1210,8 +1210,8 @@ static int decode_atari_image_paletted(deark *c, struct atari_img_decode_data *a
 	i64 i, j;
 	i64 plane;
 	i64 rowspan;
-	de_byte b;
-	de_uint32 v;
+	u8 b;
+	u32 v;
 	i64 planespan;
 	i64 ncolors;
 
@@ -1272,13 +1272,13 @@ static int decode_atari_image_16(deark *c, struct atari_img_decode_data *adata)
 {
 	i64 i, j;
 	i64 rowspan;
-	de_uint32 v;
+	u32 v;
 
 	rowspan = adata->w * 2;
 
 	for(j=0; j<adata->h; j++) {
 		for(i=0; i<adata->w; i++) {
-			v = (de_uint32)dbuf_getui16be(adata->unc_pixels, j*rowspan + 2*i);
+			v = (u32)dbuf_getui16be(adata->unc_pixels, j*rowspan + 2*i);
 			v = de_rgb565_to_888(v);
 			de_bitmap_setpixel_rgb(adata->img, i, j,v);
 		}
@@ -1396,7 +1396,7 @@ void de_fmtutil_default_iff_chunk_identify(deark *c, struct de_iffctx *ictx)
 // They might be defined in the 8SVX specification. They seem to have
 // become unofficial standard chunks.
 static void de_fmtutil_handle_standard_iff_chunk(deark *c, dbuf *f, i64 dpos, i64 dlen,
-	de_uint32 chunktype)
+	u32 chunktype)
 {
 	switch(chunktype) {
 		// Note that chunks appearing here should also be listed below,
@@ -1421,7 +1421,7 @@ static void de_fmtutil_handle_standard_iff_chunk(deark *c, dbuf *f, i64 dpos, i6
 
 // ictx can be NULL
 int de_fmtutil_is_standard_iff_chunk(deark *c, struct de_iffctx *ictx,
-	de_uint32 ct)
+	u32 ct)
 {
 	switch(ct) {
 	case CODE__c_:
@@ -1684,9 +1684,9 @@ const char *de_fmtutil_tiff_orientation_name(i64 n)
 	return names[0];
 }
 
-const char *de_fmtutil_get_windows_charset_name(de_byte cs)
+const char *de_fmtutil_get_windows_charset_name(u8 cs)
 {
-	struct csname_struct { de_byte id; const char *name; };
+	struct csname_struct { u8 id; const char *name; };
 	static const struct csname_struct csname_arr[] = {
 		{0x00, "ANSI"},
 		{0x01, "default"},
@@ -1740,8 +1740,8 @@ const char *de_fmtutil_get_windows_cb_data_type_name(unsigned int ty)
 // Also useful for detecting hybrid ZIP files, such as self-extracting EXE.
 int de_fmtutil_find_zip_eocd(deark *c, dbuf *f, i64 *foundpos)
 {
-	de_uint32 sig;
-	de_byte *buf = NULL;
+	u32 sig;
+	u8 *buf = NULL;
 	int retval = 0;
 	i64 buf_offset;
 	i64 buf_size;
@@ -1751,7 +1751,7 @@ int de_fmtutil_find_zip_eocd(deark *c, dbuf *f, i64 *foundpos)
 	if(f->len < 22) goto done;
 
 	// End-of-central-dir record usually starts 22 bytes from EOF. Try that first.
-	sig = (de_uint32)dbuf_getui32le(f, f->len - 22);
+	sig = (u32)dbuf_getui32le(f, f->len - 22);
 	if(sig == 0x06054b50U) {
 		*foundpos = f->len - 22;
 		retval = 1;
@@ -1804,10 +1804,10 @@ static void wrap_in_tiff(deark *c, dbuf *f, i64 dpos, i64 dlen,
 	}
 
 	outf = dbuf_create_output_file(c, ext, NULL, 0);
-	dbuf_write(outf, (const de_byte*)"\x4d\x4d\x00\x2a", 4);
+	dbuf_write(outf, (const u8*)"\x4d\x4d\x00\x2a", 4);
 	ifdoffs = 8 + sw_len_padded + data_len_padded;
 	dbuf_writeui32be(outf, ifdoffs);
-	dbuf_write(outf, (const de_byte*)swstring, sw_len);
+	dbuf_write(outf, (const u8*)swstring, sw_len);
 	if(sw_len%2) dbuf_writebyte(outf, 0);
 	if(dlen>4) {
 		dbuf_copy(f, dpos, dlen, outf);

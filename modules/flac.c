@@ -13,7 +13,7 @@ typedef struct localctx_struct {
 	int reserved;
 } lctx;
 
-static const char *get_mdblk_name(de_byte blktype)
+static const char *get_mdblk_name(u8 blktype)
 {
 	const char *name = NULL;
 	switch(blktype) {
@@ -44,7 +44,7 @@ static void do_metadata_block_picture(deark *c, lctx *d, i64 pos1, i64 len)
 	de_dbg_indent(c, -1);
 }
 
-static void do_metadata_block(deark *c, lctx *d, de_byte blktype, i64 pos1, i64 len)
+static void do_metadata_block(deark *c, lctx *d, u8 blktype, i64 pos1, i64 len)
 {
 	switch(blktype) {
 	case 4:
@@ -66,11 +66,11 @@ static void run_flac_internal(deark *c, lctx *d, i64 pos1, i64 len)
 
 	de_dbg_indent_save(c, &saved_indent_level);
 	while(1) {
-		de_byte b;
+		u8 b;
 		i64 blklen;
-		de_byte blktype;
+		u8 blktype;
 		const char *blkname;
-		de_byte is_last;
+		u8 is_last;
 
 		if(pos >= pos1+len) goto done;
 		de_dbg(c, "metadata block at %"INT64_FMT, pos);

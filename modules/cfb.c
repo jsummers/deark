@@ -22,30 +22,30 @@ struct dir_entry_info {
 	//  3 = Normal dir entries
 	int pass;
 
-	de_byte entry_type;
+	u8 entry_type;
 
 	int is_mini_stream;
 	i64 stream_size;
 	i64 normal_sec_id; // First SecID, valid if is_mini_stream==0
 	i64 minisec_id; // First MiniSecID, valid if is_mini_stream==1
 	struct de_stringreaderdata *fname_srd;
-	de_byte clsid[16];
+	u8 clsid[16];
 	struct de_timestamp mod_time;
 
 	const char *entry_type_name;
 	i64 name_len_raw;
-	de_byte node_color;
+	u8 node_color;
 
-	de_int32 child_id;
-	de_int32 sibling_id[2];
-	de_int32 parent_id; // If parent_id==0, entry is in root dir.
+	i32 child_id;
+	i32 sibling_id[2];
+	i32 parent_id; // If parent_id==0, entry is in root dir.
 	de_ucstring *path; // Full dir path. Used by non-root STORAGE objects.
 
-	de_byte is_thumbsdb_catalog;
+	u8 is_thumbsdb_catalog;
 };
 
 struct thumbsdb_catalog_entry {
-	de_uint32 id;
+	u32 id;
 	struct de_stringreaderdata *fname_srd;
 	struct de_timestamp mod_time;
 };
@@ -57,9 +57,9 @@ typedef struct localctx_struct {
 #define SUBFMT_TIFF37680  3
 	int subformat_req;
 	int subformat_final;
-	de_byte extract_raw_streams;
-	de_byte decode_streams;
-	de_byte dump_dir_structure;
+	u8 extract_raw_streams;
+	u8 decode_streams;
+	u8 dump_dir_structure;
 	i64 minor_ver, major_ver;
 	i64 sec_size;
 	//i64 num_dir_sectors;
@@ -103,7 +103,7 @@ typedef struct localctx_struct {
 } lctx;
 
 struct clsid_id_struct {
-	const de_byte clsid[16];
+	const u8 clsid[16];
 	const char *name;
 };
 static const struct clsid_id_struct known_clsids[] = {
@@ -594,8 +594,8 @@ static void do_extract_stream_to_file_thumbsdb(deark *c, lctx *d, struct dir_ent
 	// 0x18 = "Windows 7 format"
 
 	if((hdrsize==0x0c || hdrsize==0x18) && dei->stream_size>hdrsize) {
-		de_byte sig1[4];
-		de_byte sig2[4];
+		u8 sig1[4];
+		u8 sig2[4];
 
 		reported_size = dbuf_getui32le(firstpart, 8);
 		de_dbg(c, "reported size: %d", (int)reported_size);
@@ -660,8 +660,8 @@ done:
 }
 
 struct officeart_rectype {
-	de_uint16 rectype;
-	de_uint16 flags;
+	u16 rectype;
+	u16 flags;
 	const char *name;
 	void *reserved;
 };
@@ -829,7 +829,7 @@ static int do_OfficeArtStream_record(deark *c, lctx *d, struct officeartctx *oac
 
 	if(has_metafileHeader) {
 		// metafileHeader starts at pos+extra_bytes-34
-		de_byte cmpr = dbuf_getbyte(firstpart, pos+extra_bytes-2);
+		u8 cmpr = dbuf_getbyte(firstpart, pos+extra_bytes-2);
 		// 0=DEFLATE, 0xfe=NONE
 		de_dbg(c, "compression type: %u", (unsigned int)cmpr);
 		has_zlib_cmpr = (cmpr==0);
@@ -977,7 +977,7 @@ static int read_thumbsdb_catalog(deark *c, lctx *d, struct dir_entry_info *dei)
 
 		de_dbg_indent(c, 1);
 
-		d->thumbsdb_catalog[i].id = (de_uint32)dbuf_getui32le(catf, pos+4);
+		d->thumbsdb_catalog[i].id = (u32)dbuf_getui32le(catf, pos+4);
 		de_dbg(c, "id: %u", (unsigned int)d->thumbsdb_catalog[i].id);
 
 		read_and_cvt_timestamp(c, catf, pos+8, &d->thumbsdb_catalog[i].mod_time);
@@ -1146,8 +1146,8 @@ static void do_dump_dir_structure(deark *c, lctx *d)
 	de_dbg_indent(c, -1);
 }
 
-static void do_mark_dir_entries_recursively(deark *c, lctx *d, de_int32 parent_id,
-	de_int32 dir_entry_idx, int level)
+static void do_mark_dir_entries_recursively(deark *c, lctx *d, i32 parent_id,
+	i32 dir_entry_idx, int level)
 {
 	struct dir_entry_info *dei;
 	int k;
@@ -1317,7 +1317,7 @@ static void do_per_dir_entry_format_detection(deark *c, lctx *d, struct dir_entr
 }
 
 // Caller supplies and initializes buf
-static void identify_clsid(deark *c, lctx *d, const de_byte *clsid, char *buf, size_t buflen)
+static void identify_clsid(deark *c, lctx *d, const u8 *clsid, char *buf, size_t buflen)
 {
 	const char *name = NULL;
 	size_t k;
@@ -1486,12 +1486,12 @@ static void do_read_dir_entry(deark *c, lctx *d, i64 dir_entry_idx, i64 dir_entr
 	dei->node_color = dbuf_getbyte(d->dir, dir_entry_offs+67);
 
 	if(dei->entry_type==OBJTYPE_STORAGE || dei->entry_type==OBJTYPE_STREAM) {
-		dei->sibling_id[0] = (de_int32)dbuf_geti32le(d->dir, dir_entry_offs+68);
-		dei->sibling_id[1] = (de_int32)dbuf_geti32le(d->dir, dir_entry_offs+72);
+		dei->sibling_id[0] = (i32)dbuf_geti32le(d->dir, dir_entry_offs+68);
+		dei->sibling_id[1] = (i32)dbuf_geti32le(d->dir, dir_entry_offs+72);
 	}
 
 	if(dei->entry_type==OBJTYPE_STORAGE || dei->entry_type==OBJTYPE_ROOT_STORAGE) {
-		dei->child_id = (de_int32)dbuf_geti32le(d->dir, dir_entry_offs+76);
+		dei->child_id = (i32)dbuf_geti32le(d->dir, dir_entry_offs+76);
 	}
 
 	if(dei->entry_type==OBJTYPE_STORAGE || dei->entry_type==OBJTYPE_ROOT_STORAGE) {

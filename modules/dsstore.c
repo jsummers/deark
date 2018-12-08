@@ -30,8 +30,8 @@ struct record_info {
 };
 
 struct addr_table_entry {
-	de_uint32 addr_code;
-	de_byte decoded;
+	u32 addr_code;
+	u8 decoded;
 };
 
 typedef struct localctx_struct {
@@ -39,9 +39,9 @@ typedef struct localctx_struct {
 	i64 infoblk_size;
 
 	int found_dsdb;
-	de_uint32 dsdb_block_id;
+	u32 dsdb_block_id;
 
-	de_uint32 root_node_block_id;
+	u32 root_node_block_id;
 
 	i64 blkcount;
 	struct addr_table_entry *block_addr_table; // 'blkcount' entries
@@ -50,7 +50,7 @@ typedef struct localctx_struct {
 
 static void do_dir_entry(deark *c, lctx *d, i64 pos1, i64 *bytes_consumed)
 {
-	de_uint32 blk_id;
+	u32 blk_id;
 	i64 pos = pos1;
 	i64 nlen;
 	struct de_stringreaderdata *name_srd = NULL;
@@ -60,7 +60,7 @@ static void do_dir_entry(deark *c, lctx *d, i64 pos1, i64 *bytes_consumed)
 	name_srd = dbuf_read_string(c->infile, pos, nlen, nlen, 0, DE_ENCODING_MACROMAN);
 	pos += nlen;
 	de_dbg(c, "name: \"%s\"", ucstring_getpsz(name_srd->str));
-	blk_id = (de_uint32)de_getui32be_p(&pos);
+	blk_id = (u32)de_getui32be_p(&pos);
 	de_dbg(c, "block id: %u", (unsigned int)blk_id);
 
 	if(!de_strcmp((const char*)name_srd->sz, "DSDB")) {
@@ -95,7 +95,7 @@ static void do_info_block(deark *c, lctx *d)
 	d->block_addr_table = de_malloc(c, d->blkcount * sizeof(struct addr_table_entry));
 	de_dbg_indent(c, 1);
 	for(k=0; k<d->blkcount; k++) {
-		d->block_addr_table[k].addr_code = (de_uint32)de_getui32be_p(&pos);
+		d->block_addr_table[k].addr_code = (u32)de_getui32be_p(&pos);
 		if(d->block_addr_table[k].addr_code!=0) {
 			de_dbg(c, "addr[%d] = 0x%08x", (int)k,
 				(unsigned int)d->block_addr_table[k].addr_code);
@@ -121,11 +121,11 @@ done:
 	de_dbg_indent_restore(c, saved_indent_level);
 }
 
-static int block_id_to_offset_and_size(deark *c, lctx *d, de_uint32 blk_id,
+static int block_id_to_offset_and_size(deark *c, lctx *d, u32 blk_id,
 	i64 *poffs, i64 *psize)
 {
 	int retval = 0;
-	de_uint32 addr_code;
+	u32 addr_code;
 	unsigned int size_indicator;
 
 	if((i64)blk_id>=d->blkcount) {
@@ -290,7 +290,7 @@ done:
 	return retval;
 }
 
-static void do_one_node(deark *c, lctx *d, de_uint32 blk_id)
+static void do_one_node(deark *c, lctx *d, u32 blk_id)
 {
 	i64 node_offs, node_size;
 	unsigned int mode;
@@ -327,8 +327,8 @@ static void do_one_node(deark *c, lctx *d, de_uint32 blk_id)
 		i64 bytes_consumed = 0;
 
 		if(mode!=0) {
-			de_uint32 next_blk_id;
-			next_blk_id = (de_uint32)de_getui32be_p(&pos);
+			u32 next_blk_id;
+			next_blk_id = (u32)de_getui32be_p(&pos);
 			de_dbg(c, "next block id: %u", (unsigned int)next_blk_id);
 			do_one_node(c, d, next_blk_id);
 		}
@@ -366,7 +366,7 @@ static int do_dsdb(deark *c, lctx *d)
 
 	de_dbg_indent(c, 1);
 	pos = dsdb_offs;
-	d->root_node_block_id = (de_uint32)de_getui32be_p(&pos);
+	d->root_node_block_id = (u32)de_getui32be_p(&pos);
 	de_dbg(c, "root node block id: %u", (unsigned int)d->root_node_block_id);
 
 	n = de_getui32be_p(&pos);

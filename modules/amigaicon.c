@@ -11,7 +11,7 @@ DE_DECLARE_MODULE(de_module_amigaicon);
 
 typedef struct localctx_struct {
 	i64 icon_revision;
-	de_byte icon_type;
+	u8 icon_type;
 	int has_drawerdata;
 	int has_toolwindow;
 	int has_defaulttool;
@@ -23,7 +23,7 @@ typedef struct localctx_struct {
 	// Newicons-specific data
 	int has_newicons;
 	dbuf *newicons_data[2];
-	de_byte pending_data;
+	u8 pending_data;
 	int pending_data_bits_used;
 	int newicons_bits_per_pixel;
 	int newicons_line_count;
@@ -32,21 +32,21 @@ typedef struct localctx_struct {
 	int has_glowicons;
 	i64 glowicons_pos;
 	i64 glowicons_width, glowicons_height;
-	de_uint32 glowicons_palette[256];
+	u32 glowicons_palette[256];
 } lctx;
 
-static const de_uint32 rev1pal[4] = { 0x55aaff,0x000000,0xffffff,0xff8800 }; // http://krashan.ppa.pl/articles/amigaicons/
-//static const de_uint32 rev1pal[4] = { 0x0055aa,0x000020,0xffffff,0xff8a00 }; // Netpbm
+static const u32 rev1pal[4] = { 0x55aaff,0x000000,0xffffff,0xff8800 }; // http://krashan.ppa.pl/articles/amigaicons/
+//static const u32 rev1pal[4] = { 0x0055aa,0x000020,0xffffff,0xff8a00 }; // Netpbm
 
-static const de_uint32 rev2pal[4] = { 0x959595,0xffffff,0x000000,0x3b67a2 }; // http://krashan.ppa.pl/articles/amigaicons/
-//static const de_uint32 rev2pal[4] = { 0xaaaaaa,0xffffff,0x000000,0x556699 }; // XnView
+static const u32 rev2pal[4] = { 0x959595,0xffffff,0x000000,0x3b67a2 }; // http://krashan.ppa.pl/articles/amigaicons/
+//static const u32 rev2pal[4] = { 0xaaaaaa,0xffffff,0x000000,0x556699 }; // XnView
 
-static const de_uint32 magicwbpal[8] = {
+static const u32 magicwbpal[8] = {
 	0x959595,0x7b7b7b,0xffffff,0xaa907c,0x000000,0xafafaf,0x3b67a2,0xffa997 // http://krashan.ppa.pl/articles/amigaicons/ fixed? (& Wikipedia)
 	//0xaaaaaa,0x999999,0xffffff,0xbbaa99,0x000000,0xbbbbbb,0x556699,0xffbbaa // XnView
 };
 
-static void do_newicons_append_bit(deark *c, lctx *d, dbuf *f, de_byte b)
+static void do_newicons_append_bit(deark *c, lctx *d, dbuf *f, u8 b)
 {
 	if(d->pending_data_bits_used==0) {
 		d->pending_data = 0;
@@ -75,8 +75,8 @@ static void do_newicons_append_bit(deark *c, lctx *d, dbuf *f, de_byte b)
 static void do_decode_newicons(deark *c, lctx *d,
 	dbuf *f, int newicons_num)
 {
-	de_byte trns_code, width_code, height_code;
-	de_byte b0, b1, tmpb;
+	u8 trns_code, width_code, height_code;
+	u8 b0, b1, tmpb;
 	de_bitmap *img = NULL;
 	int has_trns;
 	i64 ncolors;
@@ -85,7 +85,7 @@ static void do_decode_newicons(deark *c, lctx *d,
 	i64 bitmap_start_pos = 0;
 	i64 i;
 	i64 rle_len;
-	de_uint32 pal[256];
+	u32 pal[256];
 
 	de_dbg(c, "decoding NewIcons[%d], size=%d", newicons_num,
 		(int)f->len);
@@ -209,8 +209,8 @@ static int do_read_main_icon(deark *c, lctx *d,
 	i64 i, j, plane;
 	int retval = 0;
 	de_bitmap *img = NULL;
-	de_byte b, b1;
-	de_uint32 pal[256];
+	u8 b, b1;
+	u32 pal[256];
 
 	de_dbg(c, "main icon #%d, at %d", (int)icon_index, (int)pos);
 	de_dbg_indent(c, 1);
@@ -298,7 +298,7 @@ static int do_read_tooltypes_table(deark *c, lctx *d,
 	int retval = 0;
 	i64 i;
 	i64 len;
-	de_byte buf[4];
+	u8 buf[4];
 	int newicons_num;
 	i64 pos, tpos;
 
@@ -367,7 +367,7 @@ static void glowdata_uncompress(dbuf *f, i64 pos, i64 len,
 {
 	i64 x;
 	i64 i;
-	de_byte b, b2;
+	u8 b, b2;
 	i64 bitpos;
 
 	bitpos = 0;
@@ -402,13 +402,13 @@ static void do_glowicons_IMAG(deark *c, lctx *d,
 	i64 pos, i64 len)
 {
 	de_bitmap *img = NULL;
-	de_byte trns_color;
+	u8 trns_color;
 	i64 num_colors;
-	de_byte flags;
+	u8 flags;
 	int has_trns;
 	int has_palette;
-	de_byte cmpr_type;
-	de_byte pal_cmpr_type = 0;
+	u8 cmpr_type;
+	u8 pal_cmpr_type = 0;
 	i64 bits_per_pixel;
 	i64 image_size_in_bytes;
 	i64 pal_size_in_bytes;
@@ -527,15 +527,15 @@ done:
 static int do_detect_glowicons(deark *c, lctx *d, i64 pos)
 {
 	i64 gsize;
-	de_uint32 chunk_id;
-	de_uint32 form_type;
+	u32 chunk_id;
+	u32 form_type;
 
 	gsize = c->infile->len - pos;
 	if(gsize<=0) return 0;
 
 	if(gsize>=24) {
-		chunk_id = (de_uint32)de_getui32be(pos);
-		form_type = (de_uint32)de_getui32be(pos+8);
+		chunk_id = (u32)de_getui32be(pos);
+		form_type = (u32)de_getui32be(pos+8);
 		if(chunk_id==CODE_FORM && form_type==CODE_ICON) {
 			de_dbg(c, "GlowIcons data found at %d", (int)pos);
 			return 1;

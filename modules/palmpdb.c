@@ -24,7 +24,7 @@ DE_DECLARE_MODULE(de_module_palmrc);
 #define CODE_vIMG 0x76494d47U
 
 struct rec_data_struct {
-	de_uint32 offset;
+	u32 offset;
 };
 
 struct rec_list_struct {
@@ -37,8 +37,8 @@ struct rec_list_struct {
 };
 
 struct rsrc_type_info_struct {
-	de_uint32 id;
-	de_uint32 flags; // 1=standard Palm resource
+	u32 id;
+	u32 flags; // 1=standard Palm resource
 	const char *descr;
 	void* /* rsrc_decoder_fn */ decoder_fn;
 };
@@ -109,10 +109,10 @@ static void handle_palm_timestamp(deark *c, lctx *d, i64 pos, const char *name)
 	de_dbg_indent(c, -1);
 }
 
-static void get_db_attr_descr(de_ucstring *s, de_uint32 attribs)
+static void get_db_attr_descr(de_ucstring *s, u32 attribs)
 {
 	size_t i;
-	struct { de_uint32 a; const char *n; } flags_arr[] = {
+	struct { u32 a; const char *n; } flags_arr[] = {
 		{0x0001, "dmHdrAttrResDB"},
 		{0x0002, "dmHdrAttrReadOnly"},
 		{0x0004, "dmHdrAttrAppInfoDirty"},
@@ -140,8 +140,8 @@ static int do_read_pdb_prc_header(deark *c, lctx *d)
 	i64 pos1 = 0;
 	de_ucstring *dname = NULL;
 	de_ucstring *attr_descr = NULL;
-	de_uint32 attribs;
-	de_uint32 version;
+	u32 attribs;
+	u32 version;
 	i64 x;
 	int retval = 0;
 
@@ -152,13 +152,13 @@ static int do_read_pdb_prc_header(deark *c, lctx *d)
 	dbuf_read_to_ucstring(c->infile, pos1, 32, dname, DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_PALM);
 	de_dbg(c, "name: \"%s\"", ucstring_getpsz(dname));
 
-	attribs = (de_uint32)de_getui16be(pos1+32);
+	attribs = (u32)de_getui16be(pos1+32);
 	attr_descr = ucstring_create(c);
 	get_db_attr_descr(attr_descr, attribs);
 	de_dbg(c, "attributes: 0x%04x (%s)", (unsigned int)attribs,
 		ucstring_getpsz(attr_descr));
 
-	version = (de_uint32)de_getui16be(pos1+34);
+	version = (u32)de_getui16be(pos1+34);
 	de_dbg(c, "version: 0x%04x", (unsigned int)version);
 
 	handle_palm_timestamp(c, d, pos1+36, "create date");
@@ -248,7 +248,7 @@ static int do_decompress_imgview_image(deark *c, lctx *d, dbuf *inf,
 	i64 pos1, i64 len, dbuf *unc_pixels)
 {
 	i64 pos = pos1;
-	de_byte b1, b2;
+	u8 b1, b2;
 	i64 count;
 
 	while(pos < pos1+len) {
@@ -271,8 +271,8 @@ static void do_generate_unc_image(deark *c, lctx *d, dbuf *unc_pixels,
 	struct img_gen_info *igi)
 {
 	i64 i, j;
-	de_byte b;
-	de_byte b_adj;
+	u8 b;
+	u8 b_adj;
 	de_bitmap *img = NULL;
 
 	if(igi->bitsperpixel==1) {
@@ -329,8 +329,8 @@ static void do_generate_image(deark *c, lctx *d,
 
 static void do_imgview_image(deark *c, lctx *d, i64 pos1, i64 len)
 {
-	de_byte imgver;
-	de_byte imgtype;
+	u8 imgver;
+	u8 imgtype;
 	unsigned int cmpr_meth;
 	i64 x0, x1;
 	i64 pos = pos1;
@@ -446,7 +446,7 @@ static void do_imgview_text(deark *c, lctx *d, i64 pos, i64 len)
 	ucstring_destroy(s);
 }
 
-static void get_rec_attr_descr(de_ucstring *s, de_byte attribs)
+static void get_rec_attr_descr(de_ucstring *s, u8 attribs)
 {
 	if(attribs&0x10) ucstring_append_flags_item(s, "mRecAttrSecret");
 	if(attribs&0x20) ucstring_append_flags_item(s, "dmRecAttrBusy");
@@ -459,8 +459,8 @@ static void get_rec_attr_descr(de_ucstring *s, de_byte attribs)
 static int do_read_pdb_record(deark *c, lctx *d, i64 rec_idx, i64 pos1)
 {
 	i64 data_offs;
-	de_byte attribs;
-	de_uint32 id;
+	u8 attribs;
+	u32 id;
 	i64 data_len;
 	de_ucstring *attr_descr = NULL;
 	char extfull[80];
@@ -585,7 +585,7 @@ static const struct rsrc_type_info_struct rsrc_type_info_arr[] = {
 	{ CODE_tver, 0x1, "app version string", NULL }
 };
 
-static const struct rsrc_type_info_struct *get_rsrc_type_info(de_uint32 id)
+static const struct rsrc_type_info_struct *get_rsrc_type_info(u32 id)
 {
 	size_t i;
 
@@ -599,7 +599,7 @@ static const struct rsrc_type_info_struct *get_rsrc_type_info(de_uint32 id)
 
 static int do_read_prc_record(deark *c, lctx *d, i64 rec_idx, i64 pos1)
 {
-	de_uint32 id;
+	u32 id;
 	struct de_fourcc rsrc_type_4cc;
 	i64 data_offs;
 	i64 data_len;
@@ -622,7 +622,7 @@ static int do_read_prc_record(deark *c, lctx *d, i64 rec_idx, i64 pos1)
 	// The "filename" always starts with the fourcc.
 	ucstring_append_sz(ext_ucstring, rsrc_type_4cc.id_sanitized_sz, DE_ENCODING_ASCII);
 
-	id = (de_uint32)de_getui16be(pos1+4);
+	id = (u32)de_getui16be(pos1+4);
 	de_dbg(c, "id: %d", (int)id);
 
 	data_offs = (i64)d->rec_list.rec_data[rec_idx].offset;
@@ -696,19 +696,19 @@ static int do_prescan_records(deark *c, lctx *d, i64 pos1)
 		d->rec_list.order_to_read[i] = (size_t)i;
 
 		if(d->file_fmt==FMT_PRC) {
-			de_uint32 rsrc_type;
-			rsrc_type = (de_uint32)de_getui32be(pos1 + d->rec_size*i);
+			u32 rsrc_type;
+			rsrc_type = (u32)de_getui32be(pos1 + d->rec_size*i);
 			if(rsrc_type==CODE_tAIN && d->rec_list.icon_name_count==0) {
 				// "Move" the tAIN record to the beginning, so we will read it
 				// before any tAIB resources.
 				rec_list_insert_at_start(&d->rec_list, i);
 				d->rec_list.icon_name_count++;
 			}
-			d->rec_list.rec_data[i].offset = (de_uint32)de_getui32be(pos1 + d->rec_size*i + 6);
+			d->rec_list.rec_data[i].offset = (u32)de_getui32be(pos1 + d->rec_size*i + 6);
 		}
 		else {
-			de_uint32 id;
-			d->rec_list.rec_data[i].offset = (de_uint32)de_getui32be(pos1 + d->rec_size*i);
+			u32 id;
+			d->rec_list.rec_data[i].offset = (u32)de_getui32be(pos1 + d->rec_size*i);
 			if(!d->has_nonzero_ids) {
 				id = (de_getbyte(pos1+d->rec_size*i+5)<<16) |
 					(de_getbyte(pos1+d->rec_size*i+6)<<8) |
@@ -788,26 +788,26 @@ done:
 
 static void do_pqa_app_info_block(deark *c, lctx *d, i64 pos1, i64 len)
 {
-	de_uint32 sig;
-	de_uint32 ux;
+	u32 sig;
+	u32 ux;
 	de_ucstring *s = NULL;
 	i64 pos = pos1;
 
-	sig = (de_uint32)de_getui32be(pos);
+	sig = (u32)de_getui32be(pos);
 	if(sig!=CODE_lnch) return; // Apparently not a PQA appinfo block
 	de_dbg(c, "PQA sig: 0x%08x", (unsigned int)sig);
 	pos += 4;
 
-	ux = (de_uint32)de_getui16be(pos);
+	ux = (u32)de_getui16be(pos);
 	de_dbg(c, "hdrVersion: 0x%04x", (unsigned int)ux);
 	pos += 2;
-	ux = (de_uint32)de_getui16be(pos);
+	ux = (u32)de_getui16be(pos);
 	de_dbg(c, "encVersion: 0x%04x", (unsigned int)ux);
 	pos += 2;
 
 	s = ucstring_create(c);
 
-	ux = (de_uint32)de_getui16be(pos);
+	ux = (u32)de_getui16be(pos);
 	pos += 2;
 	dbuf_read_to_ucstring_n(c->infile, pos, ux*2, DE_DBG_MAX_STRLEN, s,
 		DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_PALM);
@@ -815,7 +815,7 @@ static void do_pqa_app_info_block(deark *c, lctx *d, i64 pos1, i64 len)
 	ucstring_empty(s);
 	pos += 2*ux;
 
-	ux = (de_uint32)de_getui16be(pos);
+	ux = (u32)de_getui16be(pos);
 	pos += 2;
 	dbuf_read_to_ucstring_n(c->infile, pos, ux*2, DE_DBG_MAX_STRLEN, s,
 		DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_PALM);
@@ -825,7 +825,7 @@ static void do_pqa_app_info_block(deark *c, lctx *d, i64 pos1, i64 len)
 
 	de_dbg(c, "icon");
 	de_dbg_indent(c, 1);
-	ux = (de_uint32)de_getui16be(pos); // iconWords (length prefix)
+	ux = (u32)de_getui16be(pos); // iconWords (length prefix)
 	pos += 2;
 	extract_item(c, d, pos, 2*ux, "icon.palm", NULL, DE_CREATEFLAG_IS_AUX, 1);
 	pos += 2*ux;
@@ -833,7 +833,7 @@ static void do_pqa_app_info_block(deark *c, lctx *d, i64 pos1, i64 len)
 
 	de_dbg(c, "smIcon");
 	de_dbg_indent(c, 1);
-	ux = (de_uint32)de_getui16be(pos); // smIconWords
+	ux = (u32)de_getui16be(pos); // smIconWords
 	pos += 2;
 	extract_item(c, d, pos, 2*ux, "smicon.palm", NULL, DE_CREATEFLAG_IS_AUX, 1);
 	pos += 2*ux;
@@ -940,9 +940,9 @@ static void de_run_palmrc(deark *c, de_module_params *mparams)
 static int de_identify_palmdb(deark *c)
 {
 	int has_ext = 0;
-	de_byte id[8];
-	de_byte buf[32];
-	de_uint32 attribs;
+	u8 id[8];
+	u8 buf[32];
+	u32 attribs;
 	i64 appinfo_offs;
 	i64 sortinfo_offs;
 	i64 n;
@@ -962,7 +962,7 @@ static int de_identify_palmdb(deark *c)
 	}
 	if(!has_ext) return 0;
 
-	attribs = (de_uint32)de_getui16be(32);
+	attribs = (u32)de_getui16be(32);
 	if(attribs & 0x0001) return 0; // Might be PRC, but is not PDB
 
 	// It is not easy to identify PDB format from its contents.
@@ -1027,7 +1027,7 @@ static int de_identify_palmdb(deark *c)
 static int looks_like_a_4cc(dbuf *f, i64 pos)
 {
 	i64 i;
-	de_byte buf[4];
+	u8 buf[4];
 	dbuf_read(f, buf, pos, 4);
 	for(i=0; i<4; i++) {
 		if(buf[i]<32 || buf[i]>126) return 0;
@@ -1041,8 +1041,8 @@ static int looks_like_a_4cc(dbuf *f, i64 pos)
 static int identify_pdb_prc_internal(deark *c, dbuf *f)
 {
 	i64 nrecs;
-	de_uint32 attribs;
-	attribs = (de_uint32)dbuf_getui16be(f, 32);
+	u32 attribs;
+	attribs = (u32)dbuf_getui16be(f, 32);
 	if(!looks_like_a_4cc(f, 60)) return 0;
 	if(!looks_like_a_4cc(f, 64)) return 0;
 	nrecs = dbuf_getui16be(f, 72+4);
@@ -1057,7 +1057,7 @@ static int de_identify_palmrc(deark *c)
 	int prc_ext = 0;
 	int pdb_ext = 0;
 	int x;
-	de_byte id[8];
+	u8 id[8];
 
 	if(de_input_file_has_ext(c, "prc"))
 		prc_ext = 1;

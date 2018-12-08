@@ -37,14 +37,14 @@ typedef void (*page_handler_fn_type)(deark *c, lctx *d,
 	int stream_type;
 	unsigned int flags;
 	int magic_len;
-	const de_byte *magic;
+	const u8 *magic;
 	const char *name;
 	page_handler_fn_type page_fn;
 };
 
 struct page_info {
-	de_byte version;
-	de_byte hdr_type;
+	u8 version;
+	u8 hdr_type;
 	int is_first_page; // Is this the first page of some bitstream?
 	i64 granule_pos;
 	i64 stream_serialno;
@@ -80,9 +80,9 @@ struct localctx_struct {
 	i64 bitstream_count;
 	struct de_inthashtable *streamtable;
 
-	de_byte format_declared;
-	de_byte found_skeleton, found_ogm;
-	de_byte found_vorbis, found_theora;
+	u8 format_declared;
+	u8 found_skeleton, found_ogm;
+	u8 found_vorbis, found_theora;
 
 	int first_stream_type_valid;
 	int first_stream_type;
@@ -143,7 +143,7 @@ static void declare_ogg_format(deark *c, lctx *d)
 	de_declare_fmt(c, tmps);
 }
 
-static char *get_hdrtype_descr(deark *c, char *buf, size_t buflen, de_byte hdr_type)
+static char *get_hdrtype_descr(deark *c, char *buf, size_t buflen, u8 hdr_type)
 {
 	if(hdr_type==0) {
 		de_strlcpy(buf, "", buflen);
@@ -184,7 +184,7 @@ static void do_vorbis_id_header(deark *c, lctx *d, struct page_info *pgi, struct
 static void do_theora_id_header(deark *c, lctx *d, struct page_info *pgi, struct stream_info *si)
 {
 	i64 pos = pgi->dpos;
-	de_byte vmaj, vmin, vrev;
+	u8 vmaj, vmin, vrev;
 	i64 x1, x2;
 	unsigned int u1, u2;
 
@@ -296,7 +296,7 @@ done:
 
 static void do_vorbis_page(deark *c, lctx *d, struct page_info *pgi, struct stream_info *si)
 {
-	de_byte firstbyte;
+	u8 firstbyte;
 
 	if(pgi->is_first_page) {
 		// The first Ogg page of a bitstream usually contains enough data to be
@@ -345,7 +345,7 @@ done:
 
 static void do_theora_page(deark *c, lctx *d, struct page_info *pgi, struct stream_info *si)
 {
-	de_byte firstbyte;
+	u8 firstbyte;
 
 	if(pgi->is_first_page) {
 		do_theora_id_header(c, d, pgi, si);
@@ -391,26 +391,26 @@ done:
 
 // .flags: 0x1=An OGM stream type
 const struct stream_type_info stream_type_info_arr[] = {
-	{ STREAMTYPE_VORBIS,  0, 7,  (const de_byte*)"\x01" "vorbis", "Vorbis", do_vorbis_page },
-	{ STREAMTYPE_THEORA,  0, 7,  (const de_byte*)"\x80" "theora", "Theora", do_theora_page },
-	{ STREAMTYPE_SKELETON, 0, 8, (const de_byte*)"fishead\0",     "Skeleton", NULL },
-	{ STREAMTYPE_FLAC,    0, 5,  (const de_byte*)"\x7f" "FLAC",   "FLAC", NULL },
-	{ STREAMTYPE_SPEEX,   0, 8,  (const de_byte*)"Speex   ",      "Speex", NULL },
-	{ STREAMTYPE_OPUS,    0, 8,  (const de_byte*)"OpusHead",      "Opus", NULL },
-	{ STREAMTYPE_DIRAC,   0, 5,  (const de_byte*)"BBCD\0",        "Dirac", NULL },
-	{ STREAMTYPE_KATE,    0, 8,  (const de_byte*)"\x80" "kate\0\0\0", "Kate", NULL },
-	{ STREAMTYPE_MIDI,    0, 8,  (const de_byte*)"OggMIDI\0",     "MIDI", NULL },
-	{ STREAMTYPE_PCM,     0, 8,  (const de_byte*)"PCM     ",      "PCM", NULL },
-	{ STREAMTYPE_YUV4MPEG, 0, 8, (const de_byte*)"YUV4MPEG",      "YUV4MPEG", NULL },
-	{ STREAMTYPE_OGM_V, 0x1, 6,  (const de_byte*)"\x01" "video",  "OGM video", NULL },
-	{ STREAMTYPE_OGM_A, 0x1, 6,  (const de_byte*)"\x01" "audio",  "OGM audio", NULL },
-	{ STREAMTYPE_OGM_T, 0x1, 5,  (const de_byte*)"\x01" "text",   "OGM text", NULL },
-	{ STREAMTYPE_OGM_S, 0x1, 16, (const de_byte*)"\x01" "Direct Show Sam", "OGM DS samples", NULL }
+	{ STREAMTYPE_VORBIS,  0, 7,  (const u8*)"\x01" "vorbis", "Vorbis", do_vorbis_page },
+	{ STREAMTYPE_THEORA,  0, 7,  (const u8*)"\x80" "theora", "Theora", do_theora_page },
+	{ STREAMTYPE_SKELETON, 0, 8, (const u8*)"fishead\0",     "Skeleton", NULL },
+	{ STREAMTYPE_FLAC,    0, 5,  (const u8*)"\x7f" "FLAC",   "FLAC", NULL },
+	{ STREAMTYPE_SPEEX,   0, 8,  (const u8*)"Speex   ",      "Speex", NULL },
+	{ STREAMTYPE_OPUS,    0, 8,  (const u8*)"OpusHead",      "Opus", NULL },
+	{ STREAMTYPE_DIRAC,   0, 5,  (const u8*)"BBCD\0",        "Dirac", NULL },
+	{ STREAMTYPE_KATE,    0, 8,  (const u8*)"\x80" "kate\0\0\0", "Kate", NULL },
+	{ STREAMTYPE_MIDI,    0, 8,  (const u8*)"OggMIDI\0",     "MIDI", NULL },
+	{ STREAMTYPE_PCM,     0, 8,  (const u8*)"PCM     ",      "PCM", NULL },
+	{ STREAMTYPE_YUV4MPEG, 0, 8, (const u8*)"YUV4MPEG",      "YUV4MPEG", NULL },
+	{ STREAMTYPE_OGM_V, 0x1, 6,  (const u8*)"\x01" "video",  "OGM video", NULL },
+	{ STREAMTYPE_OGM_A, 0x1, 6,  (const u8*)"\x01" "audio",  "OGM audio", NULL },
+	{ STREAMTYPE_OGM_T, 0x1, 5,  (const u8*)"\x01" "text",   "OGM text", NULL },
+	{ STREAMTYPE_OGM_S, 0x1, 16, (const u8*)"\x01" "Direct Show Sam", "OGM DS samples", NULL }
 };
 
 static void do_identify_bitstream(deark *c, lctx *d, struct stream_info *si, i64 pos, i64 len)
 {
-	de_byte idbuf[16];
+	u8 idbuf[16];
 	size_t bytes_to_scan;
 	size_t k;
 
@@ -627,12 +627,12 @@ static void run_ogg_internal(deark *c, lctx *d)
 	ogg_end = id3i.main_end;
 
 	while(1) {
-		de_uint32 sig;
+		u32 sig;
 		int ret;
 		i64 bytes_consumed = 0;
 
 		if(pos >= ogg_end) break;
-		sig = (de_uint32)de_getui32be(pos);
+		sig = (u32)de_getui32be(pos);
 		if(sig!=0x04f676753U) {
 			de_err(c, "Ogg page signature not found at %"INT64_FMT, pos);
 			break;

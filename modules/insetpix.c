@@ -10,10 +10,10 @@ DE_DECLARE_MODULE(de_module_insetpix);
 
 typedef struct localctx_struct {
 	i64 item_count;
-	de_byte hmode;
-	de_byte htype;
-	de_byte graphics_type; // 0=character, 1=bitmap
-	de_byte board_type;
+	u8 hmode;
+	u8 htype;
+	u8 graphics_type; // 0=character, 1=bitmap
+	u8 board_type;
 	i64 width, height;
 	i64 gfore; // Foreground color bits
 	i64 max_sample_value;
@@ -27,10 +27,10 @@ typedef struct localctx_struct {
 	i64 compression_bytes_per_row;
 	int is_grayscale;
 
-	de_byte max_pal_intensity, max_pal_sample;
+	u8 max_pal_intensity, max_pal_sample;
 
 	i64 pal_entries_used;
-	de_uint32 pal[256];
+	u32 pal[256];
 } lctx;
 
 static int do_palette(deark *c, lctx *d, i64 pos, i64 len)
@@ -38,8 +38,8 @@ static int do_palette(deark *c, lctx *d, i64 pos, i64 len)
 	i64 pal_entries_in_file;
 	i64 i;
 	i64 k;
-	de_byte ci1, cr1, cg1, cb1;
-	de_byte ci2, cr2, cg2, cb2;
+	u8 ci1, cr1, cg1, cb1;
+	u8 ci2, cr2, cg2, cb2;
 	int retval = 0;
 	double max_color_sample;
 	double pal_sample_scalefactor[4];
@@ -88,9 +88,9 @@ static int do_palette(deark *c, lctx *d, i64 pos, i64 len)
 			d->pal[i] = DE_MAKE_GRAY(ci2);
 		}
 		else {
-			cr2 = (de_byte)(0.5+ pal_sample_scalefactor[1] * (double)cr1);
-			cg2 = (de_byte)(0.5+ pal_sample_scalefactor[2] * (double)cg1);
-			cb2 = (de_byte)(0.5+ pal_sample_scalefactor[3] * (double)cb1);
+			cr2 = (u8)(0.5+ pal_sample_scalefactor[1] * (double)cr1);
+			cg2 = (u8)(0.5+ pal_sample_scalefactor[2] * (double)cg1);
+			cb2 = (u8)(0.5+ pal_sample_scalefactor[3] * (double)cb1);
 			if(ci1) {
 				// This is just a guess. The spec doesn't say what intensity bits do.
 				// This is pretty much what old PC graphics cards do when the
@@ -192,9 +192,9 @@ done:
 	return retval;
 }
 
-static de_byte getbit(const de_byte *m, i64 bitnum)
+static u8 getbit(const u8 *m, i64 bitnum)
 {
-	de_byte b;
+	u8 b;
 	b = m[bitnum/8];
 	b = (b>>(7-bitnum%8)) & 0x1;
 	return b;
@@ -204,9 +204,9 @@ static void do_uncompress_tile(deark *c, lctx *d, i64 tile_num,
 	i64 tile_loc, i64 tile_len,
 	dbuf *unc_pixels, i64 num_rows)
 {
-	de_byte *rowbuf1 = NULL;
-	de_byte *rowbuf2 = NULL;
-	de_byte *compression_bytes = NULL;
+	u8 *rowbuf1 = NULL;
+	u8 *rowbuf2 = NULL;
+	u8 *compression_bytes = NULL;
 	i64 pos;
 	i64 i, j;
 	i64 plane;
@@ -273,9 +273,9 @@ static void do_render_tile(deark *c, lctx *d, de_bitmap *img,
 	i64 x_pos_in_tiles, y_pos_in_tiles;
 	i64 x_origin_in_pixels, y_origin_in_pixels;
 	i64 x_pos_in_pixels, y_pos_in_pixels;
-	de_uint32 clr;
+	u32 clr;
 	unsigned int palent;
-	de_byte b;
+	u8 b;
 	dbuf *unc_pixels = NULL;
 	i64 nrows_expected;
 	i64 planespan;
