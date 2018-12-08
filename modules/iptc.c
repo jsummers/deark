@@ -346,7 +346,7 @@ static int do_dataset(deark *c, lctx *d, i64 ds_idx, i64 pos1,
 	if(!read_dflen(c, c->infile, pos, &dflen, &dflen_bytes_consumed)) goto done;
 	pos += dflen_bytes_consumed;
 
-	de_dbg(c, "IPTC dataset %d:%02d (%s) dpos=%" INT64_FMT " dlen=%" INT64_FMT "",
+	de_dbg(c, "IPTC dataset %d:%02d (%s) dpos=%" I64_FMT " dlen=%" I64_FMT "",
 		(int)recnum, (int)dsnum, dsi.dsname, pos, dflen);
 
 	// Decode the value

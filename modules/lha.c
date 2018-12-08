@@ -554,7 +554,7 @@ static int do_read_member(deark *c, lctx *d, struct member_data *md, i64 pos1)
 	}
 	else {
 		md->compressed_data_len = de_getui32le(pos);
-		de_dbg(c, "compressed size: %"INT64_FMT, md->compressed_data_len);
+		de_dbg(c, "compressed size: %"I64_FMT, md->compressed_data_len);
 		pos += 4;
 
 		if(md->hlev==0) {
@@ -663,7 +663,7 @@ static int do_read_member(deark *c, lctx *d, struct member_data *md, i64 pos1)
 			first_ext_hdr_size, &exthdr_bytes_consumed);
 	}
 
-	de_dbg(c, "%scompressed member data at %"INT64_FMT", len=%"INT64_FMT,
+	de_dbg(c, "%scompressed member data at %"I64_FMT", len=%"I64_FMT,
 		is_compressed?"":"un",
 		md->compressed_data_pos, md->compressed_data_len);
 

@@ -235,7 +235,7 @@ static void do_resource_data(deark *c, lctx *d, struct rsrctypeinfo *rti,
 		extr_flag = 1;
 	}
 	else if(rti->fcc.id==CODE_ANPA && rii->id==10000) {
-		de_dbg(c, "IPTC data at %"INT64_FMT, dpos);
+		de_dbg(c, "IPTC data at %"I64_FMT, dpos);
 		de_dbg_indent(c, 1);
 		de_fmtutil_handle_iptc(c, c->infile, dpos, dlen, 0x0);
 		de_dbg_indent(c, -1);
@@ -435,8 +435,8 @@ static void de_run_macrsrc(deark *c, de_module_params *mparams)
 	d->map_offs = de_getui32be_p(&pos);
 	d->data_size = de_getui32be_p(&pos);
 	d->map_size = de_getui32be_p(&pos);
-	de_dbg(c, "data: pos=%"INT64_FMT", len=%"INT64_FMT, d->data_offs, d->data_size);
-	de_dbg(c, "map: pos=%"INT64_FMT", len=%"INT64_FMT, d->map_offs, d->map_size);
+	de_dbg(c, "data: pos=%"I64_FMT", len=%"I64_FMT, d->data_offs, d->data_size);
+	de_dbg(c, "map: pos=%"I64_FMT", len=%"I64_FMT, d->map_offs, d->map_size);
 	do_map(c, d, d->map_offs, d->map_size);
 	finalize_icns_stream(c, d);
 	finalize_psrc_stream(c, d);

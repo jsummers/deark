@@ -90,20 +90,20 @@ static void handle_palm_timestamp(deark *c, lctx *d, i64 pos, const char *name)
 
 	de_mac_time_to_timestamp(ts_int, &ts);
 	de_timestamp_to_string(&ts, timestamp_buf, sizeof(timestamp_buf), 0);
-	de_dbg(c, "... if Mac-BE: %"INT64_FMT" (%s)", ts_int, timestamp_buf);
+	de_dbg(c, "... if Mac-BE: %"I64_FMT" (%s)", ts_int, timestamp_buf);
 
 	ts_int = de_geti32be(pos);
 	if(ts_int>0) { // Assume dates before 1970 are wrong
 		de_unix_time_to_timestamp(ts_int, &ts, 0x1);
 		de_timestamp_to_string(&ts, timestamp_buf, sizeof(timestamp_buf), 0);
-		de_dbg(c, "... if Unix-BE: %"INT64_FMT" (%s)", ts_int, timestamp_buf);
+		de_dbg(c, "... if Unix-BE: %"I64_FMT" (%s)", ts_int, timestamp_buf);
 	}
 
 	ts_int = de_getui32le(pos);
 	if(ts_int>2082844800) {
 		de_mac_time_to_timestamp(ts_int, &ts);
 		de_timestamp_to_string(&ts, timestamp_buf, sizeof(timestamp_buf), 0);
-		de_dbg(c, "... if Mac-LE: %"INT64_FMT" (%s)", ts_int, timestamp_buf);
+		de_dbg(c, "... if Mac-LE: %"I64_FMT" (%s)", ts_int, timestamp_buf);
 	}
 
 	de_dbg_indent(c, -1);

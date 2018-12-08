@@ -892,7 +892,7 @@ static int do_box(deark *c, struct de_boxesctx *bctx, i64 pos, i64 len,
 	curbox->parent = parentbox;
 
 	if(len<8) {
-		de_dbg(c, "(ignoring %d extra bytes at %"INT64_FMT")", (int)len, pos);
+		de_dbg(c, "(ignoring %d extra bytes at %"I64_FMT")", (int)len, pos);
 		goto done;
 	}
 
@@ -910,7 +910,7 @@ static int do_box(deark *c, struct de_boxesctx *bctx, i64 pos, i64 len,
 	}
 	else if(size32==1) {
 		if(len<16) {
-			de_dbg(c, "(ignoring %d extra bytes at %"INT64_FMT")", (int)len, pos);
+			de_dbg(c, "(ignoring %d extra bytes at %"I64_FMT")", (int)len, pos);
 			goto done;
 		}
 		header_len = 16;
@@ -956,12 +956,12 @@ static int do_box(deark *c, struct de_boxesctx *bctx, i64 pos, i64 len,
 
 		if(curbox->is_uuid) {
 			de_fmtutil_render_uuid(c, curbox->uuid, uuid_string, sizeof(uuid_string));
-			de_dbg(c, "box '%s'{%s}%s at %"INT64_FMT", len=%"INT64_FMT,
+			de_dbg(c, "box '%s'{%s}%s at %"I64_FMT", len=%"I64_FMT,
 				box4cc.id_dbgstr, uuid_string, name_str,
 				pos, total_len);
 		}
 		else {
-			de_dbg(c, "box '%s'%s at %"INT64_FMT", len=%"INT64_FMT", dlen=%"INT64_FMT,
+			de_dbg(c, "box '%s'%s at %"I64_FMT", len=%"I64_FMT", dlen=%"I64_FMT,
 				box4cc.id_dbgstr, name_str, pos,
 				total_len, payload_len);
 		}
@@ -969,8 +969,8 @@ static int do_box(deark *c, struct de_boxesctx *bctx, i64 pos, i64 len,
 
 	if(total_len > len) {
 		de_err(c, "Invalid oversized box, or unexpected end of file "
-			"(box at %"INT64_FMT" ends at %"INT64_FMT", "
-			"parent ends at %"INT64_FMT")",
+			"(box at %"I64_FMT" ends at %"I64_FMT", "
+			"parent ends at %"I64_FMT")",
 			pos, pos+total_len, pos+len);
 		goto done;
 	}
@@ -1471,7 +1471,7 @@ static int do_iff_chunk(deark *c, struct de_iffctx *ictx, i64 pos, i64 bytes_ava
 
 	hdrsize = 4+ictx->sizeof_len;
 	if(bytes_avail<hdrsize) {
-		de_warn(c, "Ignoring %"INT64_FMT" bytes at %"INT64_FMT"; too small "
+		de_warn(c, "Ignoring %"I64_FMT" bytes at %"I64_FMT"; too small "
 			"to be a chunk", bytes_avail, pos);
 		goto done;
 	}
@@ -1480,7 +1480,7 @@ static int do_iff_chunk(deark *c, struct de_iffctx *ictx, i64 pos, i64 bytes_ava
 	dbuf_read_fourcc(ictx->f, pos, &chunkctx.chunk4cc, 4,
 		ictx->reversed_4cc ? DE_4CCFLAG_REVERSED : 0x0);
 	if(chunkctx.chunk4cc.id==0 && level==0) {
-		de_warn(c, "Chunk ID not found at %"INT64_FMT"; assuming the data ends "
+		de_warn(c, "Chunk ID not found at %"I64_FMT"; assuming the data ends "
 			"here", pos);
 		goto done;
 	}
@@ -1510,7 +1510,7 @@ static int do_iff_chunk(deark *c, struct de_iffctx *ictx, i64 pos, i64 bytes_ava
 		name_str[0] = '\0';
 	}
 
-	de_dbg(c, "chunk '%s'%s at %"INT64_FMT", dpos=%"INT64_FMT", dlen=%"INT64_FMT,
+	de_dbg(c, "chunk '%s'%s at %"I64_FMT", dpos=%"I64_FMT", dlen=%"I64_FMT,
 		chunkctx.chunk4cc.id_dbgstr, name_str, pos,
 		chunkctx.dpos, chunkctx.dlen);
 	de_dbg_indent(c, 1);
@@ -1528,13 +1528,13 @@ static int do_iff_chunk(deark *c, struct de_iffctx *ictx, i64 pos, i64 bytes_ava
 
 		if(should_warn) {
 			de_warn(c, "Invalid oversized chunk, or unexpected end of file "
-				"(chunk at %d ends at %" INT64_FMT ", "
-				"parent ends at %" INT64_FMT ")",
+				"(chunk at %d ends at %" I64_FMT ", "
+				"parent ends at %" I64_FMT ")",
 				(int)pos, chunkctx.dlen+chunkctx.dpos, pos+bytes_avail);
 		}
 
 		chunkctx.dlen = data_bytes_avail; // Try to continue
-		de_dbg(c, "adjusting chunk data len to %"INT64_FMT, chunkctx.dlen);
+		de_dbg(c, "adjusting chunk data len to %"I64_FMT, chunkctx.dlen);
 	}
 
 	chunk_dlen_padded = de_pad_to_n(chunkctx.dlen, ictx->alignment);
@@ -1873,7 +1873,7 @@ void de_fmtutil_handle_id3(deark *c, dbuf *f, struct de_id3info *id3i,
 	if(id3i->has_id3v1) {
 		de_module_params id3v1mparams;
 
-		de_dbg(c, "ID3v1 data at %"INT64_FMT, id3v1pos);
+		de_dbg(c, "ID3v1 data at %"I64_FMT, id3v1pos);
 		de_dbg_indent(c, 1);
 		de_zeromem(&id3v1mparams, sizeof(de_module_params));
 		id3v1mparams.in_params.codes = "1";

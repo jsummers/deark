@@ -269,7 +269,7 @@ void de_run(deark *c)
 			"not work properly. Caveat emptor.",
 			module_to_use->id);
 	}
-	de_dbg2(c, "file size: %" INT64_FMT "", c->infile->len);
+	de_dbg2(c, "file size: %" I64_FMT "", c->infile->len);
 
 	if(c->modcodes_req) {
 		if(!mparams)

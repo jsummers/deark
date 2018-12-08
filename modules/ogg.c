@@ -520,16 +520,16 @@ static int do_ogg_page(deark *c, lctx *d, i64 pos1, i64 *bytes_consumed)
 		get_hdrtype_descr(c, buf, sizeof(buf), pgi->hdr_type));
 
 	pgi->granule_pos = de_geti64le(pos); pos += 8;
-	de_dbg(c, "granule position: %"INT64_FMT, pgi->granule_pos);
+	de_dbg(c, "granule position: %"I64_FMT, pgi->granule_pos);
 
 	pgi->stream_serialno = de_getui32le_p(&pos);
-	de_dbg(c, "bitstream serial number: %"INT64_FMT, pgi->stream_serialno);
+	de_dbg(c, "bitstream serial number: %"I64_FMT, pgi->stream_serialno);
 
 	ret = de_inthashtable_get_item(c, d->streamtable, pgi->stream_serialno, (void**)&si);
 	if(ret) {
 		// We've seen this stream before.
 		de_dbg_indent(c, 1);
-		de_dbg(c, "bitstream %"INT64_FMT" type: %s", pgi->stream_serialno,
+		de_dbg(c, "bitstream %"I64_FMT" type: %s", pgi->stream_serialno,
 			si->sti?si->sti->name:"unknown");
 		de_dbg_indent(c, -1);
 	}
@@ -542,7 +542,7 @@ static int do_ogg_page(deark *c, lctx *d, i64 pos1, i64 *bytes_consumed)
 	si->serialno = pgi->stream_serialno;
 
 	pgi->page_seq_num = de_getui32le_p(&pos);
-	de_dbg(c, "page sequence number: %"INT64_FMT, pgi->page_seq_num);
+	de_dbg(c, "page sequence number: %"I64_FMT, pgi->page_seq_num);
 
 	x = de_getui32le_p(&pos);
 	de_dbg(c, "crc (reported): 0x%08x", (unsigned int)x);
@@ -564,7 +564,7 @@ static int do_ogg_page(deark *c, lctx *d, i64 pos1, i64 *bytes_consumed)
 	pgi->is_first_page = (si->page_count==0) && (pgi->page_seq_num==0) && ((pgi->hdr_type&0x02)!=0);
 
 	// Page data
-	de_dbg(c, "[%"INT64_FMT" total bytes of page data, at %"INT64_FMT"]", pgi->dlen, pgi->dpos);
+	de_dbg(c, "[%"I64_FMT" total bytes of page data, at %"I64_FMT"]", pgi->dlen, pgi->dpos);
 	de_dbg_indent(c, 1);
 	do_bitstream_page(c, d, pgi, si);
 	de_dbg_indent(c, -1);
@@ -634,10 +634,10 @@ static void run_ogg_internal(deark *c, lctx *d)
 		if(pos >= ogg_end) break;
 		sig = (u32)de_getui32be(pos);
 		if(sig!=0x04f676753U) {
-			de_err(c, "Ogg page signature not found at %"INT64_FMT, pos);
+			de_err(c, "Ogg page signature not found at %"I64_FMT, pos);
 			break;
 		}
-		de_dbg(c, "page at %"INT64_FMT, pos);
+		de_dbg(c, "page at %"I64_FMT, pos);
 		de_dbg_indent(c, 1);
 		ret = do_ogg_page(c, d, pos, &bytes_consumed);
 		de_dbg_indent(c, -1);

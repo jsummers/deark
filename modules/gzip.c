@@ -95,7 +95,7 @@ static int do_gzip_read_member(deark *c, lctx *d, i64 pos1, i64 *member_size)
 	if(md->mod_time_ts.is_valid) {
 		char timestamp_buf[64];
 		de_timestamp_to_string(&md->mod_time_ts, timestamp_buf, sizeof(timestamp_buf), 0);
-		de_dbg(c, "mod time: %" INT64_FMT " (%s)", mod_time_unix, timestamp_buf);
+		de_dbg(c, "mod time: %" I64_FMT " (%s)", mod_time_unix, timestamp_buf);
 	}
 	pos += 4;
 

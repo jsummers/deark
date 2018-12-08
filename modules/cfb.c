@@ -759,7 +759,7 @@ static int do_OfficeArtStream_record(deark *c, lctx *d, struct officeartctx *oac
 
 	reclen = dbuf_getui32le_p(firstpart, &pos);
 
-	de_dbg(c, "record at [%"INT64_FMT"], ver=0x%x, inst=0x%03x, type=0x%04x (%s), dlen=%"INT64_FMT,
+	de_dbg(c, "record at [%"I64_FMT"], ver=0x%x, inst=0x%03x, type=0x%04x (%s), dlen=%"I64_FMT,
 		pos1, recver, recinstance,
 		rectype, get_officeart_rectype_name(rectype), reclen);
 	de_dbg_indent(c, 1);
@@ -877,7 +877,7 @@ static void do_OfficeArtStream(deark *c, lctx *d, struct dir_entry_info *dei)
 
 	de_dbg_indent_save(c, &saved_indent_level);
 	oactx = de_malloc(c, sizeof(struct officeartctx));
-	de_dbg(c, "OfficeArt stream, len=%"INT64_FMT, dei->stream_size);
+	de_dbg(c, "OfficeArt stream, len=%"I64_FMT, dei->stream_size);
 
 	oactx->record_pos = 0;
 	while(1) {
@@ -1579,7 +1579,7 @@ static void do_process_dir_entry(deark *c, lctx *d, i64 dir_entry_idx)
 
 	dbg_timestamp(c, &dei->mod_time, "mod time");
 
-	de_dbg(c, "stream size: %"INT64_FMT, dei->stream_size);
+	de_dbg(c, "stream size: %"I64_FMT, dei->stream_size);
 
 	if(dei->is_mini_stream) {
 		de_dbg(c, "first MiniSecID: %d", (int)dei->minisec_id);

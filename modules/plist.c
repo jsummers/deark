@@ -73,11 +73,11 @@ static int do_trailer(deark *c, lctx *d, i64 pos1)
 	pos += 8;
 
 	d->top_object_refnum = de_geti64be(pos);
-	de_dbg(c, "root object refnum: %"INT64_FMT, d->top_object_refnum);
+	de_dbg(c, "root object refnum: %"I64_FMT, d->top_object_refnum);
 	pos += 8;
 
 	d->objref_table_start = de_geti64be(pos);
-	de_dbg(c, "objref table start: %"INT64_FMT, d->objref_table_start);
+	de_dbg(c, "objref table start: %"I64_FMT, d->objref_table_start);
 	pos += 8;
 
 	if(d->nbytes_per_objref_table_entry<1 || d->nbytes_per_objref_table_entry>8 ||
@@ -88,7 +88,7 @@ static int do_trailer(deark *c, lctx *d, i64 pos1)
 	}
 
 	if(d->num_objrefs<0 || d->num_objrefs>MAX_PLIST_OBJECTS) {
-		de_err(c, "Too many PLIST objects (%"INT64_FMT")", d->num_objrefs);
+		de_err(c, "Too many PLIST objects (%"I64_FMT")", d->num_objrefs);
 		goto done;
 	}
 
@@ -123,7 +123,7 @@ static void do_object_array_or_set(deark *c, lctx *d, const char *tn,
 		i64 refnum;
 
 		if(d->exceeded_max_objects) goto done;
-		de_dbg(c, "item[%d] (for %s@%"INT64_FMT")", (int)k, tn, objpos);
+		de_dbg(c, "item[%d] (for %s@%"I64_FMT")", (int)k, tn, objpos);
 		de_dbg_indent(c, 1);
 
 		refnum = dbuf_getint_ext(c->infile, pos, d->nbytes_per_object_refnum, 0, 0);
@@ -158,7 +158,7 @@ static void do_object_dict(deark *c, lctx *d, i64 objpos, i64 pos1,
 		i64 valrefnum;
 
 		if(d->exceeded_max_objects) goto done;
-		de_dbg(c, "entry[%d] (for dict@%"INT64_FMT")", (int)k, objpos);
+		de_dbg(c, "entry[%d] (for dict@%"I64_FMT")", (int)k, objpos);
 		de_dbg_indent(c, 1);
 
 		keyrefnum = dbuf_getint_ext(c->infile, pos1+k*(i64)d->nbytes_per_object_refnum,
@@ -229,7 +229,7 @@ static void do_object_int(deark *c, lctx *d, i64 pos, i64 dlen_raw)
 	if(dlen_raw<0 || dlen_raw>3) return;
 	nbytes = 1U<<(unsigned int)dlen_raw;
 	n = dbuf_getint_ext(c->infile, pos, nbytes, 0, 1);
-	de_dbg(c, "value: %"INT64_FMT, n);
+	de_dbg(c, "value: %"I64_FMT, n);
 }
 
 static void do_object_date(deark *c, lctx *d, i64 pos)
@@ -273,7 +273,7 @@ static int do_one_object_by_offset(deark *c, lctx *d, i64 pos1)
 		return 0;
 	}
 
-	de_dbg(c, "object at %"INT64_FMT, pos);
+	de_dbg(c, "object at %"I64_FMT, pos);
 	de_dbg_indent(c, 1);
 
 	d->object_count++;
@@ -356,7 +356,7 @@ static int do_one_object_by_offset(deark *c, lctx *d, i64 pos1)
 		else {
 			dlen_raw = (i64)m2;
 		}
-		de_dbg(c, "size (logical): %"INT64_FMT, dlen_raw);
+		de_dbg(c, "size (logical): %"I64_FMT, dlen_raw);
 	}
 
 	if(m1==0x0 && (m2==0x8 || m2==0x9)) {
@@ -372,7 +372,7 @@ static int do_one_object_by_offset(deark *c, lctx *d, i64 pos1)
 		do_object_date(c, d, pos);
 	}
 	else if(m1==0x4) {
-		de_dbg(c, "binary data at %"INT64_FMT", len=%"INT64_FMT, pos, dlen_raw);
+		de_dbg(c, "binary data at %"I64_FMT", len=%"I64_FMT, pos, dlen_raw);
 		de_dbg_indent(c, 1);
 		de_dbg_hexdump(c, c->infile, pos, dlen_raw, 256, NULL, 0x1);
 		de_dbg_indent(c, -1);
@@ -413,7 +413,7 @@ static void read_offset_table(deark *c, lctx *d)
 	i64 k;
 	i64 pos = d->objref_table_start;
 
-	de_dbg(c, "objref table at %"INT64_FMT, pos);
+	de_dbg(c, "objref table at %"I64_FMT, pos);
 	de_dbg_indent(c, 1);
 
 	d->objref_table = de_malloc(c, d->num_objrefs * sizeof(struct objref_struct));
@@ -424,7 +424,7 @@ static void read_offset_table(deark *c, lctx *d)
 		if(pos+(i64)d->nbytes_per_objref_table_entry > c->infile->len-32) break;
 		offs = dbuf_getint_ext(c->infile, pos, d->nbytes_per_objref_table_entry, 0, 0);
 		if(c->debug_level>=2)
-			de_dbg(c, "objref[%"INT64_FMT"] offset: %"INT64_FMT, k, offs);
+			de_dbg(c, "objref[%"I64_FMT"] offset: %"I64_FMT, k, offs);
 		d->objref_table[k].offs = (u32)offs;
 		pos += (i64)d->nbytes_per_objref_table_entry;
 	}
@@ -443,7 +443,7 @@ static void de_run_plist(deark *c, de_module_params *mparams)
 		// We *could* support huge PLIST files, but until I learn that they
 		// are valid, for efficiency I'll make sure an offset can fit in
 		// 4 bytes.
-		de_err(c, "PLIST too large (%"INT64_FMT")", c->infile->len);
+		de_err(c, "PLIST too large (%"I64_FMT")", c->infile->len);
 		goto done;
 	}
 

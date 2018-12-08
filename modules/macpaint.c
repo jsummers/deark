@@ -47,8 +47,8 @@ static void do_read_bitmap(deark *c, lctx *d, i64 pos)
 
 	if(d->df_known) {
 		if(pos+cmpr_bytes_consumed > d->expected_dfpos+d->expected_dflen) {
-			de_warn(c, "Image (ends at %"INT64_FMT") goes beyond end of "
-				"MacBinary data fork (ends at %"INT64_FMT")",
+			de_warn(c, "Image (ends at %"I64_FMT") goes beyond end of "
+				"MacBinary data fork (ends at %"I64_FMT")",
 				pos+cmpr_bytes_consumed, d->expected_dfpos+d->expected_dflen);
 		}
 	}
@@ -271,8 +271,8 @@ static void do_macbinary(deark *c, lctx *d)
 
 	if(d->df_known) {
 		if(d->expected_dfpos+d->expected_dflen>c->infile->len) {
-			de_warn(c, "MacBinary data fork (ends at %"INT64_FMT") "
-				"goes past end of file (%"INT64_FMT")",
+			de_warn(c, "MacBinary data fork (ends at %"I64_FMT") "
+				"goes past end of file (%"I64_FMT")",
 			d->expected_dfpos+d->expected_dflen, c->infile->len);
 			d->df_known = 0;
 		}

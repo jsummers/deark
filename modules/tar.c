@@ -141,7 +141,7 @@ static int read_member(deark *c, lctx *d, i64 pos1, i64 *bytes_consumed_member)
 	ret = dbuf_read_ascii_number(c->infile, pos, 11, 8, &md->filesize);
 	if(!ret) goto done;
 	pos += 12;
-	de_dbg(c, "size: %"INT64_FMT"", md->filesize);
+	de_dbg(c, "size: %"I64_FMT"", md->filesize);
 
 	ret = dbuf_read_ascii_number(c->infile, pos, 11, 8, &modtime_unix);
 	if(!ret) goto done;

@@ -67,7 +67,7 @@ static int do_ape_item(deark *c, struct ape_tag_header_footer *ah,
 	struct de_stringreaderdata *key = NULL;
 	int retval = 0;
 
-	de_dbg(c, "APE item at %"INT64_FMT, pos1);
+	de_dbg(c, "APE item at %"I64_FMT, pos1);
 	de_dbg_indent(c, 1);
 
 	item_value_len = de_getui32le(pos);
@@ -92,7 +92,7 @@ static int do_ape_item(deark *c, struct ape_tag_header_footer *ah,
 	de_dbg(c, "key: \"%s\"", ucstring_getpsz(key->str));
 	pos += key->bytes_consumed;
 
-	de_dbg(c, "item data at %"INT64_FMT", len=%"INT64_FMT, pos, item_value_len);
+	de_dbg(c, "item data at %"I64_FMT", len=%"I64_FMT, pos, item_value_len);
 	de_dbg_indent(c, 1);
 	if(item_type==0 || item_type==2) {
 		do_ape_text_item(c, ah, pos, item_value_len);
@@ -116,7 +116,7 @@ static void do_ape_item_list(deark *c, struct ape_tag_header_footer *ah,
 {
 	i64 pos = pos1;
 
-	de_dbg(c, "APE items at %"INT64_FMT", len=%"INT64_FMT, pos1, len);
+	de_dbg(c, "APE items at %"I64_FMT", len=%"I64_FMT, pos1, len);
 	de_dbg_indent(c, 1);
 	while(1) {
 		i64 bytes_consumed = 0;
@@ -165,7 +165,7 @@ static int do_ape_tag_header_or_footer(deark *c, struct ape_tag_header_footer *a
 
 	if(is_footer) {
 		ah->tag_startpos = pos1 + 32 - ah->tag_size_total;
-		de_dbg(c, "calculated start of APE tag: %"INT64_FMT, ah->tag_startpos);
+		de_dbg(c, "calculated start of APE tag: %"I64_FMT, ah->tag_startpos);
 	}
 	retval = 1;
 done:
@@ -189,7 +189,7 @@ static int do_ape_tag(deark *c, i64 endpos, i64 *ape_tag_bytes_consumed)
 
 	af = de_malloc(c, sizeof(struct ape_tag_header_footer));
 
-	de_dbg(c, "APE tag found, ending at %"INT64_FMT, endpos);
+	de_dbg(c, "APE tag found, ending at %"I64_FMT, endpos);
 
 	de_dbg_indent(c, 1);
 	if(!do_ape_tag_header_or_footer(c, af, footer_startpos, 1)) goto done;
@@ -358,18 +358,18 @@ static void do_mp3_frame(deark *c, mp3ctx *d, i64 pos1, i64 len)
 	if((x & 0xffe00000U) != 0xffe00000U) {
 		int ret;
 		i64 num_bytes_to_skip = 0;
-		de_msg(c, "Note: MP3/MPA frame header not found at %"INT64_FMT". Scanning for frame header.", pos);
+		de_msg(c, "Note: MP3/MPA frame header not found at %"I64_FMT". Scanning for frame header.", pos);
 		ret = find_mp3_frame_header(c, d, pos1, len, &num_bytes_to_skip);
 		if(!ret) {
 			de_err(c, "MP3/MPA frame header not found");
 			goto done;
 		}
 		pos += num_bytes_to_skip;
-		de_msg(c, "Note: Possible MP3 frame header found at %"INT64_FMT".", pos);
+		de_msg(c, "Note: Possible MP3 frame header found at %"I64_FMT".", pos);
 		x = (u32)de_getui32be(pos);
 	}
 
-	de_dbg(c, "frame at %"INT64_FMT, pos);
+	de_dbg(c, "frame at %"I64_FMT, pos);
 	de_dbg_indent(c, 1);
 	de_dbg(c, "frame header: 0x%08x", (unsigned int)x);
 	de_dbg_indent(c, 1);
@@ -420,7 +420,7 @@ done:
 static void do_mp3_data(deark *c, mp3ctx *d, i64 pos1, i64 len)
 {
 
-	de_dbg(c, "MP3/MPA data at %"INT64_FMT", len=%"INT64_FMT, pos1, len);
+	de_dbg(c, "MP3/MPA data at %"I64_FMT", len=%"I64_FMT, pos1, len);
 	de_dbg_indent(c, 1);
 	do_mp3_frame(c, d, pos1, len);
 	// TODO: There are probably many frames. Should we look for more frames
@@ -446,7 +446,7 @@ static void de_run_mpegaudio(deark *c, de_module_params *mparams)
 
 	if(!id3i.has_id3v2) {
 		if(!dbuf_memcmp(c->infile, endpos-10, "3DI", 3)) {
-			de_warn(c, "Possible ID3v2 tag found at end of file (footer at %"INT64_FMT"). "
+			de_warn(c, "Possible ID3v2 tag found at end of file (footer at %"I64_FMT"). "
 				"This is not supported.", endpos-10);
 		}
 	}

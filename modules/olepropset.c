@@ -95,7 +95,7 @@ static void do_prop_blob(deark *c, lctx *d, struct propset_struct *si,
 	u8 magic[8];
 
 	blob_data_size = dbuf_getui32le_p(d->f, &pos);
-	de_dbg(c, "%s data size: %"INT64_FMT, name, blob_data_size);
+	de_dbg(c, "%s data size: %"I64_FMT, name, blob_data_size);
 
 	blob_data_start = pos;
 	if(blob_data_start + blob_data_size > d->f->len) return;
@@ -185,7 +185,7 @@ static int do_prop_FILETIME(deark *c, lctx *d, struct propset_struct *si,
 	}
 
 	if(!full_decode) {
-		de_dbg(c, "%s: %"INT64_FMT, name, ts_as_FILETIME);
+		de_dbg(c, "%s: %"I64_FMT, name, ts_as_FILETIME);
 	}
 	else {
 		struct de_timestamp ts;
@@ -193,7 +193,7 @@ static int do_prop_FILETIME(deark *c, lctx *d, struct propset_struct *si,
 
 		de_FILETIME_to_timestamp(ts_as_FILETIME, &ts, 0x1);
 		de_timestamp_to_string(&ts, timestamp_buf, sizeof(timestamp_buf), 0);
-		de_dbg(c, "%s: %"INT64_FMT" (%s)", name, ts_as_FILETIME, timestamp_buf);
+		de_dbg(c, "%s: %"I64_FMT" (%s)", name, ts_as_FILETIME, timestamp_buf);
 	}
 
 	return 1;
@@ -389,10 +389,10 @@ static void do_prop_any_int(deark *c, lctx *d, struct propset_struct *si,
 	}
 
 	if(descr[0]) {
-		de_dbg(c, "%s: %"INT64_FMT" (%s)", name, n, descr);
+		de_dbg(c, "%s: %"I64_FMT" (%s)", name, n, descr);
 	}
 	else {
-		de_dbg(c, "%s: %"INT64_FMT, name, n);
+		de_dbg(c, "%s: %"I64_FMT, name, n);
 	}
 }
 

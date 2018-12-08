@@ -51,7 +51,7 @@ static int do_header_SZDD(deark *c, lctx *d, i64 pos1)
 	de_dbg(c, "missing filename char: 0x%02x%s", (unsigned int)fnchar, tmps);
 
 	d->uncmpr_len = de_getui32le(pos);
-	de_dbg(c, "uncompressed len: %"INT64_FMT"", d->uncmpr_len);
+	de_dbg(c, "uncompressed len: %"I64_FMT"", d->uncmpr_len);
 	pos += 4;
 
 	d->header_len = pos - pos1;
@@ -87,7 +87,7 @@ static int do_header_KWAJ(deark *c, lctx *d, i64 pos1)
 
 	if(flags&0x01) {
 		d->uncmpr_len = de_getui32le(pos);
-		de_dbg(c, "uncompressed len: %"INT64_FMT"", d->uncmpr_len);
+		de_dbg(c, "uncompressed len: %"I64_FMT"", d->uncmpr_len);
 		pos += 4;
 	}
 	// TODO: More header fields

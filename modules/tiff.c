@@ -417,7 +417,7 @@ static void read_numeric_value(deark *c, lctx *d, const struct taginfo *tg,
 		nv->isvalid = ret;
 		if(dbgline) {
 			if(nv->isvalid)
-				ucstring_printf(dbgline, DE_ENCODING_UTF8, "%" INT64_FMT, nv->val_int64);
+				ucstring_printf(dbgline, DE_ENCODING_UTF8, "%" I64_FMT, nv->val_int64);
 			else
 				ucstring_append_sz(dbgline, "?", DE_ENCODING_UTF8);
 		}
@@ -442,7 +442,7 @@ static void read_numeric_value(deark *c, lctx *d, const struct taginfo *tg,
 				nv->val_double = 0.0;
 				nv->val_int64 = 0;
 				if(dbgline) {
-					ucstring_printf(dbgline, DE_ENCODING_UTF8, "%" INT64_FMT "/%" INT64_FMT, num, den);
+					ucstring_printf(dbgline, DE_ENCODING_UTF8, "%" I64_FMT "/%" I64_FMT, num, den);
 				}
 
 			}
@@ -502,13 +502,13 @@ static void do_oldjpeg(deark *c, lctx *d, i64 jpegoffset, i64 jpeglength)
 	}
 
 	if(jpegoffset+jpeglength>c->infile->len) {
-		detiff_warn(c, d, "Invalid offset/length of embedded JPEG data (offset=%"INT64_FMT
-			", len=%"INT64_FMT")", jpegoffset, jpeglength);
+		detiff_warn(c, d, "Invalid offset/length of embedded JPEG data (offset=%"I64_FMT
+			", len=%"I64_FMT")", jpegoffset, jpeglength);
 		return;
 	}
 
 	if(dbuf_memcmp(c->infile, jpegoffset, "\xff\xd8\xff", 3)) {
-		detiff_warn(c, d, "Expected JPEG data at %"INT64_FMT" not found", jpegoffset);
+		detiff_warn(c, d, "Expected JPEG data at %"I64_FMT" not found", jpegoffset);
 		return;
 	}
 
@@ -1028,7 +1028,7 @@ static void handler_bplist(deark *c, lctx *d, const struct taginfo *tg, const st
 	if(tg->total_size>=40 &&
 		!dbuf_memcmp(c->infile, tg->val_offset, "bplist", 6))
 	{
-		de_dbg(c, "binary .plist at %"INT64_FMT", len=%"INT64_FMT, tg->val_offset, tg->total_size);
+		de_dbg(c, "binary .plist at %"I64_FMT", len=%"I64_FMT, tg->val_offset, tg->total_size);
 		de_dbg_indent(c, 1);
 		de_fmtutil_handle_plist(c, c->infile, tg->val_offset, tg->total_size, NULL, 0x0);
 		de_dbg_indent(c, -1);
@@ -1208,7 +1208,7 @@ static void do_makernote_apple_ios(deark *c, lctx *d, i64 pos1, i64 len)
 
 	// Apple iOS offsets are relative to the beginning of the "Apple iOS"
 	// signature, so that's the data we'll pass to the submodule.
-	de_dbg(c, "Apple MakerNote tag data at %"INT64_FMT", len=%"INT64_FMT, pos1, len);
+	de_dbg(c, "Apple MakerNote tag data at %"I64_FMT", len=%"I64_FMT, pos1, len);
 	de_dbg_indent(c, 1);
 	de_run_module_by_id_on_slice2(c, "tiff", "A", c->infile, pos1, len);
 	de_dbg_indent(c, -1);
@@ -1284,7 +1284,7 @@ done:
 
 static void handler_olepropset(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni)
 {
-	de_dbg(c, "OLE property set storage dump at %"INT64_FMT", len=%"INT64_FMT,
+	de_dbg(c, "OLE property set storage dump at %"I64_FMT", len=%"I64_FMT,
 		tg->val_offset, tg->total_size);
 	de_dbg_indent(c, 1);
 	de_run_module_by_id_on_slice2(c, "cfb", "T", c->infile, tg->val_offset, tg->total_size);
@@ -1366,14 +1366,14 @@ static void try_to_extract_mpf_image(deark *c, lctx *d, struct mpfctx_struct *mp
 		if(mpfctx->warned) goto done;
 		mpfctx->warned = 1;
 		de_warn(c, "Invalid MPF multi-picture data. File size should be at "
-			"least %"INT64_FMT", is %"INT64_FMT".",
+			"least %"I64_FMT", is %"I64_FMT".",
 			mpfctx->imgoffs_abs+mpfctx->imgsize, inf->len);
 		goto done;
 	}
 
 	if(dbuf_memcmp(inf, mpfctx->imgoffs_abs, "\xff\xd8\xff", 3)) {
 		de_warn(c, "Invalid or unsupported MPF multi-picture data. Expected image at "
-			"%"INT64_FMT" not found.", mpfctx->imgoffs_abs);
+			"%"I64_FMT" not found.", mpfctx->imgoffs_abs);
 		goto done;
 	}
 
@@ -1451,7 +1451,7 @@ static void handler_mpentry(deark *c, lctx *d, const struct taginfo *tg, const s
 		}
 		else if(d->in_params && (d->in_params->flags&0x01)) {
 			imgoffs_abs = d->in_params->offset_in_parent+imgoffs_rel;
-			de_snprintf(offset_descr, sizeof(offset_descr), "absolute offset %"INT64_FMT,
+			de_snprintf(offset_descr, sizeof(offset_descr), "absolute offset %"I64_FMT,
 				imgoffs_abs);
 		}
 		else {
@@ -2347,11 +2347,11 @@ static void process_ifd(deark *c, lctx *d, i64 ifd_idx1, i64 ifdpos1, int ifdtyp
 		name="";
 	}
 
-	de_dbg(c, "IFD at %"INT64_FMT"%s", pg->ifdpos, name);
+	de_dbg(c, "IFD at %"I64_FMT"%s", pg->ifdpos, name);
 	de_dbg_indent(c, 1);
 
 	if(pg->ifdpos >= c->infile->len || pg->ifdpos<8) {
-		detiff_warn(c, d, "Invalid IFD offset (%"INT64_FMT")", pg->ifdpos);
+		detiff_warn(c, d, "Invalid IFD offset (%"I64_FMT")", pg->ifdpos);
 		goto done;
 	}
 
@@ -2370,7 +2370,7 @@ static void process_ifd(deark *c, lctx *d, i64 ifd_idx1, i64 ifdpos1, int ifdtyp
 
 	// Record the next IFD in the main list.
 	tmpoffset = getfpos(c, d, pg->ifdpos+d->ifdhdrsize+num_tags*d->ifditemsize);
-	de_dbg(c, "offset of next IFD: %"INT64_FMT"%s", tmpoffset, tmpoffset==0?" (none)":"");
+	de_dbg(c, "offset of next IFD: %"I64_FMT"%s", tmpoffset, tmpoffset==0?" (none)":"");
 	push_ifd(c, d, tmpoffset, IFDTYPE_NORMAL);
 
 	dbgline = ucstring_create(c);
@@ -2405,7 +2405,7 @@ static void process_ifd(deark *c, lctx *d, i64 ifd_idx1, i64 ifdpos1, int ifdtyp
 
 		ucstring_empty(dbgline);
 		ucstring_printf(dbgline, DE_ENCODING_UTF8,
-			"tag %d (%s) ty=%d #=%d offs=%" INT64_FMT,
+			"tag %d (%s) ty=%d #=%d offs=%" I64_FMT,
 			tg.tagnum, tni->tagname,
 			tg.datatype, (int)tg.valcount,
 			tg.val_offset);

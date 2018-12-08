@@ -81,7 +81,7 @@ static void do_one_date(deark *c, lctx *d, i64 pos, const char *name,
 		}
 		de_timestamp_to_string(&ts, timestamp_buf, sizeof(timestamp_buf), 0);
 	}
-	de_dbg(c, "%s: %"INT64_FMT" (%s)", name, dt, timestamp_buf);
+	de_dbg(c, "%s: %"I64_FMT" (%s)", name, dt, timestamp_buf);
 }
 
 static void handler_dates(deark *c, lctx *d, struct entry_struct *e)
@@ -184,14 +184,14 @@ static void do_sd_entry(deark *c, lctx *d, unsigned int idx, i64 pos1)
 	eid =  find_entry_id_info(e.id);
 	de_dbg(c, "id: %u (%s)", e.id, eid?eid->name:"?");
 	e.offset = de_getui32be_p(&pos);
-	de_dbg(c, "offset: %"INT64_FMT, e.offset);
+	de_dbg(c, "offset: %"I64_FMT, e.offset);
 	e.length = de_getui32be_p(&pos);
-	de_dbg(c, "length: %"INT64_FMT, e.length);
+	de_dbg(c, "length: %"I64_FMT, e.length);
 
 	if(e.offset > c->infile->len) goto done;
 	if(e.offset+e.length > c->infile->len) {
-		de_warn(c, "Entry %u goes beyond end of file. Reducing size from %"INT64_FMT
-			" to %"INT64_FMT".", e.idx, e.length, c->infile->len-e.offset);
+		de_warn(c, "Entry %u goes beyond end of file. Reducing size from %"I64_FMT
+			" to %"I64_FMT".", e.idx, e.length, c->infile->len-e.offset);
 		e.length = c->infile->len - e.offset;
 	}
 

@@ -390,7 +390,7 @@ void de_dbg_hexdump(deark *c, dbuf *f, i64 pos1,
 // This is such a common thing to do, that it's worth having a function for it.
 void de_dbg_dimensions(deark *c, i64 w, i64 h)
 {
-	de_dbg(c, "dimensions: %"INT64_FMT DE_CHAR_TIMES "%"INT64_FMT, w, h);
+	de_dbg(c, "dimensions: %"I64_FMT DE_CHAR_TIMES "%"I64_FMT, w, h);
 }
 
 // Generates a "magic" code that, when included in the debug output, will
@@ -1060,7 +1060,7 @@ void de_timestamp_to_string(const struct de_timestamp *ts,
 
 	de_gmtime(ts, &tm2);
 	if(!tm2.is_valid) {
-		de_snprintf(buf, buf_len, "[timestamp out of range: %"INT64_FMT"]",
+		de_snprintf(buf, buf_len, "[timestamp out of range: %"I64_FMT"]",
 			de_timestamp_to_unix_time(ts));
 		return;
 	}

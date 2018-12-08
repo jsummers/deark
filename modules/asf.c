@@ -119,35 +119,35 @@ static void handler_FileProperties(deark *c, lctx *d, struct handler_params *hp)
 
 	if(!(flags&0x1)) {
 		x = de_geti64le(pos);
-		de_dbg(c, "file size: %"INT64_FMT, x);
+		de_dbg(c, "file size: %"I64_FMT, x);
 	}
 	pos += 8;
 
 	create_date = de_geti64le(pos);
-	de_dbg(c, "creation date: %"INT64_FMT" (%s)", create_date,
+	de_dbg(c, "creation date: %"I64_FMT" (%s)", create_date,
 		format_date(create_date, buf, sizeof(buf)));
 	pos += 8;
 
 	if(!(flags&0x1)) {
 		x = de_geti64le(pos);
-		de_dbg(c, "data packets count: %"INT64_FMT, x);
+		de_dbg(c, "data packets count: %"I64_FMT, x);
 	}
 	pos += 8;
 
 	if(!(flags&0x1)) {
 		x = de_geti64le(pos);
-		de_dbg(c, "play duration: %"INT64_FMT" (%s)", x, format_duration(x, buf, sizeof(buf)));
+		de_dbg(c, "play duration: %"I64_FMT" (%s)", x, format_duration(x, buf, sizeof(buf)));
 	}
 	pos += 8;
 
 	if(!(flags&0x1)) {
 		x = de_geti64le(pos);
-		de_dbg(c, "send duration: %"INT64_FMT" (%s)", x, format_duration(x, buf, sizeof(buf)));
+		de_dbg(c, "send duration: %"I64_FMT" (%s)", x, format_duration(x, buf, sizeof(buf)));
 	}
 	pos += 8;
 
 	x = de_geti64le(pos);
-	de_dbg(c, "preroll: %"INT64_FMT, x);
+	de_dbg(c, "preroll: %"I64_FMT, x);
 	pos += 8;
 
 	// Already read, above.
@@ -188,7 +188,7 @@ static void handler_StreamProperties(deark *c, lctx *d, struct handler_params *h
 	pos += 16;
 
 	x = de_geti64le(pos);
-	de_dbg(c, "time offset: %"INT64_FMT" (%s)", x, format_duration(x, buf, sizeof(buf)));
+	de_dbg(c, "time offset: %"I64_FMT" (%s)", x, format_duration(x, buf, sizeof(buf)));
 	pos += 8;
 
 	tsdlen = de_getui32le_p(&pos);
@@ -203,14 +203,14 @@ static void handler_StreamProperties(deark *c, lctx *d, struct handler_params *h
 	pos += 4; // reserved
 
 	if(tsdlen) {
-		de_dbg(c, "[%d bytes of type-specific data at %"INT64_FMT"]", (int)tsdlen, pos);
+		de_dbg(c, "[%d bytes of type-specific data at %"I64_FMT"]", (int)tsdlen, pos);
 		de_dbg_indent(c, 1);
 		de_dbg_hexdump(c, c->infile, pos, tsdlen, 256, NULL, 0x1);
 		de_dbg_indent(c, -1);
 		pos += tsdlen;
 	}
 	if(ecdlen) {
-		de_dbg(c, "[%d bytes of error correction data at %"INT64_FMT"]", (int)ecdlen, pos);
+		de_dbg(c, "[%d bytes of error correction data at %"I64_FMT"]", (int)ecdlen, pos);
 		de_dbg_indent(c, 1);
 		de_dbg_hexdump(c, c->infile, pos, ecdlen, 256, NULL, 0x1);
 		de_dbg_indent(c, -1);
@@ -267,7 +267,7 @@ static void handler_ContentEncr(deark *c, lctx *d, struct handler_params *hp)
 	xlen = de_getui32le_p(&pos);
 	if(pos+xlen > hp->dpos+hp->dlen) goto done;
 	if(xlen>0) {
-		de_dbg(c, "[%d bytes of secret data at %"INT64_FMT"]", (int)xlen, pos);
+		de_dbg(c, "[%d bytes of secret data at %"I64_FMT"]", (int)xlen, pos);
 		de_dbg_indent(c, 1);
 		de_dbg_hexdump(c, c->infile, pos, xlen, 256, NULL, 0x0);
 		de_dbg_indent(c, -1);
@@ -322,10 +322,10 @@ static void handler_ESP(deark *c, lctx *d, struct handler_params *hp)
 	if(hp->dlen<64) goto done;
 
 	x = de_geti64le(pos);
-	de_dbg(c, "start time: %"INT64_FMT, x);
+	de_dbg(c, "start time: %"I64_FMT, x);
 	pos += 8;
 	x = de_geti64le(pos);
-	de_dbg(c, "end time: %"INT64_FMT, x);
+	de_dbg(c, "end time: %"I64_FMT, x);
 	pos += 8;
 
 	x = de_getui32le_p(&pos);
@@ -350,7 +350,7 @@ static void handler_ESP(deark *c, lctx *d, struct handler_params *hp)
 	x = de_getui16le_p(&pos);
 	de_dbg(c, "language id index: %d", (int)x);
 	x = de_geti64le(pos);
-	de_dbg(c, "average time per frame: %"INT64_FMT, x);
+	de_dbg(c, "average time per frame: %"I64_FMT, x);
 	pos += 8;
 
 	name_count = de_getui16le_p(&pos);
@@ -361,7 +361,7 @@ static void handler_ESP(deark *c, lctx *d, struct handler_params *hp)
 	// Stream names (TODO)
 	for(k=0; k<name_count; k++) {
 		if(pos+4 > hp->dpos+hp->dlen) goto done;
-		de_dbg(c, "name[%d] at %"INT64_FMT, (int)k, pos);
+		de_dbg(c, "name[%d] at %"I64_FMT, (int)k, pos);
 		pos += 2; // language id index
 		xlen = de_getui16le_p(&pos);
 		pos += xlen;
@@ -372,7 +372,7 @@ static void handler_ESP(deark *c, lctx *d, struct handler_params *hp)
 		if(pos+22 > hp->dpos+hp->dlen) {
 			goto done;
 		}
-		de_dbg(c, "payload ext. system[%d] at %"INT64_FMT, (int)k, pos);
+		de_dbg(c, "payload ext. system[%d] at %"I64_FMT, (int)k, pos);
 		de_dbg_indent(c, 1);
 
 		read_and_render_guid(c->infile, guid_raw, pos, guid_string, sizeof(guid_string));
@@ -389,7 +389,7 @@ static void handler_ESP(deark *c, lctx *d, struct handler_params *hp)
 			goto done;
 		}
 		if(xlen>0) {
-			de_dbg(c, "[%d bytes of payload ext. system info at %"INT64_FMT, (int)xlen, pos);
+			de_dbg(c, "[%d bytes of payload ext. system info at %"I64_FMT, (int)xlen, pos);
 			de_dbg_indent(c, 1);
 			de_dbg_hexdump(c, c->infile, pos, xlen, 256, NULL, 0x1);
 			de_dbg_indent(c, -1);
@@ -427,7 +427,7 @@ static void handler_LanguageList(deark *c, lctx *d, struct handler_params *hp)
 		i64 id_len;
 
 		if(pos+1 > hp->dpos+hp->dlen) goto done;
-		de_dbg(c, "language id record[%d] at %"INT64_FMT, (int)k, pos);
+		de_dbg(c, "language id record[%d] at %"I64_FMT, (int)k, pos);
 		de_dbg_indent(c, 1);
 
 		id_len = (i64)de_getbyte_p(&pos);
@@ -469,7 +469,7 @@ static int do_codec_entry(deark *c, lctx *d, i64 pos1, i64 len, i64 *bytes_consu
 
 	*bytes_consumed = 0;
 	de_dbg_indent_save(c, &saved_indent_level);
-	de_dbg(c, "codec entry at %"INT64_FMT, pos1);
+	de_dbg(c, "codec entry at %"I64_FMT, pos1);
 	de_dbg_indent(c, 1);
 
 	if(len<8) goto done;
@@ -494,7 +494,7 @@ static int do_codec_entry(deark *c, lctx *d, i64 pos1, i64 len, i64 *bytes_consu
 
 	infolen = de_getui16le_p(&pos);
 	if(infolen>0) {
-		de_dbg(c, "[%d bytes of codec information at %"INT64_FMT"]", (int)infolen, pos);
+		de_dbg(c, "[%d bytes of codec information at %"I64_FMT"]", (int)infolen, pos);
 		de_dbg_indent(c, 1);
 		de_dbg_hexdump(c, c->infile, pos, infolen, 256, NULL, 0x1);
 		de_dbg_indent(c, -1);
@@ -556,7 +556,7 @@ static void handler_ScriptCommand(deark *c, lctx *d, struct handler_params *hp)
 		i64 type_name_len;
 
 		if(pos+2 > hp->dpos+hp->dlen) goto done;
-		de_dbg(c, "command type[%d] at %"INT64_FMT, (int)k, pos);
+		de_dbg(c, "command type[%d] at %"I64_FMT, (int)k, pos);
 		de_dbg_indent(c, 1);
 
 		type_name_len = de_getui16le_p(&pos);
@@ -576,7 +576,7 @@ static void handler_ScriptCommand(deark *c, lctx *d, struct handler_params *hp)
 		i64 n;
 
 		if(pos+8 > hp->dpos+hp->dlen) goto done;
-		de_dbg(c, "command[%d] at %"INT64_FMT, (int)k, pos);
+		de_dbg(c, "command[%d] at %"I64_FMT, (int)k, pos);
 		de_dbg_indent(c, 1);
 
 		n = de_getui32le_p(&pos);
@@ -604,7 +604,7 @@ done:
 
 static void do_ECD_ID3(deark *c, lctx *d, i64 pos, i64 len)
 {
-	de_dbg(c, "ID3 data at %"INT64_FMT", len=%"INT64_FMT, pos, len);
+	de_dbg(c, "ID3 data at %"I64_FMT", len=%"I64_FMT, pos, len);
 	de_dbg_indent(c, 1);
 	de_run_module_by_id_on_slice2(c, "id3", "I", c->infile, pos, len);
 	de_dbg_indent(c, -1);
@@ -612,7 +612,7 @@ static void do_ECD_ID3(deark *c, lctx *d, i64 pos, i64 len)
 
 static void do_ECD_WMPicture(deark *c, lctx *d, i64 pos, i64 len)
 {
-	de_dbg(c, "WM/Picture data at %"INT64_FMT", len=%"INT64_FMT, pos, len);
+	de_dbg(c, "WM/Picture data at %"I64_FMT", len=%"I64_FMT, pos, len);
 	de_dbg_indent(c, 1);
 	de_run_module_by_id_on_slice2(c, "id3", "P", c->infile, pos, len);
 	de_dbg_indent(c, -1);
@@ -622,7 +622,7 @@ static void do_WMEncodingTime(deark *c, lctx *d, i64 t)
 {
 	char buf[64];
 
-	de_dbg(c, "value: %"INT64_FMT" (%s)", t, format_date(t, buf, sizeof(buf)));
+	de_dbg(c, "value: %"I64_FMT" (%s)", t, format_date(t, buf, sizeof(buf)));
 }
 
 static void do_metadata_item(deark *c, lctx *d, i64 pos, i64 val_len,
@@ -634,7 +634,7 @@ static void do_metadata_item(deark *c, lctx *d, i64 pos, i64 val_len,
 	int handled = 0;
 	unsigned int val_data_type; // adjusted type
 
-	de_dbg(c, "value data at %"INT64_FMT", len=%d", pos, (int)val_len);
+	de_dbg(c, "value data at %"I64_FMT", len=%d", pos, (int)val_len);
 
 	val_data_type = val_data_type_ori; // default
 	if(val_data_type_ori==2) {
@@ -664,7 +664,7 @@ static void do_metadata_item(deark *c, lctx *d, i64 pos, i64 val_len,
 			do_WMEncodingTime(c, d, val_int);
 		}
 		else {
-			de_dbg(c, "value: %"INT64_FMT, val_int);
+			de_dbg(c, "value: %"I64_FMT, val_int);
 		}
 		handled = 1;
 	}
@@ -714,7 +714,7 @@ static int do_ECD_entry(deark *c, lctx *d, i64 pos1, i64 len, i64 *bytes_consume
 
 	*bytes_consumed = 0;
 	de_dbg_indent_save(c, &saved_indent_level);
-	de_dbg(c, "ECD object at %"INT64_FMT, pos1);
+	de_dbg(c, "ECD object at %"I64_FMT, pos1);
 	de_dbg_indent(c, 1);
 
 	if(len<6) goto done;
@@ -764,7 +764,7 @@ static int do_metadata_entry(deark *c, lctx *d, struct handler_params *hp,
 
 	*bytes_consumed = 0;
 	de_dbg_indent_save(c, &saved_indent_level);
-	de_dbg(c, "metadata object at %"INT64_FMT, pos1);
+	de_dbg(c, "metadata object at %"I64_FMT, pos1);
 	de_dbg_indent(c, 1);
 
 	if(len<14) goto done;
@@ -950,7 +950,7 @@ static int do_object(deark *c, lctx *d, i64 pos1, i64 len,
 	*pbytes_consumed = 0;
 	if(len<24) goto done;
 
-	de_dbg(c, "object at %"INT64_FMT, pos1);
+	de_dbg(c, "object at %"I64_FMT, pos1);
 	de_dbg_indent(c, 1);
 
 	hp = de_malloc(c, sizeof(struct handler_params));
@@ -968,14 +968,14 @@ static int do_object(deark *c, lctx *d, i64 pos1, i64 len,
 	hp->objlen = de_geti64le(pos1+16);
 	hp->dpos = pos1 + 24;
 	hp->dlen = hp->objlen - 24;
-	de_dbg(c, "size: %"INT64_FMT", dpos=%"INT64_FMT", dlen=%"INT64_FMT,
+	de_dbg(c, "size: %"I64_FMT", dpos=%"I64_FMT", dlen=%"I64_FMT,
 		hp->objlen, hp->dpos, hp->dlen);
 	if(hp->objlen<24) goto done;
 
 	if(hp->objlen > len) {
 		// TODO: Handle this differently depending on whether the problem was
 		// an unexpected end of file.
-		de_warn(c, "Object at %"INT64_FMT" (length %"INT64_FMT") exceeds its parent's bounds",
+		de_warn(c, "Object at %"I64_FMT" (length %"I64_FMT") exceeds its parent's bounds",
 			pos1, hp->objlen);
 		goto done;
 	}
@@ -1030,11 +1030,11 @@ static int do_object_sequence(deark *c, lctx *d, i64 pos1, i64 len, int level,
 
 	bytes_remaining = pos1+len-pos;
 	if(bytes_remaining>0) {
-		de_dbg(c, "[%d extra bytes at %"INT64_FMT"]", (int)bytes_remaining, pos);
+		de_dbg(c, "[%d extra bytes at %"I64_FMT"]", (int)bytes_remaining, pos);
 	}
 
 	if(known_object_count && objects_found<num_objects_expected) {
-		de_warn(c, "Expected %d objects at %"INT64_FMT", only found %d", (int)num_objects_expected,
+		de_warn(c, "Expected %d objects at %"I64_FMT", only found %d", (int)num_objects_expected,
 			pos1, (int)objects_found);
 	}
 

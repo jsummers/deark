@@ -1035,7 +1035,7 @@ static int do_emf_record(deark *c, lctx *d, i64 recnum, i64 recpos,
 
 	fnci = find_emf_func_info(dp.rectype);
 
-	de_dbg(c, "record #%d at %d, type=0x%02x (%s), dpos=%"INT64_FMT", dlen=%"INT64_FMT,
+	de_dbg(c, "record #%d at %d, type=0x%02x (%s), dpos=%"I64_FMT", dlen=%"I64_FMT,
 		(int)recnum, (int)recpos, (unsigned int)dp.rectype,
 		fnci ? fnci->name : "?", dp.dpos, dp.dlen);
 

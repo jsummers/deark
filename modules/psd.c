@@ -1933,8 +1933,8 @@ static int do_image_resource(deark *c, lctx *d, zztype *zz)
 		ucstring_getpsz(blkname), (int)zz->pos, (int)block_data_len);
 
 	if(zz->pos+block_data_len > zz->endpos) {
-		de_warn(c, "PSD rsrc exceeds its parent's bounds. Ends at %"INT64_FMT
-			", parent ends at %"INT64_FMT".", zz->pos+block_data_len, zz->endpos);
+		de_warn(c, "PSD rsrc exceeds its parent's bounds. Ends at %"I64_FMT
+			", parent ends at %"I64_FMT".", zz->pos+block_data_len, zz->endpos);
 	}
 
 	de_dbg_indent(c, 1);
@@ -2027,7 +2027,7 @@ static int do_layer_record(deark *c, lctx *d, zztype *zz, struct channel_data *c
 	for(i=0; i<nchannels; i++) {
 		ch_id = psd_geti16zz(zz);
 		ch_dlen = psd_getui32or64zz(c, d, zz);
-		de_dbg(c, "channel[%d] id=%d, data len=%"INT64_FMT"", (int)i, (int)ch_id, ch_dlen);
+		de_dbg(c, "channel[%d] id=%d, data len=%"I64_FMT"", (int)i, (int)ch_id, ch_dlen);
 		cd->num_channels++;
 		cd->total_len += ch_dlen;
 	}
@@ -2153,7 +2153,7 @@ static int do_layer_info_section(deark *c, lctx *d, zztype *zz, int has_len_fiel
 		de_dbg_indent(c, -1);
 	}
 
-	de_dbg(c, "channel image data records at %d, count=%d, total len=%"INT64_FMT"",
+	de_dbg(c, "channel image data records at %d, count=%d, total len=%"I64_FMT"",
 		(int)datazz.pos, (int)cd->num_channels, cd->total_len);
 
 done:
@@ -2244,9 +2244,9 @@ static int do_one_linked_layer(deark *c, lctx *d, zztype *zz, const struct de_fo
 	zztype datazz;
 
 	dlen = psd_geti64zz(zz);
-	de_dbg(c, "length: %"INT64_FMT"", dlen);
+	de_dbg(c, "length: %"I64_FMT"", dlen);
 	if(dlen<8 || zz->pos+dlen>zz->endpos) {
-		de_warn(c, "Bad linked layer size %"INT64_FMT" at %"INT64_FMT"", dlen, zz->startpos);
+		de_warn(c, "Bad linked layer size %"I64_FMT" at %"I64_FMT"", dlen, zz->startpos);
 		goto done;
 	}
 
@@ -2278,7 +2278,7 @@ static int do_one_linked_layer(deark *c, lctx *d, zztype *zz, const struct de_fo
 	de_dbg(c, "file creator: '%s'", tmp4cc.id_dbgstr);
 
 	dlen2 = psd_geti64zz(&datazz);
-	de_dbg(c, "length2: %"INT64_FMT"", dlen2);
+	de_dbg(c, "length2: %"I64_FMT"", dlen2);
 	if(dlen2<0) goto done;
 
 	file_open_descr_flag = psd_getbytezz(&datazz);
@@ -2296,7 +2296,7 @@ static int do_one_linked_layer(deark *c, lctx *d, zztype *zz, const struct de_fo
 		goto done;
 	}
 
-	de_dbg(c, "raw file bytes at %"INT64_FMT", len=%"INT64_FMT"", datazz.pos, dlen2);
+	de_dbg(c, "raw file bytes at %"I64_FMT", len=%"I64_FMT"", datazz.pos, dlen2);
 	extract_linked_layer_blob(c, d, datazz.pos, dlen2);
 
 	// TODO: There may be more fields after this, depending on the version.
@@ -2312,7 +2312,7 @@ static void do_lnk2_block(deark *c, lctx *d, zztype *zz, const struct de_fourcc 
 	zztype czz;
 
 	while(zz->pos<zz->endpos) {
-		de_dbg(c, "linked layer data at %"INT64_FMT"", zz->pos);
+		de_dbg(c, "linked layer data at %"I64_FMT"", zz->pos);
 		de_dbg_indent(c, 1);
 		zz_init(&czz, zz);
 		ret = do_one_linked_layer(c, d, &czz, blk4cc);
@@ -2363,7 +2363,7 @@ static void do_vm_array_list(deark *c, lctx *d, zztype *zz)
 	zztype czz;
 	i64 i;
 
-	de_dbg(c, "virtual memory array list at %d, len=%"INT64_FMT"", (int)zz->pos,
+	de_dbg(c, "virtual memory array list at %d, len=%"I64_FMT"", (int)zz->pos,
 		zz_avail(zz));
 	de_dbg_indent(c, 1);
 
@@ -2803,7 +2803,7 @@ static void do_filter_effect_channel(deark *c, lctx *d, zztype *zz)
 	zz->pos += 4; // Skip array-is-written flag (already processed)
 
 	dlen = psd_geti64zz(zz);
-	de_dbg(c, "length: %"INT64_FMT"", dlen);
+	de_dbg(c, "length: %"I64_FMT"", dlen);
 	saved_pos = zz->pos;
 	if(dlen<=0) goto done;
 
@@ -2846,7 +2846,7 @@ static void do_filter_effect(deark *c, lctx *d, zztype *zz)
 	if(ver2 != 1) goto done;
 
 	dlen2 = psd_geti64zz(zz);
-	de_dbg(c, "length: %"INT64_FMT"", dlen2);
+	de_dbg(c, "length: %"I64_FMT"", dlen2);
 	filter_effects_savedpos = zz->pos;
 
 	read_rectangle_tlbr(c, d, zz, "rectangle");
@@ -2921,7 +2921,7 @@ static void do_FXid_block(deark *c, lctx *d, zztype *zz, const struct de_fourcc 
 	// Sample files needed.
 
 	dlen1 = psd_geti64zz(zz);
-	de_dbg(c, "length: %"INT64_FMT"", dlen1);
+	de_dbg(c, "length: %"I64_FMT"", dlen1);
 	main_endpos = zz->pos + dlen1;
 
 	idx = 0;
@@ -3265,7 +3265,7 @@ static int do_layer_and_mask_info_section(deark *c, lctx *d, zztype *zz)
 	de_dbg(c, "global layer mask info at %d", (int)lmidataczz.pos);
 	de_dbg_indent(c, 1);
 	gl_layer_mask_info_len = psd_getui32zz(&lmidataczz);
-	de_dbg(c, "length of global layer mask info section: %"INT64_FMT, gl_layer_mask_info_len);
+	de_dbg(c, "length of global layer mask info section: %"I64_FMT, gl_layer_mask_info_len);
 	de_dbg_indent(c, -1);
 	if(lmidataczz.pos+gl_layer_mask_info_len > lmidataczz.endpos) {
 		de_warn(c, "Oversized Global Layer Mask Info section");
@@ -3647,7 +3647,7 @@ static void do_bitmap_packbits(deark *c, lctx *d, zztype *zz, const struct image
 	i64 k;
 
 	// Data begins with a table of row byte counts.
-	de_dbg(c, "row sizes table at %"INT64_FMT", len=%d", zz->pos,
+	de_dbg(c, "row sizes table at %"I64_FMT", len=%d", zz->pos,
 		(int)(iinfo->num_channels * iinfo->height * d->intsize_2or4));
 
 	for(k=0; k < iinfo->num_channels * iinfo->height; k++) {
@@ -3659,7 +3659,7 @@ static void do_bitmap_packbits(deark *c, lctx *d, zztype *zz, const struct image
 		}
 	}
 
-	de_dbg(c, "compressed data at %"INT64_FMT", len=%"INT64_FMT"", zz->pos, cmpr_data_size);
+	de_dbg(c, "compressed data at %"I64_FMT", len=%"I64_FMT"", zz->pos, cmpr_data_size);
 	if(zz->pos + cmpr_data_size>c->infile->len) {
 		de_err(c, "Unexpected end of file");
 		goto done;
@@ -3669,7 +3669,7 @@ static void do_bitmap_packbits(deark *c, lctx *d, zztype *zz, const struct image
 	de_fmtutil_uncompress_packbits(c->infile, zz->pos, cmpr_data_size, unc_pixels, NULL);
 	zz->pos += cmpr_data_size;
 	de_dbg_indent(c, 1);
-	de_dbg(c, "decompressed %"INT64_FMT" bytes to %"INT64_FMT"", cmpr_data_size, unc_pixels->len);
+	de_dbg(c, "decompressed %"I64_FMT" bytes to %"I64_FMT"", cmpr_data_size, unc_pixels->len);
 	de_dbg_indent(c, -1);
 	do_bitmap(c, d, iinfo, unc_pixels, 0, unc_pixels->len);
 

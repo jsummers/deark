@@ -150,22 +150,22 @@ static int do_file_header(deark *c, lctx *d, i64 pos1)
 	pos += 4; // variant
 
 	d->languages_ptr = de_getui32le_p(&pos);
-	de_dbg(c, "languages ptr: %"INT64_FMT, d->languages_ptr);
+	de_dbg(c, "languages ptr: %"I64_FMT, d->languages_ptr);
 	d->files_ptr = de_getui32le_p(&pos);
-	de_dbg(c, "files ptr: %"INT64_FMT, d->files_ptr);
+	de_dbg(c, "files ptr: %"I64_FMT, d->files_ptr);
 
 	d->requisites_ptr = de_getui32le_p(&pos);
-	de_dbg(c, "requisites ptr: %"INT64_FMT, d->requisites_ptr);
+	de_dbg(c, "requisites ptr: %"I64_FMT, d->requisites_ptr);
 	d->certificates_ptr = de_getui32le_p(&pos);
-	de_dbg(c, "certificates ptr: %"INT64_FMT, d->certificates_ptr);
+	de_dbg(c, "certificates ptr: %"I64_FMT, d->certificates_ptr);
 	d->component_name_ptr = de_getui32le_p(&pos);
-	de_dbg(c, "component name ptr: %"INT64_FMT, d->component_name_ptr);
+	de_dbg(c, "component name ptr: %"I64_FMT, d->component_name_ptr);
 
 	if(d->is_rel6) {
 		n = de_getui32le_p(&pos);
-		de_dbg(c, "signature ptr: %"INT64_FMT, n);
+		de_dbg(c, "signature ptr: %"I64_FMT, n);
 		n = de_getui32le_p(&pos);
-		de_dbg(c, "capabilities ptr: %"INT64_FMT, n);
+		de_dbg(c, "capabilities ptr: %"I64_FMT, n);
 	}
 
 	retval = 1;
@@ -332,17 +332,17 @@ static int do_file_record_file(deark *c, lctx *d, struct file_rec *fr)
 
 	for(k=0; k<fr->num_forks; k++) {
 		fr->ffi[k].len = de_getui32le_p(&pos);
-		de_dbg(c, "len[%d]: %"INT64_FMT, (int)k, fr->ffi[k].len);
+		de_dbg(c, "len[%d]: %"I64_FMT, (int)k, fr->ffi[k].len);
 	}
 	for(k=0; k<fr->num_forks; k++) {
 		fr->ffi[k].ptr = de_getui32le_p(&pos);
-		de_dbg(c, "ptr[%d]: %"INT64_FMT, (int)k, fr->ffi[k].ptr);
+		de_dbg(c, "ptr[%d]: %"I64_FMT, (int)k, fr->ffi[k].ptr);
 	}
 
 	if(d->is_rel6) {
 		for(k=0; k<fr->num_forks; k++) {
 			fr->ffi[k].orig_len = de_getui32le_p(&pos);
-			de_dbg(c, "orig_len[%d]: %"INT64_FMT, (int)k, fr->ffi[k].orig_len);
+			de_dbg(c, "orig_len[%d]: %"I64_FMT, (int)k, fr->ffi[k].orig_len);
 		}
 		pos += 4; // MIME type len
 		pos += 4; // MIME type ptr
@@ -392,7 +392,7 @@ static int do_file_record(deark *c, lctx *d, i64 idx,
 	de_dbg_indent_save(c, &saved_indent_level);
 	fr = de_malloc(c, sizeof(struct file_rec));
 	fr->rec_pos = pos1;
-	de_dbg(c, "file record[%d] at %"INT64_FMT, (int)idx, fr->rec_pos);
+	de_dbg(c, "file record[%d] at %"I64_FMT, (int)idx, fr->rec_pos);
 	de_dbg_indent(c, 1);
 
 	fr->rectype = (unsigned int)de_getui32le_p(&pos);
@@ -436,7 +436,7 @@ static void do_file_records(deark *c, lctx *d)
 	i64 pos1 = d->files_ptr;
 	i64 pos = pos1;
 
-	de_dbg(c, "file records at %"INT64_FMT, pos1);
+	de_dbg(c, "file records at %"I64_FMT, pos1);
 	de_dbg_indent(c, 1);
 	for(k=0; k<d->nfiles; k++) {
 		i64 bytes_consumed = 0;
@@ -469,7 +469,7 @@ static void do_language_records(deark *c, lctx *d)
 	i64 pos = pos1;
 
 	if(d->nlangs<1) return;
-	de_dbg(c, "language records at %"INT64_FMT, pos1);
+	de_dbg(c, "language records at %"I64_FMT, pos1);
 	d->langi = de_malloc(c, d->nlangs*sizeof(struct lang_info));
 	de_dbg_indent(c, 1);
 	for(k=0; k<d->nlangs; k++) {
@@ -490,7 +490,7 @@ static void do_component_name_record(deark *c, lctx *d)
 	if(pos1<1 || pos1>=c->infile->len) return;
 	if(d->nlangs<1) return;
 
-	de_dbg(c, "component name record at %"INT64_FMT, pos1);
+	de_dbg(c, "component name record at %"I64_FMT, pos1);
 	de_dbg_indent(c, 1);
 	s = ucstring_create(c);
 	for(k=0; k<d->nlangs; k++) {
@@ -514,13 +514,13 @@ static void do_requisite_records(deark *c, lctx *d)
 
 	if(d->nrequisites<1) return;
 	if(pos1<1 || pos1>=c->infile->len) return;
-	de_dbg(c, "requisite records at %"INT64_FMT, pos1);
+	de_dbg(c, "requisite records at %"I64_FMT, pos1);
 	s = ucstring_create(c);
 	de_dbg_indent(c, 1);
 	for(k=0; k<d->nrequisites; k++) {
 		i64 n, n2;
 
-		de_dbg(c, "requisite record[%d] at %"INT64_FMT, (int)k, pos);
+		de_dbg(c, "requisite record[%d] at %"I64_FMT, (int)k, pos);
 		de_dbg_indent(c, 1);
 		n = de_getui32le_p(&pos);
 		de_dbg(c, "UID: 0x%08x", (unsigned int)n);
@@ -555,7 +555,7 @@ static void do_certificate_records(deark *c, lctx *d)
 	int z[6];
 
 	if(pos1<1 || pos1>=c->infile->len) return;
-	de_dbg(c, "certificate records at %"INT64_FMT, pos1);
+	de_dbg(c, "certificate records at %"I64_FMT, pos1);
 	de_dbg_indent(c, 1);
 	for(k=0; k<6; k++) {
 		z[k] = (int)de_getui16le_p(&pos);

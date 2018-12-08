@@ -115,7 +115,7 @@ static int do_one_CFFOLDER(deark *c, lctx *d, i64 folder_idx,
 	fldi->folder_idx = folder_idx;
 
 	fldi->coffCabStart = de_getui32le_p(&pos);
-	de_dbg(c, "first CFDATA blk offset (coffCabStart): %"INT64_FMT, fldi->coffCabStart);
+	de_dbg(c, "first CFDATA blk offset (coffCabStart): %"I64_FMT, fldi->coffCabStart);
 
 	fldi->cCFData = de_getui16le_p(&pos);
 	de_dbg(c, "no. of CFDATA blks for this folder (cCFData): %d", (int)fldi->cCFData);
@@ -202,10 +202,10 @@ static int do_one_CFFILE(deark *c, lctx *d, i64 pos1, i64 *bytes_consumed)
 	char tmps[80];
 
 	cbFile = de_getui32le_p(&pos);
-	de_dbg(c, "uncompressed file size (cbFile): %"INT64_FMT, cbFile);
+	de_dbg(c, "uncompressed file size (cbFile): %"I64_FMT, cbFile);
 
 	uoffFolderStart = de_getui32le_p(&pos);
-	de_dbg(c, "offset in folder (uoffFolderStart): %"INT64_FMT, uoffFolderStart);
+	de_dbg(c, "offset in folder (uoffFolderStart): %"I64_FMT, uoffFolderStart);
 
 	iFolder = de_getui16le_p(&pos);
 	if(iFolder>=0xfffd) {
@@ -293,10 +293,10 @@ static int do_CFHEADER(deark *c, lctx *d)
 	de_dbg_indent(c, 1);
 	pos += 8; // signature, reserved1
 	d->cbCabinet = de_getui32le_p(&pos);
-	de_dbg(c, "cbCabinet: %"INT64_FMT, d->cbCabinet);
+	de_dbg(c, "cbCabinet: %"I64_FMT, d->cbCabinet);
 	pos += 4; // reserved2
 	d->coffFiles = de_getui32le_p(&pos);
-	de_dbg(c, "coffFiles: %"INT64_FMT, d->coffFiles);
+	de_dbg(c, "coffFiles: %"I64_FMT, d->coffFiles);
 	pos += 4; // reserved3
 	d->versionMinor = de_getbyte_p(&pos);
 	d->versionMajor = de_getbyte_p(&pos);

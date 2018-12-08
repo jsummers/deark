@@ -119,13 +119,13 @@ static int do_object_sequence(deark *c, lctx *d, i64 pos1, i64 len)
 		oi.objtype = (u32)de_getui32le_p(&pos);
 		oi.objsize = de_getui32le_p(&pos);
 		if(oi.objsize<8 || (oi.objpos+oi.objsize)>(pos1+len)) {
-			de_err(c, "Bad object size (%u) at %"INT64_FMT, (unsigned int)oi.objsize, oi.objpos);
+			de_err(c, "Bad object size (%u) at %"I64_FMT, (unsigned int)oi.objsize, oi.objpos);
 			goto done;
 		}
 
 		get_objtype_info(&oi);
 
-		de_dbg(c, "object at %"INT64_FMT", type=%u (%s), len=%"INT64_FMT, oi.objpos,
+		de_dbg(c, "object at %"I64_FMT", type=%u (%s), len=%"I64_FMT, oi.objpos,
 			oi.objtype, oi.tyname, oi.objsize);
 
 		if(oi.hasbbox) {

@@ -175,7 +175,7 @@ static void do_extract_member(deark *c, lctx *d, struct member_data *md)
 
 	if(md->file_data_offs_abs + md->cmpr_len > c->infile->len) goto done;
 
-	de_dbg(c, "file data at %"INT64_FMT", len=%"INT64_FMT,
+	de_dbg(c, "file data at %"I64_FMT", len=%"I64_FMT,
 		md->file_data_offs_abs, md->cmpr_len);
 
 	fullfn = ucstring_create(c);
@@ -228,8 +228,8 @@ static void do_extract_member(deark *c, lctx *d, struct member_data *md)
 	}
 
 	if(outf->len != md->orig_len) {
-		de_err(c, "Decompression failed for file %s, expected size %"INT64_FMT
-			", got %"INT64_FMT, ucstring_getpsz_d(md->fn), md->orig_len, outf->len);
+		de_err(c, "Decompression failed for file %s, expected size %"I64_FMT
+			", got %"I64_FMT, ucstring_getpsz_d(md->fn), md->orig_len, outf->len);
 		goto done;
 	}
 
@@ -281,7 +281,7 @@ static void do_member(deark *c, lctx *d, i64 idx, i64 pos1)
 
 	de_dbg_indent_save(c, &saved_indent_level);
 	md = de_malloc(c, sizeof(struct member_data));
-	de_dbg(c, "header at %"INT64_FMT, pos1);
+	de_dbg(c, "header at %"I64_FMT, pos1);
 	de_dbg_indent(c, 1);
 
 	info_byte = de_getbyte_p(&pos);
@@ -311,7 +311,7 @@ static void do_member(deark *c, lctx *d, i64 idx, i64 pos1)
 
 	md->orig_len = de_getui32le_p(&pos);
 	if(md->is_regular_file) {
-		de_dbg(c, "orig file length: %"INT64_FMT, md->orig_len);
+		de_dbg(c, "orig file length: %"I64_FMT, md->orig_len);
 	}
 
 	md->load_addr = (u32)de_getui32le_p(&pos);
@@ -344,7 +344,7 @@ static void do_member(deark *c, lctx *d, i64 idx, i64 pos1)
 
 	md->cmpr_len = de_getui32le_p(&pos);
 	if(md->is_regular_file) {
-		de_dbg(c, "compressed length: %"INT64_FMT, md->cmpr_len);
+		de_dbg(c, "compressed length: %"I64_FMT, md->cmpr_len);
 	}
 
 	de_dbg(c, "info word: 0x%08x", (unsigned int)info_word);
@@ -353,7 +353,7 @@ static void do_member(deark *c, lctx *d, i64 idx, i64 pos1)
 	if(md->is_regular_file) {
 		md->file_data_offs_rel = (i64)info_word;
 		md->file_data_offs_abs = d->data_offs+md->file_data_offs_rel;
-		de_dbg(c, "file data offset: (%"INT64_FMT"+)%"INT64_FMT,
+		de_dbg(c, "file data offset: (%"I64_FMT"+)%"I64_FMT,
 			d->data_offs, md->file_data_offs_rel);
 	}
 	de_dbg_indent(c, -1);
@@ -489,7 +489,7 @@ static void do_squash_header(deark *c, sqctx *d, struct member_data *md, i64 pos
 	de_dbg_indent(c, 1);
 	pos += 4; // signature
 	md->orig_len = de_getui32le_p(&pos);
-	de_dbg(c, "orig file length: %"INT64_FMT, md->orig_len);
+	de_dbg(c, "orig file length: %"I64_FMT, md->orig_len);
 
 	md->load_addr = (u32)de_getui32le_p(&pos);
 	md->exec_addr = (u32)de_getui32le_p(&pos);
@@ -524,7 +524,7 @@ static void de_run_squash(deark *c, de_module_params *mparams)
 
 	md->file_data_offs_abs = 20;
 	md->cmpr_len = c->infile->len - md->file_data_offs_abs;
-	de_dbg(c, "compressed data at %"INT64_FMT, md->file_data_offs_abs);
+	de_dbg(c, "compressed data at %"I64_FMT, md->file_data_offs_abs);
 
 	fi = de_finfo_create(c);
 
@@ -543,8 +543,8 @@ static void de_run_squash(deark *c, de_module_params *mparams)
 	if(!do_compressed_sq(c, d, md, outf)) goto done;
 
 	if(outf->len != md->orig_len) {
-		de_err(c, "Decompression failed, expected size %"INT64_FMT
-			", got %"INT64_FMT, md->orig_len, outf->len);
+		de_err(c, "Decompression failed, expected size %"I64_FMT
+			", got %"I64_FMT, md->orig_len, outf->len);
 		goto done;
 	}
 

@@ -149,7 +149,7 @@ static void decode_date(deark *c, lctx *d,
 
 	de_unix_time_to_timestamp(value_as_vlq, &timestamp, 0x1);
 	de_timestamp_to_string(&timestamp, timestamp_buf, sizeof(timestamp_buf), 0);
-	de_dbg(c, "%s: %"INT64_FMT" (%s)", oti->name, value_as_vlq, timestamp_buf);
+	de_dbg(c, "%s: %"I64_FMT" (%s)", oti->name, value_as_vlq, timestamp_buf);
 }
 
 static void decode_simple_item(deark *c, lctx *d,
@@ -250,7 +250,7 @@ static int do_primitive_object(deark *c, lctx *d, i64 pos1,
 			de_dbg(c, "%s: (field is present)", name);
 		}
 		else {
-			de_dbg(c, "%s: %"INT64_FMT, name, value_as_vlq);
+			de_dbg(c, "%s: %"I64_FMT, name, value_as_vlq);
 		}
 	}
 
@@ -311,7 +311,7 @@ static int do_full_object(deark *c, lctx *d, i64 pos1,
 	de_dbg(c, "full type: %u (%s)", (unsigned int)obj_type, get_fulltype_name(obj_type));
 
 	obj_dlen = read_vlq(c, &pos);
-	de_dbg(c, "data len: %"INT64_FMT, obj_dlen);
+	de_dbg(c, "data len: %"I64_FMT, obj_dlen);
 
 	if(!do_object_list(c, d, pos, obj_dlen, obj_type, &bytes_consumed2)) goto done;
 

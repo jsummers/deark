@@ -384,7 +384,7 @@ static void decode_id3v2_frame_priv(deark *c, id3v2ctx *d,
 	payload_len = pos1+len-pos;
 	if(payload_len<1) goto done;
 
-	de_dbg(c, "private frame data at %"INT64_FMT", len=%"INT64_FMT, pos, payload_len);
+	de_dbg(c, "private frame data at %"I64_FMT", len=%"I64_FMT, pos, payload_len);
 	if(!de_strcmp((const char*)owner->sz, "XMP")) {
 		dbuf_create_file_from_slice(f, pos, payload_len, "xmp", NULL, DE_CREATEFLAG_IS_AUX);
 	}

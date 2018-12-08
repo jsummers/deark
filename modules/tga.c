@@ -466,7 +466,7 @@ static void do_read_extension_area(deark *c, lctx *d, i64 pos)
 	de_dbg(c, "thumbnail image offset: %d", (int)d->thumbnail_offset);
 
 	val[0] = de_getui32le(pos+490);
-	de_dbg(c, "scan line table offset: %"INT64_FMT, val[0]);
+	de_dbg(c, "scan line table offset: %"I64_FMT, val[0]);
 
 	d->attributes_type = de_getbyte(pos+494);
 	de_dbg(c, "attributes type: %d", (int)d->attributes_type);

@@ -583,7 +583,7 @@ static void finalize_fpxr_stream(deark *c, lctx *d, struct fpxr_entity_struct *f
 	if(fe->done_flag || fe->is_storage) goto done;
 
 	if(fe->stream->len != fe->stream_size) {
-		de_warn(c, "Expected FPXR stream #%u to have %"INT64_FMT" bytes, found %"INT64_FMT,
+		de_warn(c, "Expected FPXR stream #%u to have %"I64_FMT" bytes, found %"I64_FMT,
 			(unsigned int)fe->index, fe->stream_size, fe->stream->len);
 	}
 
@@ -1993,8 +1993,8 @@ static void do_jpeg_internal(deark *c, struct file_ctx *fctx)
 
 	if(dbuf_is_all_zeroes(c->infile, pos, extra_bytes_at_eof)) goto done;
 
-	de_msg(c, "Note: %"INT64_FMT" bytes of unidentified data found at end "
-		"of file (starting at %"INT64_FMT").", extra_bytes_at_eof, pos);
+	de_msg(c, "Note: %"I64_FMT" bytes of unidentified data found at end "
+		"of file (starting at %"I64_FMT").", extra_bytes_at_eof, pos);
 
 done:
 	;

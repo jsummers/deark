@@ -181,25 +181,25 @@ static void ef_zip64extinfo(deark *c, lctx *d, struct extra_item_info_struct *ei
 
 	if(pos+8 > eii->dpos+eii->dlen) goto done;
 	n = de_geti64le(pos); pos += 8;
-	de_dbg(c, "orig uncmpr file size: %"INT64_FMT, n);
+	de_dbg(c, "orig uncmpr file size: %"I64_FMT, n);
 	if(eii->dd->uncmpr_size==0xffffffffLL) {
 		eii->dd->uncmpr_size = n;
 	}
 
 	if(pos+8 > eii->dpos+eii->dlen) goto done;
 	n = de_geti64le(pos); pos += 8;
-	de_dbg(c, "cmpr data size: %"INT64_FMT, n);
+	de_dbg(c, "cmpr data size: %"I64_FMT, n);
 	if(eii->dd->cmpr_size==0xffffffffLL) {
 		eii->dd->cmpr_size = n;
 	}
 
 	if(pos+8 > eii->dpos+eii->dlen) goto done;
 	n = de_geti64le(pos); pos += 8;
-	de_dbg(c, "offset of local header record: %"INT64_FMT, n);
+	de_dbg(c, "offset of local header record: %"I64_FMT, n);
 
 	if(pos+4 > eii->dpos+eii->dlen) goto done;
 	n = de_getui32le_p(&pos);
-	de_dbg(c, "disk start number: %"INT64_FMT, n);
+	de_dbg(c, "disk start number: %"I64_FMT, n);
 done:
 	;
 }
@@ -395,7 +395,7 @@ static void handle_mac_time(deark *c, lctx *d,
 	de_mac_time_to_timestamp(mt_raw - mt_offset, ts);
 	ts->tzcode = DE_TZCODE_UTC;
 	de_timestamp_to_string(ts, timestamp_buf, sizeof(timestamp_buf), 0);
-	de_dbg(c, "%s: %"INT64_FMT" %+"INT64_FMT" (%s)", name,
+	de_dbg(c, "%s: %"I64_FMT" %+"I64_FMT" (%s)", name,
 		mt_raw, -mt_offset, timestamp_buf);
 }
 
@@ -693,7 +693,7 @@ static void do_extract_file(deark *c, lctx *d, struct member_data *md)
 	struct dir_entry_data *ldd = &md->local_dir_entry_data;
 	u32 crc_calculated;
 
-	de_dbg(c, "file data at %"INT64_FMT", len=%"INT64_FMT, md->file_data_pos,
+	de_dbg(c, "file data at %"I64_FMT", len=%"I64_FMT, md->file_data_pos,
 		ldd->cmpr_size);
 
 	if(!is_compression_method_supported(ldd->cmpr_method)) {
@@ -989,7 +989,7 @@ static int do_file_header(deark *c, lctx *d, struct member_data *md,
 
 	dd->cmpr_size = de_getui32le_p(&pos);
 	dd->uncmpr_size = de_getui32le_p(&pos);
-	de_dbg(c, "cmpr size: %" INT64_FMT ", uncmpr size: %" INT64_FMT "", dd->cmpr_size, dd->uncmpr_size);
+	de_dbg(c, "cmpr size: %" I64_FMT ", uncmpr size: %" I64_FMT "", dd->cmpr_size, dd->uncmpr_size);
 
 	fn_len = de_getui16le_p(&pos);
 
@@ -1028,7 +1028,7 @@ static int do_file_header(deark *c, lctx *d, struct member_data *md,
 		de_dbg_indent(c, -1);
 
 		md->offset_of_local_header = de_getui32le_p(&pos);
-		de_dbg(c, "offset of local header: %"INT64_FMT", disk: %d", md->offset_of_local_header,
+		de_dbg(c, "offset of local header: %"I64_FMT", disk: %d", md->offset_of_local_header,
 			(int)md->disk_number_start);
 	}
 
@@ -1068,8 +1068,8 @@ static int do_file_header(deark *c, lctx *d, struct member_data *md,
 				alt_pos = md->offset_of_local_header + d->offset_discrepancy;
 				sig2 = (u32)de_getui32le(alt_pos);
 				if(sig2==0x04034b50U) {
-					de_warn(c, "Local file header found at %"INT64_FMT" instead of %"INT64_FMT". "
-						"Assuming offsets are wrong by %"INT64_FMT" bytes.",
+					de_warn(c, "Local file header found at %"I64_FMT" instead of %"I64_FMT". "
+						"Assuming offsets are wrong by %"I64_FMT" bytes.",
 						alt_pos, md->offset_of_local_header, d->offset_discrepancy);
 					md->offset_of_local_header += d->offset_discrepancy;
 					d->used_offset_discrepancy = 1;
@@ -1172,13 +1172,13 @@ static void do_zip64_eocd_locator(deark *c, lctx *d)
 	if(dbuf_memcmp(c->infile, pos, "PK\x06\x07", 4)) {
 		return;
 	}
-	de_dbg(c, "zip64 eocd locator at %"INT64_FMT, pos);
+	de_dbg(c, "zip64 eocd locator at %"I64_FMT, pos);
 	pos += 4;
 	d->is_zip64 = 1;
 	de_dbg_indent(c, 1);
 	disknum = de_getui32le_p(&pos);
 	d->zip64_eocd_pos = de_geti64le(pos); pos += 8;
-	de_dbg(c, "relative offset of zip64 eocd: %"INT64_FMT", disk: %u",
+	de_dbg(c, "relative offset of zip64 eocd: %"I64_FMT", disk: %u",
 		d->zip64_eocd_pos, (unsigned int)disknum);
 	n = de_getui32le_p(&pos);
 	de_dbg(c, "total number of disks: %u", (unsigned int)n);
@@ -1238,14 +1238,14 @@ static int do_end_of_central_dir(deark *c, lctx *d)
 	if(alt_central_dir_offset != d->central_dir_offset) {
 		u32 sig;
 
-		de_warn(c, "Inconsistent central directory offset. Reported to be %"INT64_FMT", "
-			"but based on its reported size, it should be %"INT64_FMT".",
+		de_warn(c, "Inconsistent central directory offset. Reported to be %"I64_FMT", "
+			"but based on its reported size, it should be %"I64_FMT".",
 			d->central_dir_offset, alt_central_dir_offset);
 
 		sig = (u32)de_getui32le(alt_central_dir_offset);
 		if(sig==0x02014b50U) {
 			d->offset_discrepancy = alt_central_dir_offset - d->central_dir_offset;
-			de_dbg(c, "likely central dir found at %"INT64_FMT, alt_central_dir_offset);
+			de_dbg(c, "likely central dir found at %"I64_FMT, alt_central_dir_offset);
 			d->central_dir_offset = alt_central_dir_offset;
 		}
 	}

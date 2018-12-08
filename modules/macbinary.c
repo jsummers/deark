@@ -102,7 +102,7 @@ static void do_header(deark *c, lctx *d)
 		d->create_time.tzcode = DE_TZCODE_LOCAL;
 		de_timestamp_to_string(&d->create_time, timestamp_buf, sizeof(timestamp_buf), 0);
 	}
-	de_dbg(c, "create date: %"INT64_FMT" (%s)", n, timestamp_buf);
+	de_dbg(c, "create date: %"I64_FMT" (%s)", n, timestamp_buf);
 
 	mod_time_raw = de_getui32be_p(&pos);
 	if(mod_time_raw==0) {
@@ -114,7 +114,7 @@ static void do_header(deark *c, lctx *d)
 		d->mod_time.tzcode = DE_TZCODE_LOCAL;
 		de_timestamp_to_string(&d->mod_time, timestamp_buf, sizeof(timestamp_buf), 0);
 	}
-	de_dbg(c, "mod date: %"INT64_FMT" (%s)", n, timestamp_buf);
+	de_dbg(c, "mod date: %"I64_FMT" (%s)", n, timestamp_buf);
 
 	pos += 2; // length of Get Info comment
 

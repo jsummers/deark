@@ -154,11 +154,11 @@ static void read_one_property(deark *c, lctx *d, struct table_entry *te,
 	struct de_stringreaderdata *srd_name = NULL;
 	struct de_stringreaderdata *srd_strval = NULL;
 
-	de_dbg(c, "property[%d] index entry at %"INT64_FMT, (int)prop_idx, pos);
+	de_dbg(c, "property[%d] index entry at %"I64_FMT, (int)prop_idx, pos);
 	de_dbg_indent(c, 1);
 
 	name_offset = dbuf_getui32x(c->infile, pos, te->fmt.is_le);
-	de_dbg(c, "name offset: %"INT64_FMT" (abs=%"INT64_FMT")", name_offset,
+	de_dbg(c, "name offset: %"I64_FMT" (abs=%"I64_FMT")", name_offset,
 		string_data_area_pos+name_offset);
 	pos += 4;
 	srd_name = read_prop_string(c, d, te, string_data_area_pos+name_offset, "name");
@@ -170,7 +170,7 @@ static void read_one_property(deark *c, lctx *d, struct table_entry *te,
 		i64 value_offset;
 
 		value_offset = dbuf_getui32x(c->infile, pos, te->fmt.is_le);
-		de_dbg(c, "value offset: %"INT64_FMT" (abs=%"INT64_FMT")", value_offset,
+		de_dbg(c, "value offset: %"I64_FMT" (abs=%"I64_FMT")", value_offset,
 			string_data_area_pos+value_offset);
 		srd_strval = read_prop_string(c, d, te, string_data_area_pos+value_offset, "value");
 
@@ -185,7 +185,7 @@ static void read_one_property(deark *c, lctx *d, struct table_entry *te,
 		i64 value;
 
 		value = dbuf_geti32x(c->infile, pos, te->fmt.is_le);
-		de_dbg(c, "value: %"INT64_FMT, value);
+		de_dbg(c, "value: %"I64_FMT, value);
 	}
 	pos += 4;
 
@@ -205,7 +205,7 @@ static void handler_properties(deark *c, lctx *d, struct table_entry *te)
 	i64 string_data_area_size;
 	i64 k;
 
-	de_dbg(c, "properties table at %"INT64_FMT, pos);
+	de_dbg(c, "properties table at %"I64_FMT, pos);
 	de_dbg_indent_save(c, &saved_indent_level);
 	de_dbg_indent(c, 1);
 
@@ -218,14 +218,14 @@ static void handler_properties(deark *c, lctx *d, struct table_entry *te)
 
 	props_idx_pos = pos;
 	props_idx_size_padded = de_pad_to_4(nprops*9);
-	de_dbg(c, "properties index at %"INT64_FMT, props_idx_pos);
+	de_dbg(c, "properties index at %"I64_FMT, props_idx_pos);
 
 	pos += props_idx_size_padded;
 
 	string_data_area_size = dbuf_getui32x(c->infile, pos, te->fmt.is_le);
 	pos += 4;
 	string_data_area_pos = pos;
-	de_dbg(c, "string data area at %"INT64_FMT", len=%d", string_data_area_pos,
+	de_dbg(c, "string data area at %"I64_FMT", len=%d", string_data_area_pos,
 		(int)string_data_area_size);
 
 	// Go back and read the properties table
@@ -248,7 +248,7 @@ static void handler_metrics(deark *c, lctx *d, struct table_entry *te)
 	i64 k;
 
 	de_dbg_indent_save(c, &saved_indent_level);
-	de_dbg(c, "metrics table at %"INT64_FMT, pos);
+	de_dbg(c, "metrics table at %"I64_FMT, pos);
 	de_dbg_indent(c, 1);
 
 	if(!read_and_check_format_field(c, d, te, pos)) goto done;
@@ -333,7 +333,7 @@ static void handler_bdf_encodings(deark *c, lctx *d, struct table_entry *te)
 	i64 k;
 
 	de_dbg_indent_save(c, &saved_indent_level);
-	de_dbg(c, "BDF encodings table at %"INT64_FMT, pos);
+	de_dbg(c, "BDF encodings table at %"I64_FMT, pos);
 	de_dbg_indent(c, 1);
 
 	if(!read_and_check_format_field(c, d, te, pos)) goto done;
@@ -365,7 +365,7 @@ static void handler_bdf_encodings(deark *c, lctx *d, struct table_entry *te)
 	byte1_count = max_byte1-min_byte1+1;
 	byte2_count = max_char_or_byte2-min_char_or_byte2+1;
 	ncodepoints = byte1_count * byte2_count;
-	de_dbg(c, "number of codepoints in table: %"INT64_FMT, ncodepoints);
+	de_dbg(c, "number of codepoints in table: %"I64_FMT, ncodepoints);
 
 	d->has_encodings_table = 1;
 
@@ -429,7 +429,7 @@ static void handler_bitmaps(deark *c, lctx *d, struct table_entry *te)
 	int saved_indent_level;
 
 	de_dbg_indent_save(c, &saved_indent_level);
-	de_dbg(c, "bitmap table at %"INT64_FMT, pos);
+	de_dbg(c, "bitmap table at %"I64_FMT, pos);
 	de_dbg_indent(c, 1);
 
 	if(!read_and_check_format_field(c, d, te, pos)) goto done;
@@ -480,7 +480,7 @@ static void handler_bitmaps(deark *c, lctx *d, struct table_entry *te)
 		goto done;
 	}
 
-	de_dbg(c, "bitmaps data at %"INT64_FMT", len=%"INT64_FMT, pos, d->bitmaps_data_len);
+	de_dbg(c, "bitmaps data at %"I64_FMT", len=%"I64_FMT, pos, d->bitmaps_data_len);
 	d->bitmaps_data = de_malloc(c, d->bitmaps_data_len);
 	de_read(d->bitmaps_data, pos, d->bitmaps_data_len);
 	if(!te->fmt.msbit_first) {
@@ -548,10 +548,10 @@ static int do_read_table_entry(deark *c, lctx *d, struct table_entry *te, i64 po
 
 	te->size = de_getui32le_p(&pos);
 	te->offset = de_getui32le_p(&pos);
-	de_dbg(c, "offset: %"INT64_FMT", size: %"INT64_FMT, te->offset, te->size);
+	de_dbg(c, "offset: %"I64_FMT", size: %"I64_FMT, te->offset, te->size);
 	if(te->offset+te->size > c->infile->len) {
-		de_warn(c, "Table entry goes beyond end of file (type=%s, at %"INT64_FMT
-			", size=%"INT64_FMT")", te->type_name, te->offset, te->size);
+		de_warn(c, "Table entry goes beyond end of file (type=%s, at %"I64_FMT
+			", size=%"I64_FMT")", te->type_name, te->offset, te->size);
 	}
 	if(te->offset > c->infile->len) {
 		goto done;
@@ -688,7 +688,7 @@ static void de_run_pcf(deark *c, de_module_params *mparams)
 	d->tables = de_malloc(c, d->table_count*sizeof(struct table_entry));
 
 	for(k=0; k<d->table_count; k++) {
-		de_dbg(c, "table entry[%d] at %"INT64_FMT, (int)k, pos);
+		de_dbg(c, "table entry[%d] at %"I64_FMT, (int)k, pos);
 		de_dbg_indent(c, 1);
 		if(!do_read_table_entry(c, d, &d->tables[k], pos)) goto done;
 		de_dbg_indent(c, -1);

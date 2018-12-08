@@ -30,7 +30,7 @@ static const char *get_mdblk_name(u8 blktype)
 
 static void do_metadata_block_vorbiscomment(deark *c, lctx *d, i64 pos1, i64 len)
 {
-	de_dbg(c, "vorbis comment block at %"INT64_FMT, pos1);
+	de_dbg(c, "vorbis comment block at %"I64_FMT, pos1);
 	de_dbg_indent(c, 1);
 	de_run_module_by_id_on_slice2(c, "ogg", "C", c->infile, pos1, len);
 	de_dbg_indent(c, -1);
@@ -38,7 +38,7 @@ static void do_metadata_block_vorbiscomment(deark *c, lctx *d, i64 pos1, i64 len
 
 static void do_metadata_block_picture(deark *c, lctx *d, i64 pos1, i64 len)
 {
-	de_dbg(c, "picture at %"INT64_FMT, pos1);
+	de_dbg(c, "picture at %"I64_FMT, pos1);
 	de_dbg_indent(c, 1);
 	de_run_module_by_id_on_slice2(c, "id3", "F", c->infile, pos1, len);
 	de_dbg_indent(c, -1);
@@ -61,7 +61,7 @@ static void run_flac_internal(deark *c, lctx *d, i64 pos1, i64 len)
 	i64 pos = pos1;
 	int saved_indent_level;
 
-	de_dbg(c, "signature at %"INT64_FMT, pos);
+	de_dbg(c, "signature at %"I64_FMT, pos);
 	pos += 4;
 
 	de_dbg_indent_save(c, &saved_indent_level);
@@ -73,7 +73,7 @@ static void run_flac_internal(deark *c, lctx *d, i64 pos1, i64 len)
 		u8 is_last;
 
 		if(pos >= pos1+len) goto done;
-		de_dbg(c, "metadata block at %"INT64_FMT, pos);
+		de_dbg(c, "metadata block at %"I64_FMT, pos);
 		de_dbg_indent(c, 1);
 		b = de_getbyte_p(&pos);
 		is_last = (b&0x80)!=0;
@@ -90,7 +90,7 @@ static void run_flac_internal(deark *c, lctx *d, i64 pos1, i64 len)
 		if(is_last) break;
 	}
 
-	de_dbg(c, "frames start at %"INT64_FMT, pos);
+	de_dbg(c, "frames start at %"I64_FMT, pos);
 
 done:
 	de_dbg_indent_restore(c, saved_indent_level);

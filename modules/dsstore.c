@@ -81,7 +81,7 @@ static void do_info_block(deark *c, lctx *d)
 	int saved_indent_level;
 
 	de_dbg_indent_save(c, &saved_indent_level);
-	de_dbg(c, "info block at %"INT64_FMT, d->infoblk_offs);
+	de_dbg(c, "info block at %"I64_FMT, d->infoblk_offs);
 	de_dbg_indent(c, 1);
 	d->blkcount = de_getui32be_p(&pos);
 	de_dbg(c, "block count: %u", (unsigned int)d->blkcount);
@@ -110,7 +110,7 @@ static void do_info_block(deark *c, lctx *d)
 	for(k=0; k<dircount; k++) {
 		i64 bytes_consumed;
 
-		de_dbg(c, "dir entry[%d] at %"INT64_FMT, (int)k, pos);
+		de_dbg(c, "dir entry[%d] at %"I64_FMT, (int)k, pos);
 		de_dbg_indent(c, 1);
 		do_dir_entry(c, d, pos, &bytes_consumed);
 		pos += bytes_consumed;
@@ -200,7 +200,7 @@ static void do_record_int(deark *c, lctx *d, struct record_info *ri,
 	i64 val;
 
 	val = dbuf_getint_ext(c->infile, dpos, (unsigned int)dlen, 0, 0);
-	de_dbg(c, "value: %"INT64_FMT, val);
+	de_dbg(c, "value: %"I64_FMT, val);
 }
 
 static void do_record_date(deark *c, lctx *d, struct record_info *ri)
@@ -215,7 +215,7 @@ static void do_record_date(deark *c, lctx *d, struct record_info *ri)
 	de_mac_time_to_timestamp(val2, &ts);
 	ts.tzcode = DE_TZCODE_UTC;
 	de_timestamp_to_string(&ts, timestamp_buf, sizeof(timestamp_buf), 0);
-	de_dbg(c, "date: %"UINT64_FMT" (%s)", val1, timestamp_buf);
+	de_dbg(c, "date: %"U64_FMT" (%s)", val1, timestamp_buf);
 }
 
 // Returns 1 if we calculated the bytes_consumed.
@@ -391,10 +391,10 @@ static void de_run_dsstore(deark *c, de_module_params *mparams)
 
 	pos = 8;
 	d->infoblk_offs = de_getui32be_p(&pos);
-	de_dbg(c, "info block offset: (%d+)%"INT64_FMT, HDRSIZE, d->infoblk_offs);
+	de_dbg(c, "info block offset: (%d+)%"I64_FMT, HDRSIZE, d->infoblk_offs);
 	d->infoblk_offs += HDRSIZE;
 	d->infoblk_size = de_getui32be_p(&pos);
-	de_dbg(c, "info block size: %"INT64_FMT, d->infoblk_size);
+	de_dbg(c, "info block size: %"I64_FMT, d->infoblk_size);
 
 	do_info_block(c, d);
 

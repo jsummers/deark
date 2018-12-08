@@ -381,7 +381,7 @@ static void decode_uint(deark *c, lctx *d, const struct ele_id_info *ele_id,
 	}
 
 done:
-	de_dbg(c, "value: %"UINT64_FMT, v);
+	de_dbg(c, "value: %"U64_FMT, v);
 }
 
 static void decode_float(deark *c, lctx *d, const struct ele_id_info *ele_id,
@@ -428,7 +428,7 @@ static void decode_date(deark *c, lctx *d, const struct ele_id_info *ele_id,
 	dt_int = de_geti64be(pos);
 	EBMLdate_to_timestamp(dt_int, &ts);
 	de_timestamp_to_string(&ts, buf, sizeof(buf), 0);
-	de_dbg(c, "value: %"INT64_FMT" (%s)", dt_int, buf);
+	de_dbg(c, "value: %"I64_FMT" (%s)", dt_int, buf);
 }
 
 static void decode_string(deark *c, lctx *d, const struct ele_id_info *ele_id,
@@ -482,11 +482,11 @@ static int do_element(deark *c, lctx *d, i64 pos1,
 
 	de_dbg_indent_save(c, &saved_indent_level);
 
-	de_dbg(c, "element at %"INT64_FMT", max_len=%"INT64_FMT, pos1, nbytes_avail);
+	de_dbg(c, "element at %"I64_FMT", max_len=%"I64_FMT, pos1, nbytes_avail);
 	de_dbg_indent(c, 1);
 
 	if(1!=get_var_size_int(c->infile, &ele_id, &pos, nbytes_avail)) {
-		de_err(c, "Failed to read ID of element at %"INT64_FMT, pos1);
+		de_err(c, "Failed to read ID of element at %"I64_FMT, pos1);
 		goto done;
 	}
 
@@ -501,24 +501,24 @@ static int do_element(deark *c, lctx *d, i64 pos1,
 	else
 		dtype = 0;
 
-	de_dbg(c, "id: 0x%"INT64_FMTx" (%s)", ele_id, ele_name);
+	de_dbg(c, "id: 0x%"I64_FMTx" (%s)", ele_id, ele_name);
 	if(d->show_encoded_id) {
 		print_encoded_id(c, d, pos1, pos-pos1);
 	}
 
 	len_ret = get_var_size_int(c->infile, &ele_dlen, &pos, pos1+nbytes_avail-pos);
 	if(len_ret==1) {
-		de_snprintf(tmpbuf, sizeof(tmpbuf), "%"INT64_FMT, ele_dlen);
+		de_snprintf(tmpbuf, sizeof(tmpbuf), "%"I64_FMT, ele_dlen);
 	}
 	else if(len_ret==2) {
 		ele_dlen = c->infile->len - pos;
 		de_strlcpy(tmpbuf, "unknown", sizeof(tmpbuf));
 	}
 	else {
-		de_err(c, "Failed to read length of element at %"INT64_FMT, pos1);
+		de_err(c, "Failed to read length of element at %"I64_FMT, pos1);
 		goto done;
 	}
-	de_dbg(c, "data at %"INT64_FMT", dlen=%s, type=%s", pos, tmpbuf,
+	de_dbg(c, "data at %"I64_FMT", dlen=%s, type=%s", pos, tmpbuf,
 		get_type_name(dtype));
 
 	if(len_ret==2) {
@@ -541,7 +541,7 @@ static int do_element(deark *c, lctx *d, i64 pos1,
 	}
 
 	if(pos + ele_dlen > c->infile->len) {
-		de_err(c, "Element at %"INT64_FMT" goes beyond end of file", pos1);
+		de_err(c, "Element at %"I64_FMT" goes beyond end of file", pos1);
 		goto done;
 	}
 
@@ -647,7 +647,7 @@ static int do_element_sequence(deark *c, lctx *d, i64 pos1, i64 len)
 	if(d->level > 16) goto done;
 	if(len==0) { retval = 1; goto done; }
 
-	de_dbg(c, "element sequence at %"INT64_FMT", max_len=%"INT64_FMT, pos1, len);
+	de_dbg(c, "element sequence at %"I64_FMT", max_len=%"I64_FMT, pos1, len);
 	de_dbg_indent(c, 1);
 
 	while(1) {

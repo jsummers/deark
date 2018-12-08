@@ -35,7 +35,7 @@ typedef struct localctx_struct {
 static void read_palette(deark *c, lctx *d, struct imageinfo *ii, i64 pos1)
 {
 	if(ii->num_pal_entries<1) return;
-	de_dbg(c, "palette at %"INT64_FMT", %d entries", pos1, (int)ii->num_pal_entries);
+	de_dbg(c, "palette at %"I64_FMT", %d entries", pos1, (int)ii->num_pal_entries);
 	de_dbg_indent(c, 1);
 	de_read_palette_rgb(c->infile, pos1, ii->num_pal_entries, 4,
 		ii->pal, 256, DE_GETRGBFLAG_BGR);
@@ -96,7 +96,7 @@ static int do_read_table(deark *c, lctx *d, i64 pos1)
 	for(k=0; k<d->num_table_items; k++) {
 		d->table[k].tag_num = (unsigned int)de_getui16le_p(&pos);
 		d->table[k].tag_offs = de_getui32le_p(&pos);
-		de_dbg(c, "item[%d]: tag=0x%x, offset=%"INT64_FMT, (int)k,
+		de_dbg(c, "item[%d]: tag=0x%x, offset=%"I64_FMT, (int)k,
 			d->table[k].tag_num, d->table[k].tag_offs);
 	}
 
@@ -121,7 +121,7 @@ static void do_bitmap(deark *c, lctx *d, i64 pos1)
 
 	de_dbg_indent_save(c, &saved_indent_level);
 
-	de_dbg(c, "bitmap at %"INT64_FMT, pos1);
+	de_dbg(c, "bitmap at %"I64_FMT, pos1);
 	de_dbg_indent(c, 1);
 	ii.w = de_getui16le_p(&pos);
 	ii.h = de_getui16le_p(&pos);
@@ -144,7 +144,7 @@ static void do_bitmap(deark *c, lctx *d, i64 pos1)
 	pos += 2;
 
 	unc_data_size = de_getui32le_p(&pos);
-	de_dbg(c, "uncmpr data size: %"INT64_FMT, unc_data_size);
+	de_dbg(c, "uncmpr data size: %"I64_FMT, unc_data_size);
 	if(unc_data_size>DE_MAX_FILE_SIZE) goto done;
 
 	max_uncmpr_block_size = de_getui16le_p(&pos);

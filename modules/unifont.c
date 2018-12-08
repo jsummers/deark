@@ -140,7 +140,7 @@ static void de_run_unifont_hex(deark *c, de_module_params *mparams)
 
 done:
 	if(!ok) {
-		de_err(c, "Error parsing HEX font file (offset %"INT64_FMT")", lr->f_pos);
+		de_err(c, "Error parsing HEX font file (offset %"I64_FMT")", lr->f_pos);
 	}
 	de_linereader_destroy(c, lr);
 	if(font) {

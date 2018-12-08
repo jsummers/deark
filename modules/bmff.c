@@ -656,7 +656,7 @@ static void do_box_stsc(deark *c, lctx *d, struct de_boxesctx *bctx)
 			(int)k, (int)first_chunk, (int)spc, (int)sdi);
 	}
 	if(e_to_print < e_count) {
-		de_dbg(c, "[%d more entry(s) omitted, starting at %"INT64_FMT"]",
+		de_dbg(c, "[%d more entry(s) omitted, starting at %"I64_FMT"]",
 			(int)(e_count-e_to_print), pos);
 	}
 }
@@ -724,10 +724,10 @@ static void do_simple_int_table(deark *c, lctx *d, struct de_boxesctx *bctx,
 			n = dbuf_getui32be_p(bctx->f, &pos);
 		}
 
-		de_dbg(c, "%s[%"INT64_FMT"]: %s=%"INT64_FMT, s1, k, s2, n);
+		de_dbg(c, "%s[%"I64_FMT"]: %s=%"I64_FMT, s1, k, s2, n);
 	}
 	if(e_to_print < e_count) {
-		de_dbg(c, "[%"INT64_FMT" more %s(s) omitted, starting at %"INT64_FMT"]",
+		de_dbg(c, "[%"I64_FMT" more %s(s) omitted, starting at %"I64_FMT"]",
 			e_count-e_to_print, s1, pos);
 	}
 }
@@ -826,7 +826,7 @@ static void do_box_stts(deark *c, lctx *d, struct de_boxesctx *bctx)
 			(int)s_count, (int)s_delta);
 	}
 	if(e_to_print < e_count) {
-		de_dbg(c, "[%d more entry(s) omitted, starting at %"INT64_FMT"]",
+		de_dbg(c, "[%d more entry(s) omitted, starting at %"I64_FMT"]",
 			(int)(e_count-e_to_print), pos);
 	}
 }
@@ -865,11 +865,11 @@ static void do_box_ctts(deark *c, lctx *d, struct de_boxesctx *bctx)
 		else {
 			s_offset = dbuf_geti32be(bctx->f, pos); pos += 4;
 		}
-		de_dbg(c, "entry[%d]: sample count=%"INT64_FMT", offset=%"INT64_FMT,
+		de_dbg(c, "entry[%d]: sample count=%"I64_FMT", offset=%"I64_FMT,
 			(int)k, s_count, s_offset);
 	}
 	if(e_to_print < e_count) {
-		de_dbg(c, "[%d more entry(s) omitted, starting at %"INT64_FMT"]",
+		de_dbg(c, "[%d more entry(s) omitted, starting at %"I64_FMT"]",
 			(int)(e_count-e_to_print), pos);
 	}
 }
@@ -1019,7 +1019,7 @@ static void do_box_cdef(deark *c, lctx *d, struct de_boxesctx *bctx)
 		i64 idx, typ, asoc;
 
 		if(pos+6 > curbox->payload_pos + curbox->payload_len) break;
-		de_dbg(c, "channel description[%d] at %"INT64_FMT, (int)k, pos);
+		de_dbg(c, "channel description[%d] at %"I64_FMT, (int)k, pos);
 		de_dbg_indent(c, 1);
 		idx = dbuf_getui16be_p(bctx->f, &pos);
 		de_dbg(c, "channel index: %d", (int)idx);
@@ -1215,7 +1215,7 @@ static void extract_exif_item(deark *c, lctx *d, dbuf *f)
 	if(!((b0=='M' && b1=='M') || (b0=='I' && b1=='I'))) {
 		return;
 	}
-	de_dbg(c, "Exif item segment at %"INT64_FMT", size=%"INT64_FMT, dpos, dlen);
+	de_dbg(c, "Exif item segment at %"I64_FMT", size=%"I64_FMT, dpos, dlen);
 	de_dbg_indent(c, 1);
 	de_fmtutil_handle_exif(c, dpos, dlen);
 	de_dbg_indent(c, -1);
@@ -1265,7 +1265,7 @@ static void do_box_iloc(deark *c, lctx *d, struct de_boxesctx *bctx)
 		unsigned int cnstr_meth;
 
 		if(pos >= curbox->payload_pos+curbox->payload_len) goto done;
-		de_dbg(c, "item[%d] at %"INT64_FMT, (int)k, pos);
+		de_dbg(c, "item[%d] at %"I64_FMT, (int)k, pos);
 		de_dbg_indent(c, 1);
 		item_id = (unsigned int)dbuf_getui16be_p(bctx->f, &pos);
 		de_dbg(c, "item id: %u", item_id);
@@ -1291,13 +1291,13 @@ static void do_box_iloc(deark *c, lctx *d, struct de_boxesctx *bctx)
 
 			if(offset_size>0) {
 				xoffs = dbuf_getint_ext(bctx->f, pos, offset_size, 0, 0);
-				de_dbg(c, "offset: %"INT64_FMT, xoffs);
+				de_dbg(c, "offset: %"I64_FMT, xoffs);
 			}
 			pos += offset_size;
 
 			if(length_size>0) {
 				xlen = dbuf_getint_ext(bctx->f, pos, length_size, 0, 0);
-				de_dbg(c, "length: %"INT64_FMT, xlen);
+				de_dbg(c, "length: %"I64_FMT, xlen);
 			}
 			pos += length_size;
 

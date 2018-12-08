@@ -134,19 +134,19 @@ static void handler_siz(deark *c, lctx *d, struct page_ctx *pg,
 
 	w = de_getui32be_p(&pos);
 	h = de_getui32be_p(&pos);
-	de_dbg(c, "dimensions of reference grid: %"INT64_FMT DE_CHAR_TIMES "%"INT64_FMT, w, h);
+	de_dbg(c, "dimensions of reference grid: %"I64_FMT DE_CHAR_TIMES "%"I64_FMT, w, h);
 
 	w = de_getui32be_p(&pos);
 	h = de_getui32be_p(&pos);
-	de_dbg(c, "offset to image area: %"INT64_FMT",%"INT64_FMT, w, h);
+	de_dbg(c, "offset to image area: %"I64_FMT",%"I64_FMT, w, h);
 
 	w = de_getui32be_p(&pos);
 	h = de_getui32be_p(&pos);
-	de_dbg(c, "dimensions of reference tile: %"INT64_FMT DE_CHAR_TIMES "%"INT64_FMT, w, h);
+	de_dbg(c, "dimensions of reference tile: %"I64_FMT DE_CHAR_TIMES "%"I64_FMT, w, h);
 
 	w = de_getui32be_p(&pos);
 	h = de_getui32be_p(&pos);
-	de_dbg(c, "offset to first tile: %"INT64_FMT",%"INT64_FMT, w, h);
+	de_dbg(c, "offset to first tile: %"I64_FMT",%"I64_FMT, w, h);
 
 	ncomp = de_getui16be_p(&pos);
 	de_dbg(c, "number of components: %d", (int)ncomp);
@@ -155,7 +155,7 @@ static void handler_siz(deark *c, lctx *d, struct page_ctx *pg,
 		u8 prec, xr, yr;
 
 		if(pos >= pos1+len) goto done;
-		de_dbg(c, "component[%d] info at %"INT64_FMT, (int)k, pos);
+		de_dbg(c, "component[%d] info at %"I64_FMT, (int)k, pos);
 		de_dbg_indent(c, 1);
 		prec = de_getbyte_p(&pos);
 		de_dbg(c, "precision: %d", (int)prec);
@@ -206,7 +206,7 @@ static void handler_tlm(deark *c, lctx *d, struct page_ctx *pg,
 
 	for(k=0; k<num_items; k++) {
 		i64 x;
-		de_dbg(c, "item[%d] at %"INT64_FMT, (int)k, pos);
+		de_dbg(c, "item[%d] at %"I64_FMT, (int)k, pos);
 		de_dbg_indent(c, 1);
 		if(t_size>0) {
 			if(t_size==1) {
@@ -437,7 +437,7 @@ static int do_read_scan_data(deark *c, lctx *d, struct page_ctx *pg,
 		// The previous SOT segment may have told us where this scan data ends.
 		*bytes_consumed = pg->j2c_sot_pos + pg->j2c_sot_length - pos1;
 		if(*bytes_consumed < 0) *bytes_consumed = 0;
-		de_dbg(c, "[%"INT64_FMT" bytes of scan data at %"INT64_FMT"]",
+		de_dbg(c, "[%"I64_FMT" bytes of scan data at %"I64_FMT"]",
 			*bytes_consumed, pos1);
 		pg->j2c_sot_pos = 0;
 		pg->j2c_sot_length = 0;
