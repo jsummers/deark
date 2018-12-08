@@ -52,7 +52,7 @@ static i64 do_get_signed_byte(dbuf *f, i64 pos)
 	return n;
 }
 
-static i64 do_getui24be(dbuf *f, i64 pos)
+static i64 do_getu24be(dbuf *f, i64 pos)
 {
 	return dbuf_getint_ext(f, pos, 3, 0, 0);
 }
@@ -348,7 +348,7 @@ static int do_char_descr(deark *c, lctx *d, i64 pos, i64 *bytesused)
 		pl |= (flagbyte&0x03)<<8;
 		pg->cc = (i32)de_getbyte(pos+2);
 		tfm_offs = 3;
-		pg->tfm = do_getui24be(c->infile, pos+tfm_offs);
+		pg->tfm = do_getu24be(c->infile, pos+tfm_offs);
 		pg->dm = (i64)de_getbyte(pos+6);
 		pg->w = (int)de_getbyte(pos+7);
 		pg->h = (int)de_getbyte(pos+8);
@@ -361,7 +361,7 @@ static int do_char_descr(deark *c, lctx *d, i64 pos, i64 *bytesused)
 		pl |= (flagbyte&0x03)<<16;
 		pg->cc = (i32)de_getbyte(pos+3);
 		tfm_offs = 4;
-		pg->tfm = do_getui24be(c->infile, pos+tfm_offs);
+		pg->tfm = do_getu24be(c->infile, pos+tfm_offs);
 		pg->dm = de_getu16be(pos+7);
 		pg->w = (int)de_getu16be(pos+9);
 		pg->h = (int)de_getu16be(pos+11);

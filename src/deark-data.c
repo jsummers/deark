@@ -428,7 +428,7 @@ void de_utf8_to_ascii(const char *src, char *dst, size_t dstlen, unsigned int fl
 	}
 }
 
-static i64 getui16x_direct(const u8 *m, int is_le)
+static i64 getu16x_direct(const u8 *m, int is_le)
 {
 	if(is_le)
 		return de_getu16le_direct(m);
@@ -445,12 +445,12 @@ int de_utf16x_to_uchar(const u8 *utf16buf, i64 buflen,
 
 	// Read the first code unit
 	if(buflen<2) return 0;
-	u0 = (i32)getui16x_direct(&utf16buf[0], is_le);
+	u0 = (i32)getu16x_direct(&utf16buf[0], is_le);
 
 	if(u0>=0xd800 && u0<=0xdbff) { // It's a lead surrogate
 		// Read the trail surrogate
 		if(buflen<4) return 0;
-		u1 = (i32)getui16x_direct(&utf16buf[2], is_le);
+		u1 = (i32)getu16x_direct(&utf16buf[2], is_le);
 		if(u1>=0xdc00 && u1<=0xdfff) { // valid trail surrogate
 			*p_uchar = 0x10000 + (((u0-0xd800)<<10) | (u1-0xdc00));
 			*p_utf16len = 4;

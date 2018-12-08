@@ -91,7 +91,7 @@ struct localctx_struct {
 	const struct stream_type_info *first_stream_sti;
 };
 
-static unsigned int getui24be_p(dbuf *f, i64 *ppos)
+static unsigned int getu24be_p(dbuf *f, i64 *ppos)
 {
 	unsigned int u;
 	u = (unsigned int)dbuf_getint_ext(f, *ppos, 3, 0, 0);
@@ -198,8 +198,8 @@ static void do_theora_id_header(deark *c, lctx *d, struct page_info *pgi, struct
 	x2 = de_getu16be_p(&pos);
 	de_dbg(c, "frame dimensions: %d"DE_CHAR_TIMES"%d macroblocks", (int)x1, (int)x2);
 
-	u1 = getui24be_p(c->infile, &pos);
-	u2 = getui24be_p(c->infile, &pos);
+	u1 = getu24be_p(c->infile, &pos);
+	u2 = getu24be_p(c->infile, &pos);
 	de_dbg(c, "picture dimensions: %u"DE_CHAR_TIMES"%u pixels", u1, u2);
 
 	u1 = (unsigned int)de_getbyte_p(&pos);
@@ -210,14 +210,14 @@ static void do_theora_id_header(deark *c, lctx *d, struct page_info *pgi, struct
 	u2 = (unsigned int)de_getu32be_p(&pos);
 	de_dbg(c, "frame rate: %u/%u", u1, u2);
 
-	u1 = getui24be_p(c->infile, &pos);
-	u2 = getui24be_p(c->infile, &pos);
+	u1 = getu24be_p(c->infile, &pos);
+	u2 = getu24be_p(c->infile, &pos);
 	de_dbg(c, "aspect ratio: %u/%u", u1, u2);
 
 	u1 = (unsigned int)de_getbyte_p(&pos);
 	de_dbg(c, "color space: %u", u1);
 
-	u1 = getui24be_p(c->infile, &pos);
+	u1 = getu24be_p(c->infile, &pos);
 	de_dbg(c, "nominal bitrate: %u bits/sec", u1);
 }
 
