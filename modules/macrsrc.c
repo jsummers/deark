@@ -81,8 +81,8 @@ static void finalize_icns_stream(deark *c, lctx *d)
 	if(!d->icns_stream) return;
 
 	outf = dbuf_create_output_file(c, "icns", NULL, 0);
-	dbuf_writeui32be(outf, CODE_icns);
-	dbuf_writeui32be(outf, 8+d->icns_stream->len);
+	dbuf_writeu32be(outf, CODE_icns);
+	dbuf_writeu32be(outf, 8+d->icns_stream->len);
 	dbuf_copy(d->icns_stream, 0, d->icns_stream->len, outf);
 	dbuf_close(outf);
 
@@ -107,10 +107,10 @@ static void finalize_psrc_stream(deark *c, lctx *d)
 static void writei16be(dbuf *f, i64 n)
 {
 	if(n<0) {
-		dbuf_writeui16be(f, n+65536);
+		dbuf_writeu16be(f, n+65536);
 	}
 	else {
-		dbuf_writeui16be(f, n);
+		dbuf_writeu16be(f, n);
 	}
 }
 
@@ -139,7 +139,7 @@ static void do_psrc_resource(deark *c, lctx *d, struct rsrctypeinfo *rti,
 	else {
 		dbuf_write_zeroes(d->psrc_stream, 2);
 	}
-	dbuf_writeui32be(d->psrc_stream, dlen);
+	dbuf_writeu32be(d->psrc_stream, dlen);
 	dbuf_copy(c->infile, dpos, dlen, d->psrc_stream);
 	if(dlen%2) {
 		dbuf_writebyte(d->psrc_stream, 0); // padding byte for data
@@ -244,7 +244,7 @@ static void do_resource_data(deark *c, lctx *d, struct rsrctypeinfo *rti,
 		de_dbg(c, "[icns resource]");
 		open_icns_stream(c, d);
 		dbuf_write(d->icns_stream, rti->fcc.bytes, 4);
-		dbuf_writeui32be(d->icns_stream, 8+dlen);
+		dbuf_writeu32be(d->icns_stream, 8+dlen);
 		dbuf_copy(c->infile, dpos, dlen, d->icns_stream);
 	}
 	else if(rti->is_psrc_type) {

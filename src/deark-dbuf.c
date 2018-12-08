@@ -1115,33 +1115,33 @@ void dbuf_truncate(dbuf *f, i64 desired_len)
 	}
 }
 
-void de_writeui16le_direct(u8 *m, i64 n)
+void de_writeu16le_direct(u8 *m, i64 n)
 {
 	m[0] = (u8)(n & 0x00ff);
 	m[1] = (u8)((n & 0xff00)>>8);
 }
 
-void de_writeui16be_direct(u8 *m, i64 n)
+void de_writeu16be_direct(u8 *m, i64 n)
 {
 	m[0] = (u8)((n & 0xff00)>>8);
 	m[1] = (u8)(n & 0x00ff);
 }
 
-void dbuf_writeui16le(dbuf *f, i64 n)
+void dbuf_writeu16le(dbuf *f, i64 n)
 {
 	u8 buf[2];
-	de_writeui16le_direct(buf, n);
+	de_writeu16le_direct(buf, n);
 	dbuf_write(f, buf, 2);
 }
 
-void dbuf_writeui16be(dbuf *f, i64 n)
+void dbuf_writeu16be(dbuf *f, i64 n)
 {
 	u8 buf[2];
-	de_writeui16be_direct(buf, n);
+	de_writeu16be_direct(buf, n);
 	dbuf_write(f, buf, 2);
 }
 
-void de_writeui32be_direct(u8 *m, i64 n)
+void de_writeu32be_direct(u8 *m, i64 n)
 {
 	m[0] = (u8)((n & 0xff000000)>>24);
 	m[1] = (u8)((n & 0x00ff0000)>>16);
@@ -1149,14 +1149,14 @@ void de_writeui32be_direct(u8 *m, i64 n)
 	m[3] = (u8)(n & 0x000000ff);
 }
 
-void dbuf_writeui32be(dbuf *f, i64 n)
+void dbuf_writeu32be(dbuf *f, i64 n)
 {
 	u8 buf[4];
-	de_writeui32be_direct(buf, n);
+	de_writeu32be_direct(buf, n);
 	dbuf_write(f, buf, 4);
 }
 
-void de_writeui32le_direct(u8 *m, i64 n)
+void de_writeu32le_direct(u8 *m, i64 n)
 {
 	m[0] = (u8)(n & 0x000000ff);
 	m[1] = (u8)((n & 0x0000ff00)>>8);
@@ -1164,10 +1164,10 @@ void de_writeui32le_direct(u8 *m, i64 n)
 	m[3] = (u8)((n & 0xff000000)>>24);
 }
 
-void dbuf_writeui32le(dbuf *f, i64 n)
+void dbuf_writeu32le(dbuf *f, i64 n)
 {
 	u8 buf[4];
-	de_writeui32le_direct(buf, n);
+	de_writeu32le_direct(buf, n);
 	dbuf_write(f, buf, 4);
 }
 

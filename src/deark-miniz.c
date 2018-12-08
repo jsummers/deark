@@ -54,10 +54,10 @@ static void write_png_chunk_raw(dbuf *outf, const u8 *src, i64 src_len,
 	u8 buf[4];
 
 	// length field
-	dbuf_writeui32be(outf, src_len);
+	dbuf_writeu32be(outf, src_len);
 
 	// chunk type field
-	de_writeui32be_direct(buf, (i64)chunktype);
+	de_writeu32be_direct(buf, (i64)chunktype);
 	crc = de_crc32(buf, 4);
 	dbuf_write(outf, buf, 4);
 
@@ -66,7 +66,7 @@ static void write_png_chunk_raw(dbuf *outf, const u8 *src, i64 src_len,
 	dbuf_write(outf, src, src_len);
 
 	// CRC field
-	dbuf_writeui32be(outf, (i64)crc);
+	dbuf_writeu32be(outf, (i64)crc);
 }
 
 static void write_png_chunk_from_cdbuf(dbuf *outf, dbuf *cdbuf, u32 chunktype)
@@ -81,8 +81,8 @@ static void write_png_chunk_IHDR(struct deark_png_encode_info *pei,
 {
 	static const u8 color_type_code[] = {0x00, 0x00, 0x04, 0x02, 0x06};
 
-	dbuf_writeui32be(cdbuf, (i64)pei->width);
-	dbuf_writeui32be(cdbuf, (i64)pei->height);
+	dbuf_writeu32be(cdbuf, (i64)pei->width);
+	dbuf_writeu32be(cdbuf, (i64)pei->height);
 	dbuf_writebyte(cdbuf, 8); // bit depth
 	dbuf_writebyte(cdbuf, color_type_code[pei->num_chans]);
 	dbuf_truncate(cdbuf, 13); // rest of chunk is zeroes
@@ -92,8 +92,8 @@ static void write_png_chunk_IHDR(struct deark_png_encode_info *pei,
 static void write_png_chunk_pHYs(struct deark_png_encode_info *pei,
 	dbuf *cdbuf)
 {
-	dbuf_writeui32be(cdbuf, (i64)pei->xdens);
-	dbuf_writeui32be(cdbuf, (i64)pei->ydens);
+	dbuf_writeu32be(cdbuf, (i64)pei->xdens);
+	dbuf_writeu32be(cdbuf, (i64)pei->ydens);
 	dbuf_writebyte(cdbuf, pei->phys_units);
 	write_png_chunk_from_cdbuf(pei->outf, cdbuf, CODE_pHYs);
 }
@@ -106,7 +106,7 @@ static void write_png_chunk_tIME(struct deark_png_encode_info *pei,
 	de_gmtime(&pei->image_mod_time, &tm2);
 	if(!tm2.is_valid) return;
 
-	dbuf_writeui16be(cdbuf, (i64)tm2.tm_fullyear);
+	dbuf_writeu16be(cdbuf, (i64)tm2.tm_fullyear);
 	dbuf_writebyte(cdbuf, (u8)(1+tm2.tm_mon));
 	dbuf_writebyte(cdbuf, (u8)tm2.tm_mday);
 	dbuf_writebyte(cdbuf, (u8)tm2.tm_hour);
@@ -550,15 +550,15 @@ void de_zip_add_file_to_archive(deark *c, dbuf *f)
 	dfa.extra_data_local = de_malloc(c, (i64)dfa.extra_data_local_size);
 	dfa.extra_data_central = de_malloc(c, (i64)dfa.extra_data_central_size);
 
-	de_writeui16le_direct(&dfa.extra_data_local[0], 0x5455);
-	de_writeui16le_direct(&dfa.extra_data_local[2], (i64)(dfa.extra_data_local_size-4));
-	de_writeui16le_direct(&dfa.extra_data_central[0], 0x5455);
-	de_writeui16le_direct(&dfa.extra_data_central[2], (i64)(dfa.extra_data_central_size-4));
+	de_writeu16le_direct(&dfa.extra_data_local[0], 0x5455);
+	de_writeu16le_direct(&dfa.extra_data_local[2], (i64)(dfa.extra_data_local_size-4));
+	de_writeu16le_direct(&dfa.extra_data_central[0], 0x5455);
+	de_writeu16le_direct(&dfa.extra_data_central[2], (i64)(dfa.extra_data_central_size-4));
 
 	dfa.extra_data_local[4] = 0x01; // has-modtime flag
-	de_writeui32le_direct(&dfa.extra_data_local[5], dfa.modtime);
+	de_writeu32le_direct(&dfa.extra_data_local[5], dfa.modtime);
 	dfa.extra_data_central[4] = dfa.extra_data_local[4];
-	de_writeui32le_direct(&dfa.extra_data_central[5], dfa.modtime);
+	de_writeu32le_direct(&dfa.extra_data_central[5], dfa.modtime);
 
 	mz_zip_writer_add_mem(zzz->pZip, f->name, f->membuf_buf, (size_t)f->len,
 		MZ_BEST_COMPRESSION, &dfa);

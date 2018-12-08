@@ -54,9 +54,9 @@ static void do_object_sprite(deark *c, lctx *d, struct objinfo *oi)
 	outf = dbuf_create_output_file(c, "acorn", fi, 0x0);
 
 	// Manufacture a sprite file, by adding a 12-byte header.
-	dbuf_writeui32le(outf, 1); // number of sprites
-	dbuf_writeui32le(outf, 12+4); // offset of sprite data (+4)
-	dbuf_writeui32le(outf, 12+dlen+4); // file size (+4)
+	dbuf_writeu32le(outf, 1); // number of sprites
+	dbuf_writeu32le(outf, 12+4); // offset of sprite data (+4)
+	dbuf_writeu32le(outf, 12+dlen+4); // file size (+4)
 	dbuf_copy(c->infile, dpos, dlen, outf);
 
 	dbuf_close(outf);

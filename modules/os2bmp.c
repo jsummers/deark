@@ -327,7 +327,7 @@ static void do_extract_CI_or_CP_pair(deark *c, const char *fmt, i64 pos)
 		// Copy the first 10 bytes of the fileheader.
 		dbuf_copy(c->infile, hdrpos[i], 10, f);
 		// Update the bits offset.
-		dbuf_writeui32le(f, newbitsoffs[i]);
+		dbuf_writeu32le(f, newbitsoffs[i]);
 		// Copy the rest of the headers (+palette).
 		dbuf_copy(c->infile, hdrpos[i]+14, hdrsize[i]-14, f);
 	}
@@ -365,7 +365,7 @@ static void do_extract_one_image(deark *c, i64 pos, const char *fmt, const char 
 	dbuf_copy(c->infile, pos, 10, f);
 
 	// The "bits offset" is probably the only thing we need to adjust.
-	dbuf_writeui32le(f, srcbmp->bi.size_of_headers_and_pal);
+	dbuf_writeu32le(f, srcbmp->bi.size_of_headers_and_pal);
 
 	// Copy the infoheader & palette
 	dbuf_copy(c->infile, pos+14, srcbmp->bi.size_of_headers_and_pal-14, f);

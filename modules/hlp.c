@@ -278,7 +278,7 @@ static void do_file_SHG(deark *c, lctx *d, i64 pos1, i64 used_space)
 	}
 
 	outf = dbuf_create_output_file(c, ext, NULL, 0);
-	dbuf_writeui16le(outf, sig);
+	dbuf_writeu16le(outf, sig);
 	dbuf_copy(c->infile, pos1+2, used_space-2, outf);
 	dbuf_close(outf);
 }

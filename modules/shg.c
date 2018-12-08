@@ -321,17 +321,17 @@ static int do_dib(deark *c, lctx *d, i64 pos1)
 	de_fmtutil_generate_bmpfileheader(c, outf, &bi, 0);
 
 	// Write infoheader
-	dbuf_writeui32le(outf, 40);
-	dbuf_writeui32le(outf, width);
-	dbuf_writeui32le(outf, height);
-	dbuf_writeui16le(outf, planes);
-	dbuf_writeui16le(outf, bitcount);
-	dbuf_writeui32le(outf, 0); // compression
-	dbuf_writeui32le(outf, 0); // SizeImage
-	dbuf_writeui32le(outf, per_inch_to_per_meter(xdpi));
-	dbuf_writeui32le(outf, per_inch_to_per_meter(ydpi));
-	dbuf_writeui32le(outf, colors_used);
-	dbuf_writeui32le(outf, colors_important);
+	dbuf_writeu32le(outf, 40);
+	dbuf_writeu32le(outf, width);
+	dbuf_writeu32le(outf, height);
+	dbuf_writeu16le(outf, planes);
+	dbuf_writeu16le(outf, bitcount);
+	dbuf_writeu32le(outf, 0); // compression
+	dbuf_writeu32le(outf, 0); // SizeImage
+	dbuf_writeu32le(outf, per_inch_to_per_meter(xdpi));
+	dbuf_writeu32le(outf, per_inch_to_per_meter(ydpi));
+	dbuf_writeu32le(outf, colors_used);
+	dbuf_writeu32le(outf, colors_important);
 
 	// Write color table
 	dbuf_copy(c->infile, pal_offset, pal_size_in_bytes, outf);

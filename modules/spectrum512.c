@@ -276,7 +276,7 @@ static void sps_uncompress_pal(deark *c, i64 pos1, dbuf *uncmpr_pal)
 				cg = bit_reader_getint(c->infile, &br, 3);
 				cb = bit_reader_getint(c->infile, &br, 3);
 				palcode = (cr<<8)|(cg<<4)|cb;
-				dbuf_writeui16be(uncmpr_pal, palcode);
+				dbuf_writeu16be(uncmpr_pal, palcode);
 			}
 			else {
 				dbuf_write_zeroes(uncmpr_pal, 2);

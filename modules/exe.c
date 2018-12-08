@@ -590,9 +590,9 @@ static void do_extract_ico_cur(deark *c, lctx *d, i64 pos, i64 len,
 	f = dbuf_create_output_file(c, is_cur?"cur":"ico", fi, 0);
 
 	// Write the 6-byte file header.
-	dbuf_writeui16le(f, 0); // Reserved
-	dbuf_writeui16le(f, is_cur?2:1); // Resource ID
-	dbuf_writeui16le(f, 1); // Number of icons/cursors
+	dbuf_writeu16le(f, 0); // Reserved
+	dbuf_writeu16le(f, is_cur?2:1); // Resource ID
+	dbuf_writeu16le(f, 1); // Number of icons/cursors
 
 	w = bi.width;
 	if(w>255) w=0;
@@ -612,14 +612,14 @@ static void do_extract_ico_cur(deark *c, lctx *d, i64 pos, i64 len,
 	dbuf_writebyte(f, (u8)ncolors);
 	if(is_cur) {
 		dbuf_writebyte(f, 0);
-		dbuf_writeui16le(f, hotspot_x);
-		dbuf_writeui16le(f, hotspot_y);
+		dbuf_writeu16le(f, hotspot_x);
+		dbuf_writeu16le(f, hotspot_y);
 	}
 	else {
 		dbuf_write_zeroes(f, 5);
 	}
-	dbuf_writeui32le(f, len); // Icon/cursor size
-	dbuf_writeui32le(f, 6+16); // Icon/cursor file offset
+	dbuf_writeu32le(f, len); // Icon/cursor size
+	dbuf_writeu32le(f, 6+16); // Icon/cursor file offset
 
 	// Write the non-manufactured part of the file.
 	dbuf_copy(c->infile, pos, len, f);

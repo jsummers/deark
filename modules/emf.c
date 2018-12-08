@@ -569,11 +569,11 @@ static void extract_dib(deark *c, lctx *d, i64 bmi_pos, i64 bmi_len,
 		tmp_bmi = de_malloc(c, bmi_len);
 		de_read(tmp_bmi, bmi_pos, bmi_len);
 
-		de_writeui32le_direct(&tmp_bmi[8], real_height); // Correct the biHeight field
+		de_writeu32le_direct(&tmp_bmi[8], real_height); // Correct the biHeight field
 
 		if(bmi_len>=24) {
 			// Correct (or set) the biSizeImage field
-			de_writeui32le_direct(&tmp_bmi[20], bits_len);
+			de_writeu32le_direct(&tmp_bmi[20], bits_len);
 		}
 		dbuf_write(outf, tmp_bmi, bmi_len);
 		de_free(c, tmp_bmi);

@@ -203,10 +203,10 @@ void de_fmtutil_generate_bmpfileheader(deark *c, dbuf *outf, const struct de_bmp
 		file_size_to_write = file_size_override;
 	else
 		file_size_to_write = 14 + bi->total_size;
-	dbuf_writeui32le(outf, file_size_to_write);
+	dbuf_writeu32le(outf, file_size_to_write);
 
 	dbuf_write_zeroes(outf, 4);
-	dbuf_writeui32le(outf, 14 + bi->size_of_headers_and_pal);
+	dbuf_writeu32le(outf, 14 + bi->size_of_headers_and_pal);
 }
 
 // Extracts Exif if extract_level>=2, or "extractexif" option is set.
@@ -1806,7 +1806,7 @@ static void wrap_in_tiff(deark *c, dbuf *f, i64 dpos, i64 dlen,
 	outf = dbuf_create_output_file(c, ext, NULL, 0);
 	dbuf_write(outf, (const u8*)"\x4d\x4d\x00\x2a", 4);
 	ifdoffs = 8 + sw_len_padded + data_len_padded;
-	dbuf_writeui32be(outf, ifdoffs);
+	dbuf_writeu32be(outf, ifdoffs);
 	dbuf_write(outf, (const u8*)swstring, sw_len);
 	if(sw_len%2) dbuf_writebyte(outf, 0);
 	if(dlen>4) {
@@ -1814,25 +1814,25 @@ static void wrap_in_tiff(deark *c, dbuf *f, i64 dpos, i64 dlen,
 		if(dlen%2) dbuf_writebyte(outf, 0);
 	}
 
-	dbuf_writeui16be(outf, 2); // number of dir entries;
+	dbuf_writeu16be(outf, 2); // number of dir entries;
 
-	dbuf_writeui16be(outf, 305); // Software tag
-	dbuf_writeui16be(outf, 2); // type=ASCII
-	dbuf_writeui32be(outf, sw_len);
-	dbuf_writeui32be(outf, 8); // offset
+	dbuf_writeu16be(outf, 305); // Software tag
+	dbuf_writeu16be(outf, 2); // type=ASCII
+	dbuf_writeu32be(outf, sw_len);
+	dbuf_writeu32be(outf, 8); // offset
 
-	dbuf_writeui16be(outf, (i64)tag);
-	dbuf_writeui16be(outf, 1);
-	dbuf_writeui32be(outf, dlen);
+	dbuf_writeu16be(outf, (i64)tag);
+	dbuf_writeu16be(outf, 1);
+	dbuf_writeu32be(outf, dlen);
 	if(dlen>4) {
-		dbuf_writeui32be(outf, 8+sw_len_padded);
+		dbuf_writeu32be(outf, 8+sw_len_padded);
 	}
 	else {
 		dbuf_copy(f, dpos, dlen, outf);
 		dbuf_write_zeroes(outf, 4-dlen);
 	}
 
-	dbuf_writeui32be(outf, 0); // end of IFD
+	dbuf_writeu32be(outf, 0); // end of IFD
 	dbuf_close(outf);
 }
 

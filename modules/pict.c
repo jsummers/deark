@@ -803,12 +803,12 @@ static void do_handle_qtif_idsc(deark *c, lctx *d, i64 pos, i64 len)
 #define CODE_idsc 0x69647363U
 	outf = dbuf_create_output_file(c, "qtif", NULL, 0);
 
-	dbuf_writeui32be(outf, 8+idsc_dlen);
-	dbuf_writeui32be(outf, CODE_idsc);
+	dbuf_writeu32be(outf, 8+idsc_dlen);
+	dbuf_writeu32be(outf, CODE_idsc);
 	dbuf_copy(c->infile, idsc_dpos, idsc_dlen, outf);
 
-	dbuf_writeui32be(outf, 8+idat_dlen);
-	dbuf_writeui32be(outf, CODE_idat);
+	dbuf_writeu32be(outf, 8+idat_dlen);
+	dbuf_writeu32be(outf, CODE_idat);
 	dbuf_copy(c->infile, idat_dpos, idat_dlen, outf);
 
 done:
