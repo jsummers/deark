@@ -133,10 +133,6 @@ struct unzooctx {
 	u32           poscmt;         /* position of comment, 0 if none  */
 	u16           sizcmt;         /* length   of comment, 0 if none  */
 	u8             modgen;         /* gens. on, gen. limit            */
-	/* the following are not in the archive file and are computed          */
-	u32           sizorg;         /* uncompressed size of members    */
-	u32           siznow;         /*   compressed size of members    */
-	u32           number;         /* number of members               */
 
 	/****************************************************************************
 	**
@@ -216,12 +212,33 @@ static u32 BlckReadArch (struct unzooctx *uz, u8 *blk, u32 len )
 
 static void do_extract_comment(struct unzooctx *uz, i64 pos, i64 len, int is_main)
 {
-	if(len<1) return;
-	if(uz->c->extract_level<2) return;
-	if(pos<0 || pos+len>uz->ReadArch->len) return;
-	// TODO: Do ZOO comments use a standard text encoding?
 	dbuf_create_file_from_slice(uz->ReadArch, pos, len, "comment.txt",
 		NULL, DE_CREATEFLAG_IS_AUX);
+}
+
+static void do_dbg_comment(struct unzooctx *uz, i64 pos, i64 len, int is_main)
+{
+	de_ucstring *s = NULL;
+
+	if(uz->c->debug_level<1) return;
+	s = ucstring_create(uz->c);
+	dbuf_read_to_ucstring_n(uz->ReadArch, pos, len, DE_DBG_MAX_STRLEN, s,
+		0, DE_ENCODING_ASCII);
+	de_dbg(uz->c, "%scomment: \"%s\"", is_main?"(global) ":"",
+		ucstring_getpsz_d(s));
+	ucstring_destroy(s);
+}
+
+static void do_comment(struct unzooctx *uz, i64 pos, i64 len, int is_main)
+{
+	if(len<1) return;
+	if(pos<0 || pos+len>uz->ReadArch->len) return;
+	if(uz->c->extract_level>=2) {
+		do_extract_comment(uz, pos, len, is_main);
+	}
+	else {
+		do_dbg_comment(uz, pos, len, is_main);
+	}
 }
 
 // Read the main file header
@@ -243,31 +260,38 @@ static int DescReadArch (struct unzooctx *uz)
 
 	/* read the old part of the description                                */
 	uz->posent = WordReadArch(uz);
-	de_dbg(c, "first entry offset: %d", (int)uz->posent);
+	de_dbg(c, "first entry offset: %u", (unsigned int)uz->posent);
 
 	uz->klhvmh = WordReadArch(uz);
+	de_dbg2(c, "2's complement of offset: %u (%d)", (unsigned int)uz->klhvmh,
+		(int)(unsigned int)uz->klhvmh);
 	uz->majver = ByteReadArch(uz);
 	uz->minver = ByteReadArch(uz);
-	de_dbg(c, "version: %d.%d", (int)uz->majver, (int)uz->minver);
+	de_dbg(c, "(global) version needed to extract: %d.%d", (int)uz->majver, (int)uz->minver);
 
 	/* read the new part of the description if present                     */
-	uz->type   = (34 < uz->posent ? ByteReadArch(uz) : 0);
+	if(uz->posent > 34) {
+		uz->type   = ByteReadArch(uz);
+		de_dbg2(c, "(global) type: %u", (unsigned int)uz->type);
 
-	uz->poscmt = (34 < uz->posent ? WordReadArch(uz) : 0);
-	uz->sizcmt = (34 < uz->posent ? HalfReadArch(uz) : 0);
-	de_dbg(c, "main file comment size: %d, pos=%d", (int)uz->sizcmt, (int)uz->poscmt);
-	do_extract_comment(uz, uz->poscmt, uz->sizcmt, 1);
+		uz->poscmt = WordReadArch(uz);
+		uz->sizcmt = HalfReadArch(uz);
+		de_dbg(c, "(global) comment size: %d, pos=%d", (int)uz->sizcmt, (int)uz->poscmt);
+		do_comment(uz, uz->poscmt, uz->sizcmt, 1);
 
-	uz->modgen = (34 < uz->posent ? ByteReadArch(uz) : 0);
-
-	/* initialize the fake entries                                         */
-	uz->sizorg = 0;
-	uz->siznow = 0;
-	uz->number = 0;
-
-	retval = 1;
+		uz->modgen = ByteReadArch(uz);
+		de_dbg2(c, "(global) modgen: %u", (unsigned int)uz->modgen);
+	}
+	else {
+		uz->type   = 0;
+		uz->poscmt = 0;
+		uz->sizcmt = 0;
+		uz->modgen = 0;
+	}
 
 	/* indicate success                                                    */
+	retval = 1;
+
 done:
 	de_dbg_indent(c, -1);
 	return retval;
@@ -295,6 +319,8 @@ static int EntrReadArch (struct unzooctx *uz, struct entryctx *ze)
 	de_ucstring *fullname_ucstring = NULL;
 	int retval = 0;
 	i64 pos1 = uz->ReadArch_fpos;
+	i64 timestamp_offset;
+	char timestamp_buf[64];
 
 	/* try to read the magic words                                         */
 	if ( (ze->magic = WordReadArch(uz)) != (u32)0xfdc4a7dcL ) {
@@ -304,15 +330,27 @@ static int EntrReadArch (struct unzooctx *uz, struct entryctx *ze)
 
 	/* read the fixed part of the directory entry                          */
 	ze->type   = ByteReadArch(uz);
-	de_dbg(c, "type: %d", (int)ze->type);
 	ze->method = ByteReadArch(uz);
-	de_dbg(c, "compression method: %d (%s)", (int)ze->method, get_cmpr_meth_name(ze->method));
 	ze->posnxt = WordReadArch(uz);
+
+	if(ze->posnxt == 0) {
+		// I guess that end of file is marked by a dummy member file entry
+		// having posnxt=0.
+		de_dbg(c, "next entry pos: %d (eof)", (int)ze->posnxt);
+		retval = 1;
+		goto done;
+	}
+
+	de_dbg(c, "type: %d", (int)ze->type);
+	de_dbg(c, "compression method: %d (%s)", (int)ze->method, get_cmpr_meth_name(ze->method));
 	de_dbg(c, "next entry pos: %d", (int)ze->posnxt);
+
 	ze->posdat = WordReadArch(uz);
 	de_dbg(c, "pos of file data: %u", (unsigned int)ze->posdat);
+
 	ze->datdos = HalfReadArch(uz);
 	ze->timdos = HalfReadArch(uz);
+	de_dbg2(c, "dos date,time: %d,%d", (int)ze->datdos, (int)ze->timdos);
 	ze->crcdat = (u32)HalfReadArch(uz);
 	de_dbg(c, "file data crc (reported): 0x%04x", (unsigned int)ze->crcdat);
 	ze->sizorg = WordReadArch(uz);
@@ -321,14 +359,14 @@ static int EntrReadArch (struct unzooctx *uz, struct entryctx *ze)
 	de_dbg(c, "compressed size: %u", (unsigned int)ze->siznow);
 	ze->majver = ByteReadArch(uz);
 	ze->minver = ByteReadArch(uz);
-	de_dbg(c, "version: %d.%d", (int)ze->majver, (int)ze->minver);
+	de_dbg(c, "version needed to extract: %d.%d", (int)ze->majver, (int)ze->minver);
 	ze->delete_ = ByteReadArch(uz);
 	ze->spared = ByteReadArch(uz);
 	ze->poscmt = WordReadArch(uz);
 	ze->sizcmt = HalfReadArch(uz);
 	de_dbg(c, "comment size: %d, pos=%d", (int)ze->sizcmt, (int)ze->poscmt);
 	if((ze->posnxt!=0) && (ze->delete_ != 1)) {
-		do_extract_comment(uz, ze->poscmt, ze->sizcmt, 0);
+		do_comment(uz, ze->poscmt, ze->sizcmt, 0);
 	}
 
 	BlckReadArch(uz, (u8*)ze->nams, 13L);  ze->nams[13] = '\0';
@@ -339,12 +377,18 @@ static int EntrReadArch (struct unzooctx *uz, struct entryctx *ze)
 
 	/* handle the long name and the directory in the variable part         */
 
-	ze->lvar   = (ze->type == 2  ? HalfReadArch(uz) : 0);
-	ze->timzon = (ze->type == 2  ? ByteReadArch(uz) : 127);
-	ze->crcent = (ze->type == 2  ? HalfReadArch(uz) : 0);
+	if(ze->type == 2) {
+		ze->lvar   = HalfReadArch(uz);
+		de_dbg(c, "length of variable part: %d", (int)ze->lvar);
+	}
+	else {
+		ze->lvar   = 0;
+	}
+
 	if(ze->type == 2) {
 		char namebuf[80];
-		de_dbg(c, "length of variable part: %d", (int)ze->lvar);
+
+		ze->timzon = ByteReadArch(uz);
 
 		// Note: The timezone field is definitely a signed byte that is the
 		// number of 15-minute units from UTC, but it is unknown to me whether
@@ -364,11 +408,41 @@ static int EntrReadArch (struct unzooctx *uz, struct entryctx *ze)
 		}
 		de_dbg(c, "time zone: %d (%s)", (int)ze->timzon, namebuf);
 
+	}
+	else {
+		ze->timzon = 127;
+	}
+
+	// Now that we know the timezone, finish reporting the mod time, and set
+	// ze->fi->mod_time.
+	timestamp_offset = 0;
+	if      ( ze->timzon < 127 )  timestamp_offset = 15*60*(ze->timzon      );
+	else if ( 127 < ze->timzon )  timestamp_offset = 15*60*(ze->timzon - 256);
+
+	de_dos_datetime_to_timestamp(&ze->fi->mod_time, ze->datdos, ze->timdos);
+	de_timestamp_to_string(&ze->fi->mod_time, timestamp_buf, sizeof(timestamp_buf), 0);
+	de_dbg(c, "mod time: %s", timestamp_buf);
+	if(ze->timzon == 127) {
+		ze->fi->mod_time.tzcode = DE_TZCODE_LOCAL;
+	}
+	else {
+		de_timestamp_cvt_to_utc(&ze->fi->mod_time, timestamp_offset);
+		de_timestamp_to_string(&ze->fi->mod_time, timestamp_buf, sizeof(timestamp_buf), 0);
+		de_dbg(c, "mod time (UTC): %s", timestamp_buf);
+	}
+
+	if(ze->type == 2) {
+		ze->crcent = HalfReadArch(uz);
 		de_dbg(c, "entry crc (reported): 0x%04x", (unsigned int)ze->crcent);
+	}
+	else {
+		ze->crcent = 0;
 	}
 
 	ze->lnamu  = (0 < ze->lvar   ? ByteReadArch(uz) : 0);
+	de_dbg2(c, "long name len: %d", (int)ze->lnamu);
 	ze->ldiru  = (1 < ze->lvar   ? ByteReadArch(uz) : 0);
+	de_dbg2(c, "dir name len: %d", (int)ze->ldiru);
 
 	BlckReadArch(uz, (u8*)ze->namu, (u32)ze->lnamu);
 	ze->namu[ze->lnamu] = '\0';
@@ -402,21 +476,38 @@ static int EntrReadArch (struct unzooctx *uz, struct entryctx *ze)
 		}
 	}
 
-	ze->modgen = (l+7 < ze->lvar ? ByteReadArch(uz) : 0);
-	ze->ver    = (l+7 < ze->lvar ? HalfReadArch(uz) : 0);
+	if(l+7 < ze->lvar) {
+		ze->modgen = ByteReadArch(uz);
+		de_dbg(c, "modgen: %u", (unsigned int)ze->modgen);
+	}
+	else {
+		ze->modgen = 0;
+	}
+
+	if(l+9 < ze->lvar) {
+		ze->ver = HalfReadArch(uz);
+		de_dbg(c, "member version: %u", (unsigned int)ze->ver);
+	}
+	else {
+		ze->ver = 0;
+	}
+
+	// Note: Typically, there is a 5-byte "file leader" ("@)#(\0") here, between
+	// the member header and the member data, so uz->ReadArch_fpos is not
+	// expected to equal ze->posdat.
 
 	// Figure out the best filename to use
-	if(longname_ucstring->len>0 || shortname_ucstring->len) {
+	if(ucstring_isnonempty(longname_ucstring) || ucstring_isnonempty(shortname_ucstring)) {
 		fullname_ucstring = ucstring_create(c);
 
-		if(dirname_ucstring->len>0) {
+		if(ucstring_isnonempty(dirname_ucstring)) {
 			ucstring_append_ucstring(fullname_ucstring, dirname_ucstring);
 			ucstring_append_sz(fullname_ucstring, "/", DE_ENCODING_ASCII);
 		}
-		if(longname_ucstring->len>0) {
+		if(ucstring_isnonempty(longname_ucstring)) {
 			ucstring_append_ucstring(fullname_ucstring, longname_ucstring);
 		}
-		else if(shortname_ucstring->len>0) {
+		else if(ucstring_isnonempty(shortname_ucstring)) {
 			ucstring_append_ucstring(fullname_ucstring, shortname_ucstring);
 		}
 
@@ -503,27 +594,13 @@ static i64 BlckWritFile (struct unzooctx *uz, struct entryctx *ze, const u8 *blk
 */
 static int DecodeCopy (struct unzooctx *uz, struct entryctx *ze, u32 size )
 {
-	u32       siz;            /* size of current block           */
-
-	/* loop until everything has been copied                               */
-	while ( 0 < size ) {
-
-		/* read as many bytes as possible in one go                        */
-		siz = (sizeof(ze->BufFile) < size ? sizeof(ze->BufFile) : size);
-		if ( BlckReadArch(uz, ze->BufFile, siz ) != siz ) {
-			uz->ErrMsg = "Unexpected <eof> in the archive";
-			return 0;
-		}
-
-		/* write them                                                      */
-		if ( BlckWritFile(uz, ze, ze->BufFile, siz ) != siz ) {
-			uz->ErrMsg = "Cannot write output file";
-			return 0;
-		}
-
-		/* on to the next block                                            */
-		size -= siz;
+	if(uz->ReadArch_fpos + size > uz->ReadArch->len) {
+		uz->ErrMsg = "Unexpected <eof> in the archive";
+		return 0;
 	}
+
+	dbuf_copy(uz->ReadArch, uz->ReadArch_fpos, (i64)size, ze->WritBinr);
+	uz->ReadArch_fpos += size;
 
 	/* indicate success                                                    */
 	return 1;
@@ -995,8 +1072,6 @@ static void ExtrEntry(struct unzooctx *uz, i64 pos1, i64 *next_entry_pos)
 	u32       res;            /* status of decoding              */
 	struct entryctx *ze = NULL;
 	deark *c = uz->c;
-	i64 timestamp_offset;
-	char timestamp_buf[64];
 
 	ze = de_malloc(c, sizeof(struct entryctx));
 	ze->uz = uz;
@@ -1015,10 +1090,7 @@ static void ExtrEntry(struct unzooctx *uz, i64 pos1, i64 *next_entry_pos)
 
 	*next_entry_pos = ze->posnxt;
 
-	// TODO: How does this work, exactly?
-	// One would think the last valid entry would have a NULL "next" pointer.
 	if ( ! ze->posnxt ) {
-		de_dbg(c, "ignoring entry because posnxt=0");
 		goto done;
 	}
 
@@ -1040,21 +1112,8 @@ static void ExtrEntry(struct unzooctx *uz, i64 pos1, i64 *next_entry_pos)
 		goto done;
 	}
 
-	timestamp_offset = 0;
-	if      ( ze->timzon < 127 )  timestamp_offset = 15*60*(ze->timzon      );
-	else if ( 127 < ze->timzon )  timestamp_offset = 15*60*(ze->timzon - 256);
-
-	de_dos_datetime_to_timestamp(&ze->fi->mod_time, ze->datdos, ze->timdos);
-	de_timestamp_to_string(&ze->fi->mod_time, timestamp_buf, sizeof(timestamp_buf), 0);
-	de_dbg(c, "mod time: %s", timestamp_buf);
-	if(ze->timzon == 127) {
-		ze->fi->mod_time.tzcode = DE_TZCODE_LOCAL;
-	}
-	else {
-		de_timestamp_cvt_to_utc(&ze->fi->mod_time, timestamp_offset);
-		de_timestamp_to_string(&ze->fi->mod_time, timestamp_buf, sizeof(timestamp_buf), 0);
-		de_dbg(c, "mod time (UTC): %s", timestamp_buf);
-	}
+	de_dbg(c, "compressed data at %u, len=%u", (unsigned int)ze->posdat,
+		(unsigned int)ze->siznow);
 
 	/* open the file for creation                                      */
 	if ( ! OpenWritFile(uz, ze) ) {
