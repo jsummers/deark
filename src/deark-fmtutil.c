@@ -302,9 +302,9 @@ void de_fmtutil_handle_iptc(deark *c, dbuf *f, i64 pos, i64 len,
 	}
 }
 
-// TODO: Re-think 'oparams', now that it can have caller-owned pointer fields.
-// If oparams is not NULL, and the data is decoded, the submodule's out_params
-// will be copied to it.
+// If oparams is not NULL, if must be initialized by the caller. If the data is
+// decoded, oparams will be used by the submodule, and values may be returned in
+// it.
 // flags:
 //  0 = default behavior (currently: always decode)
 //  1 = always write to file
@@ -315,10 +315,6 @@ void de_fmtutil_handle_photoshop_rsrc2(deark *c, dbuf *f, i64 pos, i64 len,
 	int should_decode;
 	int should_extract;
 	int extract_fmt = 1; // 0=raw, 1=TIFF-wrapped
-
-	if(oparams) {
-		de_zeromem(oparams, sizeof(struct de_module_out_params));
-	}
 
 	if(flags&0x1) {
 		should_decode = 0;
@@ -342,6 +338,11 @@ void de_fmtutil_handle_photoshop_rsrc2(deark *c, dbuf *f, i64 pos, i64 len,
 
 		mparams = de_malloc(c, sizeof(de_module_params));
 		mparams->in_params.codes = "R";
+		if(oparams) {
+			// Since mparams->out_params is an embedded struct, not a pointer,
+			// we have to copy oparam's fields to and from it.
+			mparams->out_params = *oparams; // struct copy
+		}
 		de_run_module_by_id_on_slice(c, "psd", mparams, f, pos, len);
 		if(oparams) {
 			*oparams = mparams->out_params; // struct copy

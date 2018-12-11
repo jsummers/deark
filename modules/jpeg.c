@@ -334,6 +334,8 @@ static void do_photoshop_segment(deark *c, lctx *d,
 	i64 pos, i64 data_size)
 {
 	struct de_module_out_params oparams;
+
+	de_zeromem(&oparams, sizeof(struct de_module_out_params));
 	// TODO: Can Photoshop resources span multiple JPEG segments? I have
 	// a file in which that seems to be the case.
 	de_dbg(c, "photoshop data at %d, size=%d", (int)pos, (int)data_size);
