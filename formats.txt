@@ -599,6 +599,8 @@ Deark -- Information about supported formats
   - You may have to use "-m palmdb".
   - Use -a to extract the record blocks, but note that they are usually not in
     well-known formats.
+  Options
+   -opt timestampfmt=<macbe|unixbe|macle> - The timestamp format to assume.
 
 * Palm PRC (module="palmrc")
   - You may have to use "-m palmrc".

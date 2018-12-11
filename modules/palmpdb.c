@@ -59,27 +59,41 @@ typedef struct localctx_struct {
 #define SUBFMT_PQA  1
 #define SUBFMT_IMAGEVIEWER 2
 	int file_subfmt;
+
+#define TIMESTAMPFMT_UNKNOWN 0
+#define TIMESTAMPFMT_MACBE   1
+#define TIMESTAMPFMT_UNIXBE  2
+#define TIMESTAMPFMT_MACLE   3
+	int timestampfmt;
+
 	int has_nonzero_ids;
 	const char *fmt_shortname;
 	i64 rec_size; // bytes per record
 	struct de_fourcc dtype4cc;
 	struct de_fourcc creator4cc;
+	struct de_timestamp mod_time;
 	i64 appinfo_offs;
 	i64 sortinfo_offs;
 	struct rec_list_struct rec_list;
 	de_ucstring *icon_name;
 } lctx;
 
-static void handle_palm_timestamp(deark *c, lctx *d, i64 pos, const char *name)
+static void handle_palm_timestamp(deark *c, lctx *d, i64 pos, const char *name,
+	struct de_timestamp *returned_ts)
 {
 	struct de_timestamp ts;
 	char timestamp_buf[64];
 	i64 ts_int;
 
+	de_zeromem(&ts, sizeof(struct de_timestamp));
+	if(returned_ts) {
+		de_zeromem(returned_ts, sizeof(struct de_timestamp));
+	}
+
 	ts_int = de_getu32be(pos);
 	if(ts_int==0) {
 		de_dbg(c, "%s: 0 (not set)", name);
-		return;
+		goto done;
 	}
 
 	de_dbg(c, "%s: ...", name);
@@ -88,25 +102,36 @@ static void handle_palm_timestamp(deark *c, lctx *d, i64 pos, const char *name)
 	// I've seen three different ways to interpret this 32-bit timestamp, and
 	// I don't know how to guess the correct one.
 
-	de_mac_time_to_timestamp(ts_int, &ts);
-	de_timestamp_to_string(&ts, timestamp_buf, sizeof(timestamp_buf), 0);
-	de_dbg(c, "... if Mac-BE: %"I64_FMT" (%s)", ts_int, timestamp_buf);
+	if(d->timestampfmt==TIMESTAMPFMT_MACBE || d->timestampfmt==TIMESTAMPFMT_UNKNOWN) {
+		de_mac_time_to_timestamp(ts_int, &ts);
+		de_timestamp_to_string(&ts, timestamp_buf, sizeof(timestamp_buf), 0);
+		de_dbg(c, "... if Mac-BE: %"I64_FMT" (%s)", ts_int, timestamp_buf);
+	}
 
 	ts_int = de_geti32be(pos);
-	if(ts_int>0) { // Assume dates before 1970 are wrong
+	if(d->timestampfmt==TIMESTAMPFMT_UNIXBE ||
+		(d->timestampfmt==TIMESTAMPFMT_UNKNOWN && ts_int>0)) // Assume dates before 1970 are wrong
+	{
 		de_unix_time_to_timestamp(ts_int, &ts, 0x1);
 		de_timestamp_to_string(&ts, timestamp_buf, sizeof(timestamp_buf), 0);
 		de_dbg(c, "... if Unix-BE: %"I64_FMT" (%s)", ts_int, timestamp_buf);
 	}
 
 	ts_int = de_getu32le(pos);
-	if(ts_int>2082844800) {
+	if(d->timestampfmt==TIMESTAMPFMT_MACLE ||
+		(d->timestampfmt==TIMESTAMPFMT_UNKNOWN && ts_int>2082844800))
+	{
 		de_mac_time_to_timestamp(ts_int, &ts);
 		de_timestamp_to_string(&ts, timestamp_buf, sizeof(timestamp_buf), 0);
 		de_dbg(c, "... if Mac-LE: %"I64_FMT" (%s)", ts_int, timestamp_buf);
 	}
 
 	de_dbg_indent(c, -1);
+
+done:
+	if(returned_ts && d->timestampfmt!=TIMESTAMPFMT_UNKNOWN) {
+		*returned_ts = ts;
+	}
 }
 
 static void get_db_attr_descr(de_ucstring *s, u32 attribs)
@@ -161,9 +186,9 @@ static int do_read_pdb_prc_header(deark *c, lctx *d)
 	version = (u32)de_getu16be(pos1+34);
 	de_dbg(c, "version: 0x%04x", (unsigned int)version);
 
-	handle_palm_timestamp(c, d, pos1+36, "create date");
-	handle_palm_timestamp(c, d, pos1+40, "mod date");
-	handle_palm_timestamp(c, d, pos1+44, "backup date");
+	handle_palm_timestamp(c, d, pos1+36, "create date", NULL);
+	handle_palm_timestamp(c, d, pos1+40, "mod date", &d->mod_time);
+	handle_palm_timestamp(c, d, pos1+44, "backup date", NULL);
 
 	x = de_getu32be(pos1+48);
 	de_dbg(c, "mod number: %d", (int)x);
@@ -343,6 +368,8 @@ static void do_imgview_image(deark *c, lctx *d, i64 pos1, i64 len)
 
 	de_dbg(c, "image record at %d", (int)pos1);
 	de_dbg_indent(c, 1);
+
+	igi->fi->image_mod_time = d->mod_time;
 
 	iname = ucstring_create(c);
 	dbuf_read_to_ucstring(c->infile, pos, 32, iname, DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_PALM);
@@ -910,6 +937,18 @@ static void free_lctx(deark *c, lctx *d)
 
 static void de_run_pdb_or_prc(deark *c, lctx *d, de_module_params *mparams)
 {
+	const char *s;
+
+	s = de_get_ext_option(c, "palm:timestampfmt");
+	if(s) {
+		if(!de_strcmp(s, "macbe"))
+			d->timestampfmt = TIMESTAMPFMT_MACBE;
+		else if(!de_strcmp(s, "unixbe"))
+			d->timestampfmt = TIMESTAMPFMT_UNIXBE;
+		else if(!de_strcmp(s, "macle"))
+			d->timestampfmt = TIMESTAMPFMT_MACLE;
+	}
+
 	if(!do_read_pdb_prc_header(c, d)) goto done;
 	if(!do_read_pdb_prc_records(c, d, 72)) goto done;
 	do_app_info_block(c, d);
@@ -1074,12 +1113,19 @@ static int de_identify_palmrc(deark *c)
 	return 0;
 }
 
+static void de_help_pdb_prc(deark *c)
+{
+	de_msg(c, "-opt timestampfmt=<macbe|unixbe|macle> : The format of the "
+		"timestamp fields");
+}
+
 void de_module_palmdb(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "palmdb";
 	mi->desc = "Palm OS PDB";
 	mi->run_fn = de_run_palmdb;
 	mi->identify_fn = de_identify_palmdb;
+	mi->help_fn = de_help_pdb_prc;
 }
 
 void de_module_palmrc(deark *c, struct deark_module_info *mi)
@@ -1088,4 +1134,5 @@ void de_module_palmrc(deark *c, struct deark_module_info *mi)
 	mi->desc = "Palm OS PRC";
 	mi->run_fn = de_run_palmrc;
 	mi->identify_fn = de_identify_palmrc;
+	mi->help_fn = de_help_pdb_prc;
 }
