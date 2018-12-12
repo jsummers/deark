@@ -955,7 +955,7 @@ static void do_create_interlace_map(deark *c, lctx *d, struct gif_image_data *gi
 	i64 rowcount = 0;
 
 	if(!gi->interlaced) return;
-	gi->interlace_map = de_malloc(c, gi->height * sizeof(u16));
+	gi->interlace_map = de_mallocarray(c, gi->height, sizeof(u16));
 
 	for(pass=1; pass<=4; pass++) {
 		if(pass==1) { startrow=0; rowskip=8; }

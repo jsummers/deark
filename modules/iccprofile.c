@@ -554,7 +554,7 @@ static void do_read_tags(deark *c, lctx *d, i64 pos1)
 	de_dbg(c, "expected start of data segment: %d", (int)(pos1+4+12*d->num_tags));
 
 	// Make a place to record some information about each tag we encounter in the table.
-	d->tags_seen = de_malloc(c, d->num_tags * sizeof(struct tag_seen_type));
+	d->tags_seen = de_mallocarray(c, d->num_tags, sizeof(struct tag_seen_type));
 
 	for(tagindex=0; tagindex<d->num_tags; tagindex++) {
 		do_tag(c, d, tagindex, pos1+4+12*tagindex);

@@ -716,8 +716,8 @@ static int do_prescan_records(deark *c, lctx *d, i64 pos1)
 
 	if(d->rec_list.num_recs<1) return 1;
 	// num_recs is untrusted, but it is a 16-bit int that can be at most 65535.
-	d->rec_list.rec_data = de_malloc(c, sizeof(struct rec_data_struct)*d->rec_list.num_recs);
-	d->rec_list.order_to_read = de_malloc(c, sizeof(size_t)*d->rec_list.num_recs);
+	d->rec_list.rec_data = de_mallocarray(c, d->rec_list.num_recs, sizeof(struct rec_data_struct));
+	d->rec_list.order_to_read = de_mallocarray(c, d->rec_list.num_recs, sizeof(size_t));
 	for(i=0; i<d->rec_list.num_recs; i++) {
 		// By default, read the records in the order they appear in the file.
 		d->rec_list.order_to_read[i] = (size_t)i;

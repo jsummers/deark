@@ -328,7 +328,7 @@ static int do_file_record_file(deark *c, lctx *d, struct file_rec *fr)
 	if(fr->rectype==0x1) fr->num_forks = d->nlangs;
 	else fr->num_forks = 1;
 
-	fr->ffi = de_malloc(c, fr->num_forks * sizeof(struct file_fork_info));
+	fr->ffi = de_mallocarray(c, fr->num_forks, sizeof(struct file_fork_info));
 
 	for(k=0; k<fr->num_forks; k++) {
 		fr->ffi[k].len = de_getu32le_p(&pos);
@@ -470,7 +470,7 @@ static void do_language_records(deark *c, lctx *d)
 
 	if(d->nlangs<1) return;
 	de_dbg(c, "language records at %"I64_FMT, pos1);
-	d->langi = de_malloc(c, d->nlangs*sizeof(struct lang_info));
+	d->langi = de_mallocarray(c, d->nlangs, sizeof(struct lang_info));
 	de_dbg_indent(c, 1);
 	for(k=0; k<d->nlangs; k++) {
 		unsigned int lc;

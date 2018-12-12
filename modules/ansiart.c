@@ -101,7 +101,7 @@ static struct de_char_cell *get_cell_at(deark *c, struct de_char_screen *screen,
 	if(xpos<0 || ypos<0) return NULL;
 	if(xpos>=screen->width || ypos>=MAX_ROWS) return NULL;
 	if(!screen->cell_rows[ypos]) {
-		screen->cell_rows[ypos] = de_malloc(c, screen->width * sizeof(struct de_char_cell));
+		screen->cell_rows[ypos] = de_mallocarray(c, screen->width, sizeof(struct de_char_cell));
 		for(i=0; i<screen->width; i++) {
 			// Initialize each new cell
 			cell = &screen->cell_rows[ypos][i];
@@ -1021,7 +1021,7 @@ static void de_run_ansiart(deark *c, de_module_params *mparams)
 	}
 
 	charctx->nscreens = 1;
-	charctx->screens = de_malloc(c, charctx->nscreens*sizeof(struct de_char_screen*));
+	charctx->screens = de_mallocarray(c, charctx->nscreens, sizeof(struct de_char_screen*));
 	charctx->screens[0] = de_malloc(c, sizeof(struct de_char_screen));
 
 	d->screen = charctx->screens[0];
@@ -1041,8 +1041,8 @@ static void de_run_ansiart(deark *c, de_module_params *mparams)
 	// We don't know the height yet. This will be updated as we read the file.
 	d->screen->height = 1;
 
-	d->screen->cell_rows = de_malloc(c, MAX_ROWS * sizeof(struct de_char_cell*));
-	d->row_data = de_malloc(c, MAX_ROWS * sizeof(struct row_data_struct));
+	d->screen->cell_rows = de_mallocarray(c, MAX_ROWS, sizeof(struct de_char_cell*));
+	d->row_data = de_mallocarray(c, MAX_ROWS, sizeof(struct row_data_struct));
 
 	for(k=0; k<16; k++) {
 		charctx->pal[k] = ansi_palette[k];

@@ -74,8 +74,8 @@ static void do_ver2(deark *c, lctx *d)
 	i64 *rowsize;
 	de_bitmap *img = NULL;
 
-	rowoffset = de_malloc(c, d->height * sizeof(i64));
-	rowsize = de_malloc(c, d->height * sizeof(i64));
+	rowoffset = de_mallocarray(c, d->height, sizeof(i64));
+	rowsize = de_mallocarray(c, d->height, sizeof(i64));
 
 	// Read the scanline map, and record the row sizes.
 	for(j=0; j<d->height; j++) {

@@ -639,7 +639,7 @@ static void do_dictionary(deark *c, lctx *d, struct propset_struct *si,
 		goto done;
 	}
 
-	si->dictionary = de_malloc(c, (i64)(sizeof(struct dictionary_entry)*si->num_dict_entries));
+	si->dictionary = de_mallocarray(c, (i64)si->num_dict_entries, sizeof(struct dictionary_entry));
 
 	for(k=0; k<si->num_dict_entries; k++) {
 		i64 bytes_consumed = 0;

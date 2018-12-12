@@ -228,7 +228,7 @@ static void push_ifd(deark *c, lctx *d, i64 ifdpos, int ifdtype)
 	// Add to the IFD stack (of unprocessed IFDs).
 	if(!d->ifdstack) {
 		d->ifdstack_capacity = 200;
-		d->ifdstack = de_malloc(c, d->ifdstack_capacity * sizeof(struct ifdstack_item));
+		d->ifdstack = de_mallocarray(c, d->ifdstack_capacity, sizeof(struct ifdstack_item));
 		d->ifdstack_numused = 0;
 	}
 	if(d->ifdstack_numused >= d->ifdstack_capacity) {

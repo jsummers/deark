@@ -595,7 +595,7 @@ static void de_run_dcx(deark *c, de_module_params *mparams)
 	i64 page;
 	i64 page_size;
 
-	page_offset = de_malloc(c, 1023 * sizeof(u32));
+	page_offset = de_mallocarray(c, 1023, sizeof(u32));
 	num_pages = 0;
 	while(num_pages < 1023) {
 		page_offset[num_pages] = (u32)de_getu32le(4 + 4*num_pages);

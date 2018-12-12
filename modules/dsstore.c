@@ -92,7 +92,7 @@ static void do_info_block(deark *c, lctx *d)
 	blk_addr_array_size_padded = de_pad_to_n(d->blkcount*4, 1024);
 
 	de_dbg(c, "block address table at %d", (int)pos);
-	d->block_addr_table = de_malloc(c, d->blkcount * sizeof(struct addr_table_entry));
+	d->block_addr_table = de_mallocarray(c, d->blkcount, sizeof(struct addr_table_entry));
 	de_dbg_indent(c, 1);
 	for(k=0; k<d->blkcount; k++) {
 		d->block_addr_table[k].addr_code = (u32)de_getu32be_p(&pos);

@@ -762,7 +762,7 @@ static void do_vdat(deark *c, lctx *d, i64 pos1, i64 len)
 	de_dbg(c, "number of command bytes: %d", (int)cmd_cnt);
 	if(cmd_cnt<1) goto done;
 
-	cmds = de_malloc(c, cmd_cnt * sizeof(u8));
+	cmds = de_mallocarray(c, cmd_cnt, sizeof(u8));
 
 	// Read commands
 	de_read(cmds, pos, cmd_cnt);

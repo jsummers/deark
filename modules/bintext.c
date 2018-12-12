@@ -33,15 +33,15 @@ static void do_bin_main(deark *c, lctx *d, dbuf *unc_data, struct de_char_contex
 	struct de_char_screen *screen;
 
 	charctx->nscreens = 1;
-	charctx->screens = de_malloc(c, charctx->nscreens*sizeof(struct de_char_screen*));
+	charctx->screens = de_mallocarray(c, charctx->nscreens, sizeof(struct de_char_screen*));
 	charctx->screens[0] = de_malloc(c, sizeof(struct de_char_screen));
 	screen = charctx->screens[0];
 	screen->width = d->width_in_chars;
 	screen->height = d->height_in_chars;
-	screen->cell_rows = de_malloc(c, d->height_in_chars * sizeof(struct de_char_cell*));
+	screen->cell_rows = de_mallocarray(c, d->height_in_chars, sizeof(struct de_char_cell*));
 
 	for(j=0; j<d->height_in_chars; j++) {
-		screen->cell_rows[j] = de_malloc(c, d->width_in_chars * sizeof(struct de_char_cell));
+		screen->cell_rows[j] = de_mallocarray(c, d->width_in_chars, sizeof(struct de_char_cell));
 
 		for(i=0; i<d->width_in_chars; i++) {
 			ccode = dbuf_getbyte(unc_data, j*d->width_in_chars*2 + i*2);
@@ -223,7 +223,7 @@ static int do_generate_font(deark *c, lctx *d)
 	}
 	d->font->nominal_width = 8;
 	d->font->nominal_height = (int)d->font_height;
-	d->font->char_array = de_malloc(c, d->font->num_chars * sizeof(struct de_bitmap_font_char));
+	d->font->char_array = de_mallocarray(c, d->font->num_chars, sizeof(struct de_bitmap_font_char));
 
 	for(i=0; i<d->font->num_chars; i++) {
 		d->font->char_array[i].codepoint_nonunicode = (i32)i;

@@ -717,7 +717,7 @@ static void do_fpxr_segment(deark *c, lctx *d, i64 pos1, i64 len)
 
 		d->fpxr_data->num_entities = (size_t)de_getu16be_p(&pos);
 		de_dbg(c, "interoperability count: %u", (unsigned int)d->fpxr_data->num_entities);
-		d->fpxr_data->entities = de_malloc(c, d->fpxr_data->num_entities * sizeof(struct fpxr_entity_struct));
+		d->fpxr_data->entities = de_mallocarray(c, d->fpxr_data->num_entities, sizeof(struct fpxr_entity_struct));
 
 		for(k=0; k<d->fpxr_data->num_entities; k++) {
 			i64 bytes_consumed = 0;

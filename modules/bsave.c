@@ -373,10 +373,10 @@ static void do_char_1screen(deark *c, lctx *d, struct de_char_screen *screen, i6
 
 	screen->width = width;
 	screen->height = height;
-	screen->cell_rows = de_malloc(c, height * sizeof(struct de_char_cell*));
+	screen->cell_rows = de_mallocarray(c, height, sizeof(struct de_char_cell*));
 
 	for(j=0; j<height; j++) {
-		screen->cell_rows[j] = de_malloc(c, width * sizeof(struct de_char_cell));
+		screen->cell_rows[j] = de_mallocarray(c, width, sizeof(struct de_char_cell));
 
 		for(i=0; i<width; i++) {
 			// 96 padding bytes per page?
@@ -441,7 +441,7 @@ static int do_char(deark *c, lctx *d)
 
 	charctx = de_malloc(c, sizeof(struct de_char_context));
 	charctx->nscreens = numpages;
-	charctx->screens = de_malloc(c, numpages*sizeof(struct de_char_screen*));
+	charctx->screens = de_mallocarray(c, numpages, sizeof(struct de_char_screen*));
 
 	for(k=0; k<16; k++) {
 		charctx->pal[k] = de_palette_pc16((int)k);

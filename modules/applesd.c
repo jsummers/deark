@@ -223,7 +223,7 @@ static void de_run_sd_internal(deark *c, lctx *d)
 
 	entry_descriptors_pos = pos;
 
-	entry_pass = de_malloc(c, sizeof(int)*nentries);
+	entry_pass = de_mallocarray(c, nentries, sizeof(int));
 	for(k=0; k<nentries; k++) {
 		unsigned int e_id;
 		// Make sure we read the metadata before we extract the files.

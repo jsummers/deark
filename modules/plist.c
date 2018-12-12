@@ -416,7 +416,7 @@ static void read_offset_table(deark *c, lctx *d)
 	de_dbg(c, "objref table at %"I64_FMT, pos);
 	de_dbg_indent(c, 1);
 
-	d->objref_table = de_malloc(c, d->num_objrefs * sizeof(struct objref_struct));
+	d->objref_table = de_mallocarray(c, d->num_objrefs, sizeof(struct objref_struct));
 
 	for(k=0; k<d->num_objrefs; k++) {
 		i64 offs;

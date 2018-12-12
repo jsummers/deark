@@ -97,7 +97,7 @@ static int decode_text(deark *c, lctx *d)
 	charctx = de_malloc(c, sizeof(struct de_char_context));
 	charctx->no_density = 1;
 	charctx->nscreens = 1;
-	charctx->screens = de_malloc(c, charctx->nscreens*sizeof(struct de_char_screen*));
+	charctx->screens = de_mallocarray(c, charctx->nscreens, sizeof(struct de_char_screen*));
 	charctx->screens[0] = de_malloc(c, sizeof(struct de_char_screen));
 	screen = charctx->screens[0];
 
@@ -108,13 +108,13 @@ static int decode_text(deark *c, lctx *d)
 
 	if(screen->height<1) goto done;
 
-	screen->cell_rows = de_malloc(c, screen->height * sizeof(struct de_char_cell*));
+	screen->cell_rows = de_mallocarray(c, screen->height, sizeof(struct de_char_cell*));
 
 	for(j=0; j<screen->height; j++) {
 		i64 j2;
 
 		j2 = screen->height-1-j;
-		screen->cell_rows[j2] = de_malloc(c, screen->width * sizeof(struct de_char_cell));
+		screen->cell_rows[j2] = de_mallocarray(c, screen->width, sizeof(struct de_char_cell));
 
 		for(i=0; i<screen->width; i++) {
 			ch = dbuf_getbyte(d->unc_pixels, j*d->img->width + i*2);

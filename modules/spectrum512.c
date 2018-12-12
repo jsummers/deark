@@ -23,7 +23,7 @@ static void do_spu_internal(deark *c, dbuf *inf, int is_enhanced)
 
 	adata = de_malloc(c, sizeof(struct atari_img_decode_data));
 	adata->is_spectrum512 = 1;
-	adata->pal = de_malloc(c, num_colors*sizeof(u32));
+	adata->pal = de_mallocarray(c, num_colors, sizeof(u32));
 	adata->bpp = 4;
 	adata->w = 320;
 	adata->h = 199;

@@ -137,7 +137,7 @@ static void de_run_psionpic(deark *c, de_module_params *mparams)
 	de_dbg(c, "number of planes/bitmaps: %d", (int)d->num_planes);
 
 	// After the 8-byte header are [num_images] 12-byte bitmap descriptors.
-	d->plane_info = de_malloc(c, d->num_planes * sizeof(struct plane_info_struct));
+	d->plane_info = de_mallocarray(c, d->num_planes, sizeof(struct plane_info_struct));
 	for(i=0; i<d->num_planes; i++) {
 		do_read_plane_info(c, d, &d->plane_info[i], 8+12*i);
 	}
