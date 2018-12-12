@@ -400,7 +400,7 @@ static void print_header_item(deark *c, dbuf *ofile, const char *name_rawhtml, c
 	int k;
 
 	dbuf_puts(ofile, "<td class=htc>");
-	if(value && value->len>0) {
+	if(ucstring_isnonempty(value)) {
 		dbuf_printf(ofile, "<span class=hn>%s:&nbsp; </span><span class=hv>", name_rawhtml);
 		write_ucstring_to_html(c, value, ofile);
 		dbuf_puts(ofile, "</span>");
@@ -440,13 +440,20 @@ static void print_comments(deark *c, struct de_char_context *charctx, dbuf *ofil
 	dbuf_puts(ofile, "</tr></table>\n");
 }
 
+static void timestamp_to_ucstring(const struct de_timestamp *ts, de_ucstring *s)
+{
+	char timestamp_buf[64];
+	de_timestamp_to_string(ts, timestamp_buf, sizeof(timestamp_buf), 0);
+	ucstring_append_sz(s, timestamp_buf, DE_ENCODING_UTF8);
+}
+
 static void do_output_html_header(deark *c, struct de_char_context *charctx,
 	struct charextractx *ectx, dbuf *ofile)
 {
 	int has_metadata; // metadata other than comments
 
 	has_metadata = charctx->title || charctx->artist || charctx->organization ||
-		charctx->creation_date;
+		(charctx->creation_date.is_valid);
 	if(c->write_bom && !c->ascii_html) dbuf_write_uchar_as_utf8(ofile, 0xfeff);
 	dbuf_puts(ofile, "<!DOCTYPE html>\n");
 	dbuf_puts(ofile, "<html>\n");
@@ -507,11 +514,17 @@ static void do_output_html_header(deark *c, struct de_char_context *charctx,
 	dbuf_puts(ofile, "<body>\n");
 
 	if(has_metadata) {
+		de_ucstring *tmps = NULL;
 		dbuf_puts(ofile, "<table class=htt><tr>\n");
 		print_header_item(c, ofile, "Title", charctx->title);
 		print_header_item(c, ofile, "Organization", charctx->organization);
 		print_header_item(c, ofile, "Artist", charctx->artist);
-		print_header_item(c, ofile, "Date", charctx->creation_date);
+		tmps = ucstring_create(c);
+		if(charctx->creation_date.is_valid) {
+			timestamp_to_ucstring(&charctx->creation_date, tmps);
+		}
+		print_header_item(c, ofile, "Date", tmps);
+		ucstring_destroy(tmps);
 		dbuf_puts(ofile, "</tr></table>\n");
 	}
 
@@ -628,6 +641,13 @@ static void de_char_output_screen_to_image_file(deark *c, struct de_char_context
 
 	fi = de_finfo_create(c);
 	set_density(c, charctx, ectx, fi);
+
+	if(charctx->creation_date.is_valid) {
+		// The ->creation_date field is most likely from a SAUCE record, for which the
+		// only date field is documented as "The date the file was created".
+		// We intentionally treat it as a last-modified timestamp.
+		fi->image_mod_time = charctx->creation_date;
+	}
 
 	for(j=0; j<screen->height; j++) {
 		for(i=0; i<screen->width; i++) {

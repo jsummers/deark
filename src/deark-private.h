@@ -834,7 +834,7 @@ void de_finfo_set_name_from_sz(deark *c, de_finfo *fi, const char *name1,
 i32 de_char_to_valid_fn_char(deark *c, i32 c1);
 
 de_ucstring *ucstring_create(deark *c);
-de_ucstring *ucstring_clone(de_ucstring *src);
+de_ucstring *ucstring_clone(const de_ucstring *src);
 void ucstring_destroy(de_ucstring *s);
 void ucstring_empty(de_ucstring *s);
 void ucstring_truncate(de_ucstring *s, i64 newlen);
@@ -845,7 +845,7 @@ void ucstring_append_char(de_ucstring *s, i32 ch);
 void ucstring_append_ucstring(de_ucstring *s1, const de_ucstring *s2);
 void ucstring_printf(de_ucstring *s, int encoding, const char *fmt, ...)
   de_gnuc_attribute ((format (printf, 3, 4)));
-int ucstring_isnonempty(de_ucstring *s);
+int ucstring_isnonempty(const de_ucstring *s);
 
 // Convert and append an encoded array of bytes to the string.
 void ucstring_append_bytes(de_ucstring *s, const u8 *buf, i64 buflen, unsigned int conv_flags, int encoding);
@@ -1013,7 +1013,7 @@ struct de_char_context {
 	de_ucstring *title;
 	de_ucstring *artist;
 	de_ucstring *organization;
-	de_ucstring *creation_date;
+	struct de_timestamp creation_date;
 	i64 num_comments;
 	struct de_char_comment *comments; // Array of [num_comments] comments
 };

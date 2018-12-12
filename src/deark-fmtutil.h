@@ -71,7 +71,7 @@ struct de_SAUCE_info {
 	de_ucstring *title;
 	de_ucstring *artist;
 	de_ucstring *organization;
-	de_ucstring *creation_date;
+	struct de_timestamp creation_date;
 	i64 original_file_size;
 	u8 data_type;
 	u8 file_type;

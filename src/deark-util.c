@@ -1073,6 +1073,11 @@ void de_timestamp_to_string(const struct de_timestamp *ts,
 	}
 
 	tzlabel = (ts->tzcode==DE_TZCODE_UTC)?" UTC":"";
+	if(ts->prec==0xffff) { // date only
+		de_snprintf(buf, buf_len, "%04d-%02d-%02d",
+			tm2.tm_fullyear, 1+tm2.tm_mon, tm2.tm_mday);
+		return;
+	}
 	de_snprintf(buf, buf_len, "%04d-%02d-%02d %02d:%02d:%02d%s%s",
 		tm2.tm_fullyear, 1+tm2.tm_mon, tm2.tm_mday,
 		tm2.tm_hour, tm2.tm_min, tm2.tm_sec, subsec, tzlabel);

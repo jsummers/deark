@@ -100,7 +100,7 @@ void ucstring_printf(de_ucstring *s, int encoding, const char *fmt, ...)
 	va_end(ap);
 }
 
-de_ucstring *ucstring_clone(de_ucstring *src)
+de_ucstring *ucstring_clone(const de_ucstring *src)
 {
 	de_ucstring *dst;
 
@@ -121,7 +121,7 @@ void ucstring_destroy(de_ucstring *s)
 	}
 }
 
-int ucstring_isnonempty(de_ucstring *s)
+int ucstring_isnonempty(const de_ucstring *s)
 {
 	return (s && (s->len > 0));
 }

@@ -544,7 +544,6 @@ static i64 sauce_space_padded_length(const u8 *buf, i64 len)
 // TODO: I don't think there's any reason we couldn't read SAUCE strings
 // directly to ucstrings, without doing it via a temporary buffer.
 
-// flags: 0x01: Interpret string as a date
 // flags: 0x02: Interpret 0x0a as newline, regardless of encoding
 static void sauce_bytes_to_ucstring(deark *c, const u8 *buf, i64 len,
 	de_ucstring *s, int encoding, unsigned int flags)
@@ -553,16 +552,12 @@ static void sauce_bytes_to_ucstring(deark *c, const u8 *buf, i64 len,
 	i64 i;
 
 	for(i=0; i<len; i++) {
-		if((flags&0x01) && (i==4 || i==6)) {
-			ucstring_append_char(s, '-');
-		}
 		if((flags&0x02) && buf[i]==0x0a) {
 			u = 0x000a;
 		}
 		else {
 			u = de_char_to_unicode(c, (i32)buf[i], encoding);
 		}
-		if((flags&0x01) && u==32) u=48; // Change space to 0 in dates.
 		ucstring_append_char(s, u);
 	}
 }
@@ -705,9 +700,42 @@ done:
 	;
 }
 
+static void do_SAUCE_creation_date(deark *c, struct de_SAUCE_info *si,
+	const u8 *date_raw, size_t date_raw_len)
+{
+	i64 yr, mon, mday;
+	char timestamp_buf[64];
+	char scanbuf[16];
+
+	if(date_raw_len!=8) return;
+
+	// Convert to de_timestamp format
+
+	// year
+	de_memcpy(scanbuf, &date_raw[0], 4);
+	scanbuf[4] = '\0';
+	yr = de_atoi64(scanbuf);
+
+	// month
+	de_memcpy(scanbuf, &date_raw[4], 2);
+	scanbuf[2] = '\0';
+	mon = de_atoi64(scanbuf);
+
+	// day of month
+	de_memcpy(scanbuf, &date_raw[6], 2);
+	scanbuf[2] = '\0';
+	mday = de_atoi64(scanbuf);
+
+	de_make_timestamp(&si->creation_date, yr, mon, mday, 12, 0, 0);
+	si->creation_date.prec = 0xffff;
+
+	de_timestamp_to_string(&si->creation_date, timestamp_buf, sizeof(timestamp_buf), 0);
+	de_dbg(c, "creation date: %s", timestamp_buf);
+}
+
 // SAUCE = Standard Architecture for Universal Comment Extensions
 // Caller allocates si.
-// This function may allocate si->title, artist, organization, creation_date.
+// This function may allocate si->title, artist, organization.
 int de_read_SAUCE(deark *c, dbuf *f, struct de_SAUCE_info *si)
 {
 	unsigned int t;
@@ -756,8 +784,7 @@ int de_read_SAUCE(deark *c, dbuf *f, struct de_SAUCE_info *si)
 	dbuf_read(f, tmpbuf, pos+82, 8);
 	if(sauce_is_valid_date_string(tmpbuf, 8)) {
 		tmpbuf_len = 8;
-		si->creation_date = ucstring_create(c);
-		sauce_bytes_to_ucstring(c, tmpbuf, tmpbuf_len, si->creation_date, DE_ENCODING_CP437_G, 0x01);
+		do_SAUCE_creation_date(c, si, tmpbuf, 8);
 	}
 
 	si->original_file_size = dbuf_getu32le(f, pos+90);
@@ -829,7 +856,6 @@ void de_free_SAUCE(deark *c, struct de_SAUCE_info *si)
 	ucstring_destroy(si->title);
 	ucstring_destroy(si->artist);
 	ucstring_destroy(si->organization);
-	ucstring_destroy(si->creation_date);
 	if(si->comments) {
 		i64 k;
 		for(k=0; k<si->num_comments; k++) {
