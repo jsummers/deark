@@ -178,7 +178,7 @@ static void de_run_graspfont_oldfmt(deark *c)
 		goto done;
 	}
 
-	font->char_array = de_malloc(c, font->num_chars * sizeof(struct de_bitmap_font_char));
+	font->char_array = de_mallocarray(c, font->num_chars, sizeof(struct de_bitmap_font_char));
 	font_data_size = bytes_per_glyph * font->num_chars;
 	font_data = de_malloc(c, font_data_size);
 
@@ -253,7 +253,7 @@ static void de_run_graspfont_newfmt(deark *c)
 		(int)widths_table_pos);
 	de_dbg_indent(c, 1);
 
-	font->char_array = de_malloc(c, font->num_chars * sizeof(struct de_bitmap_font_char));
+	font->char_array = de_mallocarray(c, font->num_chars, sizeof(struct de_bitmap_font_char));
 
 	for(k=0; k<font->num_chars; k++) {
 		i64 ch_offset;

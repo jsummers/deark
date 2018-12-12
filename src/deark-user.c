@@ -64,7 +64,7 @@ void de_print_module_list(deark *c)
 	de_register_modules(c);
 
 	// An index to the modules. Will be sorted by name.
-	sort_data = de_malloc(c, c->num_modules * sizeof(struct sort_data_struct));
+	sort_data = de_mallocarray(c, c->num_modules, sizeof(struct sort_data_struct));
 
 	for(k=0; k<c->num_modules; k++) {
 		sort_data[k].c = c;

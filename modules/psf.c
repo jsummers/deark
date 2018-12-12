@@ -204,7 +204,7 @@ static void do_glyphs(deark *c, lctx *d)
 	d->index_of_first_extra_codepoint = d->num_glyphs;
 	d->num_extra_codepoints = 0;
 
-	font->char_array = de_malloc(c, d->num_chars_alloc * sizeof(struct de_bitmap_font_char));
+	font->char_array = de_mallocarray(c, d->num_chars_alloc, sizeof(struct de_bitmap_font_char));
 
 	font_data = de_malloc(c, d->font_data_size);
 	de_read(font_data, d->headersize, d->font_data_size);

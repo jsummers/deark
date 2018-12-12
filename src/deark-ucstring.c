@@ -138,8 +138,7 @@ void ucstring_append_char(de_ucstring *s, i32 ch)
 	if(new_len > s->alloc) {
 		new_alloc = s->alloc * 2;
 		if(new_alloc<32) new_alloc=32;
-
-		s->str = de_realloc(s->c, s->str, s->alloc * sizeof(i32), new_alloc * sizeof(i32));
+		s->str = de_reallocarray(s->c, s->str, s->alloc, sizeof(i32), new_alloc);
 		s->alloc = new_alloc;
 	}
 

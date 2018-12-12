@@ -168,9 +168,9 @@ static void do_read_raster(deark *c, lctx *d, struct page_ctx *pg)
 		new_numalloc = d->char_array_alloc*2;
 		if(new_numalloc<d->font->num_chars+1) new_numalloc=d->font->num_chars+1;
 		if(new_numalloc<37) new_numalloc=37;
-		d->font->char_array = de_realloc(c, d->font->char_array,
-			d->char_array_alloc * sizeof(struct de_bitmap_font_char),
-			new_numalloc * sizeof(struct de_bitmap_font_char));
+		d->font->char_array = de_reallocarray(c, d->font->char_array,
+			d->char_array_alloc, sizeof(struct de_bitmap_font_char),
+			new_numalloc);
 		d->char_array_alloc = new_numalloc;
 	}
 

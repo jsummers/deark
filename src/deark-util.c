@@ -1147,7 +1147,7 @@ static struct de_inthashtable_bucket *inthashtable_find_bucket(struct de_inthash
 
 struct de_inthashtable *de_inthashtable_create(deark *c)
 {
-	return de_malloc(c, DE_INTHASHTABLE_NBUCKETS*sizeof(struct de_inthashtable));
+	return de_mallocarray(c, DE_INTHASHTABLE_NBUCKETS, sizeof(struct de_inthashtable));
 }
 
 static void inthashtable_destroy_item(deark *c, struct de_inthashtable_item *item)
@@ -1303,7 +1303,7 @@ static void de_crc16ccitt_init(struct de_crcobj *crco)
 	const unsigned int polynomial = 0x1021;
 	unsigned int index;
 
-	crco->table16 = de_malloc(crco->c, 256*sizeof(u16));
+	crco->table16 = de_mallocarray(crco->c, 256, sizeof(u16));
 	crco->table16[0] = 0;
 	for(index=0; index<128; index++) {
 		unsigned int carry = crco->table16[index] & 0x8000;
@@ -1332,7 +1332,7 @@ static void de_crc16arc_init(struct de_crcobj *crco)
 {
 	u32 i, k;
 
-	crco->table16 = de_malloc(crco->c, 256*sizeof(u16));
+	crco->table16 = de_mallocarray(crco->c, 256, sizeof(u16));
 	for(i=0; i<256; i++) {
 		crco->table16[i] = i;
 		for(k=0; k<8; k++)

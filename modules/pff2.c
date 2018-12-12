@@ -89,7 +89,7 @@ static void do_code_chix(deark *c, lctx *d, const struct pff2_sectiontype_info *
 	d->font->num_chars = len/9;
 	de_dbg(c, "number of characters: %d", (int)d->font->num_chars);
 
-	d->font->char_array = de_malloc(c, d->font->num_chars * sizeof(struct de_bitmap_font_char));
+	d->font->char_array = de_mallocarray(c, d->font->num_chars, sizeof(struct de_bitmap_font_char));
 
 	for(i=0; i<d->font->num_chars; i++) {
 		pos = pos1 + 9*i;

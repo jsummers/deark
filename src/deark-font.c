@@ -187,7 +187,7 @@ static struct de_bitmap_font *make_digit_font(deark *c)
 	dfont->nominal_width = 6;
 	dfont->nominal_height = 7;
 	dfont->has_unicode_codepoints = 1;
-	dfont->char_array = de_malloc(c, dfont->num_chars * sizeof(struct de_bitmap_font_char));
+	dfont->char_array = de_mallocarray(c, dfont->num_chars, sizeof(struct de_bitmap_font_char));
 
 	for(i=0; i<dfont->num_chars; i++) {
 		dfont->char_array[i].codepoint_unicode = dfont_data[i].codepoint_unicode;
@@ -396,7 +396,7 @@ void de_font_bitmap_font_to_image(deark *c, struct de_bitmap_font *font1, de_fin
 
 	dfont = make_digit_font(c);
 
-	fctx->codepoint_tmp = de_malloc(c, fctx->font->num_chars * sizeof(i32));
+	fctx->codepoint_tmp = de_mallocarray(c, fctx->font->num_chars, sizeof(i32));
 	fixup_codepoints(c, fctx);
 
 	get_min_max_codepoint(fctx);
@@ -418,8 +418,8 @@ void de_font_bitmap_font_to_image(deark *c, struct de_bitmap_font *font1, de_fin
 	img_bottommargin = 1;
 
 	// Scan the characters, and record relevant information.
-	row_info = de_malloc(c, num_table_rows_total*sizeof(struct row_info_struct));
-	col_info = de_malloc(c, chars_per_row*sizeof(struct col_info_struct));
+	row_info = de_mallocarray(c, num_table_rows_total, sizeof(struct row_info_struct));
+	col_info = de_mallocarray(c, chars_per_row, sizeof(struct col_info_struct));
 	for(i=0; i<chars_per_row; i++) {
 #define MIN_CHAR_CELL_WIDTH 5
 		col_info[i].display_width = MIN_CHAR_CELL_WIDTH;

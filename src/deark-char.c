@@ -701,7 +701,7 @@ static void do_create_standard_font(deark *c, struct charextractx *ectx)
 	font->has_nonunicode_codepoints = 1;
 	font->has_unicode_codepoints = 1;
 
-	font->char_array = de_malloc(c, font->num_chars * sizeof(struct de_bitmap_font_char));
+	font->char_array = de_mallocarray(c, font->num_chars, sizeof(struct de_bitmap_font_char));
 
 	// Set defaults for each character
 	for(i=0; i<font->num_chars; i++) {
@@ -803,7 +803,7 @@ void de_char_output_to_file(deark *c, struct de_char_context *charctx)
 		}
 	}
 
-	ectx->scrstats = de_malloc(c, charctx->nscreens * sizeof(struct screen_stats));
+	ectx->scrstats = de_mallocarray(c, charctx->nscreens, sizeof(struct screen_stats));
 
 	for(i=0; i<charctx->nscreens; i++) {
 		do_prescan_screen(c, charctx, ectx, i);

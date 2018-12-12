@@ -23,7 +23,7 @@ static void de_run_autocad_slb(deark *c, de_module_params *mparams)
 
 	de_dbg(c, "[pass 1: recording addresses]");
 	si_numalloc = 64;
-	si = de_malloc(c, si_numalloc*sizeof(struct slideinfo));
+	si = de_mallocarray(c, si_numalloc, sizeof(struct slideinfo));
 	pos = 32;
 	while(1) {
 		i64 k;
@@ -48,8 +48,8 @@ static void de_run_autocad_slb(deark *c, de_module_params *mparams)
 			}
 			old_numalloc = si_numalloc;
 			new_numalloc = old_numalloc*2;
-			si = de_realloc(c, si, old_numalloc*sizeof(struct slideinfo),
-				new_numalloc*sizeof(struct slideinfo));
+			si = de_reallocarray(c, si, old_numalloc, sizeof(struct slideinfo),
+				new_numalloc);
 			si_numalloc *= new_numalloc;
 		}
 

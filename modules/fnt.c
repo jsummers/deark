@@ -71,7 +71,7 @@ static void do_make_image(deark *c, lctx *d)
 	font->nominal_width = (int)d->nominal_char_width;
 	font->nominal_height = (int)d->char_height;
 	font->num_chars = d->num_chars_stored;
-	font->char_array = de_malloc(c, font->num_chars * sizeof(struct de_bitmap_font_char));
+	font->char_array = de_mallocarray(c, font->num_chars, sizeof(struct de_bitmap_font_char));
 
 	for(i=0; i<d->num_chars_stored; i++) {
 		i64 char_width;

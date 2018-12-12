@@ -84,7 +84,7 @@ static void de_run_unifont_hex(deark *c, de_module_params *mparams)
 	font->prefer_unicode = 1;
 	font->nominal_height = 16;
 	char_array_numalloc = 1024;
-	font->char_array = de_malloc(c, char_array_numalloc * sizeof(struct de_bitmap_font_char));
+	font->char_array = de_mallocarray(c, char_array_numalloc, sizeof(struct de_bitmap_font_char));
 
 	lr = de_linereader_create(c, c->infile);
 
@@ -99,9 +99,9 @@ static void de_run_unifont_hex(deark *c, de_module_params *mparams)
 		idx = font->num_chars;
 		if(idx >= char_array_numalloc) {
 			i64 new_numalloc = char_array_numalloc*2;
-			font->char_array = de_realloc(c, font->char_array,
-				char_array_numalloc*sizeof(struct de_bitmap_font_char),
-				new_numalloc*sizeof(struct de_bitmap_font_char));
+			font->char_array = de_reallocarray(c, font->char_array,
+				char_array_numalloc, sizeof(struct de_bitmap_font_char),
+				new_numalloc);
 			char_array_numalloc = new_numalloc;
 		}
 		ch = &font->char_array[idx];

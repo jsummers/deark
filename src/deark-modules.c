@@ -33,7 +33,7 @@ static void de_register_modules_internal(deark *c)
 	num_modules = DE_ITEMS_IN_ARRAY(infofunc_list);
 
 	if(!c->module_info) {
-		c->module_info = de_malloc(c, num_modules*sizeof(struct deark_module_info));
+		c->module_info = de_mallocarray(c, num_modules, sizeof(struct deark_module_info));
 	}
 
 	for(i=0; i<num_modules; i++) {

@@ -964,7 +964,7 @@ static int read_thumbsdb_catalog(deark *c, lctx *d, struct dir_entry_info *dei)
 	if(d->thumbsdb_catalog_num_entries>2048)
 		d->thumbsdb_catalog_num_entries = 2048;
 
-	d->thumbsdb_catalog = de_malloc(c, d->thumbsdb_catalog_num_entries *
+	d->thumbsdb_catalog = de_mallocarray(c, d->thumbsdb_catalog_num_entries,
 		sizeof(struct thumbsdb_catalog_entry));
 
 	pos = item_len;
@@ -1211,7 +1211,7 @@ static void do_before_reading_directory_entries(deark *c, lctx *d)
 	// Stores some extra information for each directory entry, and a copy of
 	// some information for convenience.
 	// (The original entry is still available at d->dir[128*n].)
-	d->dir_entry = de_malloc(c, d->num_dir_entries * sizeof(struct dir_entry_info));
+	d->dir_entry = de_mallocarray(c, d->num_dir_entries, sizeof(struct dir_entry_info));
 
 	// Set defaults for each entry
 	for(i=0; i<d->num_dir_entries; i++) {

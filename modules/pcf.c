@@ -261,7 +261,7 @@ static void handler_metrics(deark *c, lctx *d, struct table_entry *te)
 	d->num_chars = nmetrics;
 
 	// Allocate chars array, and set defaults
-	d->chars = de_malloc(c, sizeof(struct char_info)*d->num_chars);
+	d->chars = de_mallocarray(c, d->num_chars, sizeof(struct char_info));
 	for(k=0; k<d->num_chars; k++) {
 		d->chars[k].codepoint = DE_CODEPOINT_INVALID;
 	}
@@ -584,7 +584,7 @@ static void do_make_font_image(deark *c, lctx *d)
 		font->prefer_unicode = 1;
 	}
 
-	font->char_array = de_malloc(c, d->num_chars * sizeof(struct de_bitmap_font_char));
+	font->char_array = de_mallocarray(c, d->num_chars, sizeof(struct de_bitmap_font_char));
 
 	// First, scan the characters
 	for(k=0; k<font->num_chars; k++) {
@@ -685,7 +685,7 @@ static void de_run_pcf(deark *c, de_module_params *mparams)
 
 	// We don't necessarily want to process the tables in the order they are
 	// listed in the index, so first read the tables index into memory.
-	d->tables = de_malloc(c, d->table_count*sizeof(struct table_entry));
+	d->tables = de_mallocarray(c, d->table_count, sizeof(struct table_entry));
 
 	for(k=0; k<d->table_count; k++) {
 		de_dbg(c, "table entry[%d] at %"I64_FMT, (int)k, pos);

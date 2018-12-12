@@ -163,7 +163,7 @@ static void de_run_gemfont(deark *c, de_module_params *mparams)
 	if(d->font->nominal_height<1 || d->font->nominal_height>200) goto done;
 
 	if(d->font->num_chars<1) goto done;
-	d->font->char_array = de_malloc(c, d->font->num_chars * sizeof(struct de_bitmap_font_char));
+	d->font->char_array = de_mallocarray(c, d->font->num_chars, sizeof(struct de_bitmap_font_char));
 
 	if(!do_characters(c, d)) goto done;
 

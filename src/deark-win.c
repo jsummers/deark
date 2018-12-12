@@ -80,7 +80,7 @@ static char *de_utf16_to_utf8_strdup(deark *c, const WCHAR *src)
 	if(ret<1) return NULL;
 
 	dstlen = ret;
-	dst = (char*)de_malloc(c, dstlen*sizeof(char));
+	dst = (char*)de_malloc(c, dstlen);
 
 	ret = WideCharToMultiByte(CP_UTF8, 0, src, -1, dst, dstlen, NULL, NULL);
 	if(ret<1) {
@@ -105,7 +105,7 @@ wchar_t *de_utf8_to_utf16_strdup(deark *c, const char *src)
 	}
 
 	dstlen = ret;
-	dst = (WCHAR*)de_malloc(c, dstlen*sizeof(WCHAR));
+	dst = (WCHAR*)de_mallocarray(c, dstlen, sizeof(WCHAR));
 
 	ret = MultiByteToWideChar(CP_UTF8, 0, src, -1, dst, dstlen);
 	if(ret<1) {
@@ -265,7 +265,7 @@ char **de_convert_args_to_utf8(int argc, wchar_t **argvW)
 	int i;
 	char **argvUTF8;
 
-	argvUTF8 = (char**)de_malloc(NULL, argc*sizeof(char*));
+	argvUTF8 = (char**)de_mallocarray(NULL, argc, sizeof(char*));
 
 	// Convert parameters to UTF-8
 	for(i=0;i<argc;i++) {

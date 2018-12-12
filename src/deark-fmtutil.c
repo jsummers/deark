@@ -671,7 +671,7 @@ static void sauce_read_comments(deark *c, dbuf *inf, struct de_SAUCE_info *si)
 
 	de_dbg(c, "SAUCE comment block at %d", (int)cmnt_blk_start);
 
-	si->comments = de_malloc(c, si->num_comments * sizeof(struct de_char_comment));
+	si->comments = de_mallocarray(c, si->num_comments, sizeof(struct de_char_comment));
 
 	de_dbg_indent(c, 1);
 	for(k=0; k<si->num_comments; k++) {
