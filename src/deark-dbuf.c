@@ -865,7 +865,7 @@ dbuf *dbuf_create_output_file(deark *c, const char *ext, de_finfo *fi,
 	if(fi && ucstring_isnonempty(fi->file_name_internal)) {
 		name_from_finfo_len = 1 + ucstring_count_utf8_bytes(fi->file_name_internal);
 		name_from_finfo = de_malloc(c, name_from_finfo_len);
-		ucstring_to_sz(fi->file_name_internal, name_from_finfo, name_from_finfo_len, 0,
+		ucstring_to_sz(fi->file_name_internal, name_from_finfo, (size_t)name_from_finfo_len, 0,
 			DE_ENCODING_UTF8);
 	}
 

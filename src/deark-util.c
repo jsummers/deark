@@ -934,7 +934,9 @@ void de_FILETIME_to_timestamp(i64 ft, struct de_timestamp *ts, unsigned int flag
 {
 	i64 t;
 	i64 ms;
-	t = ft/10000000 - ((i64)256)*45486225;
+
+	// There are 369 years between 1601 and 1970, with 89 leap days.
+	t = ft/10000000 - ((i64)86400)*(369*365 + 89);
 	ms = (ft%10000000)/10000;
 	de_unix_time_to_timestamp(t, ts, flags);
 	de_timestamp_set_ms(ts, (unsigned short)ms, 1);
@@ -994,6 +996,23 @@ i64 de_timestamp_to_unix_time(const struct de_timestamp *ts)
 		return ts->unix_time;
 	}
 	return 0;
+}
+
+// Convert to Windows FILETIME.
+// Returns 0 on error.
+i64 de_timestamp_to_FILETIME(const struct de_timestamp *ts)
+{
+	i64 ft;
+
+	if(!ts->is_valid) return 0;
+
+	ft = de_timestamp_to_unix_time(ts);
+	ft += ((i64)86400)*(369*365 + 89);
+	ft *= 10000000;
+	if(ts->prec>0 && ts->prec<1000) {
+		ft += ts->ms * 10000;
+	}
+	return ft;
 }
 
 // [Adapted from Eric Raymond's public domain my_timegm().]

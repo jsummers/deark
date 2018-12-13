@@ -20,6 +20,7 @@
 
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <sys/time.h>
 #include <unistd.h>
 #include <time.h>
 #include <utime.h>
@@ -178,20 +179,28 @@ void de_update_file_perms(dbuf *f)
 
 void de_update_file_time(dbuf *f)
 {
-	struct utimbuf times;
+	const struct de_timestamp *ts;
+	struct timeval times[2];
 
 	if(f->btype!=DBUF_TYPE_OFILE) return;
 	if(!f->fi_copy) return;
-	if(!f->fi_copy->mod_time.is_valid) return;
+	ts = &f->fi_copy->mod_time;
+	if(!ts->is_valid) return;
 	if(!f->name) return;
 
 	// I know that this code is not Y2038-compliant, if sizeof(time_t)==4.
 	// But it's not likely to be a serious problem, and I'd rather not replace
 	// it with code that's less portable.
 
-	times.modtime = de_timestamp_to_unix_time(&f->fi_copy->mod_time);
-	times.actime = times.modtime;
-	utime(f->name, &times);
+	de_zeromem(&times, sizeof(times));
+	// times[0] = access time
+	times[0].tv_sec = (long)de_timestamp_to_unix_time(ts);
+	if(ts->prec>0 && ts->prec<1000) {
+		times[0].tv_usec = (long)(ts->ms * 1000);
+	}
+	// times[1] = mod time
+	times[1] = times[0];
+	utimes(f->name, times);
 }
 
 // Note: Need to keep this function in sync with the implementation in deark-win.c.

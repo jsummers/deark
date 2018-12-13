@@ -241,7 +241,9 @@ void de_update_file_perms(dbuf *f)
 void de_update_file_time(dbuf *f)
 {
 	WCHAR *fnW;
-	struct __utimbuf64 times;
+	HANDLE fh = INVALID_HANDLE_VALUE;
+	i64 ft;
+	FILETIME crtime, actime, wrtime;
 	deark *c;
 
 	if(f->btype!=DBUF_TYPE_OFILE) return;
@@ -250,13 +252,23 @@ void de_update_file_time(dbuf *f)
 	if(!f->name) return;
 	c = f->c;
 
+	ft = de_timestamp_to_FILETIME(&f->fi_copy->mod_time);
+	if(ft==0) goto done;
 	fnW = de_utf8_to_utf16_strdup(c, f->name);
+	fh = CreateFileW(fnW, FILE_WRITE_ATTRIBUTES, FILE_SHARE_READ, NULL,
+		OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+	if(fh==INVALID_HANDLE_VALUE) goto done;
 
-	// TODO: Support higher precision timestamps (SetFileTime()?)
-	times.modtime = de_timestamp_to_unix_time(&f->fi_copy->mod_time);
-	times.actime = times.modtime;
-	_wutime64(fnW, &times);
+	wrtime.dwHighDateTime = (DWORD)(((u64)ft)>>32);
+	wrtime.dwLowDateTime = (DWORD)(((u64)ft)&0xffffffffULL);
+	actime = wrtime;
+	crtime = wrtime;
+	SetFileTime(fh, &crtime, &actime, &wrtime);
 
+done:
+	if(fh != INVALID_HANDLE_VALUE) {
+		CloseHandle(fh);
+	}
 	de_free(c, fnW);
 }
 

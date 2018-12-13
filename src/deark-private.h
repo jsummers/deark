@@ -1041,6 +1041,7 @@ void de_dos_datetime_to_timestamp(struct de_timestamp *ts,
 void de_riscos_loadexec_to_timestamp(u32 load_addr,
 	u32 exec_addr, struct de_timestamp *ts);
 i64 de_timestamp_to_unix_time(const struct de_timestamp *ts);
+i64 de_timestamp_to_FILETIME(const struct de_timestamp *ts);
 void de_make_timestamp(struct de_timestamp *ts,
 	i64 yr, i64 mo, i64 da,
 	i64 hr, i64 mi, i64 se);
