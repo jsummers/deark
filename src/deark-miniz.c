@@ -11,6 +11,7 @@
 struct deark_file_attribs {
 	i64 modtime; // Unix time_t format
 	int modtime_valid;
+	i64 modtime_as_FILETIME; // valid if nonzero
 	u8 is_executable;
 	u16 extra_data_central_size;
 	u16 extra_data_local_size;
@@ -502,6 +503,7 @@ void de_zip_add_file_to_archive(deark *c, dbuf *f)
 {
 	struct zip_data_struct *zzz;
 	struct deark_file_attribs dfa;
+	int write_ntfs_times;
 
 	de_zeromem(&dfa, sizeof(struct deark_file_attribs));
 
@@ -520,6 +522,9 @@ void de_zip_add_file_to_archive(deark *c, dbuf *f)
 
 	if(c->preserve_file_times && f->fi_copy && f->fi_copy->mod_time.is_valid) {
 		dfa.modtime = de_timestamp_to_unix_time(&f->fi_copy->mod_time);
+		if(f->fi_copy->mod_time.prec>0 && f->fi_copy->mod_time.prec<1000) {
+			dfa.modtime_as_FILETIME = de_timestamp_to_FILETIME(&f->fi_copy->mod_time);
+		}
 		dfa.modtime_valid = 1;
 	}
 	else if(c->reproducible_output) {
@@ -541,24 +546,52 @@ void de_zip_add_file_to_archive(deark *c, dbuf *f)
 		dfa.is_executable = 1;
 	}
 
-	// Create ZIP "extra data" "Extended Timestamp" fields, containing the
-	// UTC timestamp.
-	// Note: Although our central and local extra data fields happen to be
-	// identical, that is not usually the case for tag 0x5455.
+	// Create ZIP "extra data" "Extended Timestamp" and "NTFS" fields,
+	// containing the UTC timestamp.
+
+	// Note: Although our 0x5455 central and local extra data fields happen to
+	// be identical, that is not generally the case.
+
+	write_ntfs_times = (dfa.modtime_as_FILETIME!=0);
+
 	dfa.extra_data_local_size = 4 + 5;
+	if(write_ntfs_times) {
+		dfa.extra_data_local_size += 4 + 32;
+	}
 	dfa.extra_data_central_size = 4 + 5;
 	dfa.extra_data_local = de_malloc(c, (i64)dfa.extra_data_local_size);
 	dfa.extra_data_central = de_malloc(c, (i64)dfa.extra_data_central_size);
 
 	de_writeu16le_direct(&dfa.extra_data_local[0], 0x5455);
-	de_writeu16le_direct(&dfa.extra_data_local[2], (i64)(dfa.extra_data_local_size-4));
+	de_writeu16le_direct(&dfa.extra_data_local[2], (i64)5);
 	de_writeu16le_direct(&dfa.extra_data_central[0], 0x5455);
-	de_writeu16le_direct(&dfa.extra_data_central[2], (i64)(dfa.extra_data_central_size-4));
+	de_writeu16le_direct(&dfa.extra_data_central[2], (i64)5);
 
 	dfa.extra_data_local[4] = 0x01; // has-modtime flag
 	de_writeu32le_direct(&dfa.extra_data_local[5], dfa.modtime);
 	dfa.extra_data_central[4] = dfa.extra_data_local[4];
 	de_writeu32le_direct(&dfa.extra_data_central[5], dfa.modtime);
+
+	if(write_ntfs_times) {
+		size_t wpos = 9;
+
+		// We only write the NTFS field to the local header, not the central
+		// header.
+		// Note: Info-ZIP says: "In the current implementations, this field [...]
+		// is only stored as local extra field.
+		// Rebuttal: 7-Zip, as of this writing, seems to write it *only* as a
+		// *central* extra field.
+
+		de_writeu16le_direct(&dfa.extra_data_local[wpos], 0x000a); // = NTFS
+		de_writeu16le_direct(&dfa.extra_data_local[wpos+2], 32); // data size
+		de_writeu16le_direct(&dfa.extra_data_local[wpos+8], 0x0001); // file times element
+		de_writeu16le_direct(&dfa.extra_data_local[wpos+10], 24); // element data size
+		// We only know the mod time, but we are forced to make up something for
+		// the other timestamps.
+		de_writeu64le_direct(&dfa.extra_data_local[wpos+12], (u64)dfa.modtime_as_FILETIME); // mod time
+		de_writeu64le_direct(&dfa.extra_data_local[wpos+20], (u64)dfa.modtime_as_FILETIME); // access time
+		de_writeu64le_direct(&dfa.extra_data_local[wpos+28], (u64)dfa.modtime_as_FILETIME); // create time
+	}
 
 	mz_zip_writer_add_mem(zzz->pZip, f->name, f->membuf_buf, (size_t)f->len,
 		MZ_BEST_COMPRESSION, &dfa);

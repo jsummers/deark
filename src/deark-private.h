@@ -578,12 +578,14 @@ void de_writeu16le_direct(u8 *m, i64 n);
 void de_writeu16be_direct(u8 *m, i64 n);
 void de_writeu32le_direct(u8 *m, i64 n);
 void de_writeu32be_direct(u8 *m, i64 n);
+void de_writeu64le_direct(u8 *m, u64 n);
 void dbuf_writebyte(dbuf *f, u8 n);
 void dbuf_writebyte_at(dbuf *f, i64 pos, u8 n);
 void dbuf_writeu16le(dbuf *f, i64 n);
 void dbuf_writeu16be(dbuf *f, i64 n);
 void dbuf_writeu32le(dbuf *f, i64 n);
 void dbuf_writeu32be(dbuf *f, i64 n);
+void dbuf_writeu64le(dbuf *f, u64 n);
 
 // Write a NUL-terminated string to a file
 void dbuf_puts(dbuf *f, const char *sz);

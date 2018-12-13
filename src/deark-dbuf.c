@@ -1171,6 +1171,19 @@ void dbuf_writeu32le(dbuf *f, i64 n)
 	dbuf_write(f, buf, 4);
 }
 
+void de_writeu64le_direct(u8 *m, u64 n)
+{
+	de_writeu32le_direct(&m[0], (i64)(u32)(n&0xffffffffULL));
+	de_writeu32le_direct(&m[4], (i64)(u32)(n>>32));
+}
+
+void dbuf_writeu64le(dbuf *f, u64 n)
+{
+	u8 buf[8];
+	de_writeu64le_direct(buf, n);
+	dbuf_write(f, buf, 8);
+}
+
 void dbuf_puts(dbuf *f, const char *sz)
 {
 	dbuf_write(f, (const u8*)sz, (i64)de_strlen(sz));
