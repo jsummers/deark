@@ -542,6 +542,12 @@ void de_zip_add_file_to_archive(deark *c, dbuf *f)
 
 		dfa.modtime = de_timestamp_to_unix_time(&c->current_time);
 		dfa.modtime_valid = 1;
+
+		// We only write the current time because ZIP format leaves us little
+		// choice.
+		// Although c->current_time is high precision, we deliberately treat
+		// it as low precision, so as not to write an NTFS extra field.
+		dfa.modtime_as_FILETIME = 0;
 	}
 
 	if(f->fi_copy && (f->fi_copy->mode_flags&DE_MODEFLAG_EXE)) {

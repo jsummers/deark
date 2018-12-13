@@ -378,12 +378,12 @@ void de_gmtime(const struct de_timestamp *ts, struct de_struct_tm *tm2)
 // Note: Need to keep this function in sync with the implementation in deark-unix.c.
 void de_current_time_to_timestamp(struct de_timestamp *ts)
 {
-	__time64_t t;
+	FILETIME ft1;
+	i64 ft;
 
-	de_zeromem(ts, sizeof(struct de_timestamp));
-	_time64(&t);
-	ts->unix_time = (i64)t;
-	ts->is_valid = 1;
+	GetSystemTimeAsFileTime(&ft1);
+	ft = (i64)(((u64)ft1.dwHighDateTime)<<32 | ft1.dwLowDateTime);
+	de_FILETIME_to_timestamp(ft, ts, 0x1);
 }
 
 void de_exitprocess(void)

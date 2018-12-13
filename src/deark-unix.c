@@ -245,12 +245,18 @@ void de_gmtime(const struct de_timestamp *ts, struct de_struct_tm *tm2)
 // Note: Need to keep this function in sync with the implementation in deark-win.c.
 void de_current_time_to_timestamp(struct de_timestamp *ts)
 {
-	time_t t;
+	struct timeval tv;
+	int ret;
 
-	de_zeromem(ts, sizeof(struct de_timestamp));
-	time(&t);
-	ts->unix_time = (i64)t;
-	ts->is_valid = 1;
+	de_zeromem(&tv, sizeof(struct timeval));
+	ret = gettimeofday(&tv, NULL);
+	if(ret!=0) {
+		de_zeromem(ts, sizeof(struct de_timestamp));
+		return;
+	}
+
+	de_unix_time_to_timestamp((i64)tv.tv_sec, ts, 0x1);
+	de_timestamp_set_ms(ts, (unsigned short)(tv.tv_usec/1000), 1);
 }
 
 void de_exitprocess(void)
