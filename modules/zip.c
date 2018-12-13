@@ -16,7 +16,6 @@ struct dir_entry_data {
 	int cmpr_method;
 	unsigned int bit_flags;
 	u32 crc_reported;
-	struct de_timestamp mod_time;
 	de_ucstring *fname;
 };
 
@@ -32,6 +31,8 @@ struct member_data {
 	int is_dir;
 	int is_symlink;
 	struct de_crcobj *crco; // copy of lctx::crco
+	struct de_timestamp mod_time; // The best timestamp found so far
+	int mod_time_quality;
 
 	struct dir_entry_data central_dir_entry_data;
 	struct dir_entry_data local_dir_entry_data;
@@ -94,6 +95,22 @@ static int do_decompress_data(deark *c, lctx *d,
 
 done:
 	return retval;
+}
+
+// As we read a member file's attributes, we may encounter multiple timestamps,
+// which can differ in their precision, and whether they use UTC.
+// This function is called to remember the "best" file modification time
+// encountered so far.
+static void apply_mod_time(deark *c, lctx *d, struct member_data *md,
+	const struct de_timestamp *ts, int quality)
+{
+	// In case of a tie, we prefer the later timestamp that we encountered.
+	// This makes local headers have priority over central headers, for
+	// example.
+	if(quality >= md->mod_time_quality) {
+		md->mod_time = *ts;
+		md->mod_time_quality = quality;
+	}
 }
 
 static void do_read_filename(deark *c, lctx *d,
@@ -228,7 +245,8 @@ static void ef_extended_timestamp(deark *c, lctx *d, struct extra_item_info_stru
 	}
 	if(has_mtime) {
 		if(pos+4>endpos) return;
-		read_unix_timestamp(c, d, pos, &eii->dd->mod_time, "mtime");
+		read_unix_timestamp(c, d, pos, &timestamp_tmp, "mtime");
+		apply_mod_time(c, d, eii->md, &timestamp_tmp, 50);
 		pos+=4;
 	}
 	if(has_atime) {
@@ -252,7 +270,8 @@ static void ef_infozip1(deark *c, lctx *d, struct extra_item_info_struct *eii)
 	if(eii->is_central && eii->dlen<8) return;
 	if(!eii->is_central && eii->dlen<12) return;
 	read_unix_timestamp(c, d, eii->dpos, &timestamp_tmp, "atime");
-	read_unix_timestamp(c, d, eii->dpos+4, &eii->dd->mod_time, "mtime");
+	read_unix_timestamp(c, d, eii->dpos+4, &timestamp_tmp, "mtime");
+	apply_mod_time(c, d, eii->md, &timestamp_tmp, 45);
 	if(!eii->is_central) {
 		uidnum = de_getu16le(eii->dpos+8);
 		gidnum = de_getu16le(eii->dpos+10);
@@ -328,7 +347,8 @@ static void ef_ntfs(deark *c, lctx *d, struct extra_item_info_struct *eii)
 
 		de_dbg_indent(c, 1);
 		if(attr_tag==0x0001 && attr_size>=24) {
-			read_FILETIME(c, d, pos, &eii->dd->mod_time, "mtime");
+			read_FILETIME(c, d, pos, &timestamp_tmp, "mtime");
+			apply_mod_time(c, d, eii->md, &timestamp_tmp, 90);
 			read_FILETIME(c, d, pos+8, &timestamp_tmp, "atime");
 			read_FILETIME(c, d, pos+16, &timestamp_tmp, "ctime");
 		}
@@ -497,8 +517,10 @@ static void ef_infozipmac(deark *c, lctx *d, struct extra_item_info_struct *eii)
 	backup_time_offset = dbuf_geti32le(attr_data, dpos); dpos += 4;
 
 	handle_mac_time(c, d, create_time_raw, create_time_offset, &tmp_timestamp, "create time");
-	// TODO: Remember the mod_time? Need to decide what mod_time field takes precedence.
 	handle_mac_time(c, d, mod_time_raw,    mod_time_offset,    &tmp_timestamp, "mod time   ");
+	if(mod_time_raw>0) {
+		apply_mod_time(c, d, eii->md, &tmp_timestamp, 40);
+	}
 	handle_mac_time(c, d, backup_time_raw, backup_time_offset, &tmp_timestamp, "backup time");
 
 	// Expecting 2 bytes for charset, and at least 2 more for the 2 NUL-terminated
@@ -535,7 +557,7 @@ static void ef_acorn(deark *c, lctx *d, struct extra_item_info_struct *eii)
 
 	if(eii->dlen<16) return;
 	if(dbuf_memcmp(c->infile, eii->dpos, "ARC0", 4)) {
-		de_dbg(c, "[unsuppoted Acorn extra-field type]");
+		de_dbg(c, "[unsupported Acorn extra-field type]");
 		return;
 	}
 	pos += 4;
@@ -556,7 +578,7 @@ static void ef_acorn(deark *c, lctx *d, struct extra_item_info_struct *eii)
 		de_riscos_loadexec_to_timestamp(ld, ex, &mod_time);
 		de_timestamp_to_string(&mod_time, timestamp_buf, sizeof(timestamp_buf), 0);
 		de_dbg(c, "timestamp: %s", timestamp_buf);
-		// TODO: Maybe use this as the file's official timestamp.
+		apply_mod_time(c, d, eii->md, &mod_time, 70);
 	}
 	de_dbg_indent(c, -1);
 
@@ -725,8 +747,8 @@ static void do_extract_file(deark *c, lctx *d, struct member_data *md)
 		fi->original_filename_flag = 1;
 	}
 
-	if(ldd->mod_time.is_valid) {
-		fi->mod_time = ldd->mod_time;
+	if(md->mod_time.is_valid) {
+		fi->mod_time = md->mod_time;
 	}
 
 	if(md->is_executable) {
@@ -923,6 +945,7 @@ static int do_file_header(deark *c, lctx *d, struct member_data *md,
 	i64 mod_time_raw, mod_date_raw;
 	struct dir_entry_data *dd; // Points to either md->central or md->local
 	de_ucstring *descr = NULL;
+	struct de_timestamp dos_timestamp;
 	char timestamp_buf[64];
 
 	pos = pos1;
@@ -979,17 +1002,18 @@ static int do_file_header(deark *c, lctx *d, struct member_data *md,
 
 	mod_time_raw = de_getu16le_p(&pos);
 	mod_date_raw = de_getu16le_p(&pos);
-	de_dos_datetime_to_timestamp(&dd->mod_time, mod_date_raw, mod_time_raw);
-	dd->mod_time.tzcode = DE_TZCODE_LOCAL;
-	de_timestamp_to_string(&dd->mod_time, timestamp_buf, sizeof(timestamp_buf), 0);
+	de_dos_datetime_to_timestamp(&dos_timestamp, mod_date_raw, mod_time_raw);
+	dos_timestamp.tzcode = DE_TZCODE_LOCAL;
+	de_timestamp_to_string(&dos_timestamp, timestamp_buf, sizeof(timestamp_buf), 0);
 	de_dbg(c, "mod time: %s", timestamp_buf);
+	apply_mod_time(c, d, md, &dos_timestamp, 10);
 
 	dd->crc_reported = (u32)de_getu32le_p(&pos);
 	de_dbg(c, "crc (reported): 0x%08x", (unsigned int)dd->crc_reported);
 
 	dd->cmpr_size = de_getu32le_p(&pos);
 	dd->uncmpr_size = de_getu32le_p(&pos);
-	de_dbg(c, "cmpr size: %" I64_FMT ", uncmpr size: %" I64_FMT "", dd->cmpr_size, dd->uncmpr_size);
+	de_dbg(c, "cmpr size: %" I64_FMT ", uncmpr size: %" I64_FMT, dd->cmpr_size, dd->uncmpr_size);
 
 	fn_len = de_getu16le_p(&pos);
 
