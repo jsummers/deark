@@ -503,6 +503,8 @@ void de_zip_add_file_to_archive(deark *c, dbuf *f)
 {
 	struct zip_data_struct *zzz;
 	struct deark_file_attribs dfa;
+	dbuf *eflocal = NULL;
+	dbuf *efcentral = NULL;
 	int write_ntfs_times;
 
 	de_zeromem(&dfa, sizeof(struct deark_file_attribs));
@@ -554,27 +556,21 @@ void de_zip_add_file_to_archive(deark *c, dbuf *f)
 
 	write_ntfs_times = (dfa.modtime_as_FILETIME!=0);
 
-	dfa.extra_data_local_size = 4 + 5;
-	if(write_ntfs_times) {
-		dfa.extra_data_local_size += 4 + 32;
-	}
-	dfa.extra_data_central_size = 4 + 5;
-	dfa.extra_data_local = de_malloc(c, (i64)dfa.extra_data_local_size);
-	dfa.extra_data_central = de_malloc(c, (i64)dfa.extra_data_central_size);
+	// Use temporary dbufs to help construct the extra field data.
+	eflocal = dbuf_create_membuf(c, 64, 0);
+	efcentral = dbuf_create_membuf(c, 64, 0);
 
-	de_writeu16le_direct(&dfa.extra_data_local[0], 0x5455);
-	de_writeu16le_direct(&dfa.extra_data_local[2], (i64)5);
-	de_writeu16le_direct(&dfa.extra_data_central[0], 0x5455);
-	de_writeu16le_direct(&dfa.extra_data_central[2], (i64)5);
+	dbuf_writeu16le(eflocal, 0x5455);
+	dbuf_writeu16le(eflocal, (i64)5);
+	dbuf_writeu16le(efcentral, 0x5455);
+	dbuf_writeu16le(efcentral, (i64)5);
 
-	dfa.extra_data_local[4] = 0x01; // has-modtime flag
-	de_writeu32le_direct(&dfa.extra_data_local[5], dfa.modtime);
-	dfa.extra_data_central[4] = dfa.extra_data_local[4];
-	de_writeu32le_direct(&dfa.extra_data_central[5], dfa.modtime);
+	dbuf_writebyte(eflocal, 0x01); // has-modtime flag
+	dbuf_writeu32le(eflocal, dfa.modtime);
+	dbuf_writebyte(efcentral, 0x01);
+	dbuf_writeu32le(efcentral, dfa.modtime);
 
 	if(write_ntfs_times) {
-		size_t wpos = 9;
-
 		// We only write the NTFS field to the local header, not the central
 		// header.
 		// Note: Info-ZIP says: "In the current implementations, this field [...]
@@ -582,16 +578,30 @@ void de_zip_add_file_to_archive(deark *c, dbuf *f)
 		// Rebuttal: 7-Zip, as of this writing, seems to write it *only* as a
 		// *central* extra field.
 
-		de_writeu16le_direct(&dfa.extra_data_local[wpos], 0x000a); // = NTFS
-		de_writeu16le_direct(&dfa.extra_data_local[wpos+2], 32); // data size
-		de_writeu16le_direct(&dfa.extra_data_local[wpos+8], 0x0001); // file times element
-		de_writeu16le_direct(&dfa.extra_data_local[wpos+10], 24); // element data size
+		dbuf_writeu16le(eflocal, 0x000a); // = NTFS
+		dbuf_writeu16le(eflocal, 32); // data size
+		dbuf_write_zeroes(eflocal, 4);
+		dbuf_writeu16le(eflocal, 0x0001); // file times element
+		dbuf_writeu16le(eflocal, 24); // element data size
 		// We only know the mod time, but we are forced to make up something for
 		// the other timestamps.
-		de_writeu64le_direct(&dfa.extra_data_local[wpos+12], (u64)dfa.modtime_as_FILETIME); // mod time
-		de_writeu64le_direct(&dfa.extra_data_local[wpos+20], (u64)dfa.modtime_as_FILETIME); // access time
-		de_writeu64le_direct(&dfa.extra_data_local[wpos+28], (u64)dfa.modtime_as_FILETIME); // create time
+		dbuf_writeu64le(eflocal, (u64)dfa.modtime_as_FILETIME); // mod time
+		dbuf_writeu64le(eflocal, (u64)dfa.modtime_as_FILETIME); // access time
+		dbuf_writeu64le(eflocal, (u64)dfa.modtime_as_FILETIME); // create time
 	}
+
+	dfa.extra_data_local_size = (u16)eflocal->len;
+	dfa.extra_data_local = de_malloc(c, eflocal->len);
+	dbuf_read(eflocal, dfa.extra_data_local, 0, eflocal->len);
+
+	dfa.extra_data_central_size = (u16)efcentral->len;
+	dfa.extra_data_central = de_malloc(c, efcentral->len);
+	dbuf_read(efcentral, dfa.extra_data_central, 0, efcentral->len);
+
+	dbuf_close(eflocal);
+	eflocal = NULL;
+	dbuf_close(efcentral);
+	efcentral = NULL;
 
 	mz_zip_writer_add_mem(zzz->pZip, f->name, f->membuf_buf, (size_t)f->len,
 		MZ_BEST_COMPRESSION, &dfa);
