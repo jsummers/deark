@@ -908,19 +908,44 @@ void de_finfo_set_name_from_sz(deark *c, de_finfo *fi, const char *name1, int en
 	de_finfo_set_name_internal(c, fi, fname);
 }
 
-// flags: 0x1 = set the UTC flag
+// Sets the precision field to UNKNOWN.
+// flags: Same as de_FILETIME_to_timestamp()
 void de_unix_time_to_timestamp(i64 ut, struct de_timestamp *ts, unsigned int flags)
 {
-	de_zeromem(ts, sizeof(struct de_timestamp));
-	ts->is_valid = 1;
-	ts->unix_time = ut;
-	if(flags&0x1) ts->tzcode = DE_TZCODE_UTC;
+	de_FILETIME_to_timestamp(
+		(ut + ((i64)86400)*(369*365 + 89)) * 10000000,
+		ts, flags);
+	ts->precision = DE_TSPREC_UNKNOWN;
 }
 
-void de_timestamp_set_ms(struct de_timestamp *ts, u16 ms, u16 prec)
+// Sets the sub-second part of the timestamp to 'frac' seconds after
+// (always forward in time) the whole-number second represented by the
+// timestamp.
+// 'frac' must be >=0.0 and <1.0.
+// Sets the precision field to HIGH.
+void de_timestamp_set_subsec(struct de_timestamp *ts, double frac)
 {
-	ts->ms = ms;
-	ts->prec = prec;
+	i64 subsec;
+
+	if(!ts->is_valid) return;
+	if(ts->ts_FILETIME<0) ts->ts_FILETIME=0;
+
+	// Subtract off any existing fractional second.
+	ts->ts_FILETIME -= (ts->ts_FILETIME%10000000);
+
+	subsec = (i64)(frac*10000000.0);
+	if(subsec>=10000000) subsec=9999999;
+	if(subsec<0) subsec=0;
+	ts->ts_FILETIME += subsec;
+	ts->precision = DE_TSPREC_HIGH;
+}
+
+// Returns the number of ten-millionths of a second after the whole number
+// of seconds (i.e. after the time returned by de_timestamp_to_unix_time).
+// The returned value will be between 0 and 9999999, inclusive.
+i64 de_timestamp_get_subsec(const struct de_timestamp *ts)
+{
+	return (de_timestamp_to_FILETIME(ts) % 10000000);
 }
 
 void de_mac_time_to_timestamp(i64 mt, struct de_timestamp *ts)
@@ -929,17 +954,16 @@ void de_mac_time_to_timestamp(i64 mt, struct de_timestamp *ts)
 }
 
 // Convert a Windows FILETIME to a Deark timestamp.
-// flags: Same as de_unix_time_to_timestamp()
+// Always sets the precision field to HIGH.
+// flags: 0x1 = set the UTC flag
 void de_FILETIME_to_timestamp(i64 ft, struct de_timestamp *ts, unsigned int flags)
 {
-	i64 t;
-	i64 ms;
-
-	// There are 369 years between 1601 and 1970, with 89 leap days.
-	t = ft/10000000 - ((i64)86400)*(369*365 + 89);
-	ms = (ft%10000000)/10000;
-	de_unix_time_to_timestamp(t, ts, flags);
-	de_timestamp_set_ms(ts, (unsigned short)ms, 1);
+	de_zeromem(ts, sizeof(struct de_timestamp));
+	if(ft<0) return;
+	ts->is_valid = 1;
+	ts->ts_FILETIME = ft;
+	ts->precision = DE_TSPREC_HIGH;
+	if(flags&0x1) ts->tzcode = DE_TZCODE_UTC;
 }
 
 void de_dos_datetime_to_timestamp(struct de_timestamp *ts,
@@ -954,7 +978,7 @@ void de_dos_datetime_to_timestamp(struct de_timestamp *ts,
 	mi = (dtime&0x07e0)>>5;
 	se = 2*(dtime&0x001f);
 	de_make_timestamp(ts, yr, mo, da, hr, mi, se);
-	de_timestamp_set_ms(ts, 0, 2000); // 2-second precision
+	ts->precision = DE_TSPREC_2SEC;
 }
 
 void de_riscos_loadexec_to_timestamp(u32 load_addr,
@@ -982,7 +1006,7 @@ void de_riscos_loadexec_to_timestamp(u32 load_addr,
 
 	// TODO: Are these timestamps always UTC?
 	de_unix_time_to_timestamp(t, ts, 0);
-	de_timestamp_set_ms(ts, (unsigned short)(centiseconds*10), 10);
+	de_timestamp_set_subsec(ts, ((double)centiseconds)/100.0);
 }
 
 // This always truncates down to a whole number of seconds.
@@ -992,27 +1016,19 @@ void de_riscos_loadexec_to_timestamp(u32 load_addr,
 // which can be problematical.
 i64 de_timestamp_to_unix_time(const struct de_timestamp *ts)
 {
-	if(ts->is_valid) {
-		return ts->unix_time;
-	}
-	return 0;
+	if(!ts->is_valid) return 0;
+
+	// There are 369 years between 1601 and 1970, with 89 leap days.
+	return (de_timestamp_to_FILETIME(ts)/10000000) - ((i64)86400)*(369*365 + 89);
 }
 
 // Convert to Windows FILETIME.
 // Returns 0 on error.
 i64 de_timestamp_to_FILETIME(const struct de_timestamp *ts)
 {
-	i64 ft;
-
 	if(!ts->is_valid) return 0;
-
-	ft = de_timestamp_to_unix_time(ts);
-	ft += ((i64)86400)*(369*365 + 89);
-	ft *= 10000000;
-	if(ts->prec>0 && ts->prec<1000) {
-		ft += ts->ms * 10000;
-	}
-	return ft;
+	if(ts->ts_FILETIME<0) return 0;
+	return ts->ts_FILETIME;
 }
 
 // [Adapted from Eric Raymond's public domain my_timegm().]
@@ -1059,7 +1075,7 @@ void de_make_timestamp(struct de_timestamp *ts,
 void de_timestamp_cvt_to_utc(struct de_timestamp *ts, i64 offset_seconds)
 {
 	if(!ts->is_valid) return;
-	ts->unix_time += offset_seconds;
+	ts->ts_FILETIME += offset_seconds*10000000;
 	ts->tzcode = DE_TZCODE_UTC;
 }
 
@@ -1084,15 +1100,18 @@ void de_timestamp_to_string(const struct de_timestamp *ts,
 		return;
 	}
 
-	if(ts->prec>0 && ts->prec<1000) {
-		de_snprintf(subsec, sizeof(subsec), ".%03u", (unsigned int)tm2.tm_ms);
+	if(ts->precision>DE_TSPREC_1SEC) {
+		unsigned int ms;
+		ms = (unsigned int)(tm2.tm_subsec/10000);
+		if(ms>=1000) ms=999;
+		de_snprintf(subsec, sizeof(subsec), ".%03u", ms);
 	}
 	else {
 		subsec[0] = '\0';
 	}
 
 	tzlabel = (ts->tzcode==DE_TZCODE_UTC)?" UTC":"";
-	if(ts->prec==0xffff) { // date only
+	if(ts->precision!=DE_TSPREC_UNKNOWN && ts->precision<=DE_TSPREC_1DAY) { // date only
 		de_snprintf(buf, buf_len, "%04d-%02d-%02d",
 			tm2.tm_fullyear, 1+tm2.tm_mon, tm2.tm_mday);
 		return;

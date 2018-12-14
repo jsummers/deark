@@ -195,8 +195,8 @@ void de_update_file_time(dbuf *f)
 	de_zeromem(&times, sizeof(times));
 	// times[0] = access time
 	times[0].tv_sec = (long)de_timestamp_to_unix_time(ts);
-	if(ts->prec>0 && ts->prec<1000) {
-		times[0].tv_usec = (long)(ts->ms * 1000);
+	if(ts->precision>DE_TSPREC_1SEC) {
+		times[0].tv_usec = (long)(de_timestamp_get_subsec(ts)/10);
 	}
 	// times[1] = mod time
 	times[1] = times[0];
@@ -237,8 +237,8 @@ void de_gmtime(const struct de_timestamp *ts, struct de_struct_tm *tm2)
 	tm2->tm_hour = tm1->tm_hour;
 	tm2->tm_min = tm1->tm_min;
 	tm2->tm_sec = tm1->tm_sec;
-	if(ts->prec>0 && ts->prec<1000) {
-		tm2->tm_ms = ts->ms;
+	if(ts->precision>DE_TSPREC_1SEC) {
+		tm2->tm_subsec = (int)de_timestamp_get_subsec(ts);
 	}
 }
 
@@ -256,7 +256,7 @@ void de_current_time_to_timestamp(struct de_timestamp *ts)
 	}
 
 	de_unix_time_to_timestamp((i64)tv.tv_sec, ts, 0x1);
-	de_timestamp_set_ms(ts, (unsigned short)(tv.tv_usec/1000), 1);
+	de_timestamp_set_subsec(ts, ((double)tv.tv_usec)/1000000.0);
 }
 
 void de_exitprocess(void)

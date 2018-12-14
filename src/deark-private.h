@@ -91,13 +91,19 @@ struct de_ucstring_struct {
 
 struct de_timestamp {
 	u8 is_valid;
-#define DE_TZCODE_UNKNOWN 0
+#define DE_TZCODE_UNKNOWN 0 // should be treated as UTC in most cases
 #define DE_TZCODE_UTC     1 // known to be UTC
 #define DE_TZCODE_LOCAL   2 // likely to be some local time
 	u8 tzcode;
-	u16 ms; // milliseconds to add to unix_time
-	u16 prec; // Precision in ms. 0 means default (1000).
-	i64 unix_time; // Unix time_t format
+	// Timestamp precision codes are in order of increasing precision, except
+	// for 0 (UNKNOWN).
+#define DE_TSPREC_UNKNOWN 0 // default, usually treated as 1sec
+#define DE_TSPREC_1DAY 10
+#define DE_TSPREC_2SEC 20
+#define DE_TSPREC_1SEC 30
+#define DE_TSPREC_HIGH 40 // = better than 1 second
+	u8 precision;
+	i64 ts_FILETIME; // the timestamp, in Windows FILETIME format
 };
 
 typedef void (*de_writecallback_fn)(dbuf *f, const u8 *buf, i64 buf_len);
@@ -1031,17 +1037,19 @@ void de_free_charctx(deark *c, struct de_char_context *charctx);
 struct de_struct_tm {
 	int is_valid;
 	int tm_fullyear, tm_mon, tm_mday;
-	int tm_hour, tm_min, tm_sec, tm_ms;
+	int tm_hour, tm_min, tm_sec;
+	int tm_subsec; // in ten-millionths of a second
 };
 
 void de_unix_time_to_timestamp(i64 ut, struct de_timestamp *ts, unsigned int flags);
-void de_timestamp_set_ms(struct de_timestamp *ts, u16 ms, u16 prec);
 void de_mac_time_to_timestamp(i64 mt, struct de_timestamp *ts);
 void de_FILETIME_to_timestamp(i64 ft, struct de_timestamp *ts, unsigned int flags);
 void de_dos_datetime_to_timestamp(struct de_timestamp *ts,
    i64 ddate, i64 dtime);
 void de_riscos_loadexec_to_timestamp(u32 load_addr,
 	u32 exec_addr, struct de_timestamp *ts);
+void de_timestamp_set_subsec(struct de_timestamp *ts, double frac);
+i64 de_timestamp_get_subsec(const struct de_timestamp *ts);
 i64 de_timestamp_to_unix_time(const struct de_timestamp *ts);
 i64 de_timestamp_to_FILETIME(const struct de_timestamp *ts);
 void de_make_timestamp(struct de_timestamp *ts,

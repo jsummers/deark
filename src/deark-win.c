@@ -370,8 +370,8 @@ void de_gmtime(const struct de_timestamp *ts, struct de_struct_tm *tm2)
 	tm2->tm_hour = tm1.tm_hour;
 	tm2->tm_min = tm1.tm_min;
 	tm2->tm_sec = tm1.tm_sec;
-	if(ts->prec>0 && ts->prec<1000) {
-		tm2->tm_ms = ts->ms;
+	if(ts->precision>DE_TSPREC_1SEC) {
+		tm2->tm_subsec = (int)de_timestamp_get_subsec(ts);
 	}
 }
 

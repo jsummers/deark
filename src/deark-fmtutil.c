@@ -727,7 +727,7 @@ static void do_SAUCE_creation_date(deark *c, struct de_SAUCE_info *si,
 	mday = de_atoi64(scanbuf);
 
 	de_make_timestamp(&si->creation_date, yr, mon, mday, 12, 0, 0);
-	si->creation_date.prec = 0xffff;
+	si->creation_date.precision = DE_TSPREC_1DAY;
 
 	de_timestamp_to_string(&si->creation_date, timestamp_buf, sizeof(timestamp_buf), 0);
 	de_dbg(c, "creation date: %s", timestamp_buf);

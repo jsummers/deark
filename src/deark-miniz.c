@@ -524,7 +524,7 @@ void de_zip_add_file_to_archive(deark *c, dbuf *f)
 
 	if(c->preserve_file_times && f->fi_copy && f->fi_copy->mod_time.is_valid) {
 		dfa.modtime = de_timestamp_to_unix_time(&f->fi_copy->mod_time);
-		if(f->fi_copy->mod_time.prec>0 && f->fi_copy->mod_time.prec<1000) {
+		if(f->fi_copy->mod_time.precision>DE_TSPREC_1SEC) {
 			dfa.modtime_as_FILETIME = de_timestamp_to_FILETIME(&f->fi_copy->mod_time);
 		}
 		dfa.modtime_valid = 1;
