@@ -584,6 +584,8 @@ static void ef_acorn(deark *c, lctx *d, struct extra_item_info_struct *eii)
 
 	attribs = (u32)de_getu32le_p(&pos);
 	de_dbg(c, "file perms: 0x%08x", (unsigned int)attribs);
+	// Note: attribs does not have any information that we care about (no
+	// 'executable' or 'is-directory' flag).
 }
 
 struct extra_item_type_info_struct {
@@ -832,15 +834,25 @@ static void process_ext_attr(deark *c, lctx *d, struct member_data *md)
 		}
 	}
 
-	if(md->central_dir_entry_data.ver_needed_hi==0) { // MS-DOS, etc.
-		// I think this means the low byte of the external attributes
-		// field is DOS-compatible.
-		if(md->attr_e & 0x10) {
-			md->is_dir = 1;
-		}
+	// MS-DOS-style attributes.
+	// Technically, we should only do this if
+	// md->central_dir_entry_data.ver_made_by_hi==0.
+	// However, most(?) zip programs set the low byte of the external attribs
+	// to the equivalent MS-DOS attribs, at least in cases where it matters.
+	if(md->attr_e & 0x10) {
+		md->is_dir = 1;
 	}
 
 	// TODO: Support more platforms.
+	// TODO: The 0x756e (ASi Unix) extra field might be important, as it contains
+	// file permissions.
+
+	if(md->is_dir && md->local_dir_entry_data.uncmpr_size!=0) {
+		// I'd expect a subdirectory entry to have zero size. If it doesn't,
+		// let's just assume we misidentified it as a subdirectory, and
+		// extract its data.
+		md->is_dir = 0;
+	}
 }
 
 static void describe_internal_attr(deark *c, struct member_data *md,
@@ -1042,13 +1054,26 @@ static int do_file_header(deark *c, lctx *d, struct member_data *md,
 		md->attr_e = (unsigned int)de_getu32le_p(&pos);
 		de_dbg(c, "external file attributes: 0x%08x", md->attr_e);
 		de_dbg_indent(c, 1);
-		if(dd->ver_needed_hi==0) {
+
+		{
+			// The low byte is, AFAIK, *almost* universally used for MS-DOS-style
+			// attributes.
 			unsigned int dos_attrs = (md->attr_e & 0xff);
 			ucstring_empty(descr);
 			describe_msdos_attribs(c, dos_attrs, descr);
-			de_dbg(c, "MS-DOS attribs: 0x%02x (%s)", dos_attrs, ucstring_getpsz(descr));
+			de_dbg(c, "%sMS-DOS attribs: 0x%02x (%s)",
+				(md->ver_made_by_hi==0)?"":"(hypothetical) ",
+				dos_attrs, ucstring_getpsz(descr));
 		}
-		// TODO: Describe Unix-style attributes
+
+		if((md->attr_e>>16) != 0) {
+			// A number of platforms put Unix-style file attributes here, so
+			// decode them as such whenever they are nonzero.
+			de_dbg(c, "%sUnix attribs: octal(%06o)",
+				(md->ver_made_by_hi==3)?"":"(hypothetical) ",
+				(unsigned int)(md->attr_e>>16));
+		}
+
 		de_dbg_indent(c, -1);
 
 		md->offset_of_local_header = de_getu32le_p(&pos);
