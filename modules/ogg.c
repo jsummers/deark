@@ -506,6 +506,7 @@ static int do_ogg_page(deark *c, lctx *d, i64 pos1, i64 *bytes_consumed)
 	char buf[100];
 	int retval = 0;
 	int ret;
+	void *item = NULL;
 	struct stream_info *si = NULL;
 	struct page_info *pgi = NULL;
 
@@ -525,8 +526,9 @@ static int do_ogg_page(deark *c, lctx *d, i64 pos1, i64 *bytes_consumed)
 	pgi->stream_serialno = de_getu32le_p(&pos);
 	de_dbg(c, "bitstream serial number: %"I64_FMT, pgi->stream_serialno);
 
-	ret = de_inthashtable_get_item(c, d->streamtable, pgi->stream_serialno, (void**)&si);
+	ret = de_inthashtable_get_item(c, d->streamtable, pgi->stream_serialno, &item);
 	if(ret) {
+		si = (struct stream_info*)item;
 		// We've seen this stream before.
 		de_dbg_indent(c, 1);
 		de_dbg(c, "bitstream %"I64_FMT" type: %s", pgi->stream_serialno,
@@ -600,11 +602,13 @@ static void destroy_streamtable(deark *c, lctx *d)
 {
 	while(1) {
 		i64 key;
+		void *removed_item = NULL;
 		struct stream_info *si;
 
-		if(!de_inthashtable_remove_any_item(c, d->streamtable, &key, (void**)&si)) {
+		if(!de_inthashtable_remove_any_item(c, d->streamtable, &key, &removed_item)) {
 			break;
 		}
+		si = (struct stream_info *)removed_item;
 		destroy_bitstream(c, d, si);
 	}
 

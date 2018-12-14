@@ -1337,7 +1337,7 @@ static void do_box_infe(deark *c, lctx *d, struct de_boxesctx *bctx)
 		if(version==2) {
 			item_id = (unsigned int)dbuf_getu16be_p(bctx->f, &pos);
 		}
-		else if(version==3) {
+		else {
 			item_id = (unsigned int)dbuf_getu32be_p(bctx->f, &pos);
 		}
 		de_dbg(c, "item id: %u", item_id);
