@@ -671,8 +671,6 @@ static void de_run_pcpaint_clp(deark *c, lctx *d, de_module_params *mparams)
 
 	de_declare_fmt(c, "PCPaint CLP");
 
-	d = de_malloc(c, sizeof(lctx));
-
 	d->img = de_bitmap_create_noinit(c);
 
 	de_dbg(c, "header at %d", 0);
