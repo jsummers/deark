@@ -42,7 +42,8 @@ static int get_bitmap_info(deark *c, struct srcbitmap *srcbmp, const char *fmt, 
 		flags |= DE_BMPINFO_HAS_HOTSPOT;
 	}
 	if(!de_fmtutil_get_bmpinfo(c, c->infile, &srcbmp->bi, pos, c->infile->len - pos, flags)) {
-		de_err(c, "Unsupported image type (header size %d)", (int)srcbmp->bi.infohdrsize);
+		de_err(c, "Invalid or unsupported bitmap");
+		goto done;
 	}
 
 	if(srcbmp->bi.is_compressed) {
@@ -77,7 +78,6 @@ static struct srcbitmap *do_decode_raw_bitmap_segment(deark *c, const char *fmt,
 	de_dbg_indent(c, 1);
 
 	srcbmp = de_malloc(c, sizeof(struct srcbitmap));
-
 
 	if(!get_bitmap_info(c, srcbmp, fmt, pos))
 		goto done;
@@ -226,10 +226,12 @@ static void do_decode_CI_or_CP_pair(deark *c, const char *fmt, i64 pos)
 		if(srcbmp->bi.bitcount==1 && (srcbmp_mask==NULL || srcbmp_main!=NULL)) {
 			de_dbg(c, "bitmap interpreted as: mask");
 			srcbmp_mask = srcbmp;
+			srcbmp = NULL;
 		}
 		else {
 			de_dbg(c, "bitmap interpreted as: foreground");
 			srcbmp_main = srcbmp;
+			srcbmp = NULL;
 		}
 
 		de_dbg_indent(c, -1);
@@ -246,6 +248,7 @@ done:
 	de_dbg_indent_restore(c, saved_indent_level);
 	de_free(c, srcbmp_mask);
 	de_free(c, srcbmp_main);
+	de_free(c, srcbmp);
 }
 
 static void do_decode_IC_or_PT(deark *c, const char *fmt, i64 pos)
