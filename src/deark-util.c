@@ -933,7 +933,7 @@ void de_timestamp_set_subsec(struct de_timestamp *ts, double frac)
 	// Subtract off any existing fractional second.
 	ts->ts_FILETIME -= (ts->ts_FILETIME%10000000);
 
-	subsec = (i64)(frac*10000000.0);
+	subsec = (i64)(0.5+frac*10000000.0);
 	if(subsec>=10000000) subsec=9999999;
 	if(subsec<0) subsec=0;
 	ts->ts_FILETIME += subsec;
