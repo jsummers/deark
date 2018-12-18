@@ -622,7 +622,6 @@ static void run_ogg_internal(deark *c, lctx *d)
 	i64 ogg_end;
 	struct de_id3info id3i;
 
-	d = de_malloc(c, sizeof(lctx));
 	d->always_hexdump = de_get_ext_option(c, "ogg:hexdump")?1:0;
 	d->streamtable = de_inthashtable_create(c);
 
@@ -658,6 +657,8 @@ static void run_ogg_internal(deark *c, lctx *d)
 static void de_run_ogg(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
+
+	d = de_malloc(c, sizeof(lctx));
 
 	if(de_havemodcode(c, mparams, 'C')) {
 		do_vorbis_comment_block(c, d, c->infile, 0);
