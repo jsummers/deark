@@ -145,6 +145,7 @@ static void do_psf2_unicode_table(deark *c, lctx *d, struct de_bitmap_font *font
 		pos_in_char_data = 0;
 		while(1) {
 			if(pos_in_char_data >= char_data_len) break;
+			if(cp_idx > MAX_EXTRA_CODEPOINTS) break; // sanity check
 
 			ret = de_utf8_to_uchar(&char_data_buf[pos_in_char_data], char_data_len-pos_in_char_data,
 				&ch, &utf8len);

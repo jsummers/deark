@@ -176,7 +176,7 @@ static void de_run_grob_text(deark *c, lctx *d)
 	i64 pos;
 	i64 img_pos = 0;
 	int ret;
-	int img_count = 0;
+	i64 img_count = 0;
 
 	de_declare_fmt(c, "HP GROB, text encoded");
 
@@ -200,6 +200,7 @@ static void de_run_grob_text(deark *c, lctx *d)
 		de_dbg(c, "GROB format found at %d", (int)img_pos);
 
 		img_count++;
+		if(!de_good_image_count(c, img_count)) break;
 		grob_text_1_image(c, d, img_pos);
 
 		if(d->bytes_consumed<1) break;

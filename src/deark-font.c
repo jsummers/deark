@@ -317,8 +317,10 @@ static void fixup_codepoints(deark *c, struct font_render_ctx *fctx)
 			}
 			// Move uncoded characters to a Private Use area.
 			// (Supplementary Private Use Area-A = U+F0000 - U+FFFFD)
-			fctx->codepoint_tmp[i] = (i32)(DE_CODEPOINT_MOVED + num_uncoded_chars);
-			num_uncoded_chars++;
+			if(DE_CODEPOINT_MOVED + num_uncoded_chars <= DE_CODEPOINT_MOVED_MAX) {
+				fctx->codepoint_tmp[i] = (i32)(DE_CODEPOINT_MOVED + num_uncoded_chars);
+				num_uncoded_chars++;
+			}
 		}
 		else {
 			fctx->codepoint_tmp[i] = c1;
@@ -368,6 +370,7 @@ void de_font_bitmap_font_to_image(deark *c, struct de_bitmap_font *font1, de_fin
 	fctx->font = font1;
 
 	if(fctx->font->num_chars<1) goto done;
+	if(fctx->font->num_chars>17*65536) goto done;
 	if(fctx->font->nominal_width>512 || fctx->font->nominal_height>512) {
 		de_err(c, "Font size too big (%d"DE_CHAR_TIMES"%d). Not supported.",
 			(int)fctx->font->nominal_width, (int)fctx->font->nominal_height);
