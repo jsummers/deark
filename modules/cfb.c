@@ -970,10 +970,13 @@ static int read_thumbsdb_catalog(deark *c, lctx *d, struct dir_entry_info *dei)
 	pos = item_len;
 
 	for(i=0; i<d->thumbsdb_catalog_num_entries; i++) {
+		i64 name_len;
+
 		if(pos >= catf->len) goto done;
 		item_len = dbuf_getu32le(catf, pos);
 		de_dbg(c, "catalog entry #%d, len=%d", (int)i, (int)item_len);
 		if(item_len<20) goto done;
+		if(pos+item_len > catf->len) goto done;
 
 		de_dbg_indent(c, 1);
 
@@ -983,7 +986,8 @@ static int read_thumbsdb_catalog(deark *c, lctx *d, struct dir_entry_info *dei)
 		read_and_cvt_timestamp(c, catf, pos+8, &d->thumbsdb_catalog[i].mod_time);
 		dbg_timestamp(c, &d->thumbsdb_catalog[i].mod_time, "timestamp");
 
-		d->thumbsdb_catalog[i].fname_srd = dbuf_read_string(catf, pos+16, item_len-20, item_len-20,
+		name_len = de_min_int(item_len-20, 65536);
+		d->thumbsdb_catalog[i].fname_srd = dbuf_read_string(catf, pos+16, name_len, name_len,
 			DE_CONVFLAG_WANT_UTF8, DE_ENCODING_UTF16LE);
 		de_dbg(c, "name: \"%s\"", ucstring_getpsz(d->thumbsdb_catalog[i].fname_srd->str));
 
