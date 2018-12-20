@@ -415,6 +415,7 @@ static void EBMLdate_to_timestamp(i64 ed, struct de_timestamp *ts)
 	// There are 8 leap days in this range ('72, 76, 80, 84, 88, 92, 96, 00).
 	t += 86400LL * (31*365 + 8);
 	de_unix_time_to_timestamp(t, ts, 0x1);
+	de_timestamp_set_subsec(ts, ((double)(ed%1000000000))/1000000000.0);
 }
 
 static void decode_date(deark *c, lctx *d, const struct ele_id_info *ele_id,

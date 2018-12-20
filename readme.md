@@ -194,7 +194,7 @@ Command-line options:
    Many file formats unfortunately contain timestamps in "local time", with no
    information about their time zone. In such cases, the supplied -intz offset
    will be used to convert the timestamp to UTC.
-   The "offset" parameter is in hours west of UTC. For example, New York City
+   The "offset" parameter is in hours east of UTC. For example, New York City
    is -5.0, or -4.0 when Daylight Saving Time is in effect.
    This option does not respect Daylight Saving Time. It cannot deal with the
    case where some of the timestamps in a file are in DST, and others are not.
