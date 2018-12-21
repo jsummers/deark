@@ -24,7 +24,6 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <time.h>
-#include <sys/utime.h>
 
 int de_strcasecmp(const char *a, const char *b)
 {
