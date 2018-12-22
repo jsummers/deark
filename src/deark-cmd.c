@@ -276,8 +276,8 @@ static void set_encoding_option(deark *c, struct cmdctx *cc, const char *s)
 enum opt_id_enum {
  DE_OPT_NULL=0, DE_OPT_D, DE_OPT_D2, DE_OPT_D3, DE_OPT_L,
  DE_OPT_NOINFO, DE_OPT_NOWARN,
- DE_OPT_NOBOM, DE_OPT_NODENS, DE_OPT_ASCIIHTML, DE_OPT_NONAMES, DE_OPT_MODTIME,
- DE_OPT_NOMODTIME,
+ DE_OPT_NOBOM, DE_OPT_NODENS, DE_OPT_ASCIIHTML, DE_OPT_NONAMES,
+ DE_OPT_NOOVERWRITE, DE_OPT_MODTIME, DE_OPT_NOMODTIME,
  DE_OPT_Q, DE_OPT_VERSION, DE_OPT_HELP,
  DE_OPT_MAINONLY, DE_OPT_AUXONLY, DE_OPT_EXTRACTALL, DE_OPT_ZIP,
  DE_OPT_TOSTDOUT, DE_OPT_MSGSTOSTDERR, DE_OPT_FROMSTDIN, DE_OPT_COLOR,
@@ -305,6 +305,7 @@ struct opt_struct option_array[] = {
 	{ "nodens",       DE_OPT_NODENS,       0 },
 	{ "asciihtml",    DE_OPT_ASCIIHTML,    0 },
 	{ "nonames",      DE_OPT_NONAMES,      0 },
+	{ "n",            DE_OPT_NOOVERWRITE,  0 },
 	{ "modtime",      DE_OPT_MODTIME,      0 },
 	{ "nomodtime",    DE_OPT_NOMODTIME,    0 },
 	{ "q",            DE_OPT_Q,            0 },
@@ -430,6 +431,9 @@ static void parse_cmdline(deark *c, struct cmdctx *cc, int argc, char **argv)
 				break;
 			case DE_OPT_NONAMES:
 				de_set_filenames_from_file(c, 0);
+				break;
+			case DE_OPT_NOOVERWRITE:
+				de_set_overwrite_mode(c, DE_OVERWRITEMODE_NEVER);
 				break;
 			case DE_OPT_MODTIME:
 				de_set_preserve_file_times(c, 1);

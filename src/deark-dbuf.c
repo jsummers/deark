@@ -961,7 +961,8 @@ dbuf *dbuf_create_output_file(deark *c, const char *ext, de_finfo *fi,
 	else {
 		de_msg(c, "Writing %s", f->name);
 		f->btype = DBUF_TYPE_OFILE;
-		f->fp = de_fopen_for_write(c, f->name, msgbuf, sizeof(msgbuf), 0);
+		f->fp = de_fopen_for_write(c, f->name, msgbuf, sizeof(msgbuf),
+			c->overwrite_mode, 0);
 
 		if(!f->fp) {
 			de_err(c, "Failed to write %s: %s", f->name, msgbuf);
@@ -1496,7 +1497,8 @@ int dbuf_dump_to_file(dbuf *inf, const char *fn)
 	dbuf *tmpdbuf = NULL;
 	deark *c = inf->c;
 
-	fp = de_fopen_for_write(c, fn, msgbuf, sizeof(msgbuf), 0);
+	fp = de_fopen_for_write(c, fn, msgbuf, sizeof(msgbuf),
+		DE_OVERWRITEMODE_STANDARD, 0);
 	if(!fp) return 0;
 
 	tmpdbuf = dbuf_create_membuf(c, inf->len, 1);

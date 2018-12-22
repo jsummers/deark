@@ -149,7 +149,8 @@ static void open_extrlist(deark *c)
 		flags |= 0x1;
 	}
 
-	c->extrlist_file = de_fopen_for_write(c, c->extrlist_filename, msgbuf, sizeof(msgbuf), flags);
+	c->extrlist_file = de_fopen_for_write(c, c->extrlist_filename,
+		msgbuf, sizeof(msgbuf), DE_OVERWRITEMODE_STANDARD, flags);
 	if(!c->extrlist_file) {
 		de_err(c, "Failed to write %s: %s", c->extrlist_filename, msgbuf);
 	}
@@ -517,6 +518,17 @@ void de_set_ascii_html(deark *c, int x)
 void de_set_filenames_from_file(deark *c, int x)
 {
 	c->filenames_from_file = x;
+}
+
+// DE_OVERWRITEMODE_DEFAULT =
+//   Overwrite, unless the filename is a symlink, in which case fail.
+// DE_OVERWRITEMODE_NEVER =
+//   Fail if the output file exists (or if the filename is a symlink).
+// DE_OVERWRITEMODE_STANDARD =
+//   Do whatever fopen() normally does (overwrite, and follow symlinks).
+void de_set_overwrite_mode(deark *c, int x)
+{
+	c->overwrite_mode = x;
 }
 
 void de_set_preserve_file_times(deark *c, int x)

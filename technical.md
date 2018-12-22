@@ -55,8 +55,9 @@ in various circumstances.
 
 Deark essentially throws up its hands and gives up. By default, it names all
 output filenames to start with "output.". It overwrites existing files with no
-warning. It bans all ASCII characters that could conceivably be problematical,
-as well as any non-ASCII characters that don't appear on its whitelist.
+warning (unless you use -n). It bans all ASCII characters that could
+conceivably be problematical, as well as any non-ASCII characters that don't
+appear on its whitelist.
 
 When Deark writes to a ZIP file (the "-zip" option), it doesn't have to worry
 about what to name the internal files. It can palm that problem off onto your

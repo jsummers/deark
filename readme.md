@@ -46,6 +46,8 @@ Command-line options:
 -o &lt;name>
    Output filenames begin with this string. This can include a directory
    path. Default is "output", except in some cases when using -zip.
+-n
+   Do not overwrite existing output files.
 -file &lt;input-file>
    This is an alternate syntax for specifying the primary input file. It works
    even if the filename begins with "-".

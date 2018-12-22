@@ -121,9 +121,33 @@ FILE* de_fopen_for_read(deark *c, const char *fn, i64 *len,
 
 // flags: 0x1 = append instead of overwriting
 FILE* de_fopen_for_write(deark *c, const char *fn,
-	char *errmsg, size_t errmsg_len, unsigned int flags)
+	char *errmsg, size_t errmsg_len, int overwrite_mode,
+	unsigned int flags)
 {
 	const char *mode;
+
+	if(overwrite_mode!=DE_OVERWRITEMODE_STANDARD) {
+		// Check if the file already exists.
+		struct stat stbuf;
+		int s_ret;
+
+		de_zeromem(&stbuf, sizeof(struct stat));
+		s_ret = lstat(fn, &stbuf);
+
+		 // s_ret==0 = "success"
+		if(s_ret==0 && overwrite_mode==DE_OVERWRITEMODE_NEVER) {
+			de_strlcpy(errmsg, "Output file already exists", errmsg_len);
+			return NULL;
+		}
+
+		if(s_ret==0 && overwrite_mode==DE_OVERWRITEMODE_DEFAULT) {
+			if ((stbuf.st_mode & S_IFMT) == S_IFLNK) {
+				de_strlcpy(errmsg, "Output file is a symlink", errmsg_len);
+				return NULL;
+			}
+		}
+	}
+
 	mode = (flags&0x1) ? "ab" : "wb";
 	return de_fopen(c, fn, mode, errmsg, errmsg_len);
 }

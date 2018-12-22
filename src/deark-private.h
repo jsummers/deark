@@ -314,6 +314,7 @@ struct deark_struct {
 	int write_density;
 	int ascii_html;
 	int filenames_from_file;
+	int overwrite_mode;
 	int preserve_file_times;
 	int reproducible_output;
 	struct de_timestamp reproducible_timestamp;
@@ -406,7 +407,8 @@ void de_err(deark *c, const char *fmt, ...)
 FILE* de_fopen_for_read(deark *c, const char *fn, i64 *len,
 	char *errmsg, size_t errmsg_len, unsigned int *returned_flags);
 FILE* de_fopen_for_write(deark *c, const char *fn,
-	char *errmsg, size_t errmsg_len, unsigned int flags);
+	char *errmsg, size_t errmsg_len, int overwrite_mode,
+	unsigned int flags);
 int de_fseek(FILE *fp, i64 offs, int whence);
 int de_fclose(FILE *fp);
 

@@ -82,6 +82,10 @@ int de_strcasecmp(const char *a, const char *b);
 #define DE_EXTRACTPOLICY_MAINONLY 1
 #define DE_EXTRACTPOLICY_AUXONLY  2
 
+#define DE_OVERWRITEMODE_DEFAULT  0
+#define DE_OVERWRITEMODE_NEVER    1
+#define DE_OVERWRITEMODE_STANDARD 2
+
 #define DE_MSGTYPE_MESSAGE 0U
 #define DE_MSGTYPE_WARNING 1U
 #define DE_MSGTYPE_ERROR   2U

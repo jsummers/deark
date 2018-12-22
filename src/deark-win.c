@@ -142,18 +142,13 @@ void de_utf8_to_utf16_to_FILE(deark *c, const char *src, FILE *f)
 	de_free(c, dst_large);
 }
 
-static FILE* de_fopen(deark *c, const char *fn, const WCHAR *modeW,
+static FILE* de_fopenW(deark *c, const WCHAR *fnW, const WCHAR *modeW,
 	char *errmsg, size_t errmsg_len)
 {
 	FILE *f = NULL;
 	errno_t errcode;
-	WCHAR *fnW;
-
-	fnW = de_utf8_to_utf16_strdup(c, fn);
 
 	errcode = _wfopen_s(&f, fnW, modeW);
-
-	de_free(c, fnW);
 
 	errmsg[0] = '\0';
 
@@ -197,8 +192,14 @@ FILE* de_fopen_for_read(deark *c, const char *fn, i64 *len,
 {
 	int ret;
 	FILE *f;
+	WCHAR *fnW;
 
-	f = de_fopen(c, fn, L"rb", errmsg, errmsg_len);
+	fnW = de_utf8_to_utf16_strdup(c, fn);
+
+	f = de_fopenW(c, fnW, L"rb", errmsg, errmsg_len);
+
+	de_free(c, fnW);
+
 	if(!f) {
 		return NULL;
 	}
@@ -215,11 +216,29 @@ FILE* de_fopen_for_read(deark *c, const char *fn, i64 *len,
 
 // flags: 0x1 = append instead of overwriting
 FILE* de_fopen_for_write(deark *c, const char *fn,
-	char *errmsg, size_t errmsg_len, unsigned int flags)
+	char *errmsg, size_t errmsg_len, int overwrite_mode,
+	unsigned int flags)
 {
 	const WCHAR *modeW;
+	WCHAR *fnW = NULL;
+	FILE *f_ret = NULL;
+
 	modeW = (flags&0x1) ? L"ab" : L"wb";
-	return de_fopen(c, fn, modeW, errmsg, errmsg_len);
+	fnW = de_utf8_to_utf16_strdup(c, fn);
+
+	if(overwrite_mode==DE_OVERWRITEMODE_NEVER) {
+		DWORD fa = GetFileAttributesW(fnW);
+		if(fa != INVALID_FILE_ATTRIBUTES) {
+			de_strlcpy(errmsg, "Output file already exists", errmsg_len);
+			goto done;
+		}
+	}
+
+	f_ret = de_fopenW(c, fnW, modeW, errmsg, errmsg_len);
+
+done:
+	de_free(c, fnW);
+	return f_ret;
 }
 
 int de_fseek(FILE *fp, i64 offs, int whence)
