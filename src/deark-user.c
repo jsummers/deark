@@ -371,12 +371,55 @@ void de_set_fatalerror_callback(deark *c, de_fatalerrorfn_type fn)
 	c->fatalerrorfn = fn;
 }
 
-void de_set_base_output_filename(deark *c, const char *fn)
+static const char *get_basename_ptr(const char *fn)
+{
+	size_t i;
+	const char *basenameptr = fn;
+
+	for(i=0; fn[i]; i++) {
+		if(fn[i]=='/' || fn[i]=='\\') {
+			basenameptr = &fn[i+1];
+		}
+	}
+	return basenameptr;
+}
+
+// flags:
+//  0x1 = use base filename only
+//  0x2 = remove path separators
+void de_set_base_output_filename(deark *c, const char *fn, unsigned int flags)
 {
 	if(c->base_output_filename) de_free(c, c->base_output_filename);
 	c->base_output_filename = NULL;
-	if(fn) {
+	if(!fn) return;
+
+	if(flags & 0x1) {
+		// Use base filename only
+		c->base_output_filename = de_strdup(c, get_basename_ptr(fn));
+	}
+	else {
 		c->base_output_filename = de_strdup(c, fn);
+	}
+
+	if(flags & 0x2) {
+		// Remove path separators; sanitize
+		size_t i;
+
+		for(i=0; c->base_output_filename[i]; i++) {
+			if(c->base_output_filename[i]=='/' || c->base_output_filename[i]=='\\') {
+				c->base_output_filename[i] = '_';
+			}
+		}
+
+		if(c->base_output_filename[0]=='.') {
+			c->base_output_filename[0] = '_';
+		}
+	}
+
+	// Don't allow empty filename
+	if(c->base_output_filename[0]=='\0') {
+		de_free(c, c->base_output_filename);
+		c->base_output_filename = NULL;
 	}
 }
 

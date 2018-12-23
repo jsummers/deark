@@ -33,6 +33,9 @@ struct cmdctx {
 	unsigned int orig_console_attribs;
 #endif
 
+	const char *base_output_filename;
+	int option_k_level; // Use input filename in output filenames
+
 	int to_stdout;
 	int to_zip;
 	int from_stdin;
@@ -284,6 +287,7 @@ enum opt_id_enum {
  DE_OPT_ENCODING,
  DE_OPT_EXTOPT, DE_OPT_FILE, DE_OPT_FILE2, DE_OPT_INENC, DE_OPT_INTZ,
  DE_OPT_START, DE_OPT_SIZE, DE_OPT_M, DE_OPT_MODCODES, DE_OPT_O,
+ DE_OPT_K, DE_OPT_K2, DE_OPT_K3,
  DE_OPT_ARCFN, DE_OPT_GET, DE_OPT_FIRSTFILE, DE_OPT_MAXFILES, DE_OPT_MAXIMGDIM,
  DE_OPT_PRINTMODULES, DE_OPT_DPREFIX, DE_OPT_EXTRLIST
 };
@@ -323,6 +327,9 @@ struct opt_struct option_array[] = {
 	{ "msgstostderr", DE_OPT_MSGSTOSTDERR, 0 },
 	{ "fromstdin",    DE_OPT_FROMSTDIN,    0 },
 	{ "color",        DE_OPT_COLOR,        0 },
+	{ "k",            DE_OPT_K,            0 },
+	{ "k2",           DE_OPT_K2,           0 },
+	{ "k3",           DE_OPT_K3,           0 },
 	{ "enc",          DE_OPT_ENCODING,     1 },
 	{ "opt",          DE_OPT_EXTOPT,       1 },
 	{ "file",         DE_OPT_FILE,         1 },
@@ -487,6 +494,15 @@ static void parse_cmdline(deark *c, struct cmdctx *cc, int argc, char **argv)
 			case DE_OPT_COLOR:
 				cc->use_color_req = 1;
 				break;
+			case DE_OPT_K:
+				cc->option_k_level = 1;
+				break;
+			case DE_OPT_K2:
+				cc->option_k_level = 2;
+				break;
+			case DE_OPT_K3:
+				cc->option_k_level = 3;
+				break;
 			case DE_OPT_ENCODING:
 				set_encoding_option(c, cc, argv[i+1]);
 				if(cc->error_flag) return;
@@ -526,7 +542,7 @@ static void parse_cmdline(deark *c, struct cmdctx *cc, int argc, char **argv)
 				de_set_module_init_codes(c, argv[i+1]);
 				break;
 			case DE_OPT_O:
-				de_set_base_output_filename(c, argv[i+1]);
+				cc->base_output_filename = argv[i+1];
 				break;
 			case DE_OPT_ARCFN:
 				// Relevant e.g. if the -zip option is used.
@@ -587,6 +603,25 @@ static void parse_cmdline(deark *c, struct cmdctx *cc, int argc, char **argv)
 		cc->error_flag = 1;
 		cc->show_usage_message = 1;
 		return;
+	}
+
+	if(cc->option_k_level && cc->input_filename) {
+		if(cc->option_k_level==1) {
+			// Use base input filename in output filenames.
+			de_set_base_output_filename(c, cc->input_filename, 0x1);
+		}
+		else if(cc->option_k_level==2) {
+			// Use full input filename path, but not as an actual path.
+			de_set_base_output_filename(c, cc->input_filename, 0x2);
+		}
+		else if(cc->option_k_level==3) {
+			// Use full input filename path, as-is.
+			de_set_base_output_filename(c, cc->input_filename, 0x0);
+		}
+	}
+
+	if(cc->base_output_filename) {
+		de_set_base_output_filename(c, cc->base_output_filename, 0);
 	}
 
 	if(cc->to_zip && cc->to_stdout) {

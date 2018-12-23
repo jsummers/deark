@@ -46,6 +46,12 @@ Command-line options:
 -o &lt;name>
    Output filenames begin with this string. This can include a directory
    path. Default is "output", except in some cases when using -zip.
+-k, -k2, -k3
+   "Keep" the input filename, and use it as the initial part of the output
+   filename(s).
+   -k: Use only the base filename.
+   -k2: Use the full path, but not as an actual path.
+   -k3: Use the full path, as-is.
 -n
    Do not overwrite existing output files.
 -file &lt;input-file>
