@@ -13,9 +13,10 @@ DE_DECLARE_MODULE(de_module_woz);
 #define CODE_META 0x4d455441U
 #define CODE_TMAP 0x544d4150U
 #define CODE_TRKS 0x54524b53U
+#define CODE_WRIT 0x57524954U
 
 typedef struct localctx_struct {
-	int reserved;
+	u8 wozver;
 } lctx;
 
 static const char *get_woz_disk_type_name(u8 t)
@@ -31,7 +32,9 @@ static void do_woz_INFO(deark *c, struct de_iffctx *ictx,
 	const struct de_iffchunkctx *chunkctx)
 {
 	u8 b;
+	i64 n;
 	i64 pos = chunkctx->dpos;
+	lctx *d = ictx->userdata;
 	de_ucstring *s = NULL;
 
 	if(chunkctx->dlen<37) return;
@@ -50,7 +53,24 @@ static void do_woz_INFO(deark *c, struct de_iffctx *ictx,
 	dbuf_read_to_ucstring(ictx->f, pos, 32, s, 0, DE_ENCODING_UTF8);
 	ucstring_strip_trailing_spaces(s);
 	de_dbg(c, "creator: \"%s\"", ucstring_getpsz(s));
+	pos += 32;
 
+	if(d->wozver<'2') goto done;
+
+	b = dbuf_getbyte_p(ictx->f, &pos);
+	de_dbg(c, "disk sides: %d", (int)b);
+	b = dbuf_getbyte_p(ictx->f, &pos);
+	de_dbg(c, "boot sector format: %d", (int)b);
+	b = dbuf_getbyte_p(ictx->f, &pos);
+	de_dbg(c, "optimal bit timing: %d", (int)b);
+	n = dbuf_getu16le_p(ictx->f, &pos);
+	de_dbg(c, "compatible hardware: %d", (int)n);
+	n = dbuf_getu16le_p(ictx->f, &pos);
+	de_dbg(c, "required RAM: %dK", (int)n);
+	n = dbuf_getu16le_p(ictx->f, &pos);
+	de_dbg(c, "largest track: %d blocks", (int)n);
+
+done:
 	ucstring_destroy(s);
 }
 
@@ -117,6 +137,7 @@ static int my_preprocess_woz_chunk_fn(deark *c, struct de_iffctx *ictx)
 	case CODE_TMAP: name = "track map"; break;
 	case CODE_TRKS: name = "data for tracks"; break;
 	case CODE_META: name = "metadata"; break;
+	case CODE_WRIT: name = "disk writing instructions"; break;
 	}
 
 	if(name) {
@@ -164,7 +185,14 @@ static void de_run_woz(deark *c, de_module_params *mparams)
 	if(ictx->f->len<12) goto done;
 	de_dbg(c, "header at %d", (int)pos);
 	de_dbg_indent(c, 1);
-	pos += 8; // signature
+	pos += 3; // "WOZ" part of signature
+	d->wozver = dbuf_getbyte_p(ictx->f, &pos);
+	de_dbg(c, "format version: '%c'", de_byte_to_printable_char(d->wozver));
+	if(d->wozver<'1' || d->wozver>'2') {
+		de_err(c, "Unsupported WOZ format version");
+		goto done;
+	}
+	pos += 4; // rest of signature
 	crc = (u32)dbuf_getu32le_p(ictx->f, &pos);
 	de_dbg(c, "crc: 0x%08x", (unsigned int)crc);
 	de_dbg_indent(c, -1);
@@ -178,9 +206,11 @@ done:
 
 static int de_identify_woz(deark *c)
 {
-	if(!dbuf_memcmp(c->infile, 0, "\x57\x4f\x5a\x31\xff\x0a\x0d\x0a", 8))
-		return 100;
-	return 0;
+	if(dbuf_memcmp(c->infile, 0, "WOZ", 3))
+		return 0;
+	if(dbuf_memcmp(c->infile, 4, "\xff\x0a\x0d\x0a", 4))
+		return 0;
+	return 100;
 }
 
 void de_module_woz(deark *c, struct deark_module_info *mi)
