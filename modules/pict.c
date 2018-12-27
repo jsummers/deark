@@ -777,6 +777,7 @@ static void do_handle_qtif_idsc(deark *c, lctx *d, i64 pos, i64 len)
 	i64 idsc_dpos, idsc_dlen;
 	i64 idat_dpos, idat_dlen;
 	dbuf *outf = NULL;
+	struct de_fourcc cmpr4cc;
 
 	if(d->decode_qtif) {
 		de_run_module_by_id_on_slice2(c, "qtif", "I", c->infile, pos, len);
@@ -788,15 +789,19 @@ static void do_handle_qtif_idsc(deark *c, lctx *d, i64 pos, i64 len)
 	// a compression scheme that our qtif module doesn't support.
 
 	idsc_dpos = pos;
-	de_dbg(c, "idsc dpos: %d", (int)idsc_dpos);
 	idsc_dlen = de_getu32be(idsc_dpos);
-	de_dbg(c, "idsc dlen: %d", (int)idsc_dlen);
-	idat_dpos = idsc_dpos + idsc_dlen;
-	de_dbg(c, "idat dpos: %d", (int)idat_dpos);
-	idat_dlen = de_getu32be(idsc_dpos+44);
-	de_dbg(c, "idat dlen: %d", (int)idat_dlen);
-
+	de_dbg(c, "idsc: pos=%"I64_FMT", len=%"I64_FMT, idsc_dpos, idsc_dlen);
 	if(idsc_dpos+idsc_dlen > pos+len) goto done;
+
+	dbuf_read_fourcc(c->infile, idsc_dpos+4, &cmpr4cc, 4, 0x0);
+	de_dbg(c, "compression type: \"%s\"", cmpr4cc.id_dbgstr);
+
+	idat_dpos = idsc_dpos + idsc_dlen;
+	idat_dlen = de_getu32be(idsc_dpos+44);
+	de_dbg(c, "idat: pos=%"I64_FMT", len=%"I64_FMT, idat_dpos, idat_dlen);
+	if(idat_dlen==0) {
+		idat_dlen = pos+len-idat_dpos; // ??
+	}
 	if(idat_dpos+idat_dlen > pos+len) goto done;
 
 #define CODE_idat 0x69646174U
@@ -825,6 +830,7 @@ static int handler_QuickTime(deark *c, lctx *d, i64 opcode, i64 data_pos, i64 *b
 
 	payload_len = de_getu32be(data_pos);
 	payload_pos = data_pos+4;
+	de_dbg(c, "payload: pos=%"I64_FMT", len=%"I64_FMT, payload_pos, payload_len);
 	endpos = payload_pos+payload_len;
 	if(endpos > c->infile->len) return 0;
 	*bytes_used = 4+payload_len;
