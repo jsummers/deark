@@ -59,6 +59,7 @@ struct box_type_info {
 #define BRAND_mj2s 0x6d6a3273U
 #define BRAND_qt   0x71742020U
 
+#define BOX_alis 0x616c6973U
 #define BOX_auxC 0x61757843U
 #define BOX_co64 0x636f3634U
 #define BOX_ctts 0x63747473U
@@ -80,16 +81,20 @@ struct box_type_info {
 #define BOX_ispe 0x69737065U
 #define BOX_jP   0x6a502020U
 #define BOX_jp2c 0x6a703263U
+#define BOX_load 0x6c6f6164U
 #define BOX_mdat 0x6d646174U
 #define BOX_mdhd 0x6d646864U
 #define BOX_mvhd 0x6d766864U
 #define BOX_name 0x6e616d65U
 #define BOX_pitm 0x7069746dU
+#define BOX_pnot 0x706e6f74U
+#define BOX_rsrc 0x72737263U
 #define BOX_stsd 0x73747364U
 #define BOX_tkhd 0x746b6864U
 #define BOX_uuid 0x75756964U
 #define BOX_wide 0x77696465U
 #define BOX_xml  0x786d6c20U
+#define BOX_PICT 0x50494354U
 
 #define BOX_blank 0x2d2d2d2dU // "----"
 #define BOX_cpil 0x6370696cU
@@ -221,6 +226,10 @@ static void apply_brand(deark *c, lctx *d, u32 brand_id)
 	case BRAND_heic:
 		d->is_heif = 1;
 		break;
+	default:
+		if((brand_id>>16) == 0x3367) { // "3g??"
+			d->is_bmff = 1;
+		}
 	}
 }
 
@@ -496,6 +505,17 @@ static void do_box_vmhd(deark *c, lctx *d, struct de_boxesctx *bctx)
 		clr[k] = (unsigned int)dbuf_getu16be_p(bctx->f, &pos);
 	}
 	de_dbg(c, "opcolor: (%d,%d,%d)", (int)clr[0], (int)clr[1], (int)clr[2]);
+}
+
+static void do_box_PICT(deark *c, lctx *d, struct de_boxesctx *bctx)
+{
+	struct de_boxdata *curbox = bctx->curbox;
+	dbuf *outf = NULL;
+
+	outf = dbuf_create_output_file(c, "pict", NULL, DE_CREATEFLAG_IS_AUX);
+	dbuf_write_zeroes(outf, 512);
+	dbuf_copy(bctx->f, curbox->payload_pos, curbox->payload_len, outf);
+	dbuf_close(outf);
 }
 
 static void do_box_smhd(deark *c, lctx *d, struct de_boxesctx *bctx)
@@ -1391,6 +1411,7 @@ static const struct box_type_info box_type_info_arr[] = {
 	{BOX_jP  , 0x00010008, 0x00000002, "JPEG 2000 signature", do_box_jP},
 	{BOX_mdat, 0x00000008, 0x00000001, "media data", NULL},
 	{BOX_mdat, 0x00080001, 0x00000000, "media data", NULL},
+	{BOX_alis, 0x00000001, 0x00000000, "Macintosh file alias", NULL},
 	{BOX_cinf, 0x00000001, 0x00000001, "complete track information", NULL},
 	{BOX_clip, 0x00000001, 0x00000001, NULL, NULL},
 	{BOX_co64, 0x00000001, 0x00000000, "chunk offset", do_box_stco},
@@ -1411,6 +1432,7 @@ static const struct box_type_info box_type_info_arr[] = {
 	{BOX_ilst, 0x00000001, 0x00000001, "metadata item list", NULL},
 	{BOX_infe, 0x00080001, 0x00000000, "item info entry", do_box_infe},
 	{BOX_iref, 0x00080001, 0x00000001, "item reference", do_box_full_superbox},
+	{BOX_load, 0x00000001, 0x00000000, "track load settings", NULL},
 	{BOX_matt, 0x00000001, 0x00000001, NULL, NULL},
 	{BOX_mdhd, 0x00000001, 0x00000000, "media header", do_box_mdhd},
 	{BOX_mdia, 0x00000001, 0x00000001, "media", NULL},
@@ -1424,7 +1446,9 @@ static const struct box_type_info box_type_info_arr[] = {
 	{BOX_mvhd, 0x00000001, 0x00000000, "movie header", do_box_mvhd},
 	{BOX_nmhd, 0x00000001, 0x00000000, "null media header", NULL},
 	{BOX_paen, 0x00000001, 0x00000001, NULL, NULL},
+	{BOX_pnot, 0x00000001, 0x00000000, "reference to movie preview", NULL},
 	{BOX_rinf, 0x00000001, 0x00000001, "restricted scheme information", NULL},
+	{BOX_rsrc, 0x00000001, 0x00000000, "Macintosh resource alias", NULL},
 	{BOX_schi, 0x00000001, 0x00000001, "scheme information", NULL},
 	{BOX_sinf, 0x00000001, 0x00000001, "protection scheme information", NULL},
 	{BOX_skip, 0x00080001, 0x00000000, "user-data", NULL},
@@ -1448,6 +1472,7 @@ static const struct box_type_info box_type_info_arr[] = {
 	{BOX_url , 0x00090001, 0x00000000, "URL", do_box_url},
 	{BOX_vmhd, 0x00000001, 0x00000000, "video media header", do_box_vmhd},
 	{BOX_wide, 0x00000001, 0x00000000, "reserved space", NULL},
+	{BOX_PICT, 0x00000001, 0x00000000, "QuickDraw picture", do_box_PICT},
 	{BOX_asoc, 0x00010000, 0x00000001, "association", NULL},
 	{BOX_cgrp, 0x00010000, 0x00000001, NULL, NULL},
 	{BOX_cdef, 0x00010000, 0x00000000, "channel definition", do_box_cdef},
@@ -1624,7 +1649,6 @@ static void de_run_bmff(deark *c, de_module_params *mparams)
 	struct de_boxesctx *bctx = NULL;
 	int skip_autodetect = 0;
 	const char *s;
-	u8 buf[4];
 
 	d = de_malloc(c, sizeof(lctx));
 	bctx = de_malloc(c, sizeof(struct de_boxesctx));
@@ -1638,12 +1662,18 @@ static void de_run_bmff(deark *c, de_module_params *mparams)
 		d->is_jp2_jpx_jpm = 1;
 		skip_autodetect = 1;
 	}
+	if(de_havemodcode(c, mparams, 'B')) {
+		d->is_bmff = 1;
+		skip_autodetect = 1;
+	}
 
 	if(!skip_autodetect) {
+		u32 first_boxtype;
 		// Try to detect old QuickTime files that don't have an ftyp box.
-		de_read(buf, 4, 4);
-		if(!de_memcmp(buf, "mdat", 4) ||
-			!de_memcmp(buf, "moov", 4))
+		first_boxtype = (u32)de_getu32be(4);
+		if(first_boxtype==BOX_mdat || first_boxtype==BOX_moov ||
+			first_boxtype==BOX_free || first_boxtype==BOX_wide ||
+			first_boxtype==BOX_skip || first_boxtype==BOX_pnot)
 		{
 			d->is_bmff = 1;
 		}
@@ -1694,12 +1724,16 @@ void de_module_jpeg2000(deark *c, struct deark_module_info *mi)
 
 static int de_identify_bmff(deark *c)
 {
-	u8 buf[4];
+	u32 first_boxtype;
 
-	de_read(buf, 4, 4);
-	if(!de_memcmp(buf, "ftyp", 4)) return 80;
-	if(!de_memcmp(buf, "mdat", 4)) return 15;
-	if(!de_memcmp(buf, "moov", 4)) return 15;
+	first_boxtype = (u32)de_getu32be(4);
+	if(first_boxtype==BOX_ftyp) return 80;
+	if(first_boxtype==BOX_mdat) return 35;
+	if(first_boxtype==BOX_moov) return 35;
+	if(first_boxtype==BOX_skip) return 10;
+	if(first_boxtype==BOX_wide) return 10;
+	if(first_boxtype==BOX_pnot) return 10;
+	if(first_boxtype==BOX_free) return 9;
 	return 0;
 }
 
