@@ -870,6 +870,10 @@
 				>
 			</File>
 			<File
+				RelativePath="..\..\modules\stuffit.c"
+				>
+			</File>
+			<File
 				RelativePath="..\..\modules\sunras.c"
 				>
 			</File>

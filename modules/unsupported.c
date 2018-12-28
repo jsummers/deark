@@ -93,11 +93,9 @@ static void get_fmt(deark *c, struct fmtinfo_struct *fmti)
 		return;
 	}
 
-	if(!de_memcmp(b, "SIT!", 4) ||
-		!de_memcmp(b, "StuffIt", 7))
-	{
-		fmti->confidence = 9;
-		fmti->descr = "a StuffIt archive";
+	if((!de_memcmp(b, "StuffIt", 7)) && (b[7]=='!' || b[7]=='?')) {
+		fmti->confidence = 90;
+		fmti->descr = "a StuffIt X archive";
 		return;
 	}
 
