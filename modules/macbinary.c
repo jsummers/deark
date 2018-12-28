@@ -28,6 +28,7 @@ static void do_header(deark *c, lctx *d)
 	i64 pos = 0;
 	i64 n, n2;
 	i64 mod_time_raw;
+	u32 crc_reported, crc_calc;
 	struct de_fourcc type4cc;
 	struct de_fourcc creator4cc;
 	char timestamp_buf[64];
@@ -136,19 +137,17 @@ static void do_header(deark *c, lctx *d)
 	pos += 1; // version number, already read
 	pos += 1; // version number, already read
 
-	if(d->ver2 >= 129) {
-		struct de_crcobj *crco = NULL;
-		u32 crc_calc;
-		n = de_getu16be(pos);
-		de_dbg(c, "CRC of header (reported): 0x%04x", (unsigned int)n);
+	crc_reported = (u32)de_getu16be_p(&pos);
+	if(d->ver2>=129 || crc_reported!=0) {
+		struct de_crcobj *crco;
 
+		de_dbg(c, "CRC of header (reported): 0x%04x", (unsigned int)crc_reported);
 		crco = de_crcobj_create(c, DE_CRCOBJ_CRC16_CCITT);
 		de_crcobj_addslice(crco, c->infile, 0, 124);
 		crc_calc = de_crcobj_getval(crco);
 		de_crcobj_destroy(crco);
 		de_dbg(c, "CRC of header (calculated): 0x%04x", (unsigned int)crc_calc);
 	}
-	pos += 2;
 
 	pos += 2; // Reserved for computer type and OS ID
 done:
@@ -161,7 +160,13 @@ static void do_extract_one_file(deark *c, lctx *d, i64 pos, i64 len,
 	de_finfo *fi = NULL;
 	const char *ext = NULL;
 
-	if(pos+len>c->infile->len) goto done;
+	if(pos+len>c->infile->len) {
+		de_err(c, "%s fork at %"I64_FMT" goes beyond end of file.",
+			is_rsrc?"Resource":"Data", pos);
+		if(pos+len>c->infile->len+1024) {
+			goto done;
+		}
+	}
 	fi = de_finfo_create(c);
 
 	if(d->mod_time.is_valid) {
@@ -251,10 +256,12 @@ static int de_identify_macbinary(deark *c)
 {
 	int conf = 0;
 	int k;
+	int has_sig;
 	u8 ver2;
 	i64 n;
 	i64 dflen, rflen;
 	i64 min_expected_len;
+	u32 crc_reported, crc_calc;
 	u8 b[128];
 
 	// "old" version number is always 0.
@@ -269,8 +276,16 @@ static int de_identify_macbinary(deark *c)
 
 	// Extended version number
 	ver2 = b[122];
-	// ?? Do versions over 129 exist?
-	if(ver2!=0 && ver2!=129) goto done;
+	// 129=ver.II, 130=ver.III
+	if(ver2!=0 && ver2!=129 && ver2!=130) goto done;
+
+	// Ver.III signature, but possibly used in some files that have earlier
+	// version numbers.
+	has_sig = !de_memcmp(&b[102], (const void*)"mBIN", 4);
+	if(has_sig) {
+		conf = 100;
+		goto done;
+	}
 
 	// Check if filename characters are sensible
 	for(k=0; k<(int)b[1]; k++) {
@@ -288,6 +303,8 @@ static int de_identify_macbinary(deark *c)
 	dflen = de_getu32be_direct(&b[83]);
 	rflen = de_getu32be_direct(&b[87]);
 
+	crc_reported = (u32)de_getu16be_direct(&b[124]);
+
 	if(ver2>=129) {
 		// Most MacBinary II specific checks go here
 
@@ -299,8 +316,6 @@ static int de_identify_macbinary(deark *c)
 		// Secondary header length.
 		n = de_getu16be_direct(&b[120]);
 		if(n!=0) goto done;
-
-		// TODO: checking the CRC would be the most robust check.
 	}
 	else {
 		// Most Original MacBinary format checks go here
@@ -309,7 +324,10 @@ static int de_identify_macbinary(deark *c)
 		// allow all 0 bytes.
 		if(dflen==0 && rflen==0) goto done;
 
-		if(!de_is_all_zeroes(&b[99], 27)) goto done;
+		// Unused fields in this version should be all 0, though we'll allow a
+		// nonzero "CRC" field if it's correct. And we won't get here if there
+		// was an mBIN signature.
+		if(!de_is_all_zeroes(&b[99], 25)) goto done;
 	}
 
 	// Check the file size.
@@ -322,12 +340,31 @@ static int de_identify_macbinary(deark *c)
 	// The file size really should be exactly min_expected_len, or that
 	// number padded to the next multiple of 128. But I'm not bold
 	// enough to require it.
-	if(c->infile->len < min_expected_len) goto done;
+	// The +256 allows some wiggle room, because invalid files are common.
+	if(c->infile->len+256 < min_expected_len) goto done;
 
-	conf = (ver2>=129)?74:49;
-	c->detection_data.is_macbinary = 1;
+	if(crc_reported!=0 || ver2>=129) {
+		struct de_crcobj *crco;
+
+		crco = de_crcobj_create(c, DE_CRCOBJ_CRC16_CCITT);
+		de_crcobj_addbuf(crco, b, 124);
+		crc_calc = de_crcobj_getval(crco);
+		de_crcobj_destroy(crco);
+		if(crc_calc != crc_reported) goto done;
+	}
+
+	if(ver2>=129) {
+		// Passed the CRC-16 check, so confidence is high.
+		conf = 90;
+	}
+	else {
+		conf = 49;
+	}
 
 done:
+	if(conf>0) {
+		c->detection_data.is_macbinary = 1;
+	}
 	return conf;
 }
 
