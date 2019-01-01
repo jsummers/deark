@@ -459,6 +459,10 @@
 				>
 			</File>
 			<File
+				RelativePath="..\..\foreign\unsit.h"
+				>
+			</File>
+			<File
 				RelativePath="..\..\foreign\unzoo.h"
 				>
 			</File>

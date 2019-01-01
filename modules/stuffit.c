@@ -7,6 +7,7 @@
 #include <deark-config.h>
 #include <deark-private.h>
 #include <deark-fmtutil.h>
+#include "../foreign/unsit.h"
 DE_DECLARE_MODULE(de_module_stuffit);
 
 struct cmpr_meth_info;
@@ -90,11 +91,29 @@ static int do_decompr_lzw(deark *c, lctx *d, struct member_data *md,
 	return retval;
 }
 
+static int do_decompr_huffman(deark *c, lctx *d, struct member_data *md,
+	struct fork_data *frk, dbuf *outf)
+{
+	int ret;
+	struct huffctx hctx;
+
+	de_zeromem(&hctx, sizeof(struct huffctx));
+	hctx.c = c;
+	hctx.inf = c->infile;
+	hctx.cmpr_pos = frk->cmpr_pos;
+	hctx.cmpr_len = frk->cmpr_len;
+	hctx.outf = outf;
+	hctx.unc_len = frk->unc_len;
+
+	ret = huff_main(&hctx);
+	return ret;
+}
+
 static const struct cmpr_meth_info cmpr_meth_info_arr[] = {
 	{ CMPR_NONE, "uncompressed", do_decompr_uncompressed },
 	{ CMPR_RLE, "RLE",  do_decompr_rle },
 	{ CMPR_LZW, "LZW", do_decompr_lzw },
-	{ CMPR_HUFFMAN, "Huffman", NULL },
+	{ CMPR_HUFFMAN, "Huffman", do_decompr_huffman },
 	{ CMPR_LZAH, "LZAH", NULL },
 	{ CMPR_FIXEDHUFF, "fixed Huffman", NULL },
 	{ CMPR_MW, "MW", NULL },

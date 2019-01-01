@@ -193,7 +193,8 @@ obj/modules/sis.o: modules/sis.c src/deark-config.h src/deark-private.h \
 obj/modules/spectrum512.o: modules/spectrum512.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h
 obj/modules/stuffit.o: modules/stuffit.c src/deark-config.h \
- src/deark-private.h src/deark.h src/deark-fmtutil.h
+ src/deark-private.h src/deark.h src/deark-fmtutil.h \
+ modules/../foreign/unsit.h
 obj/modules/sunras.o: modules/sunras.c src/deark-config.h \
  src/deark-private.h src/deark.h
 obj/modules/t64.o: modules/t64.c src/deark-config.h src/deark-private.h \

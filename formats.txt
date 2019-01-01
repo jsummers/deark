@@ -618,6 +618,9 @@ Deark -- Information about supported formats
 * Squash (module="squash") (experimental)
   A variant of "compress", used on RISC OS.
 
+* StuffIt (.sit) (module="stuffit")
+  - Limited support. Old format only.
+
 * tar (module="tar") (experimental/incomplete)
   - Rare files may need "-m tar", as tar is difficult to autodetect.
 
