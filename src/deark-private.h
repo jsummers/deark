@@ -460,10 +460,9 @@ u32 de_crc32_continue(u32 prev_crc, const void *buf, i64 buf_len);
 
 ///////////////////////////////////////////
 
-struct de_liblzwctx;
-struct de_liblzwctx *de_liblzw_dbufopen(dbuf *inf, unsigned int dflags, u8 lzwmode);
-int de_liblzw_close(struct de_liblzwctx *lzw);
-i64 de_liblzw_read(struct de_liblzwctx *lzw, u8 *readbuf, size_t count);
+int de_decompress_liblzw(dbuf *inf1, i64 pos1, i64 len,
+	dbuf *outf, unsigned int has_maxlen, i64 max_out_len,
+	unsigned int dflags, u8 lzwmode);
 
 ///////////////////////////////////////////
 

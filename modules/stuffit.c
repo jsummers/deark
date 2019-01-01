@@ -80,43 +80,13 @@ static int do_decompr_rle(deark *c, lctx *d, struct member_data *md,
 static int do_decompr_lzw(deark *c, lctx *d, struct member_data *md,
 	struct fork_data *frk, dbuf *outf)
 {
-	u8 buf[1024];
-	i64 n;
-	dbuf *inf = NULL;
-	struct de_liblzwctx *lzw = NULL;
-	i64 nbytes_still_to_write;
 	u8 lzwmode;
 	int retval = 0;
 
-	inf = dbuf_open_input_subfile(c->infile, frk->cmpr_pos, frk->cmpr_len);
-
 	// TODO: What are the right lzw settings?
 	lzwmode = (u8)(14 | 0x80);
-	lzw = de_liblzw_dbufopen(inf, 0x0, lzwmode);
-	if(!lzw) goto done;
-
-	nbytes_still_to_write = frk->unc_len;
-
-	while(1) {
-		if(nbytes_still_to_write<1) break;
-		n = de_liblzw_read(lzw, buf, sizeof(buf));
-		if(n<0) {
-			goto done;
-		}
-		if(n<1) break;
-
-		if(n > nbytes_still_to_write) {
-			n = nbytes_still_to_write;
-		}
-
-		dbuf_write(outf, buf, n);
-		nbytes_still_to_write -= n;
-	}
-	retval = 1;
-
-done:
-	if(lzw) de_liblzw_close(lzw);
-	dbuf_close(inf);
+	retval = de_decompress_liblzw(c->infile, frk->cmpr_pos, frk->cmpr_len, outf,
+		1, frk->unc_len, 0x0, lzwmode);
 	return retval;
 }
 

@@ -76,7 +76,7 @@ struct de_liblzwctx {
 /*
  * Open LZW file
  */
-struct de_liblzwctx *de_liblzw_dbufopen(dbuf *inf, unsigned int dflags, u8 lzwmode)
+static struct de_liblzwctx *de_liblzw_dbufopen(dbuf *inf, unsigned int dflags, u8 lzwmode)
 {
 	struct de_liblzwctx *ret = NULL;
 	i64 inf_fpos = 0;
@@ -158,7 +158,7 @@ err_out_free:
 /*
  * Close LZW file
  */
-int de_liblzw_close(struct de_liblzwctx *lzw)
+static int de_liblzw_close(struct de_liblzwctx *lzw)
 {
 	int ret;
 	if (lzw == NULL)
@@ -188,7 +188,7 @@ int de_liblzw_close(struct de_liblzwctx *lzw)
 /*
  * Read LZW file
  */
-i64 de_liblzw_read(struct de_liblzwctx *lzw, u8 *readbuf, size_t count)
+static i64 de_liblzw_read(struct de_liblzwctx *lzw, u8 *readbuf, size_t count)
 {
 	size_t count_left = count;
 	unsigned char *inbuf = lzw->inbuf;

@@ -91,44 +91,12 @@ done:
 static int do_compressed(deark *c, lctx *d, struct member_data *md, dbuf *outf,
 	int limit_size_flag)
 {
-	u8 buf[1024];
-	i64 n;
-	dbuf *inf = NULL;
-	struct de_liblzwctx *lzw = NULL;
-	i64 nbytes_still_to_write;
 	u8 lzwmode;
 	int retval = 0;
 
-	inf = dbuf_open_input_subfile(c->infile, md->file_data_offs_abs, md->cmpr_len);
-
 	lzwmode = (u8)(md->lzwmaxbits | 0x80);
-	lzw = de_liblzw_dbufopen(inf, 0x2, lzwmode);
-	if(!lzw) goto done;
-
-	nbytes_still_to_write = md->orig_len;
-
-	while(1) {
-		if(limit_size_flag && (nbytes_still_to_write<1)) break;
-		n = de_liblzw_read(lzw, buf, sizeof(buf));
-		if(n<0) {
-			goto done;
-		}
-		if(n<1) break;
-
-		if(limit_size_flag && (n > nbytes_still_to_write)) {
-			// These files often seem to decompress to have a few extra bytes at
-			// the end. Make sure we don't write more bytes than we should.
-			n = nbytes_still_to_write;
-		}
-
-		dbuf_write(outf, buf, n);
-		nbytes_still_to_write -= n;
-	}
-	retval = 1;
-
-done:
-	if(lzw) de_liblzw_close(lzw);
-	dbuf_close(inf);
+	retval = de_decompress_liblzw(c->infile, md->file_data_offs_abs, md->cmpr_len,
+		outf, limit_size_flag, md->orig_len, 0x2, lzwmode);
 	return retval;
 }
 
@@ -441,45 +409,6 @@ typedef struct sqctx_struct {
 	int reserved;
 } sqctx;
 
-static int do_compressed_sq(deark *c, sqctx *d, struct member_data *md, dbuf *outf)
-{
-	u8 buf[1024];
-	i64 n;
-	dbuf *inf = NULL;
-	struct de_liblzwctx *lzw = NULL;
-	i64 nbytes_still_to_write;
-	int retval = 0;
-
-	inf = dbuf_open_input_subfile(c->infile, md->file_data_offs_abs, md->cmpr_len);
-
-	lzw = de_liblzw_dbufopen(inf, 0x1, 0);
-	if(!lzw) goto done;
-
-	nbytes_still_to_write = md->orig_len;
-
-	while(1) {
-		if(nbytes_still_to_write<1) break;
-		n = de_liblzw_read(lzw, buf, sizeof(buf));
-		if(n<0) {
-			goto done;
-		}
-		if(n<1) break;
-
-		if(n > nbytes_still_to_write) {
-			n = nbytes_still_to_write;
-		}
-
-		dbuf_write(outf, buf, n);
-		nbytes_still_to_write -= n;
-	}
-	retval = 1;
-
-done:
-	if(lzw) de_liblzw_close(lzw);
-	dbuf_close(inf);
-	return retval;
-}
-
 static void do_squash_header(deark *c, sqctx *d, struct member_data *md, i64 pos1)
 {
 	i64 pos = pos1;
@@ -516,6 +445,7 @@ static void de_run_squash(deark *c, de_module_params *mparams)
 	dbuf *outf = NULL;
 	de_finfo *fi = NULL;
 	de_ucstring *fn = NULL;
+	int ret;
 
 	d = de_malloc(c, sizeof(sqctx));
 	md = de_malloc(c, sizeof(struct member_data));
@@ -540,7 +470,11 @@ static void de_run_squash(deark *c, de_module_params *mparams)
 	}
 
 	outf = dbuf_create_output_file(c, NULL, fi, 0);
-	if(!do_compressed_sq(c, d, md, outf)) goto done;
+
+	ret = de_decompress_liblzw(c->infile, md->file_data_offs_abs, md->cmpr_len,
+		outf, 1, md->orig_len, 0x1, 0);
+
+	if(!ret) goto done;
 
 	if(outf->len != md->orig_len) {
 		de_err(c, "Decompression failed, expected size %"I64_FMT
