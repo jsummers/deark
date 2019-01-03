@@ -11,8 +11,9 @@ DE_DECLARE_MODULE(de_module_macbinary);
 typedef struct localctx_struct {
 	u8 extract_files;
 	u8 oldver;
-	u8 ver2;
-	u8 ver2_minneeded;
+	u8 extver;
+	u8 extver_minneeded;
+	int is_v23;
 	i64 dfpos, rfpos;
 	i64 dflen, rflen;
 	de_ucstring *filename;
@@ -40,11 +41,14 @@ static void do_header(deark *c, lctx *d)
 		goto done;
 	}
 
-	d->ver2 = de_getbyte(122);
-	de_dbg(c, "MacBinary II version: %u", (unsigned int)d->ver2);
-	if(d->ver2 >= 129) {
-		d->ver2_minneeded = de_getbyte(123);
-		de_dbg(c, "MacBinary II version, min needed: %u", (unsigned int)d->ver2_minneeded);
+	d->extver = de_getbyte(122);
+	de_dbg(c, "extended version: %u", (unsigned int)d->extver);
+	if(d->extver==129 || d->extver==130) {
+		d->is_v23 = 1;
+	}
+	if(d->extver >= 129) {
+		d->extver_minneeded = de_getbyte(123);
+		de_dbg(c, "extended version, min needed: %u", (unsigned int)d->extver_minneeded);
 	}
 
 	namelen = (i64)de_getbyte_p(&pos);
@@ -52,7 +56,9 @@ static void do_header(deark *c, lctx *d)
 		// Required to be 1-63 by MacBinary II spec.
 		// Original spec has no written requirements.
 		d->filename = ucstring_create(c);
-		dbuf_read_to_ucstring(c->infile, pos, namelen, d->filename, 0, DE_ENCODING_MACROMAN);
+		// Not supposed to be NUL terminated, but such files exist.
+		dbuf_read_to_ucstring(c->infile, pos, namelen, d->filename,
+			DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_MACROMAN);
 		de_dbg(c, "filename: \"%s\"", ucstring_getpsz(d->filename));
 	}
 	else {
@@ -115,11 +121,11 @@ static void do_header(deark *c, lctx *d)
 		d->mod_time.tzcode = DE_TZCODE_LOCAL;
 		de_timestamp_to_string(&d->mod_time, timestamp_buf, sizeof(timestamp_buf), 0);
 	}
-	de_dbg(c, "mod date: %"I64_FMT" (%s)", n, timestamp_buf);
+	de_dbg(c, "mod date: %"I64_FMT" (%s)", mod_time_raw, timestamp_buf);
 
 	pos += 2; // length of Get Info comment
 
-	if(d->ver2 >= 129) {
+	if(d->is_v23) {
 		b = de_getbyte(pos);
 		de_dbg(c, "finder flags, bits 0-7: 0x%02x", (unsigned int)b);
 	}
@@ -128,7 +134,7 @@ static void do_header(deark *c, lctx *d)
 	pos += 14; // unused
 	pos += 4; // unpacked total length
 
-	if(d->ver2 >= 129) {
+	if(d->is_v23) {
 		n = de_getu16be(pos);
 		de_dbg(c, "length of secondary header: %u", (unsigned int)n);
 	}
@@ -138,15 +144,20 @@ static void do_header(deark *c, lctx *d)
 	pos += 1; // version number, already read
 
 	crc_reported = (u32)de_getu16be_p(&pos);
-	if(d->ver2>=129 || crc_reported!=0) {
+	if(d->is_v23 || crc_reported!=0) {
 		struct de_crcobj *crco;
 
-		de_dbg(c, "CRC of header (reported): 0x%04x", (unsigned int)crc_reported);
+		de_dbg(c, "crc of header (reported%s): 0x%04x",
+			(d->is_v23)?"":", hypothetical", (unsigned int)crc_reported);
 		crco = de_crcobj_create(c, DE_CRCOBJ_CRC16_CCITT);
 		de_crcobj_addslice(crco, c->infile, 0, 124);
 		crc_calc = de_crcobj_getval(crco);
 		de_crcobj_destroy(crco);
-		de_dbg(c, "CRC of header (calculated): 0x%04x", (unsigned int)crc_calc);
+		de_dbg(c, "crc of header (calculated): 0x%04x", (unsigned int)crc_calc);
+
+		if(d->is_v23 && crc_reported!=0 && crc_calc!=crc_reported) {
+			de_warn(c, "MacBinary header CRC check failed");
+		}
 	}
 
 	pos += 2; // Reserved for computer type and OS ID
@@ -249,15 +260,18 @@ static void de_run_macbinary(deark *c, de_module_params *mparams)
 	}
 }
 
-// The goal is to identify MacBinary and MacBinary II files that are
-// valid, and not too pathological.
+// Detecting MacBinary format is important, but also very difficult.
 // Note: This must be coordinated with the macpaint detection routine.
+// It should never set the confidence to 100, because macpaint and
+// maybe other formats need to be able to have higher confidence.
 static int de_identify_macbinary(deark *c)
 {
 	int conf = 0;
 	int k;
 	int has_sig;
-	u8 ver2;
+	int is_v23 = 0; // v2 or v3
+	int good_file_len = 0;
+	int good_cc = 0;
 	i64 n;
 	i64 dflen, rflen;
 	i64 min_expected_len;
@@ -274,91 +288,117 @@ static int de_identify_macbinary(deark *c)
 
 	de_read(&b[2], 2, sizeof(b)-2);
 
+	if(b[2]==0) goto done; // First filename byte
+	if(b[74]!=0) goto done;
+	if(b[82]!=0) goto done;
+
 	// Extended version number
-	ver2 = b[122];
-	// 129=ver.II, 130=ver.III
-	if(ver2!=0 && ver2!=129 && ver2!=130) goto done;
+	if(b[122]==129 && b[123]==129) {
+		// v2
+		is_v23 = 1;
+	}
+	else if(b[122]==130 && (b[123]==129 || b[123]==130)) {
+		// v3
+		is_v23 = 1;
+	}
+	// else v1.
+	// Some v1 files have garbage in the last 29 bytes of the file,
+	// so we can't assume the extended version number is 0.
 
 	// Ver.III signature, but possibly used in some files that have earlier
 	// version numbers.
 	has_sig = !de_memcmp(&b[102], (const void*)"mBIN", 4);
 	if(has_sig) {
-		conf = 100;
+		conf = 90;
 		goto done;
 	}
 
 	// Check if filename characters are sensible
 	for(k=0; k<(int)b[1]; k++) {
-		if(b[2+k]<32) goto done;
+		if(b[2+k]>0 && b[2+k]<32) goto done;
 	}
 
 	// File type code. Expect ASCII.
+	good_cc = 1;
 	for(k=65; k<=68; k++) {
-		if(b[k]<32 || b[k]>127) goto done;
+		if(b[k]<32 || b[k]>127) good_cc = 0;
 	}
-
-	if(b[74]!=0) goto done;
-	if(b[82]!=0) goto done;
 
 	dflen = de_getu32be_direct(&b[83]);
 	rflen = de_getu32be_direct(&b[87]);
 
 	crc_reported = (u32)de_getu16be_direct(&b[124]);
 
-	if(ver2>=129) {
-		// Most MacBinary II specific checks go here
-
-		if(!de_is_all_zeroes(&b[102], 14)) goto done;
-
-		// Min. ext. version needed to read file (??)
-		if(b[123]!=0 && b[123]!=129) goto done;
-
-		// Secondary header length.
-		n = de_getu16be_direct(&b[120]);
-		if(n!=0) goto done;
-	}
-	else {
-		// Most Original MacBinary format checks go here
-
-		// An empty file is not illegal, but we need more checks that don't
-		// allow all 0 bytes.
-		if(dflen==0 && rflen==0) goto done;
-
-		// Unused fields in this version should be all 0, though we'll allow a
-		// nonzero "CRC" field if it's correct. And we won't get here if there
-		// was an mBIN signature.
-		if(!de_is_all_zeroes(&b[99], 25)) goto done;
-	}
-
 	// Check the file size.
+
+	// Resource forks that go beyond the end of file are too common to
+	// disallow.
+	if(128 + dflen > c->infile->len) goto done;
+	if(128 + rflen + dflen > c->infile->len + 4096) goto done;
+
 	if(rflen>0) {
 		min_expected_len = 128 + de_pad_to_n(dflen, 128) + rflen;
 	}
 	else {
 		min_expected_len = 128 + dflen;
 	}
+
 	// The file size really should be exactly min_expected_len, or that
 	// number padded to the next multiple of 128. But I'm not bold
 	// enough to require it.
-	// The +256 allows some wiggle room, because invalid files are common.
-	if(c->infile->len+256 < min_expected_len) goto done;
+	if((c->infile->len == min_expected_len) ||
+		(c->infile->len == de_pad_to_n(min_expected_len, 128)))
+	{
+		good_file_len = 1;
+	}
 
-	if(crc_reported!=0 || ver2>=129) {
+	if(is_v23) {
+		// Most MacBinary II specific checks go here
+
+		if(!de_is_all_zeroes(&b[102], 14)) {
+			if(!good_file_len) goto done;
+		}
+
+		// Secondary header length. We don't support this.
+		n = de_getu16be_direct(&b[120]);
+		if(n!=0) goto done;
+	}
+	else {
+		// Most Original MacBinary format checks go here
+
+		// An empty file is not illegal, but we need as many checks as possible
+		// that won't be passed by all 0 bytes.
+		if(dflen==0 && rflen==0) goto done;
+
+		// Unused fields in this version should be all 0, though we'll allow
+		// nonzero values in some cases.
+		if(!de_is_all_zeroes(&b[99], 25)) {
+			if(!good_file_len) goto done;
+		}
+	}
+
+	if(crc_reported!=0 || is_v23) {
 		struct de_crcobj *crco;
 
 		crco = de_crcobj_create(c, DE_CRCOBJ_CRC16_CCITT);
 		de_crcobj_addbuf(crco, b, 124);
 		crc_calc = de_crcobj_getval(crco);
 		de_crcobj_destroy(crco);
-		if(crc_calc != crc_reported) goto done;
+		if(crc_calc!=crc_reported && is_v23 && crc_reported!=0) goto done;
 	}
 
-	if(ver2>=129) {
+	if(is_v23 && good_file_len && good_cc) {
 		// Passed the CRC-16 check, so confidence is high.
 		conf = 90;
 	}
-	else {
+	else if(is_v23) {
 		conf = 49;
+	}
+	else if(good_cc) {
+		conf = 29;
+	}
+	else {
+		conf = 19;
 	}
 
 done:
