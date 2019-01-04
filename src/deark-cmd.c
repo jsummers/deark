@@ -73,6 +73,7 @@ static void show_help(deark *c)
 		"\nCommonly used options:\n"
 		" -l: Instead of extracting, list the files that would be extracted.\n"
 		" -m <module>: Assume input file is this format, instead of autodetecting.\n"
+		" -k: Start output filenames with the input filename.\n"
 		" -o <base-filename>: Start output filenames with this string.\n"
 		" -zip: Write output files to a .zip file.\n"
 		" -a: Extract more data than usual.\n"
