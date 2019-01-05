@@ -601,25 +601,35 @@ void de_free(deark *c, void *m)
 	free(m);
 }
 
-struct deark_module_info *de_get_module_by_id(deark *c, const char *module_id)
+// Returns the index into c->module_info[], or -1 if no found.
+int de_get_module_idx_by_id(deark *c, const char *module_id)
 {
 	int i;
 	int k;
 
-	if(!module_id) return NULL;
+	if(!module_id) return -1;
 
 	for(i=0; i<c->num_modules; i++) {
 		if(!de_strcmp(c->module_info[i].id, module_id)) {
-			return &c->module_info[i];
+			return i;
 		}
 		for(k=0; k<DE_MAX_MODULE_ALIASES; k++) {
-			if(!c->module_info[i].id_alias[k]) continue;
+			if(!c->module_info[i].id_alias[k]) break;
 			if(!de_strcmp(c->module_info[i].id_alias[k], module_id)) {
-				return &c->module_info[i];
+				return i;
 			}
 		}
 	}
-	return NULL;
+	return -1;
+}
+
+struct deark_module_info *de_get_module_by_id(deark *c, const char *module_id)
+{
+	int idx;
+
+	idx = de_get_module_idx_by_id(c, module_id);
+	if(idx<0) return NULL;
+	return &c->module_info[idx];
 }
 
 int de_run_module(deark *c, struct deark_module_info *mi, de_module_params *mparams, int moddisp)

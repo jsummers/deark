@@ -290,7 +290,8 @@ enum opt_id_enum {
  DE_OPT_START, DE_OPT_SIZE, DE_OPT_M, DE_OPT_MODCODES, DE_OPT_O,
  DE_OPT_K, DE_OPT_K2, DE_OPT_K3,
  DE_OPT_ARCFN, DE_OPT_GET, DE_OPT_FIRSTFILE, DE_OPT_MAXFILES, DE_OPT_MAXIMGDIM,
- DE_OPT_PRINTMODULES, DE_OPT_DPREFIX, DE_OPT_EXTRLIST
+ DE_OPT_PRINTMODULES, DE_OPT_DPREFIX, DE_OPT_EXTRLIST,
+ DE_OPT_ONLYMODS, DE_OPT_DISABLEMODS, DE_OPT_ONLYDETECT, DE_OPT_NODETECT
 };
 
 struct opt_struct {
@@ -350,6 +351,10 @@ struct opt_struct option_array[] = {
 	{ "maxdim",       DE_OPT_MAXIMGDIM,    1 },
 	{ "dprefix",      DE_OPT_DPREFIX,      1 },
 	{ "extrlist",     DE_OPT_EXTRLIST,     1 },
+	{ "onlymods",     DE_OPT_ONLYMODS,     1 },
+	{ "disablemods",  DE_OPT_DISABLEMODS,  1 },
+	{ "onlydetect",   DE_OPT_ONLYDETECT,   1 },
+	{ "nodetect",     DE_OPT_NODETECT,     1 },
 	{ NULL,           DE_OPT_NULL,         0 }
 };
 
@@ -567,6 +572,18 @@ static void parse_cmdline(deark *c, struct cmdctx *cc, int argc, char **argv)
 				break;
 			case DE_OPT_EXTRLIST:
 				de_set_extrlist_filename(c, argv[i+1]);
+				break;
+			case DE_OPT_ONLYMODS:
+				de_set_disable_mods(c, argv[i+1], 1);
+				break;
+			case DE_OPT_DISABLEMODS:
+				de_set_disable_mods(c, argv[i+1], 0);
+				break;
+			case DE_OPT_ONLYDETECT:
+				de_set_disable_moddetect(c, argv[i+1], 1);
+				break;
+			case DE_OPT_NODETECT:
+				de_set_disable_moddetect(c, argv[i+1], 0);
 				break;
 			default:
 				de_printf(c, DE_MSGTYPE_MESSAGE, "Unrecognized option: %s\n", argv[i]);

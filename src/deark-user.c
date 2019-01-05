@@ -601,3 +601,27 @@ void de_set_module_init_codes(deark *c, const char *codes)
 {
 	c->modcodes_req = codes;
 }
+
+// invert=0: Disable the mods in the list
+// invert=1: Disable all mods not in the list
+void de_set_disable_mods(deark *c, const char *s, int invert)
+{
+	if(invert==0) {
+		c->disablemods_string = s;
+	}
+	else {
+		c->onlymods_string = s;
+	}
+}
+
+// invert=0: Disable autodetection of the mods in the list
+// invert=1: Disable autodetection of all mods not in the list
+void de_set_disable_moddetect(deark *c, const char *s, int invert)
+{
+	if(invert==0) {
+		c->nodetectmods_string = s;
+	}
+	else {
+		c->onlydetectmods_string = s;
+	}
+}

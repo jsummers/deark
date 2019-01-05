@@ -336,6 +336,11 @@ struct deark_struct {
 	char *output_archive_filename;
 	char *extrlist_filename;
 
+	const char *onlymods_string;
+	const char *disablemods_string;
+	const char *onlydetectmods_string;
+	const char *nodetectmods_string;
+
 	struct de_timestamp current_time;
 
 	de_module_register_fn_type module_register_fn;
@@ -361,6 +366,7 @@ void de_run_module_by_id_on_slice(deark *c, const char *id, de_module_params *mp
 	dbuf *f, i64 pos, i64 len);
 void de_run_module_by_id_on_slice2(deark *c, const char *id, const char *codes,
 	dbuf *f, i64 pos, i64 len);
+int de_get_module_idx_by_id(deark *c, const char *module_id);
 struct deark_module_info *de_get_module_by_id(deark *c, const char *module_id);
 
 void de_strlcpy(char *dst, const char *src, size_t dstlen);
