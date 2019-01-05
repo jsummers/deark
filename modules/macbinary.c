@@ -414,4 +414,5 @@ void de_module_macbinary(deark *c, struct deark_module_info *mi)
 	mi->desc = "MacBinary";
 	mi->run_fn = de_run_macbinary;
 	mi->identify_fn = de_identify_macbinary;
+	mi->flags = DE_MODFLAG_SHAREDDETECTION;
 }

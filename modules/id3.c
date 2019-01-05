@@ -1263,5 +1263,5 @@ void de_module_id3(deark *c, struct deark_module_info *mi)
 	mi->desc = "ID3 metadata";
 	mi->run_fn = de_run_id3;
 	mi->identify_fn = de_identify_id3;
-	mi->flags |= DE_MODFLAG_HIDDEN;
+	mi->flags |= DE_MODFLAG_HIDDEN | DE_MODFLAG_SHAREDDETECTION;
 }

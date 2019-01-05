@@ -99,13 +99,23 @@ static void disable_modules_as_requested(deark *c)
 	if(c->onlydetectmods_string) {
 		de_zeromem(mod_set, c->num_modules);
 		module_list_string_to_set(c, c->onlydetectmods_string, mod_set);
-		// ...
+		// Set MODFLAG_DISABLEDETECT for modules not in the list
+		for(k=0; k<c->num_modules; k++) {
+			if(!mod_set[k]) {
+				c->module_info[k].flags |= DE_MODFLAG_DISABLEDETECT;
+			}
+		}
 	}
 
 	if(c->nodetectmods_string) {
 		de_zeromem(mod_set, c->num_modules);
 		module_list_string_to_set(c, c->nodetectmods_string, mod_set);
-		// ...
+		// Set MODFLAG_DISABLEDETECT for modules in the list
+		for(k=0; k<c->num_modules; k++) {
+			if(mod_set[k]) {
+				c->module_info[k].flags |= DE_MODFLAG_DISABLEDETECT;
+			}
+		}
 	}
 
 	de_free(c, mod_set);

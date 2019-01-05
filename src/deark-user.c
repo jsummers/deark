@@ -26,14 +26,30 @@ static struct deark_module_info *detect_module_for_file(deark *c)
 	}
 
 	for(i=0; i<c->num_modules; i++) {
-		if(c->module_info[i].identify_fn!=NULL) {
-			result = c->module_info[i].identify_fn(c);
-			if(result > best_result) {
-				best_result = result;
-				best_module = &c->module_info[i];
-				if(best_result>=100) break;
-			}
+		if(c->module_info[i].identify_fn==NULL) continue;
+
+		// If autodetect is disabled for this module, and its autodetect routine
+		// doesn't do anything that may be needed by other modules, don't bother
+		// to run this module's autodetection.
+		if((c->module_info[i].flags & DE_MODFLAG_DISABLEDETECT) &&
+			!(c->module_info[i].flags & DE_MODFLAG_SHAREDDETECTION))
+		{
+			continue;
 		}
+
+		result = c->module_info[i].identify_fn(c);
+
+		if(c->module_info[i].flags & DE_MODFLAG_DISABLEDETECT) {
+			// Ignore results of autodetection.
+			continue;
+		}
+
+		if(result <= best_result) continue;
+
+		// This is the best result so far.
+		best_result = result;
+		best_module = &c->module_info[i];
+		if(best_result>=100) break;
 	}
 
 	return best_module;

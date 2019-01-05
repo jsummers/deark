@@ -76,6 +76,8 @@ struct deark_module_info {
 #define DE_MODFLAG_NONWORKING   0x02 // Do not list, and print a warning
 #define DE_MODFLAG_NOEXTRACT    0x04 // Do not warn if no files are extracted
 #define DE_MODFLAG_SECURITYWARNING 0x08
+#define DE_MODFLAG_SHAREDDETECTION 0x10 // Module modifies deark::detection_data
+#define DE_MODFLAG_DISABLEDETECT 0x100 // Ignore results of autodetection
 	u32 flags;
 #define DE_MAX_MODULE_ALIASES 2
 	const char *id_alias[DE_MAX_MODULE_ALIASES];

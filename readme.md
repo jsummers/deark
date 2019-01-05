@@ -26,7 +26,7 @@ Command-line options:
    may have some special purpose.
    See formats.txt for a list of modules. You usually don't need to use -m,
    unless the format can't be detected, or you want to use a special-purpose
-   module such as "copy".
+   module such as "copy". See also the -onlydetect option.
 -l
    Don't extract, but list the files that would be extracted.
    This option is not necessarily very efficient. Deark will still go through
@@ -210,6 +210,17 @@ Command-line options:
    Print all messages to stderr, instead of stdout. This option should be
    placed early on the command line, as it might not affect messages
    related to options that appear before it.
+-nodetect &lt;module1,module2,...>
+-onlydetect &lt;module1,module2,...>
+   Disable autodetection of the formats in the list (or for -onlydetect, the
+   formats *not* in the list).
+-disablemods &lt;module1,module2,...>
+-onlymods &lt;module1,module2,...>
+   Completely disable the main functionality, and the autodetection
+   functionality, of the modules in the list (or for -onlymods, the modules
+   *not* in the list). This can have unexpected side effects, because modules
+   often use other modules internally. These options exist mainly to help
+   address potential security-related concerns in some workflows.
 -modcodes &lt;codes>
    Run the module in a non-default "mode".
    The existence of this option (though not its details) is documented in the
