@@ -68,6 +68,7 @@ int de_fmtutil_decompress_rle90(dbuf *inf, i64 pos1, i64 len,
 	dbuf *outf, unsigned int has_maxlen, i64 max_out_len, unsigned int flags);
 
 struct de_SAUCE_info {
+	int is_valid;
 	de_ucstring *title;
 	de_ucstring *artist;
 	de_ucstring *organization;
@@ -83,9 +84,10 @@ struct de_SAUCE_info {
 	struct de_char_comment *comments; // arrays of [num_comments]
 };
 
-int de_detect_SAUCE(deark *c, dbuf *f, struct de_SAUCE_detection_data *sdd);
-int de_read_SAUCE(deark *c, dbuf *f, struct de_SAUCE_info *si);
-void de_free_SAUCE(deark *c, struct de_SAUCE_info *si);
+int de_fmtutil_detect_SAUCE(deark *c, dbuf *f, struct de_SAUCE_detection_data *sdd);
+int de_fmtutil_read_SAUCE(deark *c, dbuf *f, struct de_SAUCE_info *si);
+struct de_SAUCE_info *de_fmtutil_create_SAUCE(deark *c);
+void de_fmtutil_free_SAUCE(deark *c, struct de_SAUCE_info *si);
 
 struct de_boxesctx;
 

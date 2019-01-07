@@ -16,8 +16,8 @@ static void de_run_sauce(deark *c, de_module_params *mparams)
 	struct de_SAUCE_info *si = NULL;
 	int ret;
 
-	si = de_malloc(c, sizeof(struct de_SAUCE_info));
-	ret = de_read_SAUCE(c, c->infile, si);
+	si = de_fmtutil_create_SAUCE(c);
+	ret = de_fmtutil_read_SAUCE(c, c->infile, si);
 	if(ret && c->module_disposition==DE_MODDISP_AUTODETECT) {
 		de_err(c, "This file has a SAUCE metadata record that identifies it as "
 			"DataType %d, FileType %d, but it is not a supported format.",
@@ -26,12 +26,13 @@ static void de_run_sauce(deark *c, de_module_params *mparams)
 	if(!ret && c->module_disposition==DE_MODDISP_EXPLICIT) {
 		de_err(c, "No SAUCE record found");
 	}
-	de_free_SAUCE(c, si);
+	de_fmtutil_free_SAUCE(c, si);
 }
 
 static int de_identify_sauce(deark *c)
 {
-	if(de_detect_SAUCE(c, c->infile, &c->detection_data.sauce)) {
+	c->detection_data.SAUCE_detection_attempted = 1;
+	if(de_fmtutil_detect_SAUCE(c, c->infile, &c->detection_data.sauce)) {
 		// This module should have a very low priority, but other modules can use
 		// the results of its detection.
 		return 2;

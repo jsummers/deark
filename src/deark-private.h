@@ -204,7 +204,6 @@ struct deark_bitmap_struct {
 typedef struct deark_bitmap_struct de_bitmap;
 
 struct de_SAUCE_detection_data {
-	u8 detection_attempted;
 	u8 has_SAUCE;
 	u8 data_type;
 	u8 file_type;
@@ -219,6 +218,7 @@ struct de_ID3_detection_data {
 struct de_detection_data_struct {
 	u8 has_utf8_bom;
 	u8 is_macbinary;
+	u8 SAUCE_detection_attempted;
 	struct de_SAUCE_detection_data sauce;
 	struct de_ID3_detection_data id3;
 };

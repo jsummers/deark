@@ -952,6 +952,7 @@ static void de_run_ansiart(deark *c, de_module_params *mparams)
 	lctx *d = NULL;
 	struct de_char_context *charctx = NULL;
 	i64 k;
+	struct de_SAUCE_detection_data sdd;
 	struct de_SAUCE_info *si = NULL;
 	int valid_sauce = 0;
 	const char *s;
@@ -978,8 +979,15 @@ static void de_run_ansiart(deark *c, de_module_params *mparams)
 	charctx = de_malloc(c, sizeof(struct de_char_context));
 
 	// Read SAUCE metadata, if present.
-	si = de_malloc(c, sizeof(struct de_SAUCE_info));
-	if(de_read_SAUCE(c, c->infile, si)) {
+	si = de_fmtutil_create_SAUCE(c);
+	de_fmtutil_detect_SAUCE(c, c->infile, &sdd);
+
+	if(sdd.has_SAUCE) {
+		de_dbg(c, "[ansiart]SAUCE metadata at %"I64_FMT, c->infile->len-128);
+		de_dbg_indent(c, 1);
+		de_fmtutil_read_SAUCE(c, c->infile, si);
+		de_dbg_indent(c, -1);
+
 		d->effective_file_size = si->original_file_size;
 
 		charctx->title = si->title;
@@ -989,7 +997,7 @@ static void de_run_ansiart(deark *c, de_module_params *mparams)
 		charctx->num_comments = si->num_comments;
 		charctx->comments = si->comments;
 
-		if(si->data_type==1 && (si->file_type==1 || si->file_type==2)) {
+		if(si->is_valid && si->data_type==1 && (si->file_type==1 || si->file_type==2)) {
 			valid_sauce = 1;
 		}
 	}
@@ -1060,7 +1068,7 @@ static void de_run_ansiart(deark *c, de_module_params *mparams)
 
 	de_free_charctx(c, charctx);
 	de_free(c, d->row_data);
-	de_free_SAUCE(c, si);
+	de_fmtutil_free_SAUCE(c, si);
 	de_free(c, d);
 }
 
@@ -1069,7 +1077,7 @@ static int de_identify_ansiart(deark *c)
 	u8 buf[4];
 	int has_ans_ext;
 
-	if(!c->detection_data.sauce.detection_attempted) {
+	if(!c->detection_data.SAUCE_detection_attempted) {
 		de_err(c, "ansiart internal");
 		de_fatalerror(c);
 	}

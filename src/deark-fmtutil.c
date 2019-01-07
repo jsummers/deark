@@ -575,16 +575,15 @@ static int sauce_is_valid_date_string(const u8 *buf, i64 len)
 	return 1;
 }
 
-int de_detect_SAUCE(deark *c, dbuf *f, struct de_SAUCE_detection_data *sdd)
+// Caller allocates sdd. It does not need to be initialized.
+int de_fmtutil_detect_SAUCE(deark *c, dbuf *f, struct de_SAUCE_detection_data *sdd)
 {
-	if(!sdd->detection_attempted) {
-		sdd->detection_attempted = 1;
-		if(f->len<128) return 0;
-		if(dbuf_memcmp(f, f->len-128, "SAUCE00", 7)) return 0;
-		sdd->has_SAUCE = 1;
-		sdd->data_type = dbuf_getbyte(f, f->len-128+94);
-		sdd->file_type = dbuf_getbyte(f, f->len-128+95);
-	}
+	de_zeromem(sdd, sizeof(struct de_SAUCE_detection_data));
+	if(f->len<128) return 0;
+	if(dbuf_memcmp(f, f->len-128, "SAUCE00", 7)) return 0;
+	sdd->has_SAUCE = 1;
+	sdd->data_type = dbuf_getbyte(f, f->len-128+94);
+	sdd->file_type = dbuf_getbyte(f, f->len-128+95);
 	return (int)sdd->has_SAUCE;
 }
 
@@ -734,9 +733,9 @@ static void do_SAUCE_creation_date(deark *c, struct de_SAUCE_info *si,
 }
 
 // SAUCE = Standard Architecture for Universal Comment Extensions
-// Caller allocates si.
-// This function may allocate si->title, artist, organization.
-int de_read_SAUCE(deark *c, dbuf *f, struct de_SAUCE_info *si)
+// Caller allocates si using de_create_SAUCE().
+// Caller must later free si using de_free_SAUCE().
+int de_fmtutil_read_SAUCE(deark *c, dbuf *f, struct de_SAUCE_info *si)
 {
 	unsigned int t;
 	u8 tmpbuf[40];
@@ -745,14 +744,12 @@ int de_read_SAUCE(deark *c, dbuf *f, struct de_SAUCE_info *si)
 	const char *name;
 	de_ucstring *tflags_descr = NULL;
 
-	if(!si) return 0;
-	de_zeromem(si, sizeof(struct de_SAUCE_info));
-
 	pos = f->len - 128;
 	if(dbuf_memcmp(f, pos+0, "SAUCE00", 7)) {
 		return 0;
 	}
 
+	si->is_valid = 1;
 	de_dbg(c, "SAUCE metadata at %d", (int)pos);
 	de_dbg_indent(c, 1);
 
@@ -850,7 +847,12 @@ int de_read_SAUCE(deark *c, dbuf *f, struct de_SAUCE_info *si)
 	return 1;
 }
 
-void de_free_SAUCE(deark *c, struct de_SAUCE_info *si)
+struct de_SAUCE_info *de_fmtutil_create_SAUCE(deark *c)
+{
+	return de_malloc(c, sizeof(struct de_SAUCE_info));
+}
+
+void de_fmtutil_free_SAUCE(deark *c, struct de_SAUCE_info *si)
 {
 	if(!si) return;
 	ucstring_destroy(si->title);

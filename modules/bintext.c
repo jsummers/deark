@@ -263,12 +263,10 @@ static void de_run_xbin(deark *c, de_module_params *mparams)
 	charctx = de_malloc(c, sizeof(struct de_char_context));
 	charctx->prefer_image_output = 1;
 
-	de_zeromem(&sdd, sizeof(struct de_SAUCE_detection_data));
-	de_detect_SAUCE(c, c->infile, &sdd);
-
+	de_fmtutil_detect_SAUCE(c, c->infile, &sdd);
 	if(sdd.has_SAUCE) {
-		si = de_malloc(c, sizeof(struct de_SAUCE_info));
-		de_read_SAUCE(c, c->infile, si);
+		si = de_fmtutil_create_SAUCE(c);
+		de_fmtutil_read_SAUCE(c, c->infile, si);
 		charctx->title = si->title;
 		charctx->artist = si->artist;
 		charctx->organization = si->organization;
@@ -363,7 +361,7 @@ static void de_run_xbin(deark *c, de_module_params *mparams)
 done:
 	dbuf_close(unc_data);
 	de_free_charctx(c, charctx);
-	de_free_SAUCE(c, si);
+	de_fmtutil_free_SAUCE(c, si);
 	free_lctx(c, d);
 }
 
@@ -413,12 +411,10 @@ static void de_run_bintext(deark *c, de_module_params *mparams)
 		width_req = de_atoi(s);
 	}
 
-	de_zeromem(&sdd, sizeof(struct de_SAUCE_detection_data));
-	de_detect_SAUCE(c, c->infile, &sdd);
-
+	de_fmtutil_detect_SAUCE(c, c->infile, &sdd);
 	if(sdd.has_SAUCE) {
-		si = de_malloc(c, sizeof(struct de_SAUCE_info));
-		de_read_SAUCE(c, c->infile, si);
+		si = de_fmtutil_create_SAUCE(c);
+		de_fmtutil_read_SAUCE(c, c->infile, si);
 		charctx->title = si->title;
 		charctx->artist = si->artist;
 		charctx->organization = si->organization;
@@ -475,13 +471,13 @@ static void de_run_bintext(deark *c, de_module_params *mparams)
 
 	dbuf_close(unc_data);
 	de_free_charctx(c, charctx);
-	de_free_SAUCE(c, si);
+	de_fmtutil_free_SAUCE(c, si);
 	free_lctx(c, d);
 }
 
 static int de_identify_bintext(deark *c)
 {
-	if(!c->detection_data.sauce.detection_attempted) {
+	if(!c->detection_data.SAUCE_detection_attempted) {
 		// FIXME: This is known to happen if "-disablemods sauce" was used.
 		de_err(c, "bintext internal");
 		de_fatalerror(c);
@@ -633,14 +629,13 @@ static void de_run_icedraw(deark *c, de_module_params *mparams)
 {
 	struct de_SAUCE_detection_data sdd;
 
-	de_zeromem(&sdd, sizeof(struct de_SAUCE_detection_data));
-	de_detect_SAUCE(c, c->infile, &sdd);
+	de_fmtutil_detect_SAUCE(c, c->infile, &sdd);
 	if(sdd.has_SAUCE) {
 		// Read the SAUCE record if present, just for the debugging info.
 		struct de_SAUCE_info *si = NULL;
-		si = de_malloc(c, sizeof(struct de_SAUCE_info));
-		de_read_SAUCE(c, c->infile, si);
-		de_free_SAUCE(c, si);
+		si = de_fmtutil_create_SAUCE(c);
+		de_fmtutil_read_SAUCE(c, c->infile, si);
+		de_fmtutil_free_SAUCE(c, si);
 	}
 
 	de_err(c, "iCEDraw format is not supported");
