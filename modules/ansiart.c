@@ -980,12 +980,11 @@ static void de_run_ansiart(deark *c, de_module_params *mparams)
 
 	// Read SAUCE metadata, if present.
 	si = de_fmtutil_create_SAUCE(c);
-	de_fmtutil_detect_SAUCE(c, c->infile, &sdd);
+	de_fmtutil_detect_SAUCE(c, c->infile, &sdd, 0x1);
 
 	if(sdd.has_SAUCE) {
-		de_dbg(c, "[ansiart]SAUCE metadata at %"I64_FMT, c->infile->len-128);
 		de_dbg_indent(c, 1);
-		de_fmtutil_read_SAUCE(c, c->infile, si);
+		de_fmtutil_handle_SAUCE(c, c->infile, si);
 		de_dbg_indent(c, -1);
 
 		d->effective_file_size = si->original_file_size;

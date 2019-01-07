@@ -241,6 +241,7 @@ struct de_module_out_params {
 	// The caller is responsible for freeing pointer fields.
 	// The callee should not use these fields unless requested.
 	de_finfo *fi;
+	void *obj1;
 };
 
 struct de_module_params_struct {

@@ -576,11 +576,16 @@ static int sauce_is_valid_date_string(const u8 *buf, i64 len)
 }
 
 // Caller allocates sdd. It does not need to be initialized.
-int de_fmtutil_detect_SAUCE(deark *c, dbuf *f, struct de_SAUCE_detection_data *sdd)
+// flags: 0x1 = Print a debug message if signature is found.
+int de_fmtutil_detect_SAUCE(deark *c, dbuf *f, struct de_SAUCE_detection_data *sdd,
+	unsigned int flags)
 {
 	de_zeromem(sdd, sizeof(struct de_SAUCE_detection_data));
 	if(f->len<128) return 0;
 	if(dbuf_memcmp(f, f->len-128, "SAUCE00", 7)) return 0;
+	if(flags & 0x1) {
+		de_dbg(c, "SAUCE metadata, signature at %"I64_FMT, f->len-128);
+	}
 	sdd->has_SAUCE = 1;
 	sdd->data_type = dbuf_getbyte(f, f->len-128+94);
 	sdd->file_type = dbuf_getbyte(f, f->len-128+95);
@@ -732,7 +737,15 @@ static void do_SAUCE_creation_date(deark *c, struct de_SAUCE_info *si,
 	de_dbg(c, "creation date: %s", timestamp_buf);
 }
 
-// SAUCE = Standard Architecture for Universal Comment Extensions
+void de_fmtutil_handle_SAUCE(deark *c, dbuf *f, struct de_SAUCE_info *si)
+{
+	de_module_params mparams;
+
+	de_zeromem(&mparams, sizeof(de_module_params));
+	mparams.out_params.obj1 = (void*)si;
+	de_run_module_by_id_on_slice(c, "sauce", &mparams, f, 0, f->len);
+}
+
 // Caller allocates si using de_create_SAUCE().
 // Caller must later free si using de_free_SAUCE().
 int de_fmtutil_read_SAUCE(deark *c, dbuf *f, struct de_SAUCE_info *si)
@@ -750,8 +763,6 @@ int de_fmtutil_read_SAUCE(deark *c, dbuf *f, struct de_SAUCE_info *si)
 	}
 
 	si->is_valid = 1;
-	de_dbg(c, "SAUCE metadata at %d", (int)pos);
-	de_dbg_indent(c, 1);
 
 	// Title
 	dbuf_read(f, tmpbuf, pos+7, 35);
@@ -842,7 +853,6 @@ int de_fmtutil_read_SAUCE(deark *c, dbuf *f, struct de_SAUCE_info *si)
 		si->original_file_size = f->len-128-(5+si->num_comments*64);
 	}
 
-	de_dbg_indent(c, -1);
 	ucstring_destroy(tflags_descr);
 	return 1;
 }

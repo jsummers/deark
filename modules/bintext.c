@@ -263,10 +263,14 @@ static void de_run_xbin(deark *c, de_module_params *mparams)
 	charctx = de_malloc(c, sizeof(struct de_char_context));
 	charctx->prefer_image_output = 1;
 
-	de_fmtutil_detect_SAUCE(c, c->infile, &sdd);
+	de_fmtutil_detect_SAUCE(c, c->infile, &sdd, 0x1);
 	if(sdd.has_SAUCE) {
 		si = de_fmtutil_create_SAUCE(c);
-		de_fmtutil_read_SAUCE(c, c->infile, si);
+
+		de_dbg_indent(c, 1);
+		de_fmtutil_handle_SAUCE(c, c->infile, si);
+		de_dbg_indent(c, -1);
+
 		charctx->title = si->title;
 		charctx->artist = si->artist;
 		charctx->organization = si->organization;
@@ -411,10 +415,14 @@ static void de_run_bintext(deark *c, de_module_params *mparams)
 		width_req = de_atoi(s);
 	}
 
-	de_fmtutil_detect_SAUCE(c, c->infile, &sdd);
+	de_fmtutil_detect_SAUCE(c, c->infile, &sdd, 0x1);
 	if(sdd.has_SAUCE) {
 		si = de_fmtutil_create_SAUCE(c);
-		de_fmtutil_read_SAUCE(c, c->infile, si);
+
+		de_dbg_indent(c, 1);
+		de_fmtutil_handle_SAUCE(c, c->infile, si);
+		de_dbg_indent(c, -1);
+
 		charctx->title = si->title;
 		charctx->artist = si->artist;
 		charctx->organization = si->organization;
@@ -629,12 +637,16 @@ static void de_run_icedraw(deark *c, de_module_params *mparams)
 {
 	struct de_SAUCE_detection_data sdd;
 
-	de_fmtutil_detect_SAUCE(c, c->infile, &sdd);
+	de_fmtutil_detect_SAUCE(c, c->infile, &sdd, 0x1);
 	if(sdd.has_SAUCE) {
 		// Read the SAUCE record if present, just for the debugging info.
 		struct de_SAUCE_info *si = NULL;
 		si = de_fmtutil_create_SAUCE(c);
-		de_fmtutil_read_SAUCE(c, c->infile, si);
+
+		de_dbg_indent(c, 1);
+		de_fmtutil_handle_SAUCE(c, c->infile, si);
+		de_dbg_indent(c, -1);
+
 		de_fmtutil_free_SAUCE(c, si);
 	}
 
