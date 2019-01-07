@@ -519,7 +519,6 @@ void de_zip_add_file_to_archive(deark *c, dbuf *f)
 	}
 
 	zzz = (struct zip_data_struct*)c->zip_data;
-	if(!zzz) { de_err(c, "asdf"); de_fatalerror(c); }
 
 	de_dbg(c, "adding to zip: name=%s len=%"I64_FMT, f->name, f->len);
 
