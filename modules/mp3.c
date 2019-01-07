@@ -472,10 +472,9 @@ static int de_identify_mpegaudio(deark *c)
 	i64 pos;
 
 	if(!c->detection_data.id3.detection_attempted) {
-		de_err(c, "mp3 internal");
-		de_fatalerror(c);
+		de_err(c, "mpegaudio detection requires id3 module");
+		return 0;
 	}
-
 
 	if(de_input_file_has_ext(c, "mp3")) {
 		has_mp3_ext = 1;

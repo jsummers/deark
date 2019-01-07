@@ -1077,8 +1077,8 @@ static int de_identify_ansiart(deark *c)
 	int has_ans_ext;
 
 	if(!c->detection_data.SAUCE_detection_attempted) {
-		de_err(c, "ansiart internal");
-		de_fatalerror(c);
+		de_err(c, "ansiart detection requires sauce module");
+		return 0;
 	}
 
 	de_read(buf, 0, 4);

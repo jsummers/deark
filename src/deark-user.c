@@ -13,18 +13,22 @@
 #include "deark-user.h"
 
 // Returns the best module to use, by looking at the file contents, etc.
-static struct deark_module_info *detect_module_for_file(deark *c)
+static struct deark_module_info *detect_module_for_file(deark *c, int *errflag)
 {
 	int i;
 	int result;
 	int best_result = 0;
+	int orig_errcount;
 	struct deark_module_info *best_module = NULL;
+
+	*errflag = 0;
 
 	// Check for a UTF-8 BOM just once. Any module can use this flag.
 	if(dbuf_has_utf8_bom(c->infile, 0)) {
 		c->detection_data.has_utf8_bom = 1;
 	}
 
+	orig_errcount = c->error_count;
 	for(i=0; i<c->num_modules; i++) {
 		if(c->module_info[i].identify_fn==NULL) continue;
 
@@ -38,6 +42,13 @@ static struct deark_module_info *detect_module_for_file(deark *c)
 		}
 
 		result = c->module_info[i].identify_fn(c);
+
+		if(c->error_count > orig_errcount) {
+			// Detection routines don't normally produce errors. If one does,
+			// it's probably an internal error, or other serious problem.
+			*errflag = 1;
+			return NULL;
+		}
 
 		if(c->module_info[i].flags & DE_MODFLAG_DISABLEDETECT) {
 			// Ignore results of autodetection.
@@ -259,7 +270,10 @@ void de_run(deark *c)
 	}
 
 	if(!module_to_use) {
-		module_to_use = detect_module_for_file(c);
+		int errflag;
+
+		module_to_use = detect_module_for_file(c, &errflag);
+		if(errflag) goto done;
 		module_was_autodetected = 1;
 	}
 
