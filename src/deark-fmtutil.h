@@ -87,7 +87,6 @@ struct de_SAUCE_info {
 int de_fmtutil_detect_SAUCE(deark *c, dbuf *f, struct de_SAUCE_detection_data *sdd,
 	unsigned int flags);
 void de_fmtutil_handle_SAUCE(deark *c, dbuf *f, struct de_SAUCE_info *si);
-int de_fmtutil_read_SAUCE(deark *c, dbuf *f, struct de_SAUCE_info *si);
 struct de_SAUCE_info *de_fmtutil_create_SAUCE(deark *c);
 void de_fmtutil_free_SAUCE(deark *c, struct de_SAUCE_info *si);
 
