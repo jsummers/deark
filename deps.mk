@@ -186,6 +186,8 @@ obj/modules/rpm.o: modules/rpm.c src/deark-config.h src/deark-private.h \
  src/deark.h
 obj/modules/rsc.o: modules/rsc.c src/deark-config.h src/deark-private.h \
  src/deark.h
+obj/modules/sauce.o: modules/sauce.c src/deark-config.h \
+ src/deark-private.h src/deark.h src/deark-fmtutil.h
 obj/modules/shg.o: modules/shg.c src/deark-config.h src/deark-private.h \
  src/deark.h src/deark-fmtutil.h
 obj/modules/sis.o: modules/sis.c src/deark-config.h src/deark-private.h \

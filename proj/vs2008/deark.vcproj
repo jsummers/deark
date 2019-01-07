@@ -862,6 +862,10 @@
 				>
 			</File>
 			<File
+				RelativePath="..\..\modules\sauce.c"
+				>
+			</File>
+			<File
 				RelativePath="..\..\modules\shg.c"
 				>
 			</File>
