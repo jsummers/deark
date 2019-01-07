@@ -36,6 +36,9 @@ struct member_data {
 
 	struct dir_entry_data central_dir_entry_data;
 	struct dir_entry_data local_dir_entry_data;
+
+	i64 cmpr_size, uncmpr_size;
+	u32 crc_reported;
 };
 
 struct extra_item_type_info_struct;
@@ -718,7 +721,7 @@ static void do_extract_file(deark *c, lctx *d, struct member_data *md)
 	u32 crc_calculated;
 
 	de_dbg(c, "file data at %"I64_FMT", len=%"I64_FMT, md->file_data_pos,
-		ldd->cmpr_size);
+		md->cmpr_size);
 
 	if(!is_compression_method_supported(ldd->cmpr_method)) {
 		de_err(c, "Unsupported compression method: %d",
@@ -726,13 +729,13 @@ static void do_extract_file(deark *c, lctx *d, struct member_data *md)
 		goto done;
 	}
 
-	if(md->is_dir && ldd->uncmpr_size==0) {
+	if(md->is_dir && md->uncmpr_size==0) {
 		de_msg(c, "Note: \"%s\" is a directory. Ignoring.",
 			ucstring_getpsz_d(ldd->fname));
 		goto done;
 	}
 
-	if(md->file_data_pos+ldd->cmpr_size > c->infile->len) {
+	if(md->file_data_pos+md->cmpr_size > c->infile->len) {
 		de_err(c, "Member data goes beyond end of file");
 		goto done;
 	}
@@ -767,14 +770,14 @@ static void do_extract_file(deark *c, lctx *d, struct member_data *md)
 	md->crco = d->crco;
 	de_crcobj_reset(md->crco);
 
-	do_decompress_data(c, d, c->infile, md->file_data_pos, ldd->cmpr_size, outf, ldd->cmpr_method);
+	do_decompress_data(c, d, c->infile, md->file_data_pos, md->cmpr_size, outf, ldd->cmpr_method);
 
 	crc_calculated = de_crcobj_getval(md->crco);
 	de_dbg(c, "crc (calculated): 0x%08x", (unsigned int)crc_calculated);
 
-	if(crc_calculated != ldd->crc_reported) {
+	if(crc_calculated != md->crc_reported) {
 		de_warn(c, "CRC check failed: Expected 0x%08x, got 0x%08x",
-			(unsigned int)ldd->crc_reported, (unsigned int)crc_calculated);
+			(unsigned int)md->crc_reported, (unsigned int)crc_calculated);
 	}
 
 done:
@@ -847,7 +850,7 @@ static void process_ext_attr(deark *c, lctx *d, struct member_data *md)
 	// TODO: The 0x756e (ASi Unix) extra field might be important, as it contains
 	// file permissions.
 
-	if(md->is_dir && md->local_dir_entry_data.uncmpr_size!=0) {
+	if(md->is_dir && md->uncmpr_size!=0) {
 		// I'd expect a subdirectory entry to have zero size. If it doesn't,
 		// let's just assume we misidentified it as a subdirectory, and
 		// extract its data.
@@ -909,6 +912,11 @@ static void describe_general_purpose_bit_flags(deark *c, struct dir_entry_data *
 		}
 		ucstring_append_flags_itemf(s, "cmprlevel=%s", name);
 		bf -= (bf & 0x0006);
+	}
+
+	if(bf & 0x0008) {
+		ucstring_append_flags_item(s, "uses data descriptor");
+		bf -= 0x0008;
 	}
 
 	if(bf & 0x0800) {
@@ -1166,6 +1174,21 @@ static int do_central_dir_entry(deark *c, lctx *d,
 	// Read the local file header
 	if(!do_file_header(c, d, md, 0, md->offset_of_local_header, &tmp_entry_size)) {
 		goto done;
+	}
+
+	// Set the final file size and crc fields.
+	if(md->local_dir_entry_data.bit_flags & 0x0008) {
+		// Indicates that certain fields are not present in the local file header,
+		// and are instead in a "data descriptor" after the file data.
+		// Let's hope they are also in the central file header.
+		md->cmpr_size = md->central_dir_entry_data.cmpr_size;
+		md->uncmpr_size = md->central_dir_entry_data.uncmpr_size;
+		md->crc_reported = md->central_dir_entry_data.crc_reported;
+	}
+	else {
+		md->cmpr_size = md->local_dir_entry_data.cmpr_size;
+		md->uncmpr_size = md->local_dir_entry_data.uncmpr_size;
+		md->crc_reported = md->local_dir_entry_data.crc_reported;
 	}
 
 	process_ext_attr(c, d, md);
