@@ -116,6 +116,41 @@ void de_print_module_list(deark *c)
 	de_free(c, sort_data);
 }
 
+static void do_modhelp_internal(deark *c, struct deark_module_info *module_to_use)
+{
+	int k;
+
+	if(!module_to_use) goto done;
+	de_msg(c, "Module: %s", module_to_use->id);
+
+	for(k=0; k<DE_MAX_MODULE_ALIASES; k++) {
+		if(module_to_use->id_alias[k]) {
+			de_msg(c, "Alias: %s", module_to_use->id_alias[k]);
+		}
+		else {
+			break;
+		}
+	}
+
+	if(module_to_use->desc) {
+		de_msg(c, "Description: %s", module_to_use->desc);
+	}
+	if(module_to_use->desc2) {
+		de_msg(c, "Other notes: %s", module_to_use->desc2);
+	}
+
+	if(!module_to_use->help_fn) {
+		de_msg(c, "No help available for module \"%s\"", module_to_use->id);
+		goto done;
+	}
+
+	de_msg(c, "Help for module \"%s\":", module_to_use->id);
+	module_to_use->help_fn(c);
+
+done:
+	;
+}
+
 static void do_modhelp(deark *c)
 {
 	struct deark_module_info *module_to_use = NULL;
@@ -132,22 +167,7 @@ static void do_modhelp(deark *c)
 			c->input_format_req, module_to_use->id);
 	}
 
-	de_msg(c, "Module: %s", module_to_use->id);
-
-	if(module_to_use->desc) {
-		de_msg(c, "Description: %s", module_to_use->desc);
-	}
-	if(module_to_use->desc2) {
-		de_msg(c, "Other notes: %s", module_to_use->desc2);
-	}
-
-	if(!module_to_use->help_fn) {
-		de_msg(c, "No help available for module \"%s\"", module_to_use->id);
-		goto done;
-	}
-
-	de_msg(c, "Help for module \"%s\":", module_to_use->id);
-	module_to_use->help_fn(c);
+	do_modhelp_internal(c, module_to_use);
 
 done:
 	;
