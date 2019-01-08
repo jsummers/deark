@@ -305,6 +305,13 @@ void de_run(deark *c)
 		goto done;
 	}
 
+	if(c->modhelp_req && module_was_autodetected &&
+		de_strcmp(module_to_use->id, "unsupported"))
+	{
+		do_modhelp_internal(c, module_to_use);
+		goto done;
+	}
+
 	de_msg(c, "Module: %s", module_to_use->id);
 
 	if(module_was_autodetected && (module_to_use->flags&DE_MODFLAG_SECURITYWARNING)) {

@@ -159,8 +159,9 @@ Command-line options:
        palette color. The default is to autodetect.
 -h, -?, -help:
    Print the help message.
-   Use with -m to get help for a specific module. Note that most modules have
-   no module-specific help to speak of.
+   Use with -m to get help for a specific module. Use with a filename to get
+   help for the detected format of that file. Note that most modules have no
+   module-specific help to speak of.
 -version
    Print the version number.
 -modules

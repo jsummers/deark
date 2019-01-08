@@ -606,7 +606,7 @@ static void parse_cmdline(deark *c, struct cmdctx *cc, int argc, char **argv)
 	}
 
 	if(help_flag) {
-		if(module_flag) {
+		if(module_flag || cc->input_filename || cc->from_stdin) {
 			de_set_want_modhelp(c, 1);
 		}
 		else {
