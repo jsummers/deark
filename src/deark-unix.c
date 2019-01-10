@@ -7,9 +7,7 @@
 #define DE_NOT_IN_MODULE
 #include "deark-config.h"
 
-#ifdef DE_WINDOWS
-#error "This file is not for Windows builds"
-#endif
+#ifdef DE_UNIX
 
 // This file is overloaded, in that it contains functions intended to only
 // be used internally, as well as functions intended only for the
@@ -287,3 +285,5 @@ void de_exitprocess(void)
 {
 	exit(1);
 }
+
+#endif // DE_UNIX

@@ -8,9 +8,7 @@
 #define DE_NOT_IN_MODULE
 #include "deark-config.h"
 
-#ifndef DE_WINDOWS
-#error "This file is only for Windows builds"
-#endif
+#ifdef DE_WINDOWS
 
 #include <windows.h>
 
@@ -258,7 +256,7 @@ void de_update_file_perms(dbuf *f)
 
 void de_update_file_time(dbuf *f)
 {
-	WCHAR *fnW;
+	WCHAR *fnW = NULL;
 	HANDLE fh = INVALID_HANDLE_VALUE;
 	i64 ft;
 	FILETIME crtime, actime, wrtime;
@@ -408,3 +406,5 @@ void de_exitprocess(void)
 {
 	exit(1);
 }
+
+#endif // DE_WINDOWS

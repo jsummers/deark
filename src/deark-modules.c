@@ -41,8 +41,8 @@ static void module_list_string_to_set(deark *c, const char *s, u8 *mod_set)
 		tmpname[0] = '\0';
 		ptr2 = de_strchr(ptr1, ',');
 		if(ptr2) {
-			i64 len;
-			len = ptr2-ptr1;
+			size_t len;
+			len = (size_t)(ptr2-ptr1);
 			if(len<sizeof(tmpname)) {
 				de_memcpy(tmpname, ptr1, len);
 				tmpname[len] = '\0';

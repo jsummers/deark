@@ -46,11 +46,19 @@ struct cmdctx {
 	char msgbuf[1000];
 };
 
-static void show_version(deark *c)
+static void show_version(deark *c, int verbose)
 {
 	char vbuf[80];
 	de_printf(c, DE_MSGTYPE_MESSAGE, "Deark version %s\n",
 		de_get_version_string(vbuf, sizeof(vbuf)));
+	de_printf(c, DE_MSGTYPE_MESSAGE, "%u-bit, %s platform\n",
+		(unsigned int)(8*sizeof(void*)),
+#ifdef DE_WINDOWS
+		"Windows"
+#else
+		"Unix-like"
+#endif
+		);
 }
 
 static void show_usage_preamble(deark *c) {
@@ -65,7 +73,7 @@ static void show_usage_error(deark *c)
 
 static void show_help(deark *c)
 {
-	show_version(c);
+	show_version(c, 0);
 	de_puts(c, DE_MSGTYPE_MESSAGE,
 		"A utility for extracting data from various file formats\n\n");
 	show_usage_preamble(c);
@@ -460,7 +468,7 @@ static void parse_cmdline(deark *c, struct cmdctx *cc, int argc, char **argv)
 				break;
 			case DE_OPT_VERSION:
 				// TODO: Use ->special_command_code instead of calling show_version() here.
-				show_version(c);
+				show_version(c, 1);
 				cc->special_command_flag = 1;
 				break;
 			case DE_OPT_PRINTMODULES:
@@ -703,6 +711,9 @@ done:
 }
 
 #ifdef DE_WINDOWS
+
+// This prototype is to silence a possible -Wmissing-prototypes warning.
+int wmain(int argc, wchar_t **argvW);
 
 int wmain(int argc, wchar_t **argvW)
 {

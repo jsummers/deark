@@ -261,3 +261,4 @@ obj/src/deark-user.o: src/deark-user.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-user.h
 obj/src/deark-util.o: src/deark-util.c src/deark-config.h \
  src/deark-private.h src/deark.h
+obj/src/deark-win.o: src/deark-win.c src/deark-config.h

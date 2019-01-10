@@ -1,6 +1,8 @@
 
-CFLAGS:=-g -O2 -Wall -Wextra -Wmissing-prototypes -Wformat-security -Wno-unused-parameter -Isrc
-LDFLAGS:=-Wall
+CFLAGS ?= -g -O2 -Wall -Wextra -Wmissing-prototypes -Wformat-security -Wno-unused-parameter
+LDFLAGS ?= -Wall
+
+INCLUDES:=-Isrc
 
 ifeq ($(OS),Windows_NT)
 EXE_EXT:=.exe
@@ -53,7 +55,7 @@ OFILES_MODS:=$(OFILES_MODS_AB) $(OFILES_MODS_CH) $(OFILES_MODS_IO) \
 
 OFILES_DEARK1:=$(addprefix $(OBJDIR)/src/,deark-miniz.o deark-util.o deark-data.o \
  deark-dbuf.o deark-bitmap.o deark-char.o deark-font.o deark-ucstring.o \
- deark-fmtutil.o deark-liblzw.o deark-user.o deark-unix.o)
+ deark-fmtutil.o deark-liblzw.o deark-user.o deark-unix.o deark-win.o)
 OFILES_DEARK2:=$(addprefix $(OBJDIR)/src/,deark-modules.o)
 OFILES_ALL:=$(OFILES_DEARK1) $(OFILES_DEARK2) $(OFILES_MODS) $(OBJDIR)/src/deark-cmd.o
 
@@ -91,7 +93,7 @@ $(DEARK_EXE): $(OBJDIR)/src/deark-cmd.o $(DEARK2_A) $(MODS_AB_A) \
 	$(CC) $(LDFLAGS) -o $@ $^
 
 $(OBJDIR)/%.o: %.c
-	$(CC) $(CFLAGS) -c -o $@ $<
+	$(CC) $(CFLAGS) $(INCLUDES) -c -o $@ $<
 
 clean:
 	rm -f $(OBJDIR)/src/*.[oad] $(OBJDIR)/modules/*.[oad] $(DEARK_EXE)
@@ -102,7 +104,7 @@ deps.mk: $(OFILES_ALL:.o=.d)
 	cat $(sort $^) > $@
 
 $(OBJDIR)/%.d: %.c
-	$(CC) $(CFLAGS) -MM -MT $(OBJDIR)/$*.o -MF $@ $<
+	$(CC) $(CFLAGS) $(INCLUDES) -MM -MT $(OBJDIR)/$*.o -MF $@ $<
 
 endif
 
