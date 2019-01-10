@@ -1,6 +1,7 @@
 
 CFLAGS ?= -g -O2 -Wall -Wextra -Wmissing-prototypes -Wformat-security -Wno-unused-parameter
 LDFLAGS ?= -Wall
+OBJDIR ?= obj
 
 INCLUDES:=-Isrc
 
@@ -11,25 +12,30 @@ EXE_EXT:=
 endif
 DEARK_EXE:=deark$(EXE_EXT)
 
+DEPS_MK:=deps.mk
+
+ifneq ($(OBJDIR),obj)
+DEARK_EXE:=$(OBJDIR)/$(DEARK_EXE)
+DEPS_MK:=$(OBJDIR)/$(DEPS_MK)
+endif
+
 ifeq ($(MAKECMDGOALS),dep)
 
 # Regenerate deps.mk only when someone runs "make dep".
 # (I'm aware that there are ways to do this automatically, and that one might
 # have to run "make clean" before "make dep" in some cases. But only
 # developers need to worry about this. Everyone else can just run "make".)
-dep: deps.mk
+dep: $(DEPS_MK)
 
 else
 
 all: $(DEARK_EXE)
 
-include deps.mk
+include $(DEPS_MK)
 
 endif
 
 .PHONY: all clean dep
-
-OBJDIR:=obj
 
 OFILES_MODS_AB:=$(addprefix $(OBJDIR)/modules/,abk.o alphabmp.o amigaicon.o \
  ansiart.o ar.o asf.o atari-dsk.o atari-img.o autocad.o awbm.o basic-c64.o \
@@ -100,11 +106,11 @@ clean:
 
 ifeq ($(MAKECMDGOALS),dep)
 
-deps.mk: $(OFILES_ALL:.o=.d)
+$(DEPS_MK): $(OFILES_ALL:.o=.d)
 	cat $(sort $^) > $@
 
 $(OBJDIR)/%.d: %.c
-	$(CC) $(CFLAGS) $(INCLUDES) -MM -MT $(OBJDIR)/$*.o -MF $@ $<
+	$(CC) $(CFLAGS) $(INCLUDES) -MM -MT '$$(OBJDIR)/$*.o' -MF $@ $<
 
 endif
 
