@@ -20,11 +20,32 @@ struct deark_file_attribs {
 };
 
 #define MINIZ_NO_ZLIB_COMPATIBLE_NAMES
+#define MINIZ_NO_STDIO
 #include "../foreign/miniz.h"
+
+// Stuff copied from miniz.h, to ensure we don't change the behavior.
+#define DE_MZ_FWRITE fwrite
+#if defined(_MSC_VER) || defined(__MINGW64__)
+  #define DE_MZ_FTELL64 _ftelli64
+  #define DE_MZ_FSEEK64 _fseeki64
+#elif defined(__MINGW32__)
+  #define DE_MZ_FTELL64 ftello64
+  #define DE_MZ_FSEEK64 fseeko64
+#elif defined(__TINYC__)
+  #define DE_MZ_FTELL64 ftell
+  #define DE_MZ_FSEEK64 fseek
+#elif defined(__GNUC__) && _LARGEFILE64_SOURCE
+  #define DE_MZ_FTELL64 ftello64
+  #define DE_MZ_FSEEK64 fseeko64
+#else
+  #define DE_MZ_FTELL64 ftello
+  #define DE_MZ_FSEEK64 fseeko
+#endif
 
 // Our custom version of mz_zip_archive
 struct zip_data_struct {
 	deark *c;
+	FILE *fh; // Using this instead of pZip->m_pState->m_pFile, to make sure we can.
 	mz_zip_archive *pZip;
 };
 
@@ -409,19 +430,19 @@ int de_uncompress_deflate(dbuf *inf, i64 inputstart, i64 inputsize, dbuf *outf,
 static size_t my_mz_zip_file_write_func(void *pOpaque, mz_uint64 file_ofs, const void *pBuf, size_t n)
 {
   struct zip_data_struct *zzz = (struct zip_data_struct*)pOpaque;
-  mz_zip_archive *pZip = zzz->pZip;
-  mz_int64 cur_ofs = MZ_FTELL64(pZip->m_pState->m_pFile);
-  if (((mz_int64)file_ofs < 0) || (((cur_ofs != (mz_int64)file_ofs)) && (MZ_FSEEK64(pZip->m_pState->m_pFile, (mz_int64)file_ofs, SEEK_SET))))
+  mz_int64 cur_ofs = DE_MZ_FTELL64(zzz->fh);
+  if (((mz_int64)file_ofs < 0) || (((cur_ofs != (mz_int64)file_ofs)) && (DE_MZ_FSEEK64(zzz->fh, (mz_int64)file_ofs, SEEK_SET))))
     return 0;
-  return MZ_FWRITE(pBuf, 1, n, pZip->m_pState->m_pFile);
+  return DE_MZ_FWRITE(pBuf, 1, n, zzz->fh);
 }
 
 // A customized copy of mz_zip_writer_init_file().
 // Customized to support Unicode filenames (on Windows), and to better
 // report errors.
-static mz_bool my_mz_zip_writer_init_file(deark *c, mz_zip_archive *pZip, const char *pFilename)
+static mz_bool my_mz_zip_writer_init_file(deark *c, struct zip_data_struct *zzz,
+	mz_zip_archive *pZip, const char *pFilename)
 {
-  MZ_FILE *pFile;
+  FILE *pFile;
   mz_uint64 size_to_reserve_at_beginning = 0;
   char msgbuf[200];
 
@@ -438,7 +459,7 @@ static mz_bool my_mz_zip_writer_init_file(deark *c, mz_zip_archive *pZip, const 
     mz_zip_writer_end(pZip);
     return MZ_FALSE;
   }
-  pZip->m_pState->m_pFile = pFile;
+  zzz->fh = pFile;
   return MZ_TRUE;
 }
 
@@ -477,7 +498,7 @@ int de_zip_create_file(deark *c)
 	arcfn = c->output_archive_filename;
 	if(!arcfn) arcfn = "output.zip";
 
-	b = my_mz_zip_writer_init_file(c, zzz->pZip, arcfn);
+	b = my_mz_zip_writer_init_file(c, zzz, zzz->pZip, arcfn);
 	if(!b) {
 		de_free(c, zzz->pZip);
 		de_free(c, zzz);
@@ -627,6 +648,9 @@ void de_zip_close_file(deark *c)
 
 	mz_zip_writer_finalize_archive(zzz->pZip);
 	mz_zip_writer_end(zzz->pZip);
+	if(zzz->fh) {
+		de_fclose(zzz->fh);
+	}
 	de_dbg(c, "zip file closed");
 
 	de_free(c, zzz->pZip);
