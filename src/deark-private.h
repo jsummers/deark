@@ -419,6 +419,7 @@ FILE* de_fopen_for_write(deark *c, const char *fn,
 	char *errmsg, size_t errmsg_len, int overwrite_mode,
 	unsigned int flags);
 int de_fseek(FILE *fp, i64 offs, int whence);
+i64 de_ftell(FILE *fp);
 int de_fclose(FILE *fp);
 
 void de_update_file_perms(dbuf *f);

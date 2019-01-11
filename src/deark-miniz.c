@@ -23,25 +23,6 @@ struct deark_file_attribs {
 #define MINIZ_NO_STDIO
 #include "../foreign/miniz.h"
 
-// Stuff copied from miniz.h, to ensure we don't change the behavior.
-#define DE_MZ_FWRITE fwrite
-#if defined(_MSC_VER) || defined(__MINGW64__)
-  #define DE_MZ_FTELL64 _ftelli64
-  #define DE_MZ_FSEEK64 _fseeki64
-#elif defined(__MINGW32__)
-  #define DE_MZ_FTELL64 ftello64
-  #define DE_MZ_FSEEK64 fseeko64
-#elif defined(__TINYC__)
-  #define DE_MZ_FTELL64 ftell
-  #define DE_MZ_FSEEK64 fseek
-#elif defined(__GNUC__) && _LARGEFILE64_SOURCE
-  #define DE_MZ_FTELL64 ftello64
-  #define DE_MZ_FSEEK64 fseeko64
-#else
-  #define DE_MZ_FTELL64 ftello
-  #define DE_MZ_FSEEK64 fseeko
-#endif
-
 // Our custom version of mz_zip_archive
 struct zip_data_struct {
 	deark *c;
@@ -430,10 +411,10 @@ int de_uncompress_deflate(dbuf *inf, i64 inputstart, i64 inputsize, dbuf *outf,
 static size_t my_mz_zip_file_write_func(void *pOpaque, mz_uint64 file_ofs, const void *pBuf, size_t n)
 {
   struct zip_data_struct *zzz = (struct zip_data_struct*)pOpaque;
-  mz_int64 cur_ofs = DE_MZ_FTELL64(zzz->fh);
-  if (((mz_int64)file_ofs < 0) || (((cur_ofs != (mz_int64)file_ofs)) && (DE_MZ_FSEEK64(zzz->fh, (mz_int64)file_ofs, SEEK_SET))))
+  mz_int64 cur_ofs = (mz_int64)de_ftell(zzz->fh);
+  if (((mz_int64)file_ofs < 0) || (((cur_ofs != (mz_int64)file_ofs)) && (de_fseek(zzz->fh, (i64)file_ofs, SEEK_SET))))
     return 0;
-  return DE_MZ_FWRITE(pBuf, 1, n, zzz->fh);
+  return fwrite(pBuf, 1, n, zzz->fh);
 }
 
 // A customized copy of mz_zip_writer_init_file().

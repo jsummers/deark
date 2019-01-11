@@ -244,6 +244,11 @@ int de_fseek(FILE *fp, i64 offs, int whence)
 	return _fseeki64(fp, (__int64)offs, whence);
 }
 
+i64 de_ftell(FILE *fp)
+{
+	return (i64)_ftelli64(fp);
+}
+
 int de_fclose(FILE *fp)
 {
 	return fclose(fp);

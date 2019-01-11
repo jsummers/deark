@@ -152,9 +152,26 @@ FILE* de_fopen_for_write(deark *c, const char *fn,
 
 int de_fseek(FILE *fp, i64 offs, int whence)
 {
-	// TODO: Support 64-bit offsets in more cases.
-	// (E.g., use fseeko/fseeko64 when available.)
-	return fseek(fp, (long)offs, whence);
+	int ret;
+
+#ifdef DE_USE_FSEEKO
+	ret = fseeko(fp, (off_t)offs, whence);
+#else
+	ret = fseek(fp, (long)offs, whence);
+#endif
+	return ret;
+}
+
+i64 de_ftell(FILE *fp)
+{
+	i64 ret;
+
+#ifdef DE_USE_FSEEKO
+	ret = (i64)ftello(fp);
+#else
+	ret = (i64)ftell(fp);
+#endif
+	return ret;
 }
 
 int de_fclose(FILE *fp)

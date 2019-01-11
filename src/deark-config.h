@@ -6,6 +6,7 @@
 #define DE_WINDOWS
 #else
 #define DE_UNIX
+#define DE_USE_FSEEKO
 #endif
 
 #ifdef DE_WINDOWS
