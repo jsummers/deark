@@ -26,7 +26,7 @@ struct deark_file_attribs {
 // Our custom version of mz_zip_archive
 struct zip_data_struct {
 	deark *c;
-	FILE *fh; // Using this instead of pZip->m_pState->m_pFile, to make sure we can.
+	dbuf *outf; // Using this instead of pZip->m_pState->m_pFile
 	mz_zip_archive *pZip;
 };
 
@@ -404,17 +404,13 @@ int de_uncompress_deflate(dbuf *inf, i64 inputstart, i64 inputsize, dbuf *outf,
 	return de_inflate_internal(inf, inputstart, inputsize, outf, 0, bytes_consumed);
 }
 
-// TODO: We'd like to us a dbuf for ZIP output, both to make our I/O functions
-// consistent, and with the idea that we could write a ZIP file to stdout (via
-// a membuf). That will take a lot of work, though. For one thing, file-output
-// dbufs don't even support seeking yet.
 static size_t my_mz_zip_file_write_func(void *pOpaque, mz_uint64 file_ofs, const void *pBuf, size_t n)
 {
-  struct zip_data_struct *zzz = (struct zip_data_struct*)pOpaque;
-  mz_int64 cur_ofs = (mz_int64)de_ftell(zzz->fh);
-  if (((mz_int64)file_ofs < 0) || (((cur_ofs != (mz_int64)file_ofs)) && (de_fseek(zzz->fh, (i64)file_ofs, SEEK_SET))))
-    return 0;
-  return fwrite(pBuf, 1, n, zzz->fh);
+	struct zip_data_struct *zzz = (struct zip_data_struct*)pOpaque;
+
+	if((i64)file_ofs < 0) return 0;
+	dbuf_write_at(zzz->outf, (i64)file_ofs, pBuf, (i64)n);
+	return n;
 }
 
 // A customized copy of mz_zip_writer_init_file().
@@ -423,9 +419,8 @@ static size_t my_mz_zip_file_write_func(void *pOpaque, mz_uint64 file_ofs, const
 static mz_bool my_mz_zip_writer_init_file(deark *c, struct zip_data_struct *zzz,
 	mz_zip_archive *pZip, const char *pFilename)
 {
-  FILE *pFile;
+  dbuf *pFile_dbuf;
   mz_uint64 size_to_reserve_at_beginning = 0;
-  char msgbuf[200];
 
   pZip->m_pWrite = my_mz_zip_file_write_func;
   if (!mz_zip_writer_init(pZip, size_to_reserve_at_beginning))
@@ -433,14 +428,14 @@ static mz_bool my_mz_zip_writer_init_file(deark *c, struct zip_data_struct *zzz,
     de_err(c, "Failed to initialize ZIP file");
     return MZ_FALSE;
   }
-  if (NULL == (pFile = de_fopen_for_write(c, pFilename, msgbuf, sizeof(msgbuf),
-    c->overwrite_mode, 0)))
+  pFile_dbuf = dbuf_create_unmanaged_file(c, pFilename, c->overwrite_mode, 0);
+  if (pFile_dbuf->btype==DBUF_TYPE_NULL)
   {
-    de_err(c, "Failed to write %s: %s", pFilename, msgbuf);
+    dbuf_close(pFile_dbuf);
     mz_zip_writer_end(pZip);
     return MZ_FALSE;
   }
-  zzz->fh = pFile;
+  zzz->outf = pFile_dbuf;
   return MZ_TRUE;
 }
 
@@ -629,8 +624,8 @@ void de_zip_close_file(deark *c)
 
 	mz_zip_writer_finalize_archive(zzz->pZip);
 	mz_zip_writer_end(zzz->pZip);
-	if(zzz->fh) {
-		de_fclose(zzz->fh);
+	if(zzz->outf) {
+		dbuf_close(zzz->outf);
 	}
 	de_dbg(c, "zip file closed");
 

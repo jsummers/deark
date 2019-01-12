@@ -1098,6 +1098,9 @@ void dbuf_writebyte(dbuf *f, u8 n)
 	dbuf_write(f, &n, 1);
 }
 
+// Allowed only for membufs, and unmanaged output files.
+// For unmanaged output files, must be used with care, and should not be
+// mixed with dbuf_write().
 void dbuf_write_at(dbuf *f, i64 pos, const u8 *m, i64 len)
 {
 	if(len<1 || pos<0) return;
@@ -1122,7 +1125,7 @@ void dbuf_write_at(dbuf *f, i64 pos, const u8 *m, i64 len)
 		}
 
 		if(amt_overwrite>0) {
-			de_memcpy(&f->membuf_buf[pos], m, amt_overwrite);
+			de_memcpy(&f->membuf_buf[pos], m, (size_t)amt_overwrite);
 		}
 		if(amt_newzeroes>0) {
 			dbuf_write_zeroes(f, amt_newzeroes);
@@ -1131,6 +1134,15 @@ void dbuf_write_at(dbuf *f, i64 pos, const u8 *m, i64 len)
 		if(amt_append>0) {
 			membuf_append(f, &m[amt_overwrite], amt_append);
 		}
+	}
+	else if(f->btype==DBUF_TYPE_OFILE && !f->is_managed) {
+		i64 curpos = de_ftell(f->fp);
+		if(pos != curpos) {
+			de_fseek(f->fp, pos, SEEK_SET);
+		}
+		fwrite(m, 1, (size_t)len, f->fp);
+		// TODO: Maybe update f->len, but ->len is not generally supported with
+		// unmanaged files.
 	}
 	else if(f->btype==DBUF_TYPE_NULL) {
 		;
