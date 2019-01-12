@@ -1068,28 +1068,58 @@ void dbuf_writebyte(dbuf *f, u8 n)
 	dbuf_write(f, &n, 1);
 }
 
-void dbuf_writebyte_at(dbuf *f, i64 pos, u8 n)
-{
-	if(f->btype!=DBUF_TYPE_MEMBUF) return;
-	if(pos<0) return;
-	if(f->has_max_len && pos>=f->max_len) return;
-
-	if(pos>=f->len) {
-		dbuf_write_zeroes(f, pos + 1 - f->len);
-	}
-	if(pos>=f->len) return; // Shouldn't happen
-	f->membuf_buf[pos] = n;
-}
-
 void dbuf_write_at(dbuf *f, i64 pos, const u8 *m, i64 len)
 {
-	i64 i;
+	if(len<1 || pos<0) return;
 
-	if(f->btype!=DBUF_TYPE_MEMBUF) return;
-	// TODO: Make this more efficient
-	for(i=0; i<len; i++) {
-		dbuf_writebyte_at(f, pos+i, m[i]);
+	if(f->btype==DBUF_TYPE_MEMBUF) {
+		i64 amt_overwrite, amt_newzeroes, amt_append;
+
+		if(pos+len <= f->len) { // entirely within the current file
+			amt_overwrite = len;
+			amt_newzeroes = 0;
+			amt_append = 0;
+		}
+		else if(pos >= f->len) { // starts after the end of the current file
+			amt_overwrite = 0;
+			amt_newzeroes = pos - f->len;
+			amt_append = len;
+		}
+		else { // overlaps the end of the current file
+			amt_overwrite = f->len - pos;
+			amt_newzeroes = 0;
+			amt_append = len - amt_overwrite;
+		}
+
+		if(amt_overwrite>0) {
+			de_memcpy(&f->membuf_buf[pos], m, amt_overwrite);
+		}
+		if(amt_newzeroes>0) {
+			dbuf_write_zeroes(f, amt_newzeroes);
+
+		}
+		if(amt_append>0) {
+			membuf_append(f, &m[amt_overwrite], amt_append);
+		}
 	}
+	else if(f->btype==DBUF_TYPE_NULL) {
+		;
+	}
+	else {
+		de_err(f->c, "internal: Attempt to seek on non-seekable stream");
+		de_fatalerror(f->c);
+	}
+}
+
+void dbuf_writebyte_at(dbuf *f, i64 pos, u8 n)
+{
+	if(f->btype==DBUF_TYPE_MEMBUF && pos>=0 && pos<f->len) {
+		// Fast path when overwriting a byte in a membuf
+		f->membuf_buf[pos] = n;
+		return;
+	}
+
+	dbuf_write_at(f, pos, &n, 1);
 }
 
 void dbuf_write_run(dbuf *f, u8 n, i64 len)
