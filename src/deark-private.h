@@ -122,6 +122,7 @@ struct dbuf_struct {
 #define DBUF_TYPE_STDIN   6
 #define DBUF_TYPE_FIFO    7
 	int btype;
+	u8 is_managed;
 
 	deark *c;
 	FILE *fp;
@@ -333,7 +334,7 @@ struct deark_struct {
 	const char *dprefix;
 
 	void *zip_data;
-	FILE *extrlist_file;
+	dbuf *extrlist_dbuf;
 
 	char *base_output_filename;
 	char *output_archive_filename;
@@ -574,6 +575,8 @@ void dbuf_read_to_ucstring_n(dbuf *f, i64 pos, i64 len, i64 max_len,
 #define DE_CREATEFLAG_OPT_IMAGE 0x2
 dbuf *dbuf_create_output_file(deark *c, const char *ext, de_finfo *fi, unsigned int createflags);
 
+dbuf *dbuf_create_unmanaged_file(deark *c, const char *fname, int overwrite_mode, unsigned int flags);
+
 dbuf *dbuf_open_input_file(deark *c, const char *fn);
 dbuf *dbuf_open_input_stdin(deark *c);
 
@@ -605,11 +608,10 @@ void dbuf_writeu32le(dbuf *f, i64 n);
 void dbuf_writeu32be(dbuf *f, i64 n);
 void dbuf_writeu64le(dbuf *f, u64 n);
 
-// Write a NUL-terminated string to a file
 void dbuf_puts(dbuf *f, const char *sz);
-
 void dbuf_printf(dbuf *f, const char *fmt, ...)
   de_gnuc_attribute ((format (printf, 2, 3)));
+void dbuf_flush(dbuf *f);
 
 // Read a slice of one dbuf, and append it to another dbuf.
 void dbuf_copy(dbuf *inf, i64 input_offset, i64 input_len, dbuf *outf);

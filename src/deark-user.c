@@ -187,20 +187,16 @@ void de_register_modules(deark *c)
 
 static void open_extrlist(deark *c)
 {
-	char msgbuf[200];
 	unsigned int flags = 0;
 
-	if(c->extrlist_file || !c->extrlist_filename) return;
+	if(c->extrlist_dbuf || !c->extrlist_filename) return;
 
 	if(de_get_ext_option(c, "extrlist:append")) {
 		flags |= 0x1;
 	}
 
-	c->extrlist_file = de_fopen_for_write(c, c->extrlist_filename,
-		msgbuf, sizeof(msgbuf), DE_OVERWRITEMODE_STANDARD, flags);
-	if(!c->extrlist_file) {
-		de_err(c, "Failed to write %s: %s", c->extrlist_filename, msgbuf);
-	}
+	c->extrlist_dbuf = dbuf_create_unmanaged_file(c, c->extrlist_filename,
+		DE_OVERWRITEMODE_STANDARD, flags);
 }
 
 void de_run(deark *c)
@@ -359,7 +355,7 @@ void de_run(deark *c)
 	}
 
 done:
-	if(c->extrlist_file) { de_fclose(c->extrlist_file); c->extrlist_file=NULL; }
+	if(c->extrlist_dbuf) { dbuf_close(c->extrlist_dbuf); c->extrlist_dbuf=NULL; }
 	ucstring_destroy(friendly_infn);
 	if(subfile) dbuf_close(subfile);
 	if(orig_ifile) dbuf_close(orig_ifile);
@@ -390,7 +386,7 @@ void de_destroy(deark *c)
 	i64 i;
 
 	if(!c) return;
-	if(c->extrlist_file) { de_fclose(c->extrlist_file); }
+	if(c->extrlist_dbuf) { dbuf_close(c->extrlist_dbuf); }
 	for(i=0; i<c->num_ext_options; i++) {
 		de_free(c, c->ext_option[i].name);
 		de_free(c, c->ext_option[i].val);

@@ -837,6 +837,35 @@ static void finfo_shallow_copy(deark *c, de_finfo *src, de_finfo *dst)
 	dst->density = src->density;
 }
 
+// Create or open a file for writing, that is *not* one of the usual
+// "output.000.ext" files we extract from the input file.
+//
+// overwrite_mode, flags: Same as for de_fopen_for_write().
+//
+// On failure, prints an error message, and sets f->btype to DBUF_TYPE_NULL.
+dbuf *dbuf_create_unmanaged_file(deark *c, const char *fname, int overwrite_mode,
+	unsigned int flags)
+{
+	dbuf *f;
+	char msgbuf[200];
+
+	f = de_malloc(c, sizeof(dbuf));
+	f->c = c;
+	f->is_managed = 0;
+	f->name = de_strdup(c, fname);
+
+	f->btype = DBUF_TYPE_OFILE;
+	f->fp = de_fopen_for_write(c, f->name, msgbuf, sizeof(msgbuf),
+		c->overwrite_mode, flags);
+
+	if(!f->fp) {
+		de_err(c, "Failed to write %s: %s", f->name, msgbuf);
+		f->btype = DBUF_TYPE_NULL;
+	}
+
+	return f;
+}
+
 dbuf *dbuf_create_output_file(deark *c, const char *ext, de_finfo *fi,
 	unsigned int createflags)
 {
@@ -854,6 +883,7 @@ dbuf *dbuf_create_output_file(deark *c, const char *ext, de_finfo *fi,
 	}
 
 	f = de_malloc(c, sizeof(dbuf));
+	f->is_managed = 1;
 
 	if(c->extract_policy==DE_EXTRACTPOLICY_MAINONLY) {
 		if(createflags&DE_CREATEFLAG_IS_AUX) {
@@ -948,9 +978,9 @@ dbuf *dbuf_create_output_file(deark *c, const char *ext, de_finfo *fi,
 
 	c->num_files_extracted++;
 
-	if(c->extrlist_file) {
-		fprintf(c->extrlist_file, "%s\n", f->name);
-		fflush(c->extrlist_file);
+	if(c->extrlist_dbuf) {
+		dbuf_printf(c->extrlist_dbuf, "%s\n", f->name);
+		dbuf_flush(c->extrlist_dbuf);
 	}
 
 	if(c->list_mode) {
@@ -1246,6 +1276,13 @@ void dbuf_printf(dbuf *f, const char *fmt, ...)
 	dbuf_puts(f, buf);
 }
 
+void dbuf_flush(dbuf *f)
+{
+	if(f->btype==DBUF_TYPE_OFILE) {
+		fflush(f->fp);
+	}
+}
+
 dbuf *dbuf_open_input_file(deark *c, const char *fn)
 {
 	dbuf *f;
@@ -1327,11 +1364,11 @@ void dbuf_close(dbuf *f)
 		de_fclose(f->fp);
 		f->fp = NULL;
 
-		if(f->btype==DBUF_TYPE_OFILE) {
+		if(f->btype==DBUF_TYPE_OFILE && f->is_managed) {
 			de_update_file_perms(f);
 		}
 
-		if(f->btype==DBUF_TYPE_OFILE && c->preserve_file_times) {
+		if(f->btype==DBUF_TYPE_OFILE && f->is_managed && c->preserve_file_times) {
 			de_update_file_time(f);
 		}
 	}
@@ -1535,22 +1572,12 @@ int dbuf_has_utf8_bom(dbuf *f, i64 pos)
 // This function intended for use in development/debugging.
 int dbuf_dump_to_file(dbuf *inf, const char *fn)
 {
-	FILE *fp;
-	char msgbuf[200];
-	dbuf *tmpdbuf = NULL;
+	dbuf *outf;
 	deark *c = inf->c;
 
-	fp = de_fopen_for_write(c, fn, msgbuf, sizeof(msgbuf),
-		DE_OVERWRITEMODE_STANDARD, 0);
-	if(!fp) return 0;
-
-	tmpdbuf = dbuf_create_membuf(c, inf->len, 1);
-	dbuf_copy(inf, 0, inf->len, tmpdbuf);
-
-	fwrite(tmpdbuf->membuf_buf, 1, (size_t)tmpdbuf->len, fp);
-	de_fclose(fp);
-
-	dbuf_close(tmpdbuf);
+	outf = dbuf_create_unmanaged_file(c, fn, DE_OVERWRITEMODE_STANDARD, 0);
+	dbuf_copy(inf, 0, inf->len, outf);
+	dbuf_close(outf);
 	return 1;
 }
 
