@@ -635,16 +635,29 @@ void dbuf_copy(dbuf *inf, i64 input_offset, i64 input_len, dbuf *outf)
 	dbuf_buffered_read(inf, input_offset, input_len, copy_cbfn, (void*)outf);
 }
 
+struct copy_at_ctx {
+	dbuf *outf;
+	i64 outpos;
+};
+
+static int copy_at_cbfn(deark *c, void *userdata, const u8 *buf,
+	i64 buf_len)
+{
+	struct copy_at_ctx *ctx = (struct copy_at_ctx*)userdata;
+
+	dbuf_write_at(ctx->outf, ctx->outpos, buf, buf_len);
+	ctx->outpos += buf_len;
+	return 1;
+}
+
 void dbuf_copy_at(dbuf *inf, i64 input_offset, i64 input_len,
 	dbuf *outf, i64 output_offset)
 {
-	u8 b;
-	i64 i;
-	// TODO: Make this more efficient
-	for(i=0; i<input_len; i++) {
-		b = dbuf_getbyte(inf, input_offset+i);
-		dbuf_writebyte_at(outf, output_offset+i, b);
-	}
+	struct copy_at_ctx ctx;
+
+	ctx.outf = outf;
+	ctx.outpos = output_offset;
+	dbuf_buffered_read(inf, input_offset, input_len, copy_at_cbfn, (void*)&ctx);
 }
 
 // An advanced function for reading a string from a file.
