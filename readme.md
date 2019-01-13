@@ -163,7 +163,7 @@ Command-line options:
    help for the detected format of that file. Note that most modules have no
    module-specific help to speak of.
 -version
-   Print the version number.
+   Print the version number, and other version information.
 -modules
    Print the names of the available modules.
    With -a, list all modules, including internal modules, and modules that
@@ -269,6 +269,9 @@ Thanks to Rahul Dhesi and Martin Schoenert for much of the code used by the ZOO
 format decoder.
 
 Thanks to James Ashton for much of the code used by the X-Face format decoder.
+
+Thanks to Allan G. Weber for the Huffman decompression code used by the StuffIt
+format decoder.
 
 Thanks to countless others who have documented the supported file formats.
 
