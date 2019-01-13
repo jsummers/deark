@@ -51,14 +51,18 @@ static void show_version(deark *c, int verbose)
 	char vbuf[80];
 	de_printf(c, DE_MSGTYPE_MESSAGE, "Deark version %s\n",
 		de_get_version_string(vbuf, sizeof(vbuf)));
-	de_printf(c, DE_MSGTYPE_MESSAGE, "%u-bit, %s platform\n",
-		(unsigned int)(8*sizeof(void*)),
+	de_printf(c, DE_MSGTYPE_MESSAGE, "%u-bit", (unsigned int)(8*sizeof(void*)));
+	de_printf(c, DE_MSGTYPE_MESSAGE, ", %s platform",
 #ifdef DE_WINDOWS
 		"Windows"
 #else
 		"Unix-like"
 #endif
 		);
+#ifdef _DEBUG
+	de_printf(c, DE_MSGTYPE_MESSAGE, ", debug build");
+#endif
+	de_printf(c, DE_MSGTYPE_MESSAGE, "\n");
 }
 
 static void show_usage_preamble(deark *c) {

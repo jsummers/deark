@@ -1,7 +1,17 @@
 
 CFLAGS ?= -g -O2 -Wall -Wextra -Wmissing-prototypes -Wformat-security -Wno-unused-parameter
 LDFLAGS ?= -Wall
-OBJDIR ?= obj
+
+ifdef DEARK_OBJDIR
+OBJDIR:=$(DEARK_OBJDIR)
+else
+OBJDIR:=obj
+endif
+ifdef DEARK_WINDRES
+DEARK_RC_O:=$(OBJDIR)/src/deark-rc.o
+else
+DEARK_RC_O:=
+endif
 
 INCLUDES:=-Isrc
 
@@ -63,7 +73,7 @@ OFILES_DEARK1:=$(addprefix $(OBJDIR)/src/,deark-miniz.o deark-util.o deark-data.
  deark-dbuf.o deark-bitmap.o deark-char.o deark-font.o deark-ucstring.o \
  deark-fmtutil.o deark-liblzw.o deark-user.o deark-unix.o deark-win.o)
 OFILES_DEARK2:=$(addprefix $(OBJDIR)/src/,deark-modules.o)
-OFILES_ALL:=$(OFILES_DEARK1) $(OFILES_DEARK2) $(OFILES_MODS) $(OBJDIR)/src/deark-cmd.o
+OFILES_ALL:=$(OFILES_DEARK1) $(OFILES_DEARK2) $(OFILES_MODS) $(OBJDIR)/src/deark-cmd.o $(DEARK_RC_O)
 
 DEARK1_A:=$(OBJDIR)/src/deark1.a
 $(DEARK1_A): $(OFILES_DEARK1)
@@ -94,12 +104,19 @@ $(MODS_RZ_A): $(OFILES_MODS_RZ)
 # command was getting so long that I've decided to start using helper
 # libraries. I'll consider adding "-Wl,--start-group" and "-Wl,--end-group"
 # options if that would help.
-$(DEARK_EXE): $(OBJDIR)/src/deark-cmd.o $(DEARK2_A) $(MODS_AB_A) \
+$(DEARK_EXE): $(OBJDIR)/src/deark-cmd.o $(DEARK_RC_O) $(DEARK2_A) $(MODS_AB_A) \
  $(MODS_CH_A) $(MODS_IO_A) $(MODS_PQ_A) $(MODS_RZ_A) $(DEARK1_A)
 	$(CC) $(LDFLAGS) -o $@ $^
 
 $(OBJDIR)/%.o: %.c
 	$(CC) $(CFLAGS) $(INCLUDES) -c -o $@ $<
+
+ifdef DEARK_WINDRES
+$(DEARK_RC_O): src/deark.rc
+	$(DEARK_WINDRES) $< $@
+$(DEARK_RC_O:.o=.d):
+	> $@
+endif
 
 clean:
 	rm -f $(OBJDIR)/src/*.[oad] $(OBJDIR)/modules/*.[oad] $(DEARK_EXE)
