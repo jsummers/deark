@@ -429,7 +429,14 @@ static mz_bool my_mz_zip_writer_init_file(deark *c, struct zip_data_struct *zzz,
     de_err(c, "Failed to initialize ZIP file");
     return MZ_FALSE;
   }
-  pFile_dbuf = dbuf_create_unmanaged_file(c, zzz->pFilename, c->overwrite_mode, 0);
+
+  if(c->zip_to_stdout) {
+    pFile_dbuf = dbuf_create_membuf(c, 4096, 0);
+  }
+  else{
+    pFile_dbuf = dbuf_create_unmanaged_file(c, zzz->pFilename, c->overwrite_mode, 0);
+  }
+
   if (pFile_dbuf->btype==DBUF_TYPE_NULL)
   {
     dbuf_close(pFile_dbuf);
@@ -471,8 +478,17 @@ int de_zip_create_file(deark *c)
 	zzz->pZip->m_pIO_opaque = (void*)zzz;
 	c->zip_data = (void*)zzz;
 
-	zzz->pFilename = c->output_archive_filename;
-	if(!zzz->pFilename) zzz->pFilename = "output.zip";
+	if(c->zip_to_stdout) {
+		zzz->pFilename = "[stdout]";
+	}
+	else {
+		if(c->output_archive_filename) {
+			zzz->pFilename = c->output_archive_filename;
+		}
+		else {
+			zzz->pFilename = "output.zip";
+		}
+	}
 
 	b = my_mz_zip_writer_init_file(c, zzz, zzz->pZip);
 	if(!b) {
@@ -481,7 +497,10 @@ int de_zip_create_file(deark *c)
 		c->zip_data = NULL;
 		return 0;
 	}
-	de_msg(c, "Creating %s", zzz->pFilename);
+
+	if(!c->zip_to_stdout) {
+		de_msg(c, "Creating %s", zzz->pFilename);
+	}
 
 	return 1;
 }
@@ -613,6 +632,19 @@ void de_zip_add_file_to_archive(deark *c, dbuf *f)
 	de_free(c, dfa.extra_data_central);
 }
 
+static int copy_to_FILE_cbfn(deark *c, void *userdata, const u8 *buf,
+	i64 buf_len)
+{
+	size_t ret;
+	ret = fwrite(buf, 1, (size_t)buf_len, (FILE*)userdata);
+	return (ret==(size_t)buf_len);
+}
+
+static void dbuf_copy_to_FILE(dbuf *inf, i64 input_offset, i64 input_len, FILE *outfile)
+{
+	dbuf_buffered_read(inf, input_offset, input_len, copy_to_FILE_cbfn, (void*)outfile);
+}
+
 void de_zip_close_file(deark *c)
 {
 	struct zip_data_struct *zzz;
@@ -624,6 +656,11 @@ void de_zip_close_file(deark *c)
 
 	mz_zip_writer_finalize_archive(zzz->pZip);
 	mz_zip_writer_end(zzz->pZip);
+
+	if(c->zip_to_stdout && zzz->outf && zzz->outf->btype==DBUF_TYPE_MEMBUF) {
+		dbuf_copy_to_FILE(zzz->outf, 0, zzz->outf->len, stdout);
+	}
+
 	if(zzz->outf) {
 		dbuf_close(zzz->outf);
 	}

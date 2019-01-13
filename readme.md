@@ -74,10 +74,12 @@ Command-line options:
    instead of overwriting, use with "-opt extrlist:append".
 -tostdout
    Write the output file(s) to the standard output stream (stdout).
-   This option is experimental, and might not work in all situations.
    It is recommended to put -tostdout early on the command line. The
-   -msgstostderr and "-maxfiles 1" options are enabled automatically.
-   Including the -main option is recommended. Incompatible with -zip.
+   -msgstostderr option is enabled automatically.
+   If used with -zip: Write the ZIP file to standard output. This option
+   might be inefficient, or have file size limitations.
+   Otherwise: The "-maxfiles 1" option is enabled automatically. Including the
+   -main option is recommended.
 -fromstdin
    Read the input file from the standard input stream (stdin).
    If you use -fromstdin, supplying an input filename is optional. If it is

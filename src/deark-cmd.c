@@ -636,9 +636,6 @@ static void parse_cmdline(deark *c, struct cmdctx *cc, int argc, char **argv)
 	if(cc->to_stdout) {
 		if(cc->to_zip) {
 			de_set_output_archive_filename(c, NULL, 0x1);
-			de_puts(c, DE_MSGTYPE_MESSAGE, "Error: -tostdout and -zip are incompatible\n");
-			cc->error_flag = 1;
-			return;
 		}
 		else {
 			de_set_output_style(c, DE_OUTPUTSTYLE_STDOUT);
