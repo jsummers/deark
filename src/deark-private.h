@@ -304,6 +304,7 @@ struct deark_struct {
 
 	int output_style; // DE_OUTPUTSTYLE_*
 	int input_style; // DE_INPUTSTYLE_*
+	int zip_to_stdout;
 
 	int extract_policy; // DE_EXTRACTPOLICY_*
 	int extract_level;

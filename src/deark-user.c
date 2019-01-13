@@ -325,6 +325,17 @@ void de_run(deark *c)
 	}
 	de_dbg2(c, "file size: %" I64_FMT "", c->infile->len);
 
+	// If we're writing to a zip file, we normally defer creating that zip file
+	// until we find a file to extract, so that we never create a zip file with
+	// no member files.
+	// But if the zip "file" is going to stdout, we'll make sure we produce zip
+	// output, even if it has no member files.
+	if(c->output_style==DE_OUTPUTSTYLE_ZIP && c->zip_to_stdout) {
+		if(!de_zip_create_file(c)) {
+			goto done;
+		}
+	}
+
 	if(c->modcodes_req) {
 		if(!mparams)
 			mparams = de_malloc(c, sizeof(de_module_params));
@@ -476,12 +487,16 @@ void de_set_base_output_filename(deark *c, const char *fn, unsigned int flags)
 	}
 }
 
-void de_set_output_archive_filename(deark *c, const char *fn)
+// If flags&0x1, configure the archive file to be written to stdout.
+void de_set_output_archive_filename(deark *c, const char *fn, unsigned int flags)
 {
 	if(c->output_archive_filename) de_free(c, c->output_archive_filename);
 	c->output_archive_filename = NULL;
 	if(fn) {
 		c->output_archive_filename = de_strdup(c, fn);
+	}
+	if(flags&0x1) {
+		c->zip_to_stdout = 1;
 	}
 }
 

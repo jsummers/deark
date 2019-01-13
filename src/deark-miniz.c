@@ -26,6 +26,7 @@ struct deark_file_attribs {
 // Our custom version of mz_zip_archive
 struct zip_data_struct {
 	deark *c;
+	const char *pFilename;
 	dbuf *outf; // Using this instead of pZip->m_pState->m_pFile
 	mz_zip_archive *pZip;
 };
@@ -417,7 +418,7 @@ static size_t my_mz_zip_file_write_func(void *pOpaque, mz_uint64 file_ofs, const
 // Customized to support Unicode filenames (on Windows), and to better
 // report errors.
 static mz_bool my_mz_zip_writer_init_file(deark *c, struct zip_data_struct *zzz,
-	mz_zip_archive *pZip, const char *pFilename)
+	mz_zip_archive *pZip)
 {
   dbuf *pFile_dbuf;
   mz_uint64 size_to_reserve_at_beginning = 0;
@@ -428,7 +429,7 @@ static mz_bool my_mz_zip_writer_init_file(deark *c, struct zip_data_struct *zzz,
     de_err(c, "Failed to initialize ZIP file");
     return MZ_FALSE;
   }
-  pFile_dbuf = dbuf_create_unmanaged_file(c, pFilename, c->overwrite_mode, 0);
+  pFile_dbuf = dbuf_create_unmanaged_file(c, zzz->pFilename, c->overwrite_mode, 0);
   if (pFile_dbuf->btype==DBUF_TYPE_NULL)
   {
     dbuf_close(pFile_dbuf);
@@ -459,7 +460,6 @@ int de_zip_create_file(deark *c)
 {
 	struct zip_data_struct *zzz;
 	mz_bool b;
-	const char *arcfn;
 
 	if(c->zip_data) return 1; // Already created. Shouldn't happen.
 
@@ -471,17 +471,17 @@ int de_zip_create_file(deark *c)
 	zzz->pZip->m_pIO_opaque = (void*)zzz;
 	c->zip_data = (void*)zzz;
 
-	arcfn = c->output_archive_filename;
-	if(!arcfn) arcfn = "output.zip";
+	zzz->pFilename = c->output_archive_filename;
+	if(!zzz->pFilename) zzz->pFilename = "output.zip";
 
-	b = my_mz_zip_writer_init_file(c, zzz, zzz->pZip, arcfn);
+	b = my_mz_zip_writer_init_file(c, zzz, zzz->pZip);
 	if(!b) {
 		de_free(c, zzz->pZip);
 		de_free(c, zzz);
 		c->zip_data = NULL;
 		return 0;
 	}
-	de_msg(c, "Creating %s", arcfn);
+	de_msg(c, "Creating %s", zzz->pFilename);
 
 	return 1;
 }
@@ -627,7 +627,6 @@ void de_zip_close_file(deark *c)
 	if(zzz->outf) {
 		dbuf_close(zzz->outf);
 	}
-	de_dbg(c, "zip file closed");
 
 	de_free(c, zzz->pZip);
 	de_free(c, zzz);

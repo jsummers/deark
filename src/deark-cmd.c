@@ -497,9 +497,7 @@ static void parse_cmdline(deark *c, struct cmdctx *cc, int argc, char **argv)
 				cc->to_zip = 1;
 				break;
 			case DE_OPT_TOSTDOUT:
-				de_set_output_style(c, DE_OUTPUTSTYLE_STDOUT);
 				send_msgs_to_stderr(c, cc);
-				de_set_max_output_files(c, 1);
 				cc->to_stdout = 1;
 				break;
 			case DE_OPT_MSGSTOSTDERR:
@@ -564,7 +562,7 @@ static void parse_cmdline(deark *c, struct cmdctx *cc, int argc, char **argv)
 				break;
 			case DE_OPT_ARCFN:
 				// Relevant e.g. if the -zip option is used.
-				de_set_output_archive_filename(c, argv[i+1]);
+				de_set_output_archive_filename(c, argv[i+1], 0);
 				break;
 			case DE_OPT_GET:
 				de_set_first_output_file(c, de_atoi(argv[i+1]));
@@ -635,6 +633,19 @@ static void parse_cmdline(deark *c, struct cmdctx *cc, int argc, char **argv)
 		return;
 	}
 
+	if(cc->to_stdout) {
+		if(cc->to_zip) {
+			de_set_output_archive_filename(c, NULL, 0x1);
+			de_puts(c, DE_MSGTYPE_MESSAGE, "Error: -tostdout and -zip are incompatible\n");
+			cc->error_flag = 1;
+			return;
+		}
+		else {
+			de_set_output_style(c, DE_OUTPUTSTYLE_STDOUT);
+			de_set_max_output_files(c, 1);
+		}
+	}
+
 	if(cc->option_k_level && cc->input_filename) {
 		if(cc->option_k_level==1) {
 			// Use base input filename in output filenames.
@@ -652,12 +663,6 @@ static void parse_cmdline(deark *c, struct cmdctx *cc, int argc, char **argv)
 
 	if(cc->base_output_filename) {
 		de_set_base_output_filename(c, cc->base_output_filename, 0);
-	}
-
-	if(cc->to_zip && cc->to_stdout) {
-		de_puts(c, DE_MSGTYPE_MESSAGE, "Error: -tostdout and -zip are incompatible\n");
-		cc->error_flag = 1;
-		return;
 	}
 }
 
