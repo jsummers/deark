@@ -15,6 +15,7 @@ DE_DECLARE_MODULE(de_module_macrsrc);
 #define CODE_MeSa 0x4d655361U
 #define CODE_PICT 0x50494354U
 #define CODE_icns 0x69636e73U
+#define CODE_moov 0x6d6f6f76U
 
 typedef struct localctx_struct {
 	u8 extract_raw;
@@ -232,6 +233,10 @@ static void do_resource_data(deark *c, lctx *d, struct rsrctypeinfo *rti,
 	}
 	else if(rti->fcc.id==CODE_icns) {
 		ext = "icns";
+		extr_flag = 1;
+	}
+	else if(rti->fcc.id==CODE_moov) {
+		ext = "mov";
 		extr_flag = 1;
 	}
 	else if(rti->fcc.id==CODE_ANPA && rii->id==10000) {
