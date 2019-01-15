@@ -12,6 +12,11 @@ DEARK_RC_O:=$(OBJDIR)/src/deark-rc.o
 else
 DEARK_RC_O:=
 endif
+ifdef DEARK_ARFLAGS
+ARFLAGS:=$(DEARK_ARFLAGS)
+else
+ARFLAGS:=urcs
+endif
 
 INCLUDES:=-Isrc
 
@@ -77,28 +82,27 @@ OFILES_ALL:=$(OFILES_DEARK1) $(OFILES_DEARK2) $(OFILES_MODS) $(OBJDIR)/src/deark
 
 DEARK1_A:=$(OBJDIR)/src/deark1.a
 $(DEARK1_A): $(OFILES_DEARK1)
-	ar rcs $@ $^
+	$(AR) rcs $@ $^
 
 DEARK2_A:=$(OBJDIR)/src/deark2.a
 $(DEARK2_A): $(OFILES_DEARK2)
-	ar rcs $@ $^
+	$(AR) rcs $@ $^
 
-ARFLAGS:=urcs
 MODS_AB_A:=$(OBJDIR)/modules/mods-ab.a
 MODS_CH_A:=$(OBJDIR)/modules/mods-ch.a
 MODS_IO_A:=$(OBJDIR)/modules/mods-io.a
 MODS_PQ_A:=$(OBJDIR)/modules/mods-pq.a
 MODS_RZ_A:=$(OBJDIR)/modules/mods-rz.a
 $(MODS_AB_A): $(OFILES_MODS_AB)
-	ar $(ARFLAGS) $@ $^
+	$(AR) $(ARFLAGS) $@ $^
 $(MODS_CH_A): $(OFILES_MODS_CH)
-	ar $(ARFLAGS) $@ $^
+	$(AR) $(ARFLAGS) $@ $^
 $(MODS_IO_A): $(OFILES_MODS_IO)
-	ar $(ARFLAGS) $@ $^
+	$(AR) $(ARFLAGS) $@ $^
 $(MODS_PQ_A): $(OFILES_MODS_PQ)
-	ar $(ARFLAGS) $@ $^
+	$(AR) $(ARFLAGS) $@ $^
 $(MODS_RZ_A): $(OFILES_MODS_RZ)
-	ar $(ARFLAGS) $@ $^
+	$(AR) $(ARFLAGS) $@ $^
 
 # I'm sorry if your linker doesn't like this library order, but the link
 # command was getting so long that I've decided to start using helper
