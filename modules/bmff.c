@@ -73,6 +73,7 @@ struct box_type_info {
 #define BOX_iloc 0x696c6f63U
 #define BOX_ilst 0x696c7374U
 #define BOX_infe 0x696e6665U
+#define BOX_iods 0x696f6473U
 #define BOX_ipco 0x6970636fU
 #define BOX_ipma 0x69706d61U
 #define BOX_ipro 0x6970726fU
@@ -89,6 +90,9 @@ struct box_type_info {
 #define BOX_pitm 0x7069746dU
 #define BOX_pnot 0x706e6f74U
 #define BOX_rsrc 0x72737263U
+#define BOX_sbgp 0x73626770U
+#define BOX_sdtp 0x73647470U
+#define BOX_sgpd 0x73677064U
 #define BOX_stsd 0x73747364U
 #define BOX_tkhd 0x746b6864U
 #define BOX_uuid 0x75756964U
@@ -1431,6 +1435,7 @@ static const struct box_type_info box_type_info_arr[] = {
 	{BOX_iloc, 0x00080001, 0x00000000, "item location", do_box_iloc},
 	{BOX_ilst, 0x00000001, 0x00000001, "metadata item list", NULL},
 	{BOX_infe, 0x00080001, 0x00000000, "item info entry", do_box_infe},
+	{BOX_iods, 0x00000001, 0x00000000, "object descriptor", NULL},
 	{BOX_iref, 0x00080001, 0x00000001, "item reference", do_box_full_superbox},
 	{BOX_load, 0x00000001, 0x00000000, "track load settings", NULL},
 	{BOX_matt, 0x00000001, 0x00000001, NULL, NULL},
@@ -1449,7 +1454,10 @@ static const struct box_type_info box_type_info_arr[] = {
 	{BOX_pnot, 0x00000001, 0x00000000, "reference to movie preview", NULL},
 	{BOX_rinf, 0x00000001, 0x00000001, "restricted scheme information", NULL},
 	{BOX_rsrc, 0x00000001, 0x00000000, "Macintosh resource alias", NULL},
+	{BOX_sbgp, 0x00000001, 0x00000000, "sample-to-group", NULL},
 	{BOX_schi, 0x00000001, 0x00000001, "scheme information", NULL},
+	{BOX_sdtp, 0x00000001, 0x00000000, "independent and disposable samples", NULL},
+	{BOX_sgpd, 0x00000001, 0x00000000, "sample group description", NULL},
 	{BOX_sinf, 0x00000001, 0x00000001, "protection scheme information", NULL},
 	{BOX_skip, 0x00080001, 0x00000000, "user-data", NULL},
 	{BOX_smhd, 0x00000001, 0x00000000, "sound media header", do_box_smhd},
