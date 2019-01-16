@@ -102,6 +102,8 @@ $(OBJDIR)/modules/insetpix.o: modules/insetpix.c src/deark-config.h \
  src/deark-private.h src/deark.h
 $(OBJDIR)/modules/iptc.o: modules/iptc.c src/deark-config.h \
  src/deark-private.h src/deark.h
+$(OBJDIR)/modules/iso9660.o: modules/iso9660.c src/deark-config.h \
+ src/deark-private.h src/deark.h
 $(OBJDIR)/modules/j2c.o: modules/j2c.c src/deark-config.h \
  src/deark-private.h src/deark.h
 $(OBJDIR)/modules/jbf.o: modules/jbf.c src/deark-config.h \

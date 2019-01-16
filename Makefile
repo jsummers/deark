@@ -62,7 +62,7 @@ OFILES_MODS_CH:=$(addprefix $(OBJDIR)/modules/,cab.o cardfile.o cfb.o \
  hlp.o dsstore.o flac.o)
 OFILES_MODS_IO:=$(addprefix $(OBJDIR)/modules/,misc.o iccprofile.o icns.o \
  id3.o ico.o iff.o ilbm.o insetpix.o iptc.o jbf.o jovianvi.o jpeg.o lha.o \
- j2c.o ogg.o olepropset.o macbinary.o macrsrc.o \
+ j2c.o ogg.o olepropset.o iso9660.o macbinary.o macrsrc.o \
  macpaint.o makichan.o mbk.o mp3.o mscompress.o msp.o nokia.o os2bmp.o)
 OFILES_MODS_PQ:=$(addprefix $(OBJDIR)/modules/,psd.o palmbitmap.o palmpdb.o \
  pcpaint.o pcx.o pff2.o pict.o pkfont.o png.o pnm.o portfolio.o printptnr.o \
