@@ -19,6 +19,7 @@ struct dir_record {
 	i64 file_id_len;
 	i64 extent_blk;
 	de_ucstring *fname;
+	struct de_timestamp recording_time;
 };
 
 typedef struct localctx_struct {
@@ -31,6 +32,15 @@ typedef struct localctx_struct {
 	struct de_strarray *curpath;
 	struct de_inthashtable *dirs_seen;
 } lctx;
+
+static i64 read_signed_byte(dbuf *f, i64 pos)
+{
+	u8 b;
+
+	b = dbuf_getbyte(f, pos);
+	if(b<=127) return (i64)b;
+	return ((i64)b)-256;
+}
 
 static i64 getu16bbo_p(dbuf *f, i64 *ppos)
 {
@@ -54,6 +64,37 @@ static void read_iso_string(deark *c, lctx *d, i64 pos, i64 len, de_ucstring *s)
 	dbuf_read_to_ucstring(c->infile, pos, len, s,
 		DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_ASCII);
 	ucstring_strip_trailing_spaces(s);
+}
+
+static void dbg_timestamp(deark *c, struct de_timestamp *ts, const char *field_name)
+{
+	char timestamp_buf[64];
+
+	if(ts->is_valid) {
+		de_timestamp_to_string(ts, timestamp_buf, sizeof(timestamp_buf), 0);
+		de_dbg(c, "%s: %s", field_name, timestamp_buf);
+	}
+}
+
+static void read_datetime7(deark *c, lctx *d, i64 pos, struct de_timestamp *ts)
+{
+	i64 yr, mo, da;
+	i64 hr, mi, se;
+	i64 offs;
+
+	ts->is_valid = 0;
+
+	yr = de_getbyte(pos);
+	mo = de_getbyte(pos+1);
+	if(mo==0) return;
+	da = de_getbyte(pos+2);
+	hr = de_getbyte(pos+3);
+	mi = de_getbyte(pos+4);
+	se = de_getbyte(pos+5);
+	offs = read_signed_byte(c->infile, pos+6);
+
+	de_make_timestamp(ts, 1900+yr, mo, da, hr, mi, se);
+	de_timestamp_cvt_to_utc(ts, -offs*60*15);
 }
 
 static void free_dir_record(deark *c, struct dir_record *dr)
@@ -83,6 +124,12 @@ static void fixup_filename(deark *c, lctx *d, de_ucstring *fname)
 		fname->str[fname->len-1]=='1')
 	{
 		ucstring_truncate(fname, fname->len-2);
+
+		if(fname->len>1) {
+			if(fname->str[fname->len-1]=='.') {
+				ucstring_truncate(fname, fname->len-1);
+			}
+		}
 	}
 }
 
@@ -110,6 +157,12 @@ static void do_file(deark *c, lctx *d, struct dir_record *dr)
 		fixup_filename(c, d, final_name);
 		de_finfo_set_name_from_ucstring(c, fi, final_name);
 		fi->original_filename_flag = 1;
+	}
+
+	if(dr->recording_time.is_valid) {
+		// Apparently, the "recording time" (whatever that is) is
+		// sometimes used as the mod time.
+		fi->mod_time = dr->recording_time;
 	}
 
 	dbuf_create_file_from_slice(c->infile, dpos, dlen, NULL, fi, 0);
@@ -141,7 +194,10 @@ static int do_directory_record(deark *c, lctx *d, i64 pos1, struct dir_record *d
 	de_dbg(c, "loc. of extent: block #%u", (unsigned int)dr->extent_blk);
 	dr->data_len = getu32bbo_p(c->infile, &pos);
 	de_dbg(c, "data length: %u", (unsigned int)dr->data_len);
-	pos += 7; // recording time
+
+	read_datetime7(c, d, pos, &dr->recording_time);
+	dbg_timestamp(c, &dr->recording_time, "recording time");
+	pos += 7;
 
 	dr->file_flags = de_getbyte_p(&pos);
 	tmps = ucstring_create(c);
@@ -176,6 +232,12 @@ static int do_directory_record(deark *c, lctx *d, i64 pos1, struct dir_record *d
 		else if(b==0x01) {
 			dr->is_parentdir = 1;
 		}
+	}
+
+	if(dr->len_ext_attr_rec>0) {
+		// TODO
+		de_err(c, "Can't handle files with extended attribute records");
+		goto done;
 	}
 
 	if(dr->is_dir && !dr->is_thisdir && !dr->is_parentdir) {
@@ -497,5 +559,4 @@ void de_module_iso9660(deark *c, struct deark_module_info *mi)
 	mi->desc = "ISO 9660 (CD-ROM) image";
 	mi->run_fn = de_run_iso9660;
 	mi->identify_fn = de_identify_iso9660;
-	mi->flags |= DE_MODFLAG_NONWORKING;
 }

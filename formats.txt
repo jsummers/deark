@@ -576,6 +576,9 @@ Deark -- Information about supported formats
 
 * Gzip (module="gzip")
 
+* ISO 9660 CD-ROM image (module="iso9660") (experimental)
+  - Limited support.
+
 * LHA/LZH/PMA (module="lha")
   - Files can be parsed, but there is usually nothing that can be extracted
     from them.
