@@ -96,7 +96,7 @@ static void do_face_name(deark *c, lctx *d)
 	de_snprintf(buf2, sizeof(buf2), "%s-%d", srd->sz, (int)d->face_size);
 
 	d->fi = de_finfo_create(c);
-	de_finfo_set_name_from_sz(c, d->fi, buf2, DE_ENCODING_ASCII);
+	de_finfo_set_name_from_sz(c, d->fi, buf2, 0, DE_ENCODING_ASCII);
 
 done:
 	de_destroy_stringreaderdata(c, srd);

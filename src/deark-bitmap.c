@@ -215,7 +215,7 @@ void de_bitmap_write_to_file(de_bitmap *img, const char *token,
 
 	if(token && token[0]) {
 		de_finfo *tmpfi = de_finfo_create(c);
-		de_finfo_set_name_from_sz(c, tmpfi, token, DE_ENCODING_UTF8);
+		de_finfo_set_name_from_sz(c, tmpfi, token, 0, DE_ENCODING_UTF8);
 		de_bitmap_write_to_file_finfo(img, tmpfi, createflags);
 		de_finfo_destroy(c, tmpfi);
 	}

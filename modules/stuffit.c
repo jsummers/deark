@@ -303,7 +303,7 @@ static void do_decompress_fork(deark *c, lctx *d, struct member_data *md,
 	if(frk->is_rsrc_fork) {
 		ucstring_append_sz(final_fname, ".rsrc", DE_ENCODING_LATIN1);
 	}
-	de_finfo_set_name_from_ucstring(c, fi, final_fname);
+	de_finfo_set_name_from_ucstring(c, fi, final_fname, DE_SNFLAG_FULLPATH);
 	fi->original_filename_flag = 1;
 
 	if(md->mod_time.is_valid) {

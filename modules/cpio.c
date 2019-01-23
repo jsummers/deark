@@ -273,7 +273,7 @@ static void read_member_name(deark *c, lctx *d, struct member_data *md)
 
 	de_dbg(c, "name: \"%s\"", ucstring_getpsz(md->filename_srd->str));
 
-	de_finfo_set_name_from_ucstring(c, md->fi, md->filename_srd->str);
+	de_finfo_set_name_from_ucstring(c, md->fi, md->filename_srd->str, DE_SNFLAG_FULLPATH);
 	md->fi->original_filename_flag = 1;
 }
 

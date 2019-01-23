@@ -153,7 +153,7 @@ static int read_filename(deark *c, lctx *d, struct page_ctx *pg, i64 pos1, i64 *
 			ucstring_append_sz(pg->fname, "jpg", DE_ENCODING_ASCII);
 		else
 			ucstring_append_sz(pg->fname, "bmp", DE_ENCODING_ASCII);
-		de_finfo_set_name_from_ucstring(c, pg->fi, pg->fname);
+		de_finfo_set_name_from_ucstring(c, pg->fi, pg->fname, 0);
 		pg->fi->original_filename_flag = 1;
 	}
 	else {

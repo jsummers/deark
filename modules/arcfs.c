@@ -163,7 +163,7 @@ static void do_extract_member(deark *c, lctx *d, struct member_data *md)
 	}
 
 	fi = de_finfo_create(c);
-	de_finfo_set_name_from_ucstring(c, fi, fullfn);
+	de_finfo_set_name_from_ucstring(c, fi, fullfn, DE_SNFLAG_FULLPATH);
 	fi->original_filename_flag = 1;
 	if(md->mod_time.is_valid) {
 		fi->mod_time = md->mod_time;
@@ -463,7 +463,7 @@ static void de_run_squash(deark *c, de_module_params *mparams)
 	if(md->file_type_known && c->filenames_from_file) {
 		ucstring_printf(fn, DE_ENCODING_LATIN1, ",%03X", md->file_type);
 	}
-	de_finfo_set_name_from_ucstring(c, fi, fn);
+	de_finfo_set_name_from_ucstring(c, fi, fn, 0);
 
 	if(md->mod_time.is_valid) {
 		fi->mod_time = md->mod_time;

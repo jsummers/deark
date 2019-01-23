@@ -649,7 +649,7 @@ static void do_extract_stream_to_file_thumbsdb(deark *c, lctx *d, struct dir_ent
 
 	de_dbg_indent(c, -1);
 
-	de_finfo_set_name_from_ucstring(c, fi, tmpfn);
+	de_finfo_set_name_from_ucstring(c, fi, tmpfn, 0);
 	fi->original_filename_flag = 1;
 
 	outf = dbuf_create_output_file(c, NULL, fi, 0);
@@ -1376,7 +1376,7 @@ static void do_process_stream(deark *c, lctx *d, struct dir_entry_info *dei)
 	if(d->extract_raw_streams) {
 		dbuf *outf = NULL;
 
-		de_finfo_set_name_from_ucstring(c, fi_raw, fn_raw);
+		de_finfo_set_name_from_ucstring(c, fi_raw, fn_raw, DE_SNFLAG_FULLPATH);
 		fi_raw->original_filename_flag = 1;
 
 		outf = dbuf_create_output_file(c, NULL, fi_raw, 0);

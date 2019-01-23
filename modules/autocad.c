@@ -94,7 +94,7 @@ static void de_run_autocad_slb(deark *c, de_module_params *mparams)
 		de_dbg(c, "calculated len: %u", (unsigned int)si[k].len);
 
 		fi = de_finfo_create(c);
-		de_finfo_set_name_from_ucstring(c, fi, slidename);
+		de_finfo_set_name_from_ucstring(c, fi, slidename, 0);
 		dbuf_create_file_from_slice(c->infile, si[k].pos, si[k].len, "sld", fi, 0);
 		de_finfo_destroy(c, fi);
 

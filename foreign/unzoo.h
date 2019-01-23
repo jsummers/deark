@@ -511,7 +511,7 @@ static int EntrReadArch (struct unzooctx *uz, struct entryctx *ze)
 			ucstring_append_ucstring(fullname_ucstring, shortname_ucstring);
 		}
 
-		de_finfo_set_name_from_ucstring(c, ze->fi, fullname_ucstring);
+		de_finfo_set_name_from_ucstring(c, ze->fi, fullname_ucstring, DE_SNFLAG_FULLPATH);
 		ze->fi->original_filename_flag = 1;
 	}
 

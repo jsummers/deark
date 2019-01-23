@@ -155,7 +155,7 @@ static void do_file(deark *c, lctx *d, struct dir_record *dr)
 	if(ucstring_isnonempty(dr->fname)) {
 		ucstring_append_ucstring(final_name, dr->fname);
 		fixup_filename(c, d, final_name);
-		de_finfo_set_name_from_ucstring(c, fi, final_name);
+		de_finfo_set_name_from_ucstring(c, fi, final_name, DE_SNFLAG_FULLPATH);
 		fi->original_filename_flag = 1;
 	}
 

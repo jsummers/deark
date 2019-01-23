@@ -86,7 +86,7 @@ static void do_extract_file(deark *c, lctx *d, i64 dir_entry_pos,
 	///////
 
 	fi = de_finfo_create(c);
-	de_finfo_set_name_from_ucstring(c, fi, fname);
+	de_finfo_set_name_from_ucstring(c, fi, fname, 0);
 	fi->original_filename_flag = 1;
 
 	f = dbuf_create_output_file(c, NULL, fi, 0);

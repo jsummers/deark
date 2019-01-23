@@ -46,7 +46,7 @@ static void do_object_sprite(deark *c, lctx *d, struct objinfo *oi)
 		s = ucstring_create(c);
 		dbuf_read_to_ucstring(c->infile, dpos+4, 12, s,
 			DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_RISCOS);
-		de_finfo_set_name_from_ucstring(c, fi, s);
+		de_finfo_set_name_from_ucstring(c, fi, s, 0);
 		ucstring_destroy(s);
 	}
 

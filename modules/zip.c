@@ -748,7 +748,7 @@ static void do_extract_file(deark *c, lctx *d, struct member_data *md)
 	fi = de_finfo_create(c);
 
 	if(ldd->fname) {
-		de_finfo_set_name_from_ucstring(c, fi, ldd->fname);
+		de_finfo_set_name_from_ucstring(c, fi, ldd->fname, DE_SNFLAG_FULLPATH);
 		fi->original_filename_flag = 1;
 	}
 

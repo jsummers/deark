@@ -101,7 +101,7 @@ static void do_card_index(deark *c, lctx *d, i64 cardnum, i64 pos)
 		if(c->extract_level>=2) {
 			fi_text = de_finfo_create(c);
 			if(c->filenames_from_file)
-				de_finfo_set_name_from_ucstring(c, fi_text, name);
+				de_finfo_set_name_from_ucstring(c, fi_text, name, 0);
 
 			do_extract_text_data(c, d, fi_text, text_pos, text_len);
 		}
@@ -116,7 +116,7 @@ static void do_card_index(deark *c, lctx *d, i64 cardnum, i64 pos)
 
 	fi_bitmap = de_finfo_create(c);
 	if(c->filenames_from_file)
-		de_finfo_set_name_from_ucstring(c, fi_bitmap, name);
+		de_finfo_set_name_from_ucstring(c, fi_bitmap, name, 0);
 
 	w = de_getu16le(datapos+2);
 	h = de_getu16le(datapos+4);

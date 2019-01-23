@@ -195,7 +195,7 @@ static void extract_raw_rsrc(deark *c, lctx *d, struct rsrctypeinfo *rti,
 	else {
 		ucstring_append_sz(s, ".bin", DE_ENCODING_LATIN1);
 	}
-	de_finfo_set_name_from_ucstring(c, fi, s);
+	de_finfo_set_name_from_ucstring(c, fi, s, 0);
 	dbuf_create_file_from_slice(c->infile, dpos, dlen, NULL, fi, 0x0);
 
 	de_finfo_destroy(c, fi);

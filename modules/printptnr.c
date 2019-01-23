@@ -30,7 +30,7 @@ static void do_write_image_frombitmap(deark *c, lctx *d, struct page_ctx *pg,
 	fi->density.ydens = 1;
 
 	if(c->filenames_from_file && pg->imgname && (pg->imgname->len > 0)) {
-		de_finfo_set_name_from_ucstring(c, fi, pg->imgname);
+		de_finfo_set_name_from_ucstring(c, fi, pg->imgname, 0);
 	}
 	de_bitmap_write_to_file_finfo(img, fi, 0);
 	de_finfo_destroy(c, fi);

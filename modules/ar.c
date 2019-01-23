@@ -113,7 +113,7 @@ static int do_ar_item(deark *c, lctx *d, i64 pos1, i64 *p_item_len)
 
 		de_dbg(c, "extended filename: \"%s\"", ucstring_getpsz(filename_ucstring));
 
-		de_finfo_set_name_from_ucstring(c, fi, filename_ucstring);
+		de_finfo_set_name_from_ucstring(c, fi, filename_ucstring, 0);
 		fi->original_filename_flag = 1;
 	}
 	else if(name_orig[0]=='/') {
@@ -136,7 +136,7 @@ static int do_ar_item(deark *c, lctx *d, i64 pos1, i64 *p_item_len)
 			0, DE_ENCODING_UTF8);
 
 		de_dbg(c, "filename: \"%s\"", ucstring_getpsz(filename_ucstring));
-		de_finfo_set_name_from_ucstring(c, fi, filename_ucstring);
+		de_finfo_set_name_from_ucstring(c, fi, filename_ucstring, 0);
 		fi->original_filename_flag = 1;
 	}
 

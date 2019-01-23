@@ -22,7 +22,7 @@ static void do_lump_extract(deark *c, lctx *d, i64 dpos, i64 dlen, struct de_str
 	if(dpos<0 || dpos>=c->infile->len || dpos+dlen>c->infile->len) return;
 
 	fi = de_finfo_create(c);
-	de_finfo_set_name_from_ucstring(c, fi, srd->str);
+	de_finfo_set_name_from_ucstring(c, fi, srd->str, 0);
 	fi->original_filename_flag = 1;
 	dbuf_create_file_from_slice(c->infile, dpos, dlen, NULL, fi, 0);
 	de_finfo_destroy(c, fi);

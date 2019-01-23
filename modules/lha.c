@@ -424,7 +424,8 @@ static void do_extract_file(deark *c, lctx *d, struct member_data *md)
 
 	fi = de_finfo_create(c);
 	if(md->filename && md->filename->len>0) {
-		de_finfo_set_name_from_ucstring(c, fi, md->filename);
+		// TODO: Handle directory names
+		de_finfo_set_name_from_ucstring(c, fi, md->filename, 0);
 		fi->original_filename_flag = 1;
 	}
 	outf = dbuf_create_output_file(c, NULL, fi, 0x0);

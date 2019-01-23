@@ -210,7 +210,7 @@ static int read_member(deark *c, lctx *d, i64 pos1, i64 *bytes_consumed_member)
 	de_dbg(c, "file data at %d", (int)pos);
 	de_dbg_indent(c, 1);
 
-	de_finfo_set_name_from_ucstring(c, md->fi, md->filename);
+	de_finfo_set_name_from_ucstring(c, md->fi, md->filename, DE_SNFLAG_FULLPATH);
 	md->fi->original_filename_flag = 1;
 
 	if(pos + md->filesize > c->infile->len) goto done;

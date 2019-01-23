@@ -60,7 +60,7 @@ static void do_read_bitmap(deark *c, lctx *d, i64 pos)
 
 	fi = de_finfo_create(c);
 	if(d->filename && c->filenames_from_file) {
-		de_finfo_set_name_from_ucstring(c, fi, d->filename);
+		de_finfo_set_name_from_ucstring(c, fi, d->filename, 0);
 	}
 
 	if(d->mod_time_from_macbinary.is_valid) {
@@ -227,7 +227,7 @@ static void do_read_patterns(deark *c, lctx *d, i64 pos)
 	}
 	ucstring_append_sz(tmpname, "pat", DE_ENCODING_LATIN1);
 	fi = de_finfo_create(c);
-	de_finfo_set_name_from_ucstring(c, fi, tmpname);
+	de_finfo_set_name_from_ucstring(c, fi, tmpname, 0);
 	de_bitmap_write_to_file_finfo(pat, fi, DE_CREATEFLAG_IS_AUX);
 
 done:

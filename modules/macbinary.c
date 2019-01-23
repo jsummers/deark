@@ -185,12 +185,12 @@ static void do_extract_one_file(deark *c, lctx *d, i64 pos, i64 len,
 	}
 
 	if(is_rsrc) {
-		de_finfo_set_name_from_ucstring(c, fi, d->filename);
+		de_finfo_set_name_from_ucstring(c, fi, d->filename, 0);
 		ext = "rsrc";
 	}
 	else {
 		if(d->filename) {
-			de_finfo_set_name_from_ucstring(c, fi, d->filename);
+			de_finfo_set_name_from_ucstring(c, fi, d->filename, 0);
 			fi->original_filename_flag = 1;
 		}
 		else {

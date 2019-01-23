@@ -103,11 +103,11 @@ static void handler_data(deark *c, lctx *d, struct entry_struct *e)
 	}
 
 	if(d->real_name) {
-		de_finfo_set_name_from_ucstring(c, fi, d->real_name);
+		de_finfo_set_name_from_ucstring(c, fi, d->real_name, 0);
 		fi->original_filename_flag = 1;
 	}
 	else {
-		de_finfo_set_name_from_sz(c, fi, "data", DE_ENCODING_LATIN1);
+		de_finfo_set_name_from_sz(c, fi, "data", 0, DE_ENCODING_LATIN1);
 	}
 
 	dbuf_create_file_from_slice(c->infile, e->offset, e->length,
@@ -131,10 +131,10 @@ static void handler_rsrc(deark *c, lctx *d, struct entry_struct *e)
 	if(d->real_name) {
 		fname = ucstring_clone(d->real_name);
 		ucstring_append_sz(fname, ".rsrc", DE_ENCODING_LATIN1);
-		de_finfo_set_name_from_ucstring(c, fi, fname);
+		de_finfo_set_name_from_ucstring(c, fi, fname, 0);
 	}
 	else {
-		de_finfo_set_name_from_sz(c, fi, "rsrc", DE_ENCODING_LATIN1);
+		de_finfo_set_name_from_sz(c, fi, "rsrc", 0, DE_ENCODING_LATIN1);
 	}
 
 	dbuf_create_file_from_slice(c->infile, e->offset, e->length,

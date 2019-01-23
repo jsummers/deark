@@ -213,7 +213,7 @@ static void do_extract_file(deark *c, lctx *d, struct file_rec *fr,
 		ucstring_append_sz(fn, ".", DE_ENCODING_LATIN1);
 	}
 	ucstring_append_ucstring(fn, fr->name_to_use);
-	de_finfo_set_name_from_ucstring(c, fi, fn);
+	de_finfo_set_name_from_ucstring(c, fi, fn, 0);
 
 	outf = dbuf_create_output_file(c, NULL, fi, 0);
 	if(d->files_are_compressed) {

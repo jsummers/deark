@@ -169,7 +169,7 @@ static void do_blob(deark *c, lctx *d, struct record_info *ri)
 		}
 		ucstring_printf(fn, DE_ENCODING_ASCII, "%s.plist", ri->rtype.id_sanitized_sz);
 		fi = de_finfo_create(c);
-		de_finfo_set_name_from_ucstring(c, fi, fn);
+		de_finfo_set_name_from_ucstring(c, fi, fn, 0);
 		de_fmtutil_handle_plist(c, c->infile, blobpos, len, fi, 0);
 		ucstring_destroy(fn);
 		de_finfo_destroy(c, fi);

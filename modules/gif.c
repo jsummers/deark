@@ -1237,9 +1237,9 @@ done:
 	if(d) {
 		if(d->screen_img) {
 			if(d->dump_screen) {
-				de_finfo_set_name_from_sz(c, d->fi, "screen", DE_ENCODING_LATIN1);
+				de_finfo_set_name_from_sz(c, d->fi, "screen", 0, DE_ENCODING_LATIN1);
 				de_bitmap_write_to_file_finfo(d->screen_img, d->fi, DE_CREATEFLAG_OPT_IMAGE);
-				de_finfo_set_name_from_sz(c, d->fi, NULL, DE_ENCODING_LATIN1);
+				de_finfo_set_name_from_sz(c, d->fi, NULL, 0, DE_ENCODING_LATIN1);
 			}
 			de_bitmap_destroy(d->screen_img);
 		}

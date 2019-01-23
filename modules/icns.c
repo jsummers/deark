@@ -254,7 +254,7 @@ static void do_extract_png_or_jp2(deark *c, lctx *d, struct page_ctx *pg)
 	de_read(buf, pg->image_pos, sizeof(buf));
 
 	fi = de_finfo_create(c);
-	de_finfo_set_name_from_sz(c, fi, pg->filename_token, DE_ENCODING_ASCII);
+	de_finfo_set_name_from_sz(c, fi, pg->filename_token, 0, DE_ENCODING_ASCII);
 
 	if(buf[4]=='j' && buf[5]=='P') {
 		dbuf_create_file_from_slice(c->infile, pg->image_pos, pg->image_len, "jp2", fi, 0);

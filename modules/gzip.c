@@ -160,7 +160,7 @@ static int do_gzip_read_member(deark *c, lctx *d, i64 pos1, i64 *member_size)
 		fi = de_finfo_create(c);
 
 		if(member_name && c->filenames_from_file) {
-			de_finfo_set_name_from_ucstring(c, fi, member_name);
+			de_finfo_set_name_from_ucstring(c, fi, member_name, 0);
 			fi->original_filename_flag = 1;
 		}
 

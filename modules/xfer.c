@@ -212,7 +212,7 @@ static void parse_begin_line(deark *c, lctx *d, const u8 *buf, i64 buf_len)
 	fn = ucstring_create(c);
 	ucstring_append_bytes(fn, &buf[beginsize+5], buf_len-(beginsize+5), 0, DE_ENCODING_ASCII);
 	de_dbg(c, "filename: \"%s\"", ucstring_getpsz_d(fn));
-	de_finfo_set_name_from_ucstring(c, d->fi, fn);
+	de_finfo_set_name_from_ucstring(c, d->fi, fn, 0);
 	d->fi->original_filename_flag = 1;
 
 done:

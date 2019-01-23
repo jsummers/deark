@@ -199,11 +199,11 @@ static void handler_attachedfile_end(deark *c, lctx *d)
 		(d->attachmentctx->filename->len > 0) &&
 		c->filenames_from_file)
 	{
-		de_finfo_set_name_from_ucstring(c, fi, d->attachmentctx->filename);
+		de_finfo_set_name_from_ucstring(c, fi, d->attachmentctx->filename, 0);
 	}
 	else
 	{
-		de_finfo_set_name_from_sz(c, fi, "bin", DE_ENCODING_UTF8);
+		de_finfo_set_name_from_sz(c, fi, "bin", 0, DE_ENCODING_UTF8);
 	}
 
 	dbuf_create_file_from_slice(c->infile, d->attachmentctx->data_pos,

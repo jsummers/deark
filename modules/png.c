@@ -729,7 +729,7 @@ static void handler_iccp(deark *c, lctx *d, struct handler_params *hp)
 
 	fi = de_finfo_create(c);
 	if(c->filenames_from_file && prof_name2[0])
-		de_finfo_set_name_from_sz(c, fi, prof_name2, DE_ENCODING_LATIN1);
+		de_finfo_set_name_from_sz(c, fi, prof_name2, 0, DE_ENCODING_LATIN1);
 	f = dbuf_create_output_file(c, "icc", fi, DE_CREATEFLAG_IS_AUX);
 	if(d->is_CgBI) {
 		i64 bytes_consumed = 0;

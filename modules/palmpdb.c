@@ -259,10 +259,10 @@ static void extract_item(deark *c, lctx *d, i64 data_offs, i64 data_len,
 	if(data_offs+data_len > c->infile->len) goto done;
 	fi = de_finfo_create(c);
 	if(ext_sz) {
-		de_finfo_set_name_from_sz(c, fi, ext_sz, DE_ENCODING_ASCII);
+		de_finfo_set_name_from_sz(c, fi, ext_sz, 0, DE_ENCODING_ASCII);
 	}
 	else if(ext_ucstring) {
-		de_finfo_set_name_from_ucstring(c, fi, ext_ucstring);
+		de_finfo_set_name_from_ucstring(c, fi, ext_ucstring, 0);
 	}
 	dbuf_create_file_from_slice(c->infile, data_offs, data_len, NULL, fi, createflags);
 done:
@@ -375,7 +375,7 @@ static void do_imgview_image(deark *c, lctx *d, i64 pos1, i64 len)
 	dbuf_read_to_ucstring(c->infile, pos, 32, iname, DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_PALM);
 	de_dbg(c, "name: \"%s\"", ucstring_getpsz(iname));
 	if(iname->len>0 && c->filenames_from_file) {
-		de_finfo_set_name_from_ucstring(c, igi->fi, iname);
+		de_finfo_set_name_from_ucstring(c, igi->fi, iname, 0);
 	}
 	pos += 32;
 

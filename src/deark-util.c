@@ -892,9 +892,13 @@ static i32 de_char_to_valid_fn_char(deark *c, i32 ch)
 }
 
 // Takes ownership of 's', and may modify it.
-static void de_finfo_set_name_internal(deark *c, de_finfo *fi, de_ucstring *s)
+// flags:
+//   DE_SNFLAG_FULLPATH = "/" characters in the name are path separators.
+static void de_finfo_set_name_internal(deark *c, de_finfo *fi, de_ucstring *s,
+	unsigned int flags)
 {
 	i64 i;
+	int allow_slashes;
 
 	if(fi->file_name_internal) {
 		ucstring_destroy(fi->file_name_internal);
@@ -904,12 +908,14 @@ static void de_finfo_set_name_internal(deark *c, de_finfo *fi, de_ucstring *s)
 
 	fi->file_name_internal = s;
 
+	allow_slashes = (c->allow_subdirs && (flags&DE_SNFLAG_FULLPATH));
 	for(i=0; i<s->len; i++) {
-		if(s->str[i]=='/' && c->allow_subdirs) {
+		if(s->str[i]=='/' && allow_slashes && i>0) {
 			continue;
 		}
 		s->str[i] = de_char_to_valid_fn_char(c, s->str[i]);
 	}
+	// TODO: More filename sanitizing
 
 	ucstring_strip_trailing_spaces(s);
 
@@ -919,25 +925,27 @@ static void de_finfo_set_name_internal(deark *c, de_finfo *fi, de_ucstring *s)
 	}
 }
 
-void de_finfo_set_name_from_ucstring(deark *c, de_finfo *fi, de_ucstring *s)
+void de_finfo_set_name_from_ucstring(deark *c, de_finfo *fi, de_ucstring *s,
+	unsigned int flags)
 {
 	de_ucstring *s_copy;
 
 	s_copy = ucstring_clone(s);
-	de_finfo_set_name_internal(c, fi, s_copy);
+	de_finfo_set_name_internal(c, fi, s_copy, flags);
 }
 
-void de_finfo_set_name_from_sz(deark *c, de_finfo *fi, const char *name1, int encoding)
+void de_finfo_set_name_from_sz(deark *c, de_finfo *fi, const char *name1,
+	unsigned int flags, int encoding)
 {
 	de_ucstring *fname;
 
 	if(!name1) {
-		de_finfo_set_name_from_ucstring(c, fi, NULL);
+		de_finfo_set_name_from_ucstring(c, fi, NULL, flags);
 		return;
 	}
 	fname = ucstring_create(c);
 	ucstring_append_sz(fname, name1, encoding);
-	de_finfo_set_name_internal(c, fi, fname);
+	de_finfo_set_name_internal(c, fi, fname, flags);
 }
 
 // Sets the precision field to UNKNOWN.

@@ -249,7 +249,7 @@ static void set_density_and_filename(deark *c, lctx *d, struct img_info *ii, de_
 	int has_aspect, has_dpi;
 
 	if(ii->filename_token) {
-		de_finfo_set_name_from_sz(c, fi, ii->filename_token, DE_ENCODING_UTF8);
+		de_finfo_set_name_from_sz(c, fi, ii->filename_token, 0, DE_ENCODING_UTF8);
 	}
 
 	has_aspect = (d->x_aspect>0 && d->y_aspect>0);

@@ -617,7 +617,7 @@ static void finalize_fpxr_stream(deark *c, lctx *d, struct fpxr_entity_struct *f
 		ucstring_append_char(name2, '.');
 	}
 	ucstring_append_sz(name2, "fpxr.bin", DE_ENCODING_UTF8);
-	de_finfo_set_name_from_ucstring(c, fi, name2);
+	de_finfo_set_name_from_ucstring(c, fi, name2, 0);
 
 	outf = dbuf_create_output_file(c, NULL, fi, DE_CREATEFLAG_IS_AUX);
 	dbuf_copy(fe->stream, 0, fe->stream->len, outf);

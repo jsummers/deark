@@ -161,14 +161,14 @@ static void do_extract_files(deark *c, lctx *d)
 		fname = ucstring_create(c);
 		dbuf_read_to_ucstring(f, pos, name_len, fname, 0, DE_ENCODING_MACROMAN);
 		de_dbg(c, "name: \"%s\"", ucstring_getpsz(fname));
-		de_finfo_set_name_from_ucstring(c, fi_d, fname);
+		de_finfo_set_name_from_ucstring(c, fi_d, fname, 0);
 		fi_d->original_filename_flag = 1;
 		ucstring_append_sz(fname, ".rsrc", DE_ENCODING_LATIN1);
-		de_finfo_set_name_from_ucstring(c, fi_r, fname);
+		de_finfo_set_name_from_ucstring(c, fi_r, fname, 0);
 	}
 	else {
-		de_finfo_set_name_from_sz(c, fi_r, "rsrc", DE_ENCODING_LATIN1);
-		de_finfo_set_name_from_sz(c, fi_d, "data", DE_ENCODING_LATIN1);
+		de_finfo_set_name_from_sz(c, fi_r, "rsrc", 0, DE_ENCODING_LATIN1);
+		de_finfo_set_name_from_sz(c, fi_d, "data", 0, DE_ENCODING_LATIN1);
 	}
 
 	pos+=name_len;

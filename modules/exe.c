@@ -732,7 +732,7 @@ static void de_finfo_set_name_from_pe_string(deark *c, de_finfo *fi, dbuf *f,
 
 	fname = ucstring_create(c);
 	dbuf_read_to_ucstring(c->infile, pos+2, nlen*2, fname, 0, DE_ENCODING_UTF16LE);
-	de_finfo_set_name_from_ucstring(c, fi, fname);
+	de_finfo_set_name_from_ucstring(c, fi, fname, 0);
 
 done:
 	ucstring_destroy(fname);
@@ -988,7 +988,7 @@ static void do_ne_one_nameinfo(deark *c, lctx *d, i64 npos)
 			dbuf_read_to_ucstring(c->infile, rnNameOffset+1, x, rname, 0, DE_ENCODING_ASCII);
 			de_dbg(c, "resource name: \"%s\"", ucstring_getpsz(rname));
 			if(c->filenames_from_file)
-				de_finfo_set_name_from_ucstring(c, fi, rname);
+				de_finfo_set_name_from_ucstring(c, fi, rname, 0);
 			ucstring_destroy(rname);
 		}
 	}

@@ -58,7 +58,7 @@ static int do_extract_file(deark *c, lctx *d, i64 fnum)
 
 	// In a Grasp GL file, filenames are 13 bytes, NUL-padded.
 	dbuf_read_to_ucstring(c->infile, pos+4, 13, fname, DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_ASCII);
-	de_finfo_set_name_from_ucstring(c, fi, fname);
+	de_finfo_set_name_from_ucstring(c, fi, fname, 0);
 	fi->original_filename_flag = 1;
 	de_dbg(c, "file name: %s", ucstring_getpsz(fname));
 
