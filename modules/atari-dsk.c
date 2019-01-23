@@ -62,21 +62,7 @@ void de_module_atari_cas(deark *c, struct deark_module_info *mi)
 	mi->flags |= DE_MODFLAG_NONWORKING;
 }
 
-
 // --------------------------------------------
-static i64 space_padded_length(const u8 *buf, i64 len)
-{
-	i64 i;
-	i64 last_nonspace = -1;
-
-	for(i=len-1; i>=0; i--) {
-		if(buf[i]!=0x20) {
-			last_nonspace = i;
-			break;
-		}
-	}
-	return last_nonspace+1;
-}
 
 static int get_sector_offset_and_size(deark *c, lctx *d,
 	i64 sector_num, i64 *sector_offset, i64 *sector_size)
@@ -143,13 +129,10 @@ static void do_directory_entry(deark *c, lctx *d, dbuf *f, i64 pos)
 	u8 flags;
 	i64 sector_count;
 	i64 starting_sector;
-	i64 i;
-	u8 fn_raw[11];
-	i64 fnbase_len, fnext_len;
 	de_ucstring *fn_u = NULL;
+	de_ucstring *fn_ext = NULL;
 	de_finfo *fi = NULL;
 	dbuf *outf = NULL;
-	i32 ch;
 
 	flags = dbuf_getbyte(f, pos);
 	de_dbg(c, "flags: 0x%02x", (unsigned int)flags);
@@ -173,30 +156,22 @@ static void do_directory_entry(deark *c, lctx *d, dbuf *f, i64 pos)
 		goto done;
 	}
 
-	// Read filename
-	dbuf_read(f, fn_raw, pos+5, 11);
-
-	fnbase_len = space_padded_length(fn_raw, 8);
-	// Not sure what to do with an empty filename
-	if(fnbase_len<1) {
-		fn_raw[0] = '_';
-		fnbase_len=1;
-	}
-	fnext_len = space_padded_length(fn_raw+8, 3);
-
 	fn_u = ucstring_create(c);
-	for(i=0; i<(8+fnext_len); i++) {
-		if(i<8 && i>=fnbase_len) continue;
-		if(i==8) {
-			ucstring_append_char(fn_u, '.');
-		}
+	fn_ext = ucstring_create(c);
 
-		// TODO: Use correct Atari encoding.
-		ch = (i32)fn_raw[i];
-
-		if(ch<32 || ch>126) ch='_';
-		ch = de_char_to_valid_fn_char(c, ch);
-		ucstring_append_char(fn_u, ch);
+	// TODO: Use correct Atari encoding.
+	dbuf_read_to_ucstring(f, pos+5, 8, fn_u, 0, DE_ENCODING_PRINTABLEASCII);
+	dbuf_read_to_ucstring(f, pos+13, 3, fn_ext, 0, DE_ENCODING_PRINTABLEASCII);
+	de_dbg(c, "filename: \"%s.%s\"",
+		ucstring_getpsz(fn_u), ucstring_getpsz(fn_ext));
+	ucstring_strip_trailing_spaces(fn_u);
+	ucstring_strip_trailing_spaces(fn_ext);
+	if(fn_u->len==0) {
+		ucstring_append_char(fn_u, '_');
+	}
+	if(ucstring_isnonempty(fn_ext)) {
+		ucstring_append_char(fn_u, '.');
+		ucstring_append_ucstring(fn_u, fn_ext);
 	}
 
 	fi = de_finfo_create(c);
@@ -210,6 +185,7 @@ static void do_directory_entry(deark *c, lctx *d, dbuf *f, i64 pos)
 done:
 	de_finfo_destroy(c, fi);
 	ucstring_destroy(fn_u);
+	ucstring_destroy(fn_ext);
 	dbuf_close(outf);
 }
 
