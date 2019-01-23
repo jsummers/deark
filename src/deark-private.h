@@ -304,7 +304,8 @@ struct deark_struct {
 
 	int output_style; // DE_OUTPUTSTYLE_*
 	int input_style; // DE_INPUTSTYLE_*
-	int zip_to_stdout;
+	u8 zip_to_stdout;
+	u8 allow_subdirs;
 
 	int extract_policy; // DE_EXTRACTPOLICY_*
 	int extract_level;
@@ -853,8 +854,6 @@ void de_finfo_destroy(deark *c, de_finfo *fi);
 void de_finfo_set_name_from_ucstring(deark *c, de_finfo *fi, de_ucstring *s);
 void de_finfo_set_name_from_sz(deark *c, de_finfo *fi, const char *name1,
 	int encoding);
-
-i32 de_char_to_valid_fn_char(deark *c, i32 c1);
 
 de_ucstring *ucstring_create(deark *c);
 de_ucstring *ucstring_clone(const de_ucstring *src);

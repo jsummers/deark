@@ -67,7 +67,7 @@ as it could be.
 Currently, directory paths are never maintained as such. I.e., Deark never
 writes a file to anything but the current directory (unless the -o option
 contains a "/", or when using -k3). It doesn't even do this when writing to a
-ZIP file (though this may change in future version).
+ZIP file, unless you request it with "-opt archive:subdirs".
 
 ## The "Is this one format or two?" problem ##
 

@@ -325,6 +325,12 @@ void de_run(deark *c)
 	}
 	de_dbg2(c, "file size: %" I64_FMT "", c->infile->len);
 
+	if(c->output_style==DE_OUTPUTSTYLE_ZIP) {
+		if(de_get_ext_option_bool(c, "archive:subdirs", 0)) {
+			c->allow_subdirs = 1;
+		}
+	}
+
 	// If we're writing to a zip file, we normally defer creating that zip file
 	// until we find a file to extract, so that we never create a zip file with
 	// no member files.

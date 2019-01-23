@@ -1096,25 +1096,6 @@ void de_bytes_to_printable_sz(const u8 *s1, i64 s1_len,
 	s2[s2_pos] = '\0';
 }
 
-i32 de_char_to_valid_fn_char(deark *c, i32 ch)
-{
-	if(ch>=32 && ch<=126 && ch!='/' && ch!='\\' && ch!=':'
-		&& ch!='*' && ch!='?' && ch!='\"' && ch!='<' &&
-		ch!='>' && ch!='|')
-	{
-		// These are the valid ASCII characters in Windows filenames.
-		// TODO: We could behave differently on different platforms.
-		return ch;
-	}
-	else if(ch>=160 && ch<=0x10ffff) {
-		// TODO: A lot of Unicode characters probably don't belong in filenames.
-		// Maybe we need a whitelist or blacklist.
-		// (is_printable_uchar() exists, but isn't quite right.)
-		return ch;
-	}
-	return '_';
-}
-
 void de_write_codepoint_to_html(deark *c, dbuf *f, i32 ch)
 {
 	int e; // How to encode this codepoint
