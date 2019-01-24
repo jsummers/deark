@@ -8,22 +8,29 @@
 #include <deark-private.h>
 DE_DECLARE_MODULE(de_module_iso9660);
 
+#define CODE_CE 0x4345U
+#define CODE_NM 0x4e4dU
+#define CODE_SP 0x5350U
+
 struct dir_record {
 	u8 file_flags;
 	u8 is_dir;
 	u8 is_thisdir;
 	u8 is_parentdir;
+	u8 is_root_dot; // The "." entry in the root dir
 	i64 len_dir_rec;
 	i64 len_ext_attr_rec;
 	i64 data_len;
 	i64 file_id_len;
 	i64 extent_blk;
 	de_ucstring *fname;
+	de_ucstring *rr_name;
 	struct de_timestamp recording_time;
 };
 
 typedef struct localctx_struct {
 	u8 file_structure_version;
+	int rr_encoding;
 	i64 secsize;
 	i64 path_table_size;
 	i64 path_table_L_secnum;
@@ -31,6 +38,8 @@ typedef struct localctx_struct {
 	struct dir_record *root_dr;
 	struct de_strarray *curpath;
 	struct de_inthashtable *dirs_seen;
+	u8 uses_SUSP;
+	i64 SUSP_default_bytes_to_skip;
 } lctx;
 
 static i64 read_signed_byte(dbuf *f, i64 pos)
@@ -101,6 +110,7 @@ static void free_dir_record(deark *c, struct dir_record *dr)
 {
 	if(!dr) return;
 	ucstring_destroy(dr->fname);
+	ucstring_destroy(dr->rr_name);
 	de_free(c, dr);
 }
 
@@ -152,7 +162,12 @@ static void do_file(deark *c, lctx *d, struct dir_record *dr)
 	final_name = ucstring_create(c);
 	de_strarray_make_path(d->curpath, final_name, 0);
 
-	if(ucstring_isnonempty(dr->fname)) {
+	if(ucstring_isnonempty(dr->rr_name)) {
+		ucstring_append_ucstring(final_name, dr->rr_name);
+		de_finfo_set_name_from_ucstring(c, fi, final_name, DE_SNFLAG_FULLPATH);
+		fi->original_filename_flag = 1;
+	}
+	else if(ucstring_isnonempty(dr->fname)) {
 		ucstring_append_ucstring(final_name, dr->fname);
 		fixup_filename(c, d, final_name);
 		de_finfo_set_name_from_ucstring(c, fi, final_name, DE_SNFLAG_FULLPATH);
@@ -172,6 +187,143 @@ done:
 	de_finfo_destroy(c, fi);
 }
 
+static void do_SUSP_SP(deark *c, lctx *d, struct dir_record *dr,
+	i64 pos1, i64 len)
+{
+	if(!dr->is_root_dot) return;
+	if(len<7) return;
+	d->SUSP_default_bytes_to_skip = (i64)de_getbyte(pos1+6);
+	de_dbg(c, "bytes skipped: %d", (int)d->SUSP_default_bytes_to_skip);
+}
+
+static void do_SUSP_CE(deark *c, lctx *d, struct dir_record *dr,
+	i64 pos1, i64 len,
+	i64 *ca_blk, i64 *ca_offs, i64 *ca_len)
+{
+	i64 pos = pos1 + 4;
+
+
+	if(len<28) return;
+	*ca_blk = getu32bbo_p(c->infile, &pos);
+	de_dbg(c, "loc. of continuation area: block #%u", (unsigned int)*ca_blk);
+	*ca_offs = getu32bbo_p(c->infile, &pos);
+	de_dbg(c, "continuation area offset: %u bytes", (unsigned int)*ca_offs);
+	*ca_len = getu32bbo_p(c->infile, &pos);
+	de_dbg(c, "continuation area len: %u bytes", (unsigned int)*ca_len);
+}
+
+static void do_SUSP_NM(deark *c, lctx *d, struct dir_record *dr,
+	i64 pos1, i64 len)
+{
+	u8 flags;
+
+	flags = de_getbyte(pos1+4);
+	de_dbg(c, "flags: 0x%02x", (unsigned int)flags);
+	if(len<6) return;
+	if(!dr->rr_name)
+		dr->rr_name = ucstring_create(c);
+	// It is intentional that this may append to a name in a previous NM item.
+	dbuf_read_to_ucstring(c->infile, pos1+5, len-5, dr->rr_name, 0x0,
+		d->rr_encoding);
+	de_dbg(c, "Rock Ridge name: \"%s\"", ucstring_getpsz_d(dr->rr_name));
+}
+
+static int is_SUSP_indicator(deark *c, i64 pos, i64 len)
+{
+	u8 buf[6];
+
+	if(len<6) return 0;
+	de_read(buf, pos, 6);
+	if(buf[0]=='S' && buf[1]=='P' && buf[4]==0xbe && buf[5]==0xef) {
+		return 1;
+	}
+	return 0;
+}
+
+// Decode a contiguous set of SUSP entries.
+// Does not follow a "CE" continuation entry, but returns info about it.
+static void do_dir_rec_SUSP_set(deark *c, lctx *d, struct dir_record *dr,
+	i64 pos1, i64 len,
+	i64 *ca_blk, i64 *ca_offs, i64 *ca_len)
+{
+	i64 pos = pos1;
+	int saved_indent_level;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+
+	de_dbg(c, "SUSP data at %"I64_FMT", len=%d", pos1, (int)len);
+	de_dbg_indent(c, 1);
+
+	while(1) {
+		struct de_fourcc sig4cc;
+		i64 itempos;
+		i64 itemlen, dlen;
+		u8 itemver;
+
+		itempos = pos;
+		if(itempos+4 > pos1+len) break;
+		dbuf_read_fourcc(c->infile, pos, &sig4cc, 2, 0x0);
+		pos += 2;
+		itemlen = (i64)de_getbyte_p(&pos);
+		if(itemlen<4) break;
+		dlen = itemlen-4;
+		if(itempos+itemlen > pos1+len) break;
+		itemver = de_getbyte_p(&pos);
+		de_dbg(c, "entry '%s' at %"I64_FMT", len=%d, ver=%u, dlen=%d",
+			sig4cc.id_dbgstr, itempos, (int)itemlen, (unsigned int)itemver, (int)dlen);
+
+		de_dbg_indent(c, 1);
+		switch(sig4cc.id) {
+		case CODE_SP:
+			do_SUSP_SP(c, d, dr, itempos, itemlen);
+			break;
+		case CODE_CE:
+			do_SUSP_CE(c, d, dr, itempos, itemlen, ca_blk, ca_offs, ca_len);
+			break;
+		case CODE_NM:
+			do_SUSP_NM(c, d, dr, itempos, itemlen);
+			break;
+		default:
+			if(c->debug_level>=2) {
+				de_dbg_hexdump(c, c->infile, pos, itemlen-4, 256, NULL, 0x1);
+			}
+		}
+		pos = itempos+itemlen;
+		de_dbg_indent(c, -1);
+	}
+
+	de_dbg_indent_restore(c, saved_indent_level);
+}
+
+static void do_dir_rec_SUSP(deark *c, lctx *d, struct dir_record *dr,
+	i64 pos1, i64 len1)
+{
+	i64 pos = pos1;
+	i64 len = len1;
+
+	while(1) {
+		i64 ca_blk = 0;
+		i64 ca_offs = 0;
+		i64 ca_len = 0;
+
+		do_dir_rec_SUSP_set(c, d, dr, pos, len, &ca_blk, &ca_offs, &ca_len);
+
+		if(ca_blk==0) {
+			break;
+		}
+
+		// Prepare to jump to a continuation area
+
+		// Prevent loops
+		if(!de_inthashtable_add_item(c, d->dirs_seen, ca_blk * d->secsize, NULL)) {
+			break;
+		}
+
+		pos = ca_blk * d->secsize + ca_offs;
+		len = ca_len;
+	}
+}
+
 static void do_directory(deark *c, lctx *d, i64 pos1, i64 len, int nesting_level);
 
 // Caller allocates dr
@@ -179,6 +331,7 @@ static int do_directory_record(deark *c, lctx *d, i64 pos1, struct dir_record *d
 {
 	i64 n;
 	i64 pos = pos1;
+	i64 sys_use_len;
 	u8 b;
 	de_ucstring *tmps = NULL;
 	int retval = 0;
@@ -233,6 +386,40 @@ static int do_directory_record(deark *c, lctx *d, i64 pos1, struct dir_record *d
 			dr->is_parentdir = 1;
 		}
 	}
+	if(nesting_level==0 && dr->is_thisdir) {
+		dr->is_root_dot = 1;
+	}
+	pos += dr->file_id_len;
+
+	if((dr->file_id_len%2)==0) pos++; // padding byte
+
+	// System Use area
+	sys_use_len = pos1+dr->len_dir_rec-pos;
+	if(sys_use_len>0) {
+		i64 non_SUSP_len = sys_use_len;
+		i64 SUSP_len = 0;
+
+		if(dr->is_root_dot) {
+			if(is_SUSP_indicator(c, pos, sys_use_len)) {
+				d->uses_SUSP = 1;
+				non_SUSP_len = 0;
+				SUSP_len = sys_use_len;
+			}
+		}
+		else if(d->uses_SUSP) {
+			non_SUSP_len = d->SUSP_default_bytes_to_skip;
+			SUSP_len = sys_use_len - d->SUSP_default_bytes_to_skip;
+		}
+
+		if(non_SUSP_len>0) {
+			de_dbg(c, "[%d bytes of system use data at %"I64_FMT"]",
+				(int)non_SUSP_len, pos);
+		}
+
+		if(d->uses_SUSP && SUSP_len>0) {
+			do_dir_rec_SUSP(c, d, dr, pos+non_SUSP_len, SUSP_len);
+		}
+	}
 
 	if(dr->len_ext_attr_rec>0) {
 		// TODO
@@ -241,7 +428,12 @@ static int do_directory_record(deark *c, lctx *d, i64 pos1, struct dir_record *d
 	}
 
 	if(dr->is_dir && !dr->is_thisdir && !dr->is_parentdir) {
-		de_strarray_push(d->curpath, dr->fname);
+		if(ucstring_isnonempty(dr->rr_name)) {
+			de_strarray_push(d->curpath, dr->rr_name);
+		}
+		else {
+			de_strarray_push(d->curpath, dr->fname);
+		}
 		do_directory(c, d, dr->extent_blk * d->secsize, dr->data_len, nesting_level+1);
 		de_strarray_pop(d->curpath);
 	}
@@ -249,7 +441,6 @@ static int do_directory_record(deark *c, lctx *d, i64 pos1, struct dir_record *d
 		do_file(c, d, dr);
 	}
 
-	pos += dr->file_id_len;
 	retval = 1;
 
 done:
@@ -512,6 +703,12 @@ static void de_run_iso9660(deark *c, de_module_params *mparams)
 
 	d = de_malloc(c, sizeof(lctx));
 
+	if(c->input_encoding==DE_ENCODING_UNKNOWN) {
+		d->rr_encoding = DE_ENCODING_UTF8;
+	}
+	else {
+		d->rr_encoding = c->input_encoding;
+	}
 	d->secsize = 2048;
 
 	cursec = 16;
