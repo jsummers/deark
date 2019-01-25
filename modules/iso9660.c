@@ -9,8 +9,12 @@
 DE_DECLARE_MODULE(de_module_iso9660);
 
 #define CODE_CE 0x4345U
+#define CODE_ER 0x4552U
 #define CODE_NM 0x4e4dU
+#define CODE_PX 0x5058U
 #define CODE_SP 0x5350U
+#define CODE_ST 0x5354U
+#define CODE_TF 0x5446U
 
 struct dir_record {
 	u8 file_flags;
@@ -18,6 +22,8 @@ struct dir_record {
 	u8 is_thisdir;
 	u8 is_parentdir;
 	u8 is_root_dot; // The "." entry in the root dir
+	u8 rr_is_executable;
+	u8 rr_is_nonexecutable;
 	i64 len_dir_rec;
 	i64 len_ext_attr_rec;
 	i64 data_len;
@@ -26,6 +32,7 @@ struct dir_record {
 	de_ucstring *fname;
 	de_ucstring *rr_name;
 	struct de_timestamp recording_time;
+	struct de_timestamp rr_modtime;
 };
 
 typedef struct localctx_struct {
@@ -179,10 +186,20 @@ static void do_file(deark *c, lctx *d, struct dir_record *dr)
 		fi->original_filename_flag = 1;
 	}
 
-	if(dr->recording_time.is_valid) {
+	if(dr->rr_modtime.is_valid) {
+		fi->mod_time = dr->rr_modtime;
+	}
+	else if(dr->recording_time.is_valid) {
 		// Apparently, the "recording time" (whatever that is) is
 		// sometimes used as the mod time.
 		fi->mod_time = dr->recording_time;
+	}
+
+	if(dr->rr_is_executable) {
+		fi->mode_flags |= DE_MODEFLAG_EXE;
+	}
+	else if(dr->rr_is_nonexecutable) {
+		fi->mode_flags |= DE_MODEFLAG_NONEXE;
 	}
 
 	dbuf_create_file_from_slice(c->infile, dpos, dlen, NULL, fi, 0);
@@ -217,7 +234,32 @@ static void do_SUSP_CE(deark *c, lctx *d, struct dir_record *dr,
 	de_dbg(c, "continuation area len: %u bytes", (unsigned int)*ca_len);
 }
 
-static void do_SUSP_NM(deark *c, lctx *d, struct dir_record *dr,
+static void do_SUSP_ER(deark *c, lctx *d, struct dir_record *dr,
+	i64 pos1, i64 len)
+{
+	i64 pos = pos1+4;
+	i64 len_id, len_des, len_src;
+	u8 ext_ver;
+	de_ucstring *tmpstr = NULL;
+
+	if(!dr->is_root_dot) goto done;
+	if(len<8) goto done;
+	len_id = (i64)de_getbyte_p(&pos);
+	len_des = (i64)de_getbyte_p(&pos);
+	len_src = (i64)de_getbyte_p(&pos);
+	ext_ver = de_getbyte_p(&pos);
+	de_dbg(c, "extension version: %u", (unsigned int)ext_ver);
+	if(8+len_id+len_des+len_src > len) goto done;
+	tmpstr = ucstring_create(c);
+	handle_iso_string_p(c, d, "extension id", &pos, len_id, tmpstr);
+	handle_iso_string_p(c, d, "extension descriptor", &pos, len_des, tmpstr);
+	handle_iso_string_p(c, d, "extension source", &pos, len_src, tmpstr);
+
+done:
+	ucstring_destroy(tmpstr);
+}
+
+static void do_SUSP_rockridge_NM(deark *c, lctx *d, struct dir_record *dr,
 	i64 pos1, i64 len)
 {
 	u8 flags;
@@ -231,6 +273,51 @@ static void do_SUSP_NM(deark *c, lctx *d, struct dir_record *dr,
 	dbuf_read_to_ucstring(c->infile, pos1+5, len-5, dr->rr_name, 0x0,
 		d->rr_encoding);
 	de_dbg(c, "Rock Ridge name: \"%s\"", ucstring_getpsz_d(dr->rr_name));
+}
+
+static void do_SUSP_rockridge_PX(deark *c, lctx *d, struct dir_record *dr,
+	i64 pos1, i64 len)
+{
+	i64 pos = pos1+4;
+	u32 perms;
+
+	if(len<36) return; // 36 in v1r1.10; 44 in v1.12
+	perms = (u32)getu32bbo_p(c->infile, &pos);
+	de_dbg(c, "perms: octal(%06o)", (unsigned int)perms);
+	if((perms&0170000)==0) { // regular file
+		if(perms&0111) {
+			dr->rr_is_executable = 1;
+		}
+		else {
+			dr->rr_is_nonexecutable = 1;
+		}
+	}
+}
+
+static void do_SUSP_rockridge_TF(deark *c, lctx *d, struct dir_record *dr,
+	i64 pos1, i64 len)
+{
+	i64 pos = pos1+4;
+	unsigned int flags;
+	unsigned int i;
+	i64 bytes_per_field;
+
+	if(len<5) return;
+	flags = (unsigned int)de_getbyte_p(&pos);
+	bytes_per_field = (flags&0x80) ? 17 : 7;
+
+	for(i=0; i<=6; i++) {
+		if(flags & (1<<i)) {
+			if(i==1) { // mod time
+				// TODO: Support bytes_field=17
+				if(bytes_per_field==7) {
+					read_datetime7(c, d, pos, &dr->rr_modtime);
+					dbg_timestamp(c, &dr->rr_modtime, "mod time");
+				}
+			}
+			pos += bytes_per_field;
+		}
+	}
 }
 
 static int is_SUSP_indicator(deark *c, i64 pos, i64 len)
@@ -285,8 +372,19 @@ static void do_dir_rec_SUSP_set(deark *c, lctx *d, struct dir_record *dr,
 		case CODE_CE:
 			do_SUSP_CE(c, d, dr, itempos, itemlen, ca_blk, ca_offs, ca_len);
 			break;
+		case CODE_ER:
+			do_SUSP_ER(c, d, dr, itempos, itemlen);
+			break;
+		case CODE_ST:
+			goto done;
 		case CODE_NM:
-			do_SUSP_NM(c, d, dr, itempos, itemlen);
+			do_SUSP_rockridge_NM(c, d, dr, itempos, itemlen);
+			break;
+		case CODE_PX:
+			do_SUSP_rockridge_PX(c, d, dr, itempos, itemlen);
+			break;
+		case CODE_TF:
+			do_SUSP_rockridge_TF(c, d, dr, itempos, itemlen);
 			break;
 		default:
 			if(c->debug_level>=2) {
@@ -297,6 +395,7 @@ static void do_dir_rec_SUSP_set(deark *c, lctx *d, struct dir_record *dr,
 		de_dbg_indent(c, -1);
 	}
 
+done:
 	de_dbg_indent_restore(c, saved_indent_level);
 }
 
