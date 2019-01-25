@@ -32,9 +32,6 @@ typedef struct localctx_struct {
 	u8 file_structure_version;
 	int rr_encoding;
 	i64 secsize;
-	i64 path_table_size;
-	i64 path_table_L_secnum;
-	i64 path_table_M_secnum;
 	struct dir_record *root_dr;
 	struct de_strarray *curpath;
 	struct de_inthashtable *dirs_seen;
@@ -73,6 +70,14 @@ static void read_iso_string(deark *c, lctx *d, i64 pos, i64 len, de_ucstring *s)
 	dbuf_read_to_ucstring(c->infile, pos, len, s,
 		DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_ASCII);
 	ucstring_strip_trailing_spaces(s);
+}
+
+static void handle_iso_string_p(deark *c, lctx *d, const char *name,
+	i64 *ppos, i64 len, de_ucstring *tmpstr)
+{
+	read_iso_string(c, d, *ppos, len, tmpstr);
+	de_dbg(c, "%s: \"%s\"", name, ucstring_getpsz_d(tmpstr));
+	*ppos += len;
 }
 
 static void dbg_timestamp(deark *c, struct de_timestamp *ts, const char *field_name)
@@ -494,69 +499,6 @@ done:
 	de_dbg_indent_restore(c, saved_indent_level);
 }
 
-static void do_path_table_record(deark *c, lctx *d, i64 idx,
-	i64 pos1, int is_le, i64 *bytes_consumed)
-{
-	i64 n;
-	i64 dir_id_len;
-	i64 pos = pos1;
-	de_ucstring *s = NULL;
-
-	de_dbg(c, "path table record #%"I64_FMT" at %"I64_FMT, idx, pos1);
-	de_dbg_indent(c, 1);
-
-	dir_id_len = (i64)de_getbyte_p(&pos);
-
-	pos += 1; // extended attribute record len (TODO)
-
-	n = dbuf_getu32x(c->infile, pos, is_le);
-	pos += 4;
-	de_dbg(c, "location of extent: block #%u", (unsigned int)n);
-
-	n = dbuf_getu16x(c->infile, pos, is_le);
-	pos += 2;
-	de_dbg(c, "parent dir number: %u", (unsigned int)n);
-
-	s = ucstring_create(c);
-	dbuf_read_to_ucstring(c->infile, pos, dir_id_len, s, 0, DE_ENCODING_PRINTABLEASCII);
-	de_dbg(c, "dir id: \"%s\"", ucstring_getpsz_d(s));
-	pos += dir_id_len;
-
-	if(dir_id_len%2) pos++; // padding
-
-	*bytes_consumed = pos - pos1;
-
-	de_dbg_indent(c, -1);
-	ucstring_destroy(s);
-}
-
-static void do_path_table(deark *c, lctx *d, i64 pos1, int is_le)
-{
-	i64 pos = pos1;
-	i64 idx = 1;
-	int saved_indent_level;
-
-	de_dbg_indent_save(c, &saved_indent_level);
-	de_dbg(c, "path table at %"I64_FMT, pos1);
-	if(d->file_structure_version!=1) {
-		de_err(c, "Unsupported file structure version");
-		goto done;
-	}
-	de_dbg_indent(c, 1);
-
-	while(1) {
-		i64 recsize = 0;
-		if(pos >= pos1+d->path_table_size) break;
-		do_path_table_record(c, d, idx, pos, is_le, &recsize);
-		if(recsize<1) break;
-		pos += recsize;
-		idx++;
-	}
-
-done:
-	de_dbg_indent_restore(c, saved_indent_level);
-}
-
 static void do_primary_volume_descriptor(deark *c, lctx *d, i64 pos1)
 {
 	i64 pos = pos1 + 8;
@@ -568,13 +510,8 @@ static void do_primary_volume_descriptor(deark *c, lctx *d, i64 pos1)
 	de_ucstring *tmpstr = NULL;
 
 	tmpstr = ucstring_create(c);
-	read_iso_string(c, d, pos, 32, tmpstr);
-	de_dbg(c, "system id: \"%s\"", ucstring_getpsz(tmpstr));
-	pos += 32;
-
-	read_iso_string(c, d, pos, 32, tmpstr);
-	de_dbg(c, "volume id: \"%s\"", ucstring_getpsz(tmpstr));
-	pos += 32;
+	handle_iso_string_p(c, d, "system id", &pos, 32, tmpstr);
+	handle_iso_string_p(c, d, "volume id", &pos, 32, tmpstr);
 
 	pos += 8; // 73-80 unused
 
@@ -589,53 +526,37 @@ static void do_primary_volume_descriptor(deark *c, lctx *d, i64 pos1)
 	de_dbg(c, "volume sequence number: %u", (unsigned int)vol_seq_num);
 	block_size = getu16bbo_p(c->infile, &pos);
 	de_dbg(c, "block size: %u bytes", (unsigned int)block_size);
-	d->path_table_size = getu32bbo_p(c->infile, &pos);
-	de_dbg(c, "path table size: %"I64_FMT" bytes", d->path_table_size);
+	n = getu32bbo_p(c->infile, &pos);
+	de_dbg(c, "path table size: %"I64_FMT" bytes", n);
 
-	d->path_table_L_secnum = de_getu32le_p(&pos);
-	de_dbg(c, "loc. of type L path table: block #%u", (unsigned int)d->path_table_L_secnum);
+	n = de_getu32le_p(&pos);
+	de_dbg(c, "loc. of type L path table: block #%u", (unsigned int)n);
 	n = de_getu32le_p(&pos);
 	de_dbg(c, "loc. of optional type L path table: block #%u", (unsigned int)n);
-	d->path_table_M_secnum = de_getu32be_p(&pos);
-	de_dbg(c, "loc. of type M path table: block #%u", (unsigned int)d->path_table_M_secnum);
+	n = de_getu32be_p(&pos);
+	de_dbg(c, "loc. of type M path table: block #%u", (unsigned int)n);
 	n = de_getu32be_p(&pos);
 	de_dbg(c, "loc. of optional type M path table: block #%u", (unsigned int)n);
 
 	de_dbg(c, "dir record for root dir");
 	de_dbg_indent(c, 1);
 	d->root_dr = de_malloc(c, sizeof(struct dir_record));
+	// This is a copy of the main information in the root directory's
+	// directory entry, basically for bootstrapping.
+	// It should be effectively identical to the "." entry in the root
+	// directory.
 	do_directory_record(c, d, pos, d->root_dr, 0);
 
 	de_dbg_indent(c, -1);
 	pos += 34;
 
-	read_iso_string(c, d, pos, 128, tmpstr);
-	de_dbg(c, "volume set id: \"%s\"", ucstring_getpsz_d(tmpstr));
-	pos += 128;
-
-	read_iso_string(c, d, pos, 128, tmpstr);
-	de_dbg(c, "publisher id: \"%s\"", ucstring_getpsz_d(tmpstr));
-	pos += 128;
-
-	read_iso_string(c, d, pos, 128, tmpstr);
-	de_dbg(c, "data preparer id: \"%s\"", ucstring_getpsz_d(tmpstr));
-	pos += 128;
-
-	read_iso_string(c, d, pos, 128, tmpstr);
-	de_dbg(c, "application id: \"%s\"", ucstring_getpsz_d(tmpstr));
-	pos += 128;
-
-	read_iso_string(c, d, pos, 37, tmpstr);
-	de_dbg(c, "copyright file id: \"%s\"", ucstring_getpsz_d(tmpstr));
-	pos += 37;
-
-	read_iso_string(c, d, pos, 37, tmpstr);
-	de_dbg(c, "abstract file id id: \"%s\"", ucstring_getpsz_d(tmpstr));
-	pos += 37;
-
-	read_iso_string(c, d, pos, 37, tmpstr);
-	de_dbg(c, "bibliographic file id: \"%s\"", ucstring_getpsz_d(tmpstr));
-	pos += 37;
+	handle_iso_string_p(c, d, "volume set id", &pos, 128, tmpstr);
+	handle_iso_string_p(c, d, "publisher id", &pos, 128, tmpstr);
+	handle_iso_string_p(c, d, "data preparer id", &pos, 128, tmpstr);
+	handle_iso_string_p(c, d, "application id", &pos, 128, tmpstr);
+	handle_iso_string_p(c, d, "copyright file id", &pos, 37, tmpstr);
+	handle_iso_string_p(c, d, "abstract file id", &pos, 37, tmpstr);
+	handle_iso_string_p(c, d, "bibliographic file id", &pos, 37, tmpstr);
 
 	pos += 17; // volume creation time (TODO)
 	pos += 17; // volume mod time
@@ -715,15 +636,6 @@ static void de_run_iso9660(deark *c, de_module_params *mparams)
 	while(1) {
 		if(!do_volume_descriptor(c, d, cursec)) break;
 		cursec++;
-	}
-
-	if(de_get_ext_option_bool(c, "iso9660:readpathtable", 0)) {
-		if(d->path_table_L_secnum) {
-			do_path_table(c, d, d->secsize * d->path_table_L_secnum, 1);
-		}
-		else if(d->path_table_M_secnum) {
-			do_path_table(c, d, d->secsize * d->path_table_M_secnum, 0);
-		}
 	}
 
 	d->dirs_seen = de_inthashtable_create(c);
