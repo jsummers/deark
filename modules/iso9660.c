@@ -8,6 +8,8 @@
 #include <deark-private.h>
 DE_DECLARE_MODULE(de_module_iso9660);
 
+#define CODE_AA 0x4141U
+#define CODE_BA 0x4241U
 #define CODE_CE 0x4345U
 #define CODE_ER 0x4552U
 #define CODE_NM 0x4e4dU
@@ -43,6 +45,7 @@ typedef struct localctx_struct {
 	struct de_strarray *curpath;
 	struct de_inthashtable *dirs_seen;
 	u8 uses_SUSP;
+	u8 system_use_area_seen; // Have we seen any nonempty system-use areas?
 	i64 SUSP_default_bytes_to_skip;
 } lctx;
 
@@ -463,12 +466,13 @@ static void do_dir_rec_SUSP(deark *c, lctx *d, struct dir_record *dr,
 
 		// Prepare to jump to a continuation area
 
+		pos = ca_blk * d->secsize + ca_offs;
+
 		// Prevent loops
-		if(!de_inthashtable_add_item(c, d->dirs_seen, ca_blk * d->secsize, NULL)) {
+		if(!de_inthashtable_add_item(c, d->dirs_seen, pos, NULL)) {
 			break;
 		}
 
-		pos = ca_blk * d->secsize + ca_offs;
 		len = ca_len;
 	}
 }
@@ -559,6 +563,22 @@ static int do_directory_record(deark *c, lctx *d, i64 pos1, struct dir_record *d
 			non_SUSP_len = d->SUSP_default_bytes_to_skip;
 			SUSP_len = sys_use_len - d->SUSP_default_bytes_to_skip;
 		}
+
+		if(!d->system_use_area_seen && !d->uses_SUSP && sys_use_len>=4) {
+			u32 maybe_id;
+
+			// This is the first system use area encountered, and
+			// it's not a SUSP indicator.
+			maybe_id = (u32)de_getu16be(pos);
+			if(maybe_id==CODE_AA || maybe_id==CODE_BA) { // Apple ISO 9660 extensions
+				de_dbg(c, "[Likely SUSP-like entry detected. Enabling SUSP.]");
+				d->uses_SUSP = 1;
+				non_SUSP_len = 0;
+				SUSP_len = sys_use_len;
+			}
+		}
+
+		d->system_use_area_seen = 1;
 
 		if(non_SUSP_len>0) {
 			de_dbg(c, "[%d bytes of system use data at %"I64_FMT"]",
