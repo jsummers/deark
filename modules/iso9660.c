@@ -95,6 +95,40 @@ static void dbg_timestamp(deark *c, struct de_timestamp *ts, const char *field_n
 		de_timestamp_to_string(ts, timestamp_buf, sizeof(timestamp_buf), 0);
 		de_dbg(c, "%s: %s", field_name, timestamp_buf);
 	}
+	else {
+		de_dbg(c, "%s: (not set)", field_name);
+	}
+}
+
+static i64 read_decimal_substr(dbuf *f, i64 pos, i64 len)
+{
+	char buf[24];
+
+	if(len<1 || len>23) return 0;
+	dbuf_read(f, (u8*)buf, pos, len);
+	buf[len] = '\0';
+	return de_atoi64(buf);
+}
+
+static void read_datetime17(deark *c, lctx *d, i64 pos, struct de_timestamp *ts)
+{
+	i64 yr, mo, da;
+	i64 hr, mi, se, hs;
+	i64 offs;
+
+	de_zeromem(ts, sizeof(struct de_timestamp));
+	yr = read_decimal_substr(c->infile, pos, 4);
+	if(yr==0) return;
+	mo = read_decimal_substr(c->infile, pos+4, 2);
+	da = read_decimal_substr(c->infile, pos+6, 2);
+	hr = read_decimal_substr(c->infile, pos+8, 2);
+	mi = read_decimal_substr(c->infile, pos+10, 2);
+	se = read_decimal_substr(c->infile, pos+12, 2);
+	hs = read_decimal_substr(c->infile, pos+14, 2);
+	offs = read_signed_byte(c->infile, pos+16);
+	de_make_timestamp(ts, yr, mo, da, hr, mi, se);
+	de_timestamp_set_subsec(ts, ((double)hs)/100.0);
+	de_timestamp_cvt_to_utc(ts, -offs*60*15);
 }
 
 static void read_datetime7(deark *c, lctx *d, i64 pos, struct de_timestamp *ts)
@@ -301,19 +335,30 @@ static void do_SUSP_rockridge_TF(deark *c, lctx *d, struct dir_record *dr,
 	unsigned int flags;
 	unsigned int i;
 	i64 bytes_per_field;
+	static const char *names[7] = { "create", "mod", "access",
+		"attrib-change", "backup", "expire", "effective" };
 
 	if(len<5) return;
 	flags = (unsigned int)de_getbyte_p(&pos);
 	bytes_per_field = (flags&0x80) ? 17 : 7;
 
 	for(i=0; i<=6; i++) {
+		struct de_timestamp tmpts;
+		char tmpsz[32];
+
+		// Flag bits indicate which timestamps are present.
 		if(flags & (1<<i)) {
-			if(i==1) { // mod time
-				// TODO: Support bytes_field=17
-				if(bytes_per_field==7) {
-					read_datetime7(c, d, pos, &dr->rr_modtime);
-					dbg_timestamp(c, &dr->rr_modtime, "mod time");
-				}
+			if(bytes_per_field==17) {
+				read_datetime17(c, d, pos, &tmpts);
+			}
+			else {
+				read_datetime7(c, d, pos, &tmpts);
+			}
+			de_snprintf(tmpsz, sizeof(tmpsz), "%s time", names[i]);
+			dbg_timestamp(c, &tmpts, tmpsz);
+
+			if(i==1 && tmpts.is_valid) { // Save the mod time
+				dr->rr_modtime = tmpts;
 			}
 			pos += bytes_per_field;
 		}
@@ -607,6 +652,7 @@ static void do_primary_volume_descriptor(deark *c, lctx *d, i64 pos1)
 	i64 block_size;
 	i64 n;
 	de_ucstring *tmpstr = NULL;
+	struct de_timestamp tmpts;
 
 	tmpstr = ucstring_create(c);
 	handle_iso_string_p(c, d, "system id", &pos, 32, tmpstr);
@@ -657,10 +703,21 @@ static void do_primary_volume_descriptor(deark *c, lctx *d, i64 pos1)
 	handle_iso_string_p(c, d, "abstract file id", &pos, 37, tmpstr);
 	handle_iso_string_p(c, d, "bibliographic file id", &pos, 37, tmpstr);
 
-	pos += 17; // volume creation time (TODO)
-	pos += 17; // volume mod time
-	pos += 17; // volume expiration time
-	pos += 17; // volume effective time
+	read_datetime17(c, d, pos, &tmpts);
+	dbg_timestamp(c, &tmpts, "volume creation time");
+	pos += 17;
+
+	read_datetime17(c, d, pos, &tmpts);
+	dbg_timestamp(c, &tmpts, "volume mod time");
+	pos += 17;
+
+	read_datetime17(c, d, pos, &tmpts);
+	dbg_timestamp(c, &tmpts, "volume expiration time");
+	pos += 17;
+
+	read_datetime17(c, d, pos, &tmpts);
+	dbg_timestamp(c, &tmpts, "volume effective time");
+	pos += 17;
 
 	d->file_structure_version = de_getbyte_p(&pos);
 	de_dbg(c, "file structure version: %u", (unsigned int)d->file_structure_version);
