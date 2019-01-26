@@ -37,16 +37,22 @@ struct dir_record {
 	struct de_timestamp rr_modtime;
 };
 
-typedef struct localctx_struct {
+struct vol_record {
+	i64 root_dir_extent_blk;
+	i64 root_dir_data_len;
+	i64 block_size;
 	u8 file_structure_version;
+};
+
+typedef struct localctx_struct {
 	int rr_encoding;
 	i64 secsize;
-	struct dir_record *root_dr;
 	struct de_strarray *curpath;
 	struct de_inthashtable *dirs_seen;
 	u8 uses_SUSP;
 	u8 system_use_area_seen; // Have we seen any nonempty system-use areas?
 	i64 SUSP_default_bytes_to_skip;
+	struct vol_record *vol; // Volume descriptor to use
 } lctx;
 
 static i64 read_signed_byte(dbuf *f, i64 pos)
@@ -66,10 +72,15 @@ static i64 getu16bbo_p(dbuf *f, i64 *ppos)
 	return val;
 }
 
+static i64 getu32bbo(dbuf *f, i64 pos)
+{
+	return dbuf_getu32be(f, pos+4);
+}
+
 static i64 getu32bbo_p(dbuf *f, i64 *ppos)
 {
 	i64 val;
-	val = dbuf_getu32be(f, (*ppos)+4);
+	val = getu32bbo(f, *ppos);
 	*ppos += 8;
 	return val;
 }
@@ -306,7 +317,8 @@ static void do_SUSP_rockridge_NM(deark *c, lctx *d, struct dir_record *dr,
 	if(len<6) return;
 	if(!dr->rr_name)
 		dr->rr_name = ucstring_create(c);
-	// It is intentional that this may append to a name in a previous NM item.
+	// It is intentional that this may append to a name that started in a previous
+	// NM item.
 	dbuf_read_to_ucstring(c->infile, pos1+5, len-5, dr->rr_name, 0x0,
 		d->rr_encoding);
 	de_dbg(c, "Rock Ridge name: \"%s\"", ucstring_getpsz_d(dr->rr_name));
@@ -663,16 +675,23 @@ done:
 	de_dbg_indent_restore(c, saved_indent_level);
 }
 
-static void do_primary_volume_descriptor(deark *c, lctx *d, i64 pos1)
+static void do_primary_or_suppl_volume_descr_internal(deark *c, lctx *d,
+	struct vol_record *vol, i64 pos1, int is_primary)
 {
-	i64 pos = pos1 + 8;
+	i64 pos = pos1 + 7;
 	i64 vol_space_size;
 	i64 vol_set_size;
 	i64 vol_seq_num;
-	i64 block_size;
 	i64 n;
+	unsigned int vol_flags;
 	de_ucstring *tmpstr = NULL;
 	struct de_timestamp tmpts;
+
+	if(!is_primary) {
+		vol_flags = de_getbyte(pos);
+		de_dbg(c, "volume flags: 0x%02x", vol_flags);
+	}
+	pos++;
 
 	tmpstr = ucstring_create(c);
 	handle_iso_string_p(c, d, "system id", &pos, 32, tmpstr);
@@ -683,14 +702,20 @@ static void do_primary_volume_descriptor(deark *c, lctx *d, i64 pos1)
 	vol_space_size = getu32bbo_p(c->infile, &pos);
 	de_dbg(c, "volume space size: %"I64_FMT" blocks", vol_space_size);
 
-	pos += 32; // 89-120 unused
+	if(!is_primary) {
+		de_dbg(c, "escape sequences:");
+		de_dbg_indent(c, 1);
+		de_dbg_hexdump(c, c->infile, pos, 32, 32, NULL, 0);
+		de_dbg_indent(c, -1);
+	}
+	pos += 32;
 
 	vol_set_size = getu16bbo_p(c->infile, &pos);
 	de_dbg(c, "volume set size: %u", (unsigned int)vol_set_size);
 	vol_seq_num = getu16bbo_p(c->infile, &pos);
 	de_dbg(c, "volume sequence number: %u", (unsigned int)vol_seq_num);
-	block_size = getu16bbo_p(c->infile, &pos);
-	de_dbg(c, "block size: %u bytes", (unsigned int)block_size);
+	vol->block_size = getu16bbo_p(c->infile, &pos);
+	de_dbg(c, "block size: %u bytes", (unsigned int)vol->block_size);
 	n = getu32bbo_p(c->infile, &pos);
 	de_dbg(c, "path table size: %"I64_FMT" bytes", n);
 
@@ -705,12 +730,14 @@ static void do_primary_volume_descriptor(deark *c, lctx *d, i64 pos1)
 
 	de_dbg(c, "dir record for root dir");
 	de_dbg_indent(c, 1);
-	d->root_dr = de_malloc(c, sizeof(struct dir_record));
 	// This is a copy of the main information in the root directory's
 	// directory entry, basically for bootstrapping.
 	// It should be effectively identical to the "." entry in the root
-	// directory.
-	do_directory_record(c, d, pos, d->root_dr, 0);
+	// directory. The only fields we care about:
+	vol->root_dir_extent_blk = getu32bbo(c->infile, pos+2);
+	de_dbg(c, "loc. of extent: block #%u", (unsigned int)vol->root_dir_extent_blk);
+	vol->root_dir_data_len = getu32bbo(c->infile, pos+10);
+	de_dbg(c, "data length: %u", (unsigned int)vol->root_dir_data_len);
 
 	de_dbg_indent(c, -1);
 	pos += 34;
@@ -739,10 +766,27 @@ static void do_primary_volume_descriptor(deark *c, lctx *d, i64 pos1)
 	dbg_timestamp(c, &tmpts, "volume effective time");
 	pos += 17;
 
-	d->file_structure_version = de_getbyte_p(&pos);
-	de_dbg(c, "file structure version: %u", (unsigned int)d->file_structure_version);
+	vol->file_structure_version = de_getbyte_p(&pos);
+	de_dbg(c, "file structure version: %u", (unsigned int)vol->file_structure_version);
 
 	ucstring_destroy(tmpstr);
+}
+
+static void do_primary_or_suppl_volume_descr(deark *c, lctx *d,
+	i64 pos1, int is_primary)
+{
+	struct vol_record *newvol;
+
+	newvol = de_malloc(c, sizeof(struct vol_record));
+
+	do_primary_or_suppl_volume_descr_internal(c, d, newvol, pos1, is_primary);
+
+	if(is_primary && !d->vol) {
+		d->vol = newvol;
+		newvol = NULL;
+	}
+
+	if(newvol) de_free(c, newvol);
 }
 
 // Returns 0 if this is a terminator, or on serious error.
@@ -778,8 +822,11 @@ static int do_volume_descriptor(deark *c, lctx *d, i64 secnum)
 	de_dbg(c, "volume descriptor version: %u", (unsigned int)dvers);
 
 	switch(dtype) {
-	case 1:
-		do_primary_volume_descriptor(c, d, pos1);
+	case 1: // primary
+		do_primary_or_suppl_volume_descr(c, d, pos1, 1);
+		break;
+	case 2: // supplementary or enhanced
+		do_primary_or_suppl_volume_descr(c, d, pos1, 0);
 		break;
 	case 255:
 		break;
@@ -806,6 +853,7 @@ static void de_run_iso9660(deark *c, de_module_params *mparams)
 	else {
 		d->rr_encoding = c->input_encoding;
 	}
+
 	d->secsize = 2048;
 
 	cursec = 16;
@@ -814,15 +862,28 @@ static void de_run_iso9660(deark *c, de_module_params *mparams)
 		cursec++;
 	}
 
+	if(!d->vol) {
+		de_err(c, "No usable volume descriptor found");
+		goto done;
+	}
+
+	if(d->vol->block_size != 2048) {
+		// TODO: Figure out sector size vs. block size.
+		de_err(c, "Unsupported block size: %u", (unsigned int)d->vol->block_size);
+		goto done;
+	}
+
 	d->dirs_seen = de_inthashtable_create(c);
 	d->curpath = de_strarray_create(c);
 
-	if(d->root_dr) {
-		do_directory(c, d, d->secsize * d->root_dr->extent_blk, d->root_dr->data_len, 0);
+	if(d->vol->root_dir_extent_blk) {
+		do_directory(c, d, d->secsize * d->vol->root_dir_extent_blk,
+			d->vol->root_dir_data_len, 0);
 	}
 
+done:
 	if(d) {
-		free_dir_record(c, d->root_dr);
+		de_free(c, d->vol);
 		de_strarray_destroy(d->curpath);
 		de_inthashtable_destroy(c, d->dirs_seen);
 		de_free(c, d);
