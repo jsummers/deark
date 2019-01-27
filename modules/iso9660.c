@@ -41,7 +41,10 @@ struct vol_record {
 	i64 root_dir_extent_blk;
 	i64 root_dir_data_len;
 	i64 block_size;
+	int encoding; // Char encoding associated with this volume descriptor
 	u8 file_structure_version;
+	u8 is_joliet;
+	u8 quality;
 };
 
 typedef struct localctx_struct {
@@ -85,18 +88,28 @@ static i64 getu32bbo_p(dbuf *f, i64 *ppos)
 	return val;
 }
 
-static void read_iso_string(deark *c, lctx *d, i64 pos, i64 len, de_ucstring *s)
+// If vol is not NULL, use its encoding. Else PRINTABLEASCII.
+static void read_iso_string(deark *c, lctx *d, struct vol_record *vol,
+	i64 pos, i64 len, de_ucstring *s)
 {
+	int encoding;
+
 	ucstring_empty(s);
-	dbuf_read_to_ucstring(c->infile, pos, len, s,
-		DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_ASCII);
+	encoding = vol ? vol->encoding : DE_ENCODING_PRINTABLEASCII;
+	if(encoding==DE_ENCODING_UTF16BE) {
+		if(len%2) {
+			len--;
+		}
+	}
+	dbuf_read_to_ucstring(c->infile, pos, len, s, 0, encoding);
+	ucstring_truncate_at_NUL(s);
 	ucstring_strip_trailing_spaces(s);
 }
 
-static void handle_iso_string_p(deark *c, lctx *d, const char *name,
-	i64 *ppos, i64 len, de_ucstring *tmpstr)
+static void handle_iso_string_p(deark *c, lctx *d, struct vol_record *vol,
+	const char *name, i64 *ppos, i64 len, de_ucstring *tmpstr)
 {
-	read_iso_string(c, d, *ppos, len, tmpstr);
+	read_iso_string(c, d, vol, *ppos, len, tmpstr);
 	de_dbg(c, "%s: \"%s\"", name, ucstring_getpsz_d(tmpstr));
 	*ppos += len;
 }
@@ -299,9 +312,9 @@ static void do_SUSP_ER(deark *c, lctx *d, struct dir_record *dr,
 	de_dbg(c, "extension version: %u", (unsigned int)ext_ver);
 	if(8+len_id+len_des+len_src > len) goto done;
 	tmpstr = ucstring_create(c);
-	handle_iso_string_p(c, d, "extension id", &pos, len_id, tmpstr);
-	handle_iso_string_p(c, d, "extension descriptor", &pos, len_des, tmpstr);
-	handle_iso_string_p(c, d, "extension source", &pos, len_src, tmpstr);
+	handle_iso_string_p(c, d, NULL, "extension id", &pos, len_id, tmpstr);
+	handle_iso_string_p(c, d, NULL, "extension descriptor", &pos, len_des, tmpstr);
+	handle_iso_string_p(c, d, NULL, "extension source", &pos, len_src, tmpstr);
 
 done:
 	ucstring_destroy(tmpstr);
@@ -500,6 +513,7 @@ static int do_directory_record(deark *c, lctx *d, i64 pos1, struct dir_record *d
 	u8 b;
 	de_ucstring *tmps = NULL;
 	int retval = 0;
+	int file_id_encoding;
 
 	dr->len_dir_rec = (i64)de_getbyte_p(&pos);
 	de_dbg(c, "dir rec len: %u", (unsigned int)dr->len_dir_rec);
@@ -540,7 +554,14 @@ static int do_directory_record(deark *c, lctx *d, i64 pos1, struct dir_record *d
 	dr->file_id_len = (i64)de_getbyte_p(&pos);
 
 	dr->fname = ucstring_create(c);
-	dbuf_read_to_ucstring(c->infile, pos, dr->file_id_len, dr->fname, 0, DE_ENCODING_PRINTABLEASCII);
+	if(dr->file_id_len==1 && d->vol->encoding==DE_ENCODING_UTF16BE) {
+		// To better display the "thisdir" and "parentdir" directory entries
+		file_id_encoding = DE_ENCODING_PRINTABLEASCII;
+	}
+	else {
+		file_id_encoding = d->vol->encoding;
+	}
+	dbuf_read_to_ucstring(c->infile, pos, dr->file_id_len, dr->fname, 0, file_id_encoding);
 	de_dbg(c, "file id: \"%s\"", ucstring_getpsz_d(dr->fname));
 	if(dr->is_dir && dr->file_id_len==1) {
 		b = de_getbyte(pos);
@@ -595,6 +616,11 @@ static int do_directory_record(deark *c, lctx *d, i64 pos1, struct dir_record *d
 		if(non_SUSP_len>0) {
 			de_dbg(c, "[%d bytes of system use data at %"I64_FMT"]",
 				(int)non_SUSP_len, pos);
+			if(c->debug_level>=2) {
+				de_dbg_indent(c, 1);
+				de_dbg_hexdump(c, c->infile, pos, non_SUSP_len, 256, NULL, 0x1);
+				de_dbg_indent(c, -1);
+			}
 		}
 
 		if(d->uses_SUSP && SUSP_len>0) {
@@ -675,6 +701,28 @@ done:
 	de_dbg_indent_restore(c, saved_indent_level);
 }
 
+static void read_escape_sequences(deark *c, lctx *d, struct vol_record *vol, i64 pos)
+{
+	u8 es[8];
+
+	de_dbg(c, "escape sequences:");
+	de_dbg_indent(c, 1);
+	de_dbg_hexdump(c, c->infile, pos, 32, 32, NULL, 0);
+	de_read(es, pos, sizeof(es));
+
+	// 40, 43, 45 are for UCS-2.
+	// 4a-4c are for UTF-16, probably not used by Joliet since it predates UTF-16,
+	// but it shouldn't hurt to allow it.
+	if(es[0]==0x25 && es[1]==0x2f && (es[2]==0x40 || es[2]==0x43 || es[2]==0x45 ||
+		es[2]==0x4a || es[2]==0x4b || es[3]==0x4c))
+	{
+		vol->is_joliet = 1;
+		vol->encoding = DE_ENCODING_UTF16BE;
+	}
+	de_dbg(c, "is joliet: %u", (unsigned int)vol->is_joliet);
+	de_dbg_indent(c, -1);
+}
+
 static void do_primary_or_suppl_volume_descr_internal(deark *c, lctx *d,
 	struct vol_record *vol, i64 pos1, int is_primary)
 {
@@ -687,28 +735,30 @@ static void do_primary_or_suppl_volume_descr_internal(deark *c, lctx *d,
 	de_ucstring *tmpstr = NULL;
 	struct de_timestamp tmpts;
 
+	vol->encoding = DE_ENCODING_PRINTABLEASCII; // default
+
 	if(!is_primary) {
 		vol_flags = de_getbyte(pos);
 		de_dbg(c, "volume flags: 0x%02x", vol_flags);
 	}
 	pos++;
 
+	if(!is_primary) {
+		// Look ahead at the escape sequences field, because fields that appear
+		// before it may depend on it.
+		read_escape_sequences(c, d, vol, pos1+88);
+	}
+
 	tmpstr = ucstring_create(c);
-	handle_iso_string_p(c, d, "system id", &pos, 32, tmpstr);
-	handle_iso_string_p(c, d, "volume id", &pos, 32, tmpstr);
+	handle_iso_string_p(c, d, vol, "system id", &pos, 32, tmpstr);
+	handle_iso_string_p(c, d, vol, "volume id", &pos, 32, tmpstr);
 
 	pos += 8; // 73-80 unused
 
 	vol_space_size = getu32bbo_p(c->infile, &pos);
 	de_dbg(c, "volume space size: %"I64_FMT" blocks", vol_space_size);
 
-	if(!is_primary) {
-		de_dbg(c, "escape sequences:");
-		de_dbg_indent(c, 1);
-		de_dbg_hexdump(c, c->infile, pos, 32, 32, NULL, 0);
-		de_dbg_indent(c, -1);
-	}
-	pos += 32;
+	pos += 32; // escape sequences (already read) or unused
 
 	vol_set_size = getu16bbo_p(c->infile, &pos);
 	de_dbg(c, "volume set size: %u", (unsigned int)vol_set_size);
@@ -742,13 +792,13 @@ static void do_primary_or_suppl_volume_descr_internal(deark *c, lctx *d,
 	de_dbg_indent(c, -1);
 	pos += 34;
 
-	handle_iso_string_p(c, d, "volume set id", &pos, 128, tmpstr);
-	handle_iso_string_p(c, d, "publisher id", &pos, 128, tmpstr);
-	handle_iso_string_p(c, d, "data preparer id", &pos, 128, tmpstr);
-	handle_iso_string_p(c, d, "application id", &pos, 128, tmpstr);
-	handle_iso_string_p(c, d, "copyright file id", &pos, 37, tmpstr);
-	handle_iso_string_p(c, d, "abstract file id", &pos, 37, tmpstr);
-	handle_iso_string_p(c, d, "bibliographic file id", &pos, 37, tmpstr);
+	handle_iso_string_p(c, d, vol, "volume set id", &pos, 128, tmpstr);
+	handle_iso_string_p(c, d, vol, "publisher id", &pos, 128, tmpstr);
+	handle_iso_string_p(c, d, vol, "data preparer id", &pos, 128, tmpstr);
+	handle_iso_string_p(c, d, vol, "application id", &pos, 128, tmpstr);
+	handle_iso_string_p(c, d, vol, "copyright file id", &pos, 37, tmpstr);
+	handle_iso_string_p(c, d, vol, "abstract file id", &pos, 37, tmpstr);
+	handle_iso_string_p(c, d, vol, "bibliographic file id", &pos, 37, tmpstr);
 
 	read_datetime17(c, d, pos, &tmpts);
 	dbg_timestamp(c, &tmpts, "volume creation time");
@@ -769,6 +819,19 @@ static void do_primary_or_suppl_volume_descr_internal(deark *c, lctx *d,
 	vol->file_structure_version = de_getbyte_p(&pos);
 	de_dbg(c, "file structure version: %u", (unsigned int)vol->file_structure_version);
 
+	if(vol->is_joliet) {
+		vol->quality = 15;
+	}
+	else if(is_primary) {
+		vol->quality = 10;
+	}
+	else {
+		vol->quality = 5;
+	}
+	if(vol->file_structure_version!=1 || vol->block_size!=2048) {
+		vol->quality = 1;
+	}
+
 	ucstring_destroy(tmpstr);
 }
 
@@ -781,7 +844,15 @@ static void do_primary_or_suppl_volume_descr(deark *c, lctx *d,
 
 	do_primary_or_suppl_volume_descr_internal(c, d, newvol, pos1, is_primary);
 
-	if(is_primary && !d->vol) {
+	if(d->vol) {
+		// We already have a volume descriptor. Is the new one preferable?
+		if(newvol->quality > d->vol->quality) {
+			de_free(c, d->vol);
+			d->vol = newvol;
+			newvol = NULL;
+		}
+	}
+	else {
 		d->vol = newvol;
 		newvol = NULL;
 	}
