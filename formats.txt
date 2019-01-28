@@ -577,7 +577,8 @@ Deark -- Information about supported formats
 * Gzip (module="gzip")
 
 * ISO 9660 CD-ROM image (module="iso9660") (experimental)
-  - Limited support.
+   -opt iso9660:voldesc=<n> - Use the volume descriptor at sector <n>. A
+     typical use is to set n=16 to ignore Joliet extensions.
 
 * LHA/LZH/PMA (module="lha")
   - Files can be parsed, but there is usually nothing that can be extracted

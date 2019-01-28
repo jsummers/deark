@@ -8,8 +8,6 @@
 #include <deark-private.h>
 DE_DECLARE_MODULE(de_module_iso9660);
 
-#define CODE_AA 0x4141U
-#define CODE_BA 0x4241U
 #define CODE_CE 0x4345U
 #define CODE_ER 0x4552U
 #define CODE_NM 0x4e4dU
@@ -38,6 +36,7 @@ struct dir_record {
 };
 
 struct vol_record {
+	i64 secnum;
 	i64 root_dir_extent_blk;
 	i64 root_dir_data_len;
 	i64 block_size;
@@ -49,11 +48,12 @@ struct vol_record {
 
 typedef struct localctx_struct {
 	int rr_encoding;
+	u8 vol_desc_sector_forced;
+	i64 vol_desc_sector_to_use;
 	i64 secsize;
 	struct de_strarray *curpath;
 	struct de_inthashtable *dirs_seen;
 	u8 uses_SUSP;
-	u8 system_use_area_seen; // Have we seen any nonempty system-use areas?
 	i64 SUSP_default_bytes_to_skip;
 	struct vol_record *vol; // Volume descriptor to use
 } lctx;
@@ -88,14 +88,14 @@ static i64 getu32bbo_p(dbuf *f, i64 *ppos)
 	return val;
 }
 
-// If vol is not NULL, use its encoding. Else PRINTABLEASCII.
+// If vol is not NULL, use its encoding. Else ASCII.
 static void read_iso_string(deark *c, lctx *d, struct vol_record *vol,
 	i64 pos, i64 len, de_ucstring *s)
 {
 	int encoding;
 
 	ucstring_empty(s);
-	encoding = vol ? vol->encoding : DE_ENCODING_PRINTABLEASCII;
+	encoding = vol ? vol->encoding : DE_ENCODING_ASCII;
 	if(encoding==DE_ENCODING_UTF16BE) {
 		if(len%2) {
 			len--;
@@ -502,6 +502,84 @@ static void do_dir_rec_SUSP(deark *c, lctx *d, struct dir_record *dr,
 	}
 }
 
+static void do_Apple_AA_HFS(deark *c, lctx *d, struct dir_record *dr, i64 pos1, i64 len)
+{
+	unsigned int finder_flags;
+	struct de_fourcc type4cc;
+	struct de_fourcc creator4cc;
+	i64 pos = pos1+4;
+
+	de_dbg(c, "Apple AA/HFS extension at %"I64_FMT, pos1);
+	de_dbg_indent(c, 1);
+	dbuf_read_fourcc(c->infile, pos, &type4cc, 4, 0x0);
+	de_dbg(c, "type: '%s'", type4cc.id_dbgstr);
+	pos += 4;
+	dbuf_read_fourcc(c->infile, pos, &creator4cc, 4, 0x0);
+	de_dbg(c, "creator: '%s'", creator4cc.id_dbgstr);
+	pos += 4;
+	finder_flags = (unsigned int)de_getu16be_p(&pos);
+	de_dbg(c, "finder flags: 0x%04x", finder_flags);
+	de_dbg_indent(c, -1);
+}
+
+static void do_dir_rec_system_use_area(deark *c, lctx *d, struct dir_record *dr,
+	i64 pos1, i64 len)
+{
+	i64 pos = pos1;
+	int non_SUSP_handled = 0;
+	i64 non_SUSP_len = len; // default
+	i64 SUSP_len = 0; // default
+
+	de_dbg(c, "[%"I64_FMT" bytes of system use data at %"I64_FMT"]", len, pos1);
+
+	if(dr->is_root_dot) {
+		if(is_SUSP_indicator(c, pos, len)) {
+			d->uses_SUSP = 1;
+			non_SUSP_len = 0;
+			SUSP_len = len;
+		}
+	}
+	else if(d->uses_SUSP) {
+		non_SUSP_len = d->SUSP_default_bytes_to_skip;
+		SUSP_len = len - d->SUSP_default_bytes_to_skip;
+	}
+
+	if(non_SUSP_len>0) {
+		u8 buf[4];
+
+		// TODO: Detect & handle more non-SUSP formats here.
+		// - Apple AA/ProDOS
+		// - Apple BA
+		// - "ARCHIMEDES"
+		// - CD-ROM XA?
+
+		de_zeromem(buf, sizeof(buf));
+		de_read(buf, pos, de_min_int(sizeof(buf), non_SUSP_len));
+
+		if(non_SUSP_len>=14 && buf[0]=='A' && buf[1]=='A' && buf[2]==0x0e &&
+			buf[3]==0x02)
+		{
+			do_Apple_AA_HFS(c, d, dr, pos, non_SUSP_len);
+			non_SUSP_handled = 1;
+		}
+	}
+
+	if(non_SUSP_len>0 && !non_SUSP_handled) {
+		de_dbg(c, "[unidentified system use data]");
+		if(c->debug_level>=2) {
+			de_dbg_indent(c, 1);
+			de_dbg_hexdump(c, c->infile, pos, non_SUSP_len, 256, NULL, 0x1);
+			de_dbg_indent(c, -1);
+		}
+	}
+
+	if(d->uses_SUSP && SUSP_len>0) {
+		do_dir_rec_SUSP(c, d, dr, pos+non_SUSP_len, SUSP_len);
+	}
+	// TODO?: There can potentially also be non-SUSP data *after* the SUSP data,
+	// but I don't know if we need to worry about that.
+}
+
 static void do_directory(deark *c, lctx *d, i64 pos1, i64 len, int nesting_level);
 
 // Caller allocates dr
@@ -511,6 +589,7 @@ static int do_directory_record(deark *c, lctx *d, i64 pos1, struct dir_record *d
 	i64 pos = pos1;
 	i64 sys_use_len;
 	u8 b;
+	u8 specialfnbyte;
 	de_ucstring *tmps = NULL;
 	int retval = 0;
 	int file_id_encoding;
@@ -553,27 +632,33 @@ static int do_directory_record(deark *c, lctx *d, i64 pos1, struct dir_record *d
 	de_dbg(c, "volume sequence number: %u", (unsigned int)n);
 	dr->file_id_len = (i64)de_getbyte_p(&pos);
 
-	dr->fname = ucstring_create(c);
-	if(dr->file_id_len==1 && d->vol->encoding==DE_ENCODING_UTF16BE) {
+	if(dr->is_dir && dr->file_id_len==1) {
+		// Peek at the first (& only) byte of the filename.
+		specialfnbyte = de_getbyte(pos);
+	}
+	else {
+		specialfnbyte = 0xff;
+	}
+
+	if(specialfnbyte==0x00 || specialfnbyte==0x01) {
 		// To better display the "thisdir" and "parentdir" directory entries
 		file_id_encoding = DE_ENCODING_PRINTABLEASCII;
 	}
 	else {
 		file_id_encoding = d->vol->encoding;
 	}
+
+	dr->fname = ucstring_create(c);
 	dbuf_read_to_ucstring(c->infile, pos, dr->file_id_len, dr->fname, 0, file_id_encoding);
 	de_dbg(c, "file id: \"%s\"", ucstring_getpsz_d(dr->fname));
-	if(dr->is_dir && dr->file_id_len==1) {
-		b = de_getbyte(pos);
-		if(b==0x00) {
-			dr->is_thisdir = 1;
-		}
-		else if(b==0x01) {
-			dr->is_parentdir = 1;
+	if(specialfnbyte==0x00) {
+		dr->is_thisdir = 1;
+		if(nesting_level==0) {
+			dr->is_root_dot = 1;
 		}
 	}
-	if(nesting_level==0 && dr->is_thisdir) {
-		dr->is_root_dot = 1;
+	else if(specialfnbyte==0x01) {
+		dr->is_parentdir = 1;
 	}
 	pos += dr->file_id_len;
 
@@ -582,50 +667,7 @@ static int do_directory_record(deark *c, lctx *d, i64 pos1, struct dir_record *d
 	// System Use area
 	sys_use_len = pos1+dr->len_dir_rec-pos;
 	if(sys_use_len>0) {
-		i64 non_SUSP_len = sys_use_len;
-		i64 SUSP_len = 0;
-
-		if(dr->is_root_dot) {
-			if(is_SUSP_indicator(c, pos, sys_use_len)) {
-				d->uses_SUSP = 1;
-				non_SUSP_len = 0;
-				SUSP_len = sys_use_len;
-			}
-		}
-		else if(d->uses_SUSP) {
-			non_SUSP_len = d->SUSP_default_bytes_to_skip;
-			SUSP_len = sys_use_len - d->SUSP_default_bytes_to_skip;
-		}
-
-		if(!d->system_use_area_seen && !d->uses_SUSP && sys_use_len>=4) {
-			u32 maybe_id;
-
-			// This is the first system use area encountered, and
-			// it's not a SUSP indicator.
-			maybe_id = (u32)de_getu16be(pos);
-			if(maybe_id==CODE_AA || maybe_id==CODE_BA) { // Apple ISO 9660 extensions
-				de_dbg(c, "[Likely SUSP-like entry detected. Enabling SUSP.]");
-				d->uses_SUSP = 1;
-				non_SUSP_len = 0;
-				SUSP_len = sys_use_len;
-			}
-		}
-
-		d->system_use_area_seen = 1;
-
-		if(non_SUSP_len>0) {
-			de_dbg(c, "[%d bytes of system use data at %"I64_FMT"]",
-				(int)non_SUSP_len, pos);
-			if(c->debug_level>=2) {
-				de_dbg_indent(c, 1);
-				de_dbg_hexdump(c, c->infile, pos, non_SUSP_len, 256, NULL, 0x1);
-				de_dbg_indent(c, -1);
-			}
-		}
-
-		if(d->uses_SUSP && SUSP_len>0) {
-			do_dir_rec_SUSP(c, d, dr, pos+non_SUSP_len, SUSP_len);
-		}
+		do_dir_rec_system_use_area(c, d, dr, pos, sys_use_len);
 	}
 
 	if(dr->len_ext_attr_rec>0) {
@@ -735,7 +777,7 @@ static void do_primary_or_suppl_volume_descr_internal(deark *c, lctx *d,
 	de_ucstring *tmpstr = NULL;
 	struct de_timestamp tmpts;
 
-	vol->encoding = DE_ENCODING_PRINTABLEASCII; // default
+	vol->encoding = DE_ENCODING_ASCII; // default
 
 	if(!is_primary) {
 		vol_flags = de_getbyte(pos);
@@ -835,14 +877,20 @@ static void do_primary_or_suppl_volume_descr_internal(deark *c, lctx *d,
 	ucstring_destroy(tmpstr);
 }
 
-static void do_primary_or_suppl_volume_descr(deark *c, lctx *d,
+static void do_primary_or_suppl_volume_descr(deark *c, lctx *d, i64 secnum,
 	i64 pos1, int is_primary)
 {
 	struct vol_record *newvol;
 
 	newvol = de_malloc(c, sizeof(struct vol_record));
+	newvol->secnum = secnum;
 
 	do_primary_or_suppl_volume_descr_internal(c, d, newvol, pos1, is_primary);
+
+	if(d->vol_desc_sector_forced && (secnum!=d->vol_desc_sector_to_use)) {
+		// User told us not to use this volume descriptor.
+		goto done;
+	}
 
 	if(d->vol) {
 		// We already have a volume descriptor. Is the new one preferable?
@@ -857,6 +905,7 @@ static void do_primary_or_suppl_volume_descr(deark *c, lctx *d,
 		newvol = NULL;
 	}
 
+done:
 	if(newvol) de_free(c, newvol);
 }
 
@@ -894,10 +943,10 @@ static int do_volume_descriptor(deark *c, lctx *d, i64 secnum)
 
 	switch(dtype) {
 	case 1: // primary
-		do_primary_or_suppl_volume_descr(c, d, pos1, 1);
+		do_primary_or_suppl_volume_descr(c, d, secnum, pos1, 1);
 		break;
 	case 2: // supplementary or enhanced
-		do_primary_or_suppl_volume_descr(c, d, pos1, 0);
+		do_primary_or_suppl_volume_descr(c, d, secnum, pos1, 0);
 		break;
 	case 255:
 		break;
@@ -915,8 +964,15 @@ static void de_run_iso9660(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
 	i64 cursec;
+	const char *s;
 
 	d = de_malloc(c, sizeof(lctx));
+
+	s = de_get_ext_option(c, "iso9660:voldesc");
+	if(s) {
+		d->vol_desc_sector_forced = 1;
+		d->vol_desc_sector_to_use = de_atoi(s);
+	}
 
 	if(c->input_encoding==DE_ENCODING_UNKNOWN) {
 		d->rr_encoding = DE_ENCODING_UTF8;
@@ -937,6 +993,8 @@ static void de_run_iso9660(deark *c, de_module_params *mparams)
 		de_err(c, "No usable volume descriptor found");
 		goto done;
 	}
+
+	de_dbg(c, "[using volume descriptor at sector %u]", (unsigned int)d->vol->secnum);
 
 	if(d->vol->block_size != 2048) {
 		// TODO: Figure out sector size vs. block size.
@@ -970,10 +1028,16 @@ static int de_identify_iso9660(deark *c)
 	return 25;
 }
 
+static void de_help_iso9660(deark *c)
+{
+	de_msg(c, "-opt iso9660:voldesc=<n> : Use the volume descriptor at sector <n>.");
+}
+
 void de_module_iso9660(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "iso9660";
 	mi->desc = "ISO 9660 (CD-ROM) image";
 	mi->run_fn = de_run_iso9660;
 	mi->identify_fn = de_identify_iso9660;
+	mi->help_fn = de_help_iso9660;
 }
