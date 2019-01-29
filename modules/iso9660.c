@@ -8,10 +8,12 @@
 #include <deark-private.h>
 DE_DECLARE_MODULE(de_module_iso9660);
 
+#define CODE_AA 0x4141U
 #define CODE_CE 0x4345U
 #define CODE_ER 0x4552U
 #define CODE_NM 0x4e4dU
 #define CODE_PX 0x5058U
+#define CODE_SF 0x5346U
 #define CODE_SP 0x5350U
 #define CODE_ST 0x5354U
 #define CODE_TF 0x5446U
@@ -24,6 +26,9 @@ struct dir_record {
 	u8 is_root_dot; // The "." entry in the root dir
 	u8 rr_is_executable;
 	u8 rr_is_nonexecutable;
+	u8 is_symlink;
+	u8 is_specialfiletype;
+	u8 is_specialfileformat;
 	i64 len_dir_rec;
 	i64 len_ext_attr_rec;
 	i64 data_len;
@@ -263,6 +268,19 @@ static void do_file(deark *c, lctx *d, struct dir_record *dr)
 		fi->mode_flags |= DE_MODEFLAG_NONEXE;
 	}
 
+	if(dr->is_specialfileformat) {
+		de_warn(c, "%s has an advanced file structure, and might not be "
+			"extracted correctly.", ucstring_getpsz(final_name));
+	}
+	else if(dr->is_symlink) {
+		de_warn(c, "%s is a symlink. It will not be extracted as such.",
+			ucstring_getpsz(final_name));
+	}
+	else if(dr->is_specialfiletype) { // E.g. FIFO, device, ...
+		de_warn(c, "%s is a special file. It will not be extracted as such.",
+			ucstring_getpsz(final_name));
+	}
+
 	dbuf_create_file_from_slice(c->infile, dpos, dlen, NULL, fi, 0);
 
 done:
@@ -342,17 +360,28 @@ static void do_SUSP_rockridge_PX(deark *c, lctx *d, struct dir_record *dr,
 {
 	i64 pos = pos1+4;
 	u32 perms;
+	u32 ftype;
 
 	if(len<36) return; // 36 in v1r1.10; 44 in v1.12
 	perms = (u32)getu32bbo_p(c->infile, &pos);
 	de_dbg(c, "perms: octal(%06o)", (unsigned int)perms);
-	if((perms&0170000)==0) { // regular file
+	ftype = (perms&0170000);
+	if(ftype==0100000 || ftype==0) { // regular file
 		if(perms&0111) {
 			dr->rr_is_executable = 1;
 		}
 		else {
 			dr->rr_is_nonexecutable = 1;
 		}
+	}
+	else if(ftype==040000U) { // directory
+		;
+	}
+	else if(ftype==0120000U) {
+		dr->is_symlink = 1;
+	}
+	else {
+		dr->is_specialfiletype = 1;
 	}
 }
 
@@ -403,6 +432,26 @@ static int is_SUSP_indicator(deark *c, i64 pos, i64 len)
 		return 1;
 	}
 	return 0;
+}
+
+static void do_Apple_AA_HFS(deark *c, lctx *d, struct dir_record *dr, i64 pos1, i64 len)
+{
+	unsigned int finder_flags;
+	struct de_fourcc type4cc;
+	struct de_fourcc creator4cc;
+	i64 pos = pos1+4;
+
+	de_dbg(c, "Apple AA/HFS extension at %"I64_FMT, pos1);
+	de_dbg_indent(c, 1);
+	dbuf_read_fourcc(c->infile, pos, &type4cc, 4, 0x0);
+	de_dbg(c, "type: '%s'", type4cc.id_dbgstr);
+	pos += 4;
+	dbuf_read_fourcc(c->infile, pos, &creator4cc, 4, 0x0);
+	de_dbg(c, "creator: '%s'", creator4cc.id_dbgstr);
+	pos += 4;
+	finder_flags = (unsigned int)de_getu16be_p(&pos);
+	de_dbg(c, "finder flags: 0x%04x", finder_flags);
+	de_dbg_indent(c, -1);
 }
 
 // Decode a contiguous set of SUSP entries.
@@ -459,8 +508,16 @@ static void do_dir_rec_SUSP_set(deark *c, lctx *d, struct dir_record *dr,
 		case CODE_TF:
 			do_SUSP_rockridge_TF(c, d, dr, itempos, itemlen);
 			break;
+		case CODE_SF:
+			dr->is_specialfileformat = 1; // Sparse file
+			break;
 		default:
-			if(c->debug_level>=2) {
+			if(sig4cc.id==CODE_AA && itemlen==14 && itemver==2) {
+				// Apple AA extensions are not SUSP, but I've seen them used
+				// as SUSP anyway. They're sufficiently compatible.
+				do_Apple_AA_HFS(c, d, dr, itempos, itemlen);
+			}
+			else if(c->debug_level>=2) {
 				de_dbg_hexdump(c, c->infile, pos, itemlen-4, 256, NULL, 0x1);
 			}
 		}
@@ -500,26 +557,6 @@ static void do_dir_rec_SUSP(deark *c, lctx *d, struct dir_record *dr,
 
 		len = ca_len;
 	}
-}
-
-static void do_Apple_AA_HFS(deark *c, lctx *d, struct dir_record *dr, i64 pos1, i64 len)
-{
-	unsigned int finder_flags;
-	struct de_fourcc type4cc;
-	struct de_fourcc creator4cc;
-	i64 pos = pos1+4;
-
-	de_dbg(c, "Apple AA/HFS extension at %"I64_FMT, pos1);
-	de_dbg_indent(c, 1);
-	dbuf_read_fourcc(c->infile, pos, &type4cc, 4, 0x0);
-	de_dbg(c, "type: '%s'", type4cc.id_dbgstr);
-	pos += 4;
-	dbuf_read_fourcc(c->infile, pos, &creator4cc, 4, 0x0);
-	de_dbg(c, "creator: '%s'", creator4cc.id_dbgstr);
-	pos += 4;
-	finder_flags = (unsigned int)de_getu16be_p(&pos);
-	de_dbg(c, "finder flags: 0x%04x", finder_flags);
-	de_dbg_indent(c, -1);
 }
 
 static void do_dir_rec_system_use_area(deark *c, lctx *d, struct dir_record *dr,
@@ -617,10 +654,19 @@ static int do_directory_record(deark *c, lctx *d, i64 pos1, struct dir_record *d
 		ucstring_append_flags_item(tmps, "directory");
 		dr->is_dir = 1;
 	}
-	if(dr->file_flags & 0x04) ucstring_append_flags_item(tmps, "associated file");
-	if(dr->file_flags & 0x08) ucstring_append_flags_item(tmps, "record format");
+	if(dr->file_flags & 0x04) {
+		ucstring_append_flags_item(tmps, "associated file");
+		dr->is_specialfileformat = 1;
+	}
+	if(dr->file_flags & 0x08) {
+		ucstring_append_flags_item(tmps, "record format");
+		dr->is_specialfileformat = 1;
+	}
 	if(dr->file_flags & 0x10) ucstring_append_flags_item(tmps, "protected");
-	if(dr->file_flags & 0x80) ucstring_append_flags_item(tmps, "multi-extent");
+	if(dr->file_flags & 0x80) {
+		ucstring_append_flags_item(tmps, "multi-extent");
+		dr->is_specialfileformat = 1;
+	}
 	de_dbg(c, "file flags: 0x%02x (%s)", (unsigned int)dr->file_flags,
 		ucstring_getpsz_d(tmps));
 
@@ -724,6 +770,7 @@ static void do_directory(deark *c, lctx *d, i64 pos1, i64 len, int nesting_level
 		int ret;
 
 		if(pos >= pos1+len) break;
+		if(pos >= c->infile->len) break;
 
 		de_dbg(c, "directory record at %"I64_FMT" (for directory@%"I64_FMT")", pos, pos1);
 		dr = de_malloc(c, sizeof(struct dir_record));
@@ -741,6 +788,17 @@ static void do_directory(deark *c, lctx *d, i64 pos1, i64 len, int nesting_level
 done:
 	if(dr) free_dir_record(c, dr);
 	de_dbg_indent_restore(c, saved_indent_level);
+}
+
+static void do_boot_volume_descr(deark *c, lctx *d, i64 pos1)
+{
+	de_ucstring *tmpstr = NULL;
+	i64 pos = pos1 + 7;
+
+	tmpstr = ucstring_create(c);
+	handle_iso_string_p(c, d, NULL, "boot system id", &pos, 32, tmpstr);
+	handle_iso_string_p(c, d, NULL, "boot id", &pos, 32, tmpstr);
+	ucstring_destroy(tmpstr);
 }
 
 static void read_escape_sequences(deark *c, lctx *d, struct vol_record *vol, i64 pos)
@@ -942,6 +1000,9 @@ static int do_volume_descriptor(deark *c, lctx *d, i64 secnum)
 	de_dbg(c, "volume descriptor version: %u", (unsigned int)dvers);
 
 	switch(dtype) {
+	case 0: // boot
+		do_boot_volume_descr(c, d, pos1);
+		break;
 	case 1: // primary
 		do_primary_or_suppl_volume_descr(c, d, secnum, pos1, 1);
 		break;
@@ -951,8 +1012,7 @@ static int do_volume_descriptor(deark *c, lctx *d, i64 secnum)
 	case 255:
 		break;
 	default:
-		de_warn(c, "Unsupported volume descriptor type: %u (%s)",
-			(unsigned int)dtype, vdtname);
+		de_dbg(c, "[disregarding this volume descriptor]");
 	}
 
 done:
