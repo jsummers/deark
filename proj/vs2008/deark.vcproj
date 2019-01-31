@@ -502,6 +502,10 @@
 				>
 			</File>
 			<File
+				RelativePath="..\..\modules\apm.c"
+				>
+			</File>
+			<File
 				RelativePath="..\..\modules\apple2-dsk.c"
 				>
 			</File>

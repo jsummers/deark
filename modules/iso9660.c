@@ -1043,6 +1043,11 @@ static void de_run_iso9660(deark *c, de_module_params *mparams)
 
 	d->secsize = 2048;
 
+	if(!dbuf_memcmp(c->infile, 512, "PM\x00\x00", 4)) {
+		de_msg(c, "Note: This file includes an Apple Partition Map. "
+			"Use \"-m apm\" to read it.");
+	}
+
 	cursec = 16;
 	while(1) {
 		if(!do_volume_descriptor(c, d, cursec)) break;
@@ -1082,10 +1087,14 @@ done:
 static int de_identify_iso9660(deark *c)
 {
 	u8 buf[6];
-	dbuf_read(c->infile, buf, 32768, sizeof(buf));
-	if(de_memcmp(&buf[1], "CD001", 5)) return 0;
-	if(buf[0]>3 && buf[0]<255) return 0;
-	return 25;
+	i64 i;
+
+	for(i=0; i<2; i++) {
+		dbuf_read(c->infile, buf, 32768+2048*i, sizeof(buf));
+		if(de_memcmp(&buf[1], "CD001", 5)) return 0;
+		if(buf[0]>3 && buf[0]<255) return 0;
+	}
+	return 80;
 }
 
 static void de_help_iso9660(deark *c)
