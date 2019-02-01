@@ -17,6 +17,7 @@ DE_DECLARE_MODULE(de_module_iso9660);
 #define CODE_SP 0x5350U
 #define CODE_ST 0x5354U
 #define CODE_TF 0x5446U
+#define CODE_ZF 0x5a46U
 
 struct dir_record {
 	u8 file_flags;
@@ -511,6 +512,9 @@ static void do_dir_rec_SUSP_set(deark *c, lctx *d, struct dir_record *dr,
 		case CODE_SF:
 			dr->is_specialfileformat = 1; // Sparse file
 			break;
+		case CODE_ZF:
+			dr->is_specialfileformat = 1; // zisofs
+			break;
 		default:
 			if(sig4cc.id==CODE_AA && itemlen==14 && itemver==2) {
 				// Apple AA extensions are not SUSP, but I've seen them used
@@ -656,7 +660,6 @@ static int do_directory_record(deark *c, lctx *d, i64 pos1, struct dir_record *d
 	}
 	if(dr->file_flags & 0x04) {
 		ucstring_append_flags_item(tmps, "associated file");
-		dr->is_specialfileformat = 1;
 	}
 	if(dr->file_flags & 0x08) {
 		ucstring_append_flags_item(tmps, "record format");
@@ -672,8 +675,13 @@ static int do_directory_record(deark *c, lctx *d, i64 pos1, struct dir_record *d
 
 	b = de_getbyte_p(&pos);
 	de_dbg(c, "file unit size: %u", (unsigned int)b);
+
 	b = de_getbyte_p(&pos);
 	de_dbg(c, "interleave gap size: %u", (unsigned int)b);
+	if(b!=0) {
+		dr->is_specialfileformat = 1;
+	}
+
 	n = getu16bbo_p(c->infile, &pos);
 	de_dbg(c, "volume sequence number: %u", (unsigned int)n);
 	dr->file_id_len = (i64)de_getbyte_p(&pos);
@@ -793,12 +801,25 @@ done:
 static void do_boot_volume_descr(deark *c, lctx *d, i64 pos1)
 {
 	de_ucstring *tmpstr = NULL;
+	struct de_stringreaderdata *boot_sys_id = NULL;
 	i64 pos = pos1 + 7;
+	i64 n;
 
 	tmpstr = ucstring_create(c);
-	handle_iso_string_p(c, d, NULL, "boot system id", &pos, 32, tmpstr);
+	boot_sys_id = dbuf_read_string(c->infile, pos, 32, 32, DE_CONVFLAG_STOP_AT_NUL,
+		DE_ENCODING_ASCII);
+	pos += 32;
+	de_dbg(c, "boot system id: \"%s\"", ucstring_getpsz(boot_sys_id->str));
+
 	handle_iso_string_p(c, d, NULL, "boot id", &pos, 32, tmpstr);
+
+	if(!de_strcmp((const char*)boot_sys_id->sz, "EL TORITO SPECIFICATION")) {
+		n = de_getu32le_p(&pos);
+		de_dbg(c, "first sector of boot catalog: %u", (unsigned int)n);
+	}
+
 	ucstring_destroy(tmpstr);
+	de_destroy_stringreaderdata(c, boot_sys_id);
 }
 
 static void read_escape_sequences(deark *c, lctx *d, struct vol_record *vol, i64 pos)
@@ -919,18 +940,12 @@ static void do_primary_or_suppl_volume_descr_internal(deark *c, lctx *d,
 	vol->file_structure_version = de_getbyte_p(&pos);
 	de_dbg(c, "file structure version: %u", (unsigned int)vol->file_structure_version);
 
-	if(vol->is_joliet) {
-		vol->quality = 15;
-	}
-	else if(is_primary) {
-		vol->quality = 10;
-	}
-	else {
-		vol->quality = 5;
-	}
-	if(vol->file_structure_version!=1 || vol->block_size!=2048) {
-		vol->quality = 1;
-	}
+	vol->quality = 1 +
+		((vol->block_size==2048)?80:0) +
+		((vol->is_joliet)?40:0) +
+		((vol->file_structure_version<=1)?10:0) +
+		((vol->file_structure_version==1)?10:0) +
+		((is_primary)?5:0);
 
 	ucstring_destroy(tmpstr);
 }
