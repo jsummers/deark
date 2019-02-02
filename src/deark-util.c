@@ -285,27 +285,88 @@ static int get_ndigits_for_offset(i64 n)
 	return nd;
 }
 
+struct hexdump_ctx {
+	// same for each row:
+	const char *prefix;
+	unsigned int flags;
+	char offset_fmtstr[32];
+
+	// per row
+	i64 row_offset;
+	i64 bytesthisrow; // num bytes used in .rowbuf
+	u8 rowbuf[16];
+};
+
+static void do_hexdump_row(deark *c, struct hexdump_ctx *hctx)
+{
+	char offset_formatted[32];
+	char linebuf[3*16+32];
+	char asciibuf[64];
+	int asciibufpos;
+	int linebufpos;
+	i64 k;
+
+	linebufpos = 0;
+	asciibufpos = 0;
+	asciibuf[asciibufpos++] = '\"';
+	for(k=0; k<hctx->bytesthisrow; k++) {
+		u8 b;
+		b = hctx->rowbuf[k];
+		linebuf[linebufpos++] = de_get_hexchar(b/16);
+		linebuf[linebufpos++] = de_get_hexchar(b%16);
+		linebuf[linebufpos++] = ' ';
+		if(b>=32 && b<=126) {
+			asciibuf[asciibufpos++] = (char)b;
+		}
+		else {
+			asciibuf[asciibufpos++] = '\x01'; // DE_CODEPOINT_HL
+			asciibuf[asciibufpos++] = '.';
+			// We'll often turn off highlighting only to turn it back on
+			// again for the next character. The OFF+ON sequences will be
+			// optimized out later, though, so there's no reason to worry
+			// about that here.
+			asciibuf[asciibufpos++] = '\x02'; // DE_CODEPOINT_UNHL
+		}
+	}
+
+	// Pad and terminate the hex values
+	while(linebufpos<48) {
+		linebuf[linebufpos++] = ' ';
+	}
+	linebuf[linebufpos] = '\0';
+
+	// Terminate or erase the ASCII representation
+	if(hctx->flags&0x1) {
+		asciibuf[asciibufpos++] = '\"';
+		asciibuf[asciibufpos++] = '\0';
+	}
+	else {
+		asciibuf[0] = '\0';
+	}
+
+	// Careful: With a variable format string, the compiler won't be able to
+	// detect errors.
+	de_snprintf(offset_formatted, sizeof(offset_formatted), hctx->offset_fmtstr,
+		(i64)hctx->row_offset);
+
+	de_dbg(c, "%s:%s: %s%s", hctx->prefix, offset_formatted, linebuf, asciibuf);
+}
+
 // If prefix is NULL, a default will be used.
 // flags:
 //  0x1 = Include an ASCII representation
 void de_dbg_hexdump(deark *c, dbuf *f, i64 pos1,
 	i64 nbytes_avail, i64 max_nbytes_to_dump,
-	const char *prefix, unsigned int flags)
+	const char *prefix1, unsigned int flags)
 {
-	char linebuf[3*16+32];
-	char asciibuf[64];
-	char offset_fmtstr[32];
 	i64 pos = pos1;
-	i64 k;
-	i64 bytesthisrow;
-	int asciibufpos;
-	int linebufpos;
-	u8 b;
 	i64 len;
 	int ndigits_for_offset;
 	int was_truncated = 0;
+	struct hexdump_ctx hctx;
 
-	if(!prefix) prefix="data";
+	hctx.flags = flags;
+	hctx.prefix = (prefix1) ? prefix1 : "data";
 
 	if(nbytes_avail > max_nbytes_to_dump) {
 		len = max_nbytes_to_dump;
@@ -328,62 +389,24 @@ void de_dbg_hexdump(deark *c, dbuf *f, i64 pos1,
 		// highest byte offset that is a multiple of 16.
 		ndigits_for_offset = get_ndigits_for_offset(((len-1)/16)*16);
 	}
-	de_snprintf(offset_fmtstr, sizeof(offset_fmtstr), "%%%dd", ndigits_for_offset);
+	de_snprintf(hctx.offset_fmtstr, sizeof(hctx.offset_fmtstr), "%%%d"I64_FMT, ndigits_for_offset);
 
 	while(1) { // For each row...
-		char offset_formatted[32];
-
 		if(pos >= pos1+len) break;
 
-		bytesthisrow = (pos1+len)-pos;
-		if(bytesthisrow>16) bytesthisrow=16;
+		hctx.row_offset = pos-pos1;
 
-		linebufpos = 0;
-		asciibufpos = 0;
-		asciibuf[asciibufpos++] = '\"';
-		for(k=0; k<bytesthisrow; k++) {
-			b = dbuf_getbyte(f, pos+k);
-			linebuf[linebufpos++] = de_get_hexchar(b/16);
-			linebuf[linebufpos++] = de_get_hexchar(b%16);
-			linebuf[linebufpos++] = ' ';
-			if(b>=32 && b<=126) {
-				asciibuf[asciibufpos++] = (char)b;
-			}
-			else {
-				asciibuf[asciibufpos++] = '\x01'; // DE_CODEPOINT_HL
-				asciibuf[asciibufpos++] = '.';
-				// We'll often turn off highlighting only to turn it back on
-				// again for the next character. The OFF+ON sequences will be
-				// optimized out later, though, so there's no reason to worry
-				// about that here.
-				asciibuf[asciibufpos++] = '\x02'; // DE_CODEPOINT_UNHL
-			}
-		}
+		hctx.bytesthisrow = (pos1+len)-pos;
+		if(hctx.bytesthisrow>16) hctx.bytesthisrow=16;
 
-		// Pad and terminate the hex values
-		while(linebufpos<48) {
-			linebuf[linebufpos++] = ' ';
-		}
-		linebuf[linebufpos] = '\0';
+		dbuf_read(f, hctx.rowbuf, pos, hctx.bytesthisrow);
 
-		// Terminate or erase the ASCII representation
-		if(flags&0x1) {
-			asciibuf[asciibufpos++] = '\"';
-			asciibuf[asciibufpos++] = '\0';
-		}
-		else {
-			asciibuf[0] = '\0';
-		}
+		do_hexdump_row(c, &hctx);
 
-		// Careful: With a variable format string, the compiler won't be able to
-		// detect errors.
-		de_snprintf(offset_formatted, sizeof(offset_formatted), offset_fmtstr, (int)(pos-pos1));
-
-		de_dbg(c, "%s:%s: %s%s", prefix, offset_formatted, linebuf, asciibuf);
-		pos += bytesthisrow;
+		pos += hctx.bytesthisrow;
 	}
 	if(was_truncated) {
-		de_dbg(c, "%s:%d: ...", prefix, (int)len);
+		de_dbg(c, "%s:%"I64_FMT": ...", hctx.prefix, len);
 	}
 }
 
