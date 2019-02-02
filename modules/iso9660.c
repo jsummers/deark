@@ -423,6 +423,35 @@ static void do_SUSP_rockridge_TF(deark *c, lctx *d, struct dir_record *dr,
 	}
 }
 
+static void do_SUSP_ZF(deark *c, lctx *d, struct dir_record *dr,
+	i64 pos1, i64 len)
+{
+	struct de_fourcc cmprtype;
+	i64 n;
+	i64 pos = pos1+4;
+
+	dr->is_specialfileformat = 1;
+	if(len<16) goto done;
+
+	dbuf_read_fourcc(c->infile, pos, &cmprtype, 2, 0x0);
+	de_dbg(c, "cmpr algorithm: '%s'", cmprtype.id_dbgstr);
+	pos += 2;
+
+	n = (i64)de_getbyte_p(&pos);
+	de_dbg(c, "header size: %u (%u bytes)", (unsigned int)n,
+		(unsigned int)(n*4));
+
+	n = (i64)de_getbyte_p(&pos);
+	de_dbg(c, "block size: 2^%u (%u bytes)", (unsigned int)n,
+		(unsigned int)(1U<<(unsigned int)n));
+
+	n = getu32bbo_p(c->infile, &pos);
+	de_dbg(c, "uncmpr. size: %"I64_FMT" bytes", n);
+
+done:
+	;
+}
+
 static int is_SUSP_indicator(deark *c, i64 pos, i64 len)
 {
 	u8 buf[6];
@@ -512,8 +541,8 @@ static void do_dir_rec_SUSP_set(deark *c, lctx *d, struct dir_record *dr,
 		case CODE_SF:
 			dr->is_specialfileformat = 1; // Sparse file
 			break;
-		case CODE_ZF:
-			dr->is_specialfileformat = 1; // zisofs
+		case CODE_ZF: // zisofs
+			do_SUSP_ZF(c, d, dr, itempos, itemlen);
 			break;
 		default:
 			if(sig4cc.id==CODE_AA && itemlen==14 && itemver==2) {
