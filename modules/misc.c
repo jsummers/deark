@@ -90,13 +90,13 @@ struct cp437ctx_struct {
 	dbuf *outf;
 };
 
-static int cp437_cbfn(deark *c, void *userdata, const u8 *buf,
+static int cp437_cbfn(struct de_bufferedreadctx *brctx, const u8 *buf,
 	i64 buf_len)
 {
 	i32 u;
 	i64 i;
 	u8 ch;
-	struct cp437ctx_struct *cp437ctx = (struct cp437ctx_struct*)userdata;
+	struct cp437ctx_struct *cp437ctx = (struct cp437ctx_struct*)brctx->userdata;
 
 	for(i=0; i<buf_len; i++) {
 		ch = buf[i];
@@ -112,7 +112,7 @@ static int cp437_cbfn(deark *c, void *userdata, const u8 *buf,
 			u = 0x2404;
 		}
 		else {
-			u = de_char_to_unicode(c, (i32)ch, DE_ENCODING_CP437_G);
+			u = de_char_to_unicode(brctx->c, (i32)ch, DE_ENCODING_CP437_G);
 		}
 		dbuf_write_uchar_as_utf8(cp437ctx->outf, u);
 	}
@@ -150,10 +150,10 @@ struct crcctx_struct {
 	struct de_crcobj *crco_16ccitt;
 };
 
-static int crc_cbfn(deark *c, void *userdata, const u8 *buf,
+static int crc_cbfn(struct de_bufferedreadctx *brctx, const u8 *buf,
 	i64 buf_len)
 {
-	struct crcctx_struct *crcctx = (struct crcctx_struct*)userdata;
+	struct crcctx_struct *crcctx = (struct crcctx_struct*)brctx->userdata;
 	de_crcobj_addbuf(crcctx->crco_32ieee, buf, buf_len);
 	de_crcobj_addbuf(crcctx->crco_16arc, buf, buf_len);
 	de_crcobj_addbuf(crcctx->crco_16ccitt, buf, buf_len);

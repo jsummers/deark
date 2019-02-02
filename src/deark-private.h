@@ -679,8 +679,15 @@ struct de_fourcc {
 void dbuf_read_fourcc(dbuf *f, i64 pos, struct de_fourcc *fcc, int nbytes,
 	unsigned int flags);
 
-typedef int (*de_buffered_read_cbfn)(deark *c, void *userdata, const u8 *buf,
-	i64 buf_len);
+struct de_bufferedreadctx {
+	void *userdata;
+	deark *c;
+	i64 offset;
+	i64 bytes_consumed;
+	u8 eof_flag;
+};
+typedef int (*de_buffered_read_cbfn)(struct de_bufferedreadctx *brctx,
+	const u8 *buf, i64 buf_len);
 int dbuf_buffered_read(dbuf *f, i64 pos, i64 len,
 	de_buffered_read_cbfn cbfn, void *userdata);
 

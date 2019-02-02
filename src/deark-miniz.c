@@ -632,11 +632,11 @@ void de_zip_add_file_to_archive(deark *c, dbuf *f)
 	de_free(c, dfa.extra_data_central);
 }
 
-static int copy_to_FILE_cbfn(deark *c, void *userdata, const u8 *buf,
+static int copy_to_FILE_cbfn(struct de_bufferedreadctx *brctx, const u8 *buf,
 	i64 buf_len)
 {
 	size_t ret;
-	ret = fwrite(buf, 1, (size_t)buf_len, (FILE*)userdata);
+	ret = fwrite(buf, 1, (size_t)buf_len, (FILE*)brctx->userdata);
 	return (ret==(size_t)buf_len);
 }
 

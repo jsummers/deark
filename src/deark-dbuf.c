@@ -616,10 +616,10 @@ u32 dbuf_getRGB(dbuf *f, i64 pos, unsigned int flags)
 	return DE_MAKE_RGB(buf[0], buf[1], buf[2]);
 }
 
-static int copy_cbfn(deark *c, void *userdata, const u8 *buf,
+static int copy_cbfn(struct de_bufferedreadctx *brctx, const u8 *buf,
 	i64 buf_len)
 {
-	dbuf *outf = (dbuf*)userdata;
+	dbuf *outf = (dbuf*)brctx->userdata;
 	dbuf_write(outf, buf, buf_len);
 	return 1;
 }
@@ -634,10 +634,10 @@ struct copy_at_ctx {
 	i64 outpos;
 };
 
-static int copy_at_cbfn(deark *c, void *userdata, const u8 *buf,
+static int copy_at_cbfn(struct de_bufferedreadctx *brctx, const u8 *buf,
 	i64 buf_len)
 {
-	struct copy_at_ctx *ctx = (struct copy_at_ctx*)userdata;
+	struct copy_at_ctx *ctx = (struct copy_at_ctx*)brctx->userdata;
 
 	dbuf_write_at(ctx->outf, ctx->outpos, buf, buf_len);
 	ctx->outpos += buf_len;
@@ -1627,27 +1627,74 @@ void dbuf_read_fourcc(dbuf *f, i64 pos, struct de_fourcc *fcc,
 // Read a slice of a dbuf, and pass its data to a callback function, one
 // segment at a time.
 // cbfn: Caller-implemented callback function.
-//   It is required to consume all supplied bytes.
-//   It should return 1 normally, 0 to abort.
+//   - It is required to consume at least 1 byte.
+//   - If it does not consume all bytes, it must set brctx->bytes_consumed.
+//   - It must return nonzero normally, 0 to abort.
+// We guarantee that:
+//   - brctx->eof_flag will be nonzero if an only if there is no data after this.
+//   - At least 1 byte will be provided.
+//   - If eof_flag is not set, at least 1024 bytes will be provided.
 // Return value: 1 normally, 0 if the callback function ever returned 0.
 int dbuf_buffered_read(dbuf *f, i64 pos1, i64 len,
 	de_buffered_read_cbfn cbfn, void *userdata)
 {
 	int retval = 0;
-	i64 pos = pos1;
+	i64 pos = pos1; // Absolute pos of next byte to read from f
+	i64 offs_of_first_byte_in_buf; // Relative to pos1, where in f is buf[0]?
+	i64 num_unconsumed_bytes_in_buf;
+	struct de_bufferedreadctx brctx;
 #define BRBUFLEN 4096
 	u8 buf[BRBUFLEN];
 
-	while(pos<pos1+len) {
+	brctx.c = f->c;
+	brctx.userdata = userdata;
+
+	num_unconsumed_bytes_in_buf = 0;
+	offs_of_first_byte_in_buf = 0;
+
+	while(1) {
+		i64 nbytes_avail_to_read;
 		i64 bytestoread;
 		int ret;
 
-		bytestoread = pos1+len-pos;
-		if(bytestoread>BRBUFLEN) bytestoread = BRBUFLEN;
-		dbuf_read(f, buf, pos, bytestoread);
-		ret = cbfn(f->c, userdata, buf, bytestoread);
-		if(!ret) goto done;
+		nbytes_avail_to_read = pos1+len-pos;
+
+		// max bytes that will fit in buf:
+		bytestoread = BRBUFLEN-num_unconsumed_bytes_in_buf;
+
+		// max bytes available to read:
+		if(bytestoread >= nbytes_avail_to_read) {
+			bytestoread = nbytes_avail_to_read;
+			brctx.eof_flag = 1;
+		}
+		else {
+			brctx.eof_flag = 0;
+		}
+
+		dbuf_read(f, &buf[num_unconsumed_bytes_in_buf], pos, bytestoread);
 		pos += bytestoread;
+		num_unconsumed_bytes_in_buf += bytestoread;
+
+		brctx.offset = offs_of_first_byte_in_buf;
+		brctx.bytes_consumed = num_unconsumed_bytes_in_buf;
+		ret = cbfn(&brctx, buf, num_unconsumed_bytes_in_buf);
+		if(!ret) goto done;
+		if(brctx.bytes_consumed<1 || brctx.bytes_consumed>num_unconsumed_bytes_in_buf) {
+			goto done;
+		}
+
+		if(brctx.bytes_consumed < num_unconsumed_bytes_in_buf) {
+			// cbfn didn't consume all bytes
+			// TODO: For better efficiency, we could leave the buffer as it is until
+			// the unconsumed byte count drops below 1024. But that is only useful if
+			// some consumers consume only a small number of bytes.
+			de_memmove(buf, &buf[brctx.bytes_consumed], num_unconsumed_bytes_in_buf-brctx.bytes_consumed);
+			num_unconsumed_bytes_in_buf -= brctx.bytes_consumed;
+		}
+		else {
+			num_unconsumed_bytes_in_buf = 0;
+		}
+		offs_of_first_byte_in_buf += brctx.bytes_consumed;
 	}
 	retval = 1;
 done:
@@ -1663,7 +1710,7 @@ int de_is_all_zeroes(const u8 *b, i64 n)
 	return 1;
 }
 
-static int is_all_zeroes_cbfn(deark *c, void *userdata, const u8 *buf,
+static int is_all_zeroes_cbfn(struct de_bufferedreadctx *brctx, const u8 *buf,
 	i64 buf_len)
 {
 	return de_is_all_zeroes(buf, buf_len);

@@ -1502,10 +1502,10 @@ void de_crcobj_addbyte(struct de_crcobj *crco, u8 b)
 	de_crcobj_addbuf(crco, &b, 1);
 }
 
-static int addslice_cbfn(deark *c, void *userdata, const u8 *buf,
+static int addslice_cbfn(struct de_bufferedreadctx *brctx, const u8 *buf,
 	i64 buf_len)
 {
-	de_crcobj_addbuf((struct de_crcobj*)userdata, buf, buf_len);
+	de_crcobj_addbuf((struct de_crcobj*)brctx->userdata, buf, buf_len);
 	return 1;
 }
 
