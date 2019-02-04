@@ -49,6 +49,7 @@ struct vol_record {
 	int encoding; // Char encoding associated with this volume descriptor
 	u8 file_structure_version;
 	u8 is_joliet;
+	u8 is_cdxa;
 	u8 quality;
 };
 
@@ -968,6 +969,9 @@ static void do_primary_or_suppl_volume_descr_internal(deark *c, lctx *d,
 
 	vol->file_structure_version = de_getbyte_p(&pos);
 	de_dbg(c, "file structure version: %u", (unsigned int)vol->file_structure_version);
+
+	vol->is_cdxa = !dbuf_memcmp(c->infile, pos1+1024, "CD-XA001", 8);
+	de_dbg(c, "is CD-ROM XA: %u", (unsigned int)vol->is_cdxa);
 
 	vol->quality = 1 +
 		((vol->block_size==2048)?80:0) +
