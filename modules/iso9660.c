@@ -3,10 +3,13 @@
 // See the file COPYING for terms of use.
 
 // ISO 9660 CD-ROM image
+// NRG CD-ROM image
 
 #include <deark-config.h>
 #include <deark-private.h>
+#include <deark-fmtutil.h>
 DE_DECLARE_MODULE(de_module_iso9660);
+DE_DECLARE_MODULE(de_module_nrg);
 
 #define CODE_AA 0x4141U
 #define CODE_CE 0x4345U
@@ -1157,4 +1160,154 @@ void de_module_iso9660(deark *c, struct deark_module_info *mi)
 	mi->run_fn = de_run_iso9660;
 	mi->identify_fn = de_identify_iso9660;
 	mi->help_fn = de_help_iso9660;
+}
+
+struct nrg_ctx {
+	int ver;
+	i64 chunk_list_start;
+	i64 chunk_list_size;
+};
+
+#define CODE_CDTX 0x43445458U
+#define CODE_CUES 0x43554553U
+#define CODE_CUEX 0x43554558U
+#define CODE_DAOI 0x44414f49U
+#define CODE_DAOX 0x44414f58U
+#define CODE_END_ 0x454e4421U // END!
+#define CODE_ETNF 0x45544e46U
+#define CODE_SINF 0x53494e46U
+
+static int detect_nrg_internal(deark *c)
+{
+	if(!dbuf_memcmp(c->infile, c->infile->len-8, "NERO", 4)) {
+		return 1;
+	}
+	if(!dbuf_memcmp(c->infile, c->infile->len-12, "NER5", 4)) {
+		return 2;
+	}
+	return 0;
+}
+
+static void do_nrg_ETNF(deark *c, struct de_iffctx *ictx,
+	const struct de_iffchunkctx *chunkctx)
+{
+	i64 pos = chunkctx->dpos;
+	i64 t = 0;
+
+	while(1) {
+		i64 track_offs_bytes, track_len_bytes, start_lba;
+		unsigned int mode;
+
+		if(chunkctx->dpos + chunkctx->dlen - pos < 20) break;
+		de_dbg(c, "track #%d", (int)t);
+		de_dbg_indent(c, 1);
+		track_offs_bytes = de_getu32be(pos);
+		track_len_bytes = de_getu32be(pos+4);
+		de_dbg(c, "offset: %"I64_FMT", len: %"I64_FMT, track_offs_bytes, track_len_bytes);
+		mode = (unsigned int)de_getu32be(pos+8);
+		de_dbg(c, "mode: %u", mode);
+		start_lba = de_getu32be(pos+12);
+		de_dbg(c, "start lba: %"I64_FMT, start_lba);
+		de_dbg_indent(c, -1);
+		pos += 20;
+		t++;
+	}
+}
+
+static int my_preprocess_nrg_chunk_fn(deark *c, struct de_iffctx *ictx)
+{
+	const char *name = NULL;
+
+	switch(ictx->chunkctx->chunk4cc.id) {
+	case CODE_CDTX: name = "CD-text"; break;
+	case CODE_CUES: case CODE_CUEX: name = "cue sheet"; break;
+	case CODE_DAOI: case CODE_DAOX: name = "DAO info"; break;
+	case CODE_ETNF: name = "extended track info"; break;
+	case CODE_SINF: name = "session info"; break;
+	}
+
+	if(name) {
+		ictx->chunkctx->chunk_name = name;
+	}
+	return 1;
+}
+
+
+static int my_nrg_chunk_handler(deark *c, struct de_iffctx *ictx)
+{
+	// Always set this, because we never want the IFF parser to try to handle
+	// a chunk itself.
+	ictx->handled = 1;
+
+	switch(ictx->chunkctx->chunk4cc.id) {
+	case CODE_ETNF:
+		do_nrg_ETNF(c, ictx, ictx->chunkctx);
+		break;
+	}
+
+	if(ictx->chunkctx->chunk4cc.id==CODE_END_) {
+		return 0;
+	}
+	return 1;
+}
+
+static void do_nrg_chunks(deark *c, struct nrg_ctx *nrg)
+{
+	struct de_iffctx *ictx = NULL;
+
+	ictx = de_malloc(c, sizeof(struct de_iffctx));
+	ictx->userdata = (void*)nrg;
+	ictx->preprocess_chunk_fn = my_preprocess_nrg_chunk_fn;
+	ictx->handle_chunk_fn = my_nrg_chunk_handler;
+	ictx->f = c->infile;
+	ictx->is_le = 0;
+	ictx->reversed_4cc = 0;
+
+	de_fmtutil_read_iff_format(c, ictx, nrg->chunk_list_start, nrg->chunk_list_size);
+}
+
+static void de_run_nrg(deark *c, de_module_params *mparams)
+{
+	struct nrg_ctx *nrg = NULL;
+
+	nrg = de_malloc(c, sizeof(struct nrg_ctx));
+
+	nrg->ver = detect_nrg_internal(c);
+	if(nrg->ver==0) {
+		de_err(c, "Not in NRG format");
+		goto done;
+	}
+
+	if(nrg->ver==2) {
+		nrg->chunk_list_start = de_geti64be(c->infile->len-8);
+		nrg->chunk_list_size = c->infile->len - 12 - nrg->chunk_list_start;
+	}
+	else {
+		nrg->chunk_list_start = de_getu32be(c->infile->len-4);
+		nrg->chunk_list_size = c->infile->len - 8 - nrg->chunk_list_start;
+	}
+	de_dbg(c, "chunk list: offset=%"I64_FMT", len=%"I64_FMT,
+		nrg->chunk_list_start, nrg->chunk_list_size);
+
+	do_nrg_chunks(c, nrg);
+
+done:
+	de_free(c, nrg);
+}
+
+static int de_identify_nrg(deark *c)
+{
+	if(!de_input_file_has_ext(c, "nrg")) return 0;
+	if(detect_nrg_internal(c)>0) {
+		return 10;
+	}
+	return 0;
+}
+
+void de_module_nrg(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "nrg";
+	mi->desc = "NRG CD-ROM image";
+	mi->run_fn = de_run_nrg;
+	mi->identify_fn = de_identify_nrg;
 }
