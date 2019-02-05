@@ -58,6 +58,7 @@ struct vol_record {
 
 typedef struct localctx_struct {
 	int rr_encoding;
+	u8 names_to_lowercase;
 	u8 vol_desc_sector_forced;
 	i64 vol_desc_sector_to_use;
 	i64 secsize;
@@ -654,6 +655,18 @@ static void do_dir_rec_system_use_area(deark *c, lctx *d, struct dir_record *dr,
 	// but I don't know if we need to worry about that.
 }
 
+static void name_to_lowercase(de_ucstring *s)
+{
+	i64 i;
+
+	if(!s) return;
+	for(i=0; i<s->len; i++) {
+		if(s->str[i]>='A' && s->str[i]<='Z') {
+			s->str[i] += 32;
+		}
+	}
+}
+
 static void do_directory(deark *c, lctx *d, i64 pos1, i64 len, int nesting_level);
 
 // Caller allocates dr
@@ -738,6 +751,11 @@ static int do_directory_record(deark *c, lctx *d, i64 pos1, struct dir_record *d
 	dr->fname = ucstring_create(c);
 	dbuf_read_to_ucstring(c->infile, pos, dr->file_id_len, dr->fname, 0, file_id_encoding);
 	de_dbg(c, "file id: \"%s\"", ucstring_getpsz_d(dr->fname));
+
+	if(d->names_to_lowercase && !d->vol->is_joliet) {
+		name_to_lowercase(dr->fname);
+	}
+
 	if(specialfnbyte==0x00) {
 		dr->is_thisdir = 1;
 		if(nesting_level==0) {
@@ -1079,6 +1097,10 @@ static void de_run_iso9660(deark *c, de_module_params *mparams)
 
 	d = de_malloc(c, sizeof(lctx));
 
+	if(de_get_ext_option_bool(c, "iso9660:tolower", 0)) {
+		d->names_to_lowercase = 1;
+	}
+
 	s = de_get_ext_option(c, "iso9660:voldesc");
 	if(s) {
 		d->vol_desc_sector_forced = 1;
@@ -1150,6 +1172,7 @@ static int de_identify_iso9660(deark *c)
 
 static void de_help_iso9660(deark *c)
 {
+	de_msg(c, "-opt iso9660:tolower : Convert original-style filenames to lowercase.");
 	de_msg(c, "-opt iso9660:voldesc=<n> : Use the volume descriptor at sector <n>.");
 }
 

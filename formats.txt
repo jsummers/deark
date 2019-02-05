@@ -577,6 +577,8 @@ Deark -- Information about supported formats
 * Gzip (module="gzip")
 
 * ISO 9660 CD-ROM image (module="iso9660") (experimental)
+   -opt iso9660:tolower - Convert filenames to lowercase. Does not affect Rock
+     Ridge or Joliet filenames.
    -opt iso9660:voldesc=<n> - Use the volume descriptor at sector <n>. A
      typical use is to set n=16 to ignore Joliet extensions.
 
