@@ -33,6 +33,7 @@ struct dir_record {
 	u8 is_symlink;
 	u8 is_specialfiletype;
 	u8 is_specialfileformat;
+	u8 has_archimedes_ext;
 	i64 len_dir_rec;
 	i64 len_ext_attr_rec;
 	i64 data_len;
@@ -42,6 +43,8 @@ struct dir_record {
 	de_ucstring *rr_name;
 	struct de_timestamp recording_time;
 	struct de_timestamp rr_modtime;
+	struct de_timestamp riscos_timestamp;
+	u32 archimedes_attribs;
 };
 
 struct vol_record {
@@ -258,7 +261,10 @@ static void do_file(deark *c, lctx *d, struct dir_record *dr)
 		fi->original_filename_flag = 1;
 	}
 
-	if(dr->rr_modtime.is_valid) {
+	if(dr->riscos_timestamp.is_valid) {
+		fi->mod_time = dr->riscos_timestamp;
+	}
+	else if(dr->rr_modtime.is_valid) {
 		fi->mod_time = dr->rr_modtime;
 	}
 	else if(dr->recording_time.is_valid) {
@@ -489,6 +495,43 @@ static void do_Apple_AA_HFS(deark *c, lctx *d, struct dir_record *dr, i64 pos1, 
 	de_dbg_indent(c, -1);
 }
 
+static void do_ARCHIMEDES(deark *c, lctx *d, struct dir_record *dr, i64 pos1, i64 len)
+{
+	i64 pos = pos1;
+	u32 ld, ex;
+
+	de_dbg(c, "ARCHIMEDES extension at %"I64_FMT, pos1);
+	de_dbg_indent(c, 1);
+	if(len<10+12) goto done;
+	dr->has_archimedes_ext = 1;
+	pos += 10; // signature
+	ld = (u32)de_getu32le_p(&pos);
+	ex = (u32)de_getu32le_p(&pos);
+	de_dbg(c, "load/exec addrs: 0x%08x, 0x%08x", (unsigned int)ld,
+		(unsigned int)ex);
+
+	if((ld&0xfff00000U)==0xfff00000U) {
+		unsigned int file_type;
+		char timestamp_buf[64];
+
+		de_dbg_indent(c, 1);
+		file_type = (unsigned int)((ld&0xfff00)>>8);
+		de_dbg(c, "file type: %03X", file_type);
+
+		de_riscos_loadexec_to_timestamp(ld, ex, &dr->riscos_timestamp);
+		dr->riscos_timestamp.tzcode = DE_TZCODE_UTC;
+		de_timestamp_to_string(&dr->riscos_timestamp, timestamp_buf, sizeof(timestamp_buf), 0);
+		de_dbg(c, "timestamp: %s", timestamp_buf);
+		de_dbg_indent(c, -1);
+	}
+
+	dr->archimedes_attribs = (u32)de_getu32le_p(&pos);
+	de_dbg(c, "attribs: 0x%08x", (unsigned int)dr->archimedes_attribs);
+
+done:
+	de_dbg_indent(c, -1);
+}
+
 // Decode a contiguous set of SUSP entries.
 // Does not follow a "CE" continuation entry, but returns info about it.
 static void do_dir_rec_SUSP_set(deark *c, lctx *d, struct dir_record *dr,
@@ -620,12 +663,11 @@ static void do_dir_rec_system_use_area(deark *c, lctx *d, struct dir_record *dr,
 	}
 
 	if(non_SUSP_len>0) {
-		u8 buf[4];
+		u8 buf[10];
 
 		// TODO: Detect & handle more non-SUSP formats here.
 		// - Apple AA/ProDOS
 		// - Apple BA
-		// - "ARCHIMEDES"
 		// - CD-ROM XA?
 
 		de_zeromem(buf, sizeof(buf));
@@ -635,6 +677,10 @@ static void do_dir_rec_system_use_area(deark *c, lctx *d, struct dir_record *dr,
 			buf[3]==0x02)
 		{
 			do_Apple_AA_HFS(c, d, dr, pos, non_SUSP_len);
+			non_SUSP_handled = 1;
+		}
+		else if(non_SUSP_len>=10 && !de_memcmp(buf, "ARCHIMEDES", 10)) {
+			do_ARCHIMEDES(c, d, dr, pos, non_SUSP_len);
 			non_SUSP_handled = 1;
 		}
 	}
@@ -773,6 +819,16 @@ static int do_directory_record(deark *c, lctx *d, i64 pos1, struct dir_record *d
 	sys_use_len = pos1+dr->len_dir_rec-pos;
 	if(sys_use_len>0) {
 		do_dir_rec_system_use_area(c, d, dr, pos, sys_use_len);
+	}
+
+	if(dr->has_archimedes_ext && (dr->archimedes_attribs&0x100)) {
+		// Based on what Linux does, and other evidence: If a certain attribute bit
+		// is set, the filename is supposed to start with an exclamation point.
+		if(ucstring_isnonempty(dr->fname)) {
+			if(dr->fname->str[0]=='_') {
+				dr->fname->str[0] = '!';
+			}
+		}
 	}
 
 	if(dr->len_ext_attr_rec>0) {
