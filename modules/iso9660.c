@@ -68,6 +68,7 @@ typedef struct localctx_struct {
 	struct de_strarray *curpath;
 	struct de_inthashtable *dirs_seen;
 	u8 uses_SUSP;
+	u8 is_udf;
 	i64 SUSP_default_bytes_to_skip;
 	struct vol_record *vol; // Volume descriptor to use
 } lctx;
@@ -201,15 +202,33 @@ static void free_dir_record(deark *c, struct dir_record *dr)
 	de_free(c, dr);
 }
 
-static const char *get_vol_descr_type_name(u8 t)
+enum voldesctype_enum {
+	VOLDESCTYPE_UNKNOWN,
+	VOLDESCTYPE_OTHERVALID,
+	VOLDESCTYPE_CD_PRIMARY,
+	VOLDESCTYPE_CD_SUPPL,
+	VOLDESCTYPE_CD_BOOT,
+	VOLDESCTYPE_CD_PARTDESCR,
+	VOLDESCTYPE_CD_TERM,
+	VOLDESCTYPE_BEA,
+	VOLDESCTYPE_TEA,
+	VOLDESCTYPE_NSR
+};
+
+static const char *get_vol_descr_type_name(enum voldesctype_enum vdt)
 {
 	const char *name = NULL;
-	switch(t) {
-	case 0: name="boot record"; break;
-	case 1: name="primary volume descriptor"; break;
-	case 2: name="supplementary or enhanced volume descriptor"; break;
-	case 3: name="volume partition descriptor"; break;
-	case 255: name="volume descriptor set terminator"; break;
+	switch(vdt) {
+	case VOLDESCTYPE_CD_BOOT: name="boot record"; break;
+	case VOLDESCTYPE_CD_PRIMARY: name="primary volume descriptor"; break;
+	case VOLDESCTYPE_CD_SUPPL: name="supplementary or enhanced volume descriptor"; break;
+	case VOLDESCTYPE_CD_PARTDESCR: name="volume partition descriptor"; break;
+	case VOLDESCTYPE_CD_TERM: name="volume descriptor set terminator"; break;
+	case VOLDESCTYPE_BEA: name="beginning of extended descriptors"; break;
+	case VOLDESCTYPE_TEA: name="end of extended descriptors"; break;
+	case VOLDESCTYPE_NSR: name="UDF indicator"; break;
+	case VOLDESCTYPE_OTHERVALID: name="(other/valid)"; break;
+	case VOLDESCTYPE_UNKNOWN: break;
 	}
 	return name?name:"?";
 }
@@ -1103,38 +1122,86 @@ static int do_volume_descriptor(deark *c, lctx *d, i64 secnum)
 	i64 pos = pos1;
 	const char *vdtname;
 	int retval = 0;
+	enum voldesctype_enum vdt = VOLDESCTYPE_UNKNOWN;
+	struct de_stringreaderdata *standard_id = NULL;
 
 	de_dbg_indent_save(c, &saved_indent_level);
+
+	dtype = de_getbyte_p(&pos);
+	standard_id = dbuf_read_string(c->infile, pos, 5, 5, 0, DE_ENCODING_ASCII);
+	pos += 5;
+	dvers = de_getbyte_p(&pos);
+
+	if(!de_strcmp((const char*)standard_id->sz, "CD001")) {
+		switch(dtype) {
+		case 0: vdt = VOLDESCTYPE_CD_BOOT; break;
+		case 1: vdt = VOLDESCTYPE_CD_PRIMARY; break;
+		case 2: vdt = VOLDESCTYPE_CD_SUPPL; break;
+		case 3: vdt = VOLDESCTYPE_CD_PARTDESCR; break;
+		case 0xff: vdt = VOLDESCTYPE_CD_TERM; break;
+		default: vdt = VOLDESCTYPE_OTHERVALID; break;
+		}
+	}
+	else if(!de_strncmp((const char*)standard_id->sz, "NSR0", 4))
+	{
+		vdt = VOLDESCTYPE_NSR;
+	}
+	else if(!de_strncmp((const char*)standard_id->sz, "BEA0", 4)) {
+		vdt = VOLDESCTYPE_BEA;
+	}
+	else if(!de_strncmp((const char*)standard_id->sz, "TEA0", 4)) {
+		vdt = VOLDESCTYPE_TEA;
+	}
+	else if(!de_strncmp((const char*)standard_id->sz, "BOOT", 4) ||
+		!de_strncmp((const char*)standard_id->sz, "CDW0", 4))
+	{
+		vdt = VOLDESCTYPE_OTHERVALID;
+	}
+
+	if(vdt==VOLDESCTYPE_UNKNOWN) {
+		de_warn(c, "Expected volume descriptor at %"I64_FMT" not found", pos1);
+		goto done;
+	}
+
 	de_dbg(c, "volume descriptor at %"I64_FMT" (sector %d)", pos, (int)secnum);
 	de_dbg_indent(c, 1);
 
-	dtype = de_getbyte_p(&pos);
-	if(dbuf_memcmp(c->infile, pos, "CD001", 5)) {
-		de_err(c, "Sector %d is not a volume descriptor", (int)secnum);
-		goto done;
+	de_dbg(c, "type: %u", (unsigned int)dtype);
+	de_dbg(c, "standard id: \"%s\"", ucstring_getpsz_d(standard_id->str));
+	de_dbg(c, "version: %u", (unsigned int)dvers);
+
+	vdtname = get_vol_descr_type_name(vdt);
+	de_dbg(c, "interpreted type: %s", vdtname);
+
+	retval = 1;
+	if(vdt==VOLDESCTYPE_TEA) {
+		retval = 0;
 	}
-	pos += 5;
-
-	vdtname = get_vol_descr_type_name(dtype);
-	de_dbg(c, "volume descriptor type: %u (%s)", (unsigned int)dtype, vdtname);
-	if(dtype!=255) {
-		retval = 1;
+	else if(vdt==VOLDESCTYPE_CD_TERM) {
+		// Minor hack: Peak ahead at the next sector. Unless it looks like a
+		// BEA descriptor, signifying that there are extended descriptors,
+		// assume this is the last descriptor.
+		if(dbuf_memcmp(c->infile, pos1+d->secsize+1, "BEA0", 4)) {
+			retval = 0;
+		}
 	}
 
-	dvers = de_getbyte_p(&pos);
-	de_dbg(c, "volume descriptor version: %u", (unsigned int)dvers);
-
-	switch(dtype) {
-	case 0: // boot
+	switch(vdt) {
+	case VOLDESCTYPE_CD_BOOT:
 		do_boot_volume_descr(c, d, pos1);
 		break;
-	case 1: // primary
+	case VOLDESCTYPE_CD_PRIMARY:
 		do_primary_or_suppl_volume_descr(c, d, secnum, pos1, 1);
 		break;
-	case 2: // supplementary or enhanced
+	case VOLDESCTYPE_CD_SUPPL: // supplementary or enhanced
 		do_primary_or_suppl_volume_descr(c, d, secnum, pos1, 0);
 		break;
-	case 255:
+	case VOLDESCTYPE_NSR:
+		d->is_udf = 1;
+		break;
+	case VOLDESCTYPE_BEA:
+	case VOLDESCTYPE_CD_TERM:
+	case VOLDESCTYPE_TEA:
 		break;
 	default:
 		de_dbg(c, "[disregarding this volume descriptor]");
@@ -1142,6 +1209,7 @@ static int do_volume_descriptor(deark *c, lctx *d, i64 secnum)
 
 done:
 	de_dbg_indent_restore(c, saved_indent_level);
+	de_destroy_stringreaderdata(c, standard_id);
 	return retval;
 }
 
@@ -1181,6 +1249,11 @@ static void de_run_iso9660(deark *c, de_module_params *mparams)
 	while(1) {
 		if(!do_volume_descriptor(c, d, cursec)) break;
 		cursec++;
+	}
+
+	if(d->is_udf) {
+		de_warn(c, "This file might have UDF-specific content, which is "
+			"not supported.");
 	}
 
 	if(!d->vol) {
