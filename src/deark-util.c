@@ -1044,6 +1044,7 @@ void de_dos_datetime_to_timestamp(struct de_timestamp *ts,
 	ts->precision = DE_TSPREC_2SEC;
 }
 
+// Sets the DE_TZCODE_UTC flag.
 void de_riscos_loadexec_to_timestamp(u32 load_addr,
 	u32 exec_addr, struct de_timestamp *ts)
 {
@@ -1067,9 +1068,9 @@ void de_riscos_loadexec_to_timestamp(u32 load_addr,
 
 	if(t<=0 || t>=8000000000LL) return; // sanity check
 
-	// TODO: Are these timestamps always UTC?
 	de_unix_time_to_timestamp(t, ts, 0);
 	de_timestamp_set_subsec(ts, ((double)centiseconds)/100.0);
+	ts->tzcode = DE_TZCODE_UTC;
 }
 
 // This always truncates down to a whole number of seconds.

@@ -529,7 +529,6 @@ static void do_ARCHIMEDES(deark *c, lctx *d, struct dir_record *dr, i64 pos1, i6
 		de_dbg(c, "file type: %03X", file_type);
 
 		de_riscos_loadexec_to_timestamp(ld, ex, &dr->riscos_timestamp);
-		dr->riscos_timestamp.tzcode = DE_TZCODE_UTC;
 		de_timestamp_to_string(&dr->riscos_timestamp, timestamp_buf, sizeof(timestamp_buf), 0);
 		de_dbg(c, "timestamp: %s", timestamp_buf);
 		de_dbg_indent(c, -1);
