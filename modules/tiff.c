@@ -356,8 +356,7 @@ static int read_tag_value_as_int64(deark *c, lctx *d, const struct taginfo *tg,
 		*n = dbuf_geti64x(c->infile, offs, d->is_le);
 		return 1;
 	case DATATYPE_SBYTE:
-		*n = (i64)de_getbyte(offs);
-		if(*n > 127) *n -= 256;
+		*n = dbuf_geti8(c->infile, offs);
 		return 1;
 	case DATATYPE_RATIONAL:
 	case DATATYPE_SRATIONAL:

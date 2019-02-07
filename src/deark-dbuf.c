@@ -200,6 +200,22 @@ u8 dbuf_getbyte(dbuf *f, i64 pos)
 	return 0x00;
 }
 
+i64 de_geti8_direct(const u8 *m)
+{
+	u8 b = m[0];
+
+	if(b<=127) return (i64)b;
+	return ((i64)b)-256;
+}
+
+i64 dbuf_geti8(dbuf *f, i64 pos)
+{
+	u8 b;
+
+	b = dbuf_getbyte(f, pos);
+	return de_geti8_direct(&b);
+}
+
 u8 dbuf_getbyte_p(dbuf *f, i64 *ppos)
 {
 	u8 b;

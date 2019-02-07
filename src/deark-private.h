@@ -479,6 +479,7 @@ int de_decompress_liblzw(dbuf *inf1, i64 pos1, i64 len,
 
 ///////////////////////////////////////////
 
+i64 de_geti8_direct(const u8 *m);
 i64 de_getu16be_direct(const u8 *m);
 i64 de_getu16le_direct(const u8 *m);
 i64 de_getu32be_direct(const u8 *m);
@@ -490,8 +491,9 @@ u64 de_getu64le_direct(const u8 *m);
 
 void dbuf_read(dbuf *f, u8 *buf, i64 pos, i64 len);
 i64 dbuf_standard_read(dbuf *f, u8 *buf, i64 n, i64 *fpos);
-u8 dbuf_getbyte(dbuf *f, i64 pos);
 
+u8 dbuf_getbyte(dbuf *f, i64 pos);
+i64 dbuf_geti8(dbuf *f, i64 pos);
 i64 dbuf_getu16be(dbuf *f, i64 pos);
 i64 dbuf_getu16le(dbuf *f, i64 pos);
 i64 dbuf_getu16x(dbuf *f, i64 pos, int is_le);

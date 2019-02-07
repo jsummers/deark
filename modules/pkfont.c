@@ -44,14 +44,6 @@ static void do_preamble(deark *c, lctx *d, i64 pos, i64 *bytesused)
 	de_dbg_indent(c, -1);
 }
 
-static i64 do_get_signed_byte(dbuf *f, i64 pos)
-{
-	i64 n;
-	n = dbuf_getbyte(f, pos);
-	if(n>=128) n -= 256;
-	return n;
-}
-
 static i64 do_getu24be(dbuf *f, i64 pos)
 {
 	return dbuf_getint_ext(f, pos, 3, 0, 0);
@@ -352,8 +344,8 @@ static int do_char_descr(deark *c, lctx *d, i64 pos, i64 *bytesused)
 		pg->dm = (i64)de_getbyte(pos+6);
 		pg->w = (int)de_getbyte(pos+7);
 		pg->h = (int)de_getbyte(pos+8);
-		pg->hoff = do_get_signed_byte(c->infile, pos+9);
-		pg->voff = do_get_signed_byte(c->infile, pos+10);
+		pg->hoff = dbuf_geti8(c->infile, pos+9);
+		pg->voff = dbuf_geti8(c->infile, pos+10);
 		pg->raster_pos = pos + 11;
 	}
 	else if(char_preamble_format==CHAR_PREAMBLE_FORMAT_EXT_SHORT) {

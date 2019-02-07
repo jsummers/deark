@@ -73,15 +73,6 @@ typedef struct localctx_struct {
 	struct vol_record *vol; // Volume descriptor to use
 } lctx;
 
-static i64 read_signed_byte(dbuf *f, i64 pos)
-{
-	u8 b;
-
-	b = dbuf_getbyte(f, pos);
-	if(b<=127) return (i64)b;
-	return ((i64)b)-256;
-}
-
 static i64 getu16bbo_p(dbuf *f, i64 *ppos)
 {
 	i64 val;
@@ -167,7 +158,7 @@ static void read_datetime17(deark *c, lctx *d, i64 pos, struct de_timestamp *ts)
 	mi = read_decimal_substr(c->infile, pos+10, 2);
 	se = read_decimal_substr(c->infile, pos+12, 2);
 	hs = read_decimal_substr(c->infile, pos+14, 2);
-	offs = read_signed_byte(c->infile, pos+16);
+	offs = dbuf_geti8(c->infile, pos+16);
 	de_make_timestamp(ts, yr, mo, da, hr, mi, se);
 	de_timestamp_set_subsec(ts, ((double)hs)/100.0);
 	de_timestamp_cvt_to_utc(ts, -offs*60*15);
@@ -188,7 +179,7 @@ static void read_datetime7(deark *c, lctx *d, i64 pos, struct de_timestamp *ts)
 	hr = de_getbyte(pos+3);
 	mi = de_getbyte(pos+4);
 	se = de_getbyte(pos+5);
-	offs = read_signed_byte(c->infile, pos+6);
+	offs = dbuf_geti8(c->infile, pos+6);
 
 	de_make_timestamp(ts, 1900+yr, mo, da, hr, mi, se);
 	de_timestamp_cvt_to_utc(ts, -offs*60*15);
