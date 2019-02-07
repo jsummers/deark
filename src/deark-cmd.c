@@ -49,20 +49,21 @@ struct cmdctx {
 static void show_version(deark *c, int verbose)
 {
 	char vbuf[80];
-	de_printf(c, DE_MSGTYPE_MESSAGE, "Deark version %s\n",
+
+	de_printf(c, DE_MSGTYPE_MESSAGE, "Deark version: %s\n",
 		de_get_version_string(vbuf, sizeof(vbuf)));
-	de_printf(c, DE_MSGTYPE_MESSAGE, "%u-bit", (unsigned int)(8*sizeof(void*)));
-	de_printf(c, DE_MSGTYPE_MESSAGE, ", %s platform",
+	de_printf(c, DE_MSGTYPE_MESSAGE, "platform API: %s\n",
 #ifdef DE_WINDOWS
 		"Windows"
 #else
 		"Unix-like"
 #endif
 		);
+	de_printf(c, DE_MSGTYPE_MESSAGE, "platform bits: %u\n",
+		(unsigned int)(8*sizeof(void*)));
 #ifdef _DEBUG
-	de_printf(c, DE_MSGTYPE_MESSAGE, ", debug build");
+	de_printf(c, DE_MSGTYPE_MESSAGE, "build type: debug\n");
 #endif
-	de_printf(c, DE_MSGTYPE_MESSAGE, "\n");
 }
 
 static void show_usage_preamble(deark *c) {
@@ -95,7 +96,7 @@ static void show_help(deark *c)
 		" -q, -noinfo, -nowarn: Print fewer messages than usual.\n"
 		" -modules: Print the names of all available modules.\n"
 		" -help, -h: Print this message.\n"
-		" -version: Print the version number.\n"
+		" -version: Print version information.\n"
 		);
 }
 
