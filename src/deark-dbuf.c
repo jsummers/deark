@@ -710,7 +710,7 @@ struct de_stringreaderdata *dbuf_read_string(dbuf *f, i64 pos,
 	{
 		// To reduce possible confusion, we require that
 		// max_bytes_to_scan==max_bytes_to_keep in this case.
-		srd->sz = de_malloc(c, max_bytes_to_keep);
+		srd->sz = de_malloc(c, max_bytes_to_keep+1);
 		goto done;
 	}
 
@@ -740,9 +740,9 @@ struct de_stringreaderdata *dbuf_read_string(dbuf *f, i64 pos,
 	}
 
 	srd->sz = de_malloc(c, bytes_to_malloc);
-	dbuf_read(f, srd->sz, pos, bytes_to_malloc-1); // The last byte remains NUL
+	dbuf_read(f, (u8*)srd->sz, pos, bytes_to_malloc-1); // The last byte remains NUL
 
-	ucstring_append_bytes(srd->str, srd->sz, bytes_to_malloc-1, 0, encoding);
+	ucstring_append_bytes(srd->str, (const u8*)srd->sz, bytes_to_malloc-1, 0, encoding);
 
 	if(flags&DE_CONVFLAG_WANT_UTF8) {
 		srd->sz_utf8_strlen = (size_t)ucstring_count_utf8_bytes(srd->str);

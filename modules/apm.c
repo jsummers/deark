@@ -48,10 +48,10 @@ static void do_extract_partition(deark *c, lctx *d, struct partition_info *pi)
 	// TODO: For some partition types, there are probably better ways to
 	// extract them.
 
-	if(!de_strcmp((const char*)pi->ptype->sz, "Apple_partition_map")) {
+	if(!de_strcmp(pi->ptype->sz, "Apple_partition_map")) {
 		ext = "apm";
 	}
-	else if(!de_strcmp((const char*)pi->ptype->sz, "Apple_HFS")) {
+	else if(!de_strcmp(pi->ptype->sz, "Apple_HFS")) {
 		ext = "hfs";
 	}
 

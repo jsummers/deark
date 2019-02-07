@@ -358,7 +358,7 @@ static int read_member(deark *c, lctx *d, i64 pos1,
 		int msgflag = 0;
 
 		if(md->mode==0 && md->namesize==11) {
-			if(!de_strcmp((const char*)md->filename_srd->sz, "TRAILER!!!")) {
+			if(!de_strcmp(md->filename_srd->sz, "TRAILER!!!")) {
 				de_dbg(c, "[Trailer. Not extracting.]");
 				msgflag = 1;
 				d->trailer_found = 1;

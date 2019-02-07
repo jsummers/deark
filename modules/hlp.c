@@ -394,7 +394,7 @@ static void do_leaf_page(deark *c, lctx *d, i64 pos1, i64 *pnext_page)
 		file_offset = de_geti32le_p(&pos);
 		de_dbg(c, "FileOffset: %d", (int)file_offset);
 
-		file_type = filename_to_filetype(c, d, (const char*)fn_srd->sz);
+		file_type = filename_to_filetype(c, d, fn_srd->sz);
 
 		if((d->pass==1 && file_type==FILETYPE_SYSTEM) ||
 			(d->pass==2 && file_type!=FILETYPE_SYSTEM))

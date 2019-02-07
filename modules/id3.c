@@ -385,7 +385,7 @@ static void decode_id3v2_frame_priv(deark *c, id3v2ctx *d,
 	if(payload_len<1) goto done;
 
 	de_dbg(c, "private frame data at %"I64_FMT", len=%"I64_FMT, pos, payload_len);
-	if(!de_strcmp((const char*)owner->sz, "XMP")) {
+	if(!de_strcmp(owner->sz, "XMP")) {
 		dbuf_create_file_from_slice(f, pos, payload_len, "xmp", NULL, DE_CREATEFLAG_IS_AUX);
 	}
 	else if(c->debug_level>=2) {

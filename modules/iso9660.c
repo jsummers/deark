@@ -939,7 +939,7 @@ static void do_boot_volume_descr(deark *c, lctx *d, i64 pos1)
 
 	handle_iso_string_p(c, d, NULL, "boot id", &pos, 32, tmpstr);
 
-	if(!de_strcmp((const char*)boot_sys_id->sz, "EL TORITO SPECIFICATION")) {
+	if(!de_strcmp(boot_sys_id->sz, "EL TORITO SPECIFICATION")) {
 		n = de_getu32le_p(&pos);
 		de_dbg(c, "first sector of boot catalog: %u", (unsigned int)n);
 	}
@@ -1132,7 +1132,7 @@ static int do_volume_descriptor(deark *c, lctx *d, i64 secnum)
 	pos += 5;
 	dvers = de_getbyte_p(&pos);
 
-	if(!de_strcmp((const char*)standard_id->sz, "CD001")) {
+	if(!de_strcmp(standard_id->sz, "CD001")) {
 		switch(dtype) {
 		case 0: vdt = VOLDESCTYPE_CD_BOOT; break;
 		case 1: vdt = VOLDESCTYPE_CD_PRIMARY; break;
@@ -1142,18 +1142,18 @@ static int do_volume_descriptor(deark *c, lctx *d, i64 secnum)
 		default: vdt = VOLDESCTYPE_OTHERVALID; break;
 		}
 	}
-	else if(!de_strncmp((const char*)standard_id->sz, "NSR0", 4))
+	else if(!de_strncmp(standard_id->sz, "NSR0", 4))
 	{
 		vdt = VOLDESCTYPE_NSR;
 	}
-	else if(!de_strncmp((const char*)standard_id->sz, "BEA0", 4)) {
+	else if(!de_strncmp(standard_id->sz, "BEA0", 4)) {
 		vdt = VOLDESCTYPE_BEA;
 	}
-	else if(!de_strncmp((const char*)standard_id->sz, "TEA0", 4)) {
+	else if(!de_strncmp(standard_id->sz, "TEA0", 4)) {
 		vdt = VOLDESCTYPE_TEA;
 	}
-	else if(!de_strncmp((const char*)standard_id->sz, "BOOT", 4) ||
-		!de_strncmp((const char*)standard_id->sz, "CDW0", 4))
+	else if(!de_strncmp(standard_id->sz, "BOOT", 4) ||
+		!de_strncmp(standard_id->sz, "CDW0", 4))
 	{
 		vdt = VOLDESCTYPE_OTHERVALID;
 	}

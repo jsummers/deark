@@ -233,8 +233,8 @@ static void de_run_rpm(deark *c, de_module_params *mparams)
 		const char *version2 = "x";
 		const char *release2 = "x";
 
-		if(d->version_srd) version2 = (const char*)d->version_srd->sz;
-		if(d->release_srd) release2 = (const char*)d->release_srd->sz;
+		if(d->version_srd) version2 = d->version_srd->sz;
+		if(d->release_srd) release2 = d->release_srd->sz;
 
 		fi = de_finfo_create(c);
 		de_snprintf(filename, sizeof(filename), "%s-%s.%s",

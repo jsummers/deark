@@ -232,14 +232,14 @@ static int do_picture_ole_static_rendition(deark *c, lctx *d, struct para_info *
 	de_dbg(c, "typename: \"%s\"", ucstring_getpsz(srd_typename->str));
 	pos += stringlen;
 
-	if(!de_strcmp((const char*)srd_typename->sz, "DIB")) {
+	if(!de_strcmp(srd_typename->sz, "DIB")) {
 		pos += 12;
 		de_dbg_indent(c, 1);
 		de_run_module_by_id_on_slice(c, "dib", NULL, c->infile, pos,
 			pinfo->thisparapos+pinfo->thisparalen-pos);
 		de_dbg_indent(c, -1);
 	}
-	else if(!de_strcmp((const char*)srd_typename->sz, "METAFILEPICT")) {
+	else if(!de_strcmp(srd_typename->sz, "METAFILEPICT")) {
 		i64 dlen;
 		pos += 8; // ??
 		dlen = de_getu32le_p(&pos);
@@ -247,7 +247,7 @@ static int do_picture_ole_static_rendition(deark *c, lctx *d, struct para_info *
 		pos += 8; // "mfp" struct
 		dbuf_create_file_from_slice(c->infile, pos, dlen-8, "wmf", NULL, 0);
 	}
-	else if(d->ddbhack && !de_strcmp((const char*)srd_typename->sz, "BITMAP")) {
+	else if(d->ddbhack && !de_strcmp(srd_typename->sz, "BITMAP")) {
 		do_static_bitmap(c, d, pinfo, pos);
 	}
 	else {

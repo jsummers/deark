@@ -913,7 +913,7 @@ static void do_pe_section_header(deark *c, lctx *d, i64 section_index, i64 pos)
 	de_dbg(c, "section virt. addr=%d (0x%08x)", (int)d->pe_cur_section_virt_addr, (unsigned int)d->pe_cur_section_virt_addr);
 	de_dbg(c, "section data offset=%d, size=%d", (int)d->pe_cur_section_data_offset, (int)section_data_size);
 
-	if(!de_strcmp((const char*)srd->sz, ".rsrc")) {
+	if(!de_strcmp(srd->sz, ".rsrc")) {
 		do_pe_resource_section(c, d, d->pe_cur_section_data_offset, section_data_size);
 	}
 

@@ -87,7 +87,7 @@ static void do_face_name(deark *c, lctx *d)
 	if(!c->filenames_from_file) goto done;
 
 	// Strip trailing spaces
-	nlen = de_strlen((const char*)srd->sz);
+	nlen = de_strlen(srd->sz);
 	while(nlen>0 && srd->sz[nlen-1]==' ') {
 		srd->sz[nlen-1] = '\0';
 		nlen--;

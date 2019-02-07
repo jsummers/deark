@@ -134,7 +134,7 @@ static void on_im_generic_profile_keyword(deark *c, lctx *d,
 	tcc->im_generic_profile_type_name = NULL;
 	tcc->suppress_debugstr = 1;
 
-	de_bytes_to_printable_sz(srd->sz+17, de_strlen((const char*)(srd->sz+17)),
+	de_bytes_to_printable_sz((const u8*)(srd->sz+17), de_strlen(srd->sz+17),
 		typestr, sizeof(typestr), 0, DE_ENCODING_ASCII);
 
 	if(!de_strcmp(typestr, "8bim")) {
@@ -275,7 +275,7 @@ static int do_unc_text_field(deark *c, lctx *d,
 	}
 
 	if(which_field==FIELD_KEYWORD) {
-		if(!de_strcmp((const char*)srd->sz, "XML:com.adobe.xmp")) {
+		if(!de_strcmp(srd->sz, "XML:com.adobe.xmp")) {
 			tcc->is_xmp = 1;
 		}
 	}
@@ -298,7 +298,7 @@ static int do_unc_text_field(deark *c, lctx *d,
 	retval = 1;
 
 	if(which_field==FIELD_KEYWORD) {
-		if(!de_strncmp((const char*)srd->sz, "Raw profile type ", 17)) {
+		if(!de_strncmp(srd->sz, "Raw profile type ", 17)) {
 			on_im_generic_profile_keyword(c, d, tcc, srd);
 		}
 	}
@@ -708,7 +708,7 @@ static void handler_iccp(deark *c, lctx *d, struct handler_params *hp)
 	pos += prof_name_srd->bytes_consumed;
 
 	// Our working copy, to use as part of the filename.
-	de_strlcpy(prof_name2, (const char*)prof_name_srd->sz, sizeof(prof_name2));
+	de_strlcpy(prof_name2, prof_name_srd->sz, sizeof(prof_name2));
 	if(!de_strcasecmp(prof_name2, "icc") ||
 		!de_strcasecmp(prof_name2, "icc profile"))
 	{

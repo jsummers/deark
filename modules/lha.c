@@ -491,9 +491,9 @@ static int do_read_member(deark *c, lctx *d, struct member_data *md, i64 pos1)
 		}
 	}
 
-	md->cmpr_meth_code = (u32)md->cmpr_method->sz[1] << 16;
-	md->cmpr_meth_code |= (u32)md->cmpr_method->sz[2] << 8;
-	md->cmpr_meth_code |= (u32)md->cmpr_method->sz[3];
+	md->cmpr_meth_code = (u32)(u8)md->cmpr_method->sz[1] << 16;
+	md->cmpr_meth_code |= (u32)(u8)md->cmpr_method->sz[2] << 8;
+	md->cmpr_meth_code |= (u32)(u8)md->cmpr_method->sz[3];
 
 	// Look ahead to figure out the header format version.
 	// This byte was originally the high byte of the "MS-DOS file attribute" field,

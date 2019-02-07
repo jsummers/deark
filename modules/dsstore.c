@@ -63,7 +63,7 @@ static void do_dir_entry(deark *c, lctx *d, i64 pos1, i64 *bytes_consumed)
 	blk_id = (u32)de_getu32be_p(&pos);
 	de_dbg(c, "block id: %u", (unsigned int)blk_id);
 
-	if(!de_strcmp((const char*)name_srd->sz, "DSDB")) {
+	if(!de_strcmp(name_srd->sz, "DSDB")) {
 		d->found_dsdb = 1;
 		d->dsdb_block_id = blk_id;
 	}
