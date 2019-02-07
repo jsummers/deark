@@ -65,12 +65,16 @@ typedef struct localctx_struct {
 	u8 vol_desc_sector_forced;
 	i64 vol_desc_sector_to_use;
 	i64 secsize;
+	i64 primary_vol_desc_count;
+	i64 suppl_vol_desc_count;
 	struct de_strarray *curpath;
 	struct de_inthashtable *dirs_seen;
+	struct de_inthashtable *voldesc_crc_hash;
 	u8 uses_SUSP;
 	u8 is_udf;
 	i64 SUSP_default_bytes_to_skip;
 	struct vol_record *vol; // Volume descriptor to use
+	struct de_crcobj *crco;
 } lctx;
 
 static i64 getu16bbo_p(dbuf *f, i64 *ppos)
@@ -961,7 +965,7 @@ static void read_escape_sequences(deark *c, lctx *d, struct vol_record *vol, i64
 }
 
 static void do_primary_or_suppl_volume_descr_internal(deark *c, lctx *d,
-	struct vol_record *vol, i64 pos1, int is_primary)
+	struct vol_record *vol, i64 secnum, i64 pos1, int is_primary)
 {
 	i64 pos = pos1 + 7;
 	i64 vol_space_size;
@@ -969,8 +973,44 @@ static void do_primary_or_suppl_volume_descr_internal(deark *c, lctx *d,
 	i64 vol_seq_num;
 	i64 n;
 	unsigned int vol_flags;
+	u32 crc;
+	int is_dup;
 	de_ucstring *tmpstr = NULL;
 	struct de_timestamp tmpts;
+
+	// Check whether this is a copy of a previous descriptor
+	if(!d->crco) {
+		d->crco = de_crcobj_create(c, DE_CRCOBJ_CRC32_IEEE);
+	}
+	de_crcobj_reset(d->crco);
+	de_crcobj_addslice(d->crco, c->infile, pos1, d->secsize);
+	crc = de_crcobj_getval(d->crco);
+
+	is_dup = (de_inthashtable_add_item(c, d->voldesc_crc_hash, (i64)crc, NULL) == 0);
+	// False positives are *possible*, but note that we always allow the first
+	// primary descriptor (multiple unique primary descriptors are not allowed), and
+	// the first supplemental descriptor (multiple unique supplemental descriptors
+	// are rare).
+	if(is_primary) {
+		if(d->primary_vol_desc_count==0) is_dup = 0;
+		d->primary_vol_desc_count++;
+	}
+	else {
+		if(d->suppl_vol_desc_count==0) is_dup = 0;
+		d->suppl_vol_desc_count++;
+	}
+
+	if(is_dup) {
+		de_dbg(c, "[this is an extra copy of a previous volume descriptor]");
+		if(d->vol_desc_sector_forced && (secnum==d->vol_desc_sector_to_use)) {
+			; // ... but we have to read it anyway.
+		}
+		else {
+			vol->quality = 0;
+			goto done;
+		}
+	}
+	/////////
 
 	vol->encoding = DE_ENCODING_ASCII; // default
 
@@ -1066,6 +1106,7 @@ static void do_primary_or_suppl_volume_descr_internal(deark *c, lctx *d,
 		((vol->file_structure_version==1)?10:0) +
 		((is_primary)?5:0);
 
+done:
 	ucstring_destroy(tmpstr);
 }
 
@@ -1077,8 +1118,9 @@ static void do_primary_or_suppl_volume_descr(deark *c, lctx *d, i64 secnum,
 	newvol = de_malloc(c, sizeof(struct vol_record));
 	newvol->secnum = secnum;
 
-	do_primary_or_suppl_volume_descr_internal(c, d, newvol, pos1, is_primary);
+	do_primary_or_suppl_volume_descr_internal(c, d, newvol, secnum, pos1, is_primary);
 
+	if(newvol->quality==0) goto done; // not usable
 	if(d->vol_desc_sector_forced && (secnum!=d->vol_desc_sector_to_use)) {
 		// User told us not to use this volume descriptor.
 		goto done;
@@ -1235,6 +1277,7 @@ static void de_run_iso9660(deark *c, de_module_params *mparams)
 			"Use \"-m apm\" to read it.");
 	}
 
+	d->voldesc_crc_hash = de_inthashtable_create(c);
 	cursec = 16;
 	while(1) {
 		if(!do_volume_descriptor(c, d, cursec)) break;
@@ -1272,6 +1315,8 @@ done:
 		de_free(c, d->vol);
 		de_strarray_destroy(d->curpath);
 		de_inthashtable_destroy(c, d->dirs_seen);
+		de_inthashtable_destroy(c, d->voldesc_crc_hash);
+		de_crcobj_destroy(d->crco);
 		de_free(c, d);
 	}
 }
