@@ -285,16 +285,21 @@ static int get_ndigits_for_offset(i64 n)
 	return nd;
 }
 
+struct hexdump_ctx;
+typedef void (*hexdump_printline_fn)(deark *c, struct hexdump_ctx *hctx);
+
 struct hexdump_ctx {
 	// same for each row:
 	const char *prefix;
 	unsigned int flags;
+	hexdump_printline_fn printlinefn;
 	char offset_fmtstr[32];
 
 	// per row
 	i64 row_offset;
 	i64 bytesthisrow; // num bytes used in .rowbuf
 	u8 rowbuf[16];
+	char outbuf_sz[200];
 };
 
 static void do_hexdump_row(deark *c, struct hexdump_ctx *hctx)
@@ -349,24 +354,22 @@ static void do_hexdump_row(deark *c, struct hexdump_ctx *hctx)
 	de_snprintf(offset_formatted, sizeof(offset_formatted), hctx->offset_fmtstr,
 		(i64)hctx->row_offset);
 
-	de_dbg(c, "%s:%s: %s%s", hctx->prefix, offset_formatted, linebuf, asciibuf);
+	de_snprintf(hctx->outbuf_sz, sizeof(hctx->outbuf_sz), "%s:%s: %s%s",
+		hctx->prefix, offset_formatted, linebuf, asciibuf);
+	hctx->printlinefn(c, hctx);
 }
 
 // If prefix is NULL, a default will be used.
 // flags:
 //  0x1 = Include an ASCII representation
-void de_dbg_hexdump(deark *c, dbuf *f, i64 pos1,
-	i64 nbytes_avail, i64 max_nbytes_to_dump,
-	const char *prefix1, unsigned int flags)
+static void de_hexdump_internal(deark *c, struct hexdump_ctx *hctx,
+	dbuf *f, i64 pos1,
+	i64 nbytes_avail, i64 max_nbytes_to_dump)
 {
 	i64 pos = pos1;
 	i64 len;
 	int ndigits_for_offset;
 	int was_truncated = 0;
-	struct hexdump_ctx hctx;
-
-	hctx.flags = flags;
-	hctx.prefix = (prefix1) ? prefix1 : "data";
 
 	if(nbytes_avail > max_nbytes_to_dump) {
 		len = max_nbytes_to_dump;
@@ -389,25 +392,48 @@ void de_dbg_hexdump(deark *c, dbuf *f, i64 pos1,
 		// highest byte offset that is a multiple of 16.
 		ndigits_for_offset = get_ndigits_for_offset(((len-1)/16)*16);
 	}
-	de_snprintf(hctx.offset_fmtstr, sizeof(hctx.offset_fmtstr), "%%%d"I64_FMT, ndigits_for_offset);
+	de_snprintf(hctx->offset_fmtstr, sizeof(hctx->offset_fmtstr), "%%%d"I64_FMT, ndigits_for_offset);
 
 	while(1) { // For each row...
 		if(pos >= pos1+len) break;
 
-		hctx.row_offset = pos-pos1;
+		hctx->row_offset = pos-pos1;
 
-		hctx.bytesthisrow = (pos1+len)-pos;
-		if(hctx.bytesthisrow>16) hctx.bytesthisrow=16;
+		hctx->bytesthisrow = (pos1+len)-pos;
+		if(hctx->bytesthisrow>16) hctx->bytesthisrow=16;
 
-		dbuf_read(f, hctx.rowbuf, pos, hctx.bytesthisrow);
+		dbuf_read(f, hctx->rowbuf, pos, hctx->bytesthisrow);
 
-		do_hexdump_row(c, &hctx);
+		do_hexdump_row(c, hctx);
 
-		pos += hctx.bytesthisrow;
+		pos += hctx->bytesthisrow;
 	}
 	if(was_truncated) {
-		de_dbg(c, "%s:%"I64_FMT": ...", hctx.prefix, len);
+		de_snprintf(hctx->outbuf_sz, sizeof(hctx->outbuf_sz),
+			"%s:%"I64_FMT": ...", hctx->prefix, len);
+		hctx->printlinefn(c, hctx);
 	}
+}
+
+static void hexdump_printline_dbg(deark *c, struct hexdump_ctx *hctx)
+{
+	de_dbg(c, "%s", hctx->outbuf_sz);
+}
+
+// If prefix is NULL, a default will be used.
+// flags:
+//  0x1 = Include an ASCII representation
+void de_dbg_hexdump(deark *c, dbuf *f, i64 pos1,
+	i64 nbytes_avail, i64 max_nbytes_to_dump,
+	const char *prefix1, unsigned int flags)
+{
+	struct hexdump_ctx hctx;
+
+	hctx.flags = flags;
+	hctx.prefix = (prefix1) ? prefix1 : "data";
+	hctx.printlinefn = hexdump_printline_dbg;
+
+	de_hexdump_internal(c, &hctx, f, pos1, nbytes_avail, max_nbytes_to_dump);
 }
 
 // This is such a common thing to do, that it's worth having a function for it.
