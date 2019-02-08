@@ -77,6 +77,11 @@ typedef struct localctx_struct {
 	struct de_crcobj *crco;
 } lctx;
 
+static i64 sector_dpos(lctx *d, i64 secnum)
+{
+	return secnum * d->secsize;
+}
+
 static i64 getu16bbo_p(dbuf *f, i64 *ppos)
 {
 	i64 val;
@@ -253,7 +258,7 @@ static void do_file(deark *c, lctx *d, struct dir_record *dr)
 	de_ucstring *final_name = NULL;
 
 	if(dr->extent_blk<1) goto done;
-	dpos = dr->extent_blk * d->secsize;
+	dpos = sector_dpos(d, dr->extent_blk);
 	dlen = dr->data_len;
 
 	if(dpos+dlen > c->infile->len) goto done;
@@ -642,7 +647,7 @@ static void do_dir_rec_SUSP(deark *c, lctx *d, struct dir_record *dr,
 
 		// Prepare to jump to a continuation area
 
-		pos = ca_blk * d->secsize + ca_offs;
+		pos = sector_dpos(d, ca_blk) + ca_offs;
 
 		// Prevent loops
 		if(!de_inthashtable_add_item(c, d->dirs_seen, pos, NULL)) {
@@ -857,7 +862,7 @@ static int do_directory_record(deark *c, lctx *d, i64 pos1, struct dir_record *d
 		else {
 			de_strarray_push(d->curpath, dr->fname);
 		}
-		do_directory(c, d, dr->extent_blk * d->secsize, dr->data_len, nesting_level+1);
+		do_directory(c, d, sector_dpos(d, dr->extent_blk), dr->data_len, nesting_level+1);
 		de_strarray_pop(d->curpath);
 	}
 	else if(!dr->is_dir) {
@@ -1150,14 +1155,16 @@ static int do_volume_descriptor(deark *c, lctx *d, i64 secnum)
 	u8 dtype;
 	u8 dvers;
 	int saved_indent_level;
-	i64 pos1 = secnum*d->secsize;
-	i64 pos = pos1;
+	i64 pos1, pos;
 	const char *vdtname;
 	int retval = 0;
 	enum voldesctype_enum vdt = VOLDESCTYPE_UNKNOWN;
 	struct de_stringreaderdata *standard_id = NULL;
 
 	de_dbg_indent_save(c, &saved_indent_level);
+
+	pos1 = sector_dpos(d, secnum);
+	pos = pos1;
 
 	dtype = de_getbyte_p(&pos);
 	standard_id = dbuf_read_string(c->infile, pos, 5, 5, 0, DE_ENCODING_ASCII);
@@ -1213,7 +1220,7 @@ static int do_volume_descriptor(deark *c, lctx *d, i64 secnum)
 		// Minor hack: Peak ahead at the next sector. Unless it looks like a
 		// BEA descriptor, signifying that there are extended descriptors,
 		// assume this is the last descriptor.
-		if(dbuf_memcmp(c->infile, pos1+d->secsize+1, "BEA0", 4)) {
+		if(dbuf_memcmp(c->infile, sector_dpos(d, secnum+1)+1, "BEA0", 4)) {
 			retval = 0;
 		}
 	}
@@ -1306,7 +1313,7 @@ static void de_run_iso9660(deark *c, de_module_params *mparams)
 	d->curpath = de_strarray_create(c);
 
 	if(d->vol->root_dir_extent_blk) {
-		do_directory(c, d, d->secsize * d->vol->root_dir_extent_blk,
+		do_directory(c, d, sector_dpos(d, d->vol->root_dir_extent_blk),
 			d->vol->root_dir_data_len, 0);
 	}
 
@@ -1321,17 +1328,30 @@ done:
 	}
 }
 
-static int de_identify_iso9660(deark *c)
+static int cdsig_at(dbuf *f, i64 pos)
 {
 	u8 buf[6];
-	i64 i;
 
-	for(i=0; i<2; i++) {
-		dbuf_read(c->infile, buf, 32768+2048*i, sizeof(buf));
-		if(de_memcmp(&buf[1], "CD001", 5)) return 0;
-		if(buf[0]>3 && buf[0]<255) return 0;
+	dbuf_read(f, buf, pos, sizeof(buf));
+	if(de_memcmp(&buf[1], "CD001", 5)) return 0;
+	if(buf[0]>3 && buf[0]<255) return 0;
+	return 1;
+}
+
+static int cdsig_at2(dbuf *f, i64 pos1, i64 pos2)
+{
+	return (cdsig_at(f, pos1) &&
+		cdsig_at(f, pos2));
+}
+
+static int de_identify_iso9660(deark *c)
+{
+	if(cdsig_at2(c->infile, 32768, 32768+2048)) {
+		// Confidence is practically 100%, but since hybrid formats are
+		// possible, we want other modules to be able to have precedence.
+		return 80;
 	}
-	return 80;
+	return 0;
 }
 
 static void de_help_iso9660(deark *c)
