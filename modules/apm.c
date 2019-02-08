@@ -35,28 +35,27 @@ static void do_extract_partition(deark *c, lctx *d, struct partition_info *pi)
 {
 	de_finfo *fi = NULL;
 	const char *ext = "partition";
+	i64 len_to_extract;
 
-	if(c->extract_level<2) return;
-
-	if(pi->partition_startpos + pi->partition_size_in_bytes > c->infile->len) {
-		goto done;
+	if(pi->partition_startpos >= c->infile->len) goto done;
+	len_to_extract = pi->partition_size_in_bytes;
+	if(pi->partition_startpos + len_to_extract > c->infile->len) {
+		de_warn(c, "Partition at %"I64_FMT" goes beyond end of file", pi->partition_startpos);
+		len_to_extract = c->infile->len - pi->partition_startpos;
 	}
 
 	fi = de_finfo_create(c);
 	de_finfo_set_name_from_ucstring(c, fi, pi->ptype->str, 0);
 
-	// TODO: For some partition types, there are probably better ways to
-	// extract them.
-
 	if(!de_strcmp(pi->ptype->sz, "Apple_partition_map")) {
-		ext = "apm";
+		ext = "bin";
 	}
 	else if(!de_strcmp(pi->ptype->sz, "Apple_HFS")) {
 		ext = "hfs";
 	}
 
 	dbuf_create_file_from_slice(c->infile, pi->partition_startpos,
-		pi->partition_size_in_bytes, ext, fi, 0);
+		len_to_extract, ext, fi, 0);
 
 done:
 	de_finfo_destroy(c, fi);

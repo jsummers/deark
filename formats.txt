@@ -550,6 +550,8 @@ Deark -- Information about supported formats
   These files usually have names beginning with "._".
   - Extract resource fork.
 
+* Apple Partition Map (module="apm") (experimental)
+
 * AppleSingle (module="applesingle")
   - Extract data and resource forks.
 
@@ -564,6 +566,10 @@ Deark -- Information about supported formats
 * CAB (Microsoft Cabinet) (module="cab")
   - Files can be parsed, but there is usually nothing that can be extracted
     from them.
+
+* CD/raw (module="cd_raw") (experimental)
+  - Extract .ISO and other filesystem data from some raw CD images, such as
+    the .BIN file in CUE/BIN format.
 
 * compress (legacy Unix .Z format) (module="compress")
 

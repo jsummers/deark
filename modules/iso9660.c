@@ -9,6 +9,7 @@
 #include <deark-private.h>
 #include <deark-fmtutil.h>
 DE_DECLARE_MODULE(de_module_iso9660);
+DE_DECLARE_MODULE(de_module_cd_raw);
 DE_DECLARE_MODULE(de_module_nrg);
 
 #define CODE_AA 0x4141U
@@ -1369,6 +1370,132 @@ void de_module_iso9660(deark *c, struct deark_module_info *mi)
 	mi->help_fn = de_help_iso9660;
 }
 
+struct cdraw_params {
+	int ok;
+	i64 sector_total_len;
+	i64 sector_dlen;
+	i64 sector_data_offset;
+	const char *ext;
+};
+
+static void do_cdraw_convert(deark *c, struct cdraw_params *cdrp)
+{
+	i64 pos;
+	dbuf *outf = NULL;
+
+	outf = dbuf_create_output_file(c, cdrp->ext, NULL, 0x0);
+
+	pos = cdrp->sector_data_offset;
+	while(1) {
+		if(pos >= c->infile->len) break;
+		dbuf_copy(c->infile, pos, cdrp->sector_dlen, outf);
+		pos += cdrp->sector_total_len;
+	}
+
+	dbuf_close(outf);
+}
+
+static void cdraw_setdefaults(struct cdraw_params *cdrp)
+{
+	cdrp->ok = 0;
+	cdrp->sector_total_len = 2048;
+	cdrp->sector_dlen = 2048;
+	cdrp->sector_data_offset = 0;
+	cdrp->ext = "bin";
+}
+
+static int syncbytes_at(dbuf *f, i64 pos)
+{
+	return !dbuf_memcmp(f, pos,
+		"\x00\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\x00", 12);
+}
+
+static void cdraw_detect_params(dbuf *f, struct cdraw_params *cdrp)
+{
+	if(cdsig_at2(f, 2336*16+8, 2336*17+8)) {
+		cdrp->ok = 1;
+		cdrp->sector_total_len = 2336;
+		cdrp->sector_data_offset = 8;
+		cdrp->ext = "iso";
+		return;
+	}
+	if(cdsig_at2(f, 2352*16+16, 2352*17+16)) {
+		cdrp->ok = 1;
+		cdrp->sector_total_len = 2352;
+		cdrp->sector_data_offset = 16;
+		cdrp->ext = "iso";
+		return;
+	}
+	if(cdsig_at2(f, 2352*16+24, 2352*17+24)) {
+		cdrp->ok = 1;
+		cdrp->sector_total_len = 2352;
+		cdrp->sector_data_offset = 24;
+		cdrp->ext = "iso";
+		return;
+	}
+	if(cdsig_at2(f, 2448*16+24, 2448*17+24)) {
+		cdrp->ok = 1;
+		cdrp->sector_total_len = 2448;
+		cdrp->sector_data_offset = 24;
+		cdrp->ext = "iso";
+		return;
+	}
+	if(syncbytes_at(f, 0)) {
+		if(syncbytes_at(f, 2352)) {
+			if(!dbuf_memcmp(f, 512+16, "PM", 2)) {
+				cdrp->ok = 1;
+				cdrp->sector_total_len = 2352;
+				cdrp->sector_data_offset = 16;
+				cdrp->ext = "apm";
+				return;
+			}
+		}
+	}
+	// TODO: More formats?
+}
+
+static void de_run_cd_raw(deark *c, de_module_params *mparams)
+{
+	struct cdraw_params cdrp;
+
+	cdraw_setdefaults(&cdrp);
+	cdraw_detect_params(c->infile, &cdrp);
+	if(!cdrp.ok) {
+		de_err(c, "Failed to detect raw CD format");
+		goto done;
+	}
+
+	de_warn(c, "The Raw CD module is experimental, and might extract files "
+		"incorrectly.");
+
+	de_dbg(c, "total bytes/sector: %"I64_FMT, cdrp.sector_total_len);
+	de_dbg(c, "data bytes/sector: %"I64_FMT, cdrp.sector_dlen);
+	de_dbg(c, "data offset: %"I64_FMT, cdrp.sector_data_offset);
+
+	do_cdraw_convert(c, &cdrp);
+
+done:
+	;
+}
+
+static int de_identify_cd_raw(deark *c)
+{
+	struct cdraw_params cdrp;
+
+	cdraw_setdefaults(&cdrp);
+	cdraw_detect_params(c->infile, &cdrp);
+	if(cdrp.ok) return 70;
+	return 0;
+}
+
+void de_module_cd_raw(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "cd_raw";
+	mi->desc = "Raw CD image";
+	mi->run_fn = de_run_cd_raw;
+	mi->identify_fn = de_identify_cd_raw;
+}
+
 struct nrg_ctx {
 	int ver;
 	i64 chunk_list_start;
@@ -1517,4 +1644,5 @@ void de_module_nrg(deark *c, struct deark_module_info *mi)
 	mi->desc = "NRG CD-ROM image";
 	mi->run_fn = de_run_nrg;
 	mi->identify_fn = de_identify_nrg;
+	mi->flags |= DE_MODFLAG_NONWORKING;
 }
