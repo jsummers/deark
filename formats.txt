@@ -717,6 +717,14 @@ Deark -- Information about supported formats
 
 * FLAC audio (module="flac")
 
+* Hex dump (module="hexdump")
+  Print a hex dump of the file.
+  - You must use "-m hexdump".
+
+* HLP (Windows Help) (module="hlp") (experimental)
+  - Extract SHG/MRB graphics
+  - Extract icon (rarely present)
+
 * ICC profile (module="iccprofile")
   - Debug info only.
 
@@ -738,10 +746,6 @@ Deark -- Information about supported formats
 * JPEG scan (module="jpegscan")
   - This module tries to find and extract embedded JPEG and JPEG-LS files from
     otherwise-unsupported formats. Use "-m jpegscan".
-
-* HLP (Windows Help) (module="hlp") (experimental)
-  - Extract SHG/MRB graphics
-  - Extract icon (rarely present)
 
 * Macintosh Resource Manager (module="macrsrc") (experimental/incomplete)
   This is the format generally used by Mac resource forks.

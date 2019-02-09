@@ -291,6 +291,7 @@ typedef void (*hexdump_printline_fn)(deark *c, struct hexdump_ctx *hctx);
 struct hexdump_ctx {
 	// same for each row:
 	const char *prefix;
+	const char *prefix_sep; // ":"
 	unsigned int flags;
 	hexdump_printline_fn printlinefn;
 	char offset_fmtstr[32];
@@ -354,8 +355,8 @@ static void do_hexdump_row(deark *c, struct hexdump_ctx *hctx)
 	de_snprintf(offset_formatted, sizeof(offset_formatted), hctx->offset_fmtstr,
 		(i64)hctx->row_offset);
 
-	de_snprintf(hctx->outbuf_sz, sizeof(hctx->outbuf_sz), "%s:%s: %s%s",
-		hctx->prefix, offset_formatted, linebuf, asciibuf);
+	de_snprintf(hctx->outbuf_sz, sizeof(hctx->outbuf_sz), "%s%s%s: %s%s",
+		hctx->prefix, hctx->prefix_sep, offset_formatted, linebuf, asciibuf);
 	hctx->printlinefn(c, hctx);
 }
 
@@ -370,6 +371,15 @@ static void de_hexdump_internal(deark *c, struct hexdump_ctx *hctx,
 	i64 len;
 	int ndigits_for_offset;
 	int was_truncated = 0;
+
+	if(hctx->flags & 0x2) {
+		// Don't print a prefix
+		hctx->prefix = "";
+		hctx->prefix_sep = "";
+	}
+	else {
+		hctx->prefix_sep = ":";
+	}
 
 	if(nbytes_avail > max_nbytes_to_dump) {
 		len = max_nbytes_to_dump;
@@ -410,7 +420,7 @@ static void de_hexdump_internal(deark *c, struct hexdump_ctx *hctx,
 	}
 	if(was_truncated) {
 		de_snprintf(hctx->outbuf_sz, sizeof(hctx->outbuf_sz),
-			"%s:%"I64_FMT": ...", hctx->prefix, len);
+			"%s%s%"I64_FMT": ...", hctx->prefix, hctx->prefix_sep, len);
 		hctx->printlinefn(c, hctx);
 	}
 }
@@ -420,9 +430,10 @@ static void hexdump_printline_dbg(deark *c, struct hexdump_ctx *hctx)
 	de_dbg(c, "%s", hctx->outbuf_sz);
 }
 
-// If prefix is NULL, a default will be used.
+// If prefix is NULL (and the no_prefix flag is not set), a default will be used.
 // flags:
 //  0x1 = Include an ASCII representation
+//  0x2 = No prefix
 void de_dbg_hexdump(deark *c, dbuf *f, i64 pos1,
 	i64 nbytes_avail, i64 max_nbytes_to_dump,
 	const char *prefix1, unsigned int flags)
@@ -433,6 +444,23 @@ void de_dbg_hexdump(deark *c, dbuf *f, i64 pos1,
 	hctx.prefix = (prefix1) ? prefix1 : "data";
 	hctx.printlinefn = hexdump_printline_dbg;
 
+	de_hexdump_internal(c, &hctx, f, pos1, nbytes_avail, max_nbytes_to_dump);
+}
+
+static void hexdump_printline_ext(deark *c, struct hexdump_ctx *hctx)
+{
+	de_printf(c, DE_MSGTYPE_MESSAGE, "%s\n", hctx->outbuf_sz);
+}
+
+// Print a hexdump in the style of the "hexdump" module.
+void de_hexdump2(deark *c, dbuf *f, i64 pos1, i64 nbytes_avail,
+	i64 max_nbytes_to_dump, unsigned int flags)
+{
+	struct hexdump_ctx hctx;
+
+	hctx.flags = flags | 0x2;
+	hctx.prefix = NULL;
+	hctx.printlinefn = hexdump_printline_ext;
 	de_hexdump_internal(c, &hctx, f, pos1, nbytes_avail, max_nbytes_to_dump);
 }
 

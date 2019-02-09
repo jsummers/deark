@@ -192,6 +192,25 @@ void de_module_crc(deark *c, struct deark_module_info *mi)
 }
 
 // **************************************************************************
+// hexdump
+// Prints a hex dump. Does not create any files.
+// **************************************************************************
+
+static void de_run_hexdump(deark *c, de_module_params *mparams)
+{
+	de_hexdump2(c, c->infile, 0, c->infile->len,
+		c->infile->len, 0x3);
+}
+
+void de_module_hexdump(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "hexdump";
+	mi->desc = "Print a hex dump";
+	mi->run_fn = de_run_hexdump;
+	mi->flags |= DE_MODFLAG_NOEXTRACT;
+}
+
+// **************************************************************************
 // zlib module
 //
 // This module is for decompressing zlib-compressed files.
