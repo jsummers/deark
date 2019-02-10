@@ -262,8 +262,6 @@ static void do_file(deark *c, lctx *d, struct dir_record *dr)
 	dpos = sector_dpos(d, dr->extent_blk);
 	dlen = dr->data_len;
 
-	if(dpos+dlen > c->infile->len) goto done;
-
 	fi = de_finfo_create(c);
 
 	final_name = ucstring_create(c);
@@ -298,6 +296,11 @@ static void do_file(deark *c, lctx *d, struct dir_record *dr)
 	}
 	else if(dr->rr_is_nonexecutable) {
 		fi->mode_flags |= DE_MODEFLAG_NONEXE;
+	}
+
+	if(dpos+dlen > c->infile->len) {
+		de_err(c, "%s goes beyond end of file", ucstring_getpsz(final_name));
+		goto done;
 	}
 
 	if(dr->is_specialfileformat) {
@@ -551,6 +554,18 @@ done:
 	de_dbg_indent(c, -1);
 }
 
+static void do_CDXA_dirdata(deark *c, lctx *d, struct dir_record *dr,
+	i64 pos1)
+{
+	unsigned int attribs;
+
+	de_dbg(c, "CD-ROM XA data at %"I64_FMT, pos1);
+	de_dbg_indent(c, 1);
+	attribs = (unsigned int)de_getu16be(pos1+4);
+	de_dbg(c, "attribs: 0x%04x", attribs);
+	de_dbg_indent(c, -1);
+}
+
 // Decode a contiguous set of SUSP entries.
 // Does not follow a "CE" continuation entry, but returns info about it.
 static void do_dir_rec_SUSP_set(deark *c, lctx *d, struct dir_record *dr,
@@ -687,14 +702,18 @@ static void do_dir_rec_system_use_area(deark *c, lctx *d, struct dir_record *dr,
 		// TODO: Detect & handle more non-SUSP formats here.
 		// - Apple AA/ProDOS
 		// - Apple BA
-		// - CD-ROM XA?
 
 		de_zeromem(buf, sizeof(buf));
 		de_read(buf, pos, de_min_int(sizeof(buf), non_SUSP_len));
 
-		if(non_SUSP_len>=14 && buf[0]=='A' && buf[1]=='A' && buf[2]==0x0e &&
+		if(d->vol->is_cdxa && non_SUSP_len>=14 && buf[6]=='X' && buf[7]=='A') {
+			do_CDXA_dirdata(c, d, dr, pos);
+			non_SUSP_handled = 1;
+		}
+		else if(non_SUSP_len>=14 && buf[0]=='A' && buf[1]=='A' && buf[2]==0x0e &&
 			buf[3]==0x02)
 		{
+			// TODO: Support XA + AA
 			do_Apple_AA_HFS(c, d, dr, pos, non_SUSP_len);
 			non_SUSP_handled = 1;
 		}
