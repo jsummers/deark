@@ -607,7 +607,7 @@ static int DecodeCopy (struct unzooctx *uz, struct entryctx *ze, u32 size )
 }
 
 // Forward declaration of a function in zoo-lzd.h
-static int lzd(struct unzooctx *uz, struct entryctx *ze);
+static int lzd(struct unzooctx *uz, dbuf *out_f, int maxcode);
 
 /****************************************************************************
 **
@@ -616,7 +616,7 @@ static int lzd(struct unzooctx *uz, struct entryctx *ze);
 */
 static int DecodeLzd (struct unzooctx *uz, struct entryctx *ze)
 {
-	return !lzd(uz, ze);
+	return !lzd(uz, ze->WritBinr, 13);
 }
 
 static void SetLookupTblLen(struct lzh_lookuptable *lookuptbl, size_t idx, u8 val)
