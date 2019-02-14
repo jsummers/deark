@@ -51,7 +51,10 @@ struct lzd_tabentry {
 };
 
 struct lzdctx {
+	int errorflag;
 	dbuf *in_f;
+	i64 in_startpos;
+	i64 in_len;
 	dbuf *out_f;
 	int maxbits;
 	struct lzd_tabentry *table;
@@ -120,12 +123,19 @@ static unsigned int lzd_zoowrite (struct unzooctx *uz, dbuf *file, const u8 *buf
 	return (unsigned int)count;
 }
 
-static int lzd_zooread(struct unzooctx *uz, dbuf *file, u8 *buffer, int count)
+static int lzd_zooread(struct unzooctx *uz, struct lzdctx *lc, u8 *buffer, int count)
 {
-	return (int)dbuf_standard_read(file, buffer, count, &uz->ReadArch_fpos);
+	i64 amt_avail;
+	i64 amt_to_read;
+
+	amt_to_read = (i64)count;
+	amt_avail = lc->in_startpos + lc->in_len - uz->ReadArch_fpos;
+	if(amt_to_read > amt_avail) amt_to_read = amt_avail;
+	if(amt_to_read < 0) amt_to_read = 0;
+	return (int)dbuf_standard_read(lc->in_f, buffer, amt_to_read, &uz->ReadArch_fpos);
 }
 
-static int lzd(struct unzooctx *uz, dbuf *out_f, int maxbits)
+static int lzd(struct unzooctx *uz, i64 in_len, dbuf *out_f, int maxbits)
 {
 	struct lzdctx *lc = NULL;
 	int retval = -1;
@@ -135,6 +145,8 @@ static int lzd(struct unzooctx *uz, dbuf *out_f, int maxbits)
 	lc->maxbits = maxbits;
 	lzd_assert(lc->maxbits >= 12 && lc->nbits <= LZD_MAXMAXBITS);
 	lc->in_f = uz->ReadArch;                 /* make it avail to other fns */
+	lc->in_startpos = uz->ReadArch_fpos;
+	lc->in_len = in_len;
 	lc->out_f = out_f;               /* ditto */
 	lc->nbits = 9;
 	lc->max_code = 512;
@@ -143,7 +155,7 @@ static int lzd(struct unzooctx *uz, dbuf *out_f, int maxbits)
 	lc->bit_offset = 0;
 	lc->output_offset = 0;
 
-	if (lzd_zooread (uz, lc->in_f, lc->in_buf_adr, LZD_INBUFSIZ) == -1) {
+	if (lzd_zooread (uz, lc, lc->in_buf_adr, LZD_INBUFSIZ) == -1) {
 		retval = LZD_IOERR;
 		goto done;
 	}
@@ -198,6 +210,7 @@ goteof: /* special case for CLEAR then Z_EOF, for 0-length files */
 	}
 	lzd_assert(lc->nbits >= 9 && lc->nbits <= lc->maxbits);
 	lzd_ad_dcode(uz, lc);
+	if(lc->errorflag) goto done;
 	lc->old_code = lc->in_code;
 
 	lzd_assert(lc->nbits >= 9 && lc->nbits <= lc->maxbits);
@@ -245,7 +258,7 @@ static unsigned int lzd_rd_dcode(struct unzooctx *uz, struct lzdctx *lc)
 		lzd_assert(a_idx + byte_offset <= LZD_OUT_BUF_SIZE);
 		de_memmove(&lc->in_buf_adr[a_idx], &lc->in_buf_adr[byte_offset], (size_t)space_left);
 		a_idx += space_left;
-		if (lzd_zooread (uz, lc->in_f, &lc->in_buf_adr[a_idx], (int)byte_offset) == -1)
+		if (lzd_zooread (uz, lc, &lc->in_buf_adr[a_idx], (int)byte_offset) == -1)
 			lzd_prterror (uz, 'f', "I/O error in lzd_rd_dcode.");
 		byte_offset = 0;
 	}
@@ -289,6 +302,11 @@ static void lzd_wr_dchar(struct unzooctx *uz, struct lzdctx *lc, u8 ch)
 static void lzd_ad_dcode(struct unzooctx *uz, struct lzdctx *lc)
 {
 	lzd_assert(lc->nbits >= 9 && lc->nbits <= lc->maxbits);
+	if(!(lc->free_code <= LZD_MAXMAX+1)) {
+		de_err(uz->c, "LZD decode error");
+		lc->errorflag = 1;
+		return;
+	}
 	lzd_assert(lc->free_code <= LZD_MAXMAX+1);
 	lc->table[lc->free_code].z_ch = lc->k;                /* save suffix char */
 	lc->table[lc->free_code].next = lc->old_code;         /* save prefix code */

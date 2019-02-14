@@ -89,10 +89,10 @@ static void do_packdir_file_compressed(deark *c, struct pdctx_struct *d,
 	uz->ReadArch = c->infile;
 	uz->ReadArch_fpos = pos;
 
-	lzd(uz, outf, d->lzw_maxbits);
+	(void)lzd(uz, md->cmpr_len, outf, d->lzw_maxbits);
 
 	if(outf->len != md->orig_len) {
-		de_err(c, "%s: Expected %"I64_FMT" uncompressed bytes, got %"I64_FMT,
+		de_err(c, "%s: Expected %"I64_FMT" decompressed bytes, got %"I64_FMT,
 			ucstring_getpsz_d(md->name), md->orig_len, outf->len);
 	}
 
@@ -108,6 +108,8 @@ static void do_packdir_extract_file(deark *c, struct pdctx_struct *d,
 	de_finfo *fi = NULL;
 	de_ucstring *fullfn = NULL;
 
+	de_dbg(c, "%"I64_FMT" bytes of %scompressed data at %"I64_FMT,
+		md->cmpr_len, (md->is_compressed?"":"un"), pos);
 	fi = de_finfo_create(c);
 
 	fullfn = ucstring_create(c);
@@ -155,6 +157,11 @@ static int do_packdir_object(deark *c, struct pdctx_struct *d, i64 pos1,
 	int need_dirname_pop = 0;
 
 	de_dbg_indent_save(c, &saved_indent_level);
+
+	if(level >= 32) {
+		goto done;
+	}
+
 	md = de_malloc(c, sizeof(struct pdctx_object));
 	de_dbg(c, "object at %"I64_FMT, pos1);
 	de_dbg_indent(c, 1);
