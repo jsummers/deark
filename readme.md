@@ -139,11 +139,9 @@ Command-line options:
     -opt char:charwidth=&lt;8|9>
        The VGA character cell width for character graphics, when the output
        format is "image".
-    -opt archive:subdirs
-       When using -zip, allow subdirectories (the "/" character) in member
-       filenames. Warning: This option is experimental. It is not as robust as
-       it could be, and it may produce a ZIP file that is unsafe to unzip with
-       some unzip software.
+    -opt archive:subdirs=0
+       When using -zip, disallow subdirectories (the "/" character) in member
+       filenames.
     -opt archive:timestamp=&lt;n>
     -opt archive:repro
        Make the -zip output reproducible, by not including modification times

@@ -61,13 +61,12 @@ appear on its whitelist.
 
 When Deark writes to a ZIP file (the "-zip" option), it doesn't have to worry
 about what to name the internal files. It can palm that problem off onto your
-unzip program. It is slightly more tolerant in this case, but not as tolerant
-as it could be.
+unzip program. It is more tolerant in this case.
 
-Currently, directory paths are never maintained as such. I.e., Deark never
-writes a file to anything but the current directory (unless the -o option
-contains a "/", or when using -k3). It doesn't even do this when writing to a
-ZIP file, unless you request it with "-opt archive:subdirs".
+Directory paths only maintained as such if you use -zip (and you don't use
+"-opt archive:subdirs=0"). Deark generally does write a file anywhere other
+than the current directory, though you can tell it to do so by using -o,
+-arcfn, or -k3.
 
 ## The "Is this one format or two?" problem ##
 
@@ -141,6 +140,13 @@ does not use this information, except when writing to a ZIP file.
 
 This is a simple yes/no flag. It does not distinguish between
 owner-executable and world-executable, for example.
+
+## Directory "files" and empty directories ##
+
+Some archive formats contain independent representations of subdirectores,
+allowing empty directories, and directory attributes, to be stored. Deark
+ignores this information, so it cannot extract empty directories. Some future
+version of Deark might maintain this information when writing to a ZIP file.
 
 ## Modification times ##
 
