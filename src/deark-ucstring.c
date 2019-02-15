@@ -477,13 +477,27 @@ void de_strarray_pop(struct de_strarray *sa)
 	sa->count--;
 }
 
+// Replace slashes in a string, starting at the given position.
+static void mp_squash_slashes(de_ucstring *s, i64 pos1)
+{
+	i64 i;
+
+	for(i=pos1; i<s->len; i++) {
+		if(s->str[i]=='/') {
+			s->str[i] = '_';
+		}
+	}
+}
+
 // Caller allocates 'path' to receive the path.
 void de_strarray_make_path(struct de_strarray *sa, de_ucstring *path, unsigned int flags)
 {
 	size_t i;
 
 	for(i=0; i<sa->count; i++) {
+		i64 oldlen = path->len;
 		ucstring_append_ucstring(path, sa->ss[i]);
+		mp_squash_slashes(path, oldlen);
 		ucstring_append_sz(path, "/", DE_ENCODING_LATIN1);
 	}
 }

@@ -968,6 +968,68 @@ static i32 de_char_to_valid_fn_char(deark *c, i32 ch)
 	return '_';
 }
 
+// Sanitize a filename that is either also going to be processed by
+// sanitize_filename2(), or is known to contain no slashes.
+static void sanitize_filename1(deark *c, de_ucstring *s)
+{
+	// Don't allow "."
+	if(s->len==1 && s->str[0]=='.') {
+		s->str[0] = '_';
+	}
+	// Don't allow ".."
+	if(s->len==2 && s->str[0]=='.' && s->str[1]=='.') {
+		s->str[0] = '_';
+	}
+}
+
+// Sanitize a filename that may contain slashes.
+// Just some basic sanitization, not expected to be perfect.
+// Note that this name will be written to a ZIP file, not used directly as a
+// filename.
+static void sanitize_filename2(deark *c, de_ucstring *s)
+{
+	i64 i;
+
+	// Don't allow an initial "/"
+	if(s->len>=1 && s->str[0]=='/') {
+		s->str[0] = '_';
+	}
+
+	// Don't allow consecutive slashes
+	for(i=0; i<s->len-1; i++) {
+		if(s->str[i]=='/' && s->str[i+1]=='/') {
+			s->str[i] = '_';
+		}
+	}
+
+	// Don't allow a component to be ".."
+	for(i=0; i<s->len-1; i++) {
+		if(s->str[i]=='.' && s->str[i+1]=='.') {
+			int test1 = 0; // Is ".." at the beginning of a component?
+			int test2 = 0; // Is ".." at the end of a component?
+			if(i==0 || s->str[i-1]=='/') {
+				test1 = 1;
+			}
+			if(i>=s->len-2 || s->str[i+2]=='/') {
+				test2 = 1;
+			}
+			if(test1 && test2) {
+				s->str[i] = '_';
+			}
+		}
+	}
+
+	// Don't allow name to end with "/."
+	if(s->len>=2 && s->str[s->len-2]=='/' && s->str[s->len-1]=='.') {
+		s->str[s->len-1] = '_';
+	}
+
+	// Don't allow name to end with "/"
+	if(s->len>=1 && s->str[s->len-1]=='/') {
+		s->str[s->len-1] = '_';
+	}
+}
+
 // Takes ownership of 's', and may modify it.
 // flags:
 //   DE_SNFLAG_FULLPATH = "/" characters in the name are path separators.
@@ -987,14 +1049,19 @@ static void de_finfo_set_name_internal(deark *c, de_finfo *fi, de_ucstring *s,
 
 	allow_slashes = (c->allow_subdirs && (flags&DE_SNFLAG_FULLPATH));
 	for(i=0; i<s->len; i++) {
-		if(s->str[i]=='/' && allow_slashes && i>0) {
+		if(s->str[i]=='/' && allow_slashes) {
 			continue;
 		}
 		s->str[i] = de_char_to_valid_fn_char(c, s->str[i]);
 	}
-	// TODO: More filename sanitizing
 
 	ucstring_strip_trailing_spaces(s);
+
+	sanitize_filename1(c, s);
+
+	if(allow_slashes) {
+		sanitize_filename2(c, s);
+	}
 
 	// Don't allow empty filenames.
 	if(s->len<1) {
