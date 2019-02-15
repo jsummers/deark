@@ -109,7 +109,7 @@ void dbuf_read(dbuf *f, u8 *buf, i64 pos, i64 len)
 	// If the data we need is all cached, get it from cache.
 	if(f->cache &&
 		pos >= f->cache_start_pos &&
-		bytes_to_read <= f->cache_bytes_used - (pos - f->cache_start_pos) )
+		pos + bytes_to_read <= f->cache_start_pos + f->cache_bytes_used)
 	{
 		de_memcpy(buf, &f->cache[pos - f->cache_start_pos], (size_t)bytes_to_read);
 		bytes_read = bytes_to_read;
@@ -816,16 +816,35 @@ void dbuf_read_to_ucstring_n(dbuf *f, i64 pos, i64 len, i64 max_len,
 	dbuf_read_to_ucstring(f, pos, len, s, conv_flags, encoding);
 }
 
+static int dbufmemcmp_cbfn(struct de_bufferedreadctx *brctx, const u8 *buf,
+	i64 buf_len)
+{
+	// Return 0 if there is a mismatch.
+	return !de_memcmp(buf,
+		&(((const u8*)brctx->userdata)[brctx->offset]),
+		(size_t)buf_len);
+}
+
 int dbuf_memcmp(dbuf *f, i64 pos, const void *s, size_t n)
 {
-	u8 *buf;
-	int ret;
+	u8 buf1[128];
 
-	buf = de_malloc(f->c, n);
-	dbuf_read(f, buf, pos, n);
-	ret = de_memcmp(buf, s, n);
-	de_free(f->c, buf);
-	return ret;
+	if(f->cache &&
+		pos >= f->cache_start_pos &&
+		pos + (i64)n <= f->cache_start_pos + f->cache_bytes_used)
+	{
+		// Fastest path: Compare directly to cache.
+		return de_memcmp(s, &f->cache[pos - f->cache_start_pos], n);
+	}
+
+	if(n<=sizeof(buf1)) {
+		// Use a stack buffer if small enough.
+		dbuf_read(f, buf1, pos, n);
+		return de_memcmp(buf1, s, n);
+	}
+
+	// Fallback method.
+	return !dbuf_buffered_read(f, pos, n, dbufmemcmp_cbfn, (void*)s);
 }
 
 int dbuf_create_file_from_slice(dbuf *inf, i64 pos, i64 data_size,
@@ -1647,7 +1666,7 @@ void dbuf_read_fourcc(dbuf *f, i64 pos, struct de_fourcc *fcc,
 //   - If it does not consume all bytes, it must set brctx->bytes_consumed.
 //   - It must return nonzero normally, 0 to abort.
 // We guarantee that:
-//   - brctx->eof_flag will be nonzero if an only if there is no data after this.
+//   - brctx->eof_flag will be nonzero if and only if there is no data after this.
 //   - At least 1 byte will be provided.
 //   - If eof_flag is not set, at least 1024 bytes will be provided.
 // Return value: 1 normally, 0 if the callback function ever returned 0.
@@ -1674,6 +1693,9 @@ int dbuf_buffered_read(dbuf *f, i64 pos1, i64 len,
 		int ret;
 
 		nbytes_avail_to_read = pos1+len-pos;
+		if(nbytes_avail_to_read<1 && num_unconsumed_bytes_in_buf<1) {
+			break;
+		}
 
 		// max bytes that will fit in buf:
 		bytestoread = BRBUFLEN-num_unconsumed_bytes_in_buf;
@@ -1704,7 +1726,8 @@ int dbuf_buffered_read(dbuf *f, i64 pos1, i64 len,
 			// TODO: For better efficiency, we could leave the buffer as it is until
 			// the unconsumed byte count drops below 1024. But that is only useful if
 			// some consumers consume only a small number of bytes.
-			de_memmove(buf, &buf[brctx.bytes_consumed], num_unconsumed_bytes_in_buf-brctx.bytes_consumed);
+			de_memmove(buf, &buf[brctx.bytes_consumed],
+				(size_t)(num_unconsumed_bytes_in_buf-brctx.bytes_consumed));
 			num_unconsumed_bytes_in_buf -= brctx.bytes_consumed;
 		}
 		else {
