@@ -21,6 +21,14 @@ typedef struct localctx_struct {
 	struct de_timestamp mod_time;
 } lctx;
 
+static const char *fork_name(int is_rsrc, int capitalize)
+{
+	if(is_rsrc) {
+		return capitalize?"Resource":"resource";
+	}
+	return capitalize?"Data":"data";
+}
+
 static void do_header(deark *c, lctx *d)
 {
 	u8 b;
@@ -171,9 +179,12 @@ static void do_extract_one_file(deark *c, lctx *d, i64 pos, i64 len,
 	de_finfo *fi = NULL;
 	const char *ext = NULL;
 
+	de_dbg(c, "%s fork at %"I64_FMT", len=%"I64_FMT, fork_name(is_rsrc, 0),
+		pos, len);
+
 	if(pos+len>c->infile->len) {
 		de_err(c, "%s fork at %"I64_FMT" goes beyond end of file.",
-			is_rsrc?"Resource":"Data", pos);
+			fork_name(is_rsrc, 1), pos);
 		if(pos+len>c->infile->len+1024) {
 			goto done;
 		}

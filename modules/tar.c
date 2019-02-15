@@ -16,6 +16,7 @@ struct member_data {
 	u8 linkflag;
 	i64 mode;
 	i64 filesize;
+	i64 checksum;
 	de_ucstring *filename;
 	de_finfo *fi;
 };
@@ -45,6 +46,7 @@ static int read_member(deark *c, lctx *d, i64 pos1, i64 *bytes_consumed_member)
 	u8 linkflag1;
 	de_ucstring *rawname = NULL;
 	i64 modtime_unix;
+	i64 n;
 	int is_dir, is_regular_file;
 	int ret;
 	i64 longpath_data_len = 0;
@@ -135,8 +137,16 @@ static int read_member(deark *c, lctx *d, i64 pos1, i64 *bytes_consumed_member)
 		md->fi->mode_flags |= DE_MODEFLAG_NONEXE;
 	}
 
-	pos += 8; // uid
-	pos += 8; // gid
+	ret = dbuf_read_ascii_number(c->infile, pos, 7, 8, &n);
+	if(ret) {
+		de_dbg(c, "uid: %"I64_FMT, n);
+	}
+	pos += 8;
+	ret = dbuf_read_ascii_number(c->infile, pos, 7, 8, &n);
+	if(ret) {
+		de_dbg(c, "gid: %"I64_FMT, n);
+	}
+	pos += 8;
 
 	ret = dbuf_read_ascii_number(c->infile, pos, 11, 8, &md->filesize);
 	if(!ret) goto done;
@@ -150,7 +160,11 @@ static int read_member(deark *c, lctx *d, i64 pos1, i64 *bytes_consumed_member)
 	de_dbg(c, "mtime: %d (%s)", (int)modtime_unix, timestamp_buf);
 	pos += 12;
 
-	pos += 8; // checksum
+	ret = dbuf_read_ascii_number(c->infile, pos, 7, 8, &md->checksum);
+	if(ret) {
+		de_dbg(c, "header checksum (reported): %"I64_FMT, md->checksum);
+	}
+	pos += 8;
 
 	md->linkflag = de_getbyte(pos);
 	de_dbg(c, "linkflag/typeflag: 0x%02x ('%c')", (unsigned int)md->linkflag,

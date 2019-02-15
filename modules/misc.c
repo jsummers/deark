@@ -12,6 +12,7 @@ DE_DECLARE_MODULE(de_module_copy);
 DE_DECLARE_MODULE(de_module_null);
 DE_DECLARE_MODULE(de_module_cp437);
 DE_DECLARE_MODULE(de_module_crc);
+DE_DECLARE_MODULE(de_module_hexdump);
 DE_DECLARE_MODULE(de_module_zlib);
 DE_DECLARE_MODULE(de_module_hpicn);
 DE_DECLARE_MODULE(de_module_xpuzzle);
