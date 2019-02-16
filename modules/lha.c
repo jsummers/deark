@@ -23,6 +23,7 @@ struct member_data {
 	int codepage_encoding; // Encoding based on the "codepage" ext hdr
 	i64 compressed_data_pos; // relative to beginning of file
 	i64 compressed_data_len;
+	de_ucstring *dirname;
 	de_ucstring *filename;
 };
 
@@ -97,6 +98,15 @@ static void read_filename(deark *c, lctx *d, struct member_data *md,
 	dbuf_read_to_ucstring(c->infile, pos, len,
 		md->filename, 0, DE_ENCODING_ASCII);
 	de_dbg(c, "filename: \"%s\"", ucstring_getpsz_d(md->filename));
+
+	if(md->hlev==0) {
+		i64 i;
+		for(i=0; i<md->filename->len; i++) {
+			if(md->filename->str[i]=='\\') {
+				md->filename->str[i]='/';
+			}
+		}
+	}
 }
 
 static void exthdr_common(deark *c, lctx *d, struct member_data *md,
@@ -122,11 +132,14 @@ static void exthdr_dirname(deark *c, lctx *d, struct member_data *md,
 	u8 id, const struct exthdr_type_info_struct *e,
 	i64 pos, i64 dlen)
 {
-	de_ucstring *s = NULL;
+	i64 i;
 
-	s = ucstring_create(c);
-	// TODO: The path delimiter in this field is 0xff. It's not clear what we
-	// ought to do about that, if anything.
+	if(md->dirname) {
+		ucstring_empty(md->dirname);
+	}
+	else {
+		md->dirname = ucstring_create(c);
+	}
 
 	if(dlen>=1) {
 		// This field is expected to end with 0xff. If that is the case, we'll
@@ -139,9 +152,20 @@ static void exthdr_dirname(deark *c, lctx *d, struct member_data *md,
 	}
 
 	dbuf_read_to_ucstring(c->infile, pos, dlen,
-		s, 0, DE_ENCODING_ASCII);
-	de_dbg(c, "%s: \"%s\"", e->name, ucstring_getpsz(s));
-	ucstring_destroy(s);
+		md->dirname, 0, DE_ENCODING_ASCII);
+	de_dbg(c, "%s: \"%s\"", e->name, ucstring_getpsz(md->dirname));
+
+	// Fixup dir name.
+	// (This is slightly hacky. It would be cleaner to handle the special
+	// 0xff bytes *before* converting to ucstring format.)
+	for(i=0; i<md->dirname->len; i++) {
+		if(md->dirname->str[i]==DE_CODEPOINT_BYTEFF) {
+			md->dirname->str[i] = '/';
+		}
+		else if(md->dirname->str[i]=='/') {
+			md->dirname->str[i] = '_';
+		}
+	}
 }
 
 static void exthdr_msdosattribs(deark *c, lctx *d, struct member_data *md,
@@ -265,6 +289,7 @@ static void destroy_member_data(deark *c, struct member_data *md)
 {
 	if(!md) return;
 	de_destroy_stringreaderdata(c, md->cmpr_method);
+	ucstring_destroy(md->dirname);
 	ucstring_destroy(md->filename);
 	de_free(c, md);
 }
@@ -424,8 +449,20 @@ static void do_extract_file(deark *c, lctx *d, struct member_data *md)
 
 	fi = de_finfo_create(c);
 	if(md->filename && md->filename->len>0) {
-		// TODO: Handle directory names
-		de_finfo_set_name_from_ucstring(c, fi, md->filename, 0);
+		if(md->hlev==0) {
+			de_finfo_set_name_from_ucstring(c, fi, md->filename, 0x1);
+		}
+		else {
+			de_ucstring *final_name = ucstring_create(c);
+
+			if(md->dirname) {
+				ucstring_append_ucstring(final_name, md->dirname);
+				ucstring_append_sz(final_name, "/", DE_ENCODING_LATIN1);
+			}
+			ucstring_append_ucstring(final_name, md->filename);
+			de_finfo_set_name_from_ucstring(c, fi, final_name, 0x1);
+			ucstring_destroy(final_name);
+		}
 		fi->original_filename_flag = 1;
 	}
 	outf = dbuf_create_output_file(c, NULL, fi, 0x0);
@@ -732,10 +769,17 @@ static int de_identify_lha(deark *c)
 	return 0;
 }
 
+
+static void de_help_lha(deark *c)
+{
+	de_msg(c, "-opt lha:extract : Extract when possible (uncompressed files only)");
+}
+
 void de_module_lha(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "lha";
 	mi->desc = "LHA/LZW/PMA archive";
 	mi->run_fn = de_run_lha;
 	mi->identify_fn = de_identify_lha;
+	mi->help_fn = de_help_lha;
 }
