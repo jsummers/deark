@@ -1484,9 +1484,6 @@ static void de_run_cd_raw(deark *c, de_module_params *mparams)
 		goto done;
 	}
 
-	de_warn(c, "The Raw CD module is experimental, and might extract files "
-		"incorrectly.");
-
 	de_dbg(c, "total bytes/sector: %"I64_FMT, cdrp.sector_total_len);
 	de_dbg(c, "data bytes/sector: %"I64_FMT, cdrp.sector_dlen);
 	de_dbg(c, "data offset: %"I64_FMT, cdrp.sector_data_offset);
@@ -1621,6 +1618,7 @@ static void do_nrg_chunks(deark *c, struct nrg_ctx *nrg)
 
 static void de_run_nrg(deark *c, de_module_params *mparams)
 {
+	struct cdraw_params cdrp;
 	struct nrg_ctx *nrg = NULL;
 
 	nrg = de_malloc(c, sizeof(struct nrg_ctx));
@@ -1644,6 +1642,26 @@ static void de_run_nrg(deark *c, de_module_params *mparams)
 
 	do_nrg_chunks(c, nrg);
 
+	// TODO: The NRG data we just read probably tells us the image format,
+	// somehow, so it seems wrong to autodetect it.
+
+	if(cdsig_at2(c->infile, 32768, 32768+2048)) {
+		de_dbg(c, "ISO 9660 image at %d", 0);
+		de_dbg_indent(c, 1);
+		de_run_module_by_id_on_slice(c, "iso9660", NULL, c->infile, 0, nrg->chunk_list_start);
+		de_dbg_indent(c, -1);
+		goto done;
+	}
+
+	cdraw_setdefaults(&cdrp);
+	cdraw_detect_params(c->infile, &cdrp);
+	if(cdrp.ok) {
+		de_dbg(c, "raw CD image at %d", 0);
+		de_dbg_indent(c, 1);
+		de_run_module_by_id_on_slice(c, "cd_raw", NULL, c->infile, 0, nrg->chunk_list_start);
+		de_dbg_indent(c, -1);
+	}
+
 done:
 	de_free(c, nrg);
 }
@@ -1652,7 +1670,7 @@ static int de_identify_nrg(deark *c)
 {
 	if(!de_input_file_has_ext(c, "nrg")) return 0;
 	if(detect_nrg_internal(c)>0) {
-		return 10;
+		return 85;
 	}
 	return 0;
 }
@@ -1663,5 +1681,4 @@ void de_module_nrg(deark *c, struct deark_module_info *mi)
 	mi->desc = "NRG CD-ROM image";
 	mi->run_fn = de_run_nrg;
 	mi->identify_fn = de_identify_nrg;
-	mi->flags |= DE_MODFLAG_NONWORKING;
 }

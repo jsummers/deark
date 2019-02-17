@@ -607,6 +607,10 @@ Deark -- Information about supported formats
 * Microsoft Installation Compression (module="mscompress")
   - "KWAJ" variant not supported
 
+* NRG (module="nrg") (experimental)
+  Nero CD image format.
+  - Extract or decode ISO 9660 data.
+
 * PackDir (module="packdir") (experimental)
 
 * Palm PDB/PQA (module="palmdb")
