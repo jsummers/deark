@@ -326,7 +326,7 @@ void de_run(deark *c)
 	}
 	de_dbg2(c, "file size: %" I64_FMT "", c->infile->len);
 
-	if(c->output_style==DE_OUTPUTSTYLE_ZIP) {
+	if(c->output_style==DE_OUTPUTSTYLE_ARCHIVE) {
 		c->allow_subdirs = 1;
 		if(de_get_ext_option_bool(c, "archive:subdirs", -1)==0) {
 			c->allow_subdirs = 0;
@@ -338,7 +338,7 @@ void de_run(deark *c)
 	// no member files.
 	// But if the zip "file" is going to stdout, we'll make sure we produce zip
 	// output, even if it has no member files.
-	if(c->output_style==DE_OUTPUTSTYLE_ZIP && c->zip_to_stdout) {
+	if(c->output_style==DE_OUTPUTSTYLE_ARCHIVE && c->archive_to_stdout) {
 		if(!de_zip_create_file(c)) {
 			goto done;
 		}
@@ -352,7 +352,7 @@ void de_run(deark *c)
 	}
 	else if(keepdirentries_opt == -1) {
 		// By default, we only keep dir entries if writing to an archive file.
-		c->keep_dir_entries = (c->output_style==DE_OUTPUTSTYLE_ZIP);
+		c->keep_dir_entries = (c->output_style==DE_OUTPUTSTYLE_ARCHIVE);
 	}
 
 	if(c->modcodes_req) {
@@ -515,7 +515,7 @@ void de_set_output_archive_filename(deark *c, const char *fn, unsigned int flags
 		c->output_archive_filename = de_strdup(c, fn);
 	}
 	if(flags&0x1) {
-		c->zip_to_stdout = 1;
+		c->archive_to_stdout = 1;
 	}
 }
 
@@ -568,9 +568,15 @@ void de_set_input_file_slice_size(deark *c, i64 n)
 	c->slice_size_req_valid = 1;
 }
 
-void de_set_output_style(deark *c, int x)
+void de_set_output_style(deark *c, int x, int subtype)
 {
 	c->output_style = x;
+	if(c->output_style==DE_OUTPUTSTYLE_ARCHIVE) {
+		c->archive_fmt = subtype;
+	}
+	else {
+		c->archive_fmt = 0;
+	}
 }
 
 void de_set_debug_level(deark *c, int x)

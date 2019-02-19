@@ -304,8 +304,9 @@ struct deark_struct {
 	int suppress_detection_by_filename;
 
 	int output_style; // DE_OUTPUTSTYLE_*
+	int archive_fmt; // If output_style==DE_OUTPUTSTYLE_ARCHIVE
 	int input_style; // DE_INPUTSTYLE_*
-	u8 zip_to_stdout;
+	u8 archive_to_stdout;
 	u8 allow_subdirs;
 
 	int extract_policy; // DE_EXTRACTPOLICY_*

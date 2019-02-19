@@ -79,7 +79,7 @@ void de_set_input_format(deark *c, const char *fmtname);
 void de_set_module_init_codes(deark *c, const char *codes);
 
 // See DE_OUTPUTSTYLE_ defs in deark.h
-void de_set_output_style(deark *c, int x);
+void de_set_output_style(deark *c, int x, int subtype);
 
 void de_set_base_output_filename(deark *c, const char *fn,
 	unsigned int flags);

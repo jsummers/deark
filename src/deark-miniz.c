@@ -431,7 +431,7 @@ static mz_bool my_mz_zip_writer_init_file(deark *c, struct zip_data_struct *zzz,
     return MZ_FALSE;
   }
 
-  if(c->zip_to_stdout) {
+  if(c->archive_to_stdout) {
     pFile_dbuf = dbuf_create_membuf(c, 4096, 0);
   }
   else{
@@ -479,7 +479,7 @@ int de_zip_create_file(deark *c)
 	zzz->pZip->m_pIO_opaque = (void*)zzz;
 	c->zip_data = (void*)zzz;
 
-	if(c->zip_to_stdout) {
+	if(c->archive_to_stdout) {
 		zzz->pFilename = "[stdout]";
 	}
 	else {
@@ -499,7 +499,7 @@ int de_zip_create_file(deark *c)
 		return 0;
 	}
 
-	if(!c->zip_to_stdout) {
+	if(!c->archive_to_stdout) {
 		de_msg(c, "Creating %s", zzz->pFilename);
 	}
 
@@ -678,7 +678,7 @@ void de_zip_close_file(deark *c)
 	mz_zip_writer_finalize_archive(zzz->pZip);
 	mz_zip_writer_end(zzz->pZip);
 
-	if(c->zip_to_stdout && zzz->outf && zzz->outf->btype==DBUF_TYPE_MEMBUF) {
+	if(c->archive_to_stdout && zzz->outf && zzz->outf->btype==DBUF_TYPE_MEMBUF) {
 		dbuf_copy_to_FILE(zzz->outf, 0, zzz->outf->len, stdout);
 	}
 

@@ -494,7 +494,7 @@ static void parse_cmdline(deark *c, struct cmdctx *cc, int argc, char **argv)
 				de_set_extract_level(c, 2);
 				break;
 			case DE_OPT_ZIP:
-				de_set_output_style(c, DE_OUTPUTSTYLE_ZIP);
+				de_set_output_style(c, DE_OUTPUTSTYLE_ARCHIVE, DE_ARCHIVEFMT_ZIP);
 				cc->to_zip = 1;
 				break;
 			case DE_OPT_TOSTDOUT:
@@ -639,7 +639,7 @@ static void parse_cmdline(deark *c, struct cmdctx *cc, int argc, char **argv)
 			de_set_output_archive_filename(c, NULL, 0x1);
 		}
 		else {
-			de_set_output_style(c, DE_OUTPUTSTYLE_STDOUT);
+			de_set_output_style(c, DE_OUTPUTSTYLE_STDOUT, 0);
 			de_set_max_output_files(c, 1);
 		}
 	}

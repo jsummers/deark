@@ -952,7 +952,7 @@ dbuf *dbuf_create_output_file(deark *c, const char *ext, de_finfo *fi,
 			DE_ENCODING_UTF8);
 	}
 
-	if(c->output_style==DE_OUTPUTSTYLE_ZIP && !c->base_output_filename &&
+	if(c->output_style==DE_OUTPUTSTYLE_ARCHIVE && !c->base_output_filename &&
 		fi && fi->original_filename_flag && name_from_finfo)
 	{
 		// TODO: This is a "temporary" hack to allow us to, when both reading from
@@ -1038,7 +1038,7 @@ dbuf *dbuf_create_output_file(deark *c, const char *ext, de_finfo *fi,
 		goto done;
 	}
 
-	if(c->output_style==DE_OUTPUTSTYLE_ZIP) {
+	if(c->output_style==DE_OUTPUTSTYLE_ARCHIVE) {
 		i64 initial_alloc;
 		de_msg(c, "Adding %s to ZIP file", f->name);
 		f->btype = DBUF_TYPE_MEMBUF;

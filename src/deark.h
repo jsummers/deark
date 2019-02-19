@@ -103,8 +103,9 @@ typedef void (*de_fatalerrorfn_type)(deark *c);
 
 // Used by de_set_output_style()
 #define DE_OUTPUTSTYLE_DIRECT 0
-#define DE_OUTPUTSTYLE_ZIP    1
+#define DE_OUTPUTSTYLE_ARCHIVE 1
 #define DE_OUTPUTSTYLE_STDOUT 2
+#define DE_ARCHIVEFMT_ZIP     1
 
 void de_puts(deark *c, unsigned int flags, const char *s);
 void de_printf(deark *c, unsigned int flags, const char *fmt, ...)
