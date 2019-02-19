@@ -252,7 +252,7 @@ static void fixup_filename(deark *c, lctx *d, de_ucstring *fname)
 
 // Handle (presumably extract) the contents of the file represented by the
 // given dir_record.
-static void do_file(deark *c, lctx *d, struct dir_record *dr)
+static void do_extract_file(deark *c, lctx *d, struct dir_record *dr)
 {
 	i64 dpos, dlen;
 	de_finfo *fi = NULL;
@@ -260,7 +260,12 @@ static void do_file(deark *c, lctx *d, struct dir_record *dr)
 
 	if(dr->extent_blk<1) goto done;
 	dpos = sector_dpos(d, dr->extent_blk);
-	dlen = dr->data_len;
+	if(dr->is_dir) {
+		dlen = 0;
+	}
+	else {
+		dlen = dr->data_len;
+	}
 
 	fi = de_finfo_create(c);
 
@@ -291,7 +296,10 @@ static void do_file(deark *c, lctx *d, struct dir_record *dr)
 		fi->mod_time = dr->recording_time;
 	}
 
-	if(dr->rr_is_executable) {
+	if(dr->is_dir) {
+		fi->is_directory = 1;
+	}
+	else if(dr->rr_is_executable) {
 		fi->mode_flags |= DE_MODEFLAG_EXE;
 	}
 	else if(dr->rr_is_nonexecutable) {
@@ -876,6 +884,7 @@ static int do_directory_record(deark *c, lctx *d, i64 pos1, struct dir_record *d
 	}
 
 	if(dr->is_dir && !dr->is_thisdir && !dr->is_parentdir) {
+		do_extract_file(c, d, dr);
 		if(ucstring_isnonempty(dr->rr_name)) {
 			de_strarray_push(d->curpath, dr->rr_name);
 		}
@@ -886,7 +895,7 @@ static int do_directory_record(deark *c, lctx *d, i64 pos1, struct dir_record *d
 		de_strarray_pop(d->curpath);
 	}
 	else if(!dr->is_dir) {
-		do_file(c, d, dr);
+		do_extract_file(c, d, dr);
 	}
 
 	retval = 1;

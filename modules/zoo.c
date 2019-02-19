@@ -113,8 +113,14 @@ static void do_packdir_extract_file(deark *c, struct pdctx_struct *d,
 	fi = de_finfo_create(c);
 
 	fullfn = ucstring_create(c);
-	de_strarray_make_path(d->curpath, fullfn, 0);
-	ucstring_append_ucstring(fullfn, md->name);
+	if(md->is_dir) {
+		fi->is_directory = 1;
+		de_strarray_make_path(d->curpath, fullfn, DE_MPFLAG_NOTRAILINGSLASH);
+	}
+	else {
+		de_strarray_make_path(d->curpath, fullfn, 0);
+		ucstring_append_ucstring(fullfn, md->name);
+	}
 	de_finfo_set_name_from_ucstring(c, fi, fullfn, DE_SNFLAG_FULLPATH);
 	fi->original_filename_flag = 1;
 
@@ -223,6 +229,11 @@ static int do_packdir_object(deark *c, struct pdctx_struct *d, i64 pos1,
 		if(level>0) {
 			de_strarray_push(d->curpath, md->name);
 			need_dirname_pop = 1;
+
+			md->is_compressed = 0;
+			md->orig_len = 0;
+			md->cmpr_len = 0;
+			do_packdir_extract_file(c, d, md, pos);
 		}
 
 		for(i=0; i<md->num_children; i++) {
