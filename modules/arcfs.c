@@ -133,9 +133,9 @@ static void our_writecallback(dbuf *f, const u8 *buf, i64 buf_len)
 	de_crcobj_addbuf(crco, buf, buf_len);
 }
 
-static void do_extract_member(deark *c, lctx *d, struct member_data *md)
+static void do_extract_member_file(deark *c, lctx *d, struct member_data *md,
+	de_finfo *fi)
 {
-	de_finfo *fi = NULL;
 	dbuf *outf = NULL;
 	u32 crc_calc;
 	int ret;
@@ -162,12 +162,7 @@ static void do_extract_member(deark *c, lctx *d, struct member_data *md)
 		goto done;
 	}
 
-	fi = de_finfo_create(c);
 	de_finfo_set_name_from_ucstring(c, fi, fullfn, DE_SNFLAG_FULLPATH);
-	fi->original_filename_flag = 1;
-	if(md->mod_time.is_valid) {
-		fi->mod_time = md->mod_time;
-	}
 
 	outf = dbuf_create_output_file(c, NULL, fi, 0x0);
 
@@ -214,8 +209,46 @@ static void do_extract_member(deark *c, lctx *d, struct member_data *md)
 
 done:
 	dbuf_close(outf);
-	de_finfo_destroy(c, fi);
 	ucstring_destroy(fullfn);
+}
+
+// "Extract" a directory entry
+static void do_extract_member_dir(deark *c, lctx *d, struct member_data *md,
+	de_finfo *fi)
+{
+	dbuf *outf = NULL;
+	de_ucstring *fullfn = NULL;
+
+	fullfn = ucstring_create(c);
+	// Note that md->fn has already been added to d->curpath
+	de_strarray_make_path(d->curpath, fullfn, DE_MPFLAG_NOTRAILINGSLASH);
+
+	fi->is_directory = 1;
+	de_finfo_set_name_from_ucstring(c, fi, fullfn, DE_SNFLAG_FULLPATH);
+
+	outf = dbuf_create_output_file(c, NULL, fi, 0x0);
+	dbuf_close(outf);
+	ucstring_destroy(fullfn);
+}
+
+static void do_extract_member(deark *c, lctx *d, struct member_data *md)
+{
+	de_finfo *fi = NULL;
+
+	fi = de_finfo_create(c);
+	fi->original_filename_flag = 1;
+	if(md->mod_time.is_valid) {
+		fi->mod_time = md->mod_time;
+	}
+
+	if(md->is_regular_file) {
+		do_extract_member_file(c, d, md, fi);
+	}
+	else if(md->is_dir) {
+		do_extract_member_dir(c, d, md, fi);
+	}
+
+	de_finfo_destroy(c, fi);
 }
 
 static const char *get_info_byte_name(u8 t)
@@ -328,9 +361,7 @@ static void do_member(deark *c, lctx *d, i64 idx, i64 pos1)
 
 	de_dbg_indent(c, -1);
 
-	if(md->is_regular_file) {
-		do_extract_member(c, d, md);
-	}
+	do_extract_member(c, d, md);
 
 done:
 	destroy_member_data(c, md);

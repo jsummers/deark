@@ -177,6 +177,7 @@ struct de_density_info {
 struct de_finfo_struct {
 	de_ucstring *file_name_internal; // Modules should avoid using this field directly.
 	u8 original_filename_flag; // Indicates if .file_name_internal is a real file name
+	u8 is_directory; // Does the "file" represent a subdirectory?
 
 #define DE_MODEFLAG_NONEXE 0x01 // Make the output file non-executable.
 #define DE_MODEFLAG_EXE    0x02 // Make the output file executable.
@@ -319,6 +320,7 @@ struct deark_struct {
 	int write_bom;
 	int write_density;
 	int ascii_html;
+	int keep_dir_entries;
 	int filenames_from_file;
 	int overwrite_mode;
 	int preserve_file_times;
@@ -915,6 +917,7 @@ struct de_strarray *de_strarray_create(deark *c);
 void de_strarray_destroy(struct de_strarray *sa);
 void de_strarray_push(struct de_strarray *sa, de_ucstring *s);
 void de_strarray_pop(struct de_strarray *sa);
+#define DE_MPFLAG_NOTRAILINGSLASH 0x1
 void de_strarray_make_path(struct de_strarray *sa, de_ucstring *path, unsigned int flags);
 
 void de_write_codepoint_to_html(deark *c, dbuf *f, i32 ch);

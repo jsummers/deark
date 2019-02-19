@@ -13,6 +13,7 @@ struct deark_file_attribs {
 	int modtime_valid;
 	i64 modtime_as_FILETIME; // valid if nonzero
 	u8 is_executable;
+	u8 is_directory;
 	u16 extra_data_central_size;
 	u16 extra_data_local_size;
 	u8 *extra_data_central;
@@ -538,6 +539,10 @@ void de_zip_add_file_to_archive(deark *c, dbuf *f)
 
 	de_dbg(c, "adding to zip: name=%s len=%"I64_FMT, f->name, f->len);
 
+	if(f->fi_copy && f->fi_copy->is_directory) {
+		dfa.is_directory = 1;
+	}
+
 	if(c->preserve_file_times && f->fi_copy && f->fi_copy->mod_time.is_valid) {
 		dfa.modtime = de_timestamp_to_unix_time(&f->fi_copy->mod_time);
 		if(f->fi_copy->mod_time.precision>DE_TSPREC_1SEC) {
@@ -625,8 +630,24 @@ void de_zip_add_file_to_archive(deark *c, dbuf *f)
 	dbuf_close(efcentral);
 	efcentral = NULL;
 
-	mz_zip_writer_add_mem(zzz->pZip, f->name, f->membuf_buf, (size_t)f->len,
-		MZ_BEST_COMPRESSION, &dfa);
+	if(dfa.is_directory) {
+		size_t nlen;
+		char *name2;
+
+		// Append a "/" to the name
+		nlen = de_strlen(f->name);
+		name2 = de_malloc(c, nlen+2);
+		de_snprintf(name2, nlen+2, "%s/", f->name);
+
+		mz_zip_writer_add_mem(zzz->pZip, name2, f->membuf_buf, 0,
+			MZ_NO_COMPRESSION, &dfa);
+
+		de_free(c, name2);
+	}
+	else {
+		mz_zip_writer_add_mem(zzz->pZip, f->name, f->membuf_buf, (size_t)f->len,
+			MZ_BEST_COMPRESSION, &dfa);
+	}
 
 	de_free(c, dfa.extra_data_local);
 	de_free(c, dfa.extra_data_central);

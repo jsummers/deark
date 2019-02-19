@@ -4273,14 +4273,14 @@ static mz_bool mz_zip_writer_create_central_dir_header(mz_zip_archive *pZip, mz_
   MZ_WRITE_LE16(pDst + MZ_ZIP_CDH_EXTRA_LEN_OFS, extra_size);
   MZ_WRITE_LE16(pDst + MZ_ZIP_CDH_COMMENT_LEN_OFS, comment_size);
 
-  // Hack for Deark: Set the Unix file attributes to "-rw-r--r--" or "-rwxr-xr-x".
-  // (0x81A4 = 100644 octal)
-  // (0x81ED = 100755 octal)
-  // Note that this will not work if the "file" is a subdirectory.
-  if(dfa && dfa->is_executable)
-	ext_attributes = 0x81ED0000U;
+  // Hack for Deark: Set the Unix (etc.) file attributes to "-rw-r--r--" or
+  // "-rwxr-xr-x", etc.
+  if(dfa && dfa->is_directory)
+    ext_attributes = (0040755U << 16) | 0x10;
+  else if(dfa && dfa->is_executable)
+    ext_attributes = (0100755U << 16);
   else
-	ext_attributes = 0x81a40000U;
+    ext_attributes = (0100644U << 16);
   MZ_WRITE_LE32(pDst + MZ_ZIP_CDH_EXTERNAL_ATTR_OFS, ext_attributes);
 
   MZ_WRITE_LE32(pDst + MZ_ZIP_CDH_LOCAL_HEADER_OFS, local_header_ofs);

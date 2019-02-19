@@ -207,6 +207,7 @@ void de_run(deark *c)
 	struct deark_module_info *module_to_use = NULL;
 	int module_was_autodetected = 0;
 	int moddisp;
+	int keepdirentries_opt;
 	de_module_params *mparams = NULL;
 	de_ucstring *friendly_infn = NULL;
 
@@ -341,6 +342,17 @@ void de_run(deark *c)
 		if(!de_zip_create_file(c)) {
 			goto done;
 		}
+	}
+
+	// TODO: Change the default from 0 to -1, when we're ready to turn on this
+	// feature.
+	keepdirentries_opt = de_get_ext_option_bool(c, "keepdirentries", 0);
+	if(keepdirentries_opt>0) {
+		c->keep_dir_entries = 1;
+	}
+	else if(keepdirentries_opt == -1) {
+		// By default, we only keep dir entries if writing to an archive file.
+		c->keep_dir_entries = (c->output_style==DE_OUTPUTSTYLE_ZIP);
 	}
 
 	if(c->modcodes_req) {

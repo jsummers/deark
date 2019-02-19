@@ -860,6 +860,7 @@ int dbuf_create_file_from_slice(dbuf *inf, i64 pos, i64 data_size,
 
 static void finfo_shallow_copy(deark *c, de_finfo *src, de_finfo *dst)
 {
+	dst->is_directory = src->is_directory;
 	dst->mode_flags = src->mode_flags;
 	dst->mod_time = src->mod_time;
 	dst->image_mod_time = src->image_mod_time;
@@ -903,7 +904,7 @@ dbuf *dbuf_create_output_file(deark *c, const char *ext, de_finfo *fi,
 	dbuf *f;
 	const char *basefn;
 	int file_index;
-	char fn_suffix[256];
+	u8 is_directory = 0;
 	char *name_from_finfo = NULL;
 	i64 name_from_finfo_len = 0;
 
@@ -913,6 +914,16 @@ dbuf *dbuf_create_output_file(deark *c, const char *ext, de_finfo *fi,
 
 	f = de_malloc(c, sizeof(dbuf));
 	f->is_managed = 1;
+
+	if(fi && fi->is_directory) {
+		is_directory = 1;
+	}
+
+	if(is_directory && !c->keep_dir_entries) {
+		de_dbg(c, "skipping 'directory' file");
+		f->btype = DBUF_TYPE_NULL;
+		goto done;
+	}
 
 	if(c->extract_policy==DE_EXTRACTPOLICY_MAINONLY) {
 		if(createflags&DE_CREATEFLAG_IS_AUX) {
@@ -941,21 +952,6 @@ dbuf *dbuf_create_output_file(deark *c, const char *ext, de_finfo *fi,
 			DE_ENCODING_UTF8);
 	}
 
-	if(ext && name_from_finfo) {
-		de_snprintf(fn_suffix, sizeof(fn_suffix), "%s.%s", name_from_finfo, ext);
-	}
-	else if(ext) {
-		de_strlcpy(fn_suffix, ext, sizeof(fn_suffix));
-	}
-	else if(name_from_finfo) {
-		de_strlcpy(fn_suffix, name_from_finfo, sizeof(fn_suffix));
-	}
-	else {
-		de_strlcpy(fn_suffix, "bin", sizeof(fn_suffix));
-	}
-
-	de_snprintf(nbuf, sizeof(nbuf), "%s.%03d.%s", basefn, file_index, fn_suffix);
-
 	if(c->output_style==DE_OUTPUTSTYLE_ZIP && !c->base_output_filename &&
 		fi && fi->original_filename_flag && name_from_finfo)
 	{
@@ -966,6 +962,30 @@ dbuf *dbuf_create_output_file(deark *c, const char *ext, de_finfo *fi,
 		// subdirectories.
 		// A major redesign of the file naming logic would be good.
 		de_strlcpy(nbuf, name_from_finfo, sizeof(nbuf));
+	}
+	else {
+		char fn_suffix[256];
+
+		if(ext && name_from_finfo) {
+			de_snprintf(fn_suffix, sizeof(fn_suffix), "%s.%s", name_from_finfo, ext);
+		}
+		else if(ext) {
+			de_strlcpy(fn_suffix, ext, sizeof(fn_suffix));
+		}
+		else if(is_directory && name_from_finfo) {
+			de_snprintf(fn_suffix, sizeof(fn_suffix), "%s.dir", name_from_finfo);
+		}
+		else if(name_from_finfo) {
+			de_strlcpy(fn_suffix, name_from_finfo, sizeof(fn_suffix));
+		}
+		else if(is_directory) {
+			de_strlcpy(fn_suffix, "dir", sizeof(fn_suffix));
+		}
+		else {
+			de_strlcpy(fn_suffix, "bin", sizeof(fn_suffix));
+		}
+
+		de_snprintf(nbuf, sizeof(nbuf), "%s.%03d.%s", basefn, file_index, fn_suffix);
 	}
 
 	f->name = de_strdup(c, nbuf);
@@ -1019,10 +1039,19 @@ dbuf *dbuf_create_output_file(deark *c, const char *ext, de_finfo *fi,
 	}
 
 	if(c->output_style==DE_OUTPUTSTYLE_ZIP) {
+		i64 initial_alloc;
 		de_msg(c, "Adding %s to ZIP file", f->name);
 		f->btype = DBUF_TYPE_MEMBUF;
-		f->membuf_buf = de_malloc(c, 65536);
-		f->membuf_alloc = 65536;
+		if(is_directory) {
+			// A directory entry is not expected to have any data associated
+			// with it (besides the files it contains).
+			initial_alloc = 16;
+		}
+		else {
+			initial_alloc = 65536;
+		}
+		f->membuf_buf = de_malloc(c, initial_alloc);
+		f->membuf_alloc = initial_alloc;
 		f->write_memfile_to_zip_archive = 1;
 	}
 	else if(c->output_style==DE_OUTPUTSTYLE_STDOUT) {
