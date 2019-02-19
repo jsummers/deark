@@ -729,12 +729,6 @@ static void do_extract_file(deark *c, lctx *d, struct member_data *md)
 		goto done;
 	}
 
-	if(md->is_dir && md->uncmpr_size==0) {
-		de_msg(c, "Note: \"%s\" is a directory. Ignoring.",
-			ucstring_getpsz_d(ldd->fname));
-		goto done;
-	}
-
 	if(md->file_data_pos+md->cmpr_size > c->infile->len) {
 		de_err(c, "Member data goes beyond end of file");
 		goto done;
@@ -748,7 +742,9 @@ static void do_extract_file(deark *c, lctx *d, struct member_data *md)
 	fi = de_finfo_create(c);
 
 	if(ldd->fname) {
-		de_finfo_set_name_from_ucstring(c, fi, ldd->fname, DE_SNFLAG_FULLPATH);
+		unsigned int snflags = DE_SNFLAG_FULLPATH;
+		if(md->is_dir) snflags |= DE_SNFLAG_STRIPTRAILINGSLASH;
+		de_finfo_set_name_from_ucstring(c, fi, ldd->fname, snflags);
 		fi->original_filename_flag = 1;
 	}
 
@@ -756,7 +752,10 @@ static void do_extract_file(deark *c, lctx *d, struct member_data *md)
 		fi->mod_time = md->mod_time;
 	}
 
-	if(md->is_executable) {
+	if(md->is_dir) {
+		fi->is_directory = 1;
+	}
+	else if(md->is_executable) {
 		fi->mode_flags |= DE_MODEFLAG_EXE;
 	}
 	else if(md->is_nonexecutable) {
@@ -764,6 +763,10 @@ static void do_extract_file(deark *c, lctx *d, struct member_data *md)
 	}
 
 	outf = dbuf_create_output_file(c, NULL, fi, 0);
+	if(md->is_dir) {
+		goto done;
+	}
+
 	outf->writecallback_fn = our_writecallback;
 	outf->userdata = (void*)md;
 

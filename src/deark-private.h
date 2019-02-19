@@ -866,6 +866,7 @@ de_finfo *de_finfo_create(deark *c);
 void de_finfo_destroy(deark *c, de_finfo *fi);
 
 #define DE_SNFLAG_FULLPATH 0x01
+#define DE_SNFLAG_STRIPTRAILINGSLASH 0x2
 void de_finfo_set_name_from_ucstring(deark *c, de_finfo *fi, de_ucstring *s, unsigned int flags);
 void de_finfo_set_name_from_sz(deark *c, de_finfo *fi, const char *name1, unsigned int flags,
 	int encoding);

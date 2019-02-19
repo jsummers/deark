@@ -1033,6 +1033,7 @@ static void sanitize_filename2(deark *c, de_ucstring *s)
 // Takes ownership of 's', and may modify it.
 // flags:
 //   DE_SNFLAG_FULLPATH = "/" characters in the name are path separators.
+//   DE_SNFLAG_STRIPTRAILINGSLASH
 static void de_finfo_set_name_internal(deark *c, de_finfo *fi, de_ucstring *s,
 	unsigned int flags)
 {
@@ -1046,6 +1047,10 @@ static void de_finfo_set_name_internal(deark *c, de_finfo *fi, de_ucstring *s,
 	if(!s) return;
 
 	fi->file_name_internal = s;
+
+	if((flags&DE_SNFLAG_STRIPTRAILINGSLASH) && s->len>0 && s->str[s->len-1]=='/') {
+		ucstring_truncate(s, s->len-1);
+	}
 
 	allow_slashes = (c->allow_subdirs && (flags&DE_SNFLAG_FULLPATH));
 	for(i=0; i<s->len; i++) {

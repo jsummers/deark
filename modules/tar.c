@@ -48,6 +48,7 @@ static int read_member(deark *c, lctx *d, i64 pos1, i64 *bytes_consumed_member)
 	i64 modtime_unix;
 	i64 n;
 	int is_dir, is_regular_file;
+	unsigned int snflags;
 	int ret;
 	i64 longpath_data_len = 0;
 	i64 pos = pos1;
@@ -208,13 +209,10 @@ static int read_member(deark *c, lctx *d, i64 pos1, i64 *bytes_consumed_member)
 	}
 
 	if(is_dir) {
-		de_dbg(c, "[directory, not extracting]");
-		md->filesize = 0;
-		retval = 1;
-		goto done;
+		md->filesize = 0; // ??
 	}
 
-	if(!is_regular_file) {
+	if(!is_regular_file && !is_dir) {
 		de_dbg(c, "[not a regular file, not extracting]");
 		md->filesize = 0; // FIXME: There may be cases where this is wrong.
 		retval = 1;
@@ -224,7 +222,12 @@ static int read_member(deark *c, lctx *d, i64 pos1, i64 *bytes_consumed_member)
 	de_dbg(c, "file data at %d", (int)pos);
 	de_dbg_indent(c, 1);
 
-	de_finfo_set_name_from_ucstring(c, md->fi, md->filename, DE_SNFLAG_FULLPATH);
+	snflags = DE_SNFLAG_FULLPATH;
+	if(is_dir) {
+		md->fi->is_directory = 1;
+		snflags |= DE_SNFLAG_STRIPTRAILINGSLASH;
+	}
+	de_finfo_set_name_from_ucstring(c, md->fi, md->filename, snflags);
 	md->fi->original_filename_flag = 1;
 
 	if(pos + md->filesize > c->infile->len) goto done;
