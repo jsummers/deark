@@ -144,9 +144,14 @@ owner-executable and world-executable, for example.
 ## Directory "files" and empty directories ##
 
 Some archive formats contain independent representations of subdirectores,
-allowing empty directories, and directory attributes, to be stored. Deark
-ignores this information, so it cannot extract empty directories. Some future
-version of Deark might maintain this information when writing to a ZIP file.
+allowing empty directories, and directory attributes, to be stored. By default,
+Deark retains these entries when writing to a ZIP file, and otherwise ignores
+them. This behavior can be changed with "-opt keepdirentries". Even so, Deark
+never creates directories directly. Instead, it may create marker files with a
+".dir" extension.
+
+Note that this means the -zip option can affect the numbering of output files
+used by, e.g., the -get option.
 
 ## Modification times ##
 

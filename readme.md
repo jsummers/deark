@@ -150,6 +150,9 @@ Command-line options:
        times will be set to some arbitrary value. If you use "timestamp", the
        times will be set to the value you supply, in Unix time format (the
        number of seconds since the beginning of 1970).
+    -opt keepdirentries=&lt;0|1>
+       Select whether an archive file's directory entries are ignored (0), or
+       "extracted" (1). For details, see the technical.md file.
     -opt extrlist:append
        Affects the -extrlist option.
     -opt extractexif[=0]

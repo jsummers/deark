@@ -344,9 +344,7 @@ void de_run(deark *c)
 		}
 	}
 
-	// TODO: Change the default from 0 to -1, when we're ready to turn on this
-	// feature.
-	keepdirentries_opt = de_get_ext_option_bool(c, "keepdirentries", 0);
+	keepdirentries_opt = de_get_ext_option_bool(c, "keepdirentries", -1);
 	if(keepdirentries_opt>0) {
 		c->keep_dir_entries = 1;
 	}

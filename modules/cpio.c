@@ -272,9 +272,6 @@ static void read_member_name(deark *c, lctx *d, struct member_data *md)
 		namesize_adjusted, namesize_adjusted, 0, d->input_encoding);
 
 	de_dbg(c, "name: \"%s\"", ucstring_getpsz(md->filename_srd->str));
-
-	de_finfo_set_name_from_ucstring(c, md->fi, md->filename_srd->str, DE_SNFLAG_FULLPATH);
-	md->fi->original_filename_flag = 1;
 }
 
 static void our_writecallback(dbuf *f, const u8 *buf, i64 buf_len)
@@ -294,6 +291,11 @@ static int read_member(deark *c, lctx *d, i64 pos1,
 	int retval = 0;
 	struct member_data *md = NULL;
 	i64 pos = pos1;
+	unsigned int unix_filetype;
+	enum { CPIOFT_SPECIAL=0, CPIOFT_REGULAR,
+		CPIOFT_DIR, CPIOFT_TRAILER } cpio_filetype;
+	dbuf *outf = NULL;
+	unsigned int snflags;
 	int saved_indent_level;
 
 	de_dbg_indent_save(c, &saved_indent_level);
@@ -337,6 +339,7 @@ static int read_member(deark *c, lctx *d, i64 pos1,
 	de_dbg(c, "member name at %d", (int)(md->startpos + md->fixed_header_size));
 	de_dbg_indent(c, 1);
 	read_member_name(c, d, md);
+
 	pos = md->startpos + md->fixed_header_size + md->namesize_padded;
 	de_dbg_indent(c, -1);
 
@@ -347,59 +350,73 @@ static int read_member(deark *c, lctx *d, i64 pos1,
 		goto done;
 	}
 
-	if((md->mode & 0111) != 0) {
+	retval = 1;
+
+	unix_filetype = (unsigned int)md->mode & 0170000;
+
+	if(unix_filetype==040000) {
+		cpio_filetype = CPIOFT_DIR;
+	}
+	else if(unix_filetype==0100000) {
+		cpio_filetype = CPIOFT_REGULAR;
+	}
+	else {
+		cpio_filetype = CPIOFT_SPECIAL;
+		if(md->mode==0 && md->namesize==11) {
+			if(!de_strcmp(md->filename_srd->sz, "TRAILER!!!")) {
+				cpio_filetype = CPIOFT_TRAILER;
+				de_dbg(c, "[Trailer. Not extracting.]");
+				d->trailer_found = 1;
+			}
+		}
+
+		if(cpio_filetype==CPIOFT_SPECIAL) {
+			de_dbg(c, "[Not a regular file. Skipping.]");
+		}
+	}
+
+	if(cpio_filetype!=CPIOFT_REGULAR && cpio_filetype!=CPIOFT_DIR) {
+		goto done; // Not extracting this member
+	}
+
+	snflags = DE_SNFLAG_FULLPATH;
+	if(cpio_filetype==CPIOFT_DIR) {
+		md->fi->is_directory = 1;
+		// Directory members might or might not end in a slash.
+		snflags |= DE_SNFLAG_STRIPTRAILINGSLASH;
+	}
+	else if((md->mode & 0111) != 0) {
 		md->fi->mode_flags |= DE_MODEFLAG_EXE;
 	}
 	else {
 		md->fi->mode_flags |= DE_MODEFLAG_NONEXE;
 	}
 
-	if((md->mode & 0170000) != 0100000) {
-		int msgflag = 0;
+	de_finfo_set_name_from_ucstring(c, md->fi, md->filename_srd->str, snflags);
+	md->fi->original_filename_flag = 1;
 
-		if(md->mode==0 && md->namesize==11) {
-			if(!de_strcmp(md->filename_srd->sz, "TRAILER!!!")) {
-				de_dbg(c, "[Trailer. Not extracting.]");
-				msgflag = 1;
-				d->trailer_found = 1;
-			}
-		}
+	outf = dbuf_create_output_file(c, NULL, md->fi, 0);
 
-		if(!msgflag) {
-			de_dbg(c, "[Not a regular file. Skipping.]");
-		}
-	}
-	else {
-		dbuf *outf;
-
-		outf = dbuf_create_output_file(c, NULL, md->fi, 0);
-
-		if(md->subfmt==SUBFMT_ASCII_NEWCRC) {
-			// Use a callback function to calculate the checksum.
-			outf->writecallback_fn = our_writecallback;
-			outf->userdata = (void*)md;
-			md->checksum_calculated = 0;
-		}
-
-		dbuf_copy(c->infile, pos, md->filesize, outf);
-		dbuf_close(outf);
-
-		if(md->subfmt==SUBFMT_ASCII_NEWCRC) {
-			de_dbg(c, "checksum (calculated): %u", (unsigned int)md->checksum_calculated);
-			if(md->checksum_calculated != md->checksum_reported) {
-				de_warn(c, "Checksum failed for file %s: Expected %u, got %u",
-					ucstring_getpsz_d(md->filename_srd->str),
-					(unsigned int)md->checksum_reported, (unsigned int)md->checksum_calculated);
-			}
-		}
+	if(md->subfmt==SUBFMT_ASCII_NEWCRC) {
+		// Use a callback function to calculate the checksum.
+		outf->writecallback_fn = our_writecallback;
+		outf->userdata = (void*)md;
+		md->checksum_calculated = 0;
 	}
 
-	de_dbg_indent(c, -1);
+	dbuf_copy(c->infile, pos, md->filesize, outf);
 
-	retval = 1;
+	if(md->subfmt==SUBFMT_ASCII_NEWCRC) {
+		de_dbg(c, "checksum (calculated): %u", (unsigned int)md->checksum_calculated);
+		if(md->checksum_calculated != md->checksum_reported) {
+			de_warn(c, "Checksum failed for file %s: Expected %u, got %u",
+				ucstring_getpsz_d(md->filename_srd->str),
+				(unsigned int)md->checksum_reported, (unsigned int)md->checksum_calculated);
+		}
+	}
 
 done:
-	de_dbg_indent(c, -1);
+	dbuf_close(outf);
 	if(retval && md) {
 		*bytes_consumed_member = md->fixed_header_size + md->namesize_padded + md->filesize_padded;
 	}
