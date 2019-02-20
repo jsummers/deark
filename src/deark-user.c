@@ -353,6 +353,10 @@ void de_run(deark *c)
 		c->keep_dir_entries = (c->output_style==DE_OUTPUTSTYLE_ARCHIVE);
 	}
 
+	if(de_get_ext_option_bool(c, "list:fileid", 0)) {
+		c->list_mode_include_file_id = 1;
+	}
+
 	if(c->modcodes_req) {
 		if(!mparams)
 			mparams = de_malloc(c, sizeof(de_module_params));
@@ -599,7 +603,7 @@ void de_set_extract_level(deark *c, int x)
 
 void de_set_listmode(deark *c, int x)
 {
-	c->list_mode = x;
+	c->list_mode = x?1:0;
 }
 
 void de_set_want_modhelp(deark *c, int x)

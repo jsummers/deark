@@ -98,6 +98,7 @@ Command-line options:
 -get &lt;n>
    Extract only the file identifed by &lt;n>. The first file is 0.
    Equivalent to "-firstfile &lt;n> -maxfiles 1".
+   To unconditionally show the file identifiers, use "-l -opt list:fileid".
 -maxdim &lt;n>
    Allow image dimensions up to &lt;n> pixels.
    By default, Deark refuses to generate images with a dimension larger than
@@ -153,6 +154,9 @@ Command-line options:
     -opt keepdirentries=&lt;0|1>
        Select whether an archive file's directory entries are ignored (0), or
        "extracted" (1). For details, see the technical.md file.
+    -opt list:fileid=&lt;0|1>
+       Select whether the -l (list) option also prints the numeric file
+       identifiers.
     -opt extrlist:append
        Affects the -extrlist option.
     -opt extractexif[=0]

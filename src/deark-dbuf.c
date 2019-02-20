@@ -1034,7 +1034,12 @@ dbuf *dbuf_create_output_file(deark *c, const char *ext, de_finfo *fi,
 
 	if(c->list_mode) {
 		f->btype = DBUF_TYPE_NULL;
-		de_msg(c, "%s", f->name);
+		if(c->list_mode_include_file_id) {
+			de_msg(c, "%d:%s", file_index, f->name);
+		}
+		else {
+			de_msg(c, "%s", f->name);
+		}
 		goto done;
 	}
 
