@@ -441,7 +441,7 @@ static void parse_cmdline(deark *c, struct cmdctx *cc, int argc, char **argv)
 				de_set_listmode(c, 1);
 				break;
 			case DE_OPT_NOINFO:
-				de_set_messages(c, 0);
+				de_set_infomessages(c, 0);
 				break;
 			case DE_OPT_NOWARN:
 				de_set_warnings(c, 0);
@@ -468,7 +468,7 @@ static void parse_cmdline(deark *c, struct cmdctx *cc, int argc, char **argv)
 				de_set_preserve_file_times(c, 0);
 				break;
 			case DE_OPT_Q:
-				de_set_messages(c, 0);
+				de_set_infomessages(c, 0);
 				de_set_warnings(c, 0);
 				break;
 			case DE_OPT_VERSION:

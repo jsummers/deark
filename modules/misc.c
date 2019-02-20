@@ -171,11 +171,11 @@ static void de_run_crc(deark *c, de_module_params *mparams)
 
 	dbuf_buffered_read(c->infile, 0, c->infile->len, crc_cbfn, (void*)&crcctx);
 
-	de_printf(c, DE_MSGTYPE_MESSAGE, "CRC-32-IEEE: 0x%08x\n",
+	de_msg(c, "CRC-32-IEEE: 0x%08x",
 		(unsigned int)de_crcobj_getval(crcctx.crco_32ieee));
-	de_printf(c, DE_MSGTYPE_MESSAGE, "CRC-16-IBM/ARC: 0x%04x\n",
+	de_msg(c, "CRC-16-IBM/ARC: 0x%04x",
 		(unsigned int)de_crcobj_getval(crcctx.crco_16arc));
-	de_printf(c, DE_MSGTYPE_MESSAGE, "CRC-16-CCITT: 0x%04x\n",
+	de_msg(c, "CRC-16-CCITT: 0x%04x",
 		(unsigned int)de_crcobj_getval(crcctx.crco_16ccitt));
 
 	de_crcobj_destroy(crcctx.crco_32ieee);

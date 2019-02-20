@@ -1309,7 +1309,7 @@ static void de_run_iso9660(deark *c, de_module_params *mparams)
 	d->secsize = 2048;
 
 	if(!dbuf_memcmp(c->infile, 512, "PM\x00\x00", 4)) {
-		de_msg(c, "Note: This file includes an Apple Partition Map. "
+		de_info(c, "Note: This file includes an Apple Partition Map. "
 			"Use \"-m apm\" to read it.");
 	}
 

@@ -1244,7 +1244,7 @@ static void de_run_exe(deark *c, de_module_params *mparams)
 	}
 
 	if(de_fmtutil_find_zip_eocd(c, c->infile, &eocdpos)) {
-		de_msg(c, "Note: This might be a self-extracting ZIP file (try \"-m zip\").");
+		de_info(c, "Note: This might be a self-extracting ZIP file (try \"-m zip\").");
 	}
 	de_free(c, d);
 }

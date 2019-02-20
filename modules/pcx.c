@@ -278,7 +278,7 @@ static void do_palette_stuff(deark *c, lctx *d)
 
 	if(d->version==3 && d->ncolors>=8 && d->ncolors<=16) {
 		if(!d->default_pal_set) {
-			de_msg(c, "Note: This paletted PCX file does not contain a palette. "
+			de_info(c, "Note: This paletted PCX file does not contain a palette. "
 				"If it is not decoded correctly, try \"-opt pcx:pal=1\".");
 		}
 		de_dbg(c, "using a default EGA palette");

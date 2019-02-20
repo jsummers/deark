@@ -358,14 +358,14 @@ static void do_mp3_frame(deark *c, mp3ctx *d, i64 pos1, i64 len)
 	if((x & 0xffe00000U) != 0xffe00000U) {
 		int ret;
 		i64 num_bytes_to_skip = 0;
-		de_msg(c, "Note: MP3/MPA frame header not found at %"I64_FMT". Scanning for frame header.", pos);
+		de_info(c, "Note: MP3/MPA frame header not found at %"I64_FMT". Scanning for frame header.", pos);
 		ret = find_mp3_frame_header(c, d, pos1, len, &num_bytes_to_skip);
 		if(!ret) {
 			de_err(c, "MP3/MPA frame header not found");
 			goto done;
 		}
 		pos += num_bytes_to_skip;
-		de_msg(c, "Note: Possible MP3 frame header found at %"I64_FMT".", pos);
+		de_info(c, "Note: Possible MP3 frame header found at %"I64_FMT".", pos);
 		x = (u32)de_getu32be(pos);
 	}
 

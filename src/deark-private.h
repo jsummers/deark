@@ -316,7 +316,7 @@ struct deark_struct {
 	int first_output_file; // first file = 0
 	int max_output_files; // -1 = no limit
 	i64 max_image_dimension;
-	int show_messages;
+	int show_infomessages;
 	int show_warnings;
 	int dbg_indent_amount;
 	int write_bom;
@@ -410,6 +410,8 @@ void de_dbg(deark *c, const char *fmt, ...)
 void de_dbg2(deark *c, const char *fmt, ...)
   de_gnuc_attribute ((format (printf, 2, 3)));
 void de_dbg3(deark *c, const char *fmt, ...)
+  de_gnuc_attribute ((format (printf, 2, 3)));
+void de_info(deark *c, const char *fmt, ...)
   de_gnuc_attribute ((format (printf, 2, 3)));
 void de_msg(deark *c, const char *fmt, ...)
   de_gnuc_attribute ((format (printf, 2, 3)));

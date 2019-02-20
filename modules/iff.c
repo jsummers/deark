@@ -205,7 +205,7 @@ static void de_run_midi(deark *c, de_module_params *mparams)
 	lctx *d = NULL;
 	struct de_iffctx *ictx = NULL;
 
-	de_msg(c, "Note: MIDI files can be parsed, but no files can be extracted from them.");
+	de_info(c, "Note: MIDI files can be parsed, but no files can be extracted from them.");
 	d = de_malloc(c, sizeof(lctx));
 
 	ictx = de_malloc(c, sizeof(struct de_iffctx));

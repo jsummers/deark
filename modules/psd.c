@@ -1690,7 +1690,7 @@ static void hrsrc_thumbnail(deark *c, lctx *d, zztype *zz, const struct rsrc_inf
 	if(ri->id==0x0409) {
 		ext = "psdthumb_rbswap.jpg";
 		if(c->extract_policy!=DE_EXTRACTPOLICY_MAINONLY) {
-			de_msg(c, "Note: This Photoshop thumbnail uses nonstandard colors, "
+			de_info(c, "Note: This Photoshop thumbnail uses nonstandard colors, "
 				"and may not look right.");
 		}
 	}

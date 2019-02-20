@@ -395,7 +395,7 @@ static void de_run_cab(deark *c, de_module_params *mparams)
 	lctx *d = NULL;
 
 	d = de_malloc(c, sizeof(lctx));
-	de_msg(c, "Note: MS Cabinet files can be parsed, but no files can be extracted from them.");
+	de_info(c, "Note: MS Cabinet files can be parsed, but no files can be extracted from them.");
 
 	if(!do_CFHEADER(c, d)) goto done;
 	do_CFFOLDERs(c, d);

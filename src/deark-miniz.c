@@ -500,7 +500,7 @@ int de_zip_create_file(deark *c)
 	}
 
 	if(!c->archive_to_stdout) {
-		de_msg(c, "Creating %s", zzz->pFilename);
+		de_info(c, "Creating %s", zzz->pFilename);
 	}
 
 	return 1;

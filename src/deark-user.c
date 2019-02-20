@@ -309,7 +309,7 @@ void de_run(deark *c)
 		goto done;
 	}
 
-	de_msg(c, "Module: %s", module_to_use->id);
+	de_info(c, "Module: %s", module_to_use->id);
 
 	if(module_was_autodetected && (module_to_use->flags&DE_MODFLAG_SECURITYWARNING)) {
 		de_err(c, "The %s module has not been audited for security. There is a "
@@ -383,7 +383,7 @@ void de_run(deark *c)
 	if(c->num_files_extracted==0 && c->error_count==0 &&
 		!(module_to_use->flags&DE_MODFLAG_NOEXTRACT))
 	{
-		de_msg(c, "No files found to extract!");
+		de_info(c, "No files found to extract!");
 	}
 
 done:
@@ -398,7 +398,7 @@ deark *de_create_internal(void)
 {
 	deark *c;
 	c = de_malloc(NULL,sizeof(deark));
-	c->show_messages = 1;
+	c->show_infomessages = 1;
 	c->show_warnings = 1;
 	c->write_bom = 1;
 	c->write_density = 1;
@@ -628,9 +628,9 @@ void de_set_max_image_dimension(deark *c, i64 n)
 	c->max_image_dimension = n;
 }
 
-void de_set_messages(deark *c, int x)
+void de_set_infomessages(deark *c, int x)
 {
-	c->show_messages = x;
+	c->show_infomessages = x;
 }
 
 void de_set_warnings(deark *c, int x)

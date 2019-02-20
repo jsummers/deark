@@ -1988,14 +1988,14 @@ static void do_jpeg_internal(deark *c, struct file_ctx *fctx)
 	if(dbuf_search(c->infile, (const u8*)"\xff\xd8\xff", 3, pos,
 		nbytes_to_scan, &foundpos))
 	{
-		de_msg(c, "Note: This file might contain multiple JPEG images. "
+		de_info(c, "Note: This file might contain multiple JPEG images. "
 			"Use \"-m jpegscan\" to extract them.");
 		goto done;
 	}
 
 	if(dbuf_is_all_zeroes(c->infile, pos, extra_bytes_at_eof)) goto done;
 
-	de_msg(c, "Note: %"I64_FMT" bytes of unidentified data found at end "
+	de_info(c, "Note: %"I64_FMT" bytes of unidentified data found at end "
 		"of file (starting at %"I64_FMT").", extra_bytes_at_eof, pos);
 
 done:

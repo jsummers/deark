@@ -549,7 +549,7 @@ static void de_char_output_to_html_file(deark *c, struct de_char_context *charct
 	}
 
 	if(ectx->used_24bitcolor) {
-		de_msg(c, "Note: This file uses 24-bit colors, which are supported but "
+		de_info(c, "Note: This file uses 24-bit colors, which are supported but "
 			"not optimized. The HTML file may be very large.");
 	}
 

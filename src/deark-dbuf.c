@@ -1045,7 +1045,7 @@ dbuf *dbuf_create_output_file(deark *c, const char *ext, de_finfo *fi,
 
 	if(c->output_style==DE_OUTPUTSTYLE_ARCHIVE) {
 		i64 initial_alloc;
-		de_msg(c, "Adding %s to ZIP file", f->name);
+		de_info(c, "Adding %s to ZIP file", f->name);
 		f->btype = DBUF_TYPE_MEMBUF;
 		if(is_directory) {
 			// A directory entry is not expected to have any data associated
@@ -1060,12 +1060,12 @@ dbuf *dbuf_create_output_file(deark *c, const char *ext, de_finfo *fi,
 		f->write_memfile_to_zip_archive = 1;
 	}
 	else if(c->output_style==DE_OUTPUTSTYLE_STDOUT) {
-		de_msg(c, "Writing %s to [stdout]", f->name);
+		de_info(c, "Writing %s to [stdout]", f->name);
 		f->btype = DBUF_TYPE_STDOUT;
 		f->fp = stdout;
 	}
 	else {
-		de_msg(c, "Writing %s", f->name);
+		de_info(c, "Writing %s", f->name);
 		f->btype = DBUF_TYPE_OFILE;
 		f->fp = de_fopen_for_write(c, f->name, msgbuf, sizeof(msgbuf),
 			c->overwrite_mode, 0);

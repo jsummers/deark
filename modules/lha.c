@@ -723,7 +723,7 @@ static void de_run_lha(deark *c, de_module_params *mparams)
 
 	d->try_to_extract = de_get_ext_option_bool(c, "lha:extract", -1);
 	if(d->try_to_extract == -1) {
-		de_msg(c, "Note: LHA files can be parsed, but no files can be extracted from them.");
+		de_info(c, "Note: LHA files can be parsed, but no files can be extracted from them.");
 		d->try_to_extract = 0;
 	}
 

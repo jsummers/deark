@@ -576,11 +576,25 @@ void de_warn(deark *c, const char *fmt, ...)
 	va_end(ap);
 }
 
+// For "informational" messages: Those that will be suppressed by -noinfo.
+void de_info(deark *c, const char *fmt, ...)
+{
+	va_list ap;
+
+	if(!c->show_infomessages) return;
+	va_start(ap, fmt);
+	de_vprintf(c, DE_MSGTYPE_MESSAGE, fmt, ap);
+	va_end(ap);
+	de_puts(c, DE_MSGTYPE_MESSAGE, "\n");
+}
+
+// For "payload" messages, that won't be suppressed by options like -q.
+// (Note that there is nothing wrong with using de_printf or de_puts instead of
+// this.)
 void de_msg(deark *c, const char *fmt, ...)
 {
 	va_list ap;
 
-	if(!c->show_messages) return;
 	va_start(ap, fmt);
 	de_vprintf(c, DE_MSGTYPE_MESSAGE, fmt, ap);
 	va_end(ap);
@@ -1317,7 +1331,7 @@ void de_declare_fmt(deark *c, const char *fmtname)
 		return; // Only allowed for the top-level module
 	}
 	if(c->format_declared) return;
-	de_msg(c, "Format: %s", fmtname);
+	de_info(c, "Format: %s", fmtname);
 	c->format_declared = 1;
 }
 
