@@ -25,6 +25,7 @@ struct member_data {
 	i64 compressed_data_len;
 	de_ucstring *dirname;
 	de_ucstring *filename;
+	de_ucstring *fullfilename;
 };
 
 typedef struct localctx_struct {
@@ -94,16 +95,26 @@ static void read_unix_timestamp(deark *c, lctx *d, struct member_data *md,
 static void read_filename(deark *c, lctx *d, struct member_data *md,
 	i64 pos, i64 len)
 {
+	i64 i;
+
 	md->filename = ucstring_create(c);
 	dbuf_read_to_ucstring(c->infile, pos, len,
 		md->filename, 0, DE_ENCODING_ASCII);
 	de_dbg(c, "filename: \"%s\"", ucstring_getpsz_d(md->filename));
 
 	if(md->hlev==0) {
-		i64 i;
+		// Slashes (usually backslashes) allowed
 		for(i=0; i<md->filename->len; i++) {
 			if(md->filename->str[i]=='\\') {
 				md->filename->str[i]='/';
+			}
+		}
+	}
+	else {
+		// I don't think slashes are allowed
+		for(i=0; i<md->filename->len; i++) {
+			if(md->filename->str[i]=='/') {
+				md->filename->str[i]='_';
 			}
 		}
 	}
@@ -291,6 +302,7 @@ static void destroy_member_data(deark *c, struct member_data *md)
 	de_destroy_stringreaderdata(c, md->cmpr_method);
 	ucstring_destroy(md->dirname);
 	ucstring_destroy(md->filename);
+	ucstring_destroy(md->fullfilename);
 	de_free(c, md);
 }
 
@@ -431,6 +443,32 @@ done:
 	return retval;
 }
 
+static void make_fullfilename(deark *c, lctx *d, struct member_data *md)
+{
+	if(md->fullfilename) return;
+
+	if(!md->filename) {
+		md->filename = ucstring_create(c);
+	}
+	md->fullfilename = ucstring_create(c);
+
+	if(md->hlev==0) {
+		ucstring_append_ucstring(md->fullfilename, md->filename);
+	}
+	else {
+		if(md->is_dir) {
+			ucstring_append_ucstring(md->fullfilename, md->dirname);
+		}
+		else {
+			if(ucstring_isnonempty(md->dirname)) {
+				ucstring_append_ucstring(md->fullfilename, md->dirname);
+				ucstring_append_sz(md->fullfilename, "/", DE_ENCODING_LATIN1);
+			}
+			ucstring_append_ucstring(md->fullfilename, md->filename);
+		}
+	}
+}
+
 static void our_writecallback(dbuf *f, const u8 *buf, i64 buf_len)
 {
 	struct de_crcobj *crco = (struct de_crcobj*)f->userdata;
@@ -444,27 +482,27 @@ static void do_extract_file(deark *c, lctx *d, struct member_data *md)
 	u32 crc_calc;
 
 	if(!d->try_to_extract) return;
-	if(md->is_dir) return;
-	if(md->cmpr_meth_code!=CODE_lh0) return;
+	if(md->is_dir) {
+		;
+	}
+	else if(md->cmpr_meth_code==CODE_lh0) {
+		;
+	}
+	else {
+		de_err(c, "%s: Unsupported compression method",
+			ucstring_getpsz_d(md->fullfilename));
+		return;
+	}
 
 	fi = de_finfo_create(c);
-	if(md->filename && md->filename->len>0) {
-		if(md->hlev==0) {
-			de_finfo_set_name_from_ucstring(c, fi, md->filename, 0x1);
-		}
-		else {
-			de_ucstring *final_name = ucstring_create(c);
 
-			if(md->dirname) {
-				ucstring_append_ucstring(final_name, md->dirname);
-				ucstring_append_sz(final_name, "/", DE_ENCODING_LATIN1);
-			}
-			ucstring_append_ucstring(final_name, md->filename);
-			de_finfo_set_name_from_ucstring(c, fi, final_name, 0x1);
-			ucstring_destroy(final_name);
-		}
-		fi->original_filename_flag = 1;
+	if(md->is_dir) {
+		fi->is_directory = 1;
 	}
+
+	de_finfo_set_name_from_ucstring(c, fi, md->fullfilename, DE_SNFLAG_FULLPATH);
+	fi->original_filename_flag = 1;
+
 	outf = dbuf_create_output_file(c, NULL, fi, 0x0);
 
 	if(!d->crco) {
@@ -704,6 +742,8 @@ static int do_read_member(deark *c, lctx *d, struct member_data *md, i64 pos1)
 	de_dbg(c, "%scompressed member data at %"I64_FMT", len=%"I64_FMT,
 		is_compressed?"":"un",
 		md->compressed_data_pos, md->compressed_data_len);
+
+	make_fullfilename(c, d, md);
 
 	do_extract_file(c, d, md);
 
