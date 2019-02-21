@@ -365,6 +365,10 @@
 				>
 			</File>
 			<File
+				RelativePath="..\..\src\deark-tar.c"
+				>
+			</File>
+			<File
 				RelativePath="..\..\src\deark-ucstring.c"
 				>
 			</File>

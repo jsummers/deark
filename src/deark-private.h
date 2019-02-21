@@ -117,10 +117,11 @@ struct dbuf_struct {
 #define DBUF_TYPE_IFILE   1
 #define DBUF_TYPE_OFILE   2
 #define DBUF_TYPE_MEMBUF  3
-#define DBUF_TYPE_DBUF    4 // nested dbuf
+#define DBUF_TYPE_IDBUF   4 // nested dbuf, for input
 #define DBUF_TYPE_STDOUT  5
 #define DBUF_TYPE_STDIN   6
 #define DBUF_TYPE_FIFO    7
+#define DBUF_TYPE_ODBUF   8 // nested dbuf, for output
 	int btype;
 	u8 is_managed;
 
@@ -137,7 +138,8 @@ struct dbuf_struct {
 	struct dbuf_struct *parent_dbuf; // used for DBUF_TYPE_DBUF
 	i64 offset_into_parent_dbuf; // used for DBUF_TYPE_DBUF
 
-	int write_memfile_to_zip_archive; // used for DBUF_TYPE_OFILE, at least
+	u8 write_memfile_to_zip_archive;
+	u8 writing_to_tar_archive;
 	char *name; // used for DBUF_TYPE_OFILE (utf-8)
 
 	i64 membuf_alloc;
@@ -340,6 +342,7 @@ struct deark_struct {
 	const char *dprefix;
 
 	void *zip_data;
+	void *tar_data;
 	dbuf *extrlist_dbuf;
 
 	char *base_output_filename;
@@ -462,6 +465,14 @@ int de_sz_has_ext(const char *sz, const char *ext);
 const char *de_get_input_file_ext(deark *c);
 int de_input_file_has_ext(deark *c, const char *ext);
 int de_havemodcode(deark *c, de_module_params *mparams, int code);
+
+///////////////////////////////////////////
+
+int de_archive_initialize(deark *c);
+int de_tar_create_file(deark *c);
+void de_tar_start_member_file(deark *c, dbuf *f);
+void de_tar_end_member_file(deark *c, dbuf *f);
+void de_tar_close_file(deark *c);
 
 ///////////////////////////////////////////
 

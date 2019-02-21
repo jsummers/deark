@@ -339,7 +339,7 @@ void de_run(deark *c)
 	// But if the zip "file" is going to stdout, we'll make sure we produce zip
 	// output, even if it has no member files.
 	if(c->output_style==DE_OUTPUTSTYLE_ARCHIVE && c->archive_to_stdout) {
-		if(!de_zip_create_file(c)) {
+		if(!de_archive_initialize(c)) {
 			goto done;
 		}
 	}
@@ -424,6 +424,7 @@ void de_destroy(deark *c)
 		de_free(c, c->ext_option[i].val);
 	}
 	if(c->zip_data) { de_zip_close_file(c); }
+	if(c->tar_data) { de_tar_close_file(c); }
 	if(c->base_output_filename) { de_free(c, c->base_output_filename); }
 	if(c->output_archive_filename) { de_free(c, c->output_archive_filename); }
 	if(c->extrlist_filename) { de_free(c, c->extrlist_filename); }

@@ -106,6 +106,7 @@ typedef void (*de_fatalerrorfn_type)(deark *c);
 #define DE_OUTPUTSTYLE_ARCHIVE 1
 #define DE_OUTPUTSTYLE_STDOUT 2
 #define DE_ARCHIVEFMT_ZIP     1
+#define DE_ARCHIVEFMT_TAR     2
 
 void de_puts(deark *c, unsigned int flags, const char *s);
 void de_printf(deark *c, unsigned int flags, const char *fmt, ...)

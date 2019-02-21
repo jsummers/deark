@@ -136,7 +136,7 @@ void dbuf_read(dbuf *f, u8 *buf, i64 pos, i64 len)
 		f->file_pos_known = 1;
 		break;
 
-	case DBUF_TYPE_DBUF:
+	case DBUF_TYPE_IDBUF:
 		// Recursive call to the parent dbuf.
 		dbuf_read(f->parent_dbuf, buf, f->offset_into_parent_dbuf+pos, bytes_to_read);
 
@@ -1043,7 +1043,13 @@ dbuf *dbuf_create_output_file(deark *c, const char *ext, de_finfo *fi,
 		goto done;
 	}
 
-	if(c->output_style==DE_OUTPUTSTYLE_ARCHIVE) {
+	if(c->output_style==DE_OUTPUTSTYLE_ARCHIVE && c->archive_fmt==DE_ARCHIVEFMT_TAR) {
+		de_info(c, "Adding %s to TAR file", f->name);
+		f->btype = DBUF_TYPE_ODBUF;
+		f->writing_to_tar_archive = 1;
+		de_tar_start_member_file(c, f);
+	}
+	else if(c->output_style==DE_OUTPUTSTYLE_ARCHIVE) { // ZIP
 		i64 initial_alloc;
 		de_info(c, "Adding %s to ZIP file", f->name);
 		f->btype = DBUF_TYPE_MEMBUF;
@@ -1150,6 +1156,11 @@ void dbuf_write(dbuf *f, const u8 *m, i64 len)
 			de_dbg3(f->c, "appending %d bytes to membuf %s", (int)len, f->name);
 		}
 		membuf_append(f, m, len);
+		return;
+	}
+	else if(f->btype==DBUF_TYPE_ODBUF) {
+		dbuf_write(f->parent_dbuf, m, len);
+		f->len += len;
 		return;
 	}
 
@@ -1411,7 +1422,7 @@ dbuf *dbuf_open_input_subfile(dbuf *parent, i64 offset, i64 size)
 
 	c = parent->c;
 	f = de_malloc(c, sizeof(dbuf));
-	f->btype = DBUF_TYPE_DBUF;
+	f->btype = DBUF_TYPE_IDBUF;
 	f->c = c;
 	f->parent_dbuf = parent;
 	f->offset_into_parent_dbuf = offset;
@@ -1430,6 +1441,9 @@ void dbuf_close(dbuf *f)
 		if(f->name) {
 			de_dbg3(c, "closing memfile %s", f->name);
 		}
+	}
+	else if(f->writing_to_tar_archive) {
+		de_tar_end_member_file(c, f);
 	}
 
 	if(f->btype==DBUF_TYPE_IFILE || f->btype==DBUF_TYPE_OFILE) {
@@ -1459,7 +1473,9 @@ void dbuf_close(dbuf *f)
 	}
 	else if(f->btype==DBUF_TYPE_MEMBUF) {
 	}
-	else if(f->btype==DBUF_TYPE_DBUF) {
+	else if(f->btype==DBUF_TYPE_IDBUF) {
+	}
+	else if(f->btype==DBUF_TYPE_ODBUF) {
 	}
 	else if(f->btype==DBUF_TYPE_STDIN) {
 	}

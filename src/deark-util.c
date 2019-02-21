@@ -1677,3 +1677,17 @@ void de_crcobj_addslice(struct de_crcobj *crco, dbuf *f, i64 pos, i64 len)
 {
 	dbuf_buffered_read(f, pos, len, addslice_cbfn, (void*)crco);
 }
+
+// Call this to ensure that a zip/tar file will be created, even if it has
+// no member files.
+int de_archive_initialize(deark *c)
+{
+	if(c->output_style!=DE_OUTPUTSTYLE_ARCHIVE) return 0;
+	switch(c->archive_fmt) {
+	case DE_ARCHIVEFMT_ZIP:
+		return de_zip_create_file(c);
+	case DE_ARCHIVEFMT_TAR:
+		return de_tar_create_file(c);
+	}
+	return 0;
+}

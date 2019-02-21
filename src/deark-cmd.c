@@ -38,6 +38,7 @@ struct cmdctx {
 
 	int to_stdout;
 	int to_zip;
+	int to_tar;
 	int from_stdin;
 	int to_ascii;
 	int to_oem;
@@ -296,7 +297,7 @@ enum opt_id_enum {
  DE_OPT_NOBOM, DE_OPT_NODENS, DE_OPT_ASCIIHTML, DE_OPT_NONAMES,
  DE_OPT_NOOVERWRITE, DE_OPT_MODTIME, DE_OPT_NOMODTIME,
  DE_OPT_Q, DE_OPT_VERSION, DE_OPT_HELP,
- DE_OPT_MAINONLY, DE_OPT_AUXONLY, DE_OPT_EXTRACTALL, DE_OPT_ZIP,
+ DE_OPT_MAINONLY, DE_OPT_AUXONLY, DE_OPT_EXTRACTALL, DE_OPT_ZIP, DE_OPT_TAR,
  DE_OPT_TOSTDOUT, DE_OPT_MSGSTOSTDERR, DE_OPT_FROMSTDIN, DE_OPT_COLOR,
  DE_OPT_ENCODING,
  DE_OPT_EXTOPT, DE_OPT_FILE, DE_OPT_FILE2, DE_OPT_INENC, DE_OPT_INTZ,
@@ -338,6 +339,7 @@ struct opt_struct option_array[] = {
 	{ "a",            DE_OPT_EXTRACTALL,   0 },
 	{ "extractall",   DE_OPT_EXTRACTALL,   0 },
 	{ "zip",          DE_OPT_ZIP,          0 },
+	{ "tar",          DE_OPT_TAR,          0 },
 	{ "tostdout",     DE_OPT_TOSTDOUT,     0 },
 	{ "msgstostderr", DE_OPT_MSGSTOSTDERR, 0 },
 	{ "fromstdin",    DE_OPT_FROMSTDIN,    0 },
@@ -497,6 +499,10 @@ static void parse_cmdline(deark *c, struct cmdctx *cc, int argc, char **argv)
 				de_set_output_style(c, DE_OUTPUTSTYLE_ARCHIVE, DE_ARCHIVEFMT_ZIP);
 				cc->to_zip = 1;
 				break;
+			case DE_OPT_TAR:
+				de_set_output_style(c, DE_OUTPUTSTYLE_ARCHIVE, DE_ARCHIVEFMT_TAR);
+				cc->to_tar = 1;
+				break;
 			case DE_OPT_TOSTDOUT:
 				send_msgs_to_stderr(c, cc);
 				cc->to_stdout = 1;
@@ -635,7 +641,7 @@ static void parse_cmdline(deark *c, struct cmdctx *cc, int argc, char **argv)
 	}
 
 	if(cc->to_stdout) {
-		if(cc->to_zip) {
+		if(cc->to_zip || cc->to_tar) {
 			de_set_output_archive_filename(c, NULL, 0x1);
 		}
 		else {
