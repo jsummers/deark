@@ -26,6 +26,8 @@ struct member_data {
 	de_ucstring *dirname;
 	de_ucstring *filename;
 	de_ucstring *fullfilename;
+	struct de_timestamp mod_time; // The best timestamp found so far
+	int mod_time_quality;
 };
 
 typedef struct localctx_struct {
@@ -47,7 +49,16 @@ struct exthdr_type_info_struct {
 	exthdr_decoder_fn decoder_fn;
 };
 
-static void read_msdos_datetime(deark *c, lctx *d, struct member_data *md,
+static void apply_mod_time(deark *c, lctx *d, struct member_data *md,
+	const struct de_timestamp *ts, int quality)
+{
+	if(!ts->is_valid) return;
+	if(quality < md->mod_time_quality) return;
+	md->mod_time = *ts;
+	md->mod_time_quality = quality;
+}
+
+static void read_msdos_modtime(deark *c, lctx *d, struct member_data *md,
 	i64 pos, const char *name)
 {
 	i64 mod_time_raw, mod_date_raw;
@@ -64,10 +75,11 @@ static void read_msdos_datetime(deark *c, lctx *d, struct member_data *md,
 	tmp_timestamp.tzcode = DE_TZCODE_LOCAL;
 	de_timestamp_to_string(&tmp_timestamp, timestamp_buf, sizeof(timestamp_buf), 0);
 	de_dbg(c, "%s: %s", name, timestamp_buf);
+	apply_mod_time(c, d, md, &tmp_timestamp, 10);
 }
 
 static void read_windows_FILETIME(deark *c, lctx *d, struct member_data *md,
-	i64 pos, const char *name)
+	i64 pos, int is_modtime, const char *name)
 {
 	i64 t_FILETIME;
 	char timestamp_buf[64];
@@ -77,10 +89,11 @@ static void read_windows_FILETIME(deark *c, lctx *d, struct member_data *md,
 	de_FILETIME_to_timestamp(t_FILETIME, &tmp_timestamp, 0x1);
 	de_timestamp_to_string(&tmp_timestamp, timestamp_buf, sizeof(timestamp_buf), 0);
 	de_dbg(c, "%s: %s", name, timestamp_buf);
+	if(is_modtime) apply_mod_time(c, d, md, &tmp_timestamp, 90);
 }
 
 static void read_unix_timestamp(deark *c, lctx *d, struct member_data *md,
-	i64 pos, const char *name)
+	i64 pos, int is_modtime, const char *name)
 {
 	i64 t;
 	char timestamp_buf[64];
@@ -90,6 +103,7 @@ static void read_unix_timestamp(deark *c, lctx *d, struct member_data *md,
 	de_unix_time_to_timestamp(t, &tmp_timestamp, 0x1);
 	de_timestamp_to_string(&tmp_timestamp, timestamp_buf, sizeof(timestamp_buf), 0);
 	de_dbg(c, "%s: %d (%s)", name, (int)t, timestamp_buf);
+	if(is_modtime) apply_mod_time(c, d, md, &tmp_timestamp, 50);
 }
 
 static void read_filename(deark *c, lctx *d, struct member_data *md,
@@ -144,22 +158,13 @@ static void exthdr_dirname(deark *c, lctx *d, struct member_data *md,
 	i64 pos, i64 dlen)
 {
 	i64 i;
+	int ends_with_ff = 0;
 
 	if(md->dirname) {
 		ucstring_empty(md->dirname);
 	}
 	else {
 		md->dirname = ucstring_create(c);
-	}
-
-	if(dlen>=1) {
-		// This field is expected to end with 0xff. If that is the case, we'll
-		// ignore the last byte.
-		u8 lastbyte;
-		lastbyte = de_getbyte(pos+dlen-1);
-		if(lastbyte==0xff) {
-			dlen--;
-		}
 	}
 
 	dbuf_read_to_ucstring(c->infile, pos, dlen,
@@ -171,11 +176,18 @@ static void exthdr_dirname(deark *c, lctx *d, struct member_data *md,
 	// 0xff bytes *before* converting to ucstring format.)
 	for(i=0; i<md->dirname->len; i++) {
 		if(md->dirname->str[i]==DE_CODEPOINT_BYTEFF) {
+			if(i==md->dirname->len-1) {
+				ends_with_ff = 1;
+			}
 			md->dirname->str[i] = '/';
 		}
 		else if(md->dirname->str[i]=='/') {
 			md->dirname->str[i] = '_';
 		}
+	}
+
+	if(ends_with_ff) {
+		ucstring_truncate(md->dirname, md->dirname->len - 1);
 	}
 }
 
@@ -204,9 +216,9 @@ static void exthdr_windowstimestamp(deark *c, lctx *d, struct member_data *md,
 	i64 pos, i64 dlen)
 {
 	if(dlen<24) return;
-	read_windows_FILETIME(c, d, md, pos,    "create time");
-	read_windows_FILETIME(c, d, md, pos+8,  "mod time   ");
-	read_windows_FILETIME(c, d, md, pos+16, "access time");
+	read_windows_FILETIME(c, d, md, pos,    0, "create time");
+	read_windows_FILETIME(c, d, md, pos+8,  1, "mod time   ");
+	read_windows_FILETIME(c, d, md, pos+16, 0, "access time");
 }
 
 static void exthdr_unixperms(deark *c, lctx *d, struct member_data *md,
@@ -240,7 +252,7 @@ static void exthdr_unixtimestamp(deark *c, lctx *d, struct member_data *md,
 	i64 pos, i64 dlen)
 {
 	if(dlen<4) return;
-	read_unix_timestamp(c, d, md, pos, "last-modified");
+	read_unix_timestamp(c, d, md, pos, 1, "last-modified");
 }
 
 static void exthdr_lev3newattribs2(deark *c, lctx *d, struct member_data *md,
@@ -254,9 +266,9 @@ static void exthdr_lev3newattribs2(deark *c, lctx *d, struct member_data *md,
 
 	// [Documented as "creation time", but this is a Unix-style header, so I
 	// wonder if someone mistranslated "ctime" (=change time).]
-	read_unix_timestamp(c, d, md, pos+12, "create(?) time");
+	read_unix_timestamp(c, d, md, pos+12, 0, "create(?) time");
 
-	read_unix_timestamp(c, d, md, pos+16, "access time   ");
+	read_unix_timestamp(c, d, md, pos+16, 0, "access time   ");
 }
 
 static void exthdr_codepage(deark *c, lctx *d, struct member_data *md,
@@ -363,7 +375,7 @@ static void do_lev0_ext_area(deark *c, lctx *d, struct member_data *md,
 
 		if(len<12) goto done;
 
-		read_unix_timestamp(c, d, md, pos1+2, "last-modified");
+		read_unix_timestamp(c, d, md, pos1+2, 1, "last-modified");
 
 		mode = de_getu16le(pos1+6);
 		de_dbg(c, "mode: octal(%06o)", (unsigned int)mode);
@@ -495,6 +507,8 @@ static void do_extract_file(deark *c, lctx *d, struct member_data *md)
 	}
 
 	fi = de_finfo_create(c);
+
+	fi->mod_time = md->mod_time;
 
 	if(md->is_dir) {
 		fi->is_directory = 1;
@@ -646,11 +660,11 @@ static int do_read_member(deark *c, lctx *d, struct member_data *md, i64 pos1)
 	pos += 4;
 
 	if(md->hlev==0 || md->hlev==1) {
-		read_msdos_datetime(c, d, md, pos, "last-modified");
+		read_msdos_modtime(c, d, md, pos, "last-modified");
 		pos += 4; // modification time/date (MS-DOS)
 	}
 	else if(md->hlev==2 || md->hlev==3) {
-		read_unix_timestamp(c, d, md, pos, "last-modified");
+		read_unix_timestamp(c, d, md, pos, 1, "last-modified");
 		pos += 4; // Unix time
 	}
 
