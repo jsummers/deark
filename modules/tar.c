@@ -17,11 +17,14 @@ struct member_data {
 	i64 mode;
 	i64 filesize;
 	i64 checksum;
+	i64 checksum_calc;
+	struct de_stringreaderdata *name_srd;
 	de_ucstring *filename;
 	de_finfo *fi;
 };
 
 typedef struct localctx_struct {
+	int input_encoding;
 	int found_trailer;
 } lctx;
 
@@ -35,30 +38,43 @@ static const char* get_fmt_name(int fmt)
 	return n;
 }
 
+// Sets md->checksum_calc
+static void calc_checksum(deark *c, lctx *d, struct member_data *md, const u8 *hdrblock)
+{
+	size_t i;
+
+	md->checksum_calc = 0;
+	for(i=0; i<512; i++) {
+		if(i>=148 && i<156)
+			md->checksum_calc += 32; // (The checksum field itself)
+		else
+			md->checksum_calc += (i64)hdrblock[i];
+	}
+}
+
 static int read_member(deark *c, lctx *d, i64 pos1, i64 *bytes_consumed_member)
 {
 	struct member_data *md = NULL;
-	char rawname_sz[100];
-	char magic[8];
 	char timestamp_buf[64];
 	i64 ext_name_len;
 	size_t rawname_sz_len;
 	u8 linkflag1;
-	de_ucstring *rawname = NULL;
 	i64 modtime_unix;
 	i64 n;
 	int is_dir, is_regular_file;
 	unsigned int snflags;
 	int ret;
-	i64 longpath_data_len = 0;
+	i64 extra_data_len = 0;
 	i64 pos = pos1;
+	de_ucstring *tmpstr = NULL;
 	int saved_indent_level;
 	int retval = 0;
+	u8 hdrblock[512];
 
 	de_dbg_indent_save(c, &saved_indent_level);
 
 	md = de_malloc(c, sizeof(struct member_data));
-
+	md->fi = de_finfo_create(c);
 	md->filename = ucstring_create(c);
 
 	de_dbg(c, "archive member at %d", (int)pos1);
@@ -66,7 +82,9 @@ static int read_member(deark *c, lctx *d, i64 pos1, i64 *bytes_consumed_member)
 
 	// Look ahead to try to figure out some things about the format of this member.
 
-	if(de_getbyte(pos1) == 0x00) {
+	de_read(hdrblock, pos1, 512);
+
+	if(hdrblock[0] == 0x00) {
 		// "The end of the archive is indicated by two records consisting
 		// entirely of zero bytes."
 		// TODO: We should maybe test more than just the first byte.
@@ -76,15 +94,16 @@ static int read_member(deark *c, lctx *d, i64 pos1, i64 *bytes_consumed_member)
 		goto done;
 	}
 
-	linkflag1 = de_getbyte(pos1+156);
+	linkflag1 = hdrblock[156];
 
-	de_read((u8*)magic, 257, 8);
-	if(!de_memcmp(magic, (const void*)"ustar  \0", 8)) {
+	if(!de_memcmp(&hdrblock[257], (const void*)"ustar  \0", 8)) {
 		md->fmt = TARFMT_GNU;
 	}
-	else if(!de_memcmp(magic, (const void*)"ustar\0", 6)) {
+	else if(!de_memcmp(&hdrblock[257], (const void*)"ustar\0", 6)) {
 		md->fmt = TARFMT_POSIX;
 	}
+
+	calc_checksum(c, d, md, hdrblock);
 
 	de_dbg(c, "tar format: %s", get_fmt_name(md->fmt));
 
@@ -100,31 +119,29 @@ static int read_member(deark *c, lctx *d, i64 pos1, i64 *bytes_consumed_member)
 
 		pos += 512; // LongPath header record
 		de_dbg(c, "ext. filename at %d", (int)pos);
-		dbuf_read_to_ucstring(c->infile, pos, ext_name_len-1, md->filename, 0, DE_ENCODING_UTF8);
+		dbuf_read_to_ucstring(c->infile, pos, ext_name_len-1, md->filename, 0,
+			d->input_encoding);
 		de_dbg(c, "ext. filename: \"%s\"", ucstring_getpsz_d(md->filename));
 
 		pos += de_pad_to_n(ext_name_len, 512); // The long filename
 
-		longpath_data_len = pos - pos1;
+		extra_data_len = pos - pos1;
 		de_dbg_indent(c, -1);
 	}
 
 	de_dbg(c, "header at %d", (int)pos);
 	de_dbg_indent(c, 1);
 
-	de_read((u8*)rawname_sz, pos, 99);
-	rawname_sz[99] = '\0';
+	md->name_srd = dbuf_read_string(c->infile, pos, 100, 100, DE_CONVFLAG_STOP_AT_NUL,
+		d->input_encoding);
 	pos += 100;
-	rawname_sz_len = de_strlen(rawname_sz);
+	rawname_sz_len = de_strlen(md->name_srd->sz);
 
-	md->fi = de_finfo_create(c);
 
-	rawname = ucstring_create(c);
-	ucstring_append_bytes(rawname, (const u8*)rawname_sz, rawname_sz_len, 0, DE_ENCODING_UTF8);
-	de_dbg(c, "member raw name: \"%s\"", ucstring_getpsz(rawname));
+	de_dbg(c, "member raw name: \"%s\"", ucstring_getpsz_d(md->name_srd->str));
 
 	if(md->filename->len==0) {
-		ucstring_append_ucstring(md->filename, rawname);
+		ucstring_append_ucstring(md->filename, md->name_srd->str);
 	}
 
 	ret = dbuf_read_ascii_number(c->infile, pos, 7, 8, &md->mode);
@@ -165,6 +182,7 @@ static int read_member(deark *c, lctx *d, i64 pos1, i64 *bytes_consumed_member)
 	if(ret) {
 		de_dbg(c, "header checksum (reported): %"I64_FMT, md->checksum);
 	}
+	de_dbg(c, "header checksum (calculated): %"I64_FMT, md->checksum_calc);
 	pos += 8;
 
 	md->linkflag = de_getbyte(pos);
@@ -174,7 +192,30 @@ static int read_member(deark *c, lctx *d, i64 pos1, i64 *bytes_consumed_member)
 
 	pos += 100; // linkname (TODO)
 
-	pos += 255; // pad or magic, ... (TODO)
+	pos += 6; // magic
+	pos += 2; // version
+
+	tmpstr = ucstring_create(c);
+	if(md->fmt==TARFMT_POSIX || md->fmt==TARFMT_GNU) {
+		ucstring_empty(tmpstr);
+		dbuf_read_to_ucstring(c->infile, pos, 32, tmpstr, DE_CONVFLAG_STOP_AT_NUL,
+			DE_ENCODING_ASCII);
+		de_dbg(c, "uname: \"%s\"", ucstring_getpsz(tmpstr));
+	}
+	pos += 32;
+
+	if(md->fmt==TARFMT_POSIX || md->fmt==TARFMT_GNU) {
+		ucstring_empty(tmpstr);
+		dbuf_read_to_ucstring(c->infile, pos, 32, tmpstr, DE_CONVFLAG_STOP_AT_NUL,
+			DE_ENCODING_ASCII);
+		de_dbg(c, "gname: \"%s\"", ucstring_getpsz(tmpstr));
+	}
+	pos += 32;
+
+	pos += 8; // devmajor
+	pos += 8; // devminor
+	pos += 155; // prefix
+	pos += 12; // pad
 
 	de_dbg_indent(c, -1);
 
@@ -200,7 +241,7 @@ static int read_member(deark *c, lctx *d, i64 pos1, i64 *bytes_consumed_member)
 		}
 	}
 	else {
-		if(rawname_sz_len>0 && rawname_sz[rawname_sz_len-1]=='/') {
+		if(rawname_sz_len>0 && md->name_srd->sz[rawname_sz_len-1]=='/') {
 			is_dir = 1;
 		}
 		else if(md->linkflag==0 || md->linkflag=='0') {
@@ -208,13 +249,8 @@ static int read_member(deark *c, lctx *d, i64 pos1, i64 *bytes_consumed_member)
 		}
 	}
 
-	if(is_dir) {
-		md->filesize = 0; // ??
-	}
-
 	if(!is_regular_file && !is_dir) {
 		de_dbg(c, "[not a regular file, not extracting]");
-		md->filesize = 0; // FIXME: There may be cases where this is wrong.
 		retval = 1;
 		goto done;
 	}
@@ -238,10 +274,11 @@ static int read_member(deark *c, lctx *d, i64 pos1, i64 *bytes_consumed_member)
 	retval = 1;
 
 done:
-	*bytes_consumed_member = longpath_data_len + 512 + de_pad_to_n(md->filesize, 512);
-	ucstring_destroy(rawname);
+	*bytes_consumed_member = extra_data_len + 512 + de_pad_to_n(md->filesize, 512);
 
+	ucstring_destroy(tmpstr);
 	if(md) {
+		de_destroy_stringreaderdata(c, md->name_srd);
 		ucstring_destroy(md->filename);
 		de_finfo_destroy(c, md->fi);
 		de_free(c, md);
@@ -259,6 +296,11 @@ static void de_run_tar(deark *c, de_module_params *mparams)
 	int ret;
 
 	d = de_malloc(c, sizeof(lctx));
+
+	if(c->input_encoding==DE_ENCODING_UNKNOWN)
+		d->input_encoding = DE_ENCODING_UTF8;
+	else
+		d->input_encoding = c->input_encoding;
 
 	pos = 0;
 	while(1) {
