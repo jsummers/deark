@@ -207,6 +207,7 @@ void de_run(deark *c)
 	struct deark_module_info *module_to_use = NULL;
 	int module_was_autodetected = 0;
 	int moddisp;
+	int subdirs_opt;
 	int keepdirentries_opt;
 	de_module_params *mparams = NULL;
 	de_ucstring *friendly_infn = NULL;
@@ -327,10 +328,29 @@ void de_run(deark *c)
 	de_dbg2(c, "file size: %" I64_FMT "", c->infile->len);
 
 	if(c->output_style==DE_OUTPUTSTYLE_ARCHIVE) {
-		c->allow_subdirs = 1;
-		if(de_get_ext_option_bool(c, "archive:subdirs", -1)==0) {
-			c->allow_subdirs = 0;
+		subdirs_opt = de_get_ext_option_bool(c, "archive:subdirs", -1);
+		if(subdirs_opt<0) {
+			// By default, for archive output, enable subdirs unless -o was used.
+			if(!c->base_output_filename) {
+				c->allow_subdirs = 1;
+			}
 		}
+		else {
+			c->allow_subdirs = subdirs_opt?1:0;
+		}
+	}
+
+	keepdirentries_opt = de_get_ext_option_bool(c, "keepdirentries", -1);
+	if(keepdirentries_opt<0) {
+		// By default, only keep dir entries if there is some way that
+		// files can be present in such a subdir.
+		c->keep_dir_entries = (
+			(c->output_style==DE_OUTPUTSTYLE_ARCHIVE) &&
+			c->allow_subdirs &&
+			(!c->base_output_filename));
+	}
+	else {
+		c->keep_dir_entries = keepdirentries_opt?1:0;
 	}
 
 	// If we're writing to a zip file, we normally defer creating that zip file
@@ -342,15 +362,6 @@ void de_run(deark *c)
 		if(!de_archive_initialize(c)) {
 			goto done;
 		}
-	}
-
-	keepdirentries_opt = de_get_ext_option_bool(c, "keepdirentries", -1);
-	if(keepdirentries_opt>0) {
-		c->keep_dir_entries = 1;
-	}
-	else if(keepdirentries_opt == -1) {
-		// By default, we only keep dir entries if writing to an archive file.
-		c->keep_dir_entries = (c->output_style==DE_OUTPUTSTYLE_ARCHIVE);
 	}
 
 	if(de_get_ext_option_bool(c, "list:fileid", 0)) {
