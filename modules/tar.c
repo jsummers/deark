@@ -24,7 +24,9 @@ struct phys_member_data {
 	i64 filesize;
 	i64 checksum;
 	i64 checksum_calc;
-	struct de_stringreaderdata *name_srd;
+	de_ucstring *name;
+	de_ucstring *prefix;
+	de_ucstring *alt_name;
 };
 
 struct member_data {
@@ -63,7 +65,7 @@ static void calc_checksum(deark *c, lctx *d, struct phys_member_data *pmd,
 }
 
 // Returns 1 if it was parsed successfully, and is not a trailer.
-static int read_phys_member(deark *c, lctx *d,
+static int read_phys_member_header(deark *c, lctx *d,
 	struct phys_member_data *pmd, i64 pos1)
 {
 	char timestamp_buf[64];
@@ -77,7 +79,7 @@ static int read_phys_member(deark *c, lctx *d,
 
 	de_dbg_indent_save(c, &saved_indent_level);
 
-	de_dbg(c, "physical archive member at %"I64_FMT, pos1);
+	de_dbg(c, "physical archive member header at %"I64_FMT, pos1);
 	de_dbg_indent(c, 1);
 
 	// Look ahead to try to figure out some things about the format of this member.
@@ -90,7 +92,6 @@ static int read_phys_member(deark *c, lctx *d,
 		// TODO: We should maybe test more than just the first byte.
 		de_dbg(c, "[trailer record]");
 		d->found_trailer = 1;
-		//retval = 1;
 		goto done;
 	}
 
@@ -107,48 +108,50 @@ static int read_phys_member(deark *c, lctx *d,
 
 	de_dbg(c, "tar format: %s", get_fmt_name(pmd->fmt));
 
-	de_dbg(c, "header at %d", (int)pos);
-	de_dbg_indent(c, 1);
-
-	pmd->name_srd = dbuf_read_string(c->infile, pos, 100, 100, DE_CONVFLAG_STOP_AT_NUL,
+	pmd->name = ucstring_create(c);
+	dbuf_read_to_ucstring(c->infile, pos, 100, pmd->name, DE_CONVFLAG_STOP_AT_NUL,
 		d->input_encoding);
 	pos += 100;
-	de_dbg(c, "member raw name: \"%s\"", ucstring_getpsz_d(pmd->name_srd->str));
+	de_dbg(c, "name: \"%s\"", ucstring_getpsz_d(pmd->name));
 
-	ret = dbuf_read_ascii_number(c->infile, pos, 7, 8, &pmd->mode);
+	ret = dbuf_read_ascii_number(c->infile, pos, 8, 8, &pmd->mode);
 	if(!ret) goto done;
 	pos += 8;
 	de_dbg(c, "mode: octal(%06o)", (unsigned int)pmd->mode);
 
-	ret = dbuf_read_ascii_number(c->infile, pos, 7, 8, &n);
+	ret = dbuf_read_ascii_number(c->infile, pos, 8, 8, &n);
 	if(ret) {
 		de_dbg(c, "uid: %"I64_FMT, n);
 	}
 	pos += 8;
-	ret = dbuf_read_ascii_number(c->infile, pos, 7, 8, &n);
+	ret = dbuf_read_ascii_number(c->infile, pos, 8, 8, &n);
 	if(ret) {
 		de_dbg(c, "gid: %"I64_FMT, n);
 	}
 	pos += 8;
 
-	ret = dbuf_read_ascii_number(c->infile, pos, 11, 8, &pmd->filesize);
+	ret = dbuf_read_ascii_number(c->infile, pos, 12, 8, &pmd->filesize);
 	if(!ret) goto done;
 	pos += 12;
 	de_dbg(c, "size: %"I64_FMT"", pmd->filesize);
 	pmd->file_data_pos = pos1 + 512;
 
-	ret = dbuf_read_ascii_number(c->infile, pos, 11, 8, &pmd->modtime_unix);
+	ret = dbuf_read_ascii_number(c->infile, pos, 12, 8, &pmd->modtime_unix);
 	if(!ret) goto done;
 	de_unix_time_to_timestamp(pmd->modtime_unix, &pmd->mod_time, 0x1);
 	de_timestamp_to_string(&pmd->mod_time, timestamp_buf, sizeof(timestamp_buf), 0);
 	de_dbg(c, "mtime: %d (%s)", (int)pmd->modtime_unix, timestamp_buf);
 	pos += 12;
 
-	ret = dbuf_read_ascii_number(c->infile, pos, 7, 8, &pmd->checksum);
+	ret = dbuf_read_ascii_number(c->infile, pos, 8, 8, &pmd->checksum);
 	if(ret) {
 		de_dbg(c, "header checksum (reported): %"I64_FMT, pmd->checksum);
 	}
 	de_dbg(c, "header checksum (calculated): %"I64_FMT, pmd->checksum_calc);
+	if(pmd->checksum != pmd->checksum_calc) {
+		de_warn(c, "%s: Header checksum failed: reported=%"I64_FMT", calculated=%"I64_FMT,
+			ucstring_getpsz_d(pmd->name), pmd->checksum, pmd->checksum_calc);
+	}
 	pos += 8;
 
 	// linkflag already set, above
@@ -180,7 +183,17 @@ static int read_phys_member(deark *c, lctx *d,
 
 	pos += 8; // devmajor
 	pos += 8; // devminor
-	pos += 155; // prefix
+
+	if(pmd->fmt==TARFMT_POSIX && (de_getbyte(pos)!=0)) {
+		// This field might only be 131 bytes, instead of 155. Let's hope that
+		// that it's NUL terminated in that case.
+		pmd->prefix = ucstring_create(c);
+		dbuf_read_to_ucstring(c->infile, pos, 155, pmd->prefix,
+			DE_CONVFLAG_STOP_AT_NUL, d->input_encoding);
+		de_dbg(c, "prefix: \"%s\"", ucstring_getpsz_d(pmd->prefix));
+	}
+	pos += 155; // prefix, or prefix+atime+ctime
+
 	pos += 12; // pad
 
 	retval = 1;
@@ -195,27 +208,49 @@ done:
 static void destroy_pmd(deark *c, struct phys_member_data *pmd)
 {
 	if(!pmd) return;
-	de_destroy_stringreaderdata(c, pmd->name_srd);
+	ucstring_destroy(pmd->name);
+	ucstring_destroy(pmd->prefix);
+	ucstring_destroy(pmd->alt_name);
 	de_free(c, pmd);
 }
 
 static void read_gnu_longpath(deark *c, lctx *d, struct member_data *md,
-	struct phys_member_data *pmd_special, i64 pos1)
+	struct phys_member_data *pmd)
 {
-	i64 pos = pos1;
-	i64 ext_name_len = pmd_special->filesize;
+	i64 pos = pmd->file_data_pos;
+	i64 ext_name_len = pmd->filesize;
 
 	de_dbg(c, "LongPath data at %"I64_FMT, pos);
 	de_dbg_indent(c, 1);
 	if(ext_name_len<1 || ext_name_len>32768) goto done;
 
 	de_dbg(c, "ext. filename at %"I64_FMT, pos);
-	dbuf_read_to_ucstring(c->infile, pos, ext_name_len-1, md->filename, 0,
+	pmd->alt_name = ucstring_create(c);
+	dbuf_read_to_ucstring(c->infile, pos, ext_name_len-1, pmd->alt_name, 0,
 		d->input_encoding);
-	de_dbg(c, "ext. filename: \"%s\"", ucstring_getpsz_d(md->filename));
+	de_dbg(c, "ext. filename: \"%s\"", ucstring_getpsz_d(pmd->alt_name));
 
 done:
 	de_dbg_indent(c, -1);
+}
+
+static void read_exthdr(deark *c, lctx *d, struct member_data *md,
+	struct phys_member_data *pmd)
+{
+	int saved_indent_level;
+	de_ucstring *tmps = NULL;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+	de_dbg(c, "POSIX extended header data at %"I64_FMT, pmd->file_data_pos);
+	de_dbg_indent(c, 1);
+
+	tmps = ucstring_create(c);
+	dbuf_read_to_ucstring_n(c->infile, pmd->file_data_pos, pmd->filesize,
+		32768, tmps, 0, DE_ENCODING_UTF8);
+	de_dbg(c, "data: \"%s\"", ucstring_getpsz_d(tmps));
+	ucstring_destroy(tmps);
+
+	de_dbg_indent_restore(c, saved_indent_level);
 }
 
 static int read_member(deark *c, lctx *d, i64 pos1, i64 *bytes_consumed_member)
@@ -240,7 +275,7 @@ static int read_member(deark *c, lctx *d, i64 pos1, i64 *bytes_consumed_member)
 
 	pmd = de_malloc(c, sizeof(struct phys_member_data));
 
-	if(!read_phys_member(c, d, pmd, pos)) {
+	if(!read_phys_member_header(c, d, pmd, pos)) {
 		goto done;
 	}
 	pos += 512;
@@ -249,20 +284,19 @@ static int read_member(deark *c, lctx *d, i64 pos1, i64 *bytes_consumed_member)
 	if(pmd->linkflag == 'L') {
 		pmd_special = pmd;
 		pmd = NULL;
-		read_gnu_longpath(c, d, md, pmd_special, pmd_special->file_data_pos);
+		read_gnu_longpath(c, d, md, pmd_special);
 	}
 	else if(pmd->linkflag == 'x') {
 		pmd_special = pmd;
 		pmd = NULL;
-		de_dbg(c, "POSIX extended header data at %"I64_FMT, pmd_special->file_data_pos);
-		// TODO
+		read_exthdr(c, d, md, pmd_special);
 	}
 
 	// If a special preamble member was found, we set pmd to NULL. In that case
 	// we need to try again to read the real member.
 	if(!pmd) {
 		pmd = de_malloc(c, sizeof(struct phys_member_data));
-		if(!read_phys_member(c, d, pmd, pos)) {
+		if(!read_phys_member_header(c, d, pmd, pos)) {
 			goto done;
 		}
 		pos += 512;
@@ -270,6 +304,20 @@ static int read_member(deark *c, lctx *d, i64 pos1, i64 *bytes_consumed_member)
 	}
 
 	retval = 1;
+
+	// Decide on a filename
+	if(pmd_special && ucstring_isnonempty(pmd_special->alt_name)) {
+		ucstring_append_ucstring(md->filename, pmd_special->alt_name);
+	}
+	else {
+		if(ucstring_isnonempty(pmd->prefix)) {
+			ucstring_append_ucstring(md->filename, pmd->prefix);
+			ucstring_append_char(md->filename, '/');
+		}
+		if(ucstring_isnonempty(pmd->name)) {
+			ucstring_append_ucstring(md->filename, pmd->name);
+		}
+	}
 
 	// Try to figure out what kind of "file" this is.
 
@@ -293,9 +341,7 @@ static int read_member(deark *c, lctx *d, i64 pos1, i64 *bytes_consumed_member)
 		}
 	}
 	else {
-		size_t rawname_sz_len;
-		rawname_sz_len = de_strlen(pmd->name_srd->sz);
-		if(rawname_sz_len>0 && pmd->name_srd->sz[rawname_sz_len-1]=='/') {
+		if(pmd->name->len>=1 && pmd->name->str[pmd->name->len-1]=='/') {
 			is_dir = 1;
 		}
 		else if(pmd->linkflag==0 || pmd->linkflag=='0') {
@@ -305,17 +351,13 @@ static int read_member(deark *c, lctx *d, i64 pos1, i64 *bytes_consumed_member)
 
 	de_dbg(c, "file data at %"I64_FMT, pos);
 
-	if(md->filename->len==0) {
-		ucstring_append_ucstring(md->filename, pmd->name_srd->str);
-	}
-
 	if(!md->fi->mod_time.is_valid) {
 		md->fi->mod_time = pmd->mod_time;
 	}
 
 	if(!is_regular_file && !is_dir) {
-		de_dbg(c, "[not a regular file, not extracting]");
-		goto done;
+		de_warn(c, "\"%s\" is a special file. It will not be extracted as such.",
+			ucstring_getpsz(md->filename));
 	}
 
 	snflags = DE_SNFLAG_FULLPATH;
@@ -323,11 +365,13 @@ static int read_member(deark *c, lctx *d, i64 pos1, i64 *bytes_consumed_member)
 		md->fi->is_directory = 1;
 		snflags |= DE_SNFLAG_STRIPTRAILINGSLASH;
 	}
-	else if((pmd->mode & 0111)!=0) {
-		md->fi->mode_flags |= DE_MODEFLAG_EXE;
-	}
-	else {
-		md->fi->mode_flags |= DE_MODEFLAG_NONEXE;
+	else if(is_regular_file) {
+		if((pmd->mode & 0111)!=0) {
+			md->fi->mode_flags |= DE_MODEFLAG_EXE;
+		}
+		else {
+			md->fi->mode_flags |= DE_MODEFLAG_NONEXE;
+		}
 	}
 	de_finfo_set_name_from_ucstring(c, md->fi, md->filename, snflags);
 	md->fi->original_filename_flag = 1;
