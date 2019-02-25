@@ -27,6 +27,7 @@ struct phys_member_data {
 	de_ucstring *name;
 	de_ucstring *prefix;
 	de_ucstring *alt_name;
+	struct de_timestamp alt_mod_time;
 };
 
 struct member_data {
@@ -133,7 +134,7 @@ static int read_phys_member_header(deark *c, lctx *d,
 	ret = dbuf_read_ascii_number(c->infile, pos, 12, 8, &pmd->filesize);
 	if(!ret) goto done;
 	pos += 12;
-	de_dbg(c, "size: %"I64_FMT"", pmd->filesize);
+	de_dbg(c, "size: %"I64_FMT, pmd->filesize);
 	pmd->file_data_pos = pos1 + 512;
 
 	ret = dbuf_read_ascii_number(c->infile, pos, 12, 8, &pmd->modtime_unix);
@@ -234,9 +235,10 @@ done:
 }
 
 struct exthdr_item {
+	i64 base_pos;
 	i64 fieldlen;
-	i64 len_offs;
-	i64 len_len;
+	i64 fieldlen_offs;
+	i64 fieldlen_len;
 	i64 name_offs;
 	i64 name_len;
 	i64 val_offs;
@@ -244,6 +246,33 @@ struct exthdr_item {
 	struct de_stringreaderdata *name;
 	struct de_stringreaderdata *value;
 };
+
+static void do_exthdr_mtime(deark *c, lctx *d, struct phys_member_data *pmd,
+	struct exthdr_item *ehi)
+{
+	double val_dbl;
+	double val_frac;
+	i64 val_int;
+	char timestamp_buf[64];
+
+	if(ehi->val_len<1) return;
+
+	// TODO: There is probably roundoff error here than there needs to be.
+	val_dbl = strtod(ehi->value->sz, NULL);
+	// Negative values are legal, but improbable, and our code won't correctly
+	// handle them.
+	if(val_dbl < 0.0) return;
+	val_int = (int)val_dbl;
+	val_frac = val_dbl - (double)val_int;
+
+	de_unix_time_to_timestamp(val_int, &pmd->alt_mod_time, 0x1);
+	if(val_frac > 0.0) {
+		de_timestamp_set_subsec(&pmd->alt_mod_time, val_frac);
+	}
+
+	de_timestamp_to_string(&pmd->alt_mod_time, timestamp_buf, sizeof(timestamp_buf), 0);
+	de_dbg(c, "mod time: %s", timestamp_buf);
+}
 
 static int read_exthdr_item(deark *c, lctx *d, struct phys_member_data *pmd,
 	i64 pos1, i64 max_len, i64 *bytes_consumed)
@@ -265,6 +294,8 @@ static int read_exthdr_item(deark *c, lctx *d, struct phys_member_data *pmd,
 	de_dbg_indent(c, 1);
 
 	ehi = de_malloc(c, sizeof(struct exthdr_item));
+	ehi->base_pos = pos1;
+
 	if(max_len<1) {
 		goto done;
 	}
@@ -288,14 +319,14 @@ static int read_exthdr_item(deark *c, lctx *d, struct phys_member_data *pmd,
 
 		if(state==STATE_LOOKING_FOR_LEN) {
 			if(is_whitespace) continue;
-			ehi->len_offs = offs;
+			ehi->fieldlen_offs = offs;
 			state = STATE_READING_LEN;
 		}
 		else if(state==STATE_READING_LEN) {
 			if(is_whitespace) {
-				ehi->len_len = offs - ehi->len_offs;
+				ehi->fieldlen_len = offs - ehi->fieldlen_offs;
 				ret = dbuf_read_ascii_number(c->infile,
-					pos1+ehi->len_offs, ehi->len_len, 10, &ehi->fieldlen);
+					pos1+ehi->fieldlen_offs, ehi->fieldlen_len, 10, &ehi->fieldlen);
 				if(!ret) {
 					goto done;
 				}
@@ -329,12 +360,12 @@ static int read_exthdr_item(deark *c, lctx *d, struct phys_member_data *pmd,
 
 	n = de_min_int(ehi->name_len, 256);
 	ehi->name = dbuf_read_string(c->infile, pos1+ehi->name_offs,
-		n, n, 0, DE_ENCODING_ASCII);
+		n, n, 0, DE_ENCODING_UTF8);
 	de_dbg(c, "keyword: \"%s\"", ucstring_getpsz_d(ehi->name->str));
 
 	n = de_min_int(ehi->val_len, 65536);
 	ehi->value = dbuf_read_string(c->infile, pos1+ehi->val_offs,
-		n, n, 0, d->input_encoding);
+		n, n, 0, DE_ENCODING_UTF8);
 	de_dbg(c, "value: \"%s\"", ucstring_getpsz_d(ehi->value->str));
 
 	if(!de_strcmp(ehi->name->sz, "path")) {
@@ -342,6 +373,12 @@ static int read_exthdr_item(deark *c, lctx *d, struct phys_member_data *pmd,
 		ucstring_empty(pmd->alt_name);
 		ucstring_append_ucstring(pmd->alt_name, ehi->value->str);
 	}
+	else if(!de_strcmp(ehi->name->sz, "mtime")) {
+		do_exthdr_mtime(c, d, pmd, ehi);
+	}
+	// TODO: "size"
+	// TODO: "linkpath"
+	// TODO: "hdrcharset"
 
 	*bytes_consumed = ehi->fieldlen;
 	retval = 1;
@@ -490,7 +527,10 @@ static int read_member(deark *c, lctx *d, i64 pos1, i64 *bytes_consumed_member)
 
 	de_dbg(c, "file data at %"I64_FMT, pos);
 
-	if(!md->fi->mod_time.is_valid) {
+	if(pmd_special && pmd_special->alt_mod_time.is_valid) {
+		md->fi->mod_time = pmd_special->alt_mod_time;
+	}
+	else if(pmd->mod_time.is_valid) {
 		md->fi->mod_time = pmd->mod_time;
 	}
 
