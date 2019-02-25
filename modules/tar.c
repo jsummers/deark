@@ -214,8 +214,7 @@ static void destroy_pmd(deark *c, struct phys_member_data *pmd)
 	de_free(c, pmd);
 }
 
-static void read_gnu_longpath(deark *c, lctx *d, struct member_data *md,
-	struct phys_member_data *pmd)
+static void read_gnu_longpath(deark *c, lctx *d, struct phys_member_data *pmd)
 {
 	i64 pos = pmd->file_data_pos;
 	i64 ext_name_len = pmd->filesize;
@@ -234,21 +233,161 @@ done:
 	de_dbg_indent(c, -1);
 }
 
-static void read_exthdr(deark *c, lctx *d, struct member_data *md,
-	struct phys_member_data *pmd)
+struct exthdr_item {
+	i64 fieldlen;
+	i64 len_offs;
+	i64 len_len;
+	i64 name_offs;
+	i64 name_len;
+	i64 val_offs;
+	i64 val_len;
+	struct de_stringreaderdata *name;
+	struct de_stringreaderdata *value;
+};
+
+static int read_exthdr_item(deark *c, lctx *d, struct phys_member_data *pmd,
+	i64 pos1, i64 max_len, i64 *bytes_consumed)
+{
+	struct exthdr_item *ehi = NULL;
+	int retval = 0;
+	int ret;
+	int saved_indent_level;
+	i64 offs;
+	i64 n;
+	enum {
+		STATE_LOOKING_FOR_LEN, STATE_READING_LEN,
+		STATE_LOOKING_FOR_NAME, STATE_READING_NAME, STATE_DONE
+	} state;
+
+	state = STATE_LOOKING_FOR_LEN;
+	de_dbg_indent_save(c, &saved_indent_level);
+	de_dbg(c, "extended header field at %"I64_FMT, pos1);
+	de_dbg_indent(c, 1);
+
+	ehi = de_malloc(c, sizeof(struct exthdr_item));
+	if(max_len<1) {
+		goto done;
+	}
+
+	// Parse one header item. We will read the initial "length" field
+	// immediately, because it is needed for proper parsing.
+	// For the name and value fields, we only record their location and size.
+	for(offs=0; ; offs++) {
+		u8 ch;
+		int is_whitespace;
+
+		if(state==STATE_DONE) break;
+
+		if(offs>=max_len) goto done;
+
+		// If we know the reported length of this item, enforce it.
+		if(state>STATE_READING_LEN && offs>=ehi->fieldlen) goto done;
+
+		ch = de_getbyte(pos1+offs);
+		is_whitespace = (ch==' ' || ch==0x09);
+
+		if(state==STATE_LOOKING_FOR_LEN) {
+			if(is_whitespace) continue;
+			ehi->len_offs = offs;
+			state = STATE_READING_LEN;
+		}
+		else if(state==STATE_READING_LEN) {
+			if(is_whitespace) {
+				ehi->len_len = offs - ehi->len_offs;
+				ret = dbuf_read_ascii_number(c->infile,
+					pos1+ehi->len_offs, ehi->len_len, 10, &ehi->fieldlen);
+				if(!ret) {
+					goto done;
+				}
+				de_dbg(c, "length: %d", (int)ehi->fieldlen);
+				if(ehi->fieldlen > max_len) {
+					goto done;
+				}
+				state = STATE_LOOKING_FOR_NAME;
+			}
+		}
+		else if(state==STATE_LOOKING_FOR_NAME) {
+			if(is_whitespace) continue;
+			ehi->name_offs = offs;
+			state = STATE_READING_NAME;
+		}
+		else if(state==STATE_READING_NAME) {
+			if(ch=='=') {
+				ehi->name_len = offs - ehi->name_offs;
+				ehi->val_offs = offs+1;
+				ehi->val_len = ehi->fieldlen - offs - 2;
+				if(ehi->val_len<0) goto done;
+				state = STATE_DONE;
+			}
+		}
+	}
+
+	// Sanity check: The item must end with a newline
+	if(de_getbyte(pos1+ehi->fieldlen-1) != 0x0a) {
+		goto done;
+	}
+
+	n = de_min_int(ehi->name_len, 256);
+	ehi->name = dbuf_read_string(c->infile, pos1+ehi->name_offs,
+		n, n, 0, DE_ENCODING_ASCII);
+	de_dbg(c, "keyword: \"%s\"", ucstring_getpsz_d(ehi->name->str));
+
+	n = de_min_int(ehi->val_len, 65536);
+	ehi->value = dbuf_read_string(c->infile, pos1+ehi->val_offs,
+		n, n, 0, d->input_encoding);
+	de_dbg(c, "value: \"%s\"", ucstring_getpsz_d(ehi->value->str));
+
+	if(!de_strcmp(ehi->name->sz, "path")) {
+		if(!pmd->alt_name) pmd->alt_name = ucstring_create(c);
+		ucstring_empty(pmd->alt_name);
+		ucstring_append_ucstring(pmd->alt_name, ehi->value->str);
+	}
+
+	*bytes_consumed = ehi->fieldlen;
+	retval = 1;
+
+done:
+	if(!retval) {
+		de_warn(c, "Failed to parse extended header at %"I64_FMT, pos1);
+	}
+	if(ehi) {
+		de_destroy_stringreaderdata(c, ehi->name);
+		de_destroy_stringreaderdata(c, ehi->value);
+		de_free(c, ehi);
+	}
+	de_dbg_indent_restore(c, saved_indent_level);
+	return retval;
+}
+
+static void read_exthdr(deark *c, lctx *d, struct phys_member_data *pmd)
 {
 	int saved_indent_level;
-	de_ucstring *tmps = NULL;
+	i64 pos = pmd->file_data_pos;
 
 	de_dbg_indent_save(c, &saved_indent_level);
 	de_dbg(c, "POSIX extended header data at %"I64_FMT, pmd->file_data_pos);
 	de_dbg_indent(c, 1);
 
-	tmps = ucstring_create(c);
-	dbuf_read_to_ucstring_n(c->infile, pmd->file_data_pos, pmd->filesize,
-		32768, tmps, 0, DE_ENCODING_UTF8);
-	de_dbg(c, "data: \"%s\"", ucstring_getpsz_d(tmps));
-	ucstring_destroy(tmps);
+	if(c->debug_level>=2) {
+		de_ucstring *tmps;
+		tmps = ucstring_create(c);
+		dbuf_read_to_ucstring_n(c->infile, pmd->file_data_pos, pmd->filesize,
+			32768, tmps, 0, DE_ENCODING_UTF8);
+		de_dbg(c, "data: \"%s\"", ucstring_getpsz_d(tmps));
+		ucstring_destroy(tmps);
+	}
+
+	while(pos < pmd->file_data_pos + pmd->filesize) {
+		i64 bytes_consumed = 0;
+
+		if(!read_exthdr_item(c, d, pmd, pos,
+			pmd->file_data_pos+pmd->filesize-pos, &bytes_consumed))
+		{
+			break;
+		}
+		if(bytes_consumed<1) break;
+		pos += bytes_consumed;
+	}
 
 	de_dbg_indent_restore(c, saved_indent_level);
 }
@@ -284,12 +423,12 @@ static int read_member(deark *c, lctx *d, i64 pos1, i64 *bytes_consumed_member)
 	if(pmd->linkflag == 'L') {
 		pmd_special = pmd;
 		pmd = NULL;
-		read_gnu_longpath(c, d, md, pmd_special);
+		read_gnu_longpath(c, d, pmd_special);
 	}
 	else if(pmd->linkflag == 'x') {
 		pmd_special = pmd;
 		pmd = NULL;
-		read_exthdr(c, d, md, pmd_special);
+		read_exthdr(c, d, pmd_special);
 	}
 
 	// If a special preamble member was found, we set pmd to NULL. In that case
