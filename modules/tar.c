@@ -25,6 +25,7 @@ struct phys_member_data {
 	i64 checksum;
 	i64 checksum_calc;
 	de_ucstring *name;
+	struct de_stringreaderdata *linkname;
 	de_ucstring *prefix;
 	de_ucstring *alt_name;
 	struct de_timestamp alt_mod_time;
@@ -33,6 +34,7 @@ struct phys_member_data {
 struct member_data {
 	de_ucstring *filename;
 	de_finfo *fi;
+	int is_dir, is_regular_file, is_symlink;
 };
 
 typedef struct localctx_struct {
@@ -86,11 +88,13 @@ static int read_phys_member_header(deark *c, lctx *d,
 	// Look ahead to try to figure out some things about the format of this member.
 
 	de_read(hdrblock, pos1, 512);
+	calc_checksum(c, d, pmd, hdrblock);
 
-	if(hdrblock[0] == 0x00) {
+	if(pmd->checksum_calc==8*32 && de_is_all_zeroes(&hdrblock[148], 8)) {
 		// "The end of the archive is indicated by two records consisting
 		// entirely of zero bytes."
-		// TODO: We should maybe test more than just the first byte.
+		// Most tar programs seem to stop at the first "zero block", so that's
+		// what we'll do.
 		de_dbg(c, "[trailer record]");
 		d->found_trailer = 1;
 		goto done;
@@ -104,8 +108,6 @@ static int read_phys_member_header(deark *c, lctx *d,
 	else if(!de_memcmp(&hdrblock[257], (const void*)"ustar\0", 6)) {
 		pmd->fmt = TARFMT_POSIX;
 	}
-
-	calc_checksum(c, d, pmd, hdrblock);
 
 	de_dbg(c, "tar format: %s", get_fmt_name(pmd->fmt));
 
@@ -160,12 +162,24 @@ static int read_phys_member_header(deark *c, lctx *d,
 		de_byte_to_printable_char(pmd->linkflag));
 	pos += 1;
 
-	pos += 100; // linkname (TODO)
+	if(de_getbyte(pos)!=0) {
+		pmd->linkname = dbuf_read_string(c->infile, pos, 100, 100, DE_CONVFLAG_STOP_AT_NUL,
+			d->input_encoding);
+		de_dbg(c, "linkname: \"%s\"", ucstring_getpsz_d(pmd->linkname->str));
+	}
+	pos += 100;
 
+	tmpstr = ucstring_create(c);
+
+	if(c->debug_level>=2) {
+		ucstring_empty(tmpstr);
+		dbuf_read_to_ucstring(c->infile, pos, 8, tmpstr, 0,
+			DE_ENCODING_PRINTABLEASCII);
+		de_dbg2(c, "magic/version: \"%s\"", ucstring_getpsz_d(tmpstr));
+	}
 	pos += 6; // magic
 	pos += 2; // version
 
-	tmpstr = ucstring_create(c);
 	if(pmd->fmt==TARFMT_POSIX || pmd->fmt==TARFMT_GNU) {
 		ucstring_empty(tmpstr);
 		dbuf_read_to_ucstring(c->infile, pos, 32, tmpstr, DE_CONVFLAG_STOP_AT_NUL,
@@ -210,6 +224,7 @@ static void destroy_pmd(deark *c, struct phys_member_data *pmd)
 {
 	if(!pmd) return;
 	ucstring_destroy(pmd->name);
+	de_destroy_stringreaderdata(c, pmd->linkname);
 	ucstring_destroy(pmd->prefix);
 	ucstring_destroy(pmd->alt_name);
 	de_free(c, pmd);
@@ -436,7 +451,7 @@ static int read_member(deark *c, lctx *d, i64 pos1, i64 *bytes_consumed_member)
 	struct member_data *md = NULL;
 	struct phys_member_data *pmd = NULL;
 	struct phys_member_data *pmd_special = NULL;
-	int is_dir, is_regular_file;
+	dbuf *outf = NULL;
 	unsigned int snflags;
 	i64 pos = pos1;
 
@@ -497,35 +512,35 @@ static int read_member(deark *c, lctx *d, i64 pos1, i64 *bytes_consumed_member)
 
 	// Try to figure out what kind of "file" this is.
 
-	is_dir = 0;
-	is_regular_file = 0;
-
-	if(pmd->fmt==TARFMT_POSIX) {
+	if(pmd->linkflag=='2') {
+		md->is_symlink = 1;
+	}
+	else if(pmd->fmt==TARFMT_POSIX) {
 		if(pmd->linkflag=='0' || pmd->linkflag==0) {
-			is_regular_file = 1;
+			md->is_regular_file = 1;
 		}
 		else if(pmd->linkflag=='5') {
-			is_dir = 1;
+			md->is_dir = 1;
 		}
 	}
 	else if(pmd->fmt==TARFMT_GNU) {
 		if(pmd->linkflag=='0' || pmd->linkflag=='7' || pmd->linkflag==0) {
-			is_regular_file = 1;
+			md->is_regular_file = 1;
 		}
 		else if(pmd->linkflag=='5') { // TODO: 'D'
-			is_dir = 1;
+			md->is_dir = 1;
 		}
 	}
 	else {
 		if(pmd->name->len>=1 && pmd->name->str[pmd->name->len-1]=='/') {
-			is_dir = 1;
+			md->is_dir = 1;
 		}
 		else if(pmd->linkflag==0 || pmd->linkflag=='0') {
-			is_regular_file = 1;
+			md->is_regular_file = 1;
 		}
 	}
 
-	de_dbg(c, "file data at %"I64_FMT, pos);
+	de_dbg(c, "file data at %"I64_FMT, pmd->file_data_pos);
 
 	if(pmd_special && pmd_special->alt_mod_time.is_valid) {
 		md->fi->mod_time = pmd_special->alt_mod_time;
@@ -534,17 +549,18 @@ static int read_member(deark *c, lctx *d, i64 pos1, i64 *bytes_consumed_member)
 		md->fi->mod_time = pmd->mod_time;
 	}
 
-	if(!is_regular_file && !is_dir) {
-		de_warn(c, "\"%s\" is a special file. It will not be extracted as such.",
-			ucstring_getpsz(md->filename));
+	if(!md->is_regular_file && !md->is_dir) {
+		de_warn(c, "\"%s\" is a %s. It will not be extracted as such.",
+			ucstring_getpsz(md->filename),
+			md->is_symlink?"symlink":"special file");
 	}
 
 	snflags = DE_SNFLAG_FULLPATH;
-	if(is_dir) {
+	if(md->is_dir) {
 		md->fi->is_directory = 1;
 		snflags |= DE_SNFLAG_STRIPTRAILINGSLASH;
 	}
-	else if(is_regular_file) {
+	else if(md->is_regular_file) {
 		if((pmd->mode & 0111)!=0) {
 			md->fi->mode_flags |= DE_MODEFLAG_EXE;
 		}
@@ -556,9 +572,20 @@ static int read_member(deark *c, lctx *d, i64 pos1, i64 *bytes_consumed_member)
 	md->fi->original_filename_flag = 1;
 
 	if(pmd->file_data_pos + pmd->filesize > c->infile->len) goto done;
-	dbuf_create_file_from_slice(c->infile, pmd->file_data_pos, pmd->filesize, NULL, md->fi, 0);
+
+	outf = dbuf_create_output_file(c, NULL, md->fi, 0);
+
+	// If a symlink has no data, write the 'linkname' field instead.
+	if(md->is_symlink && pmd->filesize==0 && pmd->linkname) {
+		dbuf_write(outf, (const u8*)pmd->linkname->sz,
+			(i64)de_strlen(pmd->linkname->sz));
+		goto done;
+	}
+
+	dbuf_copy(c->infile, pmd->file_data_pos, pmd->filesize, outf);
 
 done:
+	dbuf_close(outf);
 	*bytes_consumed_member = pos - pos1;
 	destroy_pmd(c, pmd);
 	destroy_pmd(c, pmd_special);
