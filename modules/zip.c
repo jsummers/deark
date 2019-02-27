@@ -259,7 +259,7 @@ static void ef_extended_timestamp(deark *c, lctx *d, struct extra_item_info_stru
 	}
 	if(has_ctime) {
 		if(pos+4>endpos) return;
-		read_unix_timestamp(c, d, pos, &timestamp_tmp, "ctime");
+		read_unix_timestamp(c, d, pos, &timestamp_tmp, "creation time");
 		pos+=4;
 	}
 }
@@ -353,7 +353,7 @@ static void ef_ntfs(deark *c, lctx *d, struct extra_item_info_struct *eii)
 			read_FILETIME(c, d, pos, &timestamp_tmp, "mtime");
 			apply_mod_time(c, d, eii->md, &timestamp_tmp, 90);
 			read_FILETIME(c, d, pos+8, &timestamp_tmp, "atime");
-			read_FILETIME(c, d, pos+16, &timestamp_tmp, "ctime");
+			read_FILETIME(c, d, pos+16, &timestamp_tmp, "creation time");
 		}
 		de_dbg_indent(c, -1);
 
@@ -813,8 +813,18 @@ static const char *get_cmpr_meth_name(int n)
 	case 6: s="implode"; break;
 	case 8: s="deflate"; break;
 	case 9: s="deflate64"; break;
+	case 10: s="PKWARE DCL implode"; break;
 	case 12: s="bzip2"; break;
 	case 14: s="LZMA"; break;
+	case 16: s="IBM z/OS CMPSC "; break;
+	case 18: s="IBM TERSE (new)"; break;
+	case 19: s="IBM LZ77 z Architecture"; break;
+	case 94: s="MP3"; break;
+	case 95: s="XZ"; break;
+	case 96: s="JPEG"; break;
+	case 97: s="WavPack"; break;
+	case 98: s="PPMd"; break;
+	case 99: s="AES"; break;
 	}
 	return s;
 }
