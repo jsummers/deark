@@ -29,6 +29,8 @@ struct phys_member_data {
 	de_ucstring *prefix;
 	de_ucstring *alt_name;
 	struct de_timestamp alt_mod_time;
+	u8 has_alt_size;
+	i64 alt_size;
 };
 
 struct member_data {
@@ -152,7 +154,7 @@ static int read_phys_member_header(deark *c, lctx *d,
 	}
 	de_dbg(c, "header checksum (calculated): %"I64_FMT, pmd->checksum_calc);
 	if(pmd->checksum != pmd->checksum_calc) {
-		de_warn(c, "%s: Header checksum failed: reported=%"I64_FMT", calculated=%"I64_FMT,
+		de_err(c, "%s: Header checksum failed: reported=%"I64_FMT", calculated=%"I64_FMT,
 			ucstring_getpsz_d(pmd->name), pmd->checksum, pmd->checksum_calc);
 	}
 	pos += 8;
@@ -391,7 +393,15 @@ static int read_exthdr_item(deark *c, lctx *d, struct phys_member_data *pmd,
 	else if(!de_strcmp(ehi->name->sz, "mtime")) {
 		do_exthdr_mtime(c, d, pmd, ehi);
 	}
-	// TODO: "size"
+	else if(!de_strcmp(ehi->name->sz, "size")) {
+		if(ehi->val_len==0) {
+			pmd->has_alt_size = 0;
+		}
+		else {
+			pmd->has_alt_size = 1;
+			pmd->alt_size = de_strtoll(ehi->value->sz, NULL, 10);
+		}
+	}
 	// TODO: "linkpath"
 	// TODO: "hdrcharset"
 
@@ -482,19 +492,36 @@ static int read_member(deark *c, lctx *d, i64 pos1, i64 *bytes_consumed_member)
 		pmd = NULL;
 		read_exthdr(c, d, pmd_special);
 	}
+	// TODO: linkflag 'g'
+	// TODO: linkflag 'K'
 
 	// If a special preamble member was found, we set pmd to NULL. In that case
 	// we need to try again to read the real member.
+	// TODO: We probably need to support more than two physical members per
+	// logical member.
 	if(!pmd) {
 		pmd = de_malloc(c, sizeof(struct phys_member_data));
 		if(!read_phys_member_header(c, d, pmd, pos)) {
 			goto done;
 		}
 		pos += 512;
+
+		if(pmd_special && pmd_special->has_alt_size) {
+			pmd->filesize = pmd_special->alt_size;
+		}
+
 		pos += de_pad_to_n(pmd->filesize, 512);
 	}
 
 	retval = 1;
+
+	if((pmd->checksum != pmd->checksum_calc) && c->extract_level<2) {
+		// TODO: This little more than a hack, so that we don't extract so
+		// much garbage if the file is corrupt, or we go off the rails.
+		// There are more robust ways to deal with such issues.
+		de_dbg(c, "[not extracting, due to bad checksum]");
+		goto done;
+	}
 
 	// Decide on a filename
 	if(pmd_special && ucstring_isnonempty(pmd_special->alt_name)) {
@@ -527,7 +554,7 @@ static int read_member(deark *c, lctx *d, i64 pos1, i64 *bytes_consumed_member)
 		if(pmd->linkflag=='0' || pmd->linkflag=='7' || pmd->linkflag==0) {
 			md->is_regular_file = 1;
 		}
-		else if(pmd->linkflag=='5') { // TODO: 'D'
+		else if(pmd->linkflag=='5') {
 			md->is_dir = 1;
 		}
 	}
