@@ -15,6 +15,7 @@ struct phys_member_data {
 #define TARFMT_UNKNOWN  0
 #define TARFMT_POSIX    1
 #define TARFMT_GNU      2
+#define TARFMT_STAR     3
 	int fmt;
 	u8 linkflag;
 	i64 mode;
@@ -50,6 +51,7 @@ static const char* get_fmt_name(int fmt)
 	switch(fmt) {
 	case TARFMT_POSIX: n = "POSIX"; break;
 	case TARFMT_GNU: n = "GNU"; break;
+	case TARFMT_STAR: n = "star"; break;
 	}
 	return n;
 }
@@ -110,6 +112,9 @@ static int read_phys_member_header(deark *c, lctx *d,
 	else if(!de_memcmp(&hdrblock[257], (const void*)"ustar\0", 6)) {
 		pmd->fmt = TARFMT_POSIX;
 	}
+	else if(!de_memcmp(&hdrblock[508], (const void*)"tar\0", 4)) {
+		pmd->fmt = TARFMT_STAR;
+	}
 
 	de_dbg(c, "tar format: %s", get_fmt_name(pmd->fmt));
 
@@ -145,7 +150,7 @@ static int read_phys_member_header(deark *c, lctx *d,
 	if(!ret) goto done;
 	de_unix_time_to_timestamp(pmd->modtime_unix, &pmd->mod_time, 0x1);
 	de_timestamp_to_string(&pmd->mod_time, timestamp_buf, sizeof(timestamp_buf), 0);
-	de_dbg(c, "mtime: %d (%s)", (int)pmd->modtime_unix, timestamp_buf);
+	de_dbg(c, "mtime: %"I64_FMT" (%s)", pmd->modtime_unix, timestamp_buf);
 	pos += 12;
 
 	ret = dbuf_read_ascii_number(c->infile, pos, 8, 8, &pmd->checksum);
@@ -201,7 +206,7 @@ static int read_phys_member_header(deark *c, lctx *d,
 	pos += 8; // devmajor
 	pos += 8; // devminor
 
-	if(pmd->fmt==TARFMT_POSIX && (de_getbyte(pos)!=0)) {
+	if((pmd->fmt==TARFMT_POSIX || pmd->fmt==TARFMT_STAR) && (de_getbyte(pos)!=0)) {
 		// This field might only be 131 bytes, instead of 155. Let's hope that
 		// that it's NUL terminated in that case.
 		pmd->prefix = ucstring_create(c);
@@ -209,7 +214,9 @@ static int read_phys_member_header(deark *c, lctx *d,
 			DE_CONVFLAG_STOP_AT_NUL, d->input_encoding);
 		de_dbg(c, "prefix: \"%s\"", ucstring_getpsz_d(pmd->prefix));
 	}
-	pos += 155; // prefix, or prefix+atime+ctime
+	pos += 131; // first 133 bytes of prefix, or all of prefix
+	pos += 12; // next 12 bytes of prefix, or atime
+	pos += 12; // last 12 bytes of prefix, or ctime
 
 	pos += 12; // pad
 
@@ -276,11 +283,14 @@ static void do_exthdr_mtime(deark *c, lctx *d, struct phys_member_data *pmd,
 
 	// TODO: There is probably roundoff error here than there needs to be.
 	val_dbl = strtod(ehi->value->sz, NULL);
-	// Negative values are legal, but improbable, and our code won't correctly
-	// handle them.
-	if(val_dbl < 0.0) return;
-	val_int = (int)val_dbl;
-	val_frac = val_dbl - (double)val_int;
+	if(val_dbl > 0.0) {
+		val_int = (i64)val_dbl;
+		val_frac = val_dbl - (double)val_int;
+	}
+	else {
+		val_int = (i64)val_dbl;
+		val_frac = 0.0;
+	}
 
 	de_unix_time_to_timestamp(val_int, &pmd->alt_mod_time, 0x1);
 	if(val_frac > 0.0) {
@@ -487,7 +497,7 @@ static int read_member(deark *c, lctx *d, i64 pos1, i64 *bytes_consumed_member)
 		pmd = NULL;
 		read_gnu_longpath(c, d, pmd_special);
 	}
-	else if(pmd->linkflag == 'x') {
+	else if(pmd->linkflag == 'x' || pmd->linkflag == 'X') {
 		pmd_special = pmd;
 		pmd = NULL;
 		read_exthdr(c, d, pmd_special);
@@ -542,7 +552,7 @@ static int read_member(deark *c, lctx *d, i64 pos1, i64 *bytes_consumed_member)
 	if(pmd->linkflag=='2') {
 		md->is_symlink = 1;
 	}
-	else if(pmd->fmt==TARFMT_POSIX) {
+	else if(pmd->fmt==TARFMT_POSIX || pmd->fmt==TARFMT_STAR) {
 		if(pmd->linkflag=='0' || pmd->linkflag==0) {
 			md->is_regular_file = 1;
 		}
@@ -567,7 +577,8 @@ static int read_member(deark *c, lctx *d, i64 pos1, i64 *bytes_consumed_member)
 		}
 	}
 
-	de_dbg(c, "file data at %"I64_FMT, pmd->file_data_pos);
+	de_dbg(c, "file data at %"I64_FMT", len=%"I64_FMT, pmd->file_data_pos,
+		pmd->filesize);
 
 	if(pmd_special && pmd_special->alt_mod_time.is_valid) {
 		md->fi->mod_time = pmd_special->alt_mod_time;
@@ -666,6 +677,12 @@ static int de_identify_tar(deark *c)
 	has_ext = de_input_file_has_ext(c, "tar");;
 	if(!dbuf_memcmp(c->infile, 257, "ustar", 5)) {
 		return has_ext ? 100 : 90;
+	}
+
+	if(has_ext) {
+		if(!dbuf_memcmp(c->infile, 508, "tar\0", 4)) {
+			return 90;
+		}
 	}
 
 	// Try to detect tar formats that don't have the "ustar" identifier.
