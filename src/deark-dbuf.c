@@ -229,8 +229,8 @@ static i64 dbuf_getuint_ext_be_direct(const u8 *m, unsigned int nbytes)
 	unsigned int k;
 	u64 val = 0;
 
-	if(nbytes>8) return 0;
 	for(k=0; k<nbytes; k++) {
+		if(val>0x00ffffffffffffffULL) return 0;
 		val = (val<<8) | (u64)m[k];
 	}
 	return (i64)val;
@@ -241,9 +241,11 @@ static i64 dbuf_getuint_ext_le_direct(const u8 *m, unsigned int nbytes)
 	unsigned int k;
 	u64 val = 0;
 
-	if(nbytes>8) return 0;
 	for(k=0; k<nbytes; k++) {
-		val |= ((u64)m[k])<<k;
+		if(m[k]!=0) {
+			if(k>7) return 0;
+			val |= ((u64)m[k])<<(k*8);
+		}
 	}
 	return (i64)val;
 }
@@ -251,8 +253,9 @@ static i64 dbuf_getuint_ext_le_direct(const u8 *m, unsigned int nbytes)
 static i64 dbuf_getuint_ext_x(dbuf *f, i64 pos, unsigned int nbytes,
 	int is_le)
 {
-	u8 m[8];
-	if(nbytes>8) return 0;
+	u8 m[24];
+
+	if(nbytes>(unsigned int)sizeof(m)) return 0;
 	dbuf_read(f, m, pos, (i64)nbytes);
 	if(is_le) {
 		return dbuf_getuint_ext_le_direct(m, nbytes);

@@ -62,6 +62,28 @@ static const char* get_fmt_name(int fmt)
 	return n;
 }
 
+static int read_ascii_octal_number(dbuf *f, i64 pos, i64 fieldsize,
+	i64 *value)
+{
+	u8 b1;
+	b1 = dbuf_getbyte(f, pos);
+
+	if(b1<0x80) {
+		// The usual ASCII-octal format
+		return dbuf_read_ascii_number(f, pos, fieldsize, 8, value);
+	}
+
+	// "base-256" or some other special format
+	if(b1==0x80) { // positive base-256 number
+		*value = dbuf_getint_ext(f, pos+1, (unsigned int)(fieldsize-1), 0, 0);
+		return 1;
+	}
+	// TODO: Handle negative numbers
+
+	*value = 0;
+	return 0;
+}
+
 // Sets md->checksum_calc
 static void calc_checksum(deark *c, lctx *d, struct phys_member_data *pmd,
 	const u8 *hdrblock)
@@ -130,39 +152,39 @@ static int read_phys_member_header(deark *c, lctx *d,
 	pos += 100;
 	de_dbg(c, "name: \"%s\"", ucstring_getpsz_d(pmd->name));
 
-	ret = dbuf_read_ascii_number(c->infile, pos, 8, 8, &pmd->mode);
-	if(!ret) goto done;
+	ret = read_ascii_octal_number(c->infile, pos, 8, &pmd->mode);
+	if(ret) {
+		de_dbg(c, "mode: octal(%06o)", (unsigned int)pmd->mode);
+	}
 	pos += 8;
-	de_dbg(c, "mode: octal(%06o)", (unsigned int)pmd->mode);
 
-	ret = dbuf_read_ascii_number(c->infile, pos, 8, 8, &n);
+	ret = read_ascii_octal_number(c->infile, pos, 8, &n);
 	if(ret) {
 		de_dbg(c, "uid: %"I64_FMT, n);
 	}
 	pos += 8;
-	ret = dbuf_read_ascii_number(c->infile, pos, 8, 8, &n);
+	ret = read_ascii_octal_number(c->infile, pos, 8, &n);
 	if(ret) {
 		de_dbg(c, "gid: %"I64_FMT, n);
 	}
 	pos += 8;
 
-	ret = dbuf_read_ascii_number(c->infile, pos, 12, 8, &pmd->filesize);
+	ret = read_ascii_octal_number(c->infile, pos, 12, &pmd->filesize);
 	if(!ret) goto done;
 	pos += 12;
 	de_dbg(c, "size: %"I64_FMT, pmd->filesize);
 	pmd->file_data_pos = pos1 + 512;
 
-	ret = dbuf_read_ascii_number(c->infile, pos, 12, 8, &pmd->modtime_unix);
-	if(!ret) goto done;
-	de_unix_time_to_timestamp(pmd->modtime_unix, &pmd->mod_time, 0x1);
-	de_timestamp_to_string(&pmd->mod_time, timestamp_buf, sizeof(timestamp_buf), 0);
-	de_dbg(c, "mtime: %"I64_FMT" (%s)", pmd->modtime_unix, timestamp_buf);
+	ret = read_ascii_octal_number(c->infile, pos, 12, &pmd->modtime_unix);
+	if(ret) {
+		de_unix_time_to_timestamp(pmd->modtime_unix, &pmd->mod_time, 0x1);
+		de_timestamp_to_string(&pmd->mod_time, timestamp_buf, sizeof(timestamp_buf), 0);
+		de_dbg(c, "mtime: %"I64_FMT" (%s)", pmd->modtime_unix, timestamp_buf);
+	}
 	pos += 12;
 
-	ret = dbuf_read_ascii_number(c->infile, pos, 8, 8, &pmd->checksum);
-	if(ret) {
-		de_dbg(c, "header checksum (reported): %"I64_FMT, pmd->checksum);
-	}
+	(void)read_ascii_octal_number(c->infile, pos, 8, &pmd->checksum);
+	de_dbg(c, "header checksum (reported): %"I64_FMT, pmd->checksum);
 	de_dbg(c, "header checksum (calculated): %"I64_FMT, pmd->checksum_calc);
 	if(pmd->checksum != pmd->checksum_calc) {
 		de_err(c, "%s: Header checksum failed: reported=%"I64_FMT", calculated=%"I64_FMT,
