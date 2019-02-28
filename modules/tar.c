@@ -28,6 +28,11 @@ struct phys_member_data {
 	de_ucstring *name;
 	struct de_stringreaderdata *linkname;
 	de_ucstring *prefix;
+};
+
+// A struct to collect various exended attributes from a logical member
+// (or for global attributes).
+struct extattr_data {
 	de_ucstring *alt_name;
 	struct de_timestamp alt_mod_time;
 	u8 has_alt_size;
@@ -43,6 +48,7 @@ struct member_data {
 typedef struct localctx_struct {
 	int input_encoding;
 	int found_trailer;
+	struct extattr_data *global_ea;
 } lctx;
 
 static const char* get_fmt_name(int fmt)
@@ -235,11 +241,17 @@ static void destroy_pmd(deark *c, struct phys_member_data *pmd)
 	ucstring_destroy(pmd->name);
 	de_destroy_stringreaderdata(c, pmd->linkname);
 	ucstring_destroy(pmd->prefix);
-	ucstring_destroy(pmd->alt_name);
 	de_free(c, pmd);
 }
 
-static void read_gnu_longpath(deark *c, lctx *d, struct phys_member_data *pmd)
+static void destroy_extattr_data(deark *c, struct extattr_data *ea)
+{
+	if(!ea) return;
+	ucstring_destroy(ea->alt_name);
+}
+
+static void read_gnu_longpath(deark *c, lctx *d, struct phys_member_data *pmd,
+	struct extattr_data *ea)
 {
 	i64 pos = pmd->file_data_pos;
 	i64 ext_name_len = pmd->filesize;
@@ -249,10 +261,13 @@ static void read_gnu_longpath(deark *c, lctx *d, struct phys_member_data *pmd)
 	if(ext_name_len<1 || ext_name_len>32768) goto done;
 
 	de_dbg(c, "ext. filename at %"I64_FMT, pos);
-	pmd->alt_name = ucstring_create(c);
-	dbuf_read_to_ucstring(c->infile, pos, ext_name_len-1, pmd->alt_name, 0,
+	if(!ea->alt_name) {
+		ea->alt_name = ucstring_create(c);
+	}
+	ucstring_empty(ea->alt_name);
+	dbuf_read_to_ucstring(c->infile, pos, ext_name_len-1, ea->alt_name, 0,
 		d->input_encoding);
-	de_dbg(c, "ext. filename: \"%s\"", ucstring_getpsz_d(pmd->alt_name));
+	de_dbg(c, "ext. filename: \"%s\"", ucstring_getpsz_d(ea->alt_name));
 
 done:
 	de_dbg_indent(c, -1);
@@ -272,7 +287,7 @@ struct exthdr_item {
 };
 
 static void do_exthdr_mtime(deark *c, lctx *d, struct phys_member_data *pmd,
-	struct exthdr_item *ehi)
+	struct exthdr_item *ehi, struct extattr_data *ea)
 {
 	double val_dbl;
 	double val_frac;
@@ -292,16 +307,17 @@ static void do_exthdr_mtime(deark *c, lctx *d, struct phys_member_data *pmd,
 		val_frac = 0.0;
 	}
 
-	de_unix_time_to_timestamp(val_int, &pmd->alt_mod_time, 0x1);
+	de_unix_time_to_timestamp(val_int, &ea->alt_mod_time, 0x1);
 	if(val_frac > 0.0) {
-		de_timestamp_set_subsec(&pmd->alt_mod_time, val_frac);
+		de_timestamp_set_subsec(&ea->alt_mod_time, val_frac);
 	}
 
-	de_timestamp_to_string(&pmd->alt_mod_time, timestamp_buf, sizeof(timestamp_buf), 0);
+	de_timestamp_to_string(&ea->alt_mod_time, timestamp_buf, sizeof(timestamp_buf), 0);
 	de_dbg(c, "mod time: %s", timestamp_buf);
 }
 
 static int read_exthdr_item(deark *c, lctx *d, struct phys_member_data *pmd,
+	struct extattr_data *ea,
 	i64 pos1, i64 max_len, i64 *bytes_consumed)
 {
 	struct exthdr_item *ehi = NULL;
@@ -396,20 +412,20 @@ static int read_exthdr_item(deark *c, lctx *d, struct phys_member_data *pmd,
 	de_dbg(c, "value: \"%s\"", ucstring_getpsz_d(ehi->value->str));
 
 	if(!de_strcmp(ehi->name->sz, "path")) {
-		if(!pmd->alt_name) pmd->alt_name = ucstring_create(c);
-		ucstring_empty(pmd->alt_name);
-		ucstring_append_ucstring(pmd->alt_name, ehi->value->str);
+		if(!ea->alt_name) ea->alt_name = ucstring_create(c);
+		ucstring_empty(ea->alt_name);
+		ucstring_append_ucstring(ea->alt_name, ehi->value->str);
 	}
 	else if(!de_strcmp(ehi->name->sz, "mtime")) {
-		do_exthdr_mtime(c, d, pmd, ehi);
+		do_exthdr_mtime(c, d, pmd, ehi, ea);
 	}
 	else if(!de_strcmp(ehi->name->sz, "size")) {
 		if(ehi->val_len==0) {
-			pmd->has_alt_size = 0;
+			ea->has_alt_size = 0;
 		}
 		else {
-			pmd->has_alt_size = 1;
-			pmd->alt_size = de_strtoll(ehi->value->sz, NULL, 10);
+			ea->has_alt_size = 1;
+			ea->alt_size = de_strtoll(ehi->value->sz, NULL, 10);
 		}
 	}
 	// TODO: "linkpath"
@@ -431,7 +447,8 @@ done:
 	return retval;
 }
 
-static void read_exthdr(deark *c, lctx *d, struct phys_member_data *pmd)
+static void read_exthdr(deark *c, lctx *d, struct phys_member_data *pmd,
+	struct extattr_data *ea)
 {
 	int saved_indent_level;
 	i64 pos = pmd->file_data_pos;
@@ -452,7 +469,7 @@ static void read_exthdr(deark *c, lctx *d, struct phys_member_data *pmd)
 	while(pos < pmd->file_data_pos + pmd->filesize) {
 		i64 bytes_consumed = 0;
 
-		if(!read_exthdr_item(c, d, pmd, pos,
+		if(!read_exthdr_item(c, d, pmd, ea, pos,
 			pmd->file_data_pos+pmd->filesize-pos, &bytes_consumed))
 		{
 			break;
@@ -470,7 +487,7 @@ static int read_member(deark *c, lctx *d, i64 pos1, i64 *bytes_consumed_member)
 	int retval = 0;
 	struct member_data *md = NULL;
 	struct phys_member_data *pmd = NULL;
-	struct phys_member_data *pmd_special = NULL;
+	struct extattr_data *ea = NULL;
 	dbuf *outf = NULL;
 	unsigned int snflags;
 	i64 pos = pos1;
@@ -484,44 +501,52 @@ static int read_member(deark *c, lctx *d, i64 pos1, i64 *bytes_consumed_member)
 	md->fi = de_finfo_create(c);
 	md->filename = ucstring_create(c);
 
-	pmd = de_malloc(c, sizeof(struct phys_member_data));
+	ea = de_malloc(c, sizeof(struct extattr_data));
 
-	if(!read_phys_member_header(c, d, pmd, pos)) {
-		goto done;
-	}
-	pos += 512;
-	pos += de_pad_to_n(pmd->filesize, 512);
+	while(1) {
+		int is_supplemental_item = 0;
 
-	if(pmd->linkflag == 'L') {
-		pmd_special = pmd;
-		pmd = NULL;
-		read_gnu_longpath(c, d, pmd_special);
-	}
-	else if(pmd->linkflag == 'x' || pmd->linkflag == 'X') {
-		pmd_special = pmd;
-		pmd = NULL;
-		read_exthdr(c, d, pmd_special);
-	}
-	// TODO: linkflag 'g'
-	// TODO: linkflag 'K'
-
-	// If a special preamble member was found, we set pmd to NULL. In that case
-	// we need to try again to read the real member.
-	// TODO: We probably need to support more than two physical members per
-	// logical member.
-	if(!pmd) {
+		if(pos >= c->infile->len) goto done;
+		if(pmd) {
+			destroy_pmd(c, pmd);
+		}
 		pmd = de_malloc(c, sizeof(struct phys_member_data));
+
 		if(!read_phys_member_header(c, d, pmd, pos)) {
 			goto done;
 		}
 		pos += 512;
 
-		if(pmd_special && pmd_special->has_alt_size) {
-			pmd->filesize = pmd_special->alt_size;
+		if(pmd->linkflag == 'L') {
+			is_supplemental_item = 1;
+			read_gnu_longpath(c, d, pmd, ea);
+		}
+		else if(pmd->linkflag == 'x' || pmd->linkflag == 'X') {
+			is_supplemental_item = 1;
+			read_exthdr(c, d, pmd, ea);
+		}
+		else if(pmd->linkflag == 'g') {
+			read_exthdr(c, d, pmd, d->global_ea);
+		}
+		// TODO: linkflag 'K'
+
+		if(!is_supplemental_item) {
+			break;
 		}
 
+		// Prepare to read the next physical member
 		pos += de_pad_to_n(pmd->filesize, 512);
 	}
+	if(!pmd) goto done;
+
+	// At this point, pmd is the main physical member for this logical file.
+	// Any other pmd's have been discarded, other than extended attributes
+	// that were recorded in ea.
+
+	if(ea->has_alt_size) {
+		pmd->filesize = ea->alt_size;
+	}
+	pos += de_pad_to_n(pmd->filesize, 512);
 
 	retval = 1;
 
@@ -534,8 +559,8 @@ static int read_member(deark *c, lctx *d, i64 pos1, i64 *bytes_consumed_member)
 	}
 
 	// Decide on a filename
-	if(pmd_special && ucstring_isnonempty(pmd_special->alt_name)) {
-		ucstring_append_ucstring(md->filename, pmd_special->alt_name);
+	if(ucstring_isnonempty(ea->alt_name)) {
+		ucstring_append_ucstring(md->filename, ea->alt_name);
 	}
 	else {
 		if(ucstring_isnonempty(pmd->prefix)) {
@@ -580,8 +605,8 @@ static int read_member(deark *c, lctx *d, i64 pos1, i64 *bytes_consumed_member)
 	de_dbg(c, "file data at %"I64_FMT", len=%"I64_FMT, pmd->file_data_pos,
 		pmd->filesize);
 
-	if(pmd_special && pmd_special->alt_mod_time.is_valid) {
-		md->fi->mod_time = pmd_special->alt_mod_time;
+	if(ea->alt_mod_time.is_valid) {
+		md->fi->mod_time = ea->alt_mod_time;
 	}
 	else if(pmd->mod_time.is_valid) {
 		md->fi->mod_time = pmd->mod_time;
@@ -626,7 +651,7 @@ done:
 	dbuf_close(outf);
 	*bytes_consumed_member = pos - pos1;
 	destroy_pmd(c, pmd);
-	destroy_pmd(c, pmd_special);
+	destroy_extattr_data(c, ea);
 	if(md) {
 		ucstring_destroy(md->filename);
 		de_finfo_destroy(c, md->fi);
@@ -644,6 +669,8 @@ static void de_run_tar(deark *c, de_module_params *mparams)
 	int ret;
 
 	d = de_malloc(c, sizeof(lctx));
+
+	d->global_ea = de_malloc(c, sizeof(struct extattr_data));
 
 	if(c->input_encoding==DE_ENCODING_UNKNOWN)
 		d->input_encoding = DE_ENCODING_UTF8;
@@ -664,7 +691,10 @@ static void de_run_tar(deark *c, de_module_params *mparams)
 		pos += item_len;
 	}
 
-	de_free(c, d);
+	if(d) {
+		destroy_extattr_data(c, d->global_ea);
+		de_free(c, d);
+	}
 }
 
 static int de_identify_tar(deark *c)
