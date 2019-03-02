@@ -397,7 +397,7 @@ static int do_wmf(deark *c, lctx *d, i64 pos1)
 
 	if(pixels_final->len != decompressed_size) {
 		de_warn(c, "Expected %d bytes after decompression, got %d",
-			(int)decompressed_size, (int)outf->len);
+			(int)decompressed_size, (int)pixels_final->len);
 	}
 
 	outf = dbuf_create_output_file(c, "wmf", NULL, 0);
