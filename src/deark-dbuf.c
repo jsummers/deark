@@ -645,6 +645,23 @@ static int copy_cbfn(struct de_bufferedreadctx *brctx, const u8 *buf,
 
 void dbuf_copy(dbuf *inf, i64 input_offset, i64 input_len, dbuf *outf)
 {
+	u8 tmpbuf[256];
+
+	if(inf->btype==DBUF_TYPE_MEMBUF &&
+		(input_offset>=0) && (input_offset+input_len<=inf->len))
+	{
+		// Fast path if the data to copy is all in memory
+		dbuf_write(outf, &inf->membuf_buf[input_offset], input_len);
+		return;
+	}
+
+	if(input_len<=sizeof(tmpbuf)) {
+		// Fast path for small sizes
+		dbuf_read(inf, tmpbuf, input_offset, input_len);
+		dbuf_write(outf, tmpbuf, input_len);
+		return;
+	}
+
 	dbuf_buffered_read(inf, input_offset, input_len, copy_cbfn, (void*)outf);
 }
 
