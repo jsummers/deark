@@ -171,7 +171,7 @@ static void do_opt_coff_nt_header_64(deark *c, lctx *d, i64 pos)
 	de_dbg_indent(c, 1);
 
 	base_offset = de_geti64le(pos);
-	de_dbg(c, "image base offset: 0x%016" I64_FMTx "", base_offset);
+	de_dbg(c, "image base offset: 0x%016" U64_FMTx "", (u64)base_offset);
 
 	subsystem = de_getu16le(pos+44);
 	de_dbg(c, "subsystem: %d%s", (int)subsystem, get_subsys_desc(subsystem));

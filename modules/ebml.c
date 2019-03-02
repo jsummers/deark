@@ -502,7 +502,7 @@ static int do_element(deark *c, lctx *d, i64 pos1,
 	else
 		dtype = 0;
 
-	de_dbg(c, "id: 0x%"I64_FMTx" (%s)", ele_id, ele_name);
+	de_dbg(c, "id: 0x%"U64_FMTx" (%s)", (u64)ele_id, ele_name);
 	if(d->show_encoded_id) {
 		print_encoded_id(c, d, pos1, pos-pos1);
 	}

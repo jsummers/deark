@@ -37,7 +37,8 @@
 #define u8 unsigned char
 #define I64_FMT "I64d"
 #define U64_FMT "I64u"
-#define I64_FMTx "I64x"
+#define U64_FMTx "I64x"
+#define U64_FMTo "I64o"
 
 #else
 
@@ -50,7 +51,8 @@
 #define u8 unsigned char
 #define I64_FMT PRId64
 #define U64_FMT PRIu64
-#define I64_FMTx PRIx64
+#define U64_FMTx PRIx64
+#define U64_FMTo PRIo64
 
 #endif
 
