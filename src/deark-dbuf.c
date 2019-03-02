@@ -1712,6 +1712,7 @@ void dbuf_read_fourcc(dbuf *f, i64 pos, struct de_fourcc *fcc,
 		DE_CONVFLAG_ALLOW_HL, DE_ENCODING_ASCII);
 }
 
+// dbuf_buffered_read:
 // Read a slice of a dbuf, and pass its data to a callback function, one
 // segment at a time.
 // cbfn: Caller-implemented callback function.
@@ -1723,19 +1724,15 @@ void dbuf_read_fourcc(dbuf *f, i64 pos, struct de_fourcc *fcc,
 //   - At least 1 byte will be provided.
 //   - If eof_flag is not set, at least 1024 bytes will be provided.
 // Return value: 1 normally, 0 if the callback function ever returned 0.
-int dbuf_buffered_read(dbuf *f, i64 pos1, i64 len,
-	de_buffered_read_cbfn cbfn, void *userdata)
+static int buffered_read_internal(struct de_bufferedreadctx *brctx,
+	dbuf *f, i64 pos1, i64 len, de_buffered_read_cbfn cbfn)
 {
 	int retval = 0;
 	i64 pos = pos1; // Absolute pos of next byte to read from f
 	i64 offs_of_first_byte_in_buf; // Relative to pos1, where in f is buf[0]?
 	i64 num_unconsumed_bytes_in_buf;
-	struct de_bufferedreadctx brctx;
 #define BRBUFLEN 4096
 	u8 buf[BRBUFLEN];
-
-	brctx.c = f->c;
-	brctx.userdata = userdata;
 
 	num_unconsumed_bytes_in_buf = 0;
 	offs_of_first_byte_in_buf = 0;
@@ -1756,41 +1753,87 @@ int dbuf_buffered_read(dbuf *f, i64 pos1, i64 len,
 		// max bytes available to read:
 		if(bytestoread >= nbytes_avail_to_read) {
 			bytestoread = nbytes_avail_to_read;
-			brctx.eof_flag = 1;
+			brctx->eof_flag = 1;
 		}
 		else {
-			brctx.eof_flag = 0;
+			brctx->eof_flag = 0;
 		}
 
 		dbuf_read(f, &buf[num_unconsumed_bytes_in_buf], pos, bytestoread);
 		pos += bytestoread;
 		num_unconsumed_bytes_in_buf += bytestoread;
 
-		brctx.offset = offs_of_first_byte_in_buf;
-		brctx.bytes_consumed = num_unconsumed_bytes_in_buf;
-		ret = cbfn(&brctx, buf, num_unconsumed_bytes_in_buf);
+		brctx->offset = offs_of_first_byte_in_buf;
+		brctx->bytes_consumed = num_unconsumed_bytes_in_buf;
+		ret = cbfn(brctx, buf, num_unconsumed_bytes_in_buf);
 		if(!ret) goto done;
-		if(brctx.bytes_consumed<1 || brctx.bytes_consumed>num_unconsumed_bytes_in_buf) {
+		if(brctx->bytes_consumed<1 || brctx->bytes_consumed>num_unconsumed_bytes_in_buf) {
 			goto done;
 		}
 
-		if(brctx.bytes_consumed < num_unconsumed_bytes_in_buf) {
+		if(brctx->bytes_consumed < num_unconsumed_bytes_in_buf) {
 			// cbfn didn't consume all bytes
 			// TODO: For better efficiency, we could leave the buffer as it is until
 			// the unconsumed byte count drops below 1024. But that is only useful if
 			// some consumers consume only a small number of bytes.
-			de_memmove(buf, &buf[brctx.bytes_consumed],
-				(size_t)(num_unconsumed_bytes_in_buf-brctx.bytes_consumed));
-			num_unconsumed_bytes_in_buf -= brctx.bytes_consumed;
+			de_memmove(buf, &buf[brctx->bytes_consumed],
+				(size_t)(num_unconsumed_bytes_in_buf-brctx->bytes_consumed));
+			num_unconsumed_bytes_in_buf -= brctx->bytes_consumed;
 		}
 		else {
 			num_unconsumed_bytes_in_buf = 0;
 		}
-		offs_of_first_byte_in_buf += brctx.bytes_consumed;
+		offs_of_first_byte_in_buf += brctx->bytes_consumed;
 	}
 	retval = 1;
 done:
 	return retval;
+}
+
+// Optimized version, just for type membuf
+static int buffered_read_for_membuf(struct de_bufferedreadctx *brctx,
+	dbuf *f, i64 pos1, i64 len, de_buffered_read_cbfn cbfn)
+{
+	int retval = 0;
+	i64 total_nbytes_consumed = 0;
+
+	while(1) {
+		int ret;
+		i64 nbytes_to_send;
+
+		nbytes_to_send = len - total_nbytes_consumed;
+		if(nbytes_to_send<1) break;
+		brctx->bytes_consumed = nbytes_to_send;
+		brctx->offset = total_nbytes_consumed;
+		brctx->eof_flag = 1;
+
+		ret = cbfn(brctx, &f->membuf_buf[pos1+total_nbytes_consumed],
+			nbytes_to_send);
+		if(!ret) goto done;
+		if(brctx->bytes_consumed<1 || brctx->bytes_consumed>nbytes_to_send) {
+			goto done;
+		}
+		total_nbytes_consumed += brctx->bytes_consumed;
+	}
+	retval = 1;
+done:
+	return retval;
+}
+
+int dbuf_buffered_read(dbuf *f, i64 pos1, i64 len,
+	de_buffered_read_cbfn cbfn, void *userdata)
+{
+	struct de_bufferedreadctx brctx;
+
+	brctx.c = f->c;
+	brctx.userdata = userdata;
+
+	if(f->btype==DBUF_TYPE_MEMBUF && (pos1>=0) && (pos1+len<=f->len)) {
+		// Use an optimized routine if all the data we need to read is already
+		// in memory.
+		return buffered_read_for_membuf(&brctx, f, pos1, len, cbfn);
+	}
+	return buffered_read_internal(&brctx, f, pos1, len, cbfn);
 }
 
 int de_is_all_zeroes(const u8 *b, i64 n)
