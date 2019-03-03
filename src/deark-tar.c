@@ -9,17 +9,20 @@
 #include "deark-private.h"
 
 struct tar_md {
-	u8 need_exthdr_name;
+	u8 is_dir;
+	u8 has_exthdr;
+	u8 need_exthdr_path;
 	size_t namelen;
 	i64 headers_pos;
 	i64 headers_size;
-	i64 checksum_calc;
 	i64 modtime_unix;
+	i64 exthdr_num_data_blocks;
 };
 
 struct tar_ctx {
 	const char *tar_filename;
 	dbuf *outf;
+	i64 checksum_calc; // for temporary use
 
 	// Data associated with current member file
 	struct tar_md md;
@@ -84,29 +87,48 @@ void de_tar_close_file(deark *c)
 void de_tar_start_member_file(deark *c, dbuf *f)
 {
 	struct tar_ctx *tctx = NULL;
+	struct tar_md *md = NULL;
 
 	if(!c->tar_data) {
 		de_tar_create_file(c);
 	}
 	tctx = (struct tar_ctx *)c->tar_data;
 	if(!tctx) return;
-	de_zeromem(&tctx->md, sizeof(struct tar_md));
+	md = &tctx->md;
+	de_zeromem(md, sizeof(struct tar_md));
 
 	f->parent_dbuf = tctx->outf;
 
-	tctx->md.headers_pos = tctx->outf->len;
+	md->headers_pos = tctx->outf->len;
 
-	tctx->md.namelen = de_strlen(f->name);
-	if(tctx->md.namelen>100) {
-		tctx->md.need_exthdr_name = 1;
+	md->namelen = de_strlen(f->name);
+	if(md->namelen>100) {
+		md->need_exthdr_path = 1;
+	}
+	else if(!de_is_ascii((const u8*)f->name, md->namelen)) {
+		md->need_exthdr_path = 1;
 	}
 
-	tctx->md.headers_size = 512 /* *3 */;
+	if(f->fi_copy && f->fi_copy->is_directory) {
+		md->is_dir = 1;
+	}
+
+	md->has_exthdr = 1;
+	md->exthdr_num_data_blocks = 1;
+	if(md->has_exthdr) {
+		md->headers_size = (1 + md->exthdr_num_data_blocks + 1) * 512;
+		//md->main_hdr_rel_pos = (1 + md->exthdr_num_data_blocks) * 512;
+	}
+	else {
+		md->headers_size = 512;
+		//md->main_hdr_rel_pos = 0;
+	}
+
 	// Reserve space for the tar headers. We won't know the member file size
 	// until it has been completely written, so we can't write the headers
 	// yet. Instead we'll write them to headers_tmpdbuf, and seek back later
 	// and patch them into the main tar file.
-	dbuf_write_zeroes(tctx->outf, tctx->md.headers_size);
+	dbuf_write_zeroes(tctx->outf, md->headers_size);
 
 	f->offset_into_parent_dbuf = tctx->outf->len;
 }
@@ -152,14 +174,14 @@ static int format_ascii_octal_field(deark *c, struct tar_ctx *tctx,
 static int cksum_cbfn(struct de_bufferedreadctx *brctx, const u8 *buf,
 	i64 buf_len)
 {
-	struct tar_md *md = (struct tar_md*)brctx->userdata;
+	struct tar_ctx *tctx = (struct tar_ctx*)brctx->userdata;
 	i64 i;
 
 	for(i=0; i<buf_len; i++) {
 		if((brctx->offset+i) >=148 && (brctx->offset+i)<156)
-			md->checksum_calc += 32; // (The checksum field itself)
+			tctx->checksum_calc += 32; // (The checksum field itself)
 		else
-			md->checksum_calc += (i64)buf[i];
+			tctx->checksum_calc += (i64)buf[i];
 	}
 
 	return 1;
@@ -167,82 +189,74 @@ static int cksum_cbfn(struct de_bufferedreadctx *brctx, const u8 *buf,
 
 // Set the checksum field for the header starting at 'pos'.
 static void set_checksum_field(deark *c, struct tar_ctx *tctx,
-	dbuf *hdrs, i64 pos)
+	dbuf *hdr)
 {
 	u8 buf[8];
 
-	tctx->md.checksum_calc = 0;
-	dbuf_buffered_read(hdrs, pos, 512, cksum_cbfn, (void*)&tctx->md);
+	tctx->checksum_calc = 0;
+	dbuf_buffered_read(hdr, 0, 512, cksum_cbfn, (void*)tctx);
 
-	format_ascii_octal_field(c, tctx, tctx->md.checksum_calc, buf, 7);
+	format_ascii_octal_field(c, tctx, tctx->checksum_calc, buf, 7);
 	buf[6] = 0x00;
 	buf[7] = 0x20;
-	dbuf_write_at(hdrs, 148, buf, 8);
+	dbuf_write_at(hdr, 148, buf, 8);
 }
 
-static void format_and_append_ascii_field(deark *c, struct tar_ctx *tctx,
-	const char *val_sz, size_t fieldlen, dbuf *hdrs)
+static void format_and_write_ascii_field(deark *c, struct tar_ctx *tctx,
+	const char *val_sz, size_t fieldlen, dbuf *hdrs, i64 fieldpos)
 {
 	size_t val_strlen;
 
 	val_strlen = de_strlen(val_sz);
 	if(val_strlen < fieldlen) {
-		dbuf_write(hdrs, (const u8*)val_sz, val_strlen);
-		dbuf_write_zeroes(hdrs, fieldlen - val_strlen);
+		dbuf_write_at(hdrs, fieldpos, (const u8*)val_sz, val_strlen);
+		// (padding bytes will remain at 0)
 	}
 	else if(val_strlen==fieldlen) {
-		dbuf_write(hdrs, (const u8*)val_sz, fieldlen);
+		dbuf_write_at(hdrs, fieldpos, (const u8*)val_sz, fieldlen);
 	}
 	else {
-		dbuf_write(hdrs, (const u8*)val_sz, fieldlen);
+		dbuf_write_at(hdrs, fieldpos, (const u8*)val_sz, fieldlen);
 	}
 }
 
-static void format_and_append_ascii_octal_field(deark *c, struct tar_ctx *tctx,
-	i64 val, size_t fieldlen, dbuf *hdrs)
+static void format_and_write_ascii_octal_field(deark *c, struct tar_ctx *tctx,
+	i64 val, size_t fieldlen, dbuf *hdrs, i64 fieldpos)
 {
 	u8 buf[12];
 
 	if(fieldlen>12) return;
 	format_ascii_octal_field(c, tctx, val, buf, fieldlen);
-	dbuf_write(hdrs, buf, fieldlen);
+	dbuf_write_at(hdrs, fieldpos, buf, fieldlen);
 }
 
-void de_tar_end_member_file(deark *c, dbuf *f)
+// Set fields common to both the main header, and the POSIX extended (Pax)
+// header.
+static void set_common_header_fields(deark *c, struct tar_ctx *tctx,
+	dbuf *hdr)
 {
-	struct tar_ctx *tctx = (struct tar_ctx *)c->tar_data;
-	i64 padded_len;
-	i64 saved_pos;
+	struct tar_md *md = &tctx->md;
+
+	// uid
+	format_and_write_ascii_octal_field(c, tctx, 0, 8, hdr, 108);
+	// gid
+	format_and_write_ascii_octal_field(c, tctx, 0, 8, hdr, 116);
+	// mtime
+	format_and_write_ascii_octal_field(c, tctx, md->modtime_unix, 12, hdr, 136);
+	// magic/version
+	dbuf_write_at(hdr, 257, (const u8*)"ustar\0" "00", 8);
+	format_and_write_ascii_field(c, tctx, "root", 32, hdr, 265); // uname
+	format_and_write_ascii_field(c, tctx, "root", 32, hdr, 297); // gname
+}
+
+static void make_main_header(deark *c, struct tar_ctx *tctx,
+	dbuf *f, dbuf *mainhdr)
+{
+	struct tar_md *md = &tctx->md;
 	i64 mode;
 	u8 typeflag = '0';
-	dbuf *hdrs = NULL;
 
-	// Write any needed padding to the main tar file.
-	padded_len = de_pad_to_n(f->len, 512);
-	dbuf_write_zeroes(tctx->outf, padded_len - f->len);
-
-	// Preparations
-
-	if(f->fi_copy && f->fi_copy->mod_time.is_valid) {
-		tctx->md.modtime_unix = de_timestamp_to_unix_time(&f->fi_copy->mod_time);
-	}
-	else {
-		if(!c->current_time.is_valid) {
-			de_current_time_to_timestamp(&c->current_time);
-		}
-		tctx->md.modtime_unix = de_timestamp_to_unix_time(&c->current_time);
-	}
-
-	// Construct the headers, using a temporary dbuf.
-
-	hdrs = dbuf_create_membuf(c, tctx->md.headers_size, 0);
-
-	// "name"
-	format_and_append_ascii_field(c, tctx, f->name, 100, hdrs);
-
-	// "mode"
-	dbuf_truncate(hdrs, 100);
-	if(f->fi_copy && f->fi_copy->is_directory) {
+	if(md->is_dir) {
 		mode = 0755;
 		typeflag = '5';
 	}
@@ -252,43 +266,125 @@ void de_tar_end_member_file(deark *c, dbuf *f)
 	else {
 		mode = 0644;
 	}
-	format_and_append_ascii_octal_field(c, tctx, mode, 8, hdrs);
 
-	// uid
-	format_and_append_ascii_octal_field(c, tctx, 0, 8, hdrs);
-	// gid
-	format_and_append_ascii_octal_field(c, tctx, 0, 8, hdrs);
+	set_common_header_fields(c, tctx, mainhdr);
+
+	// "name"
+	format_and_write_ascii_field(c, tctx, f->name, 100, mainhdr, 0);
+	if(md->is_dir) { // add trailing slash
+		if(md->namelen<100) {
+			dbuf_writebyte_at(mainhdr, (i64)md->namelen, '/');
+		}
+		else {
+			// directory name too long
+			dbuf_writebyte_at(mainhdr, 99, '/');
+			md->need_exthdr_path = 1;
+		}
+	}
+
+	// "mode"
+	format_and_write_ascii_octal_field(c, tctx, mode, 8, mainhdr, 100);
 
 	// "size"
-	dbuf_truncate(hdrs, 124);
-	format_and_append_ascii_octal_field(c, tctx, f->len, 12, hdrs);
-
-	// mtime
-	format_and_append_ascii_octal_field(c, tctx, tctx->md.modtime_unix, 12, hdrs);
+	format_and_write_ascii_octal_field(c, tctx, f->len, 12, mainhdr, 124);
 
 	// typeflag
-	dbuf_truncate(hdrs, 156);
-	dbuf_writebyte(hdrs, typeflag);
+	dbuf_writebyte_at(mainhdr, 156, typeflag);
 
-	// magic/version
-	dbuf_truncate(hdrs, 257);
-	dbuf_write(hdrs, (const u8*)"ustar\0" "00", 8);
+	// Done populating main header, now set the checksum
 
-	dbuf_truncate(hdrs, 265);
-	format_and_append_ascii_field(c, tctx, "root", 32, hdrs); // uname
-	format_and_append_ascii_field(c, tctx, "root", 32, hdrs); // gname
+	dbuf_truncate(mainhdr, 512);
+	set_checksum_field(c, tctx, mainhdr);
+}
 
-	// Done with main header
+static void make_exthdrs(deark *c, struct tar_ctx *tctx,
+	dbuf *f, dbuf *exthdr, dbuf *extdata)
+{
+	struct tar_md *md = &tctx->md;
+	i64 extdata_len;
+	char namebuf[101];
 
-	dbuf_truncate(hdrs, tctx->md.headers_size);
-	set_checksum_field(c, tctx, hdrs, 0);
+	set_common_header_fields(c, tctx, exthdr);
+
+	// "name"
+	// This pseudo-filename will be ignored by any decent untar program.
+	// The template used here is similar to what bsdtar does.
+	de_snprintf(namebuf, sizeof(namebuf), "PaxHeader/%s", f->name);
+	format_and_write_ascii_field(c, tctx, namebuf, 100, exthdr, 0);
+
+	// "mode"
+	format_and_write_ascii_octal_field(c, tctx, 0644, 8, exthdr, 100);
+
+	// typeflag
+	dbuf_writebyte_at(exthdr, 156, 'x');
+
+	// Extended data
+	dbuf_write_at(extdata, 0, (const u8*)"12 comment=\n", 12);
+	extdata_len = 12;
+	dbuf_truncate(extdata, 512*md->exthdr_num_data_blocks);
+
+	// "size"
+	format_and_write_ascii_octal_field(c, tctx, extdata_len, 12, exthdr, 124);
+
+	dbuf_truncate(exthdr, 512);
+	set_checksum_field(c, tctx, exthdr);
+}
+
+void de_tar_end_member_file(deark *c, dbuf *f)
+{
+	struct tar_ctx *tctx = (struct tar_ctx *)c->tar_data;
+	struct tar_md *md = &tctx->md;
+	i64 padded_len;
+	i64 saved_pos;
+	i64 writepos;
+	dbuf *mainhdr = NULL;
+	dbuf *exthdr = NULL;
+	dbuf *extdata = NULL;
+
+	// Write any needed padding to the main tar file.
+	padded_len = de_pad_to_n(f->len, 512);
+	dbuf_write_zeroes(tctx->outf, padded_len - f->len);
+
+	// Preparations
+
+	if(f->fi_copy && f->fi_copy->mod_time.is_valid) {
+		md->modtime_unix = de_timestamp_to_unix_time(&f->fi_copy->mod_time);
+	}
+	else {
+		if(!c->current_time.is_valid) {
+			de_current_time_to_timestamp(&c->current_time);
+		}
+		md->modtime_unix = de_timestamp_to_unix_time(&c->current_time);
+	}
+
+	// Construct the headers, using temporary dbufs
+
+	// Main header
+	mainhdr = dbuf_create_membuf(c, 512, 0);
+	make_main_header(c, tctx, f, mainhdr);
+
+	if(md->has_exthdr) {
+		// Extended header & data
+		exthdr = dbuf_create_membuf(c, 512, 0);
+		extdata = dbuf_create_membuf(c, 512*md->exthdr_num_data_blocks, 0);
+		make_exthdrs(c, tctx, f, exthdr, extdata);
+	}
 
 	// Seek back and write the headers to the main tar file.
 	// FIXME: This is a hack, sort of. A dbuf doesn't expect us to access its
 	// fp pointer, or to mix copy_at with other 'write' functions.
 	saved_pos = de_ftell(tctx->outf->fp);
-	dbuf_copy_at(hdrs, 0, tctx->md.headers_size, tctx->outf, tctx->md.headers_pos);
+	writepos = md->headers_pos;
+	if(md->has_exthdr && exthdr && extdata) {
+		dbuf_copy_at(exthdr, 0, 512, tctx->outf, writepos);
+		writepos += 512;
+		dbuf_copy_at(extdata, 0, 512*md->exthdr_num_data_blocks, tctx->outf, writepos);
+		writepos += 512*md->exthdr_num_data_blocks;
+	}
+	dbuf_copy_at(mainhdr, 0, 512, tctx->outf, writepos);
 	de_fseek(tctx->outf->fp, saved_pos, SEEK_SET);
 
-	dbuf_close(hdrs);
+	dbuf_close(mainhdr);
+	dbuf_close(exthdr);
+	dbuf_close(extdata);
 }
