@@ -11,12 +11,16 @@
 struct tar_md {
 	u8 is_dir;
 	u8 has_exthdr;
+	u8 need_exthdr_size;
 	u8 need_exthdr_path;
 	size_t namelen;
 	i64 headers_pos;
 	i64 headers_size;
 	i64 modtime_unix;
 	i64 exthdr_num_data_blocks;
+	i64 extdata_nbytes_needed;
+	i64 extdata_nbytes_used;
+	char *filename;
 };
 
 struct tar_ctx {
@@ -25,7 +29,7 @@ struct tar_ctx {
 	i64 checksum_calc; // for temporary use
 
 	// Data associated with current member file
-	struct tar_md md;
+	struct tar_md *md;
 };
 
 int de_tar_create_file(deark *c)
@@ -68,6 +72,13 @@ done:
 	return retval;
 }
 
+static void destroy_md(deark *c, struct tar_md *md)
+{
+	if(!md) return;
+	de_free(c, md->filename);
+	de_free(c, md);
+}
+
 void de_tar_close_file(deark *c)
 {
 	struct tar_ctx *tctx = (struct tar_ctx *)c->tar_data;
@@ -77,6 +88,7 @@ void de_tar_close_file(deark *c)
 		dbuf_write_zeroes(tctx->outf, 512*2);
 		dbuf_close(tctx->outf);
 	}
+	destroy_md(c, tctx->md);
 	de_free(c, tctx);
 	c->tar_data = NULL;
 }
@@ -94,34 +106,55 @@ void de_tar_start_member_file(deark *c, dbuf *f)
 	}
 	tctx = (struct tar_ctx *)c->tar_data;
 	if(!tctx) return;
-	md = &tctx->md;
-	de_zeromem(md, sizeof(struct tar_md));
+	destroy_md(c, tctx->md);
+	tctx->md = de_malloc(c, sizeof(struct tar_md));
+	md = tctx->md;
 
 	f->parent_dbuf = tctx->outf;
 
 	md->headers_pos = tctx->outf->len;
 
-	md->namelen = de_strlen(f->name);
-	if(md->namelen>100) {
-		md->need_exthdr_path = 1;
-	}
-	else if(!de_is_ascii((const u8*)f->name, md->namelen)) {
-		md->need_exthdr_path = 1;
-	}
-
 	if(f->fi_copy && f->fi_copy->is_directory) {
 		md->is_dir = 1;
 	}
 
-	md->has_exthdr = 1;
-	md->exthdr_num_data_blocks = 1;
-	if(md->has_exthdr) {
-		md->headers_size = (1 + md->exthdr_num_data_blocks + 1) * 512;
-		//md->main_hdr_rel_pos = (1 + md->exthdr_num_data_blocks) * 512;
+	md->namelen = de_strlen(f->name);
+	if(md->is_dir) {
+		// Append a '/' to directory names
+		md->filename = de_malloc(c, md->namelen+2);
+		de_snprintf(md->filename, md->namelen+2, "%s/", f->name);
+		md->namelen = de_strlen(md->filename);
 	}
 	else {
+		md->filename = de_strdup(c, f->name);
+	}
+
+	if(md->namelen>100) {
+		md->need_exthdr_path = 1;
+	}
+	else if(!de_is_ascii((const u8*)md->filename, md->namelen)) {
+		md->need_exthdr_path = 1;
+	}
+
+	md->extdata_nbytes_needed += 23; // For "size"; this is enough for 10TB
+
+	if(md->need_exthdr_path) {
+		// Likely an overestimate: up to 6 bytes for the item size,
+		// 4 for the "path" string, 3 for field separators.
+		md->extdata_nbytes_needed += md->namelen + 13;
+	}
+
+	if(md->extdata_nbytes_needed>0) {
+		md->has_exthdr = 1;
+	}
+
+	if(md->has_exthdr) {
+		md->exthdr_num_data_blocks = (md->extdata_nbytes_needed+511)/512;
+		md->headers_size = (1 + md->exthdr_num_data_blocks + 1) * 512;
+	}
+	else {
+		md->exthdr_num_data_blocks = 0;
 		md->headers_size = 512;
-		//md->main_hdr_rel_pos = 0;
 	}
 
 	// Reserve space for the tar headers. We won't know the member file size
@@ -133,6 +166,7 @@ void de_tar_start_member_file(deark *c, dbuf *f)
 	f->offset_into_parent_dbuf = tctx->outf->len;
 }
 
+// TODO: Maybe support "base-256" format.
 static int format_ascii_octal_field(deark *c, struct tar_ctx *tctx,
 	i64 val, u8 *buf2, size_t buf2len)
 {
@@ -235,7 +269,7 @@ static void format_and_write_ascii_octal_field(deark *c, struct tar_ctx *tctx,
 static void set_common_header_fields(deark *c, struct tar_ctx *tctx,
 	dbuf *hdr)
 {
-	struct tar_md *md = &tctx->md;
+	struct tar_md *md = tctx->md;
 
 	// uid
 	format_and_write_ascii_octal_field(c, tctx, 0, 8, hdr, 108);
@@ -252,7 +286,7 @@ static void set_common_header_fields(deark *c, struct tar_ctx *tctx,
 static void make_main_header(deark *c, struct tar_ctx *tctx,
 	dbuf *f, dbuf *mainhdr)
 {
-	struct tar_md *md = &tctx->md;
+	struct tar_md *md = tctx->md;
 	i64 mode;
 	u8 typeflag = '0';
 
@@ -270,17 +304,7 @@ static void make_main_header(deark *c, struct tar_ctx *tctx,
 	set_common_header_fields(c, tctx, mainhdr);
 
 	// "name"
-	format_and_write_ascii_field(c, tctx, f->name, 100, mainhdr, 0);
-	if(md->is_dir) { // add trailing slash
-		if(md->namelen<100) {
-			dbuf_writebyte_at(mainhdr, (i64)md->namelen, '/');
-		}
-		else {
-			// directory name too long
-			dbuf_writebyte_at(mainhdr, 99, '/');
-			md->need_exthdr_path = 1;
-		}
-	}
+	format_and_write_ascii_field(c, tctx, md->filename, 100, mainhdr, 0);
 
 	// "mode"
 	format_and_write_ascii_octal_field(c, tctx, mode, 8, mainhdr, 100);
@@ -297,18 +321,51 @@ static void make_main_header(deark *c, struct tar_ctx *tctx,
 	set_checksum_field(c, tctx, mainhdr);
 }
 
+// *ppos is the current offset into extdata. It will be updated.
+static void add_exthdr_item(deark *c, struct tar_ctx *tctx,
+	dbuf *extdata, const char *name, const char *val, i64 *ppos)
+{
+	i64 len1;
+	i64 item_len = 0;
+	char *tmps = NULL;
+
+	len1 = de_strlen(name) + de_strlen(val) + 3;
+	// This size of the size field depends on itself. Ugh.
+	if(len1<=8) item_len = len1+1;
+	else if(len1<=97) item_len = len1+2;
+	else if(len1<=996) item_len = len1+3;
+	else if(len1<=9995) item_len = len1+4;
+	else if(len1<=99994) item_len = len1+5;
+	else if(len1<=999993) item_len = len1+6;
+	else { // Error
+		(*ppos)++;
+		goto done;
+	}
+
+	tmps = de_malloc(c, item_len+1);
+	de_snprintf(tmps, item_len+1, "%"I64_FMT" %s=%s\n", item_len, name, val);
+	dbuf_write_at(extdata, *ppos, (const u8*)tmps, item_len);
+	(*ppos) += item_len;
+
+done:
+	de_free(c, tmps);
+}
+
 static void make_exthdrs(deark *c, struct tar_ctx *tctx,
 	dbuf *f, dbuf *exthdr, dbuf *extdata)
 {
-	struct tar_md *md = &tctx->md;
-	i64 extdata_len;
+	struct tar_md *md = tctx->md;
+	i64 extdata_len = 0;
 	char namebuf[101];
+	char buf[80];
 
 	set_common_header_fields(c, tctx, exthdr);
 
 	// "name"
 	// This pseudo-filename will be ignored by any decent untar program.
 	// The template used here is similar to what bsdtar does.
+	// (Using f->name here instead of md->filename, because we don't
+	// want directory names to have a '/' appended.)
 	de_snprintf(namebuf, sizeof(namebuf), "PaxHeader/%s", f->name);
 	format_and_write_ascii_field(c, tctx, namebuf, 100, exthdr, 0);
 
@@ -319,8 +376,23 @@ static void make_exthdrs(deark *c, struct tar_ctx *tctx,
 	dbuf_writebyte_at(exthdr, 156, 'x');
 
 	// Extended data
-	dbuf_write_at(extdata, 0, (const u8*)"12 comment=\n", 12);
-	extdata_len = 12;
+
+	if(md->need_exthdr_size) {
+		de_snprintf(buf, sizeof(buf), "%"I64_FMT, f->len);
+		add_exthdr_item(c, tctx, extdata, "size", buf, &extdata_len);
+	}
+
+	if(md->need_exthdr_path) {
+		add_exthdr_item(c, tctx, extdata, "path", md->filename, &extdata_len);
+	}
+
+	// We have to use exactly the number of exthdr data blocks that we
+	// precalculated, no more and no fewer. But it is possible that we
+	// overestimated. If so, we have to pad the data somehow, and using
+	// empty "comment" items is one way to do that.
+	while(extdata_len < (512*md->exthdr_num_data_blocks - 511)) {
+		add_exthdr_item(c, tctx, extdata, "comment", "", &extdata_len);
+	}
 	dbuf_truncate(extdata, 512*md->exthdr_num_data_blocks);
 
 	// "size"
@@ -333,7 +405,7 @@ static void make_exthdrs(deark *c, struct tar_ctx *tctx,
 void de_tar_end_member_file(deark *c, dbuf *f)
 {
 	struct tar_ctx *tctx = (struct tar_ctx *)c->tar_data;
-	struct tar_md *md = &tctx->md;
+	struct tar_md *md = tctx->md;
 	i64 padded_len;
 	i64 saved_pos;
 	i64 writepos;
@@ -367,6 +439,7 @@ void de_tar_end_member_file(deark *c, dbuf *f)
 		// Extended header & data
 		exthdr = dbuf_create_membuf(c, 512, 0);
 		extdata = dbuf_create_membuf(c, 512*md->exthdr_num_data_blocks, 0);
+		md->need_exthdr_size = (f->len > 0x1FFFFFFFFLL)?1:0;
 		make_exthdrs(c, tctx, f, exthdr, extdata);
 	}
 
@@ -387,4 +460,7 @@ void de_tar_end_member_file(deark *c, dbuf *f)
 	dbuf_close(mainhdr);
 	dbuf_close(exthdr);
 	dbuf_close(extdata);
+
+	destroy_md(c, tctx->md);
+	tctx->md = NULL;
 }
