@@ -655,7 +655,7 @@ void dbuf_copy(dbuf *inf, i64 input_offset, i64 input_len, dbuf *outf)
 		return;
 	}
 
-	if(input_len<=sizeof(tmpbuf)) {
+	if(input_len<=(i64)sizeof(tmpbuf)) {
 		// Fast path for small sizes
 		dbuf_read(inf, tmpbuf, input_offset, input_len);
 		dbuf_write(outf, tmpbuf, input_len);

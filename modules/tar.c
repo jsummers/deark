@@ -34,6 +34,7 @@ struct phys_member_data {
 // (or for global attributes).
 struct extattr_data {
 	de_ucstring *alt_name;
+	de_ucstring *linkname;
 	struct de_timestamp alt_mod_time;
 	u8 has_alt_size;
 	i64 alt_size;
@@ -270,6 +271,7 @@ static void destroy_extattr_data(deark *c, struct extattr_data *ea)
 {
 	if(!ea) return;
 	ucstring_destroy(ea->alt_name);
+	ucstring_destroy(ea->linkname);
 }
 
 static void read_gnu_longpath(deark *c, lctx *d, struct phys_member_data *pmd,
@@ -280,16 +282,28 @@ static void read_gnu_longpath(deark *c, lctx *d, struct phys_member_data *pmd,
 
 	de_dbg(c, "LongPath data at %"I64_FMT, pos);
 	de_dbg_indent(c, 1);
-	if(ext_name_len<1 || ext_name_len>32768) goto done;
+	if(ext_name_len<1) goto done;
 
-	de_dbg(c, "ext. filename at %"I64_FMT, pos);
-	if(!ea->alt_name) {
-		ea->alt_name = ucstring_create(c);
+	if(pmd->linkflag=='K') {
+		if(!ea->linkname) {
+			ea->linkname = ucstring_create(c);
+		}
+		ucstring_empty(ea->linkname);
+		// TODO: It's a little inconsistent that we convert a GNU extended linkname
+		// to a ucstring, while we keep the original bytes of old-style linknames.
+		dbuf_read_to_ucstring_n(c->infile, pos, ext_name_len-1, 32767, ea->linkname, 0,
+			d->input_encoding);
+		de_dbg(c, "ext. linkname: \"%s\"", ucstring_getpsz_d(ea->linkname));
 	}
-	ucstring_empty(ea->alt_name);
-	dbuf_read_to_ucstring(c->infile, pos, ext_name_len-1, ea->alt_name, 0,
-		d->input_encoding);
-	de_dbg(c, "ext. filename: \"%s\"", ucstring_getpsz_d(ea->alt_name));
+	else { // 'L', presumably
+		if(!ea->alt_name) {
+			ea->alt_name = ucstring_create(c);
+		}
+		ucstring_empty(ea->alt_name);
+		dbuf_read_to_ucstring_n(c->infile, pos, ext_name_len-1, 32767, ea->alt_name, 0,
+			d->input_encoding);
+		de_dbg(c, "ext. filename: \"%s\"", ucstring_getpsz_d(ea->alt_name));
+	}
 
 done:
 	de_dbg_indent(c, -1);
@@ -438,6 +452,11 @@ static int read_exthdr_item(deark *c, lctx *d, struct phys_member_data *pmd,
 		ucstring_empty(ea->alt_name);
 		ucstring_append_ucstring(ea->alt_name, ehi->value->str);
 	}
+	else if(!de_strcmp(ehi->name->sz, "linkpath")) {
+		if(!ea->linkname) ea->linkname = ucstring_create(c);
+		ucstring_empty(ea->linkname);
+		ucstring_append_ucstring(ea->linkname, ehi->value->str);
+	}
 	else if(!de_strcmp(ehi->name->sz, "mtime")) {
 		do_exthdr_mtime(c, d, pmd, ehi, ea);
 	}
@@ -450,7 +469,6 @@ static int read_exthdr_item(deark *c, lctx *d, struct phys_member_data *pmd,
 			ea->alt_size = de_strtoll(ehi->value->sz, NULL, 10);
 		}
 	}
-	// TODO: "linkpath"
 	// TODO: "hdrcharset"
 
 	*bytes_consumed = ehi->fieldlen;
@@ -539,7 +557,7 @@ static int read_member(deark *c, lctx *d, i64 pos1, i64 *bytes_consumed_member)
 		}
 		pos += 512;
 
-		if(pmd->linkflag == 'L') {
+		if(pmd->linkflag=='L' || pmd->linkflag=='K') {
 			is_supplemental_item = 1;
 			read_gnu_longpath(c, d, pmd, ea);
 		}
@@ -661,10 +679,16 @@ static int read_member(deark *c, lctx *d, i64 pos1, i64 *bytes_consumed_member)
 	outf = dbuf_create_output_file(c, NULL, md->fi, 0);
 
 	// If a symlink has no data, write the 'linkname' field instead.
-	if(md->is_symlink && pmd->filesize==0 && pmd->linkname) {
-		dbuf_write(outf, (const u8*)pmd->linkname->sz,
-			(i64)de_strlen(pmd->linkname->sz));
-		goto done;
+	if(md->is_symlink && pmd->filesize==0) {
+		if(ucstring_isnonempty(ea->linkname)) {
+			ucstring_write_as_utf8(c, ea->linkname, outf, 0);
+			goto done;
+		}
+		else if(pmd->linkname) {
+			dbuf_write(outf, (const u8*)pmd->linkname->sz,
+				(i64)de_strlen(pmd->linkname->sz));
+			goto done;
+		}
 	}
 
 	dbuf_copy(c->infile, pmd->file_data_pos, pmd->filesize, outf);
