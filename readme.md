@@ -45,7 +45,7 @@ Command-line options:
    it.
 -o &lt;name>
    Output filenames begin with this string. This can include a directory
-   path. Default is "output", except in some cases when using -zip.
+   path. Default is "output", except in some cases when using -zip/-tar.
 -k, -k2, -k3
    "Keep" the input filename, and use it as the initial part of the output
    filename(s).
@@ -66,8 +66,13 @@ Command-line options:
    If the input format is an "archive" format (e.g. "ar" or "graspgl"), then
    by default, the filenames in the ZIP archive might not include the usual
    "output.NNN" prefix.
+-tar
+   Write output files to a .tar file, instead of to individual files.
+   Similar to -zip, but may work better with large files.
+   The -tostdout option is not currently supported when using -tar.
 -arcfn &lt;filename>
-   When using -zip, use this name for the .zip file. Default="output.zip".
+   When using -zip/-tar, use this name for the output file. Default is
+   "output.zip" or "output.tar".
 -extrlist &lt;filename>
    Also create a text file containing a list of the names of the extracted
    files. Format is UTF-8, no BOM, LF terminators. To append to the file
@@ -141,12 +146,12 @@ Command-line options:
        The VGA character cell width for character graphics, when the output
        format is "image".
     -opt archive:subdirs=0
-       When using -zip, disallow subdirectories (the "/" character) in member
-       filenames.
+       When using -zip/-tar, disallow subdirectories (the "/" character) in
+       member filenames.
     -opt archive:timestamp=&lt;n>
     -opt archive:repro
-       Make the -zip output reproducible, by not including modification times
-       that are not contained in the source file. (That is, don't use the
+       Make the -zip/-tar output reproducible, by not including modification
+       times that are not contained in the source file. (That is, don't use the
        current time, or the source file's timestamp.) If you use "repro", the
        times will be set to some arbitrary value. If you use "timestamp", the
        times will be set to the value you supply, in Unix time format (the

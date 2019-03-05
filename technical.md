@@ -59,11 +59,11 @@ warning (unless you use -n). It bans all ASCII characters that could
 conceivably be problematical, as well as any non-ASCII characters that don't
 appear on its whitelist.
 
-When Deark writes to a ZIP file (the "-zip" option), it doesn't have to worry
-about what to name the internal files. It can palm that problem off onto your
-unzip program. It is more tolerant in this case.
+When Deark writes to a ZIP or tar file (the "-zip"/"-tar" option), it doesn't
+have to worry about what to name the internal files. It can palm that problem
+off onto your unzip/untar program. It is more tolerant in this case.
 
-Directory paths only maintained as such if you use -zip (and you don't use
+Directory paths only maintained as such if you use -zip/-tar (and you don't use
 "-opt archive:subdirs=0"). Deark generally does write a file anywhere other
 than the current directory, though you can tell it to do so by using -o,
 -arcfn, or -k3.
@@ -150,8 +150,8 @@ them. This behavior can be changed with "-opt keepdirentries". Even so, Deark
 never creates directories directly. Instead, it may create marker files with a
 ".dir" extension.
 
-Note that this means the -zip option can affect the numbering of output files
-used by, e.g., the -get option.
+Note that this means the -zip/-tar option can affect the numbering of output
+files used by, e.g., the -get option.
 
 ## Modification times ##
 
