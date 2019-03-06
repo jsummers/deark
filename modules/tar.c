@@ -36,6 +36,7 @@ struct extattr_data {
 	de_ucstring *alt_name;
 	de_ucstring *linkname;
 	struct de_timestamp alt_mod_time;
+	u8 main_file_is_special;
 	u8 has_alt_size;
 	i64 alt_size;
 };
@@ -444,10 +445,15 @@ static int read_exthdr_item(deark *c, lctx *d, struct phys_member_data *pmd,
 
 	n = de_min_int(ehi->val_len, 65536);
 	ehi->value = dbuf_read_string(c->infile, pos1+ehi->val_offs,
-		n, n, 0, DE_ENCODING_UTF8);
-	de_dbg(c, "value: \"%s\"", ucstring_getpsz_d(ehi->value->str));
+		n, n, 0, DE_ENCODING_UTF8);de_dbg(c, "value: \"%s\"", ucstring_getpsz_d(ehi->value->str));
 
-	if(!de_strcmp(ehi->name->sz, "path")) {
+	if(!de_strncmp(ehi->name->sz, "GNU.sparse.", 11)) {
+		ea->main_file_is_special = 1;
+	}
+
+	if(!de_strcmp(ehi->name->sz, "path") ||
+		!de_strcmp(ehi->name->sz, "GNU.sparse.name"))
+	{
 		if(!ea->alt_name) ea->alt_name = ucstring_create(c);
 		ucstring_empty(ea->alt_name);
 		ucstring_append_ucstring(ea->alt_name, ehi->value->str);
@@ -640,6 +646,10 @@ static int read_member(deark *c, lctx *d, i64 pos1, i64 *bytes_consumed_member)
 		else if(pmd->linkflag==0 || pmd->linkflag=='0') {
 			md->is_regular_file = 1;
 		}
+	}
+
+	if(ea->main_file_is_special) {
+		md->is_regular_file = 0;
 	}
 
 	de_dbg(c, "file data at %"I64_FMT", len=%"I64_FMT, pmd->file_data_pos,
