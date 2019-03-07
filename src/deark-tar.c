@@ -13,6 +13,7 @@ struct tar_md {
 	u8 has_exthdr;
 	u8 need_exthdr_size;
 	u8 need_exthdr_path;
+	u8 need_exthdr_mtime;
 	size_t namelen;
 	i64 headers_pos;
 	i64 headers_size;
@@ -21,6 +22,7 @@ struct tar_md {
 	i64 extdata_nbytes_needed;
 	i64 extdata_nbytes_used;
 	char *filename;
+	char mtime_exthdr[32];
 };
 
 struct tar_ctx {
@@ -93,6 +95,40 @@ void de_tar_close_file(deark *c)
 	c->tar_data = NULL;
 }
 
+static void prepare_mtime_exthdr(deark *c, struct tar_md *md, dbuf *f)
+{
+	i64 unix_time;
+	i64 subsec = 0;
+	int is_high_prec = 0;
+	const struct de_timestamp *ts;
+
+	if(!f->fi_copy) return;
+	if(!f->fi_copy->mod_time.is_valid) return;
+	ts = &f->fi_copy->mod_time;
+
+	unix_time = de_timestamp_to_unix_time(ts);
+
+	if(unix_time>=0 && ts->precision>DE_TSPREC_1SEC) {
+		subsec = de_timestamp_get_subsec(ts);
+		if(subsec!=0) is_high_prec = 1;
+	}
+
+	if(is_high_prec) {
+		de_snprintf(md->mtime_exthdr, sizeof(md->mtime_exthdr),
+			"%"I64_FMT".%07"I64_FMT, unix_time, subsec);
+	}
+	else {
+		de_snprintf(md->mtime_exthdr, sizeof(md->mtime_exthdr),
+			"%"I64_FMT, unix_time);
+	}
+
+	md->need_exthdr_mtime = 1;
+	// Max length for this item is around 29, so we allow 2 bytes for the
+	// length field.
+	// E.g. "28 mtime=1222333444.5555555\n"
+	md->extdata_nbytes_needed += 2 + 1 + 5 + 1 + de_strlen(md->mtime_exthdr) + 1;
+}
+
 // f is type DBUF_TYPE_ODBUF, in the process of being created.
 // We are responsible for setting f->parent_dbuf and
 // f->offset_into_parent_dbuf.
@@ -143,6 +179,8 @@ void de_tar_start_member_file(deark *c, dbuf *f)
 		// 4 for the "path" string, 3 for field separators.
 		md->extdata_nbytes_needed += md->namelen + 13;
 	}
+
+	prepare_mtime_exthdr(c, md, f);
 
 	if(md->extdata_nbytes_needed>0) {
 		md->has_exthdr = 1;
@@ -343,7 +381,7 @@ static void add_exthdr_item(deark *c, struct tar_ctx *tctx,
 	}
 
 	tmps = de_malloc(c, item_len+1);
-	de_snprintf(tmps, item_len+1, "%"I64_FMT" %s=%s\n", item_len, name, val);
+	de_snprintf(tmps, (size_t)(item_len+1), "%"I64_FMT" %s=%s\n", item_len, name, val);
 	dbuf_write_at(extdata, *ppos, (const u8*)tmps, item_len);
 	(*ppos) += item_len;
 
@@ -384,6 +422,10 @@ static void make_exthdrs(deark *c, struct tar_ctx *tctx,
 
 	if(md->need_exthdr_path) {
 		add_exthdr_item(c, tctx, extdata, "path", md->filename, &extdata_len);
+	}
+
+	if(md->need_exthdr_mtime) {
+		add_exthdr_item(c, tctx, extdata, "mtime", md->mtime_exthdr, &extdata_len);
 	}
 
 	// We have to use exactly the number of exthdr data blocks that we
