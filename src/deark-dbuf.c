@@ -236,6 +236,33 @@ static i64 dbuf_getuint_ext_be_direct(const u8 *m, unsigned int nbytes)
 	return (i64)val;
 }
 
+static i64 dbuf_getint_ext_be_direct(const u8 *m, unsigned int nbytes)
+{
+	unsigned int k;
+	u64 val = 0;
+
+	// We can handle up to 8 arbitrary bytes. Any more have to be 0xff.
+	if(nbytes>8) {
+		for(k=0; k<nbytes-8; k++) {
+			if(m[k]!=0xff) return 0; // underflow
+		}
+	}
+
+	// Process bytes in order of increasing significance
+	for(k=0; k<8; k++) {
+		u8 byteval;
+
+		if(k<nbytes) {
+			byteval = m[nbytes-1-k];
+		}
+		else {
+			byteval = 0xff;
+		}
+		val |= ((u64)byteval) << (k*8);
+	}
+	return (i64)val;
+}
+
 static i64 dbuf_getuint_ext_le_direct(const u8 *m, unsigned int nbytes)
 {
 	unsigned int k;
@@ -261,6 +288,18 @@ static i64 dbuf_getuint_ext_x(dbuf *f, i64 pos, unsigned int nbytes,
 		return dbuf_getuint_ext_le_direct(m, nbytes);
 	}
 	return dbuf_getuint_ext_be_direct(m, nbytes);
+}
+
+static i64 dbuf_getint_ext_x(dbuf *f, i64 pos, unsigned int nbytes, int is_le)
+{
+	u8 m[24];
+
+	if(nbytes>(unsigned int)sizeof(m)) return 0;
+	dbuf_read(f, m, pos, (i64)nbytes);
+	if(is_le) {
+		return 0; // TODO
+	}
+	return dbuf_getint_ext_be_direct(m, nbytes);
 }
 
 i64 de_getu16be_direct(const u8 *m)
@@ -513,6 +552,8 @@ i64 dbuf_getint_ext(dbuf *f, i64 pos, unsigned int nbytes,
 		case 2: return dbuf_geti16x(f, pos, is_le); break;
 		case 4: return dbuf_geti32x(f, pos, is_le); break;
 		case 8: return dbuf_geti64x(f, pos, is_le); break;
+		default:
+			return dbuf_getint_ext_x(f, pos, nbytes, is_le);
 		}
 	}
 	else {

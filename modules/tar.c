@@ -80,7 +80,10 @@ static int read_ascii_octal_number(dbuf *f, i64 pos, i64 fieldsize,
 		*value = dbuf_getint_ext(f, pos+1, (unsigned int)(fieldsize-1), 0, 0);
 		return 1;
 	}
-	// TODO: Handle negative numbers
+	else if(b1==0xff) { // negative base-256 number
+		*value = dbuf_getint_ext(f, pos+1, (unsigned int)(fieldsize-1), 0, 1);
+		return 1;
+	}
 
 	*value = 0;
 	return 0;
