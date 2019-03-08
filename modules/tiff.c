@@ -83,6 +83,7 @@ struct tagnuminfo {
 	int tagnum;
 
 	// 0x0001=NOT valid in normal TIFF files/IFDs
+	// 0x0004=multi-string ASCII type expected
 	// 0x08=suppress auto display of values
 	// 0x10=this is an Exif tag
 	// 0x20=an Exif Interoperability-IFD tag
@@ -1499,7 +1500,7 @@ static void handler_utf16(deark *c, lctx *d, const struct taginfo *tg, const str
 	s = ucstring_create(c);
 	dbuf_read_to_ucstring_n(c->infile, tg->val_offset, tg->total_size,
 		DE_TIFF_MAX_CHARS_TO_PRINT*2, s, 0, DE_ENCODING_UTF16LE);
-	ucstring_strip_trailing_NUL(s);
+	ucstring_truncate_at_NUL(s);
 	de_dbg(c, "UTF-16 string: \"%s\"", ucstring_getpsz(s));
 
 done:
@@ -1580,7 +1581,7 @@ static const struct tagnuminfo tagnuminfo_arr[] = {
 	{ 328, 0x00, "ConsecutiveBadFaxLines", NULL, NULL },
 	{ 330, 0x08, "SubIFD", handler_subifd, NULL },
 	{ 332, 0x0000, "InkSet", NULL, valdec_inkset },
-	{ 333, 0x00, "InkNames", NULL, NULL },
+	{ 333, 0x0004, "InkNames", NULL, NULL },
 	{ 334, 0x00, "NumberOfInks", NULL, NULL },
 	{ 336, 0x00, "DotRange", NULL, NULL },
 	{ 337, 0x00, "TargetPrinter", NULL, NULL },
@@ -1658,7 +1659,7 @@ static const struct tagnuminfo tagnuminfo_arr[] = {
 	{ 33422, 0x0100, "CFAPattern", NULL, NULL },
 	{ 33423, 0x0100, "BatteryLevel", NULL, NULL },
 	//{ 33424, 0x0000, "KodakIFD", NULL, NULL },
-	{ 33432, 0x0400, "Copyright", NULL, NULL },
+	{ 33432, 0x0404, "Copyright", NULL, NULL },
 	{ 33434, 0x10, "ExposureTime", NULL, NULL },
 	{ 33437, 0x10, "FNumber", NULL, NULL },
 	{ 33445, 0x0000, "MD FileTag", NULL, NULL },
@@ -2168,10 +2169,9 @@ done:
 	if(vr.s) ucstring_destroy(vr.s);
 }
 
-static void do_dbg_print_text_values(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni,
-	de_ucstring *dbgline)
+static void do_dbg_print_text_multi_values(deark *c, lctx *d, const struct taginfo *tg,
+	const struct tagnuminfo *tni, de_ucstring *dbgline)
 {
-	struct de_stringreaderdata *srd;
 	int is_truncated = 0;
 	int str_count = 0;
 	i64 pos, endpos;
@@ -2192,10 +2192,12 @@ static void do_dbg_print_text_values(deark *c, lctx *d, const struct taginfo *tg
 	}
 	endpos = tg->val_offset + adj_totalsize;
 
-	ucstring_append_sz(dbgline, " {", DE_ENCODING_UTF8);
+	ucstring_append_sz(dbgline, " {", DE_ENCODING_LATIN1);
 
 	pos = tg->val_offset;
 	while(1) {
+		struct de_stringreaderdata *srd;
+
 		if(pos>=endpos && str_count>0) break;
 
 		srd = dbuf_read_string(c->infile, pos, endpos-pos, endpos-pos,
@@ -2212,9 +2214,30 @@ static void do_dbg_print_text_values(deark *c, lctx *d, const struct taginfo *tg
 	}
 
 	if(is_truncated) {
-		ucstring_append_sz(dbgline, "...", DE_ENCODING_UTF8);
+		ucstring_append_sz(dbgline, "...", DE_ENCODING_LATIN1);
 	}
-	ucstring_append_sz(dbgline, "}", DE_ENCODING_UTF8);
+	ucstring_append_sz(dbgline, "}", DE_ENCODING_LATIN1);
+}
+
+// Used for ASCII-type tag numbers that we expect to contain only a single
+// string (i.e. nearly all of them).
+static void do_dbg_print_text_single_value(deark *c, lctx *d, const struct taginfo *tg,
+	const struct tagnuminfo *tni, de_ucstring *dbgline)
+{
+	struct de_stringreaderdata *srd = NULL;
+
+	srd = dbuf_read_string(c->infile, tg->val_offset, tg->total_size,
+		DE_TIFF_MAX_CHARS_TO_PRINT, DE_CONVFLAG_STOP_AT_NUL,
+		d->current_textfield_encoding);
+
+	ucstring_append_sz(dbgline, " {\"", DE_ENCODING_LATIN1);
+	ucstring_append_ucstring(dbgline, srd->str);
+	if(srd->was_truncated) {
+		ucstring_append_sz(dbgline, "...", DE_ENCODING_LATIN1);
+	}
+	ucstring_append_sz(dbgline, "\"}", DE_ENCODING_LATIN1);
+
+	de_destroy_stringreaderdata(c, srd);
 }
 
 static void do_dbg_print_values(deark *c, lctx *d, const struct taginfo *tg, const struct tagnuminfo *tni,
@@ -2225,7 +2248,12 @@ static void do_dbg_print_values(deark *c, lctx *d, const struct taginfo *tg, con
 	if(tg->valcount<1) return;
 
 	if(tg->datatype==DATATYPE_ASCII) {
-		do_dbg_print_text_values(c, d, tg, tni, dbgline);
+		if(tni->flags & 0x0004) {
+			do_dbg_print_text_multi_values(c, d, tg, tni, dbgline);
+		}
+		else {
+			do_dbg_print_text_single_value(c, d, tg, tni, dbgline);
+		}
 	}
 	else {
 		do_dbg_print_numeric_values(c, d, tg, tni, dbgline);
