@@ -13,6 +13,15 @@ DE_DECLARE_MODULE(de_module_uuencode);
 DE_DECLARE_MODULE(de_module_xxencode);
 DE_DECLARE_MODULE(de_module_ascii85);
 
+struct uu_hdr_parser {
+#define HDR_UUENCODE_OR_XXENCODE  11
+#define HDR_UUENCODE_BASE64       12
+	int hdr_line_type;
+	i64 hdr_line_startpos;
+	i64 hdr_line_len;
+	i64 data_startpos;
+};
+
 typedef struct localctx_struct {
 	int cbuf_count;
 	u8 cbuf[5];
@@ -21,13 +30,6 @@ typedef struct localctx_struct {
 #define FMT_UUENCODE  2
 #define FMT_XXENCODE  3
 	int data_fmt;
-
-#define HDR_UUENCODE_OR_XXENCODE  11
-#define HDR_UUENCODE_BASE64       12
-	int hdr_line_type;
-	i64 hdr_line_startpos;
-	i64 hdr_line_len;
-	i64 data_startpos;
 
 #define ASCII85_FMT_BTOA_OLD  21
 #define ASCII85_FMT_BTOA_NEW  22
@@ -172,7 +174,8 @@ void de_module_base64(deark *c, struct deark_module_info *mi)
 // **************************************************************************
 
 // Caller passes buf (not NUL terminated) to us.
-static void parse_begin_line(deark *c, lctx *d, const u8 *buf, i64 buf_len)
+static void parse_begin_line(deark *c,
+	struct uu_hdr_parser *uuhp, de_finfo *fi, const u8 *buf, i64 buf_len)
 {
 	i64 beginsize;
 	de_ucstring *fn = NULL;
@@ -180,12 +183,12 @@ static void parse_begin_line(deark *c, lctx *d, const u8 *buf, i64 buf_len)
 	size_t nbytes_to_copy;
 	char tmpbuf[32];
 
-	if(!d->fi) goto done;
+	if(!fi) goto done;
 
-	if(d->hdr_line_type==HDR_UUENCODE_OR_XXENCODE) {
+	if(uuhp->hdr_line_type==HDR_UUENCODE_OR_XXENCODE) {
 		beginsize = 5; // "begin" has 5 letters
 	}
-	else if(d->hdr_line_type==HDR_UUENCODE_BASE64) {
+	else if(uuhp->hdr_line_type==HDR_UUENCODE_BASE64) {
 		beginsize = 12; // "begin-base64"
 	}
 	else {
@@ -203,23 +206,25 @@ static void parse_begin_line(deark *c, lctx *d, const u8 *buf, i64 buf_len)
 	mode = de_strtoll(tmpbuf, NULL, 8);
 	de_dbg(c, "mode: %03o", (unsigned int)mode);
 	if((mode & 0111)!=0) {
-		d->fi->mode_flags |= DE_MODEFLAG_EXE;
+		fi->mode_flags |= DE_MODEFLAG_EXE;
 	}
 	else {
-		d->fi->mode_flags |= DE_MODEFLAG_NONEXE;
+		fi->mode_flags |= DE_MODEFLAG_NONEXE;
 	}
 
 	fn = ucstring_create(c);
 	ucstring_append_bytes(fn, &buf[beginsize+5], buf_len-(beginsize+5), 0, DE_ENCODING_ASCII);
 	de_dbg(c, "filename: \"%s\"", ucstring_getpsz_d(fn));
-	de_finfo_set_name_from_ucstring(c, d->fi, fn, 0);
-	d->fi->original_filename_flag = 1;
+	de_finfo_set_name_from_ucstring(c, fi, fn, 0);
+	fi->original_filename_flag = 1;
 
 done:
 	ucstring_destroy(fn);
 }
 
-static int uuencode_read_header(deark *c, lctx *d)
+// If id_mode==1, just find the header line and identify the format.
+static int uuencode_read_header(deark *c, struct uu_hdr_parser *uuhp, de_finfo *fi,
+	int id_mode)
 {
 	int ret;
 	i64 total_len;
@@ -227,39 +232,43 @@ static int uuencode_read_header(deark *c, lctx *d)
 	u8 linebuf[500];
 	i64 nbytes_in_linebuf;
 
-	d->hdr_line_startpos = bom_length(c);
+	uuhp->hdr_line_startpos = bom_length(c);
 	line_count=0;
 	while(line_count<100) {
-		ret = dbuf_find_line(c->infile, d->hdr_line_startpos,
-			&d->hdr_line_len, &total_len);
+		ret = dbuf_find_line(c->infile, uuhp->hdr_line_startpos,
+			&uuhp->hdr_line_len, &total_len);
 		if(!ret) return 0;
-		if(d->hdr_line_len > 1000) return 0;
+		if(uuhp->hdr_line_len > 1000) return 0;
 
 		nbytes_in_linebuf = (i64)sizeof(linebuf);
-		if(d->hdr_line_len < nbytes_in_linebuf)
-			nbytes_in_linebuf = d->hdr_line_len;
-		de_read(linebuf, d->hdr_line_startpos, nbytes_in_linebuf);
+		if(uuhp->hdr_line_len < nbytes_in_linebuf)
+			nbytes_in_linebuf = uuhp->hdr_line_len;
+		de_read(linebuf, uuhp->hdr_line_startpos, nbytes_in_linebuf);
 
-		d->data_startpos = d->hdr_line_startpos + total_len;
+		uuhp->data_startpos = uuhp->hdr_line_startpos + total_len;
 
 		if(nbytes_in_linebuf>=9 && !de_memcmp(linebuf, "begin ", 6)) {
-			d->hdr_line_type = HDR_UUENCODE_OR_XXENCODE;
-			parse_begin_line(c, d, linebuf, nbytes_in_linebuf);
+			uuhp->hdr_line_type = HDR_UUENCODE_OR_XXENCODE;
+			if(fi && !id_mode) {
+				parse_begin_line(c, uuhp, fi, linebuf, nbytes_in_linebuf);
+			}
 			return 1;
 		}
 
 		if(nbytes_in_linebuf>=16 && !de_memcmp(linebuf, "begin-base64 ", 13)) {
-			d->hdr_line_type = HDR_UUENCODE_BASE64;
-			parse_begin_line(c, d, linebuf, nbytes_in_linebuf);
+			uuhp->hdr_line_type = HDR_UUENCODE_BASE64;
+			if(fi && !id_mode) {
+				parse_begin_line(c, uuhp, fi, linebuf, nbytes_in_linebuf);
+			}
 			return 1;
 		}
 
-		d->hdr_line_startpos += total_len;
+		uuhp->hdr_line_startpos += total_len;
 		line_count++;
 	}
 
-	de_err(c, "Unrecognized file format");
-	d->hdr_line_type = 0;
+	if(!id_mode) de_err(c, "Unrecognized file format");
+	uuhp->hdr_line_type = 0;
 	return 0;
 }
 
@@ -288,7 +297,8 @@ static int get_uu_byte_value(deark *c, lctx *d, u8 b, u8 *val)
 }
 
 // Data is decoded from c->infile, starting at d->data_startpos.
-static void do_uudecode_internal(deark *c, lctx *d, dbuf *outf)
+static void do_uudecode_internal(deark *c, lctx *d, struct uu_hdr_parser *uuhp,
+	dbuf *outf)
 {
 	i64 pos;
 	int ret;
@@ -299,7 +309,7 @@ static void do_uudecode_internal(deark *c, lctx *d, dbuf *outf)
 	i64 decoded_bytes_this_line;
 	i64 expected_decoded_bytes_this_line;
 
-	pos = d->data_startpos;
+	pos = uuhp->data_startpos;
 	d->cbuf_count = 0;
 	decoded_bytes_this_line = 0;
 	expected_decoded_bytes_this_line = 0;
@@ -381,31 +391,38 @@ static void de_run_uuencode(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
 	dbuf *f = NULL;
+	struct uu_hdr_parser *uuhp = NULL;
 	int ret;
 
+	uuhp = de_malloc(c, sizeof(struct uu_hdr_parser));
 	d = de_malloc(c, sizeof(lctx));
 
 	d->fi = de_finfo_create(c);
-	ret = uuencode_read_header(c, d);
+	ret = uuencode_read_header(c, uuhp, d->fi, 0);
 	if(!ret) goto done;
 
-	if(d->hdr_line_type==HDR_UUENCODE_BASE64) {
+	if(uuhp->hdr_line_type==HDR_UUENCODE_BASE64) {
 		de_declare_fmt(c, "Base64 with uuencode wrapper");
 		d->data_fmt = FMT_BASE64;
 		f = dbuf_create_output_file(c, NULL, d->fi, 0);
-		do_base64_internal(c, d, d->data_startpos, f);
+		do_base64_internal(c, d, uuhp->data_startpos, f);
 	}
 	else {
 		de_declare_fmt(c, "Uuencoded");
 		d->data_fmt = FMT_UUENCODE;
 		f = dbuf_create_output_file(c, NULL, d->fi, 0);
-		do_uudecode_internal(c, d, f);
+		do_uudecode_internal(c, d, uuhp, f);
 	}
 
 done:
 	dbuf_close(f);
-	de_finfo_destroy(c, d->fi);
-	de_free(c, d);
+	if(uuhp) {
+		de_free(c, uuhp);
+	}
+	if(d) {
+		de_finfo_destroy(c, d->fi);
+		de_free(c, d);
+	}
 }
 
 static int de_is_digit(u8 x)
@@ -426,6 +443,8 @@ static int de_identify_uuencode(deark *c)
 {
 	u8 b[17];
 	i64 pos;
+	int retval = 0;
+	struct uu_hdr_parser *uuhp;
 
 	pos = c->detection_data.has_utf8_bom?3:0;
 	de_read(b, pos, sizeof(b));
@@ -439,7 +458,25 @@ static int de_identify_uuencode(deark *c)
 			return 85;
 		}
 	}
-	return 0;
+
+	if(!de_input_file_has_ext(c, "uue") &&
+		!de_input_file_has_ext(c, "uu"))
+	{
+		return 0;
+	}
+
+	// For some extensions, do detection the slow way.
+	uuhp = de_malloc(c, sizeof(struct uu_hdr_parser));
+	uuencode_read_header(c, uuhp, NULL, 1);
+	if(uuhp->hdr_line_type==HDR_UUENCODE_OR_XXENCODE) {
+		retval = 19;
+	}
+	else if(uuhp->hdr_line_type==HDR_UUENCODE_BASE64) {
+		retval = 19;
+	}
+	de_free(c, uuhp);
+
+	return retval;
 }
 
 void de_module_uuencode(deark *c, struct deark_module_info *mi)
@@ -458,30 +495,37 @@ static void de_run_xxencode(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
 	dbuf *f = NULL;
+	struct uu_hdr_parser *uuhp = NULL;
 	int ret;
 
+	uuhp = de_malloc(c, sizeof(struct uu_hdr_parser));
 	d = de_malloc(c, sizeof(lctx));
 
 	d->fi = de_finfo_create(c);
-	ret = uuencode_read_header(c, d);
+	ret = uuencode_read_header(c, uuhp, d->fi, 0);
 	if(!ret) goto done;
-	if(d->hdr_line_type!=HDR_UUENCODE_OR_XXENCODE) goto done;
+	if(uuhp->hdr_line_type!=HDR_UUENCODE_OR_XXENCODE) goto done;
 
 	de_declare_fmt(c, "XXEncoded");
 	f = dbuf_create_output_file(c, NULL, d->fi, 0);
 	d->data_fmt = FMT_XXENCODE;
-	do_uudecode_internal(c, d, f);
+	do_uudecode_internal(c, d, uuhp, f);
 
 done:
 	dbuf_close(f);
-	de_finfo_destroy(c, d->fi);
-	de_free(c, d);
+	if(uuhp) {
+		de_free(c, uuhp);
+	}
+	if(d) {
+		de_finfo_destroy(c, d->fi);
+		de_free(c, d);
+	}
 }
 
 static int de_identify_xxencode(deark *c)
 {
-	u8 b[10];
-	i64 pos;
+	int retval = 0;
+	struct uu_hdr_parser *uuhp;
 
 	// XXEncode is hard to distinguish from UUEncode, so we rely on the
 	// filename.
@@ -491,20 +535,14 @@ static int de_identify_xxencode(deark *c)
 		return 0;
 	}
 
-	pos = c->detection_data.has_utf8_bom?3:0;
-	de_read(b, pos, 10);
-
-	if(!de_memcmp(b, "begin ", 6)) {
-		if(b[9]==' ' && de_is_digit_string(&b[6], 3)) {
-			return 90;
-		}
+	uuhp = de_malloc(c, sizeof(struct uu_hdr_parser));
+	uuencode_read_header(c, uuhp, NULL, 1);
+	if(uuhp->hdr_line_type==HDR_UUENCODE_OR_XXENCODE) {
+		retval = (uuhp->hdr_line_startpos<=3) ? 90 : 20;
 	}
-	else if(!de_memcmp(b, "\x0a---------", 10)) {
-		// At least one xxencode utility creates files that starts this way.
-		return 80;
-	}
+	de_free(c, uuhp);
 
-	return 0;
+	return retval;
 }
 
 void de_module_xxencode(deark *c, struct deark_module_info *mi)
