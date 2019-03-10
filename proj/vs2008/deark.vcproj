@@ -451,6 +451,10 @@
 				>
 			</File>
 			<File
+				RelativePath="..\..\foreign\explode.h"
+				>
+			</File>
+			<File
 				RelativePath="..\..\foreign\liblzw.h"
 				>
 			</File>

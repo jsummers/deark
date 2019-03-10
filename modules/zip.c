@@ -7,6 +7,9 @@
 #include <deark-config.h>
 #include <deark-private.h>
 #include <deark-fmtutil.h>
+
+#include "../foreign/explode.h"
+
 DE_DECLARE_MODULE(de_module_zip);
 
 struct dir_entry_data {
@@ -54,6 +57,7 @@ struct extra_item_info_struct {
 };
 
 typedef struct localctx_struct {
+	u8 support_implode;
 	i64 end_of_central_dir_pos;
 	i64 central_dir_num_entries;
 	i64 central_dir_byte_size;
@@ -68,15 +72,43 @@ typedef struct localctx_struct {
 typedef void (*extrafield_decoder_fn)(deark *c, lctx *d,
 	struct extra_item_info_struct *eii);
 
-static int is_compression_method_supported(int cmpr_method)
+static int is_compression_method_supported(lctx *d, int cmpr_method)
 {
 	if(cmpr_method==0 || cmpr_method==8) return 1;
+	if(cmpr_method==6 && d->support_implode) return 1;
 	return 0;
+}
+
+static int do_decompress_implode(deark *c, lctx *d, struct member_data *md,
+	dbuf *inf, i64 inf_pos, i64 inf_size, dbuf *outf)
+{
+	Uz_Globs *pG = NULL;
+
+	if(!md) return 0;
+	pG = globalsCtor(c);
+
+	pG->c = c;
+	pG->ucsize = md->uncmpr_size;
+	pG->csize = inf_size;
+	pG->lrec.csize = inf_size;
+	pG->lrec.general_purpose_bit_flag = md->local_dir_entry_data.bit_flags;
+
+	pG->inf = inf;
+	pG->inf_curpos = inf_pos;
+	pG->inf_endpos = inf_pos + inf_size;
+	pG->outf = outf;
+
+	explode(pG);
+	// TODO: How is failure reported?
+
+	globalsDtor(pG);
+	return 1;
 }
 
 // Decompress some data from inf, using the given ZIP compression method,
 // and append it to outf.
-static int do_decompress_data(deark *c, lctx *d,
+// 'md' is allowed to be NULL in some cases.
+static int do_decompress_data(deark *c, lctx *d, struct member_data *md,
 	dbuf *inf, i64 inf_pos, i64 inf_size,
 	dbuf *outf, int cmpr_method)
 {
@@ -87,6 +119,12 @@ static int do_decompress_data(deark *c, lctx *d,
 	switch(cmpr_method) {
 	case 0: // uncompressed
 		dbuf_copy(inf, inf_pos, inf_size, outf);
+		retval = 1;
+		break;
+	case 6: // implode
+		if(!md) goto done;
+		ret = do_decompress_implode(c, d, md, inf, inf_pos, inf_size, outf);
+		if(!ret) goto done;
 		retval = 1;
 		break;
 	case 8: // deflate
@@ -488,13 +526,13 @@ static void ef_infozipmac(deark *c, lctx *d, struct extra_item_info_struct *eii)
 	de_dbg(c, "cmpr. finder attr. size: %d", (int)cmpr_attr_size);
 	if(ulen<1 || ulen>1000000) goto done;
 
-	if(!is_compression_method_supported(cmprtype)) {
+	if(!is_compression_method_supported(d, cmprtype)) {
 		de_warn(c, "Finder attribute data: Unsupported compression method: %d", (int)cmprtype);
 	}
 
 	// Decompress and decode the Finder attribute data
 	attr_data = dbuf_create_membuf(c, ulen, 0x1);
-	ret = do_decompress_data(c, d, c->infile, pos, cmpr_attr_size, attr_data, cmprtype);
+	ret = do_decompress_data(c, d, NULL, c->infile, pos, cmpr_attr_size, attr_data, cmprtype);
 	if(!ret) {
 		de_warn(c, "Failed to decompress finder attribute data");
 		goto done;
@@ -723,7 +761,7 @@ static void do_extract_file(deark *c, lctx *d, struct member_data *md)
 	de_dbg(c, "file data at %"I64_FMT", len=%"I64_FMT, md->file_data_pos,
 		md->cmpr_size);
 
-	if(!is_compression_method_supported(ldd->cmpr_method)) {
+	if(!is_compression_method_supported(d, ldd->cmpr_method)) {
 		de_err(c, "Unsupported compression method: %d",
 			(int)ldd->cmpr_method);
 		goto done;
@@ -773,7 +811,7 @@ static void do_extract_file(deark *c, lctx *d, struct member_data *md)
 	md->crco = d->crco;
 	de_crcobj_reset(md->crco);
 
-	do_decompress_data(c, d, c->infile, md->file_data_pos, md->cmpr_size, outf, ldd->cmpr_method);
+	do_decompress_data(c, d, md, c->infile, md->file_data_pos, md->cmpr_size, outf, ldd->cmpr_method);
 
 	crc_calculated = de_crcobj_getval(md->crco);
 	de_dbg(c, "crc (calculated): 0x%08x", (unsigned int)crc_calculated);
@@ -1347,6 +1385,10 @@ static void de_run_zip(deark *c, de_module_params *mparams)
 	lctx *d = NULL;
 
 	d = de_malloc(c, sizeof(lctx));
+
+	if(de_get_ext_option_bool(c, "zip:unsafe", 0)) {
+		d->support_implode = 1;
+	}
 
 	if(!de_fmtutil_find_zip_eocd(c, c->infile, &d->end_of_central_dir_pos)) {
 		de_err(c, "Not a ZIP file");
