@@ -113,6 +113,13 @@ static void prepare_mtime_exthdr(deark *c, struct tar_md *md, dbuf *f)
 		if(subsec!=0) is_high_prec = 1;
 	}
 
+	if(is_high_prec || unix_time<0 || unix_time>0x1ffffffffLL) {
+		md->need_exthdr_mtime = 1;
+	}
+	else {
+		return;
+	}
+
 	if(is_high_prec) {
 		de_snprintf(md->mtime_exthdr, sizeof(md->mtime_exthdr),
 			"%"I64_FMT".%07"I64_FMT, unix_time, subsec);
@@ -122,7 +129,6 @@ static void prepare_mtime_exthdr(deark *c, struct tar_md *md, dbuf *f)
 			"%"I64_FMT, unix_time);
 	}
 
-	md->need_exthdr_mtime = 1;
 	// Max length for this item is around 29, so we allow 2 bytes for the
 	// length field.
 	// E.g. "28 mtime=1222333444.5555555\n"
@@ -214,6 +220,8 @@ static int format_ascii_octal_field(deark *c, struct tar_ctx *tctx,
 
 	de_zeromem(buf2, buf2len);
 	if(buf2len>12) return 0;
+	if(val<0) val = 0;
+
 	de_snprintf(buf1, sizeof(buf1), "%"U64_FMTo, (u64)val);
 	len_in_octal = de_strlen(buf1);
 	if(len_in_octal > buf2len) {
