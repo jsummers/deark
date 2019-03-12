@@ -353,6 +353,21 @@ void de_run(deark *c)
 		c->keep_dir_entries = keepdirentries_opt?1:0;
 	}
 
+	if(c->output_style==DE_OUTPUTSTYLE_ARCHIVE) {
+		const char *s_opt;
+
+		s_opt = de_get_ext_option(c, "archive:timestamp");
+		if(s_opt) {
+			c->reproducible_output = 1;
+			de_unix_time_to_timestamp(de_atoi64(s_opt), &c->reproducible_timestamp, 0x1);
+		}
+		else {
+			if(de_get_ext_option(c, "archive:repro")) {
+				c->reproducible_output = 1;
+			}
+		}
+	}
+
 	// If we're writing to a zip file, we normally defer creating that zip file
 	// until we find a file to extract, so that we never create a zip file with
 	// no member files.

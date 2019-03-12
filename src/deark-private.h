@@ -469,6 +469,8 @@ int de_havemodcode(deark *c, de_module_params *mparams, int code);
 ///////////////////////////////////////////
 
 int de_archive_initialize(deark *c);
+i64 de_get_reproducible_unix_timestamp(deark *c);
+
 int de_tar_create_file(deark *c);
 void de_tar_start_member_file(deark *c, dbuf *f);
 void de_tar_end_member_file(deark *c, dbuf *f);
@@ -1105,3 +1107,4 @@ void de_timestamp_to_string(const struct de_timestamp *ts,
 	char *buf, size_t buf_len, unsigned int flags);
 void de_gmtime(const struct de_timestamp *ts, struct de_struct_tm *tm2);
 void de_current_time_to_timestamp(struct de_timestamp *ts);
+void de_cached_current_time_to_timestamp(deark *c, struct de_timestamp *ts);

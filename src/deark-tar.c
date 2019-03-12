@@ -17,7 +17,8 @@ struct tar_md {
 	size_t namelen;
 	i64 headers_pos;
 	i64 headers_size;
-	i64 modtime_unix;
+	struct de_timestamp modtime;
+	i64 modtime_unix; // Same time as .modtime, for convenience
 	i64 exthdr_num_data_blocks;
 	i64 extdata_nbytes_needed;
 	i64 extdata_nbytes_used;
@@ -95,18 +96,17 @@ void de_tar_close_file(deark *c)
 	c->tar_data = NULL;
 }
 
-static void prepare_mtime_exthdr(deark *c, struct tar_md *md, dbuf *f)
+static void prepare_mtime_exthdr(deark *c, struct tar_md *md)
 {
 	i64 unix_time;
 	i64 subsec = 0;
 	int is_high_prec = 0;
 	const struct de_timestamp *ts;
 
-	if(!f->fi_copy) return;
-	if(!f->fi_copy->mod_time.is_valid) return;
-	ts = &f->fi_copy->mod_time;
+	if(!md->modtime.is_valid) return;
+	ts = &md->modtime;
 
-	unix_time = de_timestamp_to_unix_time(ts);
+	unix_time = md->modtime_unix;
 
 	if(unix_time>=0 && ts->precision>DE_TSPREC_1SEC) {
 		subsec = de_timestamp_get_subsec(ts);
@@ -156,6 +156,23 @@ void de_tar_start_member_file(deark *c, dbuf *f)
 
 	md->headers_pos = tctx->outf->len;
 
+	if(f->fi_copy && f->fi_copy->mod_time.is_valid) {
+		md->modtime = f->fi_copy->mod_time;
+		md->modtime_unix = de_timestamp_to_unix_time(&md->modtime);
+	}
+	else if(c->reproducible_output) {
+		md->modtime_unix = de_get_reproducible_unix_timestamp(c);
+		de_unix_time_to_timestamp(md->modtime_unix, &md->modtime, 0x1);
+	}
+	else {
+		de_cached_current_time_to_timestamp(c, &md->modtime);
+		// Although c->current_time is probably high precision, we treat it as
+		// low precision, so as not to write an "mtime" extended header.
+		md->modtime.precision = DE_TSPREC_1SEC;
+
+		md->modtime_unix = de_timestamp_to_unix_time(&md->modtime);
+	}
+
 	if(f->fi_copy && f->fi_copy->is_directory) {
 		md->is_dir = 1;
 	}
@@ -186,7 +203,7 @@ void de_tar_start_member_file(deark *c, dbuf *f)
 		md->extdata_nbytes_needed += md->namelen + 13;
 	}
 
-	prepare_mtime_exthdr(c, md, f);
+	prepare_mtime_exthdr(c, md);
 
 	if(md->extdata_nbytes_needed>0) {
 		md->has_exthdr = 1;
@@ -466,18 +483,6 @@ void de_tar_end_member_file(deark *c, dbuf *f)
 	// Write any needed padding to the main tar file.
 	padded_len = de_pad_to_n(f->len, 512);
 	dbuf_write_zeroes(tctx->outf, padded_len - f->len);
-
-	// Preparations
-
-	if(f->fi_copy && f->fi_copy->mod_time.is_valid) {
-		md->modtime_unix = de_timestamp_to_unix_time(&f->fi_copy->mod_time);
-	}
-	else {
-		if(!c->current_time.is_valid) {
-			de_current_time_to_timestamp(&c->current_time);
-		}
-		md->modtime_unix = de_timestamp_to_unix_time(&c->current_time);
-	}
 
 	// Construct the headers, using temporary dbufs
 

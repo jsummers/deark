@@ -448,30 +448,12 @@ static mz_bool my_mz_zip_writer_init_file(deark *c, struct zip_data_struct *zzz,
   return MZ_TRUE;
 }
 
-static void init_reproducible_archive_settings(deark *c)
-{
-	const char *s;
-
-	s = de_get_ext_option(c, "archive:timestamp");
-	if(s) {
-		c->reproducible_output = 1;
-		de_unix_time_to_timestamp(de_atoi64(s), &c->reproducible_timestamp, 0x1);
-	}
-	else {
-		if(de_get_ext_option(c, "archive:repro")) {
-			c->reproducible_output = 1;
-		}
-	}
-}
-
 int de_zip_create_file(deark *c)
 {
 	struct zip_data_struct *zzz;
 	mz_bool b;
 
 	if(c->zip_data) return 1; // Already created. Shouldn't happen.
-
-	init_reproducible_archive_settings(c);
 
 	zzz = de_malloc(c, sizeof(struct zip_data_struct));
 	zzz->pZip = de_malloc(c, sizeof(mz_zip_archive));
@@ -504,17 +486,6 @@ int de_zip_create_file(deark *c)
 	}
 
 	return 1;
-}
-
-static i64 de_get_reproducible_unix_timestamp(deark *c)
-{
-	if(c->reproducible_timestamp.is_valid) {
-		return de_timestamp_to_unix_time(&c->reproducible_timestamp);
-	}
-
-	// An arbitrary timestamp
-	// $ date -u --date='2010-09-08 07:06:05' '+%s'
-	return 1283929565LL;
 }
 
 void de_zip_add_file_to_archive(deark *c, dbuf *f)
@@ -555,13 +526,10 @@ void de_zip_add_file_to_archive(deark *c, dbuf *f)
 		dfa.modtime_valid = 1;
 	}
 	else {
-		if(!c->current_time.is_valid) {
-			// Get/record the current time. (We'll use the same "current time"
-			// for all files in this archive.)
-			de_current_time_to_timestamp(&c->current_time);
-		}
+		struct de_timestamp tmpts;
 
-		dfa.modtime = de_timestamp_to_unix_time(&c->current_time);
+		de_cached_current_time_to_timestamp(c, &tmpts);
+		dfa.modtime = de_timestamp_to_unix_time(&tmpts);
 		dfa.modtime_valid = 1;
 
 		// We only write the current time because ZIP format leaves us little

@@ -1325,6 +1325,15 @@ void de_timestamp_to_string(const struct de_timestamp *ts,
 		tm2.tm_hour, tm2.tm_min, tm2.tm_sec, subsec, tzlabel);
 }
 
+// Returns the same time if called multiple times.
+void de_cached_current_time_to_timestamp(deark *c, struct de_timestamp *ts)
+{
+	if(!c->current_time.is_valid) {
+		de_current_time_to_timestamp(&c->current_time);
+	}
+	*ts = c->current_time;
+}
+
 void de_declare_fmt(deark *c, const char *fmtname)
 {
 	if(c->module_nesting_level > 1) {
@@ -1676,6 +1685,17 @@ static int addslice_cbfn(struct de_bufferedreadctx *brctx, const u8 *buf,
 void de_crcobj_addslice(struct de_crcobj *crco, dbuf *f, i64 pos, i64 len)
 {
 	dbuf_buffered_read(f, pos, len, addslice_cbfn, (void*)crco);
+}
+
+i64 de_get_reproducible_unix_timestamp(deark *c)
+{
+	if(c->reproducible_timestamp.is_valid) {
+		return de_timestamp_to_unix_time(&c->reproducible_timestamp);
+	}
+
+	// An arbitrary timestamp
+	// $ date -u --date='2010-09-08 07:06:05' '+%s'
+	return 1283929565LL;
 }
 
 // Call this to ensure that a zip/tar file will be created, even if it has
