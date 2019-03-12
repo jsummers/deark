@@ -1283,6 +1283,91 @@ void de_timestamp_cvt_to_utc(struct de_timestamp *ts, i64 offset_seconds)
 	ts->tzcode = DE_TZCODE_UTC;
 }
 
+// Our version of the standard gmtime() function.
+// We roll our own, so that we can support a wide range of dates. We want to
+// handle erroneous, and deliberately pathological, dates in the distant past
+// and future. We also want Deark to work the same on all platforms.
+//
+// Converts a de_timestamp to a de_struct_tm, with separate fields
+// for year, month, day, ...
+// Uses the Gregorian calendar.
+// Supports dates from about year 1601 to 30828.
+void de_gmtime(const struct de_timestamp *ts, struct de_struct_tm *tm2)
+{
+	// Let's define an "eon" to be a 400-year period. Eons begin at the start
+	// of the year 1601, 2001, 2401, etc.
+	static const i64 secs_per_eon = 12622780800LL;
+	i64 eon;
+	i64 secs_since_start_of_1601;
+	i64 secs_since_start_of_eon;
+	i64 days_since_start_of_eon;
+	i64 secs_since_start_of_day;
+	i64 yr_tmp; // years, since start of eon, accounted for so far
+	i64 days_tmp; // number of days not accounted for in yr_tmp
+	i64 count;
+	int is_leapyear;
+	int k;
+
+	de_zeromem(tm2, sizeof(struct de_struct_tm));
+	if(!ts->is_valid || ts->ts_FILETIME<=0) {
+		return;
+	}
+
+	secs_since_start_of_1601 = ts->ts_FILETIME / 10000000;
+	tm2->tm_subsec = ts->ts_FILETIME % 10000000;
+	eon = secs_since_start_of_1601 / secs_per_eon;
+	secs_since_start_of_eon = secs_since_start_of_1601 % secs_per_eon;
+	days_since_start_of_eon = secs_since_start_of_eon / 86400;
+	secs_since_start_of_day = secs_since_start_of_eon % 86400;
+	tm2->tm_hour = (int)(secs_since_start_of_day / 3600);
+	tm2->tm_min = (int)((secs_since_start_of_day % 3600)/60);
+	tm2->tm_sec = (int)(secs_since_start_of_day % 60);
+
+	days_tmp = days_since_start_of_eon;
+	yr_tmp = 0;
+
+	// The first 3 100-year periods in this eon have
+	// 100*365 + 24 days each.
+	count = days_tmp / (100*365 + 24);
+	if(count>3) count = 3;
+	days_tmp -= (100*365 + 24)*count;
+	yr_tmp += 100*count;
+
+	// The first 24 4-year periods in this 100-year period have
+	// 1 leap day each.
+	count = days_tmp / (4*365 + 1);
+	if(count>24) count = 24;
+	days_tmp -= (4*365 + 1)*count;
+	yr_tmp += 4*count;
+
+	// The first 3 years in this 4-year period are not leap years.
+	count = days_tmp / 365;
+	if(count>3) count = 3;
+	days_tmp -= 365*count;
+	yr_tmp += count;
+
+	tm2->tm_fullyear = (int)(1601 + eon*400 + yr_tmp);
+	is_leapyear = ((yr_tmp%4)==3 &&
+		yr_tmp!=99 && yr_tmp!=199 && yr_tmp!=299);
+
+	for(k=0; k<11; k++) {
+		static const u8 days_in_month[11] = // (Don't need December)
+			{ 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30 };
+		i64 days_in_this_month = (i64)days_in_month[k];
+		if(k==1 && is_leapyear) days_in_this_month++;
+		if(days_tmp >= days_in_this_month) {
+			days_tmp -= days_in_this_month;
+			tm2->tm_mon++;
+		}
+		else {
+			break;
+		}
+	}
+
+	tm2->tm_mday = (int)(1+days_tmp);
+	tm2->is_valid = 1;
+}
+
 // Appends " UTC" if ts->tzcode==DE_TZCODE_UTC
 // No flags are currently defined.
 void de_timestamp_to_string(const struct de_timestamp *ts,

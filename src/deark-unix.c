@@ -20,7 +20,6 @@
 #include <sys/types.h>
 #include <sys/time.h>
 #include <unistd.h>
-#include <time.h>
 #include <utime.h>
 #include <errno.h>
 
@@ -240,45 +239,6 @@ void de_update_file_time(dbuf *f)
 	// times[1] = mod time
 	times[1] = times[0];
 	utimes(f->name, times);
-}
-
-// Note: Need to keep this function in sync with the implementation in deark-win.c.
-// Similar to standard gmtime().
-// Populates a caller-allocated de_struct_tm.
-void de_gmtime(const struct de_timestamp *ts, struct de_struct_tm *tm2)
-{
-	i64 tmpt_int64;
-	time_t tmpt;
-	struct tm *tm1;
-
-	de_zeromem(tm2, sizeof(struct de_struct_tm));
-	if(!ts->is_valid) {
-		return;
-	}
-
-	tmpt_int64 = de_timestamp_to_unix_time(ts);
-
-	if(sizeof(time_t)<=4) {
-		if(tmpt_int64<-0x80000000LL || tmpt_int64>0x7fffffffLL) {
-			// TODO: Support a wider range of timestamps.
-			return;
-		}
-	}
-
-	tmpt = (time_t)tmpt_int64;
-	tm1 = gmtime(&tmpt);
-	if(!tm1) return;
-
-	tm2->is_valid = 1;
-	tm2->tm_fullyear = 1900+tm1->tm_year;
-	tm2->tm_mon = tm1->tm_mon;
-	tm2->tm_mday = tm1->tm_mday;
-	tm2->tm_hour = tm1->tm_hour;
-	tm2->tm_min = tm1->tm_min;
-	tm2->tm_sec = tm1->tm_sec;
-	if(ts->precision>DE_TSPREC_1SEC) {
-		tm2->tm_subsec = (int)de_timestamp_get_subsec(ts);
-	}
 }
 
 // Note: Need to keep this function in sync with the implementation in deark-win.c.

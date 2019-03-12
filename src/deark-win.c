@@ -21,7 +21,6 @@
 
 #include <sys/stat.h>
 #include <sys/types.h>
-#include <time.h>
 
 int de_strcasecmp(const char *a, const char *b)
 {
@@ -354,45 +353,6 @@ void de_windows_highlight(void *handle1, unsigned int orig_attr, int x)
 	}
 	else {
 		SetConsoleTextAttribute((void*)handle1, (WORD)orig_attr);
-	}
-}
-
-// Note: Need to keep this function in sync with the implementation in deark-unix.c.
-// Similar to standard gmtime().
-// Populates a caller-allocated de_struct_tm.
-void de_gmtime(const struct de_timestamp *ts, struct de_struct_tm *tm2)
-{
-	i64 tmpt_int64;
-	__time64_t tmpt;
-	struct tm tm1;
-	errno_t ret;
-
-	de_zeromem(tm2, sizeof(struct de_struct_tm));
-	if(!ts->is_valid) {
-		return;
-	}
-
-	de_zeromem(&tm1, sizeof(struct tm));
-	tmpt_int64 = de_timestamp_to_unix_time(ts);
-	tmpt = (__time64_t)tmpt_int64;
-
-	// _gmtime64_s is documented as supporting times in the range:
-	//  1970-01-01 00:00:00 UTC, through
-	//  3000-12-31 23:59:59 UTC.
-	ret = _gmtime64_s(&tm1, &tmpt);
-	if(ret!=0) {
-		return;
-	}
-
-	tm2->is_valid = 1;
-	tm2->tm_fullyear = 1900+tm1.tm_year;
-	tm2->tm_mon = tm1.tm_mon;
-	tm2->tm_mday = tm1.tm_mday;
-	tm2->tm_hour = tm1.tm_hour;
-	tm2->tm_min = tm1.tm_min;
-	tm2->tm_sec = tm1.tm_sec;
-	if(ts->precision>DE_TSPREC_1SEC) {
-		tm2->tm_subsec = (int)de_timestamp_get_subsec(ts);
 	}
 }
 
