@@ -26,7 +26,6 @@ struct izi_work {
 
 typedef struct local_file_header {                 /* LOCAL */
     ush general_purpose_bit_flag;
-    i64 csize;
 } local_file_hdr;
 
 struct huft {
@@ -43,9 +42,7 @@ struct huft {
 typedef struct Globals {
     i64 csize;           /* used by decompr. (NEXTBYTE): must be signed */
     i64 ucsize;          /* used by unReduce(), explode() */
-    i64 used_csize;      /* used by extract_or_test_member(), explode() */
     struct izi_work area;                /* see unzpriv.h for definition of work */
-    int incnt;   // (originally) number of bytes available starting at .inptr
     local_file_hdr  lrec;          /* used in unzip.c, extract.c */
 	deark *c;
 	dbuf *inf;
@@ -68,7 +65,7 @@ static int    huft_build(Uz_Globs *pG, const unsigned *b, unsigned n,
 
 //========================= fileio.c begin =========================
 
-static int izi_flush(Uz_Globs *pG, uch *rawbuf, ulg size, int unshrink)
+static int izi_flush(Uz_Globs *pG, uch *rawbuf, ulg size)
 {
 	dbuf_write(pG->outf, rawbuf, size);
 	return 0;
@@ -80,16 +77,10 @@ static int izi_flush(Uz_Globs *pG, uch *rawbuf, ulg size, int unshrink)
 // efficient. The NEXTBYTE macro has been modified to not use inbuf.
 static int izi_readbyte(Uz_Globs *pG)
 {
-	int ret;
-
-	pG->incnt = 0;
-
 	if(pG->inf_curpos >= pG->inf_endpos) {
 		return EOF;
 	}
-
-	ret = (int)dbuf_getbyte(pG->inf, pG->inf_curpos++);
-	return ret;
+	return (int)dbuf_getbyte(pG->inf, pG->inf_curpos++);
 }
 
 //========================= fileio.c end =========================
@@ -295,7 +286,7 @@ static int explode_lit4or8(Uz_Globs *pG, unsigned window_k,
       redirSlide[w++] = (uch)t->v.n;
       if (w == wsize)
       {
-        izi_flush(pG, redirSlide, (ulg)w, 0);
+        izi_flush(pG, redirSlide, (ulg)w);
         w = u = 0;
       }
     }
@@ -371,7 +362,7 @@ static int explode_lit4or8(Uz_Globs *pG, unsigned window_k,
             } while (--e);
         if (w == wsize)
         {
-          izi_flush(pG, redirSlide, (ulg)w, 0);
+          izi_flush(pG, redirSlide, (ulg)w);
           w = u = 0;
         }
       } while (n);
@@ -379,12 +370,7 @@ static int explode_lit4or8(Uz_Globs *pG, unsigned window_k,
   }
 
   /* flush out redirSlide */
-  izi_flush(pG, redirSlide, (ulg)w, 0);
-  if (pG->csize + pG->incnt + (k >> 3))   /* should have read csize bytes, but */
-  {                        /* sometimes read one too many:  k>>3 compensates */
-    pG->used_csize = pG->lrec.csize - pG->csize - pG->incnt - (k >> 3);
-    return 5;
-  }
+  izi_flush(pG, redirSlide, (ulg)w);
   return 0;
 }
 
@@ -423,7 +409,7 @@ static int explode_nolit4or8(Uz_Globs *pG, unsigned window_k,
       redirSlide[w++] = (uch)b;
       if (w == wsize)
       {
-        izi_flush(pG, redirSlide, (ulg)w, 0);
+        izi_flush(pG, redirSlide, (ulg)w);
         w = u = 0;
       }
       DUMPBITS(8);
@@ -495,7 +481,7 @@ static int explode_nolit4or8(Uz_Globs *pG, unsigned window_k,
             } while (--e);
         if (w == wsize)
         {
-          izi_flush(pG, redirSlide, (ulg)w, 0);
+          izi_flush(pG, redirSlide, (ulg)w);
           w = u = 0;
         }
       } while (n);
@@ -503,12 +489,7 @@ static int explode_nolit4or8(Uz_Globs *pG, unsigned window_k,
   }
 
   /* flush out redirSlide */
-  izi_flush(pG, redirSlide, (ulg)w, 0);
-  if (pG->csize + pG->incnt + (k >> 3))   /* should have read csize bytes, but */
-  {                        /* sometimes read one too many:  k>>3 compensates */
-    pG->used_csize = pG->lrec.csize - pG->csize - pG->incnt - (k >> 3);
-    return 5;
-  }
+  izi_flush(pG, redirSlide, (ulg)w);
   return 0;
 }
 
@@ -538,7 +519,7 @@ static int explode(Uz_Globs *pG)
      7, 7, and 9 worked best over a very wide range of sizes, except that
      bd = 8 worked marginally better for large compressed sizes. */
   bl = 7;
-  bd = (pG->csize + pG->incnt) > 200000L ? 8 : 7;
+  bd = pG->csize > 200000L ? 8 : 7;
 
   /* With literal tree--minimum match length is 3 */
   if (pG->lrec.general_purpose_bit_flag & 4)
@@ -678,7 +659,7 @@ static int huft_build(Uz_Globs *pG, const unsigned *b, unsigned n, unsigned s,
   int k;               /* number of bits in current code */
   int lx[BMAX+1];               /* memory for l[-1..BMAX-1] */
   int *l = lx+1;                /* stack of bits per table */
-  unsigned *p;         /* pointer into c[], b[], or v[] */
+  const unsigned *p;   /* pointer into c[], b[], or v[] */
   struct huft *q;      /* points to current table */
   struct huft r;                /* table entry for structure assignment */
   struct huft *u[BMAX];         /* table stack */
@@ -692,7 +673,7 @@ static int huft_build(Uz_Globs *pG, const unsigned *b, unsigned n, unsigned s,
   /* Generate counts for each bit length */
   el = n > 256 ? b[256] : BMAX; /* set length of EOB code, if any */
   de_zeromem(c, sizeof(c));
-  p = (unsigned *)b;  i = n;
+  p = b;  i = n;
   do {
     c[*p]++; p++;               /* assume all entries <= BMAX */
   } while (--i);
@@ -734,7 +715,7 @@ static int huft_build(Uz_Globs *pG, const unsigned *b, unsigned n, unsigned s,
 
   /* Make a table of values in order of bit lengths */
   de_zeromem(v, sizeof(v));
-  p = (unsigned *)b;  i = 0;
+  p = b;  i = 0;
   do {
     if ((j = *p++) != 0)
       v[x[j]++] = i;
