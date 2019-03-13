@@ -343,6 +343,8 @@ struct deark_struct {
 	de_fatalerrorfn_type fatalerrorfn;
 	const char *dprefix;
 
+	u8 pngcprlevel_valid;
+	unsigned int pngcmprlevel;
 	void *zip_data;
 	void *tar_data;
 	dbuf *extrlist_dbuf;

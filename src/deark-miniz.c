@@ -47,7 +47,7 @@ struct deark_png_encode_info {
 	int width, height;
 	int num_chans;
 	int flip;
-	int level;
+	unsigned int level;
 	int has_phys;
 	mz_uint32 xdens;
 	mz_uint32 ydens;
@@ -204,6 +204,7 @@ done:
 
 int de_write_png(deark *c, de_bitmap *img, dbuf *f)
 {
+	const char *opt_level;
 	struct deark_png_encode_info pei;
 
 	de_zeromem(&pei, sizeof(struct deark_png_encode_info));
@@ -253,7 +254,26 @@ int de_write_png(deark *c, de_bitmap *img, dbuf *f)
 	pei.height = (int)img->height;
 	pei.flip = img->flipped;
 	pei.num_chans = img->bytes_per_pixel;
-	pei.level = 9;
+
+	if(!c->pngcprlevel_valid) {
+		c->pngcmprlevel = 9; // default
+		c->pngcprlevel_valid = 1;
+
+		opt_level = de_get_ext_option(c, "pngcmprlevel");
+		if(opt_level) {
+			i64 opt_level_n = de_atoi64(opt_level);
+			if(opt_level_n>10) {
+				c->pngcmprlevel = 10;
+			}
+			else if(opt_level_n<0) {
+				c->pngcmprlevel = 6;
+			}
+			else {
+				c->pngcmprlevel = (unsigned int)opt_level_n;
+			}
+		}
+	}
+	pei.level = c->pngcmprlevel;
 
 	if(f->fi_copy && f->fi_copy->image_mod_time.is_valid) {
 		pei.image_mod_time = f->fi_copy->image_mod_time;
@@ -468,7 +488,7 @@ int de_zip_create_file(deark *c)
 	zzz->cmprlevel = MZ_BEST_COMPRESSION; // default
 	opt_level = de_get_ext_option(c, "archive:zipcmprlevel");
 	if(opt_level) {
-		i64 opt_level_n = de_atoi(opt_level);
+		i64 opt_level_n = de_atoi64(opt_level);
 		if(opt_level_n>9) {
 			zzz->cmprlevel = 9;
 		}
