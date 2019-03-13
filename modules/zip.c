@@ -216,7 +216,7 @@ static void read_unix_timestamp(deark *c, lctx *d, i64 pos,
 	t = de_geti32le(pos);
 	de_unix_time_to_timestamp(t, timestamp, 0x1);
 	de_timestamp_to_string(timestamp, timestamp_buf, sizeof(timestamp_buf), 0);
-	de_dbg(c, "%s: %d (%s)", name, (int)t, timestamp_buf);
+	de_dbg(c, "%s: %"I64_FMT" (%s)", name, t, timestamp_buf);
 }
 
 static void read_FILETIME(deark *c, lctx *d, i64 pos,

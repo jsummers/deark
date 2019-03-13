@@ -3115,6 +3115,7 @@ static time_t mz_zip_dos_to_time_t(int dos_time, int dos_date)
   return mktime(&tm);
 }
 
+#if 0
 static void mz_zip_time_to_dos_time(time_t time, mz_uint16 *pDOS_time, mz_uint16 *pDOS_date)
 {
 #ifdef _MSC_VER
@@ -3132,6 +3133,7 @@ static void mz_zip_time_to_dos_time(time_t time, mz_uint16 *pDOS_time, mz_uint16
   *pDOS_time = (mz_uint16)(((tm->tm_hour) << 11) + ((tm->tm_min) << 5) + ((tm->tm_sec) >> 1));
   *pDOS_date = (mz_uint16)(((tm->tm_year + 1900 - 1980) << 9) + ((tm->tm_mon + 1) << 5) + tm->tm_mday);
 }
+#endif
 #endif
 
 #ifndef MINIZ_NO_STDIO
@@ -4383,6 +4385,7 @@ mz_bool mz_zip_writer_add_mem_ex(mz_zip_archive *pZip, const char *pArchive_name
   if (!mz_zip_writer_validate_archive_name(pArchive_name))
     return MZ_FALSE;
 
+#if 0
 #ifndef MINIZ_NO_TIME
   {
     time_t cur_time;
@@ -4393,6 +4396,9 @@ mz_bool mz_zip_writer_add_mem_ex(mz_zip_archive *pZip, const char *pArchive_name
     mz_zip_time_to_dos_time(cur_time, &dos_time, &dos_date);
   }
 #endif // #ifndef MINIZ_NO_TIME
+#endif
+  dos_time = (mz_uint16)dfa->modtime_dostime;
+  dos_date = (mz_uint16)dfa->modtime_dosdate;
 
   archive_name_size = strlen(pArchive_name);
   if (archive_name_size > 0xFFFF)

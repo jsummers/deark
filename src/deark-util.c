@@ -1772,15 +1772,16 @@ void de_crcobj_addslice(struct de_crcobj *crco, dbuf *f, i64 pos, i64 len)
 	dbuf_buffered_read(f, pos, len, addslice_cbfn, (void*)crco);
 }
 
-i64 de_get_reproducible_unix_timestamp(deark *c)
+void de_get_reproducible_timestamp(deark *c, struct de_timestamp *ts)
 {
 	if(c->reproducible_timestamp.is_valid) {
-		return de_timestamp_to_unix_time(&c->reproducible_timestamp);
+		*ts = c->reproducible_timestamp;
+		return;
 	}
 
 	// An arbitrary timestamp
 	// $ date -u --date='2010-09-08 07:06:05' '+%s'
-	return 1283929565LL;
+	de_unix_time_to_timestamp(1283929565LL, ts, 0x1);
 }
 
 // Call this to ensure that a zip/tar file will be created, even if it has

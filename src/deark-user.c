@@ -430,6 +430,8 @@ deark *de_create_internal(void)
 	c->write_density = 1;
 	c->filenames_from_file = 1;
 	c->preserve_file_times = 1;
+	c->preserve_file_times_archives = 1;
+	c->preserve_file_times_images = 1;
 	c->max_output_files = -1;
 	c->max_image_dimension = DE_DEFAULT_MAX_IMAGE_DIMENSION;
 	c->current_time.is_valid = 0;
@@ -698,7 +700,9 @@ void de_set_overwrite_mode(deark *c, int x)
 
 void de_set_preserve_file_times(deark *c, int x)
 {
-	c->preserve_file_times = x;
+	c->preserve_file_times = x?1:0;
+	c->preserve_file_times_archives = c->preserve_file_times;
+	c->preserve_file_times_images = c->preserve_file_times;
 }
 
 void de_set_ext_option(deark *c, const char *name, const char *val)

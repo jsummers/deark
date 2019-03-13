@@ -3,14 +3,18 @@
 // See the file COPYING for terms of use.
 
 // Interface to miniz
+// ZIP encoding
+// PNG encoding
 
 #define DE_NOT_IN_MODULE
 #include "deark-config.h"
 #include "deark-private.h"
 
 struct deark_file_attribs {
-	i64 modtime; // Unix time_t format
-	int modtime_valid;
+	struct de_timestamp modtime;
+	i64 modtime_unix;
+	unsigned int modtime_dosdate;
+	unsigned int modtime_dostime;
 	i64 modtime_as_FILETIME; // valid if nonzero
 	u8 is_executable;
 	u8 is_directory;
@@ -181,9 +185,7 @@ static int do_generate_png(struct deark_png_encode_info *pei, const mz_uint8 *sr
 		write_png_chunk_pHYs(pei, cdbuf);
 	}
 
-	// TODO: Maybe this should be a separate command-line option, instead
-	// of overloading ->preserve_file_times.
-	if(pei->image_mod_time.is_valid && pei->c->preserve_file_times) {
+	if(pei->image_mod_time.is_valid && pei->c->preserve_file_times_images) {
 		dbuf_truncate(cdbuf, 0);
 		write_png_chunk_tIME(pei, cdbuf);
 	}
@@ -488,13 +490,48 @@ int de_zip_create_file(deark *c)
 	return 1;
 }
 
+static void set_dos_modtime(struct deark_file_attribs *dfa)
+{
+	struct de_timestamp tmpts;
+	struct de_struct_tm tm2;
+
+	// Clamp to the range of times supported
+	if(dfa->modtime_unix < 315532800) { // 1 Jan 1980 00:00:00
+		de_unix_time_to_timestamp(315532800, &tmpts, 0x0);
+		de_gmtime(&tmpts, &tm2);
+	}
+	else if(dfa->modtime_unix > 4354819198LL) { // 31 Dec 2107 23:59:58
+		de_unix_time_to_timestamp(4354819198LL, &tmpts, 0x0);
+		de_gmtime(&tmpts, &tm2);
+	}
+	else {
+		de_gmtime(&dfa->modtime, &tm2);
+	}
+
+	dfa->modtime_dostime = (unsigned int)(((tm2.tm_hour) << 11) +
+		((tm2.tm_min) << 5) + ((tm2.tm_sec) >> 1));
+	dfa->modtime_dosdate = (unsigned int)(((tm2.tm_fullyear - 1980) << 9) +
+		((tm2.tm_mon + 1) << 5) + tm2.tm_mday);
+}
+
+static void writei32le(dbuf *f, i64 n)
+{
+	if(n<0) {
+		dbuf_writeu32le(f, n+0x100000000LL);
+	}
+	else {
+		dbuf_writeu32le(f, n);
+	}
+}
+
 void de_zip_add_file_to_archive(deark *c, dbuf *f)
 {
 	struct zip_data_struct *zzz;
 	struct deark_file_attribs dfa;
 	dbuf *eflocal = NULL;
 	dbuf *efcentral = NULL;
-	int write_ntfs_times;
+	int write_ntfs_times = 0;
+	int write_UT_time = 0;
 
 	de_zeromem(&dfa, sizeof(struct deark_file_attribs));
 
@@ -514,33 +551,51 @@ void de_zip_add_file_to_archive(deark *c, dbuf *f)
 		dfa.is_directory = 1;
 	}
 
-	if(c->preserve_file_times && f->fi_copy && f->fi_copy->mod_time.is_valid) {
-		dfa.modtime = de_timestamp_to_unix_time(&f->fi_copy->mod_time);
-		if(f->fi_copy->mod_time.precision>DE_TSPREC_1SEC) {
-			dfa.modtime_as_FILETIME = de_timestamp_to_FILETIME(&f->fi_copy->mod_time);
+	if(f->fi_copy && (f->fi_copy->mode_flags&DE_MODEFLAG_EXE)) {
+		dfa.is_executable = 1;
+	}
+
+	if(c->preserve_file_times_archives && f->fi_copy && f->fi_copy->mod_time.is_valid) {
+		dfa.modtime = f->fi_copy->mod_time;
+		if(dfa.modtime.precision>DE_TSPREC_1SEC) {
+			write_ntfs_times = 1;
 		}
-		dfa.modtime_valid = 1;
 	}
 	else if(c->reproducible_output) {
-		dfa.modtime = de_get_reproducible_unix_timestamp(c);
-		dfa.modtime_valid = 1;
+		de_get_reproducible_timestamp(c, &dfa.modtime);
 	}
 	else {
-		struct de_timestamp tmpts;
-
-		de_cached_current_time_to_timestamp(c, &tmpts);
-		dfa.modtime = de_timestamp_to_unix_time(&tmpts);
-		dfa.modtime_valid = 1;
+		de_cached_current_time_to_timestamp(c, &dfa.modtime);
 
 		// We only write the current time because ZIP format leaves us little
 		// choice.
-		// Although c->current_time is high precision, we deliberately treat
-		// it as low precision, so as not to write an NTFS extra field.
-		dfa.modtime_as_FILETIME = 0;
+		// Note that although c->current_time is probably high precision,
+		// we don't consider that good enough reason to force NTFS timestamps
+		// to be written.
 	}
 
-	if(f->fi_copy && (f->fi_copy->mode_flags&DE_MODEFLAG_EXE)) {
-		dfa.is_executable = 1;
+	dfa.modtime_unix = de_timestamp_to_unix_time(&dfa.modtime);
+	set_dos_modtime(&dfa);
+
+	if((dfa.modtime_unix >= -0x80000000LL) && (dfa.modtime_unix <= 0x7fffffffLL)) {
+		// Always write a Unix timestamp if we can.
+		write_UT_time = 1;
+
+		if(dfa.modtime_unix < 0) {
+			// This negative Unix time is in range, but problematical,
+			// so write NTFS times as well.
+			write_ntfs_times = 1;
+		}
+	}
+	else { // Out of range of ZIP's (signed int32) Unix style timestamps
+		write_ntfs_times = 1;
+	}
+
+	if(write_ntfs_times) {
+		dfa.modtime_as_FILETIME = de_timestamp_to_FILETIME(&dfa.modtime);
+		if(dfa.modtime_as_FILETIME == 0) {
+			write_ntfs_times = 0;
+		}
 	}
 
 	// Create ZIP "extra data" "Extended Timestamp" and "NTFS" fields,
@@ -549,21 +604,21 @@ void de_zip_add_file_to_archive(deark *c, dbuf *f)
 	// Note: Although our 0x5455 central and local extra data fields happen to
 	// be identical, that is not generally the case.
 
-	write_ntfs_times = (dfa.modtime_as_FILETIME!=0);
-
 	// Use temporary dbufs to help construct the extra field data.
-	eflocal = dbuf_create_membuf(c, 64, 0);
-	efcentral = dbuf_create_membuf(c, 64, 0);
+	eflocal = dbuf_create_membuf(c, 256, 0);
+	efcentral = dbuf_create_membuf(c, 256, 0);
 
-	dbuf_writeu16le(eflocal, 0x5455);
-	dbuf_writeu16le(eflocal, (i64)5);
-	dbuf_writeu16le(efcentral, 0x5455);
-	dbuf_writeu16le(efcentral, (i64)5);
+	if(write_UT_time) {
+		dbuf_writeu16le(eflocal, 0x5455);
+		dbuf_writeu16le(eflocal, (i64)5);
+		dbuf_writeu16le(efcentral, 0x5455);
+		dbuf_writeu16le(efcentral, (i64)5);
 
-	dbuf_writebyte(eflocal, 0x01); // has-modtime flag
-	dbuf_writeu32le(eflocal, dfa.modtime);
-	dbuf_writebyte(efcentral, 0x01);
-	dbuf_writeu32le(efcentral, dfa.modtime);
+		dbuf_writebyte(eflocal, 0x01); // has-modtime flag
+		writei32le(eflocal, dfa.modtime_unix);
+		dbuf_writebyte(efcentral, 0x01);
+		writei32le(efcentral, dfa.modtime_unix);
+	}
 
 	if(write_ntfs_times) {
 		// We only write the NTFS field to the local header, not the central

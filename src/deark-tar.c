@@ -156,22 +156,20 @@ void de_tar_start_member_file(deark *c, dbuf *f)
 
 	md->headers_pos = tctx->outf->len;
 
-	if(f->fi_copy && f->fi_copy->mod_time.is_valid) {
+	if(c->preserve_file_times_archives && f->fi_copy && f->fi_copy->mod_time.is_valid) {
 		md->modtime = f->fi_copy->mod_time;
-		md->modtime_unix = de_timestamp_to_unix_time(&md->modtime);
 	}
 	else if(c->reproducible_output) {
-		md->modtime_unix = de_get_reproducible_unix_timestamp(c);
-		de_unix_time_to_timestamp(md->modtime_unix, &md->modtime, 0x1);
+		de_get_reproducible_timestamp(c, &md->modtime);
 	}
 	else {
 		de_cached_current_time_to_timestamp(c, &md->modtime);
 		// Although c->current_time is probably high precision, we treat it as
 		// low precision, so as not to write an "mtime" extended header.
+		// TODO: If we write "mtime" for some other reason, it can be high prec.
 		md->modtime.precision = DE_TSPREC_1SEC;
-
-		md->modtime_unix = de_timestamp_to_unix_time(&md->modtime);
 	}
+	md->modtime_unix = de_timestamp_to_unix_time(&md->modtime);
 
 	if(f->fi_copy && f->fi_copy->is_directory) {
 		md->is_dir = 1;

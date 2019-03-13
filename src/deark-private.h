@@ -327,7 +327,9 @@ struct deark_struct {
 	int keep_dir_entries;
 	int filenames_from_file;
 	int overwrite_mode;
-	int preserve_file_times;
+	u8 preserve_file_times;
+	u8 preserve_file_times_archives;
+	u8 preserve_file_times_images;
 	int reproducible_output;
 	struct de_timestamp reproducible_timestamp;
 	int can_decode_fltpt;
@@ -469,7 +471,7 @@ int de_havemodcode(deark *c, de_module_params *mparams, int code);
 ///////////////////////////////////////////
 
 int de_archive_initialize(deark *c);
-i64 de_get_reproducible_unix_timestamp(deark *c);
+void de_get_reproducible_timestamp(deark *c, struct de_timestamp *ts);
 
 int de_tar_create_file(deark *c);
 void de_tar_start_member_file(deark *c, dbuf *f);
