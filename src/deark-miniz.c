@@ -20,8 +20,8 @@ struct deark_file_attribs {
 	u8 is_directory;
 	u16 extra_data_central_size;
 	u16 extra_data_local_size;
-	u8 *extra_data_central;
-	u8 *extra_data_local;
+	const u8 *extra_data_central;
+	const u8 *extra_data_local;
 };
 
 #define MINIZ_NO_ZLIB_COMPATIBLE_NAMES
@@ -524,6 +524,33 @@ static void writei32le(dbuf *f, i64 n)
 	}
 }
 
+static void do_UT_times(deark *c, struct deark_file_attribs *dfa,
+	dbuf *ef, int is_central)
+{
+	// Note: Although our 0x5455 central and local extra data fields happen to
+	// be identical, that is not generally the case.
+
+	dbuf_writeu16le(ef, 0x5455);
+	dbuf_writeu16le(ef, (i64)5);
+	dbuf_writebyte(ef, 0x01); // has-modtime flag
+	writei32le(ef, dfa->modtime_unix);
+}
+
+static void do_ntfs_times(deark *c, struct deark_file_attribs *dfa,
+	dbuf *ef, int is_central)
+{
+	dbuf_writeu16le(ef, 0x000a); // = NTFS
+	dbuf_writeu16le(ef, 32); // data size
+	dbuf_write_zeroes(ef, 4);
+	dbuf_writeu16le(ef, 0x0001); // file times element
+	dbuf_writeu16le(ef, 24); // element data size
+	// We only know the mod time, but we are forced to make up something for
+	// the other timestamps.
+	dbuf_writeu64le(ef, (u64)dfa->modtime_as_FILETIME); // mod time
+	dbuf_writeu64le(ef, (u64)dfa->modtime_as_FILETIME); // access time
+	dbuf_writeu64le(ef, (u64)dfa->modtime_as_FILETIME); // create time
+}
+
 void de_zip_add_file_to_archive(deark *c, dbuf *f)
 {
 	struct zip_data_struct *zzz;
@@ -601,57 +628,29 @@ void de_zip_add_file_to_archive(deark *c, dbuf *f)
 	// Create ZIP "extra data" "Extended Timestamp" and "NTFS" fields,
 	// containing the UTC timestamp.
 
-	// Note: Although our 0x5455 central and local extra data fields happen to
-	// be identical, that is not generally the case.
-
 	// Use temporary dbufs to help construct the extra field data.
 	eflocal = dbuf_create_membuf(c, 256, 0);
 	efcentral = dbuf_create_membuf(c, 256, 0);
 
 	if(write_UT_time) {
-		dbuf_writeu16le(eflocal, 0x5455);
-		dbuf_writeu16le(eflocal, (i64)5);
-		dbuf_writeu16le(efcentral, 0x5455);
-		dbuf_writeu16le(efcentral, (i64)5);
-
-		dbuf_writebyte(eflocal, 0x01); // has-modtime flag
-		writei32le(eflocal, dfa.modtime_unix);
-		dbuf_writebyte(efcentral, 0x01);
-		writei32le(efcentral, dfa.modtime_unix);
+		do_UT_times(c, &dfa, eflocal, 0);
+		do_UT_times(c, &dfa, efcentral, 1);
 	}
 
 	if(write_ntfs_times) {
-		// We only write the NTFS field to the local header, not the central
-		// header.
 		// Note: Info-ZIP says: "In the current implementations, this field [...]
 		// is only stored as local extra field.
-		// Rebuttal: 7-Zip, as of this writing, seems to write it *only* as a
-		// *central* extra field.
-
-		dbuf_writeu16le(eflocal, 0x000a); // = NTFS
-		dbuf_writeu16le(eflocal, 32); // data size
-		dbuf_write_zeroes(eflocal, 4);
-		dbuf_writeu16le(eflocal, 0x0001); // file times element
-		dbuf_writeu16le(eflocal, 24); // element data size
-		// We only know the mod time, but we are forced to make up something for
-		// the other timestamps.
-		dbuf_writeu64le(eflocal, (u64)dfa.modtime_as_FILETIME); // mod time
-		dbuf_writeu64le(eflocal, (u64)dfa.modtime_as_FILETIME); // access time
-		dbuf_writeu64le(eflocal, (u64)dfa.modtime_as_FILETIME); // create time
+		// But 7-Zip supports it *only* as a central extra field.
+		// So we'll write both.
+		do_ntfs_times(c, &dfa, eflocal, 0);
+		do_ntfs_times(c, &dfa, efcentral, 1);
 	}
 
 	dfa.extra_data_local_size = (u16)eflocal->len;
-	dfa.extra_data_local = de_malloc(c, eflocal->len);
-	dbuf_read(eflocal, dfa.extra_data_local, 0, eflocal->len);
+	dfa.extra_data_local = eflocal->membuf_buf;
 
 	dfa.extra_data_central_size = (u16)efcentral->len;
-	dfa.extra_data_central = de_malloc(c, efcentral->len);
-	dbuf_read(efcentral, dfa.extra_data_central, 0, efcentral->len);
-
-	dbuf_close(eflocal);
-	eflocal = NULL;
-	dbuf_close(efcentral);
-	efcentral = NULL;
+	dfa.extra_data_central = efcentral->membuf_buf;
 
 	if(dfa.is_directory) {
 		size_t nlen;
@@ -672,8 +671,8 @@ void de_zip_add_file_to_archive(deark *c, dbuf *f)
 			MZ_BEST_COMPRESSION, &dfa);
 	}
 
-	de_free(c, dfa.extra_data_local);
-	de_free(c, dfa.extra_data_central);
+	dbuf_close(eflocal);
+	dbuf_close(efcentral);
 }
 
 static int copy_to_FILE_cbfn(struct de_bufferedreadctx *brctx, const u8 *buf,
