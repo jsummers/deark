@@ -148,6 +148,8 @@ Command-line options:
     -opt archive:subdirs=0
        When using -zip/-tar, disallow subdirectories (the "/" character) in
        member filenames.
+    -opt archive:zipcmprlevel
+       When using -zip, the compression level to use, from 0 (none) to 9 (max).
     -opt archive:timestamp=&lt;n>
     -opt archive:repro
        Make the -zip/-tar output reproducible, by not including modification

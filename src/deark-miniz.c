@@ -34,6 +34,7 @@ struct zip_data_struct {
 	const char *pFilename;
 	dbuf *outf; // Using this instead of pZip->m_pState->m_pFile
 	mz_zip_archive *pZip;
+	mz_uint cmprlevel;
 };
 
 #define CODE_IDAT 0x49444154U
@@ -453,6 +454,7 @@ static mz_bool my_mz_zip_writer_init_file(deark *c, struct zip_data_struct *zzz,
 int de_zip_create_file(deark *c)
 {
 	struct zip_data_struct *zzz;
+	const char *opt_level;
 	mz_bool b;
 
 	if(c->zip_data) return 1; // Already created. Shouldn't happen.
@@ -462,6 +464,21 @@ int de_zip_create_file(deark *c)
 	zzz->c = c;
 	zzz->pZip->m_pIO_opaque = (void*)zzz;
 	c->zip_data = (void*)zzz;
+
+	zzz->cmprlevel = MZ_BEST_COMPRESSION; // default
+	opt_level = de_get_ext_option(c, "archive:zipcmprlevel");
+	if(opt_level) {
+		i64 opt_level_n = de_atoi(opt_level);
+		if(opt_level_n>9) {
+			zzz->cmprlevel = 9;
+		}
+		else if(opt_level_n<0) {
+			zzz->cmprlevel = MZ_DEFAULT_LEVEL;
+		}
+		else {
+			zzz->cmprlevel = (mz_uint)opt_level_n;
+		}
+	}
 
 	if(c->archive_to_stdout) {
 		zzz->pFilename = "[stdout]";
@@ -668,7 +685,7 @@ void de_zip_add_file_to_archive(deark *c, dbuf *f)
 	}
 	else {
 		mz_zip_writer_add_mem(zzz->pZip, f->name, f->membuf_buf, (size_t)f->len,
-			MZ_BEST_COMPRESSION, &dfa);
+			zzz->cmprlevel, &dfa);
 	}
 
 	dbuf_close(eflocal);
