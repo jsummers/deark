@@ -63,9 +63,9 @@ When Deark writes to a ZIP or tar file (the "-zip"/"-tar" option), it doesn't
 have to worry about what to name the internal files. It can palm that problem
 off onto your unzip/untar program. It is more tolerant in this case.
 
-Directory paths only maintained as such if you use -zip/-tar (and you don't use
-"-opt archive:subdirs=0"). Deark generally does write a file anywhere other
-than the current directory, though you can tell it to do so by using -o,
+Directory paths are only maintained as such if you use -zip/-tar (and you don't
+use "-opt archive:subdirs=0"). Deark generally does not write a file anywhere
+other than the current directory, though you can tell it to do so by using -o,
 -arcfn, or -k3.
 
 ## The "Is this one format or two?" problem ##
@@ -145,10 +145,10 @@ owner-executable and world-executable, for example.
 
 Some archive formats contain independent representations of subdirectores,
 allowing empty directories, and directory attributes, to be stored. By default,
-Deark retains these entries when writing to a ZIP file, and otherwise ignores
-them. This behavior can be changed with "-opt keepdirentries". Even so, Deark
-never creates directories directly. Instead, it may create marker files with a
-".dir" extension.
+Deark retains these entries when writing to a ZIP/tar file, and otherwise
+ignores them. This behavior can be changed with "-opt keepdirentries". Even so,
+Deark never creates directories directly. Instead, it may create marker files
+with a ".dir" extension.
 
 Note that this means the -zip/-tar option can affect the numbering of output
 files used by, e.g., the -get option.
@@ -207,6 +207,9 @@ will (hopefully) be sufficient:
 
 This will build an executable file named "deark". Deark has no dependencies,
 other than the standard C libraries.
+
+It is possible to configure the build by setting certain environment variables.
+See the scripts at scripts/example-build-* for examples.
 
 It is safe to build Deark using "parallel make", i.e. "make -j". This will
 speed up the build, in most cases.
