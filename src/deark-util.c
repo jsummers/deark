@@ -1162,7 +1162,7 @@ void de_mac_time_to_timestamp(i64 mt, struct de_timestamp *ts)
 void de_FILETIME_to_timestamp(i64 ft, struct de_timestamp *ts, unsigned int flags)
 {
 	de_zeromem(ts, sizeof(struct de_timestamp));
-	if(ft<0) return;
+	if(ft<=0) return;
 	ts->is_valid = 1;
 	ts->ts_FILETIME = ft;
 	ts->precision = DE_TSPREC_HIGH;

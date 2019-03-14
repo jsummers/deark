@@ -360,6 +360,12 @@ void de_run(deark *c)
 		if(s_opt) {
 			c->reproducible_output = 1;
 			de_unix_time_to_timestamp(de_atoi64(s_opt), &c->reproducible_timestamp, 0x1);
+			if(!c->reproducible_timestamp.is_valid) {
+				// Timestamp out of range? Note: Supported range is
+				//  -11644473599 ( 1601-01-01 00:00:01) through
+				//  910692730085 (30828-09-14 02:48:05)
+				c->reproducible_output = 0;
+			}
 		}
 		else {
 			if(de_get_ext_option(c, "archive:repro")) {
