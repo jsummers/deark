@@ -215,7 +215,7 @@ static void read_unix_timestamp(deark *c, lctx *d, i64 pos,
 
 	t = de_geti32le(pos);
 	de_unix_time_to_timestamp(t, timestamp, 0x1);
-	de_timestamp_to_string(timestamp, timestamp_buf, sizeof(timestamp_buf), 0);
+	de_dbg_timestamp_to_string(c, timestamp, timestamp_buf, sizeof(timestamp_buf), 0);
 	de_dbg(c, "%s: %"I64_FMT" (%s)", name, t, timestamp_buf);
 }
 
@@ -227,7 +227,7 @@ static void read_FILETIME(deark *c, lctx *d, i64 pos,
 
 	t_FILETIME = de_geti64le(pos);
 	de_FILETIME_to_timestamp(t_FILETIME, timestamp, 0x1);
-	de_timestamp_to_string(timestamp, timestamp_buf, sizeof(timestamp_buf), 0);
+	de_dbg_timestamp_to_string(c, timestamp, timestamp_buf, sizeof(timestamp_buf), 0);
 	de_dbg(c, "%s: %s", name, timestamp_buf);
 }
 
@@ -454,7 +454,7 @@ static void handle_mac_time(deark *c, lctx *d,
 	char timestamp_buf[64];
 	de_mac_time_to_timestamp(mt_raw - mt_offset, ts);
 	ts->tzcode = DE_TZCODE_UTC;
-	de_timestamp_to_string(ts, timestamp_buf, sizeof(timestamp_buf), 0);
+	de_dbg_timestamp_to_string(c, ts, timestamp_buf, sizeof(timestamp_buf), 0);
 	de_dbg(c, "%s: %"I64_FMT" %+"I64_FMT" (%s)", name,
 		mt_raw, -mt_offset, timestamp_buf);
 }
@@ -616,7 +616,7 @@ static void ef_acorn(deark *c, lctx *d, struct extra_item_info_struct *eii)
 		de_dbg(c, "file type: %03X", file_type);
 
 		de_riscos_loadexec_to_timestamp(ld, ex, &mod_time);
-		de_timestamp_to_string(&mod_time, timestamp_buf, sizeof(timestamp_buf), 0);
+		de_dbg_timestamp_to_string(c, &mod_time, timestamp_buf, sizeof(timestamp_buf), 0);
 		de_dbg(c, "timestamp: %s", timestamp_buf);
 		apply_mod_time(c, d, eii->md, &mod_time, 70);
 	}
@@ -1074,7 +1074,7 @@ static int do_file_header(deark *c, lctx *d, struct member_data *md,
 	mod_date_raw = de_getu16le_p(&pos);
 	de_dos_datetime_to_timestamp(&dos_timestamp, mod_date_raw, mod_time_raw);
 	dos_timestamp.tzcode = DE_TZCODE_LOCAL;
-	de_timestamp_to_string(&dos_timestamp, timestamp_buf, sizeof(timestamp_buf), 0);
+	de_dbg_timestamp_to_string(c, &dos_timestamp, timestamp_buf, sizeof(timestamp_buf), 0);
 	de_dbg(c, "mod time: %s", timestamp_buf);
 	apply_mod_time(c, d, md, &dos_timestamp, 10);
 

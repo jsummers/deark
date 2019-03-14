@@ -183,7 +183,7 @@ static int read_phys_member_header(deark *c, lctx *d,
 	ret = read_ascii_octal_number(c->infile, pos, 12, &pmd->modtime_unix);
 	if(ret) {
 		de_unix_time_to_timestamp(pmd->modtime_unix, &pmd->mod_time, 0x1);
-		de_timestamp_to_string(&pmd->mod_time, timestamp_buf, sizeof(timestamp_buf), 0);
+		de_dbg_timestamp_to_string(c, &pmd->mod_time, timestamp_buf, sizeof(timestamp_buf), 0);
 		de_dbg(c, "mtime: %"I64_FMT" (%s)", pmd->modtime_unix, timestamp_buf);
 	}
 	pos += 12;
@@ -337,7 +337,7 @@ static void do_exthdr_mtime(deark *c, lctx *d, struct phys_member_data *pmd,
 	if(ehi->val_len<1) return;
 
 	// TODO: There is probably roundoff error here than there needs to be.
-	val_dbl = strtod(ehi->value->sz, NULL);
+	val_dbl = de_strtod(ehi->value->sz, NULL);
 	if(val_dbl > 0.0) {
 		val_int = (i64)val_dbl;
 		val_frac = val_dbl - (double)val_int;
@@ -352,7 +352,7 @@ static void do_exthdr_mtime(deark *c, lctx *d, struct phys_member_data *pmd,
 		de_timestamp_set_subsec(&ea->alt_mod_time, val_frac);
 	}
 
-	de_timestamp_to_string(&ea->alt_mod_time, timestamp_buf, sizeof(timestamp_buf), 0);
+	de_dbg_timestamp_to_string(c, &ea->alt_mod_time, timestamp_buf, sizeof(timestamp_buf), 0);
 	de_dbg(c, "mod time: %s", timestamp_buf);
 }
 

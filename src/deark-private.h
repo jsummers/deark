@@ -402,6 +402,7 @@ char *de_strchr(const char *s, int c);
 #else
 #define de_sscanf   sscanf
 #endif
+#define de_strtod   strtod
 
 void de_vsnprintf(char *buf, size_t buflen, const char *fmt, va_list ap);
 void de_snprintf(char *buf, size_t buflen, const char *fmt, ...)
@@ -1107,7 +1108,9 @@ void de_make_timestamp(struct de_timestamp *ts,
 	i64 yr, i64 mo, i64 da,
 	i64 hr, i64 mi, i64 se);
 void de_timestamp_cvt_to_utc(struct de_timestamp *ts, i64 offset_seconds);
-void de_timestamp_to_string(const struct de_timestamp *ts,
+char *de_timestamp_to_string(const struct de_timestamp *ts,
+	char *buf, size_t buf_len, unsigned int flags);
+char *de_dbg_timestamp_to_string(deark *c, const struct de_timestamp *ts,
 	char *buf, size_t buf_len, unsigned int flags);
 void de_gmtime(const struct de_timestamp *ts, struct de_struct_tm *tm2);
 void de_current_time_to_timestamp(struct de_timestamp *ts);

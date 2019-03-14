@@ -1370,7 +1370,9 @@ void de_gmtime(const struct de_timestamp *ts, struct de_struct_tm *tm2)
 
 // Appends " UTC" if ts->tzcode==DE_TZCODE_UTC
 // No flags are currently defined.
-void de_timestamp_to_string(const struct de_timestamp *ts,
+// Caller supplies buf (suggest it be at least size 64).
+// Returns an extra pointer to buf.
+char *de_timestamp_to_string(const struct de_timestamp *ts,
 	char *buf, size_t buf_len, unsigned int flags)
 {
 	const char *tzlabel;
@@ -1379,14 +1381,14 @@ void de_timestamp_to_string(const struct de_timestamp *ts,
 
 	if(!ts->is_valid) {
 		de_strlcpy(buf, "[invalid timestamp]", buf_len);
-		return;
+		goto done;
 	}
 
 	de_gmtime(ts, &tm2);
 	if(!tm2.is_valid) {
 		de_snprintf(buf, buf_len, "[timestamp out of range: %"I64_FMT"]",
 			de_timestamp_to_unix_time(ts));
-		return;
+		goto done;
 	}
 
 	if(ts->precision>DE_TSPREC_1SEC) {
@@ -1403,11 +1405,27 @@ void de_timestamp_to_string(const struct de_timestamp *ts,
 	if(ts->precision!=DE_TSPREC_UNKNOWN && ts->precision<=DE_TSPREC_1DAY) { // date only
 		de_snprintf(buf, buf_len, "%04d-%02d-%02d",
 			tm2.tm_fullyear, 1+tm2.tm_mon, tm2.tm_mday);
-		return;
+		goto done;
 	}
 	de_snprintf(buf, buf_len, "%04d-%02d-%02d %02d:%02d:%02d%s%s",
 		tm2.tm_fullyear, 1+tm2.tm_mon, tm2.tm_mday,
 		tm2.tm_hour, tm2.tm_min, tm2.tm_sec, subsec, tzlabel);
+done:
+	return buf;
+}
+
+// Same as de_timestamp_to_string(), except it assumes the output is only
+// needed if debug output is enabled.
+// If it is not, it just returns an empty string, to avoid the relatively
+// slow date processing.
+char *de_dbg_timestamp_to_string(deark *c, const struct de_timestamp *ts,
+	char *buf, size_t buf_len, unsigned int flags)
+{
+	if(c->debug_level<1) {
+		buf[0] = '\0';
+		return buf;
+	}
+	return de_timestamp_to_string(ts, buf, buf_len, flags);
 }
 
 // Returns the same time if called multiple times.

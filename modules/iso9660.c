@@ -135,7 +135,7 @@ static void dbg_timestamp(deark *c, struct de_timestamp *ts, const char *field_n
 	char timestamp_buf[64];
 
 	if(ts->is_valid) {
-		de_timestamp_to_string(ts, timestamp_buf, sizeof(timestamp_buf), 0);
+		de_dbg_timestamp_to_string(c, ts, timestamp_buf, sizeof(timestamp_buf), 0);
 		de_dbg(c, "%s: %s", field_name, timestamp_buf);
 	}
 	else {
