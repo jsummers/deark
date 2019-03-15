@@ -464,10 +464,12 @@ static void parse_cmdline(deark *c, struct cmdctx *cc, int argc, char **argv)
 				de_set_overwrite_mode(c, DE_OVERWRITEMODE_NEVER);
 				break;
 			case DE_OPT_MODTIME:
-				de_set_preserve_file_times(c, 1);
+				de_set_preserve_file_times(c, 0, 1);
+				de_set_preserve_file_times(c, 1, 1);
 				break;
 			case DE_OPT_NOMODTIME:
-				de_set_preserve_file_times(c, 0);
+				de_set_preserve_file_times(c, 0, 0);
+				de_set_preserve_file_times(c, 1, 0);
 				break;
 			case DE_OPT_Q:
 				de_set_infomessages(c, 0);

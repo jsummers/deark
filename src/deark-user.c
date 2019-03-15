@@ -704,11 +704,30 @@ void de_set_overwrite_mode(deark *c, int x)
 	c->overwrite_mode = x;
 }
 
-void de_set_preserve_file_times(deark *c, int x)
+void de_set_preserve_file_times(deark *c, int setting, int x)
 {
-	c->preserve_file_times = x?1:0;
-	c->preserve_file_times_archives = c->preserve_file_times;
-	c->preserve_file_times_images = c->preserve_file_times;
+	if(setting==0) {
+		// For files written directly to the filesystem.
+		c->preserve_file_times = x?1:0;
+	}
+	else if(setting==1) {
+		// For member files written to .zip/.tar files.
+		// I can't think of a good reason why a user would want to disable
+		// this, but it's allowed for consistency, and it doesn't hurt
+		// anything.
+		c->preserve_file_times_archives = x?1:0;
+	}
+	else if(setting==2) {
+		// For the tIME chunk in PNG files we generate.
+		// (Not currently used.)
+		// TODO: I'm undecided about whether this should be a user option, or
+		// just always be on.
+		// TODO: If we allow this setting to be turned off, it would be
+		// consistent to rename it, and use it for all "converted" formats,
+		// including e.g. the "Date" header item in ANSI Art files converted
+		// to HTML.
+		c->preserve_file_times_images = x?1:0;
+	}
 }
 
 void de_set_ext_option(deark *c, const char *name, const char *val)

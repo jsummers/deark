@@ -65,7 +65,7 @@ void de_set_filenames_from_file(deark *c, int x);
 // See DE_OVERWRITEMODE_ in deark.h
 void de_set_overwrite_mode(deark *c, int x);
 
-void de_set_preserve_file_times(deark *c, int x);
+void de_set_preserve_file_times(deark *c, int setting, int x);
 
 void de_set_ext_option(deark *c, const char *name, const char *val);
 

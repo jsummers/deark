@@ -126,12 +126,13 @@ Command-line options:
    Make Deark less likely to try to improve output filenames by using names
    from the contents of the input file. The output filenames will be more
    predictable, but less informative.
--modtime
 -nomodtime
-   Do / Do not try to preserve the modification timestamp of extracted files.
-   On by default, but not relevant to most formats. It's used with archive
-   formats where files are extracted as-is, and where each member file has a
-   last-modified timestamp.
+   In some cases, mainly when reading archive formats, a last-modified
+   timestamp contained in an input file will be used to set the timestamp of an
+   output file written directly to your computer (or with -zip/-tar, of a
+   member file inside that file). Use -nomodtime to disable this.
+   This does not affect internal timestamps that may be maintained when Deark
+   converts an item to some other format (such as PNG or HTML).
 -opt &lt;module:option>=&lt;value>
    Module-specific and feature-specific options. See formats.txt.
    Caution: Unrecognized or misspelled options will be silently ignored.
