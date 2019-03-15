@@ -731,13 +731,8 @@ static void handler_iccp(deark *c, lctx *d, struct handler_params *hp)
 	if(c->filenames_from_file && prof_name2[0])
 		de_finfo_set_name_from_sz(c, fi, prof_name2, 0, DE_ENCODING_LATIN1);
 	f = dbuf_create_output_file(c, "icc", fi, DE_CREATEFLAG_IS_AUX);
-	if(d->is_CgBI) {
-		i64 bytes_consumed = 0;
-		de_uncompress_deflate(c->infile, pos, hp->dlen - pos, f, &bytes_consumed);
-	}
-	else {
-		de_uncompress_zlib(c->infile, pos, hp->dlen - pos, f);
-	}
+	de_decompress_deflate(c->infile, pos, hp->dlen - pos, f, 0, NULL,
+		d->is_CgBI ? 0 : DE_DEFLATEFLAG_ISZLIB);
 
 done:
 	dbuf_close(f);

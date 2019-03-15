@@ -483,9 +483,11 @@ void de_tar_close_file(deark *c);
 
 ///////////////////////////////////////////
 
-int de_uncompress_zlib(dbuf *inf, i64 inputstart, i64 inputsize, dbuf *outf);
-int de_uncompress_deflate(dbuf *inf, i64 inputstart, i64 inputsize, dbuf *outf,
-	i64 *bytes_consumed);
+int de_uncompress_zlib(dbuf *inf, i64 inputstart, i64 inputsize, dbuf *outf); // deprecated
+#define DE_DEFLATEFLAG_ISZLIB 0x1
+#define DE_DEFLATEFLAG_USEMAXUNCMPRSIZE 0x2
+int de_decompress_deflate(dbuf *inf, i64 inputstart, i64 inputsize, dbuf *outf,
+	i64 maxuncmprsize, i64 *bytes_consumed, unsigned int flags);
 
 int de_zip_create_file(deark *c);
 void de_zip_add_file_to_archive(deark *c, dbuf *f);

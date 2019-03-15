@@ -288,7 +288,7 @@ int de_write_png(deark *c, de_bitmap *img, dbuf *f)
 }
 
 static int de_inflate_internal(dbuf *inf, i64 inputstart, i64 inputsize, dbuf *outf,
-	int is_zlib, i64 *bytes_consumed)
+	i64 maxuncmprsize, i64 *bytes_consumed, unsigned int flags)
 {
 	mz_stream strm;
 	int ret;
@@ -305,6 +305,8 @@ static int de_inflate_internal(dbuf *inf, i64 inputstart, i64 inputsize, dbuf *o
 	i64 input_cur_pos;
 	i64 output_bytes_this_time;
 	i64 nbytes_to_read;
+	i64 nbytes_to_write;
+	i64 nbytes_written_total = 0;
 	deark *c;
 	int stream_open_flag = 0;
 
@@ -319,7 +321,7 @@ static int de_inflate_internal(dbuf *inf, i64 inputstart, i64 inputsize, dbuf *o
 	outbuf = de_malloc(c, DE_DFL_OUTBUF_SIZE);
 
 	de_zeromem(&strm, sizeof(strm));
-	if(is_zlib) {
+	if(flags&DE_DEFLATEFLAG_ISZLIB) {
 		ret = mz_inflateInit(&strm);
 	}
 	else {
@@ -341,6 +343,11 @@ static int de_inflate_internal(dbuf *inf, i64 inputstart, i64 inputsize, dbuf *o
 
 	while(1) {
 		de_dbg3(c, "input remaining: %d", (int)(inputstart+inputsize-input_cur_pos));
+
+		// If we have written enough bytes, stop.
+		if((flags&DE_DEFLATEFLAG_USEMAXUNCMPRSIZE) && (nbytes_written_total >= maxuncmprsize)) {
+			break;
+		}
 
 		// If we have read all the available bytes from the file,
 		// and all bytes in inbuf are consumed, then stop.
@@ -385,7 +392,14 @@ static int de_inflate_internal(dbuf *inf, i64 inputstart, i64 inputsize, dbuf *o
 		output_bytes_this_time = DE_DFL_OUTBUF_SIZE - strm.avail_out;
 		de_dbg3(c, "got %d output bytes", (int)output_bytes_this_time);
 
-		dbuf_write(outf, outbuf, output_bytes_this_time);
+		nbytes_to_write = output_bytes_this_time;
+		if((flags&DE_DEFLATEFLAG_USEMAXUNCMPRSIZE) &&
+			(nbytes_to_write > maxuncmprsize - nbytes_written_total))
+		{
+			nbytes_to_write = maxuncmprsize - nbytes_written_total;
+		}
+		dbuf_write(outf, outbuf, nbytes_to_write);
+		nbytes_written_total += nbytes_to_write;
 
 		if(ret==MZ_STREAM_END) {
 			de_dbg2(c, "inflate finished normally");
@@ -419,14 +433,17 @@ done:
 
 int de_uncompress_zlib(dbuf *inf, i64 inputstart, i64 inputsize, dbuf *outf)
 {
-	i64 bytes_consumed;
-	return de_inflate_internal(inf, inputstart, inputsize, outf, 1, &bytes_consumed);
+	i64 bc2 = 0;
+	return de_inflate_internal(inf, inputstart, inputsize, outf, 0, &bc2,
+		DE_DEFLATEFLAG_ISZLIB);
 }
 
-int de_uncompress_deflate(dbuf *inf, i64 inputstart, i64 inputsize, dbuf *outf,
-	i64 *bytes_consumed)
+int de_decompress_deflate(dbuf *inf, i64 inputstart, i64 inputsize, dbuf *outf,
+	i64 maxuncmprsize, i64 *bytes_consumed, unsigned int flags)
 {
-	return de_inflate_internal(inf, inputstart, inputsize, outf, 0, bytes_consumed);
+	i64 bc2 = 0;
+	return de_inflate_internal(inf, inputstart, inputsize, outf, maxuncmprsize,
+		bytes_consumed?bytes_consumed:(&bc2), flags);
 }
 
 static size_t my_mz_zip_file_write_func(void *pOpaque, mz_uint64 file_ofs, const void *pBuf, size_t n)

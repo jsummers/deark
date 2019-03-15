@@ -104,16 +104,27 @@ static int do_decompress_implode(deark *c, lctx *d, struct member_data *md,
 	return 1;
 }
 
+static int do_decompress_deflate(deark *c, lctx *d,
+	dbuf *inf, i64 inf_pos, i64 inf_size,
+	dbuf *outf, i64 maxuncmprsize)
+{
+	int ret;
+	i64 bytes_consumed = 0;
+
+	ret = de_decompress_deflate(inf, inf_pos, inf_size, outf, maxuncmprsize,
+		&bytes_consumed, DE_DEFLATEFLAG_USEMAXUNCMPRSIZE);
+	return ret;
+}
+
 // Decompress some data from inf, using the given ZIP compression method,
 // and append it to outf.
 // 'md' is allowed to be NULL in some cases.
 static int do_decompress_data(deark *c, lctx *d, struct member_data *md,
 	dbuf *inf, i64 inf_pos, i64 inf_size,
-	dbuf *outf, int cmpr_method)
+	dbuf *outf, i64 maxuncmprsize, int cmpr_method)
 {
 	int retval = 0;
 	int ret;
-	i64 bytes_consumed = 0;
 
 	switch(cmpr_method) {
 	case 0: // uncompressed
@@ -127,7 +138,7 @@ static int do_decompress_data(deark *c, lctx *d, struct member_data *md,
 		retval = 1;
 		break;
 	case 8: // deflate
-		ret = de_uncompress_deflate(inf, inf_pos, inf_size, outf, &bytes_consumed);
+		ret = do_decompress_deflate(c, d, inf, inf_pos, inf_size, outf, maxuncmprsize);
 		if(!ret) goto done;
 		retval = 1;
 		break;
@@ -531,7 +542,8 @@ static void ef_infozipmac(deark *c, lctx *d, struct extra_item_info_struct *eii)
 
 	// Decompress and decode the Finder attribute data
 	attr_data = dbuf_create_membuf(c, ulen, 0x1);
-	ret = do_decompress_data(c, d, NULL, c->infile, pos, cmpr_attr_size, attr_data, cmprtype);
+	ret = do_decompress_data(c, d, NULL, c->infile, pos, cmpr_attr_size,
+		attr_data, 65536, cmprtype);
 	if(!ret) {
 		de_warn(c, "Failed to decompress finder attribute data");
 		goto done;
@@ -810,7 +822,8 @@ static void do_extract_file(deark *c, lctx *d, struct member_data *md)
 	md->crco = d->crco;
 	de_crcobj_reset(md->crco);
 
-	do_decompress_data(c, d, md, c->infile, md->file_data_pos, md->cmpr_size, outf, ldd->cmpr_method);
+	do_decompress_data(c, d, md, c->infile, md->file_data_pos, md->cmpr_size,
+		outf, md->uncmpr_size, ldd->cmpr_method);
 
 	crc_calculated = de_crcobj_getval(md->crco);
 	de_dbg(c, "crc (calculated): 0x%08x", (unsigned int)crc_calculated);

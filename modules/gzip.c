@@ -178,7 +178,8 @@ static int do_gzip_read_member(deark *c, lctx *d, i64 pos1, i64 *member_size)
 	md->crco = d->crco;
 	de_crcobj_reset(md->crco);
 
-	ret = de_uncompress_deflate(c->infile, pos, c->infile->len - pos, d->output_file, &cmpr_data_len);
+	ret = de_decompress_deflate(c->infile, pos, c->infile->len - pos, d->output_file,
+		0, &cmpr_data_len, 0);
 
 	crc_calculated = de_crcobj_getval(md->crco);
 	d->output_file->writecallback_fn = NULL;
