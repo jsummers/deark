@@ -14,7 +14,6 @@
 #endif
 
 #define DE_MAX_SANE_OBJECT_SIZE 100000000
-#define DE_DEFAULT_MAX_IMAGE_DIMENSION 10000
 
 #define DE_ENCODING_ASCII   0
 #define DE_ENCODING_UTF8    1
@@ -129,6 +128,7 @@ struct dbuf_struct {
 	FILE *fp;
 	i64 len;
 
+	i64 max_len_hard; // Serious error if this is exceeded
 	i64 len_limit; // Valid if has_len_limit is set. May only work for type MEMBUF.
 	int has_len_limit;
 
@@ -318,6 +318,7 @@ struct deark_struct {
 	int first_output_file; // first file = 0
 	int max_output_files; // -1 = no limit
 	i64 max_image_dimension;
+	i64 max_output_file_size;
 	int show_infomessages;
 	int show_warnings;
 	int dbg_indent_amount;

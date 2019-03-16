@@ -46,6 +46,7 @@ void de_set_listmode(deark *c, int x);
 void de_set_want_modhelp(deark *c, int x);
 void de_set_first_output_file(deark *c, int x);
 void de_set_max_output_files(deark *c, int n);
+void de_set_max_output_file_size(deark *c, i64 n);
 void de_set_max_image_dimension(deark *c, i64 n);
 void de_set_infomessages(deark *c, int x);
 void de_set_warnings(deark *c, int x);

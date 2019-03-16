@@ -104,6 +104,8 @@ Command-line options:
    Extract only the file identifed by &lt;n>. The first file is 0.
    Equivalent to "-firstfile &lt;n> -maxfiles 1".
    To unconditionally show the file identifiers, use "-l -opt list:fileid".
+-maxfilesize &lt;n>
+   Do not write files larger than &lt;n> bytes. The default is 10 GiB.
 -maxdim &lt;n>
    Allow image dimensions up to &lt;n> pixels.
    By default, Deark refuses to generate images with a dimension larger than

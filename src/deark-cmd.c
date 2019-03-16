@@ -303,7 +303,8 @@ enum opt_id_enum {
  DE_OPT_EXTOPT, DE_OPT_FILE, DE_OPT_FILE2, DE_OPT_INENC, DE_OPT_INTZ,
  DE_OPT_START, DE_OPT_SIZE, DE_OPT_M, DE_OPT_MODCODES, DE_OPT_O,
  DE_OPT_K, DE_OPT_K2, DE_OPT_K3,
- DE_OPT_ARCFN, DE_OPT_GET, DE_OPT_FIRSTFILE, DE_OPT_MAXFILES, DE_OPT_MAXIMGDIM,
+ DE_OPT_ARCFN, DE_OPT_GET, DE_OPT_FIRSTFILE, DE_OPT_MAXFILES,
+ DE_OPT_MAXFILESIZE, DE_OPT_MAXIMGDIM,
  DE_OPT_PRINTMODULES, DE_OPT_DPREFIX, DE_OPT_EXTRLIST,
  DE_OPT_ONLYMODS, DE_OPT_DISABLEMODS, DE_OPT_ONLYDETECT, DE_OPT_NODETECT
 };
@@ -363,6 +364,7 @@ struct opt_struct option_array[] = {
 	{ "get",          DE_OPT_GET,          1 },
 	{ "firstfile",    DE_OPT_FIRSTFILE,    1 },
 	{ "maxfiles",     DE_OPT_MAXFILES,     1 },
+	{ "maxfilesize",  DE_OPT_MAXFILESIZE,  1 },
 	{ "maxdim",       DE_OPT_MAXIMGDIM,    1 },
 	{ "dprefix",      DE_OPT_DPREFIX,      1 },
 	{ "extrlist",     DE_OPT_EXTRLIST,     1 },
@@ -582,6 +584,9 @@ static void parse_cmdline(deark *c, struct cmdctx *cc, int argc, char **argv)
 				break;
 			case DE_OPT_MAXFILES:
 				de_set_max_output_files(c, de_atoi(argv[i+1]));
+				break;
+			case DE_OPT_MAXFILESIZE:
+				de_set_max_output_file_size(c, de_atoi64(argv[i+1]));
 				break;
 			case DE_OPT_MAXIMGDIM:
 				de_set_max_image_dimension(c, de_atoi64(argv[i+1]));

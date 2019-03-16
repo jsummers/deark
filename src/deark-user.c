@@ -12,6 +12,9 @@
 #include "deark-private.h"
 #include "deark-user.h"
 
+#define DE_DEFAULT_MAX_FILE_SIZE 0x280000000LL // 10GiB
+#define DE_DEFAULT_MAX_IMAGE_DIMENSION 10000
+
 // Returns the best module to use, by looking at the file contents, etc.
 static struct deark_module_info *detect_module_for_file(deark *c, int *errflag)
 {
@@ -440,6 +443,7 @@ deark *de_create_internal(void)
 	c->preserve_file_times_images = 1;
 	c->max_output_files = -1;
 	c->max_image_dimension = DE_DEFAULT_MAX_IMAGE_DIMENSION;
+	c->max_output_file_size = DE_DEFAULT_MAX_FILE_SIZE;
 	c->current_time.is_valid = 0;
 	c->can_decode_fltpt = -1; // = unknown
 	c->host_is_le = -1; // = unknown
@@ -654,6 +658,12 @@ void de_set_first_output_file(deark *c, int x)
 void de_set_max_output_files(deark *c, int n)
 {
 	c->max_output_files = n;
+}
+
+void de_set_max_output_file_size(deark *c, i64 n)
+{
+	if(n<0) n=0;
+	c->max_output_file_size = n;
 }
 
 void de_set_max_image_dimension(deark *c, i64 n)

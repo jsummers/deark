@@ -10,6 +10,8 @@
 #include "deark-config.h"
 #include "deark-private.h"
 
+#define DE_DUMMY_MAX_FILE_SIZE (1LL<<56)
+#define DE_MAX_MEMBUF_SIZE 2000000000
 #define DE_CACHE_SIZE 262144
 
 // Fill the cache that remembers the first part of the file.
@@ -946,6 +948,7 @@ dbuf *dbuf_create_unmanaged_file(deark *c, const char *fname, int overwrite_mode
 	f->name = de_strdup(c, fname);
 
 	f->btype = DBUF_TYPE_OFILE;
+	f->max_len_hard = c->max_output_file_size;
 	f->fp = de_fopen_for_write(c, f->name, msgbuf, sizeof(msgbuf),
 		c->overwrite_mode, flags);
 
@@ -974,6 +977,8 @@ dbuf *dbuf_create_output_file(deark *c, const char *ext, de_finfo *fi,
 	}
 
 	f = de_malloc(c, sizeof(dbuf));
+	f->c = c;
+	f->max_len_hard = c->max_output_file_size;
 	f->is_managed = 1;
 
 	if(fi && fi->is_directory) {
@@ -1050,7 +1055,6 @@ dbuf *dbuf_create_output_file(deark *c, const char *ext, de_finfo *fi,
 	}
 
 	f->name = de_strdup(c, nbuf);
-	f->c = c;
 
 	if(fi) {
 		// The finfo object passed to us at file creation is not required to
@@ -1107,6 +1111,8 @@ dbuf *dbuf_create_output_file(deark *c, const char *ext, de_finfo *fi,
 	if(c->output_style==DE_OUTPUTSTYLE_ARCHIVE && c->archive_fmt==DE_ARCHIVEFMT_TAR) {
 		de_info(c, "Adding %s to TAR file", f->name);
 		f->btype = DBUF_TYPE_ODBUF;
+		// A dummy max_len_hard value. The parent will do the checking.
+		f->max_len_hard = DE_DUMMY_MAX_FILE_SIZE;
 		f->writing_to_tar_archive = 1;
 		de_tar_start_member_file(c, f);
 	}
@@ -1114,6 +1120,7 @@ dbuf *dbuf_create_output_file(deark *c, const char *ext, de_finfo *fi,
 		i64 initial_alloc;
 		de_info(c, "Adding %s to ZIP file", f->name);
 		f->btype = DBUF_TYPE_MEMBUF;
+		f->max_len_hard = DE_MAX_MEMBUF_SIZE;
 		if(is_directory) {
 			// A directory entry is not expected to have any data associated
 			// with it (besides the files it contains).
@@ -1129,6 +1136,7 @@ dbuf *dbuf_create_output_file(deark *c, const char *ext, de_finfo *fi,
 	else if(c->output_style==DE_OUTPUTSTYLE_STDOUT) {
 		de_info(c, "Writing %s to [stdout]", f->name);
 		f->btype = DBUF_TYPE_STDOUT;
+		// TODO: Should we increase f->max_len_hard?
 		f->fp = stdout;
 	}
 	else {
@@ -1148,14 +1156,26 @@ done:
 	return f;
 }
 
+static void do_on_dbuf_size_exceeded(dbuf *f)
+{
+	de_err(f->c, "Maximum %s size of %"I64_FMT" bytes exceeded",
+		(f->btype==DBUF_TYPE_MEMBUF)?"membuf":"output file",
+		f->max_len_hard);
+	de_fatalerror(f->c);
+}
+
 dbuf *dbuf_create_membuf(deark *c, i64 initialsize, unsigned int flags)
 {
 	dbuf *f;
 	f = de_malloc(c, sizeof(dbuf));
 	f->c = c;
 	f->btype = DBUF_TYPE_MEMBUF;
+	f->max_len_hard = DE_MAX_MEMBUF_SIZE;
 
 	if(initialsize>0) {
+		if(initialsize > f->max_len_hard) {
+			do_on_dbuf_size_exceeded(f);
+		}
 		f->membuf_buf = de_malloc(c, initialsize);
 		f->membuf_alloc = initialsize;
 	}
@@ -1183,8 +1203,12 @@ static void membuf_append(dbuf *f, const u8 *m, i64 mlen)
 		// Need to allocate more space
 		new_alloc_size = (f->membuf_alloc + mlen)*2;
 		if(new_alloc_size<1024) new_alloc_size=1024;
-		// TODO: Guard against integer overflows.
-		de_dbg3(f->c, "increasing membuf size %d -> %d", (int)f->membuf_alloc, (int)new_alloc_size);
+		if(new_alloc_size > f->max_len_hard) new_alloc_size = f->max_len_hard;
+		de_dbg3(f->c, "increasing membuf size %"I64_FMT" -> %"I64_FMT,
+			f->membuf_alloc, new_alloc_size);
+		if(f->len + mlen > f->max_len_hard) {
+			do_on_dbuf_size_exceeded(f);
+		}
 		f->membuf_buf = de_realloc(f->c, f->membuf_buf, f->membuf_alloc, new_alloc_size);
 		f->membuf_alloc = new_alloc_size;
 	}
@@ -1195,6 +1219,10 @@ static void membuf_append(dbuf *f, const u8 *m, i64 mlen)
 
 void dbuf_write(dbuf *f, const u8 *m, i64 len)
 {
+	if(f->len + len > f->max_len_hard) {
+		do_on_dbuf_size_exceeded(f);
+	}
+
 	if(f->writecallback_fn) {
 		f->writecallback_fn(f, m, len);
 	}
@@ -1226,6 +1254,7 @@ void dbuf_write(dbuf *f, const u8 *m, i64 len)
 	}
 
 	de_err(f->c, "Internal: Invalid output file type (%d)", f->btype);
+	de_fatalerror(f->c);
 }
 
 void dbuf_writebyte(dbuf *f, u8 n)
@@ -1239,6 +1268,10 @@ void dbuf_writebyte(dbuf *f, u8 n)
 void dbuf_write_at(dbuf *f, i64 pos, const u8 *m, i64 len)
 {
 	if(len<1 || pos<0) return;
+
+	if(pos + len > f->max_len_hard) {
+		do_on_dbuf_size_exceeded(f);
+	}
 
 	if(f->btype==DBUF_TYPE_MEMBUF) {
 		i64 amt_overwrite, amt_newzeroes, amt_append;
