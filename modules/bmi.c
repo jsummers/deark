@@ -145,7 +145,7 @@ static void do_bitmap(deark *c, lctx *d, i64 pos1)
 
 	unc_data_size = de_getu32le_p(&pos);
 	de_dbg(c, "uncmpr data size: %"I64_FMT, unc_data_size);
-	if(unc_data_size>DE_MAX_FILE_SIZE) goto done;
+	if(unc_data_size>DE_MAX_SANE_OBJECT_SIZE) goto done;
 
 	max_uncmpr_block_size = de_getu16le_p(&pos);
 	de_dbg(c, "max uncmpr block size: %d", (int)max_uncmpr_block_size);

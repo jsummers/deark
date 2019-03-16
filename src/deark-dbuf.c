@@ -1161,7 +1161,7 @@ dbuf *dbuf_create_membuf(deark *c, i64 initialsize, unsigned int flags)
 	}
 
 	if(flags&0x01) {
-		dbuf_set_max_length(f, initialsize);
+		dbuf_set_length_limit(f, initialsize);
 	}
 
 	return f;
@@ -1171,9 +1171,9 @@ static void membuf_append(dbuf *f, const u8 *m, i64 mlen)
 {
 	i64 new_alloc_size;
 
-	if(f->has_max_len) {
-		if(f->len + mlen > f->max_len) {
-			mlen = f->max_len - f->len;
+	if(f->has_len_limit) {
+		if(f->len + mlen > f->len_limit) {
+			mlen = f->len_limit - f->len;
 		}
 	}
 
@@ -1709,10 +1709,13 @@ int dbuf_find_line(dbuf *f, i64 pos1, i64 *pcontent_len, i64 *ptotal_len)
 	return (*ptotal_len > 0);
 }
 
-void dbuf_set_max_length(dbuf *f, i64 max_len)
+// Enforce a maximum size when writing to a dbuf.
+// Attempting to write more than this is a silent no-op.
+// May be valid only for memory buffers.
+void dbuf_set_length_limit(dbuf *f, i64 max_len)
 {
-	f->has_max_len = 1;
-	f->max_len = max_len;
+	f->has_len_limit = 1;
+	f->len_limit = max_len;
 }
 
 int dbuf_has_utf8_bom(dbuf *f, i64 pos)

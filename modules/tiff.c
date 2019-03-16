@@ -497,7 +497,7 @@ static void do_oldjpeg(deark *c, lctx *d, i64 jpegoffset, i64 jpeglength)
 		// of the file.
 		jpeglength = c->infile->len - jpegoffset;
 	}
-	if(jpeglength>DE_MAX_FILE_SIZE) {
+	if(jpeglength>DE_MAX_SANE_OBJECT_SIZE) {
 		return;
 	}
 

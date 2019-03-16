@@ -710,7 +710,7 @@ static void do_ne_pe_extract_resource(deark *c, lctx *d,
 	u32 type_id, const struct rsrc_type_info_struct *rsrci,
 	i64 pos, i64 len, de_finfo *fi)
 {
-	if(len<1 || len>DE_MAX_FILE_SIZE) return;
+	if(len<1 || len>DE_MAX_SANE_OBJECT_SIZE) return;
 
 	if(rsrci && rsrci->decoder_fn) {
 		rsrci->decoder_fn(c, d, pos, len, fi);

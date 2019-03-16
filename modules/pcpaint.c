@@ -443,7 +443,7 @@ static int uncompress_pixels(deark *c, lctx *d)
 	}
 
 	d->unc_pixels = dbuf_create_membuf(c, 16384, 0);
-	dbuf_set_max_length(d->unc_pixels, d->img->width * d->img->height);
+	dbuf_set_length_limit(d->unc_pixels, d->img->width * d->img->height);
 
 	de_dbg(c, "uncompressing image");
 	pos = d->header_size;
@@ -724,7 +724,7 @@ static void de_run_pcpaint_clp(deark *c, lctx *d, de_module_params *mparams)
 	if(is_compressed) {
 		run_marker = de_getbyte(12);
 		d->unc_pixels = dbuf_create_membuf(c, 16384, 0);
-		dbuf_set_max_length(d->unc_pixels, d->img->width * d->img->height);
+		dbuf_set_length_limit(d->unc_pixels, d->img->width * d->img->height);
 
 		if(!uncompress_block(c, d, d->header_size,
 			c->infile->len - d->header_size, run_marker))

@@ -13,7 +13,7 @@
 #include "deark.h"
 #endif
 
-#define DE_MAX_FILE_SIZE 100000000
+#define DE_MAX_SANE_OBJECT_SIZE 100000000
 #define DE_DEFAULT_MAX_IMAGE_DIMENSION 10000
 
 #define DE_ENCODING_ASCII   0
@@ -129,8 +129,8 @@ struct dbuf_struct {
 	FILE *fp;
 	i64 len;
 
-	i64 max_len; // Valid if has_max_len is set. May only work for type MEMBUF.
-	int has_max_len;
+	i64 len_limit; // Valid if has_len_limit is set. May only work for type MEMBUF.
+	int has_len_limit;
 
 	int file_pos_known;
 	i64 file_pos;
@@ -684,9 +684,7 @@ int dbuf_dump_to_file(dbuf *inf, const char *fn);
 // May be valid only for memory buffers.
 void dbuf_empty(dbuf *f);
 
-// Enforce a maximum size when writing to a dbuf.
-// May be valid only for memory buffers.
-void dbuf_set_max_length(dbuf *f, i64 max_len);
+void dbuf_set_length_limit(dbuf *f, i64 max_len);
 
 int dbuf_search_byte(dbuf *f, const u8 b, i64 startpos,
 	i64 haystack_len, i64 *foundpos);
