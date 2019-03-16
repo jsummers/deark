@@ -106,6 +106,17 @@ Command-line options:
    To unconditionally show the file identifiers, use "-l -opt list:fileid".
 -maxfilesize &lt;n>
    Do not write files larger than &lt;n> bytes. The default is 10 GiB.
+   This is an "emergency brake". If the limit is exceeded, Deark will stop all
+   processing.
+   This setting is for physical output files, so if you use -zip/-tar, it
+   applies to the ZIP/tar file, not to the individual member files.
+   This option implicitly increases the -maxtotalsize setting to be at least
+   &lt;n>.
+-maxtotalsize &lt;n>
+   Do not write files totaling more than about &lt;n> bytes. The default is
+   15 GiB.
+   Currently, this feature is not implemented very precisely. The limit is only
+   checked when an output file is completed.
 -maxdim &lt;n>
    Allow image dimensions up to &lt;n> pixels.
    By default, Deark refuses to generate images with a dimension larger than

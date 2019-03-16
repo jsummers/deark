@@ -1530,6 +1530,10 @@ void dbuf_close(dbuf *f)
 	if(!f) return;
 	c = f->c;
 
+	if(f->btype==DBUF_TYPE_OFILE || f->btype==DBUF_TYPE_STDOUT) {
+		c->total_output_size += f->len;
+	}
+
 	if(f->btype==DBUF_TYPE_MEMBUF && f->write_memfile_to_zip_archive) {
 		de_zip_add_file_to_archive(c, f);
 		if(f->name) {
@@ -1584,6 +1588,15 @@ void dbuf_close(dbuf *f)
 	de_free(c, f->cache);
 	if(f->fi_copy) de_finfo_destroy(c, f->fi_copy);
 	de_free(c, f);
+
+	if(c->total_output_size > c->max_total_output_size) {
+		// FIXME: Since we only do this check when a file is closed, it can
+		// potentially be subverted in the (rare) case that Deark has multiple
+		// output files open simultanously.
+		de_err(c, "Maximum total output size of %"I64_FMT" bytes exceeded",
+			c->max_total_output_size);
+		de_fatalerror(c);
+	}
 }
 
 void dbuf_empty(dbuf *f)

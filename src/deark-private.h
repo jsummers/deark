@@ -295,6 +295,7 @@ struct deark_struct {
 	// first_output_file/max_output_files into account.
 	int num_files_extracted;
 
+	i64 total_output_size;
 	int error_count;
 
 	const char *input_filename;
@@ -319,6 +320,7 @@ struct deark_struct {
 	int max_output_files; // -1 = no limit
 	i64 max_image_dimension;
 	i64 max_output_file_size;
+	i64 max_total_output_size;
 	int show_infomessages;
 	int show_warnings;
 	int dbg_indent_amount;
