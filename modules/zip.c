@@ -63,6 +63,9 @@ typedef struct localctx_struct {
 	i64 central_dir_byte_size;
 	i64 central_dir_offset;
 	i64 zip64_eocd_pos;
+	i64 zip64_cd_pos;
+	unsigned int zip64_eocd_disknum;
+	unsigned int zip64_cd_disknum;
 	i64 offset_discrepancy;
 	int used_offset_discrepancy;
 	int is_zip64;
@@ -330,6 +333,30 @@ static void ef_infozip1(deark *c, lctx *d, struct extra_item_info_struct *eii)
 	}
 }
 
+// Extra field 0x7075 - Info-ZIP Unicode Path
+static void ef_unicodepath(deark *c, lctx *d, struct extra_item_info_struct *eii)
+{
+	u8 ver;
+	de_ucstring *fn = NULL;
+	i64 fnlen;
+	u32 crc_reported;
+
+	if(eii->dlen<1) goto done;
+	ver = de_getbyte(eii->dpos);
+	de_dbg(c, "version: %u", (unsigned int)ver);
+	if(ver!=1) goto done;
+	if(eii->dlen<6) goto done;
+	crc_reported = (u32)de_getu32le(eii->dpos+1);
+	de_dbg(c, "name-crc (reported): 0x%08x", (unsigned int)crc_reported);
+	fn = ucstring_create(c);
+	fnlen = eii->dlen - 5;
+	dbuf_read_to_ucstring(c->infile, eii->dpos+5, fnlen, fn, 0, DE_ENCODING_UTF8);
+	de_dbg(c, "unicode name: \"%s\"", ucstring_getpsz_d(fn));
+	// TODO: Use this as the preferred filename, when appropriate.
+done:
+	ucstring_destroy(fn);
+}
+
 // Extra field 0x7855
 static void ef_infozip2(deark *c, lctx *d, struct extra_item_info_struct *eii)
 {
@@ -432,7 +459,7 @@ static void ef_os2(deark *c, lctx *d, struct extra_item_info_struct *eii)
 	crc = de_getu32le_p(&pos);
 	de_dbg(c, "ext attr crc: 0x%08x", (unsigned int)crc);
 
-	de_dbg(c, "cmpr ext attr data at %d, len=%d", (int)pos, (int)(endpos-pos));
+	de_dbg(c, "cmpr ext attr data at %"I64_FMT", len=%d", pos, (int)(endpos-pos));
 	// TODO: Uncompress and decode OS/2 extended attribute structure (FEA2LIST)
 }
 
@@ -691,7 +718,7 @@ static const struct extra_item_type_info_struct extra_item_type_info_arr[] = {
 	{ 0x6375 /* uc */, "Info-ZIP Unicode Comment", NULL },
 	{ 0x6542 /* Be */, "BeOS/BeBox", NULL },
 	{ 0x6854 /* Th */, "Theos", NULL },
-	{ 0x7075 /* up */, "Info-ZIP Unicode Path", NULL },
+	{ 0x7075 /* up */, "Info-ZIP Unicode Path", ef_unicodepath },
 	{ 0x7441 /* At */, "AtheOS", NULL },
 	{ 0x756e /* nu */, "ASi Unix", NULL },
 	{ 0x7855 /* Ux */, "Info-ZIP Unix, second version", ef_infozip2 },
@@ -721,7 +748,7 @@ static void do_extra_data(deark *c, lctx *d,
 {
 	i64 pos;
 
-	de_dbg(c, "extra data at %d, len=%d", (int)pos1, (int)len);
+	de_dbg(c, "extra data at %"I64_FMT", len=%d", pos1, (int)len);
 	de_dbg_indent(c, 1);
 
 	pos = pos1;
@@ -771,6 +798,11 @@ static void do_extract_file(deark *c, lctx *d, struct member_data *md)
 
 	de_dbg(c, "file data at %"I64_FMT", len=%"I64_FMT, md->file_data_pos,
 		md->cmpr_size);
+
+	if(ldd->bit_flags & 0x1) {
+		de_err(c, "Encryption is not supported");
+		goto done;
+	}
 
 	if(!is_compression_method_supported(d, ldd->cmpr_method)) {
 		de_err(c, "Unsupported compression method: %d",
@@ -943,6 +975,11 @@ static void describe_general_purpose_bit_flags(deark *c, struct dir_entry_data *
 	const char *name;
 	unsigned int bf = dd->bit_flags;
 
+	if(bf & 0x0001) {
+		ucstring_append_flags_item(s, "encrypted");
+		bf -= 0x0001;
+	}
+
 	if(dd->cmpr_method==6) { // implode
 		if(bf & 0x0002) {
 			name = "8K";
@@ -1036,23 +1073,23 @@ static int do_file_header(deark *c, lctx *d, struct member_data *md,
 	if(is_central) {
 		dd = &md->central_dir_entry_data;
 		fixed_header_size = 46;
-		de_dbg(c, "central dir entry at %d", (int)pos);
+		de_dbg(c, "central dir entry at %"I64_FMT, pos);
 	}
 	else {
 		dd = &md->local_dir_entry_data;
 		fixed_header_size = 30;
 		if(md->disk_number_start!=0) return 0;
-		de_dbg(c, "local file header at %d", (int)pos);
+		de_dbg(c, "local file header at %"I64_FMT, pos);
 	}
 	de_dbg_indent(c, 1);
 
 	sig = (u32)de_getu32le_p(&pos);
 	if(is_central && sig!=0x02014b50U) {
-		de_err(c, "Central dir file header not found at %d", (int)pos1);
+		de_err(c, "Central dir file header not found at %"I64_FMT, pos1);
 		goto done;
 	}
 	else if(!is_central && sig!=0x04034b50U) {
-		de_err(c, "Local file header not found at %d", (int)pos1);
+		de_err(c, "Local file header not found at %"I64_FMT, pos1);
 		goto done;
 	}
 
@@ -1177,7 +1214,7 @@ static int do_file_header(deark *c, lctx *d, struct member_data *md,
 	if(is_central) {
 		if(d->used_offset_discrepancy) {
 			md->offset_of_local_header += d->offset_discrepancy;
-			de_dbg(c, "assuming local header is really at %d", (int)md->offset_of_local_header);
+			de_dbg(c, "assuming local header is really at %"I64_FMT, md->offset_of_local_header);
 		}
 		else if(d->offset_discrepancy!=0) {
 			u32 sig1, sig2;
@@ -1278,7 +1315,7 @@ static int do_central_dir(deark *c, lctx *d)
 	int retval = 0;
 
 	pos = d->central_dir_offset;
-	de_dbg(c, "central dir at %d", (int)pos);
+	de_dbg(c, "central dir at %"I64_FMT, pos);
 	de_dbg_indent(c, 1);
 
 	if(!d->crco) {
@@ -1299,9 +1336,43 @@ done:
 	return retval;
 }
 
+static void do_zip64_eocd(deark *c, lctx *d)
+{
+	i64 pos;
+	int saved_indent_level;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+	if(d->zip64_eocd_disknum!=0) goto done;
+
+	pos = d->zip64_eocd_pos;
+	if(dbuf_memcmp(c->infile, pos, "PK\x06\x06", 4)) {
+		de_err(c, "Zip64 end-of-central-directory record not found at %"I64_FMT, pos);
+		goto done;
+	}
+
+	de_dbg(c, "zip64 end-of-central-dir record at %"I64_FMT, pos);
+	pos += 4;
+	de_dbg_indent(c, 1);
+
+	pos += 8; // size of zip64 eocd record
+	pos += 2; // version made by
+	pos += 2; // version needed
+	pos += 4; // number of this disk
+	d->zip64_cd_disknum = (unsigned int)de_getu32le_p(&pos);
+	pos += 8; // # of entries in cd, this disk
+	pos += 8; // # of entries in cd, total
+	pos += 8; // size of cd
+	d->zip64_cd_pos = de_geti64le(pos); pos += 8;
+	de_dbg(c, "central dir offset: %"I64_FMT", disk: %u",
+		d->zip64_cd_pos, d->zip64_cd_disknum);
+
+done:
+	de_dbg_indent_restore(c, saved_indent_level);
+}
+
 static void do_zip64_eocd_locator(deark *c, lctx *d)
 {
-	i64 n, disknum;
+	i64 n;
 	i64 pos = d->end_of_central_dir_pos - 20;
 
 	if(dbuf_memcmp(c->infile, pos, "PK\x06\x07", 4)) {
@@ -1311,10 +1382,10 @@ static void do_zip64_eocd_locator(deark *c, lctx *d)
 	pos += 4;
 	d->is_zip64 = 1;
 	de_dbg_indent(c, 1);
-	disknum = de_getu32le_p(&pos);
+	d->zip64_eocd_disknum = (unsigned int)de_getu32le_p(&pos);
 	d->zip64_eocd_pos = de_geti64le(pos); pos += 8;
-	de_dbg(c, "relative offset of zip64 eocd: %"I64_FMT", disk: %u",
-		d->zip64_eocd_pos, (unsigned int)disknum);
+	de_dbg(c, "offset of zip64 eocd: %"I64_FMT", disk: %u",
+		d->zip64_eocd_pos, d->zip64_eocd_disknum);
 	n = de_getu32le_p(&pos);
 	de_dbg(c, "total number of disks: %u", (unsigned int)n);
 	de_dbg_indent(c, -1);
@@ -1331,7 +1402,7 @@ static int do_end_of_central_dir(deark *c, lctx *d)
 	int retval = 0;
 
 	pos = d->end_of_central_dir_pos;
-	de_dbg(c, "end-of-central-dir record at %d", (int)pos);
+	de_dbg(c, "end-of-central-dir record at %"I64_FMT, pos);
 	de_dbg_indent(c, 1);
 
 	this_disk_num = de_getu16le(pos+4);
@@ -1345,8 +1416,11 @@ static int do_end_of_central_dir(deark *c, lctx *d)
 	d->central_dir_byte_size  = de_getu32le(pos+12);
 	d->central_dir_offset = de_getu32le(pos+16);
 	de_dbg(c, "central dir num entries: %d", (int)d->central_dir_num_entries);
-	de_dbg(c, "central dir offset: %d, disk: %d", (int)d->central_dir_offset,
+	de_dbg(c, "central dir offset: %"I64_FMT", disk: %d", d->central_dir_offset,
 		(int)disk_num_with_central_dir_start);
+	if(d->is_zip64 && (d->central_dir_offset==0xffffffffLL)) {
+		d->central_dir_offset = d->zip64_cd_pos;
+	}
 	de_dbg(c, "central dir size: %d", (int)d->central_dir_byte_size);
 
 	comment_length = de_getu16le(pos+20);
@@ -1360,10 +1434,16 @@ static int do_end_of_central_dir(deark *c, lctx *d)
 
 	// TODO: Figure out exactly how to detect disk spanning.
 	if(this_disk_num!=0 || disk_num_with_central_dir_start!=0 ||
-		num_entries_this_disk!=d->central_dir_num_entries)
+		(d->is_zip64 && d->zip64_eocd_disknum!=0))
 	{
 		de_err(c, "Disk spanning not supported");
 		goto done;
+	}
+
+	if(num_entries_this_disk!=d->central_dir_num_entries) {
+		de_warn(c, "This ZIP file might not be supported correctly "
+			"(number-of-entries-this-disk=%d, number-of-entries-total=%d)",
+			(int)num_entries_this_disk, (int)d->central_dir_num_entries);
 	}
 
 	alt_central_dir_offset =
@@ -1407,7 +1487,8 @@ static void de_run_zip(deark *c, de_module_params *mparams)
 		goto done;
 	}
 
-	de_dbg(c, "end-of-central-dir record signature found at %d", (int)d->end_of_central_dir_pos);
+	de_dbg(c, "end-of-central-dir record signature found at %"I64_FMT,
+		d->end_of_central_dir_pos);
 
 	do_zip64_eocd_locator(c, d);
 
@@ -1415,6 +1496,10 @@ static void de_run_zip(deark *c, de_module_params *mparams)
 		de_declare_fmt(c, "ZIP-Zip64");
 	else
 		de_declare_fmt(c, "ZIP");
+
+	if(d->is_zip64) {
+		do_zip64_eocd(c, d);
+	}
 
 	if(!do_end_of_central_dir(c, d)) {
 		goto done;
