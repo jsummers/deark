@@ -12,6 +12,12 @@ typedef unsigned char   uch;    /* code assumes unsigned bytes; these type-  */
 typedef u16   ush;    /*  defs replace byte/UWORD/ULONG (which are */
 typedef u32   ulg;    /*  predefined on some systems) & match zip  */
 
+#define IZI_OK   0
+#define IZI_ERR1 1
+#define IZI_ERR2 2
+#define IZI_ERR3 3
+#define IZI_ERR4 4
+
 //========================= unzpriv.h begin =========================
 
 #define WSIZE 0x8000  /* window size--must be a power of two, and */
@@ -25,10 +31,9 @@ typedef struct local_file_header {                 /* LOCAL */
 struct huft {
     uch e;                /* number of extra bits or operation */
     uch b;                /* number of bits in this code or subcode */
-    union {
-        ush n;            /* literal, length base, or distance base */
-        struct huft *t;   /* pointer to next level of table */
-    } v;
+
+    ush n;            /* literal, length base, or distance base */
+    struct huft *t;   /* pointer to next level of table */
 };
 
 //========================= globals.h begin =========================
@@ -47,7 +52,7 @@ typedef struct Globals {
 
 //========================= globals.h end =========================
 
-static int    huft_free(Uz_Globs *pG, struct huft *t);
+static void   huft_free(Uz_Globs *pG, struct huft *t);
 static int    huft_build(Uz_Globs *pG, const unsigned *b, unsigned n,
     unsigned s, const ush *d, const ush *e, struct huft **t, int *m);
 
@@ -59,10 +64,9 @@ static int    huft_build(Uz_Globs *pG, const unsigned *b, unsigned n,
 
 //========================= fileio.c begin =========================
 
-static int izi_flush(Uz_Globs *pG, uch *rawbuf, ulg size)
+static void izi_flush(Uz_Globs *pG, uch *rawbuf, ulg size)
 {
 	dbuf_write(pG->outf, rawbuf, size);
-	return 0;
 }
 
 // Originally:
@@ -227,12 +231,12 @@ static int get_tree(Uz_Globs *pG, unsigned *l, unsigned n)
     b = ((j = NEXTBYTE) & 0xf) + 1;     /* bits in code (1..16) */
     j = ((j & 0xf0) >> 4) + 1;          /* codes with those bits (1..16) */
     if (k + j > n)
-      return 4;                         /* don't overflow l[] */
+      return IZI_ERR4;                         /* don't overflow l[] */
     do {
       l[k++] = b;
     } while (--j);
   } while (--i);
-  return k != n ? 4 : 0;                /* should have read n of them */
+  return k != n ? IZI_ERR4 : IZI_OK;                /* should have read n of them */
 }
 
 // tb, tl, td: literal, length, and distance tables
@@ -275,10 +279,10 @@ static int explode_internal(Uz_Globs *pG, unsigned window_k,
             DUMPBITS(t->b);
             e -= 16;
             NEEDBITS(e);
-          } while ((e = (t = t->v.t + ((~(unsigned)b) & mask_bits[e]))->e) > 16);
+          } while ((e = (t = t->t + ((~(unsigned)b) & mask_bits[e]))->e) > 16);
         }
         DUMPBITS(t->b);
-        pG->Slide[w++] = (uch)t->v.n;
+        pG->Slide[w++] = (uch)t->n;
       }
       else {
         NEEDBITS(8);
@@ -316,10 +320,10 @@ static int explode_internal(Uz_Globs *pG, unsigned window_k,
           DUMPBITS(t->b);
           e -= 16;
           NEEDBITS(e);
-        } while ((e = (t = t->v.t + ((~(unsigned)b) & mask_bits[e]))->e) > 16);
+        } while ((e = (t = t->t + ((~(unsigned)b) & mask_bits[e]))->e) > 16);
       }
       DUMPBITS(t->b);
-      d = w - d - t->v.n;       /* construct offset */
+      d = w - d - t->n;       /* construct offset */
       NEEDBITS((unsigned)bl);    /* get coded length */
 	  if ((e = (t = tl + ((~(unsigned)b) & ml))->e) > 16) {
         do {
@@ -328,10 +332,10 @@ static int explode_internal(Uz_Globs *pG, unsigned window_k,
           DUMPBITS(t->b);
           e -= 16;
           NEEDBITS(e);
-        } while ((e = (t = t->v.t + ((~(unsigned)b) & mask_bits[e]))->e) > 16);
+        } while ((e = (t = t->t + ((~(unsigned)b) & mask_bits[e]))->e) > 16);
       }
       DUMPBITS(t->b);
-      n = t->v.n;
+      n = t->n;
       if (e)                    /* get length extra bits */
       {
         NEEDBITS(8);
@@ -342,12 +346,10 @@ static int explode_internal(Uz_Globs *pG, unsigned window_k,
       /* do the copy */
       s -= n;
       do {
-        // Here's what I think the next line decrypts to:
-        //   d &= (wsize-1);
-        //   e = wsize - MAX(d, w);
-        //   if(e>n) { e = n; }
-        //   n -= e;
-        n -= (e = (e = wsize - ((d &= wsize-1) > w ? d : w)) > n ? n : e);
+        d &= (wsize-1);
+		e = wsize - (d > w ? d : w);
+        if(e>n) { e = n; }
+        n -= e;
         if (u && w <= d)
         {
           de_zeromem(&pG->Slide[w], e);
@@ -413,28 +415,28 @@ static int explode(Uz_Globs *pG)
   if (pG->lrec.general_purpose_bit_flag & 4)
   {
     bb = 9;                     /* base table size for literals */
-    if ((r = get_tree(pG, l, 256)) != 0)
+    if ((r = get_tree(pG, l, 256)) != IZI_OK)
       return (int)r;
-    if ((r = huft_build(pG, l, 256, 256, NULL, NULL, &tb, &bb)) != 0)
+    if ((r = huft_build(pG, l, 256, 256, NULL, NULL, &tb, &bb)) != IZI_OK)
     {
-      if (r == 1)
+      if (r == IZI_ERR1)
         huft_free(pG, tb);
       return (int)r;
     }
-    if ((r = get_tree(pG, l, 64)) != 0)
+    if ((r = get_tree(pG, l, 64)) != IZI_OK)
       return (int)r;
-    if ((r = huft_build(pG, l, 64, 0, cplen3, extra, &tl, &bl)) != 0)
+    if ((r = huft_build(pG, l, 64, 0, cplen3, extra, &tl, &bl)) != IZI_OK)
     {
-      if (r == 1)
+      if (r == IZI_ERR1)
         huft_free(pG, tl);
       huft_free(pG, tb);
       return (int)r;
     }
-    if ((r = get_tree(pG, l, 64)) != 0)
+    if ((r = get_tree(pG, l, 64)) != IZI_OK)
       return (int)r;
     if (pG->lrec.general_purpose_bit_flag & 2)      /* true if 8K */
     {
-      if ((r = huft_build(pG, l, 64, 0, cpdist8, extra, &td, &bd)) != 0)
+      if ((r = huft_build(pG, l, 64, 0, cpdist8, extra, &td, &bd)) != IZI_OK)
       {
         if (r == 1)
           huft_free(pG, td);
@@ -446,9 +448,9 @@ static int explode(Uz_Globs *pG)
     }
     else                                        /* else 4K */
     {
-      if ((r = huft_build(pG, l, 64, 0, cpdist4, extra, &td, &bd)) != 0)
+      if ((r = huft_build(pG, l, 64, 0, cpdist4, extra, &td, &bd)) != IZI_OK)
       {
-        if (r == 1)
+        if (r == IZI_ERR1)
           huft_free(pG, td);
         huft_free(pG, tl);
         huft_free(pG, tb);
@@ -463,21 +465,21 @@ static int explode(Uz_Globs *pG)
   else
   /* No literal tree--minimum match length is 2 */
   {
-    if ((r = get_tree(pG, l, 64)) != 0)
+    if ((r = get_tree(pG, l, 64)) != IZI_OK)
       return (int)r;
-    if ((r = huft_build(pG, l, 64, 0, cplen2, extra, &tl, &bl)) != 0)
+    if ((r = huft_build(pG, l, 64, 0, cplen2, extra, &tl, &bl)) != IZI_OK)
     {
-      if (r == 1)
+      if (r == IZI_ERR1)
         huft_free(pG, tl);
       return (int)r;
     }
-    if ((r = get_tree(pG, l, 64)) != 0)
+    if ((r = get_tree(pG, l, 64)) != IZI_OK)
       return (int)r;
     if (pG->lrec.general_purpose_bit_flag & 2)      /* true if 8K */
     {
-      if ((r = huft_build(pG, l, 64, 0, cpdist8, extra, &td, &bd)) != 0)
+      if ((r = huft_build(pG, l, 64, 0, cpdist8, extra, &td, &bd)) != IZI_OK)
       {
-        if (r == 1)
+        if (r == IZI_ERR1)
           huft_free(pG, td);
         huft_free(pG, tl);
         return (int)r;
@@ -486,9 +488,9 @@ static int explode(Uz_Globs *pG)
     }
     else                                        /* else 4K */
     {
-      if ((r = huft_build(pG, l, 64, 0, cpdist4, extra, &td, &bd)) != 0)
+      if ((r = huft_build(pG, l, 64, 0, cpdist4, extra, &td, &bd)) != IZI_OK)
       {
-        if (r == 1)
+        if (r == IZI_ERR1)
           huft_free(pG, td);
         huft_free(pG, tl);
         return (int)r;
@@ -569,7 +571,7 @@ static int huft_build(Uz_Globs *pG, const unsigned *b, unsigned n, unsigned s,
   {
     *t = NULL;
     *m = 0;
-    return 0;
+    return IZI_OK;
   }
 
   /* Find minimum and maximum length, bound *m by those */
@@ -589,9 +591,9 @@ static int huft_build(Uz_Globs *pG, const unsigned *b, unsigned n, unsigned s,
   /* Adjust last length count to fill out codes, if needed */
   for (y = 1 << j; j < i; j++, y <<= 1)
     if ((y -= c[j]) < 0)
-      return 2;                 /* bad input: more codes than bits */
+      return IZI_ERR2;                 /* bad input: more codes than bits */
   if ((y -= c[i]) < 0)
-    return 2;
+    return IZI_ERR2;
   c[i] += y;
 
   /* Generate starting offsets into the value table for each length */
@@ -650,14 +652,9 @@ static int huft_build(Uz_Globs *pG, const unsigned *b, unsigned n, unsigned s,
         l[h] = j;               /* set table size in stack */
 
         /* allocate and link in new table */
-        if ((q = de_malloc(pG->c, (z + 1)*sizeof(struct huft))) == NULL)
-        {
-          if (h)
-            huft_free(pG, u[0]);
-          return 3;             /* not enough memory */
-        }
+        q = de_malloc(pG->c, (z + 1)*sizeof(struct huft));
         *t = q + 1;             /* link to list for huft_free() */
-        *(t = &(q->v.t)) = NULL;
+        *(t = &(q->t)) = NULL;
         u[h] = ++q;             /* table starts after link */
 
         /* connect to last table, if there is one */
@@ -666,7 +663,7 @@ static int huft_build(Uz_Globs *pG, const unsigned *b, unsigned n, unsigned s,
           x[h] = i;             /* save pattern for backing up */
           r.b = (uch)l[h-1];    /* bits to dump before this table */
           r.e = (uch)(16 + j);  /* bits in this table */
-          r.v.t = q;            /* pointer to this table */
+          r.t = q;            /* pointer to this table */
           j = (i & ((1 << w) - 1)) >> (w - l[h-1]);
           u[h-1][j] = r;        /* connect to last table */
         }
@@ -679,12 +676,12 @@ static int huft_build(Uz_Globs *pG, const unsigned *b, unsigned n, unsigned s,
       else if (*p < s)
       {
         r.e = (uch)(*p < 256 ? 16 : 15);  /* 256 is end-of-block code */
-        r.v.n = (ush)*p++;                /* simple code is just the value */
+        r.n = (ush)*p++;                /* simple code is just the value */
       }
       else
       {
         r.e = (uch)e[*p - s];   /* non-simple--look up in lists */
-        r.v.n = d[*p++ - s];
+        r.n = d[*p++ - s];
       }
 
       /* fill code-like entries with r */
@@ -707,14 +704,17 @@ static int huft_build(Uz_Globs *pG, const unsigned *b, unsigned n, unsigned s,
   *m = l[0];
 
   /* Return true (1) if we were given an incomplete table */
-  return y != 0 && g != 1;
+  if(y != 0 && g != 1)
+    return IZI_ERR1;
+  else
+    return IZI_OK;
 }
 
 /* Free the malloc'ed tables built by huft_build(), which makes a linked
    list of the tables it made, with the links in a dummy first entry of
    each table. */
 // t: table to free
-static int huft_free(Uz_Globs *pG, struct huft *t)
+static void huft_free(Uz_Globs *pG, struct huft *t)
 {
   struct huft *p, *q;
 
@@ -722,11 +722,10 @@ static int huft_free(Uz_Globs *pG, struct huft *t)
   p = t;
   while (p != NULL)
   {
-    q = (--p)->v.t;
+    q = (--p)->t;
     de_free(pG->c, p);
     p = q;
   }
-  return 0;
 }
 
 //========================= inflate.c end =========================
