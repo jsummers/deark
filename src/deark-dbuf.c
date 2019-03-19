@@ -1309,8 +1309,9 @@ void dbuf_write_at(dbuf *f, i64 pos, const u8 *m, i64 len)
 			de_fseek(f->fp, pos, SEEK_SET);
 		}
 		fwrite(m, 1, (size_t)len, f->fp);
-		// TODO: Maybe update f->len, but ->len is not generally supported with
-		// unmanaged files.
+		if(pos+len > f->len) {
+			f->len = pos+len;
+		}
 	}
 	else if(f->btype==DBUF_TYPE_NULL) {
 		;
