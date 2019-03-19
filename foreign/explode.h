@@ -18,12 +18,6 @@ typedef u32   ulg;    /*  predefined on some systems) & match zip  */
                       /* at least 8K for zip's implode method */
                       /* (at least 32K for zip's deflate method) */
 
-struct izi_work {
-  uch Slide[WSIZE];
-};
-
-#define redirSlide (pG->area.Slide)
-
 typedef struct local_file_header {                 /* LOCAL */
     ush general_purpose_bit_flag;
 } local_file_hdr;
@@ -42,7 +36,7 @@ struct huft {
 typedef struct Globals {
     i64 csize;           /* used by decompr. (NEXTBYTE): must be signed */
     i64 ucsize;          /* used by unReduce(), explode() */
-    struct izi_work area;                /* see unzpriv.h for definition of work */
+	uch Slide[WSIZE];
     local_file_hdr  lrec;          /* used in unzip.c, extract.c */
 	deark *c;
 	dbuf *inf;
@@ -241,11 +235,10 @@ static int get_tree(Uz_Globs *pG, unsigned *l, unsigned n)
   return k != n ? 4 : 0;                /* should have read n of them */
 }
 
-/* Decompress the imploded data using coded literals and a 4K or 8K sliding
-   window. */
 // tb, tl, td: literal, length, and distance tables
+//  Uses literals if tb!=NULL.
 // bb, bl, bd: number of bits decoded by those
-static int explode_lit4or8(Uz_Globs *pG, unsigned window_k,
+static int explode_internal(Uz_Globs *pG, unsigned window_k,
 	struct huft *tb, struct huft *tl, struct huft *td,
 	int bb, int bl, int bd)
 {
@@ -273,40 +266,50 @@ static int explode_lit4or8(Uz_Globs *pG, unsigned window_k,
     {
       DUMPBITS(1);
       s--;
-      NEEDBITS((unsigned)bb);    /* get coded literal */
-      if ((e = (t = tb + ((~(unsigned)b) & mb))->e) > 16)
-        do {
-          if (e == 99)
-            return 1;
-          DUMPBITS(t->b);
-          e -= 16;
-          NEEDBITS(e);
-        } while ((e = (t = t->v.t + ((~(unsigned)b) & mask_bits[e]))->e) > 16);
-      DUMPBITS(t->b);
-      redirSlide[w++] = (uch)t->v.n;
+      if(tb) {
+        NEEDBITS((unsigned)bb);    /* get coded literal */
+        if ((e = (t = tb + ((~(unsigned)b) & mb))->e) > 16) {
+          do {
+            if (e == 99)
+              return 1;
+            DUMPBITS(t->b);
+            e -= 16;
+            NEEDBITS(e);
+          } while ((e = (t = t->v.t + ((~(unsigned)b) & mask_bits[e]))->e) > 16);
+        }
+        DUMPBITS(t->b);
+        pG->Slide[w++] = (uch)t->v.n;
+      }
+      else {
+        NEEDBITS(8);
+        pG->Slide[w++] = (uch)b;
+      }
       if (w == wsize)
       {
-        izi_flush(pG, redirSlide, (ulg)w);
+        izi_flush(pG, pG->Slide, (ulg)w);
         w = u = 0;
+      }
+      if(!tb) {
+        DUMPBITS(8);
       }
     }
     else                        /* else distance/length */
     {
       DUMPBITS(1);
 
-	  if(window_k==8) {
+      if(window_k==8) {
         NEEDBITS(7);               /* get distance low bits */
         d = (unsigned)b & 0x7f;
         DUMPBITS(7);
-	  }
-	  else {
+      }
+      else {
         NEEDBITS(6);               /* get distance low bits */
         d = (unsigned)b & 0x3f;
         DUMPBITS(6);
-	  }
+      }
 
       NEEDBITS((unsigned)bd);    /* get coded distance high bits */
-      if ((e = (t = td + ((~(unsigned)b) & md))->e) > 16)
+	  if ((e = (t = td + ((~(unsigned)b) & md))->e) > 16) {
         do {
           if (e == 99)
             return 1;
@@ -314,10 +317,11 @@ static int explode_lit4or8(Uz_Globs *pG, unsigned window_k,
           e -= 16;
           NEEDBITS(e);
         } while ((e = (t = t->v.t + ((~(unsigned)b) & mask_bits[e]))->e) > 16);
+      }
       DUMPBITS(t->b);
       d = w - d - t->v.n;       /* construct offset */
       NEEDBITS((unsigned)bl);    /* get coded length */
-      if ((e = (t = tl + ((~(unsigned)b) & ml))->e) > 16)
+	  if ((e = (t = tl + ((~(unsigned)b) & ml))->e) > 16) {
         do {
           if (e == 99)
             return 1;
@@ -325,6 +329,7 @@ static int explode_lit4or8(Uz_Globs *pG, unsigned window_k,
           e -= 16;
           NEEDBITS(e);
         } while ((e = (t = t->v.t + ((~(unsigned)b) & mask_bits[e]))->e) > 16);
+      }
       DUMPBITS(t->b);
       n = t->v.n;
       if (e)                    /* get length extra bits */
@@ -345,151 +350,34 @@ static int explode_lit4or8(Uz_Globs *pG, unsigned window_k,
         n -= (e = (e = wsize - ((d &= wsize-1) > w ? d : w)) > n ? n : e);
         if (u && w <= d)
         {
-          de_zeromem(redirSlide + w, e);
+          de_zeromem(&pG->Slide[w], e);
           w += e;
           d += e;
         }
-        else
+        else {
           if (w - d >= e)       /* (this test assumes unsigned comparison) */
           {
-            de_memcpy(redirSlide + w, redirSlide + d, e);
+            de_memcpy(&pG->Slide[w], &pG->Slide[d], e);
             w += e;
             d += e;
           }
-          else                  /* do it slow to avoid memcpy() overlap */
+          else {                 /* do it slow to avoid memcpy() overlap */
             do {
-              redirSlide[w++] = redirSlide[d++];
+              pG->Slide[w++] = pG->Slide[d++];
             } while (--e);
+          }
+        }
         if (w == wsize)
         {
-          izi_flush(pG, redirSlide, (ulg)w);
+          izi_flush(pG, pG->Slide, (ulg)w);
           w = u = 0;
         }
       } while (n);
     }
   }
 
-  /* flush out redirSlide */
-  izi_flush(pG, redirSlide, (ulg)w);
-  return 0;
-}
-
-/* Decompress the imploded data using uncoded literals and a 4K or 8K sliding
-   window. */
-// tl, td: length and distance decoder tables
-// bl, bd: number of bits decoded by tl[] and td[]
-static int explode_nolit4or8(Uz_Globs *pG, unsigned window_k,
-	struct huft *tl, struct huft *td,
-	int bl, int bd)
-{
-  i64 s;               /* bytes to decompress */
-  unsigned e;  /* table entry flag/number of extra bits */
-  unsigned n, d;        /* length and index for copy */
-  unsigned w;           /* current window position */
-  struct huft *t;       /* pointer to table entry */
-  unsigned ml, md;      /* masks for bl and bd bits */
-  ulg b;       /* bit buffer */
-  unsigned k;  /* number of bits in bit buffer */
-  unsigned u;           /* true if unflushed */
-
-  /* explode the coded data */
-  b = k = w = 0;                /* initialize bit buffer, window */
-  u = 1;                        /* buffer unflushed */
-  ml = mask_bits[bl];           /* precompute masks for speed */
-  md = mask_bits[bd];
-  s = pG->ucsize;
-  while (s > 0)                 /* do until ucsize bytes uncompressed */
-  {
-    NEEDBITS(1);
-    if (b & 1)                  /* then literal--get eight bits */
-    {
-      DUMPBITS(1);
-      s--;
-      NEEDBITS(8);
-      redirSlide[w++] = (uch)b;
-      if (w == wsize)
-      {
-        izi_flush(pG, redirSlide, (ulg)w);
-        w = u = 0;
-      }
-      DUMPBITS(8);
-    }
-    else                        /* else distance/length */
-    {
-      DUMPBITS(1);
-
-	  if(window_k==8) {
-        NEEDBITS(7);               /* get distance low bits */
-        d = (unsigned)b & 0x7f;
-        DUMPBITS(7);
-      }
-      else {
-        NEEDBITS(6);               /* get distance low bits */
-        d = (unsigned)b & 0x3f;
-        DUMPBITS(6);
-      }
-
-      NEEDBITS((unsigned)bd);    /* get coded distance high bits */
-      if ((e = (t = td + ((~(unsigned)b) & md))->e) > 16)
-        do {
-          if (e == 99)
-            return 1;
-          DUMPBITS(t->b);
-          e -= 16;
-          NEEDBITS(e);
-        } while ((e = (t = t->v.t + ((~(unsigned)b) & mask_bits[e]))->e) > 16);
-      DUMPBITS(t->b);
-      d = w - d - t->v.n;       /* construct offset */
-      NEEDBITS((unsigned)bl);    /* get coded length */
-      if ((e = (t = tl + ((~(unsigned)b) & ml))->e) > 16)
-        do {
-          if (e == 99)
-            return 1;
-          DUMPBITS(t->b);
-          e -= 16;
-          NEEDBITS(e);
-        } while ((e = (t = t->v.t + ((~(unsigned)b) & mask_bits[e]))->e) > 16);
-      DUMPBITS(t->b);
-      n = t->v.n;
-      if (e)                    /* get length extra bits */
-      {
-        NEEDBITS(8);
-        n += (unsigned)b & 0xff;
-        DUMPBITS(8);
-      }
-
-      /* do the copy */
-      s -= n;
-      do {
-        n -= (e = (e = wsize - ((d &= wsize-1) > w ? d : w)) > n ? n : e);
-        if (u && w <= d)
-        {
-          de_zeromem(redirSlide + w, e);
-          w += e;
-          d += e;
-        }
-        else
-          if (w - d >= e)       /* (this test assumes unsigned comparison) */
-          {
-            de_memcpy(redirSlide + w, redirSlide + d, e);
-            w += e;
-            d += e;
-          }
-          else                  /* do it slow to avoid memcpy() overlap */
-            do {
-              redirSlide[w++] = redirSlide[d++];
-            } while (--e);
-        if (w == wsize)
-        {
-          izi_flush(pG, redirSlide, (ulg)w);
-          w = u = 0;
-        }
-      } while (n);
-    }
-  }
-
-  /* flush out redirSlide */
-  izi_flush(pG, redirSlide, (ulg)w);
+  /* flush out pG->Slide */
+  izi_flush(pG, pG->Slide, (ulg)w);
   return 0;
 }
 
@@ -554,7 +442,7 @@ static int explode(Uz_Globs *pG)
         huft_free(pG, tb);
         return (int)r;
       }
-      r = explode_lit4or8(pG, 8, tb, tl, td, bb, bl, bd);
+      r = explode_internal(pG, 8, tb, tl, td, bb, bl, bd);
     }
     else                                        /* else 4K */
     {
@@ -566,7 +454,7 @@ static int explode(Uz_Globs *pG)
         huft_free(pG, tb);
         return (int)r;
       }
-      r = explode_lit4or8(pG, 4, tb, tl, td, bb, bl, bd);
+      r = explode_internal(pG, 4, tb, tl, td, bb, bl, bd);
     }
     huft_free(pG, td);
     huft_free(pG, tl);
@@ -594,7 +482,7 @@ static int explode(Uz_Globs *pG)
         huft_free(pG, tl);
         return (int)r;
       }
-      r = explode_nolit4or8(pG, 8, tl, td, bl, bd);
+      r = explode_internal(pG, 8, NULL, tl, td, 0, bl, bd);
     }
     else                                        /* else 4K */
     {
@@ -605,7 +493,7 @@ static int explode(Uz_Globs *pG)
         huft_free(pG, tl);
         return (int)r;
       }
-      r = explode_nolit4or8(pG, 4, tl, td, bl, bd);
+      r = explode_internal(pG, 4, NULL, tl, td, 0, bl, bd);
     }
     huft_free(pG, td);
     huft_free(pG, tl);
