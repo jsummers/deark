@@ -65,7 +65,7 @@ typedef struct Globals {
 
 static void   huft_free(Uz_Globs *pG, struct huft *t);
 static int    huft_build(Uz_Globs *pG, const unsigned *b, unsigned n,
-    unsigned s, const ush *d, const ush *e, struct huft **t, int *m);
+    unsigned s, const ush *d, const ush *e, struct izi_htable *tbl);
 
 #define NEXTBYTE  izi_readbyte(pG)
 
@@ -424,7 +424,7 @@ static int explode(Uz_Globs *pG)
     tbls.b.b = 9;                     /* base table size for literals */
     if ((r = get_tree(pG, l, 256)) != IZI_OK)
       return (int)r;
-    if ((r = huft_build(pG, l, 256, 256, NULL, NULL, &tbls.b.t, &tbls.b.b)) != IZI_OK)
+    if ((r = huft_build(pG, l, 256, 256, NULL, NULL, &tbls.b)) != IZI_OK)
     {
       if (r == IZI_ERR1)
         huft_free(pG, tbls.b.t);
@@ -432,7 +432,7 @@ static int explode(Uz_Globs *pG)
     }
     if ((r = get_tree(pG, l, 64)) != IZI_OK)
       return (int)r;
-    if ((r = huft_build(pG, l, 64, 0, cplen3, extra, &tbls.l.t, &tbls.l.b)) != IZI_OK)
+    if ((r = huft_build(pG, l, 64, 0, cplen3, extra, &tbls.l)) != IZI_OK)
     {
       if (r == IZI_ERR1)
         huft_free(pG, tbls.l.t);
@@ -443,7 +443,7 @@ static int explode(Uz_Globs *pG)
       return (int)r;
     if (pG->lrec_general_purpose_bit_flag & 2)      /* true if 8K */
     {
-      if ((r = huft_build(pG, l, 64, 0, cpdist8, extra, &tbls.d.t, &tbls.d.b)) != IZI_OK)
+      if ((r = huft_build(pG, l, 64, 0, cpdist8, extra, &tbls.d)) != IZI_OK)
       {
         if (r == 1)
           huft_free(pG, tbls.d.t);
@@ -455,7 +455,7 @@ static int explode(Uz_Globs *pG)
     }
     else                                        /* else 4K */
     {
-      if ((r = huft_build(pG, l, 64, 0, cpdist4, extra, &tbls.d.t, &tbls.d.b)) != IZI_OK)
+      if ((r = huft_build(pG, l, 64, 0, cpdist4, extra, &tbls.d)) != IZI_OK)
       {
         if (r == IZI_ERR1)
           huft_free(pG, tbls.d.t);
@@ -474,7 +474,7 @@ static int explode(Uz_Globs *pG)
   {
     if ((r = get_tree(pG, l, 64)) != IZI_OK)
       return (int)r;
-    if ((r = huft_build(pG, l, 64, 0, cplen2, extra, &tbls.l.t, &tbls.l.b)) != IZI_OK)
+    if ((r = huft_build(pG, l, 64, 0, cplen2, extra, &tbls.l)) != IZI_OK)
     {
       if (r == IZI_ERR1)
         huft_free(pG, tbls.l.t);
@@ -484,7 +484,7 @@ static int explode(Uz_Globs *pG)
       return (int)r;
     if (pG->lrec_general_purpose_bit_flag & 2)      /* true if 8K */
     {
-      if ((r = huft_build(pG, l, 64, 0, cpdist8, extra, &tbls.d.t, &tbls.d.b)) != IZI_OK)
+      if ((r = huft_build(pG, l, 64, 0, cpdist8, extra, &tbls.d)) != IZI_OK)
       {
         if (r == IZI_ERR1)
           huft_free(pG, tbls.d.t);
@@ -496,7 +496,7 @@ static int explode(Uz_Globs *pG)
     }
     else                                        /* else 4K */
     {
-      if ((r = huft_build(pG, l, 64, 0, cpdist4, extra, &tbls.d.t, &tbls.d.b)) != IZI_OK)
+      if ((r = huft_build(pG, l, 64, 0, cpdist4, extra, &tbls.d)) != IZI_OK)
       {
         if (r == IZI_ERR1)
           huft_free(pG, tbls.d.t);
@@ -542,10 +542,10 @@ static int explode(Uz_Globs *pG)
 // s: number of simple-valued codes (0..s-1)
 // d: list of base values for non-simple codes
 // e: list of extra bits for non-simple codes
-// t: result: starting table
-// m: maximum lookup bits, returns actual
+// tbl->t: result: starting table
+// tbl->b: maximum lookup bits, returns actual
 static int huft_build(Uz_Globs *pG, const unsigned *b, unsigned n, unsigned s,
-	const ush *d, const ush *e, struct huft **t, int *m)
+	const ush *d, const ush *e, struct izi_htable *tbl)
 {
   unsigned a;                   /* counter for codes of length k */
   unsigned c[BMAX+1];           /* bit length count table */
@@ -568,6 +568,7 @@ static int huft_build(Uz_Globs *pG, const unsigned *b, unsigned n, unsigned s,
   unsigned *xp;                 /* pointer into x */
   int y;                        /* number of dummy codes added */
   unsigned z;                   /* number of entries in current table */
+  struct huft **t2 = &tbl->t;
 
   /* Generate counts for each bit length */
   el = n > 256 ? b[256] : BMAX; /* set length of EOB code, if any */
@@ -578,8 +579,8 @@ static int huft_build(Uz_Globs *pG, const unsigned *b, unsigned n, unsigned s,
   } while (--i);
   if (c[0] == n)                /* null input--all zero length codes */
   {
-    *t = NULL;
-    *m = 0;
+    *t2 = NULL;
+    tbl->b = 0;
     return IZI_OK;
   }
 
@@ -588,14 +589,14 @@ static int huft_build(Uz_Globs *pG, const unsigned *b, unsigned n, unsigned s,
     if (c[j])
       break;
   k = j;                        /* minimum code length */
-  if ((unsigned)*m < j)
-    *m = j;
+  if ((unsigned)tbl->b < j)
+    tbl->b = j;
   for (i = BMAX; i; i--)
     if (c[i])
       break;
   g = i;                        /* maximum code length */
-  if ((unsigned)*m > i)
-    *m = i;
+  if ((unsigned)tbl->b > i)
+    tbl->b = i;
 
   /* Adjust last length count to fill out codes, if needed */
   for (y = 1 << j; j < i; j++, y <<= 1)
@@ -643,7 +644,7 @@ static int huft_build(Uz_Globs *pG, const unsigned *b, unsigned n, unsigned s,
         w += l[h++];            /* add bits already decoded */
 
         /* compute minimum size table less than or equal to *m bits */
-        z = (z = g - w) > (unsigned)*m ? ((unsigned)*m) : z;        /* upper limit */
+        z = (z = g - w) > (unsigned)tbl->b ? ((unsigned)tbl->b) : z;        /* upper limit */
         if ((f = 1 << (j = k - w)) > a + 1)     /* try a k-w bit table */
         {                       /* too few codes for k-w bit table */
           f -= a + 1;           /* deduct codes from patterns left */
@@ -662,8 +663,9 @@ static int huft_build(Uz_Globs *pG, const unsigned *b, unsigned n, unsigned s,
 
         /* allocate and link in new table */
         q = de_malloc(pG->c, (z + 1)*sizeof(struct huft));
-        *t = q + 1;             /* link to list for huft_free() */
-        *(t = &(q->t)) = NULL;
+        *t2 = q + 1;             /* link to list for huft_free() */
+        t2 = &(q->t);
+        *t2 = NULL;
         u[h] = ++q;             /* table starts after link */
 
         /* connect to last table, if there is one */
@@ -710,7 +712,7 @@ static int huft_build(Uz_Globs *pG, const unsigned *b, unsigned n, unsigned s,
   }
 
   /* return actual size of base table */
-  *m = l[0];
+  tbl->b = l[0];
 
   /* Return true (1) if we were given an incomplete table */
   if(y != 0 && g != 1)
