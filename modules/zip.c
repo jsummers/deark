@@ -19,6 +19,8 @@ struct dir_entry_data {
 	int cmpr_method;
 	unsigned int bit_flags;
 	u32 crc_reported;
+	i64 main_fname_pos;
+	i64 main_fname_len;
 	de_ucstring *fname;
 };
 
@@ -173,14 +175,15 @@ static void do_read_filename(deark *c, lctx *d,
 {
 	int from_encoding;
 
-	if(dd->fname)
-		ucstring_destroy(dd->fname);
-	dd->fname = ucstring_create(c);
+	if(!dd->fname) {
+		dd->fname = ucstring_create(c);
+	}
+	ucstring_empty(dd->fname);
+
 	from_encoding = utf8_flag ? DE_ENCODING_UTF8 : DE_ENCODING_CP437_G;
 	dbuf_read_to_ucstring(c->infile, pos, len, dd->fname, 0, from_encoding);
 	de_dbg(c, "filename: \"%s\"", ucstring_getpsz_d(dd->fname));
 }
-
 
 static void do_comment_display(deark *c, lctx *d, i64 pos, i64 len, int encoding,
 	const char *name)
@@ -339,7 +342,8 @@ static void ef_unicodepath(deark *c, lctx *d, struct extra_item_info_struct *eii
 	u8 ver;
 	de_ucstring *fn = NULL;
 	i64 fnlen;
-	u32 crc_reported;
+	u32 crc_reported, crc_calculated;
+	struct de_crcobj *fncrco = NULL;
 
 	if(eii->dlen<1) goto done;
 	ver = de_getbyte(eii->dpos);
@@ -352,9 +356,26 @@ static void ef_unicodepath(deark *c, lctx *d, struct extra_item_info_struct *eii
 	fnlen = eii->dlen - 5;
 	dbuf_read_to_ucstring(c->infile, eii->dpos+5, fnlen, fn, 0, DE_ENCODING_UTF8);
 	de_dbg(c, "unicode name: \"%s\"", ucstring_getpsz_d(fn));
-	// TODO: Use this as the preferred filename, when appropriate.
+
+	// Need to go back and calculate a CRC of the main filename. This is
+	// protection against the case where a ZIP editor may have changed the
+	// original filename, but retained a now-orphaned Unicode Path field.
+	fncrco = de_crcobj_create(c, DE_CRCOBJ_CRC32_IEEE);
+	de_crcobj_addslice(fncrco, c->infile, eii->dd->main_fname_pos, eii->dd->main_fname_len);
+	crc_calculated = de_crcobj_getval(fncrco);
+	de_dbg(c, "name-crc (calculated): 0x%08x", (unsigned int)crc_calculated);
+
+	if(crc_calculated == crc_reported) {
+		if(!eii->dd->fname) {
+			eii->dd->fname = ucstring_create(c);
+		}
+		ucstring_empty(eii->dd->fname);
+		ucstring_append_ucstring(eii->dd->fname, fn);
+	}
+
 done:
 	ucstring_destroy(fn);
+	de_crcobj_destroy(fncrco);
 }
 
 // Extra field 0x7855
@@ -822,7 +843,7 @@ static void do_extract_file(deark *c, lctx *d, struct member_data *md)
 
 	fi = de_finfo_create(c);
 
-	if(ldd->fname) {
+	if(ucstring_isnonempty(ldd->fname)) {
 		unsigned int snflags = DE_SNFLAG_FULLPATH;
 		if(md->is_dir) snflags |= DE_SNFLAG_STRIPTRAILINGSLASH;
 		de_finfo_set_name_from_ucstring(c, fi, ldd->fname, snflags);
@@ -1200,6 +1221,8 @@ static int do_file_header(deark *c, lctx *d, struct member_data *md,
 
 	*p_entry_size = fixed_header_size + fn_len + extra_len + comment_len;
 
+	dd->main_fname_pos = pos1+fixed_header_size;
+	dd->main_fname_len = fn_len;
 	do_read_filename(c, d, md, dd, pos1+fixed_header_size, fn_len, utf8_flag);
 
 	if(extra_len>0) {
