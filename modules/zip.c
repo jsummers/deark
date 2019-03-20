@@ -93,7 +93,7 @@ static int do_decompress_implode(deark *c, lctx *d, struct member_data *md,
 	pG->c = c;
 	pG->ucsize = md->uncmpr_size;
 	pG->csize = inf_size;
-	pG->lrec.general_purpose_bit_flag = md->local_dir_entry_data.bit_flags;
+	pG->lrec_general_purpose_bit_flag = md->local_dir_entry_data.bit_flags;
 
 	pG->inf = inf;
 	pG->inf_curpos = inf_pos;

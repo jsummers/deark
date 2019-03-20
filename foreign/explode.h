@@ -36,13 +36,24 @@ struct huft {
     struct huft *t;   /* pointer to next level of table */
 };
 
+struct izi_htable {
+	struct huft *t;
+	int b; /* bits for this table */
+};
+
+struct izi_htables {
+	struct izi_htable b; /* literal code table */
+	struct izi_htable l; /* length code table */
+	struct izi_htable d; /* distance code table */
+};
+
 //========================= globals.h begin =========================
 
 typedef struct Globals {
     i64 csize;           /* used by decompr. (NEXTBYTE): must be signed */
     i64 ucsize;          /* used by unReduce(), explode() */
 	uch Slide[WSIZE];
-    local_file_hdr  lrec;          /* used in unzip.c, extract.c */
+    ush lrec_general_purpose_bit_flag;
 	deark *c;
 	dbuf *inf;
 	i64 inf_curpos;
@@ -240,11 +251,10 @@ static int get_tree(Uz_Globs *pG, unsigned *l, unsigned n)
 }
 
 // tb, tl, td: literal, length, and distance tables
-//  Uses literals if tb!=NULL.
+//  Uses literals if tbls->b.t!=NULL.
 // bb, bl, bd: number of bits decoded by those
 static int explode_internal(Uz_Globs *pG, unsigned window_k,
-	struct huft *tb, struct huft *tl, struct huft *td,
-	int bb, int bl, int bd)
+	struct izi_htables *tbls)
 {
   i64 s;               /* bytes to decompress */
   unsigned e;  /* table entry flag/number of extra bits */
@@ -259,9 +269,9 @@ static int explode_internal(Uz_Globs *pG, unsigned window_k,
   /* explode the coded data */
   b = k = w = 0;                /* initialize bit buffer, window */
   u = 1;                        /* buffer unflushed */
-  mb = mask_bits[bb];           /* precompute masks for speed */
-  ml = mask_bits[bl];
-  md = mask_bits[bd];
+  mb = mask_bits[tbls->b.b];           /* precompute masks for speed */
+  ml = mask_bits[tbls->l.b];
+  md = mask_bits[tbls->d.b];
   s = pG->ucsize;
   while (s > 0)                 /* do until ucsize bytes uncompressed */
   {
@@ -270,9 +280,9 @@ static int explode_internal(Uz_Globs *pG, unsigned window_k,
     {
       DUMPBITS(1);
       s--;
-      if(tb) {
-        NEEDBITS((unsigned)bb);    /* get coded literal */
-        if ((e = (t = tb + ((~(unsigned)b) & mb))->e) > 16) {
+      if(tbls->b.t) {
+        NEEDBITS((unsigned)tbls->b.b);    /* get coded literal */
+        if ((e = (t = tbls->b.t + ((~(unsigned)b) & mb))->e) > 16) {
           do {
             if (e == 99)
               return 1;
@@ -293,7 +303,7 @@ static int explode_internal(Uz_Globs *pG, unsigned window_k,
         izi_flush(pG, pG->Slide, (ulg)w);
         w = u = 0;
       }
-      if(!tb) {
+      if(!tbls->b.t) {
         DUMPBITS(8);
       }
     }
@@ -312,8 +322,8 @@ static int explode_internal(Uz_Globs *pG, unsigned window_k,
         DUMPBITS(6);
       }
 
-      NEEDBITS((unsigned)bd);    /* get coded distance high bits */
-	  if ((e = (t = td + ((~(unsigned)b) & md))->e) > 16) {
+      NEEDBITS((unsigned)tbls->d.b);    /* get coded distance high bits */
+	  if ((e = (t = tbls->d.t + ((~(unsigned)b) & md))->e) > 16) {
         do {
           if (e == 99)
             return 1;
@@ -324,8 +334,8 @@ static int explode_internal(Uz_Globs *pG, unsigned window_k,
       }
       DUMPBITS(t->b);
       d = w - d - t->n;       /* construct offset */
-      NEEDBITS((unsigned)bl);    /* get coded length */
-	  if ((e = (t = tl + ((~(unsigned)b) & ml))->e) > 16) {
+      NEEDBITS((unsigned)tbls->l.b);    /* get coded length */
+	  if ((e = (t = tbls->l.t + ((~(unsigned)b) & ml))->e) > 16) {
         do {
           if (e == 99)
             return 1;
@@ -394,111 +404,110 @@ static int explode_internal(Uz_Globs *pG, unsigned window_k,
 static int explode(Uz_Globs *pG)
 {
   unsigned r;           /* return codes */
-  struct huft *tb;      /* literal code table */
-  struct huft *tl;      /* length code table */
-  struct huft *td;      /* distance code table */
-  int bb;               /* bits for tb */
-  int bl;               /* bits for tl */
-  int bd;               /* bits for td */
+  struct izi_htables tbls;
   unsigned l[256];      /* bit lengths for codes */
 
+
+  de_zeromem(&tbls, sizeof(struct izi_htables));
 
   /* Tune base table sizes.  Note: I thought that to truly optimize speed,
      I would have to select different bl, bd, and bb values for different
      compressed file sizes.  I was surprised to find out that the values of
      7, 7, and 9 worked best over a very wide range of sizes, except that
      bd = 8 worked marginally better for large compressed sizes. */
-  bl = 7;
-  bd = pG->csize > 200000L ? 8 : 7;
+  tbls.l.b = 7;
+  tbls.d.b = pG->csize > 200000L ? 8 : 7;
 
   /* With literal tree--minimum match length is 3 */
-  if (pG->lrec.general_purpose_bit_flag & 4)
+  if (pG->lrec_general_purpose_bit_flag & 4)
   {
-    bb = 9;                     /* base table size for literals */
+    tbls.b.b = 9;                     /* base table size for literals */
     if ((r = get_tree(pG, l, 256)) != IZI_OK)
       return (int)r;
-    if ((r = huft_build(pG, l, 256, 256, NULL, NULL, &tb, &bb)) != IZI_OK)
+    if ((r = huft_build(pG, l, 256, 256, NULL, NULL, &tbls.b.t, &tbls.b.b)) != IZI_OK)
     {
       if (r == IZI_ERR1)
-        huft_free(pG, tb);
+        huft_free(pG, tbls.b.t);
       return (int)r;
     }
     if ((r = get_tree(pG, l, 64)) != IZI_OK)
       return (int)r;
-    if ((r = huft_build(pG, l, 64, 0, cplen3, extra, &tl, &bl)) != IZI_OK)
+    if ((r = huft_build(pG, l, 64, 0, cplen3, extra, &tbls.l.t, &tbls.l.b)) != IZI_OK)
     {
       if (r == IZI_ERR1)
-        huft_free(pG, tl);
-      huft_free(pG, tb);
+        huft_free(pG, tbls.l.t);
+      huft_free(pG, tbls.b.t);
       return (int)r;
     }
     if ((r = get_tree(pG, l, 64)) != IZI_OK)
       return (int)r;
-    if (pG->lrec.general_purpose_bit_flag & 2)      /* true if 8K */
+    if (pG->lrec_general_purpose_bit_flag & 2)      /* true if 8K */
     {
-      if ((r = huft_build(pG, l, 64, 0, cpdist8, extra, &td, &bd)) != IZI_OK)
+      if ((r = huft_build(pG, l, 64, 0, cpdist8, extra, &tbls.d.t, &tbls.d.b)) != IZI_OK)
       {
         if (r == 1)
-          huft_free(pG, td);
-        huft_free(pG, tl);
-        huft_free(pG, tb);
+          huft_free(pG, tbls.d.t);
+        huft_free(pG, tbls.l.t);
+        huft_free(pG, tbls.b.t);
         return (int)r;
       }
-      r = explode_internal(pG, 8, tb, tl, td, bb, bl, bd);
+      r = explode_internal(pG, 8, &tbls);
     }
     else                                        /* else 4K */
     {
-      if ((r = huft_build(pG, l, 64, 0, cpdist4, extra, &td, &bd)) != IZI_OK)
+      if ((r = huft_build(pG, l, 64, 0, cpdist4, extra, &tbls.d.t, &tbls.d.b)) != IZI_OK)
       {
         if (r == IZI_ERR1)
-          huft_free(pG, td);
-        huft_free(pG, tl);
-        huft_free(pG, tb);
+          huft_free(pG, tbls.d.t);
+        huft_free(pG, tbls.l.t);
+        huft_free(pG, tbls.b.t);
         return (int)r;
       }
-      r = explode_internal(pG, 4, tb, tl, td, bb, bl, bd);
+      r = explode_internal(pG, 4, &tbls);
     }
-    huft_free(pG, td);
-    huft_free(pG, tl);
-    huft_free(pG, tb);
+    huft_free(pG, tbls.d.t);
+    huft_free(pG, tbls.l.t);
+    huft_free(pG, tbls.b.t);
   }
   else
   /* No literal tree--minimum match length is 2 */
   {
     if ((r = get_tree(pG, l, 64)) != IZI_OK)
       return (int)r;
-    if ((r = huft_build(pG, l, 64, 0, cplen2, extra, &tl, &bl)) != IZI_OK)
+    if ((r = huft_build(pG, l, 64, 0, cplen2, extra, &tbls.l.t, &tbls.l.b)) != IZI_OK)
     {
       if (r == IZI_ERR1)
-        huft_free(pG, tl);
+        huft_free(pG, tbls.l.t);
       return (int)r;
     }
     if ((r = get_tree(pG, l, 64)) != IZI_OK)
       return (int)r;
-    if (pG->lrec.general_purpose_bit_flag & 2)      /* true if 8K */
+    if (pG->lrec_general_purpose_bit_flag & 2)      /* true if 8K */
     {
-      if ((r = huft_build(pG, l, 64, 0, cpdist8, extra, &td, &bd)) != IZI_OK)
+      if ((r = huft_build(pG, l, 64, 0, cpdist8, extra, &tbls.d.t, &tbls.d.b)) != IZI_OK)
       {
         if (r == IZI_ERR1)
-          huft_free(pG, td);
-        huft_free(pG, tl);
+          huft_free(pG, tbls.d.t);
+        huft_free(pG, tbls.l.t);
         return (int)r;
       }
-      r = explode_internal(pG, 8, NULL, tl, td, 0, bl, bd);
+      tbls.b.t = NULL;
+      r = explode_internal(pG, 8, &tbls);
     }
     else                                        /* else 4K */
     {
-      if ((r = huft_build(pG, l, 64, 0, cpdist4, extra, &td, &bd)) != IZI_OK)
+      if ((r = huft_build(pG, l, 64, 0, cpdist4, extra, &tbls.d.t, &tbls.d.b)) != IZI_OK)
       {
         if (r == IZI_ERR1)
-          huft_free(pG, td);
-        huft_free(pG, tl);
+          huft_free(pG, tbls.d.t);
+        huft_free(pG, tbls.l.t);
         return (int)r;
       }
-      r = explode_internal(pG, 4, NULL, tl, td, 0, bl, bd);
+      tbls.b.t = NULL;
+      r = explode_internal(pG, 4, &tbls);
     }
-    huft_free(pG, td);
-    huft_free(pG, tl);
+    huft_free(pG, tbls.d.t);
+    huft_free(pG, tbls.l.t);
   }
   return (int)r;
 }
