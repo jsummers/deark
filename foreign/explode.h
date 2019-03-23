@@ -24,10 +24,6 @@ typedef u32   ulg;    /*  predefined on some systems) & match zip  */
                       /* at least 8K for zip's implode method */
                       /* (at least 32K for zip's deflate method) */
 
-typedef struct local_file_header {                 /* LOCAL */
-    ush general_purpose_bit_flag;
-} local_file_hdr;
-
 struct hmain_struct {
 	uch e;                /* number of extra bits or operation */
 	uch b;                /* number of bits in this code or subcode */
@@ -605,7 +601,7 @@ static int huft_build(Uz_Globs *pG, const unsigned *b, unsigned n, unsigned s,
   int k;               /* number of bits in current code */
   int lx[BMAX+1];               /* memory for l[-1..BMAX-1] */
   int *l = lx+1;                /* stack of bits per table */
-  const unsigned *p;   /* pointer into c[], b[], or v[] */
+  const unsigned *p = NULL;   /* pointer into c[], b[], or v[] */
   struct huft *q;      /* points to current table */
   struct hmain_struct r;        /* table entry for structure assignment */
   struct huft *u[BMAX];         /* table stack */
@@ -616,60 +612,74 @@ static int huft_build(Uz_Globs *pG, const unsigned *b, unsigned n, unsigned s,
   int y;                        /* number of dummy codes added */
   unsigned z;                   /* number of entries in current table */
   unsigned int tmpn;
+  unsigned int c_idx, x_idx;
+  int retval = IZI_ERR2;
   struct huft **loc_of_prev_next_ptr = &tbl->t;
 
   *loc_of_prev_next_ptr = NULL;
-  if(n>256) return IZI_ERR2;
+  if(n>256) goto done;
 
   /* Generate counts for each bit length */
   el = BMAX; /* set length of EOB code, if any */
   de_zeromem(c, sizeof(c));
-  p = b;  i = n;
-  do {
-    c[*p]++; p++;               /* assume all entries <= BMAX */
-  } while (--i);
+
+  for(i=0; i<n; i++) {
+    if(b[i] >= BMAX+1) goto done;
+    c[b[i]]++;               /* assume all entries <= BMAX */
+  }
+
   if (c[0] == n)                /* null input--all zero length codes */
   {
-    *loc_of_prev_next_ptr = NULL;
     tbl->b = 0;
     return IZI_OK;
   }
 
   /* Find minimum and maximum length, bound *m by those */
-  for (j = 1; j <= BMAX; j++)
+  for (j = 1; j <= BMAX; j++) {
     if (c[j])
       break;
+  }
   k = j;                        /* minimum code length */
   if ((unsigned)tbl->b < j)
     tbl->b = j;
-  for (i = BMAX; i; i--)
+  for (i = BMAX; i; i--) {
     if (c[i])
       break;
+  }
   g = i;                        /* maximum code length */
   if ((unsigned)tbl->b > i)
     tbl->b = i;
 
   /* Adjust last length count to fill out codes, if needed */
-  for (y = 1 << j; j < i; j++, y <<= 1)
-    if ((y -= c[j]) < 0)
+  for (y = 1 << j; j < i; j++, y <<= 1) {
+    y -= c[j];
+    if (y < 0)
       return IZI_ERR2;                 /* bad input: more codes than bits */
+  }
   if ((y -= c[i]) < 0)
     return IZI_ERR2;
   c[i] += y;
 
   /* Generate starting offsets into the value table for each length */
   x[1] = j = 0;
-  p = c + 1;  xp = x + 2;
+  c_idx = 1;
+  x_idx = 2;
   while (--i) {                 /* note that i == g from above */
-    *xp++ = (j += *p++);
+    j += c[c_idx];
+    c_idx++;
+    x[x_idx] = j;
+    x_idx++;
   }
 
   /* Make a table of values in order of bit lengths */
   de_zeromem(v, sizeof(v));
-  p = b;  i = 0;
+  p = b;
+  i = 0;
   do {
-    if ((j = *p++) != 0)
-      v[x[j]++] = i;
+    if ((j = *p++) != 0) {
+      v[x[j]] = i;
+      x[j]++;
+    }
   } while (++i < n);
   n = x[g];                     /* set n to length of v */
 
@@ -695,14 +705,18 @@ static int huft_build(Uz_Globs *pG, const unsigned *b, unsigned n, unsigned s,
         w += l[h++];            /* add bits already decoded */
 
         /* compute minimum size table less than or equal to *m bits */
-        z = (z = g - w) > (unsigned)tbl->b ? ((unsigned)tbl->b) : z;        /* upper limit */
-        if ((f = 1 << (j = k - w)) > a + 1)     /* try a k-w bit table */
+        z = g - w;
+        z = (z > (unsigned)tbl->b) ? ((unsigned)tbl->b) : z;        /* upper limit */
+        j = k - w;
+        f = 1 << j;
+        if (f > a + 1)     /* try a k-w bit table */
         {                       /* too few codes for k-w bit table */
           f -= a + 1;           /* deduct codes from patterns left */
           xp = c + k;
           while (++j < z)       /* try smaller tables up to z bits */
           {
-            if ((f <<= 1) <= *++xp)
+            ++xp;
+            if ((f <<= 1) <= *xp)
               break;            /* enough codes to use up j bits */
             f -= *xp;           /* else deduct codes from patterns */
           }
@@ -720,7 +734,8 @@ static int huft_build(Uz_Globs *pG, const unsigned *b, unsigned n, unsigned s,
         *loc_of_prev_next_ptr = q + 1;             /* link to list for huft_free() */
         loc_of_prev_next_ptr = &(q->hmain.t);
         *loc_of_prev_next_ptr = NULL;
-        u[h] = ++q;             /* table starts after link */
+        ++q;
+        u[h] = q;             /* table starts after link */
 
         /* connect to last table, if there is one */
         if (h)
@@ -738,8 +753,9 @@ static int huft_build(Uz_Globs *pG, const unsigned *b, unsigned n, unsigned s,
       /* set up table entry in r */
       de_zeromem(&r, sizeof(struct hmain_struct));
       r.b = (uch)(k - w);
-      if (p >= v + n)
+      if (p >= v + n) {
         r.e = 99;               /* out of values--invalid code */
+      }
       else if (*p < s)
       {
         r.e = (uch)(*p < 256 ? 16 : 15);  /* 256 is end-of-block code */
@@ -753,17 +769,21 @@ static int huft_build(Uz_Globs *pG, const unsigned *b, unsigned n, unsigned s,
 
       /* fill code-like entries with r */
       f = 1 << (k - w);
-      for (j = i >> w; j < z; j += f)
+      for (j = i >> w; j < z; j += f) {
         q[j].hmain = r;
+      }
 
       /* backwards increment the k-bit code i */
-      for (j = 1 << (k - 1); i & j; j >>= 1)
+      for (j = 1 << (k - 1); i & j; j >>= 1) {
         i ^= j;
+      }
       i ^= j;
 
       /* backup over finished tables */
-      while ((i & ((1 << w) - 1)) != x[h])
-        w -= l[--h];            /* don't need to update q */
+      while ((i & ((1 << w) - 1)) != x[h]) {
+        --h;
+        w -= l[h];            /* don't need to update q */
+      }
     }
   }
 
@@ -772,9 +792,12 @@ static int huft_build(Uz_Globs *pG, const unsigned *b, unsigned n, unsigned s,
 
   /* Return true (1) if we were given an incomplete table */
   if(y != 0 && g != 1)
-    return IZI_ERR1;
+    retval = IZI_ERR1;
   else
-    return IZI_OK;
+    retval = IZI_OK;
+
+done:
+  return retval;
 }
 
 /* Free the malloc'ed tables built by huft_build(), which makes a linked
