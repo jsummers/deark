@@ -183,29 +183,29 @@ static const ush mask_bits[] = {
  */
 
 /* Tables for length and distance */
-static const ush cplen2[] =
+static const ush cplen2[64] =
 	{2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17,
 	18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34,
 	35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51,
 	52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65};
-static const ush cplen3[] =
+static const ush cplen3[64] =
 	{3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18,
 	19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35,
 	36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52,
 	53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66};
-static const ush extra[] =
+static const ush extra[64] =
 	{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 	8};
-static const ush cpdist4[] =
+static const ush cpdist4[64] =
 	{1, 65, 129, 193, 257, 321, 385, 449, 513, 577, 641, 705,
 	769, 833, 897, 961, 1025, 1089, 1153, 1217, 1281, 1345, 1409, 1473,
 	1537, 1601, 1665, 1729, 1793, 1857, 1921, 1985, 2049, 2113, 2177,
 	2241, 2305, 2369, 2433, 2497, 2561, 2625, 2689, 2753, 2817, 2881,
 	2945, 3009, 3073, 3137, 3201, 3265, 3329, 3393, 3457, 3521, 3585,
 	3649, 3713, 3777, 3841, 3905, 3969, 4033};
-static const ush cpdist8[] =
+static const ush cpdist8[64] =
 	{1, 129, 257, 385, 513, 641, 769, 897, 1025, 1153, 1281,
 	1409, 1537, 1665, 1793, 1921, 2049, 2177, 2305, 2433, 2561, 2689,
 	2817, 2945, 3073, 3201, 3329, 3457, 3585, 3713, 3841, 3969, 4097,
@@ -228,6 +228,64 @@ static const ush cpdist8[] =
 
 #define NEEDBITS(n) do {while(k<(n)){b|=((ulg)NEXTBYTE)<<k;k+=8;}} while(0)
 #define DUMPBITS(n) do {b>>=(n);k-=(n);} while(0)
+
+static void izi_fatal(void)
+{
+	de_err(NULL, "zip/implode internal error");
+	de_fatalerror(NULL);
+}
+
+static ush get_ush_arr(const ush *arr, unsigned int arr_len,
+	unsigned int idx)
+{
+	if(idx >= arr_len) {
+		izi_fatal();
+		return 0;
+	}
+	return arr[idx];
+}
+
+static unsigned int get_u_arr(const unsigned int *arr, unsigned int arr_len,
+	unsigned int idx)
+{
+	if(idx >= arr_len) {
+		izi_fatal();
+		return 0;
+	}
+	return arr[idx];
+}
+
+static unsigned int set_u_arr(unsigned int *arr, unsigned int arr_len,
+	unsigned int idx, unsigned int val)
+{
+	if(idx >= arr_len) {
+		izi_fatal();
+		return 0;
+	}
+	arr[idx] = val;
+	return val;
+}
+
+static int get_i_arr(const int *arr, unsigned int arr_len,
+	unsigned int idx)
+{
+	if(idx >= arr_len) {
+		izi_fatal();
+		return 0;
+	}
+	return arr[idx];
+}
+
+static int set_i_arr(int *arr, unsigned int arr_len,
+	unsigned int idx, int val)
+{
+	if(idx >= arr_len) {
+		izi_fatal();
+		return 0;
+	}
+	arr[idx] = val;
+	return val;
+}
 
 /* Get the bit lengths for a code representation from the compressed
    stream.  If get_tree() returns 4, then there is an error in the data.
@@ -636,23 +694,24 @@ static int huft_build(Uz_Globs *pG, const unsigned *b, unsigned n, unsigned s,
 
 	/* Adjust last length count to fill out codes, if needed */
 	for (y = 1 << j; j < i; j++, y <<= 1) {
-		y -= c[j];
+		y -= get_u_arr(c, BMAX+1, j);
 		if (y < 0)
 			return IZI_ERR2;                 /* bad input: more codes than bits */
-		}
-		y -= c[i];
-		if (y < 0)
-			return IZI_ERR2;
-		c[i] += y;
+	}
+	y -= get_u_arr(c, BMAX+1, i);
+	if (y < 0)
+		return IZI_ERR2;
+	set_u_arr(c, BMAX+1, i, get_u_arr(c, BMAX+1, i) + y);
 
 	/* Generate starting offsets into the value table for each length */
-	x[1] = j = 0;
+	j = 0;
+	x[1] = 0;
 	c_idx = 1;
 	x_idx = 2;
 	while (--i) {                 /* note that i == g from above */
-		j += c[c_idx];
+		j += get_u_arr(c, BMAX+1, c_idx);
 		c_idx++;
-		x[x_idx] = j;
+		set_u_arr(x, BMAX+1, x_idx, j);
 		x_idx++;
 	}
 
@@ -661,11 +720,11 @@ static int huft_build(Uz_Globs *pG, const unsigned *b, unsigned n, unsigned s,
 	for(i=0; i<n; i++) {
 		j = b[i];
 		if (j != 0) {
-			v[x[j]] = i;
-			x[j]++;
+			set_u_arr(v, N_MAX, get_u_arr(x, BMAX+1, j), i);
+			set_u_arr(x, BMAX+1, j, get_u_arr(x, BMAX+1, j) + 1);
 		}
 	}
-	n = x[g];                     /* set n to length of v */
+	n = get_u_arr(x, BMAX+1, g);                     /* set n to length of v */
 
 	/* Generate the Huffman codes and for each, make the table entries */
 	i = 0;                        /* first Huffman code is zero */
@@ -680,12 +739,12 @@ static int huft_build(Uz_Globs *pG, const unsigned *b, unsigned n, unsigned s,
 
 	/* go through the bit lengths (k already is bits in shortest code) */
 	for (; k <= g; k++) {
-		a = c[k];
+		a = get_u_arr(c, BMAX+1, k);
 		while (a--) {
 			/* here i is the Huffman code of length k bits for value *p */
 			/* make tables up to required level */
-			while (k > w + lx[1+ h]) {
-				w += lx[1+ h];            /* add bits already decoded */
+			while (k > w + get_i_arr(lx, BMAX+1, 1+ h)) {
+				w += get_i_arr(lx, BMAX+1, 1+ h);            /* add bits already decoded */
 				h++;
 
 				/* compute minimum size table less than or equal to *m bits */
@@ -701,15 +760,15 @@ static int huft_build(Uz_Globs *pG, const unsigned *b, unsigned n, unsigned s,
 					while (++j < z) {     /* try smaller tables up to z bits */
 						c_idx++;
 						f <<= 1;
-						if (f <= c[c_idx])
+						if (f <= get_u_arr(c, BMAX+1, c_idx))
 							break;            /* enough codes to use up j bits */
-						f -= c[c_idx];        /* else deduct codes from patterns */
+						f -= get_u_arr(c, BMAX+1, c_idx);        /* else deduct codes from patterns */
 					}
 				}
 				if ((unsigned)w + j > el && (unsigned)w < el)
 					j = el - w;           /* make EOB code end at table */
 				z = 1 << j;             /* table entries for j-bit table */
-				lx[1+ h] = j;               /* set table size in stack */
+				set_i_arr(lx, BMAX+1, 1+ h, j);               /* set table size in stack */
 
 				/* allocate and link in new table */
 				q = de_malloc(pG->c, (z + 1)*sizeof(struct huft));
@@ -720,16 +779,18 @@ static int huft_build(Uz_Globs *pG, const unsigned *b, unsigned n, unsigned s,
 				loc_of_prev_next_ptr = &(q->hmain.t);
 				*loc_of_prev_next_ptr = NULL;
 				++q;
+				if(h<0 || h>=BMAX) goto done;
 				u[h] = q;             /* table starts after link */
 
 				/* connect to last table, if there is one */
 				if (h) {
 					de_zeromem(&r, sizeof(struct hmain_struct));
-					x[h] = i;             /* save pattern for backing up */
-					r.b = (uch)lx[1+ h-1];    /* bits to dump before this table */
+					set_u_arr(x, BMAX+1, h, i);             /* save pattern for backing up */
+					r.b = (uch)get_i_arr(lx, BMAX+1, 1+ h-1);    /* bits to dump before this table */
 					r.e = (uch)(16 + j);  /* bits in this table */
 					r.t = q;            /* pointer to this table */
-					j = (i & ((1 << w) - 1)) >> (w - lx[1+ h-1]);
+					j = (i & ((1 << w) - 1)) >> (w - get_i_arr(lx, BMAX+1, 1+ h-1));
+					if((h-1 < 0) || (h-1 >= BMAX)) goto done;
 					u[h-1][j].hmain = r;        /* connect to last table */
 				}
 			}
@@ -740,14 +801,14 @@ static int huft_build(Uz_Globs *pG, const unsigned *b, unsigned n, unsigned s,
 			if (v_idx >= n) {
 				r.e = 99;               /* out of values--invalid code */
 			}
-			else if (v[v_idx] < s) {
-				r.e = (uch)(v[v_idx] < 256 ? 16 : 15);  /* 256 is end-of-block code */
-				r.n = (ush)v[v_idx];                /* simple code is just the value */
+			else if (get_u_arr(v, N_MAX, v_idx) < s) {
+				r.e = (uch)(get_u_arr(v, N_MAX, v_idx) < 256 ? 16 : 15);  /* 256 is end-of-block code */
+				r.n = (ush)get_u_arr(v, N_MAX, v_idx);                /* simple code is just the value */
 				v_idx++;
 			}
 			else {
-				r.e = (uch)e[v[v_idx] - s];   /* non-simple--look up in lists */
-				r.n = d[v[v_idx] - s];
+				r.e = (uch)get_ush_arr(e, 64, get_u_arr(v, N_MAX, v_idx) - s);   /* non-simple--look up in lists */
+				r.n = get_ush_arr(d, 64, get_u_arr(v, N_MAX, v_idx) - s);
 				v_idx++;
 			}
 
@@ -764,15 +825,15 @@ static int huft_build(Uz_Globs *pG, const unsigned *b, unsigned n, unsigned s,
 			i ^= j;
 
 			/* backup over finished tables */
-			while ((i & ((1 << w) - 1)) != x[h]) {
+			while ((i & ((1 << w) - 1)) != get_u_arr(x, BMAX+1, h)) {
 				--h;
-				w -= lx[1+ h];            /* don't need to update q */
+				w -= get_i_arr(lx, BMAX+1, 1+ h);            /* don't need to update q */
 			}
 		}
 	}
 
 	/* return actual size of base table */
-	tbl->b = lx[1+ 0];
+	tbl->b = get_i_arr(lx, BMAX+1, 1+ 0);
 
 	/* Return true (1) if we were given an incomplete table */
 	if(y != 0 && g != 1)
