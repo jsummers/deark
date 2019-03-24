@@ -647,12 +647,9 @@ Deark -- Information about supported formats
   - Some metadata is parsed, but the disk contents are not extracted or listed.
 
 * ZIP (module="zip")
-  - Limited support
+  - Supports "stored", "deflate", and "implode" compression.
   - Extract main ZIP file comment (use -a).
   - Extract comments for individual files (use -a).
-  Options
-   -opt zip:unsafe - Allow decompression code that hasn't yet been audited for
-     security. This adds support for compression type 6 ("implode").
 
 * zlib (module="zlib")
   - Raw zlib files are uncompressed.

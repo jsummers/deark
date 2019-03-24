@@ -101,6 +101,7 @@ static int do_decompress_implode(deark *c, lctx *d, struct member_data *md,
 	pG->inf_curpos = inf_pos;
 	pG->inf_endpos = inf_pos + inf_size;
 	pG->outf = outf;
+	pG->dumptrees = de_get_ext_option_bool(c, "zip:dumptrees", 0);
 
 	explode(pG);
 	// TODO: How is failure reported?
@@ -1500,10 +1501,7 @@ static void de_run_zip(deark *c, de_module_params *mparams)
 	lctx *d = NULL;
 
 	d = de_malloc(c, sizeof(lctx));
-
-	if(de_get_ext_option_bool(c, "zip:unsafe", 0)) {
-		d->support_implode = 1;
-	}
+	d->support_implode = 1;
 
 	if(!de_fmtutil_find_zip_eocd(c, c->infile, &d->end_of_central_dir_pos)) {
 		de_err(c, "Not a ZIP file");

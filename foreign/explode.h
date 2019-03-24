@@ -102,12 +102,19 @@ static int izi_readbyte(Uz_Globs *pG)
 
 //========================= consts.h begin =========================
 
-/* And'ing with mask_bits[n] masks the lower n bits */
-static const ush mask_bits[] = {
-	0x0000,
-	0x0001, 0x0003, 0x0007, 0x000f, 0x001f, 0x003f, 0x007f, 0x00ff,
-	0x01ff, 0x03ff, 0x07ff, 0x0fff, 0x1fff, 0x3fff, 0x7fff, 0xffff
-};
+static ush izi_get_mask_bits(unsigned int n)
+{
+	/* And'ing with mask_bits[n] masks the lower n bits */
+	static const ush mask_bits[17] = {
+		0x0000,
+		0x0001, 0x0003, 0x0007, 0x000f, 0x001f, 0x003f, 0x007f, 0x00ff,
+		0x01ff, 0x03ff, 0x07ff, 0x0fff, 0x1fff, 0x3fff, 0x7fff, 0xffff
+	};
+
+	if(n>=17) return 0;
+	return mask_bits[n];
+}
+
 
 //========================= consts.h end =========================
 
@@ -341,9 +348,9 @@ static int explode_internal(Uz_Globs *pG, unsigned window_k,
 	/* explode the coded data */
 	b = k = w = 0;                /* initialize bit buffer, window */
 	u = 1;                        /* buffer unflushed */
-	mb = mask_bits[tbls->b.b];           /* precompute masks for speed */
-	ml = mask_bits[tbls->l.b];
-	md = mask_bits[tbls->d.b];
+	mb = izi_get_mask_bits(tbls->b.b);           /* precompute masks for speed */
+	ml = izi_get_mask_bits(tbls->l.b);
+	md = izi_get_mask_bits(tbls->d.b);
 	s = pG->ucsize;
 	while (s > 0) {               /* do until ucsize bytes uncompressed */
 		NEEDBITS(1);
@@ -362,7 +369,8 @@ static int explode_internal(Uz_Globs *pG, unsigned window_k,
 						DUMPBITS(t->hmain.b);
 						e -= 16;
 						NEEDBITS(e);
-						t = huft_plus_offset(t->hmain.t, ((~(unsigned)b) & mask_bits[e]));
+						t = huft_plus_offset(t->hmain.t,
+							((~(unsigned)b) & izi_get_mask_bits(e)));
 						if(!t) goto done;
 						e = t->hmain.e;
 					} while (e > 16);
@@ -407,7 +415,7 @@ static int explode_internal(Uz_Globs *pG, unsigned window_k,
 					DUMPBITS(t->hmain.b);
 					e -= 16;
 					NEEDBITS(e);
-					t = huft_plus_offset(t->hmain.t, ((~(unsigned)b) & mask_bits[e]));
+					t = huft_plus_offset(t->hmain.t, ((~(unsigned)b) & izi_get_mask_bits(e)));
 					if(!t) goto done;
 					e = t->hmain.e;
 				} while (e > 16);
@@ -425,7 +433,7 @@ static int explode_internal(Uz_Globs *pG, unsigned window_k,
 					DUMPBITS(t->hmain.b);
 					e -= 16;
 					NEEDBITS(e);
-					t = huft_plus_offset(t->hmain.t, ((~(unsigned)b) & mask_bits[e]));
+					t = huft_plus_offset(t->hmain.t, ((~(unsigned)b) & izi_get_mask_bits(e)));
 					if(!t) goto done;
 					e = t->hmain.e;
 				} while (e > 16);
@@ -446,18 +454,23 @@ static int explode_internal(Uz_Globs *pG, unsigned window_k,
 				if(e>n) { e = n; }
 				n -= e;
 				if (u && w <= d) {
+					if(w+e > wsize) goto done;
 					de_zeromem(&pG->Slide[w], e);
 					w += e;
 					d += e;
 				}
 				else {
 					if (w - d >= e) {     /* (this test assumes unsigned comparison) */
+						if(w+e > wsize) goto done;
+						if(d+e > wsize) goto done;
 						de_memcpy(&pG->Slide[w], &pG->Slide[d], e);
 						w += e;
 						d += e;
 					}
 					else {                 /* do it slow to avoid memcpy() overlap */
 						do {
+							if(w >= wsize) goto done;
+							if(d >= wsize) goto done;
 							pG->Slide[w++] = pG->Slide[d++];
 						} while (--e);
 					}
@@ -876,7 +889,6 @@ static void huft_free(Uz_Globs *pG, struct huft *t, const char *name)
 static Uz_Globs *globalsCtor(deark *c)
 {
 	Uz_Globs *pG = de_malloc(c, sizeof(Uz_Globs));
-	pG->dumptrees = de_get_ext_option_bool(c, "zip:dumptrees", 0);
 	return pG;
 }
 
