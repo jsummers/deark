@@ -407,6 +407,12 @@ static void do_code_m(deark *c, lctx *d)
 		else if(sgr_code==49) {
 			d->curr_bgcol = DEFAULT_BGCOL;
 		}
+		else if(sgr_code>=90 && sgr_code<=97) {
+			d->curr_fgcol = (u32)(8+(sgr_code-90));
+		}
+		else if(sgr_code>=100 && sgr_code<=107) {
+			d->curr_bgcol = (u32)(8+(sgr_code-100));
+		}
 		else {
 			if(d->num_warnings<ANSIART_MAX_WARNINGS) {
 				de_warn(c, "Unsupported SGR code %d", (int)sgr_code);
