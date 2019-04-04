@@ -223,7 +223,7 @@ static void de_run_zlib(deark *c, de_module_params *mparams)
 	dbuf *f = NULL;
 
 	f = dbuf_create_output_file(c, "unc", NULL, 0);
-	de_uncompress_zlib(c->infile, 0, c->infile->len, f);
+	de_decompress_deflate(c->infile, 0, c->infile->len, f, 0, NULL, DE_DEFLATEFLAG_ISZLIB);
 	dbuf_close(f);
 }
 

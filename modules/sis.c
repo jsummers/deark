@@ -217,7 +217,16 @@ static void do_extract_file(deark *c, lctx *d, struct file_rec *fr,
 
 	outf = dbuf_create_output_file(c, NULL, fi, 0);
 	if(d->files_are_compressed) {
-		de_uncompress_zlib(c->infile, fr->ffi[fork_num].ptr, fr->ffi[fork_num].len, outf);
+		if(!de_decompress_deflate(c->infile, fr->ffi[fork_num].ptr, fr->ffi[fork_num].len,
+			outf, fr->ffi[fork_num].orig_len, NULL,
+			DE_DEFLATEFLAG_ISZLIB|DE_DEFLATEFLAG_USEMAXUNCMPRSIZE))
+		{
+			goto done;
+		}
+		if(outf->len != fr->ffi[fork_num].orig_len) {
+			de_warn(c, "expected %"I64_FMT" bytes, got %"I64_FMT,
+				fr->ffi[fork_num].orig_len, outf->len);
+		}
 	}
 	else {
 		dbuf_copy(c->infile, fr->ffi[fork_num].ptr, fr->ffi[fork_num].len, outf);

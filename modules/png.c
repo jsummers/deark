@@ -341,7 +341,9 @@ static int do_text_field(deark *c, lctx *d,
 	*bytes_consumed = bytes_avail;
 
 	tmpdbuf = dbuf_create_membuf(c, 0, 0);
-	if(!de_uncompress_zlib(c->infile, pos, bytes_avail, tmpdbuf)) {
+	if(!de_decompress_deflate(c->infile, pos, bytes_avail, tmpdbuf, 0, NULL,
+		d->is_CgBI ? 0 : DE_DEFLATEFLAG_ISZLIB))
+	{
 		goto done;
 	}
 

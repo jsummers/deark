@@ -486,7 +486,6 @@ void de_tar_close_file(deark *c);
 
 ///////////////////////////////////////////
 
-int de_uncompress_zlib(dbuf *inf, i64 inputstart, i64 inputsize, dbuf *outf); // deprecated
 #define DE_DEFLATEFLAG_ISZLIB 0x1
 #define DE_DEFLATEFLAG_USEMAXUNCMPRSIZE 0x2
 int de_decompress_deflate(dbuf *inf, i64 inputstart, i64 inputsize, dbuf *outf,

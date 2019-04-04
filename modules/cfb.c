@@ -855,7 +855,10 @@ static int do_OfficeArtStream_record(deark *c, lctx *d, struct officeartctx *oac
 		dbuf *raw_stream;
 		raw_stream = dbuf_create_membuf(c, 0, 0);
 		copy_any_stream_to_dbuf(c, d, dei, pos1+pos, reclen-extra_bytes, raw_stream);
-		de_uncompress_zlib(raw_stream, 0, raw_stream->len, outf);
+		de_decompress_deflate(raw_stream, 0, raw_stream->len, outf, 0, NULL,
+			DE_DEFLATEFLAG_ISZLIB);
+		de_dbg(c, "decompressed %"I64_FMT" to %"I64_FMT" bytes", raw_stream->len,
+			outf->len);
 		dbuf_close(raw_stream);
 	}
 	else {

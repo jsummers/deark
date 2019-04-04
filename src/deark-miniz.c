@@ -431,13 +431,6 @@ done:
 	return retval;
 }
 
-int de_uncompress_zlib(dbuf *inf, i64 inputstart, i64 inputsize, dbuf *outf)
-{
-	i64 bc2 = 0;
-	return de_inflate_internal(inf, inputstart, inputsize, outf, 0, &bc2,
-		DE_DEFLATEFLAG_ISZLIB);
-}
-
 int de_decompress_deflate(dbuf *inf, i64 inputstart, i64 inputsize, dbuf *outf,
 	i64 maxuncmprsize, i64 *bytes_consumed, unsigned int flags)
 {
