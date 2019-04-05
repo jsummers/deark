@@ -34,6 +34,7 @@ struct fork_data {
 };
 
 struct member_data {
+	u8 is_folder;
 	unsigned int finder_flags;
 	de_ucstring *fname;
 	de_ucstring *full_fname;
@@ -305,10 +306,7 @@ static void do_decompress_fork(deark *c, lctx *d, struct member_data *md,
 	}
 	de_finfo_set_name_from_ucstring(c, fi, final_fname, DE_SNFLAG_FULLPATH);
 	fi->original_filename_flag = 1;
-
-	if(md->mod_time.is_valid) {
-		fi->mod_time = md->mod_time;
-	}
+	fi->mod_time = md->mod_time;
 
 	outf = dbuf_create_output_file(c, NULL, fi, 0x0);
 
@@ -335,6 +333,24 @@ done:
 	if(final_fname) ucstring_destroy(final_fname);
 }
 
+static void do_extract_folder(deark *c, lctx *d, struct member_data *md)
+{
+	dbuf *outf = NULL;
+	de_finfo *fi = NULL;
+
+	if(!md->is_folder) goto done;
+	fi = de_finfo_create(c);
+	fi->is_directory = 1;
+	de_finfo_set_name_from_ucstring(c, fi, md->full_fname, DE_SNFLAG_FULLPATH);
+	fi->original_filename_flag = 1;
+	fi->mod_time = md->mod_time;
+	outf = dbuf_create_output_file(c, NULL, fi, 0x0);
+done:
+	dbuf_close(outf);
+	de_finfo_destroy(c, fi);
+}
+
+
 // Returns:
 //  0 if the member could not be parsed sufficiently to determine its size
 //  1 normally
@@ -358,22 +374,18 @@ static int do_member(deark *c, lctx *d, i64 pos1, i64 *bytes_consumed)
 	*bytes_consumed = 112;
 
 	if(md->rfork.cmpr_meth_etc==32 || md->dfork.cmpr_meth_etc==32) {
-		// folder start
-		d->subdir_level++;
-		de_strarray_push(d->curpath, md->fname);
-		retval = 1;
-		goto done;
+		md->is_folder = 1;
+		md->rfork.cmpr_len = 0;
+		md->dfork.cmpr_len = 0;
 	}
-
-	if(md->rfork.cmpr_meth_etc==33 || md->dfork.cmpr_meth_etc==33) {
+	else if(md->rfork.cmpr_meth_etc==33 || md->dfork.cmpr_meth_etc==33) {
 		// end of folder marker
 		if(d->subdir_level>0) d->subdir_level--;
 		de_strarray_pop(d->curpath);
 		retval = 1;
 		goto done;
 	}
-
-	if(md->rfork.cmpr_meth_etc>33 || md->dfork.cmpr_meth_etc>33) {
+	else if(md->rfork.cmpr_meth_etc>33 || md->dfork.cmpr_meth_etc>33) {
 		de_err(c, "Unknown member type. Cannot continue.");
 		goto done;
 	}
@@ -388,8 +400,15 @@ static int do_member(deark *c, lctx *d, i64 pos1, i64 *bytes_consumed)
 	ucstring_append_ucstring(md->full_fname, md->fname);
 	de_dbg(c, "full name: \"%s\"", ucstring_getpsz_d(md->full_fname));
 
+	if(md->is_folder) {
+		d->subdir_level++;
+		de_strarray_push(d->curpath, md->fname);
+		do_extract_folder(c, d, md);
+		goto done;
+	}
+
 	// resource fork
-	md->rfork.cmpr_pos = pos;;
+	md->rfork.cmpr_pos = pos;
 	if(md->rfork.cmpr_len>0) {
 		de_dbg(c, "rsrc fork data at %"I64_FMT", len=%"I64_FMT,
 			pos, md->rfork.cmpr_len);
