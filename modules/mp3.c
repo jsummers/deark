@@ -57,6 +57,36 @@ static void do_ape_text_item(deark *c, struct ape_tag_header_footer *ah,
 	ucstring_destroy(s);
 }
 
+static int do_ape_binary_item(deark *c, struct ape_tag_header_footer *ah,
+   i64 pos, i64 len, struct de_stringreaderdata *key)
+{
+	struct de_stringreaderdata *name = NULL;
+	i64 nbytes_to_scan;
+	i64 img_pos, img_len;
+	int retval = 0;
+
+	if(de_strncasecmp(key->sz, "cover art", 9)) {
+		goto done;
+	}
+
+	nbytes_to_scan = len;
+	if(nbytes_to_scan>256) nbytes_to_scan=256;
+	name = dbuf_read_string(c->infile, pos, nbytes_to_scan, nbytes_to_scan,
+		DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_ASCII);
+	if(!name->found_nul) goto done;
+
+	img_pos = pos + name->bytes_consumed;
+	img_len = len - name->bytes_consumed;
+	if(len < 16) goto done;
+	dbuf_create_file_from_slice(c->infile, img_pos, img_len, name->sz,
+		NULL, DE_CREATEFLAG_IS_AUX);
+	retval = 1;
+
+done:
+	de_destroy_stringreaderdata(c, name);
+	return retval;
+}
+
 static int do_ape_item(deark *c, struct ape_tag_header_footer *ah,
    i64 pos1, i64 bytes_avail, i64 *bytes_consumed)
 {
@@ -65,6 +95,7 @@ static int do_ape_item(deark *c, struct ape_tag_header_footer *ah,
 	u32 flags;
 	unsigned int item_type;
 	struct de_stringreaderdata *key = NULL;
+	int handled = 0;
 	int retval = 0;
 
 	de_dbg(c, "APE item at %"I64_FMT, pos1);
@@ -96,8 +127,13 @@ static int do_ape_item(deark *c, struct ape_tag_header_footer *ah,
 	de_dbg_indent(c, 1);
 	if(item_type==0 || item_type==2) {
 		do_ape_text_item(c, ah, pos, item_value_len);
+		handled = 1;
 	}
-	else if(c->debug_level>=2) {
+	else if(item_type==1) { // binary
+		handled = do_ape_binary_item(c, ah, pos, item_value_len, key);
+	}
+
+	if(!handled && c->debug_level>=2) {
 		de_dbg_hexdump(c, c->infile, pos, item_value_len, 256, NULL, 0x1);
 	}
 	de_dbg_indent(c, -1);
