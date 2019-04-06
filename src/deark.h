@@ -78,6 +78,7 @@ int de_atoi(const char *string);
 i64 de_strtoll(const char *string, char **endptr, int base);
 i64 de_atoi64(const char *string);
 int de_strcasecmp(const char *a, const char *b);
+int de_strncasecmp(const char *a, const char *b, size_t n);
 
 // Used by de_set_extract_policy()
 #define DE_EXTRACTPOLICY_DEFAULT  0

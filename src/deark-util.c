@@ -40,6 +40,40 @@ void de_strlcpy(char *dst, const char *src, size_t dstlen)
 	dst[n]='\0';
 }
 
+// Compare two ASCII strings, as if all letters were lowercase.
+// (Library functions like strcasecmp or _stricmp usually exist, but we roll
+// our own for portability, and consistent behavior.)
+static int de_strcasecmp_internal(const char *a, const char *b,
+	int has_n, size_t n)
+{
+	size_t k = 0;
+
+	while(1) {
+		unsigned char a1, b1;
+
+		if(has_n && (k>=n)) break;
+		a1 = (unsigned char)a[k];
+		b1 = (unsigned char)b[k];
+		if(a1==0 && b1==0) break;
+		if(a1>='A' && a1<='Z') a1 += 32;
+		if(b1>='A' && b1<='Z') b1 += 32;
+		if(a1<b1) return -1;
+		if(a1>b1) return 1;
+		k++;
+	}
+	return 0;
+}
+
+int de_strcasecmp(const char *a, const char *b)
+{
+	return de_strcasecmp_internal(a, b, 0, 0);
+}
+
+int de_strncasecmp(const char *a, const char *b, size_t n)
+{
+	return de_strcasecmp_internal(a, b, 1, n);
+}
+
 // A wrapper for strchr().
 char *de_strchr(const char *s, int c)
 {

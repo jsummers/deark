@@ -22,11 +22,6 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 
-int de_strcasecmp(const char *a, const char *b)
-{
-	return _stricmp(a, b);
-}
-
 void de_vsnprintf(char *buf, size_t buflen, const char *fmt, va_list ap)
 {
 	_vsnprintf_s(buf, buflen, _TRUNCATE, fmt, ap);

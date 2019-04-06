@@ -23,11 +23,6 @@
 #include <utime.h>
 #include <errno.h>
 
-int de_strcasecmp(const char *a, const char *b)
-{
-	return strcasecmp(a, b);
-}
-
 void de_vsnprintf(char *buf, size_t buflen, const char *fmt, va_list ap)
 {
 	vsnprintf(buf,buflen,fmt,ap);

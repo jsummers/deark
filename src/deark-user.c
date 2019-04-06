@@ -83,7 +83,7 @@ static int module_compare_fn(const void *a, const void *b)
 	m1 = (struct sort_data_struct *)a;
 	m2 = (struct sort_data_struct *)b;
 	c = m1->c;
-	return de_strcmp(c->module_info[m1->module_index].id,
+	return de_strcasecmp(c->module_info[m1->module_index].id,
 		c->module_info[m2->module_index].id);
 }
 
