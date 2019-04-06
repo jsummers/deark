@@ -49,6 +49,8 @@ DE_DECLARE_MODULE(de_module_riff);
 typedef struct localctx_struct {
 	int is_cdr;
 	u32 curr_avi_stream_type;
+	u8 in_movi;
+	int in_movi_level;
 } lctx;
 
 static void do_extract_raw(deark *c, lctx *d, struct de_iffctx *ictx, i64 pos, i64 len, const char *ext,
@@ -359,6 +361,27 @@ static int my_on_std_container_start_fn(deark *c, struct de_iffctx *ictx)
 		return 0;
 	}
 
+	if(ictx->main_contentstype4cc.id==CODE_AVI &&
+		ictx->curr_container_contentstype4cc.id==CODE_movi && !d->in_movi)
+	{
+		// Keep track of when we are inside a 'movi' container.
+		d->in_movi = 1;
+		d->in_movi_level = ictx->level;
+	}
+
+	return 1;
+}
+
+static int my_on_container_end_fn(deark *c, struct de_iffctx *ictx)
+{
+	lctx *d = (lctx*)ictx->userdata;
+
+	if(ictx->curr_container_contentstype4cc.id==CODE_movi &&
+		d->in_movi && ictx->level==d->in_movi_level)
+	{
+		d->in_movi = 0;
+	}
+
 	return 1;
 }
 
@@ -414,6 +437,9 @@ static int my_riff_chunk_handler(deark *c, struct de_iffctx *ictx)
 
 	case CHUNK_DISP:
 		do_DISP(c, d, ictx, dpos, dlen);
+		break;
+
+	case CHUNK_JUNK:
 		break;
 
 	case CHUNK_ICCP: // Used by WebP
@@ -478,6 +504,14 @@ static int my_riff_chunk_handler(deark *c, struct de_iffctx *ictx)
 		if(d->is_cdr && ictx->curr_container_contentstype4cc.id==CODE_bmpt) {
 			do_cdr_bmp(c, d, ictx, dpos, dlen);
 		}
+		break;
+
+	default:
+		if(c->debug_level>=2 &&
+			ictx->main_contentstype4cc.id==CODE_AVI && !d->in_movi)
+		{
+			de_dbg_hexdump(c, ictx->f, dpos, dlen, 256, NULL, 0x1);
+		}
 	}
 
 chunk_handled:
@@ -497,6 +531,7 @@ static void de_run_riff(deark *c, de_module_params *mparams)
 	ictx->preprocess_chunk_fn = my_preprocess_riff_chunk_fn;
 	ictx->handle_chunk_fn = my_riff_chunk_handler;
 	ictx->on_std_container_start_fn = my_on_std_container_start_fn;
+	ictx->on_container_end_fn = my_on_container_end_fn;
 	ictx->f = c->infile;
 
 	de_read(buf, 0, 4);
