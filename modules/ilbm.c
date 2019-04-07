@@ -12,6 +12,7 @@ DE_DECLARE_MODULE(de_module_anim);
 
 #define CODE_ABIT  0x41424954
 #define CODE_ANHD  0x414e4844U
+#define CODE_BEAM  0x4245414dU
 #define CODE_BMHD  0x424d4844
 #define CODE_BODY  0x424f4459
 #define CODE_CAMG  0x43414d47
@@ -63,6 +64,8 @@ typedef struct localctx_struct {
 	u8 in_vdat_image;
 	u8 is_vdat;
 	u8 is_sham, is_pchg, is_ctbl;
+	u8 is_beam;
+	u8 is_rast;
 	u8 uses_color_cycling;
 	u8 errflag; // Set if image(s) format is not supported.
 	i64 transparent_color;
@@ -416,10 +419,15 @@ static int do_image_1to8(deark *c, lctx *d, struct img_info *ii,
 		}
 	}
 
+	if(d->planes==6 && d->pal_ncolors==32 && !d->ehb_flag) {
+		de_warn(c, "Assuming this is an EHB image");
+		d->ehb_flag = 1;
+	}
+
 	if(d->opt_fixpal)
 		fixup_palette(c, d);
 
-	if(d->ehb_flag && d->planes==6 && d->pal_ncolors==32) {
+	if(d->ehb_flag && d->planes==6) {
 		make_ehb_palette(c, d);
 	}
 
@@ -606,10 +614,14 @@ static void print_summary(deark *c, lctx *d)
 		ucstring_append_sz(summary, " PCHG", DE_ENCODING_UTF8);
 	else if(d->is_ctbl)
 		ucstring_append_sz(summary, " CBTL", DE_ENCODING_UTF8);
+	else if(d->is_beam)
+		ucstring_append_sz(summary, " BEAM", DE_ENCODING_LATIN1);
 	else if(d->ham_flag)
 		ucstring_append_sz(summary, " HAM", DE_ENCODING_UTF8);
 	else if(d->ehb_flag)
 		ucstring_append_sz(summary, " EHB", DE_ENCODING_UTF8);
+	else if(d->is_rast)
+		ucstring_append_sz(summary, " RAST", DE_ENCODING_LATIN1);
 
 	ucstring_printf(summary, DE_ENCODING_UTF8, " cmpr=%d", (int)d->compression);
 	ucstring_printf(summary, DE_ENCODING_UTF8, " planes=%d", (int)d->planes);
@@ -659,6 +671,12 @@ static int do_image(deark *c, lctx *d, struct img_info *ii,
 	}
 
 	if(!de_good_image_dimensions(c, ii->width, ii->height)) goto done;
+
+	if(d->formtype==CODE_ACBM && d->compression!=0) {
+		// TODO: Can we safely assume ACBM is never compressed?
+		de_warn(c, "ACBM images are not usually compressed. Image might not "
+			"be decoded correctly.");
+	}
 
 	if(d->in_vdat_image) {
 		// TODO: Consider using the tinystuff decoder for VDAT.
@@ -840,6 +858,7 @@ static void do_multipalette(deark *c, lctx *d, u32 chunktype)
 	if(chunktype==CODE_SHAM) { d->is_sham = 1; }
 	else if(chunktype==CODE_PCHG) { d->is_pchg = 1; }
 	else if(chunktype==CODE_CTBL) { d->is_ctbl = 1; }
+	else if(chunktype==CODE_BEAM) { d->is_beam = 1; }
 
 	de_err(c, "Multi-palette ILBM images are not supported.");
 	d->errflag = 1;
@@ -868,6 +887,14 @@ static int my_preprocess_ilbm_chunk_fn(deark *c, struct de_iffctx *ictx)
 		de_fmtutil_default_iff_chunk_identify(c, ictx);
 	}
 	return 1;
+}
+
+static void look_for_RAST(deark *c, lctx *d, struct de_iffctx *ictx, i64 pos)
+{
+	if(d->is_rast) return;
+	if(!dbuf_memcmp(c->infile, pos, "RAST", 4)) {
+		d->is_rast = 1;
+	}
 }
 
 static int my_ilbm_chunk_handler(deark *c, struct de_iffctx *ictx)
@@ -908,8 +935,17 @@ static int my_ilbm_chunk_handler(deark *c, struct de_iffctx *ictx)
 		// (apparently included in the file size given by the FORM chunk).
 		// To avoid it, don't read past the BODY chunk.
 
-		if(!is_vdat)
+		if(!is_vdat) {
+			look_for_RAST(c, d, ictx, ictx->chunkctx->dpos+ictx->chunkctx->dlen);
+			if(ictx->chunkctx->dlen%2)
+				look_for_RAST(c, d, ictx, ictx->chunkctx->dpos+ictx->chunkctx->dlen+1);
+			if(d->is_rast) {
+				de_warn(c, "Possible RAST data found, which is not supported. "
+					"Image might not be decoded correctly.");
+			}
+
 			quitflag = 1;
+		}
 		break;
 
 	case CODE_VDAT:
@@ -977,6 +1013,7 @@ static int my_ilbm_chunk_handler(deark *c, struct de_iffctx *ictx)
 	case CODE_SHAM:
 	case CODE_PCHG:
 	case CODE_CTBL:
+	case CODE_BEAM:
 		do_multipalette(c, d, ictx->chunkctx->chunk4cc.id);
 		goto done;
 
