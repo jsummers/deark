@@ -1406,12 +1406,41 @@ struct cdraw_params {
 	const char *ext;
 };
 
+// If the volume has an ISO 9660 "volume identifier", try to read it to use as
+// part of the output filename.
+// This is quick and dirty, and somewhat duplicates code from the iso9660 module.
+static void cdraw_set_name_from_vol_id(deark *c, struct cdraw_params *cdrp, de_finfo *fi)
+{
+	de_ucstring *vol_id = NULL;
+	i64 pos;
+
+	pos = 16*cdrp->sector_total_len + cdrp->sector_data_offset;
+	if(dbuf_memcmp(c->infile, pos, "\x01" "CD001", 6)) goto done;
+
+	vol_id = ucstring_create(c);
+	dbuf_read_to_ucstring(c->infile, pos+40, 32, vol_id, DE_CONVFLAG_STOP_AT_NUL,
+		DE_ENCODING_ASCII);
+	ucstring_strip_trailing_spaces(vol_id);
+
+	if(ucstring_isnonempty(vol_id)) {
+		de_dbg(c, "iso9660 volume id: \"%s\"", ucstring_getpsz_d(vol_id));
+		de_finfo_set_name_from_ucstring(c, fi, vol_id, 0);
+	}
+
+done:
+	ucstring_destroy(vol_id);
+}
+
 static void do_cdraw_convert(deark *c, struct cdraw_params *cdrp)
 {
 	i64 pos;
+	de_finfo *fi = NULL;
 	dbuf *outf = NULL;
 
-	outf = dbuf_create_output_file(c, cdrp->ext, NULL, 0x0);
+	fi = de_finfo_create(c);
+	cdraw_set_name_from_vol_id(c, cdrp, fi);
+
+	outf = dbuf_create_output_file(c, cdrp->ext, fi, 0x0);
 
 	pos = cdrp->sector_data_offset;
 	while(1) {
@@ -1421,6 +1450,7 @@ static void do_cdraw_convert(deark *c, struct cdraw_params *cdrp)
 	}
 
 	dbuf_close(outf);
+	de_finfo_destroy(c, fi);
 }
 
 static void cdraw_setdefaults(struct cdraw_params *cdrp)
