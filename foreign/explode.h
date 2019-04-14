@@ -69,9 +69,12 @@ typedef struct Globals {
 
 //========================= globals.h end =========================
 
+typedef ush (*izi_len_or_dist_getter)(unsigned int i);
+
 static void huft_free(Uz_Globs *pG, struct huft *t, const char *name);
 static int huft_build(Uz_Globs *pG, const unsigned *b, unsigned n,
-	unsigned s, const ush *d, const ush *e, struct izi_htable *tbl);
+	unsigned s, izi_len_or_dist_getter d_fn, izi_len_or_dist_getter e_fn,
+	struct izi_htable *tbl);
 
 #define NEXTBYTE  izi_readbyte(pG)
 
@@ -104,17 +107,9 @@ static int izi_readbyte(Uz_Globs *pG)
 
 static ush izi_get_mask_bits(unsigned int n)
 {
-	/* And'ing with mask_bits[n] masks the lower n bits */
-	static const ush mask_bits[17] = {
-		0x0000,
-		0x0001, 0x0003, 0x0007, 0x000f, 0x001f, 0x003f, 0x007f, 0x00ff,
-		0x01ff, 0x03ff, 0x07ff, 0x0fff, 0x1fff, 0x3fff, 0x7fff, 0xffff
-	};
-
 	if(n>=17) return 0;
-	return mask_bits[n];
+	return (ush)(0xffffU >> (16-n));
 }
-
 
 //========================= consts.h end =========================
 
@@ -189,36 +184,37 @@ static ush izi_get_mask_bits(unsigned int n)
    is actually a 32K area for use by inflate, which uses a 32K sliding window.
  */
 
-/* Tables for length and distance */
-static const ush cplen2[64] =
-	{2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17,
-	18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34,
-	35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51,
-	52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65};
-static const ush cplen3[64] =
-	{3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18,
-	19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35,
-	36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52,
-	53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66};
-static const ush extra[64] =
-	{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-	8};
-static const ush cpdist4[64] =
-	{1, 65, 129, 193, 257, 321, 385, 449, 513, 577, 641, 705,
-	769, 833, 897, 961, 1025, 1089, 1153, 1217, 1281, 1345, 1409, 1473,
-	1537, 1601, 1665, 1729, 1793, 1857, 1921, 1985, 2049, 2113, 2177,
-	2241, 2305, 2369, 2433, 2497, 2561, 2625, 2689, 2753, 2817, 2881,
-	2945, 3009, 3073, 3137, 3201, 3265, 3329, 3393, 3457, 3521, 3585,
-	3649, 3713, 3777, 3841, 3905, 3969, 4033};
-static const ush cpdist8[64] =
-	{1, 129, 257, 385, 513, 641, 769, 897, 1025, 1153, 1281,
-	1409, 1537, 1665, 1793, 1921, 2049, 2177, 2305, 2433, 2561, 2689,
-	2817, 2945, 3073, 3201, 3329, 3457, 3585, 3713, 3841, 3969, 4097,
-	4225, 4353, 4481, 4609, 4737, 4865, 4993, 5121, 5249, 5377, 5505,
-	5633, 5761, 5889, 6017, 6145, 6273, 6401, 6529, 6657, 6785, 6913,
-	7041, 7169, 7297, 7425, 7553, 7681, 7809, 7937, 8065};
+
+/* (virtual) Tables for length and distance */
+
+static ush izi_get_cplen2(unsigned int i)
+{
+	if(i>=64) return 0;
+	return i+2;
+}
+
+static ush izi_get_cplen3(unsigned int i)
+{
+	if(i>=64) return 0;
+	return i+3;
+}
+
+static ush izi_get_extra(unsigned int i)
+{
+	return (i==63) ? 8 : 0;
+}
+
+static ush izi_get_cpdist4(unsigned int i)
+{
+	if(i>=64) return 0;
+	return 1 + i*64;
+}
+
+static ush izi_get_cpdist8(unsigned int i)
+{
+	if(i>=64) return 0;
+	return 1 + i*128;
+}
 
 /* Macros for inflate() bit peeking and grabbing.
    The usage is:
@@ -240,16 +236,6 @@ static void izi_fatal(void)
 {
 	de_err(NULL, "zip/implode internal error");
 	de_fatalerror(NULL);
-}
-
-static ush get_ush_arr(const ush *arr, unsigned int arr_len,
-	unsigned int idx)
-{
-	if(idx >= arr_len) {
-		izi_fatal();
-		return 0;
-	}
-	return arr[idx];
 }
 
 static unsigned int get_u_arr(const unsigned int *arr, unsigned int arr_len,
@@ -522,17 +508,17 @@ static int explode(Uz_Globs *pG)
 			goto done;
 		if ((r = get_tree(pG, l, 64)) != IZI_OK)
 			goto done;
-		if ((r = huft_build(pG, l, 64, 0, cplen3, extra, &tbls.l)) != IZI_OK)
+		if ((r = huft_build(pG, l, 64, 0, izi_get_cplen3, izi_get_extra, &tbls.l)) != IZI_OK)
 			goto done;
 		if ((r = get_tree(pG, l, 64)) != IZI_OK)
 			goto done;
 		if (pG->lrec_general_purpose_bit_flag & 2) {    /* true if 8K */
-			if ((r = huft_build(pG, l, 64, 0, cpdist8, extra, &tbls.d)) != IZI_OK)
+			if ((r = huft_build(pG, l, 64, 0, izi_get_cpdist8, izi_get_extra, &tbls.d)) != IZI_OK)
 				goto done;
 			r = explode_internal(pG, 8, &tbls);
 		}
 		else {                                      /* else 4K */
-			if ((r = huft_build(pG, l, 64, 0, cpdist4, extra, &tbls.d)) != IZI_OK)
+			if ((r = huft_build(pG, l, 64, 0, izi_get_cpdist4, izi_get_extra, &tbls.d)) != IZI_OK)
 				goto done;
 			r = explode_internal(pG, 4, &tbls);
 		}
@@ -540,18 +526,18 @@ static int explode(Uz_Globs *pG)
 	else {  /* No literal tree--minimum match length is 2 */
 		if ((r = get_tree(pG, l, 64)) != IZI_OK)
 			goto done;
-		if ((r = huft_build(pG, l, 64, 0, cplen2, extra, &tbls.l)) != IZI_OK)
+		if ((r = huft_build(pG, l, 64, 0, izi_get_cplen2, izi_get_extra, &tbls.l)) != IZI_OK)
 			goto done;
 		if ((r = get_tree(pG, l, 64)) != IZI_OK)
 			goto done;
 		if (pG->lrec_general_purpose_bit_flag & 2) {    /* true if 8K */
-			if ((r = huft_build(pG, l, 64, 0, cpdist8, extra, &tbls.d)) != IZI_OK)
+			if ((r = huft_build(pG, l, 64, 0, izi_get_cpdist8, izi_get_extra, &tbls.d)) != IZI_OK)
 				goto done;
 			tbls.b.t = NULL;
 			r = explode_internal(pG, 8, &tbls);
 		}
 		else {                                      /* else 4K */
-			if ((r = huft_build(pG, l, 64, 0, cpdist4, extra, &tbls.d)) != IZI_OK)
+			if ((r = huft_build(pG, l, 64, 0, izi_get_cpdist4, izi_get_extra, &tbls.d)) != IZI_OK)
 				goto done;
 			tbls.b.t = NULL;
 			r = explode_internal(pG, 4, &tbls);
@@ -644,7 +630,8 @@ static void huft_dump(Uz_Globs *pG, struct huft *t, const char *name)
 // tbl->t: result: starting table
 // tbl->b: maximum lookup bits, returns actual
 static int huft_build(Uz_Globs *pG, const unsigned *b, unsigned n, unsigned s,
-	const ush *d, const ush *e, struct izi_htable *tbl)
+	izi_len_or_dist_getter d_fn, izi_len_or_dist_getter e_fn,
+	struct izi_htable *tbl)
 {
 	unsigned a;                   /* counter for codes of length k */
 	unsigned c[BMAX+1];           /* bit length count table */
@@ -820,8 +807,8 @@ static int huft_build(Uz_Globs *pG, const unsigned *b, unsigned n, unsigned s,
 				v_idx++;
 			}
 			else {
-				r.e = (uch)get_ush_arr(e, 64, get_u_arr(v, N_MAX, v_idx) - s);   /* non-simple--look up in lists */
-				r.n = get_ush_arr(d, 64, get_u_arr(v, N_MAX, v_idx) - s);
+				r.e = (uch)e_fn(get_u_arr(v, N_MAX, v_idx) - s);   /* non-simple--look up in lists */
+				r.n = d_fn(get_u_arr(v, N_MAX, v_idx) - s);
 				v_idx++;
 			}
 
