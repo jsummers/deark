@@ -10,7 +10,7 @@
 DE_DECLARE_MODULE(de_module_fnt);
 
 typedef struct localctx_struct {
-	i64 fnt_version;
+	unsigned int fnt_version;
 	i64 nominal_char_width;
 	i64 char_height;
 	i64 hdrsize;
@@ -23,7 +23,7 @@ typedef struct localctx_struct {
 	i64 char_entry_size;
 	i64 detected_max_width;
 
-	i64 dfPoints;
+	unsigned int dfPoints;
 	i64 dfFace; // Offset of font face name
 	u8 dfCharSet;
 
@@ -144,32 +144,35 @@ static void do_make_image(deark *c, lctx *d)
 	de_dbg_indent(c, -1);
 }
 
+// Note that there is similar code in exe.c. Any changed made here should
+// potentially be copied.
 static void read_face_name(deark *c, lctx *d)
 {
-	char buf2[50];
-	struct de_stringreaderdata *srd = NULL;
+	de_ucstring *s = NULL;
 
 	if(d->dfFace<1) return;
 
-	de_dbg(c, "face name at %d", (int)d->dfFace);
+	de_dbg(c, "face name at %"I64_FMT, d->dfFace);
 	de_dbg_indent(c, 1);
 
 	// The facename is terminated with a NUL byte.
 	// There seems to be no defined limit to its length, but Windows font face
 	// names traditionally have to be quite short.
-	srd = dbuf_read_string(c->infile, d->dfFace, 260, 50,
-		DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_ASCII);
-	de_dbg(c, "face name: \"%s\"", ucstring_getpsz(srd->str));
+	s = ucstring_create(c);
+	dbuf_read_to_ucstring(c->infile, d->dfFace, 64, s, DE_CONVFLAG_STOP_AT_NUL,
+		DE_ENCODING_ASCII);
+
+	de_dbg(c, "face name: \"%s\"", ucstring_getpsz_d(s));
 
 	if(!c->filenames_from_file) goto done;
 
-	d->fi = de_finfo_create(c);
-	de_snprintf(buf2, sizeof(buf2), "%s-%d", srd->sz, (int)d->dfPoints);
-	de_finfo_set_name_from_sz(c, d->fi, buf2, 0, DE_ENCODING_ASCII);
+	if(!d->fi) d->fi = de_finfo_create(c);
+	ucstring_printf(s, DE_ENCODING_LATIN1, "-%u", d->dfPoints);
+	de_finfo_set_name_from_ucstring(c, d->fi, s, 0);
 
 done:
 	de_dbg_indent(c, -1);
-	de_destroy_stringreaderdata(c, srd);
+	ucstring_destroy(s);
 }
 
 static int do_read_header(deark *c, lctx *d)
@@ -186,8 +189,8 @@ static int do_read_header(deark *c, lctx *d)
 	de_dbg(c, "fixed header at %d", (int)0);
 	de_dbg_indent(c, 1);
 
-	d->fnt_version = de_getu16le(0);
-	de_dbg(c, "dfVersion: 0x%04x", (int)d->fnt_version);
+	d->fnt_version = (unsigned int)de_getu16le(0);
+	de_dbg(c, "dfVersion: 0x%04x", d->fnt_version);
 
 	if(d->fnt_version==0x0300)
 		d->hdrsize = 148;
@@ -198,8 +201,8 @@ static int do_read_header(deark *c, lctx *d)
 	d->is_vector = (dfType&0x1)?1:0;
 	de_dbg(c, "dfType: 0x%04x (%s)", (int)dfType, d->is_vector?"vector":"bitmap");
 
-	d->dfPoints = de_getu16le(68);
-	de_dbg(c, "dfPoints: %d", (int)d->dfPoints);
+	d->dfPoints = (unsigned int)de_getu16le(68);
+	de_dbg(c, "dfPoints: %u", d->dfPoints);
 
 	dfPixWidth = de_getu16le(86);
 	de_dbg(c, "dfPixWidth: %d", (int)dfPixWidth);
@@ -234,6 +237,7 @@ static int do_read_header(deark *c, lctx *d)
 
 	if(d->fnt_version >= 0x0200) {
 		d->dfFace = de_getu32le(105);
+		de_dbg(c, "dfFace: %u", (unsigned int)d->dfFace);
 	}
 	de_dbg_indent(c, -1);
 

@@ -641,6 +641,34 @@ static void do_extract_ICON(deark *c, lctx *d, i64 pos, i64 len, de_finfo *fi)
 	do_extract_ico_cur(c, d, pos, len, 0, 0, 0, fi);
 }
 
+// Try to get the face name and 'points' from a font resource. If successful,
+// set the filename of the 'fi' object accordingly.
+// This code is somewhat duplicated in fnt.c, but it's not worth consolidating.
+static void get_font_facename(deark *c, lctx *d, i64 pos, i64 len, de_finfo *fi)
+{
+	unsigned int fnt_version;
+	unsigned int dfPoints;
+	i64 dfFace;
+	de_ucstring *s = NULL;
+
+	if(!fi) goto done;
+	if(len<109) goto done;
+	fnt_version = (unsigned int)de_getu16le(pos);
+	if(fnt_version < 0x0200) goto done;
+	dfPoints = (unsigned int)de_getu16le(pos+68);
+	dfFace = de_getu32le(pos+105);
+	if(dfFace>=len) goto done;
+	s = ucstring_create(c);
+	dbuf_read_to_ucstring_n(c->infile, pos+dfFace, 64, len-dfFace, s,
+		DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_ASCII);
+	if(s->len<1) goto done;
+	ucstring_printf(s, DE_ENCODING_LATIN1, "-%u", dfPoints);
+	de_finfo_set_name_from_ucstring(c, fi, s, 0);
+
+done:
+	ucstring_destroy(s);
+}
+
 static void do_extract_FONT(deark *c, lctx *d, i64 pos, i64 len, de_finfo *fi)
 {
 	i64 fntlen;
@@ -651,6 +679,9 @@ static void do_extract_FONT(deark *c, lctx *d, i64 pos, i64 len, de_finfo *fi)
 	if(fntlen<6 || fntlen>len) {
 		fntlen = len;
 	}
+
+	get_font_facename(c, d, pos, fntlen, fi);
+
 	dbuf_create_file_from_slice(c->infile, pos, fntlen, "fnt", fi, 0);
 }
 
@@ -766,8 +797,9 @@ static void do_pe_resource_data_entry(deark *c, lctx *d, i64 rel_pos)
 	de_dbg(c, "data offset in file: %d",
 		(int)data_real_offset);
 
+	fi = de_finfo_create(c);
+
 	if(d->pe_cur_name_offset) {
-		fi = de_finfo_create(c);
 		de_finfo_set_name_from_pe_string(c, fi, c->infile, d->pe_cur_name_offset);
 	}
 
@@ -976,6 +1008,7 @@ static void do_ne_one_nameinfo(deark *c, lctx *d, i64 npos)
 
 	if(!d->ne_have_type) goto done;
 
+	fi = de_finfo_create(c);
 
 	if(is_named) {
 		// Names are prefixed with a single-byte length.
@@ -983,7 +1016,6 @@ static void do_ne_one_nameinfo(deark *c, lctx *d, i64 npos)
 		if(x>0) {
 			de_ucstring *rname = NULL;
 
-			fi = de_finfo_create(c);
 			rname = ucstring_create(c);
 			dbuf_read_to_ucstring(c->infile, rnNameOffset+1, x, rname, 0, DE_ENCODING_ASCII);
 			de_dbg(c, "resource name: \"%s\"", ucstring_getpsz(rname));
