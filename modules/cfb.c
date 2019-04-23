@@ -913,6 +913,201 @@ static void do_OfficeArtStream(deark *c, lctx *d, struct dir_entry_info *dei)
 	de_dbg_indent_restore(c, saved_indent_level);
 }
 
+// This is an object found in Corel Print House (.CPH) and similar files.
+// This decoder is based on reverse engineering. It may be incorrect.
+static void do_Corel_UIformat(deark *c, lctx *d, struct dir_entry_info *dei,
+	dbuf *f, i64 pos1, i64 len, int is_thumb)
+{
+	i64 pos = pos1;
+	i64 hdr_len;
+	i64 ri_pos;
+	i64 ri_len;
+	i64 w, h;
+	i64 pal_offs, img_offs;
+	i64 rowspan;
+	i64 pixels_size;
+	i64 npalent;
+	int bpp;
+	int ok = 0;
+	int saved_indent_level;
+	de_bitmap *img = NULL;
+	u32 pal[256];
+
+	de_dbg_indent_save(c, &saved_indent_level);
+
+	if(dbuf_memcmp(f, pos, "UI\x00\x00", 4)) goto done;
+
+	de_dbg(c, "CorelUI at [%"I64_FMT"], len=%"I64_FMT, pos1, len);
+	de_dbg_indent(c, 1);
+	pos += 2; // "UI"
+	pos += 2; // ?
+	pos += 4; // The size of the "RI" segment? Redundant?
+	pos += 4; // ?
+
+	hdr_len = dbuf_getu32le_p(f, &pos);
+	// Apparently the size of the "UI" segment
+	if(hdr_len != 32) goto done;
+	// TODO: More fields here
+
+	ri_pos = pos1+hdr_len;
+	pos = ri_pos;
+	if(dbuf_memcmp(f, pos, "RI", 2)) goto done;
+	pos += 2;
+	ri_len = dbuf_getu32le_p(f, &pos);
+	if(ri_pos + ri_len > f->len) goto done;
+
+	pos += 16;
+	w = dbuf_getu32le_p(f, &pos);
+	h = dbuf_getu32le_p(f, &pos);
+	de_dbg_dimensions(c, w, h);
+
+	pos += 4; // ? (observed 1)
+
+	bpp = (int)dbuf_getu32le_p(f, &pos);
+	de_dbg(c, "bits/pixel?: %d", bpp);
+	rowspan = dbuf_getu32le_p(f, &pos);
+	de_dbg(c, "bytes/row?: %d", (int)rowspan);
+	if(bpp!=8) goto done;
+	pixels_size = dbuf_getu32le_p(f, &pos);
+	de_dbg(c, "pixels size: %"I64_FMT, pixels_size);
+	pos += 4; // ?
+	pos += 8; // ? (density?)
+
+	pal_offs = dbuf_getu32le_p(f, &pos);
+	de_dbg(c, "pal offs: %"I64_FMT, pal_offs);
+
+	img_offs = dbuf_getu32le_p(f, &pos);
+	de_dbg(c, "img offs: %"I64_FMT, img_offs);
+
+	pos += 12; // ?
+
+	// == palette ==
+	de_make_grayscale_palette(pal, 256, 0);
+	if(pal_offs!=0) {
+		// This formula doesn't make sense to me, but seems to work.
+		pos = ri_pos+14+pal_offs;
+		de_dbg(c, "palette at [%"I64_FMT"]", pos);
+		de_dbg_indent(c, 1);
+		pos += 2; // ? (observed 4, 5)
+
+		npalent = dbuf_getu16le_p(f, &pos);
+		de_dbg(c, "num pal entries: %d", (int)npalent);
+		if(npalent>256) goto done;
+
+		de_read_palette_rgb(f, pos, npalent, 3, pal, 256, DE_GETRGBFLAG_BGR);
+		de_dbg_indent(c, -1);
+	}
+
+	// == image ==
+	if(!de_good_image_dimensions(c, w, h)) goto done;
+
+	img = de_bitmap_create(c, w, h, (pal_offs==0)?1:3);
+	pos = ri_pos+14+img_offs;
+	de_dbg(c, "bitmap at [%"I64_FMT"]", pos);
+	de_convert_image_paletted(f, pos, 8, rowspan, pal, img, 0);
+
+	img->flipped = 1;
+	de_bitmap_write_to_file(img, is_thumb?"thumb":NULL, 0);
+
+	ok = 1;
+
+done:
+	if(!ok) {
+		de_dbg(c, "[unsupported image type]");
+	}
+	de_bitmap_destroy(img);
+	de_dbg_indent_restore(c, saved_indent_level);
+}
+
+static void do_CorelImages_internal(deark *c, lctx *d, struct dir_entry_info *dei,
+	dbuf *f)
+{
+	i64 pos = 0;
+	int saved_indent_level;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+
+	while(1) {
+		i64 size1;
+		unsigned int type1;
+
+		if(pos >= f->len-8) break;
+
+		de_dbg(c, "image at [%"I64_FMT"]", pos);
+		de_dbg_indent(c, 1);
+		size1 = dbuf_getu32le_p(f, &pos);
+		type1 = (unsigned int)dbuf_getu32le_p(f, &pos);
+		de_dbg(c, "type=%u, len=%"I64_FMT, type1, size1);
+
+		if(type1!=0 && type1!=1) break; // Unknown type, can't continue
+		if(pos+size1 > f->len) break;
+
+		if(type1==0) { // "Uncompressed Image"?
+			do_Corel_UIformat(c, d, dei, f, pos, size1, 0);
+		}
+		else if(type1==1) { // JPEG?
+			dbuf_create_file_from_slice(f, pos, size1, "jpg", NULL, 0);
+		}
+
+		pos += size1;
+		if(type1==1) {
+			pos += 4;
+		}
+		de_dbg_indent(c, -1);
+	}
+
+	de_dbg_indent_restore(c, saved_indent_level);
+}
+
+static void do_StreamNamedThumbnail(deark *c, lctx *d, struct dir_entry_info *dei)
+{
+	dbuf *f = NULL;
+	i64 size1;
+
+	if(dei->stream_size<32 || dei->stream_size>DE_MAX_SANE_OBJECT_SIZE) {
+		goto done;
+	}
+	f = dbuf_create_membuf(c, 0, 0);
+
+	// Start by reading just a little, to figure out the data type
+	copy_any_stream_to_dbuf(c, d, dei, 0, 16, f);
+	size1 = dbuf_getu32le(f, 0);
+	if(size1+4 != dei->stream_size) goto done;
+	if(dbuf_memcmp(f, 4, "UI\x00\x00", 4)) goto done;
+
+	copy_any_stream_to_dbuf(c, d, dei, 16, dei->stream_size-16, f);
+	do_Corel_UIformat(c, d, dei, f, 4, size1-4, 1);
+
+done:
+	dbuf_close(f);
+}
+
+static void do_StreamNamedImages(deark *c, lctx *d, struct dir_entry_info *dei)
+{
+	dbuf *f = NULL;
+
+	if(dei->stream_size<32 || dei->stream_size>DE_MAX_SANE_OBJECT_SIZE) {
+		goto done;
+	}
+	f = dbuf_create_membuf(c, 0, 0);
+
+	// Start by reading just a little, to figure out the data type
+	copy_any_stream_to_dbuf(c, d, dei, 0, 16, f);
+	if(dbuf_memcmp(f, 4, "\x01\x00\x00\x00\xff\xd8\xff", 7) &&
+		dbuf_memcmp(f, 4, "\x00\x00\x00\x00\x55\x49\x00\x00", 8))
+	{
+		// Not an "Images" stream we recognize
+		goto done;
+	}
+
+	// This is an object found in Corel Print House (.CPH) and similar files.
+	copy_any_stream_to_dbuf(c, d, dei, 16, dei->stream_size-16, f);
+	do_CorelImages_internal(c, d, dei, f);
+
+done:
+	dbuf_close(f);
+}
+
 static void dbg_timestamp(deark *c, struct de_timestamp *ts, const char *field_name)
 {
 	char timestamp_buf[64];
@@ -1351,6 +1546,8 @@ static void do_process_stream(deark *c, lctx *d, struct dir_entry_info *dei)
 	int is_OfficeArtStream = 0;
 	int is_summaryinfo = 0;
 	int is_propset = 0;
+	int is_namedThumbnail = 0;
+	int is_namedImages = 0;
 	int is_root = (dei->parent_id==0);
 
 	de_dbg_indent_save(c, &saved_indent_level);
@@ -1427,6 +1624,12 @@ static void do_process_stream(deark *c, lctx *d, struct dir_entry_info *dei)
 		// Found in MS Publisher, and probably other formats.
 		is_OfficeArtStream = 1;
 	}
+	else if(!de_strcasecmp(dei->fname_srd->sz_utf8, "Thumbnail")) {
+		is_namedThumbnail = 1;
+	}
+	else if(!de_strcasecmp(dei->fname_srd->sz_utf8, "Images")) {
+		is_namedImages = 1;
+	}
 
 	if(is_OfficeArtStream) {
 		unsigned int rectype;
@@ -1446,6 +1649,12 @@ static void do_process_stream(deark *c, lctx *d, struct dir_entry_info *dei)
 	}
 	else if(is_OfficeArtStream) {
 		do_OfficeArtStream(c, d, dei);
+	}
+	else if(is_namedThumbnail) {
+		do_StreamNamedThumbnail(c, d, dei);
+	}
+	else if(is_namedImages) {
+		do_StreamNamedImages(c, d, dei);
 	}
 
 done:
