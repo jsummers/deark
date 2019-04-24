@@ -1449,21 +1449,6 @@ void de_module_vgafont(deark *c, struct deark_module_info *mi)
 // HSI Raw image format (from Image Alchemy / Handmade Software)
 // **************************************************************************
 
-static void convert_image_rgb(dbuf *f, i64 fpos,
-	i64 rowspan, i64 pixelspan,
-	de_bitmap *img, unsigned int flags)
-{
-	i64 i, j;
-	i32 clr;
-
-	for(j=0; j<img->height; j++) {
-		for(i=0; i<img->width; i++) {
-			clr = dbuf_getRGB(f, fpos + j*rowspan + i*pixelspan, flags);
-			de_bitmap_setpixel_rgb(img, i, j, clr);
-		}
-	}
-}
-
 static void de_run_hsiraw(deark *c, de_module_params *mparams)
 {
 	i64 w, h;
@@ -1523,7 +1508,7 @@ static void de_run_hsiraw(deark *c, de_module_params *mparams)
 	img = de_bitmap_create(c, w, h, is_grayscale?1:3);
 
 	if(num_pal_colors==0) {
-		convert_image_rgb(c->infile, pos, 3*w, 3, img, 0);
+		de_convert_image_rgb(c->infile, pos, 3*w, 3, img, 0);
 	}
 	else {
 		de_convert_image_paletted(c->infile, pos, 8, w, pal, img, 0);

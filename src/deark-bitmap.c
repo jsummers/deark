@@ -558,6 +558,20 @@ void de_convert_image_paletted(dbuf *f, i64 fpos,
 	}
 }
 
+void de_convert_image_rgb(dbuf *f, i64 fpos,
+	i64 rowspan, i64 pixelspan, de_bitmap *img, unsigned int flags)
+{
+	i64 i, j;
+	u32 clr;
+
+	for(j=0; j<img->height; j++) {
+		for(i=0; i<img->width; i++) {
+			clr = dbuf_getRGB(f, fpos + j*rowspan + i*pixelspan, flags);
+			de_bitmap_setpixel_rgb(img, i, j, clr);
+		}
+	}
+}
+
 // Paint a solid, solid-color rectangle onto an image.
 // (Pixels will be replaced, not merged.)
 void de_bitmap_rect(de_bitmap *img,

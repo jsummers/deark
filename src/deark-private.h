@@ -797,6 +797,9 @@ void de_convert_image_paletted(dbuf *f, i64 fpos,
 	i64 bpp, i64 rowspan, const u32 *pal,
 	de_bitmap *img, unsigned int flags);
 
+void de_convert_image_rgb(dbuf *f, i64 fpos,
+	i64 rowspan, i64 pixelspan, de_bitmap *img, unsigned int flags);
+
 i64 de_min_int(i64 n1, i64 n2);
 i64 de_max_int(i64 n1, i64 n2);
 

@@ -913,6 +913,38 @@ static void do_OfficeArtStream(deark *c, lctx *d, struct dir_entry_info *dei)
 	de_dbg_indent_restore(c, saved_indent_level);
 }
 
+static void do_Corel_simple_image(deark *c, lctx *d, struct dir_entry_info *dei,
+	dbuf *f, i64 pos1)
+{
+	i64 pos = pos1;
+	i64 w, h;
+	i64 i, j;
+	u8 b;
+	de_bitmap *img = NULL;
+
+	w = dbuf_getu32le_p(f, &pos);
+	h = dbuf_getu32le_p(f, &pos);
+	de_dbg_dimensions(c, w, h);
+	if(!de_good_image_dimensions(c, w, h)) goto done;
+
+	img = de_bitmap_create(c, w, h, 1);
+
+	// TODO: I don't know whether this is the right way to interpret this
+	// image type.
+	for(j=0; j<img->height; j++) {
+		for(i=0; i<img->width; i++) {
+			b = dbuf_getbyte(f, pos + j*w + i);
+			de_bitmap_setpixel_gray(img, i, j, b);
+		}
+	}
+
+	img->flipped = 1;
+	de_bitmap_write_to_file(img, NULL, 0);
+
+done:
+	de_bitmap_destroy(img);
+}
+
 // This is an object found in Corel Print House (.CPH) and similar files.
 // This decoder is based on reverse engineering. It may be incorrect.
 static void do_Corel_UIformat(deark *c, lctx *d, struct dir_entry_info *dei,
@@ -967,7 +999,6 @@ static void do_Corel_UIformat(deark *c, lctx *d, struct dir_entry_info *dei,
 	de_dbg(c, "bits/pixel?: %d", bpp);
 	rowspan = dbuf_getu32le_p(f, &pos);
 	de_dbg(c, "bytes/row?: %d", (int)rowspan);
-	if(bpp!=8) goto done;
 	pixels_size = dbuf_getu32le_p(f, &pos);
 	de_dbg(c, "pixels size: %"I64_FMT, pixels_size);
 	pos += 4; // ?
@@ -980,6 +1011,8 @@ static void do_Corel_UIformat(deark *c, lctx *d, struct dir_entry_info *dei,
 	de_dbg(c, "img offs: %"I64_FMT, img_offs);
 
 	pos += 12; // ?
+
+	if(bpp!=8 && bpp!=24) goto done;
 
 	// == palette ==
 	de_make_grayscale_palette(pal, 256, 0);
@@ -1001,10 +1034,15 @@ static void do_Corel_UIformat(deark *c, lctx *d, struct dir_entry_info *dei,
 	// == image ==
 	if(!de_good_image_dimensions(c, w, h)) goto done;
 
-	img = de_bitmap_create(c, w, h, (pal_offs==0)?1:3);
+	img = de_bitmap_create(c, w, h, (bpp<24 && pal_offs==0)?1:3);
 	pos = ri_pos+14+img_offs;
 	de_dbg(c, "bitmap at [%"I64_FMT"]", pos);
-	de_convert_image_paletted(f, pos, 8, rowspan, pal, img, 0);
+	if(bpp<24) {
+		de_convert_image_paletted(f, pos, 8, rowspan, pal, img, 0);
+	}
+	else {
+		de_convert_image_rgb(f, pos, rowspan, 3, img, DE_GETRGBFLAG_BGR);
+	}
 
 	img->flipped = 1;
 	de_bitmap_write_to_file(img, is_thumb?"thumb":NULL, 0);
@@ -1028,34 +1066,66 @@ static void do_CorelImages_internal(deark *c, lctx *d, struct dir_entry_info *de
 	de_dbg_indent_save(c, &saved_indent_level);
 
 	while(1) {
-		i64 size1;
-		unsigned int type1;
+		unsigned int imgtype1_or_size;
+		unsigned int imgtype1;
+		i64 size1 = 0;
 
 		if(pos >= f->len-8) break;
 
 		de_dbg(c, "image at [%"I64_FMT"]", pos);
 		de_dbg_indent(c, 1);
-		size1 = dbuf_getu32le_p(f, &pos);
-		type1 = (unsigned int)dbuf_getu32le_p(f, &pos);
-		de_dbg(c, "type=%u, len=%"I64_FMT, type1, size1);
 
-		if(type1!=0 && type1!=1) break; // Unknown type, can't continue
-		if(pos+size1 > f->len) break;
+		// Seems like sometimes this first 'type' field is present, and
+		// sometimes it isn't (and we treat it like it's 0).
+		imgtype1_or_size = (unsigned int)dbuf_getu32le_p(f, &pos);
+		if(imgtype1_or_size<8) {
+			imgtype1 = imgtype1_or_size;
 
-		if(type1==0) { // "Uncompressed Image"?
-			do_Corel_UIformat(c, d, dei, f, pos, size1, 0);
+			if(imgtype1==0) {
+				size1 = dbuf_getu32le_p(f, &pos);
+			}
 		}
-		else if(type1==1) { // JPEG?
-			dbuf_create_file_from_slice(f, pos, size1, "jpg", NULL, 0);
+		else {
+			imgtype1 = 0;
+			size1 = (i64)imgtype1_or_size;
+		}
+
+		de_dbg(c, "low level imgtype: %u", imgtype1);
+
+		if(imgtype1==0) {
+			unsigned int imgtype2;
+
+			imgtype2 = (unsigned int)dbuf_getu32le_p(f, &pos);
+			de_dbg(c, "high level imgtype: %u", imgtype2);
+			de_dbg(c, "len: %"I64_FMT, size1);
+
+			if(pos+size1 > f->len) break;
+
+			if(imgtype2==0) { // "Uncompressed Image"?
+				do_Corel_UIformat(c, d, dei, f, pos, size1, 0);
+			}
+			else if(imgtype2==1) { // JPEG?
+				dbuf_create_file_from_slice(f, pos, size1, "jpg", NULL, 0);
+			}
+			else {
+				de_dbg(c, "[unsupported image type: %u:%u]", imgtype1, imgtype2);
+			}
+		}
+		else if(imgtype1==1) {
+			size1 = dbuf_getu32le(f, pos+8);
+			do_Corel_simple_image(c, d, dei, f, pos);
+			pos += 8 + 4;
+		}
+		else {
+			de_dbg(c, "[unsupported image type (%u), can't continue]", imgtype1);
+			goto done;
 		}
 
 		pos += size1;
-		if(type1==1) {
-			pos += 4;
-		}
 		de_dbg_indent(c, -1);
 	}
 
+done:
 	de_dbg_indent_restore(c, saved_indent_level);
 }
 
@@ -1096,7 +1166,9 @@ static void do_StreamNamedImages(deark *c, lctx *d, struct dir_entry_info *dei)
 	if(dbuf_memcmp(f, 4, "\x01\x00\x00\x00\xff\xd8\xff", 7) &&
 		dbuf_memcmp(f, 4, "\x00\x00\x00\x00\x55\x49\x00\x00", 8))
 	{
-		// Not an "Images" stream we recognize
+		// Not an "Images" stream we recognize.
+		// TODO: Can we detect this if the first image is in "simple"
+		// format?
 		goto done;
 	}
 
