@@ -1491,6 +1491,13 @@ static void cdraw_detect_params(dbuf *f, struct cdraw_params *cdrp)
 		cdrp->ext = "iso";
 		return;
 	}
+	if(cdsig_at2(f, 2448*16+16, 2448*17+16)) {
+		cdrp->ok = 1;
+		cdrp->sector_total_len = 2448;
+		cdrp->sector_data_offset = 16;
+		cdrp->ext = "iso";
+		return;
+	}
 	if(cdsig_at2(f, 2448*16+24, 2448*17+24)) {
 		cdrp->ok = 1;
 		cdrp->sector_total_len = 2448;
