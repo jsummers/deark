@@ -670,6 +670,10 @@
 				>
 			</File>
 			<File
+				RelativePath="..\..\modules\hfs.c"
+				>
+			</File>
+			<File
 				RelativePath="..\..\modules\hlp.c"
 				>
 			</File>
