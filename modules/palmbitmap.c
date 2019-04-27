@@ -319,6 +319,7 @@ static const char *get_cmpr_type_name(unsigned int cmpr_type)
 static int read_BitmapType_colortable(deark *c, lctx *d, struct page_ctx *pg,
 	i64 pos1, i64 *bytes_consumed)
 {
+	i64 num_entries_raw;
 	i64 num_entries;
 	i64 k;
 	i64 pos = pos1;
@@ -328,13 +329,26 @@ static int read_BitmapType_colortable(deark *c, lctx *d, struct page_ctx *pg,
 	de_dbg(c, "color table at %d", (int)pos1);
 	de_dbg_indent(c, 1);
 
-	num_entries = dbuf_getu16x(c->infile, pos1, d->is_le);
-	de_dbg(c, "number of entries: %d", (int)num_entries);
+	num_entries_raw = dbuf_getu16x(c->infile, pos1, d->is_le);
+	num_entries = num_entries_raw;
 	// TODO: Documentation says "High bits (numEntries > 256) reserved."
 	// What exactly does that mean?
-	if(num_entries>256) {
-		de_warn(c, "Invalid or unsupported type of color table");
+	if(num_entries_raw>256) {
+		// Files with "4096" entries have been observed, but they actually have 256
+		// entries.
+		if(num_entries_raw!=4096) {
+			de_warn(c, "This image's color table type might not be supported correctly");
+		}
+		num_entries = 256;
 	}
+	if(num_entries==num_entries_raw) {
+		de_dbg(c, "number of entries: %d", (int)num_entries);
+	}
+	else {
+		de_dbg(c, "number of entries: 0x%04x (assuming %d)", (unsigned int)num_entries_raw,
+			(int)num_entries);
+	}
+
 	pos += 2;
 
 	if(num_entries>0) {
