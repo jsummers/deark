@@ -268,12 +268,21 @@ static int do_read_SAUCE(deark *c, dbuf *f, struct de_SAUCE_info *si)
 	name = get_sauce_filetype_name(si->data_type, t);
 	de_dbg(c, "file type: %d (%s)", (int)si->file_type, name);
 
+	si->tinfo1 = (u16)dbuf_getu16le(f, pos+96);
+	si->tinfo2 = (u16)dbuf_getu16le(f, pos+98);
+	si->tinfo3 = (u16)dbuf_getu16le(f, pos+100);
+	si->tinfo4 = (u16)dbuf_getu16le(f, pos+102);
+	de_dbg(c, "TInfo1: %u", (unsigned int)si->tinfo1);
+	de_dbg(c, "TInfo2: %u", (unsigned int)si->tinfo2);
+	de_dbg(c, "TInfo3: %u", (unsigned int)si->tinfo3);
+	de_dbg(c, "TInfo4: %u", (unsigned int)si->tinfo4);
+
 	if(t==0x0100 || t==0x0101 || t==0x0102 || t==0x0104 || t==0x0105 || t==0x0108 || t==0x0600) {
-		si->width_in_chars = dbuf_getu16le(f, pos+96);
+		si->width_in_chars = (i64)si->tinfo1;
 		de_dbg(c, "width in chars: %d", (int)si->width_in_chars);
 	}
 	if(t==0x0100 || t==0x0101 || t==0x0104 || t==0x0105 || t==0x0108 || t==0x0600) {
-		si->number_of_lines = dbuf_getu16le(f, pos+98);
+		si->number_of_lines = (i64)si->tinfo2;
 		de_dbg(c, "number of lines: %d", (int)si->number_of_lines);
 	}
 

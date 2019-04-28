@@ -435,8 +435,14 @@ static void de_run_bintext(deark *c, de_module_params *mparams)
 		if(si->data_type==5) {
 			valid_sauce = 1;
 
-			// For BinText, the FileType field is inexplicably used for the width.
-			d->width_in_chars = 2*(i64)sdd.file_type;
+			if(si->file_type==1 && si->tinfo1>0) {
+				// Some files created by ACiDDraw do this.
+				d->width_in_chars = 2*(i64)si->tinfo1;
+			}
+			else {
+				// For BinText, the FileType field is inexplicably used for the width (usually).
+				d->width_in_chars = 2*(i64)si->file_type;
+			}
 
 			if(si->tflags & 0x01) {
 				d->nonblink = 1;

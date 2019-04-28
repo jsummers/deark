@@ -81,6 +81,7 @@ struct de_SAUCE_info {
 	i64 number_of_lines; // Reported value. May be incorrect.
 	i64 comment_block_pos; // Valid if num_comments>0.
 	i64 num_comments;
+	u16 tinfo1, tinfo2, tinfo3, tinfo4;
 	struct de_char_comment *comments; // arrays of [num_comments]
 };
 
