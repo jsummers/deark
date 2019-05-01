@@ -140,10 +140,13 @@ static void do_read_palette(deark *c, lctx *d,struct de_char_context *charctx,
 	de_dbg(c, "palette at %d", (int)pos);
 
 	for(k=0; k<16; k++) {
-		if(adf_style && k>=8)
-			cpos = pos+(48+k)*3;
-		else
-			cpos = pos+k*3;
+		i64 idx = k;
+
+		if(adf_style) {
+			if(k>=8) idx = 48+k;
+			else if(k==6) idx = 20;
+		}
+		cpos = pos + idx*3;
 		cr1 = de_getbyte(cpos);
 		cg1 = de_getbyte(cpos+1);
 		cb1 = de_getbyte(cpos+2);
