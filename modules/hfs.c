@@ -8,6 +8,11 @@
 #include <deark-private.h>
 DE_DECLARE_MODULE(de_module_hfs);
 
+struct dirid_item_struct {
+	u32 ParID;
+	de_ucstring *name;
+};
+
 struct nodedata {
 	int expecting_header;
 	i64 nodenum;
@@ -35,6 +40,7 @@ typedef struct localctx_struct {
 	i64 drAlBlSt;
 	i64 drCTExtRec_first_blk;
 	struct de_inthashtable *nodes_seen;
+	struct de_inthashtable *dirid_hash;
 } lctx;
 
 static i64 block_dpos(lctx *d, i64 blknum)
@@ -127,8 +133,6 @@ static const char *get_node_type_name(int t)
 	return name?name:"?";
 }
 
-static int do_node(deark *c, lctx *d, struct nodedata *nd);
-
 static void do_header_node(deark *c, lctx *d, struct nodedata *nd)
 {
 	i64 pos;
@@ -182,11 +186,14 @@ static const char *get_cdrType_name(int n)
 }
 
 static void do_leaf_node_record_directory(deark *c, lctx *d, struct nodedata *nd,
-	i64 pos1)
+	i64 pos1, de_ucstring *name, u32 ParID)
 {
 	i64 pos = pos1;
 	unsigned int dirFlags;
 	u32 dirID;
+	struct dirid_item_struct *dirid_item = NULL;
+
+	dirid_item = de_malloc(c, sizeof(struct dirid_item_struct));
 
 	pos += 2; // common fields, already read
 	dirFlags = (unsigned int)de_getu16be_p(&pos);
@@ -194,13 +201,54 @@ static void do_leaf_node_record_directory(deark *c, lctx *d, struct nodedata *nd
 	pos += 2; // valence
 	dirID = (u32)de_getu32be_p(&pos);
 	de_dbg(c, "dirDirID: %u", (unsigned int)dirID);
+
+	dirid_item->name = ucstring_clone(name);
+	dirid_item->ParID = ParID;
+
+	de_inthashtable_add_item(c, d->dirid_hash, (i64)dirID, (void*)dirid_item);
+	dirid_item = NULL;
 }
 
-static void do_leaf_node_record(deark *c, lctx *d, struct nodedata *nd, i64 idx)
+static void get_full_path_from_dirid(deark *c, lctx *d, u32 dirid, de_ucstring *s)
+{
+	void *item;
+	int ret;
+	struct dirid_item_struct *dirid_item;
+
+	if(dirid==0) goto done;
+	ret = de_inthashtable_get_item(c, d->dirid_hash, (i64)dirid, &item);
+	if(!ret) goto done;
+	dirid_item = (struct dirid_item_struct*)item;
+
+	if(dirid_item->ParID!=0 && dirid_item->ParID!=dirid) {
+		// TODO: Prevent infinite recursion
+		get_full_path_from_dirid(c, d, dirid_item->ParID, s);
+	}
+
+	if(!ucstring_isnonempty(dirid_item->name)) goto done;
+	ucstring_append_ucstring(s, dirid_item->name);
+	ucstring_append_sz(s, "/", DE_ENCODING_LATIN1);
+done:
+	;
+}
+
+static void do_leaf_node_record_file(deark *c, lctx *d, struct nodedata *nd,
+	i64 pos1, de_ucstring *name, u32 ParID)
+{
+	de_ucstring *fullpath = NULL;
+
+	fullpath = ucstring_create(c);
+	get_full_path_from_dirid(c, d, ParID, fullpath);
+	de_dbg(c, "path: \"%s\"", ucstring_getpsz_d(fullpath));
+
+	ucstring_destroy(fullpath);
+}
+
+static void do_leaf_node_record(deark *c, lctx *d, struct nodedata *nd, i64 idx, int pass)
 {
 	i64 pos1, pos1_rel, pos;
 	i64 len;
-	i64 ckrParID;
+	u32 ckrParID;
 	i64 ckrKeyLen;
 	i64 nlen;
 	i64 datapos;
@@ -222,9 +270,21 @@ static void do_leaf_node_record(deark *c, lctx *d, struct nodedata *nd, i64 idx)
 		de_dbg(c, "[deleted record]");
 		goto done;
 	}
+
+	datapos = pos1 + 1 + ckrKeyLen;
+	if((ckrKeyLen%2)==0) datapos++; // padding
+
+	// Look ahead to get the cdrType
+	cdrType = (int)dbuf_geti8(c->infile, datapos);
+	de_dbg(c, "cdrType: %d (%s)", cdrType, get_cdrType_name(cdrType));
+
+	if(cdrType!=1 && cdrType!=2) goto done;
+	if(cdrType==1 && pass!=1) goto done; // read directories in pass 1
+	if(cdrType==2 && pass!=2) goto done; // read files in pass 2
+
 	pos++; // ckrResrv1
-	ckrParID = de_getu32be_p(&pos);
-	de_dbg(c, "ckrParID: %"I64_FMT, ckrParID);
+	ckrParID = (u32)de_getu32be_p(&pos);
+	de_dbg(c, "ckrParID: %u", (unsigned int)ckrParID);
 
 	nlen = (i64)de_getbyte_p(&pos);
 	de_dbg(c, "name len: %d", (int)nlen);
@@ -233,16 +293,13 @@ static void do_leaf_node_record(deark *c, lctx *d, struct nodedata *nd, i64 idx)
 	de_dbg(c, "name: \"%s\"", ucstring_getpsz_d(name));
 
 	// == Catalog File Data Record
-	pos = pos1 + 1 + ckrKeyLen;
-	if((ckrKeyLen%2)==0) pos++; // padding
-
-	datapos = pos;
-	cdrType = (int)dbuf_geti8(c->infile, pos++);
-	de_dbg(c, "cdrType: %d (%s)", cdrType, get_cdrType_name(cdrType));
 
 	switch(cdrType) {
 	case 1:
-		do_leaf_node_record_directory(c, d, nd, datapos);
+		do_leaf_node_record_directory(c, d, nd, datapos, name, ckrParID);
+		break;
+	case 2:
+		do_leaf_node_record_file(c, d, nd, datapos, name, ckrParID);
 		break;
 	}
 
@@ -251,12 +308,12 @@ done:
 	ucstring_destroy(name);
 }
 
-static void do_leaf_node(deark *c, lctx *d, struct nodedata *nd)
+static void do_leaf_node(deark *c, lctx *d, struct nodedata *nd, int pass)
 {
 	i64 i;
 
 	for(i=0; i<nd->nrecs; i++) {
-		do_leaf_node_record(c, d, nd, i);
+		do_leaf_node_record(c, d, nd, i, pass);
 	}
 }
 
@@ -269,20 +326,23 @@ static void destroy_nodedata(deark *c, struct nodedata *nd)
 
 // Caller must allocate nd, set some fields in it, call this function,
 // and is responsible for destroying nd.
-static int do_node(deark *c, lctx *d, struct nodedata *nd)
+// pass is relevant only for leaf nodes.
+static int do_node(deark *c, lctx *d, struct nodedata *nd, int pass)
 {
 	i64 pos;
 	i64 i;
 	int saved_indent_level;
+	int retval = 0;
 
 	de_dbg_indent_save(c, &saved_indent_level);
 	d->nesting_level++;
 	if(d->nesting_level>20) goto done;
 	if(nd->nodenum==0 && !nd->expecting_header) goto done;
 
-	if(!de_inthashtable_add_item(c, d->nodes_seen, nd->nodenum, NULL)) {
+	if(pass==1 && !de_inthashtable_add_item(c, d->nodes_seen, nd->nodenum, NULL)) {
 		goto done;
 	}
+	retval = 1;
 
 	nd->dpos = node_dpos(d, nd->nodenum);
 	pos = nd->dpos;
@@ -320,7 +380,7 @@ static int do_node(deark *c, lctx *d, struct nodedata *nd)
 	}
 
 	if(nd->node_type == -1) {
-		do_leaf_node(c, d, nd);
+		do_leaf_node(c, d, nd, pass);
 	}
 	else if(nd->node_type==1) {
 		do_header_node(c, d, nd);
@@ -329,28 +389,17 @@ static int do_node(deark *c, lctx *d, struct nodedata *nd)
 done:
 	de_dbg_indent_restore(c, saved_indent_level);
 	d->nesting_level--;
-	return 1;
+	return retval;
 }
 
-static int do_catalog(deark *c, lctx *d)
+static int do_all_leaf_nodes(deark *c, lctx *d, struct nodedata *hdr_node, int pass)
 {
-	i64 pos;
 	i64 curr_nodenum;
-	struct nodedata *hdr_node = NULL;
 	struct nodedata *nd = NULL;
+	int retval = 1;
 
-	pos = allocation_blk_dpos(d, d->drCTExtRec_first_blk);
-	de_dbg(c, "catalog at %"I64_FMT, pos);
-
-	hdr_node = de_malloc(c, sizeof(struct nodedata));
-	hdr_node->expecting_header = 1;
-	hdr_node->nodenum = 0;
-	do_node(c, d, hdr_node);
-
-	if(hdr_node->node_type != 1) {
-		de_err(c, "Expected header node not found");
-		goto done;
-	}
+	de_dbg(c, "reading leaf nodes, pass %d", pass);
+	de_dbg_indent(c, 1);
 
 	// Read all leaf nodes, using the leaf-to-leaf links
 	curr_nodenum = hdr_node->bthFNode;
@@ -359,17 +408,71 @@ static int do_catalog(deark *c, lctx *d)
 		nd = de_malloc(c, sizeof(struct nodedata));
 		nd->nodenum = curr_nodenum;
 
-		if(!do_node(c, d, nd)) goto done;
+		if(!do_node(c, d, nd, pass)) goto done;
 
 		curr_nodenum = nd->f_link;
 		destroy_nodedata(c, nd);
 		nd = NULL;
 	}
+	retval = 1;
 
 done:
-	destroy_nodedata(c, hdr_node);
 	destroy_nodedata(c, nd);
-	return 1;
+	de_dbg_indent(c, -1);
+	return retval;
+}
+
+static int do_catalog(deark *c, lctx *d)
+{
+	i64 pos;
+	struct nodedata *hdr_node = NULL;
+	int saved_indent_level;
+	int retval = 0;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+	pos = allocation_blk_dpos(d, d->drCTExtRec_first_blk);
+	de_dbg(c, "catalog at %"I64_FMT, pos);
+
+	hdr_node = de_malloc(c, sizeof(struct nodedata));
+	hdr_node->expecting_header = 1;
+	hdr_node->nodenum = 0;
+	de_dbg_indent(c, 1);
+	if(!do_node(c, d, hdr_node, 0)) goto done;
+	de_dbg_indent(c, -1);
+
+	if(hdr_node->node_type != 1) {
+		de_err(c, "Expected header node not found");
+		goto done;
+	}
+
+	if(!do_all_leaf_nodes(c, d, hdr_node, 1)) goto done;
+	if(!do_all_leaf_nodes(c, d, hdr_node, 2)) goto done;
+
+	retval = 1;
+done:
+	destroy_nodedata(c, hdr_node);
+	de_dbg_indent_restore(c, saved_indent_level);
+	return retval;
+}
+
+static void destroy_dirid_hash(deark *c, lctx *d)
+{
+	if(!d->dirid_hash) return;
+
+	while(1) {
+		i64 key;
+		void *removed_item = NULL;
+		struct dirid_item_struct *dirid_item;
+
+		if(!de_inthashtable_remove_any_item(c, d->dirid_hash, &key, &removed_item)) {
+			break;
+		}
+		dirid_item = (struct dirid_item_struct *)removed_item;
+		ucstring_destroy(dirid_item->name);
+		de_free(c, dirid_item);
+	}
+
+	de_inthashtable_destroy(c, d->dirid_hash);
 }
 
 static void de_run_hfs(deark *c, de_module_params *mparams)
@@ -380,6 +483,7 @@ static void de_run_hfs(deark *c, de_module_params *mparams)
 	d->input_encoding = DE_ENCODING_MACROMAN;
 	d->blocksize = 512;
 	d->nodes_seen = de_inthashtable_create(c);
+	d->dirid_hash = de_inthashtable_create(c);
 
 	if(!do_master_directory_blocks(c, d, 2)) goto done;
 
@@ -388,6 +492,7 @@ static void de_run_hfs(deark *c, de_module_params *mparams)
 done:
 	if(d) {
 		de_inthashtable_destroy(c, d->nodes_seen);
+		destroy_dirid_hash(c, d);
 		de_free(c, d);
 	}
 }
