@@ -8,7 +8,25 @@
 #include <deark-private.h>
 DE_DECLARE_MODULE(de_module_hfs);
 
+#define CDRTYPE_DIR   1
+#define CDRTYPE_FILE  2
+
+struct ExtDescriptor {
+	i64 first_alloc_blk;
+	i64 num_alloc_blks;
+};
+
+// Used by dirid_hash
 struct dirid_item_struct {
+	u32 ParID;
+	de_ucstring *name;
+};
+
+// Represents one record in a leaf node (one file or directory)
+struct recorddata {
+	i64 pos1;
+	i64 datapos;
+	int cdrType;
 	u32 ParID;
 	de_ucstring *name;
 };
@@ -38,7 +56,11 @@ typedef struct localctx_struct {
 	i64 drAlBlkSiz;
 	i64 drClpSiz;
 	i64 drAlBlSt;
-	i64 drCTExtRec_first_blk;
+	i64 drXTFlSize;
+	i64 drCTFlSize;
+	struct ExtDescriptor drXTExtRec[3];
+	struct ExtDescriptor drCTExtRec[3];
+
 	struct de_inthashtable *nodes_seen;
 	struct de_inthashtable *dirid_hash;
 } lctx;
@@ -55,7 +77,23 @@ static i64 allocation_blk_dpos(lctx *d, i64 ablknum)
 
 static i64 node_dpos(lctx *d, i64 nodenum)
 {
-	return allocation_blk_dpos(d, d->drCTExtRec_first_blk) + 512 * nodenum;
+	return allocation_blk_dpos(d, d->drCTExtRec[0].first_alloc_blk) + 512 * nodenum;
+}
+
+static void read_ExtDataRecs(deark *c, lctx *d, i64 pos1,
+	struct ExtDescriptor *eds, size_t num_eds, const char *name)
+{
+	size_t i;
+	i64 pos = pos1;
+
+	for(i=0; i<num_eds; i++) {
+		eds[i].first_alloc_blk = de_getu16be_p(&pos);
+		de_dbg(c, "%s[%u].first_block: %u", name, (unsigned int)i,
+			(unsigned int)eds[i].first_alloc_blk);
+		eds[i].num_alloc_blks = de_getu16be_p(&pos);
+		de_dbg(c, "%s[%u].num_blocks: %u", name, (unsigned int)i,
+			(unsigned int)eds[i].num_alloc_blks);
+	}
 }
 
 static int do_master_directory_blocks(deark *c, lctx *d, i64 blknum)
@@ -63,6 +101,7 @@ static int do_master_directory_blocks(deark *c, lctx *d, i64 blknum)
 	i64 pos;
 	i64 nlen;
 	de_ucstring *s = NULL;
+	int retval = 0;
 
 	pos = block_dpos(d, blknum);
 	de_dbg(c, "master directory blocks at %"I64_FMT" (block %"I64_FMT")", pos, blknum);
@@ -108,17 +147,28 @@ static int do_master_directory_blocks(deark *c, lctx *d, i64 blknum)
 	pos += 2; // drVCSize
 	pos += 2; // drVBMCSize
 	pos += 2; // drCtlCSize
-	pos += 4; // drXTFlSize
-	pos += 12; // drXTExtRec
-	pos += 4; // drCTFlSize
 
-	d->drCTExtRec_first_blk = de_getu16be(pos);
-	de_dbg(c, "drCTExtRec[1].first_allocation_blk: %"I64_FMT, d->drCTExtRec_first_blk);
-	pos += 12; // drCTExtRec
+	d->drXTFlSize = de_getu32be_p(&pos);
+	de_dbg(c, "drXTFlSize: %"I64_FMT, d->drXTFlSize);
+	read_ExtDataRecs(c, d, pos, d->drCTExtRec, 3, "drXTFlSize");
+	pos += 12;
 
+	d->drCTFlSize = de_getu32be_p(&pos);
+	de_dbg(c, "drCTFlSize: %"I64_FMT, d->drCTFlSize);
+	read_ExtDataRecs(c, d, pos, d->drCTExtRec, 3, "drCTExtRec");
+	pos += 12;
+
+	if(d->drCTFlSize > d->drCTExtRec[0].num_alloc_blks * d->drAlBlkSiz) {
+		// TODO: Support this
+		de_err(c, "Fragmented catalog, not supported");
+		goto done;
+	}
+
+	retval = 1;
+done:
 	de_dbg_indent(c, -1);
 	ucstring_destroy(s);
-	return 1;
+	return retval;
 }
 
 static const char *get_node_type_name(int t)
@@ -185,44 +235,58 @@ static const char *get_cdrType_name(int n)
 	return name?name:"?";
 }
 
-static void do_leaf_node_record_directory(deark *c, lctx *d, struct nodedata *nd,
-	i64 pos1, de_ucstring *name, u32 ParID)
+static void squash_slashes(de_ucstring *s, i64 pos1)
 {
-	i64 pos = pos1;
-	unsigned int dirFlags;
+	i64 i;
+
+	for(i=pos1; i<s->len; i++) {
+		if(s->str[i]=='/') {
+			s->str[i] = '_';
+		}
+	}
+}
+
+static void do_leaf_node_record_directory_pass1(deark *c, lctx *d, struct nodedata *nd,
+	struct recorddata *rd)
+{
+	i64 pos = rd->datapos;
 	u32 dirID;
 	struct dirid_item_struct *dirid_item = NULL;
 
 	dirid_item = de_malloc(c, sizeof(struct dirid_item_struct));
 
 	pos += 2; // common fields, already read
-	dirFlags = (unsigned int)de_getu16be_p(&pos);
-	de_dbg(c, "dirFlags: 0x%04x", dirFlags);
+	pos += 2; // dirFlags
 	pos += 2; // valence
 	dirID = (u32)de_getu32be_p(&pos);
 	de_dbg(c, "dirDirID: %u", (unsigned int)dirID);
 
-	dirid_item->name = ucstring_clone(name);
-	dirid_item->ParID = ParID;
+	dirid_item->name = ucstring_clone(rd->name);
+	squash_slashes(dirid_item->name, 0);
+	dirid_item->ParID = rd->ParID;
 
 	de_inthashtable_add_item(c, d->dirid_hash, (i64)dirID, (void*)dirid_item);
 	dirid_item = NULL;
 }
 
-static void get_full_path_from_dirid(deark *c, lctx *d, u32 dirid, de_ucstring *s)
+static void get_full_path_from_dirid(deark *c, lctx *d, u32 dirid, de_ucstring *s,
+	int depth)
 {
 	void *item;
 	int ret;
 	struct dirid_item_struct *dirid_item;
 
+	if(depth>20) goto done;
 	if(dirid==0) goto done;
 	ret = de_inthashtable_get_item(c, d->dirid_hash, (i64)dirid, &item);
+	if(!ret && dirid>1) {
+		de_warn(c, "Unknown parent directory (ID %u)", (unsigned int)dirid);
+	}
 	if(!ret) goto done;
 	dirid_item = (struct dirid_item_struct*)item;
 
 	if(dirid_item->ParID!=0 && dirid_item->ParID!=dirid) {
-		// TODO: Prevent infinite recursion
-		get_full_path_from_dirid(c, d, dirid_item->ParID, s);
+		get_full_path_from_dirid(c, d, dirid_item->ParID, s, depth+1);
 	}
 
 	if(!ucstring_isnonempty(dirid_item->name)) goto done;
@@ -231,39 +295,168 @@ static void get_full_path_from_dirid(deark *c, lctx *d, u32 dirid, de_ucstring *
 done:
 	;
 }
+static void read_one_timestamp(deark *c, lctx *d, i64 pos, de_finfo *fi1,
+	de_finfo *fi2, const char *name)
+{
+	i64 ts_raw;
+	struct de_timestamp ts;
+	char timestamp_buf[64];
 
-static void do_leaf_node_record_file(deark *c, lctx *d, struct nodedata *nd,
-	i64 pos1, de_ucstring *name, u32 ParID)
+	ts.is_valid = 0;
+	ts_raw = de_getu32be(pos);
+	if(ts_raw!=0) {
+		de_mac_time_to_timestamp(ts_raw, &ts);
+	}
+	if(ts.is_valid) {
+		de_timestamp_to_string(&ts, timestamp_buf, sizeof(timestamp_buf), 0);
+	}
+	else {
+		de_strlcpy(timestamp_buf, "unknown", sizeof(timestamp_buf));
+	}
+	de_dbg(c, "%s: %"I64_FMT" (%s)", name, ts_raw, timestamp_buf);
+}
+
+static void read_timestamp_fields(deark *c, lctx *d, i64 pos1,
+	de_finfo *fi1, de_finfo *fi2)
+{
+	i64 pos = pos1;
+
+	read_one_timestamp(c, d, pos, NULL, NULL, "create date");
+	pos += 4;
+	read_one_timestamp(c, d, pos, fi1, fi2, "mod date");
+	pos += 4;
+	read_one_timestamp(c, d, pos, NULL, NULL, "backup date");
+	pos += 4;
+}
+
+static void do_extract_dir(deark *c, lctx *d, struct nodedata *nd,
+	struct recorddata *rd, de_finfo *fi)
+{
+	i64 pos = rd->datapos;
+	dbuf *outf = NULL;
+
+	pos += 2; // common fields, already read
+	pos += 2; // dirFlags
+	pos += 2; // dirVal
+	pos += 4; // dirDirID
+
+	read_timestamp_fields(c, d, pos, fi, NULL);
+	pos += 12;
+
+	fi->is_directory = 1;
+
+	outf = dbuf_create_output_file(c, NULL, fi, 0x0);
+	dbuf_close(outf);
+}
+
+struct fork_data {
+	i64 first_alloc_blk;
+	i64 logical_eof;
+	i64 physical_eof;
+};
+
+static void do_extract_file(deark *c, lctx *d, struct nodedata *nd,
+	struct recorddata *rd, de_finfo *fi_data, de_finfo *fi_rsrc)
+{
+	i64 pos = rd->datapos;
+	i64 n;
+	struct fork_data fkd_data;
+	struct fork_data fkd_rsrc;
+
+	pos += 2; // common fields, already read
+
+	n = (i64)de_getbyte_p(&pos);
+	de_dbg(c, "filFlags: %d", (int)n);
+
+	n = (i64)de_getbyte_p(&pos);
+	de_dbg(c, "filTyp: %d", (int)n);
+
+	pos += 16; // filUsrWds, Finder info
+
+	pos += 4; // filFlNum, file id
+
+	fkd_data.first_alloc_blk = de_getu16be_p(&pos);
+	de_dbg(c, "data fork first alloc blk: %d", (int)fkd_data.first_alloc_blk);
+	fkd_data.logical_eof = de_getu32be_p(&pos);
+	de_dbg(c, "data fork logical eof: %d", (int)fkd_data.logical_eof);
+	fkd_data.physical_eof = de_getu32be_p(&pos);
+	de_dbg(c, "data fork physical eof: %d", (int)fkd_data.physical_eof);
+
+	fkd_rsrc.first_alloc_blk = de_getu16be_p(&pos);
+	de_dbg(c, "rsrc fork first alloc blk: %d", (int)fkd_rsrc.first_alloc_blk);
+	fkd_rsrc.logical_eof = de_getu32be_p(&pos);
+	de_dbg(c, "rsrc fork logical eof: %d", (int)fkd_rsrc.logical_eof);
+	fkd_rsrc.physical_eof = de_getu32be_p(&pos);
+	de_dbg(c, "rsrc fork physical eof: %d", (int)fkd_rsrc.physical_eof);
+
+	read_timestamp_fields(c, d, pos, fi_data, fi_rsrc);
+	pos += 12;
+
+	//pos += 16; // filFndrInfo sizeof(FXInfo)
+	//pos += 2; // filClpSize
+}
+
+static void do_leaf_node_record_extract_item(deark *c, lctx *d, struct nodedata *nd,
+	struct recorddata *rd)
 {
 	de_ucstring *fullpath = NULL;
+	de_finfo *fi_data = NULL;
+	de_finfo *fi_rsrc = NULL;
+	i64 oldlen;
+
+	fi_data = de_finfo_create(c);
+	fi_data->original_filename_flag = 1;
+	fi_rsrc = de_finfo_create(c);
+	fi_rsrc->original_filename_flag = 1;
 
 	fullpath = ucstring_create(c);
-	get_full_path_from_dirid(c, d, ParID, fullpath);
+	get_full_path_from_dirid(c, d, rd->ParID, fullpath, 0);
 	de_dbg(c, "path: \"%s\"", ucstring_getpsz_d(fullpath));
+	oldlen = fullpath->len;
+	if(ucstring_isnonempty(rd->name)) {
+		ucstring_append_ucstring(fullpath, rd->name);
+	}
+	else {
+		ucstring_append_sz(fullpath, "_", DE_ENCODING_LATIN1);
+	}
+
+	squash_slashes(fullpath, oldlen);
+de_finfo_set_name_from_ucstring(c, fi_data, fullpath, DE_SNFLAG_FULLPATH);
+	if(rd->cdrType==CDRTYPE_FILE) {
+		ucstring_append_sz(fullpath, ".rsrc", DE_ENCODING_LATIN1);
+		de_finfo_set_name_from_ucstring(c, fi_rsrc, fullpath, DE_SNFLAG_FULLPATH);
+	}
+
+	if(rd->cdrType==CDRTYPE_DIR) {
+		do_extract_dir(c, d, nd, rd, fi_data);
+	}
+	else if(rd->cdrType==CDRTYPE_FILE) {
+		do_extract_file(c, d, nd, rd, fi_data, fi_rsrc);
+	}
 
 	ucstring_destroy(fullpath);
+	de_finfo_destroy(c, fi_data);
+	de_finfo_destroy(c, fi_rsrc);
 }
 
 static void do_leaf_node_record(deark *c, lctx *d, struct nodedata *nd, i64 idx, int pass)
 {
-	i64 pos1, pos1_rel, pos;
+	i64 pos1_rel, pos;
 	i64 len;
-	u32 ckrParID;
 	i64 ckrKeyLen;
 	i64 nlen;
-	i64 datapos;
-	int cdrType;
-	de_ucstring *name = NULL;
+	struct recorddata *rd = NULL;
 
+	rd = de_malloc(c, sizeof(struct recorddata));
 	pos1_rel = nd->offsets[idx];
-	pos1 = nd->dpos + pos1_rel;
+	rd->pos1 = nd->dpos + pos1_rel;
 	len = nd->offsets[idx+1] - nd->offsets[idx];
 	de_dbg(c, "leaf node record[%d] at %"I64_FMT"+%"I64_FMT", len=%"I64_FMT,
 		(int)idx, nd->dpos, pos1_rel, len);
 	de_dbg_indent(c, 1);
 
 	// == Catalog File Key
-	pos = pos1;
+	pos = rd->pos1;
 	ckrKeyLen = (i64)de_getbyte_p(&pos);
 	de_dbg(c, "ckrKeyLen: %d", (int)ckrKeyLen);
 	if(ckrKeyLen==0) {
@@ -271,41 +464,57 @@ static void do_leaf_node_record(deark *c, lctx *d, struct nodedata *nd, i64 idx,
 		goto done;
 	}
 
-	datapos = pos1 + 1 + ckrKeyLen;
-	if((ckrKeyLen%2)==0) datapos++; // padding
+	rd->datapos = rd->pos1 + 1 + ckrKeyLen;
+	if((ckrKeyLen%2)==0) rd->datapos++; // padding
 
 	// Look ahead to get the cdrType
-	cdrType = (int)dbuf_geti8(c->infile, datapos);
-	de_dbg(c, "cdrType: %d (%s)", cdrType, get_cdrType_name(cdrType));
+	rd->cdrType = (int)dbuf_geti8(c->infile, rd->datapos);
+	de_dbg(c, "cdrType: %d (%s)", rd->cdrType, get_cdrType_name(rd->cdrType));
 
-	if(cdrType!=1 && cdrType!=2) goto done;
-	if(cdrType==1 && pass!=1) goto done; // read directories in pass 1
-	if(cdrType==2 && pass!=2) goto done; // read files in pass 2
+	if(pass==1) {
+		if(rd->cdrType!=CDRTYPE_DIR) goto done;
+	}
+	else if(pass==2) {
+		if(rd->cdrType!=CDRTYPE_DIR && rd->cdrType!=CDRTYPE_FILE) goto done;
+	}
+	else {
+		goto done;
+	}
 
 	pos++; // ckrResrv1
-	ckrParID = (u32)de_getu32be_p(&pos);
-	de_dbg(c, "ckrParID: %u", (unsigned int)ckrParID);
+	rd->ParID = (u32)de_getu32be_p(&pos);
+	de_dbg(c, "ckrParID: %u", (unsigned int)rd->ParID);
 
 	nlen = (i64)de_getbyte_p(&pos);
 	de_dbg(c, "name len: %d", (int)nlen);
-	name = ucstring_create(c);
-	dbuf_read_to_ucstring(c->infile, pos, nlen, name, 0, d->input_encoding);
-	de_dbg(c, "name: \"%s\"", ucstring_getpsz_d(name));
+	rd->name = ucstring_create(c);
+	dbuf_read_to_ucstring(c->infile, pos, nlen, rd->name, 0, d->input_encoding);
+	de_dbg(c, "name: \"%s\"", ucstring_getpsz_d(rd->name));
 
 	// == Catalog File Data Record
 
-	switch(cdrType) {
-	case 1:
-		do_leaf_node_record_directory(c, d, nd, datapos, name, ckrParID);
+	switch(rd->cdrType) {
+	case CDRTYPE_DIR:
+		if(pass==1) {
+			do_leaf_node_record_directory_pass1(c, d, nd, rd);
+		}
+		else if(pass==2) {
+			do_leaf_node_record_extract_item(c, d, nd, rd);
+		}
 		break;
-	case 2:
-		do_leaf_node_record_file(c, d, nd, datapos, name, ckrParID);
+	case CDRTYPE_FILE:
+		if(pass==2) {
+			do_leaf_node_record_extract_item(c, d, nd, rd);
+		}
 		break;
 	}
 
 done:
 	de_dbg_indent(c, -1);
-	ucstring_destroy(name);
+	if(rd) {
+		ucstring_destroy(rd->name);
+		de_free(c, rd);
+	}
 }
 
 static void do_leaf_node(deark *c, lctx *d, struct nodedata *nd, int pass)
@@ -339,8 +548,11 @@ static int do_node(deark *c, lctx *d, struct nodedata *nd, int pass)
 	if(d->nesting_level>20) goto done;
 	if(nd->nodenum==0 && !nd->expecting_header) goto done;
 
-	if(pass==1 && !de_inthashtable_add_item(c, d->nodes_seen, nd->nodenum, NULL)) {
-		goto done;
+	if(pass==1) {
+		if(!de_inthashtable_add_item(c, d->nodes_seen, nd->nodenum, NULL)) {
+			de_err(c, "Invalid node list");
+			goto done;
+		}
 	}
 	retval = 1;
 
@@ -396,7 +608,7 @@ static int do_all_leaf_nodes(deark *c, lctx *d, struct nodedata *hdr_node, int p
 {
 	i64 curr_nodenum;
 	struct nodedata *nd = NULL;
-	int retval = 1;
+	int retval = 0;
 
 	de_dbg(c, "reading leaf nodes, pass %d", pass);
 	de_dbg_indent(c, 1);
@@ -430,7 +642,7 @@ static int do_catalog(deark *c, lctx *d)
 	int retval = 0;
 
 	de_dbg_indent_save(c, &saved_indent_level);
-	pos = allocation_blk_dpos(d, d->drCTExtRec_first_blk);
+	pos = allocation_blk_dpos(d, d->drCTExtRec[0].first_alloc_blk);
 	de_dbg(c, "catalog at %"I64_FMT, pos);
 
 	hdr_node = de_malloc(c, sizeof(struct nodedata));
@@ -445,7 +657,15 @@ static int do_catalog(deark *c, lctx *d)
 		goto done;
 	}
 
+	// TODO: In the leaf list, is it possible/legal for a parent-dir-ID number to
+	// appear before the record for that dir-ID? I haven't seen it happen, but
+	// for all I know it is possible. If it doesn't happen, that would be good,
+	// because we wouldn't have to make an extra pass to collect directory info.
+	// But for now, we'll make two passes.
+
+	// Pass 1 to figure out the directory tree structure, and detect node loops
 	if(!do_all_leaf_nodes(c, d, hdr_node, 1)) goto done;
+	// Pass 2 to extract files
 	if(!do_all_leaf_nodes(c, d, hdr_node, 2)) goto done;
 
 	retval = 1;
@@ -463,7 +683,6 @@ static void destroy_dirid_hash(deark *c, lctx *d)
 		i64 key;
 		void *removed_item = NULL;
 		struct dirid_item_struct *dirid_item;
-
 		if(!de_inthashtable_remove_any_item(c, d->dirid_hash, &key, &removed_item)) {
 			break;
 		}
