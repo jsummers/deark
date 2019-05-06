@@ -8,6 +8,12 @@
 #include <deark-private.h>
 DE_DECLARE_MODULE(de_module_sunras);
 
+struct color32desc_type {
+	u8 channel_shift[4];
+	u8 has_alpha; // 0=no, 1=yes, 2=autodetect
+	const char *name;
+};
+
 typedef struct localctx_struct {
 	i64 width, height;
 	i64 depth;
@@ -21,6 +27,9 @@ typedef struct localctx_struct {
 	i64 imgtype;
 	int is_compressed;
 	int is_rgb_order;
+	int user_set_fmt32;
+
+	struct color32desc_type color32desc;
 
 	i64 imglen;
 
@@ -72,15 +81,34 @@ static void do_image(deark *c, lctx *d, dbuf *unc_pixels)
 		de_err(c, "Bit depth %d not supported", (int)d->depth);
 		goto done;
 	}
-	if(d->depth==32) {
+	if(d->depth==32 && !d->user_set_fmt32) {
 		// Some apps think the extra channel comes first (e.g. xBGR); others
 		// think it comes last (BGRx).
 		// Some apps think the extra channel is for alpha; others think it is
 		// unused.
 		// Some apps think the color channels are always in BGR order; others
 		// think the order is RGB for RT_FORMAT_RGB format.
-		de_warn(c, "32-bit Sun Raster files are not portable");
+		//
+		// By default we use ARGB for RT_FORMAT_RGB, and ABGR otherwise, with
+		// alpha autodetected (alpha channel is ignored if all values are 0).
+
+		de_warn(c, "32-bit Sun Raster files are not portable. You may have to use "
+			"\"-opt sunras:fmt32=...\".");
+
+		d->color32desc.channel_shift[0] = 24; // A or x
+		d->color32desc.channel_shift[2] = 8;  // G
+		if(d->is_rgb_order) { // xrgb or argb
+			d->color32desc.channel_shift[1] = 16; // R
+			d->color32desc.channel_shift[3] = 0;  // B
+		}
+		else { // xbgr or abgr
+			d->color32desc.channel_shift[1] = 0;  // B
+			d->color32desc.channel_shift[3] = 16; // R
+		}
+
+		d->color32desc.has_alpha = 2;
 	}
+
 	if(!de_good_image_dimensions(c, d->width, d->height)) goto done;
 
 	src_bypp = d->depth/8;
@@ -90,6 +118,14 @@ static void do_image(deark *c, lctx *d, dbuf *unc_pixels)
 	}
 	else if(d->is_grayscale) {
 		dst_bypp = 1;
+	}
+	else if(d->depth==32) {
+		if(d->color32desc.has_alpha==0) {
+			dst_bypp = 3;
+		}
+		else {
+			dst_bypp = 4;
+		}
 	}
 	else {
 		dst_bypp = 3;
@@ -111,11 +147,25 @@ static void do_image(deark *c, lctx *d, dbuf *unc_pixels)
 				clr = d->pal[(unsigned int)b];
 				de_bitmap_setpixel_rgb(img, i, j, clr);
 			}
-			else if(d->depth==24 || d->depth==32) {
+			else if(d->depth==24) {
 				clr = dbuf_getRGB(unc_pixels, d->rowspan*j+i*src_bypp, getrgbflags);
 				de_bitmap_setpixel_rgb(img, i, j, clr);
 			}
+			else if(d->depth==32) {
+				u8 pixbuf[4];
+				dbuf_read(unc_pixels, pixbuf, d->rowspan*j+i*src_bypp, 4);
+				clr =
+					((unsigned int)pixbuf[0] << d->color32desc.channel_shift[0]) |
+					((unsigned int)pixbuf[1] << d->color32desc.channel_shift[1]) |
+					((unsigned int)pixbuf[2] << d->color32desc.channel_shift[2]) |
+					((unsigned int)pixbuf[3] << d->color32desc.channel_shift[3]);
+				de_bitmap_setpixel_rgba(img, i, j, clr);
+			}
 		}
+	}
+
+	if(d->depth==32 && d->color32desc.has_alpha==2) { // autodetect alpha
+		de_optimize_image_alpha(img, 0x1);
 	}
 
 	de_bitmap_write_to_file(img, NULL, 0);
@@ -212,16 +262,44 @@ static void do_uncompress_image(deark *c, lctx *d, i64 pos1, i64 len, dbuf *unc_
 	}
 }
 
+static void handle_options(deark *c, lctx *d)
+{
+	const char *fmt32;
+	// Table of user-configurable color "descriptors" for 32-bit images.
+	static const struct color32desc_type color32desc_arr[] = {
+		{ { 0,  8, 16, 24 }, 0, "bgrx" },
+		{ { 0,  8, 16, 24 }, 1, "bgra" },
+		{ {16,  8,  0, 24 }, 0, "rgbx" },
+		{ {16,  8,  0, 24 }, 1, "rgba" },
+		{ {24,  0,  8, 16 }, 0, "xbgr" },
+		{ {24,  0,  8, 16 }, 1, "abgr" },
+		{ {24, 16,  8,  0 }, 0, "xrgb" },
+		{ {24, 16,  8,  0 }, 1, "argb" }
+	};
+
+	fmt32 = de_get_ext_option(c, "sunras:fmt32");
+	if(fmt32) {
+		size_t k;
+		for(k=0; k<DE_ITEMS_IN_ARRAY(color32desc_arr); k++) {
+			if(!de_strcmp(fmt32, color32desc_arr[k].name)) {
+				d->color32desc = color32desc_arr[k]; // struct copy
+				d->user_set_fmt32 = 1;
+				break;
+			}
+		}
+	}
+}
+
 static void de_run_sunras(deark *c, de_module_params *mparams)
 {
 	lctx *d = NULL;
 	dbuf *unc_pixels = NULL;
 	i64 pos;
 	int saved_indent_level;
-
 	de_dbg_indent_save(c, &saved_indent_level);
 
 	d = de_malloc(c, sizeof(lctx));
+	handle_options(c, d);
 
 	pos = 0;
 	read_header(c, d, pos);
@@ -299,10 +377,18 @@ static int de_identify_sunras(deark *c)
 	return 0;
 }
 
+static void de_help_sunras(deark *c)
+{
+	de_msg(c, "-opt sunras:fmt32=<"
+		"xbgr|abgr|xrgb|argb|"
+		"bgrx|bgra|rgbx|rgba> : The interpretation of a 32-bit pixel");
+}
+
 void de_module_sunras(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "sunras";
 	mi->desc = "Sun Raster";
 	mi->run_fn = de_run_sunras;
 	mi->identify_fn = de_identify_sunras;
+	mi->help_fn = de_help_sunras;
 }

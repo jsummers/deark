@@ -448,6 +448,9 @@ Deark -- Information about supported formats
 
 * Sun Raster (module="sunras") (incomplete)
   - Supports most common image types
+  Options
+   -opt sunras:fmt32=<xbgr|abgr|xrgb|argb|bgrx|bgra|rgbx|rgba> - Specify the
+     interpretation of a 32-bit pixel
 
 * TGA (Targa) (module="tga")
 
