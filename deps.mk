@@ -10,7 +10,7 @@ $(OBJDIR)/modules/apm.o: modules/apm.c src/deark-config.h \
  src/deark-private.h src/deark.h
 $(OBJDIR)/modules/apple2-dsk.o: modules/apple2-dsk.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h
-$(OBJDIR)/modules/applesd.o: modules/applesd.c \
+$(OBJDIR)/modules/applesd.o: modules/applesd.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h
 $(OBJDIR)/modules/ar.o: modules/ar.c src/deark-config.h \
  src/deark-private.h src/deark.h

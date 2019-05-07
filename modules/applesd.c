@@ -6,6 +6,7 @@
 
 #include <deark-config.h>
 #include <deark-private.h>
+#include <deark-fmtutil.h>
 DE_DECLARE_MODULE(de_module_applesingle);
 DE_DECLARE_MODULE(de_module_appledouble);
 
@@ -93,6 +94,133 @@ static void handler_dates(deark *c, lctx *d, struct entry_struct *e)
 	do_one_date(c, d, e->offset+12, "access date", 0);
 }
 
+static void do_finder_orig(deark *c, lctx *d, struct entry_struct *e)
+{
+	i64 pos = e->offset;
+	struct de_fourcc filetype;
+	struct de_fourcc creator;
+
+	dbuf_read_fourcc(c->infile, pos, &filetype, 4, 0x0);
+	de_dbg(c, "filetype: '%s'", filetype.id_dbgstr);
+	pos += 4;
+	dbuf_read_fourcc(c->infile, pos, &creator, 4, 0x0);
+	de_dbg(c, "creator: '%s'", creator.id_dbgstr);
+	pos += 4;
+}
+
+static void do_xattr_entry(deark *c, lctx *d, struct de_stringreaderdata *name,
+	i64 pos1, i64 len)
+{
+	if(pos1+len > c->infile->len) return;
+
+	if(len>=8 && !dbuf_memcmp(c->infile, pos1, (const void*)"bplist00", 8)) {
+		de_dbg(c, "binary plist");
+		de_dbg_indent(c, 1);
+		de_fmtutil_handle_plist(c, c->infile, pos1, len, NULL, 0);
+		de_dbg_indent(c, -1);
+	}
+	else {
+		de_dbg_hexdump(c, c->infile, pos1, len, 256, NULL, 0x1);
+	}
+}
+
+static void do_finder_xattr(deark *c, lctx *d, struct entry_struct *e)
+{
+	i64 total_size;
+	i64 data_start;
+	i64 data_length;
+	i64 num_attrs;
+	i64 k;
+	unsigned int flags;
+	i64 pos = e->offset;
+	int saved_indent_level;
+	struct de_stringreaderdata *name = NULL;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+	pos += 32; // original finder data
+
+	// At this point, we are most likely at file offset 82, and there are
+	// normally 2 padding bytes for alignment. (This is really a hybrid format
+	// that violates the AppleDouble conventions.)
+	// I don't know for sure what we should do if we're somehow not at an
+	// offset such that (offset mod 4)==2.
+	pos = de_pad_to_4(pos);
+
+	de_dbg(c, "xattr table at %"I64_FMT, pos);
+	de_dbg_indent(c, 1);
+	pos += 4; // magic "ATTR"
+	pos += 4; // debug_tag
+	total_size = de_getu32be_p(&pos);
+	de_dbg(c, "total size: %"I64_FMT, total_size);
+	data_start = de_getu32be_p(&pos);
+	de_dbg(c, "data start: %"I64_FMT, data_start);
+	data_length = de_getu32be_p(&pos);
+	de_dbg(c, "data length: %"I64_FMT, data_length);
+	pos += 3*4; // reserved
+	flags = (unsigned int)de_getu16be_p(&pos);
+	de_dbg(c, "flags: 0x%04x", flags);
+	num_attrs = de_getu16be_p(&pos);
+	de_dbg(c, "num attrs: %d", (int)num_attrs);
+
+	for(k=0; k<num_attrs; k++) {
+		i64 entry_dpos, entry_dlen, entry_nlen;
+		unsigned int entry_flags;
+
+		// "Entries are aligned on 4 byte boundaries"
+		pos = de_pad_to_4(pos);
+
+		if(pos >= c->infile->len) goto done;
+
+		// TODO:  but I don't know
+		// what that means for the decoder.
+
+		de_dbg(c, "xattr entry[%d] at %"I64_FMT, (int)k, pos);
+		de_dbg_indent(c, 1);
+		entry_dpos = de_getu32be_p(&pos);
+		de_dbg(c, "dpos: %"I64_FMT, entry_dpos);
+		entry_dlen = de_getu32be_p(&pos);
+		de_dbg(c, "dlen: %"I64_FMT, entry_dlen);
+		entry_flags = (unsigned int)de_getu16be_p(&pos);
+		de_dbg(c, "flags: 0x%04x", entry_flags);
+		entry_nlen = (i64)de_getbyte_p(&pos);
+
+		if(name) {
+			de_destroy_stringreaderdata(c, name);
+		}
+		name = dbuf_read_string(c->infile, pos, entry_nlen, entry_nlen,
+			DE_CONVFLAG_STOP_AT_NUL, DE_ENCODING_UTF8);
+		de_dbg(c, "name: \"%s\"", ucstring_getpsz_d(name->str));
+
+		do_xattr_entry(c, d, name, entry_dpos, entry_dlen);
+		pos += entry_nlen;
+		de_dbg_indent(c, -1);
+	}
+
+done:
+	de_destroy_stringreaderdata(c, name);
+	de_dbg_indent_restore(c, saved_indent_level);
+}
+
+static void handler_finder(deark *c, lctx *d, struct entry_struct *e)
+{
+	int has_orig_finder_info = 0;
+	int has_xattr = 0;
+
+	if(e->length>=32 && (de_getbyte(e->offset) || de_getbyte(e->offset+4))) {
+		has_orig_finder_info = 1;
+	}
+	if(e->length>=62 && !dbuf_memcmp(c->infile, e->offset+34, (const void*)"ATTR", 4)) {
+		has_xattr = 1;
+	}
+
+	if(has_orig_finder_info) {
+		do_finder_orig(c, d, e);
+	}
+	if(has_xattr) {
+		do_finder_xattr(c, d, e);
+	}
+}
+
 static void handler_data(deark *c, lctx *d, struct entry_struct *e)
 {
 	de_finfo *fi = NULL;
@@ -153,7 +281,7 @@ static const struct entry_id_struct entry_id_arr[] = {
 	{5, "b/w icon", NULL},
 	{6, "color icon", NULL},
 	{8, "file dates", handler_dates},
-	{9, "Finder info", NULL},
+	{9, "Finder info", handler_finder},
 	{10, "Macintosh file info", NULL},
 	{11, "ProDOS file info", NULL},
 	{12, "MS-DOS file info", NULL},
