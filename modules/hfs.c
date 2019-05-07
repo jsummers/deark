@@ -88,11 +88,9 @@ static void read_ExtDataRecs(deark *c, lctx *d, i64 pos1,
 
 	for(i=0; i<num_eds; i++) {
 		eds[i].first_alloc_blk = de_getu16be_p(&pos);
-		de_dbg(c, "%s[%u].first_block: %u", name, (unsigned int)i,
-			(unsigned int)eds[i].first_alloc_blk);
 		eds[i].num_alloc_blks = de_getu16be_p(&pos);
-		de_dbg(c, "%s[%u].num_blocks: %u", name, (unsigned int)i,
-			(unsigned int)eds[i].num_alloc_blks);
+		de_dbg(c, "%s[%u]: first_blk=%u, num_blks=%u", name, (unsigned int)i,
+			(unsigned int)eds[i].first_alloc_blk, (unsigned int)eds[i].num_alloc_blks);
 	}
 }
 
@@ -309,6 +307,13 @@ static void read_one_timestamp(deark *c, lctx *d, i64 pos, de_finfo *fi1,
 	}
 	if(ts.is_valid) {
 		de_timestamp_to_string(&ts, timestamp_buf, sizeof(timestamp_buf), 0);
+
+		if(fi1) {
+			fi1->mod_time = ts;
+		}
+		if(fi2) {
+			fi2->mod_time = ts;
+		}
 	}
 	else {
 		de_strlcpy(timestamp_buf, "unknown", sizeof(timestamp_buf));
@@ -353,7 +358,56 @@ struct fork_data {
 	i64 first_alloc_blk;
 	i64 logical_eof;
 	i64 physical_eof;
+	struct ExtDescriptor ExtRec[3];
 };
+
+static void do_extract_fork(deark *c, lctx *d, struct recorddata *rd,
+	struct fork_data *fkd, de_finfo *fi, int is_rsrc)
+{
+	i64 dlen;
+	i64 len_avail;
+	i64 nbytes_still_to_write;
+	size_t k;
+	dbuf *outf = NULL;
+
+	dlen = fkd->logical_eof;
+	len_avail = d->drAlBlkSiz * (fkd->ExtRec[0].num_alloc_blks +
+		fkd->ExtRec[1].num_alloc_blks + fkd->ExtRec[2].num_alloc_blks);
+	if(dlen > len_avail) {
+		de_err(c, "%s: Files with more than 3 fragments are not supported",
+			ucstring_getpsz(rd->name));
+		goto done;
+	}
+
+	outf = dbuf_create_output_file(c, NULL, fi, 0x0);
+
+	nbytes_still_to_write = dlen;
+
+	for(k=0; k<3; k++) {
+		i64 fragment_dpos;
+		i64 nbytes_to_write_this_time;
+
+		if(nbytes_still_to_write<=0) break;
+
+		fragment_dpos = allocation_blk_dpos(d, fkd->ExtRec[k].first_alloc_blk);
+		nbytes_to_write_this_time = d->drAlBlkSiz * fkd->ExtRec[k].num_alloc_blks;
+		if(nbytes_to_write_this_time > nbytes_still_to_write) {
+			nbytes_to_write_this_time = nbytes_still_to_write;
+		}
+
+		if(fragment_dpos + nbytes_to_write_this_time > c->infile->len) {
+			de_err(c, "Member file data goes beyond end of file");
+			goto done;
+		}
+
+		dbuf_copy(c->infile, fragment_dpos, nbytes_to_write_this_time, outf);
+
+		nbytes_still_to_write -= nbytes_to_write_this_time;
+	}
+
+done:
+	dbuf_close(outf);
+}
 
 static void do_extract_file(deark *c, lctx *d, struct nodedata *nd,
 	struct recorddata *rd, de_finfo *fi_data, de_finfo *fi_rsrc)
@@ -392,8 +446,22 @@ static void do_extract_file(deark *c, lctx *d, struct nodedata *nd,
 	read_timestamp_fields(c, d, pos, fi_data, fi_rsrc);
 	pos += 12;
 
-	//pos += 16; // filFndrInfo sizeof(FXInfo)
-	//pos += 2; // filClpSize
+	pos += 16; // filFndrInfo sizeof(FXInfo)
+
+	n = de_getu16be_p(&pos);
+	de_dbg(c, "filClpSize: %d", (int)n);
+
+	read_ExtDataRecs(c, d, pos, fkd_data.ExtRec, 3, "filExtRec");
+	pos += 12;
+	read_ExtDataRecs(c, d, pos, fkd_rsrc.ExtRec, 3, "filRExtRec");
+	pos += 12;
+
+	if(fkd_data.logical_eof>0 || fkd_rsrc.logical_eof==0) {
+		do_extract_fork(c, d, rd, &fkd_data, fi_data, 0);
+	}
+	if(fkd_rsrc.logical_eof>0) {
+		do_extract_fork(c, d, rd, &fkd_rsrc, fi_rsrc, 1);
+	}
 }
 
 static void do_leaf_node_record_extract_item(deark *c, lctx *d, struct nodedata *nd,
@@ -421,7 +489,7 @@ static void do_leaf_node_record_extract_item(deark *c, lctx *d, struct nodedata 
 	}
 
 	squash_slashes(fullpath, oldlen);
-de_finfo_set_name_from_ucstring(c, fi_data, fullpath, DE_SNFLAG_FULLPATH);
+	de_finfo_set_name_from_ucstring(c, fi_data, fullpath, DE_SNFLAG_FULLPATH);
 	if(rd->cdrType==CDRTYPE_FILE) {
 		ucstring_append_sz(fullpath, ".rsrc", DE_ENCODING_LATIN1);
 		de_finfo_set_name_from_ucstring(c, fi_rsrc, fullpath, DE_SNFLAG_FULLPATH);
