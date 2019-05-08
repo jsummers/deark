@@ -80,6 +80,34 @@ static i64 node_dpos(lctx *d, i64 nodenum)
 	return allocation_blk_dpos(d, d->drCTExtRec[0].first_alloc_blk) + 512 * nodenum;
 }
 
+static void read_one_timestamp(deark *c, lctx *d, i64 pos, de_finfo *fi1,
+	de_finfo *fi2, const char *name)
+{
+	i64 ts_raw;
+	struct de_timestamp ts;
+	char timestamp_buf[64];
+
+	ts.is_valid = 0;
+	ts_raw = de_getu32be(pos);
+	if(ts_raw!=0) {
+		de_mac_time_to_timestamp(ts_raw, &ts);
+	}
+	if(ts.is_valid) {
+		de_timestamp_to_string(&ts, timestamp_buf, sizeof(timestamp_buf), 0);
+
+		if(fi1) {
+			fi1->mod_time = ts;
+		}
+		if(fi2) {
+			fi2->mod_time = ts;
+		}
+	}
+	else {
+		de_strlcpy(timestamp_buf, "unknown", sizeof(timestamp_buf));
+	}
+	de_dbg(c, "%s: %"I64_FMT" (%s)", name, ts_raw, timestamp_buf);
+}
+
 static void read_ExtDataRecs(deark *c, lctx *d, i64 pos1,
 	struct ExtDescriptor *eds, size_t num_eds, const char *name)
 {
@@ -106,8 +134,10 @@ static int do_master_directory_blocks(deark *c, lctx *d, i64 blknum)
 	de_dbg_indent(c, 1);
 
 	pos += 2; // signature
-	pos += 4; // creation time
-	pos += 4; // last mod time
+	read_one_timestamp(c, d, pos, NULL, NULL, "vol. create date");
+	pos += 4;
+	read_one_timestamp(c, d, pos, NULL, NULL, "vol. last mod date");
+	pos += 4;
 	pos += 2; // attribs
 
 	d->num_files_in_root_dir = de_getu16be_p(&pos); // drNmFls
@@ -293,34 +323,6 @@ static void get_full_path_from_dirid(deark *c, lctx *d, u32 dirid, de_ucstring *
 done:
 	;
 }
-static void read_one_timestamp(deark *c, lctx *d, i64 pos, de_finfo *fi1,
-	de_finfo *fi2, const char *name)
-{
-	i64 ts_raw;
-	struct de_timestamp ts;
-	char timestamp_buf[64];
-
-	ts.is_valid = 0;
-	ts_raw = de_getu32be(pos);
-	if(ts_raw!=0) {
-		de_mac_time_to_timestamp(ts_raw, &ts);
-	}
-	if(ts.is_valid) {
-		de_timestamp_to_string(&ts, timestamp_buf, sizeof(timestamp_buf), 0);
-
-		if(fi1) {
-			fi1->mod_time = ts;
-		}
-		if(fi2) {
-			fi2->mod_time = ts;
-		}
-	}
-	else {
-		de_strlcpy(timestamp_buf, "unknown", sizeof(timestamp_buf));
-	}
-	de_dbg(c, "%s: %"I64_FMT" (%s)", name, ts_raw, timestamp_buf);
-}
-
 static void read_timestamp_fields(deark *c, lctx *d, i64 pos1,
 	de_finfo *fi1, de_finfo *fi2)
 {
@@ -374,6 +376,7 @@ static void do_extract_fork(deark *c, lctx *d, struct recorddata *rd,
 	len_avail = d->drAlBlkSiz * (fkd->ExtRec[0].num_alloc_blks +
 		fkd->ExtRec[1].num_alloc_blks + fkd->ExtRec[2].num_alloc_blks);
 	if(dlen > len_avail) {
+		// TODO: Need to be able to read the Extents Overflow tree.
 		de_err(c, "%s: Files with more than 3 fragments are not supported",
 			ucstring_getpsz(rd->name));
 		goto done;
@@ -409,6 +412,20 @@ done:
 	dbuf_close(outf);
 }
 
+static void read_finder_info(deark *c, lctx *d, i64 pos1)
+{
+	i64 pos = pos1;
+	struct de_fourcc filetype;
+	struct de_fourcc creator;
+
+	dbuf_read_fourcc(c->infile, pos, &filetype, 4, 0x0);
+	de_dbg(c, "filetype: '%s'", filetype.id_dbgstr);
+	pos += 4;
+	dbuf_read_fourcc(c->infile, pos, &creator, 4, 0x0);
+	de_dbg(c, "creator: '%s'", creator.id_dbgstr);
+	pos += 4;
+}
+
 static void do_extract_file(deark *c, lctx *d, struct nodedata *nd,
 	struct recorddata *rd, de_finfo *fi_data, de_finfo *fi_rsrc)
 {
@@ -425,6 +442,7 @@ static void do_extract_file(deark *c, lctx *d, struct nodedata *nd,
 	n = (i64)de_getbyte_p(&pos);
 	de_dbg(c, "filTyp: %d", (int)n);
 
+	read_finder_info(c, d, pos);
 	pos += 16; // filUsrWds, Finder info
 
 	pos += 4; // filFlNum, file id
@@ -478,7 +496,11 @@ static void do_leaf_node_record_extract_item(deark *c, lctx *d, struct nodedata 
 	fi_rsrc->original_filename_flag = 1;
 
 	fullpath = ucstring_create(c);
+
+	// TODO: This is not very efficient. Maybe we should at least cache the
+	// previous file's path, since it's usually the same.
 	get_full_path_from_dirid(c, d, rd->ParID, fullpath, 0);
+
 	de_dbg(c, "path: \"%s\"", ucstring_getpsz_d(fullpath));
 	oldlen = fullpath->len;
 	if(ucstring_isnonempty(rd->name)) {
@@ -767,7 +789,14 @@ static void de_run_hfs(deark *c, de_module_params *mparams)
 	lctx *d = NULL;
 
 	d = de_malloc(c, sizeof(lctx));
-	d->input_encoding = DE_ENCODING_MACROMAN;
+
+	if(c->input_encoding==DE_ENCODING_UNKNOWN) {
+		d->input_encoding = DE_ENCODING_MACROMAN;
+	}
+	else {
+		d->input_encoding = c->input_encoding;
+	}
+
 	d->blocksize = 512;
 	d->nodes_seen = de_inthashtable_create(c);
 	d->dirid_hash = de_inthashtable_create(c);
@@ -786,14 +815,17 @@ done:
 
 static int de_identify_hfs(deark *c)
 {
+	i64 drAlBlkSiz;
 	int has_ext;
 
-	// TODO: Better detection.
+	if(dbuf_memcmp(c->infile, 1024, "BD", 2)) return 0;
+
+	// Allocation block size must be a nonzero multiple of 512.
+	drAlBlkSiz = de_getu32be(1024+20);
+	if(drAlBlkSiz==0 || (drAlBlkSiz%512)!=0) return 0;
+
 	has_ext = de_input_file_has_ext(c, "hfs");
-	if(!dbuf_memcmp(c->infile, 1024, "BD", 2)) {
-		return has_ext?90:5;
-	}
-	return 0;
+	return has_ext?90:15;
 }
 
 void de_module_hfs(deark *c, struct deark_module_info *mi)
@@ -802,5 +834,4 @@ void de_module_hfs(deark *c, struct deark_module_info *mi)
 	mi->desc = "HFS filesystem image";
 	mi->run_fn = de_run_hfs;
 	mi->identify_fn = de_identify_hfs;
-	mi->flags |= DE_MODFLAG_NONWORKING;
 }
