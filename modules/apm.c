@@ -36,6 +36,9 @@ static void do_extract_partition(deark *c, lctx *d, struct partition_info *pi)
 	de_finfo *fi = NULL;
 	const char *ext = "partition";
 	i64 len_to_extract;
+	int use_pname_in_name = 1;
+	int use_ptype_in_name = 1;
+	de_ucstring *outfname = NULL;
 
 	if(pi->partition_startpos >= c->infile->len) goto done;
 	len_to_extract = pi->partition_size_in_bytes;
@@ -45,13 +48,39 @@ static void do_extract_partition(deark *c, lctx *d, struct partition_info *pi)
 	}
 
 	fi = de_finfo_create(c);
-	de_finfo_set_name_from_ucstring(c, fi, pi->ptype->str, 0);
+	outfname = ucstring_create(c);
 
 	if(!de_strcmp(pi->ptype->sz, "Apple_partition_map")) {
 		ext = "bin";
+		use_pname_in_name = 0;
 	}
 	else if(!de_strcmp(pi->ptype->sz, "Apple_HFS")) {
-		ext = "hfs";
+		unsigned int sig = (unsigned int)de_getu16be(pi->partition_startpos+1024);
+		if(sig==0x4244) { // "BD"
+			ext = "hfs";
+			use_ptype_in_name = 0;
+		}
+		else if(sig==0x482b) { // "H+"
+			ext="hfs+.hfs";
+			use_ptype_in_name = 0;
+		}
+		else if(sig==0x4858) { // "HX"
+			ext="hfsx.hfs";
+			use_ptype_in_name = 0;
+		}
+	}
+
+	if(use_pname_in_name && ucstring_isnonempty(pi->pname)) {
+		ucstring_append_ucstring(outfname, pi->pname);
+	}
+	if(use_ptype_in_name && ucstring_isnonempty(pi->ptype->str)) {
+		if(outfname->len>1) {
+			ucstring_append_sz(outfname, ".", DE_ENCODING_LATIN1);
+		}
+		ucstring_append_ucstring(outfname, pi->ptype->str);
+	}
+	if(outfname->len>1) {
+		de_finfo_set_name_from_ucstring(c, fi, outfname, 0);
 	}
 
 	dbuf_create_file_from_slice(c->infile, pi->partition_startpos,
@@ -59,6 +88,7 @@ static void do_extract_partition(deark *c, lctx *d, struct partition_info *pi)
 
 done:
 	de_finfo_destroy(c, fi);
+	ucstring_destroy(outfname);
 }
 
 static int do_entry_at_sector(deark *c, lctx *d, i64 secnum)
