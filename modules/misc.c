@@ -44,6 +44,7 @@ DE_DECLARE_MODULE(de_module_bld);
 DE_DECLARE_MODULE(de_module_megapaint_pat);
 DE_DECLARE_MODULE(de_module_megapaint_lib);
 DE_DECLARE_MODULE(de_module_compress);
+DE_DECLARE_MODULE(de_module_gws_thn);
 
 // **************************************************************************
 // "copy" module
@@ -2090,6 +2091,10 @@ void de_module_megapaint_lib(deark *c, struct deark_module_info *mi)
 	mi->identify_fn = de_identify_megapaint_lib;
 }
 
+// **************************************************************************
+// compress (.Z)
+// **************************************************************************
+
 static void de_run_compress(deark *c, de_module_params *mparams)
 {
 	dbuf *f = NULL;
@@ -2112,4 +2117,83 @@ void de_module_compress(deark *c, struct deark_module_info *mi)
 	mi->desc = "Compress (.Z)";
 	mi->run_fn = de_run_compress;
 	mi->identify_fn = de_identify_compress;
+}
+
+// **************************************************************************
+// Graphic Workshop .THN
+// **************************************************************************
+
+static void de_run_gws_thn(deark *c, de_module_params *mparams)
+{
+	de_bitmap *img = NULL;
+	u8 v1, v2;
+	i64 w, h;
+	i64 pos;
+	u32 pal[256];
+
+	// This code is based on reverse engineering, and may be incorrect.
+	pos = 4;
+	v1 = de_getbyte_p(&pos);
+	v2 = de_getbyte_p(&pos);
+	de_dbg(c, "version?: 0x%02x 0x%02x", (unsigned int)v1, (unsigned int)v2);
+	// TODO: There are some text fields here.
+	pos = 264;
+	de_dbg(c, "image at %"I64_FMT, pos);
+	w = 96;
+	h = 96;
+
+	// Set up the palette. There are two possible fixed palettes.
+	// These palettes are based on the behavior of Graphic Workshop v1.1u for
+	// Windows.
+	if(v1==0) { // Original palette
+		// Note that there are only about 167 unique colors.
+		static const u8 rvals[6] = {0x00,0x49,0x92,0xb6,0xdb,0xff};
+		static const u8 gvals[7] = {0x00,0x24,0x49,0x92,0xb6,0xdb,0xff};
+		static const u8 bvals[6] = {0x00,0x55,0xaa,0xaa,0xff,0xff};
+		static const u32 gwspal_last5[5] = {0x494955,0x6d6d55,0x9292aa,
+			0xb6b6aa,0xffffff};
+		unsigned int k;
+
+		for(k=0; k<=250; k++) {
+			pal[k] = DE_MAKE_RGB(
+				rvals[k%6],
+				gvals[(k%42)/6],
+				bvals[k/42]);
+		}
+		for(k=251; k<=255; k++) {
+			pal[k] = gwspal_last5[k-251];
+		}
+	}
+	else { // New palette (really RGB332), introduced by v1.1c
+		unsigned int k;
+
+		for(k=0; k<256; k++) {
+			u8 r, g, b;
+			r = de_sample_nbit_to_8bit(3, k>>5);
+			g = de_sample_nbit_to_8bit(3, (k>>2)&0x07);
+			b = de_sample_nbit_to_8bit(2, k&0x03);
+			pal[k] = DE_MAKE_RGB(r, g, b);
+		}
+	}
+
+	img = de_bitmap_create(c, w, h, 3);
+	de_convert_image_paletted(c->infile, pos, 8, w, pal, img, 0);
+	img->flipped = 1;
+	de_bitmap_write_to_file(img, NULL, 0);
+	de_bitmap_destroy(img);
+}
+
+static int de_identify_gws_thn(deark *c)
+{
+	if(c->infile->len!=9480) return 0;
+	if(!dbuf_memcmp(c->infile, 0, "THNL", 4)) return 100;
+	return 0;
+}
+
+void de_module_gws_thn(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "gws_thn";
+	mi->desc = "Graphic Workshop thumbnail .THN";
+	mi->run_fn = de_run_gws_thn;
+	mi->identify_fn = de_identify_gws_thn;
 }

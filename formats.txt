@@ -171,6 +171,8 @@ Deark -- Information about supported formats
 
 * GodPaint (Atari Falcon) (module="godpaint")
 
+* Graphic Workshop thumbnail (.thn) (module="gws_thn")
+
 * GRASP GL animation (module="graspgl")
   - Extracts all files.
 
