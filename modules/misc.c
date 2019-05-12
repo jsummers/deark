@@ -2143,28 +2143,26 @@ static void de_run_gws_thn(deark *c, de_module_params *mparams)
 	h = 96;
 
 	// Set up the palette. There are two possible fixed palettes.
-	// These palettes are based on the behavior of Graphic Workshop v1.1u for
-	// Windows.
 	if(v1==0) { // Original palette
-		// Note that there are only about 167 unique colors.
-		static const u8 rvals[6] = {0x00,0x49,0x92,0xb6,0xdb,0xff};
-		static const u8 gvals[7] = {0x00,0x24,0x49,0x92,0xb6,0xdb,0xff};
-		static const u8 bvals[6] = {0x00,0x55,0xaa,0xaa,0xff,0xff};
-		static const u32 gwspal_last5[5] = {0x494955,0x6d6d55,0x9292aa,
-			0xb6b6aa,0xffffff};
+		// Based on Graphic Workshop v1.1a for Windows
+		static const u8 rbvals[6] = {0x00,0x57,0x83,0xab,0xd7,0xff};
+		static const u8 gvals[7] = {0x00,0x2b,0x57,0x83,0xab,0xd7,0xff};
+		static const u32 gwspal_last5[5] = {0x3f3f3f,0x6b6b6b,0x979797,
+			0xc3c3c3,0xffffff};
 		unsigned int k;
 
 		for(k=0; k<=250; k++) {
 			pal[k] = DE_MAKE_RGB(
-				rvals[k%6],
+				rbvals[k%6],
 				gvals[(k%42)/6],
-				bvals[k/42]);
+				rbvals[k/42]);
 		}
 		for(k=251; k<=255; k++) {
 			pal[k] = gwspal_last5[k-251];
 		}
 	}
 	else { // New palette (really RGB332), introduced by v1.1c
+		// Based on Graphic Workshop v1.1u for Windows
 		unsigned int k;
 
 		for(k=0; k<256; k++) {
