@@ -2130,14 +2130,28 @@ static void de_run_gws_thn(deark *c, de_module_params *mparams)
 	u8 v1, v2;
 	i64 w, h;
 	i64 pos;
+	int encoding;
+	de_ucstring *s = NULL;
 	u32 pal[256];
 
 	// This code is based on reverse engineering, and may be incorrect.
+	encoding = c->input_encoding;
+	if(c->input_encoding==DE_ENCODING_UNKNOWN)
+		encoding = DE_ENCODING_WINDOWS1252;
 	pos = 4;
 	v1 = de_getbyte_p(&pos);
 	v2 = de_getbyte_p(&pos);
 	de_dbg(c, "version?: 0x%02x 0x%02x", (unsigned int)v1, (unsigned int)v2);
-	// TODO: There are some text fields here.
+
+	s = ucstring_create(c);
+	// For the text fields, the field size appears to be 129, but the software
+	// only properly supports up to 127 non-NUL bytes.
+	dbuf_read_to_ucstring(c->infile, 6, 127, s, DE_CONVFLAG_STOP_AT_NUL, encoding);
+	if(s->len>0) de_dbg(c, "comments: \"%s\"", ucstring_getpsz_d(s));
+	ucstring_empty(s);
+	dbuf_read_to_ucstring(c->infile, 135, 127, s, DE_CONVFLAG_STOP_AT_NUL, encoding);
+	if(s->len>0) de_dbg(c, "key words: \"%s\"", ucstring_getpsz_d(s));
+
 	pos = 264;
 	de_dbg(c, "image at %"I64_FMT, pos);
 	w = 96;
@@ -2180,6 +2194,7 @@ static void de_run_gws_thn(deark *c, de_module_params *mparams)
 	img->flipped = 1;
 	de_bitmap_write_to_file(img, NULL, 0);
 	de_bitmap_destroy(img);
+	ucstring_destroy(s);
 }
 
 static int de_identify_gws_thn(deark *c)
