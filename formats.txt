@@ -125,6 +125,8 @@ Deark -- Information about supported formats
    -opt atari:palbits=<n> (refer to readme.md)
    -opt atari:respectpal - Don't ignore a seemingly bad 2-color palette
 
+* DeskMate Paint .PNT (module="deskmate_pnt")
+
 * Doodle (Atari) (module="doodle")
   - Supports high resolution (640x400) only
 

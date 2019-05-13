@@ -45,6 +45,7 @@ DE_DECLARE_MODULE(de_module_megapaint_pat);
 DE_DECLARE_MODULE(de_module_megapaint_lib);
 DE_DECLARE_MODULE(de_module_compress);
 DE_DECLARE_MODULE(de_module_gws_thn);
+DE_DECLARE_MODULE(de_module_deskmate_pnt);
 
 // **************************************************************************
 // "copy" module
@@ -2194,4 +2195,73 @@ void de_module_gws_thn(deark *c, struct deark_module_info *mi)
 	mi->desc = "Graphic Workshop thumbnail .THN";
 	mi->run_fn = de_run_gws_thn;
 	mi->identify_fn = de_identify_gws_thn;
+}
+
+// **************************************************************************
+// Tandy DeskMate Paint .PNT
+// **************************************************************************
+
+static void de_run_deskmate_pnt(deark *c, de_module_params *mparams)
+{
+	i64 w, h;
+	i64 rowspan;
+	i64 pos = 0;
+	int k;
+	int is_compressed;
+	de_bitmap *img = NULL;
+	dbuf *unc_pixels = NULL;
+	i64 unc_pixels_size;
+	u32 pal[16];
+
+	pos += 22;
+	w = 312;
+	h = 176;
+	rowspan = w/2;
+	unc_pixels_size = rowspan * h;
+
+	for(k=0; k<16; k++) {
+		pal[k] = de_palette_pc16(k);
+	}
+
+	is_compressed = (pos+unc_pixels_size != c->infile->len);
+	de_dbg(c, "compressed: %d", is_compressed);
+
+	if(is_compressed) {
+		unc_pixels = dbuf_create_membuf(c, unc_pixels_size, 0x1);
+		while(1) {
+			i64 count;
+			u8 val;
+
+			if(pos >= c->infile->len) break; // out of source data
+			if(unc_pixels->len >= unc_pixels_size) break; // enough dst data
+			val = de_getbyte_p(&pos);
+			count = (i64)de_getbyte_p(&pos);
+			dbuf_write_run(unc_pixels, val, count);
+		}
+	}
+	else {
+		unc_pixels = dbuf_open_input_subfile(c->infile, pos, unc_pixels_size);
+	}
+
+	de_dbg(c, "image at %"I64_FMT, pos);
+	img = de_bitmap_create(c, w, h, 3);
+	de_convert_image_paletted(unc_pixels, 0, 4, rowspan, pal, img, 0);
+	de_bitmap_write_to_file(img, NULL, 0);
+
+	dbuf_close(unc_pixels);
+	de_bitmap_destroy(img);
+}
+
+static int de_identify_deskmate_pnt(deark *c)
+{
+	if(!dbuf_memcmp(c->infile, 0, "\x13" "PNT", 4)) return 100;
+	return 0;
+}
+
+void de_module_deskmate_pnt(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "deskmate_pnt";
+	mi->desc = "Tandy DeskMate Paint";
+	mi->run_fn = de_run_deskmate_pnt;
+	mi->identify_fn = de_identify_deskmate_pnt;
 }
