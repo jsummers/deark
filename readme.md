@@ -105,7 +105,7 @@ Command-line options:
    Equivalent to "-firstfile &lt;n> -maxfiles 1".
    To unconditionally show the file identifiers, use "-l -opt list:fileid".
 -maxfilesize &lt;n>
-   Do not write files larger than &lt;n> bytes. The default is 10 GiB.
+   Do not write a file larger than &lt;n> bytes. The default is 10 GiB.
    This is an "emergency brake". If the limit is exceeded, Deark will stop all
    processing.
    This setting is for physical output files, so if you use -zip/-tar, it
