@@ -57,6 +57,7 @@ typedef struct localctx_struct {
 #define SUBFMT_TIFF37680  3
 	int subformat_req;
 	int subformat_final;
+	int thumbsdb_msrgba_mode;
 	u8 extract_raw_streams;
 	u8 decode_streams;
 	u8 dump_dir_structure;
@@ -548,6 +549,80 @@ static i64 lookup_thumbsdb_catalog_entry(deark *c, lctx *d, struct dir_entry_inf
 	return -1;
 }
 
+// This function tries to better handle a special nonstandard JPEG thumbnail format
+// that I'm calling MSRGBA.
+// We can't *really* handle it, because Deark doesn't decompress lossy formats, and
+// AFAIK there is no standard format that we can losslessly convert it to.
+// What we can do is add the missing quantization and Huffman tables, and add a
+// custom segment to help identify the format.
+// This should allow most JPEG viewers to decode the image, though most will guess
+// it is CMYK, and display the colors all wrong (often all black).
+// Note that the component ID numbers are ASCII 'R','G','B','A'.
+// Based on my (possibly wrong) analysis, the 'R' channel is blue(!), 'G' is green,
+// 'B' is red, and 'A' can be either opacity, or unused (dunno how to tell which).
+//
+// hdrsize is the length of just the first header.
+// Returns 0 if nothing was extracted.
+static int thumbsdb_msrgba_special_extract(deark *c, lctx *d, struct dir_entry_info *dei,
+	i64 hdrsize, dbuf *outf)
+{
+	static const u8 qtable0[69] = {
+		0xff,0xdb,0x00,0x43,0x00,0x08,0x06,0x06,0x07,0x06,0x05,0x08,0x07,0x07,0x07,0x09,
+		0x09,0x08,0x0a,0x0c,0x14,0x0d,0x0c,0x0b,0x0b,0x0c,0x19,0x12,0x13,0x0f,0x14,0x1d,
+		0x1a,0x1f,0x1e,0x1d,0x1a,0x1c,0x1c,0x20,0x24,0x2e,0x27,0x20,0x22,0x2c,0x23,0x1c,
+		0x1c,0x28,0x37,0x29,0x2c,0x30,0x31,0x34,0x34,0x34,0x1f,0x27,0x39,0x3d,0x38,0x32,
+		0x3c,0x2e,0x33,0x34,0x32};
+	static const u8 htables[212] = {
+		0xff,0xc4,0x00,0xd2,0x00,0x00,0x01,0x05,0x01,0x01,0x01,0x01,0x01,0x01,0x00,0x00,
+		0x00,0x00,0x00,0x00,0x00,0x00,0x01,0x02,0x03,0x04,0x05,0x06,0x07,0x08,0x09,0x0a,
+		0x0b,0x10,0x00,0x02,0x01,0x03,0x03,0x02,0x04,0x03,0x05,0x05,0x04,0x04,0x00,0x00,
+		0x01,0x7d,0x01,0x02,0x03,0x00,0x04,0x11,0x05,0x12,0x21,0x31,0x41,0x06,0x13,0x51,
+		0x61,0x07,0x22,0x71,0x14,0x32,0x81,0x91,0xa1,0x08,0x23,0x42,0xb1,0xc1,0x15,0x52,
+		0xd1,0xf0,0x24,0x33,0x62,0x72,0x82,0x09,0x0a,0x16,0x17,0x18,0x19,0x1a,0x25,0x26,
+		0x27,0x28,0x29,0x2a,0x34,0x35,0x36,0x37,0x38,0x39,0x3a,0x43,0x44,0x45,0x46,0x47,
+		0x48,0x49,0x4a,0x53,0x54,0x55,0x56,0x57,0x58,0x59,0x5a,0x63,0x64,0x65,0x66,0x67,
+		0x68,0x69,0x6a,0x73,0x74,0x75,0x76,0x77,0x78,0x79,0x7a,0x83,0x84,0x85,0x86,0x87,
+		0x88,0x89,0x8a,0x92,0x93,0x94,0x95,0x96,0x97,0x98,0x99,0x9a,0xa2,0xa3,0xa4,0xa5,
+		0xa6,0xa7,0xa8,0xa9,0xaa,0xb2,0xb3,0xb4,0xb5,0xb6,0xb7,0xb8,0xb9,0xba,0xc2,0xc3,
+		0xc4,0xc5,0xc6,0xc7,0xc8,0xc9,0xca,0xd2,0xd3,0xd4,0xd5,0xd6,0xd7,0xd8,0xd9,0xda,
+		0xe1,0xe2,0xe3,0xe4,0xe5,0xe6,0xe7,0xe8,0xe9,0xea,0xf1,0xf2,0xf3,0xf4,0xf5,0xf6,
+		0xf7,0xf8,0xf9,0xfa};
+	i64 inf_pos;
+	i64 idseg_len;
+
+	if(dei->stream_size<hdrsize+16+2+22) return 0;
+	inf_pos = hdrsize+16; // Also skip past the 16-byte extra header
+
+	// SOI
+	copy_any_stream_to_dbuf(c, d, dei, inf_pos, 2, outf);
+	inf_pos += 2;
+
+	// Special APP1 segment to record both headers, and identify the format.
+	dbuf_write(outf, (const u8*)"\xff\xe1", 2);
+	idseg_len = 2 + 12 + 1 + hdrsize + 16;
+	dbuf_writeu16be(outf, idseg_len);
+	dbuf_write(outf, (const u8*)"Deark_MSRGBA\0", 13);
+	copy_any_stream_to_dbuf(c, d, dei, 0, hdrsize+16, outf);
+
+	// DQT
+	dbuf_write(outf, qtable0, sizeof(qtable0));
+	// TODO: Do we ever need another quantization table?
+
+	// SOF0
+	// TODO?: This code is fragile. We could parse the JPEG data, instead of
+	// just hoping it is laid out like we expect.
+	copy_any_stream_to_dbuf(c, d, dei, inf_pos, 22, outf);
+	inf_pos += 22;
+
+	// DHT
+	dbuf_write(outf, htables, sizeof(htables));
+
+	// The rest of the file
+	copy_any_stream_to_dbuf(c, d, dei, inf_pos, dei->stream_size-inf_pos, outf);
+
+	return 1;
+}
+
 // Special handling of Thumbs.db files.
 // Caller sets fi and tmpfn to default values. This function may modify them.
 // firstpart = caller-supplied dbuf containing the first 256 or so bytes of the stream
@@ -562,6 +637,7 @@ static void do_extract_stream_to_file_thumbsdb(deark *c, lctx *d, struct dir_ent
 	i64 reported_size;
 	i64 startpos;
 	i64 final_streamsize;
+	int is_msrgba = 0;
 
 	if(dei->is_thumbsdb_catalog) {
 		// We've already read the catalog.
@@ -631,13 +707,8 @@ static void do_extract_stream_to_file_thumbsdb(deark *c, lctx *d, struct dir_ent
 			sig2[0]==0xff && sig2[1]==0xd8)
 		{
 			// Looks like a nonstandard Microsoft RGBA JPEG.
-			// These seem to have an additional 16-byte header, before the
-			// JPEG data starts. I'm not sure if I should keep it, but it
-			// doesn't look like it contains any vital information, so
-			// I'll strip if off.
 			ext = "msrgbajpg";
-			startpos += 16;
-			final_streamsize -= 16;
+			is_msrgba = 1;
 		}
 		else ext = "bin";
 
@@ -654,6 +725,20 @@ static void do_extract_stream_to_file_thumbsdb(deark *c, lctx *d, struct dir_ent
 	fi->original_filename_flag = 1;
 
 	outf = dbuf_create_output_file(c, NULL, fi, 0);
+
+	if(is_msrgba) {
+		if(d->thumbsdb_msrgba_mode) {
+			int ok = 0;
+			ok = thumbsdb_msrgba_special_extract(c, d, dei, hdrsize, outf);
+			if(ok) goto done;
+		}
+
+		// "MSRGBA" thumbnails seem to have an additional 16-byte header,
+		// before the JPEG data starts. In this mode, we just ignore it.
+		startpos += 16;
+		final_streamsize -= 16;
+	}
+
 	copy_any_stream_to_dbuf(c, d, dei, startpos, final_streamsize, outf);
 
 done:
@@ -1390,6 +1475,7 @@ done:
 	switch(d->subformat_final) {
 	case SUBFMT_THUMBSDB:
 		de_declare_fmt(c, "Thumbs.db");
+		d->thumbsdb_msrgba_mode = de_get_ext_option_bool(c, "cfb:msrgbamode", 1);
 		break;
 	}
 }
@@ -1661,7 +1747,6 @@ static void do_process_stream(deark *c, lctx *d, struct dir_entry_info *dei)
 	firstpart = dbuf_create_membuf(c, 256, 0x1);
 	copy_any_stream_to_dbuf(c, d, dei, 0,
 		(dei->stream_size>256)?256:dei->stream_size, firstpart);
-
 
 	// Stream type detection
 
@@ -2028,6 +2113,8 @@ static void de_help_cfb(deark *c)
 	de_msg(c, "-opt cfb:extractstreams : Extract raw streams, instead of decoding");
 	de_msg(c, "-opt cfb:fmt=raw : Do not try to detect the document type");
 	de_msg(c, "-opt cfb:fmt=thumbsdb : Assume Thumbs.db format");
+	de_msg(c, "-opt cfb:msrgbamode=0 : Disable special processing of nonstandard-"
+		"JPEG Thumbs.db thumbnails");
 }
 
 void de_module_cfb(deark *c, struct deark_module_info *mi)
