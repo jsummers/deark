@@ -894,6 +894,8 @@ static void normalize_app_id(const char *app_id_orig, char *app_id_normalized,
 #define APPSEGTYPE_HDR_RI_EXT     25
 #define APPSEGTYPE_META           26
 #define APPSEGTYPE_AROT           27
+#define APPSEGTYPE_MSRGBA         100
+#define APPSEGTYPE_RBSWAP         101
 
 struct app_id_info_struct {
 	int app_id_found;
@@ -1095,6 +1097,14 @@ static void detect_app_seg_type(deark *c, lctx *d, const struct marker_info *mi,
 		// Guessing that there's a "padding byte" that's part of the signature.
 		sig_size = 6;
 	}
+	else if(seg_type==0xe1 && !de_strcmp(ad.app_id_orig, "Deark_MSRGBA")) {
+		app_id_info->appsegtype = APPSEGTYPE_MSRGBA;
+		app_id_info->app_type_name = "RGBA JPEG headers from Thumbs.db";
+	}
+	else if(seg_type==0xe1 && !de_strcmp(ad.app_id_orig, "Deark_RB_swap")) {
+		app_id_info->appsegtype = APPSEGTYPE_RBSWAP;
+		app_id_info->app_type_name = "Flag for swapped red/blue";
+	}
 
 done:
 	app_id_info->payload_pos = seg_data_pos + sig_size;
@@ -1126,11 +1136,6 @@ static void handler_app(deark *c, lctx *d,
 	if(payload_size<0) goto done;
 
 	switch(appsegtype) {
-	case APPSEGTYPE_UNKNOWN:
-		if(c->debug_level>=2) {
-			de_dbg_hexdump(c, c->infile, seg_data_pos, seg_data_size, 256, "segment data", 0x1);
-		}
-		break;
 	case APPSEGTYPE_JFIF:
 		do_jfif_segment(c, d, payload_pos, payload_size);
 		break;
@@ -1191,6 +1196,11 @@ static void handler_app(deark *c, lctx *d,
 		break;
 	case APPSEGTYPE_AROT:
 		do_arot_segment(c, d, payload_pos, payload_size);
+		break;
+	default:
+		if(c->debug_level>=2) {
+			de_dbg_hexdump(c, c->infile, seg_data_pos, seg_data_size, 256, "segment data", 0x1);
+		}
 		break;
 	}
 
