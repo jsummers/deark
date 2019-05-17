@@ -178,6 +178,7 @@ typedef struct localctx_struct {
 	int tagged_blocks_only;
 #define MAX_NESTING_LEVEL 50
 	int nesting_level;
+	u8 jpeg_rbswap_mode;
 	i64 intsize_2or4;
 	i64 intsize_4or8;
 
@@ -1675,17 +1676,22 @@ static void hrsrc_thumbnail(deark *c, lctx *d, zztype *zz, const struct rsrc_inf
 {
 	i64 fmt;
 	const char *ext;
+	dbuf *outf = NULL;
+	i64 dpos;
+	i64 dlen;
 
-	if(zz_avail(zz)<=28) return;
+	if(zz_avail(zz)<=28) goto done;
 
 	fmt = psd_getu32(zz->pos);
 	if(fmt != 1) {
 		// fmt != kJpegRGB
 		de_dbg(c, "thumbnail in unsupported format (%d) found", (int)fmt);
-		return;
+		goto done;
 	}
 
 	zz->pos += 28;
+	dpos = zz->pos;
+	dlen = zz_avail(zz);
 
 	if(ri->id==0x0409) {
 		ext = "psdthumb_rbswap.jpg";
@@ -1698,8 +1704,24 @@ static void hrsrc_thumbnail(deark *c, lctx *d, zztype *zz, const struct rsrc_inf
 		ext = "psdthumb.jpg";
 	}
 
-	dbuf_create_file_from_slice(c->infile, zz->pos, zz_avail(zz),
-		ext, NULL, DE_CREATEFLAG_IS_AUX);
+	outf = dbuf_create_output_file(c, ext, NULL, DE_CREATEFLAG_IS_AUX);
+
+	if(ri->id==0x0409 && d->jpeg_rbswap_mode && dlen>=11 &&
+		!dbuf_memcmp(c->infile, dpos, "\xff\xd8\xff\xe0\x00\x10" "JFIF" "\x00", 11))
+	{
+		// If we were to extract this image as-is, there will be no way to tell
+		// later that the red/blue channels are swapped. So, we have this feature
+		// to mark it by inserting a custom segment (after the JFIF segment).
+		dbuf_copy(c->infile, dpos, 20, outf);
+		dbuf_write(outf, (const u8*)"\xff\xe1\x00\x10" "Deark_RB_swap\0", 18);
+		dbuf_copy(c->infile, dpos+20, dlen-20, outf);
+	}
+	else {
+		dbuf_copy(c->infile, dpos, dlen, outf);
+	}
+
+done:
+	dbuf_close(outf);
 }
 
 // Handler for any resource that consists of a 1-byte numeric value
@@ -3458,6 +3480,8 @@ static void init_version_specific_info(deark *c, lctx *d)
 		d->input_encoding = DE_ENCODING_MACROMAN;
 	else
 		d->input_encoding = c->input_encoding;
+
+	d->jpeg_rbswap_mode = 1;
 }
 
 static int do_psd_header(deark *c, lctx *d, i64 pos)
