@@ -1088,6 +1088,8 @@ static void de_finfo_set_name_internal(deark *c, de_finfo *fi, de_ucstring *s,
 	i64 i;
 	int allow_slashes;
 
+	fi->orig_name_was_dot = 0;
+
 	if(fi->file_name_internal) {
 		ucstring_destroy(fi->file_name_internal);
 		fi->file_name_internal = NULL;
@@ -1101,6 +1103,14 @@ static void de_finfo_set_name_internal(deark *c, de_finfo *fi, de_ucstring *s,
 	}
 
 	allow_slashes = (c->allow_subdirs && (flags&DE_SNFLAG_FULLPATH));
+
+	if(allow_slashes && s->len==1 && s->str[0]=='.') {
+		// Remember if this file was named ".", which can be a valid subdir
+		// name in some cases (but at this point we don't even know whether it
+		// is a directory).
+		fi->orig_name_was_dot = 1;
+	}
+
 	for(i=0; i<s->len; i++) {
 		if(s->str[i]=='/' && allow_slashes) {
 			continue;

@@ -843,6 +843,7 @@ static void do_extract_file(deark *c, lctx *d, struct member_data *md)
 	}
 
 	fi = de_finfo_create(c);
+	fi->detect_root_dot_dir = 1;
 
 	if(ucstring_isnonempty(ldd->fname)) {
 		unsigned int snflags = DE_SNFLAG_FULLPATH;
@@ -883,7 +884,8 @@ static void do_extract_file(deark *c, lctx *d, struct member_data *md)
 	de_dbg(c, "crc (calculated): 0x%08x", (unsigned int)crc_calculated);
 
 	if(crc_calculated != md->crc_reported) {
-		de_warn(c, "CRC check failed: Expected 0x%08x, got 0x%08x",
+		de_warn(c, "CRC check failed for %s: Expected 0x%08x, got 0x%08x",
+			ucstring_getpsz_d(ldd->fname),
 			(unsigned int)md->crc_reported, (unsigned int)crc_calculated);
 	}
 

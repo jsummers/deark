@@ -180,6 +180,9 @@ struct de_finfo_struct {
 	de_ucstring *file_name_internal; // Modules should avoid using this field directly.
 	u8 original_filename_flag; // Indicates if .file_name_internal is a real file name
 	u8 is_directory; // Does the "file" represent a subdirectory?
+	u8 is_root_dir; // Is this definitely the unnamed root (".") dir?
+	u8 detect_root_dot_dir; // Directories named "." are special.
+	u8 orig_name_was_dot; // Internal use
 
 #define DE_MODEFLAG_NONEXE 0x01 // Make the output file non-executable.
 #define DE_MODEFLAG_EXE    0x02 // Make the output file executable.

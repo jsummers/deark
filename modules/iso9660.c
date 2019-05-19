@@ -270,9 +270,15 @@ static void do_extract_file(deark *c, lctx *d, struct dir_record *dr)
 	fi = de_finfo_create(c);
 
 	final_name = ucstring_create(c);
-	de_strarray_make_path(d->curpath, final_name, 0);
 
-	if(ucstring_isnonempty(dr->rr_name)) {
+	if(!dr->is_root_dot) {
+		de_strarray_make_path(d->curpath, final_name, 0);
+	}
+
+	if(dr->is_root_dot) {
+		fi->is_root_dir = 1;
+	}
+	else if(ucstring_isnonempty(dr->rr_name)) {
 		ucstring_append_ucstring(final_name, dr->rr_name);
 		de_finfo_set_name_from_ucstring(c, fi, final_name, DE_SNFLAG_FULLPATH);
 		fi->original_filename_flag = 1;
@@ -895,6 +901,9 @@ static int do_directory_record(deark *c, lctx *d, i64 pos1, struct dir_record *d
 		de_strarray_pop(d->curpath);
 	}
 	else if(!dr->is_dir) {
+		do_extract_file(c, d, dr);
+	}
+	else if(dr->is_root_dot) {
 		do_extract_file(c, d, dr);
 	}
 

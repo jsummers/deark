@@ -548,6 +548,7 @@ static int read_member(deark *c, lctx *d, i64 pos1, i64 *bytes_consumed_member)
 
 	md = de_malloc(c, sizeof(struct member_data));
 	md->fi = de_finfo_create(c);
+	md->fi->detect_root_dot_dir = 1;
 	md->filename = ucstring_create(c);
 
 	ea = de_malloc(c, sizeof(struct extattr_data));

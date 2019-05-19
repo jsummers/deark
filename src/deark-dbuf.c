@@ -1019,6 +1019,12 @@ dbuf *dbuf_create_output_file(deark *c, const char *ext, de_finfo *fi,
 	}
 
 	if(c->output_style==DE_OUTPUTSTYLE_ARCHIVE && !c->base_output_filename &&
+		fi && fi->is_directory &&
+		(fi->is_root_dir || (fi->detect_root_dot_dir && fi->orig_name_was_dot)))
+	{
+		de_strlcpy(nbuf, ".", sizeof(nbuf));
+	}
+	else if(c->output_style==DE_OUTPUTSTYLE_ARCHIVE && !c->base_output_filename &&
 		fi && fi->original_filename_flag && name_from_finfo)
 	{
 		// TODO: This is a "temporary" hack to allow us to, when both reading from
