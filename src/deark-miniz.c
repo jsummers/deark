@@ -349,10 +349,6 @@ static int de_inflate_internal(dbuf *inf, i64 inputstart, i64 inputsize, dbuf *o
 			break;
 		}
 
-		// If we have read all the available bytes from the file,
-		// and all bytes in inbuf are consumed, then stop.
-		if((inbuf_num_consumed_bytes>=inbuf_num_valid_bytes) && (input_cur_pos-inputstart)>=inputsize) break;
-
 		if(inbuf_num_consumed_bytes>0) {
 			if(inbuf_num_valid_bytes>inbuf_num_consumed_bytes) {
 				// Move unconsumed bytes to the beginning of the input buffer
