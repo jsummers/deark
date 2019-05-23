@@ -401,19 +401,23 @@ static void do_picture_ole(deark *c, lctx *d, struct para_info *pinfo)
 	}
 }
 
+static int get_next_output_file_id(deark *c)
+{
+	return c->file_count;
+}
+
 static void do_picture(deark *c, lctx *d, struct para_info *pinfo)
 {
 	unsigned int mm;
+	int orig_file_count, curr_file_count;
 	i64 pos = pinfo->thisparapos;
-
-	if(d->html_outf) {
-		do_emit_raw_sz(c, d, pinfo, "<p class=r>picture</p>\n");
-	}
 
 	if(pinfo->thisparalen<2) goto done;
 	mm = (unsigned int)de_getu16le(pos);
 	de_dbg(c, "picture storage type: 0x%04x (%s)", mm,
 		get_picture_storage_type_name(mm));
+
+	orig_file_count = get_next_output_file_id(c);
 
 	switch(mm) {
 	case 0x88:
@@ -427,6 +431,32 @@ static void do_picture(deark *c, lctx *d, struct para_info *pinfo)
 		break;
 	default:
 		de_err(c, "Picture storage type 0x%04x not supported", mm);
+	}
+
+	if(d->html_outf) {
+		char id_str[24];
+
+		// We want to include the image file ID numbers in the HTML document,
+		// so that the user can figure out which image goes where.
+		// To deduce the ID number, we watch the global file ID counter.
+		// It's totally a hack, but unfortunately our high level functions that
+		// create an output file (e.g. de_convert_and_write_image_bilevel) do
+		// not have a way return the ID number of the file they created. It
+		// would be a lot of trouble to create such a mechanism.
+
+		do_emit_raw_sz(c, d, pinfo, "<p class=r>picture");
+		curr_file_count = get_next_output_file_id(c);
+		if(curr_file_count == orig_file_count+1) {
+			de_snprintf(id_str, sizeof(id_str), " %d", orig_file_count);
+		}
+		else if(curr_file_count == orig_file_count) {
+			de_strlcpy(id_str, " (not extracted)", sizeof(id_str));
+		}
+		else {
+			de_strlcpy(id_str, "", sizeof(id_str));
+		}
+		do_emit_raw_sz(c, d, pinfo, id_str);
+		do_emit_raw_sz(c, d, pinfo, "</p>\n");
 	}
 
 done:
