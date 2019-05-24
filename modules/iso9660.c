@@ -943,6 +943,17 @@ static void do_directory(deark *c, lctx *d, i64 pos1, i64 len, int nesting_level
 		if(pos >= pos1+len) break;
 		if(pos >= c->infile->len) break;
 
+		// Peek at the first byte of the dir record (the length)
+		if(pos%d->secsize != 0) {
+			if(de_getbyte(pos)==0) {
+				// No more dir records in this sector; advance to the next sector
+				pos = de_pad_to_n(pos, d->secsize);
+			}
+
+			if(pos >= pos1+len) break;
+			if(pos >= c->infile->len) break;
+		}
+
 		de_dbg(c, "directory record at %"I64_FMT" (for directory@%"I64_FMT")", pos, pos1);
 		dr = de_malloc(c, sizeof(struct dir_record));
 		de_dbg_indent(c, 1);
