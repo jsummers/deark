@@ -73,7 +73,7 @@ static void do_uncompress_lz77(deark *c,
 
 unc_done:
 	nbytes_read = pos-pos1;
-	de_dbg(c, "uncompressed %d bytes to %d bytes",
+	de_dbg(c, "decompressed %d bytes to %d bytes",
 		(int)nbytes_read, (int)outf->len);
 
 	if(expected_output_len>0 && outf->len!=expected_output_len) {
@@ -127,7 +127,6 @@ static void do_uncompress_rle(deark *c, lctx *d,
 	u8 b;
 	i64 count;
 
-	de_dbg(c, "uncompressing RLE data");
 	endpos = pos1 + len;
 	pos = pos1;
 	while(pos<endpos) {
@@ -205,18 +204,19 @@ static i64 per_inch_to_per_meter(i64 dpi)
 	return (i64)(0.5 + (100.0/2.54)*(double)dpi);
 }
 
-static int do_dib(deark *c, lctx *d, i64 pos1)
+static int do_dib_ddb(deark *c, lctx *d, i64 pos1)
 {
 	i64 xdpi, ydpi;
 	i64 planes;
 	i64 bitcount;
 	i64 width, height;
+	i64 rowspan;
 	i64 colors_used;
 	i64 colors_important;
 	i64 compressed_size;
 	i64 hotspot_size;
-	i64 compressed_offset;
-	i64 hotspot_offset;
+	i64 compressed_offset_rel, compressed_offset_abs;
+	i64 hotspot_offset_rel, hotspot_offset_abs;
 	i64 pos;
 	i64 pal_offset;
 	i64 pal_size_in_colors;
@@ -226,12 +226,6 @@ static int do_dib(deark *c, lctx *d, i64 pos1)
 	struct de_bmpinfo bi;
 	dbuf *outf = NULL;
 	int retval = 0;
-
-	if(d->picture_type==5) {
-		// TODO: Support this
-		de_err(c, "DDB image format is not supported");
-		goto done;
-	}
 
 	pos = pos1 + 2;
 
@@ -244,31 +238,40 @@ static int do_dib(deark *c, lctx *d, i64 pos1)
 	}
 
 	planes = get_cus(c->infile, &pos);
+	de_dbg(c, "planes: %d", (int)planes);
 	bitcount = get_cus(c->infile, &pos);
+	de_dbg(c, "bitcount: %d", (int)bitcount);
 	width = get_cul(c->infile, &pos);
 	height = get_cul(c->infile, &pos);
-	de_dbg(c, "planes=%d, bitcount=%d, dimensions=%d"DE_CHAR_TIMES"%d", (int)planes,
-		(int)bitcount, (int)width, (int)height);
+	de_dbg_dimensions(c, width, height);
 
 	colors_used = get_cul(c->infile, &pos);
 	colors_important = get_cul(c->infile, &pos);
 	de_dbg(c, "colors used=%d, important=%d", (int)colors_used,
 		(int)colors_important);
+	if(colors_important==1) {
+		de_warn(c, "This image might have transparency, which is not supported");
+	}
 
 	compressed_size = get_cul(c->infile, &pos);
 	hotspot_size = get_cul(c->infile, &pos);
-	compressed_offset = de_getu32le(pos);
-	pos+=4;
-	compressed_offset += pos1;
-	hotspot_offset = de_getu32le(pos);
-	pos+=4;
-	hotspot_offset += pos1;
-	de_dbg(c, "bits offset=%d, size=%d", (int)compressed_offset,
-		(int)compressed_size);
-	de_dbg(c, "hotspot offset=%d, size=%d", (int)hotspot_offset,
-		(int)hotspot_size);
+	compressed_offset_rel = de_getu32le_p(&pos);
+	compressed_offset_abs = pos1 + compressed_offset_rel;
+	hotspot_offset_rel = de_getu32le_p(&pos);
+	hotspot_offset_abs = pos1 + hotspot_offset_rel;
+	de_dbg(c, "bits offset=%"I64_FMT" (+%"I64_FMT"=%"I64_FMT"), size=%"I64_FMT,
+		compressed_offset_rel, pos1, compressed_offset_abs, compressed_size);
+	de_dbg(c, "hotspot offset=%"I64_FMT" (+%"I64_FMT"=%"I64_FMT"), size=%"I64_FMT,
+		hotspot_offset_rel, pos1, hotspot_offset_abs, hotspot_size);
 
-	if(bitcount!=1 && bitcount!=4 && bitcount!=8 && bitcount!=24) {
+	if(d->picture_type==5) {
+		if(bitcount!=1) {
+			// TODO: Support other bitcounts, if they exist.
+			de_err(c, "Unsupported DDB bit count: %d", (int)bitcount);
+			goto done;
+		}
+	}
+	else if(bitcount!=1 && bitcount!=4 && bitcount!=8 && bitcount!=16 && bitcount!=24) {
 		de_err(c, "Unsupported bit count: %d", (int)bitcount);
 		goto done;
 	}
@@ -280,14 +283,17 @@ static int do_dib(deark *c, lctx *d, i64 pos1)
 
 	if(!de_good_image_dimensions(c, width, height)) goto done;
 
-	if(compressed_offset + compressed_size > c->infile->len) {
+	if(compressed_offset_abs + compressed_size > c->infile->len) {
 		de_err(c, "Image goes beyond end of file");
 		goto done;
 	}
 
 	pal_offset = pos;
 
-	if(bitcount>8) {
+	if(d->picture_type==5) {
+		pal_size_in_colors = 0;
+	}
+	else if(bitcount>8) {
 		pal_size_in_colors = 0;
 	}
 	else if(colors_used==0) {
@@ -300,15 +306,30 @@ static int do_dib(deark *c, lctx *d, i64 pos1)
 		}
 	}
 
+	de_dbg(c, "image data at %"I64_FMT", len=%"I64_FMT, compressed_offset_abs,
+		compressed_size);
+
 	pal_size_in_bytes = 4*pal_size_in_colors;
 
-	final_image_size = height * (((width*bitcount +31)/32)*4);
+	if(d->picture_type==5) {
+		rowspan = (((width*bitcount +15)/16)*2);
+	}
+	else {
+		rowspan = (((width*bitcount +31)/32)*4);
+	}
+	final_image_size = height * rowspan;
 
 	pixels_final = dbuf_create_membuf(c, 0, 0);
 	if(!do_uncompress_picture_data(c, d,
-		compressed_offset, compressed_size,
+		compressed_offset_abs, compressed_size,
 		pixels_final, final_image_size))
 	{
+		goto done;
+	}
+
+	if(d->picture_type==5) {
+		de_convert_and_write_image_bilevel(pixels_final, 0, width, height,
+			rowspan, 0, NULL, 0);
 		goto done;
 	}
 
@@ -440,7 +461,7 @@ static int do_picture(deark *c, lctx *d, i64 pic_index)
 	de_dbg(c, "packing method: %d", (int)d->packing_method);
 
 	if(d->picture_type==5 || d->picture_type==6) { // DDB or DIB
-		do_dib(c, d, pic_offset);
+		do_dib_ddb(c, d, pic_offset);
 	}
 	else if(d->picture_type==8) { // WMF
 		do_wmf(c, d, pic_offset);
