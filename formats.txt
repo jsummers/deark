@@ -717,7 +717,7 @@ Deark -- Information about supported formats
 
 * EBML/Matroska/MKV/WebM (module="ebml")
   Options
-   -opt ebml:encodedid : Also print element ID numbers in raw (encoded) form.
+   -opt ebml:encodedid - Also print element ID numbers in raw (encoded) form.
 
 * EXE/PE/NE/etc. (module="exe")
   EXE format can be complex. Not all varieties are correctly supported.
@@ -756,7 +756,7 @@ Deark -- Information about supported formats
 * ISO-BMFF (module="bmff") (incomplete)
   - MP4, QuickTime .mov, HEIF, etc.
   Options
-   -opt bmff:maxentries=<n> : Maximum number of sample table entries to print
+   -opt bmff:maxentries=<n> - Maximum number of sample table entries to print
      when using -d. This applies to several boxes, such as 'stsz'.
 
 * JPEG scan (module="jpegscan")
@@ -766,7 +766,7 @@ Deark -- Information about supported formats
 * Macintosh Resource Manager (module="macrsrc") (experimental/incomplete)
   This is the format generally used by Mac resource forks.
   Options
-   -opt macrsrc:extractraw : Extract all resources directly to files.
+   -opt macrsrc:extractraw - Extract all resources directly to files.
 
 * MIDI (module="midi")
   - Files can be parsed, but there is usually nothing that can be extracted
@@ -783,7 +783,7 @@ Deark -- Information about supported formats
   - Files can be parsed, but there is usually nothing that can be extracted
     from them.
   Options
-   -opt ogg:hexdump : With -d, include a hex dump of more data than usual.
+   -opt ogg:hexdump - With -d, include a hex dump of more data than usual.
 
 * Photoshop Action format (.atn) (module="ps_action")
   - Files can be parsed, but there is usually nothing that can be extracted
@@ -826,4 +826,7 @@ Deark -- Information about supported formats
 * WRI - Microsoft Write (module="wri") (incomplete)
   - Extract raw text to an HTML file. Very little formatting, etc.
   - Extract most pictures.
+  Options
+   -opt wri:extracttext=0 - Do not extract text
+   -opt wri:extractole - Extract unidentified OLE objects
 

@@ -30,6 +30,7 @@ struct para_info {
 
 typedef struct localctx_struct {
 	int extract_text;
+	int extract_ole;
 	int input_encoding;
 	i64 fcMac;
 	i64 pnChar;
@@ -378,6 +379,29 @@ static int do_picture_ole_static_rendition(deark *c, lctx *d, struct para_info *
 	return 0;
 }
 
+static void extract_unknown_ole_obj(deark *c, lctx *d, i64 pos, i64 len,
+	struct de_stringreaderdata *srd_typename)
+{
+	de_finfo *fi = NULL;
+	de_ucstring *s = NULL;
+
+	fi = de_finfo_create(c);
+	s = ucstring_create(c);
+
+	ucstring_append_sz(s, "oleobj", DE_ENCODING_LATIN1);
+	if(ucstring_isnonempty(srd_typename->str)) {
+		ucstring_append_sz(s, ".", DE_ENCODING_LATIN1);
+		ucstring_append_ucstring(s, srd_typename->str);
+	}
+
+	de_finfo_set_name_from_ucstring(c, fi, s, 0);
+
+	dbuf_create_file_from_slice(c->infile, pos, len, "bin", fi, 0);
+
+	ucstring_destroy(s);
+	de_finfo_destroy(c, fi);
+}
+
 // pos1 points to the ole_id field (should be 0x00000501).
 // Caller must have looked ahead to check the type.
 static int do_picture_ole_embedded_rendition(deark *c, lctx *d, struct para_info *pinfo,
@@ -386,7 +410,7 @@ static int do_picture_ole_embedded_rendition(deark *c, lctx *d, struct para_info
 	i64 pos = pos1;
 	i64 stringlen;
 	i64 data_len;
-	u8 buf[2];
+	u8 buf[16];
 	struct de_stringreaderdata *srd_typename = NULL;
 	struct de_stringreaderdata *srd_filename = NULL;
 	struct de_stringreaderdata *srd_params = NULL;
@@ -415,15 +439,29 @@ static int do_picture_ole_embedded_rendition(deark *c, lctx *d, struct para_info
 	data_len = de_getu32le_p(&pos);
 	de_dbg(c, "embedded ole rendition data: pos=%d, len=%d", (int)pos, (int)data_len);
 
-	// TODO: I don't know if it's better to sniff the data, or rely on the typename.
-	de_read(buf, pos, 2);
-	if(buf[0]=='B' && buf[1]=='M') {
+	// TODO: I don't know the extent to which it's better to sniff the data, or
+	// rely on the typename.
+	de_read(buf, pos, sizeof(buf));
+
+	if(!de_strcmp(srd_typename->sz, "CDraw") &&
+		!de_memcmp(&buf[0], (const void*)"RIFF", 4) &&
+		!de_memcmp(&buf[8], (const void*)"CDR", 3) )
+	{
+		// Looks like CorelDRAW
+		dbuf_create_file_from_slice(c->infile, pos, data_len, "cdr", NULL, 0);
+	}
+	else if(buf[0]=='B' && buf[1]=='M') {
 		// TODO: Detect true length of data
 		dbuf_create_file_from_slice(c->infile, pos, data_len, "bmp", NULL, 0);
 	}
 	else {
-		de_warn(c, "Unknown/unsupported type of OLE object (\"%s\") at %d",
-			ucstring_getpsz(srd_typename->str), (int)pos1);
+		if(d->extract_ole) {
+			extract_unknown_ole_obj(c, d, pos, data_len, srd_typename);
+		}
+		else {
+			de_warn(c, "Unknown/unsupported type of OLE object (\"%s\") at %d",
+				ucstring_getpsz(srd_typename->str), (int)pos1);
+		}
 	}
 
 	pos += data_len;
@@ -572,7 +610,8 @@ static void do_picture(deark *c, lctx *d, struct para_info *pinfo)
 			de_strlcpy(id_str, " (not extracted)", sizeof(id_str));
 		}
 		else {
-			de_strlcpy(id_str, "", sizeof(id_str));
+			de_snprintf(id_str, sizeof(id_str), "s %d-%d", orig_file_count,
+				curr_file_count-1);
 		}
 		do_emit_raw_sz(c, d, pinfo, id_str);
 		do_emit_raw_sz(c, d, pinfo, "</p>\n");
@@ -965,11 +1004,14 @@ static void de_run_wri(deark *c, de_module_params *mparams)
 
 	d = de_malloc(c, sizeof(lctx));
 
-	d->extract_text = 1;
 	if(c->input_encoding==DE_ENCODING_UNKNOWN)
 		d->input_encoding = DE_ENCODING_WINDOWS1252;
 	else
 		d->input_encoding = c->input_encoding;
+
+	d->extract_text = de_get_ext_option_bool(c, "wri:extracttext", 1);
+	d->extract_ole = de_get_ext_option_bool(c, "wri:extractole",
+		(c->extract_level>=2)?1:0);
 
 	pos = 0;
 	if(!do_header(c, d, pos)) goto done;
@@ -1000,10 +1042,17 @@ static int de_identify_wri(deark *c)
 	return 0;
 }
 
+static void de_help_wri(deark *c)
+{
+	de_msg(c, "-opt wri:extracttext=0 : Do not extract text");
+	de_msg(c, "-opt wri:extractole : Extract unidentified OLE objects");
+}
+
 void de_module_wri(deark *c, struct deark_module_info *mi)
 {
 	mi->id = "wri";
 	mi->desc = "Microsoft Write";
 	mi->run_fn = de_run_wri;
 	mi->identify_fn = de_identify_wri;
+	mi->help_fn = de_help_wri;
 }
