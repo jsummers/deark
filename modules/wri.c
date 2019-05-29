@@ -31,7 +31,6 @@ struct para_info {
 typedef struct localctx_struct {
 	int extract_text;
 	int input_encoding;
-	int ddbhack;
 	i64 fcMac;
 	i64 pnChar;
 	i64 pnChar_offs;
@@ -112,36 +111,48 @@ static void do_picture_metafile(deark *c, lctx *d, struct para_info *pinfo)
 	}
 }
 
+// TODO: Consolidate this withe do_static_bitmap()?
 static void do_picture_bitmap(deark *c, lctx *d, struct para_info *pinfo)
 {
-	i64 pos = pinfo->thisparapos;
+	i64 pos1 = pinfo->thisparapos;
+	i64 pos;
 	i64 cbHeader, cbSize;
 	i64 bmWidth, bmHeight;
+	i64 bmPlanes;
 	i64 bmBitsPixel;
 	i64 rowspan;
 
-	bmWidth = de_getu16le(pos+16+2);
-	bmHeight = de_getu16le(pos+16+4);
+	pos = pos1;
+	pos += 16;
+	pos += 2;
+	bmWidth = de_getu16le_p(&pos); // pos1+16+2
+	bmHeight = de_getu16le_p(&pos); // pos1+16+4
 	de_dbg_dimensions(c, bmWidth, bmHeight);
-	bmBitsPixel = (i64)de_getbyte(pos+16+9);
-	de_dbg(c, "bmBitsPixel: %d", (int)bmBitsPixel);
 
-	rowspan = de_getu16le(pos+16+6);
+	rowspan = de_getu16le_p(&pos); // pos1+16+6
 	de_dbg(c, "bytes/row: %d", (int)rowspan);
 
-	cbHeader = de_getu16le(pos+30);
+	bmPlanes = (i64)de_getbyte_p(&pos);
+	de_dbg(c, "planes: %d", (int)bmPlanes);
+
+	bmBitsPixel = (i64)de_getbyte_p(&pos); // pos1+16+9
+	de_dbg(c, "bmBitsPixel: %d", (int)bmBitsPixel);
+
+	pos += 4;
+
+	cbHeader = de_getu16le_p(&pos); // pos1+30
 	de_dbg(c, "cbHeader: %d", (int)cbHeader);
 
-	cbSize = de_getu32le(pos+32);
+	cbSize = de_getu32le_p(&pos); // pos1+32
 	de_dbg(c, "cbSize: %d", (int)cbSize);
 
-	if(bmBitsPixel!=1) {
-		de_err(c, "This type of bitmap is not supported (bmBitsPixel=%d)",
-			(int)bmBitsPixel);
+	if(bmBitsPixel!=1 || bmPlanes!=1) {
+		de_err(c, "This type of bitmap is not supported (bmBitsPixel=%d, planes=%d)",
+			(int)bmBitsPixel, (int)bmPlanes);
 		goto done;
 	}
 
-	pos += cbHeader;
+	pos = pos1 + cbHeader;
 
 	de_convert_and_write_image_bilevel(c->infile, pos, bmWidth, bmHeight, rowspan, 0, NULL, 0);
 
@@ -173,47 +184,155 @@ static const char *get_picture_storage_type_name(unsigned int t)
 	return name;
 }
 
-// TODO: This does not really work, and is disabled by default.
-// TODO: Can this be merged with do_picture_bitmap()?
+static void wri_convert_image_pal4planar(deark *c, i64 fpos,
+	i64 bytes_per_row_per_plane, de_bitmap *img)
+{
+	const i64 nplanes = 4;
+	i64 i, j, plane;
+	i64 rowspan;
+	u8 *rowbuf = NULL;
+	static const u32 pal16[16] = {
+		0x000000,0x800000,0x008000,0x808000,0x000080,0x800080,0x008080,0x808080,
+		0xc0c0c0,0xff0000,0x00ff00,0xffff00,0x0000ff,0xff00ff,0x00ffff,0xffffff
+	};
+
+	rowspan = bytes_per_row_per_plane * nplanes;
+	rowbuf = de_malloc(c, rowspan);
+
+	// The usual order seems to be
+	//  row0_plane0x1, row0_plane0x2, row0_plane0x4, row0_plane0x8,
+	//  row1_plane0x1, row1_plane0x2, row1_plane0x4, row1_plane0x8,
+	//  ...
+	// But I have seen another, and I see no way to detect/support it.
+
+	for(j=0; j<img->height; j++) {
+		de_read(rowbuf, fpos+j*rowspan, rowspan);
+
+		for(i=0; i<img->width; i++) {
+			unsigned int palent = 0;
+			u32 clr;
+
+			for(plane=0; plane<nplanes; plane++) {
+				unsigned int n = 0;
+				i64 idx;
+
+				idx = bytes_per_row_per_plane*plane + i/8;
+				if(idx<rowspan) n = rowbuf[idx];
+				if(n & (1<<(7-i%8))) {
+					palent |= (1<<plane);
+				}
+			}
+
+			clr = DE_MAKE_OPAQUE(pal16[palent]);
+			de_bitmap_setpixel_rgb(img, i, j, clr);
+		}
+	}
+
+	de_free(c, rowbuf);
+}
+
+static void wri_convert_image_pal8(deark *c, i64 fpos,
+	i64 rowspan, de_bitmap *img)
+{
+	i64 i, j;
+	int badcolorflag = 0;
+	// Palette is from libwps (except I might have red/blue swapped it).
+	// I haven't confirmed that it's correct.
+	static const u32 pal_part1[8] = {
+		0x000000,0x800000,0x008000,0x808000,0x000080,0x800080,0x008080,0xc0c0c0
+	};
+	static const u32 pal_part2[8] = {
+		0x808080,0xff0000,0x00ff00,0xffff00,0x0000ff,0xff00ff,0x00ffff,0xffffff
+	};
+
+	for(j=0; j<img->height; j++) {
+		for(i=0; i<img->width; i++) {
+			unsigned int palent;
+			u32 clr;
+
+			palent = de_getbyte(fpos+j*rowspan+i);
+			if(palent<8) {
+				clr = pal_part1[palent];
+			}
+			else if(palent>=248) {
+				clr = pal_part2[palent-248];
+			}
+			else {
+				clr = DE_MAKE_RGB(254,palent,254); // Just an arbitrary color
+				badcolorflag = 1;
+			}
+			de_bitmap_setpixel_rgb(img, i, j, clr);
+		}
+	}
+	if(badcolorflag) {
+		de_warn(c, "Image uses nonportable colors");
+	}
+}
+
 static void do_static_bitmap(deark *c, lctx *d, struct para_info *pinfo, i64 pos1)
 {
 	i64 dlen;
 	i64 pos = pos1;
+	unsigned int bmType;
 	i64 bmWidth, bmHeight;
+	i64 bmPlanes;
 	i64 bmBitsPixel;
-	i64 rowspan;
+	i64 bytes_per_row_per_plane;
+	i64 src_realbitsperpixel;
+	de_bitmap *img = NULL;
 
 	pos += 8; // ??
 	dlen = de_getu32le_p(&pos);
 	de_dbg(c, "bitmap size: %d", (int)dlen);
 
-	pos += 2; // bmType
+	bmType = (unsigned int)de_getu16le_p(&pos);
+	de_dbg(c, "bmType: %u", bmType);
+
 	bmWidth = de_getu16le_p(&pos);
 	bmHeight = de_getu16le_p(&pos);
 	de_dbg_dimensions(c, bmWidth, bmHeight);
 
-	rowspan = de_getu16le_p(&pos);
-	de_dbg(c, "bytes/row: %d", (int)rowspan);
+	bytes_per_row_per_plane = de_getu16le_p(&pos);
+	de_dbg(c, "bytes/row: %d", (int)bytes_per_row_per_plane);
 
-	pos++; // bmPlanes
+	bmPlanes = (i64)de_getbyte_p(&pos);
+	de_dbg(c, "planes: %d", (int)bmPlanes);
 
 	bmBitsPixel = (i64)de_getbyte_p(&pos);
 	de_dbg(c, "bmBitsPixel: %d", (int)bmBitsPixel);
 
-	pos += 4; // bmBits
+	pos += 4; // Placeholder for a pointer?
 
-	if(bmBitsPixel!=1) {
-		de_err(c, "This type of bitmap is not supported (bmBitsPixel=%d)",
-			(int)bmBitsPixel);
+	if((bmBitsPixel==1 && bmPlanes==1) ||
+		(bmBitsPixel==1 && bmPlanes==4) ||
+		(bmBitsPixel==8 && bmPlanes==1))
+	{
+		;
+	}
+	else {
+		de_err(c, "This type of static OLE bitmap is not supported "
+			"(bmBitsPixel=%d, planes=%d)", (int)bmBitsPixel, (int)bmPlanes);
 		goto done;
 	}
 
-	rowspan = (dlen-14)/bmHeight;
-	bmWidth = rowspan*8;
-	de_convert_and_write_image_bilevel(c->infile, pos, bmWidth, bmHeight, rowspan, 0, NULL, 0);
+	src_realbitsperpixel = bmBitsPixel * bmPlanes;
+	if(!de_good_image_dimensions(c, bmWidth, bmHeight)) goto done;
+	img = de_bitmap_create(c, bmWidth, bmHeight, (src_realbitsperpixel==1)?1:3);
+
+	if(bmBitsPixel==1 && bmPlanes==1) {
+		de_convert_image_bilevel(c->infile, pos, bytes_per_row_per_plane, img, 0);
+	}
+	else if(bmBitsPixel==1 || bmPlanes==4) {
+		wri_convert_image_pal4planar(c, pos, bytes_per_row_per_plane, img);
+	}
+	else if(bmBitsPixel==8 || bmPlanes==1) {
+		wri_convert_image_pal8(c, pos, bytes_per_row_per_plane, img);
+	}
+
+	de_bitmap_write_to_file(img, NULL, 0);
 
 done:
-	;
+	de_bitmap_destroy(img);
 }
 
 static int do_picture_ole_static_rendition(deark *c, lctx *d, struct para_info *pinfo,
@@ -247,7 +366,7 @@ static int do_picture_ole_static_rendition(deark *c, lctx *d, struct para_info *
 		pos += 8; // "mfp" struct
 		dbuf_create_file_from_slice(c->infile, pos, dlen-8, "wmf", NULL, 0);
 	}
-	else if(d->ddbhack && !de_strcmp(srd_typename->sz, "BITMAP")) {
+	else if(!de_strcmp(srd_typename->sz, "BITMAP")) {
 		do_static_bitmap(c, d, pinfo, pos);
 	}
 	else {
@@ -851,10 +970,6 @@ static void de_run_wri(deark *c, de_module_params *mparams)
 		d->input_encoding = DE_ENCODING_WINDOWS1252;
 	else
 		d->input_encoding = c->input_encoding;
-
-	if(de_get_ext_option(c, "wri:ddbhack")) {
-		d->ddbhack = 1;
-	}
 
 	pos = 0;
 	if(!do_header(c, d, pos)) goto done;
