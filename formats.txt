@@ -489,6 +489,8 @@ Deark -- Information about supported formats
 
 * VORT ray tracer .pix image (module="vort") (experimental/incomplete)
 
+* Windows 1.0 ICO/CUR (module="win1ico")
+
 * Windows Metafile (module=wmf)
   - Extract BMP images from some records.
   - Extract embedded EMF documents.
