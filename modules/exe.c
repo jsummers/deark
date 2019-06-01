@@ -628,16 +628,49 @@ static void do_extract_ico_cur(deark *c, lctx *d, i64 pos, i64 len,
 
 static void do_extract_CURSOR(deark *c, lctx *d, i64 pos, i64 len, de_finfo *fi)
 {
+	unsigned int firstword;
 	i64 hotspot_x, hotspot_y;
 
-	if(len<4) return;
-	hotspot_x = de_getu16le(pos);
+	if(len<8) return;
+	firstword = (unsigned int)de_getu16le(pos);
+
+	// For Win3 icons, the first word is the x hotspot.
+	// For Win1 icons, it is one of the type codes below.
+	if(d->fmt==EXE_FMT_NE && (firstword==0x0003 || firstword==0x0103 ||
+		firstword==0x0203))
+	{
+		unsigned int fourthword;
+		// For Win3 icons, the 4th word is the high word of the
+		// bitmap-info-header-size (definitely 0).
+		// For Win1 icons, it is the width (definitely not 0).
+		fourthword = (unsigned int)de_getu16le(pos+6);
+		if(fourthword!=0) {
+			dbuf_create_file_from_slice(c->infile, pos, len, "win1.cur", fi, 0);
+			return;
+		}
+	}
+
+	hotspot_x = (i64)firstword;
 	hotspot_y = de_getu16le(pos+2);
+	de_dbg(c, "hotspot: %d,%d", (int)hotspot_x, (int)hotspot_y);
 	do_extract_ico_cur(c, d, pos+4, len-4, 1, hotspot_x, hotspot_y, fi);
 }
 
 static void do_extract_ICON(deark *c, lctx *d, i64 pos, i64 len, de_finfo *fi)
 {
+	if(d->fmt==EXE_FMT_NE && len>14) {
+		unsigned int firstword;
+
+		firstword = (unsigned int)de_getu16le(pos);
+		// For Win3 icons, the first word is the low word of bitmap-info-header-size
+		// (usually 40, definitely not one of the Win1 type codes).
+		// For Win1 icons, it is one of the type codes below.
+		if(firstword==0x0001 || firstword==0x0101 || firstword==0x0201) {
+			dbuf_create_file_from_slice(c->infile, pos, len, "win1.ico", fi, 0);
+			return;
+		}
+	}
+
 	do_extract_ico_cur(c, d, pos, len, 0, 0, 0, fi);
 }
 
@@ -1033,8 +1066,8 @@ static void do_ne_one_nameinfo(deark *c, lctx *d, i64 npos)
 		else
 			rsrcname = "?";
 
-		de_dbg(c, "resource at %d, type_id=%d (%s)", (int)rsrc_offset, (int)d->ne_rsrc_type_id,
-			rsrcname);
+		de_dbg(c, "resource at %"I64_FMT", len=%"I64_FMT", type_id=%d (%s)", rsrc_offset,
+			rsrc_size, (int)d->ne_rsrc_type_id, rsrcname);
 		de_dbg_indent(c, 1);
 		do_ne_pe_extract_resource(c, d, d->ne_rsrc_type_id, d->ne_rsrc_type_info,
 			rsrc_offset, rsrc_size, fi);
