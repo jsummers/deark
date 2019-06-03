@@ -41,9 +41,13 @@ typedef struct localctx_struct {
 	i64 pnFntb, pnSep, pnSetb, pnPgtb, pnFfntb;
 	i64 pnMac;
 	dbuf *html_outf;
+	de_ucstring *tmpstr;
 } lctx;
 
 static void do_emit_raw_sz(deark *c, lctx *d, struct para_info *pinfo, const char *sz);
+static void do_emit_ucstring(deark *c, lctx *d, struct para_info *pinfo,
+	de_ucstring *s);
+static void end_para(deark *c, lctx *d, struct para_info *pinfo);
 
 static void default_text_styles(struct text_styles_struct *ts)
 {
@@ -112,7 +116,7 @@ static void do_picture_metafile(deark *c, lctx *d, struct para_info *pinfo)
 	}
 }
 
-// TODO: Consolidate this withe do_static_bitmap()?
+// TODO: Consolidate this with do_static_bitmap()?
 static void do_picture_bitmap(deark *c, lctx *d, struct para_info *pinfo)
 {
 	i64 pos1 = pinfo->thisparapos;
@@ -379,6 +383,88 @@ static int do_picture_ole_static_rendition(deark *c, lctx *d, struct para_info *
 	return 0;
 }
 
+// Note: This function is based on reverse engineering, and may not be correct.
+static int do_ole_package(deark *c, lctx *d, i64 pos1, i64 len)
+{
+	i64 endpos = pos1+len;
+	i64 pos = pos1;
+	struct de_stringreaderdata *caption = NULL;
+	struct de_stringreaderdata *iconsrc = NULL;
+	de_ucstring *filename = NULL;
+	de_finfo *fi = NULL;
+	unsigned int type_code1, type_code2;
+	i64 n, fnlen, fsize;
+	int saved_indent_level;
+	int retval = 0;
+
+	de_dbg_indent_save(c, &saved_indent_level);
+
+	de_dbg(c, "package at %"I64_FMT", len=%"I64_FMT, pos, len);
+	de_dbg_indent(c, 1);
+	type_code1 = (unsigned int)de_getu16le_p(&pos);
+	de_dbg(c, "oletype1: %u", type_code1);
+	if(type_code1 != 2) {
+		de_dbg(c, "[unknown package type]");
+		goto done;
+	}
+
+	caption = dbuf_read_string(c->infile, pos, de_min_int(256, endpos-pos), 256,
+		DE_CONVFLAG_STOP_AT_NUL, d->input_encoding);
+	if(!caption->found_nul) goto done;
+	de_dbg(c, "caption: \"%s\"", ucstring_getpsz_d(caption->str));
+	pos += caption->bytes_consumed;
+
+	iconsrc = dbuf_read_string(c->infile, pos, de_min_int(256, endpos-pos), 256,
+		DE_CONVFLAG_STOP_AT_NUL, d->input_encoding);
+	if(!iconsrc->found_nul) goto done;
+	de_dbg(c, "icon source: \"%s\"", ucstring_getpsz_d(iconsrc->str));
+	pos += iconsrc->bytes_consumed;
+
+	n = de_getu16le_p(&pos);
+	de_dbg(c, "icon #: %d", (int)n);
+
+	type_code2 = (unsigned int)de_getu16le_p(&pos);
+	de_dbg(c, "oletype2: %u", type_code2);
+
+	if(type_code2!=3) {
+		// Code 1 apparently means "run a program".
+		de_dbg(c, "[not an embedded file]");
+		goto done;
+	}
+
+	// .WRI files can contain arbitrary embedded files, which we'll try to
+	// extract.
+	// An embedded file can be created when you drag and drop a file, from File
+	// Manager, onto a Write document. (Or you could use the Object Packager,
+	// via the Insert Object function.) But this feature was not used very
+	// often, I guess.
+
+	fnlen = de_getu32le_p(&pos);
+	if(pos+fnlen > endpos) goto done;
+	filename = ucstring_create(c);
+	dbuf_read_to_ucstring_n(c->infile, pos, fnlen, 256, filename, DE_CONVFLAG_STOP_AT_NUL,
+		d->input_encoding);
+	de_dbg(c, "filename: \"%s\"", ucstring_getpsz_d(filename));
+	pos += fnlen;
+
+	fsize = de_getu32le_p(&pos);
+	de_dbg(c, "file size: %"I64_FMT, fsize);
+	if(pos+fsize > endpos) goto done;
+
+	fi = de_finfo_create(c);
+	de_finfo_set_name_from_ucstring(c, fi, filename, 0);
+	dbuf_create_file_from_slice(c->infile, pos, fsize, NULL, fi, 0);
+	retval = 1;
+
+done:
+	de_destroy_stringreaderdata(c, caption);
+	de_destroy_stringreaderdata(c, iconsrc);
+	ucstring_destroy(filename);
+	de_finfo_destroy(c, fi);
+	de_dbg_indent_restore(c, saved_indent_level);
+	return retval;
+}
+
 static void extract_unknown_ole_obj(deark *c, lctx *d, i64 pos, i64 len,
 	struct de_stringreaderdata *srd_typename)
 {
@@ -410,6 +496,8 @@ static int do_picture_ole_embedded_rendition(deark *c, lctx *d, struct para_info
 	i64 pos = pos1;
 	i64 stringlen;
 	i64 data_len;
+	int recognized = 0;
+	int handled = 0;
 	u8 buf[16];
 	struct de_stringreaderdata *srd_typename = NULL;
 	struct de_stringreaderdata *srd_filename = NULL;
@@ -443,22 +531,31 @@ static int do_picture_ole_embedded_rendition(deark *c, lctx *d, struct para_info
 	// rely on the typename.
 	de_read(buf, pos, sizeof(buf));
 
-	if(!de_strcmp(srd_typename->sz, "CDraw") &&
+	if(!de_strcmp(srd_typename->sz, "Package")) {
+		recognized = 1;
+		handled = do_ole_package(c, d, pos, data_len);
+	}
+	else if(!de_strcmp(srd_typename->sz, "CDraw") &&
 		!de_memcmp(&buf[0], (const void*)"RIFF", 4) &&
 		!de_memcmp(&buf[8], (const void*)"CDR", 3) )
 	{
 		// Looks like CorelDRAW
+		recognized = 1;
 		dbuf_create_file_from_slice(c->infile, pos, data_len, "cdr", NULL, 0);
+		handled = 1;
 	}
 	else if(buf[0]=='B' && buf[1]=='M') {
 		// TODO: Detect true length of data
+		recognized = 1;
 		dbuf_create_file_from_slice(c->infile, pos, data_len, "bmp", NULL, 0);
+		handled = 1;
 	}
-	else {
+
+	if(!handled) {
 		if(d->extract_ole) {
 			extract_unknown_ole_obj(c, d, pos, data_len, srd_typename);
 		}
-		else {
+		else if(!recognized) {
 			de_warn(c, "Unknown/unsupported type of OLE object (\"%s\") at %d",
 				ucstring_getpsz(srd_typename->str), (int)pos1);
 		}
@@ -591,8 +688,6 @@ static void do_picture(deark *c, lctx *d, struct para_info *pinfo)
 	}
 
 	if(d->html_outf) {
-		char id_str[24];
-
 		// We want to include the image file ID numbers in the HTML document,
 		// so that the user can figure out which image goes where.
 		// To deduce the ID number, we watch the global file ID counter.
@@ -601,20 +696,24 @@ static void do_picture(deark *c, lctx *d, struct para_info *pinfo)
 		// not have a way return the ID number of the file they created. It
 		// would be a lot of trouble to create such a mechanism.
 
-		do_emit_raw_sz(c, d, pinfo, "<p class=r>picture");
+		do_emit_raw_sz(c, d, pinfo, "<p class=r>");
+		pinfo->in_para = 1;
+		ucstring_empty(d->tmpstr);
+		ucstring_append_sz(d->tmpstr, "object", DE_ENCODING_LATIN1);
+
 		curr_file_count = get_next_output_file_id(c);
 		if(curr_file_count == orig_file_count+1) {
-			de_snprintf(id_str, sizeof(id_str), " %d", orig_file_count);
+			ucstring_printf(d->tmpstr, DE_ENCODING_LATIN1, " %d", orig_file_count);
 		}
 		else if(curr_file_count == orig_file_count) {
-			de_strlcpy(id_str, " (not extracted)", sizeof(id_str));
+			ucstring_append_sz(d->tmpstr, " (not extracted)", DE_ENCODING_LATIN1);
 		}
 		else {
-			de_snprintf(id_str, sizeof(id_str), "s %d-%d", orig_file_count,
-				curr_file_count-1);
+			ucstring_printf(d->tmpstr, DE_ENCODING_UTF8, "s %d" "\xe2\x80\x93" "%d",
+				orig_file_count, curr_file_count-1);
 		}
-		do_emit_raw_sz(c, d, pinfo, id_str);
-		do_emit_raw_sz(c, d, pinfo, "</p>\n");
+		do_emit_ucstring(c, d, pinfo, d->tmpstr);
+		end_para(c, d, pinfo);
 	}
 
 done:
@@ -666,6 +765,18 @@ static void do_emit_codepoint(deark *c, lctx *d, struct para_info *pinfo, i32 ou
 
 	if(outcp!=32) {
 		pinfo->has_content = 1;
+	}
+}
+
+// Same as calling do_emit_codepoint() on each character.
+static void do_emit_ucstring(deark *c, lctx *d, struct para_info *pinfo,
+	de_ucstring *s)
+{
+	i64 k;
+
+	if(!s) return;
+	for(k=0; k<s->len; k++) {
+		do_emit_codepoint(c, d, pinfo, s->str[k]);
 	}
 }
 
@@ -1013,6 +1124,8 @@ static void de_run_wri(deark *c, de_module_params *mparams)
 	d->extract_ole = de_get_ext_option_bool(c, "wri:extractole",
 		(c->extract_level>=2)?1:0);
 
+	d->tmpstr = ucstring_create(c);
+
 	pos = 0;
 	if(!do_header(c, d, pos)) goto done;
 	if(d->extract_text) {
@@ -1022,8 +1135,11 @@ static void de_run_wri(deark *c, de_module_params *mparams)
 	do_para_info(c, d);
 
 done:
-	do_html_end(c, d);
-	de_free(c, d);
+	if(d) {
+		do_html_end(c, d);
+		ucstring_destroy(d->tmpstr);
+		de_free(c, d);
+	}
 }
 
 static int de_identify_wri(deark *c)
