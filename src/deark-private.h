@@ -234,6 +234,7 @@ struct de_module_in_params {
 	const char *codes;
 	//  0x01: offset_in_parent is set
 	u32 flags;
+	int input_encoding;
 	i64 offset_in_parent; // optional, rare
 	dbuf *parent_dbuf; // optional, rare
 };

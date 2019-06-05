@@ -140,6 +140,8 @@ $(OBJDIR)/modules/nokia.o: modules/nokia.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h
 $(OBJDIR)/modules/ogg.o: modules/ogg.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h
+$(OBJDIR)/modules/ole1.o: modules/ole1.c src/deark-config.h \
+ src/deark-private.h src/deark.h
 $(OBJDIR)/modules/olepropset.o: modules/olepropset.c src/deark-config.h \
  src/deark-private.h src/deark.h src/deark-fmtutil.h
 $(OBJDIR)/modules/os2bmp.o: modules/os2bmp.c src/deark-config.h \

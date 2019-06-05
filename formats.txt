@@ -830,5 +830,5 @@ Deark -- Information about supported formats
   - Extract most pictures.
   Options
    -opt wri:extracttext=0 - Do not extract text
-   -opt wri:extractole - Extract unidentified OLE objects
+   -opt ole1:extractall - Extract unidentified OLE objects
 
