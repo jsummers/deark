@@ -177,6 +177,20 @@ static const char *get_objecttype1_name(unsigned int t)
 	return name;
 }
 
+static const char *get_FormatID_name(unsigned int t)
+{
+	const char *name;
+	switch(t) {
+	case 0: name="none"; break;
+	case 1: name="linked"; break;
+	case 2: name="embedded"; break;
+	case 3: name="static/presentation"; break;
+	case 5: name="presentation"; break;
+	default: name="?"; break;
+	}
+	return name;
+}
+
 static const char *get_picture_storage_type_name(unsigned int t)
 {
 	const char *name;
@@ -340,21 +354,25 @@ done:
 	de_bitmap_destroy(img);
 }
 
-static int do_picture_ole_static_rendition(deark *c, lctx *d, struct para_info *pinfo,
-	int rendition_idx, i64 pos1, i64 *bytes_consumed)
+// Presentation object, or WRI-static-"OLE" object.
+// pos1 points to the first field after FormatID (classname/typename)
+static int do_ole_object_presentation(deark *c, lctx *d, struct para_info *pinfo,
+	i64 pos1, i64 len, unsigned int formatID)
 {
 	i64 pos = pos1;
 	i64 stringlen;
 	struct de_stringreaderdata *srd_typename = NULL;
+	const char *name;
 
-	pos += 4; // 0x00000501
-	pos += 4; // "type" (probably already read by caller)
-
+	name = (formatID==3)?"static":"presentation";
 	stringlen = de_getu32le_p(&pos);
 	srd_typename = dbuf_read_string(c->infile, pos, stringlen, 260, DE_CONVFLAG_STOP_AT_NUL,
-		DE_ENCODING_ASCII);
-	de_dbg(c, "typename: \"%s\"", ucstring_getpsz(srd_typename->str));
+		d->input_encoding);
+	de_dbg(c, "%s ClassName: \"%s\"", name, ucstring_getpsz(srd_typename->str));
 	pos += stringlen;
+
+	// TODO: Better handle the fields between ClassName and PresentationData
+	// (and maybe after PresentationData?).
 
 	if(!de_strcmp(srd_typename->sz, "DIB")) {
 		pos += 12;
@@ -402,9 +420,9 @@ static int do_ole_package(deark *c, lctx *d, i64 pos1, i64 len)
 	de_dbg(c, "package at %"I64_FMT", len=%"I64_FMT, pos, len);
 	de_dbg_indent(c, 1);
 	type_code1 = (unsigned int)de_getu16le_p(&pos);
-	de_dbg(c, "oletype1: %u", type_code1);
+	de_dbg(c, "stream header code: %u", type_code1);
 	if(type_code1 != 2) {
-		de_dbg(c, "[unknown package type]");
+		de_dbg(c, "[unknown package format]");
 		goto done;
 	}
 
@@ -424,7 +442,7 @@ static int do_ole_package(deark *c, lctx *d, i64 pos1, i64 len)
 	de_dbg(c, "icon #: %d", (int)n);
 
 	type_code2 = (unsigned int)de_getu16le_p(&pos);
-	de_dbg(c, "oletype2: %u", type_code2);
+	de_dbg(c, "package type: %u", type_code2);
 
 	if(type_code2!=3) {
 		// Code 1 apparently means "run a program".
@@ -435,9 +453,7 @@ static int do_ole_package(deark *c, lctx *d, i64 pos1, i64 len)
 	// .WRI files can contain arbitrary embedded files, which we'll try to
 	// extract.
 	// An embedded file can be created when you drag and drop a file, from File
-	// Manager, onto a Write document. (Or you could use the Object Packager,
-	// via the Insert Object function.) But this feature was not used very
-	// often, I guess.
+	// Manager, onto a Write document.
 
 	fnlen = de_getu32le_p(&pos);
 	if(pos+fnlen > endpos) goto done;
@@ -488,10 +504,12 @@ static void extract_unknown_ole_obj(deark *c, lctx *d, i64 pos, i64 len,
 	de_finfo_destroy(c, fi);
 }
 
-// pos1 points to the ole_id field (should be 0x00000501).
-// Caller must have looked ahead to check the type.
-static int do_picture_ole_embedded_rendition(deark *c, lctx *d, struct para_info *pinfo,
-	int rendition_idx, i64 pos1, i64 *bytes_consumed)
+static void do_ole_object(deark *c, lctx *d, struct para_info *pinfo, i64 pos1, i64 len,
+	int is_presentation);
+
+// pos1 points to the first field after FormatID (classname/typename)
+static int do_ole_object_embedded(deark *c, lctx *d, struct para_info *pinfo,
+	i64 pos1, i64 len)
 {
 	i64 pos = pos1;
 	i64 stringlen;
@@ -503,29 +521,29 @@ static int do_picture_ole_embedded_rendition(deark *c, lctx *d, struct para_info
 	struct de_stringreaderdata *srd_filename = NULL;
 	struct de_stringreaderdata *srd_params = NULL;
 
-	pos += 4; // 0x00000501
-	pos += 4; // "type" (probably already read by caller)
+	// Note: If we ever support "linked" objects, the code for reading these
+	// first 3 string fields would have to be shared with that.
 
 	stringlen = de_getu32le_p(&pos);
 	srd_typename = dbuf_read_string(c->infile, pos, stringlen, 260, DE_CONVFLAG_STOP_AT_NUL,
-		DE_ENCODING_ASCII);
-	de_dbg(c, "typename: \"%s\"", ucstring_getpsz(srd_typename->str));
+		d->input_encoding);
+	de_dbg(c, "embedded ClassName: \"%s\"", ucstring_getpsz(srd_typename->str));
 	pos += stringlen;
 
 	stringlen = de_getu32le_p(&pos);
 	srd_filename = dbuf_read_string(c->infile, pos, stringlen, 260, DE_CONVFLAG_STOP_AT_NUL,
-		DE_ENCODING_ASCII);
-	de_dbg(c, "filename: \"%s\"", ucstring_getpsz(srd_filename->str));
+		d->input_encoding);
+	de_dbg(c, "TopicName/filename: \"%s\"", ucstring_getpsz(srd_filename->str));
 	pos += stringlen;
 
 	stringlen = de_getu32le_p(&pos);
 	srd_params = dbuf_read_string(c->infile, pos, stringlen, 260, DE_CONVFLAG_STOP_AT_NUL,
-		DE_ENCODING_ASCII);
-	de_dbg(c, "params: \"%s\"", ucstring_getpsz(srd_params->str));
+		d->input_encoding);
+	de_dbg(c, "ItemName/params: \"%s\"", ucstring_getpsz(srd_params->str));
 	pos += stringlen;
 
 	data_len = de_getu32le_p(&pos);
-	de_dbg(c, "embedded ole rendition data: pos=%d, len=%d", (int)pos, (int)data_len);
+	de_dbg(c, "NativeData: pos=%"I64_FMT", len=%"I64_FMT, pos, data_len);
 
 	// TODO: I don't know the extent to which it's better to sniff the data, or
 	// rely on the typename.
@@ -556,13 +574,14 @@ static int do_picture_ole_embedded_rendition(deark *c, lctx *d, struct para_info
 			extract_unknown_ole_obj(c, d, pos, data_len, srd_typename);
 		}
 		else if(!recognized) {
-			de_warn(c, "Unknown/unsupported type of OLE object (\"%s\") at %d",
-				ucstring_getpsz(srd_typename->str), (int)pos1);
+			de_warn(c, "Unknown/unsupported type of OLE object (\"%s\") at %"I64_FMT,
+				ucstring_getpsz(srd_typename->str), pos1);
 		}
 	}
 
 	pos += data_len;
-	*bytes_consumed = pos - pos1;
+	// Nested "presentation" object
+	do_ole_object(c, d, pinfo, pos, pos1+len-pos, 1);
 
 	de_destroy_stringreaderdata(c, srd_typename);
 	de_destroy_stringreaderdata(c, srd_filename);
@@ -570,50 +589,45 @@ static int do_picture_ole_embedded_rendition(deark *c, lctx *d, struct para_info
 	return 1;
 }
 
-// pos1 points to the ole_id field (should be 0x00000501).
-// Returns nonzero if there may be additional renditions.
-static int do_picture_ole_rendition(deark *c, lctx *d, struct para_info *pinfo,
-	unsigned int objectType,
-	int rendition_idx, i64 pos1, i64 *bytes_consumed)
+static void do_ole_object(deark *c, lctx *d, struct para_info *pinfo, i64 pos1, i64 len,
+	int is_presentation)
 {
-	unsigned int ole_id;
-	unsigned int objectType2;
-	int retval = 0;
+	int saved_indent_level;
+	i64 pos = pos1;
+	i64 nbytesleft;
+	unsigned int n;
+	unsigned int formatID;
 
-	de_dbg(c, "OLE rendition[%d] at %d", rendition_idx, (int)pos1);
+	if(len<8) goto done;
+	de_dbg_indent_save(c, &saved_indent_level);
+	de_dbg(c, "OLE object at %"I64_FMT", len=%"I64_FMT, pos1, len);
 	de_dbg_indent(c, 1);
 
-	ole_id = (unsigned int)de_getu32le(pos1);
-	de_dbg(c, "ole id: 0x%08x", ole_id);
-	if(ole_id!=0x00000501U) {
-		de_err(c, "Unexpected ole_id: 0x%08x", ole_id);
-		goto done;
-	}
+	n = (unsigned int)de_getu32le_p(&pos);
+	de_dbg(c, "OLEVersion: 0x%08x", n);
 
-	objectType2 = (unsigned int)de_getu32le(pos1+4);
-	de_dbg(c, "type: %u", objectType2);
+	formatID = (unsigned int)de_getu32le_p(&pos);
+	de_dbg(c, "FormatID: %u (%s)", formatID, get_FormatID_name(formatID));
 
-	if(objectType==1) {
-		if(objectType2==3) {
-			do_picture_ole_static_rendition(c, d, pinfo, rendition_idx, pos1, bytes_consumed);
-		}
+	nbytesleft = pos1+len-pos;
+	if(formatID==2 && !is_presentation) {
+		do_ole_object_embedded(c, d, pinfo, pos, nbytesleft);
 	}
-	else if(objectType==2) {
-		if(objectType2==0) {
-			goto done;
-		}
-		else if(objectType2==2) {
-			do_picture_ole_embedded_rendition(c, d, pinfo, rendition_idx, pos1, bytes_consumed);
-			retval = 1;
-		}
-		else if(objectType2==5) { // replacement
-			do_picture_ole_static_rendition(c, d, pinfo, rendition_idx, pos1, bytes_consumed);
-		}
+	else if(formatID==3) {
+		do_ole_object_presentation(c, d, pinfo, pos, nbytesleft, formatID);
+	}
+	else if(formatID==5 && is_presentation) {
+		do_ole_object_presentation(c, d, pinfo, pos, nbytesleft, formatID);
+	}
+	else if(formatID==0 && is_presentation) {
+		;
+	}
+	else {
+		de_dbg(c, "[unsupported OLE FormatID]");
 	}
 
 done:
-	de_dbg_indent(c, -1);
-	return retval;
+	de_dbg_indent_restore(c, saved_indent_level);
 }
 
 static void do_picture_ole(deark *c, lctx *d, struct para_info *pinfo)
@@ -621,9 +635,6 @@ static void do_picture_ole(deark *c, lctx *d, struct para_info *pinfo)
 	unsigned int objectType;
 	i64 cbHeader, dwDataSize;
 	i64 pos = pinfo->thisparapos;
-	i64 nbytes_left;
-	i64 bytes_consumed = 0;
-	int rendition_idx = 0;
 
 	objectType = (unsigned int)de_getu16le(pos+6);
 	de_dbg(c, "objectType: %u (%s)", objectType, get_objecttype1_name(objectType));
@@ -633,26 +644,10 @@ static void do_picture_ole(deark *c, lctx *d, struct para_info *pinfo)
 
 	cbHeader = de_getu16le(pos+30);
 	de_dbg(c, "cbHeader: %d", (int)cbHeader);
-
 	pos += cbHeader;
 
-	// An "embedded" OLE object contains a sequence of entities that I'll call
-	// renditions. The last entity is just an end-of-sequence marker.
-	// I'm not sure if there can be more than two renditions (one embedded, and
-	// one static "replacement"), or if the order matters.
-
-	while(1) {
-		int ret;
-		nbytes_left = pinfo->thisparapos + pinfo->thisparalen - pos;
-		if(nbytes_left<8) break;
-
-		bytes_consumed = 0;
-		ret = do_picture_ole_rendition(c, d, pinfo, objectType, rendition_idx, pos,
-			&bytes_consumed);
-		if(!ret || bytes_consumed==0) break;
-		pos += bytes_consumed;
-		rendition_idx++;
-	}
+	do_ole_object(c, d, pinfo, pos,
+		de_min_int(dwDataSize, pinfo->thisparapos+pinfo->thisparalen-pos), 0);
 }
 
 static int get_next_output_file_id(deark *c)
