@@ -338,6 +338,7 @@ static int do_ole_object_embedded(deark *c, lctx *d,
 	i64 stringlen;
 	i64 data_len;
 	int recognized = 0;
+	const char *ext = NULL;
 	int handled = 0;
 	u8 buf[16];
 	struct de_stringreaderdata *classname_srd = NULL;
@@ -376,19 +377,39 @@ static int do_ole_object_embedded(deark *c, lctx *d,
 		recognized = 1;
 		handled = do_ole_package(c, d, pos, data_len);
 	}
+	else if(!de_strncmp(classname_srd->sz, "Word.Document.", 14) ||
+		!de_strncmp(classname_srd->sz, "Word.Picture.", 13))
+	{
+		ext = "doc";
+	}
+	else if (!de_strncmp(classname_srd->sz, "Excel.Chart.", 12) ||
+		!de_strcmp(classname_srd->sz, "ExcelWorksheet"))
+	{
+		ext = "xls";
+	}
 	else if(!de_strcmp(classname_srd->sz, "CDraw") &&
 		!de_memcmp(&buf[0], (const void*)"RIFF", 4) &&
 		!de_memcmp(&buf[8], (const void*)"CDR", 3) )
 	{
-		// Looks like CorelDRAW
-		recognized = 1;
-		dbuf_create_file_from_slice(c->infile, pos, data_len, "cdr", NULL, 0);
+		ext = "cdr"; // Looks like CorelDRAW
+	}
+	else if (!de_strcmp(classname_srd->sz, "PaintShopPro") &&
+		!de_memcmp(&buf[0], (const void*)"\x28\0\0\0", 4))
+	{
+		de_run_module_by_id_on_slice(c, "dib", NULL, c->infile, pos, data_len);
 		handled = 1;
 	}
+	if(!de_strcmp(classname_srd->sz, "ShapewareVISIO20")) {
+		ext = "vsd";
+	}
 	else if(buf[0]=='B' && buf[1]=='M') {
-		// TODO: Detect true length of data
-		recognized = 1;
-		dbuf_create_file_from_slice(c->infile, pos, data_len, "bmp", NULL, 0);
+		// TODO: Detect true length of data?
+		// TODO: This detection may be too aggressive.
+		ext = "bmp";
+	}
+
+	if(ext && !handled) {
+		dbuf_create_file_from_slice(c->infile, pos, data_len, ext, NULL, 0);
 		handled = 1;
 	}
 
