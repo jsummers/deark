@@ -455,6 +455,8 @@ void de_update_file_time(dbuf *f);
 void de_declare_fmt(deark *c, const char *fmtname);
 void de_declare_fmtf(deark *c, const char *fmt, ...)
   de_gnuc_attribute ((format (printf, 2, 3)));
+de_encoding de_get_input_encoding(deark *c, de_module_params *mparams,
+	de_encoding dflt);
 
 void de_dbg_indent(deark *c, int n);
 void de_dbg_indent_save(deark *c, int *saved_indent_level);

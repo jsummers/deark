@@ -482,16 +482,8 @@ static void de_run_ole1(deark *c, de_module_params *mparams)
 
 	d = de_malloc(c, sizeof(lctx));
 
-	d->input_encoding = c->input_encoding;
-	if(mparams) {
-		d->input_encoding = mparams->in_params.input_encoding;
-	}
-	if(d->input_encoding==DE_ENCODING_UNKNOWN) {
-		d->input_encoding = DE_ENCODING_WINDOWS1252;
-	}
-
+	d->input_encoding = de_get_input_encoding(c, mparams, DE_ENCODING_WINDOWS1252);
 	d->wri_format = de_havemodcode(c, mparams, 'W');
-
 	d->extract_all = de_get_ext_option_bool(c, "ole1:extractall",
 		((c->extract_level>=2)?1:0));
 

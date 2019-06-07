@@ -1319,12 +1319,7 @@ static void de_run_iso9660(deark *c, de_module_params *mparams)
 		d->vol_desc_sector_to_use = de_atoi(s);
 	}
 
-	if(c->input_encoding==DE_ENCODING_UNKNOWN) {
-		d->rr_encoding = DE_ENCODING_UTF8;
-	}
-	else {
-		d->rr_encoding = c->input_encoding;
-	}
+	d->rr_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_UTF8);
 
 	d->secsize = 2048;
 

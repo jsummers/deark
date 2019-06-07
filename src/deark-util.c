@@ -1502,6 +1502,23 @@ void de_declare_fmtf(deark *c, const char *fmt, ...)
 	va_end(ap);
 }
 
+// Returns a suitable input encoding.
+// If mparams.in_params.input_encoding exists and is not UNKNOWN,
+// returns that.
+// Else if c->input_encoding (the -inenc option) is not UNKNOWN, returns that.
+// Else returns dflt.
+de_encoding de_get_input_encoding(deark *c, de_module_params *mparams,
+	de_encoding dflt)
+{
+	if(mparams && mparams->in_params.input_encoding!=DE_ENCODING_UNKNOWN) {
+		return mparams->in_params.input_encoding;
+	}
+	if(c->input_encoding!=DE_ENCODING_UNKNOWN) {
+		return c->input_encoding;
+	}
+	return dflt;
+}
+
 // Assumes dst starts out with only '0' bits
 void de_copy_bits(const u8 *src, i64 srcbitnum,
 	u8 *dst, i64 dstbitnum, i64 bitstocopy)

@@ -3476,10 +3476,7 @@ static void init_version_specific_info(deark *c, lctx *d)
 	// Some sources say they use MacRoman, and *some* PSD files do use MacRoman.
 	// But other PSD files use other encodings, and I don't know how to know what
 	// encoding they use.
-	if(c->input_encoding==DE_ENCODING_UNKNOWN)
-		d->input_encoding = DE_ENCODING_MACROMAN;
-	else
-		d->input_encoding = c->input_encoding;
+	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_MACROMAN);
 
 	d->jpeg_rbswap_mode = 1;
 }

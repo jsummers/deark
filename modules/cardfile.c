@@ -148,10 +148,7 @@ static void de_run_cardfile(deark *c, de_module_params *mparams)
 	// Microsoft's (old) Cardfile format documentation says that text is in "low
 	// ASCII format", but that seems doubtful on the face of it, and indeed I have
 	// seen files where it is not.
-	if(c->input_encoding==DE_ENCODING_UNKNOWN)
-		d->input_encoding = DE_ENCODING_WINDOWS1252;
-	else
-		d->input_encoding = c->input_encoding;
+	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_WINDOWS1252);
 
 	pos = 0;
 	b = de_getbyte(pos);

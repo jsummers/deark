@@ -2135,9 +2135,7 @@ static void de_run_gws_thn(deark *c, de_module_params *mparams)
 	u32 pal[256];
 
 	// This code is based on reverse engineering, and may be incorrect.
-	encoding = c->input_encoding;
-	if(c->input_encoding==DE_ENCODING_UNKNOWN)
-		encoding = DE_ENCODING_WINDOWS1252;
+	encoding = de_get_input_encoding(c, NULL, DE_ENCODING_WINDOWS1252);
 	pos = 4;
 	v1 = de_getbyte_p(&pos);
 	v2 = de_getbyte_p(&pos);

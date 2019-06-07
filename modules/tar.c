@@ -732,10 +732,7 @@ static void de_run_tar(deark *c, de_module_params *mparams)
 
 	d->global_ea = de_malloc(c, sizeof(struct extattr_data));
 
-	if(c->input_encoding==DE_ENCODING_UNKNOWN)
-		d->input_encoding = DE_ENCODING_UTF8;
-	else
-		d->input_encoding = c->input_encoding;
+	d->input_encoding = de_get_input_encoding(c, NULL, DE_ENCODING_UTF8);
 
 	pos = 0;
 	while(1) {
