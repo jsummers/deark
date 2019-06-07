@@ -27,7 +27,7 @@ struct propset_struct {
 	i64 tbloffset;
 	u32 sfmtid;
 	int code_page; // value of the Code Page property
-	int encoding; // DE_ENCODING_*
+	de_encoding encoding;
 
 	size_t num_dict_entries;
 	struct dictionary_entry *dictionary;
@@ -237,7 +237,7 @@ static void do_prop_CodePageString2(deark *c, lctx *d, struct propset_struct *si
 {
 	i64 n_raw;
 	int is_utf16 = (si->code_page==1200);
-	int encoding = si->encoding;
+	de_encoding encoding = si->encoding;
 
 	if(is_utf16 && is_dict_name && d->asciipropnames) {
 		// A hack that the user can enable. Some dictionaries use an 8-bit

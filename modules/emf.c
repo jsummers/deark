@@ -513,7 +513,7 @@ static int emf_handler_46(deark *c, lctx *d, struct decoder_params *dp)
 
 		// The first 4 bytes of comment data might or might not be a signature.
 		// The spec expects these bytes to be read as a little-endian int, which is
-		// then interpreted as a FOURCC, most-signifcant byte first.
+		// then interpreted as a FOURCC, most-significant byte first.
 		// The standard FOURCC codes are designed backwards, so that in the
 		// file they appear forward. E.g. the spec says a code is "+FME", but in
 		// the file the bytes "EMF+" appear in that order. Our messages respect the
@@ -810,7 +810,7 @@ static int emf_handler_50_51(deark *c, lctx *d, struct decoder_params *dp)
 }
 
 static void do_emf_xEmrText(deark *c, lctx *d, i64 recpos, i64 pos1, i64 len,
-	i64 bytesperchar, int encoding)
+	i64 bytesperchar, de_encoding encoding)
 {
 	i64 pos = pos1;
 	i64 nchars;

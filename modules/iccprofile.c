@@ -215,7 +215,7 @@ static void typedec_desc(deark *c, lctx *d, i64 pos1, i64 len)
 	i64 langcode;
 	i64 lstrstartpos;
 	i64 bytes_to_read;
-	int encoding;
+	de_encoding encoding;
 	i64 pos = pos1;
 
 	if(len<12) goto done;

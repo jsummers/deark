@@ -1242,7 +1242,7 @@ static void handler_usercomment(deark *c, lctx *d, const struct taginfo *tg, con
 {
 	static u8 charcode[8];
 	de_ucstring *s = NULL;
-	int enc = DE_ENCODING_UNKNOWN;
+	de_encoding enc = DE_ENCODING_UNKNOWN;
 	i64 bytes_per_char = 1;
 
 	if(tg->datatype != DATATYPE_UNDEF) goto done;

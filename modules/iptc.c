@@ -11,7 +11,7 @@ DE_DECLARE_MODULE(de_module_iptc);
 typedef struct localctx_struct {
 	// The coded character set defined in 1:90.
 	// This applied to records 2-6, and sometimes 8.
-	int charset;
+	de_encoding charset;
 } lctx;
 
 struct ds_info;
@@ -124,7 +124,7 @@ static const struct ds_info ds_info_arr[] = {
 	{ 9, 10,  0,      "Confirmed ObjectData Size", NULL }
 };
 
-static int get_ds_encoding(deark *c, lctx *d, u8 recnum)
+static de_encoding get_ds_encoding(deark *c, lctx *d, u8 recnum)
 {
 	if(recnum>=2 && recnum<=6) {
 		return d->charset;
@@ -159,7 +159,7 @@ static void handle_2_120(deark *c, lctx *d, const struct ds_info *dsi,
 {
 	de_ucstring *s = NULL;
 	dbuf *outf = NULL;
-	int encoding;
+	de_encoding encoding;
 	const char *fntoken;
 
 	if(c->extract_level<2) {
@@ -284,7 +284,7 @@ static int read_dflen(deark *c, dbuf *f, i64 pos,
 static void handle_text(deark *c, lctx *d, const struct ds_info *dsi,
 	i64 pos, i64 len)
 {
-	int encoding;
+	de_encoding encoding;
 	de_ucstring *s = NULL;
 
 	s = ucstring_create(c);

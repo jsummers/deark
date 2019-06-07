@@ -81,7 +81,7 @@ void ucstring_append_ucstring(de_ucstring *s1, const de_ucstring *s2)
 	}
 }
 
-static void ucstring_vprintf(de_ucstring *s, int encoding, const char *fmt, va_list ap)
+static void ucstring_vprintf(de_ucstring *s, de_encoding encoding, const char *fmt, va_list ap)
 {
 	char buf[1024];
 	de_vsnprintf(buf, sizeof(buf), fmt, ap);
@@ -91,7 +91,7 @@ static void ucstring_vprintf(de_ucstring *s, int encoding, const char *fmt, va_l
 // Appends a formatted C-style string.
 // (Unfortunately, there is no format specifier for a ucstring.)
 // There is a limit to how many characters will be appended.
-void ucstring_printf(de_ucstring *s, int encoding, const char *fmt, ...)
+void ucstring_printf(de_ucstring *s, de_encoding encoding, const char *fmt, ...)
 {
 	va_list ap;
 
@@ -147,7 +147,7 @@ void ucstring_append_char(de_ucstring *s, i32 ch)
 }
 
 void ucstring_append_bytes(de_ucstring *s, const u8 *buf, i64 buflen,
-	unsigned int conv_flags, int encoding)
+	unsigned int conv_flags, de_encoding encoding)
 {
 	int ret;
 	i64 pos = 0;
@@ -199,7 +199,7 @@ void ucstring_append_bytes(de_ucstring *s, const u8 *buf, i64 buflen,
 	}
 }
 
-void ucstring_append_sz(de_ucstring *s, const char *sz, int encoding)
+void ucstring_append_sz(de_ucstring *s, const char *sz, de_encoding encoding)
 {
 	i64 len;
 	len = (i64)de_strlen(sz);
@@ -256,7 +256,8 @@ static int is_printable_uchar(i32 ch);
 // Note: This function is similar to de_finfo_set_name_from_ucstring().
 // Maybe they should be consolidated.
 // TODO: Should we remove the 'encoding' param, and always assume UTF-8?
-void ucstring_to_sz(de_ucstring *s, char *szbuf, size_t szbuf_len, unsigned int flags, int encoding)
+void ucstring_to_sz(de_ucstring *s, char *szbuf, size_t szbuf_len,
+	unsigned int flags, de_encoding encoding)
 {
 	i64 i;
 	i64 szpos = 0;

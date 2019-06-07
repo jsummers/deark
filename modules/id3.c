@@ -95,7 +95,7 @@ static void id3v2_read_to_ucstring(deark *c, dbuf *f, i64 pos1, i64 len,
 {
 	i64 pos = pos1;
 	const char *bomdesc = "none";
-	int encoding_to_use = DE_ENCODING_UNKNOWN;
+	de_encoding encoding_to_use = DE_ENCODING_UNKNOWN;
 
 	if(len<=0) goto done;
 

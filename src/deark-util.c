@@ -1142,7 +1142,7 @@ void de_finfo_set_name_from_ucstring(deark *c, de_finfo *fi, de_ucstring *s,
 }
 
 void de_finfo_set_name_from_sz(deark *c, de_finfo *fi, const char *name1,
-	unsigned int flags, int encoding)
+	unsigned int flags, de_encoding encoding)
 {
 	de_ucstring *fname;
 

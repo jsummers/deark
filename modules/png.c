@@ -240,7 +240,7 @@ done:
 static int do_unc_text_field(deark *c, lctx *d,
 	struct text_chunk_ctx *tcc, int which_field,
 	dbuf *srcdbuf, i64 pos, i64 bytes_avail,
-	int is_nul_terminated, int encoding, i64 *bytes_consumed)
+	int is_nul_terminated, de_encoding encoding, i64 *bytes_consumed)
 {
 	const char *name;
 	int retval = 0;
@@ -322,7 +322,7 @@ done:
 static int do_text_field(deark *c, lctx *d,
 	struct text_chunk_ctx *tcc, int which_field,
 	i64 pos, i64 bytes_avail,
-	int is_nul_terminated, int is_compressed, int encoding,
+	int is_nul_terminated, int is_compressed, de_encoding encoding,
 	i64 *bytes_consumed)
 {
 	dbuf *tmpdbuf = NULL;
@@ -362,7 +362,7 @@ static void handler_text(deark *c, lctx *d, struct handler_params *hp)
 	i64 endpos;
 	i64 field_bytes_consumed;
 	int is_compressed = 0;
-	int encoding;
+	de_encoding encoding;
 	int ret;
 	struct text_chunk_ctx tcc;
 

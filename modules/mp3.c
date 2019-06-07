@@ -46,7 +46,7 @@ static const char *get_ape_item_type_name(unsigned int t)
 static void do_ape_text_item(deark *c, struct ape_tag_header_footer *ah,
    i64 pos, i64 len)
 {
-	int encoding;
+	de_encoding encoding;
 	de_ucstring *s = NULL;
 
 	encoding = (ah->ape_ver>=2000)?DE_ENCODING_UTF8:DE_ENCODING_ASCII;

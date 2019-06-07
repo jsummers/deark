@@ -53,7 +53,7 @@ struct vol_record {
 	i64 root_dir_extent_blk;
 	i64 root_dir_data_len;
 	i64 block_size;
-	int encoding; // Char encoding associated with this volume descriptor
+	de_encoding encoding; // Char encoding associated with this volume descriptor
 	u8 file_structure_version;
 	u8 is_joliet;
 	u8 is_cdxa;
@@ -108,7 +108,7 @@ static i64 getu32bbo_p(dbuf *f, i64 *ppos)
 static void read_iso_string(deark *c, lctx *d, struct vol_record *vol,
 	i64 pos, i64 len, de_ucstring *s)
 {
-	int encoding;
+	de_encoding encoding;
 
 	ucstring_empty(s);
 	encoding = vol ? vol->encoding : DE_ENCODING_ASCII;

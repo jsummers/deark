@@ -43,7 +43,7 @@ struct marker_info1 {
 };
 
 static void handle_comment(deark *c, lctx *d, i64 pos, i64 comment_size,
-   int encoding)
+   de_encoding encoding)
 {
 	de_ucstring *s = NULL;
 	int write_to_file;

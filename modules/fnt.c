@@ -42,7 +42,7 @@ typedef struct localctx_struct {
 
 	int is_vector;
 	int has_abs_space_char;
-	int encoding;
+	de_encoding encoding;
 
 	de_finfo *fi;
 } lctx;

@@ -583,7 +583,7 @@ void de_set_input_filename(deark *c, const char *fn)
 
 int de_set_input_encoding(deark *c, const char *encname, int reserved)
 {
-	int enc;
+	de_encoding enc;
 
 	enc = de_encoding_name_to_code(encname);
 	if(enc==DE_ENCODING_UNKNOWN) {

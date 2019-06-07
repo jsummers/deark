@@ -33,7 +33,7 @@ static i64 sauce_space_padded_length(const u8 *buf, i64 len)
 
 // flags: 0x02: Interpret 0x0a as newline, regardless of encoding
 static void sauce_bytes_to_ucstring(deark *c, const u8 *buf, i64 len,
-	de_ucstring *s, int encoding, unsigned int flags)
+	de_ucstring *s, de_encoding encoding, unsigned int flags)
 {
 	i32 u;
 	i64 i;

@@ -174,7 +174,7 @@ static void do_read_filename(deark *c, lctx *d,
 	struct member_data *md, struct dir_entry_data *dd,
 	i64 pos, i64 len, int utf8_flag)
 {
-	int from_encoding;
+	de_encoding from_encoding;
 
 	if(!dd->fname) {
 		dd->fname = ucstring_create(c);
@@ -186,7 +186,7 @@ static void do_read_filename(deark *c, lctx *d,
 	de_dbg(c, "filename: \"%s\"", ucstring_getpsz_d(dd->fname));
 }
 
-static void do_comment_display(deark *c, lctx *d, i64 pos, i64 len, int encoding,
+static void do_comment_display(deark *c, lctx *d, i64 pos, i64 len, de_encoding encoding,
 	const char *name)
 {
 	de_ucstring *s = NULL;
@@ -197,7 +197,7 @@ static void do_comment_display(deark *c, lctx *d, i64 pos, i64 len, int encoding
 	ucstring_destroy(s);
 }
 
-static void do_comment_extract(deark *c, lctx *d, i64 pos, i64 len, int encoding,
+static void do_comment_extract(deark *c, lctx *d, i64 pos, i64 len, de_encoding encoding,
 	const char *ext)
 {
 	dbuf *f = NULL;
@@ -213,7 +213,7 @@ static void do_comment_extract(deark *c, lctx *d, i64 pos, i64 len, int encoding
 static void do_comment(deark *c, lctx *d, i64 pos, i64 len, int utf8_flag,
 	const char *name, const char *ext)
 {
-	int encoding;
+	de_encoding encoding;
 
 	if(len<1) return;
 	encoding = utf8_flag ? DE_ENCODING_UTF8 : DE_ENCODING_CP437_C;
@@ -629,7 +629,7 @@ static void ef_infozipmac(deark *c, lctx *d, struct extra_item_info_struct *eii)
 	if(attr_data->len - dpos < 4) goto done;
 
 	charset = (int)dbuf_getu16le_p(attr_data, &dpos);
-	de_dbg(c, "charset for fullpath/comment: %d", (int)charset);
+	de_dbg(c, "charset for fullpath/comment: %d", charset);
 
 	// TODO: Can we use the correct encoding?
 	srd = dbuf_read_string(attr_data, dpos, attr_data->len-dpos, DE_DBG_MAX_STRLEN,

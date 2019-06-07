@@ -246,7 +246,7 @@ static i32 de_decspecialgraphics_to_unicode(i32 a)
 	return n;
 }
 
-i32 de_char_to_unicode(deark *c, i32 a, int encoding)
+i32 de_char_to_unicode(deark *c, i32 a, de_encoding encoding)
 {
 	if(a<0) return DE_CODEPOINT_INVALID;
 
@@ -279,6 +279,8 @@ i32 de_char_to_unicode(deark *c, i32 a, int encoding)
 		return de_decspecialgraphics_to_unicode(a);
 	case DE_ENCODING_PRINTABLEASCII:
 		return (a>=32 && a<=126)?a:DE_CODEPOINT_INVALID;
+	default:
+		break;
 	}
 	return a;
 }
@@ -1050,7 +1052,7 @@ char de_byte_to_printable_char(u8 b)
 // Supported conv_flags: DE_CONVFLAG_STOP_AT_NUL, DE_CONVFLAG_ALLOW_HL
 // src_encoding: Only DE_ENCODING_ASCII is supported.
 void de_bytes_to_printable_sz(const u8 *s1, i64 s1_len,
-	char *s2, i64 s2_size, unsigned int conv_flags, int src_encoding)
+	char *s2, i64 s2_size, unsigned int conv_flags, de_encoding src_encoding)
 {
 	i64 i;
 	i64 s2_pos = 0;
@@ -1143,7 +1145,7 @@ static const struct de_encmap_item de_encmap_arr[] = {
 	{ 0x01, DE_ENCODING_MACROMAN, "macroman" }
 };
 
-int de_encoding_name_to_code(const char *encname)
+de_encoding de_encoding_name_to_code(const char *encname)
 {
 	size_t k;
 
@@ -1158,7 +1160,7 @@ int de_encoding_name_to_code(const char *encname)
 struct de_encmapwin_item {
 	unsigned int flags; // 0x1=supported
 	int wincodepage;
-	int enc;
+	de_encoding enc;
 	const char *encname;
 	const char *encname_note;
 };
@@ -1187,7 +1189,7 @@ static const struct de_encmapwin_item de_encmapwin_arr[] = {
 // flags:
 //  0x1: If encoding is known but unsupported, append "(unsupported)" to the
 //    description.
-int de_windows_codepage_to_encoding(deark *c, int wincodepage,
+de_encoding de_windows_codepage_to_encoding(deark *c, int wincodepage,
 	char *encname, size_t encname_len, unsigned int flags)
 {
 	size_t k;

@@ -2130,7 +2130,7 @@ static void de_run_gws_thn(deark *c, de_module_params *mparams)
 	u8 v1, v2;
 	i64 w, h;
 	i64 pos;
-	int encoding;
+	de_encoding encoding;
 	de_ucstring *s = NULL;
 	u32 pal[256];
 
