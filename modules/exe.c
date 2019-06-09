@@ -558,52 +558,15 @@ static void do_fileheader(deark *c, lctx *d)
 
 static void do_decode_ddb(deark *c, lctx *d, i64 pos1, i64 len, de_finfo *fi)
 {
-	unsigned int type_code;
-	unsigned int bmType;
-	i64 w, h;
-	i64 bytes_per_row_per_plane;
-	i64 bmPlanes, bmBitsPixel;
-	i64 pos = pos1;
-	de_bitmap *img = NULL;
+	de_module_params *mparams = NULL;
 
-	// TODO: Try to consolidate DDB decoding into its own module or library
-	// function. (Similar code is in shg.c, wri.c.)
-
-	// Not sure what this is. I've seen 0x0002, 0x0102, 0x8102.
-	type_code = (unsigned int)de_getu16le_p(&pos);
-	de_dbg(c, "type code: 0x%04x", type_code);
-
-	bmType = (unsigned int)de_getu16le_p(&pos);
-	de_dbg(c, "bmType: %u", bmType);
-
-	w = de_getu16le_p(&pos);
-	h = de_getu16le_p(&pos);
-	de_dbg_dimensions(c, w, w);
-
-	bytes_per_row_per_plane = de_getu16le_p(&pos);
-	de_dbg(c, "bytes/row: %d", (int)bytes_per_row_per_plane);
-
-	bmPlanes = (i64)de_getbyte_p(&pos);
-	de_dbg(c, "planes: %d", (int)bmPlanes);
-
-	bmBitsPixel = (i64)de_getbyte_p(&pos);
-	de_dbg(c, "bmBitsPixel: %d", (int)bmBitsPixel);
-
-	pos += 4;
-
-	if(bmPlanes!=1 || bmBitsPixel!=1) {
-		de_err(c, "This type of DDB is not supported");
-		goto done;
-	}
-	if(!de_good_image_dimensions(c, w, h)) goto done;
-
-	img = de_bitmap_create(c, w, h, 1);
-	de_convert_image_bilevel(c->infile, pos, bytes_per_row_per_plane, img, 0);
-
-	de_bitmap_write_to_file_finfo(img, fi, 0);
-
-done:
-	de_bitmap_destroy(img);
+	de_dbg(c, "BITMAP16 at %"I64_FMT, pos1);
+	de_dbg_indent(c, 1);
+	mparams = de_malloc(c, sizeof(de_module_params));
+	mparams->in_params.fi = fi;
+	de_run_module_by_id_on_slice(c, "ddb", mparams, c->infile, pos1, len);
+	de_dbg_indent(c, -1);
+	de_free(c, mparams);
 }
 
 // Extract a raw DIB, and write it to a file as a BMP.

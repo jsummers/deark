@@ -235,11 +235,12 @@ struct de_detection_data_struct {
 
 struct de_module_in_params {
 	const char *codes;
-	//  0x01: offset_in_parent is set
+	// Module-specific fields:
 	u32 flags;
 	de_encoding input_encoding;
-	i64 offset_in_parent; // optional, rare
-	dbuf *parent_dbuf; // optional, rare
+	i64 offset_in_parent;
+	dbuf *parent_dbuf;
+	de_finfo *fi;
 };
 
 struct de_module_out_params {

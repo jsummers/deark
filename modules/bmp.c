@@ -9,6 +9,7 @@
 #include <deark-fmtutil.h>
 DE_DECLARE_MODULE(de_module_bmp);
 DE_DECLARE_MODULE(de_module_dib);
+DE_DECLARE_MODULE(de_module_ddb);
 
 #define FILEHEADER_SIZE 14
 
@@ -934,4 +935,196 @@ void de_module_dib(deark *c, struct deark_module_info *mi)
 	mi->desc = "DIB (raw Windows bitmap)";
 	mi->run_fn = de_run_dib;
 	mi->identify_fn = de_identify_dib;
+}
+
+// **************************************************************************
+// DDB / "BMP v1"
+// **************************************************************************
+
+struct ddbctx_struct {
+	i64 bmWidthBytes;
+	de_finfo *fi;
+};
+
+static void ddb_convert_pal4planar(deark *c, struct ddbctx_struct *d,
+	i64 fpos, de_bitmap *img)
+{
+	const i64 nplanes = 4;
+	i64 i, j, plane;
+	i64 rowspan;
+	u8 *rowbuf = NULL;
+	static const u32 pal16[16] = {
+		0x000000,0x800000,0x008000,0x808000,0x000080,0x800080,0x008080,0x808080,
+		0xc0c0c0,0xff0000,0x00ff00,0xffff00,0x0000ff,0xff00ff,0x00ffff,0xffffff
+	};
+
+	rowspan = d->bmWidthBytes * nplanes;
+	rowbuf = de_malloc(c, rowspan);
+
+	// The usual order seems to be
+	//  row0_plane0x1, row0_plane0x2, row0_plane0x4, row0_plane0x8,
+	//  row1_plane0x1, row1_plane0x2, row1_plane0x4, row1_plane0x8,
+	//  ...
+	// But I have seen another, and I see no way to detect/support it.
+
+	for(j=0; j<img->height; j++) {
+		de_read(rowbuf, fpos+j*rowspan, rowspan);
+
+		for(i=0; i<img->width; i++) {
+			unsigned int palent = 0;
+			u32 clr;
+
+			for(plane=0; plane<nplanes; plane++) {
+				unsigned int n = 0;
+				i64 idx;
+
+				idx = d->bmWidthBytes*plane + i/8;
+				if(idx<rowspan) n = rowbuf[idx];
+				if(n & (1<<(7-i%8))) {
+					palent |= (1<<plane);
+				}
+			}
+
+			clr = DE_MAKE_OPAQUE(pal16[palent]);
+			de_bitmap_setpixel_rgb(img, i, j, clr);
+		}
+	}
+
+	de_free(c, rowbuf);
+}
+
+static void ddb_convert_pal8(deark *c, struct ddbctx_struct *d,
+	i64 fpos, de_bitmap *img)
+{
+	i64 i, j;
+	int badcolorflag = 0;
+	// Palette is from libwps (except I might have red/blue swapped it).
+	// I haven't confirmed that it's correct.
+	static const u32 pal_part1[8] = {
+		0x000000,0x800000,0x008000,0x808000,0x000080,0x800080,0x008080,0xc0c0c0
+	};
+	static const u32 pal_part2[8] = {
+		0x808080,0xff0000,0x00ff00,0xffff00,0x0000ff,0xff00ff,0x00ffff,0xffffff
+	};
+
+	for(j=0; j<img->height; j++) {
+		for(i=0; i<img->width; i++) {
+			unsigned int palent;
+			u32 clr;
+
+			palent = de_getbyte(fpos+j*d->bmWidthBytes+i);
+			if(palent<8) {
+				clr = pal_part1[palent];
+			}
+			else if(palent>=248) {
+				clr = pal_part2[palent-248];
+			}
+			else {
+				clr = DE_MAKE_RGB(254,palent,254); // Just an arbitrary color
+				badcolorflag = 1;
+			}
+			de_bitmap_setpixel_rgb(img, i, j, clr);
+		}
+	}
+	if(badcolorflag) {
+		de_warn(c, "Image uses nonportable colors");
+	}
+}
+
+static void do_ddb_bitmap(deark *c, struct ddbctx_struct *d, i64 pos1)
+{
+	i64 pos = pos1;
+	unsigned int bmType;
+	i64 bmWidth, bmHeight;
+	i64 bmPlanes;
+	i64 bmBitsPixel;
+	i64 src_realbitsperpixel;
+	de_bitmap *img = NULL;
+
+	bmType = (unsigned int)de_getu16le_p(&pos);
+	de_dbg(c, "bmType: %u", bmType);
+
+	bmWidth = de_getu16le_p(&pos);
+	bmHeight = de_getu16le_p(&pos);
+	de_dbg_dimensions(c, bmWidth, bmHeight);
+
+	d->bmWidthBytes = de_getu16le_p(&pos);
+	de_dbg(c, "bytes/row: %d", (int)d->bmWidthBytes);
+
+	bmPlanes = (i64)de_getbyte_p(&pos);
+	de_dbg(c, "planes: %d", (int)bmPlanes);
+
+	bmBitsPixel = (i64)de_getbyte_p(&pos);
+	de_dbg(c, "bmBitsPixel: %d", (int)bmBitsPixel);
+
+	pos += 4; // Placeholder for a pointer?
+
+	if((bmBitsPixel==1 && bmPlanes==1) ||
+		(bmBitsPixel==1 && bmPlanes==4) ||
+		(bmBitsPixel==8 && bmPlanes==1))
+	{
+		;
+	}
+	else {
+		de_err(c, "This type of DDB bitmap is not supported "
+			"(bmBitsPixel=%d, planes=%d)", (int)bmBitsPixel, (int)bmPlanes);
+		goto done;
+	}
+
+	de_dbg(c, "pixels at %"I64_FMT, pos);
+
+	src_realbitsperpixel = bmBitsPixel * bmPlanes;
+	if(!de_good_image_dimensions(c, bmWidth, bmHeight)) goto done;
+	img = de_bitmap_create(c, bmWidth, bmHeight, (src_realbitsperpixel==1)?1:3);
+
+	if(bmBitsPixel==1 && bmPlanes==1) {
+		de_convert_image_bilevel(c->infile, pos, d->bmWidthBytes, img, 0);
+	}
+	else if(bmBitsPixel==1 || bmPlanes==4) {
+		ddb_convert_pal4planar(c, d, pos, img);
+	}
+	else if(bmBitsPixel==8 || bmPlanes==1) {
+		ddb_convert_pal8(c, d, pos, img);
+	}
+
+	de_bitmap_write_to_file_finfo(img, d->fi, 0);
+
+done:
+	de_bitmap_destroy(img);
+}
+
+
+static void de_run_ddb(deark *c, de_module_params *mparams)
+{
+	int has_filetype = 1;
+	struct ddbctx_struct *d = NULL;
+	i64 pos = 0;
+
+	d = de_malloc(c, sizeof(struct ddbctx_struct));
+
+	if(de_havemodcode(c, mparams, 'N')) {
+		has_filetype = 0;
+	}
+	if(mparams && mparams->in_params.fi) {
+		d->fi = mparams->in_params.fi;
+	}
+
+	if(has_filetype) {
+		unsigned int file_type;
+		file_type = (unsigned int)de_getu16le_p(&pos);
+		de_dbg(c, "file type: 0x%04x", file_type);
+	}
+
+	do_ddb_bitmap(c, d, pos);
+
+	de_free(c, d);
+}
+
+void de_module_ddb(deark *c, struct deark_module_info *mi)
+{
+	mi->id = "ddb";
+	mi->desc = "Windows DDB bitmap";
+	mi->run_fn = de_run_ddb;
+	mi->identify_fn = NULL;
+	mi->flags |= DE_MODFLAG_HIDDEN;
 }
