@@ -15,7 +15,8 @@ struct picture_ctx {
 
 	i64 xdpi, ydpi;
 	i64 planes;
-	i64 bitcount;
+	i64 bitcount; // per plane
+	i64 rowspan; // per plane
 	i64 width, height;
 	i64 pal_size_in_colors;
 	i64 pal_size_in_bytes;
@@ -255,10 +256,47 @@ static void reconstruct_bmp(deark *c, lctx *d, struct picture_ctx *pctx,
 	dbuf_close(outf);
 }
 
+// Translate the picture into a DDB, then call the ddb module.
+static void reconstruct_ddb(deark *c, lctx *d, struct picture_ctx *pctx,
+	dbuf *pixels_final)
+{
+	dbuf *tmpf = NULL;
+	de_finfo *fi = NULL;
+	de_module_params *mparams = NULL;
+
+	tmpf = dbuf_create_membuf(c, 14+pctx->final_image_size, 0);
+
+	// DDB header
+	dbuf_writeu16le(tmpf, 0);                 // bmType
+	dbuf_writeu16le(tmpf, pctx->width);       // bmWidth
+	dbuf_writeu16le(tmpf, pctx->height);      // bmHeight
+	dbuf_writeu16le(tmpf, pctx->rowspan);     // bmWidthBytes
+	dbuf_writebyte(tmpf, (u8)pctx->planes);   // bmPlanes
+	dbuf_writebyte(tmpf, (u8)pctx->bitcount); // bmBitsPixel
+	dbuf_writeu32le(tmpf, 0);                 // bmBits
+
+	dbuf_copy(pixels_final, 0, pctx->final_image_size, tmpf);
+
+	de_dbg(c, "processing decompressed DDB");
+	de_dbg_indent(c, 1);
+	fi = de_finfo_create(c);
+	fi->density.code = DE_DENSITY_DPI;
+	fi->density.xdens = (double)pctx->xdpi;
+	fi->density.ydens = (double)pctx->ydpi;
+	mparams = de_malloc(c, sizeof(de_module_params));
+	mparams->in_params.codes = "N";
+	mparams->in_params.fi = fi;
+	de_run_module_by_id_on_slice(c, "ddb", mparams, tmpf, 0, tmpf->len);
+	de_free(c, mparams);
+	de_dbg_indent(c, -1);
+
+	dbuf_close(tmpf);
+	de_finfo_destroy(c, fi);
+}
+
 // Handle a picture of type DIB or DDB.
 static int do_dib_ddb(deark *c, lctx *d, struct picture_ctx *pctx, i64 pos1)
 {
-	i64 rowspan;
 	i64 compressed_size;
 	i64 hotspot_size;
 	i64 compressed_offset_rel, compressed_offset_abs;
@@ -291,6 +329,7 @@ static int do_dib_ddb(deark *c, lctx *d, struct picture_ctx *pctx, i64 pos1)
 		(int)pctx->colors_important);
 	if(pctx->colors_important==1) {
 		de_warn(c, "This image might have transparency, which is not supported");
+		pctx->colors_important = 0;
 	}
 
 	compressed_size = get_cul(c->infile, &pos);
@@ -305,22 +344,29 @@ static int do_dib_ddb(deark *c, lctx *d, struct picture_ctx *pctx, i64 pos1)
 		hotspot_offset_rel, pos1, hotspot_offset_abs, hotspot_size);
 
 	if(pctx->picture_type==5) {
-		if(pctx->bitcount!=1) {
-			// TODO: Support other bitcounts, if they exist.
-			de_err(c, "Unsupported DDB bit count: %d", (int)pctx->bitcount);
+		if(pctx->bitcount!=1 && pctx->bitcount!=4 &&pctx-> bitcount!=8)
+		{
+			de_err(c, "Unsupported bit count: %d", (int)pctx->bitcount);
+			goto done;
+		}
+
+		if(pctx->planes<1 || pctx->planes>8) {
+			de_err(c, "Unsupported planes: %d", (int)pctx->planes);
 			goto done;
 		}
 	}
-	else if(pctx->bitcount!=1 && pctx->bitcount!=4 &&pctx-> bitcount!=8 &&
-		pctx->bitcount!=16 && pctx->bitcount!=24)
-	{
-		de_err(c, "Unsupported bit count: %d", (int)pctx->bitcount);
-		goto done;
-	}
+	else if(pctx->picture_type==6) {
+		if(pctx->bitcount!=1 && pctx->bitcount!=4 &&pctx-> bitcount!=8 &&
+			pctx->bitcount!=16 && pctx->bitcount!=24)
+		{
+			de_err(c, "Unsupported bit count: %d", (int)pctx->bitcount);
+			goto done;
+		}
 
-	if(pctx->planes!=1) {
-		de_err(c, "Unsupported planes: %d", (int)pctx->planes);
-		goto done;
+		if(pctx->planes!=1) {
+			de_err(c, "Unsupported planes: %d", (int)pctx->planes);
+			goto done;
+		}
 	}
 
 	if(!de_good_image_dimensions(c, pctx->width, pctx->height)) goto done;
@@ -356,12 +402,12 @@ static int do_dib_ddb(deark *c, lctx *d, struct picture_ctx *pctx, i64 pos1)
 	pctx->pal_size_in_bytes = 4*pctx->pal_size_in_colors;
 
 	if(pctx->picture_type==5) {
-		rowspan = (((pctx->width*pctx->bitcount +15)/16)*2);
+		pctx->rowspan = (((pctx->width*pctx->bitcount +15)/16)*2);
 	}
 	else {
-		rowspan = (((pctx->width*pctx->bitcount +31)/32)*4);
+		pctx->rowspan = (((pctx->width*pctx->bitcount +31)/32)*4);
 	}
-	pctx->final_image_size = pctx->height * rowspan;
+	pctx->final_image_size = pctx->height * pctx->planes * pctx->rowspan;
 
 	pixels_final = dbuf_create_membuf(c, 0, 0);
 	if(!do_uncompress_picture_data(c, d, pctx,
@@ -372,8 +418,7 @@ static int do_dib_ddb(deark *c, lctx *d, struct picture_ctx *pctx, i64 pos1)
 	}
 
 	if(pctx->picture_type==5) {
-		de_convert_and_write_image_bilevel(pixels_final, 0, pctx->width, pctx->height,
-			rowspan, 0, NULL, 0);
+		reconstruct_ddb(c, d, pctx, pixels_final);
 	}
 	else if(pctx->picture_type==6) {
 		reconstruct_bmp(c, d, pctx, pixels_final);
